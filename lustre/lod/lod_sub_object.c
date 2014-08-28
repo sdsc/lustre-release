@@ -859,6 +859,7 @@ out_close:
 		llog_cat_close(env, ctxt->loc_handle);
 		ctxt->loc_handle = NULL;
 	}
+
 out_put:
 	llog_ctxt_put(ctxt);
 	RETURN(rc);
@@ -879,15 +880,6 @@ int lod_sub_declare_updates_write(const struct lu_env *env,
 				LLOG_UPDATELOG_ORIG_CTXT);
 	LASSERTF(ctxt != NULL, "No ctxt for %s\n",
 		 dt->dd_lu_dev.ld_obd->obd_name);
-	if (ctxt->loc_handle == NULL) {
-		rc = lod_sub_prep_llog(env, lod, dt);
-		if (rc != 0) {
-			llog_ctxt_put(ctxt);
-			CERROR("%s: prep update log failed: rc = %d\n",
-			       dt->dd_lu_dev.ld_obd->obd_name, rc);
-			return rc;
-		}
-	}
 
 	LASSERT(ctxt->loc_handle != NULL);
 	records->ur_hdr.lrh_len = LLOG_CHUNK_SIZE;
@@ -982,6 +974,7 @@ int lod_sub_updates_write(const struct lu_env *env,
 	struct llog_ctxt	*ctxt;
 	struct dt_device	*dt = lst->lst_dt;
 	int			rc;
+	ENTRY;
 
 	LASSERT(lst->lst_update != NULL);
 	lstu = lst->lst_update;
@@ -994,14 +987,14 @@ int lod_sub_updates_write(const struct lu_env *env,
 	 * in error handler path */
 	if (ctxt->loc_handle == NULL) {
 		llog_ctxt_put(ctxt);
-		return 0;
+		RETURN(0);
 	}
 
 	rc = llog_add(env, ctxt->loc_handle, &records->ur_hdr,
 		      &lstu->lstu_cookie, lst->lst_child);
 	llog_ctxt_put(ctxt);
 	if (rc < 0)
-		return rc;
+		RETURN(rc);
 
 	lstu->lstu_txn_cb.dtc_txn_stop = lod_sub_update_txn_stop;
 	lstu->lstu_txn_cb.dtc_txn_commit = lod_sub_update_txn_commit;
@@ -1011,7 +1004,7 @@ int lod_sub_updates_write(const struct lu_env *env,
 
 	txn_callback_add(lst->lst_child, &lstu->lstu_txn_cb);
 
-	return 0;
+	RETURN(0);
 }
 
 struct lod_sub_thandle*

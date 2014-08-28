@@ -152,8 +152,10 @@ static inline int update_ops_size(const struct update_ops *ops)
 struct update_records {
 	struct llog_rec_hdr	ur_hdr;
 	__u32			ur_master_index;
-	__u64			ur_batchid;
 	__u32			ur_flags;
+	__u64			ur_batchid;
+	__u64			ur_cookie;
+	__u32			ur_padding;
 	struct update_ops	ur_ops;
 	struct update_params	ur_params;
 	struct llog_rec_tail	ur_tail;

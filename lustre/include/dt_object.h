@@ -1877,6 +1877,7 @@ struct thandle {
 	__s32             th_result;
 
 	__u64		   th_transno;
+	__u64		   th_cookie;
 	struct list_head   th_callbacks_list;
 	/** whether we need sync commit */
 	unsigned int		th_sync:1,

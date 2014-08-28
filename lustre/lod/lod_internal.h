@@ -111,10 +111,12 @@ struct lod_tgt_desc {
 	__u32              ltd_gen;
 	__u32              ltd_index;
 	struct ltd_qos     ltd_qos; /* qos info per target */
+	struct ptlrpc_thread	*ltd_recovery_thread;
 	struct obd_statfs  ltd_statfs;
 	unsigned long      ltd_active:1,/* is this target up for requests */
 			   ltd_activate:1,/* should  target be activated */
-			   ltd_reap:1;  /* should this target be deleted */
+			   ltd_reap:1,  /* should this target be deleted */
+			   ltd_got_update_log:1; /* Already got update log */
 };
 
 #define TGT_PTRS		256     /* number of pointers at 1st level */
@@ -149,6 +151,20 @@ struct lod_tgt_descs {
 	struct rw_semaphore	ltd_rw_sem;
 };
 
+struct lod_recovery_update_header {
+	__u64		lruh_cookie;
+	__u64		lruh_transno;
+	void		*lruh_updates;
+	int		lruh_updates_size;
+	struct list_head lruh_list;
+	spinlock_t	 lruh_list_lock;
+};
+
+struct lod_recovery_update {
+	__u32			lru_mdt_index;
+	struct list_head	lru_list;
+};
+
 struct lod_device {
 	struct dt_device      lod_dt_dev;
 	struct obd_export    *lod_child_exp;
@@ -176,9 +192,12 @@ struct lod_device {
 	struct ptlrpc_thread  lod_commit_track_thread;
 	wait_queue_head_t     lod_commit_track_waitq;
 	spinlock_t	      lod_commit_lock;
-
-	/* Committed transaction list */
 	struct list_head      lod_commit_list;
+
+	/* Recovery thread for lod_child */
+	struct ptlrpc_thread	lod_child_recovery_thread;
+	spinlock_t		lod_recovery_update_lock;
+	struct list_head	lod_recovery_update_list;
 
 	/* maximum EA size underlied OSD may have */
 	unsigned int	      lod_osd_max_easize;
@@ -442,8 +461,10 @@ int lod_check_and_prepare_update_record(const struct lu_env *env,
 int lod_extend_update_records(struct lod_update_records *lur, size_t new_size);
 int lod_extend_update_params(struct lod_update_records *lur, size_t new_size);
 
-int lod_sub_init_llog(const struct lu_env *env, struct dt_device *dt);
-void lod_sub_fini_llog(const struct lu_env *env, struct dt_device *dt);
+int lod_sub_init_llog(const struct lu_env *env, struct lod_device *lod,
+		      struct dt_device *dt);
+void lod_sub_fini_llog(const struct lu_env *env,
+		       struct dt_device *dt, struct ptlrpc_thread *thread);
 int lodname2mdt_index(char *lodname, __u32 *mdt_index);
 /* lod_lov.c */
 void lod_getref(struct lod_tgt_descs *ltd);

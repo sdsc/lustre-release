@@ -225,30 +225,284 @@ static int lod_sub_process_config(const struct lu_env *env,
 	return rc;
 }
 
-static struct llog_operations updatelog_orig_logops;
+struct lod_recovery_data {
+	struct lod_device	*lrd_lod;
+	struct lod_tgt_desc	*lrd_ltd;
+	struct ptlrpc_thread	*lrd_thread;
+};
 
-int lod_sub_init_llog(const struct lu_env *env, struct dt_device *dt)
+static struct lod_recovery_update_header*
+lod_lookup_recover_update_header(struct lod_device *lod, __u64 cookie)
 {
-	struct obd_device	*obd;
-	int			rc;
+	struct lod_recovery_update_header	*tmp;
+	struct lod_recovery_update_header	*lruh = NULL;
+
+	list_for_each_entry(tmp, &lod->lod_recovery_update_list, lruh_list) {
+		if (tmp->lruh_cookie == cookie) {
+			lruh = tmp;
+			break;
+		}
+	}
+	return lruh;
+}
+
+static struct lod_recovery_update_header*
+lod_create_recovery_update_header(struct lod_device *lod,
+				  struct update_records *record)
+{
+	struct lod_recovery_update_header	*new;
+	struct lod_recovery_update_header	*lruh = NULL;
 	ENTRY;
 
-	obd = dt->dd_lu_dev.ld_obd;
-	obd->obd_lvfs_ctxt.dt = dt;
+	OBD_ALLOC_PTR(new);
+	if (new == NULL)
+		RETURN(ERR_PTR(-ENOMEM));
 
-	rc = llog_setup(env, obd, &obd->obd_olg, LLOG_UPDATELOG_ORIG_CTXT,
-			NULL, &updatelog_orig_logops);
-	if (rc < 0)
-		CERROR("%s: updatelog llog setup failed: rc = %d\n",
-		       obd->obd_name, rc);
+	new->lruh_updates_size = update_records_size(record);
+	OBD_ALLOC(new->lruh_updates, new->lruh_updates_size);
+	if (new->lruh_updates == NULL) {
+		OBD_FREE_PTR(new);
+		RETURN(ERR_PTR(-ENOMEM));
+	}
+
+	memcpy(new->lruh_updates, record, new->lruh_updates_size);
+
+	new->lruh_cookie = record->ur_cookie;
+	new->lruh_transno = record->ur_batchid;
+	spin_lock_init(&new->lruh_list_lock);
+	INIT_LIST_HEAD(&new->lruh_list);
+
+	spin_lock(&lod->lod_recovery_update_lock);
+	lruh = lod_lookup_recover_update_header(lod, record->ur_cookie);
+	if (lruh == NULL) {
+		list_add(&new->lruh_list,
+			 &lod->lod_recovery_update_list);
+		spin_unlock(&lod->lod_recovery_update_lock);
+		lruh = new;
+	} else {
+		spin_unlock(&lod->lod_recovery_update_lock);
+		if (new->lruh_updates != NULL)
+			OBD_FREE(new->lruh_updates, new->lruh_updates_size);
+		OBD_FREE_PTR(new);
+	}
+
+	RETURN(lruh);
+}
+
+struct lod_recovery_update*
+lod_lookup_recovery_update(struct lod_recovery_update_header *lruh,
+			   __u32 mdt_index)
+{
+	struct lod_recovery_update *lru = NULL;
+	struct lod_recovery_update *tmp;
+
+	list_for_each_entry(tmp, &lruh->lruh_list, lru_list) {
+		if (tmp->lru_mdt_index == mdt_index) {
+			lru = tmp;
+			break;
+		}
+	}
+	return lru;
+}
+
+static int lod_add_recovery_update(struct lod_recovery_update_header *lruh,
+				   struct lod_recovery_data *lrd,
+				   struct update_records *records)
+{
+	struct lod_recovery_update *lru = NULL;
+	struct lod_recovery_update *new;
+	ENTRY;
+
+	spin_lock(&lruh->lruh_list_lock);
+	lru = lod_lookup_recovery_update(lruh, lrd->lrd_ltd->ltd_index);
+	spin_unlock(&lruh->lruh_list_lock);
+	if (lru != NULL)
+		RETURN(0);
+
+	OBD_ALLOC_PTR(new);
+	if (new == NULL)
+		RETURN(-ENOMEM);
+
+	INIT_LIST_HEAD(&new->lru_list);
+	new->lru_mdt_index = lrd->lrd_ltd->ltd_index;
+
+	spin_lock(&lruh->lruh_list_lock);
+	lru = lod_lookup_recovery_update(lruh, lrd->lrd_ltd->ltd_index);
+	if (lru == NULL)
+		list_add(&new->lru_list, &lruh->lruh_list);
+	spin_unlock(&lruh->lruh_list_lock);
+
+	RETURN(0);
+}
+
+static int lod_process_recovery_updates(const struct lu_env *env,
+					struct llog_handle *llh,
+					struct llog_rec_hdr *rec,
+					void *data)
+{
+	struct lod_recovery_data	*lrd = data;
+	struct lod_device		*lod = lrd->lrd_lod;
+	struct update_records		*record = (struct update_records *)rec;
+	struct lod_recovery_update_header *lruh = NULL;
+	int				 rc;
+	ENTRY;
+
+	spin_lock(&lod->lod_recovery_update_lock);
+	lruh = lod_lookup_recover_update_header(lod, record->ur_cookie);
+	spin_unlock(&lod->lod_recovery_update_lock);
+	if (lruh == NULL) {
+		lruh = lod_create_recovery_update_header(lod, record);
+		if (IS_ERR(lruh))
+			RETURN(PTR_ERR(lruh));
+	}
+
+	rc = lod_add_recovery_update(lruh, lrd, record);
 
 	RETURN(rc);
 }
 
-void lod_sub_fini_llog(const struct lu_env *env, struct dt_device *dt)
+static int lod_sub_recovery_thread(void *arg)
+{
+	struct lod_recovery_data	*lrd = arg;
+	struct lod_device		*lod = lrd->lrd_lod;
+	struct dt_device		*dt = lrd->lrd_ltd->ltd_tgt;
+	struct ptlrpc_thread		*thread = lrd->lrd_thread;
+	struct obd_device		*obd;
+	struct llog_ctxt		*ctxt;
+	struct lu_env			env;
+	int				rc;
+	ENTRY;
+
+	thread->t_flags = SVC_RUNNING;
+	wake_up(&thread->t_ctl_waitq);
+
+	rc = lu_env_init(&env, LCT_LOCAL | LCT_MD_THREAD);
+	if (rc != 0) {
+		OBD_FREE_PTR(lrd);
+		CERROR("%s: can't initialize env: rc = %d\n",
+		       lod2obd(lod)->obd_name, rc);
+		RETURN(rc);
+	}
+
+	rc = lod_sub_prep_llog(&env, lod, dt);
+	if (rc != 0)
+		GOTO(out, rc);
+
+	/* Process the recovery record */
+	obd = dt->dd_lu_dev.ld_obd;
+	ctxt = llog_get_context(dt->dd_lu_dev.ld_obd, LLOG_UPDATELOG_ORIG_CTXT);
+	LASSERT(ctxt != NULL);
+	LASSERT(ctxt->loc_handle != NULL);
+
+	rc = llog_cat_process(&env, ctxt->loc_handle,
+			      lod_process_recovery_updates, lrd, 0, 0);
+	if (rc < 0)
+		GOTO(out, rc);
+
+	lrd->lrd_ltd->ltd_got_update_log = 1;
+
+out:
+	OBD_FREE_PTR(lrd);
+	thread->t_flags = SVC_STOPPED;
+	lu_env_fini(&env);
+	RETURN(rc);
+}
+
+static struct llog_operations updatelog_orig_logops;
+int lod_sub_init_llog(const struct lu_env *env, struct lod_device *lod,
+		      struct dt_device *dt)
+{
+	struct obd_device		*obd;
+	struct lod_recovery_data	*lrd = NULL;
+	struct ptlrpc_thread		*thread;
+	struct task_struct		*task;
+	struct l_wait_info		lwi = { 0 };
+	struct lod_tgt_desc		*sub_ltd = NULL;
+	__u32				index;
+	int				rc;
+	ENTRY;
+
+	OBD_ALLOC_PTR(lrd);
+	if (lrd == NULL)
+		RETURN(-ENOMEM);
+
+	if (lod->lod_child == dt) {
+		thread = &lod->lod_child_recovery_thread;
+		rc = lodname2mdt_index(lod2obd(lod)->obd_name, &index);
+		if (rc != 0)
+			RETURN(rc);
+	} else {
+		struct lod_tgt_descs	*ltd = &lod->lod_mdt_descs;
+		struct lod_tgt_desc	*tgt = NULL;
+		int			i;
+
+		mutex_lock(&ltd->ltd_mutex);
+		cfs_foreach_bit(ltd->ltd_tgt_bitmap, i) {
+
+			tgt = LTD_TGT(ltd, i);
+			if (tgt->ltd_tgt == dt) {
+				index = tgt->ltd_index;
+				sub_ltd = tgt;
+				break;
+			}
+		}
+		mutex_unlock(&ltd->ltd_mutex);
+		OBD_ALLOC_PTR(tgt->ltd_recovery_thread);
+		if (tgt->ltd_recovery_thread == NULL) {
+			OBD_FREE_PTR(lrd);
+			RETURN(-ENOMEM);
+		}
+		thread = tgt->ltd_recovery_thread;
+	}
+
+	lrd->lrd_lod = lod;
+	lrd->lrd_ltd = sub_ltd;
+	lrd->lrd_thread = thread;
+	init_waitqueue_head(&thread->t_ctl_waitq);
+
+	obd = dt->dd_lu_dev.ld_obd;
+	obd->obd_lvfs_ctxt.dt = dt;
+	rc = llog_setup(env, obd, &obd->obd_olg, LLOG_UPDATELOG_ORIG_CTXT,
+			NULL, &updatelog_orig_logops);
+	if (rc < 0) {
+		CERROR("%s: updatelog llog setup failed: rc = %d\n",
+		       obd->obd_name, rc);
+		OBD_FREE_PTR(lrd);
+		RETURN(rc);
+	}
+
+	/* Start the recovery thread */
+	task = kthread_run(lod_sub_recovery_thread, lrd, "lsub_rec-%u",
+			   index);
+	if (IS_ERR(task)) {
+		rc = PTR_ERR(task);
+		OBD_FREE_PTR(lrd);
+		CERROR("%s: cannot start recovery thread: rc = %d\n",
+		       obd->obd_name, rc);
+		GOTO(out_llog, rc = PTR_ERR(task));
+	}
+
+	l_wait_event(thread->t_ctl_waitq, thread->t_flags & SVC_RUNNING ||
+					  thread->t_flags & SVC_STOPPED, &lwi);
+out_llog:
+	if (rc != 0)
+		lod_sub_fini_llog(env, lod->lod_child, thread);
+
+	RETURN(rc);
+}
+
+void lod_sub_fini_llog(const struct lu_env *env,
+		       struct dt_device *dt, struct ptlrpc_thread *thread)
 {
 	struct obd_device	*obd;
 	struct llog_ctxt	*ctxt;
+
+	/* Stop recovery thread first */
+	if (thread != NULL && thread->t_flags & SVC_RUNNING) {
+		thread->t_flags = SVC_STOPPING;
+		wake_up(&thread->t_ctl_waitq);
+		wait_event(thread->t_ctl_waitq, thread->t_flags & SVC_STOPPED);
+	}
 
 	obd = dt->dd_lu_dev.ld_obd;
 	ctxt = llog_get_context(obd, LLOG_UPDATELOG_ORIG_CTXT);
@@ -270,10 +524,10 @@ void lod_sub_fini_all_llogs(const struct lu_env *env, struct lod_device *lod)
 
 	mutex_lock(&ltd->ltd_mutex);
 	cfs_foreach_bit(ltd->ltd_tgt_bitmap, i) {
-		struct lod_tgt_desc *tgt;
+		struct lod_tgt_desc	*tgt;
 
 		tgt = LTD_TGT(ltd, i);
-		lod_sub_fini_llog(env, tgt->ltd_tgt);
+		lod_sub_fini_llog(env, tgt->ltd_tgt, tgt->ltd_recovery_thread);
 	}
 	mutex_unlock(&ltd->ltd_mutex);
 }
@@ -512,6 +766,186 @@ static int lod_recovery_complete(const struct lu_env *env,
 	RETURN(rc);
 }
 
+static inline int lod_commit_track_running(struct lod_device *lod)
+{
+	return lod->lod_commit_track_thread.t_flags & SVC_RUNNING;
+}
+
+static inline int lod_commit_track_stopped(struct lod_device *lod)
+{
+	return lod->lod_commit_track_thread.t_flags & SVC_STOPPED;
+}
+
+static int lod_cancel_update_log(const struct lu_env *env,
+				 struct lod_thandle *lth)
+{
+	struct lod_sub_thandle *lst;
+
+	/* The first lst in the list is master sub transaction,
+	 * cancel it first, after cancellation is committed,
+	 * cancel other cookies */
+	list_for_each_entry(lst, &lth->lt_sub_trans_list, lst_list) {
+		struct llog_ctxt	*ctxt;
+		struct obd_device	*obd;
+
+		obd = lst->lst_dt->dd_lu_dev.ld_obd;
+		ctxt = llog_get_context(obd, LLOG_UPDATELOG_ORIG_CTXT);
+		LASSERT(ctxt);
+
+		LASSERT(lst->lst_update != NULL);
+		llog_cat_cancel_records(env, ctxt->loc_handle,
+					1, &lst->lst_update->lstu_cookie);
+		llog_ctxt_put(ctxt);
+	}
+
+	return 0;
+}
+
+static int lod_commit_track_cancel_cookie(const struct lu_env *env,
+					  struct lod_device *lod)
+{
+	int	count = 0;
+	int	rc = 0;
+	ENTRY;
+
+	do {
+		struct lod_thandle *lth;
+		struct lod_thandle *tmp;
+
+		spin_lock(&lod->lod_commit_lock);
+		if (list_empty(&lod->lod_commit_list)) {
+			spin_unlock(&lod->lod_commit_lock);
+			break;
+		}
+		list_for_each_entry_safe(lth, tmp, &lod->lod_commit_list,
+					 lt_commit_list) {
+			list_del(&lth->lt_commit_list);
+			break;
+		}
+		spin_unlock(&lod->lod_commit_lock);
+
+		rc = lod_cancel_update_log(env, lth);
+		if (rc < 0) {
+			/* Add it back to the commit list */
+			spin_lock(&lod->lod_commit_lock);
+			list_add_tail(&lth->lt_commit_list,
+				      &lod->lod_commit_list);
+			spin_unlock(&lod->lod_commit_lock);
+			break;
+		}
+		lod_thandle_destroy(lth);
+
+		if (++count > 5)
+			break;
+	} while (1);
+
+	RETURN(rc);
+}
+
+static bool lod_ready_for_cancel_log(struct lod_device *lod)
+{
+	return !list_empty(&lod->lod_commit_list);
+}
+
+static int lod_llog_cancel_thread(void *_arg)
+{
+	struct lod_device	*lod = _arg;
+	struct ptlrpc_thread	*thread = &lod->lod_commit_track_thread;
+	struct l_wait_info	 lwi = { 0 };
+	struct lu_env		 env;
+	int			 rc;
+
+	ENTRY;
+
+	rc = lu_env_init(&env, LCT_LOCAL | LCT_MD_THREAD);
+	if (rc) {
+		CERROR("%s: can't initialize env: rc = %d\n",
+		       lod2obd(lod)->obd_name, rc);
+		RETURN(rc);
+	}
+
+	spin_lock(&lod->lod_commit_lock);
+	thread->t_flags = SVC_RUNNING;
+	spin_unlock(&lod->lod_commit_lock);
+	wake_up(&thread->t_ctl_waitq);
+
+	do {
+		l_wait_event(lod->lod_commit_track_waitq,
+			     !lod_commit_track_running(lod) ||
+			     lod_ready_for_cancel_log(lod), &lwi);
+
+		lod_commit_track_cancel_cookie(&env, lod);
+
+		if (!lod_commit_track_running(lod))
+			break;
+	} while (1);
+
+	thread->t_flags = SVC_STOPPED;
+
+	wake_up(&thread->t_ctl_waitq);
+
+	lu_env_fini(&env);
+
+	RETURN(0);
+}
+
+static int lod_llog_daemon_init(const struct lu_env *env,
+				struct lod_device *lod)
+{
+	struct l_wait_info	lwi = { 0 };
+	struct task_struct	*task;
+	__u32			index;
+	int			rc;
+	ENTRY;
+
+	rc = lodname2mdt_index(lod2obd(lod)->obd_name, &index);
+	if (rc < 0)
+		RETURN(rc);
+
+	spin_lock_init(&lod->lod_recovery_update_lock);
+	INIT_LIST_HEAD(&lod->lod_recovery_update_list);
+	/* Init the llog in its own stack */
+	rc = lod_sub_init_llog(env, lod, lod->lod_child);
+	if (rc != 0)
+		RETURN(rc);
+
+	spin_lock_init(&lod->lod_commit_lock);
+	INIT_LIST_HEAD(&lod->lod_commit_list);
+
+	init_waitqueue_head(&lod->lod_commit_track_waitq);
+	init_waitqueue_head(&lod->lod_commit_track_thread.t_ctl_waitq);
+	task = kthread_run(lod_llog_cancel_thread, lod, "lod_cancel-%u",
+			   index);
+	if (IS_ERR(task)) {
+		rc = PTR_ERR(task);
+		CERROR("%s: cannot start commit check thread: rc = %d\n",
+		       lod2obd(lod)->obd_name, rc);
+		GOTO(out_llog, rc = PTR_ERR(task));
+	}
+
+	l_wait_event(lod->lod_commit_track_thread.t_ctl_waitq,
+		     lod_commit_track_running(lod) ||
+		     lod_commit_track_stopped(lod), &lwi);
+out_llog:
+	if (rc != 0)
+		lod_sub_fini_llog(env, lod->lod_child,
+				  &lod->lod_child_recovery_thread);
+	RETURN(rc);
+}
+
+static int lod_llog_daemon_fini(const struct lu_env *env,
+				 struct lod_device *lod)
+{
+	struct ptlrpc_thread	*thread = &lod->lod_commit_track_thread;
+
+	thread->t_flags = SVC_STOPPING;
+	wake_up(&lod->lod_commit_track_waitq);
+	wait_event(thread->t_ctl_waitq, thread->t_flags & SVC_STOPPED);
+
+	lod_cleanup_commit_trans_track(env, lod);
+	return 0;
+}
+
 static const char lod_updates_log_name[] = "update_log";
 static int lod_prepare(const struct lu_env *env, struct lu_device *pdev,
 		       struct lu_device *cdev)
@@ -551,7 +985,7 @@ static int lod_prepare(const struct lu_env *env, struct lu_device *pdev,
 	if (IS_ERR(dto))
 		GOTO(out_put, rc = PTR_ERR(dto));
 
-	rc = lod_sub_prep_llog(env, lod, lod->lod_child);
+	rc = lod_llog_daemon_init(env, lod);
 	if (rc != 0)
 		GOTO(out_put, rc);
 
@@ -885,6 +1319,7 @@ static int lod_prepare_mulitple_node_trans(const struct lu_env *env,
 
 	lur->lur_update_records->ur_ops.uops_count = 0;
 	lur->lur_update_params->up_params_count = 0;
+	lur->lur_update_records->ur_cookie = lth->lt_super.th_cookie;
 	lth->lt_update_records = lur;
 
 	/* step 2: Add master sub transaction to the lt_sub_trans_list */
@@ -1191,176 +1626,6 @@ static int lod_tgt_desc_init(struct lod_tgt_descs *ltd)
 	return 0;
 }
 
-static inline int lod_commit_track_running(struct lod_device *lod)
-{
-	return lod->lod_commit_track_thread.t_flags & SVC_RUNNING;
-}
-
-static inline int lod_commit_track_stopped(struct lod_device *lod)
-{
-	return lod->lod_commit_track_thread.t_flags & SVC_STOPPED;
-}
-
-static int lod_cancel_update_log(const struct lu_env *env,
-				 struct lod_thandle *lth)
-{
-	struct lod_sub_thandle *lst;
-
-	/* The first lst in the list is master sub transaction,
-	 * cancel it first, after cancellation is committed,
-	 * cancel other cookies */
-	list_for_each_entry(lst, &lth->lt_sub_trans_list, lst_list) {
-		struct llog_ctxt	*ctxt;
-		struct obd_device	*obd;
-
-		obd = lst->lst_dt->dd_lu_dev.ld_obd;
-		ctxt = llog_get_context(obd, LLOG_UPDATELOG_ORIG_CTXT);
-		LASSERT(ctxt);
-
-		LASSERT(lst->lst_update != NULL);
-		llog_cat_cancel_records(env, ctxt->loc_handle,
-					1, &lst->lst_update->lstu_cookie);
-		llog_ctxt_put(ctxt);
-	}
-
-	return 0;
-}
-
-static int lod_commit_track_cancel_cookie(const struct lu_env *env,
-					  struct lod_device *lod)
-{
-	int	count = 0;
-	int	rc = 0;
-	ENTRY;
-
-	do {
-		struct lod_thandle *lth;
-		struct lod_thandle *tmp;
-
-		spin_lock(&lod->lod_commit_lock);
-		if (list_empty(&lod->lod_commit_list)) {
-			spin_unlock(&lod->lod_commit_lock);
-			break;
-		}
-		list_for_each_entry_safe(lth, tmp, &lod->lod_commit_list,
-					 lt_commit_list) {
-			list_del(&lth->lt_commit_list);
-			break;
-		}
-		spin_unlock(&lod->lod_commit_lock);
-
-		rc = lod_cancel_update_log(env, lth);
-		if (rc < 0) {
-			/* Add it back to the commit list */
-			spin_lock(&lod->lod_commit_lock);
-			list_add_tail(&lth->lt_commit_list,
-				      &lod->lod_commit_list);
-			spin_unlock(&lod->lod_commit_lock);
-			break;
-		}
-		lod_thandle_destroy(lth);
-
-		if (++count > 5)
-			break;
-	} while (1);
-
-	RETURN(rc);
-}
-
-static bool lod_ready_for_cancel_log(struct lod_device *lod)
-{
-	return !list_empty(&lod->lod_commit_list);
-}
-
-static int lod_update_llog_cancel_thread(void *_arg)
-{
-	struct lod_device	*lod = _arg;
-	struct ptlrpc_thread	*thread = &lod->lod_commit_track_thread;
-	struct l_wait_info	 lwi = { 0 };
-	struct lu_env		 env;
-	int			 rc;
-
-	ENTRY;
-
-	rc = lu_env_init(&env, LCT_LOCAL | LCT_MD_THREAD);
-	if (rc) {
-		CERROR("%s: can't initialize env: rc = %d\n",
-		       lod2obd(lod)->obd_name, rc);
-		RETURN(rc);
-	}
-
-	spin_lock(&lod->lod_commit_lock);
-	thread->t_flags = SVC_RUNNING;
-	spin_unlock(&lod->lod_commit_lock);
-	wake_up(&thread->t_ctl_waitq);
-
-	do {
-		l_wait_event(lod->lod_commit_track_waitq,
-			     !lod_commit_track_running(lod) ||
-			     lod_ready_for_cancel_log(lod), &lwi);
-
-		lod_commit_track_cancel_cookie(&env, lod);
-
-		if (!lod_commit_track_running(lod))
-			break;
-	} while (1);
-
-	thread->t_flags = SVC_STOPPED;
-
-	wake_up(&thread->t_ctl_waitq);
-
-	lu_env_fini(&env);
-
-	RETURN(0);
-}
-
-static int lod_commit_track_init(const struct lu_env *env,
-				 struct lod_device *lod)
-{
-	struct l_wait_info	lwi = { 0 };
-	struct task_struct	*task;
-	__u32			index;
-	int			rc;
-	ENTRY;
-
-	spin_lock_init(&lod->lod_commit_lock);
-	INIT_LIST_HEAD(&lod->lod_commit_list);
-
-	init_waitqueue_head(&lod->lod_commit_track_waitq);
-	init_waitqueue_head(&lod->lod_commit_track_thread.t_ctl_waitq);
-	rc = lodname2mdt_index(lod2obd(lod)->obd_name, &index);
-	if (rc < 0)
-		RETURN(rc);
-
-	task = kthread_run(lod_update_llog_cancel_thread, lod,
-			   "lod_update_llog_cancel-%u", index);
-	if (IS_ERR(task)) {
-		rc = PTR_ERR(task);
-		CERROR("%s: cannot start commit check thread: rc = %d\n",
-		       lod2obd(lod)->obd_name, rc);
-		RETURN(rc);
-	}
-
-	l_wait_event(lod->lod_commit_track_thread.t_ctl_waitq,
-		     lod_commit_track_running(lod) ||
-		     lod_commit_track_stopped(lod), &lwi);
-
-	RETURN(0);
-}
-
-static int lod_commit_track_fini(const struct lu_env *env,
-				 struct lod_device *lod)
-{
-	struct ptlrpc_thread	*thread = &lod->lod_commit_track_thread;
-
-	thread->t_flags = SVC_STOPPING;
-	wake_up(&lod->lod_commit_track_waitq);
-	wait_event(thread->t_ctl_waitq, thread->t_flags & SVC_STOPPED);
-
-	lod_cleanup_commit_trans_track(env, lod);
-	return 0;
-}
-
 static int lod_init0(const struct lu_env *env, struct lod_device *lod,
 		     struct lu_device_type *ldt, struct lustre_cfg *cfg)
 {
@@ -1397,24 +1662,13 @@ static int lod_init0(const struct lu_env *env, struct lod_device *lod,
 	if (rc)
 		GOTO(out_pools, rc);
 
-	rc = lod_sub_init_llog(env, lod->lod_child);
-	if (rc != 0)
-		GOTO(out_proc, rc);
-
-	rc = lod_commit_track_init(env, lod);
-	if (rc != 0)
-		GOTO(out_sub_llog_init, rc);
-
 	spin_lock_init(&lod->lod_desc_lock);
 	spin_lock_init(&lod->lod_connects_lock);
 	lod_tgt_desc_init(&lod->lod_mdt_descs);
 	lod_tgt_desc_init(&lod->lod_ost_descs);
 
 	RETURN(0);
-out_sub_llog_init:
-	lod_sub_fini_llog(env, lod->lod_child);
-out_proc:
-	lod_procfs_fini(lod);
+
 out_pools:
 	lod_pools_fini(lod);
 out_disconnect:
@@ -1471,9 +1725,9 @@ static struct lu_device *lod_device_fini(const struct lu_env *env,
 
 	lod_procfs_fini(lod);
 
-	lod_commit_track_fini(env, lod);
+	lod_llog_daemon_fini(env, lod);
 
-	lod_sub_fini_llog(env, lod->lod_child);
+	lod_sub_fini_llog(env, lod->lod_child, &lod->lod_child_recovery_thread);
 
 	rc = lod_fini_tgt(env, lod, &lod->lod_ost_descs, true);
 	if (rc)

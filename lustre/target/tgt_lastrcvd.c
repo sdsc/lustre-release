@@ -1184,6 +1184,9 @@ int tgt_txn_start_cb(const struct lu_env *env, struct thandle *th,
 	if (tsi->tsi_exp == NULL)
 		return 0;
 
+	if (tsi->tsi_pill != NULL && tsi->tsi_pill->rc_req != NULL)
+		th->th_cookie = tsi->tsi_pill->rc_req->rq_xid;
+
 	tti_buf_lcd(tti);
 	rc = dt_declare_record_write(env, tgt->lut_last_rcvd,
 				     &tti->tti_buf,
