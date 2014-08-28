@@ -219,6 +219,7 @@ int tgt_mod_init(void)
 	lu_context_key_register_many(&tgt_session_key, NULL);
 
 	update_info_init();
+
 	RETURN(0);
 }
 
