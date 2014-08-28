@@ -259,9 +259,8 @@ static int updates_write(const struct lu_env *env, struct thandle *th)
 	if (rc < 0)
 		RETURN(rc);
 
-	list_for_each_entry_safe(st, tmp, &top_th->tt_sub_trans_list,
-								st_list) {
-		if (st->st_update == NULL)
+	list_for_each_entry_safe(st, tmp, &top_th->tt_sub_trans_list, st_list) {
+		if (st->st_update == NULL || st->st_committed)
 			continue;
 
 		rc = sub_updates_write(env, tur->tur_update_records, st);
@@ -376,7 +375,7 @@ static int declare_updates_write(const struct lu_env *env,
 	/* Declare update write for all other target */
 	list_for_each_entry(st, &top_th->tt_sub_trans_list, st_list) {
 
-		if (st->st_update == NULL)
+		if (st->st_update == NULL || st->st_committed)
 			continue;
 
 		rc = sub_declare_updates_write(env, records, st->st_sub_th);
@@ -419,19 +418,21 @@ static int prepare_mulitple_node_trans(const struct lu_env *env,
 	int				rc;
 	ENTRY;
 
-	/* Prepare the update buffer for recording updates */
-	if (top_th->tt_update_records != NULL)
-		RETURN(0);
+	/* During replay, tt_update_records had been gotten from update log */
+	if (top_th->tt_update_records == NULL) {
+		tur = &update_env_info(env)->uti_tur;
+		rc = check_and_prepare_update_record(env, tur);
+		if (rc != 0)
+			RETURN(rc);
 
-	tur = &update_env_info(env)->uti_tur;
-	rc = check_and_prepare_update_record(env, tur);
-	top_th->tt_update_records = tur;
+		top_th->tt_update_records = tur;
 
-	/* Get distribution ID for this distributed operation */
-	lut = th->th_dev->dd_lu_dev.ld_site->ls_target;
-	spin_lock(&lut->lut_distribution_id_lock);
-	tur->tur_update_records->ur_cookie = lut->lut_distribution_id++;
-	spin_unlock(&lut->lut_distribution_id_lock);
+		/* Get distribution ID for this distributed operation */
+		lut = th->th_dev->dd_lu_dev.ld_site->ls_target;
+		spin_lock(&lut->lut_distribution_id_lock);
+		tur->tur_update_records->ur_cookie = lut->lut_distribution_id++;
+		spin_unlock(&lut->lut_distribution_id_lock);
+	}
 
 	/* we need to add the master sub transaction to the start
 	 * of the list, so it will be executed first during trans start
@@ -495,6 +496,62 @@ int top_trans_start(const struct lu_env *env, struct dt_device *master_dev,
 EXPORT_SYMBOL(top_trans_start);
 
 /**
+ * Stop the transaction for mulitnode transaction.
+ *
+ * Walk through all of sub transactions and stop all of them. Note:
+ * during the recovery phase, some of sub transactions might been
+ * committed, and only call commit callback for these sub transactions.
+ *
+ * \param[in] env	execution environment
+ * \param[in] th	LOD transaction handle
+ *
+ * \retval		0 if transaction stop succeeds.
+ * \retval		negative errno if transaction stop fails.
+ */
+static int multiple_nodes_trans_stop(const struct lu_env *env,
+				     struct thandle *th)
+{
+	struct top_thandle	*top_th;
+	struct sub_thandle	*st;
+	int			rc = 0;
+
+	top_th = container_of0(th, struct top_thandle, tt_super);
+
+	top_th->tt_child->th_result = th->th_result;
+	top_th->tt_child->th_local = th->th_local;
+	top_th->tt_child->th_sync = th->th_sync;
+	top_th->tt_child->th_tags = th->th_tags;
+
+	LASSERT(!list_empty(&top_th->tt_sub_trans_list));
+	list_for_each_entry(st, &top_th->tt_sub_trans_list, st_list) {
+		struct dt_device *dt_dev = st->st_dt;
+		int rc1;
+
+		st->st_sub_th->th_sync = th->th_sync;
+		st->st_sub_th->th_local = th->th_local;
+		st->st_sub_th->th_tags = th->th_tags;
+
+		/* If this transaction has been committed, just call
+		 * commit callback, this usually happens during updates
+		 * recovery */
+		if (st->st_committed) {
+			dt_txn_hook_commit(st->st_sub_th);
+		} else {
+			st->st_sub_th->th_result = th->th_result;
+			rc1 = dt_trans_stop(env, dt_dev, st->st_sub_th);
+			if (rc1 < 0) {
+				CERROR("%s: trans stop failed: rc = %d\n",
+				       dt_dev->dd_lu_dev.ld_obd->obd_name, rc1);
+				if (rc == 0)
+					rc = rc1;
+			}
+		}
+	}
+
+	return rc;
+}
+
+/**
  * Stop the top transaction.
  *
  * Stop the transaction on the master device first, then stop transactions
@@ -513,7 +570,6 @@ int top_trans_stop(const struct lu_env *env, struct dt_device *master_dev,
 	struct top_thandle	*top_th = container_of(th, struct top_thandle,
 						       tt_super);
 	struct sub_thandle	*st;
-	struct sub_thandle	*tmp;
 	int			rc2 = 0;
 	int			rc;
 	ENTRY;
@@ -534,7 +590,17 @@ int top_trans_stop(const struct lu_env *env, struct dt_device *master_dev,
 	LASSERT(top_th->tt_magic == TOP_THANDLE_MAGIC);
 	/* hold the thandle for commit callback */
 	top_thandle_get(top_th);
+	if (top_th->tt_multiple_node) {
+		rc = multiple_nodes_trans_stop(env, th);
+		if (rc != 0)
+			/* Once there are error, we should destroy top_th here,
+			 * instead of commit callback */
+			top_thandle_put(top_th);
+		top_thandle_put(top_th);
+		RETURN(rc);
+	}
 
+	top_th->tt_child->th_result = th->th_result;
 	top_th->tt_child->th_local = th->th_local;
 	top_th->tt_child->th_sync = th->th_sync;
 	top_th->tt_child->th_tags = th->th_tags;
@@ -543,7 +609,7 @@ int top_trans_stop(const struct lu_env *env, struct dt_device *master_dev,
 	if (rc != 0)
 		top_thandle_put(top_th);
 
-	list_for_each_entry_safe(st, tmp, &top_th->tt_sub_trans_list, st_list) {
+	list_for_each_entry(st, &top_th->tt_sub_trans_list, st_list) {
 		if (rc != 0)
 			st->st_sub_th->th_result = rc;
 		else
@@ -554,8 +620,13 @@ int top_trans_stop(const struct lu_env *env, struct dt_device *master_dev,
 		st->st_sub_th->th_tags = th->th_tags;
 		rc2 = dt_trans_stop(env, st->st_sub_th->th_dev,
 				    st->st_sub_th);
-		if (unlikely(rc2 != 0 && rc == 0))
+		if (unlikely(rc2 != 0 && rc == 0)) {
 			rc = rc2;
+			CERROR("%s: trans stop failed: rc = %d\n",
+			    st->st_sub_th->th_dev->dd_lu_dev.ld_obd->obd_name,
+			    rc);
+			break;
+		}
 	}
 
 	top_thandle_put(top_th);
@@ -563,6 +634,23 @@ int top_trans_stop(const struct lu_env *env, struct dt_device *master_dev,
 	RETURN(rc);
 }
 EXPORT_SYMBOL(top_trans_stop);
+
+struct sub_thandle *lookup_sub_thandle(const struct thandle *th,
+				       const struct dt_device *sub_dt)
+{
+	struct sub_thandle *st;
+	struct top_thandle *top_th;
+
+	top_th = container_of0(th, struct top_thandle, tt_super);
+	/* Find or create the transaction in tt_trans_list, since there is
+	 * always only one thread access the list, so no need lock here */
+	list_for_each_entry(st, &top_th->tt_sub_trans_list, st_list) {
+		if (st->st_sub_th->th_dev == sub_dt)
+			RETURN(st);
+	}
+
+	RETURN(NULL);
+}
 
 /**
  * Get sub thandle.
@@ -577,7 +665,8 @@ EXPORT_SYMBOL(top_trans_stop);
  * \retval		thandle of sub transaction if succeed
  * \retval		PTR_ERR(errno) if failed
  */
-struct thandle *get_sub_thandle(const struct lu_env *env, struct thandle *th,
+struct thandle *get_sub_thandle(const struct lu_env *env,
+				struct thandle *th,
 				const struct dt_object *sub_obj)
 {
 	struct dt_device	*sub_dt = lu2dt_dev(sub_obj->do_lu.lo_dev);
@@ -594,15 +683,13 @@ struct thandle *get_sub_thandle(const struct lu_env *env, struct thandle *th,
 
 	top_th = container_of(th, struct top_thandle, tt_super);
 	LASSERT(top_th->tt_magic == TOP_THANDLE_MAGIC);
+	LASSERT(top_th->tt_child != NULL);
 	if (likely(sub_dt == top_th->tt_child->th_dev))
 		RETURN(top_th->tt_child);
 
-	/* Find or create the transaction in tt_trans_list, since there is
-	 * always only one thread access the list, so no need lock here */
-	list_for_each_entry(st, &top_th->tt_sub_trans_list, st_list) {
-		if (st->st_sub_th->th_dev == sub_dt)
-			RETURN(st->st_sub_th);
-	}
+	st = lookup_sub_thandle(th, sub_dt);
+	if (st != NULL)
+		RETURN(st->st_sub_th);
 
 	sub_th = dt_trans_create(env, sub_dt);
 	if (IS_ERR(sub_th))

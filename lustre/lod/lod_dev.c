@@ -232,12 +232,48 @@ static int lod_sub_process_config(const struct lu_env *env,
 	return rc;
 }
 
-static struct llog_operations updatelog_orig_logops;
 struct lod_recovery_data {
 	struct lod_device	*lrd_lod;
 	struct lod_tgt_desc	*lrd_ltd;
 	struct ptlrpc_thread	*lrd_thread;
+	struct update_recovery_data	*lrd_recovery_data;
 };
+
+
+/**
+ * process update recovery record
+ *
+ * Add the update recovery recode to the update recovery list in
+ * lod_recovery_data. Then the recovery thread (target_recovery_thread)
+ * will redo these updates.
+ *
+ * \param[in]env	execution environment
+ * \param[in]llh	log handle of update record
+ * \param[in]rec	update record to be replayed
+ * \param[in]data	update recovery data which holds the necessary
+ *                      arguments for recovery (see struct lod_recovery_data)
+ *
+ * \retval		0 if the record is processed successfully.
+ * \retval		negative errno if the record processing fails.
+ */
+static int lod_process_recovery_updates(const struct lu_env *env,
+					struct llog_handle *llh,
+					struct llog_rec_hdr *rec,
+					void *data)
+{
+	struct lod_recovery_data	*lrd = data;
+	struct update_recovery_data	*urd = lrd->lrd_recovery_data;
+	struct llog_cookie	*cookie = &lod_env_info(env)->lti_cookie;
+
+	cookie->lgc_lgl = llh->lgh_id;
+	cookie->lgc_index = rec->lrh_index;
+	cookie->lgc_subsys = LLOG_UPDATELOG_ORIG_CTXT;
+
+	return insert_update_records_to_recovery_list(urd,
+					(struct update_records *)rec,
+					cookie,
+					lrd->lrd_ltd->ltd_index);
+}
 
 /**
  * recovery thread for update log
@@ -256,6 +292,7 @@ static int lod_sub_recovery_thread(void *arg)
 	struct lod_device		*lod = lrd->lrd_lod;
 	struct dt_device		*dt;
 	struct ptlrpc_thread		*thread = lrd->lrd_thread;
+	struct llog_ctxt		*ctxt;
 	struct lu_env			env;
 	int				rc;
 	ENTRY;
@@ -280,7 +317,20 @@ static int lod_sub_recovery_thread(void *arg)
 	if (rc != 0)
 		GOTO(out, rc);
 
-	/* XXX do recovery in the following patches */
+	/* Process the recovery record */
+	ctxt = llog_get_context(dt->dd_lu_dev.ld_obd, LLOG_UPDATELOG_ORIG_CTXT);
+	LASSERT(ctxt != NULL);
+	LASSERT(ctxt->loc_handle != NULL);
+
+	rc = llog_cat_process(&env, ctxt->loc_handle,
+			      lod_process_recovery_updates, lrd, 0, 0);
+	llog_ctxt_put(ctxt);
+	CDEBUG(D_HA, "%s retrieve update log: rc = %d\n",
+	       dt->dd_lu_dev.ld_obd->obd_name, rc);
+	if (rc < 0)
+		GOTO(out, rc);
+
+	lrd->lrd_recovery_data->urd_got_recovery_updates++;
 
 out:
 	OBD_FREE_PTR(lrd);
@@ -288,6 +338,8 @@ out:
 	lu_env_fini(&env);
 	RETURN(rc);
 }
+
+static struct llog_operations updatelog_orig_logops;
 
 /**
  * Get mdt index from lodname
@@ -399,10 +451,15 @@ int lod_sub_init_llog(const struct lu_env *env, struct lod_device *lod,
 		thread = tgt->ltd_recovery_thread;
 	}
 
+	CDEBUG(D_INFO, "%s init sub log %s\n", lod2obd(lod)->obd_name,
+	       dt->dd_lu_dev.ld_obd->obd_name);
 	lrd->lrd_lod = lod;
 	lrd->lrd_ltd = sub_ltd;
 	lrd->lrd_thread = thread;
 	init_waitqueue_head(&thread->t_ctl_waitq);
+	lrd->lrd_recovery_data =
+		lod2lu_dev(lod)->ld_site->ls_target->lut_update_recovery_data;
+	LASSERT(lrd->lrd_recovery_data != NULL);
 
 	obd = dt->dd_lu_dev.ld_obd;
 	obd->obd_lvfs_ctxt.dt = dt;

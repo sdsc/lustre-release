@@ -3914,6 +3914,26 @@ out:
 	RETURN(rc);
 }
 
+static int mdt_prepare_recovery_data(struct mdt_device *mdt)
+{
+	struct update_recovery_data	*urd;
+
+	/* Init update recovery data */
+	OBD_ALLOC_PTR(urd);
+	if (urd == NULL)
+		return -ENOMEM;
+
+	INIT_LIST_HEAD(&urd->urd_list);
+	spin_lock_init(&urd->urd_list_lock);
+	urd->urd_recovery_handler = update_recovery_handle;
+	urd->urd_ns = mdt->mdt_namespace;
+	urd->urd_remote_cb_bl = mdt_remote_blocking_ast;
+	urd->urd_local_cb_bl = mdt_blocking_ast;
+	urd->urd_completion_cb = ldlm_completion_ast;
+	mdt->mdt_lut.lut_update_recovery_data = urd;
+	return 0;
+}
+
 static int mdt_stack_init(const struct lu_env *env, struct mdt_device *mdt,
 			  struct lustre_cfg *cfg)
 {
@@ -4022,8 +4042,13 @@ static int mdt_stack_init(const struct lu_env *env, struct mdt_device *mdt,
 	LASSERT(site);
 	LASSERT(mdt_lu_site(mdt) == NULL);
 	mdt->mdt_lu_dev.ld_site = site;
+	site->ls_target = &mdt->mdt_lut;
 	site->ls_top_dev = &mdt->mdt_lu_dev;
 	mdt->mdt_child = lu2md_dev(mdt->mdt_child_exp->exp_obd->obd_lu_dev);
+
+	rc = mdt_prepare_recovery_data(mdt);
+	if (rc < 0)
+		GOTO(class_detach, rc);
 
 	/* now connect to LOD */
 	rc = mdt_connect_to_next(env, mdt, lprof->lp_dt, &mdt->mdt_lod_exp);
@@ -4346,6 +4371,14 @@ static void mdt_fini(const struct lu_env *env, struct mdt_device *m)
 	next->md_ops->mdo_iocontrol(env, next, OBD_IOC_STOP_LFSCK, 0, &stop);
 
 	target_recovery_fini(obd);
+	if (m->mdt_lut.lut_update_recovery_data != NULL) {
+		struct update_recovery_data *urd;
+
+		urd = m->mdt_lut.lut_update_recovery_data;
+		destroy_updates_in_recovery_list(urd);
+		OBD_FREE_PTR(urd);
+		m->mdt_lut.lut_update_recovery_data = NULL;
+	}
 	ping_evictor_stop();
 	mdt_stack_pre_fini(env, m, md2lu_dev(m->mdt_child));
 
@@ -4852,6 +4885,7 @@ static int mdt_prepare(const struct lu_env *env,
 	}
 
 	LASSERT(!test_bit(MDT_FL_CFGLOG, &mdt->mdt_state));
+
 	target_recovery_init(&mdt->mdt_lut, tgt_request_handle);
 	set_bit(MDT_FL_CFGLOG, &mdt->mdt_state);
 	LASSERT(obd->obd_no_conn);
@@ -4960,6 +4994,9 @@ static int mdt_connect_internal(struct obd_export *exp,
 			return -EPROTO;
 		}
 	}
+
+	if (data->ocd_connect_flags & OBD_CONNECT_MDS_MDS)
+		mdt->mdt_lut.lut_update_recovery_data->urd_connected_tgt++;
 
 	/* NB: Disregard the rule against updating
 	 * exp_connect_data.ocd_connect_flags in this case, since
