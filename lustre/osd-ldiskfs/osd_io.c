@@ -898,10 +898,14 @@ static int osd_read_prep(const struct lu_env *env, struct dt_object *dt,
         cfs_gettimeofday(&start);
         for (i = 0; i < npages; i++) {
 
-		if (i_size_read(inode) <= lnb[i].lnb_file_offset)
-                        /* If there's no more data, abort early.
-                         * lnb->rc == 0, so it's easy to detect later. */
-                        break;
+		if (i_size_read(inode) <= lnb[i].lnb_file_offset) {
+			/* If there's no more data (short read ?),
+			 * all subsequent rc should be 0.
+			 */
+			for (; i < npages; i++)
+				lnb[i].rc = 0;
+			break;
+		}
 
                 if (i_size_read(inode) <
 		    lnb[i].lnb_file_offset + lnb[i].len - 1)
