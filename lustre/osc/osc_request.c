@@ -3310,9 +3310,6 @@ int __init osc_init(void)
 		enable_proc = false;
 
 	rc = class_register_type(&osc_obd_ops, NULL, enable_proc, NULL,
-#ifndef HAVE_ONLY_PROCFS_SEQ
-				 NULL,
-#endif
 				 LUSTRE_OSC_NAME, &osc_device_type);
         if (rc) {
                 lu_kmem_fini(osc_caches);
