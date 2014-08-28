@@ -222,7 +222,13 @@ int tgt_txn_start_cb(const struct lu_env *env, struct thandle *th,
 		     void *cookie);
 int tgt_txn_stop_cb(const struct lu_env *env, struct thandle *th,
 		    void *cookie);
-
+int top_trans_create_tmt(const struct lu_env *env,
+			 struct top_thandle *top_th);
 void update_info_init(void);
 void update_info_fini(void);
+struct sub_thandle *create_sub_thandle(struct top_multiple_thandle *tmt,
+				       struct dt_device *dt_dev);
+int sub_thandle_trans_create(const struct lu_env *env,
+			     struct top_thandle *top_th,
+			     struct sub_thandle *st);
 #endif /* _TG_INTERNAL_H */

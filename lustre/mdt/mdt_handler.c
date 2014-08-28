@@ -3949,8 +3949,9 @@ out:
  *
  * Prepare distribute txn structure for MDT
  *
+ * \param[in] env	execution environment
  * \param[in] mdt	MDT device
- * \param[in] lod_name  LOD obd device name
+ * \param[in] cfg	lustre config log
  *
  * \retval		0 if preparation succeeds.
  * \retval		negative errno if preparation fails.
@@ -3960,10 +3961,26 @@ static int mdt_prepare_distribute_txn(const struct lu_env *env,
 				      struct lustre_cfg *cfg)
 {
 	struct target_distribute_txn_data *tdtd;
+	struct lustre_profile           *lprof;
+	struct obd_device               *obd;
 	int				  rc;
 	ENTRY;
 
-	/* Init update recovery data */
+	lprof = class_get_profile(lustre_cfg_string(cfg, 0));
+	if (lprof == NULL || lprof->lp_dt == NULL) {
+		CERROR("%s: can't find the profile: %s\n",
+		       mdt_obd_name(mdt), lustre_cfg_string(cfg, 0));
+		RETURN(-EINVAL);
+	}
+
+	/* LOD dt device, needed by replay process */
+	obd = class_name2obd(lprof->lp_dt);
+	if (obd == NULL) {
+		CERROR("%s: can't locate lod device: %s\n",
+		        mdt_obd_name(mdt), lprof->lp_dt);
+		RETURN(-ENOTCONN);
+	}
+
 	OBD_ALLOC_PTR(tdtd);
 	if (tdtd == NULL)
 		RETURN(-ENOMEM);
@@ -3973,8 +3990,15 @@ static int mdt_prepare_distribute_txn(const struct lu_env *env,
 	if (rc < 0) {
 		CERROR("%s: cannot init distribute txn: rc = %d\n",
 		       mdt2obd_dev(mdt)->obd_name, rc);
+		OBD_FREE_PTR(tdtd);
 		RETURN(rc);
 	}
+
+	tdtd->tdtd_dt = lu2dt_dev(obd->obd_lu_dev);
+	INIT_LIST_HEAD(&tdtd->tdtd_replay_list);
+	spin_lock_init(&tdtd->tdtd_replay_list_lock);
+	tdtd->tdtd_replay_handler = distribute_txn_replay_handle;
+	tdtd->tdtd_replay_ready = 0;
 
 	mdt->mdt_lut.lut_tdtd = tdtd;
 
@@ -3998,6 +4022,7 @@ static void mdt_fini_distribute_txn(const struct lu_env *env,
 	if (tdtd == NULL)
 		return;
 
+	dtrq_list_destroy(tdtd);
 	distribute_txn_fini(env, tdtd);
 
 	OBD_FREE_PTR(tdtd);
@@ -4112,6 +4137,7 @@ static int mdt_stack_init(const struct lu_env *env, struct mdt_device *mdt,
 	LASSERT(site);
 	LASSERT(mdt_lu_site(mdt) == NULL);
 	mdt->mdt_lu_dev.ld_site = site;
+	site->ls_target = &mdt->mdt_lut;
 	site->ls_top_dev = &mdt->mdt_lu_dev;
 	mdt->mdt_child = lu2md_dev(mdt->mdt_child_exp->exp_obd->obd_lu_dev);
 
@@ -4941,6 +4967,7 @@ static int mdt_prepare(const struct lu_env *env,
 	}
 
 	LASSERT(!test_bit(MDT_FL_CFGLOG, &mdt->mdt_state));
+
 	target_recovery_init(&mdt->mdt_lut, tgt_request_handle);
 	set_bit(MDT_FL_CFGLOG, &mdt->mdt_state);
 	LASSERT(obd->obd_no_conn);

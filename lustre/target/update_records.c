@@ -65,8 +65,10 @@ void update_records_dump(struct update_records *records, unsigned int mask)
 	ops = &records->ur_ops;
 	params = update_records_get_params(records);
 
-	CDEBUG(mask, "ops %d params %d\n", ops->uops_count,
-	       params->up_params_count);
+	CDEBUG(mask, "master transno "LPU64" batchid "LPU64" master_index %d"
+	       " flags %x ops count %d params %d\n", records->ur_master_transno,
+	       records->ur_batchid, records->ur_master_index, records->ur_flags,
+	       ops->uops_count, params->up_params_count);
 
 	if (ops->uops_count == 0)
 		return;

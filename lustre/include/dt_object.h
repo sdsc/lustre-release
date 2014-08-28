@@ -1836,6 +1836,12 @@ static inline struct dt_object *lu2dt_obj(struct lu_object *o)
 	return container_of0(o, struct dt_object, do_lu);
 }
 
+static inline struct dt_object *dt_object_child(struct dt_object *o)
+{
+	return container_of0(lu_object_next(&(o)->do_lu),
+			     struct dt_object, do_lu);
+}
+
 /**
  * This is the general purpose transaction handle.
  * 1. Transaction Life Cycle
@@ -2441,6 +2447,28 @@ static inline int dt_punch(const struct lu_env *env, struct dt_object *dt,
         LASSERT(dt->do_body_ops);
         LASSERT(dt->do_body_ops->dbo_punch);
         return dt->do_body_ops->dbo_punch(env, dt, start, end, th, capa);
+}
+
+static inline int dt_declare_write(const struct lu_env *env,
+				   struct dt_object *dt,
+				   const struct lu_buf *buf,
+				   loff_t pos, struct thandle *th)
+{
+	LASSERT(dt);
+	LASSERT(dt->do_body_ops);
+	LASSERT(dt->do_body_ops->dbo_declare_write);
+	return dt->do_body_ops->dbo_declare_write(env, dt, buf, pos, th);
+}
+
+static inline size_t dt_write(const struct lu_env *env, struct dt_object *dt,
+			      const struct lu_buf *buf, loff_t *pos,
+			      struct thandle *th,
+			      struct lustre_capa *capa, int ignore)
+{
+	LASSERT(dt);
+	LASSERT(dt->do_body_ops);
+	LASSERT(dt->do_body_ops->dbo_write);
+	return dt->do_body_ops->dbo_write(env, dt, buf, pos, th, capa, ignore);
 }
 
 static inline int dt_fiemap_get(const struct lu_env *env, struct dt_object *d,
