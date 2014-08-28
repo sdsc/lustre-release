@@ -43,6 +43,38 @@
 #include <lustre_disk.h>
 #include <lustre_lfsck.h>
 
+struct update_recovery_header {
+	struct update_records	*urh_updates;
+	int			urh_updates_size;
+	struct list_head urh_list;
+	struct list_head urh_update_list;
+	spinlock_t	 urh_update_list_lock;
+};
+
+struct update_recovery {
+	__u32			ur_mdt_index;
+	struct llog_cookie	ur_llog_cookie;
+	struct list_head	ur_list;
+};
+
+struct update_recovery_data;
+
+typedef int (*update_recovery_handler_t)(const struct lu_env *env,
+					 struct update_recovery_data *urd,
+					 struct update_recovery_header *urh);
+struct update_recovery_data {
+	struct dt_device		*urd_dt;
+	struct ldlm_namespace		*urd_ns;
+	update_recovery_handler_t	urd_recovery_handler;
+	struct list_head		urd_list;
+	spinlock_t			urd_list_lock;
+	void				*urd_local_cb_bl;
+	void				*urd_remote_cb_bl;
+	void				*urd_completion_cb;
+	__u32				urd_recovery_ready:1;
+
+};
+
 struct lu_target {
 	struct obd_device	*lut_obd;
 	struct dt_device	*lut_bottom;
@@ -51,6 +83,8 @@ struct lu_target {
 	 * MDTs for one operation */
 	spinlock_t		lut_distribution_id_lock;
 	__u64			lut_distribution_id;
+
+	struct update_recovery_data *lut_update_recovery_data;
 
 	/* supported opcodes and handlers for this target */
 	struct tgt_opc_slice	*lut_slice;
@@ -339,6 +373,22 @@ int tgt_server_data_update(const struct lu_env *env, struct lu_target *tg,
 			   int sync);
 int tgt_truncate_last_rcvd(const struct lu_env *env, struct lu_target *tg,
 			   loff_t off);
+
+/* target/update_recovery.c */
+int insert_update_records_to_recovery_list(struct lu_target *lut,
+					   struct update_records *record,
+					   struct llog_cookie *cookie,
+					   __u32 index);
+void dump_updates_in_recovery_list(struct update_recovery_data *urd,
+				   unsigned int mask);
+void destroy_updates_in_recovery_list(struct update_recovery_data *urd);
+int update_recovery_handle(const struct lu_env *env,
+			   struct update_recovery_data *urd,
+			   struct update_recovery_header *urh);
+__u64 update_recovery_get_next_transno(struct update_recovery_data *urd);
+struct update_recovery_header *
+update_recovery_get_next_update(struct update_recovery_data *urd);
+void update_recovery_header_destory(struct update_recovery_header *urh);
 
 enum {
 	ESERIOUS = 0x0001000

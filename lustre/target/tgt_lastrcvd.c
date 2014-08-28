@@ -409,7 +409,7 @@ struct tgt_last_committed_callback {
 	__u64			 llcc_transno;
 };
 
-void tgt_cb_last_committed(struct lu_env *env, struct thandle *th,
+void tgt_cb_last_committed(const struct lu_env *env, struct thandle *th,
 			   struct dt_txn_commit_cb *cb, int err)
 {
 	struct tgt_last_committed_callback *ccb;
@@ -477,7 +477,7 @@ struct tgt_new_client_callback {
 	struct obd_export	*lncc_exp;
 };
 
-void tgt_cb_new_client(struct lu_env *env, struct thandle *th,
+void tgt_cb_new_client(const struct lu_env *env, struct thandle *th,
 		       struct dt_txn_commit_cb *cb, int err)
 {
 	struct tgt_new_client_callback *ccb;

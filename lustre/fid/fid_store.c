@@ -65,7 +65,7 @@ struct seq_update_callback {
         struct lu_server_seq   *suc_seq;
 };
 
-void seq_update_cb(struct lu_env *env, struct thandle *th,
+void seq_update_cb(const struct lu_env *env, struct thandle *th,
 		   struct dt_txn_commit_cb *cb, int err)
 {
 	struct seq_update_callback *ccb;
