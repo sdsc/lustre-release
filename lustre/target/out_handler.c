@@ -137,6 +137,20 @@ static inline int out_check_resent(const struct lu_env *env,
 		return 0;
 
 	if (req_xid_is_last(req)) {
+		struct lsd_client_data *lcd;
+
+		lcd = req->rq_export->exp_target_data.ted_lcd;
+
+		req->rq_transno = lcd->lcd_last_transno;
+                req->rq_status = lcd->lcd_last_result;
+		if (req->rq_status != 0)
+			req->rq_transno = 0;
+		lustre_msg_set_transno(req->rq_repmsg, req->rq_transno);
+		lustre_msg_set_status(req->rq_repmsg, req->rq_status);
+
+		DEBUG_REQ(D_RPCTRACE, req, "restoring transno "LPD64"status %d",
+			  req->rq_transno, req->rq_status);
+
 		reconstruct(env, dt, obj, reply, index);
 		return 1;
 	}
