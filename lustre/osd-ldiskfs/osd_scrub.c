@@ -1653,6 +1653,8 @@ static const struct osd_lf_map osd_lf_maps[] = {
 	{ "SLAVE_LOG", { FID_SEQ_LOCAL_FILE, SLAVE_LLOG_CATALOGS_OID, 0 },
 	       OLF_SHOW_NAME, sizeof("SLAVE_LOG") - 1, NULL, NULL },
 
+	{ "BATCHID", { FID_SEQ_LOCAL_FILE, BATCHID_COMMITTED_OID, 0 },
+	       OLF_SHOW_NAME, sizeof("BATCHID") - 1, NULL, NULL },
 	/* lost+found */
 	{ "lost+found", { FID_SEQ_LOCAL_FILE, OSD_LPF_OID, 0 },
 		OLF_SCAN_SUBITEMS, sizeof("lost+found") - 1,
