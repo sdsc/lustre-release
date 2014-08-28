@@ -3944,6 +3944,81 @@ out:
 	RETURN(rc);
 }
 
+/**
+ * Prepare recovery data for MDT
+ *
+ * Prepare recovery data for MDT recovery. This recovery data will only
+ * be used for DNE distributed update recovery (see target/update_recovery.c)
+ * The recovery will be based on LOD device, so it needs to find LOD device
+ * here.
+ *
+ * \param[in] mdt	MDT device
+ * \param[in] lod_name  LOD obd device name
+ *
+ * \retval		0 if preparation succeeds.
+ * \retval		negative errno if preparation fails.
+ */
+static int mdt_prepare_recovery_data(struct mdt_device *mdt,
+				     struct lustre_cfg *cfg)
+{
+	struct update_recovery_data	*urd;
+	struct lustre_profile		*lprof;
+	struct obd_device		*obd;
+	ENTRY;
+
+	lprof = class_get_profile(lustre_cfg_string(cfg, 0));
+	if (lprof == NULL || lprof->lp_dt == NULL) {
+		CERROR("%s: can't find the profile: %s\n",
+		       mdt_obd_name(mdt), lustre_cfg_string(cfg, 0));
+		RETURN(-EINVAL);
+	}
+
+	obd = class_name2obd(lprof->lp_dt);
+	if (obd == NULL) {
+		CERROR("%s: can't locate lod device: %s\n",
+		       mdt_obd_name(mdt), lprof->lp_dt);
+		RETURN(-ENOTCONN);
+	}
+
+	/* Init update recovery data */
+	OBD_ALLOC_PTR(urd);
+	if (urd == NULL)
+		RETURN(-ENOMEM);
+
+	INIT_LIST_HEAD(&urd->urd_list);
+	spin_lock_init(&urd->urd_list_lock);
+	urd->urd_recovery_handler = update_recovery_handle;
+	urd->urd_ns = mdt->mdt_namespace;
+	urd->urd_remote_cb_bl = mdt_remote_blocking_ast;
+	urd->urd_local_cb_bl = mdt_blocking_ast;
+	urd->urd_completion_cb = ldlm_completion_ast;
+	urd->urd_dt = lu2dt_dev(obd->obd_lu_dev);
+	mdt->mdt_lut.lut_update_recovery_data = urd;
+
+	RETURN(0);
+}
+
+/**
+ * Finish update recovery data
+ *
+ * Free update recovery data in MDT and destroy all updates recovery requests
+ * in the replay list.
+ *
+ * \param[in] mdt	MDT device
+ */
+static void mdt_fini_update_recovery_data(struct mdt_device *mdt)
+{
+	struct update_recovery_data *urd;
+
+	urd = mdt->mdt_lut.lut_update_recovery_data;
+	if (urd == NULL)
+		return;
+
+	destroy_updates_in_recovery_list(urd);
+	OBD_FREE_PTR(urd);
+	mdt->mdt_lut.lut_update_recovery_data = NULL;
+}
+
 static int mdt_stack_init(const struct lu_env *env, struct mdt_device *mdt,
 			  struct lustre_cfg *cfg)
 {
@@ -4052,6 +4127,7 @@ static int mdt_stack_init(const struct lu_env *env, struct mdt_device *mdt,
 	LASSERT(site);
 	LASSERT(mdt_lu_site(mdt) == NULL);
 	mdt->mdt_lu_dev.ld_site = site;
+	site->ls_target = &mdt->mdt_lut;
 	site->ls_top_dev = &mdt->mdt_lu_dev;
 	mdt->mdt_child = lu2md_dev(mdt->mdt_child_exp->exp_obd->obd_lu_dev);
 
@@ -4369,6 +4445,7 @@ static void mdt_fini(const struct lu_env *env, struct mdt_device *m)
 	next->md_ops->mdo_iocontrol(env, next, OBD_IOC_STOP_LFSCK, 0, &stop);
 
 	target_recovery_fini(obd);
+	mdt_fini_update_recovery_data(m);
 	ping_evictor_stop();
 	mdt_stack_pre_fini(env, m, md2lu_dev(m->mdt_child));
 
@@ -4566,11 +4643,15 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
         if (rc)
                 GOTO(err_free_hsm, rc);
 
+	rc = mdt_prepare_recovery_data(m, cfg);
+	if (rc < 0)
+		GOTO(err_capa, rc);
+
 	rc = tgt_init(env, &m->mdt_lut, obd, m->mdt_bottom, mdt_common_slice,
 		      OBD_FAIL_MDS_ALL_REQUEST_NET,
 		      OBD_FAIL_MDS_ALL_REPLY_NET);
 	if (rc)
-		GOTO(err_capa, rc);
+		GOTO(err_update_recovery, rc);
 
 	m->mdt_lu_dev.ld_site->ls_target = &m->mdt_lut;
 
@@ -4653,6 +4734,8 @@ err_fs_cleanup:
 	mdt_fs_cleanup(env, m);
 err_tgt:
 	tgt_fini(env, &m->mdt_lut);
+err_update_recovery:
+	mdt_fini_update_recovery_data(m);
 err_capa:
 	cfs_timer_disarm(&m->mdt_ck_timer);
 	mdt_ck_thread_stop(m);
@@ -4874,6 +4957,7 @@ static int mdt_prepare(const struct lu_env *env,
 	}
 
 	LASSERT(!test_bit(MDT_FL_CFGLOG, &mdt->mdt_state));
+
 	target_recovery_init(&mdt->mdt_lut, tgt_request_handle);
 	set_bit(MDT_FL_CFGLOG, &mdt->mdt_state);
 	LASSERT(obd->obd_no_conn);
