@@ -95,7 +95,6 @@ struct lu_server_fld {
          * Fld service name in form "fld-srv-lustre-MDTXXX" */
         char                     lsf_name[80];
 
-
 	int (*lsf_seq_lookup)(const struct lu_env *env,
 			      struct lu_server_fld *fld, u64 seq,
 			      struct lu_seq_range *range);
@@ -106,6 +105,7 @@ struct lu_server_fld {
 	 * if the MDT is upgraded from < 2.6 to 2.6, i.e. when the
 	 * local FLDB is being invited */
 	unsigned int		 lsf_new:1;
+
 };
 
 struct lu_client_fld {

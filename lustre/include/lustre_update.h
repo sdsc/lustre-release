@@ -85,7 +85,7 @@ static inline int update_params_size(const struct update_params *params)
 }
 
 static inline struct object_update_param *
-update_params_get_param(const struct update_params *params, int index)
+update_params_get_param(const struct update_params *params, unsigned int index)
 {
 	struct object_update_param *param;
 	unsigned int		i;
@@ -99,6 +99,22 @@ update_params_get_param(const struct update_params *params, int index)
 			object_update_param_size(param));
 
 	return param;
+}
+
+static inline void*
+update_params_get_param_buf(const struct update_params *params, __u16 index,
+			    __u16 *size)
+{
+	struct object_update_param *param;
+
+	param = update_params_get_param(params, (unsigned int)index);
+	if (param == NULL)
+		return NULL;
+
+	if (size != NULL)
+		*size = param->oup_len;
+
+	return &param->oup_buf[0];
 }
 
 struct update_op {
@@ -352,6 +368,59 @@ struct sub_thandle {
 	bool			st_committed:1;
 };
 
+struct tx_arg;
+typedef int (*tx_exec_func_t)(const struct lu_env *env, struct thandle *th,
+			      struct tx_arg *ta);
+
+/* Structure for holding one update executation */
+struct tx_arg {
+	tx_exec_func_t		 exec_fn;
+	tx_exec_func_t		 undo_fn;
+	struct dt_object	*object;
+	const char		*file;
+	struct object_update_reply *reply;
+	int			 line;
+	int			 index;
+	union {
+		struct {
+			struct dt_insert_rec	 rec;
+			const struct dt_key	*key;
+		} insert;
+		struct {
+		} ref;
+		struct {
+			struct lu_attr	 attr;
+		} attr_set;
+		struct {
+			struct lu_buf	 buf;
+			const char	*name;
+			int		 flags;
+			__u32		 csum;
+		} xattr_set;
+		struct {
+			struct lu_attr			attr;
+			struct dt_allocation_hint	hint;
+			struct dt_object_format		dof;
+			struct lu_fid			fid;
+		} create;
+		struct {
+			struct lu_buf	buf;
+			loff_t		pos;
+		} write;
+		struct {
+			struct ost_body	    *body;
+		} destroy;
+	} u;
+};
+
+/* Structure for holding all update executations of one transaction */
+struct thandle_exec_args {
+	struct thandle		*ta_handle;
+	int			ta_argno;   /* used args */
+	int			ta_alloc_args; /* allocated args count */
+	struct tx_arg		**ta_args;
+};
+
 /* target/out_lib.c */
 int out_update_pack(const struct lu_env *env, struct object_update *update,
 		    size_t max_update_size, enum update_type op,
@@ -448,6 +517,9 @@ static inline void top_multiple_thandle_put(struct top_multiple_thandle *tmt)
 
 struct sub_thandle *lookup_sub_thandle(struct top_multiple_thandle *tmt,
 				       struct dt_device *dt_dev);
+int sub_thandle_trans_create(const struct lu_env *env,
+			     struct top_thandle *top_th,
+			     struct sub_thandle *st);
 
 /* update_records.c */
 void update_records_dump(const struct update_records *records,
@@ -537,8 +609,14 @@ struct update_thread_info {
 	struct lu_attr			uti_attr;
 	struct lu_fid			uti_fid;
 	struct lu_buf			uti_buf;
+	struct ldlm_res_id		uti_resid;
+	ldlm_policy_data_t		uti_policy;
+	struct ldlm_enqueue_info	uti_einfo;
 	struct thandle_update_records	uti_tur;
 	struct obdo			uti_obdo;
+	struct thandle_exec_args	uti_tea;
+	struct dt_insert_rec		uti_rec;
+	struct update_records		*uti_update_rec;
 };
 
 extern struct lu_context_key update_thread_key;
