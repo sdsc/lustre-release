@@ -443,6 +443,13 @@ test_20b() { # bug 10480
 	fail $SINGLEMDS                            # start orphan recovery
 	wait_recovery_complete $SINGLEMDS || error "MDS recovery not done"
 	wait_delete_completed_mds $wait_timeout || return 3
+
+	# the occupied disk space will be released only after DMUs are committed
+	if [[ $(facet_fstype ost1) == zfs ]]; then
+		log "sleep 5 seconds for OST based on ZFS"
+		sleep 5
+	fi
+
 	AFTERUSED=$(df -P $DIR | tail -1 | awk '{ print $3 }')
 	log "before $BEFOREUSED, after $AFTERUSED"
 	(( $AFTERUSED > $BEFOREUSED + $(fs_log_size) )) &&
