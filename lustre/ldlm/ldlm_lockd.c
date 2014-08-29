@@ -263,7 +263,7 @@ static int expired_lock_main(void *arg)
 	RETURN(0);
 }
 
-static int ldlm_add_waiting_lock(struct ldlm_lock *lock);
+static int ldlm_add_waiting_lock(struct ldlm_lock *lock, int timeout);
 static int __ldlm_add_waiting_lock(struct ldlm_lock *lock, int seconds);
 
 /**
@@ -410,10 +410,9 @@ static int __ldlm_add_waiting_lock(struct ldlm_lock *lock, int seconds)
         return 1;
 }
 
-static int ldlm_add_waiting_lock(struct ldlm_lock *lock)
+static int ldlm_add_waiting_lock(struct ldlm_lock *lock, int timeout)
 {
 	int ret;
-	int timeout = ldlm_bl_timeout(lock);
 
 	/* NB: must be called with hold of lock_res_and_lock() */
 	LASSERT(ldlm_is_res_locked(lock));
@@ -870,12 +869,16 @@ int ldlm_server_blocking_ast(struct ldlm_lock *lock,
 
 		req->rq_no_resend = 1;
 	} else {
+		int timeout = at_est2timeout(req->rq_timeout);
+
 		LASSERT(lock->l_granted_mode == lock->l_req_mode);
-		ldlm_add_waiting_lock(lock);
+
+		timeout = max_t(int, timeout, ldlm_bl_timeout(lock));
+		ldlm_add_waiting_lock(lock, timeout);
 		unlock_res_and_lock(lock);
 
 		/* Do not resend after lock callback timeout */
-		req->rq_delay_limit = ldlm_bl_timeout(lock);
+		req->rq_delay_limit = timeout;
 		req->rq_resend_cb = ldlm_update_resend;
 	}
 
@@ -1009,10 +1012,13 @@ int ldlm_server_completion_ast(struct ldlm_lock *lock, __u64 flags, void *data)
 
 			lock_res_and_lock(lock);
 		} else {
+			int timeout = at_est2timeout(req->rq_timeout);
+
 			/* start the lock-timeout clock */
-			ldlm_add_waiting_lock(lock);
+			timeout = max_t(int, timeout, ldlm_bl_timeout(lock));
+			ldlm_add_waiting_lock(lock, timeout);
 			/* Do not resend after lock callback timeout */
-			req->rq_delay_limit = ldlm_bl_timeout(lock);
+			req->rq_delay_limit = timeout;
 			req->rq_resend_cb = ldlm_update_resend;
 		}
         }
@@ -1380,8 +1386,27 @@ existing_lock:
                                 unlock_res_and_lock(lock);
                                 ldlm_lock_cancel(lock);
                                 lock_res_and_lock(lock);
-                        } else
-                                ldlm_add_waiting_lock(lock);
+                        } else {
+				int tmout = ldlm_bl_timeout(lock);
+				unsigned int cur = cfs_time_current_sec();
+
+				/* NB: this is a workaround, because there is
+				 * no reply resend, so we need to make sure
+				 * client at least has a chance to resend if
+				 * reply is lost.
+				 * Just like AST resend, this cannot help the
+				 * multiple messages lost case
+				 */
+				if (req->rq_deadline > cur) {
+					tmout += at_est2timeout(
+						   req->rq_deadline - cur);
+				}
+
+				if (list_empty(&lock->l_pending_chain))
+					ldlm_add_waiting_lock(lock, tmout);
+				else /* refresh timer for resend */
+					ldlm_refresh_waiting_lock(lock, tmout);
+			}
                 }
         }
         /* Make sure we never ever grant usual metadata locks to liblustre
