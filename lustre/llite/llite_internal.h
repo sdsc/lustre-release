@@ -305,6 +305,10 @@ int ll_xattr_cache_get(struct inode *inode,
 			size_t size,
 			__u64 valid);
 
+int ll_init_security(struct dentry *dentry,
+			    struct inode *inode,
+			    struct inode *dir);
+
 /*
  * Locking to guarantee consistency of non-atomic updates to long long i_size,
  * consistency between file size and KMS.
@@ -860,6 +864,7 @@ int ll_statfs_internal(struct super_block *sb, struct obd_statfs *osfs,
 int ll_update_inode(struct inode *inode, struct lustre_md *md);
 int ll_read_inode2(struct inode *inode, void *opaque);
 void ll_delete_inode(struct inode *inode);
+void ll_drop_inode(struct inode *inode);
 int ll_iocontrol(struct inode *inode, struct file *file,
                  unsigned int cmd, unsigned long arg);
 int ll_flush_ctx(struct inode *inode);

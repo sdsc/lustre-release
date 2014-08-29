@@ -195,6 +195,8 @@ static int ll_ddelete(HAVE_D_DELETE_CONST struct dentry *de)
 		clear_nlink(de->d_inode);
 #endif
 
+	if (selinux_is_enabled())
+		RETURN(1);
 	if (d_lustre_invalid((struct dentry *)de))
 		RETURN(1);
 	RETURN(0);

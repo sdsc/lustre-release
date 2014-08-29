@@ -2185,6 +2185,18 @@ void ll_delete_inode(struct inode *inode)
         EXIT;
 }
 
+void ll_drop_inode(struct inode *inode)
+{
+	ENTRY;
+
+	if (selinux_is_enabled())
+		generic_delete_inode(inode);
+	else
+		generic_drop_inode(inode);
+
+	EXIT;
+}
+
 int ll_iocontrol(struct inode *inode, struct file *file,
                  unsigned int cmd, unsigned long arg)
 {
