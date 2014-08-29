@@ -90,9 +90,9 @@ struct obd_ioctl_data {
 
 	/* buffers the kernel will treat as user pointers */
 	__u32		ioc_plen1;
-	char	       *ioc_pbuf1;
+	char __user    *ioc_pbuf1;
 	__u32		ioc_plen2;
-	char	       *ioc_pbuf2;
+	char __user    *ioc_pbuf2;
 
 	/* inline buffers for various arguments */
 	__u32		ioc_inllen1;
@@ -202,7 +202,7 @@ static inline int obd_ioctl_is_invalid(struct obd_ioctl_data *data)
 
 #ifdef __KERNEL__
 
-int obd_ioctl_getdata(char **buf, int *len, void *arg);
+int obd_ioctl_getdata(char **buf, int *len, void __user *arg);
 int obd_ioctl_popdata(void *arg, void *data, int len);
 
 static inline void obd_ioctl_freedata(char *buf, size_t len)
