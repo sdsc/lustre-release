@@ -885,6 +885,11 @@ static int ll_create_it(struct inode *dir, struct dentry *dentry, int mode,
 		RETURN(PTR_ERR(inode));
 
 	d_instantiate(dentry, inode);
+
+	rc = ll_init_security(dentry, inode, dir);
+	if (rc)
+		RETURN(rc);
+
 	RETURN(0);
 }
 
@@ -943,6 +948,10 @@ static int ll_new_node(struct inode *dir, struct qstr *name,
                      GOTO(err_exit, err);
 
                 d_instantiate(dchild, inode);
+
+		err = ll_init_security(dchild, inode, dir);
+		if (err)
+			GOTO(err_exit, err);
         }
         EXIT;
 err_exit:

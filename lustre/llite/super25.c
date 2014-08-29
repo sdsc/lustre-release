@@ -107,6 +107,7 @@ struct super_operations lustre_super_operations =
         .clear_inode   = ll_clear_inode,
         .delete_inode  = ll_delete_inode,
 #endif
+        .drop_inode    = ll_drop_inode,
         .put_super     = ll_put_super,
         .statfs        = ll_statfs,
         .umount_begin  = ll_umount_begin,

@@ -523,6 +523,24 @@ super_ops_evict_inode, [
 ]) # LC_SBOPS_EVICT_INODE
 
 #
+# 2.6.36 super_operations .drop_inode returns int
+#
+AC_DEFUN([LC_SBOPS_DROP_INODE_INT],
+[AC_MSG_CHECKING([if super_operations.drop_inode returns int])
+LB_LINUX_TRY_COMPILE([
+        #include <linux/fs.h>
+],[
+        int ret = ((struct super_operations *)0)->drop_inode(NULL);
+],[
+        AC_DEFINE(HAVE_SBOPS_DROP_INODE_INT, 1,
+                [super_operations.drop_inode() returns int])
+        AC_MSG_RESULT([yes])
+],[
+        AC_MSG_RESULT([no])
+])
+])
+
+#
 # LC_FILE_FSYNC
 #
 # 2.6.35 file_operations.fsync taken 2 arguments.
@@ -1521,6 +1539,7 @@ AC_DEFUN([LC_PROG_LINUX], [
 	# 2.6.36
 	LC_FS_STRUCT_RWLOCK
 	LC_SBOPS_EVICT_INODE
+	LC_SBOPS_DROP_INODE_INT
 
 	# 2.6.37
 	LC_KERNEL_LOCKED
