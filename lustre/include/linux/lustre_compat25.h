@@ -365,4 +365,28 @@ static inline int radix_tree_exceptional_entry(void *arg)
 #define SIZE_MAX	(~(size_t)0)
 #endif
 
+#ifdef HAVE_SBOPS_DROP_INODE_INT
+# define ll_drop_inode_ret int
+# define LL_DROP_INODE_RETURN(inst) RETURN(inst)
+#else
+# define ll_drop_inode_ret void
+# define LL_DROP_INODE_RETURN(inst) do { inst; EXIT; } while (0)
+#endif
+
+#ifdef HAVE_SECURITY_IINITSEC_CALLBACK
+# define ll_security_inode_init_security(inode, dir, name, value, len, \
+					 initxattrs, dentry)	       \
+	 security_inode_init_security(inode, dir, &((dentry)->d_name), \
+				      initxattrs, dentry)
+#elif defined HAVE_SECURITY_IINITSEC_QSTR
+# define ll_security_inode_init_security(inode, dir, name, value, len, \
+					 initxattrs, dentry)	       \
+	 security_inode_init_security(inode, dir, &((dentry)->d_name), \
+				      name, value, len)
+#else /* !HAVE_SECURITY_IINITSEC_CALLBACK && !HAVE_SECURITY_IINITSEC_QSTR */
+# define ll_security_inode_init_security(inode, dir, name, value, len, \
+					 initxattrs, dentry)	       \
+	 security_inode_init_security(inode, dir, name, value, len)
+#endif
+
 #endif /* _COMPAT25_H */

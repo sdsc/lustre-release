@@ -523,6 +523,24 @@ super_ops_evict_inode, [
 ]) # LC_SBOPS_EVICT_INODE
 
 #
+# 2.6.36 super_operations .drop_inode returns int
+#
+AC_DEFUN([LC_SBOPS_DROP_INODE_INT],
+[AC_MSG_CHECKING([if super_operations.drop_inode returns int])
+LB_LINUX_TRY_COMPILE([
+        #include <linux/fs.h>
+],[
+        int ret = ((struct super_operations *)0)->drop_inode(NULL);
+],[
+        AC_DEFINE(HAVE_SBOPS_DROP_INODE_INT, 1,
+                [super_operations.drop_inode() returns int])
+        AC_MSG_RESULT([yes])
+],[
+        AC_MSG_RESULT([no])
+])
+])
+
+#
 # LC_FILE_FSYNC
 #
 # 2.6.35 file_operations.fsync taken 2 arguments.
@@ -921,6 +939,36 @@ inode_i_nlink_protected, [
 		[inode->i_nlink is protected from direct modification])
 ])
 ]) # LC_HAVE_PROTECT_I_NLINK
+
+#
+# 2.6.39 security_inode_init_security takes a 'struct qstr' parameter
+#
+# 3.2 security_inode_init_security takes a callback to set xattrs
+#
+AC_DEFUN([LC_HAVE_SECURITY_IINITSEC],
+[AC_MSG_CHECKING([if security_inode_init_security takes a 'struct qstr' parameter or a callback])
+LB_LINUX_TRY_COMPILE([
+	#include <linux/security.h>
+],[
+	security_inode_init_security(NULL, NULL, NULL, (const initxattrs)NULL, NULL);
+],[
+	AC_DEFINE(HAVE_SECURITY_IINITSEC_CALLBACK, 1,
+		  [security_inode_init_security takes a callback to set xattrs])
+	AC_MSG_RESULT([yes, takes callback])
+],[
+	LB_LINUX_TRY_COMPILE([
+		#include <linux/security.h>
+	],[
+		security_inode_init_security(NULL, NULL, (struct qstr *)NULL, NULL, NULL, NULL);
+	],[
+		AC_DEFINE(HAVE_SECURITY_IINITSEC_QSTR, 1,
+			  [security_inode_init_security takes a 'struct qstr' parameter])
+		AC_MSG_RESULT([yes, takes qstr])
+	],[
+		AC_MSG_RESULT([no])
+	])
+])
+])
 
 #
 # LC_HAVE_MIGRATE_HEADER
@@ -1521,6 +1569,7 @@ AC_DEFUN([LC_PROG_LINUX], [
 	# 2.6.36
 	LC_FS_STRUCT_RWLOCK
 	LC_SBOPS_EVICT_INODE
+	LC_SBOPS_DROP_INODE_INT
 
 	# 2.6.37
 	LC_KERNEL_LOCKED
@@ -1539,6 +1588,7 @@ AC_DEFUN([LC_PROG_LINUX], [
 	LC_HAVE_FSTYPE_MOUNT
 	LC_IOP_TRUNCATE
 	LC_HAVE_INODE_OWNER_OR_CAPABLE
+	LC_HAVE_SECURITY_IINITSEC
 
 	# 3.0
 	LC_DIRTY_INODE_WITH_FLAG
