@@ -86,31 +86,6 @@ int lod_sub_object_declare_create(const struct lu_env *env,
 }
 
 /**
- * Convert lu_attr from cpu endian to little endian
- *
- * \param[out] dst_attr		holds the convertion result
- * \param[in] src_attr		the attribute to be converted.
- */
-static void lu_attr_cpu_to_le(struct lu_attr *dst_attr,
-			      struct lu_attr *src_attr)
-{
-	dst_attr->la_size = cpu_to_le64(src_attr->la_size);
-	dst_attr->la_mtime = cpu_to_le64(src_attr->la_mtime);
-	dst_attr->la_atime = cpu_to_le64(src_attr->la_atime);
-	dst_attr->la_ctime = cpu_to_le64(src_attr->la_ctime);
-	dst_attr->la_blocks = cpu_to_le64(src_attr->la_blocks);
-	dst_attr->la_mode = cpu_to_le32(src_attr->la_mode);
-	dst_attr->la_uid = cpu_to_le32(src_attr->la_uid);
-	dst_attr->la_gid = cpu_to_le32(src_attr->la_gid);
-	dst_attr->la_flags = cpu_to_le32(src_attr->la_flags);
-	dst_attr->la_nlink = cpu_to_le32(src_attr->la_nlink);
-	dst_attr->la_blkbits = cpu_to_le32(src_attr->la_blkbits);
-	dst_attr->la_blksize = cpu_to_le32(src_attr->la_blksize);
-	dst_attr->la_rdev = cpu_to_le32(src_attr->la_rdev);
-	dst_attr->la_valid = cpu_to_le64(src_attr->la_valid);
-}
-
-/**
  * Create sub-object.
  *
  * Get transaction of next layer, record updates if it belongs to cross-MDT

@@ -229,111 +229,8 @@ struct lod_recovery_data {
 	struct lod_device	*lrd_lod;
 	struct lod_tgt_desc	*lrd_ltd;
 	struct ptlrpc_thread	*lrd_thread;
+	struct update_recovery_data	*lrd_recovery_data;
 };
-
-static struct lod_recovery_update_header*
-lod_lookup_recover_update_header(struct lod_device *lod, __u64 cookie)
-{
-	struct lod_recovery_update_header	*tmp;
-	struct lod_recovery_update_header	*lruh = NULL;
-
-	list_for_each_entry(tmp, &lod->lod_recovery_update_list, lruh_list) {
-		if (tmp->lruh_cookie == cookie) {
-			lruh = tmp;
-			break;
-		}
-	}
-	return lruh;
-}
-
-static struct lod_recovery_update_header*
-lod_create_recovery_update_header(struct lod_device *lod,
-				  struct update_records *record)
-{
-	struct lod_recovery_update_header	*new;
-	struct lod_recovery_update_header	*lruh = NULL;
-	ENTRY;
-
-	OBD_ALLOC_PTR(new);
-	if (new == NULL)
-		RETURN(ERR_PTR(-ENOMEM));
-
-	new->lruh_updates_size = update_records_size(record);
-	OBD_ALLOC(new->lruh_updates, new->lruh_updates_size);
-	if (new->lruh_updates == NULL) {
-		OBD_FREE_PTR(new);
-		RETURN(ERR_PTR(-ENOMEM));
-	}
-
-	memcpy(new->lruh_updates, record, new->lruh_updates_size);
-
-	new->lruh_cookie = record->ur_cookie;
-	new->lruh_transno = record->ur_batchid;
-	spin_lock_init(&new->lruh_list_lock);
-	INIT_LIST_HEAD(&new->lruh_list);
-
-	spin_lock(&lod->lod_recovery_update_lock);
-	lruh = lod_lookup_recover_update_header(lod, record->ur_cookie);
-	if (lruh == NULL) {
-		list_add(&new->lruh_list,
-			 &lod->lod_recovery_update_list);
-		spin_unlock(&lod->lod_recovery_update_lock);
-		lruh = new;
-	} else {
-		spin_unlock(&lod->lod_recovery_update_lock);
-		if (new->lruh_updates != NULL)
-			OBD_FREE(new->lruh_updates, new->lruh_updates_size);
-		OBD_FREE_PTR(new);
-	}
-
-	RETURN(lruh);
-}
-
-struct lod_recovery_update*
-lod_lookup_recovery_update(struct lod_recovery_update_header *lruh,
-			   __u32 mdt_index)
-{
-	struct lod_recovery_update *lru = NULL;
-	struct lod_recovery_update *tmp;
-
-	list_for_each_entry(tmp, &lruh->lruh_list, lru_list) {
-		if (tmp->lru_mdt_index == mdt_index) {
-			lru = tmp;
-			break;
-		}
-	}
-	return lru;
-}
-
-static int lod_add_recovery_update(struct lod_recovery_update_header *lruh,
-				   struct lod_recovery_data *lrd,
-				   struct update_records *records)
-{
-	struct lod_recovery_update *lru = NULL;
-	struct lod_recovery_update *new;
-	ENTRY;
-
-	spin_lock(&lruh->lruh_list_lock);
-	lru = lod_lookup_recovery_update(lruh, lrd->lrd_ltd->ltd_index);
-	spin_unlock(&lruh->lruh_list_lock);
-	if (lru != NULL)
-		RETURN(0);
-
-	OBD_ALLOC_PTR(new);
-	if (new == NULL)
-		RETURN(-ENOMEM);
-
-	INIT_LIST_HEAD(&new->lru_list);
-	new->lru_mdt_index = lrd->lrd_ltd->ltd_index;
-
-	spin_lock(&lruh->lruh_list_lock);
-	lru = lod_lookup_recovery_update(lruh, lrd->lrd_ltd->ltd_index);
-	if (lru == NULL)
-		list_add(&new->lru_list, &lruh->lruh_list);
-	spin_unlock(&lruh->lruh_list_lock);
-
-	RETURN(0);
-}
 
 static int lod_process_recovery_updates(const struct lu_env *env,
 					struct llog_handle *llh,
@@ -341,24 +238,11 @@ static int lod_process_recovery_updates(const struct lu_env *env,
 					void *data)
 {
 	struct lod_recovery_data	*lrd = data;
-	struct lod_device		*lod = lrd->lrd_lod;
-	struct update_records		*record = (struct update_records *)rec;
-	struct lod_recovery_update_header *lruh = NULL;
-	int				 rc;
-	ENTRY;
+	struct update_recovery_data	*urd = lrd->lrd_recovery_data;
 
-	spin_lock(&lod->lod_recovery_update_lock);
-	lruh = lod_lookup_recover_update_header(lod, record->ur_cookie);
-	spin_unlock(&lod->lod_recovery_update_lock);
-	if (lruh == NULL) {
-		lruh = lod_create_recovery_update_header(lod, record);
-		if (IS_ERR(lruh))
-			RETURN(PTR_ERR(lruh));
-	}
-
-	rc = lod_add_recovery_update(lruh, lrd, record);
-
-	RETURN(rc);
+	return insert_update_records_to_recovery_list(urd,
+					(struct update_records *)rec,
+					lrd->lrd_ltd->ltd_index);
 }
 
 static int lod_sub_recovery_thread(void *arg)
@@ -400,6 +284,7 @@ static int lod_sub_recovery_thread(void *arg)
 		GOTO(out, rc);
 
 	lrd->lrd_ltd->ltd_got_update_log = 1;
+	lrd->lrd_recovery_data->urd_got_recovery_updates++;
 
 out:
 	OBD_FREE_PTR(lrd);
@@ -459,6 +344,9 @@ int lod_sub_init_llog(const struct lu_env *env, struct lod_device *lod,
 	lrd->lrd_ltd = sub_ltd;
 	lrd->lrd_thread = thread;
 	init_waitqueue_head(&thread->t_ctl_waitq);
+	lrd->lrd_recovery_data =
+		lod2lu_dev(lod)->ld_site->ls_target->lut_update_recovery_data;
+	LASSERT(lrd->lrd_recovery_data != NULL);
 
 	obd = dt->dd_lu_dev.ld_obd;
 	obd->obd_lvfs_ctxt.dt = dt;
@@ -902,8 +790,6 @@ static int lod_llog_daemon_init(const struct lu_env *env,
 	if (rc < 0)
 		RETURN(rc);
 
-	spin_lock_init(&lod->lod_recovery_update_lock);
-	INIT_LIST_HEAD(&lod->lod_recovery_update_list);
 	/* Init the llog in its own stack */
 	rc = lod_sub_init_llog(env, lod, lod->lod_child);
 	if (rc != 0)

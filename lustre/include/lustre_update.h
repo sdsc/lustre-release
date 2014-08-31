@@ -106,6 +106,22 @@ update_params_get_param(const struct update_params *params, int index)
 	return param;
 }
 
+static inline void*
+update_params_get_param_buf_by_size(const struct update_params *params, int index,
+				    __u16 size)
+{
+	struct object_update_param *param;
+
+	param = update_params_get_param(params, index);
+	if (param == NULL)
+		return NULL;
+
+	if (size != param->oup_len)
+		return (ERR_PTR(-EIO));
+
+	return &param->oup_buf[0];
+}
+
 struct update_op {
 	struct lu_fid uop_fid;
 	__u16	uop_type;
@@ -133,7 +149,6 @@ struct update_ops {
 	struct update_op	uops_op[0];
 };
 
-
 static inline int update_ops_size(const struct update_ops *ops)
 {
 	return ops->uops_size;
@@ -155,7 +170,6 @@ struct update_records {
 	__u32			ur_flags;
 	__u64			ur_batchid;
 	__u64			ur_cookie;
-	__u32			ur_padding;
 	struct update_ops	ur_ops;
 	struct update_params	ur_params;
 	struct llog_rec_tail	ur_tail;

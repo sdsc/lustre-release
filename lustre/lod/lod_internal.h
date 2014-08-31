@@ -151,20 +151,6 @@ struct lod_tgt_descs {
 	struct rw_semaphore	ltd_rw_sem;
 };
 
-struct lod_recovery_update_header {
-	__u64		lruh_cookie;
-	__u64		lruh_transno;
-	void		*lruh_updates;
-	int		lruh_updates_size;
-	struct list_head lruh_list;
-	spinlock_t	 lruh_list_lock;
-};
-
-struct lod_recovery_update {
-	__u32			lru_mdt_index;
-	struct list_head	lru_list;
-};
-
 struct lod_device {
 	struct dt_device      lod_dt_dev;
 	struct obd_export    *lod_child_exp;
@@ -196,8 +182,6 @@ struct lod_device {
 
 	/* Recovery thread for lod_child */
 	struct ptlrpc_thread	lod_child_recovery_thread;
-	spinlock_t		lod_recovery_update_lock;
-	struct list_head	lod_recovery_update_list;
 
 	/* maximum EA size underlied OSD may have */
 	unsigned int	      lod_osd_max_easize;
