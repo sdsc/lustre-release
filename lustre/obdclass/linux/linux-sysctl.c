@@ -288,6 +288,10 @@ int LL_PROC_PROTO(proc_alloc_fail_rate)
 }
 #endif
 
+int LL_PROC_PROTO(proc_bulk_timeout)
+{
+	return proc_dointvec(table, write, buffer, lenp, ppos);
+}
 int LL_PROC_PROTO(proc_at_min)
 {
         return ll_proc_dointvec(table, write, filp, buffer, lenp, ppos);
@@ -401,6 +405,14 @@ static struct ctl_table obd_table[] = {
                 .mode     = 0644,
                 .proc_handler = &proc_max_dirty_pages_in_mb
         },
+	{
+		INIT_CTL_NAME
+		.procname	= "bulk_timeout",
+		.data		= &bulk_timeout,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= &proc_bulk_timeout
+	},
         {
                 INIT_CTL_NAME(OBD_AT_MIN)
                 .procname = "at_min",
