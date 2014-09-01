@@ -1334,8 +1334,8 @@ out:
 static obd_id last_object_id;
 
 static int
-echo_copyin_lsm (struct echo_device *ed, struct lov_stripe_md *lsm,
-		 void __user *ulsm, int ulsm_nob)
+echo_copyin_lsm(struct echo_device *ed, struct lov_stripe_md *lsm,
+		void __user *ulsm, int ulsm_nob)
 {
         struct echo_client_obd *ec = ed->ed_ec;
         int                     i;
