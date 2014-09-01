@@ -2302,6 +2302,9 @@ struct ptlrpc_bulk_desc {
 	lnet_kiov_t            bd_iov[0];
 };
 
+/* bulk transfer timeout */
+#define BULK_TIMEOUT (60 * 10) /* give up after 10min */
+
 enum {
         SVC_STOPPED     = 1 << 0,
         SVC_STOPPING    = 1 << 1,
