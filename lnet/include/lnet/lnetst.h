@@ -242,20 +242,20 @@ typedef struct {
         int                     lstio_ses_force;        /* IN: force create ? */
 	/** IN: session features */
 	unsigned		lstio_ses_feats;
-        lst_sid_t              *lstio_ses_idp;          /* OUT: session id */
+	lst_sid_t __user       *lstio_ses_idp;          /* OUT: session id */
         int                     lstio_ses_nmlen;        /* IN: name length */
 	char __user	       *lstio_ses_namep;        /* IN: session name */
 } lstio_session_new_args_t;
 
 /* query current session */
 typedef struct {
-        lst_sid_t              *lstio_ses_idp;          /* OUT: session id */
-        int                    *lstio_ses_keyp;         /* OUT: local key */
+	lst_sid_t __user       *lstio_ses_idp;          /* OUT: session id */
+	int __user             *lstio_ses_keyp;         /* OUT: local key */
 	/** OUT: session features */
-	unsigned	       *lstio_ses_featp;
-        lstcon_ndlist_ent_t    *lstio_ses_ndinfo;       /* OUT: */
-        int                     lstio_ses_nmlen;        /* IN: name length */
-        char                   *lstio_ses_namep;        /* OUT: session name */
+	unsigned __user	       *lstio_ses_featp;
+	lstcon_ndlist_ent_t __user *lstio_ses_ndinfo;   /* OUT: */
+	int                     lstio_ses_nmlen;        /* IN: name length */
+	char __user            *lstio_ses_namep;        /* OUT: session name */
 } lstio_session_info_args_t;
 
 /* delete a session */
@@ -278,9 +278,9 @@ typedef struct {
         int                     lstio_dbg_nmlen;        /* IN: len of name */
 	char __user	       *lstio_dbg_namep;        /* IN: name of group|batch */
         int                     lstio_dbg_count;        /* IN: # of test nodes to debug */
-        lnet_process_id_t      *lstio_dbg_idsp;         /* IN: id of test nodes */
+	lnet_process_id_t __user *lstio_dbg_idsp;       /* IN: id of test nodes */
 	/* OUT: list head of result buffer */
-	struct list_head       *lstio_dbg_resultp;
+	struct list_head __user *lstio_dbg_resultp;
 } lstio_debug_args_t;
 
 typedef struct {
@@ -306,9 +306,9 @@ typedef struct {
 	int			lstio_grp_nmlen;	/* IN: name length */
 	char __user	       *lstio_grp_namep;	/* IN: group name */
 	int			lstio_grp_count;	/* IN: # of nodes id */
-	lnet_process_id_t	*lstio_grp_idsp;	/* IN: array of nodes */
+	lnet_process_id_t __user *lstio_grp_idsp;	/* IN: array of nodes */
 	/* OUT: list head of result buffer */
-	struct list_head	*lstio_grp_resultp;
+	struct list_head __user	*lstio_grp_resultp;
 } lstio_group_update_args_t;
 
 typedef struct {
@@ -318,9 +318,9 @@ typedef struct {
 	int			 lstio_grp_count;	/* IN: # of nodes */
 	/** OUT: session features */
 	unsigned __user		*lstio_grp_featp;
-	lnet_process_id_t	*lstio_grp_idsp;	/* IN: nodes */
+	lnet_process_id_t __user *lstio_grp_idsp;	/* IN: nodes */
 	/* OUT: list head of result buffer */
-	struct list_head	*lstio_grp_resultp;
+	struct list_head __user	*lstio_grp_resultp;
 } lstio_group_nodes_args_t;
 
 typedef struct {
@@ -334,11 +334,11 @@ typedef struct {
         int                     lstio_grp_key;          /* IN: session key */
         int                     lstio_grp_nmlen;        /* IN: name len */
 	char __user	       *lstio_grp_namep;        /* IN: name */
-        lstcon_ndlist_ent_t    *lstio_grp_entp;         /* OUT: description of group */
+	lstcon_ndlist_ent_t __user *lstio_grp_entp;         /* OUT: description of group */
 
 	int __user	       *lstio_grp_idxp;         /* IN/OUT: node index */
 	int __user	       *lstio_grp_ndentp;       /* IN/OUT: # of nodent */
-        lstcon_node_ent_t      *lstio_grp_dentsp;       /* OUT: nodent array */
+	lstcon_node_ent_t __user *lstio_grp_dentsp;     /* OUT: nodent array */
 } lstio_group_info_args_t;
 
 #define LST_DEFAULT_BATCH       "batch"                 /* default batch name */
@@ -365,7 +365,7 @@ typedef struct {
 	/* IN: batch name */
 	char __user		*lstio_bat_namep;
 	/* OUT: list head of result buffer */
-	struct list_head	*lstio_bat_resultp;
+	struct list_head __user *lstio_bat_resultp;
 } lstio_batch_run_args_t;
 
 typedef struct {
@@ -378,7 +378,7 @@ typedef struct {
 	/* IN: batch name */
 	char __user		*lstio_bat_namep;
 	/* OUT: list head of result buffer */
-	struct list_head	*lstio_bat_resultp;
+	struct list_head __user *lstio_bat_resultp;
 } lstio_batch_stop_args_t;
 
 typedef struct {
@@ -395,7 +395,7 @@ typedef struct {
 	/* IN: batch name */
 	char __user		*lstio_bat_namep;
 	/* OUT: list head of result buffer */
-	struct list_head	*lstio_bat_resultp;
+	struct list_head __user *lstio_bat_resultp;
 } lstio_batch_query_args_t;
 
 typedef struct {
@@ -411,11 +411,11 @@ typedef struct {
 	char __user	       *lstio_bat_namep;        /* IN: name */
         int                     lstio_bat_server;       /* IN: query server or not */
         int                     lstio_bat_testidx;      /* IN: test index */
-        lstcon_test_batch_ent_t *lstio_bat_entp;        /* OUT: batch ent */
+	lstcon_test_batch_ent_t __user *lstio_bat_entp; /* OUT: batch ent */
 
 	int __user	       *lstio_bat_idxp;         /* IN/OUT: index of node */
 	int __user	       *lstio_bat_ndentp;       /* IN/OUT: # of nodent */
-        lstcon_node_ent_t      *lstio_bat_dentsp;       /* array of nodent */
+	lstcon_node_ent_t __user *lstio_bat_dentsp;     /* array of nodent */
 } lstio_batch_info_args_t;
 
 /* add stat in session */
@@ -431,9 +431,9 @@ typedef struct {
 	/* IN: # of pid */
 	int			lstio_sta_count;
 	/* IN: pid */
-	lnet_process_id_t	*lstio_sta_idsp;
+	lnet_process_id_t __user *lstio_sta_idsp;
 	/* OUT: list head of result buffer */
-	struct list_head	*lstio_sta_resultp;
+	struct list_head __user *lstio_sta_resultp;
 } lstio_stat_args_t;
 
 typedef enum {
@@ -470,7 +470,7 @@ typedef struct {
 	/* OUT: private returned value */
 	int __user	        *lstio_tes_retp;
 	/* OUT: list head of result buffer */
-	struct list_head	*lstio_tes_resultp;
+	struct list_head __user *lstio_tes_resultp;
 } lstio_test_args_t;
 
 typedef enum {
