@@ -249,8 +249,7 @@ int cl_sb_fini(struct super_block *sb)
          * mounts, stop device types manually (this usually happens
          * automatically when last device is destroyed).
          */
-        lu_types_stop();
-        RETURN(result);
+	RETURN(result);
 }
 
 /****************************************************************************
