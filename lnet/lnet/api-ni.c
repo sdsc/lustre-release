@@ -1843,8 +1843,8 @@ failed3:
 	LASSERT(rc == 0);
 failed2:
 	lnet_destroy_routes();
-	lnet_shutdown_lndnis();
 failed1:
+	lnet_shutdown_lndnis();
 	lnet_unprepare();
 failed0:
 	LASSERT(rc < 0);
