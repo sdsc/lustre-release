@@ -209,7 +209,8 @@ static int ll_xattr_cache_seq_show(struct seq_file *m, void *v)
 	return seq_printf(m, "%u\n", sbi->ll_xattr_cache_enabled);
 }
 
-static ssize_t ll_xattr_cache_seq_write(struct file *file, const char *buffer,
+static ssize_t ll_xattr_cache_seq_write(struct file *file,
+					const char __user *buffer,
 					size_t count, loff_t *off)
 {
 	struct seq_file *m = file->private_data;
@@ -260,7 +261,7 @@ static int ll_max_readahead_mb_seq_show(struct seq_file *m, void *v)
 }
 
 static ssize_t
-ll_max_readahead_mb_seq_write(struct file *file, const char *buffer,
+ll_max_readahead_mb_seq_write(struct file *file, const char __user *buffer,
 			      size_t count, loff_t *off)
 {
 	struct seq_file *m = file->private_data;
@@ -302,7 +303,8 @@ static int ll_max_readahead_per_file_mb_seq_show(struct seq_file *m, void *v)
 }
 
 static ssize_t
-ll_max_readahead_per_file_mb_seq_write(struct file *file, const char *buffer,
+ll_max_readahead_per_file_mb_seq_write(struct file *file,
+				       const char __user *buffer,
 				       size_t count, loff_t *off)
 {
 	struct seq_file *m = file->private_data;
@@ -345,7 +347,8 @@ static int ll_max_read_ahead_whole_mb_seq_show(struct seq_file *m, void *v)
 }
 
 static ssize_t
-ll_max_read_ahead_whole_mb_seq_write(struct file *file, const char *buffer,
+ll_max_read_ahead_whole_mb_seq_write(struct file *file,
+				     const char __user *buffer,
 				     size_t count, loff_t *off)
 {
 	struct seq_file *m = file->private_data;
@@ -511,7 +514,8 @@ static int ll_checksum_seq_show(struct seq_file *m, void *v)
 	return seq_printf(m, "%u\n", (sbi->ll_flags & LL_SBI_CHECKSUM) ? 1 : 0);
 }
 
-static ssize_t ll_checksum_seq_write(struct file *file, const char *buffer,
+static ssize_t ll_checksum_seq_write(struct file *file,
+				     const char __user *buffer,
 				     size_t count, loff_t *off)
 {
 	struct seq_file *m = file->private_data;
@@ -546,7 +550,8 @@ static int ll_max_rw_chunk_seq_show(struct seq_file *m, void *v)
 	return seq_printf(m, "%lu\n", ll_s2sbi(sb)->ll_max_rw_chunk);
 }
 
-static ssize_t ll_max_rw_chunk_seq_write(struct file *file, const char *buffer,
+static ssize_t ll_max_rw_chunk_seq_write(struct file *file,
+					 const char __user *buffer,
 					 size_t count, loff_t *off)
 {
 	struct seq_file *m = file->private_data;
@@ -575,8 +580,8 @@ static int ll_rd_track_id(struct seq_file *m, enum stats_track_type type)
 	}
 }
 
-static int ll_wr_track_id(const char *buffer, unsigned long count, void *data,
-			  enum stats_track_type type)
+static int ll_wr_track_id(const char __user *buffer, unsigned long count,
+			  void *data, enum stats_track_type type)
 {
 	struct super_block *sb = data;
         int rc, pid;
@@ -598,7 +603,8 @@ static int ll_track_pid_seq_show(struct seq_file *m, void *v)
 	return ll_rd_track_id(m, STATS_TRACK_PID);
 }
 
-static ssize_t ll_track_pid_seq_write(struct file *file, const char *buffer,
+static ssize_t ll_track_pid_seq_write(struct file *file,
+				      const char __user *buffer,
 				      size_t count, loff_t *off)
 {
 	struct seq_file *seq = file->private_data;
@@ -611,7 +617,8 @@ static int ll_track_ppid_seq_show(struct seq_file *m, void *v)
 	return ll_rd_track_id(m, STATS_TRACK_PPID);
 }
 
-static ssize_t ll_track_ppid_seq_write(struct file *file, const char *buffer,
+static ssize_t ll_track_ppid_seq_write(struct file *file,
+				       const char __user *buffer,
 				       size_t count, loff_t *off)
 {
 	struct seq_file *seq = file->private_data;
@@ -624,7 +631,8 @@ static int ll_track_gid_seq_show(struct seq_file *m, void *v)
 	return ll_rd_track_id(m, STATS_TRACK_GID);
 }
 
-static ssize_t ll_track_gid_seq_write(struct file *file, const char *buffer,
+static ssize_t ll_track_gid_seq_write(struct file *file,
+				      const char __user *buffer,
 				      size_t count, loff_t *off)
 {
 	struct seq_file *seq = file->private_data;
@@ -640,7 +648,8 @@ static int ll_statahead_max_seq_show(struct seq_file *m, void *v)
 	return seq_printf(m, "%u\n", sbi->ll_sa_max);
 }
 
-static ssize_t ll_statahead_max_seq_write(struct file *file, const char *buffer,
+static ssize_t ll_statahead_max_seq_write(struct file *file,
+					  const char __user *buffer,
 					  size_t count, loff_t *off)
 {
 	struct seq_file *m = file->private_data;
@@ -670,7 +679,8 @@ static int ll_statahead_agl_seq_show(struct seq_file *m, void *v)
 			  sbi->ll_flags & LL_SBI_AGL_ENABLED ? 1 : 0);
 }
 
-static ssize_t ll_statahead_agl_seq_write(struct file *file, const char *buffer,
+static ssize_t ll_statahead_agl_seq_write(struct file *file,
+					  const char __user *buffer,
 					  size_t count, loff_t *off)
 {
 	struct seq_file *m = file->private_data;
@@ -714,7 +724,8 @@ static int ll_lazystatfs_seq_show(struct seq_file *m, void *v)
 			  (sbi->ll_flags & LL_SBI_LAZYSTATFS) ? 1 : 0);
 }
 
-static ssize_t ll_lazystatfs_seq_write(struct file *file, const char *buffer,
+static ssize_t ll_lazystatfs_seq_write(struct file *file,
+				       const char __user *buffer,
 					size_t count, loff_t *off)
 {
 	struct seq_file *m = file->private_data;
