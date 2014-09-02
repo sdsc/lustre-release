@@ -48,6 +48,9 @@ setupall
 [[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.6.50) ]] &&
 	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 2d 2e 3 22 23 24 25 26 27 28 29 30 31"
 
+[ $(facet_fstype $SINGLEMDS) != ldiskfs ] &&
+	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 1a 1b 4 5 10 25 30 31"
+
 build_test_filter
 
 $LCTL set_param debug=+lfsck > /dev/null || true
@@ -161,9 +164,6 @@ test_0() {
 run_test 0 "Control LFSCK manually"
 
 test_1a() {
-	[ $(facet_fstype $SINGLEMDS) != ldiskfs ] &&
-		skip "OI Scrub not implemented for ZFS" && return
-
 	lfsck_prep 1 1
 
 	#define OBD_FAIL_FID_INDIR	0x1501
@@ -202,9 +202,6 @@ run_test 1a "LFSCK can find out and repair crashed FID-in-dirent"
 
 test_1b()
 {
-	[ $(facet_fstype $SINGLEMDS) != ldiskfs ] &&
-		skip "OI Scrub not implemented for ZFS" && return
-
 	lfsck_prep 1 1
 
 	#define OBD_FAIL_FID_INLMA	0x1502
@@ -466,9 +463,6 @@ run_test 3 "LFSCK can verify multiple-linked objects"
 
 test_4()
 {
-	[ $(facet_fstype $SINGLEMDS) != ldiskfs ] &&
-		skip "OI Scrub not implemented for ZFS" && return
-
 	lfsck_prep 3 3
 	cleanup_mount $MOUNT || error "(0.1) Fail to stop client!"
 	stop $SINGLEMDS > /dev/null || error "(0.2) Fail to stop MDS!"
@@ -524,9 +518,6 @@ run_test 4 "FID-in-dirent can be rebuilt after MDT file-level backup/restore"
 
 test_5()
 {
-	[ $(facet_fstype $SINGLEMDS) != ldiskfs ] &&
-		skip "OI Scrub not implemented for ZFS" && return
-
 	lfsck_prep 1 1 1
 	cleanup_mount $MOUNT || error "(0.1) Fail to stop client!"
 	stop $SINGLEMDS > /dev/null || error "(0.2) Fail to stop MDS!"
@@ -1087,9 +1078,6 @@ run_test 9b "LFSCK speed control (2)"
 
 test_10()
 {
-	[ $(facet_fstype $SINGLEMDS) != ldiskfs ] &&
-		skip "lookup(..)/linkea on ZFS issue" && return
-
 	lfsck_prep 1 1
 
 	echo "Preparing more files with error at $(date)."
@@ -2758,7 +2746,7 @@ test_22a() {
 	echo "#####"
 	echo "The parent_A references the child directory via some name entry,"
 	echo "but the child directory back references another parent_B via its"
-	echo "".." name entry. The parent_A does not exist. Then the namesapce"
+	echo "".." name entry. The parent_B does not exist. Then the namesapce"
 	echo "LFSCK will repair the child directory's ".." name entry."
 	echo "#####"
 
@@ -2807,7 +2795,7 @@ test_22b() {
 	echo "The parent_A references the child directory via the name entry_B,"
 	echo "but the child directory back references another parent_C via its"
 	echo "".." name entry. The parent_C exists, but there is no the name"
-	echo "entry_B under the parent_B. Then the namesapce LFSCK will repair"
+	echo "entry_B under the parent_C. Then the namesapce LFSCK will repair"
 	echo "the child directory's ".." name entry and its linkEA."
 	echo "#####"
 
@@ -2819,8 +2807,8 @@ test_22b() {
 	echo "Inject failure stub on MDT0 to simulate bad dotdot name entry"
 	echo "and bad linkEA. The dummy's dotdot name entry references the"
 	echo "guard. The dummy's linkEA references n non-exist name entry."
-	#define OBD_FAIL_LFSCK_BAD_PARENT2	0x161f
-	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x161f
+	#define OBD_FAIL_LFSCK_BAD_PARENT	0x161e
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x161e
 	$LFS mkdir -i 0 $DIR/$tdir/foo/dummy ||
 		error "(3) Fail to mkdir on MDT0"
 	do_facet $SINGLEMDS $LCTL set_param fail_loc=0
@@ -3065,7 +3053,13 @@ test_24() {
 
 	mkdir $DIR/$tdir/d0/dummy || error "(2) Fail to mkdir dummy"
 	$LFS path2fid $DIR/$tdir/d0/dummy
-	local pfid=$($LFS path2fid $DIR/$tdir/d0/dummy)
+
+	local pfid
+	if [ $(facet_fstype $SINGLEMDS) != ldiskfs ]; then
+		pfid=$($LFS path2fid $DIR/$tdir/d0/guard)
+	else
+		pfid=$($LFS path2fid $DIR/$tdir/d0/dummy)
+	fi
 
 	touch $DIR/$tdir/d0/guard/foo ||
 		error "(3) Fail to touch $DIR/$tdir/d0/guard/foo"
@@ -3082,6 +3076,7 @@ test_24() {
 	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x1622
 	$LFS mkdir -i 0 $DIR/$tdir/d0/dummy/foo ||
 		error "(4) Fail to mkdir $DIR/$tdir/d0/dummy/foo"
+	$LFS path2fid $DIR/$tdir/d0/dummy/foo
 	local cfid=$($LFS path2fid $DIR/$tdir/d0/dummy/foo)
 	rmdir $DIR/$tdir/d0/dummy/foo ||
 		error "(5) Fail to remove $DIR/$tdir/d0/dummy/foo name entry"
@@ -3118,9 +3113,6 @@ test_24() {
 run_test 24 "LFSCK can repair multiple-referenced name entry"
 
 test_25() {
-	[ $(facet_fstype $SINGLEMDS) != ldiskfs ] &&
-		skip "Only support to inject failure on ldiskfs" && return
-
 	echo "#####"
 	echo "The file type in the name entry does not match the file type"
 	echo "claimed by the referenced object. Then the LFSCK will update"
@@ -3637,9 +3629,6 @@ test_29c() {
 run_test 29c "Not verify nlink attr if hark links exceed linkEA limitation"
 
 test_30() {
-	[ $(facet_fstype $SINGLEMDS) != ldiskfs ] &&
-		skip "Only support backend /lost+found for ldiskfs" && return
-
 	echo "#####"
 	echo "The namespace LFSCK will move the orphans from backend"
 	echo "/lost+found directory to normal client visible namespace"
