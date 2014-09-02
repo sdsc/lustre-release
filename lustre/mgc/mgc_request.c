@@ -51,6 +51,9 @@
 
 #include "mgc_internal.h"
 
+static int mgc_process_log(struct obd_device *mgc,
+			   struct config_llog_data *cld);
+
 static int mgc_name2resid(char *name, int len, struct ldlm_res_id *res_id,
                           int type)
 {
@@ -216,10 +219,12 @@ struct config_llog_data *do_config_log_add(struct obd_device *obd,
 	else
 		cld->cld_cfg.cfg_callback = class_config_llog_handler;
 	mutex_init(&cld->cld_lock);
+	init_completion(&cld->cld_received);
 	cld->cld_cfg.cfg_last_idx = 0;
 	cld->cld_cfg.cfg_flags = 0;
 	cld->cld_cfg.cfg_sb = sb;
 	cld->cld_type = type;
+	cld->cld_recover = NULL;
 	atomic_set(&cld->cld_refcount, 1);
 
         /* Keep the mgc around until we are done */
@@ -493,7 +498,6 @@ int lprocfs_mgc_rd_ir_state(struct seq_file *m, void *data)
 /* reenqueue any lost locks */
 #define RQ_RUNNING	0x1
 #define RQ_NOW		0x2
-#define RQ_LATER	0x4
 #define RQ_STOP		0x8
 #define RQ_PRECLEANUP	0x10
 static int                    rq_state = 0;
@@ -544,16 +548,13 @@ static int mgc_requeue_thread(void *data)
 	/* Keep trying failed locks periodically */
 	spin_lock(&config_list_lock);
 	rq_state |= RQ_RUNNING;
+	spin_unlock(&config_list_lock);
 	while (1) {
 		struct l_wait_info lwi;
 		struct config_llog_data *cld, *cld_prev;
 		int rand = cfs_rand() & MGC_TIMEOUT_RAND_CENTISEC;
 		int stopped = !!(rq_state & RQ_STOP);
 		int to;
-
-		/* Any new or requeued lostlocks will change the state */
-		rq_state &= ~(RQ_NOW | RQ_LATER);
-		spin_unlock(&config_list_lock);
 
 		if (first) {
 			first = false;
@@ -580,11 +581,20 @@ static int mgc_requeue_thread(void *data)
                 cld_prev = NULL;
 
 		spin_lock(&config_list_lock);
-		rq_state &= ~RQ_PRECLEANUP;
+		/* Any new or requeued lostlocks will change the state */
+		rq_state &= ~(RQ_NOW | RQ_PRECLEANUP);
 		list_for_each_entry(cld, &config_llog_list,
 					cld_list_chain) {
 			if (!cld->cld_lostlock)
 				continue;
+			if (cld_is_recover(cld)) {
+				struct obd_device *obd;
+				int server_has_ir;
+				obd = cld->cld_mgcexp->exp_obd;
+				server_has_ir = obd->u.cli.cl_mgc_srv_has_ir;
+				if (!server_has_ir)
+					continue;
+			}
 
 			spin_unlock(&config_list_lock);
 
@@ -599,6 +609,11 @@ static int mgc_requeue_thread(void *data)
                         cld->cld_lostlock = 0;
 			if (likely(!stopped))
 				do_requeue(cld);
+
+			mutex_lock(&cld->cld_lock);
+			if (cld->cld_lostlock == 0)
+				complete(&cld->cld_received);
+			mutex_unlock(&cld->cld_lock);
 
 			spin_lock(&config_list_lock);
 		}
@@ -617,7 +632,6 @@ static int mgc_requeue_thread(void *data)
 		lwi = (struct l_wait_info) { 0 };
 		l_wait_event(rq_waitq, rq_state & (RQ_NOW | RQ_STOP),
 			     &lwi);
-		spin_lock(&config_list_lock);
 	}
 	/* spinlock and while guarantee RQ_NOW and RQ_LATER are not set */
 	rq_state &= ~RQ_RUNNING;
@@ -635,9 +649,9 @@ static void mgc_requeue_add(struct config_llog_data *cld)
 {
 	ENTRY;
 
-	CDEBUG(D_INFO, "log %s: requeue (r=%d sp=%d st=%x)\n",
+	CDEBUG(D_INFO, "log %s: requeue (r=%d sp=%d lost=%d st=%x)\n",
 		cld->cld_logname, atomic_read(&cld->cld_refcount),
-		cld->cld_stopping, rq_state);
+		cld->cld_stopping, cld->cld_lostlock, rq_state);
 	LASSERT(atomic_read(&cld->cld_refcount) > 0);
 
 	mutex_lock(&cld->cld_lock);
@@ -655,6 +669,8 @@ static void mgc_requeue_add(struct config_llog_data *cld)
 	if (rq_state & RQ_STOP) {
 		spin_unlock(&config_list_lock);
 		cld->cld_lostlock = 0;
+		cld->cld_rc = -EIO;
+		complete(&cld->cld_received);
 		config_log_put(cld);
 	} else {
 		rq_state |= RQ_NOW;
@@ -1072,7 +1088,6 @@ static int mgc_enqueue(struct obd_export *exp, struct lov_stripe_md *lsm,
 		.ei_cb_cp	= ldlm_completion_ast,
 	};
 	struct ptlrpc_request *req;
-	int short_limit = cld_is_sptlrpc(cld);
 	int rc;
 	ENTRY;
 
@@ -1090,14 +1105,10 @@ static int mgc_enqueue(struct obd_export *exp, struct lov_stripe_md *lsm,
 	req_capsule_set_size(&req->rq_pill, &RMF_DLM_LVB, RCL_SERVER, 0);
         ptlrpc_request_set_replen(req);
 
-        /* check if this is server or client */
-        if (cld->cld_cfg.cfg_sb) {
-                struct lustre_sb_info *lsi = s2lsi(cld->cld_cfg.cfg_sb);
-		if (lsi && IS_SERVER(lsi))
-                        short_limit = 1;
-        }
-        /* Limit how long we will wait for the enqueue to complete */
-        req->rq_delay_limit = short_limit ? 5 : MGC_ENQUEUE_LIMIT;
+	/* retry in next do_requeue() loop */
+	req->rq_no_delay = 1;
+	req->rq_no_resend = 1;
+
         rc = ldlm_cli_enqueue(exp, &req, &einfo, &cld->cld_resid, NULL, flags,
 			      NULL, 0, LVB_T_NONE, lockh, 0);
         /* A failed enqueue should still call the mgc_blocking_ast,
@@ -1322,6 +1333,10 @@ static int mgc_import_event(struct obd_device *obd,
 			ptlrpc_pinger_ir_up();
 		break;
         case IMP_EVENT_OCD:
+		if (OCD_HAS_FLAG(&imp->imp_connect_data, IMP_RECOV))
+			obd->u.cli.cl_mgc_srv_has_ir = 1;
+		else
+			obd->u.cli.cl_mgc_srv_has_ir = 0;
                 break;
         case IMP_EVENT_DEACTIVATE:
         case IMP_EVENT_ACTIVATE:
@@ -1842,7 +1857,8 @@ out_free:
  * This func is called for both clients and servers.
  * Copy the log locally before parsing it if appropriate (non-MGS server)
  */
-int mgc_process_log(struct obd_device *mgc, struct config_llog_data *cld)
+static int mgc_process_log(struct obd_device *mgc,
+			   struct config_llog_data *cld)
 {
         struct lustre_handle lockh = { 0 };
 	__u64 flags = LDLM_FL_NO_LRU;
@@ -1893,6 +1909,9 @@ int mgc_process_log(struct obd_device *mgc, struct config_llog_data *cld)
         } else {
                 rc = mgc_process_cfg_log(mgc, cld, rcl != 0);
         }
+	cld->cld_rc = rc;
+	if (rc == 0)
+		complete(&cld->cld_received);
 
         CDEBUG(D_MGC, "%s: configuration from log '%s' %sed (%d).\n",
                mgc->obd_name, cld->cld_logname, rc ? "fail" : "succeed", rc);
@@ -1972,34 +1991,19 @@ static int mgc_process_config(struct obd_device *obd, obd_count len, void *buf)
                    us to always skip the "inside markers" check */
                 cld->cld_cfg.cfg_flags |= CFG_F_COMPAT146;
 
-                rc = mgc_process_log(obd, cld);
-                if (rc == 0 && cld->cld_recover != NULL) {
-                        if (OCD_HAS_FLAG(&obd->u.cli.cl_import->
-                                         imp_connect_data, IMP_RECOV)) {
-                                rc = mgc_process_log(obd, cld->cld_recover);
-                        } else {
-                                struct config_llog_data *cir = cld->cld_recover;
-                                cld->cld_recover = NULL;
-                                config_log_put(cir);
-                        }
-                        if (rc)
-                                CERROR("Cannot process recover llog %d\n", rc);
-                }
-
-		if (rc == 0 && cld->cld_params != NULL) {
-			rc = mgc_process_log(obd, cld->cld_params);
-			if (rc == -ENOENT) {
-				CDEBUG(D_MGC, "There is no params "
-					      "config file yet\n");
-				rc = 0;
-			}
-			/* params log is optional */
-			if (rc)
-				CERROR("%s: can't process params llog: rc = %d\n",
-				       obd->obd_name, rc);
+		mgc_requeue_add(cld);
+		rc = wait_for_completion_timeout(&cld->cld_received,
+				cfs_time_seconds(2*MGC_ENQUEUE_LIMIT));
+		if (rc == 0) {
+			rc = -ETIMEDOUT;
+		} else {
+			rc = cld->cld_rc;
+			if (rc == 0 && cld->cld_params != NULL)
+				mgc_requeue_add(cld->cld_params);
+			if (rc == 0 && cld->cld_recover != NULL)
+				mgc_requeue_add(cld->cld_recover);
 		}
                 config_log_put(cld);
-
                 break;
         }
         case LCFG_LOG_END: {

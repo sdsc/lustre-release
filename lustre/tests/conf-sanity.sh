@@ -1268,6 +1268,13 @@ test_31() { # bug 10734
 }
 run_test 31 "Connect to non-existent node (shouldn't crash)"
 
+test_31a() {
+	start_mds || error "MDT start failed"
+	start_ost || error "OST start failed"
+	mount -t lustre 4.3.2.1@tcp:$MGSNID:/lustre $MOUNT || \
+		error "client mount faild"
+	cleanup
+}
 
 T32_QID=60000
 T32_BLIMIT=20480 # Kbytes
