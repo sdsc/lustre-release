@@ -12748,6 +12748,66 @@ test_240() {
 }
 run_test 240 "race between ldlm enqueue and the connection RPC (no ASSERT)"
 
+test_241_cleanup() {
+	log "Remount MGS, MDTs and OSTs as read-write..."
+	REFORMAT=$ORIG_REFORMAT
+	MGS_MOUNT_OPTS=$ORIG_MGS_MNTOPTS
+	MDS_MOUNT_OPTS=$ORIG_MDS_MNTOPTS
+	OST_MOUNT_OPTS=$ORIG_OST_MNTOPTS
+	cleanup_and_setup_lustre
+	rm -fr $DIR/$tdir
+	true
+}
+
+test_241() {
+	if [ "$(facet_fstype $SINGLEMDS)" != ldiskfs ]; then
+		skip "Only applicable to ldiskfs-based MDTs"
+		return
+	fi
+
+	mkdir -p $DIR/$tdir || error "fail to mkdir $DIR/$tdir"
+	dd if=/dev/urandom of=$DIR/$tdir/f1 bs=1M count=2 oflag=sync ||
+		error "fail to write $DIR/$tdir/f1"
+	local chksum_old=$(md5sum $DIR/$tdir/f1 | awk '{print $1}')
+
+	log "Remount MGS, MDTs and OSTs as read-only..."
+	ORIG_REFORMAT=$REFORMAT
+	ORIG_MGS_MNTOPTS=$MGS_MOUNT_OPTS
+	ORIG_MDS_MNTOPTS=$MDS_MOUNT_OPTS
+	ORIG_OST_MNTOPTS=$OST_MOUNT_OPTS
+
+	REFORMAT=""
+	MGS_MOUNT_OPTS="-o ro"
+	MDS_MOUNT_OPTS="-o ro"
+	OST_MOUNT_OPTS="-o ro"
+	cleanup_and_setup_lustre
+
+	local chksum_new=$(md5sum $DIR/$tdir/f1 | awk '{print $1}')
+	if [ $chksum_old != $chksum_new ] ; then
+		test_241_cleanup && error "checksum mismatch"
+	fi
+
+	# client will retry io on -EROFS, so this write could take
+	# a bit longer time.
+	dd if=/dev/urandom of=$DIR/$tdir/f1 bs=1M count=1 conv=notrunc \
+		oflag=sync && test_241_cleanup && error "write didn't fail"
+	rm -f $DIR/$tdir/f1 && test_241_cleanup &&
+		error "rm didn't fail"
+	touch $DIR/$tdir/f2 && test_241_cleanup &&
+		error "touch didn't fail"
+	mv $DIR/$tdir/f1 $DIR/$tdir/f2 && test_241_cleanup &&
+       		error "mv didn't fail"
+	chown $RUNAS_ID:$RUNAS_ID $DIR/$tdir/f1 && test_241_cleanup &&
+		error "chown didn't fail"
+	chmod +x $DIR/$tdir/f1 && test_241_cleanup &&
+		error "chmod didn't fail"
+	mkdir $DIR/$tdir/d1 && test_241_cleanup &&
+		error "mkdir didn't fail"
+
+	test_241_cleanup
+}
+run_test 241 "read-only mount option support"
+
 cleanup_test_300() {
 	trap 0
 	umask $SAVE_UMASK

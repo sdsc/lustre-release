@@ -149,7 +149,9 @@ struct osp_device {
 	/* number of changes to sync, used to wake up sync thread */
 	unsigned long			 opd_syn_changes;
 	/* processing of changes from previous mount is done? */
-	int				 opd_syn_prev_done;
+	unsigned int			 opd_syn_prev_done:1,
+	/* if the backend fs is mount as read-only? */
+					 opd_syn_ro_fs:1;
 	/* found records */
 	struct ptlrpc_thread		 opd_syn_thread;
 	wait_queue_head_t		 opd_syn_waitq;
