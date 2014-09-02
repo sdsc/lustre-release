@@ -2537,7 +2537,7 @@ int osd_ea_fid_set(struct osd_thread_info *info, struct inode *inode,
 			     XATTR_CREATE);
 	/* LMA may already exist, but we need to check that all the
 	 * desired compat/incompat flags have been added. */
-	if (unlikely(rc == -EEXIST)) {
+	if (unlikely(rc == -EEXIST || rc == -EROFS)) {
 		if (compat == 0 && incompat == 0)
 			RETURN(0);
 
@@ -5728,11 +5728,12 @@ static int osd_mount(const struct lu_env *env,
 	struct page             *__page;
 	struct file_system_type *type;
 	char                    *options = NULL;
-	char			*str;
+	char			*str, *p;
 	struct osd_thread_info	*info = osd_oti_get(env);
 	struct lu_fid		*fid = &info->oti_fid;
 	struct inode		*inode;
 	int			 rc = 0;
+	bool			 ro = false;
         ENTRY;
 
 	if (o->od_mnt != NULL)
@@ -5755,10 +5756,28 @@ static int osd_mount(const struct lu_env *env,
 	page = (unsigned long)page_address(__page);
 	options = (char *)page;
 	*options = '\0';
-	if (opts == NULL)
+	if (opts == NULL) {
 		strcat(options, "user_xattr,acl");
-	else
+	} else {
 		strcat(options, opts);
+
+		/* 'ro' option isn't an valid ldiskfs mount option,
+		 * we'd trim it before pass the mount options to the
+		 * backend ldiskfs. */
+		p = options;
+		ro = true;
+		if (strcmp(p, "ro") == 0)
+			*p = '\0';
+		else if (strncmp(p, "ro,", 3) == 0)
+			memmove(p, p + 3, strlen(p + 3) + 1);
+		else if ((strlen(p) > 3) && (p += (strlen(p) - 3)) &&
+			 (strcmp(p, ",ro") == 0))
+			*p = '\0';
+		else if ((p = strstr(options, ",ro,")) != NULL)
+			memmove(p, p + 3, strlen(p + 3) + 1);
+		else
+			ro = false;
+	}
 
 	/* Glom up mount options */
 	if (*options != '\0')
@@ -5773,6 +5792,11 @@ static int osd_mount(const struct lu_env *env,
 
 	o->od_mnt = vfs_kern_mount(type, s_flags, dev, options);
 	module_put(type->owner);
+
+	if (ro) {
+		CWARN("%s: mount %s as read-only.\n", name, dev);
+		osd_sb(o)->s_flags |= MS_RDONLY;
+	}
 
 	if (IS_ERR(o->od_mnt)) {
 		rc = PTR_ERR(o->od_mnt);
