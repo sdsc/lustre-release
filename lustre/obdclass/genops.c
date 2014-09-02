@@ -1099,6 +1099,7 @@ EXPORT_SYMBOL(class_new_import);
 
 void class_destroy_import(struct obd_import *import)
 {
+	ENTRY;
 	LASSERT(import != NULL);
 	LASSERT(import != LP_POISON);
 
