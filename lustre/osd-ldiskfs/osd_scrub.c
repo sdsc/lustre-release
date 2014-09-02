@@ -114,7 +114,8 @@ static int osd_scrub_refresh_mapping(struct osd_thread_info *info,
 		rc = PTR_ERR(th);
 		CDEBUG(D_LFSCK, "%s: fail to start trans for scrub op %d "
 		       DFID" => %u/%u: rc = %d\n", osd_name(dev), ops,
-		       PFID(fid), id->oii_ino, id->oii_gen, rc);
+		       PFID(fid), id ? id->oii_ino : 0, id ? id->oii_gen : 0,
+		       rc);
 		RETURN(rc);
 	}
 
@@ -2345,6 +2346,10 @@ int osd_scrub_setup(const struct lu_env *env, struct osd_device *dev)
 
 	push_ctxt(&saved, ctxt);
 	filp = filp_open(osd_scrub_name, O_RDWR | O_CREAT, 0644);
+	if (PTR_ERR(filp) == -EROFS) {
+		/* Try to open it in rdonly mode. */
+		filp = filp_open(osd_scrub_name, O_RDONLY, 0644);
+	}
 	if (IS_ERR(filp)) {
 		pop_ctxt(&saved, ctxt);
 		RETURN(PTR_ERR(filp));

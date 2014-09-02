@@ -1507,8 +1507,8 @@ static int ofd_orphans_destroy(const struct lu_env *env,
 		if (rc != 0 && rc != -ENOENT && rc != -ESTALE &&
 		    likely(rc != -EREMCHG && rc != -EINPROGRESS))
 			/* this is pretty fatal... */
-			CEMERG("%s: error destroying precreated id "
-			       DFID": rc = %d\n",
+			CDEBUG(rc == -EROFS ? D_INFO : D_EMERG, "%s: error "
+			       "destroying precreated id "DFID": rc = %d\n",
 			       ofd_name(ofd), PFID(fid), rc);
 
 		oid--;

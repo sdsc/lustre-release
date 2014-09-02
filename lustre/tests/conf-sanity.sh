@@ -5302,6 +5302,69 @@ test_84() {
 }
 run_test 84 "check recovery_hard_time"
 
+test_85_cleanup() {
+	trap 0
+	MGS_MOUNT_OPTS=$ORIG_MGS_MNTOPTS
+	MDS_MOUNT_OPTS=$ORIG_MDS_MNTOPTS
+	OST_MOUNT_OPTS=$ORIG_OST_MNTOPTS
+	reformat
+	true
+}
+
+test_85() {
+	if [ "$(facet_fstype $SINGLEMDS)" != ldiskfs ]; then
+		skip "Only applicable to ldiskfs-based MDTs"
+		return
+	fi
+
+	setup
+	mkdir -p $DIR/$tdir || error "fail to mkdir $DIR/$tdir"
+	dd if=/dev/urandom of=$DIR/$tdir/f1 bs=1M count=2 oflag=sync ||
+		error "fail to write $DIR/$tdir/f1"
+	local chksum_old=$(md5sum $DIR/$tdir/f1 | awk '{print $1}')
+
+	log "Remount MGS, MDTs and OSTs as read-only..."
+	ORIG_MGS_MNTOPTS=$MGS_MOUNT_OPTS
+	ORIG_MDS_MNTOPTS=$MDS_MOUNT_OPTS
+	ORIG_OST_MNTOPTS=$OST_MOUNT_OPTS
+
+	MGS_MOUNT_OPTS="-o ro"
+	MDS_MOUNT_OPTS="-o ro"
+	OST_MOUNT_OPTS="-o ro"
+	umount_client $MOUNT
+	stop_ost
+	stop_mds
+	if ! combined_mgs_mds ; then
+		stop_mgs
+		start_mgs || error "unable to start MGS"
+	fi
+	start_ost || error "unable to start OST1"
+	start_mds || error "MDS start failed"
+	wait_osc_import_state mds ost FULL
+	mount_client $MOUNT
+
+	trap test_85_cleanup EXIT
+
+	local chksum_new=$(md5sum $DIR/$tdir/f1 | awk '{print $1}')
+	if [ $chksum_old != $chksum_new ] ; then
+		error "checksum mismatch"
+	fi
+
+	# client will retry io on -EROFS, so this write could take
+	# a bit longer time.
+	dd if=/dev/urandom of=$DIR/$tdir/f1 bs=1M count=1 conv=notrunc \
+		oflag=sync && error "write didn't fail"
+	rm -f $DIR/$tdir/f1 && error "rm didn't fail"
+	touch $DIR/$tdir/f2 && error "touch didn't fail"
+	mv $DIR/$tdir/f1 $DIR/$tdir/f2 && error "mv didn't fail"
+	chown $RUNAS_ID:$RUNAS_ID $DIR/$tdir/f1 && error "chown didn't fail"
+	chmod +x $DIR/$tdir/f1 && error "chmod didn't fail"
+	mkdir $DIR/$tdir/d1 && error "mkdir didn't fail"
+
+	test_85_cleanup
+}
+run_test 85 "read-only mount option support"
+
 if ! combined_mgs_mds ; then
 	stop mgs
 fi

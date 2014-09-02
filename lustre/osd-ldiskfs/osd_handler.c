@@ -2554,7 +2554,7 @@ int osd_ea_fid_set(struct osd_thread_info *info, struct inode *inode,
 			     XATTR_CREATE);
 	/* LMA may already exist, but we need to check that all the
 	 * desired compat/incompat flags have been added. */
-	if (unlikely(rc == -EEXIST)) {
+	if (unlikely(rc == -EEXIST || rc == -EROFS)) {
 		if (compat == 0 && incompat == 0)
 			RETURN(0);
 
@@ -5952,6 +5952,9 @@ static int osd_mount(const struct lu_env *env,
 
 	o->od_mnt = vfs_kern_mount(type, s_flags, dev, options);
 	module_put(type->owner);
+
+	if (osd_sb(o)->s_flags & MS_RDONLY)
+		CWARN("%s: mount %s as read-only.\n", name, dev);
 
 	if (IS_ERR(o->od_mnt)) {
 		rc = PTR_ERR(o->od_mnt);

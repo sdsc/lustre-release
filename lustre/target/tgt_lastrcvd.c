@@ -197,6 +197,9 @@ out:
 	CDEBUG(D_INFO, "%s: update last_rcvd client data for UUID = %s, "
 	       "last_transno = "LPU64": rc = %d\n", tgt->lut_obd->obd_name,
 	       tgt->lut_lsd.lsd_uuid, tgt->lut_lsd.lsd_last_transno, rc);
+	/* supress errors when backend is mount as read-only. */
+	if (rc == -EROFS)
+		rc = 0;
 
 	return rc;
 }
@@ -288,6 +291,9 @@ out:
 	CDEBUG(D_INFO, "%s: update last_rcvd server data for UUID = %s, "
 	       "last_transno = "LPU64": rc = %d\n", tgt->lut_obd->obd_name,
 	       tgt->lut_lsd.lsd_uuid, tgt->lut_lsd.lsd_last_transno, rc);
+	/* supress errors when backend is mount as read-only. */
+	if (rc == -EROFS)
+		rc = 0;
 	RETURN(rc);
 }
 EXPORT_SYMBOL(tgt_server_data_update);
