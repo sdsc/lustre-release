@@ -266,11 +266,15 @@ int osp_sync_declare_add(const struct lu_env *env, struct osp_object *o,
 	th->th_tags |= LCT_OSP_THREAD;
 
 	ctxt = llog_get_context(d->opd_obd, LLOG_MDS_OST_ORIG_CTXT);
-	LASSERT(ctxt);
+	/* read-only fs is the only reason that we failed to get ctxt */
+	if (ctxt == NULL) {
+		rc = -EROFS;
+		GOTO(out, rc);
+	}
 
 	rc = llog_declare_add(env, ctxt->loc_handle, &osi->osi_hdr, th);
 	llog_ctxt_put(ctxt);
-
+out:
 	RETURN(rc);
 }
 
@@ -342,8 +346,11 @@ static int osp_sync_add_rec(const struct lu_env *env, struct osp_device *d,
 	osi->osi_hdr.lrh_id = txn->oti_current_id;
 
 	ctxt = llog_get_context(d->opd_obd, LLOG_MDS_OST_ORIG_CTXT);
-	if (ctxt == NULL)
-		RETURN(-ENOMEM);
+	/* read-only fs is the only reason that we failed to get ctxt */
+	if (ctxt == NULL) {
+		rc = -EROFS;
+		GOTO(out, rc);
+	}
 
 	rc = llog_add(env, ctxt->loc_handle, &osi->osi_hdr, &osi->osi_cookie,
 		      th);
@@ -358,9 +365,10 @@ static int osp_sync_add_rec(const struct lu_env *env, struct osp_device *d,
 		spin_lock(&d->opd_syn_lock);
 		d->opd_syn_changes++;
 		spin_unlock(&d->opd_syn_lock);
+		rc = 0;
 	}
-	/* return 0 always here, error case just cause no llog record */
-	RETURN(0);
+out:
+	RETURN(rc);
 }
 
 int osp_sync_add(const struct lu_env *env, struct osp_object *o,
@@ -1187,6 +1195,7 @@ static int osp_sync_thread(void *_arg)
 	struct obd_device	*obd = d->opd_obd;
 	struct llog_handle	*llh;
 	struct lu_env		 env;
+	struct dt_device_param	*param;
 	int			 rc, count;
 
 	ENTRY;
@@ -1214,6 +1223,16 @@ static int osp_sync_thread(void *_arg)
 		CERROR("can't get llh\n");
 		llog_ctxt_put(ctxt);
 		GOTO(out, rc = -EINVAL);
+	}
+
+	OBD_ALLOC_PTR(param);
+	if (param != NULL) {
+		dt_conf_get(NULL, d->opd_storage, param);
+		if (param->ddp_rdonly) {
+			OBD_FREE_PTR(param);
+			GOTO(out_close, rc = 0);
+		}
+		OBD_FREE_PTR(param);
 	}
 
 	rc = llog_cat_process(&env, llh, osp_sync_process_queues, d, 0, 0);
@@ -1246,6 +1265,7 @@ static int osp_sync_thread(void *_arg)
 
 	}
 
+out_close:
 	llog_cat_close(&env, llh);
 	rc = llog_cleanup(&env, ctxt);
 	if (rc)
@@ -1257,7 +1277,9 @@ out:
 		 d->opd_syn_rpc_in_flight,
 		 list_empty(&d->opd_syn_committed_there) ? "" : "!");
 
+	spin_lock(&d->opd_syn_lock);
 	thread->t_flags = SVC_STOPPED;
+	spin_unlock(&d->opd_syn_lock);
 
 	wake_up(&thread->t_ctl_waitq);
 
@@ -1288,6 +1310,7 @@ static int osp_sync_llog_init(const struct lu_env *env, struct osp_device *d)
 	struct obd_device	*obd = d->opd_obd;
 	struct llog_ctxt	*ctxt;
 	int			rc;
+	bool			put = false;
 
 	ENTRY;
 
@@ -1338,10 +1361,12 @@ static int osp_sync_llog_init(const struct lu_env *env, struct osp_device *d)
 		rc = llog_open(env, ctxt, &lgh, &osi->osi_cid.lci_logid, NULL,
 			       LLOG_OPEN_EXISTS);
 		/* re-create llog if it is missing */
-		if (rc == -ENOENT)
+		if (rc == -ENOENT) {
 			logid_set_id(&osi->osi_cid.lci_logid, 0);
-		else if (rc < 0)
+			put = true;
+		} else if (rc < 0) {
 			GOTO(out_cleanup, rc);
+		}
 	}
 
 	if (unlikely(logid_id(&osi->osi_cid.lci_logid) == 0)) {
@@ -1349,6 +1374,7 @@ static int osp_sync_llog_init(const struct lu_env *env, struct osp_device *d)
 		if (rc < 0)
 			GOTO(out_cleanup, rc);
 		osi->osi_cid.lci_logid = lgh->lgh_id;
+		put = true;
 	}
 
 	LASSERT(lgh != NULL);
@@ -1358,10 +1384,12 @@ static int osp_sync_llog_init(const struct lu_env *env, struct osp_device *d)
 	if (rc)
 		GOTO(out_close, rc);
 
-	rc = llog_osd_put_cat_list(env, d->opd_storage, d->opd_index, 1,
-				   &osi->osi_cid, fid);
-	if (rc)
-		GOTO(out_close, rc);
+	if (put) {
+		rc = llog_osd_put_cat_list(env, d->opd_storage, d->opd_index,
+					   1, &osi->osi_cid, fid);
+		if (rc)
+			GOTO(out_close, rc);
+	}
 
 	/*
 	 * put a mark in the llog till which we'll be processing
@@ -1377,8 +1405,11 @@ static int osp_sync_llog_init(const struct lu_env *env, struct osp_device *d)
 	       sizeof(osi->osi_gen.lgr_gen));
 
 	rc = llog_cat_add(env, lgh, &osi->osi_gen.lgr_hdr, &osi->osi_cookie);
-	if (rc < 0)
+	if (unlikely(rc == -EROFS)) {
+		rc = 0;
+	} else if (rc < 0) {
 		GOTO(out_close, rc);
+	}
 	llog_ctxt_put(ctxt);
 	RETURN(0);
 out_close:
@@ -1450,6 +1481,7 @@ int osp_sync_init(const struct lu_env *env, struct osp_device *d)
 	init_waitqueue_head(&d->opd_syn_waitq);
 	init_waitqueue_head(&d->opd_syn_barrier_waitq);
 	init_waitqueue_head(&d->opd_syn_thread.t_ctl_waitq);
+	d->opd_syn_thread.t_flags = SVC_STOPPED;
 	INIT_LIST_HEAD(&d->opd_syn_committed_there);
 
 	task = kthread_run(osp_sync_thread, d, "osp-syn-%u-%u",
@@ -1487,9 +1519,15 @@ int osp_sync_fini(struct osp_device *d)
 
 	ENTRY;
 
-	thread->t_flags = SVC_STOPPING;
-	wake_up(&d->opd_syn_waitq);
-	wait_event(thread->t_ctl_waitq, thread->t_flags & SVC_STOPPED);
+	spin_lock(&d->opd_syn_lock);
+	if (thread->t_flags != SVC_STOPPED) {
+		thread->t_flags = SVC_STOPPING;
+		spin_unlock(&d->opd_syn_lock);
+		wake_up(&d->opd_syn_waitq);
+		wait_event(thread->t_ctl_waitq, thread->t_flags & SVC_STOPPED);
+	} else {
+		spin_unlock(&d->opd_syn_lock);
+	}
 
 	/*
 	 * unregister transaction callbacks only when sync thread

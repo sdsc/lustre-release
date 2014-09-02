@@ -237,7 +237,8 @@ struct osd_device {
 				  od_igif_inoi:1,
 				  od_check_ff:1,
 				  od_is_ost:1,
-				  od_index_in_idif:1;
+				  od_index_in_idif:1,
+				  od_rdonly:1;
 
 	unsigned long		  od_capa_timeout;
 	__u32			  od_capa_alg;

@@ -155,8 +155,8 @@ extern struct lu_device_type osc_device_type;
 
 static inline int osc_recoverable_error(int rc)
 {
-        return (rc == -EIO || rc == -EROFS || rc == -ENOMEM ||
-                rc == -EAGAIN || rc == -EINPROGRESS);
+	return (rc == -EIO || rc == -ENOMEM || rc == -EAGAIN ||
+		rc == -EINPROGRESS);
 }
 
 static inline unsigned long rpcs_in_flight(struct client_obd *cli)

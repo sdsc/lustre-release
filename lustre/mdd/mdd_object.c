@@ -709,6 +709,9 @@ static int mdd_changelog(const struct lu_env *env, enum changelog_rec_type type,
         int rc;
         ENTRY;
 
+	if (mdd->mdd_dt_conf.ddp_rdonly)
+		RETURN(-EROFS);
+
         handle = mdd_trans_create(env, mdd);
         if (IS_ERR(handle))
 		RETURN(PTR_ERR(handle));
@@ -853,6 +856,9 @@ int mdd_attr_set(const struct lu_env *env, struct md_object *obj,
 	LASSERT((ma->ma_valid & MA_LOV) == 0);
 	LASSERT((ma->ma_valid & MA_HSM) == 0);
 	LASSERT((ma->ma_valid & MA_SOM) == 0);
+
+	if (mdd->mdd_dt_conf.ddp_rdonly)
+		RETURN(-EROFS);
 
 	rc = mdd_la_get(env, mdd_obj, attr, BYPASS_CAPA);
 	if (rc)
@@ -1033,6 +1039,9 @@ static int mdd_xattr_set(const struct lu_env *env, struct md_object *obj,
 	int			 rc;
 	ENTRY;
 
+	if (mdd->mdd_dt_conf.ddp_rdonly)
+		RETURN(-EROFS);
+
 	rc = mdd_la_get(env, mdd_obj, attr, BYPASS_CAPA);
 	if (rc)
 		RETURN(rc);
@@ -1140,6 +1149,9 @@ static int mdd_xattr_del(const struct lu_env *env, struct md_object *obj,
 	struct thandle *handle;
 	int  rc;
 	ENTRY;
+
+	if (mdd->mdd_dt_conf.ddp_rdonly)
+		RETURN(-EROFS);
 
 	rc = mdd_la_get(env, mdd_obj, attr, BYPASS_CAPA);
 	if (rc)
@@ -2033,6 +2045,9 @@ out_unlock:
 static int mdd_object_sync(const struct lu_env *env, struct md_object *obj)
 {
 	struct mdd_object *mdd_obj = md2mdd_obj(obj);
+
+	if (mdo2mdd(obj)->mdd_dt_conf.ddp_rdonly)
+		return -EROFS;
 
 	if (mdd_object_exists(mdd_obj) == 0) {
 		int rc = -ENOENT;

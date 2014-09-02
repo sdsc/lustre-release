@@ -1082,9 +1082,20 @@ static int osp_precreate_thread(void *_arg)
 	struct ptlrpc_thread	*thread = &d->opd_pre_thread;
 	struct l_wait_info	 lwi = { 0 };
 	struct lu_env		 env;
+	struct dt_device_param	*param;
 	int			 rc;
 
 	ENTRY;
+
+	OBD_ALLOC_PTR(param);
+	if (param != NULL) {
+		dt_conf_get(NULL, d->opd_storage, param);
+		if (param->ddp_rdonly) {
+			OBD_FREE_PTR(param);
+			RETURN(0);
+		}
+		OBD_FREE_PTR(param);
+	}
 
 	rc = lu_env_init(&env, d->opd_dt_dev.dd_lu_dev.ld_type->ldt_ctx_tags);
 	if (rc) {
@@ -1195,7 +1206,9 @@ static int osp_precreate_thread(void *_arg)
 		}
 	}
 
+	spin_lock(&d->opd_pre_lock);
 	thread->t_flags = SVC_STOPPED;
+	spin_unlock(&d->opd_pre_lock);
 	lu_env_fini(&env);
 	wake_up(&thread->t_ctl_waitq);
 
@@ -1553,6 +1566,7 @@ int osp_init_precreate(struct osp_device *d)
 	init_waitqueue_head(&d->opd_pre_waitq);
 	init_waitqueue_head(&d->opd_pre_user_waitq);
 	init_waitqueue_head(&d->opd_pre_thread.t_ctl_waitq);
+	d->opd_pre_thread.t_flags = SVC_STOPPED;
 
 	/*
 	 * Initialize statfs-related things
@@ -1603,10 +1617,16 @@ void osp_precreate_fini(struct osp_device *d)
 
 	thread = &d->opd_pre_thread;
 
-	thread->t_flags = SVC_STOPPING;
-	wake_up(&d->opd_pre_waitq);
-
-	wait_event(thread->t_ctl_waitq, thread->t_flags & SVC_STOPPED);
+	spin_lock(&d->opd_pre_lock);
+	if (thread->t_flags != SVC_STOPPED) {
+		thread->t_flags = SVC_STOPPING;
+		spin_unlock(&d->opd_pre_lock);
+		wake_up(&d->opd_pre_waitq);
+		wait_event(thread->t_ctl_waitq,
+			   thread->t_flags & SVC_STOPPED);
+	} else {
+		spin_unlock(&d->opd_pre_lock);
+	}
 
 	OBD_FREE_PTR(d->opd_pre);
 	d->opd_pre = NULL;

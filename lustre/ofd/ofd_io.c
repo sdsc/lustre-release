@@ -533,6 +533,9 @@ static int ofd_preprw_write(const struct lu_env *env, struct obd_export *exp,
 	LASSERT(env != NULL);
 	LASSERT(objcount == 1);
 
+	if (ofd->ofd_dt_conf.ddp_rdonly)
+		RETURN(-EROFS);
+
 	if (unlikely(exp->exp_obd->obd_recovering)) {
 		u64 seq = fid_seq(fid);
 		u64 oid = fid_oid(fid);

@@ -1665,7 +1665,6 @@ static int osd_start(struct lustre_sb_info *lsi, unsigned long mflags)
 {
 	struct lustre_mount_data *lmd = lsi->lsi_lmd;
 	struct obd_device	 *obd;
-	struct dt_device_param    p;
 	char			  flagstr[16];
 	int			  rc;
 	ENTRY;
@@ -1721,8 +1720,6 @@ static int osd_start(struct lustre_sb_info *lsi, unsigned long mflags)
 	/* set disk context for llog usage */
 	OBD_SET_CTXT_MAGIC(&obd->obd_lvfs_ctxt);
 	obd->obd_lvfs_ctxt.dt = lsi->lsi_dt_dev;
-
-	dt_conf_get(NULL, lsi->lsi_dt_dev, &p);
 out:
 	RETURN(rc);
 }

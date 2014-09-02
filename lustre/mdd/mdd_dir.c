@@ -1253,6 +1253,9 @@ static int mdd_link(const struct lu_env *env, struct md_object *tgt_obj,
 	int rc;
 	ENTRY;
 
+	if (mdd->mdd_dt_conf.ddp_rdonly)
+		RETURN(-EROFS);
+
 	rc = mdd_la_get(env, mdd_sobj, cattr, BYPASS_CAPA);
 	if (rc != 0)
 		RETURN(rc);
@@ -1571,6 +1574,9 @@ static int mdd_unlink(const struct lu_env *env, struct md_object *pobj,
 	int rc, is_dir = 0;
 	ENTRY;
 
+	if (mdd->mdd_dt_conf.ddp_rdonly)
+		RETURN(-EROFS);
+
 	/* cobj == NULL means only delete name entry */
 	if (likely(cobj != NULL)) {
 		mdd_cobj = md2mdd_obj(cobj);
@@ -1733,6 +1739,9 @@ static int mdd_create_data(const struct lu_env *env, struct md_object *pobj,
 	struct dt_allocation_hint *hint = &mdd_env_info(env)->mti_hint;
 	int		   rc;
 	ENTRY;
+
+	if (mdd->mdd_dt_conf.ddp_rdonly)
+		RETURN(-EROFS);
 
 	rc = mdd_cd_sanity_check(env, son);
 	if (rc)
@@ -2274,6 +2283,9 @@ static int mdd_create(const struct lu_env *env, struct md_object *pobj,
 	int			 rc2;
 	ENTRY;
 
+	if (mdd->mdd_dt_conf.ddp_rdonly)
+		RETURN(-EROFS);
+
         /*
          * Two operations have to be performed:
          *
@@ -2688,6 +2700,9 @@ static int mdd_rename(const struct lu_env *env,
 	unsigned cl_flags = 0;
 	int rc, rc2;
 	ENTRY;
+
+	if (mdd->mdd_dt_conf.ddp_rdonly)
+		RETURN(-EROFS);
 
 	if (tobj)
 		mdd_tobj = md2mdd_obj(tobj);
@@ -4022,8 +4037,11 @@ static int mdd_migrate(const struct lu_env *env, struct md_object *pobj,
 	struct lu_attr		*so_attr = MDD_ENV_VAR(env, cattr);
 	struct lu_attr		*pattr = MDD_ENV_VAR(env, pattr);
 	int			rc;
-
 	ENTRY;
+
+	if (mdd->mdd_dt_conf.ddp_rdonly)
+		RETURN(-EROFS);
+
 	/* If the file will being migrated, it will check whether
 	 * the file is being opened by someone else right now */
 	mdd_read_lock(env, mdd_sobj, MOR_SRC_CHILD);

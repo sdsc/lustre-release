@@ -183,8 +183,10 @@ static int ofd_parse_connect_data(const struct lu_env *env,
 	}
 
 	if (data->ocd_connect_flags & OBD_CONNECT_GRANT)
-		data->ocd_grant = ofd_grant_connect(env, exp, data->ocd_grant,
-						    new_connection);
+		data->ocd_grant =
+			(data->ocd_connect_flags & OBD_CONNECT_RDONLY) ?
+			0 : ofd_grant_connect(env, exp, data->ocd_grant,
+					      new_connection);
 
 	if (data->ocd_connect_flags & OBD_CONNECT_INDEX) {
 		struct lr_server_data *lsd = &ofd->ofd_lut.lut_lsd;

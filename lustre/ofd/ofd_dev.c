@@ -1370,10 +1370,12 @@ static int ofd_setattr_hdl(struct tgt_session_info *tsi)
 	struct ofd_object	*fo;
 	struct filter_fid	*ff = NULL;
 	int			 rc = 0;
-
 	ENTRY;
 
 	LASSERT(body != NULL);
+
+	if (ofd->ofd_dt_conf.ddp_rdonly)
+		RETURN(-EROFS);
 
 	repbody = req_capsule_server_get(tsi->tsi_pill, &RMF_OST_BODY);
 	if (repbody == NULL)
@@ -1504,8 +1506,8 @@ static int ofd_orphans_destroy(const struct lu_env *env,
 		if (rc != 0 && rc != -ENOENT && rc != -ESTALE &&
 		    likely(rc != -EREMCHG && rc != -EINPROGRESS))
 			/* this is pretty fatal... */
-			CEMERG("%s: error destroying precreated id "
-			       DFID": rc = %d\n",
+			CDEBUG(rc == -EROFS ? D_INFO : D_EMERG, "%s: error "
+			       "destroying precreated id "DFID": rc = %d\n",
 			       ofd_name(ofd), PFID(fid), rc);
 
 		oid--;
@@ -1567,6 +1569,9 @@ static int ofd_create_hdl(struct tgt_session_info *tsi)
 	ENTRY;
 
 	if (OBD_FAIL_CHECK(OBD_FAIL_OST_EROFS))
+		RETURN(-EROFS);
+
+	if (ofd->ofd_dt_conf.ddp_rdonly)
 		RETURN(-EROFS);
 
 	repbody = req_capsule_server_get(tsi->tsi_pill, &RMF_OST_BODY);
@@ -1822,10 +1827,12 @@ static int ofd_destroy_hdl(struct tgt_session_info *tsi)
 	u64			 oid;
 	u32			 count;
 	int			 rc = 0;
-
 	ENTRY;
 
 	if (OBD_FAIL_CHECK(OBD_FAIL_OST_EROFS))
+		RETURN(-EROFS);
+
+	if (ofd->ofd_dt_conf.ddp_rdonly)
 		RETURN(-EROFS);
 
 	/* This is old case for clients before Lustre 2.4 */
@@ -1943,8 +1950,10 @@ static int ofd_sync_hdl(struct tgt_session_info *tsi)
 	struct ofd_device	*ofd = ofd_exp(tsi->tsi_exp);
 	struct ofd_object	*fo = NULL;
 	int			 rc = 0;
-
 	ENTRY;
+
+	if (ofd->ofd_dt_conf.ddp_rdonly)
+		RETURN(-EROFS);
 
 	repbody = req_capsule_server_get(tsi->tsi_pill, &RMF_OST_BODY);
 
@@ -1999,6 +2008,7 @@ static int ofd_punch_hdl(struct tgt_session_info *tsi)
 	const struct obdo	*oa = &tsi->tsi_ost_body->oa;
 	struct ost_body		*repbody;
 	struct ofd_thread_info	*info = tsi2ofd_info(tsi);
+	struct ofd_device	*ofd = ofd_exp(tsi->tsi_exp);
 	struct ldlm_namespace	*ns = tsi->tsi_tgt->lut_obd->obd_namespace;
 	struct ldlm_resource	*res;
 	struct ofd_object	*fo;
@@ -2008,8 +2018,10 @@ static int ofd_punch_hdl(struct tgt_session_info *tsi)
 	int			 rc;
 	__u64			 start, end;
 	bool			 srvlock;
-
 	ENTRY;
+
+	if (ofd->ofd_dt_conf.ddp_rdonly)
+		RETURN(-EROFS);
 
 	/* check that we do support OBD_CONNECT_TRUNCLOCK. */
 	CLASSERT(OST_CONNECT_SUPPORTED & OBD_CONNECT_TRUNCLOCK);

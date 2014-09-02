@@ -114,7 +114,8 @@ static int osd_scrub_refresh_mapping(struct osd_thread_info *info,
 		rc = PTR_ERR(th);
 		CDEBUG(D_LFSCK, "%s: fail to start trans for scrub op %d "
 		       DFID" => %u/%u: rc = %d\n", osd_name(dev), ops,
-		       PFID(fid), id->oii_ino, id->oii_gen, rc);
+		       PFID(fid), id ? id->oii_ino : 0, id ? id->oii_gen : 0,
+		       rc);
 		RETURN(rc);
 	}
 
@@ -2360,7 +2361,7 @@ int osd_scrub_setup(const struct lu_env *env, struct osd_device *dev)
 	struct file		   *filp;
 	struct inode		   *inode;
 	struct lu_fid		   *fid    = &info->oti_fid;
-	int			    dirty  = 0;
+	int			    dirty  = 0, open_flags;
 	int			    rc     = 0;
 	ENTRY;
 
@@ -2376,7 +2377,8 @@ int osd_scrub_setup(const struct lu_env *env, struct osd_device *dev)
 	INIT_LIST_HEAD(&scrub->os_inconsistent_items);
 
 	push_ctxt(&saved, ctxt);
-	filp = filp_open(osd_scrub_name, O_RDWR | O_CREAT, 0644);
+	open_flags = dev->od_rdonly ? O_RDONLY : (O_RDWR | O_CREAT);
+	filp = filp_open(osd_scrub_name, open_flags, 0644);
 	if (IS_ERR(filp)) {
 		pop_ctxt(&saved, ctxt);
 		RETURN(PTR_ERR(filp));
@@ -2468,7 +2470,7 @@ int osd_scrub_setup(const struct lu_env *env, struct osd_device *dev)
 		 * later if found that the system is upgrading. */
 		dev->od_igif_inoi = 1;
 
-	if (!dev->od_noscrub &&
+	if (!dev->od_noscrub && !dev->od_rdonly &&
 	    ((sf->sf_status == SS_PAUSED) ||
 	     (sf->sf_status == SS_CRASHED &&
 	      sf->sf_flags & (SF_RECREATED | SF_INCONSISTENT |

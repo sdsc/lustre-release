@@ -250,6 +250,20 @@ static int mgs_fsdb_handler(const struct lu_env *env, struct llog_handle *llh,
         RETURN(rc);
 }
 
+static int mgs_log_is_empty(const struct lu_env *env,
+			    struct mgs_device *mgs, char *name)
+{
+	struct llog_ctxt	*ctxt;
+	int			 rc;
+
+	ctxt = llog_get_context(mgs->mgs_obd, LLOG_CONFIG_ORIG_CTXT);
+	LASSERT(ctxt != NULL);
+
+	rc = llog_is_empty(env, ctxt, name);
+	llog_ctxt_put(ctxt);
+	return rc;
+}
+
 /* fsdb->fsdb_mutex is already held  in mgs_find_or_make_fsdb*/
 static int mgs_get_fsdb_from_llog(const struct lu_env *env,
 				  struct mgs_device *mgs,
@@ -268,9 +282,17 @@ static int mgs_get_fsdb_from_llog(const struct lu_env *env,
 	rc = name_create(&logname, fsdb->fsdb_name, "-client");
 	if (rc)
 		GOTO(out_put, rc);
-	rc = llog_open_create(env, ctxt, &loghandle, NULL, logname);
-	if (rc)
+
+	if (mgs_log_is_empty(env, mgs, logname))
+		GOTO(out_pop, rc = 0);
+
+	rc = llog_open(env, ctxt, &loghandle, NULL, logname,
+		       LLOG_OPEN_EXISTS);
+	if (rc) {
+		if (rc == -ENOENT)
+			rc = 0;
 		GOTO(out_pop, rc);
+	}
 
 	rc = llog_init_handle(env, loghandle, LLOG_F_IS_PLAIN, NULL);
 	if (rc)
@@ -988,20 +1010,6 @@ skip_out:
 	       rec->lrh_index, rc, rec->lrh_len, lcfg->lcfg_command,
 	       lustre_cfg_string(lcfg, 0), lustre_cfg_string(lcfg, 1));
 	RETURN(rc);
-}
-
-static int mgs_log_is_empty(const struct lu_env *env,
-			    struct mgs_device *mgs, char *name)
-{
-	struct llog_ctxt	*ctxt;
-	int			 rc;
-
-	ctxt = llog_get_context(mgs->mgs_obd, LLOG_CONFIG_ORIG_CTXT);
-	LASSERT(ctxt != NULL);
-
-	rc = llog_is_empty(env, ctxt, name);
-	llog_ctxt_put(ctxt);
-	return rc;
 }
 
 static int mgs_replace_nids_log(const struct lu_env *env,

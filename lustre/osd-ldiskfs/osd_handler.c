@@ -659,7 +659,7 @@ trigger:
 			triggered = true;
 			if (thread_is_running(&scrub->os_thread)) {
 				result = -EINPROGRESS;
-			} else if (!dev->od_noscrub) {
+			} else if (!dev->od_noscrub && !dev->od_rdonly) {
 				/* Since we do not know the right OI mapping,
 				 * we have to trigger OI scrub to scan the
 				 * whole device. */
@@ -1380,6 +1380,8 @@ static void osd_conf_get(const struct lu_env *env,
 	else
 #endif
 		param->ddp_max_ea_size = sb->s_blocksize - ea_overhead;
+
+	param->ddp_rdonly = osd_dt_dev(dev)->od_rdonly;
 }
 
 /*
@@ -2589,7 +2591,7 @@ int osd_ea_fid_set(struct osd_thread_info *info, struct inode *inode,
 			     XATTR_CREATE);
 	/* LMA may already exist, but we need to check that all the
 	 * desired compat/incompat flags have been added. */
-	if (unlikely(rc == -EEXIST)) {
+	if (unlikely(rc == -EEXIST || rc == -EROFS)) {
 		if (compat == 0 && incompat == 0)
 			RETURN(0);
 
@@ -4226,7 +4228,7 @@ again:
 		RETURN_EXIT;
 	}
 
-	if (!dev->od_noscrub && ++once == 1) {
+	if (!dev->od_noscrub && !dev->od_rdonly && ++once == 1) {
 		rc = osd_scrub_start(dev, SS_AUTO_PARTIAL | SS_CLEAR_DRYRUN |
 				     SS_CLEAR_FAILOUT);
 		CDEBUG(D_LFSCK | D_CONSOLE, "%.16s: trigger OI scrub by RPC "
@@ -6033,6 +6035,11 @@ static int osd_mount(const struct lu_env *env,
 		o->od_mnt = NULL;
 		CERROR("%s: can't mount %s: %d\n", name, dev, rc);
 		GOTO(out, rc);
+	}
+
+	if (osd_sb(o)->s_flags & MS_RDONLY) {
+		o->od_rdonly = 1;
+		CWARN("%s: mount %s as read-only.\n", name, dev);
 	}
 
 #ifdef HAVE_DEV_SET_RDONLY
