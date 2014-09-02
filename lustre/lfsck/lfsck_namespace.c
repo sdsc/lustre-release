@@ -2554,6 +2554,9 @@ lost_parent:
 		GOTO(out, rc);
 	}
 
+	if (fid_is_zero(pfid))
+		GOTO(out, rc = 0);
+
 	/* The ".." name entry is wrong, update it. */
 	if (!lu_fid_eq(pfid, lfsck_dto2fid(parent))) {
 		if (!lustre_handle_is_used(lh) && retry != NULL) {
@@ -2619,7 +2622,8 @@ lfsck_namespace_dsd_multiple(const struct lu_env *env,
 	struct lfsck_bookmark	 *bk		= &lfsck->li_bookmark_ram;
 	struct dt_object	 *parent	= NULL;
 	struct linkea_data	  ldata_new	= { 0 };
-	int			  count		= 0;
+	int			  dirent_count	= 0;
+	int			  linkea_count	= 0;
 	int			  rc		= 0;
 	bool			  once		= true;
 	ENTRY;
@@ -2633,6 +2637,7 @@ again:
 		/* Drop invalid linkEA entry. */
 		if (!fid_is_sane(tfid)) {
 			linkea_del_buf(ldata, cname);
+			linkea_count++;
 			continue;
 		}
 
@@ -2666,6 +2671,7 @@ again:
 				 * child to be visible via other parent, then
 				 * remove this linkEA entry. */
 				linkea_del_buf(ldata, cname);
+				linkea_count++;
 				continue;
 			}
 
@@ -2676,6 +2682,7 @@ again:
 		if (unlikely(!dt_try_as_dir(env, parent))) {
 			lfsck_object_put(env, parent);
 			linkea_del_buf(ldata, cname);
+			linkea_count++;
 			continue;
 		}
 
@@ -2723,6 +2730,7 @@ rebuild:
 				RETURN(rc);
 
 			linkea_del_buf(ldata, cname);
+			linkea_count++;
 			linkea_first_entry(ldata);
 			/* There may be some invalid dangling name entries under
 			 * other parent directories, remove all of them. */
@@ -2759,13 +2767,13 @@ rebuild:
 					goto next;
 				}
 
-				count += rc;
+				dirent_count += rc;
 
 next:
 				linkea_del_buf(ldata, cname);
 			}
 
-			ns->ln_dirent_repaired += count;
+			ns->ln_dirent_repaired += dirent_count;
 
 			RETURN(rc);
 		}
@@ -2786,9 +2794,14 @@ next:
 		linkea_del_buf(ldata, cname);
 	}
 
+	linkea_first_entry(ldata);
 	if (ldata->ld_leh->leh_reccount == 1) {
 		rc = lfsck_namespace_dsd_single(env, com, child, pfid, ldata,
 						lh, type, NULL);
+
+		if (rc == 0 && fid_is_zero(pfid) && linkea_count > 0)
+			rc = lfsck_namespace_rebuild_linkea(env, com, child,
+							    ldata);
 
 		RETURN(rc);
 	}
@@ -2802,7 +2815,6 @@ next:
 		RETURN(rc);
 	}
 
-	linkea_first_entry(ldata);
 	/* If the dangling name entry for the orphan directory object has
 	 * been remvoed, then just check whether the directory object is
 	 * still under the .lustre/lost+found/MDTxxxx/ or not. */
@@ -3071,6 +3083,8 @@ lock:
 	} else if (lfsck->li_lpf_obj != NULL &&
 		   lu_fid_eq(pfid, lfsck_dto2fid(lfsck->li_lpf_obj))) {
 		lpf = true;
+	} else if (unlikely(!fid_is_sane(pfid))) {
+		fid_zero(pfid);
 	}
 
 	rc = lfsck_links_read(env, child, &ldata);
@@ -4795,32 +4809,12 @@ int lfsck_namespace_repair_dangling(const struct lu_env *env,
 		GOTO(stop, rc);
 
 	if (S_ISDIR(type)) {
-		if (unlikely(!dt_try_as_dir(env, child)))
-			GOTO(stop, rc = -ENOTDIR);
-
-		/* 2a. insert dot into child dir */
-		rec->rec_type = S_IFDIR;
-		rec->rec_fid = lfsck_dto2fid(child);
-		rc = dt_declare_insert(env, child,
-				       (const struct dt_rec *)rec,
-				       (const struct dt_key *)dot, th);
-		if (rc != 0)
-			GOTO(stop, rc);
-
-		/* 3a. insert dotdot into child dir */
-		rec->rec_fid = lfsck_dto2fid(parent);
-		rc = dt_declare_insert(env, child,
-				       (const struct dt_rec *)rec,
-				       (const struct dt_key *)dotdot, th);
-		if (rc != 0)
-			GOTO(stop, rc);
-
-		/* 4a. increase child nlink */
+		/* 2a. increase child nlink */
 		rc = dt_declare_ref_add(env, child, th);
 		if (rc != 0)
 			GOTO(stop, rc);
 
-		/* 5a. generate slave LMV EA. */
+		/* 3a. generate slave LMV EA. */
 		if (lnr->lnr_lmv != NULL && lnr->lnr_lmv->ll_lmv_master) {
 			int idx;
 
@@ -4843,7 +4837,7 @@ int lfsck_namespace_repair_dangling(const struct lu_env *env,
 		}
 	}
 
-	/* 6a. insert linkEA for child */
+	/* 4a. insert linkEA for child */
 	lfsck_buf_init(&linkea_buf, ldata.ld_buf->lb_buf,
 		       ldata.ld_leh->leh_len);
 	rc = dt_declare_xattr_set(env, child, &linkea_buf,
@@ -4865,7 +4859,7 @@ int lfsck_namespace_repair_dangling(const struct lu_env *env,
 		if (unlikely(!dt_try_as_dir(env, child)))
 			GOTO(unlock, rc = -ENOTDIR);
 
-		/* 2b. insert dot into child dir */
+		/* 1b.1. insert dot into child dir */
 		rec->rec_type = S_IFDIR;
 		rec->rec_fid = lfsck_dto2fid(child);
 		rc = dt_insert(env, child, (const struct dt_rec *)rec,
@@ -4873,7 +4867,7 @@ int lfsck_namespace_repair_dangling(const struct lu_env *env,
 		if (rc != 0)
 			GOTO(unlock, rc);
 
-		/* 3b. insert dotdot into child dir */
+		/* 1b.2. insert dotdot into child dir */
 		rec->rec_fid = lfsck_dto2fid(parent);
 		rc = dt_insert(env, child, (const struct dt_rec *)rec,
 			       (const struct dt_key *)dotdot, th,
@@ -4881,12 +4875,12 @@ int lfsck_namespace_repair_dangling(const struct lu_env *env,
 		if (rc != 0)
 			GOTO(unlock, rc);
 
-		/* 4b. increase child nlink */
+		/* 2b. increase child nlink */
 		rc = dt_ref_add(env, child, th);
 		if (rc != 0)
 			GOTO(unlock, rc);
 
-		/* 5b. generate slave LMV EA. */
+		/* 3b. generate slave LMV EA. */
 		if (lnr->lnr_lmv != NULL && lnr->lnr_lmv->ll_lmv_master) {
 			rc = dt_xattr_set(env, child, &lmv_buf, XATTR_NAME_LMV,
 					  0, th, BYPASS_CAPA);
@@ -4895,7 +4889,7 @@ int lfsck_namespace_repair_dangling(const struct lu_env *env,
 		}
 	}
 
-	/* 6b. insert linkEA for child. */
+	/* 4b. insert linkEA for child. */
 	rc = dt_xattr_set(env, child, &linkea_buf,
 			  XATTR_NAME_LINK, 0, th, BYPASS_CAPA);
 

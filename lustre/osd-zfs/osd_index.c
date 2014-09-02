@@ -633,6 +633,18 @@ static int osd_dir_insert(const struct lu_env *env, struct dt_object *dt,
 				 * during iteration */
 				GOTO(out, rc = 0);
 			} else if (name[1] == '.' && name[2] == 0) {
+				if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_BAD_PARENT)) {
+					struct lu_fid tfid = *fid;
+
+					osd_object_put(env, child);
+					tfid.f_oid--;
+					child = osd_object_find(env, dt, &tfid);
+					if (IS_ERR(child))
+						RETURN(PTR_ERR(child));
+
+					LASSERT(child->oo_db);
+				}
+
 				/* update parent dnode in the child.
 				 * later it will be used to generate ".." */
 				rc = osd_object_sa_update(parent,
@@ -707,13 +719,8 @@ static int osd_dir_delete(const struct lu_env *env, struct dt_object *dt,
 	 * In Orion . and .. were stored in the directory (not generated upon
 	 * request as now). we preserve them for backward compatibility
 	 */
-	if (name[0] == '.') {
-		if (name[1] == 0) {
-			RETURN(0);
-		} else if (name[1] == '.' && name[2] == 0) {
-			RETURN(0);
-		}
-	}
+	if (name[0] == '.' && name[1] == 0)
+		RETURN(0);
 
 	/* Remove key from the ZAP */
 	rc = -zap_remove(osd->od_os, zap_db->db_object,
