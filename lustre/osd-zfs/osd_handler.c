@@ -540,6 +540,7 @@ static int osd_sync(const struct lu_env *env, struct dt_device *d)
 	struct osd_device  *osd = osd_dt_dev(d);
 	CDEBUG(D_HA, "syncing OSD %s\n", LUSTRE_OSD_ZFS_NAME);
 	txg_wait_synced(dmu_objset_pool(osd->od_os), 0ULL);
+	CDEBUG(D_HA, "synced OSD %s\n", LUSTRE_OSD_ZFS_NAME);
 	return 0;
 }
 
