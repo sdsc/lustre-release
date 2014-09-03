@@ -1072,8 +1072,8 @@ static void osc_init_grant(struct client_obd *cli, struct obd_connect_data *ocd)
  * beyond the end of a stripe file; i.e. lustre is reading a sparse file
  * via the LOV, and it _knows_ it's reading inside the file, it's just that
  * this stripe never got written at or beyond this stripe offset yet. */
-static void handle_short_read(int nob_read, obd_count page_count,
-                              struct brw_page **pga)
+static void handle_short_read(size_t nob_read, obd_count page_count,
+			      struct brw_page **pga)
 {
         char *ptr;
         int i = 0;
@@ -1163,7 +1163,7 @@ static inline int can_merge_pages(struct brw_page *p1, struct brw_page *p2)
         return (p1->off + p1->count == p2->off);
 }
 
-static obd_count osc_checksum_bulk(int nob, obd_count pg_count,
+static obd_count osc_checksum_bulk(size_t nob, obd_count pg_count,
 				   struct brw_page **pga, int opc,
 				   cksum_type_t cksum_type)
 {
@@ -1184,7 +1184,7 @@ static obd_count osc_checksum_bulk(int nob, obd_count pg_count,
 	}
 
 	while (nob > 0 && pg_count > 0) {
-		int count = pga[i]->count > nob ? nob : pga[i]->count;
+		size_t count = pga[i]->count > nob ? nob : pga[i]->count;
 
 		/* corrupt the data before we compute the checksum, to
 		 * simulate an OST->client data error */
@@ -1193,7 +1193,7 @@ static obd_count osc_checksum_bulk(int nob, obd_count pg_count,
 			unsigned char *ptr = kmap(pga[i]->pg);
 			int off = pga[i]->off & ~CFS_PAGE_MASK;
 
-			memcpy(ptr + off, "bad1", min(4, nob));
+			memcpy(ptr + off, "bad1", min_t(typeof(nob), 4, nob));
 			kunmap(pga[i]->pg);
 		}
 		cfs_crypto_hash_update_page(hdesc, pga[i]->pg,
@@ -1314,7 +1314,7 @@ static int osc_brw_prep_request(int cmd, struct client_obd *cli,struct obdo *oa,
 			  ergo(i > 0 && i < page_count - 1,
 			       poff == 0 && pg->count == PAGE_CACHE_SIZE)   &&
 			  ergo(i == page_count - 1, poff == 0)),
-			 "i: %d/%d pg: %p off: "LPU64", count: %u\n",
+			 "i: %d/%d pg: %p off: "LPU64", count: %zu\n",
 			 i, page_count, pg, pg->off, pg->count);
                 LASSERTF(i == 0 || pg->off > pg_prev->off,
                          "i %d p_c %u pg %p [pri %lu ind %lu] off "LPU64

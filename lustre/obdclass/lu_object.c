@@ -343,10 +343,10 @@ int lu_site_purge(const struct lu_env *env, struct lu_site *s, int nr)
         cfs_hash_bd_t            bd;
         cfs_hash_bd_t            bd2;
 	struct list_head	 dispose;
-        int                      did_sth;
-        int                      start;
-        int                      count;
-        int                      bnr;
+	int                      did_sth;
+	unsigned int             start;
+	int                      count;
+	int                      bnr;
 	unsigned int             i;
 
 	if (OBD_FAIL_CHECK(OBD_FAIL_OBD_NO_LRU))
@@ -358,7 +358,7 @@ int lu_site_purge(const struct lu_env *env, struct lu_site *s, int nr)
          * the dispose list, removing them from LRU and hash table.
          */
         start = s->ls_purge_start;
-        bnr = (nr == ~0) ? -1 : nr / CFS_HASH_NBKT(s->ls_obj_hash) + 1;
+	bnr = (nr == ~0) ? -1 : nr / (int)CFS_HASH_NBKT(s->ls_obj_hash) + 1;
  again:
 	/*
 	 * It doesn't make any sense to make purge threads parallel, that can
@@ -945,10 +945,10 @@ EXPORT_SYMBOL(lu_site_print);
 /**
  * Return desired hash table order.
  */
-static unsigned int lu_htable_order(struct lu_device *top)
+static unsigned long lu_htable_order(struct lu_device *top)
 {
 	unsigned long cache_size;
-	unsigned int  bits;
+	unsigned long bits;
 
 	/*
 	 * For ZFS based OSDs the cache should be disabled by default.  This
@@ -989,7 +989,7 @@ static unsigned int lu_htable_order(struct lu_device *top)
         cache_size = cache_size / 100 * lu_cache_percent *
 		(PAGE_CACHE_SIZE / 1024);
 
-        for (bits = 1; (1 << bits) < cache_size; ++bits) {
+	for (bits = 1UL; (1UL << bits) < cache_size; ++bits) {
                 ;
         }
         return bits;
@@ -1089,7 +1089,7 @@ int lu_site_init(struct lu_site *s, struct lu_device *top)
 	struct lu_site_bkt_data *bkt;
 	cfs_hash_bd_t bd;
 	char name[16];
-	unsigned int bits;
+	unsigned long bits;
 	unsigned int i;
 	ENTRY;
 
@@ -1114,7 +1114,7 @@ int lu_site_init(struct lu_site *s, struct lu_device *top)
 	}
 
 	if (s->ls_obj_hash == NULL) {
-		CERROR("failed to create lu_site hash with bits: %d\n", bits);
+		CERROR("failed to create lu_site hash with bits: %lu\n", bits);
 		return -ENOMEM;
 	}
 
