@@ -661,8 +661,8 @@ static int lov_io_submit(const struct lu_env *env,
 
 static int lov_io_commit_async(const struct lu_env *env,
 			       const struct cl_io_slice *ios,
-			       struct cl_page_list *queue, int from, int to,
-			       cl_commit_cbt cb)
+			       struct cl_page_list *queue,
+			       loff_t from, loff_t to, cl_commit_cbt cb)
 {
 	struct cl_page_list *plist = &lov_env_info(env)->lti_plist;
 	struct lov_io     *lio = cl2lov_io(env, ios);

@@ -276,7 +276,7 @@ static int osc_page_print(const struct lu_env *env,
 
 	return (*printer)(env, cookie, LUSTRE_OSC_NAME"-page@%p %lu: "
 			  "1< %#x %d %u %s %s > "
-			  "2< "LPU64" %u %u %#x %#x | %p %p %p > "
+			  "2< "LPU64" "LPU64" %zu %#x %#x | %p %p %p > "
 			  "3< %s %p %d %lu %d > "
 			  "4< %d %d %d %lu %s | %s %s %s %s > "
 			  "5< %s %s %s %s | %d %s | %d %s %s>\n",
@@ -360,7 +360,7 @@ static void osc_page_delete(const struct lu_env *env,
 }
 
 void osc_page_clip(const struct lu_env *env, const struct cl_page_slice *slice,
-                   int from, int to)
+		   loff_t from, loff_t to)
 {
         struct osc_page       *opg = cl2osc_page(slice);
         struct osc_async_page *oap = &opg->ops_oap;

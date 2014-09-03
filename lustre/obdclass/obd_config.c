@@ -92,7 +92,7 @@ struct cfg_interop_param *class_find_old_param(const char *param,
 					       struct cfg_interop_param *ptr)
 {
 	char *value = NULL;
-	int   name_len = 0;
+	size_t name_len = 0;
 
 	if (param == NULL || ptr == NULL)
 		RETURN(NULL);
@@ -334,10 +334,11 @@ EXPORT_SYMBOL(class_match_net);
  */
 int class_attach(struct lustre_cfg *lcfg)
 {
-        struct obd_device *obd = NULL;
-        char *typename, *name, *uuid;
-        int rc, len;
-        ENTRY;
+	struct obd_device *obd = NULL;
+	char *typename, *name, *uuid;
+	size_t len;
+	int rc;
+	ENTRY;
 
         if (!LUSTRE_CFG_BUFLEN(lcfg, 1)) {
                 CERROR("No type passed!\n");
@@ -837,8 +838,9 @@ EXPORT_SYMBOL(class_get_profile);
  * This defines the mdc and osc names to use for a client.
  * This also is used to define the lov to be used by a mdt.
  */
-int class_add_profile(int proflen, char *prof, int osclen, char *osc,
-                      int mdclen, char *mdc)
+static int class_add_profile(size_t proflen, char *prof,
+			     size_t osclen,  char *osc,
+			     size_t mdclen,  char *mdc)
 {
         struct lustre_profile *lprof;
         int err = 0;
@@ -1352,7 +1354,7 @@ int class_process_proc_seq_param(char *prefix, struct lprocfs_seq_vars *lvars,
 	struct file fakefile;
 	struct seq_file fake_seqfile;
 	char *key, *sval;
-	int i, keylen, vallen;
+	size_t i, keylen, vallen;
 	int matched = 0, j = 0;
 	int rc = 0;
 	int skip = 0;
@@ -1797,12 +1799,13 @@ static struct lcfg_type_data *lcfg_cmd2data(__u32 cmd)
  * - { event: attach, device: lustrewt-clilov, type: lov, UUID:
  *     lustrewt-clilov_UUID }
  */
-int class_config_yaml_output(struct llog_rec_hdr *rec, char *buf, int size)
+int class_config_yaml_output(struct llog_rec_hdr *rec, char *buf, size_t size)
 {
 	struct lustre_cfg	*lcfg = (struct lustre_cfg *)(rec + 1);
 	char			*ptr = buf;
 	char			*end = buf + size;
-	int			 rc = 0, i;
+	__u32			i;
+	int			 rc = 0;
 	struct lcfg_type_data	*ldata;
 
 	LASSERT(rec->lrh_type == OBD_CFG_REC);
@@ -1887,10 +1890,10 @@ int class_config_parse_rec(struct llog_rec_hdr *rec, char *buf, int size)
 				marker->cm_step, marker->cm_flags,
 				marker->cm_tgtname, marker->cm_comment);
 	} else {
-		int i;
+		__u32 i;
 
 		for (i = 0; i <  lcfg->lcfg_bufcount; i++) {
-			ptr += snprintf(ptr, end-ptr, "%d:%s  ", i,
+			ptr += snprintf(ptr, end-ptr, "%u:%s  ", i,
 					lustre_cfg_string(lcfg, i));
 		}
 	}
