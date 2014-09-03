@@ -327,12 +327,14 @@ struct osd_object {
 	unsigned char		 oo_keysize;
 	unsigned char		 oo_recsize;
 	unsigned char		 oo_recusize;	/* unit size */
+	bool			 oo_dotdot_removed;
 };
 
 int osd_statfs(const struct lu_env *, struct dt_device *, struct obd_statfs *);
 extern const struct dt_index_operations osd_acct_index_ops;
 uint64_t osd_quota_fid2dmu(const struct lu_fid *fid);
 extern struct lu_device_operations  osd_lu_ops;
+extern struct dt_index_operations osd_dir_ops;
 int osd_declare_quota(const struct lu_env *env, struct osd_device *osd,
 		      qid_t uid, qid_t gid, long long space,
 		      struct osd_thandle *oh, bool is_blk, int *flags,
