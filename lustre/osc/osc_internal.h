@@ -59,8 +59,8 @@ struct osc_async_page {
 	struct list_head	oap_pending_item;
 	struct list_head	oap_rpc_item;
 
-        obd_off                 oap_obj_off;
-        unsigned                oap_page_off;
+	obd_off			oap_obj_off;
+	loff_t			oap_page_off;
         enum async_flags        oap_async_flags;
 
         struct brw_page         oap_brw_page;

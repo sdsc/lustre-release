@@ -74,7 +74,7 @@ struct osc_io {
 	 * page writeback from happening. */
 	struct osc_extent *oi_trunc;
 
-	int oi_lru_reserved;
+	unsigned int oi_lru_reserved;
 
 	struct obd_info    oi_info;
 	struct obdo        oi_oa;
@@ -354,13 +354,13 @@ struct osc_page {
          * An offset within page from which next transfer starts. This is used
          * by cl_page_clip() to submit partial page transfers.
          */
-        int                   ops_from;
+	loff_t		      ops_from;
         /**
          * An offset within page at which next transfer ends.
          *
          * \see osc_page::ops_from.
          */
-        int                   ops_to;
+	loff_t		      ops_to;
         /**
          * Boolean, true iff page is under transfer. Used for sanity checking.
          */
@@ -447,7 +447,7 @@ int osc_flush_async_page(const struct lu_env *env, struct cl_io *io,
 int osc_queue_sync_pages(const struct lu_env *env, struct osc_object *obj,
 			 struct list_head *list, int cmd, int brw_flags);
 int osc_cache_truncate_start(const struct lu_env *env, struct osc_io *oio,
-			     struct osc_object *obj, __u64 size);
+			     struct osc_object *obj, loff_t size);
 void osc_cache_truncate_end(const struct lu_env *env, struct osc_io *oio,
 			    struct osc_object *obj);
 int osc_cache_writeback_range(const struct lu_env *env, struct osc_object *obj,
