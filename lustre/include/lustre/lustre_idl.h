@@ -1348,6 +1348,8 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb);
 						       name in request */
 #define OBD_CONNECT_LFSCK      0x40000000000000ULL/* support online LFSCK */
 #define OBD_CONNECT_UNLINK_CLOSE 0x100000000000000ULL/* close file in unlink */
+#define OBD_CONNECT_MULTIMODRPCS 0x200000000000000ULL /* support multiple modify
+							 RPCs in parallel */
 #define OBD_CONNECT_DIR_STRIPE	 0x400000000000000ULL /* striped DNE dir */
 
 /* XXX README XXX:
@@ -1444,6 +1446,7 @@ struct obd_connect_data_v1 {
         __u32 ocd_max_easize;    /* How big LOV EA can be on MDS */
         __u32 ocd_instance;      /* also fix lustre_swab_connect */
         __u64 ocd_maxbytes;      /* Maximum stripe size in bytes */
+	__u16 ocd_maxmodrpcs;    /* Maximum modify RPCs in parallel */
 };
 
 struct obd_connect_data {
@@ -1467,7 +1470,9 @@ struct obd_connect_data {
          * if the corresponding flag in ocd_connect_flags is set. Accessing
          * any field after ocd_maxbytes on the receiver without a valid flag
          * may result in out-of-bound memory access and kernel oops. */
-        __u64 padding1;          /* added 2.1.0. also fix lustre_swab_connect */
+	__u16 ocd_maxmodrpcs;    /* Maximum modify RPCs in parallel */
+	__u16 padding0;          /* added 2.1.0. also fix lustre_swab_connect */
+	__u32 padding1;          /* added 2.1.0. also fix lustre_swab_connect */
         __u64 padding2;          /* added 2.1.0. also fix lustre_swab_connect */
         __u64 padding3;          /* added 2.1.0. also fix lustre_swab_connect */
         __u64 padding4;          /* added 2.1.0. also fix lustre_swab_connect */
