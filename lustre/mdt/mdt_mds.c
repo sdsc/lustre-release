@@ -287,7 +287,7 @@ static int mds_start_ptlrpc_service(struct mds_device *m)
 			.bc_buf_size		= OUT_BUFSIZE,
 			.bc_req_max_size	= OUT_MAXREQSIZE,
 			.bc_rep_max_size	= OUT_MAXREPSIZE,
-			.bc_req_portal		= OUT_PORTAL,
+			.bc_req_portal		= OUT_MD_PORTAL,
 			.bc_rep_portal		= MDC_REPLY_PORTAL,
 		},
 		/*
