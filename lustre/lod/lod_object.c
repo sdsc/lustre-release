@@ -59,6 +59,7 @@ static const char dot[] = ".";
 static const char dotdot[] = "..";
 
 static const struct dt_body_operations lod_body_lnk_ops;
+static const struct dt_body_operations lod_body_ops;
 
 /**
  * Implementation of dt_index_operations::dio_lookup
@@ -3395,6 +3396,8 @@ static int lod_declare_object_create(const struct lu_env *env,
 
 	if (dof->dof_type == DFT_SYM)
 		dt->do_body_ops = &lod_body_lnk_ops;
+	else if (dof->dof_type == DFT_REGULAR)
+		dt->do_body_ops = &lod_body_ops;
 
 	/*
 	 * it's lod_ah_init() who has decided the object will striped
@@ -3988,10 +3991,39 @@ static ssize_t lod_write(const struct lu_env *env, struct dt_object *dt,
 				    capa, iq);
 }
 
+static int lod_declare_punch(const struct lu_env *env, struct dt_object *dt,
+			     __u64 start, __u64 end, struct thandle *th)
+{
+	if (dt_object_remote(dt))
+		return -ENOTSUPP;
+
+	return lod_sub_object_declare_punch(env, dt_object_child(dt), start,
+					    end, th);
+}
+
+static int lod_punch(const struct lu_env *env, struct dt_object *dt,
+		     __u64 start, __u64 end, struct thandle *th,
+		     struct lustre_capa *capa)
+{
+	if (dt_object_remote(dt))
+		return -ENOTSUPP;
+
+	return lod_sub_object_punch(env, dt_object_child(dt), start,
+				    end, th, capa);
+}
+
 static const struct dt_body_operations lod_body_lnk_ops = {
 	.dbo_read		= lod_read,
 	.dbo_declare_write	= lod_declare_write,
 	.dbo_write		= lod_write
+};
+
+static const struct dt_body_operations lod_body_ops = {
+	.dbo_read		= lod_read,
+	.dbo_declare_write	= lod_declare_write,
+	.dbo_write		= lod_write,
+	.dbo_declare_punch	= lod_declare_punch,
+	.dbo_punch		= lod_punch,
 };
 
 /**
@@ -4115,6 +4147,9 @@ static int lod_object_start(const struct lu_env *env, struct lu_object *o)
 {
 	if (S_ISLNK(o->lo_header->loh_attr & S_IFMT))
 		lu2lod_obj(o)->ldo_obj.do_body_ops = &lod_body_lnk_ops;
+	else
+		lu2lod_obj(o)->ldo_obj.do_body_ops = &lod_body_ops;
+
 	return 0;
 }
 
