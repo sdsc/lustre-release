@@ -650,6 +650,19 @@ lnet_isrouter(lnet_peer_t *lp)
         return lp->lp_rtr_refcount != 0;
 }
 
+/* peer aliveness is enabled in a network where lnet_ni_t::ni_peertimeout has
+ * been set to a positive value, it's only valid for router peers or peers on
+ * routers.
+ */
+static inline int
+lnet_peer_aliveness_enabled(struct lnet_peer *lp)
+{
+	if (lp->lp_ni->ni_peertimeout <= 0)
+		return 0;
+
+	return the_lnet.ln_routing || lp->lp_rtr_refcount;
+}
+
 static inline void
 lnet_ni_addref_locked(lnet_ni_t *ni, int cpt)
 {
