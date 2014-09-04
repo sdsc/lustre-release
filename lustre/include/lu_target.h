@@ -47,6 +47,11 @@ struct lu_target {
 	struct obd_device	*lut_obd;
 	struct dt_device	*lut_bottom;
 
+	/* Distribution ID is used to identify updates log on different
+	 * MDTs for one operation */
+	spinlock_t		lut_distribution_id_lock;
+	__u64			lut_distribution_id;
+
 	/* supported opcodes and handlers for this target */
 	struct tgt_opc_slice	*lut_slice;
 	__u32			 lut_reply_fail_id;
