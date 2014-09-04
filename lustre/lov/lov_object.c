@@ -531,6 +531,7 @@ static int lov_attr_get_raid0(const struct lu_env *env, struct cl_object *obj,
 	struct lov_layout_raid0 *r0 = lov_r0(lov);
 	struct cl_attr		*lov_attr = &r0->lo_attr;
 	int			 result = 0;
+	__u64			blocksize = 0;
 
         ENTRY;
 
@@ -569,7 +570,7 @@ static int lov_attr_get_raid0(const struct lu_env *env, struct cl_object *obj,
 		 * sub-object attributes.
 		 */
 		lov_stripe_lock(lsm);
-		result = lov_merge_lvb_kms(lsm, lvb, &kms);
+		result = lov_merge_lvb_kms(lsm, lvb, &kms, &blocksize);
 		lov_stripe_unlock(lsm);
 		if (result == 0) {
 			cl_lvb2attr(lov_attr, lvb);
@@ -587,6 +588,7 @@ static int lov_attr_get_raid0(const struct lu_env *env, struct cl_object *obj,
 			attr->cat_ctime = lov_attr->cat_ctime;
 		if (attr->cat_mtime < lov_attr->cat_mtime)
 			attr->cat_mtime = lov_attr->cat_mtime;
+		attr->cat_rpcsize = blocksize;
 	}
 	RETURN(result);
 }

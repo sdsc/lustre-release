@@ -186,6 +186,7 @@ static int osc_attr_update(const struct lu_env *env, struct cl_object *obj,
 		       oinfo->loi_kms, (__u64)attr->cat_kms);
 		loi_kms_set(oinfo, attr->cat_kms);
 	}
+	oinfo->loi_blksize = osc_cli(cl2osc(obj))->cl_max_pages_per_rpc;
 	return 0;
 }
 

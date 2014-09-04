@@ -66,8 +66,9 @@ struct lov_oinfo {                 /* per-stripe data structure */
 	struct ost_id   loi_oi;    /* object ID/Sequence on the target OST */
 	int loi_ost_idx;           /* OST stripe index in lov_tgt_desc->tgts */
 	int loi_ost_gen;           /* generation of this loi_ost_idx */
-
-	unsigned long loi_kms_valid:1;
+	unsigned int loi_blksize;  /* optimal I/O size in page size
+				      units, up to 16 TiB */
+	unsigned int loi_kms_valid:1;
 	__u64 loi_kms;             /* known minimum size */
 	struct ost_lvb loi_lvb;
 	struct osc_async_rc     loi_ar;
