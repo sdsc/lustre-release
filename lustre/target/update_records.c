@@ -750,6 +750,7 @@ int check_and_prepare_update_record(const struct lu_env *env,
 	struct top_thandle		*top_th;
 	struct sub_thandle		*lst;
 	int				rc;
+	struct lu_target		*lut;
 	bool				record_update = false;
 	ENTRY;
 
@@ -783,6 +784,13 @@ int check_and_prepare_update_record(const struct lu_env *env,
 	tur->tur_update_records->ur_ops.uops_count = 0;
 	tur->tur_update_params->up_params_count = 0;
 	top_th->tt_update_records = tur;
+
+	lut = th->th_dev->dd_lu_dev.ld_site->ls_target;
+
+	spin_lock(&lut->lut_distribution_id_lock);
+	tur->tur_update_records->ur_cookie = lut->lut_distribution_id++;
+	spin_unlock(&lut->lut_distribution_id_lock);
+
 
 	RETURN(0);
 }
