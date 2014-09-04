@@ -62,7 +62,10 @@ struct l_wait_info;
 
 #ifdef HAVE_SERVER_SUPPORT
 void target_client_add_cb(struct obd_device *obd, __u64 transno, void *cb_data,
-                          int error);
+			  int error);
+struct obd_export  *target_client_restore(struct obd_device *obd,
+					  struct obd_uuid *uuid,
+					  __u64 last_transno);
 int target_handle_connect(struct ptlrpc_request *req);
 int target_handle_disconnect(struct ptlrpc_request *req);
 void target_destroy_export(struct obd_export *exp);
