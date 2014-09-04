@@ -103,6 +103,9 @@ int tgt_init(const struct lu_env *env, struct lu_target *lut,
 	if (rc < 0)
 		GOTO(out_obj, rc);
 
+	spin_lock_init(&lut->lut_distribution_id_lock);
+	lut->lut_distribution_id = lut->lut_last_transno;
+
 	/* prepare transactions callbacks */
 	lut->lut_txn_cb.dtc_txn_start = tgt_txn_start_cb;
 	lut->lut_txn_cb.dtc_txn_stop = tgt_txn_stop_cb;
