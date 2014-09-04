@@ -521,14 +521,11 @@ int LL_PROC_PROTO(proc_lnet_peers)
                         int        minrtrcr  = peer->lp_minrtrcredits;
                         int        txqnob    = peer->lp_txqnob;
 
-                        if (lnet_isrouter(peer) ||
-                            lnet_peer_aliveness_enabled(peer))
-                                aliveness = peer->lp_alive ? "up" : "down";
-
                         if (lnet_peer_aliveness_enabled(peer)) {
-                                cfs_time_t     now = cfs_time_current();
-                                cfs_duration_t delta;
+				cfs_time_t     now = cfs_time_current();
+				cfs_duration_t delta;
 
+				aliveness = peer->lp_alive ? "up" : "down";
                                 delta = cfs_time_sub(now, peer->lp_last_alive);
                                 lastalive = cfs_duration_sec(delta);
 
