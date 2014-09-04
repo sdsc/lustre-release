@@ -233,14 +233,15 @@ test_10c() {
 	evict=$($LCTL get_param mdc.${mdccli}.state | \
 	awk -F"[ [,]" '/EVICTED]$/ { if (mx<$4) {mx=$4;} } END { print mx }')
 
-	[[ ${evict} -gt ${before} ]] ||
-		    error "eviction not happened"
+	[[ $evict -le $before ]] ||
+		($LCTL get_param mdc.$FSNAME-MDT*.state;
+		    error "eviction happened: $EVICT before:$BEFORE")
 
 	[ $rc -eq 0 ] || error "chmod must finished OK"
 	checkstat -v -p 0777 "${workdir}" ||
 		{ error "client checkstat failed: $?";}
 }
-run_test 10c "re-send BL AST vs reconnect race (MRP-2038)"
+run_test 10c "re-send BL AST vs reconnect race (LU-5569)"
 
 test_10d() {
 	local before=$(date +%s)
