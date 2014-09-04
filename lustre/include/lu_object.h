@@ -642,6 +642,9 @@ struct lu_site {
 	 * XXX: a hack! fld has to find md_site via site, remove when possible
 	 */
 	struct seq_server_site	*ld_seq_site;
+
+	/* Put lu_target here to get it from every layer */
+	struct lu_target	*ls_target;
 };
 
 static inline struct lu_site_bkt_data *
