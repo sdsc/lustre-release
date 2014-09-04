@@ -88,10 +88,6 @@
 #include <sys/time.h>
 #include <gnu/stubs.h>
 
-#ifdef HAVE_EXT2FS_EXT2FS_H
-#  include <ext2fs/ext2fs.h>
-#endif
-
 #define ONE_MB (1024 * 1024)
 #define ONE_GB (1024 * 1024 * 1024)
 #define HALF_MB (ONE_MB / 2)

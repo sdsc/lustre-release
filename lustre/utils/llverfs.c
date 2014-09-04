@@ -93,11 +93,6 @@
 #include <gnu/stubs.h>
 #include <gnu/stubs.h>
 
-#ifdef HAVE_EXT2FS_EXT2FS_H
-#  include <e2p/e2p.h>
-#  include <ext2fs/ext2fs.h>
-#endif
-
 #define ONE_MB (1024 * 1024)
 #define ONE_GB ((unsigned long long)(1024 * 1024 * 1024))
 #define BLOCKSIZE 4096
