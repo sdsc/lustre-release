@@ -4022,6 +4022,7 @@ enum update_type {
 	OUT_INDEX_DELETE	= 11,
 	OUT_WRITE		= 12,
 	OUT_XATTR_DEL		= 13,
+	OUT_PUNCH		= 14,
 	OUT_LAST
 };
 
