@@ -93,6 +93,12 @@ do {									\
 	spin_unlock(&imp->imp_lock);					\
 } while(0)
 
+void ptlrpc_import_enter_resend(struct obd_import *imp)
+{
+	IMPORT_SET_STATE(imp, LUSTRE_IMP_RECOVER);
+}
+EXPORT_SYMBOL(ptlrpc_import_enter_resend);
+
 
 static int ptlrpc_connect_interpret(const struct lu_env *env,
                                     struct ptlrpc_request *request,
@@ -1441,9 +1447,7 @@ int ptlrpc_import_recovery_state_machine(struct obd_import *imp)
 	}
 
         if (imp->imp_state == LUSTRE_IMP_RECOVER) {
-                CDEBUG(D_HA, "reconnected to %s@%s\n",
-                       obd2cli_tgt(imp->imp_obd),
-                       imp->imp_connection->c_remote_uuid.uuid);
+		struct ptlrpc_connection *link = imp->imp_connection;
 
                 rc = ptlrpc_resend(imp);
                 if (rc)
@@ -1451,12 +1455,10 @@ int ptlrpc_import_recovery_state_machine(struct obd_import *imp)
                 IMPORT_SET_STATE(imp, LUSTRE_IMP_FULL);
                 ptlrpc_activate_import(imp);
 
-                deuuidify(obd2cli_tgt(imp->imp_obd), NULL,
-                          &target_start, &target_len);
-                LCONSOLE_INFO("%s: Connection restored to %.*s (at %s)\n",
-                              imp->imp_obd->obd_name,
-                              target_len, target_start,
-                              libcfs_nid2str(imp->imp_connection->c_peer.nid));
+		LCONSOLE_INFO("%s: Connection restored to %s (at %s)\n",
+			      imp->imp_obd->obd_name,
+			      obd_uuid2str(&link->c_remote_uuid),
+			      libcfs_nid2str(imp->imp_connection->c_peer.nid));
         }
 
 	if (imp->imp_state == LUSTRE_IMP_FULL) {
