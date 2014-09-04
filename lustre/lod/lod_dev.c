@@ -162,9 +162,6 @@ static struct lu_kmem_descr lod_caches[] = {
 	}
 };
 
-static struct lu_device *lod_device_fini(const struct lu_env *env,
-					 struct lu_device *d);
-
 struct lu_object *lod_object_alloc(const struct lu_env *env,
 				   const struct lu_object_header *hdr,
 				   struct lu_device *dev)
