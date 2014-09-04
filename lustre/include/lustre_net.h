@@ -2075,7 +2075,6 @@ struct ptlrpc_request {
 
 	/** early replies go to offset 0, regular replies go after that */
 	unsigned int			 rq_reply_off;
-
 	/** @} */
 
 	/** Fields that help to see if request and reply were swabbed or not */
@@ -2245,7 +2244,7 @@ ptlrpc_rqphase2str(struct ptlrpc_request *req)
 /**
  * Debugging functions and helpers to print request structure into debug log
  * @{
- */ 
+ */
 /* Spare the preprocessor, spoil the bugs. */
 #define FLAG(field, str) (field ? str : "")
 
@@ -2401,7 +2400,7 @@ struct ptlrpc_thread {
         /**
          * service thread pid
          */
-        pid_t t_pid; 
+	pid_t t_pid;
         /**
          * put watchdog in the structure per thread b=14840
          */
@@ -3162,14 +3161,14 @@ int ptlrpc_init_import(struct obd_import *imp);
 int ptlrpc_disconnect_import(struct obd_import *imp, int noclose);
 int ptlrpc_import_recovery_state_machine(struct obd_import *imp);
 void deuuidify(char *uuid, const char *prefix, char **uuid_start,
-               int *uuid_len);
-
+	       int *uuid_len);
+void ptlrpc_import_enter_resend(struct obd_import *imp);
 /* ptlrpc/pack_generic.c */
 int ptlrpc_reconnect_import(struct obd_import *imp);
 /** @} */
 
 /**
- * ptlrpc msg buffer and swab interface 
+ * ptlrpc msg buffer and swab interface
  *
  * @{
  */
@@ -3326,7 +3325,7 @@ ptlrpc_rqphase_move(struct ptlrpc_request *req, enum rq_phase new_phase)
 }
 
 /**
- * Returns true if request \a req got early reply and hard deadline is not met 
+ * Returns true if request \a req got early reply and hard deadline is not met
  */
 static inline int
 ptlrpc_client_early(struct ptlrpc_request *req)
