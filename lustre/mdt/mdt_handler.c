@@ -3840,6 +3840,11 @@ static void mdt_stack_fini(const struct lu_env *env,
 	info = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
 	LASSERT(info != NULL);
 
+	/* Disconnect LOD connection first to avoid interferring
+	 * cleanup process */
+	obd_disconnect(m->mdt_lod_exp);
+	m->mdt_lod_exp = NULL;
+
 	lu_dev_del_linkage(top->ld_site, top);
 
 	lu_site_purge(env, top->ld_site, -1);
@@ -4019,6 +4024,13 @@ static int mdt_stack_init(const struct lu_env *env, struct mdt_device *mdt,
 	mdt->mdt_lu_dev.ld_site = site;
 	site->ls_top_dev = &mdt->mdt_lu_dev;
 	mdt->mdt_child = lu2md_dev(mdt->mdt_child_exp->exp_obd->obd_lu_dev);
+
+	/* now connect to LOD */
+	rc = mdt_connect_to_next(env, mdt, lprof->lp_dt, &mdt->mdt_lod_exp);
+	if (rc)
+		GOTO(class_detach, rc);
+	mdt->mdt_lod_dt =
+		lu2dt_dev(mdt->mdt_lod_exp->exp_obd->obd_lu_dev);
 
 	/* now connect to bottom OSD */
 	snprintf(name, MAX_OBD_NAME, "%s-osd", dev);
@@ -4531,7 +4543,8 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
         if (rc)
                 GOTO(err_free_hsm, rc);
 
-	rc = tgt_init(env, &m->mdt_lut, obd, m->mdt_bottom, mdt_common_slice,
+	rc = tgt_init(env, &m->mdt_lut, obd, m->mdt_bottom,
+		      m->mdt_lod_dt, mdt_common_slice,
 		      OBD_FAIL_MDS_ALL_REQUEST_NET,
 		      OBD_FAIL_MDS_ALL_REPLY_NET);
 	if (rc)

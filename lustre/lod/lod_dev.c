@@ -470,6 +470,15 @@ static int lod_trans_start(const struct lu_env *env, struct dt_device *dt,
 	return top_trans_start(env, dt2lod_dev(dt)->lod_child, th);
 }
 
+static int lod_trans_cb_add(struct thandle *th,
+			    struct dt_txn_commit_cb *dcb)
+{
+	struct top_thandle	*top_th = container_of(th, struct top_thandle,
+						       tt_super);
+	dt_trans_cb_add(top_th->tt_child, dcb);
+	return 0;
+}
+
 static int lod_trans_stop(const struct lu_env *env, struct dt_device *dt,
 			  struct thandle *th)
 {
@@ -538,6 +547,7 @@ static const struct dt_device_operations lod_dt_ops = {
 	.dt_ro               = lod_ro,
 	.dt_commit_async     = lod_commit_async,
 	.dt_init_capa_ctxt   = lod_init_capa_ctxt,
+	.dt_trans_cb_add     = lod_trans_cb_add,
 };
 
 static int lod_connect_to_osd(const struct lu_env *env, struct lod_device *lod,
@@ -777,8 +787,8 @@ static int lod_obd_connect(const struct lu_env *env, struct obd_export **exp,
 
 	spin_lock(&lod->lod_connects_lock);
 	lod->lod_connects++;
-	/* at the moment we expect the only user */
-	LASSERT(lod->lod_connects == 1);
+	/* Only MDD and MDT will connect to it */
+	LASSERT(lod->lod_connects <= 2);
 	spin_unlock(&lod->lod_connects_lock);
 
 	RETURN(0);
@@ -798,19 +808,10 @@ static int lod_obd_disconnect(struct obd_export *exp)
 	/* Only disconnect the underlying layers on the final disconnect. */
 	spin_lock(&lod->lod_connects_lock);
 	lod->lod_connects--;
-	if (lod->lod_connects != 0) {
-		/* why should there be more than 1 connect? */
-		spin_unlock(&lod->lod_connects_lock);
-		CERROR("%s: disconnect #%d\n", exp->exp_obd->obd_name,
-		       lod->lod_connects);
-		goto out;
-	}
+	if (lod->lod_connects == 0)
+		release = 1;
 	spin_unlock(&lod->lod_connects_lock);
 
-	/* the last user of lod has gone, let's release the device */
-	release = 1;
-
-out:
 	rc = class_disconnect(exp); /* bz 9811 */
 
 	if (rc == 0 && release)

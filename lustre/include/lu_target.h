@@ -314,7 +314,7 @@ int tgt_last_commit_cb_add(struct thandle *th, struct lu_target *lut,
 int tgt_new_client_cb_add(struct thandle *th, struct obd_export *exp);
 int tgt_init(const struct lu_env *env, struct lu_target *lut,
 	     struct obd_device *obd, struct dt_device *dt,
-	     struct tgt_opc_slice *slice,
+	     struct dt_device *last_rcvd_dt, struct tgt_opc_slice *slice,
 	     int request_fail_id, int reply_fail_id);
 void tgt_fini(const struct lu_env *env, struct lu_target *lut);
 int tgt_client_alloc(struct obd_export *exp);

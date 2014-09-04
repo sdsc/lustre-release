@@ -202,6 +202,11 @@ struct sub_thandle {
 				st_record_update:1;
 };
 
+enum dt_txn_callback_flags {
+	/* The callback will use top thandle of thandle */
+	DT_TXN_CALLBACK_TOP	= 1,
+};
+
 static inline struct update_params *
 update_records_get_params(const struct update_records *records)
 {
@@ -501,6 +506,12 @@ int update_records_write_pack(const struct lu_env *env,
 			      const struct lu_fid *fid,
 			      const struct lu_buf *buf,
 			      loff_t pos);
+int update_records_punch_pack(const struct lu_env *env,
+			      struct update_ops *ops, size_t *max_ops_size,
+			      struct update_params *params,
+			      size_t *max_param_size,
+			      const struct lu_fid *fid,
+			      __u64 start, __u64 end);
 
 int tur_update_records_extend(struct thandle_update_records *tur,
 			      size_t new_size);

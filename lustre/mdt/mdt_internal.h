@@ -175,6 +175,10 @@ struct mdt_device {
         struct md_device          *mdt_child;
         struct dt_device          *mdt_bottom;
 	struct obd_export	  *mdt_bottom_exp;
+	/* The dt device where we do update */
+	struct dt_device          *mdt_lod_dt;
+	struct obd_export	  *mdt_lod_exp;
+
         /** target device */
         struct lu_target           mdt_lut;
 	/*
@@ -811,7 +815,7 @@ static inline struct dt_object *mdt_obj2dt(struct mdt_object *mo)
 	struct mdt_device	*mdt = mdt_dev(mo->mot_obj.lo_dev);
 
 	lo = lu_object_locate(mo->mot_obj.lo_header,
-			      mdt->mdt_bottom->dd_lu_dev.ld_type);
+			      mdt->mdt_lod_dt->dd_lu_dev.ld_type);
 
 	return lu2dt(lo);
 }
