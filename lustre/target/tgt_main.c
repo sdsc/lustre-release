@@ -38,8 +38,8 @@
 
 int tgt_init(const struct lu_env *env, struct lu_target *lut,
 	     struct obd_device *obd, struct dt_device *dt,
-	     struct tgt_opc_slice *slice, int request_fail_id,
-	     int reply_fail_id)
+	     struct dt_device *last_rcvd_dt, struct tgt_opc_slice *slice,
+	     int request_fail_id, int reply_fail_id)
 {
 	struct dt_object_format	 dof;
 	struct lu_attr		 attr;
@@ -89,7 +89,7 @@ int tgt_init(const struct lu_env *env, struct lu_target *lut,
 
 	lu_local_obj_fid(&fid, LAST_RECV_OID);
 
-	o = dt_find_or_create(env, lut->lut_bottom, &fid, &dof, &attr);
+	o = dt_find_or_create(env, last_rcvd_dt, &fid, &dof, &attr);
 	if (IS_ERR(o)) {
 		rc = PTR_ERR(o);
 		CERROR("%s: cannot open LAST_RCVD: rc = %d\n", tgt_name(lut),
@@ -107,6 +107,7 @@ int tgt_init(const struct lu_env *env, struct lu_target *lut,
 	lut->lut_txn_cb.dtc_txn_stop = tgt_txn_stop_cb;
 	lut->lut_txn_cb.dtc_txn_commit = NULL;
 	lut->lut_txn_cb.dtc_cookie = lut;
+	lut->lut_txn_cb.dtc_flags = DT_TXN_CALLBACK_TOP;
 	lut->lut_txn_cb.dtc_tag = LCT_DT_THREAD | LCT_MD_THREAD;
 	CFS_INIT_LIST_HEAD(&lut->lut_txn_cb.dtc_linkage);
 

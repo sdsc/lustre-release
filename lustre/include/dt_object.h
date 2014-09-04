@@ -1936,6 +1936,11 @@ int top_trans_start(const struct lu_env *env, struct dt_device *master_dev,
 
 int top_trans_stop(const struct lu_env *env, struct dt_device *master_dev,
 		   struct thandle *th);
+
+enum dt_txn_callback_flags {
+	/* The callback will use top thandle of thandle */
+	DT_TXN_CALLBACK_TOP	= 1,
+};
 /**
  * Transaction call-backs.
  *
@@ -1955,6 +1960,7 @@ struct dt_txn_callback {
         void (*dtc_txn_commit)(struct thandle *txn, void *cookie);
 	void			*dtc_cookie;
 	__u32			dtc_tag;
+	__u32			dtc_flags;
 	struct list_head	dtc_linkage;
 };
 
