@@ -1956,6 +1956,18 @@ dt_locate(const struct lu_env *env, struct dt_device *dev,
 			    dev->dd_lu_dev.ld_site->ls_top_dev, NULL);
 }
 
+static inline struct dt_object *
+dt_object_locate(struct dt_object *dto, struct dt_device *dt_dev)
+{
+	struct lu_object *lo;
+
+	list_for_each_entry(lo, &dto->do_lu.lo_header->loh_layers, lo_linkage) {
+		if (lo->lo_dev == &dt_dev->dd_lu_dev)
+			return container_of(lo, struct dt_object, do_lu);
+	}
+	return NULL;
+}
+
 int local_oid_storage_init(const struct lu_env *env, struct dt_device *dev,
 			   const struct lu_fid *first_fid,
 			   struct local_oid_storage **los);

@@ -219,13 +219,18 @@ struct thandle *get_sub_thandle_by_dt(const struct lu_env *env,
 				      struct dt_device *sub_dt)
 {
 	struct sub_thandle	*lst;
-	struct top_thandle	*top_th = container_of(th, struct top_thandle,
-						       tt_super);
+	struct top_thandle	*top_th;
 	struct thandle		*sub_th;
 	ENTRY;
 
+	/* If th_top == NULL, then the transaction is created
+	 * in sub layer(OSD/OSP), just return itself, see
+	 * out_tx_end()->osd_trans_start() -> tgt_txn_start_cb() */
+	if (th->th_top == NULL)
+		RETURN(th);
+
+	top_th = container_of(th, struct top_thandle, tt_super);
 	LASSERT(top_th->tt_magic == TOP_THANDLE_MAGIC);
-	LASSERT(top_th->tt_child != NULL);
 	if (likely(sub_dt == top_th->tt_child->th_dev))
 		RETURN(top_th->tt_child);
 
