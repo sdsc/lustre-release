@@ -564,6 +564,15 @@ static int lod_trans_start(const struct lu_env *env, struct dt_device *dt,
 	return top_trans_start(env, dt2lod_dev(dt)->lod_child, th);
 }
 
+static int lod_trans_cb_add(struct thandle *th,
+			    struct dt_txn_commit_cb *dcb)
+{
+	struct top_thandle	*top_th = container_of(th, struct top_thandle,
+						       tt_super);
+	dt_trans_cb_add(top_th->tt_child, dcb);
+	return 0;
+}
+
 /**
  * Implementation of dt_device_operations::dt_trans_stop() for LOD
  *
@@ -672,6 +681,7 @@ static const struct dt_device_operations lod_dt_ops = {
 	.dt_ro               = lod_ro,
 	.dt_commit_async     = lod_commit_async,
 	.dt_init_capa_ctxt   = lod_init_capa_ctxt,
+	.dt_trans_cb_add     = lod_trans_cb_add,
 };
 
 /**

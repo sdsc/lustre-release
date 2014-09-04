@@ -56,6 +56,7 @@ struct update_opcode {
 	{ OUT_INDEX_DELETE,     "delete" },
 	{ OUT_WRITE,		"write" },
 	{ OUT_XATTR_DEL,	"xattr_del" },
+	{ OUT_PUNCH,		"punch" },
 };
 
 const char *update_op_str(__u16 opcode)
