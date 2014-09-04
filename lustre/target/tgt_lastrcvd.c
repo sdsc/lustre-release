@@ -152,13 +152,15 @@ int tgt_client_data_update(const struct lu_env *env, struct obd_export *exp)
 {
 	struct tg_export_data	*ted = &exp->exp_target_data;
 	struct lu_target	*tgt = class_exp2tgt(exp);
+	struct dt_device	*last_rcvd_dt;
 	struct tgt_thread_info	*tti = tgt_th_info(env);
 	struct thandle		*th;
 	int			 rc = 0;
 
 	ENTRY;
 
-	th = dt_trans_create(env, tgt->lut_bottom);
+	last_rcvd_dt = lu2dt_dev(tgt->lut_last_rcvd->do_lu.lo_dev);
+	th = dt_trans_create(env, last_rcvd_dt);
 	if (IS_ERR(th))
 		RETURN(PTR_ERR(th));
 
@@ -169,7 +171,7 @@ int tgt_client_data_update(const struct lu_env *env, struct obd_export *exp)
 	if (rc)
 		GOTO(out, rc);
 
-	rc = dt_trans_start_local(env, tgt->lut_bottom, th);
+	rc = dt_trans_start_local(env, last_rcvd_dt, th);
 	if (rc)
 		GOTO(out, rc);
 	/*
@@ -192,7 +194,7 @@ int tgt_client_data_update(const struct lu_env *env, struct obd_export *exp)
 	rc = tgt_client_data_write(env, tgt, ted->ted_lcd, &tti->tti_off, th);
 	EXIT;
 out:
-	dt_trans_stop(env, tgt->lut_bottom, th);
+	dt_trans_stop(env, last_rcvd_dt, th);
 	CDEBUG(D_INFO, "%s: update last_rcvd client data for UUID = %s, "
 	       "last_transno = "LPU64": rc = %d\n", tgt->lut_obd->obd_name,
 	       tgt->lut_lsd.lsd_uuid, tgt->lut_lsd.lsd_last_transno, rc);
@@ -249,6 +251,7 @@ int tgt_server_data_update(const struct lu_env *env, struct lu_target *tgt,
 			   int sync)
 {
 	struct tgt_thread_info	*tti = tgt_th_info(env);
+	struct dt_device	*last_rcvd_dt;
 	struct thandle		*th;
 	int			 rc = 0;
 
@@ -264,7 +267,8 @@ int tgt_server_data_update(const struct lu_env *env, struct lu_target *tgt,
 	tgt->lut_lsd.lsd_last_transno = tgt->lut_last_transno;
 	spin_unlock(&tgt->lut_translock);
 
-	th = dt_trans_create(env, tgt->lut_bottom);
+	last_rcvd_dt = lu2dt_dev(tgt->lut_last_rcvd->do_lu.lo_dev);
+	th = dt_trans_create(env, last_rcvd_dt);
 	if (IS_ERR(th))
 		RETURN(PTR_ERR(th));
 
@@ -276,13 +280,13 @@ int tgt_server_data_update(const struct lu_env *env, struct lu_target *tgt,
 	if (rc)
 		GOTO(out, rc);
 
-	rc = dt_trans_start(env, tgt->lut_bottom, th);
+	rc = dt_trans_start(env, last_rcvd_dt, th);
 	if (rc)
 		GOTO(out, rc);
 
 	rc = tgt_server_data_write(env, tgt, th);
 out:
-	dt_trans_stop(env, tgt->lut_bottom, th);
+	dt_trans_stop(env, last_rcvd_dt, th);
 
 	CDEBUG(D_INFO, "%s: update last_rcvd server data for UUID = %s, "
 	       "last_transno = "LPU64": rc = %d\n", tgt->lut_obd->obd_name,
@@ -295,6 +299,7 @@ int tgt_truncate_last_rcvd(const struct lu_env *env, struct lu_target *tgt,
 			   loff_t size)
 {
 	struct dt_object *dt = tgt->lut_last_rcvd;
+	struct dt_device *last_rcvd_dt;
 	struct thandle	 *th;
 	struct lu_attr	  attr;
 	int		  rc;
@@ -304,7 +309,8 @@ int tgt_truncate_last_rcvd(const struct lu_env *env, struct lu_target *tgt,
 	attr.la_size = size;
 	attr.la_valid = LA_SIZE;
 
-	th = dt_trans_create(env, tgt->lut_bottom);
+	last_rcvd_dt = lu2dt_dev(tgt->lut_last_rcvd->do_lu.lo_dev);
+	th = dt_trans_create(env, last_rcvd_dt);
 	if (IS_ERR(th))
 		RETURN(PTR_ERR(th));
 	rc = dt_declare_punch(env, dt, size, OBD_OBJECT_EOF, th);
@@ -313,7 +319,7 @@ int tgt_truncate_last_rcvd(const struct lu_env *env, struct lu_target *tgt,
 	rc = dt_declare_attr_set(env, dt, &attr, th);
 	if (rc)
 		GOTO(cleanup, rc);
-	rc = dt_trans_start_local(env, tgt->lut_bottom, th);
+	rc = dt_trans_start_local(env, last_rcvd_dt, th);
 	if (rc)
 		GOTO(cleanup, rc);
 
@@ -322,7 +328,7 @@ int tgt_truncate_last_rcvd(const struct lu_env *env, struct lu_target *tgt,
 		rc = dt_attr_set(env, dt, &attr, th, BYPASS_CAPA);
 
 cleanup:
-	dt_trans_stop(env, tgt->lut_bottom, th);
+	dt_trans_stop(env, last_rcvd_dt, th);
 
 	RETURN(rc);
 }

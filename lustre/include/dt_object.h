@@ -1911,6 +1911,7 @@ struct dt_txn_callback {
         void (*dtc_txn_commit)(struct thandle *txn, void *cookie);
 	void			*dtc_cookie;
 	__u32			dtc_tag;
+	__u32			dtc_flags;
 	struct list_head	dtc_linkage;
 };
 

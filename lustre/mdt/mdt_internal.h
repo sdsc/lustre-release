@@ -175,6 +175,10 @@ struct mdt_device {
         struct md_device          *mdt_child;
         struct dt_device          *mdt_bottom;
 	struct obd_export	  *mdt_bottom_exp;
+	/* The dt device where we do update */
+	struct dt_device          *mdt_lod_dt;
+	struct obd_export	  *mdt_lod_exp;
+
         /** target device */
         struct lu_target           mdt_lut;
 	/*

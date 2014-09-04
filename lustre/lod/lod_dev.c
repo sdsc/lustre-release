@@ -769,8 +769,8 @@ static int lod_obd_connect(const struct lu_env *env, struct obd_export **exp,
 
 	spin_lock(&lod->lod_connects_lock);
 	lod->lod_connects++;
-	/* at the moment we expect the only user */
-	LASSERT(lod->lod_connects == 1);
+	/* Only MDD and MDT will connect to it */
+	LASSERT(lod->lod_connects <= 2);
 	spin_unlock(&lod->lod_connects_lock);
 
 	RETURN(0);
@@ -790,19 +790,10 @@ static int lod_obd_disconnect(struct obd_export *exp)
 	/* Only disconnect the underlying layers on the final disconnect. */
 	spin_lock(&lod->lod_connects_lock);
 	lod->lod_connects--;
-	if (lod->lod_connects != 0) {
-		/* why should there be more than 1 connect? */
-		spin_unlock(&lod->lod_connects_lock);
-		CERROR("%s: disconnect #%d\n", exp->exp_obd->obd_name,
-		       lod->lod_connects);
-		goto out;
-	}
+	if (lod->lod_connects == 0)
+		release = 1;
 	spin_unlock(&lod->lod_connects_lock);
 
-	/* the last user of lod has gone, let's release the device */
-	release = 1;
-
-out:
 	rc = class_disconnect(exp); /* bz 9811 */
 
 	if (rc == 0 && release)
