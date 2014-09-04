@@ -926,7 +926,9 @@ int tgt_clients_data_init(const struct lu_env *env, struct lu_target *tgt,
 		       " srv lr: "LPU64" lx: "LPU64"\n", lcd->lcd_uuid, cl_idx,
 		       last_transno, lsd->lsd_last_transno, lcd_last_xid(lcd));
 
-		exp = class_new_export(obd, (struct obd_uuid *)lcd->lcd_uuid);
+		exp = target_client_restore(obd,
+					    (struct obd_uuid *)lcd->lcd_uuid,
+					    last_transno);
 		if (IS_ERR(exp)) {
 			if (PTR_ERR(exp) == -EALREADY) {
 				/* export already exists, zero out this one */
@@ -942,15 +944,6 @@ int tgt_clients_data_init(const struct lu_env *env, struct lu_target *tgt,
 
 		rc = tgt_client_add(env, exp, cl_idx);
 		LASSERTF(rc == 0, "rc = %d\n", rc); /* can't fail existing */
-		/* VBR: set export last committed version */
-		exp->exp_last_committed = last_transno;
-		spin_lock(&exp->exp_lock);
-		exp->exp_connecting = 0;
-		exp->exp_in_recovery = 0;
-		spin_unlock(&exp->exp_lock);
-		obd->obd_max_recoverable_clients++;
-		class_export_put(exp);
-
 		/* Need to check last_rcvd even for duplicated exports. */
 		CDEBUG(D_OTHER, "client at idx %d has last_transno = "LPU64"\n",
 		       cl_idx, last_transno);
