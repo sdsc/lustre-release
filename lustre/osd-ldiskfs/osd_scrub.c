@@ -1163,9 +1163,28 @@ static int osd_inode_iteration(struct osd_thread_info *info,
 	limit = le32_to_cpu(LDISKFS_SB(param.sb)->s_es->s_inodes_count);
 
 	while (*pos <= limit && *count < max) {
+		struct ldiskfs_group_desc *desc;
 		struct osd_idmap_cache *oic = NULL;
 
 		param.bg = (*pos - 1) / LDISKFS_INODES_PER_GROUP(param.sb);
+		desc = ldiskfs_get_group_desc(param.sb, param.bg, NULL);
+		if (desc == NULL) {
+			CDEBUG(D_LFSCK, "%.16s: fail to load group descriptor "
+			       "for %u, scrub will stop, urgent mode\n",
+			       LDISKFS_SB(param.sb)->s_es->s_volume_name,
+			       (__u32)param.bg);
+			RETURN(-EIO);
+		}
+
+		ldiskfs_lock_group(param.sb, param.bg);
+		if (desc->bg_flags & cpu_to_le16(LDISKFS_BG_INODE_UNINIT)) {
+			ldiskfs_unlock_group(param.sb, param.bg);
+			*pos = 1 + (param.bg + 1) *
+				LDISKFS_INODES_PER_GROUP(param.sb);
+			continue;
+		}
+		ldiskfs_unlock_group(param.sb, param.bg);
+
 		param.offset = (*pos - 1) % LDISKFS_INODES_PER_GROUP(param.sb);
 		param.gbase = 1 + param.bg * LDISKFS_INODES_PER_GROUP(param.sb);
 		param.bitmap = ldiskfs_read_inode_bitmap(param.sb, param.bg);
