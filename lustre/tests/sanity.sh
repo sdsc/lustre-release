@@ -6577,6 +6577,68 @@ test_101f() {
 }
 run_test 101f "check mmap read performance"
 
+test_101g() {
+	local rpcs
+	local osts=$(get_facets OST)
+	local list=$(comma_list $(osts_nodes))
+	local p="$TMP/$TESTSUITE-$TESTNAME.parameters"
+
+	save_lustre_params $osts "obdfilter.*.brw_size" > $p
+
+	$LFS setstripe -c 1 $DIR/$tfile
+
+	set_osd_param $list '' brw_size 16M
+
+	echo "remount to bring into effect"
+	remount_client $MOUNT || error "remount_client fialed"
+
+	for mp in $($LCTL get_param -n osc.*.max_pages_per_rpc); do
+		[ "$mp" -eq 4096 ] || error "max_pages_per_rpc not correctly set"
+	done
+
+        $LCTL set_param -n osc.*.rpc_stats 0
+
+	# 10*16 MiB should be enough for the test
+	dd if=/dev/zero of=$DIR/$tfile bs=16M count=10
+	cancel_lru_locks osc
+	dd of=/dev/null if=$DIR/$tfile bs=16M count=10
+
+	# calculate 16 MiB RPCs
+	rpcs=$($LCTL get_param 'osc.*.rpc_stats' |
+	       sed -n '/pages per rpc/,/^$/p' |
+	       awk 'BEGIN { sum = 0 }; /4096:/ { sum += $2 };
+		    END { print sum }')
+	echo $rpcs RPCs
+	[ "$rpcs" -eq 10 ] || error "not all RPCs are 16 MiB BRW rpcs"
+
+	rm -f $DIR/$tfile
+
+	echo "Reduce to 4MiB..,"
+
+	$LCTL set_param -n osc.*.max_pages_per_rpc=1024
+ 	$LCTL set_param -n osc.*.rpc_stats 0
+
+	dd if=/dev/zero of=$DIR/$tfile bs=4M count=25
+	cancel_lru_locks osc
+	dd of=/dev/null if=$DIR/$tfile bs=4M count=25
+
+	# calculate 4 MiB RPCs
+	rpcs=$($LCTL get_param 'osc.*.rpc_stats' |
+		sed -n '/pages per rpc/,/^$/p' |
+		awk 'BEGIN { sum = 0 }; /1024:/ { sum += $2 };
+		     END { print sum }')
+	echo $rpcs RPCs
+	[ "$rpcs" -eq 25 ] || error "not all RPCs are 4 MiB BRW rpcs"
+
+	rm -f $DIR/$tfile
+
+	restore_lustre_params < $p
+	remount_client $MOUNT || error "remount_client fialed"
+
+	rm -f $p
+}
+run_test 101g "Big bulk(4/16 MiB) readahead"
+
 setup_test102() {
 	test_mkdir -p $DIR/$tdir
 	chown $RUNAS_ID $DIR/$tdir
