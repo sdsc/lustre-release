@@ -1369,6 +1369,7 @@ out_stop_service:
 static int lsi_prepare(struct lustre_sb_info *lsi)
 {
 	__u32 index;
+	size_t namelen;
 	int rc;
 	ENTRY;
 
@@ -1381,28 +1382,37 @@ static int lsi_prepare(struct lustre_sb_info *lsi)
 		RETURN(-EINVAL);
 	}
 
-	if (strlen(lsi->lsi_lmd->lmd_profile) >= sizeof(lsi->lsi_svname))
+	namelen = strlcpy(lsi->lsi_svname, lsi->lsi_lmd->lmd_profile,
+		      sizeof(lsi->lsi_svname));
+	if (namelen >= sizeof(lsi->lsi_svname))
 		RETURN(-ENAMETOOLONG);
 
-	strcpy(lsi->lsi_svname, lsi->lsi_lmd->lmd_profile);
-
 	/* Determine osd type */
-	if (lsi->lsi_lmd->lmd_osd_type != NULL) {
-		if (strlen(lsi->lsi_lmd->lmd_osd_type) >=
-		    sizeof(lsi->lsi_osd_type))
-			RETURN(-ENAMETOOLONG);
-
-		strcpy(lsi->lsi_osd_type, lsi->lsi_lmd->lmd_osd_type);
-	} else {
-		strcpy(lsi->lsi_osd_type, LUSTRE_OSD_LDISKFS_NAME);
-	}
+	if (lsi->lsi_lmd->lmd_osd_type != NULL)
+		namelen = strlcpy(lsi->lsi_osd_type, lsi->lsi_lmd->lmd_osd_type,
+			      sizeof(lsi->lsi_osd_type));
+	else
+		namelen = strlcpy(lsi->lsi_osd_type, LUSTRE_OSD_LDISKFS_NAME,
+			      sizeof(lsi->lsi_osd_type));
+	if (namelen >= sizeof(lsi->lsi_osd_type))
+		RETURN(-ENAMETOOLONG);
 
 	/* XXX: a temp. solution for components using ldiskfs
 	 *      to be removed in one of the subsequent patches */
-	if (!strcmp(lsi->lsi_lmd->lmd_osd_type, "osd-ldiskfs"))
-		strcpy(lsi->lsi_fstype, "ldiskfs");
-	else
-		strcpy(lsi->lsi_fstype, lsi->lsi_lmd->lmd_osd_type);
+	if (lsi->lsi_lmd->lmd_osd_type != NULL) {
+		if (strcmp(lsi->lsi_lmd->lmd_osd_type, "osd-ldiskfs") == 0)
+			namelen = strlcpy(lsi->lsi_fstype, "ldiskfs",
+				      sizeof(lsi->lsi_fstype));
+		else
+			namelen = strlcpy(lsi->lsi_fstype,
+				      lsi->lsi_lmd->lmd_osd_type,
+				      sizeof(lsi->lsi_fstype));
+	} else {
+		namelen = strlcpy(lsi->lsi_fstype, "ldiskfs",
+			      sizeof(lsi->lsi_fstype));
+	}
+	if (namelen >= sizeof(lsi->lsi_fstype))
+		RETURN(-ENAMETOOLONG);
 
 	/* Determine server type */
 	rc = server_name2index(lsi->lsi_svname, &index, NULL);
