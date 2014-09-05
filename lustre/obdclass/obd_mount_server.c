@@ -1399,10 +1399,13 @@ static int lsi_prepare(struct lustre_sb_info *lsi)
 
 	/* XXX: a temp. solution for components using ldiskfs
 	 *      to be removed in one of the subsequent patches */
-	if (!strcmp(lsi->lsi_lmd->lmd_osd_type, "osd-ldiskfs"))
+	if (lsi->lsi_lmd->lmd_osd_type != NULL) {
+		if (strcmp(lsi->lsi_lmd->lmd_osd_type, "osd-ldiskfs") == 0)
+			strcpy(lsi->lsi_fstype, "ldiskfs");
+		else
+			strcpy(lsi->lsi_fstype, lsi->lsi_lmd->lmd_osd_type);
+	} else
 		strcpy(lsi->lsi_fstype, "ldiskfs");
-	else
-		strcpy(lsi->lsi_fstype, lsi->lsi_lmd->lmd_osd_type);
 
 	/* Determine server type */
 	rc = server_name2index(lsi->lsi_svname, &index, NULL);
