@@ -22,6 +22,10 @@ Requires:       gcc, make, perl
 Requires:       kernel-devel
 Provides:       %{module}-kmod = %{version}
 Provides:       %{module}-modules = %{version}
+Provides:       lustre-osd-zfs
+Conflicts:      lustre-modules
+Conflicts:      lustre-client-modules
+Conflicts:      lustre-osd-zfs
 
 %description
 This package contains the dkms Lustre kernel modules.
