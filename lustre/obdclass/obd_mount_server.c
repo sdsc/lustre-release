@@ -1399,7 +1399,8 @@ static int lsi_prepare(struct lustre_sb_info *lsi)
 
 	/* XXX: a temp. solution for components using ldiskfs
 	 *      to be removed in one of the subsequent patches */
-	if (!strcmp(lsi->lsi_lmd->lmd_osd_type, "osd-ldiskfs"))
+	if (lsi->lsi_lmd->lmd_osd_type != NULL &&
+	    !strcmp(lsi->lsi_lmd->lmd_osd_type, "osd-ldiskfs"))
 		strcpy(lsi->lsi_fstype, "ldiskfs");
 	else
 		strcpy(lsi->lsi_fstype, lsi->lsi_lmd->lmd_osd_type);
