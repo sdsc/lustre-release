@@ -50,8 +50,6 @@ setupall
 
 build_test_filter
 
-$LCTL set_param debug=+lfsck > /dev/null || true
-
 MDT_DEV="${FSNAME}-MDT0000"
 OST_DEV="${FSNAME}-OST0000"
 MDT_DEVNAME=$(mdsdevname ${SINGLEMDS//mds/})
@@ -1654,6 +1652,8 @@ test_17() {
 }
 run_test 17 "LFSCK can repair multiple references"
 
+$LCTL set_param debug=+cache > /dev/null
+
 test_18a() {
 	echo "#####"
 	echo "The target MDT-object is there, but related stripe information"
@@ -2340,6 +2340,8 @@ test_18f() {
 	fi
 }
 run_test 18f "Skip the failed OST(s) when handle orphan OST-objects"
+
+$LCTL set_param debug=-cache > /dev/null
 
 test_19a() {
 	check_mount_and_prep
@@ -4130,8 +4132,6 @@ test_31h() {
 		error "(9) Fail to remove the striped directory after LFSCK"
 }
 run_test 31h "Repair the corrupted shard's name entry"
-
-$LCTL set_param debug=-lfsck > /dev/null || true
 
 # restore MDS/OST size
 MDSSIZE=${SAVED_MDSSIZE}
