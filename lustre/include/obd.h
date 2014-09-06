@@ -185,7 +185,7 @@ struct obd_type {
 struct brw_page {
 	obd_off  off;
 	struct page *pg;
-	int count;
+	size_t count;
 	obd_flag flag;
 };
 
@@ -251,7 +251,7 @@ struct client_obd {
 	/* A chunk is an optimal size used by osc_extent to determine
 	 * the extent size. A chunk is max(PAGE_CACHE_SIZE, OST block size) */
 	int			cl_chunkbits;
-	int			cl_extent_tax;	/* extent overhead, by bytes */
+	unsigned int		cl_extent_tax;	/* extent overhead, by bytes */
 
 	/* keep track of objects that have lois that contain pages which
 	 * have been queued for async brw.  this lock also protects the

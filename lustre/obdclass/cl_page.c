@@ -1062,11 +1062,11 @@ EXPORT_SYMBOL(cl_page_is_under_lock);
  * \see cl_page_operations::cpo_clip()
  */
 void cl_page_clip(const struct lu_env *env, struct cl_page *pg,
-                  int from, int to)
+		  loff_t from, loff_t to)
 {
-        PINVRNT(env, pg, cl_page_invariant(pg));
+	PINVRNT(env, pg, cl_page_invariant(pg));
 
-        CL_PAGE_HEADER(D_TRACE, env, pg, "%d %d\n", from, to);
+	CL_PAGE_HEADER(D_TRACE, env, pg, LPD64" "LPD64"\n", from, to);
         CL_PAGE_INVOID(env, pg, CL_PAGE_OP(cpo_clip),
                        (const struct lu_env *,
                         const struct cl_page_slice *,int, int),
@@ -1132,9 +1132,9 @@ pgoff_t cl_index(const struct cl_object *obj, loff_t offset)
 }
 EXPORT_SYMBOL(cl_index);
 
-int cl_page_size(const struct cl_object *obj)
+size_t cl_page_size(const struct cl_object *obj)
 {
-	return 1 << PAGE_CACHE_SHIFT;
+	return 1UL << PAGE_CACHE_SHIFT;
 }
 EXPORT_SYMBOL(cl_page_size);
 

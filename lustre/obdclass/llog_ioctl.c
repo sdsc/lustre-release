@@ -178,12 +178,12 @@ static int llog_check_cb(const struct lu_env *env, struct llog_handle *handle,
 static int llog_print_cb(const struct lu_env *env, struct llog_handle *handle,
 			 struct llog_rec_hdr *rec, void *data)
 {
-        struct obd_ioctl_data *ioc_data = (struct obd_ioctl_data *)data;
-	static int l, remains;
+	struct obd_ioctl_data *ioc_data = (struct obd_ioctl_data *)data;
+	static size_t l, remains;
 	static long from, to;
-        static char *out;
-        char *endp;
-        int cur_index;
+	static char *out;
+	char *endp;
+	__u32 cur_index;
 
         ENTRY;
 	if (ioc_data != NULL && ioc_data->ioc_inllen1 > 0) {
@@ -217,7 +217,7 @@ static int llog_print_cb(const struct lu_env *env, struct llog_handle *handle,
                 }
 
 		l = snprintf(out, remains,
-			     "[index]: %05d  [logid]: #"DOSTID"#%08x\n",
+			     "[index]: %05u  [logid]: #"DOSTID"#%08x\n",
 			     cur_index, POSTID(&lir->lid_id.lgl_oi),
 			     lir->lid_id.lgl_ogen);
 	} else if (rec->lrh_type == OBD_CFG_REC) {
@@ -229,15 +229,15 @@ static int llog_print_cb(const struct lu_env *env, struct llog_handle *handle,
 		l = rc;
 	} else {
 		l = snprintf(out, remains,
-			     "[index]: %05d  [type]: %02x  [len]: %04d\n",
+			     "[index]: %05u  [type]: %02x  [len]: %04d\n",
 			     cur_index, rec->lrh_type, rec->lrh_len);
         }
         out += l;
-        remains -= l;
-        if (remains <= 0) {
+	if (remains <= l) {
                 CERROR("not enough space for print log records\n");
                 RETURN(-LLOG_EEMPTY);
         }
+	remains -= l;
 
         RETURN(0);
 }
