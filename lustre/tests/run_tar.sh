@@ -35,6 +35,9 @@ CONTINUE=true
 while [ ! -e "$END_RUN_FILE" ] && $CONTINUE; do
 	echoerr "$(date +'%F %H:%M:%S'): tar run starting"
 	mkdir -p $TESTDIR
+	cd $TESTDIR
+	sync
+
 	USAGE=$(du -s /etc | awk '{print $1}')
 	FREE_SPACE=$($LFS df $TESTDIR | awk '/filesystem summary:/ {print $5}')
 	AVAIL=$((FREE_SPACE * 9 / 10 / CLIENT_COUNT))
@@ -44,9 +47,6 @@ while [ ! -e "$END_RUN_FILE" ] && $CONTINUE; do
 		break
 	fi
 
-	cd $TESTDIR
-
-	sync
 	do_tar &
 	wait $!
 	RC=$?
