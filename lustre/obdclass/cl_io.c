@@ -780,7 +780,7 @@ EXPORT_SYMBOL(cl_io_read_page);
  * \see cl_io_operations::cio_commit_async()
  */
 int cl_io_commit_async(const struct lu_env *env, struct cl_io *io,
-			struct cl_page_list *queue, int from, int to,
+			struct cl_page_list *queue, loff_t from, loff_t to,
 			cl_commit_cbt cb)
 {
 	const struct cl_io_slice *scan;
@@ -1446,7 +1446,7 @@ void cl_req_page_add(const struct lu_env *env,
 {
 	struct cl_object  *obj;
 	struct cl_req_obj *rqo;
-	int i;
+	unsigned int i;
 
 	ENTRY;
 
@@ -1499,7 +1499,7 @@ EXPORT_SYMBOL(cl_req_page_done);
  */
 int cl_req_prep(const struct lu_env *env, struct cl_req *req)
 {
-        int i;
+	unsigned int i;
         int result;
         const struct cl_req_slice *slice;
 
@@ -1533,7 +1533,7 @@ void cl_req_attr_set(const struct lu_env *env, struct cl_req *req,
 {
         const struct cl_req_slice *slice;
         struct cl_page            *page;
-        int i;
+	unsigned int i;
 
 	LASSERT(!list_empty(&req->crq_pages));
         ENTRY;
