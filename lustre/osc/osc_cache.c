@@ -48,7 +48,7 @@ static int extent_debug; /* set it to be true for more debug */
 
 static void osc_update_pending(struct osc_object *obj, int cmd, int delta);
 static int osc_extent_wait(const struct lu_env *env, struct osc_extent *ext,
-			   int state);
+			   unsigned int state);
 static void osc_ap_completion(const struct lu_env *env, struct client_obd *cli,
 			      struct osc_async_page *oap, int sent, int rc);
 static int osc_make_ready(const struct lu_env *env, struct osc_async_page *oap,
@@ -175,7 +175,7 @@ static int osc_extent_sanity_check0(struct osc_extent *ext,
 {
 	struct osc_object *obj = ext->oe_obj;
 	struct osc_async_page *oap;
-	int page_count;
+	size_t page_count;
 	int rc = 0;
 
 	if (!osc_object_is_locked(obj))
@@ -586,7 +586,7 @@ static inline int overlapped(struct osc_extent *ex1, struct osc_extent *ex2)
  */
 struct osc_extent *osc_extent_find(const struct lu_env *env,
 				   struct osc_object *obj, pgoff_t index,
-				   int *grants)
+				   unsigned int *grants)
 
 {
 	struct client_obd *cli = osc_cli(obj);
@@ -597,10 +597,10 @@ struct osc_extent *osc_extent_find(const struct lu_env *env,
 	struct osc_extent *found = NULL;
 	pgoff_t    chunk;
 	pgoff_t    max_end;
-	int        max_pages; /* max_pages_per_rpc */
-	int        chunksize;
+	size_t	   max_pages; /* max_pages_per_rpc */
+	unsigned int chunksize;
 	int        ppc_bits; /* pages per chunk bits */
-	int        chunk_mask;
+	pgoff_t    chunk_mask;
 	int        rc;
 	ENTRY;
 
@@ -614,8 +614,8 @@ struct osc_extent *osc_extent_find(const struct lu_env *env,
 
 	LASSERT(cli->cl_chunkbits >= PAGE_CACHE_SHIFT);
 	ppc_bits   = cli->cl_chunkbits - PAGE_CACHE_SHIFT;
-	chunk_mask = ~((1 << ppc_bits) - 1);
-	chunksize  = 1 << cli->cl_chunkbits;
+	chunk_mask = ~((1UL << ppc_bits) - 1);
+	chunksize  = 1U << cli->cl_chunkbits;
 	chunk      = index >> ppc_bits;
 
 	/* align end to rpc edge, rpc size may not be a power 2 integer. */
@@ -648,8 +648,8 @@ restart:
 	if (ext == NULL)
 		ext = first_extent(obj);
 	while (ext != NULL) {
-		loff_t ext_chk_start = ext->oe_start >> ppc_bits;
-		loff_t ext_chk_end   = ext->oe_end   >> ppc_bits;
+		pgoff_t ext_chk_start = ext->oe_start >> ppc_bits;
+		pgoff_t ext_chk_end   = ext->oe_end   >> ppc_bits;
 
 		LASSERT(sanity_check_nolock(ext) == 0);
 		if (chunk > ext_chk_end + 1)
@@ -801,16 +801,17 @@ int osc_extent_finish(const struct lu_env *env, struct osc_extent *ext,
 	struct client_obd *cli = osc_cli(ext->oe_obj);
 	struct osc_async_page *oap;
 	struct osc_async_page *tmp;
-	int nr_pages = ext->oe_nr_pages;
-	int lost_grant = 0;
-	int blocksize = cli->cl_import->imp_obd->obd_osfs.os_bsize ? : 4096;
-	__u64 last_off = 0;
-	int last_count = -1;
+	unsigned int nr_pages = ext->oe_nr_pages;
+	unsigned int lost_grant = 0;
+	unsigned int blocksize = cli->cl_import->imp_obd->obd_osfs.os_bsize
+				 ?: 4096;
+	obd_off last_off = 0;
+	unsigned int last_count = 0;
 	ENTRY;
 
 	OSC_EXTENT_DUMP(D_CACHE, ext, "extent finished.\n");
 
-	ext->oe_rc = rc ?: ext->oe_nr_pages;
+	ext->oe_rc = rc ?: (int)ext->oe_nr_pages;
 	EASSERT(ergo(rc == 0, ext->oe_state == OES_RPC), ext);
 
 	osc_lru_add_batch(cli, &ext->oe_pages);
@@ -835,10 +836,10 @@ int osc_extent_finish(const struct lu_env *env, struct osc_extent *ext,
 		/* For short writes we shouldn't count parts of pages that
 		 * span a whole chunk on the OST side, or our accounting goes
 		 * wrong.  Should match the code in filter_grant_check. */
-		int offset = last_off & ~CFS_PAGE_MASK;
-		int count = last_count + (offset & (blocksize - 1));
-		int end = (offset + last_count) & (blocksize - 1);
-		if (end)
+		unsigned int offset = last_off & ~CFS_PAGE_MASK;
+		unsigned int count = last_count + (offset & (blocksize - 1));
+		unsigned int end = (offset + last_count) & (blocksize - 1);
+		if (end > 0)
 			count += blocksize - end;
 
 		lost_grant = PAGE_CACHE_SIZE - count;
@@ -852,7 +853,7 @@ int osc_extent_finish(const struct lu_env *env, struct osc_extent *ext,
 	RETURN(0);
 }
 
-static int extent_wait_cb(struct osc_extent *ext, int state)
+static int extent_wait_cb(struct osc_extent *ext, unsigned int state)
 {
 	int ret;
 
@@ -867,7 +868,7 @@ static int extent_wait_cb(struct osc_extent *ext, int state)
  * Wait for the extent's state to become @state.
  */
 static int osc_extent_wait(const struct lu_env *env, struct osc_extent *ext,
-			   int state)
+			   unsigned int state)
 {
 	struct osc_object *obj = ext->oe_obj;
 	struct l_wait_info lwi = LWI_TIMEOUT_INTR(cfs_time_seconds(600), NULL,
@@ -1037,7 +1038,7 @@ static int osc_extent_make_ready(const struct lu_env *env,
 	struct osc_async_page *oap;
 	struct osc_async_page *last = NULL;
 	struct osc_object *obj = ext->oe_obj;
-	int page_count = 0;
+	unsigned int page_count = 0;
 	int rc;
 	ENTRY;
 
@@ -1111,7 +1112,8 @@ static int osc_extent_make_ready(const struct lu_env *env,
  * called to expand the extent for the same IO. To expand the extent, the
  * page index must be in the same or next chunk of ext->oe_end.
  */
-static int osc_extent_expand(struct osc_extent *ext, pgoff_t index, int *grants)
+static int osc_extent_expand(struct osc_extent *ext, pgoff_t index,
+			     unsigned int *grants)
 {
 	struct osc_object *obj = ext->oe_obj;
 	struct client_obd *cli = osc_cli(obj);
@@ -1120,7 +1122,7 @@ static int osc_extent_expand(struct osc_extent *ext, pgoff_t index, int *grants)
 	pgoff_t chunk = index >> ppc_bits;
 	pgoff_t end_chunk;
 	pgoff_t end_index;
-	int chunksize = 1 << cli->cl_chunkbits;
+	unsigned int chunksize = 1U << cli->cl_chunkbits;
 	int rc = 0;
 	ENTRY;
 
@@ -1297,7 +1299,7 @@ static int osc_completion(const struct lu_env *env, struct osc_async_page *oap,
 	if (rc == 0 && srvlock) {
 		struct lu_device *ld    = opg->ops_cl.cpl_obj->co_lu.lo_dev;
 		struct osc_stats *stats = &lu2osc_dev(ld)->od_stats;
-		int bytes = oap->oap_count;
+		size_t bytes = oap->oap_count;
 
 		if (crt == CRT_READ)
 			stats->os_lockless_reads += bytes;
@@ -1430,7 +1432,7 @@ void osc_unreserve_grant(struct client_obd *cli,
 static void osc_free_grant(struct client_obd *cli, unsigned int nr_pages,
 			   unsigned int lost_grant)
 {
-	int grant = (1 << cli->cl_chunkbits) + cli->cl_extent_tax;
+	unsigned int grant = (1U << cli->cl_chunkbits) + cli->cl_extent_tax;
 
 	client_obd_list_lock(&cli->cl_loi_list_lock);
 	atomic_sub(nr_pages, &obd_dirty_pages);
@@ -1477,7 +1479,7 @@ static int osc_enter_cache_try(struct client_obd *cli,
 		return 0;
 
 	if (cli->cl_dirty_pages < cli->cl_dirty_max_pages &&
-	    1 + atomic_read(&obd_dirty_pages) <= obd_max_dirty_pages) {
+	    1U + atomic_read(&obd_dirty_pages) <= obd_max_dirty_pages) {
 		osc_consume_write_grant(cli, &oap->oap_brw_page);
 		if (transient) {
 			cli->cl_dirty_transit++;
@@ -1626,7 +1628,7 @@ void osc_wake_cache_waiters(struct client_obd *cli)
 		ocw->ocw_rc = -EDQUOT;
 		/* we can't dirty more */
 		if ((cli->cl_dirty_pages  >= cli->cl_dirty_max_pages) ||
-		    (1 + atomic_read(&obd_dirty_pages) > obd_max_dirty_pages)) {
+		    (1U + atomic_read(&obd_dirty_pages) > obd_max_dirty_pages)) {
 			CDEBUG(D_CACHE, "no dirty room: dirty: %ld "
 			       "osc max %ld, sys max %d\n", cli->cl_dirty_pages,
 			       cli->cl_dirty_max_pages, obd_max_dirty_pages);
@@ -1690,7 +1692,7 @@ static int osc_makes_rpc(struct client_obd *cli, struct osc_object *osc,
 			RETURN(1);
 		}
 		if (atomic_read(&osc->oo_nr_writes) >=
-		    cli->cl_max_pages_per_rpc)
+		    (long)cli->cl_max_pages_per_rpc)
 			RETURN(1);
 	} else {
 		if (atomic_read(&osc->oo_nr_reads) == 0)
@@ -1897,11 +1899,12 @@ static int try_to_add_extent_for_io(struct client_obd *cli,
  * 5. Traverse the extent tree from the 1st extent;
  * 6. Above steps exit if there is no space in this RPC.
  */
-static int get_write_extents(struct osc_object *obj, struct list_head *rpclist)
+static unsigned int get_write_extents(struct osc_object *obj,
+				      struct list_head *rpclist)
 {
 	struct client_obd *cli = osc_cli(obj);
 	struct osc_extent *ext;
-	int page_count = 0;
+	unsigned int page_count = 0;
 	unsigned int max_pages = cli->cl_max_pages_per_rpc;
 
 	LASSERT(osc_object_is_locked(obj));
@@ -2041,7 +2044,7 @@ __must_hold(osc)
 	struct osc_extent *ext;
 	struct osc_extent *next;
 	struct list_head rpclist = LIST_HEAD_INIT(rpclist);
-	int page_count = 0;
+	unsigned int page_count = 0;
 	unsigned int max_pages = cli->cl_max_pages_per_rpc;
 	int rc = 0;
 	ENTRY;
@@ -2058,7 +2061,7 @@ __must_hold(osc)
 	}
 	LASSERT(page_count <= max_pages);
 
-	osc_update_pending(osc, OBD_BRW_READ, -page_count);
+	osc_update_pending(osc, OBD_BRW_READ, -(int)page_count);
 
 	if (!list_empty(&rpclist)) {
 		osc_object_unlock(osc);
@@ -2259,7 +2262,7 @@ int osc_queue_async_io(const struct lu_env *env, struct cl_io *io,
 	struct client_obd     *cli = oap->oap_cli;
 	struct osc_object     *osc = oap->oap_obj;
 	pgoff_t index;
-	int    grants = 0;
+	unsigned int grants = 0;
 	int    brw_flags = OBD_BRW_ASYNC;
 	int    cmd = OBD_BRW_WRITE;
 	int    need_release = 0;
@@ -2328,7 +2331,7 @@ int osc_queue_async_io(const struct lu_env *env, struct cl_io *io,
 	if (ext != NULL && ext->oe_start <= index && ext->oe_max_end >= index) {
 		/* one chunk plus extent overhead must be enough to write this
 		 * page */
-		grants = (1 << cli->cl_chunkbits) + cli->cl_extent_tax;
+		grants = (1U << cli->cl_chunkbits) + cli->cl_extent_tax;
 		if (ext->oe_end >= index)
 			grants = 0;
 
@@ -2340,7 +2343,7 @@ int osc_queue_async_io(const struct lu_env *env, struct cl_io *io,
 			grants = 0;
 			need_release = 1;
 		} else if (ext->oe_end < index) {
-			int tmp = grants;
+			unsigned int tmp = grants;
 			/* try to expand this extent */
 			rc = osc_extent_expand(ext, index, &tmp);
 			if (rc < 0) {
@@ -2365,7 +2368,8 @@ int osc_queue_async_io(const struct lu_env *env, struct cl_io *io,
 	}
 
 	if (ext == NULL) {
-		int tmp = (1 << cli->cl_chunkbits) + cli->cl_extent_tax;
+		unsigned int tmp = (1U << cli->cl_chunkbits)
+				 + cli->cl_extent_tax;
 
 		/* try to find new extent to cover this page */
 		LASSERT(oio->oi_active == NULL);
@@ -2657,7 +2661,7 @@ int osc_queue_sync_pages(const struct lu_env *env, struct osc_object *obj,
  * Called by osc_io_setattr_start() to freeze and destroy covering extents.
  */
 int osc_cache_truncate_start(const struct lu_env *env, struct osc_io *oio,
-			     struct osc_object *obj, __u64 size)
+			     struct osc_object *obj, loff_t size)
 {
 	struct client_obd *cli = osc_cli(obj);
 	struct osc_extent *ext;

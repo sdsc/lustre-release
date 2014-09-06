@@ -472,35 +472,33 @@ EXPORT_SYMBOL(dt_read);
 int dt_record_read(const struct lu_env *env, struct dt_object *dt,
                    struct lu_buf *buf, loff_t *pos)
 {
-        int rc;
+	ssize_t size;
 
-        LASSERTF(dt != NULL, "dt is NULL when we want to read record\n");
+	LASSERTF(dt != NULL, "dt is NULL when we want to read record\n");
 
-        rc = dt->do_body_ops->dbo_read(env, dt, buf, pos, BYPASS_CAPA);
+	size = dt->do_body_ops->dbo_read(env, dt, buf, pos, BYPASS_CAPA);
 
-        if (rc == buf->lb_len)
-                rc = 0;
-        else if (rc >= 0)
-                rc = -EFAULT;
-        return rc;
+	if (size < 0)
+		return (int)size;
+	return (size == (ssize_t)buf->lb_len) ? 0 : -EFAULT;
 }
 EXPORT_SYMBOL(dt_record_read);
 
 int dt_record_write(const struct lu_env *env, struct dt_object *dt,
                     const struct lu_buf *buf, loff_t *pos, struct thandle *th)
 {
-        int rc;
+	ssize_t size;
 
-        LASSERTF(dt != NULL, "dt is NULL when we want to write record\n");
-        LASSERT(th != NULL);
-        LASSERT(dt->do_body_ops);
-        LASSERT(dt->do_body_ops->dbo_write);
-        rc = dt->do_body_ops->dbo_write(env, dt, buf, pos, th, BYPASS_CAPA, 1);
-        if (rc == buf->lb_len)
-                rc = 0;
-        else if (rc >= 0)
-                rc = -EFAULT;
-        return rc;
+	LASSERTF(dt != NULL, "dt is NULL when we want to write record\n");
+	LASSERT(th != NULL);
+	LASSERT(dt->do_body_ops);
+	LASSERT(dt->do_body_ops->dbo_write);
+
+	size = dt->do_body_ops->dbo_write(env, dt, buf, pos, th, BYPASS_CAPA, 1);
+
+	if (size < 0)
+		return (int)size;
+	return (size == (ssize_t)buf->lb_len) ? 0 : -EFAULT;
 }
 EXPORT_SYMBOL(dt_record_write);
 
@@ -666,13 +664,14 @@ static inline const struct dt_index_features *dt_index_feat_select(__u64 seq,
  * \param arg  - is a pointer to the idx_info structure
  */
 static int dt_index_page_build(const struct lu_env *env, union lu_page *lp,
-			       int nob, const struct dt_it_ops *iops,
+			       size_t nob, const struct dt_it_ops *iops,
 			       struct dt_it *it, __u32 attr, void *arg)
 {
 	struct idx_info		*ii = (struct idx_info *)arg;
 	struct lu_idxpage	*lip = &lp->lp_idx;
 	char			*entry;
-	int			 rc, size;
+	size_t			 size;
+	int			 rc;
 	ENTRY;
 
 	/* initialize the header of the new container */

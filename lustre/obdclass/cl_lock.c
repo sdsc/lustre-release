@@ -141,15 +141,15 @@ static void cl_lock_trace0(int level, const struct lu_env *env,
                            const char *prefix, const struct cl_lock *lock,
                            const char *func, const int line)
 {
-        struct cl_object_header *h = cl_object_header(lock->cll_descr.cld_obj);
-        CDEBUG(level, "%s: %p@(%d %p %d %d %d %d %d %lx)"
-                      "(%p/%d/%d) at %s():%d\n",
-	       prefix, lock, atomic_read(&lock->cll_ref),
-               lock->cll_guarder, lock->cll_depth,
-               lock->cll_state, lock->cll_error, lock->cll_holds,
-               lock->cll_users, lock->cll_flags,
-               env, h->coh_nesting, cl_lock_nr_mutexed(env),
-               func, line);
+	struct cl_object_header *h = cl_object_header(lock->cll_descr.cld_obj);
+	CDEBUG(level, "%s: %p@(%d %p %d %d %d %d %d %lx)"
+		      "(%p/%d/%zu) at %s():%d\n",
+		prefix, lock, atomic_read(&lock->cll_ref),
+		lock->cll_guarder, lock->cll_depth,
+		lock->cll_state, lock->cll_error, lock->cll_holds,
+		lock->cll_users, lock->cll_flags,
+		env, h->coh_nesting, cl_lock_nr_mutexed(env),
+		func, line);
 }
 #define cl_lock_trace(level, env, prefix, lock)                         \
         cl_lock_trace0(level, env, prefix, lock, __FUNCTION__, __LINE__)
@@ -774,11 +774,11 @@ EXPORT_SYMBOL(cl_lock_is_mutexed);
 /**
  * Returns number of cl_lock mutices held by the current thread (environment).
  */
-int cl_lock_nr_mutexed(const struct lu_env *env)
+size_t cl_lock_nr_mutexed(const struct lu_env *env)
 {
-        struct cl_thread_info *info;
-        int i;
-        int locked;
+	struct cl_thread_info *info;
+	size_t i;
+	size_t locked;
 
         /*
          * NOTE: if summation across all nesting levels (currently 2) proves

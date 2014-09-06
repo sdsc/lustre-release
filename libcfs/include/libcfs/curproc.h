@@ -102,12 +102,12 @@ static inline bool uid_eq(kuid_t left, kuid_t right)
 
 static inline bool uid_valid(kuid_t uid)
 {
-	return (uid != INVALID_UID);
+	return (uid != (typeof(uid))INVALID_UID);
 }
 
 static inline bool gid_valid(kgid_t gid)
 {
-	return (gid != INVALID_GID);
+	return (gid != (typeof(gid))INVALID_GID);
 }
 #endif /* _LINUX_UIDGID_H */
 

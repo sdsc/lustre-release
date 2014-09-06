@@ -113,11 +113,11 @@ static int osc_io_submit(const struct lu_env *env,
 
 	struct cl_page_list *qin      = &queue->c2_qin;
 	struct cl_page_list *qout     = &queue->c2_qout;
-	int queued = 0;
+	unsigned int queued = 0;
 	int result = 0;
 	int cmd;
 	int brw_flags;
-	int max_pages;
+	unsigned int max_pages;
 
 	LASSERT(qin->pl_nr > 0);
 
@@ -204,15 +204,15 @@ static int osc_io_submit(const struct lu_env *env,
  * Expand stripe KMS if necessary.
  */
 static void osc_page_touch_at(const struct lu_env *env,
-                              struct cl_object *obj, pgoff_t idx, unsigned to)
+			      struct cl_object *obj, pgoff_t idx, loff_t to)
 {
         struct lov_oinfo  *loi  = cl2osc(obj)->oo_oinfo;
         struct cl_attr    *attr = &osc_env_info(env)->oti_attr;
         int valid;
-        __u64 kms;
+	__u64 kms;
 
-        /* offset within stripe */
-        kms = cl_offset(obj, idx) + to;
+	/* offset within stripe */
+	kms = (__u64)cl_offset(obj, idx) + to;
 
         cl_object_attr_lock(obj);
         /*
@@ -242,8 +242,8 @@ static void osc_page_touch_at(const struct lu_env *env,
 
 static int osc_io_commit_async(const struct lu_env *env,
 				const struct cl_io_slice *ios,
-				struct cl_page_list *qin, int from, int to,
-				cl_commit_cbt cb)
+				struct cl_page_list *qin,
+				loff_t from, loff_t to, cl_commit_cbt cb)
 {
 	struct cl_io    *io = ios->cis_io;
 	struct osc_io   *oio = cl2osc_io(env, ios);
@@ -373,8 +373,8 @@ static int osc_io_fault_start(const struct lu_env *env,
 
         io  = ios->cis_io;
         fio = &io->u.ci_fault;
-        CDEBUG(D_INFO, "%lu %d %d\n",
-               fio->ft_index, fio->ft_writable, fio->ft_nob);
+	CDEBUG(D_INFO, "%lu %d %zu\n",
+		fio->ft_index, fio->ft_writable, fio->ft_nob);
         /*
          * If mapping is writeable, adjust kms to cover this page,
          * but do not extend kms beyond actual file size.
@@ -425,9 +425,9 @@ static void osc_trunc_check(const struct lu_env *env, struct cl_io *io,
 	int     partial;
 	pgoff_t start;
 
-        clob    = oio->oi_cl.cis_obj;
-        start   = cl_index(clob, size);
-        partial = cl_offset(clob, start) < size;
+	clob    = oio->oi_cl.cis_obj;
+	start   = cl_index(clob, size);
+	partial = (__u64)cl_offset(clob, start) < size;
 
         /*
          * Complain if there are pages in the truncated region.
@@ -635,7 +635,7 @@ static int osc_io_fsync_start(const struct lu_env *env,
 	int     result = 0;
 	ENTRY;
 
-	if (fio->fi_end == OBD_OBJECT_EOF)
+	if (fio->fi_end == (loff_t)OBD_OBJECT_EOF)
 		end = CL_PAGE_EOF;
 
 	result = osc_cache_writeback_range(env, osc, start, end, 0,

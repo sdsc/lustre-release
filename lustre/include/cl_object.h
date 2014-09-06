@@ -998,9 +998,9 @@ struct cl_page_operations {
          *
          * \see cl_page_clip()
          */
-        void (*cpo_clip)(const struct lu_env *env,
-                         const struct cl_page_slice *slice,
-                         int from, int to);
+	void (*cpo_clip)(const struct lu_env *env,
+			 const struct cl_page_slice *slice,
+			 loff_t from, loff_t to);
         /**
          * \pre  the page was queued for transferring.
          * \post page is removed from client's pending list, or -EBUSY
@@ -2083,7 +2083,7 @@ struct cl_io_operations {
 	 */
 	int  (*cio_commit_async)(const struct lu_env *env,
 			const struct cl_io_slice *slice,
-			struct cl_page_list *queue, int from, int to,
+			struct cl_page_list *queue, loff_t from, loff_t to,
 			cl_commit_cbt cb);
         /**
          * Read missing page.
@@ -2283,7 +2283,7 @@ struct cl_io {
                         /** page index within file. */
                         pgoff_t         ft_index;
                         /** bytes valid byte on a faulted page. */
-                        int             ft_nob;
+			size_t		ft_nob;
                         /** writable page? for nopage() only */
                         int             ft_writable;
                         /** page of an executable? */
@@ -2791,8 +2791,8 @@ int  cl_page_make_ready (const struct lu_env *env, struct cl_page *pg,
                          enum cl_req_type crt);
 int  cl_page_cache_add  (const struct lu_env *env, struct cl_io *io,
                          struct cl_page *pg, enum cl_req_type crt);
-void cl_page_clip       (const struct lu_env *env, struct cl_page *pg,
-                         int from, int to);
+void cl_page_clip	(const struct lu_env *env, struct cl_page *pg,
+			 loff_t from, loff_t to);
 int  cl_page_cancel     (const struct lu_env *env, struct cl_page *page);
 int  cl_page_flush      (const struct lu_env *env, struct cl_io *io,
 			 struct cl_page *pg);
@@ -2816,8 +2816,7 @@ int     cl_page_is_under_lock(const struct lu_env *env, struct cl_io *io,
 			      struct cl_page *page, pgoff_t *max_index);
 loff_t  cl_offset            (const struct cl_object *obj, pgoff_t idx);
 pgoff_t cl_index             (const struct cl_object *obj, loff_t offset);
-int     cl_page_size         (const struct cl_object *obj);
-int     cl_pages_prune       (const struct lu_env *env, struct cl_object *obj);
+size_t  cl_page_size         (const struct cl_object *obj);
 
 void cl_lock_print      (const struct lu_env *env, void *cookie,
                          lu_printer_t printer, const struct cl_lock *lock);
@@ -2925,7 +2924,7 @@ void cl_lock_mutex_get  (const struct lu_env *env, struct cl_lock *lock);
 int  cl_lock_mutex_try  (const struct lu_env *env, struct cl_lock *lock);
 void cl_lock_mutex_put  (const struct lu_env *env, struct cl_lock *lock);
 int  cl_lock_is_mutexed (struct cl_lock *lock);
-int  cl_lock_nr_mutexed (const struct lu_env *env);
+size_t cl_lock_nr_mutexed(const struct lu_env *env);
 int  cl_lock_discard_pages(const struct lu_env *env, struct cl_lock *lock);
 int  cl_lock_ext_match  (const struct cl_lock_descr *has,
                          const struct cl_lock_descr *need);
@@ -2985,7 +2984,7 @@ int   cl_io_submit_sync  (const struct lu_env *env, struct cl_io *io,
 			  enum cl_req_type iot, struct cl_2queue *queue,
 			  long timeout);
 int   cl_io_commit_async (const struct lu_env *env, struct cl_io *io,
-			  struct cl_page_list *queue, int from, int to,
+			  struct cl_page_list *queue, loff_t from, loff_t to,
 			  cl_commit_cbt cb);
 void  cl_io_rw_advance   (const struct lu_env *env, struct cl_io *io,
                           size_t nob);
