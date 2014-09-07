@@ -39,7 +39,7 @@
 #include <lnet/lib-lnet.h>
 
 /* NB: add /proc interfaces in upcoming patches */
-int	portal_rotor	= LNET_PTL_ROTOR_HASH_RT;
+static int portal_rotor = LNET_PTL_ROTOR_HASH_RT;
 CFS_MODULE_PARM(portal_rotor, "i", int, 0644,
 		"redirect PUTs to different cpu-partitions");
 
@@ -714,7 +714,7 @@ lnet_ptl_attach_md(lnet_me_t *me, lnet_libmd_t *md,
 	lnet_ptl_unlock(ptl);
 }
 
-void
+static void
 lnet_ptl_cleanup(struct lnet_portal *ptl)
 {
 	struct lnet_match_table	*mtable;
@@ -757,7 +757,7 @@ lnet_ptl_cleanup(struct lnet_portal *ptl)
 	ptl->ptl_mtables = NULL;
 }
 
-int
+static int
 lnet_ptl_setup(struct lnet_portal *ptl, int index)
 {
 	struct lnet_match_table	*mtable;
