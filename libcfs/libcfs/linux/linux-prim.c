@@ -167,13 +167,13 @@ cfs_clear_sigpending(void)
 	spin_unlock_irqrestore(&current->sighand->siglock, flags);
 }
 
-int
+static int
 libcfs_arch_init(void)
 {
         return 0;
 }
 
-void
+static void
 libcfs_arch_cleanup(void)
 {
         return;

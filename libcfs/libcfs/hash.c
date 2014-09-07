@@ -115,7 +115,7 @@ CFS_MODULE_PARM(warn_on_depth, "i", uint, 0644,
                 "warning when hash depth is high.");
 #endif
 
-struct cfs_wi_sched *cfs_sched_rehash;
+static struct cfs_wi_sched *cfs_sched_rehash;
 
 static inline void
 cfs_hash_nl_lock(cfs_hash_lock_t *lock, int exclusive) {}
