@@ -608,7 +608,7 @@ lnet_extract_kiov (int dst_niov, lnet_kiov_t *dst,
 EXPORT_SYMBOL(lnet_extract_kiov);
 #endif
 
-void
+static void
 lnet_ni_recv(lnet_ni_t *ni, void *private, lnet_msg_t *msg, int delayed,
              unsigned int offset, unsigned int mlen, unsigned int rlen)
 {
@@ -646,7 +646,7 @@ lnet_ni_recv(lnet_ni_t *ni, void *private, lnet_msg_t *msg, int delayed,
                 lnet_finalize(ni, msg, rc);
 }
 
-void
+static void
 lnet_setpayloadbuffer(lnet_msg_t *msg)
 {
         lnet_libmd_t *md = msg->msg_md;
@@ -667,7 +667,7 @@ lnet_setpayloadbuffer(lnet_msg_t *msg)
 
 void
 lnet_prep_send(lnet_msg_t *msg, int type, lnet_process_id_t target,
-               unsigned int offset, unsigned int len) 
+	       unsigned int offset, unsigned int len)
 {
         msg->msg_type = type;
         msg->msg_target = target;
@@ -686,7 +686,7 @@ lnet_prep_send(lnet_msg_t *msg, int type, lnet_process_id_t target,
         msg->msg_hdr.payload_length = cpu_to_le32(len);
 }
 
-void
+static void
 lnet_ni_send(lnet_ni_t *ni, lnet_msg_t *msg)
 {
 	void   *priv = msg->msg_private;
@@ -701,7 +701,7 @@ lnet_ni_send(lnet_ni_t *ni, lnet_msg_t *msg)
 		lnet_finalize(ni, msg, rc);
 }
 
-int
+static int
 lnet_ni_eager_recv(lnet_ni_t *ni, lnet_msg_t *msg)
 {
 	int	rc;
@@ -726,7 +726,7 @@ lnet_ni_eager_recv(lnet_ni_t *ni, lnet_msg_t *msg)
 }
 
 /* NB: caller shall hold a ref on 'lp' as I'd drop lnet_net_lock */
-void
+static void
 lnet_ni_query_locked(lnet_ni_t *ni, lnet_peer_t *lp)
 {
 	cfs_time_t last_alive = 0;
@@ -778,7 +778,7 @@ lnet_peer_is_alive (lnet_peer_t *lp, cfs_time_t now)
 
 /* NB: returns 1 when alive, 0 when dead, negative when error;
  *     may drop the lnet_net_lock */
-int
+static int
 lnet_peer_alive_locked (lnet_peer_t *lp)
 {
         cfs_time_t now = cfs_time_current();
@@ -919,7 +919,7 @@ lnet_post_send_locked(lnet_msg_t *msg, int do_send)
 
 #ifdef __KERNEL__
 
-lnet_rtrbufpool_t *
+static lnet_rtrbufpool_t *
 lnet_msg2bufpool(lnet_msg_t *msg)
 {
 	lnet_rtrbufpool_t	*rbp;
@@ -939,7 +939,7 @@ lnet_msg2bufpool(lnet_msg_t *msg)
 	return rbp;
 }
 
-int
+static int
 lnet_post_routed_recv_locked (lnet_msg_t *msg, int do_recv)
 {
 	/* lnet_parse is going to lnet_net_unlock immediately after this, so it
@@ -1669,7 +1669,7 @@ lnet_parse_reply(lnet_ni_t *ni, lnet_msg_t *msg)
         }
 
         CDEBUG(D_NET, "%s: Reply from %s of length %d/%d into md "LPX64"\n",
-               libcfs_nid2str(ni->ni_nid), libcfs_id2str(src), 
+	       libcfs_nid2str(ni->ni_nid), libcfs_id2str(src),
                mlength, rlength, hdr->msg.reply.dst_wmd.wh_object_cookie);
 
 	lnet_msg_attach_md(msg, md, 0, mlength);
@@ -1722,7 +1722,7 @@ lnet_parse_ack(lnet_ni_t *ni, lnet_msg_t *msg)
         }
 
         CDEBUG(D_NET, "%s: ACK from %s into md "LPX64"\n",
-               libcfs_nid2str(ni->ni_nid), libcfs_id2str(src), 
+	       libcfs_nid2str(ni->ni_nid), libcfs_id2str(src),
                hdr->msg.ack.dst_wmd.wh_object_cookie);
 
 	lnet_msg_attach_md(msg, md, 0, 0);
@@ -2251,14 +2251,14 @@ LNetPut(lnet_nid_t self, lnet_handle_md_t mdh, lnet_ack_req_t ack,
 
         /* NB handles only looked up by creator (no flips) */
         if (ack == LNET_ACK_REQ) {
-                msg->msg_hdr.msg.put.ack_wmd.wh_interface_cookie = 
+		msg->msg_hdr.msg.put.ack_wmd.wh_interface_cookie =
                         the_lnet.ln_interface_cookie;
-                msg->msg_hdr.msg.put.ack_wmd.wh_object_cookie = 
+		msg->msg_hdr.msg.put.ack_wmd.wh_object_cookie =
                         md->md_lh.lh_cookie;
         } else {
-                msg->msg_hdr.msg.put.ack_wmd.wh_interface_cookie = 
+		msg->msg_hdr.msg.put.ack_wmd.wh_interface_cookie =
                         LNET_WIRE_HANDLE_COOKIE_NONE;
-                msg->msg_hdr.msg.put.ack_wmd.wh_object_cookie = 
+		msg->msg_hdr.msg.put.ack_wmd.wh_object_cookie =
                         LNET_WIRE_HANDLE_COOKIE_NONE;
         }
 
@@ -2309,7 +2309,7 @@ lnet_create_reply_msg (lnet_ni_t *ni, lnet_msg_t *getmsg)
 
         if (getmd->md_threshold == 0) {
                 CERROR ("%s: Dropping REPLY from %s for inactive MD %p\n",
-                        libcfs_nid2str(ni->ni_nid), libcfs_id2str(peer_id), 
+			libcfs_nid2str(ni->ni_nid), libcfs_id2str(peer_id),
                         getmd);
 		lnet_res_unlock(cpt);
 		goto drop;
@@ -2607,7 +2607,7 @@ LNetSetAsync(lnet_process_id_t id, int nasync)
         /* Target on a local network? */
         ni = lnet_net2ni(LNET_NIDNET(id.nid));
         if (ni != NULL) {
-                if (ni->ni_lnd->lnd_setasync != NULL) 
+		if (ni->ni_lnd->lnd_setasync != NULL)
                         rc = (ni->ni_lnd->lnd_setasync)(ni, id, nasync);
                 lnet_ni_decref(ni);
                 return rc;
