@@ -497,7 +497,8 @@ void mdc_getattr_pack(struct ptlrpc_request *req, __u64 valid, int flags,
 
         mdc_pack_capa(req, &RMF_CAPA1, op_data->op_capa1);
 
-        if (op_data->op_name) {
+	if (op_data->op_name &&
+	    strnlen(op_data->op_name, op_data->op_namelen) > 0) {
                 char *tmp = req_capsule_client_get(&req->rq_pill, &RMF_NAME);
                 LOGL0(op_data->op_name, op_data->op_namelen, tmp);
 
