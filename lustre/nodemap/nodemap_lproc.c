@@ -304,7 +304,7 @@ nodemap_trusted_seq_write(struct file *file, const char __user *buffer,
 	if (rc == 0)
 		nodemap->nmf_trust_client_ids = !!flags;
 
-	return rc;
+	return count;
 }
 
 static ssize_t
@@ -320,7 +320,7 @@ nodemap_admin_seq_write(struct file *file, const char __user *buffer,
 	if (rc == 0)
 		nodemap->nmf_allow_root_access = !!flags;
 
-	return rc;
+	return count;
 }
 
 static ssize_t

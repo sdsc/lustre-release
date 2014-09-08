@@ -45,7 +45,7 @@ extern struct proc_dir_entry *proc_lustre_nodemap_root;
 extern bool nodemap_active;
 
 struct lu_nid_range {
-	/* unique id set my mgs */
+	/* unique id set by mgs */
 	unsigned int		 rn_id;
 	/* lu_nodemap containing this range */
 	struct lu_nodemap	*rn_nodemap;
@@ -66,6 +66,45 @@ struct lu_idmap {
 	struct rb_node	id_fs_to_client;
 };
 
+/* first 4 bits of the key is the index type */
+struct cluster_key {
+	__u32 id;
+	__u32 unused;
+};
+
+struct range_key {
+	__u32 nodemap_id;
+	__u32 range_id;
+};
+
+struct idmap_key {
+	__u32 nodemap_id;
+	__u32 id_client;
+};
+
+struct nodemap_key {
+	union {
+		struct cluster_key	n;
+		struct range_key	r;
+		struct idmap_key	i;
+		__u64			global;
+	} uid;
+};
+#define nm_idx_get_type(id) (id >> 28)
+#define nm_idx_set_type(id, t) (((id) & 0x0FFFFFFF) | (t << 28))
+
+enum nodemap_idx_type {
+	NODEMAP_EMPTY_IDX = 0,
+	NODEMAP_CLUSTER_IDX = 1,
+	NODEMAP_RANGE_IDX = 2,
+	NODEMAP_UIDMAP_IDX = 3,
+	NODEMAP_GIDMAP_IDX = 4,
+	NODEMAP_GLOBAL_IDX = 15,
+};
+
+void nodemap_cleanup_all(void);
+void nodemap_putref(struct lu_nodemap *nodemap);
+int nodemap_lookup(const char *name, struct lu_nodemap **nodemap);
 int nodemap_procfs_init(void);
 int lprocfs_nodemap_register(const char *name, bool is_default_nodemap,
 			     struct lu_nodemap *nodemap);
@@ -89,13 +128,21 @@ struct lu_idmap *idmap_search(struct lu_nodemap *nodemap,
 			      enum nodemap_tree_type,
 			      enum nodemap_id_type id_type,
 			      __u32 id);
-int nodemap_cleanup_nodemaps(void);
 int member_init_hash(struct lu_nodemap *nodemap);
 void member_add(struct lu_nodemap *nodemap, struct obd_export *exp);
 int member_del(struct lu_nodemap *nodemap, struct obd_export *exp);
 void member_delete_hash(struct lu_nodemap *nodemap);
 void member_reclassify_nodemap(struct lu_nodemap *nodemap);
 void member_revoke_locks(struct lu_nodemap *nodemap);
+
+void nodemap_set_id(struct lu_nodemap *nodemap, unsigned int nodemap_id);
+int nodemap_add_idmap_helper(struct lu_nodemap *nodemap,
+			     enum nodemap_id_type id_type,
+			     const __u32 map[2]);
+int nodemap_add_range_helper(struct lu_nodemap *nodemap,
+			     const lnet_nid_t nid[2]);
+struct lu_nodemap *nodemap_get_by_id(struct lu_nodemap *nodemap_head,
+				     int nodemap_id);
 
 struct rb_node *nm_rb_next_postorder(const struct rb_node *node);
 struct rb_node *nm_rb_first_postorder(const struct rb_root *root);

@@ -72,6 +72,9 @@ static void nodemap_destroy(struct lu_nodemap *nodemap)
 	}
 
 	idmap_delete_tree(nodemap);
+	member_reclassify_nodemap(nodemap);
+	if (!cfs_hash_is_empty(nodemap->nm_member_hash))
+		CWARN("nodemap_destroy failed to reclassify all members\n");
 	member_delete_hash(nodemap);
 
 	lprocfs_remove(&nodemap->nm_proc_entry);
@@ -83,7 +86,6 @@ static void nodemap_destroy(struct lu_nodemap *nodemap)
  */
 static void nodemap_getref(struct lu_nodemap *nodemap)
 {
-	CDEBUG(D_INFO, "nodemap %p\n", nodemap);
 	atomic_inc(&nodemap->nm_refcount);
 }
 
@@ -163,14 +165,19 @@ static cfs_hash_ops_t nodemap_hash_operations = {
  * \param	hs		hash structure
  * \param	bd		bucket descriptor
  * \param	hnode		hash node
- * \param	data		not used here
+ * \param	data		flag if we should cleanup default nm
  */
 static int nodemap_cleanup_iter_cb(cfs_hash_t *hs, cfs_hash_bd_t *bd,
 				   cfs_hlist_node_t *hnode, void *data)
 {
 	struct lu_nodemap *nodemap;
+	int skip_default = *((int *)data);
 
 	nodemap = cfs_hlist_entry(hnode, struct lu_nodemap, nm_hash);
+	if (nodemap == default_nodemap && skip_default == 1)
+		return 0;
+
+	cfs_hash_bd_del_locked(hs, bd, hnode);
 	nodemap_putref(nodemap);
 
 	return 0;
@@ -181,9 +188,22 @@ static int nodemap_cleanup_iter_cb(cfs_hash_t *hs, cfs_hash_bd_t *bd,
  */
 void nodemap_cleanup_all(void)
 {
-	cfs_hash_for_each_safe(nodemap_hash, nodemap_cleanup_iter_cb, NULL);
+	int skip_default = 0;
+	cfs_hash_for_each_safe(nodemap_hash, nodemap_cleanup_iter_cb,
+			       &skip_default);
 	cfs_hash_putref(nodemap_hash);
 }
+/**
+ * Do the same as nodemap_cleanup_all without destroying the hash table.
+ */
+void nodemap_cleanup_light(void)
+{
+	int skip_default = 1;
+	cfs_hash_for_each_safe(nodemap_hash, nodemap_cleanup_iter_cb,
+			       &skip_default);
+	atomic_set(&nodemap_highest_id, 0);
+}
+EXPORT_SYMBOL(nodemap_cleanup_light);
 
 /**
  * Initialize nodemap_hash
@@ -236,11 +256,11 @@ static bool nodemap_name_is_valid(const char *name)
  * Look nodemap up in the nodemap hash
  *
  * \param	name		name of nodemap
- * \param	nodemap		found nodemap or NULL
+ * \param	nodemap		pointer set to found nodemap or NULL
  * \retval	lu_nodemap	named nodemap
  * \retval	NULL		nodemap doesn't exist
  */
-static int nodemap_lookup(const char *name, struct lu_nodemap **nodemap)
+int nodemap_lookup(const char *name, struct lu_nodemap **nodemap)
 {
 	int rc = 0;
 
@@ -255,6 +275,28 @@ static int nodemap_lookup(const char *name, struct lu_nodemap **nodemap)
 
 out:
 	return rc;
+}
+
+struct lu_nodemap *nodemap_get_by_id(struct lu_nodemap *nodemap_head,
+				     int nodemap_id)
+{
+	struct lu_nodemap	*nodemap = NULL;
+	struct list_head	*pos;
+
+	if (nodemap_head->nm_id == nodemap_id) {
+		nodemap = nodemap_head;
+	} else {
+		list_for_each(pos, &nodemap_head->nm_load_list) {
+			nodemap = list_entry(pos, struct lu_nodemap,
+					nm_load_list);
+			if (nodemap->nm_id == nodemap_id)
+				break;
+		}
+		if (nodemap->nm_id != nodemap_id)
+			return NULL;
+	}
+	nodemap_getref(nodemap);
+	return nodemap;
 }
 
 /**
@@ -386,16 +428,12 @@ EXPORT_SYMBOL(nodemap_del_member);
  *
  * \retval	0 on success
  */
-int nodemap_add_idmap(const char *name, enum nodemap_id_type id_type,
-		      const __u32 map[2])
+int nodemap_add_idmap_helper(struct lu_nodemap *nodemap,
+			     enum nodemap_id_type id_type,
+			     const __u32 map[2])
 {
-	struct lu_nodemap	*nodemap = NULL;
 	struct lu_idmap		*idmap;
 	int			rc = 0;
-
-	rc = nodemap_lookup(name, &nodemap);
-	if (nodemap == NULL || is_default_nodemap(nodemap))
-		GOTO(out, rc = -EINVAL);
 
 	idmap = idmap_create(map[0], map[1]);
 	if (idmap == NULL)
@@ -406,8 +444,18 @@ int nodemap_add_idmap(const char *name, enum nodemap_id_type id_type,
 
 out_putref:
 	nodemap_putref(nodemap);
-out:
 	return rc;
+}
+int nodemap_add_idmap(const char *name, enum nodemap_id_type id_type,
+		      const __u32 map[2])
+{
+	struct lu_nodemap	*nodemap = NULL;
+
+	nodemap_lookup(name, &nodemap);
+	if (nodemap == NULL || is_default_nodemap(nodemap))
+		return -EINVAL;
+
+	return nodemap_add_idmap_helper(nodemap, id_type, map);
 }
 EXPORT_SYMBOL(nodemap_add_idmap);
 
@@ -519,20 +567,19 @@ EXPORT_SYMBOL(nodemap_map_id);
 
 /*
  * add nid range to nodemap
- * \param	name		nodemap name
+ * \param	nodemap		nodemap to add range to
  * \param	range_st	string containing nid range
  * \retval	0 on success
  *
  * add an range to the global range tree and attached the
  * range to the named nodemap.
  */
-int nodemap_add_range(const char *name, const lnet_nid_t nid[2])
+int nodemap_add_range_helper(struct lu_nodemap *nodemap,
+			     const lnet_nid_t nid[2])
 {
-	struct lu_nodemap	*nodemap = NULL;
 	struct lu_nid_range	*range;
 	int rc;
 
-	rc = nodemap_lookup(name, &nodemap);
 	if (nodemap == NULL || is_default_nodemap(nodemap))
 		GOTO(out, rc = -EINVAL);
 
@@ -558,6 +605,13 @@ out_putref:
 	nodemap_putref(nodemap);
 out:
 	return rc;
+}
+int nodemap_add_range(const char *name, const lnet_nid_t nid[2])
+{
+	struct lu_nodemap	*nodemap = NULL;
+
+	nodemap_lookup(name, &nodemap);
+	return nodemap_add_range_helper(nodemap, nid);
 }
 EXPORT_SYMBOL(nodemap_add_range);
 
@@ -596,6 +650,17 @@ out:
 }
 EXPORT_SYMBOL(nodemap_del_range);
 
+void nodemap_set_id(struct lu_nodemap *nodemap, unsigned int nodemap_id)
+{
+	int current_highest = atomic_read(&nodemap_highest_id);
+
+	nodemap->nm_id = nodemap_id;
+	if (nodemap_id > current_highest)
+		atomic_set(&nodemap_highest_id, nodemap_id);
+	else if (nodemap_id < current_highest)
+		CWARN("adding nodemap %d less than nodemap_highest_id %d\n",
+		      nodemap_id, current_highest);
+}
 /**
  * Nodemap constructor
  *
@@ -622,6 +687,7 @@ static int nodemap_create(const char *name, bool is_default)
 		goto out;
 
 	if (rc != -ENOENT) {
+		CERROR("cannot add nodemap %s, already exists.\n", name);
 		nodemap_putref(nodemap);
 		GOTO(out, rc = -EEXIST);
 	}
