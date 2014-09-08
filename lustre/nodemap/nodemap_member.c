@@ -120,6 +120,12 @@ int member_del(struct lu_nodemap *nodemap, struct obd_export *exp)
 {
 
 	exp->exp_nodemap = NULL;
+
+	if (!nodemap->nm_member_hash) {
+		CWARN("null member hash, trying to delete member exp %p from "
+		      "%s\n", exp, nodemap->nm_name);
+		goto out;
+	}
 	exp = cfs_hash_del_key(nodemap->nm_member_hash,
 			       exp->exp_nodemap_member_key);
 	if (exp == NULL)
@@ -216,6 +222,12 @@ void member_add(struct lu_nodemap *nodemap, struct obd_export *exp)
 
 	member_key(exp, key);
 
+	if (nodemap->nm_member_hash == NULL) {
+		CWARN("null member hash, trying to add member exp %p from "
+		      "%s\n", exp, nodemap->nm_name);
+		return;
+	}
+
 	rc = cfs_hash_add_unique(nodemap->nm_member_hash,
 				 key,
 				 &exp->exp_nodemap_member);
@@ -223,6 +235,7 @@ void member_add(struct lu_nodemap *nodemap, struct obd_export *exp)
 		snprintf(exp->exp_nodemap_member_key, MEMBER_KEYLENGTH,
 			 "%s", key);
 		exp->exp_nodemap = nodemap;
+		CDEBUG(D_INFO, "member_add getting exp\n");
 		class_export_get(exp);
 	}
 

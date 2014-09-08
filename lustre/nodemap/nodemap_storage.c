@@ -628,6 +628,60 @@ out:
 	return rc;
 }
 
+int nodemap_process_idx_page(union lu_page *lip)
+{
+	struct nodemap_key	*key;
+	struct nodemap_rec	*rec;
+	struct lu_nodemap	*first_nodemap = NULL;
+	char			*entry;
+	int			 k;
+	int			 rc = 0;
+	int			 size = dt_nodemap_features.dif_keysize_max +
+					dt_nodemap_features.dif_recsize_max;
+
+	/* get and process keys and records from page */
+	for (k = 0; k < lip->lp_idx.lip_nr; k++) {
+		entry = lip->lp_idx.lip_entries + k * size;
+		key = (struct nodemap_key *)entry;
+
+		entry += dt_nodemap_features.dif_keysize_max;
+		rec = (struct nodemap_rec *)entry;
+
+		rc = nodemap_process_keyrec(key, rec, &first_nodemap);
+		if (rc)
+			return rc;
+	}
+	return rc;
+}
+EXPORT_SYMBOL(nodemap_process_idx_page);
+
+int nodemap_index_read(const struct lu_env *env, struct local_oid_storage *los,
+		       struct dt_object *parent, struct idx_info *ii,
+		       const struct lu_rdpg *rdpg)
+{
+	struct dt_object	*nodemap_idx;
+	int			 rc = 0;
+
+	nodemap_idx = nodemap_idx_find_create(env, los, parent);
+	if (IS_ERR(nodemap_idx)) {
+		rc = PTR_ERR(nodemap_idx);
+		CERROR("failed to create nodemap index, rc: %d\n", rc);
+		RETURN(rc);
+	}
+
+	ii->ii_keysize = dt_nodemap_features.dif_keysize_max;
+	ii->ii_recsize = dt_nodemap_features.dif_recsize_max;
+
+	dt_read_lock(env, nodemap_idx, 0);
+	rc = dt_index_walk(env, nodemap_idx, rdpg, NULL, ii);
+	CDEBUG(D_INFO, "walked index, hashend %llx\n", ii->ii_hash_end);
+
+	dt_read_unlock(env, nodemap_idx);
+	lu_object_put(env, &nodemap_idx->do_lu);
+	return rc;
+}
+EXPORT_SYMBOL(nodemap_index_read);
+
 int nodemap_load_entries(const struct lu_env *env,
 			 struct local_oid_storage *los,
 			 struct dt_object *parent)
