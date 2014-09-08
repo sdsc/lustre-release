@@ -483,7 +483,7 @@ static struct ptlrpc_request *mdc_intent_getattr_pack(struct obd_export *exp,
 
         mdc_set_capa_size(req, &RMF_CAPA1, op_data->op_capa1);
         req_capsule_set_size(&req->rq_pill, &RMF_NAME, RCL_CLIENT,
-                             op_data->op_namelen + 1);
+			    strnlen(op_data->op_name, op_data->op_namelen) + 1);
 
         rc = ldlm_prep_enqueue_req(exp, req, NULL, 0);
         if (rc) {
