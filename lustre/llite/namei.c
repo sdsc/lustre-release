@@ -515,10 +515,10 @@ static int ll_lookup_it_finish(struct ptlrpc_request *request,
 static struct dentry *ll_lookup_it(struct inode *parent, struct dentry *dentry,
 				   struct lookup_intent *it)
 {
-        struct lookup_intent lookup_it = { .it_op = IT_LOOKUP };
-        struct dentry *save = dentry, *retval;
-        struct ptlrpc_request *req = NULL;
-        struct md_op_data *op_data;
+	struct lookup_intent lookup_it = { .it_op = IT_LOOKUP };
+	struct dentry *save = dentry, *retval;
+	struct ptlrpc_request *req = NULL;
+	struct md_op_data *op_data = NULL;
         __u32 opc;
         int rc;
         ENTRY;
@@ -552,18 +552,38 @@ static struct dentry *ll_lookup_it(struct inode *parent, struct dentry *dentry,
 
 	op_data = ll_prep_md_op_data(NULL, parent, NULL, dentry->d_name.name,
 				     dentry->d_name.len, 0, opc, NULL);
-        if (IS_ERR(op_data))
-                RETURN((void *)op_data);
+	if (IS_ERR(op_data))
+		RETURN((void *)op_data);
 
-        /* enforce umask if acl disabled or MDS doesn't support umask */
-        if (!IS_POSIXACL(parent) || !exp_connect_umask(ll_i2mdexp(parent)))
+	/* enforce umask if acl disabled or MDS doesn't support umask */
+	if (!IS_POSIXACL(parent) || !exp_connect_umask(ll_i2mdexp(parent)))
 		it->it_create_mode &= ~current_umask();
 
 	rc = md_intent_lock(ll_i2mdexp(parent), op_data, it, &req,
 			    &ll_md_blocking_ast, 0);
-        ll_finish_md_op_data(op_data);
-        if (rc < 0)
-                GOTO(out, retval = ERR_PTR(rc));
+	if (rc == -EACCES && it->it_op & IT_OPEN &&
+	    it_disposition(it, DISP_OPEN_DENY) &&
+	    op_data->op_suppgids[1] == (__u32)-1) {
+		struct mdt_body *body;
+
+		LASSERT(req != NULL);
+
+		body = req_capsule_server_get(&req->rq_pill, &RMF_MDT_BODY);
+		if (op_data->op_suppgids[0] == body->mbo_gid ||
+		    !in_group_p(make_kgid(&init_user_ns, body->mbo_gid)))
+			GOTO(out, retval = ERR_PTR(-EACCES));
+
+		fid_zero(&op_data->op_fid2);
+		op_data->op_suppgids[1] = body->mbo_gid;
+		ptlrpc_req_finished(req);
+		req = NULL;
+		ll_intent_release(it);
+		rc = md_intent_lock(ll_i2mdexp(parent), op_data, it, &req,
+				    &ll_md_blocking_ast, 0);
+	}
+
+	if (rc < 0)
+		GOTO(out, retval = ERR_PTR(rc));
 
 	rc = ll_lookup_it_finish(req, it, parent, &dentry);
         if (rc != 0) {
@@ -582,12 +602,16 @@ static struct dentry *ll_lookup_it(struct inode *parent, struct dentry *dentry,
                 GOTO(out, retval = NULL);
         else
                 GOTO(out, retval = dentry);
- out:
-        if (req)
-                ptlrpc_req_finished(req);
-        if (it->it_op == IT_GETATTR && (retval == NULL || retval == dentry))
-                ll_statahead_mark(parent, dentry);
-        return retval;
+
+out:
+	if (op_data != NULL && !IS_ERR(op_data))
+		ll_finish_md_op_data(op_data);
+
+	ptlrpc_req_finished(req);
+	if (it->it_op == IT_GETATTR && (retval == NULL || retval == dentry))
+		ll_statahead_mark(parent, dentry);
+
+	return retval;
 }
 
 #ifdef HAVE_IOP_ATOMIC_OPEN
