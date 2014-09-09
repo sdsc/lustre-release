@@ -49,6 +49,9 @@ setupall
 [[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.3.90) ]] &&
 	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 1a"
 
+[[ $(lustre_version_code $SINGLEMDS) -le $(version_code 2.7.50) ]] &&
+	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 4"
+
 [[ $(lustre_version_code $SINGLEMDS) -le $(version_code 2.4.1) ]] &&
 	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 15"
 
@@ -242,6 +245,18 @@ scrub_check_data() {
 	done
 }
 
+scrub_check_data2() {
+	local filename=$1
+	local error_id=$2
+	local n
+
+	for n in $(seq $MDSCOUNT); do
+		diff -q $LUSTRE/tests/$filename \
+			$DIR/$tdir/mds$n/$filename ||
+			error "($error_id) File data check failed"
+	done
+}
+
 scrub_remove_ois() {
 	local error_id=$1
 	local index=$2
@@ -270,6 +285,16 @@ scrub_enable_auto() {
 	for n in $(seq $MDSCOUNT); do
 		do_facet mds$n $LCTL set_param -n \
 			osd-ldiskfs.$(facet_svc mds$n).auto_scrub 1
+	done
+}
+
+full_scrub_ratio() {
+	local ratio=$1
+	local n
+
+	for n in $(seq $MDSCOUNT); do
+		do_facet mds$n $LCTL set_param -n \
+			osd-ldiskfs.$(facet_svc mds$n).full_scrub_ratio $ratio
 	done
 }
 
@@ -370,7 +395,7 @@ test_3() {
 }
 #run_test 3 "Do not trigger OI scrub when MDT mounts if 'noscrub' specified"
 
-test_4() {
+test_4a() {
 	scrub_prep 0
 	scrub_backup_restore 1
 	echo "starting MDTs with OI scrub disabled"
@@ -378,11 +403,97 @@ test_4() {
 	scrub_check_flags 4 inconsistent
 	mount_client $MOUNT || error "(5) Fail to start client!"
 	scrub_enable_auto
+	#OFSR_DIRECTLY = 0
+	full_scrub_ratio 0
 	scrub_check_data 6
+	sleep 3
+
 	scrub_check_status 7 completed
 	scrub_check_flags 8 ""
+
+	local -a updated0
+	for n in $(seq $MDSCOUNT); do
+		updated0[$n]=$(scrub_status $n |
+			       awk '/^sf_items_updated_prior/ { print $2 }')
+	done
+
+	scrub_check_data2 sanity-scrub.sh 9
+	sleep 3
+
+	local -a updated1
+	for n in $(seq $MDSCOUNT); do
+		updated1[$n]=$(scrub_status $n |
+			       awk '/^sf_items_updated_prior/ { print $2 }')
+		[ ${updated0[$n]} -eq ${updated1[$n]} ] ||
+			error "(10) NOT auto trigger full scrub as expected"
+	done
 }
-run_test 4 "Trigger OI scrub automatically if inconsistent OI mapping was found"
+run_test 4a "Auto trigger OI scrub if bad OI mapping was found (1)"
+
+test_4b() {
+	scrub_prep 5
+	scrub_backup_restore 1
+	echo "starting MDTs with OI scrub disabled"
+	scrub_start_mds 2 "$MOUNT_OPTS_NOSCRUB"
+	scrub_check_flags 4 inconsistent
+	mount_client $MOUNT || error "(5) Fail to start client!"
+	scrub_enable_auto
+	full_scrub_ratio 10
+	scrub_check_data 6
+	sleep 3
+
+	scrub_check_status 7 completed
+	scrub_check_flags 8 ""
+
+	local -a updated0
+	for n in $(seq $MDSCOUNT); do
+		updated0[$n]=$(scrub_status $n |
+			       awk '/^sf_items_updated_prior/ { print $2 }')
+	done
+
+	scrub_check_data2 sanity-scrub.sh 9
+	sleep 3
+
+	scrub_check_status 10 completed
+	scrub_check_flags 11 ""
+
+	local -a updated1
+	for n in $(seq $MDSCOUNT); do
+		updated1[$n]=$(scrub_status $n |
+			       awk '/^sf_items_updated_prior/ { print $2 }')
+		[ ${updated0[$n]} -lt ${updated1[$n]} ] ||
+			error "(12) Auto trigger full scrub unexpectedly"
+	done
+
+	for n in $(seq $MDSCOUNT); do
+		ls -l $DIR/$tdir/mds$n/*.sh > /dev/null ||
+			error "(13) fail to ls"
+	done
+	sleep 3
+
+	scrub_check_status 14 completed
+	scrub_check_flags 15 ""
+
+	for n in $(seq $MDSCOUNT); do
+		updated0[$n]=$(scrub_status $n |
+			       awk '/^sf_items_updated_prior/ { print $2 }')
+		[ ${updated0[$n]} -gt ${updated1[$n]} ] ||
+			error "(16) Auto trigger full scrub unexpectedly"
+	done
+
+	for n in $(seq $MDSCOUNT); do
+		ls -l $DIR/$tdir/mds$n/${tfile}1 || error "(17) fail to ls"
+	done
+	sleep 3
+
+	for n in $(seq $MDSCOUNT); do
+		updated1[$n]=$(scrub_status $n |
+			       awk '/^sf_items_updated_prior/ { print $2 }')
+		[ ${updated0[$n]} -eq ${updated1[$n]} ] ||
+			error "(18) NOT auto trigger full scrub as expected"
+	done
+}
+run_test 4b "Auto trigger OI scrub if bad OI mapping was found (2)"
 
 test_5() {
 	formatall > /dev/null
