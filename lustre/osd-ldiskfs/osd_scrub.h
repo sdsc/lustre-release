@@ -96,14 +96,17 @@ enum scrub_start {
 	/* Reset scrub start position. */
 	SS_RESET		= 0x00000004,
 
-	/* Trigger scrub automatically. */
-	SS_AUTO			= 0x00000008,
+	/* Trigger full scrub automatically. */
+	SS_AUTO_FULL		= 0x00000008,
+
+	/* Trigger partial scrub automatically. */
+	SS_AUTO_PARTIAL		= 0x00000010,
 
 	/* Set dryrun flag. */
-	SS_SET_DRYRUN		= 0x00000010,
+	SS_SET_DRYRUN		= 0x00000020,
 
 	/* Clear dryrun flag. */
-	SS_CLEAR_DRYRUN 	= 0x00000020,
+	SS_CLEAR_DRYRUN		= 0x00000040,
 };
 
 /* The flags here are only used inside OSD, NOT be visible by dump(). */
@@ -183,6 +186,16 @@ struct scrub_file {
 	__u8    sf_oi_bitmap[SCRUB_OI_BITMAP_SIZE];
 };
 
+#define SCRUB_BAD_MAPPINGS_SLOT_SHIFT	3
+#define SCRUB_BAD_MAPPINGS_ARRAY_BITS	3
+#define SCRUB_BAD_MAPPINGS_ARRAY_SIZE	(SCRUB_BAD_MAPPINGS_ARRAY_BITS << 1)
+#define SCRUB_BAD_MAPPINGS_ARRAY_MASK	(SCRUB_BAD_MAPPINGS_ARRAY_SIZE - 1)
+
+struct osd_scrub_bad_mappings_slot {
+	__u64	osbms_time;
+	__u64	osbms_count;
+};
+
 struct osd_scrub {
 	struct lvfs_run_ctxt    os_ctxt;
 	struct ptlrpc_thread    os_thread;
@@ -228,7 +241,11 @@ struct osd_scrub {
 				os_waiting:1, /* Waiting for scan window. */
 				os_full_speed:1, /* run w/o speed limit */
 				os_paused:1, /* The scrub is paused. */
-				os_convert_igif:1;
+				os_convert_igif:1,
+				os_partial_scan:1,
+				os_in_join:1,
+				os_full_scrub:1;
+	struct osd_scrub_bad_mappings_slot os_osbms[SCRUB_BAD_MAPPINGS_ARRAY_SIZE];
 };
 
 #endif /* _OSD_SCRUB_H */
