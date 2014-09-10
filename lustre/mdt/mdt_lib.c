@@ -646,7 +646,7 @@ int mdt_fix_reply(struct mdt_thread_info *info)
 				req_capsule_server_get(pill, &RMF_MDT_MD));
 			req_capsule_shrink(pill, &RMF_MDT_MD, 0, RCL_SERVER);
 		}
-        } else if (req_capsule_has_field(pill, &RMF_MDT_MD, RCL_SERVER)) {
+        } else if ( 0 && req_capsule_has_field(pill, &RMF_MDT_MD, RCL_SERVER)) {
                 req_capsule_shrink(pill, &RMF_MDT_MD, md_size, RCL_SERVER);
         }
 
@@ -706,7 +706,25 @@ int mdt_fix_reply(struct mdt_thread_info *info)
                         info->mti_mdt->mdt_max_mdsize =
                                                     info->mti_attr.ma_lmm_size;
 		info->mti_big_lmm_used = 0;
-        }
+        } else if ((md_size > 0)&& (req_capsule_has_field(pill, &RMF_MDT_MD, RCL_SERVER)) &&req_capsule_get_size(pill, &RMF_MDT_MD, RCL_SERVER)) {
+		void * lmm = req_capsule_server_get(pill, &RMF_MDT_MD);
+		void *temp;
+//printk("1lmm %p, attr %p\n", lmm, info->mti_attr.ma_lmm);
+                CDEBUG(D_INFO, "Force Enlarge reply buffer to 9000 bytes\n");
+
+		OBD_ALLOC(temp, info->mti_attr.ma_lmm_size);
+		memcpy(temp, lmm,
+		       info->mti_attr.ma_lmm_size);
+		req_capsule_set_size(pill, &RMF_MDT_MD, RCL_SERVER, 9000);
+		rc = req_capsule_server_grow(pill, &RMF_MDT_MD, 9000);
+		lmm = req_capsule_server_get(pill, &RMF_MDT_MD);
+//printk("2lmm %p, attr %p\n", lmm, info->mti_attr.ma_lmm);
+		memcpy(lmm, temp,
+		       info->mti_attr.ma_lmm_size);
+
+		OBD_FREE(temp, info->mti_attr.ma_lmm_size);
+		info->mti_mdt->mdt_max_mdsize = 9000;
+	}
         RETURN(rc);
 }
 
