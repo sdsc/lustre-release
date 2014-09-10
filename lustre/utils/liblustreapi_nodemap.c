@@ -30,9 +30,11 @@
 
 int llapi_nodemap_exists(const char *nodemap)
 {
-	char mapname[PATH_MAX + 1];
+	char mapname[PATH_MAX + 1], **list;
+	size_t count;
 
-	snprintf(mapname, sizeof(mapname), "nodemap/%s", nodemap);
+	snprintf(mapname, sizeof(mapname), "nodemap.%s", nodemap);
 
-	return get_param(mapname, NULL, 0);
+	list = llapi_get_param(mapname, sizeof(mapname), &count, "nodemap.%s", nodemap);
+	return (list != NULL && count > 0) ? 1: 0;
 }

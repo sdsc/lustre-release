@@ -115,6 +115,10 @@ extern int llapi_file_get_stripe(const char *path, struct lov_user_md *lum);
 #define HAVE_LLAPI_FILE_LOOKUP
 extern int llapi_file_lookup(int dirfd, const char *name);
 
+extern char **llapi_get_param(char *name, size_t name_size, size_t *count,
+			      const char *param, ...)
+			      __attribute__((__format__(__printf__, 4, 5)));
+
 #define VERBOSE_COUNT		0x1
 #define VERBOSE_SIZE		0x2
 #define VERBOSE_OFFSET		0x4
