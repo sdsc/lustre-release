@@ -2062,7 +2062,7 @@ get_env_vars() {
     local value
 
     for var in ${!MODOPTS_*}; do
-        value=${!var}
+        value=${!var//\"/\\\"}
         echo "${var}=\"$value\""
     done
 }
