@@ -448,7 +448,6 @@ struct lmv_obd {
 	int			max_def_easize;
 	int			max_cookiesize;
 	int			max_def_cookiesize;
-	int			server_timeout;
 
 	int			tgts_size; /* size of tgts array */
 	struct lmv_tgt_desc	**tgts;
