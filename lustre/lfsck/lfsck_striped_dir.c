@@ -1935,8 +1935,11 @@ int lfsck_namespace_striped_dir_rescan(const struct lu_env *env,
 		cname = lfsck_name_get_const(env, info->lti_tmpbuf, len);
 		memcpy(lnr->lnr_name, info->lti_tmpbuf, len);
 
-		obj = lfsck_object_find_bottom(env, lfsck, cfid);
+		obj = lfsck_object_find_bottom_nowait(env, lfsck, cfid);
 		if (IS_ERR(obj)) {
+			if (lfsck_is_dead_obj(dir))
+				RETURN(0);
+
 			rc1 = PTR_ERR(obj);
 			goto next;
 		}
@@ -2095,12 +2098,12 @@ repair:
 			rc1 = lfsck_ibits_lock(env, lfsck, obj, &lh,
 					       MDS_INODELOCK_UPDATE |
 					       MDS_INODELOCK_XATTR, LCK_EX);
-			lfsck_ibits_unlock(&lh, LCK_EX);
 			if (rc1 != 0)
 				goto next;
 
 			rc1 = lfsck_namespace_rebuild_linkea(env, com, obj,
 							     &ldata);
+			lfsck_ibits_unlock(&lh, LCK_EX);
 			if (rc1 >= 0) {
 				linkea_repaired = true;
 				if (rc1 > 0)
@@ -2241,9 +2244,13 @@ int lfsck_namespace_handle_striped_master(const struct lu_env *env,
 		dev = ltd->ltd_tgt;
 	}
 
-	obj = lfsck_object_find_by_dev(env, dev, &lnr->lnr_fid);
-	if (IS_ERR(obj))
+	obj = lfsck_object_find_by_dev_nowait(env, dev, &lnr->lnr_fid);
+	if (IS_ERR(obj)) {
+		if (lfsck_is_dead_obj(dir))
+			RETURN(0);
+
 		GOTO(fail_lmv, rc = PTR_ERR(obj));
+	}
 
 	if (!dt_object_exists(obj)) {
 		stripe = lfsck_shard_name_to_index(env, lnr->lnr_name,

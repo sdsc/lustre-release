@@ -633,7 +633,11 @@ trigger:
 			if (thread_is_running(&scrub->os_thread)) {
 				result = -EINPROGRESS;
 			} else if (!dev->od_noscrub) {
-				result = osd_scrub_start(dev);
+				/* Since we do not know the right OI mapping,
+				 * we have to trigger OI scrub to scan the
+				 * whole device. */
+				result = osd_scrub_start(dev, SS_AUTO_FULL |
+					SS_CLEAR_DRYRUN | SS_CLEAR_FAILOUT);
 				LCONSOLE_WARN("%.16s: trigger OI scrub by RPC "
 					      "for "DFID", rc = %d [1]\n",
 					      osd_name(dev), PFID(fid),result);
@@ -1356,8 +1360,16 @@ static void osd_conf_get(const struct lu_env *env,
  */
 static int osd_sync(const struct lu_env *env, struct dt_device *d)
 {
-	CDEBUG(D_HA, "syncing OSD %s\n", LUSTRE_OSD_LDISKFS_NAME);
-        return ldiskfs_force_commit(osd_sb(osd_dt_dev(d)));
+	int rc;
+
+	CDEBUG(D_CACHE, "syncing OSD %s\n", LUSTRE_OSD_LDISKFS_NAME);
+
+	rc = ldiskfs_force_commit(osd_sb(osd_dt_dev(d)));
+
+	CDEBUG(D_CACHE, "synced OSD %s: rc = %d\n",
+	       LUSTRE_OSD_LDISKFS_NAME, rc);
+
+	return rc;
 }
 
 /**
@@ -4041,8 +4053,7 @@ static int osd_add_dot_dotdot(struct osd_thread_info *info,
 						dot_dot_fid, NULL, th);
 		}
 
-		if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_BAD_PARENT) ||
-		    OBD_FAIL_CHECK(OBD_FAIL_LFSCK_BAD_PARENT2)) {
+		if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_BAD_PARENT)) {
 			struct lu_fid tfid = *dot_dot_fid;
 
 			tfid.f_oid--;
@@ -4152,12 +4163,13 @@ again:
 	}
 
 	if (!dev->od_noscrub && ++once == 1) {
-		rc = osd_scrub_start(dev);
+		rc = osd_scrub_start(dev, SS_AUTO_PARTIAL | SS_CLEAR_DRYRUN |
+				     SS_CLEAR_FAILOUT);
 		LCONSOLE_WARN("%.16s: trigger OI scrub by RPC for "DFID
 			      ", rc = %d [2]\n",
 			      LDISKFS_SB(osd_sb(dev))->s_es->s_volume_name,
 			      PFID(fid), rc);
-		if (rc == 0)
+		if (rc == 0 || rc == -EALREADY)
 			goto again;
 	}
 
@@ -6080,6 +6092,8 @@ static int osd_device_init0(const struct lu_env *env,
 	if (server_name_is_ost(o->od_svname))
 		o->od_is_ost = 1;
 
+	o->od_full_scrub_ratio = OFSR_DEFAULT;
+	o->od_full_scrub_speed = FULL_SCRUB_SPEED_DEFULT;
 	rc = osd_mount(env, o, cfg);
 	if (rc != 0)
 		GOTO(out_capa, rc);

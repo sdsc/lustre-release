@@ -319,9 +319,19 @@ static int lfsck_namespace_load_bitmap(const struct lu_env *env,
 }
 
 /**
- * \retval +ve: the lfsck_namespace is broken, the caller should reset it.
- * \retval 0: succeed.
- * \retval -ve: failed cases.
+ * Load namespace LFSCK statistics information from the trace file.
+ *
+ * For old release (Lustre-2.6 or older), the statistics information was
+ * stored as XATTR_NAME_LFSCK_NAMESPACE_OLD EA. But in Lustre-2.7, we need
+ * more statistics information. To avoid confusing old MDT when downgrade,
+ * Lustre-2.7 stores the namespace LFSCK statistics information as new
+ * XATTR_NAME_LFSCK_NAMESPACE EA.
+ *
+ * \param[in] env	pointer to the thread context
+ * \param[in] com	pointer to the lfsck component
+ *
+ * \retval		0 for success
+ * \retval		negative error number on failure
  */
 static int lfsck_namespace_load(const struct lu_env *env,
 				struct lfsck_component *com)
@@ -341,7 +351,7 @@ static int lfsck_namespace_load(const struct lu_env *env,
 			CDEBUG(D_LFSCK, "%s: invalid lfsck_namespace magic "
 			       "%#x != %#x\n", lfsck_lfsck2name(com->lc_lfsck),
 			       ns->ln_magic, LFSCK_NAMESPACE_MAGIC);
-			rc = 1;
+			rc = -ESTALE;
 		} else {
 			rc = 0;
 		}
@@ -350,13 +360,22 @@ static int lfsck_namespace_load(const struct lu_env *env,
 		       "expected = %d: rc = %d\n",
 		       lfsck_lfsck2name(com->lc_lfsck), len, rc);
 		if (rc >= 0)
-			rc = 1;
+			rc = -ESTALE;
+	} else {
+		/* Check whether it is old trace file or not.
+		 * If yes, it should be reset via returning -ESTALE. */
+		rc = dt_xattr_get(env, com->lc_obj,
+				  lfsck_buf_get(env, com->lc_file_disk, len),
+				  XATTR_NAME_LFSCK_NAMESPACE_OLD, BYPASS_CAPA);
+		if (rc >= 0)
+			rc = -ESTALE;
 	}
+
 	return rc;
 }
 
 static int lfsck_namespace_store(const struct lu_env *env,
-				 struct lfsck_component *com)
+				 struct lfsck_component *com, bool init)
 {
 	struct dt_object		*obj	= com->lc_obj;
 	struct lfsck_instance		*lfsck	= com->lc_lfsck;
@@ -367,6 +386,9 @@ static int lfsck_namespace_store(const struct lu_env *env,
 	__u32				 nbits	= 0;
 	int				 len    = com->lc_file_size;
 	int				 rc;
+#if LUSTRE_VERSION_CODE < OBD_OCD_VERSION(2, 8, 53, 0)
+	struct lu_buf		 tbuf	= { &len, sizeof(len) };
+#endif
 	ENTRY;
 
 	if (lad != NULL) {
@@ -398,6 +420,20 @@ static int lfsck_namespace_store(const struct lu_env *env,
 			GOTO(out, rc);
 	}
 
+#if LUSTRE_VERSION_CODE < OBD_OCD_VERSION(2, 8, 53, 0)
+	/* To be compatible with old Lustre-2.x MDT (x <= 6), generate dummy
+	 * XATTR_NAME_LFSCK_NAMESPACE_OLD EA, then when downgrade to Lustre-2.x,
+	 * the old LFSCK will find "invalid" XATTR_NAME_LFSCK_NAMESPACE_OLD EA,
+	 * then reset the namespace LFSCK trace file. */
+	if (init) {
+		rc = dt_declare_xattr_set(env, obj, &tbuf,
+					  XATTR_NAME_LFSCK_NAMESPACE_OLD,
+					  LU_XATTR_CREATE, handle);
+		if (rc != 0)
+			GOTO(out, rc);
+	}
+#endif
+
 	rc = dt_trans_start_local(env, lfsck->li_bottom, handle);
 	if (rc != 0)
 		GOTO(out, rc);
@@ -410,6 +446,13 @@ static int lfsck_namespace_store(const struct lu_env *env,
 				  lfsck_buf_get(env, bitmap->data, nbits >> 3),
 				  XATTR_NAME_LFSCK_BITMAP, 0, handle,
 				  BYPASS_CAPA);
+
+#if LUSTRE_VERSION_CODE < OBD_OCD_VERSION(2, 8, 53, 0)
+	if (rc == 0 && init)
+		rc = dt_xattr_set(env, obj, &tbuf,
+				  XATTR_NAME_LFSCK_NAMESPACE_OLD,
+				  LU_XATTR_CREATE, handle, BYPASS_CAPA);
+#endif
 
 	GOTO(out, rc);
 
@@ -433,7 +476,7 @@ static int lfsck_namespace_init(const struct lu_env *env,
 	ns->ln_magic = LFSCK_NAMESPACE_MAGIC;
 	ns->ln_status = LS_INIT;
 	down_write(&com->lc_sem);
-	rc = lfsck_namespace_store(env, com);
+	rc = lfsck_namespace_store(env, com, true);
 	up_write(&com->lc_sem);
 	return rc;
 }
@@ -800,7 +843,7 @@ static int lfsck_namespace_insert_orphan(const struct lu_env *env,
 	struct dt_device		*dev	= lfsck->li_bottom;
 	struct dt_object		*parent;
 	struct thandle			*th	= NULL;
-	struct lustre_handle		 plh	= { 0 };
+	struct lfsck_lock_handle	*pllh	= &info->lti_llh;
 	struct lustre_handle		 clh	= { 0 };
 	struct linkea_data		 ldata	= { 0 };
 	struct lu_buf			 linkea_buf;
@@ -821,12 +864,7 @@ static int lfsck_namespace_insert_orphan(const struct lu_env *env,
 	parent = lfsck->li_lpf_obj;
 	pfid = lfsck_dto2fid(parent);
 
-	/* Hold update lock on the parent to prevent others to access. */
-	rc = lfsck_ibits_lock(env, lfsck, parent, &plh,
-			      MDS_INODELOCK_UPDATE, LCK_EX);
-	if (rc != 0)
-		GOTO(log, rc);
-
+again:
 	do {
 		namelen = snprintf(info->lti_key, NAME_MAX, DFID"%s-%s-%d",
 				   PFID(cfid), infix, type, idx++);
@@ -840,6 +878,28 @@ static int lfsck_namespace_insert_orphan(const struct lu_env *env,
 			exist = true;
 	} while (rc == 0 && !exist);
 
+	rc = lfsck_pdo_lock(env, lfsck, parent, info->lti_key, pllh,
+			    MDS_INODELOCK_UPDATE, LCK_PW);
+	if (rc != 0)
+		GOTO(log, rc);
+
+	/* Re-check after taken the ldlm lock. */
+	rc = dt_lookup(env, parent, (struct dt_rec *)tfid,
+		       (const struct dt_key *)info->lti_key, BYPASS_CAPA);
+	if (rc == 0) {
+		if (!lu_fid_eq(cfid, tfid)) {
+			exist = false;
+			lfsck_pdo_unlock(pllh);
+			goto again;
+		}
+
+		exist = true;
+	} else if (rc != -ENOENT) {
+		GOTO(log, rc);
+	} else {
+		exist = false;
+	}
+
 	cname->ln_name = info->lti_key;
 	cname->ln_namelen = namelen;
 	rc = linkea_data_new(&ldata, &info->lti_linkea_buf2);
@@ -851,8 +911,8 @@ static int lfsck_namespace_insert_orphan(const struct lu_env *env,
 		GOTO(log, rc);
 
 	rc = lfsck_ibits_lock(env, lfsck, orphan, &clh,
-			      MDS_INODELOCK_UPDATE | MDS_INODELOCK_LOOKUP,
-			      LCK_EX);
+			      MDS_INODELOCK_UPDATE | MDS_INODELOCK_LOOKUP |
+			      MDS_INODELOCK_XATTR, LCK_EX);
 	if (rc != 0)
 		GOTO(log, rc);
 
@@ -969,7 +1029,7 @@ stop:
 
 log:
 	lfsck_ibits_unlock(&clh, LCK_EX);
-	lfsck_ibits_unlock(&plh, LCK_EX);
+	lfsck_pdo_unlock(pllh);
 	CDEBUG(D_LFSCK, "%s: namespace LFSCK insert orphan for the "
 	       "object "DFID", name = %s: rc = %d\n",
 	       lfsck_lfsck2name(lfsck), PFID(cfid),
@@ -1018,7 +1078,7 @@ static int lfsck_namespace_insert_normal(const struct lu_env *env,
 	struct lfsck_instance		*lfsck	= com->lc_lfsck;
 	struct dt_device		*dev	= lfsck->li_next;
 	struct thandle			*th	= NULL;
-	struct lustre_handle		 lh	= { 0 };
+	struct lfsck_lock_handle	*llh	= &info->lti_llh;
 	int				 rc	= 0;
 	ENTRY;
 
@@ -1028,9 +1088,8 @@ static int lfsck_namespace_insert_normal(const struct lu_env *env,
 	if (lfsck->li_bookmark_ram.lb_param & LPF_DRYRUN)
 		GOTO(log, rc = 1);
 
-	/* Hold update lock on the parent to prevent others to access. */
-	rc = lfsck_ibits_lock(env, lfsck, parent, &lh,
-			      MDS_INODELOCK_UPDATE, LCK_EX);
+	rc = lfsck_pdo_lock(env, lfsck, parent, name, llh,
+			    MDS_INODELOCK_UPDATE, LCK_PW);
 	if (rc != 0)
 		GOTO(log, rc);
 
@@ -1092,7 +1151,7 @@ stop:
 	dt_trans_stop(env, dev, th);
 
 unlock:
-	lfsck_ibits_unlock(&lh, LCK_EX);
+	lfsck_pdo_unlock(llh);
 
 log:
 	CDEBUG(D_LFSCK, "%s: namespace LFSCK insert object "DFID" with "
@@ -1202,10 +1261,13 @@ static int lfsck_namespace_create_orphan_remote(const struct lu_env *env,
 	rc = ptlrpc_queue_wait(req);
 	ptlrpc_req_finished(req);
 
-	if (rc == 0)
+	if (rc == 0) {
+		orphan->do_lu.lo_header->loh_attr |= LOHA_EXISTS;
 		rc = 1;
-	else if (rc == -EEXIST)
+	} else if (rc == -EEXIST) {
+		orphan->do_lu.lo_header->loh_attr |= LOHA_EXISTS;
 		rc = 0;
+	}
 
 	GOTO(out, rc);
 
@@ -1266,7 +1328,7 @@ static int lfsck_namespace_create_orphan_local(const struct lu_env *env,
 	struct dt_object		*parent	= NULL;
 	struct dt_object		*child	= NULL;
 	struct thandle			*th	= NULL;
-	struct lustre_handle		 lh	= { 0 };
+	struct lfsck_lock_handle	*llh	= &info->lti_llh;
 	struct linkea_data		 ldata	= { 0 };
 	struct lu_buf			 linkea_buf;
 	struct lu_buf			 lmv_buf;
@@ -1298,20 +1360,31 @@ static int lfsck_namespace_create_orphan_local(const struct lu_env *env,
 	parent = lfsck->li_lpf_obj;
 	pfid = lfsck_dto2fid(parent);
 
-	/* Hold update lock on the parent to prevent others to access. */
-	rc = lfsck_ibits_lock(env, lfsck, parent, &lh,
-			      MDS_INODELOCK_UPDATE, LCK_EX);
-	if (rc != 0)
-		GOTO(log, rc);
-
+again:
 	do {
 		namelen = snprintf(name, 31, DFID"-P-%d",
 				   PFID(cfid), idx++);
 		rc = dt_lookup(env, parent, (struct dt_rec *)tfid,
 			       (const struct dt_key *)name, BYPASS_CAPA);
 		if (rc != 0 && rc != -ENOENT)
-			GOTO(unlock1, rc);
+			GOTO(log, rc);
 	} while (rc == 0);
+
+	rc = lfsck_pdo_lock(env, lfsck, parent, name, llh,
+			    MDS_INODELOCK_UPDATE, LCK_PW);
+	if (rc != 0)
+		GOTO(log, rc);
+
+	/* Re-check after taken the ldlm lock. */
+	rc = dt_lookup(env, lfsck->li_lpf_obj, (struct dt_rec *)tfid,
+		       (const struct dt_key *)name, BYPASS_CAPA);
+	if (unlikely(rc == 0)) {
+		lfsck_pdo_unlock(llh);
+		goto again;
+	}
+
+	if (rc != -ENOENT)
+		GOTO(unlock1, rc);
 
 	cname->ln_name = name;
 	cname->ln_namelen = namelen;
@@ -1438,7 +1511,7 @@ stop:
 	dt_trans_stop(env, dev, th);
 
 unlock1:
-	lfsck_ibits_unlock(&lh, LCK_EX);
+	lfsck_pdo_unlock(llh);
 
 log:
 	CDEBUG(D_LFSCK, "%s: namespace LFSCK create orphan locally for "
@@ -1536,8 +1609,8 @@ static int lfsck_namespace_shrink_linkea(const struct lu_env *env,
 	ENTRY;
 
 	rc = lfsck_ibits_lock(env, lfsck, obj, &lh,
-			      MDS_INODELOCK_UPDATE |
-			      MDS_INODELOCK_XATTR, LCK_EX);
+			      MDS_INODELOCK_UPDATE | MDS_INODELOCK_XATTR,
+			      LCK_EX);
 	if (rc != 0)
 		GOTO(log, rc);
 
@@ -1652,20 +1725,21 @@ static int lfsck_namespace_shrink_linkea_cond(const struct lu_env *env,
 					      struct lu_name *cname,
 					      struct lu_fid *pfid)
 {
-	struct lu_fid		*cfid	= &lfsck_env_info(env)->lti_fid3;
-	struct lustre_handle	 lh	= { 0 };
-	int			 rc;
+	struct lfsck_thread_info *info	= lfsck_env_info(env);
+	struct lu_fid		 *cfid	= &info->lti_fid3;
+	struct lfsck_lock_handle *llh	= &info->lti_llh;
+	int			  rc;
 	ENTRY;
 
-	rc = lfsck_ibits_lock(env, com->lc_lfsck, parent, &lh,
-			      MDS_INODELOCK_UPDATE, LCK_EX);
+	rc = lfsck_pdo_lock(env, com->lc_lfsck, parent, cname->ln_name, llh,
+			    MDS_INODELOCK_UPDATE, LCK_PR);
 	if (rc != 0)
 		RETURN(rc);
 
 	dt_read_lock(env, parent, 0);
 	if (unlikely(lfsck_is_dead_obj(parent))) {
 		dt_read_unlock(env, parent);
-		lfsck_ibits_unlock(&lh, LCK_EX);
+		lfsck_pdo_unlock(llh);
 		rc = lfsck_namespace_shrink_linkea(env, com, child, ldata,
 						   cname, pfid, true);
 
@@ -1684,7 +1758,7 @@ static int lfsck_namespace_shrink_linkea_cond(const struct lu_env *env,
 	 * has removed the specified linkEA entry by race, then it is OK,
 	 * because the subsequent lfsck_namespace_shrink_linkea() can handle
 	 * such case. */
-	lfsck_ibits_unlock(&lh, LCK_EX);
+	lfsck_pdo_unlock(llh);
 	if (rc == -ENOENT) {
 		rc = lfsck_namespace_shrink_linkea(env, com, child, ldata,
 						   cname, pfid, true);
@@ -1746,7 +1820,7 @@ static int lfsck_namespace_replace_cond(const struct lu_env *env,
 	struct dt_device		*dev	= lfsck->li_next;
 	const char			*name	= cname->ln_name;
 	struct dt_object		*obj	= NULL;
-	struct lustre_handle		 plh	= { 0 };
+	struct lfsck_lock_handle	*pllh	= &info->lti_llh;
 	struct lustre_handle		 clh	= { 0 };
 	struct linkea_data		 ldata	= { 0 };
 	struct thandle			*th	= NULL;
@@ -1754,8 +1828,8 @@ static int lfsck_namespace_replace_cond(const struct lu_env *env,
 	int				 rc	= 0;
 	ENTRY;
 
-	rc = lfsck_ibits_lock(env, lfsck, parent, &plh,
-			      MDS_INODELOCK_UPDATE, LCK_EX);
+	rc = lfsck_pdo_lock(env, lfsck, parent, name, pllh,
+			    MDS_INODELOCK_UPDATE, LCK_PW);
 	if (rc != 0)
 		GOTO(log, rc);
 
@@ -1794,10 +1868,9 @@ static int lfsck_namespace_replace_cond(const struct lu_env *env,
 	if (!lu_fid_eq(cfid, tfid))
 		GOTO(log, rc = 0);
 
-	/* lock the object to be destroyed. */
 	rc = lfsck_ibits_lock(env, lfsck, obj, &clh,
-			      MDS_INODELOCK_UPDATE |
-			      MDS_INODELOCK_XATTR, LCK_EX);
+			      MDS_INODELOCK_UPDATE | MDS_INODELOCK_XATTR,
+			      LCK_EX);
 	if (rc != 0)
 		GOTO(log, rc);
 
@@ -1889,7 +1962,7 @@ stop:
 
 log:
 	lfsck_ibits_unlock(&clh, LCK_EX);
-	lfsck_ibits_unlock(&plh, LCK_EX);
+	lfsck_pdo_unlock(pllh);
 	if (obj != NULL && !IS_ERR(obj))
 		lfsck_object_put(env, obj);
 
@@ -2013,6 +2086,7 @@ int lfsck_namespace_repair_dirent(const struct lu_env *env,
 	struct lfsck_instance		*lfsck	= com->lc_lfsck;
 	struct dt_device		*dev	= lfsck->li_next;
 	struct thandle			*th	= NULL;
+	struct lfsck_lock_handle	*llh	= &info->lti_llh;
 	struct lustre_handle		 lh	= { 0 };
 	int				 rc	= 0;
 	ENTRY;
@@ -2020,8 +2094,12 @@ int lfsck_namespace_repair_dirent(const struct lu_env *env,
 	if (unlikely(!dt_try_as_dir(env, parent)))
 		GOTO(log, rc = -ENOTDIR);
 
-	rc = lfsck_ibits_lock(env, lfsck, parent, &lh,
-			      MDS_INODELOCK_UPDATE, LCK_EX);
+	if (!update || strcmp(name, name2) == 0)
+		rc = lfsck_pdo_lock(env, lfsck, parent, name, llh,
+				    MDS_INODELOCK_UPDATE, LCK_PW);
+	else
+		rc = lfsck_ibits_lock(env, lfsck, parent, &lh,
+				      MDS_INODELOCK_UPDATE, LCK_PW);
 	if (rc != 0)
 		GOTO(log, rc);
 
@@ -2107,7 +2185,9 @@ stop:
 					     LNTF_CHECK_LINKEA, true);
 
 unlock1:
-	lfsck_ibits_unlock(&lh, LCK_EX);
+	/* It is harmless even if unlock the unused lock_handle */
+	lfsck_ibits_unlock(&lh, LCK_PW);
+	lfsck_pdo_unlock(llh);
 
 log:
 	CDEBUG(D_LFSCK, "%s: namespace LFSCK assistant found bad name "
@@ -2554,6 +2634,9 @@ lost_parent:
 		GOTO(out, rc);
 	}
 
+	if (fid_is_zero(pfid))
+		GOTO(out, rc = 0);
+
 	/* The ".." name entry is wrong, update it. */
 	if (!lu_fid_eq(pfid, lfsck_dto2fid(parent))) {
 		if (!lustre_handle_is_used(lh) && retry != NULL) {
@@ -2619,7 +2702,8 @@ lfsck_namespace_dsd_multiple(const struct lu_env *env,
 	struct lfsck_bookmark	 *bk		= &lfsck->li_bookmark_ram;
 	struct dt_object	 *parent	= NULL;
 	struct linkea_data	  ldata_new	= { 0 };
-	int			  count		= 0;
+	int			  dirent_count	= 0;
+	int			  linkea_count	= 0;
 	int			  rc		= 0;
 	bool			  once		= true;
 	ENTRY;
@@ -2633,6 +2717,7 @@ again:
 		/* Drop invalid linkEA entry. */
 		if (!fid_is_sane(tfid)) {
 			linkea_del_buf(ldata, cname);
+			linkea_count++;
 			continue;
 		}
 
@@ -2666,6 +2751,7 @@ again:
 				 * child to be visible via other parent, then
 				 * remove this linkEA entry. */
 				linkea_del_buf(ldata, cname);
+				linkea_count++;
 				continue;
 			}
 
@@ -2676,6 +2762,7 @@ again:
 		if (unlikely(!dt_try_as_dir(env, parent))) {
 			lfsck_object_put(env, parent);
 			linkea_del_buf(ldata, cname);
+			linkea_count++;
 			continue;
 		}
 
@@ -2723,6 +2810,7 @@ rebuild:
 				RETURN(rc);
 
 			linkea_del_buf(ldata, cname);
+			linkea_count++;
 			linkea_first_entry(ldata);
 			/* There may be some invalid dangling name entries under
 			 * other parent directories, remove all of them. */
@@ -2759,13 +2847,13 @@ rebuild:
 					goto next;
 				}
 
-				count += rc;
+				dirent_count += rc;
 
 next:
 				linkea_del_buf(ldata, cname);
 			}
 
-			ns->ln_dirent_repaired += count;
+			ns->ln_dirent_repaired += dirent_count;
 
 			RETURN(rc);
 		}
@@ -2786,9 +2874,14 @@ next:
 		linkea_del_buf(ldata, cname);
 	}
 
+	linkea_first_entry(ldata);
 	if (ldata->ld_leh->leh_reccount == 1) {
 		rc = lfsck_namespace_dsd_single(env, com, child, pfid, ldata,
 						lh, type, NULL);
+
+		if (rc == 0 && fid_is_zero(pfid) && linkea_count > 0)
+			rc = lfsck_namespace_rebuild_linkea(env, com, child,
+							    ldata);
 
 		RETURN(rc);
 	}
@@ -2802,7 +2895,6 @@ next:
 		RETURN(rc);
 	}
 
-	linkea_first_entry(ldata);
 	/* If the dangling name entry for the orphan directory object has
 	 * been remvoed, then just check whether the directory object is
 	 * still under the .lustre/lost+found/MDTxxxx/ or not. */
@@ -2869,8 +2961,7 @@ static int lfsck_namespace_repair_nlink(const struct lu_env *env,
 		GOTO(log, rc = PTR_ERR(child));
 
 	rc = lfsck_ibits_lock(env, lfsck, child, &lh,
-			      MDS_INODELOCK_UPDATE |
-			      MDS_INODELOCK_XATTR, LCK_EX);
+			      MDS_INODELOCK_UPDATE, LCK_PW);
 	if (rc != 0)
 		GOTO(log, rc);
 
@@ -2932,7 +3023,7 @@ stop:
 	dt_trans_stop(env, dev, th);
 
 log:
-	lfsck_ibits_unlock(&lh, LCK_EX);
+	lfsck_ibits_unlock(&lh, LCK_PW);
 	if (child != NULL && !IS_ERR(child))
 		lfsck_object_put(env, child);
 
@@ -3071,6 +3162,8 @@ lock:
 	} else if (lfsck->li_lpf_obj != NULL &&
 		   lu_fid_eq(pfid, lfsck_dto2fid(lfsck->li_lpf_obj))) {
 		lpf = true;
+	} else if (unlikely(!fid_is_sane(pfid))) {
+		fid_zero(pfid);
 	}
 
 	rc = lfsck_links_read(env, child, &ldata);
@@ -3717,7 +3810,7 @@ static int lfsck_namespace_reset(const struct lu_env *env,
 	lad->lad_incomplete = 0;
 	CFS_RESET_BITMAP(lad->lad_bitmap);
 
-	rc = lfsck_namespace_store(env, com);
+	rc = lfsck_namespace_store(env, com, true);
 
 	GOTO(out, rc);
 
@@ -3854,7 +3947,7 @@ static int lfsck_namespace_checkpoint(const struct lu_env *env,
 		com->lc_new_checked = 0;
 	}
 
-	rc = lfsck_namespace_store(env, com);
+	rc = lfsck_namespace_store(env, com, false);
 	up_write(&com->lc_sem);
 
 log:
@@ -4092,9 +4185,28 @@ static int lfsck_namespace_exec_dir(const struct lu_env *env,
 				    struct lfsck_component *com,
 				    struct lu_dirent *ent, __u16 type)
 {
-	struct lfsck_assistant_data	*lad	= com->lc_data;
+	struct lfsck_assistant_data	*lad	 = com->lc_data;
+	struct lfsck_instance		*lfsck	 = com->lc_lfsck;
 	struct lfsck_namespace_req	*lnr;
-	bool				 wakeup	= false;
+	struct lfsck_bookmark		*bk	 = &lfsck->li_bookmark_ram;
+	struct ptlrpc_thread		*mthread = &lfsck->li_thread;
+	struct ptlrpc_thread		*athread = &lad->lad_thread;
+	struct l_wait_info		 lwi	 = { 0 };
+	bool				 wakeup	 = false;
+
+	l_wait_event(mthread->t_ctl_waitq,
+		     bk->lb_async_windows == 0 ||
+		     lad->lad_prefetched < bk->lb_async_windows ||
+		     !thread_is_running(mthread) ||
+		     thread_is_stopped(athread),
+		     &lwi);
+
+	if (unlikely(!thread_is_running(mthread)) ||
+		     thread_is_stopped(athread))
+		return 0;
+
+	if (unlikely(lfsck_is_dead_obj(lfsck->li_obj_dir)))
+		return 0;
 
 	lnr = lfsck_namespace_assistant_req_init(com->lc_lfsck, ent, type);
 	if (IS_ERR(lnr)) {
@@ -4174,7 +4286,7 @@ static int lfsck_namespace_post(const struct lu_env *env,
 		com->lc_new_checked = 0;
 	}
 
-	rc = lfsck_namespace_store(env, com);
+	rc = lfsck_namespace_store(env, com, false);
 	up_write(&com->lc_sem);
 
 	CDEBUG(D_LFSCK, "%s: namespace LFSCK post done: rc = %d\n",
@@ -4246,8 +4358,8 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 					  lfsck->li_time_last_checkpoint;
 		__u64 checked = ns->ln_items_checked + com->lc_new_checked;
 		__u64 speed = checked;
-		__u64 new_checked = msecs_to_jiffies(com->lc_new_checked *
-						     MSEC_PER_SEC);
+		__u64 new_checked = com->lc_new_checked *
+				    msecs_to_jiffies(MSEC_PER_SEC);
 		__u32 rtime = ns->ln_run_time_phase1 +
 			      cfs_duration_sec(duration + HALF_SEC);
 
@@ -4301,8 +4413,8 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 				com->lc_new_checked;
 		__u64 speed1 = ns->ln_items_checked;
 		__u64 speed2 = checked;
-		__u64 new_checked = msecs_to_jiffies(com->lc_new_checked *
-						     MSEC_PER_SEC);
+		__u64 new_checked = com->lc_new_checked *
+				    msecs_to_jiffies(MSEC_PER_SEC);
 		__u32 rtime = ns->ln_run_time_phase2 +
 			      cfs_duration_sec(duration + HALF_SEC);
 
@@ -4731,7 +4843,7 @@ int lfsck_namespace_repair_dangling(const struct lu_env *env,
 	struct dt_object		*parent	= lnr->lnr_obj;
 	const struct lu_name		*cname;
 	struct linkea_data		 ldata	= { 0 };
-	struct lustre_handle		 lh     = { 0 };
+	struct lfsck_lock_handle	*llh	= &info->lti_llh;
 	struct lu_buf			 linkea_buf;
 	struct lu_buf			 lmv_buf;
 	struct lfsck_instance		*lfsck	= com->lc_lfsck;
@@ -4760,8 +4872,8 @@ int lfsck_namespace_repair_dangling(const struct lu_env *env,
 	if (rc != 0)
 		GOTO(log, rc);
 
-	rc = lfsck_ibits_lock(env, lfsck, parent, &lh,
-			      MDS_INODELOCK_UPDATE, LCK_EX);
+	rc = lfsck_pdo_lock(env, lfsck, parent, lnr->lnr_name, llh,
+			    MDS_INODELOCK_UPDATE, LCK_PR);
 	if (rc != 0)
 		GOTO(log, rc);
 
@@ -4910,7 +5022,7 @@ stop:
 	dt_trans_stop(env, dev, th);
 
 log:
-	lfsck_ibits_unlock(&lh, LCK_EX);
+	lfsck_pdo_unlock(llh);
 	CDEBUG(D_LFSCK, "%s: namespace LFSCK assistant found dangling "
 	       "reference for: parent "DFID", child "DFID", type %u, "
 	       "name %s. %s: rc = %d\n", lfsck_lfsck2name(lfsck),
@@ -5952,7 +6064,7 @@ checkpoint:
 			ns->ln_time_last_checkpoint = cfs_time_current_sec();
 			ns->ln_objs_checked_phase2 += com->lc_new_checked;
 			com->lc_new_checked = 0;
-			rc = lfsck_namespace_store(env, com);
+			rc = lfsck_namespace_store(env, com, false);
 			up_write(&com->lc_sem);
 			if (rc != 0)
 				GOTO(put, rc);
@@ -6034,7 +6146,7 @@ static int lfsck_namespace_double_scan_result(const struct lu_env *env,
 		ns->ln_status = LS_FAILED;
 	}
 
-	rc = lfsck_namespace_store(env, com);
+	rc = lfsck_namespace_store(env, com, false);
 	up_write(&com->lc_sem);
 
 	return rc;
@@ -6284,14 +6396,14 @@ int lfsck_remove_name_entry(const struct lu_env *env,
 			    struct dt_object *parent,
 			    const char *name, __u32 type)
 {
-	struct dt_device	*dev	= lfsck->li_next;
-	struct thandle		*th;
-	struct lustre_handle	 lh	= { 0 };
-	int			 rc;
+	struct lfsck_lock_handle *llh	= &lfsck_env_info(env)->lti_llh;
+	struct dt_device	 *dev	= lfsck->li_next;
+	struct thandle		 *th;
+	int			  rc;
 	ENTRY;
 
-	rc = lfsck_ibits_lock(env, lfsck, parent, &lh,
-			      MDS_INODELOCK_UPDATE, LCK_EX);
+	rc = lfsck_pdo_lock(env, lfsck, parent, name, llh,
+			    MDS_INODELOCK_UPDATE, LCK_PW);
 	if (rc != 0)
 		RETURN(rc);
 
@@ -6330,7 +6442,7 @@ stop:
 	dt_trans_stop(env, dev, th);
 
 unlock:
-	lfsck_ibits_unlock(&lh, LCK_EX);
+	lfsck_pdo_unlock(llh);
 
 	CDEBUG(D_LFSCK, "%s: remove name entry "DFID"/%s "
 	       "with type %o: rc = %d\n", lfsck_lfsck2name(lfsck),
@@ -6358,16 +6470,17 @@ int lfsck_update_name_entry(const struct lu_env *env,
 			    struct dt_object *parent, const char *name,
 			    const struct lu_fid *pfid, __u32 type)
 {
-	struct dt_insert_rec	*rec	= &lfsck_env_info(env)->lti_dt_rec;
+	struct lfsck_thread_info *info	= lfsck_env_info(env);
+	struct dt_insert_rec	 *rec	= &info->lti_dt_rec;
+	struct lfsck_lock_handle *llh	= &info->lti_llh;
 	struct dt_device	*dev	= lfsck->li_next;
-	struct lustre_handle	 lh	= { 0 };
 	struct thandle		*th;
 	int			 rc;
 	bool			 exists = true;
 	ENTRY;
 
-	rc = lfsck_ibits_lock(env, lfsck, parent, &lh,
-			      MDS_INODELOCK_UPDATE, LCK_EX);
+	rc = lfsck_pdo_lock(env, lfsck, parent, name, llh,
+			    MDS_INODELOCK_UPDATE, LCK_PW);
 	if (rc != 0)
 		RETURN(rc);
 
@@ -6418,7 +6531,7 @@ stop:
 	dt_trans_stop(env, dev, th);
 
 unlock:
-	lfsck_ibits_unlock(&lh, LCK_EX);
+	lfsck_pdo_unlock(llh);
 
 	CDEBUG(D_LFSCK, "%s: update name entry "DFID"/%s with the FID "DFID
 	       " and the type %o: rc = %d\n", lfsck_lfsck2name(lfsck),
@@ -6485,10 +6598,10 @@ int lfsck_namespace_setup(const struct lu_env *env,
 		GOTO(out, rc);
 
 	rc = lfsck_namespace_load(env, com);
-	if (rc > 0)
-		rc = lfsck_namespace_reset(env, com, true);
-	else if (rc == -ENODATA)
+	if (rc == -ENODATA)
 		rc = lfsck_namespace_init(env, com);
+	else if (rc < 0)
+		rc = lfsck_namespace_reset(env, com, true);
 	if (rc != 0)
 		GOTO(out, rc);
 
