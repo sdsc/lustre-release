@@ -360,29 +360,15 @@ int lfsck_fid_alloc(const struct lu_env *env, struct lfsck_instance *lfsck,
 	RETURN(rc);
 }
 
-/**
- * Request the specified ibits lock for the given object.
- *
- * Before the LFSCK modifying on the namespace visible object,
- * it needs to acquire related ibits ldlm lock.
- *
- * \param[in] env	pointer to the thread context
- * \param[in] lfsck	pointer to the lfsck instance
- * \param[in] obj	pointer to the dt_object to be locked
- * \param[out] lh	pointer to the lock handle
- * \param[in] ibits	the bits for the ldlm lock to be acquired
- * \param[in] mode	the mode for the ldlm lock to be acquired
- *
- * \retval		0 for success
- * \retval		negative error number on failure
- */
-int lfsck_ibits_lock(const struct lu_env *env, struct lfsck_instance *lfsck,
-		     struct dt_object *obj, struct lustre_handle *lh,
-		     __u64 bits, ldlm_mode_t mode)
+static int __lfsck_ibits_lock(const struct lu_env *env,
+			      struct lfsck_instance *lfsck,
+			      struct dt_object *obj,
+			      struct ldlm_res_id *resid,
+			      struct lustre_handle *lh,
+			      __u64 bits, ldlm_mode_t mode)
 {
 	struct lfsck_thread_info	*info	= lfsck_env_info(env);
 	ldlm_policy_data_t		*policy = &info->lti_policy;
-	struct ldlm_res_id		*resid	= &info->lti_resid;
 	__u64				 flags	= LDLM_FL_ATOMIC_CB;
 	int				 rc;
 
@@ -390,7 +376,6 @@ int lfsck_ibits_lock(const struct lu_env *env, struct lfsck_instance *lfsck,
 
 	memset(policy, 0, sizeof(*policy));
 	policy->l_inodebits.bits = bits;
-	fid_build_reg_res_name(lfsck_dto2fid(obj), resid);
 	if (dt_object_remote(obj)) {
 		struct ldlm_enqueue_info *einfo = &info->lti_einfo;
 
@@ -421,6 +406,34 @@ int lfsck_ibits_lock(const struct lu_env *env, struct lfsck_instance *lfsck,
 }
 
 /**
+ * Request the specified ibits lock for the given object.
+ *
+ * Before the LFSCK modifying on the namespace visible object,
+ * it needs to acquire related ibits ldlm lock.
+ *
+ * \param[in] env	pointer to the thread context
+ * \param[in] lfsck	pointer to the lfsck instance
+ * \param[in] obj	pointer to the dt_object to be locked
+ * \param[out] lh	pointer to the lock handle
+ * \param[in] bits	the bits for the ldlm lock to be acquired
+ * \param[in] mode	the mode for the ldlm lock to be acquired
+ *
+ * \retval		0 for success
+ * \retval		negative error number on failure
+ */
+int lfsck_ibits_lock(const struct lu_env *env, struct lfsck_instance *lfsck,
+		     struct dt_object *obj, struct lustre_handle *lh,
+		     __u64 bits, ldlm_mode_t mode)
+{
+	struct ldlm_res_id *resid = &lfsck_env_info(env)->lti_resid;
+
+	LASSERT(!lustre_handle_is_used(lh));
+
+	fid_build_reg_res_name(lfsck_dto2fid(obj), resid);
+	return __lfsck_ibits_lock(env, lfsck, obj, resid, lh, bits, mode);
+}
+
+/**
  * Release the the specified ibits lock.
  *
  * If the lock has been acquired before, release it
@@ -435,6 +448,83 @@ void lfsck_ibits_unlock(struct lustre_handle *lh, ldlm_mode_t mode)
 		ldlm_lock_decref(lh, mode);
 		memset(lh, 0, sizeof(*lh));
 	}
+}
+
+/**
+ * Request the specified PDO lock for the given <obj, name> pairs.
+ *
+ * Before the LFSCK modifying on the namespace visible object, it needs to
+ * acquire related ibits ldlm lock. Usually, we can use lfsck_ibits_lock for
+ * the lock purpose. But the lfsck_ibits_lock is coarse-grained, and may be
+ * not efficient for some directory-based modification, such as insert name
+ * entry to the directory. The lfsck PDO (Parallel Directory Operations) lock
+ * will only lock part of the directory with the given <obj, name> pairs.
+ *
+ * \param[in] env	pointer to the thread context
+ * \param[in] lfsck	pointer to the lfsck instance
+ * \param[in] obj	pointer to the dt_object to be locked
+ * \param[in] name	used for building the PDO lock resource
+ * \param[out] llh	pointer to the lfsck_lock_handle
+ * \param[in] bits	the bits for the ldlm lock to be acquired
+ * \param[in] mode	the mode for the ldlm lock to be acquired
+ *
+ * \retval		0 for success
+ * \retval		negative error number on failure
+ */
+int lfsck_pdo_lock(const struct lu_env *env, struct lfsck_instance *lfsck,
+		   struct dt_object *obj, const char *name,
+		   struct lfsck_lock_handle *llh, __u64 bits, ldlm_mode_t mode)
+{
+	struct ldlm_res_id *resid = &lfsck_env_info(env)->lti_resid;
+	int		    rc;
+
+	LASSERT(S_ISDIR(lfsck_object_type(obj)));
+	LASSERT(name != NULL);
+	LASSERT(!lustre_handle_is_used(&llh->llh_pdo_lh));
+	LASSERT(!lustre_handle_is_used(&llh->llh_reg_lh));
+
+	switch (mode) {
+	case LCK_EX:
+		llh->llh_pdo_mode = LCK_EX;
+		break;
+	case LCK_PW:
+		llh->llh_pdo_mode = LCK_CW;
+		break;
+	case LCK_PR:
+		llh->llh_pdo_mode = LCK_CR;
+		break;
+	default:
+		CDEBUG(D_LFSCK, "%s: unexpected PDO lock mode %u on the obj "
+		       DFID"\n", lfsck_lfsck2name(lfsck), mode,
+		       PFID(lfsck_dto2fid(obj)));
+		LBUG();
+	}
+
+	fid_build_reg_res_name(lfsck_dto2fid(obj), resid);
+	rc = __lfsck_ibits_lock(env, lfsck, obj, resid, &llh->llh_pdo_lh,
+				MDS_INODELOCK_UPDATE, llh->llh_pdo_mode);
+	if (rc != 0)
+		return rc;
+
+	llh->llh_reg_mode = mode;
+	resid->name[LUSTRE_RES_ID_HSH_OFF] = full_name_hash(name, strlen(name));
+	rc = __lfsck_ibits_lock(env, lfsck, obj, resid, &llh->llh_reg_lh,
+				bits, llh->llh_reg_mode);
+	if (rc != 0)
+		lfsck_ibits_unlock(&llh->llh_pdo_lh, llh->llh_pdo_mode);
+
+	return rc;
+}
+
+/**
+ * Release the the specified PDO lock.
+ *
+ * \param[in] llh	pointer to the lfsck_lock_handle to be released
+ */
+void lfsck_pdo_unlock(struct lfsck_lock_handle *llh)
+{
+	lfsck_ibits_unlock(&llh->llh_reg_lh, llh->llh_reg_mode);
+	lfsck_ibits_unlock(&llh->llh_pdo_lh, llh->llh_pdo_mode);
 }
 
 int lfsck_find_mdt_idx_by_fid(const struct lu_env *env,
@@ -800,7 +890,7 @@ int lfsck_create_lpf(const struct lu_env *env, struct lfsck_instance *lfsck)
 	struct dt_object_format  *dof	= &info->lti_dof;
 	struct dt_object	 *parent = NULL;
 	struct dt_object	 *child	= NULL;
-	struct lustre_handle	  lh	= { 0 };
+	struct lfsck_lock_handle *llh	= &info->lti_llh;
 	char			  name[8];
 	int			  node	= lfsck_dev_idx(lfsck->li_bottom);
 	int			  rc	= 0;
@@ -832,8 +922,8 @@ int lfsck_create_lpf(const struct lu_env *env, struct lfsck_instance *lfsck)
 	if (unlikely(!dt_try_as_dir(env, parent)))
 		GOTO(out, rc = -ENOTDIR);
 
-	rc = lfsck_ibits_lock(env, lfsck, parent, &lh,
-			      MDS_INODELOCK_UPDATE, LCK_EX);
+	rc = lfsck_pdo_lock(env, lfsck, parent, name, llh,
+			    MDS_INODELOCK_UPDATE, LCK_PW);
 	if (rc != 0)
 		GOTO(out, rc);
 
@@ -897,7 +987,7 @@ int lfsck_create_lpf(const struct lu_env *env, struct lfsck_instance *lfsck)
 
 unlock:
 	mutex_unlock(&lfsck->li_mutex);
-	lfsck_ibits_unlock(&lh, LCK_EX);
+	lfsck_pdo_unlock(llh);
 	if (rc != 0 && child != NULL && !IS_ERR(child))
 		lu_object_put(env, &child->do_lu);
 out:
