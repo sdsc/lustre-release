@@ -502,7 +502,11 @@ load_modules_local() {
 		load_module lfsck/lfsck
 		[ "$LQUOTA" != "no" ] && load_module quota/lquota $LQUOTAOPTS
 		if [[ $(node_fstypes $HOSTNAME) == *zfs* ]]; then
+set -x
+			echo 'options zfs zfs_nocacheflush=1' >> $MODPROBECONF
+			grep zfs $MODPROBECONF
 			modprobe zfs
+set +x
 			load_module osd-zfs/osd_zfs
 		fi
 		load_module mgs/mgs
