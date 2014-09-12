@@ -694,8 +694,22 @@ static int osp_sync(const struct lu_env *env, struct dt_device *dev)
 		RETURN(-ENOTCONN);
 
 	id = d->opd_syn_last_used_id;
+	down_write(&d->opd_async_updates_rwsem);
 
-	CDEBUG(D_OTHER, "%s: id: used %lu, processed %lu\n",
+	CDEBUG(D_OTHER, "%s: async updates %d\n", d->opd_obd->obd_name,
+	       atomic_read(&d->opd_async_updates_count));
+
+	/* make sure the connection is fine */
+	expire = cfs_time_shift(obd_timeout);
+	lwi = LWI_TIMEOUT(expire - cfs_time_current(), osp_sync_timeout, d);
+	rc = l_wait_event(d->opd_syn_barrier_waitq,
+			  atomic_read(&d->opd_async_updates_count) == 0,
+			  &lwi);
+	up_write(&d->opd_async_updates_rwsem);
+	if (rc != 0)
+		GOTO(out, rc);
+
+	CDEBUG(D_CACHE, "%s: id: used %lu, processed %lu\n",
 	       d->opd_obd->obd_name, id, d->opd_syn_last_processed_id);
 
 	/* wait till all-in-line are processed */
@@ -727,7 +741,7 @@ static int osp_sync(const struct lu_env *env, struct dt_device *dev)
 	/* block new processing (barrier>0 - few callers are possible */
 	atomic_inc(&d->opd_syn_barrier);
 
-	CDEBUG(D_OTHER, "%s: %u in flight\n", d->opd_obd->obd_name,
+	CDEBUG(D_CACHE, "%s: %u in flight\n", d->opd_obd->obd_name,
 	       d->opd_syn_rpc_in_flight);
 
 	/* wait till all-in-flight are replied, so executed by the target */
@@ -756,12 +770,13 @@ static int osp_sync(const struct lu_env *env, struct dt_device *dev)
 		GOTO(out, rc = -ETIMEDOUT);
 	}
 
-	CDEBUG(D_OTHER, "%s: done in %lu\n", d->opd_obd->obd_name,
-	       cfs_time_current() - start);
 out:
 	/* resume normal processing (barrier=0) */
 	atomic_dec(&d->opd_syn_barrier);
 	__osp_sync_check_for_work(d);
+
+	CDEBUG(D_CACHE, "%s: done in %lu: rc = %d\n", d->opd_obd->obd_name,
+	       cfs_time_current() - start, rc);
 
 	RETURN(rc);
 }
@@ -867,6 +882,9 @@ static int osp_init0(const struct lu_env *env, struct osp_device *osp,
 	ENTRY;
 
 	mutex_init(&osp->opd_async_requests_mutex);
+	INIT_LIST_HEAD(&osp->opd_async_updates);
+	init_rwsem(&osp->opd_async_updates_rwsem);
+	atomic_set(&osp->opd_async_updates_count, 0);
 
 	obd = class_name2obd(lustre_cfg_string(cfg, 0));
 	if (obd == NULL) {

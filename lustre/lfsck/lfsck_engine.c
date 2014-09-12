@@ -221,7 +221,7 @@ static int lfsck_needs_scan_dir(const struct lu_env *env,
 		fld_range_set_mdt(range);
 		rc = fld_local_lookup(env, ss->ss_server_fld,
 				      fid_seq(fid), range);
-		if (rc != 0 || range->lsr_index != idx) {
+		if (rc != 0 || range->lsr_index != idx)
 			/* Current FID should NOT be for the input parameter
 			 * @obj, because the lfsck_master_oit_engine() has
 			 * filtered out agent object. So current FID is for
@@ -229,10 +229,7 @@ static int lfsck_needs_scan_dir(const struct lu_env *env,
 			 * So the ancestor is a remote directory. The input
 			 * parameter @obj is local directory, and should be
 			 * scanned under such case. */
-			LASSERT(depth > 0);
-
 			return 1;
-		}
 
 		/* normal FID on this target (locally) must be for the
 		 * client-side visiable object. */
@@ -551,6 +548,9 @@ static int lfsck_prep(const struct lu_env *env, struct lfsck_instance *lfsck,
 			pos->lp_dir_cookie = 0;
 
 		rc = lfsck_open_dir(env, lfsck, pos->lp_dir_cookie);
+		if (rc > 0)
+			/* The end of the directory. */
+			rc = 0;
 	}
 
 	GOTO(out, rc);
@@ -1289,7 +1289,7 @@ out:
 }
 
 /**
- * Notify the LFSCK event to the instatnces on remote servers.
+ * Notify the LFSCK event to the instances on remote servers.
  *
  * The LFSCK assistant thread notifies the LFSCK instances on other
  * servers (MDT/OST) about some events, such as start new scanning,
@@ -1335,8 +1335,7 @@ static int lfsck_assistant_notify_others(const struct lu_env *env,
 		if (com->lc_type != LFSCK_TYPE_LAYOUT)
 			goto next;
 
-		lr->lr_valid = LSV_SPEED_LIMIT | LSV_ERROR_HANDLE | LSV_DRYRUN |
-			       LSV_ASYNC_WINDOWS | LSV_CREATE_OSTOBJ;
+		lr->lr_valid = LSV_SPEED_LIMIT | LSV_ERROR_HANDLE | LSV_DRYRUN;
 		lr->lr_speed = bk->lb_speed_limit;
 		lr->lr_version = bk->lb_version;
 		lr->lr_param |= bk->lb_param;
@@ -1616,6 +1615,7 @@ int lfsck_assistant_engine(void *args)
 	struct l_wait_info		   lwi     = { 0 };
 	int				   rc      = 0;
 	int				   rc1	   = 0;
+	int				   rc2;
 	ENTRY;
 
 	CDEBUG(D_LFSCK, "%s: %s LFSCK assistant thread start\n",
@@ -1725,11 +1725,16 @@ int lfsck_assistant_engine(void *args)
 				com->lc_time_last_checkpoint +
 				cfs_time_seconds(LFSCK_CHECKPOINT_INTERVAL);
 
+			CDEBUG(D_LFSCK, "%s: LFSCK assistant sync before "
+			       "the second-stage scaning\n",
+			       lfsck_lfsck2name(lfsck));
+
 			/* Flush async updates before handling orphan. */
-			dt_sync(env, lfsck->li_next);
+			rc2 = dt_sync(env, lfsck->li_next);
 
 			CDEBUG(D_LFSCK, "%s: LFSCK assistant phase2 "
-			       "scan start\n", lfsck_lfsck2name(lfsck));
+			       "scan start, synced: rc = %d\n",
+			       lfsck_lfsck2name(lfsck), rc2);
 
 			if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_NO_DOUBLESCAN))
 				GOTO(cleanup2, rc = 0);
@@ -1846,8 +1851,14 @@ cleanup2:
 		rc = rc1;
 	}
 
+	CDEBUG(D_LFSCK, "%s: LFSCK assistant sync before exit\n",
+	       lfsck_lfsck2name(lfsck));
+
 	/* Flush async updates before exit. */
-	dt_sync(env, lfsck->li_next);
+	rc2 = dt_sync(env, lfsck->li_next);
+
+	CDEBUG(D_LFSCK, "%s: LFSCK assistant synced before exit: rc = %d\n",
+	       lfsck_lfsck2name(lfsck), rc2);
 
 	/* Under force exit case, some requests may be just freed without
 	 * verification, those objects should be re-handled when next run.
