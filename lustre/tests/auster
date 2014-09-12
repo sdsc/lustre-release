@@ -197,6 +197,9 @@ run_suite() {
     title $suite_name
     log_test $suite_name
 
+	do_nodesv $(comma_list $(nodes_list)) \
+		"cat /sys/module/zfs/parameters/{zfs_nocacheflush,zfs_arc_max}"
+
     rm -f $TF_FAIL
     local start_ts=$(date +%s)
     doit bash $suite_script
@@ -322,6 +325,11 @@ export NAME MOUNT START CLEAN
 assert_env mds_HOST
 assert_env ost_HOST OSTCOUNT
 assert_env FSNAME MOUNT MOUNT2
+
+do_nodesv $(comma_list $(nodes_list)) "FSTYPE=zfs lustre_rmmod"
+do_nodesv $(comma_list $(nodes_list)) \
+	"echo 'options zfs zfs_nocacheflush=1 zfs_arc_max=629145600' \
+	>> /etc/modprobe.d/lustre.conf"
 
 echo "Started at `date`"
 setup_if_needed
