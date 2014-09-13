@@ -327,7 +327,7 @@ __u32 ll_i2suppgid(struct inode *i)
 	if (in_group_p(i->i_gid))
 		return (__u32)from_kgid(&init_user_ns, i->i_gid);
 	else
-		return (__u32) __kgid_val(INVALID_GID);
+		return (__u32)__kgid_val(INVALID_GID);
 }
 
 /* Pack the required supplementary groups into the supplied groups array.
@@ -344,7 +344,7 @@ void ll_i2gids(__u32 *suppgids, struct inode *i1, struct inode *i2)
 	if (i2)
 		suppgids[1] = ll_i2suppgid(i2);
 	else
-		suppgids[1] = -1;
+		suppgids[1] = (__u32)__kgid_val(INVALID_GID);
 }
 
 /*
@@ -515,10 +515,10 @@ static int ll_lookup_it_finish(struct ptlrpc_request *request,
 static struct dentry *ll_lookup_it(struct inode *parent, struct dentry *dentry,
 				   struct lookup_intent *it)
 {
-        struct lookup_intent lookup_it = { .it_op = IT_LOOKUP };
-        struct dentry *save = dentry, *retval;
-        struct ptlrpc_request *req = NULL;
-        struct md_op_data *op_data;
+	struct lookup_intent lookup_it = { .it_op = IT_LOOKUP };
+	struct dentry *save = dentry, *retval;
+	struct ptlrpc_request *req = NULL;
+	struct md_op_data *op_data = NULL;
         __u32 opc;
         int rc;
         ENTRY;
@@ -549,18 +549,38 @@ static struct dentry *ll_lookup_it(struct inode *parent, struct dentry *dentry,
 
 	op_data = ll_prep_md_op_data(NULL, parent, NULL, dentry->d_name.name,
 				     dentry->d_name.len, 0, opc, NULL);
-        if (IS_ERR(op_data))
-                RETURN((void *)op_data);
+	if (IS_ERR(op_data))
+		RETURN((void *)op_data);
 
-        /* enforce umask if acl disabled or MDS doesn't support umask */
-        if (!IS_POSIXACL(parent) || !exp_connect_umask(ll_i2mdexp(parent)))
+	/* enforce umask if acl disabled or MDS doesn't support umask */
+	if (!IS_POSIXACL(parent) || !exp_connect_umask(ll_i2mdexp(parent)))
 		it->it_create_mode &= ~current_umask();
 
 	rc = md_intent_lock(ll_i2mdexp(parent), op_data, it, &req,
 			    &ll_md_blocking_ast, 0);
-        ll_finish_md_op_data(op_data);
-        if (rc < 0)
-                GOTO(out, retval = ERR_PTR(rc));
+	if (rc == -EACCES && it->it_op & IT_OPEN &&
+	    it_disposition(it, DISP_OPEN_DENY) &&
+	    op_data->op_suppgids[1] == (__u32)__kgid_val(INVALID_GID)) {
+		struct mdt_body *body;
+
+		LASSERT(req != NULL);
+
+		body = req_capsule_server_get(&req->rq_pill, &RMF_MDT_BODY);
+		if (op_data->op_suppgids[0] == body->mbo_gid ||
+		    !in_group_p(make_kgid(&init_user_ns, body->mbo_gid)))
+			GOTO(out, retval = ERR_PTR(-EACCES));
+
+		fid_zero(&op_data->op_fid2);
+		op_data->op_suppgids[1] = body->mbo_gid;
+		ptlrpc_req_finished(req);
+		req = NULL;
+		ll_intent_release(it);
+		rc = md_intent_lock(ll_i2mdexp(parent), op_data, it, &req,
+				    &ll_md_blocking_ast, 0);
+	}
+
+	if (rc < 0)
+		GOTO(out, retval = ERR_PTR(rc));
 
 	rc = ll_lookup_it_finish(req, it, parent, &dentry);
         if (rc != 0) {
@@ -575,10 +595,12 @@ static struct dentry *ll_lookup_it(struct inode *parent, struct dentry *dentry,
         }
         ll_lookup_finish_locks(it, dentry);
 
-	retval = (dentry == save) ? NULL : dentry;
-	EXIT;
+	GOTO(out, retval = (dentry == save) ? NULL : dentry);
 
 out:
+	if (op_data != NULL && !IS_ERR(op_data))
+		ll_finish_md_op_data(op_data);
+
 	ptlrpc_req_finished(req);
 	return retval;
 }
