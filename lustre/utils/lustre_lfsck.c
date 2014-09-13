@@ -52,6 +52,7 @@ static struct option long_opt_start[] = {
 	{"create_mdtobj",	optional_argument, 0, 'C'},
 	{"error",		required_argument, 0, 'e'},
 	{"help",		no_argument,	   0, 'h'},
+	{"cache_linkea",	no_argument,	   0, 'L'},
 	{"dryrun",		optional_argument, 0, 'n'},
 	{"orphan",		no_argument,	   0, 'o'},
 	{"reset",		no_argument,	   0, 'r'},
@@ -101,6 +102,7 @@ static void usage_start(void)
 		"	     [-A | --all] [-c | --create_ostobj [on | off]]\n"
 		"	     [-C | --create_mdtobj [on | off]]\n"
 		"	     [-e | --error {continue | abort}] [-h | --help]\n"
+		"	     [-L | --cache_linkea\n"
 		"	     [-n | --dryrun [on | off]] [-o | --orphan]\n"
 		"            [-r | --reset] [-s | --speed ops_per_sec_limit]\n"
 		"            [-t | --type check_type[,check_type...]]\n"
@@ -114,6 +116,7 @@ static void usage_start(void)
 		    "(default 'off', or 'on')\n"
 		"-e: error handle mode (default 'continue', or 'abort')\n"
 		"-h: this help message\n"
+		"-L: cache linkea verification history in RAM\n"
 		"-n: check with no modification (default 'off', or 'on')\n"
 		"-o: repair orphan OST-objects\n"
 		"-r: reset scanning to the start of the device\n"
@@ -159,7 +162,7 @@ int jt_lfsck_start(int argc, char **argv)
 	char rawbuf[MAX_IOC_BUFLEN], *buf = rawbuf;
 	char device[MAX_OBD_NAME];
 	struct lfsck_start start;
-	char *optstring = "Ac::C::e:hM:n::ors:t:w:";
+	char *optstring = "Ac::C::e:hLM:n::ors:t:w:";
 	int opt, index, rc, val, i;
 
 	memset(&data, 0, sizeof(data));
@@ -217,6 +220,9 @@ int jt_lfsck_start(int argc, char **argv)
 		case 'h':
 			usage_start();
 			return 0;
+		case 'L':
+			start.ls_flags |= LPF_CACHE_LINKEA;
+			break;
 		case 'M':
 			rc = lfsck_pack_dev(&data, device, optarg);
 			if (rc != 0)
