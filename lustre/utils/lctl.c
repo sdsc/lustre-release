@@ -414,6 +414,7 @@ command_t cmdlist[] = {
 	 "		     [-A | --all] [-c | --create_ostobj [on | off]]\n"
 	 "		     [-C | --create_mdtobj [on | off]]\n"
 	 "		     [-e | --error {continue | abort}] [-h | --help]\n"
+	 "		     [-L | --cache_linkea\n"
 	 "		     [-n | --dryrun [on | off]] [-o | --orphan]\n"
 	 "		     [-r | --reset] [-s | --speed speed_limit]\n"
 	 "		     [-t | --type lfsck_type[,lfsck_type...]]\n"

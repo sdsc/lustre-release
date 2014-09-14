@@ -684,7 +684,8 @@ struct lfsck_instance {
 				  li_drop_dryrun:1, /* Ever dryrun, not now. */
 				  li_master:1, /* Master instance or not. */
 				  li_current_oit_processed:1,
-				  li_start_unplug:1;
+				  li_start_unplug:1,
+				  li_cache_linkea:1;
 	struct lfsck_rec_lmv_save li_rec_lmv_save[LFSCK_REC_LMV_MAX_DEPTH];
 };
 

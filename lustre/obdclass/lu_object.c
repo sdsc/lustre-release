@@ -1339,6 +1339,7 @@ int lu_object_header_init(struct lu_object_header *h)
 	INIT_HLIST_NODE(&h->loh_hash);
 	INIT_LIST_HEAD(&h->loh_lru);
 	INIT_LIST_HEAD(&h->loh_layers);
+	INIT_LIST_HEAD(&h->loh_lfsck_linkea_cache);
         lu_ref_init(&h->loh_reference);
         return 0;
 }

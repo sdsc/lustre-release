@@ -2742,6 +2742,11 @@ int lfsck_start(const struct lu_env *env, struct dt_device *key,
 	if (start->ls_flags & LPF_RESET)
 		flags |= DOIF_RESET;
 
+	if (start->ls_flags & LPF_CACHE_LINKEA)
+		lfsck->li_cache_linkea = 1;
+	else
+		lfsck->li_cache_linkea = 0;
+
 	rc = lfsck_set_param(env, lfsck, start, !!(flags & DOIF_RESET));
 	if (rc != 0)
 		GOTO(out, rc);
