@@ -554,6 +554,10 @@ struct lu_object_header {
 	 * A list of references to this object, for debugging.
 	 */
 	struct lu_ref		loh_reference;
+	/**
+	 * Used for testing LFSCK performance temporarily.
+	 */
+	struct list_head	loh_lfsck_linkea_cache;
 };
 
 struct fld;
