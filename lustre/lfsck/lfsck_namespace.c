@@ -3675,6 +3675,37 @@ static void lfsck_namespace_release_lmv(const struct lu_env *env,
 	}
 }
 
+static int lfsck_namespace_check_for_double_scan(const struct lu_env *env,
+						 struct lfsck_component *com,
+						 struct dt_object *obj)
+{
+	struct lu_attr *la = &lfsck_env_info(env)->lti_la;
+	int		rc;
+
+	rc = dt_attr_get(env, obj, la, BYPASS_CAPA);
+	if (rc != 0)
+		return rc;
+
+	/* "la_ctime" == 1 means that it has ever been removed from
+	 * backend /lost+found directory but not been added back to
+	 * the normal namespace yet. */
+	if (unlikely(la->la_ctime == 1)) {
+		rc = lfsck_namespace_trace_update(env, com, lfsck_dto2fid(obj),
+						  LNTF_CHECK_LINKEA, true);
+
+		return rc;
+	}
+
+	/* zero-linkEA object may be orphan, but it also maybe because
+	 * of upgrading. Currently, we cannot record it for double scan.
+	 * Because it may cause the LFSCK trace file to be too large. */
+	if (S_ISREG(lfsck_object_type(obj)) && la->la_nlink > 1)
+		rc = lfsck_namespace_trace_update(env, com, lfsck_dto2fid(obj),
+						  LNTF_CHECK_LINKEA, true);
+
+	return rc;
+}
+
 /* namespace APIs */
 
 static int lfsck_namespace_reset(const struct lu_env *env,
@@ -3990,7 +4021,6 @@ static int lfsck_namespace_exec_oit(const struct lu_env *env,
 	struct lfsck_namespace	 *ns	= com->lc_file_ram;
 	struct lfsck_instance	 *lfsck	= com->lc_lfsck;
 	const struct lu_fid	 *fid	= lfsck_dto2fid(obj);
-	struct lu_attr		 *la	= &info->lti_la;
 	struct lu_fid		 *pfid	= &info->lti_fid2;
 	struct lu_name		 *cname	= &info->lti_name;
 	struct lu_seq_range	 *range = &info->lti_range;
@@ -4026,23 +4056,8 @@ static int lfsck_namespace_exec_oit(const struct lu_env *env,
 		GOTO(out, rc = (rc == -ENOENT ? 0 : rc));
 	}
 
-	/* zero-linkEA object may be orphan, but it also maybe because
-	 * of upgrading. Currently, we cannot record it for double scan.
-	 * Because it may cause the LFSCK trace file to be too large. */
 	if (rc == -ENODATA) {
-		if (S_ISDIR(lfsck_object_type(obj)))
-			GOTO(out, rc = 0);
-
-		rc = dt_attr_get(env, obj, la, BYPASS_CAPA);
-		if (rc != 0)
-			GOTO(out, rc);
-
-		/* "la_ctime" == 1 means that it has ever been removed from
-		 * backend /lost+found directory but not been added back to
-		 * the normal namespace yet. */
-		if (la->la_nlink > 1 || unlikely(la->la_ctime == 1))
-			rc = lfsck_namespace_trace_update(env, com, fid,
-						LNTF_CHECK_LINKEA, true);
+		rc = lfsck_namespace_check_for_double_scan(env, com, obj);
 
 		GOTO(out, rc);
 	}
@@ -4068,24 +4083,12 @@ static int lfsck_namespace_exec_oit(const struct lu_env *env,
 		rc = fld_local_lookup(env, ss->ss_server_fld,
 				      fid_seq(pfid), range);
 		if ((rc == -ENOENT) ||
-		    (rc == 0 && range->lsr_index != idx)) {
+		    (rc == 0 && range->lsr_index != idx))
 			rc = lfsck_namespace_trace_update(env, com, fid,
 						LNTF_CHECK_LINKEA, true);
-		} else {
-			if (S_ISDIR(lfsck_object_type(obj)))
-				GOTO(out, rc = 0);
-
-			rc = dt_attr_get(env, obj, la, BYPASS_CAPA);
-			if (rc != 0)
-				GOTO(out, rc);
-
-			/* "la_ctime" == 1 means that it has ever been
-			 * removed from backend /lost+found directory but
-			 * not been added back to the normal namespace yet. */
-			if (la->la_nlink > 1 || unlikely(la->la_ctime == 1))
-				rc = lfsck_namespace_trace_update(env, com,
-						fid, LNTF_CHECK_LINKEA, true);
-		}
+		else
+			rc = lfsck_namespace_check_for_double_scan(env, com,
+								   obj);
 	}
 
 	GOTO(out, rc);
@@ -4947,7 +4950,6 @@ static int lfsck_namespace_assistant_handler_p1(const struct lu_env *env,
 						struct lfsck_assistant_req *lar)
 {
 	struct lfsck_thread_info   *info     = lfsck_env_info(env);
-	struct lu_attr		   *la	     = &info->lti_la;
 	struct lfsck_instance	   *lfsck    = com->lc_lfsck;
 	struct lfsck_bookmark	   *bk	     = &lfsck->li_bookmark_ram;
 	struct lfsck_namespace	   *ns	     = com->lc_file_ram;
@@ -5126,7 +5128,7 @@ again:
 				type = LNIT_BAD_TYPE;
 			}
 
-			goto record;
+			goto stop;
 		}
 
 		ns->ln_flags |= LF_INCONSISTENT;
@@ -5188,7 +5190,7 @@ nodata:
 			ns->ln_linkea_repaired++;
 			repaired = true;
 			log = true;
-			goto record;
+			goto stop;
 		}
 
 		if (!lustre_handle_is_used(&lh))
@@ -5255,35 +5257,6 @@ nodata:
 	} else {
 		GOTO(stop, rc);
 	}
-
-record:
-	LASSERT(count > 0);
-
-	rc = dt_attr_get(env, obj, la, BYPASS_CAPA);
-	if (rc != 0)
-		GOTO(stop, rc);
-
-	if ((count == 1 && la->la_nlink == 1) ||
-	    S_ISDIR(lfsck_object_type(obj)))
-		/* Usually, it is for single linked object or dir, do nothing.*/
-		GOTO(stop, rc);
-
-	/* Following modification will be in another transaction.  */
-	if (handle != NULL) {
-		dt_write_unlock(env, obj);
-		dtlocked = false;
-
-		dt_trans_stop(env, dev, handle);
-		handle = NULL;
-
-		lfsck_ibits_unlock(&lh, LCK_EX);
-	}
-
-	ns->ln_mul_linked_checked++;
-	rc = lfsck_namespace_trace_update(env, com, &lnr->lnr_fid,
-					  LNTF_CHECK_LINKEA, true);
-
-	GOTO(out, rc);
 
 stop:
 	if (dtlocked)
@@ -5399,8 +5372,19 @@ out:
 					       false);
 		}
 
+		if (count > 1) {
+			ns->ln_mul_linked_checked++;
+			rc = 0;
+		} else if (count == 1 && obj != NULL && !IS_ERR(obj) &&
+			   S_ISREG(lfsck_object_type(obj))) {
+			struct lu_attr *la = &info->lti_la;
 
-		rc = 0;
+			rc = dt_attr_get(env, obj, la, BYPASS_CAPA);
+			if (rc == 0 && la->la_nlink > 1)
+				ns->ln_mul_linked_checked++;
+			else if (unlikely(rc == -ENOENT))
+				rc = 0;
+		}
 	}
 	up_write(&com->lc_sem);
 
