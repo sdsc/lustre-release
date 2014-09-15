@@ -214,7 +214,7 @@ copytool_setup() {
 
 	if [[ -z "$arc_id" ]] &&
 		do_facet $facet "pkill -CONT -x $HSMTOOL_BASE"; then
-			echo "Wakeup copytool $facet on $agent"
+			echo "Only wakeup running copytool $facet on $agent"
 			return 0
 	fi
 
@@ -271,10 +271,22 @@ copytool_cleanup() {
 	local oldstate
 	local mdt_hsmctrl
 	local hsm_root=$(copytool_device $facet)
+	local waitsecs=0
 
 	do_nodesv $agents "pkill -INT -x $HSMTOOL_BASE" || return 0
-	sleep 1
-	echo "Copytool is stopped on $agents"
+	while [ $waitsecs -lt 30 ] ; do
+		sleep 1
+		waitsecs = $((waitsecs + 1))
+		do_nodesv $agents "pgrep -x $HSMTOOL_BASE"
+		if [ $? -ne 0 ]; then
+			echo "Copytool is stopped on $agents"
+			break
+		fi
+		echo "Copytool still running on $agents"
+	done
+	if [ $waitsecs -eq 30 ]; then
+		echo "Copytool failed to stop in 30s, continuing ..."
+	fi
 
 	# clean all CDTs orphans requests from previous tests
 	# that would otherwise need to timeout to clear.
