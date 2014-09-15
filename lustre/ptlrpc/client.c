@@ -292,11 +292,16 @@ static void ptlrpc_at_adj_net_latency(struct ptlrpc_request *req,
         at = &req->rq_import->imp_at;
 
         /* Network latency is total time less server processing time */
-        nl = max_t(int, now - req->rq_sent - service_time, 0) +1/*st rounding*/;
-        if (service_time > now - req->rq_sent + 3 /* bz16408 */)
-                CWARN("Reported service time %u > total measured time "
-                      CFS_DURATION_T"\n", service_time,
-                      cfs_time_sub(now, req->rq_sent));
+        nl = max_t(int, req->rq_repin_time - req->rq_sent -
+			service_time, 0) +1/*st rounding*/;
+        if (service_time > req->rq_repin_time - req->rq_sent + 3 /* bz16408 */)
+		/* NB: if early_reply is lost and request timedout, we may
+		 * receive reply for previous request and trigger this */
+		CDEBUG((lustre_msg_get_flags(req->rq_reqmsg) & MSG_RESENT) ?
+		       D_ADAPTTO : D_WARNING,
+		       "Reported service time %u > total measured time "
+		       CFS_DURATION_T"\n", service_time,
+		       cfs_time_sub(req->rq_repin_time, req->rq_sent));
 
         oldnl = at_measured(&at->iat_net_latency, nl);
         if (oldnl != 0)
@@ -306,6 +311,11 @@ static void ptlrpc_at_adj_net_latency(struct ptlrpc_request *req,
                        obd_uuid2str(
                                &req->rq_import->imp_connection->c_remote_uuid),
                        oldnl, at_get(&at->iat_net_latency));
+
+	DEBUG_REQ(nl < 100 ? D_ADAPTTO : D_WARNING, req,
+		  "sent: "CFS_DURATION_T" replyin: "CFS_DURATION_T" "
+		  "now: "CFS_DURATION_T", latency: %d\n",
+		  req->rq_sent, req->rq_repin_time, now, nl);
 }
 
 static int unpack_reply(struct ptlrpc_request *req)
