@@ -51,6 +51,102 @@ enum lfsck_nameentry_check {
 
 static const char lfsck_namespace_name[] = "lfsck_namespace";
 
+struct lfsck_namespace_object_cache_unit {
+	struct list_head	 lnocu_list;
+	struct dt_object	*lnocu_obj;
+};
+
+struct lfsck_namespace_linkea_cache_unit {
+	struct list_head	lnlcu_list;
+	struct lu_fid		lnlcu_pfid;
+	int			lnlcu_reclen;
+	int			lnlcu_namelen;
+	char			lnlcu_name[0];
+};
+
+static struct list_head lfsck_namespace_object_cache =
+	LIST_HEAD_INIT(lfsck_namespace_object_cache);
+
+static int lfsck_namespace_object_cache_insert(struct dt_object *obj)
+{
+	struct lfsck_namespace_object_cache_unit *lnocu;
+
+	OBD_ALLOC_PTR(lnocu);
+	if (lnocu == NULL)
+		return -ENOMEM;
+
+	lnocu->lnocu_obj = lfsck_object_get(obj);
+	INIT_LIST_HEAD(&lnocu->lnocu_list);
+	list_add_tail(&lnocu->lnocu_list, &lfsck_namespace_object_cache);
+
+	return 0;
+}
+
+static void lfsck_namespace_object_cache_remove(const struct lu_env *env,
+		struct lfsck_namespace_object_cache_unit *lnocu)
+{
+
+	list_del(&lnocu->lnocu_list);
+	lu_object_put(env, &lnocu->lnocu_obj->do_lu);
+	OBD_FREE_PTR(lnocu);
+}
+
+static struct lfsck_namespace_linkea_cache_unit *
+lfsck_namespace_linkea_cache_match(struct dt_object *obj,
+				   const struct lu_fid *pfid,
+				   const char *name, int namelen)
+{
+	struct lu_object_header *loh = obj->do_lu.lo_header;
+	struct lfsck_namespace_linkea_cache_unit *lnlcu;
+
+	list_for_each_entry(lnlcu, &loh->loh_lfsck_linkea_cache, lnlcu_list) {
+		if (lu_fid_eq(pfid, &lnlcu->lnlcu_pfid) &&
+		    namelen == lnlcu->lnlcu_namelen &&
+		    memcmp(name, lnlcu->lnlcu_name, namelen) == 0)
+			return lnlcu;
+	}
+
+	return NULL;
+}
+
+static int lfsck_namespace_linkea_cache_insert(struct dt_object *obj,
+					       struct lfsck_namespace_req *lnr)
+{
+	struct lu_object_header *loh = obj->do_lu.lo_header;
+	struct lfsck_namespace_linkea_cache_unit *lnlcu;
+	int reclen = sizeof(*lnlcu) + ((lnr->lnr_namelen + 3) & ~3);
+
+	OBD_ALLOC(lnlcu, reclen);
+	if (lnlcu == NULL)
+		return -ENOMEM;
+
+	if (list_empty(&loh->loh_lfsck_linkea_cache)) {
+		int rc;
+
+		rc = lfsck_namespace_object_cache_insert(obj);
+		if (rc != 0) {
+			OBD_FREE(lnlcu, lnlcu->lnlcu_reclen);
+			return rc;
+		}
+	}
+
+	lnlcu->lnlcu_pfid = *lfsck_dto2fid(lnr->lnr_obj);
+	lnlcu->lnlcu_reclen = reclen;
+	lnlcu->lnlcu_namelen = lnr->lnr_namelen;
+	memcpy(lnlcu->lnlcu_name, lnr->lnr_name, lnlcu->lnlcu_namelen);
+	INIT_LIST_HEAD(&lnlcu->lnlcu_list);
+	list_add_tail(&lnlcu->lnlcu_list, &loh->loh_lfsck_linkea_cache);
+
+	return 0;
+}
+
+static void lfsck_namespace_linkea_cache_remove(
+		struct lfsck_namespace_linkea_cache_unit *lnlcu)
+{
+	list_del(&lnlcu->lnlcu_list);
+	OBD_FREE(lnlcu, lnlcu->lnlcu_reclen);
+}
+
 static struct lfsck_namespace_req *
 lfsck_namespace_assistant_req_init(struct lfsck_instance *lfsck,
 				   struct lu_dirent *ent, __u16 type)
@@ -3694,8 +3790,8 @@ static int lfsck_namespace_check_for_double_scan(const struct lu_env *env,
 	 * backend /lost+found directory but not been added back to
 	 * the normal namespace yet. */
 
-	if ((S_ISREG(lfsck_object_type(obj)) && la->la_nlink > 1) ||
-	    unlikely(la->la_ctime == 1))
+	if ((S_ISREG(lfsck_object_type(obj)) && la->la_nlink > 1 &&
+	     !com->lc_lfsck->li_cache_linkea) || unlikely(la->la_ctime == 1))
 		rc = lfsck_namespace_trace_update(env, com, lfsck_dto2fid(obj),
 						  LNTF_CHECK_LINKEA, true);
 
@@ -4063,7 +4159,8 @@ static int lfsck_namespace_exec_oit(const struct lu_env *env,
 
 	/* Record multiple-linked object. */
 	if (ldata.ld_leh->leh_reccount > 1) {
-		rc = lfsck_namespace_trace_update(env, com, fid,
+		if (!lfsck->li_cache_linkea)
+			rc = lfsck_namespace_trace_update(env, com, fid,
 						  LNTF_CHECK_LINKEA, true);
 
 		GOTO(out, rc);
@@ -5322,6 +5419,8 @@ out:
 		if (!(bk->lb_param & LPF_FAILOUT))
 			rc = 0;
 	} else {
+		bool mlink = false;
+
 		if (log)
 			CDEBUG(D_LFSCK, "%s: namespace LFSCK assistant "
 			       "repaired the entry: "DFID", parent "DFID
@@ -5369,7 +5468,7 @@ out:
 		}
 
 		if (count > 1) {
-			ns->ln_mul_linked_checked++;
+			mlink = true;
 			rc = 0;
 		} else if (count == 1 && obj != NULL && !IS_ERR(obj) &&
 			   S_ISREG(lfsck_object_type(obj))) {
@@ -5377,9 +5476,16 @@ out:
 
 			rc = dt_attr_get(env, obj, la, BYPASS_CAPA);
 			if (rc == 0 && la->la_nlink > 1)
-				ns->ln_mul_linked_checked++;
+				mlink = true;
 			else if (unlikely(rc == -ENOENT))
 				rc = 0;
+		}
+
+		if (mlink) {
+			ns->ln_mul_linked_checked++;
+			if (lfsck->li_cache_linkea)
+				rc = lfsck_namespace_linkea_cache_insert(obj,
+									 lnr);
 		}
 	}
 	up_write(&com->lc_sem);
@@ -5826,6 +5932,65 @@ out:
 	RETURN(rc == 0 ? 1 : rc);
 }
 
+static int
+lfsck_namespace_linkea_cache_double_scan_one(const struct lu_env *env,
+					     struct lfsck_component *com,
+					     struct dt_object *obj)
+{
+	struct lfsck_thread_info *info	   = lfsck_env_info(env);
+	struct lu_name		 *cname	   = &info->lti_name;
+	struct lu_fid		 *pfid	   = &info->lti_fid;
+	struct linkea_data	  ldata	   = { 0 };
+	struct lu_object_header  *loh	   = obj->do_lu.lo_header;
+	struct lfsck_namespace_linkea_cache_unit *lnlcu;
+	int			  rc	   = 0;
+	ENTRY;
+
+	LASSERT(S_ISREG(lfsck_object_type(obj)));
+
+	dt_read_lock(env, obj, 0);
+	if (unlikely(lfsck_is_dead_obj(obj))) {
+		dt_read_unlock(env, obj);
+
+		GOTO(out, rc = 0);
+	}
+
+	rc = lfsck_links_read(env, obj, &ldata);
+	dt_read_unlock(env, obj);
+	if (rc != 0)
+		GOTO(out, rc);
+
+	linkea_first_entry(&ldata);
+	while (ldata.ld_lee != NULL) {
+		lfsck_namespace_unpack_linkea_entry(&ldata, cname, pfid,
+						    info->lti_key);
+		lnlcu = lfsck_namespace_linkea_cache_match(obj, pfid,
+					cname->ln_name, cname->ln_namelen);
+		if (lnlcu != NULL) {
+			lfsck_namespace_linkea_cache_remove(lnlcu);
+			linkea_next_entry(&ldata);
+			continue;
+		}
+
+		/* XXX: The linkEA entry has not been verified during the
+		 *	first-stage scanning, it may be an invalid entry,
+		 *	to be handled in further. */
+		linkea_next_entry(&ldata);
+	}
+
+	GOTO(out, rc = 0);
+
+out:
+	while (!list_empty(&loh->loh_lfsck_linkea_cache)) {
+		lnlcu = list_entry(loh->loh_lfsck_linkea_cache.next,
+				   struct lfsck_namespace_linkea_cache_unit,
+				   lnlcu_list);
+		lfsck_namespace_linkea_cache_remove(lnlcu);
+	}
+
+	return rc;
+}
+
 static int lfsck_namespace_assistant_handler_p2(const struct lu_env *env,
 						struct lfsck_component *com)
 {
@@ -5843,6 +6008,9 @@ static int lfsck_namespace_assistant_handler_p2(const struct lu_env *env,
 	__u8			 flags	= 0;
 	ENTRY;
 
+	CDEBUG(D_LFSCK, "%s: namespace LFSCK phase2 scan start\n",
+	       lfsck_lfsck2name(lfsck));
+
 	while (!list_empty(&lfsck->li_list_lmv)) {
 		struct lfsck_lmv_unit *llu;
 
@@ -5854,11 +6022,8 @@ static int lfsck_namespace_assistant_handler_p2(const struct lu_env *env,
 
 		rc = lfsck_namespace_rescan_striped_dir(env, com, llu);
 		if (rc <= 0)
-			RETURN(rc);
+			GOTO(cleanup, rc);
 	}
-
-	CDEBUG(D_LFSCK, "%s: namespace LFSCK phase2 scan start\n",
-	       lfsck_lfsck2name(lfsck));
 
 	lfsck_namespace_scan_local_lpf(env, com);
 
@@ -5870,7 +6035,7 @@ static int lfsck_namespace_assistant_handler_p2(const struct lu_env *env,
 
 	di = iops->init(env, obj, 0, BYPASS_CAPA);
 	if (IS_ERR(di))
-		RETURN(PTR_ERR(di));
+		GOTO(cleanup, rc = PTR_ERR(di));
 
 	fid_cpu_to_be(&fid, &ns->ln_fid_latest_scanned_phase2);
 	rc = iops->get(env, di, (const struct dt_key *)&fid);
@@ -5971,6 +6136,32 @@ put:
 
 fini:
 	iops->fini(env, di);
+
+cleanup:
+	while (!list_empty(&lfsck_namespace_object_cache)) {
+		struct lfsck_namespace_object_cache_unit *lnocu;
+		int rc1;
+
+		lnocu = list_entry(lfsck_namespace_object_cache.next,
+				   struct lfsck_namespace_object_cache_unit,
+				   lnocu_list);
+		rc1 = lfsck_namespace_linkea_cache_double_scan_one(env, com,
+							lnocu->lnocu_obj);
+		down_write(&com->lc_sem);
+		com->lc_new_checked++;
+		com->lc_new_scanned++;
+		ns->ln_fid_latest_scanned_phase2 = fid;
+		if (rc1 > 0)
+			ns->ln_objs_repaired_phase2++;
+		else if (rc1 < 0)
+			ns->ln_objs_failed_phase2++;
+		up_write(&com->lc_sem);
+
+		if (rc1 < 0 && bk->lb_param & LPF_FAILOUT)
+			rc = rc1;
+
+		lfsck_namespace_object_cache_remove(env, lnocu);
+	}
 
 	CDEBUG(D_LFSCK, "%s: namespace LFSCK phase2 scan stop: rc = %d\n",
 	       lfsck_lfsck2name(lfsck), rc);

@@ -58,6 +58,9 @@ enum lfsck_param_flags {
 
 	/* Create MDT-object for dangling name entry. */
 	LPF_CREATE_MDTOBJ	= 0x0080,
+
+	/* Cache linkea verification history in RAM. */
+	LPF_CACHE_LINKEA	= 0x0100,
 };
 
 enum lfsck_type {
