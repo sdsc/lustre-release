@@ -1,0 +1,60 @@
+--- namei.c.orig	2014-09-12 17:25:34.375365419 -0500
++++ linux-stage/fs/ext4/namei.c	2014-09-15 14:58:54.675141801 -0500
+@@ -1703,8 +1703,9 @@
+ 	int		namelen = dentry->d_name.len;
+ 	unsigned int	offset = 0;
+ 	unsigned int	blocksize = dir->i_sb->s_blocksize;
+-	unsigned short	reclen;
++	unsigned short	reclen, dotdot_reclen = 0;
+ 	int		nlen, rlen, err, dlen = 0;
++	int		is_dotdot = 0, write_short_dotdot = 0;
+ 	unsigned char	*data;
+ 	char		*top;
+ 
+@@ -1713,7 +1714,17 @@
+ 	if (data)
+ 		dlen = (*data) + 1;
+ 
++	is_dotdot = (dentry->d_name.len == 2 &&
++                    memcmp(dentry->d_name.name, "..", 2) == 0);
++
++	/* dotdot entries must be in the second place in a directory block,
++	 * so calculate an alternate length without the FID so they can
++	 * always be made to fit in the existing slot - LU-5626 */
++	if(is_dotdot)
++		dotdot_reclen = __EXT4_DIR_REC_LEN(namelen);
++
+ 	reclen = __EXT4_DIR_REC_LEN(namelen + dlen);
++
+ 	if (!de) {
+ 		de = (struct ext4_dir_entry_2 *)bh->b_data;
+ 		top = bh->b_data + blocksize - reclen;
+@@ -1724,9 +1735,17 @@
+ 			if (ext4_match(namelen, name, de))
+ 				return -EEXIST;
+ 			nlen = EXT4_DIR_REC_LEN(de);
+-			rlen = ext4_rec_len_from_disk(de->rec_len, blocksize);
++			rlen = ext4_rec_len_from_disk(de->rec_len, blocksize);
++			/* Check first for enough space for the full entry */
+ 			if ((de->inode? rlen - nlen: rlen) >= reclen)
+ 				break;
++			/* Then for dotdot entries, check for the smaller space
++ 			 * required for just the entry, no FID */
++			if (is_dotdot)
++				if ((de->inode? rlen - nlen: rlen) >= dotdot_reclen) {
++					write_short_dotdot = 1;
++					break;
++				}
+ 			de = (struct ext4_dir_entry_2 *)((char *)de + rlen);
+ 			offset += rlen;
+ 		}
+@@ -1757,7 +1776,8 @@
+ 		de->inode = 0;
+ 	de->name_len = namelen;
+ 	memcpy(de->name, name, namelen);
+-	if (data) {
++	/* If we're writing the short form of "dotdot", don't add the data section */
++	if (data && !write_short_dotdot) {
+ 		de->name[namelen] = 0;
+ 		memcpy(&de->name[namelen + 1], data, *(char *) data);
+ 		de->file_type |= EXT4_DIRENT_LUFID;
