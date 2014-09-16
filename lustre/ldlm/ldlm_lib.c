@@ -1193,6 +1193,14 @@ dont_check_exports:
         tmp = req_capsule_client_get(&req->rq_pill, &RMF_CONN);
         conn = *tmp;
 
+	if (lustre_msg_get_op_flags(req->rq_repmsg) & MSG_CONNECT_RECONNECT) {
+		LASSERT(export->exp_imp_reverse != NULL);
+		CDEBUG(D_HA, "%s: Keeping current reverse import\n",
+		       target->obd_name);
+		/* XXX: Do we need to do anything for sptlrpc in this case? */
+		GOTO(out, rc);
+	}
+
 	/* Return -ENOTCONN in case of errors to let client reconnect. */
 	revimp = class_new_import(target);
 	if (revimp == NULL) {

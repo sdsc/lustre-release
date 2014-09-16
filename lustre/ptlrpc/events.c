@@ -100,6 +100,7 @@ void reply_in_callback(lnet_event_t *ev)
         LASSERT((ev->md.options & LNET_MD_MANAGE_REMOTE) != 0);
 
 	spin_lock(&req->rq_lock);
+	req->rq_repin_time = cfs_time_current_sec();
 
         req->rq_receiving_reply = 0;
         req->rq_early = 0;
