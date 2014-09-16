@@ -2043,6 +2043,8 @@ struct ptlrpc_request {
         struct req_capsule          rq_pill;
 };
 
+#define rq_repin_time		rq_at_index
+
 /**
  * Call completion handler for rpc if any, return it's status or original
  * rc if there was no handler defined for this request.
@@ -3382,6 +3384,15 @@ static inline int ptlrpc_no_resend(struct ptlrpc_request *req)
 		spin_unlock(&req->rq_lock);
 	}
 	return req->rq_no_resend;
+}
+
+/* estimate deadline of request (in seconds) */
+static inline int ptlrpc_deadline_estimate(struct ptlrpc_request *req)
+{
+	/* We give the server rq_timeout secs to process the req, and
+	 * add the network latency for our local timeout. */
+	LASSERT(req->rq_import != NULL);
+	return req->rq_timeout + ptlrpc_at_get_net_latency(req);
 }
 
 static inline int
