@@ -2043,6 +2043,8 @@ struct ptlrpc_request {
         struct req_capsule          rq_pill;
 };
 
+#define rq_repin_time		rq_at_index
+
 /**
  * Call completion handler for rpc if any, return it's status or original
  * rc if there was no handler defined for this request.

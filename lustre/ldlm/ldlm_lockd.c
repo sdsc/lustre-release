@@ -237,6 +237,10 @@ static int expired_lock_main(void *arg)
 			export = class_export_lock_get(lock->l_export, lock);
 			spin_unlock_bh(&waiting_locks_spinlock);
 
+			spin_lock_bh(&export->exp_bl_list_lock);
+			list_del_init(&lock->l_exp_list);
+			spin_unlock_bh(&export->exp_bl_list_lock);
+
 			do_dump++;
 			class_fail_export(export);
 			class_export_lock_put(export, lock);
@@ -263,7 +267,7 @@ static int expired_lock_main(void *arg)
 	RETURN(0);
 }
 
-static int ldlm_add_waiting_lock(struct ldlm_lock *lock);
+static int ldlm_add_waiting_lock(struct ldlm_lock *lock, int timeout);
 static int __ldlm_add_waiting_lock(struct ldlm_lock *lock, int seconds);
 
 /**
@@ -320,7 +324,7 @@ static void waiting_locks_callback(unsigned long unused)
 			spin_unlock_bh(&waiting_locks_spinlock);
 			LDLM_DEBUG(lock, "prolong the busy lock");
 			ldlm_refresh_waiting_lock(lock,
-						  ldlm_get_enq_timeout(lock));
+						  ldlm_bl_timeout(lock) >> 1);
 			spin_lock_bh(&waiting_locks_spinlock);
 
                         if (!cont) {
@@ -410,10 +414,9 @@ static int __ldlm_add_waiting_lock(struct ldlm_lock *lock, int seconds)
         return 1;
 }
 
-static int ldlm_add_waiting_lock(struct ldlm_lock *lock)
+static int ldlm_add_waiting_lock(struct ldlm_lock *lock, int timeout)
 {
 	int ret;
-	int timeout = ldlm_get_enq_timeout(lock);
 
 	/* NB: must be called with hold of lock_res_and_lock() */
 	LASSERT(ldlm_is_res_locked(lock));
@@ -425,20 +428,21 @@ static int ldlm_add_waiting_lock(struct ldlm_lock *lock)
 	if (ldlm_is_destroyed(lock)) {
 		static cfs_time_t next;
 		spin_unlock_bh(&waiting_locks_spinlock);
-                LDLM_ERROR(lock, "not waiting on destroyed lock (bug 5653)");
-                if (cfs_time_after(cfs_time_current(), next)) {
-                        next = cfs_time_shift(14400);
-                        libcfs_debug_dumpstack(NULL);
-                }
-                return 0;
-        }
+		LDLM_ERROR(lock, "not waiting on destroyed lock (bug 5653)");
+		if (cfs_time_after(cfs_time_current(), next)) {
+			next = cfs_time_shift(14400);
+			libcfs_debug_dumpstack(NULL);
+		}
+		return 0;
+	}
 
-        ret = __ldlm_add_waiting_lock(lock, timeout);
-        if (ret) {
-                /* grab ref on the lock if it has been added to the
-                 * waiting list */
-                LDLM_LOCK_GET(lock);
-        }
+	lock->l_last_activity = cfs_time_current_sec();
+	ret = __ldlm_add_waiting_lock(lock, timeout);
+	if (ret) {
+		/* grab ref on the lock if it has been added to the
+		 * waiting list */
+		LDLM_LOCK_GET(lock);
+	}
 	spin_unlock_bh(&waiting_locks_spinlock);
 
 	if (ret) {
@@ -569,6 +573,31 @@ int ldlm_refresh_waiting_lock(struct ldlm_lock *lock, int timeout)
 #ifdef HAVE_SERVER_SUPPORT
 
 /**
+ * Calculate the per-export Blocking timeout (covering BL AST, data flush,
+ * lock cancel, and their replies). Used for lock callback timeout and AST
+ * re-send period.
+ *
+ * \param[in] lock        lock which is getting the blocking callback
+ *
+ * \retval            timeout in seconds to wait for the client reply
+ */
+unsigned int ldlm_bl_timeout(struct ldlm_lock *lock)
+{
+	unsigned int timeout;
+
+	if (AT_OFF)
+		return obd_timeout / 2;
+
+	/* Since these are non-updating timeouts, we should be conservative.
+	 * Take more than usually, 150%
+	 * It would be nice to have some kind of "early reply" mechanism for
+	 * lock callbacks too... */
+	timeout = at_get(&lock->l_export->exp_bl_lock_at);
+	return max(timeout + (timeout >> 1), ldlm_enqueue_min);
+}
+EXPORT_SYMBOL(ldlm_bl_timeout);
+
+/**
  * Perform lock cleanup if AST sending failed.
  */
 static void ldlm_failed_ast(struct ldlm_lock *lock, int rc,
@@ -637,7 +666,7 @@ static int ldlm_handle_ast_error(struct ldlm_lock *lock,
                         }
 
                 } else {
-			LDLM_ERROR(lock, "client (nid %s) returned %d: rc=%d "
+			LDLM_ERROR(lock, "client (nid %s) returned %d: rc = %d "
 				   "from %s AST", libcfs_nid2str(peer.nid),
 				   (req->rq_repmsg != NULL) ?
 				   lustre_msg_get_status(req->rq_repmsg) : 0,
@@ -710,7 +739,7 @@ static void ldlm_update_resend(struct ptlrpc_request *req, void *data)
 	struct ldlm_cb_async_args *ca   = data;
 	struct ldlm_lock          *lock = ca->ca_lock;
 
-	ldlm_refresh_waiting_lock(lock, ldlm_get_enq_timeout(lock));
+	ldlm_refresh_waiting_lock(lock, ldlm_bl_timeout(lock));
 }
 
 static inline int ldlm_ast_fini(struct ptlrpc_request *req,
@@ -844,12 +873,16 @@ int ldlm_server_blocking_ast(struct ldlm_lock *lock,
 
 		req->rq_no_resend = 1;
 	} else {
+		int timeout = at_est2timeout(req->rq_timeout);
+
 		LASSERT(lock->l_granted_mode == lock->l_req_mode);
-		ldlm_add_waiting_lock(lock);
+
+		timeout = max_t(int, timeout, ldlm_bl_timeout(lock));
+		ldlm_add_waiting_lock(lock, timeout);
 		unlock_res_and_lock(lock);
 
 		/* Do not resend after lock callback timeout */
-		req->rq_delay_limit = ldlm_get_enq_timeout(lock);
+		req->rq_delay_limit = timeout;
 		req->rq_resend_cb = ldlm_update_resend;
 	}
 
@@ -884,7 +917,6 @@ int ldlm_server_completion_ast(struct ldlm_lock *lock, __u64 flags, void *data)
         struct ldlm_request    *body;
         struct ptlrpc_request  *req;
         struct ldlm_cb_async_args *ca;
-        long                    total_enqueue_wait;
         int                     instant_cancel = 0;
         int                     rc = 0;
 	int			lvb_len;
@@ -892,9 +924,6 @@ int ldlm_server_completion_ast(struct ldlm_lock *lock, __u64 flags, void *data)
 
         LASSERT(lock != NULL);
         LASSERT(data != NULL);
-
-        total_enqueue_wait = cfs_time_sub(cfs_time_current_sec(),
-                                          lock->l_last_activity);
 
 	if (OBD_FAIL_PRECHECK(OBD_FAIL_OST_LDLM_REPLY_NET)) {
 		LDLM_DEBUG(lock, "dropping CP AST");
@@ -953,25 +982,9 @@ int ldlm_server_completion_ast(struct ldlm_lock *lock, __u64 flags, void *data)
 		}
         }
 
-        LDLM_DEBUG(lock, "server preparing completion AST (after %lds wait)",
-                   total_enqueue_wait);
-
 	lock->l_last_activity = cfs_time_current_sec();
 
-        /* Server-side enqueue wait time estimate, used in
-            __ldlm_add_waiting_lock to set future enqueue timers */
-        if (total_enqueue_wait < ldlm_get_enq_timeout(lock))
-                at_measured(ldlm_lock_to_ns_at(lock),
-                            total_enqueue_wait);
-        else
-                /* bz18618. Don't add lock enqueue time we spend waiting for a
-                   previous callback to fail. Locks waiting legitimately will
-                   get extended by ldlm_refresh_waiting_lock regardless of the
-                   estimate, so it's okay to underestimate here. */
-                LDLM_DEBUG(lock, "lock completed after %lus; estimate was %ds. "
-                       "It is likely that a previous callback timed out.",
-                       total_enqueue_wait,
-                       at_get(ldlm_lock_to_ns_at(lock)));
+	LDLM_DEBUG(lock, "server preparing completion AST");
 
         ptlrpc_request_set_replen(req);
 
@@ -1003,10 +1016,13 @@ int ldlm_server_completion_ast(struct ldlm_lock *lock, __u64 flags, void *data)
 
 			lock_res_and_lock(lock);
 		} else {
+			int timeout = at_est2timeout(req->rq_timeout);
+
 			/* start the lock-timeout clock */
-			ldlm_add_waiting_lock(lock);
+			timeout = max_t(int, timeout, ldlm_bl_timeout(lock));
+			ldlm_add_waiting_lock(lock, timeout);
 			/* Do not resend after lock callback timeout */
-			req->rq_delay_limit = ldlm_get_enq_timeout(lock);
+			req->rq_delay_limit = timeout;
 			req->rq_resend_cb = ldlm_update_resend;
 		}
         }
@@ -1179,8 +1195,10 @@ int ldlm_handle_enqueue0(struct ldlm_namespace *ns,
         ENTRY;
 
         LDLM_DEBUG_NOLOCK("server-side enqueue handler START");
+	DEBUG_REQ(D_RPCTRACE, req, "enqueue request arrived at %lu, deadl %lu",
+		  req->rq_arrival_time.tv_sec, req->rq_deadline);
 
-        ldlm_request_cancel(req, dlm_req, LDLM_ENQUEUE_CANCEL_OFF);
+	ldlm_request_cancel(req, dlm_req, LDLM_ENQUEUE_CANCEL_OFF, LATF_SKIP);
 	flags = ldlm_flags_from_wire(dlm_req->lock_flags);
 
         LASSERT(req->rq_export);
@@ -1267,7 +1285,6 @@ int ldlm_handle_enqueue0(struct ldlm_namespace *ns,
 		GOTO(out, rc);
 	}
 
-        lock->l_last_activity = cfs_time_current_sec();
         lock->l_remote_handle = dlm_req->lock_handle[0];
         LDLM_DEBUG(lock, "server-side enqueue handler, new lock created");
 
@@ -1378,8 +1395,34 @@ existing_lock:
                                 unlock_res_and_lock(lock);
                                 ldlm_lock_cancel(lock);
                                 lock_res_and_lock(lock);
-                        } else
-                                ldlm_add_waiting_lock(lock);
+                        } else {
+				int tmout = ldlm_bl_timeout(lock);
+				unsigned long cur = cfs_time_current_sec();
+
+				DEBUG_REQ(D_RPCTRACE, req,
+					"ldlm_add_waiting_lock "
+					"rq_arrival_time %lu, rq_deadline %lu, "
+					"ldlm_bl_timeout %d, cur_sec %lu",
+					req->rq_arrival_time.tv_sec,
+					req->rq_deadline, tmout, cur);
+
+				/* NB: this is a workaround, because there is
+				 * no reply resend, so we need to make sure
+				 * client at least has a chance to resend if
+				 * reply is lost.
+				 * Just like AST resend, this cannot help the
+				 * multiple messages lost case
+				 */
+				if (req->rq_deadline > cur) {
+					tmout += at_est2timeout(
+						   req->rq_deadline - cur);
+				}
+
+				if (list_empty(&lock->l_pending_chain))
+					ldlm_add_waiting_lock(lock, tmout);
+				else /* refresh timer for resend */
+					ldlm_refresh_waiting_lock(lock, tmout);
+			}
                 }
         }
         /* Make sure we never ever grant usual metadata locks to liblustre
@@ -1542,7 +1585,6 @@ int ldlm_handle_convert0(struct ptlrpc_request *req,
 
                 LDLM_DEBUG(lock, "server-side convert handler START");
 
-                lock->l_last_activity = cfs_time_current_sec();
                 res = ldlm_lock_convert(lock, dlm_req->lock_desc.l_req_mode,
                                         &dlm_rep->lock_flags);
                 if (res) {
@@ -1593,7 +1635,8 @@ EXPORT_SYMBOL(ldlm_handle_convert);
  * requests.
  */
 int ldlm_request_cancel(struct ptlrpc_request *req,
-                        const struct ldlm_request *dlm_req, int first)
+			const struct ldlm_request *dlm_req,
+			int first, enum lustre_at_flags flags)
 {
         struct ldlm_resource *res, *pres = NULL;
         struct ldlm_lock *lock;
@@ -1643,6 +1686,14 @@ int ldlm_request_cancel(struct ptlrpc_request *req,
                         }
                         pres = res;
                 }
+
+		if ((flags & LATF_STATS) && ldlm_is_ast_sent(lock)) {
+			long delay = cfs_time_sub(cfs_time_current_sec(),
+						  lock->l_last_activity);
+			LDLM_DEBUG(lock, "server cancels blocked lock after "
+				   CFS_DURATION_T"s", delay);
+			at_measured(&lock->l_export->exp_bl_lock_at, delay);
+		}
                 ldlm_lock_cancel(lock);
                 LDLM_LOCK_PUT(lock);
         }
@@ -1682,7 +1733,7 @@ int ldlm_handle_cancel(struct ptlrpc_request *req)
         if (rc)
                 RETURN(rc);
 
-        if (!ldlm_request_cancel(req, dlm_req, 0))
+	if (!ldlm_request_cancel(req, dlm_req, 0, LATF_STATS))
 		req->rq_status = LUSTRE_ESTALE;
 
         RETURN(ptlrpc_reply(req));
