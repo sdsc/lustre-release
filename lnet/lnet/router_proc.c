@@ -130,7 +130,9 @@ static int __proc_lnet_stats(void *data, int write,
 
 DECLARE_PROC_HANDLER(proc_lnet_stats);
 
-int LL_PROC_PROTO(proc_lnet_routes)
+static int
+proc_lnet_routes(struct ctl_table *table, int write, void __user *buffer,
+		 size_t *lenp, loff_t *ppos)
 {
 	const int	tmpsiz = 256;
 	char		*tmpstr;
@@ -255,7 +257,9 @@ int LL_PROC_PROTO(proc_lnet_routes)
         return rc;
 }
 
-int LL_PROC_PROTO(proc_lnet_routers)
+static int
+proc_lnet_routers(struct ctl_table *table, int write, void __user *buffer,
+		  size_t *lenp, loff_t *ppos)
 {
         int        rc = 0;
         char      *tmpstr;
@@ -389,7 +393,9 @@ int LL_PROC_PROTO(proc_lnet_routers)
         return rc;
 }
 
-int LL_PROC_PROTO(proc_lnet_peers)
+static int
+proc_lnet_peers(struct ctl_table *table, int write, void __user *buffer,
+		size_t *lenp, loff_t *ppos)
 {
 	const int		tmpsiz  = 256;
 	struct lnet_peer_table	*ptable;
@@ -615,7 +621,9 @@ static int __proc_lnet_buffers(void *data, int write,
 
 DECLARE_PROC_HANDLER(proc_lnet_buffers);
 
-int LL_PROC_PROTO(proc_lnet_nis)
+static int
+proc_lnet_nis(struct ctl_table *table, int write, void __user *buffer,
+	      size_t *lenp, loff_t *ppos)
 {
 	int	tmpsiz = 128 * LNET_CPT_NUMBER;
         int        rc = 0;
