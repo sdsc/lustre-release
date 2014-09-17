@@ -73,6 +73,8 @@
 /* fid_is_local() */
 #include <lustre_fid.h>
 
+#include <lustre_param.h>
+
 #include "osd_internal.h"
 #include "osd_igif.h"
 
@@ -3944,6 +3946,47 @@ static int osd_process_config(const struct lu_env *env,
         case LCFG_CLEANUP:
                 err = osd_shutdown(env, o);
                 break;
+        case LCFG_PARAM: {
+                struct osd_thread_info *oti;
+                char *param;
+                char *ptr;
+
+                param = lustre_cfg_string(cfg, 1);
+                if (class_match_param(param, PARAM_OSD, &param) != 0) {
+                        err = -ENOSYS;
+                        break;
+                }
+                        
+                ptr = strchr(param, '=');
+                if (ptr == NULL) {
+                        err = -EINVAL;
+                        break;
+                }
+                /* '6' is strlen("dup_oi") */
+                if ((ptr - param) == 6 &&
+                    strncmp(param, "dup_oi", 6) == 0) {
+                        oti = osd_oti_get(env);
+                        err = osd_oi_dup(oti, o, ptr + 1);
+                } else if ((ptr - param) == 7 &&
+                           strncmp(param, "dump_oi", 7) == 0) {
+                        bool verbose;
+
+                        if (strcmp(ptr + 1, "verbose") == 0) {
+                                verbose = true;
+                        } else if (strcmp(ptr + 1, "count") == 0) {
+                                verbose = false;
+                        } else {
+                                err = -ENOSYS;
+                                break;
+                        }
+                        oti = osd_oti_get(env);
+                        err = osd_oi_dump(oti, o, verbose);
+                } else {
+                        err = -ENOSYS;
+                }
+
+                break;
+        }
         default:
                 err = -ENOSYS;
         }

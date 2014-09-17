@@ -466,18 +466,27 @@ int jt_lcfg_del_conn(int argc, char **argv)
 /* Param set locally, directly on target */
 int jt_lcfg_param(int argc, char **argv)
 {
-        int i, rc;
+        int rc;
         struct lustre_cfg_bufs bufs;
         struct lustre_cfg *lcfg;
+        char *param = argv[1];
+        char *devname;
+        char *ptr;
 
-        if (argc >= LUSTRE_CFG_MAX_BUFCOUNT)
+        if (argc > 2)
                 return CMD_HELP;
 
-        lustre_cfg_bufs_reset(&bufs, NULL);
-
-        for (i = 1; i < argc; i++) {
-                lustre_cfg_bufs_set_string(&bufs, i, argv[i]);
+        ptr = strchr(param, '.');
+        if (ptr != NULL) {
+                *ptr = 0;
+                devname = param;
+                param = ptr + 1;
+        } else {
+                return CMD_HELP;
         }
+
+        lustre_cfg_bufs_reset(&bufs, devname);
+        lustre_cfg_bufs_set_string(&bufs, 1, param);
 
         lcfg = lustre_cfg_new(LCFG_PARAM, &bufs);
 

@@ -119,6 +119,10 @@ int  osd_oi_insert(struct osd_thread_info *info, struct osd_device *osd,
                    struct thandle *th, int ingore_quota);
 int  osd_oi_delete(struct osd_thread_info *info, struct osd_device *osd,
                    const struct lu_fid *fid, struct thandle *th);
+int osd_oi_dump(struct osd_thread_info *info, struct osd_device *osd,
+                bool verbose);
+int osd_oi_dup(struct osd_thread_info *info, struct osd_device *osd,
+               const char *tgt_name);
 
 #endif /* __KERNEL__ */
 #endif /* _OSD_OI_H */
