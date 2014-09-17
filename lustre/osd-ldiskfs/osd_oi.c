@@ -205,12 +205,11 @@ static struct inode *osd_oi_index_open(struct osd_thread_info *info,
  * Open an OI(Object Index) container.
  */
 static int osd_oi_open(struct osd_thread_info *info, struct osd_device *osd,
-		       char *name)
+		       struct osd_oi *oi, char *name)
 {
 	struct osd_directory	*dir;
 	struct iam_container	*bag;
 	struct inode		*inode;
-	struct osd_oi		*oi = &osd->od_oi;
 	int			rc;
 
 	ENTRY;
@@ -247,7 +246,7 @@ int osd_oi_init(struct osd_thread_info *info, struct osd_device *osd)
         int			rc;
 
         cfs_mutex_lock(&oi_init_lock);
-	rc = osd_oi_open(info, osd, oi_descr[0].name);
+	rc = osd_oi_open(info, osd, &osd->od_oi, oi_descr[0].name);
 	if (rc < 0) {
 		CERROR("%s: can't open %s: rc = %d\n",
 		       dev->dd_lu_dev.ld_obd->obd_name, oi_descr[0].name, rc);
@@ -472,6 +471,191 @@ int osd_oi_delete(struct osd_thread_info *info, struct osd_device *osd,
         fid_cpu_to_be(oi_fid, fid);
 	return osd_oi_iam_delete(info, &osd->od_oi,
 				 (const struct dt_key *)oi_fid, th);
+}
+
+struct oi_iter_args {
+        union {
+                struct {
+                        struct osd_oi   *oia_oi;
+                        char             oia_idx_ipd[DX_IPD_MAX_SIZE];
+                };
+                struct {
+                        bool             oia_verbose;
+                        unsigned long    oia_count;
+                };
+        };
+};
+
+static int dump_oi_record(struct osd_thread_info *oti, struct osd_device *osd,
+                          const struct iam_iterator *it,
+                          struct oi_iter_args *oia)
+{
+        struct iam_key          *key;
+        struct iam_rec          *rec;
+        struct lu_fid            fid;
+        struct osd_inode_id      id;
+
+        key = iam_it_key_get(it);
+        rec = iam_it_rec_get(it);
+        if (IS_ERR(key) || IS_ERR(rec))
+                return 0;
+
+        if (oia->oia_verbose) {
+                fid_be_to_cpu(&fid, (const struct lu_fid *)key);
+                osd_id_unpack(&id, (const struct osd_inode_id *)rec);
+                CDEBUG(D_INFO, "OI: "DFID"<=>%u/%u\n",
+                       PFID(&fid), id.oii_ino, id.oii_gen);
+        }
+        oia->oia_count++;
+        return 0;
+}
+
+/* same to OSD_TXN_OI_DELETE_CREDITS */
+#define OSD_TXN_OI_INSERT_CREDITS 20
+
+static int dup_oi_record(struct osd_thread_info *oti, struct osd_device *osd,
+                         const struct iam_iterator *it,
+                         struct oi_iter_args *oia)
+{
+        struct iam_key          *key;
+        struct iam_rec          *rec;
+        struct txn_param        *prm;
+        struct thandle          *th;
+        struct osd_thandle	*oh;
+        struct iam_container	*bag;
+        struct iam_path_descr	*ipd;
+        int                      rc;
+
+        key = iam_it_key_get(it);
+        rec = iam_it_rec_get(it);
+        if (IS_ERR(key) || IS_ERR(rec))
+                return 0;
+
+        prm = &oti->oti_txn;
+        txn_param_init(prm, OSD_TXN_OI_INSERT_CREDITS);
+        th = dt_trans_start(oti->oti_env, &osd->od_dt_dev, prm);
+        if (IS_ERR(th))
+                return PTR_ERR(th);
+        oh = container_of0(th, struct osd_thandle, ot_super);
+        LASSERT(oh->ot_handle != NULL);
+        LASSERT(oh->ot_handle->h_transaction != NULL);
+
+        bag = &oia->oia_oi->oi_dir.od_container;
+        ipd = bag->ic_descr->id_ops->id_ipd_alloc(bag, oia->oia_idx_ipd);
+        if (unlikely(ipd == NULL)) {
+                rc = -ENOMEM;
+                goto stop_trans;
+        }
+
+        rc = iam_insert(oh->ot_handle, bag, key, rec, ipd);
+
+        osd_ipd_put(oti->oti_env, bag, ipd);
+stop_trans:
+        dt_trans_stop(oti->oti_env, &osd->od_dt_dev, th);
+
+        return rc;
+}
+
+typedef int (* oi_iter_cbt)(struct osd_thread_info *oti, struct osd_device *osd,
+                            const struct iam_iterator *it,
+                            struct oi_iter_args *oia);
+
+static int osd_oi_iterate(struct osd_thread_info *oti, struct osd_device *osd,
+                          oi_iter_cbt func, struct oi_iter_args *oia)
+{
+        struct iam_container  *bag;
+        struct iam_path_descr *ipd;
+        struct iam_iterator   *it;
+        int                    rc;
+        ENTRY;
+
+        bag = &osd->od_oi.oi_dir.od_container;
+        ipd = osd_idx_ipd_get(oti->oti_env, bag);
+        if (unlikely(ipd == NULL))
+                RETURN(-ENOMEM);
+
+        it = &oti->oti_idx_it;
+        iam_it_init(it, bag, IAM_IT_MOVE, ipd);
+
+        rc = iam_it_load(it, 0);
+        if (rc < 0)
+                RETURN(rc);
+        else if (rc == 0)
+                rc = iam_it_next(it);
+        else
+                rc = 0;
+
+        while (rc == 0) {
+                rc = func(oti, osd, it, oia);
+                if (rc == 0)
+                        rc = iam_it_next(it);
+        }
+
+        iam_it_put(it);
+        iam_it_fini(it);
+
+        RETURN(rc);
+}
+
+int osd_oi_dump(struct osd_thread_info *info, struct osd_device *osd,
+                bool verbose)
+{
+        struct oi_iter_args     *oia;
+        int                      rc;
+
+        OBD_ALLOC_PTR(oia);
+        if (oia == NULL)
+                return -ENOMEM;
+
+        oia->oia_verbose = verbose;
+
+        rc = osd_oi_iterate(info, osd, dump_oi_record, oia);
+        if (rc == 1) {
+                rc = 0;
+                LCONSOLE_INFO("%s: OI record count %lu.\n",
+                        LDISKFS_SB(osd_sb(osd))->s_es->s_volume_name,
+                        oia->oia_count);
+        }
+        OBD_FREE_PTR(oia);
+        return rc;
+}
+
+int osd_oi_dup(struct osd_thread_info *info, struct osd_device *osd,
+               const char *tgt_name)
+{
+        struct osd_oi           *tgt_oi;
+        struct oi_iter_args     *oia;
+        int                      rc;
+
+        OBD_ALLOC_PTR(tgt_oi);
+        if (tgt_oi == NULL)
+                return -ENOMEM;
+
+        OBD_ALLOC_PTR(oia);
+        if (oia== NULL) {
+                rc = -ENOMEM;
+                goto out_tgt;
+        }
+
+        rc = osd_oi_open(info, osd, tgt_oi, (char *)tgt_name);
+        if (rc < 0) {
+                CERROR("%s: can't open %s: rc = %d\n",
+                       LDISKFS_SB(osd_sb(osd))->s_es->s_volume_name,
+                       tgt_name, rc);
+                goto out_args;
+        }
+
+        oia->oia_oi = tgt_oi;
+        rc = osd_oi_iterate(info, osd, dup_oi_record, oia);
+        if (rc == 1)
+                rc = 0;
+        iam_container_fini(&tgt_oi->oi_dir.od_container);
+        iput(tgt_oi->oi_inode);
+out_args:
+        OBD_FREE_PTR(oia);
+out_tgt:
+        OBD_FREE_PTR(tgt_oi);
+        return rc;
 }
 
 int osd_oi_mod_init()

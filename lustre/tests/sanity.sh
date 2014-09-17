@@ -8690,6 +8690,23 @@ test_222() {
 }
 run_test 222 "running truncated executable does not cause OOM"
 
+test_223() {
+	do_facet $SINGLEMDS lctl local_param \
+		lustre-MDT0000.osd.dup_oi=oi.16.new || error "dup_oi failed"
+	stop $SINGLEMDS
+	local dev=$(mdsdevname 1)
+	local mntdir=$(facet_mntpt $SINGLEMDS)
+	do_facet $SINGLEMDS "mount -t ldiskfs $MDS_MOUNT_OPTS $dev $mntdir" || \
+		error "mount MDS as ldiskfs failed"
+	do_facet $SINGLEMDS "mv $mntdir/oi.16 $mntdir/oi.16.old" || \
+		error "backup old OI file failed"
+	do_facet $SINGLEMDS "mv $mntdir/oi.16.new $mntdir/oi.16" || \
+		error "replace OI file failed"
+	do_facet $SINGLEMDS "umount -d $mntdir" || error "umount $mntdir failed"
+	start $SINGLEMDS $dev $MDS_MOUNT_OPTS || error "start MDS failed"
+}
+run_test 223 "duplicate and replace OI file"
+
 #
 # tests that do cleanup/setup should be run at the end
 #
