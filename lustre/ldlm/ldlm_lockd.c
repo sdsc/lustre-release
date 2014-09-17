@@ -267,7 +267,7 @@ static int expired_lock_main(void *arg)
 	RETURN(0);
 }
 
-static int ldlm_add_waiting_lock(struct ldlm_lock *lock);
+static int ldlm_add_waiting_lock(struct ldlm_lock *lock, int timeout);
 static int __ldlm_add_waiting_lock(struct ldlm_lock *lock, int seconds);
 
 /**
@@ -414,10 +414,9 @@ static int __ldlm_add_waiting_lock(struct ldlm_lock *lock, int seconds)
         return 1;
 }
 
-static int ldlm_add_waiting_lock(struct ldlm_lock *lock)
+static int ldlm_add_waiting_lock(struct ldlm_lock *lock, int timeout)
 {
 	int ret;
-	int timeout = ldlm_bl_timeout(lock);
 
 	/* NB: must be called with hold of lock_res_and_lock() */
 	LASSERT(ldlm_is_res_locked(lock));
@@ -735,12 +734,26 @@ static int ldlm_cb_interpret(const struct lu_env *env,
 	RETURN(0);
 }
 
+static int
+ldlm_lock_ast_deadline(struct ldlm_lock *lock)
+{
+	long dl1 = ldlm_bl_timeout(lock);
+	long dl2 = 0;
+
+	if (AT_OFF)
+		return dl1;
+
+	/* extra time for reconnect and resend */
+	dl2 = lock->u.srv.sl_enq_deadline + at_extra - cfs_time_current_sec();
+	return max(dl1, dl2);
+}
+
 static void ldlm_update_resend(struct ptlrpc_request *req, void *data)
 {
 	struct ldlm_cb_async_args *ca   = data;
 	struct ldlm_lock          *lock = ca->ca_lock;
 
-	ldlm_refresh_waiting_lock(lock, ldlm_bl_timeout(lock));
+	ldlm_refresh_waiting_lock(lock, ldlm_lock_ast_deadline(lock));
 }
 
 static inline int ldlm_ast_fini(struct ptlrpc_request *req,
@@ -874,12 +887,15 @@ int ldlm_server_blocking_ast(struct ldlm_lock *lock,
 
 		req->rq_no_resend = 1;
 	} else {
+		int deadline = ldlm_lock_ast_deadline(lock);
+
 		LASSERT(lock->l_granted_mode == lock->l_req_mode);
-		ldlm_add_waiting_lock(lock);
+
+		ldlm_add_waiting_lock(lock, deadline);
 		unlock_res_and_lock(lock);
 
 		/* Do not resend after lock callback timeout */
-		req->rq_delay_limit = ldlm_bl_timeout(lock);
+		req->rq_delay_limit = deadline;
 		req->rq_resend_cb = ldlm_update_resend;
 	}
 
@@ -1013,10 +1029,12 @@ int ldlm_server_completion_ast(struct ldlm_lock *lock, __u64 flags, void *data)
 
 			lock_res_and_lock(lock);
 		} else {
+			int deadline = ldlm_lock_ast_deadline(lock);
+
 			/* start the lock-timeout clock */
-			ldlm_add_waiting_lock(lock);
+			ldlm_add_waiting_lock(lock, deadline);
 			/* Do not resend after lock callback timeout */
-			req->rq_delay_limit = ldlm_bl_timeout(lock);
+			req->rq_delay_limit = deadline;
 			req->rq_resend_cb = ldlm_update_resend;
 		}
         }
@@ -1345,6 +1363,8 @@ existing_lock:
         if (dlm_req->lock_desc.l_resource.lr_type == LDLM_EXTENT)
                 lock->l_req_extent = lock->l_policy_data.l_extent;
 
+	lock->u.srv.sl_enq_deadline = req->rq_deadline;
+
 	err = ldlm_lock_enqueue(ns, &lock, cookie, &flags);
 	if (err) {
 		if ((int)err < 0)
@@ -1365,6 +1385,9 @@ existing_lock:
            request both in reply to client and in our own lock flags. */
 	dlm_rep->lock_flags = ldlm_flags_to_wire(flags);
 	lock->l_flags |= flags & LDLM_FL_INHERIT_MASK;
+
+	/* update it again, service AT may have changed request deadline */
+	lock->u.srv.sl_enq_deadline = req->rq_deadline;
 
         /* Don't move a pending lock onto the export if it has already been
          * disconnected due to eviction (bug 5683) or server umount (bug 24324).
@@ -1387,8 +1410,14 @@ existing_lock:
                                 unlock_res_and_lock(lock);
                                 ldlm_lock_cancel(lock);
                                 lock_res_and_lock(lock);
-                        } else
-                                ldlm_add_waiting_lock(lock);
+                        } else {
+				int dl = ldlm_lock_ast_deadline(lock);
+
+				if (list_empty(&lock->l_pending_chain))
+					ldlm_add_waiting_lock(lock, dl);
+				else
+					ldlm_refresh_waiting_lock(lock, dl);
+			}
                 }
         }
         /* Make sure we never ever grant usual metadata locks to liblustre
@@ -1922,7 +1951,7 @@ static void ldlm_handle_gl_callback(struct ptlrpc_request *req,
         if (lock->l_granted_mode == LCK_PW &&
             !lock->l_readers && !lock->l_writers &&
             cfs_time_after(cfs_time_current(),
-                           cfs_time_add(lock->l_last_used,
+                           cfs_time_add(lock->u.cli.cl_last_used,
                                         cfs_time_seconds(10)))) {
                 unlock_res_and_lock(lock);
                 if (ldlm_bl_to_thread_lock(ns, NULL, lock))
