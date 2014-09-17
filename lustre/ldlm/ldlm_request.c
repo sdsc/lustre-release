@@ -1488,8 +1488,7 @@ static ldlm_policy_res_t ldlm_cancel_lrur_policy(struct ldlm_namespace *ns,
 
 	slv = ldlm_pool_get_slv(pl);
 	lvf = ldlm_pool_get_lvf(pl);
-	la = cfs_duration_sec(cfs_time_sub(cur,
-			      lock->l_last_used));
+	la = cfs_duration_sec(cfs_time_sub(cur, lock->u.cli.cl_last_used));
 	lv = lvf * la * unused;
 
 	/* Inform pool about current CLV to see it via proc. */
@@ -1542,7 +1541,8 @@ static ldlm_policy_res_t ldlm_cancel_aged_policy(struct ldlm_namespace *ns,
 {
 	if ((added >= count) &&
 	    cfs_time_before(cfs_time_current(),
-			    cfs_time_add(lock->l_last_used, ns->ns_max_age)))
+			    cfs_time_add(lock->u.cli.cl_last_used,
+					 ns->ns_max_age)))
 		return LDLM_POLICY_KEEP_LOCK;
 
 	if (ns->ns_cancel != NULL && ns->ns_cancel(lock) == 0)

@@ -791,14 +791,28 @@ struct ldlm_lock {
 	 */
 	cfs_time_t		l_last_activity;
 
-	/**
-	 * Time last used by e.g. being matched by lock match.
-	 * Jiffies. Should be converted to time if needed.
-	 */
-	cfs_time_t		l_last_used;
-
 	/** Originally requested extent for the extent lock. */
 	struct ldlm_extent	l_req_extent;
+
+	/**
+	 * shared spaces for client & server lock
+	 * NB: more members should be moved into this union
+	 */
+	union {
+		struct ldlm_cli_lock {
+			/**
+			 * Time last used by e.g. being matched by lock match.
+			 * Jiffies. Should be converted to time if needed.
+			 */
+			cfs_time_t		cl_last_used;
+		} cli;
+		struct ldlm_srv_lock {
+			/**
+			 * lock enqueue request deadline
+			 */
+			long			sl_enq_deadline;
+		} srv;
+	} u;
 
 	/*
 	 * Client-side-only members.
