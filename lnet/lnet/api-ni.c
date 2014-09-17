@@ -2345,7 +2345,7 @@ lnet_ping(lnet_process_id_t id, int timeout_ms, lnet_process_id_t *ids,
 		return -EINVAL;
 
 	if (id.pid == LNET_PID_ANY)
-		id.pid = LUSTRE_SRV_LNET_PID;
+		id.pid = LNET_PID_LUSTRE;
 
 	LIBCFS_ALLOC(info, infosz);
 	if (info == NULL)
