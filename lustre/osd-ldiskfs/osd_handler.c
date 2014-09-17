@@ -3944,6 +3944,43 @@ static int osd_process_config(const struct lu_env *env,
         case LCFG_CLEANUP:
                 err = osd_shutdown(env, o);
                 break;
+        case LCFG_PARAM: {
+                struct osd_thread_info *oti;
+                const char *param;
+                char *ptr;
+
+                param = lustre_cfg_string(cfg, 1);
+                ptr = strchr(param, '=');
+                if (ptr == NULL) {
+                        err = -EINVAL;
+                        CERROR("param %s\n", param);
+                        break;
+                }
+                /* '10' is strlen("osd.dup_oi") */
+                if ((ptr - param) == 10 &&
+                    strncmp(param, "osd.dup_oi", 10) == 0) {
+                        oti = osd_oti_get(env);
+                        err = osd_oi_dup(oti, o, ptr + 1);
+                } else if ((ptr - param) == 11 &&
+                           strncmp(param, "osd.dump_oi", 11) == 0) {
+                        bool verbose;
+
+                        if (strcmp(ptr + 1, "verbose") == 0) {
+                                verbose = true;
+                        } else if (strcmp(ptr + 1, "count") == 0) {
+                                verbose = false;
+                        } else {
+                                err = -ENOSYS;
+                                break;
+                        }
+                        oti = osd_oti_get(env);
+                        err = osd_oi_dump(oti, o, verbose);
+                } else {
+                        err = -ENOSYS;
+                }
+
+                break;
+        }
         default:
                 err = -ENOSYS;
         }
