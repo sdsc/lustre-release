@@ -207,7 +207,7 @@ do {                                                        \
                .msg_cdls   = (cdls)         };              \
         dataname.msg_mask   = (mask);
 
-#if defined(__KERNEL__) || (defined(__arch_lib__) && !defined(LUSTRE_UTILS))
+#ifdef __KERNEL__
 
 #ifdef CDEBUG_ENABLED
 
@@ -251,7 +251,7 @@ static inline int cfs_cdebug_show(unsigned int mask, unsigned int subsystem)
 #warning "CDEBUG IS DISABLED. THIS SHOULD NEVER BE DONE FOR PRODUCTION!"
 #endif
 
-#else /* !__KERNEL__ && (!__arch_lib__ || LUSTRE_UTILS) */
+#else /* !__KERNEL__ */
 static inline int cfs_cdebug_show(unsigned int mask, unsigned int subsystem)
 {
         return 0;

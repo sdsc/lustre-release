@@ -41,6 +41,7 @@
 #include <stdlib.h>
 #include <dirent.h>
 #include <errno.h>
+#include <getopt.h>
 #include <utime.h>
 #include <sys/xattr.h>
 #include <sys/syscall.h>
