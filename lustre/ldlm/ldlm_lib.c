@@ -1764,7 +1764,8 @@ static int target_recovery_overseer(struct obd_device *obd,
 				    int (*health_check)(struct obd_export *))
 {
 repeat:
-	wait_event(obd->obd_next_transno_waitq, check_routine(obd));
+	while (wait_event_timeout(obd->obd_next_transno_waitq,
+				  check_routine(obd), 60 * HZ) == 0);
 	if (obd->obd_abort_recovery) {
 		CWARN("recovery is aborted, evict exports in recovery\n");
 		/** evict exports which didn't finish recovery yet */
