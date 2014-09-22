@@ -42,6 +42,8 @@ while [ ! -e "$END_RUN_FILE" ] && $CONTINUE; do
 
 	dd bs=4k count=$BLKS status=noxfer if=/dev/zero of=$TESTDIR/dd-file \
 								1>$LOG &
+	$LFS getstripe $TESTDIR/dd-file
+
 	load_pid=$!
 	wait $load_pid
 
@@ -51,6 +53,8 @@ while [ ! -e "$END_RUN_FILE" ] && $CONTINUE; do
 		rm -rf $TESTDIR
 		echoerr "$(date +'%F %H:%M:%S'): dd run finished"
 	else
+		$LFS df $TESTDIR
+
 		echoerr "$(date +'%F %H:%M:%S'): dd failed"
         	if [ -z "$ERRORS_OK" ]; then
 			echo $(hostname) >> $END_RUN_FILE
