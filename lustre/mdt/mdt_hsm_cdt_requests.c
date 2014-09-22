@@ -84,7 +84,16 @@ static enum interval_iter req_interval_cb(struct interval_node *node,
 	ENTRY;
 
 	data = args;
-	data->done_sz += node->in_extent.end - node->in_extent.start;
+	/* data processed should not be added in every iteration.
+	 * The issue is hsm_action gets the progress report
+	 * (how much data moved)from kernel(through ioctl) and
+	 * the size will be updated through ioctl from copy tool.
+	 * Basically copy tool is sending amount of data moved
+	 * (progress report) properly but the data which is sent 
+	 * from copy tool to kernel was getting added every time
+	 * with previous value rather than simply assigning the value.
+	 */
+	data->done_sz = node->in_extent.end - node->in_extent.start;
 	RETURN(INTERVAL_ITER_CONT);
 }
 
