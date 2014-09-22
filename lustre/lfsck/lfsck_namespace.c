@@ -41,15 +41,15 @@
 
 #include "lfsck_internal.h"
 
-#define LFSCK_NAMESPACE_MAGIC	0xA0629D03
+#define LFSCK_NAMESPACE_MAGIC_V1	0xA0629D03
+#define LFSCK_NAMESPACE_MAGIC_V2	0xA0621A0B
+#define LFSCK_NAMESPACE_MAGIC	LFSCK_NAMESPACE_MAGIC_V2
 
 enum lfsck_nameentry_check {
 	LFSCK_NAMEENTRY_DEAD		= 1, /* The object has been unlinked. */
 	LFSCK_NAMEENTRY_REMOVED		= 2, /* The entry has been removed. */
 	LFSCK_NAMEENTRY_RECREATED	= 3, /* The entry has been recreated. */
 };
-
-static const char lfsck_namespace_name[] = "lfsck_namespace";
 
 static struct lfsck_namespace_req *
 lfsck_namespace_assistant_req_init(struct lfsck_instance *lfsck,
@@ -466,6 +466,70 @@ log:
 	return rc;
 }
 
+static struct dt_object *
+lfsck_namespace_load_one_trace_file(const struct lu_env *env,
+				    struct lfsck_component *com,
+				    struct dt_object *parent,
+				    const char *name,
+				    const struct dt_index_features *ft,
+				    bool reset)
+{
+	struct lfsck_instance	*lfsck = com->lc_lfsck;
+	struct dt_object	*obj;
+	int			 rc;
+
+	if (reset) {
+		rc = local_object_unlink(env, lfsck->li_bottom, parent, name);
+		if (rc != 0 && rc != -ENOENT)
+			return ERR_PTR(rc);
+	}
+
+	if (ft != NULL)
+		obj = local_index_find_or_create(env, lfsck->li_los, parent,
+					name, S_IFREG | S_IRUGO | S_IWUSR, ft);
+	else
+		obj = local_file_find_or_create(env, lfsck->li_los, parent,
+					name, S_IFREG | S_IRUGO | S_IWUSR);
+
+	return obj;
+}
+
+static int lfsck_namespace_load_sub_trace_files(const struct lu_env *env,
+						struct lfsck_component *com,
+						bool reset)
+{
+	char				*name = lfsck_env_info(env)->lti_key;
+	struct lfsck_sub_trace_obj	*lsto;
+	struct dt_object		*obj;
+	int				 rc;
+	int				 i;
+
+	for (i = 0, lsto = &com->lc_sub_trace_objs[0];
+	     i < LFSCK_STF_COUNT; i++, lsto++) {
+		snprintf(name, NAME_MAX, "%s_%02d", LFSCK_NAMESPACE, i);
+		if (lsto->lsto_obj != NULL) {
+			if (!reset)
+				continue;
+
+			lu_object_put(env, &lsto->lsto_obj->do_lu);
+			lsto->lsto_obj = NULL;
+		}
+
+		obj = lfsck_namespace_load_one_trace_file(env, com,
+					com->lc_lfsck->li_lfsck_dir,
+					name, &dt_lfsck_features, reset);
+		if (IS_ERR(obj))
+			return PTR_ERR(obj);
+
+		lsto->lsto_obj = obj;
+		rc = obj->do_ops->do_index_try(env, obj, &dt_lfsck_features);
+		if (rc != 0)
+			return rc;
+	}
+
+	return 0;
+}
+
 static int lfsck_namespace_init(const struct lu_env *env,
 				struct lfsck_component *com)
 {
@@ -478,6 +542,9 @@ static int lfsck_namespace_init(const struct lu_env *env,
 	down_write(&com->lc_sem);
 	rc = lfsck_namespace_store(env, com, true);
 	up_write(&com->lc_sem);
+	if (rc == 0)
+		rc = lfsck_namespace_load_sub_trace_files(env, com, true);
+
 	return rc;
 }
 
@@ -499,10 +566,11 @@ int lfsck_namespace_trace_update(const struct lu_env *env,
 				 const __u8 flags, bool add)
 {
 	struct lfsck_instance	*lfsck  = com->lc_lfsck;
-	struct dt_object	*obj    = com->lc_obj;
+	struct dt_object	*obj;
 	struct lu_fid		*key    = &lfsck_env_info(env)->lti_fid3;
 	struct dt_device	*dev	= lfsck->li_bottom;
 	struct thandle		*th	= NULL;
+	int			 idx;
 	int			 rc	= 0;
 	__u8			 old	= 0;
 	__u8			 new	= 0;
@@ -510,7 +578,9 @@ int lfsck_namespace_trace_update(const struct lu_env *env,
 
 	LASSERT(flags != 0);
 
-	down_write(&com->lc_sem);
+	idx = lfsck_sub_trace_file_fid2idx(fid);
+	obj = com->lc_sub_trace_objs[idx].lsto_obj;
+	down(&com->lc_sub_trace_objs[idx].lsto_sem);
 	fid_cpu_to_be(key, fid);
 	rc = dt_lookup(env, obj, (struct dt_rec *)&old,
 		       (const struct dt_key *)key, BYPASS_CAPA);
@@ -585,7 +655,7 @@ log:
 	       (__u32)flags, (__u32)old, (__u32)new, rc);
 
 unlock:
-	up_write(&com->lc_sem);
+	up(&com->lc_sub_trace_objs[idx].lsto_sem);
 
 	return rc;
 }
@@ -2912,6 +2982,7 @@ static int lfsck_namespace_repair_nlink(const struct lu_env *env,
 	struct linkea_data		 ldata	= { 0 };
 	struct lustre_handle		 lh	= { 0 };
 	__u32				 old	= *nlink;
+	int				 idx;
 	int				 rc	= 0;
 	__u8				 flags;
 	ENTRY;
@@ -2954,8 +3025,10 @@ static int lfsck_namespace_repair_nlink(const struct lu_env *env,
 		GOTO(unlock, rc = 0);
 
 	fid_cpu_to_be(tfid, cfid);
-	rc = dt_lookup(env, com->lc_obj, (struct dt_rec *)&flags,
-		       (const struct dt_key *)tfid, BYPASS_CAPA);
+	idx = lfsck_sub_trace_file_fid2idx(cfid);
+	rc = dt_lookup(env, com->lc_sub_trace_objs[idx].lsto_obj,
+		       (struct dt_rec *)&flags, (const struct dt_key *)tfid,
+		       BYPASS_CAPA);
 	if (rc != 0)
 		GOTO(unlock, rc);
 
@@ -3718,6 +3791,33 @@ static void lfsck_namespace_release_lmv(const struct lu_env *env,
 	}
 }
 
+static int lfsck_namespace_check_for_double_scan(const struct lu_env *env,
+						 struct lfsck_component *com,
+						 struct dt_object *obj)
+{
+	struct lu_attr *la = &lfsck_env_info(env)->lti_la;
+	int		rc;
+
+	rc = dt_attr_get(env, obj, la, BYPASS_CAPA);
+	if (rc != 0)
+		return rc;
+
+	/* zero-linkEA object may be orphan, but it also maybe because
+	 * of upgrading. Currently, we cannot record it for double scan.
+	 * Because it may cause the LFSCK trace file to be too large. */
+
+	/* "la_ctime" == 1 means that it has ever been removed from
+	 * backend /lost+found directory but not been added back to
+	 * the normal namespace yet. */
+
+	if ((S_ISREG(lfsck_object_type(obj)) && la->la_nlink > 1) ||
+	    unlikely(la->la_ctime == 1))
+		rc = lfsck_namespace_trace_update(env, com, lfsck_dto2fid(obj),
+						  LNTF_CHECK_LINKEA, true);
+
+	return rc;
+}
+
 /* namespace APIs */
 
 static int lfsck_namespace_reset(const struct lu_env *env,
@@ -3752,22 +3852,15 @@ static int lfsck_namespace_reset(const struct lu_env *env,
 	ns->ln_magic = LFSCK_NAMESPACE_MAGIC;
 	ns->ln_status = LS_INIT;
 
-	rc = local_object_unlink(env, lfsck->li_bottom, root,
-				 lfsck_namespace_name);
-	if (rc != 0)
-		GOTO(out, rc);
-
 	lfsck_object_put(env, com->lc_obj);
 	com->lc_obj = NULL;
-	dto = local_index_find_or_create(env, lfsck->li_los, root,
-					 lfsck_namespace_name,
-					 S_IFREG | S_IRUGO | S_IWUSR,
-					 &dt_lfsck_features);
+	dto = lfsck_namespace_load_one_trace_file(env, com, root,
+				LFSCK_NAMESPACE, NULL, true);
 	if (IS_ERR(dto))
 		GOTO(out, rc = PTR_ERR(dto));
 
 	com->lc_obj = dto;
-	rc = dto->do_ops->do_index_try(env, dto, &dt_lfsck_features);
+	rc = lfsck_namespace_load_sub_trace_files(env, com, true);
 	if (rc != 0)
 		GOTO(out, rc);
 
@@ -4033,7 +4126,6 @@ static int lfsck_namespace_exec_oit(const struct lu_env *env,
 	struct lfsck_namespace	 *ns	= com->lc_file_ram;
 	struct lfsck_instance	 *lfsck	= com->lc_lfsck;
 	const struct lu_fid	 *fid	= lfsck_dto2fid(obj);
-	struct lu_attr		 *la	= &info->lti_la;
 	struct lu_fid		 *pfid	= &info->lti_fid2;
 	struct lu_name		 *cname	= &info->lti_name;
 	struct lu_seq_range	 *range = &info->lti_range;
@@ -4069,23 +4161,8 @@ static int lfsck_namespace_exec_oit(const struct lu_env *env,
 		GOTO(out, rc = (rc == -ENOENT ? 0 : rc));
 	}
 
-	/* zero-linkEA object may be orphan, but it also maybe because
-	 * of upgrading. Currently, we cannot record it for double scan.
-	 * Because it may cause the LFSCK trace file to be too large. */
 	if (rc == -ENODATA) {
-		if (S_ISDIR(lfsck_object_type(obj)))
-			GOTO(out, rc = 0);
-
-		rc = dt_attr_get(env, obj, la, BYPASS_CAPA);
-		if (rc != 0)
-			GOTO(out, rc);
-
-		/* "la_ctime" == 1 means that it has ever been removed from
-		 * backend /lost+found directory but not been added back to
-		 * the normal namespace yet. */
-		if (la->la_nlink > 1 || unlikely(la->la_ctime == 1))
-			rc = lfsck_namespace_trace_update(env, com, fid,
-						LNTF_CHECK_LINKEA, true);
+		rc = lfsck_namespace_check_for_double_scan(env, com, obj);
 
 		GOTO(out, rc);
 	}
@@ -4111,24 +4188,12 @@ static int lfsck_namespace_exec_oit(const struct lu_env *env,
 		rc = fld_local_lookup(env, ss->ss_server_fld,
 				      fid_seq(pfid), range);
 		if ((rc == -ENOENT) ||
-		    (rc == 0 && range->lsr_index != idx)) {
+		    (rc == 0 && range->lsr_index != idx))
 			rc = lfsck_namespace_trace_update(env, com, fid,
 						LNTF_CHECK_LINKEA, true);
-		} else {
-			if (S_ISDIR(lfsck_object_type(obj)))
-				GOTO(out, rc = 0);
-
-			rc = dt_attr_get(env, obj, la, BYPASS_CAPA);
-			if (rc != 0)
-				GOTO(out, rc);
-
-			/* "la_ctime" == 1 means that it has ever been
-			 * removed from backend /lost+found directory but
-			 * not been added back to the normal namespace yet. */
-			if (la->la_nlink > 1 || unlikely(la->la_ctime == 1))
-				rc = lfsck_namespace_trace_update(env, com,
-						fid, LNTF_CHECK_LINKEA, true);
-		}
+		else
+			rc = lfsck_namespace_check_for_double_scan(env, com,
+								   obj);
 	}
 
 	GOTO(out, rc);
@@ -4561,36 +4626,49 @@ out_create:
 		return rc;
 	}
 	case LE_SKIP_NLINK_DECLARE: {
-		struct dt_object	*obj   = com->lc_obj;
+		struct dt_object	*obj;
 		struct lu_fid		*key   = &lfsck_env_info(env)->lti_fid3;
+		int			 idx;
 		__u8			 flags = 0;
 
 		LASSERT(th != NULL);
 
+		idx = lfsck_sub_trace_file_fid2idx(&lr->lr_fid);
+		obj = com->lc_sub_trace_objs[idx].lsto_obj;
+		fid_cpu_to_be(key, &lr->lr_fid);
+		down(&com->lc_sub_trace_objs[idx].lsto_sem);
 		rc = dt_declare_delete(env, obj,
 				       (const struct dt_key *)key, th);
 		if (rc == 0)
 			rc = dt_declare_insert(env, obj,
 					       (const struct dt_rec *)&flags,
 					       (const struct dt_key *)key, th);
+		up(&com->lc_sub_trace_objs[idx].lsto_sem);
 
 		RETURN(rc);
 	}
 	case LE_SKIP_NLINK: {
-		struct dt_object	*obj   = com->lc_obj;
+		struct dt_object	*obj;
 		struct lu_fid		*key   = &lfsck_env_info(env)->lti_fid3;
+		int			 idx;
 		__u8			 flags = 0;
 		bool			 exist = false;
 		ENTRY;
 
 		LASSERT(th != NULL);
 
+		idx = lfsck_sub_trace_file_fid2idx(&lr->lr_fid);
+		obj = com->lc_sub_trace_objs[idx].lsto_obj;
 		fid_cpu_to_be(key, &lr->lr_fid);
+		down(&com->lc_sub_trace_objs[idx].lsto_sem);
 		rc = dt_lookup(env, obj, (struct dt_rec *)&flags,
 			       (const struct dt_key *)key, BYPASS_CAPA);
 		if (rc == 0) {
-			if (flags & LNTF_SKIP_NLINK)
+			if (flags & LNTF_SKIP_NLINK) {
+				up(&com->lc_sub_trace_objs[idx].lsto_sem);
+
 				RETURN(0);
+			}
 
 			exist = true;
 		} else if (rc != -ENOENT) {
@@ -4611,6 +4689,7 @@ out_create:
 		GOTO(log, rc);
 
 log:
+		up(&com->lc_sub_trace_objs[idx].lsto_sem);
 		CDEBUG(D_LFSCK, "%s: RPC service thread mark the "DFID
 		       " to be skipped for namespace double scan: rc = %d\n",
 		       lfsck_lfsck2name(com->lc_lfsck), PFID(&lr->lr_fid), rc);
@@ -5016,6 +5095,7 @@ static int lfsck_namespace_assistant_handler_p1(const struct lu_env *env,
 	enum lfsck_namespace_inconsistency_type type = LNIT_NONE;
 	ENTRY;
 
+	la->la_nlink = 0;
 	if (lnr->lnr_attr & LUDA_UPGRADE) {
 		ns->ln_flags |= LF_UPGRADE;
 		ns->ln_dirent_repaired++;
@@ -5169,7 +5249,7 @@ again:
 				type = LNIT_BAD_TYPE;
 			}
 
-			goto record;
+			goto stop;
 		}
 
 		ns->ln_flags |= LF_INCONSISTENT;
@@ -5231,7 +5311,7 @@ nodata:
 			ns->ln_linkea_repaired++;
 			repaired = true;
 			log = true;
-			goto record;
+			goto stop;
 		}
 
 		if (!lustre_handle_is_used(&lh))
@@ -5299,35 +5379,6 @@ nodata:
 		GOTO(stop, rc);
 	}
 
-record:
-	LASSERT(count > 0);
-
-	rc = dt_attr_get(env, obj, la, BYPASS_CAPA);
-	if (rc != 0)
-		GOTO(stop, rc);
-
-	if ((count == 1 && la->la_nlink == 1) ||
-	    S_ISDIR(lfsck_object_type(obj)))
-		/* Usually, it is for single linked object or dir, do nothing.*/
-		GOTO(stop, rc);
-
-	/* Following modification will be in another transaction.  */
-	if (handle != NULL) {
-		dt_write_unlock(env, obj);
-		dtlocked = false;
-
-		dt_trans_stop(env, dev, handle);
-		handle = NULL;
-
-		lfsck_ibits_unlock(&lh, LCK_EX);
-	}
-
-	ns->ln_mul_linked_checked++;
-	rc = lfsck_namespace_trace_update(env, com, &lnr->lnr_fid,
-					  LNTF_CHECK_LINKEA, true);
-
-	GOTO(out, rc);
-
 stop:
 	if (dtlocked)
 		dt_write_unlock(env, obj);
@@ -5376,6 +5427,9 @@ out:
 		default:
 			break;
 		}
+
+		if (count == 1 && S_ISREG(lfsck_object_type(obj)))
+			dt_attr_get(env, obj, la, BYPASS_CAPA);
 	}
 
 	down_write(&com->lc_sem);
@@ -5442,9 +5496,12 @@ out:
 					       false);
 		}
 
-
 		rc = 0;
 	}
+
+	if (count > 1 || la->la_nlink > 1)
+		ns->ln_mul_linked_checked++;
+
 	up_write(&com->lc_sem);
 
 	if (obj != NULL && !IS_ERR(obj))
@@ -5489,10 +5546,11 @@ static int lfsck_namespace_scan_local_lpf_one(const struct lu_env *env,
 	struct lu_fid			*key	= &info->lti_fid;
 	struct lu_attr			*la	= &info->lti_la;
 	struct lfsck_instance		*lfsck  = com->lc_lfsck;
-	struct dt_object		*obj	= com->lc_obj;
+	struct dt_object		*obj;
 	struct dt_device		*dev	= lfsck->li_bottom;
 	struct dt_object		*child	= NULL;
 	struct thandle			*th	= NULL;
+	int				 idx;
 	int				 rc	= 0;
 	__u8				 flags	= 0;
 	bool				 exist	= false;
@@ -5505,6 +5563,8 @@ static int lfsck_namespace_scan_local_lpf_one(const struct lu_env *env,
 	LASSERT(dt_object_exists(child));
 	LASSERT(!dt_object_remote(child));
 
+	idx = lfsck_sub_trace_file_fid2idx(&ent->lde_fid);
+	obj = com->lc_sub_trace_objs[idx].lsto_obj;
 	fid_cpu_to_be(key, &ent->lde_fid);
 	rc = dt_lookup(env, obj, (struct dt_rec *)&flags,
 		       (const struct dt_key *)key, BYPASS_CAPA);
@@ -5889,14 +5949,15 @@ out:
 	RETURN(rc == 0 ? 1 : rc);
 }
 
-static int lfsck_namespace_assistant_handler_p2(const struct lu_env *env,
-						struct lfsck_component *com)
+static int
+lfsck_namespace_double_scan_one_trace_file(const struct lu_env *env,
+					   struct lfsck_component *com,
+					   struct dt_object *obj, bool first)
 {
 	struct lfsck_instance	*lfsck	= com->lc_lfsck;
 	struct ptlrpc_thread	*thread = &lfsck->li_thread;
 	struct lfsck_bookmark	*bk	= &lfsck->li_bookmark_ram;
 	struct lfsck_namespace	*ns	= com->lc_file_ram;
-	struct dt_object	*obj	= com->lc_obj;
 	const struct dt_it_ops	*iops	= &obj->do_index_ops->dio_it;
 	struct dt_object	*target;
 	struct dt_it		*di;
@@ -5906,44 +5967,25 @@ static int lfsck_namespace_assistant_handler_p2(const struct lu_env *env,
 	__u8			 flags	= 0;
 	ENTRY;
 
-	while (!list_empty(&lfsck->li_list_lmv)) {
-		struct lfsck_lmv_unit *llu;
-
-		spin_lock(&lfsck->li_lock);
-		llu = list_entry(lfsck->li_list_lmv.next,
-				 struct lfsck_lmv_unit, llu_link);
-		list_del_init(&llu->llu_link);
-		spin_unlock(&lfsck->li_lock);
-
-		rc = lfsck_namespace_rescan_striped_dir(env, com, llu);
-		if (rc <= 0)
-			RETURN(rc);
-	}
-
-	CDEBUG(D_LFSCK, "%s: namespace LFSCK phase2 scan start\n",
-	       lfsck_lfsck2name(lfsck));
-
-	lfsck_namespace_scan_local_lpf(env, com);
-
-	com->lc_new_checked = 0;
-	com->lc_new_scanned = 0;
-	com->lc_time_last_checkpoint = cfs_time_current();
-	com->lc_time_next_checkpoint = com->lc_time_last_checkpoint +
-				cfs_time_seconds(LFSCK_CHECKPOINT_INTERVAL);
-
 	di = iops->init(env, obj, 0, BYPASS_CAPA);
 	if (IS_ERR(di))
 		RETURN(PTR_ERR(di));
 
-	fid_cpu_to_be(&fid, &ns->ln_fid_latest_scanned_phase2);
+	if (first)
+		fid_cpu_to_be(&fid, &ns->ln_fid_latest_scanned_phase2);
+	else
+		fid_zero(&fid);
 	rc = iops->get(env, di, (const struct dt_key *)&fid);
 	if (rc < 0)
 		GOTO(fini, rc);
 
-	/* Skip the start one, which either has been processed or non-exist. */
-	rc = iops->next(env, di);
-	if (rc != 0)
-		GOTO(put, rc);
+	if (first) {
+		/* The start one either has been processed or does not exist,
+		 * skip it. */
+		rc = iops->next(env, di);
+		if (rc != 0)
+			GOTO(put, rc);
+	}
 
 	do {
 		if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_DELAY3) &&
@@ -5961,6 +6003,14 @@ static int lfsck_namespace_assistant_handler_p2(const struct lu_env *env,
 		}
 
 		key = iops->key(env, di);
+		if (IS_ERR(key)) {
+			rc = PTR_ERR(key);
+			if (rc == -ENOENT)
+				GOTO(put, rc = 1);
+
+			goto checkpoint;
+		}
+
 		fid_be_to_cpu(&fid, (const struct lu_fid *)key);
 		if (!fid_is_sane(&fid)) {
 			rc = 0;
@@ -5989,7 +6039,8 @@ checkpoint:
 		down_write(&com->lc_sem);
 		com->lc_new_checked++;
 		com->lc_new_scanned++;
-		ns->ln_fid_latest_scanned_phase2 = fid;
+		if (rc >= 0 && fid_is_sane(&fid))
+			ns->ln_fid_latest_scanned_phase2 = fid;
 		if (rc > 0)
 			ns->ln_objs_repaired_phase2++;
 		else if (rc < 0)
@@ -6035,10 +6086,54 @@ put:
 fini:
 	iops->fini(env, di);
 
-	CDEBUG(D_LFSCK, "%s: namespace LFSCK phase2 scan stop: rc = %d\n",
-	       lfsck_lfsck2name(lfsck), rc);
-
 	return rc;
+}
+
+static int lfsck_namespace_assistant_handler_p2(const struct lu_env *env,
+						struct lfsck_component *com)
+{
+	struct lfsck_instance	*lfsck	= com->lc_lfsck;
+	struct lfsck_namespace	*ns	= com->lc_file_ram;
+	int			 rc;
+	int			 i;
+	ENTRY;
+
+	while (!list_empty(&lfsck->li_list_lmv)) {
+		struct lfsck_lmv_unit *llu;
+
+		spin_lock(&lfsck->li_lock);
+		llu = list_entry(lfsck->li_list_lmv.next,
+				 struct lfsck_lmv_unit, llu_link);
+		list_del_init(&llu->llu_link);
+		spin_unlock(&lfsck->li_lock);
+
+		rc = lfsck_namespace_rescan_striped_dir(env, com, llu);
+		if (rc <= 0)
+			RETURN(rc);
+	}
+
+	CDEBUG(D_LFSCK, "%s: namespace LFSCK phase2 scan start\n",
+	       lfsck_lfsck2name(lfsck));
+
+	lfsck_namespace_scan_local_lpf(env, com);
+
+	com->lc_new_checked = 0;
+	com->lc_new_scanned = 0;
+	com->lc_time_last_checkpoint = cfs_time_current();
+	com->lc_time_next_checkpoint = com->lc_time_last_checkpoint +
+				cfs_time_seconds(LFSCK_CHECKPOINT_INTERVAL);
+
+	i = lfsck_sub_trace_file_fid2idx(&ns->ln_fid_latest_scanned_phase2);
+	rc = lfsck_namespace_double_scan_one_trace_file(env, com,
+				com->lc_sub_trace_objs[i].lsto_obj, true);
+	while (rc > 0 && ++i < LFSCK_STF_COUNT)
+		rc = lfsck_namespace_double_scan_one_trace_file(env, com,
+				com->lc_sub_trace_objs[i].lsto_obj, false);
+
+	CDEBUG(D_LFSCK, "%s: namespace LFSCK phase2 scan stop at the No. %d "
+	       "trace file: rc = %d\n", lfsck_lfsck2name(lfsck), i, rc);
+
+	RETURN(rc);
 }
 
 static void lfsck_namespace_assistant_fill_pos(const struct lu_env *env,
@@ -6491,6 +6586,7 @@ int lfsck_namespace_setup(const struct lu_env *env,
 	struct lfsck_namespace	*ns;
 	struct dt_object	*root = NULL;
 	struct dt_object	*obj;
+	int			 i;
 	int			 rc;
 	ENTRY;
 
@@ -6509,7 +6605,7 @@ int lfsck_namespace_setup(const struct lu_env *env,
 	com->lc_ops = &lfsck_namespace_ops;
 	com->lc_data = lfsck_assistant_data_init(
 			&lfsck_namespace_assistant_ops,
-			"lfsck_namespace");
+			LFSCK_NAMESPACE);
 	if (com->lc_data == NULL)
 		GOTO(out, rc = -ENOMEM);
 
@@ -6522,6 +6618,9 @@ int lfsck_namespace_setup(const struct lu_env *env,
 	if (com->lc_file_disk == NULL)
 		GOTO(out, rc = -ENOMEM);
 
+	for (i = 0; i < LFSCK_STF_COUNT; i++)
+		sema_init(&com->lc_sub_trace_objs[i].lsto_sem, 1);
+
 	root = dt_locate(env, lfsck->li_bottom, &lfsck->li_local_root_fid);
 	if (IS_ERR(root))
 		GOTO(out, rc = PTR_ERR(root));
@@ -6529,23 +6628,20 @@ int lfsck_namespace_setup(const struct lu_env *env,
 	if (unlikely(!dt_try_as_dir(env, root)))
 		GOTO(out, rc = -ENOTDIR);
 
-	obj = local_index_find_or_create(env, lfsck->li_los, root,
-					 lfsck_namespace_name,
-					 S_IFREG | S_IRUGO | S_IWUSR,
-					 &dt_lfsck_features);
+	obj = local_file_find_or_create(env, lfsck->li_los, root,
+					LFSCK_NAMESPACE,
+					S_IFREG | S_IRUGO | S_IWUSR);
 	if (IS_ERR(obj))
 		GOTO(out, rc = PTR_ERR(obj));
 
 	com->lc_obj = obj;
-	rc = obj->do_ops->do_index_try(env, obj, &dt_lfsck_features);
-	if (rc != 0)
-		GOTO(out, rc);
-
 	rc = lfsck_namespace_load(env, com);
 	if (rc == -ENODATA)
 		rc = lfsck_namespace_init(env, com);
 	else if (rc < 0)
 		rc = lfsck_namespace_reset(env, com, true);
+	else
+		rc = lfsck_namespace_load_sub_trace_files(env, com, false);
 	if (rc != 0)
 		GOTO(out, rc);
 
