@@ -433,8 +433,14 @@ test_20b() { # bug 10480
 
 	$GETSTRIPE $DIR/$tfile || return 1
 	rm -f $DIR/$tfile || return 2       # make it an orphan
+
+#define OBD_FAIL_MDS_SYNC_EVICT_CLIENT	0x157
+	do_facet $SINGLEMDS "lctl set_param fail_loc=0x157"
+
 	mds_evict_client
 	client_up || client_up || true    # reconnect
+
+	do_facet $SINGLEMDS "lctl set_param fail_loc=0"
 
 	fail $SINGLEMDS                            # start orphan recovery
 	wait_recovery_complete $SINGLEMDS || error "MDS recovery not done"
