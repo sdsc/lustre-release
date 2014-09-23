@@ -1929,12 +1929,14 @@ again:
 		cl_lock_mutex_get(env, lock);
 		if (lock->cll_state < CLS_FREEING) {
 			LASSERT(lock->cll_users <= 1);
-			if (unlikely(lock->cll_users == 1)) {
+			if (unlikely((lock->cll_users == 1) ||
+				     (lock->cll_holds != 0))) {
 				struct l_wait_info lwi = { 0 };
 
 				cl_lock_mutex_put(env, lock);
 				l_wait_event(lock->cll_wq,
-					     lock->cll_users == 0,
+					     lock->cll_users == 0 &&
+					     lock->cll_holds == 0,
 					     &lwi);
 				goto again;
 			}
