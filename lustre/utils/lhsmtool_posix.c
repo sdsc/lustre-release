@@ -48,8 +48,14 @@
 #include <lustre/lustre_idl.h>
 #include <lustre/lustreapi.h>
 
-/* Progress reporting period */
-#define REPORT_INTERVAL_DEFAULT 30
+/* Progress reporting period
+ * Earlier REPORT_INTERVAL_DEFAULT was 30
+ * reduced it to 10 as progress report sent to kernel
+ * through ioctl were not frequent because of which
+ * "lfs hsm_action" for small files was unable to update
+ * the progress report frequently
+ */
+#define REPORT_INTERVAL_DEFAULT 10
 /* HSM hash subdir permissions */
 #define DIR_PERM S_IRWXU
 /* HSM hash file permissions */
@@ -648,7 +654,16 @@ static int ct_copy_data(struct hsm_copyaction_private *hcp, const char *src,
 		}
 		rc = 0;
 	}
-
+	/* Final progress ioctl. Required to update the value
+	 * to the kernel one final time as above logic often
+	 * miss to update the extent length
+	 */
+	CT_TRACE("%%"LPU64" ", 100 * write_total / length);
+	he.length = write_total;
+	rc = llapi_hsm_action_progress(hcp, &he, length, 0);
+	if (rc < 0)
+		CT_ERROR(rc, " Final progress ioctl for copy"
+			" '%s'->'%s' failed", src, dst);
 out:
 	/*
 	 * truncate restored file
