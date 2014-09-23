@@ -47,6 +47,13 @@ if [[ $UID -eq 0 && $RUNAS_ID -eq 0 ]]; then
 fi
 check_runas_id $RUNAS_ID $RUNAS_GID $RUNAS
 
+export SHARED_DIRECTORY=${SHARED_DIRECTORY:-$TMP}
+if [[ $CLIENTCOUNT -gt 1 ]] &&
+   ! check_shared_dir $SHARED_DIRECTORY $CLIENTS; then
+	skip_env "SHARED_DIRECTORY should be accessible on all client nodes"
+	exit 0
+fi
+
 build_test_filter
 
 #
@@ -69,16 +76,8 @@ init_agt_vars() {
 	export AGTCOUNT=${AGTCOUNT:-$((CLIENTCOUNT - 1))}
 	[[ $AGTCOUNT -gt 0 ]] || AGTCOUNT=1
 
-	export SHARED_DIRECTORY=${SHARED_DIRECTORY:-$TMP}
-	if [[ $CLIENTCOUNT -gt 1 ]] &&
-		! check_shared_dir $SHARED_DIRECTORY $CLIENTS; then
-		skip_env "SHARED_DIRECTORY should be accessible"\
-			 "on all client nodes"
-		exit 0
-	fi
-
 	for n in $(seq $AGTCOUNT); do
-		eval export AGTDEV$n=\$\{AGTDEV$n:-"$SHARED_DIRECTORY/arc$n"\}
+		eval export AGTDEV$n=\$\{AGTDEV$n:-"$TMP/arc$n"\}
 		agent=CLIENT$((n + 1))
 		if [[ -z "${!agent}" ]]; then
 			[[ $CLIENTCOUNT -eq 1 ]] && agent=CLIENT1 ||
