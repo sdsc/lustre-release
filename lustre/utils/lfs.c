@@ -3645,10 +3645,24 @@ static int lfs_hsm_request(int argc, char **argv, int action)
 	int			 nbfile_alloc = 0;
 	char			 some_file[PATH_MAX+1] = "";
 	int			 rc;
+	struct stat		stat_buf;
 
 	if (argc < 2)
 		return CMD_HELP;
-
+	if (-1 == stat(argv[1], &stat_buf)) {
+		fprintf(stderr,
+			"error: \"%s\" path does not exist/permission"
+			" denied/Bad file\n", argv[1]);
+		return CMD_HELP;
+	}
+	/* Checking for regular file as archiving as posix copytool
+	 * rejects archiving files other than regular files
+	 */
+	if (!S_ISREG(stat_buf.st_mode)) {
+		fprintf(stderr,
+			"error: \"%s\" is not a regular file\n", argv[1]);
+		return CMD_HELP;
+	}
 	optind = 0;
 	while ((c = getopt_long(argc, argv, short_opts,
 				long_opts, NULL)) != -1) {
