@@ -161,24 +161,24 @@ int tcd_owns_tage(struct trace_cpu_data *tcd, struct trace_page *tage)
 }
 
 void
-set_ptldebug_header(struct ptldebug_header *header, int subsys, int mask,
-		    const int line, unsigned long stack)
+set_ptldebug_header(struct ptldebug_header *header,
+		    struct libcfs_debug_msg_data *msgdata, unsigned long stack)
 {
 	struct timeval tv;
-	
+
 	/*
 	 * XXX nikita: do NOT call libcfs_debug_msg() (CDEBUG/ENTRY/EXIT)
 	 * from here: this will lead to infinite recursion.
 	 */
 	do_gettimeofday(&tv);
-	header->ph_subsys = subsys;
-	header->ph_mask = mask;
+	header->ph_subsys = msgdata->msg_subsys;
+	header->ph_mask = msgdata->msg_mask;
 	header->ph_cpu_id = smp_processor_id();
 	header->ph_sec = (__u32)tv.tv_sec;
 	header->ph_usec = tv.tv_usec;
 	header->ph_stack = stack;
 	header->ph_pid = cfs_curproc_pid();
-	header->ph_line_num = line;
+	header->ph_line_num = msgdata->msg_line;
 	header->ph_extern_pid = (__u32)current_thread();
 }
 

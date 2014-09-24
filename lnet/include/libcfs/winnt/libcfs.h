@@ -113,7 +113,7 @@ static inline __u32 query_stack_size()
 #  error "This doesn't seem right; CDEBUG_STACK should grow with the stack"
 # endif /* __ia64__ */
 
-#define CHECK_STACK()                                                   \
+#define CHECK_STACK(msgdata, mask, cdls)                                \
 do {                                                                    \
         unsigned long _stack = CDEBUG_STACK();                          \
                                                                         \

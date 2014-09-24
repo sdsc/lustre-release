@@ -775,8 +775,7 @@ typedef enum {
 cap_t   cap_get_proc(void);
 int     cap_get_flag(cap_t, cap_value_t, cap_flag_t, cap_flag_value_t *);
 
-static inline void libcfs_run_lbug_upcall(char *file, const char *fn,
-                                           const int l){}
+static inline void libcfs_run_lbug_upcall(struct libcfs_debug_msg_data *data) {}
 
 /* completion */
 struct completion {

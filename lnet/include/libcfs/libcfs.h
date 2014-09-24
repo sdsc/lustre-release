@@ -216,22 +216,60 @@ typedef struct {
         cfs_duration_t  cdls_delay;
 } cfs_debug_limit_state_t;
 
+struct libcfs_debug_msg_data {
+        const char               *msg_file;
+        const char               *msg_fn;
+        int                      msg_subsys;
+        int                      msg_line;
+        int                      msg_mask;
+        cfs_debug_limit_state_t  *msg_cdls;
+};
+
+#define LIBCFS_DEBUG_MSG_DATA_INIT(data, mask, cdls)        \
+do {                                                        \
+        (data)->msg_subsys = DEBUG_SUBSYSTEM;               \
+        (data)->msg_file   = __FILE__;                      \
+        (data)->msg_fn     = __FUNCTION__;                  \
+        (data)->msg_line   = __LINE__;                      \
+        (data)->msg_cdls   = (cdls);                        \
+        (data)->msg_mask   = (mask);                        \
+} while (0)
+
+#define LIBCFS_DEBUG_MSG_DATA_DECL(dataname, mask, cdls)    \
+        static struct libcfs_debug_msg_data dataname = {    \
+               .msg_subsys = DEBUG_SUBSYSTEM,               \
+               .msg_file   = __FILE__,                      \
+               .msg_fn     = __FUNCTION__,                  \
+               .msg_line   = __LINE__,                      \
+               .msg_cdls   = (cdls)         };              \
+        dataname.msg_mask   = (mask);
+
 /* Controlled via configure key */
 /* #define CDEBUG_ENABLED */
 
 #if defined(__KERNEL__) || (defined(__arch_lib__) && !defined(LUSTRE_UTILS))
 
 #ifdef CDEBUG_ENABLED
-#define __CDEBUG(cdls, mask, format, a...)                              \
+
+/**
+ * Filters out logging messages based on mask and subsystem.
+ */
+static inline int cfs_cdebug_show(unsigned int mask, unsigned int subsystem)
+{
+        return mask & D_CANTMASK ||
+                ((libcfs_debug & mask) && (libcfs_subsystem_debug & subsystem));
+}
+
+#define __CDEBUG(cdls, mask, format, ...)                               \
 do {                                                                    \
-        CHECK_STACK();                                                  \
+        static struct libcfs_debug_msg_data msgdata;                    \
                                                                         \
-        if (((mask) & D_CANTMASK) != 0 ||                               \
-            ((libcfs_debug & (mask)) != 0 &&                            \
-             (libcfs_subsystem_debug & DEBUG_SUBSYSTEM) != 0))          \
-                libcfs_debug_msg(cdls, DEBUG_SUBSYSTEM, mask,           \
-                                 __FILE__, __FUNCTION__, __LINE__,      \
-                                 format, ## a);                         \
+        CHECK_STACK(&msgdata, mask, cdls);                          	\
+                                                                        \
+        if (cfs_cdebug_show(mask, DEBUG_SUBSYSTEM)) {                   \
+                LIBCFS_DEBUG_MSG_DATA_INIT(&msgdata, mask, cdls);       \
+                libcfs_debug_msg(&msgdata, format, ## __VA_ARGS__);     \
+        }                                                               \
 } while (0)
 
 #define CDEBUG(mask, format, a...) __CDEBUG(NULL, mask, format, ## a)
@@ -244,12 +282,21 @@ do {                                            \
 } while (0)
 
 #else /* CDEBUG_ENABLED */
+static inline int cfs_cdebug_show(unsigned int mask, unsigned int subsystem)
+{
+        return 0;
+}
+
 #define CDEBUG(mask, format, a...) (void)(0)
 #define CDEBUG_LIMIT(mask, format, a...) (void)(0)
 #warning "CDEBUG IS DISABLED. THIS SHOULD NEVER BE DONE FOR PRODUCTION!"
 #endif
 
 #else
+static inline int cfs_cdebug_show(unsigned int mask, unsigned int subsystem)
+{
+        return 0;
+}
 
 #define CDEBUG(mask, format, a...)                                      \
 do {                                                                    \
@@ -285,12 +332,15 @@ do {                                                                    \
 
 #ifdef CDEBUG_ENABLED
 
+void libcfs_log_goto(struct libcfs_debug_msg_data *, const char *, long);
 #define GOTO(label, rc)                                                 \
 do {                                                                    \
-        long GOTO__ret = (long)(rc);                                    \
-        CDEBUG(D_TRACE,"Process leaving via %s (rc=%lu : %ld : %lx)\n", \
-               #label, (unsigned long)GOTO__ret, (signed long)GOTO__ret,\
-               (signed long)GOTO__ret);                                 \
+        if (cfs_cdebug_show(D_TRACE, DEBUG_SUBSYSTEM)) {                \
+                LIBCFS_DEBUG_MSG_DATA_DECL(msgdata, D_TRACE, NULL);     \
+                libcfs_log_goto(&msgdata, #label, (long_ptr_t)(rc));    \
+        } else {                                                        \
+                (void)(rc);                                             \
+        }                                                               \
         goto label;                                                     \
 } while (0)
 #else
@@ -306,14 +356,38 @@ do {                                                                    \
  * if rc == NULL, we need to code as RETURN((void *)NULL), otherwise
  * there will be a warning in osx.
  */
+long libcfs_log_return(struct libcfs_debug_msg_data *, long rc);
+#if BITS_PER_LONG > 32
 #define RETURN(rc)                                                      \
 do {                                                                    \
-        typeof(rc) RETURN__ret = (rc);                                  \
-        CDEBUG(D_TRACE, "Process leaving (rc=%lu : %ld : %lx)\n",       \
-               (long)RETURN__ret, (long)RETURN__ret, (long)RETURN__ret);\
         EXIT_NESTING;                                                   \
-        return RETURN__ret;                                             \
+        if (cfs_cdebug_show(D_TRACE, DEBUG_SUBSYSTEM)) {                \
+                LIBCFS_DEBUG_MSG_DATA_DECL(msgdata, D_TRACE, NULL);     \
+                return (typeof(rc))libcfs_log_return(&msgdata,          \
+                                                     (long)(rc));       \
+        }                                                               \
+                                                                        \
+        return (rc);                                                    \
 } while (0)
+#else /* BITS_PER_LONG == 32 */
+/* We need an on-stack variable, because we cannot case a 32-bit pointer
+ * directly to (long long) without generating a complier warning/error, yet
+ * casting directly to (long) will truncate 64-bit return values. The log
+ * values will print as 32-bit values, but they always have been. LU-1436
+ */
+#define RETURN(rc)                                                      \
+do {                                                                    \
+        EXIT_NESTING;                                                   \
+        if (cfs_cdebug_show(D_TRACE, DEBUG_SUBSYSTEM)) {                \
+                typeof(rc) __rc = (rc);                                 \
+                LIBCFS_DEBUG_MSG_DATA_DECL(msgdata, D_TRACE, NULL);     \
+                libcfs_log_return(&msgdata, (long_ptr_t)__rc);          \
+                return __rc;                                            \
+        }                                                               \
+                                                                        \
+        return (rc);                                                    \
+} while (0)
+#endif /* BITS_PER_LONG > 32 */
 
 #define RETURN_EXIT                                                     \
 do {                                                                    \
@@ -516,58 +590,14 @@ static inline long cfs_timeval_sub(struct timeval *large, struct timeval *small,
         result;                                                 \
 })
 
-struct libcfs_debug_msg_data {
-        cfs_debug_limit_state_t *msg_cdls;
-        int                      msg_subsys;
-        const char              *msg_file;
-        const char              *msg_fn;
-        int                      msg_line;
-};
+extern int libcfs_debug_msg(struct libcfs_debug_msg_data *msgdata,
+                            const char *format1, ...)
+        __attribute__ ((format (printf, 2, 3)));
 
-#define DEBUG_MSG_DATA_INIT(cdls, subsystem, file, func, ln ) { \
-        .msg_cdls           = (cdls),       \
-        .msg_subsys         = (subsystem),  \
-        .msg_file           = (file),       \
-        .msg_fn             = (func),       \
-        .msg_line           = (ln)          \
-    }
-
-
-extern int libcfs_debug_vmsg2(cfs_debug_limit_state_t *cdls,
-                              int subsys, int mask,
-                              const char *file, const char *fn, const int line,
-                              const char *format1, va_list args,
-                              const char *format2, ...)
-        __attribute__ ((format (printf, 9, 10)));
-
-#define libcfs_debug_vmsg(cdls, subsys, mask, file, fn, line, format, args)   \
-    libcfs_debug_vmsg2(cdls, subsys, mask, file, fn,line,format,args,NULL,NULL)
-
-#define libcfs_debug_msg(cdls, subsys, mask, file, fn, line, format, a...)    \
-    libcfs_debug_vmsg2(cdls, subsys, mask, file, fn,line,NULL,NULL,format, ##a)
-
-#define cdebug_va(cdls, mask, file, func, line, fmt, args)      do {          \
-        CHECK_STACK();                                                        \
-                                                                              \
-        if (((mask) & D_CANTMASK) != 0 ||                                     \
-            ((libcfs_debug & (mask)) != 0 &&                                  \
-             (libcfs_subsystem_debug & DEBUG_SUBSYSTEM) != 0))                \
-                libcfs_debug_vmsg(cdls, DEBUG_SUBSYSTEM, (mask),              \
-                                  (file), (func), (line), fmt, args);         \
-} while(0)
-
-#define cdebug(cdls, mask, file, func, line, fmt, a...) do {                  \
-        CHECK_STACK();                                                        \
-                                                                              \
-        if (((mask) & D_CANTMASK) != 0 ||                                     \
-            ((libcfs_debug & (mask)) != 0 &&                                  \
-             (libcfs_subsystem_debug & DEBUG_SUBSYSTEM) != 0))                \
-                libcfs_debug_msg(cdls, DEBUG_SUBSYSTEM, (mask),               \
-                                 (file), (func), (line), fmt, ## a);          \
-} while(0)
-
-extern void libcfs_assertion_failed(const char *expr, const char *file,
-                                    const char *fn, const int line);
+extern int libcfs_debug_vmsg2(struct libcfs_debug_msg_data *msgdata,
+                              const char *format1,
+                              va_list args, const char *format2, ...)
+        __attribute__ ((format (printf, 4, 5)));
 
 /* one more external symbol that tracefile provides: */
 extern int trace_copyout_string(char *usr_buffer, int usr_buffer_nob,

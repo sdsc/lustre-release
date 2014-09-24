@@ -226,21 +226,21 @@ int tcd_owns_tage(struct trace_cpu_data *tcd, struct trace_page *tage)
 }
 
 void
-set_ptldebug_header(struct ptldebug_header *header, int subsys, int mask,
-		    const int line, unsigned long stack)
+set_ptldebug_header(struct ptldebug_header *header,
+		    struct libcfs_debug_msg_data *msgdata, unsigned long stack)
 {
 	struct timeval tv;
 
 	do_gettimeofday(&tv);
 
-	header->ph_subsys = subsys;
-	header->ph_mask = mask;
+	header->ph_subsys = msgdata->msg_subsys;
+	header->ph_mask = msgdata->msg_mask;
 	header->ph_cpu_id = smp_processor_id();
 	header->ph_sec = (__u32)tv.tv_sec;
 	header->ph_usec = tv.tv_usec;
 	header->ph_stack = stack;
 	header->ph_pid = current->pid;
-	header->ph_line_num = line;
+	header->ph_line_num = msgdata->msg_line;
 #if defined(__arch_um__) && (LINUX_VERSION_CODE < KERNEL_VERSION(2,4,20))
 	header->ph_extern_pid = current->thread.extern_pid;
 #elif defined(__arch_um__) && (LINUX_VERSION_CODE < KERNEL_VERSION(2,5,0))

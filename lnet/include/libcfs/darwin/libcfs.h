@@ -110,7 +110,7 @@ struct ptldebug_header {
 #endif
 #define LUSTRE_TRACE_SIZE (THREAD_SIZE >> 5)
 
-#define CHECK_STACK() do { } while(0)
+#define CHECK_STACK(msgdata, mask, cdls) do { } while(0)
 #define CDEBUG_STACK() (0L)
 
 /* Darwin has defined RETURN, so we have to undef it in lustre */
