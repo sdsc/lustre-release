@@ -1913,6 +1913,7 @@ void cl_locks_prune(const struct lu_env *env, struct cl_object *obj, int cancel)
 {
 	struct cl_object_header *head;
 	struct cl_lock          *lock;
+	struct cl_lock          *prev_lock = NULL;
 
 	ENTRY;
 	head = cl_object_header(obj);
@@ -1946,6 +1947,15 @@ again:
 		cl_lock_mutex_put(env, lock);
 		lu_ref_del(&lock->cll_reference, "prune", current);
 		cl_lock_put(env, lock);
+
+		if (prev_lock == lock)
+			/* lock wasn't deleted in prev interation
+			 * so give other threads chance to release
+			 * references
+			 */
+			cond_resched();
+		prev_lock = lock;
+
 		spin_lock(&head->coh_lock_guard);
 	}
 	spin_unlock(&head->coh_lock_guard);
