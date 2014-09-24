@@ -388,6 +388,14 @@ extern int  lwt_snapshot (cycles_t *now, int *ncpu, int *total_size,
 # define LPF64 "l"
 #endif
 
+#define LPLU "%lu"
+#define LPLD "%ld"
+#define LPLX "%#lx"
+#define LPPID "%d"
+
+typedef unsigned long ulong_ptr_t;
+typedef long long_ptr_t;
+
 #ifndef LPU64
 # error "No word size defined"
 #endif

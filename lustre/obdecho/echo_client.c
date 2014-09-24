@@ -636,9 +636,11 @@ struct echo_async_page {
         struct list_head        eap_item;
 };
 
-#define EAP_FROM_COOKIE(c)                                                      \
-        (LASSERT(((struct echo_async_page *)(c))->eap_magic == EAP_MAGIC),      \
-         (struct echo_async_page *)(c))
+#define EAP_FROM_COOKIE(c)                                                    \
+({									      \
+        LASSERT(((struct echo_async_page *)(c))->eap_magic == EAP_MAGIC);     \
+        (struct echo_async_page *)(c);					      \
+})
 
 struct echo_async_state {
         spinlock_t              eas_lock;

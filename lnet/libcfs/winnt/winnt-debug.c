@@ -60,7 +60,7 @@ int lnet_arch_debug_cleanup(void)
 	return 0;
 }
 
-void libcfs_run_lbug_upcall(const char *file, const char *fn, const int line)
+void libcfs_run_lbug_upcall(struct libcfs_debug_msg_data *msgdata)
 {
 }
 
@@ -68,13 +68,13 @@ void libcfs_debug_dumplog(void)
 {
 }
 
-void lbug_with_loc(const char *file, const char *func, const int line)
+void lbug_with_loc(struct libcfs_debug_msg_data *msgdata)
 {
         libcfs_catastrophe = 1;
         CEMERG("LBUG: pid: %u thread: %#x\n",
                (unsigned)cfs_curproc_pid(), (unsigned)PsGetCurrentThread());
         libcfs_debug_dumplog();
-        libcfs_run_lbug_upcall(file, func, line);
+        libcfs_run_lbug_upcall(msgdata);
 }
 
 #if TDI_LIBCFS_DBG

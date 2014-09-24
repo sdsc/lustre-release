@@ -242,8 +242,21 @@ static struct trace_page *trace_get_tage(struct trace_cpu_data *tcd,
         return tage;
 }
 
-int libcfs_debug_vmsg2(cfs_debug_limit_state_t *cdls, int subsys, int mask,
-                       const char *file, const char *fn, const int line,
+int libcfs_debug_msg(struct libcfs_debug_msg_data *msgdata,
+                     const char *format, ...)
+{
+        va_list args;
+        int     rc;
+
+        va_start(args, format);
+        rc = libcfs_debug_vmsg2(msgdata, format, args, NULL);
+        va_end(args);
+
+        return rc;
+}
+EXPORT_SYMBOL(libcfs_debug_msg);
+
+int libcfs_debug_vmsg2(struct libcfs_debug_msg_data *msgdata,
                        const char *format1, va_list args,
                        const char *format2, ...)
 {
@@ -260,16 +273,17 @@ int libcfs_debug_vmsg2(cfs_debug_limit_state_t *cdls, int subsys, int mask,
         int                      depth;
         int                      i;
         int                      remain;
+	cfs_debug_limit_state_t *cdls = msgdata->msg_cdls;
 
-        if (strchr(file, '/'))
-                file = strrchr(file, '/') + 1;
+        if (strchr(msgdata->msg_file, '/'))
+                msgdata->msg_file = strrchr(msgdata->msg_file, '/') + 1;
 
         tcd = trace_get_tcd();
 
         /* fs_trace_get_tcd() grabs a lock, which disables preemption and
          * pins us to a particular CPU.  This avoids an smp_processor_id()
          * warning on Linux when debugging is enabled. */
-        set_ptldebug_header(&header, subsys, mask, line, CDEBUG_STACK());
+        set_ptldebug_header(&header, msgdata, CDEBUG_STACK());
 
         if (tcd == NULL)                /* arch may not log in IRQ context */
                 goto console;
@@ -281,9 +295,9 @@ int libcfs_debug_vmsg2(cfs_debug_limit_state_t *cdls, int subsys, int mask,
         }
 
         depth = __current_nesting_level();
-        known_size = strlen(file) + 1 + depth;
-        if (fn)
-                known_size += strlen(fn) + 1;
+        known_size = strlen(msgdata->msg_file) + 1 + depth;
+        if (msgdata->msg_fn)
+                known_size += strlen(msgdata->msg_fn) + 1;
 
         if (libcfs_debug_binary)
                 known_size += sizeof(header);
@@ -297,7 +311,7 @@ int libcfs_debug_vmsg2(cfs_debug_limit_state_t *cdls, int subsys, int mask,
                 tage = trace_get_tage(tcd, needed + known_size + 1);
                 if (tage == NULL) {
                         if (needed + known_size > CFS_PAGE_SIZE)
-                                mask |= D_ERROR;
+                                msgdata->msg_mask |= D_ERROR;
 
                         trace_put_tcd(tcd);
                         tcd = NULL;
@@ -309,7 +323,7 @@ int libcfs_debug_vmsg2(cfs_debug_limit_state_t *cdls, int subsys, int mask,
                 max_nob = CFS_PAGE_SIZE - tage->used - known_size;
                 if (max_nob <= 0) {
                         printk(KERN_EMERG "negative max_nob: %i\n", max_nob);
-                        mask |= D_ERROR;
+                        msgdata->msg_mask |= D_ERROR;
                         trace_put_tcd(tcd);
                         tcd = NULL;
                         goto console;
@@ -339,7 +353,7 @@ int libcfs_debug_vmsg2(cfs_debug_limit_state_t *cdls, int subsys, int mask,
 
         if (*(string_buf+needed-1) != '\n')
                 printk(KERN_INFO "format at %s:%d:%s doesn't end in newline\n",
-                       file, line, fn);
+                       msgdata->msg_file, msgdata->msg_line, msgdata->msg_fn);
 
         header.ph_len = known_size + needed;
         debug_buf = (char *)cfs_page_address(tage->page) + tage->used;
@@ -356,14 +370,14 @@ int libcfs_debug_vmsg2(cfs_debug_limit_state_t *cdls, int subsys, int mask,
                 ++ tage->used;
         }
 
-        strcpy(debug_buf, file);
-        tage->used += strlen(file) + 1;
-        debug_buf += strlen(file) + 1;
+        strcpy(debug_buf, msgdata->msg_file);
+        tage->used += strlen(msgdata->msg_file) + 1;
+        debug_buf += strlen(msgdata->msg_file) + 1;
 
-        if (fn) {
-                strcpy(debug_buf, fn);
-                tage->used += strlen(fn) + 1;
-                debug_buf += strlen(fn) + 1;
+        if (msgdata->msg_fn) {
+                strcpy(debug_buf, msgdata->msg_fn);
+                tage->used += strlen(msgdata->msg_fn) + 1;
+                debug_buf += strlen(msgdata->msg_fn) + 1;
         }
 
         __LASSERT(debug_buf == string_buf);
@@ -372,7 +386,7 @@ int libcfs_debug_vmsg2(cfs_debug_limit_state_t *cdls, int subsys, int mask,
         __LASSERT (tage->used <= CFS_PAGE_SIZE);
 
 console:
-        if ((mask & libcfs_printk) == 0) {
+        if ((msgdata->msg_mask & libcfs_printk) == 0) {
                 /* no console output requested */
                 if (tcd != NULL)
                         trace_put_tcd(tcd);
@@ -409,7 +423,8 @@ console:
         }
 
         if (tcd != NULL) {
-                print_to_console(&header, mask, string_buf, needed, file, fn);
+                print_to_console(&header, msgdata->msg_mask, string_buf, needed,
+				 msgdata->msg_file, msgdata->msg_fn);
                 trace_put_tcd(tcd);
         } else {
                 string_buf = trace_get_console_buffer();
@@ -428,8 +443,8 @@ console:
                                 va_end(ap);
                         }
                 }
-                print_to_console(&header, mask,
-                                 string_buf, needed, file, fn);
+                print_to_console(&header, msgdata->msg_mask, string_buf, needed,
+				 msgdata->msg_file, msgdata->msg_fn);
 
                 trace_put_console_buffer(string_buf);
         }
@@ -441,8 +456,8 @@ console:
                          "Skipped %d previous similar message%s\n",
                          cdls->cdls_count, (cdls->cdls_count > 1) ? "s" : "");
 
-                print_to_console(&header, mask,
-                                 string_buf, needed, file, fn);
+                print_to_console(&header, msgdata->msg_mask, string_buf, needed,
+				 msgdata->msg_file, msgdata->msg_fn);
 
                 trace_put_console_buffer(string_buf);
                 cdls->cdls_count = 0;
@@ -453,18 +468,17 @@ console:
 EXPORT_SYMBOL(libcfs_debug_vmsg2);
 
 void
-libcfs_assertion_failed(const char *expr, const char *file,
-                        const char *func, const int line)
+libcfs_assertion_failed(const char *expr,
+			struct libcfs_debug_msg_data *msgdata)
 {
-        libcfs_debug_msg(NULL, 0, D_EMERG, file, func, line,
-                         "ASSERTION(%s) failed\n", expr);
-        lbug_with_loc(file, func, line);
+        libcfs_debug_msg(msgdata, "ASSERTION(%s) failed\n", expr);
+        lbug_with_loc(msgdata);
 }
 EXPORT_SYMBOL(libcfs_assertion_failed);
 
 void
 trace_assertion_failed(const char *str,
-                       const char *fn, const char *file, int line)
+                       struct libcfs_debug_msg_data *msgdata)
 {
         struct ptldebug_header hdr;
 
@@ -472,10 +486,10 @@ trace_assertion_failed(const char *str,
         libcfs_catastrophe = 1;
         mb();
 
-        set_ptldebug_header(&hdr, DEBUG_SUBSYSTEM, D_EMERG, line,
-                            CDEBUG_STACK());
+        set_ptldebug_header(&hdr, msgdata, CDEBUG_STACK());
 
-        print_to_console(&hdr, D_EMERG, str, strlen(str), file, fn);
+        print_to_console(&hdr, D_EMERG, str, strlen(str),
+			 msgdata->msg_file, msgdata->msg_fn);
 
         LIBCFS_PANIC("Lustre debug assertion failure\n");
 
