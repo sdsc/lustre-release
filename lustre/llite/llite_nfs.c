@@ -307,6 +307,7 @@ int ll_dir_get_parent_fid(struct inode *dir, struct lu_fid *parent_fid)
 	if (IS_ERR(op_data))
 		RETURN(PTR_ERR(op_data));
 
+	op_data->op_valid = OBD_MD_PERMITTED;
 	rc = md_getattr_name(sbi->ll_md_exp, op_data, &req);
 	ll_finish_md_op_data(op_data);
 	if (rc != 0) {
