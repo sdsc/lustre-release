@@ -52,28 +52,38 @@ void request_out_callback(lnet_event_t *ev)
 {
         struct ptlrpc_cb_id   *cbid = ev->md.user_ptr;
         struct ptlrpc_request *req = cbid->cbid_arg;
+	bool		       wakeup = false;
         ENTRY;
 
-        LASSERT (ev->type == LNET_EVENT_SEND ||
-                 ev->type == LNET_EVENT_UNLINK);
-        LASSERT (ev->unlinked);
+	LASSERT(ev->type == LNET_EVENT_SEND ||
+		ev->type == LNET_EVENT_ACK ||
+		ev->type == LNET_EVENT_UNLINK);
 
-        DEBUG_REQ(D_NET, req, "type %d, status %d", ev->type, ev->status);
+	DEBUG_REQ(D_NET, req, "type %d, status %d", ev->type, ev->status);
+	if (!ev->unlinked) {
+		LASSERT(enable_ack);
+		RETURN_EXIT;
+	}
 
         sptlrpc_request_out_callback(req);
 	spin_lock(&req->rq_lock);
         req->rq_real_sent = cfs_time_current_sec();
-	if (ev->unlinked)
+	if (ev->unlinked) {
 		req->rq_req_unlink = 0;
+		if (req->rq_replied)
+			wakeup = true;
+	}
 
         if (ev->type == LNET_EVENT_UNLINK || ev->status != 0) {
-
                 /* Failed send: make it seem like the reply timed out, just
                  * like failing sends in client.c does currently...  */
-
 		req->rq_net_err = 1;
-                ptlrpc_client_wake_req(req);
+		wakeup = true;
         }
+
+	if (wakeup)
+                ptlrpc_client_wake_req(req);
+
 	spin_unlock(&req->rq_lock);
 
         ptlrpc_req_finished(req);
@@ -396,12 +406,12 @@ void reply_out_callback(lnet_event_t *ev)
                  ev->type == LNET_EVENT_UNLINK);
 
         if (!rs->rs_difficult) {
-                /* 'Easy' replies have no further processing so I drop the
-                 * net's ref on 'rs' */
-                LASSERT (ev->unlinked);
-                ptlrpc_rs_decref(rs);
-                EXIT;
-                return;
+		/* 'Easy' replies have no further processing so I drop the
+		 * net's ref on 'rs' */
+		LASSERT(ev->unlinked || enable_ack);
+		if (ev->unlinked)
+			ptlrpc_rs_decref(rs);
+		RETURN_EXIT;
         }
 
         LASSERT (rs->rs_on_net);

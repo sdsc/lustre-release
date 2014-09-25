@@ -42,6 +42,10 @@
 #include <obd_class.h>
 #include "ptlrpc_internal.h"
 
+int enable_ack = 0;
+CFS_MODULE_PARM(enable_ack, "i", int, 0444,
+		"enable LNet ACK for RPC requests and replies");
+
 /**
  * Helper function. Sends \a len bytes from \a base at offset \a offset
  * over \a conn connection to portal \a portal.
@@ -61,7 +65,7 @@ static int ptl_send_buf (lnet_handle_md_t *mdh, void *base, int len,
         CDEBUG (D_INFO, "conn=%p id %s\n", conn, libcfs_id2str(conn->c_peer));
         md.start     = base;
         md.length    = len;
-        md.threshold = (ack == LNET_ACK_REQ) ? 2 : 1;
+        md.threshold = (enable_ack || ack == LNET_ACK_REQ) ? 2 : 1;
         md.options   = PTLRPC_MD_OPTIONS;
         md.user_ptr  = cbid;
         md.eq_handle = ptlrpc_eq_h;
@@ -82,7 +86,7 @@ static int ptl_send_buf (lnet_handle_md_t *mdh, void *base, int len,
         CDEBUG(D_NET, "Sending %d bytes to portal %d, xid "LPD64", offset %u\n",
                len, portal, xid, offset);
 
-        rc = LNetPut (conn->c_self, *mdh, ack,
+        rc = LNetPut (conn->c_self, *mdh, enable_ack ? LNET_ACK_REQ : ack,
                       conn->c_peer, portal, xid, offset, 0);
         if (unlikely(rc != 0)) {
                 int rc2;
