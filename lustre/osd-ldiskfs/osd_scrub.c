@@ -1142,7 +1142,8 @@ static int osd_preload_exec(struct osd_thread_info *info,
 #define SCRUB_IT_ALL	1
 #define SCRUB_IT_CRASH	2
 
-static void osd_scrub_join(struct osd_device *dev, __u32 flags)
+static void osd_scrub_join(struct osd_device *dev, __u32 flags,
+			   bool inconsistent)
 {
 	struct osd_scrub     *scrub  = &dev->od_scrub;
 	struct ptlrpc_thread *thread = &scrub->os_thread;
@@ -1166,7 +1167,8 @@ static void osd_scrub_join(struct osd_device *dev, __u32 flags)
 
 	if (flags & SS_RESET)
 		osd_scrub_file_reset(scrub,
-			LDISKFS_SB(osd_sb(dev))->s_es->s_uuid, 0);
+			LDISKFS_SB(osd_sb(dev))->s_es->s_uuid,
+			inconsistent ? SF_INCONSISTENT : 0);
 
 	if (flags & SS_AUTO_FULL ||
 	    sf->sf_flags & (SF_RECREATED | SF_INCONSISTENT | SF_UPGRADE))
@@ -1243,7 +1245,8 @@ static int osd_inode_iteration(struct osd_thread_info *info,
 
 			if (dev->od_full_scrub_ratio == OFSR_DIRECTLY ||
 			    scrub->os_full_scrub) {
-				osd_scrub_join(dev, SS_AUTO_FULL | SS_RESET);
+				osd_scrub_join(dev, SS_AUTO_FULL | SS_RESET,
+					       true);
 				goto full;
 			}
 
@@ -1256,7 +1259,8 @@ static int osd_inode_iteration(struct osd_thread_info *info,
 			/* If we hit too much inconsistent OI mappings during
 			 * the partial scan, then scan the device completely. */
 			if (used < dev->od_full_scrub_ratio) {
-				osd_scrub_join(dev, SS_AUTO_FULL | SS_RESET);
+				osd_scrub_join(dev, SS_AUTO_FULL | SS_RESET,
+					       true);
 				goto full;
 			}
 
@@ -2201,7 +2205,7 @@ again:
 		if (!scrub->os_partial_scan || flags & SS_AUTO_PARTIAL)
 			RETURN(-EALREADY);
 
-		osd_scrub_join(dev, flags);
+		osd_scrub_join(dev, flags, false);
 		spin_lock(&scrub->os_lock);
 		if (!thread_is_running(thread))
 			goto again;
@@ -2750,7 +2754,8 @@ int osd_oii_insert(struct osd_device *dev, struct osd_idmap_cache *oic,
 		}
 
 		scrub->os_bad_oimap_time = now;
-		if (++scrub->os_bad_oimap_count > dev->od_full_scrub_speed)
+		if (++scrub->os_bad_oimap_count >
+		    dev->od_full_scrub_threshold_rate)
 			scrub->os_full_scrub = 1;
 	}
 
