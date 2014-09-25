@@ -66,7 +66,6 @@ struct ofd_mod_data {
 };
 
 #define OFD_FMD_MAX_NUM_DEFAULT 128
-#define OFD_FMD_MAX_AGE_DEFAULT ((obd_timeout + 10) * HZ)
 
 #define OFD_SOFT_SYNC_LIMIT_DEFAULT 16
 

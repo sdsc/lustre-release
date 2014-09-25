@@ -2696,7 +2696,7 @@ static int ofd_init0(const struct lu_env *env, struct ofd_device *m,
 	obd->u.obt.obt_magic = OBT_MAGIC;
 
 	m->ofd_fmd_max_num = OFD_FMD_MAX_NUM_DEFAULT;
-	m->ofd_fmd_max_age = OFD_FMD_MAX_AGE_DEFAULT;
+	m->ofd_fmd_max_age = msecs_to_jiffies((obd_timeout+10) * MSEC_PER_SEC);
 
 	spin_lock_init(&m->ofd_flags_lock);
 	m->ofd_raid_degraded = 0;

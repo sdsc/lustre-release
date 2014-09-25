@@ -172,7 +172,8 @@ int sptlrpc_proc_enc_pool_seq_show(struct seq_file *m, void *v)
 		      page_pools.epp_st_missings,
 		      page_pools.epp_st_lowfree,
 		      page_pools.epp_st_max_wqlen,
-		      page_pools.epp_st_max_wait, HZ
+		      page_pools.epp_st_max_wait,
+		      msecs_to_jiffies(MSEC_PER_SEC)
 		     );
 
 	spin_unlock(&page_pools.epp_lock);
@@ -807,7 +808,8 @@ void sptlrpc_enc_pool_fini(void)
                        page_pools.epp_st_grow_fails,
 		       page_pools.epp_st_shrinks, page_pools.epp_st_access,
 		       page_pools.epp_st_missings, page_pools.epp_st_max_wqlen,
-		       page_pools.epp_st_max_wait, HZ);
+		       page_pools.epp_st_max_wait,
+		       msecs_to_jiffies(MSEC_PER_SEC));
 	}
 }
 
