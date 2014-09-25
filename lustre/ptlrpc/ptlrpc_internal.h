@@ -48,6 +48,7 @@ struct ptlrpc_request_set;
 extern int test_req_buffer_pressure;
 extern struct list_head ptlrpc_all_services;
 extern struct mutex ptlrpc_all_services_mutex;
+extern int enable_ack;
 
 int ptlrpc_start_thread(struct ptlrpc_service_part *svcpt, int wait);
 /* ptlrpcd.c */
