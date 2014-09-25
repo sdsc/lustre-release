@@ -586,11 +586,12 @@ run_ior() {
     # -t N  transferSize -- size of transfer in bytes (e.g.: 8, 4k, 2m, 1g)"
     # -w    writeFile -- write file"
     # -r    readFile -- read existing file"
+    # -R    checkRead -- check read after read
     # -T    maxTimeDuration -- max time in minutes to run tests"
     # -k    keepFile -- keep testFile(s) on program exit
 
     local cmd="$IOR -a $ior_type -b ${ior_blockSize}g -o $testdir/iorData \
-         -t $ior_xferSize -v -w -r -i $ior_iteration -T $ior_DURATION -k"
+         -t $ior_xferSize -v -w -R -i $ior_iteration -T $ior_DURATION -k"
     [ $type = "fpp" ] && cmd="$cmd -F"
 
 	echo "+ $cmd"
