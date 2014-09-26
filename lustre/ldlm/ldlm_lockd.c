@@ -523,7 +523,6 @@ int ldlm_del_waiting_lock(struct ldlm_lock *lock)
         LDLM_DEBUG(lock, "%s", ret == 0 ? "wasn't waiting" : "removed");
         return ret;
 }
-EXPORT_SYMBOL(ldlm_del_waiting_lock);
 
 /**
  * Prolong the contended lock waiting time.
@@ -899,7 +898,6 @@ int ldlm_server_blocking_ast(struct ldlm_lock *lock,
 
         RETURN(rc);
 }
-EXPORT_SYMBOL(ldlm_server_blocking_ast);
 
 /**
  * ->l_completion_ast callback for a remote lock in server namespace.
@@ -1031,7 +1029,6 @@ int ldlm_server_completion_ast(struct ldlm_lock *lock, __u64 flags, void *data)
 
 	RETURN(lvb_len < 0 ? lvb_len : rc);
 }
-EXPORT_SYMBOL(ldlm_server_completion_ast);
 
 /**
  * Server side ->l_glimpse_ast handler for client locks.
@@ -1103,7 +1100,6 @@ int ldlm_server_glimpse_ast(struct ldlm_lock *lock, void *data)
 
 	RETURN(rc);
 }
-EXPORT_SYMBOL(ldlm_server_glimpse_ast);
 
 int ldlm_glimpse_locks(struct ldlm_resource *res,
 		       struct list_head *gl_work_list)
@@ -1491,7 +1487,6 @@ existing_lock:
 
         return rc;
 }
-EXPORT_SYMBOL(ldlm_handle_enqueue0);
 
 /**
  * Old-style LDLM main entry point for server code enqueue.
@@ -1518,7 +1513,6 @@ int ldlm_handle_enqueue(struct ptlrpc_request *req,
         }
         return rc;
 }
-EXPORT_SYMBOL(ldlm_handle_enqueue);
 
 /**
  * Main LDLM entry point for server code to process lock conversion requests.
@@ -1572,7 +1566,6 @@ int ldlm_handle_convert0(struct ptlrpc_request *req,
 
         RETURN(0);
 }
-EXPORT_SYMBOL(ldlm_handle_convert0);
 
 /**
  * Old-style main LDLM entry point for server code to process lock conversion
@@ -1592,7 +1585,6 @@ int ldlm_handle_convert(struct ptlrpc_request *req)
         }
         return rc;
 }
-EXPORT_SYMBOL(ldlm_handle_convert);
 
 /**
  * Cancel all the locks whose handles are packed into ldlm_request
@@ -1704,7 +1696,6 @@ int ldlm_handle_cancel(struct ptlrpc_request *req)
 
         RETURN(ptlrpc_reply(req));
 }
-EXPORT_SYMBOL(ldlm_handle_cancel);
 #endif /* HAVE_SERVER_SUPPORT */
 
 /**
@@ -2700,7 +2691,6 @@ int ldlm_get_ref(void)
 
         RETURN(rc);
 }
-EXPORT_SYMBOL(ldlm_get_ref);
 
 void ldlm_put_ref(void)
 {
@@ -2719,7 +2709,6 @@ void ldlm_put_ref(void)
 
         EXIT;
 }
-EXPORT_SYMBOL(ldlm_put_ref);
 
 /*
  * Export handle<->lock hash operations.
