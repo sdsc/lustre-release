@@ -129,7 +129,6 @@ void deuuidify(char *uuid, const char *prefix, char **uuid_start, int *uuid_len)
                     UUID_STR, strlen(UUID_STR)))
                 *uuid_len -= strlen(UUID_STR);
 }
-EXPORT_SYMBOL(deuuidify);
 
 /**
  * Returns true if import was FULL, false if import was already not
@@ -427,7 +426,6 @@ void ptlrpc_fail_import(struct obd_import *imp, __u32 conn_cnt)
 	}
 	EXIT;
 }
-EXPORT_SYMBOL(ptlrpc_fail_import);
 
 int ptlrpc_reconnect_import(struct obd_import *imp)
 {
@@ -1546,7 +1544,6 @@ void ptlrpc_cleanup_imp(struct obd_import *imp)
 
 	EXIT;
 }
-EXPORT_SYMBOL(ptlrpc_cleanup_imp);
 
 /* Adaptive Timeout utils */
 extern unsigned int at_min, at_max, at_history;

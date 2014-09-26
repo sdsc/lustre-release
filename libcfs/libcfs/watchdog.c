@@ -485,7 +485,6 @@ void lc_watchdog_dumplog(pid_t pid, void *data)
 {
         libcfs_debug_dumplog_internal((void *)((long_ptr_t)pid));
 }
-EXPORT_SYMBOL(lc_watchdog_dumplog);
 
 #else   /* !defined(WITH_WATCHDOG) */
 

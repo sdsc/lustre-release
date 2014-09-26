@@ -393,7 +393,6 @@ void upcall_cache_flush_all(struct upcall_cache *cache)
 {
 	cache_flush(cache, 1);
 }
-EXPORT_SYMBOL(upcall_cache_flush_all);
 
 void upcall_cache_flush_one(struct upcall_cache *cache, __u64 key, void *args)
 {
