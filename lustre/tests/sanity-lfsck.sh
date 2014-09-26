@@ -366,8 +366,13 @@ test_4()
 	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x1505
 	ls $DIR/$tdir/ > /dev/null || error "(11) no FID-in-dirent."
 
-	local count=$(ls -al $DIR/$tdir | wc -l)
-	[ $count -gt 9 ] || error "(12) namespace LFSCK failed"
+	local server_version=$(lustre_version_code $SINGLEMDS)
+	if [ $server_version -ge $(version_code 2.5.58) ] ||
+	   [ $server_version -ge $(version_code 2.5.4) &&
+	     $server_version -lt $(version_code 2.5.11) ]; then
+		local count=$(ls -al $DIR/$tdir | wc -l)
+		[ $count -gt 9 ] || error "(12) namespace LFSCK failed"
+	fi
 
 	do_facet $SINGLEMDS $LCTL set_param fail_loc=0
 }
