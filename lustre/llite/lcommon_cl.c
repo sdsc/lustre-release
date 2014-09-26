@@ -786,63 +786,7 @@ void ccc_req_completion(const struct lu_env *env,
         OBD_SLAB_FREE_PTR(vrq, ccc_req_kmem);
 }
 
-/**
- * Implementation of struct cl_req_operations::cro_attr_set() for ccc
- * layer. ccc is responsible for
- *
- *    - o_[mac]time
- *
- *    - o_mode
- *
- *    - o_parent_seq
- *
- *    - o_[ug]id
- *
- *    - o_parent_oid
- *
- *    - o_parent_ver
- *
- *    - o_ioepoch,
- *
- *  and capability.
- */
-void ccc_req_attr_set(const struct lu_env *env,
-                      const struct cl_req_slice *slice,
-                      const struct cl_object *obj,
-                      struct cl_req_attr *attr, obd_valid flags)
-{
-        struct inode *inode;
-        struct obdo  *oa;
-        obd_flag      valid_flags;
-
-	oa = attr->cra_oa;
-	inode = ccc_object_inode(obj);
-	valid_flags = OBD_MD_FLTYPE;
-
-	if ((flags & OBD_MD_FLOSSCAPA) != 0) {
-		LASSERT(attr->cra_capa == NULL);
-		attr->cra_capa = cl_capa_lookup(inode,
-						slice->crs_req->crq_type);
-	}
-
-	if (slice->crs_req->crq_type == CRT_WRITE) {
-		if (flags & OBD_MD_FLEPOCH) {
-			oa->o_valid |= OBD_MD_FLEPOCH;
-			oa->o_ioepoch = cl_i2info(inode)->lli_ioepoch;
-			valid_flags |= OBD_MD_FLMTIME | OBD_MD_FLCTIME |
-				       OBD_MD_FLUID | OBD_MD_FLGID;
-		}
-	}
-	obdo_from_inode(oa, inode, valid_flags & flags);
-	obdo_set_parent_fid(oa, &cl_i2info(inode)->lli_fid);
-	if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_INVALID_PFID))
-		oa->o_parent_oid++;
-	memcpy(attr->cra_jobid, cl_i2info(inode)->lli_jobid,
-	       JOBSTATS_JOBID_SIZE);
-}
-
 static const struct cl_req_operations ccc_req_ops = {
-        .cro_attr_set   = ccc_req_attr_set,
         .cro_completion = ccc_req_completion
 };
 

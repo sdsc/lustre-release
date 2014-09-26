@@ -1391,34 +1391,17 @@ EXPORT_SYMBOL(cl_req_prep);
  * attributes from \a flags may be touched. This can be called multiple times
  * for the same request.
  */
-void cl_req_attr_set(const struct lu_env *env, struct cl_req *req,
-                     struct cl_req_attr *attr, obd_valid flags)
+void cl_req_attr_set(const struct lu_env *env, struct cl_object *obj,
+		     struct cl_req_attr *attr)
 {
-        const struct cl_req_slice *slice;
-        struct cl_page            *page;
-        int i;
+	struct cl_object *scan;
+	ENTRY;
 
-	LASSERT(!list_empty(&req->crq_pages));
-        ENTRY;
-
-        /* Take any page to use as a model. */
-	page = list_entry(req->crq_pages.next, struct cl_page, cp_flight);
-
-        for (i = 0; i < req->crq_nrobjs; ++i) {
-		list_for_each_entry(slice, &req->crq_layers, crs_linkage) {
-                        const struct cl_page_slice *scan;
-                        const struct cl_object     *obj;
-
-                        scan = cl_page_at(page,
-                                          slice->crs_dev->cd_lu_dev.ld_type);
-                        LASSERT(scan != NULL);
-                        obj = scan->cpl_obj;
-                        if (slice->crs_ops->cro_attr_set != NULL)
-                                slice->crs_ops->cro_attr_set(env, slice, obj,
-                                                             attr + i, flags);
-                }
-        }
-        EXIT;
+	cl_object_for_each(scan, obj) {
+		if (scan->co_ops->coo_req_attr_set != NULL)
+			scan->co_ops->coo_req_attr_set(env, scan, attr);
+	}
+	EXIT;
 }
 EXPORT_SYMBOL(cl_req_attr_set);
 
