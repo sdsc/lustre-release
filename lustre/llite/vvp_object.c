@@ -150,8 +150,10 @@ static int vvp_prune(const struct lu_env *env, struct cl_object *obj)
 	ENTRY;
 
 	rc = cl_sync_file_range(inode, 0, OBD_OBJECT_EOF, CL_FSYNC_ALL, 1);
-	if (rc == 0)
+	if (rc >= 0) {
 		truncate_inode_pages(inode->i_mapping, 0);
+		rc = 0;
+	}
 
 	RETURN(rc);
 }
