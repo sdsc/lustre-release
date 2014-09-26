@@ -879,8 +879,11 @@ int lod_verify_striping(struct lod_device *d, const struct lu_buf *buf,
 		GOTO(out, rc = -EINVAL);
 	}
 
-	if ((specific && le32_to_cpu(lum->lmm_pattern) != LOV_PATTERN_RAID0) ||
-	    (!specific && lum->lmm_pattern != 0)) {
+	/* the user uses "0" for default stripe pattern normally. */
+	if (!specific && lum->lmm_pattern == 0)
+		lum->lmm_pattern = cpu_to_le32(LOV_PATTERN_RAID0);
+
+	if (le32_to_cpu(lum->lmm_pattern) != LOV_PATTERN_RAID0) {
 		CDEBUG(D_IOCTL, "bad userland stripe pattern: %#x\n",
 		       le32_to_cpu(lum->lmm_pattern));
 		GOTO(out, rc = -EINVAL);
