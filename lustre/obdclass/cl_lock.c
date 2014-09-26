@@ -928,6 +928,7 @@ void cl_lock_hold_release(const struct lu_env *env, struct cl_lock *lock,
                         lock->cll_flags &= ~CLF_DOOMED;
                         cl_lock_delete0(env, lock);
                 }
+		wake_up_all(&lock->cll_wq);
         }
         EXIT;
 }
@@ -2057,14 +2058,12 @@ void cl_locks_prune(const struct lu_env *env, struct cl_object *obj, int cancel)
 again:
 		cl_lock_mutex_get(env, lock);
 		if (lock->cll_state < CLS_FREEING) {
-			LASSERT(lock->cll_users <= 1);
-			if (unlikely(lock->cll_users == 1)) {
+			if (unlikely(lock->cll_holds > 0)) {
 				struct l_wait_info lwi = { 0 };
 
 				cl_lock_mutex_put(env, lock);
 				l_wait_event(lock->cll_wq,
-					     lock->cll_users == 0,
-					     &lwi);
+					     lock->cll_holds == 0, &lwi);
 				goto again;
 			}
 
