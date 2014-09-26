@@ -54,7 +54,6 @@
 
 
 struct obd_device *obd_devs[MAX_OBD_DEVICES];
-EXPORT_SYMBOL(obd_devs);
 struct list_head obd_types;
 DEFINE_RWLOCK(obd_dev_lock);
 
@@ -103,7 +102,6 @@ atomic_long_t obd_dirty_transit_pages;
 EXPORT_SYMBOL(obd_dirty_transit_pages);
 
 char obd_jobid_var[JOBSTATS_JOBID_VAR_MAX_LEN + 1] = JOBSTATS_DISABLE;
-EXPORT_SYMBOL(obd_jobid_var);
 
 #ifdef LPROCFS
 struct lprocfs_stats *obd_memory = NULL;
@@ -629,7 +627,6 @@ __u64 obd_memory_max(void)
 
 	return ret;
 }
-EXPORT_SYMBOL(obd_memory_max);
 
 __u64 obd_pages_max(void)
 {
@@ -641,7 +638,6 @@ __u64 obd_pages_max(void)
 
 	return ret;
 }
-EXPORT_SYMBOL(obd_pages_max);
 #endif /* LPROCFS */
 
 /* liblustre doesn't call cleanup_obdclass, apparently.  we carry on in this

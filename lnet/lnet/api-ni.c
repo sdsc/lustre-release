@@ -457,7 +457,6 @@ lnet_counters_reset(void)
 
 	lnet_net_unlock(LNET_LOCK_EX);
 }
-EXPORT_SYMBOL(lnet_counters_reset);
 
 #ifdef LNET_USE_LIB_FREELIST
 
@@ -1715,7 +1714,6 @@ LNetInit(void)
 	lnet_register_lnd(&the_lolnd);
 	return 0;
 }
-EXPORT_SYMBOL(LNetInit);
 
 /**
  * Finalize LNet library.
@@ -1739,7 +1737,6 @@ LNetFini(void)
 
 	the_lnet.ln_init = 0;
 }
-EXPORT_SYMBOL(LNetFini);
 
 /**
  * Set LNet PID and start LNet interfaces, routing, and forwarding.
@@ -2327,7 +2324,6 @@ LNetSnprintHandle(char *str, int len, lnet_handle_any_t h)
 {
         snprintf(str, len, LPX64, h.cookie);
 }
-EXPORT_SYMBOL(LNetSnprintHandle);
 
 static int
 lnet_ping(lnet_process_id_t id, int timeout_ms, lnet_process_id_t __user *ids,

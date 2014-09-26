@@ -218,7 +218,6 @@ cfs_percpt_atomic_free(atomic_t **refs)
 {
 	cfs_percpt_free(refs);
 }
-EXPORT_SYMBOL(cfs_percpt_atomic_free);
 
 /** allocate cpu-partition refcount with initial value @init_val */
 atomic_t **
@@ -236,7 +235,6 @@ cfs_percpt_atomic_alloc(struct cfs_cpt_table *cptab, int init_val)
 		atomic_set(ref, init_val);
 	return refs;
 }
-EXPORT_SYMBOL(cfs_percpt_atomic_alloc);
 
 /** return sum of cpu-partition refs */
 int
@@ -251,4 +249,3 @@ cfs_percpt_atomic_summary(atomic_t **refs)
 
 	return val;
 }
-EXPORT_SYMBOL(cfs_percpt_atomic_summary);
