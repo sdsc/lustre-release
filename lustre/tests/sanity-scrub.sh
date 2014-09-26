@@ -129,6 +129,10 @@ scrub_prep() {
 		fi
 		cp $LUSTRE/tests/*.sh $DIR/$tdir/mds$n ||
 			error "Failed to copy files to mds$n"
+		mkdir -p $DIR/$tdir/mds$n/d_$tfile ||
+			error "mkdir failed on mds$n"
+		createmany -m $DIR/$tdir/mds$n/d_$tfile/f 2 > \
+			/dev/null || error "create failed on mds$n"
 		if [[ $nfiles -gt 0 ]]; then
 			createmany -m $DIR/$tdir/mds$n/$tfile $nfiles > \
 				/dev/null || error "createmany failed on mds$n"
@@ -280,12 +284,8 @@ scrub_backup_restore() {
 }
 
 scrub_enable_auto() {
-	local n
-
-	for n in $(seq $MDSCOUNT); do
-		do_facet mds$n $LCTL set_param -n \
-			osd-ldiskfs.$(facet_svc mds$n).auto_scrub 1
-	done
+	do_nodes $(comma_list $(mdts_nodes)) $LCTL set_param -n \
+		osd-ldiskfs.*.auto_scrub=1
 }
 
 full_scrub_ratio() {
@@ -293,22 +293,16 @@ full_scrub_ratio() {
 		return
 
 	local ratio=$1
-	local n
 
-	for n in $(seq $MDSCOUNT); do
-		do_facet mds$n $LCTL set_param -n \
-			osd-ldiskfs.$(facet_svc mds$n).full_scrub_ratio $ratio
-	done
+	do_nodes $(comma_list $(mdts_nodes)) $LCTL set_param -n \
+		osd-ldiskfs.*.full_scrub_ratio=$ratio
 }
 
-full_scrub_speed() {
-	local speed=$1
-	local n
+full_scrub_threshold_rate() {
+	local rate=$1
 
-	for n in $(seq $MDSCOUNT); do
-		do_facet mds$n $LCTL set_param -n \
-			osd-ldiskfs.$(facet_svc mds$n).full_scrub_speed $speed
-	done
+	do_nodes $(comma_list $(mdts_nodes)) $LCTL set_param -n \
+		osd-ldiskfs.*.full_scrub_threshold_rate=$rate
 }
 
 test_0() {
@@ -451,7 +445,7 @@ test_4b() {
 	mount_client $MOUNT || error "(5) Fail to start client!"
 	scrub_enable_auto
 	full_scrub_ratio 10
-	full_scrub_speed 10000
+	full_scrub_threshold_rate 10000
 	scrub_check_data 6
 	sleep 3
 
@@ -495,7 +489,7 @@ test_4b() {
 	done
 
 	for n in $(seq $MDSCOUNT); do
-		ls -l $DIR/$tdir/mds$n/${tfile}1 || error "(17) fail to ls"
+		ls -l $DIR/$tdir/mds$n/d_${tfile}/ || error "(17) fail to ls"
 	done
 	sleep 3
 
@@ -517,7 +511,7 @@ test_4c() {
 	mount_client $MOUNT || error "(5) Fail to start client!"
 	scrub_enable_auto
 	full_scrub_ratio 2
-	full_scrub_speed 20
+	full_scrub_threshold_rate 20
 	scrub_check_data 6
 	sleep 3
 
