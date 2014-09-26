@@ -2960,7 +2960,6 @@ int lfsck_query(const struct lu_env *env, struct dt_device *key,
 
 	RETURN(rc);
 }
-EXPORT_SYMBOL(lfsck_query);
 
 int lfsck_register_namespace(const struct lu_env *env, struct dt_device *key,
 			     struct ldlm_namespace *ns)

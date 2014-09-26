@@ -91,7 +91,6 @@ struct ptlrpc_connection *ptlrpc_uuid_to_connection(struct obd_uuid *uuid)
 
         return c;
 }
-EXPORT_SYMBOL(ptlrpc_uuid_to_connection);
 
 /**
  * Allocate and initialize new bulk descriptor on the sender.
@@ -832,7 +831,6 @@ ptlrpc_prep_req_pool(struct obd_import *imp,
         }
         return request;
 }
-EXPORT_SYMBOL(ptlrpc_prep_req_pool);
 
 /**
  * Same as ptlrpc_prep_req_pool, but without pool
@@ -844,7 +842,6 @@ ptlrpc_prep_req(struct obd_import *imp, __u32 version, int opcode, int count,
         return ptlrpc_prep_req_pool(imp, version, opcode, count, lengths, bufs,
                                     NULL);
 }
-EXPORT_SYMBOL(ptlrpc_prep_req);
 
 /**
  * Allocate and initialize new request set structure.
@@ -899,7 +896,6 @@ struct ptlrpc_request_set *ptlrpc_prep_fcset(int max, set_producer_func func,
 
 	RETURN(set);
 }
-EXPORT_SYMBOL(ptlrpc_prep_fcset);
 
 /**
  * Wind down and free request set structure previously allocated with
@@ -981,7 +977,6 @@ int ptlrpc_set_add_cb(struct ptlrpc_request_set *set,
 
 	RETURN(0);
 }
-EXPORT_SYMBOL(ptlrpc_set_add_cb);
 
 /**
  * Add a new request to the general purpose request set.
@@ -1043,7 +1038,6 @@ void ptlrpc_set_add_new_req(struct ptlrpcd_ctl *pc,
 			wake_up(&pc->pc_partners[i]->pc_set->set_waitq);
 	}
 }
-EXPORT_SYMBOL(ptlrpc_set_add_new_req);
 
 /**
  * Based on the current state of the import, determine if the request
@@ -2028,7 +2022,6 @@ int ptlrpc_expired_set(void *data)
          */
         RETURN(1);
 }
-EXPORT_SYMBOL(ptlrpc_expired_set);
 
 /**
  * Sets rq_intr flag in \a req under spinlock.
@@ -2064,7 +2057,6 @@ void ptlrpc_interrupted_set(void *data)
 		ptlrpc_mark_interrupted(req);
 	}
 }
-EXPORT_SYMBOL(ptlrpc_interrupted_set);
 
 /**
  * Get the smallest timeout in the set; this does NOT set a timeout.
@@ -2115,7 +2107,6 @@ int ptlrpc_set_next_timeout(struct ptlrpc_request_set *set)
         }
         RETURN(timeout);
 }
-EXPORT_SYMBOL(ptlrpc_set_next_timeout);
 
 /**
  * Send all unset request from the set and then wait untill all
@@ -2321,7 +2312,6 @@ void ptlrpc_req_finished_with_imp_lock(struct ptlrpc_request *request)
 	assert_spin_locked(&request->rq_import->imp_lock);
 	(void)__ptlrpc_req_finished(request, 1);
 }
-EXPORT_SYMBOL(ptlrpc_req_finished_with_imp_lock);
 
 /**
  * Helper function
@@ -2448,7 +2438,6 @@ int ptlrpc_unregister_reply(struct ptlrpc_request *request, int async)
         }
         RETURN(0);
 }
-EXPORT_SYMBOL(ptlrpc_unregister_reply);
 
 static void ptlrpc_free_request(struct ptlrpc_request *req)
 {
@@ -2571,7 +2560,6 @@ void ptlrpc_cleanup_client(struct obd_import *imp)
         ENTRY;
         EXIT;
 }
-EXPORT_SYMBOL(ptlrpc_cleanup_client);
 
 /**
  * Schedule previously sent request for resend.
@@ -2609,7 +2597,6 @@ void ptlrpc_resend_req(struct ptlrpc_request *req)
         ptlrpc_client_wake_req(req);
 	spin_unlock(&req->rq_lock);
 }
-EXPORT_SYMBOL(ptlrpc_resend_req);
 
 /* XXX: this function and rq_status are currently unused */
 void ptlrpc_restart_req(struct ptlrpc_request *req)
@@ -2623,7 +2610,6 @@ void ptlrpc_restart_req(struct ptlrpc_request *req)
 	ptlrpc_client_wake_req(req);
 	spin_unlock(&req->rq_lock);
 }
-EXPORT_SYMBOL(ptlrpc_restart_req);
 
 /**
  * Grab additional reference on a request \a req
@@ -2691,7 +2677,6 @@ void ptlrpc_retain_replayable_request(struct ptlrpc_request *req,
 
 	list_add(&req->rq_replay_list, &imp->imp_replay_list);
 }
-EXPORT_SYMBOL(ptlrpc_retain_replayable_request);
 
 /**
  * Send request and wait until it completes.
@@ -2866,7 +2851,6 @@ int ptlrpc_replay_req(struct ptlrpc_request *req)
 	ptlrpcd_add_req(req, PDL_POLICY_LOCAL, -1);
 	RETURN(0);
 }
-EXPORT_SYMBOL(ptlrpc_replay_req);
 
 /**
  * Aborts all in-flight request on import \a imp sending and delayed lists
@@ -2926,7 +2910,6 @@ void ptlrpc_abort_inflight(struct obd_import *imp)
 
 	EXIT;
 }
-EXPORT_SYMBOL(ptlrpc_abort_inflight);
 
 /**
  * Abort all uncompleted requests in request set \a set
@@ -3015,7 +2998,6 @@ __u64 ptlrpc_next_xid(void)
 
 	return next;
 }
-EXPORT_SYMBOL(ptlrpc_next_xid);
 
 /**
  * Get a glimpse at what next xid value might have been.

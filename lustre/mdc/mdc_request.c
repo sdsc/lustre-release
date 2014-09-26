@@ -1064,7 +1064,6 @@ out:
         ptlrpc_req_finished(req);
         return rc;
 }
-EXPORT_SYMBOL(mdc_sendpage);
 #endif
 
 static int mdc_getpage(struct obd_export *exp, const struct lu_fid *fid,

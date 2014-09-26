@@ -357,7 +357,6 @@ generic:
 
 	return n;
 }
-EXPORT_SYMBOL(lustre_errno_hton);
 
 unsigned int lustre_errno_ntoh(unsigned int n)
 {
@@ -381,6 +380,5 @@ generic:
 
 	return h;
 }
-EXPORT_SYMBOL(lustre_errno_ntoh);
 
 #endif /* LUSTRE_TRANSLATE_ERRNOS */

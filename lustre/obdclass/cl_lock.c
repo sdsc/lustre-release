@@ -259,7 +259,6 @@ int cl_lock_descr_match(const struct cl_lock_descr *has,
                 cl_object_same(has->cld_obj, need->cld_obj) &&
                 cl_lock_ext_match(has, need);
 }
-EXPORT_SYMBOL(cl_lock_descr_match);
 
 static void cl_lock_free(const struct lu_env *env, struct cl_lock *lock)
 {
@@ -437,7 +436,6 @@ enum cl_lock_state cl_lock_intransit(const struct lu_env *env,
 	cl_lock_hold_add(env, lock, "intransit", current);
 	return state;
 }
-EXPORT_SYMBOL(cl_lock_intransit);
 
 /**
  *  Exit the intransit state and restore the lock state to the original state
@@ -454,7 +452,6 @@ void cl_lock_extransit(const struct lu_env *env, struct cl_lock *lock,
 	cl_lock_state_set(env, lock, state);
 	cl_lock_unhold(env, lock, "intransit", current);
 }
-EXPORT_SYMBOL(cl_lock_extransit);
 
 /**
  * Checking whether the lock is intransit state
@@ -731,7 +728,6 @@ int cl_lock_mutex_try(const struct lu_env *env, struct cl_lock *lock)
 		result = -EBUSY;
 	RETURN(result);
 }
-EXPORT_SYMBOL(cl_lock_mutex_try);
 
 /**
  {* Unlocks cl_lock object.
@@ -997,7 +993,6 @@ int cl_lock_state_wait(const struct lu_env *env, struct cl_lock *lock)
 	}
 	RETURN(result);
 }
-EXPORT_SYMBOL(cl_lock_state_wait);
 
 static void cl_lock_state_signal(const struct lu_env *env, struct cl_lock *lock,
 				 enum cl_lock_state state)
@@ -1346,7 +1341,6 @@ int cl_enqueue(const struct lu_env *env, struct cl_lock *lock,
                      lock->cll_state == CLS_HELD));
         RETURN(result);
 }
-EXPORT_SYMBOL(cl_enqueue);
 
 /**
  * Tries to unlock a lock.
@@ -1727,7 +1721,6 @@ int cl_lock_enclosure(const struct lu_env *env, struct cl_lock *lock,
         }
         RETURN(result);
 }
-EXPORT_SYMBOL(cl_lock_enclosure);
 
 /** Releases mutices of enclosed locks. */
 void cl_lock_disclosure(const struct lu_env *env,

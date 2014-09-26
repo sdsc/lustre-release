@@ -209,7 +209,6 @@ LNetMEInsert(lnet_handle_me_t current_meh,
 
 	return 0;
 }
-EXPORT_SYMBOL(LNetMEInsert);
 
 /**
  * Unlink a match entry from its match list.
