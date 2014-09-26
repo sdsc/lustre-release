@@ -150,10 +150,14 @@ static int vvp_prune(const struct lu_env *env, struct cl_object *obj)
 	int rc;
 	ENTRY;
 
-	rc = cl_sync_file_range(inode, 0, OBD_OBJECT_EOF, CL_FSYNC_ALL, 1);
-	if (rc == 0)
-		truncate_inode_pages(inode->i_mapping, 0);
+	rc = cl_sync_file_range(inode, 0, OBD_OBJECT_EOF, CL_FSYNC_LOCAL, 1);
+	if (rc < 0) {
+		CERROR(DFID ": writeback failed for layout change: %d\n",
+		       PFID(lu_object_fid(&obj->co_lu)), rc);
+		/* ignore error */
+	}
 
+	rc = cl_sync_file_range(inode, 0, OBD_OBJECT_EOF, CL_FSYNC_DISCARD, 1);
 	RETURN(rc);
 }
 
