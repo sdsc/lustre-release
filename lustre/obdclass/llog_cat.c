@@ -627,7 +627,6 @@ int llog_cat_process_or_fork(const struct lu_env *env,
 
         RETURN(rc);
 }
-EXPORT_SYMBOL(llog_cat_process_or_fork);
 
 int llog_cat_process(const struct lu_env *env, struct llog_handle *cat_llh,
 		     llog_cb_t cb, void *data, int startcat, int startidx)
@@ -846,7 +845,6 @@ int cat_cancel_cb(const struct lu_env *env, struct llog_handle *cathandle,
 
 	RETURN(rc);
 }
-EXPORT_SYMBOL(cat_cancel_cb);
 
 /* helper to initialize catalog llog and process it to cancel */
 int llog_cat_init_and_process(const struct lu_env *env,

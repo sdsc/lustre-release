@@ -2923,7 +2923,6 @@ int lmv_pack_md(union lmv_mds_md **lmmp, const struct lmv_stripe_md *lsm,
 
 	RETURN(lmm_size);
 }
-EXPORT_SYMBOL(lmv_pack_md);
 
 static int lmv_unpack_md_v1(struct obd_export *exp, struct lmv_stripe_md *lsm,
 			    const struct lmv_mds_md_v1 *lmm1)
@@ -3062,7 +3061,6 @@ int lmv_alloc_memmd(struct lmv_stripe_md **lsmp, int stripes)
 {
 	return lmv_unpack_md(NULL, lsmp, NULL, stripes);
 }
-EXPORT_SYMBOL(lmv_alloc_memmd);
 
 void lmv_free_memmd(struct lmv_stripe_md *lsm)
 {

@@ -77,7 +77,6 @@ int cl_io_is_going(const struct lu_env *env)
 {
         return cl_env_info(env)->clt_current_io != NULL;
 }
-EXPORT_SYMBOL(cl_io_is_going);
 
 /**
  * cl_io invariant that holds at all times when exported cl_io_*() functions
@@ -347,7 +346,6 @@ int cl_queue_match(const struct list_head *queue,
 	}
 	RETURN(0);
 }
-EXPORT_SYMBOL(cl_queue_match);
 
 static int cl_queue_merge(const struct list_head *queue,
                           const struct cl_lock_descr *need)
@@ -609,7 +607,6 @@ void cl_io_rw_advance(const struct lu_env *env, struct cl_io *io, size_t nob)
         }
         EXIT;
 }
-EXPORT_SYMBOL(cl_io_rw_advance);
 
 /**
  * Adds a lock to a lockset.
@@ -892,7 +889,6 @@ int cl_io_cancel(const struct lu_env *env, struct cl_io *io,
         }
         return result;
 }
-EXPORT_SYMBOL(cl_io_cancel);
 
 /**
  * Main io loop.
@@ -1171,7 +1167,6 @@ int cl_page_list_own(const struct lu_env *env,
 	}
 	RETURN(result);
 }
-EXPORT_SYMBOL(cl_page_list_own);
 
 /**
  * Assumes all pages in a queue.
@@ -1186,7 +1181,6 @@ void cl_page_list_assume(const struct lu_env *env,
 	cl_page_list_for_each(page, plist)
 		cl_page_assume(env, io, page);
 }
-EXPORT_SYMBOL(cl_page_list_assume);
 
 /**
  * Discards all pages in a queue.
@@ -1202,7 +1196,6 @@ void cl_page_list_discard(const struct lu_env *env, struct cl_io *io,
 		cl_page_discard(env, io, page);
 	EXIT;
 }
-EXPORT_SYMBOL(cl_page_list_discard);
 
 /**
  * Initialize dual page queue.
@@ -1262,7 +1255,6 @@ void cl_2queue_assume(const struct lu_env *env,
         cl_page_list_assume(env, io, &queue->c2_qin);
         cl_page_list_assume(env, io, &queue->c2_qout);
 }
-EXPORT_SYMBOL(cl_2queue_assume);
 
 /**
  * Finalize both page lists of a 2-queue.
@@ -1585,7 +1577,6 @@ void cl_sync_io_init(struct cl_sync_io *anchor, int nr,
 	LASSERT(end != NULL);
 	EXIT;
 }
-EXPORT_SYMBOL(cl_sync_io_init);
 
 /**
  * Wait until all IO completes. Transfer completion routine has to call
@@ -1623,7 +1614,6 @@ int cl_sync_io_wait(const struct lu_env *env, struct cl_sync_io *anchor,
 	}
 	RETURN(rc);
 }
-EXPORT_SYMBOL(cl_sync_io_wait);
 
 /**
  * Indicate that transfer of a single page completed.
@@ -1647,4 +1637,3 @@ void cl_sync_io_note(const struct lu_env *env, struct cl_sync_io *anchor,
 	}
 	EXIT;
 }
-EXPORT_SYMBOL(cl_sync_io_note);
