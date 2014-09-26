@@ -178,7 +178,6 @@ void ptlrpcd_add_rqset(struct ptlrpc_request_set *set)
 			wake_up(&pc->pc_partners[i]->pc_set->set_waitq);
 	}
 }
-EXPORT_SYMBOL(ptlrpcd_add_rqset);
 
 /**
  * Return transferred RPCs count.

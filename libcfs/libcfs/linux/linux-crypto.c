@@ -238,7 +238,6 @@ int cfs_crypto_hash_update(struct cfs_crypto_hash_desc *hdesc,
 
 	return crypto_hash_update((struct hash_desc *)hdesc, &sl, sl.length);
 }
-EXPORT_SYMBOL(cfs_crypto_hash_update);
 
 /**
  * Finish hash calculation, copy hash digest to buffer, clean up hash descriptor

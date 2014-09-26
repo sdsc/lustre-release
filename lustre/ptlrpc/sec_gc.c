@@ -75,7 +75,6 @@ void sptlrpc_gc_add_sec(struct ptlrpc_sec *sec)
 
 	CDEBUG(D_SEC, "added sec %p(%s)\n", sec, sec->ps_policy->sp_name);
 }
-EXPORT_SYMBOL(sptlrpc_gc_add_sec);
 
 void sptlrpc_gc_del_sec(struct ptlrpc_sec *sec)
 {
@@ -99,7 +98,6 @@ void sptlrpc_gc_del_sec(struct ptlrpc_sec *sec)
 
 	CDEBUG(D_SEC, "del sec %p(%s)\n", sec, sec->ps_policy->sp_name);
 }
-EXPORT_SYMBOL(sptlrpc_gc_del_sec);
 
 void sptlrpc_gc_add_ctx(struct ptlrpc_cli_ctx *ctx)
 {
@@ -114,7 +112,6 @@ void sptlrpc_gc_add_ctx(struct ptlrpc_cli_ctx *ctx)
 	thread_add_flags(&sec_gc_thread, SVC_SIGNAL);
 	wake_up(&sec_gc_thread.t_ctl_waitq);
 }
-EXPORT_SYMBOL(sptlrpc_gc_add_ctx);
 
 static void sec_process_ctx_list(void)
 {

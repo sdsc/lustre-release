@@ -99,7 +99,6 @@ void cl_object_header_fini(struct cl_object_header *h)
 	LASSERT(list_empty(&h->coh_locks));
         lu_object_header_fini(&h->coh_lu);
 }
-EXPORT_SYMBOL(cl_object_header_fini);
 
 /**
  * Returns a cl_object with a given \a fid.
@@ -389,7 +388,6 @@ int cl_object_has_locks(struct cl_object *obj)
 
 	return (has == 0);
 }
-EXPORT_SYMBOL(cl_object_has_locks);
 
 void cache_stats_init(struct cache_stats *cs, const char *name)
 {
@@ -857,7 +855,6 @@ struct lu_env *cl_env_peek(int *refcheck)
         CDEBUG(D_OTHER, "%d@%p\n", cle ? cle->ce_ref : 0, cle);
         return env;
 }
-EXPORT_SYMBOL(cl_env_peek);
 
 /**
  * Returns lu_env: if there already is an environment associated with the
@@ -1092,7 +1089,6 @@ void cl_attr2lvb(struct ost_lvb *lvb, const struct cl_attr *attr)
         lvb->lvb_blocks = attr->cat_blocks;
         EXIT;
 }
-EXPORT_SYMBOL(cl_attr2lvb);
 
 /**
  * Converts struct ost_lvb to struct cl_attr.

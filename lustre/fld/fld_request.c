@@ -227,7 +227,6 @@ int fld_client_del_target(struct lu_client_fld *fld, __u64 idx)
 	spin_unlock(&fld->lcf_lock);
 	RETURN(-ENOENT);
 }
-EXPORT_SYMBOL(fld_client_del_target);
 
 #ifdef LPROCFS
 static int fld_client_proc_init(struct lu_client_fld *fld)
@@ -518,7 +517,6 @@ void fld_client_flush(struct lu_client_fld *fld)
 {
         fld_cache_flush(fld->lcf_cache);
 }
-EXPORT_SYMBOL(fld_client_flush);
 
 
 struct proc_dir_entry *fld_type_proc_dir;

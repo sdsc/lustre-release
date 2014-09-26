@@ -87,7 +87,6 @@ cfs_cpt_table_print(struct cfs_cpt_table *cptab, char *buf, int len)
 
 	return rc;
 }
-EXPORT_SYMBOL(cfs_cpt_table_print);
 
 int
 cfs_cpt_number(struct cfs_cpt_table *cptab)
@@ -108,7 +107,6 @@ cfs_cpt_online(struct cfs_cpt_table *cptab, int cpt)
 {
 	return 1;
 }
-EXPORT_SYMBOL(cfs_cpt_online);
 
 nodemask_t *
 cfs_cpt_nodemask(struct cfs_cpt_table *cptab, int cpt)
@@ -122,26 +120,22 @@ cfs_cpt_set_cpu(struct cfs_cpt_table *cptab, int cpt, int cpu)
 {
 	return 1;
 }
-EXPORT_SYMBOL(cfs_cpt_set_cpu);
 
 void
 cfs_cpt_unset_cpu(struct cfs_cpt_table *cptab, int cpt, int cpu)
 {
 }
-EXPORT_SYMBOL(cfs_cpt_unset_cpu);
 
 int
 cfs_cpt_set_cpumask(struct cfs_cpt_table *cptab, int cpt, cpumask_t *mask)
 {
 	return 1;
 }
-EXPORT_SYMBOL(cfs_cpt_set_cpumask);
 
 void
 cfs_cpt_unset_cpumask(struct cfs_cpt_table *cptab, int cpt, cpumask_t *mask)
 {
 }
-EXPORT_SYMBOL(cfs_cpt_unset_cpumask);
 
 int
 cfs_cpt_set_node(struct cfs_cpt_table *cptab, int cpt, int node)
@@ -154,33 +148,28 @@ void
 cfs_cpt_unset_node(struct cfs_cpt_table *cptab, int cpt, int node)
 {
 }
-EXPORT_SYMBOL(cfs_cpt_unset_node);
 
 int
 cfs_cpt_set_nodemask(struct cfs_cpt_table *cptab, int cpt, nodemask_t *mask)
 {
 	return 1;
 }
-EXPORT_SYMBOL(cfs_cpt_set_nodemask);
 
 void
 cfs_cpt_unset_nodemask(struct cfs_cpt_table *cptab, int cpt, nodemask_t *mask)
 {
 }
-EXPORT_SYMBOL(cfs_cpt_unset_nodemask);
 
 void
 cfs_cpt_clear(struct cfs_cpt_table *cptab, int cpt)
 {
 }
-EXPORT_SYMBOL(cfs_cpt_clear);
 
 int
 cfs_cpt_spread_node(struct cfs_cpt_table *cptab, int cpt)
 {
 	return 0;
 }
-EXPORT_SYMBOL(cfs_cpt_spread_node);
 
 int
 cfs_cpu_ht_nsiblings(int cpu)
@@ -201,7 +190,6 @@ cfs_cpt_of_cpu(struct cfs_cpt_table *cptab, int cpu)
 {
 	return 0;
 }
-EXPORT_SYMBOL(cfs_cpt_of_cpu);
 
 int
 cfs_cpt_bind(struct cfs_cpt_table *cptab, int cpt)

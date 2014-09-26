@@ -958,7 +958,6 @@ void ldlm_namespace_get(struct ldlm_namespace *ns)
 {
 	atomic_inc(&ns->ns_bref);
 }
-EXPORT_SYMBOL(ldlm_namespace_get);
 
 /* This is only for callers that care about refcount */
 int ldlm_namespace_get_return(struct ldlm_namespace *ns)
@@ -973,7 +972,6 @@ void ldlm_namespace_put(struct ldlm_namespace *ns)
 		spin_unlock(&ns->ns_lock);
 	}
 }
-EXPORT_SYMBOL(ldlm_namespace_put);
 
 /** Register \a ns in the list of namespaces */
 void ldlm_namespace_register(struct ldlm_namespace *ns, ldlm_side_t client)
@@ -1318,7 +1316,6 @@ void ldlm_dump_all_namespaces(ldlm_side_t client, int level)
 
 	mutex_unlock(ldlm_namespace_lock(client));
 }
-EXPORT_SYMBOL(ldlm_dump_all_namespaces);
 
 static int ldlm_res_hash_dump(cfs_hash_t *hs, cfs_hash_bd_t *bd,
 			      struct hlist_node *hnode, void *arg)
@@ -1356,7 +1353,6 @@ void ldlm_namespace_dump(int level, struct ldlm_namespace *ns)
 	ns->ns_next_dump = cfs_time_shift(10);
 	spin_unlock(&ns->ns_lock);
 }
-EXPORT_SYMBOL(ldlm_namespace_dump);
 
 /**
  * Print information about all locks in this resource to debug log.

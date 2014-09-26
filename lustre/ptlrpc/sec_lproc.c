@@ -53,7 +53,6 @@
 
 
 struct proc_dir_entry *sptlrpc_proc_root = NULL;
-EXPORT_SYMBOL(sptlrpc_proc_root);
 
 char *sec_flags2str(unsigned long flags, char *buf, int bufsize)
 {

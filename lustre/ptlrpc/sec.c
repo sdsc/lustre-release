@@ -85,7 +85,6 @@ int sptlrpc_register_policy(struct ptlrpc_sec_policy *policy)
         CDEBUG(D_SEC, "%s: registered\n", policy->sp_name);
         return 0;
 }
-EXPORT_SYMBOL(sptlrpc_register_policy);
 
 int sptlrpc_unregister_policy(struct ptlrpc_sec_policy *policy)
 {
@@ -107,7 +106,6 @@ int sptlrpc_unregister_policy(struct ptlrpc_sec_policy *policy)
         CDEBUG(D_SEC, "%s: unregistered\n", policy->sp_name);
         return 0;
 }
-EXPORT_SYMBOL(sptlrpc_unregister_policy);
 
 static
 struct ptlrpc_sec_policy * sptlrpc_wireflavor2policy(__u32 flavor)
@@ -174,7 +172,6 @@ __u32 sptlrpc_name2flavor_base(const char *name)
 
 	return SPTLRPC_FLVR_INVALID;
 }
-EXPORT_SYMBOL(sptlrpc_name2flavor_base);
 
 const char *sptlrpc_flavor2name_base(__u32 flvr)
 {
@@ -202,7 +199,6 @@ const char *sptlrpc_flavor2name_base(__u32 flvr)
 	CERROR("invalid wire flavor 0x%x\n", flvr);
 	return "invalid";
 }
-EXPORT_SYMBOL(sptlrpc_flavor2name_base);
 
 char *sptlrpc_flavor2name_bulk(struct sptlrpc_flavor *sf,
                                char *buf, int bufsize)
@@ -217,7 +213,6 @@ char *sptlrpc_flavor2name_bulk(struct sptlrpc_flavor *sf,
         buf[bufsize - 1] = '\0';
         return buf;
 }
-EXPORT_SYMBOL(sptlrpc_flavor2name_bulk);
 
 char *sptlrpc_flavor2name(struct sptlrpc_flavor *sf, char *buf, int bufsize)
 {
@@ -257,7 +252,6 @@ char *sptlrpc_secflags2str(__u32 flags, char *buf, int bufsize)
 
 	return buf;
 }
-EXPORT_SYMBOL(sptlrpc_secflags2str);
 
 /**************************************************
  * client context APIs                            *
@@ -294,7 +288,6 @@ struct ptlrpc_cli_ctx *sptlrpc_cli_ctx_get(struct ptlrpc_cli_ctx *ctx)
 	atomic_inc(&ctx->cc_refcount);
 	return ctx;
 }
-EXPORT_SYMBOL(sptlrpc_cli_ctx_get);
 
 void sptlrpc_cli_ctx_put(struct ptlrpc_cli_ctx *ctx, int sync)
 {
@@ -308,7 +301,6 @@ void sptlrpc_cli_ctx_put(struct ptlrpc_cli_ctx *ctx, int sync)
 
 	sec->ps_policy->sp_cops->release_ctx(sec, ctx, sync);
 }
-EXPORT_SYMBOL(sptlrpc_cli_ctx_put);
 
 /**
  * Expire the client context immediately.
@@ -320,7 +312,6 @@ void sptlrpc_cli_ctx_expire(struct ptlrpc_cli_ctx *ctx)
         LASSERT(ctx->cc_ops->die);
         ctx->cc_ops->die(ctx, 0);
 }
-EXPORT_SYMBOL(sptlrpc_cli_ctx_expire);
 
 /**
  * To wake up the threads who are waiting for this client context. Called
@@ -338,7 +329,6 @@ void sptlrpc_cli_ctx_wakeup(struct ptlrpc_cli_ctx *ctx)
 	}
 	spin_unlock(&ctx->cc_lock);
 }
-EXPORT_SYMBOL(sptlrpc_cli_ctx_wakeup);
 
 int sptlrpc_cli_ctx_display(struct ptlrpc_cli_ctx *ctx, char *buf, int bufsize)
 {
@@ -581,7 +571,6 @@ int sptlrpc_req_replace_dead_ctx(struct ptlrpc_request *req)
         sptlrpc_cli_ctx_put(oldctx, 1);
         RETURN(0);
 }
-EXPORT_SYMBOL(sptlrpc_req_replace_dead_ctx);
 
 static
 int ctx_check_refresh(struct ptlrpc_cli_ctx *ctx)
@@ -1215,7 +1204,6 @@ int sptlrpc_get_next_secid(void)
 {
 	return atomic_inc_return(&sptlrpc_sec_id);
 }
-EXPORT_SYMBOL(sptlrpc_get_next_secid);
 
 /**************************************************
  * client side high-level security APIs           *
@@ -1250,7 +1238,6 @@ void sptlrpc_sec_destroy(struct ptlrpc_sec *sec)
 {
         sec_cop_destroy_sec(sec);
 }
-EXPORT_SYMBOL(sptlrpc_sec_destroy);
 
 static void sptlrpc_sec_kill(struct ptlrpc_sec *sec)
 {
@@ -1270,7 +1257,6 @@ struct ptlrpc_sec *sptlrpc_sec_get(struct ptlrpc_sec *sec)
 
 	return sec;
 }
-EXPORT_SYMBOL(sptlrpc_sec_get);
 
 void sptlrpc_sec_put(struct ptlrpc_sec *sec)
 {
@@ -1283,7 +1269,6 @@ void sptlrpc_sec_put(struct ptlrpc_sec *sec)
 		}
 	}
 }
-EXPORT_SYMBOL(sptlrpc_sec_put);
 
 /*
  * policy module is responsible for taking refrence of import
@@ -1349,7 +1334,6 @@ struct ptlrpc_sec *sptlrpc_import_sec_ref(struct obd_import *imp)
 
 	return sec;
 }
-EXPORT_SYMBOL(sptlrpc_import_sec_ref);
 
 static void sptlrpc_import_sec_install(struct obd_import *imp,
                                        struct ptlrpc_sec *sec)
@@ -1544,7 +1528,6 @@ void sptlrpc_import_flush_all_ctx(struct obd_import *imp)
 {
         import_flush_ctx_common(imp, -1, 1, 1);
 }
-EXPORT_SYMBOL(sptlrpc_import_flush_all_ctx);
 
 /**
  * Used by ptlrpc client to allocate request buffer of \a req. Upon return
@@ -1640,7 +1623,6 @@ void _sptlrpc_enlarge_msg_inplace(struct lustre_msg *msg,
         /* finally set new segment size */
         msg->lm_buflens[segment] = newsize;
 }
-EXPORT_SYMBOL(_sptlrpc_enlarge_msg_inplace);
 
 /**
  * Used by ptlrpc client to enlarge the \a segment of request message pointed
@@ -1945,7 +1927,6 @@ int sptlrpc_target_export_check(struct obd_export *exp,
                                cfs_time_current_sec()) : 0);
         return -EACCES;
 }
-EXPORT_SYMBOL(sptlrpc_target_export_check);
 
 void sptlrpc_target_update_exp_flavor(struct obd_device *obd,
                                       struct sptlrpc_rule_set *rset)
@@ -1985,7 +1966,6 @@ void sptlrpc_target_update_exp_flavor(struct obd_device *obd,
 
 	spin_unlock(&obd->obd_dev_lock);
 }
-EXPORT_SYMBOL(sptlrpc_target_update_exp_flavor);
 
 static int sptlrpc_svc_check_from(struct ptlrpc_request *req, int svc_rc)
 {
@@ -2250,7 +2230,6 @@ int sptlrpc_cli_wrap_bulk(struct ptlrpc_request *req,
                 return ctx->cc_ops->wrap_bulk(ctx, req, desc);
         return 0;
 }
-EXPORT_SYMBOL(sptlrpc_cli_wrap_bulk);
 
 /**
  * This is called after unwrap the reply message.
@@ -2334,7 +2313,6 @@ int sptlrpc_svc_wrap_bulk(struct ptlrpc_request *req,
 
         return 0;
 }
-EXPORT_SYMBOL(sptlrpc_svc_wrap_bulk);
 
 /**
  * Performe transformation upon incoming bulk write.
@@ -2373,7 +2351,6 @@ int sptlrpc_svc_unwrap_bulk(struct ptlrpc_request *req,
         /* return 0 to allow reply be sent */
         return 0;
 }
-EXPORT_SYMBOL(sptlrpc_svc_unwrap_bulk);
 
 /**
  * Prepare buffers for incoming bulk write.
@@ -2394,7 +2371,6 @@ int sptlrpc_svc_prep_bulk(struct ptlrpc_request *req,
 
         return 0;
 }
-EXPORT_SYMBOL(sptlrpc_svc_prep_bulk);
 
 #endif /* HAVE_SERVER_SUPPORT */
 
@@ -2412,7 +2388,6 @@ int sptlrpc_current_user_desc_size(void)
                 ngroups = LUSTRE_MAX_GROUPS;
         return sptlrpc_user_desc_size(ngroups);
 }
-EXPORT_SYMBOL(sptlrpc_current_user_desc_size);
 
 int sptlrpc_pack_user_desc(struct lustre_msg *msg, int offset)
 {
@@ -2436,7 +2411,6 @@ int sptlrpc_pack_user_desc(struct lustre_msg *msg, int offset)
 
 	return 0;
 }
-EXPORT_SYMBOL(sptlrpc_pack_user_desc);
 
 int sptlrpc_unpack_user_desc(struct lustre_msg *msg, int offset, int swabbed)
 {
@@ -2475,7 +2449,6 @@ int sptlrpc_unpack_user_desc(struct lustre_msg *msg, int offset, int swabbed)
 
         return 0;
 }
-EXPORT_SYMBOL(sptlrpc_unpack_user_desc);
 
 /****************************************
  * misc helpers                         *
@@ -2489,7 +2462,6 @@ const char * sec2target_str(struct ptlrpc_sec *sec)
                 return "c";
         return obd_uuid2str(&sec->ps_import->imp_obd->u.cli.cl_target_uuid);
 }
-EXPORT_SYMBOL(sec2target_str);
 
 /*
  * return true if the bulk data is protected

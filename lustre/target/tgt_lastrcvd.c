@@ -127,7 +127,6 @@ int tgt_client_data_read(const struct lu_env *env, struct lu_target *tgt,
 	       lcd->lcd_last_close_result, rc);
 	return rc;
 }
-EXPORT_SYMBOL(tgt_client_data_read);
 
 int tgt_client_data_write(const struct lu_env *env, struct lu_target *tgt,
 			  struct lsd_client_data *lcd, loff_t *off,
@@ -143,7 +142,6 @@ int tgt_client_data_write(const struct lu_env *env, struct lu_target *tgt,
 
 	return dt_record_write(env, tgt->lut_last_rcvd, &tti->tti_buf, off, th);
 }
-EXPORT_SYMBOL(tgt_client_data_write);
 
 /**
  * Update client data in last_rcvd
@@ -217,7 +215,6 @@ int tgt_server_data_read(const struct lu_env *env, struct lu_target *tgt)
 	       tgt->lut_lsd.lsd_uuid, tgt->lut_lsd.lsd_last_transno, rc);
         return rc;
 }
-EXPORT_SYMBOL(tgt_server_data_read);
 
 int tgt_server_data_write(const struct lu_env *env, struct lu_target *tgt,
 			  struct thandle *th)
@@ -240,7 +237,6 @@ int tgt_server_data_write(const struct lu_env *env, struct lu_target *tgt,
 
 	RETURN(rc);
 }
-EXPORT_SYMBOL(tgt_server_data_write);
 
 /**
  * Update server data in last_rcvd
@@ -326,7 +322,6 @@ cleanup:
 
 	RETURN(rc);
 }
-EXPORT_SYMBOL(tgt_truncate_last_rcvd);
 
 void tgt_client_epoch_update(const struct lu_env *env, struct obd_export *exp)
 {
@@ -394,7 +389,6 @@ void tgt_boot_epoch_update(struct lu_target *tgt)
 	tgt_server_data_update(&env, tgt, 1);
 	lu_env_fini(&env);
 }
-EXPORT_SYMBOL(tgt_boot_epoch_update);
 
 /**
  * commit callback, need to update last_commited value
@@ -467,7 +461,6 @@ int tgt_last_commit_cb_add(struct thandle *th, struct lu_target *tgt,
 
 	return rc;
 }
-EXPORT_SYMBOL(tgt_last_commit_cb_add);
 
 struct tgt_new_client_callback {
 	struct dt_txn_commit_cb	 lncc_cb;
@@ -631,7 +624,6 @@ int tgt_client_add(const struct lu_env *env,  struct obd_export *exp, int idx)
 
 	RETURN(0);
 }
-EXPORT_SYMBOL(tgt_client_add);
 
 int tgt_client_del(const struct lu_env *env, struct obd_export *exp)
 {

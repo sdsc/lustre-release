@@ -1170,7 +1170,6 @@ bool cfs_nidrange_is_contiguous(struct list_head *nidlist)
 
 	return true;
 }
-EXPORT_SYMBOL(cfs_nidrange_is_contiguous);
 
 /**
  * Determines whether an expression list in an num nidrange contains exactly
@@ -1308,7 +1307,6 @@ void cfs_nidrange_find_min_max(struct list_head *nidlist, char *min_nid,
 	snprintf(max_nid, nidstr_length, "%s@%s%d", max_addr_str, lndname,
 		 netnum);
 }
-EXPORT_SYMBOL(cfs_nidrange_find_min_max);
 
 /**
  * Determines the min and max NID values for num LNDs
@@ -1381,13 +1379,11 @@ static void cfs_ip_min_max(struct list_head *nidlist, __u32 *min_nid,
 EXPORT_SYMBOL(libcfs_isknown_lnd);
 EXPORT_SYMBOL(libcfs_lnd2modname);
 EXPORT_SYMBOL(libcfs_lnd2str);
-EXPORT_SYMBOL(libcfs_str2lnd);
 EXPORT_SYMBOL(libcfs_net2str);
 EXPORT_SYMBOL(libcfs_nid2str);
 EXPORT_SYMBOL(libcfs_str2net);
 EXPORT_SYMBOL(libcfs_str2nid);
 EXPORT_SYMBOL(libcfs_id2str);
-EXPORT_SYMBOL(libcfs_str2anynid);
 EXPORT_SYMBOL(cfs_free_nidlist);
 EXPORT_SYMBOL(cfs_parse_nidlist);
 EXPORT_SYMBOL(cfs_print_nidlist);

@@ -634,7 +634,6 @@ again:
 	spin_unlock(&page_pools.epp_lock);
 	return 0;
 }
-EXPORT_SYMBOL(sptlrpc_enc_pool_get_pages);
 
 void sptlrpc_enc_pool_put_pages(struct ptlrpc_bulk_desc *desc)
 {
@@ -679,7 +678,6 @@ void sptlrpc_enc_pool_put_pages(struct ptlrpc_bulk_desc *desc)
 		 desc->bd_iov_count * sizeof(*desc->bd_enc_iov));
 	desc->bd_enc_iov = NULL;
 }
-EXPORT_SYMBOL(sptlrpc_enc_pool_put_pages);
 
 /*
  * we don't do much stuff for add_user/del_user anymore, except adding some
@@ -708,13 +706,11 @@ int sptlrpc_enc_pool_add_user(void)
 	}
 	return 0;
 }
-EXPORT_SYMBOL(sptlrpc_enc_pool_add_user);
 
 int sptlrpc_enc_pool_del_user(void)
 {
         return 0;
 }
-EXPORT_SYMBOL(sptlrpc_enc_pool_del_user);
 
 static inline void enc_pools_alloc(void)
 {
@@ -826,13 +822,11 @@ const char * sptlrpc_get_hash_name(__u8 hash_alg)
 {
 	return cfs_crypto_hash_name(cfs_hash_alg_id[hash_alg]);
 }
-EXPORT_SYMBOL(sptlrpc_get_hash_name);
 
 __u8 sptlrpc_get_hash_alg(const char *algname)
 {
 	return cfs_crypto_hash_alg(algname);
 }
-EXPORT_SYMBOL(sptlrpc_get_hash_alg);
 
 int bulk_sec_desc_unpack(struct lustre_msg *msg, int offset, int swabbed)
 {
@@ -870,7 +864,6 @@ int bulk_sec_desc_unpack(struct lustre_msg *msg, int offset, int swabbed)
 
         return 0;
 }
-EXPORT_SYMBOL(bulk_sec_desc_unpack);
 
 /*
  * Compute the checksum of an RPC buffer payload.  If the return \a buflen
@@ -919,6 +912,5 @@ int sptlrpc_get_bulk_checksum(struct ptlrpc_bulk_desc *desc, __u8 alg,
 
 	return err;
 }
-EXPORT_SYMBOL(sptlrpc_get_bulk_checksum);
 
 
