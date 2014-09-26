@@ -175,7 +175,6 @@ char *cfs_strdup(const char *str, u_int32_t flags)
 
         return dup_str;
 }
-EXPORT_SYMBOL(cfs_strdup);
 
 /**
  * cfs_{v}snprintf() return the actual size that is printed rather than
@@ -191,7 +190,6 @@ int cfs_vsnprintf(char *buf, size_t size, const char *fmt, va_list args)
 
         return  (i >= size ? size - 1 : i);
 }
-EXPORT_SYMBOL(cfs_vsnprintf);
 
 /* safe snprintf */
 int cfs_snprintf(char *buf, size_t size, const char *fmt, ...)
@@ -205,7 +203,6 @@ int cfs_snprintf(char *buf, size_t size, const char *fmt, ...)
 
         return  i;
 }
-EXPORT_SYMBOL(cfs_snprintf);
 
 /* get the first string out of @str */
 char *cfs_firststr(char *str, size_t size)
@@ -337,7 +334,6 @@ cfs_str2num_check(char *str, int nob, unsigned *num,
 
 	return (*num >= min && *num <= max);
 }
-EXPORT_SYMBOL(cfs_str2num_check);
 
 /**
  * Parses \<range_expr\> token of the syntax. If \a bracketed is false,
@@ -415,7 +411,6 @@ cfs_range_expr_parse(struct cfs_lstr *src, unsigned min, unsigned max,
 	LIBCFS_FREE(re, sizeof(*re));
 	return -EINVAL;
 }
-EXPORT_SYMBOL(cfs_range_expr_parse);
 
 /**
  * Print the range expression \a re into specified \a buffer.
@@ -482,7 +477,6 @@ cfs_expr_list_print(char *buffer, int count, struct cfs_expr_list *expr_list)
 
 	return i;
 }
-EXPORT_SYMBOL(cfs_expr_list_print);
 
 /**
  * Matches value (\a value) against ranges expression list \a expr_list.
@@ -503,7 +497,6 @@ cfs_expr_list_match(__u32 value, struct cfs_expr_list *expr_list)
 
 	return 0;
 }
-EXPORT_SYMBOL(cfs_expr_list_match);
 
 /**
  * Convert express list (\a expr_list) to an array of all matched values
@@ -656,7 +649,6 @@ cfs_expr_list_free_list(struct list_head *list)
 		cfs_expr_list_free(el);
 	}
 }
-EXPORT_SYMBOL(cfs_expr_list_free_list);
 
 int
 cfs_ip_addr_parse(char *str, int len, struct list_head *list)

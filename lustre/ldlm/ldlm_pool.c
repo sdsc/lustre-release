@@ -644,7 +644,6 @@ int ldlm_pool_shrink(struct ldlm_pool *pl, int nr, gfp_t gfp_mask)
         }
         return cancel;
 }
-EXPORT_SYMBOL(ldlm_pool_shrink);
 
 /**
  * Pool setup wrapper. Will call either client or server pool recalc callback
@@ -658,7 +657,6 @@ int ldlm_pool_setup(struct ldlm_pool *pl, int limit)
                 return(pl->pl_ops->po_setup(pl, limit));
         return 0;
 }
-EXPORT_SYMBOL(ldlm_pool_setup);
 
 static int lprocfs_pool_state_seq_show(struct seq_file *m, void *unused)
 {
@@ -884,7 +882,6 @@ int ldlm_pool_init(struct ldlm_pool *pl, struct ldlm_namespace *ns,
 
         RETURN(rc);
 }
-EXPORT_SYMBOL(ldlm_pool_init);
 
 void ldlm_pool_fini(struct ldlm_pool *pl)
 {
@@ -899,7 +896,6 @@ void ldlm_pool_fini(struct ldlm_pool *pl)
         POISON(pl, 0x5a, sizeof(*pl));
         EXIT;
 }
-EXPORT_SYMBOL(ldlm_pool_fini);
 
 /**
  * Add new taken ldlm lock \a lock into pool \a pl accounting.
@@ -927,7 +923,6 @@ void ldlm_pool_add(struct ldlm_pool *pl, struct ldlm_lock *lock)
 	if (ns_is_server(ldlm_pl2ns(pl)))
 		ldlm_pool_recalc(pl);
 }
-EXPORT_SYMBOL(ldlm_pool_add);
 
 /**
  * Remove ldlm lock \a lock from pool \a pl accounting.
@@ -949,7 +944,6 @@ void ldlm_pool_del(struct ldlm_pool *pl, struct ldlm_lock *lock)
 	if (ns_is_server(ldlm_pl2ns(pl)))
 		ldlm_pool_recalc(pl);
 }
-EXPORT_SYMBOL(ldlm_pool_del);
 
 /**
  * Returns current \a pl SLV.
@@ -964,7 +958,6 @@ __u64 ldlm_pool_get_slv(struct ldlm_pool *pl)
 	spin_unlock(&pl->pl_lock);
 	return slv;
 }
-EXPORT_SYMBOL(ldlm_pool_get_slv);
 
 /**
  * Sets passed \a slv to \a pl.
@@ -977,7 +970,6 @@ void ldlm_pool_set_slv(struct ldlm_pool *pl, __u64 slv)
 	pl->pl_server_lock_volume = slv;
 	spin_unlock(&pl->pl_lock);
 }
-EXPORT_SYMBOL(ldlm_pool_set_slv);
 
 /**
  * Returns current \a pl CLV.
@@ -992,7 +984,6 @@ __u64 ldlm_pool_get_clv(struct ldlm_pool *pl)
 	spin_unlock(&pl->pl_lock);
 	return slv;
 }
-EXPORT_SYMBOL(ldlm_pool_get_clv);
 
 /**
  * Sets passed \a clv to \a pl.
@@ -1005,7 +996,6 @@ void ldlm_pool_set_clv(struct ldlm_pool *pl, __u64 clv)
 	pl->pl_client_lock_volume = clv;
 	spin_unlock(&pl->pl_lock);
 }
-EXPORT_SYMBOL(ldlm_pool_set_clv);
 
 /**
  * Returns current \a pl limit.
@@ -1014,7 +1004,6 @@ __u32 ldlm_pool_get_limit(struct ldlm_pool *pl)
 {
 	return atomic_read(&pl->pl_limit);
 }
-EXPORT_SYMBOL(ldlm_pool_get_limit);
 
 /**
  * Sets passed \a limit to \a pl.
@@ -1023,7 +1012,6 @@ void ldlm_pool_set_limit(struct ldlm_pool *pl, __u32 limit)
 {
 	atomic_set(&pl->pl_limit, limit);
 }
-EXPORT_SYMBOL(ldlm_pool_set_limit);
 
 /**
  * Returns current LVF from \a pl.
@@ -1032,7 +1020,6 @@ __u32 ldlm_pool_get_lvf(struct ldlm_pool *pl)
 {
 	return atomic_read(&pl->pl_lock_volume_factor);
 }
-EXPORT_SYMBOL(ldlm_pool_get_lvf);
 
 static struct ptlrpc_thread *ldlm_pools_thread;
 static struct shrinker *ldlm_pools_srv_shrinker;
@@ -1367,7 +1354,6 @@ int ldlm_pools_recalc(ldlm_side_t client)
         }
 	return time;
 }
-EXPORT_SYMBOL(ldlm_pools_recalc);
 
 static int ldlm_pools_thread_main(void *arg)
 {
@@ -1486,7 +1472,6 @@ int ldlm_pools_init(void)
 	}
 	RETURN(rc);
 }
-EXPORT_SYMBOL(ldlm_pools_init);
 
 void ldlm_pools_fini(void)
 {
@@ -1500,110 +1485,92 @@ void ldlm_pools_fini(void)
 	}
 	ldlm_pools_thread_stop();
 }
-EXPORT_SYMBOL(ldlm_pools_fini);
 
 #else /* !HAVE_LRU_RESIZE_SUPPORT */
 int ldlm_pool_setup(struct ldlm_pool *pl, int limit)
 {
         return 0;
 }
-EXPORT_SYMBOL(ldlm_pool_setup);
 
 int ldlm_pool_recalc(struct ldlm_pool *pl)
 {
         return 0;
 }
-EXPORT_SYMBOL(ldlm_pool_recalc);
 
 int ldlm_pool_shrink(struct ldlm_pool *pl,
 		     int nr, gfp_t gfp_mask)
 {
         return 0;
 }
-EXPORT_SYMBOL(ldlm_pool_shrink);
 
 int ldlm_pool_init(struct ldlm_pool *pl, struct ldlm_namespace *ns,
                    int idx, ldlm_side_t client)
 {
         return 0;
 }
-EXPORT_SYMBOL(ldlm_pool_init);
 
 void ldlm_pool_fini(struct ldlm_pool *pl)
 {
         return;
 }
-EXPORT_SYMBOL(ldlm_pool_fini);
 
 void ldlm_pool_add(struct ldlm_pool *pl, struct ldlm_lock *lock)
 {
         return;
 }
-EXPORT_SYMBOL(ldlm_pool_add);
 
 void ldlm_pool_del(struct ldlm_pool *pl, struct ldlm_lock *lock)
 {
         return;
 }
-EXPORT_SYMBOL(ldlm_pool_del);
 
 __u64 ldlm_pool_get_slv(struct ldlm_pool *pl)
 {
         return 1;
 }
-EXPORT_SYMBOL(ldlm_pool_get_slv);
 
 void ldlm_pool_set_slv(struct ldlm_pool *pl, __u64 slv)
 {
         return;
 }
-EXPORT_SYMBOL(ldlm_pool_set_slv);
 
 __u64 ldlm_pool_get_clv(struct ldlm_pool *pl)
 {
         return 1;
 }
-EXPORT_SYMBOL(ldlm_pool_get_clv);
 
 void ldlm_pool_set_clv(struct ldlm_pool *pl, __u64 clv)
 {
         return;
 }
-EXPORT_SYMBOL(ldlm_pool_set_clv);
 
 __u32 ldlm_pool_get_limit(struct ldlm_pool *pl)
 {
         return 0;
 }
-EXPORT_SYMBOL(ldlm_pool_get_limit);
 
 void ldlm_pool_set_limit(struct ldlm_pool *pl, __u32 limit)
 {
         return;
 }
-EXPORT_SYMBOL(ldlm_pool_set_limit);
 
 __u32 ldlm_pool_get_lvf(struct ldlm_pool *pl)
 {
         return 0;
 }
-EXPORT_SYMBOL(ldlm_pool_get_lvf);
 
 int ldlm_pools_init(void)
 {
         return 0;
 }
-EXPORT_SYMBOL(ldlm_pools_init);
 
 void ldlm_pools_fini(void)
 {
         return;
 }
-EXPORT_SYMBOL(ldlm_pools_fini);
 
 int ldlm_pools_recalc(ldlm_side_t client)
 {
         return 0;
 }
-EXPORT_SYMBOL(ldlm_pools_recalc);
 #endif /* HAVE_LRU_RESIZE_SUPPORT */
