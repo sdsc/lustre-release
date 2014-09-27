@@ -284,9 +284,9 @@ struct osd_device {
 	 * OI scrub to scan the whole the device. */
 	__u64			 od_full_scrub_ratio;
 	/* If the speed of found bad OI mappings (per minute)
-	 * exceeds the osd_device::od_full_scrub_speed, then
-	 * trigger OI scrub to scan the whole the device. */
-	__u64			 od_full_scrub_speed;
+	 * exceeds the osd_device::od_full_scrub_threshold_rate,
+	 * then trigger OI scrub to scan the whole device. */
+	__u64			 od_full_scrub_threshold_rate;
 };
 
 enum osd_full_scrub_ratio {
@@ -301,7 +301,7 @@ enum osd_full_scrub_ratio {
 	OFSR_DEFAULT	= 10000,
 };
 
-#define FULL_SCRUB_SPEED_DEFULT	60
+#define FULL_SCRUB_THRESHOLD_RATE_DEFAULT	60
 
 /* There are at most 10 uid/gids are affected in a transaction, and
  * that's rename case:
@@ -662,8 +662,8 @@ int osd_ea_fid_set(struct osd_thread_info *info, struct inode *inode,
 		   const struct lu_fid *fid, __u32 compat, __u32 incompat);
 int osd_get_lma(struct osd_thread_info *info, struct inode *inode,
 		struct dentry *dentry, struct lustre_mdt_attrs *lma);
-int osd_add_oi_cache(struct osd_thread_info *info, struct osd_device *osd,
-		     struct osd_inode_id *id, const struct lu_fid *fid);
+void osd_add_oi_cache(struct osd_thread_info *info, struct osd_device *osd,
+		      struct osd_inode_id *id, const struct lu_fid *fid);
 int osd_get_idif(struct osd_thread_info *info, struct inode *inode,
 		 struct dentry *dentry, struct lu_fid *fid);
 
