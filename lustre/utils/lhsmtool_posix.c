@@ -497,38 +497,6 @@ static int ct_restore_stripe(const char *src, const char *dst, int dst_fd,
 	return rc;
 }
 
-static void bandwidth_ctl_delay(int wsize)
-{
-	static unsigned long long	tot_bytes;
-	static time_t			start_time;
-	static time_t			last_time;
-	time_t				now = time(0);
-	double				tot_time;
-	double				excess;
-	unsigned int			sleep_time;
-
-	if (now > last_time + 5) {
-		tot_bytes = 0;
-		start_time = last_time = now;
-	}
-
-	tot_bytes += wsize;
-	tot_time = now - start_time;
-	if (tot_time < 1)
-		tot_time = 1;
-
-	excess = tot_bytes - tot_time * opt.o_bandwidth;
-	sleep_time = excess * 1000000 / opt.o_bandwidth;
-	if ((now - start_time) % 10 == 1)
-		CT_TRACE("bandwith control: excess=%E sleep for %dus", excess,
-			 sleep_time);
-
-	if (excess > 0)
-		usleep(sleep_time);
-
-	last_time = now;
-}
-
 static int ct_copy_data(struct hsm_copyaction_private *hcp, const char *src,
 			const char *dst, int src_fd, int dst_fd,
 			const struct hsm_action_item *hai, long hal_flags)
@@ -540,8 +508,12 @@ static int ct_copy_data(struct hsm_copyaction_private *hcp, const char *src,
 	char			*buf = NULL;
 	__u64			 write_total = 0;
 	__u64			 length;
-	time_t			 last_print_time = time(NULL);
+	time_t			 last_print_time;
 	int			 rc = 0;
+	/* Bandwidth Control */
+	time_t			start_time;
+	time_t			now;
+	time_t			last_bw_print;
 
 	CT_TRACE("going to copy data from '%s' to '%s'", src, dst);
 
@@ -602,6 +574,8 @@ static int ct_copy_data(struct hsm_copyaction_private *hcp, const char *src,
 
 	CT_DEBUG("Going to copy "LPU64" bytes %s -> %s\n", length, src, dst);
 
+	start_time = last_bw_print = last_print_time = time(NULL);
+
 	while (write_total < length) {
 		ssize_t	rsize;
 		ssize_t	wsize;
@@ -629,12 +603,34 @@ static int ct_copy_data(struct hsm_copyaction_private *hcp, const char *src,
 		write_total += wsize;
 		offset += wsize;
 
-		if (opt.o_bandwidth != 0)
-			/* sleep if needed, to honor bandwidth limits */
-			bandwidth_ctl_delay(wsize);
+		now = time(NULL);
+		/* sleep if needed, to honor bandwidth limits */
+		if (opt.o_bandwidth != 0) {
+			unsigned long long write_theory;
+			write_theory = (now - start_time) * opt.o_bandwidth;
 
-		if (time(0) >= last_print_time + opt.o_report_int) {
-			last_print_time = time(0);
+			if (write_theory < write_total) {
+				unsigned long long excess;
+				useconds_t sleep_time;
+				excess = write_total - write_theory;
+				sleep_time = excess * 100000 / opt.o_bandwidth;
+
+				if (now >= last_bw_print + opt.o_report_int) {
+					CT_TRACE("bandwith control: %lluB/s "
+						 "excess=%llu sleep for %lluus",
+						 opt.o_bandwidth,
+						 excess, (long long)sleep_time);
+					last_bw_print = now;
+				}
+				if (excess >= opt.o_bandwidth)
+					sleep(excess / opt.o_bandwidth);
+				else
+					usleep(sleep_time);
+			}
+		}
+
+		if (now >= last_print_time + opt.o_report_int) {
+			last_print_time = now;
 			CT_TRACE("%%"LPU64" ", 100 * write_total / length);
 			he.length = write_total;
 			rc = llapi_hsm_action_progress(hcp, &he, length, 0);
