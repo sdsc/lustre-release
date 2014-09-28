@@ -368,7 +368,23 @@ static inline int radix_tree_exceptional_entry(void *arg)
 #endif
 
 #ifndef HAVE_TRUNCATE_INODE_PAGES_FINAL
-# define truncate_inode_pages_final(map) truncate_inode_pages(map, 0)
+static inlinde void truncate_inode_pages_final(struct address_space *map)
+{
+	struct inode *inode = container_of(map, struct inode, i_data);
+
+	truncate_inode_pages(map, 0);
+	        /* Workaround for LU-118 */
+        if (inode->i_data.nrpages) {
+                spin_lock_irq(&inode->i_data.tree_lock);
+                spin_unlock_irq(&inode->i_data.tree_lock);
+                LASSERTF(inode->i_data.nrpages == 0,
+                         "inode="DFID"(%p) nrpages=%lu, see "
+                         "https://jira.hpdd.intel.com/browse/LU-118\n",
+                         PFID(ll_inode2fid(inode)), inode,
+                         inode->i_data.nrpages);
+        }
+        /* Workaround end */
+}
 #endif
 
 #ifndef SIZE_MAX
