@@ -262,12 +262,18 @@ scrub_backup_restore() {
 }
 
 scrub_enable_auto() {
-	local n
+	do_nodes $(comma_list $(mdts_nodes)) $LCTL set_param -n \
+		osd-ldiskfs.*.auto_scrub=1
+}
 
-	for n in $(seq $MDSCOUNT); do
-		do_facet mds$n $LCTL set_param -n \
-			osd-ldiskfs.$(facet_svc mds$n).auto_scrub 1
-	done
+full_scrub_ratio() {
+	[[ $(lustre_version_code $SINGLEMDS) -le $(version_code 2.6.50) ]] &&
+		return
+
+	local ratio=$1
+
+	do_nodes $(comma_list $(mdts_nodes)) $LCTL set_param -n \
+		osd-ldiskfs.*.full_scrub_ratio=$ratio
 }
 
 test_0() {
@@ -375,7 +381,10 @@ test_4() {
 	scrub_check_flags 4 inconsistent
 	mount_client $MOUNT || error "(5) Fail to start client!"
 	scrub_enable_auto
+	full_scrub_ratio 0
 	scrub_check_data 6
+	sleep 3
+
 	scrub_check_status 7 completed
 	scrub_check_flags 8 ""
 }
@@ -398,6 +407,7 @@ test_5() {
 	do_nodes $(comma_list $(mdts_nodes)) \
 		$LCTL set_param fail_val=3 fail_loc=0x190
 
+	full_scrub_ratio 0
 	scrub_check_data 6
 	umount_client $MOUNT || error "(7) Fail to stop client!"
 	scrub_check_status 8 scanning
@@ -430,6 +440,7 @@ test_5() {
 	scrub_check_status 15 failed
 	mount_client $MOUNT || error "(16) Fail to start client!"
 
+	full_scrub_ratio 0
 	#define OBD_FAIL_OSD_SCRUB_DELAY	 0x190
 	do_nodes $(comma_list $(mdts_nodes)) \
 		$LCTL set_param fail_val=3 fail_loc=0x190
@@ -461,8 +472,9 @@ test_6() {
 
 	#define OBD_FAIL_OSD_SCRUB_DELAY	 0x190
 	do_nodes $(comma_list $(mdts_nodes)) \
-		$LCTL set_param fail_val=3 fail_loc=0x190
+		$LCTL set_param fail_val=2 fail_loc=0x190
 
+	full_scrub_ratio 0
 	scrub_check_data 6
 
 	# Sleep 5 sec to guarantee at least one object processed by OI scrub
@@ -540,6 +552,7 @@ test_7() {
 	do_nodes $(comma_list $(mdts_nodes)) \
 		$LCTL set_param fail_val=3 fail_loc=0x190
 
+	full_scrub_ratio 0
 	scrub_check_data 6
 
 	local n
@@ -678,6 +691,7 @@ test_10a() {
 	do_nodes $(comma_list $(mdts_nodes)) \
 		$LCTL set_param fail_val=1 fail_loc=0x190
 
+	full_scrub_ratio 0
 	scrub_check_data 6
 	scrub_check_status 7 scanning
 	umount_client $MOUNT || error "(8) Fail to stop client!"
