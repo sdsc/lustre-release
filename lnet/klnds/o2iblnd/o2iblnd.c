@@ -1749,9 +1749,24 @@ kiblnd_fail_poolset(kib_poolset_t *ps, struct list_head *zombies)
 static void
 kiblnd_fini_poolset(kib_poolset_t *ps)
 {
+	kib_pool_t	*pool;
+	kib_pool_t	*tmp;
+	struct list_head zombies = LIST_HEAD_INIT(zombies);
+
 	if (ps->ps_net != NULL) { /* initialized? */
-		kiblnd_destroy_pool_list(&ps->ps_failed_pool_list);
-		kiblnd_destroy_pool_list(&ps->ps_pool_list);
+		spin_lock(&ps->ps_lock);
+		list_for_each_entry_safe(pool, tmp,
+					 &ps->ps_pool_list, po_list) {
+			list_move(&pool->po_list, &zombies);
+		}
+		list_for_each_entry_safe(pool, tmp,
+					 &ps->ps_failed_pool_list,
+					 po_list) {
+			list_move(&pool->po_list, &zombies);
+		}
+		spin_unlock(&ps->ps_lock);
+		if (!list_empty(&zombies))
+			kiblnd_destroy_pool_list(&zombies);
 	}
 }
 
@@ -2903,13 +2918,13 @@ kiblnd_shutdown (lnet_ni_t *ni)
                         cfs_pause(cfs_time_seconds(1));
                 }
 
-		kiblnd_net_fini_pools(net);
-
 		write_lock_irqsave(g_lock, flags);
 		LASSERT(net->ibn_dev->ibd_nnets > 0);
 		net->ibn_dev->ibd_nnets--;
 		list_del(&net->ibn_list);
 		write_unlock_irqrestore(g_lock, flags);
+
+		kiblnd_net_fini_pools(net);
 
                 /* fall through */
 

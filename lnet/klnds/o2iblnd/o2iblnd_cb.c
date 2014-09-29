@@ -116,6 +116,15 @@ kiblnd_get_idle_tx(lnet_ni_t *ni, lnet_nid_t target)
 	struct list_head	*node;
 	kib_tx_t		*tx;
 	kib_tx_poolset_t	*tps;
+	unsigned long		 flags;
+	int			 shutdown;
+
+	read_lock_irqsave(&kiblnd_data.kib_global_lock, flags);
+	shutdown = net->ibn_shutdown;
+	read_unlock_irqrestore(&kiblnd_data.kib_global_lock, flags);
+
+	if (shutdown)
+		return NULL;
 
 	tps = net->ibn_tx_ps[lnet_cpt_of_nid(target)];
 	node = kiblnd_pool_alloc_node(&tps->tps_poolset);
