@@ -5609,23 +5609,23 @@ check_catastrophe() {
 
 # CMD: determine mds index where directory inode presents
 get_mds_dir() {
-    local dir=$1
-    local SEQ
+	local dir=$1
+	local SEQ
 
-    SEQ=$(lfs path2fid $dir | tr '[:]' ' '|cut -f2 -d ' ')
-    if [ "$SEQ" == "" ]; then
-	error "can't get sequence for $dir"
-	return 1
-    fi
-    export SEQ
+	SEQ=$(lfs path2fid $dir | tr '[:]' ' '|cut -f2 -d ' ')
+	if [ "$SEQ" == "" ]; then
+		error "can't get sequence for $dir"
+		return 1
+	fi
+	export SEQ
 
-    do_facet mds1 "cat /proc/fs/lustre/fld/srv-*-MDT0000/fldb" | \
-	tr '[)]:-' ' ' |				\
-	while read SS EE IDX TYP; do			\
-		if let "SEQ >= SS && SEQ < EE"; then	\
-			echo $IDX;			\
-		fi;					\
-	done
+	do_facet mds1 "lctl get_param fld.srv-*-MDT000.fldb" |	\
+		tr '[)]:-' ' ' |				\
+		while read SS EE IDX TYP; do			\
+			if let "SEQ >= SS && SEQ < EE"; then	\
+				echo $IDX;			\
+			fi;					\
+		done
 }
 
 mdsrate_cleanup () {
