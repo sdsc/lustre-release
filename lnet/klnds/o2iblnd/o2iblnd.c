@@ -2894,14 +2894,16 @@ kiblnd_shutdown (lnet_ni_t *ni)
 
                 /* Wait for all peer state to clean up */
                 i = 2;
-		while (atomic_read(&net->ibn_npeers) != 0) {
-                        i++;
-                        CDEBUG(((i & (-i)) == i) ? D_WARNING : D_NET, /* 2**n? */
-                               "%s: waiting for %d peers to disconnect\n",
-                               libcfs_nid2str(ni->ni_nid),
-			       atomic_read(&net->ibn_npeers));
-                        cfs_pause(cfs_time_seconds(1));
-                }
+		while (atomic_read(&net->ibn_nconns) != 0) {
+			i++;
+			CDEBUG(((i & (-i)) == i) ?
+			       D_WARNING : D_NET, /* 2**n? */
+			       "%s: waiting for %d conns to be destroyed\n",
+			       libcfs_nid2str(ni->ni_nid),
+			       atomic_read(&net->ibn_nconns));
+			cfs_pause(cfs_time_seconds(1));
+		}
+		LASSERT(atomic_read(&net->ibn_npeers) == 0);
 
 		kiblnd_net_fini_pools(net);
 
@@ -2911,17 +2913,13 @@ kiblnd_shutdown (lnet_ni_t *ni)
 		list_del(&net->ibn_list);
 		write_unlock_irqrestore(g_lock, flags);
 
-                /* fall through */
+		/* fall through */
+	case IBLND_INIT_NOTHING:
+		if (net->ibn_dev != NULL && net->ibn_dev->ibd_nnets == 0)
+			kiblnd_destroy_dev(net->ibn_dev);
 
-        case IBLND_INIT_NOTHING:
-		LASSERT (atomic_read(&net->ibn_nconns) == 0);
-
-                if (net->ibn_dev != NULL &&
-                    net->ibn_dev->ibd_nnets == 0)
-                        kiblnd_destroy_dev(net->ibn_dev);
-
-                break;
-        }
+		break;
+	}
 
         CDEBUG(D_MALLOC, "after LND net cleanup: kmem %d\n",
 	       atomic_read(&libcfs_kmemory));

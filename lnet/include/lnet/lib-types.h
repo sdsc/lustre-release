@@ -419,6 +419,7 @@ typedef struct lnet_ni {
 #endif
 	struct list_head	ni_list;	/* chain on ln_nis */
 	struct list_head	ni_cptlist;	/* chain on ln_nis_cpt */
+	unsigned int		ni_shutdown:1;	/* shutdown is in progress */
 	int			ni_maxtxcredits; /* # tx credits  */
 	/* # per-peer send credits */
 	int			ni_peertxcredits;

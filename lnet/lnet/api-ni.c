@@ -1307,6 +1307,7 @@ lnet_clear_zombies_nis_locked(void)
 			continue;
 		}
 
+		ni->ni_shutdown = 1;
 		ni->ni_lnd->lnd_refcount--;
 		lnet_net_unlock(LNET_LOCK_EX);
 
