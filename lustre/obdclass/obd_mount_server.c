@@ -1696,9 +1696,12 @@ static int osd_start(struct lustre_sb_info *lsi, unsigned long mflags)
 		CDEBUG(D_MOUNT, "%s already started\n", lsi->lsi_osd_obdname);
 		already_started = 1;
 		/* but continue setup to allow special case of MDT and internal
-		 * MGT being started separately, that will be identified in
-		 * caller server_fill_super().
-		 */
+		 * MGT being started separately. */
+		if (!((IS_MGS(lsi) && (lsi->lsi_lmd->lmd_flags &
+				      LMD_FLG_NOMGS)) ||
+		     (IS_MDT(lsi) && (lsi->lsi_lmd->lmd_flags &
+				      LMD_FLG_NOSVC))))
+			GOTO(out, rc);
 	}
 
 	rc = obd_connect(NULL, &lsi->lsi_osd_exp,
@@ -1746,9 +1749,7 @@ int server_fill_super(struct super_block *sb)
 
 	/* Start low level OSD */
 	rc = osd_start(lsi, sb->s_flags);
-	/* Handle separate nosvc and nomgs case */
-	if (rc && ((rc != -EALREADY) || !(lsi->lsi_lmd->lmd_flags &
-					(LMD_FLG_NOSVC|LMD_FLG_NOMGS)))) {
+	if (rc) {
 		CERROR("Unable to start osd on %s: %d\n",
 		       lsi->lsi_lmd->lmd_dev, rc);
 		lustre_put_lsi(sb);
