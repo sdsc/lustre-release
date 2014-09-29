@@ -140,12 +140,12 @@ const struct lu_buf *mdd_buf_get_const(const struct lu_env *env,
 }
 
 struct lu_object *mdd_object_alloc(const struct lu_env *env,
-                                   const struct lu_object_header *hdr,
-                                   struct lu_device *d)
+				   const struct lu_object_header *hdr,
+				   struct lu_device *d)
 {
-        struct mdd_object *mdd_obj;
+	struct mdd_object *mdd_obj;
 
-	OBD_SLAB_ALLOC_PTR_GFP(mdd_obj, mdd_object_kmem, CFS_ALLOC_IO);
+	OBD_SLAB_ALLOC_PTR_GFP(mdd_obj, mdd_object_kmem, CFS_ALLOC_NOFS);
         if (mdd_obj != NULL) {
                 struct lu_object *o;
 

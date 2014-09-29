@@ -376,15 +376,15 @@ static void cl_lock_finish(const struct lu_env *env, struct cl_lock *lock)
 }
 
 static struct cl_lock *cl_lock_alloc(const struct lu_env *env,
-                                     struct cl_object *obj,
-                                     const struct cl_io *io,
-                                     const struct cl_lock_descr *descr)
+				     struct cl_object *obj,
+				     const struct cl_io *io,
+				     const struct cl_lock_descr *descr)
 {
-        struct cl_lock          *lock;
-        struct lu_object_header *head;
+	struct cl_lock          *lock;
+	struct lu_object_header *head;
 
-        ENTRY;
-        OBD_SLAB_ALLOC_PTR_GFP(lock, cl_lock_kmem, CFS_ALLOC_IO);
+	ENTRY;
+	OBD_SLAB_ALLOC_PTR_GFP(lock, cl_lock_kmem, CFS_ALLOC_NOFS);
         if (lock != NULL) {
                 cfs_atomic_set(&lock->cll_ref, 1);
                 lock->cll_descr = *descr;

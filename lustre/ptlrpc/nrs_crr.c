@@ -353,7 +353,7 @@ int nrs_crrn_res_get(struct ptlrpc_nrs_policy *policy,
 
 	OBD_CPT_ALLOC_GFP(cli, nrs_pol2cptab(policy), nrs_pol2cptid(policy),
 			  sizeof(*cli), moving_req ? CFS_ALLOC_ATOMIC :
-			  CFS_ALLOC_IO);
+			  CFS_ALLOC_NOFS);
 	if (cli == NULL)
 		return -ENOMEM;
 

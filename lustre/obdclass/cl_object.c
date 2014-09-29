@@ -746,10 +746,10 @@ static inline struct cl_env *cl_env_detach(struct cl_env *cle)
 
 static struct lu_env *cl_env_new(__u32 ctx_tags, __u32 ses_tags, void *debug)
 {
-        struct lu_env *env;
-        struct cl_env *cle;
+	struct lu_env *env;
+	struct cl_env *cle;
 
-        OBD_SLAB_ALLOC_PTR_GFP(cle, cl_env_kmem, CFS_ALLOC_IO);
+	OBD_SLAB_ALLOC_PTR_GFP(cle, cl_env_kmem, CFS_ALLOC_NOFS);
         if (cle != NULL) {
                 int rc;
 

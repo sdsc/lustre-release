@@ -1672,13 +1672,13 @@ static const struct cl_lock_operations osc_lock_lockless_ops = {
 };
 
 int osc_lock_init(const struct lu_env *env,
-                  struct cl_object *obj, struct cl_lock *lock,
-                  const struct cl_io *unused)
+		  struct cl_object *obj, struct cl_lock *lock,
+		  const struct cl_io *unused)
 {
-        struct osc_lock *clk;
-        int result;
+	struct osc_lock *clk;
+	int result;
 
-        OBD_SLAB_ALLOC_PTR_GFP(clk, osc_lock_kmem, CFS_ALLOC_IO);
+	OBD_SLAB_ALLOC_PTR_GFP(clk, osc_lock_kmem, CFS_ALLOC_NOFS);
         if (clk != NULL) {
 		__u32 enqflags = lock->cll_descr.cld_enq_flags;
 

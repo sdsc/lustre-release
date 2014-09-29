@@ -54,7 +54,8 @@ _kgnilnd_proc_run_cksum_test(int caseno, int nloops, int nob)
 	for (i = 0; i < LNET_MAX_IOV; i++) {
 		src[i].kiov_offset = 0;
 		src[i].kiov_len = CFS_PAGE_SIZE;
-		src[i].kiov_page = cfs_alloc_page(CFS_ALLOC_STD|CFS_ALLOC_ZERO);
+		src[i].kiov_page = cfs_alloc_page(CFS_ALLOC_KERNEL |
+						  CFS_ALLOC_ZERO);
 
 		if (src[i].kiov_page == NULL) {
 			CERROR("couldn't allocate page %d\n", i);
@@ -63,7 +64,8 @@ _kgnilnd_proc_run_cksum_test(int caseno, int nloops, int nob)
 
 		dest[i].kiov_offset = 0;
 		dest[i].kiov_len = CFS_PAGE_SIZE;
-		dest[i].kiov_page = cfs_alloc_page(CFS_ALLOC_STD|CFS_ALLOC_ZERO);
+		dest[i].kiov_page = cfs_alloc_page(CFS_ALLOC_KERNEL |
+						   CFS_ALLOC_ZERO);
 
 		if (dest[i].kiov_page == NULL) {
 			CERROR("couldn't allocate page %d\n", i);

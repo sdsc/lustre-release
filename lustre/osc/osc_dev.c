@@ -118,14 +118,14 @@ static struct lu_device *osc2lu_dev(struct osc_device *osc)
  */
 
 static void *osc_key_init(const struct lu_context *ctx,
-                         struct lu_context_key *key)
+			  struct lu_context_key *key)
 {
-        struct osc_thread_info *info;
+	struct osc_thread_info *info;
 
-        OBD_SLAB_ALLOC_PTR_GFP(info, osc_thread_kmem, CFS_ALLOC_IO);
-        if (info == NULL)
-                info = ERR_PTR(-ENOMEM);
-        return info;
+	OBD_SLAB_ALLOC_PTR_GFP(info, osc_thread_kmem, CFS_ALLOC_NOFS);
+	if (info == NULL)
+		info = ERR_PTR(-ENOMEM);
+	return info;
 }
 
 static void osc_key_fini(const struct lu_context *ctx,
@@ -142,14 +142,14 @@ struct lu_context_key osc_key = {
 };
 
 static void *osc_session_init(const struct lu_context *ctx,
-                              struct lu_context_key *key)
+			      struct lu_context_key *key)
 {
-        struct osc_session *info;
+	struct osc_session *info;
 
-        OBD_SLAB_ALLOC_PTR_GFP(info, osc_session_kmem, CFS_ALLOC_IO);
-        if (info == NULL)
-                info = ERR_PTR(-ENOMEM);
-        return info;
+	OBD_SLAB_ALLOC_PTR_GFP(info, osc_session_kmem, CFS_ALLOC_NOFS);
+	if (info == NULL)
+		info = ERR_PTR(-ENOMEM);
+	return info;
 }
 
 static void osc_session_fini(const struct lu_context *ctx,

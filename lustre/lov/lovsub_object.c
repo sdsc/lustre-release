@@ -144,14 +144,14 @@ static const struct lu_object_operations lovsub_lu_obj_ops = {
 };
 
 struct lu_object *lovsub_object_alloc(const struct lu_env *env,
-                                      const struct lu_object_header *unused,
-                                      struct lu_device *dev)
+				      const struct lu_object_header *unused,
+				      struct lu_device *dev)
 {
-        struct lovsub_object *los;
-        struct lu_object     *obj;
+	struct lovsub_object *los;
+	struct lu_object     *obj;
 
-        ENTRY;
-        OBD_SLAB_ALLOC_PTR_GFP(los, lovsub_object_kmem, CFS_ALLOC_IO);
+	ENTRY;
+	OBD_SLAB_ALLOC_PTR_GFP(los, lovsub_object_kmem, CFS_ALLOC_NOFS);
         if (los != NULL) {
                 struct cl_object_header *hdr;
 

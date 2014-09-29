@@ -81,12 +81,12 @@ static struct lu_kmem_descr vvp_caches[] = {
 static void *vvp_key_init(const struct lu_context *ctx,
                           struct lu_context_key *key)
 {
-        struct vvp_thread_info *info;
+	struct vvp_thread_info *info;
 
-        OBD_SLAB_ALLOC_PTR_GFP(info, vvp_thread_kmem, CFS_ALLOC_IO);
-        if (info == NULL)
-                info = ERR_PTR(-ENOMEM);
-        return info;
+	OBD_SLAB_ALLOC_PTR_GFP(info, vvp_thread_kmem, CFS_ALLOC_NOFS);
+	if (info == NULL)
+		info = ERR_PTR(-ENOMEM);
+	return info;
 }
 
 static void vvp_key_fini(const struct lu_context *ctx,
@@ -99,12 +99,12 @@ static void vvp_key_fini(const struct lu_context *ctx,
 static void *vvp_session_key_init(const struct lu_context *ctx,
                                   struct lu_context_key *key)
 {
-        struct vvp_session *session;
+	struct vvp_session *session;
 
-        OBD_SLAB_ALLOC_PTR_GFP(session, vvp_session_kmem, CFS_ALLOC_IO);
-        if (session == NULL)
-                session = ERR_PTR(-ENOMEM);
-        return session;
+	OBD_SLAB_ALLOC_PTR_GFP(session, vvp_session_kmem, CFS_ALLOC_NOFS);
+	if (session == NULL)
+		session = ERR_PTR(-ENOMEM);
+	return session;
 }
 
 static void vvp_session_key_fini(const struct lu_context *ctx,

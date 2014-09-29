@@ -136,9 +136,9 @@ static void lov_sublock_adopt(const struct lu_env *env, struct lov_lock *lck,
 }
 
 static struct cl_lock *lov_sublock_alloc(const struct lu_env *env,
-                                         const struct cl_io *io,
-                                         struct lov_lock *lck,
-                                         int idx, struct lov_lock_link **out)
+					 const struct cl_io *io,
+					 struct lov_lock *lck,
+					 int idx, struct lov_lock_link **out)
 {
         struct cl_lock       *sublock;
         struct cl_lock       *parent;
@@ -147,7 +147,7 @@ static struct cl_lock *lov_sublock_alloc(const struct lu_env *env,
         LASSERT(idx < lck->lls_nr);
         ENTRY;
 
-        OBD_SLAB_ALLOC_PTR_GFP(link, lov_lock_link_kmem, CFS_ALLOC_IO);
+	OBD_SLAB_ALLOC_PTR_GFP(link, lov_lock_link_kmem, CFS_ALLOC_NOFS);
         if (link != NULL) {
                 struct lov_sublock_env *subenv;
                 struct lov_lock_sub  *lls;
@@ -1190,19 +1190,19 @@ static const struct cl_lock_operations lov_lock_ops = {
 };
 
 int lov_lock_init_raid0(const struct lu_env *env, struct cl_object *obj,
-                        struct cl_lock *lock, const struct cl_io *io)
+			struct cl_lock *lock, const struct cl_io *io)
 {
-        struct lov_lock *lck;
-        int result;
+	struct lov_lock *lck;
+	int result;
 
-        ENTRY;
-        OBD_SLAB_ALLOC_PTR_GFP(lck, lov_lock_kmem, CFS_ALLOC_IO);
-        if (lck != NULL) {
-                cl_lock_slice_add(lock, &lck->lls_cl, obj, &lov_lock_ops);
-                result = lov_lock_sub_init(env, lck, io);
-        } else
-                result = -ENOMEM;
-        RETURN(result);
+	ENTRY;
+	OBD_SLAB_ALLOC_PTR_GFP(lck, lov_lock_kmem, CFS_ALLOC_NOFS);
+	if (lck != NULL) {
+		cl_lock_slice_add(lock, &lck->lls_cl, obj, &lov_lock_ops);
+		result = lov_lock_sub_init(env, lck, io);
+	} else
+		result = -ENOMEM;
+	RETURN(result);
 }
 
 static void lov_empty_lock_fini(const struct lu_env *env,
@@ -1226,13 +1226,13 @@ static const struct cl_lock_operations lov_empty_lock_ops = {
 };
 
 int lov_lock_init_empty(const struct lu_env *env, struct cl_object *obj,
-		struct cl_lock *lock, const struct cl_io *io)
+			struct cl_lock *lock, const struct cl_io *io)
 {
 	struct lov_lock *lck;
 	int result = -ENOMEM;
 
 	ENTRY;
-	OBD_SLAB_ALLOC_PTR_GFP(lck, lov_lock_kmem, CFS_ALLOC_IO);
+	OBD_SLAB_ALLOC_PTR_GFP(lck, lov_lock_kmem, CFS_ALLOC_NOFS);
 	if (lck != NULL) {
 		cl_lock_slice_add(lock, &lck->lls_cl, obj, &lov_empty_lock_ops);
 		lck->lls_orig = lock->cll_descr;

@@ -143,18 +143,18 @@ static struct lu_device *lovsub_device_free(const struct lu_env *env,
 }
 
 static int lovsub_req_init(const struct lu_env *env, struct cl_device *dev,
-                           struct cl_req *req)
+			   struct cl_req *req)
 {
-        struct lovsub_req *lsr;
-        int result;
+	struct lovsub_req *lsr;
+	int result;
 
-        OBD_SLAB_ALLOC_PTR_GFP(lsr, lovsub_req_kmem, CFS_ALLOC_IO);
-        if (lsr != NULL) {
-                cl_req_slice_add(req, &lsr->lsrq_cl, dev, &lovsub_req_ops);
-                result = 0;
-        } else
-                result = -ENOMEM;
-        return result;
+	OBD_SLAB_ALLOC_PTR_GFP(lsr, lovsub_req_kmem, CFS_ALLOC_NOFS);
+	if (lsr != NULL) {
+		cl_req_slice_add(req, &lsr->lsrq_cl, dev, &lovsub_req_ops);
+		result = 0;
+	} else
+		result = -ENOMEM;
+	return result;
 }
 
 static const struct lu_device_operations lovsub_lu_ops = {

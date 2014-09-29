@@ -774,9 +774,9 @@ static struct thandle *osd_trans_create(const struct lu_env *env,
         /* on pending IO in this thread should left from prev. request */
         LASSERT(cfs_atomic_read(&iobuf->dr_numreqs) == 0);
 
-        th = ERR_PTR(-ENOMEM);
-        OBD_ALLOC_GFP(oh, sizeof *oh, CFS_ALLOC_IO);
-        if (oh != NULL) {
+	th = ERR_PTR(-ENOMEM);
+	OBD_ALLOC_GFP(oh, sizeof *oh, CFS_ALLOC_NOFS);
+	if (oh != NULL) {
 		oh->ot_quota_trans = &oti->oti_quota_trans;
 		memset(oh->ot_quota_trans, 0, sizeof(*oh->ot_quota_trans));
                 th = &oh->ot_super;
