@@ -473,7 +473,7 @@ static int lfsck_create_lpf_local(const struct lu_env *env,
 	struct dt_object	*bk_obj = lfsck->li_bookmark_obj;
 	const struct lu_fid	*cfid	= lfsck_dto2fid(child);
 	struct thandle		*th	= NULL;
-	struct linkea_data	 ldata	= { 0 };
+	struct linkea_data	 ldata	= { NULL };
 	struct lu_buf		 linkea_buf;
 	const struct lu_name	*cname;
 	loff_t			 pos	= 0;
@@ -616,7 +616,7 @@ static int lfsck_create_lpf_remote(const struct lu_env *env,
 	struct dt_object	*bk_obj = lfsck->li_bookmark_obj;
 	const struct lu_fid	*cfid	= lfsck_dto2fid(child);
 	struct thandle		*th	= NULL;
-	struct linkea_data	 ldata	= { 0 };
+	struct linkea_data	 ldata	= { NULL };
 	struct lu_buf		 linkea_buf;
 	const struct lu_name	*cname;
 	struct dt_device	*dev;
