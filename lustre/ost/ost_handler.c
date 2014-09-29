@@ -97,7 +97,7 @@ static int ost_setup(struct obd_device *obd, struct lustre_cfg* lcfg)
 	mutex_init(&ost->ost_health_mutex);
 
 	svc_conf = (typeof(svc_conf)) {
-		.psc_name		= LUSTRE_OSS_NAME,
+		.psc_name		= LUSTRE_OST_NAME,
 		.psc_watchdog_factor	= OSS_SERVICE_WATCHDOG_FACTOR,
 		.psc_buf		= {
 			.bc_nbufs		= OST_NBUFS,
