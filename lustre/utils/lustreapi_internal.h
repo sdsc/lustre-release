@@ -43,8 +43,8 @@
 int get_root_path(int want, char *fsname, int *outfd, char *path, int index);
 int root_ioctl(const char *mdtname, int opc, void *data, int *mdtidxp,
 	       int want_error);
-int get_param(const char *param_path, char *result,
-	      unsigned int result_size);
+
+int get_proc_path(char *name, size_t name_size, const char *param);
 
 #define LLAPI_LAYOUT_MAGIC 0x11AD1107 /* LLAPILOT */
 
