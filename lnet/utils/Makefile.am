@@ -58,10 +58,3 @@ lib_LIBRARIES = libptlctl.a
 
 libptlctl_a_SOURCES = portals.c debug.c
 endif # UTILS
-
-LND_LIBS =
-if BUILD_USOCKLND
-LND_LIBS += $(top_builddir)/lnet/ulnds/socklnd/libsocklnd.a
-endif
-
-EXTRA_DIST = genlib.sh
