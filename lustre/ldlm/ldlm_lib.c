@@ -1488,7 +1488,7 @@ void target_cleanup_recovery(struct obd_device *obd)
 	spin_unlock(&obd->obd_recovery_task_lock);
 
 	list_for_each_entry_safe(req, n, &clean_list, rq_list) {
-		LASSERT(req->rq_reply_state == 0);
+		LASSERT(req->rq_reply_state == NULL);
 		target_exp_dequeue_req_replay(req);
 		target_request_copy_put(req);
 	}
@@ -1499,7 +1499,7 @@ void target_cleanup_recovery(struct obd_device *obd)
 	spin_unlock(&obd->obd_recovery_task_lock);
 
 	list_for_each_entry_safe(req, n, &clean_list, rq_list) {
-                LASSERT(req->rq_reply_state == 0);
+		LASSERT(req->rq_reply_state == NULL);
                 target_request_copy_put(req);
         }
 
