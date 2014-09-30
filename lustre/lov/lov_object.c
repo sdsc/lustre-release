@@ -42,6 +42,7 @@
 #define DEBUG_SUBSYSTEM S_LOV
 
 #include "lov_cl_internal.h"
+#include "lclient.h"
 
 /** \addtogroup lov
  *  @{
@@ -607,7 +608,7 @@ const static struct lov_layout_operations lov_dispatch[] = {
 /**
  * Return lov_layout_type associated with a given lsm
  */
-enum lov_layout_type lov_type(struct lov_stripe_md *lsm)
+static enum lov_layout_type lov_type(struct lov_stripe_md *lsm)
 {
 	if (lsm == NULL)
 		return LLT_EMPTY;
