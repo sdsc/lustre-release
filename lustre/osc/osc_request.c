@@ -3085,7 +3085,7 @@ static int osc_process_config(struct obd_device *obd, obd_count len, void *buf)
         return osc_process_config_base(obd, buf);
 }
 
-struct obd_ops osc_obd_ops = {
+static struct obd_ops osc_obd_ops = {
         .o_owner                = THIS_MODULE,
         .o_setup                = osc_setup,
         .o_precleanup           = osc_precleanup,
@@ -3114,10 +3114,7 @@ struct obd_ops osc_obd_ops = {
         .o_quotacheck           = osc_quotacheck,
 };
 
-extern struct lu_kmem_descr osc_caches[];
-extern struct lock_class_key osc_ast_guard_class;
-
-int __init osc_init(void)
+static int __init osc_init(void)
 {
 	bool enable_proc = true;
 	struct obd_type *type;
