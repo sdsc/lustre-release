@@ -1082,15 +1082,18 @@ static int lod_declare_attr_set(const struct lu_env *env,
 						 handle);
 			if (rc != 0) {
 				CERROR("failed declaration: %d\n", rc);
-				break;
+				RETURN(rc);
 			}
 		}
 	}
 
 	if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_LOST_STRIPE) &&
 	    dt_object_exists(next) != 0 &&
-	    dt_object_remote(next) == 0)
-		dt_declare_xattr_del(env, next, XATTR_NAME_LOV, handle);
+	    dt_object_remote(next) == 0) {
+		rc = dt_declare_xattr_del(env, next, XATTR_NAME_LOV, handle);
+		if (rc < 0)
+			RETURN(rc);
+	}
 
 	if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_CHANGE_STRIPE) &&
 	    dt_object_exists(next) &&
@@ -1100,8 +1103,10 @@ static int lod_declare_attr_set(const struct lu_env *env,
 
 		buf->lb_buf = info->lti_ea_store;
 		buf->lb_len = info->lti_ea_store_size;
-		dt_declare_xattr_set(env, next, buf, XATTR_NAME_LOV,
-				     LU_XATTR_REPLACE, handle);
+		rc = dt_declare_xattr_set(env, next, buf, XATTR_NAME_LOV,
+					  LU_XATTR_REPLACE, handle);
+		if (rc < 0)
+			RETURN(rc);
 	}
 
 	RETURN(rc);
