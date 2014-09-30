@@ -59,6 +59,7 @@
 #include <libcfs/list.h>
 #include <libcfs/libcfs_hash.h> /* for cfs_hash stuff */
 #include <cl_object.h>
+#include <lu_object.h>
 #include "cl_internal.h"
 
 static struct kmem_cache *cl_env_kmem;
@@ -68,8 +69,6 @@ static struct lock_class_key cl_lock_guard_class;
 /** Lock class of cl_object_header::coh_attr_guard */
 static struct lock_class_key cl_attr_guard_class;
 
-extern __u32 lu_context_tags_default;
-extern __u32 lu_session_tags_default;
 /**
  * Initialize cl_object_header.
  */
@@ -400,7 +399,8 @@ void cache_stats_init(struct cache_stats *cs, const char *name)
 		atomic_set(&cs->cs_stats[i], 0);
 }
 
-int cache_stats_print(const struct cache_stats *cs, struct seq_file *m, int h)
+static int cache_stats_print(const struct cache_stats *cs,
+			     struct seq_file *m, int h)
 {
 	int i;
 
@@ -1254,12 +1254,6 @@ void cl_stack_fini(const struct lu_env *env, struct cl_device *cl)
         lu_stack_fini(env, cl2lu_dev(cl));
 }
 EXPORT_SYMBOL(cl_stack_fini);
-
-int  cl_lock_init(void);
-void cl_lock_fini(void);
-
-int  cl_page_init(void);
-void cl_page_fini(void);
 
 static struct lu_context_key cl_key;
 
