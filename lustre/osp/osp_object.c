@@ -1995,7 +1995,7 @@ again0:
  * \retval		0 for success
  * \retval		negative error number on failure
  */
-int osp_orphan_it_next(const struct lu_env *env, struct dt_it *di)
+static int osp_orphan_it_next(const struct lu_env *env, struct dt_it *di)
 {
 	struct osp_it		*it = (struct osp_it *)di;
 	struct lu_idxpage	*idxpage;
@@ -2036,8 +2036,8 @@ void osp_it_put(const struct lu_env *env, struct dt_it *di)
 {
 }
 
-struct dt_key *osp_orphan_it_key(const struct lu_env *env,
-				 const struct dt_it *di)
+static struct dt_key *osp_orphan_it_key(const struct lu_env *env,
+					const struct dt_it *di)
 {
 	struct osp_it	*it  = (struct osp_it *)di;
 	struct lu_orphan_ent	*ent = (struct lu_orphan_ent *)it->ooi_ent;
@@ -2048,13 +2048,14 @@ struct dt_key *osp_orphan_it_key(const struct lu_env *env,
 	return NULL;
 }
 
-int osp_orphan_it_key_size(const struct lu_env *env, const struct dt_it *di)
+static int osp_orphan_it_key_size(const struct lu_env *env,
+				  const struct dt_it *di)
 {
 	return sizeof(struct lu_fid);
 }
 
-int osp_orphan_it_rec(const struct lu_env *env, const struct dt_it *di,
-		      struct dt_rec *rec, __u32 attr)
+static int osp_orphan_it_rec(const struct lu_env *env, const struct dt_it *di,
+			     struct dt_rec *rec, __u32 attr)
 {
 	struct osp_it	*it  = (struct osp_it *)di;
 	struct lu_orphan_ent	*ent = (struct lu_orphan_ent *)it->ooi_ent;
@@ -2158,7 +2159,7 @@ static int osp_index_try(const struct lu_env *env,
 	return 0;
 }
 
-struct dt_object_operations osp_obj_ops = {
+static struct dt_object_operations osp_obj_ops = {
 	.do_declare_attr_get	= osp_declare_attr_get,
 	.do_attr_get		= osp_attr_get,
 	.do_declare_attr_set	= osp_declare_attr_set,
