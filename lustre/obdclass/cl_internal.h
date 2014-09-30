@@ -117,5 +117,11 @@ struct cl_thread_info {
 };
 
 struct cl_thread_info *cl_env_info(const struct lu_env *env);
+int  cl_lock_init(const struct lu_env *env, struct cl_lock *lock,
+		  const struct cl_io *io);
+void cl_lock_fini(const struct lu_env *env, struct cl_lock *lock);
+void cl_page_disown0(const struct lu_env *env,
+		     struct cl_io *io, struct cl_page *pg);
+
 
 #endif /* _CL_INTERNAL_H */
