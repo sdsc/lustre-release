@@ -1,0 +1,6 @@
+%defattr(-,root,root)
+%{?rootdir}/lib/modules/%2-%1/%{kmoddir}/kernel/fs/lustre/osd_zfs.ko
+%{_libdir}/lustre/mount_osd_zfs.so
+%if %{defined rpm_post_base}
+%attr(0555, root, root) %{rpm_post_base}-osd-zfs.sh
+%endif
