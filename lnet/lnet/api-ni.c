@@ -68,6 +68,10 @@ static int rnet_htable_size = LNET_REMOTE_NETS_HASH_DEFAULT;
 CFS_MODULE_PARM(rnet_htable_size, "i", int, 0444,
 		"size of remote network hash table");
 
+int finalisers = 0;
+CFS_MODULE_PARM(finalisers, "i", int, 0444,
+		"number of finalisers per CPT");
+
 char *
 lnet_get_routes(void)
 {
