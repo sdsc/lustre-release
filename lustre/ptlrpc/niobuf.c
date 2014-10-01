@@ -761,6 +761,7 @@ int ptl_send_rpc(struct ptlrpc_request *request, int noreply)
         }
 
 	spin_lock(&request->rq_lock);
+	request->rq_has_reply = !noreply;
         /* If the MD attach succeeds, there _will_ be a reply_in callback */
         request->rq_receiving_reply = !noreply;
 	request->rq_req_unlink = 1;
