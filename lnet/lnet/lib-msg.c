@@ -42,6 +42,8 @@
 
 #include <lnet/lib-lnet.h>
 
+extern int finalisers;
+
 void
 lnet_build_unlink_event (lnet_libmd_t *md, lnet_event_t *ev)
 {
@@ -604,6 +606,11 @@ lnet_msg_container_setup(struct lnet_msg_container *container, int cpt)
 #endif
 	/* number of CPUs */
 	container->msc_nfinalizers = cfs_cpt_weight(lnet_cpt_table(), cpt);
+	if (container->msc_nfinalizers > finalisers && finalisers > 0) {
+		container->msc_nfinalizers = finalisers;
+		LCONSOLE(0, "LNet has %d finaliser slots for CPT %d\n",
+			 finalisers, cpt);
+	}
 
 	LIBCFS_CPT_ALLOC(container->msc_finalizers, lnet_cpt_table(), cpt,
 			 container->msc_nfinalizers *
