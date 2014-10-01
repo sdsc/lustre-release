@@ -1,0 +1,7 @@
+%defattr(-,root,root)
+%{?rootdir}/lib/modules/%2-%1/%{kmoddir}/kernel/fs/lustre/ldiskfs.ko
+%{?rootdir}/lib/modules/%2-%1/%{kmoddir}/kernel/fs/lustre/osd_ldiskfs.ko
+%{_libdir}/lustre/mount_osd_ldiskfs.so
+%if %{defined rpm_post_base}
+%attr(0555, root, root) %{rpm_post_base}-osd-ldiskfs.sh
+%endif
