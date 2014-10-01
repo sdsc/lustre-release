@@ -50,9 +50,10 @@ lnet_handle_eq_t   ptlrpc_eq_h;
  */
 void request_out_callback(lnet_event_t *ev)
 {
-        struct ptlrpc_cb_id   *cbid = ev->md.user_ptr;
-        struct ptlrpc_request *req = cbid->cbid_arg;
-        ENTRY;
+	struct ptlrpc_cb_id   *cbid = ev->md.user_ptr;
+	struct ptlrpc_request *req = cbid->cbid_arg;
+	bool		       wakeup = false;
+	ENTRY;
 
         LASSERT (ev->type == LNET_EVENT_SEND ||
                  ev->type == LNET_EVENT_UNLINK);
@@ -63,8 +64,12 @@ void request_out_callback(lnet_event_t *ev)
         sptlrpc_request_out_callback(req);
 	spin_lock(&req->rq_lock);
         req->rq_real_sent = cfs_time_current_sec();
-	if (ev->unlinked)
+	if (ev->unlinked) {
 		req->rq_req_unlink = 0;
+		/* reply_in_callback happened before request_ou_callback */
+		if (!req->rq_reply_unlink)
+			wakeup = true;
+	}
 
         if (ev->type == LNET_EVENT_UNLINK || ev->status != 0) {
 
@@ -72,13 +77,16 @@ void request_out_callback(lnet_event_t *ev)
                  * like failing sends in client.c does currently...  */
 
 		req->rq_net_err = 1;
-                ptlrpc_client_wake_req(req);
-        }
+		wakeup = true;
+	}
+
+	if (wakeup)
+		ptlrpc_client_wake_req(req);
+
 	spin_unlock(&req->rq_lock);
 
-        ptlrpc_req_finished(req);
-
-        EXIT;
+	ptlrpc_req_finished(req);
+	EXIT;
 }
 
 /*
