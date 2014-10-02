@@ -1593,8 +1593,6 @@ int osd_index_try(const struct lu_env *env, struct dt_object *dt,
 	struct osd_object *obj = osd_dt_obj(dt);
 	ENTRY;
 
-	LASSERT(dt_object_exists(dt));
-
 	/*
 	 * XXX: implement support for fixed-size keys sorted with natural
 	 *      numerical way (not using internal hash value)
