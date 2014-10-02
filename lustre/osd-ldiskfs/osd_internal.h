@@ -582,10 +582,10 @@ struct osd_thread_info {
 	/* Tracking for transaction credits, to allow debugging and optimizing
 	 * cases where a large number of credits are being allocated for
 	 * single transaction. */
+	unsigned int		oti_credits_before;
 	unsigned short		oti_declare_ops[OSD_OT_MAX];
-	unsigned short		oti_declare_ops_rb[OSD_OT_MAX];
 	unsigned short		oti_declare_ops_cred[OSD_OT_MAX];
-	bool			oti_rollback;
+	unsigned short		oti_declare_ops_used[OSD_OT_MAX];
 
 	char			oti_name[48];
 	union {
@@ -926,6 +926,7 @@ struct dentry *osd_child_dentry_by_inode(const struct lu_env *env,
 
 extern int osd_trans_declare_op2rb[];
 extern int ldiskfs_track_declares_assert;
+void osd_trans_dump_creds(const struct lu_env *env, struct thandle *th);
 
 static inline void osd_trans_declare_op(const struct lu_env *env,
 					struct osd_thandle *oh,
@@ -955,7 +956,7 @@ static inline void osd_trans_exec_op(const struct lu_env *env,
 	struct osd_thread_info *oti = osd_oti_get(env);
 	struct osd_thandle     *oh  = container_of(th, struct osd_thandle,
 						   ot_super);
-	unsigned int		rb;
+	unsigned int		rb, left;
 
 	LASSERT(oh->ot_handle != NULL);
 	if (unlikely(op >= OSD_OT_MAX)) {
@@ -969,58 +970,85 @@ static inline void osd_trans_exec_op(const struct lu_env *env,
 		}
 	}
 
-	if (likely(!oti->oti_rollback && oti->oti_declare_ops[op] > 0)) {
-		oti->oti_declare_ops[op]--;
-		oti->oti_declare_ops_rb[op]++;
-	} else {
-		/* all future updates are considered rollback */
-		oti->oti_rollback = true;
-		rb = osd_trans_declare_op2rb[op];
-		if (unlikely(rb >= OSD_OT_MAX)) {
-			if (unlikely(ldiskfs_track_declares_assert))
-				LASSERTF(rb < OSD_OT_MAX, "rb = %u\n", rb);
-			else {
-				CWARN("%s: Invalid rollback index %d\n",
-				      osd_name(oti->oti_dev), rb);
-				libcfs_debug_dumpstack(NULL);
-				return;
-			}
-		}
-		if (unlikely(oti->oti_declare_ops_rb[rb] == 0)) {
-			if (unlikely(ldiskfs_track_declares_assert))
-				LASSERTF(oti->oti_declare_ops_rb[rb] > 0,
-					 "rb = %u\n", rb);
-			else {
-				CWARN("%s: Overflow in tracking declares for "
-				      "index, rb = %d\n",
-				      osd_name(oti->oti_dev), rb);
-				libcfs_debug_dumpstack(NULL);
-				return;
-			}
-		}
-		oti->oti_declare_ops_rb[rb]--;
+	/* find rollback (or reverse) operation for the given one
+	 * such an operation doesn't require additional credits
+	 * as the same set of blocks are modified */
+	rb = osd_trans_declare_op2rb[op];
+
+	/* check whether credits for this operation were reserved at all */
+	if (unlikely(oti->oti_declare_ops_cred[op] == 0 &&
+		     oti->oti_declare_ops_cred[rb] == 0)) {
+		/* the API is not perfect yet: CREATE does REF_ADD internally
+		 * while DESTROY does not. To rollback CREATE the callers
+		 * needs to call REF_DEL+DESTROY which is hard to detect using
+		 * a simple table of rollback operations */
+		if (op == OSD_OT_REF_DEL &&
+		    oti->oti_declare_ops_cred[OSD_OT_CREATE] > 0)
+			goto proceed;
+		if (op == OSD_OT_REF_ADD &&
+		    oti->oti_declare_ops_cred[OSD_OT_DESTROY] > 0)
+			goto proceed;
+		osd_trans_dump_creds(env, th);
+		LBUG();
+	}
+
+proceed:
+	/* remember how many credits we have unused before the operation */
+	oti->oti_credits_before = oh->ot_handle->h_buffer_credits;
+	left = oti->oti_declare_ops_cred[op] - oti->oti_declare_ops_used[op];
+	if (unlikely(oti->oti_credits_before < left)) {
+		osd_trans_dump_creds(env, th);
+		LBUG();
 	}
 }
 
-static inline void osd_trans_declare_rb(const struct lu_env *env,
-					struct thandle *th, unsigned int op)
+static inline void osd_trans_exec_check(const struct lu_env *env,
+					struct thandle *th,
+					unsigned int op)
 {
 	struct osd_thread_info *oti = osd_oti_get(env);
 	struct osd_thandle     *oh  = container_of(th, struct osd_thandle,
 						   ot_super);
+	int			used, over, quota;
 
-	LASSERT(oh->ot_handle != NULL);
-	if (unlikely(op >= OSD_OT_MAX)) {
-		if (unlikely(ldiskfs_track_declares_assert))
-			LASSERT(op < OSD_OT_MAX);
-		else {
-			CWARN("%s: Invalid operation index %d\n",
-			      osd_name(oti->oti_dev), op);
-			libcfs_debug_dumpstack(NULL);
-		}
+	/* how many credits have been used by the operation */
+	used = oti->oti_credits_before - oh->ot_handle->h_buffer_credits;
 
+	if (unlikely(used < 0)) {
+		/* if some block was allocated and released in the same
+		 * transaction, then it won't be a part of the transaction
+		 * and delta can be negative */
+		return;
+	}
+
+	if (used == 0) {
+		/* rollback operations (e.g. when we destroy just created
+		 * object) should not consume any credits. there is no point
+		 * to confuse the checks below */
+		return;
+	}
+
+	oti->oti_declare_ops_used[op] += used;
+	if (oti->oti_declare_ops_used[op] <= oti->oti_declare_ops_cred[op])
+		return;
+
+	/* we account quota for a whole transaction and any operation can
+	 * consume corresponding credits */
+	over = oti->oti_declare_ops_used[op] -
+		oti->oti_declare_ops_cred[op];
+	quota = oti->oti_declare_ops_cred[OSD_OT_QUOTA] -
+		oti->oti_declare_ops_used[OSD_OT_QUOTA];
+	if (over <= quota) {
+		/* probably that credits were consumed by
+		 * quota indirectly (in the depths of ldiskfs) */
+		oti->oti_declare_ops_used[OSD_OT_QUOTA] += over;
+		oti->oti_declare_ops_used[op] -= over;
 	} else {
-		oti->oti_declare_ops_rb[op]++;
+		CWARN("op %d: used %u, used now %u, reserved %u\n",
+				op, oti->oti_declare_ops_used[op], used,
+				oti->oti_declare_ops_cred[op]);
+		osd_trans_dump_creds(env, th);
+		LBUG();
 	}
 }
 
