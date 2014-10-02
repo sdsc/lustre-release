@@ -1037,6 +1037,7 @@ static int osd_declare_write_commit(const struct lu_env *env,
         int                      newblocks;
 	int			 rc = 0;
 	int			 flags = 0;
+	int			 credits = 0;
 	bool			 ignore_quota = false;
 	long long		 quota_space = 0;
 	ENTRY;
@@ -1084,13 +1085,13 @@ static int osd_declare_write_commit(const struct lu_env *env,
                 depth = ext_depth(inode);
                 depth = max(depth, 1) + 1;
                 newblocks += depth;
-                oh->ot_credits++; /* inode */
-                oh->ot_credits += depth * 2 * extents;
-        } else {
-                depth = 3;
-                newblocks += depth;
-                oh->ot_credits++; /* inode */
-                oh->ot_credits += depth * extents;
+		credits++; /* inode */
+		credits += depth * 2 * extents;
+	} else {
+		depth = 3;
+		newblocks += depth;
+		credits++; /* inode */
+		credits += depth * extents;
         }
 
 	/* quota space for metadata blocks */
@@ -1103,15 +1104,17 @@ static int osd_declare_write_commit(const struct lu_env *env,
 
         /* we can't dirty more bitmap blocks than exist */
         if (newblocks > LDISKFS_SB(osd_sb(osd))->s_groups_count)
-                oh->ot_credits += LDISKFS_SB(osd_sb(osd))->s_groups_count;
+		credits += LDISKFS_SB(osd_sb(osd))->s_groups_count;
         else
-                oh->ot_credits += newblocks;
+		credits += newblocks;
 
         /* we can't dirty more gd blocks than exist */
         if (newblocks > LDISKFS_SB(osd_sb(osd))->s_gdb_count)
-                oh->ot_credits += LDISKFS_SB(osd_sb(osd))->s_gdb_count;
+		credits += LDISKFS_SB(osd_sb(osd))->s_gdb_count;
         else
-                oh->ot_credits += newblocks;
+		credits += newblocks;
+
+	osd_trans_declare_op(env, oh, OSD_OT_WRITE, credits);
 
 	/* make sure the over quota flags were not set */
 	lnb[0].lnb_flags &= ~(OBD_BRW_OVER_USRQUOTA | OBD_BRW_OVER_GRPQUOTA);
@@ -1187,6 +1190,8 @@ static int osd_write_commit(const struct lu_env *env, struct dt_object *dt,
 		osd_iobuf_add_page(iobuf, lnb[i].lnb_page);
         }
 
+	osd_trans_exec_op(env, thandle, OSD_OT_WRITE);
+
         if (OBD_FAIL_CHECK(OBD_FAIL_OST_MAPBLK_ENOSPC)) {
                 rc = -ENOSPC;
         } else if (iobuf->dr_npages > 0) {
@@ -1211,6 +1216,8 @@ static int osd_write_commit(const struct lu_env *env, struct dt_object *dt,
 	} else {
 		osd_fini_iobuf(osd, iobuf);
 	}
+
+	osd_trans_exec_check(env, thandle, OSD_OT_WRITE);
 
         if (unlikely(rc != 0)) {
                 /* if write fails, we should drop pages from the cache */
@@ -1666,6 +1673,8 @@ static ssize_t osd_write(const struct lu_env *env, struct dt_object *dt,
 
         oh = container_of(handle, struct osd_thandle, ot_super);
         LASSERT(oh->ot_handle->h_transaction != NULL);
+	osd_trans_exec_op(env, handle, OSD_OT_WRITE);
+
 	/* Write small symlink to inode body as we need to maintain correct
 	 * on-disk symlinks for ldiskfs.
 	 * Note: the buf->lb_buf contains a NUL terminator while buf->lb_len
@@ -1678,9 +1687,12 @@ static ssize_t osd_write(const struct lu_env *env, struct dt_object *dt,
 		result = osd_ldiskfs_write_record(inode, buf->lb_buf,
 						  buf->lb_len, is_link, pos,
 						  oh->ot_handle);
-        if (result == 0)
-                result = buf->lb_len;
-        return result;
+	if (result == 0)
+		result = buf->lb_len;
+
+	osd_trans_exec_check(env, handle, OSD_OT_WRITE);
+
+	return result;
 }
 
 static int osd_declare_punch(const struct lu_env *env, struct dt_object *dt,
