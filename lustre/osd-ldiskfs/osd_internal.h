@@ -299,7 +299,7 @@ enum {
 	OSD_OT_CREATE		= 3,
 	OSD_OT_DESTROY		= 4,
 	OSD_OT_REF_ADD		= 5,
-	OSD_OT_REF_DEL		= 6,
+	OSD_OT_REF_DEL		= 5,
 	OSD_OT_WRITE		= 7,
 	OSD_OT_INSERT		= 8,
 	OSD_OT_DELETE		= 9,
@@ -581,9 +581,11 @@ struct osd_thread_info {
 	/* Tracking for transaction credits, to allow debugging and optimizing
 	 * cases where a large number of credits are being allocated for
 	 * single transaction. */
+	unsigned int		oti_credits_before;
 	unsigned short		oti_declare_ops[OSD_OT_MAX];
 	unsigned short		oti_declare_ops_rb[OSD_OT_MAX];
 	unsigned short		oti_declare_ops_cred[OSD_OT_MAX];
+	unsigned short		oti_declare_ops_used[OSD_OT_MAX];
 	bool			oti_rollback;
 
 	char			oti_name[48];
@@ -954,7 +956,7 @@ static inline void osd_trans_exec_op(const struct lu_env *env,
 	struct osd_thread_info *oti = osd_oti_get(env);
 	struct osd_thandle     *oh  = container_of(th, struct osd_thandle,
 						   ot_super);
-	unsigned int		rb;
+	unsigned int		rb, left;
 
 	LASSERT(oh->ot_handle != NULL);
 	if (unlikely(op >= OSD_OT_MAX)) {
@@ -966,6 +968,11 @@ static inline void osd_trans_exec_op(const struct lu_env *env,
 			libcfs_debug_dumpstack(NULL);
 			return;
 		}
+	}
+
+	if (oti->oti_declare_ops_cred[op] == 0) {
+		CERROR("no credits reserved for %d\n", op);
+		libcfs_debug_dumpstack(NULL);
 	}
 
 	if (likely(!oti->oti_rollback && oti->oti_declare_ops[op] > 0)) {
@@ -986,10 +993,10 @@ static inline void osd_trans_exec_op(const struct lu_env *env,
 			}
 		}
 		if (unlikely(oti->oti_declare_ops_rb[rb] == 0)) {
-			if (unlikely(ldiskfs_track_declares_assert))
-				LASSERTF(oti->oti_declare_ops_rb[rb] > 0,
-					 "rb = %u\n", rb);
-			else {
+			if (unlikely(ldiskfs_track_declares_assert)) {
+				//LASSERTF(oti->oti_declare_ops_rb[rb] > 0,
+				//	 "rb = %u\n", rb);
+			} else {
 				CWARN("%s: Overflow in tracking declares for "
 				      "index, rb = %d\n",
 				      osd_name(oti->oti_dev), rb);
@@ -998,6 +1005,48 @@ static inline void osd_trans_exec_op(const struct lu_env *env,
 			}
 		}
 		oti->oti_declare_ops_rb[rb]--;
+	}
+
+	oti->oti_credits_before = oh->ot_handle->h_buffer_credits;
+	left = oti->oti_declare_ops_cred[op] - oti->oti_declare_ops_used[op];
+	if (oti->oti_credits_before < left)
+		CWARN("op %d, credits: %u declared, %u used, %u left\n",
+		       op, oti->oti_declare_ops_cred[op],
+		       oti->oti_declare_ops_used[op], oti->oti_credits_before);
+}
+
+static inline void osd_trans_exec_check(const struct lu_env *env,
+					struct thandle *th,
+					unsigned int op)
+{
+	struct osd_thread_info *oti = osd_oti_get(env);
+	struct osd_thandle     *oh  = container_of(th, struct osd_thandle,
+						   ot_super);
+	int			used, over, quota;
+
+	used = oti->oti_credits_before - oh->ot_handle->h_buffer_credits;
+	if (unlikely(used < 0)) {
+		/* if some block was allocated and released in the same
+		 * transaction, then it won't be a part of the transaction
+		 * and delta can be negative */
+		return;
+	}
+	oti->oti_declare_ops_used[op] += used;
+	if (oti->oti_declare_ops_used[op] > oti->oti_declare_ops_cred[op]) {
+		over = oti->oti_declare_ops_used[op] -
+			oti->oti_declare_ops_cred[op];
+		quota = oti->oti_declare_ops_cred[OSD_OT_QUOTA] -
+			oti->oti_declare_ops_used[OSD_OT_QUOTA];
+		if (over <= quota) {
+			/* probably that credits were consumed by
+			 * quota indirectly (in the depths of ldiskfs) */
+			oti->oti_declare_ops_used[OSD_OT_QUOTA] += over;
+			oti->oti_declare_ops_used[op] -= over;
+		} else {
+			CWARN("op %d: used %u, used now %u, reserved %u\n",
+			      op, oti->oti_declare_ops_used[op], used,
+			      oti->oti_declare_ops_cred[op]);
+		}
 	}
 }
 
