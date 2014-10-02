@@ -581,9 +581,11 @@ struct osd_thread_info {
 	/* Tracking for transaction credits, to allow debugging and optimizing
 	 * cases where a large number of credits are being allocated for
 	 * single transaction. */
+	unsigned int		oti_credits_before;
 	unsigned short		oti_declare_ops[OSD_OT_MAX];
 	unsigned short		oti_declare_ops_rb[OSD_OT_MAX];
 	unsigned short		oti_declare_ops_cred[OSD_OT_MAX];
+	unsigned short		oti_declare_ops_used[OSD_OT_MAX];
 	bool			oti_rollback;
 
 	char			oti_name[48];
@@ -954,7 +956,7 @@ static inline void osd_trans_exec_op(const struct lu_env *env,
 	struct osd_thread_info *oti = osd_oti_get(env);
 	struct osd_thandle     *oh  = container_of(th, struct osd_thandle,
 						   ot_super);
-	unsigned int		rb;
+	unsigned int		rb, left;
 
 	LASSERT(oh->ot_handle != NULL);
 	if (unlikely(op >= OSD_OT_MAX)) {
@@ -966,6 +968,11 @@ static inline void osd_trans_exec_op(const struct lu_env *env,
 			libcfs_debug_dumpstack(NULL);
 			return;
 		}
+	}
+
+	if (oti->oti_declare_ops_cred[op] == 0) {
+		CERROR("no credits reserved for %d\n", op);
+		libcfs_debug_dumpstack(NULL);
 	}
 
 	if (likely(!oti->oti_rollback && oti->oti_declare_ops[op] > 0)) {
@@ -999,6 +1006,38 @@ static inline void osd_trans_exec_op(const struct lu_env *env,
 		}
 		oti->oti_declare_ops_rb[rb]--;
 	}
+
+	oti->oti_credits_before = oh->ot_handle->h_buffer_credits;
+	left = oti->oti_declare_ops_cred[op] - oti->oti_declare_ops_used[op];
+	if (oti->oti_credits_before < left) {
+		CWARN("op %d, credits: %u declared, %u used, %u left\n",
+		       op, oti->oti_declare_ops_cred[op],
+		       oti->oti_declare_ops_used[op], oti->oti_credits_before);
+	}
+}
+
+static inline void osd_trans_exec_check(const struct lu_env *env,
+					struct thandle *th,
+					unsigned int op)
+{
+	struct osd_thread_info *oti = osd_oti_get(env);
+	struct osd_thandle     *oh  = container_of(th, struct osd_thandle,
+						   ot_super);
+	int			used;
+
+	used = oti->oti_credits_before - oh->ot_handle->h_buffer_credits;
+	LASSERTF(used >= 0, "used %d\n", used);
+	oti->oti_declare_ops_used[op] += used;
+	if (oti->oti_declare_ops_used[op] > oti->oti_declare_ops_cred[op]) {
+		CWARN("op %d: used %u, used now %u, reserved %u\n", op,
+			oti->oti_declare_ops_used[op], used,
+			oti->oti_declare_ops_cred[op]);
+	}
+#if 0
+	LASSERTF(oti->oti_declare_ops_used[op] <= oti->oti_declare_ops_cred[op],
+		 "used %u, reserved %u\n", oti->oti_declare_ops_used[op],
+		 oti->oti_declare_ops_cred[op]);
+#endif
 }
 
 static inline void osd_trans_declare_rb(const struct lu_env *env,
