@@ -1004,6 +1004,7 @@ repeat_find:
 	} else {
 		/* nobody provided us with a single object */
 		rc = -ENOSPC;
+		CERROR("No Space for lod_alloc_rr\n");
 	}
 
 out:
@@ -1506,6 +1507,9 @@ static int lod_alloc_qos(const struct lu_env *env, struct lod_object *lo,
 			break;
 		}
 	}
+
+	if (rc == -ENOSPC)
+		CERROR("No Space for lod_alloc_qos\n");
 
 	if (unlikely(nfound != stripe_cnt)) {
 		/*
