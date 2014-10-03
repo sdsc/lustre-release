@@ -3973,22 +3973,30 @@ test_51b() {
 
 	test_mkdir -p -c1 $BASE
 
+	$LFS df
+	$LFS df -i
 	local mdtidx=$(printf "%04x" $($LFS getstripe -M $BASE))
 	local numfree=$(lctl get_param -n mdc.$FSNAME-MDT$mdtidx*.filesfree)
-	[[ $numfree -lt 21000 ]] && skip "not enough free inodes ($numfree)" &&
+	[[ $numfree -lt 21000 ]] &&
+		skip "not enough free inodes ($numfree) on MDT$mdtidx" &&
 		return
 
 	[[ $numfree -lt $NUMTEST ]] && NUMTEST=$(($numfree - 50)) &&
-		echo "reduced count to $NUMTEST due to inodes"
+		echo "reduced count to $NUMTEST due to inodes on MDT$mdtidx"
 
 	# need to check free space for the directories as well
 	local blkfree=$(lctl get_param -n mdc.$FSNAME-MDT$mdtidx*.kbytesavail)
 	numfree=$((blkfree / 4))
-	[[ $numfree -lt $NUMTEST ]] && NUMTEST=$(($numfree - 50)) &&
-		echo "reduced count to $NUMTEST due to blocks"
+	[[ $numfree -lt $NUMTEST ]] && NUMTEST=$((numfree - 50)) &&
+		echo "reduced count to $NUMTEST due to blocks on MDT$mdtidx"
 
 	createmany -d $BASE/d $NUMTEST && echo $NUMTEST > $BASE/fnum ||
+	{
+		$LFS df
+		$LFS df -i
 		echo "failed" > $BASE/fnum
+		error "failed to create $NUMTEST subdirs on MDT$mdtidx"
+	}
 }
 run_test 51b "exceed 64k subdirectory nlink limit"
 
