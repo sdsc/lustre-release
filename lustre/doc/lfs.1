@@ -32,12 +32,12 @@ lfs \- Lustre utility to create a file with specific striping pattern, find the 
 .B lfs getstripe [--obd|-O <uuid>] [--quiet|-q] [--verbose|-v] 
         \fB[--stripe-count|-c ] [--stripe-index|-i] [--mdt-index|-M]
         \fB[--stripe-size|-S] [--directory|-d]
-	\fB[--layout|-L]
+        \fB[--layout|-L]
         \fB[--pool|-p] [--recursive|-r] [--raw|-R] <dirname|filename> ...\fR
 .br
 .B lfs setstripe [--stripe-size|-S stripe_size] [--stripe-count|-c stripe_count]
         \fB[--stripe-index|-i start_ost_index ] [--pool|-p <poolname>]
-        \fB<directory|filename>\fR
+        \fB[--ost-list|-o <ost_indices>] <directory|filename>\fR
 .br
 .B lfs setstripe -d <dir>
 .br
@@ -134,7 +134,7 @@ to that filesystem are displayed.
 .B getstripe [--obd|-O <uuid>] [--quiet|-q] [--verbose|-v] 
         \fB[--count | -c ] [--index | -i | --offset | -o  ]
         \fB[--pool | -p ] [--size | -s ] [--directory | -d ]
-	\fB[--layout | -L]
+        \fB[--layout | -L]
         \fB[--recursive | -r ] [--raw | -R ] <dirname|filename>\fR
 .br
 List the striping information for a given filename or directory tree.
@@ -176,7 +176,7 @@ You can limit the returned files to those with objects on a specific OST with
 .TP
 .B setstripe [--stripe-count|-c stripe_count] [--stripe-size|-S stripe_size]
         \fB[--stripe-index|-i start_ost_index] [--pool <poolname>]
-        \fB<dirname|filename>\fR
+        \fB[--ost-index|-o <ost_indices>] <dirname|filename>\fR
 .br
 To create a new file, or set the directory default, with the specified striping parameters.  The
 .I stripe_count
@@ -193,6 +193,8 @@ of 0 means to use the filesystem-wide default stripe_size (default 1MB).  The
 is the OST index (starting at 0) on which to start striping for this file.  A
 .I start_ost_index
 of -1 allows the MDS to choose the starting index and it is strongly recommended, as this allows space and load balancing to be done by the MDS as needed.  The
+.I ost_indices
+is a list of OSTs referenced by their index. This list is used to define the exact stripe layout on the file system. The indices can be specified in a format of -o <ost_1> -o <ost_i>-<ost_j> -o <ost_n> or the list can be combined using a comma as a delimiter in the form of -o <ost_1>,<ost_i>-<ost_j>,<ost_n>.  The
 .I poolname
 is the name of a predefined pool of OSTs (see 
 .B lctl
