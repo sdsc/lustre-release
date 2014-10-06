@@ -5124,8 +5124,13 @@ static int mdt_export_cleanup(struct obd_export *exp)
         info->mti_mdt = NULL;
         /* cleanup client slot early */
         /* Do not erase record for recoverable client. */
-        if (!(exp->exp_flags & OBD_OPT_FAILOVER) || exp->exp_failed)
+        if (!(exp->exp_flags & OBD_OPT_FAILOVER) || exp->exp_failed) {
 		tgt_client_del(&env, exp);
+
+		if (OBD_FAIL_CHECK(OBD_FAIL_MDS_SYNC_EVICT_CLIENT))
+			mdt_device_sync(&env, mdt);
+	}
+
         lu_env_fini(&env);
 
         RETURN(rc);

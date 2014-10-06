@@ -420,6 +420,9 @@ test_20a() {	# was test_20
 run_test 20a "|X| open(O_CREAT), unlink, replay, close (test mds_cleanup_orphans)"
 
 test_20b() { # bug 10480
+	[[ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.6.90) ]] ||
+		{ skip "Need MDS version at least 2.6.90"; return 0; }
+
 	local wait_timeout=$((TIMEOUT * 4))
 	local BEFOREUSED
 	local AFTERUSED
@@ -433,8 +436,14 @@ test_20b() { # bug 10480
 
 	$GETSTRIPE $DIR/$tfile || return 1
 	rm -f $DIR/$tfile || return 2       # make it an orphan
+
+#define OBD_FAIL_MDS_SYNC_EVICT_CLIENT	0x157
+	do_facet $SINGLEMDS "lctl set_param fail_loc=0x157"
+
 	mds_evict_client
 	client_up || client_up || true    # reconnect
+
+	do_facet $SINGLEMDS "lctl set_param fail_loc=0"
 
 	fail $SINGLEMDS                            # start orphan recovery
 	wait_recovery_complete $SINGLEMDS || error "MDS recovery not done"
