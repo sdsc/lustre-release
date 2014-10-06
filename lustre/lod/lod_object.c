@@ -1633,7 +1633,7 @@ next:
 			GOTO(out_put, rc);
 
 		/* probably nothing to inherite */
-		if (lo->ldo_striping_cached &&
+		if (lo->ldo_def_striping_set &&
 		    !LOVEA_DELETE_VALUES(lo->ldo_def_stripe_size,
 					 lo->ldo_def_stripenr,
 					 lo->ldo_def_stripe_offset)) {
@@ -2121,7 +2121,7 @@ static int lod_xattr_set_lmv(const struct lu_env *env, struct dt_object *dt,
 		if (rc != 0)
 			RETURN(rc);
 
-		if (lo->ldo_striping_cached &&
+		if (lo->ldo_def_striping_set &&
 		    !LOVEA_DELETE_VALUES(lo->ldo_def_stripe_size,
 					 lo->ldo_def_stripenr,
 					 lo->ldo_def_stripe_offset)) {
@@ -2284,7 +2284,7 @@ int lod_dir_striping_create_internal(const struct lu_env *env,
 	}
 
 	/* Transfer default LOV striping from the parent */
-	if (lo->ldo_striping_cached &&
+	if (lo->ldo_def_striping_set &&
 	    !LOVEA_DELETE_VALUES(lo->ldo_def_stripe_size,
 				 lo->ldo_def_stripenr,
 				 lo->ldo_def_stripe_offset)) {
@@ -2464,7 +2464,6 @@ static int lod_cache_parent_lov_striping(const struct lu_env *env,
 	if (rc < (typeof(rc))sizeof(struct lov_user_md)) {
 		/* don't lookup for non-existing or invalid striping */
 		lp->ldo_def_striping_set = 0;
-		lp->ldo_striping_cached = 1;
 		lp->ldo_def_stripe_size = 0;
 		lp->ldo_def_stripenr = 0;
 		lp->ldo_def_stripe_offset = (typeof(v1->lmm_stripe_offset))(-1);
@@ -2494,7 +2493,6 @@ static int lod_cache_parent_lov_striping(const struct lu_env *env,
 	lp->ldo_def_stripenr = v1->lmm_stripe_count;
 	lp->ldo_def_stripe_size = v1->lmm_stripe_size;
 	lp->ldo_def_stripe_offset = v1->lmm_stripe_offset;
-	lp->ldo_striping_cached = 1;
 	lp->ldo_def_striping_set = 1;
 	if (v1->lmm_magic == LOV_USER_MAGIC_V3) {
 		/* XXX: sanity check here */
@@ -2557,11 +2555,7 @@ static int lod_cache_parent_striping(const struct lu_env *env,
 	int rc = 0;
 	ENTRY;
 
-	rc = lod_load_striping(env, lp);
-	if (rc != 0)
-		RETURN(rc);
-
-	if (!lp->ldo_striping_cached) {
+	if (!lp->ldo_def_striping_set) {
 		/* we haven't tried to get default striping for
 		 * the directory yet, let's cache it in the object */
 		rc = lod_cache_parent_lov_striping(env, lp);
@@ -2598,9 +2592,6 @@ static void lod_ah_init(const struct lu_env *env,
 	if (likely(parent)) {
 		nextp = dt_object_child(parent);
 		lp = lod_dt_obj(parent);
-		rc = lod_load_striping(env, lp);
-		if (rc != 0)
-			return;
 	}
 
 	nextc = dt_object_child(child);
@@ -2636,13 +2627,12 @@ static void lod_ah_init(const struct lu_env *env,
 			return;
 
 		/* transfer defaults to new directory */
-		if (lp->ldo_striping_cached) {
+		if (lp->ldo_def_striping_set) {
 			if (lp->ldo_pool)
 				lod_object_set_pool(lc, lp->ldo_pool);
 			lc->ldo_def_stripenr = lp->ldo_def_stripenr;
 			lc->ldo_def_stripe_size = lp->ldo_def_stripe_size;
 			lc->ldo_def_stripe_offset = lp->ldo_def_stripe_offset;
-			lc->ldo_striping_cached = 1;
 			lc->ldo_def_striping_set = 1;
 			CDEBUG(D_OTHER, "inherite EA sz:%d off:%d nr:%d\n",
 			       (int)lc->ldo_def_stripe_size,
