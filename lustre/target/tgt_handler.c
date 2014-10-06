@@ -464,6 +464,7 @@ static int tgt_filter_recovery_request(struct ptlrpc_request *req,
 	case OUT_UPDATE:
 	case SEQ_QUERY:
 	case FLD_QUERY:
+	case FLD_READ:
 	case LDLM_ENQUEUE:
 	case OST_CREATE:
 	case OST_DESTROY:
