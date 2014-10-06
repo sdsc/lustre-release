@@ -755,7 +755,7 @@ repeat:
  * \retval			negative error number on failure
  */
 int lod_store_def_striping(const struct lu_env *env, struct dt_object *dt,
-			   struct thandle *th)
+			   struct thandle *th, bool declare)
 {
 	struct lod_thread_info	*info = lod_env_info(env);
 	struct lod_object	*lo = lod_dt_obj(dt);
@@ -772,7 +772,7 @@ int lod_store_def_striping(const struct lu_env *env, struct dt_object *dt,
 	 */
 
 	/* probably nothing to inherite */
-	if (lo->ldo_striping_cached == 0)
+	if (lo->ldo_def_striping_set == 0)
 		RETURN(0);
 
 	if (LOVEA_DELETE_VALUES(lo->ldo_def_stripe_size, lo->ldo_def_stripenr,
@@ -796,9 +796,84 @@ int lod_store_def_striping(const struct lu_env *env, struct dt_object *dt,
 			sizeof(v3->lmm_pool_name));
 	info->lti_buf.lb_buf = v3;
 	info->lti_buf.lb_len = sizeof(*v3);
-	rc = dt_xattr_set(env, next, &info->lti_buf, XATTR_NAME_LOV, 0, th,
-			BYPASS_CAPA);
+	if (declare)
+		rc = dt_declare_xattr_set(env, next, &info->lti_buf,
+					  XATTR_NAME_LOV, 0, th);
+	else
+		rc = dt_xattr_set(env, next, &info->lti_buf, XATTR_NAME_LOV,
+				  0, th, BYPASS_CAPA);
 
+	RETURN(rc);
+}
+
+/**
+ * Store default LMV striping.
+ *
+ * Store default striping for the directories in the given directory.
+ * The data are stored in the LOD-object representing the directory
+ * (ldo_dir_def_* fields). If default striping matches virtual fs-wide
+ * default striping, then we store nothing. This mean that the directories
+ * in the directory will be created with filesystem-wide default striping.
+ * The transaction must be started.
+ *
+ * \param[in] env		execution environment for this thread
+ * \param[in] dt		dt object representing directory in LOD layer
+ * \param[in] th		transaction handle
+ *
+ * \retval			0 if stored successfully or no need to store
+ * \retval			negative error number on failure
+ */
+int lod_store_def_dir_striping(const struct lu_env *env, struct dt_object *dt,
+			       struct thandle *th, bool declare)
+{
+	struct lod_thread_info	*info = lod_env_info(env);
+	struct lod_object	*lo = lod_dt_obj(dt);
+	struct dt_object	*next = dt_object_child(dt);
+	struct lmv_user_md	*v1;
+	int			 rc;
+	ENTRY;
+
+	if (S_ISDIR(dt->do_lu.lo_header->loh_attr))
+		RETURN(-ENOTDIR);
+
+	LASSERT(lo->ldo_dir_stripe != NULL);
+
+	/*
+	 * store striping defaults into new directory
+	 * used to implement defaults inheritance
+	 */
+
+	/* probably nothing to inherite */
+	if (lo->ldo_dir_def_striping_set == 0 ||
+	    LMVEA_DELETE_VALUES(lo->ldo_dir_def_stripenr,
+				lo->ldo_dir_def_stripe_offset))
+		RETURN(0);
+
+	v1 = info->lti_ea_store;
+	if (info->lti_ea_store_size < sizeof(*v1)) {
+		rc = lod_ea_store_resize(info, sizeof(*v1));
+		if (rc != 0)
+			RETURN(rc);
+		v1 = info->lti_ea_store;
+	}
+
+	memset(v1, 0, sizeof(*v1));
+	v1->lum_magic = cpu_to_le32(LMV_USER_MAGIC);
+	v1->lum_stripe_count = cpu_to_le32(lo->ldo_dir_def_stripenr);
+	v1->lum_stripe_offset =
+			cpu_to_le32(lo->ldo_dir_def_stripe_offset);
+	v1->lum_hash_type =
+			cpu_to_le32(lo->ldo_dir_def_hash_type);
+
+	info->lti_buf.lb_buf = v1;
+	info->lti_buf.lb_len = sizeof(*v1);
+	if (declare)
+		rc = dt_declare_xattr_set(env, next, &info->lti_buf,
+					  XATTR_NAME_DEFAULT_LMV, 0, th);
+	else
+		rc = dt_xattr_set(env, next, &info->lti_buf,
+				  XATTR_NAME_DEFAULT_LMV,
+				  0, th, BYPASS_CAPA);
 	RETURN(rc);
 }
 
@@ -1056,6 +1131,9 @@ int lod_load_striping_locked(const struct lu_env *env, struct lod_object *lo)
 		 */
 		rc = lod_parse_dir_striping(env, lo, buf);
 	}
+
+	if (rc == 0)
+		lo->ldo_striping_cached = 1;
 out:
 	RETURN(rc);
 }
@@ -1080,6 +1158,9 @@ int lod_load_striping(const struct lu_env *env, struct lod_object *lo)
 {
 	struct dt_object	*next = dt_object_child(&lo->ldo_obj);
 	int			rc = 0;
+
+	if (lo->ldo_striping_cached)
+		return rc;
 
 	/* currently this code is supposed to be called from declaration
 	 * phase only, thus the object is not expected to be locked by caller */

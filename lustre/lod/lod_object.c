@@ -1527,7 +1527,6 @@ int lod_prep_lmv_md(const struct lu_env *env, struct dt_object *dt,
 	lmm1->lmv_master_mdt_index = cpu_to_le32(mdtidx);
 	lmv_buf->lb_buf = info->lti_ea_store;
 	lmv_buf->lb_len = sizeof(*lmm1);
-	lo->ldo_dir_striping_cached = 1;
 
 	RETURN(rc);
 }
@@ -1834,7 +1833,7 @@ next:
 			GOTO(out_put, rc);
 
 		/* probably nothing to inherite */
-		if (lo->ldo_striping_cached &&
+		if (lo->ldo_def_striping_set &&
 		    !LOVEA_DELETE_VALUES(lo->ldo_def_stripe_size,
 					 lo->ldo_def_stripenr,
 					 lo->ldo_def_stripe_offset)) {
@@ -2116,9 +2115,20 @@ static void lod_lov_stripe_cache_clear(struct lod_object *lo)
 	lod_object_set_pool(lo, NULL);
 	lo->ldo_def_stripe_size = 0;
 	lo->ldo_def_stripenr = 0;
-	if (lo->ldo_dir_stripe != NULL)
-		lo->ldo_dir_striping_cached = 0;
 }
+
+/**
+ * Resets cached default striping in the object.
+ *
+ * \param[in] lo	object
+ */
+static void lod_lmv_stripe_cache_clear(struct lod_object *lo)
+{
+	if (lo->ldo_dir_stripe == NULL)
+		return;
+	lo->ldo_dir_def_striping_set = 0;
+}
+
 
 /**
  * Apply xattr changes to the object.
@@ -2336,15 +2346,10 @@ static int lod_xattr_set_default_lmv_on_dir(const struct lu_env *env,
 	}
 
 	/* Update default stripe cache */
-	if (l->ldo_dir_stripe == NULL) {
-		OBD_ALLOC_PTR(l->ldo_dir_stripe);
-		if (l->ldo_dir_stripe == NULL)
-			RETURN(-ENOMEM);
+	if (l->ldo_dir_stripe != NULL) {
+		l->ldo_dir_def_striping_set = 1;
+		l->ldo_dir_def_stripenr = le32_to_cpu(lum->lum_stripe_count);
 	}
-
-	l->ldo_dir_striping_cached = 0;
-	l->ldo_dir_def_striping_set = 1;
-	l->ldo_dir_def_stripenr = le32_to_cpu(lum->lum_stripe_count);
 
 	RETURN(rc);
 }
@@ -2442,40 +2447,6 @@ static int lod_xattr_set_lmv(const struct lu_env *env, struct dt_object *dt,
 		if (rc != 0)
 			RETURN(rc);
 
-		if (lo->ldo_striping_cached &&
-		    !LOVEA_DELETE_VALUES(lo->ldo_def_stripe_size,
-					 lo->ldo_def_stripenr,
-					 lo->ldo_def_stripe_offset)) {
-			struct lov_user_md_v3	*v3;
-
-			/* sigh, lti_ea_store has been used for lmv_buf,
-			 * so we have to allocate buffer for default
-			 * stripe EA */
-			OBD_ALLOC_PTR(v3);
-			if (v3 == NULL)
-				GOTO(out, rc);
-
-			memset(v3, 0, sizeof(*v3));
-			v3->lmm_magic = cpu_to_le32(LOV_USER_MAGIC_V3);
-			v3->lmm_stripe_count =
-				cpu_to_le16(lo->ldo_def_stripenr);
-			v3->lmm_stripe_offset =
-				cpu_to_le16(lo->ldo_def_stripe_offset);
-			v3->lmm_stripe_size =
-				cpu_to_le32(lo->ldo_def_stripe_size);
-			if (lo->ldo_pool != NULL)
-				strlcpy(v3->lmm_pool_name, lo->ldo_pool,
-					sizeof(v3->lmm_pool_name));
-
-			info->lti_buf.lb_buf = v3;
-			info->lti_buf.lb_len = sizeof(*v3);
-			rc = dt_xattr_set(env, dto, &info->lti_buf,
-					  XATTR_NAME_LOV, 0, th, capa);
-			OBD_FREE_PTR(v3);
-			if (rc != 0)
-				GOTO(out, rc);
-		}
-
 		slave_lmm->lmv_master_mdt_index = cpu_to_le32(i);
 		rc = dt_xattr_set(env, dto, &slave_lmv_buf, XATTR_NAME_LMV,
 				  fl, th, capa);
@@ -2555,46 +2526,49 @@ int lod_dir_striping_create_internal(const struct lu_env *env,
 	struct lod_thread_info	*info = lod_env_info(env);
 	struct lod_object	*lo = lod_dt_obj(dt);
 	int			rc;
+	struct lmv_user_md_v1 *v1 = info->lti_ea_store;
 	ENTRY;
 
-	if (!LMVEA_DELETE_VALUES(lo->ldo_stripenr,
-				 lo->ldo_dir_stripe_offset)) {
-		struct lmv_user_md_v1 *v1 = info->lti_ea_store;
-		int stripe_count = lo->ldo_stripenr;
+	if (!lo->ldo_striping_cached ||
+	    LMVEA_DELETE_VALUES(lo->ldo_stripenr,
+				 lo->ldo_dir_stripe_offset))
+		RETURN(0);
 
-		if (info->lti_ea_store_size < sizeof(*v1)) {
-			rc = lod_ea_store_resize(info, sizeof(*v1));
-			if (rc != 0)
-				RETURN(rc);
-			v1 = info->lti_ea_store;
-		}
-
-		memset(v1, 0, sizeof(*v1));
-		v1->lum_magic = cpu_to_le32(LMV_USER_MAGIC);
-		v1->lum_stripe_count = cpu_to_le32(stripe_count);
-		v1->lum_stripe_offset =
-				cpu_to_le32(lo->ldo_dir_stripe_offset);
-
-		info->lti_buf.lb_buf = v1;
-		info->lti_buf.lb_len = sizeof(*v1);
-
-		if (declare)
-			rc = lod_declare_xattr_set_lmv(env, dt, attr,
-						       &info->lti_buf, dof, th);
-		else
-			rc = lod_xattr_set_lmv(env, dt, &info->lti_buf,
-					       XATTR_NAME_LMV, 0, th,
-					       BYPASS_CAPA);
+	LASSERT(lo->ldo_dir_stripe != NULL);
+	/* First create Sub stripes for the directory */
+	v1 = info->lti_ea_store;
+	if (info->lti_ea_store_size < sizeof(*v1)) {
+		rc = lod_ea_store_resize(info, sizeof(*v1));
 		if (rc != 0)
 			RETURN(rc);
+		v1 = info->lti_ea_store;
 	}
 
-	/* Transfer default LMV striping from the parent */
-	if (lo->ldo_dir_striping_cached &&
+	memset(v1, 0, sizeof(*v1));
+	v1->lum_magic = cpu_to_le32(LMV_USER_MAGIC);
+	v1->lum_stripe_count = cpu_to_le32(lo->ldo_stripenr);
+	v1->lum_stripe_offset =
+			cpu_to_le32(lo->ldo_dir_stripe_offset);
+
+	info->lti_buf.lb_buf = v1;
+	info->lti_buf.lb_len = sizeof(*v1);
+
+	if (declare)
+		rc = lod_declare_xattr_set_lmv(env, dt, attr,
+					       &info->lti_buf, dof, th);
+	else
+		rc = lod_xattr_set_lmv(env, dt, &info->lti_buf,
+				       XATTR_NAME_LMV, 0, th,
+				       BYPASS_CAPA);
+	if (rc < 0)
+		RETURN(rc);
+
+	/* Then transfer default LMV striping from the parent */
+	if (lo->ldo_dir_def_striping_set &&
 	    !LMVEA_DELETE_VALUES(lo->ldo_dir_def_stripenr,
 				 lo->ldo_dir_def_stripe_offset)) {
 		struct lmv_user_md_v1 *v1 = info->lti_ea_store;
-		int def_stripe_count = lo->ldo_dir_def_stripenr;
+		int i;
 
 		if (info->lti_ea_store_size < sizeof(*v1)) {
 			rc = lod_ea_store_resize(info, sizeof(*v1));
@@ -2605,7 +2579,7 @@ int lod_dir_striping_create_internal(const struct lu_env *env,
 
 		memset(v1, 0, sizeof(*v1));
 		v1->lum_magic = cpu_to_le32(LMV_USER_MAGIC);
-		v1->lum_stripe_count = cpu_to_le32(def_stripe_count);
+		v1->lum_stripe_count = cpu_to_le32(lo->ldo_dir_def_stripenr);
 		v1->lum_stripe_offset =
 				cpu_to_le32(lo->ldo_dir_def_stripe_offset);
 		v1->lum_hash_type =
@@ -2613,25 +2587,32 @@ int lod_dir_striping_create_internal(const struct lu_env *env,
 
 		info->lti_buf.lb_buf = v1;
 		info->lti_buf.lb_len = sizeof(*v1);
-		if (declare)
-			rc = lod_dir_declare_xattr_set(env, dt, &info->lti_buf,
-						       XATTR_NAME_DEFAULT_LMV,
-						       0, th);
-		else
-			rc = lod_xattr_set_default_lmv_on_dir(env, dt,
-						  &info->lti_buf,
-						  XATTR_NAME_DEFAULT_LMV, 0,
-						  th, BYPASS_CAPA);
+		for (i = 0; i < lo->ldo_stripenr; i++) {
+			LASSERT(lo->ldo_stripe[i]);
+			if (declare) {
+				rc = dt_declare_xattr_set(env,
+					lo->ldo_stripe[i], &info->lti_buf,
+					XATTR_NAME_DEFAULT_LMV, 0, th);
+			} else {
+				rc = dt_xattr_set(env,
+					lo->ldo_stripe[i], &info->lti_buf,
+					XATTR_NAME_DEFAULT_LMV, 0, th,
+					BYPASS_CAPA);
+			}
+			if (rc != 0)
+				break;
+		}
 		if (rc != 0)
 			RETURN(rc);
 	}
 
-	/* Transfer default LOV striping from the parent */
-	if (lo->ldo_striping_cached &&
+	/* Then transfer default LOV striping from the parent */
+	if (lo->ldo_def_striping_set &&
 	    !LOVEA_DELETE_VALUES(lo->ldo_def_stripe_size,
 				 lo->ldo_def_stripenr,
 				 lo->ldo_def_stripe_offset)) {
 		struct lov_user_md_v3 *v3 = info->lti_ea_store;
+		int i;
 
 		if (info->lti_ea_store_size < sizeof(*v3)) {
 			rc = lod_ea_store_resize(info, sizeof(*v3));
@@ -2651,14 +2632,21 @@ int lod_dir_striping_create_internal(const struct lu_env *env,
 
 		info->lti_buf.lb_buf = v3;
 		info->lti_buf.lb_len = sizeof(*v3);
-
-		if (declare)
-			rc = lod_dir_declare_xattr_set(env, dt, &info->lti_buf,
-						       XATTR_NAME_LOV, 0, th);
-		else
-			rc = lod_xattr_set_lov_on_dir(env, dt, &info->lti_buf,
-						      XATTR_NAME_LOV, 0, th,
-						      BYPASS_CAPA);
+		for (i = 0; i < lo->ldo_stripenr; i++) {
+			LASSERT(lo->ldo_stripe[i]);
+			if (declare) {
+				rc = dt_declare_xattr_set(env,
+					lo->ldo_stripe[i], &info->lti_buf,
+					XATTR_NAME_LOV, 0, th);
+			} else {
+				rc = dt_xattr_set(env,
+					lo->ldo_stripe[i], &info->lti_buf,
+					XATTR_NAME_LOV, 0, th,
+					BYPASS_CAPA);
+			}
+			if (rc != 0)
+				break;
+		}
 		if (rc != 0)
 			RETURN(rc);
 	}
@@ -2783,8 +2771,18 @@ static int lod_xattr_del(const struct lu_env *env, struct dt_object *dt,
 			 const char *name, struct thandle *th,
 			 struct lustre_capa *capa)
 {
+	if (!strcmp(name, XATTR_NAME_LMV) &&
+	    S_ISDIR(dt->do_lu.lo_header->loh_attr))
+		return -EPERM;
+
 	if (!strcmp(name, XATTR_NAME_LOV))
 		lod_object_free_striping(env, lod_dt_obj(dt));
+
+	if (!strcmp(name, XATTR_NAME_DEFAULT_LMV) &&
+	    S_ISDIR(dt->do_lu.lo_header->loh_attr) &&
+	    lod_dt_obj(dt)->ldo_dir_stripe != NULL)
+		lod_dt_obj(dt)->ldo_dir_def_striping_set = 0;
+
 	return dt_xattr_del(env, dt_object_child(dt), name, th, capa);
 }
 
@@ -2870,7 +2868,6 @@ static int lod_cache_parent_lov_striping(const struct lu_env *env,
 	if (rc < (typeof(rc))sizeof(struct lov_user_md)) {
 		/* don't lookup for non-existing or invalid striping */
 		lp->ldo_def_striping_set = 0;
-		lp->ldo_striping_cached = 1;
 		lp->ldo_def_stripe_size = 0;
 		lp->ldo_def_stripenr = 0;
 		lp->ldo_def_stripe_offset = (typeof(v1->lmm_stripe_offset))(-1);
@@ -2900,7 +2897,6 @@ static int lod_cache_parent_lov_striping(const struct lu_env *env,
 	lp->ldo_def_stripenr = v1->lmm_stripe_count;
 	lp->ldo_def_stripe_size = v1->lmm_stripe_size;
 	lp->ldo_def_stripe_offset = v1->lmm_stripe_offset;
-	lp->ldo_striping_cached = 1;
 	lp->ldo_def_striping_set = 1;
 	if (v1->lmm_magic == LOV_USER_MAGIC_V3) {
 		/* XXX: sanity check here */
@@ -2944,8 +2940,7 @@ static int lod_cache_parent_lmv_striping(const struct lu_env *env,
 
 	if (rc < (typeof(rc))sizeof(struct lmv_user_md)) {
 		/* don't lookup for non-existing or invalid striping */
-		lp->ldo_dir_def_striping_set = 0;
-		lp->ldo_dir_striping_cached = 1;
+		lp->ldo_dir_def_striping_set = 1;
 		lp->ldo_dir_def_stripenr = 0;
 		lp->ldo_dir_def_stripe_offset =
 					(typeof(v1->lum_stripe_offset))(-1);
@@ -2960,7 +2955,6 @@ static int lod_cache_parent_lmv_striping(const struct lu_env *env,
 	lp->ldo_dir_def_stripe_offset = le32_to_cpu(v1->lum_stripe_offset);
 	lp->ldo_dir_def_hash_type = le32_to_cpu(v1->lum_hash_type);
 	lp->ldo_dir_def_striping_set = 1;
-	lp->ldo_dir_striping_cached = 1;
 
 	EXIT;
 unlock:
@@ -2991,11 +2985,7 @@ static int lod_cache_parent_striping(const struct lu_env *env,
 	int rc = 0;
 	ENTRY;
 
-	rc = lod_load_striping(env, lp);
-	if (rc != 0)
-		RETURN(rc);
-
-	if (!lp->ldo_striping_cached) {
+	if (!lp->ldo_def_striping_set) {
 		/* we haven't tried to get default striping for
 		 * the directory yet, let's cache it in the object */
 		rc = lod_cache_parent_lov_striping(env, lp);
@@ -3003,7 +2993,7 @@ static int lod_cache_parent_striping(const struct lu_env *env,
 			RETURN(rc);
 	}
 
-	if (S_ISDIR(child_mode) && !lp->ldo_dir_striping_cached)
+	if (S_ISDIR(child_mode) && !lp->ldo_dir_def_striping_set)
 		rc = lod_cache_parent_lmv_striping(env, lp);
 
 	RETURN(rc);
@@ -3040,9 +3030,6 @@ static void lod_ah_init(const struct lu_env *env,
 	if (likely(parent)) {
 		nextp = dt_object_child(parent);
 		lp = lod_dt_obj(parent);
-		rc = lod_load_striping(env, lp);
-		if (rc != 0)
-			return;
 	}
 
 	nextc = dt_object_child(child);
@@ -3077,14 +3064,13 @@ static void lod_ah_init(const struct lu_env *env,
 		if (rc != 0)
 			return;
 
-		/* transfer defaults to new directory */
-		if (lp->ldo_striping_cached) {
+		/* Transfer defaults LOVEA to new directory */
+		if (lp->ldo_def_striping_set) {
 			if (lp->ldo_pool)
 				lod_object_set_pool(lc, lp->ldo_pool);
 			lc->ldo_def_stripenr = lp->ldo_def_stripenr;
 			lc->ldo_def_stripe_size = lp->ldo_def_stripe_size;
 			lc->ldo_def_stripe_offset = lp->ldo_def_stripe_offset;
-			lc->ldo_striping_cached = 1;
 			lc->ldo_def_striping_set = 1;
 			CDEBUG(D_OTHER, "inherite EA sz:%d off:%d nr:%d\n",
 			       (int)lc->ldo_def_stripe_size,
@@ -3092,14 +3078,13 @@ static void lod_ah_init(const struct lu_env *env,
 			       (int)lc->ldo_def_stripenr);
 		}
 
-		/* transfer dir defaults to new directory */
-		if (lp->ldo_dir_striping_cached) {
+		/* Transfer defaults LMVEA to new directory */
+		if (lp->ldo_dir_def_striping_set) {
 			lc->ldo_dir_def_stripenr = lp->ldo_dir_def_stripenr;
 			lc->ldo_dir_def_stripe_offset =
 						  lp->ldo_dir_def_stripe_offset;
 			lc->ldo_dir_def_hash_type =
 						  lp->ldo_dir_def_hash_type;
-			lc->ldo_dir_striping_cached = 1;
 			lc->ldo_dir_def_striping_set = 1;
 			CDEBUG(D_INFO, "inherit default EA nr:%d off:%d t%u\n",
 			       (int)lc->ldo_dir_def_stripenr,
@@ -3143,6 +3128,7 @@ static void lod_ah_init(const struct lu_env *env,
 			lc->ldo_dir_stripe_offset = -1;
 		}
 
+		lc->ldo_striping_cached = 1;
 		CDEBUG(D_INFO, "final striping count:%hu, offset:%d\n",
 		       lc->ldo_stripenr, (int)lc->ldo_dir_stripe_offset);
 
@@ -3192,8 +3178,10 @@ static void lod_ah_init(const struct lu_env *env,
 out:
 	/* we do not cache stripe information for slave stripe, see
 	 * lod_xattr_set_lov_on_dir */
-	if (lp != NULL && lp->ldo_dir_slave_stripe)
+	if (lp != NULL && lp->ldo_dir_slave_stripe) {
 		lod_lov_stripe_cache_clear(lp);
+		lod_lmv_stripe_cache_clear(lp);
+	}
 
 	EXIT;
 }
@@ -3385,6 +3373,10 @@ static int lod_declare_object_create(const struct lu_env *env,
 	} else if (dof->dof_type == DFT_DIR) {
 		/* Orphan object (like migrating object) does not have
 		 * lod_dir_stripe, see lod_ah_init */
+		if (lo->ldo_dir_def_striping_set)
+			rc = lod_store_def_striping(env, dt, th, true);
+		if (lo->ldo_def_striping_set)
+			rc = lod_store_def_dir_striping(env, dt, th, true);
 		if (lo->ldo_dir_stripe != NULL)
 			rc = lod_declare_dir_striping_create(env, dt, attr,
 							     dof, th);
@@ -3460,9 +3452,21 @@ static int lod_object_create(const struct lu_env *env, struct dt_object *dt,
 	if (rc != 0)
 		RETURN(rc);
 
-	if (S_ISREG(dt->do_lu.lo_header->loh_attr) &&
-	    lo->ldo_stripe && dof->u.dof_reg.striped != 0)
+	/* Note: if it is striped directory, it only set the default stripe
+	 * information to the master object here. Later, when stripes are
+	 * created, these default stripe information needs to be set on each
+	 * stripe as well */
+	if (S_ISDIR(dt->do_lu.lo_header->loh_attr)) {
+		/* Only store the default LMVEA & LOVEA here, the striping
+		 * will be created later in xattr_set (mdd_object_create()) */
+		rc = lod_store_def_striping(env, dt, th, false);
+		if (rc != 0)
+			RETURN(rc);
+		rc = lod_store_def_dir_striping(env, dt, th, false);
+	} else if (S_ISREG(dt->do_lu.lo_header->loh_attr) &&
+		   lo->ldo_stripe && dof->u.dof_reg.striped != 0) {
 		rc = lod_striping_create(env, dt, attr, dof, th);
+	}
 
 	RETURN(rc);
 }

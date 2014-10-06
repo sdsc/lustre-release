@@ -221,8 +221,7 @@ struct lod_dir_stripe_info {
 	__u32	ldsi_def_hash_type;
 	__u32	ldsi_hash_type;
 
-	unsigned int ldsi_striping_cached:1,
-		     ldsi_def_striping_set:1,
+	unsigned int ldsi_def_striping_set:1,
 		     ldsi_striped:1;
 };
 
@@ -261,7 +260,6 @@ struct lod_object {
 #define ldo_dir_def_stripenr	ldo_dir_stripe->ldsi_def_stripenr
 #define ldo_dir_hash_type	ldo_dir_stripe->ldsi_hash_type
 #define ldo_dir_def_hash_type	ldo_dir_stripe->ldsi_def_hash_type
-#define ldo_dir_striping_cached	ldo_dir_stripe->ldsi_striping_cached
 #define ldo_dir_striped		ldo_dir_stripe->ldsi_striped
 #define ldo_dir_def_striping_set	ldo_dir_stripe->ldsi_def_striping_set
 #define ldo_dir_def_stripe_offset	ldo_dir_stripe->ldsi_def_stripe_offset
@@ -433,7 +431,9 @@ int lod_parse_dir_striping(const struct lu_env *env, struct lod_object *lo,
 int lod_initialize_objects(const struct lu_env *env, struct lod_object *mo,
 			   struct lov_ost_data_v1 *objs);
 int lod_store_def_striping(const struct lu_env *env, struct dt_object *dt,
-			   struct thandle *th);
+			   struct thandle *th, bool declare);
+int lod_store_def_dir_striping(const struct lu_env *env, struct dt_object *dt,
+			       struct thandle *th, bool declare);
 int lod_verify_striping(struct lod_device *d, const struct lu_buf *buf,
 			bool is_from_disk);
 int lod_generate_and_set_lovea(const struct lu_env *env,
