@@ -195,6 +195,7 @@ static int tgt_filter_recovery_request(struct ptlrpc_request *req,
 	case UPDATE_OBJ:
 	case SEQ_QUERY:
 	case FLD_QUERY:
+	case FLD_READ:
 	case LDLM_ENQUEUE:
 		*process = target_queue_recovery_request(req, obd);
 		RETURN(0);
