@@ -957,5 +957,6 @@ OSTCOUNT=${SAVED_OSTCOUNT}
 # cleanup the system at last
 formatall
 
+check_and_cleanup_lustre
 complete $SECONDS
 exit_status

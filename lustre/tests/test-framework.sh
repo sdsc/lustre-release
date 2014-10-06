@@ -301,8 +301,6 @@ init_test_env() {
             ;;
     esac
 
-    export LOAD_MODULES_REMOTE=${LOAD_MODULES_REMOTE:-false}
-
     # Paths on remote nodes, if different
     export RLUSTRE=${RLUSTRE:-$LUSTRE}
     export RPWD=${RPWD:-$PWD}
@@ -569,12 +567,10 @@ load_modules () {
 	# bug 19124
 	# load modules on remote nodes optionally
 	# lustre-tests have to be installed on these nodes
-	if $LOAD_MODULES_REMOTE; then
-		local list=$(comma_list $(remote_nodes_list))
-		if [ -n "$list" ]; then
-			echo "loading modules on: '$list'"
-			do_rpc_nodes "$list" load_modules_local
-		fi
+	local list=$(comma_list $(remote_nodes_list))
+	if [ -n "$list" ]; then
+	    echo "loading modules on: '$list'"
+	    do_rpc_nodes "$list" load_modules_local
 	fi
 }
 
@@ -596,13 +592,11 @@ unload_modules() {
 
 	$LUSTRE_RMMOD ldiskfs || return 2
 
-	if $LOAD_MODULES_REMOTE; then
-		local list=$(comma_list $(remote_nodes_list))
-		if [ -n "$list" ]; then
-			echo "unloading modules on: '$list'"
-			do_rpc_nodes "$list" $LUSTRE_RMMOD ldiskfs
-			do_rpc_nodes "$list" check_mem_leak
-		fi
+	local list=$(comma_list $(remote_nodes_list))
+	if [ -n "$list" ]; then
+	    echo "unloading modules on: '$list'"
+	    do_rpc_nodes "$list" $LUSTRE_RMMOD ldiskfs
+	    do_rpc_nodes "$list" check_mem_leak
 	fi
 
 	local sbin_mount=/sbin/mount.lustre
@@ -4158,18 +4152,7 @@ check_and_cleanup_lustre() {
 		[ "$ENABLE_QUOTA" ] && restore_quota || true
 	fi
 
-	if [ "$I_UMOUNTED2" = "yes" ]; then
-		restore_mount $MOUNT2 || error "restore $MOUNT2 failed"
-	fi
-
-	if [ "$I_MOUNTED2" = "yes" ]; then
-		cleanup_mount $MOUNT2
-	fi
-
-	if [ "$I_MOUNTED" = "yes" ]; then
-		cleanupall -f || error "cleanup failed"
-		unset I_MOUNTED
-	fi
+	cleanupall -f || error "cleanup failed"
 }
 
 #######

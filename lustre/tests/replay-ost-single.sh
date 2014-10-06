@@ -396,6 +396,6 @@ test_8e() {
 }
 run_test 8e "Verify that ptlrpc resends request on -EINPROGRESS"
 
-complete $SECONDS
 check_and_cleanup_lustre
+complete $SECONDS
 exit_status

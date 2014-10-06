@@ -4854,5 +4854,6 @@ MDSSIZE=$STORED_MDSSIZE
 OSTSIZE=$STORED_OSTSIZE
 reformat
 
+check_and_cleanup_lustre
 complete $SECONDS
 exit_status

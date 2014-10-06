@@ -2893,6 +2893,6 @@ test_100b() {
 }
 run_test 100b "DNE: create striped dir, fail MDT0"
 
-complete $SECONDS
 check_and_cleanup_lustre
+complete $SECONDS
 exit_status

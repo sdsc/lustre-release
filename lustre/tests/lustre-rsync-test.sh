@@ -659,6 +659,7 @@ test_9() {
 run_test 9 "Replicate recursive directory removal"
 
 cd $ORIG_PWD
-complete $SECONDS
+
 check_and_cleanup_lustre
+complete $SECONDS
 exit_status

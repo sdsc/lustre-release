@@ -2006,6 +2006,6 @@ test_113() {
 }
 run_test 113 "ldlm enqueue dropped reply should not cause deadlocks"
 
-complete $SECONDS
 check_and_cleanup_lustre
+complete $SECONDS
 exit_status

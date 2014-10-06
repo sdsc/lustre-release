@@ -166,4 +166,5 @@ complete $SECONDS
 if [ "$RESTORE_MOUNT" = yes ]; then
     setupall
 fi 
+check_and_cleanup_lustre
 exit_status

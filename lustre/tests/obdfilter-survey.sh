@@ -214,7 +214,7 @@ test_3a () {
 }
 run_test 3a "Network survey"
 
-complete $SECONDS
 cleanup_echo_devs
 check_and_cleanup_lustre
+complete $SECONDS
 exit_status

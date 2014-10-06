@@ -4141,6 +4141,6 @@ run_test 405 "archive and release under striped directory"
 
 copytool_cleanup
 
-complete $SECONDS
 check_and_cleanup_lustre
+complete $SECONDS
 exit_status

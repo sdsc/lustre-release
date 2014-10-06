@@ -2356,7 +2356,8 @@ quota_fini()
 quota_fini
 
 cd $ORIG_PWD
-complete $SECONDS
+
 check_and_cleanup_lustre
+complete $SECONDS
 export QUOTA_AUTO=$QUOTA_AUTO_OLD
 exit_status

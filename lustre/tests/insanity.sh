@@ -777,6 +777,6 @@ test_15() {
 }
 run_test 15 "Running Availability for 6 hours..."
 
-complete $SECONDS
 check_and_cleanup_lustre
+complete $SECONDS
 exit_status
