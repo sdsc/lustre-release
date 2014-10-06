@@ -181,56 +181,61 @@ static inline int cfs_fs_time_beforeq(cfs_fs_time_t *t1, cfs_fs_time_t *t2)
 static inline cfs_duration_t cfs_duration_build(int64_t nano)
 {
 #if (BITS_PER_LONG == 32)
-        /* We cannot use do_div(t, ONE_BILLION), do_div can only process
-         * 64 bits n and 32 bits base */
-        int64_t  t = nano * HZ;
-        do_div(t, 1000);
-        do_div(t, 1000000);
-        return (cfs_duration_t)t;
+	/* We cannot use do_div(t, ONE_BILLION), do_div can only process
+	 * 64 bits n and 32 bits base */
+	int64_t  t = msecs_to_jiffies(nano * MSEC_PER_SEC);
+	do_div(t, 1000);
+	do_div(t, 1000000);
+	return (cfs_duration_t)t;
 #else
-        return (nano * HZ / ONE_BILLION);
+	return msecs_to_jiffies(nano * MSEC_PER_SEC / ONE_BILLION);
 #endif
 }
 #endif
 
 static inline cfs_duration_t cfs_time_seconds(int seconds)
 {
-        return ((cfs_duration_t)seconds) * HZ;
+	return (cfs_duration_t)msecs_to_jiffies(seconds * MSEC_PER_SEC);
 }
 
 static inline time_t cfs_duration_sec(cfs_duration_t d)
 {
-        return d / HZ;
+	return jiffies_to_msecs(d) / MSEC_PER_SEC;
 }
 
 static inline void cfs_duration_usec(cfs_duration_t d, struct timeval *s)
 {
 #if (BITS_PER_LONG == 32) && (HZ > 4096)
-        __u64 t;
+	__u64 t;
 
-        s->tv_sec = d / HZ;
-        t = (d - (cfs_duration_t)s->tv_sec * HZ) * ONE_MILLION;
-        do_div(t, HZ);
-        s->tv_usec = t;
+	s->tv_sec = jiffies_to_msecs(d) / MSEC_PER_SEC;
+	t = (d - (cfs_duration_t)(msecs_to_jiffies(s->tv_sec *
+	     MSEC_PER_SEC))) * ONE_MILLION;
+	do_div(t, msecs_to_jiffies(MSEC_PER_SEC));
+	s->tv_usec = t;
 #else
-        s->tv_sec = d / HZ;
-        s->tv_usec = ((d - (cfs_duration_t)s->tv_sec * HZ) * \
-                ONE_MILLION) / HZ;
+	s->tv_sec = jiffies_to_msecs(d) / MSEC_PER_SEC;
+	s->tv_usec = ((d - (cfs_duration_t)(msecs_to_jiffies(s->tv_sec *
+		      MSEC_PER_SEC))) * ONE_MILLION) /
+		      msecs_to_jiffies(MSEC_PER_SEC);
 #endif
 }
 
 static inline void cfs_duration_nsec(cfs_duration_t d, struct timespec *s)
 {
 #if (BITS_PER_LONG == 32)
-        __u64 t;
+	__u64 t;
 
-        s->tv_sec = d / HZ;
-        t = (d - s->tv_sec * HZ) * ONE_BILLION;
-        do_div(t, HZ);
-        s->tv_nsec = t;
+	s->tv_sec = jiffies_to_msecs(d) / MSEC_PER_SEC;
+	t = (d - (cfs_duration_t)(msecs_to_jiffies(s->tv_sec *
+	     MSEC_PER_SEC))) * ONE_BILLION;
+	do_div(t, msecs_to_jiffies(MSEC_PER_SEC));
+	s->tv_nsec = t;
 #else
-        s->tv_sec = d / HZ;
-        s->tv_nsec = ((d - s->tv_sec * HZ) * ONE_BILLION) / HZ;
+	s->tv_sec = jiffies_to_msecs(d) / MSEC_PER_SEC;
+	s->tv_nsec = ((d - (cfs_duration_t)(msecs_to_jiffies(s->tv_sec *
+		      MSEC_PER_SEC))) * ONE_BILLION) /
+		      msecs_to_jiffies(MSEC_PER_SEC);
 #endif
 }
 
