@@ -1135,18 +1135,19 @@ static int lod_obd_get_info(const struct lu_env *env, struct obd_export *exp,
 
 	if (KEY_IS(KEY_OSP_CONNECTED)) {
 		struct obd_device	*obd = exp->exp_obd;
-		struct lod_device	*d;
+		struct lod_device	*lod;
 		struct lod_ost_desc	*ost;
 		unsigned int		i;
 		int			rc = 1;
 
-		if (!obd->obd_set_up || obd->obd_stopping)
+		lod = lu2lod_dev(obd->obd_lu_dev);
+		if (!obd->obd_set_up || obd->obd_stopping ||
+		    !lod->lod_initialized)
 			RETURN(-EAGAIN);
 
-		d = lu2lod_dev(obd->obd_lu_dev);
-		lod_getref(&d->lod_ost_descs);
-		lod_foreach_ost(d, i) {
-			ost = OST_TGT(d, i);
+		lod_getref(&lod->lod_ost_descs);
+		lod_foreach_ost(lod, i) {
+			ost = OST_TGT(lod, i);
 			LASSERT(ost && ost->ltd_ost);
 
 			rc = obd_get_info(env, ost->ltd_exp, keylen, key,
@@ -1155,7 +1156,7 @@ static int lod_obd_get_info(const struct lu_env *env, struct obd_export *exp,
 			if (rc == 0)
 				break;
 		}
-		lod_putref(d, &d->lod_ost_descs);
+		lod_putref(lod, &lod->lod_ost_descs);
 		RETURN(rc);
 	}
 
