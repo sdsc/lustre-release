@@ -1568,6 +1568,9 @@ static int ofd_create_hdl(struct tgt_session_info *tsi)
 
 	ENTRY;
 
+	if (OBD_FAIL_CHECK(OBD_FAIL_OST_CREATE_NET))
+		RETURN(0);
+
 	if (OBD_FAIL_CHECK(OBD_FAIL_OST_EROFS))
 		RETURN(-EROFS);
 
