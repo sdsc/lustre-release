@@ -1416,6 +1416,7 @@ int mdt_open_by_fid_lock(struct mdt_thread_info *info, struct ldlm_reply *rep,
         struct mdt_object       *parent= NULL;
         struct mdt_object       *o;
         int                      rc;
+	int			 object_locked = 0;
 	__u64			 ibits = 0;
         ENTRY;
 
@@ -1464,9 +1465,15 @@ int mdt_open_by_fid_lock(struct mdt_thread_info *info, struct ldlm_reply *rep,
 	if (flags & MDS_OPEN_RELEASE && !mdt_hsm_release_allow(ma))
 		GOTO(out, rc = -EPERM);
 
-	rc = mdt_object_open_lock(info, o, lhc, &ibits);
-        if (rc)
-                GOTO(out_unlock, rc);
+	rc = mdt_check_resent_lock(info, o, lhc);
+	if (rc < 0) {
+		GOTO(out, rc);
+	} else if (rc > 0) {
+		rc = mdt_object_open_lock(info, o, lhc, &ibits);
+		object_locked = 1;
+		if (rc)
+			GOTO(out_unlock, rc);
+	}
 
         if (ma->ma_valid & MA_PFID) {
                 parent = mdt_object_find(env, mdt, &ma->ma_pfid);
@@ -1490,7 +1497,8 @@ int mdt_open_by_fid_lock(struct mdt_thread_info *info, struct ldlm_reply *rep,
 	GOTO(out_unlock, rc);
 
 out_unlock:
-	mdt_object_open_unlock(info, o, lhc, ibits, rc);
+	if (object_locked)
+		mdt_object_open_unlock(info, o, lhc, ibits, rc);
 out:
 	mdt_object_put(env, o);
 	if (parent != NULL)
@@ -1581,6 +1589,7 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
         struct lu_name          *lname;
         int                      result, rc;
         int                      created = 0;
+	int			 object_locked = 0;
         __u32                    msg_flags;
         ENTRY;
 
@@ -1792,22 +1801,10 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
                          */
                         LASSERT(lhc != NULL);
 
-                        if (lustre_handle_is_used(&lhc->mlh_reg_lh)) {
-                                struct ldlm_lock *lock;
-
-                                LASSERT(msg_flags & MSG_RESENT);
-
-                                lock = ldlm_handle2lock(&lhc->mlh_reg_lh);
-                                if (!lock) {
-                                        CERROR("Invalid lock handle "LPX64"\n",
-                                               lhc->mlh_reg_lh.cookie);
-                                        LBUG();
-                                }
-                                LASSERT(fid_res_name_eq(mdt_object_fid(child),
-                                                        &lock->l_resource->lr_name));
-                                LDLM_LOCK_PUT(lock);
-                                rc = 0;
-                        } else {
+			rc = mdt_check_resent_lock(info, child, lhc);
+			if (rc < 0) {
+				GOTO(out_child, result = rc);
+			} else if (rc > 0) {
                                 mdt_lock_handle_init(lhc);
                                 mdt_lock_reg_init(lhc, LCK_PR);
 
@@ -1838,9 +1835,12 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
 		}
         }
 
-	if (lustre_handle_is_used(&lhc->mlh_reg_lh)) {
+	rc = mdt_check_resent_lock(info, child, lhc);
+	if (rc < 0) {
+		GOTO(out_child, result = rc);
+	} else if (rc == 0) {
 		/* the open lock might already be gotten in
-		 * mdt_intent_fixup_resent */
+		 * ldlm_handle_enqueue() */
 		LASSERT(lustre_msg_get_flags(req->rq_reqmsg) & MSG_RESENT);
 		if (create_flags & MDS_OPEN_LOCK)
 			mdt_set_disposition(info, ldlm_rep, DISP_OPEN_LOCK);
@@ -1848,6 +1848,7 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
 		/* get openlock if this isn't replay and client requested it */
 		if (!req_is_replay(req)) {
 			rc = mdt_object_open_lock(info, child, lhc, &ibits);
+			object_locked = 1;
 			if (rc != 0)
 				GOTO(out_child_unlock, result = rc);
 			else if (create_flags & MDS_OPEN_LOCK)
@@ -1888,7 +1889,8 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
 	}
 	EXIT;
 out_child_unlock:
-	mdt_object_open_unlock(info, child, lhc, ibits, result);
+	if (object_locked)
+		mdt_object_open_unlock(info, child, lhc, ibits, result);
 out_child:
 	mdt_object_put(info->mti_env, child);
 out_parent:

@@ -37,6 +37,9 @@
 /** l_flags bits marked as "all_flags" bits */
 #define LDLM_FL_ALL_FLAGS_MASK          0x00FFFFFFC08F932FULL
 
+/** Flag whether a lock is found on server for re-sent RPC. */
+#define LDLM_FL_RESENT			 0x0100000000000000ULL /* bit 56 */
+
 /** l_flags bits marked as "ast" bits */
 #define LDLM_FL_AST_MASK                0x0000000080008000ULL
 
@@ -369,6 +372,12 @@
 #define ldlm_is_excl(_l)                LDLM_TEST_FLAG(( _l), 1ULL << 55)
 #define ldlm_set_excl(_l)               LDLM_SET_FLAG((  _l), 1ULL << 55)
 #define ldlm_clear_excl(_l)             LDLM_CLEAR_FLAG((_l), 1ULL << 55)
+
+/** flags returned in @flags parameter on ldlm_lock_enqueue,
+ * to be re-constructed on re-send */
+#define LDLM_FL_SRV_ENQ_MASK	(LDLM_FL_LOCK_CHANGED		|\
+				 LDLM_FL_BLOCKED_MASK		|\
+				 LDLM_FL_NO_TIMEOUT)
 
 /** test for ldlm_lock flag bit set */
 #define LDLM_TEST_FLAG(_l, _b)        (((_l)->l_flags & (_b)) != 0)

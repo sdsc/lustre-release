@@ -901,6 +901,11 @@ int ldlm_server_completion_ast(struct ldlm_lock *lock, __u64 flags, void *data)
         total_enqueue_wait = cfs_time_sub(cfs_time_current_sec(),
                                           lock->l_last_activity);
 
+	if (OBD_FAIL_PRECHECK(OBD_FAIL_OST_LDLM_REPLY_NET)) {
+		LDLM_DEBUG(lock, "dropping CP AST");
+		RETURN(0);
+	}
+
         req = ptlrpc_request_alloc(lock->l_export->exp_imp_reverse,
                                     &RQF_LDLM_CP_CALLBACK);
         if (req == NULL)
@@ -1233,7 +1238,8 @@ int ldlm_handle_enqueue0(struct ldlm_namespace *ns,
         }
 #endif
 
-        if (unlikely(flags & LDLM_FL_REPLAY)) {
+	if (unlikely((flags & LDLM_FL_REPLAY) ||
+		     (lustre_msg_get_flags(req->rq_reqmsg) & MSG_RESENT))) {
                 /* Find an existing lock in the per-export lock hash */
 		/* In the function below, .hs_keycmp resolves to
 		 * ldlm_export_lock_keycmp() */
@@ -1243,8 +1249,9 @@ int ldlm_handle_enqueue0(struct ldlm_namespace *ns,
                 if (lock != NULL) {
                         DEBUG_REQ(D_DLMTRACE, req, "found existing lock cookie "
                                   LPX64, lock->l_handle.h_cookie);
+			flags |= LDLM_FL_RESENT;
                         GOTO(existing_lock, rc = 0);
-                }
+		}
         }
 
         /* The lock's callback data might be set in the policy function */
@@ -1275,6 +1282,11 @@ int ldlm_handle_enqueue0(struct ldlm_namespace *ns,
                              &lock->l_remote_handle,
                              &lock->l_exp_hash);
 
+	/* Inherit the enqueue flags before the operation, because we do not
+	 * keep the res lock on return and next operations (BL AST) may proceed
+	 * without them. */
+	lock->l_flags |= ldlm_flags_from_wire(dlm_req->lock_flags &
+					      LDLM_FL_INHERIT_MASK);
 existing_lock:
 
         if (flags & LDLM_FL_HAS_INTENT) {
@@ -1312,7 +1324,6 @@ existing_lock:
 	}
 
         dlm_rep = req_capsule_server_get(&req->rq_pill, &RMF_DLM_REP);
-	dlm_rep->lock_flags = ldlm_flags_to_wire(flags);
 
         ldlm_lock2desc(lock, &dlm_rep->lock_desc);
         ldlm_lock2handle(lock, &dlm_rep->lock_handle);
@@ -1323,9 +1334,8 @@ existing_lock:
 
         /* Now take into account flags to be inherited from original lock
            request both in reply to client and in our own lock flags. */
-        dlm_rep->lock_flags |= dlm_req->lock_flags & LDLM_INHERIT_FLAGS;
-	lock->l_flags |= ldlm_flags_from_wire(dlm_req->lock_flags &
-					      LDLM_INHERIT_FLAGS);
+	dlm_rep->lock_flags = ldlm_flags_to_wire(flags);
+	lock->l_flags |= flags & LDLM_FL_INHERIT_MASK;
 
         /* Don't move a pending lock onto the export if it has already been
          * disconnected due to eviction (bug 5683) or server umount (bug 24324).
@@ -2600,6 +2610,8 @@ static int ldlm_bl_thread_main(void *arg)
 
                 if (blwi->blwi_mem_pressure)
 			memory_pressure_set();
+
+		OBD_FAIL_TIMEOUT(OBD_FAIL_LDLM_PAUSE_CANCEL2, 4);
 
                 if (blwi->blwi_count) {
                         int count;
