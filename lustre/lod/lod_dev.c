@@ -1140,10 +1140,11 @@ static int lod_obd_get_info(const struct lu_env *env, struct obd_export *exp,
 		unsigned int		i;
 		int			rc = 1;
 
-		if (!obd->obd_set_up || obd->obd_stopping)
+		d = lu2lod_dev(obd->obd_lu_dev);
+		if (!obd->obd_set_up || obd->obd_stopping ||
+		    !d->lod_initialized)
 			RETURN(-EAGAIN);
 
-		d = lu2lod_dev(obd->obd_lu_dev);
 		lod_getref(&d->lod_ost_descs);
 		lod_foreach_ost(d, i) {
 			ost = OST_TGT(d, i);
