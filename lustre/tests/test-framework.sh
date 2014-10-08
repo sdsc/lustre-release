@@ -4451,7 +4451,7 @@ drop_reint_reply() {
 }
 
 drop_update_reply() {
-# OBD_FAIL_UPDATE_OBJ_NET_REP
+# OBD_FAIL_OUT_UPDATE_NET_REP
 	local index=$1
 	shift 1
 	RC=0
