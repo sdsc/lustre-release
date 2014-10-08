@@ -211,8 +211,7 @@ int mdt_ioepoch_open(struct mdt_thread_info *info, struct mdt_object *o,
         if (cancel && (info->mti_rr.rr_fid1 != NULL)) {
                 struct mdt_lock_handle  *lh = &info->mti_lh[MDT_LH_CHILD];
                 mdt_lock_reg_init(lh, LCK_EX);
-                rc = mdt_object_lock(info, o, lh, MDS_INODELOCK_UPDATE,
-                                     MDT_LOCAL_LOCK);
+		rc = mdt_object_lock(info, o, lh, MDS_INODELOCK_UPDATE);
                 if (rc == 0)
                         mdt_object_unlock(info, o, lh, 1);
         }
@@ -1256,15 +1255,13 @@ static int mdt_object_open_lock(struct mdt_thread_info *info,
 		 * However this is a double-edged sword because changing
 		 * permission will revoke huge # of LOOKUP locks. */
 		*ibits |= MDS_INODELOCK_LAYOUT | MDS_INODELOCK_LOOKUP;
-		if (!mdt_object_lock_try(info, obj, lhc, *ibits,
-					 MDT_CROSS_LOCK)) {
+		if (!mdt_object_lock_try(info, obj, lhc, *ibits)) {
 			*ibits &= ~(MDS_INODELOCK_LAYOUT|MDS_INODELOCK_LOOKUP);
 			if (*ibits != 0)
-				rc = mdt_object_lock(info, obj, lhc, *ibits,
-						MDT_CROSS_LOCK);
+				rc = mdt_object_lock(info, obj, lhc, *ibits);
 		}
 	} else if (*ibits != 0) {
-		rc = mdt_object_lock(info, obj, lhc, *ibits, MDT_CROSS_LOCK);
+		rc = mdt_object_lock(info, obj, lhc, *ibits);
 	}
 
 	CDEBUG(D_INODE, "Requested bits lock:"DFID ", ibits = "LPX64
@@ -1291,8 +1288,7 @@ static int mdt_object_open_lock(struct mdt_thread_info *info,
 		LASSERT(!try_layout);
 		mdt_lock_handle_init(ll);
 		mdt_lock_reg_init(ll, LCK_EX);
-		rc = mdt_object_lock(info, obj, ll, MDS_INODELOCK_LAYOUT,
-					MDT_LOCAL_LOCK);
+		rc = mdt_object_lock(info, obj, ll, MDS_INODELOCK_LAYOUT);
 
 		OBD_FAIL_TIMEOUT(OBD_FAIL_MDS_LL_BLOCK, 2);
 	}
@@ -1785,13 +1781,12 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
 			if (rc < 0) {
 				GOTO(out_child, result = rc);
 			} else if (rc > 0) {
-                                mdt_lock_handle_init(lhc);
-                                mdt_lock_reg_init(lhc, LCK_PR);
+				mdt_lock_handle_init(lhc);
+				mdt_lock_reg_init(lhc, LCK_PR);
 
-                                rc = mdt_object_lock(info, child, lhc,
-                                                     MDS_INODELOCK_LOOKUP,
-                                                     MDT_CROSS_LOCK);
-                        }
+				rc = mdt_object_lock(info, child, lhc,
+						     MDS_INODELOCK_LOOKUP);
+			}
 			repbody->mbo_fid1 = *mdt_object_fid(child);
 			repbody->mbo_valid |= (OBD_MD_FLID | OBD_MD_MDS);
                         if (rc != 0)
@@ -2092,7 +2087,7 @@ static int mdt_hsm_release(struct mdt_thread_info *info, struct mdt_object *o,
 
 	mdt_lock_reg_init(lh, LCK_EX);
 	rc = mdt_object_lock(info, o, lh, MDS_INODELOCK_LAYOUT |
-			     MDS_INODELOCK_XATTR, MDT_LOCAL_LOCK);
+			     MDS_INODELOCK_XATTR);
 	if (rc != 0)
 		GOTO(out_close, rc);
 
