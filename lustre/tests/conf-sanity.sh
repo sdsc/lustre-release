@@ -232,11 +232,7 @@ setup() {
 }
 
 setup_noconfig() {
-	if ! combined_mgs_mds ; then
-		start_mgs
-	fi
-
-	start_mds
+	start_mgsmds
 	start_ost
 	mount_client $MOUNT
 }
@@ -3694,6 +3690,7 @@ test_56() {
 run_test 56 "check big indexes"
 
 test_57a() { # bug 22656
+	setup
 	local NID=$(do_facet ost1 "$LCTL get_param nis" | tail -1 | awk '{print $1}')
 	writeconf_or_reformat
 	[ $(facet_fstype ost1) == zfs ] && import_zpool ost1
@@ -3705,6 +3702,7 @@ test_57a() { # bug 22656
 run_test 57a "initial registration from failnode should fail (should return errs)"
 
 test_57b() {
+	setup
 	local NID=$(do_facet ost1 "$LCTL get_param nis" | tail -1 | awk '{print $1}')
 	writeconf_or_reformat
 	[ $(facet_fstype ost1) == zfs ] && import_zpool ost1
