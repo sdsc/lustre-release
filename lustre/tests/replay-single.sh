@@ -1989,22 +1989,6 @@ test_73b() {
 }
 run_test 73b "open(O_CREAT), unlink, replay, reconnect at open_replay reply, close"
 
-test_73c() {
-    multiop_bg_pause $DIR/$tfile O_tSc || return 3
-    pid=$!
-    rm -f $DIR/$tfile
-
-    replay_barrier $SINGLEMDS
-#define OBD_FAIL_TGT_LAST_REPLAY       0x710
-    do_facet $SINGLEMDS "lctl set_param fail_loc=0x80000710"
-    fail $SINGLEMDS
-    kill -USR1 $pid
-    wait $pid || return 1
-    [ -e $DIR/$tfile ] && return 2
-    return 0
-}
-run_test 73c "open(O_CREAT), unlink, replay, reconnect at last_replay, close"
-
 # bug 18554
 test_74() {
     local clients=${CLIENTS:-$HOSTNAME}
@@ -2071,7 +2055,7 @@ test_80b() {
 	local remote_dir=$DIR/$tdir/remote_dir
 
 	mkdir -p $DIR/$tdir
-	#define OBD_FAIL_UPDATE_OBJ_NET_REP	0x1701
+	#define OBD_FAIL_OUT_UPDATE_NET_REP	0x1701
 	do_facet mds${MDTIDX} lctl set_param fail_loc=0x1701
 	$LFS mkdir -i $MDTIDX $remote_dir &
 	local CLIENT_PID=$!
@@ -2098,7 +2082,7 @@ test_80c() {
 	local remote_dir=$DIR/$tdir/remote_dir
 
 	mkdir -p $DIR/$tdir
-	#define OBD_FAIL_UPDATE_OBJ_NET_REP	0x1701
+	#define OBD_FAIL_OUT_UPDATE_NET_REP	0x1701
 	do_facet mds${MDTIDX} lctl set_param fail_loc=0x1701
 	$LFS mkdir -i $MDTIDX $remote_dir &
 	local CLIENT_PID=$!

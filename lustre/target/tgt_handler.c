@@ -1215,7 +1215,10 @@ struct ldlm_callback_suite tgt_dlm_cbs = {
 int tgt_enqueue(struct tgt_session_info *tsi)
 {
 	struct ptlrpc_request *req = tgt_ses_req(tsi);
+	struct lu_target      *tgt = tsi->tsi_tgt;
 	int rc;
+	int type;
+	__u32 index;
 
 	ENTRY;
 	/*
@@ -1223,6 +1226,16 @@ int tgt_enqueue(struct tgt_session_info *tsi)
 	 * tsi->tsi_dlm_cbs was set by the *_req_handle() function.
 	 */
 	LASSERT(tsi->tsi_dlm_req != NULL);
+
+	/* LDLM_ENQUEUE has own fail checks for reply and they are different
+	 * for MDT and OST. Get the server type using server_name2index() and
+	 * overwrite fail id with corresponding values. */
+	type = server_name2index(tgt_name(tgt), &index, NULL);
+	if (type == LDD_F_SV_TYPE_MDT)
+		tsi->tsi_reply_fail_id = OBD_FAIL_LDLM_REPLY;
+	else if (type == LDD_F_SV_TYPE_OST)
+		tsi->tsi_reply_fail_id = OBD_FAIL_OST_LDLM_REPLY_NET;
+
 	rc = ldlm_handle_enqueue0(tsi->tsi_exp->exp_obd->obd_namespace, req,
 				  tsi->tsi_dlm_req, &tgt_dlm_cbs);
 	if (rc)
