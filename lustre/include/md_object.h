@@ -210,6 +210,7 @@ struct md_op_spec {
 
         /** Should mdd do lookup sanity check or not. */
         int        sp_cr_lookup;
+	unsigned int sp_permitted:1; /* do not check permission */
 
         /** Current lock mode for parent dir where create is performing. */
         mdl_mode_t sp_cr_mode;
