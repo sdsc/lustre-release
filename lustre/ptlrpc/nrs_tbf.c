@@ -72,9 +72,7 @@ static enum hrtimer_restart nrs_tbf_timer_cb(struct hrtimer *timer)
 	struct ptlrpc_nrs   *nrs = head->th_res.res_policy->pol_nrs;
 	struct ptlrpc_service_part *svcpt = nrs->nrs_svcpt;
 
-	spin_lock(&nrs->nrs_lock);
-	nrs->nrs_throttling = 0;
-	spin_unlock(&nrs->nrs_lock);
+	atomic_dec(&nrs->nrs_throttling);
 	wake_up(&svcpt->scp_waitq);
 
 	return HRTIMER_NORESTART;
@@ -1182,9 +1180,7 @@ static void nrs_tbf_stop(struct ptlrpc_nrs_policy *policy)
 	LASSERT(cfs_binheap_is_empty(head->th_binheap));
 	cfs_binheap_destroy(head->th_binheap);
 	OBD_FREE_PTR(head);
-	spin_lock(&nrs->nrs_lock);
-	nrs->nrs_throttling = 0;
-	spin_unlock(&nrs->nrs_lock);
+	atomic_set(&nrs->nrs_throttling, 0);
 	wake_up(&policy->pol_nrs->nrs_svcpt->scp_waitq);
 }
 
@@ -1370,7 +1366,7 @@ struct ptlrpc_nrs_request *nrs_tbf_req_get(struct ptlrpc_nrs_policy *policy,
 
 	assert_spin_locked(&policy->pol_nrs->nrs_svcpt->scp_req_lock);
 
-	if (!peek && policy->pol_nrs->nrs_throttling)
+	if (!peek && atomic_read(&policy->pol_nrs->nrs_throttling) > 0)
 		return NULL;
 
 	node = cfs_binheap_root(head->th_binheap);
@@ -1426,9 +1422,7 @@ struct ptlrpc_nrs_request *nrs_tbf_req_get(struct ptlrpc_nrs_policy *policy,
 		} else {
 			ktime_t time;
 
-			spin_lock(&policy->pol_nrs->nrs_lock);
-			policy->pol_nrs->nrs_throttling = 1;
-			spin_unlock(&policy->pol_nrs->nrs_lock);
+			atomic_inc(&policy->pol_nrs->nrs_throttling);
 			head->th_deadline = deadline;
 			time = ktime_set(0, 0);
 			time = ktime_add_ns(time, deadline);
@@ -1469,7 +1463,7 @@ static int nrs_tbf_req_add(struct ptlrpc_nrs_policy *policy,
 			nrq->nr_u.tbf.tr_sequence = head->th_sequence++;
 			list_add_tail(&nrq->nr_u.tbf.tr_list,
 					  &cli->tc_list);
-			if (policy->pol_nrs->nrs_throttling) {
+			if (atomic_read(&policy->pol_nrs->nrs_throttling) > 0) {
 				__u64 deadline = cli->tc_check_time +
 						 cli->tc_nsecs;
 				if ((head->th_deadline > deadline) &&

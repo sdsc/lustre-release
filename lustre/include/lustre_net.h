@@ -1098,7 +1098,7 @@ struct ptlrpc_nrs {
 	/**
 	 * NRS policy is throttling reqeust
 	 */
-	unsigned			nrs_throttling:1;
+	atomic_t			nrs_throttling;
 };
 
 #define NRS_POL_NAME_MAX		16

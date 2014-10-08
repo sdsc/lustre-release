@@ -943,7 +943,7 @@ static int nrs_svcpt_setup_locked0(struct ptlrpc_nrs *nrs,
 	spin_lock_init(&nrs->nrs_lock);
 	INIT_LIST_HEAD(&nrs->nrs_policy_list);
 	INIT_LIST_HEAD(&nrs->nrs_policy_queued);
-	nrs->nrs_throttling = 0;
+	atomic_set(&nrs->nrs_throttling, 0);
 
 	rc = nrs_register_policies_locked(nrs);
 
@@ -1641,7 +1641,7 @@ bool ptlrpc_nrs_req_throttling_nolock(struct ptlrpc_service_part *svcpt,
 {
 	struct ptlrpc_nrs *nrs = nrs_svcpt2nrs(svcpt, hp);
 
-	return !!nrs->nrs_throttling;
+	return atomic_read(&nrs->nrs_throttling) > 0;
 };
 
 /**
