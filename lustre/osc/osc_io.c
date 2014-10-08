@@ -804,6 +804,11 @@ static void osc_req_attr_set(const struct lu_env *env,
 		LASSERT(!list_empty(&clerq->crq_pages));
 		apage = container_of(clerq->crq_pages.next,
 				     struct cl_page, cp_flight);
+		/* aio can do direct IO async and there is no
+		 * lock for this kind of IO */
+		if (apage->cp_type == CPT_TRANSIENT)
+			return;
+
 		opg = osc_cl_page_osc(apage, NULL);
 		lock = dlmlock_at_pgoff(env, cl2osc(obj), osc_index(opg), 1, 1);
 		if (lock == NULL && !opg->ops_srvlock) {
