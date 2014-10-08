@@ -182,18 +182,31 @@ static int mdd_is_parent(const struct lu_env *env,
 			GOTO(out, rc = 0);
                 if (lu_fid_eq(pfid, lf))
                         GOTO(out, rc = 1);
-                if (parent)
-                        mdd_object_put(env, parent);
+
+		if (parent) {
+			/* Note: there are no ldlm lock to cover the remote
+			 * object, so we should clear the object from the
+			 * memory right away, otherwise
+			 *
+			 * 1. If the parent is striped dir, the sub_stripe
+			 * object might be hold (because the sub_stripe will
+			 * only be released when the parent is freed), which
+			 * might block other process. For example in
+			 * lu_object_find_try() waiting for dead object to
+			 * be released.
+			 *
+			 * 2. Some other process might accidently pick up the
+			 * object without checking if it is stale. */
+			if (mdd_object_remote(parent))
+				lu_object_put_nocache(env,
+					&parent->mod_obj.mo_lu);
+			else
+				mdd_object_put(env, parent);
+		}
 
 		parent = mdd_object_find(env, mdd, pfid);
-		if (IS_ERR(parent)) {
+		if (IS_ERR(parent))
 			GOTO(out, rc = PTR_ERR(parent));
-		} else if (mdd_object_remote(parent)) {
-			/*FIXME: Because of the restriction of rename in Phase I.
-			 * If the parent is remote, we just assumed lf is not the
-			 * parent of P1 for now */
-			GOTO(out, rc = 0);
-		}
 		p1 = parent;
         }
         EXIT;
@@ -2624,15 +2637,13 @@ static int mdd_declare_rename(const struct lu_env *env,
 	if (rc != 0)
 		return rc;
 
-        /* name from target dir (old name), we declare it unconditionally
-         * as mdd_rename() calls delete unconditionally as well. so just
-         * to balance declarations vs calls to change ... */
-        rc = mdo_declare_index_delete(env, mdd_tpobj, tname->ln_name, handle);
-        if (rc)
-                return rc;
-
         if (mdd_tobj && mdd_object_exists(mdd_tobj)) {
                 /* delete target child in target parent directory */
+		rc = mdo_declare_index_delete(env, mdd_tpobj, tname->ln_name,
+					      handle);
+		if (rc)
+			return rc;
+
                 rc = mdo_declare_ref_del(env, mdd_tobj, handle);
                 if (rc)
                         return rc;
@@ -2772,20 +2783,13 @@ static int mdd_rename(const struct lu_env *env,
                         GOTO(fixup_spobj, rc);
         }
 
-        /* Remove target name from target directory
-         * Here tobj can be remote one, so we do index_delete unconditionally
-         * and -ENOENT is allowed.
-         */
-        rc = __mdd_index_delete(env, mdd_tpobj, tname, is_dir, handle,
-                                mdd_object_capa(env, mdd_tpobj));
-        if (rc != 0) {
-                if (mdd_tobj) {
-                        /* tname might been renamed to something else */
-                        GOTO(fixup_spobj, rc);
-                }
-                if (rc != -ENOENT)
-                        GOTO(fixup_spobj, rc);
-        }
+	if (mdd_tobj != NULL && mdd_object_exists(mdd_tobj)) {
+		rc = __mdd_index_delete(env, mdd_tpobj, tname, is_dir, handle,
+					mdd_object_capa(env, mdd_tpobj));
+		if (rc != 0)
+			/* tname might been renamed to something else */
+			GOTO(fixup_spobj, rc);
+	}
 
         /* Insert new fid with target name into target dir */
 	rc = __mdd_index_insert(env, mdd_tpobj, lf, cattr->la_mode,
