@@ -684,8 +684,10 @@ static struct dt_object *lod_qos_declare_object_on(const struct lu_env *env,
 	 * XXX: to be fixed with fully-functional OST fids
 	 */
 	o = lu_object_anon(env, nd, NULL);
-	if (IS_ERR(o))
+	if (IS_ERR(o)) {
+		CERROR("lu_object_anon failed %ld\n", PTR_ERR(o));
 		GOTO(out, dt = ERR_PTR(PTR_ERR(o)));
+	}
 
 	n = lu_object_locate(o->lo_header, nd->ld_type);
 	if (unlikely(n == NULL)) {
@@ -698,6 +700,9 @@ static struct dt_object *lod_qos_declare_object_on(const struct lu_env *env,
 
 	rc = dt_declare_create(env, dt, NULL, NULL, NULL, th);
 	if (rc) {
+		CDEBUG(D_ERROR, "can't declare creation on #%u: %d\n",
+		       ost_idx, rc);
+
 		CDEBUG(D_OTHER, "can't declare creation on #%u: %d\n",
 		       ost_idx, rc);
 		lu_object_put(env, o);
@@ -863,6 +868,7 @@ static int lod_alloc_rr(const struct lu_env *env, struct lod_object *lo,
 	int		   rc;
 	__u32		   ost_start_idx_temp;
 	int		   speed = 0;
+	int		   debug = 0;
 	__u32		   stripe_idx = 0;
 	__u32		   stripe_cnt = lo->ldo_stripenr;
 	__u32		   stripe_cnt_min = min_stripe_count(stripe_cnt, flags);
@@ -917,6 +923,14 @@ repeat_find:
 		  lqr->lqr_offset_idx, osts->op_count, osts->op_count,
 		  array_idx);
 
+	if (debug)
+		CERROR("pool '%s' want %d startidx %d startcnt %d offset %d "
+			"active %d count %d arrayidx %d\n",
+			lo->ldo_pool ? lo->ldo_pool : "",
+			stripe_cnt, lqr->lqr_start_idx, lqr->lqr_start_count,
+			lqr->lqr_offset_idx, osts->op_count, osts->op_count,
+			array_idx);
+
 	for (i = 0; i < osts->op_count && stripe_idx < lo->ldo_stripenr;
 	     i++, array_idx = (array_idx + 1) % osts->op_count) {
 		++lqr->lqr_start_idx;
@@ -926,9 +940,18 @@ repeat_find:
 			  i, lqr->lqr_start_idx, /* XXX: active*/ 0,
 			  stripe_idx, array_idx, ost_idx);
 
+		if (debug)
+			CERROR("#%d strt %d act %d strp %d ary %d idx %d\n",
+				i, lqr->lqr_start_idx, /* XXX: active*/ 0,
+				stripe_idx, array_idx, ost_idx);
+
 		if ((ost_idx == LOV_QOS_EMPTY) ||
-		    !cfs_bitmap_check(m->lod_ost_bitmap, ost_idx))
+		    !cfs_bitmap_check(m->lod_ost_bitmap, ost_idx)) {
+			if (debug)
+				CERROR("ost_idx %d isn't available\n", ost_idx);
+
 			continue;
+		}
 
 		/* Fail Check before osc_precreate() is called
 		   so we can only 'fail' single OSC. */
@@ -937,6 +960,10 @@ repeat_find:
 
 		rc = lod_statfs_and_check(env, m, ost_idx, sfs);
 		if (rc) {
+			if (debug)
+				CERROR("ost_idx %d doesn't feel well (%d)\n",
+					ost_idx, rc);
+
 			/* this OSP doesn't feel well */
 			continue;
 		}
@@ -945,6 +972,9 @@ repeat_find:
 		 * skip full devices
 		 */
 		if (lod_qos_dev_is_full(sfs)) {
+			if (debug)
+				CERROR("#%d is full\n", ost_idx);
+
 			QOS_DEBUG("#%d is full\n", ost_idx);
 			continue;
 		}
@@ -954,6 +984,9 @@ repeat_find:
 		 * the first iteration, skip OSPs with no objects ready
 		 */
 		if (sfs->os_fprecreated == 0 && speed == 0) {
+			if (debug)
+				CERROR("#%d: precreation is empty\n", ost_idx);
+
 			QOS_DEBUG("#%d: precreation is empty\n", ost_idx);
 			continue;
 		}
@@ -962,6 +995,9 @@ repeat_find:
 		 * try to use another OSP if this one is degraded
 		 */
 		if (sfs->os_state & OS_STATE_DEGRADED && speed < 2) {
+			if (debug)
+				CERROR("#%d: degraded\n", ost_idx);
+
 			QOS_DEBUG("#%d: degraded\n", ost_idx);
 			continue;
 		}
@@ -974,11 +1010,18 @@ repeat_find:
 
 		o = lod_qos_declare_object_on(env, m, ost_idx, th);
 		if (IS_ERR(o)) {
+			if (debug)
+				CERROR("can't declare new object on #%u: %d\n",
+					ost_idx, (int) PTR_ERR(o));
+
 			CDEBUG(D_OTHER, "can't declare new object on #%u: %d\n",
 			       ost_idx, (int) PTR_ERR(o));
 			rc = PTR_ERR(o);
 			continue;
 		}
+
+		if (debug)
+			continue;
 
 		/*
 		 * We've successfuly declared (reserved) an object
@@ -1004,6 +1047,12 @@ repeat_find:
 	} else {
 		/* nobody provided us with a single object */
 		rc = -ENOSPC;
+		CERROR("No Space for lod_alloc_rr\n");
+
+		if (debug == 0) {
+			debug = 1;
+			goto repeat_find;
+		}
 	}
 
 out:
@@ -1506,6 +1555,9 @@ static int lod_alloc_qos(const struct lu_env *env, struct lod_object *lo,
 			break;
 		}
 	}
+
+	if (rc == -ENOSPC)
+		CERROR("No Space for lod_alloc_qos\n");
 
 	if (unlikely(nfound != stripe_cnt)) {
 		/*
