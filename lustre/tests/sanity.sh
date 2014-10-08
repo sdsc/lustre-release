@@ -1108,21 +1108,21 @@ test_24x() {
 	mkdir -p $remote_dir/tgt_dir
 	touch $remote_dir/tgt_file
 
-	mrename $remote_dir $DIR/ &&
-		error "rename dir cross MDT works!"
+	mrename $remote_dir $DIR/ ||
+		error "rename dir cross MDT failed!"
 
-	mrename $DIR/$tdir/src_dir $remote_dir/tgt_dir &&
-		error "rename dir cross MDT works!"
+	mrename $DIR/$tdir/src_dir $remote_dir/tgt_dir ||
+		error "rename dir cross MDT failed!"
 
-	mrename $DIR/$tdir/src_file $remote_dir/tgt_file &&
-		error "rename file cross MDT works!"
+	mrename $DIR/$tdir/src_file $remote_dir/tgt_file ||
+		error "rename file cross MDT failed!"
 
-	ln $DIR/$tdir/src_file $remote_dir/tgt_file1 &&
-		error "ln file cross MDT should not work!"
+	ln $DIR/$tdir/src_file $remote_dir/tgt_file1 ||
+		error "ln file cross MDT failed"
 
 	rm -rf $DIR/$tdir || error "Can not delete directories"
 }
-run_test 24x "cross rename/link should be failed"
+run_test 24x "cross MDT rename/link"
 
 test_24y() {
 	[[ $MDSCOUNT -lt 2 ]] && skip "needs >= 2 MDTs" && return
@@ -1248,6 +1248,38 @@ test_24C() {
 		error ".. wrong after mv, expect $d1_ino, get $parent_ino"
 }
 run_test 24C "check .. in striped dir"
+
+test_24D() {
+	[[ $MDSCOUNT -lt 4 ]] && skip "needs >= 4 MDTs" && return
+	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+
+	mkdir -p $DIR/$tdir
+	mkdir $DIR/$tdir/src_dir
+	$LFS mkdir -i 1 $DIR/$tdir/src_dir/src_child ||
+		error "create remote source failed"
+
+	touch $DIR/$tdir/src_dir/src_child/a
+
+	$LFS mkdir -i 2 $DIR/$tdir/tgt_dir ||
+		error "create remote target dir failed"
+
+	$LFS mkdir -i 3 $DIR/$tdir/tgt_dir/tgt_child ||
+		error "create remote target child failed"
+
+	mrename $DIR/$tdir/src_dir/src_child $DIR/$tdir/tgt_dir/tgt_child ||
+		error "rename dir cross MDT failed!"
+
+	find $DIR/$tdir
+
+	$CHECKSTAT -t dir $DIR/$tdir/src_dir/src_child &&
+		error "src_child still exists after rename" 
+
+	$CHECKSTAT -t file $DIR/$tdir/tgt_dir/tgt_child/a ||
+		error "missing file(a) after rename" 
+
+	rm -rf $DIR/$tdir || error "Can not delete directories"
+}
+run_test 24D "cross MDT rename/link"
 
 test_25a() {
 	echo '== symlink sanity ============================================='
