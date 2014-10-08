@@ -1878,7 +1878,12 @@ static int try_to_add_extent_for_io(struct client_obd *cli,
 		}
 
 		if (tmp->oe_srvlock != ext->oe_srvlock ||
-		    !tmp->oe_grants != !ext->oe_grants)
+		    !tmp->oe_grants != !ext->oe_grants ||
+		     tmp->oe_dio != ext->oe_dio)
+			RETURN(0);
+
+		/* It's possible to have overlap on DIO */
+		if (tmp->oe_dio && overlapped(tmp, ext))
 			RETURN(0);
 
 		/* remove break for strict check */
@@ -2641,6 +2646,7 @@ int osc_queue_sync_pages(const struct lu_env *env, struct osc_object *obj,
 	ext->oe_end = ext->oe_max_end = end;
 	ext->oe_obj = obj;
 	ext->oe_srvlock = !!(brw_flags & OBD_BRW_SRVLOCK);
+	ext->oe_dio = !!(brw_flags & OBD_BRW_NOCACHE);
 	ext->oe_nr_pages = page_count;
 	ext->oe_mppr = mppr;
 	list_splice_init(list, &ext->oe_pages);
