@@ -232,11 +232,7 @@ setup() {
 }
 
 setup_noconfig() {
-	if ! combined_mgs_mds ; then
-		start_mgs
-	fi
-
-	start_mds
+	start_mgsmds
 	start_ost
 	mount_client $MOUNT
 }
@@ -2566,7 +2562,7 @@ test_41b() {
 run_test 41b "mount mds with --nosvc and --nomgs on first mount"
 
 test_41c() {
-	cleanup
+	stopall
 	# MDT concurent start
 	#define OBD_FAIL_TGT_DELAY_CONNECT 0x703
 	do_facet $SINGLEMDS "lctl set_param fail_loc=0x703"
@@ -3694,6 +3690,7 @@ test_56() {
 run_test 56 "check big indexes"
 
 test_57a() { # bug 22656
+	setup
 	local NID=$(do_facet ost1 "$LCTL get_param nis" | tail -1 | awk '{print $1}')
 	writeconf_or_reformat
 	[ $(facet_fstype ost1) == zfs ] && import_zpool ost1
@@ -3705,6 +3702,7 @@ test_57a() { # bug 22656
 run_test 57a "initial registration from failnode should fail (should return errs)"
 
 test_57b() {
+	setup
 	local NID=$(do_facet ost1 "$LCTL get_param nis" | tail -1 | awk '{print $1}')
 	writeconf_or_reformat
 	[ $(facet_fstype ost1) == zfs ] && import_zpool ost1
@@ -4111,7 +4109,7 @@ test_68() {
 	[ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.4.53) ] ||
 		{ skip "Need MDS version at least 2.4.53"; return 0; }
 
-	umount_client $MOUNT || error "umount client failed"
+	stopall
 
 	start_mdt 1 || error "MDT start failed"
 	start_ost
@@ -4200,7 +4198,7 @@ test_70a() {
 	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
 	local MDTIDX=1
 
-	cleanup
+	stopall
 
 	start_mdt 1 || error "MDT0 start fail"
 
@@ -4224,6 +4222,8 @@ test_70b() {
 	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
 	local MDTIDX=1
 
+	stopall
+
 	start_ost || error "OST0 start fail"
 
 	start_mdt 1 || error "MDT0 start fail"
@@ -4245,6 +4245,8 @@ run_test 70b "start OST, MDT1, MDT0"
 test_70c() {
 	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
 	local MDTIDX=1
+
+	stopall
 
 	start_mdt 1 || error "MDT0 start fail"
 	start_mdt 2 || error "MDT1 start fail"
@@ -4269,6 +4271,8 @@ run_test 70c "stop MDT0, mkdir fail, create remote dir fail"
 test_70d() {
 	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
 	local MDTIDX=1
+
+	stopall
 
 	start_mdt 1 || error "MDT0 start fail"
 	start_mdt 2 || error "MDT1 start fail"
@@ -4301,6 +4305,8 @@ test_71a() {
 	fi
 	local MDTIDX=1
 
+	stopall
+
 	start_mdt 1 || error "MDT0 start fail"
 	start_ost || error "OST0 start fail"
 	start_mdt 2 || error "MDT1 start fail"
@@ -4330,6 +4336,8 @@ test_71b() {
 	fi
 	local MDTIDX=1
 
+	stopall
+
 	start_mdt 2 || error "MDT1 start fail"
 	start_ost || error "OST0 start fail"
 	start_mdt 1 || error "MDT0 start fail"
@@ -4358,6 +4366,8 @@ test_71c() {
 		skip "needs separate MGS/MDT" && return
 	fi
 	local MDTIDX=1
+
+	stopall
 
 	start_ost || error "OST0 start fail"
 	start_ost2 || error "OST1 start fail"
@@ -4389,6 +4399,8 @@ test_71d() {
 	fi
 	local MDTIDX=1
 
+	stopall
+
 	start_ost || error "OST0 start fail"
 	start_mdt 2 || error "MDT0 start fail"
 	start_mdt 1 || error "MDT0 start fail"
@@ -4418,6 +4430,8 @@ test_71e() {
 		skip "needs separate MGS/MDT" && return
 	fi
 	local MDTIDX=1
+
+	stopall
 
 	start_ost || error "OST0 start fail"
 	start_mdt 2 || error "MDT1 start fail"
@@ -4453,6 +4467,8 @@ test_72() { #LU-2634
 
 	#tune MDT with "-O extents"
 
+	stopall
+
 	for num in $(seq $MDSCOUNT); do
 		add mds${num} $(mkfs_opts mds$num $(mdsdevname $num)) \
 		--reformat $(mdsdevname $num) $(mdsvdevname $num) ||
@@ -4486,6 +4502,7 @@ test_72() { #LU-2634
 run_test 72 "test fast symlink with extents flag enabled"
 
 test_73() { #LU-3006
+	stopall
 	load_modules
 	[ $(facet_fstype ost1) == zfs ] && import_zpool ost1
 	do_facet ost1 "$TUNEFS --failnode=1.2.3.4@$NETTYPE $(ostdevname 1)" ||
@@ -4504,6 +4521,8 @@ run_test 73 "failnode to update from mountdata properly"
 test_75() { # LU-2374
 	[[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.4.1) ]] &&
 	                skip "Need MDS version at least 2.4.1" && return
+
+	stopall
 
 	local index=0
 	local opts_mds="$(mkfs_opts mds1 $(mdsdevname 1)) \
