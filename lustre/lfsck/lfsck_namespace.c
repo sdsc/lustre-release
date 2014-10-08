@@ -854,12 +854,8 @@ static int lfsck_namespace_insert_orphan(const struct lu_env *env,
 	ENTRY;
 
 	cname->ln_name = NULL;
-	/* Create .lustre/lost+found/MDTxxxx when needed. */
-	if (unlikely(lfsck->li_lpf_obj == NULL)) {
-		rc = lfsck_create_lpf(env, lfsck);
-		if (rc != 0)
-			GOTO(log, rc);
-	}
+	if (unlikely(lfsck->li_lpf_obj == NULL))
+		GOTO(log, rc = -ENXIO);
 
 	parent = lfsck->li_lpf_obj;
 	pfid = lfsck_dto2fid(parent);
@@ -1154,119 +1150,7 @@ log:
 }
 
 /**
- * Create the specified orphan MDT-object on remote MDT.
- *
- * The LFSCK instance on this MDT will send LFSCK RPC to remote MDT to
- * ask the remote LFSCK instance to create the specified orphan object
- * under .lustre/lost+found/MDTxxxx/ directory with the name:
- * ${FID}-P-${conflict_version}.
- *
- * \param[in] env	pointer to the thread context
- * \param[in] com	pointer to the lfsck component
- * \param[in] orphan	pointer to the orphan MDT-object
- * \param[in] type	the orphan's type to be created
- *
- *  type "P":		The orphan object to be created was a parent directory
- *			of some MDT-object which linkEA shows that the @orphan
- *			object is missing.
- *
- * \see lfsck_layout_recreate_parent() for more types.
- *
- * \param[in] lmv	pointer to master LMV EA that will be set to the orphan
- *
- * \retval		positive number for repaired cases
- * \retval		0 if needs to repair nothing
- * \retval		negative error number on failure
- */
-static int lfsck_namespace_create_orphan_remote(const struct lu_env *env,
-						struct lfsck_component *com,
-						struct dt_object *orphan,
-						__u32 type,
-						struct lmv_mds_md_v1 *lmv)
-{
-	struct lfsck_thread_info	*info	= lfsck_env_info(env);
-	struct lfsck_request		*lr	= &info->lti_lr;
-	struct lu_seq_range		*range	= &info->lti_range;
-	const struct lu_fid		*fid	= lfsck_dto2fid(orphan);
-	struct lfsck_namespace		*ns	= com->lc_file_ram;
-	struct lfsck_instance		*lfsck	= com->lc_lfsck;
-	struct seq_server_site		*ss	=
-			lu_site2seq(lfsck->li_bottom->dd_lu_dev.ld_site);
-	struct lfsck_tgt_desc		*ltd	= NULL;
-	struct ptlrpc_request		*req	= NULL;
-	int				 rc;
-	ENTRY;
-
-	if (lfsck->li_bookmark_ram.lb_param & LPF_DRYRUN)
-		GOTO(out, rc = 1);
-
-	fld_range_set_mdt(range);
-	rc = fld_server_lookup(env, ss->ss_server_fld, fid_seq(fid), range);
-	if (rc != 0)
-		GOTO(out, rc);
-
-	ltd = lfsck_tgt_get(&lfsck->li_mdt_descs, range->lsr_index);
-	if (ltd == NULL) {
-		ns->ln_flags |= LF_INCOMPLETE;
-
-		GOTO(out, rc = -ENODEV);
-	}
-
-	req = ptlrpc_request_alloc(class_exp2cliimp(ltd->ltd_exp),
-				   &RQF_LFSCK_NOTIFY);
-	if (req == NULL)
-		GOTO(out, rc = -ENOMEM);
-
-	rc = ptlrpc_request_pack(req, LUSTRE_OBD_VERSION, LFSCK_NOTIFY);
-	if (rc != 0) {
-		ptlrpc_request_free(req);
-
-		GOTO(out, rc);
-	}
-
-	lr = req_capsule_client_get(&req->rq_pill, &RMF_LFSCK_REQUEST);
-	memset(lr, 0, sizeof(*lr));
-	lr->lr_event = LE_CREATE_ORPHAN;
-	lr->lr_index = lfsck_dev_idx(lfsck->li_bottom);
-	lr->lr_active = LFSCK_TYPE_NAMESPACE;
-	lr->lr_fid = *fid;
-	lr->lr_type = type;
-	if (lmv != NULL) {
-		lr->lr_hash_type = lmv->lmv_hash_type;
-		lr->lr_stripe_count = lmv->lmv_stripe_count;
-		lr->lr_layout_version = lmv->lmv_layout_version;
-		memcpy(lr->lr_pool_name, lmv->lmv_pool_name,
-		       sizeof(lr->lr_pool_name));
-	}
-
-	ptlrpc_request_set_replen(req);
-	rc = ptlrpc_queue_wait(req);
-	ptlrpc_req_finished(req);
-
-	if (rc == 0) {
-		orphan->do_lu.lo_header->loh_attr |= LOHA_EXISTS;
-		rc = 1;
-	} else if (rc == -EEXIST) {
-		orphan->do_lu.lo_header->loh_attr |= LOHA_EXISTS;
-		rc = 0;
-	}
-
-	GOTO(out, rc);
-
-out:
-	CDEBUG(D_LFSCK, "%s: namespace LFSCK create object "
-	       DFID" on the MDT %x remotely: rc = %d\n",
-	       lfsck_lfsck2name(lfsck), PFID(fid),
-	       ltd != NULL ? ltd->ltd_index : -1, rc);
-
-	if (ltd != NULL)
-		lfsck_tgt_put(ltd);
-
-	return rc;
-}
-
-/**
- * Create the specified orphan MDT-object locally.
+ * Create the specified orphan directory.
  *
  * For the case that the parent MDT-object stored in some MDT-object's
  * linkEA entry is lost, the LFSCK will re-create the parent object as
@@ -1276,24 +1160,15 @@ out:
  * \param[in] env	pointer to the thread context
  * \param[in] com	pointer to the lfsck component
  * \param[in] orphan	pointer to the orphan MDT-object to be created
- * \param[in] type	the orphan's type to be created
- *
- *  type "P":		The orphan object to be created was a parent directory
- *			of some MDT-object which linkEA shows that the @orphan
- *			object is missing.
- *
- * \see lfsck_layout_recreate_parent() for more types.
- *
  * \param[in] lmv	pointer to master LMV EA that will be set to the orphan
  *
  * \retval		positive number for repaired cases
  * \retval		negative error number on failure
  */
-static int lfsck_namespace_create_orphan_local(const struct lu_env *env,
-					       struct lfsck_component *com,
-					       struct dt_object *orphan,
-					       __u32 type,
-					       struct lmv_mds_md_v1 *lmv)
+static int lfsck_namespace_create_orphan_dir(const struct lu_env *env,
+					     struct lfsck_component *com,
+					     struct dt_object *orphan,
+					     struct lmv_mds_md_v1 *lmv)
 {
 	struct lfsck_thread_info	*info	= lfsck_env_info(env);
 	struct lu_attr			*la	= &info->lti_la;
@@ -1301,12 +1176,13 @@ static int lfsck_namespace_create_orphan_local(const struct lu_env *env,
 	struct dt_object_format		*dof	= &info->lti_dof;
 	struct lu_name			*cname	= &info->lti_name2;
 	struct dt_insert_rec		*rec	= &info->lti_dt_rec;
-	struct lu_fid			*tfid	= &info->lti_fid;
+	struct lu_fid			*tfid	= &info->lti_fid4;
+	struct lu_fid			*pfid	= &info->lti_fid5;
 	struct lmv_mds_md_v1		*lmv2	= &info->lti_lmv2;
 	const struct lu_fid		*cfid	= lfsck_dto2fid(orphan);
-	const struct lu_fid		*pfid;
 	struct lfsck_instance		*lfsck	= com->lc_lfsck;
-	struct dt_device		*dev	= lfsck->li_bottom;
+	struct lfsck_namespace		*ns	= com->lc_file_ram;
+	struct dt_device		*dev;
 	struct dt_object		*parent	= NULL;
 	struct dt_object		*child	= NULL;
 	struct thandle			*th	= NULL;
@@ -1321,26 +1197,46 @@ static int lfsck_namespace_create_orphan_local(const struct lu_env *env,
 	ENTRY;
 
 	LASSERT(!dt_object_exists(orphan));
-	LASSERT(!dt_object_remote(orphan));
-
-	/* @orphan maybe not attached to lfsck->li_bottom */
-	child = lfsck_object_find_by_dev(env, dev, cfid);
-	if (IS_ERR(child))
-		GOTO(log, rc = PTR_ERR(child));
 
 	cname->ln_name = NULL;
 	if (lfsck->li_bookmark_ram.lb_param & LPF_DRYRUN)
 		GOTO(log, rc = 1);
 
-	/* Create .lustre/lost+found/MDTxxxx when needed. */
-	if (unlikely(lfsck->li_lpf_obj == NULL)) {
-		rc = lfsck_create_lpf(env, lfsck);
+	if (dt_object_remote(orphan)) {
+		LASSERT(lfsck->li_lpf_root_obj != NULL);
+
+		idx = lfsck_find_mdt_idx_by_fid(env, lfsck, cfid);
+		if (idx < 0)
+			GOTO(log, rc = idx);
+
+		snprintf(name, 8, "MDT%04x", idx);
+		rc = dt_lookup(env, lfsck->li_lpf_root_obj,
+			       (struct dt_rec *)pfid,
+			       (const struct dt_key *)name, BYPASS_CAPA);
 		if (rc != 0)
-			GOTO(log, rc);
+			GOTO(log, rc = (rc == -ENOENT ? -ENXIO : rc));
+
+		parent = lfsck_object_find_bottom(env, lfsck, pfid);
+		if (IS_ERR(parent))
+			GOTO(log, rc = PTR_ERR(parent));
+
+		if (unlikely(!dt_try_as_dir(env, parent)))
+			GOTO(log, rc = -ENOTDIR);
+	} else {
+		if (unlikely(lfsck->li_lpf_obj == NULL))
+			GOTO(log, rc = -ENXIO);
+
+		parent = lfsck->li_lpf_obj;
+		*pfid = *lfsck_dto2fid(parent);
 	}
 
-	parent = lfsck->li_lpf_obj;
-	pfid = lfsck_dto2fid(parent);
+	dev = lfsck_find_dev_by_fid(env, lfsck, cfid);
+	if (IS_ERR(dev))
+		GOTO(log, rc = PTR_ERR(dev));
+
+	child = lfsck_object_find_by_dev(env, dev, cfid);
+	if (IS_ERR(child))
+		GOTO(log, rc = PTR_ERR(child));
 
 	/* Hold update lock on the parent to prevent others to access. */
 	rc = lfsck_ibits_lock(env, lfsck, parent, &lh,
@@ -1348,6 +1244,7 @@ static int lfsck_namespace_create_orphan_local(const struct lu_env *env,
 	if (rc != 0)
 		GOTO(log, rc);
 
+	idx = 0;
 	do {
 		namelen = snprintf(name, 31, DFID"-P-%d",
 				   PFID(cfid), idx++);
@@ -1361,7 +1258,7 @@ static int lfsck_namespace_create_orphan_local(const struct lu_env *env,
 	cname->ln_namelen = namelen;
 
 	memset(la, 0, sizeof(*la));
-	la->la_mode = type | (S_ISDIR(type) ? 0700 : 0600);
+	la->la_mode = S_IFDIR | 0700;
 	la->la_valid = LA_TYPE | LA_MODE | LA_UID | LA_GID |
 		       LA_ATIME | LA_MTIME | LA_CTIME;
 
@@ -1369,7 +1266,7 @@ static int lfsck_namespace_create_orphan_local(const struct lu_env *env,
 				  la->la_mode & S_IFMT);
 
 	memset(dof, 0, sizeof(*dof));
-	dof->dof_type = dt_mode_to_dft(type);
+	dof->dof_type = dt_mode_to_dft(S_IFDIR);
 
 	rc = linkea_data_new(&ldata, &info->lti_linkea_buf2);
 	if (rc != 0)
@@ -1384,9 +1281,29 @@ static int lfsck_namespace_create_orphan_local(const struct lu_env *env,
 		GOTO(unlock1, rc = PTR_ERR(th));
 
 	rc = dt_declare_create(env, child, la, hint, dof, th);
-	if (rc == 0 && S_ISDIR(type))
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	if (unlikely(!dt_try_as_dir(env, child)))
+		GOTO(stop, rc = -ENOTDIR);
+
+	rec->rec_type = S_IFDIR;
+	rec->rec_fid = cfid;
+	rc = dt_declare_insert(env, child, (const struct dt_rec *)rec,
+			       (const struct dt_key *)dot, th);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	rec->rec_fid = pfid;
+	rc = dt_declare_insert(env, child, (const struct dt_rec *)rec,
+			       (const struct dt_key *)dotdot, th);
+	if (rc == 0)
 		rc = dt_declare_ref_add(env, child, th);
 
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	rc = dt_declare_ref_add(env, child, th);
 	if (rc != 0)
 		GOTO(stop, rc);
 
@@ -1408,11 +1325,10 @@ static int lfsck_namespace_create_orphan_local(const struct lu_env *env,
 	if (rc != 0)
 		GOTO(stop, rc);
 
-	rec->rec_type = type;
 	rec->rec_fid = cfid;
 	rc = dt_declare_insert(env, parent, (const struct dt_rec *)rec,
 			       (const struct dt_key *)name, th);
-	if (rc == 0 && S_ISDIR(type))
+	if (rc == 0)
 		rc = dt_declare_ref_add(env, parent, th);
 
 	if (rc != 0)
@@ -1427,28 +1343,22 @@ static int lfsck_namespace_create_orphan_local(const struct lu_env *env,
 	if (rc != 0)
 		GOTO(unlock2, rc);
 
-	if (S_ISDIR(type)) {
-		if (unlikely(!dt_try_as_dir(env, child)))
-			GOTO(unlock2, rc = -ENOTDIR);
+	rec->rec_fid = cfid;
+	rc = dt_insert(env, child, (const struct dt_rec *)rec,
+		       (const struct dt_key *)dot, th, BYPASS_CAPA, 1);
+	if (rc != 0)
+		GOTO(unlock2, rc);
 
-		rec->rec_type = S_IFDIR;
-		rec->rec_fid = cfid;
-		rc = dt_insert(env, child, (const struct dt_rec *)rec,
-			       (const struct dt_key *)dot, th, BYPASS_CAPA, 1);
-		if (rc != 0)
-			GOTO(unlock2, rc);
+	rec->rec_fid = pfid;
+	rc = dt_insert(env, child, (const struct dt_rec *)rec,
+		       (const struct dt_key *)dotdot, th,
+		       BYPASS_CAPA, 1);
+	if (rc != 0)
+		GOTO(unlock2, rc);
 
-		rec->rec_fid = pfid;
-		rc = dt_insert(env, child, (const struct dt_rec *)rec,
-			       (const struct dt_key *)dotdot, th,
-			       BYPASS_CAPA, 1);
-		if (rc != 0)
-			GOTO(unlock2, rc);
-
-		rc = dt_ref_add(env, child, th);
-		if (rc != 0)
-			GOTO(unlock2, rc);
-	}
+	rc = dt_ref_add(env, child, th);
+	if (rc != 0)
+		GOTO(unlock2, rc);
 
 	if (lmv != NULL) {
 		rc = dt_xattr_set(env, child, &lmv_buf, XATTR_NAME_LMV, 0,
@@ -1463,11 +1373,10 @@ static int lfsck_namespace_create_orphan_local(const struct lu_env *env,
 	if (rc != 0)
 		GOTO(stop, rc);
 
-	rec->rec_type = type;
 	rec->rec_fid = cfid;
 	rc = dt_insert(env, parent, (const struct dt_rec *)rec,
 		       (const struct dt_key *)name, th, BYPASS_CAPA, 1);
-	if (rc == 0 && S_ISDIR(type)) {
+	if (rc == 0) {
 		dt_write_lock(env, parent, 0);
 		rc = dt_ref_add(env, parent, th);
 		dt_write_unlock(env, parent);
@@ -1485,55 +1394,16 @@ unlock1:
 	lfsck_ibits_unlock(&lh, LCK_EX);
 
 log:
-	CDEBUG(D_LFSCK, "%s: namespace LFSCK create orphan locally for "
-	       "the object "DFID", name = %s, type %o: rc = %d\n",
+	CDEBUG(D_LFSCK, "%s: namespace LFSCK create orphan dir locally for "
+	       "the object "DFID", name = %s: rc = %d\n",
 	       lfsck_lfsck2name(lfsck), PFID(cfid),
-	       cname->ln_name != NULL ? cname->ln_name : "<NULL>", type, rc);
+	       cname->ln_name != NULL ? cname->ln_name : "<NULL>", rc);
 
 	if (child != NULL && !IS_ERR(child))
 		lfsck_object_put(env, child);
 
-	return rc;
-}
-
-/**
- * Create the specified orphan MDT-object.
- *
- * For the case that the parent MDT-object stored in some MDT-object's
- * linkEA entry is lost, the LFSCK will re-create the parent object as
- * an orphan and insert it into .lustre/lost+found/MDTxxxx/ directory
- * with the name: ${FID}-P-${conflict_version}.
- *
- * \param[in] env	pointer to the thread context
- * \param[in] com	pointer to the lfsck component
- * \param[in] orphan	pointer to the orphan MDT-object
- *
- *  type "P":		The orphan object to be created was a parent directory
- *			of some MDT-object which linkEA shows that the @orphan
- *			object is missing.
- *
- * \see lfsck_layout_recreate_parent() for more types.
- *
- * \param[in] lmv	pointer to master LMV EA that will be set to the orphan
- *
- * \retval		positive number for repaired cases
- * \retval		0 if needs to repair nothing
- * \retval		negative error number on failure
- */
-static int lfsck_namespace_create_orphan(const struct lu_env *env,
-					 struct lfsck_component *com,
-					 struct dt_object *orphan,
-					 struct lmv_mds_md_v1 *lmv)
-{
-	struct lfsck_namespace *ns = com->lc_file_ram;
-	int			rc;
-
-	if (dt_object_remote(orphan))
-		rc = lfsck_namespace_create_orphan_remote(env, com, orphan,
-							  S_IFDIR, lmv);
-	else
-		rc = lfsck_namespace_create_orphan_local(env, com, orphan,
-							 S_IFDIR, lmv);
+	if (parent != NULL && !IS_ERR(parent) && parent != lfsck->li_lpf_obj)
+		lfsck_object_put(env, parent);
 
 	if (rc != 0)
 		ns->ln_flags |= LF_INCONSISTENT;
@@ -2458,7 +2328,7 @@ lost_parent:
 		}
 
 		/* Create the lost parent as an orphan. */
-		rc = lfsck_namespace_create_orphan(env, com, parent, lmv);
+		rc = lfsck_namespace_create_orphan_dir(env, com, parent, lmv);
 		if (rc >= 0) {
 			/* Add the missing name entry to the parent. */
 			rc = lfsck_namespace_insert_normal(env, com, parent,
@@ -3372,7 +3242,7 @@ lost_parent:
 				}
 
 				/* Create the lost parent as an orphan. */
-				rc = lfsck_namespace_create_orphan(env, com,
+				rc = lfsck_namespace_create_orphan_dir(env, com,
 								parent, NULL);
 				if (rc < 0) {
 					lfsck_object_put(env, parent);
@@ -4536,50 +4406,6 @@ static int lfsck_namespace_in_notify(const struct lu_env *env,
 	ENTRY;
 
 	switch (lr->lr_event) {
-	case LE_CREATE_ORPHAN: {
-		struct dt_object *orphan = NULL;
-		struct lmv_mds_md_v1 *lmv;
-
-		CDEBUG(D_LFSCK, "%s: namespace LFSCK handling notify from "
-		       "MDT %x to create orphan"DFID" with type %o\n",
-		       lfsck_lfsck2name(lfsck), lr->lr_index,
-		       PFID(&lr->lr_fid), lr->lr_type);
-
-		orphan = lfsck_object_find(env, lfsck, &lr->lr_fid);
-		if (IS_ERR(orphan))
-			GOTO(out_create, rc = PTR_ERR(orphan));
-
-		if (dt_object_exists(orphan))
-			GOTO(out_create, rc = -EEXIST);
-
-		if (lr->lr_stripe_count > 0) {
-			lmv = &lfsck_env_info(env)->lti_lmv;
-			memset(lmv, 0, sizeof(*lmv));
-			lmv->lmv_hash_type = lr->lr_hash_type;
-			lmv->lmv_stripe_count = lr->lr_stripe_count;
-			lmv->lmv_layout_version = lr->lr_layout_version;
-			memcpy(lmv->lmv_pool_name, lr->lr_pool_name,
-			       sizeof(lmv->lmv_pool_name));
-		} else {
-			lmv = NULL;
-		}
-
-		rc = lfsck_namespace_create_orphan_local(env, com, orphan,
-							 lr->lr_type, lmv);
-
-		GOTO(out_create, rc = (rc == 1) ? 0 : rc);
-
-out_create:
-		CDEBUG(D_LFSCK, "%s: namespace LFSCK handled notify from "
-		       "MDT %x to create orphan"DFID" with type %o: rc = %d\n",
-		       lfsck_lfsck2name(lfsck), lr->lr_index,
-		       PFID(&lr->lr_fid), lr->lr_type, rc);
-
-		if (orphan != NULL && !IS_ERR(orphan))
-			lfsck_object_put(env, orphan);
-
-		return rc;
-	}
 	case LE_SKIP_NLINK_DECLARE: {
 		struct dt_object	*obj   = com->lc_obj;
 		struct lu_fid		*key   = &lfsck_env_info(env)->lti_fid3;
@@ -6338,82 +6164,6 @@ int lfsck_links_get_first(const struct lu_env *env, struct dt_object *obj,
 	name[cname->ln_namelen] = 0;
 
 	return 0;
-}
-
-/**
- * Remove the name entry from the parent directory.
- *
- * No need to care about the object referenced by the name entry,
- * either the name entry is invalid or redundant, or the referenced
- * object has been processed has been or will be handled by others.
- *
- * \param[in] env	pointer to the thread context
- * \param[in] lfsck	pointer to the lfsck instance
- * \param[in] parent	pointer to the lost+found object
- * \param[in] name	the name for the name entry to be removed
- * \param[in] type	the type for the name entry to be removed
- *
- * \retval		0 for success
- * \retval		negative error number on failure
- */
-int lfsck_remove_name_entry(const struct lu_env *env,
-			    struct lfsck_instance *lfsck,
-			    struct dt_object *parent,
-			    const char *name, __u32 type)
-{
-	struct dt_device	*dev	= lfsck->li_next;
-	struct thandle		*th;
-	struct lustre_handle	 lh	= { 0 };
-	int			 rc;
-	ENTRY;
-
-	rc = lfsck_ibits_lock(env, lfsck, parent, &lh,
-			      MDS_INODELOCK_UPDATE, LCK_EX);
-	if (rc != 0)
-		RETURN(rc);
-
-	th = dt_trans_create(env, dev);
-	if (IS_ERR(th))
-		GOTO(unlock, rc = PTR_ERR(th));
-
-	rc = dt_declare_delete(env, parent, (const struct dt_key *)name, th);
-	if (rc != 0)
-		GOTO(stop, rc);
-
-	if (S_ISDIR(type)) {
-		rc = dt_declare_ref_del(env, parent, th);
-		if (rc != 0)
-			GOTO(stop, rc);
-	}
-
-	rc = dt_trans_start(env, dev, th);
-	if (rc != 0)
-		GOTO(stop, rc);
-
-	rc = dt_delete(env, parent, (const struct dt_key *)name, th,
-		       BYPASS_CAPA);
-	if (rc != 0)
-		GOTO(stop, rc);
-
-	if (S_ISDIR(type)) {
-		dt_write_lock(env, parent, 0);
-		rc = dt_ref_del(env, parent, th);
-		dt_write_unlock(env, parent);
-	}
-
-	GOTO(stop, rc);
-
-stop:
-	dt_trans_stop(env, dev, th);
-
-unlock:
-	lfsck_ibits_unlock(&lh, LCK_EX);
-
-	CDEBUG(D_LFSCK, "%s: remove name entry "DFID"/%s "
-	       "with type %o: rc = %d\n", lfsck_lfsck2name(lfsck),
-	       PFID(lfsck_dto2fid(parent)), name, type, rc);
-
-	return rc;
 }
 
 /**
