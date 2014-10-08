@@ -51,6 +51,7 @@
 #include <lustre_net.h>
 #include <obd_cksum.h>
 #include <lustre/ll_fiemap.h>
+#include <linux/crc32.h>
 
 static inline int lustre_msg_hdr_size_v2(int count)
 {
@@ -1347,14 +1348,8 @@ __u32 lustre_msg_calc_cksum(struct lustre_msg *msg)
 #else
 		__u32 len = lustre_msg_buflen(msg, MSG_PTLRPC_BODY_OFF);
 #endif
-		unsigned int hsize = 4;
-		__u32 crc;
-
 		LASSERTF(pb != NULL, "invalid msg %p: no ptlrpc body!\n", msg);
-		cfs_crypto_hash_digest(CFS_HASH_ALG_CRC32, (unsigned char *)pb,
-				       len, NULL, 0, (unsigned char *)&crc,
-				       &hsize);
-		return crc;
+		return crc32_le(~(__u32)0, (unsigned char *)pb, len);
 	}
 	default:
 		CERROR("incorrect message magic: %08x\n", msg->lm_magic);
