@@ -635,11 +635,8 @@ extern void lprocfs_remove(struct proc_dir_entry **root);
 extern void lprocfs_remove_proc_entry(const char *name,
                                       struct proc_dir_entry *parent);
 #ifndef HAVE_ONLY_PROCFS_SEQ
-extern void lprocfs_try_remove_proc_entry(const char *name,
-					  struct proc_dir_entry *parent);
-
-extern struct proc_dir_entry *lprocfs_srch(struct proc_dir_entry *root,
-                                          const char *name);
+extern void remove_proc_subtree(const char *name,
+				struct proc_dir_entry *parent);
 #endif
 extern int lprocfs_obd_setup(struct obd_device *dev);
 extern int lprocfs_obd_cleanup(struct obd_device *obd);
@@ -685,12 +682,6 @@ extern ssize_t
 lprocfs_timeouts_seq_write(struct file *file, const char *buffer,
 			   size_t count, loff_t *off);
 #ifdef HAVE_SERVER_SUPPORT
-#ifndef HAVE_ONLY_PROCFS_SEQ
-extern ssize_t lprocfs_fops_read(struct file *f, char __user *buf,
-				 size_t size, loff_t *ppos);
-extern ssize_t lprocfs_fops_write(struct file *f, const char __user *buf,
-				  size_t size, loff_t *ppos);
-#endif
 extern ssize_t
 lprocfs_evict_client_seq_write(struct file *file, const char *buffer,
 				size_t count, loff_t *off);
@@ -773,7 +764,6 @@ extern int lprocfs_seq_release(struct inode *, struct file *);
 #define __LPROC_SEQ_FOPS(name, custom_seq_write)			\
 static int name##_single_open(struct inode *inode, struct file *file)	\
 {									\
-	LPROCFS_ENTRY_CHECK(PDE(inode));				\
 	return single_open(file, name##_seq_show, PDE_DATA(inode));	\
 }									\
 struct file_operations name##_fops = {					\
@@ -1031,12 +1021,9 @@ static inline void lprocfs_remove_proc_entry(const char *name,
                                              struct proc_dir_entry *parent)
 { return; }
 #ifndef HAVE_ONLY_PROCFS_SEQ
-static inline void lprocfs_try_remove_proc_entry(const char *name,
-						 struct proc_dir_entry *parent)
+static inline void remove_proc_subtree(const char *name,
+				       struct proc_dir_entry *parent)
 { return; }
-static inline struct proc_dir_entry *lprocfs_srch(struct proc_dir_entry *head,
-                                                 const char *name)
-{ return 0; }
 #endif
 static inline int lprocfs_obd_setup(struct obd_device *dev)
 { return 0; }

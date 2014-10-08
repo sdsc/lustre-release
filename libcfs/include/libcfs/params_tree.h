@@ -48,61 +48,17 @@
 #endif
 
 #ifdef LPROCFS
+
 #ifndef HAVE_ONLY_PROCFS_SEQ
-/* in lprocfs_stat.c, to protect the private data for proc entries */
-extern struct rw_semaphore		_lprocfs_lock;
-
-static inline
-int LPROCFS_ENTRY_CHECK(struct proc_dir_entry *dp)
-{
-	int deleted = 0;
-
-	spin_lock(&(dp)->pde_unload_lock);
-	if (dp->proc_fops == NULL)
-		deleted = 1;
-	spin_unlock(&(dp)->pde_unload_lock);
-	if (deleted)
-		return -ENODEV;
-	return 0;
-}
-#define LPROCFS_SRCH_ENTRY()            \
-do {                                    \
-        down_read(&_lprocfs_lock);      \
-} while(0)
-
-#define LPROCFS_SRCH_EXIT()             \
-do {                                    \
-        up_read(&_lprocfs_lock);        \
-} while(0)
-
-#define LPROCFS_WRITE_ENTRY()		\
-do {					\
-	down_write(&_lprocfs_lock);	\
-} while(0)
-
-#define LPROCFS_WRITE_EXIT()		\
-do {					\
-	up_write(&_lprocfs_lock);	\
-} while(0)
+extern spinlock_t proc_subdir_lock;
 
 #define PDE_DATA(inode)		PDE(inode)->data
-
 #else /* New proc api */
 
 static inline struct proc_dir_entry *PDE(struct inode *inode)
 {
 	return NULL;
 }
-
-static inline
-int LPROCFS_ENTRY_CHECK(struct proc_dir_entry *dp)
-{
-	return 0;
-}
-
-#define LPROCFS_WRITE_ENTRY() do {} while(0)
-#define LPROCFS_WRITE_EXIT()  do {} while(0)
-
 #endif
 
 #else /* !LPROCFS */
@@ -183,14 +139,6 @@ static inline struct proc_dir_entry *PDE(struct inode *inode)
 {
 	return FAKE_PROC_I(inode)->param_pde;
 }
-
-static inline
-int LPROCFS_ENTRY_CHECK(struct proc_dir_entry *dp)
-{
-	return 0;
-}
-#define LPROCFS_WRITE_ENTRY()       do {} while(0)
-#define LPROCFS_WRITE_EXIT()        do {} while(0)
 
 int seq_printf(struct seq_file *, const char *, ...)
 	__attribute__ ((format (printf,2,3)));

@@ -117,204 +117,7 @@ struct proc_dir_entry *lprocfs_add_symlink(const char *name,
 }
 EXPORT_SYMBOL(lprocfs_add_symlink);
 
-#ifdef HAVE_ONLY_PROCFS_SEQ
 static const struct file_operations lprocfs_generic_fops = { };
-#else
-
-ssize_t
-lprocfs_fops_read(struct file *f, char __user *buf, size_t size, loff_t *ppos)
-{
-        struct proc_dir_entry *dp = PDE(f->f_dentry->d_inode);
-        char *page, *start = NULL;
-        int rc = 0, eof = 1, count;
-
-	if (*ppos >= PAGE_CACHE_SIZE)
-                return 0;
-
-        page = (char *)__get_free_page(GFP_KERNEL);
-        if (page == NULL)
-                return -ENOMEM;
-
-	if (LPROCFS_ENTRY_CHECK(dp)) {
-                rc = -ENOENT;
-                goto out;
-        }
-
-        OBD_FAIL_TIMEOUT(OBD_FAIL_LPROC_REMOVE, 10);
-        if (dp->read_proc)
-		rc = dp->read_proc(page, &start, *ppos, PAGE_CACHE_SIZE,
-                                   &eof, dp->data);
-        if (rc <= 0)
-                goto out;
-
-        /* for lustre proc read, the read count must be less than PAGE_SIZE */
-        LASSERT(eof == 1);
-
-        if (start == NULL) {
-                rc -= *ppos;
-                if (rc < 0)
-                        rc = 0;
-                if (rc == 0)
-                        goto out;
-                start = page + *ppos;
-        } else if (start < page) {
-                start = page;
-        }
-
-        count = (rc < size) ? rc : size;
-	if (copy_to_user(buf, start, count)) {
-                rc = -EFAULT;
-                goto out;
-        }
-        *ppos += count;
-
-out:
-        free_page((unsigned long)page);
-        return rc;
-}
-
-ssize_t
-lprocfs_fops_write(struct file *f, const char __user *buf, size_t size,
-		   loff_t *ppos)
-{
-        struct proc_dir_entry *dp = PDE(f->f_dentry->d_inode);
-        int rc = -EIO;
-
-	if (LPROCFS_ENTRY_CHECK(dp))
-                return -ENOENT;
-        if (dp->write_proc)
-                rc = dp->write_proc(f, buf, size, dp->data);
-        return rc;
-}
-
-static struct file_operations lprocfs_generic_fops = {
-        .owner = THIS_MODULE,
-        .read = lprocfs_fops_read,
-        .write = lprocfs_fops_write,
-};
-
-/* for b=10866, global variable */
-DECLARE_RWSEM(_lprocfs_lock);
-EXPORT_SYMBOL(_lprocfs_lock);
-
-static struct proc_dir_entry *__lprocfs_srch(struct proc_dir_entry *head,
-					     const char *name)
-{
-	struct proc_dir_entry *temp;
-
-	if (head == NULL)
-		return NULL;
-
-	temp = head->subdir;
-	while (temp != NULL) {
-		if (strcmp(temp->name, name) == 0)
-			return temp;
-		temp = temp->next;
-	}
-	return NULL;
-}
-
-struct proc_dir_entry *lprocfs_srch(struct proc_dir_entry *head,
-				    const char *name)
-{
-	struct proc_dir_entry *temp;
-
-	LPROCFS_SRCH_ENTRY();
-	temp = __lprocfs_srch(head, name);
-	LPROCFS_SRCH_EXIT();
-	return temp;
-}
-EXPORT_SYMBOL(lprocfs_srch);
-
-static int __lprocfs_add_vars(struct proc_dir_entry *root,
-			      struct lprocfs_vars *list,
-			      void *data)
-{
-        int rc = 0;
-
-        if (root == NULL || list == NULL)
-                return -EINVAL;
-
-        while (list->name != NULL) {
-                struct proc_dir_entry *cur_root, *proc;
-                char *pathcopy, *cur, *next, pathbuf[64];
-                int pathsize = strlen(list->name) + 1;
-
-                proc = NULL;
-                cur_root = root;
-
-                /* need copy of path for strsep */
-                if (strlen(list->name) > sizeof(pathbuf) - 1) {
-                        OBD_ALLOC(pathcopy, pathsize);
-                        if (pathcopy == NULL)
-                                GOTO(out, rc = -ENOMEM);
-                } else {
-                        pathcopy = pathbuf;
-                }
-
-                next = pathcopy;
-                strcpy(pathcopy, list->name);
-
-                while (cur_root != NULL && (cur = strsep(&next, "/"))) {
-                        if (*cur =='\0') /* skip double/trailing "/" */
-                                continue;
-
-                        proc = __lprocfs_srch(cur_root, cur);
-                        CDEBUG(D_OTHER, "cur_root=%s, cur=%s, next=%s, (%s)\n",
-                               cur_root->name, cur, next,
-                               (proc ? "exists" : "new"));
-                        if (next != NULL) {
-                                cur_root = (proc ? proc :
-                                            proc_mkdir(cur, cur_root));
-                        } else if (proc == NULL) {
-                                mode_t mode = 0;
-                                if (list->proc_mode != 0000) {
-                                        mode = list->proc_mode;
-                                } else {
-                                        if (list->read_fptr)
-                                                mode = 0444;
-                                        if (list->write_fptr)
-                                                mode |= 0200;
-                                }
-                                proc = create_proc_entry(cur, mode, cur_root);
-                        }
-                }
-
-                if (pathcopy != pathbuf)
-                        OBD_FREE(pathcopy, pathsize);
-
-                if (cur_root == NULL || proc == NULL) {
-			CERROR("LprocFS: No memory to create /proc entry %s\n",
-			       list->name);
-			GOTO(out, rc = -ENOMEM);
-                }
-
-                if (list->fops)
-                        proc->proc_fops = list->fops;
-                else
-                        proc->proc_fops = &lprocfs_generic_fops;
-                proc->read_proc = list->read_fptr;
-                proc->write_proc = list->write_fptr;
-                proc->data = (list->data ? list->data : data);
-                list++;
-        }
-out:
-        return rc;
-}
-
-int lprocfs_add_vars(struct proc_dir_entry *root, struct lprocfs_vars *list,
-		     void *data)
-{
-	int rc = 0;
-
-	LPROCFS_WRITE_ENTRY();
-	rc = __lprocfs_add_vars(root, list, data);
-	LPROCFS_WRITE_EXIT();
-
-	return rc;
-}
-EXPORT_SYMBOL(lprocfs_add_vars);
-#endif
 
 /**
  * Add /proc entries.
@@ -385,7 +188,9 @@ void lprocfs_remove_nolock(struct proc_dir_entry **proot)
                          "0x%p  %s/%s len %d\n", rm_entry, temp->name,
                          rm_entry->name, (int)strlen(rm_entry->name));
 
+		spin_unlock(&proc_subdir_lock);
                 remove_proc_entry(rm_entry->name, temp);
+		spin_lock(&proc_subdir_lock);
                 if (temp == parent)
                         break;
         }
@@ -395,9 +200,9 @@ void lprocfs_remove_nolock(struct proc_dir_entry **proot)
 void lprocfs_remove(struct proc_dir_entry **rooth)
 {
 #ifndef HAVE_ONLY_PROCFS_SEQ
-	LPROCFS_WRITE_ENTRY(); /* search vs remove race */
+	spin_lock(&proc_subdir_lock);
 	lprocfs_remove_nolock(rooth);
-	LPROCFS_WRITE_EXIT();
+	spin_unlock(&proc_subdir_lock);
 #else
 	proc_remove(*rooth);
 	*rooth = NULL;
@@ -413,8 +218,7 @@ void lprocfs_remove_proc_entry(const char *name, struct proc_dir_entry *parent)
 EXPORT_SYMBOL(lprocfs_remove_proc_entry);
 
 #ifndef HAVE_ONLY_PROCFS_SEQ
-void lprocfs_try_remove_proc_entry(const char *name,
-				   struct proc_dir_entry *parent)
+void remove_proc_subtree(const char *name, struct proc_dir_entry *parent)
 {
 	struct proc_dir_entry	 *t = NULL;
 	struct proc_dir_entry	**p;
@@ -423,7 +227,7 @@ void lprocfs_try_remove_proc_entry(const char *name,
 	LASSERT(parent != NULL);
 	len = strlen(name);
 
-	LPROCFS_WRITE_ENTRY();
+	spin_lock(&proc_subdir_lock);
 
 	/* lookup target name */
 	for (p = &parent->subdir; *p; p = &(*p)->next) {
@@ -453,42 +257,11 @@ void lprocfs_try_remove_proc_entry(const char *name,
 	if (busy == 0)
 		lprocfs_remove_nolock(&t);
 
-	LPROCFS_WRITE_EXIT();
+	spin_unlock(&proc_subdir_lock);
 
 	return;
 }
-EXPORT_SYMBOL(lprocfs_try_remove_proc_entry);
-
-struct proc_dir_entry *lprocfs_register(const char *name,
-					struct proc_dir_entry *parent,
-					struct lprocfs_vars *list, void *data)
-{
-	struct proc_dir_entry *entry;
-	int rc;
-
-	LPROCFS_WRITE_ENTRY();
-	entry = __lprocfs_srch(parent, name);
-	if (entry != NULL) {
-		CERROR("entry '%s' already registered\n", name);
-		GOTO(out, entry = ERR_PTR(-EALREADY));
-	}
-
-	entry = proc_mkdir(name, parent);
-	if (entry == NULL)
-		GOTO(out, entry = ERR_PTR(-ENOMEM));
-
-	if (list != NULL) {
-		rc = __lprocfs_add_vars(entry, list, data);
-		if (rc != 0) {
-			lprocfs_remove_nolock(&entry);
-			GOTO(out, entry = ERR_PTR(rc));
-		}
-	}
-out:
-	LPROCFS_WRITE_EXIT();
-	return entry;
-}
-EXPORT_SYMBOL(lprocfs_register);
+EXPORT_SYMBOL(remove_proc_subtree);
 #endif
 
 struct proc_dir_entry *
@@ -1478,10 +1251,6 @@ static int lprocfs_stats_seq_open(struct inode *inode, struct file *file)
 	struct seq_file *seq;
 	int rc;
 
-#ifndef HAVE_ONLY_PROCFS_SEQ
-	if (LPROCFS_ENTRY_CHECK(PDE(inode)))
-		return -ENOENT;
-#endif
 	rc = seq_open(file, &lprocfs_stats_seq_sops);
 	if (rc)
 		return rc;

@@ -1,0 +1,10 @@
+--- linux-3.0/fs/proc/generic.c.orig	2014-10-08 11:14:40.000000000 -0400
++++ linux-3.0/fs/proc/generic.c	2014-10-08 11:14:27.000000000 -0400
+@@ -27,6 +27,7 @@
+ #include "internal.h"
+
+ DEFINE_SPINLOCK(proc_subdir_lock);
++EXPORT_SYMBOL(proc_subdir_lock);
+
+ static int proc_match(unsigned int len, const char *name, struct proc_dir_entry *de)
+ {
