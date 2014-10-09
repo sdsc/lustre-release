@@ -163,6 +163,15 @@ test_0c() {
 }
 run_test 0c "check import proc ============================="
 
+test_0d() {
+	[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.5.59) ] &&
+		skip "proc exports not supported before 2.5.59" && return
+	do_facet mgs "$LCTL get_param mgs.MGS.exports.*.export | \
+		      grep 'name: MGS'" ||
+		error "failed to gather proc export data"
+}
+run_test 0d "check export proc ============================="
+
 test_1() {
 	test_mkdir -p $DIR/$tdir || error "mkdir $tdir failed"
 	test_mkdir -p $DIR/$tdir/d2 || error "mkdir $tdir/d2 failed"

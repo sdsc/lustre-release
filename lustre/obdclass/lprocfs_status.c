@@ -783,16 +783,6 @@ void lprocfs_stats_collect(struct lprocfs_stats *stats, int idx,
 }
 EXPORT_SYMBOL(lprocfs_stats_collect);
 
-/**
- * Append a space separated list of current set flags to str.
- */
-#define flag2str(flag)						\
-	do {								\
-		if (imp->imp_##flag) {					\
-			seq_printf(m, "%s" #flag, first ? "" : ", ");	\
-			first = false;					\
-		}							\
-	} while (0)
 static void obd_import_flags2str(struct obd_import *imp, struct seq_file *m)
 {
 	bool first = true;
@@ -802,19 +792,18 @@ static void obd_import_flags2str(struct obd_import *imp, struct seq_file *m)
 		first = false;
 	}
 
-	flag2str(invalid);
-	flag2str(deactive);
-	flag2str(replayable);
-	flag2str(delayed_recovery);
-	flag2str(no_lock_replay);
-	flag2str(vbr_failed);
-	flag2str(pingable);
-	flag2str(resend_replay);
-	flag2str(no_pinger_recover);
-	flag2str(need_mne_swab);
-	flag2str(connect_tried);
+	flag2str(imp, invalid);
+	flag2str(imp, deactive);
+	flag2str(imp, replayable);
+	flag2str(imp, delayed_recovery);
+	flag2str(imp, no_lock_replay);
+	flag2str(imp, vbr_failed);
+	flag2str(imp, pingable);
+	flag2str(imp, resend_replay);
+	flag2str(imp, no_pinger_recover);
+	flag2str(imp, need_mne_swab);
+	flag2str(imp, connect_tried);
 }
-#undef flag2str
 
 static const char *obd_connect_names[] = {
 	"read_only",
@@ -880,7 +869,7 @@ static const char *obd_connect_names[] = {
 	NULL
 };
 
-static void obd_connect_seq_flags2str(struct seq_file *m, __u64 flags, char *sep)
+void obd_connect_flags2str(struct seq_file *m, __u64 flags, char *sep)
 {
 	bool first = true;
 	__u64 mask = 1;
@@ -916,8 +905,8 @@ int obd_connect_flags2str(char *page, int count, __u64 flags, char *sep)
 }
 EXPORT_SYMBOL(obd_connect_flags2str);
 
-static void obd_connect_data_seqprint(struct seq_file *m,
-				      struct obd_connect_data *ocd)
+void
+obd_connect_data_seqprint(struct seq_file *m, struct obd_connect_data *ocd)
 {
 	int flags;
 
@@ -991,7 +980,7 @@ int lprocfs_import_seq_show(struct seq_file *m, void *data)
 		      obd->obd_name,
 		      obd2cli_tgt(obd),
 		      ptlrpc_import_state_name(imp->imp_state));
-	obd_connect_seq_flags2str(m, imp->imp_connect_data.ocd_connect_flags,
+	obd_connect_flags2str(m, imp->imp_connect_data.ocd_connect_flags,
 					", ");
 	seq_printf(m, " ]\n");
 	obd_connect_data_seqprint(m, ocd);
@@ -1196,7 +1185,7 @@ int lprocfs_connect_flags_seq_show(struct seq_file *m, void *data)
 	LPROCFS_CLIMP_CHECK(obd);
 	flags = obd->u.cli.cl_import->imp_connect_data.ocd_connect_flags;
 	seq_printf(m, "flags="LPX64"\n", flags);
-	obd_connect_seq_flags2str(m, flags, "\n");
+	obd_connect_flags2str(m, flags, "\n");
 	seq_printf(m, "\n");
 	LPROCFS_CLIMP_EXIT(obd);
 	return 0;
