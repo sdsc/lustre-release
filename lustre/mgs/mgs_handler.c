@@ -1379,6 +1379,7 @@ static struct lu_device *mgs_device_fini(const struct lu_env *env,
 
 	ptlrpc_unregister_service(mgs->mgs_service);
 
+	ldlm_namespace_free_prior(obd->obd_namespace, NULL, 1);
 	obd_exports_barrier(obd);
 	obd_zombie_barrier();
 
@@ -1395,7 +1396,7 @@ static struct lu_device *mgs_device_fini(const struct lu_env *env,
 
 	mgs_fs_cleanup(env, mgs);
 
-	ldlm_namespace_free(obd->obd_namespace, NULL, 1);
+	ldlm_namespace_free_post(obd->obd_namespace);
 	obd->obd_namespace = NULL;
 
 	lu_site_purge(env, d->ld_site, ~0);
