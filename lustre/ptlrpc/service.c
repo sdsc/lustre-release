@@ -3201,10 +3201,10 @@ int ptlrpc_svcpt_health_check(struct ptlrpc_service_part *svcpt)
 	timediff = cfs_timeval_sub(&right_now, &request->rq_arrival_time, NULL);
 	spin_unlock(&svcpt->scp_req_lock);
 
-	if ((timediff / ONE_MILLION) >
+	if ((timediff / USEC_PER_SEC) >
 	    (AT_OFF ? obd_timeout * 3 / 2 : at_max)) {
 		CERROR("%s: unhealthy - request has been waiting %lds\n",
-		       svcpt->scp_service->srv_name, timediff / ONE_MILLION);
+		       svcpt->scp_service->srv_name, timediff / USEC_PER_SEC);
 		return -1;
 	}
 

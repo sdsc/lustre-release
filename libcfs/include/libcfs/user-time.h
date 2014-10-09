@@ -86,9 +86,6 @@
 
 #ifndef __KERNEL__
 
-#define ONE_BILLION ((u_int64_t)1000000000)
-#define ONE_MILLION 1000000
-
 /*
  * Liblustre. time(2) based implementation.
  */
@@ -117,7 +114,7 @@ static inline time_t cfs_time_current_sec(void)
 
 static inline cfs_duration_t cfs_duration_build(int64_t nano)
 {
-        return (cfs_duration_t) (nano / ONE_BILLION);
+	return (cfs_duration_t) (nano / NSEC_PER_SEC);
 }
 
 static inline time_t cfs_duration_sec(cfs_duration_t d)

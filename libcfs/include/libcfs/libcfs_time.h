@@ -70,16 +70,16 @@ static inline cfs_time_t cfs_time_shift(int seconds)
 }
 
 static inline long cfs_timeval_sub(struct timeval *large, struct timeval *small,
-                                   struct timeval *result)
+				   struct timeval *result)
 {
-        long r = (long) (
-                (large->tv_sec - small->tv_sec) * ONE_MILLION +
-                (large->tv_usec - small->tv_usec));
-        if (result != NULL) {
-                result->tv_usec = r % ONE_MILLION;
-                result->tv_sec = r / ONE_MILLION;
-        }
-        return r;
+	long r = (long) (
+		(large->tv_sec - small->tv_sec) * USEC_PER_SEC +
+		(large->tv_usec - small->tv_usec));
+	if (result != NULL) {
+		result->tv_usec = r % USEC_PER_SEC;
+		result->tv_sec = r / USEC_PER_SEC;
+	}
+	return r;
 }
 
 static inline void cfs_slow_warning(cfs_time_t now, int seconds, char *msg)
