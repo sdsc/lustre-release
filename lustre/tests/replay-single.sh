@@ -767,9 +767,7 @@ test_37() {
     sync
     return 0
 }
-start_full_debug_logging
 run_test 37 "abort recovery before client does replay (test mds_cleanup_orphans for directories)"
-stop_full_debug_logging
 
 test_38() {
     createmany -o $DIR/$tfile-%d 800
@@ -873,8 +871,7 @@ test_42() {
     createmany -o $DIR/$tfile-%d 800
     replay_barrier ost1
     unlinkmany $DIR/$tfile-%d 0 400
-    debugsave
-    lctl set_param debug=-1
+
     facet_failover ost1
 
     # osc is evicted, fs is smaller (but only with failout OSTs (bug 7287)
@@ -882,7 +879,7 @@ test_42() {
     #[ $blocks_after -lt $blocks ] || return 1
     echo wait for MDS to timeout and recover
     sleep $((TIMEOUT * 2))
-    debugrestore
+
     unlinkmany $DIR/$tfile-%d 400 400
     $CHECKSTAT -t file $DIR/$tfile-* && return 2 || true
 }
@@ -1639,9 +1636,7 @@ test_65a() #bug 3055
     remote_ost_nodsh && skip "remote OST with nodsh" && return 0
 
     at_start || return 0
-    $LCTL dk > /dev/null
-    debugsave
-    $LCTL set_param debug="other"
+
     # Slow down a request to the current service time, this is critical
     # because previous tests may have caused this value to increase.
     REQ_DELAY=`lctl get_param -n mdc.${FSNAME}-MDT0000-mdc-*.timeouts |
@@ -1653,9 +1648,7 @@ test_65a() #bug 3055
     do_facet $SINGLEMDS $LCTL set_param fail_loc=0x8000050a
     createmany -o $DIR/$tfile 10 > /dev/null
     unlinkmany $DIR/$tfile 10 > /dev/null
-    # check for log message
-    $LCTL dk | grep "Early reply #" || error "No early reply"
-    debugrestore
+
     # client should show REQ_DELAY estimates
     lctl get_param -n mdc.${FSNAME}-MDT0000-mdc-*.timeouts | grep portal
     sleep 9
@@ -1668,10 +1661,7 @@ test_65b() #bug 3055
     remote_ost_nodsh && skip "remote OST with nodsh" && return 0
 
     at_start || return 0
-    # turn on D_ADAPTTO
-    debugsave
-    $LCTL set_param debug="other trace"
-    $LCTL dk > /dev/null
+
     # Slow down a request to the current service time, this is critical
     # because previous tests may have caused this value to increase.
     $SETSTRIPE --stripe-index=0 --count=1 $DIR/$tfile
@@ -1690,9 +1680,7 @@ test_65b() #bug 3055
     multiop $DIR/$tfile oO_CREAT:O_RDWR:O_SYNC:w4096c
 
     do_facet ost1 $LCTL set_param fail_loc=0
-    # check for log message
-    $LCTL dk | grep "Early reply #" || error "No early reply"
-    debugrestore
+
     # client should show REQ_DELAY estimates
     lctl get_param -n osc.${FSNAME}-OST0000-osc-*.timeouts | grep portal
 }
