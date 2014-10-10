@@ -3093,6 +3093,7 @@ static int lfsck_layout_check_parent(const struct lu_env *env,
 	struct dt_object		*tobj;
 	struct lov_mds_md_v1		*lmm;
 	struct lov_ost_data_v1		*objs;
+	struct lustre_handle		 lh	= { 0 };
 	int				 rc;
 	int				 i;
 	__u32				 magic;
@@ -3126,7 +3127,6 @@ static int lfsck_layout_check_parent(const struct lu_env *env,
 	if (IS_ERR(tobj))
 		RETURN(PTR_ERR(tobj));
 
-	dt_read_lock(env, tobj, 0);
 	if (dt_object_exists(tobj) == 0 ||
 	    lfsck_is_dead_obj(tobj))
 		GOTO(out, rc = LLIT_UNMATCHED_PAIR);
@@ -3176,16 +3176,61 @@ static int lfsck_layout_check_parent(const struct lu_env *env,
 		}
 
 		if (lu_fid_eq(cfid, tfid)) {
-			*lov_ea = *buf;
+			/* For migration case, the new MDT-object
+			 * and old MDT-object may reference the same
+			 * OST-object at some migration internal time.*/
+			rc = lfsck_ibits_lock(env, com->lc_lfsck, tobj, &lh,
+					      MDS_INODELOCK_UPDATE |
+					      MDS_INODELOCK_LAYOUT |
+					      MDS_INODELOCK_XATTR,
+					      LCK_EX);
+			if (rc != 0)
+				GOTO(out, rc);
 
-			GOTO(out, rc = LLIT_MULTIPLE_REFERENCED);
+			dt_read_lock(env, tobj, 0);
+
+			/* For local MDT-object, re-check existence
+			 * after taken the lock. */
+			if (!dt_object_remote(tobj)) {
+				if (dt_object_exists(tobj) == 0 ||
+				    lfsck_is_dead_obj(tobj)) {
+					rc = LLIT_UNMATCHED_PAIR;
+				} else {
+					*lov_ea = *buf;
+					rc = LLIT_MULTIPLE_REFERENCED;
+				}
+
+				GOTO(unlock, rc);
+			}
+
+			/* For remote MDT-object, the local MDT maybe not know
+			 * whether it has been removed or not. Then try to get
+			 * XATTR_NAME_FID EA can check its existence. Normally,
+			 * the XATTR_NAME_FID is only used for OST-object, so
+			 * if the remote MDT-object contains such EA, then it
+			 * should be wrong or not a valid MDT-object. */
+			rc = dt_xattr_get(env, tobj, &LU_BUF_NULL,
+					  XATTR_NAME_FID, BYPASS_CAPA);
+			if (unlikely(rc == -ENOENT || rc >= 0)) {
+				rc = LLIT_UNMATCHED_PAIR;
+			} else if (rc == -ENODATA) {
+				*lov_ea = *buf;
+				rc = LLIT_MULTIPLE_REFERENCED;
+			}
+
+			GOTO(unlock, rc);
 		}
 	}
 
 	GOTO(out, rc = LLIT_UNMATCHED_PAIR);
 
+unlock:
+	if (lustre_handle_is_used(&lh)) {
+		dt_read_unlock(env, tobj);
+		lfsck_ibits_unlock(&lh, LCK_EX);
+	}
+
 out:
-	dt_read_unlock(env, tobj);
 	lfsck_object_put(env, tobj);
 
 	return rc;
