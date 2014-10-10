@@ -88,8 +88,7 @@ STRIPE_BYTES=${STRIPE_BYTES:-1048576}
 STRIPES_PER_OBJ=${STRIPES_PER_OBJ:-0}
 SINGLEMDS=${SINGLEMDS:-"mds1"}
 TIMEOUT=${TIMEOUT:-20}
-PTLDEBUG=${PTLDEBUG:-"vfstrace rpctrace dlmtrace neterror ha config \
-		      ioctl super lfsck"}
+PTLDEBUG="vfstrace rpctrace dlmtrace neterror ha config ioctl super lfsck malloc error emerg console"
 SUBSYSTEM=${SUBSYSTEM:-"all -lnet -lnd -pinger"}
 
 # promise 2MB for every cpu
@@ -99,7 +98,7 @@ else
     _debug_mb=$(($(getconf _NPROCESSORS_CONF)*2))
 fi
 
-DEBUG_SIZE=${DEBUG_SIZE:-$_debug_mb}
+DEBUG_SIZE=128
 
 ENABLE_QUOTA=${ENABLE_QUOTA:-""}
 QUOTA_TYPE="ug3"
