@@ -744,7 +744,7 @@ int llapi_file_open_param(const char *name, int flags, mode_t mode,
 			if (param->lsp_osts[i] == param->lsp_stripe_offset)
 				found = true;
 		}
-		if (!found) {
+		if (!found && param->lsp_stripe_offset != -1) {
 			llapi_error(LLAPI_MSG_ERROR, -EINVAL,
 				    "%s: stripe offset '%d' is not in the "
 				    "target list",
@@ -2618,7 +2618,8 @@ void llapi_lov_dump_user_lmm(struct find_param *param, char *path, int is_dir)
 		magic = *(__u32 *)&param->lmd->lmd_lmm; /* lum->lmm_magic */
 
 	switch (magic) {
-        case LOV_USER_MAGIC_V1:
+	case LOV_USER_MAGIC_V1:
+	case LOV_USER_MAGIC_SPECIFIC:
                 lov_dump_user_lmm_v1v3(&param->lmd->lmd_lmm, NULL,
                                        param->lmd->lmd_lmm.lmm_objects,
                                        path, is_dir,
@@ -2848,13 +2849,13 @@ static int check_obd_match(struct find_param *param)
         if (!param->lmd->lmd_lmm.lmm_stripe_count)
                 return 0;
 
-        if (param->lmd->lmd_lmm.lmm_magic ==
-            LOV_USER_MAGIC_V3) {
-                struct lov_user_md_v3 *lmmv3 = (void *)&param->lmd->lmd_lmm;
+	if (param->lmd->lmd_lmm.lmm_magic == LOV_USER_MAGIC_V3) {
+		struct lov_user_md_v3 *lmmv3 = (void *)&param->lmd->lmd_lmm;
 
-                lmm_objects = lmmv3->lmm_objects;
-        } else if (param->lmd->lmd_lmm.lmm_magic ==  LOV_USER_MAGIC_V1) {
-                lmm_objects = param->lmd->lmd_lmm.lmm_objects;
+		lmm_objects = lmmv3->lmm_objects;
+	} else if (param->lmd->lmd_lmm.lmm_magic ==  LOV_USER_MAGIC_V1 ||
+		   param->lmd->lmd_lmm.lmm_magic ==  LOV_USER_MAGIC_SPECIFIC) {
+		lmm_objects = param->lmd->lmd_lmm.lmm_objects;
         } else {
                 llapi_err_noerrno(LLAPI_MSG_ERROR, "%s:Unknown magic: 0x%08X\n",
                                   __func__, param->lmd->lmd_lmm.lmm_magic);

@@ -2177,7 +2177,7 @@ void lustre_print_user_md(unsigned int lvl, struct lov_user_md *lum,
 
 		CDEBUG(lvl, "\ttarget list:\n");
 		for (i = 0; i < v3->lmm_stripe_count; i++)
-			CDEBUG(lvl, "\t\t%u\n", lum->lmm_objects[i].l_ost_idx);
+			CDEBUG(lvl, "\t\t%u\n", v3->lmm_objects[i].l_ost_idx);
 	}
 }
 EXPORT_SYMBOL(lustre_print_user_md);
