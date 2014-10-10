@@ -2925,7 +2925,7 @@ void cl_lock_mutex_get  (const struct lu_env *env, struct cl_lock *lock);
 int  cl_lock_mutex_try  (const struct lu_env *env, struct cl_lock *lock);
 void cl_lock_mutex_put  (const struct lu_env *env, struct cl_lock *lock);
 int  cl_lock_is_mutexed (struct cl_lock *lock);
-int  cl_lock_nr_mutexed (const struct lu_env *env);
+size_t cl_lock_nr_mutexed(const struct lu_env *env);
 int  cl_lock_discard_pages(const struct lu_env *env, struct cl_lock *lock);
 int  cl_lock_ext_match  (const struct cl_lock_descr *has,
                          const struct cl_lock_descr *need);
