@@ -2069,6 +2069,7 @@ static int osd_mkfile(struct osd_thread_info *info, struct osd_object *obj,
 		/* For new created object, it must be consistent,
 		 * and it is unnecessary to scrub against it. */
 		ldiskfs_set_inode_state(inode, LDISKFS_STATE_LUSTRE_NOSCRUB);
+		unlock_new_inode(inode);
                 obj->oo_inode = inode;
                 result = 0;
         } else {
@@ -2670,6 +2671,9 @@ static struct inode *osd_create_local_agent_inode(const struct lu_env *env,
 		       (int)PTR_ERR(local));
 		RETURN(local);
 	}
+
+	ldiskfs_set_inode_state(local, LDISKFS_STATE_LUSTRE_NOSCRUB);
+	unlock_new_inode(local);
 
 	/* Set special LMA flag for local agent inode */
 	rc = osd_ea_fid_set(info, local, fid, 0, LMAI_AGENT);

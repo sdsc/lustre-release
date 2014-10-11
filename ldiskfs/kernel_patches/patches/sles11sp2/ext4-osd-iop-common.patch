@@ -99,7 +99,7 @@
  /*
   * DIR_NLINK feature is set if 1) nlinks > EXT4_LINK_MAX or 2) nlinks == 2,
   * since this indicates that nlinks count was previously 1.
-@@ -1808,6 +1811,28 @@ static unsigned ext4_dentry_goal(struct
+@@ -1808,6 +1811,27 @@ static unsigned ext4_dentry_goal(struct
  	return inum;
  }
 
@@ -119,7 +119,6 @@
 +			inode->i_fop = &ext4_file_operations;
 +			ext4_set_aops(inode);
 +		}
-+		unlock_new_inode(inode);
 +	}
 +	return inode;
 +}
@@ -128,7 +127,7 @@
  /*
   * By the time this is called, we already have created
   * the directory cache entry for the new file, but it
-@@ -1886,46 +1911,32 @@ retry:
+@@ -1886,46 +1910,32 @@ retry:
  	return err;
  }
 
@@ -183,7 +182,7 @@
  	de = (struct ext4_dir_entry_2 *) dir_block->b_data;
  	de->inode = cpu_to_le32(inode->i_ino);
  	de->name_len = 1;
-@@ -1944,18 +1955,47 @@ retry:
+@@ -1944,18 +1954,47 @@ retry:
  	BUFFER_TRACE(dir_block, "call ext4_handle_dirty_metadata");
  	err = ext4_handle_dirty_metadata(handle, inode, dir_block);
  	if (err)
@@ -241,7 +240,7 @@
  	ext4_inc_count(handle, dir);
  	ext4_update_dx_flag(dir);
  	err = ext4_mark_inode_dirty(handle, dir);
-@@ -1964,11 +2004,16 @@ out_clear_inode:
+@@ -1964,11 +2003,16 @@ out_clear_inode:
  	d_instantiate(dentry, inode);
  	unlock_new_inode(inode);
  out_stop:
