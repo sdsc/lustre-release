@@ -1522,6 +1522,10 @@ basearch() {
 build_kernel_with_srpm() {
     local outfd=$1
 
+    echo ==============================
+    env
+    echo ==============================
+
     if [ -z "$outfd" ] || [ $outfd = 1 ]; then
         fatal 1 "You must supply a file descriptor to ${FUNCNAME[0]} and it cannot be 1"
     fi
