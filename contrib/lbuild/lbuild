@@ -36,7 +36,7 @@ push_exit_trap "kill -INT -$$ || true" kill_children
 #BUILD_GEN=5	# TT-107: don't cache the BUILD dir
 BUILD_GEN=6	# TT-1092: don't cache the BUILD dir, to rebuild external OFED
 
-TOPDIR=$PWD
+TOPDIR=${TOPDIR:-$PWD}
 
 KERNELDIR=
 LINUX=
