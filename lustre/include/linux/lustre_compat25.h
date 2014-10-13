@@ -77,6 +77,12 @@ static inline void ll_set_fs_pwd(struct fs_struct *fs, struct vfsmount *mnt,
 #define current_ngroups current_cred()->group_info->ngroups
 #define current_groups current_cred()->group_info->small_block
 
+#ifndef CONFIG_TASK_IO_ACCOUNTING
+#define task_io_account_read(bytes) do {} while (0)
+#else
+#include <linux/task_io_accounting_ops.h>
+#endif
+
 /*
  * OBD need working random driver, thus all our
  * initialization routines must be called after device
