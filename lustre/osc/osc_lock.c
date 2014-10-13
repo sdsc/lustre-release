@@ -902,15 +902,23 @@ static int osc_ldlm_glimpse_ast(struct ldlm_lock *dlmlock, void *data)
         return result;
 }
 
+struct weigh_cbdata {
+	pgoff_t		index;
+	unsigned long	count;
+};
+
 static int weigh_cb(const struct lu_env *env, struct cl_io *io,
 		    struct osc_page *ops, void *cbdata)
 {
 	struct cl_page *page = ops->ops_cl.cpl_page;
+	struct weigh_cbdata *wd = cbdata;
+
+	wd->index = osc_index(ops);
 
 	if (cl_page_is_vmlocked(env, page)
 	    || PageDirty(page->cp_vmpage) || PageWriteback(page->cp_vmpage)
 	   ) {
-		(*(unsigned long *)cbdata)++;
+		wd->count++;
 		return CLP_GANG_ABORT;
 	}
 
@@ -923,7 +931,8 @@ static unsigned long osc_lock_weight(const struct lu_env *env,
 	struct cl_io *io = &osc_env_info(env)->oti_io;
 	struct cl_lock_descr *descr = &ols->ols_cl.cls_lock->cll_descr;
 	struct cl_object *obj = ols->ols_cl.cls_obj;
-	unsigned long npages = 0;
+	struct weigh_cbdata wd = {0, };
+	pgoff_t start = descr->cld_start;
 	int result;
 	ENTRY;
 
@@ -935,16 +944,18 @@ static unsigned long osc_lock_weight(const struct lu_env *env,
 
 	do {
 		result = osc_page_gang_lookup(env, io, cl2osc(obj),
-					      descr->cld_start, descr->cld_end,
-					      weigh_cb, (void *)&npages);
+					      start, descr->cld_end,
+					      weigh_cb, (void *)&wd);
 		if (result == CLP_GANG_ABORT)
 			break;
-		if (result == CLP_GANG_RESCHED)
+		if (result == CLP_GANG_RESCHED) {
+			start = wd.index + 1;
 			cond_resched();
+		}
 	} while (result != CLP_GANG_OKAY);
 	cl_io_fini(env, io);
 
-	return npages;
+	return wd.count;
 }
 
 /**
