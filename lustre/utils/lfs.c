@@ -795,9 +795,6 @@ static int lfs_setstripe(int argc, char **argv)
 						optarg);
 			if (nr_osts < 0)
 				return CMD_HELP;
-
-			if (st_offset == -1) /* first in the command line */
-				st_offset = osts[0];
 			break;
 		case 'i':
 #if LUSTRE_VERSION_CODE >= OBD_OCD_VERSION(2, 6, 53, 0)
