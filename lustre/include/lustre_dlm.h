@@ -268,7 +268,7 @@ typedef int (*ldlm_res_policy)(struct ldlm_namespace *, struct ldlm_lock **,
 			       void *req_cookie, ldlm_mode_t mode, __u64 flags,
 			       void *data);
 
-typedef int (*ldlm_cancel_cbt)(struct ldlm_lock *lock);
+typedef int (*ldlm_cancel_for_recovery)(struct ldlm_lock *lock);
 
 /**
  * LVB operations.
@@ -492,11 +492,8 @@ struct ldlm_namespace {
 	/** Limit of parallel AST RPC count. */
 	unsigned		ns_max_parallel_ast;
 
-	/**
-	 * Callback to check if a lock is good to be canceled by ELC or
-	 * during recovery.
-	 */
-	ldlm_cancel_cbt		ns_cancel;
+	/** Callback to cancel locks before replaying it during recovery. */
+	ldlm_cancel_for_recovery ns_cancel_for_recovery;
 
 	/** LDLM lock stats */
 	struct lprocfs_stats	*ns_stats;
@@ -553,10 +550,10 @@ static inline int ns_connect_lru_resize(struct ldlm_namespace *ns)
 }
 
 static inline void ns_register_cancel(struct ldlm_namespace *ns,
-				      ldlm_cancel_cbt arg)
+				      ldlm_cancel_for_recovery arg)
 {
 	LASSERT(ns != NULL);
-	ns->ns_cancel = arg;
+	ns->ns_cancel_for_recovery = arg;
 }
 
 struct ldlm_lock;
