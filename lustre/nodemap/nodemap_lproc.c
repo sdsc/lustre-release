@@ -353,7 +353,7 @@ LPROC_SEQ_FOPS_WO_TYPE(nodemap, del_nodemap);
 
 #endif /* NODEMAP_PROC_DEBUG */
 
-static struct lprocfs_seq_vars lprocfs_nodemap_module_vars[] = {
+static struct lprocfs_vars lprocfs_nodemap_module_vars[] = {
 	{
 		.name		= "active",
 		.fops		= &nodemap_active_fops,
@@ -399,7 +399,7 @@ const struct file_operations nodemap_idmap_fops = {
 	.release		= single_release
 };
 
-static struct lprocfs_seq_vars lprocfs_nodemap_vars[] = {
+static struct lprocfs_vars lprocfs_nodemap_vars[] = {
 	{
 		.name		= "id",
 		.fops		= &nodemap_id_fops,
@@ -433,7 +433,7 @@ static struct lprocfs_seq_vars lprocfs_nodemap_vars[] = {
 	}
 };
 
-static struct lprocfs_seq_vars lprocfs_default_nodemap_vars[] = {
+static struct lprocfs_vars lprocfs_default_nodemap_vars[] = {
 	{
 		.name		= "id",
 		.fops		= &nodemap_id_fops,
@@ -463,11 +463,10 @@ int nodemap_procfs_init(void)
 {
 	int rc = 0;
 
-	proc_lustre_nodemap_root = lprocfs_seq_register(LUSTRE_NODEMAP_NAME,
-							proc_lustre_root,
-							lprocfs_nodemap_module_vars,
-							NULL);
-
+	proc_lustre_nodemap_root = lprocfs_register(LUSTRE_NODEMAP_NAME,
+						    proc_lustre_root,
+						    lprocfs_nodemap_module_vars,
+						    NULL);
 	if (IS_ERR(proc_lustre_nodemap_root)) {
 		rc = PTR_ERR(proc_lustre_nodemap_root);
 		CERROR("cannot create 'nodemap' directory: rc = %d\n",
@@ -490,20 +489,16 @@ int lprocfs_nodemap_register(const char *name,
 			     struct lu_nodemap *nodemap)
 {
 	struct proc_dir_entry	*nodemap_proc_entry;
+	struct lprocfs_vars	*vars;
 	int			rc = 0;
 
 	if (is_default)
-		nodemap_proc_entry =
-			lprocfs_seq_register(name,
-					 proc_lustre_nodemap_root,
-					 lprocfs_default_nodemap_vars,
-					 nodemap);
+		vars = lprocfs_default_nodemap_vars;
 	else
-		nodemap_proc_entry = lprocfs_seq_register(name,
-							  proc_lustre_nodemap_root,
-							  lprocfs_nodemap_vars,
-							  nodemap);
+		vars = lprocfs_nodemap_vars;
 
+	nodemap_proc_entry = lprocfs_register(name, proc_lustre_nodemap_root,
+					      vars, nodemap);
 	if (IS_ERR(nodemap_proc_entry)) {
 		rc = PTR_ERR(nodemap_proc_entry);
 		CERROR("cannot create 'nodemap/%s': rc = %d\n", name, rc);
