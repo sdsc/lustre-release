@@ -443,7 +443,7 @@ static void gss_cli_ctx_finalize(struct gss_cli_ctx *gctx)
  * so here we use a multi-phase approach: prepare 2 sequence windows,
  * "main window" for normal sequence and "back window" for fall behind sequence.
  * and 3-phase checking mechanism:
- *  0 - before integrity verification, perform a initial sequence checking in
+ *  0 - before integrity verification, perform an initial sequence checking in
  *      main window, which only try and don't actually set any bits. if the
  *      sequence is high above the window or fit in the window and the bit
  *      is 0, then accept and proceed to integrity verification. otherwise

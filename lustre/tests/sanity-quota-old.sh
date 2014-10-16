@@ -1868,7 +1868,7 @@ test_25() {
 	log "run for chgrp case"
 	test_25_sub -g
 }
-run_test_with_stat 25 "test whether quota usage is transfered when chown/chgrp (18081) ==========="
+run_test_with_stat 25 "test whether quota usage is transferred when chown/chgrp (18081) ==========="
 
 test_26() {
 	mkdir -p $DIR/$tdir
