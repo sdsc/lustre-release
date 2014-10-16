@@ -259,7 +259,7 @@ caching mechanism:
 
 IO contexts are owned by a thread (or, potentially a group of threads) doing
 IO, and need neither reference counting nor indexing. Similarly, transfer
-requests are owned by a OSC device, and their lifetime is from RPC creation
+requests are owned by an OSC device, and their lifetime is from RPC creation
 until completion notification.
 
 1.7. State Machines
@@ -951,7 +951,7 @@ there is a write lock LF, for the extent [a, b] (recall that lock extents are
 measured in pages) of file F. This lock is based on write sub-locks LS0, LS1
 and LS2 for the corresponding extents of S0, S1 and S2 respectively.
 
-All locks are in CACHED state. Each LSi sub-lock has a osc_lock slice, where a
+All locks are in CACHED state. Each LSi sub-lock has an osc_lock slice, where a
 pointer to the struct ldlm_lock is stored. The ->l_ast_data field of ldlm_lock
 points back to the sub-lock's osc_lock.
 
