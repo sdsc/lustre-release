@@ -228,10 +228,13 @@ struct lod_dir_stripe_info {
 		     ldsi_striped:1;
 };
 
-/*
- * XXX: shrink this structure, currently it's 72bytes on 32bit arch,
- *      so, slab will be allocating 128bytes
- */
+struct lod_stripe_descr {
+	atomic_t		lsd_refc;
+	unsigned int		lsd_mdsize;	/* md size */
+	struct lov_user_md	lsd_md;		/* lov md in host sequence */
+};
+#define LSD_SIZE(mdsize) (offsetof(struct lod_stripe_descr, lsd_md) + mdsize)
+
 struct lod_object {
 	struct dt_object   ldo_obj;
 
@@ -242,21 +245,19 @@ struct lod_object {
 	__u32		   ldo_stripe_size;
 	__u32		   ldo_pattern;
 	__u16		   ldo_released_stripenr;
-	char		  *ldo_pool;
-	struct dt_object **ldo_stripe;
+	__u16		   ldo_def_stripe_offset;
 	/* to know how much memory to free, ldo_stripenr can be less */
 	/* default striping for directory represented by this object
 	 * is cached in stripenr/stripe_size */
 	unsigned int	   ldo_stripes_allocated:16,
 			   ldo_striping_cached:1,
-			   ldo_def_striping_set:1,
 	/* ldo_dir_slave_stripe indicate this is a slave stripe of
 	 * a striped dir */
 			   ldo_dir_slave_stripe:1;
-	__u32		   ldo_def_stripe_size;
-	__u16		   ldo_def_stripenr;
-	__u16		   ldo_def_stripe_offset;
 	struct lod_dir_stripe_info	*ldo_dir_stripe;
+	char				*ldo_pool;
+	struct dt_object		**ldo_stripe;
+	struct lod_stripe_descr		*ldo_def_striping;
 };
 
 #define ldo_dir_stripe_offset	ldo_dir_stripe->ldsi_stripe_offset
@@ -434,8 +435,6 @@ int lod_parse_dir_striping(const struct lu_env *env, struct lod_object *lo,
 			   const struct lu_buf *buf);
 int lod_initialize_objects(const struct lu_env *env, struct lod_object *mo,
 			   struct lov_ost_data_v1 *objs);
-int lod_store_def_striping(const struct lu_env *env, struct dt_object *dt,
-			   struct thandle *th);
 int lod_verify_striping(struct lod_device *d, const struct lu_buf *buf,
 			bool is_from_disk);
 int lod_generate_and_set_lovea(const struct lu_env *env,
@@ -478,6 +477,7 @@ int lod_striping_create(const struct lu_env *env, struct dt_object *dt,
 			struct lu_attr *attr, struct dt_object_format *dof,
 			struct thandle *th);
 void lod_object_free_striping(const struct lu_env *env, struct lod_object *lo);
+int lod_md_swap_and_verify(struct lov_user_md *md, int mdsize);
 
 #endif
 
