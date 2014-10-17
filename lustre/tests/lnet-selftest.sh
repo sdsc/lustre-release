@@ -30,7 +30,7 @@ fi
 
 smoke_DURATION=${smoke_DURATION:-1800}
 if [ "$SLOW" = no ]; then
-    [ $smoke_DURATION -le 300 ] || smoke_DURATION=300
+    [ $smoke_DURATION -le 600 ] || smoke_DURATION=600
 fi
 
 nodes=$(comma_list "$(osts_nodes) $(mdts_nodes)")
