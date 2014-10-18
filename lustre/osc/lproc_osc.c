@@ -302,6 +302,19 @@ static int osc_cur_lost_grant_bytes_seq_show(struct seq_file *m, void *v)
 }
 LPROC_SEQ_FOPS_RO(osc_cur_lost_grant_bytes);
 
+static int osc_cur_dirty_grant_bytes_seq_show(struct seq_file *m, void *v)
+{
+	struct obd_device *dev = m->private;
+	struct client_obd *cli = &dev->u.cli;
+	int rc;
+
+	client_obd_list_lock(&cli->cl_loi_list_lock);
+	rc = seq_printf(m, "%lu\n", cli->cl_dirty_grant);
+	client_obd_list_unlock(&cli->cl_loi_list_lock);
+	return rc;
+}
+LPROC_SEQ_FOPS_RO(osc_cur_dirty_grant_bytes);
+
 static int osc_grant_shrink_interval_seq_show(struct seq_file *m, void *v)
 {
 	struct obd_device *obd = m->private;
@@ -612,6 +625,8 @@ struct lprocfs_seq_vars lprocfs_osc_obd_vars[] = {
 	  .fops	=	&osc_cur_grant_bytes_fops	},
 	{ .name	=	"cur_lost_grant_bytes",
 	  .fops	=	&osc_cur_lost_grant_bytes_fops	},
+	{ .name	=	"cur_dirty_grant_bytes",
+	  .fops	=	&osc_cur_dirty_grant_bytes_fops	},
 	{ .name	=	"grant_shrink_interval",
 	  .fops	=	&osc_grant_shrink_interval_fops	},
 	{ .name	=	"checksums",
