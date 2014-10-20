@@ -70,17 +70,7 @@
 
 #include <linux/posix_acl_xattr.h>
 
-/*
- * Copy an extended attribute into the buffer provided, or compute the
- * required buffer size.
- *
- * If buf is NULL, it computes the required buffer size.
- *
- * Returns 0 on success or a negative error number on failure.
- * On success, the number of bytes used / required is stored in 'size'.
- *
- * No locking is done here.
- */
+
 int __osd_xattr_load(struct osd_device *osd, uint64_t dnode, nvlist_t **sa)
 {
 	sa_handle_t *sa_hdl;
@@ -218,6 +208,17 @@ out_rele:
 	return rc;
 }
 
+/*
+ * Copy an extended attribute into the buffer provided, or compute the
+ * required buffer size.
+ *
+ * If buf is NULL, it computes the required buffer size.
+ *
+ * Returns 0 on success or a negative error number on failure.
+ * On success, the number of bytes used / required is stored in 'sizep'.
+ *
+ * No locking is done here.
+ */
 int __osd_xattr_get(const struct lu_env *env, struct osd_object *obj,
 		    struct lu_buf *buf, const char *name, int *sizep)
 {
