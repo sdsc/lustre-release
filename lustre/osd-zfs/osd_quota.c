@@ -525,8 +525,10 @@ int osd_declare_quota(const struct lu_env *env, struct osd_device *osd,
 	 * for group id. This is only for commit write, which has @flags passed
 	 * in. See osd_declare_write_commit().
 	 * When force is set to true, we also want to proceed with the gid */
-	if (rcu && (rcu != -EDQUOT || flags == NULL))
+	if (rcu && (rcu != -EDQUOT || flags == NULL)) {
+		CERROR("zfs: qsd_op_begin failed (uid %d, rc %d)\n", uid, rcu);
 		RETURN(rcu);
+	}
 
 	/* and now group quota */
 	qi->lqi_id.qid_gid = gid;
@@ -536,6 +538,8 @@ int osd_declare_quota(const struct lu_env *env, struct osd_device *osd,
 	if (force && (rcg == -EDQUOT || rcg == -EINPROGRESS))
 		/* as before, ignore EDQUOT & EINPROGRESS for root */
 		rcg = 0;
+	if (rcg != 0)
+		CERROR("zfs: qsd_op_begin failed (gid %d, rc %d)\n", gid, rcg);
 
 	RETURN(rcu ? rcu : rcg);
 }
