@@ -1,4 +1,12 @@
-%define module  @PACKAGE@
+%bcond_without servers
+
+# Set the package name prefix
+%if %{with servers}
+    %define module  @PACKAGE@
+%else
+    %define module  @PACKAGE@-client
+%endif
+
 %define buildid 1
 %define mkconf  lustre/scripts/dkms.mkconf
 
@@ -11,23 +19,25 @@ Summary:        Kernel module(s) (dkms)
 Group:          System Environment/Kernel
 License:        GPLv2+
 URL:            http://lustre.opensfs.org/
-Source0:        %{module}-%{version}.tar.gz
+Source0:        @PACKAGE@-%{version}.tar.gz
 BuildRoot:      %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 BuildArch:      noarch
 
 Requires:       dkms >= 2.2.0.3-28.git.7c3e7c5
+%if %{with servers}
 Requires:       spl-dkms >= 0.6.1
 Requires:       zfs-dkms >= 0.6.1
+%endif
 Requires:       gcc, make, perl
 Requires:       kernel-devel
-Provides:       %{module}-kmod = %{version}
-Provides:       %{module}-modules = %{version}
+Provides:       @PACKAGE@-kmod = %{version}
+Provides:       @PACKAGE@-modules = %{version}
 
 %description
 This package contains the dkms Lustre kernel modules.
 
 %prep
-%setup -q -n %{module}-%{version}
+%setup -q -n @PACKAGE@-%{version}
 
 %build
 %{mkconf} -n %{module} -v %{version} -f dkms.conf
@@ -40,7 +50,11 @@ if [ "$RPM_BUILD_ROOT" != "/" ]; then
     rm -rf $RPM_BUILD_ROOT
 fi
 mkdir -p $RPM_BUILD_ROOT/usr/src/
-cp -rfp ${RPM_BUILD_DIR}/%{module}-%{version} $RPM_BUILD_ROOT/usr/src/
+cp -rfp ${RPM_BUILD_DIR}/@PACKAGE@-%{version} $RPM_BUILD_ROOT/usr/src/
+%if %{without servers}
+# To have the directory reflect the DKMS RPM name!
+mv $RPM_BUILD_ROOT/usr/src/@PACKAGE@-%{version} $RPM_BUILD_ROOT/usr/src/%{module}-%{version}
+%endif
 
 %clean
 if [ "$RPM_BUILD_ROOT" != "/" ]; then
