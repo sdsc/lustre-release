@@ -18,25 +18,54 @@ if [ -z "${pkgname}" -o -z "${pkgver}" -o -z "${filename}" ]; then
 	exit 1
 fi
 
+rpm -qa | grep krb5-devel
+if [ $? == 0 ]
+then
+GSS="--enable-gss"
+else
+GSS="--disable-gss"
+fi
+
 cat >${filename} <<EOF
 PACKAGE_NAME="${pkgname}"
 PACKAGE_VERSION="${pkgver}"
 PACKAGE_CONFIG="${pkgcfg}"
+EOF
+if [ $pkgname = "lustre" ] ; then
+	cat >>${filename} <<EOF
 SPL_VERSION=\$(dkms status -m spl | awk -F', ' '{print \$2; exit 0}' | sed 's/: added\$//')
 ZFS_VERSION=\$(dkms status -m zfs | awk -F', ' '{print \$2; exit 0}' | sed 's/: added\$//')
+EOF
+fi
+cat >>${filename} <<EOF
+# allow to re-evaluate krb5-devel presence during dkms re-adds and to re-create dkms.conf
+# accordingly!
+POST_ADD="lustre/scripts/dkms.mkconf -n \$module -v \$module_version -f ./dkms.conf"
 PRE_BUILD="configure
   --prefix=/usr
   --with-linux=\${kernel_source_dir}
   --with-linux-obj=\${kernel_source_dir}
+  --enable-modules
+EOF
+if [ $pkgname = "lustre-client" ] ; then
+	cat >>${filename} <<EOF
+  --disable-server
+EOF
+else
+	cat >>${filename} <<EOF
   --with-spl=\${source_tree}/spl-\${SPL_VERSION}
   --with-spl-obj=\${dkms_tree}/spl/\${SPL_VERSION}/\${kernelver}/\${arch}
   --with-zfs=\${source_tree}/zfs-\${ZFS_VERSION}
   --with-zfs-obj=\${dkms_tree}/zfs/\${ZFS_VERSION}/\${kernelver}/\${arch}
   --without-ldiskfs
+EOF
+fi
+cat >>${filename} <<EOF
   --without-lustre-iokit
   --disable-snmp
   --disable-doc
   --disable-utils
+  $GSS
   --disable-tests
   --disable-maintainer-mode
   \$(
@@ -60,7 +89,13 @@ PRE_BUILD="configure
     }
   )
 "
+EOF
+if [ $pkgname = "lustre" ] ; then
+	cat >>${filename} <<EOF
 BUILD_DEPENDS[0]="zfs"
+EOF
+fi
+cat >>${filename} <<EOF
 AUTOINSTALL="yes"
 REMAKE_INITRD="no"
 MAKE[0]="make"
@@ -72,88 +107,101 @@ STRIP[0]="\$(
   && [[ \${LUSTRE_DKMS_DISABLE_STRIP,,} == @(y|yes) ]] \\
   && echo -n no
 )"
-BUILT_MODULE_NAME[0]="lnet_selftest"
-BUILT_MODULE_LOCATION[0]="lnet/selftest/"
-DEST_MODULE_LOCATION[0]="/extra/lnet/"
-BUILT_MODULE_NAME[1]="lnet"
-BUILT_MODULE_LOCATION[1]="lnet/lnet/"
-DEST_MODULE_LOCATION[1]="/extra/lnet/"
-BUILT_MODULE_NAME[2]="ksocklnd"
-BUILT_MODULE_LOCATION[2]="lnet/klnds/socklnd/"
-DEST_MODULE_LOCATION[2]="/extra/lnet/"
-BUILT_MODULE_NAME[3]="ko2iblnd"
-BUILT_MODULE_LOCATION[3]="lnet/klnds/o2iblnd/"
-DEST_MODULE_LOCATION[3]="/extra/lnet/"
-BUILT_MODULE_NAME[4]="libcfs"
-BUILT_MODULE_LOCATION[4]="libcfs/libcfs/"
-DEST_MODULE_LOCATION[4]="/extra/lustre/"
-BUILT_MODULE_NAME[5]="ptlrpc"
-BUILT_MODULE_LOCATION[5]="lustre/ptlrpc/"
-DEST_MODULE_LOCATION[5]="/extra/lustre/"
-BUILT_MODULE_NAME[6]="lov"
-BUILT_MODULE_LOCATION[6]="lustre/lov/"
-DEST_MODULE_LOCATION[6]="/extra/lustre/"
-BUILT_MODULE_NAME[7]="osd_zfs"
-BUILT_MODULE_LOCATION[7]="lustre/osd-zfs/"
-DEST_MODULE_LOCATION[7]="/extra/lustre/"
-BUILT_MODULE_NAME[8]="fld"
-BUILT_MODULE_LOCATION[8]="lustre/fld/"
-DEST_MODULE_LOCATION[8]="/extra/lustre/"
-BUILT_MODULE_NAME[9]="obdecho"
-BUILT_MODULE_LOCATION[9]="lustre/obdecho/"
-DEST_MODULE_LOCATION[9]="/extra/lustre/"
-BUILT_MODULE_NAME[10]="mgs"
-BUILT_MODULE_LOCATION[10]="lustre/mgs/"
-DEST_MODULE_LOCATION[10]="/extra/lustre/"
-BUILT_MODULE_NAME[11]="osc"
-BUILT_MODULE_LOCATION[11]="lustre/osc/"
-DEST_MODULE_LOCATION[11]="/extra/lustre/"
-BUILT_MODULE_NAME[12]="lquota"
-BUILT_MODULE_LOCATION[12]="lustre/quota/"
-DEST_MODULE_LOCATION[12]="/extra/lustre/"
-BUILT_MODULE_NAME[13]="mgc"
-BUILT_MODULE_LOCATION[13]="lustre/mgc/"
-DEST_MODULE_LOCATION[13]="/extra/lustre/"
-BUILT_MODULE_NAME[14]="mdt"
-BUILT_MODULE_LOCATION[14]="lustre/mdt/"
-DEST_MODULE_LOCATION[14]="/extra/lustre/"
-BUILT_MODULE_NAME[15]="osp"
-BUILT_MODULE_LOCATION[15]="lustre/osp/"
-DEST_MODULE_LOCATION[15]="/extra/lustre/"
-BUILT_MODULE_NAME[16]="mdd"
-BUILT_MODULE_LOCATION[16]="lustre/mdd/"
-DEST_MODULE_LOCATION[16]="/extra/lustre/"
-BUILT_MODULE_NAME[17]="lustre"
-BUILT_MODULE_LOCATION[17]="lustre/llite/"
-DEST_MODULE_LOCATION[17]="/extra/lustre/"
-BUILT_MODULE_NAME[18]="llite_lloop"
-BUILT_MODULE_LOCATION[18]="lustre/llite/"
-DEST_MODULE_LOCATION[18]="/extra/lustre/"
-BUILT_MODULE_NAME[19]="fid"
-BUILT_MODULE_LOCATION[19]="lustre/fid/"
-DEST_MODULE_LOCATION[19]="/extra/lustre/"
-BUILT_MODULE_NAME[20]="mdc"
-BUILT_MODULE_LOCATION[20]="lustre/mdc/"
-DEST_MODULE_LOCATION[20]="/extra/lustre/"
-BUILT_MODULE_NAME[21]="obdclass"
-BUILT_MODULE_LOCATION[21]="lustre/obdclass/"
-DEST_MODULE_LOCATION[21]="/extra/lustre/"
-BUILT_MODULE_NAME[22]="llog_test"
-BUILT_MODULE_LOCATION[22]="lustre/obdclass/"
-DEST_MODULE_LOCATION[22]="/extra/lustre/"
-BUILT_MODULE_NAME[23]="lod"
-BUILT_MODULE_LOCATION[23]="lustre/lod/"
-DEST_MODULE_LOCATION[23]="/extra/lustre/"
-BUILT_MODULE_NAME[24]="lmv"
-BUILT_MODULE_LOCATION[24]="lustre/lmv/"
-DEST_MODULE_LOCATION[24]="/extra/lustre/"
-BUILT_MODULE_NAME[25]="ofd"
-BUILT_MODULE_LOCATION[25]="lustre/ofd/"
-DEST_MODULE_LOCATION[25]="/extra/lustre/"
-BUILT_MODULE_NAME[26]="ost"
-BUILT_MODULE_LOCATION[26]="lustre/ost/"
-DEST_MODULE_LOCATION[26]="/extra/lustre/"
-BUILT_MODULE_NAME[27]="lfsck"
-BUILT_MODULE_LOCATION[27]="lustre/lfsck/"
-DEST_MODULE_LOCATION[27]="/extra/lustre/"
+
+# Common modules for both Client & Server
+BUILT_MODULE_NAME[\${#BUILT_MODULE_NAME[@]}]="lnet_selftest"
+BUILT_MODULE_LOCATION[\${#BUILT_MODULE_LOCATION[@]}]="lnet/selftest/"
+DEST_MODULE_LOCATION[\${#DEST_MODULE_LOCATION[@]}]="/extra/lnet/"
+BUILT_MODULE_NAME[\${#BUILT_MODULE_NAME[@]}]="lnet"
+BUILT_MODULE_LOCATION[\${#BUILT_MODULE_LOCATION[@]}]="lnet/lnet/"
+DEST_MODULE_LOCATION[\${#DEST_MODULE_LOCATION[@]}]="/extra/lnet/"
+BUILT_MODULE_NAME[\${#BUILT_MODULE_NAME[@]}]="ksocklnd"
+BUILT_MODULE_LOCATION[\${#BUILT_MODULE_LOCATION[@]}]="lnet/klnds/socklnd/"
+DEST_MODULE_LOCATION[\${#DEST_MODULE_LOCATION[@]}]="/extra/lnet/"
+BUILT_MODULE_NAME[\${#BUILT_MODULE_NAME[@]}]="ko2iblnd"
+BUILT_MODULE_LOCATION[\${#BUILT_MODULE_LOCATION[@]}]="lnet/klnds/o2iblnd/"
+DEST_MODULE_LOCATION[\${#DEST_MODULE_LOCATION[@]}]="/extra/lnet/"
+BUILT_MODULE_NAME[\${#BUILT_MODULE_NAME[@]}]="libcfs"
+BUILT_MODULE_LOCATION[\${#BUILT_MODULE_LOCATION[@]}]="libcfs/libcfs/"
+DEST_MODULE_LOCATION[\${#DEST_MODULE_LOCATION[@]}]="/extra/lustre/"
+BUILT_MODULE_NAME[\${#BUILT_MODULE_NAME[@]}]="ptlrpc"
+BUILT_MODULE_LOCATION[\${#BUILT_MODULE_LOCATION[@]}]="lustre/ptlrpc/"
+DEST_MODULE_LOCATION[\${#DEST_MODULE_LOCATION[@]}]="/extra/lustre/"
+BUILT_MODULE_NAME[\${#BUILT_MODULE_NAME[@]}]="lov"
+BUILT_MODULE_LOCATION[\${#BUILT_MODULE_LOCATION[@]}]="lustre/lov/"
+DEST_MODULE_LOCATION[\${#DEST_MODULE_LOCATION[@]}]="/extra/lustre/"
+BUILT_MODULE_NAME[\${#BUILT_MODULE_NAME[@]}]="fld"
+BUILT_MODULE_LOCATION[\${#BUILT_MODULE_LOCATION[@]}]="lustre/fld/"
+DEST_MODULE_LOCATION[\${#DEST_MODULE_LOCATION[@]}]="/extra/lustre/"
+BUILT_MODULE_NAME[\${#BUILT_MODULE_NAME[@]}]="obdecho"
+BUILT_MODULE_LOCATION[\${#BUILT_MODULE_LOCATION[@]}]="lustre/obdecho/"
+DEST_MODULE_LOCATION[\${#DEST_MODULE_LOCATION[@]}]="/extra/lustre/"
+BUILT_MODULE_NAME[\${#BUILT_MODULE_NAME[@]}]="osc"
+BUILT_MODULE_LOCATION[\${#BUILT_MODULE_LOCATION[@]}]="lustre/osc/"
+DEST_MODULE_LOCATION[\${#DEST_MODULE_LOCATION[@]}]="/extra/lustre/"
+BUILT_MODULE_NAME[\${#BUILT_MODULE_NAME[@]}]="mgc"
+BUILT_MODULE_LOCATION[\${#BUILT_MODULE_LOCATION[@]}]="lustre/mgc/"
+DEST_MODULE_LOCATION[\${#DEST_MODULE_LOCATION[@]}]="/extra/lustre/"
+BUILT_MODULE_NAME[\${#BUILT_MODULE_NAME[@]}]="llite_lloop"
+BUILT_MODULE_LOCATION[\${#BUILT_MODULE_LOCATION[@]}]="lustre/llite/"
+DEST_MODULE_LOCATION[\${#DEST_MODULE_LOCATION[@]}]="/extra/lustre/"
+BUILT_MODULE_NAME[\${#BUILT_MODULE_NAME[@]}]="fid"
+BUILT_MODULE_LOCATION[\${#BUILT_MODULE_LOCATION[@]}]="lustre/fid/"
+DEST_MODULE_LOCATION[\${#DEST_MODULE_LOCATION[@]}]="/extra/lustre/"
+BUILT_MODULE_NAME[\${#BUILT_MODULE_NAME[@]}]="mdc"
+BUILT_MODULE_LOCATION[\${#BUILT_MODULE_LOCATION[@]}]="lustre/mdc/"
+DEST_MODULE_LOCATION[\${#DEST_MODULE_LOCATION[@]}]="/extra/lustre/"
+BUILT_MODULE_NAME[\${#BUILT_MODULE_NAME[@]}]="obdclass"
+BUILT_MODULE_LOCATION[\${#BUILT_MODULE_LOCATION[@]}]="lustre/obdclass/"
+DEST_MODULE_LOCATION[\${#DEST_MODULE_LOCATION[@]}]="/extra/lustre/"
+BUILT_MODULE_NAME[\${#BUILT_MODULE_NAME[@]}]="lmv"
+BUILT_MODULE_LOCATION[\${#BUILT_MODULE_LOCATION[@]}]="lustre/lmv/"
+DEST_MODULE_LOCATION[\${#DEST_MODULE_LOCATION[@]}]="/extra/lustre/"
+BUILT_MODULE_NAME[\${#BUILT_MODULE_NAME[@]}]="lustre"
+BUILT_MODULE_LOCATION[\${#BUILT_MODULE_LOCATION[@]}]="lustre/llite/"
+DEST_MODULE_LOCATION[\${#DEST_MODULE_LOCATION[@]}]="/extra/lustre/"
 EOF
+if [ $GSS = "--enable-gss" ] ; then
+	cat >>${filename} <<EOF
+BUILT_MODULE_NAME[\${#BUILT_MODULE_NAME[@]}]="ptlrpc_gss"
+BUILT_MODULE_LOCATION[\${#BUILT_MODULE_LOCATION[@]}]="lustre/ptlrpc/gss/"
+DEST_MODULE_LOCATION[\${#DEST_MODULE_LOCATION[@]}]="/extra/lustre/"
+EOF
+fi
+if [ $pkgname = "lustre" ] ; then
+	cat >>${filename} <<EOF
+BUILT_MODULE_NAME[\${#BUILT_MODULE_NAME[@]}]="ofd"
+BUILT_MODULE_LOCATION[\${#BUILT_MODULE_LOCATION[@]}]="lustre/ofd/"
+DEST_MODULE_LOCATION[\${#DEST_MODULE_LOCATION[@]}]="/extra/lustre/"
+BUILT_MODULE_NAME[\${#BUILT_MODULE_NAME[@]}]="ost"
+BUILT_MODULE_LOCATION[\${#BUILT_MODULE_LOCATION[@]}]="lustre/ost/"
+DEST_MODULE_LOCATION[\${#DEST_MODULE_LOCATION[@]}]="/extra/lustre/"
+BUILT_MODULE_NAME[\${#BUILT_MODULE_NAME[@]}]="lfsck"
+BUILT_MODULE_LOCATION[\${#BUILT_MODULE_LOCATION[@]}]="lustre/lfsck/"
+DEST_MODULE_LOCATION[\${#DEST_MODULE_LOCATION[@]}]="/extra/lustre/"
+BUILT_MODULE_NAME[\${#BUILT_MODULE_NAME[@]}]="osd_zfs"
+BUILT_MODULE_LOCATION[\${#BUILT_MODULE_LOCATION[@]}]="lustre/osd-zfs/"
+DEST_MODULE_LOCATION[\${#DEST_MODULE_LOCATION[@]}]="/extra/lustre/"
+BUILT_MODULE_NAME[\${#BUILT_MODULE_NAME[@]}]="mgs"
+BUILT_MODULE_LOCATION[\${#BUILT_MODULE_LOCATION[@]}]="lustre/mgs/"
+DEST_MODULE_LOCATION[\${#DEST_MODULE_LOCATION[@]}]="/extra/lustre/"
+BUILT_MODULE_NAME[\${#BUILT_MODULE_NAME[@]}]="lquota"
+BUILT_MODULE_LOCATION[\${#BUILT_MODULE_LOCATION[@]}]="lustre/quota/"
+DEST_MODULE_LOCATION[\${#DEST_MODULE_LOCATION[@]}]="/extra/lustre/"
+BUILT_MODULE_NAME[\${#BUILT_MODULE_NAME[@]}]="mdt"
+BUILT_MODULE_LOCATION[\${#BUILT_MODULE_LOCATION[@]}]="lustre/mdt/"
+DEST_MODULE_LOCATION[\${#DEST_MODULE_LOCATION[@]}]="/extra/lustre/"
+BUILT_MODULE_NAME[\${#BUILT_MODULE_NAME[@]}]="osp"
+BUILT_MODULE_LOCATION[\${#BUILT_MODULE_LOCATION[@]}]="lustre/osp/"
+DEST_MODULE_LOCATION[\${#DEST_MODULE_LOCATION[@]}]="/extra/lustre/"
+BUILT_MODULE_NAME[\${#BUILT_MODULE_NAME[@]}]="mdd"
+BUILT_MODULE_LOCATION[\${#BUILT_MODULE_LOCATION[@]}]="lustre/mdd/"
+DEST_MODULE_LOCATION[\${#DEST_MODULE_LOCATION[@]}]="/extra/lustre/"
+BUILT_MODULE_NAME[\${#BUILT_MODULE_NAME[@]}]="llog_test"
+BUILT_MODULE_LOCATION[\${#BUILT_MODULE_LOCATION[@]}]="lustre/obdclass/"
+DEST_MODULE_LOCATION[\${#DEST_MODULE_LOCATION[@]}]="/extra/lustre/"
+BUILT_MODULE_NAME[\${#BUILT_MODULE_NAME[@]}]="lod"
+BUILT_MODULE_LOCATION[\${#BUILT_MODULE_LOCATION[@]}]="lustre/lod/"
+DEST_MODULE_LOCATION[\${#DEST_MODULE_LOCATION[@]}]="/extra/lustre/"
+EOF
+fi
