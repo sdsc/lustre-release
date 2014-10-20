@@ -114,6 +114,35 @@ rpm-local:
 	$(MKDIR_P) $(rpmbuilddir)/SPECS && \
 	$(MKDIR_P) $(rpmbuilddir)/SOURCES)
 
+if CLIENT
+DKMS_PACKAGE=$(PACKAGE)-client
+else
+DKMS_PACKAGE=$(PACKAGE)
+endif
+
+dkms-srpm: dist
+	rpmbuilddir=`mktemp -t -d rpmbuild-@PACKAGE@-$$USER-XXXXXXXX`; \
+	$(MAKE) $(AM_MAKEFLAGS) \
+		rpmbuilddir="$$rpmbuilddir" rpm-local || exit 1; \
+	$(RPMBUILD) \
+		--define "_tmppath $$rpmbuilddir/TMP" \
+		--define "_topdir $$rpmbuilddir" \
+		--define "_sourcedir $(top_srcdir)" \
+		@RPMBUILD_BINARY_ARGS@ \
+		--bs lustre-dkms.spec || exit 1; \
+	cp $$rpmbuilddir/SRPMS/*.src.rpm $(top_srcdir) || exit 1; \
+	rm -rf $$rpmbuilddir
+
+dkms-rpm: dkms-srpm
+	rpmbuilddir=`mktemp -t -d rpmbuild-@PACKAGE@-$$USER-XXXXXXXX`; \
+	$(RPMBUILD) \
+		--define "_tmppath $$rpmbuilddir/TMP" \
+		--define "_topdir $$rpmbuilddir" \
+		@RPMBUILD_BINARY_ARGS@ \
+		--rebuild $(DKMS_PACKAGE)-dkms-*.src.rpm || exit 1; \
+	cp $$rpmbuilddir/RPMS/*/*.rpm $(top_srcdir) || exit 1; \
+	rm -rf $$rpmbuilddir
+
 rpms: srpm
 	rpmbuilddir=`mktemp -t -d rpmbuild-@PACKAGE@-$$USER-XXXXXXXX`; \
 	$(MAKE) $(AM_MAKEFLAGS) \
