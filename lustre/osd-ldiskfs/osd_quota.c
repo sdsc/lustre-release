@@ -512,7 +512,7 @@ int osd_declare_qid(const struct lu_env *env, struct osd_thandle *oh,
 	struct osd_device       *dev = info->oti_dev;
 	struct qsd_instance     *qsd = dev->od_quota_slave;
 	struct inode		*inode = NULL;
-	int                      i, rc = 0;
+	int                      i, rc = 0, credits;
 	bool                     found = false;
 	ENTRY;
 
@@ -537,11 +537,22 @@ int osd_declare_qid(const struct lu_env *env, struct osd_thandle *oh,
 
 		if (obj != NULL)
 			inode = obj->oo_inode;
-		osd_trans_declare_op(env, oh, OSD_OT_QUOTA,
-				     (qi->lqi_id.qid_uid == 0 ||
-				      (inode != NULL &&
-				       inode->i_dquot[qi->lqi_type] != NULL)) ?
-				     1: LDISKFS_QUOTA_INIT_BLOCKS(osd_sb(dev)));
+
+		/* reserve credits for initializing ID entry if the i_dquot
+		 * isn't initialized yet. */
+		if (qi->lqi_id.qid_uid == 0 ||
+		    (inode != NULL && inode->i_dquot[qi->lqi_type] != NULL))
+			credits = 1;
+		else
+			credits = LDISKFS_QUOTA_INIT_BLOCKS(osd_sb(dev));
+
+		/* used space for the ID could be dropped to zero after
+		 * this operation, reserve extra credits for removing ID
+		 * entry. */
+		if (qi->lqi_id.qid_uid != 0 && qi->lqi_space < 0)
+			credits += LDISKFS_QUOTA_DEL_BLOCKS(osd_sb(dev));
+
+		osd_trans_declare_op(env, oh, OSD_OT_QUOTA, credits);
 
 		oh->ot_id_array[i] = qi->lqi_id.qid_uid;
 		osd_qid_set_type(oh, i, qi->lqi_type);
