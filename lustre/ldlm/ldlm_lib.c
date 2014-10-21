@@ -900,6 +900,27 @@ int target_handle_connect(struct ptlrpc_request *req)
 		mds_conn = (data->ocd_connect_flags & OBD_CONNECT_MDS) != 0;
 		lw_client = (data->ocd_connect_flags &
 			     OBD_CONNECT_LIGHTWEIGHT) != 0;
+
+		if (mds_conn && data->ocd_connect_flags & OBD_CONNECT_VERSION) {
+			__u32 guard = OBD_OCD_VERSION(2, 6, 92, 0);
+
+			/* We do not supprot the MDT-MDT interoperations with
+			 * old version, nor MDT-OST, because of wire protocol
+			 * changes. */
+			if (unlikely(data->ocd_version < guard)) {
+				LCONSOLE_WARN("%s: export %p refused the "
+					      "connection from old MDS "
+					      "(%d.%d.%d.%d) %s\n",
+				export->exp_obd->obd_name, export,
+				OBD_OCD_VERSION_MAJOR(data->ocd_version),
+				OBD_OCD_VERSION_MINOR(data->ocd_version),
+				OBD_OCD_VERSION_PATCH(data->ocd_version),
+				OBD_OCD_VERSION_FIX(data->ocd_version),
+				libcfs_nid2str(req->rq_peer.nid));
+
+				GOTO(out, rc = -EPROTO);
+			}
+		}
 	}
 
         /* lctl gets a backstage, all-access pass. */
