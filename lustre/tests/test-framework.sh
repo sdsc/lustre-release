@@ -5623,7 +5623,7 @@ get_mds_dir() {
 	tr '[)]:-' ' ' |				\
 	while read SS EE IDX TYP; do			\
 		if let "SEQ >= SS && SEQ < EE"; then	\
-			echo $IDX;			\
+			echo $((IDX + 1));		\
 		fi;					\
 	done
 }
