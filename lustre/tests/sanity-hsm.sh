@@ -13,8 +13,6 @@ export PATH=$PWD/$SRCDIR:$SRCDIR:$PWD/$SRCDIR/utils:$PATH:/sbin:/usr/sbin
 ONLY=${ONLY:-"$*"}
 # bug number for skipped test:    LU-3815
 ALWAYS_EXCEPT="$SANITY_HSM_EXCEPT 34 35 36"
-# bug number for skipped test:LU-5474
-ALWAYS_EXCEPT="$ALWAYS_EXCEPT 90"
 # bug number for skipped test:LU-4178      LU-4176
 ALWAYS_EXCEPT="$ALWAYS_EXCEPT 200 221 223b 31a"
 # bug number for skipped test:LU-3852
@@ -650,6 +648,27 @@ wait_request_state() {
 
 	wait_result $mds "$cmd" $state 100 ||
 		error "request on $fid is not $state on $mds"
+}
+
+wait_hsm_state() {
+	local fanme=$1
+	local state=$2
+	local max_time=${3:-90}
+	local cmd="$LFS hsm_state '$fname' | grep '$state' | wc -l"
+
+	wait_update --verbose $HOSTNAME "$cmd" 1 $max_time ||
+		error "HSM state for $fname is not $state"
+}
+
+wait_all_hsm_state() {
+	local fanme=$1
+	local state=$2
+	local file_count=$3
+	local max_time=${4:-90}
+
+	for i in $(seq 1 $file_count); do
+		wait_hsm_state $fname.$i $state $max_time
+	done
 }
 
 get_request_state() {
@@ -2989,12 +3008,15 @@ test_90() {
 	wait_for_grace_delay
 	$LFS hsm_archive --filelist $FILELIST ||
 		error "cannot archive a file list"
-	wait_all_done 100
+	wait_all_hsm_state $f archived $file_count
+
 	$LFS hsm_release --filelist $FILELIST ||
 		error "cannot release a file list"
+	wait_all_hsm_state $f released $file_count
+
 	$LFS hsm_restore --filelist $FILELIST ||
 		error "cannot restore a file list"
-	wait_all_done 100
+	wait_all_hsm_state $f archived $file_count
 	copytool_cleanup
 }
 run_test 90 "Archive/restore a file list"
