@@ -1016,6 +1016,27 @@ static int ptlrpc_connect_interpret(const struct lu_env *env,
 		GOTO(out, rc = -EPROTO);
 	}
 
+	if (imp->imp_connect_flags_orig & OBD_CONNECT_MDS &&
+	    ocd->ocd_connect_flags & OBD_CONNECT_VERSION) {
+		__u32 guard = OBD_OCD_VERSION(2, 6, 92, 0);
+
+		/* We do not supprot the MDT-MDT interoperations with
+		 * old version, nor MDT-OST, because of wire protocol
+		 * changes. 2.6.91 is the b2_6 release version. */
+		if (unlikely(ocd->ocd_version < guard)) {
+			LCONSOLE_WARN("%s: import %p tried the connection "
+				      "to old server (%d.%d.%d.%d) %s\n",
+				      imp->imp_obd->obd_name, imp,
+				      OBD_OCD_VERSION_MAJOR(ocd->ocd_version),
+				      OBD_OCD_VERSION_MINOR(ocd->ocd_version),
+				      OBD_OCD_VERSION_PATCH(ocd->ocd_version),
+				      OBD_OCD_VERSION_FIX(ocd->ocd_version),
+				      imp->imp_connection->c_remote_uuid.uuid);
+
+			GOTO(out, rc = -EPROTO);
+		}
+	}
+
 	if (!exp) {
 		/* This could happen if export is cleaned during the
 		   connect attempt */
