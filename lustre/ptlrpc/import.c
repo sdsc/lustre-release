@@ -843,6 +843,24 @@ static int ptlrpc_connect_interpret(const struct lu_env *env,
 		GOTO(out, rc = -EPROTO);
 	}
 
+	if (imp->imp_connect_flags_orig & OBD_CONNECT_MDS &&
+	    ocd->ocd_connect_flags & OBD_CONNECT_VERSION &&
+	    unlikely(OBD_OCD_VERSION_MAJOR(ocd->ocd_version) != 2 ||
+		     OBD_OCD_VERSION_MINOR(ocd->ocd_version) != 5)) {
+		/* We do not support the interoperations between
+		 * different versions of MDT and MDT/OST. */
+		LCONSOLE_WARN("%s: import %p tried the connection "
+			      "to incompatible server (%d.%d.%d.%d) %s\n",
+			      imp->imp_obd->obd_name, imp,
+			      OBD_OCD_VERSION_MAJOR(ocd->ocd_version),
+			      OBD_OCD_VERSION_MINOR(ocd->ocd_version),
+			      OBD_OCD_VERSION_PATCH(ocd->ocd_version),
+			      OBD_OCD_VERSION_FIX(ocd->ocd_version),
+			      imp->imp_connection->c_remote_uuid.uuid);
+
+		GOTO(out, rc = -EPROTO);
+	}
+
 	if (!exp) {
 		/* This could happen if export is cleaned during the
 		   connect attempt */

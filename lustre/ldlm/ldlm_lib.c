@@ -900,8 +900,25 @@ int target_handle_connect(struct ptlrpc_request *req)
 	}
 
         if ((lustre_msg_get_op_flags(req->rq_reqmsg) & MSG_CONNECT_INITIAL) &&
-            (data->ocd_connect_flags & OBD_CONNECT_MDS))
+            (data->ocd_connect_flags & OBD_CONNECT_MDS)) {
 		mds_conn = true;
+		if (unlikely(OBD_OCD_VERSION_MAJOR(data->ocd_version) != 2 ||
+			     OBD_OCD_VERSION_MINOR(data->ocd_version) != 5)) {
+			/* We do not support the interoperations between
+			 * different versions of MDT and MDT/OST. */
+			LCONSOLE_WARN("%s: export %p refused the connection "
+				      "from incompatible version MDS "
+				      "(%d.%d.%d.%d) %s\n",
+				      export->exp_obd->obd_name, export,
+				      OBD_OCD_VERSION_MAJOR(data->ocd_version),
+				      OBD_OCD_VERSION_MINOR(data->ocd_version),
+				      OBD_OCD_VERSION_PATCH(data->ocd_version),
+				      OBD_OCD_VERSION_FIX(data->ocd_version),
+				      libcfs_nid2str(req->rq_peer.nid));
+
+			GOTO(out, rc = -EPROTO);
+		}
+	}
 
 	if ((data->ocd_connect_flags & OBD_CONNECT_LIGHTWEIGHT) != 0)
 		lw_client = true;
