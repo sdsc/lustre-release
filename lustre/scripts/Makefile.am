@@ -39,12 +39,10 @@ genscripts = lc_modprobe lc_net lc_hb lc_cluman lc_md lc_lvm lustre_start
 
 sbin_SCRIPTS = lustre_rmmod
 
-if INIT_SCRIPTS
 initdir = $(sysconfdir)/init.d
 init_SCRIPTS  = lnet
 if SERVER
 init_SCRIPTS += lustre
-endif
 endif
 
 if UTILS
