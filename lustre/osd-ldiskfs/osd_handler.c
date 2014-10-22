@@ -370,10 +370,22 @@ check_oi:
 		 *	to distinguish the 1st case from the 2nd case. */
 		if (rc == 0) {
 			if (!IS_ERR(inode) && inode->i_generation != 0 &&
-			    inode->i_generation == id->oii_gen)
+			    inode->i_generation == id->oii_gen) {
 				rc = -ENOENT;
-			else
+			} else {
+				if (thread_is_running(&dev->od_scrub.os_thread))
+					CDEBUG(D_INODE, "%s: the OI mapping "
+					       "for the FID "DFID" become "
+					       "inconsistent.\n",
+					       osd_name(dev), PFID(fid));
+				else
+					LCONSOLE_WARN("%s: the OI mapping "
+						      "for the FID "DFID
+						      "become inconsistent.\n",
+						      osd_name(dev), PFID(fid));
+
 				rc = -EREMCHG;
+			}
 		}
 	} else {
 		if (id->oii_gen == OSD_OII_NOGEN)
@@ -531,8 +543,13 @@ static int osd_check_lma(const struct lu_env *env, struct osd_object *obj)
 			}
 		}
 
-		CDEBUG(D_INODE, "%s: FID "DFID" != self_fid "DFID"\n",
-		       osd_name(osd), PFID(rfid), PFID(fid));
+		if (thread_is_running(&osd->od_scrub.os_thread))
+			CDEBUG(D_INODE, "%s: FID "DFID" != self_fid "DFID"\n",
+			       osd_name(osd), PFID(rfid), PFID(fid));
+		else
+			LCONSOLE_WARN("%s: FID "DFID" != self_fid "DFID"\n",
+				      osd_name(osd), PFID(rfid), PFID(fid));
+
 		rc = -EREMCHG;
 	}
 
