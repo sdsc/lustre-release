@@ -5431,7 +5431,7 @@ again:
 					ldiskfs_htree_unlock(hlock);
 				else
 					up_read(&obj->oo_ext_idx_sem);
-				dev->od_dirent_journal = 1;
+				dev->od_dirent_journal = true;
 				goto again;
 			}
 
@@ -5463,7 +5463,7 @@ again:
 					ldiskfs_htree_unlock(hlock);
 				else
 					up_read(&obj->oo_ext_idx_sem);
-				dev->od_dirent_journal = 1;
+				dev->od_dirent_journal = true;
 				goto again;
 			}
 
@@ -5502,7 +5502,7 @@ again:
 				ldiskfs_htree_unlock(hlock);
 			else
 				up_read(&obj->oo_ext_idx_sem);
-			dev->od_dirent_journal = 1;
+			dev->od_dirent_journal = true;
 			goto again;
 		}
 
@@ -5556,7 +5556,7 @@ out_journal:
 	if (jh != NULL)
 		ldiskfs_journal_stop(jh);
 	if (rc >= 0 && !dirty)
-		dev->od_dirent_journal = 0;
+		dev->od_dirent_journal = false;
 	return rc;
 }
 
@@ -6051,6 +6051,7 @@ static int osd_device_init0(const struct lu_env *env,
 
 	o->od_read_cache = 1;
 	o->od_writethrough_cache = 1;
+	o->od_dirent_journal = false;
 	o->od_readcache_max_filesize = OSD_MAX_CACHE_SIZE;
 
 	cplen = strlcpy(o->od_svname, lustre_cfg_string(cfg, 4),
