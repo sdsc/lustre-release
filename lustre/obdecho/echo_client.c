@@ -1335,36 +1335,6 @@ out:
 
 static obd_id last_object_id;
 
-static int
-echo_copyin_lsm (struct echo_device *ed, struct lov_stripe_md *lsm,
-		 void __user *ulsm, int ulsm_nob)
-{
-        struct echo_client_obd *ec = ed->ed_ec;
-        int                     i;
-
-        if (ulsm_nob < sizeof (*lsm))
-                return (-EINVAL);
-
-	if (copy_from_user (lsm, ulsm, sizeof (*lsm)))
-                return (-EFAULT);
-
-        if (lsm->lsm_stripe_count > ec->ec_nstripes ||
-            lsm->lsm_magic != LOV_MAGIC ||
-            (lsm->lsm_stripe_size & (~CFS_PAGE_MASK)) != 0 ||
-            ((__u64)lsm->lsm_stripe_size * lsm->lsm_stripe_count > ~0UL))
-                return (-EINVAL);
-
-
-        for (i = 0; i < lsm->lsm_stripe_count; i++) {
-		if (copy_from_user(lsm->lsm_oinfo[i],
-                                       ((struct lov_stripe_md *)ulsm)-> \
-                                       lsm_oinfo[i],
-                                       sizeof(lsm->lsm_oinfo[0])))
-                        return (-EFAULT);
-        }
-        return (0);
-}
-
 #ifdef HAVE_SERVER_SUPPORT
 static inline void echo_md_build_name(struct lu_name *lname, char *name,
 				      __u64 id)
@@ -2160,8 +2130,7 @@ out_env:
 #endif /* HAVE_SERVER_SUPPORT */
 
 static int echo_create_object(const struct lu_env *env, struct echo_device *ed,
-			      int on_target, struct obdo *oa, void __user *ulsm,
-			      int ulsm_nob, struct obd_trans_info *oti)
+			      struct obdo *oa, struct obd_trans_info *oti)
 {
         struct echo_object     *eco;
         struct echo_client_obd *ec = ed->ed_ec;
@@ -2170,12 +2139,10 @@ static int echo_create_object(const struct lu_env *env, struct echo_device *ed,
         int                     created = 0;
         ENTRY;
 
-        if ((oa->o_valid & OBD_MD_FLID) == 0 && /* no obj id */
-            (on_target ||                       /* set_stripe */
-             ec->ec_nstripes != 0)) {           /* LOV */
-                CERROR ("No valid oid\n");
-                RETURN(-EINVAL);
-        }
+	if (!(oa->o_valid & OBD_MD_FLID)) {
+		CERROR("No valid oid\n");
+		RETURN(-EINVAL);
+	}
 
 	rc = echo_alloc_memmd(ed, &lsm);
         if (rc < 0) {
@@ -2183,52 +2150,24 @@ static int echo_create_object(const struct lu_env *env, struct echo_device *ed,
                 GOTO(failed, rc);
         }
 
-        if (ulsm != NULL) {
-                int i, idx;
-
-                rc = echo_copyin_lsm (ed, lsm, ulsm, ulsm_nob);
-                if (rc != 0)
-                        GOTO(failed, rc);
-
-                if (lsm->lsm_stripe_count == 0)
-                        lsm->lsm_stripe_count = ec->ec_nstripes;
-
-                if (lsm->lsm_stripe_size == 0)
-			lsm->lsm_stripe_size = PAGE_CACHE_SIZE;
-
-                idx = cfs_rand();
-
-		/* setup stripes: indices + default ids if required */
-		for (i = 0; i < lsm->lsm_stripe_count; i++) {
-			if (ostid_id(&lsm->lsm_oinfo[i]->loi_oi) == 0)
-				lsm->lsm_oinfo[i]->loi_oi = lsm->lsm_oi;
-
-			lsm->lsm_oinfo[i]->loi_ost_idx =
-				(idx + i) % ec->ec_nstripes;
-		}
-        }
-
-	/* setup object ID here for !on_target and LOV hint */
-	if (oa->o_valid & OBD_MD_FLID) {
-		LASSERT(oa->o_valid & OBD_MD_FLGROUP);
-		lsm->lsm_oi = oa->o_oi;
-	}
+	/* Setup object ID here. */
+	LASSERT(oa->o_valid & OBD_MD_FLGROUP);
+	lsm->lsm_oi = oa->o_oi;
 
 	if (ostid_id(&lsm->lsm_oi) == 0)
 		ostid_set_id(&lsm->lsm_oi, ++last_object_id);
 
         rc = 0;
-	if (on_target) {
-		/* Only echo objects are allowed to be created */
-		LASSERT((oa->o_valid & OBD_MD_FLGROUP) &&
-			(ostid_seq(&oa->o_oi) == FID_SEQ_ECHO));
-		rc = obd_create(env, ec->ec_exp, oa, &lsm, oti);
-		if (rc != 0) {
-			CERROR("Cannot create objects: rc = %d\n", rc);
-			GOTO(failed, rc);
-		}
-		created = 1;
+	/* Only echo objects are allowed to be created */
+	LASSERT(ostid_seq(&oa->o_oi) == FID_SEQ_ECHO);
+
+	rc = obd_create(env, ec->ec_exp, oa, &lsm, oti);
+	if (rc != 0) {
+		CERROR("Cannot create objects: rc = %d\n", rc);
+		GOTO(failed, rc);
 	}
+
+	created = 1;
 
         /* See what object ID we were given */
 	oa->o_oi = lsm->lsm_oi;
@@ -2712,8 +2651,7 @@ echo_client_iocontrol(unsigned int cmd, struct obd_export *exp, int len,
                 if (!cfs_capable(CFS_CAP_SYS_ADMIN))
                         GOTO (out, rc = -EPERM);
 
-                rc = echo_create_object(env, ed, 1, oa, data->ioc_pbuf1,
-                                        data->ioc_plen1, &dummy_oti);
+		rc = echo_create_object(env, ed, oa, &dummy_oti);
                 GOTO(out, rc);
 
 #ifdef HAVE_SERVER_SUPPORT
