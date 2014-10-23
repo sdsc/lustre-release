@@ -559,6 +559,107 @@ commitrw_cleanup:
         return rc;
 }
 
+static struct lu_target lu_echo_tgt;
+
+static int
+echo_srv_getattr_hdl(struct tgt_session_info *tsi)
+{
+	struct ost_body	*body;
+	struct ost_body	*repbody;
+	struct obd_info	*oinfo;
+	int		 rc;
+	ENTRY;
+
+	OBD_ALLOC_PTR(oinfo);
+	if (oinfo == NULL)
+		RETURN(-ENOMEM);
+
+	body = req_capsule_client_get(tsi->tsi_pill, &RMF_OST_BODY);
+	LASSERT(body != NULL);
+	repbody = req_capsule_server_get(tsi->tsi_pill, &RMF_OST_BODY);
+	LASSERT(repbody != NULL);
+
+	repbody->oa = body->oa;
+	oinfo->oi_oa = &repbody->oa;
+
+	rc = echo_getattr(tsi->tsi_env, tsi->tsi_exp, oinfo);
+
+	OBD_FREE_PTR(oinfo);
+	RETURN(rc);
+}
+
+static int
+echo_srv_setattr_hdl(struct tgt_session_info *tsi)
+{
+	return 0;
+}
+
+static int
+echo_srv_create_hdl(struct tgt_session_info *tsi)
+{
+	struct ost_body	*body;
+	struct ost_body	*repbody;
+	int		 rc;
+	ENTRY;
+
+	body = req_capsule_client_get(tsi->tsi_pill, &RMF_OST_BODY);
+	LASSERT(body != NULL);
+	repbody = req_capsule_server_get(tsi->tsi_pill, &RMF_OST_BODY);
+	LASSERT(repbody != NULL);
+
+	repbody->oa = body->oa;
+	rc = echo_create(tsi->tsi_env, tsi->tsi_exp, &repbody->oa,
+			 NULL, NULL);
+	RETURN(rc);
+}
+
+static int
+echo_srv_destroy_hdl(struct tgt_session_info *tsi)
+{
+	struct ost_body	*body;
+	struct ost_body	*repbody;
+	int		 rc;
+	ENTRY;
+
+	body = req_capsule_client_get(tsi->tsi_pill, &RMF_OST_BODY);
+	LASSERT(body != NULL);
+	repbody = req_capsule_server_get(tsi->tsi_pill, &RMF_OST_BODY);
+	LASSERT(repbody != NULL);
+
+	repbody->oa = body->oa;
+	rc = echo_destroy(tsi->tsi_env, tsi->tsi_exp, &repbody->oa,
+			  NULL, NULL, NULL, NULL);
+	RETURN(rc);
+}
+
+static struct tgt_handler echo_tgt_handlers[] = {
+TGT_RPC_HANDLER(OST_FIRST_OPC, 0,
+		OST_CONNECT,	tgt_connect,
+		&RQF_CONNECT, LUSTRE_OBD_VERSION),
+TGT_RPC_HANDLER(OST_FIRST_OPC, 0,
+		OST_DISCONNECT, tgt_disconnect,
+		&RQF_OST_DISCONNECT, LUSTRE_OBD_VERSION),
+TGT_OST_HDL(HABEO_CORPUS| HABEO_REFERO,
+	    OST_GETATTR,	echo_srv_getattr_hdl),
+TGT_OST_HDL(HABEO_CORPUS| HABEO_REFERO | MUTABOR,
+	    OST_SETATTR,	echo_srv_setattr_hdl),
+TGT_OST_HDL(0           | HABEO_REFERO | MUTABOR,
+	    OST_CREATE,		echo_srv_create_hdl),
+TGT_OST_HDL(0           | HABEO_REFERO | MUTABOR,
+	    OST_DESTROY,	echo_srv_destroy_hdl),
+};
+
+static struct tgt_opc_slice echo_srv_slice[] = {
+	{
+		.tos_opc_start  = OST_FIRST_OPC,
+		.tos_opc_end    = OST_LAST_OPC,
+		.tos_hs         = echo_tgt_handlers
+	},
+	{
+		.tos_hs		= NULL,
+	}
+};
+
 static int echo_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 {
         struct lprocfs_static_vars lvars;
@@ -568,6 +669,7 @@ static int echo_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
         char                       ns_name[48];
         ENTRY;
 
+	tgt_init(NULL, &lu_echo_tgt, obd, NULL, echo_srv_slice, 0, 0);
         obd->u.echo.eo_obt.obt_magic = OBT_MAGIC;
 	spin_lock_init(&obd->u.echo.eo_lock);
         obd->u.echo.eo_lastino = ECHO_INIT_OID;
@@ -583,8 +685,9 @@ static int echo_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
         }
 
         rc = ldlm_cli_enqueue_local(obd->obd_namespace, &res_id, LDLM_PLAIN,
-                                    NULL, LCK_NL, &lock_flags, NULL,
-				    ldlm_completion_ast, NULL, NULL, 0,
+                                    NULL, LCK_NL, &lock_flags,
+				    ldlm_blocking_ast, ldlm_completion_ast,
+				    NULL, NULL, 0,
 				    LVB_T_NONE, NULL, &obd->u.echo.eo_nl_lock);
         LASSERT (rc == ELDLM_OK);
 
@@ -609,6 +712,7 @@ static int echo_cleanup(struct obd_device *obd)
 	int leaked;
 	ENTRY;
 
+	tgt_fini(NULL, &lu_echo_tgt);
 	lprocfs_obd_cleanup(obd);
 	lprocfs_free_obd_stats(obd);
 
