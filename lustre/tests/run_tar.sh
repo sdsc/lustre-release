@@ -1,6 +1,7 @@
 #!/bin/bash
 
 TMP=${TMP:-/tmp}
+TESTDIR=${TESTDIR:-$MOUNT/d0.tar-$(hostname)}
 
 TESTLOG_PREFIX=${TESTLOG_PREFIX:-$TMP/recovery-mds-scale}
 TESTNAME=${TESTNAME:-""}
@@ -15,16 +16,16 @@ rm -f $LOG $DEBUGLOG
 exec 2>$DEBUGLOG
 set -x
 
+. $(dirname $0)/test-framework.sh
 . $(dirname $0)/functions.sh
 
-assert_env MOUNT END_RUN_FILE LOAD_PID_FILE LFS CLIENT_COUNT
+assert_env MOUNT END_RUN_FILE LOAD_PID_FILE LFS CLIENT_COUNT MDTCOUNT
 
 trap signaled TERM
+rm -rf $TESTDIR
 
 # recovery-*-scale scripts use this to signal the client loads to die
 echo $$ >$LOAD_PID_FILE
-
-TESTDIR=$MOUNT/d0.tar-$(hostname)
 
 do_tar() {
     tar cf - /etc | tar xf - >$LOG 2>&1
@@ -34,7 +35,15 @@ do_tar() {
 CONTINUE=true
 while [ ! -e "$END_RUN_FILE" ] && $CONTINUE; do
 	echoerr "$(date +'%F %H:%M:%S'): tar run starting"
-	mkdir -p $TESTDIR
+
+	MDT_IDX=$((RANDOM % MDTCOUNT))
+	test_mkdir -i $MDT_IDX -c$MDTCOUNT $TESTDIR || {
+		echoerr "create $TESTDIR fails"
+		echo $(hostname) >> $END_RUN_FILE
+		break
+	}
+	$LFS setdirstripe -D -c$MDTCOUNT $TESTDIR
+
 	USAGE=$(du -s /etc | awk '{print $1}')
 	FREE_SPACE=$($LFS df $TESTDIR | awk '/filesystem summary:/ {print $5}')
 	AVAIL=$((FREE_SPACE * 9 / 10 / CLIENT_COUNT))
@@ -58,7 +67,11 @@ while [ ! -e "$END_RUN_FILE" ] && $CONTINUE; do
 	if [ $RC -eq 0 ]; then
 		echoerr "$(date +'%F %H:%M:%S'): tar succeeded"
 		cd $TMP
-		rm -rf $TESTDIR
+		rm -rf $TESTDIR || {
+			echoerr "$(date +'%F %H:%M:%S'): rm $TESTDIR fails"
+			echo $(hostname) >> $END_RUN_FILE
+			break
+		}
 		echoerr "$(date +'%F %H:%M:%S'): tar run finished"
 	else
 		echoerr "$(date +'%F %H:%M:%S'): tar failed"

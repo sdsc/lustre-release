@@ -920,6 +920,142 @@ test_25() {
 }
 run_test 25 "replay|resend"
 
+check_for_process () {
+	local clients=$1
+	shift
+	local prog=$@
+
+	killall_process $clients "$prog" -0
+}
+
+killall_process () {
+	local clients=${1:-$(hostname)}
+	local name=$2
+	local signal=$3
+	local rc=0
+
+	do_nodes $clients "killall $signal $name"
+}
+
+test_26() {
+	local clients=${CLIENTS:-$HOSTNAME}
+
+	zconf_mount_clients $clients $MOUNT
+
+	local duration=600
+	[ "$SLOW" = "no" ] && duration=300
+	# set duration to 900 because it takes some time to boot node
+	[ "$FAILURE_MODE" = HARD ] && duration=900
+
+	local elapsed
+	local start_ts=$(date +%s)
+	local pid=""
+	local test_dir_tar=$DIR/${tdir}_tar
+	local test_dir_dbench=$DIR2/${tdir}_dbench
+	local end_run_file=$DIR/run_file_26
+	local dbench_pid_file=$DIR/dbench_pid_files
+	local tar_pid_file=$DIR/tar_pid_files
+	local ppid
+	local pids
+
+	rm -rf $end_run_file
+	test_mkdir -p -c$MDSCOUNT $DIR/${tdir}_tar
+	test_mkdir -p -c$MDSCOUNT $DIR2/${tdir}_dbench
+	if [ $MDSCOUNT -ge 2 ]; then
+		$LFS setdirstripe -D -c$MDSCOUNT $DIR/${tdir}_tar
+		$LFS setdirstripe -D -c$MDSCOUNT $DIR2/${tdir}_dbench
+	fi
+
+	echo "starting tar........"
+	#start run_tar
+	do_node $CLIENT1 "set -x; PATH=\$PATH:$LUSTRE/utils:$LUSTRE/tests/ \
+MOUNT=$MOUNT \
+TESTDIR=$test_dir_tar \
+BREAK_ON_ERROR=yes \
+END_RUN_FILE=$end_run_file \
+LOAD_PID_FILE=$tar_pid_file \
+TESTNAME=test_26 \
+CLIENT_COUNT=$CLIENTCOUNT \
+MDTCOUNT=$MDSCOUNT \
+LFS=$LFS \
+LCTL=$LCTL \
+run_tar.sh" &
+	ppid=$!
+	# get the children process IDs
+	tar_pids=$(ps --ppid $ppid -o pid= | xargs)
+	
+	log "Started client load: run_tar on $CLIENT1 pids : $tar_pids"
+
+	echo "starting dbench........"
+	#start run_dbench
+	do_node $CLIENT2 "set -x; PATH=\$PATH:$LUSTRE/utils:$LUSTRE/tests/ \
+MOUNT=$MOUNT \
+TESTDIR=$test_dir_dbench \
+BREAK_ON_ERROR=yes \
+END_RUN_FILE=$end_run_file \
+LOAD_PID_FILE=$dbench_pid_file \
+TESTNAME=test_26 \
+CLIENT_COUNT=$CLIENTCOUNT \
+MDTCOUNT=$MDSCOUNT \
+LFS=$LFS \
+LCTL=$LCTL \
+run_dbench.sh" &
+	ppid=$!
+	# get the children process IDs
+	dbench_pids=$(ps --ppid $ppid -o pid= | xargs)
+
+	#LU-1897 wait for all dbench copies to start
+	while ! check_for_process $clients run_dbench.sh; do
+		elapsed=$(($(date +%s) - start_ts))
+		if [ $elapsed -gt $duration ]; then
+			killall_process $clients run_dbench.sh
+			error "run_tar.sh failed to start on $clients!"
+		fi
+		sleep 1
+	done
+
+	log "Started client load: run_dbench on $CLIENT1 pids : $dbench_pids"
+
+	elapsed=$(($(date +%s) - start_ts))
+	local num_failovers=0
+	local fail_index=1
+	while [ $elapsed -lt $duration ]; do
+		if ! check_for_process $clients run_tar.sh; then
+			error_noexit "run_tar.sh stopped on some of $clients!"
+			killall_process $clients run_tar.sh
+			break
+		fi
+		if ! check_for_process $clients run_dbench.sh; then
+			error_noexit "dbench stopped on some of $clients!"
+			killall_process $clients run_dbench.sh
+			break
+		fi
+		sleep 1
+		replay_barrier mds$fail_index
+		sleep 1 # give clients a time to do operations
+		# Increment the number of failovers
+		num_failovers=$((num_failovers+1))
+		log "$TESTNAME fail mds$fail_index $num_failovers times"
+		fail mds$fail_index
+		elapsed=$(($(date +%s) - start_ts))
+		if [ $fail_index -ge $MDSCOUNT ]; then
+			fail_index=1
+		else
+			fail_index=$((fail_index+1))
+		fi
+	done
+	# stop the client loads
+
+	killall_process $clients dbench 
+	stop_process $nodes $dbench_pid_file
+	stop_process $nodes $tar_pid_file
+
+	# clean up the processes that started them
+	[ -n "$dbench_pids" ] && kill -9 $dbench_pids 2>/dev/null || true
+	[ -n "$tar_pids" ] && kill -9 $tar_pids 2>/dev/null || true
+}
+run_test 26 "dbench and tar with mds failover"
+
 complete $SECONDS
 SLEEP=$((`date +%s` - $NOW))
 [ $SLEEP -lt $TIMEOUT ] && sleep $SLEEP
