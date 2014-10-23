@@ -716,10 +716,8 @@ struct thandle *get_sub_thandle(const struct lu_env *env,
 
 	/* XXX all of mixed transaction (see struct th_handle) will
 	 * be synchronized until async update is done */
-	if (sub_th->th_remote_mdt) {
-		th->th_sync = 1;
+	if (sub_th->th_remote_mdt)
 		top_th->tt_multiple_node = 1;
-	}
 
 	st = create_sub_thandle(env, top_th, sub_th);
 	if (IS_ERR(st)) {
