@@ -2179,7 +2179,8 @@ void ldlm_lock_cancel(struct ldlm_lock *lock)
         ldlm_resource_unlink_lock(lock);
         ldlm_lock_destroy_nolock(lock);
 
-        if (lock->l_granted_mode == lock->l_req_mode)
+        if (lock->l_granted_mode == lock->l_req_mode &&
+	    lock->l_req_mode != LCK_NL)
                 ldlm_pool_del(&ns->ns_pool, lock);
 
         /* Make sure we will not be called again for same lock what is possible

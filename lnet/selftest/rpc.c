@@ -63,6 +63,9 @@ struct smoketest_rpc {
 	__u64		 rpc_matchbits;	/* matchbits counter */
 } srpc_data;
 
+static int enable_ack = 0;
+CFS_MODULE_PARM(enable_ack, "i", int, 0444, "Enable ACK for all LNET_PUT");
+
 static inline int
 srpc_serv_portal(int svc_id)
 {
@@ -438,8 +441,11 @@ srpc_post_active_rdma(int portal, __u64 matchbits, void *buf, int len,
         md.start     = buf;
         md.length    = len;
         md.eq_handle = srpc_data.rpc_lnet_eq;
-        md.threshold = ((options & LNET_MD_OP_GET) != 0) ? 2 : 1;
-        md.options   = options & ~(LNET_MD_OP_PUT | LNET_MD_OP_GET);
+	md.options   = options & ~(LNET_MD_OP_PUT | LNET_MD_OP_GET);
+	if (enable_ack)
+		md.threshold = 2;
+	else
+		md.threshold = ((options & LNET_MD_OP_GET) != 0) ? 2 : 1;
 
         rc = LNetMDBind(md, LNET_UNLINK, mdh);
         if (rc != 0) {
@@ -452,8 +458,9 @@ srpc_post_active_rdma(int portal, __u64 matchbits, void *buf, int len,
          * they're only meaningful for MDs attached to an ME (i.e. passive
          * buffers... */
         if ((options & LNET_MD_OP_PUT) != 0) {
-                rc = LNetPut(self, *mdh, LNET_NOACK_REQ, peer,
-                             portal, matchbits, 0, 0);
+		rc = LNetPut(self, *mdh,
+			     enable_ack ? LNET_ACK_REQ : LNET_NOACK_REQ,
+			     peer, portal, matchbits, 0, 0);
         } else {
                 LASSERT ((options & LNET_MD_OP_GET) != 0);
 
@@ -1468,6 +1475,9 @@ srpc_lnet_ev_handler(lnet_event_t *ev)
                        rpcev->ev_status, rpcev->ev_type, rpcev->ev_lnet);
                 LBUG ();
         case SRPC_REQUEST_SENT:
+		if (enable_ack && !ev->unlinked)
+			break;
+
                 if (ev->status == 0 && ev->type != LNET_EVENT_UNLINK) {
 			spin_lock(&srpc_data.rpc_glock);
 			srpc_data.rpc_counters.rpcs_sent++;
@@ -1594,6 +1604,9 @@ srpc_lnet_ev_handler(lnet_event_t *ev)
                         break; /* wait for final event */
 
         case SRPC_BULK_PUT_SENT:
+		if (enable_ack && !ev->unlinked)
+			break;
+
                 if (ev->status == 0 && ev->type != LNET_EVENT_UNLINK) {
 			spin_lock(&srpc_data.rpc_glock);
 
@@ -1609,6 +1622,9 @@ srpc_lnet_ev_handler(lnet_event_t *ev)
 		scd  = srpc->srpc_scd;
 
 		LASSERT(rpcev == &srpc->srpc_ev);
+
+		if (enable_ack && !ev->unlinked)
+			break;
 
 		spin_lock(&scd->scd_lock);
 
