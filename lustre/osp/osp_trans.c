@@ -608,9 +608,6 @@ int osp_trans_update_request_create(struct thandle *th)
 		return PTR_ERR(update);
 	}
 
-	if (dt2osp_dev(th->th_dev)->opd_connect_mdt)
-		update->dur_flags = UPDATE_FL_SYNC;
-
 	oth->ot_dur = update;
 	return 0;
 }
