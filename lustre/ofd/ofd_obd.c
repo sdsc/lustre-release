@@ -1146,9 +1146,6 @@ static int ofd_orphans_destroy(const struct lu_env *env,
 	skip_orphan = !!(exp_connect_flags(exp) & OBD_CONNECT_SKIP_ORPHAN);
 
 	last = ofd_seq_last_oid(oseq);
-	LCONSOLE(D_INFO, "%s: deleting orphan objects from "DOSTID
-		 " to "DOSTID"\n", ofd_name(ofd), ostid_seq(&oa->o_oi),
-		 end_id + 1, ostid_seq(&oa->o_oi), last);
 
 	for (ostid_set_id(&oi, last); ostid_id(&oi) > end_id;
 			  ostid_dec_id(&oi)) {
