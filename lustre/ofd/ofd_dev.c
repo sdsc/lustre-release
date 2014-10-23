@@ -1494,9 +1494,6 @@ static int ofd_orphans_destroy(const struct lu_env *env,
 	if (OBD_FAIL_CHECK(OBD_FAIL_OST_NODESTROY))
 		goto done;
 
-	LCONSOLE(D_INFO, "%s: deleting orphan objects from "DOSTID
-		 " to "DOSTID"\n", ofd_name(ofd), seq, end_id + 1, seq, last);
-
 	while (oid > end_id) {
 		rc = fid_set_id(fid, oid);
 		if (unlikely(rc != 0))
