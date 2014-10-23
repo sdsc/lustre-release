@@ -766,9 +766,6 @@ struct thandle *get_sub_thandle(const struct lu_env *env,
 	if (sub_th == NULL)
 		RETURN(top_th->tt_child);
 
-	/* XXX all of mixed transaction (see struct th_handle) will
-	 * be synchronized until async update is done */
-	th->th_sync = 1;
 	top_th->tt_multiple_node = 1;
 
 	st = create_sub_thandle(env, top_th, sub_th);
