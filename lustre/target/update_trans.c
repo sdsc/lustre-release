@@ -941,8 +941,6 @@ struct thandle *get_sub_thandle(const struct lu_env *env,
 		st = create_sub_thandle_with_thandle(top_th, top_th->tt_child);
 		if (IS_ERR(st))
 			GOTO(stop_trans, rc = PTR_ERR(st));
-		top_th->tt_child->th_sync = 1;
-		top_th->tt_super.th_sync = 1;
 	}
 
 	/* create and init sub th to the top trans list */
