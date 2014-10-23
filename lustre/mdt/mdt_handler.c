@@ -5215,11 +5215,6 @@ static int mdt_obd_connect(const struct lu_env *env,
 
 			mdt_export_stats_init(obd, lexp, localdata);
 		}
-
-		/* For phase I, sync for cross-ref operation. */
-		spin_lock(&lexp->exp_lock);
-		lexp->exp_keep_sync = 1;
-		spin_unlock(&lexp->exp_lock);
 	}
 out:
 	if (rc != 0) {
