@@ -1372,7 +1372,8 @@ full:
 
 		while (param.offset < LDISKFS_INODES_PER_GROUP(param.sb) &&
 		       *count < max) {
-			if (param.offset +
+			if (dev->od_skip_empty_group &&
+			    param.offset +
 				ldiskfs_itable_unused_count(param.sb, desc) >
 			    LDISKFS_INODES_PER_GROUP(param.sb))
 				goto next_group;
