@@ -1037,10 +1037,11 @@ static inline int mdd_links_del(const struct lu_env *env,
 				struct mdd_object *mdd_obj,
 				const struct lu_fid *pfid,
 				const struct lu_name *lname,
-				struct thandle *handle)
+				struct thandle *handle,
+				struct linkea_data *ldata)
 {
 	return mdd_links_rename(env, mdd_obj, pfid, lname,
-				NULL, NULL, handle, NULL, 0, 0);
+				NULL, NULL, handle, ldata, 0, 0);
 }
 
 /** Read the link EA into a temp buffer.
@@ -1178,14 +1179,15 @@ int mdd_declare_links_add(const struct lu_env *env, struct mdd_object *mdd_obj,
 
 static inline int mdd_declare_links_del(const struct lu_env *env,
 					struct mdd_object *c,
-					struct thandle *handle)
+					struct thandle *handle,
+					struct linkea_data *ldata)
 {
 	int rc = 0;
 
 	/* For directory, the linkEA will be removed together
 	 * with the object. */
 	if (!S_ISDIR(mdd_object_type(c)))
-		rc = mdd_declare_links_add(env, c, handle, NULL, MLAO_IGNORE);
+		rc = mdd_declare_links_add(env, c, handle, ldata, MLAO_IGNORE);
 
 	return rc;
 }
@@ -1268,6 +1270,11 @@ static int mdd_link(const struct lu_env *env, struct md_object *tgt_obj,
 
 	LASSERT(ma->ma_attr.la_valid & LA_CTIME);
 	la->la_ctime = la->la_mtime = ma->ma_attr.la_ctime;
+
+	/* have to know linkea buffer size to estimate transaction size */
+	rc = mdd_links_read(env, mdd_sobj, ldata);
+	if (rc != 0 && rc != -ENODATA)
+		GOTO(stop, rc);
 
 	rc = mdd_declare_link(env, mdd, mdd_tobj, mdd_sobj, lname, handle,
 			      la, ldata);
@@ -1378,7 +1385,8 @@ static int mdd_mark_dead_object(const struct lu_env *env,
 
 static int mdd_declare_finish_unlink(const struct lu_env *env,
 				     struct mdd_object *obj,
-				     struct thandle *handle)
+				     struct thandle *handle,
+				     struct linkea_data *ldata)
 {
 	int	rc;
 
@@ -1394,15 +1402,16 @@ static int mdd_declare_finish_unlink(const struct lu_env *env,
 	if (rc != 0)
 		return rc;
 
-	return mdd_declare_links_del(env, obj, handle);
+	return mdd_declare_links_del(env, obj, handle, ldata);
 }
 
 /* caller should take a lock before calling */
-int mdd_finish_unlink(const struct lu_env *env,
-		      struct mdd_object *obj, struct md_attr *ma,
-		      const struct mdd_object *pobj,
-		      const struct lu_name *lname,
-		      struct thandle *th)
+static int mdd_finish_unlink(const struct lu_env *env,
+			     struct mdd_object *obj, struct md_attr *ma,
+			     const struct mdd_object *pobj,
+			     const struct lu_name *lname,
+			     struct thandle *th,
+			     struct linkea_data *ldata)
 {
 	int rc = 0;
         int is_dir = S_ISDIR(ma->ma_attr.la_mode);
@@ -1435,7 +1444,7 @@ int mdd_finish_unlink(const struct lu_env *env,
                 }
 	} else if (!is_dir) {
 		/* old files may not have link ea; ignore errors */
-		mdd_links_del(env, obj, mdo2fid(pobj), lname, th);
+		mdd_links_del(env, obj, mdo2fid(pobj), lname, th, ldata);
 	}
 
 	RETURN(rc);
@@ -1461,7 +1470,8 @@ int mdd_unlink_sanity_check(const struct lu_env *env, struct mdd_object *pobj,
 static int mdd_declare_unlink(const struct lu_env *env, struct mdd_device *mdd,
 			      struct mdd_object *p, struct mdd_object *c,
 			      const struct lu_name *name, struct md_attr *ma,
-			      struct thandle *handle, int no_name, int is_dir)
+			      struct thandle *handle, int no_name, int is_dir,
+			      struct linkea_data *ldata)
 {
 	struct lu_attr	*la = &mdd_env_info(env)->mti_la_for_fix;
 	int		 rc;
@@ -1502,7 +1512,7 @@ static int mdd_declare_unlink(const struct lu_env *env, struct mdd_device *mdd,
 		if (rc)
 			return rc;
 
-		rc = mdd_declare_finish_unlink(env, c, handle);
+		rc = mdd_declare_finish_unlink(env, c, handle, ldata);
 		if (rc)
 			return rc;
 
@@ -1567,7 +1577,8 @@ static int mdd_unlink(const struct lu_env *env, struct md_object *pobj,
 	struct mdd_object *mdd_cobj = NULL;
 	struct mdd_device *mdd = mdo2mdd(pobj);
 	struct thandle    *handle;
-	int rc, is_dir = 0;
+	struct linkea_data *ldata = &mdd_env_info(env)->mti_link_data;
+ 	int rc, is_dir = 0;
 	ENTRY;
 
 	/* cobj == NULL means only delete name entry */
@@ -1598,8 +1609,15 @@ static int mdd_unlink(const struct lu_env *env, struct md_object *pobj,
 	if (IS_ERR(handle))
 		RETURN(PTR_ERR(handle));
 
+	memset(ldata, 0, sizeof(*ldata));
+
+        /* have to know linkea buffer size to estimate transaction size */
+        rc = mdd_links_read(env, mdd_cobj, ldata);
+        if (rc != 0 && rc != -ENODATA)
+                GOTO(stop, rc);
+
 	rc = mdd_declare_unlink(env, mdd, mdd_pobj, mdd_cobj,
-				lname, ma, handle, no_name, is_dir);
+				lname, ma, handle, no_name, is_dir, ldata);
 	if (rc)
 		GOTO(stop, rc);
 
@@ -1609,6 +1627,7 @@ static int mdd_unlink(const struct lu_env *env, struct md_object *pobj,
 
 	if (likely(mdd_cobj != NULL))
 		mdd_write_lock(env, mdd_cobj, MOR_TGT_CHILD);
+
 
 	if (likely(no_name == 0) && !OBD_FAIL_CHECK(OBD_FAIL_LFSCK_DANGLING2)) {
 		rc = __mdd_index_delete(env, mdd_pobj, name, is_dir, handle,
@@ -1666,7 +1685,8 @@ static int mdd_unlink(const struct lu_env *env, struct md_object *pobj,
 	/* XXX: this transfer to ma will be removed with LOD/OSP */
 	ma->ma_attr = *cattr;
 	ma->ma_valid |= MA_INODE;
-	rc = mdd_finish_unlink(env, mdd_cobj, ma, mdd_pobj, lname, handle);
+	rc = mdd_finish_unlink(env, mdd_cobj, ma, mdd_pobj, lname, handle,
+			       ldata);
 
 	/* fetch updated nlink */
 	if (rc == 0)
@@ -2644,7 +2664,7 @@ static int mdd_declare_rename(const struct lu_env *env,
 		if (rc)
 			return rc;
 
-		rc = mdd_declare_finish_unlink(env, mdd_tobj, handle);
+		rc = mdd_declare_finish_unlink(env, mdd_tobj, handle, ldata);
 		if (rc)
 			return rc;
         }
@@ -2838,7 +2858,7 @@ static int mdd_rename(const struct lu_env *env,
 		ma->ma_attr = *tattr;
 		ma->ma_valid |= MA_INODE;
 		rc = mdd_finish_unlink(env, mdd_tobj, ma, mdd_tpobj, ltname,
-				       handle);
+				       handle, ldata);
 		if (rc != 0) {
 			CERROR("%s: Failed to unlink tobj "
 				DFID": rc = %d\n",
@@ -3758,7 +3778,7 @@ static int mdd_declare_migrate_update_name(const struct lu_env *env,
 			return rc;
 	}
 
-	rc = mdd_declare_finish_unlink(env, mdd_sobj, handle);
+	rc = mdd_declare_finish_unlink(env, mdd_sobj, handle, NULL);
 	if (rc)
 		return rc;
 
@@ -3871,7 +3891,7 @@ static int mdd_migrate_update_name(const struct lu_env *env,
 
 	ma->ma_attr = *so_attr;
 	ma->ma_valid |= MA_INODE;
-	rc = mdd_finish_unlink(env, mdd_sobj, ma, mdd_pobj, lname, handle);
+	rc = mdd_finish_unlink(env, mdd_sobj, ma, mdd_pobj, lname, handle, NULL);
 	if (rc != 0)
 		GOTO(out_unlock, rc);
 
