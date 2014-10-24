@@ -2963,8 +2963,10 @@ static int osd_declare_xattr_set(const struct lu_env *env,
 	} else {
 		credits = osd_dto_credits_noquota[DTO_XATTR_SET];
 		if (buf && buf->lb_len > sb->s_blocksize) {
-			credits *= (buf->lb_len + sb->s_blocksize - 1) >>
-					sb->s_blocksize_bits;
+			/* 3 credits for each block in buffer:
+			 * block itself, bitmap and group descriptor */
+			credits += ((buf->lb_len + sb->s_blocksize - 1) >>
+					sb->s_blocksize_bits) * 3;
 		}
 		/*
 		 * xattr set may involve inode quota change, reserve credits for
