@@ -1352,7 +1352,8 @@ full:
 			RETURN(-EIO);
 
 		ldiskfs_lock_group(param.sb, param.bg);
-		if (desc->bg_flags & cpu_to_le16(LDISKFS_BG_INODE_UNINIT)) {
+		if (dev->od_skip_empty_group &&
+		    desc->bg_flags & cpu_to_le16(LDISKFS_BG_INODE_UNINIT)) {
 			ldiskfs_unlock_group(param.sb, param.bg);
 			*pos = 1 + (param.bg + 1) *
 				LDISKFS_INODES_PER_GROUP(param.sb);
@@ -1372,9 +1373,10 @@ full:
 
 		while (param.offset < LDISKFS_INODES_PER_GROUP(param.sb) &&
 		       *count < max) {
-			if (param.offset +
+			if (dev->od_skip_empty_group &&
+			    (param.offset +
 				ldiskfs_itable_unused_count(param.sb, desc) >
-			    LDISKFS_INODES_PER_GROUP(param.sb))
+			     LDISKFS_INODES_PER_GROUP(param.sb)))
 				goto next_group;
 
 			rc = next(info, dev, &param, &oic, noslot);
