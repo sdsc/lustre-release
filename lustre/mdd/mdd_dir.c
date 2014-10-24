@@ -390,7 +390,7 @@ int mdd_may_unlink(const struct lu_env *env, struct mdd_object *pobj,
 	if (rc)
 		RETURN(rc);
 
-	if (mdd_is_append(pobj))
+	if (mdd_is_append(attr))
 		RETURN(-EPERM);
 
 	RETURN(rc);
@@ -445,7 +445,7 @@ static int mdd_may_delete_entry(const struct lu_env *env,
 			RETURN(rc);
 	}
 
-	if (mdd_is_append(pobj))
+	if (mdd_is_append(pattr))
 		RETURN(-EPERM);
 
 	RETURN(0);
@@ -482,7 +482,7 @@ int mdd_may_delete(const struct lu_env *env, struct mdd_object *tpobj,
 	if (mdd_is_sticky(env, tpobj, tpattr, tobj, tattr))
 		RETURN(-EPERM);
 
-	if (mdd_is_immutable(tobj) || mdd_is_append(tobj))
+	if (mdd_is_immutable(tpattr) || mdd_is_append(tpattr))
 		RETURN(-EPERM);
 
 	if ((tattr->la_valid & LA_FLAGS) &&
@@ -546,7 +546,7 @@ static int mdd_link_sanity_check(const struct lu_env *env,
 	if (rc < 0)
 		RETURN(rc);
 
-        if (mdd_is_immutable(src_obj) || mdd_is_append(src_obj))
+	if (mdd_is_immutable(cattr) || mdd_is_append(cattr))
                 RETURN(-EPERM);
 
         if (S_ISDIR(mdd_object_type(src_obj)))

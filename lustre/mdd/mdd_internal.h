@@ -422,9 +422,11 @@ static inline umode_t mdd_object_type(const struct mdd_object *obj)
         return lu_object_attr(&obj->mod_obj.mo_lu);
 }
 
-static inline int mdd_is_immutable(struct mdd_object *obj)
+static inline int mdd_is_immutable(const struct lu_attr *la)
 {
-        return obj->mod_flags & IMMUTE_OBJ;
+	LASSERT(la != NULL);
+	LASSERT(la->la_valid & LA_FLAGS);
+	return la->la_flags & LUSTRE_IMMUTABLE_FL;
 }
 
 static inline int mdd_is_dead_obj(struct mdd_object *obj)
@@ -432,9 +434,11 @@ static inline int mdd_is_dead_obj(struct mdd_object *obj)
         return obj && obj->mod_flags & DEAD_OBJ;
 }
 
-static inline int mdd_is_append(struct mdd_object *obj)
+static inline int mdd_is_append(const struct lu_attr *la)
 {
-        return obj->mod_flags & APPEND_OBJ;
+	LASSERT(la != NULL);
+	LASSERT(la->la_valid & LA_FLAGS);
+	return la->la_flags & LUSTRE_APPEND_FL;
 }
 
 static inline int mdd_object_exists(struct mdd_object *obj)
