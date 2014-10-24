@@ -900,8 +900,8 @@ static int osd_param_is_not_sane(const struct osd_device *dev,
 static void osd_trans_commit_cb(struct super_block *sb,
                                 struct ldiskfs_journal_cb_entry *jcb, int error)
 {
-        struct osd_thandle *oh = container_of0(jcb, struct osd_thandle, ot_jcb);
-        struct thandle     *th  = &oh->ot_super;
+	struct osd_thandle *oh = container_of0(jcb, struct osd_thandle, ot_jcb);
+	struct thandle     *th  = &oh->ot_super;
         struct lu_device   *lud = &th->th_dev->dd_lu_dev;
         struct dt_txn_commit_cb *dcb, *tmp;
 
@@ -2918,6 +2918,8 @@ static int osd_xattr_get(const struct lu_env *env, struct dt_object *dt,
         struct inode           *inode  = obj->oo_inode;
         struct osd_thread_info *info   = osd_oti_get(env);
         struct dentry          *dentry = &info->oti_obj_dentry;
+	ssize_t buf_len = 0;
+	void *buf_area = NULL;
 
         /* version get is not real XATTR but uses xattr API */
         if (strcmp(name, XATTR_NAME_VERSION) == 0) {
@@ -2934,7 +2936,11 @@ static int osd_xattr_get(const struct lu_env *env, struct dt_object *dt,
         if (osd_object_auth(env, dt, capa, CAPA_OPC_META_READ))
                 return -EACCES;
 
-	return __osd_xattr_get(inode, dentry, name, buf->lb_buf, buf->lb_len);
+	if (buf != NULL) {
+		buf_len = buf->lb_len;
+		buf_area = buf->lb_buf;
+	}
+	return __osd_xattr_get(inode, dentry, name, buf_area, buf_len);
 }
 
 
@@ -2962,9 +2968,28 @@ static int osd_declare_xattr_set(const struct lu_env *env,
 		credits = 1;
 	} else {
 		credits = osd_dto_credits_noquota[DTO_XATTR_SET];
-		if (buf && buf->lb_len > sb->s_blocksize) {
-			credits *= (buf->lb_len + sb->s_blocksize - 1) >>
-					sb->s_blocksize_bits;
+
+		if (buf != NULL) {
+			ssize_t buflen;
+
+			if (buf->lb_buf == NULL && dt_object_exists(dt)
+			    && !dt_object_remote(dt)) {
+				/* learn xattr size from osd_xattr_get if
+				   attribute has not been read yet */
+				buflen = osd_xattr_get(env, dt, NULL,
+						       name, BYPASS_CAPA);
+				if (buflen < 0)
+					buflen = 0;
+			} else {
+				buflen = buf->lb_len;
+			}
+
+			if (buflen > sb->s_blocksize) {
+				credits += osd_calc_bkmap_credits(
+				    sb, NULL, 0, -1,
+				    (buflen + sb->s_blocksize - 1) >>
+				    sb->s_blocksize_bits);
+			}
 		}
 		/*
 		 * xattr set may involve inode quota change, reserve credits for
