@@ -131,8 +131,13 @@ struct osd_object {
          * dotdot in the given directory. This is required for interop mode
          * (b11826).
          */
-        int                     oo_compat_dot_created;
-        int                     oo_compat_dotdot_created;
+	int                     oo_compat_dot_created:1;
+	int                     oo_compat_dotdot_created:1;
+
+	/* LOVEA cache */
+	char			*oo_lovea_cached;
+	/* 0 - not cached, -1 - no LOV EA, >0 - size of cached LOVEA */
+	int			oo_lovea_size;
 
         const struct lu_env    *oo_owner;
 #ifdef CONFIG_LOCKDEP

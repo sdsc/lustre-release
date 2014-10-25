@@ -2905,7 +2905,6 @@ static int lod_cache_parent_lov_striping(const struct lu_env *env,
 	if (rc < (typeof(rc))sizeof(struct lov_user_md)) {
 		/* don't lookup for non-existing or invalid striping */
 		lp->ldo_def_striping_set = 0;
-		lp->ldo_striping_cached = 1;
 		lp->ldo_def_stripe_size = 0;
 		lp->ldo_def_stripenr = 0;
 		lp->ldo_def_stripe_offset = (typeof(v1->lmm_stripe_offset))(-1);
@@ -2935,7 +2934,6 @@ static int lod_cache_parent_lov_striping(const struct lu_env *env,
 	lp->ldo_def_stripenr = v1->lmm_stripe_count;
 	lp->ldo_def_stripe_size = v1->lmm_stripe_size;
 	lp->ldo_def_stripe_offset = v1->lmm_stripe_offset;
-	lp->ldo_striping_cached = 1;
 	lp->ldo_def_striping_set = 1;
 	if (v1->lmm_magic == LOV_USER_MAGIC_V3) {
 		/* XXX: sanity check here */

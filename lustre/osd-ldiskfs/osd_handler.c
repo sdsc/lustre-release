@@ -770,6 +770,10 @@ static void osd_object_free(const struct lu_env *env, struct lu_object *l)
         dt_object_fini(&obj->oo_dt);
         if (obj->oo_hl_head != NULL)
                 ldiskfs_htree_lock_head_free(obj->oo_hl_head);
+	if (obj->oo_lovea_cached != NULL) {
+		LASSERT(obj->oo_lovea_size > 0);
+		OBD_FREE(obj->oo_lovea_cached, obj->oo_lovea_size);
+	}
         OBD_FREE_PTR(obj);
 }
 
@@ -2936,6 +2940,63 @@ static int osd_object_version_get(const struct lu_env *env,
         return 0;
 }
 
+static int osd_xattr_get_lovea(const struct lu_env *env, struct dt_object *dt,
+			       struct lu_buf *buf)
+{
+	struct osd_object      *obj    = osd_dt_obj(dt);
+	struct inode           *inode  = obj->oo_inode;
+	struct osd_thread_info *info   = osd_oti_get(env);
+	struct dentry          *dentry = &info->oti_obj_dentry;
+	int			rc;
+
+	down_read(&obj->oo_ext_idx_sem);
+	if (obj->oo_lovea_size == 0) {
+		rc = __osd_xattr_get(inode, dentry, XATTR_NAME_LOV, NULL, 0);
+		if (rc == -ENODATA) {
+			obj->oo_lovea_size = -1;
+			goto ret;
+		} else if (rc < 0) {
+			goto ret;
+		}
+		OBD_ALLOC(obj->oo_lovea_cached, rc);
+		if (unlikely(obj->oo_lovea_cached == NULL)) {
+			GOTO(ret, rc = -ENOMEM);
+		}
+		obj->oo_lovea_size = rc;
+		rc = __osd_xattr_get(inode, dentry, XATTR_NAME_LOV,
+				     obj->oo_lovea_cached, rc);
+		LASSERT(rc == obj->oo_lovea_size);
+	} else if (obj->oo_lovea_size == -1) {
+		rc = -ENODATA;
+		goto ret;
+	}
+
+	if (buf->lb_len == 0) {
+		rc = obj->oo_lovea_size;
+	} else if (buf->lb_len < obj->oo_lovea_size) {
+		rc = -ERANGE;
+	} else {
+		memcpy(buf->lb_buf, obj->oo_lovea_cached, obj->oo_lovea_size);
+		rc = obj->oo_lovea_size;
+	}
+ret:
+	up_read(&obj->oo_ext_idx_sem);
+
+	return rc;
+}
+
+static int osd_xattr_reset_lovea(struct dt_object *dt)
+{
+	struct osd_object      *obj    = osd_dt_obj(dt);
+	if (obj->oo_lovea_size > 0) {
+		LASSERT(obj->oo_lovea_cached != NULL);
+		OBD_FREE(obj->oo_lovea_cached, obj->oo_lovea_size);
+		obj->oo_lovea_cached = NULL;
+	}
+	obj->oo_lovea_size = 0;
+	return 0;
+}
+
 /*
  * Concurrency: @dt is read locked.
  */
@@ -2961,7 +3022,9 @@ static int osd_xattr_get(const struct lu_env *env, struct dt_object *dt,
 		osd_object_version_get(env, dt, buf->lb_buf);
 
 		return sizeof(dt_obj_version_t);
-        }
+	} else if (!strcmp(name, XATTR_NAME_LOV) && S_ISDIR(inode->i_mode)) {
+		return osd_xattr_get_lovea(env, dt, buf);
+	}
 
 	if (!dt_object_exists(dt))
 		return -ENOENT;
@@ -3045,7 +3108,7 @@ static int osd_xattr_set(const struct lu_env *env, struct dt_object *dt,
 	struct osd_object      *obj      = osd_dt_obj(dt);
 	struct inode	       *inode    = obj->oo_inode;
 	struct osd_thread_info *info     = osd_oti_get(env);
-	int			fs_flags = 0;
+	int			rc, fs_flags = 0;
 	ENTRY;
 
         LASSERT(handle != NULL);
@@ -3074,7 +3137,6 @@ static int osd_xattr_set(const struct lu_env *env, struct dt_object *dt,
 
 	if (strcmp(name, XATTR_NAME_LMV) == 0) {
 		struct lustre_mdt_attrs *lma = &info->oti_mdt_attrs;
-		int			 rc;
 
 		rc = osd_get_lma(info, inode, &info->oti_obj_dentry, lma);
 		if (rc != 0)
@@ -3092,8 +3154,13 @@ static int osd_xattr_set(const struct lu_env *env, struct dt_object *dt,
 	    strcmp(name, XATTR_NAME_LINK) == 0)
 		return -ENOSPC;
 
-	return __osd_xattr_set(info, inode, name, buf->lb_buf, buf->lb_len,
+	down_write(&obj->oo_ext_idx_sem);
+	rc = __osd_xattr_set(info, inode, name, buf->lb_buf, buf->lb_len,
 			       fs_flags);
+	if (strcmp(name, XATTR_NAME_LOV) == 0)
+		osd_xattr_reset_lovea(dt);
+	up_write(&obj->oo_ext_idx_sem);
+	return rc;
 }
 
 /*
@@ -3175,7 +3242,11 @@ static int osd_xattr_del(const struct lu_env *env, struct dt_object *dt,
 	ll_vfs_dq_init(inode);
 	dentry->d_inode = inode;
 	dentry->d_sb = inode->i_sb;
+	down_write(&obj->oo_ext_idx_sem);
 	rc = inode->i_op->removexattr(dentry, name);
+	if (rc == 0 && strcmp(name, XATTR_NAME_LOV) == 0)
+		osd_xattr_reset_lovea(dt);
+	up_write(&obj->oo_ext_idx_sem);
 	return rc;
 }
 
