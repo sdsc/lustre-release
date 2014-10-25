@@ -27,7 +27,7 @@ echo $$ >$LOAD_PID_FILE
 TESTDIR=$MOUNT/d0.tar-$(hostname)
 
 do_tar() {
-    tar cf - /etc | tar xf - >$LOG 2>&1
+    strace tar cf - /etc | strace tar xf - >$LOG 2>&1
     return ${PIPESTATUS[1]}
 }
 
