@@ -442,8 +442,7 @@ int lfsck_find_mdt_idx_by_fid(const struct lu_env *env,
 			      struct lfsck_instance *lfsck,
 			      const struct lu_fid *fid)
 {
-	struct seq_server_site	*ss	=
-			lu_site2seq(lfsck->li_bottom->dd_lu_dev.ld_site);
+	struct seq_server_site	*ss	= lfsck_dev_site(lfsck);
 	struct lu_seq_range	*range	= &lfsck_env_info(env)->lti_range;
 	int			 rc;
 
@@ -469,7 +468,7 @@ static int lfsck_create_lpf_local(const struct lu_env *env,
 				  const char *name)
 {
 	struct dt_insert_rec	*rec	= &lfsck_env_info(env)->lti_dt_rec;
-	struct dt_device	*dev	= lfsck->li_bottom;
+	struct dt_device	*dev	= lfsck_obj2dev(child);
 	struct lfsck_bookmark	*bk	= &lfsck->li_bookmark_ram;
 	struct dt_object	*bk_obj = lfsck->li_bookmark_obj;
 	const struct lu_fid	*cfid	= lfsck_dto2fid(child);
@@ -658,7 +657,7 @@ static int lfsck_create_lpf_remote(const struct lu_env *env,
 
 	/* Transaction I: locally */
 
-	dev = lfsck->li_bottom;
+	dev = lfsck_obj2dev(child);
 	th = dt_trans_create(env, dev);
 	if (IS_ERR(th))
 		RETURN(PTR_ERR(th));
@@ -740,11 +739,12 @@ static int lfsck_create_lpf_remote(const struct lu_env *env,
 
 	/* Transaction II: remotely */
 
-	dev = lfsck->li_next;
+	dev = lfsck_obj2dev(parent);
 	th = dt_trans_create(env, dev);
 	if (IS_ERR(th))
 		RETURN(PTR_ERR(th));
 
+	th->th_sync = 1;
 	/* 5a. insert name into parent dir */
 	rec->rec_fid = cfid;
 	rc = dt_declare_insert(env, parent, (const struct dt_rec *)rec,
@@ -757,7 +757,7 @@ static int lfsck_create_lpf_remote(const struct lu_env *env,
 	if (rc != 0)
 		GOTO(stop, rc);
 
-	rc = dt_trans_start(env, dev, th);
+	rc = dt_trans_start_local(env, dev, th);
 	if (rc != 0)
 		GOTO(stop, rc);
 
@@ -779,7 +779,7 @@ unlock:
 stop:
 	dt_trans_stop(env, dev, th);
 
-	if (rc != 0 && dev == lfsck->li_next)
+	if (rc != 0 && dev == lfsck_obj2dev(parent))
 		CDEBUG(D_LFSCK, "%s: partially created the object "DFID
 		       "for orphans, but failed to insert the name %s "
 		       "to the .lustre/lost+found/. Such inconsistency "
@@ -803,7 +803,7 @@ int lfsck_create_lpf(const struct lu_env *env, struct lfsck_instance *lfsck)
 	struct dt_object	 *child	= NULL;
 	struct lustre_handle	  lh	= { 0 };
 	char			  name[8];
-	int			  node	= lfsck_dev_idx(lfsck->li_bottom);
+	int			  node	= lfsck_dev_idx(lfsck);
 	int			  rc	= 0;
 	ENTRY;
 
@@ -864,7 +864,7 @@ int lfsck_create_lpf(const struct lu_env *env, struct lfsck_instance *lfsck)
 		*cfid = bk->lb_lpf_fid;
 	}
 
-	child = lfsck_object_find_by_dev(env, lfsck->li_bottom, cfid);
+	child = lfsck_object_find_bottom(env, lfsck, cfid);
 	if (IS_ERR(child))
 		GOTO(unlock, rc = PTR_ERR(child));
 
@@ -900,10 +900,10 @@ unlock:
 	mutex_unlock(&lfsck->li_mutex);
 	lfsck_ibits_unlock(&lh, LCK_EX);
 	if (rc != 0 && child != NULL && !IS_ERR(child))
-		lu_object_put(env, &child->do_lu);
+		lfsck_object_put(env, child);
 out:
 	if (parent != NULL && !IS_ERR(parent))
-		lu_object_put(env, &parent->do_lu);
+		lfsck_object_put(env, parent);
 
 	return rc;
 }
@@ -1081,8 +1081,7 @@ static int lfsck_verify_lpf_pairs(const struct lu_env *env,
 		}
 
 		cname = lfsck_name_get_const(env, name, strlen(name));
-		rc = lfsck_verify_linkea(env, lfsck->li_bottom, child, cname,
-					 &LU_LPF_FID);
+		rc = lfsck_verify_linkea(env, child, cname, &LU_LPF_FID);
 		if (rc == 0)
 			rc = lfsck_update_lpf_entry(env, lfsck, parent, child,
 						    name, type);
@@ -1090,18 +1089,18 @@ static int lfsck_verify_lpf_pairs(const struct lu_env *env,
 		GOTO(out_done, rc);
 	}
 
-	parent2 = lfsck_object_find_by_dev(env, lfsck->li_next, fid);
+	parent2 = lfsck_object_find_bottom(env, lfsck, fid);
 	if (IS_ERR(parent2))
 		GOTO(linkea, parent2);
 
 	if (!dt_object_exists(parent2)) {
-		lu_object_put(env, &parent2->do_lu);
+		lfsck_object_put(env, parent2);
 
 		GOTO(linkea, parent2 = ERR_PTR(-ENOENT));
 	}
 
 	if (!dt_try_as_dir(env, parent2)) {
-		lu_object_put(env, &parent2->do_lu);
+		lfsck_object_put(env, parent2);
 
 		GOTO(linkea, parent2 = ERR_PTR(-ENOTDIR));
 	}
@@ -1186,7 +1185,7 @@ linkea:
 
 out_put:
 	if (parent2 != NULL && !IS_ERR(parent2))
-		lu_object_put(env, &parent2->do_lu);
+		lfsck_object_put(env, parent2);
 
 out_done:
 	return rc;
@@ -1218,17 +1217,17 @@ int lfsck_verify_lpf(const struct lu_env *env, struct lfsck_instance *lfsck)
 	struct dt_object	 *child1 = NULL;
 	/* child2's FID is in the name entry MDTxxxx. */
 	struct dt_object	 *child2 = NULL;
-	struct dt_device	 *dev	 = lfsck->li_bottom;
 	const struct lu_name	 *cname;
 	char			  name[8];
-	int			  node   = lfsck_dev_idx(dev);
+	int			  node   = lfsck_dev_idx(lfsck);
 	int			  rc	 = 0;
 	ENTRY;
 
 	LASSERT(lfsck->li_master);
 
 	if (node == 0) {
-		parent = lfsck_object_find_by_dev(env, dev, &LU_LPF_FID);
+		parent = lfsck_object_find_by_dev(env, lfsck->li_bottom,
+						  &LU_LPF_FID);
 	} else {
 		struct lfsck_tgt_desc *ltd;
 
@@ -1272,7 +1271,7 @@ int lfsck_verify_lpf(const struct lu_env *env, struct lfsck_instance *lfsck)
 			if (rc != 0)
 				GOTO(put, rc);
 		} else {
-			child1 = lfsck_object_find_by_dev(env, dev,
+			child1 = lfsck_object_find_bottom(env, lfsck,
 							  &bk->lb_lpf_fid);
 			if (IS_ERR(child1))
 				GOTO(put, rc = PTR_ERR(child1));
@@ -1293,7 +1292,7 @@ int lfsck_verify_lpf(const struct lu_env *env, struct lfsck_instance *lfsck)
 				if (rc != 0)
 					GOTO(put, rc);
 
-				lu_object_put(env, &child1->do_lu);
+				lfsck_object_put(env, child1);
 				child1 = NULL;
 			} else if (unlikely(!dt_try_as_dir(env, child1))) {
 				GOTO(put, rc = -ENOTDIR);
@@ -1323,7 +1322,7 @@ int lfsck_verify_lpf(const struct lu_env *env, struct lfsck_instance *lfsck)
 		goto check_child1;
 	}
 
-	child2 = lfsck_object_find_by_dev(env, dev, cfid);
+	child2 = lfsck_object_find_bottom(env, lfsck, cfid);
 	if (IS_ERR(child2))
 		GOTO(put, rc = PTR_ERR(child2));
 
@@ -1358,7 +1357,7 @@ int lfsck_verify_lpf(const struct lu_env *env, struct lfsck_instance *lfsck)
 		}
 
 		cname = lfsck_name_get_const(env, name, strlen(name));
-		rc = lfsck_verify_linkea(env, dev, child2, cname, &LU_LPF_FID);
+		rc = lfsck_verify_linkea(env, child2, cname, &LU_LPF_FID);
 	}
 
 	GOTO(put, rc);
@@ -1376,11 +1375,11 @@ put:
 		rc = -ENOTDIR;
 
 	if (child2 != NULL && !IS_ERR(child2))
-		lu_object_put(env, &child2->do_lu);
+		lfsck_object_put(env, child2);
 	if (child1 != NULL && !IS_ERR(child1))
-		lu_object_put(env, &child1->do_lu);
+		lfsck_object_put(env, child1);
 	if (parent != NULL && !IS_ERR(parent))
-		lu_object_put(env, &parent->do_lu);
+		lfsck_object_put(env, parent);
 
 	return rc;
 }
@@ -1388,12 +1387,11 @@ put:
 static int lfsck_fid_init(struct lfsck_instance *lfsck)
 {
 	struct lfsck_bookmark	*bk	= &lfsck->li_bookmark_ram;
-	struct seq_server_site	*ss;
+	struct seq_server_site	*ss	= lfsck_dev_site(lfsck);
 	char			*prefix;
 	int			 rc	= 0;
 	ENTRY;
 
-	ss = lu_site2seq(lfsck->li_bottom->dd_lu_dev.ld_site);
 	if (unlikely(ss == NULL))
 		RETURN(-ENXIO);
 
@@ -1448,7 +1446,7 @@ void lfsck_instance_cleanup(const struct lu_env *env,
 	LASSERT(thread_is_init(thread) || thread_is_stopped(thread));
 
 	if (lfsck->li_obj_oit != NULL) {
-		lu_object_put_nocache(env, &lfsck->li_obj_oit->do_lu);
+		lfsck_object_put(env, lfsck->li_obj_oit);
 		lfsck->li_obj_oit = NULL;
 	}
 
@@ -1484,12 +1482,12 @@ void lfsck_instance_cleanup(const struct lu_env *env,
 	lfsck_tgt_descs_fini(&lfsck->li_mdt_descs);
 
 	if (lfsck->li_bookmark_obj != NULL) {
-		lu_object_put_nocache(env, &lfsck->li_bookmark_obj->do_lu);
+		lfsck_object_put(env, lfsck->li_bookmark_obj);
 		lfsck->li_bookmark_obj = NULL;
 	}
 
 	if (lfsck->li_lpf_obj != NULL) {
-		lu_object_put(env, &lfsck->li_lpf_obj->do_lu);
+		lfsck_object_put(env, lfsck->li_lpf_obj);
 		lfsck->li_lpf_obj = NULL;
 	}
 
@@ -2054,7 +2052,7 @@ static int lfsck_stop_notify(const struct lu_env *env,
 		spin_unlock(&ltds->ltd_lock);
 
 		memset(lr, 0, sizeof(*lr));
-		lr->lr_index = lfsck_dev_idx(lfsck->li_bottom);
+		lr->lr_index = lfsck_dev_idx(lfsck);
 		lr->lr_event = LE_PEER_EXIT;
 		lr->lr_active = type;
 		lr->lr_status = LS_CO_PAUSED;
@@ -2464,7 +2462,7 @@ static int lfsck_stop_all(const struct lu_env *env,
 
 	memset(lr, 0, sizeof(*lr));
 	lr->lr_event = LE_STOP;
-	lr->lr_index = lfsck_dev_idx(lfsck->li_bottom);
+	lr->lr_index = lfsck_dev_idx(lfsck);
 	lr->lr_status = stop->ls_status;
 	lr->lr_version = bk->lb_version;
 	lr->lr_active = LFSCK_TYPES_ALL;
@@ -2534,7 +2532,7 @@ static int lfsck_start_all(const struct lu_env *env,
 
 	memset(lr, 0, sizeof(*lr));
 	lr->lr_event = LE_START;
-	lr->lr_index = lfsck_dev_idx(lfsck->li_bottom);
+	lr->lr_index = lfsck_dev_idx(lfsck);
 	lr->lr_speed = bk->lb_speed_limit;
 	lr->lr_version = bk->lb_version;
 	lr->lr_active = start->ls_active;
@@ -3079,7 +3077,7 @@ int lfsck_register(const struct lu_env *env, struct dt_device *key,
 	lfsck->li_local_root_fid = *fid;
 	if (master) {
 		lfsck->li_master = 1;
-		if (lfsck_dev_idx(key) == 0) {
+		if (lfsck_dev_idx(lfsck) == 0) {
 			struct lu_fid *pfid = &lfsck_env_info(env)->lti_fid2;
 			const struct lu_name *cname;
 
@@ -3098,14 +3096,14 @@ int lfsck_register(const struct lu_env *env, struct dt_device *key,
 			if (rc != 0)
 				GOTO(out, rc);
 
-			lu_object_put(env, &obj->do_lu);
+			lfsck_object_put(env, obj);
 			obj = dt_locate(env, key, fid);
 			if (IS_ERR(obj))
 				GOTO(out, rc = PTR_ERR(obj));
 
 			cname = lfsck_name_get_const(env, dotlustre,
 						     strlen(dotlustre));
-			rc = lfsck_verify_linkea(env, key, obj, cname,
+			rc = lfsck_verify_linkea(env, obj, cname,
 						 &lfsck->li_global_root_fid);
 			if (rc != 0)
 				GOTO(out, rc);
@@ -3117,18 +3115,18 @@ int lfsck_register(const struct lu_env *env, struct dt_device *key,
 			if (rc != 0)
 				GOTO(out, rc);
 
-			lu_object_put(env, &obj->do_lu);
+			lfsck_object_put(env, obj);
 			obj = dt_locate(env, key, fid);
 			if (IS_ERR(obj))
 				GOTO(out, rc = PTR_ERR(obj));
 
 			cname = lfsck_name_get_const(env, lostfound,
 						     strlen(lostfound));
-			rc = lfsck_verify_linkea(env, key, obj, cname, pfid);
+			rc = lfsck_verify_linkea(env, obj, cname, pfid);
 			if (rc != 0)
 				GOTO(out, rc);
 
-			lu_object_put(env, &obj->do_lu);
+			lfsck_object_put(env, obj);
 			obj = NULL;
 		}
 	}
@@ -3171,9 +3169,9 @@ int lfsck_register(const struct lu_env *env, struct dt_device *key,
 		rc = lfsck_add_target_from_orphan(env, lfsck);
 out:
 	if (obj != NULL && !IS_ERR(obj))
-		lu_object_put(env, &obj->do_lu);
+		lfsck_object_put(env, obj);
 	if (root != NULL && !IS_ERR(root))
-		lu_object_put(env, &root->do_lu);
+		lfsck_object_put(env, root);
 	if (rc != 0)
 		lfsck_instance_cleanup(env, lfsck);
 	return rc;
