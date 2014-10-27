@@ -61,11 +61,15 @@ void request_out_callback(lnet_event_t *ev)
         struct ptlrpc_request *req = cbid->cbid_arg;
         ENTRY;
 
-        LASSERT (ev->type == LNET_EVENT_SEND ||
-                 ev->type == LNET_EVENT_UNLINK);
-        LASSERT (ev->unlinked);
+	LASSERT(ev->type == LNET_EVENT_SEND ||
+		ev->type == LNET_EVENT_ACK ||
+		ev->type == LNET_EVENT_UNLINK);
+	DEBUG_REQ(D_NET, req, "type %d, status %d", ev->type, ev->status);
 
-        DEBUG_REQ(D_NET, req, "type %d, status %d", ev->type, ev->status);
+	if (!ev->unlinked) {
+		LASSERT(enable_ack);
+		RETURN_EXIT;
+	}
 
         sptlrpc_request_out_callback(req);
         req->rq_real_sent = cfs_time_current_sec();
@@ -402,12 +406,12 @@ void reply_out_callback(lnet_event_t *ev)
                  ev->type == LNET_EVENT_UNLINK);
 
         if (!rs->rs_difficult) {
-                /* 'Easy' replies have no further processing so I drop the
-                 * net's ref on 'rs' */
-                LASSERT (ev->unlinked);
-                ptlrpc_rs_decref(rs);
-                EXIT;
-                return;
+		/* 'Easy' replies have no further processing so I drop the
+		 * net's ref on 'rs' */
+		LASSERT(ev->unlinked || enable_ack);
+		if (ev->unlinked)
+			ptlrpc_rs_decref(rs);
+		RETURN_EXIT;
         }
 
         LASSERT (rs->rs_on_net);

@@ -114,6 +114,8 @@ __init int ptlrpc_init(void)
 	if (rc)
 		GOTO(cleanup, rc);
 
+	if (enable_ack)
+		LCONSOLE("Enable ACK for ptlrpc messages\n");
 #ifdef __KERNEL__
 	cleanup_phase = 8;
 	rc = tgt_mod_init();
