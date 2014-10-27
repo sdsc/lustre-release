@@ -420,6 +420,7 @@ static struct dt_it *lod_striped_it_init(const struct lu_env *env,
 	it->lit_it = it_next;
 	it->lit_obj = dt;
 
+	lu_object_get(&dt->do_lu);
 	return (struct dt_it *)it;
 }
 
@@ -452,6 +453,7 @@ static void lod_striped_it_fini(const struct lu_env *env, struct dt_it *di)
 
 	next->do_index_ops->dio_it.fini(env, it->lit_it);
 
+	lu_object_put(env, &it->lit_obj->do_lu);
 	/* the iterator not in use any more */
 	it->lit_obj = NULL;
 	it->lit_it = NULL;

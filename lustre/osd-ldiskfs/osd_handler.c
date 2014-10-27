@@ -4623,6 +4623,7 @@ static void osd_it_iam_fini(const struct lu_env *env, struct dt_it *di)
         iam_it_fini(&it->oi_it);
         osd_ipd_put(env, &obj->oo_dir->od_container, it->oi_ipd);
         lu_object_put(env, &obj->oo_dt.do_lu);
+	memset(it, 0, sizeof(*it));
 }
 
 /**
@@ -4870,18 +4871,32 @@ static struct dt_it *osd_it_ea_init(const struct lu_env *env,
 	struct file		*file = &it->oie_file;
         struct lu_object        *lo   = &dt->do_lu;
         struct dentry           *obj_dentry = &info->oti_it_dentry;
+	void			*ea_buf = info->oti_it_ea_buf;
         ENTRY;
         LASSERT(lu_object_exists(lo));
 
+	/* Sigh if it has been used by another user, reallocate a new one */
+	if (it->oie_obj != NULL) {
+		OBD_ALLOC_PTR(it);
+		if (it == NULL)
+			RETURN(ERR_PTR(-ENOMEM));
+		file = &it->oie_file;
+		obj_dentry = &info->oti_it_dentry1;
+		OBD_ALLOC(ea_buf, OSD_IT_EA_BUFSIZE);
+		if (ea_buf == NULL) {
+			OBD_FREE_PTR(it);
+			RETURN(ERR_PTR(-ENOMEM));
+		}
+	}
         obj_dentry->d_inode = obj->oo_inode;
         obj_dentry->d_sb = osd_sb(osd_obj2dev(obj));
         obj_dentry->d_name.hash = 0;
 
-        it->oie_rd_dirent       = 0;
-        it->oie_it_dirent       = 0;
-        it->oie_dirent          = NULL;
-        it->oie_buf             = info->oti_it_ea_buf;
-        it->oie_obj             = obj;
+	it->oie_rd_dirent       = 0;
+	it->oie_it_dirent       = 0;
+	it->oie_dirent          = NULL;
+	it->oie_buf             = ea_buf;
+	it->oie_obj             = obj;
 
 	/* Reset the "file" totally to avoid to reuse any old value from
 	 * former readdir handling, the "file->f_pos" should be zero. */
@@ -4907,14 +4922,22 @@ static struct dt_it *osd_it_ea_init(const struct lu_env *env,
  */
 static void osd_it_ea_fini(const struct lu_env *env, struct dt_it *di)
 {
-        struct osd_it_ea     *it   = (struct osd_it_ea *)di;
-        struct osd_object    *obj  = it->oie_obj;
-        struct inode       *inode  = obj->oo_inode;
+	struct osd_thread_info  *info = osd_oti_get(env);
+	struct osd_it_ea     *it   = (struct osd_it_ea *)di;
+	struct osd_object    *obj  = it->oie_obj;
+	struct inode       *inode  = obj->oo_inode;
 
-        ENTRY;
-        it->oie_file.f_op->release(inode, &it->oie_file);
-        lu_object_put(env, &obj->oo_dt.do_lu);
-        EXIT;
+	ENTRY;
+	it->oie_file.f_op->release(inode, &it->oie_file);
+	lu_object_put(env, &obj->oo_dt.do_lu);
+	if (it != &info->oti_it_ea) {
+		OBD_FREE(it->oie_buf, OSD_IT_EA_BUFSIZE);
+		OBD_FREE_PTR(it);
+	} else {
+		memset(it, 0, sizeof(*it));
+	}
+
+	EXIT;
 }
 
 /**
@@ -5047,13 +5070,13 @@ static int osd_ldiskfs_it_fill(const struct lu_env *env,
         it->oie_dirent = it->oie_buf;
         it->oie_rd_dirent = 0;
 
-        if (obj->oo_hl_head != NULL) {
-                hlock = osd_oti_get(env)->oti_hlock;
-                ldiskfs_htree_lock(hlock, obj->oo_hl_head,
-                                   inode, LDISKFS_HLOCK_READDIR);
-        } else {
+	if (obj->oo_hl_head != NULL) {
+		hlock = osd_oti_get(env)->oti_hlock;
+		ldiskfs_htree_lock(hlock, obj->oo_hl_head,
+				   inode, LDISKFS_HLOCK_READDIR);
+	} else {
 		down_read(&obj->oo_ext_idx_sem);
-        }
+	}
 
 #ifdef HAVE_DIR_CONTEXT
 	buf.ctx.pos = filp->f_pos;
