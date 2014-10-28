@@ -1667,6 +1667,23 @@ static int ll_lov_setea(struct inode *inode, struct file *file,
 	RETURN(rc);
 }
 
+static int ll_lov_getstripe(struct inode *inode, unsigned long arg)
+{
+	struct	lu_env *env;
+	int	refcheck;
+	int	rc = -ENODATA;
+	ENTRY;
+
+	env = cl_env_get(&refcheck);
+	if (IS_ERR(env))
+		RETURN(PTR_ERR(env));
+
+	rc = cl_object_ioctl(env, ll_i2info(inode)->lli_clob,
+				     LL_IOC_LOV_GETSTRIPE, arg);
+	cl_env_put(env, &refcheck);
+	RETURN(rc);
+}
+
 static int ll_lov_setstripe(struct inode *inode, struct file *file,
 			    unsigned long arg)
 {
@@ -1699,25 +1716,8 @@ static int ll_lov_setstripe(struct inode *inode, struct file *file,
 		put_user(0, &lumv1p->lmm_stripe_count);
 
 		ll_layout_refresh(inode, &gen);
-		lsm = ccc_inode_lsm_get(inode);
-		rc = obd_iocontrol(LL_IOC_LOV_GETSTRIPE, ll_i2dtexp(inode),
-				   0, lsm, (void __user *)arg);
-		ccc_inode_lsm_put(inode, lsm);
+		rc = ll_lov_getstripe(inode, arg);
 	}
-	RETURN(rc);
-}
-
-static int ll_lov_getstripe(struct inode *inode, unsigned long arg)
-{
-	struct lov_stripe_md *lsm;
-	int rc = -ENODATA;
-	ENTRY;
-
-	lsm = ccc_inode_lsm_get(inode);
-	if (lsm != NULL)
-		rc = obd_iocontrol(LL_IOC_LOV_GETSTRIPE, ll_i2dtexp(inode), 0,
-				   lsm, (void __user *)arg);
-	ccc_inode_lsm_put(inode, lsm);
 	RETURN(rc);
 }
 
