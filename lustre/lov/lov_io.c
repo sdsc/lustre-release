@@ -129,9 +129,17 @@ static void lov_io_sub_inherit(struct cl_io *io, struct lov_io *lio,
                 }
                 break;
         }
-        default:
-                break;
-        }
+	case CIT_LADVISE: {
+		io->u.ci_ladvise.li_start = start;
+		io->u.ci_ladvise.li_end = end;
+		io->u.ci_ladvise.li_capa = parent->u.ci_ladvise.li_capa;
+		io->u.ci_ladvise.li_fid = parent->u.ci_ladvise.li_fid;
+		io->u.ci_ladvise.li_advice = parent->u.ci_ladvise.li_advice;
+		break;
+	}
+	default:
+		break;
+	}
 }
 
 static int lov_io_sub_init(const struct lu_env *env, struct lov_io *lio,
@@ -354,6 +362,12 @@ static int lov_io_slice_init(struct lov_io *lio,
 	case CIT_FSYNC: {
 		lio->lis_pos = io->u.ci_fsync.fi_start;
 		lio->lis_endpos = io->u.ci_fsync.fi_end;
+		break;
+	}
+
+	case CIT_LADVISE: {
+		lio->lis_pos = io->u.ci_ladvise.li_start;
+		lio->lis_endpos = io->u.ci_ladvise.li_end;
 		break;
 	}
 
@@ -819,6 +833,15 @@ static const struct cl_io_operations lov_io_ops = {
 			.cio_start     = lov_io_start,
 			.cio_end       = lov_io_fsync_end
 		},
+		[CIT_LADVISE] = {
+			.cio_fini      = lov_io_fini,
+			.cio_iter_init = lov_io_iter_init,
+			.cio_iter_fini = lov_io_iter_fini,
+			.cio_lock      = lov_io_lock,
+			.cio_unlock    = lov_io_unlock,
+			.cio_start     = lov_io_start,
+			.cio_end       = lov_io_end
+		},
 		[CIT_MISC] = {
 			.cio_fini      = lov_io_fini
 		}
@@ -890,6 +913,9 @@ static const struct cl_io_operations lov_empty_io_ops = {
 		[CIT_FSYNC] = {
 			.cio_fini      = lov_empty_io_fini
 		},
+		[CIT_LADVISE] = {
+			.cio_fini   = lov_empty_io_fini
+		},
 		[CIT_MISC] = {
 			.cio_fini      = lov_empty_io_fini
 		}
@@ -937,6 +963,7 @@ int lov_io_init_empty(const struct lu_env *env, struct cl_object *obj,
 		result = 0;
 		break;
 	case CIT_FSYNC:
+	case CIT_LADVISE:
 	case CIT_SETATTR:
 		result = +1;
 		break;
@@ -974,6 +1001,7 @@ int lov_io_init_released(const struct lu_env *env, struct cl_object *obj,
 		LASSERTF(0, "invalid type %d\n", io->ci_type);
 	case CIT_MISC:
 	case CIT_FSYNC:
+	case CIT_LADVISE:
 		result = 1;
 		break;
 	case CIT_SETATTR:
