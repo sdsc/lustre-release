@@ -2134,29 +2134,25 @@ static int echo_create_object(const struct lu_env *env, struct echo_device *ed,
         }
 
 	/* setup object ID here */
-	if (oa->o_valid & OBD_MD_FLID) {
+	if (oa->o_valid & OBD_MD_FLID)
 		LASSERT(oa->o_valid & OBD_MD_FLGROUP);
-		lsm->lsm_oi = oa->o_oi;
-	}
 
-	if (ostid_id(&lsm->lsm_oi) == 0)
-		ostid_set_id(&lsm->lsm_oi, ++last_object_id);
+	if (ostid_id(&oa->o_oi) == 0)
+		ostid_set_id(&oa->o_oi, ++last_object_id);
 
 	/* Only echo objects are allowed to be created */
 	LASSERT((oa->o_valid & OBD_MD_FLGROUP) &&
 		(ostid_seq(&oa->o_oi) == FID_SEQ_ECHO));
 
-	rc = obd_create(env, ec->ec_exp, oa, &lsm, oti);
+	rc = obd_create(env, ec->ec_exp, oa, oti);
 	if (rc != 0) {
 		CERROR("Cannot create objects: rc = %d\n", rc);
 		GOTO(failed, rc);
 	}
 
+	LASSERT(oa->o_valid & OBD_MD_FLID);
+	lsm->lsm_oi = oa->o_oi;
 	created = 1;
-
-        /* See what object ID we were given */
-	oa->o_oi = lsm->lsm_oi;
-        oa->o_valid |= OBD_MD_FLID;
 
         eco = cl_echo_object_find(ed, &lsm);
         if (IS_ERR(eco))

@@ -1089,8 +1089,7 @@ out:
  * \retval		negative value on error
  */
 int ofd_echo_create(const struct lu_env *env, struct obd_export *exp,
-		    struct obdo *oa, struct lov_stripe_md **ea,
-		    struct obd_trans_info *oti)
+		    struct obdo *oa, struct obd_trans_info *oti)
 {
 	struct ofd_device	*ofd = ofd_exp(exp);
 	struct ofd_thread_info	*info;
@@ -1148,11 +1147,6 @@ int ofd_echo_create(const struct lu_env *env, struct obd_export *exp,
 	ofd_grant_commit(env, ofd_obd(ofd)->obd_self_export, rc);
 out:
 	mutex_unlock(&oseq->os_create_lock);
-	if (rc == 0 && ea != NULL) {
-		struct lov_stripe_md *lsm = *ea;
-
-		lsm->lsm_oi = oa->o_oi;
-	}
 	ofd_seq_put(env, oseq);
 
 out_sem:

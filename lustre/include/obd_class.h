@@ -776,17 +776,15 @@ static inline int obd_free_memmd(struct obd_export *exp,
 }
 
 static inline int obd_create(const struct lu_env *env, struct obd_export *exp,
-                             struct obdo *obdo, struct lov_stripe_md **ea,
-                             struct obd_trans_info *oti)
+			     struct obdo *obdo, struct obd_trans_info *oti)
 {
-        int rc;
-        ENTRY;
+	int rc;
+	ENTRY;
 
-        EXP_CHECK_DT_OP(exp, create);
-        EXP_COUNTER_INCREMENT(exp, create);
-
-        rc = OBP(exp->exp_obd, create)(env, exp, obdo, ea, oti);
-        RETURN(rc);
+	EXP_CHECK_DT_OP(exp, create);
+	EXP_COUNTER_INCREMENT(exp, create);
+	rc = OBP(exp->exp_obd, create)(env, exp, obdo, oti);
+	RETURN(rc);
 }
 
 static inline int obd_destroy(const struct lu_env *env, struct obd_export *exp,
