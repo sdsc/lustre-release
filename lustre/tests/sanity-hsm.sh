@@ -581,11 +581,23 @@ cleanup_large_files() {
 	[ $ratio -gt 50 ] && find $MOUNT -size +10M -exec rm -f {} \;
 }
 
+check_enough_free_space() {
+	local nb=$1
+	local unit=$2
+	local need=$((nb * unit /1024))
+	local free=$(df -kP $MOUNT | tail -1 | awk '{print $4}')
+	[ $need >= $free ] && return 1
+	return 0
+}
+
 make_large_for_striping() {
 	local file2=${1/$DIR/$DIR2}
 	local sz=$($LCTL get_param -n lov.*-clilov-*.stripesize | head -n1)
 
 	cleanup_large_files
+
+	check_enough_free_space 5 $sz
+	[ $? == 1 ] && return 1
 
 	dd if=/dev/urandom of=$file2 count=5 bs=$sz conv=fsync ||
 		error "cannot create $file2"
@@ -596,6 +608,9 @@ make_large_for_progress() {
 	local file2=${1/$DIR/$DIR2}
 
 	cleanup_large_files
+
+	check_enough_free_space 39 1000000
+	[ $? == 1 ] && return 1
 
 	# big file is large enough, so copy time is > 30s
 	# so copytool make 1 progress
@@ -611,6 +626,9 @@ make_large_for_progress_aligned() {
 
 	cleanup_large_files
 
+	check_enough_free_space 33 1048576
+	[ $? == 1 ] && return 1
+
 	# big file is large enough, so copy time is > 30s
 	# so copytool make 1 progress
 	# size is a multiple of 1M to have stripe
@@ -624,6 +642,9 @@ make_large_for_cancel() {
 	local file2=${1/$DIR/$DIR2}
 
 	cleanup_large_files
+
+	check_enough_free_space 103 1048576
+	[ $? == 1 ] && return 1
 
 	# Copy timeout is 100s. 105MB => 105s
 	dd if=/dev/urandom of=$file2 count=103 bs=1M conv=fsync ||
@@ -1108,6 +1129,8 @@ test_12c() {
 	local f=$DIR/$tdir/$tfile
 	$LFS setstripe -c 2 $f
 	local fid=$(make_large_for_striping $f)
+	[ $? == 1 ] && skip_env "not enough free space" && return
+
 	local FILE_CRC=$(md5sum $f)
 
 	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER $f
@@ -1983,6 +2006,8 @@ test_26() {
 	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
 	local fid=$(make_large_for_progress $f)
+	[ $? == 1 ] && skip_env "not enough free space" && return
+
 	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER $f
 	wait_request_state $fid ARCHIVE SUCCEED
 
@@ -2020,6 +2045,8 @@ test_27b() {
 	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
 	local fid=$(make_large_for_progress $f)
+	[ $? == 1 ] && skip_env "not enough free space" && return
+
 	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER $f
 	wait_request_state $fid ARCHIVE SUCCEED
 	$LFS hsm_release $f
@@ -2039,6 +2066,8 @@ test_28() {
 	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
 	local fid=$(make_large_for_progress $f)
+	[ $? == 1 ] && skip_env "not enough free space" && return
+
 	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER $f
 	wait_request_state $fid ARCHIVE SUCCEED
 
@@ -2217,6 +2246,8 @@ test_31b() {
 
 	local f=$DIR/$tdir/$tfile
 	local fid=$(make_large_for_progress $f)
+	[ $? == 1 ] && skip_env "not enough free space" && return
+
 	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER $f
 	wait_request_state $fid ARCHIVE SUCCEED
 	$LFS hsm_release $f
@@ -2238,6 +2269,8 @@ test_31c() {
 
 	local f=$DIR/$tdir/$tfile
 	local fid=$(make_large_for_progress_aligned $f)
+	[ $? == 1 ] && skip_env "not enough free space" && return
+
 	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER $f
 	wait_request_state $fid ARCHIVE SUCCEED
 	$LFS hsm_release $f
@@ -2259,6 +2292,8 @@ test_33() {
 
 	local f=$DIR/$tdir/$tfile
 	local fid=$(make_large_for_progress $f)
+	[ $? == 1 ] && skip_env "not enough free space" && return
+
 	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER $f
 	wait_request_state $fid ARCHIVE SUCCEED
 	$LFS hsm_release $f
@@ -2323,6 +2358,8 @@ test_34() {
 
 	local f=$DIR/$tdir/$tfile
 	local fid=$(make_large_for_progress $f)
+	[ $? == 1 ] && skip_env "not enough free space" && return
+
 	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER $f
 	wait_request_state $fid ARCHIVE SUCCEED
 	$LFS hsm_release $f
@@ -2356,6 +2393,8 @@ test_35() {
 	local f=$DIR/$tdir/$tfile
 	local f1=$DIR/$tdir/$tfile-1
 	local fid=$(make_large_for_progress $f)
+	[ $? == 1 ] && skip_env "not enough free space" && return
+
 	local fid1=$(copy_file /etc/passwd $f1)
 	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER $f
 	wait_request_state $fid ARCHIVE SUCCEED
@@ -2392,6 +2431,8 @@ test_36() {
 
 	local f=$DIR/$tdir/$tfile
 	local fid=$(make_large_for_progress $f)
+	[ $? == 1 ] && skip_env "not enough free space" && return
+
 	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER $f
 	wait_request_state $fid ARCHIVE SUCCEED
 	$LFS hsm_release $f
@@ -2585,6 +2626,7 @@ test_56() {
 	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
 	local fid=$(make_large_for_progress $f)
+	[ $? == 1 ] && skip_env "not enough free space" && return
 
 	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER $f ||
 		error "could not archive file"
@@ -2707,6 +2749,7 @@ test_60() {
 	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
 	local fid=$(make_large_for_progress $f)
+	[ $? == 1 ] && skip_env "not enough free space" && return
 
 	local start_at=$(date +%s)
 	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER $f ||
@@ -2809,6 +2852,7 @@ test_71() {
 	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
 	local fid=$(make_large_for_progress $f)
+	[ $? == 1 ] && skip_env "not enough free space" && return
 
 	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER $f ||
 		error "could not archive file"
@@ -3078,6 +3122,8 @@ test_104() {
 	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
 	local fid=$(make_large_for_progress $f)
+	[ $? == 1 ] && skip_env "not enough free space" && return
+
 	# if cdt is on, it can serve too quickly the request
 	cdt_disable
 	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER --data $DATA $f
@@ -3389,6 +3435,8 @@ test_200() {
 	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
 	local fid=$(make_large_for_cancel $f)
+	[ $? == 1 ] && skip_env "not enough free space" && return
+
 	# test with cdt on is made in test_221
 	cdt_disable
 	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER $f
@@ -3430,6 +3478,8 @@ test_202() {
 	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
 	local fid=$(make_large_for_progress $f)
+	[ $? == 1 ] && skip_env "not enough free space" && return
+
 	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER $f
 	wait_request_state $fid ARCHIVE SUCCEED
 
@@ -3475,6 +3525,7 @@ test_221() {
 
 	local f=$DIR/$tdir/$tfile
 	local fid=$(make_large_for_cancel $f)
+	[ $? == 1 ] && skip_env "not enough free space" && return
 
 	changelog_setup
 
@@ -3582,6 +3633,7 @@ test_223b() {
 
 	local f=$DIR/$tdir/$tfile
 	local fid=$(make_large_for_progress $f)
+	[ $? == 1 ] && skip_env "not enough free space" && return
 
 	changelog_setup
 	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER $f
@@ -3642,6 +3694,7 @@ test_225() {
 	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
 	local fid=$(make_large_for_progress $f)
+	[ $? == 1 ] && skip_env "not enough free space" && return
 
 	changelog_setup
 	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER $f
@@ -3845,6 +3898,7 @@ test_251() {
 	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
 	local fid=$(make_large_for_cancel $f)
+	[ $? == 1 ] && skip_env "not enough free space" && return
 
 	cdt_disable
 	# to have a short test
