@@ -260,6 +260,7 @@ struct ost_id {
 #define LL_IOC_LMV_SET_DEFAULT_STRIPE	_IOWR('f', 246, struct lmv_user_md)
 #define LL_IOC_MIGRATE			_IOR('f', 247, int)
 #define LL_IOC_FID2MDTIDX		_IOWR('f', 248, struct lu_fid)
+#define LL_IOC_LADVISE			_IOR ('f', 249, struct lu_ladvise)
 
 /* Lease types for use as arg and return of LL_IOC_{GET,SET}_LEASE ioctl. */
 enum ll_lease_type {
@@ -1255,6 +1256,26 @@ struct llapi_json_item {
 struct llapi_json_item_list {
 	int			ljil_item_count;
 	struct llapi_json_item	*ljil_items;
+};
+
+enum lu_ladvise_type {
+	LU_LADVISE_MIN = 0,
+	LU_LADVISE_NORMAL,     /* no further special treatment */
+	LU_LADVISE_RANDOM,     /* expect random page references */
+	LU_LADVISE_SEQUENTIAL, /* expect sequential page references */
+	LU_LADVISE_WILLNEED,   /* will need */
+	LU_LADVISE_DONTNEED,   /* don't need */
+	LU_LADVISE_NOREUSE,    /* data will be accessed once */
+	LU_LADVISE_MAX
+};
+
+struct lu_ladvise {
+	__u64			ll_offset;
+	__u64			ll_length;
+	union {
+		enum lu_ladvise_type	ll_advice;
+		__u64			ll_align;
+	};
 };
 
 /** @} lustreuser */
