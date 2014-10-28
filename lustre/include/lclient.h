@@ -513,4 +513,6 @@ enum op_cli_flags {
 	CLI_MIGRATE	= 1 << 4,
 };
 
+#define CL_IOC_LOV_GETSTRIPE	_IOR('i', 1, long)
+
 #endif /*LCLIENT_H */
