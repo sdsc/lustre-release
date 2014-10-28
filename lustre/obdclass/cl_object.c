@@ -301,6 +301,34 @@ int cl_object_glimpse(const struct lu_env *env, struct cl_object *obj,
 EXPORT_SYMBOL(cl_object_glimpse);
 
 /**
+ * Calls specific ioctl methods of an object \a obj.
+ *
+ * \param env [in]	Lustre environment
+ * \param obj [in]	client object
+ * \param cmd [in]	ioctl command code
+ * \param arg [in]	pointer to data for different ioctl command
+ */
+int cl_object_ioctl(const struct lu_env *env, struct cl_object *obj,
+		    unsigned int cmd, unsigned long arg)
+{
+	struct lu_object_header *top;
+	int result;
+
+	ENTRY;
+	top = obj->co_lu.lo_header;
+	result = 0;
+	list_for_each_entry(obj, &top->loh_layers, co_lu.lo_linkage) {
+		if (obj->co_ops->coo_ioctl != NULL) {
+			result = obj->co_ops->coo_ioctl(env, obj, cmd, arg);
+			if (result != 0)
+				break;
+		}
+	}
+	RETURN(result);
+}
+EXPORT_SYMBOL(cl_object_ioctl);
+
+/**
  * Updates a configuration of an object \a obj.
  */
 int cl_conf_set(const struct lu_env *env, struct cl_object *obj,
