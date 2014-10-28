@@ -2023,6 +2023,17 @@ lnet_parse(lnet_ni_t *ni, lnet_hdr_t *hdr, lnet_nid_t from_nid,
 	}
 
 	lnet_msg_commit(msg, cpt);
+	lnet_peer_set_alive(msg->msg_rxpeer);
+
+	if (lnet_isrouter(msg->msg_rxpeer) &&
+	    LNET_NIDNET(src_nid) != LNET_NIDNET(from_nid)) {
+		/* received a remote message from router, update remote NI
+		 * status on this router.
+		 * NB: multi-hop routed message will be ignored.
+		 */
+		lnet_router_ni_update_locked(msg->msg_rxpeer,
+					     LNET_NIDNET(src_nid));
+	}
 
 	if (!for_me) {
 		rc = lnet_parse_forward_locked(ni, msg);

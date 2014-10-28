@@ -823,6 +823,21 @@ lnet_wait_known_routerstate(void)
 }
 
 void
+lnet_router_ni_update_locked(lnet_peer_t *gw, __u32 net)
+{
+	lnet_route_t *rte;
+
+	if ((gw->lp_ping_feats & LNET_PING_FEAT_NI_STATUS) != 0) {
+		list_for_each_entry(rte, &gw->lp_routes, lr_gwlist) {
+			if (rte->lr_net == net) {
+				rte->lr_downis = 0;
+				break;
+			}
+		}
+	}
+}
+
+void
 lnet_update_ni_status_locked(void)
 {
 	lnet_ni_t	*ni;
