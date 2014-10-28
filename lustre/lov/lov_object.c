@@ -42,6 +42,7 @@
 #define DEBUG_SUBSYSTEM S_LOV
 
 #include "lov_cl_internal.h"
+#include <lclient.h>
 
 /** \addtogroup lov
  *  @{
@@ -915,13 +916,30 @@ int lov_lock_init(const struct lu_env *env, struct cl_object *obj,
 				    io);
 }
 
+static int lov_object_ioctl(const struct lu_env *env, struct cl_object *obj,
+			    unsigned int cmd, unsigned long arg)
+{
+	int rc = 0;
+
+	switch (cmd) {
+	case LL_IOC_LOV_GETSTRIPE:
+		rc = lov_getstripe(obj, (struct lov_user_md __user *)arg);
+		break;
+	default:
+		/* TODO: call cl_object_ioctl for sub obj */
+		RETURN(0);
+	}
+	RETURN(rc);
+}
+
 static const struct cl_object_operations lov_ops = {
         .coo_page_init = lov_page_init,
         .coo_lock_init = lov_lock_init,
         .coo_io_init   = lov_io_init,
         .coo_attr_get  = lov_attr_get,
         .coo_attr_set  = lov_attr_set,
-        .coo_conf_set  = lov_conf_set
+	.coo_conf_set  = lov_conf_set,
+	.coo_ioctl     = lov_object_ioctl
 };
 
 static const struct lu_object_operations lov_lu_obj_ops = {
