@@ -47,6 +47,29 @@
  *  @{
  */
 
+struct lov_stripe_md *lov_lsm_get(struct cl_object *clobj)
+{
+	struct lu_object *luobj;
+	struct lov_stripe_md *lsm = NULL;
+
+	if (clobj == NULL)
+		return NULL;
+
+	luobj = lu_object_locate(&cl_object_header(clobj)->coh_lu,
+				 &lov_device_type);
+	if (luobj != NULL)
+		lsm = lov_lsm_addref(lu2lov(luobj));
+	return lsm;
+}
+EXPORT_SYMBOL(lov_lsm_get);
+
+void lov_lsm_put(struct cl_object *unused, struct lov_stripe_md *lsm)
+{
+	if (lsm != NULL)
+		lov_free_memmd(&lsm);
+}
+EXPORT_SYMBOL(lov_lsm_put);
+
 /*****************************************************************************
  *
  * Layout operations.
@@ -915,13 +938,36 @@ int lov_lock_init(const struct lu_env *env, struct cl_object *obj,
 				    io);
 }
 
+static int lov_ioctl(const struct lu_env *env, struct cl_object *obj,
+		     unsigned int cmd, unsigned long arg)
+{
+	int rc = 0;
+
+	switch (cmd) {
+	case LL_IOC_LOV_GETSTRIPE: {
+		struct lov_stripe_md *lsm;
+
+		lsm = lov_lsm_get(obj);
+		if (lsm == NULL)
+			RETURN(-ENODATA);
+		rc = lov_getstripe(obj, lsm, (struct lov_user_md __user *)arg);
+		lov_lsm_put(obj, lsm);
+	}
+	default:
+		/* call cl_object_ioctl for sub obj */
+		RETURN(0);
+	}
+	RETURN(rc);
+}
+
 static const struct cl_object_operations lov_ops = {
         .coo_page_init = lov_page_init,
         .coo_lock_init = lov_lock_init,
         .coo_io_init   = lov_io_init,
         .coo_attr_get  = lov_attr_get,
         .coo_attr_set  = lov_attr_set,
-        .coo_conf_set  = lov_conf_set
+	.coo_conf_set  = lov_conf_set,
+	.coo_ioctl     = lov_ioctl
 };
 
 static const struct lu_object_operations lov_lu_obj_ops = {
@@ -972,29 +1018,6 @@ struct lov_stripe_md *lov_lsm_addref(struct lov_object *lov)
 	lov_conf_thaw(lov);
 	return lsm;
 }
-
-struct lov_stripe_md *lov_lsm_get(struct cl_object *clobj)
-{
-	struct lu_object *luobj;
-	struct lov_stripe_md *lsm = NULL;
-
-	if (clobj == NULL)
-		return NULL;
-
-	luobj = lu_object_locate(&cl_object_header(clobj)->coh_lu,
-				 &lov_device_type);
-	if (luobj != NULL)
-		lsm = lov_lsm_addref(lu2lov(luobj));
-	return lsm;
-}
-EXPORT_SYMBOL(lov_lsm_get);
-
-void lov_lsm_put(struct cl_object *unused, struct lov_stripe_md *lsm)
-{
-	if (lsm != NULL)
-		lov_free_memmd(&lsm);
-}
-EXPORT_SYMBOL(lov_lsm_put);
 
 int lov_read_and_clear_async_rc(struct cl_object *clob)
 {
