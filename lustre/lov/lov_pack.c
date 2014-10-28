@@ -49,6 +49,7 @@
 #include <lustre/lustre_user.h>
 
 #include "lov_internal.h"
+#include "lov_cl_internal.h"
 
 void lov_dump_lmm_common(int level, void *lmmp)
 {
@@ -120,6 +121,15 @@ void lov_dump_lmm(int level, void *lmm)
 	}
 }
 
+int lov_packmd(struct obd_export *exp, struct lov_mds_md **lmmp,
+	       struct lov_stripe_md *lsm)
+{
+	struct obd_device *obd = class_exp2obd(exp);
+	struct lov_obd *lov = &obd->u.lov;
+
+	return lov_obd_packmd(lov, lmmp, lsm);
+}
+
 /* Pack LOV object metadata for disk storage.  It is packed in LE byte
  * order and is opaque to the networking layer.
  *
@@ -128,11 +138,9 @@ void lov_dump_lmm(int level, void *lmm)
  *     LOVs properly.  For now lov_mds_md_size() just assumes one obd_id
  *     per stripe.
  */
-int lov_packmd(struct obd_export *exp, struct lov_mds_md **lmmp,
-               struct lov_stripe_md *lsm)
+int lov_obd_packmd(struct lov_obd *lov, struct lov_mds_md **lmmp,
+		   struct lov_stripe_md *lsm)
 {
-        struct obd_device *obd = class_exp2obd(exp);
-        struct lov_obd *lov = &obd->u.lov;
         struct lov_mds_md_v1 *lmmv1;
         struct lov_mds_md_v3 *lmmv3;
         __u16 stripe_count;
@@ -413,13 +421,14 @@ int lov_unpackmd(struct obd_export *exp,  struct lov_stripe_md **lsmp,
  * the maximum number of OST indices which will fit in the user buffer.
  * lmm_magic must be LOV_USER_MAGIC.
  */
-int lov_getstripe(struct obd_export *exp, struct lov_stripe_md *lsm,
+int lov_getstripe(struct cl_object *obj, struct lov_stripe_md *lsm,
 		  struct lov_user_md __user *lump)
 {
         /*
          * XXX huge struct allocated on stack.
          */
         /* we use lov_user_md_v3 because it is larger than lov_user_md_v1 */
+	struct lov_obd *lovobd;
         struct lov_user_md_v3 lum;
         struct lov_mds_md *lmmk = NULL;
         int rc, lmm_size;
@@ -445,7 +454,8 @@ int lov_getstripe(struct obd_export *exp, struct lov_stripe_md *lsm,
 		rc = copy_to_user(lump, &lum, lum_size);
                 GOTO(out_set, rc = -EOVERFLOW);
         }
-        rc = lov_packmd(exp, &lmmk, lsm);
+	lovobd = lu2lov_dev(obj->co_lu.lo_dev)->ld_lov;
+	rc = lov_obd_packmd(lovobd, &lmmk, lsm);
         if (rc < 0)
                 GOTO(out_set, rc);
         lmm_size = rc;
@@ -494,7 +504,11 @@ int lov_getstripe(struct obd_export *exp, struct lov_stripe_md *lsm,
 	if (copy_to_user(lump, lmmk, lmm_size))
 		rc = -EFAULT;
 
-	obd_free_diskmd(exp, &lmmk);
+	if ((cpu_to_le32(LOV_MAGIC) != LOV_MAGIC) &&
+	    ((lmmk->lmm_magic == LOV_MAGIC_V1) ||
+	     (lmmk->lmm_magic == LOV_MAGIC_V3)))
+		lustre_swab_lov_mds_md(lmmk);
+	lov_obd_packmd(lovobd, &lmmk, NULL);
 out_set:
 	RETURN(rc);
 }
