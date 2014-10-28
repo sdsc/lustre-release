@@ -57,8 +57,9 @@ fi
 # that mounted lustre wouldn't able to perform some of its background activities
 if is_mounted $MOUNT || is_mounted $MOUNT2; then
     local_mode && CLIENTONLY=yes
-    stopall
     RESTORE_MOUNT=yes
+    LOAD_MODULES_REMOTE=true
+    cleanupall
 fi
 
 build_test_filter
