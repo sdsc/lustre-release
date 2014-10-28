@@ -190,7 +190,6 @@ void cl_put_grouplock(struct ccc_grouplock *cg)
 	int             refcheck;
 
 	LASSERT(cg->cg_env);
-	LASSERT(cg->cg_gid);
 
 	cl_env_implant(env, &refcheck);
 	cl_env_put(env, &refcheck);
