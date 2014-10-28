@@ -394,6 +394,11 @@ struct cl_object_operations {
 	 * mainly pages and locks.
 	 */
 	int (*coo_prune)(const struct lu_env *env, struct cl_object *obj);
+	/**
+	 * Object ioctl method. Called for specific ioctl methods.
+	 */
+	int (*coo_ioctl)(const struct lu_env *env, struct cl_object *obj,
+			 unsigned int cmd, unsigned long arg);
 };
 
 /**
@@ -2254,6 +2259,8 @@ int  cl_object_attr_set   (const struct lu_env *env, struct cl_object *obj,
                            const struct cl_attr *attr, unsigned valid);
 int  cl_object_glimpse    (const struct lu_env *env, struct cl_object *obj,
                            struct ost_lvb *lvb);
+int  cl_object_ioctl      (const struct lu_env *env, struct cl_object *obj,
+			   unsigned int cmd, unsigned long arg);
 int  cl_conf_set          (const struct lu_env *env, struct cl_object *obj,
                            const struct cl_object_conf *conf);
 int  cl_object_prune      (const struct lu_env *env, struct cl_object *obj);
@@ -2677,5 +2684,7 @@ struct cl_device *cl_type_setup(const struct lu_env *env, struct lu_site *site,
 
 int cl_global_init(void);
 void cl_global_fini(void);
+
+#define CL_IOC_LOV_GETSTRIPE	_IOR('i', 1, long)
 
 #endif /* _LINUX_CL_OBJECT_H */
