@@ -394,6 +394,11 @@ struct cl_object_operations {
 	 * mainly pages and locks.
 	 */
 	int (*coo_prune)(const struct lu_env *env, struct cl_object *obj);
+	/**
+	 * Object getstripe method.
+	 */
+	int (*coo_getstripe)(const struct lu_env *env, struct cl_object *obj,
+			     void __user *uarg);
 };
 
 /**
@@ -448,6 +453,30 @@ struct cl_object_header {
 	list_for_each_entry_reverse((slice),				\
 				    &(obj)->co_lu.lo_header->loh_layers,\
 				    co_lu.lo_linkage)
+
+/**
+ * Calls specific cl_object_operations methods of an object \a obj.
+ */
+#define CL_OBJECT_OP(env, obj, op, ...)					\
+({									\
+	struct lu_env		*__env = (env);				\
+	struct cl_object	*__obj = (obj);				\
+	struct lu_object_header	*__top;					\
+	int			__result = 0;				\
+									\
+	__top = __obj->co_lu.lo_header;					\
+	list_for_each_entry(__obj, &__top->loh_layers,			\
+			    co_lu.lo_linkage) {				\
+		if (__obj->co_ops->coo_##op != NULL) {			\
+			__result = __obj->co_ops->coo_##op(__env,	\
+						__obj, __VA_ARGS__);	\
+			if (__result != 0)				\
+				break;					\
+		}							\
+	}								\
+	__result;							\
+})
+
 /** @} cl_object */
 
 #define CL_PAGE_EOF ((pgoff_t)~0ull)
