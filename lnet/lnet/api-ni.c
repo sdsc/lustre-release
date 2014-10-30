@@ -1457,12 +1457,12 @@ lnet_startup_lndni(struct lnet_ni *ni, __s32 peer_timeout,
 
 	lnd_type = LNET_NETTYP(LNET_NIDNET(ni->ni_nid));
 	if (!libcfs_isknown_lnd(lnd_type))
-		return -EINVAL;
+		goto free_ni;
 
 	if (lnd_type == CIBLND || lnd_type == OPENIBLND ||
 	    lnd_type == IIBLND || lnd_type == VIBLND) {
 		CERROR("LND %s obsoleted\n", libcfs_lnd2str(lnd_type));
-		return -EINVAL;
+		goto free_ni;
 	}
 
 	/* Make sure this new NI is unique. */
@@ -1478,7 +1478,7 @@ lnet_startup_lndni(struct lnet_ni *ni, __s32 peer_timeout,
 		CERROR("Net %s is not unique\n",
 		       libcfs_net2str(LNET_NIDNET(ni->ni_nid)));
 		lnet_net_unlock(LNET_LOCK_EX);
-		return -EINVAL;
+		goto free_ni;
 	}
 	lnet_net_unlock(LNET_LOCK_EX);
 
@@ -1503,7 +1503,7 @@ lnet_startup_lndni(struct lnet_ni *ni, __s32 peer_timeout,
 				 "compiled with kernel module "
 				 "loading support.");
 #endif
-			return -EINVAL;
+			goto free_ni;
 		}
 	}
 #else
@@ -1511,7 +1511,7 @@ lnet_startup_lndni(struct lnet_ni *ni, __s32 peer_timeout,
 		LNET_MUTEX_UNLOCK(&the_lnet.ln_lnd_mutex);
 		CERROR("LND %s not supported\n",
 		       libcfs_lnd2str(lnd_type));
-		return -EINVAL;
+		goto free_ni;
 	}
 #endif
 
@@ -1532,8 +1532,7 @@ lnet_startup_lndni(struct lnet_ni *ni, __s32 peer_timeout,
 		lnet_net_lock(LNET_LOCK_EX);
 		lnd->lnd_refcount--;
 		lnet_net_unlock(LNET_LOCK_EX);
-		lnet_ni_free(ni);
-		return -EINVAL;
+		goto free_ni;
 	}
 
 	/* If given some LND tunable parameters, parse those now to
@@ -1611,6 +1610,8 @@ lnet_startup_lndni(struct lnet_ni *ni, __s32 peer_timeout,
 	return 1;
 failed:
 	lnet_shutdown_lndni(LNET_NIDNET(ni->ni_nid));
+	return -EINVAL;
+free_ni:
 	lnet_ni_free(ni);
 	return -EINVAL;
 }
