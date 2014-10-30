@@ -231,6 +231,47 @@ static int osc_object_prune(const struct lu_env *env, struct cl_object *obj)
 			      osc_object_ast_clear, osc);
 	return 0;
 }
+/**
+ * Find any ldlm lock covers the osc object.
+ * \retval 0	not found
+ * \retval 1	find one
+ * \retval < 0	error
+ */
+static int osc_find_cbdata(const struct lu_env *env, struct cl_object *obj,
+			   struct cl_ioc_find_cbdata *fcd)
+{
+	struct ldlm_res_id		res_id;
+	struct obd_device		*obd;
+	int				rc = 0;
+
+	ostid_build_res_name(&cl2osc(obj)->oo_oinfo->loi_oi, &res_id);
+	obd = obj->co_lu.lo_dev->ld_obd;
+	rc = ldlm_resource_iterate(obd->obd_namespace, &res_id, fcd->ioc_fcd_it,
+				   fcd->ioc_fcd_data);
+	if (rc == LDLM_ITER_STOP)
+		return 1;
+	if (rc == LDLM_ITER_CONTINUE)
+		return 0;
+	return rc;
+}
+
+static int osc_object_ioctl(const struct lu_env *env, struct cl_object *obj,
+			    unsigned int cmd, unsigned long arg)
+{
+	int	rc = 0;
+	ENTRY;
+
+	switch (cmd) {
+	case CL_IOC_FIND_CBDATA:
+		rc = osc_find_cbdata(env, obj,
+				     (struct cl_ioc_find_cbdata *)arg);
+		break;
+	default:
+		rc = -EINVAL;
+		break;
+	}
+	RETURN(rc);
+}
 
 void osc_object_set_contended(struct osc_object *obj)
 {
@@ -277,7 +318,8 @@ static const struct cl_object_operations osc_ops = {
 	.coo_attr_get  = osc_attr_get,
 	.coo_attr_set  = osc_attr_set,
 	.coo_glimpse   = osc_object_glimpse,
-	.coo_prune     = osc_object_prune
+	.coo_prune     = osc_object_prune,
+	.coo_ioctl     = osc_object_ioctl
 };
 
 static const struct lu_object_operations osc_lu_obj_ops = {
