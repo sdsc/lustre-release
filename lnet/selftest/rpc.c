@@ -87,16 +87,15 @@ void srpc_set_counters (const srpc_counters_t *cnt)
 	spin_unlock(&srpc_data.rpc_glock);
 }
 
-int
-srpc_add_bulk_page(srpc_bulk_t *bk, struct page *pg, int i, int nob)
+void
+srpc_add_bulk_page(srpc_bulk_t *bk, struct page *pg, int i, int off, int nob)
 {
-	nob = min(nob, (int)PAGE_CACHE_SIZE);
-
-	LASSERT(nob > 0);
+	LASSERT(off < PAGE_CACHE_SIZE);
+	LASSERT(nob > 0 && nob <= PAGE_CACHE_SIZE);
 	LASSERT(i >= 0 && i < bk->bk_niov);
 
 #ifdef __KERNEL__
-	bk->bk_iovs[i].kiov_offset = 0;
+	bk->bk_iovs[i].kiov_offset = off;
 	bk->bk_iovs[i].kiov_page   = pg;
 	bk->bk_iovs[i].kiov_len    = nob;
 #else
@@ -106,7 +105,6 @@ srpc_add_bulk_page(srpc_bulk_t *bk, struct page *pg, int i, int nob)
 	bk->bk_iovs[i].iov_len  = nob;
 	bk->bk_iovs[i].iov_base = page_address(pg);
 #endif
-	return nob;
 }
 
 void
@@ -139,7 +137,8 @@ srpc_free_bulk (srpc_bulk_t *bk)
 }
 
 srpc_bulk_t *
-srpc_alloc_bulk(int cpt, unsigned bulk_npg, unsigned bulk_len, int sink)
+srpc_alloc_bulk(int cpt, unsigned bulk_off, unsigned bulk_npg,
+		unsigned bulk_len, int sink)
 {
 	srpc_bulk_t  *bk;
 	int	      i;
@@ -187,8 +186,12 @@ srpc_alloc_bulk(int cpt, unsigned bulk_npg, unsigned bulk_len, int sink)
 			return NULL;
 		}
 
-		nob = srpc_add_bulk_page(bk, pg, i, bulk_len);
+		nob = min_t(unsigned, bulk_off + bulk_len, PAGE_CACHE_SIZE) -
+		      bulk_off;
+
+		srpc_add_bulk_page(bk, pg, i, bulk_off, nob);
 		bulk_len -= nob;
+		bulk_off = 0;
 	}
 
 	return bk;
