@@ -100,6 +100,7 @@
 #include <lu_object.h>
 #include <linux/mutex.h>
 #include <linux/radix-tree.h>
+#include <lustre_dlm.h>
 
 struct inode;
 
@@ -399,6 +400,12 @@ struct cl_object_operations {
 	 */
 	int (*coo_getstripe)(const struct lu_env *env, struct cl_object *obj,
 			     struct lov_user_md __user *lum);
+	/**
+	 * Find whether there is any callback data (ldlm lock) attached upon
+	 * the object.
+	 */
+	int (*coo_find_cbdata)(const struct lu_env *env, struct cl_object *obj,
+			       ldlm_iterator_t iter, void *data);
 };
 
 /**
@@ -2264,8 +2271,10 @@ int  cl_conf_set          (const struct lu_env *env, struct cl_object *obj,
                            const struct cl_object_conf *conf);
 int  cl_object_prune      (const struct lu_env *env, struct cl_object *obj);
 void cl_object_kill       (const struct lu_env *env, struct cl_object *obj);
-int  cl_object_getstripe(const struct lu_env *env, struct cl_object *obj,
-			 struct lov_user_md __user *lum);
+int cl_object_getstripe(const struct lu_env *env, struct cl_object *obj,
+			struct lov_user_md __user *lum);
+int cl_object_find_cbdata(const struct lu_env *env, struct cl_object *obj,
+			  ldlm_iterator_t iter, void *data);
 
 /**
  * Returns true, iff \a o0 and \a o1 are slices of the same object.
