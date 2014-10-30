@@ -101,6 +101,8 @@
 #include <lu_object.h>
 #include <linux/mutex.h>
 #include <linux/radix-tree.h>
+#include <obd.h>
+#include <lustre_dlm.h>
 
 struct inode;
 
@@ -3220,5 +3222,11 @@ struct cl_device *cl_type_setup(const struct lu_env *env, struct lu_site *site,
 
 int cl_global_init(void);
 void cl_global_fini(void);
+
+struct cl_ioc_find_cbdata {
+	struct lov_stripe_md	*ioc_fcd_lsm;
+	ldlm_iterator_t		ioc_fcd_it;
+	void			*ioc_fcd_data;
+};
 
 #endif /* _LINUX_CL_OBJECT_H */

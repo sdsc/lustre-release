@@ -30,6 +30,7 @@
 
 #include <libcfs/libcfs.h>
 #include <lustre/lustre_idl.h>
+#include <lustre/lustre_user.h>
 
 #ifdef __KERNEL__
 # include <linux/ioctl.h>
