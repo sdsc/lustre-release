@@ -513,4 +513,7 @@ enum op_cli_flags {
 	CLI_MIGRATE	= 1 << 4,
 };
 
+/* lustre_ioctl.h,lustre_user.h	101-248 */
+#define IOC_FIND_CBDATA		_IO('f', 249)
+
 #endif /*LCLIENT_H */
