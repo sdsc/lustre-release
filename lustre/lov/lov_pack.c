@@ -432,6 +432,9 @@ int lov_getstripe(struct lov_object *obj, struct lov_stripe_md *lsm,
 	int			lum_size;
 	ENTRY;
 
+	if (lsm == NULL)
+		RETURN(-ENODATA);
+
 	/* we only need the header part from user space to get lmm_magic and
 	 * lmm_stripe_count, (the header part is common to v1 and v3) */
 	lum_size = sizeof(struct lov_user_md_v1);

@@ -76,6 +76,8 @@ struct lov_layout_operations {
                             struct cl_object *obj, struct cl_io *io);
         int  (*llo_getattr)(const struct lu_env *env, struct cl_object *obj,
                             struct cl_attr *attr);
+	int  (*llo_ioctl)(const struct lu_env *env, struct cl_object *obj,
+			  unsigned int cmd, unsigned long arg);
 };
 
 static int lov_layout_wait(const struct lu_env *env, struct lov_object *lov);
@@ -556,6 +558,33 @@ static int lov_attr_get_raid0(const struct lu_env *env, struct cl_object *obj,
 	RETURN(result);
 }
 
+static int lov_ioctl_empty(const struct lu_env *env, struct cl_object *obj,
+			   unsigned int cmd, unsigned long arg)
+{
+	return 0;
+}
+
+static int lov_ioctl_raid0(const struct lu_env *env, struct cl_object *obj,
+			   unsigned int cmd, unsigned long arg)
+{
+	struct lov_object	*lov = cl2lov(obj);
+	struct lov_layout_raid0	*r0 = lov_r0(lov);
+	struct cl_object	*subobj;
+	int			i;
+	int			rc = 0;
+
+	for (i = 0; i < r0->lo_nr; ++i) {
+		if (r0->lo_sub[i] == NULL)
+			continue;
+		subobj = lovsub2cl(r0->lo_sub[i]);
+
+		rc = cl_object_ioctl(env, subobj, cmd, arg);
+		if (rc != 0)
+			return rc;
+	}
+	return rc;
+}
+
 const static struct lov_layout_operations lov_dispatch[] = {
         [LLT_EMPTY] = {
                 .llo_init      = lov_init_empty,
@@ -566,7 +595,8 @@ const static struct lov_layout_operations lov_dispatch[] = {
                 .llo_page_init = lov_page_init_empty,
                 .llo_lock_init = lov_lock_init_empty,
                 .llo_io_init   = lov_io_init_empty,
-                .llo_getattr   = lov_attr_get_empty
+		.llo_getattr   = lov_attr_get_empty,
+		.llo_ioctl     = lov_ioctl_empty
         },
         [LLT_RAID0] = {
                 .llo_init      = lov_init_raid0,
@@ -577,7 +607,8 @@ const static struct lov_layout_operations lov_dispatch[] = {
                 .llo_page_init = lov_page_init_raid0,
                 .llo_lock_init = lov_lock_init_raid0,
                 .llo_io_init   = lov_io_init_raid0,
-                .llo_getattr   = lov_attr_get_raid0
+		.llo_getattr   = lov_attr_get_raid0,
+		.llo_ioctl     = lov_ioctl_raid0
 	},
         [LLT_RELEASED] = {
                 .llo_init      = lov_init_released,
@@ -588,7 +619,8 @@ const static struct lov_layout_operations lov_dispatch[] = {
                 .llo_page_init = lov_page_init_empty,
                 .llo_lock_init = lov_lock_init_empty,
                 .llo_io_init   = lov_io_init_released,
-                .llo_getattr   = lov_attr_get_empty
+		.llo_getattr   = lov_attr_get_empty,
+		.llo_ioctl     = lov_ioctl_empty
         }
 };
 
@@ -919,23 +951,26 @@ int lov_lock_init(const struct lu_env *env, struct cl_object *obj,
 static int lov_object_ioctl(const struct lu_env *env, struct cl_object *obj,
 			    unsigned int cmd, unsigned long arg)
 {
-	struct lov_stripe_md	*lsm;
+	struct lov_stripe_md	*lsm = NULL;
 	int			rc = 0;
+	ENTRY;
 
 	lsm = lov_lsm_get(obj);
-	if (lsm == NULL)
-		RETURN(-ENODATA);
 
 	switch (cmd) {
 	case CL_IOC_LOV_GETSTRIPE:
 		rc = lov_getstripe(cl2lov(obj), lsm,
 				   (struct lov_user_md __user *)arg);
 		break;
+	case CL_IOC_FIND_CBDATA:
 	default:
-		/* TODO: call cl_object_ioctl for sub obj */
+		/* call cl_object_ioctl for sub obj */
+		rc = LOV_2DISPATCH_NOLOCK(cl2lov(obj), llo_ioctl,
+					  env, obj, cmd, arg);
 		break;
 	}
-	lov_lsm_put(obj, lsm);
+	if (lsm != NULL)
+		lov_lsm_put(obj, lsm);
 	RETURN(rc);
 }
 
