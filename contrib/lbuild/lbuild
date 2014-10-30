@@ -174,6 +174,18 @@ Usage: ${0##*/} [OPTION]... [-- <lustre configure options>]
     Do not build a .src.rpm, a full kernel patch, or a patched kernel
     tarball.
 
+  --ofed-version
+    Version of external OFED to build with lustre
+
+  --mlnx-version
+    Version of external Mellanox OFED to build with lustre
+
+  --ofed-src
+    Tarball for either Mellanox or OFED. Tarball must follow below format
+    OFED: OFED-<ofed-version>.tgz
+    Mellanox: MLNX_OFED_SRC-<mlnx-version>.tgz
+    will be downloaded under KERNELTREE directory
+
   --ldiskfs
     Build with ldiskfs support. (Deprecated, always true)
 
@@ -257,6 +269,14 @@ check_options() {
 
     if [ -z "$LUSTRE" -o ! -r "$LUSTRE" ]; then
         usage 1 "Could not find Lustre source tarball '$LUSTRE'."
+    fi
+
+    if [ -n "${OFED_SRC}" ]; then
+        [ -z "${OFED_VERSION}" -a -z "${MLNX_VERSION}" ] &&
+            usage 1 "Need to provide version for file ${OFED_SRC}."
+    fi
+    if [ -n "${OFED_VERSION}" -a -n "${MLNX_VERSION}" ]; then
+        usage 1 "Can not accept multiple version of OFED"
     fi
 
     if [ -z "$DISTRO" ] ; then
@@ -541,6 +561,9 @@ download_ofed() {
     if [ -z "$OFED_VERSION" -o "$OFED_VERSION" = "inkernel" ]; then
         return 0
     fi
+    #if a src tarball has been given in the command line, we use it
+    #The format of the tarball must be OFED-${OFED_VERSION}.tgz
+    [ -n "${OFED_SRC}" ] && return 0
 
     local OFED_BASE_VERSION=$OFED_VERSION
     if [[ $OFED_VERSION = *.*.*.* ]]; then
@@ -570,6 +593,16 @@ download_ofed() {
     local file="OFED-${OFED_VERSION}.tgz"
     download_file "$location/$file" "$KERNELTREE" "$force"
 
+}
+
+download_mlnx() {
+    local force="${1:-false}"
+    local distro="$DISTRO"
+
+    # Convert 'lbuild' SLES distro naming convention to those used by MLNX
+    [[ $distro =~ sles ]] && distro=${DISTRO/./sp}
+    local url="http://www.mellanox.com/downloads/ofed/MLNX_OFED-${MLNX_VERSION}/MLNX_OFED_LINUX-${MLNX_VERSION}-${DISTRO}-${TARGET_ARCH}.tgz"
+    download_file "$url" "$KERNELTREE" "$force"
 }
 
 parse_mpss_info() {
@@ -807,6 +840,37 @@ untar() {
     echo "Untarring ${tarfile##*/}..."
     tar $(tarflags "$tarfile") "$tarfile" $extractfile
 
+}
+
+unpack_mlnx() {
+    local mlnx_distro=$(autodetect_distro)
+    mlnx_distro=${mlnx_distro/-/}
+
+    # Convert 'lbuild' SLES distro naming convention to those used by MLNX
+    [ -n ${mlnx_distro/^sles/} ] && distro=${mlnx_distro/./sp}
+
+    local mlnx_filename="MLNX_OFED_LINUX-${MLNX_VERSION}-${mlnx_distro}-${TARGET_ARCH}"
+    # if a src tarball has been give in the command line, we use it
+    # The format of the directory after untar MUST be in MLNX_OFED_SRC-${MNLX_VERSION}
+    if [ -n "${OFED_SRC}" ]; then
+        if ! untar "$KERNELTREE/${OFED_SRC}"; then
+            return 1
+        fi
+    else
+        # it's not important what distro we get the tarball since we only interest in the src
+        if ! untar "$KERNELTREE/${mlnx_filename}.tgz" \
+              "${mlnx_filename}/src/MLNX_OFED_SRC-*.tgz"; then
+            return 1
+        fi
+        # we need to untar again to get the src since it's being wrapped inside the tarball
+        # Use globbing pattern for source TAR file name, since version number in MLNX_VERSION
+        # isn't (always) the same as the one use for the SRC tar file
+        local srcfile=`ls -1 ${mlnx_filename}/src/MLNX_OFED_SRC-*.tgz`
+        if ! untar "${srcfile}"; then
+            return 1
+        fi
+    fi
+    [ -d OFED ] || ln -sf MLNX_OFED_SRC-[0-9].[0-9]* OFED
 }
 
 unpack_ofed() {
@@ -1307,9 +1371,13 @@ build_kernel_ib() {
     local OFED_HARDWARE="--with-mthca-mod --with-mlx4-mod --with-mlx4_en-mod --with-cxgb3-mod --with-nes-mod --with-qib-mod"
 
     if compare_version $OFED_VERSION 3.0; then
-	OFED_CORE="$OFED_CORE --with-madeye-mod --with-rds-mod"
+        OFED_CORE="$OFED_CORE --with-madeye-mod --with-rds-mod"
+    elif [ -n "${MLNX_VERSION}" ] ; then
+        # Current dummy entry to avoid seeting of kernel modules that currently
+        # don't compile for Mellanox OFED (ocrdma)
+        :
     else
-	OFED_HARDWARE="$OFED_HARDWARE --with-mlx5-mod --with-cxgb4-mod --with-ocrdma-mod --with-qib-mod"
+        OFED_HARDWARE="$OFED_HARDWARE --with-mlx5-mod --with-cxgb4-mod --with-ocrdma-mod --with-qib-mod"
     fi
 
     # some I/B drivers are architecture dependent and kernel-ib's configure
@@ -1650,6 +1718,9 @@ build_ofed() {
     elif compare_version $OFED_VERSION 3.0; then
 	kib_prefix="ofa_kernel"
 	kib_rpm="kernel-ib"
+    elif [ -n "$MLNX_VERSION" ] ; then
+        kib_prefix='mlnx-ofa_kernel'
+        kib_rpm='kernel-ib'
     else
 	kib_prefix="compat-rdma"
 	kib_rpm="compat-rdma"
@@ -1732,7 +1803,11 @@ build_ofed() {
     if ! rpm2cpio < $rpm | cpio -id; then
         fatal 1 "could not unpack the ${kib_rpm}-devel rpm."
     fi
-    CONFIGURE_FLAGS="--with-o2ib=$(pwd)/usr/src/${kib_prefix} ${CONFIGURE_FLAGS}"
+    if [ -z "$MLNX_VERSION" ] ; then
+        CONFIGURE_FLAGS="--with-o2ib=$(pwd)/usr/src/${kib_prefix} ${CONFIGURE_FLAGS}"
+    else
+        CONFIGURE_FLAGS="--with-o2ib=$(pwd)/usr/src/ofa_kernel/default ${CONFIGURE_FLAGS}"
+    fi
     popd >/dev/null
 
 }
@@ -1801,8 +1876,13 @@ g/\(\/usr\/src\/kernels\/\)/s//$tmp\/reused\1/g
 wq
 EOF
 
-    build_ofed "${LINUXOBJ:-$LINUX}" "$OFED_VERSION" ||
-        fatal 1 "error building OFED"
+    if [ -n "$MLNX_VERSION" ] ; then
+        build_ofed "${LINUXOBJ:-$LINUX}" "$MLNX_VERSION" ||
+            fatal 1 "error building OFED"
+    else
+        build_ofed "${LINUXOBJ:-$LINUX}" "$OFED_VERSION" ||
+            fatal 1 "error building OFED"
+    fi
 
     # now build Lustre
     if build_lustre "$LINUX" "$LINUXOBJ"; then
@@ -1962,7 +2042,7 @@ set -E
 
 [ -r ~/.lbuildrc ] && . ~/.lbuildrc
 
-options=$(getopt -o D:h -l kerneltree:,distro:,kernelrpm:,reusebuild:,patchless,ccache,norpm,external-patches:,timestamp:,extraversion:,kerneldir:,linux:,lustre:,nodownload,nosrc,noiokit,ofed-version:,mpss-version:,publish,release,set-value:,src,stage:,target:,target-archs:,with-linux:,xen -- "$@")
+options=$(getopt -o D:h -l kerneltree:,distro:,kernelrpm:,reusebuild:,patchless,ccache,norpm,external-patches:,timestamp:,extraversion:,kerneldir:,linux:,lustre:,nodownload,nosrc,noiokit,ofed-version:,mlnx-version:,ofed-src:,mpss-version:,publish,release,set-value:,src,stage:,target:,target-archs:,with-linux:,xen -- "$@")
 
 if [ $? != 0 ]; then
     usage 1
@@ -2060,6 +2140,14 @@ while [ "$1" ]; do
             OFED_VERSION="$2"
             shift 2
             ;;
+        --mlnx-version)
+            MLNX_VERSION="$2"
+            shift 2
+            ;;
+        --ofed-src)
+            OFED_SRC="$2"
+            shift 2
+            ;;
         --mpss-version)
             MPSS_VERSION="$2"
             shift 2
@@ -2120,6 +2208,12 @@ unpack_lustre
 BUILDID=$(sed -n -e 's/^BUILDID = //p' lustre/META)
 
 load_target
+
+if [ -n "$MLNX_VERSION" ]; then
+    # Explicitly built Mellanox
+    download_mlnx
+    unpack_mlnx || fatal 1 "Error unpacking MLNX tarball"
+fi
 
 if [ -n "$OFED_VERSION" -a "$OFED_VERSION" != "inkernel" ]; then
     download_ofed
