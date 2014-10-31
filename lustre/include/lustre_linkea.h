@@ -78,3 +78,39 @@ static inline void linkea_next_entry(struct linkea_data *ldata)
 			ldata->ld_lee = NULL;
 	}
 }
+
+/* Similar to linkea_first_entry, except it seeks to the n-th entry in
+ * a link ea. */
+static inline void linkea_seek_entry(struct linkea_data *ldata,
+				     unsigned int linkno)
+{
+	struct link_ea_header	*ldh = ldata->ld_leh;
+	struct link_ea_entry	*lee;
+	struct link_ea_entry	*lee_max;
+	size_t			 reclen;
+
+	LASSERT(ldh != NULL);
+
+	if (linkno >= ldh->leh_reccount) {
+		/* beyond last link */
+		ldata->ld_lee = NULL;
+		return;
+	}
+
+	lee_max = (struct link_ea_entry *)((char *)ldh + ldh->leh_len);
+	lee = (struct link_ea_entry *)(ldh + 1);
+
+	while (linkno > 0) {
+		reclen = (lee->lee_reclen[0] << 8) | lee->lee_reclen[1];
+		lee = (struct link_ea_entry *)((char *)lee + reclen);
+
+		if (lee_max - lee <= 0) {
+			ldata->ld_lee = NULL;
+			return;
+		}
+		linkno--;
+	}
+
+	ldata->ld_reclen = reclen;
+	ldata->ld_lee = lee;
+}
