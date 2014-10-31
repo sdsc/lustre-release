@@ -179,9 +179,9 @@ void client_bulk_callback (lnet_event_t *ev)
         struct ptlrpc_request   *req;
         ENTRY;
 
-        LASSERT ((desc->bd_type == BULK_PUT_SINK &&
+        LASSERT ((desc->bd_type & BULK_PUT_SINK &&
                   ev->type == LNET_EVENT_PUT) ||
-                 (desc->bd_type == BULK_GET_SOURCE &&
+                 (desc->bd_type & BULK_GET_SOURCE &&
                   ev->type == LNET_EVENT_GET) ||
                  ev->type == LNET_EVENT_UNLINK);
         LASSERT (ev->unlinked);
@@ -433,9 +433,9 @@ void server_bulk_callback (lnet_event_t *ev)
 
 	LASSERT(ev->type == LNET_EVENT_SEND ||
 		ev->type == LNET_EVENT_UNLINK ||
-		(desc->bd_type == BULK_PUT_SOURCE &&
+		(desc->bd_type & BULK_PUT_SOURCE &&
 		 ev->type == LNET_EVENT_ACK) ||
-		(desc->bd_type == BULK_GET_SINK &&
+		(desc->bd_type & BULK_GET_SINK &&
 		 ev->type == LNET_EVENT_REPLY));
 
         CDEBUG((ev->status == 0) ? D_NET : D_ERROR,
