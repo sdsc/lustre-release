@@ -625,6 +625,8 @@ typedef struct kib_tx                           /* transmit message */
 	__u64			tx_msgaddr;
 	/* for dma_unmap_single() */
 	DECLARE_PCI_UNMAP_ADDR(tx_msgunmap);
+	/** sge for tx_msgaddr */
+	struct ib_sge		tx_msgsge;
 	/* # send work items */
 	int			tx_nwrq;
 	/* # used scatter/gather elements */

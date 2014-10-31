@@ -811,10 +811,10 @@ __must_hold(&conn->ibc_lock)
 
 	LASSERT(tx->tx_queued);
 	/* We rely on this for QP sizing */
-	LASSERT(tx->tx_nwrq > 0 && tx->tx_nsge > 0);
+	LASSERT(tx->tx_nwrq > 0 && tx->tx_nsge >= 0);
 	LASSERT(tx->tx_nwrq <= 1 + IBLND_RDMA_FRAGS(ver));
-	LASSERT(tx->tx_nsge <= 1 + IBLND_RDMA_FRAGS(ver) *
-				   *kiblnd_tunables.kib_wrq_sge);
+	LASSERT(tx->tx_nsge <= IBLND_RDMA_FRAGS(ver) *
+			       *kiblnd_tunables.kib_wrq_sge);
 
         LASSERT (credit == 0 || credit == 1);
         LASSERT (conn->ibc_outstanding_credits >= 0);
@@ -1064,7 +1064,7 @@ static void
 kiblnd_init_tx_msg(lnet_ni_t *ni, kib_tx_t *tx, int type, int body_nob)
 {
 	kib_hca_dev_t	  *hdev = tx->tx_pool->tpo_hdev;
-	struct ib_sge	  *sge = &tx->tx_sge[tx->tx_nsge];
+	struct ib_sge	  *sge = &tx->tx_msgsge;
 	struct ib_send_wr *wrq = &tx->tx_wrq[tx->tx_nwrq];
 	int		   nob = offsetof (kib_msg_t, ibm_u) + body_nob;
 	struct ib_mr	  *mr;
@@ -1092,7 +1092,6 @@ kiblnd_init_tx_msg(lnet_ni_t *ni, kib_tx_t *tx, int type, int body_nob)
         wrq->send_flags = IB_SEND_SIGNALED;
 
         tx->tx_nwrq++;
-        tx->tx_nsge++;
 }
 
 static int
