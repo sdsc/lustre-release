@@ -1111,6 +1111,7 @@ int lr_setxattr(struct lr_info *info)
 /* Parse a line of changelog entry */
 int lr_parse_line(void *priv, struct lr_info *info)
 {
+	size_t namelen, size;
 	struct changelog_rec		*rec;
 	struct changelog_ext_rename	*rnm;
 
@@ -1122,8 +1123,11 @@ int lr_parse_line(void *priv, struct lr_info *info)
         info->type = rec->cr_type;
         sprintf(info->tfid, DFID, PFID(&rec->cr_tfid));
         sprintf(info->pfid, DFID, PFID(&rec->cr_pfid));
-	strncpy(info->name, changelog_rec_name(rec), rec->cr_namelen);
-	info->name[rec->cr_namelen] = '\0';
+	namelen = min(sizeof(info->name), rec->cr_namelen);
+	size = strlcpy(info->name, changelog_rec_name(rec), namelen);
+	if (size < rec->cr_namelen)
+		fprintf(stderr, "Changelog name '%s' was truncated.\n",
+			changelog_rec_name(rec));
 
 	/* Don't use rnm if CLF_RENAME isn't set */
 	rnm = changelog_rec_rename(rec);
@@ -1132,9 +1136,11 @@ int lr_parse_line(void *priv, struct lr_info *info)
 			 PFID(&rnm->cr_sfid));
 		snprintf(info->spfid, sizeof(info->spfid), DFID,
 			 PFID(&rnm->cr_spfid));
-		strncpy(info->sname, changelog_rec_sname(rec),
-			changelog_rec_snamelen(rec));
-		info->sname[changelog_rec_snamelen(rec)] = '\0';
+		namelen = min(sizeof(info->sname), changelog_rec_snamelen(rec));
+		size = strlcpy(info->sname, changelog_rec_sname(rec), namelen);
+		if (size < changelog_rec_snamelen(rec))
+			fprintf(stderr, "Changelog name '%s' was truncated.\n",
+				changelog_rec_sname(rec));
 
 		if (verbose > 1)
 			printf("Rec %lld: %d %s %s\n", info->recno, info->type,
