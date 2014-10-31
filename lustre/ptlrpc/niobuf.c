@@ -117,13 +117,13 @@ static void mdunlink_iterate_helper(lnet_handle_md_t *bd_mds, int count)
  */
 struct ptlrpc_bulk_desc *ptlrpc_prep_bulk_exp(struct ptlrpc_request *req,
 					      unsigned npages, unsigned max_brw,
-					      unsigned type, unsigned portal)
+					      unsigned long type, unsigned portal)
 {
 	struct obd_export *exp = req->rq_export;
 	struct ptlrpc_bulk_desc *desc;
 
 	ENTRY;
-	LASSERT(type == BULK_PUT_SOURCE || type == BULK_GET_SINK);
+	LASSERT(IS_BULK_OP_ACTIVE(type));
 
 	desc = ptlrpc_new_bulk(npages, max_brw, type, portal);
 	if (desc == NULL)
@@ -162,8 +162,7 @@ int ptlrpc_start_bulk_transfer(struct ptlrpc_bulk_desc *desc)
 
 	/* NB no locking required until desc is on the network */
 	LASSERT(desc->bd_md_count == 0);
-	LASSERT(desc->bd_type == BULK_PUT_SOURCE ||
-		desc->bd_type == BULK_GET_SINK);
+	LASSERT(IS_BULK_OP_ACTIVE(desc->bd_type));
 
 	LASSERT(desc->bd_cbid.cbid_fn == server_bulk_callback);
 	LASSERT(desc->bd_cbid.cbid_arg == desc);
@@ -203,7 +202,7 @@ int ptlrpc_start_bulk_transfer(struct ptlrpc_bulk_desc *desc)
 			break;
 		}
 		/* Network is about to get at the memory */
-		if (desc->bd_type == BULK_PUT_SOURCE)
+		if (IS_BULK_PUT_SOURCE(desc->bd_type))
 			rc = LNetPut(conn->c_self, desc->bd_mds[posted_md],
 				     LNET_ACK_REQ, conn->c_peer,
 				     desc->bd_portal, xid, 0, 0);
@@ -311,8 +310,7 @@ int ptlrpc_register_bulk(struct ptlrpc_request *req)
 	LASSERT(desc->bd_md_max_brw <= PTLRPC_BULK_OPS_COUNT);
 	LASSERT(desc->bd_iov_count <= PTLRPC_MAX_BRW_PAGES);
 	LASSERT(desc->bd_req != NULL);
-	LASSERT(desc->bd_type == BULK_PUT_SINK ||
-		desc->bd_type == BULK_GET_SOURCE);
+	LASSERT(IS_BULK_OP_PASSIVE(desc->bd_type));
 
 	/* cleanup the state of the bulk for it will be reused */
 	if (req->rq_resend || req->rq_send_state == LUSTRE_IMP_REPLAY)
@@ -351,7 +349,7 @@ int ptlrpc_register_bulk(struct ptlrpc_request *req)
 
 	for (posted_md = 0; posted_md < total_md; posted_md++, xid++) {
 		md.options = PTLRPC_MD_OPTIONS |
-			     ((desc->bd_type == BULK_GET_SOURCE) ?
+			     ((desc->bd_type & BULK_OP_GET) ?
 			      LNET_MD_OP_GET : LNET_MD_OP_PUT);
 		ptlrpc_fill_bulk_md(&md, desc, posted_md);
 
@@ -405,7 +403,7 @@ int ptlrpc_register_bulk(struct ptlrpc_request *req)
 
 	CDEBUG(D_NET, "Setup %u bulk %s buffers: %u pages %u bytes, "
 	       "xid x"LPX64"-"LPX64", portal %u\n", desc->bd_md_count,
-	       desc->bd_type == BULK_GET_SOURCE ? "get-source" : "put-sink",
+	       desc->bd_type & BULK_OP_GET ? "get-source" : "put-sink",
 	       desc->bd_iov_count, desc->bd_nob,
 	       desc->bd_last_xid, req->rq_xid, desc->bd_portal);
 
