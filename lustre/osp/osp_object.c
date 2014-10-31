@@ -93,6 +93,12 @@
 
 #include "osp_internal.h"
 
+static struct ptlrpc_bulk_frag_ops ptlrpc_bulk_kiov_pin_ops = {
+	.add_kiov_frag = ptlrpc_prep_bulk_page_pin,
+	.add_iov_frag = NULL,
+	.release_frag = ptlrpc_release_bulk_noop,
+};
+
 static inline __u32 osp_dev2node(struct osp_device *osp)
 {
 	return osp->opd_storage->dd_lu_dev.ld_site->ld_seq_site->ss_node_id;
@@ -1762,6 +1768,8 @@ static int osp_it_fetch(const struct lu_env *env, struct osp_it *it)
 	int			  i;
 	ENTRY;
 
+	LASSERT(ptlrpc_bulk_kiov_pin_ops.add_kiov_frag != NULL);
+
 	/* 1MB bulk */
 	npages = min_t(unsigned int, OFD_MAX_BRW_SIZE, 1 << 20);
 	npages /= PAGE_CACHE_SIZE;
@@ -1813,15 +1821,18 @@ static int osp_it_fetch(const struct lu_env *env, struct osp_it *it)
 
 	ptlrpc_at_set_req_timeout(req);
 
-	desc = ptlrpc_prep_bulk_imp(req, npages, 1, BULK_PUT_SINK,
-				    MDS_BULK_PORTAL);
+	desc = ptlrpc_prep_bulk_imp(req, npages, 1,
+				    BULK_PUT_SINK | BULK_BUF_KIOV,
+				    MDS_BULK_PORTAL,
+				    &ptlrpc_bulk_kiov_pin_ops);
 	if (desc == NULL) {
 		ptlrpc_request_free(req);
 		RETURN(-ENOMEM);
 	}
 
 	for (i = 0; i < npages; i++)
-		ptlrpc_prep_bulk_page_pin(desc, pages[i], 0, PAGE_CACHE_SIZE);
+		desc->bd_frag_ops->add_kiov_frag(desc, pages[i], 0,
+						 PAGE_CACHE_SIZE);
 
 	ptlrpc_request_set_replen(req);
 	rc = ptlrpc_queue_wait(req);

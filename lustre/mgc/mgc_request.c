@@ -51,6 +51,12 @@
 
 #include "mgc_internal.h"
 
+struct ptlrpc_bulk_frag_ops ptlrpc_bulk_kiov_pin_ops = {
+	.add_kiov_frag = ptlrpc_prep_bulk_page_pin,
+	.add_iov_frag = NULL,
+	.release_frag = ptlrpc_release_bulk_noop,
+};
+
 static int mgc_name2resid(char *name, int len, struct ldlm_res_id *res_id,
                           int type)
 {
@@ -1573,6 +1579,8 @@ static int mgc_process_recover_log(struct obd_device *obd,
         int rc;
         ENTRY;
 
+	LASSERT(ptlrpc_bulk_kiov_pin_ops.add_kiov_frag != NULL);
+
         /* allocate buffer for bulk transfer.
          * if this is the first time for this mgs to read logs,
          * CONFIG_READ_NRPAGES_INIT will be used since it will read all logs
@@ -1618,13 +1626,16 @@ again:
         body->mcb_units  = nrpages;
 
 	/* allocate bulk transfer descriptor */
-	desc = ptlrpc_prep_bulk_imp(req, nrpages, 1, BULK_PUT_SINK,
-				    MGS_BULK_PORTAL);
+	desc = ptlrpc_prep_bulk_imp(req, nrpages, 1,
+				    BULK_PUT_SINK | BULK_BUF_KIOV,
+				    MGS_BULK_PORTAL,
+				    &ptlrpc_bulk_kiov_pin_ops);
 	if (desc == NULL)
 		GOTO(out, rc = -ENOMEM);
 
 	for (i = 0; i < nrpages; i++)
-		ptlrpc_prep_bulk_page_pin(desc, pages[i], 0, PAGE_CACHE_SIZE);
+		desc->bd_frag_ops->add_kiov_frag(desc, pages[i], 0,
+						 PAGE_CACHE_SIZE);
 
         ptlrpc_request_set_replen(req);
         rc = ptlrpc_queue_wait(req);

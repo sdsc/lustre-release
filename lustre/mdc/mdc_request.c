@@ -61,6 +61,12 @@ struct mdc_renew_capa_args {
         renew_capa_cb_t         ra_cb;
 };
 
+struct ptlrpc_bulk_frag_ops ptlrpc_bulk_kiov_pin_ops = {
+	.add_kiov_frag = ptlrpc_prep_bulk_page_pin,
+	.add_iov_frag = NULL,
+	.release_frag = ptlrpc_release_bulk_noop,
+};
+
 static int mdc_cleanup(struct obd_device *obd);
 
 static int mdc_unpack_capa(struct obd_export *exp, struct ptlrpc_request *req,
@@ -1038,6 +1044,8 @@ static int mdc_getpage(struct obd_export *exp, const struct lu_fid *fid,
 	int                      rc;
 	ENTRY;
 
+	LASSERT(ptlrpc_bulk_kiov_pin_ops.add_kiov_frag != NULL);
+
 	*request = NULL;
 	init_waitqueue_head(&waitq);
 
@@ -1057,8 +1065,10 @@ restart_bulk:
 	req->rq_request_portal = MDS_READPAGE_PORTAL;
 	ptlrpc_at_set_req_timeout(req);
 
-	desc = ptlrpc_prep_bulk_imp(req, npages, 1, BULK_PUT_SINK,
-				    MDS_BULK_PORTAL);
+	desc = ptlrpc_prep_bulk_imp(req, npages, 1,
+				    BULK_PUT_SINK | BULK_BUF_KIOV,
+				    MDS_BULK_PORTAL,
+				    &ptlrpc_bulk_kiov_pin_ops);
 	if (desc == NULL) {
 		ptlrpc_request_free(req);
 		RETURN(-ENOMEM);
@@ -1066,7 +1076,8 @@ restart_bulk:
 
 	/* NB req now owns desc and will free it when it gets freed */
 	for (i = 0; i < npages; i++)
-		ptlrpc_prep_bulk_page_pin(desc, pages[i], 0, PAGE_CACHE_SIZE);
+		desc->bd_frag_ops->add_kiov_frag(desc, pages[i], 0,
+						 PAGE_CACHE_SIZE);
 
 	mdc_readdir_pack(req, offset, PAGE_CACHE_SIZE * npages, fid, oc);
 
