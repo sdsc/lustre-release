@@ -1445,6 +1445,10 @@ lnet_shutdown_lndni(__u32 net)
 	return 0;
 }
 
+/*
+ * Callers of lnet_startup_lndnis need to clean up using
+ * lnet_shutdown_lndnis if startup fails
+ */
 static int
 lnet_startup_lndnis(struct list_head *nilist, __s32 peer_timeout,
 		    __s32 peer_cr, __s32 peer_buf_cr, __s32 credits,
@@ -1792,7 +1796,7 @@ LNetNIInit(lnet_pid_t requested_pid)
 
 	rc = lnet_startup_lndnis(&net_head, -1, -1, -1, -1, &ni_count);
 	if (rc != 0)
-		goto failed1;
+		goto failed2;
 
 	if (the_lnet.ln_eq_waitni != NULL && ni_count > 1) {
 		lnd_type = the_lnet.ln_eq_waitni->ni_lnd->lnd_type;
