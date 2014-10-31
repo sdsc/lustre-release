@@ -2070,7 +2070,7 @@ kiblnd_destroy_tx_pool(kib_pool_t *pool)
                                     sizeof(*tx->tx_wrq));
                 if (tx->tx_sge != NULL)
 			LIBCFS_FREE(tx->tx_sge,
-                                    (1 + IBLND_MAX_RDMA_FRAGS * wrq_sge) *
+				    IBLND_MAX_RDMA_FRAGS * wrq_sge *
 				    sizeof(*tx->tx_sge));
                 if (tx->tx_rd != NULL)
                         LIBCFS_FREE(tx->tx_rd,
@@ -2155,7 +2155,7 @@ kiblnd_create_tx_pool(kib_poolset_t *ps, int size, kib_pool_t **pp_po)
 			break;
 
 		LIBCFS_CPT_ALLOC(tx->tx_sge, lnet_cpt_table(), ps->ps_cpt,
-				 (1 + IBLND_MAX_RDMA_FRAGS * wrq_sge) *
+				 IBLND_MAX_RDMA_FRAGS * wrq_sge *
 				 sizeof(*tx->tx_sge));
 		if (tx->tx_sge == NULL)
 			break;

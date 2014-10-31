@@ -623,18 +623,18 @@ typedef struct kib_tx                           /* transmit message */
 	kib_msg_t		*tx_msg;
 	/* message buffer (I/O addr) */
 	__u64			tx_msgaddr;
+	/** sge for tx_msgaddr */
+	struct ib_sge		tx_msg_sge;
 	/* for dma_unmap_single() */
 	DECLARE_PCI_UNMAP_ADDR(tx_msgunmap);
 	/* # send work items */
 	int			tx_nwrq;
 	/* # used scatter/gather elements */
 	int			tx_nsge;
-	/* send work items... */
-	struct ib_send_wr	*tx_wrq;
-	/* ...and their memory */
-	struct ib_sge		*tx_sge;
 	/* rdma descriptor */
 	kib_rdma_desc_t		*tx_rd;
+	/* ...and their memory */
+	struct ib_sge		*tx_sge;
 	/* # entries in... */
 	int			tx_nfrags;
 	/* dma_map_sg descriptor */
