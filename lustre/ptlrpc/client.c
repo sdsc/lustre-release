@@ -98,12 +98,25 @@ EXPORT_SYMBOL(ptlrpc_uuid_to_connection);
  * Returns pointer to the descriptor or NULL on error.
  */
 struct ptlrpc_bulk_desc *ptlrpc_new_bulk(unsigned npages, unsigned max_brw,
-					 unsigned type, unsigned portal)
+					 unsigned long type, unsigned portal)
 {
 	struct ptlrpc_bulk_desc *desc;
 	int i;
 
-	OBD_ALLOC(desc, offsetof(struct ptlrpc_bulk_desc, bd_iov[npages]));
+	/* ensure that only one of KIOV or IOVEC is set but not both */
+	LASSERT(is_bulk_desc_iovec(type) ||
+		is_bulk_desc_kiov(type));
+
+	if (type & BULK_BUF_KIOV) {
+		OBD_ALLOC(desc,
+			  offsetof(struct ptlrpc_bulk_desc,
+				   bd_u.bd_kiov.bd_vec[npages]));
+	} else {
+		OBD_ALLOC(desc,
+			  offsetof(struct ptlrpc_bulk_desc,
+				   bd_u.bd_iovec.bd_vec[npages]));
+	}
+
 	if (!desc)
 		return NULL;
 
@@ -133,13 +146,14 @@ struct ptlrpc_bulk_desc *ptlrpc_new_bulk(unsigned npages, unsigned max_brw,
  */
 struct ptlrpc_bulk_desc *ptlrpc_prep_bulk_imp(struct ptlrpc_request *req,
 					      unsigned npages, unsigned max_brw,
-					      unsigned type, unsigned portal)
+					      unsigned long type,
+					      unsigned portal)
 {
 	struct obd_import *imp = req->rq_import;
 	struct ptlrpc_bulk_desc *desc;
 
 	ENTRY;
-	LASSERT(type == BULK_PUT_SINK || type == BULK_GET_SOURCE);
+	LASSERT(is_bulk_op_passive(type));
 	desc = ptlrpc_new_bulk(npages, max_brw, type, portal);
 	if (desc == NULL)
 		RETURN(NULL);
@@ -166,20 +180,55 @@ EXPORT_SYMBOL(ptlrpc_prep_bulk_imp);
 void __ptlrpc_prep_bulk_page(struct ptlrpc_bulk_desc *desc,
 			     struct page *page, int pageoffset, int len, int pin)
 {
+	lnet_kiov_t *kiov;
+
 	LASSERT(desc->bd_iov_count < desc->bd_max_iov);
 	LASSERT(page != NULL);
 	LASSERT(pageoffset >= 0);
 	LASSERT(len > 0);
 	LASSERT(pageoffset + len <= PAGE_CACHE_SIZE);
+	LASSERT(is_bulk_desc_kiov(desc->bd_type));
+
+	kiov = &GET_KIOV(desc)[desc->bd_iov_count];
 
 	desc->bd_nob += len;
 
 	if (pin)
 		page_cache_get(page);
 
-	ptlrpc_add_bulk_page(desc, page, pageoffset, len);
+	kiov->kiov_page = page;
+	kiov->kiov_offset = pageoffset;
+	kiov->kiov_len = len;
+
+	desc->bd_iov_count++;
 }
 EXPORT_SYMBOL(__ptlrpc_prep_bulk_page);
+
+/*
+ * Add a \a fragment to the bulk descriptor \a desc.
+ * Data to transfer in the fragment is pointed to by \a frag
+ * The size of the fragment is \a len
+ */
+void __ptlrpc_prep_bulk_frag(struct ptlrpc_bulk_desc *desc,
+			     void *frag, int len)
+{
+	struct iovec *iovec;
+
+	LASSERT(desc->bd_iov_count < desc->bd_max_iov);
+	LASSERT(frag != NULL);
+	LASSERT(len > 0);
+	LASSERT(is_bulk_desc_iovec(desc->bd_type));
+
+	iovec = &GET_IOVEC(desc)[desc->bd_iov_count];
+
+	desc->bd_nob += len;
+
+	iovec->iov_base = frag;
+	iovec->iov_len = len;
+
+	desc->bd_iov_count++;
+}
+EXPORT_SYMBOL(__ptlrpc_prep_bulk_frag);
 
 /**
  * Uninitialize and free bulk descriptor \a desc.
@@ -203,12 +252,22 @@ void __ptlrpc_free_bulk(struct ptlrpc_bulk_desc *desc, int unpin)
 		class_import_put(desc->bd_import);
 
 	if (unpin) {
-		for (i = 0; i < desc->bd_iov_count ; i++)
-			page_cache_release(desc->bd_iov[i].kiov_page);
+		for (i = 0; i < desc->bd_iov_count ; i++) {
+			if (is_bulk_desc_kiov(desc->bd_type))
+				page_cache_release(GET_KIOV(desc)[i].kiov_page);
+			/* else
+				TODO: how to release fragments */
+		}
 	}
 
-	OBD_FREE(desc, offsetof(struct ptlrpc_bulk_desc,
-				bd_iov[desc->bd_max_iov]));
+	if (is_bulk_desc_kiov(desc->bd_type))
+		OBD_FREE(desc, offsetof(struct ptlrpc_bulk_desc,
+					bd_u.bd_kiov.bd_vec[desc->bd_max_iov]));
+	else
+		OBD_FREE(desc, offsetof(struct ptlrpc_bulk_desc,
+					bd_u.bd_iovec.bd_vec[desc->
+						bd_max_iov]));
+
 	EXIT;
 }
 EXPORT_SYMBOL(__ptlrpc_free_bulk);

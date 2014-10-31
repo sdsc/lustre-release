@@ -2319,10 +2319,68 @@ struct ptlrpc_bulk_page {
 	struct page	*bp_page;
 };
 
-#define BULK_GET_SOURCE   0
-#define BULK_PUT_SINK     1
-#define BULK_GET_SINK     2
-#define BULK_PUT_SOURCE   3
+enum {
+	BULK_OP_ACTIVE =	1 << 0,
+	BULK_OP_PASSIVE =	1 << 1,
+	BULK_OP_PUT =		1 << 2,
+	BULK_OP_GET =		1 << 3,
+	BULK_BUF_IOVEC =	1 << 4,
+	BULK_BUF_KIOV =		1 << 5,
+	BULK_GET_SOURCE =	(BULK_OP_PASSIVE | BULK_OP_GET),
+	BULK_PUT_SINK =		(BULK_OP_PASSIVE | BULK_OP_PUT),
+	BULK_GET_SINK =		(BULK_OP_ACTIVE | BULK_OP_GET),
+	BULK_PUT_SOURCE =	(BULK_OP_ACTIVE | BULK_OP_PUT),
+};
+
+
+static inline bool is_bulk_get_source(unsigned type)
+{
+	return (((type & BULK_GET_SOURCE) == BULK_GET_SOURCE));
+}
+
+static inline bool is_bulk_put_sink(unsigned type)
+{
+	return (((type & BULK_PUT_SINK) == BULK_PUT_SINK));
+}
+
+static inline bool is_bulk_get_sink(unsigned type)
+{
+	return (((type & BULK_GET_SINK) == BULK_GET_SINK));
+}
+
+static inline bool is_bulk_put_source(unsigned type)
+{
+	return (((type & BULK_PUT_SOURCE) == BULK_PUT_SOURCE));
+}
+
+static inline bool is_bulk_desc_iovec(unsigned type)
+{
+	return (((type & BULK_BUF_IOVEC) | (type & BULK_BUF_KIOV))
+			== BULK_BUF_IOVEC);
+}
+
+static inline bool is_bulk_desc_kiov(unsigned type)
+{
+	return (((type & BULK_BUF_IOVEC) | (type & BULK_BUF_KIOV))
+			== BULK_BUF_KIOV);
+}
+
+static inline bool is_bulk_op_active(unsigned type)
+{
+	return (((type & BULK_OP_ACTIVE) | (type & BULK_OP_PASSIVE))
+			== BULK_OP_ACTIVE);
+}
+
+static inline bool is_bulk_op_passive(unsigned type)
+{
+	return (((type & BULK_OP_ACTIVE) | (type & BULK_OP_PASSIVE))
+			== BULK_OP_PASSIVE);
+}
+
+#define GET_KIOV(desc) (desc)->bd_u.bd_kiov.bd_vec
+#define GET_ENC_KIOV(desc) (desc)->bd_u.bd_kiov.bd_enc_vec
+#define GET_IOVEC(desc) (desc)->bd_u.bd_iovec.bd_vec
+#define GET_ENC_IOVEC(desc) (desc)->bd_u.bd_iovec.bd_enc_vec
 
 /**
  * Definition of bulk descriptor.
@@ -2337,8 +2395,8 @@ struct ptlrpc_bulk_page {
 struct ptlrpc_bulk_desc {
 	/** completed with failure */
 	unsigned long bd_failure:1;
-	/** {put,get}{source,sink} */
-	unsigned long bd_type:2;
+	/** {put,get}{source,sink}{iovec,kiov} */
+	unsigned long bd_type;
 	/** client side */
 	unsigned long bd_registered:1;
 	/** For serialization with callback */
@@ -2368,12 +2426,21 @@ struct ptlrpc_bulk_desc {
 	/** array of associated MDs */
 	lnet_handle_md_t	bd_mds[PTLRPC_BULK_OPS_COUNT];
 
-	/*
-	 * encrypt iov, size is either 0 or bd_iov_count.
-	 */
-	lnet_kiov_t           *bd_enc_iov;
+	union {
+		struct {
+			/*
+			 * encrypt iov, size is either 0 or bd_iov_count.
+			 */
+			lnet_kiov_t *bd_enc_vec;
+			lnet_kiov_t bd_vec[0];
+		} bd_kiov;
 
-	lnet_kiov_t            bd_iov[0];
+		struct {
+			struct iovec *bd_enc_vec;
+			struct iovec bd_vec[0];
+		} bd_iovec;
+	} bd_u;
+
 };
 
 enum {
@@ -2900,7 +2967,8 @@ extern lnet_pid_t ptl_get_pid(void);
 #ifdef HAVE_SERVER_SUPPORT
 struct ptlrpc_bulk_desc *ptlrpc_prep_bulk_exp(struct ptlrpc_request *req,
 					      unsigned npages, unsigned max_brw,
-					      unsigned type, unsigned portal);
+					      unsigned long type,
+					      unsigned portal);
 int ptlrpc_start_bulk_transfer(struct ptlrpc_bulk_desc *desc);
 void ptlrpc_abort_bulk(struct ptlrpc_bulk_desc *desc);
 
@@ -3024,7 +3092,8 @@ void ptlrpc_req_finished_with_imp_lock(struct ptlrpc_request *request);
 struct ptlrpc_request *ptlrpc_request_addref(struct ptlrpc_request *req);
 struct ptlrpc_bulk_desc *ptlrpc_prep_bulk_imp(struct ptlrpc_request *req,
 					      unsigned npages, unsigned max_brw,
-					      unsigned type, unsigned portal);
+					      unsigned long type,
+					      unsigned portal);
 void __ptlrpc_free_bulk(struct ptlrpc_bulk_desc *bulk, int pin);
 static inline void ptlrpc_free_bulk_pin(struct ptlrpc_bulk_desc *bulk)
 {
