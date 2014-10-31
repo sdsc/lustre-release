@@ -1618,7 +1618,8 @@ again:
         body->mcb_units  = nrpages;
 
 	/* allocate bulk transfer descriptor */
-	desc = ptlrpc_prep_bulk_imp(req, nrpages, 1, BULK_PUT_SINK,
+	desc = ptlrpc_prep_bulk_imp(req, nrpages, 1,
+				    BULK_PUT_SINK | BULK_BUF_KIOV,
 				    MGS_BULK_PORTAL);
 	if (desc == NULL)
 		GOTO(out, rc = -ENOMEM);

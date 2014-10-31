@@ -930,8 +930,10 @@ static inline void unstable_page_accounting(struct ptlrpc_bulk_desc *desc,
 	int count = 0;
 	int i;
 
+	LASSERT(IS_BULK_DESC_KIOV(desc->bd_type));
+
 	for (i = 0; i < page_count; i++) {
-		void *pz = page_zone(desc->bd_iov[i].kiov_page);
+		void *pz = page_zone(GET_KIOV(desc)[i].kiov_page);
 
 		if (likely(pz == zone)) {
 			++count;

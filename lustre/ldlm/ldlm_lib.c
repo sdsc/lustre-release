@@ -2609,7 +2609,7 @@ static int target_bulk_timeout(void *data)
 
 static inline char *bulk2type(struct ptlrpc_bulk_desc *desc)
 {
-        return desc->bd_type == BULK_GET_SINK ? "GET" : "PUT";
+        return IS_BULK_GET_SINK(desc->bd_type) ? "GET" : "PUT";
 }
 
 int target_bulk_io(struct obd_export *exp, struct ptlrpc_bulk_desc *desc,
@@ -2636,7 +2636,7 @@ int target_bulk_io(struct obd_export *exp, struct ptlrpc_bulk_desc *desc,
 	    exp->exp_conn_cnt > lustre_msg_get_conn_cnt(req->rq_reqmsg)) {
 		rc = -ENOTCONN;
 	} else {
-		if (desc->bd_type == BULK_PUT_SINK)
+		if (IS_BULK_PUT_SINK(desc->bd_type))
 			rc = sptlrpc_svc_wrap_bulk(req, desc);
 		if (rc == 0)
 			rc = ptlrpc_start_bulk_transfer(desc);
@@ -2706,7 +2706,7 @@ int target_bulk_io(struct obd_export *exp, struct ptlrpc_bulk_desc *desc,
 			  desc->bd_nob);
 		/* XXX Should this be a different errno? */
 		rc = -ETIMEDOUT;
-	} else if (desc->bd_type == BULK_GET_SINK) {
+	} else if (IS_BULK_GET_SINK(desc->bd_type)) {
 		rc = sptlrpc_svc_unwrap_bulk(req, desc);
 	}
 

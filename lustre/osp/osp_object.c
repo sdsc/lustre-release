@@ -1813,7 +1813,8 @@ static int osp_it_fetch(const struct lu_env *env, struct osp_it *it)
 
 	ptlrpc_at_set_req_timeout(req);
 
-	desc = ptlrpc_prep_bulk_imp(req, npages, 1, BULK_PUT_SINK,
+	desc = ptlrpc_prep_bulk_imp(req, npages, 1,
+				    BULK_PUT_SINK | BULK_BUF_KIOV,
 				    MDS_BULK_PORTAL);
 	if (desc == NULL) {
 		ptlrpc_request_free(req);
