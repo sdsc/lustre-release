@@ -46,6 +46,12 @@ struct qsd_async_args {
 	qsd_req_completion_t   aa_completion;
 };
 
+static struct ptlrpc_bulk_frag_ops ptlrpc_bulk_kiov_pin_ops = {
+	.add_kiov_frag = ptlrpc_prep_bulk_page_pin,
+	.add_iov_frag = NULL,
+	.release_frag = ptlrpc_release_bulk_noop,
+};
+
 /*
  * non-intent quota request interpret callback.
  *
@@ -357,6 +363,7 @@ int qsd_fetch_index(const struct lu_env *env, struct obd_export *exp,
 	ENTRY;
 
 	LASSERT(exp);
+	LASSERT(ptlrpc_bulk_kiov_pin_ops.add_kiov_frag != NULL);
 
 	req = ptlrpc_request_alloc(class_exp2cliimp(exp), &RQF_OBD_IDX_READ);
 	if (req == NULL)
@@ -372,8 +379,10 @@ int qsd_fetch_index(const struct lu_env *env, struct obd_export *exp,
 	ptlrpc_at_set_req_timeout(req);
 
 	/* allocate bulk descriptor */
-	desc = ptlrpc_prep_bulk_imp(req, npages, 1, BULK_PUT_SINK,
-				    MDS_BULK_PORTAL);
+	desc = ptlrpc_prep_bulk_imp(req, npages, 1,
+				    BULK_PUT_SINK | BULK_BUF_KIOV,
+				    MDS_BULK_PORTAL,
+				    &ptlrpc_bulk_kiov_pin_ops);
 	if (desc == NULL) {
 		ptlrpc_request_free(req);
 		RETURN(-ENOMEM);
@@ -381,7 +390,8 @@ int qsd_fetch_index(const struct lu_env *env, struct obd_export *exp,
 
 	/* req now owns desc and will free it when it gets freed */
 	for (i = 0; i < npages; i++)
-		ptlrpc_prep_bulk_page_pin(desc, pages[i], 0, PAGE_CACHE_SIZE);
+		desc->bd_frag_ops->add_kiov_frag(desc, pages[i], 0,
+						 PAGE_CACHE_SIZE);
 
 	/* pack index information in request */
 	req_ii = req_capsule_client_get(&req->rq_pill, &RMF_IDX_INFO);

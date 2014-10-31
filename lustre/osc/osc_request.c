@@ -96,6 +96,12 @@ struct osc_enqueue_args {
 	unsigned int		oa_agl:1;
 };
 
+static struct ptlrpc_bulk_frag_ops ptlrpc_bulk_kiov_pin_ops = {
+	.add_kiov_frag = ptlrpc_prep_bulk_page_pin,
+	.add_iov_frag = NULL,
+	.release_frag = ptlrpc_release_bulk_noop,
+};
+
 static void osc_release_ppga(struct brw_page **ppga, obd_count count);
 static int brw_interpret(const struct lu_env *env, struct ptlrpc_request *req,
 			 void *data, int rc);
@@ -1130,6 +1136,9 @@ static int osc_brw_prep_request(int cmd, struct client_obd *cli,struct obdo *oa,
         struct brw_page *pg_prev;
 
         ENTRY;
+
+	LASSERT(ptlrpc_bulk_kiov_pin_ops.add_kiov_frag != NULL);
+
         if (OBD_FAIL_CHECK(OBD_FAIL_OSC_BRW_PREP_REQ))
                 RETURN(-ENOMEM); /* Recoverable */
         if (OBD_FAIL_CHECK(OBD_FAIL_OSC_BRW_PREP_REQ2))
@@ -1172,8 +1181,10 @@ static int osc_brw_prep_request(int cmd, struct client_obd *cli,struct obdo *oa,
 
 	desc = ptlrpc_prep_bulk_imp(req, page_count,
 		cli->cl_import->imp_connect_data.ocd_brw_size >> LNET_MTU_BITS,
-		opc == OST_WRITE ? BULK_GET_SOURCE : BULK_PUT_SINK,
-		OST_BULK_PORTAL);
+		(opc == OST_WRITE ? BULK_GET_SOURCE : BULK_PUT_SINK) |
+			BULK_BUF_KIOV,
+		OST_BULK_PORTAL,
+		&ptlrpc_bulk_kiov_pin_ops);
 
         if (desc == NULL)
                 GOTO(out, rc = -ENOMEM);
@@ -1220,7 +1231,7 @@ static int osc_brw_prep_request(int cmd, struct client_obd *cli,struct obdo *oa,
                 LASSERT((pga[0]->flag & OBD_BRW_SRVLOCK) ==
                         (pg->flag & OBD_BRW_SRVLOCK));
 
-		ptlrpc_prep_bulk_page_pin(desc, pg->pg, poff, pg->count);
+		desc->bd_frag_ops->add_kiov_frag(desc, pg->pg, poff, pg->count);
                 requested_nob += pg->count;
 
                 if (i > 0 && can_merge_pages(pg_prev, pg)) {
