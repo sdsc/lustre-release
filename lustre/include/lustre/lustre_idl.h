@@ -1517,6 +1517,7 @@ typedef enum {
         OST_QUOTACHECK = 18,
         OST_QUOTACTL   = 19,
 	OST_QUOTA_ADJUST_QUNIT = 20, /* not used since 2.4 */
+	OST_LADVISE    = 21,
         OST_LAST_OPC
 } ost_cmd_t;
 #define OST_FIRST_OPC  OST_REPLY
