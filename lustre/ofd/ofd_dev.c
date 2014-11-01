@@ -2087,6 +2087,51 @@ out:
 	return rc;
 }
 
+static int ofd_ladvise_prefetch(const struct lu_env *env, struct ofd_object *fo,
+				obd_size start, obd_size end)
+{
+	pgoff_t			 start_index, end_index, pages;
+	struct niobuf_remote	 rnb;
+	unsigned long		 nr_local;
+	struct niobuf_local	*lnb;
+	int rc = 0;
+
+	OBD_ALLOC_LARGE(lnb, sizeof(*lnb) * PTLRPC_MAX_BRW_PAGES);
+	if (lnb == NULL)
+		RETURN(-ENOMEM);
+
+	ofd_read_lock(env, fo);
+	if (!ofd_object_exists(fo))
+		GOTO(unlock, rc = -ENOENT);
+
+	/* We need page aligned offset and length */
+	start_index = start >> PAGE_CACHE_SHIFT;
+	end_index = end >> PAGE_CACHE_SHIFT;
+	pages = end_index - start_index + 1;
+	while (pages > 0) {
+		nr_local = pages <= PTLRPC_MAX_BRW_PAGES ? pages :
+			PTLRPC_MAX_BRW_PAGES;
+		rnb.rnb_offset = start_index << PAGE_CACHE_SHIFT;
+		rnb.rnb_len = nr_local << PAGE_CACHE_SHIFT;
+		rc = dt_bufs_get(env, ofd_object_child(fo), &rnb,
+				 lnb, 0, ofd_object_capa(env, fo));
+		if (unlikely(rc < 0))
+			break;
+		nr_local = rc;
+		rc = dt_read_prep(env, ofd_object_child(fo), lnb, nr_local);
+		dt_bufs_put(env, ofd_object_child(fo), lnb, nr_local);
+		if (unlikely(rc))
+			break;
+		start_index += nr_local;
+		pages -= nr_local;
+	}
+
+unlock:
+	ofd_read_unlock(env, fo);
+	OBD_FREE_LARGE(lnb, sizeof(*lnb) * PTLRPC_MAX_BRW_PAGES);
+	RETURN(rc);
+}
+
 /**
  * OFD request handler for OST_LADVISE RPC.
  *
@@ -2108,6 +2153,9 @@ static int ofd_ladvise_hdl(struct tgt_session_info *tsi)
 	struct ofd_object	*fo;
 	const struct lu_env	*env = req->rq_svc_thread->t_env;
 	int			 rc = 0;
+	struct obd_ioobj	 ioo;
+	struct niobuf_remote	 remote_nb = { 0 };
+	struct lustre_handle	 lockh = { 0 };
 	ENTRY;
 
 	body = tsi->tsi_ost_body;
@@ -2118,6 +2166,8 @@ static int ofd_ladvise_hdl(struct tgt_session_info *tsi)
 
 	/* Skip unnecessary steps in advance for unsupported advice types */
 	switch (body->oa.o_flags) {
+	case LU_LADVISE_WILLNEED:
+		break;
 	default:
 		RETURN(-ENOTSUPP);
 	}
@@ -2146,10 +2196,30 @@ static int ofd_ladvise_hdl(struct tgt_session_info *tsi)
 
 	/* Handle different advice types */
 	switch (repbody->oa.o_flags) {
+	case LU_LADVISE_WILLNEED:
+		ioo.ioo_oid = body->oa.o_oi;
+		ioo.ioo_bufcnt = 1;
+		remote_nb.rnb_offset = repbody->oa.o_size;
+		remote_nb.rnb_len = repbody->oa.o_size -
+			repbody->oa.o_blocks + 1;
+
+		rc = tgt_brw_lock(exp->exp_obd->obd_namespace,
+				  &tsi->tsi_resid, &ioo,
+				  &remote_nb, &lockh, LCK_PR);
+		if (rc != 0)
+			GOTO(out, rc);
+
+		req->rq_status = ofd_ladvise_prefetch(env,
+						      fo,
+						      repbody->oa.o_size,
+						      repbody->oa.o_blocks);
+		tgt_brw_unlock(&ioo, &remote_nb, &lockh, LCK_PR);
+		break;
 	default:
 		rc = -ENOTSUPP;
 	}
 
+out:
 	ofd_object_put(env, fo);
 	RETURN(rc);
 }
