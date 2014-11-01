@@ -685,6 +685,52 @@ static void osc_io_fsync_end(const struct lu_env *env,
 	slice->cis_io->ci_result = result;
 }
 
+static int osc_io_ladvise_start(const struct lu_env *env,
+				const struct cl_io_slice *slice)
+{
+	int			 result = 0;
+	struct cl_io		*io  = slice->cis_io;
+	struct osc_io		*oio = cl2osc_io(env, slice);
+	struct cl_object	*obj = slice->cis_obj;
+	struct lov_oinfo	*loi = cl2osc(obj)->oo_oinfo;
+	struct cl_ladvise_io	*lio = &io->u.ci_ladvise;
+	struct obd_info		*oinfo = &oio->oi_info;
+	struct obdo		*oa = &oio->oi_oa;
+	struct osc_async_cbargs	*cbargs = &oio->oi_cbarg;
+	ENTRY;
+
+	memset(oa, 0, sizeof(*oa));
+	oa->o_oi = loi->loi_oi;
+	oa->o_size = lio->li_start;
+	oa->o_blocks = lio->li_end;
+	oa->o_flags = lio->li_advice;
+	oa->o_valid = OBD_MD_FLID | OBD_MD_FLSIZE |
+		      OBD_MD_FLBLOCKS | OBD_MD_FLFLAGS;
+	obdo_set_parent_fid(oa, lio->li_fid);
+	memset(oinfo, 0, sizeof(*oinfo));
+	oinfo->oi_oa = oa;
+	oinfo->oi_capa = lio->li_capa;
+	init_completion(&cbargs->opc_sync);
+	result = osc_ladvise_base(osc_export(cl2osc(obj)), oinfo,
+				  osc_async_upcall, cbargs, PTLRPCD_SET);
+	cbargs->opc_rpc_sent = result == 0;
+	RETURN(result);
+}
+
+static void osc_io_ladvise_end(const struct lu_env *env,
+			       const struct cl_io_slice *slice)
+{
+	struct osc_io		*oio = cl2osc_io(env, slice);
+	struct osc_async_cbargs	*cbargs = &oio->oi_cbarg;
+	int			 result = 0;
+
+	if (cbargs->opc_rpc_sent) {
+		wait_for_completion(&cbargs->opc_sync);
+		result = cbargs->opc_rc;
+	}
+	slice->cis_io->ci_result = result;
+}
+
 static void osc_io_end(const struct lu_env *env,
 		       const struct cl_io_slice *slice)
 {
@@ -721,6 +767,11 @@ static const struct cl_io_operations osc_io_ops = {
 		[CIT_FSYNC] = {
 			.cio_start  = osc_io_fsync_start,
 			.cio_end    = osc_io_fsync_end,
+			.cio_fini   = osc_io_fini
+		},
+		[CIT_LADVISE] = {
+			.cio_start  = osc_io_ladvise_start,
+			.cio_end    = osc_io_ladvise_end,
 			.cio_fini   = osc_io_fini
 		},
 		[CIT_MISC] = {
