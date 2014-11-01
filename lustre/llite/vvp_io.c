@@ -1071,6 +1071,12 @@ static int vvp_io_fsync_start(const struct lu_env *env,
 	return 0;
 }
 
+static int vvp_io_ladvise_start(const struct lu_env *env,
+				const struct cl_io_slice *ios)
+{
+	return 0;
+}
+
 static int vvp_io_read_page(const struct lu_env *env,
                             const struct cl_io_slice *ios,
                             const struct cl_page_slice *slice)
@@ -1143,11 +1149,15 @@ static const struct cl_io_operations vvp_io_ops = {
 			.cio_start  = vvp_io_fsync_start,
 			.cio_fini   = vvp_io_fini
 		},
-                [CIT_MISC] = {
-                        .cio_fini   = vvp_io_fini
-                }
-        },
-        .cio_read_page     = vvp_io_read_page,
+		[CIT_MISC] = {
+			.cio_fini   = vvp_io_fini
+		},
+		[CIT_LADVISE] = {
+			.cio_start  = vvp_io_ladvise_start,
+			.cio_fini   = vvp_io_fini
+		},
+	},
+	.cio_read_page     = vvp_io_read_page,
 };
 
 int vvp_io_init(const struct lu_env *env, struct cl_object *obj,
