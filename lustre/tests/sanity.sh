@@ -13456,6 +13456,7 @@ test_251() {
 }
 run_test 251 "Handling short read and write correctly"
 
+
 test_252() {
 	local tgt
 	local dev
@@ -13506,7 +13507,6 @@ test_252() {
 	echo -e "Number of reply data returned by $LR_READER is '$num'\n"
 }
 run_test 252 "check lr_reader tool"
-
 
 cleanup_test_300() {
 	trap 0
