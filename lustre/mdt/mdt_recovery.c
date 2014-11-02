@@ -133,7 +133,21 @@ static void mdt_steal_ack_locks(struct ptlrpc_request *req)
 	struct obd_export	   *exp = req->rq_export;
 	struct list_head	   *tmp;
 	struct ptlrpc_reply_state  *oldrep;
+	struct lustre_handle *rs_locks;
+	enum ldlm_mode *rs_modes;
+	int rs_nlocks;
+	int no_ack;
 	int			    i;
+
+	OBD_ALLOC(rs_locks, sizeof(*rs_locks) * RS_MAX_LOCKS);
+	if (rs_locks == NULL)
+		return;
+
+	OBD_ALLOC(rs_modes, sizeof(*rs_modes) * RS_MAX_LOCKS);
+	if (rs_modes == NULL) {
+		OBD_FREE(rs_locks, sizeof(*rs_locks) * RS_MAX_LOCKS);
+		return;
+	}
 
 	/* CAVEAT EMPTOR: spinlock order */
 	spin_lock(&exp->exp_lock);
@@ -141,14 +155,14 @@ static void mdt_steal_ack_locks(struct ptlrpc_request *req)
 		oldrep = list_entry(tmp, struct ptlrpc_reply_state,
 				    rs_exp_list);
 
-                if (oldrep->rs_xid != req->rq_xid)
-                        continue;
+		if (oldrep->rs_xid != req->rq_xid)
+			continue;
 
-                if (oldrep->rs_opc != lustre_msg_get_opc(req->rq_reqmsg))
-                        CERROR ("Resent req xid "LPU64" has mismatched opc: "
-                                "new %d old %d\n", req->rq_xid,
-                                lustre_msg_get_opc(req->rq_reqmsg),
-                                oldrep->rs_opc);
+		if (oldrep->rs_opc != lustre_msg_get_opc(req->rq_reqmsg))
+			CERROR("Resent req xid "LPU64" has mismatched opc: "
+				"new %d old %d\n", req->rq_xid,
+				lustre_msg_get_opc(req->rq_reqmsg),
+				oldrep->rs_opc);
 
 		svcpt = oldrep->rs_svcpt;
 		spin_lock(&svcpt->scp_rep_lock);
@@ -161,20 +175,31 @@ static void mdt_steal_ack_locks(struct ptlrpc_request *req)
 		       oldrep->rs_xid, oldrep->rs_transno, oldrep->rs_opc,
 		       libcfs_nid2str(exp->exp_connection->c_peer.nid));
 
-                for (i = 0; i < oldrep->rs_nlocks; i++)
-                        ptlrpc_save_lock(req, &oldrep->rs_locks[i],
-                                         oldrep->rs_modes[i], 0);
-                oldrep->rs_nlocks = 0;
+		DEBUG_REQ(D_HA, req, "stole locks for");
 
-                DEBUG_REQ(D_HA, req, "stole locks for");
 		spin_lock(&oldrep->rs_lock);
+		rs_nlocks = oldrep->rs_nlocks;
+		memcpy(rs_locks, &oldrep->rs_locks,
+		       sizeof(*rs_locks) * rs_nlocks);
+		memcpy(rs_modes, &oldrep->rs_modes,
+		       sizeof(*rs_modes) * rs_nlocks);
+		no_ack = oldrep->rs_no_ack;
+		oldrep->rs_nlocks = 0;
 		ptlrpc_schedule_difficult_reply(oldrep);
 		spin_unlock(&oldrep->rs_lock);
 
 		spin_unlock(&svcpt->scp_rep_lock);
+
+		for (i = 0; i < rs_nlocks; i++)
+			ptlrpc_save_lock(req, NULL, &rs_locks[i], rs_modes[i],
+					 no_ack, true);
+
 		break;
 	}
 	spin_unlock(&exp->exp_lock);
+
+	OBD_FREE(rs_locks, sizeof(*rs_locks) * RS_MAX_LOCKS);
+	OBD_FREE(rs_modes, sizeof(*rs_modes) * RS_MAX_LOCKS);
 }
 
 __u64 mdt_req_from_lrd(struct ptlrpc_request *req,

@@ -4615,6 +4615,53 @@ test_70d() {
 }
 run_test 70d "stop MDT1, mkdir succeed, create remote dir fail"
 
+test_70e() {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+
+	[ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.7.62) ] ||
+		{ skip "Need MDS version at least 2.7.62"; return 0; }
+
+	cleanup || error "cleanup failed with $?"
+
+	local mdsdev=$(mdsdevname 1)
+	local ostdev=$(ostdevname 1)
+	local opts_mds="$(mkfs_opts mds1 $mdsdev) --reformat $mdsdev $mdsdev"
+	local opts_ost="$(mkfs_opts ost1 $ostdev) --reformat $ostdev $ostdev"
+
+	add mds1 $opts_mds || error "add mds1 failed"
+	start_mdt 1 || error "start mdt1 failed"
+	add ost1 $opts_ost || error "add ost1 failed"
+	start_ost || error "start ost failed"
+	mount_client $MOUNT > /dev/null || error "mount client $MOUNT failed"
+
+	mdsdev=$(mdsdevname 2)
+	opts_mds="$(mkfs_opts mds2 $mdsdev) --reformat $mdsdev $mdsdev"
+	add mds2 $opts_mds || error "add mds2 failed"
+	start_mdt 2 || error "start mdt2 fail"
+
+	mkdir -p $DIR/$tdir || error "mkdir failed"
+
+	for i in $(seq 100); do
+		$LFS mkdir -c 2 $DIR/$tdir/d1 || error "$LFS mkdir -c 2 failed"
+		$LFS mkdir -i 1 -c 2 $DIR/$tdir/d2 ||
+			error "$LFS mkdir -c 2 failed"
+		stripe_count1=$($LFS getdirstripe -c $DIR/$tdir/d1)
+		stripe_count2=$($LFS getdirstripe -c $DIR/$tdir/d2)
+		[ $((stripe_count1 + stripe_count2)) -eq 4 ] && break;
+		rmdir $DIR/$tdir/*
+		sleep 1
+	done
+
+	for i in $(seq $MDSCOUNT); do
+		[ $($LCTL get_param -n mdt.*MDT000$((i - 1)).sync_lock_cancel)\
+		 == "blocking" ] || error "SoC not enabled"
+	done
+
+	rm -rf $DIR/$tdir || error "delete dir fail"
+	cleanup || error "cleanup failed with $?"
+}
+run_test 70e "Sync-on-Cancel will be enabled by default on DNE"
+
 test_71a() {
 	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
 	if combined_mgs_mds; then
