@@ -1217,7 +1217,7 @@ static int mdd_obd_get_info(const struct lu_env *env, struct obd_export *exp,
 {
 	int rc = -EINVAL;
 
-	if (KEY_IS(KEY_OSP_CONNECTED)) {
+	if (KEY_IS(KEY_OSP_CONNECTED) || KEY_IS(KEY_MDT_COUNT)) {
 		struct obd_device	*obd = exp->exp_obd;
 		struct mdd_device	*mdd;
 

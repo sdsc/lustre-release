@@ -2249,8 +2249,9 @@ struct ptlrpc_service_conf {
  *
  * @{
  */
-void ptlrpc_save_lock(struct ptlrpc_request *req,
-                      struct lustre_handle *lock, int mode, int no_ack);
+void ptlrpc_save_lock(struct ptlrpc_request *req, struct ldlm_lock *lock,
+		      struct lustre_handle *lockh, int mode, int no_ack,
+		      bool rs_changed);
 void ptlrpc_commit_replies(struct obd_export *exp);
 void ptlrpc_dispatch_difficult_reply(struct ptlrpc_reply_state *rs);
 void ptlrpc_schedule_difficult_reply(struct ptlrpc_reply_state *rs);

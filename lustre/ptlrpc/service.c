@@ -181,24 +181,47 @@ ptlrpc_grow_req_bufs(struct ptlrpc_service_part *svcpt, int post)
  * Puts a lock and its mode into reply state assotiated to request reply.
  */
 void
-ptlrpc_save_lock(struct ptlrpc_request *req,
-                 struct lustre_handle *lock, int mode, int no_ack)
+ptlrpc_save_lock(struct ptlrpc_request *req, struct ldlm_lock *lock,
+		 struct lustre_handle *lockh, int mode, int no_ack,
+		 bool rs_changed)
 {
-        struct ptlrpc_reply_state *rs = req->rq_reply_state;
-        int                        idx;
+	struct ptlrpc_reply_state *rs = req->rq_reply_state;
+	int idx;
 
-        LASSERT(rs != NULL);
-        LASSERT(rs->rs_nlocks < RS_MAX_LOCKS);
+	LASSERT(rs != NULL);
+	LASSERT(rs->rs_nlocks < RS_MAX_LOCKS);
 
-        if (req->rq_export->exp_disconnected) {
-                ldlm_lock_decref(lock, mode);
-        } else {
-                idx = rs->rs_nlocks++;
-                rs->rs_locks[idx] = *lock;
-                rs->rs_modes[idx] = mode;
-                rs->rs_difficult = 1;
-                rs->rs_no_ack = !!no_ack;
-        }
+	if (rs_changed) {
+		LASSERT(lock == NULL);
+		lock = ldlm_handle2lock(lockh);
+		LASSERT(lock != NULL);
+	}
+
+	if (req->rq_export->exp_disconnected) {
+		if (lock != NULL) {
+			/* cross-MDT lock should clear l_ast_data. */
+			lock_res_and_lock(lock);
+			if (lock->l_ast_data == rs)
+				lock->l_ast_data = NULL;
+			unlock_res_and_lock(lock);
+		}
+
+		ldlm_lock_decref(lockh, mode);
+	} else {
+		spin_lock(&rs->rs_lock);
+		idx = rs->rs_nlocks++;
+		rs->rs_locks[idx] = *lockh;
+		rs->rs_modes[idx] = mode;
+		rs->rs_difficult = 1;
+		if (!rs->rs_no_ack)
+			rs->rs_no_ack = !!no_ack;
+		if (rs_changed)
+			lock->l_ast_data = rs;
+		spin_unlock(&rs->rs_lock);
+	}
+
+	if (rs_changed)
+		LDLM_LOCK_PUT(lock);
 }
 EXPORT_SYMBOL(ptlrpc_save_lock);
 
