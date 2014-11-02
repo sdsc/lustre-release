@@ -56,10 +56,60 @@
 #include <lustre_dlm.h>
 #include <obd_support.h>
 #include <lustre_lib.h>
+#include <obd_class.h>
 
 #include "ldlm_internal.h"
 
 #ifdef HAVE_SERVER_SUPPORT
+/**
+ * Inodebits lock mode compatibility check
+ *
+ * There are two special rules for COS lock:
+ * 1. if COS is enabled and the dependent transactions are from the same client
+ *    (lock client_cookie equals), these two locks are compatible. But if
+ *    LDLM_FL_COS_INCOMPAT is set, these two locks are incompatible.
+ * 2. if COS is not enabled and LDLM_FL_COS_INCOMPAT is not set, COS lock is
+ *    compatible with any lock. IOW, on DNE system, local transaction or
+ *    transaction which doesn't modify the object ignores COS locks of this
+ *    object.
+ * Except these two cases, others follow LDLM lock compatiblity matrix.
+ *
+ * \param lock	existed lock
+ * \param req	request lock
+ * \param dlmflags dlm flags used in lock enqueue
+ * \retval true locks are compatible
+ * \retval false locks are incompatible
+ */
+static bool inodebits_lockmode_compat(struct ldlm_lock *lock,
+				      struct ldlm_lock *req,
+				      __u64 dlmflags)
+{
+	struct lu_target *tgt;
+	int rc;
+	ENTRY;
+
+	LDLM_DEBUG(lock, "dlmflags "LPX64, dlmflags);
+
+	tgt = ldlm_lock_to_ns(lock)->ns_obd->u.obt.obt_lut;
+	if (lock->l_req_mode == LCK_COS && !(dlmflags & LDLM_FL_COS_INCOMPAT)) {
+		if (!tgt->lut_commit_on_sharing) {
+			LASSERT(tgt->lut_sync_lock_cancel ==
+				BLOCKING_SYNC_ON_CANCEL);
+			/* if COS not enabled, ignore COS locks */
+			RETURN(true);
+		} else if (lock->l_client_cookie == req->l_client_cookie) {
+			/* COS lock mode has a special compatibility
+			 * requirement: it is only compatible with locks from
+			 * the same client. */
+			RETURN(true);
+		}
+	}
+
+	rc = lockmode_compat(lock->l_req_mode, req->l_req_mode);
+	RETURN(rc);
+}
+
+
 /**
  * Determine if the lock is compatible with all locks on the queue.
  *
@@ -77,11 +127,10 @@
  */
 static int
 ldlm_inodebits_compat_queue(struct list_head *queue, struct ldlm_lock *req,
-			    struct list_head *work_list)
+			    __u64 dlmflags, struct list_head *work_list)
 {
 	struct list_head *tmp;
 	struct ldlm_lock *lock;
-	enum ldlm_mode req_mode = req->l_req_mode;
 	__u64 req_bits = req->l_policy_data.l_inodebits.bits;
 	int compat = 1;
 	ENTRY;
@@ -98,23 +147,23 @@ ldlm_inodebits_compat_queue(struct list_head *queue, struct ldlm_lock *req,
 		/* We stop walking the queue if we hit ourselves so we don't
 		 * take conflicting locks enqueued after us into account,
 		 * or we'd wait forever. */
-                if (req == lock)
-                        RETURN(compat);
+		if (req == lock)
+			RETURN(compat);
 
-                /* last lock in mode group */
-                LASSERT(lock->l_sl_mode.prev != NULL);
+		/* last lock in mode group */
+		LASSERT(lock->l_sl_mode.prev != NULL);
 		mode_tail = &list_entry(lock->l_sl_mode.prev,
-                                            struct ldlm_lock,
-                                            l_sl_mode)->l_res_link;
+					struct ldlm_lock,
+					l_sl_mode)->l_res_link;
 
-                /* locks are compatible, bits don't matter */
-                if (lockmode_compat(lock->l_req_mode, req_mode)) {
-                        /* jump to last lock in mode group */
-                        tmp = mode_tail;
-                        continue;
-                }
+		/* locks' mode are compatible, bits don't matter */
+		if (inodebits_lockmode_compat(lock, req, dlmflags)) {
+			/* jump to last lock in mode group */
+			tmp = mode_tail;
+			continue;
+		}
 
-                for (;;) {
+		for (;;) {
 			struct list_head *head;
 
 			/* Advance loop cursor to last lock in policy group. */
@@ -124,12 +173,6 @@ ldlm_inodebits_compat_queue(struct list_head *queue, struct ldlm_lock *req,
 
 			/* Locks with overlapping bits conflict. */
 			if (lock->l_policy_data.l_inodebits.bits & req_bits) {
-				/* COS lock mode has a special compatibility
-				 * requirement: it is only compatible with
-				 * locks from the same client. */
-				if (lock->l_req_mode == LCK_COS &&
-				    lock->l_client_cookie == req->l_client_cookie)
-					goto not_conflicting;
 				/* Found a conflicting policy group. */
 				if (!work_list)
 					RETURN(0);
@@ -147,7 +190,6 @@ ldlm_inodebits_compat_queue(struct list_head *queue, struct ldlm_lock *req,
                                                 ldlm_add_ast_work_item(lock, req,
                                                                        work_list);
                         }
-                not_conflicting:
                         if (tmp == mode_tail)
                                 break;
 
@@ -190,28 +232,32 @@ int ldlm_process_inodebits_lock(struct ldlm_lock *lock, __u64 *flags,
 	check_res_locked(res);
 
 	/* (*flags & LDLM_FL_BLOCK_NOWAIT) is for layout lock right now. */
-        if (!first_enq || (*flags & LDLM_FL_BLOCK_NOWAIT)) {
+	if (!first_enq || (*flags & LDLM_FL_BLOCK_NOWAIT)) {
 		*err = ELDLM_LOCK_ABORTED;
 		if (*flags & LDLM_FL_BLOCK_NOWAIT)
 			*err = ELDLM_LOCK_WOULDBLOCK;
 
-                rc = ldlm_inodebits_compat_queue(&res->lr_granted, lock, NULL);
-                if (!rc)
-                        RETURN(LDLM_ITER_STOP);
-                rc = ldlm_inodebits_compat_queue(&res->lr_waiting, lock, NULL);
-                if (!rc)
-                        RETURN(LDLM_ITER_STOP);
+		rc = ldlm_inodebits_compat_queue(&res->lr_granted, lock, *flags,
+						 NULL);
+		if (!rc)
+			RETURN(LDLM_ITER_STOP);
+		rc = ldlm_inodebits_compat_queue(&res->lr_waiting, lock, *flags,
+						 NULL);
+		if (!rc)
+			RETURN(LDLM_ITER_STOP);
 
-                ldlm_resource_unlink_lock(lock);
-                ldlm_grant_lock(lock, work_list);
+		ldlm_resource_unlink_lock(lock);
+		ldlm_grant_lock(lock, work_list);
 
 		*err = ELDLM_OK;
-                RETURN(LDLM_ITER_CONTINUE);
-        }
+		RETURN(LDLM_ITER_CONTINUE);
+	}
 
  restart:
-        rc = ldlm_inodebits_compat_queue(&res->lr_granted, lock, &rpc_list);
-        rc += ldlm_inodebits_compat_queue(&res->lr_waiting, lock, &rpc_list);
+	rc = ldlm_inodebits_compat_queue(&res->lr_granted, lock, *flags,
+					 &rpc_list);
+	rc += ldlm_inodebits_compat_queue(&res->lr_waiting, lock, *flags,
+					  &rpc_list);
 
         if (rc != 2) {
                 /* If either of the compat_queue()s returned 0, then we
