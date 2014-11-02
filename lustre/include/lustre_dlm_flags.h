@@ -345,6 +345,12 @@
 /** Flag whether a lock is found on server for re-sent RPC. */
 #define LDLM_FL_RESENT                   0x0100000000000000ULL // bit  56
 
+/** Flag whether a lock revoke is notified instantly even when there is still
+ *  reader or writer */
+#define LDLM_FL_REVOKE_NOTIFY		0x0200000000000000ULL /* bit 57 */
+#define ldlm_is_revoke_notify(_l)	LDLM_TEST_FLAG((_l), 1ULL << 57)
+#define ldlm_set_revoke_notify(_l)	LDLM_SET_FLAG((_l), 1ULL << 57)
+
 /** l_flags bits marked as "ast" bits */
 #define LDLM_FL_AST_MASK                (LDLM_FL_FLOCK_DEADLOCK		|\
 					 LDLM_FL_AST_DISCARD_DATA)
