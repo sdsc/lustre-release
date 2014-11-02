@@ -103,7 +103,7 @@
  	return inum;
  }
 
-+struct inode *ext4_create_inode(handle_t *handle, struct inode * dir, int mode)
++struct inode *ext4_create_inode(handle_t *handle, struct inode *dir, int mode)
 +{
 +	struct inode *inode;
 +
@@ -111,7 +111,7 @@
 +			       EXT4_SB(dir->i_sb)->s_inode_goal);
 +	if (!IS_ERR(inode)) {
 +		if (S_ISCHR(mode) || S_ISBLK(mode) || S_ISFIFO(mode)) {
-+#ifdef CONFIG_LDISKFS_FS_XATTR
++#ifdef CONFIG_EXT4_FS_XATTR
 +			inode->i_op = &ext4_special_inode_operations;
 +#endif
 +		} else {
@@ -119,8 +119,8 @@
 +			inode->i_fop = &ext4_file_operations;
 +			ext4_set_aops(inode);
 +		}
-+		unlock_new_inode(inode);
 +	}
++
 +	return inode;
 +}
 +EXPORT_SYMBOL(ext4_create_inode);
