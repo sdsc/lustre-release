@@ -421,6 +421,8 @@ int tgt_hpreq_handler(struct ptlrpc_request *req);
 
 /* target/tgt_main.c */
 void tgt_boot_epoch_update(struct lu_target *lut);
+void tgt_save_slc_lock(struct ldlm_lock *lock, __u64 transno);
+void tgt_discard_slc_lock(struct ldlm_lock *lock);
 int tgt_last_commit_cb_add(struct thandle *th, struct lu_target *lut,
 			   struct obd_export *exp, __u64 transno);
 int tgt_new_client_cb_add(struct thandle *th, struct obd_export *exp);

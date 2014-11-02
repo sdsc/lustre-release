@@ -961,6 +961,87 @@ test_33b() {
 }
 run_test 33b "COS: cross create/delete, 2 clients, benchmark under remote dir"
 
+ops_do_cos() {
+	local nodes=$(comma_list $(mdts_nodes))
+	do_nodes $nodes "lctl set_param -n mdt.*.async_commit_count=0"
+	sh -c "$@"
+	local async_commit_count=$(do_nodes $nodes \
+		"lctl get_param -n mdt.*.async_commit_count" | calc_sum)
+	[ $async_commit_count -gt 0 ] || error "CoS not triggerred"
+
+	rm -rf $DIR/$tdir
+	sync
+}
+
+test_33c() {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+	[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.7.63) ] &&
+		skip "DNE CoS not supported" && return
+
+	sync
+	# remote directory create
+	mkdir $DIR/$tdir
+	ops_do_cos "$LFS mkdir -i 1 $DIR/$tdir/subdir"
+	# remote directory unlink
+	$LFS mkdir -i 1 $DIR/$tdir
+	ops_do_cos "rmdir $DIR/$tdir"
+	# striped directory create
+	mkdir $DIR/$tdir
+	ops_do_cos "$LFS mkdir -c 2 $DIR/$tdir/subdir"
+	# striped directory setattr
+	$LFS mkdir -c 2 $DIR/$tdir
+	touch $DIR/$tdir
+	ops_do_cos "chmod 713 $DIR/$tdir"
+	# striped directory unlink
+	$LFS mkdir -c 2 $DIR/$tdir
+	touch $DIR/$tdir
+	ops_do_cos "rmdir $DIR/$tdir"
+	# cross-MDT link
+	$LFS mkdir -c 2 $DIR/$tdir
+	$LFS mkdir -i 0 $DIR/$tdir/d1
+	$LFS mkdir -i 1 $DIR/$tdir/d2
+	touch $DIR/$tdir/d1/tgt
+	ops_do_cos "ln $DIR/$tdir/d1/tgt $DIR/$tdir/d2/src"
+	# cross-MDT rename
+	$LFS mkdir -c 2 $DIR/$tdir
+	$LFS mkdir -i 0 $DIR/$tdir/d1
+	$LFS mkdir -i 1 $DIR/$tdir/d2
+	touch $DIR/$tdir/d1/src
+	ops_do_cos "mv $DIR/$tdir/d1/src $DIR/$tdir/d2/tgt"
+	# migrate
+	$LFS mkdir -i 0 $DIR/$tdir
+	ops_do_cos "$LFS migrate -m 1 $DIR/$tdir"
+	return 0
+}
+run_test 33c "DNE distributed operation should trigger COS"
+
+test_33d() {
+	[ -n "$CLIENTS" ] || { skip "Need two or more clients" && return 0; }
+	[ $CLIENTCOUNT -ge 2 ] ||
+		{ skip "Need two or more clients, have $CLIENTCOUNT" &&
+								return 0; }
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+
+	sync
+
+	local nodes=$(comma_list $(mdts_nodes))
+	do_nodes $nodes "lctl set_param -n mdt.*.async_commit_count=0"
+	$LFS mkdir -c 2 $DIR/$tdir
+	mkdir $DIR/$tdir/subdir
+	echo abc > $DIR/$tdir/$tfile
+	do_node CLIENT2 echo dfg >> $DIR/$tdir/$tfile
+	do_node CLIENT2 touch $DIR/$tdir/subdir
+	do_node CLIENT2 ln $DIR/$tdir/$tfile $DIR/$tdir/subdir/tgt
+	do_node CLIENT2 mv $DIR/$tdir/$tfile $DIR/$tdir/subdir
+	do_node CLIENT2 rm -rf $DIR/$tdir
+	local async_commit_count=$(do_nodes $nodes \
+		"lctl get_param -n mdt.*.async_commit_count" | calc_sum)
+	[ $async_commit_count -gt 0 ] && error "CoS triggerred"
+
+	return 0
+}
+run_test 33d "DNE local operation shouldn't trigger COS"
+
 # End commit on sharing tests
 
 get_ost_lock_timeouts() {
@@ -3436,6 +3517,11 @@ test_91() {
 run_test 91 "chmod and unlink striped directory"
 
 log "cleanup: ======================================================"
+
+# kill and wait in each test only guarentee script finish, but command in script
+# like 'rm' 'chmod' may still be running, wait for all commands to finish
+# otherwise umount below will fail
+wait_update $HOSTNAME "fuser -m $MOUNT2" "" || true
 
 [ "$(mount | grep $MOUNT2)" ] && umount $MOUNT2
 
