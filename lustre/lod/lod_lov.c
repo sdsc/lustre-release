@@ -739,72 +739,6 @@ repeat:
 }
 
 /**
- * Store default striping.
- *
- * Store default striping for the files in the given directory. The data
- * are stored in the LOD-object representing the directory (ldo_def_* fields).
- * If default striping matches virtual fs-wide default striping, then we
- * store nothing. This mean that the files in the directory will be created
- * with filesystem-wide default striping. The transaction must be started.
- *
- * \param[in] env		execution environment for this thread
- * \param[in] dt		dt object representing directory in LOD layer
- * \param[in] th		transaction handle
- *
- * \retval			0 if stored successfully or no need to store
- * \retval			negative error number on failure
- */
-int lod_store_def_striping(const struct lu_env *env, struct dt_object *dt,
-			   struct thandle *th)
-{
-	struct lod_thread_info	*info = lod_env_info(env);
-	struct lod_object	*lo = lod_dt_obj(dt);
-	struct dt_object	*next = dt_object_child(dt);
-	struct lov_user_md_v3	*v3;
-	int			 rc;
-	ENTRY;
-
-	if (S_ISDIR(dt->do_lu.lo_header->loh_attr))
-		RETURN(-ENOTDIR);
-	/*
-	 * store striping defaults into new directory
-	 * used to implement defaults inheritance
-	 */
-
-	/* probably nothing to inherite */
-	if (lo->ldo_striping_cached == 0)
-		RETURN(0);
-
-	if (LOVEA_DELETE_VALUES(lo->ldo_def_stripe_size, lo->ldo_def_stripenr,
-				lo->ldo_def_stripe_offset))
-		RETURN(0);
-
-	v3 = info->lti_ea_store;
-	if (info->lti_ea_store_size < sizeof(*v3)) {
-		rc = lod_ea_store_resize(info, sizeof(*v3));
-		if (rc != 0)
-			RETURN(rc);
-		v3 = info->lti_ea_store;
-	}
-	memset(v3, 0, sizeof(*v3));
-	v3->lmm_magic = cpu_to_le32(LOV_USER_MAGIC_V3);
-	v3->lmm_stripe_count = cpu_to_le16(lo->ldo_def_stripenr);
-	v3->lmm_stripe_offset = cpu_to_le16(lo->ldo_def_stripe_offset);
-	v3->lmm_stripe_size = cpu_to_le32(lo->ldo_def_stripe_size);
-	if (lo->ldo_pool != NULL) {
-		strlcpy(v3->lmm_pool_name, lo->ldo_pool,
-			sizeof(v3->lmm_pool_name));
-		v3->lmm_pool_name[sizeof(v3->lmm_pool_name) - 1] = '\0';
-	}
-	info->lti_buf.lb_buf = v3;
-	info->lti_buf.lb_len = sizeof(*v3);
-	rc = dt_xattr_set(env, next, &info->lti_buf, XATTR_NAME_LOV, 0, th,
-			BYPASS_CAPA);
-
-	RETURN(rc);
-}
-
-/**
  * Verify the target index is present in the current configuration.
  *
  * \param[in] md		LOD device where the target table is stored
@@ -1111,7 +1045,7 @@ int lod_load_striping(const struct lu_env *env, struct lod_object *lo)
 int lod_verify_striping(struct lod_device *d, const struct lu_buf *buf,
 			bool is_from_disk)
 {
-	struct lov_user_md_v1	*lum;
+	struct lov_user_md	*lum;
 	struct lov_user_md_v3	*lum3;
 	struct pool_desc	*pool = NULL;
 	__u32			 magic;
@@ -1135,6 +1069,7 @@ int lod_verify_striping(struct lod_device *d, const struct lu_buf *buf,
 	magic = le32_to_cpu(lum->lmm_magic);
 	if (magic != LOV_USER_MAGIC_V1 &&
 	    magic != LOV_USER_MAGIC_V3 &&
+	    magic != LOV_USER_MAGIC_SPECIFIC &&
 	    magic != LOV_MAGIC_V1_DEF &&
 	    magic != LOV_MAGIC_V3_DEF) {
 		CDEBUG(D_IOCTL, "bad userland LOV MAGIC: %#x\n", magic);
@@ -1177,16 +1112,17 @@ int lod_verify_striping(struct lod_device *d, const struct lu_buf *buf,
 		}
 	}
 
+	stripe_count = le16_to_cpu(lum->lmm_stripe_count);
 	if (magic == LOV_USER_MAGIC_V1 || magic == LOV_MAGIC_V1_DEF)
-		lum_size = offsetof(struct lov_user_md_v1,
-				    lmm_objects[0]);
+		lum_size = lov_user_md_size(stripe_count, LOV_USER_MAGIC_V1);
 	else if (magic == LOV_USER_MAGIC_V3 || magic == LOV_MAGIC_V3_DEF)
-		lum_size = offsetof(struct lov_user_md_v3,
-				    lmm_objects[0]);
+		lum_size = lov_user_md_size(stripe_count, LOV_USER_MAGIC_V3);
+	else if (magic == LOV_USER_MAGIC_SPECIFIC)
+		lum_size = lov_user_md_size(stripe_count,
+					    LOV_USER_MAGIC_SPECIFIC);
 	else
 		GOTO(out, rc = -EINVAL);
 
-	stripe_count = le16_to_cpu(lum->lmm_stripe_count);
 	if (buf->lb_len != lum_size) {
 		CDEBUG(D_IOCTL, "invalid buf len %zd for lov_user_md with "
 		       "magic %#x and stripe_count %u\n",
@@ -1194,35 +1130,49 @@ int lod_verify_striping(struct lod_device *d, const struct lu_buf *buf,
 		GOTO(out, rc = -EINVAL);
 	}
 
-	if (!(magic == LOV_USER_MAGIC_V3 || magic == LOV_MAGIC_V3_DEF))
-		goto out;
-
-	lum3 = buf->lb_buf;
-	if (buf->lb_len < sizeof(*lum3)) {
-		CDEBUG(D_IOCTL, "buf len %zd too small for lov_user_md_v3\n",
-		       buf->lb_len);
-		GOTO(out, rc = -EINVAL);
-	}
-
-	/* In the function below, .hs_keycmp resolves to
-	 * pool_hashkey_keycmp() */
-	/* coverity[overrun-buffer-val] */
-	pool = lod_find_pool(d, lum3->lmm_pool_name);
-	if (pool == NULL)
-		goto out;
-
-	if (stripe_offset != LOV_OFFSET_DEFAULT) {
-		rc = lod_check_index_in_pool(stripe_offset, pool);
-		if (rc < 0)
+	if (magic == LOV_USER_MAGIC_V3 || magic == LOV_MAGIC_V3_DEF) {
+		lum3 = buf->lb_buf;
+		if (buf->lb_len < sizeof(*lum3)) {
+			CDEBUG(D_IOCTL, "buf len %zd too small for "
+			       "lov_user_md_v3\n", buf->lb_len);
 			GOTO(out, rc = -EINVAL);
-	}
+		}
 
-	if (is_from_disk && stripe_count > pool_tgt_count(pool)) {
-		CDEBUG(D_IOCTL,
-		       "stripe count %u > # OSTs %u in the pool\n",
-		       stripe_count, pool_tgt_count(pool));
-		GOTO(out, rc = -EINVAL);
+		/* In the function below, .hs_keycmp resolves to
+		 * pool_hashkey_keycmp() */
+		/* coverity[overrun-buffer-val] */
+		pool = lod_find_pool(d, lum3->lmm_pool_name);
+		if (pool == NULL)
+			goto out;
+
+		if (stripe_offset != LOV_OFFSET_DEFAULT) {
+			rc = lod_check_index_in_pool(stripe_offset, pool);
+			if (rc < 0)
+				GOTO(out, rc = -EINVAL);
+		}
+
+		if (is_from_disk && stripe_count > pool_tgt_count(pool)) {
+			CDEBUG(D_IOCTL, "stripe count %u > # OSTs %u in the "
+			       "pool\n", stripe_count, pool_tgt_count(pool));
+			GOTO(out, rc = -EINVAL);
+		}
+	} else if (magic == LOV_USER_MAGIC_SPECIFIC) {
+		int i;
+
+		if (lum_size != buf->lb_len) {
+			CDEBUG(D_IOCTL, "wrong size: %zd, expect: %zd\n",
+			       buf->lb_len, lum_size);
+			GOTO(out, rc = -EINVAL);
+		}
+		for (i = 0; i < lum->lmm_stripe_count; i++) {
+			if (!cfs_bitmap_check(d->lod_ost_bitmap,
+					      lum->lmm_objects[i].l_ost_idx)) {
+				CDEBUG(D_IOCTL, "stripe idx %u not in bitmap\n",
+				       lum->lmm_objects[i].l_ost_idx);
+			}
+		}
 	}
+	lustre_print_user_md(D_OTHER, lum, __func__);
 
 out:
 	if (pool != NULL)

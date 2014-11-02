@@ -2260,8 +2260,21 @@ LNetCtl(unsigned int cmd, void *arg)
 		return 0;
 	}
 
-	default:
-		ni = lnet_net2ni(data->ioc_net);
+	default: {
+		__u32 net = LNET_NIDNET(LNET_NID_ANY);
+
+		if (cmd == IOC_LIBCFS_GET_PEER) {
+			struct libcfs_ioctl_peer *data_peer = arg;
+
+			net = data_peer->ioc_net;
+		} else if (cmd == IOC_LIBCFS_GET_CONN) {
+			struct libcfs_ioctl_conn *data_conn = arg;
+
+			net = data_conn->ioc_net;
+		} else
+			net = data->ioc_net;
+
+		ni = lnet_net2ni(net);
 		if (ni == NULL)
 			return -EINVAL;
 
@@ -2272,6 +2285,7 @@ LNetCtl(unsigned int cmd, void *arg)
 
 		lnet_ni_decref(ni);
 		return rc;
+	}
 	}
 	/* not reached */
 }

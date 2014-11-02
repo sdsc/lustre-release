@@ -420,7 +420,9 @@ kiblnd_unlink_peer_locked (kib_peer_t *peer)
 
 static int
 kiblnd_get_peer_info(lnet_ni_t *ni, int index,
-		     lnet_nid_t *nidp, int *count)
+		     lnet_nid_t *nidp, int *count,
+		     __u32 *connecting, __u32 *accepting,
+		     __u32 *active_conn, __u32 *waiting_conn)
 {
 	kib_peer_t		*peer;
 	struct list_head	*ptmp;
@@ -446,6 +448,12 @@ kiblnd_get_peer_info(lnet_ni_t *ni, int index,
 
 			*nidp = peer->ibp_nid;
 			*count = atomic_read(&peer->ibp_refcount);
+			*connecting = peer->ibp_connecting;
+			*accepting = peer->ibp_accepting;
+			list_for_each(ctmp, &peer->ibp_conns) (*active_conn)++;
+			list_for_each(ctmp, &peer->ibp_tx_queue);
+				      (*waiting_conn)++;
+
 
 			read_unlock_irqrestore(&kiblnd_data.kib_global_lock,
 					       flags);
@@ -570,6 +578,61 @@ kiblnd_get_conn_by_idx(lnet_ni_t *ni, int index)
 
 	read_unlock_irqrestore(&kiblnd_data.kib_global_lock, flags);
         return NULL;
+}
+
+void
+kiblnd_get_tx(kib_tx_t *tx, struct ioctl_tx_queue *tx_q)
+{
+	tx_q->tx_sending = tx->tx_sending;
+	tx_q->tx_queued = tx->tx_queued;
+	tx_q->tx_waiting = tx->tx_waiting;
+	tx_q->tx_status = tx->tx_status;
+	tx_q->tx_deadline = tx->tx_deadline;
+	tx_q->tx_cookie = tx->tx_cookie;
+	tx_q->tx_msg_type = tx->tx_msg->ibm_type;
+	tx_q->tx_msg_credits = tx->tx_msg->ibm_credits;
+}
+
+void
+kiblnd_get_conn_detail(kib_conn_t *conn, tx_conn_queue_type_t type,
+		       struct ioctl_tx_queue *tx_q, __u32 *num_entries)
+{
+	struct list_head *tmp, *q;
+	int i = 0;
+
+	switch (type) {
+	case TX_QUEUE_NOOPS:
+		q =  &conn->ibc_tx_noops;
+		break;
+	case TX_QUEUE_CR:
+		q = &conn->ibc_tx_queue;
+		break;
+	case TX_QUEUE_NCR:
+		q = &conn->ibc_tx_queue_nocred;
+		break;
+	case TX_QUEUE_RSRVD:
+		q = &conn->ibc_tx_queue_rsrvd;
+		break;
+	case TX_QUEUE_ACTIVE:
+		q = &conn->ibc_active_txs;
+		break;
+	default:
+		CERROR("Unknown queue type in show command: %d\n",
+		       type);
+		return;
+	}
+	list_for_each(tmp, q) {
+		kiblnd_get_tx(list_entry(tmp, kib_tx_t, tx_list), &tx_q[i]);
+		i++;
+		/*
+		 * Allocated only MAX_NUM_SHOW_ENTRIES, so make sure you
+		 * don't go past it
+		 */
+		if (i == MAX_NUM_SHOW_ENTRIES)
+			break;
+	}
+
+	*num_entries = i;
 }
 
 static void
@@ -1086,15 +1149,23 @@ kiblnd_ctl(lnet_ni_t *ni, unsigned int cmd, void *arg)
         struct libcfs_ioctl_data *data = arg;
         int                       rc = -EINVAL;
 
-        switch(cmd) {
-        case IOC_LIBCFS_GET_PEER: {
-                lnet_nid_t   nid = 0;
-                int          count = 0;
+	switch(cmd) {
+	case IOC_LIBCFS_GET_PEER: {
+		__u32 connecting, accepting, active_conn, waiting_conn;
+		struct libcfs_ioctl_peer *data_peer = arg;
+		lnet_nid_t nid = 0;
+		int count = 0;
 
                 rc = kiblnd_get_peer_info(ni, data->ioc_count,
-                                          &nid, &count);
-                data->ioc_nid    = nid;
-                data->ioc_count  = count;
+					  &nid, &count, &connecting,
+					  &accepting, &active_conn,
+					  &waiting_conn);
+		data->ioc_nid = data_peer->ioc_nid = nid;
+		data->ioc_count = data_peer->lnd_u.o2iblnd.peer_ref_count = count;
+		data_peer->lnd_u.o2iblnd.connecting = connecting;
+		data_peer->lnd_u.o2iblnd.accepting = accepting;
+		data_peer->lnd_u.o2iblnd.active_conn = active_conn;
+		data_peer->lnd_u.o2iblnd.waiting_conn = waiting_conn;
                 break;
         }
 
@@ -1103,25 +1174,36 @@ kiblnd_ctl(lnet_ni_t *ni, unsigned int cmd, void *arg)
                 break;
         }
         case IOC_LIBCFS_GET_CONN: {
-                kib_conn_t *conn;
+		struct libcfs_ioctl_conn *data_conn = arg;
+		kib_conn_t *conn;
 
-                rc = 0;
-                conn = kiblnd_get_conn_by_idx(ni, data->ioc_count);
-                if (conn == NULL) {
-                        rc = -ENOENT;
-                        break;
-                }
+		rc = 0;
+		conn = kiblnd_get_conn_by_idx(ni, data->ioc_count);
+		if (conn == NULL) {
+			rc = -ENOENT;
+			break;
+		}
 
-                LASSERT (conn->ibc_cmid != NULL);
-                data->ioc_nid = conn->ibc_peer->ibp_nid;
-                if (conn->ibc_cmid->route.path_rec == NULL)
-                        data->ioc_u32[0] = 0; /* iWarp has no path MTU */
-                else
-                        data->ioc_u32[0] =
-                        ib_mtu_enum_to_int(conn->ibc_cmid->route.path_rec->mtu);
-                kiblnd_conn_decref(conn);
-                break;
-        }
+		LASSERT(conn->ibc_cmid != NULL);
+		data->ioc_nid = data_conn->ioc_nid = conn->ibc_peer->ibp_nid;
+		/* iWarp has no path MTU */
+		if (conn->ibc_cmid->route.path_rec == NULL)
+			data_conn->lnd_u.o2iblnd.path_mtu = data->ioc_u32[0] = 0;
+		else
+			data_conn->lnd_u.o2iblnd.path_mtu =
+				ib_mtu_enum_to_int(conn->ibc_cmid->route.path_rec->mtu);
+		data->ioc_u32[0] = data_conn->lnd_u.o2iblnd.path_mtu; /* iWarp has no path MTU */
+
+		if (data_conn->ioc_detail) {
+			/* get more details on each connection */
+			kiblnd_get_conn_detail(conn,
+					       data_conn->lnd_u.o2iblnd.q_type,
+					       data_conn->lnd_u.o2iblnd.tx_q,
+					       &data_conn->lnd_u.o2iblnd.num_entries);
+		}
+		kiblnd_conn_decref(conn);
+		break;
+	}
         case IOC_LIBCFS_CLOSE_CONNECTION: {
                 rc = kiblnd_close_matching_conns(ni, data->ioc_nid);
                 break;
