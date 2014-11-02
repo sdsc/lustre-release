@@ -4038,6 +4038,10 @@ static int lod_object_lock(const struct lu_env *env,
 			ldlm_completion_callback completion = einfo->ei_cb_cp;
 			__u64	dlmflags = LDLM_FL_ATOMIC_CB;
 
+			if (einfo->ei_mode == LCK_PW ||
+			    einfo->ei_mode == LCK_EX)
+				dlmflags |= LDLM_FL_COS_INCOMPAT;
+
 			/* This only happens if there are mulitple stripes
 			 * on the master MDT, i.e. except stripe0, there are
 			 * other stripes on the Master MDT as well, Only

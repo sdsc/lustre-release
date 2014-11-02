@@ -131,7 +131,8 @@ struct lu_target {
 	unsigned int		 lut_syncjournal:1,
 				 lut_sync_lock_cancel:2,
 				 /* e.g. OST node */
-				 lut_no_reconstruct:1;
+				 lut_no_reconstruct:1,
+				 lut_commit_on_sharing:1;
 	/** last_rcvd file */
 	struct dt_object	*lut_last_rcvd;
 	/* transaction callbacks */
