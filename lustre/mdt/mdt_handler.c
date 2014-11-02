@@ -2246,12 +2246,24 @@ int mdt_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
         RETURN(rc);
 }
 
-/* Used for cross-MDT lock */
+/*
+ * Blocking AST for cross-MDT lock
+ *
+ * Discard lock from uncommitted_soc_locks and cancel it.
+ *
+ * \param lock	the lock which blocks a request or cancelling lock
+ * \param desc	unused
+ * \param data	unused
+ * \param flag	indicates whether this cancelling or blocking callback
+ * \retval	0 on success
+ * \retval	negative number on error
+ */
 int mdt_remote_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
 			    void *data, int flag)
 {
 	struct lustre_handle lockh;
 	int		  rc;
+	ENTRY;
 
 	switch (flag) {
 	case LDLM_CB_BLOCKING:
@@ -2264,10 +2276,14 @@ int mdt_remote_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
 		break;
 	case LDLM_CB_CANCELING:
 		LDLM_DEBUG(lock, "Revoke remote lock\n");
+		/* discard soc lock here so that it can be cleaned anytime,
+		 * especially for cleanup_resource() */
+		tgt_discard_soc_lock(lock);
 		break;
 	default:
 		LBUG();
 	}
+
 	RETURN(0);
 }
 
@@ -2438,8 +2454,10 @@ mdt_object_lock_internal(struct mdt_thread_info *info, struct mdt_object *o,
 	int rc;
 	ENTRY;
 
-	if (!mdt_object_remote(o))
-		return mdt_object_local_lock(info, o, lh, ibits, nonblock);
+	if (!mdt_object_remote(o)) {
+		rc = mdt_object_local_lock(info, o, lh, ibits, nonblock);
+		RETURN(rc);
+	}
 
 	/* XXX do not support PERM/LAYOUT/XATTR lock for remote object yet */
 	ibits &= ~(MDS_INODELOCK_PERM | MDS_INODELOCK_LAYOUT |
@@ -2563,6 +2581,41 @@ static void mdt_save_lock(struct mdt_thread_info *info, struct lustre_handle *h,
 }
 
 /**
+ * Save cross-MDT lock in uncommitted_soc_locks
+ *
+ * Keep the lock referenced until transaction commit happens or release the lock
+ * immediately depending on input parameters.
+ *
+ * \param info thead info object
+ * \param h lock handle
+ * \param mode lock mode
+ * \param decref force immediate lock releasing
+ */
+static void mdt_save_remote_lock(struct mdt_thread_info *info,
+				 struct lustre_handle *h, enum ldlm_mode mode,
+				 int decref)
+{
+	ENTRY;
+
+	if (lustre_handle_is_used(h)) {
+		if (decref || !info->mti_has_trans ||
+		    !(mode & (LCK_PW | LCK_EX))) {
+			mdt_fid_unlock_cancel(h, mode);
+		} else {
+			struct ldlm_lock *lock = ldlm_handle2lock(h);
+			struct ptlrpc_request *req = mdt_info_req(info);
+
+			LASSERT(req != NULL);
+			tgt_save_soc_lock(lock, req->rq_transno);
+			mdt_fid_unlock(h, mode);
+		}
+		h->cookie = 0ull;
+	}
+
+	EXIT;
+}
+
+/**
  * Unlock mdt object.
  *
  * Immeditely release the regular lock and the PDO lock or save the
@@ -2575,17 +2628,15 @@ static void mdt_save_lock(struct mdt_thread_info *info, struct lustre_handle *h,
  * \param decref force immediate lock releasing
  */
 void mdt_object_unlock(struct mdt_thread_info *info, struct mdt_object *o,
-                       struct mdt_lock_handle *lh, int decref)
+		       struct mdt_lock_handle *lh, int decref)
 {
-        ENTRY;
+	ENTRY;
 
-        mdt_save_lock(info, &lh->mlh_pdo_lh, lh->mlh_pdo_mode, decref);
-        mdt_save_lock(info, &lh->mlh_reg_lh, lh->mlh_reg_mode, decref);
+	mdt_save_lock(info, &lh->mlh_pdo_lh, lh->mlh_pdo_mode, decref);
+	mdt_save_lock(info, &lh->mlh_reg_lh, lh->mlh_reg_mode, decref);
+	mdt_save_remote_lock(info, &lh->mlh_rreg_lh, lh->mlh_rreg_mode, decref);
 
-	if (lustre_handle_is_used(&lh->mlh_rreg_lh))
-		ldlm_lock_decref(&lh->mlh_rreg_lh, lh->mlh_rreg_mode);
-
-        EXIT;
+	EXIT;
 }
 
 struct mdt_object *mdt_object_find_lock(struct mdt_thread_info *info,
@@ -5011,6 +5062,12 @@ static int mdt_obd_disconnect(struct obd_export *exp)
 	RETURN(rc);
 }
 
+static inline void mdt_enable_soc(struct mdt_device *mdt)
+{
+	if (mdt->mdt_lut.lut_sync_lock_cancel == NEVER_SYNC_ON_CANCEL)
+		mdt->mdt_lut.lut_sync_lock_cancel = BLOCKING_SYNC_ON_CANCEL;
+}
+
 /* mds_connect copy */
 static int mdt_obd_connect(const struct lu_env *env,
 			   struct obd_export **exp, struct obd_device *obd,
@@ -5030,6 +5087,9 @@ static int mdt_obd_connect(const struct lu_env *env,
 		RETURN(-EINVAL);
 
 	mdt = mdt_dev(obd->obd_lu_dev);
+
+	if (data->ocd_connect_flags & OBD_CONNECT_MDS_MDS)
+		mdt_enable_soc(mdt);
 
 	/*
 	 * first, check whether the stack is ready to handle requests
