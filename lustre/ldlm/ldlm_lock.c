@@ -499,6 +499,7 @@ static struct ldlm_lock *ldlm_lock_new(struct ldlm_resource *resource)
         lock->l_exp_refs_target = NULL;
 #endif
 	INIT_LIST_HEAD(&lock->l_exp_list);
+	INIT_LIST_HEAD(&lock->l_soc_link);
 
         RETURN(lock);
 }
@@ -1898,6 +1899,7 @@ ldlm_work_bl_ast_lock(struct ptlrpc_request_set *rqset, void *opaq)
 	/* nobody should touch l_bl_ast */
 	lock_res_and_lock(lock);
 	list_del_init(&lock->l_bl_ast);
+	ldlm_set_cbpending(lock);
 
 	LASSERT(ldlm_is_ast_sent(lock));
 	LASSERT(lock->l_bl_ast_run == 0);
