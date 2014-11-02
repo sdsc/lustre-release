@@ -636,6 +636,25 @@ mdt_enable_remote_dir_gid_seq_write(struct file *file,
 }
 LPROC_SEQ_FOPS(mdt_enable_remote_dir_gid);
 
+/**
+ * Show MDT policy for handling dirty metadata under a lock being cancelled.
+ *
+ * \param[in] m		seq_file handle
+ * \param[in] data	unused for single entry
+ *
+ * \retval		0 on success
+ * \retval		negative value on error
+ */
+static int mdt_soc_seq_show(struct seq_file *m, void *data)
+{
+	struct obd_device *obd = m->private;
+	struct lu_target *tgt = obd->u.obt.obt_lut;
+	char *soc_states[] = {"never", "blocking", "always" };
+
+	return seq_printf(m, "%s\n", soc_states[tgt->lut_sync_lock_cancel]);
+}
+LPROC_SEQ_FOPS_RO(mdt_soc);
+
 LPROC_SEQ_FOPS_RO_TYPE(mdt, uuid);
 LPROC_SEQ_FOPS_RO_TYPE(mdt, recovery_status);
 LPROC_SEQ_FOPS_RO_TYPE(mdt, num_exports);
@@ -690,6 +709,8 @@ static struct lprocfs_vars lprocfs_mdt_obd_vars[] = {
 	  .fops =	&mdt_enable_remote_dir_gid_fops		},
 	{ .name =	"hsm_control",
 	  .fops =	&mdt_hsm_cdt_control_fops		},
+	{ .name =	"sync_lock_cancel",
+	  .fops =	&mdt_soc_fops				},
 	{ NULL }
 };
 
