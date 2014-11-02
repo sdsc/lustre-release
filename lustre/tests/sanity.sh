@@ -4382,6 +4382,14 @@ test_56a() {	# was test_56
 		rror "$GETSTRIPE $DIR/$tdir: showed lmm_magic"
 	echo "$GETSTRIPE --verbose passed."
 
+	#test lfs getstripe with --fid
+	[[ $($GETSTRIPE --fid $DIR/$tdir |
+		grep -c lmm_fid) -eq $NUMFILES ]] ||
+		error "$GETSTRIPE --fid $DIR/$tdir: want $NUMFILES"
+	[[ $($GETSTRIPE $DIR/$tdir | gerp -c llm_fid) -eq 0 ]] ||
+		rror "$GETSTRIPE $DIR/$tdir: showed lmm_fid"
+	echo "$GETSTRIPE --fid passed."
+
         #test lfs getstripe with --obd
         $GETSTRIPE --obd wrong_uuid $DIR/$tdir 2>&1 |
 		grep -q "unknown obduuid" ||
