@@ -575,6 +575,11 @@ typedef int (*ldlm_completion_callback)(struct ldlm_lock *lock, __u64 flags,
 /** Type for glimpse callback function of a lock. */
 typedef int (*ldlm_glimpse_callback)(struct ldlm_lock *lock, void *data);
 
+/** Type for compatible callback function of inodebit lock */
+typedef bool (*ldlm_compatible_callback)(struct ldlm_lock *lock,
+					 enum ldlm_mode req_mode,
+					 __u64 dlmflags);
+
 /** Work list for sending GL ASTs to multiple locks. */
 struct ldlm_glimpse_work {
 	struct ldlm_lock	*gl_lock; /* lock to glimpse */
@@ -745,6 +750,12 @@ struct ldlm_lock {
 	 * server
 	 */
 	ldlm_glimpse_callback	l_glimpse_ast;
+	/**
+	 * Lock compatible handler.
+	 * Compatible handler is used by inodebit lock to check whether a new
+	 * lock is compatible with existed one.
+	 */
+	ldlm_compatible_callback l_compatible_ast;
 
 	/**
 	 * Lock export.
@@ -1099,6 +1110,7 @@ struct ldlm_enqueue_info {
 	void		*ei_cb_local_bl; /** blocking local lock callback */
 	void		*ei_cb_cp;	/** lock completion callback */
 	void		*ei_cb_gl;	/** lock glimpse callback */
+	void		*ei_cb_cb;	/** compatible local lock callback */
 	void		*ei_cbdata;	/** Data to be passed into callbacks. */
 	void		*ei_namespace;	/** lock namespace **/
 	unsigned int	ei_enq_slave:1,	/** whether enqueue slave stripes */
@@ -1204,9 +1216,10 @@ int ldlm_flock_completion_ast(struct ldlm_lock *lock, __u64 flags, void *data);
 __u64 ldlm_extent_shift_kms(struct ldlm_lock *lock, __u64 old_kms);
 
 struct ldlm_callback_suite {
-        ldlm_completion_callback lcs_completion;
-        ldlm_blocking_callback   lcs_blocking;
-        ldlm_glimpse_callback    lcs_glimpse;
+	ldlm_completion_callback lcs_completion;
+	ldlm_blocking_callback   lcs_blocking;
+	ldlm_glimpse_callback    lcs_glimpse;
+	ldlm_compatible_callback lcs_compatible;
 };
 
 /* ldlm_lockd.c */
@@ -1487,6 +1500,7 @@ int ldlm_cli_enqueue_local(struct ldlm_namespace *ns,
 			   ldlm_blocking_callback blocking,
 			   ldlm_completion_callback completion,
 			   ldlm_glimpse_callback glimpse,
+			   ldlm_compatible_callback compatible,
 			   void *data, __u32 lvb_len, enum lvb_type lvb_type,
 			   const __u64 *client_cookie,
 			   struct lustre_handle *lockh);

@@ -1265,6 +1265,10 @@ int ldlm_handle_enqueue0(struct ldlm_namespace *ns,
                 GOTO(out, rc = -EPROTO);
         }
 
+	/* cross-MDT lock needs compare against COS locks */
+	if (exp_connect_flags(req->rq_export) & OBD_CONNECT_MDS_MDS)
+		flags |= LDLM_FL_COS_INCOMPAT;
+
 #if 0
         /* FIXME this makes it impossible to use LDLM_PLAIN locks -- check
            against server's _CONNECT_SUPPORTED flags? (I don't want to use

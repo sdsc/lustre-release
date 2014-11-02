@@ -77,13 +77,14 @@
  */
 static int
 ldlm_inodebits_compat_queue(struct list_head *queue, struct ldlm_lock *req,
-			    struct list_head *work_list)
+			    __u64 dlmflags, struct list_head *work_list)
 {
 	struct list_head *tmp;
 	struct ldlm_lock *lock;
 	enum ldlm_mode req_mode = req->l_req_mode;
 	__u64 req_bits = req->l_policy_data.l_inodebits.bits;
 	int compat = 1;
+	bool mode_compat;
 	ENTRY;
 
 	/* There is no sense in lock with no bits set, I think.
@@ -98,23 +99,29 @@ ldlm_inodebits_compat_queue(struct list_head *queue, struct ldlm_lock *req,
 		/* We stop walking the queue if we hit ourselves so we don't
 		 * take conflicting locks enqueued after us into account,
 		 * or we'd wait forever. */
-                if (req == lock)
-                        RETURN(compat);
+		if (req == lock)
+			RETURN(compat);
 
-                /* last lock in mode group */
-                LASSERT(lock->l_sl_mode.prev != NULL);
+		/* last lock in mode group */
+		LASSERT(lock->l_sl_mode.prev != NULL);
 		mode_tail = &list_entry(lock->l_sl_mode.prev,
-                                            struct ldlm_lock,
-                                            l_sl_mode)->l_res_link;
+					struct ldlm_lock,
+					l_sl_mode)->l_res_link;
 
-                /* locks are compatible, bits don't matter */
-                if (lockmode_compat(lock->l_req_mode, req_mode)) {
-                        /* jump to last lock in mode group */
-                        tmp = mode_tail;
-                        continue;
-                }
+		/* locks are compatible, bits don't matter */
+		if (lock->l_compatible_ast != NULL)
+			mode_compat = lock->l_compatible_ast(lock, req_mode,
+							     dlmflags);
+		else
+			mode_compat = lockmode_compat(lock->l_req_mode,
+						      req_mode);
+		if (mode_compat) {
+			/* jump to last lock in mode group */
+			tmp = mode_tail;
+			continue;
+		}
 
-                for (;;) {
+		for (;;) {
 			struct list_head *head;
 
 			/* Advance loop cursor to last lock in policy group. */
@@ -190,28 +197,32 @@ int ldlm_process_inodebits_lock(struct ldlm_lock *lock, __u64 *flags,
 	check_res_locked(res);
 
 	/* (*flags & LDLM_FL_BLOCK_NOWAIT) is for layout lock right now. */
-        if (!first_enq || (*flags & LDLM_FL_BLOCK_NOWAIT)) {
+	if (!first_enq || (*flags & LDLM_FL_BLOCK_NOWAIT)) {
 		*err = ELDLM_LOCK_ABORTED;
 		if (*flags & LDLM_FL_BLOCK_NOWAIT)
 			*err = ELDLM_LOCK_WOULDBLOCK;
 
-                rc = ldlm_inodebits_compat_queue(&res->lr_granted, lock, NULL);
-                if (!rc)
-                        RETURN(LDLM_ITER_STOP);
-                rc = ldlm_inodebits_compat_queue(&res->lr_waiting, lock, NULL);
-                if (!rc)
-                        RETURN(LDLM_ITER_STOP);
+		rc = ldlm_inodebits_compat_queue(&res->lr_granted, lock, *flags,
+						 NULL);
+		if (!rc)
+			RETURN(LDLM_ITER_STOP);
+		rc = ldlm_inodebits_compat_queue(&res->lr_waiting, lock, *flags,
+						 NULL);
+		if (!rc)
+			RETURN(LDLM_ITER_STOP);
 
-                ldlm_resource_unlink_lock(lock);
-                ldlm_grant_lock(lock, work_list);
+		ldlm_resource_unlink_lock(lock);
+		ldlm_grant_lock(lock, work_list);
 
 		*err = ELDLM_OK;
-                RETURN(LDLM_ITER_CONTINUE);
-        }
+		RETURN(LDLM_ITER_CONTINUE);
+	}
 
  restart:
-        rc = ldlm_inodebits_compat_queue(&res->lr_granted, lock, &rpc_list);
-        rc += ldlm_inodebits_compat_queue(&res->lr_waiting, lock, &rpc_list);
+	rc = ldlm_inodebits_compat_queue(&res->lr_granted, lock, *flags,
+					 &rpc_list);
+	rc += ldlm_inodebits_compat_queue(&res->lr_waiting, lock, *flags,
+					  &rpc_list);
 
         if (rc != 2) {
                 /* If either of the compat_queue()s returned 0, then we
