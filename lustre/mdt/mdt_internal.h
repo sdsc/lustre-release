@@ -963,6 +963,12 @@ static inline void mdt_fid_unlock(struct lustre_handle *lh, enum ldlm_mode mode)
 	ldlm_lock_decref(lh, mode);
 }
 
+static inline void mdt_fid_unlock_cancel(struct lustre_handle *lh,
+					 enum ldlm_mode mode)
+{
+	ldlm_lock_decref_and_cancel(lh, mode);
+}
+
 extern mdl_mode_t mdt_mdl_lock_modes[];
 extern enum ldlm_mode mdt_dlm_lock_modes[];
 
