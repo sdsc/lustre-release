@@ -345,6 +345,12 @@
 /** Flag whether a lock is found on server for re-sent RPC. */
 #define LDLM_FL_RESENT                   0x0100000000000000ULL // bit  56
 
+/** Flag whether a lock is enqueued from a distributed transaction, and the
+ *  requesting lock mode is PW/EX, if so, it will check compatibility with COS
+ *  lock, and different from original COS semantic, transactions from the same
+ *  client is also treated as lock conflict. */
+#define LDLM_FL_COS_INCOMPAT		0x0200000000000000ULL /* bit 57 */
+
 /** l_flags bits marked as "ast" bits */
 #define LDLM_FL_AST_MASK                (LDLM_FL_FLOCK_DEADLOCK		|\
 					 LDLM_FL_AST_DISCARD_DATA)
