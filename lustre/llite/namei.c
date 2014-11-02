@@ -184,6 +184,16 @@ int ll_md_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
 
 	switch (flag) {
 	case LDLM_CB_BLOCKING:
+		lock_res_and_lock(lock);
+		if (lock->l_readers > 0 || lock->l_writers > 0) {
+			unlock_res_and_lock(lock);
+
+			/* lock is still referenced, this callback will be
+			 * called again in last dereference. */
+			break;
+		}
+		unlock_res_and_lock(lock);
+
 		ldlm_lock2handle(lock, &lockh);
 		rc = ldlm_cli_cancel(&lockh, LCF_ASYNC);
 		if (rc < 0) {

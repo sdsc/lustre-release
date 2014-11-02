@@ -963,18 +963,28 @@ err_decref:
 
 /* based on ll_mdc_blocking_ast */
 static int mgc_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
-                            void *data, int flag)
+			    void *data, int flag)
 {
-        struct lustre_handle lockh;
-        struct config_llog_data *cld = (struct config_llog_data *)data;
-        int rc = 0;
-        ENTRY;
+	struct lustre_handle lockh;
+	struct config_llog_data *cld = (struct config_llog_data *)data;
+	int rc = 0;
+	ENTRY;
 
-        switch (flag) {
-        case LDLM_CB_BLOCKING:
-                /* mgs wants the lock, give it up... */
-                LDLM_DEBUG(lock, "MGC blocking CB");
-                ldlm_lock2handle(lock, &lockh);
+	switch (flag) {
+	case LDLM_CB_BLOCKING:
+		lock_res_and_lock(lock);
+		if (lock->l_readers > 0 || lock->l_writers > 0) {
+			unlock_res_and_lock(lock);
+
+			/* lock is still referenced, this callback will be
+			 * called again in last dereference. */
+			break;
+		}
+		unlock_res_and_lock(lock);
+
+		/* mgs wants the lock, give it up... */
+		LDLM_DEBUG(lock, "MGC blocking CB");
+		ldlm_lock2handle(lock, &lockh);
 		rc = ldlm_cli_cancel(&lockh, LCF_ASYNC);
 		break;
 	case LDLM_CB_CANCELING:

@@ -1711,36 +1711,26 @@ EXPORT_SYMBOL(ldlm_handle_cancel);
  * This can only happen on client side.
  */
 void ldlm_handle_bl_callback(struct ldlm_namespace *ns,
-                             struct ldlm_lock_desc *ld, struct ldlm_lock *lock)
+			     struct ldlm_lock_desc *ld, struct ldlm_lock *lock)
 {
-        int do_ast;
-        ENTRY;
+	ENTRY;
 
-        LDLM_DEBUG(lock, "client blocking AST callback handler");
+	LDLM_DEBUG(lock, "client blocking AST callback handler %p",
+		   lock->l_blocking_ast);
 
-        lock_res_and_lock(lock);
+	lock_res_and_lock(lock);
 	ldlm_set_cbpending(lock);
-
 	if (ldlm_is_cancel_on_block(lock))
 		ldlm_set_cancel(lock);
+	unlock_res_and_lock(lock);
 
-        do_ast = (!lock->l_readers && !lock->l_writers);
-        unlock_res_and_lock(lock);
+	if (lock->l_blocking_ast != NULL)
+		lock->l_blocking_ast(lock, ld, lock->l_ast_data,
+					LDLM_CB_BLOCKING);
 
-        if (do_ast) {
-                CDEBUG(D_DLMTRACE, "Lock %p already unused, calling callback (%p)\n",
-                       lock, lock->l_blocking_ast);
-                if (lock->l_blocking_ast != NULL)
-                        lock->l_blocking_ast(lock, ld, lock->l_ast_data,
-                                             LDLM_CB_BLOCKING);
-        } else {
-                CDEBUG(D_DLMTRACE, "Lock %p is referenced, will be cancelled later\n",
-                       lock);
-        }
-
-        LDLM_DEBUG(lock, "client blocking callback handler END");
-        LDLM_LOCK_RELEASE(lock);
-        EXIT;
+	LDLM_DEBUG(lock, "client blocking callback handler END");
+	LDLM_LOCK_RELEASE(lock);
+	EXIT;
 }
 
 /**

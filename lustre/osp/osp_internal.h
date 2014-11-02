@@ -545,6 +545,7 @@ int osp_object_destroy(const struct lu_env *env, struct dt_object *dt,
 
 int osp_trans_stop(const struct lu_env *env, struct dt_device *dt,
 		   struct thandle *th);
+int osp_commit_async(const struct lu_env *env, struct dt_device *dt);
 
 struct dt_it *osp_it_init(const struct lu_env *env, struct dt_object *dt,
 			  __u32 attr, struct lustre_capa *capa);

@@ -530,8 +530,8 @@ static int osc_dlm_blocking_ast0(const struct lu_env *env,
  *
  */
 static int osc_ldlm_blocking_ast(struct ldlm_lock *dlmlock,
-                                 struct ldlm_lock_desc *new, void *data,
-                                 int flag)
+				 struct ldlm_lock_desc *new, void *data,
+				 int flag)
 {
 	int result = 0;
 	ENTRY;
@@ -539,6 +539,16 @@ static int osc_ldlm_blocking_ast(struct ldlm_lock *dlmlock,
 	switch (flag) {
 	case LDLM_CB_BLOCKING: {
 		struct lustre_handle lockh;
+
+		lock_res_and_lock(dlmlock);
+		if (dlmlock->l_readers > 0 || dlmlock->l_writers > 0) {
+			unlock_res_and_lock(dlmlock);
+
+			/* lock is still referenced, this callback will be
+			 * called again in last dereference. */
+			break;
+		}
+		unlock_res_and_lock(dlmlock);
 
 		ldlm_lock2handle(dlmlock, &lockh);
 		result = ldlm_cli_cancel(&lockh, LCF_ASYNC);

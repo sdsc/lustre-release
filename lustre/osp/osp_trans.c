@@ -622,3 +622,28 @@ put:
 	thandle_put(th);
 	return rc;
 }
+
+/**
+ * The OSP layer dt_device_operations::dt_commit_async() interface
+ * to start commit.
+ *
+ * This is not used to inform remote MDT to start commit, but do it on
+ * opd_storage (which is local OSD, used by OSP to store persistent state),
+ * currently this is only used by mdt_remote_blocking_ast().
+ *
+ * \param[in] env              pointer to the thread context
+ * \param[in] dt               pointer to the OSP dt_device
+ *
+ * \retval                     0 for success
+ * \retval                     negative error number on failure
+ */
+int osp_commit_async(const struct lu_env *env, struct dt_device *dt)
+{
+	struct osp_device *osp;
+	int rc;
+	ENTRY;
+
+	osp = dt2osp_dev(dt);
+	rc = dt_commit_async(env, osp->opd_storage);
+	RETURN(rc);
+}
