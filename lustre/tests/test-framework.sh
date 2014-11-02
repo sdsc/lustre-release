@@ -4475,12 +4475,13 @@ drop_ldlm_cancel() {
 }
 
 drop_bl_callback_once() {
-	rc=0
+	local rc=0
 	do_facet client lctl set_param ldlm.namespaces.*.early_lock_cancel=0
 #define OBD_FAIL_LDLM_BL_CALLBACK_NET			0x305
 	do_facet client lctl set_param fail_loc=0x80000305
 	do_facet client "$@" || rc=$?
 	do_facet client lctl set_param fail_loc=0
+	do_facet client lctl set_param fail_val=0
 	do_facet client lctl set_param ldlm.namespaces.*.early_lock_cancel=1
 	return $rc
 }
@@ -4492,6 +4493,7 @@ drop_bl_callback() {
 	do_facet client lctl set_param fail_loc=0x305
 	do_facet client "$@" || rc=$?
 	do_facet client lctl set_param fail_loc=0
+	do_facet client lctl set_param fail_val=0
 	do_facet client lctl set_param ldlm.namespaces.*.early_lock_cancel=1
 	return $rc
 }
