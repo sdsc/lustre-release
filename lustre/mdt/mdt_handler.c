@@ -2322,7 +2322,21 @@ int mdt_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
         RETURN(rc);
 }
 
-/* Used for cross-MDT lock */
+/*
+ * Blocking for cross-MDT lock
+ *
+ * cross-MDT lock is client lock, when COS is enabled, it will be canceled only
+ * when there is no reader or writer, and this means reply state has been freed
+ * by ptlrpc_handle_rs, which also means transaction was commited, so nothing
+ * to do here.
+ *
+ * \param lock	the lock which blocks a request or cancelling lock
+ * \param desc	unused
+ * \param data	unused
+ * \param flag	indicates whether this cancelling or blocking callback
+ * \retval	0 on success
+ * \retval	negative number on error
+ */
 int mdt_remote_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
 			    void *data, int flag)
 {
@@ -2339,7 +2353,6 @@ int mdt_remote_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
 		}
 		break;
 	case LDLM_CB_CANCELING:
-		LDLM_DEBUG(lock, "Revoke remote lock\n");
 		break;
 	default:
 		LBUG();
@@ -2628,6 +2641,12 @@ void mdt_save_lock(struct mdt_thread_info *info, struct lustre_handle *h,
 				ldlm_lock_decref(h, mode);
 			}
                         if (mdt_is_lock_sync(lock)) {
+				/*
+				 * cross-MDT lock is client lock, which will
+				 * not be canceled early.
+				 */
+				LASSERT(!ns_is_client(ldlm_lock_to_ns(lock)));
+
                                 CDEBUG(D_HA, "found sync-lock,"
                                        " async commit started\n");
                                 mdt_device_commit_async(info->mti_env,
@@ -2656,15 +2675,13 @@ void mdt_save_lock(struct mdt_thread_info *info, struct lustre_handle *h,
 void mdt_object_unlock(struct mdt_thread_info *info, struct mdt_object *o,
                        struct mdt_lock_handle *lh, int decref)
 {
-        ENTRY;
+	ENTRY;
 
-        mdt_save_lock(info, &lh->mlh_pdo_lh, lh->mlh_pdo_mode, decref);
-        mdt_save_lock(info, &lh->mlh_reg_lh, lh->mlh_reg_mode, decref);
+	mdt_save_lock(info, &lh->mlh_pdo_lh, lh->mlh_pdo_mode, decref);
+	mdt_save_lock(info, &lh->mlh_reg_lh, lh->mlh_reg_mode, decref);
+	mdt_save_lock(info, &lh->mlh_rreg_lh, lh->mlh_rreg_mode, decref);
 
-	if (lustre_handle_is_used(&lh->mlh_rreg_lh))
-		ldlm_lock_decref(&lh->mlh_rreg_lh, lh->mlh_rreg_mode);
-
-        EXIT;
+	EXIT;
 }
 
 struct mdt_object *mdt_object_find_lock(struct mdt_thread_info *info,
