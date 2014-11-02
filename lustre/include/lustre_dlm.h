@@ -824,12 +824,19 @@ struct ldlm_lock {
 	 * Server-side-only members.
 	 */
 
-	/**
-	 * Connection cookie for the client originating the operation.
-	 * Used by Commit on Share (COS) code. Currently only used for
-	 * inodebits locks on MDS.
-	 */
-	__u64			l_client_cookie;
+	union {
+		/**
+		 * Connection cookie for the client originating the operation.
+		 * Used by Commit on Share (COS) code. Currently only used for
+		 * inodebits locks on MDS.
+		 */
+		__u64			l_client_cookie;
+		/**
+		 * Transno this lock belongs to, used by cross-MDT lock Sync on
+		 * Cancel (SOC).
+		 */
+		__u64			l_transno;
+	};
 
 	/**
 	 * List item for locks waiting for cancellation from clients.

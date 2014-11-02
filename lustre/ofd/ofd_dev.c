@@ -2848,7 +2848,7 @@ static int ofd_init0(const struct lu_env *env, struct ofd_device *m,
 		ofd_grant_ratio_conv(m->ofd_dt_conf.ddp_grant_reserved);
 
 	rc = tgt_init(env, &m->ofd_lut, obd, m->ofd_osd, ofd_common_slice,
-		      OBD_FAIL_OST_ALL_REQUEST_NET,
+		      NEVER_SYNC_ON_CANCEL, OBD_FAIL_OST_ALL_REQUEST_NET,
 		      OBD_FAIL_OST_ALL_REPLY_NET);
 	if (rc)
 		GOTO(err_free_ns, rc);

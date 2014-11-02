@@ -137,14 +137,6 @@ struct timeout_item {
 #define OSC_MAX_DIRTY_MB_MAX	2048     /* arbitrary, but < MAX_LONG bytes */
 #define OSC_DEFAULT_RESENDS	10
 
-/* possible values for fo_sync_lock_cancel */
-enum {
-        NEVER_SYNC_ON_CANCEL = 0,
-        BLOCKING_SYNC_ON_CANCEL = 1,
-        ALWAYS_SYNC_ON_CANCEL = 2,
-        NUM_SYNC_ON_CANCEL_STATES
-};
-
 /*
  * Limit reply buffer size for striping data to one x86_64 page. This
  * value is chosen to fit the striping data for common use cases while

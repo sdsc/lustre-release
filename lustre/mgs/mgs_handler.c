@@ -1113,7 +1113,8 @@ static int mgs_init0(const struct lu_env *env, struct mgs_device *mgs,
 	obd->obd_replayable = 0;
 
 	rc = tgt_init(env, &mgs->mgs_lut, obd, mgs->mgs_bottom,
-		      mgs_common_slice, OBD_FAIL_MGS_ALL_REQUEST_NET,
+		      mgs_common_slice, NEVER_SYNC_ON_CANCEL,
+		      OBD_FAIL_MGS_ALL_REQUEST_NET,
 		      OBD_FAIL_MGS_ALL_REPLY_NET);
 	if (rc)
 		GOTO(err_ns, rc);

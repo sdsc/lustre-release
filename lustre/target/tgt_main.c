@@ -37,10 +37,64 @@
 #include "tgt_internal.h"
 #include "../ptlrpc/ptlrpc_internal.h"
 
+static spinlock_t uncommitted_soc_locks_guard;
+static struct list_head uncommitted_soc_locks;
+
+void tgt_add_uncommitted_soc_lock(struct ldlm_lock *lock)
+{
+	LASSERT(list_empty(&lock->l_bl_ast));
+
+	spin_lock(&uncommitted_soc_locks_guard);
+	list_add_tail(&lock->l_bl_ast, &uncommitted_soc_locks);
+	spin_unlock(&uncommitted_soc_locks_guard);
+}
+EXPORT_SYMBOL(tgt_add_uncommitted_soc_lock);
+
+bool tgt_del_uncommitted_soc_lock(struct ldlm_lock *lock)
+{
+	bool deleted = false;
+
+	spin_lock(&uncommitted_soc_locks_guard);
+	/* if l_transno is 0, transaction commit callback is committing this
+	 * lock */
+	if (lock->l_transno != 0) {
+		LASSERT(!list_empty(&lock->l_bl_ast));
+		list_del_init(&lock->l_bl_ast);
+		deleted = true;
+	}
+	spin_unlock(&uncommitted_soc_locks_guard);
+
+	return deleted;
+}
+EXPORT_SYMBOL(tgt_del_uncommitted_soc_lock);
+
+void tgt_commit_soc_locks(__u64 transno)
+{
+	struct ldlm_lock *lock, *next;
+	LIST_HEAD(list);
+	struct lustre_handle lockh;
+
+	spin_lock(&uncommitted_soc_locks_guard);
+	list_for_each_entry_safe(lock, next, &uncommitted_soc_locks,
+				 l_bl_ast) {
+		if (lock->l_transno > transno)
+				continue;
+		lock->l_transno = 0;
+		list_move(&lock->l_bl_ast, &list);
+	}
+	spin_unlock(&uncommitted_soc_locks_guard);
+
+	list_for_each_entry_safe(lock, next, &list, l_bl_ast) {
+		list_del_init(&lock->l_bl_ast);
+		ldlm_lock2handle(lock, &lockh);
+		ldlm_lock_decref(&lockh, (enum ldlm_mode)lock->l_ast_data);
+	}
+}
+
 int tgt_init(const struct lu_env *env, struct lu_target *lut,
 	     struct obd_device *obd, struct dt_device *dt,
-	     struct tgt_opc_slice *slice, int request_fail_id,
-	     int reply_fail_id)
+	     struct tgt_opc_slice *slice, enum tgt_sync_on_cancel soc,
+	     int request_fail_id, int reply_fail_id)
 {
 	struct dt_object_format	 dof;
 	struct lu_attr		 attr;
@@ -73,7 +127,7 @@ int tgt_init(const struct lu_env *env, struct lu_target *lut,
 	sptlrpc_rule_set_init(&lut->lut_sptlrpc_rset);
 
 	spin_lock_init(&lut->lut_flags_lock);
-	lut->lut_sync_lock_cancel = NEVER_SYNC_ON_CANCEL;
+	lut->lut_sync_lock_cancel = soc;
 
 	/* last_rcvd initialization is needed by replayable targets only */
 	if (!obd->obd_replayable)
@@ -290,6 +344,9 @@ int tgt_mod_init(void)
 	lu_context_key_register_many(&tgt_session_key, NULL);
 
 	update_info_init();
+
+	spin_lock_init(&uncommitted_soc_locks_guard);
+	INIT_LIST_HEAD(&uncommitted_soc_locks);
 
 	RETURN(0);
 }

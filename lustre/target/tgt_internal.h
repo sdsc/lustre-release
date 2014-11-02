@@ -292,4 +292,6 @@ int sub_thandle_trans_create(const struct lu_env *env,
 void distribute_txn_insert_by_batchid(struct top_multiple_thandle *new);
 int top_trans_create_tmt(const struct lu_env *env,
 			 struct top_thandle *top_th);
+
+void tgt_commit_soc_locks(__u64 transno);
 #endif /* _TG_INTERNAL_H */

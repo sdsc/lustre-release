@@ -2246,29 +2246,67 @@ int mdt_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
         RETURN(rc);
 }
 
-/* Used for cross-MDT lock */
+/*
+ * Blocking AST for cross-MDT lock
+ *
+ * If Sync on Cancel (SOC) is enabled, cross-MDT PW/EX lock will be saved in a
+ * global list 'uncommitted_soc_locks' in mdt_object_unlock(), otherwise it will
+ * be released right after use.
+ *
+ * If this lock is saved, it will be released upon transaction commit in
+ * tgt_commit_soc_locks(). It should be released upon revoke also, because we
+ * can't wait for transaction to commit (this function is called in OSP context
+ * and shouldn't trigger local transaction commit), so in this case, it's
+ * removed from uncommitted list and released immediately, because of SOC, the
+ * MDT where the resource resides will commit transaction there, which
+ * guarantees the distributed transaction is committed.
+ *
+ * \param lock	the lock which blocks a request or cancelling lock
+ * \param desc	unused
+ * \param data	unused
+ * \param flag	indicates whether this cancelling or blocking callback
+ * \retval	0 on success
+ * \retval	negative number on error
+ */
 int mdt_remote_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
 			    void *data, int flag)
 {
 	struct lustre_handle lockh;
-	int		  rc;
+	int rc = 0;
+	ENTRY;
 
-	switch (flag) {
-	case LDLM_CB_BLOCKING:
+	if (flag == LDLM_CB_CANCELING)
+		RETURN(0);
+
+	lock_res_and_lock(lock);
+	if (lock->l_readers == 0 && lock->l_writers == 0) {
+		unlock_res_and_lock(lock);
+
 		ldlm_lock2handle(lock, &lockh);
 		rc = ldlm_cli_cancel(&lockh, LCF_ASYNC);
-		if (rc < 0) {
-			CDEBUG(D_INODE, "ldlm_cli_cancel: %d\n", rc);
-			RETURN(rc);
-		}
-		break;
-	case LDLM_CB_CANCELING:
-		LDLM_DEBUG(lock, "Revoke remote lock\n");
-		break;
-	default:
-		LBUG();
+		if (rc < 0)
+			LDLM_DEBUG(lock, "cancel lock failed %d", rc);
+	} else if (tgt_del_uncommitted_soc_lock(lock)) {
+		unlock_res_and_lock(lock);
+
+		ldlm_lock2handle(lock, &lockh);
+		ldlm_lock_decref(&lockh, (enum ldlm_mode)lock->l_ast_data);
+	} else {
+		unlock_res_and_lock(lock);
+
+		/*
+		 * if tgt_del_uncommitted_soc_lock() returns false, there are
+		 * two cases:
+		 * 1. current transaction is not stopped and lock is not saved
+		 *    in uncommitted list yet, however CBPENDING was set for
+		 *    this lock before entering this function, and later
+		 *    mdt_save_remote_lock() will know, and won't save it.
+		 * 2. race with tgt_commit_soc_locks(), the latter is committing
+		 *    the lock, nothing needs to be done here.
+		 */
 	}
-	RETURN(0);
+
+	RETURN(rc);
 }
 
 int mdt_check_resent_lock(struct mdt_thread_info *info,
@@ -2562,6 +2600,65 @@ static void mdt_save_lock(struct mdt_thread_info *info, struct lustre_handle *h,
         EXIT;
 }
 
+static inline bool mdt_soc_is_enabled(struct mdt_device *mdt)
+{
+	return mdt->mdt_lut.lut_sync_lock_cancel == BLOCKING_SYNC_ON_CANCEL;
+}
+
+/**
+ * Save cross-MDT lock in uncommitted list when Sync on Cancel (SOC) is enabled
+ *
+ * Keep the lock referenced until transaction commit happens or release the lock
+ * immediately depending on input parameters. If lock is CBPENDING, it can be
+ * unlocked immediately because the MDT where the BAST comes from will guarantee
+ * distributed transaction committed.
+ *
+ * \param info thead info object
+ * \param h lock handle
+ * \param mode lock mode
+ * \param decref force immediate lock releasing
+ */
+static void mdt_save_remote_lock(struct mdt_thread_info *info,
+				 struct lustre_handle *h, enum ldlm_mode mode,
+				 int decref)
+{
+	ENTRY;
+
+	if (lustre_handle_is_used(h)) {
+		struct mdt_device *mdt = info->mti_mdt;
+
+		if (decref || !info->mti_has_trans ||
+		    !(mode & (LCK_PW | LCK_EX)) ||
+		    !mdt_soc_is_enabled(mdt)) {
+			mdt_fid_unlock(h, mode);
+		} else {
+			struct ldlm_lock *lock = ldlm_handle2lock(h);
+			struct ptlrpc_request *req = mdt_info_req(info);
+
+			LASSERT(req != NULL);
+
+			lock_res_and_lock(lock);
+			if (ldlm_is_cbpending(lock)) {
+				unlock_res_and_lock(lock);
+
+				mdt_fid_unlock(h, mode);
+				LDLM_LOCK_PUT(lock);
+				RETURN_EXIT;
+			}
+			lock->l_transno = req->rq_transno;
+			lock->l_ast_data = (void *)mode;
+			ldlm_set_cbpending(lock);
+			tgt_add_uncommitted_soc_lock(lock);
+			unlock_res_and_lock(lock);
+
+			LDLM_LOCK_PUT(lock);
+		}
+		h->cookie = 0ull;
+	}
+
+	EXIT;
+}
+
 /**
  * Unlock mdt object.
  *
@@ -2575,17 +2672,15 @@ static void mdt_save_lock(struct mdt_thread_info *info, struct lustre_handle *h,
  * \param decref force immediate lock releasing
  */
 void mdt_object_unlock(struct mdt_thread_info *info, struct mdt_object *o,
-                       struct mdt_lock_handle *lh, int decref)
+		       struct mdt_lock_handle *lh, int decref)
 {
-        ENTRY;
+	ENTRY;
 
-        mdt_save_lock(info, &lh->mlh_pdo_lh, lh->mlh_pdo_mode, decref);
-        mdt_save_lock(info, &lh->mlh_reg_lh, lh->mlh_reg_mode, decref);
+	mdt_save_lock(info, &lh->mlh_pdo_lh, lh->mlh_pdo_mode, decref);
+	mdt_save_lock(info, &lh->mlh_reg_lh, lh->mlh_reg_mode, decref);
+	mdt_save_remote_lock(info, &lh->mlh_rreg_lh, lh->mlh_rreg_mode, decref);
 
-	if (lustre_handle_is_used(&lh->mlh_rreg_lh))
-		ldlm_lock_decref(&lh->mlh_rreg_lh, lh->mlh_rreg_mode);
-
-        EXIT;
+	EXIT;
 }
 
 struct mdt_object *mdt_object_find_lock(struct mdt_thread_info *info,
@@ -4433,7 +4528,7 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
 	}
 
 	rc = tgt_init(env, &m->mdt_lut, obd, m->mdt_bottom, mdt_common_slice,
-		      OBD_FAIL_MDS_ALL_REQUEST_NET,
+		      BLOCKING_SYNC_ON_CANCEL, OBD_FAIL_MDS_ALL_REQUEST_NET,
 		      OBD_FAIL_MDS_ALL_REPLY_NET);
 	if (rc)
 		GOTO(err_free_hsm, rc);

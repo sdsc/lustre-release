@@ -419,14 +419,23 @@ struct tgt_commit_cb {
 
 int tgt_hpreq_handler(struct ptlrpc_request *req);
 
+enum tgt_sync_on_cancel {
+	NEVER_SYNC_ON_CANCEL = 0,
+	BLOCKING_SYNC_ON_CANCEL = 1,
+	ALWAYS_SYNC_ON_CANCEL = 2,
+	NUM_SYNC_ON_CANCEL_STATES
+};
+
 /* target/tgt_main.c */
 void tgt_boot_epoch_update(struct lu_target *lut);
+void tgt_add_uncommitted_soc_lock(struct ldlm_lock *lock);
+bool tgt_del_uncommitted_soc_lock(struct ldlm_lock *lock);
 int tgt_last_commit_cb_add(struct thandle *th, struct lu_target *lut,
 			   struct obd_export *exp, __u64 transno);
 int tgt_new_client_cb_add(struct thandle *th, struct obd_export *exp);
 int tgt_init(const struct lu_env *env, struct lu_target *lut,
 	     struct obd_device *obd, struct dt_device *dt,
-	     struct tgt_opc_slice *slice,
+	     struct tgt_opc_slice *slice, enum tgt_sync_on_cancel soc,
 	     int request_fail_id, int reply_fail_id);
 void tgt_fini(const struct lu_env *env, struct lu_target *lut);
 int tgt_client_alloc(struct obd_export *exp);
