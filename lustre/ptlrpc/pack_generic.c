@@ -517,6 +517,7 @@ void lustre_free_reply_state(struct ptlrpc_reply_state *rs)
 
 	sptlrpc_svc_free_rs(rs);
 }
+EXPORT_SYMBOL(lustre_free_reply_state);
 
 static int lustre_unpack_msg_v2(struct lustre_msg_v2 *m, int len)
 {

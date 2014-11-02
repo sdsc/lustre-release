@@ -1755,36 +1755,37 @@ int ldlm_handle_cancel(struct ptlrpc_request *req)
  * This can only happen on client side.
  */
 void ldlm_handle_bl_callback(struct ldlm_namespace *ns,
-                             struct ldlm_lock_desc *ld, struct ldlm_lock *lock)
+			     struct ldlm_lock_desc *ld, struct ldlm_lock *lock)
 {
-        int do_ast;
-        ENTRY;
+	bool do_ast;
+	ENTRY;
 
-        LDLM_DEBUG(lock, "client blocking AST callback handler");
+	LDLM_DEBUG(lock, "client blocking AST callback handler");
 
-        lock_res_and_lock(lock);
+	lock_res_and_lock(lock);
 	ldlm_set_cbpending(lock);
-
 	if (ldlm_is_cancel_on_block(lock))
 		ldlm_set_cancel(lock);
+	do_ast = (!lock->l_readers && !lock->l_writers);
+	unlock_res_and_lock(lock);
 
-        do_ast = (!lock->l_readers && !lock->l_writers);
-        unlock_res_and_lock(lock);
+	if (do_ast ||
+	    (ns_is_client(ns) &&
+	     (exp_connect_flags(lock->l_conn_export) & OBD_CONNECT_MDS_MDS))) {
+		CDEBUG(D_DLMTRACE, "Lock %p %s, calling callback (%p)\n",
+			lock, do_ast ? "already unused" : "is cross-MDT",
+			lock->l_blocking_ast);
+		if (lock->l_blocking_ast != NULL)
+			lock->l_blocking_ast(lock, ld, lock->l_ast_data,
+						LDLM_CB_BLOCKING);
+	} else {
+		CDEBUG(D_DLMTRACE, "Lock %p is referenced, will be cancelled "
+			"later\n", lock);
+	}
 
-        if (do_ast) {
-                CDEBUG(D_DLMTRACE, "Lock %p already unused, calling callback (%p)\n",
-                       lock, lock->l_blocking_ast);
-                if (lock->l_blocking_ast != NULL)
-                        lock->l_blocking_ast(lock, ld, lock->l_ast_data,
-                                             LDLM_CB_BLOCKING);
-        } else {
-                CDEBUG(D_DLMTRACE, "Lock %p is referenced, will be cancelled later\n",
-                       lock);
-        }
-
-        LDLM_DEBUG(lock, "client blocking callback handler END");
-        LDLM_LOCK_RELEASE(lock);
-        EXIT;
+	LDLM_DEBUG(lock, "client blocking callback handler END");
+	LDLM_LOCK_RELEASE(lock);
+	EXIT;
 }
 
 /**

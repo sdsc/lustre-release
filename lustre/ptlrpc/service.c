@@ -193,11 +193,13 @@ ptlrpc_save_lock(struct ptlrpc_request *req,
         if (req->rq_export->exp_disconnected) {
                 ldlm_lock_decref(lock, mode);
         } else {
+		spin_lock(&rs->rs_lock);
                 idx = rs->rs_nlocks++;
                 rs->rs_locks[idx] = *lock;
                 rs->rs_modes[idx] = mode;
                 rs->rs_difficult = 1;
                 rs->rs_no_ack = !!no_ack;
+		spin_unlock(&rs->rs_lock);
         }
 }
 EXPORT_SYMBOL(ptlrpc_save_lock);

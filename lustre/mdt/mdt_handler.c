@@ -2246,29 +2246,107 @@ int mdt_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
         RETURN(rc);
 }
 
-/* Used for cross-MDT lock */
+/**
+ * Steal cross-MDT lock from ptlrpc_reply_state and decref it. Cross-MDT lock
+ * will be saved into ptlrpc_reply_state in mdt_object_unlock(), which will
+ * be decref-ed upon transaction commit, but this lock might be revoked while
+ * local transaction not committed yet, and it needs to be decref-ed immediately
+ * because the MDT where the resource resides will commit transaction there, so
+ * when BAST is received, steal such lock and decref it.
+ *
+ * \param lock cross-MDT lock
+ * \param rs   ptlrpc_reply_state where lock is saved
+ * \retval 1 lock is stolen and decref-ed
+ * \retval 0 race with transaction commit, which will decref this lock in
+ *	     ptlrpc_handle_rs()
+ */
+static int mdt_steal_cross_mdt_lock(struct ldlm_lock *lock,
+				    struct ptlrpc_reply_state *rs)
+{
+	struct lustre_handle lockh;
+	int idx = 0;
+	enum ldlm_mode mode;
+	bool found = false;
+	ENTRY;
+
+	LASSERT(rs != NULL);
+
+	ldlm_lock2handle(lock, &lockh);
+
+	spin_lock(&rs->rs_lock);
+	if (rs->rs_handled) {
+		/* racing with ptlrpc_handle_rs(), do nothing */
+		spin_unlock(&rs->rs_lock);
+
+		RETURN(0);
+	}
+	while (idx < rs->rs_nlocks) {
+		if (lustre_handle_equal(&lockh, &rs->rs_locks[idx])) {
+			found = true;
+			mode = rs->rs_modes[idx];
+		} else if (found) {
+			rs->rs_locks[idx - 1] = rs->rs_locks[idx];
+			rs->rs_modes[idx - 1] = rs->rs_modes[idx];
+		}
+		idx++;
+	}
+	rs->rs_nlocks--;
+	spin_unlock(&rs->rs_lock);
+
+	LASSERT(found);
+	ldlm_lock_decref(&lockh, mode);
+
+	RETURN(1);
+}
+
+/*
+ * Blocking AST for cross-MDT lock
+ *
+ * if there is no reader or writer, it's called in ptlrpc_handle_rs() upon
+ * transaction commit, otherwise if lock is saved in ptlrpc_reply_state
+ * (lock->l_ast_data is not NULL), steal this lock from ptlrpc_reply_state,
+ * else if lock->l_ast_data is NULL, which means this lock is still being used,
+ * and it will be decref-ed in mdt_object_unlock() -> mdt_save_remote_lock().
+ *
+ * \param lock	the lock which blocks a request or cancelling lock
+ * \param desc	unused
+ * \param data	unused
+ * \param flag	indicates whether this cancelling or blocking callback
+ * \retval	0 on success
+ * \retval	negative number on error
+ */
 int mdt_remote_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
 			    void *data, int flag)
 {
-	struct lustre_handle lockh;
-	int		  rc;
+	struct ptlrpc_reply_state *rs;
+	int rc = 0;
+	ENTRY;
 
-	switch (flag) {
-	case LDLM_CB_BLOCKING:
+	if (flag == LDLM_CB_CANCELING)
+		RETURN(0);
+
+	lock_res_and_lock(lock);
+	rs = lock->l_ast_data;
+	if (lock->l_readers == 0 && lock->l_writers == 0) {
+		struct lustre_handle lockh;
+
+		unlock_res_and_lock(lock);
+
 		ldlm_lock2handle(lock, &lockh);
 		rc = ldlm_cli_cancel(&lockh, LCF_ASYNC);
-		if (rc < 0) {
-			CDEBUG(D_INODE, "ldlm_cli_cancel: %d\n", rc);
-			RETURN(rc);
-		}
-		break;
-	case LDLM_CB_CANCELING:
-		LDLM_DEBUG(lock, "Revoke remote lock\n");
-		break;
-	default:
-		LBUG();
+		if (rc < 0)
+			LDLM_DEBUG(lock, "cancel lock failed %d", rc);
+	} else if (rs != NULL) {
+		lock->l_ast_data = NULL;
+		unlock_res_and_lock(lock);
+
+		mdt_steal_cross_mdt_lock(lock, rs);
 	}
-	RETURN(0);
+
+	if (rs != NULL)
+		ptlrpc_rs_decref(rs);
+
+	RETURN(rc);
 }
 
 int mdt_check_resent_lock(struct mdt_thread_info *info,
@@ -2563,6 +2641,60 @@ static void mdt_save_lock(struct mdt_thread_info *info, struct lustre_handle *h,
 }
 
 /**
+ * Save cross-MDT lock within request object when COS is enabled
+ *
+ * Keep the lock referenced until transaction commit happens or release the lock
+ * immediately depending on input parameters. If lock is CBPENDING, it can be
+ * unlocked immediately because the MDT where the BAST comes from will guarantee
+ * distributed transaction committed. Note cross-MDT lock won't be converted to
+ * COS lock because this is client lock, and transaction commit won't happen on
+ * the MDT where it resides, but on where the resource resides.
+ *
+ * \param info thead info object
+ * \param h lock handle
+ * \param mode lock mode
+ * \param decref force immediate lock releasing
+ */
+static void mdt_save_remote_lock(struct mdt_thread_info *info,
+				 struct lustre_handle *h, enum ldlm_mode mode,
+				 int decref)
+{
+	ENTRY;
+
+	if (lustre_handle_is_used(h)) {
+		struct mdt_device *mdt = info->mti_mdt;
+
+		if (decref || !info->mti_has_trans ||
+		    !(mode & (LCK_PW | LCK_EX)) || !mdt_cos_is_enabled(mdt)) {
+			mdt_fid_unlock(h, mode);
+		} else {
+			struct ldlm_lock *lock = ldlm_handle2lock(h);
+			struct ptlrpc_request *req = mdt_info_req(info);
+
+			LASSERT(req != NULL);
+			lock_res_and_lock(lock);
+			if (ldlm_is_cbpending(lock)) {
+				unlock_res_and_lock(lock);
+
+				mdt_fid_unlock(h, mode);
+				LDLM_LOCK_PUT(lock);
+				RETURN_EXIT;
+			}
+			ptlrpc_rs_addref(req->rq_reply_state);
+			lock->l_ast_data = req->rq_reply_state;
+			ldlm_set_cbpending(lock);
+			unlock_res_and_lock(lock);
+
+			ptlrpc_save_lock(req, h, mode, 1);
+			LDLM_LOCK_PUT(lock);
+		}
+		h->cookie = 0ull;
+	}
+
+	EXIT;
+}
+
+/**
  * Unlock mdt object.
  *
  * Immeditely release the regular lock and the PDO lock or save the
@@ -2575,17 +2707,15 @@ static void mdt_save_lock(struct mdt_thread_info *info, struct lustre_handle *h,
  * \param decref force immediate lock releasing
  */
 void mdt_object_unlock(struct mdt_thread_info *info, struct mdt_object *o,
-                       struct mdt_lock_handle *lh, int decref)
+		       struct mdt_lock_handle *lh, int decref)
 {
-        ENTRY;
+	ENTRY;
 
-        mdt_save_lock(info, &lh->mlh_pdo_lh, lh->mlh_pdo_mode, decref);
-        mdt_save_lock(info, &lh->mlh_reg_lh, lh->mlh_reg_mode, decref);
+	mdt_save_lock(info, &lh->mlh_pdo_lh, lh->mlh_pdo_mode, decref);
+	mdt_save_lock(info, &lh->mlh_reg_lh, lh->mlh_reg_mode, decref);
+	mdt_save_remote_lock(info, &lh->mlh_rreg_lh, lh->mlh_rreg_mode, decref);
 
-	if (lustre_handle_is_used(&lh->mlh_rreg_lh))
-		ldlm_lock_decref(&lh->mlh_rreg_lh, lh->mlh_rreg_mode);
-
-        EXIT;
+	EXIT;
 }
 
 struct mdt_object *mdt_object_find_lock(struct mdt_thread_info *info,
@@ -5798,6 +5928,8 @@ void mdt_enable_cos(struct mdt_device *mdt, int val)
         int rc;
 
         mdt->mdt_opts.mo_cos = !!val;
+	if (val)
+		mdt->mdt_lut.lut_sync_lock_cancel = BLOCKING_SYNC_ON_CANCEL;
         rc = lu_env_init(&env, LCT_LOCAL);
 	if (unlikely(rc != 0)) {
 		CWARN("%s: lu_env initialization failed, cannot "

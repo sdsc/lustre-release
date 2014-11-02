@@ -916,7 +916,6 @@ static int osp_md_object_lock(const struct lu_env *env,
 		struct ldlm_lock *lock;
 
 		lock = __ldlm_handle2lock(lh, 0);
-		ldlm_set_cbpending(lock);
 		LDLM_LOCK_PUT(lock);
 	}
 
