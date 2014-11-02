@@ -2218,17 +2218,18 @@ int mdt_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
 
         if (flag == LDLM_CB_CANCELING)
                 RETURN(0);
+
         lock_res_and_lock(lock);
         if (lock->l_blocking_ast != mdt_blocking_ast) {
                 unlock_res_and_lock(lock);
                 RETURN(0);
         }
-        if (mdt_cos_is_enabled(mdt) &&
-            lock->l_req_mode & (LCK_PW | LCK_EX) &&
-            lock->l_blocking_lock != NULL &&
-            lock->l_client_cookie != lock->l_blocking_lock->l_client_cookie) {
-                mdt_set_lock_sync(lock);
-        }
+	if ((mdt_cos_is_enabled(mdt) || mdt_soc_is_enabled(mdt)) &&
+	    lock->l_req_mode & (LCK_PW | LCK_EX) &&
+	    lock->l_blocking_lock != NULL &&
+	    lock->l_client_cookie != lock->l_blocking_lock->l_client_cookie) {
+		mdt_set_lock_sync(lock);
+	}
         rc = ldlm_blocking_ast_nocheck(lock);
 
         /* There is no lock conflict if l_blocking_lock == NULL,
@@ -2249,12 +2250,24 @@ int mdt_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
         RETURN(rc);
 }
 
-/* Used for cross-MDT lock */
+/*
+ * Blocking AST for cross-MDT lock
+ *
+ * Discard lock from uncommitted_soc_locks and cancel it.
+ *
+ * \param lock	the lock which blocks a request or cancelling lock
+ * \param desc	unused
+ * \param data	unused
+ * \param flag	indicates whether this cancelling or blocking callback
+ * \retval	0 on success
+ * \retval	negative number on error
+ */
 int mdt_remote_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
 			    void *data, int flag)
 {
 	struct lustre_handle lockh;
 	int		  rc;
+	ENTRY;
 
 	switch (flag) {
 	case LDLM_CB_BLOCKING:
@@ -2267,10 +2280,14 @@ int mdt_remote_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
 		break;
 	case LDLM_CB_CANCELING:
 		LDLM_DEBUG(lock, "Revoke remote lock\n");
+		/* discard soc lock here so that it can be cleaned anytime,
+		 * especially for cleanup_resource() */
+		tgt_discard_soc_lock(lock);
 		break;
 	default:
 		LBUG();
 	}
+
 	RETURN(0);
 }
 
@@ -2344,12 +2361,12 @@ int mdt_remote_object_lock(struct mdt_thread_info *mti, struct mdt_object *o,
 static int mdt_object_local_lock(struct mdt_thread_info *info,
 				 struct mdt_object *o,
 				 struct mdt_lock_handle *lh, __u64 ibits,
-				 bool nonblock)
+				 bool nonblock, bool cos_incompat)
 {
 	struct ldlm_namespace *ns = info->mti_mdt->mdt_namespace;
 	union ldlm_policy_data *policy = &info->mti_policy;
 	struct ldlm_res_id *res_id = &info->mti_res_id;
-	__u64 dlmflags;
+	__u64 dlmflags = 0;
 	int rc;
 	ENTRY;
 
@@ -2357,6 +2374,12 @@ static int mdt_object_local_lock(struct mdt_thread_info *info,
         LASSERT(!lustre_handle_is_used(&lh->mlh_pdo_lh));
         LASSERT(lh->mlh_reg_mode != LCK_MINMODE);
         LASSERT(lh->mlh_type != MDT_NUL_LOCK);
+
+	if (cos_incompat) {
+		LASSERT(lh->mlh_reg_mode == LCK_PW ||
+			lh->mlh_reg_mode == LCK_EX);
+		dlmflags |= LDLM_FL_COS_INCOMPAT;
+	}
 
 	/* Only enqueue LOOKUP lock for remote object */
 	if (mdt_object_remote(o))
@@ -2377,7 +2400,7 @@ static int mdt_object_local_lock(struct mdt_thread_info *info,
         memset(policy, 0, sizeof(*policy));
         fid_build_reg_res_name(mdt_object_fid(o), res_id);
 
-	dlmflags = LDLM_FL_ATOMIC_CB;
+	dlmflags |= LDLM_FL_ATOMIC_CB;
 	if (nonblock)
 		dlmflags |= LDLM_FL_BLOCK_NOWAIT;
 
@@ -2434,15 +2457,18 @@ out_unlock:
 
 static int
 mdt_object_lock_internal(struct mdt_thread_info *info, struct mdt_object *o,
-			 struct mdt_lock_handle *lh, __u64 ibits,
-			 bool nonblock)
+			 struct mdt_lock_handle *lh, __u64 ibits, bool nonblock,
+			 bool cos_incompat)
 {
 	struct mdt_lock_handle *local_lh = NULL;
 	int rc;
 	ENTRY;
 
-	if (!mdt_object_remote(o))
-		return mdt_object_local_lock(info, o, lh, ibits, nonblock);
+	if (!mdt_object_remote(o)) {
+		rc = mdt_object_local_lock(info, o, lh, ibits, nonblock,
+					   cos_incompat);
+		RETURN(rc);
+	}
 
 	/* XXX do not support PERM/LAYOUT/XATTR lock for remote object yet */
 	ibits &= ~(MDS_INODELOCK_PERM | MDS_INODELOCK_LAYOUT |
@@ -2450,9 +2476,8 @@ mdt_object_lock_internal(struct mdt_thread_info *info, struct mdt_object *o,
 
 	/* Only enqueue LOOKUP lock for remote object */
 	if (ibits & MDS_INODELOCK_LOOKUP) {
-		rc = mdt_object_local_lock(info, o, lh,
-					   MDS_INODELOCK_LOOKUP,
-					   nonblock);
+		rc = mdt_object_local_lock(info, o, lh, MDS_INODELOCK_LOOKUP,
+					   nonblock, cos_incompat);
 		if (rc != ELDLM_OK)
 			RETURN(rc);
 
@@ -2490,7 +2515,16 @@ mdt_object_lock_internal(struct mdt_thread_info *info, struct mdt_object *o,
 int mdt_object_lock(struct mdt_thread_info *info, struct mdt_object *o,
 		    struct mdt_lock_handle *lh, __u64 ibits)
 {
-	return mdt_object_lock_internal(info, o, lh, ibits, false);
+	return mdt_object_lock_internal(info, o, lh, ibits, false, false);
+}
+
+int mdt_reint_object_lock(struct mdt_thread_info *info, struct mdt_object *o,
+			  struct mdt_lock_handle *lh, __u64 ibits,
+			  bool cos_incompat)
+{
+	LASSERT(lh->mlh_reg_mode == LCK_PW || lh->mlh_reg_mode == LCK_EX);
+	return mdt_object_lock_internal(info, o, lh, ibits, false,
+					cos_incompat);
 }
 
 int mdt_object_lock_try(struct mdt_thread_info *info, struct mdt_object *o,
@@ -2499,7 +2533,22 @@ int mdt_object_lock_try(struct mdt_thread_info *info, struct mdt_object *o,
 	struct mdt_lock_handle tmp = *lh;
 	int rc;
 
-	rc = mdt_object_lock_internal(info, o, &tmp, ibits, true);
+	rc = mdt_object_lock_internal(info, o, &tmp, ibits, true, false);
+	if (rc == 0)
+		*lh = tmp;
+
+	return rc == 0;
+}
+
+int mdt_reint_object_lock_try(struct mdt_thread_info *info,
+			      struct mdt_object *o, struct mdt_lock_handle *lh,
+			      __u64 ibits, bool cos_incompat)
+{
+	struct mdt_lock_handle tmp = *lh;
+	int rc;
+
+	LASSERT(lh->mlh_reg_mode == LCK_PW || lh->mlh_reg_mode == LCK_EX);
+	rc = mdt_object_lock_internal(info, o, &tmp, ibits, true, cos_incompat);
 	if (rc == 0)
 		*lh = tmp;
 
@@ -2532,24 +2581,27 @@ static void mdt_save_lock(struct mdt_thread_info *info, struct lustre_handle *h,
 			struct mdt_device *mdt = info->mti_mdt;
 			struct ldlm_lock *lock = ldlm_handle2lock(h);
 			struct ptlrpc_request *req = mdt_info_req(info);
-			int no_ack = 0;
+			int cos;
+
+			cos = (mdt_cos_is_enabled(mdt) ||
+			       mdt_soc_is_enabled(mdt));
 
 			LASSERTF(lock != NULL, "no lock for cookie "LPX64"\n",
 				 h->cookie);
+
 			/* there is no request if mdt_object_unlock() is called
 			 * from mdt_export_cleanup()->mdt_add_dirty_flag() */
 			if (likely(req != NULL)) {
 				CDEBUG(D_HA, "request = %p reply state = %p"
 				       " transno = "LPD64"\n", req,
 				       req->rq_reply_state, req->rq_transno);
-				if (mdt_cos_is_enabled(mdt)) {
-					no_ack = 1;
+				if (cos) {
 					ldlm_lock_downgrade(lock, LCK_COS);
 					mode = LCK_COS;
 				}
-				ptlrpc_save_lock(req, h, mode, no_ack);
+				ptlrpc_save_lock(req, h, mode, cos);
 			} else {
-				ldlm_lock_decref(h, mode);
+				mdt_fid_unlock(h, mode);
 			}
                         if (mdt_is_lock_sync(lock)) {
                                 CDEBUG(D_HA, "found sync-lock,"
@@ -2566,6 +2618,41 @@ static void mdt_save_lock(struct mdt_thread_info *info, struct lustre_handle *h,
 }
 
 /**
+ * Save cross-MDT lock in uncommitted_soc_locks
+ *
+ * Keep the lock referenced until transaction commit happens or release the lock
+ * immediately depending on input parameters.
+ *
+ * \param info thead info object
+ * \param h lock handle
+ * \param mode lock mode
+ * \param decref force immediate lock releasing
+ */
+static void mdt_save_remote_lock(struct mdt_thread_info *info,
+				 struct lustre_handle *h, enum ldlm_mode mode,
+				 int decref)
+{
+	ENTRY;
+
+	if (lustre_handle_is_used(h)) {
+		if (decref || !info->mti_has_trans ||
+		    !(mode & (LCK_PW | LCK_EX))) {
+			ldlm_lock_decref_and_cancel(h, mode);
+		} else {
+			struct ldlm_lock *lock = ldlm_handle2lock(h);
+			struct ptlrpc_request *req = mdt_info_req(info);
+
+			LASSERT(req != NULL);
+			tgt_save_soc_lock(lock, req->rq_transno);
+			ldlm_lock_decref(h, mode);
+		}
+		h->cookie = 0ull;
+	}
+
+	EXIT;
+}
+
+/**
  * Unlock mdt object.
  *
  * Immeditely release the regular lock and the PDO lock or save the
@@ -2578,17 +2665,15 @@ static void mdt_save_lock(struct mdt_thread_info *info, struct lustre_handle *h,
  * \param decref force immediate lock releasing
  */
 void mdt_object_unlock(struct mdt_thread_info *info, struct mdt_object *o,
-                       struct mdt_lock_handle *lh, int decref)
+		       struct mdt_lock_handle *lh, int decref)
 {
-        ENTRY;
+	ENTRY;
 
-        mdt_save_lock(info, &lh->mlh_pdo_lh, lh->mlh_pdo_mode, decref);
-        mdt_save_lock(info, &lh->mlh_reg_lh, lh->mlh_reg_mode, decref);
+	mdt_save_lock(info, &lh->mlh_pdo_lh, lh->mlh_pdo_mode, decref);
+	mdt_save_lock(info, &lh->mlh_reg_lh, lh->mlh_reg_mode, decref);
+	mdt_save_remote_lock(info, &lh->mlh_rreg_lh, lh->mlh_rreg_mode, decref);
 
-	if (lustre_handle_is_used(&lh->mlh_rreg_lh))
-		ldlm_lock_decref(&lh->mlh_rreg_lh, lh->mlh_rreg_mode);
-
-        EXIT;
+	EXIT;
 }
 
 struct mdt_object *mdt_object_find_lock(struct mdt_thread_info *info,
@@ -4340,7 +4425,7 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
 
         m->mdt_max_mdsize = MAX_MD_SIZE; /* 4 stripes */
 	m->mdt_opts.mo_evict_tgt_nids = 1;
-        m->mdt_opts.mo_cos = MDT_COS_DEFAULT;
+	m->mdt_lut.lut_commit_on_sharing = MDT_COS_DEFAULT;
 
 	/* default is coordinator off, it is started through conf_param
 	 * or /proc */
@@ -5014,6 +5099,12 @@ static int mdt_obd_disconnect(struct obd_export *exp)
 	RETURN(rc);
 }
 
+static inline void mdt_enable_soc(struct mdt_device *mdt)
+{
+	if (mdt->mdt_lut.lut_sync_lock_cancel == NEVER_SYNC_ON_CANCEL)
+		mdt->mdt_lut.lut_sync_lock_cancel = BLOCKING_SYNC_ON_CANCEL;
+}
+
 /* mds_connect copy */
 static int mdt_obd_connect(const struct lu_env *env,
 			   struct obd_export **exp, struct obd_device *obd,
@@ -5033,6 +5124,9 @@ static int mdt_obd_connect(const struct lu_env *env,
 		RETURN(-EINVAL);
 
 	mdt = mdt_dev(obd->obd_lu_dev);
+
+	if (data->ocd_connect_flags & OBD_CONNECT_MDS_MDS)
+		mdt_enable_soc(mdt);
 
 	/*
 	 * first, check whether the stack is ready to handle requests
@@ -5797,11 +5891,11 @@ struct lu_ucred *mdt_ucred_check(const struct mdt_thread_info *info)
  */
 void mdt_enable_cos(struct mdt_device *mdt, int val)
 {
-        struct lu_env env;
-        int rc;
+	struct lu_env env;
+	int rc;
 
-        mdt->mdt_opts.mo_cos = !!val;
-        rc = lu_env_init(&env, LCT_LOCAL);
+	mdt->mdt_lut.lut_commit_on_sharing = !!val;
+	rc = lu_env_init(&env, LCT_LOCAL);
 	if (unlikely(rc != 0)) {
 		CWARN("%s: lu_env initialization failed, cannot "
 		      "sync: rc = %d\n", mdt_obd_name(mdt), rc);
@@ -5820,7 +5914,7 @@ void mdt_enable_cos(struct mdt_device *mdt, int val)
  */
 int mdt_cos_is_enabled(struct mdt_device *mdt)
 {
-        return mdt->mdt_opts.mo_cos != 0;
+	return mdt->mdt_lut.lut_commit_on_sharing != 0;
 }
 
 static struct lu_device_type_operations mdt_device_type_ops = {

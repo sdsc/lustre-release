@@ -3058,21 +3058,24 @@ again:
 	op_data->op_cli_flags = CLI_MIGRATE;
 	rc = md_rename(ll_i2sbi(parent)->ll_md_exp, op_data, name,
 		       namelen, name, namelen, &request);
-	if (rc == 0)
+	if (rc == 0) {
 		ll_update_times(request, parent);
 
-	body = req_capsule_server_get(&request->rq_pill, &RMF_MDT_BODY);
-	if (body == NULL)
-		GOTO(out_free, rc = -EPROTO);
+		body = req_capsule_server_get(&request->rq_pill, &RMF_MDT_BODY);
+		if (body == NULL)
+			GOTO(out_free, rc = -EPROTO);
 
-	/* If the server does release layout lock, then we cleanup
-	 * the client och here, otherwise release it in out_free: */
-	if (och != NULL && body->mbo_valid & OBD_MD_CLOSE_INTENT_EXECED) {
-		obd_mod_put(och->och_mod);
-		md_clear_open_replay_data(ll_i2sbi(parent)->ll_md_exp, och);
-		och->och_fh.cookie = DEAD_HANDLE_MAGIC;
-		OBD_FREE_PTR(och);
-		och = NULL;
+		/* If the server does release layout lock, then we cleanup
+		 * the client och here, otherwise release it in out_free: */
+		if (och != NULL &&
+		    (body->mbo_valid & OBD_MD_CLOSE_INTENT_EXECED)) {
+			obd_mod_put(och->och_mod);
+			md_clear_open_replay_data(ll_i2sbi(parent)->ll_md_exp,
+						  och);
+			och->och_fh.cookie = DEAD_HANDLE_MAGIC;
+			OBD_FREE_PTR(och);
+			och = NULL;
+		}
 	}
 
 	ptlrpc_req_finished(request);
