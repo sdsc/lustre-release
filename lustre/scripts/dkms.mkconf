@@ -36,7 +36,7 @@ PRE_BUILD="configure
   --without-lustre-iokit
   --disable-snmp
   --disable-doc
-  --disable-utils
+  --enable-utils
   --disable-tests
   --disable-maintainer-mode
   \$(
@@ -59,6 +59,20 @@ PRE_BUILD="configure
       fi
     }
   )
+"
+POST_BUILD="lustre/scripts/dkms.postbuild
+  -n ${PACKAGE_NAME}
+  -v ${PACKAGE_VERSION}
+  -a ${arch}
+  -k ${kernelver}
+  -t ${dkms_tree}
+"
+POST_REMOVE="lustre/scripts/dkms.postremove
+  -n ${PACKAGE_NAME}
+  -v ${PACKAGE_VERSION}
+  -a ${arch}
+  -k ${kernelver}
+  -t ${dkms_tree}
 "
 BUILD_DEPENDS[0]="zfs"
 AUTOINSTALL="yes"
