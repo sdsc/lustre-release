@@ -1756,57 +1756,49 @@ out:
 static int ll_do_fiemap(struct inode *inode, struct ll_user_fiemap *fiemap,
 			size_t num_bytes)
 {
-	struct obd_export *exp = ll_i2dtexp(inode);
-	struct lov_stripe_md *lsm = NULL;
-        struct ll_fiemap_info_key fm_key = { .name = KEY_FIEMAP, };
-	__u32 vallen = num_bytes;
-        int rc;
-        ENTRY;
+	struct lu_env		*env;
+	int			refcheck;
+	int			rc = 0;
+	struct cl_ioc_fiemap	ioc_fiemap;
+	struct ll_fiemap_info_key	fm_key = { .name = KEY_FIEMAP, };
+	ENTRY;
 
-        /* Checks for fiemap flags */
-        if (fiemap->fm_flags & ~LUSTRE_FIEMAP_FLAGS_COMPAT) {
-                fiemap->fm_flags &= ~LUSTRE_FIEMAP_FLAGS_COMPAT;
-                return -EBADR;
-        }
+	/* Checks for fiemap flags */
+	if (fiemap->fm_flags & ~LUSTRE_FIEMAP_FLAGS_COMPAT) {
+		fiemap->fm_flags &= ~LUSTRE_FIEMAP_FLAGS_COMPAT;
+		return -EBADR;
+	}
 
-        /* Check for FIEMAP_FLAG_SYNC */
-        if (fiemap->fm_flags & FIEMAP_FLAG_SYNC) {
-                rc = filemap_fdatawrite(inode->i_mapping);
-                if (rc)
-                        return rc;
-        }
+	/* Check for FIEMAP_FLAG_SYNC */
+	if (fiemap->fm_flags & FIEMAP_FLAG_SYNC) {
+		rc = filemap_fdatawrite(inode->i_mapping);
+		if (rc)
+			return rc;
+	}
 
-	lsm = ccc_inode_lsm_get(inode);
-	if (lsm == NULL)
-		return -ENOENT;
+	env = cl_env_get(&refcheck);
+	if (IS_ERR(env))
+		RETURN(PTR_ERR(env));
 
-	/* If the stripe_count > 1 and the application does not understand
-	 * DEVICE_ORDER flag, then it cannot interpret the extents correctly.
-	 */
-	if (lsm->lsm_stripe_count > 1 &&
-	    !(fiemap->fm_flags & FIEMAP_FLAG_DEVICE_ORDER))
-		GOTO(out, rc = -EOPNOTSUPP);
+	fm_key.oa.o_valid = OBD_MD_FLID | OBD_MD_FLGROUP;
 
-	fm_key.oa.o_oi = lsm->lsm_oi;
-        fm_key.oa.o_valid = OBD_MD_FLID | OBD_MD_FLGROUP;
-
-        obdo_from_inode(&fm_key.oa, inode, OBD_MD_FLSIZE);
-        obdo_set_parent_fid(&fm_key.oa, &ll_i2info(inode)->lli_fid);
-        /* If filesize is 0, then there would be no objects for mapping */
-        if (fm_key.oa.o_size == 0) {
-                fiemap->fm_mapped_extents = 0;
+	obdo_from_inode(&fm_key.oa, inode, OBD_MD_FLSIZE);
+	obdo_set_parent_fid(&fm_key.oa, &ll_i2info(inode)->lli_fid);
+	/* If filesize is 0, then there would be no objects for mapping */
+	if (fm_key.oa.o_size == 0) {
+		fiemap->fm_mapped_extents = 0;
 		GOTO(out, rc = 0);
-        }
+	}
 
-        memcpy(&fm_key.fiemap, fiemap, sizeof(*fiemap));
+	memcpy(&fm_key.fiemap, fiemap, sizeof(*fiemap));
 
-        rc = obd_get_info(NULL, exp, sizeof(fm_key), &fm_key, &vallen,
-                          fiemap, lsm);
-        if (rc)
-                CERROR("obd_get_info failed: rc = %d\n", rc);
-
+	ioc_fiemap.ioc_fmkey  = &fm_key;
+	ioc_fiemap.ioc_fiemap = fiemap;
+	ioc_fiemap.ioc_buflen = &num_bytes;
+	rc = cl_object_ioctl(env, ll_i2info(inode)->lli_clob,
+			     CL_IOC_FIEMAP, (unsigned long)&ioc_fiemap);
 out:
-	ccc_inode_lsm_put(inode, lsm);
+	cl_env_put(env, &refcheck);
 	RETURN(rc);
 }
 
