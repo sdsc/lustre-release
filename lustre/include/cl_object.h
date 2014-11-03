@@ -3232,4 +3232,12 @@ struct cl_ioc_find_cbdata {
 	void			*ioc_fcd_data;
 };
 
+struct cl_ioc_fiemap {
+	struct ll_fiemap_info_key	*ioc_fmkey;
+	/* ioc_fiemap needs preallocated */
+	struct ll_user_fiemap		*ioc_fiemap;
+	/* bytes has been allocated for ioc_fiemap */
+	size_t				*ioc_buflen;
+};
+
 #endif /* _LINUX_CL_OBJECT_H */
