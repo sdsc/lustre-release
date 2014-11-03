@@ -1609,12 +1609,18 @@ int lfsck_namespace_scan_shard(const struct lu_env *env,
 
 			lwi = LWI_TIMEOUT(cfs_time_seconds(cfs_fail_val),
 					  NULL, NULL);
-			l_wait_event(thread->t_ctl_waitq,
-				     !thread_is_running(thread),
-				     &lwi);
 
-			if (unlikely(!thread_is_running(thread)))
-				GOTO(out, rc = 0);
+			/* Some others may changed the cfs_fail_val as zero
+			 * after above check, re-check it for sure to avoid
+			 * falling into wait for ever. */
+			if (likely(lwi.lwi_timeout > 0)) {
+				l_wait_event(thread->t_ctl_waitq,
+					     !thread_is_running(thread),
+					     &lwi);
+
+				if (unlikely(!thread_is_running(thread)))
+					GOTO(out, rc = 0);
+			}
 		}
 
 		rc = iops->rec(env, di, (struct dt_rec *)ent, args);
