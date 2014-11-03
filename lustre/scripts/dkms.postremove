@@ -1,0 +1,18 @@
+#!/bin/bash
+while getopts "n:v:a:k:t:" opt; do
+	case $opt in
+		n) ;;
+		v) ;;
+		a) ARCH=$OPTARG ;;
+		k) ;;
+		t) ;;
+	esac
+done
+echo $ARCH | grep 64 > /dev/null
+if [ $? == 0 ]; then
+	LIBDIR=/usr/lib64
+else
+	LIBDIR=/usr/lib
+fi
+rm -f $LIBDIR/lustre/mount_osd_zfs.so
+
