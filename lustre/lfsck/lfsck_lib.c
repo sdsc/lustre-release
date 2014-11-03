@@ -1329,8 +1329,10 @@ int lfsck_verify_lpf(const struct lu_env *env, struct lfsck_instance *lfsck)
 		} else {
 			child1 = lfsck_object_find_by_dev(env, dev,
 							  &bk->lb_lpf_fid);
-			if (IS_ERR(child1))
-				GOTO(put, rc = PTR_ERR(child1));
+			if (IS_ERR(child1)) {
+				child1 = NULL;
+				goto find_child2;
+			}
 
 			if (unlikely(!dt_object_exists(child1) ||
 				     dt_object_remote(child1)) ||
@@ -1356,6 +1358,7 @@ int lfsck_verify_lpf(const struct lu_env *env, struct lfsck_instance *lfsck)
 		}
 	}
 
+find_child2:
 	snprintf(name, 8, "MDT%04x", node);
 	rc = dt_lookup(env, parent, (struct dt_rec *)cfid,
 		       (const struct dt_key *)name, BYPASS_CAPA);
