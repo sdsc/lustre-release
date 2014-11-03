@@ -1306,15 +1306,21 @@ lfsck_layout_lastid_load(const struct lu_env *env,
 
 			if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_DELAY4) &&
 			    cfs_fail_val > 0) {
-				struct l_wait_info lwi = LWI_TIMEOUT(
-						cfs_time_seconds(cfs_fail_val),
-						NULL, NULL);
+				unsigned int val = ACCESS_ONCE(cfs_fail_val);
 
-				up_write(&com->lc_sem);
-				l_wait_event(lfsck->li_thread.t_ctl_waitq,
-					     !thread_is_running(&lfsck->li_thread),
-					     &lwi);
-				down_write(&com->lc_sem);
+				if (likely(val > 0)) {
+					struct ptlrpc_thread *thread =
+							&lfsck->li_thread;
+					struct l_wait_info lwi = LWI_TIMEOUT(
+							cfs_time_seconds(val),
+							NULL, NULL);
+
+					up_write(&com->lc_sem);
+					l_wait_event(thread->t_ctl_waitq,
+						     !thread_is_running(thread),
+						     &lwi);
+					down_write(&com->lc_sem);
+				}
 			}
 		}
 
@@ -2627,14 +2633,19 @@ static int lfsck_layout_scan_orphan(const struct lu_env *env,
 
 		if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_DELAY3) &&
 		    cfs_fail_val > 0) {
-			struct ptlrpc_thread	*thread = &lfsck->li_thread;
-			struct l_wait_info	 lwi;
+			unsigned int val = ACCESS_ONCE(cfs_fail_val);
 
-			lwi = LWI_TIMEOUT(cfs_time_seconds(cfs_fail_val),
-					  NULL, NULL);
-			l_wait_event(thread->t_ctl_waitq,
-				     !thread_is_running(thread),
-				     &lwi);
+			if (unlikely(val > 0)) {
+				struct ptlrpc_thread	*thread =
+						&lfsck->li_thread;
+				struct l_wait_info	 lwi;
+
+				lwi = LWI_TIMEOUT(cfs_time_seconds(val),
+						  NULL, NULL);
+				l_wait_event(thread->t_ctl_waitq,
+					     !thread_is_running(thread),
+					     &lwi);
+			}
 		}
 
 		key = iops->key(env, di);

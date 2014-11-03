@@ -763,21 +763,26 @@ static int lfsck_master_dir_engine(const struct lu_env *env,
 	do {
 		if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_DELAY2) &&
 		    cfs_fail_val > 0) {
-			struct l_wait_info lwi;
+			unsigned int val = ACCESS_ONCE(cfs_fail_val);
 
-			lwi = LWI_TIMEOUT(cfs_time_seconds(cfs_fail_val),
-					  NULL, NULL);
-			l_wait_event(thread->t_ctl_waitq,
-				     !thread_is_running(thread),
-				     &lwi);
+			if (likely(val > 0)) {
+				struct l_wait_info lwi;
 
-			if (unlikely(!thread_is_running(thread))) {
-				CDEBUG(D_LFSCK, "%s: scan dir exit for engine "
-				       "stop, parent "DFID", cookie "LPX64"\n",
-				       lfsck_lfsck2name(lfsck),
-				       PFID(lfsck_dto2fid(dir)),
-				       lfsck->li_cookie_dir);
-				RETURN(0);
+				lwi = LWI_TIMEOUT(cfs_time_seconds(val),
+						  NULL, NULL);
+				l_wait_event(thread->t_ctl_waitq,
+					     !thread_is_running(thread),
+					     &lwi);
+
+				if (unlikely(!thread_is_running(thread))) {
+					CDEBUG(D_LFSCK, "%s: scan dir exit for "
+					       "engine stop, parent "DFID
+					       ", cookie "LPX64"\n",
+					       lfsck_lfsck2name(lfsck),
+					       PFID(lfsck_dto2fid(dir)),
+					       lfsck->li_cookie_dir);
+					RETURN(0);
+				}
 			}
 		}
 
@@ -899,20 +904,24 @@ static int lfsck_master_oit_engine(const struct lu_env *env,
 
 		if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_DELAY1) &&
 		    cfs_fail_val > 0) {
-			struct l_wait_info lwi;
+			unsigned int val = ACCESS_ONCE(cfs_fail_val);
 
-			lwi = LWI_TIMEOUT(cfs_time_seconds(cfs_fail_val),
-					  NULL, NULL);
-			l_wait_event(thread->t_ctl_waitq,
-				     !thread_is_running(thread),
-				     &lwi);
+			if (likely(val > 0)) {
+				struct l_wait_info lwi;
 
-			if (unlikely(!thread_is_running(thread))) {
-				CDEBUG(D_LFSCK, "%s: OIT scan exit for engine "
-				       "stop, cookie "LPU64"\n",
-				       lfsck_lfsck2name(lfsck),
-				       iops->store(env, di));
-				RETURN(0);
+				lwi = LWI_TIMEOUT(cfs_time_seconds(val),
+						  NULL, NULL);
+				l_wait_event(thread->t_ctl_waitq,
+					     !thread_is_running(thread),
+					     &lwi);
+
+				if (unlikely(!thread_is_running(thread))) {
+					CDEBUG(D_LFSCK, "%s: OIT scan exit for "
+					       "engine stop, cookie "LPU64"\n",
+					       lfsck_lfsck2name(lfsck),
+					       iops->store(env, di));
+					RETURN(0);
+				}
 			}
 		}
 

@@ -969,13 +969,17 @@ static int osd_scrub_next(struct osd_thread_info *info, struct osd_device *dev,
 	int		      rc;
 
 	if (OBD_FAIL_CHECK(OBD_FAIL_OSD_SCRUB_DELAY) && cfs_fail_val > 0) {
-		struct l_wait_info lwi;
+		unsigned int val = ACCESS_ONCE(cfs_fail_val);
 
-		lwi = LWI_TIMEOUT(cfs_time_seconds(cfs_fail_val), NULL, NULL);
-		l_wait_event(thread->t_ctl_waitq,
-			     !list_empty(&scrub->os_inconsistent_items) ||
-			     !thread_is_running(thread),
-			     &lwi);
+		if (likely(val > 0)) {
+			struct l_wait_info lwi =
+				LWI_TIMEOUT(cfs_time_seconds(val), NULL, NULL);
+
+			l_wait_event(thread->t_ctl_waitq,
+				!list_empty(&scrub->os_inconsistent_items) ||
+				!thread_is_running(thread),
+				&lwi);
+		}
 	}
 
 	if (OBD_FAIL_CHECK(OBD_FAIL_OSD_SCRUB_CRASH)) {
