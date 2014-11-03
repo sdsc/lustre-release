@@ -3232,7 +3232,16 @@ struct cl_ioc_find_cbdata {
 	void			*ioc_fcd_data;
 };
 
-#define CL_IOC_LOV_GETSTRIPE	_IOR('i', 1, long)
+struct cl_ioc_fiemap {
+	struct ll_fiemap_info_key	*ioc_fmkey;
+	/* ioc_fiemap needs preallocated */
+	struct ll_user_fiemap		*ioc_fiemap;
+	/* bytes has been allocated for ioc_fiemap */
+	size_t				*ioc_buflen;
+};
+
+#define CL_IOC_LOV_GETSTRIPE	_IOR('i', 1, unsigned long)
 #define CL_IOC_FIND_CBDATA	_IO('i', 2)
+#define CL_IOC_FIEMAP		_IOWR('i', 3, struct cl_ioc_fiemap *)
 
 #endif /* _LINUX_CL_OBJECT_H */

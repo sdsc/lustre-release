@@ -226,6 +226,91 @@ static int osc_find_cbdata(const struct lu_env *env, struct cl_object *obj,
 	return rc;
 }
 
+static int osc_object_fiemap(const struct lu_env *env, struct cl_object *obj,
+			     struct cl_ioc_fiemap *ioc_fiemap)
+{
+	struct obd_export		*exp = osc_export(cl2osc(obj));
+	struct ll_fiemap_info_key	*fmkey = ioc_fiemap->ioc_fmkey;
+	struct ldlm_res_id		resid;
+	ldlm_policy_data_t		policy;
+	struct lustre_handle		lockh;
+	ldlm_mode_t			mode = 0;
+	struct ptlrpc_request		*req;
+	struct ll_user_fiemap		*reply;
+	char				*tmp;
+	int				rc;
+	ENTRY;
+
+	if (!(fmkey->fiemap.fm_flags & FIEMAP_FLAG_SYNC))
+		goto skip_locking;
+
+	policy.l_extent.start = fmkey->fiemap.fm_start & PAGE_CACHE_MASK;
+
+	if (OBD_OBJECT_EOF - fmkey->fiemap.fm_length <=
+	    fmkey->fiemap.fm_start + PAGE_CACHE_SIZE - 1)
+		policy.l_extent.end = OBD_OBJECT_EOF;
+	else
+		policy.l_extent.end = (fmkey->fiemap.fm_start +
+				       fmkey->fiemap.fm_length +
+				       PAGE_CACHE_SIZE - 1) & PAGE_CACHE_MASK;
+
+	fmkey->oa.o_oi = cl2osc(obj)->oo_oinfo->loi_oi;
+	ostid_build_res_name(&fmkey->oa.o_oi, &resid);
+	mode = ldlm_lock_match(exp->exp_obd->obd_namespace,
+			       LDLM_FL_BLOCK_GRANTED | LDLM_FL_LVB_READY,
+			       &resid, LDLM_EXTENT, &policy,
+			       LCK_PR | LCK_PW, &lockh, 0);
+	if (mode) { /* lock is cached on client */
+		if (mode != LCK_PR) {
+			ldlm_lock_addref(&lockh, LCK_PR);
+			ldlm_lock_decref(&lockh, LCK_PW);
+		}
+	} else { /* no cached lock, needs acquire lock on server side */
+		fmkey->oa.o_valid |= OBD_MD_FLFLAGS;
+		fmkey->oa.o_flags |= OBD_FL_SRVLOCK;
+	}
+
+skip_locking:
+	req = ptlrpc_request_alloc(class_exp2cliimp(exp),
+				   &RQF_OST_GET_INFO_FIEMAP);
+	if (req == NULL)
+		GOTO(drop_lock, rc = -ENOMEM);
+
+	req_capsule_set_size(&req->rq_pill, &RMF_FIEMAP_KEY, RCL_CLIENT,
+			     sizeof(*ioc_fiemap->ioc_fmkey));
+	req_capsule_set_size(&req->rq_pill, &RMF_FIEMAP_VAL, RCL_CLIENT,
+			     *ioc_fiemap->ioc_buflen);
+	req_capsule_set_size(&req->rq_pill, &RMF_FIEMAP_VAL, RCL_SERVER,
+			     *ioc_fiemap->ioc_buflen);
+
+	rc = ptlrpc_request_pack(req, LUSTRE_OST_VERSION, OST_GET_INFO);
+	if (rc != 0) {
+		ptlrpc_request_free(req);
+		GOTO(drop_lock, rc);
+	}
+	tmp = req_capsule_client_get(&req->rq_pill, &RMF_FIEMAP_KEY);
+	memcpy(tmp, ioc_fiemap->ioc_fmkey, sizeof(*ioc_fiemap->ioc_fmkey));
+	tmp = req_capsule_client_get(&req->rq_pill, &RMF_FIEMAP_VAL);
+	memcpy(tmp, ioc_fiemap->ioc_fiemap, *ioc_fiemap->ioc_buflen);
+	ptlrpc_request_set_replen(req);
+
+	rc = ptlrpc_queue_wait(req);
+	if (rc != 0)
+		GOTO(fini_req, rc);
+
+	reply = req_capsule_server_get(&req->rq_pill, &RMF_FIEMAP_VAL);
+	if (reply == NULL)
+		GOTO(fini_req, rc = -EPROTO);
+
+	memcpy(ioc_fiemap->ioc_fiemap, reply, *ioc_fiemap->ioc_buflen);
+fini_req:
+	ptlrpc_req_finished(req);
+drop_lock:
+	if (mode)
+		ldlm_lock_decref(&lockh, LCK_PR);
+	RETURN(rc);
+}
+
 static int osc_object_ioctl(const struct lu_env *env, struct cl_object *obj,
 			    unsigned int cmd, unsigned long arg)
 {
@@ -236,6 +321,9 @@ static int osc_object_ioctl(const struct lu_env *env, struct cl_object *obj,
 	case CL_IOC_FIND_CBDATA:
 		rc = osc_find_cbdata(env, obj,
 				     (struct cl_ioc_find_cbdata *)arg);
+		break;
+	case CL_IOC_FIEMAP:
+		rc = osc_object_fiemap(env, obj, (struct cl_ioc_fiemap *)arg);
 		break;
 	default:
 		rc = -EINVAL;
