@@ -40,8 +40,8 @@
  *   Author: Nikita Danilov <nikita.danilov@sun.com>
  */
 
-#ifndef LCLIENT_H
-#define LCLIENT_H
+#ifndef CCC_INTERNAL_H
+#define CCC_INTERNAL_H
 
 #include <lustre/lustre_idl.h>
 #include <cl_object.h>
@@ -444,52 +444,6 @@ int lov_read_and_clear_async_rc(struct cl_object *clob);
 struct lov_stripe_md *ccc_inode_lsm_get(struct inode *inode);
 void ccc_inode_lsm_put(struct inode *inode, struct lov_stripe_md *lsm);
 
-/**
- * Data structure managing a client's cached pages. A count of
- * "unstable" pages is maintained, and an LRU of clean pages is
- * maintained. "unstable" pages are pages pinned by the ptlrpc
- * layer for recovery purposes.
- */
-struct cl_client_cache {
-	/**
-	 * # of users (OSCs)
-	 */
-	atomic_t		ccc_users;
-	/**
-	 * # of threads are doing shrinking
-	 */
-	unsigned int		ccc_lru_shrinkers;
-	/**
-	 * # of LRU entries available
-	 */
-	atomic_long_t		ccc_lru_left;
-	/**
-	 * List of entities(OSCs) for this LRU cache
-	 */
-	struct list_head	ccc_lru;
-	/**
-	 * Max # of LRU entries
-	 */
-	unsigned long		ccc_lru_max;
-	/**
-	 * Lock to protect ccc_lru list
-	 */
-	spinlock_t		ccc_lru_lock;
-	/**
-	 * Set if unstable check is enabled
-	 */
-	unsigned int		ccc_unstable_check:1;
-	/**
-	 * # of unstable pages for this mount point
-	 */
-	atomic_long_t		ccc_unstable_nr;
-	/**
-	 * Waitq for awaiting unstable pages to reach zero.
-	 * Used at umounting time and signaled on BRW commit
-	 */
-	wait_queue_head_t	ccc_unstable_waitq;
-};
-
 enum {
 	LUSTRE_OPC_MKDIR    = 0,
 	LUSTRE_OPC_SYMLINK  = 1,
@@ -498,4 +452,4 @@ enum {
 	LUSTRE_OPC_ANY      = 5
 };
 
-#endif /*LCLIENT_H */
+#endif /* !CCC_INTERNAL_H */
