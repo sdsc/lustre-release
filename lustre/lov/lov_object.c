@@ -1422,6 +1422,172 @@ out:
 	return rc;
 }
 
+int lov_object_getattr(const struct lu_env *env, struct cl_object *obj,
+		       struct cl_ioc_getattr *iga)
+{
+	struct cl_object	*subobj = NULL;
+	struct lov_obd		*lov = lu2lov_dev(obj->co_lu.lo_dev)->ld_lov;
+	struct obd_info		*oinfo = iga->iga_oinfo;
+	struct lov_request_set	*lovset;
+	struct list_head	*pos;
+	struct lov_request	*req;
+	int			rc = 0;
+	int			err = 0;
+	ENTRY;
+
+	rc = lov_prep_getattr_set(lov2obd(lov)->obd_self_export, oinfo,
+				  &lovset);
+	if (rc != 0)
+		RETURN(rc);
+
+	CDEBUG(D_INFO, "objid "DOSTID": %ux%u byte stripes.\n",
+	       POSTID(&oinfo->oi_md->lsm_oi),
+	       oinfo->oi_md->lsm_stripe_count,
+	       oinfo->oi_md->lsm_stripe_size);
+
+	list_for_each(pos, &lovset->set_list) {
+		req = list_entry(pos, struct lov_request, rq_link);
+
+		CDEBUG(D_INFO, "objid "DOSTID"[%d] has subobj "DOSTID" at idx"
+		       "%u.\n", POSTID(&oinfo->oi_oa->o_oi), req->rq_stripe,
+		       POSTID(&req->rq_oi.oi_oa->o_oi), req->rq_idx);
+		subobj = lov_find_subobj(env, cl2lov(obj), oinfo->oi_md,
+					 req->rq_stripe);
+		if (IS_ERR(subobj))
+			GOTO(out, rc = PTR_ERR(subobj));
+		iga->iga_oinfo = &req->rq_oi;
+		rc = cl_object_ioctl(env, subobj, CL_IOC_GETATTR,
+				     (unsigned long)iga);
+		cl_object_put(env, subobj);
+		if (rc != 0) {
+			CERROR("%s: getattr objid "DOSTID" subobj"
+			       DOSTID" on OST idx %d: rc = %d.\n",
+			       lov2obd(lov)->obd_name,
+			       POSTID(&oinfo->oi_oa->o_oi),
+			       POSTID(&req->rq_oi.oi_oa->o_oi),
+			       req->rq_idx, rc);
+			GOTO(out, rc);
+		}
+	}
+
+	if (!list_empty(&iga->iga_set->set_requests)) {
+		LASSERT(rc == 0);
+		LASSERT(iga->iga_set->set_interpret == NULL);
+		iga->iga_set->set_interpret = lov_getattr_interpret;
+		iga->iga_set->set_arg = (void *)lovset;
+		GOTO(restore_iga, rc);
+	}
+out:
+	if (rc)
+		atomic_set(&lovset->set_completes, 0);
+	err = lov_fini_getattr_set(lovset);
+	rc = rc != 0 ? rc : err;
+restore_iga:
+	/* restore iga_oinfo */
+	iga->iga_oinfo = oinfo;
+	RETURN(rc);
+}
+
+static int lov_ioc_getattr(const struct lu_env *env, struct cl_object *obj,
+			   struct lov_stripe_md *lsm,
+			   struct cl_ioc_getattr *iga)
+{
+	struct ptlrpc_request_set	*set;
+	struct obd_info			*oinfo = iga->iga_oinfo;
+	int				rc;
+	ENTRY;
+
+	if (!lsm_has_objects(lsm))
+		GOTO(out, rc = -ENODATA);
+	oinfo->oi_md = lsm;
+	oinfo->oi_oa->o_oi = lsm->lsm_oi;
+
+	set = ptlrpc_prep_set();
+	if (set == NULL)
+		GOTO(out, rc = -ENOMEM);
+
+	iga->iga_set = set;
+
+	rc = lov_object_getattr(env, obj, iga);
+	if (rc == 0)
+		rc = ptlrpc_set_wait(set);
+	ptlrpc_set_destroy(set);
+	if (rc == 0)
+		oinfo->oi_oa->o_valid &=
+			(OBD_MD_FLBLOCKS | OBD_MD_FLBLKSZ | OBD_MD_FLATIME |
+			 OBD_MD_FLMTIME | OBD_MD_FLCTIME | OBD_MD_FLSIZE |
+			 OBD_MD_FLDATAVERSION | OBD_MD_FLFLAGS);
+out:
+	RETURN(rc);
+}
+
+static int lov_data_version(const struct lu_env *env, struct cl_object *obj,
+			    struct lov_stripe_md *lsm,
+			    struct ioc_data_version *idv)
+{
+	struct ptlrpc_request_set	*set;
+	struct obd_info			oinfo =  { { { 0 } } };
+	struct obdo			*obdo = NULL;
+	int				rc;
+	struct cl_ioc_getattr		iga;
+	ENTRY;
+
+	if (!lsm_has_objects(lsm)) {
+		/* If no stripe, we consider version is 0. */
+		idv->idv_version = 0;
+		GOTO(out, rc = 0);
+	}
+	OBD_ALLOC_PTR(obdo);
+	if (obdo == NULL)
+		GOTO(out, rc = -ENOMEM);
+
+	oinfo.oi_md = lsm;
+	oinfo.oi_oa = obdo;
+	oinfo.oi_oa->o_oi = lsm->lsm_oi;
+	oinfo.oi_oa->o_mode = S_IFREG;
+	oinfo.oi_oa->o_valid = OBD_MD_FLID | OBD_MD_FLTYPE | OBD_MD_FLSIZE |
+			       OBD_MD_FLBLOCKS | OBD_MD_FLBLKSZ |
+			       OBD_MD_FLATIME | OBD_MD_FLMTIME |
+			       OBD_MD_FLCTIME | OBD_MD_FLGROUP |
+			       OBD_MD_FLEPOCH | OBD_MD_FLDATAVERSION;
+	if (idv->idv_flags & (LL_DV_RD_FLUSH | LL_DV_WR_FLUSH)) {
+		oinfo.oi_oa->o_valid |= OBD_MD_FLFLAGS;
+		oinfo.oi_oa->o_flags |= OBD_FL_SRVLOCK;
+		if (idv->idv_flags & LL_DV_WR_FLUSH)
+			oinfo.oi_oa->o_flags |= OBD_FL_FLUSH;
+	}
+
+	set = ptlrpc_prep_set();
+	if (set == NULL)
+		GOTO(free_obdo, rc = -ENOMEM);
+
+	iga.iga_oinfo = &oinfo;
+	iga.iga_set   = set;
+
+	rc = lov_object_getattr(env, obj, &iga);
+	if (rc == 0)
+		rc = ptlrpc_set_wait(set);
+	ptlrpc_set_destroy(set);
+	if (rc == 0) {
+		oinfo.oi_oa->o_valid &= (OBD_MD_FLBLOCKS | OBD_MD_FLBLKSZ |
+					 OBD_MD_FLATIME | OBD_MD_FLMTIME |
+					 OBD_MD_FLCTIME | OBD_MD_FLSIZE |
+					 OBD_MD_FLDATAVERSION | OBD_MD_FLFLAGS);
+		if (idv->idv_flags & LL_DV_WR_FLUSH &&
+		    !(oinfo.oi_oa->o_valid & OBD_MD_FLFLAGS &&
+		      oinfo.oi_oa->o_flags & OBD_FL_FLUSH))
+			rc = -EOPNOTSUPP;
+		else if (!(obdo->o_valid & OBD_MD_FLDATAVERSION))
+			rc = -EOPNOTSUPP;
+		else
+			idv->idv_version = obdo->o_data_version;
+	}
+free_obdo:
+	OBD_FREE_PTR(obdo);
+out:
+	RETURN(rc);
+}
+
 static int lov_object_ioctl(const struct lu_env *env, struct cl_object *obj,
 			    unsigned int cmd, unsigned long arg)
 {
@@ -1439,6 +1605,14 @@ static int lov_object_ioctl(const struct lu_env *env, struct cl_object *obj,
 	case CL_IOC_FIEMAP:
 		rc = lov_object_fiemap(env, obj, lsm,
 				       (struct cl_ioc_fiemap *)arg);
+		break;
+	case CL_IOC_DATA_VERSION:
+		rc = lov_data_version(env, obj, lsm,
+				      (struct ioc_data_version *)arg);
+		break;
+	case CL_IOC_GETATTR:
+		rc = lov_ioc_getattr(env, obj, lsm,
+				     (struct cl_ioc_getattr *)arg);
 		break;
 	case CL_IOC_FIND_CBDATA:
 	default:

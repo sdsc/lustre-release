@@ -2699,8 +2699,15 @@ struct cl_ioc_fiemap {
 	size_t				*ioc_buflen;
 };
 
+struct cl_ioc_getattr {
+	struct obd_info			*iga_oinfo;
+	struct ptlrpc_request_set	*iga_set;
+};
+
 #define CL_IOC_LOV_GETSTRIPE	_IOR('i', 1, unsigned long)
 #define CL_IOC_FIND_CBDATA	_IO('i', 2)
 #define CL_IOC_FIEMAP		_IOWR('i', 3, struct cl_ioc_fiemap *)
+#define CL_IOC_DATA_VERSION	_IOR('i', 4, struct ioc_data_version *)
+#define CL_IOC_GETATTR		_IOR('i', 5, struct cl_ioc_getattr *)
 
 #endif /* _LINUX_CL_OBJECT_H */

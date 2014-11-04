@@ -340,6 +340,39 @@ drop_lock:
 	RETURN(rc);
 }
 
+static int osc_object_getattr(const struct lu_env *env, struct cl_object *obj,
+			   struct cl_ioc_getattr *iga)
+{
+	struct ptlrpc_request	*req;
+	struct osc_async_args	*aa;
+	int			rc;
+	ENTRY;
+
+	req = ptlrpc_request_alloc(class_exp2cliimp(osc_export(cl2osc(obj))),
+				   &RQF_OST_GETATTR);
+	if (req == NULL)
+		RETURN(-ENOMEM);
+
+	osc_set_capa_size(req, &RMF_CAPA1, iga->iga_oinfo->oi_capa);
+	rc = ptlrpc_request_pack(req, LUSTRE_OST_VERSION, OST_GETATTR);
+	if (rc != 0) {
+		ptlrpc_request_free(req);
+		RETURN(rc);
+	}
+
+	osc_pack_req_body(req, iga->iga_oinfo);
+
+	ptlrpc_request_set_replen(req);
+	req->rq_interpret_reply = (ptlrpc_interpterer_t)osc_getattr_interpret;
+
+	CLASSERT(sizeof(*aa) <= sizeof(req->rq_async_args));
+	aa = ptlrpc_req_async_args(req);
+	aa->aa_oi = iga->iga_oinfo;
+
+	ptlrpc_set_add_req(iga->iga_set, req);
+	RETURN(0);
+}
+
 static int osc_object_ioctl(const struct lu_env *env, struct cl_object *obj,
 			    unsigned int cmd, unsigned long arg)
 {
@@ -353,6 +386,9 @@ static int osc_object_ioctl(const struct lu_env *env, struct cl_object *obj,
 		break;
 	case CL_IOC_FIEMAP:
 		rc = osc_object_fiemap(env, obj, (struct cl_ioc_fiemap *)arg);
+		break;
+	case CL_IOC_GETATTR:
+		rc = osc_object_getattr(env, obj, (struct cl_ioc_getattr *)arg);
 		break;
 	default:
 		rc = -EINVAL;
