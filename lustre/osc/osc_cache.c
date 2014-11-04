@@ -1259,7 +1259,7 @@ static int osc_refresh_count(const struct lu_env *env,
 	obj = opg->ops_cl.cpl_obj;
 
 	cl_object_attr_lock(obj);
-	result = cl_object_attr_get(env, obj, attr);
+	result = cl_object_attr_fill(env, obj, attr);
 	cl_object_attr_unlock(obj);
 	if (result < 0)
 		return result;
@@ -2303,7 +2303,7 @@ int osc_queue_async_io(const struct lu_env *env, struct cl_io *io,
 		attr = &osc_env_info(env)->oti_attr;
 
 		cl_object_attr_lock(obj);
-		rc = cl_object_attr_get(env, obj, attr);
+		rc = cl_object_attr_fill(env, obj, attr);
 		cl_object_attr_unlock(obj);
 
 		qid[USRQUOTA] = attr->cat_uid;

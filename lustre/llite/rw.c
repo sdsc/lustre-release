@@ -516,7 +516,7 @@ int ll_readahead(const struct lu_env *env, struct cl_io *io,
 	memset(ria, 0, sizeof *ria);
 
 	cl_object_attr_lock(clob);
-	ret = cl_object_attr_get(env, clob, attr);
+	ret = cl_object_attr_fill(env, clob, attr);
 	cl_object_attr_unlock(clob);
 
 	if (ret != 0)

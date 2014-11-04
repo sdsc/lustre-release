@@ -458,7 +458,7 @@ static int osc_io_setattr_start(const struct lu_env *env,
 
 	if (result == 0 && oio->oi_lockless == 0) {
 		cl_object_attr_lock(obj);
-		result = cl_object_attr_get(env, obj, attr);
+		result = cl_object_attr_fill(env, obj, attr);
 		if (result == 0) {
 			struct ost_lvb *lvb = &io->u.ci_setattr.sa_attr;
 			unsigned int cl_valid = 0;

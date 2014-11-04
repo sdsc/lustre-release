@@ -492,7 +492,7 @@ static int ll_prepare_partial_page(const struct lu_env *env, struct cl_io *io,
 	int             result;
 
 	cl_object_attr_lock(obj);
-	result = cl_object_attr_get(env, obj, attr);
+	result = cl_object_attr_fill(env, obj, attr);
 	cl_object_attr_unlock(obj);
 	if (result == 0) {
 		/*

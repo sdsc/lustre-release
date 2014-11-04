@@ -714,7 +714,7 @@ int ccc_prep_size(const struct lu_env *env, struct cl_object *obj,
          * correctly in the face of concurrent writes and truncates.
          */
         ccc_object_size_lock(obj);
-        result = cl_object_attr_get(env, obj, attr);
+	result = cl_object_attr_fill(env, obj, attr);
         if (result == 0) {
                 kms = attr->cat_kms;
                 if (pos > kms) {
