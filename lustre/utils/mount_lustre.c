@@ -610,7 +610,7 @@ int main(int argc, char *const argv[])
 {
 	struct mount_opts mop;
 	char *options;
-	int i, rc, flags;
+	int i, rc, rc2, flags;
 
 	progname = strrchr(argv[0], '/');
 	progname = progname ? progname + 1 : argv[0];
@@ -618,11 +618,14 @@ int main(int argc, char *const argv[])
 	set_defaults(&mop);
 
 	rc = osd_init();
-	if (rc)
-		return rc;
 
-	rc = parse_opts(argc, argv, &mop);
-	if (rc || version)
+	rc2 = parse_opts(argc, argv, &mop);
+	if (rc2 || version)
+		return rc2;
+
+	/* Not worth to continue if device/Server mount with no OSD/back-end
+	 * hooks available! */
+	if ((rc == EINVAL) && !strstr(mop.mo_usource, ":/"))
 		return rc;
 
         if (verbose) {
