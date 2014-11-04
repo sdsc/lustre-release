@@ -195,7 +195,7 @@ static inline int server_make_name(__u32 flags, __u16 index, char *fs,
 				(flags & LDD_F_SV_TYPE_MDT) ? "MDT" : "OST",
 				index);
         } else if (flags & LDD_F_SV_TYPE_MGS) {
-                sprintf(name, "MGS");
+                sprintf(name, "lustre-MGS");
         } else {
                 CERROR("unknown server type %#x\n", flags);
                 return 1;
