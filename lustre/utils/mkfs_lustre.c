@@ -580,9 +580,8 @@ int main(int argc, char *const argv[])
         /* device is last arg */
         strscpy(mop.mo_device, argv[argc - 1], sizeof(mop.mo_device));
 
-	ret = osd_init();
-	if (ret)
-		return ret;
+	if (osd_init() == 0)
+		return EOPNOTSUPP;
 
 #ifdef TUNEFS
         /* For tunefs, we must read in the old values before parsing any
@@ -592,8 +591,9 @@ int main(int argc, char *const argv[])
 	ret = osd_is_lustre(mop.mo_device, &mount_type);
         if (ret == 0) {
                 fatal();
-                fprintf(stderr, "Device %s has not been formatted with "
-                        "mkfs.lustre\n", mop.mo_device);
+		verrprint("Device %s has not been formatted with mkfs.lustre "
+			  "or the backend filesystem type is not supported by"
+			  " this tool\n", mop.mo_device);
                 ret = ENODEV;
                 goto out;
         }
