@@ -857,7 +857,9 @@ struct lu_object *lu_object_find_slice(const struct lu_env *env,
                 obj = lu_object_locate(top->lo_header, dev->ld_type);
                 if (obj == NULL)
                         lu_object_put(env, top);
-        } else
+	} else if (top == NULL)
+		obj = ERR_PTR(-ENOENT);
+        else
                 obj = top;
         return obj;
 }
