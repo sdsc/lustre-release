@@ -187,6 +187,7 @@ int lov_process_config_base(struct obd_device *obd, struct lustre_cfg *lcfg,
                             __u32 *indexp, int *genp);
 int lov_del_target(struct obd_device *obd, __u32 index,
                    struct obd_uuid *uuidp, int gen);
+int lov_getattr_interpret(struct ptlrpc_request_set *rqset, void *data, int rc);
 
 /* lov_pack.c */
 int lov_packmd(struct obd_export *exp, struct lov_mds_md **lmm,

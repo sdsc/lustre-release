@@ -74,8 +74,8 @@ static int vvp_object_print(const struct lu_env *env, void *cookie,
 	return 0;
 }
 
-static int vvp_attr_get(const struct lu_env *env, struct cl_object *obj,
-                        struct cl_attr *attr)
+static int vvp_attr_fill(const struct lu_env *env, struct cl_object *obj,
+			 struct cl_attr *attr)
 {
 	struct inode *inode = ccc_object_inode(obj);
 
@@ -165,7 +165,7 @@ static const struct cl_object_operations vvp_ops = {
 	.coo_page_init = vvp_page_init,
 	.coo_lock_init = vvp_lock_init,
 	.coo_io_init   = vvp_io_init,
-	.coo_attr_get  = vvp_attr_get,
+	.coo_attr_fill = vvp_attr_fill,
 	.coo_attr_set  = vvp_attr_set,
 	.coo_conf_set  = vvp_conf_set,
 	.coo_prune     = vvp_prune,

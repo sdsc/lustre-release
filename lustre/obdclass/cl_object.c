@@ -165,7 +165,7 @@ EXPORT_SYMBOL(cl_object_top);
  * Data-attributes are protected by the cl_object_header::coh_attr_guard
  * spin-lock in the top-object.
  *
- * \see cl_attr, cl_object_attr_lock(), cl_object_operations::coo_attr_get().
+ * \see cl_attr, cl_object_attr_lock(), cl_object_operations::coo_attr_fill().
  */
 static spinlock_t *cl_object_attr_guard(struct cl_object *o)
 {
@@ -177,7 +177,7 @@ static spinlock_t *cl_object_attr_guard(struct cl_object *o)
  *
  * Prevents data-attributes from changing, until lock is released by
  * cl_object_attr_unlock(). This has to be called before calls to
- * cl_object_attr_get(), cl_object_attr_set().
+ * cl_object_attr_fill(), cl_object_attr_set().
  */
 void cl_object_attr_lock(struct cl_object *o)
 __acquires(cl_object_attr_guard(o))
@@ -199,12 +199,12 @@ EXPORT_SYMBOL(cl_object_attr_unlock);
 /**
  * Returns data-attributes of an object \a obj.
  *
- * Every layer is asked (by calling cl_object_operations::coo_attr_get())
+ * Every layer is asked (by calling cl_object_operations::coo_attr_fill())
  * top-to-bottom to fill in parts of \a attr that this layer is responsible
  * for.
  */
-int cl_object_attr_get(const struct lu_env *env, struct cl_object *obj,
-                       struct cl_attr *attr)
+int cl_object_attr_fill(const struct lu_env *env, struct cl_object *obj,
+			struct cl_attr *attr)
 {
 	struct lu_object_header *top;
 	int result;
@@ -212,21 +212,21 @@ int cl_object_attr_get(const struct lu_env *env, struct cl_object *obj,
 	assert_spin_locked(cl_object_attr_guard(obj));
 	ENTRY;
 
-        top = obj->co_lu.lo_header;
-        result = 0;
+	top = obj->co_lu.lo_header;
+	result = 0;
 	list_for_each_entry(obj, &top->loh_layers, co_lu.lo_linkage) {
-                if (obj->co_ops->coo_attr_get != NULL) {
-                        result = obj->co_ops->coo_attr_get(env, obj, attr);
-                        if (result != 0) {
-                                if (result > 0)
-                                        result = 0;
-                                break;
-                        }
-                }
-        }
-        RETURN(result);
+		if (obj->co_ops->coo_attr_fill != NULL) {
+			result = obj->co_ops->coo_attr_fill(env, obj, attr);
+			if (result != 0) {
+				if (result > 0)
+					result = 0;
+				break;
+			}
+		}
+	}
+	RETURN(result);
 }
-EXPORT_SYMBOL(cl_object_attr_get);
+EXPORT_SYMBOL(cl_object_attr_fill);
 
 /**
  * Updates data-attributes of an object \a obj.
@@ -411,6 +411,45 @@ int cl_object_fiemap(const struct lu_env *env, struct cl_object *obj,
 	RETURN(result);
 }
 EXPORT_SYMBOL(cl_object_fiemap);
+
+int cl_object_getattr(const struct lu_env *env, struct cl_object *obj,
+		      struct obd_info *oinfo, struct ptlrpc_request_set *set)
+{
+	struct lu_object_header	*top;
+	int			result = 0;
+	ENTRY;
+
+	top = obj->co_lu.lo_header;
+	list_for_each_entry(obj, &top->loh_layers, co_lu.lo_linkage) {
+		if (obj->co_ops->coo_getattr != NULL) {
+			result = obj->co_ops->coo_getattr(env, obj, oinfo, set);
+			if (result != 0)
+				break;
+		}
+	}
+	RETURN(result);
+}
+EXPORT_SYMBOL(cl_object_getattr);
+
+int cl_object_dataversion(const struct lu_env *env, struct cl_object *obj,
+			  __u64 *dataversion, int flags)
+{
+	struct lu_object_header	*top;
+	int			result = 0;
+	ENTRY;
+
+	top = obj->co_lu.lo_header;
+	list_for_each_entry(obj, &top->loh_layers, co_lu.lo_linkage) {
+		if (obj->co_ops->coo_dataversion != NULL) {
+			result = obj->co_ops->coo_dataversion(env, obj,
+							dataversion, flags);
+			if (result != 0)
+				break;
+		}
+	}
+	RETURN(result);
+}
+EXPORT_SYMBOL(cl_object_dataversion);
 
 /**
  * Helper function removing all object locks, and marking object for
