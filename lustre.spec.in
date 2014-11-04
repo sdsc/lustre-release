@@ -447,6 +447,12 @@ find $RPM_BUILD_ROOT%{?rootdir}/lib/modules/%{kversion}/%{kmoddir} \
 %{_libexecdir}/lustre/lc_common
 %{_libexecdir}/lustre/haconfig
 %{_bindir}/lustre_req_history
+%if %{with ldiskfs}
+%{_libdir}/@PACKAGE@/mount_osd_ldiskfs.so
+%endif
+%if %{with zfs}
+%{_libdir}/@PACKAGE@/mount_osd_zfs.so
+%endif
 %endif
 
 %{_bindir}/llobdstat
@@ -495,9 +501,6 @@ find $RPM_BUILD_ROOT%{?rootdir}/lib/modules/%{kversion}/%{kmoddir} \
 %defattr(-,root,root)
 %{?rootdir}/lib/modules/%{kversion}/%{kmoddir}/kernel/fs/@PACKAGE@/ldiskfs.ko
 %{?rootdir}/lib/modules/%{kversion}/%{kmoddir}/kernel/fs/@PACKAGE@/osd_ldiskfs.ko
-%if %{with lustre_utils}
-%{_libdir}/@PACKAGE@/mount_osd_ldiskfs.so
-%endif
 %if %{defined rpm_post_base}
 %attr(0555, root, root) %{rpm_post_base}-osd-ldiskfs.sh
 %endif
@@ -507,9 +510,6 @@ find $RPM_BUILD_ROOT%{?rootdir}/lib/modules/%{kversion}/%{kmoddir} \
 %files osd-zfs
 %defattr(-,root,root)
 %{?rootdir}/lib/modules/%{kversion}/%{kmoddir}/kernel/fs/@PACKAGE@/osd_zfs.ko
-%if %{with lustre_utils}
-%{_libdir}/@PACKAGE@/mount_osd_zfs.so
-%endif
 %if %{defined rpm_post_base}
 %attr(0555, root, root) %{rpm_post_base}-osd-zfs.sh
 %endif
