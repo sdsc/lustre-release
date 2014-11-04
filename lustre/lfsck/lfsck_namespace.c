@@ -510,6 +510,9 @@ int lfsck_namespace_trace_update(const struct lu_env *env,
 
 	LASSERT(flags != 0);
 
+	if (unlikely(!fid_is_sane(fid)))
+		RETURN(0);
+
 	down_write(&com->lc_sem);
 	fid_cpu_to_be(key, fid);
 	rc = dt_lookup(env, obj, (struct dt_rec *)&old,
@@ -4861,7 +4864,7 @@ static int lfsck_namespace_assistant_handler_p1(const struct lu_env *env,
 	bool			    bad_hash = false;
 	int			    idx      = 0;
 	int			    count    = 0;
-	int			    rc;
+	int			    rc	     = 0;
 	enum lfsck_namespace_inconsistency_type type = LNIT_NONE;
 	ENTRY;
 
@@ -4879,6 +4882,24 @@ static int lfsck_namespace_assistant_handler_p1(const struct lu_env *env,
 		if (strcmp(lnr->lnr_name, dotdot) != 0)
 			LBUG();
 		else
+			rc = lfsck_namespace_trace_update(env, com, pfid,
+						LNTF_CHECK_PARENT, true);
+
+		GOTO(out, rc);
+	}
+
+	if (unlikely(!fid_is_sane(&lnr->lnr_fid))) {
+		CDEBUG(D_LFSCK, "%s: dir scan find invalid FID "DFID
+		       " for the name entry %.*s\n",
+		       lfsck_lfsck2name(lfsck), PFID(&lnr->lnr_fid),
+		       lnr->lnr_namelen, lnr->lnr_name);
+
+		if (strcmp(lnr->lnr_name, dotdot) != 0)
+			/* invalid FID means bad name entry, remove it. */
+			type = LNIT_BAD_DIRENT;
+		else
+			/* If the parent FID is invalid, we cannot remove
+			 * the ".." entry directly. */
 			rc = lfsck_namespace_trace_update(env, com, pfid,
 						LNTF_CHECK_PARENT, true);
 
