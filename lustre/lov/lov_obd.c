@@ -1083,8 +1083,7 @@ out:
         RETURN(rc ? rc : err);
 }
 
-static int lov_getattr_interpret(struct ptlrpc_request_set *rqset,
-				 void *data, int rc)
+int lov_getattr_interpret(struct ptlrpc_request_set *rqset, void *data, int rc)
 {
 	struct lov_request_set *lovset = (struct lov_request_set *)data;
 	int err;
@@ -1096,6 +1095,7 @@ static int lov_getattr_interpret(struct ptlrpc_request_set *rqset,
 	err = lov_fini_getattr_set(lovset);
 	RETURN(rc ? rc : err);
 }
+
 
 static int lov_getattr_async(struct obd_export *exp, struct obd_info *oinfo,
                               struct ptlrpc_request_set *rqset)

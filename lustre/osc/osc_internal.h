@@ -197,6 +197,51 @@ struct osc_quota_info {
 	struct hlist_node oqi_hash;
 	obd_uid		  oqi_id;
 };
+
+struct osc_brw_async_args {
+	struct obdo		 *aa_oa;
+	int			  aa_requested_nob;
+	int			  aa_nio_count;
+	obd_count		  aa_page_count;
+	int			  aa_resends;
+	struct brw_page	**aa_ppga;
+	struct client_obd	 *aa_cli;
+	struct list_head	  aa_oaps;
+	struct list_head	  aa_exts;
+	struct obd_capa	 *aa_ocapa;
+	struct cl_req		 *aa_clerq;
+};
+
+#define osc_grant_args osc_brw_async_args
+
+struct osc_async_args {
+	struct obd_info	*aa_oi;
+};
+
+struct osc_setattr_args {
+	struct obdo		*sa_oa;
+	obd_enqueue_update_f	 sa_upcall;
+	void			*sa_cookie;
+};
+
+struct osc_fsync_args {
+	struct obd_info	*fa_oi;
+	obd_enqueue_update_f	 fa_upcall;
+	void			*fa_cookie;
+};
+
+struct osc_enqueue_args {
+	struct obd_export		*oa_exp;
+	ldlm_type_t			oa_type;
+	ldlm_mode_t			oa_mode;
+	__u64				*oa_flags;
+	osc_enqueue_upcall_f		 oa_upcall;
+	void				*oa_cookie;
+	struct ost_lvb			*oa_lvb;
+	struct lustre_handle		oa_lockh;
+	unsigned int			oa_agl:1;
+};
+
 int osc_quota_setup(struct obd_device *obd);
 int osc_quota_cleanup(struct obd_device *obd);
 int osc_quota_setdq(struct client_obd *cli, const unsigned int qid[],
@@ -213,4 +258,10 @@ struct ldlm_lock *osc_dlmlock_at_pgoff(const struct lu_env *env,
 void osc_inc_unstable_pages(struct ptlrpc_request *req);
 void osc_dec_unstable_pages(struct ptlrpc_request *req);
 bool osc_over_unstable_soft_limit(struct client_obd *cli);
+void osc_pack_req_body(struct ptlrpc_request *req, struct obd_info *oinfo);
+void osc_set_capa_size(struct ptlrpc_request *req,
+		       const struct req_msg_field *field, struct obd_capa *oc);
+int osc_getattr_interpret(const struct lu_env *env,
+			  struct ptlrpc_request *req,
+			  struct osc_async_args *aa, int rc);
 #endif /* OSC_INTERNAL_H */

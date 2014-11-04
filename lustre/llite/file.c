@@ -996,25 +996,43 @@ static int ll_lsm_getattr(struct lov_stripe_md *lsm, struct obd_export *exp,
 int ll_inode_getattr(struct inode *inode, struct obdo *obdo,
                      __u64 ioepoch, int sync)
 {
-	struct obd_capa      *capa = ll_mdscapa_get(inode);
-	struct lov_stripe_md *lsm;
+	struct lu_env		*env;
+	int			refcheck;
+	struct obd_info		oinfo = { { { 0 } } };
+	struct obd_capa		*capa = ll_mdscapa_get(inode);
+	struct cl_ioc_getattr	iga;
 	int rc;
 	ENTRY;
 
-	lsm = ccc_inode_lsm_get(inode);
-	rc = ll_lsm_getattr(lsm, ll_i2dtexp(inode),
-				capa, obdo, ioepoch, sync ? LL_DV_RD_FLUSH : 0);
-	capa_put(capa);
-	if (rc == 0) {
-		struct ost_id *oi = lsm ? &lsm->lsm_oi : &obdo->o_oi;
+	env = cl_env_get(&refcheck);
+	if (IS_ERR(env))
+		RETURN(PTR_ERR(env));
 
+	oinfo.oi_oa = obdo;
+	oinfo.oi_capa = capa;
+	oinfo.oi_oa->o_ioepoch = ioepoch;
+	oinfo.oi_oa->o_mode = S_IFREG;
+	oinfo.oi_oa->o_valid = OBD_MD_FLID | OBD_MD_FLTYPE | OBD_MD_FLSIZE |
+			       OBD_MD_FLBLOCKS | OBD_MD_FLBLKSZ |
+			       OBD_MD_FLATIME | OBD_MD_FLMTIME |
+			       OBD_MD_FLCTIME | OBD_MD_FLGROUP |
+			       OBD_MD_FLEPOCH | OBD_MD_FLDATAVERSION;
+	if (sync) {
+		oinfo.oi_oa->o_valid |= OBD_MD_FLFLAGS;
+		oinfo.oi_oa->o_flags |= OBD_FL_SRVLOCK;
+	}
+	iga.iga_oinfo = &oinfo;
+	rc = cl_object_ioctl(env, ll_i2info(inode)->lli_clob,
+			     CL_IOC_GETATTR, (unsigned long)&iga);
+	if (rc == 0) {
 		obdo_refresh_inode(inode, obdo, obdo->o_valid);
 		CDEBUG(D_INODE, "objid "DOSTID" size %llu, blocks %llu,"
-		       " blksize %lu\n", POSTID(oi), i_size_read(inode),
-		       (unsigned long long)inode->i_blocks,
+		       " blksize %lu.\n", POSTID(&obdo->o_oi),
+		       i_size_read(inode), (unsigned long long)inode->i_blocks,
 		       1UL << inode->i_blkbits);
 	}
-	ccc_inode_lsm_put(inode, lsm);
+	capa_put(capa);
+	cl_env_put(env, &refcheck);
 	RETURN(rc);
 }
 
@@ -1912,38 +1930,20 @@ error:
  *		LL_DV_RD_FLUSH: flush dirty pages, LCK_PR on OSTs
  *		LL_DV_WR_FLUSH: drop all caching pages, LCK_PW on OSTs
  */
-int ll_data_version(struct inode *inode, __u64 *data_version, int flags)
+int ll_data_version(struct inode *inode, struct ioc_data_version *idv)
 {
-	struct lov_stripe_md	*lsm = NULL;
-	struct ll_sb_info	*sbi = ll_i2sbi(inode);
-	struct obdo		*obdo = NULL;
-	int			 rc;
+	struct lu_env		*env;
+	int			refcheck;
+	int			rc;
 	ENTRY;
 
-	/* If no stripe, we consider version is 0. */
-	lsm = ccc_inode_lsm_get(inode);
-	if (!lsm_has_objects(lsm)) {
-		*data_version = 0;
-		CDEBUG(D_INODE, "No object for inode\n");
-		GOTO(out, rc = 0);
-	}
-
-	OBD_ALLOC_PTR(obdo);
-	if (obdo == NULL)
-		GOTO(out, rc = -ENOMEM);
-
-	rc = ll_lsm_getattr(lsm, sbi->ll_dt_exp, NULL, obdo, 0, flags);
-	if (rc == 0) {
-		if (!(obdo->o_valid & OBD_MD_FLDATAVERSION))
-			rc = -EOPNOTSUPP;
-		else
-			*data_version = obdo->o_data_version;
-	}
-
-	OBD_FREE_PTR(obdo);
-	EXIT;
-out:
-	ccc_inode_lsm_put(inode, lsm);
+	env = cl_env_get(&refcheck);
+	if (IS_ERR(env))
+		RETURN(PTR_ERR(env));
+	idv->idv_version = 0;
+	rc = cl_object_ioctl(env, ll_i2info(inode)->lli_clob,
+			     CL_IOC_DATA_VERSION, (unsigned long)idv);
+	cl_env_put(env, &refcheck);
 	RETURN(rc);
 }
 
@@ -1955,7 +1955,7 @@ int ll_hsm_release(struct inode *inode)
 	struct cl_env_nest nest;
 	struct lu_env *env;
 	struct obd_client_handle *och = NULL;
-	__u64 data_version = 0;
+	struct ioc_data_version idv = { .idv_flags = LL_DV_WR_FLUSH };
 	int rc;
 	ENTRY;
 
@@ -1968,7 +1968,7 @@ int ll_hsm_release(struct inode *inode)
 		GOTO(out, rc = PTR_ERR(och));
 
 	/* Grab latest data_version and [am]time values */
-	rc = ll_data_version(inode, &data_version, LL_DV_WR_FLUSH);
+	rc = ll_data_version(inode, &idv);
 	if (rc != 0)
 		GOTO(out, rc);
 
@@ -1983,7 +1983,7 @@ int ll_hsm_release(struct inode *inode)
 	 * NB: lease lock handle is released in mdc_hsm_release_pack() because
 	 * we still need it to pack l_remote_handle to MDT. */
 	rc = ll_close_inode_openhandle(ll_i2sbi(inode)->ll_md_exp, inode, och,
-				       &data_version);
+				       &idv.idv_version);
 	och = NULL;
 
 	EXIT;
@@ -2007,7 +2007,7 @@ static int ll_swap_layouts(struct file *file1, struct file *file2,
 	struct mdc_swap_layouts	 msl;
 	struct md_op_data	*op_data;
 	__u32			 gid;
-	__u64			 dv;
+	struct ioc_data_version	idv;
 	struct ll_swap_stack	*llss = NULL;
 	int			 rc;
 
@@ -2078,18 +2078,20 @@ static int ll_swap_layouts(struct file *file1, struct file *file2,
 	/* ultimate check, before swaping the layouts we check if
 	 * dataversion has changed (if requested) */
 	if (llss->check_dv1) {
-		rc = ll_data_version(llss->inode1, &dv, 0);
+		idv.idv_flags = 0;
+		rc = ll_data_version(llss->inode1, &idv);
 		if (rc)
 			GOTO(putgl, rc);
-		if (dv != llss->dv1)
+		if (idv.idv_version != llss->dv1)
 			GOTO(putgl, rc = -EAGAIN);
 	}
 
 	if (llss->check_dv2) {
-		rc = ll_data_version(llss->inode2, &dv, 0);
+		idv.idv_flags = 0;
+		rc = ll_data_version(llss->inode2, &idv);
 		if (rc)
 			GOTO(putgl, rc);
-		if (dv != llss->dv2)
+		if (idv.idv_version != llss->dv2)
 			GOTO(putgl, rc = -EAGAIN);
 	}
 
@@ -2357,7 +2359,7 @@ ll_file_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			RETURN(-EFAULT);
 
 		idv.idv_flags &= LL_DV_RD_FLUSH | LL_DV_WR_FLUSH;
-		rc = ll_data_version(inode, &idv.idv_version, idv.idv_flags);
+		rc = ll_data_version(inode, &idv);
 
 		if (rc == 0 &&
 		    copy_to_user((char __user *)arg, &idv, sizeof(idv)))

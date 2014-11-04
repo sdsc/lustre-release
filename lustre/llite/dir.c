@@ -713,8 +713,8 @@ static int ll_ioc_copy_start(struct super_block *sb, struct hsm_copy *copy)
 
 	/* For archive request, we need to read the current file version. */
 	if (copy->hc_hai.hai_action == HSMA_ARCHIVE) {
-		struct inode	*inode;
-		__u64		 data_version = 0;
+		struct inode		*inode;
+		struct ioc_data_version idv = { .idv_flags = LL_DV_RD_FLUSH };
 
 		/* Get inode for this fid */
 		inode = search_inode_for_lustre(sb, &copy->hc_hai.hai_fid);
@@ -726,7 +726,7 @@ static int ll_ioc_copy_start(struct super_block *sb, struct hsm_copy *copy)
 		}
 
 		/* Read current file data version */
-		rc = ll_data_version(inode, &data_version, LL_DV_RD_FLUSH);
+		rc = ll_data_version(inode, &idv);
 		iput(inode);
 		if (rc != 0) {
 			CDEBUG(D_HSM, "Could not read file data version of "
@@ -742,7 +742,7 @@ static int ll_ioc_copy_start(struct super_block *sb, struct hsm_copy *copy)
 
 		/* Store it the hsm_copy for later copytool use.
 		 * Always modified even if no lsm. */
-		copy->hc_data_version = data_version;
+		copy->hc_data_version = idv.idv_version;
 	}
 
 progress:
@@ -798,8 +798,8 @@ static int ll_ioc_copy_end(struct super_block *sb, struct hsm_copy *copy)
 	if (((copy->hc_hai.hai_action == HSMA_ARCHIVE) ||
 	     (copy->hc_hai.hai_action == HSMA_RESTORE)) &&
 	    (copy->hc_errval == 0)) {
-		struct inode	*inode;
-		__u64		 data_version = 0;
+		struct inode		*inode;
+		struct ioc_data_version idv = { .idv_flags = LL_DV_RD_FLUSH };
 
 		/* Get lsm for this fid */
 		inode = search_inode_for_lustre(sb, &copy->hc_hai.hai_fid);
@@ -810,7 +810,7 @@ static int ll_ioc_copy_end(struct super_block *sb, struct hsm_copy *copy)
 			GOTO(progress, rc = PTR_ERR(inode));
 		}
 
-		rc = ll_data_version(inode, &data_version, LL_DV_RD_FLUSH);
+		rc = ll_data_version(inode, &idv);
 		iput(inode);
 		if (rc) {
 			CDEBUG(D_HSM, "Could not read file data version. "
@@ -822,17 +822,17 @@ static int ll_ioc_copy_end(struct super_block *sb, struct hsm_copy *copy)
 
 		/* Store it the hsm_copy for later copytool use.
 		 * Always modified even if no lsm. */
-		hpk.hpk_data_version = data_version;
+		hpk.hpk_data_version = idv.idv_version;
 
 		/* File could have been stripped during archiving, so we need
 		 * to check anyway. */
 		if ((copy->hc_hai.hai_action == HSMA_ARCHIVE) &&
-		    (copy->hc_data_version != data_version)) {
+		    (copy->hc_data_version != idv.idv_version)) {
 			CDEBUG(D_HSM, "File data version mismatched. "
 			      "File content was changed during archiving. "
 			       DFID", start:"LPX64" current:"LPX64"\n",
 			       PFID(&copy->hc_hai.hai_fid),
-			       copy->hc_data_version, data_version);
+			       copy->hc_data_version, idv.idv_version);
 			/* File was changed, send error to cdt. Do not ask for
 			 * retry because if a file is modified frequently,
 			 * the cdt will loop on retried archive requests.

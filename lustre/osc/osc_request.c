@@ -52,50 +52,6 @@
 #include "osc_internal.h"
 #include "osc_cl_internal.h"
 
-struct osc_brw_async_args {
-	struct obdo		 *aa_oa;
-	int			  aa_requested_nob;
-	int			  aa_nio_count;
-	obd_count		  aa_page_count;
-	int			  aa_resends;
-	struct brw_page	**aa_ppga;
-	struct client_obd	 *aa_cli;
-	struct list_head	  aa_oaps;
-	struct list_head	  aa_exts;
-	struct obd_capa	 *aa_ocapa;
-	struct cl_req		 *aa_clerq;
-};
-
-#define osc_grant_args osc_brw_async_args
-
-struct osc_async_args {
-	struct obd_info	*aa_oi;
-};
-
-struct osc_setattr_args {
-	struct obdo		*sa_oa;
-	obd_enqueue_update_f	 sa_upcall;
-	void			*sa_cookie;
-};
-
-struct osc_fsync_args {
-	struct obd_info	*fa_oi;
-	obd_enqueue_update_f	 fa_upcall;
-	void			*fa_cookie;
-};
-
-struct osc_enqueue_args {
-	struct obd_export	*oa_exp;
-	ldlm_type_t		oa_type;
-	ldlm_mode_t		oa_mode;
-	__u64			*oa_flags;
-	osc_enqueue_upcall_f	oa_upcall;
-	void			*oa_cookie;
-	struct ost_lvb		*oa_lvb;
-	struct lustre_handle	oa_lockh;
-	unsigned int		oa_agl:1;
-};
-
 static void osc_release_ppga(struct brw_page **ppga, obd_count count);
 static int brw_interpret(const struct lu_env *env, struct ptlrpc_request *req,
 			 void *data, int rc);
@@ -178,8 +134,7 @@ static inline void osc_pack_capa(struct ptlrpc_request *req,
         DEBUG_CAPA(D_SEC, c, "pack");
 }
 
-static inline void osc_pack_req_body(struct ptlrpc_request *req,
-                                     struct obd_info *oinfo)
+void osc_pack_req_body(struct ptlrpc_request *req, struct obd_info *oinfo)
 {
 	struct ost_body *body;
 
@@ -191,9 +146,9 @@ static inline void osc_pack_req_body(struct ptlrpc_request *req,
 	osc_pack_capa(req, body, oinfo->oi_capa);
 }
 
-static inline void osc_set_capa_size(struct ptlrpc_request *req,
-                                     const struct req_msg_field *field,
-                                     struct obd_capa *oc)
+void osc_set_capa_size(struct ptlrpc_request *req,
+		       const struct req_msg_field *field,
+		       struct obd_capa *oc)
 {
         if (oc == NULL)
                 req_capsule_set_size(&req->rq_pill, field, RCL_CLIENT, 0);
@@ -202,9 +157,9 @@ static inline void osc_set_capa_size(struct ptlrpc_request *req,
                 ;
 }
 
-static int osc_getattr_interpret(const struct lu_env *env,
-                                 struct ptlrpc_request *req,
-                                 struct osc_async_args *aa, int rc)
+int osc_getattr_interpret(const struct lu_env *env,
+			  struct ptlrpc_request *req,
+			  struct osc_async_args *aa, int rc)
 {
         struct ost_body *body;
         ENTRY;

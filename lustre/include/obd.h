@@ -719,6 +719,11 @@ struct obd_device {
 	int		       obd_conn_inprogress;
 };
 
+static inline struct obd_device *lov2obd(const struct lov_obd *lov)
+{
+	return container_of0(lov, struct obd_device, u.lov);
+}
+
 enum obd_cleanup_stage {
 /* Special case hack for MDS LOVs */
         OBD_CLEANUP_EARLY,
