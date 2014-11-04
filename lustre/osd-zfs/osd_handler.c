@@ -662,8 +662,10 @@ static int osd_shutdown(const struct lu_env *env, struct osd_device *o)
 
 	/* shutdown quota slave instance associated with the device */
 	if (o->od_quota_slave != NULL) {
-		qsd_fini(env, o->od_quota_slave);
+		struct qsd_instance *qsd = o->od_quota_slave;
+
 		o->od_quota_slave = NULL;
+		qsd_fini(env, qsd);
 	}
 
 	RETURN(0);
