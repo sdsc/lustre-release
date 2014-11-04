@@ -52,9 +52,6 @@
 extern char *progname;
 extern int verbose;
 
-#define vprint(fmt, arg...) if (verbose > 0) printf(fmt, ##arg)
-#define verrprint(fmt, arg...) if (verbose >= 0) fprintf(stderr, fmt, ##arg)
-
 static struct module_backfs_ops *backfs_ops[LDD_MT_LAST];
 
 void fatal(void)
@@ -700,19 +697,40 @@ int osd_enable_quota(struct mkfs_opts *mop)
 	return ret;
 }
 
+/**
+ * Will try to initialize all possible back-end OSD mount helpers and will
+ * disable all those in error (due to missing required external parts, like
+ * back-end Kernel modules, more dynamic libs ...).
+ * \return Returns the number of back-end OSD types successfully initialized.
+ */
 int osd_init(void)
 {
-	int i, ret = 0;
+	int i;
+	int rc;
+	int backfs_count = 0;
 
+	/* loop to find all able to initialize */
 	for (i = 0; i < LDD_MT_LAST; ++i) {
 		backfs_ops[i] = load_backfs_module(i);
-		if (backfs_ops[i] != NULL)
-			ret = backfs_ops[i]->init();
-		if (ret)
-			break;
+		if (backfs_ops[i] != NULL) {
+			rc = backfs_ops[i]->init();
+			if (rc != 0) {
+				/* Then backfs_mount_type_okay() will know
+				 * those really usable or not */
+				backfs_ops[i] = NULL;
+				verrprint("%s: %s OSD back-end init/load "
+					  "failed: rc = %d\n", progname,
+					  mt_str(i), rc);
+				continue;
+			}
+			backfs_count++;
+		}
 	}
 
-	return ret;
+	if (backfs_count == 0)
+		fprintf(stderr, "No OSD back-ends are available\n");
+
+	return backfs_count;
 }
 
 void osd_fini(void)
