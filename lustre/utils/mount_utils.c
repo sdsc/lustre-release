@@ -702,17 +702,25 @@ int osd_enable_quota(struct mkfs_opts *mop)
 
 int osd_init(void)
 {
-	int i, ret = 0;
+	int backfs_count = 0, i;
 
 	for (i = 0; i < LDD_MT_LAST; ++i) {
 		backfs_ops[i] = load_backfs_module(i);
-		if (backfs_ops[i] != NULL)
-			ret = backfs_ops[i]->init();
-		if (ret)
-			break;
+		if (backfs_ops[i] != NULL) {
+			if (backfs_ops[i]->init()) {
+				/* Only disable back-end hooks upon error
+				 * and loop to find all able to initialize
+				 * backfs_mount_type_okay() will do the job
+				 * to identify those really usable or not */
+				backfs_ops[i] = NULL;
+				continue;
+			}
+			backfs_count++;
+		}
 	}
 
-	return ret;
+	/* Only return error when none are available */
+	return backfs_count ? 0 : EINVAL;
 }
 
 void osd_fini(void)
