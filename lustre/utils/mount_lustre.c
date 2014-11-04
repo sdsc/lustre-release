@@ -617,13 +617,21 @@ int main(int argc, char *const argv[])
 
 	set_defaults(&mop);
 
-	rc = osd_init();
-	if (rc)
-		return rc;
-
 	rc = parse_opts(argc, argv, &mop);
 	if (rc || version)
 		return rc;
+
+	/* Don't try to initialize back-end hooks for Client mounts and if
+	 * there are no back-end OSD libraries available and this is a Server
+	 * mount (Client mount strings contain ":/"), then there is no reason
+	 * to continue. */
+	if (strstr(mop.mo_usource, ":/") == NULL) {
+		rc = osd_init();
+		if (rc == 0) {
+			fprintf(stderr, "No osd back-ends are available\n");
+			return -1;
+		}
+	}
 
         if (verbose) {
                 for (i = 0; i < argc; i++)
