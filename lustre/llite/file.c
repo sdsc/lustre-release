@@ -987,25 +987,46 @@ static int ll_lsm_getattr(struct lov_stripe_md *lsm, struct obd_export *exp,
 int ll_inode_getattr(struct inode *inode, struct obdo *obdo,
                      __u64 ioepoch, int sync)
 {
-	struct obd_capa      *capa = ll_mdscapa_get(inode);
-	struct lov_stripe_md *lsm;
-	int rc;
+	struct lu_env	*env;
+	int		refcheck;
+	struct obd_capa	*capa = ll_mdscapa_get(inode);
+	struct obd_info	oinfo = {
+		.oi_oa   = obdo,
+		.oi_capa = capa,
+	};
+	int		rc;
 	ENTRY;
 
-	lsm = ccc_inode_lsm_get(inode);
-	rc = ll_lsm_getattr(lsm, ll_i2dtexp(inode),
-				capa, obdo, ioepoch, sync ? LL_DV_RD_FLUSH : 0);
-	capa_put(capa);
-	if (rc == 0) {
-		struct ost_id *oi = lsm ? &lsm->lsm_oi : &obdo->o_oi;
+	if (ll_i2info(inode)->lli_clob == NULL)
+		RETURN(-EINVAL);
 
+	env = cl_env_get(&refcheck);
+	if (IS_ERR(env))
+		RETURN(PTR_ERR(env));
+
+	obdo->o_ioepoch = ioepoch;
+	obdo->o_mode = S_IFREG;
+	obdo->o_valid = OBD_MD_FLID | OBD_MD_FLTYPE | OBD_MD_FLSIZE |
+			OBD_MD_FLBLOCKS | OBD_MD_FLBLKSZ | OBD_MD_FLATIME |
+			OBD_MD_FLMTIME | OBD_MD_FLCTIME | OBD_MD_FLGROUP |
+			OBD_MD_FLEPOCH | OBD_MD_FLDATAVERSION;
+	if (sync) {
+		obdo->o_valid |= OBD_MD_FLFLAGS;
+		obdo->o_flags |= OBD_FL_SRVLOCK;
+	}
+
+	rc = cl_object_obd_info_get(env, ll_i2info(inode)->lli_clob, &oinfo,
+				    NULL);
+	if (rc == 0) {
 		obdo_refresh_inode(inode, obdo, obdo->o_valid);
 		CDEBUG(D_INODE, "objid "DOSTID" size %llu, blocks %llu,"
-		       " blksize %lu\n", POSTID(oi), i_size_read(inode),
-		       (unsigned long long)inode->i_blocks,
+		       " blksize %lu\n", POSTID(&obdo->o_oi),
+		       i_size_read(inode), (unsigned long long)inode->i_blocks,
 		       1UL << inode->i_blkbits);
 	}
-	ccc_inode_lsm_put(inode, lsm);
+
+	capa_put(capa);
+	cl_env_put(env, &refcheck);
 	RETURN(rc);
 }
 
@@ -1906,43 +1927,31 @@ error:
  * This value is computed using stripe object version on OST.
  * Version is computed using server side locking.
  *
- * @param sync if do sync on the OST side;
+ * @param flags if do sync on the OST side;
  *		0: no sync
  *		LL_DV_RD_FLUSH: flush dirty pages, LCK_PR on OSTs
  *		LL_DV_WR_FLUSH: drop all caching pages, LCK_PW on OSTs
  */
 int ll_data_version(struct inode *inode, __u64 *data_version, int flags)
 {
-	struct lov_stripe_md	*lsm = NULL;
-	struct ll_sb_info	*sbi = ll_i2sbi(inode);
-	struct obdo		*obdo = NULL;
-	int			 rc;
+	struct lu_env	*env;
+	int		refcheck;
+	int		rc;
 	ENTRY;
 
-	/* If no stripe, we consider version is 0. */
-	lsm = ccc_inode_lsm_get(inode);
-	if (!lsm_has_objects(lsm)) {
+	/* If no file object initialized, we consider its version is 0. */
+	if (ll_i2info(inode)->lli_clob == NULL) {
 		*data_version = 0;
-		CDEBUG(D_INODE, "No object for inode\n");
-		GOTO(out, rc = 0);
+		RETURN(0);
 	}
 
-	OBD_ALLOC_PTR(obdo);
-	if (obdo == NULL)
-		GOTO(out, rc = -ENOMEM);
+	env = cl_env_get(&refcheck);
+	if (IS_ERR(env))
+		RETURN(PTR_ERR(env));
 
-	rc = ll_lsm_getattr(lsm, sbi->ll_dt_exp, NULL, obdo, 0, flags);
-	if (rc == 0) {
-		if (!(obdo->o_valid & OBD_MD_FLDATAVERSION))
-			rc = -EOPNOTSUPP;
-		else
-			*data_version = obdo->o_data_version;
-	}
-
-	OBD_FREE_PTR(obdo);
-	EXIT;
-out:
-	ccc_inode_lsm_put(inode, lsm);
+	rc = cl_object_data_version(env, ll_i2info(inode)->lli_clob,
+				    data_version, flags);
+	cl_env_put(env, &refcheck);
 	RETURN(rc);
 }
 
