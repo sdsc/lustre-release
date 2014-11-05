@@ -248,6 +248,10 @@ int fid_is_on_ost(const struct lu_env *env, struct osd_device *osd,
 		     fid_is_name_llog(fid) || fid_is_quota(fid))
 		RETURN(0);
 
+	/* XXX */
+	rc = osd->od_is_ost;
+	RETURN(rc);
+
 	rc = osd_fld_lookup(env, osd, fid_seq(fid), range);
 	if (rc != 0) {
 		if (rc != -ENOENT)
