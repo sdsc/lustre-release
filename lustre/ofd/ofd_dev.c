@@ -590,6 +590,10 @@ static int ofd_prepare(const struct lu_env *env, struct lu_device *pdev,
 	if (rc != 0)
 		RETURN(rc);
 
+	rc = tgt_server_data_init(env, &ofd->ofd_lut);
+	if (rc)
+		RETURN(rc);
+
 	rc = lfsck_register(env, ofd->ofd_osd, ofd->ofd_osd, obd,
 			    ofd_lfsck_out_notify, ofd, false);
 	if (rc != 0) {

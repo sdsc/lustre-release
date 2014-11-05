@@ -320,6 +320,7 @@ int tgt_init(const struct lu_env *env, struct lu_target *lut,
 void tgt_fini(const struct lu_env *env, struct lu_target *lut);
 int tgt_client_alloc(struct obd_export *exp);
 void tgt_client_free(struct obd_export *exp);
+int tgt_server_data_init(const struct lu_env *env, struct lu_target *tgt);
 int tgt_client_del(const struct lu_env *env, struct obd_export *exp);
 int tgt_client_add(const struct lu_env *env, struct obd_export *exp, int);
 int tgt_client_new(const struct lu_env *env, struct obd_export *exp);

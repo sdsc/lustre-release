@@ -4851,6 +4851,10 @@ static int mdt_prepare(const struct lu_env *env,
 	if (rc)
 		RETURN(rc);
 
+	rc = tgt_server_data_init(env, &mdt->mdt_lut);
+	if (rc)
+		RETURN(rc);
+
 	rc = mdt_llog_ctxt_clone(env, mdt, LLOG_CHANGELOG_ORIG_CTXT);
 	if (rc)
 		RETURN(rc);

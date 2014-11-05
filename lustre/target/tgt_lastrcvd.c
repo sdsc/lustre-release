@@ -1167,6 +1167,7 @@ err_client:
 	class_disconnect_exports(tgt->lut_obd);
 	return rc;
 }
+EXPORT_SYMBOL(tgt_server_data_init);
 
 /* add credits for last_rcvd update */
 int tgt_txn_start_cb(const struct lu_env *env, struct thandle *th,
