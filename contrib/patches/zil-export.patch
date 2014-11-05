@@ -1,0 +1,48 @@
+From b11917f175e0d36b69bdbfe1b347e47727dd8d16 Mon Sep 17 00:00:00 2001
+From: Alex Zhuravlev <alexey.zhuravlev@intel.com>
+Date: Wed, 5 Nov 2014 11:04:32 +0300
+Subject: [PATCH] export few symbols related to ZIL
+
+---
+ module/zfs/arc.c |  1 +
+ module/zfs/zil.c | 10 ++++++++++
+ 2 files changed, 11 insertions(+)
+
+diff --git a/module/zfs/arc.c b/module/zfs/arc.c
+index 387faaf..10df5b4 100644
+--- a/module/zfs/arc.c
++++ b/module/zfs/arc.c
+@@ -5602,6 +5602,7 @@ l2arc_stop(void)
+ }
+ 
+ #if defined(_KERNEL) && defined(HAVE_SPL)
++EXPORT_SYMBOL(arc_buf_size);
+ EXPORT_SYMBOL(arc_read);
+ EXPORT_SYMBOL(arc_buf_remove_ref);
+ EXPORT_SYMBOL(arc_buf_info);
+diff --git a/module/zfs/zil.c b/module/zfs/zil.c
+index b69a7bf..aa26642 100644
+--- a/module/zfs/zil.c
++++ b/module/zfs/zil.c
+@@ -2237,6 +2237,18 @@ zil_vdev_offline(const char *osname, void *arg)
+ }
+ 
+ #if defined(_KERNEL) && defined(HAVE_SPL)
++EXPORT_SYMBOL(zil_itx_destroy);
++EXPORT_SYMBOL(zil_add_block);
++EXPORT_SYMBOL(zil_itx_create);
++EXPORT_SYMBOL(dmu_buf_get_blkptr);
++EXPORT_SYMBOL(zil_open);
++EXPORT_SYMBOL(zil_replaying);
++EXPORT_SYMBOL(zil_itx_assign);
++EXPORT_SYMBOL(zil_commit);
++EXPORT_SYMBOL(zil_replay);
++EXPORT_SYMBOL(zil_close);
++EXPORT_SYMBOL(zil_suspend);
++EXPORT_SYMBOL(zil_resume);
+ module_param(zil_replay_disable, int, 0644);
+ MODULE_PARM_DESC(zil_replay_disable, "Disable intent logging replay");
+ 
+-- 
+1.9.3 (Apple Git-50)
+
