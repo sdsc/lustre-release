@@ -1734,13 +1734,32 @@ static int osd_object_sync(const struct lu_env *env, struct dt_object *dt,
 			   __u64 start, __u64 end)
 {
 	struct osd_device *osd = osd_obj2dev(osd_dt_obj(dt));
+	struct osd_object *obj = osd_dt_obj(dt);
+	dmu_buf_impl_t	  *db = (dmu_buf_impl_t *)obj->oo_db;
+	uint64_t	   txg = 0;
 	ENTRY;
 
-	/* XXX: no other option than syncing the whole filesystem until we
-	 * support ZIL.  If the object tracked the txg that it was last
-	 * modified in, it could pass that txg here instead of "0".  Maybe
-	 * the changes are already committed, so no wait is needed at all? */
-	txg_wait_synced(dmu_objset_pool(osd->od_os), 0ULL);
+	if (unlikely(db == NULL))
+		RETURN(0);
+
+	if (osd->od_is_ost) {
+		/* XXX: this works only with 0-copy methods
+		 * which direct all the writes to ZIL */
+		printk("!!! force sync on object %Lu\n", obj->oo_db->db_object);
+		zil_commit(osd->od_zilog, obj->oo_db->db_object);
+		RETURN(0);
+	}
+
+	/* XXX: no other option than syncing the whole filesystem
+	 * until we support ZIL. */
+
+	/* sync if the object is dirty */
+	mutex_enter(&db->db_mtx);
+	if (db->db_last_dirty != NULL)
+		txg = db->db_last_dirty->dr_txg;
+	mutex_exit(&db->db_mtx);
+	if (txg != 0)
+		txg_wait_synced(dmu_objset_pool(osd->od_os), txg);
 
 	RETURN(0);
 }

@@ -2878,6 +2878,22 @@ test_81() {
 }
 run_test 81 "rename and stat under striped directory"
 
+test_82() {
+        local soc="obdfilter.*.sync_on_lock_cancel"
+	local sz=4k
+	do_nodes $(osts_nodes) lctl set_param $soc=always
+	for i in 2 3 4 ; do
+		dd if=/dev/zero of=$DIR1/${tfile}${i} bs=$sz count=1
+	done
+	sync
+	#cancel_lru_locks osc
+	dd if=/dev/zero of=$DIR1/$tfile bs=$sz count=1
+	dd if=/dev/zero of=$DIR1/${tfile}100 bs=$sz count=1
+	dd if=$DIR2/$tfile of=/dev/null bs=$sz count=1
+	return 0
+}
+run_test 82 "sync on lock test"
+
 log "cleanup: ======================================================"
 
 [ "$(mount | grep $MOUNT2)" ] && umount $MOUNT2
