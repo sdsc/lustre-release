@@ -290,7 +290,7 @@ static int update_buffer_resize(struct update_buffer *ubuf, size_t new_size)
 {
 	struct object_update_request *ureq;
 
-	if (new_size > ubuf->ub_req_size)
+	if (new_size < ubuf->ub_req_size)
 		return 0;
 
 	OBD_ALLOC_LARGE(ureq, new_size);
@@ -426,6 +426,67 @@ int out_update_pack(const struct lu_env *env, struct update_buffer *ubuf,
 }
 EXPORT_SYMBOL(out_update_pack);
 
+static int out_calc_attr_size(const struct lu_attr *attr)
+{
+	int size;
+
+	LASSERT(attr->la_valid != 0);
+	size = sizeof(attr->la_valid);
+	if (attr->la_valid & LA_ATIME)
+		size += sizeof(attr->la_atime);
+	if (attr->la_valid & LA_MTIME)
+		size += sizeof(attr->la_mtime);
+	if (attr->la_valid & LA_CTIME)
+		size += sizeof(attr->la_ctime);
+	if (attr->la_valid & LA_SIZE)
+		size += sizeof(attr->la_size);
+	if (attr->la_valid & LA_MODE)
+		size += sizeof(attr->la_mode);
+	if (attr->la_valid & LA_UID)
+		size += sizeof(attr->la_uid);
+	if (attr->la_valid & LA_GID)
+		size += sizeof(attr->la_gid);
+	if (attr->la_valid & LA_BLOCKS)
+		size += sizeof(attr->la_blocks);
+	if (attr->la_valid & LA_FLAGS)
+		size += sizeof(attr->la_flags);
+	if (attr->la_valid & LA_NLINK)
+		size += sizeof(attr->la_nlink);
+	if (attr->la_valid & LA_RDEV)
+		size += sizeof(attr->la_rdev);
+	if (attr->la_valid & LA_BLKSIZE)
+		size += sizeof(attr->la_blksize);
+
+	return size;
+}
+
+#define CHECK_AND_MOVE(ATTRIBUTE, FIELD)			\
+do {								\
+	if (attr->la_valid & ATTRIBUTE) {			\
+		memcpy(ptr, &attr->FIELD, sizeof(attr->FIELD));	\
+		ptr += sizeof(attr->FIELD);			\
+	}							\
+} while (0)
+
+static void out_pack_lu_attr(const struct lu_attr *attr, void *ptr)
+{
+	CHECK_AND_MOVE(0xffffffff, la_valid);
+	CHECK_AND_MOVE(LA_SIZE, la_size);
+	CHECK_AND_MOVE(LA_MTIME, la_mtime);
+	CHECK_AND_MOVE(LA_ATIME, la_atime);
+	CHECK_AND_MOVE(LA_CTIME, la_ctime);
+	CHECK_AND_MOVE(LA_BLOCKS, la_blocks);
+	CHECK_AND_MOVE((LA_MODE | LA_TYPE), la_mode);
+	CHECK_AND_MOVE(LA_UID, la_uid);
+	CHECK_AND_MOVE(LA_GID, la_gid);
+	CHECK_AND_MOVE(LA_FLAGS, la_flags);
+	CHECK_AND_MOVE(LA_NLINK, la_nlink);
+	/*CHECK_AND_MOVE(LA_BLKBITS, la_blkbits);*/
+	CHECK_AND_MOVE(LA_BLKSIZE, la_blksize);
+	CHECK_AND_MOVE(LA_RDEV, la_rdev);
+}
+#undef CHECK_AND_MOVE
+
 /**
  * Pack various updates into the update_buffer.
  *
@@ -447,12 +508,14 @@ int out_create_pack(const struct lu_env *env, struct update_buffer *ubuf,
 		    struct dt_allocation_hint *hint,
 		    struct dt_object_format *dof, __u64 batchid)
 {
-	struct obdo		*obdo;
-	__u16			sizes[2] = {sizeof(*obdo), 0};
+	__u16			sizes[2] = {0, 0};
 	int			buf_count = 1;
 	const struct lu_fid	*fid1 = NULL;
 	struct object_update	*update;
+	void			*ptr;
 	ENTRY;
+
+	sizes[0] = out_calc_attr_size(attr);
 
 	if (hint != NULL && hint->dah_parent) {
 		fid1 = lu_object_fid(&hint->dah_parent->do_lu);
@@ -465,10 +528,9 @@ int out_create_pack(const struct lu_env *env, struct update_buffer *ubuf,
 	if (IS_ERR(update))
 		RETURN(PTR_ERR(update));
 
-	obdo = object_update_param_get(update, 0, NULL);
-	obdo->o_valid = 0;
-	obdo_from_la(obdo, attr, attr->la_valid);
-	lustre_set_wire_obdo(NULL, obdo, obdo);
+	ptr = object_update_param_get(update, 0, NULL);
+	out_pack_lu_attr(attr, ptr);
+
 	if (fid1 != NULL) {
 		struct lu_fid *fid;
 		fid = object_update_param_get(update, 1, NULL);
@@ -500,19 +562,19 @@ int out_attr_set_pack(const struct lu_env *env, struct update_buffer *ubuf,
 		      __u64 batchid)
 {
 	struct object_update	*update;
-	struct obdo		*obdo;
-	__u16			size = sizeof(*obdo);
+	__u16			size;
+	void			*ptr;
 	ENTRY;
+
+	size = out_calc_attr_size(attr);
 
 	update = out_update_header_pack(env, ubuf, OUT_ATTR_SET, fid, 1,
 					&size, batchid);
 	if (IS_ERR(update))
 		RETURN(PTR_ERR(update));
 
-	obdo = object_update_param_get(update, 0, NULL);
-	obdo->o_valid = 0;
-	obdo_from_la(obdo, attr, attr->la_valid);
-	lustre_set_wire_obdo(NULL, obdo, obdo);
+	ptr = object_update_param_get(update, 0, NULL);
+	out_pack_lu_attr(attr, ptr);
 
 	RETURN(0);
 }
@@ -525,8 +587,24 @@ int out_xattr_set_pack(const struct lu_env *env, struct update_buffer *ubuf,
 	__u16	sizes[3] = {strlen(name) + 1, buf->lb_len, sizeof(flag)};
 	const void *bufs[3] = {(char *)name, (char *)buf->lb_buf,
 			       (char *)&flag};
+	unsigned char type;
+
+	if (strcmp(name, XATTR_NAME_LOV) == 0) {
+		type = 1;
+		sizes[0] = 1;
+		bufs[0] = &type;
+	} else if (strcmp(name, XATTR_NAME_LINK) == 0) {
+		type = 2;
+		sizes[0] = 1;
+		bufs[0] = &type;
+	} else if (strcmp(name, XATTR_NAME_VERSION) == 0) {
+		type = 3;
+		sizes[0] = 1;
+		bufs[0] = &type;
+	}
 
 	return out_update_pack(env, ubuf, OUT_XATTR_SET, fid,
+			       flag == 0 ? ARRAY_SIZE(sizes) - 1 :
 			       ARRAY_SIZE(sizes), sizes, bufs, batchid);
 }
 EXPORT_SYMBOL(out_xattr_set_pack);
