@@ -1025,6 +1025,8 @@ ofd_commitrw_write(const struct lu_env *env, struct obd_export *exp,
 		   int niocount, struct niobuf_local *lnb, int old_rc)
 {
 	struct ofd_thread_info	*info = ofd_info(env);
+	struct tgt_session_info	*tsi = tgt_ses_info(env);
+	struct ptlrpc_request	*req = tgt_ses_req(tsi);
 	struct ofd_object	*fo;
 	struct dt_object	*o;
 	struct thandle		*th;
@@ -1034,6 +1036,7 @@ ofd_commitrw_write(const struct lu_env *env, struct obd_export *exp,
 	struct filter_export_data *fed = &exp->exp_filter_data;
 	bool			 soft_sync = false;
 	bool			 cb_registered = false;
+	dt_obj_version_t	 curr_version;
 
 	ENTRY;
 
@@ -1048,6 +1051,18 @@ ofd_commitrw_write(const struct lu_env *env, struct obd_export *exp,
 
 	if (old_rc)
 		GOTO(out, rc = old_rc);
+
+	if (req_is_replay(req)) {
+		__u64 ver = lustre_msg_get_transno(req->rq_reqmsg);
+
+		curr_version = dt_version_get(env, ofd_object_child(fo));
+		if (curr_version <= ver) {
+			DEBUG_REQ(D_ERROR, req,
+				  "skip OST_WRITE: %llu <= %llu ",
+				  curr_version, ver);
+			GOTO(out, rc = 0);
+		}
+	}
 
 	/*
 	 * The first write to each object must set some attributes.  It is

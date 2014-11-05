@@ -290,7 +290,7 @@ static int update_buffer_resize(struct update_buffer *ubuf, size_t new_size)
 {
 	struct object_update_request *ureq;
 
-	if (new_size > ubuf->ub_req_size)
+	if (new_size < ubuf->ub_req_size)
 		return 0;
 
 	OBD_ALLOC_LARGE(ureq, new_size);
