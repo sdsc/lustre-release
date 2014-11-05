@@ -641,6 +641,10 @@ out:
 	/* not needed in the cache anymore */
 	set_bit(LU_OBJECT_HEARD_BANSHEE, &dt->do_lu.lo_header->loh_flags);
 
+	if (rc == 0 && osd->od_zil_enabled)
+		out_object_destroy_pack(env, &oh->ot_buf,
+					lu_object_fid(&dt->do_lu), 0);
+
 	RETURN (0);
 }
 
@@ -1035,6 +1039,11 @@ static int osd_attr_set(const struct lu_env *env, struct dt_object *dt,
 	rc = osd_object_sa_bulk_update(obj, bulk, cnt, oh);
 
 	OBD_FREE(bulk, sizeof(sa_bulk_attr_t) * 10);
+
+	if (rc == 0 && osd->od_zil_enabled)
+		out_attr_set_pack(env, &oh->ot_buf,
+				  lu_object_fid(&dt->do_lu), la, 0);
+
 	RETURN(rc);
 }
 
@@ -1512,6 +1521,9 @@ static int osd_object_create(const struct lu_env *env, struct dt_object *dt,
 		rc = 0;
 	}
 
+	if (rc == 0 && osd->od_zil_enabled)
+		out_create_pack(env, &oh->ot_buf, fid, attr, hint, dof, 0);
+
 out:
 	up(&obj->oo_guard);
 	RETURN(rc);
@@ -1550,6 +1562,13 @@ static int osd_object_ref_add(const struct lu_env *env,
 	write_unlock(&obj->oo_attr_lock);
 
 	rc = osd_object_sa_update(obj, SA_ZPL_LINKS(osd), &nlink, 8, oh);
+
+	if (rc == 0 && osd->od_zil_enabled) {
+		const struct lu_fid *fid;
+		fid = lu_object_fid(&dt->do_lu);
+		out_ref_add_pack(env, &oh->ot_buf, fid, 0);
+	}
+
 	return rc;
 }
 
@@ -1587,6 +1606,13 @@ static int osd_object_ref_del(const struct lu_env *env,
 	write_unlock(&obj->oo_attr_lock);
 
 	rc = osd_object_sa_update(obj, SA_ZPL_LINKS(osd), &nlink, 8, oh);
+
+	if (rc == 0 && osd->od_zil_enabled) {
+		const struct lu_fid *fid;
+		fid = lu_object_fid(&dt->do_lu);
+		out_ref_del_pack(env, &oh->ot_buf, fid, 0);
+	}
+
 	return rc;
 }
 
@@ -1732,14 +1758,46 @@ static struct obd_capa *osd_capa_get(const struct lu_env *env,
 static int osd_object_sync(const struct lu_env *env, struct dt_object *dt,
 			   __u64 start, __u64 end)
 {
-	struct osd_device *osd = osd_obj2dev(osd_dt_obj(dt));
+	struct osd_device	*osd = osd_obj2dev(osd_dt_obj(dt));
+	struct osd_object	*obj = osd_dt_obj(dt);
+	dmu_buf_impl_t		*db = (dmu_buf_impl_t *)obj->oo_db;
+	struct timeval		 startat, endat;
+	uint64_t		 txg = 0;
 	ENTRY;
 
-	/* XXX: no other option than syncing the whole filesystem until we
-	 * support ZIL.  If the object tracked the txg that it was last
-	 * modified in, it could pass that txg here instead of "0".  Maybe
-	 * the changes are already committed, so no wait is needed at all? */
-	txg_wait_synced(dmu_objset_pool(osd->od_os), 0ULL);
+	if (unlikely(db == NULL))
+		RETURN(0);
+
+	do_gettimeofday(&startat);
+
+	if (osd->od_is_ost && osd->od_zil_enabled) {
+		/* XXX: this works only with 0-copy methods
+		 * which direct all the writes to ZIL */
+		CDEBUG(D_CACHE, "sync to %llu\n", obj->oo_db->db_object);
+		/* in this version we sync everything */
+		/* zil_commit(osd->od_zilog, obj->oo_db->db_object); */
+		zil_commit(osd->od_zilog, 0);
+		do_gettimeofday(&endat);
+		lprocfs_counter_add(osd->od_stats, LPROC_OSD_ZIL_SYNC,
+				    cfs_timeval_sub(&endat, &startat, NULL));
+		RETURN(0);
+	}
+
+	/* XXX: no other option than syncing the whole filesystem
+	 * until we support ZIL. */
+
+	/* sync if the object is dirty */
+
+	mutex_enter(&db->db_mtx);
+	if (db->db_last_dirty != NULL)
+		txg = db->db_last_dirty->dr_txg;
+	mutex_exit(&db->db_mtx);
+	if (txg != 0)
+		txg_wait_synced(dmu_objset_pool(osd->od_os), txg);
+
+	do_gettimeofday(&endat);
+	lprocfs_counter_add(osd->od_stats, LPROC_OSD_SYNC,
+			    cfs_timeval_sub(&endat, &startat, NULL));
 
 	RETURN(0);
 }
