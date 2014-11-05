@@ -3984,8 +3984,16 @@ static int lod_object_init(const struct lu_env *env, struct lu_object *lo,
 	ENTRY;
 
 	rc = lod_fld_lookup(env, lod, lu_object_fid(lo), &idx, &type);
-	if (rc != 0)
+	if (rc != 0) {
+		/* Note: Return EWOULDBLOCK (EAGAIN) does not mean we should
+		 * retry here, since the RPC in ptlrpc layer has been failed,
+		 * i.e. no reason to retry here, but we need change to another
+		 * error value, otherwise it will confuse make lu_object_find_at
+		 * wait there for no reason */
+		if (rc == -EWOULDBLOCK)
+			rc = -EIO;
 		RETURN(rc);
+	}
 
 	if (type == LU_SEQ_RANGE_MDT &&
 	    idx == lu_site2seq(lo->lo_dev->ld_site)->ss_node_id) {
