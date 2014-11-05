@@ -989,6 +989,7 @@ static int ptlrpc_connect_interpret(const struct lu_env *env,
         imp->imp_pingable = 1;
         imp->imp_force_reconnect = 0;
         imp->imp_force_verify = 0;
+	imp->imp_reqs_replayed = 0;
 
 	imp->imp_connect_data = *ocd;
 
@@ -1477,10 +1478,11 @@ int ptlrpc_import_recovery_state_machine(struct obd_import *imp)
 
                 deuuidify(obd2cli_tgt(imp->imp_obd), NULL,
                           &target_start, &target_len);
-                LCONSOLE_INFO("%s: Connection restored to %.*s (at %s)\n",
+		LCONSOLE_INFO("%s: Connection restored to %.*s (at %s) %d\n",
                               imp->imp_obd->obd_name,
                               target_len, target_start,
-                              libcfs_nid2str(imp->imp_connection->c_peer.nid));
+			      libcfs_nid2str(imp->imp_connection->c_peer.nid),
+			      imp->imp_reqs_replayed);
         }
 
 	if (imp->imp_state == LUSTRE_IMP_FULL) {

@@ -47,6 +47,7 @@
 #include <dt_object.h>
 #include <md_object.h>
 #include <lustre_quota.h>
+#include <lustre_update.h>
 #ifdef SHRINK_STOP
 #undef SHRINK_STOP
 #endif
@@ -54,6 +55,7 @@
 #include <sys/nvpair.h>
 #include <sys/zfs_znode.h>
 #include <sys/zap.h>
+#include <sys/zil_impl.h>
 
 /**
  * By design including kmem.h overrides the Linux slab interfaces to provide
@@ -209,6 +211,9 @@ struct osd_thandle {
 	struct lquota_trans	 ot_quota_trans;
 	__u32			 ot_write_commit:1,
 				 ot_assigned:1;
+	struct update_buffer	 ot_buf; /* to collect updates for ZIL */
+	struct osd_range_lock	*ot_rl;
+	struct osd_object	*ot_rl_obj;
 };
 
 #define OSD_OI_NAME_SIZE        16
@@ -244,6 +249,7 @@ struct osd_device {
 	struct dt_device	 od_dt_dev;
 	/* information about underlying file system */
 	struct objset		*od_os;
+	zilog_t			*od_zilog;
 	uint64_t		 od_rootid;  /* id of root znode */
 	/* SA attr mapping->id,
 	 * name is the same as in ZFS to use defines SA_ZPL_...*/
@@ -262,7 +268,8 @@ struct osd_device {
 				 od_xattr_in_sa:1,
 				 od_quota_iused_est:1,
 				 od_is_ost:1,
-				 od_posix_acl:1;
+				 od_posix_acl:1,
+				 od_zil_enabled:1;
 
 	char			 od_mntdev[128];
 	char			 od_svname[128];
@@ -292,7 +299,25 @@ struct osd_device {
 
 	/* osd seq instance */
 	struct lu_client_seq	*od_cl_seq;
+
+	struct rw_semaphore	 od_tx_barrier;
+	atomic_t		 od_bytes_in_log;
+	atomic_t		 od_recs_in_log;
+	atomic_t		 od_recs_to_write;
+	atomic_t		 od_updates_by_type[OUT_LAST];
+	atomic_t		 od_bytes_by_type[OUT_LAST];
+	int			 od_max_range_locks;
 };
+
+struct osd_range_head {
+	spinlock_t	 ord_range_lock;
+	struct list_head ord_range_granted_list;
+	struct list_head ord_range_waiting_list;
+	int		 ord_nr;	/* # of active locks */
+	int		 ord_max;	/* max. # of locks */
+};
+
+struct osd_range_lock;
 
 struct osd_object {
 	struct dt_object	 oo_dt;
@@ -319,9 +344,22 @@ struct osd_object {
 	uint64_t		 oo_xattr;
 
 	/* record size for index file */
-	unsigned char		 oo_keysize;
-	unsigned char		 oo_recsize;
-	unsigned char		 oo_recusize;	/* unit size */
+	union {
+		/* used when it's a ZAP */
+		struct {
+			unsigned char		 oo_keysize;
+			unsigned char		 oo_recsize;
+			unsigned char		 oo_recusize;	/* unit size */
+		};
+		/* used when it's a regular object */
+		struct osd_range_lock		*oo_range_lock;
+	};
+
+	/* ZIL support */
+	struct osd_range_head	*oo_range_head;
+	wait_queue_head_t        oo_bitlock_wait;
+	atomic_t		 oo_zil_in_progress;
+	atomic_t		 oo_version;
 };
 
 int osd_statfs(const struct lu_env *, struct dt_device *, struct obd_statfs *);
@@ -414,6 +452,11 @@ enum {
 	LPROC_OSD_COPY_IO = 7,
 	LPROC_OSD_ZEROCOPY_IO = 8,
 	LPROC_OSD_TAIL_IO = 9,
+	LPROC_OSD_SYNC = 10,
+	LPROC_OSD_ZIL_SYNC = 11,
+	LPROC_OSD_ZIL_COPIED = 12,
+	LPROC_OSD_ZIL_INDIRECT = 13,
+	LPROC_OSD_ZIL_RECORDS = 14,
 	LPROC_OSD_LAST,
 };
 
@@ -423,6 +466,9 @@ extern struct lprocfs_vars lprocfs_osd_obd_vars[];
 
 int osd_procfs_init(struct osd_device *osd, const char *name);
 int osd_procfs_fini(struct osd_device *osd);
+
+int osd_mount(const struct lu_env *env, struct osd_device *o);
+void osd_umount(const struct lu_env *env, struct osd_device *o);
 
 /* osd_object.c */
 extern char *osd_obj_tag;
@@ -493,6 +539,15 @@ int __osd_sa_xattr_set(const struct lu_env *env, struct osd_object *obj,
 int __osd_xattr_set(const struct lu_env *env, struct osd_object *obj,
 		    const struct lu_buf *buf, const char *name, int fl,
 		    struct osd_thandle *oh);
+
+int osd_zil_get_data(void *arg, lr_write_t *lr, char *buf, zio_t *zio);
+int osd_zil_replay(const struct lu_env *env, struct osd_device *o);
+int osd_zil_init(const struct lu_env *env, struct osd_device *o);
+void osd_zil_fini(struct osd_device *o);
+void osd_zil_log_write(const struct lu_env *env, struct osd_thandle *oh,
+		       struct dt_object *o, uint64_t offset, uint64_t size);
+void osd_zil_make_itx(struct osd_thandle *oh);
+
 static inline int
 osd_xattr_set_internal(const struct lu_env *env, struct osd_object *obj,
 		       const struct lu_buf *buf, const char *name, int fl,
@@ -555,4 +610,16 @@ osd_zio_buf_free(void *buf, size_t size)
 #define	osd_zio_buf_free(buf, size)	zio_buf_free(buf, size)
 #endif
 
+void osd_zil_commit(struct osd_device *o);
+struct osd_range_lock *osd_lock_range(struct osd_object *o, loff_t offset,
+				      size_t size, int rw);
+void osd_unlock_range(struct osd_object *o, struct osd_range_lock *l);
+static inline int osd_use_zil(struct osd_thandle *oh, int rc)
+{
+	if (unlikely(rc != 0))
+		return 0;
+	if (oh->ot_buf.ub_req != NULL)
+		return 1;
+	return 0;
+}
 #endif /* _OSD_INTERNAL_H */
