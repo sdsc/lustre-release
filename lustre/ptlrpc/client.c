@@ -2854,6 +2854,7 @@ int ptlrpc_replay_req(struct ptlrpc_request *req)
         DEBUG_REQ(D_HA, req, "REPLAY");
 
 	atomic_inc(&req->rq_import->imp_replay_inflight);
+	req->rq_import->imp_reqs_replayed++;
 	ptlrpc_request_addref(req);	/* ptlrpcd needs a ref */
 
 	ptlrpcd_add_req(req, PDL_POLICY_LOCAL, -1);
