@@ -933,32 +933,31 @@ static inline char *changelog_rec_sname(struct changelog_rec *rec)
 static inline void changelog_remap_rec(struct changelog_rec *rec,
 				       enum changelog_rec_flags crf)
 {
-	char	*var_part;
-	size_t	 var_size;
-
 	crf &= CLF_SUPPORTED;
-
 	if ((rec->cr_flags & CLF_SUPPORTED) == crf)
 		return;
 
-	if ((crf & CLF_JOBID) && rec->cr_flags & CLF_JOBID) {
-		var_part = (char *)changelog_rec_jobid(rec);
-		var_size = rec->cr_namelen + sizeof(struct changelog_ext_jobid);
-	} else {
-		var_part = changelog_rec_name(rec);
-		var_size = rec->cr_namelen;
-	}
+	memmove((char *)rec + changelog_rec_offset(crf),
+		changelog_rec_name(rec), rec->cr_namelen);
 
-	memmove((char *)rec + changelog_rec_offset(crf & ~CLF_JOBID), var_part,
-		var_size);
+	if ((crf & CLF_JOBID) && (rec->cr_flags & CLF_JOBID))
+		memmove((char *)rec + changelog_rec_offset(crf & ~CLF_JOBID),
+			changelog_rec_jobid(rec),
+			sizeof(struct changelog_ext_jobid));
 
-	if ((crf & CLF_RENAME) && !(rec->cr_flags & CLF_RENAME))
-		memset(changelog_rec_rename(rec), 0,
-		       sizeof(struct changelog_ext_rename));
+	if ((crf & CLF_RENAME) && (rec->cr_flags & CLF_RENAME))
+		memmove((char *)rec +
+			changelog_rec_offset(crf & ~(CLF_JOBID|CLF_RENAME)),
+			changelog_rec_rename(rec),
+			sizeof(struct changelog_ext_rename));
 
 	if ((crf & CLF_JOBID) && !(rec->cr_flags & CLF_JOBID))
 		memset(changelog_rec_jobid(rec), 0,
 		       sizeof(struct changelog_ext_jobid));
+
+	if ((crf & CLF_RENAME) && !(rec->cr_flags & CLF_RENAME))
+		memset(changelog_rec_rename(rec), 0,
+		       sizeof(struct changelog_ext_rename));
 
 	rec->cr_flags = (rec->cr_flags & CLF_FLAGMASK) | crf;
 }
