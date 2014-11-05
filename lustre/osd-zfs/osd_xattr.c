@@ -116,8 +116,7 @@ out_sa:
 	return rc;
 }
 
-static inline int __osd_xattr_cache(const struct lu_env *env,
-				    struct osd_object *obj)
+static inline int __osd_xattr_cache(struct osd_object *obj)
 {
 	LASSERT(obj->oo_sa_xattr == NULL);
 	LASSERT(obj->oo_db != NULL);
@@ -135,7 +134,7 @@ int __osd_sa_xattr_get(const struct lu_env *env, struct osd_object *obj,
 	LASSERT(obj->oo_sa_hdl);
 
 	if (obj->oo_sa_xattr == NULL) {
-		rc = __osd_xattr_cache(env, obj);
+		rc = __osd_xattr_cache(obj);
 		if (rc)
 			return rc;
 	}
@@ -354,8 +353,7 @@ int osd_declare_xattr_set(const struct lu_env *env, struct dt_object *dt,
  * No locking is done here.
  */
 static int
-__osd_sa_xattr_update(const struct lu_env *env, struct osd_object *obj,
-		      struct osd_thandle *oh)
+__osd_sa_xattr_update(struct osd_object *obj, struct osd_thandle *oh)
 {
 	struct osd_device *osd = osd_obj2dev(obj);
 	char              *dxattr;
@@ -386,7 +384,7 @@ out_free:
 	RETURN(rc);
 }
 
-int __osd_sa_xattr_set(const struct lu_env *env, struct osd_object *obj,
+int __osd_sa_xattr_set(struct osd_object *obj,
 		       const struct lu_buf *buf, const char *name, int fl,
 		       struct osd_thandle *oh)
 {
@@ -398,7 +396,7 @@ int __osd_sa_xattr_set(const struct lu_env *env, struct osd_object *obj,
 
 	LASSERT(obj->oo_sa_hdl);
 	if (obj->oo_sa_xattr == NULL) {
-		rc = __osd_xattr_cache(env, obj);
+		rc = __osd_xattr_cache(obj);
 		if (rc)
 			return rc;
 	}
@@ -430,7 +428,7 @@ int __osd_sa_xattr_set(const struct lu_env *env, struct osd_object *obj,
 						DATA_TYPE_BYTE_ARRAY);
 			if (rc < 0)
 				return rc;
-			rc = __osd_sa_xattr_update(env, obj, oh);
+			rc = __osd_sa_xattr_update(obj, oh);
 			return rc == 0 ? -EFBIG : rc;
 		}
 	} else if (rc == -ENOENT) {
@@ -461,7 +459,7 @@ int __osd_sa_xattr_set(const struct lu_env *env, struct osd_object *obj,
 	if (rc)
 		return rc;
 
-	rc = __osd_sa_xattr_update(env, obj, oh);
+	rc = __osd_sa_xattr_update(obj, oh);
 	return rc;
 }
 
@@ -677,14 +675,14 @@ int __osd_sa_xattr_del(const struct lu_env *env, struct osd_object *obj,
 	int rc;
 
 	if (obj->oo_sa_xattr == NULL) {
-		rc = __osd_xattr_cache(env, obj);
+		rc = __osd_xattr_cache(obj);
 		if (rc)
 			return rc;
 	}
 
 	rc = -nvlist_remove(obj->oo_sa_xattr, name, DATA_TYPE_BYTE_ARRAY);
 	if (rc == 0)
-		rc = __osd_sa_xattr_update(env, obj, oh);
+		rc = __osd_sa_xattr_update(obj, oh);
 	return rc;
 }
 
@@ -759,7 +757,7 @@ osd_sa_xattr_list(const struct lu_env *env, struct osd_object *obj,
 	int       rc = 0;
 
 	if (obj->oo_sa_xattr == NULL) {
-		rc = __osd_xattr_cache(env, obj);
+		rc = __osd_xattr_cache(obj);
 		if (rc)
 			return rc;
 	}
