@@ -170,6 +170,35 @@ zfs_osd_iused_est_seq_write(struct file *file, const char __user *buffer,
 }
 LPROC_SEQ_FOPS(zfs_osd_iused_est);
 
+static int zfs_osd_zil_seq_show(struct seq_file *m, void *data)
+{
+	struct osd_device *osd = osd_dt_dev((struct dt_device *)m->private);
+	LASSERT(osd != NULL);
+
+	return seq_printf(m, "%d\n", osd->od_zil_enabled);
+}
+
+static ssize_t
+zfs_osd_zil_seq_write(struct file *file, const char __user *buffer,
+			     size_t count, loff_t *off)
+{
+	struct seq_file	  *m = file->private_data;
+	struct dt_device  *dt = m->private;
+	struct osd_device *osd = osd_dt_dev(dt);
+	int                rc, val;
+
+	LASSERT(osd != NULL);
+
+	rc = lprocfs_write_helper(buffer, count, &val);
+	if (rc)
+		return rc;
+
+	osd->od_zil_enabled = !!val;
+
+	return count;
+}
+LPROC_SEQ_FOPS(zfs_osd_zil);
+
 LPROC_SEQ_FOPS_RO_TYPE(zfs, dt_blksize);
 LPROC_SEQ_FOPS_RO_TYPE(zfs, dt_kbytestotal);
 LPROC_SEQ_FOPS_RO_TYPE(zfs, dt_kbytesfree);
@@ -198,6 +227,8 @@ struct lprocfs_seq_vars lprocfs_osd_obd_vars[] = {
 	  .fops	=	&zfs_osd_force_sync_fops	},
 	{ .name	=	"quota_iused_estimate",
 	  .fops	=	&zfs_osd_iused_est_fops		},
+	{ .name	=	"zil",
+	  .fops	=	&zfs_osd_zil_fops		},
 	{ 0 }
 };
 

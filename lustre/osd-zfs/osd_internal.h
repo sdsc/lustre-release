@@ -62,6 +62,7 @@
 #include <sys/nvpair.h>
 #include <sys/zfs_znode.h>
 #include <sys/zap.h>
+#include <sys/zil_impl.h>
 
 #define LUSTRE_ROOT_FID_SEQ	0
 #define DMU_OSD_SVNAME		"svname"
@@ -209,6 +210,7 @@ struct osd_thandle {
 	struct lquota_trans	 ot_quota_trans;
 	__u32			 ot_write_commit:1,
 				 ot_assigned:1;
+	uint64_t		 ot_txg;
 };
 
 #define OSD_OI_NAME_SIZE        16
@@ -244,6 +246,8 @@ struct osd_device {
 	struct dt_device	 od_dt_dev;
 	/* information about underlying file system */
 	struct objset		*od_os;
+	zilog_t			*od_zilog;
+	uint64_t		 od_committed_txg;
 	uint64_t		 od_rootid;  /* id of root znode */
 	/* SA attr mapping->id,
 	 * name is the same as in ZFS to use defines SA_ZPL_...*/
@@ -271,7 +275,8 @@ struct osd_device {
 				 od_xattr_in_sa:1,
 				 od_quota_iused_est:1,
 				 od_is_ost:1,
-				 od_posix_acl:1;
+				 od_posix_acl:1,
+				 od_zil_enabled:1;
 
 	char			 od_mntdev[128];
 	char			 od_svname[128];
@@ -515,6 +520,9 @@ osd_xattr_set_internal(const struct lu_env *env, struct osd_object *obj,
 
 	return rc;
 }
+
+int osd_zil_get_data(void *arg, lr_write_t *lr, char *buf, zio_t *zio);
+extern zil_replay_func_t osd_zil_replay_vector[TX_MAX_TYPE];
 
 static inline uint64_t attrs_fs2zfs(const uint32_t flags)
 {
