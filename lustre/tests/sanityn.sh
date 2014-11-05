@@ -389,6 +389,50 @@ test_16() {
 }
 run_test 16 "$FSXNUM iterations of dual-mount fsx"
 
+test_16a() {
+	[[ $(facet_fstype ost1) != zfs ]] && return 0
+	local soc="obdfilter.*.sync_on_lock_cancel"
+	local soc_old=$(do_facet ost1 lctl get_param -n $soc | head -n1)
+	local before
+	local after
+	FSXNUM=$COUNT
+	FSXP=100
+
+	do_nodes $(osts_nodes) lctl set_param $soc=always
+	wait_delete_completed
+	do_nodes $(comma_list $(osts_nodes)) \
+	    "lctl set_param -n osd*.*OST*.zil 0"
+	do_nodes $(comma_list $(osts_nodes)) \
+	    "lctl set_param -n osd*.*OST*.stats clear"
+
+	before=`date +%s`
+	test_16
+	after=`date +%s`
+	echo "run completed in " $((after-before))
+	do_nodes $(comma_list $(osts_nodes)) \
+	    "lctl get_param -n osd*.*OST*.stats" | grep '\(sync\|zil\)'
+
+	rm -f $DIR1/$tfile
+	wait_delete_completed
+
+
+	do_nodes $(comma_list $(osts_nodes)) \
+	    "lctl set_param -n osd*.*OST*.zil 1"
+	do_nodes $(comma_list $(osts_nodes)) \
+	    "lctl set_param -n osd*.*OST*.stats clear"
+	before=`date +%s`
+	test_16
+	after=`date +%s`
+	echo "run completed in " $((after-before))
+	do_nodes $(comma_list $(osts_nodes)) \
+	    "lctl get_param -n osd*.*OST*.stats" | grep '\(sync\|zil\)'
+
+	do_nodes $(comma_list $(osts_nodes)) \
+	    "lctl set_param -n osd*.*OST*.zil 0"
+	do_nodes $(osts_nodes) lctl set_param $soc=$soc_old
+}
+run_test 16a "zil test"
+
 test_17() { # bug 3513, 3667
 	remote_ost_nodsh && skip "remote OST with nodsh" && return
 
