@@ -163,7 +163,7 @@ static ssize_t osd_write(const struct lu_env *env, struct dt_object *dt,
 	struct osd_device  *osd = osd_obj2dev(obj);
 	struct osd_thandle *oh;
 	uint64_t            offset = *pos;
-	int                 rc;
+	int                 rc = 0;
 	ENTRY;
 
 	LASSERT(dt_object_exists(dt));
@@ -189,10 +189,15 @@ static ssize_t osd_write(const struct lu_env *env, struct dt_object *dt,
 		write_unlock(&obj->oo_attr_lock);
 	}
 
+	if (rc == 0 && osd->od_is_ost)
+		out_write_pack(env, &oh->ot_buf,
+			       lu_object_fid(&dt->do_lu), buf, *pos, 0);
+
 	*pos += buf->lb_len;
 	rc = buf->lb_len;
 
 out:
+
 	RETURN(rc);
 }
 
@@ -675,6 +680,8 @@ static int osd_write_commit(const struct lu_env *env, struct dt_object *dt,
 				lnb[i].lnb_file_offset, lnb[i].lnb_len,
 				kmap(lnb[i].lnb_page), oh->ot_tx);
 			kunmap(lnb[i].lnb_page);
+			osd_zil_log_write(env, oh, dt, lnb[i].lnb_file_offset,
+					  lnb[i].lnb_len);
 		} else if (lnb[i].lnb_data) {
 			LASSERT(((unsigned long)lnb[i].lnb_data & 1) == 0);
 			/* buffer loaned for zerocopy, try to use it.
@@ -685,6 +692,8 @@ static int osd_write_commit(const struct lu_env *env, struct dt_object *dt,
 					  lnb[i].lnb_data, oh->ot_tx);
 			/* drop the reference, otherwise osd_put_bufs()
 			 * will be releasing it - bad! */
+			osd_zil_log_write(env, oh, dt, lnb[i].lnb_file_offset,
+					  arc_buf_size(lnb[i].lnb_data));
 			lnb[i].lnb_data = NULL;
 			atomic_dec(&osd->od_zerocopy_loan);
 		}
@@ -819,6 +828,12 @@ static int osd_punch(const struct lu_env *env, struct dt_object *dt,
 		rc = osd_object_sa_update(obj, SA_ZPL_SIZE(osd),
 					  &obj->oo_attr.la_size, 8, oh);
 	}
+#if 0
+	if (rc == 0 && osd->od_is_ost)
+		out_write_pack(env, &oh->ot_buf,
+			       lu_object_fid(&dt->do_lu), buf, *pos, 0);
+#endif
+
 	RETURN(rc);
 }
 
@@ -869,3 +884,479 @@ struct dt_body_operations osd_body_ops = {
 	.dbo_declare_punch		= osd_declare_punch,
 	.dbo_punch			= osd_punch,
 };
+
+
+static void osd_zil_get_done(zgd_t *zgd, int error)
+{
+	if (zgd->zgd_db)
+		dmu_buf_rele(zgd->zgd_db, zgd);
+
+	/* XXX: missing locking, see zfs_write() for the details */
+
+	if (error == 0 && zgd->zgd_bp)
+		zil_add_block(zgd->zgd_zilog, zgd->zgd_bp);
+
+	OBD_FREE_PTR(zgd);
+}
+
+/*
+ * Get data to generate a TX_WRITE intent log record.
+ */
+int osd_zil_get_data(void *arg, lr_write_t *lr, char *buf, zio_t *zio)
+{
+	struct osd_device *o = arg;
+	objset_t *os = o->od_os;
+	uint64_t object = lr->lr_foid;
+	uint64_t offset = lr->lr_offset;
+	uint64_t size = lr->lr_length;
+	blkptr_t *bp = &lr->lr_blkptr;
+	dmu_buf_t *db;
+	zgd_t *zgd;
+	int error;
+
+	ASSERT(zio != NULL);
+	ASSERT(size != 0);
+
+	OBD_ALLOC_PTR(zgd);
+	LASSERT(zgd);
+	zgd->zgd_zilog = o->od_zilog;
+
+	/* XXX: missing locking, see zfs_write() for the details */
+
+	/*
+	 * Write records come in two flavors: immediate and indirect.
+	 * For small writes it's cheaper to store the data with the
+	 * log record (immediate); for large writes it's cheaper to
+	 * sync the data and get a pointer to it (indirect) so that
+	 * we don't have to write the data twice.
+	 */
+	if (buf != NULL) { /* immediate write */
+		error = dmu_read(os, object, offset, size, buf,
+				 DMU_READ_NO_PREFETCH);
+		lprocfs_counter_add(o->od_stats, LPROC_OSD_ZIL_COPIED, 1);
+	} else {
+		offset = P2ALIGN_TYPED(offset, size, uint64_t);
+		error = dmu_buf_hold(os, object, offset, zgd, &db,
+		    DMU_READ_NO_PREFETCH);
+		lprocfs_counter_add(o->od_stats, LPROC_OSD_ZIL_INDIRECT, 1);
+		if (error == 0) {
+			blkptr_t *obp = dmu_buf_get_blkptr(db);
+			if (obp) {
+				ASSERT(BP_IS_HOLE(bp));
+				*bp = *obp;
+			}
+
+			zgd->zgd_db = db;
+			zgd->zgd_bp = &lr->lr_blkptr;
+
+			ASSERT(db != NULL);
+			ASSERT(db->db_offset == offset);
+			ASSERT(db->db_size == size);
+
+			error = dmu_sync(zio, lr->lr_common.lrc_txg,
+			    osd_zil_get_done, zgd);
+
+			if (error == 0)
+				return 0;
+		}
+	}
+
+	osd_zil_get_done(zgd, error);
+
+	return SET_ERROR(error);
+}
+
+static void osd_zil_commit_cb(void *arg)
+{
+	itx_t *itx = (itx_t *)arg;
+	struct osd_device *osd = itx->itx_private;
+	atomic_dec(&osd->od_recs_to_write);
+
+}
+
+#if 0
+void osd_zil_log_write(const struct lu_env *env, struct osd_thandle *oh,
+		       struct dt_object *dt, uint64_t offset, uint64_t size)
+{
+	struct osd_object	*obj  = osd_dt_obj(dt);
+	struct osd_device	*osd = osd_obj2dev(obj);
+	struct lu_buf		 lb;
+
+	if (osd->od_is_ost == 0)
+		return;
+
+	lb.lb_buf = &lb;
+	lb.lb_len = sizeof(lb);
+
+	out_write_pack(env, &oh->ot_buf,
+			lu_object_fid(&dt->do_lu), &lb, offset, 0);
+
+	return;
+}
+#endif
+
+/*
+ * zvol_log_write() handles synchronous writes using TX_WRITE ZIL transactions.
+ *
+ * We store data in the log buffers if it's small enough.
+ * Otherwise we will later flush the data out via dmu_sync().
+ */
+ssize_t zvol_immediate_write_sz = 32768;
+
+void osd_zil_log_write(const struct lu_env *env, struct osd_thandle *oh,
+		       struct dt_object *dt, uint64_t offset, uint64_t size)
+{
+	struct osd_object  *obj  = osd_dt_obj(dt);
+	struct osd_device  *osd = osd_obj2dev(obj);
+	zilog_t *zilog = osd->od_zilog;
+	ssize_t immediate_write_sz;
+	dnode_t		*dn;
+	int		blocksize;
+
+	if (osd->od_zil_enabled == 0)
+		return;
+
+	if (zil_replaying(zilog, oh->ot_tx))
+		return;
+
+	DB_DNODE_ENTER((dmu_buf_impl_t *)obj->oo_db);
+	dn = DB_DNODE((dmu_buf_impl_t *)obj->oo_db);
+	blocksize = dn->dn_datablksz;
+	DB_DNODE_EXIT((dmu_buf_impl_t *)obj->oo_db);
+
+	immediate_write_sz = (zilog->zl_logbias == ZFS_LOGBIAS_THROUGHPUT)
+		? 0 : zvol_immediate_write_sz;
+
+	while (size) {
+		itx_t *itx;
+		lr_write_t *lr;
+		ssize_t len;
+		itx_wr_state_t write_state;
+
+		if (blocksize > immediate_write_sz &&
+		    size >= blocksize && offset % blocksize == 0) {
+			write_state = WR_INDIRECT; /* uses dmu_sync */
+			len = blocksize;
+		} else if (1) {
+			write_state = WR_COPIED;
+			len = MIN(ZIL_MAX_LOG_DATA, size);
+		} else {
+			write_state = WR_NEED_COPY;
+			len = MIN(ZIL_MAX_LOG_DATA, size);
+		}
+
+		itx = zil_itx_create(TX_WRITE, sizeof(*lr) +
+		    (write_state == WR_COPIED ? len : 0));
+		lr = (lr_write_t *)&itx->itx_lr;
+		if (write_state == WR_COPIED && dmu_read(osd->od_os,
+		    obj->oo_db->db_object, offset, len, lr+1,
+		    DMU_READ_NO_PREFETCH) != 0) {
+			zil_itx_destroy(itx);
+			itx = zil_itx_create(TX_WRITE, sizeof(*lr));
+			lr = (lr_write_t *)&itx->itx_lr;
+			write_state = WR_NEED_COPY;
+		}
+
+		itx->itx_wr_state = write_state;
+		if (write_state == WR_NEED_COPY)
+			itx->itx_sod += len;
+		lr->lr_foid = obj->oo_db->db_object;
+		lr->lr_offset = offset;
+		lr->lr_length = len;
+		lr->lr_blkoff = 0;
+		BP_ZERO(&lr->lr_blkptr);
+
+		itx->itx_callback = osd_zil_commit_cb;
+		itx->itx_callback_data = itx;
+
+		itx->itx_private = osd;
+		itx->itx_sync = 1;
+
+		if (itx->itx_wr_state == WR_COPIED)
+			lprocfs_counter_add(osd->od_stats,
+					    LPROC_OSD_ZIL_COPIED, 1);
+
+		CDEBUG(D_CACHE,
+		       "new zil %p in txg %llu: %u/%u type %u to %llu\n",
+		       itx, oh->ot_tx->tx_txg, (unsigned)offset, (unsigned)len,
+		       (unsigned) write_state, obj->oo_db->db_object);
+
+		atomic_inc(&osd->od_recs_to_write);
+		(void) zil_itx_assign(zilog, itx, oh->ot_tx);
+
+		offset += len;
+		size -= len;
+	}
+}
+
+static int osd_zil_replay_err(struct osd_device *o, lr_t *lr, boolean_t s)
+{
+	return ENOTSUP;
+}
+
+void byteswap_uint64_array(void *vbuf, size_t size)
+{
+	uint64_t *buf = vbuf;
+	size_t count = size >> 3;
+	int i;
+
+	ASSERT((size & 7) == 0);
+
+	for (i = 0; i < count; i++)
+		buf[i] = BSWAP_64(buf[i]);
+}
+
+struct osd_zil_cbdata {
+	const struct lu_env *env;
+	struct osd_device *osd;
+};
+
+typedef struct {
+	lr_t	lr_common;
+	uint64_t lr_oid;
+} lr_update_t;
+
+
+static int osd_zil_replay_update(struct osd_zil_cbdata *cb, lr_update_t *lr,
+				boolean_t byteswap)
+{
+	struct osd_device	*osd = cb->osd;
+	struct dt_device	*dt = &osd->od_dt_dev;
+	//objset_t	*os = osd->od_os;
+	const struct lu_env	*env = cb->env;
+	struct object_update_request *ureq = (void *)(lr + 1);
+	struct thandle		*th;
+	struct osd_thandle	*oh;
+	struct dt_object	*o;
+	int		 error = 0;
+	int		 i, rc;
+
+	if (byteswap && 0)
+		byteswap_uint64_array(lr, sizeof(*lr));
+
+	LASSERT(ureq->ourq_magic == UPDATE_REQUEST_MAGIC);
+	CDEBUG(D_HA, "REPLAY %d updates\n", ureq->ourq_count);
+
+	th = dt_trans_create(env, dt);
+	LASSERT(!IS_ERR(th));
+	oh = container_of0(th, struct osd_thandle, ot_super);
+
+	for (i = 0; i < ureq->ourq_count; i++) {
+		struct object_update		*update;
+		update = object_update_request_get(ureq, i, NULL);
+		LASSERT(update != NULL);
+		CDEBUG(D_HA, "%d: %d to "DFID"\n", i, (int)update->ou_type,
+			PFID(&update->ou_fid));
+
+		o = dt_locate(env, dt, &update->ou_fid);
+		LASSERT(!IS_ERR(o));
+
+		lu_object_put(env, &o->do_lu);
+	}
+
+	rc = dt_trans_start(env, dt, th);
+	LASSERT(rc == 0);
+
+	(void) zil_replaying(osd->od_zilog, oh->ot_tx);
+	rc = dt_trans_stop(env, dt, th);
+	LASSERT(rc == 0);
+
+	return SET_ERROR(error);
+}
+
+static int osd_zil_replay_write(struct osd_zil_cbdata *cb, lr_write_t *lr,
+				boolean_t byteswap)
+{
+	struct osd_device *osd = cb->osd;
+	objset_t	*os = osd->od_os;
+	char		*data = (char *)(lr + 1);
+	uint64_t	 off = lr->lr_offset;
+	uint64_t	 len = lr->lr_length;
+	sa_handle_t	*sa;
+	uint64_t	 end;
+	dmu_tx_t	*tx;
+	int		 error;
+
+	CDEBUG(D_HA, "REPLAY %u/%u to %llu\n", (unsigned)off,
+	       (unsigned)len, lr->lr_foid);
+
+	if (byteswap)
+		byteswap_uint64_array(lr, sizeof(*lr));
+
+	error = sa_handle_get(os, lr->lr_foid, lr, SA_HDL_PRIVATE, &sa);
+	if (error)
+		return SET_ERROR(error);
+
+restart:
+	tx = dmu_tx_create(os);
+	dmu_tx_hold_write(tx, lr->lr_foid, off, len);
+	dmu_tx_hold_sa(tx, sa, 1);
+	error = dmu_tx_assign(tx, TXG_WAIT);
+	if (error) {
+		if (error == ERESTART) {
+			dmu_tx_wait(tx);
+			dmu_tx_abort(tx);
+			goto restart;
+		}
+		dmu_tx_abort(tx);
+	} else {
+		dmu_write(os, lr->lr_foid, off, len, data, tx);
+		end = lr->lr_offset + lr->lr_length;
+		sa_update(sa, SA_ZPL_SIZE(osd), (void *)&end,
+			  sizeof(uint64_t), tx);
+		/* Ensure the replayed seq is updated */
+		(void) zil_replaying(osd->od_zilog, tx);
+		dmu_tx_commit(tx);
+	}
+
+	sa_handle_destroy(sa);
+
+	return SET_ERROR(error);
+}
+
+static int osd_zil_replay_create(struct osd_zil_cbdata *cb, lr_acl_v0_t *lr,
+				boolean_t byteswap)
+{
+	/* used as noop, see osd_ro() */
+	CWARN("CREATE replay - NOOP\n");
+	return 0;
+}
+
+zil_replay_func_t osd_zil_replay_vector[TX_MAX_TYPE] = {
+	(zil_replay_func_t)osd_zil_replay_err,	/* no such transaction type */
+	(zil_replay_func_t)osd_zil_replay_create,/* TX_CREATE */
+	(zil_replay_func_t)osd_zil_replay_err,	/* TX_MKDIR */
+	(zil_replay_func_t)osd_zil_replay_err,	/* TX_MKXATTR */
+	(zil_replay_func_t)osd_zil_replay_update,/* TX_SYMLINK */
+	(zil_replay_func_t)osd_zil_replay_err,	/* TX_REMOVE */
+	(zil_replay_func_t)osd_zil_replay_err,	/* TX_RMDIR */
+	(zil_replay_func_t)osd_zil_replay_err,	/* TX_LINK */
+	(zil_replay_func_t)osd_zil_replay_err,	/* TX_RENAME */
+	(zil_replay_func_t)osd_zil_replay_write,	/* TX_WRITE */
+	(zil_replay_func_t)osd_zil_replay_err,	/* TX_TRUNCATE */
+	(zil_replay_func_t)osd_zil_replay_err,	/* TX_SETATTR */
+	(zil_replay_func_t)osd_zil_replay_err,	/* TX_ACL_V0 */
+};
+
+static int osd_zil_create_noop(struct osd_device *o)
+{
+	itx_t		*itx;
+	dmu_tx_t	*tx;
+	lr_create_t	*lr;
+	int		 rc;
+
+	tx = dmu_tx_create(o->od_os);
+	rc = -dmu_tx_assign(tx, TXG_WAITED);
+	if (rc != 0) {
+		dmu_tx_abort(tx);
+		return rc;
+	}
+	itx = zil_itx_create(TX_CREATE, sizeof(*lr));
+	lr = (lr_create_t *)&itx->itx_lr;
+	lr->lr_doid = 0;
+	lr->lr_foid = 0;
+	lr->lr_mode = 0;
+	zil_itx_assign(o->od_zilog, itx, tx);
+	dmu_tx_commit(tx);
+
+	return 0;
+}
+
+int osd_zil_init(const struct lu_env *env, struct osd_device *o)
+{
+	dsl_pool_t *dp = dmu_objset_pool(o->od_os);
+	struct osd_zil_cbdata cb;
+	int	    rc;
+
+	o->od_zilog = zil_open(o->od_os, osd_zil_get_data);
+	o->od_zilog->zl_logbias = ZFS_LOGBIAS_LATENCY;
+
+	cb.env = env;
+	cb.osd = o;
+	zil_replay(o->od_os, &cb, osd_zil_replay_vector);
+	CWARN("%s: ZIL - %llu blocks, %llu recs, last synced %llu\n",
+	      o->od_svname, o->od_zilog->zl_parse_blk_count,
+	      o->od_zilog->zl_parse_lr_count, dp->dp_tx.tx_synced_txg);
+
+
+	while (BP_IS_HOLE(&o->od_zilog->zl_header->zh_log)) {
+		rc = osd_zil_create_noop(o);
+		if (rc < 0) {
+			CERROR("%s: can't create ZIL, rc = %d\n",
+			       o->od_svname, rc);
+			break;
+		}
+		zil_commit(o->od_zilog, 0);
+	}
+
+	return 0;
+}
+
+void osd_zil_fini(struct osd_device *o)
+{
+	void *cookie;
+
+	if (o->od_recs_in_log > 0)
+		CWARN("@@@@@@@ %d bytes/rec ave\n",
+		      (int)(o->od_bytes_in_log / o->od_recs_in_log));
+	/* normally we should be calling zil_close() here to release ZIL
+	 * but this would cause all the logs to be flushed preventing
+	 * testing. so we suspend ZIL, release all the ITXs and resume ZIL */
+	zil_suspend(o->od_mntdev, &cookie);
+	zil_close(o->od_zilog);
+	zil_resume(cookie);
+}
+
+void osd_zil_make_itx(struct osd_thandle *oh)
+{
+	struct osd_device	*osd = osd_dt_dev(oh->ot_super.th_dev);
+	itx_t			*itx;
+	lr_update_t		*lr;
+	int			 len;
+	char			*buf;
+
+	if (oh->ot_buf.ub_req == NULL)
+		return;
+	if (osd->od_zilog == NULL)
+		goto out;
+
+	len = object_update_request_size(oh->ot_buf.ub_req);
+	itx = zil_itx_create(TX_SYMLINK, sizeof(*lr) + len);
+	if (itx == NULL) {
+		CERROR("can't create itx with %d bytes\n", len);
+		goto out;
+	}
+
+	lr = (lr_update_t *)&itx->itx_lr;
+	lr->lr_oid = 1;
+	buf = (char *)(lr + 1);
+	memcpy(buf, oh->ot_buf.ub_req, len);
+
+	osd->od_recs_in_log++;
+	osd->od_bytes_in_log += len;
+
+	itx->itx_callback = osd_zil_commit_cb;
+	itx->itx_callback_data = itx;
+
+	itx->itx_private = osd;
+	itx->itx_sync = 1;
+
+	atomic_inc(&osd->od_recs_to_write);
+
+	LASSERT(osd->od_zilog != NULL);
+	(void) zil_itx_assign(osd->od_zilog, itx, oh->ot_tx);
+
+#if 0
+	{
+	struct object_update_request	*r;
+	r = oh->ot_buf.ub_req;
+	printk("!!!!! %u updates in %d/%d at %p\n", r->ourq_count,
+		(int)object_update_request_size(oh->ot_buf.ub_req),
+		(int)oh->ot_buf.ub_req_size, r);
+	}
+#endif
+
+out:
+	OBD_FREE_LARGE(oh->ot_buf.ub_req, oh->ot_buf.ub_req_size);
+}
+
