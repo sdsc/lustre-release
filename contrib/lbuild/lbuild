@@ -1050,7 +1050,7 @@ build_spl_zfs() {
     # The spl/zfs spec files expect RPM_BUILD_ROOT to point to the root of the
     # destination for the rpms
     export RPM_BUILD_ROOT=$TOPDIR
-    SPLZFSVER=${SPLZFSVER:-0.6.4.2}
+    SPLZFSVER=${SPLZFSVER:-0.6.5}
     SPLZFSTAG=${SPLZFSTAG:-}
 
     # The files expect a kver to be set to the kernel version .
@@ -1084,6 +1084,13 @@ build_spl_zfs() {
             rpmpkg=kmod-$pkg-devel
             specdir=rpm/generic
             speclist="$pkg.spec $pkg-kmod.spec $pkg-dkms.spec"
+        fi
+
+        if [ "$pkg" == "zfs" ]; then
+            # Apply patch for zero-copy flattening
+            echo "Applying DAOS patch"
+            patch -p1 < \
+                ${TOPDIR}/lustre/contrib/patches/zil-export.patch
         fi
 
         sh autogen.sh || return 255
