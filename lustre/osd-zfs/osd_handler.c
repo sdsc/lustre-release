@@ -143,6 +143,13 @@ static void osd_trans_commit_cb(void *cb_data, int error)
 				osd_dt_dev(th->th_dev)->od_svname, th, error);
 	}
 
+	if (oh->ot_txg > osd->od_committed_txg) {
+		if (strstr(osd->od_svname, "OST"))
+			CDEBUG(D_HA, "%s: txg %llu committed at %lu\n",
+			       osd->od_svname, oh->ot_txg, jiffies);
+		osd->od_committed_txg = oh->ot_txg;
+	}
+
 	dt_txn_hook_commit(th);
 
 	/* call per-transaction callbacks if any */
@@ -217,6 +224,7 @@ static int osd_trans_start(const struct lu_env *env, struct dt_device *d,
 		lu_context_init(&th->th_ctx, th->th_tags);
 		lu_context_enter(&th->th_ctx);
 		lu_device_get(&d->dd_lu_dev);
+		oh->ot_txg = oh->ot_tx->tx_txg;
 	}
 
 	RETURN(rc);
@@ -560,16 +568,61 @@ static int osd_commit_async(const struct lu_env *env, struct dt_device *dev)
 	return 0;
 }
 
-/*
- * Concurrency: shouldn't matter.
- */
+static int osd_zil_create_noop(const struct lu_env *env, struct osd_device *o)
+{
+	itx_t		*itx;
+	dmu_tx_t	*tx;
+	lr_create_t	*lr;
+	int		 rc;
+
+	tx = dmu_tx_create(o->od_os);
+	rc = -dmu_tx_assign(tx, TXG_WAITED);
+	if (rc != 0) {
+		dmu_tx_abort(tx);
+		return rc;
+	}
+	itx = zil_itx_create(TX_CREATE, sizeof(*lr));
+	lr = (lr_create_t *)&itx->itx_lr;
+	lr->lr_doid = 0;
+	lr->lr_foid = 0;
+	lr->lr_mode = 0;
+	zil_itx_assign(o->od_zilog, itx, tx);
+	dmu_tx_commit(tx);
+
+	return 0;
+}
+
 static int osd_ro(const struct lu_env *env, struct dt_device *d)
 {
 	struct osd_device  *osd = osd_dt_dev(d);
+	struct dsl_dataset	*ds;
+	dsl_pool_t		*dp;
+	int			 rc;
 	ENTRY;
 
 	CERROR("%s: *** setting device %s read-only ***\n",
 	       osd->od_svname, LUSTRE_OSD_ZFS_NAME);
+
+	ds = dmu_objset_ds(osd->od_os);
+	dp = dmu_objset_pool(osd->od_os);
+	CERROR("%s: *** last txg: open %llu, committed %llu ***\n",
+	       osd->od_svname, dp->dp_tx.tx_open_txg,
+	       dp->dp_tx.tx_synced_txg);
+
+	if (osd->od_zil_enabled) {
+		while (BP_IS_HOLE(&osd->od_zilog->zl_header->zh_log)) {
+			rc = osd_zil_create_noop(env, osd);
+			if (rc < 0) {
+				CERROR("%s: can't create ZIL, rc = %d\n",
+				       osd->od_svname, rc);
+				break;
+			}
+			zil_commit(osd->od_zilog, 0);
+		}
+	}
+
+	txg_wait_synced(spa_get_dsl(dmu_objset_spa(osd->od_os)), 0);
+
 	osd->od_rdonly = 1;
 	spa_freeze(dmu_objset_spa(osd->od_os));
 
@@ -837,6 +890,8 @@ static int osd_mount(const struct lu_env *env,
 	if (opts == NULL || strstr(opts, "noacl") == NULL)
 		o->od_posix_acl = 1;
 
+	osd_zil_init(o);
+
 err:
 	RETURN(rc);
 }
@@ -844,6 +899,8 @@ err:
 static void osd_umount(const struct lu_env *env, struct osd_device *o)
 {
 	ENTRY;
+
+	osd_zil_fini(o);
 
 	if (atomic_read(&o->od_zerocopy_alloc))
 		CERROR("%s: lost %d allocated page(s)\n", o->od_svname,
