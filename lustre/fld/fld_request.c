@@ -444,6 +444,14 @@ again:
 			rc = 0;
 			goto again;
 		}
+
+		/* Note: Sometimes, it will Return EAGAIN here, see
+		 * ptrlpc_import_delay_req(), which might confuse
+		 * lu_object_find_at() and make it wait there incorrectly.
+		 * so we convert it to EIO here.*/
+		if (rc == -EAGAIN)
+			rc = -EIO;
+
 		GOTO(out_req, rc);
 	}
 
