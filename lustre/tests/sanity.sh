@@ -13082,6 +13082,25 @@ test_400b() { # LU-1606, LU-5011
 }
 run_test 400b "packaged headers can be compiled"
 
+test_500() {
+	dd if=/dev/zero of=$DIR/${tfile}2 bs=1M count=1
+	cancel_lru_locks osc
+	replay_barrier ost1
+	dd if=/dev/zero of=$DIR/$tfile bs=1M count=1
+	cancel_lru_locks osc
+	fail ost1
+}
+run_test 500
+
+test_501() {
+	dd if=/dev/zero of=$DIR/${tfile}2 bs=1M count=1
+	cancel_lru_locks osc
+	dd if=/dev/zero of=$DIR/$tfile bs=1M count=1
+	cancel_lru_locks osc
+	fail ost1
+}
+run_test 501
+
 #
 # tests that do cleanup/setup should be run at the end
 #
