@@ -47,6 +47,7 @@
 #include <dt_object.h>
 #include <md_object.h>
 #include <lustre_quota.h>
+#include <lustre_update.h>
 #ifdef SHRINK_STOP
 #undef SHRINK_STOP
 #endif
@@ -54,6 +55,7 @@
 #include <sys/nvpair.h>
 #include <sys/zfs_znode.h>
 #include <sys/zap.h>
+#include <sys/zil_impl.h>
 
 /**
  * By design including kmem.h overrides the Linux slab interfaces to provide
@@ -191,6 +193,11 @@ struct osd_thread_info {
 
 	struct lquota_id_info	 oti_qi;
 	struct lu_seq_range	 oti_seq_range;
+	struct lu_buf		 oti_lb;
+	uint64_t		 oti_datalog;
+	struct obdo		 oti_obdo1;
+	struct obdo		 oti_obdo2;
+	struct lu_buf		 oti_update_lb;
 };
 
 extern struct lu_context_key osd_key;
@@ -210,6 +217,10 @@ struct osd_thandle {
 	struct lquota_trans	 ot_quota_trans;
 	__u32			 ot_write_commit:1,
 				 ot_assigned:1;
+	struct object_update_request	*ot_update; /* updates for ZIL */
+	int			 ot_update_max_size;
+	struct osd_range_lock	*ot_rl;
+	struct osd_object	*ot_rl_obj;
 };
 
 #define OSD_OI_NAME_SIZE        16
@@ -245,6 +256,7 @@ struct osd_device {
 	struct dt_device	 od_dt_dev;
 	/* information about underlying file system */
 	struct objset		*od_os;
+	zilog_t			*od_zilog;
 	uint64_t		 od_rootid;  /* id of root znode */
 	uint64_t		 od_unlinkedid; /* id of unlinked zapobj */
 	/* SA attr mapping->id,
@@ -265,7 +277,9 @@ struct osd_device {
 				 od_xattr_in_sa:1,
 				 od_quota_iused_est:1,
 				 od_is_ost:1,
-				 od_posix_acl:1;
+				 od_posix_acl:1,
+				 od_zil_replaying:1,
+				 od_zil_enabled:1;
 
 	char			 od_mntdev[128];
 	char			 od_svname[128];
@@ -295,6 +309,22 @@ struct osd_device {
 
 	/* osd seq instance */
 	struct lu_client_seq	*od_cl_seq;
+
+	struct rw_semaphore	 od_tx_barrier;
+	atomic_t		 od_bytes_in_log;
+	atomic_t		 od_recs_in_log;
+	atomic_t		 od_recs_to_write;
+	atomic_t		 od_updates_by_type[OUT_LAST];
+	atomic_t		 od_bytes_by_type[OUT_LAST];
+	int			 od_max_range_locks;
+};
+
+struct osd_range_head {
+	spinlock_t	 ord_range_lock;
+	struct list_head ord_range_granted_list;
+	struct list_head ord_range_waiting_list;
+	int		 ord_nr;	/* # of active locks */
+	int		 ord_max;	/* max. # of locks */
 };
 
 enum osd_destroy_type {
@@ -302,6 +332,8 @@ enum osd_destroy_type {
 	OSD_DESTROY_SYNC = 1,
 	OSD_DESTROY_ASYNC = 2,
 };
+
+struct osd_range_lock;
 
 struct osd_object {
 	struct dt_object	 oo_dt;
@@ -330,9 +362,22 @@ struct osd_object {
 	enum osd_destroy_type	 oo_destroy;
 
 	/* record size for index file */
-	unsigned char		 oo_keysize;
-	unsigned char		 oo_recsize;
-	unsigned char		 oo_recusize;	/* unit size */
+	union {
+		/* used when it's a ZAP */
+		struct {
+			unsigned char		 oo_keysize;
+			unsigned char		 oo_recsize;
+			unsigned char		 oo_recusize;	/* unit size */
+		};
+		/* used when it's a regular object */
+		struct osd_range_lock		*oo_range_lock;
+	};
+
+	/* ZIL support */
+	struct osd_range_head	*oo_range_head;
+	wait_queue_head_t        oo_bitlock_wait;
+	atomic_t		 oo_zil_in_progress;
+	atomic_t		 oo_version;
 };
 
 int osd_statfs(const struct lu_env *, struct dt_device *, struct obd_statfs *);
@@ -425,6 +470,12 @@ enum {
 	LPROC_OSD_COPY_IO = 7,
 	LPROC_OSD_ZEROCOPY_IO = 8,
 	LPROC_OSD_TAIL_IO = 9,
+	LPROC_OSD_SYNC = 10,
+	LPROC_OSD_ZIL_SYNC = 11,
+	LPROC_OSD_ZIL_COPIED = 12,
+	LPROC_OSD_ZIL_INDIRECT = 13,
+	LPROC_OSD_ZIL_RECORDS = 14,
+	LPROC_OSD_ZIL_REALLOC = 15,
 	LPROC_OSD_LAST,
 };
 
@@ -434,6 +485,9 @@ extern struct lprocfs_vars lprocfs_osd_obd_vars[];
 
 int osd_procfs_init(struct osd_device *osd, const char *name);
 int osd_procfs_fini(struct osd_device *osd);
+
+int osd_mount(const struct lu_env *env, struct osd_device *o);
+void osd_umount(const struct lu_env *env, struct osd_device *o);
 
 /* osd_object.c */
 extern char *osd_obj_tag;
@@ -451,6 +505,11 @@ int __osd_zap_create(const struct lu_env *env, struct osd_device *osd,
 int __osd_object_create(const struct lu_env *env, struct osd_object *obj,
 			dmu_buf_t **dbp, dmu_tx_t *tx, struct lu_attr *la,
 			uint64_t parent);
+int __osd_attr_init(const struct lu_env *env, struct osd_device *osd,
+		    uint64_t oid, dmu_tx_t *tx, struct lu_attr *la,
+		    uint64_t parent);
+int __osd_object_attr_get(const struct lu_env *env, struct osd_device *o,
+			  uint64_t oid, struct lu_attr *la);
 
 /* osd_oi.c */
 int osd_oi_init(const struct lu_env *env, struct osd_device *o);
@@ -509,6 +568,15 @@ int __osd_sa_xattr_set(const struct lu_env *env, struct osd_object *obj,
 int __osd_xattr_set(const struct lu_env *env, struct osd_object *obj,
 		    const struct lu_buf *buf, const char *name, int fl,
 		    struct osd_thandle *oh);
+
+int osd_zil_get_data(void *arg, lr_write_t *lr, char *buf, zio_t *zio);
+int osd_zil_replay(const struct lu_env *env, struct osd_device *o);
+int osd_zil_init(const struct lu_env *env, struct osd_device *o);
+void osd_zil_fini(struct osd_device *o);
+void osd_zil_log_write(const struct lu_env *env, struct osd_thandle *oh,
+		       struct dt_object *o, uint64_t offset, uint64_t size);
+void osd_zil_make_itx(struct osd_thandle *oh);
+
 static inline int
 osd_xattr_set_internal(const struct lu_env *env, struct osd_object *obj,
 		       const struct lu_buf *buf, const char *name, int fl,
@@ -578,5 +646,99 @@ osd_zio_buf_free(void *buf, size_t size)
 #define	osd_zio_buf_alloc(size)		zio_buf_alloc(size)
 #define	osd_zio_buf_free(buf, size)	zio_buf_free(buf, size)
 #endif
+
+void osd_zil_commit(struct osd_device *o);
+struct osd_range_lock *osd_lock_range(struct osd_object *o, loff_t offset,
+				      size_t size, int rw);
+void osd_unlock_range(struct osd_object *o, struct osd_range_lock *l);
+static inline int osd_use_zil(struct osd_thandle *oh, int rc)
+{
+	if (unlikely(rc != 0))
+		return 0;
+	if (oh->ot_update != NULL)
+		return 1;
+	return 0;
+}
+
+static inline struct object_update *
+update_buffer_get_update(struct object_update_request *request,
+			 unsigned int index)
+{
+	void	*ptr;
+	int	i;
+
+	if (index > request->ourq_count)
+		return NULL;
+
+	ptr = &request->ourq_updates[0];
+	for (i = 0; i < index; i++)
+		ptr += object_update_size(ptr);
+
+	return ptr;
+}
+
+#define UPDATE_BUFFER_SIZE_MAX	(256 * 4096)  /*  1M update size now */
+
+static inline int extend_update_buffer(const struct lu_env *env,
+				       struct osd_thandle *oh)
+{
+	struct osd_thread_info		*info = osd_oti_get(env);
+	size_t				 new_size;
+	int				 rc;
+
+	/* enlarge object update request size */
+	new_size = oh->ot_update_max_size + 2048;
+	if (new_size > UPDATE_BUFFER_SIZE_MAX) {
+		LBUG();
+		return -E2BIG;
+	}
+
+	rc = lu_buf_check_and_grow(&info->oti_update_lb, new_size);
+	if (unlikely(rc < 0))
+		return rc;
+
+	oh->ot_update = info->oti_update_lb.lb_buf;
+	oh->ot_update_max_size = info->oti_update_lb.lb_len;
+
+	return 0;
+}
+
+#define osd_zil_update_pack(env, __rc, oh, obj, name, ...)		\
+({									\
+	struct object_update		*update;			\
+	struct object_update_request	*ureq;				\
+	size_t				 max;				\
+	int				 ret;				\
+									\
+	while (__rc == 0 && oh->ot_update != NULL) {			\
+		ureq = oh->ot_update;				\
+		max = oh->ot_update_max_size-object_update_request_size(ureq);\
+		update = update_buffer_get_update(ureq,	ureq->ourq_count);    \
+		ret = out_##name##_pack(env, update, max,		\
+					lu_object_fid(&((obj)->oo_dt.do_lu)),\
+					##__VA_ARGS__);			\
+		if (ret == -E2BIG) {					\
+			struct osd_device *osd;				\
+			int rc1;					\
+			/* extend the buffer and retry */		\
+			rc1 = extend_update_buffer(env, (oh));		\
+			if (rc1 != 0) {					\
+				ret = rc1;				\
+				break;					\
+			}						\
+			osd = osd_dt_dev(oh->ot_super.th_dev);		\
+			lprocfs_counter_add(osd->od_stats,		\
+					    LPROC_OSD_ZIL_REALLOC, 1);	\
+			continue;					\
+		}							\
+		if (ret == 0) {						\
+			update->ou_batchid =				\
+				atomic_inc_return(&(obj)->oo_version);	\
+			ureq->ourq_count++;				\
+		}							\
+		break;							\
+	}								\
+})
+
 
 #endif /* _OSD_INTERNAL_H */
