@@ -1287,7 +1287,7 @@ out:
 }
 
 /**
- * Notify the LFSCK event to the instatnces on remote servers.
+ * Notify the LFSCK event to the instances on remote servers.
  *
  * The LFSCK assistant thread notifies the LFSCK instances on other
  * servers (MDT/OST) about some events, such as start new scanning,
