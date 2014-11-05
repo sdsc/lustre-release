@@ -518,12 +518,37 @@ static int llog_osd_write_rec(const struct lu_env *env,
 	llh->llh_count++;
 	spin_unlock(&loghandle->lgh_hdr_lock);
 
-	lgi->lgi_off = 0;
-	lgi->lgi_buf.lb_len = llh->llh_hdr.lrh_len;
-	lgi->lgi_buf.lb_buf = &llh->llh_hdr;
-	rc = dt_record_write(env, o, &lgi->lgi_buf, &lgi->lgi_off, th);
-	if (rc)
-		GOTO(out, rc);
+	/* XXX: do not write a whole header, only counter and bit updated */
+	if (lgi->lgi_attr.la_size == 0) {
+		lgi->lgi_off = 0;
+		lgi->lgi_buf.lb_len = llh->llh_hdr.lrh_len;
+		lgi->lgi_buf.lb_buf = &llh->llh_hdr;
+		rc = dt_record_write(env, o, &lgi->lgi_buf, &lgi->lgi_off, th);
+		if (rc)
+			GOTO(out, rc);
+	} else {
+		lgi->lgi_off = offsetof(struct llog_log_hdr, llh_count);
+		lgi->lgi_buf.lb_len = sizeof(llh->llh_count);
+		lgi->lgi_buf.lb_buf = &llh->llh_count;
+		rc = dt_record_write(env, o, &lgi->lgi_buf, &lgi->lgi_off, th);
+		if (rc)
+			GOTO(out, rc);
+
+		lgi->lgi_off = offsetof(struct llog_log_hdr, llh_tail);
+		lgi->lgi_buf.lb_len = sizeof(llh->llh_tail);
+		lgi->lgi_buf.lb_buf = &llh->llh_tail;
+		rc = dt_record_write(env, o, &lgi->lgi_buf, &lgi->lgi_off, th);
+		if (rc)
+			GOTO(out, rc);
+
+		lgi->lgi_off = offsetof(struct llog_log_hdr, llh_bitmap) +
+			((index / (sizeof(__u32) * 8)) * sizeof(__u32));
+		lgi->lgi_buf.lb_len = sizeof(__u32);
+		lgi->lgi_buf.lb_buf = &llh->llh_bitmap[index/(sizeof(__u32)*8)];
+		rc = dt_record_write(env, o, &lgi->lgi_buf, &lgi->lgi_off, th);
+		if (rc)
+			GOTO(out, rc);
+	}
 
 	header_is_updated = true;
 	rc = dt_attr_get(env, o, &lgi->lgi_attr, NULL);

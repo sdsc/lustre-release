@@ -97,11 +97,7 @@ int tgt_init(const struct lu_env *env, struct lu_target *lut,
 		       rc);
 		GOTO(out_bitmap, rc);
 	}
-
 	lut->lut_last_rcvd = o;
-	rc = tgt_server_data_init(env, lut);
-	if (rc < 0)
-		GOTO(out_obj, rc);
 
 	/* prepare transactions callbacks */
 	lut->lut_txn_cb.dtc_txn_start = tgt_txn_start_cb;
@@ -114,9 +110,7 @@ int tgt_init(const struct lu_env *env, struct lu_target *lut,
 	dt_txn_callback_add(lut->lut_bottom, &lut->lut_txn_cb);
 
 	RETURN(0);
-out_obj:
-	lu_object_put(env, &lut->lut_last_rcvd->do_lu);
-	lut->lut_last_rcvd = NULL;
+
 out_bitmap:
 	OBD_FREE(lut->lut_client_bitmap, LR_MAX_CLIENTS >> 3);
 	lut->lut_client_bitmap = NULL;

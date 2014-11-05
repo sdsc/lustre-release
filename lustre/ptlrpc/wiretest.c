@@ -4512,6 +4512,7 @@ void lustre_assert_wire_constants(void)
 		 (long long)(int)sizeof(((struct hsm_user_import *)0)->hui_archive_id));
 
 	/* Checks for struct object_update_param */
+#if 0
 	LASSERTF((int)sizeof(struct object_update_param) == 8, "found %lld\n",
 		 (long long)(int)sizeof(struct object_update_param));
 	LASSERTF((int)offsetof(struct object_update_param, oup_len) == 0, "found %lld\n",
@@ -4530,6 +4531,7 @@ void lustre_assert_wire_constants(void)
 		 (long long)(int)offsetof(struct object_update_param, oup_buf));
 	LASSERTF((int)sizeof(((struct object_update_param *)0)->oup_buf) == 0, "found %lld\n",
 		 (long long)(int)sizeof(((struct object_update_param *)0)->oup_buf));
+#endif
 
 	/* Checks for struct object_update */
 	LASSERTF((int)sizeof(struct object_update) == 40, "found %lld\n",

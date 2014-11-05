@@ -224,6 +224,18 @@ static int osd_trans_start(const struct lu_env *env, struct dt_device *d,
 		lu_device_get(&d->dd_lu_dev);
 	}
 
+	/* maintain per-th updates for ZIL on OST */
+	if (likely(rc == 0) && osd_dt_dev(d)->od_zil_enabled) {
+		struct object_update_request *rq;
+		OBD_ALLOC_LARGE(rq, 2048);
+		if (rq != NULL) {
+			rq->ourq_magic = UPDATE_REQUEST_MAGIC;
+			rq->ourq_count = 0;
+			oh->ot_buf.ub_req = rq;
+			oh->ot_buf.ub_req_size = 2048;
+		}
+	}
+
 	RETURN(rc);
 }
 
@@ -271,6 +283,9 @@ static int osd_trans_stop(const struct lu_env *env, struct dt_device *dt,
 	txg = oh->ot_tx->tx_txg;
 
 	osd_object_sa_dirty_rele(oh);
+
+	osd_zil_make_itx(oh);
+
 	dmu_tx_commit(oh->ot_tx);
 
 	if (th->th_sync)
@@ -543,8 +558,29 @@ static void osd_conf_get(const struct lu_env *env,
 static int osd_sync(const struct lu_env *env, struct dt_device *d)
 {
 	struct osd_device  *osd = osd_dt_dev(d);
+	struct timeval	    startat, endat;
+
 	CDEBUG(D_CACHE, "syncing OSD %s\n", LUSTRE_OSD_ZFS_NAME);
-	txg_wait_synced(dmu_objset_pool(osd->od_os), 0ULL);
+
+	do_gettimeofday(&startat);
+
+	if (osd->od_zil_enabled) {
+		int before = atomic_read(&osd->od_recs_to_write);
+		int after;
+		zil_commit(osd->od_zilog, 0);
+		do_gettimeofday(&endat);
+		after = atomic_read(&osd->od_recs_to_write);
+		CDEBUG(D_HA, "@@@@@@ %d synced, %d left\n",
+		       before - after, after);
+		lprocfs_counter_add(osd->od_stats, LPROC_OSD_ZIL_SYNC,
+				    cfs_timeval_sub(&endat, &startat, NULL));
+	} else {
+		txg_wait_synced(dmu_objset_pool(osd->od_os), 0ULL);
+		do_gettimeofday(&endat);
+		lprocfs_counter_add(osd->od_stats, LPROC_OSD_SYNC,
+				    cfs_timeval_sub(&endat, &startat, NULL));
+	}
+
 	CDEBUG(D_CACHE, "synced OSD %s\n", LUSTRE_OSD_ZFS_NAME);
 	return 0;
 }
@@ -566,16 +602,31 @@ static int osd_commit_async(const struct lu_env *env, struct dt_device *dev)
 	return 0;
 }
 
-/*
- * Concurrency: shouldn't matter.
- */
 static int osd_ro(const struct lu_env *env, struct dt_device *d)
 {
 	struct osd_device  *osd = osd_dt_dev(d);
+	struct dsl_dataset	*ds;
+	dsl_pool_t		*dp;
+	struct lu_device	*ld = NULL;
 	ENTRY;
 
 	CERROR("%s: *** setting device %s read-only ***\n",
 	       osd->od_svname, LUSTRE_OSD_ZFS_NAME);
+
+	ds = dmu_objset_ds(osd->od_os);
+	dp = dmu_objset_pool(osd->od_os);
+	CERROR("%s: *** last txg: open %llu, committed %llu ***\n",
+	       osd->od_svname, dp->dp_tx.tx_open_txg,
+	       dp->dp_tx.tx_synced_txg);
+
+	ld = d->dd_lu_dev.ld_site->ls_top_dev;
+	if (ld != NULL && ld->ld_obd != NULL &&
+	    ld->ld_obd->obd_last_committed > 0)
+		CERROR("%s: *** last committed: %llu ***\n",
+		       osd->od_svname, ld->ld_obd->obd_last_committed);
+
+	txg_wait_synced(spa_get_dsl(dmu_objset_spa(osd->od_os)), 0);
+
 	osd->od_rdonly = 1;
 	spa_freeze(dmu_objset_spa(osd->od_os));
 
@@ -851,6 +902,8 @@ static void osd_umount(const struct lu_env *env, struct osd_device *o)
 {
 	ENTRY;
 
+	osd_zil_fini(o);
+
 	if (atomic_read(&o->od_zerocopy_alloc))
 		CERROR("%s: lost %d allocated page(s)\n", o->od_svname,
 		       atomic_read(&o->od_zerocopy_alloc));
@@ -1106,6 +1159,10 @@ static int osd_prepare(const struct lu_env *env, struct lu_device *pdev,
 	if (osd->od_quota_slave != NULL)
 		/* set up quota slave objects */
 		rc = qsd_prepare(env, osd->od_quota_slave);
+
+	rc = osd_zil_init(env, osd);
+	if (rc != 0)
+		CERROR("%s: can't replay ZIL: rc = %d\n", osd->od_svname, rc);
 
 	RETURN(rc);
 }
