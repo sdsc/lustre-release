@@ -13208,6 +13208,167 @@ test_400b() { # LU-1606, LU-5011
 }
 run_test 400b "packaged headers can be compiled"
 
+test_500() {
+	local soc="obdfilter.*.sync_on_lock_cancel"
+	do_nodes $(osts_nodes) lctl set_param $soc=always
+	do_nodes $(comma_list $(osts_nodes)) \
+	    "lctl set_param -n osd*.*OST*.zil 1"
+	#dd if=/dev/zero of=$DIR/${tfile}2 bs=1M count=1
+	#cancel_lru_locks osc
+	do_nodes $(comma_list $(osts_nodes)) \
+	    "lctl get_param -n osd*.*OST*.stats" | grep '\(sync\|zil\)'
+	replay_barrier ost1
+	dd if=/dev/zero of=$DIR/$tfile bs=1M count=1
+	cancel_lru_locks osc
+	fail ost1
+	do_nodes $(comma_list $(osts_nodes)) \
+	    "lctl get_param -n osd*.*OST*.stats" | grep '\(sync\|zil\)'
+	return 0
+}
+run_test 500
+
+test_501() {
+	local soc="obdfilter.*.sync_on_lock_cancel"
+	do_nodes $(osts_nodes) lctl set_param $soc=always
+	do_nodes $(comma_list $(osts_nodes)) \
+	    "lctl set_param -n osd*.*OST*.zil 1"
+	dd if=/dev/zero of=$DIR/${tfile}2 bs=1M count=1
+	cancel_lru_locks osc
+	dd if=/dev/zero of=$DIR/$tfile bs=1M count=1
+	cancel_lru_locks osc
+	do_nodes $(comma_list $(osts_nodes)) \
+	    "lctl get_param -n osd*.*OST*.stats" | grep '\(sync\|zil\)'
+	fail ost1
+	do_nodes $(comma_list $(osts_nodes)) \
+	    "lctl get_param -n osd*.*OST*.stats" | grep '\(sync\|zil\)'
+	return 0
+}
+run_test 501
+
+test_502 () {
+	local ff="/etc/services"
+	do_nodes $(comma_list $(osts_nodes)) \
+	    "lctl set_param -n osd*.*OST*.zil 1"
+	replay_barrier ost1
+	dd if=$ff of=$DIR/$tfile-1 conv=fsync
+	dd if=$ff of=$DIR/$tfile-2
+	umount $MOUNT
+	do_nodes $(comma_list $(osts_nodes)) \
+	    "lctl get_param -n osd*.*OST*.stats" | grep '\(sync\|zil\)'
+	fail_abort ost1
+	zconf_mount `hostname` $MOUNT || error "mount fails"
+	cmp $ff $DIR/$tfile-1 || error "zil didn't work"
+	cmp $ff $DIR/$tfile-2 && error "zil was used"
+	return 0
+
+}
+run_test 502
+
+test_503 () {
+	local ff="/etc/services"
+	do_nodes $(comma_list $(osts_nodes)) \
+	    "lctl set_param -n osd*.*OST*.zil 1"
+	replay_barrier ost1
+	dd if=$ff of=$DIR/$tfile-1 conv=fsync
+	dd if=$ff of=$DIR/$tfile-2
+	do_nodes $(comma_list $(osts_nodes)) \
+	    "lctl get_param -n osd*.*OST*.stats" | grep '\(sync\|zil\)'
+	fail ost1
+	#cmp $ff $DIR/$tfile-1 || error "zil didn't work"
+	#cmp $ff $DIR/$tfile-2 && error "zil was used"
+	return 0
+
+}
+run_test 503
+
+test_504_single() {
+	date
+	rm -rf $DIR/$tdir
+	sync_all_data
+	do_nodes $(comma_list $(mdts_nodes)) \
+	    "lctl set_param -n osd*.*MDT*.stats clear"
+	mkdir $DIR/$tdir
+	createmany -o $DIR/$tdir/f $1
+	do_nodes $(comma_list $(mdts_nodes)) \
+	    "lctl set_param -n osd*.*MDT*.force_sync 1"
+	do_nodes $(comma_list $(mdts_nodes)) \
+	    "lctl get_param -n osd*.*MDT*.stats" | grep '\(sync\|zil\)'
+	date
+}
+
+test_504() {
+	debugsave
+	lctl set_param debug=0
+
+	do_nodes $(comma_list $(mdts_nodes)) \
+	    "lctl set_param -n osd*.*MDT*.zil 0"
+	echo "=== no ZIL ==="
+	test_504_single 20000
+
+	do_nodes $(comma_list $(mdts_nodes)) \
+	    "lctl set_param -n osd*.*MDT*.zil 1"
+	echo "=== with ZIL ==="
+	test_504_single 20000
+
+	do_nodes $(comma_list $(mdts_nodes)) \
+	    "lctl set_param -n osd*.*MDT*.zil 0"
+	echo "=== no ZIL ==="
+	test_504_single 50000
+
+	do_nodes $(comma_list $(mdts_nodes)) \
+	    "lctl set_param -n osd*.*MDT*.zil 1"
+	echo "=== with ZIL ==="
+	test_504_single 50000
+
+	do_nodes $(comma_list $(mdts_nodes)) \
+	    "lctl set_param -n osd*.*MDT*.zil 0"
+	echo "=== no ZIL ==="
+	test_504_single 100000
+
+	do_nodes $(comma_list $(mdts_nodes)) \
+	    "lctl set_param -n osd*.*MDT*.zil 1"
+	echo "=== with ZIL ==="
+	test_504_single 100000
+
+	do_nodes $(comma_list $(mdts_nodes)) \
+	    "lctl set_param -n osd*.*MDT*.zil 0"
+
+	rm -rf $DIR/$tdir
+	debugrestore
+
+	return 0
+}
+run_test 504
+
+run_dbench_and_sync() {
+	sync_all_data
+	do_nodes $(comma_list $(all_nodes)) \
+	    "lctl set_param -n osd*.*.stats clear"
+
+	local NPROC=$(grep -c ^processor /proc/cpuinfo)
+	[ $NPROC -gt 2 ] && NPROC=2
+	sh rundbench $NPROC
+
+	do_nodes $(comma_list $(all_nodes)) \
+	    "lctl get_param -n osd*.*.stats" | grep '\(sync\|zil\)'
+}
+
+test_505() {
+	echo "=== with ZIL ==="
+	do_nodes $(comma_list $(all_nodes)) \
+	    "lctl set_param -n osd*.*.zil 1"
+	run_dbench_and_sync
+
+	echo "=== no ZIL ==="
+	do_nodes $(comma_list $(all_nodes)) \
+	    "lctl set_param -n osd*.*.zil 0"
+	run_dbench_and_sync
+
+	do_nodes $(comma_list $(all_nodes)) \
+	    "lctl set_param -n osd*.*.zil 0"
+}
+run_test 505
+
 #
 # tests that do cleanup/setup should be run at the end
 #
