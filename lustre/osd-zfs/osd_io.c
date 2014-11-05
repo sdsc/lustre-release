@@ -234,6 +234,8 @@ static ssize_t osd_write(const struct lu_env *env, struct dt_object *dt,
 		write_unlock(&obj->oo_attr_lock);
 	}
 
+	osd_zil_update_pack(env, 0, oh, obj, write, buf, *pos);
+
 	*pos += buf->lb_len;
 	rc = buf->lb_len;
 
@@ -266,6 +268,10 @@ static int osd_bufs_put(const struct lu_env *env, struct dt_object *dt,
 	LASSERT(obj->oo_db);
 
 	for (i = 0; i < npages; i++) {
+		if (lnb[i].lnb_data2 != NULL) {
+			osd_unlock_range(obj, lnb[i].lnb_data2);
+			lnb[i].lnb_data2 = NULL;
+		}
 		if (lnb[i].lnb_page == NULL)
 			continue;
 		if (lnb[i].lnb_page->mapping == (void *)obj) {
@@ -326,8 +332,13 @@ static int osd_bufs_get_read(const struct lu_env *env, struct osd_object *obj,
 	struct osd_device *osd = osd_obj2dev(obj);
 	unsigned long	   start = cfs_time_current();
 	int                rc, i, numbufs, npages = 0;
+	struct osd_range_lock	*rl = NULL;
 	dmu_buf_t	 **dbp;
 	ENTRY;
+
+	rl = osd_lock_range(obj, off, len, 0);
+	if (IS_ERR(rl))
+		RETURN(PTR_ERR(rl));
 
 	record_start_io(osd, READ, 0);
 
@@ -359,6 +370,8 @@ static int osd_bufs_get_read(const struct lu_env *env, struct osd_object *obj,
 			/* kind of trick to differentiate dbuf vs. arcbuf */
 			LASSERT(((unsigned long)dbp[i] & 1) == 0);
 			dbf = (void *) ((unsigned long)dbp[i] | 1);
+			lnb->lnb_data2 = rl;
+			rl = NULL;
 
 			while (tocpy > 0) {
 				thispage = PAGE_CACHE_SIZE;
@@ -400,6 +413,8 @@ static int osd_bufs_get_read(const struct lu_env *env, struct osd_object *obj,
 
 err:
 	LASSERT(rc < 0);
+	if (rl != NULL)
+		osd_unlock_range(obj, rl);
 	osd_bufs_put(env, &obj->oo_dt, lnb - npages, npages);
 	RETURN(rc);
 }
@@ -410,10 +425,15 @@ static int osd_bufs_get_write(const struct lu_env *env, struct osd_object *obj,
 	struct osd_device *osd = osd_obj2dev(obj);
 	int                plen, off_in_block, sz_in_block;
 	int                rc, i = 0, npages = 0;
+	struct osd_range_lock	*rl = NULL;
 	arc_buf_t         *abuf;
 	uint32_t           bs;
 	uint64_t           dummy;
 	ENTRY;
+
+	rl = osd_lock_range(obj, off, len, 1);
+	if (IS_ERR(rl))
+		RETURN(PTR_ERR(rl));
 
 	dmu_object_size_from_db(obj->oo_db, &bs, &dummy);
 
@@ -449,6 +469,8 @@ static int osd_bufs_get_write(const struct lu_env *env, struct osd_object *obj,
 					lnb[i].lnb_data = abuf;
 				else
 					lnb[i].lnb_data = NULL;
+				lnb[i].lnb_data2 = rl;
+				rl = NULL;
 
 				/* this one is not supposed to fail */
 				lnb[i].lnb_page = kmem_to_page(abuf->b_data +
@@ -480,6 +502,8 @@ static int osd_bufs_get_write(const struct lu_env *env, struct osd_object *obj,
 				lnb[i].lnb_len = plen;
 				lnb[i].lnb_rc = 0;
 				lnb[i].lnb_data = NULL;
+				lnb[i].lnb_data2 = rl;
+				rl = NULL;
 
 				lnb[i].lnb_page = alloc_page(OSD_GFP_IO);
 				if (unlikely(lnb[i].lnb_page == NULL))
@@ -504,6 +528,8 @@ static int osd_bufs_get_write(const struct lu_env *env, struct osd_object *obj,
 	RETURN(npages);
 
 out_err:
+	if (rl != NULL)
+		osd_unlock_range(obj, rl);
 	osd_bufs_put(env, &obj->oo_dt, lnb, npages);
 	RETURN(rc);
 }
@@ -758,17 +784,23 @@ static int osd_write_commit(const struct lu_env *env, struct dt_object *dt,
 				lnb[i].lnb_file_offset, lnb[i].lnb_len,
 				kmap(lnb[i].lnb_page), oh->ot_tx);
 			kunmap(lnb[i].lnb_page);
+			osd_zil_log_write(env, oh, dt, lnb[i].lnb_file_offset,
+					  lnb[i].lnb_len);
 		} else if (lnb[i].lnb_data) {
+			int bufsize;
 			LASSERT(((unsigned long)lnb[i].lnb_data & 1) == 0);
 			/* buffer loaned for zerocopy, try to use it.
 			 * notice that dmu_assign_arcbuf() is smart
 			 * enough to recognize changed blocksize
 			 * in this case it fallbacks to dmu_write() */
+			bufsize = arc_buf_size(lnb[i].lnb_data);
 			dmu_assign_arcbuf(obj->oo_db, lnb[i].lnb_file_offset,
 					  lnb[i].lnb_data, oh->ot_tx);
 			/* drop the reference, otherwise osd_put_bufs()
 			 * will be releasing it - bad! */
 			lnb[i].lnb_data = NULL;
+			osd_zil_log_write(env, oh, dt, lnb[i].lnb_file_offset,
+					  bufsize);
 			atomic_dec(&osd->od_zerocopy_loan);
 		}
 
@@ -901,6 +933,12 @@ static int osd_punch(const struct lu_env *env, struct dt_object *dt,
 
 	rc = __osd_object_punch(osd->od_os, obj->oo_db, oh->ot_tx,
 				obj->oo_attr.la_size, start, len);
+
+	LASSERT(oh->ot_rl != NULL);
+	osd_unlock_range(obj, oh->ot_rl);
+	oh->ot_rl = NULL;
+	oh->ot_rl_obj = NULL;
+
 	/* set new size */
 	if (len == DMU_OBJECT_END) {
 		write_lock(&obj->oo_attr_lock);
@@ -909,6 +947,9 @@ static int osd_punch(const struct lu_env *env, struct dt_object *dt,
 		rc = osd_object_sa_update(obj, SA_ZPL_SIZE(osd),
 					  &obj->oo_attr.la_size, 8, oh);
 	}
+
+	osd_zil_update_pack(env, rc, oh, obj, punch, start, end);
+
 	RETURN(rc);
 }
 
@@ -919,6 +960,7 @@ static int osd_declare_punch(const struct lu_env *env, struct dt_object *dt,
 	struct osd_device  *osd = osd_obj2dev(obj);
 	struct osd_thandle *oh;
 	__u64		    len;
+	int		    rc;
 	ENTRY;
 
 	oh = container_of0(handle, struct osd_thandle, ot_super);
@@ -939,6 +981,17 @@ static int osd_declare_punch(const struct lu_env *env, struct dt_object *dt,
 
 	/* ... and we'll modify size attribute */
 	dmu_tx_hold_sa(oh->ot_tx, obj->oo_sa_hdl, 0);
+
+	/* no support for many punches in a single transaction yet */
+	/* we need to lock the range against potential writes from ZIL */
+	LASSERT(oh->ot_rl == NULL);
+	oh->ot_rl = osd_lock_range(obj, start, end - start, 1);
+	if (IS_ERR(oh->ot_rl)) {
+		rc = PTR_ERR(oh->ot_rl);
+		oh->ot_rl = NULL;
+		RETURN(rc);
+	}
+	oh->ot_rl_obj = obj;
 
 	RETURN(osd_declare_quota(env, osd, obj->oo_attr.la_uid,
 				 obj->oo_attr.la_gid, 0, oh, true, NULL,

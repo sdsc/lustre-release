@@ -341,6 +341,23 @@ int out_write_pack(const struct lu_env *env, struct object_update *update,
 }
 EXPORT_SYMBOL(out_write_pack);
 
+int out_punch_pack(const struct lu_env *env, struct object_update *update,
+		   size_t *max_update_size, const struct lu_fid *fid,
+		   loff_t start, loff_t end)
+{
+	__u16		sizes[2] = {sizeof(start), sizeof(end)};
+	const void	*bufs[2] = {(char *)&start, (char *)&end};
+	int		rc;
+
+	start = cpu_to_le64(start);
+	end = cpu_to_le64(end);
+
+	rc = out_update_pack(env, update, max_update_size, OUT_PUNCH, fid,
+			     ARRAY_SIZE(sizes), sizes, bufs);
+	return rc;
+}
+EXPORT_SYMBOL(out_punch_pack);
+
 /**
  * Pack various readonly updates into the update_buffer.
  *
