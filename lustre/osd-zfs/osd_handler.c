@@ -209,10 +209,13 @@ static int osd_trans_start(const struct lu_env *env, struct dt_device *d,
 		 * -ENOSPC when assigning txg */
 		RETURN(-ENOSPC);
 
+	down_read(&osd_dt_dev(d)->od_tx_barrier);
+
 	rc = -dmu_tx_assign(oh->ot_tx, TXG_WAIT);
 	if (unlikely(rc != 0)) {
 		struct osd_device *osd = osd_dt_dev(d);
 		/* dmu will call commit callback with error code during abort */
+		up_read(&osd_dt_dev(d)->od_tx_barrier);
 		if (!lu_device_is_md(&d->dd_lu_dev) && rc == -ENOSPC)
 			CERROR("%s: failed to start transaction due to ENOSPC. "
 			       "Metadata overhead is underestimated or "
@@ -227,6 +230,22 @@ static int osd_trans_start(const struct lu_env *env, struct dt_device *d,
 		lu_context_init(&th->th_ctx, th->th_tags);
 		lu_context_enter(&th->th_ctx);
 		lu_device_get(&d->dd_lu_dev);
+	}
+
+	/* maintain per-th updates for ZIL, do not generate
+	 * updates if we're at ZIL replay currently */
+	if (likely(rc == 0) && osd_dt_dev(d)->od_zil_enabled &&
+	    osd_dt_dev(d)->od_zil_replaying == 0) {
+		struct osd_thread_info *info = osd_oti_get(env);
+		struct object_update_request *rq;
+		lu_buf_check_and_alloc(&info->oti_update_lb, 2048);
+		rq = info->oti_update_lb.lb_buf;
+		if (rq != NULL) {
+			rq->ourq_magic = UPDATE_REQUEST_MAGIC;
+			rq->ourq_count = 0;
+			oh->ot_update = rq;
+			oh->ot_update_max_size = info->oti_update_lb.lb_len;
+		}
 	}
 
 	RETURN(rc);
@@ -247,8 +266,14 @@ static void osd_unlinked_list_emptify(struct osd_device *osd,
 		oid = obj->oo_db->db_object;
 
 		list_del_init(&obj->oo_unlinked_linkage);
-		if (free)
+		if (free) {
+			/* object destroy was postponed as the object is
+			 * still referenced by ZIL records. let's wait
+			 * until that's done. */
+			wait_event(obj->oo_bitlock_wait,
+				   atomic_read(&obj->oo_zil_in_progress) == 0);
 			(void)osd_unlinked_object_free(osd, oid);
+		}
 	}
 }
 
@@ -286,6 +311,12 @@ static int osd_trans_stop(const struct lu_env *env, struct dt_device *dt,
 	INIT_LIST_HEAD(&unlinked);
 	list_splice_init(&oh->ot_unlinked_list, &unlinked);
 
+	if (unlikely(oh->ot_rl != NULL)) {
+		/* punch was declared, but not executed for a reason.
+		 * release the lock taken to protect punch vs. ZIL */
+		osd_unlock_range(oh->ot_rl_obj, oh->ot_rl);
+	}
+
 	if (oh->ot_assigned == 0) {
 		LASSERT(oh->ot_tx);
 		dmu_tx_abort(oh->ot_tx);
@@ -319,9 +350,14 @@ static int osd_trans_stop(const struct lu_env *env, struct dt_device *dt,
 	txg = oh->ot_tx->tx_txg;
 
 	osd_object_sa_dirty_rele(oh);
+
+	osd_zil_make_itx(oh);
+
 	/* XXX: Once dmu_tx_commit() called, oh/th could have been freed
 	 * by osd_trans_commit_cb already. */
 	dmu_tx_commit(oh->ot_tx);
+
+	up_read(&osd->od_tx_barrier);
 
 	osd_unlinked_list_emptify(osd, &unlinked, true);
 
@@ -596,8 +632,28 @@ static void osd_conf_get(const struct lu_env *env,
 static int osd_sync(const struct lu_env *env, struct dt_device *d)
 {
 	struct osd_device  *osd = osd_dt_dev(d);
+	struct timeval	    startat, endat;
+
 	CDEBUG(D_CACHE, "syncing OSD %s\n", LUSTRE_OSD_ZFS_NAME);
-	txg_wait_synced(dmu_objset_pool(osd->od_os), 0ULL);
+
+	do_gettimeofday(&startat);
+
+	if (osd->od_zil_enabled) {
+		int before = atomic_read(&osd->od_recs_to_write);
+		int after;
+		osd_zil_commit(osd);
+		do_gettimeofday(&endat);
+		after = atomic_read(&osd->od_recs_to_write);
+		CDEBUG(D_HA, "%d synced, %d left\n", before - after, after);
+		lprocfs_counter_add(osd->od_stats, LPROC_OSD_ZIL_SYNC,
+				    cfs_timeval_sub(&endat, &startat, NULL));
+	} else {
+		txg_wait_synced(dmu_objset_pool(osd->od_os), 0ULL);
+		do_gettimeofday(&endat);
+		lprocfs_counter_add(osd->od_stats, LPROC_OSD_SYNC,
+				    cfs_timeval_sub(&endat, &startat, NULL));
+	}
+
 	CDEBUG(D_CACHE, "synced OSD %s\n", LUSTRE_OSD_ZFS_NAME);
 	return 0;
 }
@@ -619,9 +675,6 @@ static int osd_commit_async(const struct lu_env *env, struct dt_device *dev)
 	return 0;
 }
 
-/*
- * Concurrency: shouldn't matter.
- */
 static int osd_ro(const struct lu_env *env, struct dt_device *d)
 {
 	struct osd_device  *osd = osd_dt_dev(d);
@@ -629,6 +682,12 @@ static int osd_ro(const struct lu_env *env, struct dt_device *d)
 
 	CERROR("%s: *** setting device %s read-only ***\n",
 	       osd->od_svname, LUSTRE_OSD_ZFS_NAME);
+	if (osd->od_zil_enabled) {
+		/* we disable ZIL first to flush the whole TXG?? */
+		dt_sync(env, d);
+		//osd->od_zil_enabled = 0;
+		/*dt_sync(env, d);*/
+	}
 	osd->od_dev_set_rdonly = 1;
 	spa_freeze(dmu_objset_spa(osd->od_os));
 
@@ -680,15 +739,14 @@ static void osd_key_fini(const struct lu_context *ctx,
 {
 	struct osd_thread_info *info = data;
 
+	lu_buf_free(&info->oti_update_lb);
+	lu_buf_free(&info->oti_lb);
 	OBD_FREE_PTR(info);
 }
 
 static void osd_key_exit(const struct lu_context *ctx,
 			 struct lu_context_key *key, void *data)
 {
-	struct osd_thread_info *info = data;
-
-	memset(info, 0, sizeof(*info));
 }
 
 struct lu_context_key osd_key = {
@@ -944,32 +1002,17 @@ osd_unlinked_drain(const struct lu_env *env, struct osd_device *osd)
 	zap_cursor_fini(&zc);
 }
 
-static int osd_mount(const struct lu_env *env,
-		     struct osd_device *o, struct lustre_cfg *cfg)
+int osd_mount(const struct lu_env *env, struct osd_device *o)
 {
-	char			*mntdev = lustre_cfg_string(cfg, 1);
-	char			*svname = lustre_cfg_string(cfg, 4);
 	dmu_buf_t		*rootdb;
-	const char		*opts;
 	int			 rc;
 	ENTRY;
 
 	if (o->od_os != NULL)
 		RETURN(0);
 
-	if (mntdev == NULL || svname == NULL)
+	if (o->od_mntdev == NULL || o->od_svname == NULL)
 		RETURN(-EINVAL);
-
-	rc = strlcpy(o->od_mntdev, mntdev, sizeof(o->od_mntdev));
-	if (rc >= sizeof(o->od_mntdev))
-		RETURN(-E2BIG);
-
-	rc = strlcpy(o->od_svname, svname, sizeof(o->od_svname));
-	if (rc >= sizeof(o->od_svname))
-		RETURN(-E2BIG);
-
-	if (server_name_is_ost(o->od_svname))
-		o->od_is_ost = 1;
 
 	rc = osd_objset_open(o);
 	if (rc)
@@ -994,36 +1037,8 @@ static int osd_mount(const struct lu_env *env,
 	if (rc)
 		GOTO(err, rc);
 
-	rc = lu_site_init(&o->od_site, osd2lu_dev(o));
-	if (rc)
-		GOTO(err, rc);
-	o->od_site.ls_bottom_dev = osd2lu_dev(o);
-
-	rc = lu_site_init_finish(&o->od_site);
-	if (rc)
-		GOTO(err, rc);
-
-	/* Use our own ZAP for inode accounting by default, this can be changed
-	 * via procfs to estimate the inode usage from the block usage */
-	o->od_quota_iused_est = 0;
-
-	rc = osd_procfs_init(o, o->od_svname);
-	if (rc)
-		GOTO(err, rc);
-
-	/* initialize quota slave instance */
-	o->od_quota_slave = qsd_init(env, o->od_svname, &o->od_dt_dev,
-				     o->od_proc_entry);
-	if (IS_ERR(o->od_quota_slave)) {
-		rc = PTR_ERR(o->od_quota_slave);
-		o->od_quota_slave = NULL;
-		GOTO(err, rc);
-	}
-
-	/* parse mount option "noacl", and enable ACL by default */
-	opts = lustre_cfg_string(cfg, 3);
-	if (opts == NULL || strstr(opts, "noacl") == NULL)
-		o->od_posix_acl = 1;
+	o->od_zilog = zil_open(o->od_os, osd_zil_get_data);
+	o->od_zilog->zl_logbias = ZFS_LOGBIAS_LATENCY;
 
 	osd_unlinked_drain(env, o);
 err:
@@ -1035,7 +1050,7 @@ err:
 	RETURN(rc);
 }
 
-static void osd_umount(const struct lu_env *env, struct osd_device *o)
+void osd_umount(const struct lu_env *env, struct osd_device *o)
 {
 	ENTRY;
 
@@ -1049,9 +1064,20 @@ static void osd_umount(const struct lu_env *env, struct osd_device *o)
 		CERROR("%s: lost %d pinned dbuf(s)\n", o->od_svname,
 		       atomic_read(&o->od_zerocopy_pin));
 
+	osd_oi_fini(env, o);
+
 	if (o->od_os != NULL) {
 		/* force a txg sync to get all commit callbacks */
 		txg_wait_synced(dmu_objset_pool(o->od_os), 0ULL);
+
+		txg_wait_callbacks(spa_get_dsl(dmu_objset_spa(o->od_os)));
+
+		osd_objset_unregister_callbacks(o);
+
+		if (o->od_zilog != NULL) {
+			zil_close(o->od_zilog);
+			o->od_zilog = NULL;
+		}
 
 		/* close the object set */
 		dmu_objset_disown(o->od_os, o);
@@ -1066,6 +1092,9 @@ static int osd_device_init0(const struct lu_env *env,
 			    struct osd_device *o,
 			    struct lustre_cfg *cfg)
 {
+	char			*mntdev = lustre_cfg_string(cfg, 1);
+	char			*svname = lustre_cfg_string(cfg, 4);
+	const char		*opts;
 	struct lu_device	*l = osd2lu_dev(o);
 	int			 rc;
 
@@ -1076,6 +1105,45 @@ static int osd_device_init0(const struct lu_env *env,
 
 	l->ld_ops = &osd_lu_ops;
 	o->od_dt_dev.dd_ops = &osd_dt_ops;
+
+	rc = strlcpy(o->od_mntdev, mntdev, sizeof(o->od_mntdev));
+	if (rc >= sizeof(o->od_mntdev))
+		RETURN(-E2BIG);
+
+	rc = strlcpy(o->od_svname, svname, sizeof(o->od_svname));
+	if (rc >= sizeof(o->od_svname))
+		RETURN(-E2BIG);
+
+	if (server_name_is_ost(o->od_svname))
+		o->od_is_ost = 1;
+
+	/* Use our own ZAP for inode accounting by default, this can be changed
+	 * via procfs to estimate the inode usage from the block usage */
+	o->od_quota_iused_est = 0;
+
+	/* parse mount option "noacl", and enable ACL by default */
+	opts = lustre_cfg_string(cfg, 3);
+	if (opts == NULL || strstr(opts, "noacl") == NULL)
+		o->od_posix_acl = 1;
+
+	rc = lu_site_init(&o->od_site, osd2lu_dev(o));
+	if (rc)
+		GOTO(out, rc);
+	o->od_site.ls_bottom_dev = osd2lu_dev(o);
+
+	rc = lu_site_init_finish(&o->od_site);
+	if (rc)
+		GOTO(out, rc);
+
+	rc = osd_procfs_init(o, o->od_svname);
+	if (rc)
+		GOTO(out, rc);
+
+	o->arc_prune_cb = arc_add_prune_callback(arc_prune_func, o);
+
+	init_rwsem(&o->od_tx_barrier);
+	o->od_zil_enabled = 1;
+	spin_lock_init(&o->od_version_lock);
 
 out:
 	RETURN(rc);
@@ -1088,7 +1156,7 @@ static struct lu_device *osd_device_alloc(const struct lu_env *env,
 					  struct lu_device_type *type,
 					  struct lustre_cfg *cfg)
 {
-	struct osd_device *dev;
+	struct osd_device *dev = NULL;
 	int		   rc;
 
 	OBD_ALLOC_PTR(dev);
@@ -1096,17 +1164,47 @@ static struct lu_device *osd_device_alloc(const struct lu_env *env,
 		return ERR_PTR(-ENOMEM);
 
 	rc = dt_device_init(&dev->od_dt_dev, type);
-	if (rc == 0) {
-		rc = osd_device_init0(env, dev, cfg);
-		if (rc == 0) {
-			rc = osd_mount(env, dev, cfg);
-			if (rc)
-				osd_device_fini(env, osd2lu_dev(dev));
-		}
-		if (rc)
-			dt_device_fini(&dev->od_dt_dev);
+	if (rc < 0)
+		GOTO(out, rc);
+
+	rc = osd_device_init0(env, dev, cfg);
+	if (rc < 0)
+		GOTO(out_dt, rc);
+
+	rc = osd_mount(env, dev);
+	if (rc < 0)
+		GOTO(out_fini, rc);
+
+	dev->od_zil_replaying = 1;
+	rc = osd_zil_replay(env, dev);
+	dev->od_zil_replaying = 0;
+	if (rc < 0) {
+		CERROR("%s: can't replay ZIL: rc = %d\n", dev->od_svname, rc);
+		GOTO(out_fini, rc);
 	}
 
+	rc = osd_zil_init(env, dev);
+	if (rc < 0) {
+		CERROR("%s: can't init ZIL: rc = %d\n", dev->od_svname, rc);
+		GOTO(out_fini, rc);
+	}
+
+	/* initialize quota slave instance */
+	dev->od_quota_slave = qsd_init(env, dev->od_svname, &dev->od_dt_dev,
+				       dev->od_proc_entry);
+	if (IS_ERR(dev->od_quota_slave)) {
+		rc = PTR_ERR(dev->od_quota_slave);
+		dev->od_quota_slave = NULL;
+		GOTO(out_fini, rc);
+	}
+
+	if (rc < 0) {
+out_fini:
+		osd_device_fini(env, osd2lu_dev(dev));
+out_dt:
+		dt_device_fini(&dev->od_dt_dev);
+	}
+out:
 	if (unlikely(rc != 0))
 		OBD_FREE_PTR(dev);
 
@@ -1120,13 +1218,6 @@ static struct lu_device *osd_device_free(const struct lu_env *env,
 	ENTRY;
 
 	/* XXX: make osd top device in order to release reference */
-	d->ld_site->ls_top_dev = d;
-	lu_site_purge(env, d->ld_site, -1);
-	if (!cfs_hash_is_empty(d->ld_site->ls_obj_hash)) {
-		LIBCFS_DEBUG_MSG_DATA_DECL(msgdata, D_ERROR, NULL);
-		lu_site_print(env, d->ld_site, &msgdata, lu_cdebug_printer);
-	}
-	lu_site_fini(&o->od_site);
 	dt_device_fini(&o->od_dt_dev);
 	OBD_FREE_PTR(o);
 
@@ -1140,15 +1231,9 @@ static struct lu_device *osd_device_fini(const struct lu_env *env,
 	int		   rc;
 	ENTRY;
 
+	osd_zil_commit(o);
 
 	osd_shutdown(env, o);
-	osd_oi_fini(env, o);
-
-	if (o->od_os) {
-		osd_objset_unregister_callbacks(o);
-		osd_sync(env, lu2dt_dev(d));
-		txg_wait_callbacks(spa_get_dsl(dmu_objset_spa(o->od_os)));
-	}
 
 	rc = osd_procfs_fini(o);
 	if (rc) {
@@ -1156,8 +1241,21 @@ static struct lu_device *osd_device_fini(const struct lu_env *env,
 		RETURN(ERR_PTR(rc));
 	}
 
-	if (o->od_os)
+	if (o->od_os) {
+		osd_zil_fini(o);
 		osd_umount(env, o);
+	}
+	if (o->od_max_range_locks > 0)
+		LCONSOLE_INFO("%s: max %u range locks per object\n",
+			      o->od_svname, o->od_max_range_locks);
+
+	d->ld_site->ls_top_dev = d;
+	lu_site_purge(env, d->ld_site, -1);
+	if (!cfs_hash_is_empty(d->ld_site->ls_obj_hash)) {
+		LIBCFS_DEBUG_MSG_DATA_DECL(msgdata, D_ERROR, NULL);
+		lu_site_print(env, d->ld_site, &msgdata, lu_cdebug_printer);
+	}
+	lu_site_fini(&o->od_site);
 
 	RETURN(NULL);
 }
@@ -1181,7 +1279,7 @@ static int osd_process_config(const struct lu_env *env,
 
 	switch(cfg->lcfg_command) {
 	case LCFG_SETUP:
-		rc = osd_mount(env, o, cfg);
+		rc = osd_mount(env, o);
 		break;
 	case LCFG_CLEANUP:
 		rc = osd_shutdown(env, o);

@@ -2555,12 +2555,17 @@ fail_nodf() {
 
 fail_abort() {
 	local facet=$1
+	local ret
 	stop $facet
 	change_active $facet
 	wait_for_facet $facet
 	mount_facet $facet -o abort_recovery
-	clients_up || echo "first df failed: $?"
-	clients_up || error "post-failover df: $?"
+	ret=$?
+	if [[ $ret -eq 0 ]]; then
+		clients_up || echo "first df failed: $?"
+		clients_up || error "post-failover df: $?"
+	fi
+	return $ret
 }
 
 do_lmc() {

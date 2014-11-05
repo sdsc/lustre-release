@@ -135,16 +135,18 @@ osd_oi_lookup(const struct lu_env *env, struct osd_device *o,
 }
 
 /**
- * Create a new OI with the given name.
+ * Create a new OI with the given name. if *child isn't 0, then
+ * it contains exact dnode # to claim for creation. this is used
+ * in ZIL support.
  */
-static int
-osd_oi_create(const struct lu_env *env, struct osd_device *o,
-	      uint64_t parent, const char *name, uint64_t *child)
+int osd_oi_create(const struct lu_env *env, struct osd_device *o,
+		  uint64_t parent, const char *name, uint64_t *child)
 {
 	struct zpl_direntry	*zde = &osd_oti_get(env)->oti_zde.lzd_reg;
 	struct lu_attr		*la = &osd_oti_get(env)->oti_la;
 	dmu_buf_t		*db;
 	dmu_tx_t		*tx;
+	uint64_t		 oid;
 	int			 rc;
 
 	/* verify it doesn't already exist */
@@ -169,20 +171,50 @@ osd_oi_create(const struct lu_env *env, struct osd_device *o,
 		return rc;
 	}
 
+	if (*child != 0) {
+		/* XXX: there is no way to pass ZAP_FLAG_HASH64 and
+		 *	blockshift. ZFS code should be changed */
+		rc = zap_create_claim(o->od_os, *child,
+				      DMU_OT_DIRECTORY_CONTENTS,
+				      DMU_OT_SA, DN_MAX_BONUSLEN, tx);
+		if (rc < 0)
+			GOTO(out, rc);
+		oid = *child;
+	} else {
+		oid = zap_create_flags(o->od_os, 0, ZAP_FLAG_HASH64,
+				       DMU_OT_DIRECTORY_CONTENTS,
+				       14, /* == ZFS fzap_default_block_shift */
+				       DN_MAX_INDBLKSHIFT, /* ind.block shift */
+				       DMU_OT_SA, DN_MAX_BONUSLEN, tx);
+	}
+
+	rc = -sa_buf_hold(o->od_os, oid, osd_obj_tag, &db);
+	if (rc < 0)
+		GOTO(out, rc);
+
 	la->la_valid = LA_MODE | LA_UID | LA_GID;
 	la->la_mode = S_IFDIR | S_IRUGO | S_IWUSR | S_IXUGO;
 	la->la_uid = la->la_gid = 0;
-	__osd_zap_create(env, o, &db, tx, la, parent, 0);
+	la->la_size = 2;
+	la->la_nlink = 1;
 
-	zde->zde_dnode = db->db_object;
+	rc = __osd_attr_init(env, o, oid, tx, la, parent);
+	if (rc < 0)
+		GOTO(out, rc);
+
+	zde->zde_dnode = oid;
 	zde->zde_pad = 0;
 	zde->zde_type = IFTODT(S_IFDIR);
 
 	rc = -zap_add(o->od_os, parent, name, 8, 1, (void *)zde, tx);
 
+	osd_zil_log_create(o, parent, name, oid, tx);
+
+out:
 	dmu_tx_commit(tx);
 
-	*child = db->db_object;
+	if (rc == 0)
+		*child = db->db_object;
 	sa_buf_rele(db, osd_obj_tag);
 
 	return rc;
@@ -198,8 +230,10 @@ osd_oi_find_or_create(const struct lu_env *env, struct osd_device *o,
 	rc = osd_oi_lookup(env, o, parent, name, &oi);
 	if (rc == 0)
 		*child = oi.oi_zapid;
-	else if (rc == -ENOENT)
+	else if (rc == -ENOENT) {
+		*child = 0;
 		rc = osd_oi_create(env, o, parent, name, child);
+	}
 
 	return rc;
 }
@@ -212,6 +246,11 @@ int osd_fld_lookup(const struct lu_env *env, struct osd_device *osd,
 		   u64 seq, struct lu_seq_range *range)
 {
 	struct seq_server_site	*ss = osd_seq_site(osd);
+
+	if (unlikely(ss == NULL)) {
+		/* FLDB is not ready yet - ZIL replay in progress */
+		return -EAGAIN;
+	}
 
 	if (fid_seq_is_idif(seq)) {
 		fld_range_set_ost(range);
@@ -238,6 +277,9 @@ int fid_is_on_ost(const struct lu_env *env, struct osd_device *osd,
 		  const struct lu_fid *fid)
 {
 	struct lu_seq_range	*range = &osd_oti_get(env)->oti_seq_range;
+	struct zpl_direntry	*zde = &osd_oti_get(env)->oti_fld_zde.lzd_reg;
+	char			*seq_name = osd_oti_get(env)->oti_str;
+	__u64			 seq;
 	int			rc;
 	ENTRY;
 
@@ -249,17 +291,41 @@ int fid_is_on_ost(const struct lu_env *env, struct osd_device *osd,
 		RETURN(0);
 
 	rc = osd_fld_lookup(env, osd, fid_seq(fid), range);
-	if (rc != 0) {
-		if (rc != -ENOENT)
-			CERROR("%s: "DFID" lookup failed: rc = %d\n",
-			       osd_name(osd), PFID(fid), rc);
+	if (likely(rc == 0))
+		RETURN(!!fld_range_is_ost(range));
+	if (unlikely(rc == -ENOENT))
 		RETURN(0);
+	if (unlikely(rc != -EAGAIN)) {
+		CERROR("%s: "DFID" lookup failed: rc = %d\n",
+		       osd_name(osd), PFID(fid), rc);
+		RETURN(rc);
 	}
 
-	if (fld_range_is_ost(range))
-		RETURN(1);
+	if (osd->od_zil_replaying == 0)
+		RETURN(0);
 
-	RETURN(0);
+	/* FLDB is not ready (ZIL replay at mount), but we log sequence
+	 * map creations, so if the map for the sequence exists, then it
+	 * is an OST object. */
+
+	seq = fid_seq(fid);
+	snprintf(seq_name, sizeof(osd_oti_get(env)->oti_str),
+		(fid_seq_is_rsvd(seq) || fid_seq_is_mdt0(seq)) ?  LPU64 : LPX64,
+		fid_seq_is_idif(seq) ? 0 : seq);
+	rc = -zap_lookup(osd->od_os, osd->od_O_id, seq_name, 8, 1, (void *)zde);
+	if (rc == 0) {
+		LASSERT(osd->od_is_ost != 0);
+		rc = 1;
+	} else if (rc == -ENOENT) {
+		rc = 0;
+		if (osd->od_is_ost != 0)
+			CERROR("%s: can't find "DFID"\n",
+			       osd->od_svname, PFID(fid));
+	} else if (rc < 0) {
+		CERROR("%s: lookup failed: rc = %d\n", osd_name(osd), rc);
+	}
+
+	RETURN(rc);
 }
 
 static struct osd_seq *osd_seq_find_locked(struct osd_seq_list *seq_list,

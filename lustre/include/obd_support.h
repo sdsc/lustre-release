@@ -275,6 +275,8 @@ extern char obd_jobid_var[];
 #define OBD_FAIL_OSD_COMPAT_INVALID_ENTRY		0x195
 #define OBD_FAIL_OSD_COMPAT_NO_ENTRY			0x196
 #define OBD_FAIL_OSD_OST_EA_FID_SET			0x197
+#define OBD_FAIL_OSD_ZIL_REPLAY				0x198
+#define OBD_FAIL_OSD_LOG_REPLAY				0x199
 
 #define OBD_FAIL_OST                     0x200
 #define OBD_FAIL_OST_CONNECT_NET         0x201
@@ -474,6 +476,7 @@ extern char obd_jobid_var[];
 #define OBD_FAIL_SEQ                     0x1000
 #define OBD_FAIL_SEQ_QUERY_NET           0x1001
 #define OBD_FAIL_SEQ_EXHAUST		 0x1002
+#define OBD_FAIL_SEQ_OSP_EXHAUST	 0x1003
 
 #define OBD_FAIL_FLD                     0x1100
 #define OBD_FAIL_FLD_QUERY_NET           0x1101

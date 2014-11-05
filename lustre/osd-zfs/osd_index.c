@@ -664,6 +664,8 @@ out:
 	if (child != NULL)
 		osd_object_put(env, child);
 
+	osd_zil_update_pack(env, rc, oh, parent, index_insert, rec, key);
+
 	RETURN(rc);
 }
 
@@ -730,6 +732,8 @@ static int osd_dir_delete(const struct lu_env *env, struct dt_object *dt,
 
 	if (unlikely(rc && rc != -ENOENT))
 		CERROR("%s: zap_remove failed: rc = %d\n", osd->od_svname, rc);
+
+	osd_zil_update_pack(env, rc, oh, obj, index_delete, key);
 
 	RETURN(rc);
 }
@@ -1187,7 +1191,7 @@ static int osd_index_insert(const struct lu_env *env, struct dt_object *dt,
 	struct osd_device  *osd = osd_obj2dev(obj);
 	struct osd_thandle *oh;
 	__u64		   *k = osd_oti_get(env)->oti_key64;
-	int                 rc;
+	int                 rc, klen;
 	ENTRY;
 
 	LASSERT(obj->oo_db);
@@ -1197,12 +1201,17 @@ static int osd_index_insert(const struct lu_env *env, struct dt_object *dt,
 
 	oh = container_of0(th, struct osd_thandle, ot_super);
 
-	rc = osd_prepare_key_uint64(obj, k, key);
+	klen = osd_prepare_key_uint64(obj, k, key);
 
 	/* Insert (key,oid) into ZAP */
 	rc = -zap_add_uint64(osd->od_os, obj->oo_db->db_object,
-			     k, rc, obj->oo_recusize, obj->oo_recsize,
+			     k, klen, obj->oo_recusize, obj->oo_recsize,
 			     (void *)rec, oh->ot_tx);
+
+	osd_zil_update_pack(env, rc, oh, obj, index_bin_insert, rec,
+			    obj->oo_recusize * obj->oo_recsize, key,
+			    obj->oo_keysize);
+
 	RETURN(rc);
 }
 
@@ -1233,18 +1242,22 @@ static int osd_index_delete(const struct lu_env *env, struct dt_object *dt,
 	struct osd_device  *osd = osd_obj2dev(obj);
 	struct osd_thandle *oh;
 	__u64		   *k = osd_oti_get(env)->oti_key64;
-	int                 rc;
+	int                 rc, klen;
 	ENTRY;
 
 	LASSERT(obj->oo_db);
 	LASSERT(th != NULL);
 	oh = container_of0(th, struct osd_thandle, ot_super);
 
-	rc = osd_prepare_key_uint64(obj, k, key);
+	klen = osd_prepare_key_uint64(obj, k, key);
 
 	/* Remove binary key from the ZAP */
 	rc = -zap_remove_uint64(osd->od_os, obj->oo_db->db_object,
-				k, rc, oh->ot_tx);
+				k, klen, oh->ot_tx);
+
+	osd_zil_update_pack(env, rc, oh, obj, index_bin_delete, key,
+			    obj->oo_keysize);
+
 	RETURN(rc);
 }
 
