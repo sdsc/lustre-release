@@ -184,7 +184,7 @@ osd_object_sa_bulk_update(struct osd_object *obj, sa_bulk_attr_t *attrs,
  * Retrieve the attributes of a DMU object
  */
 int __osd_object_attr_get(const struct lu_env *env, struct osd_device *o,
-			  struct osd_object *obj, struct lu_attr *la)
+			  uint64_t oid, struct lu_attr *la)
 {
 	struct osa_attr	*osa = &osd_oti_get(env)->oti_osa;
 	sa_handle_t	*sa_hdl;
@@ -193,10 +193,7 @@ int __osd_object_attr_get(const struct lu_env *env, struct osd_device *o,
 	int		 rc;
 	ENTRY;
 
-	LASSERT(obj->oo_db != NULL);
-
-	rc = -sa_handle_get(o->od_os, obj->oo_db->db_object, NULL,
-			    SA_HDL_PRIVATE, &sa_hdl);
+	rc = -sa_handle_get(o->od_os, oid, NULL, SA_HDL_PRIVATE, &sa_hdl);
 	if (rc)
 		RETURN(rc);
 
@@ -322,7 +319,8 @@ int osd_object_init0(const struct lu_env *env, struct osd_object *obj)
 		RETURN(rc);
 
 	/* cache attrs in object */
-	rc = __osd_object_attr_get(env, osd, obj, &obj->oo_attr);
+	rc = __osd_object_attr_get(env, osd, obj->oo_db->db_object,
+				   &obj->oo_attr);
 	if (rc)
 		RETURN(rc);
 
@@ -334,6 +332,7 @@ int osd_object_init0(const struct lu_env *env, struct osd_object *obj)
 	 * initialize object before marking it existing
 	 */
 	obj->oo_dt.do_lu.lo_header->loh_attr |= obj->oo_attr.la_mode & S_IFMT;
+	obj->oo_init_version = osd->od_version_sync;
 
 	smp_mb();
 	obj->oo_dt.do_lu.lo_header->loh_attr |= LOHA_EXISTS;
@@ -427,8 +426,28 @@ out:
 static void osd_object_free(const struct lu_env *env, struct lu_object *l)
 {
 	struct osd_object *obj = osd_obj(l);
+	struct osd_device *osd = osd_obj2dev(obj);
+	__u64		   version;
 
 	LASSERT(osd_invariant(obj));
+
+	LASSERT(atomic_read(&obj->oo_zil_in_progress) == 0);
+	if (obj->oo_range_head != NULL) {
+		if (obj->oo_range_head->ord_max > osd->od_max_range_locks)
+			osd->od_max_range_locks = obj->oo_range_head->ord_max;
+		OBD_FREE_PTR(obj->oo_range_head);
+	}
+
+	version = obj->oo_init_version + atomic_read(&obj->oo_version);
+	if (version > osd->od_version_sync) {
+		/* the next time this object is loaded it will get version
+		 * greater or equal the current one. this way we ensure that
+		 * object reload don't confuse version */
+		spin_lock(&osd->od_version_lock);
+		if (version > osd->od_version_sync)
+			osd->od_version_sync = version;
+		spin_unlock(&osd->od_version_lock);
+	}
 
 	dt_object_fini(&obj->oo_dt);
 	OBD_SLAB_FREE_PTR(obj, osd_object_kmem);
@@ -524,8 +543,8 @@ static int osd_declare_object_destroy(const struct lu_env *env,
 	if (obj->oo_destroy == OSD_DESTROY_SYNC)
 		dmu_tx_hold_free(oh->ot_tx, obj->oo_db->db_object,
 				 0, DMU_OBJECT_END);
-	else
-		dmu_tx_hold_zap(oh->ot_tx, osd->od_unlinkedid, TRUE, NULL);
+	/* we can postpone dnode destroy due to ZIL */
+	dmu_tx_hold_zap(oh->ot_tx, osd->od_unlinkedid, TRUE, NULL);
 
 	RETURN(0);
 }
@@ -549,6 +568,12 @@ static int osd_object_destroy(const struct lu_env *env,
 	oh = container_of0(th, struct osd_thandle, ot_super);
 	LASSERT(oh != NULL);
 	LASSERT(oh->ot_tx != NULL);
+
+	/* not needed in the cache anymore */
+	/* set early to block interaction with ZIL (dmu_sync(), dmu_read()) */
+	set_bit(LU_OBJECT_HEARD_BANSHEE, &dt->do_lu.lo_header->loh_flags);
+	if (atomic_read(&obj->oo_zil_in_progress) > 0)
+		obj->oo_destroy = OSD_DESTROY_ASYNC;
 
 	/* remove obj ref from index dir (it depends) */
 	zapid = osd_get_name_n_idx(env, osd, fid, buf);
@@ -611,10 +636,10 @@ static int osd_object_destroy(const struct lu_env *env,
 	}
 
 out:
-	/* not needed in the cache anymore */
-	set_bit(LU_OBJECT_HEARD_BANSHEE, &dt->do_lu.lo_header->loh_flags);
 	if (rc == 0)
 		obj->oo_destroyed = 1;
+	osd_zil_update_pack(env, rc, oh, obj, object_destroy);
+
 	RETURN (0);
 }
 
@@ -1008,6 +1033,9 @@ static int osd_attr_set(const struct lu_env *env, struct dt_object *dt,
 	rc = osd_object_sa_bulk_update(obj, bulk, cnt, oh);
 
 	OBD_FREE(bulk, sizeof(sa_bulk_attr_t) * 10);
+
+	osd_zil_update_pack(env, rc, oh, obj, attr_set, la);
+
 	RETURN(rc);
 }
 
@@ -1498,6 +1526,8 @@ static int osd_object_create(const struct lu_env *env, struct dt_object *dt,
 		rc = 0;
 	}
 
+	osd_zil_update_pack(env, rc, oh, obj, create, attr, hint, dof);
+
 out:
 	up(&obj->oo_guard);
 	RETURN(rc);
@@ -1538,6 +1568,9 @@ static int osd_object_ref_add(const struct lu_env *env,
 	write_unlock(&obj->oo_attr_lock);
 
 	rc = osd_object_sa_update(obj, SA_ZPL_LINKS(osd), &nlink, 8, oh);
+
+	osd_zil_update_pack(env, rc, oh, obj, ref_add);
+
 	return rc;
 }
 
@@ -1575,20 +1608,42 @@ static int osd_object_ref_del(const struct lu_env *env,
 	write_unlock(&obj->oo_attr_lock);
 
 	rc = osd_object_sa_update(obj, SA_ZPL_LINKS(osd), &nlink, 8, oh);
+
+	osd_zil_update_pack(env, rc, oh, obj, ref_del);
+
 	RETURN(rc);
 }
 
 static int osd_object_sync(const struct lu_env *env, struct dt_object *dt,
 			   __u64 start, __u64 end)
 {
-	struct osd_device *osd = osd_obj2dev(osd_dt_obj(dt));
+	struct osd_device	*osd = osd_obj2dev(osd_dt_obj(dt));
+	struct osd_object	*obj = osd_dt_obj(dt);
+	dmu_buf_impl_t		*db = (dmu_buf_impl_t *)obj->oo_db;
+	struct timeval		 startat, endat;
+	uint64_t		 txg = 0;
 	ENTRY;
 
-	/* XXX: no other option than syncing the whole filesystem until we
-	 * support ZIL.  If the object tracked the txg that it was last
-	 * modified in, it could pass that txg here instead of "0".  Maybe
-	 * the changes are already committed, so no wait is needed at all? */
-	txg_wait_synced(dmu_objset_pool(osd->od_os), 0ULL);
+	if (unlikely(db == NULL))
+		RETURN(0);
+
+	do_gettimeofday(&startat);
+
+	if (osd->od_zil_enabled) {
+		CDEBUG(D_CACHE, "sync to %llu\n", obj->oo_db->db_object);
+		/* in this version we sync everything */
+		osd_zil_commit(osd);
+		do_gettimeofday(&endat);
+		lprocfs_counter_add(osd->od_stats, LPROC_OSD_ZIL_SYNC,
+				    cfs_timeval_sub(&endat, &startat, NULL));
+		RETURN(0);
+	}
+
+	txg_wait_synced(dmu_objset_pool(osd->od_os), txg);
+
+	do_gettimeofday(&endat);
+	lprocfs_counter_add(osd->od_stats, LPROC_OSD_SYNC,
+			    cfs_timeval_sub(&endat, &startat, NULL));
 
 	RETURN(0);
 }
