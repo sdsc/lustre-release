@@ -98,6 +98,7 @@ const char *lfsck_param_names[] = {
 	"broadcast",
 	"orphan",
 	"create_ostobj",
+	"create_mdtobj",
 	NULL
 };
 
