@@ -205,8 +205,7 @@ static ssize_t osd_write(const struct lu_env *env, struct dt_object *dt,
 	struct osd_device  *osd = osd_obj2dev(obj);
 	struct osd_thandle *oh;
 	uint64_t            offset = *pos;
-	int                 rc;
-
+	int                 rc = 0;
 	ENTRY;
 
 	LASSERT(dt_object_exists(dt));
@@ -233,6 +232,11 @@ static ssize_t osd_write(const struct lu_env *env, struct dt_object *dt,
 	} else {
 		write_unlock(&obj->oo_attr_lock);
 	}
+
+	if (osd_use_zil(oh, rc))
+		out_write_pack(env, &oh->ot_buf,
+			       lu_object_fid(&dt->do_lu), buf, *pos,
+			       atomic_inc_return(&obj->oo_version));
 
 	*pos += buf->lb_len;
 	rc = buf->lb_len;
@@ -280,9 +284,11 @@ static int osd_bufs_put(const struct lu_env *env, struct dt_object *dt,
 				ptr &= ~1UL;
 				dmu_buf_rele((void *)ptr, osd_zerocopy_tag);
 				atomic_dec(&osd->od_zerocopy_pin);
+				osd_unlock_offset(obj, lnb[i].lnb_file_offset);
 			} else if (lnb[i].lnb_data != NULL) {
 				dmu_return_arcbuf(lnb[i].lnb_data);
 				atomic_dec(&osd->od_zerocopy_loan);
+				osd_unlock_offset(obj, lnb[i].lnb_file_offset);
 			}
 		}
 		lnb[i].lnb_page = NULL;
@@ -339,6 +345,9 @@ static int osd_bufs_get_read(const struct lu_env *env, struct osd_object *obj,
 	 * can get own replacement for dmu_buf_hold_array_by_bonus().
 	 */
 	while (len > 0) {
+
+		osd_lock_offset(obj, off);
+
 		rc = -dmu_buf_hold_array_by_bonus(obj->oo_db, off, len, TRUE,
 						  osd_zerocopy_tag, &numbufs,
 						  &dbp);
@@ -435,6 +444,8 @@ static int osd_bufs_get_write(const struct lu_env *env, struct osd_object *obj,
 				GOTO(out_err, rc = -ENOMEM);
 
 			atomic_inc(&osd->od_zerocopy_loan);
+
+			osd_lock_offset(obj, off);
 
 			/* go over pages arcbuf contains, put them as
 			 * local niobufs for ptlrpc's bulks */
@@ -757,6 +768,8 @@ static int osd_write_commit(const struct lu_env *env, struct dt_object *dt,
 				lnb[i].lnb_file_offset, lnb[i].lnb_len,
 				kmap(lnb[i].lnb_page), oh->ot_tx);
 			kunmap(lnb[i].lnb_page);
+			osd_zil_log_write(env, oh, dt, lnb[i].lnb_file_offset,
+					  lnb[i].lnb_len);
 		} else if (lnb[i].lnb_data) {
 			LASSERT(((unsigned long)lnb[i].lnb_data & 1) == 0);
 			/* buffer loaned for zerocopy, try to use it.
@@ -767,6 +780,9 @@ static int osd_write_commit(const struct lu_env *env, struct dt_object *dt,
 					  lnb[i].lnb_data, oh->ot_tx);
 			/* drop the reference, otherwise osd_put_bufs()
 			 * will be releasing it - bad! */
+			osd_zil_log_write(env, oh, dt, lnb[i].lnb_file_offset,
+					  arc_buf_size(lnb[i].lnb_data));
+			osd_unlock_offset(obj, lnb[i].lnb_file_offset);
 			lnb[i].lnb_data = NULL;
 			atomic_dec(&osd->od_zerocopy_loan);
 		}
@@ -908,6 +924,13 @@ static int osd_punch(const struct lu_env *env, struct dt_object *dt,
 		rc = osd_object_sa_update(obj, SA_ZPL_SIZE(osd),
 					  &obj->oo_attr.la_size, 8, oh);
 	}
+#if 0
+	if (osd_use_zil(oh, rc))
+		out_write_pack(env, &oh->ot_buf,
+			       lu_object_fid(&dt->do_lu), buf, *pos,
+			       atomic_inc_return(&obj->oo_version));
+#endif
+
 	RETURN(rc);
 }
 
