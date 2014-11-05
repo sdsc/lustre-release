@@ -68,6 +68,14 @@
 
 static char *osd_zerocopy_tag = "zerocopy";
 
+struct osd_iobuf {
+	struct osd_range_lock	*oio_rl;
+	union {
+		arc_buf_t	*oio_abuf;
+		dmu_buf_t	*oio_dbuf;
+	};
+	int			oio_type;	/* 1 - arcbuf, 2 - dbuf */
+};
 
 static void record_start_io(struct osd_device *osd, int rw, int discont_pages)
 {
@@ -205,8 +213,7 @@ static ssize_t osd_write(const struct lu_env *env, struct dt_object *dt,
 	struct osd_device  *osd = osd_obj2dev(obj);
 	struct osd_thandle *oh;
 	uint64_t            offset = *pos;
-	int                 rc;
-
+	int                 rc = 0;
 	ENTRY;
 
 	LASSERT(dt_object_exists(dt));
@@ -234,6 +241,11 @@ static ssize_t osd_write(const struct lu_env *env, struct dt_object *dt,
 		write_unlock(&obj->oo_attr_lock);
 	}
 
+	if (osd_use_zil(oh, rc))
+		out_write_pack(env, &oh->ot_buf,
+			       lu_object_fid(&dt->do_lu), buf, *pos,
+			       atomic_inc_return(&obj->oo_version));
+
 	*pos += buf->lb_len;
 	rc = buf->lb_len;
 
@@ -259,31 +271,37 @@ static int osd_bufs_put(const struct lu_env *env, struct dt_object *dt,
 {
 	struct osd_object *obj  = osd_dt_obj(dt);
 	struct osd_device *osd = osd_obj2dev(obj);
-	unsigned long      ptr;
 	int                i;
 
 	LASSERT(dt_object_exists(dt));
 	LASSERT(obj->oo_db);
 
 	for (i = 0; i < npages; i++) {
-		if (lnb[i].lnb_page == NULL)
+		if (lnb[i].lnb_page == NULL) {
+			LASSERT(lnb[i].lnb_data == NULL);
 			continue;
+		}
 		if (lnb[i].lnb_page->mapping == (void *)obj) {
 			/* this is anonymous page allocated for copy-write */
 			lnb[i].lnb_page->mapping = NULL;
 			__free_page(lnb[i].lnb_page);
 			atomic_dec(&osd->od_zerocopy_alloc);
-		} else {
-			/* see comment in osd_bufs_get_read() */
-			ptr = (unsigned long)lnb[i].lnb_data;
-			if (ptr & 1UL) {
-				ptr &= ~1UL;
-				dmu_buf_rele((void *)ptr, osd_zerocopy_tag);
-				atomic_dec(&osd->od_zerocopy_pin);
-			} else if (lnb[i].lnb_data != NULL) {
-				dmu_return_arcbuf(lnb[i].lnb_data);
+		}
+		if (lnb[i].lnb_data != NULL) {
+			struct osd_iobuf *iob = lnb[i].lnb_data;
+			if (iob->oio_type == 1) {
+				LASSERT(iob->oio_abuf != NULL);
+				dmu_return_arcbuf(iob->oio_abuf);
 				atomic_dec(&osd->od_zerocopy_loan);
+				iob->oio_abuf = NULL;
+			} else if (iob->oio_type == 2) {
+				dmu_buf_rele(iob->oio_dbuf, osd_zerocopy_tag);
+				atomic_dec(&osd->od_zerocopy_pin);
+				iob->oio_dbuf = NULL;
 			}
+			if (iob->oio_rl != NULL)
+				osd_unlock_range(obj, iob->oio_rl);
+			OBD_FREE_PTR(iob);
 		}
 		lnb[i].lnb_page = NULL;
 		lnb[i].lnb_data = NULL;
@@ -326,8 +344,14 @@ static int osd_bufs_get_read(const struct lu_env *env, struct osd_object *obj,
 	struct osd_device *osd = osd_obj2dev(obj);
 	unsigned long	   start = cfs_time_current();
 	int                rc, i, numbufs, npages = 0;
+	struct osd_range_lock	*rl = NULL;
 	dmu_buf_t	 **dbp;
+	struct osd_iobuf	*iob;
 	ENTRY;
+
+	rl = osd_lock_range(obj, off, len, 0);
+	if (IS_ERR(rl))
+		RETURN(PTR_ERR(rl));
 
 	record_start_io(osd, READ, 0);
 
@@ -339,6 +363,7 @@ static int osd_bufs_get_read(const struct lu_env *env, struct osd_object *obj,
 	 * can get own replacement for dmu_buf_hold_array_by_bonus().
 	 */
 	while (len > 0) {
+
 		rc = -dmu_buf_hold_array_by_bonus(obj->oo_db, off, len, TRUE,
 						  osd_zerocopy_tag, &numbufs,
 						  &dbp);
@@ -347,7 +372,6 @@ static int osd_bufs_get_read(const struct lu_env *env, struct osd_object *obj,
 
 		for (i = 0; i < numbufs; i++) {
 			int bufoff, tocpy, thispage;
-			void *dbf = dbp[i];
 
 			LASSERT(len > 0);
 
@@ -356,9 +380,14 @@ static int osd_bufs_get_read(const struct lu_env *env, struct osd_object *obj,
 			bufoff = off - dbp[i]->db_offset;
 			tocpy = min_t(int, dbp[i]->db_size - bufoff, len);
 
-			/* kind of trick to differentiate dbuf vs. arcbuf */
-			LASSERT(((unsigned long)dbp[i] & 1) == 0);
-			dbf = (void *) ((unsigned long)dbp[i] | 1);
+			OBD_ALLOC_PTR(iob);
+			if (iob == NULL)
+				GOTO(err, rc = -ENOMEM);
+			iob->oio_rl = rl;
+			rl = NULL; /* single lock for the whole range */
+			iob->oio_type = 2;
+			iob->oio_dbuf = dbp[i];
+			lnb->lnb_data = iob;
 
 			while (tocpy > 0) {
 				thispage = PAGE_CACHE_SIZE;
@@ -371,10 +400,6 @@ static int osd_bufs_get_read(const struct lu_env *env, struct osd_object *obj,
 				lnb->lnb_len = thispage;
 				lnb->lnb_page = kmem_to_page(dbp[i]->db_data +
 							     bufoff);
-				/* mark just a single slot: we need this
-				 * reference to dbuf to be released once */
-				lnb->lnb_data = dbf;
-				dbf = NULL;
 
 				tocpy -= thispage;
 				len -= thispage;
@@ -400,6 +425,8 @@ static int osd_bufs_get_read(const struct lu_env *env, struct osd_object *obj,
 
 err:
 	LASSERT(rc < 0);
+	if (rl != NULL)
+		osd_unlock_range(obj, rl);
 	osd_bufs_put(env, &obj->oo_dt, lnb - npages, npages);
 	RETURN(rc);
 }
@@ -410,10 +437,16 @@ static int osd_bufs_get_write(const struct lu_env *env, struct osd_object *obj,
 	struct osd_device *osd = osd_obj2dev(obj);
 	int                plen, off_in_block, sz_in_block;
 	int                rc, i = 0, npages = 0;
+	struct osd_range_lock	*rl = NULL;
 	arc_buf_t         *abuf;
+	struct osd_iobuf  *iob;
 	uint32_t           bs;
 	uint64_t           dummy;
 	ENTRY;
+
+	rl = osd_lock_range(obj, off, len, 1);
+	if (IS_ERR(rl))
+		RETURN(PTR_ERR(rl));
 
 	dmu_object_size_from_db(obj->oo_db, &bs, &dummy);
 
@@ -445,10 +478,20 @@ static int osd_bufs_get_write(const struct lu_env *env, struct osd_object *obj,
 				lnb[i].lnb_page_offset = 0;
 				lnb[i].lnb_len = plen;
 				lnb[i].lnb_rc = 0;
-				if (sz_in_block == bs)
-					lnb[i].lnb_data = abuf;
-				else
-					lnb[i].lnb_data = NULL;
+				lnb[i].lnb_data = NULL;
+
+				if (sz_in_block == bs) {
+					OBD_ALLOC_PTR(iob);
+					if (unlikely(iob == NULL)) {
+						dmu_return_arcbuf(abuf);
+						GOTO(out_err, rc = -ENOMEM);
+					}
+					iob->oio_type = 1;
+					iob->oio_rl = rl;
+					iob->oio_abuf = abuf;
+					lnb[i].lnb_data = iob;
+					rl = NULL;
+				}
 
 				/* this one is not supposed to fail */
 				lnb[i].lnb_page = kmem_to_page(abuf->b_data +
@@ -481,6 +524,16 @@ static int osd_bufs_get_write(const struct lu_env *env, struct osd_object *obj,
 				lnb[i].lnb_rc = 0;
 				lnb[i].lnb_data = NULL;
 
+				if (rl != NULL) {
+					OBD_ALLOC_PTR(iob);
+					if (unlikely(iob == NULL))
+						GOTO(out_err, rc = -ENOMEM);
+					iob->oio_type = 0;
+					iob->oio_rl = rl;
+					lnb[i].lnb_data = iob;
+					rl = NULL;
+				}
+
 				lnb[i].lnb_page = alloc_page(OSD_GFP_IO);
 				if (unlikely(lnb[i].lnb_page == NULL))
 					GOTO(out_err, rc = -ENOMEM);
@@ -504,6 +557,8 @@ static int osd_bufs_get_write(const struct lu_env *env, struct osd_object *obj,
 	RETURN(npages);
 
 out_err:
+	if (rl != NULL)
+		osd_unlock_range(obj, rl);
 	osd_bufs_put(env, &obj->oo_dt, lnb, npages);
 	RETURN(rc);
 }
@@ -757,17 +812,25 @@ static int osd_write_commit(const struct lu_env *env, struct dt_object *dt,
 				lnb[i].lnb_file_offset, lnb[i].lnb_len,
 				kmap(lnb[i].lnb_page), oh->ot_tx);
 			kunmap(lnb[i].lnb_page);
+			osd_zil_log_write(env, oh, dt, lnb[i].lnb_file_offset,
+					  lnb[i].lnb_len);
 		} else if (lnb[i].lnb_data) {
-			LASSERT(((unsigned long)lnb[i].lnb_data & 1) == 0);
+			struct osd_iobuf *iob = lnb[i].lnb_data;
+			int		  bufsize;
 			/* buffer loaned for zerocopy, try to use it.
 			 * notice that dmu_assign_arcbuf() is smart
 			 * enough to recognize changed blocksize
 			 * in this case it fallbacks to dmu_write() */
+			LASSERT(iob->oio_type == 1);
+			bufsize = arc_buf_size(iob->oio_abuf);
 			dmu_assign_arcbuf(obj->oo_db, lnb[i].lnb_file_offset,
-					  lnb[i].lnb_data, oh->ot_tx);
+					  iob->oio_abuf, oh->ot_tx);
 			/* drop the reference, otherwise osd_put_bufs()
 			 * will be releasing it - bad! */
-			lnb[i].lnb_data = NULL;
+			osd_zil_log_write(env, oh, dt, lnb[i].lnb_file_offset,
+					  bufsize);
+			iob->oio_abuf = NULL;
+			iob->oio_type = 0;
 			atomic_dec(&osd->od_zerocopy_loan);
 		}
 
@@ -908,6 +971,13 @@ static int osd_punch(const struct lu_env *env, struct dt_object *dt,
 		rc = osd_object_sa_update(obj, SA_ZPL_SIZE(osd),
 					  &obj->oo_attr.la_size, 8, oh);
 	}
+#if 0
+	if (osd_use_zil(oh, rc))
+		out_write_pack(env, &oh->ot_buf,
+			       lu_object_fid(&dt->do_lu), buf, *pos,
+			       atomic_inc_return(&obj->oo_version));
+#endif
+
 	RETURN(rc);
 }
 
