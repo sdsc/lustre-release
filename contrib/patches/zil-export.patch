@@ -1,0 +1,40 @@
+From 59dc7dbf093ae4e7eb9d28c4e143ee81ba6a2a2d Mon Sep 17 00:00:00 2001
+From: Alex Zhuravlev <alexey.zhuravlev@intel.com>
+Date: Wed, 11 Feb 2015 17:42:20 +0300
+Subject: [PATCH] export few symbols to support ZIL
+
+---
+ module/zfs/dsl_dataset.c | 2 ++
+ module/zfs/dsl_destroy.c | 1 +
+ module/zfs/zil.c         | 2 ++
+ module/zfs/zio.c         | 2 ++
+ 4 files changed, 7 insertions(+)
+
+diff --git a/module/zfs/dsl_dataset.c b/module/zfs/dsl_dataset.c
+index 5eb8c01..1a77ef6 100644
+--- a/module/zfs/dsl_dataset.c
++++ b/module/zfs/dsl_dataset.c
+@@ -3016,6 +3016,8 @@ EXPORT_SYMBOL(dsl_dataset_disown);
+ EXPORT_SYMBOL(dsl_dataset_tryown);
+ EXPORT_SYMBOL(dsl_dataset_create_sync);
+ EXPORT_SYMBOL(dsl_dataset_create_sync_dd);
++EXPORT_SYMBOL(dsl_dataset_snapshot);
++EXPORT_SYMBOL(dsl_dataset_rollback);
+ EXPORT_SYMBOL(dsl_dataset_snapshot_check);
+ EXPORT_SYMBOL(dsl_dataset_snapshot_sync);
+ EXPORT_SYMBOL(dsl_dataset_promote);
+diff --git a/module/zfs/dsl_destroy.c b/module/zfs/dsl_destroy.c
+index 351165d..57b40a9 100644
+--- a/module/zfs/dsl_destroy.c
++++ b/module/zfs/dsl_destroy.c
+@@ -944,6 +944,7 @@ EXPORT_SYMBOL(dsl_destroy_head);
+ EXPORT_SYMBOL(dsl_destroy_head_sync_impl);
+ EXPORT_SYMBOL(dsl_dataset_user_hold_check_one);
+ EXPORT_SYMBOL(dsl_destroy_snapshot_sync_impl);
++EXPORT_SYMBOL(dsl_destroy_snapshot);
+ EXPORT_SYMBOL(dsl_destroy_inconsistent);
+ EXPORT_SYMBOL(dsl_dataset_user_release_tmp);
+ EXPORT_SYMBOL(dsl_destroy_head_check_impl);
+-- 
+2.3.2 (Apple Git-55)
+
