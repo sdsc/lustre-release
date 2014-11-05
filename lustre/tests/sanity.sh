@@ -13527,6 +13527,99 @@ test_400b() { # LU-1606, LU-5011
 }
 run_test 400b "packaged headers can be compiled"
 
+test_504_single() {
+	date
+	rm -rf $DIR/$tdir
+	sync_all_data
+	do_nodes $(comma_list $(mdts_nodes)) \
+	    "lctl set_param -n osd*.*MDT*.stats clear"
+	mkdir $DIR/$tdir
+	createmany -o $DIR/$tdir/f $1
+	do_nodes $(comma_list $(mdts_nodes)) \
+	    "lctl set_param -n osd*.*MDT*.force_sync 1"
+	do_nodes $(comma_list $(mdts_nodes)) \
+	    "lctl get_param -n osd*.*MDT*.stats" | grep '\(sync\|zil\)'
+	date
+}
+
+test_504() {
+	debugsave
+	lctl set_param debug=0
+
+	do_nodes $(comma_list $(mdts_nodes)) \
+	    "lctl set_param -n osd*.*MDT*.zil 0"
+	echo "=== no ZIL ==="
+	test_504_single 20000
+
+	do_nodes $(comma_list $(mdts_nodes)) \
+	    "lctl set_param -n osd*.*MDT*.zil 1"
+	echo "=== with ZIL ==="
+	test_504_single 20000
+
+	do_nodes $(comma_list $(mdts_nodes)) \
+	    "lctl set_param -n osd*.*MDT*.zil 0"
+	echo "=== no ZIL ==="
+	test_504_single 50000
+
+	do_nodes $(comma_list $(mdts_nodes)) \
+	    "lctl set_param -n osd*.*MDT*.zil 1"
+	echo "=== with ZIL ==="
+	test_504_single 50000
+
+	do_nodes $(comma_list $(mdts_nodes)) \
+	    "lctl set_param -n osd*.*MDT*.zil 0"
+	echo "=== no ZIL ==="
+	test_504_single 100000
+
+	do_nodes $(comma_list $(mdts_nodes)) \
+	    "lctl set_param -n osd*.*MDT*.zil 1"
+	echo "=== with ZIL ==="
+	test_504_single 100000
+
+	do_nodes $(comma_list $(mdts_nodes)) \
+	    "lctl set_param -n osd*.*MDT*.zil 0"
+
+	rm -rf $DIR/$tdir
+	debugrestore
+
+	return 0
+}
+run_test 504
+
+run_dbench_and_sync() {
+	sync_all_data
+	do_nodes $(comma_list $(all_server_nodes)) \
+	    "lctl set_param -n osd*.*.stats clear"
+
+	local NPROC=$(grep -c ^processor /proc/cpuinfo)
+	[ $NPROC -gt 2 ] && NPROC=2
+	sh rundbench $NPROC
+
+	do_nodes $(comma_list $(all_server_nodes)) \
+	    "lctl get_param -n osd*.*.stats" | grep '\(sync\|zil\)'
+}
+
+test_505() {
+	debugsave
+	lctl set_param debug=0
+
+	echo "=== with ZIL ==="
+	do_nodes $(comma_list $(all_server_nodes)) \
+	    "lctl set_param -n osd*.*.zil 1"
+	run_dbench_and_sync
+
+	echo "=== no ZIL ==="
+	do_nodes $(comma_list $(all_server_nodes)) \
+	    "lctl set_param -n osd*.*.zil 0"
+	run_dbench_and_sync
+
+	do_nodes $(comma_list $(all_server_nodes)) \
+	    "lctl set_param -n osd*.*.zil 0"
+
+	debugrestore
+}
+#run_test 505
+
 #
 # tests that do cleanup/setup should be run at the end
 #
