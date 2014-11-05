@@ -60,6 +60,8 @@ const char *update_op_str(__u16 opc)
 		[OUT_PUNCH] = "punch",
 		[OUT_READ] = "read",
 		[OUT_NOOP] = "noop",
+		[OUT_INDEX_BIN_INSERT] = "binsert",
+		[OUT_INDEX_BIN_DELETE] = "bdelete",
 	};
 
 	if (opc < ARRAY_SIZE(opc_str) && opc_str[opc] != NULL)
@@ -356,6 +358,23 @@ int out_write_pack(const struct lu_env *env, struct object_update *update,
 }
 EXPORT_SYMBOL(out_write_pack);
 
+int out_punch_pack(const struct lu_env *env, struct object_update *update,
+		   size_t *max_update_size, const struct lu_fid *fid,
+		   loff_t start, loff_t end)
+{
+	__u16		sizes[2] = {sizeof(start), sizeof(end)};
+	const void	*bufs[2] = {(char *)&start, (char *)&end};
+	int		rc;
+
+	start = cpu_to_le64(start);
+	end = cpu_to_le64(end);
+
+	rc = out_update_pack(env, update, max_update_size, OUT_PUNCH, fid,
+			     ARRAY_SIZE(sizes), sizes, bufs, 0);
+	return rc;
+}
+EXPORT_SYMBOL(out_punch_pack);
+
 /**
  * Pack various readonly updates into the update_buffer.
  *
@@ -421,6 +440,35 @@ int out_read_pack(const struct lu_env *env, struct object_update *update,
 			       ARRAY_SIZE(sizes), sizes, bufs, size);
 }
 EXPORT_SYMBOL(out_read_pack);
+
+int out_index_bin_insert_pack(const struct lu_env *env,
+			  struct object_update *update,
+			  size_t *max_update_size, const struct lu_fid *fid,
+			  const struct dt_rec *rec, const int reclen,
+			  const struct dt_key *key, const int keylen)
+{
+	__u16			    sizes[3] = { keylen, reclen };
+	const void		   *bufs[3] = { (char *)key,
+						(char *)rec };
+
+	return out_update_pack(env, update, max_update_size,
+			       OUT_INDEX_BIN_INSERT, fid, ARRAY_SIZE(sizes),
+			       sizes, bufs, 0);
+}
+EXPORT_SYMBOL(out_index_bin_insert_pack);
+
+int out_index_bin_delete_pack(const struct lu_env *env,
+			  struct object_update *update,
+			  size_t *max_update_size, const struct lu_fid *fid,
+			  const struct dt_key *key, const int keylen)
+{
+	__u16	size = keylen;
+	const void *buf = key;
+
+	return out_update_pack(env, update, max_update_size,
+			       OUT_INDEX_BIN_DELETE, fid, 1, &size, &buf, 0);
+}
+EXPORT_SYMBOL(out_index_bin_delete_pack);
 
 static int tx_extend_args(struct thandle_exec_args *ta, int new_alloc_ta)
 {
