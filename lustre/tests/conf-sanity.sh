@@ -1099,7 +1099,7 @@ test_28a() { # LU-4221
 
 	# Check 3.
 	# prepare a non-symlink parameter in the OSD
-	name="lma_self_repair"
+	name="auto_scrub"
 	param="$device.osd.$name"
 	cmd="$LCTL get_param -n osd-*.$device.$name"
 

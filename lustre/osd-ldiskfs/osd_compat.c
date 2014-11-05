@@ -145,6 +145,12 @@ static int osd_last_rcvd_subdir_count(struct osd_device *osd)
                        lsd.lsd_subdir_count);
 		if (le16_to_cpu(lsd.lsd_subdir_count) > 0)
 			count = le16_to_cpu(lsd.lsd_subdir_count);
+
+		if (le32_to_cpu(lsd.lsd_feature_rocompat) &
+		    OBD_ROCOMPAT_IDX_IN_IDIF)
+			osd->od_lma_self_repair = 1;
+		else
+			osd->od_lma_self_repair = 0;
 	} else if (rc != 0) {
 		CERROR("Can't read last_rcvd file, rc = %d\n", rc);
 		if (rc > 0)

@@ -966,6 +966,89 @@ ofd_lfsck_verify_pfid_seq_write(struct file *file, const char __user *buffer,
 }
 LPROC_SEQ_FOPS(ofd_lfsck_verify_pfid);
 
+/**
+ * Show whether support OST-index in IDIF.
+ *
+ * \param[in] m		seq_file handle
+ * \param[in] data	unused for single entry
+ *
+ * \retval		0 on success
+ * \retval		negative value on error
+ */
+static int ofd_index_in_idif_seq_show(struct seq_file *m, void *data)
+{
+	struct obd_device	*obd = m->private;
+	struct ofd_device	*ofd = ofd_dev(obd->obd_lu_dev);
+	struct lr_server_data	*lsd = &ofd->ofd_lut.lut_lsd;
+
+	return seq_printf(m, "OST-index in IDIF bas been %s.\n",
+		(lsd->lsd_feature_rocompat & OBD_ROCOMPAT_IDX_IN_IDIF) ?
+		"enabled" : "disabled");
+}
+
+/**
+ * Enable OST-index in IDIF.
+ *
+ * If such feature is enabled, the low layer OSD will auto convert
+ * old format IDIF as new format IDIF with the OST-index stored in
+ * the LMA EA.
+ *
+ * \param[in] file	proc file
+ * \param[in] buffer	string which represents behavior
+ *			1: enable
+ *			0: disable
+ * \param[in] count	\a buffer length
+ * \param[in] off	unused for single entry
+ *
+ * \retval		\a count on success
+ * \retval		negative number on error
+ */
+static ssize_t
+ofd_index_in_idif_seq_write(struct file *file, const char __user *buffer,
+			    size_t count, loff_t *off)
+{
+	struct seq_file		*m   = file->private_data;
+	struct obd_device	*obd = m->private;
+	struct ofd_device	*ofd = ofd_dev(obd->obd_lu_dev);
+	struct lr_server_data	*lsd = &ofd->ofd_lut.lut_lsd;
+	__u32			 val;
+	int			 rc;
+
+	rc = lprocfs_write_helper(buffer, count, &val);
+	if (rc != 0)
+		return rc;
+
+	if (lsd->lsd_feature_rocompat & OBD_ROCOMPAT_IDX_IN_IDIF) {
+		if (!!val)
+			return count;
+
+		LCONSOLE_INFO("OST-index in IDIF has been enabled, "
+			      "cannot be reverted back.\n");
+		return -EPERM;
+	}
+
+	if (!!val) {
+		struct lu_env env;
+
+		rc = lu_env_init(&env, LCT_DT_THREAD);
+		if (rc != 0)
+			return rc;
+
+		lsd->lsd_feature_rocompat |= OBD_ROCOMPAT_IDX_IN_IDIF;
+		rc = tgt_server_data_update(&env, &ofd->ofd_lut, 1);
+		lu_env_fini(&env);
+		if (rc < 0)
+			return rc;
+
+		LCONSOLE_INFO("Enable OST-index in IDIF successfully, "
+			      "will take effect when the OST remount, "
+			      "and cannot be reverted back.\n");
+	}
+
+	return count;
+}
+LPROC_SEQ_FOPS(ofd_index_in_idif);
+
 LPROC_SEQ_FOPS_RO_TYPE(ofd, uuid);
 LPROC_SEQ_FOPS_RO_TYPE(ofd, blksize);
 LPROC_SEQ_FOPS_RO_TYPE(ofd, kbytestotal);
@@ -1056,6 +1139,8 @@ struct lprocfs_vars lprocfs_ofd_obd_vars[] = {
 	  .fops =	&ofd_lfsck_layout_fops		},
 	{ .name	=	"lfsck_verify_pfid",
 	  .fops	=	&ofd_lfsck_verify_pfid_fops	},
+	{ .name	=	"index_in_idif",
+	  .fops	=	&ofd_index_in_idif_fops		},
 	{ NULL }
 };
 

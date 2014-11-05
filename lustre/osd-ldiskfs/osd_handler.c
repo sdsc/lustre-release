@@ -6133,9 +6133,6 @@ static int osd_device_init0(const struct lu_env *env,
 	if (rc != 0)
 		GOTO(out_site, rc);
 
-	/* self-repair LMA by default */
-	o->od_lma_self_repair = 1;
-
 	INIT_LIST_HEAD(&o->od_ios_list);
 	/* setup scrub, including OI files initialization */
 	rc = osd_scrub_setup(env, o);
