@@ -681,6 +681,10 @@ out:
 	if (child != NULL)
 		osd_object_put(env, child);
 
+	if (rc == 0 && osd->od_zil_enabled)
+		out_index_insert_pack(env, &oh->ot_buf,
+				      lu_object_fid(&dt->do_lu),
+				      rec, key, 0);
 	RETURN(rc);
 }
 
@@ -744,6 +748,9 @@ static int osd_dir_delete(const struct lu_env *env, struct dt_object *dt,
 	if (unlikely(rc && rc != -ENOENT))
 		CERROR("%s: zap_remove failed: rc = %d\n", osd->od_svname, rc);
 
+	if (rc == 0 && osd->od_zil_enabled)
+		out_index_delete_pack(env, &oh->ot_buf,
+				      lu_object_fid(&dt->do_lu), key, 0);
 	RETURN(rc);
 }
 
