@@ -88,17 +88,18 @@ static int osd_stats_init(struct osd_device *osd)
 		lprocfs_counter_init(osd->od_stats, LPROC_OSD_TAIL_IO,
 				LPROCFS_CNTR_AVGMINMAX,
 				"tail", "pages");
-#ifdef OSD_THANDLE_STATS
-		lprocfs_counter_init(osd->od_stats, LPROC_OSD_THANDLE_STARTING,
+		lprocfs_counter_init(osd->od_stats, LPROC_OSD_SYNC,
 				LPROCFS_CNTR_AVGMINMAX,
-				"thandle_starting", "usec");
-		lprocfs_counter_init(osd->od_stats, LPROC_OSD_THANDLE_OPEN,
+				"sync", "usec");
+		lprocfs_counter_init(osd->od_stats, LPROC_OSD_ZIL_SYNC,
 				LPROCFS_CNTR_AVGMINMAX,
-				"thandle_open", "usec");
-		lprocfs_counter_init(osd->od_stats, LPROC_OSD_THANDLE_CLOSING,
+				"zil-sync", "usec");
+		lprocfs_counter_init(osd->od_stats, LPROC_OSD_ZIL_COPIED,
 				LPROCFS_CNTR_AVGMINMAX,
-				"thandle_closing", "usec");
-#endif
+				"zil-copied", "writes");
+		lprocfs_counter_init(osd->od_stats, LPROC_OSD_ZIL_INDIRECT,
+				LPROCFS_CNTR_AVGMINMAX,
+				"zil-indirect", "writes");
 	} else {
 		result = -ENOMEM;
 	}
@@ -170,6 +171,35 @@ zfs_osd_iused_est_seq_write(struct file *file, const char __user *buffer,
 }
 LPROC_SEQ_FOPS(zfs_osd_iused_est);
 
+static int zfs_osd_zil_seq_show(struct seq_file *m, void *data)
+{
+	struct osd_device *osd = osd_dt_dev((struct dt_device *)m->private);
+	LASSERT(osd != NULL);
+
+	return seq_printf(m, "%d\n", osd->od_zil_enabled);
+}
+
+static ssize_t
+zfs_osd_zil_seq_write(struct file *file, const char __user *buffer,
+			     size_t count, loff_t *off)
+{
+	struct seq_file	  *m = file->private_data;
+	struct dt_device  *dt = m->private;
+	struct osd_device *osd = osd_dt_dev(dt);
+	int                rc, val;
+
+	LASSERT(osd != NULL);
+
+	rc = lprocfs_write_helper(buffer, count, &val);
+	if (rc)
+		return rc;
+
+	osd->od_zil_enabled = !!val;
+
+	return count;
+}
+LPROC_SEQ_FOPS(zfs_osd_zil);
+
 LPROC_SEQ_FOPS_RO_TYPE(zfs, dt_blksize);
 LPROC_SEQ_FOPS_RO_TYPE(zfs, dt_kbytestotal);
 LPROC_SEQ_FOPS_RO_TYPE(zfs, dt_kbytesfree);
@@ -198,6 +228,8 @@ struct lprocfs_seq_vars lprocfs_osd_obd_vars[] = {
 	  .fops	=	&zfs_osd_force_sync_fops	},
 	{ .name	=	"quota_iused_estimate",
 	  .fops	=	&zfs_osd_iused_est_fops		},
+	{ .name	=	"zil",
+	  .fops	=	&zfs_osd_zil_fops		},
 	{ 0 }
 };
 
