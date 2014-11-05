@@ -920,6 +920,58 @@ test_25() {
 }
 run_test 25 "replay|resend"
 
+test_30() {
+	[ "$(facet_fstype $SINGLEMDS)" != "zfs" ] &&
+		skip "only for zfs MDT" && return 0
+
+	do_nodes $(comma_list $(all_server_nodes)) \
+	    "lctl set_param -n osd*.*.zil 1"
+
+	replay_barrier $SINGLEMDS
+	mkdir $MOUNT2/$tdir
+	createmany -o $MOUNT2/$tdir/f- 10
+	fail $SINGLEMDS
+	return 0
+}
+run_test 30 "ZIL test"
+
+t30_job() {
+	while true; do
+		createmany -o $1/f- 50
+		unlinkmany $1/f- 50
+	done
+}
+
+test_31() {
+	local PID1
+	local PID2
+	[ "$(facet_fstype $SINGLEMDS)" != "zfs" ] &&
+		skip "only for zfs MDT" && return 0
+
+	do_nodes $(comma_list $(all_server_nodes)) \
+	    "lctl set_param -n osd*.*.zil 1"
+
+	mkdir $MOUNT1/$tdir
+	mkdir $MOUNT1/$tdir/1
+	mkdir $MOUNT1/$tdir/2
+
+	t30_job $MOUNT1/$tdir/1 &
+	PID1=$!
+	t30_job $MOUNT1/$tdir/2 &
+	PID2=$!
+
+	for i in `seq 10`; do
+		sleep 2
+		replay_barrier $SINGLEMDS
+		sleep 3
+		fail $SINGLEMDS
+	done
+	kill $PID1
+	kill $PID2
+	wait
+}
+run_test 31 "ZIL: out-of-order transactions"
+
 complete $SECONDS
 SLEEP=$((`date +%s` - $NOW))
 [ $SLEEP -lt $TIMEOUT ] && sleep $SLEEP

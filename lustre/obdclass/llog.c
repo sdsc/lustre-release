@@ -164,6 +164,78 @@ out_err:
 	return rc;
 }
 
+int llog_cancel_recs(const struct lu_env *env, struct llog_handle *loghandle,
+		     struct llog_cookie *cookies, int count)
+{
+	struct llog_log_hdr *llh = loghandle->lgh_hdr;
+	int i, index, rc = 0;
+	ENTRY;
+
+	CDEBUG(D_RPCTRACE, "Canceling %d in log "DOSTID"\n",
+	       count, POSTID(&loghandle->lgh_id.lgl_oi));
+
+	down_write(&loghandle->lgh_hdr_lock);
+
+	for (i = 0; i < count; i++) {
+		LASSERT(memcmp(&cookies[i].lgc_lgl, &cookies[0].lgc_lgl,
+			sizeof(cookies[i].lgc_lgl)) == 0);
+		index = cookies[i].lgc_index;
+
+		if (index == 0) {
+			up_write(&loghandle->lgh_hdr_lock);
+			CERROR("Can't cancel index 0 which is header\n");
+			RETURN(-EINVAL);
+		}
+
+		if (!ext2_clear_bit(index, llh->llh_bitmap)) {
+			up_write(&loghandle->lgh_hdr_lock);
+			CDEBUG(D_RPCTRACE, "Catalog index %u already clear?\n", index);
+			RETURN(-ENOENT);
+		}
+
+		llh->llh_count--;
+		if (llh->llh_count == 1)
+			break;
+	}
+
+	if ((llh->llh_flags & LLOG_F_ZAP_WHEN_EMPTY) &&
+	    (llh->llh_count == 1) &&
+	    (loghandle->lgh_last_idx == LLOG_HDR_BITMAP_SIZE(llh) - 1)) {
+		up_write(&loghandle->lgh_hdr_lock);
+		rc = llog_destroy(env, loghandle);
+		if (rc < 0) {
+			CERROR("%s: can't destroy empty llog #"DOSTID
+			       "#%08x: rc = %d\n",
+			       loghandle->lgh_ctxt->loc_obd->obd_name,
+			       POSTID(&loghandle->lgh_id.lgl_oi),
+			       loghandle->lgh_id.lgl_ogen, rc);
+			GOTO(out_err, rc);
+		}
+		RETURN(LLOG_DEL_PLAIN);
+	}
+	up_write(&loghandle->lgh_hdr_lock);
+
+	rc = llog_write(env, loghandle, &llh->llh_hdr, LLOG_HEADER_IDX);
+	if (rc < 0) {
+		CERROR("%s: fail to write header for llog #"DOSTID
+		       "#%08x: rc = %d\n",
+		       loghandle->lgh_ctxt->loc_obd->obd_name,
+		       POSTID(&loghandle->lgh_id.lgl_oi),
+		       loghandle->lgh_id.lgl_ogen, rc);
+		GOTO(out_err, rc);
+	}
+	RETURN(0);
+out_err:
+	LBUG();
+#if 0
+	spin_lock(&loghandle->lgh_hdr_lock);
+	ext2_set_bit(index, llh->llh_bitmap);
+	llh->llh_count++;
+	spin_unlock(&loghandle->lgh_hdr_lock);
+#endif
+	return rc;
+}
+
 static int llog_read_header(const struct lu_env *env,
 			    struct llog_handle *handle,
 			    struct obd_uuid *uuid)
