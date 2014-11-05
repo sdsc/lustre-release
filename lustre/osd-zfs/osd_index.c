@@ -661,6 +661,10 @@ out:
 	if (child != NULL)
 		osd_object_put(env, child);
 
+	if (osd_use_zil(oh, rc))
+		out_index_insert_pack(env, &oh->ot_buf,
+				      lu_object_fid(&dt->do_lu), rec, key,
+				      atomic_inc_return(&parent->oo_version));
 	RETURN(rc);
 }
 
@@ -723,6 +727,10 @@ static int osd_dir_delete(const struct lu_env *env, struct dt_object *dt,
 	if (unlikely(rc && rc != -ENOENT))
 		CERROR("%s: zap_remove failed: rc = %d\n", osd->od_svname, rc);
 
+	if (osd_use_zil(oh, rc))
+		out_index_delete_pack(env, &oh->ot_buf,
+				      lu_object_fid(&dt->do_lu), key,
+				      atomic_inc_return(&obj->oo_version));
 	RETURN(rc);
 }
 
@@ -1606,9 +1614,8 @@ int osd_index_try(const struct lu_env *env, struct dt_object *dt,
 		const struct dt_index_features *feat)
 {
 	struct osd_object *obj = osd_dt_obj(dt);
+	int		    exists = dt_object_exists(dt);
 	ENTRY;
-
-	LASSERT(dt_object_exists(dt));
 
 	/*
 	 * XXX: implement support for fixed-size keys sorted with natural
@@ -1622,16 +1629,15 @@ int osd_index_try(const struct lu_env *env, struct dt_object *dt,
 		RETURN(0);
 	}
 
-	LASSERT(obj->oo_db != NULL);
 	if (likely(feat == &dt_directory_features)) {
-		if (osd_object_is_zap(obj->oo_db))
+		if (!exists || osd_object_is_zap(obj->oo_db))
 			dt->do_index_ops = &osd_dir_ops;
 		else
 			RETURN(-ENOTDIR);
 	} else if (unlikely(feat == &dt_acct_features)) {
 		LASSERT(fid_is_acct(lu_object_fid(&dt->do_lu)));
 		dt->do_index_ops = &osd_acct_index_ops;
-	} else if (osd_object_is_zap(obj->oo_db) &&
+	} else if ((!exists || osd_object_is_zap(obj->oo_db)) &&
 		   dt->do_index_ops == NULL) {
 		/* For index file, we don't support variable key & record sizes
 		 * and the key has to be unique */

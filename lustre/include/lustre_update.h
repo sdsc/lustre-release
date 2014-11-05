@@ -215,6 +215,9 @@ int out_ref_del_pack(const struct lu_env *env, struct update_buffer *ubuf,
 int out_write_pack(const struct lu_env *env, struct update_buffer *ubuf,
 		   const struct lu_fid *fid, const struct lu_buf *buf,
 		   loff_t pos, __u64 batchid);
+int out_punch_pack(const struct lu_env *env, struct update_buffer *ubuf,
+		   const struct lu_fid *fid, loff_t start, loff_t end,
+		   __u64 batchid);
 int out_attr_get_pack(const struct lu_env *env, struct update_buffer *ubuf,
 		      const struct lu_fid *fid);
 int out_index_lookup_pack(const struct lu_env *env, struct update_buffer *ubuf,

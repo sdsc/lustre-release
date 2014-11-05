@@ -143,6 +143,25 @@ int tgt_client_data_write(const struct lu_env *env, struct lu_target *tgt,
 	return dt_record_write(env, tgt->lut_last_rcvd, &tti->tti_buf, off, th);
 }
 
+int tgt_client_data_write_short(const struct lu_env *env, struct lu_target *tgt,
+				struct lsd_client_data *lcd, loff_t *off,
+				struct thandle *th)
+{
+	struct tgt_thread_info *tti = tgt_th_info(env);
+	loff_t			o = *off;
+
+	lcd->lcd_last_result = ptlrpc_status_hton(lcd->lcd_last_result);
+	lcd->lcd_last_close_result =
+		ptlrpc_status_hton(lcd->lcd_last_close_result);
+	lcd_cpu_to_le(lcd, &tti->tti_lcd);
+	tti_buf_lcd(tti);
+
+	o += sizeof(lcd->lcd_uuid);
+	tti->tti_buf.lb_buf += sizeof(lcd->lcd_uuid);
+	tti->tti_buf.lb_len -= sizeof(lcd->lcd_uuid);
+
+	return dt_record_write(env, tgt->lut_last_rcvd, &tti->tti_buf, &o, th);
+}
 /**
  * Update client data in last_rcvd
  */
@@ -810,7 +829,8 @@ static int tgt_last_rcvd_update(const struct lu_env *env, struct lu_target *tgt,
 
 	if (!lw_client) {
 		tti->tti_off = ted->ted_lr_off;
-		rc = tgt_client_data_write(env, tgt, ted->ted_lcd, &tti->tti_off, th);
+		rc = tgt_client_data_write_short(env, tgt, ted->ted_lcd,
+						 &tti->tti_off, th);
 		if (rc < 0) {
 			mutex_unlock(&ted->ted_lcd_lock);
 			RETURN(rc);
