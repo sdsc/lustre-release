@@ -236,12 +236,12 @@ struct osd_device {
 				  od_noscrub:1,
 				  od_igif_inoi:1,
 				  od_check_ff:1,
-				  od_is_ost:1,
-				  od_lma_self_repair:1;
+				  od_is_ost:1;
 
 	unsigned long		  od_capa_timeout;
 	__u32			  od_capa_alg;
-	__u32			  od_dirent_journal;
+	__u16			  od_dirent_journal;
+	__s16			  od_index_in_idif;
 	struct lustre_capa_key   *od_capa_keys;
 	struct hlist_head	 *od_capa_hash;
 

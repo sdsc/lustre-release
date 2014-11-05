@@ -287,6 +287,9 @@ struct lustre_mount_data {
 /** MDS handles LOV_OBJID file */
 #define OBD_ROCOMPAT_LOVOBJID   0x00000001
 
+/** store OST index in the IDIF */
+#define OBD_ROCOMPAT_IDX_IN_IDIF	0x00000002
+
 /** OST handles group subdirs */
 #define OBD_INCOMPAT_GROUPS     0x00000001
 /** this is an OST */
