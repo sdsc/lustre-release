@@ -159,6 +159,69 @@ int out_update_pack(const struct lu_env *env, struct object_update *update,
 }
 EXPORT_SYMBOL(out_update_pack);
 
+#if 0
+static int out_calc_attr_size(const struct lu_attr *attr)
+{
+	int size;
+
+	LASSERT(attr->la_valid != 0);
+	size = sizeof(attr->la_valid);
+	if (attr->la_valid & LA_ATIME)
+		size += sizeof(attr->la_atime);
+	if (attr->la_valid & LA_MTIME)
+		size += sizeof(attr->la_mtime);
+	if (attr->la_valid & LA_CTIME)
+		size += sizeof(attr->la_ctime);
+	if (attr->la_valid & LA_SIZE)
+		size += sizeof(attr->la_size);
+	if (attr->la_valid & LA_MODE)
+		size += sizeof(attr->la_mode);
+	if (attr->la_valid & LA_UID)
+		size += sizeof(attr->la_uid);
+	if (attr->la_valid & LA_GID)
+		size += sizeof(attr->la_gid);
+	if (attr->la_valid & LA_BLOCKS)
+		size += sizeof(attr->la_blocks);
+	if (attr->la_valid & LA_FLAGS)
+		size += sizeof(attr->la_flags);
+	if (attr->la_valid & LA_NLINK)
+		size += sizeof(attr->la_nlink);
+	if (attr->la_valid & LA_RDEV)
+		size += sizeof(attr->la_rdev);
+	if (attr->la_valid & LA_BLKSIZE)
+		size += sizeof(attr->la_blksize);
+
+	return size;
+}
+
+#define CHECK_AND_MOVE(ATTRIBUTE, FIELD)			\
+do {								\
+	if (attr->la_valid & ATTRIBUTE) {			\
+		memcpy(ptr, &attr->FIELD, sizeof(attr->FIELD));	\
+		ptr += sizeof(attr->FIELD);			\
+	}							\
+} while (0)
+
+static void out_pack_lu_attr(const struct lu_attr *attr, void *ptr)
+{
+	CHECK_AND_MOVE(0xffffffff, la_valid);
+	CHECK_AND_MOVE(LA_SIZE, la_size);
+	CHECK_AND_MOVE(LA_MTIME, la_mtime);
+	CHECK_AND_MOVE(LA_ATIME, la_atime);
+	CHECK_AND_MOVE(LA_CTIME, la_ctime);
+	CHECK_AND_MOVE(LA_BLOCKS, la_blocks);
+	CHECK_AND_MOVE((LA_MODE | LA_TYPE), la_mode);
+	CHECK_AND_MOVE(LA_UID, la_uid);
+	CHECK_AND_MOVE(LA_GID, la_gid);
+	CHECK_AND_MOVE(LA_FLAGS, la_flags);
+	CHECK_AND_MOVE(LA_NLINK, la_nlink);
+	/*CHECK_AND_MOVE(LA_BLKBITS, la_blkbits);*/
+	CHECK_AND_MOVE(LA_BLKSIZE, la_blksize);
+	CHECK_AND_MOVE(LA_RDEV, la_rdev);
+}
+#undef CHECK_AND_MOVE
+#endif
+
 /**
  * Pack various updates into the update_buffer.
  *
@@ -179,8 +242,8 @@ int out_create_pack(const struct lu_env *env, struct object_update *update,
 		    const struct lu_attr *attr, struct dt_allocation_hint *hint,
 		    struct dt_object_format *dof)
 {
-	struct obdo		*obdo;
-	__u16			sizes[2] = {sizeof(*obdo), 0};
+	struct obdo             *obdo;
+	__u16                   sizes[2] = {sizeof(*obdo), 0};
 	int			buf_count = 1;
 	const struct lu_fid	*parent_fid = NULL;
 	int			rc;
@@ -262,6 +325,21 @@ int out_xattr_set_pack(const struct lu_env *env, struct object_update *update,
 	__u16	sizes[3] = {strlen(name) + 1, buf->lb_len, sizeof(flag)};
 	const void *bufs[3] = {(char *)name, (char *)buf->lb_buf,
 			       (char *)&flag};
+	unsigned char type;
+
+	if (strcmp(name, XATTR_NAME_LOV) == 0) {
+		type = 1;
+		sizes[0] = 1;
+		bufs[0] = &type;
+	} else if (strcmp(name, XATTR_NAME_LINK) == 0) {
+		type = 2;
+		sizes[0] = 1;
+		bufs[0] = &type;
+	} else if (strcmp(name, XATTR_NAME_VERSION) == 0) {
+		type = 3;
+		sizes[0] = 1;
+		bufs[0] = &type;
+	}
 
 	return out_update_pack(env, update, max_update_size, OUT_XATTR_SET,
 			       fid, ARRAY_SIZE(sizes), sizes, bufs);
@@ -339,6 +417,23 @@ int out_write_pack(const struct lu_env *env, struct object_update *update,
 	return rc;
 }
 EXPORT_SYMBOL(out_write_pack);
+
+int out_punch_pack(const struct lu_env *env, struct object_update *update,
+		   size_t max_update_size, const struct lu_fid *fid,
+		   loff_t start, loff_t end)
+{
+	__u16		sizes[2] = {sizeof(start), sizeof(end)};
+	const void	*bufs[2] = {(char *)&start, (char *)&end};
+	int		rc;
+
+	start = cpu_to_le64(start);
+	end = cpu_to_le64(end);
+
+	rc = out_update_pack(env, update, max_update_size, OUT_PUNCH, fid,
+			     ARRAY_SIZE(sizes), sizes, bufs);
+	return rc;
+}
+EXPORT_SYMBOL(out_punch_pack);
 
 /**
  * Pack various readonly updates into the update_buffer.
