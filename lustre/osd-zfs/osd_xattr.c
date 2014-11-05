@@ -616,6 +616,8 @@ int osd_xattr_set(const struct lu_env *env, struct dt_object *dt,
 	rc = osd_xattr_set_internal(env, obj, buf, name, fl, oh);
 	up_write(&obj->oo_guard);
 
+	osd_zil_update_pack(env, rc, oh, obj, xattr_set, buf, name, fl);
+
 	RETURN(rc);
 }
 
@@ -754,6 +756,8 @@ int osd_xattr_del(const struct lu_env *env, struct dt_object *dt,
 	down_write(&obj->oo_guard);
 	rc = __osd_xattr_del(env, obj, name, oh);
 	up_write(&obj->oo_guard);
+
+	osd_zil_update_pack(env, rc, oh, obj, xattr_del, name);
 
 	RETURN(rc);
 }

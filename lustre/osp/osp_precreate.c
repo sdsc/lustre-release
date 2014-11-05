@@ -1166,6 +1166,12 @@ static int osp_precreate_thread(void *_arg)
 			if (osp_statfs_need_update(d))
 				osp_statfs_update(d);
 
+			if (OBD_FAIL_CHECK(OBD_FAIL_SEQ_OSP_EXHAUST)) {
+				rc = osp_precreate_rollover_new_seq(&env, d);
+				if (rc)
+					continue;
+			}
+
 			/* To avoid handling different seq in precreate/orphan
 			 * cleanup, it will hold precreate until current seq is
 			 * used up. */
