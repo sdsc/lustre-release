@@ -396,6 +396,50 @@ test_16() {
 }
 run_test 16 "$FSXNUM iterations of dual-mount fsx"
 
+test_16a() {
+	[[ $(facet_fstype ost1) != zfs ]] && return 0
+	local soc="obdfilter.*.sync_on_lock_cancel"
+	local soc_old=$(do_facet ost1 lctl get_param -n $soc | head -n1)
+	local before
+	local after
+	FSXNUM=$COUNT
+	FSXP=100
+
+	do_nodes $(osts_nodes) lctl set_param $soc=always
+	wait_delete_completed
+	do_nodes $(comma_list $(osts_nodes)) \
+	    "lctl set_param -n osd*.*OST*.zil 0"
+	do_nodes $(comma_list $(osts_nodes)) \
+	    "lctl set_param -n osd*.*OST*.stats clear"
+
+	before=`date +%s`
+	test_16
+	after=`date +%s`
+	echo "run completed in " $((after-before))
+	do_nodes $(comma_list $(osts_nodes)) \
+	    "lctl get_param -n osd*.*OST*.stats" | grep '\(sync\|zil\)'
+
+	rm -f $DIR1/$tfile
+	wait_delete_completed
+
+
+	do_nodes $(comma_list $(osts_nodes)) \
+	    "lctl set_param -n osd*.*OST*.zil 1"
+	do_nodes $(comma_list $(osts_nodes)) \
+	    "lctl set_param -n osd*.*OST*.stats clear"
+	before=`date +%s`
+	test_16
+	after=`date +%s`
+	echo "run completed in " $((after-before))
+	do_nodes $(comma_list $(osts_nodes)) \
+	    "lctl get_param -n osd*.*OST*.stats" | grep '\(sync\|zil\)'
+
+	do_nodes $(comma_list $(osts_nodes)) \
+	    "lctl set_param -n osd*.*OST*.zil 0"
+	do_nodes $(osts_nodes) lctl set_param $soc=$soc_old
+}
+run_test 16a "zil test"
+
 test_17() { # bug 3513, 3667
 	remote_ost_nodsh && skip "remote OST with nodsh" && return
 
@@ -2877,6 +2921,22 @@ test_81() {
 	return 0
 }
 run_test 81 "rename and stat under striped directory"
+
+test_82() {
+        local soc="obdfilter.*.sync_on_lock_cancel"
+	local sz=4k
+	do_nodes $(osts_nodes) lctl set_param $soc=always
+	for i in 2 3 4 ; do
+		dd if=/dev/zero of=$DIR1/${tfile}${i} bs=$sz count=1
+	done
+	sync
+	#cancel_lru_locks osc
+	dd if=/dev/zero of=$DIR1/$tfile bs=$sz count=1
+	dd if=/dev/zero of=$DIR1/${tfile}100 bs=$sz count=1
+	dd if=$DIR2/$tfile of=/dev/null bs=$sz count=1
+	return 0
+}
+run_test 82 "sync on lock test"
 
 log "cleanup: ======================================================"
 
