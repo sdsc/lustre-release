@@ -47,6 +47,7 @@
 #include <dt_object.h>
 #include <md_object.h>
 #include <lustre_quota.h>
+#include <lustre_update.h>
 
 #define _SPL_KMEM_H
 #include <sys/kstat.h>
@@ -60,6 +61,7 @@
 #include <sys/nvpair.h>
 #include <sys/zfs_znode.h>
 #include <sys/zap.h>
+#include <sys/zil_impl.h>
 
 #define LUSTRE_ROOT_FID_SEQ	0
 #define DMU_OSD_SVNAME		"svname"
@@ -207,6 +209,8 @@ struct osd_thandle {
 	struct lquota_trans	 ot_quota_trans;
 	__u32			 ot_write_commit:1,
 				 ot_assigned:1;
+	uint64_t		 ot_txg;
+	struct update_buffer	 ot_buf; /* to collect updates for ZIL */
 };
 
 #define OSD_OI_NAME_SIZE        16
@@ -242,6 +246,8 @@ struct osd_device {
 	struct dt_device	 od_dt_dev;
 	/* information about underlying file system */
 	struct objset		*od_os;
+	zilog_t			*od_zilog;
+	uint64_t		 od_committed_txg;
 	uint64_t		 od_rootid;  /* id of root znode */
 	/* SA attr mapping->id,
 	 * name is the same as in ZFS to use defines SA_ZPL_...*/
@@ -269,7 +275,8 @@ struct osd_device {
 				 od_xattr_in_sa:1,
 				 od_quota_iused_est:1,
 				 od_is_ost:1,
-				 od_posix_acl:1;
+				 od_posix_acl:1,
+				 od_zil_enabled:1;
 
 	char			 od_mntdev[128];
 	char			 od_svname[128];
@@ -295,6 +302,12 @@ struct osd_device {
 
 	/* osd seq instance */
 	struct lu_client_seq	*od_cl_seq;
+
+	atomic_t		 od_bytes_in_log;
+	atomic_t		 od_recs_in_log;
+	atomic_t		 od_recs_to_write;
+	atomic_t		 od_updates_by_type[OUT_LAST];
+	atomic_t		 od_bytes_by_type[OUT_LAST];
 };
 
 struct osd_object {
@@ -417,6 +430,10 @@ enum {
 	LPROC_OSD_COPY_IO = 7,
 	LPROC_OSD_ZEROCOPY_IO = 8,
 	LPROC_OSD_TAIL_IO = 9,
+	LPROC_OSD_SYNC = 10,
+	LPROC_OSD_ZIL_SYNC = 11,
+	LPROC_OSD_ZIL_COPIED = 12,
+	LPROC_OSD_ZIL_INDIRECT = 13,
 	LPROC_OSD_LAST,
 };
 
@@ -491,21 +508,30 @@ int osd_xattr_list(const struct lu_env *env, struct dt_object *dt,
 		   const struct lu_buf *lb, struct lustre_capa *capa);
 void __osd_xattr_declare_set(const struct lu_env *env, struct osd_object *obj,
 			int vallen, const char *name, struct osd_thandle *oh);
-int __osd_sa_xattr_set(const struct lu_env *env, struct osd_object *obj,
+int __osd_sa_xattr_set(struct osd_object *obj,
 		       const struct lu_buf *buf, const char *name, int fl,
 		       struct osd_thandle *oh);;
 int __osd_xattr_set(const struct lu_env *env, struct osd_object *obj,
 		    const struct lu_buf *buf, const char *name, int fl,
 		    struct osd_thandle *oh);
+
+int osd_zil_get_data(void *arg, lr_write_t *lr, char *buf, zio_t *zio);
+int osd_zil_init(const struct lu_env *env, struct osd_device *o);
+void osd_zil_fini(struct osd_device *o);
+void osd_zil_log_write(const struct lu_env *env, struct osd_thandle *oh,
+		       struct dt_object *o, uint64_t offset, uint64_t size);
+void osd_zil_make_itx(struct osd_thandle *oh);
+
 static inline int
 osd_xattr_set_internal(const struct lu_env *env, struct osd_object *obj,
 		       const struct lu_buf *buf, const char *name, int fl,
 		       struct osd_thandle *oh, struct lustre_capa *capa)
 {
+	struct osd_device *osd = osd_obj2dev(obj);
 	int rc;
 
-	if (osd_obj2dev(obj)->od_xattr_in_sa) {
-		rc = __osd_sa_xattr_set(env, obj, buf, name, fl, oh);
+	if (osd->od_xattr_in_sa) {
+		rc = __osd_sa_xattr_set(obj, buf, name, fl, oh);
 		if (rc == -EFBIG)
 			rc = __osd_xattr_set(env, obj, buf, name, fl, oh);
 	} else {
