@@ -234,6 +234,8 @@ static ssize_t osd_write(const struct lu_env *env, struct dt_object *dt,
 		write_unlock(&obj->oo_attr_lock);
 	}
 
+	osd_zil_update_pack(env, 0, oh, obj, write, buf, *pos);
+
 	*pos += buf->lb_len;
 	rc = buf->lb_len;
 
@@ -266,6 +268,10 @@ static int osd_bufs_put(const struct lu_env *env, struct dt_object *dt,
 	LASSERT(obj->oo_db);
 
 	for (i = 0; i < npages; i++) {
+		if (lnb[i].lnb_data2 != NULL) {
+			osd_unlock_range(obj, lnb[i].lnb_data2);
+			lnb[i].lnb_data2 = NULL;
+		}
 		if (lnb[i].lnb_page == NULL)
 			continue;
 		if (lnb[i].lnb_page->mapping == (void *)obj) {
@@ -580,6 +586,7 @@ static int osd_declare_write_commit(const struct lu_env *env,
 	long long	    space = 0;
 	struct page	   *last_page = NULL;
 	unsigned long	    discont_pages = 0;
+	struct osd_range_lock *rl;
 	ENTRY;
 
 	LASSERT(dt_object_exists(dt));
@@ -625,6 +632,14 @@ static int osd_declare_write_commit(const struct lu_env *env,
 			continue;
 		}
 
+		if (lnb[i-1].lnb_data2 == NULL) {
+			/* it's OK to declare same writes few times */
+			rl = osd_lock_range(obj, offset, size, 1);
+			if (IS_ERR(rl))
+				RETURN(PTR_ERR(rl));
+			lnb[i-1].lnb_data2 = rl;
+		}
+
 		dmu_tx_hold_write(oh->ot_tx, obj->oo_db->db_object,
 				  offset, size);
 		/* Estimating space to be consumed by a write is rather
@@ -640,6 +655,13 @@ static int osd_declare_write_commit(const struct lu_env *env,
 	}
 
 	if (size) {
+		if (lnb[i-1].lnb_data2 == NULL) {
+			rl = osd_lock_range(obj, offset, size, 1);
+			if (IS_ERR(rl))
+				RETURN(PTR_ERR(rl));
+			lnb[i-1].lnb_data2 = rl;
+		}
+
 		dmu_tx_hold_write(oh->ot_tx, obj->oo_db->db_object,
 				  offset, size);
 		space += osd_roundup2blocksz(size, offset, blksz);
@@ -720,17 +742,23 @@ static int osd_write_commit(const struct lu_env *env, struct dt_object *dt,
 				lnb[i].lnb_file_offset, lnb[i].lnb_len,
 				kmap(lnb[i].lnb_page), oh->ot_tx);
 			kunmap(lnb[i].lnb_page);
+			osd_zil_log_write(env, oh, dt, lnb[i].lnb_file_offset,
+					  lnb[i].lnb_len);
 		} else if (lnb[i].lnb_data) {
+			int bufsize;
 			LASSERT(((unsigned long)lnb[i].lnb_data & 1) == 0);
 			/* buffer loaned for zerocopy, try to use it.
 			 * notice that dmu_assign_arcbuf() is smart
 			 * enough to recognize changed blocksize
 			 * in this case it fallbacks to dmu_write() */
+			bufsize = arc_buf_size(lnb[i].lnb_data);
 			dmu_assign_arcbuf(obj->oo_db, lnb[i].lnb_file_offset,
 					  lnb[i].lnb_data, oh->ot_tx);
 			/* drop the reference, otherwise osd_put_bufs()
 			 * will be releasing it - bad! */
 			lnb[i].lnb_data = NULL;
+			osd_zil_log_write(env, oh, dt, lnb[i].lnb_file_offset,
+					  bufsize);
 			atomic_dec(&osd->od_zerocopy_loan);
 		}
 
@@ -862,6 +890,12 @@ static int osd_punch(const struct lu_env *env, struct dt_object *dt,
 
 	rc = __osd_object_punch(osd->od_os, obj->oo_db, oh->ot_tx,
 				obj->oo_attr.la_size, start, len);
+
+	LASSERT(oh->ot_rl != NULL);
+	osd_unlock_range(obj, oh->ot_rl);
+	oh->ot_rl = NULL;
+	oh->ot_rl_obj = NULL;
+
 	/* set new size */
 	if (len == DMU_OBJECT_END) {
 		write_lock(&obj->oo_attr_lock);
@@ -870,6 +904,9 @@ static int osd_punch(const struct lu_env *env, struct dt_object *dt,
 		rc = osd_object_sa_update(obj, SA_ZPL_SIZE(osd),
 					  &obj->oo_attr.la_size, 8, oh);
 	}
+
+	osd_zil_update_pack(env, rc, oh, obj, punch, start, end);
+
 	RETURN(rc);
 }
 
@@ -880,6 +917,7 @@ static int osd_declare_punch(const struct lu_env *env, struct dt_object *dt,
 	struct osd_device  *osd = osd_obj2dev(obj);
 	struct osd_thandle *oh;
 	__u64		    len;
+	int		    rc;
 	ENTRY;
 
 	oh = container_of0(handle, struct osd_thandle, ot_super);
@@ -900,6 +938,17 @@ static int osd_declare_punch(const struct lu_env *env, struct dt_object *dt,
 
 	/* ... and we'll modify size attribute */
 	dmu_tx_hold_sa(oh->ot_tx, obj->oo_sa_hdl, 0);
+
+	/* no support for many punches in a single transaction yet */
+	/* we need to lock the range against potential writes from ZIL */
+	LASSERT(oh->ot_rl == NULL);
+	oh->ot_rl = osd_lock_range(obj, start, end - start, 1);
+	if (IS_ERR(oh->ot_rl)) {
+		rc = PTR_ERR(oh->ot_rl);
+		oh->ot_rl = NULL;
+		RETURN(rc);
+	}
+	oh->ot_rl_obj = obj;
 
 	RETURN(osd_declare_quota(env, osd, obj->oo_attr.la_uid,
 				 obj->oo_attr.la_gid, 0, oh, true, NULL,
