@@ -613,6 +613,11 @@ int osd_xattr_set(const struct lu_env *env, struct dt_object *dt,
 	rc = osd_xattr_set_internal(env, obj, buf, name, fl, oh);
 	up(&obj->oo_guard);
 
+	if (osd_use_zil(oh, rc))
+		out_xattr_set_pack(env, &oh->ot_buf, lu_object_fid(&dt->do_lu),
+				   buf, name, fl,
+				   atomic_inc_return(&obj->oo_version));
+
 	RETURN(rc);
 }
 
@@ -748,6 +753,10 @@ int osd_xattr_del(const struct lu_env *env, struct dt_object *dt,
 	down(&obj->oo_guard);
 	rc = __osd_xattr_del(env, obj, name, oh);
 	up(&obj->oo_guard);
+
+	if (osd_use_zil(oh, rc))
+		out_xattr_del_pack(env, &oh->ot_buf, lu_object_fid(&dt->do_lu),
+				   name, atomic_inc_return(&obj->oo_version));
 
 	RETURN(rc);
 }
