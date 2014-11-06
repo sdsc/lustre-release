@@ -315,7 +315,12 @@ static int out_tx_attr_set_exec(const struct lu_env *env, struct thandle *th,
 	       PFID(lu_object_fid(&dt_obj->do_lu)));
 
 	dt_write_lock(env, dt_obj, MOR_TGT_CHILD);
-	rc = dt_attr_set(env, dt_obj, &arg->u.attr_set.attr, th, NULL);
+
+	if (dt_object_exists(dt_obj))
+		rc = dt_attr_set(env, dt_obj, &arg->u.attr_set.attr, th, NULL);
+	else
+		rc = -ENOENT;
+
 	dt_write_unlock(env, dt_obj);
 
 	CDEBUG(D_INFO, "%s: insert attr_set reply %p index %d: rc = %d\n",
