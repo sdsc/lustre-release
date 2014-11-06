@@ -1382,40 +1382,23 @@ int ll_lov_setstripe_ea_info(struct inode *inode, struct file *file,
                              __u64  flags, struct lov_user_md *lum,
 			     int lum_size)
 {
-	struct lov_stripe_md *lsm = NULL;
 	struct lookup_intent oit = {.it_op = IT_OPEN, .it_flags = flags};
 	int rc = 0;
 	ENTRY;
 
-	lsm = ccc_inode_lsm_get(inode);
-	if (lsm != NULL) {
-		ccc_inode_lsm_put(inode, lsm);
-		CDEBUG(D_IOCTL, "stripe already exists for inode "DFID"\n",
-		       PFID(ll_inode2fid(inode)));
-		GOTO(out, rc = -EEXIST);
-	}
-
 	ll_inode_size_lock(inode);
 	oit.it_flags |= MDS_OPEN_BY_FID;
 	rc = ll_intent_file_open(file, lum, lum_size, &oit);
-	if (rc)
+	if (rc != 0)
 		GOTO(out_unlock, rc);
-	rc = oit.d.lustre.it_status;
-	if (rc < 0)
-		GOTO(out_req_free, rc);
 
 	ll_release_openhandle(file->f_dentry, &oit);
 
 out_unlock:
 	ll_inode_size_unlock(inode);
 	ll_intent_release(&oit);
-	ccc_inode_lsm_put(inode, lsm);
-out:
 	cl_lov_delay_create_clear(&file->f_flags);
 	RETURN(rc);
-out_req_free:
-	ptlrpc_req_finished((struct ptlrpc_request *) oit.d.lustre.it_data);
-	goto out;
 }
 
 int ll_lov_getstripe_ea_info(struct inode *inode, const char *filename,
