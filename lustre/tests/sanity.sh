@@ -12692,6 +12692,16 @@ test_241() {
 }
 run_test 241 "bio vs dio"
 
+test_250() {
+	$SETSTRIPE -c 1 $DIR/$tfile
+	truncate $DIR/$tfile 17592186040319
+	dd if=/dev/zero of=$DIR/$tfile bs=10 count=1 oflag=append \
+		conv=notrunc,fsync && error "write succeeded"
+	return 0
+}
+run_test 250 "Write above 16T limit"
+
+
 cleanup_test_300() {
 	trap 0
 	umask $SAVE_UMASK
