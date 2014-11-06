@@ -4816,6 +4816,22 @@ test_56w() {
 
     check_stripe_count $TDIR/file1 $expected
 
+    # lfs_migrate file on OST 0 or 1. This file is small enough to be
+    # on only one stripe.
+    file=$TDIR/migr_1_ost
+    dd bs=$dd_bs count=1 if=/dev/urandom of=$file >/dev/null 2>&1 ||
+    error "write data into $file failed"
+    local obdidx=`$LFS getstripe -i $file`
+    local oldmd5=`md5sum $file`
+    local newobdidx=0
+    [[ $obdidx -eq 0 ]] && newobdidx=1
+    cmd="$LFS migrate -o $newobdidx $file"
+    eval $cmd || error "$cmd failed"
+    local realobdix=`$LFS getstripe -i $file`
+    local newmd5=`md5sum $file`
+    [[ $newobdidx -ne $realobdix ]] && error "new ost is different (was=$obdidx, wanted=$newobdidx, got=$realobdix)"
+    [[ "$oldmd5" != "$newmd5" ]] && error "md5sum differ: $oldmd5, $newmd5"
+
     # lfs_migrate dir
     cmd="$LFS_MIGRATE -y -c $expected $TDIR/dir1"
     echo "$cmd"
