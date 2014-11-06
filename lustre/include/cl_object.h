@@ -2709,5 +2709,6 @@ struct cl_ioc_getattr {
 #define CL_IOC_FIEMAP		_IOWR('i', 3, struct cl_ioc_fiemap *)
 #define CL_IOC_DATA_VERSION	_IOR('i', 4, struct ioc_data_version *)
 #define CL_IOC_GETATTR		_IOR('i', 5, struct cl_ioc_getattr *)
+#define CL_IOC_CHECK_STRIPE	_IOR('i', 6, int *)
 
 #endif /* _LINUX_CL_OBJECT_H */

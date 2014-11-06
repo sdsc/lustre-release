@@ -1598,6 +1598,12 @@ static int lov_object_ioctl(const struct lu_env *env, struct cl_object *obj,
 	lsm = lov_lsm_get(obj);
 
 	switch (cmd) {
+	case CL_IOC_CHECK_STRIPE:
+		if (lsm == NULL)
+			*(int *)arg = 0;
+		else
+			*(int *)arg = 1;
+		break;
 	case CL_IOC_LOV_GETSTRIPE:
 		rc = lov_getstripe(cl2lov(obj), lsm,
 				   (struct lov_user_md __user *)arg);

@@ -1331,8 +1331,8 @@ out_rmdir:
                         if (IS_ERR(filename))
                                 RETURN(PTR_ERR(filename));
 
-                        rc = ll_lov_getstripe_ea_info(inode, filename, &lmm,
-                                                      &lmmsize, &request);
+			rc = ll_file_getstripe_ea_info(inode, filename, &lmm,
+						       &lmmsize, &request);
 		} else {
 			rc = ll_dir_getstripe(inode, (void **)&lmm, &lmmsize,
 					      &request, 0);

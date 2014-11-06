@@ -887,14 +887,14 @@ int ll_inode_permission(struct inode *inode, int mask);
 # endif
 #endif
 
-int ll_lov_setstripe_ea_info(struct inode *inode, struct file *file,
-			     __u64  flags, struct lov_user_md *lum,
-			     int lum_size);
-int ll_lov_getstripe_ea_info(struct inode *inode, const char *filename,
-                             struct lov_mds_md **lmm, int *lmm_size,
-                             struct ptlrpc_request **request);
+int ll_file_setstripe_ea_info(struct inode *inode, struct file *file,
+			      __u64  flags, struct lov_user_md *lum,
+			      int lum_size);
+int ll_file_getstripe_ea_info(struct inode *inode, const char *filename,
+			      struct lov_mds_md **lmm, int *lmm_size,
+			      struct ptlrpc_request **request);
 int ll_dir_setstripe(struct inode *inode, struct lov_user_md *lump,
-                     int set_default);
+		     int set_default);
 int ll_dir_getstripe(struct inode *inode, void **lmmp,
 		     int *lmm_size, struct ptlrpc_request **request,
 		     obd_valid valid);

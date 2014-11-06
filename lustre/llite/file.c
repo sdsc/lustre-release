@@ -538,7 +538,7 @@ static int ll_local_open(struct file *file, struct lookup_intent *it,
 
 /* Open a file, and (for the very first open) create objects on the OSTs at
  * this time.  If opened with O_LOV_DELAY_CREATE, then we don't do the object
- * creation or open until ll_lov_setstripe() ioctl is called.
+ * creation or open until ll_file_setstripe() ioctl is called.
  *
  * If we already have the stripe MD locally then we don't request it in
  * md_open(), by passing a lmm_size = 0.
@@ -1449,18 +1449,35 @@ static ssize_t ll_file_splice_read(struct file *in_file, loff_t *ppos,
         RETURN(result);
 }
 
-int ll_lov_setstripe_ea_info(struct inode *inode, struct file *file,
-                             __u64  flags, struct lov_user_md *lum,
-			     int lum_size)
+static bool ll_has_stripe(struct inode *inode)
 {
-	struct lov_stripe_md *lsm = NULL;
-	struct lookup_intent oit = {.it_op = IT_OPEN, .it_flags = flags};
-	int rc = 0;
+	struct lu_env	*env;
+	int		refcheck;
+	int		rc;
+	int		has_lsm;
 	ENTRY;
 
-	lsm = ccc_inode_lsm_get(inode);
-	if (lsm != NULL) {
-		ccc_inode_lsm_put(inode, lsm);
+	env = cl_env_get(&refcheck);
+	if (IS_ERR(env))
+		RETURN(PTR_ERR(env));
+	rc = cl_object_ioctl(env, ll_i2info(inode)->lli_clob,
+			     CL_IOC_CHECK_STRIPE, (unsigned long)&has_lsm);
+	cl_env_put(env, &refcheck);
+
+	if (rc != 0 || has_lsm == 0)
+		RETURN(false);
+	RETURN(true);
+}
+
+int ll_file_setstripe_ea_info(struct inode *inode, struct file *file,
+			      __u64  flags, struct lov_user_md *lum,
+			      int lum_size)
+{
+	struct lookup_intent	oit = {.it_op = IT_OPEN, .it_flags = flags};
+	int			rc = 0;
+	ENTRY;
+
+	if (ll_has_stripe(inode)) {
 		CDEBUG(D_IOCTL, "stripe already exists for inode "DFID"\n",
 		       PFID(ll_inode2fid(inode)));
 		GOTO(out, rc = -EEXIST);
@@ -1480,7 +1497,6 @@ int ll_lov_setstripe_ea_info(struct inode *inode, struct file *file,
 out_unlock:
 	ll_inode_size_unlock(inode);
 	ll_intent_release(&oit);
-	ccc_inode_lsm_put(inode, lsm);
 out:
 	cl_lov_delay_create_clear(&file->f_flags);
 	RETURN(rc);
@@ -1489,9 +1505,9 @@ out_req_free:
 	goto out;
 }
 
-int ll_lov_getstripe_ea_info(struct inode *inode, const char *filename,
-                             struct lov_mds_md **lmmp, int *lmm_size,
-                             struct ptlrpc_request **request)
+int ll_file_getstripe_ea_info(struct inode *inode, const char *filename,
+			      struct lov_mds_md **lmmp, int *lmm_size,
+			      struct ptlrpc_request **request)
 {
         struct ll_sb_info *sbi = ll_i2sbi(inode);
         struct mdt_body  *body;
@@ -1574,8 +1590,8 @@ out:
         return rc;
 }
 
-static int ll_lov_setea(struct inode *inode, struct file *file,
-                            unsigned long arg)
+static int ll_file_setea(struct inode *inode, struct file *file,
+			 unsigned long arg)
 {
 	__u64			 flags = MDS_OPEN_HAS_OBJS | FMODE_WRITE;
 	struct lov_user_md	*lump;
@@ -1596,7 +1612,7 @@ static int ll_lov_setea(struct inode *inode, struct file *file,
 		RETURN(-EFAULT);
 	}
 
-	rc = ll_lov_setstripe_ea_info(inode, file, flags, lump, lum_size);
+	rc = ll_file_setstripe_ea_info(inode, file, flags, lump, lum_size);
 
 	OBD_FREE_LARGE(lump, lum_size);
 	RETURN(rc);
@@ -1619,8 +1635,8 @@ static int ll_file_getstripe(struct inode *inode, unsigned long arg)
 	RETURN(rc);
 }
 
-static int ll_lov_setstripe(struct inode *inode, struct file *file,
-			    unsigned long arg)
+static int ll_file_setstripe(struct inode *inode, struct file *file,
+			     unsigned long arg)
 {
 	struct lov_user_md __user *lum = (struct lov_user_md __user *)arg;
 	struct lov_user_md	  *klum;
@@ -1633,7 +1649,7 @@ static int ll_lov_setstripe(struct inode *inode, struct file *file,
 		RETURN(rc);
 
 	lum_size = rc;
-	rc = ll_lov_setstripe_ea_info(inode, file, flags, klum, lum_size);
+	rc = ll_file_setstripe_ea_info(inode, file, flags, klum, lum_size);
 	if (rc == 0) {
 		__u32 gen;
 
@@ -2289,10 +2305,10 @@ ll_file_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
                         fd->fd_flags &= ~flags;
                 }
                 RETURN(0);
-        case LL_IOC_LOV_SETSTRIPE:
-                RETURN(ll_lov_setstripe(inode, file, arg));
-        case LL_IOC_LOV_SETEA:
-                RETURN(ll_lov_setea(inode, file, arg));
+	case LL_IOC_LOV_SETSTRIPE:
+		RETURN(ll_file_setstripe(inode, file, arg));
+	case LL_IOC_LOV_SETEA:
+		RETURN(ll_file_setea(inode, file, arg));
 	case LL_IOC_LOV_SWAP_LAYOUTS: {
 		struct file *file2;
 		struct lustre_swap_layouts lsl;
