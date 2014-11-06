@@ -60,8 +60,8 @@ init_logging
 [ "$SLOW" = "no" ] && EXCEPT_SLOW="24o 27m 64b 68 71 77f 78 115 124b"
 
 [ $(facet_fstype $SINGLEMDS) = "zfs" ] &&
-# bug number for skipped test:        LU-1593 LU-2610 LU-2833 LU-1957 LU-2805
-	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 34h     40      48a     180     184c"
+# bug number for skipped test:        LU-1593 LU-2610 LU-1957 LU-2805
+	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 34h     40      180     184c"
 
 FAIL_ON_ERROR=false
 
@@ -3582,6 +3582,10 @@ run_test 46 "dirtying a previously written page ================"
 # test_47 is removed "Device nodes check" is moved to test_28
 
 test_48a() { # bug 2399
+	[ $(facet_fstype $SINGLEMDS) = "zfs" ] &&
+	[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.3.63) ] &&
+		skip "MDS prior to 2.3.63 handle ZFS dir .. incorrectly" &&
+		return
 	check_kernel_version 34 || return 0
 	test_mkdir -p $DIR/$tdir
 	cd $DIR/$tdir
