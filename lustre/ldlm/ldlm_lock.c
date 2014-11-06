@@ -257,8 +257,15 @@ int ldlm_lock_remove_from_lru_nolock(struct ldlm_lock *lock)
 
 /**
  * Removes LDLM lock \a lock from LRU. Obtains the LRU lock first.
+ * If \a last_use is non-zero, it will remove the lock from LRU only if
+ * it matches lock's l_last_used.
+ *
+ * \retval 0 if \a last_use is set, the lock is not in LRU list or \a last_use
+ *           doesn't match lock's l_last_used;
+ *           otherwise, the lock hasn't been in the LRU list.
+ * \retval 1 the lock was in LRU list and removed.
  */
-int ldlm_lock_remove_from_lru(struct ldlm_lock *lock)
+int ldlm_lock_remove_from_lru_check(struct ldlm_lock *lock, cfs_time_t last_use)
 {
 	struct ldlm_namespace *ns = ldlm_lock_to_ns(lock);
 	int rc;
@@ -270,10 +277,15 @@ int ldlm_lock_remove_from_lru(struct ldlm_lock *lock)
 	}
 
 	spin_lock(&ns->ns_lock);
+	if (last_use != 0 &&
+	    (list_empty(&lock->l_lru) || last_use != lock->l_last_used)) {
+		spin_unlock(&ns->ns_lock);
+		RETURN(0);
+	}
+
 	rc = ldlm_lock_remove_from_lru_nolock(lock);
 	spin_unlock(&ns->ns_lock);
-	EXIT;
-	return rc;
+	RETURN(rc);
 }
 
 /**
@@ -283,7 +295,13 @@ void ldlm_lock_add_to_lru_nolock(struct ldlm_lock *lock)
 {
 	struct ldlm_namespace *ns = ldlm_lock_to_ns(lock);
 
-	lock->l_last_used = cfs_time_current();
+	/* In ldlm_prepare_lru_list(), l_last_used is used to check if the
+	 * lock has been used after LRU cancellation policy check. In order to
+	 * avoid the case that the lock was used and released in the same
+	 * jiffies, l_last_used is forced to change here.
+	 * Please see ldlm_lock_remove_from_lru_check() for details.
+	 * - Jinshan */
+	lock->l_last_used = max(lock->l_last_used + 1, cfs_time_current());
 	LASSERT(list_empty(&lock->l_lru));
 	LASSERT(lock->l_resource->lr_type != LDLM_FLOCK);
 	list_add_tail(&lock->l_lru, &ns->ns_unused_list);
