@@ -1637,6 +1637,7 @@ static int ldlm_prepare_lru_list(struct ldlm_namespace *ns,
 	ldlm_cancel_lru_policy_t pf;
 	struct ldlm_lock *lock, *next;
 	int added = 0, unused, remained;
+	cfs_time_t last_use;
 	ENTRY;
 
 	spin_lock(&ns->ns_lock);
@@ -1680,6 +1681,7 @@ static int ldlm_prepare_lru_list(struct ldlm_namespace *ns,
 		if (&lock->l_lru == &ns->ns_unused_list)
 			break;
 
+		last_use = lock->l_last_used;
 		LDLM_LOCK_GET(lock);
 		spin_unlock(&ns->ns_lock);
 		lu_ref_add(&lock->l_reference, __FUNCTION__, current);
@@ -1714,9 +1716,11 @@ static int ldlm_prepare_lru_list(struct ldlm_namespace *ns,
 		}
 
 		lock_res_and_lock(lock);
-		/* Check flags again under the lock. */
+		/* Check flags again under the lock.
+		 * It must check last_use to make sure the lock has not been
+		 * used again after cancellation policy check */
 		if (ldlm_is_canceling(lock) ||
-		    (ldlm_lock_remove_from_lru(lock) == 0)) {
+		    ldlm_lock_remove_from_lru_check(lock, last_use) == 0) {
 			/* Another thread is removing lock from LRU, or
 			 * somebody is already doing CANCEL, or there
 			 * is a blocking request which will send cancel
