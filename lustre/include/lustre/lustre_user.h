@@ -226,7 +226,7 @@ struct ost_id {
 /*	LL_IOC_POLL_QUOTACHECK		161 OBD_IOC_POLL_QUOTACHECK */
 /*	LL_IOC_QUOTACTL			162 OBD_IOC_QUOTACTL */
 #define IOC_OBD_STATFS                  _IOWR('f', 164, struct obd_statfs *)
-#define IOC_LOV_GETINFO                 _IOWR('f', 165, struct lov_user_mds_data *)
+/*	IOC_LOV_GETINFO                 165 obsolete */
 #define LL_IOC_FLUSHCTX                 _IOW ('f', 166, long)
 #define LL_IOC_RMTACL                   _IOW ('f', 167, long)
 #define LL_IOC_GETOBDCOUNT              _IOR ('f', 168, long)
