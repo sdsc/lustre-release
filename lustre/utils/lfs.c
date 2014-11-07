@@ -636,7 +636,6 @@ static int lfs_migrate(char *name, __u64 migration_flags,
 		rc = -errno;
 		fprintf(stderr, "%s: %s: cannot open: %s\n", progname, name,
 			strerror(-rc));
-		close(fdv);
 		goto free;
 	}
 
@@ -671,7 +670,7 @@ static int lfs_migrate(char *name, __u64 migration_flags,
 		      LUSTRE_VOLATILE_HDR);
 	if (rc >= sizeof(volatile_file)) {
 		rc = -E2BIG;
-		goto free;
+		goto error;
 	}
 
 	/* create, open a volatile file, use caching (ie no directio) */
@@ -684,7 +683,7 @@ static int lfs_migrate(char *name, __u64 migration_flags,
 		fprintf(stderr, "%s: %s: cannot create volatile file in"
 				" directory: %s\n",
 			progname, parent, strerror(-rc));
-		goto free;
+		goto error;
 	}
 
 	/* Not-owner (root?) special case.

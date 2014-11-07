@@ -2331,8 +2331,10 @@ ll_file_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			struct ll_inode_info		*lli;
 			struct obd_client_handle	*och = NULL;
 
-			if (lsl.sl_flags != SWAP_LAYOUTS_CLOSE)
+			if (lsl.sl_flags != SWAP_LAYOUTS_CLOSE) {
+				fput(file2);
 				RETURN(-EINVAL);
+			}
 
 			lli = ll_i2info(inode);
 			mutex_lock(&lli->lli_och_mutex);
@@ -2341,8 +2343,11 @@ ll_file_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 				fd->fd_lease_och = NULL;
 			}
 			mutex_unlock(&lli->lli_och_mutex);
+			if (och == NULL) {
+				fput(file2);
+				RETURN(-ENOLCK);
+			}
 			inode2 = file2->f_dentry->d_inode;
-
 			rc = ll_close_layout_swap(och, inode, inode2);
 		} else {
 			rc = ll_swap_layouts(file, file2, &lsl);

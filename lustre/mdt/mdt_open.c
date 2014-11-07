@@ -2174,7 +2174,7 @@ static int mdt_close_swap_layouts(struct mdt_thread_info *info,
 	struct mdt_lock_handle	*lh2 = &info->mti_lh[MDT_LH_OLD];
 	struct close_data	*data;
 	struct ldlm_lock	*lease;
-	struct mdt_object	*o_ref, *o2;
+	struct mdt_object	*o2;
 	bool			 lease_broken;
 	int			 rc;
 	ENTRY;
@@ -2193,8 +2193,7 @@ static int mdt_close_swap_layouts(struct mdt_thread_info *info,
 	if (lease == NULL)
 		RETURN(-ESTALE);
 
-	o_ref = o2 = mdt_object_find(info->mti_env, info->mti_mdt,
-				     &data->cd_fid);
+	o2 = mdt_object_find(info->mti_env, info->mti_mdt, &data->cd_fid);
 	if (IS_ERR(o2))
 		GOTO(out_put_lock, rc = PTR_ERR(o2));
 

@@ -4715,7 +4715,7 @@ int llapi_create_volatile_idx(char *directory, int idx, int open_flags)
 
 /**
  * Swap the layouts between 2 file descriptors
- * the 2 files must be open in write
+ * the 2 files must be open for writing
  * first fd received the ioctl, second fd is passed as arg
  * this is assymetric but avoid use of root path for ioctl
  */
