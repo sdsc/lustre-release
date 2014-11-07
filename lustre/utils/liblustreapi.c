@@ -3209,29 +3209,6 @@ obd_matches:
 		if (param->fp_mdt_index != OBD_NOT_FOUND)
                         print_failed_tgt(param, path, LL_STATFS_LMV);
 
-		if (dir) {
-			ret = ioctl(dirfd(dir), IOC_LOV_GETINFO,
-				    (void *)param->fp_lmd);
-		} else if (parent) {
-			ret = ioctl(dirfd(parent), IOC_LOV_GETINFO,
-				    (void *)param->fp_lmd);
-		}
-
-                if (ret) {
-                        if (errno == ENOENT) {
-                                llapi_error(LLAPI_MSG_ERROR, -ENOENT,
-                                            "warning: %s: %s does not exist",
-                                            __func__, path);
-                                goto decided;
-                        } else {
-                                ret = -errno;
-                                llapi_error(LLAPI_MSG_ERROR, ret,
-                                            "%s: IOC_LOV_GETINFO on %s failed",
-                                            __func__, path);
-                                return ret;
-                        }
-                }
-
                 /* Check the time on osc. */
                 decision = find_time_check(st, param, 0);
                 if (decision == -1)

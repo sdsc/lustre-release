@@ -925,61 +925,6 @@ static int ll_lease_close(struct obd_client_handle *och, struct inode *inode,
 	RETURN(rc);
 }
 
-/* Fills the obdo with the attributes for the lsm */
-static int ll_lsm_getattr(struct lov_stripe_md *lsm, struct obd_export *exp,
-			  struct obd_capa *capa, struct obdo *obdo,
-			  __u64 ioepoch, int dv_flags)
-{
-        struct ptlrpc_request_set *set;
-        struct obd_info            oinfo = { { { 0 } } };
-        int                        rc;
-
-        ENTRY;
-
-        LASSERT(lsm != NULL);
-
-        oinfo.oi_md = lsm;
-        oinfo.oi_oa = obdo;
-	oinfo.oi_oa->o_oi = lsm->lsm_oi;
-        oinfo.oi_oa->o_mode = S_IFREG;
-        oinfo.oi_oa->o_ioepoch = ioepoch;
-        oinfo.oi_oa->o_valid = OBD_MD_FLID | OBD_MD_FLTYPE |
-                               OBD_MD_FLSIZE | OBD_MD_FLBLOCKS |
-                               OBD_MD_FLBLKSZ | OBD_MD_FLATIME |
-                               OBD_MD_FLMTIME | OBD_MD_FLCTIME |
-                               OBD_MD_FLGROUP | OBD_MD_FLEPOCH |
-                               OBD_MD_FLDATAVERSION;
-        oinfo.oi_capa = capa;
-	if (dv_flags & (LL_DV_WR_FLUSH | LL_DV_RD_FLUSH)) {
-		oinfo.oi_oa->o_valid |= OBD_MD_FLFLAGS;
-		oinfo.oi_oa->o_flags |= OBD_FL_SRVLOCK;
-		if (dv_flags & LL_DV_WR_FLUSH)
-			oinfo.oi_oa->o_flags |= OBD_FL_FLUSH;
-	}
-
-	set = ptlrpc_prep_set();
-	if (set == NULL) {
-		CERROR("cannot allocate ptlrpc set: rc = %d\n", -ENOMEM);
-		rc = -ENOMEM;
-	} else {
-                rc = obd_getattr_async(exp, &oinfo, set);
-                if (rc == 0)
-                        rc = ptlrpc_set_wait(set);
-                ptlrpc_set_destroy(set);
-        }
-	if (rc == 0) {
-		oinfo.oi_oa->o_valid &= (OBD_MD_FLBLOCKS | OBD_MD_FLBLKSZ |
-					 OBD_MD_FLATIME | OBD_MD_FLMTIME |
-					 OBD_MD_FLCTIME | OBD_MD_FLSIZE |
-					 OBD_MD_FLDATAVERSION | OBD_MD_FLFLAGS);
-		if (dv_flags & LL_DV_WR_FLUSH &&
-		    !(oinfo.oi_oa->o_valid & OBD_MD_FLFLAGS &&
-		      oinfo.oi_oa->o_flags & OBD_FL_FLUSH))
-			RETURN(-ENOTSUPP);
-	}
-	RETURN(rc);
-}
-
 /**
   * Performs the getattr on the inode and updates its fields.
   * If @sync != 0, perform the getattr under the server-side lock.
@@ -1082,23 +1027,6 @@ out_size_unlock:
 	ll_inode_size_unlock(inode);
 
 	RETURN(rc);
-}
-
-int ll_glimpse_ioctl(struct ll_sb_info *sbi, struct lov_stripe_md *lsm,
-                     lstat_t *st)
-{
-        struct obdo obdo = { 0 };
-        int rc;
-
-        rc = ll_lsm_getattr(lsm, sbi->ll_dt_exp, NULL, &obdo, 0, 0);
-        if (rc == 0) {
-                st->st_size   = obdo.o_size;
-                st->st_blocks = obdo.o_blocks;
-                st->st_mtime  = obdo.o_mtime;
-                st->st_atime  = obdo.o_atime;
-                st->st_ctime  = obdo.o_ctime;
-        }
-        return rc;
 }
 
 static bool file_is_noatime(const struct file *file)
@@ -1541,30 +1469,11 @@ int ll_lov_getstripe_ea_info(struct inode *inode, const char *filename,
          * little endian.  We convert it to host endian before
          * passing it to userspace.
          */
-        if (LOV_MAGIC != cpu_to_le32(LOV_MAGIC)) {
-		int stripe_count;
-
-		stripe_count = le16_to_cpu(lmm->lmm_stripe_count);
-		if (le32_to_cpu(lmm->lmm_pattern) & LOV_PATTERN_F_RELEASED)
-			stripe_count = 0;
-
-                /* if function called for directory - we should
-                 * avoid swab not existent lsm objects */
-                if (lmm->lmm_magic == cpu_to_le32(LOV_MAGIC_V1)) {
-                        lustre_swab_lov_user_md_v1((struct lov_user_md_v1 *)lmm);
-			if (S_ISREG(body->mbo_mode))
-				lustre_swab_lov_user_md_objects(
-				    ((struct lov_user_md_v1 *)lmm)->lmm_objects,
-				    stripe_count);
-		} else if (lmm->lmm_magic == cpu_to_le32(LOV_MAGIC_V3)) {
-			lustre_swab_lov_user_md_v3(
-				(struct lov_user_md_v3 *)lmm);
-			if (S_ISREG(body->mbo_mode))
-                                lustre_swab_lov_user_md_objects(
-                                 ((struct lov_user_md_v3 *)lmm)->lmm_objects,
-                                 stripe_count);
-                }
-        }
+	if (LOV_MAGIC != cpu_to_le32(LOV_MAGIC)) {
+		lustre_swab_lum(lmm, LL_TO_HOST);
+		if (S_ISREG(body->mbo_mode))
+			lustre_swab_lum_obj(lmm, LL_TO_HOST);
+	}
 
 out:
         *lmmp = lmm;
