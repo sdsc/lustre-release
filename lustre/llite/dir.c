@@ -1314,22 +1314,23 @@ out_rmdir:
 		RETURN(-EPERM);
 	case IOC_OBD_STATFS:
 		RETURN(ll_obd_statfs(inode, (void __user *)arg));
-        case LL_IOC_LOV_GETSTRIPE:
-        case LL_IOC_MDC_GETINFO:
-        case IOC_MDC_GETFILEINFO:
-        case IOC_MDC_GETFILESTRIPE: {
-                struct ptlrpc_request *request = NULL;
-		struct lov_user_md __user *lump;
-                struct lov_mds_md *lmm = NULL;
-                struct mdt_body *body;
-                char *filename = NULL;
-                int lmmsize;
+	case LL_IOC_LOV_GETSTRIPE:
+	case LL_IOC_MDC_GETINFO:
+	case IOC_MDC_GETFILEINFO:
+	case IOC_MDC_GETFILESTRIPE: {
+		struct ptlrpc_request		*request = NULL;
+		struct lov_user_md __user	*lump;
+		struct lov_mds_md		*lmm = NULL;
+		char				*filename = NULL;
+		int				lmmsize;
+		struct mdt_body			*body;
+		bool				has_lmm = true;
 
-                if (cmd == IOC_MDC_GETFILEINFO ||
-                    cmd == IOC_MDC_GETFILESTRIPE) {
+		if (cmd == IOC_MDC_GETFILEINFO ||
+		    cmd == IOC_MDC_GETFILESTRIPE) {
 			filename = ll_getname((const char __user *)arg);
-                        if (IS_ERR(filename))
-                                RETURN(PTR_ERR(filename));
+			if (IS_ERR(filename))
+				RETURN(PTR_ERR(filename));
 
                         rc = ll_lov_getstripe_ea_info(inode, filename, &lmm,
                                                       &lmmsize, &request);
@@ -1338,39 +1339,43 @@ out_rmdir:
 					      &request, 0);
 		}
 
-                if (request) {
-                        body = req_capsule_server_get(&request->rq_pill,
-                                                      &RMF_MDT_BODY);
-                        LASSERT(body != NULL);
-                } else {
-                        GOTO(out_req, rc);
-                }
+		if (request) {
+			body = req_capsule_server_get(&request->rq_pill,
+						      &RMF_MDT_BODY);
+			LASSERT(body != NULL);
+		} else {
+			GOTO(out_req, rc);
+		}
 
-                if (rc < 0) {
-                        if (rc == -ENODATA && (cmd == IOC_MDC_GETFILEINFO ||
-                                               cmd == LL_IOC_MDC_GETINFO))
-                                GOTO(skip_lmm, rc = 0);
-                        else
+		if (rc < 0) {
+			has_lmm = false;
+			if (rc == -ENODATA && (cmd == IOC_MDC_GETFILEINFO ||
+					       cmd == LL_IOC_MDC_GETINFO))
+				GOTO(get_stat, rc = 0);
+			else
                                 GOTO(out_req, rc);
-                }
+		}
 
-                if (cmd == IOC_MDC_GETFILESTRIPE ||
-                    cmd == LL_IOC_LOV_GETSTRIPE) {
+		if (cmd == IOC_MDC_GETFILESTRIPE ||
+		    cmd == LL_IOC_LOV_GETSTRIPE) {
 			lump = (struct lov_user_md __user *)arg;
                 } else {
 			struct lov_user_mds_data __user *lmdp;
 			lmdp = (struct lov_user_mds_data __user *)arg;
-                        lump = &lmdp->lmd_lmm;
+			lump = &lmdp->lmd_lmm;
                 }
 		if (copy_to_user(lump, lmm, lmmsize)) {
 			if (copy_to_user(lump, lmm, sizeof(*lump)))
-                                GOTO(out_req, rc = -EFAULT);
-                        rc = -EOVERFLOW;
-                }
-        skip_lmm:
-                if (cmd == IOC_MDC_GETFILEINFO || cmd == LL_IOC_MDC_GETINFO) {
+				GOTO(out_req, rc = -EFAULT);
+			rc = -EOVERFLOW;
+		}
+	get_stat:
+		if (cmd == IOC_MDC_GETFILEINFO || cmd == LL_IOC_MDC_GETINFO) {
 			struct lov_user_mds_data __user *lmdp;
-                        lstat_t st = { 0 };
+			struct lov_stripe_md	*lsm = NULL;
+			struct inode		*finode;
+			struct lustre_md	md = { 0 };
+			lstat_t			st = { 0 };
 
 			st.st_dev	= inode->i_sb->s_dev;
 			st.st_mode	= body->mbo_mode;
@@ -1386,84 +1391,59 @@ out_rmdir:
 			st.st_ctime	= body->mbo_ctime;
 			st.st_ino	= inode->i_ino;
 
+			if (!has_lmm || cmd != IOC_MDC_GETFILEINFO)
+				goto copy_stat;
+
+			/*
+			 * Get file's size/time from OST.
+			 * From here, we've copied lmm to user space, we need
+			 * it to form a lsm to get the inode of the file under
+			 * the dir, then get its size/time from OSTs.
+			 */
+			if (LOV_MAGIC == cpu_to_le32(LOV_MAGIC))
+				goto get_inode;
+
+			/* transfer lmm to disk format, i.e. LE */
+			lustre_swab_lum(lmm, LL_TO_LE);
+			lustre_swab_lum_obj(lmm, LL_TO_LE);
+	get_inode:
+			/* derive a lsm from lmm */
+			rc = obd_unpackmd(sbi->ll_dt_exp, &lsm, lmm, lmmsize);
+			if (rc < 0)
+				goto copy_stat;
+			md.body = body;
+			md.lsm = lsm;
+			finode = ll_iget(inode->i_sb,
+					 cl_fid_build_ino(&body->mbo_fid1,
+					 sbi->ll_flags & LL_SBI_32BIT_API),
+					 &md);
+			if (IS_ERR(finode))
+				goto copy_stat;
+
+			rc = ll_glimpse_size(finode);
+			if (rc == 0) {
+				st.st_size = i_size_read(finode);
+				st.st_blocks = finode->i_blocks;
+				st.st_atime  = finode->i_atime.tv_sec;
+				st.st_mtime  = finode->i_mtime.tv_sec;
+				st.st_ctime  = finode->i_ctime.tv_sec;
+			}
+			iput(finode);
+	copy_stat:
+			if (lsm != NULL)
+				obd_free_memmd(sbi->ll_dt_exp, &lsm);
 			lmdp = (struct lov_user_mds_data __user *)arg;
 			if (copy_to_user(&lmdp->lmd_st, &st, sizeof(st)))
-                                GOTO(out_req, rc = -EFAULT);
-                }
-
-                EXIT;
-        out_req:
-                ptlrpc_req_finished(request);
-                if (filename)
-                        ll_putname(filename);
-                return rc;
-        }
-        case IOC_LOV_GETINFO: {
-		struct lov_user_mds_data __user *lumd;
-                struct lov_stripe_md *lsm;
-		struct lov_user_md __user *lum;
-                struct lov_mds_md *lmm;
-                int lmmsize;
-                lstat_t st;
-
-		lumd = (struct lov_user_mds_data __user *)arg;
-                lum = &lumd->lmd_lmm;
-
-                rc = ll_get_max_mdsize(sbi, &lmmsize);
-                if (rc)
-                        RETURN(rc);
-
-		OBD_ALLOC_LARGE(lmm, lmmsize);
-		if (lmm == NULL)
-			RETURN(-ENOMEM);
-
-		if (copy_from_user(lmm, lum, lmmsize))
-			GOTO(free_lmm, rc = -EFAULT);
-
-                switch (lmm->lmm_magic) {
-                case LOV_USER_MAGIC_V1:
-                        if (LOV_USER_MAGIC_V1 == cpu_to_le32(LOV_USER_MAGIC_V1))
-                                break;
-                        /* swab objects first so that stripes num will be sane */
-                        lustre_swab_lov_user_md_objects(
-                                ((struct lov_user_md_v1 *)lmm)->lmm_objects,
-                                ((struct lov_user_md_v1 *)lmm)->lmm_stripe_count);
-                        lustre_swab_lov_user_md_v1((struct lov_user_md_v1 *)lmm);
-                        break;
-                case LOV_USER_MAGIC_V3:
-                        if (LOV_USER_MAGIC_V3 == cpu_to_le32(LOV_USER_MAGIC_V3))
-                                break;
-                        /* swab objects first so that stripes num will be sane */
-                        lustre_swab_lov_user_md_objects(
-                                ((struct lov_user_md_v3 *)lmm)->lmm_objects,
-                                ((struct lov_user_md_v3 *)lmm)->lmm_stripe_count);
-                        lustre_swab_lov_user_md_v3((struct lov_user_md_v3 *)lmm);
-                        break;
-                default:
-                        GOTO(free_lmm, rc = -EINVAL);
-                }
-
-                rc = obd_unpackmd(sbi->ll_dt_exp, &lsm, lmm, lmmsize);
-                if (rc < 0)
-                        GOTO(free_lmm, rc = -ENOMEM);
-
-                /* Perform glimpse_size operation. */
-                memset(&st, 0, sizeof(st));
-
-                rc = ll_glimpse_ioctl(sbi, lsm, &st);
-                if (rc)
-                        GOTO(free_lsm, rc);
-
-		if (copy_to_user(&lumd->lmd_st, &st, sizeof(st)))
-                        GOTO(free_lsm, rc = -EFAULT);
-
-                EXIT;
-        free_lsm:
-                obd_free_memmd(sbi->ll_dt_exp, &lsm);
-        free_lmm:
-                OBD_FREE_LARGE(lmm, lmmsize);
-                return rc;
-        }
+				rc = -EFAULT;
+			GOTO(out_req, rc);
+		}
+		EXIT;
+	out_req:
+		ptlrpc_req_finished(request);
+		if (filename)
+			ll_putname(filename);
+		return rc;
+	}
 	case OBD_IOC_QUOTACHECK: {
                 struct obd_quotactl *oqctl;
                 int error = 0;

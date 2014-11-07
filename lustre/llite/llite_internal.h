@@ -855,8 +855,6 @@ extern ldlm_mode_t ll_take_md_lock(struct inode *inode, __u64 bits,
 
 int ll_file_open(struct inode *inode, struct file *file);
 int ll_file_release(struct inode *inode, struct file *file);
-int ll_glimpse_ioctl(struct ll_sb_info *sbi,
-                     struct lov_stripe_md *lsm, lstat_t *st);
 void ll_ioepoch_open(struct ll_inode_info *lli, __u64 ioepoch);
 int ll_release_openhandle(struct dentry *, struct lookup_intent *);
 int ll_md_real_close(struct inode *inode, fmode_t fmode);
@@ -1701,5 +1699,95 @@ int ll_page_sync_io(const struct lu_env *env, struct cl_io *io,
 		    struct cl_page *page, enum cl_req_type crt);
 
 int ll_getparent(struct file *file, struct getparent __user *arg);
+
+enum endian_dest {
+	LL_TO_LE,
+	LL_TO_HOST
+};
+
+static inline int lustre_swab_lum(struct lov_mds_md *lmm,
+				  enum endian_dest to_endian)
+{
+	__u32 version = -1;
+
+	if (to_endian != LL_TO_HOST && to_endian != LL_TO_LE)
+		return -EINVAL;
+
+	if (to_endian == LL_TO_HOST &&
+	    (lmm->lmm_magic == LOV_MAGIC_V1 || lmm->lmm_magic == LOV_MAGIC_V3))
+		return 0;
+
+	if (to_endian == LL_TO_LE &&
+	    (lmm->lmm_magic == cpu_to_le32(LOV_MAGIC_V1) ||
+	     lmm->lmm_magic == cpu_to_le32(LOV_MAGIC_V3)))
+		return 0;
+
+	if (to_endian == LL_TO_HOST) {
+		if (le32_to_cpu(lmm->lmm_magic) == LOV_MAGIC_V1)
+			version = 1;
+		else if (le32_to_cpu(lmm->lmm_magic) == LOV_MAGIC_V3)
+			version = 3;
+	} else {
+		if (lmm->lmm_magic == LOV_MAGIC_V1)
+			version = 1;
+		else if (lmm->lmm_magic == LOV_MAGIC_V3)
+			version = 3;
+	}
+	if (version == 1)
+		lustre_swab_lov_user_md_v1((struct lov_user_md_v1 *)lmm);
+	else if (version == 3)
+		lustre_swab_lov_user_md_v3((struct lov_user_md_v3 *)lmm);
+
+	return 0;
+}
+
+static inline int lustre_swab_lum_obj(struct lov_mds_md *lmm,
+				      enum endian_dest to_endian)
+{
+	__u32 stripe_count;
+	__u32 version = -1;
+
+	if (to_endian != LL_TO_HOST && to_endian != LL_TO_LE)
+		return -EINVAL;
+
+	if (to_endian == LL_TO_HOST &&
+	    (lmm->lmm_magic == LOV_MAGIC_V1 || lmm->lmm_magic == LOV_MAGIC_V3))
+		return 0;
+
+	if (to_endian == LL_TO_LE &&
+	    (lmm->lmm_magic == cpu_to_le32(LOV_MAGIC_V1) ||
+	     lmm->lmm_magic == cpu_to_le32(LOV_MAGIC_V3)))
+		return 0;
+
+	if (to_endian == LL_TO_HOST) {
+		if (le32_to_cpu(lmm->lmm_pattern) & LOV_PATTERN_F_RELEASED)
+			stripe_count = 0;
+		else
+			stripe_count = le16_to_cpu(lmm->lmm_stripe_count);
+		if (le32_to_cpu(lmm->lmm_magic) == LOV_MAGIC_V1)
+			version = 1;
+		else if (le32_to_cpu(lmm->lmm_magic) == LOV_MAGIC_V3)
+			version = 3;
+	} else {
+		if (lmm->lmm_pattern & LOV_PATTERN_F_RELEASED)
+			stripe_count = 0;
+		else
+			stripe_count = lmm->lmm_stripe_count;
+		if (lmm->lmm_magic == LOV_MAGIC_V1)
+			version = 1;
+		else if (lmm->lmm_magic == LOV_MAGIC_V3)
+			version = 3;
+	}
+	if (version == 1)
+		lustre_swab_lov_user_md_objects(
+			((struct lov_user_md_v1 *)lmm)->lmm_objects,
+			stripe_count);
+	else if (version == 3)
+		lustre_swab_lov_user_md_objects(
+			((struct lov_user_md_v3 *)lmm)->lmm_objects,
+			stripe_count);
+
+	return 0;
+}
 
 #endif /* LLITE_INTERNAL_H */
