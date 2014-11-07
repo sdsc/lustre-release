@@ -839,16 +839,14 @@ static void osc_announce_cached(struct client_obd *cli, struct obdo *oa,
 		       cli->cl_dirty_pages, cli->cl_dirty_transit,
 		       cli->cl_dirty_max_pages);
 		oa->o_undirty = 0;
-	} else if (unlikely(cfs_atomic_read(&obd_unstable_pages) +
-			    cfs_atomic_read(&obd_dirty_pages) -
+	} else if (unlikely(cfs_atomic_read(&obd_dirty_pages) -
 			    cfs_atomic_read(&obd_dirty_transit_pages) >
 			    (long)(obd_max_dirty_pages + 1))) {
 		/* The cfs_atomic_read() allowing the cfs_atomic_inc() are
 		 * not covered by a lock thus they may safely race and trip
 		 * this CERROR() unless we add in a small fudge factor (+1). */
-		CERROR("%s: dirty %d + %d - %d > system dirty_max %d\n",
+		CERROR("%s: dirty %d - %d > system dirty_max %d\n",
 		       cli->cl_import->imp_obd->obd_name,
-		       cfs_atomic_read(&obd_unstable_pages),
 		       cfs_atomic_read(&obd_dirty_pages),
 		       cfs_atomic_read(&obd_dirty_transit_pages),
 		       obd_max_dirty_pages);
@@ -2036,6 +2034,9 @@ static int brw_interpret(const struct lu_env *env,
 	}
 	OBDO_FREE(aa->aa_oa);
 
+	if (lustre_msg_get_opc(req->rq_reqmsg) == OST_WRITE && rc == 0)
+		osc_inc_unstable_pages(req);
+
 	cl_req_completion(env, aa->aa_clerq, rc < 0 ? rc :
 			  req->rq_bulk->bd_nob_transferred);
 	osc_release_ppga(aa->aa_ppga, aa->aa_page_count);
@@ -2099,6 +2100,7 @@ int osc_build_rpc(const struct lu_env *env, struct client_obd *cli,
 	int				mpflag = 0;
 	int				mem_tight = 0;
 	int				page_count = 0;
+	bool				soft_sync = false;
 	int				i;
 	int				rc;
 	CFS_LIST_HEAD(rpc_list);
@@ -2126,6 +2128,7 @@ int osc_build_rpc(const struct lu_env *env, struct client_obd *cli,
 		}
 	}
 
+	soft_sync = osc_over_unstable_soft_limit(cli);
 	if (mem_tight)
 		mpflag = cfs_memory_pressure_get_and_set();
 
@@ -2153,6 +2156,8 @@ int osc_build_rpc(const struct lu_env *env, struct client_obd *cli,
 		}
 		if (mem_tight)
 			oap->oap_brw_flags |= OBD_BRW_MEMALLOC;
+		if (soft_sync)
+			oap->oap_brw_flags |= OBD_BRW_SOFT_SYNC;
 		pga[i] = &oap->oap_brw_page;
 		pga[i]->off = oap->oap_obj_off + oap->oap_page_off;
 		CDEBUG(0, "put page %p index %lu oap %p flg %x to pga\n",

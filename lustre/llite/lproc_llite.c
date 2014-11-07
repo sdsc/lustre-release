@@ -789,10 +789,43 @@ static int ll_rd_unstable_stats(char *page, char **start, off_t off,
 	pages = cfs_atomic_read(&cache->ccc_unstable_nr);
 	mb    = (pages * PAGE_CACHE_SIZE) >> 20;
 
-	rc = snprintf(page, count, "unstable_pages: %8d\n"
-				   "unstable_mb:    %8d\n", pages, mb);
-
+	rc = snprintf(page, count, "unstable_check: %8d\n"
+				   "unstable_pages: %8d\n"
+				   "unstable_mb:    %8d\n",
+				   cache->ccc_unstable_check, pages, mb);
 	return rc;
+}
+
+static ssize_t ll_wr_unstable_stats(struct file *file,
+				    const char __user *buffer,
+				    size_t count, loff_t *unused)
+{
+        struct super_block *sb = data;
+        struct ll_sb_info *sbi = ll_s2sbi(sb);
+	char kernbuf[128];
+	int val, rc;
+
+	if (count == 0)
+		return 0;
+	if (count < 0 || count >= sizeof(kernbuf))
+		return -EINVAL;
+
+	if (copy_from_user(kernbuf, buffer, count))
+		return -EFAULT;
+	kernbuf[count] = 0;
+
+	buffer += lprocfs_find_named_value(kernbuf, "unstable_check:", &count) -
+		  kernbuf;
+	rc = lprocfs_write_helper(buffer, count, &val);
+	if (rc < 0)
+		return rc;
+
+	/* borrow lru lock to set the value */
+	spin_lock(&sbi->ll_cache.ccc_lru_lock);
+	sbi->ll_cache.ccc_unstable_check = !!val;
+	spin_unlock(&sbi->ll_cache.ccc_lru_lock);
+
+	return count;
 }
 
 static struct lprocfs_vars lprocfs_llite_obd_vars[] = {
@@ -827,7 +860,7 @@ static struct lprocfs_vars lprocfs_llite_obd_vars[] = {
         { "max_easize",       ll_rd_maxea_size, 0, 0 },
 	{ "sbi_flags",        ll_rd_sbi_flags, 0, 0 },
 	{ "xattr_cache",      ll_rd_xattr_cache, ll_wr_xattr_cache, 0 },
-	{ "unstable_stats",   ll_rd_unstable_stats, 0, 0},
+	{ "unstable_stats",   ll_rd_unstable_stats, ll_wr_unstable_stats, 0},
         { 0 }
 };
 
