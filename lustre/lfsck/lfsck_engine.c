@@ -1332,6 +1332,7 @@ static int lfsck_assistant_notify_others(const struct lu_env *env,
 
 			laia->laia_ltd = ltd;
 			ltd->ltd_layout_done = 0;
+			ltd->ltd_synced_failures = 0;
 			rc = lfsck_async_request(env, ltd->ltd_exp, lr, set,
 					lfsck_async_interpret_common,
 					laia, LFSCK_NOTIFY);
@@ -1526,7 +1527,7 @@ again:
 
 			*gen = lad->lad_touch_gen;
 			list_move_tail(list, &lad->lad_mdt_list);
-			if (ltd->ltd_namespace_failed)
+			if (ltd->ltd_synced_failures)
 				continue;
 
 			atomic_inc(&ltd->ltd_ref);
