@@ -136,7 +136,7 @@ lnet_ptl_disable_mt(struct lnet_portal *ptl, int cpt)
 }
 
 static int
-lnet_try_match_md(lnet_libmd_t *md,
+lnet_try_match_md(int cpt, lnet_libmd_t *md,
 		  struct lnet_match_info *info, struct lnet_msg *msg)
 {
 	/* ALWAYS called holding the lnet_res_lock, and can't lnet_res_unlock;
@@ -208,8 +208,14 @@ lnet_try_match_md(lnet_libmd_t *md,
 	/* Auto-unlink NOW, so the ME gets unlinked if required.
 	 * We bumped md->md_refcount above so the MD just gets flagged
 	 * for unlink when it is finalized. */
-	if ((md->md_flags & LNET_MD_FLAG_AUTO_UNLINK) != 0)
+	if ((md->md_flags & LNET_MD_FLAG_AUTO_UNLINK) != 0) {
+		LASSERTF(cpt == lnet_cpt_of_cookie(md->md_lh.lh_cookie),
+			 "locked CPT %d, cookie "LPX64", cookie CPT %d\n",
+			 cpt, md->md_lh.lh_cookie,
+			 lnet_cpt_of_cookie(md->md_lh.lh_cookie));
+
 		lnet_md_unlink(md);
+	}
 
 	return LNET_MATCHMD_OK | LNET_MATCHMD_EXHAUSTED;
 }
@@ -398,7 +404,7 @@ lnet_mt_match_md(struct lnet_match_table *mtable,
 
 		LASSERT(me == me->me_md->md_me);
 
-		rc = lnet_try_match_md(me->me_md, info, msg);
+		rc = lnet_try_match_md(mtable->mt_cpt, me->me_md, info, msg);
 		if ((rc & LNET_MATCHMD_EXHAUSTED) == 0)
 			exhausted = 0; /* mlist is not empty */
 
@@ -664,7 +670,7 @@ lnet_ptl_attach_md(lnet_me_t *me, lnet_libmd_t *md,
 		info.mi_roffset	= hdr->msg.put.offset;
 		info.mi_mbits	= hdr->msg.put.match_bits;
 
-		rc = lnet_try_match_md(md, &info, msg);
+		rc = lnet_try_match_md(cpt, md, &info, msg);
 
 		exhausted = (rc & LNET_MATCHMD_EXHAUSTED) != 0;
 		if ((rc & LNET_MATCHMD_NONE) != 0) {
