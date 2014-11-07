@@ -770,7 +770,7 @@ static int lfs_setstripe(int argc, char **argv)
 		migrate_mode = true;
 
 	optind = 0;
-	while ((c = getopt_long(argc, argv, "c:di:o:p:s:S:",
+	while ((c = getopt_long(argc, argv, "bc:di:o:p:s:S:",
 				long_opts, NULL)) >= 0) {
 		switch (c) {
 		case 0:
