@@ -5655,7 +5655,8 @@ static inline int osd_it_ea_rec(const struct lu_env *env,
 			/* If the parent is on remote MDT, and there
 			 * is no FID-in-dirent, then we have to get
 			 * the parent FID from the linkEA.  */
-			osd_get_pfid_from_linkea(env, obj, fid);
+			if (!fid_is_sane(fid))
+				osd_get_pfid_from_linkea(env, obj, fid);
 		} else {
 			rc = osd_dirent_check_repair(env, obj, it, fid, id,
 						     &attr);
