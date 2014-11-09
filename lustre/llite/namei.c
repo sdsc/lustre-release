@@ -558,6 +558,10 @@ static struct dentry *ll_lookup_it(struct inode *parent, struct dentry *dentry,
 
 	rc = md_intent_lock(ll_i2mdexp(parent), op_data, it, &req,
 			    &ll_md_blocking_ast, 0);
+
+	if (rc == -ENOSPC)
+		CERROR("no space for md_intent_lock\n");
+
         ll_finish_md_op_data(op_data);
         if (rc < 0)
                 GOTO(out, retval = ERR_PTR(rc));
@@ -579,6 +583,11 @@ static struct dentry *ll_lookup_it(struct inode *parent, struct dentry *dentry,
 	EXIT;
 
 out:
+	if (PTR_ERR(retval) == -ENOSPC)
+		CERROR("no space: name=%.*s, dir="DFID"(%p), intent=%s\n",
+			dentry->d_name.len, dentry->d_name.name,
+			PFID(ll_inode2fid(parent)), parent, LL_IT2STR(it));
+
 	ptlrpc_req_finished(req);
 	return retval;
 }
@@ -606,6 +615,9 @@ static struct dentry *ll_lookup_nd(struct inode *parent, struct dentry *dentry,
 
 	if (itp != NULL)
 		ll_intent_release(itp);
+
+	if (PTR_ERR(de) == -ENOSPC)
+		CERROR("(atomic) no space for ll_lookup_nd\n\n");
 
 	return de;
 }
@@ -691,6 +703,12 @@ out_release:
 	ll_intent_release(it);
 	OBD_FREE(it, sizeof(*it));
 
+	if (rc == -ENOSPC)
+		CERROR("no space: name=%.*s, dir="DFID"(%p), file %p,"
+			"open_flags %x, mode %x opened %d\n",
+			dentry->d_name.len, dentry->d_name.name,
+			PFID(ll_inode2fid(dir)), dir, file, open_flags,
+			mode, *opened);
 	RETURN(rc);
 }
 
@@ -783,6 +801,9 @@ static struct dentry *ll_lookup_nd(struct inode *parent, struct dentry *dentry,
         } else {
 		de = ll_lookup_it(parent, dentry, NULL);
 	}
+
+	if (PTR_ERR(de) == -ENOSPC)
+		CERROR("no space for ll_lookup_nd\n\n");
 
 	RETURN(de);
 }
@@ -953,6 +974,11 @@ static int ll_mknod(struct inode *dir, struct dentry *dchild, ll_umode_t mode,
 
         if (!err)
                 ll_stats_ops_tally(ll_i2sbi(dir), LPROC_LL_MKNOD, 1);
+
+	if (err == -ENOSPC)
+		CERROR("no space for mknod: name=%.*s, dir="DFID"(%p) mode %o"
+		       " dev %x\n", name->len, name->name,
+		       PFID(ll_inode2fid(dir)), dir, mode, rdev);
 
         RETURN(err);
 }
