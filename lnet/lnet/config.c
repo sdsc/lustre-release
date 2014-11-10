@@ -228,11 +228,6 @@ lnet_parse_networks(struct list_head *nilist, char *networks)
 	memcpy(tokens, networks, tokensize);
 	str = tmp = tokens;
 
-	/* Add in the loopback network */
-	ni = lnet_ni_alloc(LNET_MKNET(LOLND, 0), NULL, nilist);
-	if (ni == NULL)
-		goto failed;
-
 	while (str != NULL && *str != 0) {
 		char	*comma = strchr(str, ',');
 		char	*bracket = strchr(str, '(');
@@ -384,7 +379,7 @@ lnet_parse_networks(struct list_head *nilist, char *networks)
 	LASSERT(!list_empty(nilist));
 
 	LIBCFS_FREE(tokens, tokensize);
-	return 0;
+	return nnets;
 
  failed_syntax:
 	lnet_syntax("networks", networks, (int)(tmp - tokens), strlen(tmp));
