@@ -1605,7 +1605,7 @@ lnet_startup_lndnis(struct list_head *nilist, __s32 peer_timeout,
 			LCONSOLE_ERROR_MSG(0x106, "LND %s not supported in a "
 					   "single-threaded runtime\n",
 					   libcfs_lnd2str(lnd_type));
-			goto failed;
+			goto free_ni;
 # endif
 		}
 #endif
@@ -1615,7 +1615,7 @@ lnet_startup_lndnis(struct list_head *nilist, __s32 peer_timeout,
 					   libcfs_lnd2str(lnd->lnd_type),
 					   ni->ni_peertxcredits == 0 ?
 					   "" : "per-peer ");
-			goto failed;
+			goto free_ni;
 		}
 
 		cfs_percpt_for_each(tq, i, ni->ni_tx_queues) {
@@ -1631,6 +1631,8 @@ lnet_startup_lndnis(struct list_head *nilist, __s32 peer_timeout,
 	}
 
 	return 0;
+free_ni:
+	lnet_ni_free(ni);
 failed:
 	while (!list_empty(nilist)) {
 		ni = list_entry(nilist->next, lnet_ni_t, ni_list);
