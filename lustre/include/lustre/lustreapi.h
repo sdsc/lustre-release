@@ -456,28 +456,35 @@ struct llapi_layout *llapi_layout_alloc(void);
  */
 void llapi_layout_free(struct llapi_layout *layout);
 
-/** Not a valid stripe size, offset, or RAID pattern. */
-#define LLAPI_LAYOUT_INVALID	0x1000000000000001ULL
+enum llapi_layout_pattern {
+	/** Not a valid stripe size, offset, or RAID pattern. */
+	LLAPI_LAYOUT_INVALID	= 0x1000000000000001ULL,
 
-/**
- * When specified or returned as the value for stripe count,
- * stripe size, offset, or RAID pattern, the filesystem-wide
- * default behavior will apply.
- */
-#define LLAPI_LAYOUT_DEFAULT	(LLAPI_LAYOUT_INVALID + 1)
+	/**
+	 * When specified or returned as the value for stripe count,
+	 * stripe size, offset, or RAID pattern, the filesystem-wide
+	 * default behavior will apply.
+	 */
+	LLAPI_LAYOUT_DEFAULT	= (LLAPI_LAYOUT_INVALID + 1),
 
-/**
- * When specified or returned as the value for stripe count, all
- * available OSTs will be used.
- */
-#define LLAPI_LAYOUT_WIDE	(LLAPI_LAYOUT_INVALID + 2)
+	/**
+	 * When specified or returned as the value for stripe count, all
+	 * available OSTs will be used.
+	 */
+	LLAPI_LAYOUT_WIDE	= (LLAPI_LAYOUT_INVALID + 2),
 
-/**
- * When specified as the value for layout pattern, file objects will be
- * stored using RAID0.  That is, data will be split evenly and without
- * redundancy across all OSTs in the layout.
- */
-#define LLAPI_LAYOUT_RAID0	0
+	/**
+	 * When specified as the value for layout pattern, file objects
+	 * will be stored using RAID0.  That is, data will be split evenly
+	 * and without redundancy across all OSTs in the layout.
+	 */
+	LLAPI_LAYOUT_RAID0	= 0,
+
+	/**
+	 * The layout includes a specific set of OSTs on which to allocate.
+	 */
+	LLAPI_LAYOUT_SPECIFIC	= 0x2000000000000000ULL,
+};
 
 /**
  * Flags to modify how layouts are retrieved.

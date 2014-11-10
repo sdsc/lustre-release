@@ -51,11 +51,11 @@ struct llapi_layout {
 	uint64_t	llot_stripe_size;
 	uint64_t	llot_stripe_count;
 	uint64_t	llot_stripe_offset;
-	/** Indicates if llot_objects array has been initialized. */
-	bool		llot_objects_are_valid;
 	/* Add 1 so user always gets back a null terminated string. */
 	char		llot_pool_name[LOV_MAXPOOLNAME + 1];
-	struct		lov_user_ost_data_v1 llot_objects[0];
+	/** Number of objects in llot_objects array if was initialized. */
+	uint32_t	llot_objects_count;
+	struct		lov_user_ost_data_v1 *llot_objects;
 };
 
 /**
@@ -88,6 +88,39 @@ llapi_layout_swab_lov_user_md(struct lov_user_md *lum, int object_count)
 }
 
 /**
+ * (Re-)allocate llot_objects[] to \a num_stripes stripes.
+ *
+ * Copy over existing llot_objects[], if any, to the new llot_objects[].
+ *
+ * \param[in] layout		existing layout to be modified
+ * \param[in] num_stripes	number of stripes in new layout
+ *
+ * \retval	valid pointer if reallocation succeeds
+ * \retval	NULL if reallocation fails
+ */
+static int __llapi_layout_objects_realloc(struct llapi_layout *layout,
+					  unsigned int new_stripes)
+{
+	struct lov_user_ost_data_v1 *new_objects, *old_objects;
+
+	if (new_stripes <= layout->llot_objects_count)
+		return 0;
+
+	new_objects = realloc(new_stripes, sizeof(*new_objects));
+	if (new_objects == NULL)
+		return -1;
+
+	old_objects = layout->llot_objects;
+	memcpy(new_objects, old_objects,
+	       sizeof(*old_objects) * layout->llot_objects_count);
+	layout->llot_objects_count = new_stripes;
+
+	free(old_objects);
+
+	return 0;
+}
+
+/**
  * Allocate storage for a llapi_layout with \a num_stripes stripes.
  *
  * \param[in] num_stripes	number of stripes in new layout
@@ -97,14 +130,20 @@ llapi_layout_swab_lov_user_md(struct lov_user_md *lum, int object_count)
  */
 static struct llapi_layout *__llapi_layout_alloc(unsigned int num_stripes)
 {
-	struct llapi_layout *layout = NULL;
-	size_t size = sizeof(*layout) +
-		(num_stripes * sizeof(layout->llot_objects[0]));
+	struct llapi_layout *layout;
 
-	if (num_stripes > LOV_MAX_STRIPE_COUNT)
+	if (num_stripes > LOV_MAX_STRIPE_COUNT) {
 		errno = EINVAL;
-	else
-		layout = calloc(1, size);
+		return NULL;
+	}
+
+	layout = calloc(1, sizeof(*layout));
+
+	if (layout != NULL &&
+	    __llapi_layout_objects_realloc(layout, num_objects) < 0) {
+		free(layout);
+		layout = NULL;
+	}
 
 	return layout;
 }
@@ -165,8 +204,6 @@ llapi_layout_from_lum(const struct lov_user_md *lum, size_t object_count)
 		lumv1 = (struct lov_user_md_v1 *)lum;
 		memcpy(layout->llot_objects, lumv1->lmm_objects, objects_sz);
 	}
-	if (object_count > 0)
-		layout->llot_objects_are_valid = true;
 
 	return layout;
 }
@@ -191,9 +228,14 @@ llapi_layout_to_lum(const struct llapi_layout *layout)
 	struct lov_user_md *lum;
 	size_t lum_size;
 	uint32_t magic = LOV_USER_MAGIC_V1;
+	uint64_t pattern = layout->llog_pattern;
 
-	if (strlen(layout->llot_pool_name) != 0)
+	if (pattern & LLAPI_LAYOUT_SPECIFIC != 0) {
+		magic = LOV_USER_MAGIC_SPECIFIC;
+		pattern &= ~LLAPI_LAYOUT_SPECIFIC;
+	} else if (strlen(layout->llot_pool_name) != 0) {
 		magic = LOV_USER_MAGIC_V3;
+	}
 
 	/* The lum->lmm_objects array won't be
 	 * sent to the kernel when we write the lum, so
@@ -206,12 +248,12 @@ llapi_layout_to_lum(const struct llapi_layout *layout)
 
 	lum->lmm_magic = magic;
 
-	if (layout->llot_pattern == LLAPI_LAYOUT_DEFAULT)
+	if (pattern == LLAPI_LAYOUT_DEFAULT)
 		lum->lmm_pattern = 0;
-	else if (layout->llot_pattern == LLAPI_LAYOUT_RAID0)
-		lum->lmm_pattern = 1;
+	else if (pattern == LLAPI_LAYOUT_RAID0)
+		lum->lmm_pattern = LOV_PATTERN_RAID0;
 	else
-		lum->lmm_pattern = layout->llot_pattern;
+		lum->lmm_pattern = pattern;
 
 	if (layout->llot_stripe_size == LLAPI_LAYOUT_DEFAULT)
 		lum->lmm_stripe_size = 0;
@@ -221,7 +263,7 @@ llapi_layout_to_lum(const struct llapi_layout *layout)
 	if (layout->llot_stripe_count == LLAPI_LAYOUT_DEFAULT)
 		lum->lmm_stripe_count = 0;
 	else if (layout->llot_stripe_count == LLAPI_LAYOUT_WIDE)
-		lum->lmm_stripe_count = -1;
+		lum->lmm_stripe_count = LOV_ALL_STRIPES;
 	else
 		lum->lmm_stripe_count = layout->llot_stripe_count;
 
@@ -315,7 +357,6 @@ struct llapi_layout *llapi_layout_alloc(void)
 	layout->llot_stripe_size = LLAPI_LAYOUT_DEFAULT;
 	layout->llot_stripe_count = LLAPI_LAYOUT_DEFAULT;
 	layout->llot_stripe_offset = LLAPI_LAYOUT_DEFAULT;
-	layout->llot_objects_are_valid = false;
 	layout->llot_pool_name[0] = '\0';
 
 	return layout;
@@ -612,9 +653,15 @@ struct llapi_layout *llapi_layout_get_by_fid(const char *lustre_dir,
 	return layout;
 }
 
-/** * Free memory allocated for \a layout. */
+/**
+ * Free memory allocated for \a layout.
+ *
+ * \param[in] layout	previously allocated by llapi_layout_alloc()
+ */
 void llapi_layout_free(struct llapi_layout *layout)
 {
+	if (layout->llot_objects != NULL)
+		free(layout->llot_objects);
 	free(layout);
 }
 
@@ -783,7 +830,8 @@ int llapi_layout_pattern_set(struct llapi_layout *layout, uint64_t pattern)
 		return -1;
 	}
 
-	layout->llot_pattern = pattern;
+	layout->llot_pattern = pattern |
+				(layout->llot_pattern & LLAPI_LAYOUT_SPECIFIC);
 
 	return 0;
 }
@@ -791,31 +839,81 @@ int llapi_layout_pattern_set(struct llapi_layout *layout, uint64_t pattern)
 /**
  * Set the OST index of stripe number \a stripe_number to \a ost_index.
  *
- * The index may only be set for stripe number 0 for now.
+ * If only the starting stripe's OST index is specified, then this can use
+ * the normal LOV_MAGIC_{V1,V3} layout type.  If mutliple OST indices are
+ * given, then allocate an array to hold the list of indices and ensure that
+ * the LOV_USER_MAGIC_SPECIFIC layout is used when creating the file.
  *
  * \param[in] layout		layout to set OST index in
- * \param[in] stripe_number	stripe number to set index for
+ * \param[in] stripe_number	stripe number to set index for, use
+ *				"-1" for "next stripe"
  * \param[in] ost_index		the index to set
  *
  * \retval	0 on success
  * \retval	-1 if arguments are invalid or an unsupported stripe number
- *		was specified
+ *		was specified, error returned in errno
  */
 int llapi_layout_ost_index_set(struct llapi_layout *layout, int stripe_number,
 			       uint64_t ost_index)
 {
-	if (layout == NULL || layout->llot_magic != LLAPI_LAYOUT_MAGIC ||
-	    !llapi_layout_stripe_index_is_valid(ost_index)) {
+	if (layout == NULL || layout->llot_magic != LLAPI_LAYOUT_MAGIC) {
 		errno = EINVAL;
 		return -1;
 	}
-
-	if (stripe_number != 0) {
-		errno = EOPNOTSUPP;
+	if (!llapi_layout_stripe_index_is_valid(ost_index)) {
+		errno = EOVERFLOW;
 		return -1;
 	}
 
-	layout->llot_stripe_offset = ost_index;
+	if (stripe_number == 0 || ost_index == LLAPI_LAYOUT_DEFAULT) {
+		/* Regardless of whether we are storing a specific layout or
+		 * not, the first stripe's OST index is just stored in the
+		 * main layout, and only in the relatively rare case of all
+		 * OST indices being specified is llot_objects[] allocated. */
+		layout->llot_stripe_offset = ost_index;
+		if (ost_index == LLAPI_LAYOUT_DEFAULT)
+			layout->llot_pattern &= ~LLAPI_LAYOUT_SPECIFIC;
+	} else if (llapi_stripe_count_is_valid(stripe_number)) {
+		/* Need to ensure that stripe_number 0's OST index was
+		 * specified previously. */
+		if (layout->llot_stripe_offset == LLAPI_LAYOUT_DEFAULT) {
+			errno = EINVAL;
+			return -1;
+		}
+		/* This will always be set on the first non-zero stripe */
+		if (layout->llot_stripe_count == LLAPI_LAYOUT_DEFAULT)
+			layout->llot_stripe_count = 1;
+		/* "-1" means "use the next stripe" */
+		if (stripe_number == -1)
+			stripe_number = layout->llot_stripe_count;
+		/* Preallocate a few stripes to avoid realloc() overhead. */
+		if (__llapi_layout_realloc(layout,
+					   (stripe_number + 8) & ~0x7) < 0)
+			return -1;
+		if ((layout->llot_pattern & LLAPI_LAYOUT_SPECIFIC) == 0) {
+			/* don't increase stripe count if previously set */
+			layout->llot_objects[0].l_ost_idx =
+				layout->llot_stripe_offset;
+			layout->llot_pattern |= LLAPI_LAYOUT_SPECIFIC;
+		}
+
+		/* Currently, stripes need to be set in numerical to ensure
+		 * the OST indices are not sparse.  This could be changed in
+		 * the future to allow stripes to be specified out of order,
+		 * and check for gaps when the file is created, if needed,
+		 * but for now prefer simplicity for caller and library. */
+		if (stripe_number > layout->llot_stripe_count) {
+			errno = EINVAL;
+			return -1;
+		}
+
+		if (stripe_number == layout->llot_stripe_count)
+			layout->llot_stripe_count++;
+		layout->llot_objects[stripe_number].l_ost_idx = ost_index;
+	} else {
+		errno = EOVERFLOW;
+		return -1;
+	}
 
 	return 0;
 }
