@@ -758,10 +758,17 @@ static int osd_ldiskfs_map_bm_inode_pages(struct inode *inode,
 					  unsigned long *blocks, int create)
 {
 	int blocks_per_page = PAGE_CACHE_SIZE >> inode->i_blkbits;
+	pgoff_t bitmap_max_page_index;
 	unsigned long *b;
 	int rc = 0, i;
 
+	bitmap_max_page_index = LDISKFS_SB(inode->i_sb)->s_bitmap_maxbytes >>
+				PAGE_SHIFT;
 	for (i = 0, b = blocks; i < pages; i++, page++) {
+		if ((*page)->index + 1 >= bitmap_max_page_index) {
+			rc = -EFBIG;
+			break;
+		}
 		rc = ldiskfs_map_inode_page(inode, *page, b, create);
 		if (rc) {
 			CERROR("ino %lu, blk %lu create %d: rc %d\n",
@@ -782,6 +789,9 @@ static int osd_ldiskfs_map_ext_inode_pages(struct inode *inode,
 	int rc = 0, i = 0;
 	struct page *fp = NULL;
 	int clen = 0;
+	pgoff_t extent_max_page_index;
+
+	extent_max_page_index = inode->i_sb->s_maxbytes >> PAGE_SHIFT;
 
 	CDEBUG(D_OTHER, "inode %lu: map %d pages from %lu\n",
 		inode->i_ino, pages, (*page)->index);
@@ -802,6 +812,9 @@ static int osd_ldiskfs_map_ext_inode_pages(struct inode *inode,
 			i++;
 			continue;
 		}
+
+		if (fp->index + i >= extent_max_page_index)
+			GOTO(cleanup, rc = -EFBIG);
 
 		/* process found extent */
 		rc = osd_ldiskfs_map_nblocks(inode, fp->index * blocks_per_page,
@@ -847,6 +860,9 @@ static int osd_ldiskfs_map_inode_pages(struct inode *inode, struct page **page,
 	int rc = 0, i = 0;
 	struct page *fp = NULL;
 	int clen = 0;
+	pgoff_t max_page_index;
+
+	max_page_index = inode->i_sb->s_maxbytes >> PAGE_SHIFT;
 
 	CDEBUG(D_OTHER, "inode %lu: map %d pages from %lu\n",
 		inode->i_ino, pages, (*page)->index);
@@ -870,6 +886,8 @@ static int osd_ldiskfs_map_inode_pages(struct inode *inode, struct page **page,
 			if (++i != pages)
 				continue;
 		}
+		if (fp->index + i >= max_page_index)
+			GOTO(cleanup, rc = -EFBIG);
 		/* process found extent */
 		map.m_lblk = fp->index * blocks_per_page;
 		map.m_len = blen = clen * blocks_per_page;
