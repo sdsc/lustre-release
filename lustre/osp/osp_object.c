@@ -1386,7 +1386,7 @@ static int osp_declare_object_create(const struct lu_env *env,
 
 	ENTRY;
 
-	if (is_only_remote_trans(th)) {
+	if (is_only_remote_trans(th) && !fid_is_zero(fid)) {
 		LASSERT(fid_is_sane(fid));
 
 		rc = osp_md_declare_object_create(env, dt, attr, hint, dof, th);
@@ -1486,7 +1486,8 @@ static int osp_object_create(const struct lu_env *env, struct dt_object *dt,
 	struct lu_fid		*fid = &osi->osi_fid;
 	ENTRY;
 
-	if (is_only_remote_trans(th)) {
+	if (is_only_remote_trans(th) &&
+	    !fid_is_zero(lu_object_fid(&dt->do_lu))) {
 		LASSERT(fid_is_sane(lu_object_fid(&dt->do_lu)));
 
 		rc = osp_md_object_create(env, dt, attr, hint, dof, th);
