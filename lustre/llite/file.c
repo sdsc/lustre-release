@@ -727,6 +727,10 @@ out_openerr:
 		it_clear_disposition(it, DISP_ENQ_OPEN_REF);
 	}
 
+	if (rc == -ENOSPC)
+		CERROR("no space: inode="DFID"(%p), flags %o\n",
+			PFID(ll_inode2fid(inode)), inode, file->f_flags);
+
         return rc;
 }
 

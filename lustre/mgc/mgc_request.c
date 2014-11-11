@@ -350,6 +350,8 @@ static int config_log_add(struct obd_device *obd, char *logname,
 	}
 
 	cld = do_config_log_add(obd, logname, CONFIG_T_CONFIG, cfg, sb);
+	CDEBUG(D_ERROR, "added config %s log %p\n", logname, cld);
+
 	if (IS_ERR(cld)) {
 		CERROR("can't create log: %s\n", logname);
 		GOTO(out_err2, rc = PTR_ERR(cld));
@@ -1977,6 +1979,8 @@ static int mgc_process_config(struct obd_device *obd, size_t len, void *buf)
                 if (rc)
                         break;
                 cld = config_log_find(logname, cfg);
+		CDEBUG(D_ERROR, "Found config %s log at %p\n", logname, cld);
+
                 if (cld == NULL) {
                         rc = -ENOENT;
                         break;
