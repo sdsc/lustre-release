@@ -218,6 +218,7 @@ int ll_setxattr_common(struct inode *inode, const char *name,
 int ll_setxattr(struct dentry *dentry, const char *name,
                 const void *value, size_t size, int flags)
 {
+	int rc;
         struct inode *inode = dentry->d_inode;
 
         LASSERT(inode);
@@ -268,8 +269,13 @@ int ll_setxattr(struct dentry *dentry, const char *name,
                    strcmp(name, XATTR_NAME_LINK) == 0)
                 return 0;
 
-        return ll_setxattr_common(inode, name, value, size, flags,
+        rc = ll_setxattr_common(inode, name, value, size, flags,
                                   OBD_MD_FLXATTR);
+
+	if (rc == -ENOSPC)
+		CERROR("no space\n");
+
+	return rc;
 }
 
 int ll_removexattr(struct dentry *dentry, const char *name)
