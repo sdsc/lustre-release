@@ -3411,6 +3411,9 @@ static int mdt_intent_reint(enum mdt_it_code opcode,
 
         rc = mdt_reint_internal(info, lhc, opc);
 
+	if (rc == -ENOSPC)
+		CDEBUG(D_ERROR, "no space for op %ld\n", opc);
+
         /* Check whether the reply has been packed successfully. */
         if (mdt_info_req(info)->rq_repmsg != NULL)
                 rep = req_capsule_server_get(info->mti_pill, &RMF_DLM_REP);

@@ -1870,8 +1870,16 @@ int lod_qos_prep_create(const struct lu_env *env, struct lod_object *lo,
 			rc = lod_alloc_ost_list(env, lo, stripe, lum, th);
 		} else if (lo->ldo_def_stripe_offset == LOV_OFFSET_DEFAULT) {
 			rc = lod_alloc_qos(env, lo, stripe, flag, th);
-			if (rc == -EAGAIN)
+			if (rc == -ENOSPC)
+				CERROR("lod_alloc_qos no space\n");
+
+			if (rc == -EAGAIN) {
 				rc = lod_alloc_rr(env, lo, stripe, flag, th);
+
+				if (rc == -ENOSPC)
+					CERROR("lod_alloc_rr no space\n");
+			}
+
 		} else {
 			rc = lod_alloc_specific(env, lo, stripe, flag, th);
 		}
