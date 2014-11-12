@@ -297,7 +297,8 @@ AC_ARG_WITH([o2ib],
 		[build o2iblnd against path]),
 	[
 		case $with_o2ib in
-		yes)    O2IBPATHS="$LINUX $LINUX/drivers/infiniband"
+		yes)    O2IBPATHS=$(ofed_info | grep compat-rdma-devel | xargs rpm -ql | grep COPYRIGHT | xargs dirname)
+			O2IBPATHS="$O2IBPATHS $LINUX $LINUX/drivers/infiniband"
 			ENABLEO2IB=2
 			;;
 		no)     ENABLEO2IB=0
@@ -307,7 +308,8 @@ AC_ARG_WITH([o2ib],
 			;;
 		esac
 	],[
-		O2IBPATHS="$LINUX $LINUX/drivers/infiniband"
+		O2IBPATHS=$(ofed_info | grep compat-rdma-devel | xargs rpm -ql | grep COPYRIGHT | xargs dirname)
+		O2IBPATHS="$O2IBPATHS $LINUX $LINUX/drivers/infiniband"
 		ENABLEO2IB=1
 	])
 AS_IF([test $ENABLEO2IB -eq 0], [
@@ -319,12 +321,12 @@ AS_IF([test $ENABLEO2IB -eq 0], [
 			   -f ${O2IBPATH}/include/rdma/ib_cm.h -a \
 			   -f ${O2IBPATH}/include/rdma/ib_verbs.h -a \
 			   -f ${O2IBPATH}/include/rdma/ib_fmr_pool.h \)], [
-			AS_IF([test \( -d ${O2IBPATH}/kernel_patches -a \
+			AS_IF([test \( -d ${O2IBPATH}/*patches -a \
 				   -f ${O2IBPATH}/Makefile \)], [
 				AC_MSG_RESULT([no])
 				AC_MSG_ERROR([
 
-you appear to be trying to use the OFED distribution's source
+trying to use the, explicit or detected, OFED distribution's source
 directory (${O2IBPATH}) rather than the "development/headers"
 directory which is likely in ${O2IBPATH%-*}
 ])
@@ -337,7 +339,7 @@ directory which is likely in ${O2IBPATH%-*}
 		AC_MSG_RESULT([no])
 		case $ENABLEO2IB in
 			1) ;;
-			2) AC_MSG_ERROR([kernel OpenIB gen2 headers not present]) ;;
+			2) AC_MSG_ERROR([no OFED nor kernel OpenIB gen2 headers present]) ;;
 			3) AC_MSG_ERROR([bad --with-o2ib path]) ;;
 			*) AC_MSG_ERROR([internal error]) ;;
 		esac
