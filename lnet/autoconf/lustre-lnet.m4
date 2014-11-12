@@ -150,7 +150,14 @@ AC_ARG_WITH([o2ib],
 
 case $with_o2ib in
 	yes)    AS_IF([which ofed_info 2>/dev/null], [
-			O2IBPATHS=$(ofed_info | egrep -w 'compat-rdma-devel|kernel-ib-devel|ofa_kernel-devel' | xargs rpm -ql | grep '/openib$')
+			AS_IF([test x$uses_dpkg = xyes], [
+				OFED_INFO="ofed_info | awk '{print \[$]2}'"
+				LSPKG="dpkg --listfiles"
+			], [
+				OFED_INFO="ofed_info"
+				LSPKG="rpm -ql"
+			])
+			O2IBPATHS=$(eval $OFED_INFO | egrep -w 'mlnx-ofed-kernel-dkms|mlnx-ofa_kernel-devel|compat-rdma-devel|kernel-ib-devel|ofa_kernel-devel' | xargs $LSPKG | grep '\(/openib\|/ofa_kernel/default\)$' | head -n1)
 			AS_IF([test -z "$O2IBPATHS"], [
 				AC_MSG_ERROR([
 You seem to have an OFED installed but have not installed it's devel package.
@@ -188,6 +195,18 @@ AS_IF([test $ENABLEO2IB = "no"], [
 			   -f ${O2IBPATH}/include/rdma/ib_cm.h -a \
 			   -f ${O2IBPATH}/include/rdma/ib_verbs.h -a \
 			   -f ${O2IBPATH}/include/rdma/ib_fmr_pool.h \)], [
+			AS_IF([test \( \( \( -d ${O2IBPATH}/patches -a \
+				   \( "x$OFED" = "xyes" \) \) -o \
+				   -d ${O2IBPATH}/kernel_patches \) -a \
+				   -f ${O2IBPATH}/Makefile \)], [
+				AC_MSG_RESULT([no])
+				AC_MSG_ERROR([
+
+trying to use the, explicit or detected, OFED distribution's source
+directory (${O2IBPATH}) rather than the "development/headers"
+directory which is likely in ${O2IBPATH%-*}
+])
+			])
 			o2ib_found=true
 			break
 		])
@@ -329,8 +348,8 @@ AC_SUBST(O2IBLND)
 AC_SUBST(O2IBPATH)
 AC_SUBST(ENABLEO2IB)
 
+# In RHEL 6.2, rdma_create_id() takes the queue-pair type as a fourth argument
 AS_IF([test $ENABLEO2IB != "no"], [
-	# In RHEL 6.2, rdma_create_id() takes the queue-pair type as a fourth argument
 	LB_CHECK_COMPILE([if 'rdma_create_id' wants four args],
 	rdma_create_id_4args, [
 		#ifdef HAVE_COMPAT_RDMA
