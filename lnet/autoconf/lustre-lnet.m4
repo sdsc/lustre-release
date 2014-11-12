@@ -290,6 +290,14 @@ AC_SUBST(MXLND)
 #
 # LN_CONFIG_O2IB
 #
+# If current OFED installed (assume with "ofed_info") and devel
+# headers are not found, error because we assume OFED infiniband
+# driver needs to be used and we must configure/build with it.
+# Current OFED headers detection mechanism allow for non-standard
+# prefix but relies on "ofed_info" command and on "%prefix/openib"
+# link (both are ok for 1.5.x and 3.x versions), and should work
+# for both source and DKMS builds.
+#
 AC_DEFUN([LN_CONFIG_O2IB], [
 AC_MSG_CHECKING([whether to use Compat RDMA])
 AC_ARG_WITH([o2ib],
@@ -297,7 +305,15 @@ AC_ARG_WITH([o2ib],
 		[build o2iblnd against path]),
 	[
 		case $with_o2ib in
-		yes)    O2IBPATHS="$LINUX $LINUX/drivers/infiniband"
+		yes)    OFED=$(which ofed_info)
+			AS_IF([test -n "$OFED"], [
+				O2IBPATHS=$(ofed_info | egrep -w 'compat-rdma-devel|kernel-ib-devel|ofa_kernel-devel' | xargs rpm -ql | grep 'openib$' | head -n 1)
+			], [
+				O2IBPATHS="$LINUX $LINUX/drivers/infiniband"
+			])
+			AS_IF([test -z "$O2IBPATHS"], [
+				AC_MSG_ERROR([OFED installed but not devel headers])
+			])
 			ENABLEO2IB=2
 			;;
 		no)     ENABLEO2IB=0
@@ -307,7 +323,15 @@ AC_ARG_WITH([o2ib],
 			;;
 		esac
 	],[
-		O2IBPATHS="$LINUX $LINUX/drivers/infiniband"
+		OFED=$(which ofed_info)
+		AS_IF([test -n "$OFED"], [
+			O2IBPATHS=$(ofed_info | egrep -w 'compat-rdma-devel|kernel-ib-devel|ofa_kernel-devel' | xargs rpm -ql | grep 'openib$' | head -n 1)
+		], [
+			O2IBPATHS="$LINUX $LINUX/drivers/infiniband"
+		])
+		AS_IF([test -z "$O2IBPATHS"], [
+			AC_MSG_ERROR([OFED installed but not devel headers])
+		])
 		ENABLEO2IB=1
 	])
 AS_IF([test $ENABLEO2IB -eq 0], [
@@ -319,12 +343,13 @@ AS_IF([test $ENABLEO2IB -eq 0], [
 			   -f ${O2IBPATH}/include/rdma/ib_cm.h -a \
 			   -f ${O2IBPATH}/include/rdma/ib_verbs.h -a \
 			   -f ${O2IBPATH}/include/rdma/ib_fmr_pool.h \)], [
-			AS_IF([test \( -d ${O2IBPATH}/kernel_patches -a \
+			AS_IF([test \( \( -d ${O2IBPATH}/patches -o \
+				   -d ${O2IBPATH}/kernel_patches \) -a \
 				   -f ${O2IBPATH}/Makefile \)], [
 				AC_MSG_RESULT([no])
 				AC_MSG_ERROR([
 
-you appear to be trying to use the OFED distribution's source
+trying to use the, explicit or detected, OFED distribution's source
 directory (${O2IBPATH}) rather than the "development/headers"
 directory which is likely in ${O2IBPATH%-*}
 ])
@@ -337,7 +362,7 @@ directory which is likely in ${O2IBPATH%-*}
 		AC_MSG_RESULT([no])
 		case $ENABLEO2IB in
 			1) ;;
-			2) AC_MSG_ERROR([kernel OpenIB gen2 headers not present]) ;;
+			2) AC_MSG_ERROR([no OFED nor kernel OpenIB gen2 headers present]) ;;
 			3) AC_MSG_ERROR([bad --with-o2ib path]) ;;
 			*) AC_MSG_ERROR([internal error]) ;;
 		esac
