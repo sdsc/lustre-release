@@ -12760,6 +12760,13 @@ test_241() {
 }
 run_test 241 "bio vs dio"
 
+test_242()
+{
+	test_mkdir -p $DIR/$tdir
+	group_lock_test -d $DIR/$tdir || error "A group lock test failed"
+}
+run_test 242 "various group lock tests"
+
 cleanup_test_300() {
 	trap 0
 	umask $SAVE_UMASK
