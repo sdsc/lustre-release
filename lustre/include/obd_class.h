@@ -1533,6 +1533,23 @@ static inline int md_enqueue(struct obd_export *exp,
         RETURN(rc);
 }
 
+static inline int md_enqueue_async(struct obd_export *exp,
+				   struct ldlm_enqueue_info *einfo,
+				   const ldlm_policy_data_t *policy,
+				   struct lookup_intent *it,
+				   struct md_op_data *op_data,
+				   obd_enqueue_update_f upcall,
+				   __u64 flags)
+{
+	int rc;
+	ENTRY;
+	EXP_CHECK_MD_OP(exp, enqueue_async);
+	EXP_MD_COUNTER_INCREMENT(exp, enqueue_async);
+	rc = MDP(exp->exp_obd, enqueue_async)(exp, einfo, policy, it, op_data,
+					      upcall, flags);
+	RETURN(rc);
+}
+
 static inline int md_getattr_name(struct obd_export *exp,
                                   struct md_op_data *op_data,
                                   struct ptlrpc_request **request)
@@ -1812,18 +1829,6 @@ static inline int md_unpack_capa(struct obd_export *exp,
         EXP_CHECK_MD_OP(exp, unpack_capa);
         EXP_MD_COUNTER_INCREMENT(exp, unpack_capa);
         rc = MDP(exp->exp_obd, unpack_capa)(exp, req, field, oc);
-        RETURN(rc);
-}
-
-static inline int md_intent_getattr_async(struct obd_export *exp,
-                                          struct md_enqueue_info *minfo,
-                                          struct ldlm_enqueue_info *einfo)
-{
-        int rc;
-        ENTRY;
-        EXP_CHECK_MD_OP(exp, intent_getattr_async);
-        EXP_MD_COUNTER_INCREMENT(exp, intent_getattr_async);
-        rc = MDP(exp->exp_obd, intent_getattr_async)(exp, minfo, einfo);
         RETURN(rc);
 }
 

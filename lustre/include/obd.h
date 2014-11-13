@@ -1055,6 +1055,11 @@ struct md_ops {
 			 struct lookup_intent *, struct md_op_data *,
 			 struct lustre_handle *, __u64);
 
+	int (*m_enqueue_async)(struct obd_export *, struct ldlm_enqueue_info *,
+			       const ldlm_policy_data_t *,
+			       struct lookup_intent *, struct md_op_data *,
+			       obd_enqueue_update_f, __u64);
+
 	int (*m_getattr)(struct obd_export *, struct md_op_data *,
 			 struct ptlrpc_request **);
 
@@ -1093,10 +1098,6 @@ struct md_ops {
 			  struct obd_capa *, obd_valid, const char *,
 			  const char *, int, int, int,
 			  struct ptlrpc_request **);
-
-        int (*m_intent_getattr_async)(struct obd_export *,
-                                      struct md_enqueue_info *,
-                                      struct ldlm_enqueue_info *);
 
         int (*m_revalidate_lock)(struct obd_export *, struct lookup_intent *,
                                  struct lu_fid *, __u64 *bits);

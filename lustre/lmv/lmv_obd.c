@@ -1895,6 +1895,39 @@ lmv_enqueue(struct obd_export *exp, struct ldlm_enqueue_info *einfo,
 }
 
 static int
+lmv_enqueue_async(struct obd_export *exp, struct ldlm_enqueue_info *einfo,
+		  const ldlm_policy_data_t *policy,
+		  struct lookup_intent *it, struct md_op_data *op_data,
+		  obd_enqueue_update_f upcall, __u64 flags)
+
+{
+	struct obd_device        *obd = exp->exp_obd;
+	struct lmv_obd           *lmv = &obd->u.lmv;
+	struct lmv_tgt_desc      *tgt;
+	int                       rc;
+	ENTRY;
+
+	rc = lmv_check_connect(obd);
+	if (rc != 0)
+		RETURN(rc);
+
+	CDEBUG(D_INODE, "ENQUEUE ASYNC on "DFID"\n",
+			PFID(&op_data->op_fid1));
+
+	tgt = lmv_locate_mds(lmv, op_data, &op_data->op_fid1);
+	if (IS_ERR(tgt))
+		RETURN(PTR_ERR(tgt));
+
+	CDEBUG(D_INODE, "ENQUEUE ASYNC on "DFID" -> mds #%d\n",
+	       PFID(&op_data->op_fid1), tgt->ltd_idx);
+
+	rc = md_enqueue_async(tgt->ltd_exp, einfo, policy, it, op_data,
+			      upcall, flags);
+
+	RETURN(rc);
+}
+
+static int
 lmv_getattr_name(struct obd_export *exp,struct md_op_data *op_data,
 		 struct ptlrpc_request **preq)
 {
@@ -3296,29 +3329,6 @@ int lmv_unpack_capa(struct obd_export *exp, struct ptlrpc_request *req,
 	return md_unpack_capa(tgt->ltd_exp, req, field, oc);
 }
 
-int lmv_intent_getattr_async(struct obd_export *exp,
-                             struct md_enqueue_info *minfo,
-                             struct ldlm_enqueue_info *einfo)
-{
-	struct md_op_data       *op_data = &minfo->mi_data;
-	struct obd_device       *obd = exp->exp_obd;
-	struct lmv_obd          *lmv = &obd->u.lmv;
-	struct lmv_tgt_desc     *tgt = NULL;
-	int                      rc;
-	ENTRY;
-
-	rc = lmv_check_connect(obd);
-	if (rc)
-		RETURN(rc);
-
-	tgt = lmv_locate_mds(lmv, op_data, &op_data->op_fid1);
-	if (IS_ERR(tgt))
-		RETURN(PTR_ERR(tgt));
-
-	rc = md_intent_getattr_async(tgt->ltd_exp, minfo, einfo);
-	RETURN(rc);
-}
-
 int lmv_revalidate_lock(struct obd_export *exp, struct lookup_intent *it,
                         struct lu_fid *fid, __u64 *bits)
 {
@@ -3503,6 +3513,7 @@ struct md_ops lmv_md_ops = {
         .m_create               = lmv_create,
         .m_done_writing         = lmv_done_writing,
         .m_enqueue              = lmv_enqueue,
+	.m_enqueue_async        = lmv_enqueue_async,
         .m_getattr              = lmv_getattr,
         .m_getxattr             = lmv_getxattr,
         .m_getattr_name         = lmv_getattr_name,
@@ -3527,7 +3538,6 @@ struct md_ops lmv_md_ops = {
         .m_renew_capa           = lmv_renew_capa,
         .m_unpack_capa          = lmv_unpack_capa,
         .m_get_remote_perm      = lmv_get_remote_perm,
-        .m_intent_getattr_async = lmv_intent_getattr_async,
 	.m_revalidate_lock      = lmv_revalidate_lock,
 	.m_get_fid_from_lsm	= lmv_get_fid_from_lsm,
 };
