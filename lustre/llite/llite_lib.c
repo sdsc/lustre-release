@@ -1776,6 +1776,7 @@ out:
 
 int ll_setattr(struct dentry *de, struct iattr *attr)
 {
+	int rc = 0;
 	int mode = de->d_inode->i_mode;
 
 	if ((attr->ia_valid & (ATTR_CTIME|ATTR_SIZE|ATTR_MODE)) ==
@@ -1801,7 +1802,12 @@ int ll_setattr(struct dentry *de, struct iattr *attr)
 	    !(attr->ia_valid & ATTR_KILL_SGID))
 		attr->ia_valid |= ATTR_KILL_SGID;
 
-	return ll_setattr_raw(de, attr, false);
+	rc = ll_setattr_raw(de, attr, false);
+
+	if (rc == -ENOSPC)
+		CERROR("no space\n");
+
+	return rc;
 }
 
 int ll_statfs_internal(struct super_block *sb, struct obd_statfs *osfs,

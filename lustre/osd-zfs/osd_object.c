@@ -1125,6 +1125,9 @@ static int osd_declare_object_create(const struct lu_env *env,
 
 	rc = osd_declare_quota(env, osd, attr->la_uid, attr->la_gid, 1, oh,
 			       false, NULL, false);
+	if (rc != 0)
+		CERROR("ZFS: declare object create failed with %d\n", rc);
+
 	RETURN(rc);
 }
 

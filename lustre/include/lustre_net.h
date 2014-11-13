@@ -2112,22 +2112,6 @@ struct ptlrpc_request {
 	struct req_capsule		 rq_pill;
 };
 
-/**
- * Call completion handler for rpc if any, return it's status or original
- * rc if there was no handler defined for this request.
- */
-static inline int ptlrpc_req_interpret(const struct lu_env *env,
-                                       struct ptlrpc_request *req, int rc)
-{
-        if (req->rq_interpret_reply != NULL) {
-                req->rq_status = req->rq_interpret_reply(env, req,
-                                                         &req->rq_async_args,
-                                                         rc);
-                return req->rq_status;
-        }
-        return rc;
-}
-
 /** \addtogroup  nrs
  * @{
  */
@@ -2478,6 +2462,26 @@ static inline int thread_test_and_clear_flags(struct ptlrpc_thread *thread,
                 return 1;
         }
         return 0;
+}
+
+/**
+ * Call completion handler for rpc if any, return it's status or original
+ * rc if there was no handler defined for this request.
+ */
+static inline int ptlrpc_req_interpret(const struct lu_env *env,
+				       struct ptlrpc_request *req, int rc)
+{
+	if (rc == -ENOSPC || rc == -EDQUOT)
+		DEBUG_REQ(D_ERROR, req, "no space!");
+
+
+	if (req->rq_interpret_reply != NULL) {
+		req->rq_status = req->rq_interpret_reply(env, req,
+							 &req->rq_async_args,
+							 rc);
+		return req->rq_status;
+	}
+	return rc;
 }
 
 /**
