@@ -3139,6 +3139,7 @@ struct md_ops mdc_md_ops = {
         .m_create           = mdc_create,
         .m_done_writing     = mdc_done_writing,
         .m_enqueue          = mdc_enqueue,
+	.m_enqueue_async    = mdc_enqueue_async,
         .m_getattr          = mdc_getattr,
         .m_getattr_name     = mdc_getattr_name,
         .m_intent_lock      = mdc_intent_lock,
@@ -3161,7 +3162,6 @@ struct md_ops mdc_md_ops = {
         .m_renew_capa       = mdc_renew_capa,
         .m_unpack_capa      = mdc_unpack_capa,
         .m_get_remote_perm  = mdc_get_remote_perm,
-        .m_intent_getattr_async = mdc_intent_getattr_async,
         .m_revalidate_lock      = mdc_revalidate_lock
 };
 

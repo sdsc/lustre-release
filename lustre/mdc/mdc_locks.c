@@ -47,12 +47,6 @@
 #include <lustre_req_layout.h>
 #include "mdc_internal.h"
 
-struct mdc_getattr_args {
-        struct obd_export           *ga_exp;
-        struct md_enqueue_info      *ga_minfo;
-        struct ldlm_enqueue_info    *ga_einfo;
-};
-
 int it_open_error(int phase, struct lookup_intent *it)
 {
 	if (it_disposition(it, DISP_OPEN_LEASE)) {
@@ -770,6 +764,66 @@ static int mdc_finish_enqueue(struct obd_export *exp,
 	RETURN(rc);
 }
 
+static inline const
+union ldlm_policy_data *mdc_intent_policy(const struct lookup_intent *it)
+{
+	const union ldlm_policy_data *policy;
+
+        static const ldlm_policy_data_t lookup_policy =
+                            { .l_inodebits = { MDS_INODELOCK_LOOKUP } };
+        static const ldlm_policy_data_t update_policy =
+                            { .l_inodebits = { MDS_INODELOCK_UPDATE } };
+	static const ldlm_policy_data_t layout_policy =
+			    { .l_inodebits = { MDS_INODELOCK_LAYOUT } };
+	static const ldlm_policy_data_t getxattr_policy = {
+			      .l_inodebits = { MDS_INODELOCK_XATTR } };
+
+	if (it->it_op & (IT_OPEN | IT_UNLINK | IT_GETATTR | IT_READDIR))
+		policy = &update_policy;
+	else if (it->it_op & IT_LAYOUT)
+		policy = &layout_policy;
+	else if (it->it_op & (IT_GETXATTR | IT_SETXATTR))
+		policy = &getxattr_policy;
+	else
+		policy = &lookup_policy;
+
+	return policy;
+}
+
+static inline int
+mdc_intent_req_pack(struct obd_export *exp,
+		    struct lookup_intent *it,
+		    struct md_op_data *op_data,
+		    struct ptlrpc_request **preq)
+{
+	struct ptlrpc_request * req;
+
+	if (it->it_op & IT_OPEN) {
+		req = mdc_intent_open_pack(exp, it, op_data);
+	} else if (it->it_op & IT_UNLINK) {
+		req = mdc_intent_unlink_pack(exp, it, op_data);
+	} else if (it->it_op & (IT_GETATTR | IT_LOOKUP)) {
+		req = mdc_intent_getattr_pack(exp, it, op_data);
+	} else if (it->it_op & IT_READDIR) {
+		req = mdc_enqueue_pack(exp, 0);
+	} else if (it->it_op & IT_LAYOUT) {
+		if (!imp_connect_lvb_type(class_exp2cliimp(exp)))
+			return(-EOPNOTSUPP);
+		req = mdc_intent_layout_pack(exp, it, op_data);
+	} else if (it->it_op & IT_GETXATTR) {
+		req = mdc_intent_getxattr_pack(exp, it, op_data);
+	} else {
+                LBUG();
+                return(-EINVAL);
+        }
+
+        if (IS_ERR(req))
+                return(PTR_ERR(req));
+
+	*preq = req;
+	return(0);
+}
+
 /* We always reserve enough space in the reply packet for a stripe MD, because
  * we don't know in advance the file type. */
 int mdc_enqueue(struct obd_export *exp,
@@ -783,14 +837,6 @@ int mdc_enqueue(struct obd_export *exp,
 	__u64                  flags, saved_flags = extra_lock_flags;
         int                    rc;
         struct ldlm_res_id res_id;
-        static const ldlm_policy_data_t lookup_policy =
-                            { .l_inodebits = { MDS_INODELOCK_LOOKUP } };
-        static const ldlm_policy_data_t update_policy =
-                            { .l_inodebits = { MDS_INODELOCK_UPDATE } };
-	static const ldlm_policy_data_t layout_policy =
-			    { .l_inodebits = { MDS_INODELOCK_LAYOUT } };
-	static const ldlm_policy_data_t getxattr_policy = {
-			      .l_inodebits = { MDS_INODELOCK_XATTR } };
         int                    generation, resends = 0;
         struct ldlm_reply     *lockrep;
 	enum lvb_type	       lvb_type = 0;
@@ -804,14 +850,7 @@ int mdc_enqueue(struct obd_export *exp,
 		LASSERT(policy == NULL);
 
 		saved_flags |= LDLM_FL_HAS_INTENT;
-		if (it->it_op & (IT_OPEN | IT_UNLINK | IT_GETATTR | IT_READDIR))
-			policy = &update_policy;
-		else if (it->it_op & IT_LAYOUT)
-			policy = &layout_policy;
-		else if (it->it_op & (IT_GETXATTR | IT_SETXATTR))
-			policy = &getxattr_policy;
-		else
-			policy = &lookup_policy;
+		policy = mdc_intent_policy(it);
 	}
 
         generation = obddev->u.cli.cl_import->imp_generation;
@@ -822,28 +861,14 @@ resend:
 		LASSERTF(einfo->ei_type == LDLM_FLOCK, "lock type %d\n",
 			 einfo->ei_type);
 		res_id.name[3] = LDLM_FLOCK;
-	} else if (it->it_op & IT_OPEN) {
-		req = mdc_intent_open_pack(exp, it, op_data);
-	} else if (it->it_op & IT_UNLINK) {
-		req = mdc_intent_unlink_pack(exp, it, op_data);
-	} else if (it->it_op & (IT_GETATTR | IT_LOOKUP)) {
-		req = mdc_intent_getattr_pack(exp, it, op_data);
-	} else if (it->it_op & IT_READDIR) {
-		req = mdc_enqueue_pack(exp, 0);
-	} else if (it->it_op & IT_LAYOUT) {
-		if (!imp_connect_lvb_type(class_exp2cliimp(exp)))
-			RETURN(-EOPNOTSUPP);
-		req = mdc_intent_layout_pack(exp, it, op_data);
-		lvb_type = LVB_T_LAYOUT;
-	} else if (it->it_op & IT_GETXATTR) {
-		req = mdc_intent_getxattr_pack(exp, it, op_data);
 	} else {
-                LBUG();
-                RETURN(-EINVAL);
+		rc = mdc_intent_req_pack(exp, it, op_data, &req);
+		if (rc)
+                	RETURN(rc);
+		if (it->it_op & IT_LAYOUT)
+			lvb_type = LVB_T_LAYOUT;
         }
 
-        if (IS_ERR(req))
-                RETURN(PTR_ERR(req));
 
 	if (req != NULL && it && it->it_op & IT_CREAT)
 		/* ask ptlrpc not to resend on EINPROGRESS since we have our own
@@ -1036,6 +1061,138 @@ static int mdc_finish_intent_lock(struct obd_export *exp,
 	RETURN(rc);
 }
 
+
+static int mdc_enqueue_async_interpret(const struct lu_env *env,
+				       struct ptlrpc_request *req,
+				       void *args, int rc)
+{
+	struct mdc_enqueue_args *mea = args;
+	struct md_enqueue_info  *minfo = mea->mea_minfo;
+	struct ldlm_enqueue_info *einfo = mea->mea_einfo;
+	struct lookup_intent	*it = &mea->mea_minfo->mi_it;
+	struct obd_export	*exp = mea->mea_exp;
+	struct ldlm_lock	*lock = mea->mea_lock;
+	struct lustre_handle	lockh;
+        struct obd_device       *obddev;
+	int			val;
+	ENTRY;
+
+	CDEBUG(D_INFO, "req=%p rc=%d\n", req, rc);
+
+        obddev = class_exp2obd(exp);
+
+	if (it) {
+		obd_put_request_slot(&obddev->u.cli);
+        	if (OBD_FAIL_CHECK(OBD_FAIL_MDC_GETATTR_ENQUEUE))
+                	val = -ETIMEDOUT;
+	}
+
+	ldlm_lock2handle(lock, &lockh);
+        val = ldlm_cli_enqueue_fini(exp, req, einfo->ei_type, 1, einfo->ei_mode,
+                                    &mea->mea_flags, NULL, 0, &lockh, val);
+        if (val < 0) {
+                CERROR("ldlm_cli_enqueue_fini: %d\n", val);
+		if (val == -ENOLCK)
+			LDLM_LOCK_RELEASE(lock);
+                mdc_clear_replay_flag(req, val);
+		/* we expect failed_lock_cleanup() to destroy lock */
+		LASSERT(list_empty(&lock->l_res_link));
+                GOTO(out, val);
+        }
+
+
+	if (it) {
+		struct ldlm_reply	 *lockrep;
+
+		lockrep = req_capsule_server_get(&req->rq_pill, &RMF_DLM_REP);
+		LASSERT(lockrep != NULL);
+
+		lockrep->lock_policy_res2 =
+			ptlrpc_status_ntoh(lockrep->lock_policy_res2);
+
+        	val = mdc_finish_enqueue(exp, req, einfo, it, &lockh, rc);
+        	if (val)
+                	GOTO(out, val);
+
+        	val = mdc_finish_intent_lock(exp, req, &minfo->mi_data, it, &lockh);
+	} else
+		LDLM_LOCK_PUT(lock);
+
+out:
+	if (mea->mea_upcall) {
+		mea->mea_req = req;
+		mea->mea_upcall(mea, rc);
+	}
+	RETURN(val);
+}
+
+int mdc_enqueue_async(struct obd_export *exp, struct ldlm_enqueue_info *einfo,
+		      const ldlm_policy_data_t *policy,
+		      struct lookup_intent *it, struct md_op_data *op_data,
+		      obd_enqueue_update_f upcall, __u64 flags)
+{
+	struct mdc_enqueue_args	*mea;
+	struct ptlrpc_request	*req = NULL;
+	struct ldlm_res_id	res_id;
+        struct lustre_handle	lockh;
+	struct obd_device       *obddev = class_exp2obd(exp);
+	enum lvb_type 		lvb_type = 0;
+	int			rc;
+	ENTRY;
+
+
+	LASSERTF(!it || einfo->ei_type == LDLM_IBITS, "lock type %d\n",
+		 einfo->ei_type);
+	fid_build_reg_res_name(&op_data->op_fid1, &res_id);
+
+	if (it == NULL) { /* The only way right now is FLOCK. */
+		LASSERTF(einfo->ei_type == LDLM_FLOCK, "lock type %d\n",
+			 einfo->ei_type);
+		res_id.name[3] = LDLM_FLOCK;
+	} else {
+		rc = mdc_intent_req_pack(exp, it, op_data, &req);
+        	if (rc != 0)
+                	RETURN(rc);
+		if (it->it_op & IT_LAYOUT)
+			lvb_type = LVB_T_LAYOUT;
+		flags |= LDLM_FL_HAS_INTENT;
+		if (policy == NULL)
+                        policy = mdc_intent_policy(it);
+		rc = obd_get_request_slot(&obddev->u.cli);
+        	if (rc != 0) {
+               		ptlrpc_req_finished(req);
+               		RETURN(rc);
+        	}
+        }
+
+	rc = ldlm_cli_enqueue(exp, &req, einfo, &res_id, policy, &flags, NULL,
+			      0, lvb_type, &lockh, 1);
+	if (rc) {
+		CERROR("ldlm_cli_enqueue: %d\n", rc);
+		if (it != NULL)
+			obd_put_request_slot(&obddev->u.cli);
+		ptlrpc_req_finished(req);
+		RETURN(rc);
+	}
+
+	CLASSERT(sizeof(*mea) <= sizeof(req->rq_async_args));
+	mea = ptlrpc_req_async_args(req);
+	mea->mea_exp = exp;
+	mea->mea_einfo = einfo;
+	mea->mea_flags = flags;
+	mea->mea_upcall = upcall;
+	mea->mea_lock = ldlm_handle2lock(&lockh);
+	LASSERT(mea->mea_lock != NULL);
+	if (op_data->op_data) {
+		mea->mea_minfo = op_data->op_data;
+		op_data->op_data = NULL;
+	}
+
+	req->rq_interpret_reply = mdc_enqueue_async_interpret;
+	ptlrpcd_add_req(req, PDL_POLICY_ROUND, -1);
+
+	RETURN(0);
+}
 int mdc_revalidate_lock(struct obd_export *exp, struct lookup_intent *it,
                         struct lu_fid *fid, __u64 *bits)
 {
@@ -1180,112 +1337,4 @@ int mdc_intent_lock(struct obd_export *exp, struct md_op_data *op_data,
 	*reqp = it->d.lustre.it_data;
         rc = mdc_finish_intent_lock(exp, *reqp, op_data, it, &lockh);
         RETURN(rc);
-}
-
-static int mdc_intent_getattr_async_interpret(const struct lu_env *env,
-                                              struct ptlrpc_request *req,
-                                              void *args, int rc)
-{
-        struct mdc_getattr_args  *ga = args;
-        struct obd_export        *exp = ga->ga_exp;
-        struct md_enqueue_info   *minfo = ga->ga_minfo;
-        struct ldlm_enqueue_info *einfo = ga->ga_einfo;
-        struct lookup_intent     *it;
-        struct lustre_handle     *lockh;
-        struct obd_device        *obddev;
-	struct ldlm_reply	 *lockrep;
-	__u64                     flags = LDLM_FL_HAS_INTENT;
-        ENTRY;
-
-        it    = &minfo->mi_it;
-        lockh = &minfo->mi_lockh;
-
-        obddev = class_exp2obd(exp);
-
-	obd_put_request_slot(&obddev->u.cli);
-        if (OBD_FAIL_CHECK(OBD_FAIL_MDC_GETATTR_ENQUEUE))
-                rc = -ETIMEDOUT;
-
-        rc = ldlm_cli_enqueue_fini(exp, req, einfo->ei_type, 1, einfo->ei_mode,
-                                   &flags, NULL, 0, lockh, rc);
-        if (rc < 0) {
-                CERROR("ldlm_cli_enqueue_fini: %d\n", rc);
-                mdc_clear_replay_flag(req, rc);
-                GOTO(out, rc);
-        }
-
-	lockrep = req_capsule_server_get(&req->rq_pill, &RMF_DLM_REP);
-	LASSERT(lockrep != NULL);
-
-	lockrep->lock_policy_res2 =
-		ptlrpc_status_ntoh(lockrep->lock_policy_res2);
-
-        rc = mdc_finish_enqueue(exp, req, einfo, it, lockh, rc);
-        if (rc)
-                GOTO(out, rc);
-
-        rc = mdc_finish_intent_lock(exp, req, &minfo->mi_data, it, lockh);
-        EXIT;
-
-out:
-        OBD_FREE_PTR(einfo);
-        minfo->mi_cb(req, minfo, rc);
-        return 0;
-}
-
-int mdc_intent_getattr_async(struct obd_export *exp,
-			     struct md_enqueue_info *minfo,
-			     struct ldlm_enqueue_info *einfo)
-{
-	struct md_op_data       *op_data = &minfo->mi_data;
-	struct lookup_intent    *it = &minfo->mi_it;
-	struct ptlrpc_request   *req;
-	struct mdc_getattr_args *ga;
-	struct obd_device       *obddev = class_exp2obd(exp);
-	struct ldlm_res_id       res_id;
-	/*XXX: Both MDS_INODELOCK_LOOKUP and MDS_INODELOCK_UPDATE are needed
-	 *     for statahead currently. Consider CMD in future, such two bits
-	 *     maybe managed by different MDS, should be adjusted then. */
-	ldlm_policy_data_t	 policy = {
-					.l_inodebits = { MDS_INODELOCK_LOOKUP |
-							 MDS_INODELOCK_UPDATE }
-				 };
-	int			 rc = 0;
-	__u64			 flags = LDLM_FL_HAS_INTENT;
-	ENTRY;
-
-	CDEBUG(D_DLMTRACE, "name: %.*s in inode "DFID", intent: %s flags %#"
-		LPF64"o\n",
-		(int)op_data->op_namelen, op_data->op_name,
-		PFID(&op_data->op_fid1), ldlm_it2str(it->it_op), it->it_flags);
-
-	fid_build_reg_res_name(&op_data->op_fid1, &res_id);
-	req = mdc_intent_getattr_pack(exp, it, op_data);
-	if (IS_ERR(req))
-		RETURN(PTR_ERR(req));
-
-	rc = obd_get_request_slot(&obddev->u.cli);
-        if (rc != 0) {
-                ptlrpc_req_finished(req);
-                RETURN(rc);
-        }
-
-        rc = ldlm_cli_enqueue(exp, &req, einfo, &res_id, &policy, &flags, NULL,
-			      0, LVB_T_NONE, &minfo->mi_lockh, 1);
-        if (rc < 0) {
-		obd_put_request_slot(&obddev->u.cli);
-                ptlrpc_req_finished(req);
-                RETURN(rc);
-        }
-
-        CLASSERT(sizeof(*ga) <= sizeof(req->rq_async_args));
-        ga = ptlrpc_req_async_args(req);
-        ga->ga_exp = exp;
-        ga->ga_minfo = minfo;
-        ga->ga_einfo = einfo;
-
-        req->rq_interpret_reply = mdc_intent_getattr_async_interpret;
-        ptlrpcd_add_req(req, PDL_POLICY_LOCAL, -1);
-
-        RETURN(0);
 }
