@@ -254,23 +254,23 @@ test_10() {
 run_test 10 "resending a replayed unlink"
 
 test_11() {
-    replay_barrier $SINGLEMDS
-    mcreate $MOUNT1/$tfile-1
-    mcreate $MOUNT2/$tfile-2
-    mcreate $MOUNT1/$tfile-3
-    mcreate $MOUNT2/$tfile-4
-    mcreate $MOUNT1/$tfile-5
-    # drop all reint replies for a while
-    do_facet $SINGLEMDS lctl set_param fail_loc=0x0119
-    # note that with this fail_loc set, facet_failover df will fail
-    facet_failover $SINGLEMDS
-    #sleep for while, let both clients reconnect and timeout
-    sleep $((TIMEOUT * 2))
-    do_facet $SINGLEMDS lctl set_param fail_loc=0
+	replay_barrier $SINGLEMDS
+	mcreate $MOUNT1/$tfile-1
+	mcreate $MOUNT2/$tfile-2
+	mcreate $MOUNT1/$tfile-3
+	mcreate $MOUNT2/$tfile-4
+	mcreate $MOUNT1/$tfile-5
+	# drop all reint replies for a while
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x0119
+	# note that with this fail_loc set, facet_failover df will fail
+	facet_failover $SINGLEMDS
+	# sleep for while, let both clients reconnect and timeout
+	sleep $(max_recovery_time)
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0
 
-    rm $MOUNT1/$tfile-[1-5] || return 1
+	rm $MOUNT1/$tfile-[1-5] || return 1
 
-    return 0
+	return 0
 }
 run_test 11 "both clients timeout during replay"
 
