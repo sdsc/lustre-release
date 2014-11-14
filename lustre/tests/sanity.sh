@@ -10565,6 +10565,24 @@ test_162b() {
 }
 run_test 162b "striped directory path lookup sanity"
 
+# LU-4239: Verify fid2path works with > 100 directories in path
+test_162c() {
+	test_mkdir $DIR/$tdir
+	local path=$tdir
+
+	for ((i=0;i<=101;i++)); do
+		path="$path/$i"
+		test_mkdir $DIR/$path
+		FID=$($LFS path2fid $DIR/$path | tr -d '[]') ||
+			error "get fid for directory $DIR/$path failed"
+		check_path "$DIR/$path" $MOUNT $FID --link 0 ||
+			error "check path for directory $DIR/$path failed"
+	done
+
+	return 0
+}
+run_test 162c "fid2path works with > 100 directories in path"
+
 test_169() {
 	# do directio so as not to populate the page cache
 	log "creating a 10 Mb file"
