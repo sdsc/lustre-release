@@ -71,7 +71,17 @@
 #elif defined(HAVE_FILE_FSYNC_2ARGS)
 #define filp_fsync(fp, start, end) ((fp)->f_op->fsync((fp), 1))
 #else
-#define filp_fsync(fp, start, end) ((fp)->f_op->fsync((fp), (fp)->f_dentry, 1))
+static inline int
+filp_fsync(struct file *fp, loff_t start, loff_t end)
+{
+	struct inode *inode = fp->f_dentry->d_inode;
+	int rc;
+
+	mutex_lock(&inode->i_mutex);
+	rc = fp->f_op->fsync(fp, fp->f_dentry, 1);
+	mutex_unlock(&inode->i_mutex);
+	return rc;
+}
 #endif
 
 #define flock_type(fl)			((fl)->fl_type)
