@@ -570,6 +570,9 @@ else
 			#if !defined(HAVE_OFED_BACKPORT_H) && defined(HAVE_SCSI_FC_COMPAT_H)
 		        #include <scsi/fc_compat.h>
 		        #endif
+			#ifdef HAVE_COMPAT_RDMA
+			#include <linux/compat-2.6.h>
+			#endif
 		        #include <rdma/rdma_cm.h>
 		        #include <rdma/ib_cm.h>
 		        #include <rdma/ib_verbs.h>
@@ -638,6 +641,9 @@ if test $ENABLEO2IB -ne 0; then
 		#if !defined(HAVE_OFED_BACKPORT_H) && defined(HAVE_SCSI_FC_COMPAT_H)
 	        #include <scsi/fc_compat.h>
 	        #endif
+		#ifdef HAVE_COMPAT_RDMA
+		#include <linux/compat-2.6.h>
+		#endif
 		#include <rdma/rdma_cm.h>
 	],[
 		rdma_create_id(NULL, NULL, 0, 0);
