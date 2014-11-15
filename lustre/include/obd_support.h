@@ -502,6 +502,9 @@ int obd_alloc_fail(const void *ptr, const char *name, const char *type,
 #define OBD_FAIL_LFSCK_CRASH		0x160a
 #define OBD_FAIL_LFSCK_NO_AUTO		0x160b
 #define OBD_FAIL_LFSCK_NO_DOUBLESCAN	0x160c
+#define OBD_FAIL_LFSCK_LOST_STRIPE	0x1615
+#define OBD_FAIL_LFSCK_LOST_MDTOBJ	0x1616
+#define OBD_FAIL_LFSCK_LOST_SPEOBJ	0x161a
 
 /* UPDATE */
 #define OBD_FAIL_UPDATE_OBJ_NET			0x1700

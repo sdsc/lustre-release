@@ -998,6 +998,96 @@ test_10()
 }
 run_test 10 "System is available during LFSCK scanning"
 
+test_20a() {
+	[ $OSTCOUNT -lt 2 ] &&
+		skip "The test needs at least 2 OSTs" && return
+
+	echo "#####"
+	echo "The target MDT-object and some of its OST-object are lost."
+	echo "The LFSCK should find out the left OST-objects and re-create"
+	echo "the MDT-object under the direcotry .lustre/lost+found/MDTxxxx/"
+	echo "with the partial OST-objects (LOV EA hole)."
+
+	echo "New client can access the file with LOV EA hole via normal"
+	echo "system tools or commands without crash the system."
+
+	echo "For old client, even though it cannot access the file with"
+	echo "LOV EA hole, it should not cause the system crash."
+	echo "#####"
+
+	check_mount_and_prep
+	$LFS mkdir -i 0 $DIR/$tdir/a1
+	if [ $OSTCOUNT -gt 2 ]; then
+		$LFS setstripe -c 3 -i 0 -s 1M $DIR/$tdir/a1
+		bcount=513
+	else
+		$LFS setstripe -c 2 -i 0 -s 1M $DIR/$tdir/a1
+		bcount=257
+	fi
+
+	# 256 blocks on the stripe0.
+	# 1 block on the stripe1 for 2 OSTs case.
+	# 256 blocks on the stripe1 for other cases.
+	# 1 block on the stripe2 if OSTs > 2
+	dd if=/dev/zero of=$DIR/$tdir/a1/f0 bs=4096 count=$bcount
+	dd if=/dev/zero of=$DIR/$tdir/a1/f1 bs=4096 count=$bcount
+	dd if=/dev/zero of=$DIR/$tdir/a1/f2 bs=4096 count=$bcount
+
+	local fid0=$($LFS path2fid $DIR/$tdir/a1/f0)
+	local fid1=$($LFS path2fid $DIR/$tdir/a1/f1)
+	local fid2=$($LFS path2fid $DIR/$tdir/a1/f2)
+
+	echo ${fid0}
+	$LFS getstripe $DIR/$tdir/a1/f0
+	echo ${fid1}
+	$LFS getstripe $DIR/$tdir/a1/f1
+	echo ${fid2}
+	$LFS getstripe $DIR/$tdir/a1/f2
+
+	if [ $OSTCOUNT -gt 2 ]; then
+		dd if=/dev/zero of=$DIR/$tdir/a1/f3 bs=4096 count=$bcount
+		fid3=$($LFS path2fid $DIR/$tdir/a1/f3)
+		echo ${fid3}
+		$LFS getstripe $DIR/$tdir/a1/f3
+	fi
+
+	cancel_lru_locks osc
+
+	echo "Inject failure..."
+	echo "To simulate f0 lost MDT-object"
+	#define OBD_FAIL_LFSCK_LOST_MDTOBJ	0x1616
+	do_facet mds1 $LCTL set_param fail_loc=0x1616
+	rm -f $DIR/$tdir/a1/f0
+
+	echo "To simulate f1 lost MDT-object and OST-object0"
+	#define OBD_FAIL_LFSCK_LOST_SPEOBJ	0x161a
+	do_facet mds1 $LCTL set_param fail_loc=0x161a
+	rm -f $DIR/$tdir/a1/f1
+
+	echo "To simulate f2 lost MDT-object and OST-object1"
+	do_facet mds1 $LCTL set_param fail_val=1
+	rm -f $DIR/$tdir/a1/f2
+
+	if [ $OSTCOUNT -gt 2 ]; then
+		echo "To simulate f3 lost MDT-object and OST-object2"
+		do_facet mds1 $LCTL set_param fail_val=2
+		rm -f $DIR/$tdir/a1/f3
+	fi
+
+	umount_client $MOUNT
+	sync
+	sleep 2
+	do_facet mds1 $LCTL set_param fail_loc=0 fail_val=0
+
+	mount_client $MOUNT || error "(5.0) Fail to start client!"
+
+	for i in 'f0 f1 f2'; do
+		stat $DIR/$tdir/a1/$i
+		dd if=$DIR/$tdir/a1/$i of=/dev/null
+	done
+}
+run_test 20a "Don't crash client while access with LOV EA hole"
+
 $LCTL set_param debug=-lfsck > /dev/null || true
 
 # restore MDS/OST size

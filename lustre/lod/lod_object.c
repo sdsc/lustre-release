@@ -320,6 +320,11 @@ static int lod_declare_attr_set(const struct lu_env *env,
 		}
 	}
 
+	if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_LOST_STRIPE) &&
+	    dt_object_exists(next) != 0 &&
+	    dt_object_remote(next) == 0)
+		dt_declare_xattr_del(env, next, XATTR_NAME_LOV, handle);
+
 	RETURN(rc);
 }
 
@@ -356,6 +361,11 @@ static int lod_attr_set(const struct lu_env *env,
 			break;
 		}
 	}
+
+	if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_LOST_STRIPE) &&
+	    dt_object_exists(next) != 0 &&
+	    dt_object_remote(next) == 0)
+		dt_xattr_del(env, next, XATTR_NAME_LOV, handle, BYPASS_CAPA);
 
 	RETURN(rc);
 }
@@ -1018,6 +1028,9 @@ static int lod_declare_object_destroy(const struct lu_env *env,
 	if (rc)
 		RETURN(rc);
 
+	if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_LOST_MDTOBJ))
+		RETURN(0);
+
 	/*
 	 * load striping information, notice we don't do this when object
 	 * is being initialized as we don't need this information till
@@ -1052,12 +1065,18 @@ static int lod_object_destroy(const struct lu_env *env,
 	if (rc)
 		RETURN(rc);
 
+	if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_LOST_MDTOBJ))
+		RETURN(0);
+
 	/* destroy all underlying objects */
 	for (i = 0; i < lo->ldo_stripenr; i++) {
-		LASSERT(lo->ldo_stripe[i]);
-		rc = dt_destroy(env, lo->ldo_stripe[i], th);
-		if (rc)
-			break;
+		if (likely(lo->ldo_stripe[i] != NULL) &&
+		    (!OBD_FAIL_CHECK(OBD_FAIL_LFSCK_LOST_SPEOBJ) ||
+		     i == cfs_fail_val)) {
+			rc = dt_destroy(env, lo->ldo_stripe[i], th);
+			if (rc != 0)
+				break;
+		}
 	}
 
 	RETURN(rc);
