@@ -118,7 +118,12 @@ struct tgt_session_info {
 	 * Additional fail id that can be set by handler.
 	 */
 	int			 tsi_reply_fail_id;
-	bool			 tsi_preprocessed;
+	/**
+	 * fail class to identify target type for tsi_reply_fail_id of
+	 * common tgt_handler.
+	 */
+	int			 tsi_fail_class:24;
+	int			 tsi_preprocessed:1;
 	/* request JobID */
 	char                    *tsi_jobid;
 };

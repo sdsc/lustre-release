@@ -639,6 +639,7 @@ int tgt_request_handle(struct ptlrpc_request *req)
 
 	request_fail_id = tgt->lut_request_fail_id;
 	tsi->tsi_reply_fail_id = tgt->lut_reply_fail_id;
+	tsi->tsi_fail_class = LUT_FAIL_CLASS(tgt->lut_reply_fail_id);
 
 	h = tgt_handler_find_check(req);
 	if (IS_ERR(h)) {
@@ -1239,6 +1240,20 @@ int tgt_enqueue(struct tgt_session_info *tsi)
 	if (rc)
 		RETURN(err_serious(rc));
 
+	switch (tsi->tsi_fail_class) {
+	case LUT_FAIL_MDT:
+		tsi->tsi_reply_fail_id = OBD_FAIL_MDS_LDLM_REPLY_NET;
+		break;
+	case LUT_FAIL_OST:
+		tsi->tsi_reply_fail_id = OBD_FAIL_OST_LDLM_REPLY_NET;
+		break;
+	case LUT_FAIL_MGT:
+		tsi->tsi_reply_fail_id = OBD_FAIL_MGS_LDLM_REPLY_NET;
+		break;
+	default:
+		tsi->tsi_reply_fail_id = OBD_FAIL_LDLM_REPLY;
+		break;
+	}
 	RETURN(req->rq_status);
 }
 EXPORT_SYMBOL(tgt_enqueue);
