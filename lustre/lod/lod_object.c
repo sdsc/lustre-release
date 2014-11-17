@@ -1834,10 +1834,10 @@ next:
 			GOTO(out_put, rc);
 
 		/* probably nothing to inherite */
-		if (lo->ldo_striping_cached &&
+		if (lo->ldo_striping_cached && (lo->ldo_pool != NULL ||
 		    !LOVEA_DELETE_VALUES(lo->ldo_def_stripe_size,
 					 lo->ldo_def_stripenr,
-					 lo->ldo_def_stripe_offset)) {
+					 lo->ldo_def_stripe_offset))) {
 			struct lov_user_md_v3	*v3;
 
 			/* sigh, lti_ea_store has been used for lmv_buf,
@@ -2456,10 +2456,10 @@ static int lod_xattr_set_lmv(const struct lu_env *env, struct dt_object *dt,
 		if (rc != 0)
 			RETURN(rc);
 
-		if (lo->ldo_striping_cached &&
+		if (lo->ldo_striping_cached && (lo->ldo_pool != NULL ||
 		    !LOVEA_DELETE_VALUES(lo->ldo_def_stripe_size,
 					 lo->ldo_def_stripenr,
-					 lo->ldo_def_stripe_offset)) {
+					 lo->ldo_def_stripe_offset))) {
 			struct lov_user_md_v3	*v3;
 
 			/* sigh, lti_ea_store has been used for lmv_buf,
@@ -2656,10 +2656,10 @@ int lod_dir_striping_create_internal(const struct lu_env *env,
 	}
 
 	/* Transfer default LOV striping from the parent */
-	if (lo->ldo_striping_cached &&
+	if (lo->ldo_striping_cached && (lo->ldo_pool != NULL ||
 	    !LOVEA_DELETE_VALUES(lo->ldo_def_stripe_size,
 				 lo->ldo_def_stripenr,
-				 lo->ldo_def_stripe_offset)) {
+				 lo->ldo_def_stripe_offset))){
 		struct lov_user_md_v3 *v3 = info->lti_ea_store;
 
 		if (info->lti_ea_store_size < sizeof(*v3)) {
