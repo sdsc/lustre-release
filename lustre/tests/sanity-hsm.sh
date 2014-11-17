@@ -13,8 +13,6 @@ export PATH=$PWD/$SRCDIR:$SRCDIR:$PWD/$SRCDIR/utils:$PATH:/sbin:/usr/sbin
 ONLY=${ONLY:-"$*"}
 # bug number for skipped test:    LU-3815
 ALWAYS_EXCEPT="$SANITY_HSM_EXCEPT 34 35 36"
-# bug number for skipped test:LU-5474
-ALWAYS_EXCEPT="$ALWAYS_EXCEPT 90"
 # bug number for skipped test:LU-4178
 ALWAYS_EXCEPT="$ALWAYS_EXCEPT 200 221 223b"
 # bug number for skipped test:LU-3852
@@ -297,7 +295,7 @@ copytool_cleanup() {
 			"$oldstate" 20 ||
 			error "mds${mdtno} cdt state is not $oldstate"
 	done
-	do_facet $facet "rm -rf $hsm_root"
+	do_facet $facet "rm -rf $hsm_root/*"
 }
 
 copytool_suspend() {
@@ -2445,7 +2443,7 @@ test_40() {
 	done
 	# force copytool to use a local/temp archive dir to ensure best
 	# performance vs remote/NFS mounts used in auto-tests
-	if df --local $HSM_ARCHIVE >/dev/null 2>&1 ; then
+	if do_facet $SINGLEAGT "df --local $HSM_ARCHIVE" >/dev/null 2>&1 ; then
 		copytool_setup
 	else
 		copytool_setup $SINGLEAGT $MOUNT $HSM_ARCHIVE_NUMBER $TMP/$tdir
@@ -2990,7 +2988,13 @@ test_90() {
 		fid=$(copy_file /etc/hosts $f.$i)
 		echo $f.$i >> $FILELIST
 	done
-	copytool_setup
+	# force copytool to use a local/temp archive dir to ensure best
+	# performance vs remote/NFS mounts used in auto-tests
+	if do_facet $SINGLEAGT "df --local $HSM_ARCHIVE" >/dev/null 2>&1 ; then
+		copytool_setup
+	else
+		copytool_setup $SINGLEAGT $MOUNT $HSM_ARCHIVE_NUMBER $TMP/$tdir
+	fi
 	# to be sure wait_all_done will not be mislead by previous tests
 	cdt_purge
 	wait_for_grace_delay
