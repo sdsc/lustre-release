@@ -1066,17 +1066,29 @@ run_test 50 "Double OSC recovery, don't LASSERT (3812)"
 
 # b3764 timed out lock replay
 test_52() {
+    if [ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.6.90) ]; then
+	echo "ignored"
+	return 0
+    fi
+
     touch $DIR/$tfile
     cancel_lru_locks mdc
 
-    multiop $DIR/$tfile s || return 1
-    replay_barrier $SINGLEMDS
-#define OBD_FAIL_LDLM_REPLY              0x30c
-    do_facet $SINGLEMDS "lctl set_param fail_loc=0x8000030c"
-    fail $SINGLEMDS || return 2
-    do_facet $SINGLEMDS "lctl set_param fail_loc=0x0"
+    multiop_bg_pause $DIR/$tfile s_s || return 1
+    mpid=$!
 
-    $CHECKSTAT -t file $DIR/$tfile-* && return 3 || true
+    #define OBD_FAIL_MDS_LDLM_REPLY_NET	0x157
+    lctl set_param -n ldlm.cancel_unused_locks_before_replay "0"
+    do_facet $SINGLEMDS "lctl set_param fail_loc=0x80000157"
+
+    fail $SINGLEMDS || return 2
+    kill -USR1 $mpid
+    wait $mpid || return 3
+
+    do_facet $SINGLEMDS "lctl set_param fail_loc=0x0"
+    lctl set_param fail_loc=0x0
+    lctl set_param -n ldlm.cancel_unused_locks_before_replay "1"
+    rm -f $DIR/$tfile
 }
 run_test 52 "time out lock replay (3764)"
 
