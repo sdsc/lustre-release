@@ -1367,6 +1367,7 @@ int osp_precreate_reserve(const struct lu_env *env, struct osp_device *d)
 				osp_precreate_timeout_condition, d);
 		if (cfs_time_aftereq(cfs_time_current(), expire)) {
 			rc = -ETIMEDOUT;
+			CERROR("OSP: precreate reserve TIMEDOUT\n");
 			break;
 		}
 

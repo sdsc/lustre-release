@@ -698,7 +698,7 @@ static struct dt_object *lod_qos_declare_object_on(const struct lu_env *env,
 
 	rc = dt_declare_create(env, dt, NULL, NULL, NULL, th);
 	if (rc) {
-		CDEBUG(D_OTHER, "can't declare creation on #%u: %d\n",
+		CDEBUG(D_ERROR, "can't declare creation on #%u: %d\n",
 		       ost_idx, rc);
 		lu_object_put(env, o);
 		dt = ERR_PTR(rc);
@@ -938,6 +938,9 @@ repeat_find:
 		rc = lod_statfs_and_check(env, m, ost_idx, sfs);
 		if (rc) {
 			/* this OSP doesn't feel well */
+			if (speed)
+				CERROR("statfs failed %d\n", rc);
+
 			continue;
 		}
 
@@ -945,6 +948,9 @@ repeat_find:
 		 * skip full devices
 		 */
 		if (lod_qos_dev_is_full(sfs)) {
+			if (speed)
+				CERROR("#%d is full\n", ost_idx);
+
 			QOS_DEBUG("#%d is full\n", ost_idx);
 			continue;
 		}
@@ -954,6 +960,9 @@ repeat_find:
 		 * the first iteration, skip OSPs with no objects ready
 		 */
 		if (sfs->os_fprecreated == 0 && speed == 0) {
+			if (speed)
+				CERROR("#%d: precreation is empty\n", ost_idx);
+
 			QOS_DEBUG("#%d: precreation is empty\n", ost_idx);
 			continue;
 		}
@@ -962,6 +971,9 @@ repeat_find:
 		 * try to use another OSP if this one is degraded
 		 */
 		if (sfs->os_state & OS_STATE_DEGRADED && speed < 2) {
+			if (speed)
+				CERROR("#%d: degraded\n", ost_idx);
+
 			QOS_DEBUG("#%d: degraded\n", ost_idx);
 			continue;
 		}
@@ -974,6 +986,10 @@ repeat_find:
 
 		o = lod_qos_declare_object_on(env, m, ost_idx, th);
 		if (IS_ERR(o)) {
+			if (speed)
+				CERROR("can't declare new object on #%u: %d\n",
+					ost_idx, (int) PTR_ERR(o));
+
 			CDEBUG(D_OTHER, "can't declare new object on #%u: %d\n",
 			       ost_idx, (int) PTR_ERR(o));
 			rc = PTR_ERR(o);
@@ -1004,6 +1020,7 @@ repeat_find:
 	} else {
 		/* nobody provided us with a single object */
 		rc = -ENOSPC;
+		CERROR("lod_alloc_rr: can't get object!\n");
 	}
 
 out:
@@ -1870,8 +1887,16 @@ int lod_qos_prep_create(const struct lu_env *env, struct lod_object *lo,
 			rc = lod_alloc_ost_list(env, lo, stripe, lum, th);
 		} else if (lo->ldo_def_stripe_offset == LOV_OFFSET_DEFAULT) {
 			rc = lod_alloc_qos(env, lo, stripe, flag, th);
-			if (rc == -EAGAIN)
+			if (rc == -ENOSPC)
+				CERROR("lod_alloc_qos no space\n");
+
+			if (rc == -EAGAIN) {
 				rc = lod_alloc_rr(env, lo, stripe, flag, th);
+
+				if (rc == -ENOSPC)
+					CERROR("lod_alloc_rr no space\n");
+			}
+
 		} else {
 			rc = lod_alloc_specific(env, lo, stripe, flag, th);
 		}

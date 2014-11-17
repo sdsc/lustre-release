@@ -634,6 +634,9 @@ static struct dentry *ll_lookup_nd(struct inode *parent, struct dentry *dentry,
 	if (itp != NULL)
 		ll_intent_release(itp);
 
+	if (PTR_ERR(de) == -ENOSPC)
+		CERROR("(atomic) no space for ll_lookup_nd\n\n");
+
 	return de;
 }
 
@@ -718,6 +721,12 @@ out_release:
 	ll_intent_release(it);
 	OBD_FREE(it, sizeof(*it));
 
+	if (rc == -ENOSPC)
+		CERROR("no space: name=%.*s, dir="DFID"(%p), file %p,"
+			"open_flags %x, mode %x opened %d\n",
+			dentry->d_name.len, dentry->d_name.name,
+			PFID(ll_inode2fid(dir)), dir, file, open_flags,
+			mode, *opened);
 	RETURN(rc);
 }
 
@@ -811,6 +820,9 @@ static struct dentry *ll_lookup_nd(struct inode *parent, struct dentry *dentry,
 		de = ll_lookup_it(parent, dentry, NULL);
 	}
 
+	if (PTR_ERR(de) == -ENOSPC)
+		CERROR("no space for ll_lookup_nd\n\n");
+
 	RETURN(de);
 }
 #endif /* HAVE_IOP_ATOMIC_OPEN */
@@ -830,6 +842,9 @@ static struct inode *ll_create_node(struct inode *dir, struct lookup_intent *it)
         request = it->d.lustre.it_data;
         it_clear_disposition(it, DISP_ENQ_CREATE_REF);
         rc = ll_prep_inode(&inode, request, dir->i_sb, it);
+	if (rc == -ENOSPC)
+		CERROR("no space from ll_create_node\n");
+
         if (rc)
                 GOTO(out, inode = ERR_PTR(rc));
 
@@ -873,6 +888,12 @@ static int ll_create_it(struct inode *dir, struct dentry *dentry,
 	       PFID(ll_inode2fid(dir)), dir, LL_IT2STR(it));
 
 	rc = it_open_error(DISP_OPEN_CREATE, it);
+	if (rc == -ENOSPC)
+		CDEBUG(D_ERROR, "it_open_error no space! VFS Op:name=%.*s, "
+			"dir="DFID"(%p), intent=%s\n",
+			dentry->d_name.len, dentry->d_name.name,
+			PFID(ll_inode2fid(dir)), dir, LL_IT2STR(it));
+
 	if (rc)
 		RETURN(rc);
 
@@ -981,6 +1002,11 @@ static int ll_mknod(struct inode *dir, struct dentry *dchild, ll_umode_t mode,
         if (!err)
                 ll_stats_ops_tally(ll_i2sbi(dir), LPROC_LL_MKNOD, 1);
 
+	if (err == -ENOSPC)
+		CERROR("no space for mknod: name=%.*s, dir="DFID"(%p) mode %o"
+		       " dev %x\n", name->len, name->name,
+		       PFID(ll_inode2fid(dir)), dir, mode, rdev);
+
         RETURN(err);
 }
 
@@ -1004,6 +1030,11 @@ static int ll_create_nd(struct inode *dir, struct dentry *dentry,
 
 	CDEBUG(D_VFSTRACE, "VFS Op:name=%.*s, unhashed %d\n",
 	       dentry->d_name.len, dentry->d_name.name, d_unhashed(dentry));
+
+	if (rc == -ENOSPC)
+		CDEBUG(D_ERROR, "VFS Op:name=%.*s, unhashed %d\n",
+			dentry->d_name.len, dentry->d_name.name,
+			d_unhashed(dentry));
 
 	return rc;
 }
@@ -1037,6 +1068,9 @@ static int ll_create_nd(struct inode *dir, struct dentry *dentry,
 		filp = lookup_instantiate_filp(nd, dentry, NULL);
 		if (IS_ERR(filp))
 			rc = PTR_ERR(filp);
+
+		if (rc == -ENOSPC)
+			CERROR("no space from lookup_instantiate_filp\n");
         }
 
 out:
@@ -1045,6 +1079,11 @@ out:
 
         if (!rc)
                 ll_stats_ops_tally(ll_i2sbi(dir), LPROC_LL_CREATE, 1);
+
+	if (rc == -ENOSPC)
+		CDEBUG(D_ERROR, "VFS Op:name=%.*s, unhashed %d\n",
+			dentry->d_name.len, dentry->d_name.name,
+			d_unhashed(dentry));
 
         return rc;
 }
@@ -1067,6 +1106,9 @@ static int ll_symlink(struct inode *dir, struct dentry *dchild,
         if (!err)
                 ll_stats_ops_tally(ll_i2sbi(dir), LPROC_LL_SYMLINK, 1);
 
+	if (err == -ENOSPC)
+		CERROR("no space\n");
+
         RETURN(err);
 }
 
@@ -1087,6 +1129,10 @@ static int ll_link(struct dentry *old_dentry, struct inode *dir,
 
         op_data = ll_prep_md_op_data(NULL, src, dir, name->name, name->len,
                                      0, LUSTRE_OPC_ANY, NULL);
+
+	if (PTR_ERR(op_data) == -ENOSPC)
+		CERROR("no space\n");
+
         if (IS_ERR(op_data))
                 RETURN(PTR_ERR(op_data));
 
@@ -1100,6 +1146,9 @@ static int ll_link(struct dentry *old_dentry, struct inode *dir,
         EXIT;
 out:
         ptlrpc_req_finished(request);
+	if (err == -ENOSPC)
+		CERROR("no space\n");
+
         RETURN(err);
 }
 
@@ -1120,6 +1169,9 @@ static int ll_mkdir(struct inode *dir, struct dentry *dchild, ll_umode_t mode)
 	err = ll_new_node(dir, dchild, NULL, mode, 0, LUSTRE_OPC_MKDIR);
 	if (err == 0)
 		ll_stats_ops_tally(ll_i2sbi(dir), LPROC_LL_MKDIR, 1);
+
+	if (err == -ENOSPC)
+		CERROR("no space\n");
 
 	RETURN(err);
 }
@@ -1251,6 +1303,9 @@ static int ll_rename(struct inode *src, struct dentry *src_dchild,
 
 	op_data = ll_prep_md_op_data(NULL, src, tgt, NULL, 0, 0,
 				     LUSTRE_OPC_ANY, NULL);
+	if (PTR_ERR(op_data) == -ENOSPC)
+		CERROR("no space\n");
+
 	if (IS_ERR(op_data))
 		RETURN(PTR_ERR(op_data));
 
@@ -1274,6 +1329,9 @@ static int ll_rename(struct inode *src, struct dentry *src_dchild,
 
 	if (err == 0)
 		d_move(src_dchild, tgt_dchild);
+
+	if (err == -ENOSPC)
+		CERROR("no space\n");
 
 	RETURN(err);
 }
