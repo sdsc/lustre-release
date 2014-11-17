@@ -1837,7 +1837,8 @@ next:
 		if (lo->ldo_striping_cached &&
 		    !LOVEA_DELETE_VALUES(lo->ldo_def_stripe_size,
 					 lo->ldo_def_stripenr,
-					 lo->ldo_def_stripe_offset)) {
+					 lo->ldo_def_stripe_offset,
+					 lo->ldo_pool)) {
 			struct lov_user_md_v3	*v3;
 
 			/* sigh, lti_ea_store has been used for lmv_buf,
@@ -2287,7 +2288,7 @@ static int lod_xattr_set_lov_on_dir(const struct lu_env *env,
 
 	if (LOVEA_DELETE_VALUES((lum->lmm_stripe_size),
 				(lum->lmm_stripe_count),
-				(lum->lmm_stripe_offset)) &&
+				(lum->lmm_stripe_offset), NULL) &&
 			lum->lmm_magic == LOV_USER_MAGIC_V1) {
 		rc = lod_xattr_del_internal(env, dt, name, th, capa);
 		if (rc == -ENODATA)
@@ -2459,7 +2460,8 @@ static int lod_xattr_set_lmv(const struct lu_env *env, struct dt_object *dt,
 		if (lo->ldo_striping_cached &&
 		    !LOVEA_DELETE_VALUES(lo->ldo_def_stripe_size,
 					 lo->ldo_def_stripenr,
-					 lo->ldo_def_stripe_offset)) {
+					 lo->ldo_def_stripe_offset,
+					 lo->ldo_pool)) {
 			struct lov_user_md_v3	*v3;
 
 			/* sigh, lti_ea_store has been used for lmv_buf,
@@ -2659,7 +2661,8 @@ int lod_dir_striping_create_internal(const struct lu_env *env,
 	if (lo->ldo_striping_cached &&
 	    !LOVEA_DELETE_VALUES(lo->ldo_def_stripe_size,
 				 lo->ldo_def_stripenr,
-				 lo->ldo_def_stripe_offset)) {
+				 lo->ldo_def_stripe_offset,
+				 lo->ldo_pool)) {
 		struct lov_user_md_v3 *v3 = info->lti_ea_store;
 
 		if (info->lti_ea_store_size < sizeof(*v3)) {
