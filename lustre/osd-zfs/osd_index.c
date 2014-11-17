@@ -948,15 +948,8 @@ static int osd_dir_it_rec(const struct lu_env *env, const struct dt_it *di,
 		/* append lustre attributes */
 		osd_it_append_attrs(lde, attr, 2, IFTODT(S_IFDIR));
 		lde->lde_reclen = cpu_to_le16(lu_dirent_calc_size(2, attr));
-		rc = osd_find_parent_fid(env, &it->ozi_obj->oo_dt, &lde->lde_fid);
-		/*
-		 * early Orion code was not setting LinkEA, so it's possible
-		 * some setups still have objects with no LinkEA set.
-		 * but at that time .. was a real record in the directory
-		 * so we should try to lookup .. in ZAP
-		 */
-		if (rc != -ENOENT)
-			GOTO(out, rc);
+
+		GOTO(out, rc = 0);
 	}
 
 	LASSERT(lde);
