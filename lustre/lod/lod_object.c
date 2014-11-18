@@ -2118,7 +2118,15 @@ static int lod_declare_xattr_set(const struct lu_env *env,
 	} else if (S_ISDIR(mode)) {
 		rc = lod_dir_declare_xattr_set(env, dt, buf, name, fl, th);
 	} else {
-		rc = dt_declare_xattr_set(env, next, buf, name, fl, th);
+		int flags;
+
+		/* The caller may specify both LU_XATTR_CREATE
+		 * and LU_XATTR_REPLACE to bypass stripes creating. */
+		if ((fl & LU_XATTR_CREATE) && (fl & LU_XATTR_REPLACE))
+			flags = fl & ~LU_XATTR_REPLACE;
+		else
+			flags = fl;
+		rc = dt_declare_xattr_set(env, next, buf, name, flags, th);
 	}
 
 	RETURN(rc);
@@ -2789,9 +2797,19 @@ static int lod_xattr_set(const struct lu_env *env,
 		 * defines striping, then create() does the work
 		*/
 		if (fl & LU_XATTR_REPLACE) {
+			int flags;
+
 			/* free stripes, then update disk */
 			lod_object_free_striping(env, lod_dt_obj(dt));
-			rc = dt_xattr_set(env, next, buf, name, fl, th, capa);
+
+			/* The caller may specify both LU_XATTR_CREATE
+			 * and LU_XATTR_REPLACE to bypass stripes creating. */
+			if (fl & LU_XATTR_CREATE)
+				flags = fl & ~LU_XATTR_REPLACE;
+			else
+				flags = fl;
+			rc = dt_xattr_set(env, next, buf, name,
+					  flags, th, capa);
 		} else {
 			rc = lod_striping_create(env, dt, NULL, NULL, th);
 		}
