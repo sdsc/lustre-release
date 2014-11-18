@@ -1425,6 +1425,9 @@ static int osp_declare_object_create(const struct lu_env *env,
 	 * awaiting precreation RPC to complete
 	 */
 	rc = osp_precreate_reserve(env, d);
+	if (rc != 0)
+		CERROR("OSP: precreate reserve failed %d\n", rc);
+
 	/*
 	 * we also need to declare update to local "last used id" file for
 	 * recovery if object isn't used for a reason, we need to release
@@ -1442,6 +1445,10 @@ static int osp_declare_object_create(const struct lu_env *env,
 		osi->osi_lb.lb_buf = NULL;
 		rc = dt_declare_record_write(env, d->opd_last_used_oid_file,
 					     &osi->osi_lb, osi->osi_off, th);
+
+		if (rc != 0)
+			CERROR("OSP: declare record write failed %d\n", rc);
+
 	} else {
 		/* not needed in the cache anymore */
 		set_bit(LU_OBJECT_HEARD_BANSHEE,

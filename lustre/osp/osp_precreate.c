@@ -1289,7 +1289,7 @@ static int osp_precreate_timeout_condition(void *data)
 int osp_precreate_reserve(const struct lu_env *env, struct osp_device *d)
 {
 	struct l_wait_info	 lwi;
-	cfs_time_t		 expire = cfs_time_shift(obd_timeout);
+	cfs_time_t		 expire = cfs_time_shift(obd_timeout * 2);
 	int			 precreated, rc;
 
 	ENTRY;
@@ -1307,6 +1307,11 @@ int osp_precreate_reserve(const struct lu_env *env, struct osp_device *d)
 	 */
 	while ((rc = d->opd_pre_status) == 0 || rc == -ENOSPC ||
 		rc == -ENODEV || rc == -EAGAIN || rc == -ENOTCONN) {
+
+		if (rc != 0) {
+			CERROR("reset expire for precreation!\n");
+			expire = cfs_time_shift(obd_timeout * 2);
+		}
 
 		/*
 		 * increase number of precreations
@@ -1367,6 +1372,7 @@ int osp_precreate_reserve(const struct lu_env *env, struct osp_device *d)
 				osp_precreate_timeout_condition, d);
 		if (cfs_time_aftereq(cfs_time_current(), expire)) {
 			rc = -ETIMEDOUT;
+			CERROR("OSP: precreate reserve TIMEDOUT\n");
 			break;
 		}
 

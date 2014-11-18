@@ -3333,6 +3333,9 @@ int lod_declare_striped_object(const struct lu_env *env, struct dt_object *dt,
 		/* choose OST and generate appropriate objects */
 		rc = lod_qos_prep_create(env, lo, attr, lovea, th);
 		if (rc) {
+			if (rc == -ENOSPC)
+				CERROR("lod_qos_prep_create no space\n");
+
 			/* failed to create striping, let's reset
 			 * config so that others don't get confused */
 			lod_object_free_striping(env, lo);
@@ -3356,6 +3359,9 @@ int lod_declare_striped_object(const struct lu_env *env, struct dt_object *dt,
 
 	rc = dt_declare_xattr_set(env, next, &info->lti_buf,
 				  XATTR_NAME_LOV, 0, th);
+	if (rc == -ENOSPC)
+		CERROR("dt_declare_xattr_set no space\n");
+
 	if (rc)
 		GOTO(out, rc);
 
@@ -3421,6 +3427,10 @@ static int lod_declare_object_create(const struct lu_env *env,
 		if (lo->ldo_stripenr > 0)
 			rc = lod_declare_striped_object(env, dt, attr,
 							NULL, th);
+
+		if (rc == -ENOSPC)
+			CDEBUG(D_ERROR, "lod_declare_stripped_... no space\n");
+
 	} else if (dof->dof_type == DFT_DIR) {
 		/* Orphan object (like migrating object) does not have
 		 * lod_dir_stripe, see lod_ah_init */
@@ -3429,6 +3439,8 @@ static int lod_declare_object_create(const struct lu_env *env,
 							     dof, th);
 	}
 out:
+	if (rc == -ENOSPC)
+		CDEBUG(D_ERROR, "lod_declare_object_create no space\n");
 	RETURN(rc);
 }
 
