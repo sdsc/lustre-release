@@ -538,7 +538,7 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
         LASSERT(fid_is_sane(&sbi->ll_root_fid));
 	root = ll_iget(sb, cl_fid_build_ino(&sbi->ll_root_fid,
 					    sbi->ll_flags & LL_SBI_32BIT_API),
-		       &lmd);
+		       &lmd, NULL);
         md_free_lustre_md(sbi->ll_md_exp, &lmd);
         ptlrpc_req_finished(request);
 
@@ -2380,7 +2380,7 @@ int ll_prep_inode(struct inode **inode, struct ptlrpc_request *req,
 
 		*inode = ll_iget(sb, cl_fid_build_ino(&md.body->mbo_fid1,
 					     sbi->ll_flags & LL_SBI_32BIT_API),
-				 &md);
+				 &md, it);
 		if (IS_ERR(*inode)) {
 #ifdef CONFIG_FS_POSIX_ACL
                         if (md.posix_acl) {

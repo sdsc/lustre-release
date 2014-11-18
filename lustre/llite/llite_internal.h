@@ -775,7 +775,11 @@ void ll_release_page(struct inode *inode, struct page *page, bool remove);
 extern const struct inode_operations ll_special_inode_operations;
 
 struct inode *ll_iget(struct super_block *sb, ino_t hash,
-                      struct lustre_md *lic);
+		      struct lustre_md *md, struct lookup_intent *it);
+int ll_close_inode_openhandle(struct obd_export *md_exp,
+			      struct inode *inode,
+			      struct obd_client_handle *och,
+			      const __u64 *data_version);
 int ll_test_inode_by_fid(struct inode *inode, void *opaque);
 int ll_md_blocking_ast(struct ldlm_lock *, struct ldlm_lock_desc *,
                        void *data, int flag);

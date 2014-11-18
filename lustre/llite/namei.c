@@ -99,13 +99,42 @@ static int ll_set_inode(struct inode *inode, void *opaque)
 	return 0;
 }
 
+static void ll_open_cleanup(struct super_block *sb, struct inode *inode,
+			    struct lookup_intent *it)
+{
+	struct ptlrpc_request *req;
+	struct obd_client_handle *och;
+	struct mdt_body *body;
+
+	if (it == NULL && !(it->it_op & IT_OPEN))
+		return;
+
+	req = it->d.lustre.it_data;
+	body = req_capsule_server_get(&req->rq_pill, &RMF_MDT_BODY);
+
+	/* The @och will be released inside ll_close_inode_openhandle(). */
+	OBD_ALLOC_PTR(och);
+	if (och == NULL) {
+		CWARN("%s: cannot allocate memory to cleanup the open handle "
+		      "for the object "DFID", %lu/%u\n",
+		      ll_get_fsname(sb, NULL, 0), PFID(&body->mbo_fid1),
+		      inode->i_ino, inode->i_generation);
+		return;
+	}
+
+	och->och_fh = body->mbo_handle;
+	och->och_fid = body->mbo_fid1;
+	och->och_lease_handle.cookie = it->d.lustre.it_lock_handle;
+	och->och_magic = OBD_CLIENT_HANDLE_MAGIC;
+	ll_close_inode_openhandle(ll_s2sbi(sb)->ll_md_exp, inode, och, NULL);
+}
 
 /**
  * Get an inode by inode number(@hash), which is already instantiated by
  * the intent lookup).
  */
 struct inode *ll_iget(struct super_block *sb, ino_t hash,
-                      struct lustre_md *md)
+		      struct lustre_md *md, struct lookup_intent *it)
 {
 	struct inode	*inode;
 	int		rc = 0;
@@ -127,6 +156,7 @@ struct inode *ll_iget(struct super_block *sb, ino_t hash,
 			rc = cl_file_inode_init(inode, md);
 		}
 		if (rc != 0) {
+			ll_open_cleanup(sb, inode, it);
 			make_bad_inode(inode);
 			unlock_new_inode(inode);
 			iput(inode);
@@ -139,6 +169,7 @@ struct inode *ll_iget(struct super_block *sb, ino_t hash,
 		CDEBUG(D_VFSTRACE, "got inode: "DFID"(%p): rc = %d\n",
 		       PFID(&md->body->mbo_fid1), inode, rc);
 		if (rc != 0) {
+			ll_open_cleanup(sb, inode, it);
 			iput(inode);
 			inode = ERR_PTR(rc);
 		}

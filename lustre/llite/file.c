@@ -128,10 +128,10 @@ out:
         EXIT;
 }
 
-static int ll_close_inode_openhandle(struct obd_export *md_exp,
-				     struct inode *inode,
-				     struct obd_client_handle *och,
-				     const __u64 *data_version)
+int ll_close_inode_openhandle(struct obd_export *md_exp,
+			      struct inode *inode,
+			      struct obd_client_handle *och,
+			      const __u64 *data_version)
 {
         struct obd_export *exp = ll_i2mdexp(inode);
         struct md_op_data *op_data;
