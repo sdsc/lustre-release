@@ -981,8 +981,8 @@ int lustre_lnet_show_peer_credits(int seq_no, struct cYAML **show_rc,
 		goto out;
 
 	peer_root = cYAML_create_seq(root, "peer");
-		if (peer_root == NULL)
-			goto out;
+	if (peer_root == NULL)
+		goto out;
 
 	do {
 		for (i = 0;; i++) {
@@ -1122,6 +1122,11 @@ int lustre_lnet_show_stats(int seq_no, struct cYAML **show_rc,
 	snprintf(err_str, sizeof(err_str), "\"out of memory\"");
 
 	LIBCFS_IOC_INIT_V2(data, st_hdr);
+	/* In the function libcfs_ioctl_getdata it test is the data
+	 * passed in is not smaller than libcfs_ioctl_data but the
+	 * stat data structure is smaller than it. So we need to fake
+	 * the ioc_len in this case so this function actually works */
+	data.st_hdr.ioc_len = sizeof(struct libcfs_ioctl_data);
 
 	rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_GET_LNET_STATS, &data);
 	if (rc != 0) {

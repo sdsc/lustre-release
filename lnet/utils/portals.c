@@ -589,7 +589,7 @@ jt_ptl_print_peers (int argc, char **argv)
                         id.nid = data.ioc_nid;
                         id.pid = data.ioc_u32[4];
                         printf ("%-20s [%d]%s->%s:%d #%d\n",
-                                libcfs_id2str(id), 
+				libcfs_id2str(id),
                                 data.ioc_count, /* persistence */
 				/* my ip */
 				ptl_ipaddr_2_str(data.ioc_u32[2], buffer[0],
