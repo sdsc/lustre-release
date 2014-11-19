@@ -1289,7 +1289,6 @@ static int osp_precreate_timeout_condition(void *data)
 int osp_precreate_reserve(const struct lu_env *env, struct osp_device *d)
 {
 	struct l_wait_info	 lwi;
-	cfs_time_t		 expire = cfs_time_shift(obd_timeout);
 	int			 precreated, rc;
 
 	ENTRY;
@@ -1363,12 +1362,8 @@ int osp_precreate_reserve(const struct lu_env *env, struct osp_device *d)
 		/* XXX: don't wake up if precreation is in progress */
 		wake_up(&d->opd_pre_waitq);
 
-		lwi = LWI_TIMEOUT(expire - cfs_time_current(),
-				osp_precreate_timeout_condition, d);
-		if (cfs_time_aftereq(cfs_time_current(), expire)) {
-			rc = -ETIMEDOUT;
-			break;
-		}
+		lwi = LWI_TIMEOUT(cfs_time_seconds(obd_timeout),
+				  osp_precreate_timeout_condition, d);
 
 		l_wait_event(d->opd_pre_user_waitq,
 			     osp_precreate_ready_condition(env, d), &lwi);
