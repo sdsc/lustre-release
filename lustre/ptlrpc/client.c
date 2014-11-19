@@ -2216,10 +2216,19 @@ int ptlrpc_set_wait(struct ptlrpc_request_set *set)
 	list_for_each(tmp, &set->set_requests) {
 		req = list_entry(tmp, struct ptlrpc_request, rq_set_chain);
 
-                LASSERT(req->rq_phase == RQ_PHASE_COMPLETE);
-                if (req->rq_status != 0)
-                        rc = req->rq_status;
-        }
+		req->rq_set = NULL;
+		wake_up(&req->rq_set_waitq);
+
+		/* the request is being waited to be replayed */
+		if (req->rq_phase == RQ_PHASE_NEW) {
+			LASSERT(req->rq_send_state == LUSTRE_IMP_REPLAY);
+			continue;
+		}
+
+		LASSERT(req->rq_phase == RQ_PHASE_COMPLETE);
+		if (req->rq_status != 0)
+			rc = req->rq_status;
+	}
 
         if (set->set_interpret != NULL) {
                 int (*interpreter)(struct ptlrpc_request_set *set,void *,int) =
