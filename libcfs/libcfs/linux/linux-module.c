@@ -76,11 +76,6 @@ int libcfs_ioctl_getdata(struct libcfs_ioctl_hdr **hdr_pp,
 		RETURN(-EINVAL);
 	}
 
-	if (hdr.ioc_len < sizeof(struct libcfs_ioctl_data)) {
-		CERROR("libcfs ioctl: user buffer too small for ioctl\n");
-		RETURN(-EINVAL);
-	}
-
 	if (hdr.ioc_len > LIBCFS_IOC_DATA_MAX) {
 		CERROR("libcfs ioctl: user buffer is too large %d/%d\n",
 		       hdr.ioc_len, LIBCFS_IOC_DATA_MAX);
