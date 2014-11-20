@@ -1896,6 +1896,10 @@ out_child:
 out_parent:
 	mdt_object_unlock_put(info, parent, lh, result || !created);
 out:
+	if (!mdt_get_disposition(ldlm_rep, DISP_OPEN_LOCK) &&
+	    result != -EREMOTE)
+		lhc->mlh_reg_lh.cookie = 0;
+
 	if (result)
 		lustre_msg_set_transno(req->rq_repmsg, 0);
 	return result;

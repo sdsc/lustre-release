@@ -2621,7 +2621,7 @@ int mdt_check_resent_lock(struct mdt_thread_info *info,
 			  struct mdt_lock_handle *lhc)
 {
 	/* the lock might already be gotten in ldlm_handle_enqueue() */
-	if (lustre_handle_is_used(&lhc->mlh_reg_lh)) {
+	if (unlikely(lustre_handle_is_used(&lhc->mlh_reg_lh))) {
 		struct ptlrpc_request *req = mdt_info_req(info);
 		struct ldlm_lock      *lock;
 
