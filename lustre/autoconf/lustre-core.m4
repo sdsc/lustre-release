@@ -767,6 +767,25 @@ dirty_inode_super_operation_flag, [
 ]) # LC_DIRTY_INODE_WITH_FLAG
 
 #
+#
+#
+# 3.0 vfs_path_lookup swith to path arg
+# see kernel commit e0a0124936171af6156b80fe8ac8799f039e767f
+#
+AC_DEFUN([LC_VFS_PATH_LOOKUP_USE_PATH], [
+LB_CHECK_COMPILE([if 'vfs_path_lookup' use path arg],
+vfs_path_lookup, [
+	#include <linux/internal.h>
+],[
+	vfs_path_lookup(NULL, NULL, NULL, NULL,
+			(struct path *)NULL);
+],[
+	AC_DEFINE(VFS_PATH_LOOKUP_USE_PATH, 1,
+		[vfs_path_lookup use path arg])
+])
+]) # LC_VFS_PATH_LOOKUP_USE_PATH
+
+#
 # LC_GENERIC_PERMISSION
 #
 # 2.6.38 generic_permission taken 4 parameters.
@@ -921,6 +940,24 @@ inode_i_nlink_protected, [
 		[inode->i_nlink is protected from direct modification])
 ])
 ]) # LC_HAVE_PROTECT_I_NLINK
+
+#
+# LC_HAVE_MOUNT_SUBTREE
+#
+# 3.2 have mount_subtree() helper for subdirectory mounting
+# see kernel commit ea441d1104cf1efb471fa81bc91e9fd1e6ae29fd
+#
+AC_DEFUN([LC_HAVE_MOUNT_SUBTREE], [
+LB_CHECK_COMPILE([if have 'mount_subtree'],
+mount_subtree, [
+	#include <linux/fs.h>
+],[
+	mount_subtree((struct vfsmount *)NULL, "");
+],[
+	AC_DEFINE(HAVE_MOUNT_SUBTREE, 1,
+		[have mount_subtree])
+])
+]) # LC_HAVE_MOUNT_SUBTREE
 
 #
 # LC_HAVE_MIGRATE_HEADER
@@ -1578,6 +1615,7 @@ AC_DEFUN([LC_PROG_LINUX], [
 
 	# 3.0
 	LC_DIRTY_INODE_WITH_FLAG
+	LC_VFS_PATH_LOOKUP_USE_PATH
 
 	# 3.1
 	LC_LM_XXX_LOCK_MANAGER_OPS
@@ -1590,6 +1628,7 @@ AC_DEFUN([LC_PROG_LINUX], [
 	# 3.2
 	LC_HAVE_VOID_MAKE_REQUEST_FN
 	LC_HAVE_PROTECT_I_NLINK
+	LC_HAVE_MOUNT_SUBTREE
 
 	# 3.3
 	LC_HAVE_MIGRATE_HEADER

@@ -49,6 +49,7 @@
 #include <obd_class.h>
 #include <lustre/lustre_user.h>
 #include <linux/version.h>
+#include <linux/mnt_namespace.h>
 #include <lustre_log.h>
 #include <lustre_disk.h>
 #include <lustre_param.h>
@@ -1362,12 +1363,157 @@ void lustre_register_kill_super_cb(void (*cfs)(struct super_block *sb))
 }
 EXPORT_SYMBOL(lustre_register_kill_super_cb);
 
+#ifndef HAVE_MOUNT_SUBTREE
+#ifndef VFS_PATH_LOOKUP_USE_PATH
+static struct dentry *mount_subtree(struct vfsmount *mnt, const char *name)
+{
+	struct nameidata *nd = NULL;
+	struct mnt_namespace *ns_private;
+	struct super_block *s;
+	struct dentry *dentry = NULL;
+	int ret;
+
+	nd = kmalloc(sizeof(*nd), GFP_KERNEL);
+	if (nd == NULL) {
+		dentry = ERR_PTR(-ENOMEM);
+		goto out_err;
+	}
+
+	ns_private = create_mnt_ns(mnt);
+	if (IS_ERR(ns_private)) {
+		dentry = (void *)ns_private;
+		goto out_err;
+	}
+
+	ret = vfs_path_lookup(mnt->mnt_root, mnt, name,
+			LOOKUP_FOLLOW|LOOKUP_AUTOMOUNT, nd);
+	put_mnt_ns(ns_private);
+	if (ret != 0) {
+		dentry = ERR_PTR(ret);
+		goto out_err;
+	}
+
+	s = nd->path.mnt->mnt_sb;
+	atomic_inc(&s->s_active);
+	dentry = dget(nd->path.dentry);
+	path_put(&nd->path);
+
+	kfree(nd);
+	down_write(&s->s_umount);
+	return dentry;
+out_err:
+	kfree(nd);
+	return dentry;
+}
+#else
+static struct dentry *mount_subtree(struct vfsmount *mnt, const char *name)
+{
+	struct mnt_namespace *ns;
+	struct super_block *s;
+	struct path path;
+	int err;
+
+	ns = create_mnt_ns(mnt);
+	if (IS_ERR(ns))
+		return ERR_CAST(ns);
+
+	err = vfs_path_lookup(mnt->mnt_root, mnt,
+			name, LOOKUP_FOLLOW|LOOKUP_AUTOMOUNT, &path);
+
+	put_mnt_ns(ns);
+
+	if (err)
+		return ERR_PTR(err);
+
+	/* trade a vfsmount reference for active sb one */
+	s = path.mnt->mnt_sb;
+	atomic_inc(&s->s_active);
+	mntput(path.mnt);
+	/* lock the sucker */
+	down_write(&s->s_umount);
+	/* ... and return the root of (sub)tree on it */
+	return path.dentry;
+}
+#endif
+#endif
+
+/*
+ * this function remove all subdir=xxx strings and return
+ * last string out.
+ */
+static char *parse_subdir_args(char *args, char **subdir)
+{
+	char *new_data;
+	char *p_subdir;
+	char *dst;
+	char *src;
+	char *str;
+	int len = strlen(args);
+
+	/* only client supports subdirectory mounting*/
+	if (!strstr(args, ":/"))
+		return NULL;
+
+	if (!strstr(args, "subdir="))
+		return NULL;
+
+	dst = new_data = kzalloc(len, GFP_NOFS);
+	if (!new_data)
+		return ERR_PTR(-ENOMEM);
+
+	/* not sure subdir length, worst case */
+	*subdir = kzalloc(len, GFP_NOFS);
+	if (!*subdir) {
+		kfree(new_data);
+		return ERR_PTR(-ENOMEM);
+	}
+	src = args;
+	/* loop and deal with all subvol=xxx string once */
+	while ((p_subdir = strstr(src, "subdir="))) {
+		strncat(dst, src, p_subdir - src);
+		dst += p_subdir - src;
+		p_subdir += 7;
+		str = p_subdir;
+		while (*str != '\0' && *str != ',')
+			str++;
+		strncpy(*subdir, p_subdir, str - p_subdir);
+		(*subdir)[str - p_subdir] = '\0';
+		if (str == '\0')
+			break;
+		src = p_subdir = str;
+	}
+	if (src)
+		strncpy(dst, src, strlen(src));
+	return new_data;
+}
+
 /***************** FS registration ******************/
 #ifdef HAVE_FSTYPE_MOUNT
 struct dentry *lustre_mount(struct file_system_type *fs_type, int flags,
 				const char *devname, void *data)
 {
 	struct lustre_mount_data2 lmd2 = { data, NULL };
+	char *new_data = NULL;
+	char *subdir = NULL;
+	struct dentry *dentry;
+	struct vfsmount *root_mnt;
+
+	new_data = parse_subdir_args(data, &subdir);
+	if (IS_ERR(new_data))
+		return (void *)new_data;
+	else if (new_data) {
+		lmd2.lmd2_data = new_data;
+		root_mnt = vfs_kern_mount(fs_type, flags, devname, new_data);
+		if (IS_ERR(root_mnt)) {
+			kfree(new_data);
+			kfree(subdir);
+			return (void *)root_mnt;
+		}
+		kfree(new_data);
+		dentry = mount_subtree(root_mnt, subdir);
+		kfree(subdir);
+		return dentry;
+	}
 
 	return mount_nodev(fs_type, flags, &lmd2, lustre_fill_super);
 }
@@ -1376,7 +1522,34 @@ int lustre_get_sb(struct file_system_type *fs_type, int flags,
                   const char *devname, void * data, struct vfsmount *mnt)
 {
 	struct lustre_mount_data2 lmd2 = { data, mnt };
+	struct vfsmount *root_mnt;
+	char *new_data = NULL;
+	char *subdir = NULL;
+	int ret;
 
+	new_data = parse_subdir_args(data, &subdir);
+	if (IS_ERR(new_data))
+		return PTR_ERR(new_data);
+	else if (new_data) {
+		lmd2.lmd2_data = new_data;
+		root_mnt = vfs_kern_mount(fs_type, flags, devname, new_data);
+		if (IS_ERR(root_mnt)) {
+			ret = PTR_ERR(root_mnt);
+			goto failed;
+		}
+		mnt->mnt_root = mount_subtree(root_mnt, subdir);
+		if (IS_ERR(mnt->mnt_root)) {
+			ret = PTR_ERR(mnt->mnt_root);
+			goto failed;
+		}
+		mnt->mnt_sb = mnt->mnt_root->d_sb;
+		ret = 0;
+failed:
+		kfree(new_data);
+		kfree(subdir);
+		return ret;
+
+	}
 	return get_sb_nodev(fs_type, flags, &lmd2, lustre_fill_super, mnt);
 }
 #endif
