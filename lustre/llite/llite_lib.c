@@ -2388,6 +2388,57 @@ int ll_remount_fs(struct super_block *sb, int *flags, char *data)
         return 0;
 }
 
+static void ll_open_cleanup(struct super_block *sb,
+			    struct ptlrpc_request *o_req,
+			    struct lookup_intent *it)
+{
+	struct mdt_body			*body;
+	struct obd_export		*exp     = ll_s2sbi(sb)->ll_md_exp;
+	struct md_op_data		*op_data = NULL;
+	struct ptlrpc_request		*c_req   = NULL;
+	struct obd_client_handle	*och     = NULL;
+	int				 rc      = 0;
+	ENTRY;
+
+	body = req_capsule_server_get(&o_req->rq_pill, &RMF_MDT_BODY);
+	OBD_ALLOC_PTR(op_data);
+	if (op_data == NULL)
+		GOTO(out, rc = -ENOMEM);
+
+	op_data->op_fid1 = body->mbo_fid1;
+	op_data->op_ioepoch = body->mbo_ioepoch;
+	op_data->op_handle = body->mbo_handle;
+	op_data->op_mod_time = cfs_time_current_sec();
+	op_data->op_fsuid = from_kuid(&init_user_ns, current_fsuid());
+	op_data->op_fsgid = from_kgid(&init_user_ns, current_fsgid());
+	op_data->op_cap = cfs_curproc_cap_pack();
+	md_close(exp, op_data, NULL, &c_req);
+
+	OBD_ALLOC_PTR(och);
+	if (och == NULL)
+		GOTO(out, rc = -ENOMEM);
+
+	och->och_fh = body->mbo_handle;
+	och->och_fid = body->mbo_fid1;
+	och->och_lease_handle.cookie = it->d.lustre.it_lock_handle;
+	och->och_magic = OBD_CLIENT_HANDLE_MAGIC;
+	md_clear_open_replay_data(exp, och);
+
+	GOTO(out, rc = 0);
+
+out:
+	if (rc != 0)
+		CWARN("%s: fail to cleanup the open handle for the object "DFID
+		      ": rc = %d\n",
+		      ll_get_fsname(sb, NULL, 0), PFID(&body->mbo_fid1), rc);
+
+	ptlrpc_req_finished(c_req);
+	if (op_data != NULL)
+		ll_finish_md_op_data(op_data);
+	if (och != NULL)
+		OBD_FREE_PTR(och);
+}
+
 int ll_prep_inode(struct inode **inode, struct ptlrpc_request *req,
 		  struct super_block *sb, struct lookup_intent *it)
 {
@@ -2429,9 +2480,13 @@ int ll_prep_inode(struct inode **inode, struct ptlrpc_request *req,
                         rc = IS_ERR(*inode) ? PTR_ERR(*inode) : -ENOMEM;
                         *inode = NULL;
                         CERROR("new_inode -fatal: rc %d\n", rc);
-                        GOTO(out, rc);
-                }
-        }
+
+			if (it != NULL && it->it_op & IT_OPEN)
+				ll_open_cleanup(sb, req, it);
+
+			GOTO(out, rc);
+		}
+	}
 
 	/* Handling piggyback layout lock.
 	 * Layout lock can be piggybacked by getattr and open request.
