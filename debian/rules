@@ -54,7 +54,7 @@ KERNEL_TREE=/lib/modules/$(KVER)/build
 # KVERS, KSRC are the kernel version and source to use when building lustre
 # Will be the default when building lustre-utils, etc but whatever module-assistant
 # supplied when building modules
-KVERS?=$(KERNEL_VERSION)
+KVERS?=$(KVER)
 #KSRC?=$(KERNEL_TREE)
 KSRC=$(KERNEL_TREE)
 
