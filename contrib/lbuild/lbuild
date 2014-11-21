@@ -1049,8 +1049,9 @@ build_spl_zfs() {
     # The spl/zfs spec files expect RPM_BUILD_ROOT to point to the root of the
     # destination for the rpms
     export RPM_BUILD_ROOT=$TOPDIR
+    # SPLZFSTAG takes precedence over SPLZFSVER
     SPLZFSVER=${SPLZFSVER:-0.6.3-1.1}
-    SPLZFSTAG=${SPLZFSTAG:-}
+    SPLZFSTAG=${SPLZFSTAG:-lustre-m2_7-alpha01}
 
     # The files expect a kver to be set to the kernel version .
     local kver=$(find_linux_release)
@@ -1068,8 +1069,9 @@ build_spl_zfs() {
         git clone ${SPLZFSGITREPO:-"https://github.com/zfsonlinux"}/$pkg.git $pkg 2>&1
 
         pushd $pkg || return 255
+	git branch -D lbuild
         if [ -n "$SPLZFSTAG" ]; then
-            git checkout $SPLZFSTAG
+            git checkout -b lbuild $SPLZFSTAG
         else
             git checkout -b lbuild $pkg-$SPLZFSVER
         fi
