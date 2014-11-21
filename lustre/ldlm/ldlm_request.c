@@ -1453,9 +1453,7 @@ static ldlm_policy_res_t ldlm_cancel_no_wait_policy(struct ldlm_namespace *ns,
 				break;
 		default:
 			result = LDLM_POLICY_SKIP_LOCK;
-			lock_res_and_lock(lock);
 			ldlm_set_skipped(lock);
-			unlock_res_and_lock(lock);
 			break;
 	}
 
@@ -1684,6 +1682,7 @@ static int ldlm_prepare_lru_list(struct ldlm_namespace *ns,
 		spin_unlock(&ns->ns_lock);
 		lu_ref_add(&lock->l_reference, __FUNCTION__, current);
 
+		lock_res_and_lock(lock);
 		/* Pass the lock through the policy filter and see if it
 		 * should stay in LRU.
 		 *
@@ -1699,6 +1698,7 @@ static int ldlm_prepare_lru_list(struct ldlm_namespace *ns,
 		 * the cache. */
 		result = pf(ns, lock, unused, added, count);
 		if (result == LDLM_POLICY_KEEP_LOCK) {
+			unlock_res_and_lock(lock);
 			lu_ref_del(&lock->l_reference,
 				   __FUNCTION__, current);
 			LDLM_LOCK_RELEASE(lock);
@@ -1706,6 +1706,7 @@ static int ldlm_prepare_lru_list(struct ldlm_namespace *ns,
 			break;
 		}
 		if (result == LDLM_POLICY_SKIP_LOCK) {
+			unlock_res_and_lock(lock);
 			lu_ref_del(&lock->l_reference,
 				   __func__, current);
 			LDLM_LOCK_RELEASE(lock);
@@ -1713,7 +1714,6 @@ static int ldlm_prepare_lru_list(struct ldlm_namespace *ns,
 			continue;
 		}
 
-		lock_res_and_lock(lock);
 		/* Check flags again under the lock. */
 		if (ldlm_is_canceling(lock) ||
 		    (ldlm_lock_remove_from_lru(lock) == 0)) {

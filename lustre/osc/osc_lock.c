@@ -652,7 +652,7 @@ unsigned long osc_ldlm_cancel_check(struct ldlm_lock *dlmlock)
 	bool			found = false;
 	ENTRY;
 
-	might_sleep();
+	check_res_locked(dlmlock->l_resource);
 	/*
 	 * osc_ldlm_cancel_check has a complex context since it might be called
 	 * because of lock canceling, or from user's input. We have to make
