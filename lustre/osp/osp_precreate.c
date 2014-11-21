@@ -1220,7 +1220,7 @@ static int osp_precreate_ready_condition(const struct lu_env *env,
 					 struct osp_device *d)
 {
 	if (d->opd_pre_recovering)
-		return 0;
+		return 1;
 
 	/* ready if got enough precreated objects */
 	/* we need to wait for others (opd_pre_reserved) and our object (+1) */
@@ -1363,15 +1363,33 @@ int osp_precreate_reserve(const struct lu_env *env, struct osp_device *d)
 		/* XXX: don't wake up if precreation is in progress */
 		wake_up(&d->opd_pre_waitq);
 
+		if (rc != 0) {
+			CERROR("reset expire\n");
+
+			expire = cfs_time_shift(obd_timeout);
+		}
+
 		lwi = LWI_TIMEOUT(expire - cfs_time_current(),
 				osp_precreate_timeout_condition, d);
 		if (cfs_time_aftereq(cfs_time_current(), expire)) {
 			rc = -ETIMEDOUT;
+			CERROR("expired on waiting for precreated objects\n");
 			break;
 		}
 
 		l_wait_event(d->opd_pre_user_waitq,
 			     osp_precreate_ready_condition(env, d), &lwi);
+
+		if (d->opd_pre_recovering) {
+			CERROR("wait recovery to complete!\n");
+
+			memset(&lwi, 0, sizeof(lwi));
+			l_wait_event(d->opd_pre_user_waitq,
+				     d->opd_pre_recovering == 0, &lwi);
+
+			expire = cfs_time_shift(obd_timeout);
+		}
+
 	}
 
 	RETURN(rc);
