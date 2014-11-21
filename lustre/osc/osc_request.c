@@ -2987,14 +2987,14 @@ static int osc_import_event(struct obd_device *obd,
  * \retval zero the lock can't be canceled
  * \retval other ok to cancel
  */
-static int osc_cancel_weight(struct ldlm_lock *lock)
+static int osc_cancel_check(struct ldlm_lock *lock)
 {
 	/*
 	 * Cancel all unused and granted extent lock.
 	 */
 	if (lock->l_resource->lr_type == LDLM_EXTENT &&
 	    lock->l_granted_mode == lock->l_req_mode &&
-	    osc_ldlm_weigh_ast(lock) == 0)
+	    osc_ldlm_cancel_check(lock) == 0)
 		RETURN(1);
 
 	RETURN(0);
@@ -3083,7 +3083,7 @@ int osc_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 				    ptlrpc_add_rqs_to_pool);
 
 	INIT_LIST_HEAD(&cli->cl_grant_shrink_list);
-	ns_register_cancel(obd->obd_namespace, osc_cancel_weight);
+	ns_register_cancel(obd->obd_namespace, osc_cancel_check);
 	RETURN(0);
 
 out_ptlrpcd_work:

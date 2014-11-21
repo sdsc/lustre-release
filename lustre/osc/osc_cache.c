@@ -593,6 +593,39 @@ static inline int overlapped(struct osc_extent *ex1, struct osc_extent *ex2)
 }
 
 /**
+ * Checks if there are extents under the given lock.
+ * Any kind of extent (ro, rw) means some IO in progress.
+ *
+ * \retval zero, if no extent found
+ * \retval 1, otherwise
+ */
+int osc_extent_under_lock(const struct lu_env *env,
+			  struct osc_object *obj,
+			  struct ldlm_lock *lock)
+{
+	struct osc_extent *ext;
+	int rc = 0;
+
+	osc_object_lock(obj);
+	ext = osc_extent_search(obj, lock->l_policy_data.l_extent.start);
+	if (ext == NULL)
+		ext = first_extent(obj);
+	if (ext == NULL)
+		goto out;
+
+	do {
+		if (lock != ext->oe_dlmlock)
+			continue;
+		rc = 1;
+		break;
+	} while ((ext = next_extent(ext)) != NULL);
+
+out:
+	osc_object_unlock(obj);
+	return rc;
+}
+
+/**
  * Find or create an extent which includes @index, core function to manage
  * extent tree.
  */

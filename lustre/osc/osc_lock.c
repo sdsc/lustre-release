@@ -639,56 +639,10 @@ static int osc_ldlm_glimpse_ast(struct ldlm_lock *dlmlock, void *data)
 	RETURN(result);
 }
 
-static int weigh_cb(const struct lu_env *env, struct cl_io *io,
-		    struct osc_page *ops, void *cbdata)
-{
-	struct cl_page *page = ops->ops_cl.cpl_page;
-
-	if (cl_page_is_vmlocked(env, page)
-	    || PageDirty(page->cp_vmpage) || PageWriteback(page->cp_vmpage)
-	   ) {
-		(*(unsigned long *)cbdata)++;
-		return CLP_GANG_ABORT;
-	}
-
-	return CLP_GANG_OKAY;
-}
-
-static unsigned long osc_lock_weight(const struct lu_env *env,
-				     struct osc_object *oscobj,
-				     struct ldlm_extent *extent)
-{
-	struct cl_io     *io = &osc_env_info(env)->oti_io;
-	struct cl_object *obj = cl_object_top(&oscobj->oo_cl);
-	unsigned long    npages = 0;
-	int              result;
-	ENTRY;
-
-	io->ci_obj = obj;
-	io->ci_ignore_layout = 1;
-	result = cl_io_init(env, io, CIT_MISC, io->ci_obj);
-	if (result != 0)
-		RETURN(result);
-
-	do {
-		result = osc_page_gang_lookup(env, io, oscobj,
-					      cl_index(obj, extent->start),
-					      cl_index(obj, extent->end),
-					      weigh_cb, (void *)&npages);
-		if (result == CLP_GANG_ABORT)
-			break;
-		if (result == CLP_GANG_RESCHED)
-			cond_resched();
-	} while (result != CLP_GANG_OKAY);
-	cl_io_fini(env, io);
-
-	return npages;
-}
-
 /**
  * Get the weight of dlm lock for early cancellation.
  */
-unsigned long osc_ldlm_weigh_ast(struct ldlm_lock *dlmlock)
+unsigned long osc_ldlm_cancel_check(struct ldlm_lock *dlmlock)
 {
 	struct cl_env_nest       nest;
 	struct lu_env           *env;
@@ -700,7 +654,7 @@ unsigned long osc_ldlm_weigh_ast(struct ldlm_lock *dlmlock)
 
 	might_sleep();
 	/*
-	 * osc_ldlm_weigh_ast has a complex context since it might be called
+	 * osc_ldlm_cancel_check has a complex context since it might be called
 	 * because of lock canceling, or from user's input. We have to make
 	 * a new environment for it. Probably it is implementation safe to use
 	 * the upper context because cl_lock_put don't modify environment
@@ -730,7 +684,7 @@ unsigned long osc_ldlm_weigh_ast(struct ldlm_lock *dlmlock)
 		GOTO(out, weight = 1);
 	}
 
-	weight = osc_lock_weight(env, obj, &dlmlock->l_policy_data.l_extent);
+	weight = osc_extent_under_lock(env, obj, dlmlock);
 	EXIT;
 
 out:

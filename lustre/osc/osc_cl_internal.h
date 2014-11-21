@@ -681,6 +681,9 @@ struct osc_extent {
 	unsigned int		oe_mppr;
 };
 
+int osc_extent_under_lock(const struct lu_env *env,
+			  struct osc_object *obj,
+			  struct ldlm_lock *lock);
 int osc_extent_finish(const struct lu_env *env, struct osc_extent *ext,
 		      int sent, int rc);
 int osc_extent_release(const struct lu_env *env, struct osc_extent *ext);

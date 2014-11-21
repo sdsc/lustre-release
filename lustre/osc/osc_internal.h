@@ -140,7 +140,7 @@ long osc_lru_shrink(const struct lu_env *env, struct client_obd *cli,
 		   long target, bool force);
 long osc_lru_reclaim(struct client_obd *cli);
 
-unsigned long osc_ldlm_weigh_ast(struct ldlm_lock *dlmlock);
+unsigned long osc_ldlm_cancel_check(struct ldlm_lock *dlmlock);
 
 int osc_cleanup(struct obd_device *obd);
 int osc_setup(struct obd_device *obd, struct lustre_cfg *lcfg);
