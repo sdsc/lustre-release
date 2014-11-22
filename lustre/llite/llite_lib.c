@@ -2388,20 +2388,99 @@ int ll_remount_fs(struct super_block *sb, int *flags, char *data)
         return 0;
 }
 
+static char *__ll_get_fsname(struct lustre_sb_info *lsi, char *buf, int buflen)
+{
+	static char fsname_static[MTI_NAME_MAXLEN];
+	char *ptr;
+	int len;
+
+	if (buf == NULL) {
+		/* this means the caller wants to use static buffer
+		 * and it doesn't care about race. Usually this is
+		 * in error reporting path */
+		buf = fsname_static;
+		buflen = sizeof(fsname_static);
+	}
+
+	len = strlen(lsi->lsi_lmd->lmd_profile);
+	ptr = strrchr(lsi->lsi_lmd->lmd_profile, '-');
+	if (ptr && (strcmp(ptr, "-client") == 0))
+		len -= 7;
+
+	if (unlikely(len >= buflen))
+		len = buflen - 1;
+	strncpy(buf, lsi->lsi_lmd->lmd_profile, len);
+	buf[len] = '\0';
+
+	return buf;
+}
+
+void ll_open_cleanup(struct lustre_sb_info *lsi, struct ptlrpc_request *o_req,
+		     struct lookup_intent *it)
+{
+	struct mdt_body			*body;
+	struct obd_export		*exp     = lsi->lsi_llsbi->ll_md_exp;
+	struct md_op_data		*op_data = NULL;
+	struct ptlrpc_request		*c_req   = NULL;
+	struct obd_client_handle	*och     = NULL;
+	int				 rc      = 0;
+	ENTRY;
+
+	body = req_capsule_server_get(&o_req->rq_pill, &RMF_MDT_BODY);
+	OBD_ALLOC_PTR(op_data);
+	if (op_data == NULL)
+		GOTO(out, rc = -ENOMEM);
+
+	op_data->op_fid1 = body->mbo_fid1;
+	op_data->op_ioepoch = body->mbo_ioepoch;
+	op_data->op_handle = body->mbo_handle;
+	op_data->op_mod_time = cfs_time_current_sec();
+	op_data->op_fsuid = from_kuid(&init_user_ns, current_fsuid());
+	op_data->op_fsgid = from_kgid(&init_user_ns, current_fsgid());
+	op_data->op_cap = cfs_curproc_cap_pack();
+	md_close(exp, op_data, NULL, &c_req);
+
+	OBD_ALLOC_PTR(och);
+	if (och == NULL)
+		GOTO(out, rc = -ENOMEM);
+
+	och->och_fh = body->mbo_handle;
+	och->och_fid = body->mbo_fid1;
+	och->och_lease_handle.cookie = it->d.lustre.it_lock_handle;
+	och->och_magic = OBD_CLIENT_HANDLE_MAGIC;
+	md_clear_open_replay_data(exp, och);
+
+	GOTO(out, rc = 0);
+
+out:
+	if (rc != 0)
+		CWARN("%s: fail to cleanup the open handle for the object "DFID
+		      ": rc = %d\n",
+		      __ll_get_fsname(lsi, NULL, 0), PFID(&body->mbo_fid1), rc);
+
+	ptlrpc_req_finished(c_req);
+	if (op_data != NULL)
+		ll_finish_md_op_data(op_data);
+	if (och != NULL)
+		OBD_FREE_PTR(och);
+}
+
 int ll_prep_inode(struct inode **inode, struct ptlrpc_request *req,
 		  struct super_block *sb, struct lookup_intent *it)
 {
+	struct lustre_sb_info *lsi;
 	struct ll_sb_info *sbi = NULL;
 	struct lustre_md md = { NULL };
 	int rc;
 	ENTRY;
 
-        LASSERT(*inode || sb);
-        sbi = sb ? ll_s2sbi(sb) : ll_i2sbi(*inode);
-        rc = md_get_lustre_md(sbi->ll_md_exp, req, sbi->ll_dt_exp,
-                              sbi->ll_md_exp, &md);
-        if (rc)
-                RETURN(rc);
+	LASSERT(*inode || sb);
+	lsi =  s2lsi(sb != NULL ? sb : (*inode)->i_sb);
+	sbi = lsi->lsi_llsbi;
+	rc = md_get_lustre_md(sbi->ll_md_exp, req, sbi->ll_dt_exp,
+			      sbi->ll_md_exp, &md);
+	if (rc != 0)
+		GOTO(cleanup, rc);
 
 	if (*inode) {
 		rc = ll_update_inode(*inode, &md);
@@ -2461,11 +2540,18 @@ int ll_prep_inode(struct inode **inode, struct ptlrpc_request *req,
 		LDLM_LOCK_PUT(lock);
 	}
 
+	GOTO(out, rc = 0);
+
 out:
 	if (md.lsm != NULL)
 		obd_free_memmd(sbi->ll_dt_exp, &md.lsm);
 	md_free_lustre_md(sbi->ll_md_exp, &md);
-	RETURN(rc);
+
+cleanup:
+	if (rc != 0 && it != NULL && it->it_op & IT_OPEN)
+		ll_open_cleanup(lsi, req, it);
+
+	return rc;
 }
 
 int ll_obd_statfs(struct inode *inode, void __user *arg)
@@ -2693,30 +2779,7 @@ int ll_get_obd_name(struct inode *inode, unsigned int cmd, unsigned long arg)
  */
 char *ll_get_fsname(struct super_block *sb, char *buf, int buflen)
 {
-	static char fsname_static[MTI_NAME_MAXLEN];
-	struct lustre_sb_info *lsi = s2lsi(sb);
-	char *ptr;
-	int len;
-
-	if (buf == NULL) {
-		/* this means the caller wants to use static buffer
-		 * and it doesn't care about race. Usually this is
-		 * in error reporting path */
-		buf = fsname_static;
-		buflen = sizeof(fsname_static);
-	}
-
-	len = strlen(lsi->lsi_lmd->lmd_profile);
-	ptr = strrchr(lsi->lsi_lmd->lmd_profile, '-');
-	if (ptr && (strcmp(ptr, "-client") == 0))
-		len -= 7;
-
-	if (unlikely(len >= buflen))
-		len = buflen - 1;
-	strncpy(buf, lsi->lsi_lmd->lmd_profile, len);
-	buf[len] = '\0';
-
-	return buf;
+	return __ll_get_fsname(s2lsi(sb), buf, buflen);
 }
 
 static char* ll_d_path(struct dentry *dentry, char *buf, int bufsize)
