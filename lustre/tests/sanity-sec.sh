@@ -303,9 +303,10 @@ test_4() {
 	fi
 
 	rm -rf $DIR/$tdir
-        mkdir -p $DIR/$tdir
-        chmod 0771 $DIR/$tdir
-        chgrp $ID0 $DIR/$tdir
+	start_full_debug_logging
+	mkdir -p $DIR/$tdir
+	chmod 0771 $DIR/$tdir
+	chgrp $ID0 $DIR/$tdir
 	$RUNAS_CMD -u $ID0 ls $DIR/$tdir || error "setgroups (1)"
 	if [ "$CLIENT_TYPE" = "local" ]; then
 		do_facet $SINGLEMDS "echo '* $ID1 setgrp' > $PERM_CONF"
@@ -313,6 +314,7 @@ test_4() {
 		$RUNAS_CMD -u $ID1 -G1,2,$ID0 ls $DIR/$tdir ||
 			error "setgroups (2)"
 	fi
+	stop_full_debug_logging
 	$RUNAS_CMD -u $ID1 -G1,2 ls $DIR/$tdir && error "setgroups (3)"
 	rm -rf $DIR/$tdir
 

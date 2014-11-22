@@ -331,28 +331,29 @@ bool allow_client_chgrp(struct mdt_thread_info *info, struct lu_ucred *uc)
 {
 	__u32 remote = exp_connect_rmtclient(info->mti_exp);
 	__u32 perm;
+	ENTRY;
 
 	/* 1. If identity_upcall is disabled, then forbid remote client to set
 	 *    supplementary group IDs, but permit local client to do that. */
 	if (is_identity_get_disabled(info->mti_mdt->mdt_identity_cache)) {
 		if (remote)
-			return false;
+			RETURN(false);
 
-		return true;
+		RETURN(true);
 	}
 
 	/* 2. If fail to get related identities, then forbid any client to
 	 *    set supplementary group IDs. */
 	if (uc->uc_identity == NULL)
-		return false;
+		RETURN(false);
 
 	/* 3. Check the permission in the identities. */
 	perm = mdt_identity_get_perm(uc->uc_identity, remote,
 				     mdt_info_req(info)->rq_peer.nid);
 	if (perm & CFS_SETGRP_PERM)
-		return true;
+		RETURN(true);
 
-	return false;
+	RETURN(false);
 }
 
 int mdt_check_ucred(struct mdt_thread_info *info)
