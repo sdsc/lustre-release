@@ -154,7 +154,7 @@ static int job_iter_callback(cfs_hash_t *hs, cfs_hash_bd_t *bd,
 	struct job_stat *job;
 
 	job = hlist_entry(hnode, struct job_stat, js_hash);
-	if (!oldest || job->js_timestamp < oldest)
+	if (oldest == 0 || job->js_timestamp < oldest)
 		cfs_hash_bd_del_locked(hs, bd, hnode);
 
 	return 0;
@@ -215,8 +215,6 @@ int lprocfs_job_stats_log(struct obd_device *obd, char *jobid,
 
 	LASSERT(stats && stats->ojs_hash);
 
-	lprocfs_job_cleanup(stats, false);
-
 	if (!jobid || !strlen(jobid))
 		RETURN(-EINVAL);
 
@@ -250,6 +248,13 @@ int lprocfs_job_stats_log(struct obd_device *obd, char *jobid,
 		list_add_tail(&job->js_list, &stats->ojs_list);
 		write_unlock(&stats->ojs_lock);
 	}
+
+	/* When a new jobid is added, see if there are older jobids to expire.
+	 * Don't do this for every stat collected to avoid overhead.  If new
+	 * jobids are added frequently there will be lots of chances to expire
+	 * old ones, and if jobids are not frequently added then by definition
+	 * there can't be many old jobids around that need cleaning up. */
+	lprocfs_job_cleanup(stats, false);
 
 found:
 	LASSERT(stats == job->js_jobstats);
@@ -472,13 +477,35 @@ static ssize_t lprocfs_jobstats_seq_write(struct file *file,
 	return len;
 }
 
+/**
+ * Clean up the seq file state when the /proc file is closed.
+ *
+ * This also expires old job stats from the cache after they have been
+ * printed in case the system is idle and not generating new jobstats.
+ *
+ * \param[in] inode	struct inode for seq file being closed
+ * \param[in] file	struct file for seq file being closed
+ *
+ * \retval		0 on success
+ * \retval		negative errno on failure
+ */
+static int lprocfs_jobstats_seq_release(struct inode *inode, struct file *file)
+{
+	struct seq_file *seq = file->private_data;
+	struct obd_job_stats *stats = seq->private;
+
+	lprocfs_job_cleanup(stats, false);
+
+	return lprocfs_seq_release(inode, file);
+}
+
 struct file_operations lprocfs_jobstats_seq_fops = {
 	.owner   = THIS_MODULE,
 	.open    = lprocfs_jobstats_seq_open,
 	.read    = seq_read,
 	.write   = lprocfs_jobstats_seq_write,
 	.llseek  = seq_lseek,
-	.release = lprocfs_seq_release,
+	.release = lprocfs_jobstats_seq_release,
 };
 
 int lprocfs_job_stats_init(struct obd_device *obd, int cntr_num,
