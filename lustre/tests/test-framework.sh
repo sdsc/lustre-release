@@ -2919,12 +2919,20 @@ do_nodes() {
     return ${PIPESTATUS[0]}
 }
 
+##
+# Execute commands on a single service's host
+#
+# The \a facet (service) may be on a local or remote node, which is
+# determined at the time the command is run.
+#
+# usage: do_facet $facet command [arg ...]
 do_facet() {
-    local facet=$1
-    shift
-    local HOST=`facet_active_host $facet`
-    [ -z $HOST ] && echo No host defined for facet ${facet} && exit 1
-    do_node $HOST "$@"
+	local facet=$1
+	shift
+	local host=$(facet_active_host $facet)
+
+	[ -z $host ] && echo No host defined for facet ${facet} && exit 1
+	do_node $host "$@"
 }
 
 # Function: do_facet_random_file $FACET $FILE $SIZE
