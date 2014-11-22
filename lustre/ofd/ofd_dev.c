@@ -1401,6 +1401,11 @@ static int ofd_setattr_hdl(struct tgt_session_info *tsi)
 		RETURN(-EPERM);
 	}
 
+	rc = ofd_handle_recreate(tsi->tsi_env, tsi->tsi_exp, ofd,
+				 &tsi->tsi_fid, &body->oa);
+	if (rc)
+		GOTO(out, rc);
+
 	fo = ofd_object_find_exists(tsi->tsi_env, ofd, &tsi->tsi_fid);
 	if (IS_ERR(fo))
 		GOTO(out, rc = PTR_ERR(fo));
