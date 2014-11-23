@@ -300,6 +300,7 @@ top_trans_create(const struct lu_env *env, struct dt_device *master_dev)
 	INIT_LIST_HEAD(&top_th->tt_sub_trans_list);
 	INIT_LIST_HEAD(&top_th->tt_commit_list);
 
+	init_waitqueue_head(&top_th->tt_stop_waitq);
 	parent_th = &top_th->tt_super;
 
 	parent_th->th_storage_th = child_th;
@@ -481,6 +482,55 @@ static void top_trans_committed_cb(struct thandle *th)
 }
 
 /**
+ * Check if top transaction is stopped
+ *
+ * Check if top transaction is stopped, only if all sub transaction
+ * is stopped, then the top transaction is stopped.
+ *
+ * \param [in] top_th	top thandle
+ *
+ * \retval		true if the top transaction is stopped.
+ * \retval		false if the top transaction is not stopped.
+ */
+static bool top_trans_is_stopped(struct top_thandle *top_th)
+{
+	struct sub_thandle	*st;
+	bool			all_stopped = true;
+
+	list_for_each_entry(st, &top_th->tt_sub_trans_list, st_list) {
+		if (!st->st_stopped) {
+			all_stopped = false;
+			break;
+		}
+
+		if (st->st_result != 0 &&
+		    top_th->tt_super.th_result == 0)
+			top_th->tt_super.th_result = st->st_result;
+	}
+
+	return all_stopped;
+}
+
+/**
+ * Wait result of top transaction
+ *
+ * Wait until all sub transaction get its result.
+ *
+ * \param [in] top_th	top thandle.
+ *
+ * \retval		the result of top thandle.
+ */
+static int top_trans_wait_result(struct top_thandle *top_th)
+{
+	struct l_wait_info	lwi = {0};
+
+	l_wait_event(top_th->tt_stop_waitq,
+		     top_trans_is_stopped(top_th), &lwi);
+
+	RETURN(top_th->tt_super.th_result);
+}
+
+/**
  * Stop the top transaction.
  *
  * Stop the transaction on the master device first, then stop transactions
@@ -642,6 +692,8 @@ stop_other_trans:
 	 * during recovery. */
 	if (top_th->tt_multiple_node && all_committed)
 		top_trans_committed_cb(&top_th->tt_super);
+	else if (unlikely(!list_empty(&top_th->tt_sub_trans_list)))
+		rc = top_trans_wait_result(top_th);
 
 	/* Balance for the refcount in top_trans_create, Note: if it is NOT
 	 * multiple node transaction, the top transaction will be destroyed. */
@@ -851,7 +903,42 @@ void sub_trans_commit_cb(struct thandle *sub_th)
 	else if (all_freed)
 		top_thandle_put(top_th);
 
-	sub_th->th_top = NULL;
 	RETURN_EXIT;
 }
 EXPORT_SYMBOL(sub_trans_commit_cb);
+
+/**
+ * Sub thandle stop call back
+ *
+ * After sub thandle is stopped, it will call this callback to notify
+ * the top thandle.
+ *
+ * \param[in] th	sub thandle to be stopped
+ * \param[in] rc	result of sub trans
+ */
+void sub_trans_stop_cb(struct thandle *th, int rc)
+{
+	struct sub_thandle *st;
+	struct top_thandle *top_th;
+	ENTRY;
+
+	if (th->th_top == NULL)
+		RETURN_EXIT;
+
+	top_th = container_of(th->th_top, struct top_thandle, tt_super);
+	LASSERT(top_th->tt_magic == TOP_THANDLE_MAGIC);
+	list_for_each_entry(st, &top_th->tt_sub_trans_list, st_list) {
+		if (st->st_stopped)
+			continue;
+
+		if (st->st_dt == th->th_dev) {
+			st->st_stopped = 1;
+			st->st_result = rc;
+			break;
+		}
+	}
+
+	wake_up(&top_th->tt_stop_waitq);
+	RETURN_EXIT;
+}
+EXPORT_SYMBOL(sub_trans_stop_cb);

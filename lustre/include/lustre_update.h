@@ -216,6 +216,9 @@ struct top_thandle {
 	void			*tt_commit_callback_arg;
 
 	struct llog_cookie	tt_master_cookie;
+
+	wait_queue_head_t	tt_stop_waitq;
+
 	/* If Master sub thandle is committed */
 	unsigned int		tt_multiple_node:1,
 				tt_child_committed:1;
@@ -232,7 +235,9 @@ struct sub_thandle {
 	struct dt_device	*st_dt;
 	struct list_head	st_list;
 	struct sub_thandle_update *st_update;
-	unsigned int		 st_committed:1;
+	int			st_result;
+	unsigned int		 st_committed:1,
+				st_stopped:1;
 };
 
 static inline struct update_params *
@@ -456,6 +461,7 @@ static inline void top_thandle_put(struct top_thandle *top_th)
 
 void sub_trans_commit_cb(struct thandle *sub_th);
 void top_thandle_dump(unsigned int mask, struct top_thandle *top_th);
+void sub_trans_stop_cb(struct thandle *th, int rc);
 
 /* update_records.c */
 void update_records_dump(struct update_records *records, unsigned int mask);

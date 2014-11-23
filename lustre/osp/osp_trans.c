@@ -65,6 +65,7 @@
  * The argument for the interpreter callback of osp request.
  */
 struct osp_update_args {
+	struct osp_thandle	 *oaua_oth;
 	struct dt_update_request *oaua_update;
 	atomic_t		 *oaua_count;
 	wait_queue_head_t	 *oaua_waitq;
@@ -354,12 +355,15 @@ static int osp_update_interpret(const struct lu_env *env,
 {
 	struct object_update_reply	*reply	= NULL;
 	struct osp_update_args		*oaua	= arg;
+	struct osp_thandle		*oth	= oaua->oaua_oth;
 	struct dt_update_request	*dt_update = oaua->oaua_update;
 	struct osp_update_callback	*ouc;
 	struct osp_update_callback	*next;
 	int				 count	= 0;
 	int				 index  = 0;
 	int				 rc1	= 0;
+
+	ENTRY;
 
 	if (oaua->oaua_flow_control)
 		obd_put_request_slot(
@@ -410,9 +414,16 @@ static int osp_update_interpret(const struct lu_env *env,
 	if (oaua->oaua_count != NULL && atomic_dec_and_test(oaua->oaua_count))
 		wake_up_all(oaua->oaua_waitq);
 
-	dt_update_request_destroy(dt_update);
+	if (oth != NULL) {
+		/* oth and dt_update_requests will be destoryed in
+		 * osp_thandle_put */
+		sub_trans_stop_cb(&oth->ot_super, rc);
+		osp_thandle_put(oth);
+	} else {
+		dt_update_request_destroy(dt_update);
+	}
 
-	return 0;
+	RETURN(0);
 }
 
 /**
@@ -450,6 +461,7 @@ int osp_unplug_async_request(const struct lu_env *env,
 		dt_update_request_destroy(update);
 	} else {
 		args = ptlrpc_req_async_args(req);
+		args->oaua_oth = NULL;
 		args->oaua_update = update;
 		args->oaua_count = NULL;
 		args->oaua_waitq = NULL;
@@ -611,15 +623,11 @@ int osp_trans_update_request_create(struct thandle *th)
 	return 0;
 }
 
-static void osp_thandle_get(struct osp_thandle *oth)
+void osp_thandle_destroy(struct osp_thandle *oth)
 {
-	atomic_inc(&oth->ot_refcount);
-}
-
-static void osp_thandle_put(struct osp_thandle *oth)
-{
-	if (atomic_dec_and_test(&oth->ot_refcount))
-		OBD_FREE_PTR(oth);
+	if (oth->ot_dur != NULL)
+		dt_update_request_destroy(oth->ot_dur);
+	OBD_FREE_PTR(oth);
 }
 
 /**
@@ -666,6 +674,7 @@ struct thandle *osp_trans_create(const struct lu_env *env, struct dt_device *d)
 	th->th_dev = d;
 	th->th_tags = LCT_TX_HANDLE;
 
+	INIT_LIST_HEAD(&oth->ot_list);
 	atomic_set(&oth->ot_refcount, 1);
 
 	RETURN(th);
@@ -707,11 +716,11 @@ static void osp_request_commit_cb(struct ptlrpc_request *req)
 }
 
 /**
- * Trigger the request for remote updates.
+ * Send the request for remote updates.
  *
- * If the transaction is not a remote one or it is required to be sync mode
- * (th->th_sync is set), then it will be sent synchronously; otherwise, the
- * RPC will be sent asynchronously.
+ * Send updates to the remote MDT. Prepare the request by dt_update
+ * and send them to remote MDT, for sync request, it will wait
+ * until the reply return, otherwise hand it to ptlrpcd.
  *
  * Please refer to osp_trans_create() for transaction type.
  *
@@ -724,62 +733,233 @@ static void osp_request_commit_cb(struct ptlrpc_request *req)
  * \retval			0 for success
  * \retval			negative error number on failure
  */
-static int osp_trans_trigger(const struct lu_env *env, struct osp_device *osp,
-			     struct dt_update_request *dt_update,
-			     struct thandle *th, int *sent)
+static int osp_send_update_req(const struct lu_env *env,
+			       struct osp_device *osp,
+			       struct osp_thandle *oth)
 {
 	struct osp_update_args	*args;
 	struct ptlrpc_request	*req;
+	struct lu_device *top_device;
 	int	rc = 0;
 	ENTRY;
 
 	rc = osp_prep_update_req(env, osp->opd_obd->u.cli.cl_import,
-				 dt_update->dur_buf.ub_req, &req);
+				 oth->ot_dur->dur_buf.ub_req, &req);
 	if (rc != 0)
 		RETURN(rc);
 
-	*sent = 1;
-	req->rq_interpret_reply = osp_update_interpret;
 	args = ptlrpc_req_async_args(req);
-	args->oaua_update = dt_update;
-	if (!th->th_sync && is_only_remote_trans(th)) {
-		args->oaua_flow_control = true;
+	args->oaua_update = oth->ot_dur;
+	args->oaua_oth = oth;
+	args->oaua_flow_control = false;
+	osp_thandle_get(oth); /* hold for update interpret */
+	req->rq_interpret_reply = osp_update_interpret;
+	osp_thandle_get(oth); /* hold for commit callback */
+	req->rq_commit_cb = osp_request_commit_cb;
+	req->rq_cb_data = &oth->ot_super;
 
-		down_read(&osp->opd_async_updates_rwsem);
-		args->oaua_count = &osp->opd_async_updates_count;
-		args->oaua_waitq = &osp->opd_syn_barrier_waitq;
-		up_read(&osp->opd_async_updates_rwsem);
-		atomic_inc(args->oaua_count);
+	/* If the transaction is created during MDT recoverying
+	 * process, it means this is an recovery update, we need
+	 * to let OSP send it anyway without checking recoverying
+	 * status, in case the other target is being recoveried
+	 * at the same time, and if we wait here for the import
+	 * to be recoveryed, it might cause deadlock */
+	top_device = osp->opd_dt_dev.dd_lu_dev.ld_site->ls_top_dev;
+	if (top_device->ld_obd->obd_recovering)
+		req->rq_allow_replay = 1;
 
-		ptlrpcd_add_req(req, PDL_POLICY_LOCAL, -1);
-	} else {
-		struct osp_thandle *oth = thandle_to_osp_thandle(th);
-		struct lu_device *top_device;
+	rc = ptlrpc_queue_wait(req);
 
-		/* If the transaction is created during MDT recoverying
-		 * process, it means this is an recovery update, we need
-		 * to let OSP send it anyway without checking recoverying
-		 * status, in case the other target is being recoveried
-		 * at the same time, and if we wait here for the import
-		 * to be recoveryed, it might cause deadlock */
-		top_device = osp->opd_dt_dev.dd_lu_dev.ld_site->ls_top_dev;
-		if (top_device->ld_obd->obd_recovering)
-			req->rq_allow_replay = 1;
-
-		args->oaua_flow_control = false;
-		req->rq_commit_cb = osp_request_commit_cb;
-		req->rq_cb_data = th;
-		osp_thandle_get(oth); /* for commit callback */
-		rc = ptlrpc_queue_wait(req);
-		if (rc != 0 || req->rq_transno == 0)
-			osp_thandle_put(oth);
-		else
-			oth->ot_dur = NULL;
-		th->th_transno = req->rq_transno;
-		ptlrpc_req_finished(req);
+	/* balanced for osp_update_interpret */
+	if (rc == -ENOMEM && req->rq_set == NULL) {
+		sub_trans_stop_cb(&oth->ot_super, rc);
+		osp_thandle_put(oth);
 	}
 
+	if (rc != 0 || req->rq_transno == 0)
+		osp_thandle_put(oth);
+
+	oth->ot_super.th_transno = req->rq_transno;
+	ptlrpc_req_finished(req);
+
 	RETURN(rc);
+}
+
+/**
+ * Set version for the transaction
+ *
+ * Set the version for the transaction, then the osp RPC will be
+ * sent in the order of version, i.e. the transaction with lower
+ * version will be sent first.
+ *
+ * \param [in] oth	osp thandle to be set version.
+ */
+void osp_check_and_set_rpc_version(struct osp_thandle *oth)
+{
+	struct osp_device *osp = dt2osp_dev(oth->ot_super.th_dev);
+	struct osp_update *ou = osp->opd_update;
+	ENTRY;
+
+	if (oth->ot_set_version)
+		RETURN_EXIT;
+
+	LASSERT(ou != NULL);
+
+	spin_lock(&ou->ou_lock);
+	oth->ot_version = ou->ou_version++;
+	spin_unlock(&ou->ou_lock);
+	oth->ot_set_version = 1;
+
+	CDEBUG(D_INFO, "%s: version "LPU64" oth:version %p:"LPU64"\n",
+	       osp->opd_obd->obd_name, ou->ou_version, oth, oth->ot_version);
+
+	RETURN_EXIT;
+}
+
+/**
+ * Get next OSP thandle in the sending list
+ * Get next OSP thandle in the sending list by version number, next
+ * transaction will be
+ * 1. transaction which does not have a version number, usually llog
+ * update RPC, cancel update records etc.
+ * 2. transaction whose version == opd_rpc_version.
+ *
+ * \param [in] ou	osp update structure.
+ * \param [out] othp	the pointer holding the next osp thandle.
+ *
+ * \retval		true if getting the next transaction.
+ * \retval		false if not getting the next transaction.
+ */
+static bool
+osp_get_next_trans(struct osp_update *ou, struct osp_thandle **othp)
+{
+	struct osp_thandle	*ot;
+	struct osp_thandle	*tmp;
+	bool			got_trans = false;
+
+	spin_lock(&ou->ou_lock);
+	list_for_each_entry_safe(ot, tmp, &ou->ou_list,
+				 ot_list) {
+		CDEBUG(D_INFO, "ot %p version "LPU64" rpc_version "LPU64"\n",
+		       ot, ot->ot_version, ou->ou_rpc_version);
+		if (!ot->ot_set_version) {
+			list_del_init(&ot->ot_list);
+			*othp = ot;
+			got_trans = true;
+			break;
+		}
+
+		/* Find next dt_update_request in the list */
+		if (ot->ot_version == ou->ou_rpc_version) {
+			list_del_init(&ot->ot_list);
+			*othp = ot;
+			got_trans = true;
+			break;
+		}
+	}
+	spin_unlock(&ou->ou_lock);
+
+	return got_trans;
+}
+
+/**
+ * Sending update thread
+ *
+ * Create thread to send update request to other MDTs, his thread will pull
+ * out update request from the list in OSP by version number, i.e. it will
+ * make sure the update request with lower version number will be sent first.
+ *
+ * \param[in] _arg	hold the OSP device.
+ *
+ * \retval		0 if the thread is created successfully.
+ * \retal		negative error if the thread is not created
+ *                      successfully.
+ */
+int osp_send_update_thread(void *_arg)
+{
+	struct lu_env		env;
+	struct osp_device	*osp = _arg;
+	struct l_wait_info	 lwi = { 0 };
+	struct osp_update	*ou = osp->opd_update;
+	struct ptlrpc_thread	*thread = &ou->ou_thread;
+	struct osp_thandle	*oth = NULL;
+	int			rc;
+	ENTRY;
+
+	LASSERT(ou != NULL);
+	rc = lu_env_init(&env, osp->opd_dt_dev.dd_lu_dev.ld_type->ldt_ctx_tags);
+	if (rc < 0) {
+		CERROR("%s: init env error: rc = %d\n", osp->opd_obd->obd_name,
+		       rc);
+		RETURN(rc);
+	}
+
+	spin_lock(&ou->ou_lock);
+	thread->t_flags = SVC_RUNNING;
+	spin_unlock(&ou->ou_lock);
+	wake_up(&thread->t_ctl_waitq);
+	do {
+		oth = NULL;
+		l_wait_event(ou->ou_waitq,
+			     !osp_send_update_thread_running(ou) ||
+			     osp_get_next_trans(ou, &oth),
+			     &lwi);
+
+		if (!osp_send_update_thread_running(ou)) {
+			if (oth != NULL) {
+				sub_trans_stop_cb(&oth->ot_super, -EIO);
+				osp_thandle_put(oth);
+			}
+			break;
+		}
+
+		if (oth->ot_super.th_result != 0) {
+			sub_trans_stop_cb(&oth->ot_super, rc);
+			osp_thandle_put(oth);
+			continue;
+		}
+
+		rc = osp_send_update_req(&env, osp, oth);
+
+		spin_lock(&ou->ou_lock);
+		if (oth->ot_set_version)
+			ou->ou_rpc_version = oth->ot_version + 1;
+		spin_unlock(&ou->ou_lock);
+
+		/* Balanced for thandle_get in osp_trans_trigger() */
+		osp_thandle_put(oth);
+	} while (1);
+
+	thread->t_flags = SVC_STOPPED;
+	lu_env_fini(&env);
+	wake_up(&thread->t_ctl_waitq);
+
+	RETURN(0);
+}
+
+/**
+ * Trigger the request for remote updates.
+ *
+ * Add the request to the sending list, and wake up osp update
+ * sending thread.
+ *
+ * \param[in] osp		pointer to the OSP device
+ * \param[in] oth		pointer to the transaction handler
+ *
+ * \retval			0 for success
+ * \retval			negative error number on failure
+ */
+static int osp_trans_trigger(struct osp_device *osp, struct osp_thandle *oth)
+{
+	if (!osp_send_update_thread_running(osp->opd_update))
+		RETURN(-EIO);
+
+	CDEBUG(D_INFO, "%s: add oth %p with version "LPU64"\n",
+	       osp->opd_obd->obd_name, oth, oth->ot_version);
+	list_add_tail(&oth->ot_list, &osp->opd_update->ou_list);
+	osp_thandle_get(oth);
+	wake_up(&osp->opd_update->ou_waitq);
+	RETURN(0);
 }
 
 /**
@@ -829,27 +1009,40 @@ int osp_trans_stop(const struct lu_env *env, struct dt_device *dt,
 	struct osp_thandle	 *oth = thandle_to_osp_thandle(th);
 	struct dt_update_request *dt_update;
 	int			 rc = 0;
-	int			 sent = 0;
 	ENTRY;
 
 	dt_update = oth->ot_dur;
-	if (dt_update == NULL || th->th_result != 0 || th->th_committed) {
+	if (dt_update == NULL || th->th_committed) {
 		rc = th->th_result;
-		osp_thandle_put(oth);
-		RETURN(rc);
+		sub_trans_stop_cb(&oth->ot_super, rc);
+		GOTO(out, rc);
 	}
 
 	LASSERT(dt_update != LP_POISON);
 	/* If there are no updates, destroy dt_update and thandle */
 	if (dt_update->dur_buf.ub_req == NULL ||
 	    dt_update->dur_buf.ub_req->ourq_count == 0) {
-		dt_update_request_destroy(dt_update);
-		GOTO(out, rc);
+		sub_trans_stop_cb(&oth->ot_super, th->th_result);
+		GOTO(out, rc = th->th_result);
 	}
 
-	if (th->th_wait_submit && is_only_remote_trans(th)) {
+	if (!is_only_remote_trans(th) || th->th_wait_submit) {
+		/* For normal update requests, we will add it to the OSP
+		 * sending_list, then sending thread will pull out the
+		 * item by version number. */
+		rc = osp_trans_trigger(dt2osp_dev(dt), oth);
+		GOTO(out, rc);
+	} else {
+		/* Mostly used by LFSCK case */
 		struct osp_device *osp = dt2osp_dev(th->th_dev);
 		struct client_obd *cli = &osp->opd_obd->u.cli;
+		struct ptlrpc_request	*req;
+		struct osp_update_args	*args;
+
+		rc = osp_prep_update_req(env, osp->opd_obd->u.cli.cl_import,
+					 dt_update->dur_buf.ub_req, &req);
+		if (rc != 0)
+			GOTO(out, rc);
 
 		rc = obd_get_request_slot(cli);
 		if (rc != 0)
@@ -860,22 +1053,22 @@ int osp_trans_stop(const struct lu_env *env, struct dt_device *dt,
 			GOTO(out, rc = -ENOTCONN);
 		}
 
-		rc = osp_trans_trigger(env, dt2osp_dev(dt),
-				       dt_update, th, &sent);
-		if (rc != 0)
-			obd_put_request_slot(cli);
-	} else {
-		rc = osp_trans_trigger(env, dt2osp_dev(dt), dt_update,
-				       th, &sent);
-	}
+		args = ptlrpc_req_async_args(req);
+		osp_thandle_get(oth);
+		args->oaua_oth = oth;
+		args->oaua_update = oth->ot_dur;
+		args->oaua_flow_control = true;
+		req->rq_interpret_reply = osp_update_interpret;
 
-out:
-	/* If RPC is triggered successfully, dt_update will be freed in
-	 * osp_update_interpreter() */
-	if (rc != 0 && dt_update != NULL && sent == 0) {
-		dt_update_request_destroy(dt_update);
-		oth->ot_dur = NULL;
+		down_read(&osp->opd_async_updates_rwsem);
+		args->oaua_count = &osp->opd_async_updates_count;
+		args->oaua_waitq = &osp->opd_syn_barrier_waitq;
+		up_read(&osp->opd_async_updates_rwsem);
+		atomic_inc(args->oaua_count);
+
+		ptlrpcd_add_req(req, PDL_POLICY_LOCAL, -1);
 	}
+out:
 	osp_thandle_put(oth);
 
 	RETURN(rc);
