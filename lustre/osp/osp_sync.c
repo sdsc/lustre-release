@@ -734,7 +734,7 @@ static int osp_prep_unlink_update_req(const struct lu_env *env,
 				      struct ptlrpc_request **reqp)
 {
 	struct llog_unlink64_rec	*rec = (struct llog_unlink64_rec *)h;
-	struct dt_update_request	*update = NULL;
+	struct osp_update_request	*update = NULL;
 	struct ptlrpc_request		*req;
 	struct llog_cookie		lcookie;
 	const void			*buf;
@@ -742,7 +742,7 @@ static int osp_prep_unlink_update_req(const struct lu_env *env,
 	int				rc;
 	ENTRY;
 
-	update = dt_update_request_create(&osp->opd_dt_dev);
+	update = osp_update_request_create(&osp->opd_dt_dev);
 	if (IS_ERR(update))
 		RETURN(PTR_ERR(update));
 
@@ -770,7 +770,7 @@ static int osp_prep_unlink_update_req(const struct lu_env *env,
 		GOTO(out, rc);
 
 	rc = osp_prep_update_req(env, osp->opd_obd->u.cli.cl_import,
-				 update->dur_buf.ub_req, &req);
+				 update->our_req, &req);
 	if (rc != 0)
 		GOTO(out, rc);
 
@@ -782,7 +782,7 @@ static int osp_prep_unlink_update_req(const struct lu_env *env,
 	*reqp = req;
 out:
 	if (update != NULL)
-		dt_update_request_destroy(update);
+		osp_update_request_destroy(update);
 
 	RETURN(rc);
 }

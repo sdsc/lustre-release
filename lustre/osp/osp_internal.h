@@ -93,6 +93,35 @@ struct osp_precreate {
 	int				 osp_pre_recovering;
 };
 
+/**
+ * Tracking the updates being executed on this dt_device.
+ */
+struct osp_update_request {
+	int				our_flags;
+	/* update request result */
+	int				our_rc;
+
+	/* Holding object updates sent to the remote target */
+	struct object_update_request	*our_req;
+	size_t				our_req_size;
+
+	struct list_head		our_cb_items;
+
+	/* points to thandle if this update request belongs to one */
+	struct osp_thandle		*our_th;
+	/* linked to the list(ou_list) in osp_update */
+	struct list_head		our_list;
+};
+
+struct osp_update {
+	struct list_head	ou_list;
+	spinlock_t		ou_lock;
+	wait_queue_head_t	ou_waitq;
+	/* wait for next updates */
+	__u64			ou_rpc_version;
+	__u64			ou_version;
+};
+
 struct osp_device {
 	struct dt_device		 opd_dt_dev;
 	/* corresponded OST index */
@@ -139,6 +168,11 @@ struct osp_device {
 	struct ptlrpc_thread		 opd_pre_thread;
 	/* thread waits for signals about pool going empty */
 	wait_queue_head_t		 opd_pre_waitq;
+
+	/* send update thread */
+	struct osp_update		*opd_update;
+	/* dedicate update thread */
+	struct ptlrpc_thread		 opd_update_thread;
 
 	/*
 	 * OST synchronization
@@ -195,7 +229,7 @@ struct osp_device {
 	 * osp_device::opd_async_requests via declare() functions, these
 	 * requests can be packed together and sent to the remote server
 	 * via single OUT RPC later. */
-	struct dt_update_request	*opd_async_requests;
+	struct osp_update_request	*opd_async_requests;
 	/* Protect current operations on opd_async_requests. */
 	struct mutex			 opd_async_requests_mutex;
 	struct list_head		 opd_async_updates;
@@ -295,11 +329,17 @@ struct osp_it {
 	struct page		 **ooi_pages;
 };
 
+#define OSP_THANDLE_MAGIC	0x20141214
 struct osp_thandle {
 	struct thandle		 ot_super;
-	struct dt_update_request *ot_dur;
+	__u32			 ot_magic;
 	struct list_head	 ot_dcb_list;
+	struct list_head	 ot_stop_dcb_list;
+	struct osp_update_request *ot_our;
 	atomic_t		 ot_refcount;
+	struct list_head	 ot_list;
+	__u64			 ot_version;
+	unsigned int		 ot_set_version:1;
 };
 
 static inline struct osp_thandle *
@@ -308,13 +348,13 @@ thandle_to_osp_thandle(struct thandle *th)
 	return container_of0(th, struct osp_thandle, ot_super);
 }
 
-static inline struct dt_update_request *
-thandle_to_dt_update_request(struct thandle *th)
+static inline struct osp_update_request *
+thandle_to_osp_update_request(struct thandle *th)
 {
 	struct osp_thandle *oth;
 
 	oth = thandle_to_osp_thandle(th);
-	return oth->ot_dur;
+	return oth->ot_our;
 }
 
 /* The transaction only include the updates on the remote node, and
@@ -524,7 +564,7 @@ struct object_update
 			  int index);
 
 int osp_extend_update_buffer(const struct lu_env *env,
-			     struct update_buffer *ubuf);
+			     struct osp_update_request *our);
 
 #define osp_update_rpc_pack(env, name, rc, update, op, ...)		\
 do {                                                                    \
@@ -532,19 +572,19 @@ do {                                                                    \
 	size_t			max_update_length;			\
 	struct object_update_request *ureq;				\
 									\
-	ureq = update->dur_buf.ub_req;					\
-	max_update_length = update->dur_buf.ub_req_size -		\
+	ureq = update->our_req;						\
+	max_update_length = update->our_req_size -			\
 			    object_update_request_size(ureq);		\
 									\
 	object_update = update_buffer_get_update(ureq,			\
 						 ureq->ourq_count);	\
-	object_update->ou_flags |= update->dur_flags;			\
+	object_update->ou_flags |= update->our_flags;			\
 	rc = out_##name##_pack(env, object_update, max_update_length,	\
 			       __VA_ARGS__);				\
 	if (rc == -E2BIG) {						\
 		int rc1;						\
 		/* extend the buffer and retry */			\
-		rc1 = osp_extend_update_buffer(env, &update->dur_buf);	\
+		rc1 = osp_extend_update_buffer(env, update);		\
 		if (rc1 != 0) {						\
 			rc = rc1;					\
 			break;						\
@@ -556,6 +596,16 @@ do {                                                                    \
 		break;							\
 	}								\
 } while (1)
+
+static inline bool osp_send_update_thread_running(struct osp_device *osp)
+{
+	return !!(osp->opd_update_thread.t_flags & SVC_RUNNING);
+}
+
+static inline bool osp_send_update_thread_stopped(struct osp_device *osp)
+{
+	return !!(osp->opd_update_thread.t_flags & SVC_STOPPED);
+}
 
 typedef int (*osp_update_interpreter_t)(const struct lu_env *env,
 					struct object_update_reply *rep,
@@ -575,24 +625,39 @@ int osp_insert_async_request(const struct lu_env *env, enum update_type op,
 
 int osp_unplug_async_request(const struct lu_env *env,
 			     struct osp_device *osp,
-			     struct dt_update_request *update);
+			     struct osp_update_request *update);
 int osp_trans_update_request_create(struct thandle *th);
 struct thandle *osp_trans_create(const struct lu_env *env,
 				 struct dt_device *d);
 int osp_trans_start(const struct lu_env *env, struct dt_device *dt,
 		    struct thandle *th);
 int osp_insert_update_callback(const struct lu_env *env,
-			       struct dt_update_request *update,
+			       struct osp_update_request *update,
 			       struct osp_object *obj, void *data,
 			       osp_update_interpreter_t interpreter);
 int osp_prep_update_req(const struct lu_env *env, struct obd_import *imp,
 			const struct object_update_request *ureq,
 			struct ptlrpc_request **reqp);
 int osp_remote_sync(const struct lu_env *env, struct obd_import *imp,
-		    struct dt_update_request *dt_update,
+		    struct osp_update_request *update,
 		    struct ptlrpc_request **reqp);
-struct dt_update_request *dt_update_request_create(struct dt_device *dt);
-void dt_update_request_destroy(struct dt_update_request *dt_update);
+struct osp_update_request *osp_update_request_create(struct dt_device *dt);
+void osp_update_request_destroy(struct osp_update_request *update);
+
+int osp_send_update_thread(void *_arg);
+void osp_check_and_set_rpc_version(struct osp_thandle *oth);
+
+void osp_thandle_destroy(struct osp_thandle *oth);
+static inline void osp_thandle_get(struct osp_thandle *oth)
+{
+	atomic_inc(&oth->ot_refcount);
+}
+
+static inline void osp_thandle_put(struct osp_thandle *oth)
+{
+	if (atomic_dec_and_test(&oth->ot_refcount))
+		osp_thandle_destroy(oth);
+}
 
 /* osp_object.c */
 int osp_attr_get(const struct lu_env *env, struct dt_object *dt,
