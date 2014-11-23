@@ -308,12 +308,13 @@ static int ptlrpcd_check(struct lu_env *env, struct ptlrpcd_ctl *pc)
 	 * head of seq::set_requests */
 	list_for_each_safe(pos, tmp, &set->set_requests) {
 		req = list_entry(pos, struct ptlrpc_request, rq_set_chain);
-		if (req->rq_phase != RQ_PHASE_COMPLETE)
-			break;
 
-		list_del_init(&req->rq_set_chain);
-		req->rq_set = NULL;
-		ptlrpc_req_finished(req);
+		if (ptlrpc_set_remove_req(req, true))
+			ptlrpc_req_finished(req);
+		else
+			/* there could be completed requests after this one,
+			 * and it will be removed from this set next time */
+			break;
 	}
 
 	if (rc == 0) {
