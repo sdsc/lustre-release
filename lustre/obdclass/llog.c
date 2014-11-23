@@ -796,6 +796,7 @@ int llog_open_create(const struct lu_env *env, struct llog_ctxt *ctxt,
 	if (IS_ERR(th))
 		GOTO(out, rc = PTR_ERR(th));
 
+	th->th_wait_submit = 1;
 	rc = llog_declare_create(env, *res, th);
 	if (rc == 0) {
 		rc = dt_trans_start_local(env, d, th);

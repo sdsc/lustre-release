@@ -41,27 +41,6 @@ struct dt_key;
 struct dt_rec;
 struct object_update_param;
 
-struct update_buffer {
-	struct object_update_request	*ub_req;
-	size_t				ub_req_size;
-};
-
-/**
- * Tracking the updates being executed on this dt_device.
- */
-struct dt_update_request {
-	struct dt_device		*dur_dt;
-	/* attached itself to thandle */
-	int				dur_flags;
-	/* update request result */
-	int				dur_rc;
-	/* Current batch(transaction) id */
-	__u64				dur_batchid;
-	/* Holding object updates */
-	struct update_buffer		dur_buf;
-	struct list_head		dur_cb_items;
-};
-
 struct update_params {
 	__u32				up_params_count;
 	struct object_update_param	up_params[0];
@@ -203,6 +182,7 @@ struct top_multiple_thandle {
 	/* All of update records will packed here */
 	struct thandle_update_records *tmt_update_records;
 
+	wait_queue_head_t	tmt_stop_waitq;
 	__u64			tmt_batchid;
 
 	__u32			tmt_magic;
@@ -228,8 +208,11 @@ struct sub_thandle {
 	struct dt_device	*st_dt;
 	struct list_head	st_list;
 	struct llog_cookie	st_cookie;
-	struct dt_txn_commit_cb	 st_dcb;
-	unsigned int		 st_committed:1;
+	struct dt_txn_commit_cb	st_dcb;
+	struct dt_txn_commit_cb	st_stop_dcb;
+	int			st_result;
+	unsigned int		st_committed:1,
+				st_stopped:1;
 };
 
 static inline struct update_params *
