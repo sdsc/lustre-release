@@ -137,43 +137,33 @@ struct object_update
 	return ptr;
 }
 
-static int update_buffer_resize(struct update_buffer *ubuf, size_t new_size)
-{
-	struct object_update_request *ureq;
-
-	if (ubuf->ub_req_size >= new_size)
-		return 0;
-
-	OBD_ALLOC_LARGE(ureq, new_size);
-	if (ureq == NULL)
-		return -ENOMEM;
-
-	memcpy(ureq, ubuf->ub_req, ubuf->ub_req_size);
-
-	OBD_FREE_LARGE(ubuf->ub_req, ubuf->ub_req_size);
-
-	ubuf->ub_req = ureq;
-	ubuf->ub_req_size = new_size;
-
-	return 0;
-}
-
 #define OUT_UPDATE_BUFFER_SIZE_ADD	4096
 #define OUT_UPDATE_BUFFER_SIZE_MAX	(256 * 4096)  /*  1M update size now */
 
 int osp_extend_update_buffer(const struct lu_env *env,
-			     struct update_buffer *ubuf)
+			     struct osp_update_request *our)
 {
-	size_t	new_size = ubuf->ub_req_size;
-	int	rc;
+	struct object_update_request *obj_update_req;
+	size_t new_size;
 
 	/* enlarge object update request size */
-	if (new_size >= OUT_UPDATE_BUFFER_SIZE_MAX)
+	if (our->our_req_size >= OUT_UPDATE_BUFFER_SIZE_MAX)
 		return -E2BIG;
 
-	rc = update_buffer_resize(ubuf, new_size +
-					OUT_UPDATE_BUFFER_SIZE_ADD);
-	return rc;
+	new_size = our->our_req_size + OUT_UPDATE_BUFFER_SIZE_ADD;
+
+	OBD_ALLOC_LARGE(obj_update_req, new_size);
+	if (obj_update_req == NULL)
+		return -ENOMEM;
+
+	memcpy(obj_update_req, our->our_req, our->our_req_size);
+
+	OBD_FREE_LARGE(our->our_req, our->our_req_size);
+
+	our->our_req = obj_update_req;
+	our->our_req_size = new_size;
+
+	return 0;
 }
 
 /**
@@ -195,11 +185,11 @@ int osp_md_object_create(const struct lu_env *env, struct dt_object *dt,
 			 struct lu_attr *attr, struct dt_allocation_hint *hint,
 			 struct dt_object_format *dof, struct thandle *th)
 {
-	struct dt_update_request	*update;
+	struct osp_update_request	*update;
 	struct osp_object		*obj = dt2osp_obj(dt);
 	int				rc;
 
-	update = thandle_to_dt_update_request(th);
+	update = thandle_to_osp_update_request(th);
 	LASSERT(update != NULL);
 
 	CDEBUG(D_INFO, "create object "DFID" %o valid "LPX64"\n",
@@ -265,10 +255,10 @@ static int osp_md_declare_ref_del(const struct lu_env *env,
 static int osp_md_ref_del(const struct lu_env *env, struct dt_object *dt,
 			  struct thandle *th)
 {
-	struct dt_update_request	*update;
+	struct osp_update_request	*update;
 	int				rc;
 
-	update = thandle_to_dt_update_request(th);
+	update = thandle_to_osp_update_request(th);
 	LASSERT(update != NULL);
 
 	osp_update_rpc_pack(env, ref_del, rc, update,
@@ -316,10 +306,10 @@ static int osp_md_declare_ref_add(const struct lu_env *env,
 static int osp_md_ref_add(const struct lu_env *env, struct dt_object *dt,
 			  struct thandle *th)
 {
-	struct dt_update_request	*update;
+	struct osp_update_request	*update;
 	int				rc;
 
-	update = thandle_to_dt_update_request(th);
+	update = thandle_to_osp_update_request(th);
 	LASSERT(update != NULL);
 
 	osp_update_rpc_pack(env, ref_add, rc, update,
@@ -398,10 +388,10 @@ int osp_md_attr_set(const struct lu_env *env, struct dt_object *dt,
 		    const struct lu_attr *attr, struct thandle *th,
 		    struct lustre_capa *capa)
 {
-	struct dt_update_request	*update;
+	struct osp_update_request	*update;
 	int				rc;
 
-	update = thandle_to_dt_update_request(th);
+	update = thandle_to_osp_update_request(th);
 	LASSERT(update != NULL);
 
 	osp_update_rpc_pack(env, attr_set, rc, update, OUT_ATTR_SET,
@@ -529,7 +519,7 @@ static int osp_md_index_lookup(const struct lu_env *env, struct dt_object *dt,
 	struct lu_buf		*lbuf	= &osp_env_info(env)->osi_lb2;
 	struct osp_device	*osp	= lu2osp_dev(dt->do_lu.lo_dev);
 	struct dt_device	*dt_dev	= &osp->opd_dt_dev;
-	struct dt_update_request   *update;
+	struct osp_update_request   *update;
 	struct object_update_reply *reply;
 	struct ptlrpc_request	   *req = NULL;
 	struct lu_fid		   *fid;
@@ -540,7 +530,7 @@ static int osp_md_index_lookup(const struct lu_env *env, struct dt_object *dt,
 	 * just create an update buffer, instead of attaching the
 	 * update_remote list of the thandle.
 	 */
-	update = dt_update_request_create(dt_dev);
+	update = osp_update_request_create(dt_dev);
 	if (IS_ERR(update))
 		RETURN(PTR_ERR(update));
 
@@ -597,7 +587,7 @@ out:
 	if (req != NULL)
 		ptlrpc_req_finished(req);
 
-	dt_update_request_destroy(update);
+	osp_update_request_destroy(update);
 
 	return rc;
 }
@@ -650,9 +640,11 @@ static int osp_md_index_insert(const struct lu_env *env,
 			       struct lustre_capa *capa,
 			       int ignore_quota)
 {
-	struct osp_thandle	 *oth = thandle_to_osp_thandle(th);
-	struct dt_update_request *update = oth->ot_dur;
+	struct osp_update_request *update;
 	int			 rc;
+
+	update = thandle_to_osp_update_request(th);
+	LASSERT(update != NULL);
 
 	osp_update_rpc_pack(env, index_insert, rc, update,
 			    OUT_INDEX_INSERT, lu_object_fid(&dt->do_lu),
@@ -707,10 +699,10 @@ static int osp_md_index_delete(const struct lu_env *env,
 			       struct thandle *th,
 			       struct lustre_capa *capa)
 {
-	struct dt_update_request *update;
+	struct osp_update_request *update;
 	int			 rc;
 
-	update = thandle_to_dt_update_request(th);
+	update = thandle_to_osp_update_request(th);
 	LASSERT(update != NULL);
 
 	osp_update_rpc_pack(env, index_delete, rc, update,
@@ -1082,12 +1074,13 @@ static ssize_t osp_md_write(const struct lu_env *env, struct dt_object *dt,
 			    struct thandle *th, struct lustre_capa *capa,
 			    int ignore_quota)
 {
-	struct osp_object *obj = dt2osp_obj(dt);
-	struct dt_update_request  *update;
+	struct osp_object	  *obj = dt2osp_obj(dt);
+	struct osp_update_request  *update;
+	struct osp_thandle	  *oth = thandle_to_osp_thandle(th);
 	ssize_t			  rc;
 	ENTRY;
 
-	update = thandle_to_dt_update_request(th);
+	update = thandle_to_osp_update_request(th);
 	LASSERT(update != NULL);
 
 	osp_update_rpc_pack(env, write, rc, update,
@@ -1115,6 +1108,8 @@ static ssize_t osp_md_write(const struct lu_env *env, struct dt_object *dt,
 	    obj->opo_ooa->ooa_attr.la_size < *pos)
 		obj->opo_ooa->ooa_attr.la_size = *pos;
 
+	osp_check_and_set_rpc_version(oth);
+
 	RETURN(buf->lb_len);
 }
 
@@ -1125,7 +1120,7 @@ static ssize_t osp_md_read(const struct lu_env *env, struct dt_object *dt,
 	struct osp_device	*osp	= lu2osp_dev(dt->do_lu.lo_dev);
 	struct dt_device	*dt_dev	= &osp->opd_dt_dev;
 	struct lu_buf		*lbuf	= &osp_env_info(env)->osi_lb2;
-	struct dt_update_request   *update;
+	struct osp_update_request   *update;
 	struct object_update_reply *reply;
 	struct ptlrpc_request	   *req = NULL;
 	int			   rc;
@@ -1135,7 +1130,7 @@ static ssize_t osp_md_read(const struct lu_env *env, struct dt_object *dt,
 	 * just create an update buffer, instead of attaching the
 	 * update_remote list of the thandle.
 	 */
-	update = dt_update_request_create(dt_dev);
+	update = osp_update_request_create(dt_dev);
 	if (IS_ERR(update))
 		RETURN(PTR_ERR(update));
 
@@ -1184,7 +1179,7 @@ out:
 	if (req != NULL)
 		ptlrpc_req_finished(req);
 
-	dt_update_request_destroy(update);
+	osp_update_request_destroy(update);
 
 	return rc;
 }
