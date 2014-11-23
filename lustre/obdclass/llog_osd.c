@@ -516,12 +516,24 @@ static int llog_osd_write_rec(const struct lu_env *env,
 		LBUG(); /* should never happen */
 	}
 	llh->llh_count++;
-	spin_unlock(&loghandle->lgh_hdr_lock);
+
+	/* XXX It is a bit tricky here, if the log object is local,
+	 * we do not need lock during write here, because if there is
+	 * race, the transaction(jbd2, what about ZFS?) will make sure the
+	 * conflicts will all committed in the same transaction group.
+	 * But for remote object, we need lock the whole process, so to
+	 * set the version of the remote transaction to make sure they
+	 * are being sent in order. (see osp_md_write()) */
+	if (!dt_object_remote(o))
+		spin_unlock(&loghandle->lgh_hdr_lock);
 
 	lgi->lgi_off = 0;
 	lgi->lgi_buf.lb_len = llh->llh_hdr.lrh_len;
 	lgi->lgi_buf.lb_buf = &llh->llh_hdr;
 	rc = dt_record_write(env, o, &lgi->lgi_buf, &lgi->lgi_off, th);
+	/* unlock here for remote object */
+	if (dt_object_remote(o))
+		spin_unlock(&loghandle->lgh_hdr_lock);
 	if (rc)
 		GOTO(out, rc);
 
