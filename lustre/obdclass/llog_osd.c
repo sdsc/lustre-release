@@ -515,7 +515,16 @@ static int llog_osd_write_rec(const struct lu_env *env,
 		LBUG(); /* should never happen */
 	}
 	llh->llh_count++;
-	spin_unlock(&loghandle->lgh_hdr_lock);
+
+	/* XXX It is a bit tricky here, if the log object is local,
+	 * we do not need lock during write here, because if there is
+	 * race, the transaction(jbd2, what about ZFS?) will make sure the
+	 * conflicts will all committed in the same transaction group.
+	 * But for remote object, we need lock the whole process, so to
+	 * set the version of the remote transaction to make sure they
+	 * are being sent in order. (see osp_md_write()) */
+	if (!dt_object_remote(o))
+		spin_unlock(&loghandle->lgh_hdr_lock);
 
 	/*Do not write a whole header, only counter and bit updated */
 	if (lgi->lgi_attr.la_size == 0) {
@@ -524,21 +533,21 @@ static int llog_osd_write_rec(const struct lu_env *env,
 		lgi->lgi_buf.lb_buf = &llh->llh_hdr;
 		rc = dt_record_write(env, o, &lgi->lgi_buf, &lgi->lgi_off, th);
 		if (rc != 0)
-			GOTO(out, rc);
+			GOTO(out_remote_unlock, rc);
 	} else {
 		lgi->lgi_off = offsetof(struct llog_log_hdr, llh_count);
 		lgi->lgi_buf.lb_len = sizeof(llh->llh_count);
 		lgi->lgi_buf.lb_buf = &llh->llh_count;
 		rc = dt_record_write(env, o, &lgi->lgi_buf, &lgi->lgi_off, th);
 		if (rc != 0)
-			GOTO(out, rc);
+			GOTO(out_remote_unlock, rc);
 
 		lgi->lgi_off = offsetof(struct llog_log_hdr, llh_tail);
 		lgi->lgi_buf.lb_len = sizeof(llh->llh_tail);
 		lgi->lgi_buf.lb_buf = &llh->llh_tail;
 		rc = dt_record_write(env, o, &lgi->lgi_buf, &lgi->lgi_off, th);
 		if (rc != 0)
-			GOTO(out, rc);
+			GOTO(out_remote_unlock, rc);
 
 		lgi->lgi_off = offsetof(struct llog_log_hdr, llh_bitmap) +
 			((index / (sizeof(__u32) * 8)) * sizeof(__u32));
@@ -546,8 +555,15 @@ static int llog_osd_write_rec(const struct lu_env *env,
 		lgi->lgi_buf.lb_buf = &llh->llh_bitmap[index/(sizeof(__u32)*8)];
 		rc = dt_record_write(env, o, &lgi->lgi_buf, &lgi->lgi_off, th);
 		if (rc != 0)
-			GOTO(out, rc);
+			GOTO(out_remote_unlock, rc);
 	}
+
+out_remote_unlock:
+	/* unlock here for remote object */
+	if (dt_object_remote(o))
+		spin_unlock(&loghandle->lgh_hdr_lock);
+	if (rc)
+		GOTO(out, rc);
 
 	rc = dt_attr_get(env, o, &lgi->lgi_attr);
 	if (rc)
