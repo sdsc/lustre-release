@@ -924,6 +924,9 @@ int llog_write(const struct lu_env *env, struct llog_handle *loghandle,
 		rc = dt_trans_start_local(env, dt, th);
 		if (rc)
 			GOTO(out_trans, rc);
+
+		if (dt_object_remote(loghandle->lgh_obj))
+			th->th_sync = 1;
 	}
 
 	down_write(&loghandle->lgh_lock);

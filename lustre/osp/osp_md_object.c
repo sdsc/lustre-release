@@ -1128,8 +1128,9 @@ static ssize_t osp_md_write(const struct lu_env *env, struct dt_object *dt,
 			    struct thandle *th, struct lustre_capa *capa,
 			    int ignore_quota)
 {
-	struct osp_object *obj = dt2osp_obj(dt);
+	struct osp_object	  *obj = dt2osp_obj(dt);
 	struct dt_update_request  *update;
+	struct osp_thandle	  *oth = thandle_to_osp_thandle(th);
 	ssize_t			  rc;
 	ENTRY;
 
@@ -1160,6 +1161,8 @@ static ssize_t osp_md_write(const struct lu_env *env, struct dt_object *dt,
 	    obj->opo_ooa->ooa_attr.la_valid & LA_SIZE &&
 	    obj->opo_ooa->ooa_attr.la_size < *pos)
 		obj->opo_ooa->ooa_attr.la_size = *pos;
+
+	osp_check_and_set_rpc_version(oth);
 
 	RETURN(buf->lb_len);
 }

@@ -93,6 +93,16 @@ struct osp_precreate {
 	int				 osp_pre_recovering;
 };
 
+struct osp_update {
+	struct list_head	ou_list;
+	struct ptlrpc_thread	ou_thread;
+	spinlock_t		ou_lock;
+	/* wait for next updates */
+	wait_queue_head_t	ou_waitq;
+	__u64			ou_rpc_version;
+	__u64			ou_version;
+};
+
 struct osp_device {
 	struct dt_device		 opd_dt_dev;
 	/* corresponded OST index */
@@ -139,6 +149,9 @@ struct osp_device {
 	struct ptlrpc_thread		 opd_pre_thread;
 	/* thread waits for signals about pool going empty */
 	wait_queue_head_t		 opd_pre_waitq;
+
+	/* send update thread */
+	struct osp_update		*opd_update;
 
 	/*
 	 * OST synchronization
@@ -296,6 +309,9 @@ struct osp_thandle {
 	struct thandle		 ot_super;
 	struct dt_update_request *ot_dur;
 	atomic_t		 ot_refcount;
+	struct list_head	 ot_list;
+	__u64			 ot_version;
+	unsigned int		 ot_set_version:1;
 };
 
 static inline struct osp_thandle *
@@ -553,6 +569,16 @@ do {                                                                    \
 	}								\
 } while (1)
 
+static inline bool osp_send_update_thread_running(struct osp_update *ou)
+{
+	return !!(ou->ou_thread.t_flags & SVC_RUNNING);
+}
+
+static inline bool osp_send_update_thread_stopped(struct osp_update *ou)
+{
+	return !!(ou->ou_thread.t_flags & SVC_STOPPED);
+}
+
 typedef int (*osp_update_interpreter_t)(const struct lu_env *env,
 					struct object_update_reply *rep,
 					struct ptlrpc_request *req,
@@ -589,6 +615,21 @@ int osp_remote_sync(const struct lu_env *env, struct obd_import *imp,
 		    struct ptlrpc_request **reqp);
 struct dt_update_request *dt_update_request_create(struct dt_device *dt);
 void dt_update_request_destroy(struct dt_update_request *dt_update);
+
+int osp_send_update_thread(void *_arg);
+void osp_check_and_set_rpc_version(struct osp_thandle *oth);
+
+void osp_thandle_destroy(struct osp_thandle *oth);
+static inline void osp_thandle_get(struct osp_thandle *oth)
+{
+	atomic_inc(&oth->ot_refcount);
+}
+
+static inline void osp_thandle_put(struct osp_thandle *oth)
+{
+	if (atomic_dec_and_test(&oth->ot_refcount))
+		osp_thandle_destroy(oth);
+}
 
 /* osp_object.c */
 int osp_attr_get(const struct lu_env *env, struct dt_object *dt,
