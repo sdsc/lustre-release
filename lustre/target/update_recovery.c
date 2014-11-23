@@ -1086,7 +1086,8 @@ int distribute_txn_replay_handle(struct lu_env *env,
 			while (--i >= 0) {
 				if (ta->ta_args[i]->undo_fn != NULL) {
 					dt_obj = ta->ta_args[i]->object;
-					sub_dt = lu2dt_dev(dt_obj->do_lu.lo_dev);
+					sub_dt =
+						lu2dt_dev(dt_obj->do_lu.lo_dev);
 					st = lookup_sub_thandle(tmt, sub_dt);
 					LASSERT(st != NULL);
 					LASSERT(st->st_sub_th != NULL);

@@ -1724,7 +1724,6 @@ static int check_for_next_transno(struct lu_target *lut)
 
 	if (lut->lut_tdtd != NULL) {
 		struct target_distribute_txn_data *tdtd;
-		__u64 update_transno;
 
 		tdtd = lut->lut_tdtd;
 		update_transno = distribute_txn_get_next_transno(lut->lut_tdtd);
@@ -1746,8 +1745,8 @@ static int check_for_next_transno(struct lu_target *lut)
 	} else if (obd->obd_recovery_expired) {
 		CDEBUG(D_HA, "waking for expired recovery\n");
 		wake_up = 1;
-	} else if (req_transno == next_transno || (update_transno != 0 &&
-					   update_transno <= next_transno)) {
+	} else if (req_transno == next_transno ||
+		   (update_transno != 0 && update_transno <= next_transno)) {
 		CDEBUG(D_HA, "waking for next ("LPD64")\n", next_transno);
 		wake_up = 1;
 	} else if (queue_len > 0 &&
