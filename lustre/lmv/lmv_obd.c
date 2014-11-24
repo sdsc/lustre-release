@@ -3449,9 +3449,10 @@ int lmv_merge_attr(struct obd_export *exp, const struct lmv_stripe_md *lsm,
 	for (i = 0; i < lsm->lsm_md_stripe_count; i++) {
 		struct inode *inode = lsm->lsm_md_oinfo[i].lmo_root;
 
-		CDEBUG(D_INFO, ""DFID" size %llu, nlink %u, atime %lu ctime"
-		       "%lu, mtime %lu.\n", PFID(&lsm->lsm_md_oinfo[i].lmo_fid),
-		       i_size_read(inode), inode->i_nlink,
+		CDEBUG(D_INFO, ""DFID" size %llu, blocks %lu nlink %u,"
+		       " atime %lu ctime %lu, mtime %lu.\n",
+		       PFID(&lsm->lsm_md_oinfo[i].lmo_fid),
+		       i_size_read(inode), inode->i_blocks, inode->i_nlink,
 		       LTIME_S(inode->i_atime), LTIME_S(inode->i_ctime),
 		       LTIME_S(inode->i_mtime));
 
@@ -3462,6 +3463,7 @@ int lmv_merge_attr(struct obd_export *exp, const struct lmv_stripe_md *lsm,
 			attr->cat_nlink = inode->i_nlink;
 
 		attr->cat_size += i_size_read(inode);
+		attr->cat_blocks += inode->i_blocks;
 
 		if (attr->cat_atime < LTIME_S(inode->i_atime))
 			attr->cat_atime = LTIME_S(inode->i_atime);

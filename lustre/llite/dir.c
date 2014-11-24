@@ -1015,6 +1015,102 @@ out:
         RETURN(rc);
 }
 
+static int ll_dir_getstripe_by_name(struct inode *inode,
+				    const char *filename,
+				    struct lov_mds_md **lmmp, int *lmm_size,
+				    struct ptlrpc_request **request)
+{
+	struct ll_sb_info *sbi = ll_i2sbi(inode);
+	struct mdt_body  *body;
+	struct lov_mds_md *lmm = NULL;
+	struct ptlrpc_request *req = NULL;
+	struct md_op_data *op_data;
+	int rc, lmmsize;
+
+	rc = ll_get_default_mdsize(sbi, &lmmsize);
+	if (rc)
+		RETURN(rc);
+
+	op_data = ll_prep_md_op_data(NULL, inode, NULL, filename,
+				     strlen(filename), lmmsize,
+				     LUSTRE_OPC_ANY, NULL);
+	if (IS_ERR(op_data))
+		RETURN(PTR_ERR(op_data));
+
+	op_data->op_valid = OBD_MD_FLEASIZE | OBD_MD_FLDIREA;
+	rc = md_getattr_name(sbi->ll_md_exp, op_data, &req);
+	ll_finish_md_op_data(op_data);
+	if (rc < 0) {
+		CDEBUG(D_INFO, "md_getattr_name failed "
+		       "on %s: rc %d\n", filename, rc);
+		GOTO(out, rc);
+	}
+
+	body = req_capsule_server_get(&req->rq_pill, &RMF_MDT_BODY);
+	LASSERT(body != NULL); /* checked by mdc_getattr_name */
+
+	lmmsize = body->mbo_eadatasize;
+
+	if (!(body->mbo_valid & (OBD_MD_FLEASIZE | OBD_MD_FLDIREA)) ||
+			lmmsize == 0) {
+		GOTO(out, rc = -ENODATA);
+	}
+
+	lmm = req_capsule_server_sized_get(&req->rq_pill, &RMF_MDT_MD, lmmsize);
+	LASSERT(lmm != NULL);
+
+	if ((lmm->lmm_magic != cpu_to_le32(LOV_MAGIC_V1)) &&
+	    (lmm->lmm_magic != cpu_to_le32(LOV_MAGIC_V3)) &&
+	    (lmm->lmm_magic != cpu_to_le32(LMV_MAGIC_V1)))
+		GOTO(out, rc = -EPROTO);
+
+	/*
+	 * This is coming from the MDS, so is probably in
+	 * little endian.  We convert it to host endian before
+	 * passing it to userspace.
+	 */
+	if (LOV_MAGIC != cpu_to_le32(LOV_MAGIC)) {
+		int stripe_count;
+
+		switch (le32_to_cpu(lmm->lmm_magic)) {
+		case LOV_MAGIC_V1:
+		case LOV_MAGIC_V3:
+			stripe_count = le16_to_cpu(lmm->lmm_stripe_count);
+			if (le32_to_cpu(lmm->lmm_pattern) &
+			    LOV_PATTERN_F_RELEASED)
+				stripe_count = 0;
+
+			/* if function called for directory - we should
+			 * avoid swab not existent lsm objects */
+			if (lmm->lmm_magic == cpu_to_le32(LOV_MAGIC_V1)) {
+				lustre_swab_lov_user_md_v1(
+					(struct lov_user_md_v1 *)lmm);
+				if (S_ISREG(body->mbo_mode))
+					lustre_swab_lov_user_md_objects(
+				    ((struct lov_user_md_v1 *)lmm)->lmm_objects,
+					    stripe_count);
+			} else if (lmm->lmm_magic ==
+					cpu_to_le32(LOV_MAGIC_V3)) {
+				lustre_swab_lov_user_md_v3(
+					(struct lov_user_md_v3 *)lmm);
+				if (S_ISREG(body->mbo_mode))
+					lustre_swab_lov_user_md_objects(
+				 ((struct lov_user_md_v3 *)lmm)->lmm_objects,
+					 stripe_count);
+			}
+			break;
+		case LMV_MAGIC_V1:
+			lustre_swab_lmv_user_md((struct lmv_user_md *)lmm);
+			break;
+		}
+	}
+out:
+	*lmmp = lmm;
+	*lmm_size = lmmsize;
+	*request = req;
+	return rc;
+}
+
 static char *
 ll_getname(const char __user *filename)
 {
@@ -1325,14 +1421,14 @@ out_rmdir:
                 char *filename = NULL;
                 int lmmsize;
 
-                if (cmd == IOC_MDC_GETFILEINFO ||
-                    cmd == IOC_MDC_GETFILESTRIPE) {
+		if (cmd == IOC_MDC_GETFILEINFO ||
+		    cmd == IOC_MDC_GETFILESTRIPE) {
 			filename = ll_getname((const char __user *)arg);
-                        if (IS_ERR(filename))
-                                RETURN(PTR_ERR(filename));
+			if (IS_ERR(filename))
+				RETURN(PTR_ERR(filename));
 
-                        rc = ll_lov_getstripe_ea_info(inode, filename, &lmm,
-                                                      &lmmsize, &request);
+			rc = ll_dir_getstripe_by_name(inode, filename, &lmm,
+						      &lmmsize, &request);
 		} else {
 			rc = ll_dir_getstripe(inode, (void **)&lmm, &lmmsize,
 					      &request, 0);
@@ -1374,17 +1470,31 @@ out_rmdir:
 
 			st.st_dev	= inode->i_sb->s_dev;
 			st.st_mode	= body->mbo_mode;
-			st.st_nlink	= body->mbo_nlink;
 			st.st_uid	= body->mbo_uid;
 			st.st_gid	= body->mbo_gid;
 			st.st_rdev	= body->mbo_rdev;
-			st.st_size	= body->mbo_size;
-			st.st_blksize	= PAGE_CACHE_SIZE;
-			st.st_blocks	= body->mbo_blocks;
-			st.st_atime	= body->mbo_atime;
-			st.st_mtime	= body->mbo_mtime;
-			st.st_ctime	= body->mbo_ctime;
 			st.st_ino	= inode->i_ino;
+			st.st_blksize	= PAGE_CACHE_SIZE;
+			if (ll_i2info(inode)->lli_lsm_md != NULL) {
+				rc = ll_inode_revalidate(file->f_dentry,
+							 MDS_INODELOCK_UPDATE);
+				if (rc != 0)
+					GOTO(out_req, rc);
+
+				st.st_size = i_size_read(inode);
+				st.st_blocks = inode->i_blocks;
+				st.st_nlink = inode->i_nlink;
+				st.st_atime = LTIME_S(inode->i_atime);
+				st.st_mtime = LTIME_S(inode->i_mtime);
+				st.st_ctime = LTIME_S(inode->i_ctime);
+			} else {
+				st.st_nlink	= body->mbo_nlink;
+				st.st_size	= body->mbo_size;
+				st.st_blocks	= body->mbo_blocks;
+				st.st_atime	= body->mbo_atime;
+				st.st_mtime	= body->mbo_mtime;
+				st.st_ctime	= body->mbo_ctime;
+			}
 
 			lmdp = (struct lov_user_mds_data __user *)arg;
 			if (copy_to_user(&lmdp->lmd_st, &st, sizeof(st)))

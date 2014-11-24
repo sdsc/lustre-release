@@ -206,10 +206,6 @@ struct ll_inode_info {
 			unsigned int			lli_sa_generation;
 			/* directory stripe information */
 			struct lmv_stripe_md		*lli_lsm_md;
-			/* striped directory size */
-			loff_t				lli_stripe_dir_size;
-			/* striped directory nlink */
-			__u64				lli_stripe_dir_nlink;
 		};
 
 		/* for non-directory */
@@ -867,9 +863,6 @@ int ll_inode_permission(struct inode *inode, int mask);
 int ll_lov_setstripe_ea_info(struct inode *inode, struct file *file,
 			     __u64  flags, struct lov_user_md *lum,
 			     int lum_size);
-int ll_lov_getstripe_ea_info(struct inode *inode, const char *filename,
-                             struct lov_mds_md **lmm, int *lmm_size,
-                             struct ptlrpc_request **request);
 int ll_dir_setstripe(struct inode *inode, struct lov_user_md *lump,
                      int set_default);
 int ll_dir_getstripe(struct inode *inode, void **lmmp,
@@ -886,6 +879,7 @@ int ll_merge_lvb(const struct lu_env *env, struct inode *inode);
 int ll_fid2path(struct inode *inode, void __user *arg);
 int ll_data_version(struct inode *inode, __u64 *data_version, int flags);
 int ll_hsm_release(struct inode *inode);
+int ll_inode_revalidate(struct dentry *dentry, __u64 ibits);
 
 /* llite/dcache.c */
 

@@ -1462,91 +1462,6 @@ out_req_free:
 	goto out;
 }
 
-int ll_lov_getstripe_ea_info(struct inode *inode, const char *filename,
-                             struct lov_mds_md **lmmp, int *lmm_size,
-                             struct ptlrpc_request **request)
-{
-        struct ll_sb_info *sbi = ll_i2sbi(inode);
-        struct mdt_body  *body;
-        struct lov_mds_md *lmm = NULL;
-        struct ptlrpc_request *req = NULL;
-        struct md_op_data *op_data;
-        int rc, lmmsize;
-
-	rc = ll_get_default_mdsize(sbi, &lmmsize);
-	if (rc)
-		RETURN(rc);
-
-        op_data = ll_prep_md_op_data(NULL, inode, NULL, filename,
-                                     strlen(filename), lmmsize,
-                                     LUSTRE_OPC_ANY, NULL);
-        if (IS_ERR(op_data))
-                RETURN(PTR_ERR(op_data));
-
-        op_data->op_valid = OBD_MD_FLEASIZE | OBD_MD_FLDIREA;
-        rc = md_getattr_name(sbi->ll_md_exp, op_data, &req);
-        ll_finish_md_op_data(op_data);
-        if (rc < 0) {
-                CDEBUG(D_INFO, "md_getattr_name failed "
-                       "on %s: rc %d\n", filename, rc);
-                GOTO(out, rc);
-        }
-
-        body = req_capsule_server_get(&req->rq_pill, &RMF_MDT_BODY);
-        LASSERT(body != NULL); /* checked by mdc_getattr_name */
-
-	lmmsize = body->mbo_eadatasize;
-
-	if (!(body->mbo_valid & (OBD_MD_FLEASIZE | OBD_MD_FLDIREA)) ||
-                        lmmsize == 0) {
-                GOTO(out, rc = -ENODATA);
-        }
-
-        lmm = req_capsule_server_sized_get(&req->rq_pill, &RMF_MDT_MD, lmmsize);
-        LASSERT(lmm != NULL);
-
-        if ((lmm->lmm_magic != cpu_to_le32(LOV_MAGIC_V1)) &&
-            (lmm->lmm_magic != cpu_to_le32(LOV_MAGIC_V3))) {
-                GOTO(out, rc = -EPROTO);
-        }
-
-        /*
-         * This is coming from the MDS, so is probably in
-         * little endian.  We convert it to host endian before
-         * passing it to userspace.
-         */
-        if (LOV_MAGIC != cpu_to_le32(LOV_MAGIC)) {
-		int stripe_count;
-
-		stripe_count = le16_to_cpu(lmm->lmm_stripe_count);
-		if (le32_to_cpu(lmm->lmm_pattern) & LOV_PATTERN_F_RELEASED)
-			stripe_count = 0;
-
-                /* if function called for directory - we should
-                 * avoid swab not existent lsm objects */
-                if (lmm->lmm_magic == cpu_to_le32(LOV_MAGIC_V1)) {
-                        lustre_swab_lov_user_md_v1((struct lov_user_md_v1 *)lmm);
-			if (S_ISREG(body->mbo_mode))
-				lustre_swab_lov_user_md_objects(
-				    ((struct lov_user_md_v1 *)lmm)->lmm_objects,
-				    stripe_count);
-		} else if (lmm->lmm_magic == cpu_to_le32(LOV_MAGIC_V3)) {
-			lustre_swab_lov_user_md_v3(
-				(struct lov_user_md_v3 *)lmm);
-			if (S_ISREG(body->mbo_mode))
-                                lustre_swab_lov_user_md_objects(
-                                 ((struct lov_user_md_v3 *)lmm)->lmm_objects,
-                                 stripe_count);
-                }
-        }
-
-out:
-        *lmmp = lmm;
-        *lmm_size = lmmsize;
-        *request = req;
-        return rc;
-}
-
 static int ll_lov_setea(struct inode *inode, struct file *file,
                             unsigned long arg)
 {
@@ -3267,8 +3182,9 @@ static int ll_merge_md_attr(struct inode *inode)
 	if (rc != 0)
 		RETURN(rc);
 
-	ll_i2info(inode)->lli_stripe_dir_size = attr.cat_size;
-	ll_i2info(inode)->lli_stripe_dir_nlink = attr.cat_nlink;
+	set_nlink(inode, attr.cat_nlink);
+	inode->i_blocks = attr.cat_blocks;
+	i_size_write(inode, attr.cat_size);
 
 	ll_i2info(inode)->lli_lvb.lvb_atime = attr.cat_atime;
 	ll_i2info(inode)->lli_lvb.lvb_mtime = attr.cat_mtime;
@@ -3277,8 +3193,7 @@ static int ll_merge_md_attr(struct inode *inode)
 	RETURN(0);
 }
 
-static int
-ll_inode_revalidate(struct dentry *dentry, __u64 ibits)
+int ll_inode_revalidate(struct dentry *dentry, __u64 ibits)
 {
 	struct inode	*inode = dentry->d_inode;
 	int		 rc;
@@ -3341,16 +3256,10 @@ int ll_getattr(struct vfsmount *mnt, struct dentry *de, struct kstat *stat)
 	stat->mtime = inode->i_mtime;
 	stat->ctime = inode->i_ctime;
 	stat->blksize = 1 << inode->i_blkbits;
-	stat->blocks = inode->i_blocks;
 
-	if (S_ISDIR(inode->i_mode) &&
-		ll_i2info(inode)->lli_lsm_md != NULL) {
-		stat->nlink = lli->lli_stripe_dir_nlink;
-		stat->size = lli->lli_stripe_dir_size;
-	} else {
-		stat->nlink = inode->i_nlink;
-		stat->size = i_size_read(inode);
-	}
+	stat->nlink = inode->i_nlink;
+	stat->size = i_size_read(inode);
+	stat->blocks = inode->i_blocks;
 
         return 0;
 }
