@@ -1374,17 +1374,40 @@ out_rmdir:
 
 			st.st_dev	= inode->i_sb->s_dev;
 			st.st_mode	= body->mbo_mode;
-			st.st_nlink	= body->mbo_nlink;
 			st.st_uid	= body->mbo_uid;
 			st.st_gid	= body->mbo_gid;
 			st.st_rdev	= body->mbo_rdev;
-			st.st_size	= body->mbo_size;
-			st.st_blksize	= PAGE_CACHE_SIZE;
-			st.st_blocks	= body->mbo_blocks;
-			st.st_atime	= body->mbo_atime;
-			st.st_mtime	= body->mbo_mtime;
-			st.st_ctime	= body->mbo_ctime;
 			st.st_ino	= inode->i_ino;
+			st.st_blksize	= PAGE_CACHE_SIZE;
+			if (S_ISDIR(inode->i_mode) &&
+				ll_i2info(inode)->lli_lsm_md != NULL) {
+				rc = ll_inode_revalidate(file->f_dentry,
+							 MDS_INODELOCK_UPDATE);
+				if (rc != 0)
+					GOTO(out_req, rc);
+
+				st.st_size =
+					ll_i2info(inode)->lli_stripe_dir_size;
+				st.st_blocks =
+					ll_i2info(inode)->lli_stripe_dir_blocks;
+				st.st_nlink =
+					ll_i2info(inode)->lli_stripe_dir_nlink;
+				st.st_atime =
+					ll_i2info(inode)->lli_lvb.lvb_atime;
+				st.st_mtime =
+					ll_i2info(inode)->lli_lvb.lvb_mtime;
+				st.st_ctime =
+					ll_i2info(inode)->lli_lvb.lvb_ctime;
+			} else {
+				st.st_nlink	= body->mbo_nlink;
+				st.st_size	= body->mbo_size;
+				st.st_blksize	= PAGE_CACHE_SIZE;
+				st.st_blocks	= body->mbo_blocks;
+				st.st_atime	= body->mbo_atime;
+				st.st_mtime	= body->mbo_mtime;
+				st.st_ctime	= body->mbo_ctime;
+
+			}
 
 			lmdp = (struct lov_user_mds_data __user *)arg;
 			if (copy_to_user(&lmdp->lmd_st, &st, sizeof(st)))

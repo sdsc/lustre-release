@@ -208,6 +208,8 @@ struct ll_inode_info {
 			struct lmv_stripe_md		*lli_lsm_md;
 			/* striped directory size */
 			loff_t				lli_stripe_dir_size;
+			/* striped directory blocks */
+			loff_t				lli_stripe_dir_blocks;
 			/* striped directory nlink */
 			__u64				lli_stripe_dir_nlink;
 		};
@@ -886,6 +888,7 @@ int ll_merge_lvb(const struct lu_env *env, struct inode *inode);
 int ll_fid2path(struct inode *inode, void __user *arg);
 int ll_data_version(struct inode *inode, __u64 *data_version, int flags);
 int ll_hsm_release(struct inode *inode);
+int ll_inode_revalidate(struct dentry *dentry, __u64 ibits);
 
 /* llite/dcache.c */
 
