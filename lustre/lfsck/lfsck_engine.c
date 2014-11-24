@@ -1651,9 +1651,7 @@ int lfsck_assistant_engine(void *args)
 			 * is empty or half of the prefetched items have been
 			 * handled to avoid too frequent thread schedule. */
 			if (lad->lad_prefetched == 0 ||
-			    (bk->lb_async_windows != 0 &&
-			     bk->lb_async_windows / 2 ==
-			     lad->lad_prefetched))
+			    bk->lb_async_windows / 2 == lad->lad_prefetched)
 				wakeup = true;
 			spin_unlock(&lad->lad_lock);
 			if (wakeup)
