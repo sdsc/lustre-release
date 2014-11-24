@@ -1193,6 +1193,8 @@ static int osp_precreate_thread(void *_arg)
 					       d->opd_obd->obd_name, rc);
 			}
 		}
+
+		d->opd_precreate_initialized = 0;
 	}
 
 	thread->t_flags = SVC_STOPPED;
@@ -1219,8 +1221,13 @@ static int osp_precreate_thread(void *_arg)
 static int osp_precreate_ready_condition(const struct lu_env *env,
 					 struct osp_device *d)
 {
+	struct obd_import *imp = d->opd_obd->u.cli.cl_import;
+
+	if (imp->imp_state != LUSTRE_IMP_FULL)
+		return 1;
+
 	if (d->opd_pre_recovering)
-		return 0;
+		return 1;
 
 	/* ready if got enough precreated objects */
 	/* we need to wait for others (opd_pre_reserved) and our object (+1) */
@@ -1289,7 +1296,8 @@ static int osp_precreate_timeout_condition(void *data)
 int osp_precreate_reserve(const struct lu_env *env, struct osp_device *d)
 {
 	struct l_wait_info	 lwi;
-	cfs_time_t		 expire = cfs_time_shift(obd_timeout);
+	struct obd_import	*imp;
+	cfs_time_t		 expire;
 	int			 precreated, rc;
 
 	ENTRY;
@@ -1298,6 +1306,8 @@ int osp_precreate_reserve(const struct lu_env *env, struct osp_device *d)
 		 "Next FID "DFID"\n", PFID(&d->opd_pre_last_created_fid),
 		 PFID(&d->opd_pre_used_fid));
 
+	imp = d->opd_obd->u.cli.cl_import;
+
 	/*
 	 * wait till:
 	 *  - preallocation is done
@@ -1305,6 +1315,7 @@ int osp_precreate_reserve(const struct lu_env *env, struct osp_device *d)
 	 *  - can't connect to OST for too long (obd_timeout)
 	 *  - OST can allocate fid sequence.
 	 */
+	expire = cfs_time_shift(obd_timeout);
 	while ((rc = d->opd_pre_status) == 0 || rc == -ENOSPC ||
 		rc == -ENODEV || rc == -EAGAIN || rc == -ENOTCONN) {
 
@@ -1334,6 +1345,7 @@ int osp_precreate_reserve(const struct lu_env *env, struct osp_device *d)
 			   !osp_precreate_end_seq_nolock(env, d))
 				wake_up(&d->opd_pre_waitq);
 
+			d->opd_precreate_initialized = 1;
 			break;
 		}
 		spin_unlock(&d->opd_pre_lock);
@@ -1356,6 +1368,7 @@ int osp_precreate_reserve(const struct lu_env *env, struct osp_device *d)
 			if (d->opd_syn_changes +
 			    d->opd_syn_rpc_in_progress == 0) {
 				/* no hope for free space */
+				d->opd_precreate_initialized = 1;
 				break;
 			}
 		}
@@ -1363,15 +1376,36 @@ int osp_precreate_reserve(const struct lu_env *env, struct osp_device *d)
 		/* XXX: don't wake up if precreation is in progress */
 		wake_up(&d->opd_pre_waitq);
 
+		if (rc != 0 || imp->imp_state != LUSTRE_IMP_FULL) {
+			CERROR("reset expire\n");
+
+			expire = cfs_time_shift(obd_timeout);
+		}
+
 		lwi = LWI_TIMEOUT(expire - cfs_time_current(),
 				osp_precreate_timeout_condition, d);
-		if (cfs_time_aftereq(cfs_time_current(), expire)) {
+		if (d->opd_precreate_initialized == 1 &&
+		    cfs_time_aftereq(cfs_time_current(), expire)) {
 			rc = -ETIMEDOUT;
+			CERROR("expired on waiting for precreated objects\n");
 			break;
 		}
 
 		l_wait_event(d->opd_pre_user_waitq,
 			     osp_precreate_ready_condition(env, d), &lwi);
+
+		if (d->opd_pre_recovering ||
+		    imp->imp_state != LUSTRE_IMP_FULL) {
+			CERROR("wait recovery to complete!\n");
+
+			memset(&lwi, 0, sizeof(lwi));
+			l_wait_event(d->opd_pre_user_waitq,
+				     d->opd_pre_recovering == 0 &&
+				     imp->imp_state == LUSTRE_IMP_FULL, &lwi);
+
+			expire = cfs_time_shift(obd_timeout);
+		}
+
 	}
 
 	RETURN(rc);
