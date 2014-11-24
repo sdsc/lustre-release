@@ -46,7 +46,7 @@
 #include <lustre_mds.h>
 #include "mdt_internal.h"
 
-enum moo_lk_op {
+enum moo_lock_status {
 	MOO_NO_LOCK,
 	MOO_OPEN_LOCK,
 	MOO_RESENT_LOCK,
@@ -55,7 +55,7 @@ enum moo_lk_op {
 static void
 mdt_object_open_unlock(struct mdt_thread_info *info, struct mdt_object *obj,
 		       struct mdt_lock_handle *lh, __u64 ibits,
-		       enum moo_lk_op lock_op, int rc);
+		       enum moo_lock_status moo_lk, int rc);
 
 /* we do nothing because we do not have refcount now */
 static void mdt_mfd_get(void *mfdp)
@@ -1175,7 +1175,7 @@ int mdt_open_by_fid(struct mdt_thread_info *info, struct ldlm_reply *rep)
 static int mdt_object_open_lock(struct mdt_thread_info *info,
 				struct mdt_object *obj,
 				struct mdt_lock_handle *lhc,
-				__u64 *ibits, enum moo_lk_op *lock_op)
+				__u64 *ibits, enum moo_lock_status *moo_lk)
 {
 	struct md_attr	*ma = &info->mti_attr;
 	__u64		 open_flags = info->mti_spec.sp_cr_flags;
@@ -1186,13 +1186,13 @@ static int mdt_object_open_lock(struct mdt_thread_info *info,
 	int		 rc;
 	ENTRY;
 
-	*lock_op = MOO_NO_LOCK;
+	*moo_lk = MOO_NO_LOCK;
 	rc = mdt_check_resent_lock(info, obj, lhc);
 	switch (rc) {
 	default: /* error */
 		RETURN(rc);
 	case 0: /* resent lock */
-		*lock_op = MOO_RESENT_LOCK;
+		*moo_lk = MOO_RESENT_LOCK;
 		GOTO(out, rc);
 	case 1:	/* not resent */
 		rc = 0;
@@ -1205,7 +1205,7 @@ static int mdt_object_open_lock(struct mdt_thread_info *info,
 	if (req_is_replay(mdt_info_req(info)))
 		RETURN(0);
 
-	*lock_op = MOO_OPEN_LOCK;
+	*moo_lk = MOO_OPEN_LOCK;
 	if (S_ISREG(lu_object_attr(&obj->mot_obj))) {
 		if (ma->ma_need & MA_LOV && !(ma->ma_valid & MA_LOV) &&
 		    md_should_create(open_flags))
@@ -1369,23 +1369,23 @@ out:
 	}
 	return 0;
 failed:
-	mdt_object_open_unlock(info, obj, lhc, *ibits, *lock_op, rc);
+	mdt_object_open_unlock(info, obj, lhc, *ibits, *moo_lk, rc);
 	return rc;
 }
 
 static void mdt_object_open_unlock(struct mdt_thread_info *info,
 				   struct mdt_object *obj,
-				   struct mdt_lock_handle *lhc,
-				   __u64 ibits, enum moo_lk_op lock_op, int rc)
+				   struct mdt_lock_handle *lhc, __u64 ibits,
+				   enum moo_lock_status moo_lk, int rc)
 {
 	__u64 open_flags = info->mti_spec.sp_cr_flags;
 	struct mdt_lock_handle *ll = &info->mti_lh[MDT_LH_LOCAL];
 	ENTRY;
 
-	if (lock_op == MOO_NO_LOCK)
+	if (moo_lk == MOO_NO_LOCK)
 		RETURN_EXIT;
 
-	if (lock_op == MOO_RESENT_LOCK)
+	if (moo_lk == MOO_RESENT_LOCK)
 		GOTO(out, rc = 1);
 
 	/* Release local lock - the lock put in MDT_LH_LOCAL will never
@@ -1422,7 +1422,7 @@ out:
 		ldlm_rep = req_capsule_server_get(info->mti_pill, &RMF_DLM_REP);
 		mdt_clear_disposition(info, ldlm_rep, DISP_OPEN_LOCK);
 		if (lustre_handle_is_used(&lhc->mlh_reg_lh) &&
-		    lock_op == MOO_OPEN_LOCK)
+		    moo_lk == MOO_OPEN_LOCK)
 			mdt_object_unlock(info, obj, lhc, 1);
 	}
 }
@@ -1455,7 +1455,7 @@ int mdt_open_by_fid_lock(struct mdt_thread_info *info, struct ldlm_reply *rep,
         struct mdt_object       *parent= NULL;
         struct mdt_object       *o;
         int                      rc;
-	int			 object_locked = MOO_NO_LOCK;
+	enum moo_lock_status	 moo_lk = MOO_NO_LOCK;
 	__u64			 ibits = 0;
 	ENTRY;
 
@@ -1504,7 +1504,7 @@ int mdt_open_by_fid_lock(struct mdt_thread_info *info, struct ldlm_reply *rep,
 	if (flags & MDS_OPEN_RELEASE && !mdt_hsm_release_allow(ma))
 		GOTO(out, rc = -EPERM);
 
-	rc = mdt_object_open_lock(info, o, lhc, &ibits, &object_locked);
+	rc = mdt_object_open_lock(info, o, lhc, &ibits, &moo_lk);
 	if (rc != 0)
 		GOTO(out, rc);
 
@@ -1525,7 +1525,7 @@ int mdt_open_by_fid_lock(struct mdt_thread_info *info, struct ldlm_reply *rep,
 		if (flags & MDS_OPEN_LEASE)
 			mdt_set_disposition(info, rep, DISP_OPEN_LEASE);
 	}
-	mdt_object_open_unlock(info, o, lhc, ibits, object_locked, rc);
+	mdt_object_open_unlock(info, o, lhc, ibits, moo_lk, rc);
 	EXIT;
 out:
 	mdt_object_put(env, o);
@@ -1617,7 +1617,7 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
         struct lu_name          *lname;
         int                      result, rc;
 	int			 created = 0;
-	int			 object_locked = MOO_NO_LOCK;
+	enum moo_lock_status	 moo_lk = MOO_NO_LOCK;
 	__u32			 msg_flags;
 	ENTRY;
 
@@ -1864,7 +1864,7 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
         }
 
 	/* get openlock if this isn't replay and client requested it */
-	rc = mdt_object_open_lock(info, child, lhc, &ibits, &object_locked);
+	rc = mdt_object_open_lock(info, child, lhc, &ibits, &moo_lk);
 	if (rc != 0)
 		GOTO(out_child, result = rc);
 	/* Try to open it now. */
@@ -1897,7 +1897,7 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
 	}
 	EXIT;
 out_child_unlock:
-	mdt_object_open_unlock(info, child, lhc, ibits, object_locked, result);
+	mdt_object_open_unlock(info, child, lhc, ibits, moo_lk, result);
 out_child:
 	mdt_object_put(info->mti_env, child);
 out_parent:
