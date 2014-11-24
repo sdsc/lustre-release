@@ -4066,8 +4066,8 @@ static int mdt_intent_reint(enum mdt_it_code opcode,
                 RETURN(rc);
         }
 	/*
-	 * For other cases, the error will be returned by intent.
-	 * and client will retrieve the result from intent.
+	 * For other cases, the error will be returned by intent, and client
+	 * will retrieve the result from intent.
 	 */
 	RETURN(ELDLM_LOCK_ABORTED);
 }
