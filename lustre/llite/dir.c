@@ -1342,6 +1342,10 @@ out_rmdir:
                         body = req_capsule_server_get(&request->rq_pill,
                                                       &RMF_MDT_BODY);
                         LASSERT(body != NULL);
+			/* XXX MDC_GETFILEINFO can not be called for dir */
+			if (cmd == IOC_MDC_GETFILEINFO &&
+			    S_ISDIR(body->mbo_mode))
+				GOTO(out_req, rc = -EINVAL);
                 } else {
                         GOTO(out_req, rc);
                 }
@@ -1374,17 +1378,34 @@ out_rmdir:
 
 			st.st_dev	= inode->i_sb->s_dev;
 			st.st_mode	= body->mbo_mode;
-			st.st_nlink	= body->mbo_nlink;
 			st.st_uid	= body->mbo_uid;
 			st.st_gid	= body->mbo_gid;
 			st.st_rdev	= body->mbo_rdev;
-			st.st_size	= body->mbo_size;
 			st.st_blksize	= PAGE_CACHE_SIZE;
-			st.st_blocks	= body->mbo_blocks;
-			st.st_atime	= body->mbo_atime;
-			st.st_mtime	= body->mbo_mtime;
-			st.st_ctime	= body->mbo_ctime;
-			st.st_ino	= inode->i_ino;
+			if (ll_i2info(inode)->lli_lsm_md != NULL &&
+			    cmd == LL_IOC_MDC_GETINFO) {
+				rc = ll_inode_revalidate(file->f_dentry,
+							 MDS_INODELOCK_UPDATE);
+				if (rc != 0)
+					GOTO(out_req, rc);
+
+				st.st_ino = inode->i_ino;
+				st.st_size = i_size_read(inode);
+				st.st_blocks = inode->i_blocks;
+				st.st_nlink = inode->i_nlink;
+				st.st_atime = LTIME_S(inode->i_atime);
+				st.st_mtime = LTIME_S(inode->i_mtime);
+				st.st_ctime = LTIME_S(inode->i_ctime);
+			} else {
+				st.st_ino = cl_fid_build_ino(&body->mbo_fid1,
+					    sbi->ll_flags & LL_SBI_32BIT_API);
+				st.st_nlink	= body->mbo_nlink;
+				st.st_size	= body->mbo_size;
+				st.st_blocks	= body->mbo_blocks;
+				st.st_atime	= body->mbo_atime;
+				st.st_mtime	= body->mbo_mtime;
+				st.st_ctime	= body->mbo_ctime;
+			}
 
 			lmdp = (struct lov_user_mds_data __user *)arg;
 			if (copy_to_user(&lmdp->lmd_st, &st, sizeof(st)))
