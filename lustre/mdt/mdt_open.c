@@ -46,6 +46,17 @@
 #include <lustre_mds.h>
 #include "mdt_internal.h"
 
+enum moo_lock_status {
+	MOO_NO_LOCK,
+	MOO_OPEN_LOCK,
+	MOO_RESENT_LOCK,
+};
+
+static void
+mdt_object_open_unlock(struct mdt_thread_info *info, struct mdt_object *obj,
+		       struct mdt_lock_handle *lh, __u64 ibits,
+		       enum moo_lock_status moo_lk, int rc);
+
 /* we do nothing because we do not have refcount now */
 static void mdt_mfd_get(void *mfdp)
 {
@@ -1164,7 +1175,7 @@ int mdt_open_by_fid(struct mdt_thread_info *info, struct ldlm_reply *rep)
 static int mdt_object_open_lock(struct mdt_thread_info *info,
 				struct mdt_object *obj,
 				struct mdt_lock_handle *lhc,
-				__u64 *ibits)
+				__u64 *ibits, enum moo_lock_status *moo_lk)
 {
 	struct md_attr	*ma = &info->mti_attr;
 	__u64		 open_flags = info->mti_spec.sp_cr_flags;
@@ -1172,8 +1183,21 @@ static int mdt_object_open_lock(struct mdt_thread_info *info,
 	bool		 acq_lease = !!(open_flags & MDS_OPEN_LEASE);
 	bool		 try_layout = false;
 	bool		 create_layout = false;
-	int		 rc = 0;
+	int		 rc;
 	ENTRY;
+
+	*moo_lk = MOO_NO_LOCK;
+	rc = mdt_check_resent_lock(info, obj, lhc);
+	switch (rc) {
+	default: /* error */
+		RETURN(rc);
+	case 0: /* resent lock */
+		*moo_lk = MOO_RESENT_LOCK;
+		GOTO(out, rc);
+	case 1:	/* not resent */
+		rc = 0;
+		break;
+	}
 
 	*ibits = 0;
 	mdt_lock_handle_init(lhc);
@@ -1181,6 +1205,7 @@ static int mdt_object_open_lock(struct mdt_thread_info *info,
 	if (req_is_replay(mdt_info_req(info)))
 		RETURN(0);
 
+	*moo_lk = MOO_OPEN_LOCK;
 	if (S_ISREG(lu_object_attr(&obj->mot_obj))) {
 		if (ma->ma_need & MA_LOV && !(ma->ma_valid & MA_LOV) &&
 		    md_should_create(open_flags))
@@ -1198,7 +1223,7 @@ static int mdt_object_open_lock(struct mdt_thread_info *info,
 		if (atomic_read(&obj->mot_lease_count) > 0) {
 			/* only exclusive open is supported, so lease
 			 * are conflicted to each other */
-			GOTO(out, rc = -EBUSY);
+			GOTO(failed, rc = -EBUSY);
 		}
 
 		/* Lease must be with open lock */
@@ -1206,7 +1231,7 @@ static int mdt_object_open_lock(struct mdt_thread_info *info,
 			CERROR("Request lease for file:"DFID ", but open lock "
 				"is missed, open_flags = "LPO64".\n",
 				PFID(mdt_object_fid(obj)), open_flags);
-			GOTO(out, rc = -EPROTO);
+			GOTO(failed, rc = -EPROTO);
 		}
 
 		/* XXX: only exclusive open is supported. */
@@ -1330,25 +1355,38 @@ static int mdt_object_open_lock(struct mdt_thread_info *info,
 			atomic_read(&obj->mot_open_count), open_count);
 
 		if (atomic_read(&obj->mot_open_count) > open_count)
-			GOTO(out, rc = -EBUSY);
+			GOTO(failed, rc = -EBUSY);
 	}
-	GOTO(out, rc);
-
+	if (rc != 0)
+		GOTO(failed, rc);
+	EXIT;
 out:
-	RETURN(rc);
+	if (open_flags & MDS_OPEN_LOCK) {
+		struct ldlm_reply *rep;
+
+		rep = req_capsule_server_get(info->mti_pill, &RMF_DLM_REP);
+		mdt_set_disposition(info, rep, DISP_OPEN_LOCK);
+	}
+	return 0;
+failed:
+	mdt_object_open_unlock(info, obj, lhc, *ibits, *moo_lk, rc);
+	return rc;
 }
 
 static void mdt_object_open_unlock(struct mdt_thread_info *info,
 				   struct mdt_object *obj,
-				   struct mdt_lock_handle *lhc,
-				   __u64 ibits, int rc)
+				   struct mdt_lock_handle *lhc, __u64 ibits,
+				   enum moo_lock_status moo_lk, int rc)
 {
 	__u64 open_flags = info->mti_spec.sp_cr_flags;
 	struct mdt_lock_handle *ll = &info->mti_lh[MDT_LH_LOCAL];
 	ENTRY;
 
-	if (req_is_replay(mdt_info_req(info)))
+	if (moo_lk == MOO_NO_LOCK)
 		RETURN_EXIT;
+
+	if (moo_lk == MOO_RESENT_LOCK)
+		GOTO(out, rc = 1);
 
 	/* Release local lock - the lock put in MDT_LH_LOCAL will never
 	 * return to client side. */
@@ -1376,16 +1414,17 @@ static void mdt_object_open_unlock(struct mdt_thread_info *info,
 		 * if open or layout lock is granted. */
 		rc = 1;
 	}
-
+	EXIT;
+out:
 	if (rc != 0 || !lustre_handle_is_used(&lhc->mlh_reg_lh)) {
 		struct ldlm_reply       *ldlm_rep;
 
 		ldlm_rep = req_capsule_server_get(info->mti_pill, &RMF_DLM_REP);
 		mdt_clear_disposition(info, ldlm_rep, DISP_OPEN_LOCK);
-		if (lustre_handle_is_used(&lhc->mlh_reg_lh))
+		if (lustre_handle_is_used(&lhc->mlh_reg_lh) &&
+		    moo_lk == MOO_OPEN_LOCK)
 			mdt_object_unlock(info, obj, lhc, 1);
 	}
-	RETURN_EXIT;
 }
 
 /**
@@ -1416,9 +1455,9 @@ int mdt_open_by_fid_lock(struct mdt_thread_info *info, struct ldlm_reply *rep,
         struct mdt_object       *parent= NULL;
         struct mdt_object       *o;
         int                      rc;
-	int			 object_locked = 0;
+	enum moo_lock_status	 moo_lk = MOO_NO_LOCK;
 	__u64			 ibits = 0;
-        ENTRY;
+	ENTRY;
 
 	if (md_should_create(flags) && !(flags & MDS_OPEN_HAS_EA)) {
                 if (!lu_fid_eq(rr->rr_fid1, rr->rr_fid2)) {
@@ -1465,15 +1504,9 @@ int mdt_open_by_fid_lock(struct mdt_thread_info *info, struct ldlm_reply *rep,
 	if (flags & MDS_OPEN_RELEASE && !mdt_hsm_release_allow(ma))
 		GOTO(out, rc = -EPERM);
 
-	rc = mdt_check_resent_lock(info, o, lhc);
-	if (rc < 0) {
+	rc = mdt_object_open_lock(info, o, lhc, &ibits, &moo_lk);
+	if (rc != 0)
 		GOTO(out, rc);
-	} else if (rc > 0) {
-		rc = mdt_object_open_lock(info, o, lhc, &ibits);
-		object_locked = 1;
-		if (rc)
-			GOTO(out_unlock, rc);
-	}
 
         if (ma->ma_valid & MA_PFID) {
                 parent = mdt_object_find(env, mdt, &ma->ma_pfid);
@@ -1489,16 +1522,11 @@ int mdt_open_by_fid_lock(struct mdt_thread_info *info, struct ldlm_reply *rep,
         rc = mdt_finish_open(info, parent, o, flags, 0, rep);
 	if (!rc) {
 		mdt_set_disposition(info, rep, DISP_LOOKUP_POS);
-		if (flags & MDS_OPEN_LOCK)
-			mdt_set_disposition(info, rep, DISP_OPEN_LOCK);
 		if (flags & MDS_OPEN_LEASE)
 			mdt_set_disposition(info, rep, DISP_OPEN_LEASE);
 	}
-	GOTO(out_unlock, rc);
-
-out_unlock:
-	if (object_locked)
-		mdt_object_open_unlock(info, o, lhc, ibits, rc);
+	mdt_object_open_unlock(info, o, lhc, ibits, moo_lk, rc);
+	EXIT;
 out:
 	mdt_object_put(env, o);
 	if (parent != NULL)
@@ -1588,10 +1616,10 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
         struct mdt_reint_record *rr = &info->mti_rr;
         struct lu_name          *lname;
         int                      result, rc;
-        int                      created = 0;
-	int			 object_locked = 0;
-        __u32                    msg_flags;
-        ENTRY;
+	int			 created = 0;
+	enum moo_lock_status	 moo_lk = MOO_NO_LOCK;
+	__u32			 msg_flags;
+	ENTRY;
 
         OBD_FAIL_TIMEOUT_ORSET(OBD_FAIL_MDS_PAUSE_OPEN, OBD_FAIL_ONCE,
                                (obd_timeout + 1) / 4);
@@ -1835,35 +1863,15 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
 		}
         }
 
-	rc = mdt_check_resent_lock(info, child, lhc);
-	if (rc < 0) {
+	/* get openlock if this isn't replay and client requested it */
+	rc = mdt_object_open_lock(info, child, lhc, &ibits, &moo_lk);
+	if (rc != 0)
 		GOTO(out_child, result = rc);
-	} else if (rc == 0) {
-		/* the open lock might already be gotten in
-		 * ldlm_handle_enqueue() */
-		LASSERT(lustre_msg_get_flags(req->rq_reqmsg) & MSG_RESENT);
-		if (create_flags & MDS_OPEN_LOCK)
-			mdt_set_disposition(info, ldlm_rep, DISP_OPEN_LOCK);
-	} else {
-		/* get openlock if this isn't replay and client requested it */
-		if (!req_is_replay(req)) {
-			rc = mdt_object_open_lock(info, child, lhc, &ibits);
-			object_locked = 1;
-			if (rc != 0)
-				GOTO(out_child_unlock, result = rc);
-			else if (create_flags & MDS_OPEN_LOCK)
-				mdt_set_disposition(info, ldlm_rep,
-						    DISP_OPEN_LOCK);
-		}
-	}
 	/* Try to open it now. */
 	rc = mdt_finish_open(info, parent, child, create_flags,
 			     created, ldlm_rep);
 	if (rc) {
 		result = rc;
-		/* openlock will be released if mdt_finish_open failed */
-		mdt_clear_disposition(info, ldlm_rep, DISP_OPEN_LOCK);
-
 		if (created && create_flags & MDS_OPEN_VOLATILE) {
 			CERROR("%s: cannot open volatile file "DFID", orphan "
 			       "file will be left in PENDING directory until "
@@ -1889,8 +1897,7 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
 	}
 	EXIT;
 out_child_unlock:
-	if (object_locked)
-		mdt_object_open_unlock(info, child, lhc, ibits, result);
+	mdt_object_open_unlock(info, child, lhc, ibits, moo_lk, result);
 out_child:
 	mdt_object_put(info->mti_env, child);
 out_parent:
