@@ -658,9 +658,11 @@ static void sa_handle_callback(struct ll_statahead_info *sai)
  * only put sa_entry in sai_interim_entries, and wake up statahead thread to
  * really prepare inode and instantiate sa_entry later.
  */
-static int ll_statahead_interpret(struct ptlrpc_request *req,
-				  struct md_enqueue_info *minfo, int rc)
+static int ll_statahead_interpret(void *args, int rc)
 {
+	struct mdc_enqueue_args *mea = args;
+	struct ptlrpc_request *req = mea->mea_req;
+	struct md_enqueue_info *minfo = mea->mea_minfo;
 	struct lookup_intent *it = &minfo->mi_it;
 	struct inode *dir = minfo->mi_dir;
 	struct ll_inode_info *lli = ll_i2info(dir);
@@ -714,6 +716,7 @@ static int ll_statahead_interpret(struct ptlrpc_request *req,
 		wake_up(&sai->sai_thread.t_ctl_waitq);
 	spin_unlock(&lli->lli_sa_lock);
 
+	OBD_FREE_PTR(mea->mea_einfo);
 	RETURN(rc);
 }
 
@@ -770,7 +773,7 @@ static int sa_prep_data(struct inode *dir, struct inode *child,
 
 	minfo->mi_it.it_op = IT_GETATTR;
 	minfo->mi_dir = igrab(dir);
-	minfo->mi_cb = ll_statahead_interpret;
+	minfo->mi_cb = NULL;
 	minfo->mi_cbdata = entry;
 
         einfo->ei_type   = LDLM_IBITS;
@@ -784,9 +787,15 @@ static int sa_prep_data(struct inode *dir, struct inode *child,
         *pei = einfo;
         pcapa[0] = op_data->op_capa1;
         pcapa[1] = op_data->op_capa2;
+	op_data->op_data = minfo;
 
         return 0;
 }
+
+static ldlm_policy_data_t policy = {
+	.l_inodebits = { MDS_INODELOCK_LOOKUP |
+			 MDS_INODELOCK_UPDATE }
+};
 
 /* async stat for file not found in dcache */
 static int sa_lookup(struct inode *dir, struct sa_entry *entry)
@@ -801,7 +810,9 @@ static int sa_lookup(struct inode *dir, struct sa_entry *entry)
 	if (rc)
 		RETURN(rc);
 
-	rc = md_intent_getattr_async(ll_i2mdexp(dir), minfo, einfo);
+	rc = md_enqueue_async(ll_i2mdexp(dir), einfo, &policy,
+			      &minfo->mi_it, &minfo->mi_data,
+			      ll_statahead_interpret, LDLM_FL_HAS_INTENT);
 	if (!rc) {
 		capa_put(capas[0]);
 		capa_put(capas[1]);
@@ -853,7 +864,9 @@ static int sa_revalidate(struct inode *dir, struct sa_entry *entry,
 		RETURN(rc);
 	}
 
-	rc = md_intent_getattr_async(ll_i2mdexp(dir), minfo, einfo);
+	rc = md_enqueue_async(ll_i2mdexp(dir), einfo, &policy,
+			      &minfo->mi_it, &minfo->mi_data,
+			      ll_statahead_interpret, LDLM_FL_HAS_INTENT);
 	if (!rc) {
 		capa_put(capas[0]);
 		capa_put(capas[1]);

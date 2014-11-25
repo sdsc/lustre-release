@@ -1571,6 +1571,7 @@ void lprocfs_init_mps_stats(int num_private_stats, struct lprocfs_stats *stats)
         LPROCFS_MD_OP_INIT(num_private_stats, stats, create);
         LPROCFS_MD_OP_INIT(num_private_stats, stats, done_writing);
         LPROCFS_MD_OP_INIT(num_private_stats, stats, enqueue);
+	LPROCFS_MD_OP_INIT(num_private_stats, stats, enqueue_async);
         LPROCFS_MD_OP_INIT(num_private_stats, stats, getattr);
         LPROCFS_MD_OP_INIT(num_private_stats, stats, getattr_name);
         LPROCFS_MD_OP_INIT(num_private_stats, stats, intent_lock);
@@ -1595,7 +1596,6 @@ void lprocfs_init_mps_stats(int num_private_stats, struct lprocfs_stats *stats)
         LPROCFS_MD_OP_INIT(num_private_stats, stats, renew_capa);
         LPROCFS_MD_OP_INIT(num_private_stats, stats, unpack_capa);
         LPROCFS_MD_OP_INIT(num_private_stats, stats, get_remote_perm);
-        LPROCFS_MD_OP_INIT(num_private_stats, stats, intent_getattr_async);
         LPROCFS_MD_OP_INIT(num_private_stats, stats, revalidate_lock);
 }
 EXPORT_SYMBOL(lprocfs_init_mps_stats);

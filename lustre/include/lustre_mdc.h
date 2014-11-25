@@ -212,6 +212,16 @@ static inline void cl_lov_delay_create_clear(unsigned int *flags)
 		*flags &= ~O_LOV_DELAY_CREATE_MASK;
 }
 
+struct mdc_enqueue_args {
+	struct obd_export	 *mea_exp;
+	struct ptlrpc_request	 *mea_req;
+	struct md_enqueue_info	 *mea_minfo;
+	struct ldlm_enqueue_info *mea_einfo;
+	struct ldlm_lock	 *mea_lock;
+	__u64			 mea_flags;
+	obd_enqueue_update_f	 mea_upcall;
+};
+
 /** @} mdc */
 
 #endif
