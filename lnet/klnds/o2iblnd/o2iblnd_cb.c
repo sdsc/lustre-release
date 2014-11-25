@@ -1119,11 +1119,11 @@ kiblnd_init_rdma(kib_conn_t *conn, kib_tx_t *tx, int type,
                         break;
                 }
 
-                if (dstidx == dstrd->rd_nfrags) {
-                        CERROR("Dst buffer exhausted: %d frags\n", dstidx);
-                        rc = -EPROTO;
-                        break;
-                }
+		if (dstidx >= dstrd->rd_nfrags) {
+			CERROR("Dst buffer exhausted: %d frags\n", dstidx);
+			rc = -EPROTO;
+			break;
+		}
 
                 if (tx->tx_nwrq == IBLND_RDMA_FRAGS(conn->ibc_version)) {
                         CERROR("RDMA too fragmented for %s (%d): "
@@ -1139,12 +1139,9 @@ kiblnd_init_rdma(kib_conn_t *conn, kib_tx_t *tx, int type,
                 wrknob = MIN(MIN(kiblnd_rd_frag_size(srcrd, srcidx),
                                  kiblnd_rd_frag_size(dstrd, dstidx)), resid);
 
-                sge = &tx->tx_sge[tx->tx_nwrq];
                 sge->addr   = kiblnd_rd_frag_addr(srcrd, srcidx);
                 sge->lkey   = kiblnd_rd_frag_key(srcrd, srcidx);
                 sge->length = wrknob;
-
-                wrq = &tx->tx_wrq[tx->tx_nwrq];
 
                 wrq->next       = wrq + 1;
                 wrq->wr_id      = kiblnd_ptr2wreqid(tx, IBLND_WID_RDMA);
