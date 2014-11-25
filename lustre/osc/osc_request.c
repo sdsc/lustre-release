@@ -839,16 +839,14 @@ static void osc_announce_cached(struct client_obd *cli, struct obdo *oa,
 		       cli->cl_dirty_pages, cli->cl_dirty_transit,
 		       cli->cl_dirty_max_pages);
 		oa->o_undirty = 0;
-	} else if (unlikely(cfs_atomic_read(&obd_unstable_pages) +
-			    cfs_atomic_read(&obd_dirty_pages) -
+	} else if (unlikely(cfs_atomic_read(&obd_dirty_pages) -
 			    cfs_atomic_read(&obd_dirty_transit_pages) >
 			    (long)(obd_max_dirty_pages + 1))) {
 		/* The cfs_atomic_read() allowing the cfs_atomic_inc() are
 		 * not covered by a lock thus they may safely race and trip
 		 * this CERROR() unless we add in a small fudge factor (+1). */
-		CERROR("%s: dirty %d + %d - %d > system dirty_max %d\n",
+		CERROR("%s: dirty %d - %d > system dirty_max %d\n",
 		       cli->cl_import->imp_obd->obd_name,
-		       cfs_atomic_read(&obd_unstable_pages),
 		       cfs_atomic_read(&obd_dirty_pages),
 		       cfs_atomic_read(&obd_dirty_transit_pages),
 		       obd_max_dirty_pages);

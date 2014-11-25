@@ -106,6 +106,8 @@ static struct ll_sb_info *ll_init_sbi(void)
 	spin_lock_init(&sbi->ll_cache.ccc_lru_lock);
 	CFS_INIT_LIST_HEAD(&sbi->ll_cache.ccc_lru);
 
+	/* turn unstable check off by default as it impacts performance */
+	sbi->ll_cache.ccc_unstable_check = 0;
 	cfs_atomic_set(&sbi->ll_cache.ccc_unstable_nr, 0);
 	init_waitqueue_head(&sbi->ll_cache.ccc_unstable_waitq);
 
