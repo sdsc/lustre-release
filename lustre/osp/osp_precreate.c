@@ -545,6 +545,7 @@ static int osp_precreate_send(const struct lu_env *env, struct osp_device *d)
 	struct ost_body		*body;
 	int			 rc, grow, diff;
 	struct lu_fid		*fid = &oti->osi_fid;
+	cfs_time_t		service_time;
 	ENTRY;
 
 	/* don't precreate new objects till OST healthy and has free space */
@@ -608,6 +609,11 @@ static int osp_precreate_send(const struct lu_env *env, struct osp_device *d)
 	ptlrpc_request_set_replen(req);
 
 	rc = ptlrpc_queue_wait(req);
+
+	service_time = 5 + cfs_time_current_sec() - req->rq_sent;
+	if (service_time > d->opd_precreate_req_timeout)
+		d->opd_precreate_req_timeout = service_time;
+
 	if (rc) {
 		CERROR("%s: can't precreate: rc = %d\n", d->opd_obd->obd_name,
 		       rc);
@@ -1098,6 +1104,9 @@ static int osp_precreate_thread(void *_arg)
 	spin_unlock(&d->opd_pre_lock);
 	wake_up(&thread->t_ctl_waitq);
 
+	d->opd_precreate_initialized = 0;
+	CERROR("%s: clear opd_precreate_initialized before enter running "
+		"loop\n", d->opd_obd->obd_name);
 	while (osp_precreate_running(d)) {
 		/*
 		 * need to be connected to OST
@@ -1193,6 +1202,10 @@ static int osp_precreate_thread(void *_arg)
 					       d->opd_obd->obd_name, rc);
 			}
 		}
+
+		d->opd_precreate_initialized = 0;
+		CERROR("%s: clear opd_precreate_initialized\n",
+			d->opd_obd->obd_name);
 	}
 
 	thread->t_flags = SVC_STOPPED;
@@ -1219,8 +1232,13 @@ static int osp_precreate_thread(void *_arg)
 static int osp_precreate_ready_condition(const struct lu_env *env,
 					 struct osp_device *d)
 {
+	struct obd_import *imp = d->opd_obd->u.cli.cl_import;
+
+	if (imp->imp_state != LUSTRE_IMP_FULL)
+		return 1;
+
 	if (d->opd_pre_recovering)
-		return 0;
+		return 1;
 
 	/* ready if got enough precreated objects */
 	/* we need to wait for others (opd_pre_reserved) and our object (+1) */
@@ -1289,7 +1307,9 @@ static int osp_precreate_timeout_condition(void *data)
 int osp_precreate_reserve(const struct lu_env *env, struct osp_device *d)
 {
 	struct l_wait_info	 lwi;
-	cfs_time_t		 expire = cfs_time_shift(obd_timeout);
+	struct obd_import	*imp;
+	cfs_time_t		 expire;
+	cfs_time_t		 start = cfs_time_current_sec();
 	int			 precreated, rc;
 
 	ENTRY;
@@ -1298,13 +1318,16 @@ int osp_precreate_reserve(const struct lu_env *env, struct osp_device *d)
 		 "Next FID "DFID"\n", PFID(&d->opd_pre_last_created_fid),
 		 PFID(&d->opd_pre_used_fid));
 
+	imp = d->opd_obd->u.cli.cl_import;
+
 	/*
 	 * wait till:
 	 *  - preallocation is done
 	 *  - no free space expected soon
-	 *  - can't connect to OST for too long (obd_timeout)
+	 *  - can't connect to OST for too long (obd_timeout * 2)
 	 *  - OST can allocate fid sequence.
 	 */
+	expire = cfs_time_shift(d->opd_precreate_req_timeout);
 	while ((rc = d->opd_pre_status) == 0 || rc == -ENOSPC ||
 		rc == -ENODEV || rc == -EAGAIN || rc == -ENOTCONN) {
 
@@ -1334,6 +1357,9 @@ int osp_precreate_reserve(const struct lu_env *env, struct osp_device *d)
 			   !osp_precreate_end_seq_nolock(env, d))
 				wake_up(&d->opd_pre_waitq);
 
+			d->opd_precreate_initialized = 1;
+			CERROR("%s: set opd_precreate_initialized normally\n",
+				d->opd_obd->obd_name);
 			break;
 		}
 		spin_unlock(&d->opd_pre_lock);
@@ -1356,6 +1382,9 @@ int osp_precreate_reserve(const struct lu_env *env, struct osp_device *d)
 			if (d->opd_syn_changes +
 			    d->opd_syn_rpc_in_progress == 0) {
 				/* no hope for free space */
+				d->opd_precreate_initialized = 1;
+				CERROR("%s: set opd_precreate_initialized for "
+				       "-ENOSPC error\n", d->opd_obd->obd_name);
 				break;
 			}
 		}
@@ -1363,15 +1392,45 @@ int osp_precreate_reserve(const struct lu_env *env, struct osp_device *d)
 		/* XXX: don't wake up if precreation is in progress */
 		wake_up(&d->opd_pre_waitq);
 
+		if (rc != 0 || imp->imp_state != LUSTRE_IMP_FULL) {
+			CERROR("reset expire\n");
+
+			expire = cfs_time_shift(d->opd_precreate_req_timeout);
+		}
+
 		lwi = LWI_TIMEOUT(expire - cfs_time_current(),
 				osp_precreate_timeout_condition, d);
 		if (cfs_time_aftereq(cfs_time_current(), expire)) {
+			CERROR("%s:expired on waiting for precreated objects "
+				" rc %d %d imp %s recovering %d obd_timeout %d"
+				" opd_precreate_req_timeout %d"
+				CFS_DURATION_T" "CFS_DURATION_T" \n",
+				d->opd_obd->obd_name, rc, d->opd_pre_status,
+				ptlrpc_import_state_name(imp->imp_state),
+				d->opd_pre_recovering, obd_timeout,
+				d->opd_precreate_req_timeout,
+				start, cfs_time_current_sec());
+
 			rc = -ETIMEDOUT;
 			break;
 		}
 
 		l_wait_event(d->opd_pre_user_waitq,
 			     osp_precreate_ready_condition(env, d), &lwi);
+
+		if (d->opd_pre_recovering ||
+		    imp->imp_state != LUSTRE_IMP_FULL) {
+			CERROR("%s: wait recovery to complete!\n",
+				d->opd_obd->obd_name);
+
+			memset(&lwi, 0, sizeof(lwi));
+			l_wait_event(d->opd_pre_user_waitq,
+				     d->opd_pre_recovering == 0 &&
+				     imp->imp_state == LUSTRE_IMP_FULL, &lwi);
+
+			expire = cfs_time_shift(d->opd_precreate_req_timeout);
+		}
+
 	}
 
 	RETURN(rc);
