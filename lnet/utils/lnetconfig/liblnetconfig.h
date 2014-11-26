@@ -192,6 +192,36 @@ int lustre_lnet_show_routing(int seq_no, struct cYAML **show_rc,
 			     struct cYAML **err_rc);
 
 /*
+ * lustre_lnet_show_conn_queue
+ *   Shows details on the connection queue specified for the net passed
+ *   in.
+ *
+ *     nw - net to query
+ *     qname - queue name
+ *     seq_no - sequence number of the command
+ *     show_rc - YAML structure of the resultant show
+ *     err_rc - YAML strucutre of the resultant return code.
+ */
+int lustre_lnet_show_conn_queue(char *nw, char *qname, int seq_no,
+				struct cYAML **show_rc,
+				struct cYAML **err_rc);
+
+/*
+ * lustre_lnet_show_peer
+ *   Shows details on the peer specified for the net passed
+ *   in.
+ *
+ *     nw - net to query
+ *     detail - flag to indicate whether detail output is required
+ *     seq_no - sequence number of the command
+ *     show_rc - YAML structure of the resultant show
+ *     err_rc - YAML strucutre of the resultant return code.
+ */
+int lustre_lnet_show_peers(char *nw, bool details, int seq_no,
+			   struct cYAML **show_rc,
+			   struct cYAML **err_rc);
+
+/*
  * lustre_lnet_show_peer_credits
  *   Shows credit details on the peers in the system
  *

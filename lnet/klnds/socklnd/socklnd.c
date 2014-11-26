@@ -100,23 +100,25 @@ ksocknal_destroy_route (ksock_route_t *route)
 }
 
 int
-ksocknal_create_peer (ksock_peer_t **peerp, lnet_ni_t *ni, lnet_process_id_t id)
+ksocknal_create_peer(ksock_peer_t **peerp, lnet_ni_t *ni, lnet_process_id_t id)
 {
-	ksock_net_t   *net = ni->ni_data;
-	ksock_peer_t  *peer;
+	int		cpt = lnet_cpt_of_nid(id.nid);
+	ksock_net_t	*net = ni->ni_data;
+	ksock_peer_t	*peer;
 
-	LASSERT (id.nid != LNET_NID_ANY);
-	LASSERT (id.pid != LNET_PID_ANY);
-	LASSERT (!in_interrupt());
+	LASSERT(id.nid != LNET_NID_ANY);
+	LASSERT(id.pid != LNET_PID_ANY);
+	LASSERT(!in_interrupt());
 
-	LIBCFS_ALLOC (peer, sizeof (*peer));
+	LIBCFS_CPT_ALLOC(peer, lnet_cpt_table(), cpt, sizeof (*peer));
 	if (peer == NULL)
 		return -ENOMEM;
 
-	memset (peer, 0, sizeof (*peer));       /* NULL pointers/clear flags etc */
+	memset(peer, 0, sizeof (*peer));       /* NULL pointers/clear flags etc */
 
 	peer->ksnp_ni = ni;
 	peer->ksnp_id = id;
+	peer->ksnp_cpt = cpt;
 	atomic_set (&peer->ksnp_refcount, 1);   /* 1 ref for caller */
 	peer->ksnp_closing = 0;
 	peer->ksnp_accepting = 0;
@@ -247,9 +249,9 @@ ksocknal_unlink_peer_locked (ksock_peer_t *peer)
 }
 
 int
-ksocknal_get_peer_info (lnet_ni_t *ni, int index,
-                        lnet_process_id_t *id, __u32 *myip, __u32 *peer_ip,
-                        int *port, int *conn_count, int *share_count)
+ksocknal_get_peer_info(lnet_ni_t *ni, int index, lnet_process_id_t *id,
+		       __u32 *myip, __u32 *peer_ip, int *port, int *cpt,
+		       int *conn_count, int *share_count)
 {
 	ksock_peer_t	  *peer;
 	struct list_head  *ptmp;
@@ -273,29 +275,31 @@ ksocknal_get_peer_info (lnet_ni_t *ni, int index,
 				if (index-- > 0)
 					continue;
 
-                                *id = peer->ksnp_id;
-                                *myip = 0;
-                                *peer_ip = 0;
-                                *port = 0;
-                                *conn_count = 0;
-                                *share_count = 0;
-                                rc = 0;
-                                goto out;
-                        }
+				*id = peer->ksnp_id;
+				*cpt = peer->ksnp_cpt;
+				*myip = 0;
+				*peer_ip = 0;
+				*port = 0;
+				*conn_count = 0;
+				*share_count = 0;
+				rc = 0;
+				goto out;
+			}
 
 			for (j = 0; j < peer->ksnp_n_passive_ips; j++) {
 				if (index-- > 0)
 					continue;
 
-                                *id = peer->ksnp_id;
-                                *myip = peer->ksnp_passive_ips[j];
-                                *peer_ip = 0;
-                                *port = 0;
-                                *conn_count = 0;
-                                *share_count = 0;
-                                rc = 0;
-                                goto out;
-                        }
+				*id = peer->ksnp_id;
+				*cpt = peer->ksnp_cpt;
+				*myip = peer->ksnp_passive_ips[j];
+				*peer_ip = 0;
+				*port = 0;
+				*conn_count = 0;
+				*share_count = 0;
+				rc = 0;
+				goto out;
+			}
 
 			list_for_each(rtmp, &peer->ksnp_routes) {
 				if (index-- > 0)
@@ -305,6 +309,7 @@ ksocknal_get_peer_info (lnet_ni_t *ni, int index,
 						   ksnr_list);
 
 				*id = peer->ksnp_id;
+				*cpt = peer->ksnp_cpt;
 				*myip = route->ksnr_myipaddr;
 				*peer_ip = route->ksnr_ipaddr;
 				*port = route->ksnr_port;
@@ -2134,28 +2139,47 @@ ksocknal_ctl(lnet_ni_t *ni, unsigned int cmd, void *arg)
                 return ksocknal_del_interface(ni,
                                               data->ioc_u32[0]); /* IP address */
 
-        case IOC_LIBCFS_GET_PEER: {
-                __u32            myip = 0;
-                __u32            ip = 0;
-                int              port = 0;
-                int              conn_count = 0;
-                int              share_count = 0;
+	case IOC_LIBCFS_GET_PEER_INFO:
+	case IOC_LIBCFS_GET_PEER: {
+		struct	lnet_ioctl_peer *data_peer = NULL;
+		int	index = data->ioc_count;
+		__u32	myip = 0;
+		__u32	ip = 0;
+		int	port = 0;
+		int	conn_count = 0;
+		int	share_count = 0;
+		int	cpt = 0;
 
-                rc = ksocknal_get_peer_info(ni, data->ioc_count,
-                                            &id, &myip, &ip, &port,
-                                            &conn_count,  &share_count);
-                if (rc != 0)
-                        return rc;
+		if (cmd == IOC_LIBCFS_GET_PEER_INFO) {
+			data_peer = arg;
+			index = data_peer->pr_count;
+		}
 
-                data->ioc_nid    = id.nid;
-                data->ioc_count  = share_count;
-                data->ioc_u32[0] = ip;
-                data->ioc_u32[1] = port;
-                data->ioc_u32[2] = myip;
-                data->ioc_u32[3] = conn_count;
-                data->ioc_u32[4] = id.pid;
-                return 0;
-        }
+		rc = ksocknal_get_peer_info(ni, index, &id, &myip, &ip, &port,
+					    &cpt, &conn_count, &share_count);
+		if (rc != 0)
+			return rc;
+
+		if (data_peer != NULL) {
+			data_peer->pr_nid = id.nid;
+			data_peer->pr_cpt = cpt;
+			data_peer->pr_lnd_u.pr_socklnd.shared_count = share_count;
+			data_peer->pr_lnd_u.pr_socklnd.peer_ip = ip;
+			data_peer->pr_lnd_u.pr_socklnd.peer_port = port;
+			data_peer->pr_lnd_u.pr_socklnd.local_ip = myip;
+			data_peer->pr_lnd_u.pr_socklnd.conn_count = conn_count;
+			data_peer->pr_lnd_u.pr_socklnd.pid = id.pid;
+		} else {
+			data->ioc_nid	 = id.nid;
+			data->ioc_count  = share_count;
+			data->ioc_u32[0] = ip;
+			data->ioc_u32[1] = port;
+			data->ioc_u32[2] = myip;
+			data->ioc_u32[3] = conn_count;
+			data->ioc_u32[4] = id.pid;
+		}
+		return 0;
+	}
 
         case IOC_LIBCFS_ADD_PEER:
                 id.nid = data->ioc_nid;
@@ -2167,33 +2191,52 @@ ksocknal_ctl(lnet_ni_t *ni, unsigned int cmd, void *arg)
         case IOC_LIBCFS_DEL_PEER:
                 id.nid = data->ioc_nid;
                 id.pid = LNET_PID_ANY;
-                return ksocknal_del_peer (ni, id,
-                                          data->ioc_u32[0]); /* IP */
+		return ksocknal_del_peer(ni, id,
+					 data->ioc_u32[0]); /* IP */
 
-        case IOC_LIBCFS_GET_CONN: {
-                int           txmem;
-                int           rxmem;
-                int           nagle;
-                ksock_conn_t *conn = ksocknal_get_conn_by_idx (ni, data->ioc_count);
+	case IOC_LIBCFS_GET_CONN:
+	case IOC_LIBCFS_GET_CONN_INFO: {
+		int index = data->ioc_count, txmem, rxmem, nagle;
+		struct lnet_ioctl_conn *data_conn = NULL;
+		ksock_conn_t *conn;
 
-                if (conn == NULL)
-                        return -ENOENT;
+		if (cmd == IOC_LIBCFS_GET_CONN_INFO) {
+			data_conn = arg;
+			index = data_conn->conn_count;
+		}
 
-                ksocknal_lib_get_conn_tunables(conn, &txmem, &rxmem, &nagle);
+		conn = ksocknal_get_conn_by_idx (ni, data->ioc_count);
+		if (conn == NULL)
+			return -ENOENT;
 
-                data->ioc_count  = txmem;
-                data->ioc_nid    = conn->ksnc_peer->ksnp_id.nid;
-                data->ioc_flags  = nagle;
-                data->ioc_u32[0] = conn->ksnc_ipaddr;
-                data->ioc_u32[1] = conn->ksnc_port;
-                data->ioc_u32[2] = conn->ksnc_myipaddr;
-                data->ioc_u32[3] = conn->ksnc_type;
-		data->ioc_u32[4] = conn->ksnc_scheduler->kss_info->ksi_cpt;
-                data->ioc_u32[5] = rxmem;
-                data->ioc_u32[6] = conn->ksnc_peer->ksnp_id.pid;
-                ksocknal_conn_decref(conn);
-                return 0;
-        }
+		ksocknal_lib_get_conn_tunables(conn, &txmem, &rxmem, &nagle);
+
+		if (data_conn != NULL) {
+			data_conn->conn_nid = conn->ksnc_peer->ksnp_id.nid;
+			data_conn->conn_lnd_u.socklnd_conn.tx_buf_size = txmem;
+			data_conn->conn_lnd_u.socklnd_conn.nagle = nagle;
+			data_conn->conn_lnd_u.socklnd_conn.peer_ip = conn->ksnc_ipaddr;
+			data_conn->conn_lnd_u.socklnd_conn.peer_port = conn->ksnc_port;
+			data_conn->conn_lnd_u.socklnd_conn.local_ip = conn->ksnc_myipaddr;
+			data_conn->conn_lnd_u.socklnd_conn.type = conn->ksnc_type;
+			data_conn->conn_lnd_u.socklnd_conn.cpt = conn->ksnc_scheduler->kss_info->ksi_cpt;
+			data_conn->conn_lnd_u.socklnd_conn.rx_buf_size = rxmem;
+			data_conn->conn_lnd_u.socklnd_conn.pid = conn->ksnc_peer->ksnp_id.pid;
+		} else {
+			data->ioc_nid    = conn->ksnc_peer->ksnp_id.nid;
+			data->ioc_count  = txmem;
+			data->ioc_flags  = nagle;
+			data->ioc_u32[0] = conn->ksnc_ipaddr;
+			data->ioc_u32[1] = conn->ksnc_port;
+			data->ioc_u32[2] = conn->ksnc_myipaddr;
+			data->ioc_u32[3] = conn->ksnc_type;
+			data->ioc_u32[4] = conn->ksnc_scheduler->kss_info->ksi_cpt;
+			data->ioc_u32[5] = rxmem;
+			data->ioc_u32[6] = conn->ksnc_peer->ksnp_id.pid;
+		}
+		ksocknal_conn_decref(conn);
+		return 0;
+	}
 
         case IOC_LIBCFS_CLOSE_CONNECTION:
                 id.nid = data->ioc_nid;
