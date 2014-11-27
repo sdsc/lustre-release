@@ -926,7 +926,10 @@ void ptlrpc_set_destroy(struct ptlrpc_request_set *set)
 			list_entry(tmp, struct ptlrpc_request,
 				   rq_set_chain);
 
-		LASSERT(req->rq_phase == expected_phase);
+		LASSERT(req->rq_phase == expected_phase ||
+			(req->rq_phase == RQ_PHASE_NEW &&
+			 req->rq_transno != 0));
+
 		n++;
 	}
 
@@ -938,22 +941,19 @@ void ptlrpc_set_destroy(struct ptlrpc_request_set *set)
 		struct ptlrpc_request *req =
 			list_entry(tmp, struct ptlrpc_request,
 				   rq_set_chain);
-		list_del_init(&req->rq_set_chain);
 
-		LASSERT(req->rq_phase == expected_phase);
+		LASSERT(req->rq_phase == expected_phase ||
+			(req->rq_phase == RQ_PHASE_NEW &&
+			 req->rq_transno != 0));
 
-		if (req->rq_phase == RQ_PHASE_NEW) {
+		if (req->rq_phase == RQ_PHASE_NEW && req->rq_transno == 0) {
 			ptlrpc_req_interpret(NULL, req, -EBADR);
 			atomic_dec(&set->set_remaining);
 		}
 
-		spin_lock(&req->rq_lock);
-		req->rq_set = NULL;
-		req->rq_invalid_rqset = 0;
-		spin_unlock(&req->rq_lock);
-
-                ptlrpc_req_finished (req);
-        }
+		ptlrpc_set_remove_req(req);
+		ptlrpc_req_finished (req);
+	}
 
 	LASSERT(atomic_read(&set->set_remaining) == 0);
 
@@ -1888,17 +1888,13 @@ int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set)
 			if (ptlrpc_set_producer(set) > 0)
 				force_timer_recalc = 1;
 
-			/* free the request that has just been completed
-			 * in order not to pollute set->set_requests */
-			list_del_init(&req->rq_set_chain);
-			spin_lock(&req->rq_lock);
-			req->rq_set = NULL;
-			req->rq_invalid_rqset = 0;
-			spin_unlock(&req->rq_lock);
-
 			/* record rq_status to compute the final status later */
 			if (req->rq_status != 0)
 				set->set_rc = req->rq_status;
+
+			/* free the request that has just been completed
+			 * in order not to pollute set->set_requests */
+			ptlrpc_set_remove_req(req);
 			ptlrpc_req_finished(req);
 		} else {
 			list_move_tail(&req->rq_set_chain, &comp_reqs);
@@ -2835,17 +2831,21 @@ int ptlrpc_replay_req(struct ptlrpc_request *req)
         aa = ptlrpc_req_async_args(req);
         memset(aa, 0, sizeof *aa);
 
-        /* Prepare request to be resent with ptlrpcd */
-        aa->praa_old_state = req->rq_send_state;
-        req->rq_send_state = LUSTRE_IMP_REPLAY;
-        req->rq_phase = RQ_PHASE_NEW;
-        req->rq_next_phase = RQ_PHASE_UNDEFINED;
-        if (req->rq_repmsg)
-                aa->praa_old_status = lustre_msg_get_status(req->rq_repmsg);
-        req->rq_status = 0;
-        req->rq_interpret_reply = ptlrpc_replay_interpret;
-        /* Readjust the timeout for current conditions */
-        ptlrpc_at_set_req_timeout(req);
+	/* Prepare request to be resent with ptlrpcd */
+	aa->praa_old_state = req->rq_send_state;
+	req->rq_send_state = LUSTRE_IMP_REPLAY;
+
+	spin_lock(&req->rq_lock);
+	req->rq_phase = RQ_PHASE_NEW;
+	req->rq_next_phase = RQ_PHASE_UNDEFINED;
+	spin_unlock(&req->rq_lock);
+
+	if (req->rq_repmsg)
+		aa->praa_old_status = lustre_msg_get_status(req->rq_repmsg);
+	req->rq_status = 0;
+	req->rq_interpret_reply = ptlrpc_replay_interpret;
+	/* Readjust the timeout for current conditions */
+	ptlrpc_at_set_req_timeout(req);
 
         /* Tell server the net_latency, so the server can calculate how long
          * it should wait for next replay */
@@ -3076,8 +3076,7 @@ static int work_interpreter(const struct lu_env *env,
 
 	rc = arg->cb(env, arg->cbdata);
 
-	list_del_init(&req->rq_set_chain);
-	req->rq_set = NULL;
+	ptlrpc_set_remove_req(req);
 
 	if (atomic_dec_return(&req->rq_refcount) > 1) {
 		atomic_set(&req->rq_refcount, 2);
