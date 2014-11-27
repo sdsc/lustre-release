@@ -1121,6 +1121,32 @@ int mdt_is_subdir(struct mdt_thread_info *info)
 	RETURN(rc);
 }
 
+/**
+ * Exchange MOF_LOV_CREATED flags between two objects after a
+ * layout swap. No assumption is made on whether o1 or o2 have
+ * created objects or not.
+ *
+ * \param[in,out] o1	First swap layout object
+ * \param[in,out] o2	Second swap layout object
+ */
+static void mdt_swap_lov_flag(struct mdt_object *o1, struct mdt_object *o2)
+{
+	__u64	o1_flags;
+
+	mutex_lock(&o1->mot_lov_mutex);
+	mutex_lock(&o2->mot_lov_mutex);
+
+	o1_flags = o1->mot_flags;
+	o1->mot_flags = (o1->mot_flags & ~MOF_LOV_CREATED) |
+			(o2->mot_flags & MOF_LOV_CREATED);
+
+	o2->mot_flags = (o2->mot_flags & ~MOF_LOV_CREATED) |
+			(o1_flags & MOF_LOV_CREATED);
+
+	mutex_unlock(&o2->mot_lov_mutex);
+	mutex_unlock(&o1->mot_lov_mutex);
+}
+
 int mdt_swap_layouts(struct mdt_thread_info *info)
 {
 	struct ptlrpc_request	*req = mdt_info_req(info);
@@ -1200,7 +1226,11 @@ int mdt_swap_layouts(struct mdt_thread_info *info)
 
 	rc = mo_swap_layouts(info->mti_env, mdt_object_child(o1),
 			     mdt_object_child(o2), msl->msl_flags);
-	GOTO(unlock2, rc);
+	if (rc < 0)
+		GOTO(unlock2, rc);
+
+	mdt_swap_lov_flag(o1, o2);
+
 unlock2:
 	mdt_object_unlock(info, o2, lh2, rc);
 unlock1:
