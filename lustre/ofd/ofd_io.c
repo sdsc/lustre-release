@@ -1192,11 +1192,12 @@ int ofd_commitrw(const struct lu_env *env, int cmd, struct obd_export *exp,
 		 * to be changed to ofd_fmd_get() to create the fmd if it
 		 * doesn't already exist so we can store the reservation handle
 		 * there. */
-		valid = OBD_MD_FLUID | OBD_MD_FLGID;
+		valid = OBD_MD_FLUID | OBD_MD_FLGID | OBD_MD_FLATIME |
+			OBD_MD_FLMTIME | OBD_MD_FLCTIME;
 		fmd = ofd_fmd_find(exp, fid);
-		if (!fmd || fmd->fmd_mactime_xid < info->fti_xid)
-			valid |= OBD_MD_FLATIME | OBD_MD_FLMTIME |
-				 OBD_MD_FLCTIME;
+		if (fmd && fmd->fmd_mactime_xid > info->fti_xid)
+			valid &= ~(OBD_MD_FLATIME | OBD_MD_FLMTIME |
+				   OBD_MD_FLCTIME);
 		ofd_fmd_put(exp, fmd);
 		la_from_obdo(&info->fti_attr, oa, valid);
 
