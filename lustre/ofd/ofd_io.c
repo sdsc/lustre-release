@@ -1194,9 +1194,9 @@ int ofd_commitrw(const struct lu_env *env, int cmd, struct obd_export *exp,
 		 * there. */
 		valid = OBD_MD_FLUID | OBD_MD_FLGID;
 		fmd = ofd_fmd_find(exp, fid);
-		if (!fmd || fmd->fmd_mactime_xid < info->fti_xid)
-			valid |= OBD_MD_FLATIME | OBD_MD_FLMTIME |
-				 OBD_MD_FLCTIME;
+		if (fmd && fmd->fmd_mactime_xid > info->fti_xid)
+			valid &= ~(OBD_MD_FLATIME | OBD_MD_FLMTIME |
+				   OBD_MD_FLCTIME);
 		ofd_fmd_put(exp, fmd);
 		la_from_obdo(&info->fti_attr, oa, valid);
 
