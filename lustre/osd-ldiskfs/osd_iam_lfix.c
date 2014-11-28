@@ -879,4 +879,3 @@ int iam_lfix_create(struct inode *obj,
         brelse(root_node);
         return result;
 }
-EXPORT_SYMBOL(iam_lfix_create);
