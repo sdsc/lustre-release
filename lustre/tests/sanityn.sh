@@ -2929,7 +2929,7 @@ test_76() { #LU-946
 
 	rm -rf $DIR/$tdir
 }
-run_test 76 "Verify open file for 2048 files"
+run_test 76 "Verify MDS open_files tracking for 2048 files"
 
 nrs_write_read() {
 	local n=16
