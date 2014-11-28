@@ -2806,7 +2806,7 @@ test_76() { #LU-946
 
 	rm -rf $DIR/$tdir
 }
-run_test 76 "Verify open file for 2048 files"
+run_test 76 "Verify MDS open_files tracking for 2048 files"
 
 test_80() {
 	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return

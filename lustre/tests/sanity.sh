@@ -3635,57 +3635,54 @@ test_42e() { # bug22074
 }
 run_test 42e "verify sub-RPC writes are not done synchronously"
 
-test_43() {
-	test_mkdir -p $DIR/$tdir
+test_43aa() {
+	test_mkdir $DIR/$tdir
 	cp -p /bin/ls $DIR/$tdir/$tfile
 	$MULTIOP $DIR/$tdir/$tfile Ow_c &
 	pid=$!
 	# give multiop a chance to open
 	sleep 1
 
-	$DIR/$tdir/$tfile && error || true
+	$DIR/$tdir/$tfile && error "execute $DIR/$tdir/$tfile succeeded" || true
 	kill -USR1 $pid
 }
-run_test 43 "execution of file opened for write should return -ETXTBSY"
+run_test 43aa "execution of file opened for write should return -ETXTBSY"
 
 test_43a() {
-	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
-	test_mkdir -p $DIR/$tdir
-	cp -p `which $MULTIOP` $DIR/$tdir/multiop ||
-			cp -p multiop $DIR/$tdir/multiop
+	test_mkdir $DIR/$tdir
+	cp -p $(which $MULTIOP) $DIR/$tdir/multiop ||
+		cp -p multiop $DIR/$tdir/multiop
 	MULTIOP_PROG=$DIR/$tdir/multiop multiop_bg_pause $TMP/$tfile.junk O_c ||
-			return 1
+		error "multiop open $TMP/$tfile.junk failed"
         MULTIOP_PID=$!
         $MULTIOP $DIR/$tdir/multiop Oc && error "expected error, got success"
-        kill -USR1 $MULTIOP_PID || return 2
-        wait $MULTIOP_PID || return 3
-	rm $TMP/$tfile.junk $DIR/$tdir/multiop
+        kill -USR1 $MULTIOP_PID || error "kill -USR1 PID $MULTIOP_PID failed"
+        wait $MULTIOP_PID || error "wait PID $MULTIOP_PID failed"
 }
 run_test 43a "open(RDWR) of file being executed should return -ETXTBSY"
 
 test_43b() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
-	test_mkdir -p $DIR/$tdir
-	cp -p `which $MULTIOP` $DIR/$tdir/multiop ||
-			cp -p multiop $DIR/$tdir/multiop
+	test_mkdir $DIR/$tdir
+	cp -p $(which $MULTIOP) $DIR/$tdir/multiop ||
+		cp -p multiop $DIR/$tdir/multiop
 	MULTIOP_PROG=$DIR/$tdir/multiop multiop_bg_pause $TMP/$tfile.junk O_c ||
-			return 1
+		error "multiop open $TMP/$tfile.junk failed"
         MULTIOP_PID=$!
         $TRUNCATE $DIR/$tdir/multiop 0 && error "expected error, got success"
-        kill -USR1 $MULTIOP_PID || return 2
-        wait $MULTIOP_PID || return 3
-	rm $TMP/$tfile.junk $DIR/$tdir/multiop
+        kill -USR1 $MULTIOP_PID || error "kill -USR1 PID $MULTIOP_PID failed"
+        wait $MULTIOP_PID || error "wait PID $MULTIOP_PID failed"
 }
 run_test 43b "truncate of file being executed should return -ETXTBSY"
 
 test_43c() {
 	local testdir="$DIR/$tdir"
-	test_mkdir -p $DIR/$tdir
+	test_mkdir $testdir
 	cp $SHELL $testdir/
-	( cd $(dirname $SHELL) && md5sum $(basename $SHELL) ) | \
+	( cd $(dirname $SHELL) && md5sum $(basename $SHELL) ) |
 		( cd $testdir && md5sum -c)
 }
-run_test 43c "md5sum of copy into lustre========================"
+run_test 43c "md5sum of copy into lustre"
 
 test_44() {
 	[[ $OSTCOUNT -lt 2 ]] && skip_env "skipping 2-stripe test" && return
@@ -4103,6 +4100,25 @@ test_51e() {
 	return 0
 }
 run_test 51e "check file nlink limit"
+
+test_51f() {
+	test_mkdir $DIR/$tdir
+
+	local ulimit_old=$(ulimit -n)
+	local numfree=$(lfs df -i -P $DIR/$tdir | tail -n1 | awk '{ print $4 }')
+
+	[[ $numfree -gt 100000 ]] && numfree=100000 || numfree=$((numfree-1000))
+	while ! ulimit -n $numfree; do
+		numfree=$((numfree * 3 / 4))
+	done
+
+	createmany -o -c $DIR/$tdir/f $numfree -120 ||
+		error "open $numfree failed"
+	ulimit -n $ulimit_old
+
+	unlinkmany $DIR/$tdir/f
+}
+run_test 51f "check many open files limit"
 
 test_52a() {
 	[ -f $DIR/$tdir/foo ] && chattr -a $DIR/$tdir/foo

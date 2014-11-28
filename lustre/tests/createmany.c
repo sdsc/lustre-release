@@ -26,6 +26,8 @@
 /*
  * Copyright (c) 2002, 2010, Oracle and/or its affiliates. All rights reserved.
  * Use is subject to license terms.
+ *
+ * Copyright (c) 2014 Intel Corporation.
  */
 /*
  * This file is part of Lustre, http://www.lustre.org/
@@ -46,10 +48,18 @@
 
 static void usage(char *prog)
 {
-        printf("usage: %s {-o|-m|-d|-l<tgt>} [-r altpath ] filenamefmt count\n", prog);
-        printf("       %s {-o|-m|-d|-l<tgt>} [-r altpath ] filenamefmt ] -seconds\n", prog);
-        printf("       %s {-o|-m|-d|-l<tgt>} [-r altpath ] filenamefmt start count\n", prog);
-        exit(EXIT_FAILURE);
+	printf("usage: %s {-o [-c]|-m|-d|-l<tgt>} [-r unlinkfmt ] filenamefmt count [-seconds]\n", prog);
+	printf("       %s {-o [-c]|-m|-d|-l<tgt>} [-r unlinkfmt ] filenamefmt start count [-seconds]\n", prog);
+	printf("       %s {-o [-c]|-m|-d|-l<tgt>} [-r unlinkfmt ] filenamefmt -seconds\n", prog);
+
+	printf("\t-o\topen(O_CREAT) files\n");
+	printf("\t-c\tdefer close() files until after all files created\n");
+	printf("\t-m\tmknod() files (don't create OST objects)\n");
+	printf("\t-d\tmkdir() directories\n");
+	printf("\t-l\tlink() files to existing <tgt> file\n");
+	printf("\t-r\tunlink() files with new path (':' to use same path)\n");
+
+	exit(EXIT_FAILURE);
 }
 
 static char *get_file_name(const char *fmt, long n, int has_fmt_spec)
@@ -75,14 +85,15 @@ double now(void)
 
 int main(int argc, char ** argv)
 {
-        long i;
-        int rc = 0, do_open = 0, do_link = 0, do_mkdir = 0;
-        int do_unlink = 0, do_mknod = 0;
-        char *filename;
-        char *fmt = NULL, *fmt_unlink = NULL, *tgt = NULL;
-        double start, last;
-        long begin = 0, end = ~0UL >> 1, count = ~0UL >> 1;
-        int c, has_fmt_spec = 0, unlink_has_fmt_spec = 0;
+	int do_open = 0, defer_close = 0, do_link = 0, do_mkdir = 0;
+	int do_unlink = 0, do_mknod = 0;
+	char *filename;
+	char *fmt = NULL, *fmt_unlink = NULL, *tgt = NULL;
+	double start, last;
+	long begin = 0, end = ~0UL >> 1, count = ~0UL >> 1;
+	int has_fmt_spec = 0, unlink_has_fmt_spec = 0;
+	long i, total;
+	int rc = 0, c, last_fd = -1, stderr_fd;
 
         /* Handle the last argument in form of "-seconds" */
         if (argc > 1 && argv[argc - 1][0] == '-') {
@@ -95,34 +106,48 @@ int main(int argc, char ** argv)
                 end = end + time(NULL);
         }
 
-        while ((c = getopt(argc, argv, "omdl:r:")) != -1) {
-                switch(c) {
-                case 'o':
-                        do_open++;
-                        break;
-                case 'm':
-                        do_mknod++;
-                        break;
-                case 'd':
-                        do_mkdir++;
-                        break;
-                case 'l':
-                        do_link++;
-                        tgt = optarg;
-                        break;
-                case 'r':
-                        do_unlink++;
-                        fmt_unlink = optarg;
-                        break;
-                case '?':
-                        printf("Unknown option '%c'\n", optopt);
-                        usage(argv[0]);
-                }
-        }
+	while ((c = getopt(argc, argv, "cdl:mor:")) != -1) {
+		switch (c) {
+		case 'c':
+			defer_close++;
+			break;
+		case 'd':
+			do_mkdir++;
+			break;
+		case 'l':
+			do_link++;
+			tgt = optarg;
+			break;
+		case 'm':
+			do_mknod++;
+			break;
+		case 'o':
+			do_open++;
+			break;
+		case 'r':
+			do_unlink++;
+			fmt_unlink = optarg;
+			break;
+		case '?':
+			fprintf(stderr, "Unknown option '%c'\n", optopt);
+			usage(argv[0]);
+		}
+	}
 
-        if (do_open + do_mkdir + do_link + do_mknod != 1 ||
-            do_unlink > 1)
-                usage(argv[0]);
+	if (do_open + do_mkdir + do_link + do_mknod != 1) {
+		fprintf(stderr, "error: can only use one of -o, -m, -l, -d\n");
+		usage(argv[0]);
+	}
+
+	if (do_unlink > 1) {
+		fprintf(stderr, "error: can only use -r once\n");
+		usage(argv[0]);
+	}
+
+	if (!do_open && defer_close) {
+		fprintf(stderr, "error: can only -c with -o\n");
+		usage(argv[0]);
+	}
 
         switch (argc - optind) {
         case 3:
@@ -137,6 +162,9 @@ int main(int argc, char ** argv)
         default:
                 usage(argv[0]);
         }
+
+	if (do_unlink && strcmp(fmt_unlink, "="))
+		fmt_unlink = fmt;
 
         start = last = now();
 
@@ -154,7 +182,10 @@ int main(int argc, char ** argv)
                                 rc = errno;
                                 break;
                         }
-                        close(fd);
+			if (!defer_close)
+				close(fd);
+			else if (fd > last_fd)
+				last_fd = fd;
                 } else if (do_link) {
                         rc = link(tgt, filename);
                         if (rc) {
@@ -182,7 +213,7 @@ int main(int argc, char ** argv)
                 }
                 if (do_unlink) {
                         filename = get_file_name(fmt_unlink, begin,
-                                      unlink_has_fmt_spec);
+						 unlink_has_fmt_spec);
                         rc = do_mkdir ? rmdir(filename) : unlink(filename);
                         if (rc) {
                                 printf("unlink(%s) error: %s\n",
@@ -192,15 +223,42 @@ int main(int argc, char ** argv)
                         }
                 }
 
-                if (i && (i % 10000) == 0) {
-                        printf(" - created %ld (time %.2f total %.2f last %.2f)"
-                               "\n", i, now(), now() - start, now() - last);
-                        last = now();
-                }
-        }
-        printf("total: %ld creates%s in %.2f seconds: %.2f creates/second\n", i,
-               do_unlink ? "/deletions" : "",
-               now() - start, ((double)i / (now() - start)));
+		if ((i != 0 && (i % 10000) == 0) || now() - last >= 10.0) {
+			double tmp = now();
 
-        return rc;
+			printf(" - created %ld (time %.2f total %.2f last %.2f)"
+			       "\n", i, tmp, tmp - start, tmp - last);
+			last = now();
+		}
+	}
+	last = now();
+	total = i;
+	printf("total: %ld %s%s%s in %.2f seconds: %.2f ops/second\n", total,
+	       do_open ? "open" : do_mkdir ? "mkdir" :
+	       do_link ? "link" : "create", defer_close ? "" : "/close",
+	       do_unlink ? (do_mkdir ? "/rmdir" : "/unlink") : "",
+	       last - start, ((double)total / (last - start)));
+
+	if (!defer_close)
+		return rc;
+
+	stderr_fd = fileno(stderr);
+	start = last;
+	/* Assume fd is allocated in order, doing extra closes is not harmful */
+	for (i = 0; i < total && last_fd > stderr_fd; i++, --last_fd) {
+		close(last_fd);
+
+		if ((i != 0 && (i % 10000) == 0) || now() - last >= 10.0) {
+			double tmp = now();
+
+			printf(" - closed %ld (time %.2f total %.2f last %.2f)"
+			       "\n", i, tmp, tmp - start, tmp - last);
+			last = now();
+		}
+	}
+	last = now();
+
+	printf("total: %ld close in %.2f seconds: %.2f close/second\n",
+	       total, last - start, ((double)total / (last - start)));
+	return rc;
 }
