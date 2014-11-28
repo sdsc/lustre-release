@@ -6575,6 +6575,11 @@ test_102n() { # LU-4101 mdt: protect internal xattrs
 }
 run_test 102n "silently ignore setxattr on internal trusted xattrs"
 
+test_102q() {
+	orphan_linkea_check $DIR/$tfile || error "orphan_linkea_check"
+}
+run_test 102q "flistxattr should not return trusted.link EAs for orphans"
+
 run_acl_subtest()
 {
     $LUSTRE/tests/acl/run $LUSTRE/tests/acl/$1.test
