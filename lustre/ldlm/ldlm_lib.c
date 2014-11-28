@@ -1736,23 +1736,19 @@ static int check_for_next_transno(struct obd_device *obd)
                 wake_up = 1;
 	} else if (queue_len > 0 &&
 		   queue_len == cfs_atomic_read(&obd->obd_req_replay_clients)) {
-                int d_lvl = D_HA;
-                /** handle gaps occured due to lost reply or VBR */
-                LASSERTF(req_transno >= next_transno,
-                         "req_transno: "LPU64", next_transno: "LPU64"\n",
-                         req_transno, next_transno);
-                if (req_transno > obd->obd_last_committed &&
-                    !obd->obd_version_recov)
-                        d_lvl = D_ERROR;
-                CDEBUG(d_lvl,
-                       "%s: waking for gap in transno, VBR is %s (skip: "
-                       LPD64", ql: %d, comp: %d, conn: %d, next: "LPD64
-                       ", last_committed: "LPD64")\n",
-                       obd->obd_name, obd->obd_version_recov ? "ON" : "OFF",
-                       next_transno, queue_len, completed, connected,
-                       req_transno, obd->obd_last_committed);
-                obd->obd_next_recovery_transno = req_transno;
-                wake_up = 1;
+		/** handle gaps occured due to lost reply or VBR */
+		LASSERTF(req_transno >= next_transno,
+			 "req_transno: "LPU64", next_transno: "LPU64"\n",
+			 req_transno, next_transno);
+		CDEBUG(D_HA,
+		       "%s: waking for gap in transno, VBR is %s (skip: "
+		       LPD64", ql: %d, comp: %d, conn: %d, next: "LPD64
+		       ", last_committed: "LPD64")\n",
+		       obd->obd_name, obd->obd_version_recov ? "ON" : "OFF",
+		       next_transno, queue_len, completed, connected,
+		       req_transno, obd->obd_last_committed);
+		obd->obd_next_recovery_transno = req_transno;
+		wake_up = 1;
 	} else if (cfs_atomic_read(&obd->obd_req_replay_clients) == 0) {
 		CDEBUG(D_HA, "waking for completed recovery\n");
 		wake_up = 1;
