@@ -2878,6 +2878,24 @@ test_81() {
 }
 run_test 81 "rename and stat under striped directory"
 
+test_82() {
+	# Client 1 creates a file.
+	multiop_bg_pause $DIR1/$tfile O_ac || error "multiop_bg_pause 1"
+	pid1=$!
+	# Client 2 opens the file.
+	multiop_bg_pause $DIR2/$tfile o_Aac || error "multiop_bg_pause 2"
+	pid2=$!
+	# Client 1 makes the file an orphan.
+	rm $DIR1/$tfile || error "rm"
+	# Client 2 sets XATTR_NAME_LINK.
+	kill -s USR1 $pid2
+	wait $pid2 || error "multiop 2"
+	# Client 1 gets XATTR_NAME_LINK.
+	kill -s USR1 $pid1
+	wait $pid1 || error "multiop 1"
+}
+run_test 82 "fsetxattr and fgetxattr on orphan files"
+
 log "cleanup: ======================================================"
 
 [ "$(mount | grep $MOUNT2)" ] && umount $MOUNT2
