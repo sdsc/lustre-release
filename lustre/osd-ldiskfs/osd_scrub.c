@@ -498,14 +498,19 @@ osd_scrub_check_update(struct osd_thread_info *info, struct osd_device *dev,
 	    (!scrub->os_convert_igif || OBD_FAIL_CHECK(OBD_FAIL_FID_NOLMA)))
 		GOTO(out, rc = 0);
 
-	if ((oii != NULL && oii->oii_insert) || (val == SCRUB_NEXT_NOLMA))
+	if ((oii != NULL && oii->oii_insert) || (val == SCRUB_NEXT_NOLMA)) {
+		ops = DTO_INDEX_INSERT;
+
 		goto iget;
+	}
 
 	rc = osd_oi_lookup(info, dev, fid, lid2,
 		(val == SCRUB_NEXT_OSTOBJ ||
 		 val == SCRUB_NEXT_OSTOBJ_OLD) ? OI_KNOWN_ON_OST : 0);
 	if (rc != 0) {
-		if (rc != -ENOENT)
+		if (rc == -ENOENT)
+			ops = DTO_INDEX_INSERT;
+		else if (rc != -ESTALE)
 			GOTO(out, rc);
 
 iget:
@@ -521,7 +526,6 @@ iget:
 		}
 
 		scrub->os_full_speed = 1;
-		ops = DTO_INDEX_INSERT;
 		idx = osd_oi_fid2idx(dev, fid);
 		switch (val) {
 		case SCRUB_NEXT_NOLMA:
