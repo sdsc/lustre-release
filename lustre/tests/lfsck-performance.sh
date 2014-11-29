@@ -38,7 +38,7 @@ RLCTL="${RCMD} ${LCTL}"
 MDT_DEV="${FSNAME}-MDT0000"
 MDT_DEVNAME=$(mdsdevname ${SINGLEMDS//mds/})
 START_NAMESPACE="${RLCTL} lfsck_start -M ${MDT_DEV} -t namespace"
-STOP_LFSCK="${RLCTL} lfsck_stop -M ${MDT_DEV}"
+STOP_LFSCK="${RLCTL} lfsck_stop -M ${MDT_DEV} -A"
 SHOW_NAMESPACE="${RLCTL} get_param -n mdd.${MDT_DEV}.lfsck_namespace"
 MNTOPTS_NOSCRUB="-o user_xattr,noscrub"
 remote_mds && ECHOCMD=${RCMD} || ECHOCMD="eval"
@@ -49,6 +49,8 @@ if [ ${NTHREADS} -eq 0 ]; then
 fi
 
 lfsck_attach() {
+	${RCMD} "modprobe obdecho"
+
 	${ECHOCMD} "${LCTL} <<-EOF
 		attach echo_client lfsck-MDT0000 lfsck-MDT0000_UUID
 		setup ${MDT_DEV} mdd
@@ -564,7 +566,7 @@ test_5b() {
 }
 run_test 5b "lfsck layout performance (repairing case) without load for DNE"
 
-layout_fast_create() {
+lfsck_fast_create() {
 	local total=$1
 	local lbase=$2
 	local threads=$3
@@ -655,7 +657,7 @@ test_6() {
 			"(9) Fail to start lfsck_layout with speed ${sl}"
 
 		echo "&&&&& Start create files set from ${m} at: $(date) &&&&&"
-		layout_fast_create $nfiles ${m} $NTHREADS ||
+		lfsck_fast_create $nfiles ${m} $NTHREADS ||
 			lfsck_detach_error "(10) Fail to create files"
 		echo "&&&&& End create files set from ${m} at: $(date) &&&&&"
 	done
@@ -668,7 +670,7 @@ test_6() {
 		"(11) Fail to start lfsck_layout with full speed"
 
 	echo "&&&&& start to create files set from ${m} at: $(date) &&&&&"
-	layout_fast_create $nfiles ${m} $NTHREADS ||
+	lfsck_fast_create $nfiles ${m} $NTHREADS ||
 		lfsck_detach_error "(12) Fail to create files"
 	echo "&&&&& end to create files set from ${m} at: $(date) &&&&&"
 
@@ -677,7 +679,7 @@ test_6() {
 	echo
 	echo "create without lfsck_layout run back-ground"
 	echo "&&&&& start to create files set from ${m} at: $(date) &&&&&"
-	layout_fast_create $nfiles ${m} $NTHREADS ||
+	lfsck_fast_create $nfiles ${m} $NTHREADS ||
 		lfsck_detach_error "(13) Fail to create files"
 	echo "&&&&& end to create files set from ${m} at: $(date) &&&&&"
 
@@ -689,6 +691,325 @@ test_6() {
 	MDSCOUNT=$saved_mdscount
 }
 run_test 6 "lfsck layout impact on create performance"
+
+show_namespace() {
+	local idx=$1
+
+	do_facet mds${idx} \
+		"$LCTL get_param -n mdd.$(facet_svc mds${idx}).lfsck_namespace"
+}
+
+namespace_test_one()
+{
+	echo "***** Start namespace LFSCK on all devices at: $(date) *****"
+	$RLCTL lfsck_start -M ${MDT_DEV} -t namespace -A -r || return 21
+
+	for n in $(seq $MDSCOUNT); do
+		wait_update_facet mds${n} "$LCTL get_param -n \
+			mdd.$(facet_svc mds${n}).lfsck_namespace |
+			awk '/^status/ { print \\\$2 }'" "completed" $WTIME || {
+			show_namespace ${n}
+			return 22
+		}
+	done
+	echo "***** End namespace LFSCK on all devices at: $(date) *****"
+
+	for n in $(seq $MDSCOUNT); do
+		show_namespace ${n}
+
+		local SPEED=$(show_namespace ${n} |
+			      awk '/^average_speed_total/ { print $2 }')
+		echo
+		echo "lfsck_namespace speed on MDS_${n} is $SPEED objs/sec"
+		echo
+	done
+}
+
+namespace_gen_one()
+{
+	local idx1=$1
+	local idx2=$2
+	local idx3=$(((idx1 + 1) % MDSCOUNT))
+	local mntpt="/mnt/lustre_lfsck_${idx1}_${idx2}"
+	local basedir="$mntpt/$tdir/$idx1/$idx2"
+
+	mkdir -p $mntpt || {
+		error_noexit "(11) Fail to mkdir $mntpt"
+		return 11
+	}
+
+	mount_client $mntpt || {
+		error_noexit "(12) Fail to mount $mntpt"
+		return 12
+	}
+
+	mkdir $basedir || {
+		umount_client $mntpt
+		error_noexit "(13) Fail to mkdir $basedir"
+		return 13
+	}
+
+	local count=$((UNIT / 100 * 85)) # 85% regular files
+	echo "Creating $count regular files under $basedir at: $(date)"
+	createmany -m ${basedir}/f $count || {
+		umount_client $mntpt
+		error_noexit "(14) Fail to gen regular files under $basedir"
+		return 14
+	}
+	echo "Created $count regular files under $basedir at: $(date)"
+
+	count=$((UNIT / 100 * 5)) # 5% local sub-dirs
+	echo "Creating $count local sub-dirs under $basedir at: $(date)"
+	createmany -d ${basedir}/l $count || {
+		umount_client $mntpt
+		error_noexit "(15) Fail to gen local sub-dir under $basedir"
+		return 15
+	}
+	echo "Created $count local sub-dirs under $basedir at: $(date)"
+
+	count=$((UNIT / 100)) # 1% multiple hard-links
+	echo "Creating $count multiple hard-links under $basedir at: $(date)"
+	for ((m = 0; m < $count; m++)); do
+		ln ${basedir}/f${m} ${basedir}/m${m} || {
+			umount_client $mntpt
+			error_noexit "(16) Fail to hardlink to $basedir/f${m}"
+			return 16
+		}
+	done
+	echo "Created $count multiple hard-links under $basedir at: $(date)"
+
+	count=$((UNIT / 1000 * 5)) # 0.5% remote sub-dirs
+	echo "Creating $count remote sub-dirs under $basedir at: $(date)"
+	for ((m = 0; m < $count; m++)); do
+		$LFS mkdir -i ${idx3} ${basedir}/r${m} || {
+			umount_client $mntpt
+			error_noexit "(17) Fail to remote mkdir $basedir/r${m}"
+			return 17
+		}
+
+		# 0.5% * 8 = 4% regular files under remote directories
+		createmany -m $basedir/r${m}/rf 8 || {
+			umount_client $mntpt
+			error_noexit \
+				"(18) Fail to gen regular under $basedir/r${m}"
+			return 18
+		}
+	done
+	echo "Created $count remote sub-dirs under $basedir at: $(date)"
+
+	count=$((UNIT / 1000 * 5)) # 0.5% striped sub-dirs
+	echo "Creating $count striped sub-dirs under $basedir at: $(date)"
+	for ((m = 0; m < $count; m++)); do
+		$LFS setdirstripe -i ${idx1} -c $MDSCOUNT -t all_char \
+			$basedir/s${m} || {
+			umount_client $mntpt
+			error_noexit \
+				"(19) Fail to make striped-dir $basedir/r${m}"
+			return 19
+		}
+
+		# 0.5% * 8 = 4% regular files under striped directories
+		createmany -m $basedir/s${m}/sf 8 || {
+			umount_client $mntpt
+			error_noexit \
+				"(20) Fail to gen regular under $basedir/s${m}"
+			return 20
+		}
+	done
+	echo "Created $count striped sub-dirs under $basedir at: $(date)"
+
+	umount_client $mntpt
+}
+
+namespace_gen_set()
+{
+	local cnt=$1
+
+	echo "##### Start generate test set for subdirs=$cnt at: $(date) #####"
+	for ((k = 0; k < $MDSCOUNT; k++)); do
+		$LFS mkdir -i ${k} $LFSCKDIR/${k} || return 10
+
+		for ((l = 1; l <= $cnt; l++)); do
+			namespace_gen_one ${k} ${l} &
+			[ $((l % NTHREADS)) -eq 0 ] && wait
+		done
+	done
+
+	wait
+	echo "##### End generate test set for subdirs=$cnt at: $(date) #####"
+}
+
+t7_test()
+{
+	local local_loc=$1
+	local saved_mdscount=$MDSCOUNT
+	local saved_ostcount=$OSTCOUNT
+
+	echo "stopall"
+	stopall > /dev/null || error "(1) Fail to stopall"
+
+	OSTCOUNT=1
+	LFSCKDIR="$DIR/$tdir"
+
+	for ((i = 2; i <= $saved_mdscount; i = $((i + 2)))); do
+		MDSCOUNT=${i}
+
+		echo "+++++ Start cycle mdscount=$MDSCOUNT at: $(date) +++++"
+		echo
+
+		for ((j = $MINSUBDIR; j <= $MAXSUBDIR;
+		      j = $((j + MINSUBDIR)))); do
+			echo "formatall"
+			formatall > /dev/null ||
+				error "(2) Fail to formatall, subdirs=${j}"
+
+			echo "setupall"
+			setupall > /dev/null ||
+				error "(3) Fail to setupall, subdirs=${j}"
+
+			mkdir $LFSCKDIR ||
+				error "(4) mkdir $LFSCKDIR, subdirs=${j}"
+
+			$LFS setstripe -c 1 -i 0 $LFSCKDIR ||
+				error "(5) Fail to setstripe on $LFSCKDIR"
+
+			do_nodes $(comma_list $(mdts_nodes)) \
+				$LCTL set_param fail_loc=$local_loc
+
+			local RC=0
+			namespace_gen_set ${j} || RC=$?
+			[ $RC -eq 0 ] ||
+				error "(6) generate set $RC, subdirs=${j}"
+
+			RC=0
+			namespace_test_one || RC=$?
+			[ $RC -eq 0 ] ||
+				error "(7) LFSCK failed with $RC, subdirs=${j}"
+
+			do_nodes $(comma_list $(mdts_nodes)) \
+				$LCTL set_param fail_loc=0
+		done
+
+		echo "stopall"
+		stopall > /dev/null || error "(8) Fail to stopall"
+
+		echo
+		echo "----- Stop cycle mdscount=$MDSCOUNT at: $(date) -----"
+	done
+
+	MDSCOUNT=$saved_mdscount
+	OSTCOUNT=$saved_ostcount
+}
+
+test_7a() {
+	t7_test 0
+}
+run_test 7a "namespace LFSCK performance (routine check) without load for DNE"
+
+test_7b() {
+	echo "Inject failure stub to simulate the case of lost linkEA"
+	#define OBD_FAIL_LFSCK_NO_LINKEA	0x161d
+	t7_test 0x161d
+}
+run_test 7b "namespace LFSCK performance (repairing case) without load for DNE"
+
+test_8() {
+	[ $MDSCOUNT -lt 2 ] &&
+		skip "We need at least 2 MDSes for this test" && return
+
+	[ $INCFACTOR -gt 25 ] && INCFACTOR=25
+
+	echo "stopall"
+	stopall > /dev/null || error "(1) Fail to stopall"
+
+	local saved_mdscount=$MDSCOUNT
+
+	LFSCKDIR="$DIR/$tdir"
+	MDSCOUNT=2
+	echo "formatall"
+	formatall > /dev/null || error "(2) Fail to formatall"
+
+	echo "setupall"
+	setupall > /dev/null || error "(3) Fail to setupall"
+
+	mkdir $LFSCKDIR || error "(4) Fail to mkdir $LFSCKDIR"
+
+	$LFS setstripe -c 1 -i 0 $LFSCKDIR ||
+		error "(5) Fail to setstripe on $LFSCKDIR"
+
+	local RC=0
+	namespace_gen_set $TOTSUBDIR || RC=$?
+	[ $RC -eq 0 ] ||
+		error "(6) Fail to generate set $RC, subdirs=$TOTSUBDIR"
+
+	echo
+	echo "***** Start namespace LFSCK at: $(date) *****"
+	$RLCTL lfsck_start -M ${MDT_DEV} -t namespace -A -r ||
+		error "(7) Fail to start namespace LFSCK"
+
+	for n in $(seq $MDSCOUNT); do
+		wait_update_facet mds${n} "$LCTL get_param -n \
+			mdd.$(facet_svc mds${n}).lfsck_namespace |
+			awk '/^status/ { print \\\$2 }'" "completed" $WTIME || {
+			show_namespace ${n}
+			error "(8) namespace LFSCK cannot finished in time"
+		}
+	done
+	echo "***** End namespace LFSCK at: $(date) *****"
+
+	local SPEED=$(show_namespace 1 |
+		      awk '/^average_speed_phase1/ { print $2 }')
+	echo "lfsck_namespace full_speed is $SPEED objs/sec"
+
+	local inc_count=$((BASE_COUNT * INCFACTOR / 100))
+	local nfiles=$((inc_count / 2))
+	lfsck_attach
+	for ((m = 0, n = $INCFACTOR; n < 100;
+	      m = $((m + inc_count)), n = $((n + INCFACTOR)))); do
+		local sl=$((SPEED * n / 100))
+
+		$STOP_LFSCK > /dev/null 2>&1
+		echo
+		echo "start lfsck_namespace with speed ${sl} at: $(date)"
+		$RLCTL lfsck_start -M ${MDT_DEV} -t namespace -A -r -s ${sl} ||
+			lfsck_detach_error \
+			"(9) Fail to start lfsck_namespace with speed ${sl}"
+
+		echo "&&&&& Start create files set from ${m} at: $(date) &&&&&"
+		lfsck_fast_create $nfiles ${m} $NTHREADS ||
+			lfsck_detach_error "(10) Fail to create files"
+		echo "&&&&& End create files set from ${m} at: $(date) &&&&&"
+	done
+
+	$STOP_LFSCK > /dev/null 2>&1
+	echo
+	echo "start lfsck_namespace with full speed at: $(date)"
+	$RLCTL lfsck_start -M ${MDT_DEV} -t namespace -A -r -s 0 ||
+		lfsck_detach_error \
+		"(11) Fail to start lfsck_namespace with full speed"
+
+	echo "&&&&& start to create files set from ${m} at: $(date) &&&&&"
+	lfsck_fast_create $nfiles ${m} $NTHREADS ||
+		lfsck_detach_error "(12) Fail to create files"
+	echo "&&&&& end to create files set from ${m} at: $(date) &&&&&"
+
+	m=$((m + inc_count))
+	$STOP_LFSCK > /dev/null 2>&1
+	echo
+	echo "create without lfsck_namespace run back-ground"
+	echo "&&&&& start to create files set from ${m} at: $(date) &&&&&"
+	lfsck_fast_create $nfiles ${m} $NTHREADS ||
+		lfsck_detach_error "(13) Fail to create files"
+	echo "&&&&& end to create files set from ${m} at: $(date) &&&&&"
+
+	lfsck_detach
+	echo
+	echo "stopall"
+	stopall > /dev/null || error "(14) Fail to stopall"
+
+	MDSCOUNT=$saved_mdscount
+}
+run_test 8 "lfsck namespace impact on create performance"
 
 # cleanup the system at last
 lfsck_cleanup
