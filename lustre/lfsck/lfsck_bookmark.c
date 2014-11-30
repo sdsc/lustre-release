@@ -78,7 +78,7 @@ static int lfsck_bookmark_load(const struct lu_env *env,
 
 		lfsck_bookmark_le_to_cpu(bm, &lfsck->li_bookmark_disk);
 		if (bm->lb_magic != LFSCK_BOOKMARK_MAGIC) {
-			CDEBUG(D_LFSCK, "%s: invalid lfsck_bookmark magic "
+			LDEBUG(D_LFSCK, "%s: invalid lfsck_bookmark magic "
 			      "%#x != %#x\n", lfsck_lfsck2name(lfsck),
 			      bm->lb_magic, LFSCK_BOOKMARK_MAGIC);
 			/* Process it as new lfsck_bookmark. */
@@ -89,7 +89,7 @@ static int lfsck_bookmark_load(const struct lu_env *env,
 			/* return -ENODATA for empty lfsck_bookmark. */
 			rc = -ENODATA;
 		else
-			CDEBUG(D_LFSCK, "%s: fail to load lfsck_bookmark, "
+			LDEBUG(D_LFSCK, "%s: fail to load lfsck_bookmark, "
 			       "expected = %d: rc = %d\n",
 			       lfsck_lfsck2name(lfsck), len, rc);
 	}
@@ -134,7 +134,7 @@ out:
 
 log:
 	if (rc != 0)
-		CDEBUG(D_LFSCK, "%s: fail to store lfsck_bookmark: rc = %d\n",
+		LDEBUG(D_LFSCK, "%s: fail to store lfsck_bookmark: rc = %d\n",
 		       lfsck_lfsck2name(lfsck), rc);
 	return rc;
 }

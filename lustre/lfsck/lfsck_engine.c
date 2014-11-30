@@ -659,7 +659,7 @@ static int lfsck_post(const struct lu_env *env, struct lfsck_instance *lfsck,
 	list_for_each_entry_safe(com, next, &lfsck->li_list_scan, lc_link) {
 		rc = com->lc_ops->lfsck_post(env, com, result, false);
 		if (rc != 0)
-			CDEBUG(D_LFSCK, "%s: lfsck_post at the component %u: "
+			LDEBUG(D_LFSCK, "%s: lfsck_post at the component %u: "
 			       "rc = %d\n", lfsck_lfsck2name(lfsck),
 			       (__u32)com->lc_type, rc);
 	}
@@ -751,7 +751,7 @@ static int lfsck_master_dir_engine(const struct lu_env *env,
 	do {
 		if (CFS_FAIL_TIMEOUT(OBD_FAIL_LFSCK_DELAY2, cfs_fail_val) &&
 		    unlikely(!thread_is_running(thread))) {
-			CDEBUG(D_LFSCK, "%s: scan dir exit for engine stop, "
+			LDEBUG(D_LFSCK, "%s: scan dir exit for engine stop, "
 			       "parent "DFID", cookie "LPX64"\n",
 			       lfsck_lfsck2name(lfsck),
 			       PFID(lfsck_dto2fid(dir)), lfsck->li_cookie_dir);
@@ -767,7 +767,7 @@ static int lfsck_master_dir_engine(const struct lu_env *env,
 					      &type);
 
 		if (rc != 0) {
-			CDEBUG(D_LFSCK, "%s: scan dir failed at rec(), "
+			LDEBUG(D_LFSCK, "%s: scan dir failed at rec(), "
 			       "parent "DFID", cookie "LPX64": rc = %d\n",
 			       lfsck_lfsck2name(lfsck),
 			       PFID(lfsck_dto2fid(dir)),
@@ -801,7 +801,7 @@ checkpoint:
 		/* Rate control. */
 		lfsck_control_speed(lfsck);
 		if (unlikely(!thread_is_running(thread))) {
-			CDEBUG(D_LFSCK, "%s: scan dir exit for engine stop, "
+			LDEBUG(D_LFSCK, "%s: scan dir exit for engine stop, "
 			       "parent "DFID", cookie "LPX64"\n",
 			       lfsck_lfsck2name(lfsck),
 			       PFID(lfsck_dto2fid(dir)),
@@ -880,7 +880,7 @@ static int lfsck_master_oit_engine(const struct lu_env *env,
 
 		if (CFS_FAIL_TIMEOUT(OBD_FAIL_LFSCK_DELAY1, cfs_fail_val) &&
 		    unlikely(!thread_is_running(thread))) {
-			CDEBUG(D_LFSCK, "%s: OIT scan exit for engine stop, "
+			LDEBUG(D_LFSCK, "%s: OIT scan exit for engine stop, "
 			       "cookie "LPU64"\n",
 			       lfsck_lfsck2name(lfsck), iops->store(env, di));
 
@@ -915,7 +915,7 @@ static int lfsck_master_oit_engine(const struct lu_env *env,
 		lfsck->li_pos_current.lp_oit_cookie = iops->store(env, di);
 		rc = iops->rec(env, di, (struct dt_rec *)fid, 0);
 		if (rc != 0) {
-			CDEBUG(D_LFSCK, "%s: OIT scan failed at rec(): "
+			LDEBUG(D_LFSCK, "%s: OIT scan failed at rec(): "
 			       "rc = %d\n", lfsck_lfsck2name(lfsck), rc);
 			lfsck_fail(env, lfsck, true);
 			if (rc < 0 && bk->lb_param & LPF_FAILOUT)
@@ -925,7 +925,7 @@ static int lfsck_master_oit_engine(const struct lu_env *env,
 		}
 
 		if (unlikely(!fid_is_sane(fid))) {
-			CDEBUG(D_LFSCK, "%s: OIT scan find invalid FID "DFID
+			LDEBUG(D_LFSCK, "%s: OIT scan find invalid FID "DFID
 			       ", skip it\n",
 			       lfsck_lfsck2name(lfsck), PFID(fid));
 			goto checkpoint;
@@ -973,7 +973,7 @@ static int lfsck_master_oit_engine(const struct lu_env *env,
 
 		target = lfsck_object_find_bottom(env, lfsck, fid);
 		if (IS_ERR(target)) {
-			CDEBUG(D_LFSCK, "%s: OIT scan failed at find target "
+			LDEBUG(D_LFSCK, "%s: OIT scan failed at find target "
 			       DFID", cookie "LPU64": rc = %d\n",
 			       lfsck_lfsck2name(lfsck), PFID(fid),
 			       iops->store(env, di), rc);
@@ -988,7 +988,7 @@ static int lfsck_master_oit_engine(const struct lu_env *env,
 			if (update_lma) {
 				rc = lfsck_update_lma(env, lfsck, target);
 				if (rc != 0)
-					CDEBUG(D_LFSCK, "%s: fail to update "
+					LDEBUG(D_LFSCK, "%s: fail to update "
 					       "LMA for "DFID": rc = %d\n",
 					       lfsck_lfsck2name(lfsck),
 					       PFID(lfsck_dto2fid(target)), rc);
@@ -1022,7 +1022,7 @@ checkpoint:
 			lfsck->li_current_oit_processed = 0;
 
 		if (unlikely(!thread_is_running(thread))) {
-			CDEBUG(D_LFSCK, "%s: OIT scan exit for engine stop, "
+			LDEBUG(D_LFSCK, "%s: OIT scan exit for engine stop, "
 			       "cookie "LPU64"\n", lfsck_lfsck2name(lfsck),
 			       iops->store(env, di));
 			RETURN(0);
@@ -1055,7 +1055,7 @@ int lfsck_master_engine(void *args)
 		 * directory. So go ahead until hit failure when really uses
 		 * the directory. */
 		if (rc != 0)
-			CDEBUG(D_LFSCK, "%s: master engine fail to verify the "
+			LDEBUG(D_LFSCK, "%s: master engine fail to verify the "
 			       ".lustre/lost+found/, go ahead: rc = %d\n",
 			       lfsck_lfsck2name(lfsck), rc);
 	}
@@ -1063,7 +1063,7 @@ int lfsck_master_engine(void *args)
 	oit_di = oit_iops->init(env, oit_obj, lfsck->li_args_oit, BYPASS_CAPA);
 	if (IS_ERR(oit_di)) {
 		rc = PTR_ERR(oit_di);
-		CDEBUG(D_LFSCK, "%s: master engine fail to init iteration: "
+		LDEBUG(D_LFSCK, "%s: master engine fail to init iteration: "
 		       "rc = %d\n", lfsck_lfsck2name(lfsck), rc);
 
 		GOTO(fini_args, rc);
@@ -1076,7 +1076,7 @@ int lfsck_master_engine(void *args)
 	if (rc != 0)
 		GOTO(fini_oit, rc);
 
-	CDEBUG(D_LFSCK, "LFSCK entry: oit_flags = %#x, dir_flags = %#x, "
+	LDEBUG(D_LFSCK, "LFSCK entry: oit_flags = %#x, dir_flags = %#x, "
 	       "oit_cookie = "LPU64", dir_cookie = "LPX64", parent = "DFID
 	       ", pid = %d\n", lfsck->li_args_oit, lfsck->li_args_dir,
 	       lfsck->li_pos_checkpoint.lp_oit_cookie,
@@ -1103,7 +1103,7 @@ int lfsck_master_engine(void *args)
 		rc = 1;
 
 	lfsck_pos_fill(env, lfsck, &lfsck->li_pos_checkpoint, false);
-	CDEBUG(D_LFSCK, "LFSCK exit: oit_flags = %#x, dir_flags = %#x, "
+	LDEBUG(D_LFSCK, "LFSCK exit: oit_flags = %#x, dir_flags = %#x, "
 	       "oit_cookie = "LPU64", dir_cookie = "LPX64", parent = "DFID
 	       ", pid = %d, rc = %d\n", lfsck->li_args_oit, lfsck->li_args_dir,
 	       lfsck->li_pos_checkpoint.lp_oit_cookie,
@@ -1238,7 +1238,7 @@ again:
 					 lfsck_async_interpret_common,
 					 laia, LFSCK_QUERY);
 		if (rc != 0) {
-			CDEBUG(D_LFSCK, "%s: LFSCK assistant fail to query "
+			LDEBUG(D_LFSCK, "%s: LFSCK assistant fail to query "
 			       "%s %x for %s: rc = %d\n",
 			       lfsck_lfsck2name(lfsck),
 			       (lr->lr_flags & LEF_TO_OST) ? "OST" : "MDT",
@@ -1336,7 +1336,7 @@ static int lfsck_assistant_notify_others(const struct lu_env *env,
 					laia, LFSCK_NOTIFY);
 			if (rc != 0) {
 				lfsck_lad_set_bitmap(env, com, idx);
-				CDEBUG(D_LFSCK, "%s: LFSCK assistant fail to "
+				LDEBUG(D_LFSCK, "%s: LFSCK assistant fail to "
 				       "notify OST %x for %s start: rc = %d\n",
 				       lfsck_lfsck2name(lfsck), idx,
 				       lad->lad_name, rc);
@@ -1465,7 +1465,7 @@ again:
 					lfsck_async_interpret_common,
 					laia, LFSCK_NOTIFY);
 			if (rc != 0) {
-				CDEBUG(D_LFSCK, "%s: LFSCK assistant fail to "
+				LDEBUG(D_LFSCK, "%s: LFSCK assistant fail to "
 				       "notify %s %x for %s stop/phase2_done/"
 				       "peer_exit: rc = %d\n",
 				       lfsck_lfsck2name(lfsck),
@@ -1535,7 +1535,7 @@ again:
 					lfsck_async_interpret_common,
 					laia, LFSCK_NOTIFY);
 			if (rc != 0) {
-				CDEBUG(D_LFSCK, "%s: LFSCK assistant fail to "
+				LDEBUG(D_LFSCK, "%s: LFSCK assistant fail to "
 				       "notify MDT %x for %s phase1 done: "
 				       "rc = %d\n", lfsck_lfsck2name(lfsck),
 				       ltd->ltd_index, lad->lad_name, rc);
@@ -1546,7 +1546,7 @@ again:
 		spin_unlock(&ltds->ltd_lock);
 		break;
 	default:
-		CDEBUG(D_LFSCK, "%s: LFSCK assistant unexpected LFSCK event: "
+		LDEBUG(D_LFSCK, "%s: LFSCK assistant unexpected LFSCK event: "
 		       "rc = %d\n", lfsck_lfsck2name(lfsck), lr->lr_event);
 		rc = -EINVAL;
 		break;
@@ -1597,7 +1597,7 @@ int lfsck_assistant_engine(void *args)
 	int				   rc2;
 	ENTRY;
 
-	CDEBUG(D_LFSCK, "%s: %s LFSCK assistant thread start\n",
+	LDEBUG(D_LFSCK, "%s: %s LFSCK assistant thread start\n",
 	       lfsck_lfsck2name(lfsck), lad->lad_name);
 
 	memset(lr, 0, sizeof(*lr));
@@ -1606,7 +1606,7 @@ int lfsck_assistant_engine(void *args)
 		lr->lr_param = LPF_RESET;
 	rc = lfsck_assistant_notify_others(env, com, lr);
 	if (rc != 0) {
-		CDEBUG(D_LFSCK, "%s: LFSCK assistant fail to notify others "
+		LDEBUG(D_LFSCK, "%s: LFSCK assistant fail to notify others "
 		       "to start %s: rc = %d\n",
 		       lfsck_lfsck2name(lfsck), lad->lad_name, rc);
 		GOTO(fini, rc);
@@ -1665,7 +1665,7 @@ int lfsck_assistant_engine(void *args)
 			continue;
 
 		if (lad->lad_to_post) {
-			CDEBUG(D_LFSCK, "%s: %s LFSCK assistant thread post\n",
+			LDEBUG(D_LFSCK, "%s: %s LFSCK assistant thread post\n",
 			       lfsck_lfsck2name(lfsck), lad->lad_name);
 
 			if (unlikely(lad->lad_exit))
@@ -1679,7 +1679,7 @@ int lfsck_assistant_engine(void *args)
 			lr->lr_status = lad->lad_post_result;
 			rc = lfsck_assistant_notify_others(env, com, lr);
 			if (rc != 0)
-				CDEBUG(D_LFSCK, "%s: LFSCK assistant failed to "
+				LDEBUG(D_LFSCK, "%s: LFSCK assistant failed to "
 				       "notify others for %s post: rc = %d\n",
 				       lfsck_lfsck2name(lfsck),
 				       lad->lad_name, rc);
@@ -1701,14 +1701,14 @@ int lfsck_assistant_engine(void *args)
 				com->lc_time_last_checkpoint +
 				cfs_time_seconds(LFSCK_CHECKPOINT_INTERVAL);
 
-			CDEBUG(D_LFSCK, "%s: LFSCK assistant sync before "
+			LDEBUG(D_LFSCK, "%s: LFSCK assistant sync before "
 			       "the second-stage scaning\n",
 			       lfsck_lfsck2name(lfsck));
 
 			/* Flush async updates before handling orphan. */
 			rc2 = dt_sync(env, lfsck->li_next);
 
-			CDEBUG(D_LFSCK, "%s: LFSCK assistant phase2 "
+			LDEBUG(D_LFSCK, "%s: LFSCK assistant phase2 "
 			       "scan start, synced: rc = %d\n",
 			       lfsck_lfsck2name(lfsck), rc2);
 
@@ -1801,7 +1801,7 @@ cleanup2:
 				lr->lr_status = LS_CO_STOPPED;
 				break;
 			default:
-				CDEBUG(D_LFSCK, "%s: LFSCK assistant unknown "
+				LDEBUG(D_LFSCK, "%s: LFSCK assistant unknown "
 				       "status: rc = %d\n",
 				       lfsck_lfsck2name(lfsck),
 				       lfsck->li_status);
@@ -1821,19 +1821,19 @@ cleanup2:
 
 	rc1 = lfsck_assistant_notify_others(env, com, lr);
 	if (rc1 != 0) {
-		CDEBUG(D_LFSCK, "%s: LFSCK assistant failed to notify "
+		LDEBUG(D_LFSCK, "%s: LFSCK assistant failed to notify "
 		       "others for %s quit: rc = %d\n",
 		       lfsck_lfsck2name(lfsck), lad->lad_name, rc1);
 		rc = rc1;
 	}
 
-	CDEBUG(D_LFSCK, "%s: LFSCK assistant sync before exit\n",
+	LDEBUG(D_LFSCK, "%s: LFSCK assistant sync before exit\n",
 	       lfsck_lfsck2name(lfsck));
 
 	/* Flush async updates before exit. */
 	rc2 = dt_sync(env, lfsck->li_next);
 
-	CDEBUG(D_LFSCK, "%s: LFSCK assistant synced before exit: rc = %d\n",
+	LDEBUG(D_LFSCK, "%s: LFSCK assistant synced before exit: rc = %d\n",
 	       lfsck_lfsck2name(lfsck), rc2);
 
 	/* Under force exit case, some requests may be just freed without
@@ -1843,7 +1843,7 @@ cleanup2:
 		if (!lad->lad_exit)
 			rc1 = lao->la_double_scan_result(env, com, rc);
 
-		CDEBUG(D_LFSCK, "%s: LFSCK assistant phase2 scan "
+		LDEBUG(D_LFSCK, "%s: LFSCK assistant phase2 scan "
 		       "finished: rc = %d\n",
 		       lfsck_lfsck2name(lfsck), rc1 != 0 ? rc1 : rc);
 	}
@@ -1858,7 +1858,7 @@ fini:
 	wake_up_all(&mthread->t_ctl_waitq);
 	spin_unlock(&lad->lad_lock);
 
-	CDEBUG(D_LFSCK, "%s: %s LFSCK assistant thread exit: rc = %d\n",
+	LDEBUG(D_LFSCK, "%s: %s LFSCK assistant thread exit: rc = %d\n",
 	       lfsck_lfsck2name(lfsck), lad->lad_name,
 	       lad->lad_assistant_status);
 

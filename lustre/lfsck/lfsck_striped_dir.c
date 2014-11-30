@@ -259,7 +259,7 @@ stop:
 	dt_trans_stop(env, dev, th);
 
 log:
-	CDEBUG(D_LFSCK, "%s: namespace LFSCK set the master MDT-object of "
+	LDEBUG(D_LFSCK, "%s: namespace LFSCK set the master MDT-object of "
 	       "the striped directory "DFID" as read-only: rc = %d\n",
 	       lfsck_lfsck2name(lfsck), PFID(lfsck_dto2fid(obj)), rc);
 
@@ -498,7 +498,7 @@ static int lfsck_record_lmv(const struct lu_env *env,
 	int			    rc    = 0;
 	ENTRY;
 
-	CDEBUG(D_LFSCK, "%s: record slave LMV EA for the striped directory "
+	LDEBUG(D_LFSCK, "%s: record slave LMV EA for the striped directory "
 	       DFID": shard = "DFID", index = %u, flags = %u, flags2 = %u, "
 	       "depth = %d\n", lfsck_lfsck2name(lfsck),
 	       PFID(lfsck_dto2fid(dir)), PFID(fid),
@@ -1057,7 +1057,7 @@ stop:
 
 log:
 	lfsck_ibits_unlock(&lh, LCK_EX);
-	CDEBUG(D_LFSCK, "%s: namespace LFSCK updated the %s LMV EA "
+	LDEBUG(D_LFSCK, "%s: namespace LFSCK updated the %s LMV EA "
 	       "for the object "DFID": rc = %d\n",
 	       lfsck_lfsck2name(lfsck),
 	       lmv->lmv_magic == LMV_MAGIC ? "master" : "slave",
@@ -1239,7 +1239,7 @@ static int lfsck_namespace_notify_lmv_remote(const struct lu_env *env,
 	GOTO(out, rc = (rc == -ENOENT ? 1 : rc));
 
 out:
-	CDEBUG(D_LFSCK, "%s: namespace LFSCK notify LMV EA updated for the "
+	LDEBUG(D_LFSCK, "%s: namespace LFSCK notify LMV EA updated for the "
 	       "object "DFID" on MDT %x remotely with event %u, flags %u: "
 	       "rc = %d\n", lfsck_lfsck2name(lfsck), PFID(fid), index,
 	       event, flags, rc);
@@ -1435,7 +1435,7 @@ static int lfsck_namespace_set_lmv_master(const struct lu_env *env,
 
 log:
 	lfsck_ibits_unlock(&lh, LCK_EX);
-	CDEBUG(D_LFSCK, "%s: namespace LFSCK set master LMV EA for the object "
+	LDEBUG(D_LFSCK, "%s: namespace LFSCK set master LMV EA for the object "
 	       DFID" on the %s MDT %d, flags %x: rc = %d\n",
 	       lfsck_lfsck2name(lfsck), PFID(lfsck_dto2fid(obj)),
 	       dt_object_remote(obj) ? "remote" : "local", pidx, flags, rc);
@@ -1503,7 +1503,7 @@ int lfsck_namespace_repair_bad_name_hash(const struct lu_env *env,
 	GOTO(log, rc);
 
 log:
-	CDEBUG(D_LFSCK, "%s: namespace LFSCK assistant found bad name hash "
+	LDEBUG(D_LFSCK, "%s: namespace LFSCK assistant found bad name hash "
 	       "on the MDT %x, parent "DFID", name %s, shard_%x "DFID
 	       ": rc = %d\n",
 	       lfsck_lfsck2name(lfsck), lfsck_dev_idx(lfsck),
@@ -2092,7 +2092,7 @@ repair:
 		}
 
 next:
-		CDEBUG(D_LFSCK, "%s: namespace LFSCK repair the shard "
+		LDEBUG(D_LFSCK, "%s: namespace LFSCK repair the shard "
 		      "%d "DFID" of the striped directory "DFID" with "
 		      "dangling %s/%s, rename %s/%s, llinkea %s/%s, "
 		      "repair_lmvea %s/%s: rc = %d\n", lfsck_lfsck2name(lfsck),
@@ -2215,7 +2215,7 @@ int lfsck_namespace_handle_striped_master(const struct lu_env *env,
 
 		ltd = LTD_TGT(&lfsck->li_mdt_descs, shard_idx);
 		if (unlikely(ltd == NULL)) {
-			CDEBUG(D_LFSCK, "%s: cannot talk with MDT %x which "
+			LDEBUG(D_LFSCK, "%s: cannot talk with MDT %x which "
 			       "did not join the namespace LFSCK\n",
 			       lfsck_lfsck2name(lfsck), shard_idx);
 			lfsck_lad_set_bitmap(env, com, shard_idx);
@@ -2308,7 +2308,7 @@ out:
 	}
 
 	if (rc < 0) {
-		CDEBUG(D_LFSCK, "%s: namespace LFSCK assistant fail to handle "
+		LDEBUG(D_LFSCK, "%s: namespace LFSCK assistant fail to handle "
 		       "the shard: "DFID", parent "DFID", name %.*s: rc = %d\n",
 		       lfsck_lfsck2name(lfsck), PFID(&lnr->lnr_fid),
 		       PFID(lfsck_dto2fid(dir)),

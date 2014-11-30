@@ -36,6 +36,7 @@
 #ifndef _LIBCFS_FAIL_H
 #define _LIBCFS_FAIL_H
 
+extern unsigned long cfs_dump_loc;
 extern unsigned long cfs_fail_loc;
 extern unsigned int cfs_fail_val;
 extern int cfs_fail_err;

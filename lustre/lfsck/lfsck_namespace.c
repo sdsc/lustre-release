@@ -246,7 +246,7 @@ static void lfsck_namespace_record_failure(const struct lu_env *env,
 	    lfsck_pos_is_eq(&pos, &ns->ln_pos_first_inconsistent) < 0) {
 		ns->ln_pos_first_inconsistent = pos;
 
-		CDEBUG(D_LFSCK, "%s: namespace LFSCK hit first non-repaired "
+		LDEBUG(D_LFSCK, "%s: namespace LFSCK hit first non-repaired "
 		       "inconsistency at the pos ["LPU64", "DFID", "LPX64"]\n",
 		       lfsck_lfsck2name(lfsck),
 		       ns->ln_pos_first_inconsistent.lp_oit_cookie,
@@ -353,7 +353,7 @@ static int lfsck_namespace_load(const struct lu_env *env,
 		lfsck_namespace_le_to_cpu(ns,
 				(struct lfsck_namespace *)com->lc_file_disk);
 		if (ns->ln_magic != LFSCK_NAMESPACE_MAGIC) {
-			CDEBUG(D_LFSCK, "%s: invalid lfsck_namespace magic "
+			LDEBUG(D_LFSCK, "%s: invalid lfsck_namespace magic "
 			       "%#x != %#x\n", lfsck_lfsck2name(com->lc_lfsck),
 			       ns->ln_magic, LFSCK_NAMESPACE_MAGIC);
 			rc = -ESTALE;
@@ -361,7 +361,7 @@ static int lfsck_namespace_load(const struct lu_env *env,
 			rc = 0;
 		}
 	} else if (rc != -ENODATA) {
-		CDEBUG(D_LFSCK, "%s: fail to load lfsck_namespace, "
+		LDEBUG(D_LFSCK, "%s: fail to load lfsck_namespace, "
 		       "expected = %d: rc = %d\n",
 		       lfsck_lfsck2name(com->lc_lfsck), len, rc);
 		if (rc >= 0)
@@ -467,7 +467,7 @@ out:
 
 log:
 	if (rc != 0)
-		CDEBUG(D_LFSCK, "%s: fail to store lfsck_namespace: rc = %d\n",
+		LDEBUG(D_LFSCK, "%s: fail to store lfsck_namespace: rc = %d\n",
 		       lfsck_lfsck2name(lfsck), rc);
 	return rc;
 }
@@ -659,7 +659,7 @@ log:
 	if (th != NULL && !IS_ERR(th))
 		dt_trans_stop(env, dev, th);
 
-	CDEBUG(D_LFSCK, "%s: namespace LFSCK %s flags for "DFID" in the "
+	LDEBUG(D_LFSCK, "%s: namespace LFSCK %s flags for "DFID" in the "
 	       "trace file, flags %x, old %x, new %x: rc = %d\n",
 	       lfsck_lfsck2name(lfsck), add ? "add" : "del", PFID(fid),
 	       (__u32)flags, (__u32)old, (__u32)new, rc);
@@ -800,7 +800,7 @@ stop:
 	dt_trans_stop(env, dev, th);
 
 log:
-	CDEBUG(D_LFSCK, "%s: namespace LFSCK remove invalid linkEA "
+	LDEBUG(D_LFSCK, "%s: namespace LFSCK remove invalid linkEA "
 	       "for the object "DFID": rc = %d\n",
 	       lfsck_lfsck2name(lfsck), PFID(lfsck_dto2fid(obj)), rc);
 
@@ -1087,7 +1087,7 @@ stop:
 log:
 	lfsck_ibits_unlock(&clh, LCK_EX);
 	lfsck_ibits_unlock(&plh, LCK_EX);
-	CDEBUG(D_LFSCK, "%s: namespace LFSCK insert orphan for the "
+	LDEBUG(D_LFSCK, "%s: namespace LFSCK insert orphan for the "
 	       "object "DFID", name = %s: rc = %d\n",
 	       lfsck_lfsck2name(lfsck), PFID(cfid),
 	       cname->ln_name != NULL ? cname->ln_name : "<NULL>", rc);
@@ -1226,7 +1226,7 @@ unlock:
 	lfsck_ibits_unlock(&lh, LCK_EX);
 
 log:
-	CDEBUG(D_LFSCK, "%s: namespace LFSCK insert object "DFID" with "
+	LDEBUG(D_LFSCK, "%s: namespace LFSCK insert object "DFID" with "
 	       "the name %s and type %o to the parent "DFID": rc = %d\n",
 	       lfsck_lfsck2name(lfsck), PFID(lfsck_dto2fid(child)), name,
 	       lfsck_object_type(child) & S_IFMT,
@@ -1486,7 +1486,7 @@ unlock1:
 	lfsck_ibits_unlock(&lh, LCK_EX);
 
 log:
-	CDEBUG(D_LFSCK, "%s: namespace LFSCK create orphan dir for "
+	LDEBUG(D_LFSCK, "%s: namespace LFSCK create orphan dir for "
 	       "the object "DFID", name = %s: rc = %d\n",
 	       lfsck_lfsck2name(lfsck), PFID(cfid),
 	       cname->ln_name != NULL ? cname->ln_name : "<NULL>", rc);
@@ -1613,7 +1613,7 @@ unlock1:
 	lfsck_ibits_unlock(&lh, LCK_EX);
 
 log:
-	CDEBUG(D_LFSCK, "%s: namespace LFSCK remove %s linkEA entry "
+	LDEBUG(D_LFSCK, "%s: namespace LFSCK remove %s linkEA entry "
 	       "for the object: "DFID", parent "DFID", name %.*s\n",
 	       lfsck_lfsck2name(lfsck), next ? "invalid" : "redundant",
 	       PFID(lfsck_dto2fid(obj)), PFID(pfid), cname->ln_namelen,
@@ -1911,7 +1911,7 @@ log:
 	if (cobj != NULL && !IS_ERR(cobj))
 		lfsck_object_put(env, cobj);
 
-	CDEBUG(D_LFSCK, "%s: namespace LFSCK conditionally destroy the "
+	LDEBUG(D_LFSCK, "%s: namespace LFSCK conditionally destroy the "
 	       "object "DFID" because of conflict with the object "DFID
 	       " under the parent "DFID" with name %s: rc = %d\n",
 	       lfsck_lfsck2name(lfsck), PFID(cfid),
@@ -1981,7 +1981,7 @@ stop:
 	dt_trans_stop(env, dev, th);
 
 log:
-	CDEBUG(D_LFSCK, "%s: namespace LFSCK rebuild linkEA for the "
+	LDEBUG(D_LFSCK, "%s: namespace LFSCK rebuild linkEA for the "
 	       "object "DFID": rc = %d\n",
 	       lfsck_lfsck2name(lfsck), PFID(lfsck_dto2fid(obj)), rc);
 
@@ -2125,7 +2125,7 @@ unlock1:
 	lfsck_ibits_unlock(&lh, LCK_EX);
 
 log:
-	CDEBUG(D_LFSCK, "%s: namespace LFSCK assistant found bad name "
+	LDEBUG(D_LFSCK, "%s: namespace LFSCK assistant found bad name "
 	       "entry for: parent "DFID", child "DFID", name %s, type "
 	       "in name entry %o, type claimed by child %o. repair it "
 	       "by %s with new name2 %s: rc = %d\n", lfsck_lfsck2name(lfsck),
@@ -2242,7 +2242,7 @@ stop:
 	dt_trans_stop(env, dev, th);
 
 log:
-	CDEBUG(D_LFSCK, "%s: namespace LFSCK rebuild dotdot name entry for "
+	LDEBUG(D_LFSCK, "%s: namespace LFSCK rebuild dotdot name entry for "
 	       "the object "DFID", new parent "DFID": rc = %d\n",
 	       lfsck_lfsck2name(lfsck), PFID(lfsck_dto2fid(obj)),
 	       PFID(pfid), rc);
@@ -2960,7 +2960,7 @@ stop:
 
 log:
 	lfsck_ibits_unlock(&lh, LCK_EX);
-	CDEBUG(D_LFSCK, "%s: namespace LFSCK repaired the object "DFID"'s "
+	LDEBUG(D_LFSCK, "%s: namespace LFSCK repaired the object "DFID"'s "
 	       "nlink count from %u to %u: rc = %d\n",
 	       lfsck_lfsck2name(lfsck), PFID(cfid), old, la->la_nlink, rc);
 
@@ -3045,7 +3045,7 @@ static int lfsck_namespace_double_scan_dir(const struct lu_env *env,
 
 	if (flags & (LNTF_CHECK_LINKEA | LNTF_CHECK_PARENT) &&
 	    !(lfsck->li_bookmark_ram.lb_param & LPF_ALL_TGT)) {
-		CDEBUG(D_LFSCK, "%s: some MDT(s) maybe NOT take part in the"
+		LDEBUG(D_LFSCK, "%s: some MDT(s) maybe NOT take part in the"
 		       "the namespace LFSCK, then the LFSCK cannot guarantee"
 		       "all the name entries have been verified in first-stage"
 		       "scanning. So have to skip orphan related handling for"
@@ -3774,7 +3774,7 @@ out:
 put:
 	lfsck_object_put(env, root);
 log:
-	CDEBUG(D_LFSCK, "%s: namespace LFSCK reset: rc = %d\n",
+	LDEBUG(D_LFSCK, "%s: namespace LFSCK reset: rc = %d\n",
 	       lfsck_lfsck2name(lfsck), rc);
 	return rc;
 }
@@ -3904,7 +3904,7 @@ static int lfsck_namespace_checkpoint(const struct lu_env *env,
 	up_write(&com->lc_sem);
 
 log:
-	CDEBUG(D_LFSCK, "%s: namespace LFSCK checkpoint at the pos ["LPU64
+	LDEBUG(D_LFSCK, "%s: namespace LFSCK checkpoint at the pos ["LPU64
 	       ", "DFID", "LPX64"]: rc = %d\n", lfsck_lfsck2name(lfsck),
 	       lfsck->li_pos_current.lp_oit_cookie,
 	       PFID(&lfsck->li_pos_current.lp_dir_parent),
@@ -3929,7 +3929,7 @@ static int lfsck_namespace_prep(const struct lu_env *env,
 			rc = lfsck_set_param(env, lfsck, lsp->lsp_start, true);
 
 		if (rc != 0) {
-			CDEBUG(D_LFSCK, "%s: namespace LFSCK prep failed: "
+			LDEBUG(D_LFSCK, "%s: namespace LFSCK prep failed: "
 			       "rc = %d\n", lfsck_lfsck2name(lfsck), rc);
 
 			return rc;
@@ -4006,7 +4006,7 @@ static int lfsck_namespace_prep(const struct lu_env *env,
 
 	rc = lfsck_start_assistant(env, com, lsp);
 
-	CDEBUG(D_LFSCK, "%s: namespace LFSCK prep done, start pos ["LPU64", "
+	LDEBUG(D_LFSCK, "%s: namespace LFSCK prep done, start pos ["LPU64", "
 	       DFID", "LPX64"]: rc = %d\n",
 	       lfsck_lfsck2name(lfsck), pos->lp_oit_cookie,
 	       PFID(&pos->lp_dir_parent), pos->lp_dir_cookie, rc);
@@ -4210,7 +4210,7 @@ static int lfsck_namespace_post(const struct lu_env *env,
 	rc = lfsck_namespace_store(env, com, false);
 	up_write(&com->lc_sem);
 
-	CDEBUG(D_LFSCK, "%s: namespace LFSCK post done: rc = %d\n",
+	LDEBUG(D_LFSCK, "%s: namespace LFSCK post done: rc = %d\n",
 	       lfsck_lfsck2name(lfsck), rc);
 
 	RETURN(rc);
@@ -4584,7 +4584,7 @@ static int lfsck_namespace_in_notify(const struct lu_env *env,
 
 log:
 		mutex_unlock(&com->lc_sub_trace_objs[idx].lsto_mutex);
-		CDEBUG(D_LFSCK, "%s: RPC service thread mark the "DFID
+		LDEBUG(D_LFSCK, "%s: RPC service thread mark the "DFID
 		       " to be skipped for namespace double scan: rc = %d\n",
 		       lfsck_lfsck2name(com->lc_lfsck), PFID(&lr->lr_fid), rc);
 
@@ -4626,7 +4626,7 @@ log:
 		RETURN(-EINVAL);
 	}
 
-	CDEBUG(D_LFSCK, "%s: namespace LFSCK handles notify %u from MDT %x, "
+	LDEBUG(D_LFSCK, "%s: namespace LFSCK handles notify %u from MDT %x, "
 	       "status %d, flags %x\n", lfsck_lfsck2name(lfsck), lr->lr_event,
 	       lr->lr_index, lr->lr_status, lr->lr_flags2);
 
@@ -4644,7 +4644,7 @@ log:
 		if (lr->lr_status <= 0) {
 			ltd->ltd_namespace_done = 1;
 			list_del_init(&ltd->ltd_namespace_list);
-			CDEBUG(D_LFSCK, "%s: MDT %x failed/stopped at "
+			LDEBUG(D_LFSCK, "%s: MDT %x failed/stopped at "
 			       "phase1 for namespace LFSCK: rc = %d.\n",
 			       lfsck_lfsck2name(lfsck),
 			       ltd->ltd_index, lr->lr_status);
@@ -4671,7 +4671,7 @@ log:
 		ltd->ltd_namespace_done = 1;
 		list_del_init(&ltd->ltd_namespace_list);
 		if (!(lfsck->li_bookmark_ram.lb_param & LPF_FAILOUT)) {
-			CDEBUG(D_LFSCK,
+			LDEBUG(D_LFSCK,
 			       "%s: the peer MDT %x exit namespace LFSCK\n",
 			       lfsck_lfsck2name(lfsck), ltd->ltd_index);
 			ns->ln_flags |= LF_INCOMPLETE;
@@ -4955,7 +4955,7 @@ stop:
 
 log:
 	lfsck_ibits_unlock(&lh, LCK_EX);
-	CDEBUG(D_LFSCK, "%s: namespace LFSCK assistant found dangling "
+	LDEBUG(D_LFSCK, "%s: namespace LFSCK assistant found dangling "
 	       "reference for: parent "DFID", child "DFID", type %u, "
 	       "name %s. %s: rc = %d\n", lfsck_lfsck2name(lfsck),
 	       PFID(&lnr->lnr_lar.lar_fid), PFID(lfsck_dto2fid(child)),
@@ -5036,7 +5036,7 @@ static int lfsck_namespace_assistant_handler_p1(const struct lu_env *env,
 	}
 
 	if (unlikely(!fid_is_sane(&lnr->lnr_fid))) {
-		CDEBUG(D_LFSCK, "%s: dir scan find invalid FID "DFID
+		LDEBUG(D_LFSCK, "%s: dir scan find invalid FID "DFID
 		       " for the name entry %.*s under "DFID"\n",
 		       lfsck_lfsck2name(lfsck), PFID(&lnr->lnr_fid),
 		       lnr->lnr_namelen, lnr->lnr_name, PFID(pfid));
@@ -5092,7 +5092,7 @@ static int lfsck_namespace_assistant_handler_p1(const struct lu_env *env,
 
 		ltd = LTD_TGT(&lfsck->li_mdt_descs, idx);
 		if (unlikely(ltd == NULL)) {
-			CDEBUG(D_LFSCK, "%s: cannot talk with MDT %x which "
+			LDEBUG(D_LFSCK, "%s: cannot talk with MDT %x which "
 			       "did not join the namespace LFSCK\n",
 			       lfsck_lfsck2name(lfsck), idx);
 			lfsck_lad_set_bitmap(env, com, idx);
@@ -5370,7 +5370,7 @@ out:
 
 	down_write(&com->lc_sem);
 	if (rc < 0) {
-		CDEBUG(D_LFSCK, "%s: namespace LFSCK assistant fail to handle "
+		LDEBUG(D_LFSCK, "%s: namespace LFSCK assistant fail to handle "
 		       "the entry: "DFID", parent "DFID", name %.*s: rc = %d\n",
 		       lfsck_lfsck2name(lfsck), PFID(&lnr->lnr_fid),
 		       PFID(lfsck_dto2fid(dir)),
@@ -5387,7 +5387,7 @@ out:
 			rc = 0;
 	} else {
 		if (log)
-			CDEBUG(D_LFSCK, "%s: namespace LFSCK assistant "
+			LDEBUG(D_LFSCK, "%s: namespace LFSCK assistant "
 			       "repaired the entry: "DFID", parent "DFID
 			       ", name %.*s\n", lfsck_lfsck2name(lfsck),
 			       PFID(&lnr->lnr_fid),
@@ -5653,7 +5653,7 @@ static void lfsck_namespace_scan_local_lpf(const struct lu_env *env,
 	if (unlikely(!dt_try_as_dir(env, parent)))
 		GOTO(out, rc = -ENOTDIR);
 
-	CDEBUG(D_LFSCK, "%s: start to scan backend /lost+found\n",
+	LDEBUG(D_LFSCK, "%s: start to scan backend /lost+found\n",
 	       lfsck_lfsck2name(lfsck));
 
 	com->lc_new_scanned = 0;
@@ -5679,7 +5679,7 @@ static void lfsck_namespace_scan_local_lpf(const struct lu_env *env,
 			rc = lfsck_unpack_ent(ent, &cookie, &type);
 
 		if (unlikely(rc != 0)) {
-			CDEBUG(D_LFSCK, "%s: fail to iterate backend "
+			LDEBUG(D_LFSCK, "%s: fail to iterate backend "
 			       "/lost+found: rc = %d\n",
 			       lfsck_lfsck2name(lfsck), rc);
 
@@ -5720,7 +5720,7 @@ static void lfsck_namespace_scan_local_lpf(const struct lu_env *env,
 			 *
 			 * For MDT0, it is more possible the case 1). The LFSCK
 			 * will handle the orphan as an upgraded object. */
-			CDEBUG(D_LFSCK, "%s: the orphan %.*s with IGIF "DFID
+			LDEBUG(D_LFSCK, "%s: the orphan %.*s with IGIF "DFID
 			       "in the backend /lost+found on the MDT %04x, "
 			       "to be safe, skip it.\n",
 			       lfsck_lfsck2name(lfsck), ent->lde_namelen,
@@ -5761,7 +5761,7 @@ next:
 	EXIT;
 
 out:
-	CDEBUG(D_LFSCK, "%s: stop to scan backend /lost+found: rc = %d\n",
+	LDEBUG(D_LFSCK, "%s: stop to scan backend /lost+found: rc = %d\n",
 	       lfsck_lfsck2name(lfsck), rc);
 
 	lfsck_object_put(env, parent);
@@ -6030,7 +6030,7 @@ static int lfsck_namespace_assistant_handler_p2(const struct lu_env *env,
 			RETURN(rc);
 	}
 
-	CDEBUG(D_LFSCK, "%s: namespace LFSCK phase2 scan start\n",
+	LDEBUG(D_LFSCK, "%s: namespace LFSCK phase2 scan start\n",
 	       lfsck_lfsck2name(lfsck));
 
 	lfsck_namespace_scan_local_lpf(env, com);
@@ -6048,7 +6048,7 @@ static int lfsck_namespace_assistant_handler_p2(const struct lu_env *env,
 		rc = lfsck_namespace_double_scan_one_trace_file(env, com,
 				com->lc_sub_trace_objs[i].lsto_obj, false);
 
-	CDEBUG(D_LFSCK, "%s: namespace LFSCK phase2 scan stop at the No. %d "
+	LDEBUG(D_LFSCK, "%s: namespace LFSCK phase2 scan stop at the No. %d "
 	       "trace file: rc = %d\n", lfsck_lfsck2name(lfsck), i, rc);
 
 	RETURN(rc);
@@ -6183,7 +6183,7 @@ static void lfsck_namespace_assistant_sync_failures(const struct lu_env *env,
 			lfsck_namespace_assistant_sync_failures_interpret,
 			laia, LFSCK_NOTIFY);
 		if (rc != 0)
-			CDEBUG(D_LFSCK, "%s: namespace LFSCK assistant fail "
+			LDEBUG(D_LFSCK, "%s: namespace LFSCK assistant fail "
 			       "to sync failure with MDT %x: rc = %d\n",
 			       lfsck_lfsck2name(lfsck), ltd->ltd_index, rc);
 	}
@@ -6196,7 +6196,7 @@ static void lfsck_namespace_assistant_sync_failures(const struct lu_env *env,
 
 out:
 	if (rc != 0)
-		CDEBUG(D_LFSCK, "%s: namespace LFSCK assistant fail "
+		LDEBUG(D_LFSCK, "%s: namespace LFSCK assistant fail "
 		       "to sync failure with MDTs, and related MDTs "
 		       "may handle orphan improperly: rc = %d\n",
 		       lfsck_lfsck2name(lfsck), rc);
@@ -6408,7 +6408,7 @@ stop:
 
 unlock:
 	lfsck_ibits_unlock(&lh, LCK_EX);
-	CDEBUG(D_LFSCK, "%s: update name entry "DFID"/%s with the FID "DFID
+	LDEBUG(D_LFSCK, "%s: update name entry "DFID"/%s with the FID "DFID
 	       " and the type %o: rc = %d\n", lfsck_lfsck2name(lfsck),
 	       PFID(lfsck_dto2fid(dir)), name, PFID(fid), type, rc);
 

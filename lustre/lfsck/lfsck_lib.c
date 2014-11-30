@@ -522,7 +522,7 @@ stop:
 unlock:
 	lfsck_ibits_unlock(&lh, LCK_EX);
 
-	CDEBUG(D_LFSCK, "%s: remove name entry "DFID"/%s: rc = %d\n",
+	LDEBUG(D_LFSCK, "%s: remove name entry "DFID"/%s: rc = %d\n",
 	       lfsck_lfsck2name(lfsck), PFID(lfsck_dto2fid(parent)), name, rc);
 
 	return rc;
@@ -849,7 +849,7 @@ stop:
 	dt_trans_stop(env, dev, th);
 
 	if (rc != 0 && dev == lfsck_obj2dev(parent))
-		CDEBUG(D_LFSCK, "%s: partially created the object "DFID
+		LDEBUG(D_LFSCK, "%s: partially created the object "DFID
 		       "for orphans, but failed to insert the name %s "
 		       "to the .lustre/lost+found/. Such inconsistency "
 		       "will be repaired when LFSCK run next time: rc = %d\n",
@@ -1048,7 +1048,7 @@ static int lfsck_update_lpf_entry(const struct lu_env *env,
 		lfsck->li_bookmark_ram.lb_lpf_fid = *lfsck_dto2fid(child);
 		rc = lfsck_bookmark_store(env, lfsck);
 
-		CDEBUG(D_LFSCK, "%s: update LPF fid "DFID
+		LDEBUG(D_LFSCK, "%s: update LPF fid "DFID
 		       " in the bookmark file: rc = %d\n",
 		       lfsck_lfsck2name(lfsck),
 		       PFID(lfsck_dto2fid(child)), rc);
@@ -1221,7 +1221,7 @@ linkea:
 		fid_zero(&lfsck->li_bookmark_ram.lb_lpf_fid);
 		rc = lfsck_bookmark_store(env, lfsck);
 
-		CDEBUG(D_LFSCK, "%s: reset invalid LPF fid "DFID
+		LDEBUG(D_LFSCK, "%s: reset invalid LPF fid "DFID
 		       " in the bookmark file: rc = %d\n",
 		       lfsck_lfsck2name(lfsck), PFID(lfsck_dto2fid(child)), rc);
 	} else /* if (type == LVLT_BY_NAMEENTRY) */ {
@@ -1306,7 +1306,7 @@ int lfsck_verify_lpf(const struct lu_env *env, struct lfsck_instance *lfsck)
 	if (node == 0) {
 		rc = lfsck_scan_lpf_bad_entries(env, lfsck);
 		if (rc != 0)
-			CDEBUG(D_LFSCK, "%s: scan .lustre/lost+found/ "
+			LDEBUG(D_LFSCK, "%s: scan .lustre/lost+found/ "
 			       "for bad sub-directories: rc = %d\n",
 			       lfsck_lfsck2name(lfsck), rc);
 	}
@@ -1319,7 +1319,7 @@ int lfsck_verify_lpf(const struct lu_env *env, struct lfsck_instance *lfsck)
 			fid_zero(&bk->lb_lpf_fid);
 			rc = lfsck_bookmark_store(env, lfsck);
 
-			CDEBUG(D_LFSCK, "%s: reset invalid LPF fid "DFID
+			LDEBUG(D_LFSCK, "%s: reset invalid LPF fid "DFID
 			       " in the bookmark file: rc = %d\n",
 			       lfsck_lfsck2name(lfsck), PFID(&tfid), rc);
 
@@ -1341,7 +1341,7 @@ int lfsck_verify_lpf(const struct lu_env *env, struct lfsck_instance *lfsck)
 				fid_zero(&bk->lb_lpf_fid);
 				rc = lfsck_bookmark_store(env, lfsck);
 
-				CDEBUG(D_LFSCK, "%s: reset invalid LPF fid "DFID
+				LDEBUG(D_LFSCK, "%s: reset invalid LPF fid "DFID
 				       " in the bookmark file: rc = %d\n",
 				       lfsck_lfsck2name(lfsck),
 				       PFID(lfsck_dto2fid(child1)), rc);
@@ -1866,7 +1866,7 @@ int lfsck_async_interpret_common(const struct lu_env *env,
 	switch (lr->lr_event) {
 	case LE_START:
 		if (rc != 0) {
-			CDEBUG(D_LFSCK, "%s: fail to notify %s %x for %s "
+			LDEBUG(D_LFSCK, "%s: fail to notify %s %x for %s "
 			       "start: rc = %d\n",
 			       lfsck_lfsck2name(com->lc_lfsck),
 			       (lr->lr_flags & LEF_TO_OST) ? "OST" : "MDT",
@@ -1944,7 +1944,7 @@ int lfsck_async_interpret_common(const struct lu_env *env,
 	case LE_PHASE2_DONE:
 	case LE_PEER_EXIT:
 		if (rc != 0 && rc != -EALREADY)
-			CDEBUG(D_LFSCK, "%s: fail to notify %s %x for %s: "
+			LDEBUG(D_LFSCK, "%s: fail to notify %s %x for %s: "
 			      "event = %d, rc = %d\n",
 			      lfsck_lfsck2name(com->lc_lfsck),
 			      (lr->lr_flags & LEF_TO_OST) ? "OST" : "MDT",
@@ -1975,7 +1975,7 @@ int lfsck_async_interpret_common(const struct lu_env *env,
 					       &RMF_LFSCK_REPLY);
 		if (reply == NULL) {
 			rc = -EPROTO;
-			CDEBUG(D_LFSCK, "%s: invalid query reply for %s: "
+			LDEBUG(D_LFSCK, "%s: invalid query reply for %s: "
 			       "rc = %d\n", lfsck_lfsck2name(com->lc_lfsck),
 			       lad->lad_name, rc);
 			spin_lock(&ltds->ltd_lock);
@@ -2029,7 +2029,7 @@ int lfsck_async_interpret_common(const struct lu_env *env,
 		break;
 	}
 	default:
-		CDEBUG(D_LFSCK, "%s: unexpected event: rc = %d\n",
+		LDEBUG(D_LFSCK, "%s: unexpected event: rc = %d\n",
 		       lfsck_lfsck2name(com->lc_lfsck), lr->lr_event);
 		break;
 	}
@@ -2141,7 +2141,7 @@ static int lfsck_stop_notify(const struct lu_env *env,
 					 lfsck_async_interpret_common,
 					 laia, LFSCK_NOTIFY);
 		if (rc != 0) {
-			CDEBUG(D_LFSCK, "%s: fail to notify %s %x for "
+			LDEBUG(D_LFSCK, "%s: fail to notify %s %x for "
 			       "co-stop for %s: rc = %d\n",
 			       lfsck_lfsck2name(lfsck),
 			       (lr->lr_flags & LEF_TO_OST) ? "OST" : "MDT",
@@ -2195,7 +2195,7 @@ int lfsck_async_request(const struct lu_env *env, struct obd_export *exp,
 		format = &RQF_LFSCK_QUERY;
 		break;
 	default:
-		CDEBUG(D_LFSCK, "%s: unknown async request %d: rc = %d\n",
+		LDEBUG(D_LFSCK, "%s: unknown async request %d: rc = %d\n",
 		       exp->exp_obd->obd_name, request, -EINVAL);
 		return -EINVAL;
 	}

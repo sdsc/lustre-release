@@ -315,6 +315,13 @@ libcfs_force_lbug(struct ctl_table *table, int write, void __user *buffer,
 }
 
 static int
+proc_dump_loc(struct ctl_table *table, int write, void __user *buffer,
+	      size_t *lenp, loff_t *ppos)
+{
+	return proc_doulongvec_minmax(table, write, buffer, lenp, ppos);
+}
+
+static int
 proc_fail_loc(struct ctl_table *table, int write, void __user *buffer,
 	      size_t *lenp, loff_t *ppos)
 {
@@ -529,6 +536,14 @@ static struct ctl_table lnet_table[] = {
 		.maxlen		= 0,
 		.mode		= 0200,
 		.proc_handler	= &libcfs_force_lbug
+	},
+	{
+		INIT_CTL_NAME
+		.procname	= "dump_loc",
+		.data		= &cfs_dump_loc,
+		.maxlen		= sizeof(cfs_dump_loc),
+		.mode		= 0644,
+		.proc_handler	= &proc_dump_loc
 	},
 	{
 		INIT_CTL_NAME

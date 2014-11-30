@@ -1414,4 +1414,12 @@ static inline void lfsck_lmv_header_cpu_to_le(struct lmv_mds_md_v1 *dst,
 	dst->lmv_hash_type = cpu_to_le32(src->lmv_hash_type);
 	dst->lmv_layout_version = cpu_to_le32(src->lmv_layout_version);
 }
+
+#define LDEBUG(mask, format, ...)					\
+do {									\
+	CDEBUG(mask, format, ## __VA_ARGS__);				\
+	if (cfs_dump_loc & D_LFSCK)					\
+		libcfs_debug_dumplog();					\
+} while (0)								\
+
 #endif /* _LFSCK_INTERNAL_H */
