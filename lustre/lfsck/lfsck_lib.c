@@ -80,6 +80,7 @@ const char *lfsck_flags_names[] = {
 };
 
 const char *lfsck_param_names[] = {
+	NULL,
 	"failout",
 	"dryrun",
 	NULL
@@ -265,25 +266,37 @@ int lfsck_bits_dump(char **buf, int *len, int bits, const char *names[],
 	int flag;
 	int rc;
 	int i;
+	char sep = ' ';
 
-	rc = snprintf(*buf, *len, "%s:%c", prefix, bits != 0 ? ' ' : '\n');
+	rc = snprintf(*buf, *len, "%s:", prefix);
 	if (rc <= 0)
 		return -ENOSPC;
 
 	*buf += rc;
 	*len -= rc;
-	for (i = 0, flag = 1; bits != 0; i++, flag = 1 << i) {
+	for (i = 0, flag = 1; bits != 0; i++, flag <<= 1) {
 		if (flag & bits) {
 			bits &= ~flag;
-			rc = snprintf(*buf, *len, "%s%c", names[i],
-				      bits != 0 ? ',' : '\n');
-			if (rc <= 0)
-				return -ENOSPC;
+			if (names[i] != NULL) {
+				rc = snprintf(*buf, *len, "%c%s",
+					      sep, names[i]);
+				if (rc <= 0)
+					return -ENOSPC;
 
-			*buf += rc;
-			*len -= rc;
+				*buf += rc;
+				*len -= rc;
+				sep = ',';
+			}
 		}
 	}
+
+	rc = snprintf(*buf, *len, "\n");
+	if (rc <= 0)
+		return -ENOSPC;
+
+	*buf += rc;
+	*len -= rc;
+
 	return save - *len;
 }
 
