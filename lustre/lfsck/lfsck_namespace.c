@@ -4094,7 +4094,6 @@ static int lfsck_namespace_exec_oit(const struct lu_env *env,
 
 out:
 	down_write(&com->lc_sem);
-	com->lc_new_checked++;
 	if (S_ISDIR(lfsck_object_type(obj)))
 		ns->ln_dirs_checked++;
 	if (rc != 0)
@@ -4244,17 +4243,17 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 		goto out;
 
 	rc = lfsck_time_dump(m, ns->ln_time_last_complete,
-			     "time_since_last_completed");
+			     "time_last_completed");
 	if (rc < 0)
 		goto out;
 
 	rc = lfsck_time_dump(m, ns->ln_time_latest_start,
-			     "time_since_latest_start");
+			     "time_latest_start");
 	if (rc < 0)
 		goto out;
 
 	rc = lfsck_time_dump(m, ns->ln_time_last_checkpoint,
-			     "time_since_last_checkpoint");
+			     "time_last_checkpoint");
 	if (rc < 0)
 		goto out;
 
@@ -4287,16 +4286,17 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 
 		if (duration != 0)
 			do_div(new_checked, duration);
+
 		if (rtime != 0)
 			do_div(speed, rtime);
-		lfsck_namespace_dump_statistics(m, ns, checked,
-						ns->ln_objs_checked_phase2,
-						rtime, ns->ln_run_time_phase2);
 
+		lfsck_namespace_dump_statistics(m, ns, checked, 0, rtime, 0);
 		seq_printf(m, "average_speed_phase1: "LPU64" items/sec\n"
 			      "average_speed_phase2: N/A\n"
+			      "average_speed_total: "LPU64" items/sec\n"
 			      "real_time_speed_phase1: "LPU64" items/sec\n"
 			      "real_time_speed_phase2: N/A\n",
+			      speed,
 			      speed,
 			      new_checked);
 
@@ -4335,50 +4335,75 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 				com->lc_new_checked;
 		__u64 speed1 = ns->ln_items_checked;
 		__u64 speed2 = checked;
+		__u64 speed0 = speed1 + speed2;
 		__u64 new_checked = com->lc_new_checked *
 				    msecs_to_jiffies(MSEC_PER_SEC);
 		__u32 rtime = ns->ln_run_time_phase2 +
 			      cfs_duration_sec(duration + HALF_SEC);
+		__u32 time0 = ns->ln_run_time_phase1 + rtime;
 
 		if (duration != 0)
 			do_div(new_checked, duration);
+
 		if (ns->ln_run_time_phase1 != 0)
 			do_div(speed1, ns->ln_run_time_phase1);
+		else if (ns->ln_items_checked != 0)
+			time0++;
+
 		if (rtime != 0)
 			do_div(speed2, rtime);
+		else if (checked != 0)
+			time0++;
+
+		if (time0 != 0)
+			do_div(speed0, time0);
+
 		lfsck_namespace_dump_statistics(m, ns, ns->ln_items_checked,
 						checked,
 						ns->ln_run_time_phase1, rtime);
-
 		seq_printf(m, "average_speed_phase1: "LPU64" items/sec\n"
 			      "average_speed_phase2: "LPU64" objs/sec\n"
+			      "average_speed_total: "LPU64" items/sec\n"
 			      "real_time_speed_phase1: N/A\n"
 			      "real_time_speed_phase2: "LPU64" objs/sec\n"
 			      "current_position: "DFID"\n",
 			      speed1,
 			      speed2,
+			      speed0,
 			      new_checked,
 			      PFID(&ns->ln_fid_latest_scanned_phase2));
 	} else {
 		__u64 speed1 = ns->ln_items_checked;
 		__u64 speed2 = ns->ln_objs_checked_phase2;
+		__u64 speed0 = speed1 + speed2;
+		__u32 time0 = ns->ln_run_time_phase1 + ns->ln_run_time_phase2;
 
 		if (ns->ln_run_time_phase1 != 0)
 			do_div(speed1, ns->ln_run_time_phase1);
+		else if (ns->ln_items_checked != 0)
+			time0++;
+
 		if (ns->ln_run_time_phase2 != 0)
 			do_div(speed2, ns->ln_run_time_phase2);
+		else if (ns->ln_objs_checked_phase2 != 0)
+			time0++;
+
+		if (time0 != 0)
+			do_div(speed0, time0);
+
 		lfsck_namespace_dump_statistics(m, ns, ns->ln_items_checked,
 						ns->ln_objs_checked_phase2,
 						ns->ln_run_time_phase1,
 						ns->ln_run_time_phase2);
-
 		seq_printf(m, "average_speed_phase1: "LPU64" items/sec\n"
 			      "average_speed_phase2: "LPU64" objs/sec\n"
+			      "average_speed_total: "LPU64" items/sec\n"
 			      "real_time_speed_phase1: N/A\n"
 			      "real_time_speed_phase2: N/A\n"
 			      "current_position: N/A\n",
 			      speed1,
-			      speed2);
+			      speed2,
+			      speed0);
 	}
 out:
 	up_read(&com->lc_sem);
@@ -5034,8 +5059,7 @@ static int lfsck_namespace_assistant_handler_p1(const struct lu_env *env,
 		GOTO(put_dir, rc);
 	}
 
-	if (lnr->lnr_name[0] == '.' &&
-	    (lnr->lnr_namelen == 1 || fid_seq_is_dot(fid_seq(&lnr->lnr_fid))))
+	if (fid_seq_is_dot(fid_seq(&lnr->lnr_fid)))
 		GOTO(out, rc = 0);
 
 	if (lnr->lnr_lmv != NULL && lnr->lnr_lmv->ll_lmv_master) {
