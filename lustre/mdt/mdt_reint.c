@@ -662,8 +662,8 @@ static int mdt_reint_setattr(struct mdt_thread_info *info,
         int                      som_au, rc, rc2;
         ENTRY;
 
-        DEBUG_REQ(D_INODE, req, "setattr "DFID" %x", PFID(rr->rr_fid1),
-                  (unsigned int)ma->ma_attr.la_valid);
+	DEBUG_REQ(D_INODE, req, "setattr "DFID" %x", PFID(rr->rr_fid1),
+		  (unsigned int)ma->ma_attr.la_valid);
 
 	if (info->mti_dlm_req)
 		ldlm_request_cancel(req, info->mti_dlm_req, 0, LATF_SKIP);
