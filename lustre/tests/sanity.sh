@@ -6575,6 +6575,14 @@ test_102n() { # LU-4101 mdt: protect internal xattrs
 }
 run_test 102n "silently ignore setxattr on internal trusted xattrs"
 
+test_102r() {
+	touch $DIR/$tfile || error "touch"
+	setfattr -n user.$(basename $tfile) $DIR/$tfile || error "setfattr"
+	getfattr -n user.$(basename $tfile) $DIR/$tfile || error "getfattr"
+	rm $DIR/$tfile || error "rm"
+}
+run_test 102r "set EAs with empty values"
+
 run_acl_subtest()
 {
     $LUSTRE/tests/acl/run $LUSTRE/tests/acl/$1.test
