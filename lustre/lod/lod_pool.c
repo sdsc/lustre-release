@@ -901,21 +901,28 @@ out:
  *
  * \param[in] lod	LOD on which the pools are configured
  * \param[in] poolname	NUL-terminated name of the pool
+ * \param[out] status	pointer to pool status, NULL if no status needs
+ *			to be returned
  *
  * \retval	pointer to pool descriptor on success
  * \retval	NULL if \a poolname could not be found or poolname is empty
  */
-struct pool_desc *lod_find_pool(struct lod_device *lod, char *poolname)
+struct pool_desc *lod_find_pool(struct lod_device *lod, char *poolname,
+				unsigned int *status)
 {
 	struct pool_desc *pool;
+	unsigned int	  pool_status;
 
 	pool = NULL;
+	pool_status = POOLNAME_IS_EMPTY;
 	if (poolname[0] != '\0') {
 		pool = cfs_hash_lookup(lod->lod_pools_hash_body, poolname);
-		if (pool == NULL)
+		if (pool == NULL) {
 			CDEBUG(D_CONFIG, "%s: request for an unknown pool ("
 			       LOV_POOLNAMEF")\n",
 			       lod->lod_child_exp->exp_obd->obd_name, poolname);
+			pool_status = POOL_IS_NONEXISTENT;
+		}
 		if (pool != NULL && pool_tgt_count(pool) == 0) {
 			CDEBUG(D_CONFIG, "%s: request for an empty pool ("
 			       LOV_POOLNAMEF")\n",
@@ -923,8 +930,15 @@ struct pool_desc *lod_find_pool(struct lod_device *lod, char *poolname)
 			/* pool is ignored, so we remove ref on it */
 			lod_pool_putref(pool);
 			pool = NULL;
+			pool_status = POOL_IS_EMPTY;
 		}
+		if (pool != NULL)
+			pool_status = POOL_IS_NONEMPTY;
 	}
+
+	if (status != NULL)
+		*status = pool_status;
+
 	return pool;
 }
 

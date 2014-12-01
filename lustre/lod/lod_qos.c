@@ -856,6 +856,7 @@ static int lod_alloc_rr(const struct lu_env *env, struct lod_object *lo,
 	struct lod_device *m = lu2lod_dev(lo->ldo_obj.do_lu.lo_dev);
 	struct obd_statfs *sfs = &lod_env_info(env)->lti_osfs;
 	struct pool_desc  *pool = NULL;
+	unsigned int	   pool_status;
 	struct ost_pool   *osts;
 	struct lod_qos_rr *lqr;
 	struct dt_object  *o;
@@ -870,13 +871,17 @@ static int lod_alloc_rr(const struct lu_env *env, struct lod_object *lo,
 	ENTRY;
 
 	if (lo->ldo_pool)
-		pool = lod_find_pool(m, lo->ldo_pool);
+		pool = lod_find_pool(m, lo->ldo_pool, &pool_status);
 
 	if (pool != NULL) {
 		down_read(&pool_tgt_rw_sem(pool));
 		osts = &(pool->pool_obds);
 		lqr = &(pool->pool_rr);
 	} else {
+		if (lo->ldo_pool != NULL &&
+		    pool_status == POOL_IS_NONEXISTENT)
+			GOTO(out, rc = -ENXIO);
+
 		osts = &(m->lod_pool_info);
 		lqr = &(m->lod_qos.lq_rr);
 	}
@@ -1152,6 +1157,7 @@ static int lod_alloc_specific(const struct lu_env *env, struct lod_object *lo,
 	int		   rc, stripe_num = 0;
 	int		   speed = 0;
 	struct pool_desc  *pool = NULL;
+	unsigned int       pool_status;
 	struct ost_pool   *osts;
 	ENTRY;
 
@@ -1160,12 +1166,16 @@ static int lod_alloc_specific(const struct lu_env *env, struct lod_object *lo,
 		GOTO(out, rc);
 
 	if (lo->ldo_pool)
-		pool = lod_find_pool(m, lo->ldo_pool);
+		pool = lod_find_pool(m, lo->ldo_pool, &pool_status);
 
 	if (pool != NULL) {
 		down_read(&pool_tgt_rw_sem(pool));
 		osts = &(pool->pool_obds);
 	} else {
+		if (lo->ldo_pool != NULL &&
+		    pool_status == POOL_IS_NONEXISTENT)
+			GOTO(out, rc = -ENXIO);
+
 		osts = &(m->lod_pool_info);
 	}
 
@@ -1345,6 +1355,7 @@ static int lod_alloc_qos(const struct lu_env *env, struct lod_object *lo,
 	__u32		     stripe_cnt = lo->ldo_stripenr;
 	__u32		     stripe_cnt_min;
 	struct pool_desc    *pool = NULL;
+	unsigned int	     pool_status;
 	struct ost_pool    *osts;
 	ENTRY;
 
@@ -1353,12 +1364,16 @@ static int lod_alloc_qos(const struct lu_env *env, struct lod_object *lo,
 		RETURN(-EINVAL);
 
 	if (lo->ldo_pool)
-		pool = lod_find_pool(m, lo->ldo_pool);
+		pool = lod_find_pool(m, lo->ldo_pool, &pool_status);
 
 	if (pool != NULL) {
 		down_read(&pool_tgt_rw_sem(pool));
 		osts = &(pool->pool_obds);
 	} else {
+		if (lo->ldo_pool != NULL &&
+		    pool_status == POOL_IS_NONEXISTENT)
+			GOTO(out_nolock, rc = -ENXIO);
+
 		osts = &(m->lod_pool_info);
 	}
 
@@ -1659,6 +1674,7 @@ static int lod_qos_parse_config(const struct lu_env *env,
 	struct lov_user_md_v1 *v1 = NULL;
 	struct lov_user_md_v3 *v3 = NULL;
 	char		      *pool_name = NULL;
+	unsigned int	       pool_status;
 	__u32		       magic;
 	int		       rc;
 	unsigned int	       size;
@@ -1752,7 +1768,7 @@ static int lod_qos_parse_config(const struct lu_env *env,
 		/* In the function below, .hs_keycmp resolves to
 		 * pool_hashkey_keycmp() */
 		/* coverity[overrun-buffer-val] */
-		pool = lod_find_pool(d, pool_name);
+		pool = lod_find_pool(d, pool_name, &pool_status);
 		if (pool != NULL) {
 			if (lo->ldo_def_stripe_offset != LOV_OFFSET_DEFAULT) {
 				rc = lod_check_index_in_pool(
@@ -1770,6 +1786,10 @@ static int lod_qos_parse_config(const struct lu_env *env,
 				lo->ldo_stripenr = pool_tgt_count(pool);
 
 			lod_pool_putref(pool);
+		} else {
+			if (pool_name != NULL &&
+			    pool_status == POOL_IS_NONEXISTENT)
+				RETURN(-ENXIO);
 		}
 
 		lod_object_set_pool(lo, pool_name);
