@@ -296,6 +296,14 @@ struct lod_thread_info {
 	struct dt_insert_rec lti_dt_rec;
 };
 
+/** OST pool status */
+enum lod_pool_status {
+	POOLNAME_IS_EMPTY	= 0,	/* OST pool name is empty */
+	POOL_IS_NONEXISTENT	= 1,	/* OST pool is non-existent */
+	POOL_IS_EMPTY		= 2,	/* OST pool is empty */
+	POOL_IS_NONEMPTY	= 3,	/* OST pool is non-empty */
+};
+
 extern const struct lu_device_operations lod_lu_ops;
 
 static inline int lu_device_is_lod(struct lu_device *d)
@@ -445,7 +453,8 @@ int lod_ea_store_resize(struct lod_thread_info *info, size_t size);
 int lod_ost_pool_add(struct ost_pool *op, __u32 idx, unsigned int min_count);
 int lod_ost_pool_remove(struct ost_pool *op, __u32 idx);
 int lod_ost_pool_extend(struct ost_pool *op, unsigned int min_count);
-struct pool_desc *lod_find_pool(struct lod_device *lod, char *poolname);
+struct pool_desc *lod_find_pool(struct lod_device *lod, char *poolname,
+				unsigned int *status);
 void lod_pool_putref(struct pool_desc *pool);
 int lod_ost_pool_free(struct ost_pool *op);
 int lod_pool_del(struct obd_device *obd, char *poolname);

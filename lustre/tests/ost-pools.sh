@@ -58,6 +58,8 @@ TGT_HALF="$FSNAME-OST[$TGT_FIRST-$TGT_MAX/2]"
 TGT_UUID=$(for i in $TGT_LIST; do printf "$FSNAME-OST%04x_UUID " $i; done)
 TGT_UUID2=$(for i in $TGT_LIST2; do printf "$FSNAME-OST%04x_UUID " $i; done)
 
+CHECK_POOLNAME=${CHECK_POOLNAME:-check_poolname}
+
 create_dir() {
     local dir=$1
     local pool=$2
@@ -648,6 +650,49 @@ test_6() {
 
 }
 run_test 6 "getstripe/setstripe"
+
+test_7() {
+	[[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.6.90) ]] &&
+		skip "Need MDS version at least 2.6.90" && return
+	_check_progs_installed $CHECK_POOLNAME ||
+		{ skip_env "$CHECK_POOLNAME not found" && return; }
+
+	local dir=$DIR/$tdir
+
+	set_cleanup_trap
+	mkdir $dir || error "mkdir $dir failed"
+	! $CHECK_POOLNAME $dir/$(mktemp -u XXXX) $dir/$(mktemp -u XXXX) \
+		$NON_EXISTANT_POOL ||
+		error "non-existant pool name should not be accepted"
+}
+run_test 7 "ioctl/fsetxattr: non-existant pool name"
+
+test_8() {
+	[[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.6.90) ]] &&
+		skip "Need MDS version at least 2.6.90" && return
+
+	local dir=$DIR/$tdir
+	local test_dir=$dir/$tdir
+	local test_file=$dir/$tfile
+
+	set_cleanup_trap
+
+	create_pool_nofail $POOL
+	add_pool $POOL $TGT_ALL "$TGT_UUID"
+
+	create_dir $dir $POOL
+	check_dir_in_pool $dir $POOL
+
+	destroy_pool $POOL
+
+	# now, $dir has a non-existant pool name $POOL
+	$GETSTRIPE $dir
+
+	dd if=/dev/urandom of=$test_file count=1 bs=1M ||
+		error "create $test_file failed"
+	mkdir $test_dir || error "mkdir $test_dir failed"
+}
+run_test 8 "create file/dir in a directory with a non-existant pool name"
 
 test_11() {
     set_cleanup_trap

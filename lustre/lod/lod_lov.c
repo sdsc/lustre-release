@@ -1114,6 +1114,7 @@ int lod_verify_striping(struct lod_device *d, const struct lu_buf *buf,
 	struct lov_user_md_v1	*lum;
 	struct lov_user_md_v3	*lum3;
 	struct pool_desc	*pool = NULL;
+	unsigned int		 pool_status;
 	__u32			 magic;
 	__u32			 stripe_size;
 	__u16			 stripe_count;
@@ -1207,9 +1208,14 @@ int lod_verify_striping(struct lod_device *d, const struct lu_buf *buf,
 	/* In the function below, .hs_keycmp resolves to
 	 * pool_hashkey_keycmp() */
 	/* coverity[overrun-buffer-val] */
-	pool = lod_find_pool(d, lum3->lmm_pool_name);
-	if (pool == NULL)
-		goto out;
+	pool = lod_find_pool(d, lum3->lmm_pool_name, &pool_status);
+	if (pool == NULL) {
+		if (lum3->lmm_pool_name != NULL &&
+		    pool_status == POOL_IS_NONEXISTENT)
+			GOTO(out, rc = -ENXIO);
+		else
+			goto out;
+	}
 
 	if (stripe_offset != LOV_OFFSET_DEFAULT) {
 		rc = lod_check_index_in_pool(stripe_offset, pool);
