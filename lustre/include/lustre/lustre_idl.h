@@ -1813,6 +1813,7 @@ lov_mds_md_max_stripe_count(size_t buf_size, __u32 lmm_magic)
 
 #define OBD_MD_FLDATAVERSION (0x0010000000000000ULL) /* iversion sum */
 #define OBD_MD_FLRELEASED    (0x0020000000000000ULL) /* file released */
+#define OBD_MD_PERMITTED     (0x0040000000000000ULL) /* skip permission check */
 
 #define OBD_MD_DEFAULT_MEA   (0x0040000000000000ULL) /* default MEA */
 

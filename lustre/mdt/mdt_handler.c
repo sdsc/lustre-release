@@ -1308,8 +1308,7 @@ static int mdt_raw_lookup(struct mdt_thread_info *info,
         fid_zero(child_fid);
         rc = mdo_lookup(info->mti_env, next, lname, child_fid,
                         &info->mti_spec);
-#if 0
-        /* XXX is raw_lookup possible as intent operation? */
+
         if (rc != 0) {
                 if (rc == -ENOENT)
                         mdt_set_disposition(info, ldlm_rep, DISP_LOOKUP_NEG);
@@ -1318,13 +1317,12 @@ static int mdt_raw_lookup(struct mdt_thread_info *info,
                 mdt_set_disposition(info, ldlm_rep, DISP_LOOKUP_POS);
 
         repbody = req_capsule_server_get(info->mti_pill, &RMF_MDT_BODY);
-#endif
         if (rc == 0) {
                 repbody = req_capsule_server_get(info->mti_pill, &RMF_MDT_BODY);
 		repbody->mbo_fid1 = *child_fid;
 		repbody->mbo_valid = OBD_MD_FLID;
         }
-        RETURN(1);
+	RETURN(rc);
 }
 
 /*
@@ -1614,6 +1612,7 @@ static int mdt_getattr_name(struct tgt_session_info *tsi)
         struct mdt_lock_handle *lhc = &info->mti_lh[MDT_LH_CHILD];
         struct mdt_body        *reqbody;
         struct mdt_body        *repbody;
+	struct md_op_spec      *sp = &info->mti_spec;
         int rc, rc2;
         ENTRY;
 
@@ -1623,6 +1622,7 @@ static int mdt_getattr_name(struct tgt_session_info *tsi)
         LASSERT(repbody != NULL);
 
 	info->mti_cross_ref = !!(reqbody->mbo_valid & OBD_MD_FLCROSSREF);
+	sp->sp_permitted = !!(reqbody->mbo_valid & OBD_MD_PERMITTED);
 	repbody->mbo_eadatasize = 0;
 	repbody->mbo_aclsize = 0;
 
@@ -2854,6 +2854,7 @@ void mdt_thread_info_init(struct ptlrpc_request *req,
 
         info->mti_spec.no_create = 0;
 	info->mti_spec.sp_rm_entry = 0;
+	info->mti_spec.sp_permitted = 0;
 
 	info->mti_spec.u.sp_ea.eadata = NULL;
 	info->mti_spec.u.sp_ea.eadatalen = 0;
