@@ -170,7 +170,7 @@ static int osc_attr_get(const struct lu_env *env, struct cl_object *obj,
         return 0;
 }
 
-int osc_attr_set(const struct lu_env *env, struct cl_object *obj,
+int osc_upd_attr(const struct lu_env *env, struct cl_object *obj,
                  const struct cl_attr *attr, unsigned valid)
 {
         struct lov_oinfo *oinfo = cl2osc(obj)->oo_oinfo;
@@ -275,7 +275,7 @@ static const struct cl_object_operations osc_ops = {
 	.coo_lock_init = osc_lock_init,
 	.coo_io_init   = osc_io_init,
 	.coo_attr_get  = osc_attr_get,
-	.coo_attr_set  = osc_attr_set,
+	.coo_upd_attr  = osc_upd_attr,
 	.coo_glimpse   = osc_object_glimpse,
 	.coo_prune     = osc_object_prune
 };

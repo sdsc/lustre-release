@@ -177,7 +177,7 @@ static spinlock_t *cl_object_attr_guard(struct cl_object *o)
  *
  * Prevents data-attributes from changing, until lock is released by
  * cl_object_attr_unlock(). This has to be called before calls to
- * cl_object_attr_get(), cl_object_attr_set().
+ * cl_object_attr_get(), cl_object_update_attr().
  */
 void cl_object_attr_lock(struct cl_object *o)
 __acquires(cl_object_attr_guard(o))
@@ -232,11 +232,11 @@ EXPORT_SYMBOL(cl_object_attr_get);
  * Updates data-attributes of an object \a obj.
  *
  * Only attributes, mentioned in a validness bit-mask \a v are
- * updated. Calls cl_object_operations::coo_attr_set() on every layer, bottom
+ * updated. Calls cl_object_operations::coo_upd_attr() on every layer, bottom
  * to top.
  */
-int cl_object_attr_set(const struct lu_env *env, struct cl_object *obj,
-                       const struct cl_attr *attr, unsigned v)
+int cl_object_update_attr(const struct lu_env *env, struct cl_object *obj,
+			  const struct cl_attr *attr, unsigned v)
 {
 	struct lu_object_header *top;
 	int result;
@@ -247,8 +247,8 @@ int cl_object_attr_set(const struct lu_env *env, struct cl_object *obj,
 	top = obj->co_lu.lo_header;
 	result = 0;
 	list_for_each_entry_reverse(obj, &top->loh_layers, co_lu.lo_linkage) {
-		if (obj->co_ops->coo_attr_set != NULL) {
-			result = obj->co_ops->coo_attr_set(env, obj, attr, v);
+		if (obj->co_ops->coo_upd_attr != NULL) {
+			result = obj->co_ops->coo_upd_attr(env, obj, attr, v);
 			if (result != 0) {
 				if (result > 0)
 					result = 0;
@@ -258,7 +258,7 @@ int cl_object_attr_set(const struct lu_env *env, struct cl_object *obj,
 	}
 	RETURN(result);
 }
-EXPORT_SYMBOL(cl_object_attr_set);
+EXPORT_SYMBOL(cl_object_update_attr);
 
 /**
  * Notifies layers (bottom-to-top) that glimpse AST was received.
