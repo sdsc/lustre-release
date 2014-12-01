@@ -74,7 +74,7 @@ noinst_PROGRAMS += openfilleddirunlink rename_many memhog
 noinst_PROGRAMS += mmap_sanity writemany reads flocks_test flock_deadlock
 noinst_PROGRAMS += write_time_limit rwv lgetxattr_size_check checkfiemap
 noinst_PROGRAMS += listxattr_size_check check_fhandle_syscalls badarea_io
-noinst_PROGRAMS += llapi_layout_test
+noinst_PROGRAMS += llapi_layout_test check_poolname
 
 bin_PROGRAMS = mcreate munlink
 testdir = $(libdir)/lustre/tests
@@ -97,3 +97,6 @@ ll_dirstripe_verify_LDADD= -L$(top_builddir)/lustre/utils $(PTHREAD_LIBS) $(LIBL
 
 flocks_test_SOURCES=flocks_test.c
 flocks_test_LDADD=-lpthread
+
+check_poolname_SOURCES= check_poolname.c
+check_poolname_LDADD= -L$(top_builddir)/lustre/utils -llustreapi
