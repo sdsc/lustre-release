@@ -2022,6 +2022,20 @@ lnet_dyn_add_ni(lnet_pid_t requested_pid, char *nets,
 		goto failed0;
 	}
 
+	ni = list_entry(net_head.next, struct lnet_ni, ni_list);
+
+	lnet_net_lock(LNET_LOCK_EX);
+	/* make sure that the net added doesn't invalidate the current
+	 * configuration LNet is keeping */
+	if (lnet_find_net_locked(LNET_NIDNET(ni->ni_nid)) != NULL) {
+		CERROR("adding net %s will invalidate routing configuration",
+		       nets);
+		rc = -EINVAL;
+		lnet_net_unlock(LNET_LOCK_EX);
+		goto failed0;
+	}
+	lnet_net_unlock(LNET_LOCK_EX);
+
 	rc = lnet_ping_info_setup(&pinfo, &md_handle, 1 + lnet_get_ni_count(),
 				  false);
 	if (rc != 0)
