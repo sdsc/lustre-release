@@ -760,7 +760,8 @@ static int lfsck_namespace_checkpoint(const struct lu_env *env,
 }
 
 static int lfsck_namespace_prep(const struct lu_env *env,
-				struct lfsck_component *com)
+				struct lfsck_component *com,
+				struct lfsck_start_param *lsp)
 {
 	struct lfsck_instance	*lfsck	= com->lc_lfsck;
 	struct lfsck_namespace	*ns	=
@@ -771,6 +772,9 @@ static int lfsck_namespace_prep(const struct lu_env *env,
 		int rc;
 
 		rc = lfsck_namespace_reset(env, com, false);
+		if (rc == 0)
+			rc = lfsck_set_param(env, lfsck, lsp->lsp_start, true);
+
 		if (rc != 0)
 			return rc;
 	}

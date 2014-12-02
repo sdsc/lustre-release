@@ -37,7 +37,6 @@
 #include <lustre_fld.h>
 #include <lustre_lib.h>
 #include <lustre_net.h>
-#include <lustre_lfsck.h>
 #include <lustre/lustre_lfsck_user.h>
 
 #include "lfsck_internal.h"
@@ -210,9 +209,12 @@ static void lfsck_instance_cleanup(const struct lu_env *env,
 	OBD_FREE_PTR(lfsck);
 }
 
-static inline void lfsck_instance_get(struct lfsck_instance *lfsck)
+static inline struct lfsck_instance *
+lfsck_instance_get(struct lfsck_instance *lfsck)
 {
 	atomic_inc(&lfsck->li_ref);
+
+	return lfsck;
 }
 
 static inline void lfsck_instance_put(const struct lu_env *env,
@@ -376,9 +378,10 @@ void lfsck_pos_fill(const struct lu_env *env, struct lfsck_instance *lfsck,
 	}
 }
 
-static void __lfsck_set_speed(struct lfsck_instance *lfsck, __u32 limit)
+bool __lfsck_set_speed(struct lfsck_instance *lfsck, __u32 limit)
 {
-	lfsck->li_bookmark_ram.lb_speed_limit = limit;
+	bool dirty = false;
+
 	if (limit != LFSCK_SPEED_NO_LIMIT) {
 		if (limit > HZ) {
 			lfsck->li_sleep_rate = limit / HZ;
@@ -391,6 +394,13 @@ static void __lfsck_set_speed(struct lfsck_instance *lfsck, __u32 limit)
 		lfsck->li_sleep_jif = 0;
 		lfsck->li_sleep_rate = 0;
 	}
+
+	if (lfsck->li_bookmark_ram.lb_speed_limit != limit) {
+		lfsck->li_bookmark_ram.lb_speed_limit = limit;
+		dirty = true;
+	}
+
+	return dirty;
 }
 
 void lfsck_control_speed(struct lfsck_instance *lfsck)
@@ -514,6 +524,36 @@ static int lfsck_needs_scan_dir(const struct lu_env *env,
 	return 0;
 }
 
+static struct lfsck_thread_args *
+lfsck_thread_args_init(struct lfsck_instance *lfsck,
+		       struct lfsck_start_param *lsp)
+{
+	struct lfsck_thread_args *lta;
+	int			  rc;
+
+	OBD_ALLOC_PTR(lta);
+	if (lta == NULL)
+		return ERR_PTR(-ENOMEM);
+
+	rc = lu_env_init(&lta->lta_env, LCT_MD_THREAD | LCT_DT_THREAD);
+	if (rc != 0) {
+		OBD_FREE_PTR(lta);
+		return ERR_PTR(rc);
+	}
+
+	lta->lta_lfsck = lfsck_instance_get(lfsck);
+	lta->lta_lsp = lsp;
+
+	return lta;
+}
+
+void lfsck_thread_args_fini(struct lfsck_thread_args *lta)
+{
+	lfsck_instance_put(&lta->lta_env, lta->lta_lfsck);
+	lu_env_fini(&lta->lta_env);
+	OBD_FREE_PTR(lta);
+}
+
 /* LFSCK wrap functions */
 
 void lfsck_fail(const struct lu_env *env, struct lfsck_instance *lfsck,
@@ -548,7 +588,8 @@ int lfsck_checkpoint(const struct lu_env *env, struct lfsck_instance *lfsck)
 	return 0;
 }
 
-int lfsck_prep(const struct lu_env *env, struct lfsck_instance *lfsck)
+int lfsck_prep(const struct lu_env *env, struct lfsck_instance *lfsck,
+	       struct lfsck_start_param *lsp)
 {
 	struct dt_object       *obj	= NULL;
 	struct lfsck_component *com;
@@ -569,7 +610,7 @@ int lfsck_prep(const struct lu_env *env, struct lfsck_instance *lfsck)
 		if (lfsck->li_bookmark_ram.lb_param & LPF_DRYRUN)
 			com->lc_journal = 0;
 
-		rc = com->lc_ops->lfsck_prep(env, com);
+		rc = com->lc_ops->lfsck_prep(env, com, lsp);
 		if (rc != 0)
 			RETURN(rc);
 
@@ -820,8 +861,8 @@ int lfsck_set_speed(struct dt_device *key, int val)
 		GOTO(out, rc);
 
 	mutex_lock(&lfsck->li_mutex);
-	__lfsck_set_speed(lfsck, val);
-	rc = lfsck_bookmark_store(&env, lfsck);
+	if (__lfsck_set_speed(lfsck, val))
+		rc = lfsck_bookmark_store(&env, lfsck);
 	mutex_unlock(&lfsck->li_mutex);
 	lu_env_fini(&env);
 
@@ -869,16 +910,16 @@ EXPORT_SYMBOL(lfsck_dump);
 int lfsck_start(const struct lu_env *env, struct dt_device *key,
 		struct lfsck_start_param *lsp)
 {
-	struct lfsck_start     *start  = lsp->lsp_start;
-	struct lfsck_instance  *lfsck;
-	struct lfsck_bookmark  *bk;
-	struct ptlrpc_thread   *thread;
-	struct lfsck_component *com;
-	struct l_wait_info      lwi    = { 0 };
-	bool			dirty  = false;
-	long			rc     = 0;
-	__u16			valid  = 0;
-	__u16			flags  = 0;
+	struct lfsck_start	 *start  = lsp->lsp_start;
+	struct lfsck_instance	 *lfsck;
+	struct lfsck_bookmark	 *bk;
+	struct ptlrpc_thread	 *thread;
+	struct lfsck_component	 *com;
+	struct lfsck_thread_args *lta;
+	struct l_wait_info	  lwi    = { 0 };
+	long			  rc     = 0;
+	__u16			  valid  = 0;
+	__u16			  flags  = 0;
 	ENTRY;
 
 	lfsck = lfsck_instance_find(key, true, false);
@@ -913,53 +954,6 @@ int lfsck_start(const struct lu_env *env, struct dt_device *key,
 		goto trigger;
 
 	start->ls_version = bk->lb_version;
-	if (start->ls_valid & LSV_SPEED_LIMIT) {
-		__lfsck_set_speed(lfsck, start->ls_speed_limit);
-		dirty = true;
-	}
-
-	if (start->ls_valid & LSV_ERROR_HANDLE) {
-		valid |= DOIV_ERROR_HANDLE;
-		if (start->ls_flags & LPF_FAILOUT)
-			flags |= DOIF_FAILOUT;
-
-		if ((start->ls_flags & LPF_FAILOUT) &&
-		    !(bk->lb_param & LPF_FAILOUT)) {
-			bk->lb_param |= LPF_FAILOUT;
-			dirty = true;
-		} else if (!(start->ls_flags & LPF_FAILOUT) &&
-			   (bk->lb_param & LPF_FAILOUT)) {
-			bk->lb_param &= ~LPF_FAILOUT;
-			dirty = true;
-		}
-	}
-
-	if (start->ls_valid & LSV_DRYRUN) {
-		valid |= DOIV_DRYRUN;
-		if (start->ls_flags & LPF_DRYRUN)
-			flags |= DOIF_DRYRUN;
-
-		if ((start->ls_flags & LPF_DRYRUN) &&
-		    !(bk->lb_param & LPF_DRYRUN)) {
-			bk->lb_param |= LPF_DRYRUN;
-			dirty = true;
-		} else if (!(start->ls_flags & LPF_DRYRUN) &&
-			   (bk->lb_param & LPF_DRYRUN)) {
-			bk->lb_param &= ~LPF_DRYRUN;
-			lfsck->li_drop_dryrun = 1;
-			dirty = true;
-		}
-	}
-
-	if (dirty) {
-		rc = lfsck_bookmark_store(env, lfsck);
-		if (rc != 0)
-			GOTO(out, rc);
-	}
-
-	if (start->ls_flags & LPF_RESET)
-		flags |= DOIF_RESET;
-
 	if (start->ls_active != 0) {
 		struct lfsck_component *next;
 		__u16 type = 1;
@@ -1000,6 +994,27 @@ int lfsck_start(const struct lu_env *env, struct dt_device *key,
 		}
 	}
 
+	if (cfs_list_empty(&lfsck->li_list_scan)) {
+		/* The speed limit will be used to control both the LFSCK and
+		 * low layer scrub (if applied), need to be handled firstly. */
+		if (start->ls_valid & LSV_SPEED_LIMIT) {
+			if (__lfsck_set_speed(lfsck, start->ls_speed_limit)) {
+				rc = lfsck_bookmark_store(env, lfsck);
+				if (rc != 0)
+					GOTO(out, rc);
+			}
+		}
+
+		goto trigger;
+	}
+
+	if (start->ls_flags & LPF_RESET)
+		flags |= DOIF_RESET;
+
+	rc = lfsck_set_param(env, lfsck, start, !!(flags & DOIF_RESET));
+	if (rc != 0)
+		GOTO(out, rc);
+
 	cfs_list_for_each_entry(com, &lfsck->li_list_scan, lc_link) {
 		start->ls_active |= com->lc_type;
 		if (flags & DOIF_RESET) {
@@ -1011,15 +1026,19 @@ int lfsck_start(const struct lu_env *env, struct dt_device *key,
 
 trigger:
 	lfsck->li_args_dir = LUDA_64BITHASH | LUDA_VERIFY;
-	if (bk->lb_param & LPF_DRYRUN) {
+	if (bk->lb_param & LPF_DRYRUN)
 		lfsck->li_args_dir |= LUDA_VERIFY_DRYRUN;
-		valid |= DOIV_DRYRUN;
-		flags |= DOIF_DRYRUN;
+
+	if (start != NULL && start->ls_valid & LSV_ERROR_HANDLE) {
+		valid |= DOIV_ERROR_HANDLE;
+		if (start->ls_flags & LPF_FAILOUT)
+			flags |= DOIF_FAILOUT;
 	}
 
-	if (bk->lb_param & LPF_FAILOUT) {
-		valid |= DOIV_ERROR_HANDLE;
-		flags |= DOIF_FAILOUT;
+	if (start != NULL && start->ls_valid & LSV_DRYRUN) {
+		valid |= DOIV_DRYRUN;
+		if (start->ls_flags & LPF_DRYRUN)
+			flags |= DOIF_DRYRUN;
 	}
 
 	if (!cfs_list_empty(&lfsck->li_list_scan))
@@ -1027,10 +1046,17 @@ trigger:
 
 	lfsck->li_args_oit = (flags << DT_OTABLE_IT_FLAGS_SHIFT) | valid;
 	thread_set_flags(thread, 0);
-	rc = PTR_ERR(kthread_run(lfsck_master_engine, lfsck, "lfsck"));
+	lta = lfsck_thread_args_init(lfsck, lsp);
+	if (IS_ERR(lta))
+		GOTO(out, rc = PTR_ERR(lta));
+
+	__lfsck_set_speed(lfsck, bk->lb_speed_limit);
+	rc = PTR_ERR(kthread_run(lfsck_master_engine, lta, "lfsck"));
 	if (IS_ERR_VALUE(rc)) {
 		CERROR("%s: cannot start LFSCK thread, rc = %ld\n",
 		       lfsck_lfsck2name(lfsck), rc);
+
+		lfsck_thread_args_fini(lta);
 	} else {
 		rc = 0;
 		l_wait_event(thread->t_ctl_waitq,

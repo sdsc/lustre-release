@@ -42,6 +42,7 @@
 #include <lustre_net.h>
 #include <lustre_dlm.h>
 #include <lustre_fid.h>
+#include <lustre_lfsck.h>
 
 #define HALF_SEC			(HZ >> 1)
 #define LFSCK_CHECKPOINT_INTERVAL	60
@@ -211,7 +212,8 @@ struct lfsck_operations {
 				bool init);
 
 	int (*lfsck_prep)(const struct lu_env *env,
-			  struct lfsck_component *com);
+			  struct lfsck_component *com,
+			  struct lfsck_start_param *lsp);
 
 	int (*lfsck_exec_oit)(const struct lu_env *env,
 			      struct lfsck_component *com,
@@ -345,6 +347,12 @@ enum lfsck_linkea_flags {
 	LLF_REPAIR_FAILED	= 0x02,
 };
 
+struct lfsck_thread_args {
+	struct lu_env			 lta_env;
+	struct lfsck_instance		*lta_lfsck;
+	struct lfsck_start_param	*lta_lsp;
+};
+
 struct lfsck_thread_info {
 	struct lu_name		lti_name;
 	struct lu_buf		lti_buf;
@@ -368,13 +376,16 @@ int lfsck_pos_dump(char **buf, int *len, struct lfsck_position *pos,
 		   const char *prefix);
 void lfsck_pos_fill(const struct lu_env *env, struct lfsck_instance *lfsck,
 		    struct lfsck_position *pos, bool init);
+bool __lfsck_set_speed(struct lfsck_instance *lfsck, __u32 limit);
 void lfsck_control_speed(struct lfsck_instance *lfsck);
+void lfsck_thread_args_fini(struct lfsck_thread_args *lta);
 int lfsck_reset(const struct lu_env *env, struct lfsck_instance *lfsck,
 		bool init);
 void lfsck_fail(const struct lu_env *env, struct lfsck_instance *lfsck,
 		bool new_checked);
 int lfsck_checkpoint(const struct lu_env *env, struct lfsck_instance *lfsck);
-int lfsck_prep(const struct lu_env *env, struct lfsck_instance *lfsck);
+int lfsck_prep(const struct lu_env *env, struct lfsck_instance *lfsck,
+	       struct lfsck_start_param *lsp);
 int lfsck_exec_oit(const struct lu_env *env, struct lfsck_instance *lfsck,
 		   struct dt_object *obj);
 int lfsck_exec_dir(const struct lu_env *env, struct lfsck_instance *lfsck,
@@ -391,6 +402,8 @@ int lfsck_bookmark_store(const struct lu_env *env,
 			 struct lfsck_instance *lfsck);
 int lfsck_bookmark_setup(const struct lu_env *env,
 			 struct lfsck_instance *lfsck);
+int lfsck_set_param(const struct lu_env *env, struct lfsck_instance *lfsck,
+		    struct lfsck_start *start, bool reset);
 
 /* lfsck_namespace.c */
 int lfsck_namespace_setup(const struct lu_env *env,

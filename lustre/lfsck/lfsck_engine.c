@@ -281,34 +281,28 @@ checkpoint:
 
 int lfsck_master_engine(void *args)
 {
-	struct lu_env		 env;
-	struct lfsck_instance	*lfsck    = (struct lfsck_instance *)args;
-	struct ptlrpc_thread	*thread   = &lfsck->li_thread;
-	struct dt_object	*oit_obj  = lfsck->li_obj_oit;
-	const struct dt_it_ops	*oit_iops = &oit_obj->do_index_ops->dio_it;
-	struct dt_it		*oit_di;
-	int			 rc;
+	struct lfsck_thread_args *lta	   = args;
+	struct lu_env		 *env	   = &lta->lta_env;
+	struct lfsck_instance	 *lfsck    = lta->lta_lfsck;
+	struct ptlrpc_thread	 *thread   = &lfsck->li_thread;
+	struct dt_object	 *oit_obj  = lfsck->li_obj_oit;
+	const struct dt_it_ops	 *oit_iops = &oit_obj->do_index_ops->dio_it;
+	struct dt_it		 *oit_di;
+	int			  rc;
 	ENTRY;
 
-	rc = lu_env_init(&env, LCT_MD_THREAD | LCT_DT_THREAD);
-	if (rc != 0) {
-		CERROR("%s: LFSCK, fail to init env, rc = %d\n",
-		       lfsck_lfsck2name(lfsck), rc);
-		GOTO(noenv, rc);
-	}
-
-	oit_di = oit_iops->init(&env, oit_obj, lfsck->li_args_oit, BYPASS_CAPA);
+	oit_di = oit_iops->init(env, oit_obj, lfsck->li_args_oit, BYPASS_CAPA);
 	if (IS_ERR(oit_di)) {
 		rc = PTR_ERR(oit_di);
 		CERROR("%s: LFSCK, fail to init iteration, rc = %d\n",
 		       lfsck_lfsck2name(lfsck), rc);
-		GOTO(fini_env, rc);
+		GOTO(out, rc);
 	}
 
 	spin_lock(&lfsck->li_lock);
 	lfsck->li_di_oit = oit_di;
 	spin_unlock(&lfsck->li_lock);
-	rc = lfsck_prep(&env, lfsck);
+	rc = lfsck_prep(env, lfsck, lta->lta_lsp);
 	if (rc != 0)
 		GOTO(fini_oit, rc);
 
@@ -327,7 +321,7 @@ int lfsck_master_engine(void *args)
 
 	if (!cfs_list_empty(&lfsck->li_list_scan) ||
 	    cfs_list_empty(&lfsck->li_list_double_scan))
-		rc = lfsck_master_oit_engine(&env, lfsck);
+		rc = lfsck_master_oit_engine(env, lfsck);
 	else
 		rc = 1;
 
@@ -340,29 +334,27 @@ int lfsck_master_engine(void *args)
 	       current_pid(), rc);
 
 	if (!OBD_FAIL_CHECK(OBD_FAIL_LFSCK_CRASH))
-		rc = lfsck_post(&env, lfsck, rc);
+		rc = lfsck_post(env, lfsck, rc);
 	if (lfsck->li_di_dir != NULL)
-		lfsck_close_dir(&env, lfsck);
+		lfsck_close_dir(env, lfsck);
 
 fini_oit:
-	lfsck_di_oit_put(&env, lfsck);
-	oit_iops->fini(&env, oit_di);
+	lfsck_di_oit_put(env, lfsck);
+	oit_iops->fini(env, oit_di);
 	if (rc == 1) {
 		if (!cfs_list_empty(&lfsck->li_list_double_scan))
-			rc = lfsck_double_scan(&env, lfsck);
+			rc = lfsck_double_scan(env, lfsck);
 		else
 			rc = 0;
 	}
 
 	/* XXX: Purge the pinned objects in the future. */
 
-fini_env:
-	lu_env_fini(&env);
-
-noenv:
+out:
 	spin_lock(&lfsck->li_lock);
 	thread_set_flags(thread, SVC_STOPPED);
 	wake_up_all(&thread->t_ctl_waitq);
 	spin_unlock(&lfsck->li_lock);
+	lfsck_thread_args_fini(lta);
 	return rc;
 }

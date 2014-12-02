@@ -102,6 +102,7 @@ static void usage_start(void)
 		"-h: Help information.\n"
 		"-n: Check without modification. 'off'(default) or 'on'.\n"
 		"-r: Reset scanning start position to the device beginning.\n"
+		"    The non-specified parameters will be reset as default.\n"
 		"-s: How many items can be scanned at most per second. "
 		    "'%d' means no limit (default).\n"
 		"-t: The LFSCK type(s) to be started.\n",

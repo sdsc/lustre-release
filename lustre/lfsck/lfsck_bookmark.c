@@ -181,3 +181,66 @@ int lfsck_bookmark_setup(const struct lu_env *env,
 
 	RETURN(rc);
 }
+
+int lfsck_set_param(const struct lu_env *env, struct lfsck_instance *lfsck,
+		    struct lfsck_start *start, bool reset)
+{
+	struct lfsck_bookmark	*bk	= &lfsck->li_bookmark_ram;
+	int			 rc	= 0;
+	bool			 dirty	= false;
+
+	if (start == NULL) {
+		LASSERT(reset);
+
+		if (bk->lb_param & LPF_FAILOUT) {
+			bk->lb_param &= ~LPF_FAILOUT;
+			dirty = true;
+		}
+
+		if (bk->lb_param & LPF_DRYRUN) {
+			bk->lb_param &= ~LPF_DRYRUN;
+			dirty = true;
+		}
+
+		if (__lfsck_set_speed(lfsck, LFSCK_SPEED_NO_LIMIT))
+			dirty = true;
+	} else {
+		if ((start->ls_valid & LSV_ERROR_HANDLE) || reset) {
+			if ((bk->lb_param & LPF_FAILOUT) &&
+			    !(start->ls_valid & LSV_ERROR_HANDLE)) {
+				bk->lb_param &= ~LPF_FAILOUT;
+				dirty = true;
+			} else if (!(start->ls_flags & LPF_FAILOUT) &&
+				   (bk->lb_param & LPF_FAILOUT)) {
+				bk->lb_param &= ~LPF_FAILOUT;
+				dirty = true;
+			}
+		}
+
+		if ((start->ls_valid & LSV_DRYRUN) || reset) {
+			if ((bk->lb_param & LPF_DRYRUN) &&
+			   !(start->ls_valid & LSV_DRYRUN)) {
+				bk->lb_param &= ~LPF_DRYRUN;
+				dirty = true;
+			} else if (!(start->ls_flags & LPF_DRYRUN) &&
+				   (bk->lb_param & LPF_DRYRUN)) {
+				bk->lb_param &= ~LPF_DRYRUN;
+				lfsck->li_drop_dryrun = 1;
+				dirty = true;
+			}
+		}
+
+		if (start->ls_valid & LSV_SPEED_LIMIT) {
+			if (__lfsck_set_speed(lfsck, start->ls_speed_limit))
+				dirty = true;
+		} else if (reset) {
+			if (__lfsck_set_speed(lfsck, LFSCK_SPEED_NO_LIMIT))
+				dirty = true;
+		}
+	}
+
+	if (dirty)
+		rc = lfsck_bookmark_store(env, lfsck);
+
+	return rc;
+}
