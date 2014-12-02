@@ -4723,17 +4723,17 @@ static int lfsck_layout_dump(const struct lu_env *env,
 		goto out;
 
 	rc = lfsck_time_dump(m, lo->ll_time_last_complete,
-			     "time_since_last_completed");
+			     "time_last_completed");
 	if (rc < 0)
 		goto out;
 
 	rc = lfsck_time_dump(m, lo->ll_time_latest_start,
-			     "time_since_latest_start");
+			     "time_latest_start");
 	if (rc < 0)
 		goto out;
 
 	rc = lfsck_time_dump(m, lo->ll_time_last_checkpoint,
-			     "time_since_last_checkpoint");
+			     "time_last_checkpoint");
 	if (rc < 0)
 		goto out;
 
