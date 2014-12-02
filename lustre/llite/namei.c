@@ -531,14 +531,11 @@ static struct dentry *ll_lookup_it(struct inode *parent, struct dentry *dentry,
 
         ll_frob_intent(&it, &lookup_it);
 
-        if (it->it_op == IT_GETATTR) {
-                rc = ll_statahead_enter(parent, &dentry, 0);
-                if (rc == 1) {
-                        if (dentry == save)
-                                GOTO(out, retval = NULL);
-                        GOTO(out, retval = dentry);
-                }
-        }
+	if (it->it_op == IT_GETATTR && dentry_may_statahead(parent, dentry)) {
+		rc = ll_statahead(parent, &dentry, 0);
+		if (rc == 1)
+			RETURN(dentry == save ? NULL : dentry);
+	}
 
         icbd.icbd_childp = &dentry;
         icbd.icbd_parent = parent;
@@ -548,11 +545,11 @@ static struct dentry *ll_lookup_it(struct inode *parent, struct dentry *dentry,
 	else
 		opc = LUSTRE_OPC_ANY;
 
-        op_data = ll_prep_md_op_data(NULL, parent, NULL, dentry->d_name.name,
-                                     dentry->d_name.len, lookup_flags, opc,
-                                     NULL);
-        if (IS_ERR(op_data))
-                RETURN((void *)op_data);
+	op_data = ll_prep_md_op_data(NULL, parent, NULL, dentry->d_name.name,
+				     dentry->d_name.len, lookup_flags, opc,
+				     NULL);
+	if (IS_ERR(op_data))
+		RETURN((struct dentry *)op_data);
 
         /* enforce umask if acl disabled or MDS doesn't support umask */
         if (!IS_POSIXACL(parent) || !exp_connect_umask(ll_i2mdexp(parent)))
@@ -577,16 +574,12 @@ static struct dentry *ll_lookup_it(struct inode *parent, struct dentry *dentry,
         }
         ll_lookup_finish_locks(it, dentry);
 
-        if (dentry == save)
-                GOTO(out, retval = NULL);
-        else
-                GOTO(out, retval = dentry);
- out:
-        if (req)
-                ptlrpc_req_finished(req);
-        if (it->it_op == IT_GETATTR && (retval == NULL || retval == dentry))
-                ll_statahead_mark(parent, dentry);
-        return retval;
+	retval = (dentry == save) ? NULL : dentry;
+	EXIT;
+
+out:
+	ptlrpc_req_finished(req);
+	return retval;
 }
 
 #ifdef HAVE_IOP_ATOMIC_OPEN
