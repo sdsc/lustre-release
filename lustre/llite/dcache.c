@@ -461,13 +461,11 @@ int ll_revalidate_it(struct dentry *de, int lookup_flags,
 		mutex_unlock(&lli->lli_och_mutex);
 	}
 
-        if (it->it_op == IT_GETATTR) {
-                rc = ll_statahead_enter(parent, &de, 0);
-                if (rc == 1)
-                        goto mark;
-                else if (rc != -EAGAIN && rc != 0)
-                        GOTO(out, rc = 0);
-        }
+	if (it->it_op == IT_GETATTR && dentry_may_statahead(parent, de)) {
+		rc = ll_statahead(parent, &de, de->d_inode == NULL);
+		if (rc == 1)
+			RETURN(rc);
+	}
 
 do_lock:
         op_data = ll_prep_md_op_data(NULL, parent, de->d_inode,
@@ -558,9 +556,6 @@ out:
 		ll_lookup_finish_locks(it, de);
 	}
 
-mark:
-        if (it != NULL && it->it_op == IT_GETATTR && rc > 0)
-                ll_statahead_mark(parent, de);
         RETURN(rc);
 
         /*
@@ -617,13 +612,14 @@ do_lookup:
         GOTO(out, rc = 0);
 
 out_sa:
-        /*
-         * For rc == 1 case, should not return directly to prevent losing
-         * statahead windows; for rc == 0 case, the "lookup" will be done later.
-         */
-        if (it != NULL && it->it_op == IT_GETATTR && rc == 1)
-                ll_statahead_enter(parent, &de, 1);
-        goto mark;
+	/*
+	 * For rc == 1 case, should not return directly to prevent losing
+	 * statahead windows; for rc == 0 case, the "lookup" will be done later.
+	 */
+	if (it != NULL && it->it_op == IT_GETATTR && rc == 1 &&
+	    dentry_may_statahead(parent, de))
+		ll_statahead(parent, &de, true);
+	RETURN(rc);
 }
 
 #ifdef HAVE_IOP_ATOMIC_OPEN
