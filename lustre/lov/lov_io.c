@@ -88,11 +88,13 @@ static void lov_io_sub_inherit(struct cl_io *io, struct lov_io *lio,
 	struct lov_stripe_md *lsm    = lio->lis_object->lo_lsm;
 	struct cl_io         *parent = lio->lis_cl.cis_io;
 
-        switch(io->ci_type) {
-        case CIT_SETATTR: {
-                io->u.ci_setattr.sa_attr = parent->u.ci_setattr.sa_attr;
-                io->u.ci_setattr.sa_valid = parent->u.ci_setattr.sa_valid;
-                io->u.ci_setattr.sa_capa = parent->u.ci_setattr.sa_capa;
+	switch (io->ci_type) {
+	case CIT_SETATTR: {
+		io->u.ci_setattr.sa_attr = parent->u.ci_setattr.sa_attr;
+		io->u.ci_setattr.sa_valid = parent->u.ci_setattr.sa_valid;
+		io->u.ci_setattr.sa_stripe_idx = stripe;
+		io->u.ci_setattr.sa_fid = parent->u.ci_setattr.sa_fid;
+		io->u.ci_setattr.sa_capa = parent->u.ci_setattr.sa_capa;
                 if (cl_io_is_trunc(io)) {
                         loff_t new_size = parent->u.ci_setattr.sa_attr.lvb_size;
 
