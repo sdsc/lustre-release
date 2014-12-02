@@ -3052,10 +3052,13 @@ EXPORT_SYMBOL(ptlrpc_sample_next_xid);
 struct ptlrpc_work_async_args {
 	int   (*cb)(const struct lu_env *, void *);
 	void   *cbdata;
+	enum pdl_policy policy;
 };
 
 static void ptlrpcd_add_work_req(struct ptlrpc_request *req)
 {
+	struct ptlrpc_work_async_args *arg = ptlrpc_req_async_args(req);
+
 	/* re-initialize the req */
 	req->rq_timeout		= obd_timeout;
 	req->rq_sent		= cfs_time_current_sec();
@@ -3066,7 +3069,7 @@ static void ptlrpcd_add_work_req(struct ptlrpc_request *req)
 	req->rq_xid		= ptlrpc_next_xid();
 	req->rq_import_generation = req->rq_import->imp_generation;
 
-	ptlrpcd_add_req(req, PDL_POLICY_ROUND, -1);
+	ptlrpcd_add_req(req, arg->policy, -1);
 }
 
 static int work_interpreter(const struct lu_env *env,
@@ -3100,7 +3103,8 @@ static int ptlrpcd_check_work(struct ptlrpc_request *req)
  * Create a work for ptlrpc.
  */
 void *ptlrpcd_alloc_work(struct obd_import *imp,
-			 int (*cb)(const struct lu_env *, void *), void *cbdata)
+			 int (*cb)(const struct lu_env *, void *), void *cbdata,
+			 enum pdl_policy policy)
 {
 	struct ptlrpc_request	      *req = NULL;
 	struct ptlrpc_work_async_args *args;
@@ -3134,6 +3138,7 @@ void *ptlrpcd_alloc_work(struct obd_import *imp,
 	args = ptlrpc_req_async_args(req);
 	args->cb     = cb;
 	args->cbdata = cbdata;
+	args->policy = policy;
 
 	RETURN(req);
 }
