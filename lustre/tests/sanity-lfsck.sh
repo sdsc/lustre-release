@@ -28,7 +28,7 @@ SAVED_OSTCOUNT=${OSTCOUNT}
 # do not use too small MDSSIZE/OSTSIZE, which affect the default journal size
 MDSSIZE=100000
 OSTSIZE=100000
-# no need too much OSTs, to reduce the format/start/stop overhead
+# no need too many OSTs, to reduce the format/start/stop overhead
 [ $OSTCOUNT -gt 4 ] && OSTCOUNT=4
 
 # build up a clean test environment.
@@ -935,18 +935,19 @@ test_9a() {
 		return 0
 	fi
 
-	lfsck_prep 70 70
+	mkdir -p $DIR/$tdir
+	createmany -o $DIR/$tdir/f 5000
 
 	local BASE_SPEED1=100
 	local RUN_TIME1=10
-	$START_NAMESPACE -r -s $BASE_SPEED1 || error "(3) Fail to start LFSCK!"
+	$START_LAYOUT -r -s $BASE_SPEED1 || error "(3) Fail to start LFSCK!"
 
 	sleep $RUN_TIME1
-	STATUS=$($SHOW_NAMESPACE | awk '/^status/ { print $2 }')
+	STATUS=$($SHOW_LAYOUT | awk '/^status/ { print $2 }')
 	[ "$STATUS" == "scanning-phase1" ] ||
 		error "(3) Expect 'scanning-phase1', but got '$STATUS'"
 
-	local SPEED=$($SHOW_NAMESPACE |
+	local SPEED=$($SHOW_LAYOUT |
 		      awk '/^average_speed_phase1/ { print $2 }')
 
 	# There may be time error, normally it should be less than 2 seconds.
@@ -965,7 +966,7 @@ test_9a() {
 		$LCTL set_param -n mdd.${MDT_DEV}.lfsck_speed_limit $BASE_SPEED2
 	sleep $RUN_TIME2
 
-	SPEED=$($SHOW_NAMESPACE | awk '/^average_speed_phase1/ { print $2 }')
+	SPEED=$($SHOW_LAYOUT | awk '/^average_speed_phase1/ { print $2 }')
 	# MIN_MARGIN = 0.8 = 8 / 10
 	local MIN_SPEED=$(((BASE_SPEED1 * (RUN_TIME1 - TIME_DIFF) + \
 			    BASE_SPEED2 * (RUN_TIME2 - TIME_DIFF)) / \
@@ -991,7 +992,7 @@ test_9a() {
 		$LCTL set_param -n mdd.${MDT_DEV}.lfsck_speed_limit 0
 
 	wait_update_facet $SINGLEMDS \
-	    "$LCTL get_param -n mdd.${MDT_DEV}.lfsck_namespace|\
+	    "$LCTL get_param -n mdd.${MDT_DEV}.lfsck_layout|\
 	    awk '/^status/ { print \\\$2 }'" "completed" 30 ||
 		error "(7) Failed to get expected 'completed'"
 }
@@ -3590,8 +3591,8 @@ run_test 29b "LFSCK can repair bad nlink count (2)"
 
 test_29c() {
 	echo "#####"
-	echo "There are too much hard links to the object, and exceeds the
-	echo object's linkEA limitation, as to NOT all the known name entries"
+	echo "There are too many hard links to the object, and exceeds the"
+	echo "object's linkEA limitation, as to NOT all the known name entries"
 	echo "will be recorded in the linkEA. Under such case, LFSCK should"
 	echo "skip the nlink verification for this object."
 	echo "#####"
