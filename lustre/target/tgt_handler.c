@@ -1723,7 +1723,7 @@ int tgt_brw_read(struct tgt_session_info *tsi)
 
 	npages = PTLRPC_MAX_BRW_PAGES;
 	rc = obd_preprw(tsi->tsi_env, OBD_BRW_READ, exp, &repbody->oa, 1,
-			ioo, remote_nb, &npages, local_nb, NULL);
+			ioo, remote_nb, &npages, local_nb);
 	if (rc != 0)
 		GOTO(out_lock, rc);
 
@@ -1782,9 +1782,8 @@ int tgt_brw_read(struct tgt_session_info *tsi)
 
 out_commitrw:
 	/* Must commit after prep above in all cases */
-	rc = obd_commitrw(tsi->tsi_env, OBD_BRW_READ, exp,
-			  &repbody->oa, 1, ioo, remote_nb, npages, local_nb,
-			  NULL, rc);
+	rc = obd_commitrw(tsi->tsi_env, OBD_BRW_READ, exp, &repbody->oa, 1, ioo,
+			  remote_nb, npages, local_nb, rc);
 	if (rc == 0)
 		tgt_drop_id(exp, &repbody->oa);
 out_lock:
@@ -1989,7 +1988,7 @@ int tgt_brw_write(struct tgt_session_info *tsi)
 
 	npages = PTLRPC_MAX_BRW_PAGES;
 	rc = obd_preprw(tsi->tsi_env, OBD_BRW_WRITE, exp, &repbody->oa,
-			objcount, ioo, remote_nb, &npages, local_nb, NULL);
+			objcount, ioo, remote_nb, &npages, local_nb);
 	if (rc < 0)
 		GOTO(out_lock, rc);
 
@@ -2043,8 +2042,7 @@ skip_transfer:
 
 	/* Must commit after prep above in all cases */
 	rc = obd_commitrw(tsi->tsi_env, OBD_BRW_WRITE, exp, &repbody->oa,
-			  objcount, ioo, remote_nb, npages, local_nb, NULL,
-			  rc);
+			  objcount, ioo, remote_nb, npages, local_nb, rc);
 	if (rc == -ENOTCONN)
 		/* quota acquire process has been given up because
 		 * either the client has been evicted or the client
