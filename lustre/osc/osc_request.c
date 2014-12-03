@@ -79,8 +79,9 @@ struct osc_setattr_args {
 };
 
 struct osc_fsync_args {
-	struct obd_info	*fa_oi;
-	obd_enqueue_update_f	 fa_upcall;
+	struct osc_object	*fa_obj;
+	struct obd_info		*fa_oi;
+	obd_enqueue_update_f	fa_upcall;
 	void			*fa_cookie;
 };
 
@@ -484,29 +485,46 @@ static int osc_sync_interpret(const struct lu_env *env,
                               struct ptlrpc_request *req,
                               void *arg, int rc)
 {
-	struct osc_fsync_args *fa = arg;
-        struct ost_body *body;
-        ENTRY;
+	struct osc_fsync_args	*fa = arg;
+	struct ost_body		*body;
+	struct cl_attr		*attr = &osc_env_info(env)->oti_attr;
+	unsigned long		valid = 0;
+	struct cl_object	*obj;
+	ENTRY;
 
-        if (rc)
-                GOTO(out, rc);
+	if (rc != 0)
+		GOTO(out, rc);
 
-        body = req_capsule_server_get(&req->rq_pill, &RMF_OST_BODY);
-        if (body == NULL) {
-                CERROR ("can't unpack ost_body\n");
-                GOTO(out, rc = -EPROTO);
-        }
+	body = req_capsule_server_get(&req->rq_pill, &RMF_OST_BODY);
+	if (body == NULL) {
+		CERROR("can't unpack ost_body\n");
+		GOTO(out, rc = -EPROTO);
+	}
 
 	*fa->fa_oi->oi_oa = body->oa;
+	obj = osc2cl(fa->fa_obj);
+
+	/* Update osc object's blocks attribute */
+	cl_object_attr_lock(obj);
+	if (body->oa.o_valid & OBD_MD_FLBLOCKS) {
+		attr->cat_blocks = body->oa.o_blocks;
+		valid |= CAT_BLOCKS;
+	}
+
+	if (valid != 0)
+		cl_object_attr_set(env, obj, attr, valid);
+	cl_object_attr_unlock(obj);
+
 out:
 	rc = fa->fa_upcall(fa->fa_cookie, rc);
 	RETURN(rc);
 }
 
-int osc_sync_base(struct obd_export *exp, struct obd_info *oinfo,
+int osc_sync_base(struct osc_object *obj, struct obd_info *oinfo,
 		  obd_enqueue_update_f upcall, void *cookie,
                   struct ptlrpc_request_set *rqset)
 {
+	struct obd_export     *exp = osc_export(obj);
 	struct ptlrpc_request *req;
 	struct ost_body       *body;
 	struct osc_fsync_args *fa;
@@ -536,6 +554,7 @@ int osc_sync_base(struct obd_export *exp, struct obd_info *oinfo,
 
 	CLASSERT(sizeof(*fa) <= sizeof(req->rq_async_args));
 	fa = ptlrpc_req_async_args(req);
+	fa->fa_obj = obj;
 	fa->fa_oi = oinfo;
 	fa->fa_upcall = upcall;
 	fa->fa_cookie = cookie;
