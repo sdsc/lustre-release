@@ -1983,6 +1983,7 @@ static struct kuc_hdr *changelog_kuc_hdr(char *buf, size_t len, __u32 flags)
 {
 	struct kuc_hdr *lh = (struct kuc_hdr *)buf;
 
+	LASSERT(lh != NULL);
 	LASSERT(len <= KUC_CHANGELOG_MSG_MAXSIZE);
 
 	lh->kuc_magic = KUC_MAGIC;
@@ -2066,10 +2067,10 @@ static int mdc_changelog_send_thread(void *csdata)
 	if (cs->cs_buf == NULL)
 		GOTO(out, rc = -ENOMEM);
 
-        /* Set up the remote catalog handle */
-        ctxt = llog_get_context(cs->cs_obd, LLOG_CHANGELOG_REPL_CTXT);
-        if (ctxt == NULL)
-                GOTO(out, rc = -ENOENT);
+	/* Set up the remote catalog handle */
+	ctxt = llog_get_context(cs->cs_obd, LLOG_CHANGELOG_REPL_CTXT);
+	if (ctxt == NULL)
+		GOTO(out, rc = -ENOENT);
 	rc = llog_open(NULL, ctxt, &llh, NULL, CHANGELOG_CATALOG,
 		       LLOG_OPEN_EXISTS);
 	if (rc) {
@@ -2089,19 +2090,17 @@ static int mdc_changelog_send_thread(void *csdata)
 
 	rc = llog_cat_process(NULL, llh, changelog_kkuc_cb, cs, 0, 0);
 
-        /* Send EOF no matter what our result */
-        if ((kuch = changelog_kuc_hdr(cs->cs_buf, sizeof(*kuch),
-                                      cs->cs_flags))) {
-                kuch->kuc_msgtype = CL_EOF;
-                libcfs_kkuc_msg_put(cs->cs_fp, kuch);
-        }
+	/* Send EOF no matter what our result */
+	kuch = changelog_kuc_hdr(cs->cs_buf, sizeof(*kuch), cs->cs_flags);
+	kuch->kuc_msgtype = CL_EOF;
+	libcfs_kkuc_msg_put(cs->cs_fp, kuch);
 
 out:
 	fput(cs->cs_fp);
 	if (llh)
 		llog_cat_close(NULL, llh);
-        if (ctxt)
-                llog_ctxt_put(ctxt);
+	if (ctxt)
+		llog_ctxt_put(ctxt);
 	if (cs->cs_buf)
 		OBD_FREE(cs->cs_buf, KUC_CHANGELOG_MSG_MAXSIZE);
 	OBD_FREE_PTR(cs);
