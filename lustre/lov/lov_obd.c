@@ -1131,10 +1131,6 @@ static int lov_setattr_async(struct obd_export *exp, struct obd_info *oinfo,
 
         LASSERT(oinfo);
         ASSERT_LSM_MAGIC(oinfo->oi_md);
-        if (oinfo->oi_oa->o_valid & OBD_MD_FLCOOKIE) {
-                LASSERT(oti);
-                LASSERT(oti->oti_logcookies);
-        }
 
         if (!exp || !exp->exp_obd)
                 RETURN(-ENODEV);
@@ -1151,9 +1147,6 @@ static int lov_setattr_async(struct obd_export *exp, struct obd_info *oinfo,
 
 	list_for_each(pos, &set->set_list) {
 		req = list_entry(pos, struct lov_request, rq_link);
-
-		if (oinfo->oi_oa->o_valid & OBD_MD_FLCOOKIE)
-			oti->oti_logcookies = set->set_cookies + req->rq_stripe;
 
 		CDEBUG(D_INFO, "objid "DOSTID"[%d] has subobj "DOSTID" at idx"
 		       "%u\n", POSTID(&oinfo->oi_oa->o_oi), req->rq_stripe,

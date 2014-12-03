@@ -388,8 +388,6 @@ int lov_prep_setattr_set(struct obd_export *exp, struct obd_info *oinfo,
 
         set->set_exp = exp;
         set->set_oi = oinfo;
-        if (oti != NULL && oinfo->oi_oa->o_valid & OBD_MD_FLCOOKIE)
-                set->set_cookies = oti->oti_logcookies;
 
         for (i = 0; i < oinfo->oi_md->lsm_stripe_count; i++) {
 		struct lov_oinfo *loi = oinfo->oi_md->lsm_oinfo[i];

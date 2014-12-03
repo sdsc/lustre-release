@@ -213,7 +213,6 @@ enum {
  * on the MDS.
  */
 #define OBD_MAX_DEFAULT_EA_SIZE		4096
-#define OBD_MAX_DEFAULT_COOKIE_SIZE	4096
 
 struct mdc_rpc_lock;
 struct obd_import;
@@ -223,7 +222,7 @@ struct client_obd {
 	struct obd_import	*cl_import; /* ptlrpc connection state */
 	size_t			 cl_conn_count;
 
-	/* Cache maximum and default values for easize and cookiesize. This is
+	/* Cache maximum and default values for easize. This is
 	 * strictly a performance optimization to minimize calls to
 	 * obd_size_diskmd(). The default values are used to calculate the
 	 * initial size of a request buffer. The ptlrpc layer will resize the
@@ -242,18 +241,6 @@ struct client_obd {
 	 * the number of OSTs in the filesystem. May be increased at
 	 * run-time if a larger observed size is advertised by the MDT. */
 	__u32			 cl_max_mds_easize;
-
-	/* Default cookie size for llog cookies (see struct llog_cookie). It is
-	 * initialized to zero at mount-time, then it tracks the largest
-	 * observed cookie size advertised by the MDT, up to a maximum value of
-	 * OBD_MAX_DEFAULT_COOKIE_SIZE. Note that llog_cookies are not
-	 * used by clients communicating with MDS versions 2.4.0 and later.*/
-	__u32			 cl_default_mds_cookiesize;
-
-	/* Maximum possible cookie size computed at mount-time based on
-	 * the number of OSTs in the filesystem. May be increased at
-	 * run-time if a larger observed size is advertised by the MDT. */
-	__u32			 cl_max_mds_cookiesize;
 
 	enum lustre_sec_part	 cl_sp_me;
 	enum lustre_sec_part	 cl_sp_to;
@@ -464,8 +451,6 @@ struct lmv_obd {
 	int			connected;
 	int			max_easize;
 	int			max_def_easize;
-	int			max_cookiesize;
-	int			max_def_cookiesize;
 
 	__u32			tgts_size; /* size of tgts array */
 	struct lmv_tgt_desc	**tgts;
@@ -526,8 +511,6 @@ struct obd_trans_info {
 		__u32			mode;
 	}			 oti_ack_locks[4];
 	void			*oti_handle;
-	struct llog_cookie	 oti_onecookie;
-	struct llog_cookie	*oti_logcookies;
 
 	/** VBR: versions */
 	__u64			 oti_pre_version;
@@ -764,8 +747,6 @@ enum obd_cleanup_stage {
 #define KEY_LOVDESC             "lovdesc"
 #define KEY_MAX_EASIZE		"max_easize"
 #define KEY_DEFAULT_EASIZE	"default_easize"
-#define KEY_MAX_COOKIESIZE	"max_cookiesize"
-#define KEY_DEFAULT_COOKIESIZE	"default_cookiesize"
 #define KEY_MGSSEC              "mgssec"
 #define KEY_READ_ONLY           "read-only"
 #define KEY_REGISTER_TARGET     "register_target"
@@ -1136,7 +1117,7 @@ struct md_ops {
 	int (*m_getattr_name)(struct obd_export *, struct md_op_data *,
 			      struct ptlrpc_request **);
 
-	int (*m_init_ea_size)(struct obd_export *, __u32, __u32, __u32, __u32);
+	int (*m_init_ea_size)(struct obd_export *, __u32, __u32);
 
 	int (*m_get_lustre_md)(struct obd_export *, struct ptlrpc_request *,
 			       struct obd_export *, struct obd_export *,

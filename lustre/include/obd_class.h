@@ -1714,15 +1714,13 @@ static inline ldlm_mode_t md_lock_match(struct obd_export *exp, __u64 flags,
                                              policy, mode, lockh));
 }
 
-static inline int md_init_ea_size(struct obd_export *exp, int easize,
-				  int def_asize, int cookiesize,
-				  int def_cookiesize)
+static inline int md_init_ea_size(struct obd_export *exp, __u32 ea_size,
+				  __u32 def_ea_size)
 {
 	ENTRY;
 	EXP_CHECK_MD_OP(exp, init_ea_size);
 	EXP_MD_COUNTER_INCREMENT(exp, init_ea_size);
-	RETURN(MDP(exp->exp_obd, init_ea_size)(exp, easize, def_asize,
-					       cookiesize, def_cookiesize));
+	RETURN(MDP(exp->exp_obd, init_ea_size)(exp, ea_size, def_ea_size));
 }
 
 static inline int md_get_remote_perm(struct obd_export *exp,
