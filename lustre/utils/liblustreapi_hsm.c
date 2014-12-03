@@ -112,6 +112,11 @@ enum ct_event {
 	CT_REMOVE_FINISH	= HSMA_REMOVE + CT_FINISH,
 	CT_REMOVE_CANCEL	= HSMA_REMOVE + CT_CANCEL,
 	CT_REMOVE_ERROR		= HSMA_REMOVE + CT_ERROR,
+	CT_MIGRATE_START	= HSMA_MIGRATE,
+	CT_MIGRATE_RUNNING	= HSMA_MIGRATE + CT_RUNNING,
+	CT_MIGRATE_FINISH	= HSMA_MIGRATE + CT_FINISH,
+	CT_MIGRATE_CANCEL	= HSMA_MIGRATE + CT_CANCEL,
+	CT_MIGRATE_ERROR	= HSMA_MIGRATE + CT_ERROR,
 	CT_EVENT_MAX
 };
 
@@ -156,6 +161,16 @@ static inline const char *llapi_hsm_ct_ev2str(int type)
 		return "REMOVE_CANCEL";
 	case CT_REMOVE_ERROR:
 		return "REMOVE_ERROR";
+	case CT_MIGRATE_START:
+		return "MIGRATE_START";
+	case CT_MIGRATE_RUNNING:
+		return "MIGRATE_RUNNING";
+	case CT_MIGRATE_FINISH:
+		return "MIGRATE_FINISH";
+	case CT_MIGRATE_CANCEL:
+		return "MIGRATE_CANCEL";
+	case CT_MIGRATE_ERROR:
+		return "MIGRATE_ERROR";
 	default:
 		llapi_err_noerrno(LLAPI_MSG_ERROR,
 				  "Unknown event type: %d", type);
@@ -1201,8 +1216,13 @@ int llapi_hsm_action_progress(struct hsm_copyaction_private *hcp,
 	hp.hp_cookie = hai->hai_cookie;
 	hp.hp_flags  = hp_flags;
 
-	/* Progress is made on the data fid */
-	hp.hp_fid = hai->hai_dfid;
+	if (hai->hai_action == HSMA_MIGRATE) {
+		/* Progress is made on the fid */
+		hp.hp_fid = hai->hai_fid;
+	} else {
+		/* Progress is made on the data fid */
+		hp.hp_fid = hai->hai_dfid;
+	}
 	hp.hp_extent = *he;
 
 	rc = ioctl(hcp->ct_priv->mnt_fd, LL_IOC_HSM_PROGRESS, &hp);
