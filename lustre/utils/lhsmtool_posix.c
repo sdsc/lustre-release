@@ -1264,6 +1264,293 @@ fini:
 	return rc;
 }
 
+/**
+ * Converts the stripe info in an hsm_action_item back to a
+ * struct llapi_stripe_param.
+ *
+ * \param hai[in]		hsm action item containing the stripe param as
+ *				its data payload
+ * \param[out] hsm_param	the stripe parameters
+ * \param[out] mdt_index	the MDT index
+ * \retval 0   Success
+ * \retval negative errno on error
+ */
+int hai_to_stripe_info(const struct hsm_action_item *hai,
+		       struct llapi_stripe_param **param_out,
+		       int *mdt_index)
+{
+	struct llapi_stripe_param *param;
+	struct hsm_migrate_param *hsm_param;
+	size_t data_len;
+	int rc;
+
+	*param_out = NULL;
+
+	/* Ensure the hai data is long enough. */
+	if (hai->hai_len < sizeof(*hai))  {
+		rc = -EINVAL;
+		CT_ERROR(rc, "HAI is too short (%u/%zd)",
+			 hai->hai_len, sizeof(*hai));
+		return rc;
+	}
+
+	data_len = hai->hai_len - sizeof(*hai);
+	if (data_len < sizeof(struct hsm_migrate_param)) {
+		rc = -EINVAL;
+		CT_ERROR(rc, "migrate info is too short");
+		return rc;
+	}
+	hsm_param = (struct hsm_migrate_param *)hai->hai_data;
+
+	if (data_len < offsetof(struct hsm_migrate_param,
+				lsp_osts[hsm_param->lsp_osts_count])) {
+		rc = -EINVAL;
+		CT_ERROR(rc, "migrate info is too short");
+		return rc;
+	}
+
+	param = calloc(1, offsetof(typeof(*param),
+				   lsp_osts[hsm_param->lsp_osts_count]));
+	if (param == NULL) {
+		rc = -errno;
+		CT_ERROR(rc, "cannot allocate new stripe param");
+		return rc;
+	}
+
+	param->lsp_stripe_size = hsm_param->lsp_stripe_size;
+	if (hsm_param->lsp_pool[0] == '\0')
+		param->lsp_pool = NULL;
+	else
+		param->lsp_pool = hsm_param->lsp_pool;
+	param->lsp_stripe_offset = hsm_param->lsp_stripe_offset;
+	param->lsp_stripe_pattern = hsm_param->lsp_stripe_pattern;
+	if (hsm_param->lsp_osts_count == 0) {
+		param->lsp_is_specific = false;
+		param->lsp_stripe_count = hsm_param->lsp_stripe_count;
+	} else {
+		param->lsp_is_specific = true;
+		param->lsp_stripe_count = hsm_param->lsp_osts_count;
+		memcpy(param->lsp_osts, hsm_param->lsp_osts,
+		       sizeof(__u32) * hsm_param->lsp_osts_count);
+	}
+
+	*param_out = param;
+	*mdt_index = hsm_param->mdt_index;
+
+	return 0;
+}
+
+/*
+ * Migrate a file to a new pool/set of OSTs
+ *
+ * \param hai [IN] hsm_action_item describing migrate operation
+ * \param hal_flags [in] hsm action list flags for operation
+ * \retval 0 success
+ * \retval negative errno on failure
+ */
+static int ct_migrate(const struct hsm_action_item *hai, const long hal_flags)
+{
+	struct hsm_copyaction_private	*hcp = NULL;
+	int			 rc;
+	int			 hp_flags = 0;
+	int			 src_fd = -1;
+	int			 dst_fd = -1;
+	int			 lumsz;
+	struct lov_user_md	*lum = NULL;
+	int			 bufsz;
+	void			*buf = NULL;
+	struct llapi_stripe_param *param = NULL;
+	int			 gid;
+	struct stat		 src_stbuf;
+	struct stat		 dst_stbuf;
+	__u64			 dv1;
+	bool			 have_gl = false;
+	char			 src_name[FID_LEN];
+	char			*dst_name = "[volatile file]";
+	int			 mdt_index;
+
+	sprintf(src_name, DFID, PFID(&hai->hai_fid));
+
+	/* Convert the stripe info back to a struct llapi_stripe_param and
+	 * extract the MDT index */
+	rc = hai_to_stripe_info(hai, &param, &mdt_index);
+	if (rc < 0)
+		goto cleanup;
+
+	/* find the right size for the IO and allocate the buffer */
+	lumsz = lov_user_md_size(LOV_MAX_STRIPE_COUNT, LOV_USER_MAGIC_V3);
+	lum = malloc(lumsz);
+	if (lum == NULL) {
+		rc = -ENOMEM;
+		goto cleanup;
+	}
+
+	/* Open source file in read/write mode because we need to do the
+	 * layout swap later. */
+	src_fd = llapi_open_by_fid(opt.o_mnt, &hai->hai_fid,
+			       O_RDWR | O_NOATIME | O_NONBLOCK | O_NOFOLLOW);
+	if (src_fd < 0) {
+		rc = -errno;
+		CT_ERROR(rc, "cannot open source file %s for migration",
+			 src_name);
+		goto cleanup;
+	}
+
+#if 0
+	rc = llapi_file_get_stripe(name, lum);
+	/* failure can come from may case and some may be not real error
+	 * (eg: no stripe)
+	 * in case of a real error, a later call will failed with a better
+	 * error management */
+	if (rc < 0)
+		bufsz = 1024*1024;
+	else
+		bufsz = lum->lmm_stripe_size;
+#else
+	/* TODO: we need a version of llapi_file_get_stripe that works
+	 * on a fid. */
+	bufsz = 1024*1024;
+#endif
+	rc = posix_memalign(&buf, getpagesize(), bufsz);
+	if (rc != 0) {
+		rc = -rc;
+		goto cleanup;
+	}
+
+	/* Create volatile destination */
+	dst_fd = llapi_create_volatile_param(opt.o_mnt, mdt_index, 0,
+					     S_IRUSR | S_IWUSR, param);
+	if (dst_fd < 0) {
+		CT_ERROR(dst_fd, "cannot open destination %s for writing",
+			 dst_name);
+		dst_fd = -1;
+		goto fini;
+	}
+
+	/* Begin migration. */
+	rc = ct_begin(&hcp, hai);
+	if (rc < 0)
+		goto fini;
+
+	if (opt.o_dry_run) {
+		rc = -ECANCELED;
+		goto fini;
+	}
+
+	/* Not-owner (root?) special case.
+	 * Need to set owner/group of volatile file like original.
+	 * This will allow to pass related check during layout_swap.
+	 */
+	rc = fstat(src_fd, &src_stbuf);
+	if (rc != 0) {
+		rc = -errno;
+		CT_ERROR(rc, "cannot stat '%s'", src_name);
+		goto fini;
+	}
+	rc = fstat(dst_fd, &dst_stbuf);
+	if (rc != 0) {
+		rc = -errno;
+		CT_ERROR(rc, "cannot stat '%s'", dst_name);
+		goto fini;
+	}
+	if (src_stbuf.st_uid != dst_stbuf.st_uid ||
+	    src_stbuf.st_gid != dst_stbuf.st_gid) {
+		rc = fchown(dst_fd, src_stbuf.st_uid, src_stbuf.st_gid);
+		if (rc != 0) {
+			rc = -errno;
+			CT_ERROR(rc, "cannot chown %s", dst_name);
+			goto fini;
+		}
+	}
+
+	/* get file data version */
+	rc = llapi_get_data_version(src_fd, &dv1, LL_DV_RD_FLUSH);
+	if (rc != 0) {
+		CT_ERROR(rc, "cannot get dataversion on source %s\n", src_name);
+		goto fini;
+	}
+
+	if (hal_flags & HSM_MIGRATION_BLOCKS) {
+		/* take group lock to limit concurent access
+		 * this will be no more needed when exclusive access will
+		 * be implemented (see LU-2919) */
+		/* group lock is taken after data version read because it
+		 * blocks data version call */
+		gid = random();
+		rc = llapi_group_lock(src_fd, gid);
+		if (rc < 0) {
+			CT_ERROR(rc, "cannot get group lock on source: %s",
+				 src_name);
+			goto fini;
+		}
+		have_gl = true;
+	}
+
+	rc = ct_copy_data(hcp, src_name, dst_name, src_fd, dst_fd,
+			  hai, hal_flags);
+	if (rc < 0) {
+		CT_ERROR(rc, "data copy failed from '%s' to '%s'",
+			 src_name, dst_name);
+		goto fini;
+	}
+
+	/* flush data */
+	fsync(dst_fd);
+
+	if (have_gl) {
+		/* give back group lock */
+		rc = llapi_group_unlock(src_fd, gid);
+		if (rc < 0)
+			CT_ERROR(rc, "cannot put group lock on source %s",
+				 src_name);
+		have_gl = false;
+	}
+
+	/* swap layouts
+	 * for a migration we need to:
+	 * - check data version on file did not change
+	 * - keep file mtime
+	 * - keep file atime
+	 */
+	rc = llapi_fswap_layouts(src_fd, dst_fd, dv1, 0,
+				 SWAP_LAYOUTS_CHECK_DV1 |
+				 SWAP_LAYOUTS_KEEP_MTIME |
+				 SWAP_LAYOUTS_KEEP_ATIME);
+	if (rc == -EAGAIN) {
+		CT_ERROR(rc,
+			 "dataversion changed during copy, migration aborted");
+		goto fini;
+	}
+
+	if (rc != 0)
+		CT_ERROR(rc, "swap layout to new file failed");
+
+	CT_TRACE("data migration done");
+
+fini:
+	rc = ct_fini(&hcp, hai, hp_flags, rc);
+
+cleanup:
+	/* give back group lock */
+	if (have_gl) {
+		int rc2;
+
+		/* we keep the original error in rc */
+		rc2 = llapi_group_unlock(src_fd, gid);
+		if (rc2 < 0)
+			CT_ERROR(rc2, "cannot put group lock on source");
+	}
+
+	close(src_fd);
+	close(dst_fd);
+
+	free(lum);
+	free(buf);
+	free(param);
+
+	return rc;
+}
+
 static int ct_process_item(struct hsm_action_item *hai, const long hal_flags)
 {
 	int	rc = 0;
@@ -1297,6 +1584,9 @@ static int ct_process_item(struct hsm_action_item *hai, const long hal_flags)
 		break;
 	case HSMA_REMOVE:
 		rc = ct_remove(hai, hal_flags);
+		break;
+	case HSMA_MIGRATE:
+		rc = ct_migrate(hai, hal_flags);
 		break;
 	case HSMA_CANCEL:
 		CT_TRACE("cancel not implemented for file system '%s'",
@@ -1976,4 +2266,3 @@ error_cleanup:
 
 	return -rc;
 }
-
