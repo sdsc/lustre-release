@@ -49,7 +49,6 @@ static void lov_init_set(struct lov_request_set *set)
 	atomic_set(&set->set_completes, 0);
 	atomic_set(&set->set_success, 0);
 	atomic_set(&set->set_finish_checked, 0);
-	set->set_cookies = NULL;
 	INIT_LIST_HEAD(&set->set_list);
 	atomic_set(&set->set_refcount, 1);
 	init_waitqueue_head(&set->set_waitq);
@@ -388,8 +387,6 @@ int lov_prep_setattr_set(struct obd_export *exp, struct obd_info *oinfo,
 
         set->set_exp = exp;
         set->set_oi = oinfo;
-        if (oti != NULL && oinfo->oi_oa->o_valid & OBD_MD_FLCOOKIE)
-                set->set_cookies = oti->oti_logcookies;
 
         for (i = 0; i < oinfo->oi_md->lsm_stripe_count; i++) {
 		struct lov_oinfo *loi = oinfo->oi_md->lsm_oinfo[i];
