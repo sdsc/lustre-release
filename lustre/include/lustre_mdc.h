@@ -165,9 +165,9 @@ static inline void mdc_put_rpc_lock(struct mdc_rpc_lock *lck,
 	EXIT;
 }
 
-/* Update the maximum observed easize and cookiesize.  The default easize
- * and cookiesize is initialized to the minimum value but allowed to grow
- * up to a single page in size if required to handle the common case.
+/* Update the maximum observed easize. The default easize is
+ * initialized to the minimum value but allowed to grow up to a single
+ * page in size if required to handle the common case.
  */
 static inline void mdc_update_max_ea_from_body(struct obd_export *exp,
 					       struct mdt_body *body)
@@ -181,15 +181,8 @@ static inline void mdc_update_max_ea_from_body(struct obd_export *exp,
 				min_t(__u32, body->mbo_max_mdsize,
 				      PAGE_CACHE_SIZE);
 		}
-		if (cli->cl_max_mds_cookiesize < body->mbo_max_cookiesize) {
-			cli->cl_max_mds_cookiesize = body->mbo_max_cookiesize;
-			cli->cl_default_mds_cookiesize =
-			    min_t(__u32, body->mbo_max_cookiesize,
-				  PAGE_CACHE_SIZE);
-		}
 	}
 }
-
 
 /* mdc/mdc_locks.c */
 int it_open_error(int phase, struct lookup_intent *it);

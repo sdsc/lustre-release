@@ -230,8 +230,6 @@ struct client_obd {
 	 * call obd_size_diskmd() all the time. */
 	__u32			 cl_default_mds_easize;
 	__u32			 cl_max_mds_easize;
-	__u32			 cl_default_mds_cookiesize;
-	__u32			 cl_max_mds_cookiesize;
 
         enum lustre_sec_part     cl_sp_me;
         enum lustre_sec_part     cl_sp_to;
@@ -446,8 +444,6 @@ struct lmv_obd {
 	int			connected;
 	int			max_easize;
 	int			max_def_easize;
-	int			max_cookiesize;
-	int			max_def_cookiesize;
 
 	__u32			tgts_size; /* size of tgts array */
 	struct lmv_tgt_desc	**tgts;
@@ -508,8 +504,6 @@ struct obd_trans_info {
 		__u32			mode;
 	}			 oti_ack_locks[4];
 	void			*oti_handle;
-	struct llog_cookie	 oti_onecookie;
-	struct llog_cookie	*oti_logcookies;
 
 	/** VBR: versions */
 	__u64			 oti_pre_version;
@@ -746,8 +740,6 @@ enum obd_cleanup_stage {
 #define KEY_LOVDESC             "lovdesc"
 #define KEY_MAX_EASIZE		"max_easize"
 #define KEY_DEFAULT_EASIZE	"default_easize"
-#define KEY_MAX_COOKIESIZE	"max_cookiesize"
-#define KEY_DEFAULT_COOKIESIZE	"default_cookiesize"
 #define KEY_MGSSEC              "mgssec"
 #define KEY_READ_ONLY           "read-only"
 #define KEY_REGISTER_TARGET     "register_target"
@@ -1117,7 +1109,7 @@ struct md_ops {
 	int (*m_getattr_name)(struct obd_export *, struct md_op_data *,
 			      struct ptlrpc_request **);
 
-	int (*m_init_ea_size)(struct obd_export *, __u32, __u32, __u32, __u32);
+	int (*m_init_ea_size)(struct obd_export *, __u32, __u32);
 
 	int (*m_get_lustre_md)(struct obd_export *, struct ptlrpc_request *,
 			       struct obd_export *, struct obd_export *,

@@ -1780,7 +1780,7 @@ lov_mds_md_max_stripe_count(size_t buf_size, __u32 lmm_magic)
 #define OBD_MD_FLCKSUM     (0x00100000ULL) /* bulk data checksum */
 #define OBD_MD_FLQOS       (0x00200000ULL) /* quality of service stats */
 /*#define OBD_MD_FLOSCOPQ    (0x00400000ULL) osc opaque data, never used */
-#define OBD_MD_FLCOOKIE    (0x00800000ULL) /* log cancellation cookie */
+/*	OBD_MD_FLCOOKIE    (0x00800000ULL) log cancellation cookie, obsolete */
 #define OBD_MD_FLGROUP     (0x01000000ULL) /* group */
 #define OBD_MD_FLFID       (0x02000000ULL) /* ->ost write inline fid */
 #define OBD_MD_FLEPOCH     (0x04000000ULL) /* ->ost write with ioepoch */
@@ -2328,7 +2328,7 @@ struct mdt_body {
 	__u32	mbo_eadatasize;
 	__u32	mbo_aclsize;
 	__u32	mbo_max_mdsize;
-	__u32	mbo_max_cookiesize;
+	__u32	mbo_max_cookiesize; /* obsolete */
 	__u32	mbo_uid_h; /* high 32-bits of uid, for FUID */
 	__u32	mbo_gid_h; /* high 32-bits of gid, for FUID */
 	__u32	mbo_padding_5; /* also fix lustre_swab_mdt_body */
@@ -3526,8 +3526,9 @@ struct obdo {
         __u32                   o_parent_ver;
         struct lustre_handle    o_handle;       /* brw: lock handle to prolong
                                                  * locks */
-        struct llog_cookie      o_lcookie;      /* destroy: unlink cookie from
-                                                 * MDS */
+	struct llog_cookie	o_lcookie;	/* destroy: unlink cookie from
+						 * MDS, obsolete, reused by OSP.
+						 */
 	__u32			o_uid_h;
 	__u32			o_gid_h;
 

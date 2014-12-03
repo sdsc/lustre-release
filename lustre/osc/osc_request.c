@@ -329,9 +329,6 @@ int osc_setattr_async_base(struct obd_export *exp, struct obd_info *oinfo,
                 RETURN(rc);
         }
 
-        if (oti && oinfo->oi_oa->o_valid & OBD_MD_FLCOOKIE)
-                oinfo->oi_oa->o_lcookie = *oti->oti_logcookies;
-
         osc_pack_req_body(req, oinfo);
 
         ptlrpc_request_set_replen(req);
@@ -417,15 +414,6 @@ static int osc_create(const struct lu_env *env, struct obd_export *exp,
 
 	oa->o_blksize = cli_brw_size(exp->exp_obd);
 	oa->o_valid |= OBD_MD_FLBLKSZ;
-
-        if (oti != NULL) {
-                if (oa->o_valid & OBD_MD_FLCOOKIE) {
-			if (oti->oti_logcookies == NULL)
-				oti->oti_logcookies = &oti->oti_onecookie;
-
-                        *oti->oti_logcookies = oa->o_lcookie;
-                }
-        }
 
         CDEBUG(D_HA, "transno: "LPD64"\n",
                lustre_msg_get_transno(req->rq_repmsg));
@@ -657,8 +645,6 @@ static int osc_destroy(const struct lu_env *env, struct obd_export *exp,
         req->rq_request_portal = OST_IO_PORTAL; /* bug 7198 */
         ptlrpc_at_set_req_timeout(req);
 
-	if (oti != NULL && oa->o_valid & OBD_MD_FLCOOKIE)
-		oa->o_lcookie = *oti->oti_logcookies;
 	body = req_capsule_client_get(&req->rq_pill, &RMF_OST_BODY);
 	LASSERT(body);
 	lustre_set_wire_obdo(&req->rq_import->imp_connect_data, &body->oa, oa);

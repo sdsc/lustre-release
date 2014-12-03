@@ -2397,9 +2397,6 @@ void dump_obdo(struct obdo *oa)
         if (valid & OBD_MD_FLHANDLE)
                 CDEBUG(D_RPCTRACE, "obdo: o_handle = "LPD64"\n",
                        oa->o_handle.cookie);
-        if (valid & OBD_MD_FLCOOKIE)
-                CDEBUG(D_RPCTRACE, "obdo: o_lcookie = "
-                       "(llog_cookie dumping not yet implemented)\n");
 }
 EXPORT_SYMBOL(dump_obdo);
 

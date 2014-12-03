@@ -897,8 +897,6 @@ int mdc_close(struct obd_export *exp, struct md_op_data *op_data,
 
 	req_capsule_set_size(&req->rq_pill, &RMF_MDT_MD, RCL_SERVER,
 			     obd->u.cli.cl_default_mds_easize);
-	req_capsule_set_size(&req->rq_pill, &RMF_LOGCOOKIES, RCL_SERVER,
-			     obd->u.cli.cl_default_mds_cookiesize);
 
         ptlrpc_request_set_replen(req);
 
@@ -2686,26 +2684,6 @@ int mdc_get_info(const struct lu_env *env, struct obd_export *exp,
 		default_easize = val;
 		*default_easize = exp->exp_obd->u.cli.cl_default_mds_easize;
 		RETURN(0);
-	} else if (KEY_IS(KEY_MAX_COOKIESIZE)) {
-		__u32 mdsize, *max_cookiesize;
-
-		if (*vallen != sizeof(int))
-			RETURN(-EINVAL);
-		mdsize = *(int *)val;
-		if (mdsize > exp->exp_obd->u.cli.cl_max_mds_cookiesize)
-			exp->exp_obd->u.cli.cl_max_mds_cookiesize = mdsize;
-		max_cookiesize = val;
-		*max_cookiesize = exp->exp_obd->u.cli.cl_max_mds_cookiesize;
-		RETURN(0);
-	} else if (KEY_IS(KEY_DEFAULT_COOKIESIZE)) {
-		__u32 *default_cookiesize;
-
-		if (*vallen != sizeof(int))
-			RETURN(-EINVAL);
-		default_cookiesize = val;
-		*default_cookiesize =
-			exp->exp_obd->u.cli.cl_default_mds_cookiesize;
-		RETURN(0);
         } else if (KEY_IS(KEY_CONN_DATA)) {
                 struct obd_import *imp = class_exp2cliimp(exp);
                 struct obd_connect_data *data = val;
@@ -2949,8 +2927,7 @@ err_rpc_lock:
  * required it will be reallocated in the ptlrpc layer due to overflow.
  */
 static int mdc_init_ea_size(struct obd_export *exp, __u32 easize,
-			    __u32 def_easize, __u32 cookiesize,
-			    __u32 def_cookiesize)
+			    __u32 def_easize)
 {
 	struct obd_device *obd = exp->exp_obd;
 	struct client_obd *cli = &obd->u.cli;
@@ -2961,12 +2938,6 @@ static int mdc_init_ea_size(struct obd_export *exp, __u32 easize,
 
 	if (cli->cl_default_mds_easize < def_easize)
 		cli->cl_default_mds_easize = def_easize;
-
-	if (cli->cl_max_mds_cookiesize < cookiesize)
-		cli->cl_max_mds_cookiesize = cookiesize;
-
-	if (cli->cl_default_mds_cookiesize < def_cookiesize)
-		cli->cl_default_mds_cookiesize = def_cookiesize;
 
 	RETURN(0);
 }
