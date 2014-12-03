@@ -3481,6 +3481,71 @@ test_112() {
 }
 run_test 112 "State of recorded request"
 
+helper_test_113() {
+	local optcmd=$1				# -i or -o
+
+	# Migrate a file with HSM
+
+	# TODO: will need to update version code here
+	[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.6.91) ] &&
+		skip "HSM migrate is not supported" && return
+
+	# test needs a running copytool
+	copytool_setup
+
+	# lfs hsm migrate file onto OST 0 if it is on OST 1, or onto
+	# OST 1 if it is on OST 0.
+
+	# Create the file
+	mkdir -p $DIR/$tdir
+	local file=$DIR/$tdir/migr_1_ost
+	dd bs=5M count=1 if=/dev/urandom of=$file >/dev/null 2>&1 ||
+		error "write data into $file failed"
+	local obdidx=$($LFS getstripe -i $file)
+	local oldmd5=$(md5sum $file)
+	local olddata_version=$($LFS data_version $file)
+
+	# Migrate it
+	local newobdidx=0
+	[[ $obdidx -eq 0 ]] && newobdidx=1
+	cmd="$LFS migrate -H $optcmd $newobdidx $file"
+	echo $cmd
+	eval $cmd || error "$cmd failed"
+
+	# Wait 20s for the migration to happen
+	local LIM=$((`date +%s`+20))
+	local $newdata_version
+	while :
+	do
+		[ `date +%s` -ge $LIM ] && break
+		newdata_version=$($LFS data_version $file)
+		[[ $newdata_version -ne $olddata_version ]] && break
+		sleep .5
+	done
+
+	# Ensure it is migrated, and that the content is correct
+	local realobdix=$($LFS getstripe -i $file)
+	local newmd5=$(md5sum $file)
+	[[ $newdata_version -eq $olddata_version ]] &&
+		error "data version has not changed"
+	[[ $newobdidx -ne $realobdix ]] &&
+		error "unexpected new OST (was=$obdidx, wanted=$newobdidx, got=$realobdix)"
+	[[ "$oldmd5" != "$newmd5" ]] &&
+		error "md5sum differ: $oldmd5, $newmd5"
+
+	copytool_cleanup
+}
+
+test_113a() {
+	helper_test_113 "-i"
+}
+run_test 113a "HSM migrate test with -i"
+
+test_113b() {
+	helper_test_113 "-o"
+}
+run_test 113b "HSM migrate test with -o"
+
 test_200() {
 	# test needs a running copytool
 	copytool_setup
