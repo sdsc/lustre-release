@@ -79,8 +79,10 @@ struct osc_setattr_args {
 };
 
 struct osc_fsync_args {
-	struct obd_info	*fa_oi;
-	obd_enqueue_update_f	 fa_upcall;
+	struct osc_object	*fa_obj;
+	struct obd_info		*fa_oi;
+	loff_t			fa_obdoff;
+	obd_enqueue_update_f	fa_upcall;
 	void			*fa_cookie;
 };
 
@@ -484,29 +486,76 @@ static int osc_sync_interpret(const struct lu_env *env,
                               struct ptlrpc_request *req,
                               void *arg, int rc)
 {
-	struct osc_fsync_args *fa = arg;
-        struct ost_body *body;
-        ENTRY;
+	struct osc_fsync_args	*fa = arg;
+	struct ost_body		*body;
+	struct obdo		*oa;
+	struct lov_oinfo	*loi;
+	struct cl_attr		*attr = &osc_env_info(env)->oti_attr;
+	unsigned long		valid = 0;
+	struct cl_object	*obj;
+	loff_t			end;
+	ENTRY;
 
-        if (rc)
-                GOTO(out, rc);
+	if (rc != 0)
+		GOTO(out, rc);
 
-        body = req_capsule_server_get(&req->rq_pill, &RMF_OST_BODY);
-        if (body == NULL) {
-                CERROR ("can't unpack ost_body\n");
-                GOTO(out, rc = -EPROTO);
-        }
+	body = req_capsule_server_get(&req->rq_pill, &RMF_OST_BODY);
+	if (body == NULL) {
+		CERROR("can't unpack ost_body\n");
+		GOTO(out, rc = -EPROTO);
+	}
+
+	/* OST_SYNC uses obdo::o_blocks as its end */
+	end = fa->fa_oi->oi_oa->o_blocks;
+	if (end != OBD_OBJECT_EOF)
+		end += fa->fa_obdoff;
 
 	*fa->fa_oi->oi_oa = body->oa;
+	oa = fa->fa_oi->oi_oa;
+	obj = osc2cl(fa->fa_obj);
+	loi = fa->fa_obj->oo_oinfo;
+
+	/* Update osc object's attributes */
+	cl_object_attr_lock(obj);
+	if (oa->o_valid & OBD_MD_FLBLOCKS) {
+		attr->cat_blocks = oa->o_blocks;
+		valid |= CAT_BLOCKS;
+	}
+	if (oa->o_valid & OBD_MD_FLMTIME) {
+		attr->cat_mtime = oa->o_mtime;
+		valid |= CAT_MTIME;
+	}
+	if (oa->o_valid & OBD_MD_FLATIME) {
+		attr->cat_atime = oa->o_atime;
+		valid |= CAT_ATIME;
+	}
+	if (oa->o_valid & OBD_MD_FLCTIME) {
+		attr->cat_ctime = oa->o_ctime;
+		valid |= CAT_CTIME;
+	}
+	if (loi->loi_lvb.lvb_size < end) {
+		attr->cat_size = end;
+		valid |= CAT_SIZE;
+	}
+	if (loi->loi_kms < end) {
+		attr->cat_kms = end;
+		valid |= CAT_KMS;
+	}
+
+	if (valid != 0)
+		cl_object_attr_set(env, obj, attr, valid);
+	cl_object_attr_unlock(obj);
+
 out:
 	rc = fa->fa_upcall(fa->fa_cookie, rc);
 	RETURN(rc);
 }
 
-int osc_sync_base(struct obd_export *exp, struct obd_info *oinfo,
+int osc_sync_base(struct osc_object *obj, loff_t obdoff, struct obd_info *oinfo,
 		  obd_enqueue_update_f upcall, void *cookie,
                   struct ptlrpc_request_set *rqset)
 {
+	struct obd_export     *exp = osc_export(obj);
 	struct ptlrpc_request *req;
 	struct ost_body       *body;
 	struct osc_fsync_args *fa;
@@ -536,7 +585,9 @@ int osc_sync_base(struct obd_export *exp, struct obd_info *oinfo,
 
 	CLASSERT(sizeof(*fa) <= sizeof(req->rq_async_args));
 	fa = ptlrpc_req_async_args(req);
+	fa->fa_obj = obj;
 	fa->fa_oi = oinfo;
+	fa->fa_obdoff = obdoff;
 	fa->fa_upcall = upcall;
 	fa->fa_cookie = cookie;
 

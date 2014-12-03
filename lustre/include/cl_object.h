@@ -1866,6 +1866,7 @@ struct cl_io {
                         struct cl_page *ft_page;
                 } ci_fault;
 		struct cl_fsync_io {
+			loff_t             fi_obdoff;
 			loff_t             fi_start;
 			loff_t             fi_end;
 			struct obd_capa   *fi_capa;

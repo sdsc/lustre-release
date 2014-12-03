@@ -619,7 +619,7 @@ static int osc_fsync_ost(const struct lu_env *env, struct osc_object *obj,
 	oinfo->oi_capa = fio->fi_capa;
 	init_completion(&cbargs->opc_sync);
 
-	rc = osc_sync_base(osc_export(obj), oinfo, osc_async_upcall, cbargs,
+	rc = osc_sync_base(obj, fio->fi_obdoff, oinfo, osc_async_upcall, cbargs,
 			   PTLRPCD_SET);
 	RETURN(rc);
 }

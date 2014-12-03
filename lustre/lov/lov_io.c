@@ -111,6 +111,7 @@ static void lov_io_sub_inherit(struct cl_io *io, struct lov_io *lio,
                 break;
         }
 	case CIT_FSYNC: {
+		io->u.ci_fsync.fi_obdoff = lov_stripe_size(lsm, 1, stripe) - 1;
 		io->u.ci_fsync.fi_start = start;
 		io->u.ci_fsync.fi_end = end;
 		io->u.ci_fsync.fi_capa = parent->u.ci_fsync.fi_capa;
