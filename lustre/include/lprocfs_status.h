@@ -39,11 +39,10 @@
  *
  * Author: Hariharan Thantry thantry@users.sourceforge.net
  */
-#ifndef _LPROCFS_SNMP_H
-#define _LPROCFS_SNMP_H
+#ifndef _LPROCFS_STATUS_H
+#define _LPROCFS_STATUS_H
 
 #include <lustre/lustre_idl.h>
-#include <libcfs/params_tree.h>
 
 struct lprocfs_vars {
 	const char			*name;
@@ -388,7 +387,7 @@ struct obd_job_stats {
 	time_t			ojs_last_cleanup;
 };
 
-#ifdef LPROCFS
+#if defined (CONFIG_PROC_FS)
 
 extern int lprocfs_stats_alloc_one(struct lprocfs_stats *stats,
                                    unsigned int cpuid);
@@ -602,7 +601,7 @@ lprocfs_register(const char *name, struct proc_dir_entry *parent,
 extern void lprocfs_remove(struct proc_dir_entry **root);
 extern void lprocfs_remove_proc_entry(const char *name,
                                       struct proc_dir_entry *parent);
-#ifndef HAVE_ONLY_PROCFS_SEQ
+#ifndef HAVE_REMOVE_PROC_SUBTREE
 extern void remove_proc_subtree(const char *name,
 				struct proc_dir_entry *parent);
 #endif
@@ -732,7 +731,6 @@ extern int lprocfs_seq_release(struct inode *, struct file *);
 #define __LPROC_SEQ_FOPS(name, custom_seq_write)			\
 static int name##_single_open(struct inode *inode, struct file *file)	\
 {									\
-	LPROCFS_ENTRY_CHECK(PDE(inode));				\
 	return single_open(file, name##_seq_show, PDE_DATA(inode));	\
 }									\
 struct file_operations name##_fops = {					\
@@ -882,8 +880,7 @@ extern int lprocfs_quota_rd_qs_factor(char *page, char **start, off_t off,
 extern int lprocfs_quota_wr_qs_factor(struct file *file,
                                       const char *buffer,
                                       unsigned long count, void *data);
-#else
-/* LPROCFS is not defined */
+#else	/* CONFIG_PROC_FS is not defined */
 
 #define proc_lustre_root NULL
 
@@ -979,7 +976,7 @@ static inline void lprocfs_remove(struct proc_dir_entry **root)
 static inline void lprocfs_remove_proc_entry(const char *name,
                                              struct proc_dir_entry *parent)
 { return; }
-#ifndef HAVE_ONLY_PROCFS_SEQ
+#ifndef HAVE_REMOVE_PROC_SUBTREE
 static inline void remove_proc_subtree(const char *name,
 				       struct proc_dir_entry *parent)
 { return; }
@@ -1101,6 +1098,6 @@ int lprocfs_job_stats_init(struct obd_device *obd, int cntr_num,
 /* lproc_ptlrpc.c */
 #define target_print_req NULL
 
-#endif /* LPROCFS */
+#endif /* CONFIG_PROC_FS */
 
-#endif /* LPROCFS_SNMP_H */
+#endif /* LPROCFS_STATUS_H */

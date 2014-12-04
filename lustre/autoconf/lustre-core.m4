@@ -1295,21 +1295,21 @@ bio_end_sector, [
 ]) # LC_HAVE_BIO_END_SECTOR
 
 #
-# LC_HAVE_ONLY_PROCFS_SEQ
+# LC_HAVE_REMOVE_PROC_SUBTREE
 #
 # 3.10+ only supports procfs seq_files handling
 #
-AC_DEFUN([LC_HAVE_ONLY_PROCFS_SEQ], [
+AC_DEFUN([LC_HAVE_REMOVE_PROC_SUBTREE], [
 LB_CHECK_COMPILE([if procfs only supports using 'seq_files'],
 only_procfs_seq_files, [
 	#include <linux/proc_fs.h>
 ],[
-	((struct proc_dir_entry *)0)->write_proc(NULL, NULL, 0, NULL);
+	remove_proc_subtree(NULL, NULL);
 ], [], [
-	AC_DEFINE(HAVE_ONLY_PROCFS_SEQ, 1,
+	AC_DEFINE(HAVE_REMOVE_PROC_SUBTREE, 1,
 		[only seq_files supported])
 ])
-]) # LC_HAVE_ONLY_PROCFS_SEQ
+]) # LC_HAVE_REMOVE_PROC_SUBTREE
 
 #
 # LC_BLKDEV_RELEASE_RETURN_INT
@@ -1624,7 +1624,7 @@ AC_DEFUN([LC_PROG_LINUX], [
 	LC_HAVE_BIO_END_SECTOR
 
 	# 3.10
-	LC_HAVE_ONLY_PROCFS_SEQ
+	LC_HAVE_REMOVE_PROC_SUBTREE
 	LC_BLKDEV_RELEASE_RETURN_INT
 
 	# 3.11

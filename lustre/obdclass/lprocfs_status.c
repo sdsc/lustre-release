@@ -45,11 +45,35 @@
 #include <lprocfs_status.h>
 #include <lustre/lustre_idl.h>
 
-#if defined(LPROCFS)
+#if defined(CONFIG_PROC_FS)
 
 static int lprocfs_no_percpu_stats = 0;
 CFS_MODULE_PARM(lprocfs_no_percpu_stats, "i", int, 0644,
                 "Do not alloc percpu data for lprocfs stats");
+
+#ifndef HAVE_REMOVE_PROC_SUBTREE
+/* for b=10866, global variable */
+DECLARE_RWSEM(_lprocfs_lock);
+EXPORT_SYMBOL(_lprocfs_lock);
+
+#define LPROCFS_WRITE_ENTRY()           \
+do {                                    \
+	down_write(&_lprocfs_lock);     \
+} while(0)
+
+#define LPROCFS_WRITE_EXIT()            \
+do {                                    \
+	up_write(&_lprocfs_lock);       \
+} while(0)
+
+#define PDE_DATA(inode)         PDE(inode)->data
+
+#else /* New proc api */
+
+#define LPROCFS_WRITE_ENTRY() do {} while(0)
+#define LPROCFS_WRITE_EXIT()  do {} while(0)
+
+#endif
 
 #define MAX_STRING_SIZE 128
 
@@ -79,9 +103,11 @@ lprocfs_add_simple(struct proc_dir_entry *root, char *name,
 		mode = 0444;
 	if (fops->write)
 		mode |= 0200;
+	LPROCFS_WRITE_ENTRY();
 	proc = proc_create_data(name, mode, root, fops, data);
-	if (!proc) {
-		CERROR("LprocFS: No memory to create /proc entry %s\n",
+	LPROCFS_WRITE_EXIT();
+	if (proc == NULL) {
+		CERROR("lprocfs: No memory to create /proc entry %s\n",
 		       name);
 		return ERR_PTR(-ENOMEM);
 	}
@@ -149,9 +175,11 @@ lprocfs_add_vars(struct proc_dir_entry *root, struct lprocfs_vars *list,
 			if (list->fops->write)
 				mode |= 0200;
 		}
+		LPROCFS_WRITE_ENTRY();
 		proc = proc_create_data(list->name, mode, root,
 					list->fops ?: &lprocfs_generic_fops,
 					list->data ?: data);
+		LPROCFS_WRITE_EXIT();
 		if (proc == NULL)
 			return -ENOMEM;
 		list++;
@@ -160,11 +188,7 @@ lprocfs_add_vars(struct proc_dir_entry *root, struct lprocfs_vars *list,
 }
 EXPORT_SYMBOL(lprocfs_add_vars);
 
-#ifndef HAVE_ONLY_PROCFS_SEQ
-/* for b=10866, global variable */
-DECLARE_RWSEM(_lprocfs_lock);
-EXPORT_SYMBOL(_lprocfs_lock);
-
+#ifndef HAVE_REMOVE_PROC_SUBTREE
 void lprocfs_remove_nolock(struct proc_dir_entry **proot)
 {
 	struct proc_dir_entry *root = *proot;
@@ -246,7 +270,7 @@ EXPORT_SYMBOL(remove_proc_subtree);
 
 void lprocfs_remove(struct proc_dir_entry **rooth)
 {
-#ifndef HAVE_ONLY_PROCFS_SEQ
+#ifndef HAVE_REMOVE_PROC_SUBTREE
 	LPROCFS_WRITE_ENTRY(); /* search vs remove race */
 	lprocfs_remove_nolock(rooth);
 	LPROCFS_WRITE_EXIT();
@@ -1251,10 +1275,6 @@ static int lprocfs_stats_seq_open(struct inode *inode, struct file *file)
 	struct seq_file *seq;
 	int rc;
 
-#ifndef HAVE_ONLY_PROCFS_SEQ
-	if (LPROCFS_ENTRY_CHECK(PDE(inode)))
-		return -ENOENT;
-#endif
 	rc = seq_open(file, &lprocfs_stats_seq_sops);
 	if (rc)
 		return rc;
@@ -1278,10 +1298,10 @@ int lprocfs_register_stats(struct proc_dir_entry *root, const char *name,
 	struct proc_dir_entry *entry;
 	LASSERT(root != NULL);
 
-	entry = proc_create_data(name, 0644, root,
-				 &lprocfs_stats_seq_fops, stats);
-	if (entry == NULL)
-		return -ENOMEM;
+	entry = lprocfs_add_simple(root, (char *) name, stats,
+				   &lprocfs_stats_seq_fops);
+	if (IS_ERR(entry))
+		return PTR_ERR(entry);
 	return 0;
 }
 EXPORT_SYMBOL(lprocfs_register_stats);
@@ -1751,21 +1771,16 @@ EXPORT_SYMBOL(lprocfs_find_named_value);
 int lprocfs_seq_create(struct proc_dir_entry *parent,
 		       const char *name,
 		       mode_t mode,
-		       const struct file_operations *seq_fops,
+		       const struct file_operations *fops,
 		       void *data)
 {
-	struct proc_dir_entry *entry;
-	ENTRY;
-
-	/* Disallow secretly (un)writable entries. */
-	LASSERT((seq_fops->write == NULL) == ((mode & 0222) == 0));
-
-	entry = proc_create_data(name, mode, parent, seq_fops, data);
-
-	if (entry == NULL)
-		RETURN(-ENOMEM);
-
-	RETURN(0);
+	struct lprocfs_vars var[] =  {
+		{ .name		= name,
+		  .proc_mode	= mode,
+		  .fops		= fops },
+		{ 0 }
+	};
+	return lprocfs_add_vars(parent, var, data);
 }
 EXPORT_SYMBOL(lprocfs_seq_create);
 
@@ -1981,4 +1996,4 @@ failed:
 }
 EXPORT_SYMBOL(lprocfs_wr_nosquash_nids);
 
-#endif /* LPROCFS*/
+#endif /* CONFIG_PROC_FS */

@@ -40,7 +40,7 @@
 #include <lustre/lustre_idl.h>
 #include <lustre_nodemap.h>
 
-#if defined(LPROCFS)
+#if defined(CONFIG_PROC_FS)
 
 int lprocfs_evict_client_open(struct inode *inode, struct file *f)
 {

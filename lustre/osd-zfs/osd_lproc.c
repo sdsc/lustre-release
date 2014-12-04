@@ -50,7 +50,7 @@
 
 #include "osd_internal.h"
 
-#ifdef LPROCFS
+#if defined (CONFIG_PROC_FS)
 
 static int osd_stats_init(struct osd_device *osd)
 {

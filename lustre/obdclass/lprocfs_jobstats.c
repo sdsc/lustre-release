@@ -30,12 +30,11 @@
 
 #define DEBUG_SUBSYSTEM S_CLASS
 
-
 #include <obd_class.h>
 #include <lprocfs_status.h>
 #include <lustre/lustre_idl.h>
 
-#if defined(LPROCFS)
+#if defined(CONFIG_PROC_FS)
 
 /*
  * JobID formats & JobID environment variable names for supported
@@ -416,9 +415,6 @@ static int lprocfs_jobstats_seq_open(struct inode *inode, struct file *file)
 	struct seq_file *seq;
 	int rc;
 
-	if (LPROCFS_ENTRY_CHECK(PDE(inode)))
-		return -ENOENT;
-
 	rc = seq_open(file, &lprocfs_jobstats_seq_sops);
 	if (rc)
 		return rc;
@@ -516,11 +512,8 @@ int lprocfs_job_stats_init(struct obd_device *obd, int cntr_num,
 	stats->ojs_cntr_init_fn = init_fn;
 	stats->ojs_cleanup_interval = 600; /* 10 mins by default */
 	stats->ojs_last_cleanup = cfs_time_current_sec();
-
-	LPROCFS_WRITE_ENTRY();
-	entry = proc_create_data("job_stats", 0644, obd->obd_proc_entry,
-				&lprocfs_jobstats_seq_fops, stats);
-	LPROCFS_WRITE_EXIT();
+	entry = lprocfs_add_simple(obd->obd_proc_entry, "job_stats", stats,
+				   &lprocfs_jobstats_seq_fops);
 	if (entry == NULL) {
 		lprocfs_job_stats_fini(obd);
 		RETURN(-ENOMEM);

@@ -42,10 +42,7 @@
 #include <lprocfs_status.h>
 #include <obd_class.h>
 
-#ifndef LPROCFS
-static struct lprocfs_vars lprocfs_module_vars[] = { {0} };
-static struct lprocfs_vars lprocfs_obd_vars[] = { {0} };
-#else
+#if defined (CONFIG_PROC_FS)
 static int lmv_numobd_seq_show(struct seq_file *m, void *v)
 {
 	struct obd_device	*dev = (struct obd_device *)m->private;
@@ -224,4 +221,4 @@ struct file_operations lmv_proc_target_fops = {
         .llseek               = seq_lseek,
         .release              = seq_release,
 };
-#endif /* LPROCFS */
+#endif /* CONFIG_PROC_FS */
