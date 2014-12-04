@@ -51,7 +51,7 @@
 #include <lprocfs_status.h>
 #include "fid_internal.h"
 
-#ifdef LPROCFS
+#if defined(CONFIG_PROC_FS)
 
 /* Format: [0x64BIT_INT - 0x64BIT_INT] + 32 bytes just in case */
 #define MAX_FID_RANGE_STRLEN (32 + 2 * 2 * sizeof(__u64))
@@ -361,7 +361,6 @@ static int fldb_seq_open(struct inode *inode, struct file *file)
 	fld = ss->lss_site->ss_server_fld;
 	LASSERT(fld != NULL);
 
-	LPROCFS_ENTRY_CHECK(PDE(inode));
 	rc = seq_open(file, &fldb_sops);
 	if (rc)
 		return rc;

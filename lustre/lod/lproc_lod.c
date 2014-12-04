@@ -47,7 +47,7 @@
  * called by Linux kernel's procfs.
  */
 
-#ifdef LPROCFS
+#if defined(CONFIG_PROC_FS)
 
 /**
  * Show default stripe size.
@@ -847,5 +847,5 @@ void lod_procfs_fini(struct lod_device *lod)
 	lprocfs_obd_cleanup(obd);
 }
 
-#endif /* LPROCFS */
+#endif /* CONFIG_PROC_FS */
 

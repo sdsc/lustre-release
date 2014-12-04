@@ -39,7 +39,7 @@
 
 #include <lustre_mdc.h>
 
-#ifdef LPROCFS
+#if defined(CONFIG_PROC_FS)
 extern struct lprocfs_vars lprocfs_mdc_obd_vars[];
 #endif
 

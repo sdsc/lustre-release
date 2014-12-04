@@ -407,7 +407,7 @@ static inline char *osd_name(struct osd_device *osd)
 	return osd->od_dt_dev.dd_lu_dev.ld_obd->obd_name;
 }
 
-#ifdef LPROCFS
+#if defined(CONFIG_PROC_FS)
 enum {
 	LPROC_OSD_READ_BYTES = 0,
 	LPROC_OSD_WRITE_BYTES = 1,
