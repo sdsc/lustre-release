@@ -194,7 +194,7 @@ int class_register_type(struct obd_ops *dt_ops, struct md_ops *md_ops,
         strcpy(type->typ_name, name);
 	spin_lock_init(&type->obd_type_lock);
 
-#ifdef LPROCFS
+#if defined(CONFIG_PROC_FS)
 	if (enable_proc) {
 		type->typ_procroot = lprocfs_register(type->typ_name,
 						      proc_lustre_root,
@@ -221,7 +221,7 @@ int class_register_type(struct obd_ops *dt_ops, struct md_ops *md_ops,
 
 failed:
 	if (type->typ_name != NULL) {
-#ifdef LPROCFS
+#if defined(CONFIG_PROC_FS)
 		if (type->typ_procroot != NULL)
 			remove_proc_subtree(type->typ_name, proc_lustre_root);
 #endif
@@ -259,7 +259,7 @@ int class_unregister_type(const char *name)
 	 * other modules can share names (i.e. lod can use lov entry). so
 	 * we can't reference pointer as it can get invalided when another
 	 * module removes the entry */
-#ifdef LPROCFS
+#if defined(CONFIG_PROC_FS)
 	if (type->typ_procroot != NULL)
 		remove_proc_subtree(type->typ_name, proc_lustre_root);
 	if (type->typ_procsym != NULL)

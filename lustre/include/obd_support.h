@@ -600,7 +600,7 @@ int obd_alloc_fail(const void *ptr, const char *name, const char *type,
 
 extern atomic_t libcfs_kmemory;
 
-#ifdef LPROCFS
+#if defined(CONFIG_PROC_FS)
 #define obd_memory_add(size)                                                  \
         lprocfs_counter_add(obd_memory, OBD_MEMORY_STAT, (long)(size))
 #define obd_memory_sub(size)                                                  \

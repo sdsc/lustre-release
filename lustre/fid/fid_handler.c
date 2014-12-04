@@ -410,7 +410,7 @@ extern const struct file_operations seq_fld_proc_seq_fops;
 
 static int seq_server_proc_init(struct lu_server_seq *seq)
 {
-#ifdef LPROCFS
+#if defined(CONFIG_PROC_FS)
 	int rc;
 	ENTRY;
 
@@ -443,14 +443,14 @@ static int seq_server_proc_init(struct lu_server_seq *seq)
 out_cleanup:
 	seq_server_proc_fini(seq);
 	return rc;
-#else /* LPROCFS */
+#else /* CONFIG_PROC_FS */
 	return 0;
 #endif
 }
 
 static void seq_server_proc_fini(struct lu_server_seq *seq)
 {
-#ifdef LPROCFS
+#if defined(CONFIG_PROC_FS)
         ENTRY;
         if (seq->lss_proc_dir != NULL) {
                 if (!IS_ERR(seq->lss_proc_dir))
@@ -458,7 +458,7 @@ static void seq_server_proc_fini(struct lu_server_seq *seq)
                 seq->lss_proc_dir = NULL;
         }
         EXIT;
-#endif /* LPROCFS */
+#endif /* CONFIG_PROC_FS */
 }
 
 int seq_server_init(const struct lu_env *env,

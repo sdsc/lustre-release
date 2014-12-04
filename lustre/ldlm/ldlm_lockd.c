@@ -2848,11 +2848,11 @@ static int ldlm_setup(void)
         if (ldlm_state == NULL)
                 RETURN(-ENOMEM);
 
-#ifdef LPROCFS
+#if defined(CONFIG_PROC_FS)
         rc = ldlm_proc_setup();
         if (rc != 0)
 		GOTO(out, rc);
-#endif /* LPROCFS */
+#endif /* CONFIG_PROC_FS */
 
 	memset(&conf, 0, sizeof(conf));
 	conf = (typeof(conf)) {
