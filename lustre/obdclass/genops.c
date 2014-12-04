@@ -223,7 +223,7 @@ failed:
 	if (type->typ_name != NULL) {
 #ifdef LPROCFS
 		if (type->typ_procroot != NULL)
-			remove_proc_subtree(type->typ_name, proc_lustre_root);
+			lprocfs_try_remove_proc_entry(type->typ_name, proc_lustre_root);
 #endif
                 OBD_FREE(type->typ_name, strlen(name) + 1);
 	}
@@ -261,7 +261,7 @@ int class_unregister_type(const char *name)
 	 * module removes the entry */
 #ifdef LPROCFS
 	if (type->typ_procroot != NULL)
-		remove_proc_subtree(type->typ_name, proc_lustre_root);
+		lprocfs_try_remove_proc_entry(type->typ_name, proc_lustre_root);
 	if (type->typ_procsym != NULL)
 		lprocfs_remove(&type->typ_procsym);
 #endif

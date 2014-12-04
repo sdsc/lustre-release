@@ -198,7 +198,7 @@ void lprocfs_remove_nolock(struct proc_dir_entry **proot)
         }
 }
 
-void remove_proc_subtree(const char *name, struct proc_dir_entry *parent)
+void lprocfs_try_remove_proc_entry(const char *name, struct proc_dir_entry *parent)
 {
 	struct proc_dir_entry	 *t = NULL;
 	struct proc_dir_entry	**p;
@@ -241,7 +241,7 @@ void remove_proc_subtree(const char *name, struct proc_dir_entry *parent)
 
 	return;
 }
-EXPORT_SYMBOL(remove_proc_subtree);
+EXPORT_SYMBOL(lprocfs_try_remove_proc_entry);
 #endif
 
 void lprocfs_remove(struct proc_dir_entry **rooth)

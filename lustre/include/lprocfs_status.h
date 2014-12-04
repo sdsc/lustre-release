@@ -603,7 +603,7 @@ extern void lprocfs_remove(struct proc_dir_entry **root);
 extern void lprocfs_remove_proc_entry(const char *name,
                                       struct proc_dir_entry *parent);
 #ifndef HAVE_ONLY_PROCFS_SEQ
-extern void remove_proc_subtree(const char *name,
+extern void lprocfs_try_remove_proc_entry(const char *name,
 				struct proc_dir_entry *parent);
 #endif
 extern int lprocfs_obd_setup(struct obd_device *dev);
@@ -980,7 +980,7 @@ static inline void lprocfs_remove_proc_entry(const char *name,
                                              struct proc_dir_entry *parent)
 { return; }
 #ifndef HAVE_ONLY_PROCFS_SEQ
-static inline void remove_proc_subtree(const char *name,
+static inline void lprocfs_try_remove_proc_entry(const char *name,
 				       struct proc_dir_entry *parent)
 { return; }
 #endif
