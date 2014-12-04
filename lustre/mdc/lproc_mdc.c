@@ -40,7 +40,7 @@
 #include <obd_class.h>
 #include <lprocfs_status.h>
 
-#ifdef LPROCFS
+#if defined(CONFIG_PROC_FS)
 
 static int mdc_max_rpcs_in_flight_seq_show(struct seq_file *m, void *v)
 {
@@ -142,4 +142,4 @@ struct lprocfs_vars lprocfs_mdc_obd_vars[] = {
 	  .fops	=	&mdc_pinger_recov_fops		},
 	{ 0 }
 };
-#endif /* LPROCFS */
+#endif /* CONFIG_PROC_FS */

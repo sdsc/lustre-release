@@ -463,7 +463,7 @@ static int config_log_end(char *logname, struct config_llog_instance *cfg)
         RETURN(rc);
 }
 
-#ifdef LPROCFS
+#if defined(CONFIG_PROC_FS)
 int lprocfs_mgc_rd_ir_state(struct seq_file *m, void *data)
 {
 	struct obd_device       *obd = data;
@@ -927,7 +927,7 @@ static int mgc_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 		GOTO(err_cleanup, rc);
 	}
 
-#ifdef LPROCFS
+#if defined(CONFIG_PROC_FS)
 	obd->obd_vars = lprocfs_mgc_obd_vars;
 	lprocfs_obd_setup(obd);
 #endif

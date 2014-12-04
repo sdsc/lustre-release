@@ -41,7 +41,7 @@
 #include <lprocfs_status.h>
 #include "mgc_internal.h"
 
-#ifdef LPROCFS
+#if defined(CONFIG_PROC_FS)
 
 LPROC_SEQ_FOPS_RO_TYPE(mgc, uuid);
 LPROC_SEQ_FOPS_RO_TYPE(mgc, connect_flags);
@@ -78,4 +78,4 @@ struct lprocfs_vars lprocfs_mgc_obd_vars[] = {
 	  .fops	=	&mgc_ir_state_fops	},
 	{ 0 }
 };
-#endif /* LPROCFS */
+#endif /* CONFIG_PROC_FS */
