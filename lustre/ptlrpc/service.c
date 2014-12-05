@@ -2211,9 +2211,8 @@ ptlrpc_handle_rs(struct ptlrpc_reply_state *rs)
                  * in mds_steal_ack_locks()  */
 		CDEBUG(D_HA, "All locks stolen from rs %p x"LPD64".t"LPD64
 		       " o%d NID %s\n",
-		       rs,
-		       rs->rs_xid, rs->rs_transno, rs->rs_opc,
-		       libcfs_nid2str(exp->exp_connection->c_peer.nid));
+		       rs, rs->rs_xid, rs->rs_transno, rs->rs_opc,
+		       obd_export_nid2str(exp));
         }
 
         if ((!been_handled && rs->rs_on_net) || nlocks > 0) {
