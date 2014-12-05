@@ -374,6 +374,11 @@ static inline bool exp_connect_lvb_type(struct obd_export *exp)
 		return false;
 }
 
+static inline char *exp_conn_nid_str(struct obd_export *exp)
+{
+	return libcfs_nid2str(exp->exp_connection->c_peer.nid);
+}
+
 static inline bool imp_connect_lvb_type(struct obd_import *imp)
 {
 	struct obd_connect_data *ocd;
