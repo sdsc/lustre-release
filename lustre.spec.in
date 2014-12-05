@@ -26,11 +26,14 @@
 # as an alternative to this implementation we could simply "make -C $kdir kernelversion"
 %{!?kversion: %global kversion %(if test -s %kobjdir/include/generated/utsrelease.h ; then LINUXRELEASEHEADER=%kobjdir/include/generated/utsrelease.h ; elif test -s %kobjdir/include/linux/utsrelease.h ; then LINUXRELEASEHEADER=%kobjdir/include/linux/utsrelease.h ; else LINUXRELEASEHEADER=%kobjdir/include/linux/version.h; fi; sed -ne '/^#define UTS_RELEASE/s/.*"\\(.*\\)"$/\\1/p' $LINUXRELEASEHEADER)}
 
-%{!?downstream_release: %global downstream_release "@DOWNSTREAM_RELEASE@"}
-
 %define buildid %(if [ -n "@BUILDID@" ]; then echo "_@BUILDID@"; fi)
 
-%{!?myrelease: %global myrelease %(if [ -n "%downstream_release" ]; then echo -n "%{downstream_release}_"; fi; echo %kversion | tr '-' '_')}
+%if 0%{?build_src_rpm}
+    %{!?myrelease: %global myrelease 1}
+%else
+    %{!?downstream_release: %global downstream_release "@DOWNSTREAM_RELEASE@"}
+    %{!?myrelease: %global myrelease %(if [ -n "%downstream_release" ]; then echo -n "%{downstream_release}_"; fi; echo %kversion | tr '-' '_')}
+%endif
 
 # always append the buildid, even when the caller defines %release
 %define fullrelease %{myrelease}%{buildid}
