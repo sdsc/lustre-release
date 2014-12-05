@@ -786,8 +786,7 @@ int lprocfs_import_seq_show(struct seq_file *m, void *data)
 		      "       connection_attempts: %u\n"
 		      "       generation: %u\n"
 		      "       in-progress_invalidations: %u\n",
-		      imp->imp_connection == NULL ? "<none>" :
-			      libcfs_nid2str(imp->imp_connection->c_peer.nid),
+		      obd_import_nid2str(imp),
 		      imp->imp_conn_cnt,
 		      imp->imp_generation,
 		      atomic_read(&imp->imp_inval_count));

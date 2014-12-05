@@ -168,7 +168,7 @@ static void mdt_steal_ack_locks(struct ptlrpc_request *req)
 		       " o%d NID %s\n",
 		       oldrep->rs_nlocks, oldrep,
 		       oldrep->rs_xid, oldrep->rs_transno, oldrep->rs_opc,
-		       libcfs_nid2str(exp->exp_connection->c_peer.nid));
+		       obd_export_nid2str(exp));
 
                 for (i = 0; i < oldrep->rs_nlocks; i++)
                         ptlrpc_save_lock(req, &oldrep->rs_locks[i],
