@@ -531,6 +531,9 @@ CONFIGURE_ARGS=
 eval set -- $ac_configure_args
 for arg; do
 	case $arg in
+		--*dir=* ) ;;
+		-C | --cache-file=* ) ;;
+		--prefix=* | --*-prefix=* ) ;;
 		--enable-dist ) ;;
 		--with-release=* ) ;;
 		--with-kmp-moddir=* ) ;;
@@ -541,6 +544,7 @@ for arg; do
 		--enable-tests | --disable-tests ) ;;
 		--enable-utils | --disable-utils ) ;;
 		--enable-iokit | --disable-iokit ) ;;
+		--enable-dlc | --disable-dlc ) ;;
 		* ) CONFIGURE_ARGS="$CONFIGURE_ARGS '$arg'" ;;
 	esac
 done
