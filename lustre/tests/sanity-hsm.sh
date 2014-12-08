@@ -51,6 +51,14 @@ check_runas_id $RUNAS_ID $RUNAS_GID $RUNAS
 
 build_test_filter
 
+# if there is no CLIENT1 defined, some tests can be ran on localhost
+CLIENT1=${CLIENT1:-$HOSTNAME}
+# if CLIENT2 doesn't exist then use CLIENT1 instead
+# All tests should use CLIENT2 with MOUNT2 only therefore it will work if
+# $CLIENT2 == CLIENT1
+# Exception is the test which need two separate nodes
+CLIENT2=${CLIENT2:-$CLIENT1}
+
 #
 # In order to test multiple remote HSM agents, a new facet type named "AGT" and
 # the following associated variables are added:
@@ -209,7 +217,8 @@ copytool_monitor_cleanup() {
 
 copytool_setup() {
 	local facet=${1:-$SINGLEAGT}
-	local lustre_mntpnt=${2:-$MOUNT}
+	# Use MOUNT2 by default if defined
+	local lustre_mntpnt=${2:-${MOUNT2:-$MOUNT}}
 	local arc_id=$3
 	local hsm_root=${4:-$(copytool_device $facet)}
 	local agent=$(facet_active_host $facet)
