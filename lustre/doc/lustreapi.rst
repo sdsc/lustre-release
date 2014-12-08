@@ -7,7 +7,7 @@ The Lustre API library
 ----------------------
 
 :Author: Lustre contributors
-:Date:   2014-09-21
+:Date:   2015-05-18
 :Manual section: 7
 :Manual group: The Lustre API library
 
@@ -58,6 +58,15 @@ The library provides the following functions:
 
   int llapi_hsm_action_get_fd(const struct hsm_copyaction_private \*hcp)
 
+**Helpers**
+
+  int llapi_create_volatile_param(const char \*directory,
+  int mdt_idx, int open_flags, mode_t mode, const
+  struct llapi_stripe_param \*stripe_param)
+
+  int llapi_create_volatile_idx(char \*directory, int mdt_idx, int mode)
+
+  int llapi_create_volatile(char \*directory, int mode)
 
 SEE ALSO
 ========
