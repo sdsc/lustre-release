@@ -317,6 +317,9 @@ extern void llapi_hsm_log_error(enum llapi_message_level level, int _rc,
 
 extern int llapi_get_agent_uuid(char *path, char *buf, size_t bufsize);
 extern int llapi_create_volatile_idx(char *directory, int idx, int mode);
+int llapi_create_volatile_param(const char *directory, int mdt_idx,
+				int open_flags,	mode_t mode,
+				const struct llapi_stripe_param *stripe_param);
 static inline int llapi_create_volatile(char *directory, int mode)
 {
 	return llapi_create_volatile_idx(directory, -1, mode);
