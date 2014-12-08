@@ -1238,6 +1238,10 @@ struct hsm_action_item {
  * and is stored in the hai_data field.
  */
 struct hsm_migrate_param {
+	/* The mdt_index is unused yet. It must be set to -1 for
+	 * default MDT, for forward compatibility. */
+	int			mdt_index;
+	int			padding;
 	unsigned long long	lsp_stripe_size;
 	char			lsp_pool[LOV_MAXPOOLNAME+1];
 	int			lsp_stripe_offset;

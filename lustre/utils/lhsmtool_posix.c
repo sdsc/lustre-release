@@ -1301,42 +1301,53 @@ out:
  * Converts the stripe info in an hsm_action_item back to a
  * struct llapi_stripe_param.
  *
- * \param hai [in] hsm action item containing the stripe param as its data
- * payload
+ * \param hai[in]		hsm action item containing the stripe param as
+ *				its data payload
+ * \param[out] hsm_param	the stripe parameters
+ * \param[out] mdt_index	the MDT index
  * \retval 0   Success
  * \retval negative errno on error
  */
-struct llapi_stripe_param *hai_to_stripe_info(const struct hsm_action_item *hai)
+int hai_to_stripe_info(const struct hsm_action_item *hai,
+		       struct llapi_stripe_param **_param,
+		       int *mdt_index)
 {
 	struct llapi_stripe_param *param;
 	struct hsm_migrate_param *hsm_param;
 	size_t data_len;
+	int rc;
+
+	*_param = NULL;
 
 	/* Ensure the hai data is long enough. */
 	if (hai->hai_len < sizeof(*hai))  {
-		CT_ERROR(EINVAL, "HAI is too short (%u/%zd)",
+		rc = -EINVAL;
+		CT_ERROR(rc, "HAI is too short (%u/%zd)",
 			 hai->hai_len, sizeof(*hai));
-		return NULL;
+		return rc;
 	}
 
 	data_len = hai->hai_len - sizeof(*hai);
 	if (data_len < sizeof(struct hsm_migrate_param)) {
-		CT_ERROR(EINVAL, "migrate info too short");
-		return NULL;
+		rc = -EINVAL;
+		CT_ERROR(rc, "migrate info too short");
+		return rc;
 	}
 	hsm_param = (struct hsm_migrate_param *)hai->hai_data;
 
 	if (data_len < offsetof(struct hsm_migrate_param,
 				lsp_osts[hsm_param->lsp_osts_count])) {
-		CT_ERROR(EINVAL, "migrate info too short");
-		return NULL;
+		rc = -EINVAL;
+		CT_ERROR(rc, "migrate info too short");
+		return rc;
 	}
 
 	param = calloc(1, offsetof(typeof(*param),
 				   lsp_osts[hsm_param->lsp_osts_count]));
 	if (param == NULL) {
-		CT_ERROR(errno, "cannot allocate new stripe param");
-		return NULL;
+		rc = -errno;
+		CT_ERROR(rc, "cannot allocate new stripe param");
+		return rc;
 	}
 
 	param->lsp_stripe_size = hsm_param->lsp_stripe_size;
@@ -1356,7 +1367,10 @@ struct llapi_stripe_param *hai_to_stripe_info(const struct hsm_action_item *hai)
 		       sizeof(__u32) * hsm_param->lsp_osts_count);
 	}
 
-	return param;
+	*_param = param;
+	*mdt_index = hsm_param->mdt_index;
+
+	return 0;
 }
 
 /*
@@ -1386,15 +1400,14 @@ static int ct_migrate(const struct hsm_action_item *hai, const long hal_flags)
 	bool			 have_gl = false;
 	char			 src_name[FID_LEN];
 	char			*dst_name = "[volatile file]";
+	int			 mdt_index;
 
 	sprintf(src_name, DFID, PFID(&hai->hai_fid));
 
 	/* Convert the stripe info back to a struct llapi_stripe_param */
-	param = hai_to_stripe_info(hai);
-	if (param == NULL) {
-		rc = -EINVAL;
+	rc = hai_to_stripe_info(hai, &param, &mdt_index);
+	if (rc < 0)
 		goto cleanup;
-	}
 
 	/* find the right size for the IO and allocate the buffer */
 	lumsz = lov_user_md_size(LOV_MAX_STRIPE_COUNT, LOV_USER_MAGIC_V3);
@@ -1443,7 +1456,7 @@ static int ct_migrate(const struct hsm_action_item *hai, const long hal_flags)
 	}
 
 	/* Create volatile destination */
-	dst_fd = llapi_create_volatile_idx2(opt.o_mnt, -1, 0,
+	dst_fd = llapi_create_volatile_idx2(opt.o_mnt, mdt_index, 0,
 					    S_IRUSR | S_IWUSR, param);
 	if (dst_fd < 0) {
 		CT_ERROR(dst_fd, "cannot open destination %s for writing",
