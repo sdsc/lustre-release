@@ -393,7 +393,7 @@ out:
 
 #define MIGRATION_BLOCKS 1
 
-static int lfs_migrate(char *name, __u64 migration_flags,
+static int lfs_migrate(char *name, __u64 migration_flags, int mdt_index,
 		       struct llapi_stripe_param *param)
 {
 	int			 fd, fdv;
@@ -465,7 +465,7 @@ static int lfs_migrate(char *name, __u64 migration_flags,
 	/* create, open a volatile file, use caching (ie no directio) */
 	/* exclusive create is not needed because volatile files cannot
 	 * conflict on name by construction */
-	fdv = llapi_create_volatile_idx2(parent, -1, 0, 0644, param);
+	fdv = llapi_create_volatile_idx2(parent, mdt_index, 0, 0644, param);
 	if (fdv < 0) {
 		rc = fdv;
 		fprintf(stderr, "cannot create volatile file in %s (%s)\n",
@@ -649,6 +649,7 @@ static int lfs_hsm_prepare_file(char *file, struct lu_fid *fid,
  * \retval negative errno on error
  * */
 static int lfs_hsm_migrate(char *filename, uint64_t migration_flags,
+			   int mdt_index,
 			   struct llapi_stripe_param *param)
 {
 	int rc;
@@ -702,6 +703,8 @@ static int lfs_hsm_migrate(char *filename, uint64_t migration_flags,
 		hsm_param->lsp_stripe_count = param->lsp_stripe_count;
 		hsm_param->lsp_osts_count = 0;
 	}
+	hsm_param->mdt_index = mdt_index;
+	hsm_param->padding = 0;
 
 	/* Send the HSM request */
 	if (realpath(filename, fullpath) == NULL) {
@@ -830,6 +833,7 @@ static int lfs_setstripe(int argc, char **argv)
 	__u64				 migration_flags = 0;
 	__u32				 osts[LOV_MAX_STRIPE_COUNT] = { 0 };
 	int				 nr_osts = 0;
+	const int			 mdt_index = -1;
 
 	struct option		 long_opts[] = {
 		/* valid only in migrate mode */
@@ -1031,9 +1035,11 @@ static int lfs_setstripe(int argc, char **argv)
 			}
 		}
 		else if (hsm_migrate_mode) {
-			result = lfs_hsm_migrate(fname, migration_flags, param);
+			result = lfs_hsm_migrate(fname, migration_flags,
+						 mdt_index, param);
 		} else {
-			result = lfs_migrate(fname, migration_flags, param);
+			result = lfs_migrate(fname, migration_flags,
+					     mdt_index, param);
 		}
 		if (result) {
 			fprintf(stderr,
