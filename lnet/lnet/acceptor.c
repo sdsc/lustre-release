@@ -500,6 +500,24 @@ accept2secure(const char *acc, long *sec)
         }
 }
 
+/*
+ * lnet_acceptor_init(), lnet_is_acceptor_up(), lnet_acceptor_start() and
+ * lnet_acceptor_stop() must be called with the ln_api_mutex held to
+ * prevent race conditions
+ *
+ * The acceptor thread can only be started or stopped during startup or as
+ * a direct result of a user request (IE: startign an NI automatically)
+ */
+void lnet_acceptor_init(void)
+{
+	lnet_acceptor_state.pta_shutdown = 1;
+}
+
+bool lnet_is_acceptor_up(void)
+{
+	return (!lnet_acceptor_state.pta_shutdown) ? true : false;
+}
+
 int
 lnet_acceptor_start(void)
 {
