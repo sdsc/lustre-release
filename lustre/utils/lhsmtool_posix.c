@@ -1264,39 +1264,6 @@ fini:
 	return rc;
 }
 
-/* Generate a random id for the grouplock */
-static int random_group_id(int *gid)
-{
-	int	fd;
-	int	rc;
-	size_t	sz = sizeof(*gid);
-
-	fd = open("/dev/urandom", O_RDONLY);
-	if (fd < 0) {
-		rc = -errno;
-		CT_ERROR(rc, "cannot open /dev/urandom");
-		goto out;
-	}
-
-retry:
-	rc = read(fd, gid, sz);
-	if (rc < sz) {
-		rc = -errno;
-		CT_ERROR(rc, "cannot read %zu bytes from /dev/urandom", sz);
-		goto out;
-	}
-
-	/* gids must be non-zero */
-	if (*gid == 0)
-		goto retry;
-
-out:
-	if (fd >= 0)
-		close(fd);
-
-	return rc;
-}
-
 /**
  * Converts the stripe info in an hsm_action_item back to a
  * struct llapi_stripe_param.
@@ -1404,7 +1371,8 @@ static int ct_migrate(const struct hsm_action_item *hai, const long hal_flags)
 
 	sprintf(src_name, DFID, PFID(&hai->hai_fid));
 
-	/* Convert the stripe info back to a struct llapi_stripe_param */
+	/* Convert the stripe info back to a struct llapi_stripe_param and
+	 * extract the MDT index */
 	rc = hai_to_stripe_info(hai, &param, &mdt_index);
 	if (rc < 0)
 		goto cleanup;
@@ -1450,7 +1418,7 @@ static int ct_migrate(const struct hsm_action_item *hai, const long hal_flags)
 	}
 
 	if (hal_flags & HSM_MIGRATION_BLOCKS) {
-		rc = random_group_id(&gid);
+		rc = llapi_random_group_id(&gid);
 		if (rc < 0)
 			goto cleanup;
 	}

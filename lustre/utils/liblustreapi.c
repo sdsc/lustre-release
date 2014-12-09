@@ -4896,3 +4896,49 @@ int llapi_group_unlock(int fd, int gid)
 	}
 	return rc;
 }
+
+/**
+ * Get random group ID for use in migration.
+ *
+ * \param *gid [IN,OUT] random group id
+ *
+ * \retval 0 on success
+ * \retval negative errno on failure
+ */
+int llapi_random_group_id(int *gid)
+{
+	int	fd;
+	int	rc;
+	size_t  size = sizeof(*gid);
+
+	fd = open("/dev/urandom", O_RDONLY);
+	if (fd < 0) {
+		rc = -errno;
+		fprintf(stderr, "Unable to open /dev/urandom: %s\n",
+			strerror(-rc));
+		goto out;
+	}
+
+retry:
+	rc = read(fd, gid, sizeof(*gid));
+	if (rc < size) {
+		/* /dev/urandom should always provide bits
+		 * regardless of the underlying entropy pool state,
+		 * so a short read is always an error */
+		rc = -errno;
+		fprintf(stderr,
+		       "Unable to read %zu bytes from /dev/urandom: %s\n",
+			size, strerror(-rc));
+		goto out;
+	}
+
+	/* gids cannot be zero */
+	if (*gid == 0)
+		goto retry;
+
+out:
+	if (fd >= 0)
+		close(fd);
+
+	return rc;
+}

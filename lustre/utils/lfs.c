@@ -356,41 +356,6 @@ command_t cmdlist[] = {
 	{ 0, 0, 0, NULL }
 };
 
-/* Generate a random id for the grouplock */
-static int random_group_id(int *gid)
-{
-	int	fd;
-	int	rc;
-	size_t	sz = sizeof(*gid);
-
-	fd = open("/dev/urandom", O_RDONLY);
-	if (fd < 0) {
-		rc = -errno;
-		fprintf(stderr, "cannot open /dev/urandom: %s\n",
-			strerror(-rc));
-		goto out;
-	}
-
-retry:
-	rc = read(fd, gid, sz);
-	if (rc < sz) {
-		rc = -errno;
-		fprintf(stderr, "cannot read %zu bytes from /dev/urandom: %s\n",
-			sz, strerror(-rc));
-		goto out;
-	}
-
-	/* gids must be non-zero */
-	if (*gid == 0)
-		goto retry;
-
-out:
-	if (fd >= 0)
-		close(fd);
-
-	return rc;
-}
-
 #define MIGRATION_BLOCKS 1
 
 static int lfs_migrate(char *name, __u64 migration_flags, int mdt_index,
@@ -435,7 +400,7 @@ static int lfs_migrate(char *name, __u64 migration_flags, int mdt_index,
 	}
 
 	if (migration_flags & MIGRATION_BLOCKS) {
-		rc = random_group_id(&gid);
+		rc = llapi_random_group_id(&gid);
 		if (rc < 0) {
 			fprintf(stderr, "%s: cannot get random group ID: %s\n",
 				name, strerror(-rc));
