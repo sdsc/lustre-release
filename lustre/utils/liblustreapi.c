@@ -4683,29 +4683,16 @@ int llapi_create_volatile_idx(char *directory, int idx, int open_flags)
 	char	file_path[PATH_MAX];
 	char	filename[PATH_MAX];
 	int	fd;
-	int	random;
+	int	rnumber;
 	int	rc;
 
-	fd = open("/dev/urandom", O_RDONLY);
-	if (fd < 0) {
-		llapi_error(LLAPI_MSG_ERROR, errno,
-			    "Cannot open /dev/urandom");
-		return -errno;
-	}
-	rc = read(fd, &random, sizeof(random));
-	close(fd);
-	if (rc < sizeof(random)) {
-		llapi_error(LLAPI_MSG_ERROR, errno,
-			    "cannot read %zu bytes from /dev/urandom",
-			    sizeof(random));
-		return -errno;
-	}
+	rnumber = random();
 	if (idx == -1)
 		snprintf(filename, sizeof(filename),
-			 LUSTRE_VOLATILE_HDR"::%.4X", random);
+			 LUSTRE_VOLATILE_HDR"::%.4X", rnumber);
 	else
 		snprintf(filename, sizeof(filename),
-			 LUSTRE_VOLATILE_HDR":%.4X:%.4X", idx, random);
+			 LUSTRE_VOLATILE_HDR":%.4X:%.4X", idx, rnumber);
 
 	rc = snprintf(file_path, sizeof(file_path),
 		      "%s/%s", directory, filename);
@@ -4739,7 +4726,6 @@ int llapi_fswap_layouts(int fd1, int fd2, __u64 dv1, __u64 dv2, __u64 flags)
 	struct lustre_swap_layouts lsl;
 	int rc;
 
-	srandom(time(NULL));
 	lsl.sl_fd = fd2;
 	lsl.sl_flags = flags;
 	lsl.sl_gid = random();
@@ -4854,4 +4840,34 @@ int llapi_group_unlock(int fd, int gid)
 		llapi_error(LLAPI_MSG_ERROR, rc, "cannot put group lock");
 	}
 	return rc;
+}
+
+/*
+ * Initializes the library
+ */
+static __attribute__ ((constructor)) void liblustreapi_init(void)
+{
+	unsigned int seed;
+	struct timeval tv;
+	int fd;
+
+	/* Initializes the random number generator (random()). Get
+	 * data from different places in case one of them fails. This
+	 * is enough to get reasonnably random numbers, but is not
+	 * strong enough to be used for cryptography. */
+	seed = syscall(SYS_gettid);
+	seed ^= time(NULL);
+
+	if (gettimeofday(&tv, NULL) == 0)
+		seed ^= tv.tv_usec;
+
+	fd = open("/dev/urandom", O_RDONLY | O_NOFOLLOW);
+	if (fd >= 0) {
+		unsigned int rnumber;
+		read(fd, &rnumber, sizeof(rnumber));
+		seed ^= rnumber;
+		close(fd);
+	}
+
+	srandom(seed);
 }
