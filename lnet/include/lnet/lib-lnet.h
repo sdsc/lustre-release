@@ -984,6 +984,8 @@ int lnet_acceptor_port(void);
 
 int lnet_acceptor_start(void);
 void lnet_acceptor_stop(void);
+void lnet_acceptor_init(void);
+bool lnet_is_acceptor_up(void);
 
 void lnet_get_tunables(void);
 int lnet_peers_start_down(void);
