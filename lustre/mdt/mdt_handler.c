@@ -1171,11 +1171,6 @@ static int mdt_getattr(struct tgt_session_info *tsi)
 
 	info->mti_cross_ref = !!(reqbody->mbo_valid & OBD_MD_FLCROSSREF);
 
-	/*
-	 * Don't check capability at all, because rename might getattr for
-	 * remote obj, and at that time no capability is available.
-	 */
-	mdt_set_capainfo(info, 1, &reqbody->mbo_fid1, BYPASS_CAPA);
 	rc = mdt_getattr_internal(info, obj, 0);
 	if (reqbody->mbo_valid & OBD_MD_FLRMTPERM)
                 mdt_exit_ucred(info);
@@ -1215,16 +1210,6 @@ static int mdt_swap_layouts(struct tgt_session_info *tsi)
 
 	if (info->mti_dlm_req != NULL)
 		ldlm_request_cancel(req, info->mti_dlm_req, 0, LATF_SKIP);
-
-	if (req_capsule_get_size(info->mti_pill, &RMF_CAPA1, RCL_CLIENT))
-		mdt_set_capainfo(info, 0, &info->mti_body->mbo_fid1,
-				 req_capsule_client_get(info->mti_pill,
-							&RMF_CAPA1));
-
-	if (req_capsule_get_size(info->mti_pill, &RMF_CAPA2, RCL_CLIENT))
-		mdt_set_capainfo(info, 1, &info->mti_body->mbo_fid2,
-				 req_capsule_client_get(info->mti_pill,
-							&RMF_CAPA2));
 
 	o1 = info->mti_object;
 	o = o2 = mdt_object_find(info->mti_env, info->mti_mdt,
@@ -1398,7 +1383,6 @@ static int mdt_getattr_name_lock(struct mdt_thread_info *info,
 			RETURN(-ENOENT);
 		}
 
-		mdt_set_capainfo(info, 0, mdt_object_fid(child), BYPASS_CAPA);
 		rc = mdt_getattr_internal(info, child, 0);
 		if (unlikely(rc != 0))
 			mdt_object_unlock(info, child, lhc, 1);
@@ -1580,7 +1564,6 @@ static int mdt_getattr_name_lock(struct mdt_thread_info *info,
                 ma_need |= MA_SOM;
 
         /* finally, we can get attr for child. */
-        mdt_set_capainfo(info, 1, child_fid, BYPASS_CAPA);
         rc = mdt_getattr_internal(info, child, ma_need);
         if (unlikely(rc != 0)) {
                 mdt_object_unlock(info, child, lhc, 1);
@@ -2733,16 +2716,10 @@ static int mdt_body_unpack(struct mdt_thread_info *info, __u32 flags)
                 RETURN(-EINVAL);
         }
 
-        /*
-         * Do not get size or any capa fields before we check that request
-         * contains capa actually. There are some requests which do not, for
-         * instance MDS_IS_SUBDIR.
-         */
-        if (req_capsule_has_field(pill, &RMF_CAPA1, RCL_CLIENT) &&
-            req_capsule_get_size(pill, &RMF_CAPA1, RCL_CLIENT))
-		mdt_set_capainfo(info, 0, &body->mbo_fid1,
-				 req_capsule_client_get(pill, &RMF_CAPA1));
-
+	/*
+	 * Do not get size before we check that request contains capa actually.
+	 * There are some requests which do not, for instance MDS_IS_SUBDIR.
+	 */
 	obj = mdt_object_find(env, info->mti_mdt, &body->mbo_fid1);
 	if (!IS_ERR(obj)) {
 		if ((flags & HABEO_CORPUS) &&
@@ -2787,17 +2764,6 @@ static int mdt_unpack_req_pack_rep(struct mdt_thread_info *info, __u32 flags)
                 rc = req_capsule_server_pack(pill);
         }
         RETURN(rc);
-}
-
-static int mdt_init_capa_ctxt(const struct lu_env *env, struct mdt_device *m)
-{
-	struct md_device *next = m->mdt_child;
-
-	return next->md_ops->mdo_init_capa_ctxt(env, next,
-						m->mdt_lut.lut_mds_capa,
-						m->mdt_capa_timeout,
-						m->mdt_capa_alg,
-						m->mdt_capa_keys);
 }
 
 void mdt_lock_handle_init(struct mdt_lock_handle *lh)
@@ -2881,28 +2847,14 @@ void mdt_thread_info_fini(struct mdt_thread_info *info)
 struct mdt_thread_info *tsi2mdt_info(struct tgt_session_info *tsi)
 {
 	struct mdt_thread_info	*mti;
-	struct lustre_capa	*lc;
 
 	mti = mdt_th_info(tsi->tsi_env);
 	LASSERT(mti != NULL);
 
 	mdt_thread_info_init(tgt_ses_req(tsi), mti);
 	if (tsi->tsi_corpus != NULL) {
-		struct req_capsule *pill = tsi->tsi_pill;
-
 		mti->mti_object = mdt_obj(tsi->tsi_corpus);
 		lu_object_get(tsi->tsi_corpus);
-
-		/*
-		 * XXX: must be part of tgt_mdt_body_unpack but moved here
-		 * due to mdt_set_capainfo().
-		 */
-		if (req_capsule_has_field(pill, &RMF_CAPA1, RCL_CLIENT) &&
-		    req_capsule_get_size(pill, &RMF_CAPA1, RCL_CLIENT) > 0) {
-			lc = req_capsule_client_get(pill, &RMF_CAPA1);
-			mdt_set_capainfo(mti, 0, &tsi->tsi_mdt_body->mbo_fid1,
-					 lc);
-		}
 	}
 	mti->mti_body = tsi->tsi_mdt_body;
 	mti->mti_dlm_req = tsi->tsi_dlm_req;
@@ -4402,10 +4354,6 @@ static void mdt_fini(const struct lu_env *env, struct mdt_device *m)
         mdt_seq_fini(env, m);
         mdt_fld_fini(env, m);
 
-        next->md_ops->mdo_init_capa_ctxt(env, next, 0, 0, 0, NULL);
-        cfs_timer_disarm(&m->mdt_ck_timer);
-        mdt_ck_thread_stop(m);
-
 	/*
 	 * Finish the stack
 	 */
@@ -4480,9 +4428,6 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
 	}
 
 	spin_lock_init(&m->mdt_ioepoch_lock);
-        m->mdt_capa_timeout = CAPA_TIMEOUT;
-        m->mdt_capa_alg = CAPA_HMAC_ALG_SHA1;
-        m->mdt_ck_timeout = CAPA_KEY_TIMEOUT;
 	m->mdt_squash.rsi_uid = 0;
 	m->mdt_squash.rsi_gid = 0;
 	INIT_LIST_HEAD(&m->mdt_squash.rsi_nosquash_nids);
@@ -4553,8 +4498,6 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
         /* set obd_namespace for compatibility with old code */
         obd->obd_namespace = m->mdt_namespace;
 
-        cfs_timer_init(&m->mdt_ck_timer, mdt_ck_timer_callback, m);
-
 	rc = mdt_hsm_cdt_init(m);
 	if (rc != 0) {
 		CERROR("%s: error initializing coordinator, rc %d\n",
@@ -4562,15 +4505,11 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
                 GOTO(err_free_ns, rc);
 	}
 
-        rc = mdt_ck_thread_start(m);
-        if (rc)
-                GOTO(err_free_hsm, rc);
-
 	rc = tgt_init(env, &m->mdt_lut, obd, m->mdt_bottom, mdt_common_slice,
 		      OBD_FAIL_MDS_ALL_REQUEST_NET,
 		      OBD_FAIL_MDS_ALL_REPLY_NET);
 	if (rc)
-		GOTO(err_capa, rc);
+		GOTO(err_free_hsm, rc);
 
 	rc = mdt_fs_setup(env, m, obd, lsi);
 	if (rc)
@@ -4632,8 +4571,6 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
 	 * when the whole stack is complete and ready
 	 * to serve the requests */
 
-        mdt_init_capa_ctxt(env, m);
-
         /* Reduce the initial timeout on an MDS because it doesn't need such
          * a long timeout as an OST does. Adaptive timeouts will adjust this
          * value appropriately. */
@@ -4651,9 +4588,6 @@ err_fs_cleanup:
 	mdt_fs_cleanup(env, m);
 err_tgt:
 	tgt_fini(env, &m->mdt_lut);
-err_capa:
-	cfs_timer_disarm(&m->mdt_ck_timer);
-	mdt_ck_thread_stop(m);
 err_free_hsm:
 	mdt_hsm_cdt_fini(m);
 err_free_ns:
