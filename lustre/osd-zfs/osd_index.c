@@ -152,8 +152,7 @@ static inline int osd_obj_cursor_init(zap_cursor_t **zc, struct osd_object *o,
 
 static struct dt_it *osd_index_it_init(const struct lu_env *env,
 				       struct dt_object *dt,
-				       __u32 unused,
-				       struct lustre_capa *capa)
+				       __u32 unused)
 {
 	struct osd_thread_info  *info = osd_oti_get(env);
 	struct osd_zap_it       *it;
@@ -161,8 +160,6 @@ static struct dt_it *osd_index_it_init(const struct lu_env *env,
 	struct lu_object        *lo  = &dt->do_lu;
 	int			 rc;
 	ENTRY;
-
-	/* XXX: check capa ? */
 
 	LASSERT(lu_object_exists(lo));
 	LASSERT(obj->oo_db);
@@ -189,7 +186,6 @@ static struct dt_it *osd_index_it_init(const struct lu_env *env,
 	}
 
 	it->ozi_obj   = obj;
-	it->ozi_capa  = capa;
 	it->ozi_reset = 1;
 	lu_object_get(lo);
 
@@ -342,10 +338,9 @@ static int osd_find_parent_fid(const struct lu_env *env, struct dt_object *o,
 	buf.lb_buf = osd_oti_get(env)->oti_buf;
 	buf.lb_len = sizeof(osd_oti_get(env)->oti_buf);
 
-	rc = osd_xattr_get(env, o, &buf, XATTR_NAME_LINK, BYPASS_CAPA);
+	rc = osd_xattr_get(env, o, &buf, XATTR_NAME_LINK);
 	if (rc == -ERANGE) {
-		rc = osd_xattr_get(env, o, &LU_BUF_NULL,
-				   XATTR_NAME_LINK, BYPASS_CAPA);
+		rc = osd_xattr_get(env, o, &LU_BUF_NULL, XATTR_NAME_LINK);
 		if (rc < 0)
 			RETURN(rc);
 		LASSERT(rc > 0);
@@ -353,7 +348,7 @@ static int osd_find_parent_fid(const struct lu_env *env, struct dt_object *o,
 		if (buf.lb_buf == NULL)
 			RETURN(-ENOMEM);
 		buf.lb_len = rc;
-		rc = osd_xattr_get(env, o, &buf, XATTR_NAME_LINK, BYPASS_CAPA);
+		rc = osd_xattr_get(env, o, &buf, XATTR_NAME_LINK);
 	}
 	if (rc < 0)
 		GOTO(out, rc);
@@ -401,8 +396,7 @@ out:
 }
 
 static int osd_dir_lookup(const struct lu_env *env, struct dt_object *dt,
-			  struct dt_rec *rec, const struct dt_key *key,
-			  struct lustre_capa *capa)
+			  struct dt_rec *rec, const struct dt_key *key)
 {
 	struct osd_thread_info *oti = osd_oti_get(env);
 	struct osd_object  *obj = osd_dt_obj(dt);
@@ -577,7 +571,6 @@ static int osd_remote_fid(const struct lu_env *env, struct osd_device *osd,
  *      \param  key     key for index
  *      \param  rec     record reference
  *      \param  th      transaction handler
- *      \param  capa    capability descriptor
  *      \param  ignore_quota update should not affect quota
  *
  *      \retval  0  success
@@ -585,8 +578,7 @@ static int osd_remote_fid(const struct lu_env *env, struct osd_device *osd,
  */
 static int osd_dir_insert(const struct lu_env *env, struct dt_object *dt,
 			  const struct dt_rec *rec, const struct dt_key *key,
-			  struct thandle *th, struct lustre_capa *capa,
-			  int ignore_quota)
+			  struct thandle *th, int ignore_quota)
 {
 	struct osd_thread_info *oti = osd_oti_get(env);
 	struct osd_object   *parent = osd_dt_obj(dt);
@@ -709,8 +701,7 @@ static int osd_declare_dir_delete(const struct lu_env *env,
 }
 
 static int osd_dir_delete(const struct lu_env *env, struct dt_object *dt,
-			  const struct dt_key *key, struct thandle *th,
-			  struct lustre_capa *capa)
+			  const struct dt_key *key, struct thandle *th)
 {
 	struct osd_object *obj = osd_dt_obj(dt);
 	struct osd_device *osd = osd_obj2dev(obj);
@@ -750,12 +741,11 @@ static int osd_dir_delete(const struct lu_env *env, struct dt_object *dt,
 
 static struct dt_it *osd_dir_it_init(const struct lu_env *env,
 				     struct dt_object *dt,
-				     __u32 unused,
-				     struct lustre_capa *capa)
+				     __u32 unused)
 {
 	struct osd_zap_it *it;
 
-	it = (struct osd_zap_it *)osd_index_it_init(env, dt, unused, capa);
+	it = (struct osd_zap_it *)osd_index_it_init(env, dt, unused);
 	if (!IS_ERR(it))
 		it->ozi_pos = 0;
 
@@ -1153,8 +1143,7 @@ static int osd_prepare_key_uint64(struct osd_object *o, __u64 *dst,
 }
 
 static int osd_index_lookup(const struct lu_env *env, struct dt_object *dt,
-			struct dt_rec *rec, const struct dt_key *key,
-			struct lustre_capa *capa)
+			struct dt_rec *rec, const struct dt_key *key)
 {
 	struct osd_object *obj = osd_dt_obj(dt);
 	struct osd_device *osd = osd_obj2dev(obj);
@@ -1197,8 +1186,7 @@ static int osd_declare_index_insert(const struct lu_env *env,
 
 static int osd_index_insert(const struct lu_env *env, struct dt_object *dt,
 			    const struct dt_rec *rec, const struct dt_key *key,
-			    struct thandle *th, struct lustre_capa *capa,
-			    int ignore_quota)
+			    struct thandle *th, int ignore_quota)
 {
 	struct osd_object  *obj = osd_dt_obj(dt);
 	struct osd_device  *osd = osd_obj2dev(obj);
@@ -1244,8 +1232,7 @@ static int osd_declare_index_delete(const struct lu_env *env,
 }
 
 static int osd_index_delete(const struct lu_env *env, struct dt_object *dt,
-			    const struct dt_key *key, struct thandle *th,
-			    struct lustre_capa *capa)
+			    const struct dt_key *key, struct thandle *th)
 {
 	struct osd_object  *obj = osd_dt_obj(dt);
 	struct osd_device  *osd = osd_obj2dev(obj);
@@ -1430,8 +1417,7 @@ struct osd_metadnode_it {
 };
 
 static struct dt_it *osd_zfs_otable_it_init(const struct lu_env *env,
-					    struct dt_object *dt, __u32 attr,
-					    struct lustre_capa *capa)
+					    struct dt_object *dt, __u32 attr)
 {
 	struct osd_device	*dev   = osd_dev(dt->do_lu.lo_dev);
 	struct osd_metadnode_it *it;
