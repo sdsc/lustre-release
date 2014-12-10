@@ -312,7 +312,7 @@ static int lfsck_namespace_load_bitmap(const struct lu_env *env,
 	size = (ns->ln_bitmap_size + 7) >> 3;
 	rc = dt_xattr_get(env, obj,
 			  lfsck_buf_get(env, bitmap->data, size),
-			  XATTR_NAME_LFSCK_BITMAP, BYPASS_CAPA);
+			  XATTR_NAME_LFSCK_BITMAP);
 	if (rc != size)
 		RETURN(rc >= 0 ? -EINVAL : rc);
 
@@ -347,7 +347,7 @@ static int lfsck_namespace_load(const struct lu_env *env,
 
 	rc = dt_xattr_get(env, com->lc_obj,
 			  lfsck_buf_get(env, com->lc_file_disk, len),
-			  XATTR_NAME_LFSCK_NAMESPACE, BYPASS_CAPA);
+			  XATTR_NAME_LFSCK_NAMESPACE);
 	if (rc == len) {
 		struct lfsck_namespace *ns = com->lc_file_ram;
 
@@ -372,7 +372,7 @@ static int lfsck_namespace_load(const struct lu_env *env,
 		 * If yes, it should be reset via returning -ESTALE. */
 		rc = dt_xattr_get(env, com->lc_obj,
 				  lfsck_buf_get(env, com->lc_file_disk, len),
-				  XATTR_NAME_LFSCK_NAMESPACE_OLD, BYPASS_CAPA);
+				  XATTR_NAME_LFSCK_NAMESPACE_OLD);
 		if (rc >= 0)
 			rc = -ESTALE;
 	}
@@ -446,18 +446,17 @@ static int lfsck_namespace_store(const struct lu_env *env,
 
 	rc = dt_xattr_set(env, obj,
 			  lfsck_buf_get(env, com->lc_file_disk, len),
-			  XATTR_NAME_LFSCK_NAMESPACE, 0, handle, BYPASS_CAPA);
+			  XATTR_NAME_LFSCK_NAMESPACE, 0, handle);
 	if (rc == 0 && bitmap != NULL)
 		rc = dt_xattr_set(env, obj,
 				  lfsck_buf_get(env, bitmap->data, nbits >> 3),
-				  XATTR_NAME_LFSCK_BITMAP, 0, handle,
-				  BYPASS_CAPA);
+				  XATTR_NAME_LFSCK_BITMAP, 0, handle);
 
 #if LUSTRE_VERSION_CODE < OBD_OCD_VERSION(2, 8, 53, 0)
 	if (rc == 0 && init)
 		rc = dt_xattr_set(env, obj, &tbuf,
 				  XATTR_NAME_LFSCK_NAMESPACE_OLD,
-				  LU_XATTR_CREATE, handle, BYPASS_CAPA);
+				  LU_XATTR_CREATE, handle);
 #endif
 
 	GOTO(out, rc);
@@ -592,7 +591,7 @@ int lfsck_namespace_trace_update(const struct lu_env *env,
 	mutex_lock(&com->lc_sub_trace_objs[idx].lsto_mutex);
 	fid_cpu_to_be(key, fid);
 	rc = dt_lookup(env, obj, (struct dt_rec *)&old,
-		       (const struct dt_key *)key, BYPASS_CAPA);
+		       (const struct dt_key *)key);
 	if (rc == -ENOENT) {
 		if (!add)
 			GOTO(unlock, rc = 0);
@@ -639,15 +638,14 @@ int lfsck_namespace_trace_update(const struct lu_env *env,
 		GOTO(log, rc);
 
 	if (old != 0) {
-		rc = dt_delete(env, obj, (const struct dt_key *)key,
-			       th, BYPASS_CAPA);
+		rc = dt_delete(env, obj, (const struct dt_key *)key, th);
 		if (rc != 0)
 			GOTO(log, rc);
 	}
 
 	if (new != 0) {
 		rc = dt_insert(env, obj, (const struct dt_rec *)&new,
-			       (const struct dt_key *)key, th, BYPASS_CAPA, 1);
+			       (const struct dt_key *)key, th, 1);
 		if (rc != 0)
 			GOTO(log, rc);
 	}
@@ -681,7 +679,7 @@ int lfsck_namespace_check_exist(const struct lu_env *env,
 		RETURN(LFSCK_NAMEENTRY_DEAD);
 
 	rc = dt_lookup(env, dir, (struct dt_rec *)fid,
-		       (const struct dt_key *)name, BYPASS_CAPA);
+		       (const struct dt_key *)name);
 	if (rc == -ENOENT)
 		RETURN(LFSCK_NAMEENTRY_REMOVED);
 
@@ -723,11 +721,10 @@ int __lfsck_links_read(const struct lu_env *env, struct dt_object *obj,
 	if (!dt_object_exists(obj))
 		return -ENOENT;
 
-	rc = dt_xattr_get(env, obj, ldata->ld_buf, XATTR_NAME_LINK, BYPASS_CAPA);
+	rc = dt_xattr_get(env, obj, ldata->ld_buf, XATTR_NAME_LINK);
 	if (rc == -ERANGE) {
 		/* Buf was too small, figure out what we need. */
-		rc = dt_xattr_get(env, obj, &LU_BUF_NULL, XATTR_NAME_LINK,
-				  BYPASS_CAPA);
+		rc = dt_xattr_get(env, obj, &LU_BUF_NULL, XATTR_NAME_LINK);
 		if (rc <= 0)
 			return rc;
 
@@ -735,8 +732,7 @@ int __lfsck_links_read(const struct lu_env *env, struct dt_object *obj,
 		if (ldata->ld_buf->lb_buf == NULL)
 			return -ENOMEM;
 
-		rc = dt_xattr_get(env, obj, ldata->ld_buf, XATTR_NAME_LINK,
-				  BYPASS_CAPA);
+		rc = dt_xattr_get(env, obj, ldata->ld_buf, XATTR_NAME_LINK);
 	}
 
 	if (rc > 0)
@@ -788,7 +784,7 @@ static int lfsck_namespace_links_remove(const struct lu_env *env,
 	if (lfsck->li_bookmark_ram.lb_param & LPF_DRYRUN)
 		GOTO(unlock, rc = 0);
 
-	rc = dt_xattr_del(env, obj, XATTR_NAME_LINK, th, BYPASS_CAPA);
+	rc = dt_xattr_del(env, obj, XATTR_NAME_LINK, th);
 
 	GOTO(unlock, rc);
 
@@ -819,8 +815,7 @@ static int lfsck_links_write(const struct lu_env *env, struct dt_object *obj,
 						       ldata->ld_buf->lb_buf,
 						       ldata->ld_leh->leh_len);
 
-	return dt_xattr_set(env, obj, buf, XATTR_NAME_LINK, 0, handle,
-			    BYPASS_CAPA);
+	return dt_xattr_set(env, obj, buf, XATTR_NAME_LINK, 0, handle);
 }
 
 static void lfsck_namespace_unpack_linkea_entry(struct linkea_data *ldata,
@@ -949,8 +944,7 @@ static int lfsck_namespace_insert_orphan(const struct lu_env *env,
 		namelen = snprintf(info->lti_key, NAME_MAX, DFID"%s-%s-%d",
 				   PFID(cfid), infix, type, idx++);
 		rc = dt_lookup(env, parent, (struct dt_rec *)&tfid,
-			       (const struct dt_key *)info->lti_key,
-			       BYPASS_CAPA);
+			       (const struct dt_key *)info->lti_key);
 		if (rc != 0 && rc != -ENOENT)
 			GOTO(log, rc);
 
@@ -1035,22 +1029,20 @@ static int lfsck_namespace_insert_orphan(const struct lu_env *env,
 
 		if (S_ISDIR(lfsck_object_type(orphan))) {
 			rc = dt_delete(env, orphan,
-				       (const struct dt_key *)dotdot, th,
-				       BYPASS_CAPA);
+				       (const struct dt_key *)dotdot, th);
 			if (rc != 0)
 				GOTO(unlock, rc);
 
 			rec->rec_type = S_IFDIR;
 			rec->rec_fid = pfid;
 			rc = dt_insert(env, orphan, (const struct dt_rec *)rec,
-				       (const struct dt_key *)dotdot, th,
-				       BYPASS_CAPA, 1);
+				       (const struct dt_key *)dotdot, th, 1);
 			if (rc != 0)
 				GOTO(unlock, rc);
 		}
 
 		rc = dt_xattr_set(env, orphan, &linkea_buf, XATTR_NAME_LINK, 0,
-				  th, BYPASS_CAPA);
+				  th);
 	} else {
 		if (rc == 0 && count != NULL)
 			*count = ldata.ld_leh->leh_reccount;
@@ -1063,8 +1055,7 @@ static int lfsck_namespace_insert_orphan(const struct lu_env *env,
 		rec->rec_type = lfsck_object_type(orphan) & S_IFMT;
 		rec->rec_fid = cfid;
 		rc = dt_insert(env, parent, (const struct dt_rec *)rec,
-			       (const struct dt_key *)cname->ln_name,
-			       th, BYPASS_CAPA, 1);
+			       (const struct dt_key *)cname->ln_name, th, 1);
 		if (rc == 0 && S_ISDIR(rec->rec_type)) {
 			dt_write_lock(env, parent, 0);
 			rc = dt_ref_add(env, parent, th);
@@ -1073,7 +1064,7 @@ static int lfsck_namespace_insert_orphan(const struct lu_env *env,
 	}
 
 	if (rc == 0)
-		rc = dt_attr_set(env, orphan, la, th, BYPASS_CAPA);
+		rc = dt_attr_set(env, orphan, la, th);
 
 	GOTO(stop, rc = (rc == 0 ? 1 : rc));
 
@@ -1183,7 +1174,7 @@ static int lfsck_namespace_insert_normal(const struct lu_env *env,
 		GOTO(stop, rc);
 
 	rc = dt_insert(env, parent, (const struct dt_rec *)rec,
-		       (const struct dt_key *)name, th, BYPASS_CAPA, 1);
+		       (const struct dt_key *)name, th, 1);
 	if (rc != 0)
 		GOTO(stop, rc);
 
@@ -1196,11 +1187,11 @@ static int lfsck_namespace_insert_normal(const struct lu_env *env,
 	}
 
 	la->la_ctime = cfs_time_current_sec();
-	rc = dt_attr_set(env, parent, la, th, BYPASS_CAPA);
+	rc = dt_attr_set(env, parent, la, th);
 	if (rc != 0)
 		GOTO(stop, rc);
 
-	rc = dt_attr_set(env, child, la, th, BYPASS_CAPA);
+	rc = dt_attr_set(env, child, la, th);
 
 	GOTO(stop, rc = (rc == 0 ? 1 : rc));
 
@@ -1290,7 +1281,7 @@ static int lfsck_namespace_create_orphan_dir(const struct lu_env *env,
 		snprintf(name, 8, "MDT%04x", idx);
 		rc = dt_lookup(env, lfsck->li_lpf_root_obj,
 			       (struct dt_rec *)&tfid,
-			       (const struct dt_key *)name, BYPASS_CAPA);
+			       (const struct dt_key *)name);
 		if (rc != 0)
 			GOTO(log, rc = (rc == -ENOENT ? -ENXIO : rc));
 
@@ -1326,7 +1317,7 @@ static int lfsck_namespace_create_orphan_dir(const struct lu_env *env,
 		namelen = snprintf(name, 31, DFID"-P-%d",
 				   PFID(cfid), idx++);
 		rc = dt_lookup(env, parent, (struct dt_rec *)&tfid,
-			       (const struct dt_key *)name, BYPASS_CAPA);
+			       (const struct dt_key *)name);
 		if (rc != 0 && rc != -ENOENT)
 			GOTO(unlock1, rc);
 	} while (rc == 0);
@@ -1427,14 +1418,13 @@ static int lfsck_namespace_create_orphan_dir(const struct lu_env *env,
 
 	rec->rec_fid = cfid;
 	rc = dt_insert(env, child, (const struct dt_rec *)rec,
-		       (const struct dt_key *)dot, th, BYPASS_CAPA, 1);
+		       (const struct dt_key *)dot, th, 1);
 	if (rc != 0)
 		GOTO(unlock2, rc);
 
 	rec->rec_fid = lfsck_dto2fid(parent);
 	rc = dt_insert(env, child, (const struct dt_rec *)rec,
-		       (const struct dt_key *)dotdot, th,
-		       BYPASS_CAPA, 1);
+		       (const struct dt_key *)dotdot, th, 1);
 	if (rc != 0)
 		GOTO(unlock2, rc);
 
@@ -1443,21 +1433,20 @@ static int lfsck_namespace_create_orphan_dir(const struct lu_env *env,
 		GOTO(unlock2, rc);
 
 	if (lmv != NULL) {
-		rc = dt_xattr_set(env, child, &lmv_buf, XATTR_NAME_LMV, 0,
-				  th, BYPASS_CAPA);
+		rc = dt_xattr_set(env, child, &lmv_buf, XATTR_NAME_LMV, 0, th);
 		if (rc != 0)
 			GOTO(unlock2, rc);
 	}
 
 	rc = dt_xattr_set(env, child, &linkea_buf,
-			  XATTR_NAME_LINK, 0, th, BYPASS_CAPA);
+			  XATTR_NAME_LINK, 0, th);
 	dt_write_unlock(env, child);
 	if (rc != 0)
 		GOTO(stop, rc);
 
 	rec->rec_fid = cfid;
 	rc = dt_insert(env, parent, (const struct dt_rec *)rec,
-		       (const struct dt_key *)name, th, BYPASS_CAPA, 1);
+		       (const struct dt_key *)name, th, 1);
 	if (rc == 0) {
 		dt_write_lock(env, parent, 0);
 		rc = dt_ref_add(env, parent, th);
@@ -1591,8 +1580,7 @@ again:
 
 	lfsck_buf_init(&linkea_buf, ldata_new.ld_buf->lb_buf,
 		       ldata_new.ld_leh->leh_len);
-	rc = dt_xattr_set(env, obj, &linkea_buf,
-			  XATTR_NAME_LINK, 0, th, BYPASS_CAPA);
+	rc = dt_xattr_set(env, obj, &linkea_buf, XATTR_NAME_LINK, 0, th);
 
 	GOTO(unlock2, rc = (rc == 0 ? 1 : rc));
 
@@ -1669,8 +1657,7 @@ static int lfsck_namespace_shrink_linkea_cond(const struct lu_env *env,
 	}
 
 	rc = dt_lookup(env, parent, (struct dt_rec *)cfid,
-		       (const struct dt_key *)cname->ln_name,
-		       BYPASS_CAPA);
+		       (const struct dt_key *)cname->ln_name);
 	dt_read_unlock(env, parent);
 
 	/* It is safe to release the ldlm lock, because when the logic come
@@ -1777,7 +1764,7 @@ static int lfsck_namespace_replace_cond(const struct lu_env *env,
 	}
 
 	rc = dt_lookup(env, parent, (struct dt_rec *)&tfid,
-		       (const struct dt_key *)name, BYPASS_CAPA);
+		       (const struct dt_key *)name);
 	if (rc == -ENOENT) {
 		exist = false;
 		goto replace;
@@ -1802,7 +1789,7 @@ static int lfsck_namespace_replace_cond(const struct lu_env *env,
 		goto replace;
 	}
 
-	rc = dt_attr_get(env, obj, la, BYPASS_CAPA);
+	rc = dt_attr_get(env, obj, la);
 	if (rc != 0)
 		GOTO(log, rc);
 
@@ -1812,8 +1799,7 @@ static int lfsck_namespace_replace_cond(const struct lu_env *env,
 		GOTO(log, rc);
 
 	if (S_ISREG(la->la_mode)) {
-		rc = dt_xattr_get(env, obj, &LU_BUF_NULL, XATTR_NAME_LOV,
-				  BYPASS_CAPA);
+		rc = dt_xattr_get(env, obj, &LU_BUF_NULL, XATTR_NAME_LOV);
 		/* If someone has created related OST-object(s),
 		 * then keep it. */
 		if ((rc > 0) || (rc < 0 && rc != -ENODATA))
@@ -1872,11 +1858,10 @@ replace:
 	}
 
 	/* The old name entry maybe not exist. */
-	dt_delete(env, parent, (const struct dt_key *)name, th,
-		  BYPASS_CAPA);
+	dt_delete(env, parent, (const struct dt_key *)name, th);
 
 	rc = dt_insert(env, parent, (const struct dt_rec *)rec,
-		       (const struct dt_key *)name, th, BYPASS_CAPA, 1);
+		       (const struct dt_key *)name, th, 1);
 
 	GOTO(stop, rc = (rc == 0 ? 1 : rc));
 
@@ -1948,7 +1933,7 @@ int lfsck_namespace_rebuild_linkea(const struct lu_env *env,
 		GOTO(unlock, rc = 1);
 
 	rc = dt_xattr_set(env, obj, &linkea_buf,
-			  XATTR_NAME_LINK, 0, th, BYPASS_CAPA);
+			  XATTR_NAME_LINK, 0, th);
 
 	GOTO(unlock, rc = (rc == 0 ? 1 : rc));
 
@@ -2048,7 +2033,7 @@ int lfsck_namespace_repair_dirent(const struct lu_env *env,
 
 	dt_write_lock(env, parent, 0);
 	rc = dt_lookup(env, parent, (struct dt_rec *)&tfid,
-		       (const struct dt_key *)name, BYPASS_CAPA);
+		       (const struct dt_key *)name);
 	/* Someone has removed the bad name entry by race. */
 	if (rc == -ENOENT)
 		GOTO(unlock2, rc = 0);
@@ -2064,16 +2049,14 @@ int lfsck_namespace_repair_dirent(const struct lu_env *env,
 	if (lfsck->li_bookmark_ram.lb_param & LPF_DRYRUN)
 		GOTO(unlock2, rc = 1);
 
-	rc = dt_delete(env, parent, (const struct dt_key *)name, th,
-		       BYPASS_CAPA);
+	rc = dt_delete(env, parent, (const struct dt_key *)name, th);
 	if (rc != 0)
 		GOTO(unlock2, rc);
 
 	if (update) {
 		rc = dt_insert(env, parent,
 			       (const struct dt_rec *)rec,
-			       (const struct dt_key *)name2, th,
-			       BYPASS_CAPA, 1);
+			       (const struct dt_key *)name2, th, 1);
 		if (rc != 0)
 			GOTO(unlock2, rc);
 	}
@@ -2200,16 +2183,15 @@ static int lfsck_namespace_repair_unmatched_pairs(const struct lu_env *env,
 		GOTO(unlock, rc = 1);
 
 	/* The old ".." name entry maybe not exist. */
-	dt_delete(env, obj, (const struct dt_key *)dotdot, th,
-		  BYPASS_CAPA);
+	dt_delete(env, obj, (const struct dt_key *)dotdot, th);
 
 	rc = dt_insert(env, obj, (const struct dt_rec *)rec,
-		       (const struct dt_key *)dotdot, th, BYPASS_CAPA, 1);
+		       (const struct dt_key *)dotdot, th, 1);
 	if (rc != 0)
 		GOTO(unlock, rc);
 
 	rc = dt_xattr_set(env, obj, &linkea_buf,
-			  XATTR_NAME_LINK, 0, th, BYPASS_CAPA);
+			  XATTR_NAME_LINK, 0, th);
 
 	GOTO(unlock, rc = (rc == 0 ? 1 : rc));
 
@@ -2450,7 +2432,7 @@ lost_parent:
 	}
 
 	rc = dt_lookup(env, parent, (struct dt_rec *)&tfid,
-		       (const struct dt_key *)cname->ln_name, BYPASS_CAPA);
+		       (const struct dt_key *)cname->ln_name);
 	if (rc == -ENOENT) {
 		/* If the LFSCK is marked as LF_INCOMPLETE, then means some MDT
 		 * has ever tried to verify some remote MDT-object that resides
@@ -2680,8 +2662,7 @@ again:
 		}
 
 		rc = dt_lookup(env, parent, (struct dt_rec *)&tfid,
-			       (const struct dt_key *)cname->ln_name,
-			       BYPASS_CAPA);
+			       (const struct dt_key *)cname->ln_name);
 		*pfid2 = *lfsck_dto2fid(parent);
 		if (rc == -ENOENT) {
 			lfsck_object_put(env, parent);
@@ -2907,15 +2888,14 @@ static int lfsck_namespace_repair_nlink(const struct lu_env *env,
 	fid_cpu_to_be(tfid, cfid);
 	idx = lfsck_sub_trace_file_fid2idx(cfid);
 	rc = dt_lookup(env, com->lc_sub_trace_objs[idx].lsto_obj,
-		       (struct dt_rec *)&flags, (const struct dt_key *)tfid,
-		       BYPASS_CAPA);
+		       (struct dt_rec *)&flags, (const struct dt_key *)tfid);
 	if (rc != 0)
 		GOTO(unlock, rc);
 
 	if (flags & LNTF_SKIP_NLINK)
 		GOTO(unlock, rc = 0);
 
-	rc = dt_attr_get(env, child, la, BYPASS_CAPA);
+	rc = dt_attr_get(env, child, la);
 	if (rc != 0)
 		GOTO(unlock, rc = (rc == -ENOENT ? 0 : rc));
 
@@ -2931,7 +2911,7 @@ static int lfsck_namespace_repair_nlink(const struct lu_env *env,
 	if (lfsck->li_bookmark_ram.lb_param & LPF_DRYRUN)
 		GOTO(unlock, rc = 1);
 
-	rc = dt_attr_set(env, child, la, th, BYPASS_CAPA);
+	rc = dt_attr_set(env, child, la, th);
 
 	GOTO(unlock, rc = (rc == 0 ? 1 : rc));
 
@@ -3064,7 +3044,7 @@ lock:
 	}
 
 	rc = dt_lookup(env, child, (struct dt_rec *)pfid,
-		       (const struct dt_key *)dotdot, BYPASS_CAPA);
+		       (const struct dt_key *)dotdot);
 	if (rc != 0) {
 		if (rc != -ENOENT && rc != -ENODATA && rc != -EINVAL) {
 			dt_read_unlock(env, child);
@@ -3381,8 +3361,7 @@ lost_parent:
 		}
 
 		rc = dt_lookup(env, parent, (struct dt_rec *)cfid,
-			       (const struct dt_key *)cname->ln_name,
-			       BYPASS_CAPA);
+			       (const struct dt_key *)cname->ln_name);
 		if (rc != 0 && rc != -ENOENT) {
 			lfsck_object_put(env, parent);
 
@@ -3425,7 +3404,7 @@ lost_parent:
 			continue;
 		}
 
-		rc = dt_attr_get(env, child, la, BYPASS_CAPA);
+		rc = dt_attr_get(env, child, la);
 		if (rc != 0)
 			GOTO(out, rc);
 
@@ -3548,7 +3527,7 @@ out:
 			}
 		}
 	} else {
-		rc = dt_attr_get(env, child, la, BYPASS_CAPA);
+		rc = dt_attr_get(env, child, la);
 		if (rc != 0)
 			return rc;
 
@@ -3681,7 +3660,7 @@ static int lfsck_namespace_check_for_double_scan(const struct lu_env *env,
 	struct lu_attr *la = &lfsck_env_info(env)->lti_la;
 	int		rc;
 
-	rc = dt_attr_get(env, obj, la, BYPASS_CAPA);
+	rc = dt_attr_get(env, obj, la);
 	if (rc != 0)
 		return rc;
 
@@ -4520,7 +4499,7 @@ static int lfsck_namespace_in_notify(const struct lu_env *env,
 		fid_cpu_to_be(key, &lr->lr_fid);
 		mutex_lock(&com->lc_sub_trace_objs[idx].lsto_mutex);
 		rc = dt_lookup(env, obj, (struct dt_rec *)&flags,
-			       (const struct dt_key *)key, BYPASS_CAPA);
+			       (const struct dt_key *)key);
 		if (rc == 0) {
 			if (flags & LNTF_SKIP_NLINK) {
 				mutex_unlock(
@@ -4537,13 +4516,13 @@ static int lfsck_namespace_in_notify(const struct lu_env *env,
 		flags |= LNTF_SKIP_NLINK;
 		if (exist) {
 			rc = dt_delete(env, obj, (const struct dt_key *)key,
-				       th, BYPASS_CAPA);
+				       th);
 			if (rc != 0)
 				GOTO(log, rc);
 		}
 
 		rc = dt_insert(env, obj, (const struct dt_rec *)&flags,
-			       (const struct dt_key *)key, th, BYPASS_CAPA, 1);
+			       (const struct dt_key *)key, th, 1);
 
 		GOTO(log, rc);
 
@@ -4866,15 +4845,14 @@ int lfsck_namespace_repair_dangling(const struct lu_env *env,
 		rec->rec_type = S_IFDIR;
 		rec->rec_fid = lfsck_dto2fid(child);
 		rc = dt_insert(env, child, (const struct dt_rec *)rec,
-			       (const struct dt_key *)dot, th, BYPASS_CAPA, 1);
+			       (const struct dt_key *)dot, th, 1);
 		if (rc != 0)
 			GOTO(unlock, rc);
 
 		/* 3b. insert dotdot into child dir */
 		rec->rec_fid = lfsck_dto2fid(parent);
 		rc = dt_insert(env, child, (const struct dt_rec *)rec,
-			       (const struct dt_key *)dotdot, th,
-			       BYPASS_CAPA, 1);
+			       (const struct dt_key *)dotdot, th, 1);
 		if (rc != 0)
 			GOTO(unlock, rc);
 
@@ -4886,7 +4864,7 @@ int lfsck_namespace_repair_dangling(const struct lu_env *env,
 		/* 5b. generate slave LMV EA. */
 		if (lnr->lnr_lmv != NULL && lnr->lnr_lmv->ll_lmv_master) {
 			rc = dt_xattr_set(env, child, &lmv_buf, XATTR_NAME_LMV,
-					  0, th, BYPASS_CAPA);
+					  0, th);
 			if (rc != 0)
 				GOTO(unlock, rc);
 		}
@@ -4894,7 +4872,7 @@ int lfsck_namespace_repair_dangling(const struct lu_env *env,
 
 	/* 6b. insert linkEA for child. */
 	rc = dt_xattr_set(env, child, &linkea_buf,
-			  XATTR_NAME_LINK, 0, th, BYPASS_CAPA);
+			  XATTR_NAME_LINK, 0, th);
 
 	GOTO(unlock, rc);
 
@@ -5197,8 +5175,7 @@ nodata:
 		if (remove) {
 			LASSERT(newdata);
 
-			rc = dt_xattr_del(env, obj, XATTR_NAME_LINK, handle,
-					  BYPASS_CAPA);
+			rc = dt_xattr_del(env, obj, XATTR_NAME_LINK, handle);
 			if (rc != 0)
 				GOTO(stop, rc);
 		}
@@ -5306,7 +5283,7 @@ out:
 		}
 
 		if (count == 1 && S_ISREG(lfsck_object_type(obj)))
-			dt_attr_get(env, obj, la, BYPASS_CAPA);
+			dt_attr_get(env, obj, la);
 	}
 
 	down_write(&com->lc_sem);
@@ -5444,7 +5421,7 @@ static int lfsck_namespace_scan_local_lpf_one(const struct lu_env *env,
 	obj = com->lc_sub_trace_objs[idx].lsto_obj;
 	fid_cpu_to_be(key, &ent->lde_fid);
 	rc = dt_lookup(env, obj, (struct dt_rec *)&flags,
-		       (const struct dt_key *)key, BYPASS_CAPA);
+		       (const struct dt_key *)key);
 	if (rc == 0) {
 		exist = true;
 		flags |= LNTF_CHECK_ORPHAN;
@@ -5498,8 +5475,7 @@ static int lfsck_namespace_scan_local_lpf_one(const struct lu_env *env,
 		GOTO(stop, rc);
 
 	/* b1. remove name entry from backend /lost+found */
-	rc = dt_delete(env, parent, (const struct dt_key *)ent->lde_name, th,
-		       BYPASS_CAPA);
+	rc = dt_delete(env, parent, (const struct dt_key *)ent->lde_name, th);
 	if (rc != 0)
 		GOTO(stop, rc);
 
@@ -5514,20 +5490,19 @@ static int lfsck_namespace_scan_local_lpf_one(const struct lu_env *env,
 
 	if (exist) {
 		/* a3. remove child's FID from the LFSCK trace file. */
-		rc = dt_delete(env, obj, (const struct dt_key *)key, th,
-			       BYPASS_CAPA);
+		rc = dt_delete(env, obj, (const struct dt_key *)key, th);
 		if (rc != 0)
 			GOTO(stop, rc);
 	} else {
 		/* b4. set child's ctime as 1 */
-		rc = dt_attr_set(env, child, la, th, BYPASS_CAPA);
+		rc = dt_attr_set(env, child, la, th);
 		if (rc != 0)
 			GOTO(stop, rc);
 	}
 
 	/* b5. insert child's FID into the LFSCK trace file. */
 	rc = dt_insert(env, obj, (const struct dt_rec *)&flags,
-		       (const struct dt_key *)key, th, BYPASS_CAPA, 1);
+		       (const struct dt_key *)key, th, 1);
 
 	GOTO(stop, rc = (rc == 0 ? 1 : rc));
 
@@ -5596,7 +5571,7 @@ static void lfsck_namespace_scan_local_lpf(const struct lu_env *env,
 
 	com->lc_new_scanned = 0;
 	iops = &parent->do_index_ops->dio_it;
-	di = iops->init(env, parent, LUDA_64BITHASH | LUDA_TYPE, BYPASS_CAPA);
+	di = iops->init(env, parent, LUDA_64BITHASH | LUDA_TYPE);
 	if (IS_ERR(di))
 		GOTO(out, rc = PTR_ERR(di));
 
@@ -5834,7 +5809,7 @@ lfsck_namespace_double_scan_one_trace_file(const struct lu_env *env,
 	__u8			 flags	= 0;
 	ENTRY;
 
-	di = iops->init(env, obj, 0, BYPASS_CAPA);
+	di = iops->init(env, obj, 0);
 	if (IS_ERR(di))
 		RETURN(PTR_ERR(di));
 
@@ -6222,7 +6197,7 @@ int lfsck_verify_linkea(const struct lu_env *env, struct dt_device *dev,
 
 	dt_write_lock(env, obj, 0);
 	rc = dt_xattr_set(env, obj, &linkea_buf,
-			  XATTR_NAME_LINK, fl, th, BYPASS_CAPA);
+			  XATTR_NAME_LINK, fl, th);
 	dt_write_unlock(env, obj);
 
 	GOTO(stop, rc);
@@ -6323,8 +6298,7 @@ int lfsck_update_name_entry(const struct lu_env *env,
 	if (rc != 0)
 		GOTO(stop, rc);
 
-	rc = dt_delete(env, parent, (const struct dt_key *)name, th,
-		       BYPASS_CAPA);
+	rc = dt_delete(env, parent, (const struct dt_key *)name, th);
 	if (rc == -ENOENT) {
 		exists = false;
 		rc = 0;
@@ -6334,7 +6308,7 @@ int lfsck_update_name_entry(const struct lu_env *env,
 		GOTO(stop, rc);
 
 	rc = dt_insert(env, parent, (const struct dt_rec *)rec,
-		       (const struct dt_key *)name, th, BYPASS_CAPA, 1);
+		       (const struct dt_key *)name, th, 1);
 	if (rc == 0 && S_ISDIR(type) && !exists) {
 		dt_write_lock(env, parent, 0);
 		rc = dt_ref_add(env, parent, th);

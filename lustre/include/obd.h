@@ -927,11 +927,11 @@ struct obd_ops {
                          struct obd_info *oinfo);
         int (*o_getattr_async)(struct obd_export *exp, struct obd_info *oinfo,
                                struct ptlrpc_request_set *set);
-        int (*o_preprw)(const struct lu_env *env, int cmd,
-                        struct obd_export *exp, struct obdo *oa, int objcount,
-                        struct obd_ioobj *obj, struct niobuf_remote *remote,
-                        int *nr_pages, struct niobuf_local *local,
-                        struct obd_trans_info *oti, struct lustre_capa *capa);
+	int (*o_preprw)(const struct lu_env *env, int cmd,
+			struct obd_export *exp, struct obdo *oa, int objcount,
+			struct obd_ioobj *obj, struct niobuf_remote *remote,
+			int *nr_pages, struct niobuf_local *local,
+			struct obd_trans_info *oti);
         int (*o_commitrw)(const struct lu_env *env, int cmd,
                           struct obd_export *exp, struct obdo *oa,
                           int objcount, struct obd_ioobj *obj,
