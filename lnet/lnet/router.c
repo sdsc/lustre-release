@@ -838,6 +838,22 @@ lnet_router_ni_update_locked(lnet_peer_t *gw, __u32 net)
 }
 
 void
+lnet_router_ni_update_locked(lnet_peer_t *lp, __u32 net)
+{
+	lnet_route_t *rte;
+
+	/* NB: this can't help for multi-hop routing */
+	if ((lp->lp_ping_feats & LNET_PING_FEAT_NI_STATUS) != 0) {
+		list_for_each_entry(rte, &lp->lp_routes, lr_gwlist) {
+			if (rte->lr_net == net) {
+				rte->lr_downis = 0;
+				break;
+			}
+		}
+	}
+}
+
+void
 lnet_update_ni_status_locked(void)
 {
 	lnet_ni_t	*ni;
@@ -1137,11 +1153,9 @@ lnet_router_checker_start(void)
         /* EQ size doesn't matter; the callback is guaranteed to get every
          * event */
 	eqsz = 0;
-        rc = LNetEQAlloc(eqsz, lnet_router_checker_event,
-                         &the_lnet.ln_rc_eqh);
+	rc = LNetEQAlloc(eqsz, lnet_router_checker_event, &the_lnet.ln_rc_eqh);
 #else
-        rc = LNetEQAlloc(eqsz, LNET_EQ_HANDLER_NONE,
-                         &the_lnet.ln_rc_eqh);
+	rc = LNetEQAlloc(eqsz, LNET_EQ_HANDLER_NONE, &the_lnet.ln_rc_eqh);
 #endif
         if (rc != 0) {
                 CERROR("Can't allocate EQ(%d): %d\n", eqsz, rc);
