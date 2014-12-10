@@ -123,7 +123,7 @@ lfsck_layout_object_init(const struct lu_env *env, struct dt_object *obj,
 	if (llo == NULL)
 		return ERR_PTR(-ENOMEM);
 
-	rc = dt_attr_get(env, obj, &llo->llo_attr, BYPASS_CAPA);
+	rc = dt_attr_get(env, obj, &llo->llo_attr);
 	if (rc != 0) {
 		OBD_FREE_PTR(llo);
 
@@ -382,10 +382,9 @@ static int lfsck_layout_get_lovea(const struct lu_env *env,
 	int rc;
 
 again:
-	rc = dt_xattr_get(env, obj, buf, XATTR_NAME_LOV, BYPASS_CAPA);
+	rc = dt_xattr_get(env, obj, buf, XATTR_NAME_LOV);
 	if (rc == -ERANGE) {
-		rc = dt_xattr_get(env, obj, &LU_BUF_NULL, XATTR_NAME_LOV,
-				  BYPASS_CAPA);
+		rc = dt_xattr_get(env, obj, &LU_BUF_NULL, XATTR_NAME_LOV);
 		if (rc <= 0)
 			return rc;
 
@@ -1046,14 +1045,14 @@ static int fid_is_for_ostobj(const struct lu_env *env, struct dt_device *dt,
 
 	lma = &lfsck_env_info(env)->lti_lma;
 	rc = dt_xattr_get(env, obj, lfsck_buf_get(env, lma, sizeof(*lma)),
-			  XATTR_NAME_LMA, BYPASS_CAPA);
+			  XATTR_NAME_LMA);
 	if (rc == sizeof(*lma)) {
 		lustre_lma_swab(lma);
 
 		return lma->lma_compat & LMAC_FID_ON_OST ? 1 : 0;
 	}
 
-	rc = dt_xattr_get(env, obj, &LU_BUF_NULL, XATTR_NAME_FID, BYPASS_CAPA);
+	rc = dt_xattr_get(env, obj, &LU_BUF_NULL, XATTR_NAME_FID);
 
 	return rc > 0;
 }
@@ -1463,7 +1462,7 @@ static int lfsck_layout_get_def_stripesize(const struct lu_env *env,
 
 	/* Get the default stripe size via xattr_get on the backend root. */
 	rc = dt_xattr_get(env, root, lfsck_buf_get(env, lum, sizeof(*lum)),
-			  XATTR_NAME_LOV, BYPASS_CAPA);
+			  XATTR_NAME_LOV);
 	if (rc > 0) {
 		/* The lum->lmm_stripe_size is LE mode. The *size also
 		 * should be LE mode. So it is unnecessary to convert. */
@@ -1526,8 +1525,7 @@ static int lfsck_layout_refill_lovea(const struct lu_env *env,
 	}
 
 	lfsck_buf_init(&ea_buf, lmm, lov_mds_md_size(count, magic));
-	rc = dt_xattr_set(env, parent, &ea_buf, XATTR_NAME_LOV, fl, handle,
-			  BYPASS_CAPA);
+	rc = dt_xattr_set(env, parent, &ea_buf, XATTR_NAME_LOV, fl, handle);
 	if (rc == 0)
 		rc = 1;
 
@@ -1661,8 +1659,7 @@ static int lfsck_layout_update_pfid(const struct lu_env *env,
 	if (rc != 0)
 		GOTO(stop, rc);
 
-	rc = dt_xattr_set(env, child, buf, XATTR_NAME_FID, 0, handle,
-			  BYPASS_CAPA);
+	rc = dt_xattr_set(env, child, buf, XATTR_NAME_FID, 0, handle);
 
 	GOTO(stop, rc = (rc == 0 ? 1 : rc));
 
@@ -1800,7 +1797,7 @@ static int lfsck_layout_recreate_parent(const struct lu_env *env,
 		snprintf(name, NAME_MAX, DFID"%s-%s-%d", PFID(pfid), infix,
 			 type, idx++);
 		rc = dt_lookup(env, lfsck->li_lpf_obj, (struct dt_rec *)tfid,
-			       (const struct dt_key *)name, BYPASS_CAPA);
+			       (const struct dt_key *)name);
 		if (rc != 0 && rc != -ENOENT)
 			GOTO(put, rc);
 	} while (rc == 0);
@@ -1892,8 +1889,7 @@ static int lfsck_layout_recreate_parent(const struct lu_env *env,
 
 	/* 1b. Update OST-object's parent information remotely. */
 	if (cobj != NULL) {
-		rc = dt_xattr_set(env, cobj, &pbuf, XATTR_NAME_FID, 0, th,
-				  BYPASS_CAPA);
+		rc = dt_xattr_set(env, cobj, &pbuf, XATTR_NAME_FID, 0, th);
 		if (rc != 0)
 			GOTO(stop, rc);
 	}
@@ -1912,13 +1908,13 @@ static int lfsck_layout_recreate_parent(const struct lu_env *env,
 
 	/* 4b. Insert the MDT-object to .lustre/lost+found/MDTxxxx/ */
 	rc = dt_insert(env, lfsck->li_lpf_obj, (const struct dt_rec *)dtrec,
-		       (const struct dt_key *)name, th, BYPASS_CAPA, 1);
+		       (const struct dt_key *)name, th, 1);
 	if (rc != 0)
 		GOTO(stop, rc);
 
 	/* 5b. insert linkEA for parent. */
 	rc = dt_xattr_set(env, pobj, &linkea_buf,
-			  XATTR_NAME_LINK, 0, th, BYPASS_CAPA);
+			  XATTR_NAME_LINK, 0, th);
 
 	GOTO(stop, rc);
 
@@ -2031,7 +2027,7 @@ static int lfsck_layout_slave_conditional_destroy(const struct lu_env *env,
 	}
 
 	/* Get obj's attr without lock firstly. */
-	rc = dt_attr_get(env, obj, la, BYPASS_CAPA);
+	rc = dt_attr_get(env, obj, la);
 	dt_read_unlock(env, obj);
 	if (rc != 0)
 		GOTO(put, rc);
@@ -2054,7 +2050,7 @@ static int lfsck_layout_slave_conditional_destroy(const struct lu_env *env,
 
 	dt_write_lock(env, obj, 0);
 	/* Get obj's attr within lock again. */
-	rc = dt_attr_get(env, obj, la, BYPASS_CAPA);
+	rc = dt_attr_get(env, obj, la);
 	if (rc != 0)
 		GOTO(unlock, rc);
 
@@ -2296,10 +2292,9 @@ again:
 
 	dt_write_lock(env, parent, 0);
 	locked = true;
-	rc = dt_xattr_get(env, parent, buf, XATTR_NAME_LOV, BYPASS_CAPA);
+	rc = dt_xattr_get(env, parent, buf, XATTR_NAME_LOV);
 	if (rc == -ERANGE) {
-		rc = dt_xattr_get(env, parent, &LU_BUF_NULL, XATTR_NAME_LOV,
-				  BYPASS_CAPA);
+		rc = dt_xattr_get(env, parent, &LU_BUF_NULL, XATTR_NAME_LOV);
 		LASSERT(rc != 0);
 		goto again;
 	} else if (rc == -ENODATA || rc == 0) {
@@ -2602,7 +2597,7 @@ static int lfsck_layout_scan_orphan(const struct lu_env *env,
 		GOTO(put, rc);
 
 	iops = &obj->do_index_ops->dio_it;
-	di = iops->init(env, obj, 0, BYPASS_CAPA);
+	di = iops->init(env, obj, 0);
 	if (IS_ERR(di))
 		GOTO(put, rc = PTR_ERR(di));
 
@@ -2758,7 +2753,7 @@ static int lfsck_layout_repair_dangling(const struct lu_env *env,
 		GOTO(unlock2, rc);
 
 	rc = dt_xattr_set(env, child, buf, XATTR_NAME_FID, LU_XATTR_CREATE,
-			  handle, BYPASS_CAPA);
+			  handle);
 
 	GOTO(unlock2, rc);
 
@@ -2842,18 +2837,17 @@ static int lfsck_layout_repair_unmatched_pair(const struct lu_env *env,
 	if (unlikely(lfsck_is_dead_obj(parent)))
 		GOTO(unlock2, rc = 1);
 
-	rc = dt_xattr_set(env, child, buf, XATTR_NAME_FID, 0, handle,
-			  BYPASS_CAPA);
+	rc = dt_xattr_set(env, child, buf, XATTR_NAME_FID, 0, handle);
 	if (rc != 0)
 		GOTO(unlock2, rc);
 
 	/* Get the latest parent's owner. */
-	rc = dt_attr_get(env, parent, tla, BYPASS_CAPA);
+	rc = dt_attr_get(env, parent, tla);
 	if (rc != 0)
 		GOTO(unlock2, rc);
 
 	tla->la_valid = LA_UID | LA_GID;
-	rc = dt_attr_set(env, child, tla, handle, BYPASS_CAPA);
+	rc = dt_attr_set(env, child, tla, handle);
 
 	GOTO(unlock2, rc);
 
@@ -2946,7 +2940,7 @@ static int lfsck_layout_repair_multiple_references(const struct lu_env *env,
 	if (unlikely(lfsck_is_dead_obj(parent)))
 		GOTO(unlock2, rc = 0);
 
-	rc = dt_xattr_get(env, parent, buf, XATTR_NAME_LOV, BYPASS_CAPA);
+	rc = dt_xattr_get(env, parent, buf, XATTR_NAME_LOV);
 	if (unlikely(rc == 0 || rc == -ENODATA || rc == -ERANGE))
 		GOTO(unlock2, rc = 0);
 
@@ -2980,7 +2974,7 @@ static int lfsck_layout_repair_multiple_references(const struct lu_env *env,
 		       lov_mds_md_size(le16_to_cpu(lmm->lmm_stripe_count),
 				       magic));
 	rc = dt_xattr_set(env, parent, &ea_buf, XATTR_NAME_LOV,
-			  LU_XATTR_REPLACE, handle, BYPASS_CAPA);
+			  LU_XATTR_REPLACE, handle);
 
 	GOTO(unlock2, rc = (rc == 0 ? 1 : rc));
 
@@ -3045,7 +3039,7 @@ static int lfsck_layout_repair_owner(const struct lu_env *env,
 		GOTO(unlock, rc = 1);
 
 	/* Get the latest parent's owner. */
-	rc = dt_attr_get(env, parent, tla, BYPASS_CAPA);
+	rc = dt_attr_get(env, parent, tla);
 	if (rc != 0)
 		GOTO(unlock, rc);
 
@@ -3055,7 +3049,7 @@ static int lfsck_layout_repair_owner(const struct lu_env *env,
 		GOTO(unlock, rc = 1);
 
 	tla->la_valid = LA_UID | LA_GID;
-	rc = dt_attr_set(env, child, tla, handle, BYPASS_CAPA);
+	rc = dt_attr_set(env, child, tla, handle);
 
 	GOTO(unlock, rc);
 
@@ -3216,11 +3210,11 @@ static int lfsck_layout_assistant_handler_p1(const struct lu_env *env,
 	if (unlikely(lfsck_is_dead_obj(parent)))
 		RETURN(0);
 
-	rc = dt_attr_get(env, parent, pla, BYPASS_CAPA);
+	rc = dt_attr_get(env, parent, pla);
 	if (rc != 0)
 		GOTO(out, rc);
 
-	rc = dt_attr_get(env, child, cla, BYPASS_CAPA);
+	rc = dt_attr_get(env, child, cla);
 	if (rc == -ENOENT) {
 		if (unlikely(lfsck_is_dead_obj(parent)))
 			RETURN(0);
@@ -3233,7 +3227,7 @@ static int lfsck_layout_assistant_handler_p1(const struct lu_env *env,
 		GOTO(out, rc);
 
 	lfsck_buf_init(&buf, pea, sizeof(struct filter_fid_old));
-	rc = dt_xattr_get(env, child, &buf, XATTR_NAME_FID, BYPASS_CAPA);
+	rc = dt_xattr_get(env, child, &buf, XATTR_NAME_FID);
 	if (unlikely(rc >= 0 && rc != sizeof(struct filter_fid_old) &&
 		     rc != sizeof(struct filter_fid))) {
 		type = LLIT_UNMATCHED_PAIR;
@@ -3827,7 +3821,7 @@ static int lfsck_layout_slave_repair_pfid(const struct lu_env *env,
 	if (rc != 0)
 		GOTO(stop, rc);
 
-	rc = dt_xattr_set(env, obj, buf, XATTR_NAME_FID, 0, th, BYPASS_CAPA);
+	rc = dt_xattr_set(env, obj, buf, XATTR_NAME_FID, 0, th);
 
 	GOTO(stop, rc);
 
@@ -4242,12 +4236,11 @@ static int lfsck_layout_scan_stripes(const struct lu_env *env,
 			goto next;
 		}
 
-		rc = dt_declare_attr_get(env, cobj, BYPASS_CAPA);
+		rc = dt_declare_attr_get(env, cobj);
 		if (rc != 0)
 			goto next;
 
-		rc = dt_declare_xattr_get(env, cobj, &buf, XATTR_NAME_FID,
-					  BYPASS_CAPA);
+		rc = dt_declare_xattr_get(env, cobj, &buf, XATTR_NAME_FID);
 		if (rc != 0)
 			goto next;
 
@@ -4412,7 +4405,7 @@ again:
 	}
 
 	rc = dt_xattr_set(env, obj, &ea_buf, XATTR_NAME_LOV,
-			  LU_XATTR_REPLACE, handle, BYPASS_CAPA);
+			  LU_XATTR_REPLACE, handle);
 	if (rc != 0)
 		GOTO(out, rc);
 
@@ -5659,8 +5652,7 @@ stop:
 static int lfsck_orphan_index_lookup(const struct lu_env *env,
 				     struct dt_object *dt,
 				     struct dt_rec *rec,
-				     const struct dt_key *key,
-				     struct lustre_capa *capa)
+				     const struct dt_key *key)
 {
 	return -EOPNOTSUPP;
 }
@@ -5679,7 +5671,6 @@ static int lfsck_orphan_index_insert(const struct lu_env *env,
 				     const struct dt_rec *rec,
 				     const struct dt_key *key,
 				     struct thandle *handle,
-				     struct lustre_capa *capa,
 				     int ignore_quota)
 {
 	return -EOPNOTSUPP;
@@ -5696,16 +5687,14 @@ static int lfsck_orphan_index_declare_delete(const struct lu_env *env,
 static int lfsck_orphan_index_delete(const struct lu_env *env,
 				     struct dt_object *dt,
 				     const struct dt_key *key,
-				     struct thandle *handle,
-				     struct lustre_capa *capa)
+				     struct thandle *handle)
 {
 	return -EOPNOTSUPP;
 }
 
 static struct dt_it *lfsck_orphan_it_init(const struct lu_env *env,
 					  struct dt_object *dt,
-					  __u32 attr,
-					  struct lustre_capa *capa)
+					  __u32 attr)
 {
 	struct dt_device		*dev	= lu2dt_dev(dt->do_lu.lo_dev);
 	struct lfsck_instance		*lfsck;
@@ -5942,12 +5931,12 @@ again1:
 		goto again1;
 	}
 
-	rc = dt_attr_get(env, obj, la, BYPASS_CAPA);
+	rc = dt_attr_get(env, obj, la);
 	if (rc != 0)
 		GOTO(out, rc);
 
 	rc = dt_xattr_get(env, obj, lfsck_buf_get(env, pfid, sizeof(*pfid)),
-			  XATTR_NAME_FID, BYPASS_CAPA);
+			  XATTR_NAME_FID);
 	if (rc == -ENODATA) {
 		/* For the pre-created OST-object, update the bitmap to avoid
 		 * others LFSCK (second phase) iteration to touch it again. */
