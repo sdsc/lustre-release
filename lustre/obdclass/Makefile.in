@@ -27,7 +27,7 @@ obdclass-objs := $(obdclass-linux-objs) $(obdclass-all-objs)
 EXTRA_PRE_CFLAGS := -I@LINUX@/fs -I@LDISKFS_DIR@ -I@LDISKFS_DIR@/ldiskfs
 
 EXTRA_DIST = $(obdclass-all-objs:.o=.c) llog_test.c llog_internal.h
-EXTRA_DIST += cl_internal.h local_storage.h
+EXTRA_DIST += cl_internal.h obdclass_internal.h local_storage.h
 
 @SERVER_FALSE@EXTRA_DIST += idmap.c
 @SERVER_FALSE@EXTRA_DIST += lprocfs_jobstats.c
