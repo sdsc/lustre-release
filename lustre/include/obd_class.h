@@ -1217,12 +1217,11 @@ static inline int obd_statfs(const struct lu_env *env, struct obd_export *exp,
 }
 
 static inline int obd_preprw(const struct lu_env *env, int cmd,
-                             struct obd_export *exp, struct obdo *oa,
-                             int objcount, struct obd_ioobj *obj,
-                             struct niobuf_remote *remote, int *pages,
-                             struct niobuf_local *local,
-                             struct obd_trans_info *oti,
-                             struct lustre_capa *capa)
+			     struct obd_export *exp, struct obdo *oa,
+			     int objcount, struct obd_ioobj *obj,
+			     struct niobuf_remote *remote, int *pages,
+			     struct niobuf_local *local,
+			     struct obd_trans_info *oti)
 {
         int rc;
         ENTRY;
@@ -1230,8 +1229,8 @@ static inline int obd_preprw(const struct lu_env *env, int cmd,
         EXP_CHECK_DT_OP(exp, preprw);
         EXP_COUNTER_INCREMENT(exp, preprw);
 
-        rc = OBP(exp->exp_obd, preprw)(env, cmd, exp, oa, objcount, obj, remote,
-                                       pages, local, oti, capa);
+	rc = OBP(exp->exp_obd, preprw)(env, cmd, exp, oa, objcount, obj, remote,
+				       pages, local, oti);
         RETURN(rc);
 }
 
