@@ -450,7 +450,7 @@ static struct page *osd_get_page(struct dt_object *dt, loff_t offset, int rw)
 */
 static int osd_bufs_get(const struct lu_env *env, struct dt_object *d,
 			loff_t pos, ssize_t len, struct niobuf_local *lnb,
-			int rw, struct lustre_capa *capa)
+			int rw)
 {
         struct osd_object   *obj    = osd_dt_obj(d);
         int npages, i, rc = 0;
@@ -1380,14 +1380,10 @@ int osd_ldiskfs_read(struct inode *inode, void *buf, int size, loff_t *offs)
 }
 
 static ssize_t osd_read(const struct lu_env *env, struct dt_object *dt,
-                        struct lu_buf *buf, loff_t *pos,
-                        struct lustre_capa *capa)
+			struct lu_buf *buf, loff_t *pos)
 {
         struct inode *inode = osd_dt_obj(dt)->oo_inode;
         int           rc;
-
-        if (osd_object_auth(env, dt, capa, CAPA_OPC_BODY_READ))
-                RETURN(-EACCES);
 
         /* Read small symlink from inode body as we need to maintain correct
          * on-disk symlinks for ldiskfs.
@@ -1643,9 +1639,8 @@ int osd_ldiskfs_write_record(struct inode *inode, void *buf, int bufsize,
 }
 
 static ssize_t osd_write(const struct lu_env *env, struct dt_object *dt,
-                         const struct lu_buf *buf, loff_t *pos,
-                         struct thandle *handle, struct lustre_capa *capa,
-                         int ignore_quota)
+			 const struct lu_buf *buf, loff_t *pos,
+			 struct thandle *handle, int ignore_quota)
 {
 	struct inode		*inode = osd_dt_obj(dt)->oo_inode;
 	struct osd_thandle	*oh;
@@ -1653,9 +1648,6 @@ static ssize_t osd_write(const struct lu_env *env, struct dt_object *dt,
 	int			is_link;
 
         LASSERT(dt_object_exists(dt));
-
-        if (osd_object_auth(env, dt, capa, CAPA_OPC_BODY_WRITE))
-                return -EACCES;
 
         LASSERT(handle != NULL);
 	LASSERT(inode != NULL);
@@ -1714,8 +1706,7 @@ static int osd_declare_punch(const struct lu_env *env, struct dt_object *dt,
 }
 
 static int osd_punch(const struct lu_env *env, struct dt_object *dt,
-		     __u64 start, __u64 end, struct thandle *th,
-		     struct lustre_capa *capa)
+		     __u64 start, __u64 end, struct thandle *th)
 {
 	struct osd_thandle *oh;
 	struct osd_object  *obj = osd_dt_obj(dt);

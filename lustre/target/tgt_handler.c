@@ -242,7 +242,6 @@ static int tgt_ost_body_unpack(struct tgt_session_info *tsi, __u32 flags)
 {
 	struct ost_body		*body;
 	struct req_capsule	*pill = tsi->tsi_pill;
-	struct lustre_capa	*capa;
 	struct lu_nodemap	*nodemap;
 	int			 rc;
 
@@ -264,15 +263,6 @@ static int tgt_ost_body_unpack(struct tgt_session_info *tsi, __u32 flags)
 	body->oa.o_gid = nodemap_map_id(nodemap, NODEMAP_GID,
 					NODEMAP_CLIENT_TO_FS,
 					body->oa.o_gid);
-
-	if (body->oa.o_valid & OBD_MD_FLOSSCAPA) {
-		capa = req_capsule_client_get(pill, &RMF_CAPA1);
-		if (capa == NULL) {
-			CERROR("%s: OSSCAPA flag is set without capability\n",
-			       tgt_name(tsi->tsi_tgt));
-			RETURN(-EFAULT);
-		}
-	}
 
 	tsi->tsi_ost_body = body;
 	tsi->tsi_fid = body->oa.o_oi.oi_fid;
@@ -1741,7 +1731,7 @@ int tgt_brw_read(struct tgt_session_info *tsi)
 
 	npages = PTLRPC_MAX_BRW_PAGES;
 	rc = obd_preprw(tsi->tsi_env, OBD_BRW_READ, exp, &repbody->oa, 1,
-			ioo, remote_nb, &npages, local_nb, NULL, BYPASS_CAPA);
+			ioo, remote_nb, &npages, local_nb, NULL);
 	if (rc != 0)
 		GOTO(out_lock, rc);
 
@@ -2009,8 +1999,7 @@ int tgt_brw_write(struct tgt_session_info *tsi)
 
 	npages = PTLRPC_MAX_BRW_PAGES;
 	rc = obd_preprw(tsi->tsi_env, OBD_BRW_WRITE, exp, &repbody->oa,
-			objcount, ioo, remote_nb, &npages, local_nb, NULL,
-			BYPASS_CAPA);
+			objcount, ioo, remote_nb, &npages, local_nb, NULL);
 	if (rc < 0)
 		GOTO(out_lock, rc);
 
