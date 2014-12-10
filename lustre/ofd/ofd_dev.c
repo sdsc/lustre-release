@@ -902,7 +902,6 @@ static int ofd_set_info_hdl(struct tgt_session_info *tsi)
 	void			*key, *val = NULL;
 	int			 keylen, vallen, rc = 0;
 	bool			 is_grant_shrink;
-	struct ofd_device	*ofd = ofd_exp(tsi->tsi_exp);
 
 	ENTRY;
 
@@ -945,8 +944,6 @@ static int ofd_set_info_hdl(struct tgt_session_info *tsi)
 		if (vallen > 0)
 			obd_export_evict_by_nid(tsi->tsi_exp->exp_obd, val);
 		rc = 0;
-	} else if (KEY_IS(KEY_CAPA_KEY)) {
-		rc = ofd_update_capa_key(ofd, val);
 	} else if (KEY_IS(KEY_SPTLRPC_CONF)) {
 		rc = tgt_adapt_sptlrpc_conf(tsi->tsi_tgt, 0);
 	} else {
@@ -2893,9 +2890,6 @@ static void ofd_fini(const struct lu_env *env, struct ofd_device *m)
 	ofd_stop_inconsistency_verification_thread(m);
 	lfsck_degister(env, m->ofd_osd);
 	ofd_fs_cleanup(env, m);
-
-	ofd_free_capa_keys(m);
-	cleanup_capa_hash(obd->u.filter.fo_capa_hash);
 
 	if (m->ofd_namespace != NULL) {
 		ldlm_namespace_free(m->ofd_namespace, NULL,

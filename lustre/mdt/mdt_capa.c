@@ -162,7 +162,7 @@ int mdt_capa_keys_init(const struct lu_env *env, struct mdt_device *mdt)
         la = &mti->mti_attr.ma_attr;
 
         obj = mdt->mdt_ck_obj;
-        rc = obj->do_ops->do_attr_get(env, mdt->mdt_ck_obj, la, BYPASS_CAPA);
+	rc = dt_attr_get(env, mdt->mdt_ck_obj, la);
         if (rc)
                 RETURN(rc);
 

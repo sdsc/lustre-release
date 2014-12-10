@@ -1171,11 +1171,6 @@ static int mdt_getattr(struct tgt_session_info *tsi)
 
 	info->mti_cross_ref = !!(reqbody->mbo_valid & OBD_MD_FLCROSSREF);
 
-	/*
-	 * Don't check capability at all, because rename might getattr for
-	 * remote obj, and at that time no capability is available.
-	 */
-	mdt_set_capainfo(info, 1, &reqbody->mbo_fid1, BYPASS_CAPA);
 	rc = mdt_getattr_internal(info, obj, 0);
 	if (reqbody->mbo_valid & OBD_MD_FLRMTPERM)
                 mdt_exit_ucred(info);
@@ -1398,7 +1393,6 @@ static int mdt_getattr_name_lock(struct mdt_thread_info *info,
 			RETURN(-ENOENT);
 		}
 
-		mdt_set_capainfo(info, 0, mdt_object_fid(child), BYPASS_CAPA);
 		rc = mdt_getattr_internal(info, child, 0);
 		if (unlikely(rc != 0))
 			mdt_object_unlock(info, child, lhc, 1);
@@ -1580,7 +1574,6 @@ static int mdt_getattr_name_lock(struct mdt_thread_info *info,
                 ma_need |= MA_SOM;
 
         /* finally, we can get attr for child. */
-        mdt_set_capainfo(info, 1, child_fid, BYPASS_CAPA);
         rc = mdt_getattr_internal(info, child, ma_need);
         if (unlikely(rc != 0)) {
                 mdt_object_unlock(info, child, lhc, 1);
