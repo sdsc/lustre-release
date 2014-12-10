@@ -204,10 +204,10 @@ EXPORT_SYMBOL(dt_mode_to_dft);
 int dt_lookup_dir(const struct lu_env *env, struct dt_object *dir,
                   const char *name, struct lu_fid *fid)
 {
-        if (dt_try_as_dir(env, dir))
-                return dt_lookup(env, dir, (struct dt_rec *)fid,
-                                 (const struct dt_key *)name, BYPASS_CAPA);
-        return -ENOTDIR;
+	if (dt_try_as_dir(env, dir))
+		return dt_lookup(env, dir, (struct dt_rec *)fid,
+				 (const struct dt_key *)name);
+	return -ENOTDIR;
 }
 EXPORT_SYMBOL(dt_lookup_dir);
 
@@ -451,8 +451,8 @@ void dt_global_fini(void)
 int dt_read(const struct lu_env *env, struct dt_object *dt,
             struct lu_buf *buf, loff_t *pos)
 {
-        LASSERTF(dt != NULL, "dt is NULL when we want to read record\n");
-        return dt->do_body_ops->dbo_read(env, dt, buf, pos, BYPASS_CAPA);
+	LASSERTF(dt != NULL, "dt is NULL when we want to read record\n");
+	return dt->do_body_ops->dbo_read(env, dt, buf, pos);
 }
 EXPORT_SYMBOL(dt_read);
 
@@ -476,7 +476,7 @@ int dt_record_read(const struct lu_env *env, struct dt_object *dt,
 
         LASSERTF(dt != NULL, "dt is NULL when we want to read record\n");
 
-        rc = dt->do_body_ops->dbo_read(env, dt, buf, pos, BYPASS_CAPA);
+	rc = dt->do_body_ops->dbo_read(env, dt, buf, pos);
 
         if (rc == buf->lb_len)
                 rc = 0;
@@ -495,7 +495,7 @@ int dt_record_write(const struct lu_env *env, struct dt_object *dt,
         LASSERT(th != NULL);
         LASSERT(dt->do_body_ops);
         LASSERT(dt->do_body_ops->dbo_write);
-        rc = dt->do_body_ops->dbo_write(env, dt, buf, pos, th, BYPASS_CAPA, 1);
+	rc = dt->do_body_ops->dbo_write(env, dt, buf, pos, th, 1);
         if (rc == buf->lb_len)
                 rc = 0;
         else if (rc >= 0)
@@ -529,7 +529,7 @@ void dt_version_set(const struct lu_env *env, struct dt_object *o,
         vbuf.lb_buf = &version;
         vbuf.lb_len = sizeof(version);
 
-        rc = dt_xattr_set(env, o, &vbuf, xname, 0, th, BYPASS_CAPA);
+	rc = dt_xattr_set(env, o, &vbuf, xname, 0, th);
         if (rc < 0)
                 CDEBUG(D_INODE, "Can't set version, rc %d\n", rc);
         return;
@@ -546,7 +546,7 @@ dt_obj_version_t dt_version_get(const struct lu_env *env, struct dt_object *o)
         LASSERT(o);
         vbuf.lb_buf = &version;
         vbuf.lb_len = sizeof(version);
-        rc = dt_xattr_get(env, o, &vbuf, xname, BYPASS_CAPA);
+	rc = dt_xattr_get(env, o, &vbuf, xname);
         if (rc != sizeof(version)) {
                 CDEBUG(D_INODE, "Can't get version, rc %d\n", rc);
                 version = 0;
@@ -800,7 +800,7 @@ int dt_index_walk(const struct lu_env *env, struct dt_object *obj,
 	/* Iterate through index and fill containers from @rdpg */
 	iops = &obj->do_index_ops->dio_it;
 	LASSERT(iops != NULL);
-	it = iops->init(env, obj, rdpg->rp_attrs, BYPASS_CAPA);
+	it = iops->init(env, obj, rdpg->rp_attrs);
 	if (IS_ERR(it))
 		RETURN(PTR_ERR(it));
 
