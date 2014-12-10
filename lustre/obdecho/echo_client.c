@@ -2324,7 +2324,7 @@ static int echo_client_prep_commit(const struct lu_env *env,
 
                 lpages = npages;
 		ret = obd_preprw(env, rw, exp, oa, 1, &ioo, rnb, &lpages,
-                                 lnb, oti, NULL);
+				 lnb, oti);
                 if (ret != 0)
                         GOTO(out, ret);
                 LASSERT(lpages == npages);
