@@ -412,6 +412,9 @@ lnet_add_route(__u32 net, unsigned int hops, lnet_nid_t gateway,
 	if (rnet != rnet2)
 		LIBCFS_FREE(rnet, sizeof(*rnet));
 
+	/* indicate to startup the router checker if configured */
+	wake_up_all(&the_lnet.ln_rc_waitq);
+
 	return 0;
 }
 
@@ -1127,11 +1130,6 @@ lnet_router_checker_start(void)
                 return -EINVAL;
         }
 
-        if (!the_lnet.ln_routing &&
-            live_router_check_interval <= 0 &&
-            dead_router_check_interval <= 0)
-                return 0;
-
 #ifdef __KERNEL__
 	sema_init(&the_lnet.ln_rc_signal, 0);
         /* EQ size doesn't matter; the callback is guaranteed to get every
@@ -1176,13 +1174,15 @@ lnet_router_checker_start(void)
 void
 lnet_router_checker_stop (void)
 {
-        int rc;
+	int rc;
 
-        if (the_lnet.ln_rc_state == LNET_RC_STATE_SHUTDOWN)
-                return;
+	if (the_lnet.ln_rc_state == LNET_RC_STATE_SHUTDOWN)
+		return;
 
-        LASSERT (the_lnet.ln_rc_state == LNET_RC_STATE_RUNNING);
+	LASSERT (the_lnet.ln_rc_state == LNET_RC_STATE_RUNNING);
 	the_lnet.ln_rc_state = LNET_RC_STATE_STOPPING;
+	/* wakeup the RC thread if it's sleeping */
+	wake_up_all(&the_lnet.ln_rc_waitq);
 
 #ifdef __KERNEL__
 	/* block until event callback signals exit */
@@ -1283,23 +1283,33 @@ lnet_prune_rc_data(int wait_unlink)
 static int
 lnet_router_checker(void *arg)
 {
-        lnet_peer_t       *rtr;
+	lnet_peer_t       *rtr;
 	struct list_head  *entry;
+	wait_queue_t	  waitq;
 
-        cfs_block_allsigs();
+	cfs_block_allsigs();
 
-        LASSERT (the_lnet.ln_rc_state == LNET_RC_STATE_RUNNING);
+	LASSERT (the_lnet.ln_rc_state == LNET_RC_STATE_RUNNING);
 
-        while (the_lnet.ln_rc_state == LNET_RC_STATE_RUNNING) {
+	init_waitqueue_entry_current(&waitq);
+	add_wait_queue(&the_lnet.ln_rc_waitq, &waitq);
+
+	while (the_lnet.ln_rc_state == LNET_RC_STATE_RUNNING) {
 		__u64	version;
 		int	cpt;
 		int	cpt2;
+		int	num_routes = 0;
+
+		if (live_router_check_interval <= 0 &&
+		    dead_router_check_interval <= 0)
+			goto delay;
 
 		cpt = lnet_net_lock_current();
 rescan:
 		version = the_lnet.ln_routers_version;
 
 		list_for_each(entry, &the_lnet.ln_routers) {
+			num_routes++;
 			rtr = list_entry(entry, lnet_peer_t, lp_rtr_list);
 
 			cpt2 = lnet_cpt_of_nid_locked(rtr->lp_nid);
@@ -1312,14 +1322,14 @@ rescan:
 					goto rescan;
 			}
 
-                        lnet_ping_router_locked(rtr);
+			lnet_ping_router_locked(rtr);
 
-                        /* NB dropped lock */
-                        if (version != the_lnet.ln_routers_version) {
-                                /* the routers list has changed */
-                                goto rescan;
-                        }
-                }
+			/* NB dropped lock */
+			if (version != the_lnet.ln_routers_version) {
+				/* the routers list has changed */
+				goto rescan;
+			}
+		}
 
 		if (the_lnet.ln_routing)
 			lnet_update_ni_status_locked();
@@ -1328,16 +1338,31 @@ rescan:
 
 		lnet_prune_rc_data(0); /* don't wait for UNLINK */
 
+delay:
 		/* Call cfs_pause() here always adds 1 to load average
 		 * because kernel counts # active tasks as nr_running
 		 * + nr_uninterruptible. */
-		schedule_timeout_and_set_state(TASK_INTERRUPTIBLE,
-						   cfs_time_seconds(1));
+		/* if there are any routes then wakeup every second.  If
+		 * there are no routes then sleep indefinietly until woken
+		 * up by a user adding a route or in the future by the user
+		 * explicitly requesting rc checker to run by setting
+		 * live_router_check_interval and
+		 * dead_router_check_interval. */
+		set_current_state(TASK_INTERRUPTIBLE);
+		if (num_routes > 0 && live_router_check_interval > 0 &&
+		    dead_router_check_interval > 0)
+			waitq_timedwait(&waitq, TASK_INTERRUPTIBLE,
+					cfs_time_seconds(1));
+		else
+			waitq_wait(&waitq, TASK_INTERRUPTIBLE);
+		set_current_state(TASK_RUNNING);
 	}
 
 	LASSERT(the_lnet.ln_rc_state == LNET_RC_STATE_STOPPING);
 
 	lnet_prune_rc_data(1); /* wait for UNLINK */
+
+	remove_wait_queue(&the_lnet.ln_rc_waitq, &waitq);
 
 	the_lnet.ln_rc_state = LNET_RC_STATE_SHUTDOWN;
 	up(&the_lnet.ln_rc_signal);
