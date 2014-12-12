@@ -285,6 +285,8 @@ command_t cmdlist[] = {
 	 "usage: nodemap_test_nid <nid>"},
 	{"nodemap_test_id", jt_nodemap_test_id, 0,
 	 "Usage: nodemap_test_id --nid <nid> --idtype [uid|gid] --id <id>"},
+	{"nodemap_info", jt_nodemap_info, 0,
+	 "Usage: nodemap_info [list|nodemap_name|all]"},
 
         /* Changelog commands */
         {"===  Changelogs ==", jt_noop, 0, "changelog user management"},

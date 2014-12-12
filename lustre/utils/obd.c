@@ -3502,6 +3502,46 @@ int jt_nodemap_test_id(int argc, char **argv)
 }
 
 /**
+ * Output information about nodemaps.
+ * \param	argc		number of args
+ * \param	argv[]		variable string arguments
+ *
+ * [list|nodemap_name|all]	\a list will list all nodemaps (default).
+ *				Specifying a \a nodemap_name will
+ *				display info about that specific nodemap.
+ *				\a all will display info for all nodemaps.
+ * \retval			0 on success
+ */
+int jt_nodemap_info(int argc, char **argv)
+{
+	int		rc = 0;
+	const char	usage_str[] = "usage: nodemap_info "
+				      "[list|nodemap_name|all]\n";
+
+	if (argc > 2) {
+		fprintf(stderr, usage_str);
+		return -1;
+	}
+	if (argc == 1 || strcmp("list", argv[1]) == 0) {
+		/* XXX do list nodemaps here */
+	} else if (strcmp("all", argv[1]) == 0) {
+		char *getparam_args[] = { "getparam", "nodemap/*/*"};
+
+		return jt_lcfg_getparam(2, getparam_args);
+	} else {
+		char	filename[PATH_MAX];
+		char	*getparam_args[] = { "getparam", filename };
+
+		snprintf(filename, PATH_MAX, "nodemap/%s/*", argv[1]);
+		rc = jt_lcfg_getparam(2, getparam_args);
+		if (rc == -ESRCH)
+			fprintf(stderr, "error: nodemap_info: cannot find"
+					"nodemap %s\n", argv[1]);
+	}
+	return rc;
+}
+
+/**
  * add an nid range to a nodemap
  *
  * \param	argc		number of args
