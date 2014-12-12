@@ -1089,6 +1089,13 @@ build_spl_zfs() {
             speclist="$pkg.spec $pkg-kmod.spec $pkg-dkms.spec"
         fi
 
+	if [ "$pkg" == "zfs" ]; then
+            # Apply patch for zero-copy flattening
+            echo "Applying ZFS patch"
+            patch -p1 < \
+                ${TOPDIR}/lustre/contrib/patches/zfs/zfs_0.6.3-1.1_illumous_5244.patch
+	fi
+
         sh autogen.sh || return 255
 
         if  ! ./configure --with-linux=${LINUX} --with-linux-obj=${LINUXOBJ:-$LINUX} \
@@ -1123,6 +1130,7 @@ build_spl_zfs() {
                 --define "require_kdir ${LINUX}" \
                 ${LINUXOBJ:+--define "require_kobj ${LINUXOBJ}"} \
                 ${spldir:+--define "require_spldir ${spldir}"} \
+		--define "dist wc1" \
                 --define "kver $kver" \
                 --define "kernels $kver" \
                 --define "_tmppath /var/tmp" \
