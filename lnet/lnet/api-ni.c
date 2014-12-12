@@ -1415,7 +1415,7 @@ static int
 lnet_startup_lndni(struct lnet_ni *ni, __s32 peer_timeout,
 		   __s32 peer_cr, __s32 peer_buf_cr, __s32 credits)
 {
-	int			rc = 0;
+	int			rc = -EINVAL;
 	int			lnd_type;
 	lnd_t			*lnd;
 	struct lnet_tx_queue	*tq;
@@ -1443,6 +1443,8 @@ lnet_startup_lndni(struct lnet_ni *ni, __s32 peer_timeout,
 
 		CERROR("Net %s is not unique\n",
 		       libcfs_net2str(LNET_NIDNET(ni->ni_nid)));
+
+		rc = -EEXIST;
 		goto failed0;
 	}
 	lnet_net_unlock(LNET_LOCK_EX);
@@ -1468,6 +1470,7 @@ lnet_startup_lndni(struct lnet_ni *ni, __s32 peer_timeout,
 					   "compiled with kernel module "
 					   "loading support.");
 #endif
+			rc = -EINVAL;
 			goto failed0;
 		}
 	}
@@ -1581,7 +1584,7 @@ lnet_startup_lndni(struct lnet_ni *ni, __s32 peer_timeout,
 	return 0;
 failed0:
 	lnet_ni_free(ni);
-	return -EINVAL;
+	return rc;
 }
 
 static int
