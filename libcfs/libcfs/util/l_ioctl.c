@@ -1,23 +1,32 @@
 /*
+ * LGPL HEADER START
+ *
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *
+ *   This file is part of Lustre, https://wiki.hpdd.intel.com/
+ *
+ * This library is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License (LGPL)
+ * as published by the Free Software Foundation; either version 2.1 of
+ * the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library in the LCOPYING file; if not, a copy
+ * is available at http://www.gnu.org/licenses/lgpl-2.1.html
+ *
+ * LGPL HEADER END
+ */
+/*
  * Copyright (C) 2001, 2002 Cluster File Systems, Inc.
  *
  * Copyright (c) 2014, Intel Corporation.
  *
- *   This file is part of Lustre, https://wiki.hpdd.intel.com/
- *
- *   Portals is free software; you can redistribute it and/or
- *   modify it under the terms of version 2 of the GNU General Public
- *   License as published by the Free Software Foundation.
- *
- *   Portals is distributed in the hope that it will be useful,
- *   but WITHOUT ANY WARRANTY; without even the implied warranty of
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *   GNU General Public License for more details.
- *
- *   You should have received a copy of the GNU General Public License
- *   along with Portals; if not, write to the Free Software
- *   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
- *
+ * This file is part of Lustre, http://www.lustre.org/
  */
 
 #define __USE_FILE_OFFSET64
@@ -45,12 +54,6 @@ struct ioc_dev {
 };
 
 static struct ioc_dev ioc_dev_list[10];
-
-struct dump_hdr {
-        int magic;
-        int dev_id;
-        unsigned int opc;
-};
 
 /* Catamount has no <linux/kdev_t.h>, so just define it here */
 #ifndef MKDEV
