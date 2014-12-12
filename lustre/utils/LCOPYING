@@ -1,4 +1,6 @@
-This licence file applies to new library files:
+This licence file applies to the llapi library interface files:
+lustre/include/lustre/lustreapi.h
+lustre/utils/liblustreapi.c
 lustre/utils/liblustreapi_hsm.c
 lustre/utils/liblustreapi_json.c
 lustre/utils/liblustreapi_layout.c
