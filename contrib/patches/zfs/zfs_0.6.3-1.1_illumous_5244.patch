@@ -1,0 +1,370 @@
+commit fc595576c6aad42fe610849b6bdd30f2d4e845d1
+Author: George Wilson <george.wilson@delphix.com>
+Date:   Mon Oct 20 22:07:45 2014 +0000
+
+    Illumos #5244 zio pipeline callers should explicitly invoke next stage
+    
+    References:
+    https://www.illumos.org/projects/illumos-gate//issues/5244
+    https://reviews.csiden.org/r/119/diff/#
+    
+    Porting Notes:
+    1. The unported "2932 support crash dumps to raidz, etc. pools" caused a
+    merge conflict due to a copyright difference in module/zfs/vdev_raidz.c.
+    2. The unported "4128 disks in zpools never go away when pulled" and
+    additional Linux-specific changes caused merge conflicts in
+    module/zfs/vdev_disk.c.
+    3. Our changes to use the TQ_PUSHPAGE extension and vdev_file_taskq
+    caused merge conflicts in module/zfs/vdev_file.c. The taskq import that
+    I plan to send in the future would have prevented this particular
+    conflict.
+    
+    Reviewed by: Matthew Ahrens mahrens@delphix.com
+    Reviewed by: Adam Leventhal ahl@delphix.com
+    Reviewed by: Alex Reece alex.reece@delphix.com
+    Reviewed by: Christopher Siden christopher.siden@delphix.com
+    Ported-by: Richard Yao <richard.yao@clusterhq.com>
+
+diff --git a/include/sys/vdev_impl.h b/include/sys/vdev_impl.h
+index 16fcaa0..07ff9fb 100644
+--- a/include/sys/vdev_impl.h
++++ b/include/sys/vdev_impl.h
+@@ -61,7 +61,7 @@ typedef int	vdev_open_func_t(vdev_t *vd, uint64_t *size, uint64_t *max_size,
+     uint64_t *ashift);
+ typedef void	vdev_close_func_t(vdev_t *vd);
+ typedef uint64_t vdev_asize_func_t(vdev_t *vd, uint64_t psize);
+-typedef int	vdev_io_start_func_t(zio_t *zio);
++typedef void	vdev_io_start_func_t(zio_t *zio);
+ typedef void	vdev_io_done_func_t(zio_t *zio);
+ typedef void	vdev_state_change_func_t(vdev_t *vd, int, int);
+ typedef void	vdev_hold_func_t(vdev_t *vd);
+diff --git a/include/sys/zio.h b/include/sys/zio.h
+index 69b00d0..28acf5d 100644
+--- a/include/sys/zio.h
++++ b/include/sys/zio.h
+@@ -153,9 +153,6 @@ typedef enum zio_priority {
+ 	ZIO_PRIORITY_NOW		/* non-queued i/os (e.g. free) */
+ } zio_priority_t;
+ 
+-#define	ZIO_PIPELINE_CONTINUE		0x100
+-#define	ZIO_PIPELINE_STOP		0x101
+-
+ enum zio_flag {
+ 	/*
+ 	 * Flags inherited by gang, ddt, and vdev children,
+diff --git a/lib/libzpool/taskq.c b/lib/libzpool/taskq.c
+index 72807f6..d63bc28 100644
+--- a/lib/libzpool/taskq.c
++++ b/lib/libzpool/taskq.c
+@@ -25,6 +25,7 @@
+ /*
+  * Copyright 2011 Nexenta Systems, Inc. All rights reserved.
+  * Copyright 2012 Garrett D'Amore <garrett@damore.org>.  All rights reserved.
++ * Copyright (c) 2014 by Delphix. All rights reserved.
+  */
+ 
+ #include <sys/zfs_context.h>
+@@ -33,8 +34,10 @@ int taskq_now;
+ taskq_t *system_taskq;
+ 
+ #define	TASKQ_ACTIVE	0x00010000
++#define	TASKQ_NAMELEN	31
+ 
+ struct taskq {
++	char		tq_name[TASKQ_NAMELEN + 1];
+ 	kmutex_t	tq_lock;
+ 	krwlock_t	tq_threadlock;
+ 	kcondvar_t	tq_dispatch_cv;
+@@ -280,6 +283,7 @@ taskq_create(const char *name, int nthreads, pri_t pri,
+ 	cv_init(&tq->tq_dispatch_cv, NULL, CV_DEFAULT, NULL);
+ 	cv_init(&tq->tq_wait_cv, NULL, CV_DEFAULT, NULL);
+ 	cv_init(&tq->tq_maxalloc_cv, NULL, CV_DEFAULT, NULL);
++	(void) strncpy(tq->tq_name, name, TASKQ_NAMELEN + 1);
+ 	tq->tq_flags = flags | TASKQ_ACTIVE;
+ 	tq->tq_active = nthreads;
+ 	tq->tq_nthreads = nthreads;
+diff --git a/module/zfs/vdev_disk.c b/module/zfs/vdev_disk.c
+index 9cc6745..71cef93 100644
+--- a/module/zfs/vdev_disk.c
++++ b/module/zfs/vdev_disk.c
+@@ -655,7 +655,7 @@ vdev_disk_io_flush(struct block_device *bdev, zio_t *zio)
+ 	return (0);
+ }
+ 
+-static int
++static void
+ vdev_disk_io_start(zio_t *zio)
+ {
+ 	vdev_t *v = zio->io_vd;
+@@ -667,7 +667,9 @@ vdev_disk_io_start(zio_t *zio)
+ 
+ 		if (!vdev_readable(v)) {
+ 			zio->io_error = SET_ERROR(ENXIO);
+-			return (ZIO_PIPELINE_CONTINUE);
++			zio_interrupt(zio);
++			return;
++
+ 		}
+ 
+ 		switch (zio->io_cmd) {
+@@ -683,7 +685,7 @@ vdev_disk_io_start(zio_t *zio)
+ 
+ 			error = vdev_disk_io_flush(vd->vd_bdev, zio);
+ 			if (error == 0)
+-				return (ZIO_PIPELINE_STOP);
++				return;
+ 
+ 			zio->io_error = error;
+ 			if (error == ENOTSUP)
+@@ -695,8 +697,8 @@ vdev_disk_io_start(zio_t *zio)
+ 			zio->io_error = SET_ERROR(ENOTSUP);
+ 		}
+ 
+-		return (ZIO_PIPELINE_CONTINUE);
+-
++		zio_execute(zio);
++		return;
+ 	case ZIO_TYPE_WRITE:
+ 		flags = WRITE;
+ 		break;
+@@ -707,17 +709,17 @@ vdev_disk_io_start(zio_t *zio)
+ 
+ 	default:
+ 		zio->io_error = SET_ERROR(ENOTSUP);
+-		return (ZIO_PIPELINE_CONTINUE);
++		zio_interrupt(zio);
++		return;
+ 	}
+ 
+ 	error = __vdev_disk_physio(vd->vd_bdev, zio, zio->io_data,
+ 	    zio->io_size, zio->io_offset, flags);
+ 	if (error) {
+ 		zio->io_error = error;
+-		return (ZIO_PIPELINE_CONTINUE);
++		zio_interrupt(zio);
++		return;
+ 	}
+-
+-	return (ZIO_PIPELINE_STOP);
+ }
+ 
+ static void
+diff --git a/module/zfs/vdev_file.c b/module/zfs/vdev_file.c
+index 8059cde..d0760af 100644
+--- a/module/zfs/vdev_file.c
++++ b/module/zfs/vdev_file.c
+@@ -20,7 +20,7 @@
+  */
+ /*
+  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
+- * Copyright (c) 2013 by Delphix. All rights reserved.
++ * Copyright (c) 2011, 2014 by Delphix. All rights reserved.
+  */
+ 
+ #include <sys/zfs_context.h>
+@@ -161,7 +161,7 @@ vdev_file_io_strategy(void *arg)
+ 	zio_interrupt(zio);
+ }
+ 
+-static int
++static void
+ vdev_file_io_start(zio_t *zio)
+ {
+ 	vdev_t *vd = zio->io_vd;
+@@ -171,7 +171,8 @@ vdev_file_io_start(zio_t *zio)
+ 		/* XXPOLICY */
+ 		if (!vdev_readable(vd)) {
+ 			zio->io_error = SET_ERROR(ENXIO);
+-			return (ZIO_PIPELINE_CONTINUE);
++			zio_interrupt(zio);
++			return;
+ 		}
+ 
+ 		switch (zio->io_cmd) {
+@@ -187,13 +188,12 @@ vdev_file_io_start(zio_t *zio)
+ 			zio->io_error = SET_ERROR(ENOTSUP);
+ 		}
+ 
+-		return (ZIO_PIPELINE_CONTINUE);
++		zio_execute(zio);
++		return;
+ 	}
+ 
+ 	VERIFY3U(taskq_dispatch(vdev_file_taskq, vdev_file_io_strategy, zio,
+ 	    TQ_PUSHPAGE), !=, 0);
+-
+-	return (ZIO_PIPELINE_STOP);
+ }
+ 
+ /* ARGSUSED */
+diff --git a/module/zfs/vdev_mirror.c b/module/zfs/vdev_mirror.c
+index 17417a0..ba8cb47 100644
+--- a/module/zfs/vdev_mirror.c
++++ b/module/zfs/vdev_mirror.c
+@@ -24,7 +24,7 @@
+  */
+ 
+ /*
+- * Copyright (c) 2013 by Delphix. All rights reserved.
++ * Copyright (c) 2012, 2014 by Delphix. All rights reserved.
+  */
+ 
+ #include <sys/zfs_context.h>
+@@ -327,7 +327,7 @@ vdev_mirror_child_select(zio_t *zio)
+ 	return (-1);
+ }
+ 
+-static int
++static void
+ vdev_mirror_io_start(zio_t *zio)
+ {
+ 	mirror_map_t *mm;
+@@ -352,7 +352,8 @@ vdev_mirror_io_start(zio_t *zio)
+ 				    zio->io_type, zio->io_priority, 0,
+ 				    vdev_mirror_scrub_done, mc));
+ 			}
+-			return (ZIO_PIPELINE_CONTINUE);
++			zio_execute(zio);
++			return;
+ 		}
+ 		/*
+ 		 * For normal reads just pick one child.
+@@ -378,7 +379,7 @@ vdev_mirror_io_start(zio_t *zio)
+ 		c++;
+ 	}
+ 
+-	return (ZIO_PIPELINE_CONTINUE);
++	zio_execute(zio);
+ }
+ 
+ static int
+diff --git a/module/zfs/vdev_missing.c b/module/zfs/vdev_missing.c
+index b9eb99d..2287573 100644
+--- a/module/zfs/vdev_missing.c
++++ b/module/zfs/vdev_missing.c
+@@ -24,7 +24,7 @@
+  */
+ 
+ /*
+- * Copyright (c) 2013 by Delphix. All rights reserved.
++ * Copyright (c) 2012, 2014 by Delphix. All rights reserved.
+  */
+ 
+ /*
+@@ -66,11 +66,11 @@ vdev_missing_close(vdev_t *vd)
+ }
+ 
+ /* ARGSUSED */
+-static int
++static void
+ vdev_missing_io_start(zio_t *zio)
+ {
+ 	zio->io_error = SET_ERROR(ENOTSUP);
+-	return (ZIO_PIPELINE_CONTINUE);
++	zio_execute(zio);
+ }
+ 
+ /* ARGSUSED */
+diff --git a/module/zfs/vdev_raidz.c b/module/zfs/vdev_raidz.c
+index 4cd21df..f81befd 100644
+--- a/module/zfs/vdev_raidz.c
++++ b/module/zfs/vdev_raidz.c
+@@ -21,7 +21,7 @@
+ 
+ /*
+  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
+- * Copyright (c) 2013 by Delphix. All rights reserved.
++ * Copyright (c) 2012, 2014 by Delphix. All rights reserved.
+  */
+ 
+ #include <sys/zfs_context.h>
+@@ -1567,7 +1567,7 @@ vdev_raidz_child_done(zio_t *zio)
+  *      vdevs have had errors, then create zio read operations to the parity
+  *      columns' VDevs as well.
+  */
+-static int
++static void
+ vdev_raidz_io_start(zio_t *zio)
+ {
+ 	vdev_t *vd = zio->io_vd;
+@@ -1611,7 +1611,8 @@ vdev_raidz_io_start(zio_t *zio)
+ 			    ZIO_FLAG_NODATA | ZIO_FLAG_OPTIONAL, NULL, NULL));
+ 		}
+ 
+-		return (ZIO_PIPELINE_CONTINUE);
++		zio_execute(zio);
++		return;
+ 	}
+ 
+ 	ASSERT(zio->io_type == ZIO_TYPE_READ);
+@@ -1651,7 +1652,7 @@ vdev_raidz_io_start(zio_t *zio)
+ 		}
+ 	}
+ 
+-	return (ZIO_PIPELINE_CONTINUE);
++	zio_execute(zio);
+ }
+ 
+ 
+diff --git a/module/zfs/zio.c b/module/zfs/zio.c
+index 0ba167c..66238b3 100644
+--- a/module/zfs/zio.c
++++ b/module/zfs/zio.c
+@@ -61,6 +61,9 @@ kmem_cache_t *zio_data_buf_cache[SPA_MAXBLOCKSIZE >> SPA_MINBLOCKSHIFT];
+ int zio_bulk_flags = 0;
+ int zio_delay_max = ZIO_DELAY_MAX;
+ 
++#define	ZIO_PIPELINE_CONTINUE		0x100
++#define	ZIO_PIPELINE_STOP		0x101
++
+ /*
+  * The following actions directly effect the spa's sync-to-convergence logic.
+  * The values below define the sync pass when we start performing the action.
+@@ -2600,6 +2603,18 @@ zio_free_zil(spa_t *spa, uint64_t txg, blkptr_t *bp)
+  * Read and write to physical devices
+  * ==========================================================================
+  */
++
++
++/*
++ * Issue an I/O to the underlying vdev. Typically the issue pipeline
++ * stops after this stage and will resume upon I/O completion.
++ * However, there are instances where the vdev layer may need to
++ * continue the pipeline when an I/O was not issued. Since the I/O
++ * that was sent to the vdev layer might be different than the one
++ * currently active in the pipeline (see vdev_queue_io()), we explicitly
++ * force the underlying vdev layers to call either zio_execute() or
++ * zio_interrupt() to ensure that the pipeline continues with the correct I/O.
++ */
+ static int
+ zio_vdev_io_start(zio_t *zio)
+ {
+@@ -2617,7 +2632,8 @@ zio_vdev_io_start(zio_t *zio)
+ 		/*
+ 		 * The mirror_ops handle multiple DVAs in a single BP.
+ 		 */
+-		return (vdev_mirror_ops.vdev_op_io_start(zio));
++		vdev_mirror_ops.vdev_op_io_start(zio);
++		return (ZIO_PIPELINE_STOP);
+ 	}
+ 
+ 	/*
+@@ -2625,7 +2641,7 @@ zio_vdev_io_start(zio_t *zio)
+ 	 * can quickly react to certain workloads.  In particular, we care
+ 	 * about non-scrubbing, top-level reads and writes with the following
+ 	 * characteristics:
+-	 * 	- synchronous writes of user data to non-slog devices
++	 *	- synchronous writes of user data to non-slog devices
+ 	 *	- any reads of user data
+ 	 * When these conditions are met, adjust the timestamp of spa_last_io
+ 	 * which allows the scan thread to adjust its workload accordingly.
+@@ -2695,7 +2711,8 @@ zio_vdev_io_start(zio_t *zio)
+ 		}
+ 	}
+ 
+-	return (vd->vdev_ops->vdev_op_io_start(zio));
++	vd->vdev_ops->vdev_op_io_start(zio);
++	return (ZIO_PIPELINE_STOP);
+ }
+ 
+ static int
