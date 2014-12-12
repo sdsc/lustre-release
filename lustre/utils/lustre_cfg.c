@@ -522,6 +522,7 @@ struct param_opts {
 	unsigned int po_recursive:1;
 	unsigned int po_params2:1;
 	unsigned int po_delete:1;
+	unsigned int po_only_dir:1;
 };
 
 /* Param set to single log file, used by all clients and servers.
@@ -663,22 +664,28 @@ int jt_lcfg_mgsparam(int argc, char **argv)
 /* Display the path in the same format as sysctl
  * For eg. obdfilter.lustre-OST0000.stats */
 static char *
-display_name(char *filename, size_t filename_size, bool po_show_type)
+display_name(char *filename, size_t filename_size, bool po_show_type,
+	     bool po_only_dir)
 {
 	struct stat st;
 	char *tmp;
 	char *suffix = NULL;
 
-	if (po_show_type) {
+	if (po_show_type || po_only_dir) {
 		if (lstat(filename, &st) == -1)
 			return NULL;
 
-		if (S_ISDIR(st.st_mode))
-			suffix = "/";
-		else if (S_ISLNK(st.st_mode))
-			suffix = "@";
-		else if (st.st_mode & S_IWUSR)
-			suffix = "=";
+		if (po_show_type) {
+			if (S_ISDIR(st.st_mode))
+				suffix = "/";
+			else if (S_ISLNK(st.st_mode))
+				suffix = "@";
+			else if (st.st_mode & S_IWUSR)
+				suffix = "=";
+		} else if (po_only_dir) {
+			if (!S_ISDIR(st.st_mode))
+				return NULL;
+		}
 	}
 
 	filename += strlen("/proc/");
@@ -785,8 +792,9 @@ static int listparam_cmdline(int argc, char **argv, struct param_opts *popt)
         popt->po_only_path = 1;
         popt->po_show_type = 0;
         popt->po_recursive = 0;
+        popt->po_only_dir = 0;
 
-        while ((ch = getopt(argc, argv, "FR")) != -1) {
+        while ((ch = getopt(argc, argv, "FRD")) != -1) {
                 switch (ch) {
                 case 'F':
                         popt->po_show_type = 1;
@@ -794,6 +802,9 @@ static int listparam_cmdline(int argc, char **argv, struct param_opts *popt)
                 case 'R':
                         popt->po_recursive = 1;
                         break;
+		case 'D':
+			popt->po_only_dir = 1;
+			break;
                 default:
                         return -1;
                 }
@@ -813,7 +824,11 @@ static int listparam_display(struct param_opts *popt, char *pattern)
 	if (rc < 0)
 		return rc;
 
-	rc = glob(filename, GLOB_BRACE | (popt->po_recursive ? GLOB_MARK : 0),
+	rc = glob(filename,
+		  GLOB_BRACE |
+			(popt->po_recursive ? GLOB_MARK : 0) |
+			/* GLOB_ONLYDIR doesn't guarantee, only a hint */
+			(popt->po_only_dir ? GLOB_ONLYDIR : 0),
 		  NULL, &glob_info);
 	if (rc) {
 		fprintf(stderr, "error: list_param: %s: %s\n",
@@ -834,7 +849,7 @@ static int listparam_display(struct param_opts *popt, char *pattern)
 		else
 			last = 0;
 		strlcpy(filename, glob_info.gl_pathv[i], len);
-		valuename = display_name(filename, len, popt->po_show_type);
+		valuename = display_name(filename, len, popt->po_show_type, popt->po_only_dir);
 		if (valuename)
 			printf("%s\n", valuename);
 		if (last) {
@@ -942,7 +957,7 @@ static int getparam_display(struct param_opts *popt, char *pattern)
 			strncpy(filename, glob_info.gl_pathv[i],
 				sizeof(filename));
 			valuename = display_name(filename, sizeof(filename),
-						 false);
+						 false, false);
 		}
 
                 /* Write the contents of file to stdout */
@@ -1023,6 +1038,51 @@ int jt_lcfg_getparam(int argc, char **argv)
 	return rc;
 }
 
+/**
+ * Output information about nodemaps.
+ * \param	argc		number of args
+ * \param	argv[]		variable string arguments
+ *
+ * [list|nodemap_name|all]	\a list will list all nodemaps (default).
+ *				Specifying a \a nodemap_name will
+ *				display info about that specific nodemap.
+ *				\a all will display info for all nodemaps.
+ * \retval			0 on success
+ */
+int jt_nodemap_info(int argc, char **argv)
+{
+	const char		usage_str[] = "usage: nodemap_info "
+					      "[list|nodemap_name|all]\n";
+	struct param_opts	popt;
+	int			rc = 0;
+
+	if (argc > 2) {
+		fprintf(stderr, usage_str);
+		return -1;
+	}
+	popt.po_show_path = 1;
+	popt.po_only_path = 0;
+	popt.po_show_type = 0;
+	popt.po_recursive = 0;
+
+	if (argc == 1 || strcmp("list", argv[1]) == 0) {
+		popt.po_only_path = 1;
+		rc = listparam_display(&popt, "nodemap/*");
+	} else if (strcmp("all", argv[1]) == 0) {
+		rc = getparam_display(&popt, "nodemap/*/*");
+	} else {
+		char	filename[PATH_MAX];
+
+		snprintf(filename, PATH_MAX, "nodemap/%s/*", argv[1]);
+		rc = getparam_display(&popt, filename);
+		if (rc == -ESRCH)
+			fprintf(stderr, "error: nodemap_info: cannot find"
+					"nodemap %s\n", argv[1]);
+	}
+	return rc;
+}
+
+
 static int setparam_cmdline(int argc, char **argv, struct param_opts *popt)
 {
         int ch;
@@ -1079,7 +1139,7 @@ static int setparam_display(struct param_opts *popt, char *pattern, char *value)
 			strncpy(filename, glob_info.gl_pathv[i],
 				sizeof(filename));
 			valuename = display_name(filename, sizeof(filename),
-						 false);
+						 false, false);
 			if (valuename)
 				printf("%s=%s\n", valuename, value);
 		}
