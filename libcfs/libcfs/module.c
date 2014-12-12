@@ -237,6 +237,11 @@ static int libcfs_ioctl(struct cfs_psdev_file *pfile,
 	}
 
 	if (hdr->ioc_version == LIBCFS_IOCTL_VERSION) {
+		if (hdr->ioc_len != sizeof(*data)) {
+			err = -EINVAL;
+			GOTO(out, err);
+		}
+
 		/* The libcfs_ioctl_data_adjust() function performs adjustment
 		 * operations on the libcfs_ioctl_data structure to make
 		 * it usable by the code.  This doesn't need to be called
