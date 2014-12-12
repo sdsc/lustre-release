@@ -30,9 +30,12 @@
 
 int llapi_nodemap_exists(const char *nodemap)
 {
-	char mapname[PATH_MAX + 1];
+	char **list = NULL;
+	int rc;
 
-	snprintf(mapname, sizeof(mapname), "nodemap/%s", nodemap);
+	rc = llapi_get_param(&list, "nodemap.%s", nodemap);
 
-	return get_param(mapname, NULL, 0);
+	free(list);
+	return rc;
+
 }

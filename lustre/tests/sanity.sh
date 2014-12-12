@@ -4924,10 +4924,10 @@ test_56y() {
 	[[ $res == 0 ]] || error "search !raid0: found $res files != 0"
 
 	# only files can be released, so no need to force file search
-	res=$($LFIND $dir0 -L released)
+	res=$($LFIND $dir0 -L released -type f)
 	[[ $res == $f2 ]] || error "search released: found $res != $f2"
 
-	res=$($LFIND $dir0 \! -L released)
+	res=$($LFIND $dir0 \! -L released -type f)
 	[[ $res == $f1 ]] || error "search !released: found $res != $f1"
 
 }
