@@ -2210,7 +2210,11 @@ int osc_enqueue_base(struct obd_export *exp, struct ldlm_res_id *res_id,
 		if (*flags & LDLM_FL_TEST_LOCK)
 			RETURN(ELDLM_OK);
 
+		/* ldlm_lock_match() has hold a reference on the lock */
 		matched = ldlm_handle2lock(&lockh);
+		LASSERTF(matched != NULL,
+			 "%s: lock with handle "LPX64" accidentally"
+			 " vanished.\n", obd->obd_name, lockh->cookie);
 		if (agl) {
 			/* AGL enqueues DLM locks speculatively. Therefore if
 			 * it already exists a DLM lock, it wll just inform the
