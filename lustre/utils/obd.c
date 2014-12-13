@@ -2562,6 +2562,7 @@ static int llog_cancel_parse_optional(int argc, char **argv,
 	}
 
 	/*now process command line arguments*/
+	optind = 0;
 	while ((cOpt = getopt_long(argc, argv, short_options,
 					long_options, NULL)) != -1) {
 		switch (cOpt) {
@@ -3472,6 +3473,7 @@ int jt_nodemap_test_id(int argc, char **argv)
 		}
 	};
 
+	optind = 0;
 	while ((c = getopt_long(argc, argv, "n:t:i:",
 				long_options, NULL)) != -1) {
 		switch (c) {
@@ -3543,6 +3545,7 @@ int jt_nodemap_add_range(int argc, char **argv)
 
 	INIT_LIST_HEAD(&nidlist);
 
+	optind = 0;
 	while ((c = getopt_long(argc, argv, "n:r:",
 				long_options, NULL)) != -1) {
 		switch (c) {
@@ -3632,6 +3635,7 @@ int jt_nodemap_del_range(int argc, char **argv)
 
 	INIT_LIST_HEAD(&nidlist);
 
+	optind = 0;
 	while ((c = getopt_long(argc, argv, "n:r:",
 				long_options, NULL)) != -1) {
 		switch (c) {
@@ -3725,6 +3729,7 @@ int jt_nodemap_modify(int argc, char **argv)
 		}
 	};
 
+	optind = 0;
 	while ((c = getopt_long(argc, argv, "n:p:v:",
 				long_options, NULL)) != -1) {
 		switch (c) {
@@ -3808,6 +3813,7 @@ int jt_nodemap_add_idmap(int argc, char **argv)
 		}
 	};
 
+	optind = 0;
 	while ((c = getopt_long(argc, argv, "n:m:i:",
 				long_options, NULL)) != -1) {
 		switch (c) {
@@ -3882,6 +3888,7 @@ int jt_nodemap_del_idmap(int argc, char **argv)
 		}
 	};
 
+	optind = 0;
 	while ((c = getopt_long(argc, argv, "n:m:i:",
 				long_options, NULL)) != -1) {
 		switch (c) {
