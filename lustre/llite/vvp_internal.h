@@ -212,14 +212,6 @@ struct vvp_object {
 	struct inode           *vob_inode;
 
 	/**
-	 * A list of dirty pages pending IO in the cache. Used by
-	 * SOM. Protected by ll_inode_info::lli_lock.
-	 *
-	 * \see ccc_page::cpg_pending_linkage
-	 */
-	struct list_head	vob_pending_list;
-
-	/**
 	 * Number of transient pages.  This is no longer protected by i_sem,
 	 * and needs to be atomic.  This is not actually used for anything,
 	 * and can probably be removed.
@@ -251,15 +243,7 @@ struct vvp_object {
 struct ccc_page {
 	struct cl_page_slice cpg_cl;
 	unsigned	cpg_defer_uptodate:1,
-			cpg_ra_used:1,
-			cpg_write_queued:1;
-	/**
-	 * Non-empty iff this page is already counted in
-	 * vvp_object::vob_pending_list. This list is only used as a flag,
-	 * that is, never iterated through, only checked for list_empty(), but
-	 * having a list is useful for debugging.
-	 */
-	struct list_head cpg_pending_linkage;
+			cpg_ra_used:1;
 	/** VM page */
 	struct page	*cpg_page;
 };
