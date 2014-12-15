@@ -371,7 +371,6 @@ int ccc_object_init(const struct lu_env *env, struct lu_object *obj,
                 const struct cl_object_conf *cconf;
 
                 cconf = lu2cl_conf(conf);
-		INIT_LIST_HEAD(&vob->cob_pending_list);
                 lu_object_add(obj, below);
                 result = ccc_object_init0(env, vob, cconf);
         } else
@@ -802,8 +801,6 @@ void ccc_req_completion(const struct lu_env *env,
  *
  *    - o_parent_ver
  *
- *    - o_ioepoch,
- *
  *  and capability.
  */
 void ccc_req_attr_set(const struct lu_env *env,
@@ -825,14 +822,6 @@ void ccc_req_attr_set(const struct lu_env *env,
 						slice->crs_req->crq_type);
 	}
 
-	if (slice->crs_req->crq_type == CRT_WRITE) {
-		if (flags & OBD_MD_FLEPOCH) {
-			oa->o_valid |= OBD_MD_FLEPOCH;
-			oa->o_ioepoch = cl_i2info(inode)->lli_ioepoch;
-			valid_flags |= OBD_MD_FLMTIME | OBD_MD_FLCTIME |
-				       OBD_MD_FLUID | OBD_MD_FLGID;
-		}
-	}
 	obdo_from_inode(oa, inode, valid_flags & flags);
 	obdo_set_parent_fid(oa, &cl_i2info(inode)->lli_fid);
 	if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_INVALID_PFID))

@@ -828,8 +828,6 @@ struct md_op_data {
 	unsigned int		op_attr_flags; /* LUSTRE_{SYNC,..}_FL */
 	__u64                   op_valid; /* OBD_MD_* */
 
-	/* Size-on-MDS epoch and flags. */
-	__u64                   op_ioepoch;
 	enum md_op_flags	op_flags;
 
 	/* Capa fields */
