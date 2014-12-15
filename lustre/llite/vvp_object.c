@@ -60,8 +60,7 @@ static int vvp_object_print(const struct lu_env *env, void *cookie,
 	struct inode         *inode = obj->cob_inode;
 	struct ll_inode_info *lli;
 
-	(*p)(env, cookie, "(%s %d %d) inode: %p ",
-	     list_empty(&obj->cob_pending_list) ? "-" : "+",
+	(*p)(env, cookie, "(%d %d) inode: %p ",
 	     atomic_read(&obj->cob_transient_pages),
 	     atomic_read(&obj->cob_mmap_cnt),
 	     inode);
