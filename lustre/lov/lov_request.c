@@ -291,9 +291,6 @@ int lov_prep_getattr_set(struct obd_export *exp, struct obd_info *oinfo,
 
 		if (!lov_check_and_wait_active(lov, loi->loi_ost_idx)) {
 			CDEBUG(D_HA, "lov idx %d inactive\n", loi->loi_ost_idx);
-			if (oinfo->oi_oa->o_valid & OBD_MD_FLEPOCH)
-				/* SOM requires all the OSTs to be active. */
-				GOTO(out_set, rc = -EIO);
 			continue;
 		}
 

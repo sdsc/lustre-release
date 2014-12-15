@@ -348,7 +348,7 @@ static void mdc_ioepoch_pack(struct mdt_ioepoch *epoch,
                              struct md_op_data *op_data)
 {
         memcpy(&epoch->handle, &op_data->op_handle, sizeof(epoch->handle));
-        epoch->ioepoch = op_data->op_ioepoch;
+	epoch->ioepoch = 0;
         epoch->flags = op_data->op_flags & MF_SOM_LOCAL_FLAGS;
 }
 
