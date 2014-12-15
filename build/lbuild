@@ -555,7 +555,7 @@ download_ofed() {
         OFED_VERSION=${OFED_VERSION/daily-/}
         Mmv=${OFED_VERSION%%-*}
         daily=${OFED_VERSION##$Mmv-}
-        location="http://www.openfabrics.org/downloads/OFED/ofed-${Mmv}-daily/"
+        location="http://www.openfabrics.org/downloads/OFED/archive/ofed-${Mmv}-daily/"
         # find the filename for the version for the date specified
         OFED_VERSION=$(curl -s "$location" | sed -nre "/${daily}-/s/.*href=\"OFED-(${Mmv//./\\.}-${daily}-[0-9]{4,4}).tgz.*$/\1/p" | tail -1)
         if [ -z "$OFED_VERSION" ]; then
@@ -1958,6 +1958,7 @@ unpack_lustre
 BUILDID=$(sed -ne '/^BUILDID =/s/.*= *//p' lustre/META)
 
 load_target
+OFED_VERSION=1.5.2-2.1.0
 
 if [ -n "$OFED_VERSION" -a "$OFED_VERSION" != "inkernel" ]; then
     download_ofed
