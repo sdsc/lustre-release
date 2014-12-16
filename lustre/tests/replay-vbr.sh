@@ -124,6 +124,8 @@ test_1b() { # former test_0b
     facet_failover $SINGLEMDS
 
     client_evicted $CLIENT1 || error "$CLIENT1 not evicted"
+    wait_clients_import_state $CLIENT1 $SINGLEMDS FULL ||
+        error "$CLIENT1 not up"
     if ! do_node $CLIENT1 $CHECKSTAT -a $DIR/$tdir/$tfile; then
         error "open succeeded unexpectedly"
     fi
@@ -211,6 +213,8 @@ test_2b() { # former test_0e
     facet_failover $SINGLEMDS
 
     client_evicted $CLIENT1 || error "$CLIENT1 not evicted"
+    wait_clients_import_state $CLIENT1 $SINGLEMDS FULL ||
+        error "$CLIENT1 not up"
     if ! do_node $CLIENT1 $CHECKSTAT -a $DIR/$tdir/$tfile; then
         error "create succeeded unexpectedly"
     fi
@@ -248,6 +252,8 @@ test_3b() { # former test_0g
     facet_failover $SINGLEMDS
 
     client_evicted $CLIENT1 || error "$CLIENT1 not evicted"
+    wait_clients_import_state $CLIENT1 $SINGLEMDS FULL ||
+        error "$CLIENT1 not up"
     if do_node $CLIENT1 $CHECKSTAT -a $DIR/$tdir/$tfile; then
         error "unlink succeeded unexpectedly"
     fi
@@ -301,6 +307,8 @@ test_4c() { # former test_0j
     facet_failover $SINGLEMDS
 
     client_evicted $CLIENT1 || error "$CLIENT1 not evicted"
+    wait_clients_import_state $CLIENT1 $SINGLEMDS FULL ||
+        error "$CLIENT1 not up"
     if ! do_node $CLIENT1 $CHECKSTAT -u \\\#$UID $file; then
         error "setattr of UID succeeded unexpectedly"
     fi
@@ -324,6 +332,8 @@ test_4d() { # former test_0k
     facet_failover $SINGLEMDS
 
     client_evicted $CLIENT1 || error "$CLIENT1 not evicted"
+    wait_clients_import_state $CLIENT1 $SINGLEMDS FULL ||
+        error "$CLIENT1 not up"
     if ! do_node $CLIENT1 $CHECKSTAT -g \\\#$UID $file; then
         error "setattr of GID succeeded unexpectedly"
     fi
@@ -362,6 +372,8 @@ test_4f() { # former test_0m
     facet_failover $SINGLEMDS
 
     client_evicted $CLIENT1 || error "$CLIENT1 not evicted"
+    wait_clients_import_state $CLIENT1 $SINGLEMDS FULL ||
+        error "$CLIENT1 not up"
     if ! do_node $CLIENT1 $CHECKSTAT -p 0644 $file; then
         error "setattr of permission succeeded unexpectedly"
     fi
@@ -414,6 +426,8 @@ test_4h() { # former test_0o
     facet_failover $SINGLEMDS
 
     client_evicted $CLIENT1 || error "$CLIENT1 not evicted"
+    wait_clients_import_state $CLIENT1 $SINGLEMDS FULL ||
+        error "$CLIENT1 not up"
     checkattr $CLIENT1 i $file
     rc=$?
     do_node $CLIENT1 chattr -i $file
@@ -540,6 +554,8 @@ test_5b() { # former test_0t
     facet_failover $SINGLEMDS
 
     client_evicted $CLIENT1 || error "$CLIENT1 not evicted"
+    wait_clients_import_state $CLIENT1 $SINGLEMDS FULL ||
+        error "$CLIENT1 not up"
     if ! do_node $CLIENT1 $CHECKSTAT -a $DIR/$tdir/$tfile; then
         error "link should fail"
     fi
@@ -563,6 +579,8 @@ test_5c() { # former test_0u
     facet_failover $SINGLEMDS
 
     client_evicted $CLIENT1 || error "$CLIENT1 not evicted"
+    wait_clients_import_state $CLIENT1 $SINGLEMDS FULL ||
+        error "$CLIENT1 not up"
     if ! do_node $CLIENT1 $CHECKSTAT -a $DIR/$tdir/$tfile; then
         error "link should fail"
     fi
@@ -622,6 +640,8 @@ test_6c() { # former test_0x
     facet_failover $SINGLEMDS
 
     client_evicted $CLIENT1 || error "$CLIENT1 not evicted"
+    wait_clients_import_state $CLIENT1 $SINGLEMDS FULL ||
+        error "$CLIENT1 not up"
     if do_node $CLIENT1 $CHECKSTAT -a $DIR/$tfile; then
         error "rename should fail"
     fi
@@ -645,6 +665,8 @@ test_6d() { # former test_0y
     facet_failover $SINGLEMDS
 
     client_evicted $CLIENT1 || error "$CLIENT1 not evicted"
+    wait_clients_import_state $CLIENT1 $SINGLEMDS FULL ||
+        error "$CLIENT1 not up"
     if do_node $CLIENT1 $CHECKSTAT -a $DIR/$tfile; then
         error "rename should fail"
     fi
@@ -682,6 +704,8 @@ test_7_cycle() {
     facet_failover $SINGLEMDS
     # should fail as conflict expected
     client_evicted $CLIENT1 || rc=1
+    wait_clients_import_state $CLIENT1 $SINGLEMDS FULL ||
+        error "$CLIENT1 not up"
 
     wait_recovery_complete $SINGLEMDS
     wait_mds_ost_sync $SINGLEMDS
@@ -1017,6 +1041,8 @@ test_10b() { # former test_2b
     facet_failover $SINGLEMDS
 
     client_evicted $CLIENT1 || error "$CLIENT1:$MOUNT not evicted"
+    wait_clients_import_state $CLIENT1 $SINGLEMDS FULL ||
+        error "$CLIENT1 not up"
     client_up $CLIENT2 || error "$CLIENT2:$MOUNT1 evicted"
 
     #
