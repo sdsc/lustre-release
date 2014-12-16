@@ -37,6 +37,7 @@
 struct lnet_ioctl_net_config {
 	char ni_interfaces[LNET_MAX_INTERFACES][LNET_MAX_STR_LEN];
 	__u32 ni_status;
+	__u32 ni_cksum_algo;
 	__u32 ni_cpts[LNET_MAX_SHOW_NUM_CPT];
 };
 
@@ -70,6 +71,8 @@ struct lnet_ioctl_config_data {
 			__s32 net_peer_tx_credits;
 			__s32 net_peer_rtr_credits;
 			__s32 net_max_tx_credits;
+			__s32 net_cksum_algo;
+			__s32 net_pad;
 		} cfg_net;
 		struct {
 			__u32 buf_enable;
