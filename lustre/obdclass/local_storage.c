@@ -688,7 +688,7 @@ int lastid_compat_check(const struct lu_env *env, struct dt_device *dev,
 		return PTR_ERR(root);
 
 	/* find old last_id file */
-	snprintf(dti->dti_buf, sizeof(dti->dti_buf), "seq-"LPX64"-lastid",
+	snprintf(dti->dti_buf, sizeof(dti->dti_buf), "seq-"LPX64i"-lastid",
 		 lastid_seq);
 	rc = dt_lookup_dir(env, root, dti->dti_buf, &dti->dti_fid);
 	lu_object_put_nocache(env, &root->do_lu);
@@ -726,12 +726,12 @@ int lastid_compat_check(const struct lu_env *env, struct dt_device *dev,
 	rc = dt_record_read(env, o, &dti->dti_lb, &dti->dti_off);
 	dt_read_unlock(env, o);
 	if (rc == 0 && le32_to_cpu(losd.lso_magic) != LOS_MAGIC) {
-		CERROR("%s: wrong content of seq-"LPX64"-lastid file, magic %x\n",
+		CERROR("%s: wrong content of seq-"LPX64i"-lastid file, magic %x\n",
 		       o->do_lu.lo_dev->ld_obd->obd_name, lastid_seq,
 		       le32_to_cpu(losd.lso_magic));
 		rc = -EINVAL;
 	} else if (rc < 0) {
-		CERROR("%s: failed to read seq-"LPX64"-lastid: rc = %d\n",
+		CERROR("%s: failed to read seq-"LPX64i"-lastid: rc = %d\n",
 		       o->do_lu.lo_dev->ld_obd->obd_name, lastid_seq, rc);
 	}
 	lu_object_put_nocache(env, &o->do_lu);
