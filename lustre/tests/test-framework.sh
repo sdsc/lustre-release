@@ -2451,8 +2451,8 @@ replay_barrier() {
 	# inside fail() and fail_abort().
 	#
 	do_facet $facet $LCTL --device ${!svc} readonly
-	do_facet $facet $LCTL mark "$facet REPLAY BARRIER on ${!svc}"
-	$LCTL mark "local REPLAY BARRIER on ${!svc}"
+	do_facet $facet $LCTL mark "$HOSTNAME: $facet REPLAY BARRIER on ${!svc}"
+	$LCTL mark "$HOSTNAME: local REPLAY BARRIER on ${!svc}"
 }
 
 replay_barrier_nodf() {
@@ -2462,8 +2462,8 @@ replay_barrier_nodf() {
 	echo Replay barrier on ${!svc}
 	do_facet $facet $LCTL --device ${!svc} notransno
 	do_facet $facet $LCTL --device ${!svc} readonly
-	do_facet $facet $LCTL mark "$facet REPLAY BARRIER on ${!svc}"
-	$LCTL mark "local REPLAY BARRIER on ${!svc}"
+	do_facet $facet $LCTL mark "$HOSTNAME: $facet REPLAY BARRIER on ${!svc}"
+	$LCTL mark "$HOSTNAME: local REPLAY BARRIER on ${!svc}"
 }
 
 replay_barrier_nosync() {
@@ -2472,8 +2472,8 @@ replay_barrier_nosync() {
 	echo Replay barrier on ${!svc}
 	do_facet $facet $LCTL --device ${!svc} notransno
 	do_facet $facet $LCTL --device ${!svc} readonly
-	do_facet $facet $LCTL mark "$facet REPLAY BARRIER on ${!svc}"
-	$LCTL mark "local REPLAY BARRIER on ${!svc}"
+	do_facet $facet $LCTL mark "$HOSTNAME: $facet REPLAY BARRIER on ${!svc}"
+	$LCTL mark "$HOSTNAME: local REPLAY BARRIER on ${!svc}"
 }
 
 #
@@ -2794,26 +2794,26 @@ change_active() {
 }
 
 do_node() {
-    local verbose=false
-    # do not stripe off hostname if verbose, bug 19215
-    if [ x$1 = x--verbose ]; then
-        shift
-        verbose=true
-    fi
+	local verbose=false
+	# do not stripe off hostname if verbose, bug 19215
+	if [ x$1 = x--verbose ]; then
+		shift
+		verbose=true
+	fi
 
-    local HOST=$1
-    shift
-    local myPDSH=$PDSH
-    if [ "$HOST" = "$HOSTNAME" ]; then
-        myPDSH="no_dsh"
-    elif [ -z "$myPDSH" -o "$myPDSH" = "no_dsh" ]; then
-        echo "cannot run remote command on $HOST with $myPDSH"
-        return 128
-    fi
-    if $VERBOSE; then
-        echo "CMD: $HOST $@" >&2
-        $myPDSH $HOST "$LCTL mark \"$@\"" > /dev/null 2>&1 || :
-    fi
+	local HOST=$1
+	shift
+	local myPDSH=$PDSH
+	if [ "$HOST" = "$HOSTNAME" ]; then
+		myPDSH="no_dsh"
+	elif [ -z "$myPDSH" -o "$myPDSH" = "no_dsh" ]; then
+		echo "cannot run remote command on $HOST with $myPDSH"
+		return 128
+	fi
+	if $VERBOSE; then
+		echo "CMD: $HOST $@" >&2
+		$myPDSH $HOST "$LCTL mark \"$HOSTNAME: $@\"" &>/dev/null || :
+	fi
 
     if [ "$myPDSH" = "rsh" ]; then
 # we need this because rsh does not return exit code of an executed command
@@ -2897,17 +2897,18 @@ do_nodes() {
         return $?
     fi
 
-    # This is part from do_node
-    local myPDSH=$PDSH
+	# This is part from do_node
+	local myPDSH=$PDSH
 
-    [ -z "$myPDSH" -o "$myPDSH" = "no_dsh" -o "$myPDSH" = "rsh" ] && \
-        echo "cannot run remote command on $rnodes with $myPDSH" && return 128
+	[ -z "$myPDSH" -o "$myPDSH" = "no_dsh" -o "$myPDSH" = "rsh" ] &&
+		echo "cannot run remote command on $rnodes with $myPDSH" &&
+		return 128
 
-    export FANOUT=$(get_node_count "${rnodes//,/ }")
-    if $VERBOSE; then
-        echo "CMD: $rnodes $@" >&2
-        $myPDSH $rnodes "$LCTL mark \"$@\"" > /dev/null 2>&1 || :
-    fi
+	export FANOUT=$(get_node_count "${rnodes//,/ }")
+	if $VERBOSE; then
+		echo "CMD: $rnodes $@" >&2
+		$myPDSH $rnodes "$LCTL mark \"$HOSTNAME: $@\"" &>/dev/null || :
+	fi
 
     # do not replace anything from pdsh output if -N is used
     # -N     Disable hostname: prefix on lines of output.
@@ -4536,7 +4537,7 @@ set_nodes_failloc () {
 }
 
 cancel_lru_locks() {
-    $LCTL mark "cancel_lru_locks $1 start"
+	$LCTL mark "$HOSTNAME: cancel_lru_locks $1 start"
 
     if [ $1 != "MGC" ]; then
 	for d in $(lctl get_param -N ldlm.namespaces.*.lru_size |
@@ -4562,7 +4563,7 @@ cancel_lru_locks() {
 	done
     fi
 
-    $LCTL mark "cancel_lru_locks $1 stop"
+	$LCTL mark "$HOSTNAME: cancel_lru_locks $1 stop"
 }
 
 default_lru_size()
@@ -4850,20 +4851,21 @@ run_test() {
 }
 
 log() {
-    echo "$*"
-    module_loaded lnet || load_modules
+	echo "$*"
+	module_loaded lnet || load_modules
 
-    local MSG="$*"
-    # Get rid of '
-    MSG=${MSG//\'/\\\'}
-    MSG=${MSG//\(/\\\(}
-    MSG=${MSG//\)/\\\)}
-    MSG=${MSG//\;/\\\;}
-    MSG=${MSG//\|/\\\|}
-    MSG=${MSG//\>/\\\>}
-    MSG=${MSG//\</\\\<}
-    MSG=${MSG//\//\\\/}
-    do_nodes $(comma_list $(nodes_list)) $LCTL mark "$MSG" 2> /dev/null || true
+	local MSG="$HOSTNAME: $*"
+	# Get rid of '
+	MSG=${MSG//\'/\\\'}
+	MSG=${MSG//\(/\\\(}
+	MSG=${MSG//\)/\\\)}
+	MSG=${MSG//\;/\\\;}
+	MSG=${MSG//\|/\\\|}
+	MSG=${MSG//\>/\\\>}
+	MSG=${MSG//\</\\\<}
+	MSG=${MSG//\//\\\/}
+	do_nodes $(comma_list $(nodes_list)) $LCTL mark "$MSG" 2>/dev/null ||
+		true
 }
 
 trace() {
