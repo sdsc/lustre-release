@@ -5250,6 +5250,7 @@ test_84() {
 	local time_min=$(recovery_time_min)
 	local recovery_duration
 	local completed_clients
+	local wrap_up_duration=2
 
 	echo "start mds service on `facet_active_host $facet`"
 	start $facet ${dev} $MDS_MOUNT_OPTS \
@@ -5284,8 +5285,8 @@ test_84() {
 	recovery_duration=$(do_facet $SINGLEMDS "$LCTL get_param -n \
 				mdt.$FSNAME-MDT0000.recovery_status" | \
 				grep recovery_duration |awk '{print $2}')
-	(($recovery_duration>$time_min)) && \
-		error "recovery_duration > recovery_time_hard"
+	(($recovery_duration>$time_min+$wrap_up_duration)) && \
+		error "recovery_duration > recovery_time_hard + wrap up"
 	completed_clients=$(do_facet $SINGLEMDS "$LCTL get_param -n \
 				mdt.$FSNAME-MDT0000.recovery_status" | \
 				grep completed_clients |awk '{print $2}')
