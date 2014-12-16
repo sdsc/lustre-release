@@ -48,21 +48,35 @@
 #include <md_object.h>
 #include <lustre_quota.h>
 
-#define _SPL_KMEM_H
 /* SPL redefines this but to the same value: ~0UL vs -1, but GCC complains.
  * fixed in SPL master 52479ecf58fa89190e384edcf838fecccc786af5 */
 #undef SHRINK_STOP
-#include <sys/kstat.h>
-#define kmem_zalloc(a, b)	kzalloc(a, b)
-#define kmem_free(ptr, sz)	((void)(sz), kfree(ptr))
-#ifndef KM_SLEEP
-#define KM_SLEEP		GFP_KERNEL
-#endif
 
 #include <sys/arc.h>
 #include <sys/nvpair.h>
 #include <sys/zfs_znode.h>
 #include <sys/zap.h>
+
+/**
+ * By design including kmem.h overrides the Linux slab interfaces to provide
+ * the Illumos kmem cache interfaces.  To override this and gain access to
+ * the Linux interfaces these preprocessor macros must be undefined.
+ */
+#ifdef kmem_cache_destroy
+#undef kmem_cache_destroy
+#endif
+
+#ifdef kmem_cache_create
+#undef kmem_cache_create
+#endif
+
+#ifdef kmem_cache_alloc
+#undef kmem_cache_alloc
+#endif
+
+#ifdef kmem_cache_free
+#undef kmem_cache_free
+#endif
 
 #define LUSTRE_ROOT_FID_SEQ	0
 #define DMU_OSD_SVNAME		"svname"
@@ -71,7 +85,7 @@
 #define OSD_GFP_IO		(GFP_NOFS | __GFP_HIGHMEM)
 
 /* Statfs space reservation for grant, fragmentation, and unlink space. */
-#define OSD_STATFS_RESERVED_BLKS  (1ULL << (22 - SPA_MAXBLOCKSHIFT)) /* 4MB */
+#define OSD_STATFS_RESERVED_BLKS  (1ULL << (29 - SPA_MAXBLOCKSHIFT)) /* 4MB */
 #define OSD_STATFS_RESERVED_SHIFT (7)         /* reserve 0.78% of all space */
 
 /* Statfs {minimum, safe estimate, and maximum} dnodes per block */
@@ -547,6 +561,23 @@ static inline void dsl_pool_config_exit(dsl_pool_t *dp, char *name)
 {
 }
 
+#endif
+
+#ifdef HAVE_SA_SPILL_ALLOC
+static inline void *
+osd_zio_buf_alloc(size_t size)
+{
+	return sa_spill_alloc(KM_SLEEP);
+}
+
+static inline void
+osd_zio_buf_free(void *buf, size_t size)
+{
+	sa_spill_free(buf);
+}
+#else
+#define	osd_zio_buf_alloc(size)		zio_buf_alloc(size)
+#define	osd_zio_buf_free(buf, size)	zio_buf_free(buf, size)
 #endif
 
 #endif /* _OSD_INTERNAL_H */
