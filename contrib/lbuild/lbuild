@@ -2081,7 +2081,7 @@ unpack_lustre
 BUILDID=$(sed -ne '/^BUILDID =/s/.*= *//p' lustre/META)
 
 load_target
-OFED_VERSION=1.5.3-3.1.0
+OFED_VERSION=1.5.3-4.0.42
 
 if [ -n "$OFED_VERSION" -a "$OFED_VERSION" != "inkernel" ]; then
     download_ofed
