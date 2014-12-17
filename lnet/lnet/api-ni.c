@@ -1725,16 +1725,32 @@ EXPORT_SYMBOL(LNetInit);
  * Finalize LNet library.
  *
  * Only userspace program needs to call this function. It can be called
- * at most once.
+ * at most once.  This function is called when the lnet module is being
+ * unloaded.
+ *
+ * There is a scenario when LNet is loaded but no NIs have been
+ * configured, then the lnet module is unloaded.  This will cause
+ * LNetFini() to be called without LNetNIFini() being called first.
+ *
+ * Originally, there was a dependency on the module load order since
+ * attempting to unload lnet while there are lnd modules still loaded
+ * failed, and that prevented this scenario from occurring.  However,
+ * now that it is possible that no lnd could be loaded when lnet is
+ * removed then we must uninitialize LNet properly by calling LNetNIFini()
+ * before attempting to shutdown LNet.
  *
  * \pre LNetInit() called with success.
- * \pre All LNet users called LNetNIFini() for matching LNetNIInit() calls.
  */
 void
 LNetFini(void)
 {
 	LASSERT(the_lnet.ln_init);
-	LASSERT(the_lnet.ln_refcount == 0);
+	if (the_lnet.ln_refcount == 1) {
+		if (the_lnet.ln_niinit_self) {
+			the_lnet.ln_niinit_self = 0;
+			LNetNIFini();
+		}
+	}
 
 	while (!list_empty(&the_lnet.ln_lnds))
 		lnet_unregister_lnd(list_entry(the_lnet.ln_lnds.next,
