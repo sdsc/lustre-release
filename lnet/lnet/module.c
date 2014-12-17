@@ -163,17 +163,17 @@ lnet_ioctl(unsigned int cmd, struct libcfs_ioctl_hdr *hdr)
 
 DECLARE_IOCTL_HANDLER(lnet_ioctl_handler, lnet_ioctl);
 
-int
-init_lnet(void)
+static int
+lnet_module_init(void)
 {
         int                  rc;
         ENTRY;
 
 	mutex_init(&lnet_config_mutex);
 
-        rc = LNetInit();
+	rc = lnet_init();
         if (rc != 0) {
-                CERROR("LNetInit: error %d\n", rc);
+		CERROR("lnet_init: error %d\n", rc);
                 RETURN(rc);
         }
 
@@ -189,19 +189,20 @@ init_lnet(void)
         RETURN(0);
 }
 
-void
-fini_lnet(void)
+static void
+lnet_module_exit(void)
 {
-        int rc;
+	int rc;
 
-        rc = libcfs_deregister_ioctl(&lnet_ioctl_handler);
-        LASSERT (rc == 0);
+	rc = libcfs_deregister_ioctl(&lnet_ioctl_handler);
+	LASSERT(rc == 0);
 
-        LNetFini();
+	lnet_fini();
 }
 
 MODULE_AUTHOR("Peter J. Braam <braam@clusterfs.com>");
 MODULE_DESCRIPTION("Portals v3.1");
 MODULE_LICENSE("GPL");
 
-cfs_module(lnet, "1.0.0", init_lnet, fini_lnet);
+module_init(lnet_module_init);
+module_exit(lnet_module_exit);

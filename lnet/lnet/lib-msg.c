@@ -430,7 +430,7 @@ lnet_complete_msg_locked(lnet_msg_t *msg, int cpt)
 	}
 
 	lnet_msg_decommit(msg, cpt, status);
-	lnet_msg_free_locked(msg);
+	lnet_msg_free(msg);
 	return 0;
 }
 
@@ -507,7 +507,6 @@ lnet_finalize (lnet_ni_t *ni, lnet_msg_t *msg, int status)
 	/* Recursion breaker.  Don't complete the message here if I am (or
 	 * enough other threads are) already completing messages */
 
-#ifdef __KERNEL__
 	my_slot = -1;
 	for (i = 0; i < container->msc_nfinalizers; i++) {
 		if (container->msc_finalizers[i] == current)
@@ -523,16 +522,6 @@ lnet_finalize (lnet_ni_t *ni, lnet_msg_t *msg, int status)
 	}
 
 	container->msc_finalizers[my_slot] = current;
-#else
-	LASSERT(container->msc_nfinalizers == 1);
-	if (container->msc_finalizers[0] != NULL) {
-		lnet_net_unlock(cpt);
-		return;
-	}
-
-	my_slot = i = 0;
-	container->msc_finalizers[0] = (struct lnet_msg_container *)1;
-#endif
 
 	while (!list_empty(&container->msc_finalizing)) {
 		msg = list_entry(container->msc_finalizing.next,
@@ -589,9 +578,6 @@ lnet_msg_container_cleanup(struct lnet_msg_container *container)
 			    sizeof(*container->msc_finalizers));
 		container->msc_finalizers = NULL;
 	}
-#ifdef LNET_USE_LIB_FREELIST
-	lnet_freelist_fini(&container->msc_freelist);
-#endif
 	container->msc_init = 0;
 }
 
@@ -605,19 +591,7 @@ lnet_msg_container_setup(struct lnet_msg_container *container, int cpt)
 	INIT_LIST_HEAD(&container->msc_active);
 	INIT_LIST_HEAD(&container->msc_finalizing);
 
-#ifdef LNET_USE_LIB_FREELIST
-	memset(&container->msc_freelist, 0, sizeof(lnet_freelist_t));
-
-	rc = lnet_freelist_init(&container->msc_freelist,
-				LNET_FL_MAX_MSGS, sizeof(lnet_msg_t));
-	if (rc != 0) {
-		CERROR("Failed to init freelist for message container\n");
-		lnet_msg_container_cleanup(container);
-		return rc;
-	}
-#else
 	rc = 0;
-#endif
 	/* number of CPUs */
 	container->msc_nfinalizers = cfs_cpt_weight(lnet_cpt_table(), cpt);
 
