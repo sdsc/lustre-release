@@ -2740,6 +2740,22 @@ static int lmv_precleanup(struct obd_device *obd, enum obd_cleanup_stage stage)
         RETURN(rc);
 }
 
+/**
+ * Get by key a value associated with a LMV device.
+ *
+ * Dispatch request to lower-layer devices as needed.
+ *
+ * \param[in] env		execution environment for this thread
+ * \param[in] exp		export for the LMV device
+ * \param[in] keylen		length of key identifier
+ * \param[in] key		identifier of key to get value for
+ * \param[in] vallen		size of \a val
+ * \param[out] val		pointer to storage location for value
+ * \param[in] lsm		optional striping metadata of object
+ *
+ * \retval 0		on success
+ * \retval negative	negated errno on failure
+ */
 static int lmv_get_info(const struct lu_env *env, struct obd_export *exp,
                         __u32 keylen, void *key, __u32 *vallen, void *val,
                         struct lov_stripe_md *lsm)
@@ -2805,6 +2821,22 @@ static int lmv_get_info(const struct lu_env *env, struct obd_export *exp,
         RETURN(-EINVAL);
 }
 
+/**
+ * Asynchronously set by key a value associated with a LMV device.
+ *
+ * Dispatch request to lower-layer devices as needed.
+ *
+ * \param[in] env	execution environment for this thread
+ * \param[in] exp	export for the LMV device
+ * \param[in] keylen	length of key identifier
+ * \param[in] key	identifier of key to store value for
+ * \param[in] vallen	size of value to store
+ * \param[in] val	pointer to data to be stored
+ * \param[in] set	optional list of related ptlrpc requests
+ *
+ * \retval 0		on success
+ * \retval negative	negated errno on failure
+ */
 int lmv_set_info_async(const struct lu_env *env, struct obd_export *exp,
                        obd_count keylen, void *key, obd_count vallen,
                        void *val, struct ptlrpc_request_set *set)
@@ -2840,6 +2872,14 @@ int lmv_set_info_async(const struct lu_env *env, struct obd_export *exp,
 
                 RETURN(rc);
         }
+
+	if (KEY_IS(KEY_DEFAULT_EASIZE)) {
+		/* Set default_easize in the export for MDT0. */
+		rc = obd_set_info_async(env, lmv->tgts[0]->ltd_exp, keylen, key,
+					vallen, val, set);
+
+		RETURN(rc);
+	}
 
         RETURN(-EINVAL);
 }
