@@ -276,47 +276,6 @@ lnet_extract_iov (int dst_niov, struct iovec *dst,
 }
 EXPORT_SYMBOL(lnet_extract_iov);
 
-#ifndef __KERNEL__
-unsigned int
-lnet_kiov_nob (unsigned int niov, lnet_kiov_t *kiov)
-{
-        LASSERT (0);
-        return (0);
-}
-
-void
-lnet_copy_kiov2kiov (unsigned int ndkiov, lnet_kiov_t *dkiov, unsigned int doffset,
-                     unsigned int nskiov, lnet_kiov_t *skiov, unsigned int soffset,
-                     unsigned int nob)
-{
-        LASSERT (0);
-}
-
-void
-lnet_copy_kiov2iov (unsigned int niov, struct iovec *iov, unsigned int iovoffset,
-                    unsigned int nkiov, lnet_kiov_t *kiov, unsigned int kiovoffset,
-                    unsigned int nob)
-{
-        LASSERT (0);
-}
-
-void
-lnet_copy_iov2kiov (unsigned int nkiov, lnet_kiov_t *kiov, unsigned int kiovoffset,
-                    unsigned int niov, struct iovec *iov, unsigned int iovoffset,
-                    unsigned int nob)
-{
-        LASSERT (0);
-}
-
-int
-lnet_extract_kiov (int dst_niov, lnet_kiov_t *dst,
-                   int src_niov, lnet_kiov_t *src,
-                   unsigned int offset, unsigned int len)
-{
-        LASSERT (0);
-}
-
-#else /* __KERNEL__ */
 
 unsigned int
 lnet_kiov_nob (unsigned int niov, lnet_kiov_t *kiov)
@@ -601,7 +560,6 @@ lnet_extract_kiov (int dst_niov, lnet_kiov_t *dst,
         }
 }
 EXPORT_SYMBOL(lnet_extract_kiov);
-#endif
 
 void
 lnet_ni_recv(lnet_ni_t *ni, void *private, lnet_msg_t *msg, int delayed,
@@ -912,7 +870,6 @@ lnet_post_send_locked(lnet_msg_t *msg, int do_send)
 	return LNET_CREDIT_OK;
 }
 
-#ifdef __KERNEL__
 
 lnet_rtrbufpool_t *
 lnet_msg2bufpool(lnet_msg_t *msg)
@@ -1007,7 +964,6 @@ lnet_post_routed_recv_locked (lnet_msg_t *msg, int do_recv)
 	}
 	return LNET_CREDIT_OK;
 }
-#endif
 
 void
 lnet_return_tx_credits_locked(lnet_msg_t *msg)
@@ -1067,7 +1023,6 @@ lnet_return_tx_credits_locked(lnet_msg_t *msg)
         }
 }
 
-#ifdef __KERNEL__
 void
 lnet_schedule_blocked_locked(lnet_rtrbufpool_t *rbp)
 {
@@ -1081,7 +1036,6 @@ lnet_schedule_blocked_locked(lnet_rtrbufpool_t *rbp)
 
 	(void)lnet_post_routed_recv_locked(msg, 1);
 }
-#endif
 
 void
 lnet_drop_routed_msgs_locked(struct list_head *list, int cpt)
@@ -1110,7 +1064,6 @@ void
 lnet_return_rx_credits_locked(lnet_msg_t *msg)
 {
 	lnet_peer_t	*rxpeer = msg->msg_rxpeer;
-#ifdef __KERNEL__
 	lnet_msg_t	*msg2;
 
 	if (msg->msg_rtrcredit) {
@@ -1178,10 +1131,6 @@ routing_off:
 			(void) lnet_post_routed_recv_locked(msg2, 1);
 		}
 	}
-#else
-	LASSERT(!msg->msg_rtrcredit);
-	LASSERT(!msg->msg_peerrtrcredit);
-#endif
 	if (rxpeer != NULL) {
 		msg->msg_rxpeer = NULL;
 		lnet_peer_decref_locked(rxpeer);
@@ -1376,19 +1325,6 @@ lnet_send(lnet_nid_t src_nid, lnet_msg_t *msg, lnet_nid_t rtr_nid)
                 }
                 LASSERT (lp->lp_ni == src_ni);
         } else {
-#ifndef __KERNEL__
-		lnet_net_unlock(cpt);
-
-                /* NB
-                 * - once application finishes computation, check here to update
-                 *   router states before it waits for pending IO in LNetEQPoll
-                 * - recursion breaker: router checker sends no message
-                 *   to remote networks */
-                if (the_lnet.ln_rc_state == LNET_RC_STATE_RUNNING)
-                        lnet_router_checker();
-
-		lnet_net_lock(cpt);
-#endif
 		/* sending to a remote network */
 		lp = lnet_find_route_locked(src_ni, dst_nid, rtr_nid);
 		if (lp == NULL) {
@@ -1740,7 +1676,6 @@ lnet_parse_forward_locked(lnet_ni_t *ni, lnet_msg_t *msg)
 {
 	int	rc = 0;
 
-#ifdef __KERNEL__
 	if (!the_lnet.ln_routing)
 		return -ECANCELED;
 
@@ -1757,9 +1692,6 @@ lnet_parse_forward_locked(lnet_ni_t *ni, lnet_msg_t *msg)
 
 	if (rc == 0)
 		rc = lnet_post_routed_recv_locked(msg, 0);
-#else
-	LBUG();
-#endif
 	return rc;
 }
 
@@ -2603,94 +2535,3 @@ LNetDist(lnet_nid_t dstnid, lnet_nid_t *srcnidp, __u32 *orderp)
 	return -EHOSTUNREACH;
 }
 EXPORT_SYMBOL(LNetDist);
-
-/**
- * Set the number of asynchronous messages expected from a target process.
- *
- * This function is only meaningful for userspace callers. It's a no-op when
- * called from kernel.
- *
- * Asynchronous messages are those that can come from a target when the
- * userspace process is not waiting for IO to complete; e.g., AST callbacks
- * from Lustre servers. Specifying the expected number of such messages
- * allows them to be eagerly received when user process is not running in
- * LNet; otherwise network errors may occur.
- *
- * \param id Process ID of the target process.
- * \param nasync Number of asynchronous messages expected from the target.
- *
- * \return 0 on success, and an error code otherwise.
- */
-int
-LNetSetAsync(lnet_process_id_t id, int nasync)
-{
-#ifdef __KERNEL__
-        return 0;
-#else
-        lnet_ni_t        *ni;
-        lnet_remotenet_t *rnet;
-	struct list_head *tmp;
-        lnet_route_t     *route;
-        lnet_nid_t       *nids;
-        int               nnids;
-        int               maxnids = 256;
-        int               rc = 0;
-        int               rc2;
-	int			cpt;
-
-        /* Target on a local network? */
-        ni = lnet_net2ni(LNET_NIDNET(id.nid));
-        if (ni != NULL) {
-                if (ni->ni_lnd->lnd_setasync != NULL) 
-                        rc = (ni->ni_lnd->lnd_setasync)(ni, id, nasync);
-                lnet_ni_decref(ni);
-                return rc;
-        }
-
-        /* Target on a remote network: apply to routers */
- again:
-        LIBCFS_ALLOC(nids, maxnids * sizeof(*nids));
-        if (nids == NULL)
-                return -ENOMEM;
-        nnids = 0;
-
-        /* Snapshot all the router NIDs */
-	cpt = lnet_net_lock_current();
-	rnet = lnet_find_net_locked(LNET_NIDNET(id.nid));
-	if (rnet != NULL) {
-		list_for_each(tmp, &rnet->lrn_routes) {
-			if (nnids == maxnids) {
-				lnet_net_unlock(cpt);
-                                LIBCFS_FREE(nids, maxnids * sizeof(*nids));
-                                maxnids *= 2;
-                                goto again;
-                        }
-
-			route = list_entry(tmp, lnet_route_t, lr_list);
-			nids[nnids++] = route->lr_gateway->lp_nid;
-		}
-	}
-	lnet_net_unlock(cpt);
-
-        /* set async on all the routers */
-        while (nnids-- > 0) {
-		id.pid = LNET_PID_LUSTRE;
-                id.nid = nids[nnids];
-
-                ni = lnet_net2ni(LNET_NIDNET(id.nid));
-                if (ni == NULL)
-                        continue;
-
-                if (ni->ni_lnd->lnd_setasync != NULL) {
-                        rc2 = (ni->ni_lnd->lnd_setasync)(ni, id, nasync);
-                        if (rc2 != 0)
-                                rc = rc2;
-                }
-                lnet_ni_decref(ni);
-        }
-
-        LIBCFS_FREE(nids, maxnids * sizeof(*nids));
-        return rc;
-#endif
-}
-EXPORT_SYMBOL(LNetSetAsync);
