@@ -43,7 +43,6 @@
 #ifndef __LST_CONSOLE_H__
 #define __LST_CONSOLE_H__
 
-#ifdef __KERNEL__
 
 #include <libcfs/libcfs.h>
 #include <lnet/lnet.h>
@@ -253,6 +252,5 @@ extern int lstcon_test_add(char *batch_name, int type, int loop,
 			   char *src_name, char *dst_name,
 			   void *param, int paramlen, int *retp,
 			   struct list_head __user *result_up);
-#endif
 
 #endif

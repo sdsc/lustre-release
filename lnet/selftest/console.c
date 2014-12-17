@@ -40,7 +40,6 @@
  * Author: Liang Zhen <liangzhen@clusterfs.com>
  */
 
-#ifdef __KERNEL__
 
 #include <libcfs/libcfs.h>
 #include <lnet/lib-lnet.h>
@@ -2132,4 +2131,3 @@ lstcon_console_fini(void)
 	return 0;
 }
 
-#endif
