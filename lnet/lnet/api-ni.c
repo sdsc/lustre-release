@@ -1052,7 +1052,7 @@ lnet_ping_info_create(int num_ni)
 	return ping_info;
 }
 
-static inline int
+int
 lnet_get_ni_count(void)
 {
 	struct lnet_ni *ni;
