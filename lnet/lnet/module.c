@@ -192,12 +192,31 @@ init_lnet(void)
 void
 fini_lnet(void)
 {
-        int rc;
+	int rc;
 
-        rc = libcfs_deregister_ioctl(&lnet_ioctl_handler);
-        LASSERT (rc == 0);
+	rc = libcfs_deregister_ioctl(&lnet_ioctl_handler);
+	LASSERT (rc == 0);
 
-        LNetFini();
+	/* There is a scenario when LNet is loaded but no NIs have been
+	 * configured, then the lnet module is unloaded.  This will cause
+	 * LNetFini() to be called without LNetNIFini() being called first.
+	 *
+	 * Originally, there was a dependency on the module load order since
+	 * attempting to unload lnet while there are lnd modules still loaded
+	 * failed, and that prevented this scenario from occurring.  However,
+	 * now that it is possible that no lnd could be loaded when lnet is
+	 * removed then we must uninitialize LNet properly by calling LNetNIFini()
+	 * before attempting to shutdown LNet.
+	 *
+	 * The below logic depends on the fact that the LOLND is always
+	 * loaded by default and if the ni count is exactly one, then that
+	 * means only LOLND is currently loaded */
+	if (lnet_get_ni_count() == 1 && the_lnet.ln_niinit_self) {
+		the_lnet.ln_niinit_self = 0;
+		LNetNIFini();
+	}
+
+	LNetFini();
 }
 
 MODULE_AUTHOR("Peter J. Braam <braam@clusterfs.com>");
