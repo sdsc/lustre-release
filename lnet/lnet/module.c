@@ -50,6 +50,11 @@ lnet_configure(void *arg)
 	/* 'arg' only there so I can be passed to cfs_create_thread() */
 	int    rc = 0;
 
+	rc = try_module_get(THIS_MODULE);
+
+	if (rc != 0)
+		return rc;
+
 	LNET_MUTEX_LOCK(&lnet_config_mutex);
 
 	if (!the_lnet.ln_niinit_self) {
@@ -67,21 +72,24 @@ lnet_configure(void *arg)
 int
 lnet_unconfigure (void)
 {
-        int   refcount;
-        
-        LNET_MUTEX_LOCK(&lnet_config_mutex);
+	int   refcount;
 
-        if (the_lnet.ln_niinit_self) {
-                the_lnet.ln_niinit_self = 0;
-                LNetNIFini();
-        }
+	LNET_MUTEX_LOCK(&lnet_config_mutex);
 
-        LNET_MUTEX_LOCK(&the_lnet.ln_api_mutex);
-        refcount = the_lnet.ln_refcount;
-        LNET_MUTEX_UNLOCK(&the_lnet.ln_api_mutex);
+	if (the_lnet.ln_niinit_self) {
+		the_lnet.ln_niinit_self = 0;
+		LNetNIFini();
+	}
 
-        LNET_MUTEX_UNLOCK(&lnet_config_mutex);
-        return (refcount == 0) ? 0 : -EBUSY;
+	LNET_MUTEX_LOCK(&the_lnet.ln_api_mutex);
+	refcount = the_lnet.ln_refcount;
+	LNET_MUTEX_UNLOCK(&the_lnet.ln_api_mutex);
+
+	LNET_MUTEX_UNLOCK(&lnet_config_mutex);
+
+	module_put(THIS_MODULE);
+
+	return (refcount == 0) ? 0 : -EBUSY;
 }
 
 int
@@ -192,12 +200,12 @@ init_lnet(void)
 void
 fini_lnet(void)
 {
-        int rc;
+	int rc;
 
-        rc = libcfs_deregister_ioctl(&lnet_ioctl_handler);
-        LASSERT (rc == 0);
+	rc = libcfs_deregister_ioctl(&lnet_ioctl_handler);
+	LASSERT(rc == 0);
 
-        LNetFini();
+	LNetFini();
 }
 
 MODULE_AUTHOR("Peter J. Braam <braam@clusterfs.com>");
