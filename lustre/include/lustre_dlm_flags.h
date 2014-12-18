@@ -351,6 +351,9 @@
 #define ldlm_is_revoke_notify(_l)	LDLM_TEST_FLAG((_l), 1ULL << 57)
 #define ldlm_set_revoke_notify(_l)	LDLM_SET_FLAG((_l), 1ULL << 57)
 
+/** Flag whether compare client in COS lock compatibility check. */
+#define LDLM_FL_STRICT_COS		0x0400000000000000ULL /* bit  58 */
+
 /** l_flags bits marked as "ast" bits */
 #define LDLM_FL_AST_MASK                (LDLM_FL_FLOCK_DEADLOCK		|\
 					 LDLM_FL_AST_DISCARD_DATA)
