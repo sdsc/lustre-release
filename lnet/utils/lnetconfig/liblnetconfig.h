@@ -118,14 +118,15 @@ int lustre_lnet_show_route(char *nw, char *gw,
  *   peer_buf_cr - peer buffer credits
  *       - the above are LND tunable parameters and are optional
  *   credits - network interface credits
+ *   cksum_algo - check summing algothrim to use for data packets
  *   smp - cpu affinity
  *   seq_no - sequence number of the request
  *   err_rc - [OUT] struct cYAML tree describing the error. Freed by caller
  */
 int lustre_lnet_config_net(char *net, char *intf, char *ip2net,
 			   int peer_to, int peer_cr, int peer_buf_cr,
-			   int credits, char *smp, int seq_no,
-			   struct cYAML **err_rc);
+			   int credits, char *cksum_algo, char *smp,
+			   int seq_no, struct cYAML **err_rc);
 
 /*
  * lustre_lnet_del_net

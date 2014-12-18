@@ -642,16 +642,28 @@ lnet_ni_recv(lnet_ni_t *ni, void *private, lnet_msg_t *msg, int delayed,
 }
 
 void
-lnet_setpayloadbuffer(lnet_msg_t *msg)
+lnet_setpayloadbuffer(lnet_ni_t *ni, lnet_msg_t *msg)
 {
         lnet_libmd_t *md = msg->msg_md;
 
-        LASSERT (msg->msg_len > 0);
-        LASSERT (!msg->msg_routing);
-        LASSERT (md != NULL);
-        LASSERT (msg->msg_niov == 0);
-        LASSERT (msg->msg_iov == NULL);
-        LASSERT (msg->msg_kiov == NULL);
+	LASSERT(msg->msg_len > 0);
+	LASSERT(!msg->msg_routing);
+	LASSERT(md != NULL);
+	LASSERT(msg->msg_niov == 0);
+	LASSERT(msg->msg_iov == NULL);
+	LASSERT(msg->msg_kiov == NULL);
+
+	if ((ni->ni_cksum_algo != CFS_HASH_ALG_NULL) &&
+	    (ni->ni_cksum_algo < CFS_HASH_ALG_MAX)) {
+		struct cfs_crypto_hash_desc *hdesc = NULL;
+
+		hdesc = cfs_crypto_hash_init(ni->ni_cksum_algo, NULL, 0);
+		if (IS_ERR(hdesc)) {
+			CERROR("Unable to initialize checksum hash %s for reason %ld\n",
+			       cfs_crypto_hash_name(ni->ni_cksum_algo), PTR_ERR(hdesc));
+			//return PTR_ERR(hdesc);
+		}
+	}
 
         msg->msg_niov = md->md_niov;
         if ((md->md_options & LNET_MD_KIOV) != 0)
@@ -661,8 +673,8 @@ lnet_setpayloadbuffer(lnet_msg_t *msg)
 }
 
 void
-lnet_prep_send(lnet_msg_t *msg, int type, lnet_process_id_t target,
-               unsigned int offset, unsigned int len) 
+lnet_prep_send(lnet_ni_t *ni, lnet_msg_t *msg, int type,
+	       lnet_process_id_t target, unsigned int offset, unsigned int len)
 {
         msg->msg_type = type;
         msg->msg_target = target;
@@ -670,7 +682,7 @@ lnet_prep_send(lnet_msg_t *msg, int type, lnet_process_id_t target,
         msg->msg_offset = offset;
 
         if (len != 0)
-                lnet_setpayloadbuffer(msg);
+		lnet_setpayloadbuffer(ni, msg);
 
         memset (&msg->msg_hdr, 0, sizeof (msg->msg_hdr));
         msg->msg_hdr.type           = cpu_to_le32(type);
@@ -1484,7 +1496,7 @@ lnet_recv_put(lnet_ni_t *ni, lnet_msg_t *msg)
 	lnet_hdr_t	*hdr = &msg->msg_hdr;
 
 	if (msg->msg_wanted != 0)
-		lnet_setpayloadbuffer(msg);
+		lnet_setpayloadbuffer(ni, msg);
 
 	lnet_build_msg_event(msg, LNET_EVENT_PUT);
 
@@ -1585,7 +1597,7 @@ lnet_parse_get(lnet_ni_t *ni, lnet_msg_t *msg, int rdma_get)
 
 	reply_wmd = hdr->msg.get.return_wmd;
 
-	lnet_prep_send(msg, LNET_MSG_REPLY, info.mi_id,
+	lnet_prep_send(ni, msg, LNET_MSG_REPLY, info.mi_id,
 		       msg->msg_offset, msg->msg_wanted);
 
         msg->msg_hdr.msg.reply.dst_wmd = reply_wmd;
@@ -1664,13 +1676,13 @@ lnet_parse_reply(lnet_ni_t *ni, lnet_msg_t *msg)
         }
 
         CDEBUG(D_NET, "%s: Reply from %s of length %d/%d into md "LPX64"\n",
-               libcfs_nid2str(ni->ni_nid), libcfs_id2str(src), 
+	       libcfs_nid2str(ni->ni_nid), libcfs_id2str(src),
                mlength, rlength, hdr->msg.reply.dst_wmd.wh_object_cookie);
 
 	lnet_msg_attach_md(msg, md, 0, mlength);
 
 	if (mlength != 0)
-		lnet_setpayloadbuffer(msg);
+		lnet_setpayloadbuffer(ni, msg);
 
 	lnet_res_unlock(cpt);
 
@@ -2232,6 +2244,7 @@ LNetPut(lnet_nid_t self, lnet_handle_md_t mdh, lnet_ack_req_t ack,
         __u64 match_bits, unsigned int offset,
         __u64 hdr_data)
 {
+	struct lnet_ni		*src_ni = NULL;
 	struct lnet_msg		*msg;
 	struct lnet_libmd	*md;
 	int			cpt;
@@ -2276,7 +2289,9 @@ LNetPut(lnet_nid_t self, lnet_handle_md_t mdh, lnet_ack_req_t ack,
 
 	lnet_msg_attach_md(msg, md, 0, 0);
 
-        lnet_prep_send(msg, LNET_MSG_PUT, target, 0, md->md_length);
+	src_ni = lnet_nid2ni_locked(self, cpt);
+
+	lnet_prep_send(src_ni, msg, LNET_MSG_PUT, target, 0, md->md_length);
 
         msg->msg_hdr.msg.put.match_bits = cpu_to_le64(match_bits);
         msg->msg_hdr.msg.put.ptl_index = cpu_to_le32(portal);
@@ -2285,14 +2300,14 @@ LNetPut(lnet_nid_t self, lnet_handle_md_t mdh, lnet_ack_req_t ack,
 
         /* NB handles only looked up by creator (no flips) */
         if (ack == LNET_ACK_REQ) {
-                msg->msg_hdr.msg.put.ack_wmd.wh_interface_cookie = 
+		msg->msg_hdr.msg.put.ack_wmd.wh_interface_cookie =
                         the_lnet.ln_interface_cookie;
-                msg->msg_hdr.msg.put.ack_wmd.wh_object_cookie = 
+		msg->msg_hdr.msg.put.ack_wmd.wh_object_cookie =
                         md->md_lh.lh_cookie;
         } else {
-                msg->msg_hdr.msg.put.ack_wmd.wh_interface_cookie = 
+		msg->msg_hdr.msg.put.ack_wmd.wh_interface_cookie =
                         LNET_WIRE_HANDLE_COOKIE_NONE;
-                msg->msg_hdr.msg.put.ack_wmd.wh_object_cookie = 
+		msg->msg_hdr.msg.put.ack_wmd.wh_object_cookie =
                         LNET_WIRE_HANDLE_COOKIE_NONE;
         }
 
@@ -2431,6 +2446,7 @@ LNetGet(lnet_nid_t self, lnet_handle_md_t mdh,
 	lnet_process_id_t target, unsigned int portal,
 	__u64 match_bits, unsigned int offset)
 {
+	struct lnet_ni		*src_ni = NULL;
 	struct lnet_msg		*msg;
 	struct lnet_libmd	*md;
 	int			cpt;
@@ -2476,7 +2492,9 @@ LNetGet(lnet_nid_t self, lnet_handle_md_t mdh,
 
 	lnet_msg_attach_md(msg, md, 0, 0);
 
-        lnet_prep_send(msg, LNET_MSG_GET, target, 0, 0);
+	src_ni = lnet_nid2ni_locked(self, cpt);
+
+	lnet_prep_send(src_ni, msg, LNET_MSG_GET, target, 0, 0);
 
         msg->msg_hdr.msg.get.match_bits = cpu_to_le64(match_bits);
         msg->msg_hdr.msg.get.ptl_index = cpu_to_le32(portal);
