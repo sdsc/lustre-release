@@ -393,6 +393,46 @@ static int mdt_md_create(struct mdt_thread_info *info)
 			rc = mdt_attr_get_complex(info, child, ma);
 
 		if (rc == 0) {
+			/*
+			 * On DNE, we need to eliminate dependey between
+			 * 'mkdir a' and 'mkdir a/b' if b is a striped
+			 * directory, to achieve this, two things are done
+			 * below:
+			 * 1. save child lock.
+			 * 2. if the child is a striped directory, relock
+			 *    parent so to compare against with COS locks to
+			 *    ensure parent is committed to disk, and then
+			 *    save child lock. Herein we can't relock from
+			 *    start because child was created already.
+			 */
+			if (mdt_soc_is_enabled(mdt) &&
+			    S_ISDIR(ma->ma_attr.la_mode)) {
+				struct mdt_lock_handle *lhc;
+
+				lhc = &info->mti_lh[MDT_LH_CHILD];
+				mdt_lock_handle_init(lhc);
+				mdt_lock_reg_init(lhc, LCK_PW);
+				rc = mdt_object_lock(info, child, lhc,
+						     MDS_INODELOCK_UPDATE);
+				if (rc == -EAGAIN &&
+				    mdt_modify_remote_check(info)) {
+					mdt_object_unlock(info, parent, lh, rc);
+					mdt_lock_pdo_init(lh, LCK_PW,
+							  &rr->rr_name);
+					rc = mdt_object_lock(info, parent, lh,
+							  MDS_INODELOCK_UPDATE);
+					if (rc)
+						GOTO(out_put_child, rc);
+					rc = mdt_object_lock(info, child, lhc,
+							  MDS_INODELOCK_UPDATE);
+					if (rc)
+						GOTO(out_put_child, rc);
+				} else if (rc) {
+					GOTO(out_put_child, rc);
+				}
+				mdt_object_unlock(info, child, lhc, rc);
+			}
+
 			/* Return fid & attr to client. */
 			if (ma->ma_valid & MA_INODE)
 				mdt_pack_attr2body(info, repbody, &ma->ma_attr,
