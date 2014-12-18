@@ -330,7 +330,21 @@ static int mdt_md_create(struct mdt_thread_info *info)
 
 	lh = &info->mti_lh[MDT_LH_PARENT];
 	mdt_lock_pdo_init(lh, LCK_PW, &rr->rr_name);
-	rc = mdt_object_lock(info, parent, lh, MDS_INODELOCK_UPDATE);
+	/*
+	 * if this is mkdir and SoC is enabled, cancel any conflicting lock
+	 * on parent (even from the same client) to eliminate dependency
+	 * between previous operations on parent and this mkdir, because this
+	 * mkdir may be striped directory, which can be recovered from update
+	 * log.
+	 */
+	if (mdt_soc_is_enabled(mdt) && S_ISDIR(ma->ma_attr.la_mode) &&
+	    !mdt_object_remote(parent))
+		rc = mdt_object_local_lock(info, parent, lh,
+					   MDS_INODELOCK_UPDATE,
+					   LDLM_FL_COS_INCOMPAT |
+					   LDLM_FL_STRICT_COS, false);
+	else
+		rc = mdt_object_lock(info, parent, lh, MDS_INODELOCK_UPDATE);
 	if (rc)
 		GOTO(put_parent, rc);
 
@@ -393,6 +407,30 @@ static int mdt_md_create(struct mdt_thread_info *info)
 			rc = mdt_attr_get_complex(info, child, ma);
 
 		if (rc == 0) {
+			/*
+			 * if child is directory and SoC is enabled, save child
+			 * lock so that any mkdir under child (even from same
+			 * client, because we lock parent strictly for mkdir)
+			 * will conflict with this lock and eliminate
+			 * dependency between these two mkdir. This is specially
+			 * for DNE, in case 2nd mkdir is striped directory,
+			 * which can be recovered from update log, but 1st
+			 * mkdir may fail to recover.
+			 */
+			if (mdt_soc_is_enabled(mdt) &&
+			    S_ISDIR(ma->ma_attr.la_mode)) {
+				struct mdt_lock_handle *lhc;
+
+				lhc = &info->mti_lh[MDT_LH_CHILD];
+				mdt_lock_handle_init(lhc);
+				mdt_lock_reg_init(lhc, LCK_PW);
+				rc = mdt_object_lock(info, child, lhc,
+						     MDS_INODELOCK_UPDATE);
+				if (rc)
+					GOTO(out_put_child, rc);
+				mdt_object_unlock(info, child, lhc, rc);
+			}
+
 			/* Return fid & attr to client. */
 			if (ma->ma_valid & MA_INODE)
 				mdt_pack_attr2body(info, repbody, &ma->ma_attr,

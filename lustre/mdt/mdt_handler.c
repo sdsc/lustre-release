@@ -2449,8 +2449,7 @@ int mdt_remote_object_lock(struct mdt_thread_info *mti, struct mdt_object *o,
 	RETURN(rc);
 }
 
-static int mdt_object_local_lock(struct mdt_thread_info *info,
-				 struct mdt_object *o,
+int mdt_object_local_lock(struct mdt_thread_info *info, struct mdt_object *o,
 				 struct mdt_lock_handle *lh, __u64 ibits,
 				 __u64 dlmflags, bool nonblock)
 {

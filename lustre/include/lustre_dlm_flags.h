@@ -348,6 +348,9 @@
 /** Flag whether a lock needs to check compatibility with COS lock. */
 #define LDLM_FL_COS_INCOMPAT		0x0200000000000000ULL /* bit 57 */
 
+/** Flag whether compare client in COS lock compatibility check. */
+#define LDLM_FL_STRICT_COS		0x0400000000000000ULL /* bit 58 */
+
 /** l_flags bits marked as "ast" bits */
 #define LDLM_FL_AST_MASK                (LDLM_FL_FLOCK_DEADLOCK		|\
 					 LDLM_FL_AST_DISCARD_DATA)
