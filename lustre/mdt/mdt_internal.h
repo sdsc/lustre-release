@@ -596,6 +596,9 @@ int mdt_object_lock(struct mdt_thread_info *info, struct mdt_object *mo,
 
 int mdt_object_lock_try(struct mdt_thread_info *info, struct mdt_object *mo,
 			struct mdt_lock_handle *lh, __u64 ibits, int locality);
+int mdt_object_lock_strict(struct mdt_thread_info *info, struct mdt_object *o,
+			   struct mdt_lock_handle *lh, __u64 ibits,
+			   int locality);
 
 void mdt_object_unlock(struct mdt_thread_info *info, struct mdt_object *mo,
 		       struct mdt_lock_handle *lh, int decref);

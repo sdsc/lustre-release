@@ -351,6 +351,9 @@
 /** Flag whether a lock is found on server for re-sent RPC. */
 #define LDLM_FL_RESENT                   0x0100000000000000ULL // bit  56
 
+/** Flag whether compare client in COS lock compatibility check. */
+#define LDLM_FL_STRICT_COS               0x0200000000000000ULL /* bit  57 */
+
 /** l_flags bits marked as "ast" bits */
 #define LDLM_FL_AST_MASK                (LDLM_FL_FLOCK_DEADLOCK		|\
 					 LDLM_FL_AST_DISCARD_DATA)
