@@ -13019,6 +13019,12 @@ test_230f() {
 	ln $DIR/$tdir/migrate_dir/a $DIR/$tdir/other_dir/ln1
 	ln $DIR/$tdir/migrate_dir/a $DIR/$tdir/other_dir/ln2
 
+	# due to strict COS lock in mkdir, migrate may fail with -EBUSY because
+	# 'mkdir $DIR/$tdir/migrate_dir' holds COS lock of 'migrate_dir', while
+	# migrate will try_lock it and failed. add 'sync' here to ensure mkdir
+	# commit to disk to release COS lock of 'migrate_dir'
+	sync
+
 	# a should be migrated to MDT1, since no other links on MDT0
 	$LFS migrate -m 1 $DIR/$tdir/migrate_dir ||
 		error "migrate dir fails"
