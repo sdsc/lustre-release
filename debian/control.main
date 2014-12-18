@@ -32,7 +32,7 @@ Package: lustre-source
 Section: admin
 Architecture: all
 Priority: optional
-Depends: module-assistant, bzip2, debhelper (>= 5.0.0), libsnmp-dev, dpatch
+Depends: module-assistant (>= 0.11.5), bzip2, debhelper (>= 5.0.0), libsnmp-dev, dpatch
 Description: source for Lustre filesystem client kernel modules
  Lustre is a scalable, secure, robust, highly-available cluster file system.
  This release is maintained by Intel Corporation and available from
