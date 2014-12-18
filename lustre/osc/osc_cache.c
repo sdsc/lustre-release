@@ -1318,7 +1318,7 @@ static int osc_completion(const struct lu_env *env, struct osc_async_page *oap,
 	if (rc == 0 && srvlock) {
 		struct lu_device *ld    = opg->ops_cl.cpl_obj->co_lu.lo_dev;
 		struct osc_stats *stats = &lu2osc_dev(ld)->od_stats;
-		int bytes = oap->oap_count;
+		u32 bytes = oap->oap_count;
 
 		if (crt == CRT_READ)
 			stats->os_lockless_reads += bytes;
@@ -1977,7 +1977,7 @@ __must_hold(osc)
 	struct osc_extent *ext;
 	struct osc_extent *tmp;
 	struct osc_extent *first = NULL;
-	obd_count page_count = 0;
+	int page_count = 0;
 	int srvlock = 0;
 	int rc = 0;
 	ENTRY;
@@ -2269,7 +2269,7 @@ int osc_queue_async_io(const struct lu_env *env, struct cl_io *io,
 	struct osc_object     *osc = oap->oap_obj;
 	pgoff_t index;
 	int    grants = 0;
-	int    brw_flags = OBD_BRW_ASYNC;
+	u32    brw_flags = OBD_BRW_ASYNC;
 	int    cmd = OBD_BRW_WRITE;
 	int    need_release = 0;
 	int    rc = 0;
