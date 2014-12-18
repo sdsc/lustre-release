@@ -4951,6 +4951,10 @@ run_one() {
 		ps auxww | grep -v grep | grep -q multiop &&
 					error "multiop still running"
 	fi
+
+	stopall
+	setupall
+
 	unset TESTNAME
 	unset tdir
 	unset tfile
