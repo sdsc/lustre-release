@@ -40,21 +40,19 @@ MA_DIR ?= /usr/share/modass
 ARCH=$(shell dpkg --print-architecture)
 TOP_DIR:=$(shell pwd)
 
-#  the lustre build process. This is $(KERNEL_VERSION)
+# This is the Lustre version
 VERSION=$(shell sed -n -e '1s/.*(\(.*\)) .*/\1/p' debian/changelog)
-#SUPPORTED_KERNELS=2.6.27
-SUPPORTED_KERNELS=2.6.18 2.6.20 2.6.22
 UPVERSION=$(shell echo $VERSION | sed -e 's/-[^-]*$$//')
-#KERNEL_VERSION=2.6.27
-# the kernel version to build all of this with
-#KVER=2.6.27-11-generic
-# if the above is not set, default to whatever kernel is booted
-KVER?=$$(uname -r)
+
+# We depend on LINUXRELEASE being set by configure.
+# It is determined from the kernel source tree, so --with-linux
+# has desired effect here
+KVER?=$(LINUXRELEASE)
 KERNEL_TREE=/lib/modules/$(KVER)/build
 # KVERS, KSRC are the kernel version and source to use when building lustre
 # Will be the default when building lustre-utils, etc but whatever module-assistant
 # supplied when building modules
-KVERS?=$(KERNEL_VERSION)
+KVERS?=$(KVER)
 #KSRC?=$(KERNEL_TREE)
 KSRC=$(KERNEL_TREE)
 
