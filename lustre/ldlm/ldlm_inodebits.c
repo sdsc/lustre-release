@@ -77,7 +77,7 @@
  */
 static int
 ldlm_inodebits_compat_queue(struct list_head *queue, struct ldlm_lock *req,
-			    struct list_head *work_list)
+			    struct list_head *work_list, bool strict_cos)
 {
 	struct list_head *tmp;
         struct ldlm_lock *lock;
@@ -124,10 +124,18 @@ ldlm_inodebits_compat_queue(struct list_head *queue, struct ldlm_lock *req,
 
 			/* Locks with overlapping bits conflict. */
 			if (lock->l_policy_data.l_inodebits.bits & req_bits) {
-				/* COS lock mode has a special compatibility
+				/*
+				 * COS lock mode has a special compatibility
 				 * requirement: it is only compatible with
-				 * locks from the same client. */
-				if (lock->l_req_mode == LCK_COS &&
+				 * locks from the same client.
+				 *
+				 * But if strict_cos is set, even locks from
+				 * the same client are not compatible, this is
+				 * to eliminate dependency between `mkdir a` and
+				 * `mkdir a/b` for DNE.
+				 */
+				if (!strict_cos &&
+				    lock->l_req_mode == LCK_COS &&
 				    lock->l_client_cookie == req->l_client_cookie)
 					goto not_conflicting;
 				/* Found a conflicting policy group. */
@@ -176,11 +184,12 @@ ldlm_inodebits_compat_queue(struct list_head *queue, struct ldlm_lock *req,
  *     would be collected and ASTs sent.
  */
 int ldlm_process_inodebits_lock(struct ldlm_lock *lock, __u64 *flags,
-                                int first_enq, ldlm_error_t *err,
+				int first_enq, ldlm_error_t *err,
 				struct list_head *work_list)
 {
 	struct ldlm_resource *res = lock->l_resource;
 	struct list_head rpc_list;
+	bool strict_cos = false;
 	int rc;
 	ENTRY;
 
@@ -190,50 +199,57 @@ int ldlm_process_inodebits_lock(struct ldlm_lock *lock, __u64 *flags,
 	check_res_locked(res);
 
 	/* (*flags & LDLM_FL_BLOCK_NOWAIT) is for layout lock right now. */
-        if (!first_enq || (*flags & LDLM_FL_BLOCK_NOWAIT)) {
+	if (!first_enq || (*flags & LDLM_FL_BLOCK_NOWAIT)) {
 		*err = ELDLM_LOCK_ABORTED;
 		if (*flags & LDLM_FL_BLOCK_NOWAIT)
 			*err = ELDLM_LOCK_WOULDBLOCK;
 
-                rc = ldlm_inodebits_compat_queue(&res->lr_granted, lock, NULL);
-                if (!rc)
-                        RETURN(LDLM_ITER_STOP);
-                rc = ldlm_inodebits_compat_queue(&res->lr_waiting, lock, NULL);
-                if (!rc)
-                        RETURN(LDLM_ITER_STOP);
+		rc = ldlm_inodebits_compat_queue(&res->lr_granted, lock, NULL,
+						 false);
+		if (!rc)
+			RETURN(LDLM_ITER_STOP);
+		rc = ldlm_inodebits_compat_queue(&res->lr_waiting, lock, NULL,
+						 false);
+		if (!rc)
+			RETURN(LDLM_ITER_STOP);
 
-                ldlm_resource_unlink_lock(lock);
-                ldlm_grant_lock(lock, work_list);
+		ldlm_resource_unlink_lock(lock);
+		ldlm_grant_lock(lock, work_list);
 
 		*err = ELDLM_OK;
-                RETURN(LDLM_ITER_CONTINUE);
-        }
+		RETURN(LDLM_ITER_CONTINUE);
+	}
+
+	if (*flags & LDLM_FL_STRICT_COS)
+		strict_cos = true;
 
  restart:
-        rc = ldlm_inodebits_compat_queue(&res->lr_granted, lock, &rpc_list);
-        rc += ldlm_inodebits_compat_queue(&res->lr_waiting, lock, &rpc_list);
+	rc = ldlm_inodebits_compat_queue(&res->lr_granted, lock, &rpc_list,
+					strict_cos);
+	rc += ldlm_inodebits_compat_queue(&res->lr_waiting, lock, &rpc_list,
+					strict_cos);
 
-        if (rc != 2) {
-                /* If either of the compat_queue()s returned 0, then we
-                 * have ASTs to send and must go onto the waiting list.
-                 *
-                 * bug 2322: we used to unlink and re-add here, which was a
-                 * terrible folly -- if we goto restart, we could get
-                 * re-ordered!  Causes deadlock, because ASTs aren't sent! */
+	if (rc != 2) {
+		/* If either of the compat_queue()s returned 0, then we
+		 * have ASTs to send and must go onto the waiting list.
+		 *
+		 * bug 2322: we used to unlink and re-add here, which was a
+		 * terrible folly -- if we goto restart, we could get
+		 * re-ordered!  Causes deadlock, because ASTs aren't sent! */
 		if (list_empty(&lock->l_res_link))
-                        ldlm_resource_add_lock(res, &res->lr_waiting, lock);
-                unlock_res(res);
-                rc = ldlm_run_ast_work(ldlm_res_to_ns(res), &rpc_list,
-                                       LDLM_WORK_BL_AST);
-                lock_res(res);
+			ldlm_resource_add_lock(res, &res->lr_waiting, lock);
+		unlock_res(res);
+		rc = ldlm_run_ast_work(ldlm_res_to_ns(res), &rpc_list,
+					LDLM_WORK_BL_AST);
+		lock_res(res);
 		if (rc == -ERESTART)
 			GOTO(restart, rc);
-                *flags |= LDLM_FL_BLOCK_GRANTED;
-        } else {
-                ldlm_resource_unlink_lock(lock);
-                ldlm_grant_lock(lock, NULL);
-        }
-        RETURN(0);
+		*flags |= LDLM_FL_BLOCK_GRANTED;
+	} else {
+		ldlm_resource_unlink_lock(lock);
+		ldlm_grant_lock(lock, NULL);
+	}
+	RETURN(0);
 }
 #endif /* HAVE_SERVER_SUPPORT */
 

@@ -362,8 +362,19 @@ static int mdt_md_create(struct mdt_thread_info *info)
 
 	lh = &info->mti_lh[MDT_LH_PARENT];
 	mdt_lock_pdo_init(lh, LCK_PW, &rr->rr_name);
-	rc = mdt_object_lock(info, parent, lh, MDS_INODELOCK_UPDATE,
-			     MDT_CROSS_LOCK);
+	/*
+	 * if this is mkdir and COS is enabled, cancel any lock of parent
+	 * (even from the same client) to eliminate dependency between these
+	 * two mkdir, because the 2nd mkdir may be striped directory, which
+	 * can be recovered from mirrored MDS.
+	 */
+	if (mdt_cos_is_enabled(mdt) && S_ISDIR(ma->ma_attr.la_mode))
+		rc = mdt_object_lock_strict(info, parent, lh,
+					    MDS_INODELOCK_UPDATE,
+					    MDT_CROSS_LOCK);
+	else
+		rc = mdt_object_lock(info, parent, lh, MDS_INODELOCK_UPDATE,
+				     MDT_CROSS_LOCK);
 	if (rc)
 		GOTO(put_parent, rc);
 
@@ -430,6 +441,31 @@ static int mdt_md_create(struct mdt_thread_info *info)
 			rc = mdt_attr_get_complex(info, child, ma);
 
 		if (rc == 0) {
+			/*
+			 * if child is directory and COS is enabled, save child
+			 * lock so that any mkdir under child (even from same
+			 * client, because we lock parent strictly for mkdir)
+			 * will conflict with this lock and eliminate
+			 * dependency between these two mkdir. This is specially
+			 * for DNE, in case 2nd mkdir is striped directory,
+			 * which can be recovered from mirrored MDS, but 1nd
+			 * mkdir may fail to recover.
+			 */
+			if (mdt_cos_is_enabled(mdt) &&
+			    S_ISDIR(ma->ma_attr.la_mode)) {
+				struct mdt_lock_handle *lhc;
+
+				lhc = &info->mti_lh[MDT_LH_CHILD];
+				mdt_lock_handle_init(lhc);
+				mdt_lock_reg_init(lhc, LCK_PW);
+				rc = mdt_object_lock(info, child, lhc,
+						     MDS_INODELOCK_UPDATE,
+						     MDT_CROSS_LOCK);
+				if (rc)
+					GOTO(out_put_child, rc);
+				mdt_object_unlock(info, child, lhc, rc);
+			}
+
 			/* Return fid & attr to client. */
 			if (ma->ma_valid & MA_INODE)
 				mdt_pack_attr2body(info, repbody, &ma->ma_attr,
