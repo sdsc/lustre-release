@@ -2347,7 +2347,7 @@ int mdt_remote_object_lock(struct mdt_thread_info *mti,
 static int mdt_object_local_lock(struct mdt_thread_info *info,
 				 struct mdt_object *o,
 				 struct mdt_lock_handle *lh, __u64 ibits,
-				 bool nonblock, int locality)
+				 bool nonblock, int locality, bool strict_cos)
 {
         struct ldlm_namespace *ns = info->mti_mdt->mdt_namespace;
         ldlm_policy_data_t *policy = &info->mti_policy;
@@ -2383,6 +2383,8 @@ static int mdt_object_local_lock(struct mdt_thread_info *info,
 	dlmflags = LDLM_FL_ATOMIC_CB;
 	if (nonblock)
 		dlmflags |= LDLM_FL_BLOCK_NOWAIT;
+	if (strict_cos)
+		dlmflags |= LDLM_FL_STRICT_COS;
 
         /*
          * Take PDO lock on whole directory and build correct @res_id for lock
@@ -2438,14 +2440,14 @@ out_unlock:
 static int
 mdt_object_lock_internal(struct mdt_thread_info *info, struct mdt_object *o,
 			 struct mdt_lock_handle *lh, __u64 ibits,
-			 bool nonblock, int locality)
+			 bool nonblock, int locality, bool strict_cos)
 {
 	int rc;
 	ENTRY;
 
 	if (!mdt_object_remote(o))
 		return mdt_object_local_lock(info, o, lh, ibits, nonblock,
-					     locality);
+					     locality, strict_cos);
 
 	if (locality == MDT_LOCAL_LOCK) {
 		CERROR("%s: try to get local lock for remote object"
@@ -2483,7 +2485,7 @@ mdt_object_lock_internal(struct mdt_thread_info *info, struct mdt_object *o,
 	if (ibits & MDS_INODELOCK_LOOKUP) {
 		rc = mdt_object_local_lock(info, o, lh,
 					   MDS_INODELOCK_LOOKUP,
-					   nonblock, locality);
+					   nonblock, locality, false);
 		if (rc != ELDLM_OK)
 			RETURN(rc);
 	}
@@ -2494,7 +2496,8 @@ mdt_object_lock_internal(struct mdt_thread_info *info, struct mdt_object *o,
 int mdt_object_lock(struct mdt_thread_info *info, struct mdt_object *o,
 		    struct mdt_lock_handle *lh, __u64 ibits, int locality)
 {
-	return mdt_object_lock_internal(info, o, lh, ibits, false, locality);
+	return mdt_object_lock_internal(info, o, lh, ibits, false, locality,
+					false);
 }
 
 int mdt_object_lock_try(struct mdt_thread_info *info, struct mdt_object *o,
@@ -2503,11 +2506,20 @@ int mdt_object_lock_try(struct mdt_thread_info *info, struct mdt_object *o,
 	struct mdt_lock_handle tmp = *lh;
 	int rc;
 
-	rc = mdt_object_lock_internal(info, o, &tmp, ibits, true, locality);
+	rc = mdt_object_lock_internal(info, o, &tmp, ibits, true, locality,
+				      false);
 	if (rc == 0)
 		*lh = tmp;
 
 	return rc == 0;
+}
+
+int mdt_object_lock_strict(struct mdt_thread_info *info, struct mdt_object *o,
+			   struct mdt_lock_handle *lh, __u64 ibits,
+			   int locality)
+{
+	return mdt_object_lock_internal(info, o, lh, ibits, false, locality,
+					true);
 }
 
 /**
