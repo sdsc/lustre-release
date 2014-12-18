@@ -134,7 +134,8 @@ ldlm_inodebits_compat_queue(struct list_head *queue, struct ldlm_lock *req,
 				/* COS lock mode has a special compatibility
 				 * requirement: it is only compatible with
 				 * locks from the same client. */
-				if (lock->l_req_mode == LCK_COS &&
+				if (!(dlmflags & LDLM_FL_STRICT_COS) &&
+				    lock->l_req_mode == LCK_COS &&
 				    lock->l_client_cookie == req->l_client_cookie)
 					goto not_conflicting;
 				/* Found a conflicting policy group. */

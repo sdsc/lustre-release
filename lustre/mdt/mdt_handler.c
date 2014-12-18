@@ -2406,15 +2406,13 @@ int mdt_remote_object_lock(struct mdt_thread_info *mti, struct mdt_object *o,
 	RETURN(rc);
 }
 
-static int mdt_object_local_lock(struct mdt_thread_info *info,
-				 struct mdt_object *o,
+int mdt_object_local_lock(struct mdt_thread_info *info, struct mdt_object *o,
 				 struct mdt_lock_handle *lh, __u64 ibits,
-				 bool nonblock)
+				 __u64 dlmflags, bool nonblock)
 {
 	struct ldlm_namespace *ns = info->mti_mdt->mdt_namespace;
 	union ldlm_policy_data *policy = &info->mti_policy;
 	struct ldlm_res_id *res_id = &info->mti_res_id;
-	__u64 dlmflags = 0;
 	int rc;
 	ENTRY;
 
@@ -2515,7 +2513,7 @@ mdt_object_lock_internal(struct mdt_thread_info *info, struct mdt_object *o,
 		 * modify remote MDT object. */
 		mdt_check_set_soc(info->mti_env, info->mti_mdt);
 
-		rc = mdt_object_local_lock(info, o, lh, ibits, nonblock);
+		rc = mdt_object_local_lock(info, o, lh, ibits, 0, nonblock);
 		info->mti_locked = 1;
 		RETURN(rc);
 	}
@@ -2541,7 +2539,7 @@ mdt_object_lock_internal(struct mdt_thread_info *info, struct mdt_object *o,
 
 	/* Only enqueue LOOKUP lock for remote object */
 	if (ibits & MDS_INODELOCK_LOOKUP) {
-		rc = mdt_object_local_lock(info, o, lh, MDS_INODELOCK_LOOKUP,
+		rc = mdt_object_local_lock(info, o, lh, MDS_INODELOCK_LOOKUP, 0,
 					   nonblock);
 		if (rc != ELDLM_OK)
 			RETURN(rc);
