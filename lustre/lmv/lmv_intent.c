@@ -164,9 +164,9 @@ int lmv_revalidate_slaves(struct obd_export *exp, struct mdt_body *mbody,
 	struct md_op_data      *op_data;
 	unsigned long           size = 0;
 	unsigned long           nlink = 0;
-	obd_time		atime = 0;
-	obd_time		ctime = 0;
-	obd_time		mtime = 0;
+	s64			atime = 0;
+	s64			ctime = 0;
+	s64			mtime = 0;
 	int                     i;
 	int                     rc = 0;
 
