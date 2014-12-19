@@ -228,14 +228,17 @@ struct mdt_device {
 #define MDT_COS_DEFAULT         (0)
 
 enum mdt_object_flags {
-	/** lov object has been created. */
-	MOF_LOV_CREATED		= 1 << 0,
+	/** lov object has been created. Operated with mot_lov_mutex held */
+	MOF_LOV_CREATED		= 0,
+	/** object is being restored. Operated with EX UPDATE lock held */
+	MOF_RESTORE		= 1,
 };
 
 struct mdt_object {
 	struct lu_object_header	mot_header;
 	struct lu_object	mot_obj;
-	enum mdt_object_flags	mot_flags;
+	/** bit flag of enum mdt_object_flags */
+	volatile unsigned long	mot_flags;
 	int			mot_write_count;
 	spinlock_t		mot_write_lock;
         /* Lock to protect create_data */
@@ -246,6 +249,30 @@ struct mdt_object {
 	atomic_t		mot_lease_count;
 	atomic_t		mot_open_count;
 };
+
+static inline void mdt_object_set_flag(struct mdt_object *obj,
+				       enum mdt_object_flags flag)
+{
+	set_bit(flag, &obj->mot_flags);
+}
+
+static inline bool mdt_object_test_flag(struct mdt_object *obj,
+					enum mdt_object_flags flag)
+{
+	return test_bit(flag, &obj->mot_flags);
+}
+
+static inline void mdt_object_clear_flag(struct mdt_object *obj,
+					 enum mdt_object_flags flag)
+{
+	clear_bit(flag, &obj->mot_flags);
+}
+
+static inline bool mdt_object_test_and_clear_flag(struct mdt_object *obj,
+						  enum mdt_object_flags flag)
+{
+	return test_and_clear_bit(flag, &obj->mot_flags);
+}
 
 struct mdt_lock_handle {
         /* Lock type, reg for cross-ref use or pdo lock. */
@@ -489,6 +516,7 @@ struct cdt_restore_handle {
 	struct lu_fid		crh_fid;	/**< fid of the object */
 	struct ldlm_extent	crh_extent;	/**< extent of the restore */
 	struct mdt_lock_handle	crh_lh;		/**< lock handle */
+	struct mdt_object	*crh_obj;
 };
 extern struct kmem_cache *mdt_hsm_cdt_kmem;	/** restore handle slab cache */
 
@@ -828,8 +856,6 @@ int mdt_hsm_get_actions(struct mdt_thread_info *mti,
 			struct hsm_action_list *hal);
 int mdt_hsm_get_running(struct mdt_thread_info *mti,
 			struct hsm_action_list *hal);
-bool mdt_hsm_restore_is_running(struct mdt_thread_info *mti,
-				const struct lu_fid *fid);
 /* mdt/mdt_hsm_cdt_requests.c */
 extern const struct file_operations mdt_hsm_active_requests_fops;
 void dump_requests(char *prefix, struct coordinator *cdt);
@@ -877,6 +903,8 @@ bool mdt_hsm_is_action_compat(const struct hsm_action_item *hai,
 int mdt_hsm_update_request_state(struct mdt_thread_info *mti,
 				 struct hsm_progress_kernel *pgs,
 				 const int update_record);
+int mdt_hsm_restore_start(struct mdt_thread_info *info, struct lu_fid *fid,
+			  __u64 start, __u64 end);
 
 extern struct lu_context_key       mdt_thread_key;
 

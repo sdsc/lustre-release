@@ -285,7 +285,6 @@ hsm_action_permission(struct mdt_thread_info *mti,
 /*
  * Coordinator external API
  */
-
 /**
  * register a list of requests
  * \param mti [IN]
@@ -412,43 +411,16 @@ int mdt_hsm_add_actions(struct mdt_thread_info *mti,
 
 		/* if restore, take an exclusive lock on layout */
 		if (hai->hai_action == HSMA_RESTORE) {
-			struct cdt_restore_handle *crh;
-
 			/* in V1 only whole file is supported. */
 			if (hai->hai_extent.offset != 0)
 				GOTO(out, rc = -EPROTO);
 
-			OBD_SLAB_ALLOC_PTR(crh, mdt_hsm_cdt_kmem);
-			if (crh == NULL)
-				GOTO(out, rc = -ENOMEM);
-
-			crh->crh_fid = hai->hai_fid;
 			/* in V1 only whole file is supported. However the
 			 * restore may be due to truncate. */
-			crh->crh_extent.start = 0;
-			crh->crh_extent.end = hai->hai_extent.length;
-
-			mdt_lock_reg_init(&crh->crh_lh, LCK_EX);
-			obj = mdt_object_find_lock(mti, &crh->crh_fid,
-						   &crh->crh_lh,
-						   MDS_INODELOCK_LAYOUT);
-			if (IS_ERR(obj)) {
-				rc = PTR_ERR(obj);
-				CERROR("%s: cannot take layout lock for "
-				       DFID": rc = %d\n", mdt_obd_name(mdt),
-				       PFID(&crh->crh_fid), rc);
-				OBD_SLAB_FREE_PTR(crh, mdt_hsm_cdt_kmem);
+			rc = mdt_hsm_restore_start(mti, &hai->hai_fid,
+						   0, hai->hai_extent.length);
+			if (rc < 0)
 				GOTO(out, rc);
-			}
-
-			/* we choose to not keep a keep a reference
-			 * on the object during the restore time which can be
-			 * very long */
-			mdt_object_put(mti->mti_env, obj);
-
-			mutex_lock(&cdt->cdt_restore_lock);
-			list_add_tail(&crh->crh_list, &cdt->cdt_restore_hdl);
-			mutex_unlock(&cdt->cdt_restore_lock);
 		}
 record:
 		/* record request */
@@ -505,38 +477,6 @@ int mdt_hsm_get_running(struct mdt_thread_info *mti,
 		}
 	}
 	RETURN(0);
-}
-
-/**
- * check if a restore is running on a FID
- * this is redundant with mdt_hsm_coordinator_get_running()
- * but as it can be called frequently when getting attr
- * we make an optimized/simpler version only for a FID
- * \param mti [IN]
- * \param fid [IN] file FID
- * \retval boolean
- */
-bool mdt_hsm_restore_is_running(struct mdt_thread_info *mti,
-				const struct lu_fid *fid)
-{
-	struct mdt_device		*mdt = mti->mti_mdt;
-	struct coordinator		*cdt = &mdt->mdt_coordinator;
-	struct cdt_restore_handle	*crh;
-	bool				 rc = false;
-	ENTRY;
-
-	if (!fid_is_sane(fid))
-		RETURN(rc);
-
-	mutex_lock(&cdt->cdt_restore_lock);
-	list_for_each_entry(crh, &cdt->cdt_restore_hdl, crh_list) {
-		if (lu_fid_eq(&crh->crh_fid, fid)) {
-			rc = true;
-			break;
-		}
-	}
-	mutex_unlock(&cdt->cdt_restore_lock);
-	RETURN(rc);
 }
 
 /**
