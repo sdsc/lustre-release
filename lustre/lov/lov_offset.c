@@ -43,13 +43,12 @@
 #include "lov_internal.h"
 
 /* compute object size given "stripeno" and the ost size */
-obd_size lov_stripe_size(struct lov_stripe_md *lsm, obd_size ost_size,
-                         int stripeno)
+u64 lov_stripe_size(struct lov_stripe_md *lsm, u64 ost_size, int stripeno)
 {
-        unsigned long ssize = lsm->lsm_stripe_size;
-        unsigned long stripe_size;
-        obd_off swidth;
-        obd_size lov_size;
+	unsigned long ssize = lsm->lsm_stripe_size;
+	unsigned long stripe_size;
+	u64 swidth;
+	u64 lov_size;
         int magic = lsm->lsm_magic;
         ENTRY;
 
@@ -75,7 +74,7 @@ obd_size lov_stripe_size(struct lov_stripe_md *lsm, obd_size ost_size,
 pgoff_t lov_stripe_pgoff(struct lov_stripe_md *lsm, pgoff_t stripe_index,
 			 int stripe)
 {
-	obd_off offset;
+	u64 offset;
 
 	offset = lov_stripe_size(lsm, stripe_index << PAGE_CACHE_SHIFT,
 				 stripe);
@@ -130,11 +129,11 @@ pgoff_t lov_stripe_pgoff(struct lov_stripe_md *lsm, pgoff_t stripe_index,
  * was moved forward to the start of the stripe in question;  0 when it
  * falls in the stripe and no shifting was done; > 0 when the offset
  * was outside the stripe and was pulled back to its final byte. */
-int lov_stripe_offset(struct lov_stripe_md *lsm, obd_off lov_off,
-                      int stripeno, obd_off *obdoff)
+int lov_stripe_offset(struct lov_stripe_md *lsm, u64 lov_off, int stripeno,
+		      u64 *obdoff)
 {
-        unsigned long ssize  = lsm->lsm_stripe_size;
-        obd_off stripe_off, this_stripe, swidth;
+	unsigned long ssize  = lsm->lsm_stripe_size;
+	u64 stripe_off, this_stripe, swidth;
         int magic = lsm->lsm_magic;
         int ret = 0;
 
@@ -151,7 +150,7 @@ int lov_stripe_offset(struct lov_stripe_md *lsm, obd_off lov_off,
 	/* lov_do_div64(a, b) returns a % b, and a = a / b */
 	stripe_off = lov_do_div64(lov_off, swidth);
 
-        this_stripe = (obd_off)stripeno * ssize;
+	this_stripe = (u64)stripeno * ssize;
         if (stripe_off < this_stripe) {
                 stripe_off = 0;
                 ret = -1;
@@ -187,11 +186,10 @@ int lov_stripe_offset(struct lov_stripe_md *lsm, obd_off lov_off,
  * |    0    |     1     |     2     |    0    |     1     |     2     |
  * ---------------------------------------------------------------------
  */
-obd_off lov_size_to_stripe(struct lov_stripe_md *lsm, obd_off file_size,
-                           int stripeno)
+u64 lov_size_to_stripe(struct lov_stripe_md *lsm, u64 file_size, int stripeno)
 {
-        unsigned long ssize  = lsm->lsm_stripe_size;
-        obd_off stripe_off, this_stripe, swidth;
+	unsigned long ssize  = lsm->lsm_stripe_size;
+	u64 stripe_off, this_stripe, swidth;
         int magic = lsm->lsm_magic;
 
         if (file_size == OBD_OBJECT_EOF)
@@ -204,7 +202,7 @@ obd_off lov_size_to_stripe(struct lov_stripe_md *lsm, obd_off file_size,
 	/* lov_do_div64(a, b) returns a % b, and a = a / b */
 	stripe_off = lov_do_div64(file_size, swidth);
 
-        this_stripe = (obd_off)stripeno * ssize;
+	this_stripe = (u64)stripeno * ssize;
         if (stripe_off < this_stripe) {
                 /* Move to end of previous stripe, or zero */
                 if (file_size > 0) {
@@ -229,8 +227,7 @@ obd_off lov_size_to_stripe(struct lov_stripe_md *lsm, obd_off file_size,
  * that is contained within the lov extent.  this returns true if the given
  * stripe does intersect with the lov extent. */
 int lov_stripe_intersects(struct lov_stripe_md *lsm, int stripeno,
-                          obd_off start, obd_off end,
-                          obd_off *obd_start, obd_off *obd_end)
+			  u64 start, u64 end, u64 *obd_start, u64 *obd_end)
 {
         int start_side, end_side;
 
@@ -261,10 +258,10 @@ int lov_stripe_intersects(struct lov_stripe_md *lsm, int stripeno,
 }
 
 /* compute which stripe number "lov_off" will be written into */
-int lov_stripe_number(struct lov_stripe_md *lsm, obd_off lov_off)
+int lov_stripe_number(struct lov_stripe_md *lsm, u64 lov_off)
 {
 	unsigned long ssize  = lsm->lsm_stripe_size;
-	obd_off stripe_off, swidth;
+	u64 stripe_off, swidth;
 	int magic = lsm->lsm_magic;
 
 	LASSERT(lsm_op_find(magic) != NULL);
