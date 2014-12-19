@@ -2342,9 +2342,9 @@ EXPORT_SYMBOL(dump_rniobuf);
 
 void dump_obdo(struct obdo *oa)
 {
-	__u32 valid = oa->o_valid;
+	u64 valid = oa->o_valid;
 
-	CDEBUG(D_RPCTRACE, "obdo: o_valid = %08x\n", valid);
+	CDEBUG(D_RPCTRACE, "obdo: o_valid = "LPX64"\n", valid);
 	if (valid & OBD_MD_FLID)
 		CDEBUG(D_RPCTRACE, "obdo: id = "DOSTID"\n", POSTID(&oa->o_oi));
 	if (valid & OBD_MD_FLFID)
