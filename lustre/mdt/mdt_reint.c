@@ -959,6 +959,10 @@ static int mdt_reint_unlink(struct mdt_thread_info *info,
 	if (rc == 0)
 		mdt_handle_last_unlink(info, mc, ma);
 
+	if (mdt_object_test_flag(mc, MOF_RESTORE) &&
+	    lu_object_is_dying(&mc->mot_header))
+		mdt_hsm_restore_cancel(info, child_fid);
+
         if (ma->ma_valid & MA_INODE) {
                 switch (ma->ma_attr.la_mode & S_IFMT) {
                 case S_IFDIR:

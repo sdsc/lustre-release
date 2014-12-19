@@ -894,7 +894,7 @@ static int mdt_getattr_internal(struct mdt_thread_info *info,
 
 	/* if file is released, check if a restore is running */
 	if ((ma->ma_valid & MA_HSM) && (ma->ma_hsm.mh_flags & HS_RELEASED) &&
-	    mdt_hsm_restore_is_running(info, mdt_object_fid(o))) {
+	    mdt_object_test_flag(o, MOF_RESTORE)) {
 		repbody->mbo_t_state = MS_RESTORE;
 		repbody->mbo_valid |= OBD_MD_TSTATE;
 	}
@@ -1122,17 +1122,20 @@ out:
  */
 static void mdt_swap_lov_flag(struct mdt_object *o1, struct mdt_object *o2)
 {
-	__u64	o1_flags;
+	bool o1_lov_created;
+	bool o2_lov_created;
 
 	mutex_lock(&o1->mot_lov_mutex);
 	mutex_lock(&o2->mot_lov_mutex);
 
-	o1_flags = o1->mot_flags;
-	o1->mot_flags = (o1->mot_flags & ~MOF_LOV_CREATED) |
-			(o2->mot_flags & MOF_LOV_CREATED);
+	o1_lov_created = mdt_object_test_and_clear_flag(o1, MOF_LOV_CREATED);
+	o2_lov_created = mdt_object_test_and_clear_flag(o2, MOF_LOV_CREATED);
 
-	o2->mot_flags = (o2->mot_flags & ~MOF_LOV_CREATED) |
-			(o1_flags & MOF_LOV_CREATED);
+	if (o1_lov_created)
+		mdt_object_set_flag(o2, MOF_LOV_CREATED);
+
+	if (o2_lov_created)
+		mdt_object_set_flag(o1, MOF_LOV_CREATED);
 
 	mutex_unlock(&o2->mot_lov_mutex);
 	mutex_unlock(&o1->mot_lov_mutex);
@@ -4675,7 +4678,7 @@ static int mdt_object_print(const struct lu_env *env, void *cookie,
 	struct mdt_object *mdto = mdt_obj((struct lu_object *)o);
 
 	return (*p)(env, cookie,
-		    LUSTRE_MDT_NAME"-object@%p(flags=%d, writecount=%d)",
+		    LUSTRE_MDT_NAME"-object@%p(flags=%lu, writecount=%d)",
 		    mdto, mdto->mot_flags, mdto->mot_write_count);
 }
 
