@@ -123,7 +123,7 @@ static int mdt_create_data(struct mdt_thread_info *info,
 	ma->ma_need = MA_INODE | MA_LOV;
 	ma->ma_valid = 0;
 	mutex_lock(&o->mot_lov_mutex);
-	if (!(o->mot_flags & MOF_LOV_CREATED)) {
+	if (!mdt_object_test_flag(o, MOF_LOV_CREATED)) {
 		rc = mdo_create_data(info->mti_env,
 				     p ? mdt_object_child(p) : NULL,
 				     mdt_object_child(o), spec, ma);
@@ -131,7 +131,7 @@ static int mdt_create_data(struct mdt_thread_info *info,
 			rc = mdt_attr_get_complex(info, o, ma);
 
 		if (rc == 0 && ma->ma_valid & MA_LOV)
-			o->mot_flags |= MOF_LOV_CREATED;
+			mdt_object_set_flag(o, MOF_LOV_CREATED);
 	}
 
 	mutex_unlock(&o->mot_lov_mutex);
