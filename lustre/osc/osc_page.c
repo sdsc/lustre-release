@@ -925,7 +925,7 @@ out:
 static inline void unstable_page_accounting(struct ptlrpc_bulk_desc *desc,
 					    int factor)
 {
-	obd_count page_count = desc->bd_iov_count;
+	int page_count = desc->bd_iov_count;
 	void *zone = NULL;
 	int count = 0;
 	int i;
