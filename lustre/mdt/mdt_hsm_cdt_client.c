@@ -428,23 +428,39 @@ int mdt_hsm_add_actions(struct mdt_thread_info *mti,
 			crh->crh_extent.start = 0;
 			crh->crh_extent.end = hai->hai_extent.length;
 
+			/* flush UPDATE lock so that the restore state can
+			 * surely be seen by copy tool. See LU-4727. */
 			mdt_lock_reg_init(&crh->crh_lh, LCK_EX);
 			obj = mdt_object_find_lock(mti, &crh->crh_fid,
 						   &crh->crh_lh,
-						   MDS_INODELOCK_LAYOUT);
+						   MDS_INODELOCK_UPDATE);
 			if (IS_ERR(obj)) {
-				rc = PTR_ERR(obj);
+				OBD_SLAB_FREE_PTR(crh, mdt_hsm_cdt_kmem);
+				GOTO(out, rc = PTR_ERR(obj));
+			}
+
+			/* release UPDATE lock */
+			mdt_object_unlock(mti, obj, &crh->crh_lh, 1);
+
+			/* take LAYOUT lock so that accessing the layout will
+			 * be blocked until the restore is finished */
+			mdt_lock_reg_init(&crh->crh_lh, LCK_EX);
+			rc = mdt_object_lock(mti, obj, &crh->crh_lh,
+					     MDS_INODELOCK_LAYOUT,
+					     MDT_LOCAL_LOCK);
+
+			/* we choose to not keep a keep a reference
+			 * on the object during the restore time which can be
+			 * very long */
+			mdt_object_put(mti->mti_env, obj);
+
+			if (rc < 0) {
 				CERROR("%s: cannot take layout lock for "
 				       DFID": rc = %d\n", mdt_obd_name(mdt),
 				       PFID(&crh->crh_fid), rc);
 				OBD_SLAB_FREE_PTR(crh, mdt_hsm_cdt_kmem);
 				GOTO(out, rc);
 			}
-
-			/* we choose to not keep a keep a reference
-			 * on the object during the restore time which can be
-			 * very long */
-			mdt_object_put(mti->mti_env, obj);
 
 			mutex_lock(&cdt->cdt_restore_lock);
 			list_add_tail(&crh->crh_list, &cdt->cdt_restore_hdl);
