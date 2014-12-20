@@ -295,6 +295,149 @@ Unregister an existing changelog user.  If the user's "clear" record number
 is the minimum for the device, changelog records will be purged until the
 next minimum.
 .PP
+.SS Nodemap
+An identity mapping feature that facilities mapping of client UIDs and GIDs to
+local file system UIDs and GIDs, while maintaining POSIX ownership,
+permissions, and quota.
+
+While the nodemap feature is enabled, all client file system access is subject
+to the nodemap identity mapping policy, which consists of the 'default'
+catchall nodemap, and any user-defined nodemaps. The 'default' nodemap maps
+all client identities to 99:99 (nobody:nobody). Users can define nodemaps for a range of client NIDs which map identities, mark as trusted so identities are accepted without translation, or set as admin so root is not squashed.
+
+Note: In the current phase of implementation, to use the nodemap functionality
+you only need to enable and define nodemaps on the MDS. To use quotas with
+nodemaps, you must also use the proc commands to enable and define nodemaps on
+the OSS (matching what is defined on the MDS). Nodemaps do not currently
+persist.
+.TP
+.BI nodemap_activate " <0|1>"
+Activate or deactivate the nodemap feature.
+.br
+.B MDS Example:
+.br
+.B
+# lctl nodemap_activate 1
+.br
+.B OSS Example:
+.br
+.B
+# echo '1' > /proc/fs/lustre/nodemap/activate
+.TP
+.BI nodemap_add " <name>"
+Add a new nodemap, which a NID ranges, identities, and properties can be
+added to.
+.br
+.B MDS Example:
+.br
+.B # lctl nodemap_add remotesite
+.br
+.B OSS Example:
+.br
+.B # echo 'remotesite' > /proc/fs/lustre/nodemap/add_nodemap
+.TP
+.BI nodemap_del " <name>"
+Delete an existing nodemap.
+.br
+.B MDS Example:
+.br
+.B # lctl nodemap_del remotesite
+.br
+.B OSS Example:
+.br
+.B # echo 'remotesite' > /proc/fs/lustre/nodemap/remove_nodemap
+.TP
+.BI nodemap_add_range " <--name nodemapname> <--range NIDrange>"
+Define a range of NID for a nodemap. Range syntax is the same as rootsquash.
+.br
+.B MDS Example:
+.br
+.B # lctl nodemap_add_range --name remotesite --range 192.168.1.[1-254]@tcp
+.br
+.B OSS Example:
+.br
+.B # echo 'remotesite 192.168.1.[1-254]@tcp' > /proc/fs/lustre/nodemap/add_nodemap_range
+.TP
+.BI nodemap_del_range "<--name nodemapname> <--range NIDrange>"
+Remove an NID range from nodemap. Range syntax is the same as rootsquash.
+.br
+.B MDS Example:
+.br
+.B # lctl nodemap_del_range --name remotesite --range 192.168.1.[1-254]@tcp
+.br
+.B OSS Example:
+.br
+.B # echo 'remotesite 192.168.1.[1-254]@tcp' > /proc/fs/lustre/nodemap/del_nodemap_range
+.TP
+.BI nodemap_modify "<--name nodemapname> <--param <parameter> <--value value>"
+Modify a parameter of a nodemap.
+.br
+.B --param
+.br
+admin - Set whether the root user is allowed or squashed for a nodemap
+.br
+trusted - Allow identities to be accepted for a nodemap without mapping
+.br
+squash_uid - Define what the UID of squashed UID becomes (default is 99)
+.br
+squash_gid - Define what the GID of squashed GID becomes (default is 99)
+.br
+.B --value
+.br
+admin - 1 for true, 0 for false (default is 0)
+.br
+trusted - 1 for true, 0 for false (default is 0)
+.br
+squash_uid - numeric UID
+.br
+squash_gid - numeric GID
+.br
+.B MDS Examples:
+.br
+.B # lctl nodemap_modify --name remotesite --property trusted --value 1
+.br
+.B # lctl nodemap_modify --name remotesite --property admin --value 1
+.br
+.B # lctl nodemap_modify --name remotesite --property squash_uid --value 101
+.br
+.B OSS Examples:
+.br
+.B # echo '1' > /proc/fs/lustre/nodemap/remotesite/admin_nodemap
+.br
+.B # echo '1' > /proc/fs/lustre/nodemap/remotesite/trusted_nodemap
+.br
+.B # echo '101' > /proc/fs/lustre/nodemap/remotesite/squash_uid
+.TP
+.BI nodemap_add_idmap "<--name nodemap_name> <--idtype [uid|gid]> <--idmap remoteid:fsid>"
+Add a UID or GID mapping to a nodemap. The local UID or GID must exist on the MDS, and OSS if using quota.
+.br
+.B MDS Examples:
+.br
+.B # lctl nodemap_add_idmap --name remotesite --idtype uid --idmap 2001:1001
+.br
+.B # lctl nodemap_add_idmap --name remotesite --idtype gid --idmap 2002:1002
+.br
+.B OSS Examples:
+.br
+.B # echo 'remotesite gid 2001:1001' > /proc/fs/lustre/nodemap/add_nodemap_idmap
+.br
+.B # echo 'remotesite uid 2001:1001' > /proc/fs/lustre/nodemap/add_nodemap_idmap
+.TP
+.BI nodemap_del_idmap "<--name nodemap_name> <--idtype [uid|gid]> <--idmap remoteid:fsid>"
+Delete a UID or GID mapping from a nodemap.
+.br
+.B MDS Examples:
+.br
+.B # lctl nodemap_del_idmap --name remotesite --idtype uid --idmap 2001:1001
+.br
+.B # lctl nodemap_del_idmap --name remotesite --idtype gid --idmap 2002:1002
+.br
+.B OSS Examples:
+.br
+.B # echo 'remotesite gid 2001:1001' > /proc/fs/lustre/nodemap/del_nodemap_idmap
+.br
+.B # echo 'remotesite uid 2001:1001' > /proc/fs/lustre/nodemap/del_nodemap_idmap
+.PP
 .SS LFSCK
 An on-line Lustre consistency check and repair tool.
 .TP
