@@ -1282,6 +1282,9 @@ fops_test_setup() {
 	do_facet ost0 $LCTL set_param nodemap.c0.admin_nodemap=$admin
 	do_facet ost0 $LCTL set_param nodemap.c0.trusted_nodemap=$trust
 
+	# flush MDT locks to make sure they are reacquired before test
+	do_node ${clients_arr[0]} lctl set_param \
+		ldlm.namespaces.$FSNAME-MDT*.lru_size=clear
 }
 
 do_create_delete() {
@@ -1311,7 +1314,7 @@ nodemap_check_quota() {
 do_fops_quota_test() {
 	local run_u=$1
 	# define fuzz as 2x ost block size in K
-	local quota_fuzz=$(($(lctl get_param -n osc.lustre-OST0000-*.blocksize |
+	local quota_fuzz=$(($(lctl get_param -n osc.$FSNAME-OST0000-*.blocksize |
 		head -1) / 512))
 	local qused_orig=$(nodemap_check_quota "$run_u")
 	local qused_low=$((qused_orig - quota_fuzz))
@@ -1636,7 +1639,6 @@ nodemap_acl_test() {
 	nodemap_acl_test_setup
 	sleep 5
 
-	do_node $set_client $RUNAS_USER find $DIR/ -ls
 	do_node $set_client $RUNAS_USER touch $testfile
 
 	# ACL masks aren't filtered by nodemap code, so we ignore them
