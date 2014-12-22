@@ -813,8 +813,6 @@ struct md_op_data {
 	unsigned int		op_attr_flags; /* LUSTRE_{SYNC,..}_FL */
 	__u64                   op_valid; /* OBD_MD_* */
 
-	/* Size-on-MDS epoch and flags. */
-	__u64                   op_ioepoch;
 	enum md_op_flags	op_flags;
 
 	/* Capa fields */
@@ -1053,8 +1051,7 @@ struct md_ops {
 			struct ptlrpc_request **);
 
 	int (*m_setattr)(struct obd_export *, struct md_op_data *, void *,
-			size_t , void *, size_t, struct ptlrpc_request **,
-			 struct md_open_data **mod);
+			 size_t , struct ptlrpc_request **);
 
 	int (*m_fsync)(struct obd_export *, const struct lu_fid *,
 		       struct obd_capa *, struct ptlrpc_request **);
@@ -1092,9 +1089,6 @@ struct md_ops {
 
 	int (*m_find_cbdata)(struct obd_export *, const struct lu_fid *,
 			     ldlm_iterator_t, void *);
-
-	int (*m_done_writing)(struct obd_export *, struct md_op_data  *,
-			      struct md_open_data *);
 
 	int (*m_getattr_name)(struct obd_export *, struct md_op_data *,
 			      struct ptlrpc_request **);
