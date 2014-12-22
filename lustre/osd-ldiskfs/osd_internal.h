@@ -503,6 +503,7 @@ struct osd_thread_info {
 
         /** dentry for Iterator context. */
         struct dentry          oti_it_dentry;
+        struct dentry          oti_it_dentry1;
         struct htree_lock     *oti_hlock;
 
         struct lu_fid          oti_fid;
