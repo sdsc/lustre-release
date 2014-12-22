@@ -1120,6 +1120,11 @@ struct lu_context_key {
 	 */
 	atomic_t	lct_used;
 	/**
+	 * Internal implementation detail: number of successfull calls
+	 * to try_module_get().
+	 */
+	atomic_t	lct_module;
+	/**
 	 * Internal implementation detail: module for this key.
 	 */
 	struct module	*lct_owner;
