@@ -114,6 +114,7 @@ static int lfs_hsm_remove(int argc, char **argv);
 static int lfs_hsm_cancel(int argc, char **argv);
 static int lfs_swap_layouts(int argc, char **argv);
 static int lfs_mv(int argc, char **argv);
+static int lfs_fadvise(int argc, char **argv);
 
 #define SETSTRIPE_USAGE(_cmd, _tgt) \
 	"usage: "_cmd" [--stripe-count|-c <stripe_count>]\n"\
@@ -345,6 +346,10 @@ command_t cmdlist[] = {
 	 "To move directories between MDTs.\n"
 	 "usage: mv <directory|filename> [--mdt-index|-M] <mdt_index> "
 	 "[--verbose|-v]\n"},
+	{"fadvise", lfs_fadvise, 0,
+	 "Provide servers with advice about access patterns for a file.\n"
+	 "usage: fadvise [--start|-s START] [--end|-e END] "
+	 "[--advice|-a ADVICE] <file> ..."},
 	{"help", Parser_help, 0, "help"},
 	{"exit", Parser_quit, 0, "quit"},
 	{"quit", Parser_quit, 0, "quit"},
@@ -4078,6 +4083,131 @@ static int lfs_swap_layouts(int argc, char **argv)
 	return llapi_swap_layouts(argv[1], argv[2], 0, 0,
 				  SWAP_LAYOUTS_KEEP_MTIME |
 				  SWAP_LAYOUTS_KEEP_ATIME);
+}
+
+static const char *const ladvise_types[] = {
+	[LU_LADVISE_NORMAL] = "normal",
+	[LU_LADVISE_RANDOM] = "random",
+	[LU_LADVISE_SEQUENTIAL] = "sequential",
+	[LU_LADVISE_WILLNEED] = "willneed",
+	[LU_LADVISE_DONTNEED] = "dontneed",
+	[LU_LADVISE_NOREUSE] = "noreuse",
+};
+
+static enum lu_ladvise_type lfs_get_ladvice(const char *string)
+{
+	enum lu_ladvise_type advice;
+
+	for (advice = 0;
+	     advice < ARRAY_SIZE(ladvise_types); advice++) {
+		if (ladvise_types[advice] == NULL)
+			continue;
+		if (strcmp(string, ladvise_types[advice]) == 0)
+			return advice;
+	}
+
+	return -EINVAL;
+}
+
+static int lfs_fadvise(int argc, char **argv)
+{
+	struct option		 long_opts[] = {
+		{"advice", 1, 0, 'a'},
+		{"end", 1, 0, 'e'},
+		{"start", 1, 0, 's'},
+		{0, 0, 0, 0}
+	};
+	char			 short_opts[] = "a:e:s:";
+	int			 c;
+	int			 rc = 0;
+	const char		*path;
+	int			 fd;
+	struct lu_ladvise	 advice;
+	enum lu_ladvise_type	 advice_type = LU_LADVISE_WILLNEED;
+	struct stat		 st;
+	long long		 start = -1;
+	long long		 end = -1;
+
+	optind = 0;
+	while ((c = getopt_long(argc, argv, short_opts,
+				long_opts, NULL)) != -1) {
+		switch (c) {
+		case 'a':
+			advice_type = lfs_get_ladvice(optarg);
+			if (advice_type < 0) {
+				fprintf(stderr, "invalid advice type '%s'\n",
+					optarg);
+				return CMD_HELP;
+			}
+			break;
+		case 'e':
+			start = strtoll(optarg, NULL, 10);
+			break;
+		case 's':
+			end = strtoll(optarg, NULL, 10);
+			break;
+		case '?':
+			return CMD_HELP;
+		default:
+			fprintf(stderr, "error: %s: option '%s' unrecognized\n",
+				argv[0], argv[optind - 1]);
+			return CMD_HELP;
+		}
+	}
+
+	if (argc <= optind)
+		return CMD_HELP;
+
+	while (optind < argc) {
+		int rc2;
+		long long tmp_start = -1;
+		long long tmp_end = -1;
+
+		path = argv[optind++];
+
+		rc2 = stat(path, &st);
+		if (rc2 < 0) {
+			fprintf(stderr, "cannot stat '%s': %s\n",
+				path, strerror(errno));
+			rc2 = -errno;
+			goto next;
+		}
+
+		tmp_start = start == -1 ? 0 : start;
+		tmp_start = end == -1 ? st.st_size : end;
+
+		if (tmp_end < tmp_start) {
+			fprintf(stderr, "range error for '%s': "
+				"[%llu, %llu]\n",
+				path, tmp_start, tmp_end);
+			rc2 = -EINVAL;
+			goto next;
+		}
+
+		fd = open(path, O_RDONLY);
+		if (fd < 0) {
+			fprintf(stderr, "cannot open '%s': %s\n",
+				path, strerror(errno));
+			rc2 = -errno;
+			goto next;
+		}
+
+		advice.ll_offset = tmp_start;
+		advice.ll_length = tmp_end - tmp_start;
+		advice.ll_advice = advice_type;
+		rc2 = ioctl(fd, LL_IOC_LADVISE, &advice);
+		close(fd);
+		if (rc2) {
+			fprintf(stderr, "cannot give advice on '%s': %s\n",
+				path, strerror(errno));
+			rc2 = -errno;
+			goto next;
+		}
+next:
+		if (rc == 0 && rc2 < 0)
+			rc = rc2;
+	}
+	return rc;
 }
 
 int main(int argc, char **argv)

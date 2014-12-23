@@ -765,6 +765,7 @@ static struct req_format *req_formats[] = {
 	&RQF_OST_GET_INFO_LAST_FID,
 	&RQF_OST_SET_INFO_LAST_FID,
         &RQF_OST_GET_INFO_FIEMAP,
+	&RQF_OST_LADVISE,
         &RQF_LDLM_ENQUEUE,
         &RQF_LDLM_ENQUEUE_LVB,
         &RQF_LDLM_CONVERT,
@@ -1664,6 +1665,10 @@ EXPORT_SYMBOL(RQF_LFSCK_NOTIFY);
 struct req_format RQF_LFSCK_QUERY =
 	DEFINE_REQ_FMT0("LFSCK_QUERY", obd_lfsck_request, obd_lfsck_reply);
 EXPORT_SYMBOL(RQF_LFSCK_QUERY);
+
+struct req_format RQF_OST_LADVISE =
+	DEFINE_REQ_FMT0("OST_LADVISE", ost_body_capa, ost_body_only);
+EXPORT_SYMBOL(RQF_OST_LADVISE);
 
 #if !defined(__REQ_LAYOUT_USER__)
 
