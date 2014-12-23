@@ -426,6 +426,7 @@ typedef struct lnet_ni {
 	int			ni_peerrtrcredits;
 	/* seconds to consider peer dead */
 	int			ni_peertimeout;
+	unsigned char		ni_cksum_algo;	/* Checksum algorithm */
 	int			ni_ncpts;	/* number of CPTs */
 	__u32			*ni_cpts;	/* bond NI on some CPTs */
 	lnet_nid_t		ni_nid;		/* interface's NID */

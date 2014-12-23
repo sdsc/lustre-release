@@ -434,8 +434,8 @@ out:
 
 int lustre_lnet_config_net(char *net, char *intf, char *ip2net,
 			   int peer_to, int peer_cr, int peer_buf_cr,
-			   int credits, char *smp, int seq_no,
-			   struct cYAML **err_rc)
+			   int credits, char *cksum, char *smp,
+			   int seq_no, struct cYAML **err_rc)
 {
 	struct lnet_ioctl_config_data data;
 	char buf[LNET_MAX_STR_LEN];
@@ -485,6 +485,7 @@ int lustre_lnet_config_net(char *net, char *intf, char *ip2net,
 	data.cfg_config_u.cfg_net.net_peer_tx_credits = peer_cr;
 	data.cfg_config_u.cfg_net.net_peer_rtr_credits = peer_buf_cr;
 	data.cfg_config_u.cfg_net.net_max_tx_credits = credits;
+	data.cfg_config_u.cfg_net.net_cksum_algo = cfs_crypto_hash_alg(cksum);
 
 	num_of_nets = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_ADD_NET, &data);
 	if (num_of_nets < 0) {
@@ -663,8 +664,15 @@ int lustre_lnet_show_net(char *nw, int detail, int seq_no,
 		}
 
 		if (detail) {
+			int algo = data->cfg_config_u.cfg_net.net_cksum_algo;
+			char *algo_name = (char *) cfs_crypto_hash_name(algo);
+
 			tunables = cYAML_create_object(item, "tunables");
 			if (tunables == NULL)
+				goto out;
+
+			if (cYAML_create_string(tunables, "checksum_algorithm",
+						algo_name) == NULL)
 				goto out;
 
 			if (cYAML_create_number(tunables, "peer_timeout",
@@ -1231,7 +1239,7 @@ static int handle_yaml_config_route(struct cYAML *tree, struct cYAML **show_rc,
 static int handle_yaml_config_net(struct cYAML *tree, struct cYAML **show_rc,
 				  struct cYAML **err_rc)
 {
-	struct cYAML *net, *intf, *tunables, *seq_no,
+	struct cYAML *net, *intf, *tunables, *seq_no, *cksum = NULL,
 	      *peer_to = NULL, *peer_buf_cr = NULL, *peer_cr = NULL,
 	      *credits = NULL, *ip2net = NULL, *smp = NULL, *child;
 	char devs[LNET_MAX_STR_LEN];
@@ -1266,6 +1274,8 @@ static int handle_yaml_config_net(struct cYAML *tree, struct cYAML **show_rc,
 		peer_cr = cYAML_get_object_item(tunables, "peer_credits");
 		peer_buf_cr = cYAML_get_object_item(tunables,
 						    "peer_buffer_credits");
+		cksum = cYAML_get_object_item(tunables,
+					      "checksum_algothrim");
 		credits = cYAML_get_object_item(tunables, "credits");
 		smp = cYAML_get_object_item(tunables, "CPT");
 	}
@@ -1279,6 +1289,7 @@ static int handle_yaml_config_net(struct cYAML *tree, struct cYAML **show_rc,
 				      (peer_buf_cr) ?
 					peer_buf_cr->cy_valueint : -1,
 				      (credits) ? credits->cy_valueint : -1,
+				      (cksum) ? cksum->cy_valuestring : "null",
 				      (smp) ? smp->cy_valuestring : NULL,
 				      (seq_no) ? seq_no->cy_valueint : -1,
 				      err_rc);
