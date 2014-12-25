@@ -2450,6 +2450,7 @@ void _debug_req(struct ptlrpc_request *req,
         int req_ok = req->rq_reqmsg != NULL;
         int rep_ok = req->rq_repmsg != NULL;
         lnet_nid_t nid = LNET_NID_ANY;
+	char nidstr[LNET_NIDSTR_SIZE];
         va_list args;
 
         if (ptlrpc_req_need_swab(req)) {
@@ -2475,7 +2476,7 @@ void _debug_req(struct ptlrpc_request *req,
 				req->rq_export ?
 					req->rq_export->exp_client_uuid.uuid :
 					"<?>",
-			   libcfs_nid2str(nid),
+			   libcfs_nid2str_r(nid, nidstr, sizeof(nidstr)),
 			   req->rq_request_portal, req->rq_reply_portal,
 			   req->rq_reqlen, req->rq_replen,
 			   req->rq_early_count, req->rq_timedout,
