@@ -74,10 +74,11 @@ int mdt_init_idmap(struct tgt_session_info *tsi)
 	struct ptlrpc_request	*req = tgt_ses_req(tsi);
 	struct mdt_export_data *med = mdt_req2med(req);
 	struct obd_export *exp = req->rq_export;
-	char *client = libcfs_nid2str(req->rq_peer.nid);
+	char client[LNET_NIDSTR_SIZE];
 	int rc = 0;
 	ENTRY;
 
+	libcfs_nid2str_r(req->rq_peer.nid, client, sizeof(client));
 	if (exp_connect_rmtclient(exp)) {
 		mutex_lock(&med->med_idmap_mutex);
 		if (!med->med_idmap)

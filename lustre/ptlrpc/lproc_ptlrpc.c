@@ -932,6 +932,7 @@ static int ptlrpc_lprocfs_svc_req_history_show(struct seq_file *s, void *iter)
 	struct ptlrpc_srh_iterator	*srhi = iter;
 	struct ptlrpc_service_part	*svcpt;
 	struct ptlrpc_request		*req;
+	char				 nidstr[LNET_NIDSTR_SIZE];
 	int				rc;
 
 	LASSERT(srhi->srhi_idx < svc->srv_ncpts);
@@ -942,27 +943,28 @@ static int ptlrpc_lprocfs_svc_req_history_show(struct seq_file *s, void *iter)
 
 	rc = ptlrpc_lprocfs_svc_req_history_seek(svcpt, srhi, srhi->srhi_seq);
 
-        if (rc == 0) {
-                req = srhi->srhi_req;
+	if (rc == 0) {
+		req = srhi->srhi_req;
 
-                /* Print common req fields.
-                 * CAVEAT EMPTOR: we're racing with the service handler
-                 * here.  The request could contain any old crap, so you
-                 * must be just as careful as the service's request
-                 * parser. Currently I only print stuff here I know is OK
-                 * to look at coz it was set up in request_in_callback()!!! */
-                seq_printf(s, LPD64":%s:%s:x"LPU64":%d:%s:%ld:%lds(%+lds) ",
-                           req->rq_history_seq, libcfs_nid2str(req->rq_self),
-                           libcfs_id2str(req->rq_peer), req->rq_xid,
-                           req->rq_reqlen, ptlrpc_rqphase2str(req),
-                           req->rq_arrival_time.tv_sec,
-                           req->rq_sent - req->rq_arrival_time.tv_sec,
-                           req->rq_sent - req->rq_deadline);
+		libcfs_nid2str_r(req->rq_self, nidstr, sizeof(nidstr));
+		/* Print common req fields.
+		 * CAVEAT EMPTOR: we're racing with the service handler
+		 * here.  The request could contain any old crap, so you
+		 * must be just as careful as the service's request
+		 * parser. Currently I only print stuff here I know is OK
+		 * to look at coz it was set up in request_in_callback()!!! */
+		seq_printf(s, LPD64":%s:%s:x"LPU64":%d:%s:%ld:%lds(%+lds) ",
+			   req->rq_history_seq, nidstr,
+			   libcfs_id2str(req->rq_peer), req->rq_xid,
+			   req->rq_reqlen, ptlrpc_rqphase2str(req),
+			   req->rq_arrival_time.tv_sec,
+			   req->rq_sent - req->rq_arrival_time.tv_sec,
+			   req->rq_sent - req->rq_deadline);
 		if (svc->srv_ops.so_req_printer == NULL)
 			seq_printf(s, "\n");
 		else
 			svc->srv_ops.so_req_printer(s, srhi->srhi_req);
-        }
+	}
 
 	spin_unlock(&svcpt->scp_lock);
 	return rc;
