@@ -2436,16 +2436,18 @@ void _ldlm_lock_debug(struct ldlm_lock *lock,
         va_list args;
         struct obd_export *exp = lock->l_export;
         struct ldlm_resource *resource = lock->l_resource;
-        char *nid = "local";
+	char nid[LNET_NIDSTR_SIZE] = "local";
 
-        va_start(args, fmt);
+	va_start(args, fmt);
 
-        if (exp && exp->exp_connection) {
-                nid = libcfs_nid2str(exp->exp_connection->c_peer.nid);
-        } else if (exp && exp->exp_obd != NULL) {
-                struct obd_import *imp = exp->exp_obd->u.cli.cl_import;
-                nid = libcfs_nid2str(imp->imp_connection->c_peer.nid);
-        }
+	if (exp && exp->exp_connection) {
+		libcfs_nid2str_r(exp->exp_connection->c_peer.nid,
+				 nid, sizeof(nid));
+	} else if (exp && exp->exp_obd != NULL) {
+		struct obd_import *imp = exp->exp_obd->u.cli.cl_import;
+		libcfs_nid2str_r(imp->imp_connection->c_peer.nid,
+				 nid, sizeof(nid));
+	}
 
         if (resource == NULL) {
                 libcfs_debug_vmsg2(msgdata, fmt, args,
