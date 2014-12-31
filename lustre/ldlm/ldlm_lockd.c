@@ -333,6 +333,14 @@ static void waiting_locks_callback(unsigned long unused)
                         LDLM_LOCK_RELEASE(lock);
                         continue;
                 }
+
+		if (exp_connect_flags(lock->l_export) & OBD_CONNECT_MDS_MDS) {
+			LDLM_DEBUG(lock, "not expiring from other MDT %s\n",
+				   libcfs_nid2str(
+				   lock->l_export->exp_connection->c_peer.nid));
+			continue;
+		}
+
                 ldlm_lock_to_ns(lock)->ns_timeouts++;
                 LDLM_ERROR(lock, "lock callback timer expired after %lds: "
                            "evicting client at %s ",
