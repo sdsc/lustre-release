@@ -1220,14 +1220,15 @@ create_fops_nodemaps() {
 	local i=0
 	local client
 	for client in $clients; do
-		local client_ip=$($LUSTRE/tests/resolveip $client)
+		local client_ip=$(host_nids_address $client $NETTYPE)
+		local client_nid=$(h2$NETTYPE $client_ip)
 		do_facet mgs $LCTL nodemap_add c${i} || return 1
 		do_facet mgs $LCTL nodemap_add_range 	\
-			--name c${i} --range $client_ip@tcp || return 1
+			--name c${i} --range $client_nid || return 1
 		do_facet ost0 $LCTL set_param nodemap.add_nodemap=c${i} ||
 			return 1
 		do_facet ost0 "$LCTL set_param nodemap.add_nodemap_range='c$i \
-			$client_ip@tcp'" || return 1
+			$client_nid'" || return 1
 		for map in ${FOPS_IDMAPS[i]}; do
 			do_facet mgs $LCTL nodemap_add_idmap --name c${i} \
 				--idtype uid --idmap ${map} || return 1
@@ -1311,8 +1312,8 @@ nodemap_check_quota() {
 do_fops_quota_test() {
 	local run_u=$1
 	# define fuzz as 2x ost block size in K
-	local quota_fuzz=$(($(lctl get_param -n osc.lustre-OST0000-*.blocksize |
-		head -1) / 512))
+	local quota_fuzz=$(($(lctl get_param -n \
+		osc.$FSNAME-OST0000-*.blocksize | head -1) / 512))
 	local qused_orig=$(nodemap_check_quota "$run_u")
 	local qused_low=$((qused_orig - quota_fuzz))
 	local qused_high=$((qused_orig + quota_fuzz))
