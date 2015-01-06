@@ -71,15 +71,15 @@ CFS_MODULE_PARM(oss_io_cpts, "s", charp, 0444,
 
 static struct cfs_cpt_table	*ost_io_cptable;
 
-#ifdef LPROCFS
+#ifdef CONFIG_PROC_FS
 LPROC_SEQ_FOPS_RO_TYPE(ost, uuid);
 
-static struct lprocfs_seq_vars lprocfs_ost_obd_vars[] = {
+static struct lprocfs_vars lprocfs_ost_obd_vars[] = {
 	{ .name	=	"uuid",
 	  .fops	=	&ost_uuid_fops	},
 	{ 0 }
 };
-#endif /* LPROCFS */
+#endif /* CONFIG_PROC_FS */
 
 /* Sigh - really, this is an OSS, the _server_, not the _target_ */
 static int ost_setup(struct obd_device *obd, struct lustre_cfg* lcfg)
@@ -90,7 +90,7 @@ static int ost_setup(struct obd_device *obd, struct lustre_cfg* lcfg)
 	int rc;
 	ENTRY;
 
-#ifdef LPROCFS
+#ifdef CONFIG_PROC_FS
 	obd->obd_vars = lprocfs_ost_obd_vars;
 	lprocfs_obd_setup(obd);
 #endif

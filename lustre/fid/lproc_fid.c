@@ -51,7 +51,7 @@
 #include <lprocfs_status.h>
 #include "fid_internal.h"
 
-#ifdef LPROCFS
+#ifdef CONFIG_PROC_FS
 
 /* Format: [0x64BIT_INT - 0x64BIT_INT] + 32 bytes just in case */
 #define MAX_FID_RANGE_STRLEN (32 + 2 * 2 * sizeof(__u64))
@@ -213,7 +213,7 @@ LPROC_SEQ_FOPS(lprocfs_server_fid_space);
 LPROC_SEQ_FOPS(lprocfs_server_fid_width);
 LPROC_SEQ_FOPS_RO(lprocfs_server_fid_server);
 
-struct lprocfs_seq_vars seq_server_proc_list[] = {
+struct lprocfs_vars seq_server_proc_list[] = {
 	{ .name	=	"space",
 	  .fops	=	&lprocfs_server_fid_space_fops	},
 	{ .name	=	"width",
@@ -360,10 +360,6 @@ static int fldb_seq_open(struct inode *inode, struct file *file)
 
 	fld = ss->lss_site->ss_server_fld;
 	LASSERT(fld != NULL);
-
-	rc = LPROCFS_ENTRY_CHECK(inode);
-	if (rc < 0)
-		return rc;
 
 	rc = seq_open(file, &fldb_sops);
 	if (rc)
@@ -639,7 +635,7 @@ LPROC_SEQ_FOPS(lprocfs_client_fid_width);
 LPROC_SEQ_FOPS_RO(lprocfs_client_fid_server);
 LPROC_SEQ_FOPS_RO(lprocfs_client_fid_fid);
 
-struct lprocfs_seq_vars seq_client_proc_list[] = {
+struct lprocfs_vars seq_client_proc_list[] = {
 	{ .name	=	"space",
 	  .fops	=	&lprocfs_client_fid_space_fops	},
 	{ .name	=	"width",

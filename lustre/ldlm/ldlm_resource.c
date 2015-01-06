@@ -69,7 +69,7 @@ struct proc_dir_entry *ldlm_svc_proc_dir;
  * DDOS. */
 static unsigned int ldlm_dump_granted_max = 256;
 
-#ifdef LPROCFS
+#ifdef CONFIG_PROC_FS
 static ssize_t
 lprocfs_dump_ns_seq_write(struct file *file, const char __user *buffer,
 			  size_t count, loff_t *off)
@@ -86,7 +86,7 @@ LPROC_SEQ_FOPS_RO_TYPE(ldlm, uint);
 int ldlm_proc_setup(void)
 {
 	int rc;
-	struct lprocfs_seq_vars list[] = {
+	struct lprocfs_vars list[] = {
 		{ .name	=	"dump_namespaces",
 		  .fops	=	&ldlm_dump_ns_fops,
 		  .proc_mode =	0222 },
@@ -100,34 +100,31 @@ int ldlm_proc_setup(void)
 	ENTRY;
 	LASSERT(ldlm_ns_proc_dir == NULL);
 
-	ldlm_type_proc_dir = lprocfs_seq_register(OBD_LDLM_DEVICENAME,
-							proc_lustre_root,
-							NULL, NULL);
+	ldlm_type_proc_dir = lprocfs_register(OBD_LDLM_DEVICENAME,
+					      proc_lustre_root, NULL, NULL);
 	if (IS_ERR(ldlm_type_proc_dir)) {
 		CERROR("LProcFS failed in ldlm-init\n");
 		rc = PTR_ERR(ldlm_type_proc_dir);
 		GOTO(err, rc);
 	}
 
-	ldlm_ns_proc_dir = lprocfs_seq_register("namespaces",
-						ldlm_type_proc_dir,
-						NULL, NULL);
+	ldlm_ns_proc_dir = lprocfs_register("namespaces", ldlm_type_proc_dir,
+					    NULL, NULL);
 	if (IS_ERR(ldlm_ns_proc_dir)) {
 		CERROR("LProcFS failed in ldlm-init\n");
 		rc = PTR_ERR(ldlm_ns_proc_dir);
 		GOTO(err_type, rc);
 	}
 
-	ldlm_svc_proc_dir = lprocfs_seq_register("services",
-						ldlm_type_proc_dir,
-						NULL, NULL);
+	ldlm_svc_proc_dir = lprocfs_register("services", ldlm_type_proc_dir,
+					     NULL, NULL);
 	if (IS_ERR(ldlm_svc_proc_dir)) {
 		CERROR("LProcFS failed in ldlm-init\n");
 		rc = PTR_ERR(ldlm_svc_proc_dir);
 		GOTO(err_ns, rc);
 	}
 
-	rc = lprocfs_seq_add_vars(ldlm_type_proc_dir, list, NULL);
+	rc = lprocfs_add_vars(ldlm_type_proc_dir, list, NULL);
 	if (rc != 0) {
 		CERROR("LProcFS failed in ldlm-init\n");
 		GOTO(err_svc, rc);
@@ -324,7 +321,7 @@ static void ldlm_namespace_proc_unregister(struct ldlm_namespace *ns)
 
 static int ldlm_namespace_proc_register(struct ldlm_namespace *ns)
 {
-	struct lprocfs_seq_vars lock_vars[2];
+	struct lprocfs_vars lock_vars[2];
         char lock_name[MAX_STRING_SIZE + 1];
 	struct proc_dir_entry *ns_pde;
 
@@ -383,12 +380,12 @@ static int ldlm_namespace_proc_register(struct ldlm_namespace *ns)
 	return 0;
 }
 #undef MAX_STRING_SIZE
-#else /* LPROCFS */
+#else /* !CONFIG_PROC_FS */
 
 #define ldlm_namespace_proc_unregister(ns)      ({;})
 #define ldlm_namespace_proc_register(ns)        ({0;})
 
-#endif /* LPROCFS */
+#endif /* CONFIG_PROC_FS */
 
 static unsigned ldlm_res_hop_hash(cfs_hash_t *hs,
                                   const void *key, unsigned mask)

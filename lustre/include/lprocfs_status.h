@@ -39,33 +39,12 @@
  *
  * Author: Hariharan Thantry thantry@users.sourceforge.net
  */
-#ifndef _LPROCFS_SNMP_H
-#define _LPROCFS_SNMP_H
+#ifndef _LPROCFS_STATUS_H
+#define _LPROCFS_STATUS_H
 
 #include <lustre/lustre_idl.h>
-#include <libcfs/params_tree.h>
 
-#ifndef HAVE_ONLY_PROCFS_SEQ
 struct lprocfs_vars {
-	const char			*name;
-	read_proc_t			*read_fptr;
-	write_proc_t			*write_fptr;
-	void				*data;
-	const struct file_operations	*fops;
-	/**
-	 * /proc file mode.
-	 */
-	mode_t				proc_mode;
-};
-
-struct lprocfs_static_vars {
-	struct lprocfs_vars *module_vars;
-	struct lprocfs_vars *obd_vars;
-};
-
-#endif
-
-struct lprocfs_seq_vars {
 	const char			*name;
 	const struct file_operations	*fops;
 	void				*data;
@@ -410,7 +389,7 @@ struct obd_job_stats {
 	time_t			ojs_last_cleanup;
 };
 
-#ifdef LPROCFS
+#ifdef CONFIG_PROC_FS
 
 extern int lprocfs_stats_alloc_one(struct lprocfs_stats *stats,
 				   unsigned int cpuid);
@@ -623,32 +602,18 @@ extern int lprocfs_register_stats(struct proc_dir_entry *root, const char *name,
                                   struct lprocfs_stats *stats);
 
 /* lprocfs_status.c */
-#ifndef HAVE_ONLY_PROCFS_SEQ
 extern int lprocfs_add_vars(struct proc_dir_entry *root,
-                            struct lprocfs_vars *var,
-                            void *data);
-
-extern struct proc_dir_entry *lprocfs_register(const char *name,
-					      struct proc_dir_entry *parent,
-					      struct lprocfs_vars *list,
-					      void *data);
-#endif
-extern int lprocfs_seq_add_vars(struct proc_dir_entry *root,
-				struct lprocfs_seq_vars *var,
-				void *data);
-
+			    struct lprocfs_vars *var, void *data);
 extern struct proc_dir_entry *
-lprocfs_seq_register(const char *name, struct proc_dir_entry *parent,
-		     struct lprocfs_seq_vars *list, void *data);
+lprocfs_register(const char *name, struct proc_dir_entry *parent,
+		 struct lprocfs_vars *list, void *data);
 extern void lprocfs_remove(struct proc_dir_entry **root);
 extern void lprocfs_remove_proc_entry(const char *name,
                                       struct proc_dir_entry *parent);
-#ifndef HAVE_ONLY_PROCFS_SEQ
-extern void lprocfs_try_remove_proc_entry(const char *name,
-					  struct proc_dir_entry *parent);
-
-extern struct proc_dir_entry *lprocfs_srch(struct proc_dir_entry *root,
-                                          const char *name);
+#ifndef HAVE_REMOVE_PROC_SUBTREE
+#define PDE_DATA(inode)                 (PDE(inode)->data)
+extern void remove_proc_subtree(const char *name,
+				struct proc_dir_entry *parent);
 #endif
 extern int lprocfs_obd_setup(struct obd_device *dev);
 extern int lprocfs_obd_cleanup(struct obd_device *obd);
@@ -687,19 +652,13 @@ extern int lprocfs_connect_flags_seq_show(struct seq_file *m, void *data);
 extern int lprocfs_num_exports_seq_show(struct seq_file *m, void *data);
 #endif
 struct adaptive_timeout;
-extern int lprocfs_seq_at_hist_helper(struct seq_file *m,
+extern int lprocfs_at_hist_helper(struct seq_file *m,
 				      struct adaptive_timeout *at);
 extern int lprocfs_timeouts_seq_show(struct seq_file *m, void *data);
 extern ssize_t
 lprocfs_timeouts_seq_write(struct file *file, const char *buffer,
 			   size_t count, loff_t *off);
 #ifdef HAVE_SERVER_SUPPORT
-#ifndef HAVE_ONLY_PROCFS_SEQ
-extern ssize_t lprocfs_fops_read(struct file *f, char __user *buf,
-				 size_t size, loff_t *ppos);
-extern ssize_t lprocfs_fops_write(struct file *f, const char __user *buf,
-				  size_t size, loff_t *ppos);
-#endif
 extern ssize_t
 lprocfs_evict_client_seq_write(struct file *file, const char *buffer,
 				size_t count, loff_t *off);
@@ -782,12 +741,6 @@ extern int lprocfs_seq_release(struct inode *, struct file *);
 #define __LPROC_SEQ_FOPS(name, custom_seq_write)			\
 static int name##_single_open(struct inode *inode, struct file *file)	\
 {									\
-	int rc;								\
-									\
-	rc = LPROCFS_ENTRY_CHECK(inode);				\
-	if (rc < 0)							\
-		return rc;						\
-									\
 	return single_open(file, name##_seq_show, PDE_DATA(inode));	\
 }									\
 static const struct file_operations name##_fops = {			\
@@ -937,8 +890,7 @@ extern int lprocfs_quota_rd_qs_factor(char *page, char **start, off_t off,
 extern int lprocfs_quota_wr_qs_factor(struct file *file,
                                       const char *buffer,
                                       unsigned long count, void *data);
-#else
-/* LPROCFS is not defined */
+#else	/* CONFIG_PROC_FS is not defined */
 
 #define proc_lustre_root NULL
 
@@ -1020,36 +972,23 @@ static inline struct proc_dir_entry *
 lprocfs_add_symlink(const char *name, struct proc_dir_entry *parent,
                     const char *format, ...)
 {return NULL; }
-#ifndef HAVE_ONLY_PROCFS_SEQ
+static inline int lprocfs_add_vars(struct proc_dir_entry *root,
+				   struct lprocfs_vars *var,
+				   void *data)
+{ return 0; }
 static inline struct proc_dir_entry *
 lprocfs_register(const char *name, struct proc_dir_entry *parent,
 		 struct lprocfs_vars *list, void *data)
-{ return NULL; }
-static inline int lprocfs_add_vars(struct proc_dir_entry *root,
-                                   struct lprocfs_vars *var,
-                                   void *data)
-{ return 0; }
-#endif
-static inline int lprocfs_seq_add_vars(struct proc_dir_entry *root,
-				       struct lprocfs_seq_vars *var,
-				       void *data)
-{ return 0; }
-static inline struct proc_dir_entry *
-lprocfs_seq_register(const char *name, struct proc_dir_entry *parent,
-		     struct lprocfs_seq_vars *list, void *data)
 { return NULL; }
 static inline void lprocfs_remove(struct proc_dir_entry **root)
 { return; }
 static inline void lprocfs_remove_proc_entry(const char *name,
                                              struct proc_dir_entry *parent)
 { return; }
-#ifndef HAVE_ONLY_PROCFS_SEQ
-static inline void lprocfs_try_remove_proc_entry(const char *name,
-						 struct proc_dir_entry *parent)
+#ifndef HAVE_REMOVE_PROC_SUBTREE
+static inline void remove_proc_subtree(const char *name,
+				       struct proc_dir_entry *parent)
 { return; }
-static inline struct proc_dir_entry *lprocfs_srch(struct proc_dir_entry *head,
-                                                 const char *name)
-{ return 0; }
 #endif
 static inline int lprocfs_obd_setup(struct obd_device *dev)
 { return 0; }
@@ -1074,8 +1013,8 @@ static inline int lprocfs_num_exports_seq_show(struct seq_file *m, void *data)
 { return 0; }
 #endif
 struct adaptive_timeout;
-static inline int lprocfs_seq_at_hist_helper(struct seq_file *m,
-					     struct adaptive_timeout *at)
+static inline int lprocfs_at_hist_helper(struct seq_file *m,
+					 struct adaptive_timeout *at)
 { return 0; }
 static inline int lprocfs_timeouts_seq_show(struct seq_file *m, void *data)
 { return 0; }
@@ -1168,6 +1107,6 @@ int lprocfs_job_stats_init(struct obd_device *obd, int cntr_num,
 /* lproc_ptlrpc.c */
 #define target_print_req NULL
 
-#endif /* LPROCFS */
+#endif /* CONFIG_PROC_FS */
 
-#endif /* LPROCFS_SNMP_H */
+#endif /* LPROCFS_STATUS_H */

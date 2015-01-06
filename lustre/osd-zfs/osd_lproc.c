@@ -48,7 +48,7 @@
 
 #include "osd_internal.h"
 
-#ifdef LPROCFS
+#ifdef CONFIG_PROC_FS
 
 #define pct(a, b) (b ? a * 100 / b : 0)
 
@@ -281,7 +281,7 @@ LPROC_SEQ_FOPS_RO_TYPE(zfs, dt_kbytesavail);
 LPROC_SEQ_FOPS_RO_TYPE(zfs, dt_filestotal);
 LPROC_SEQ_FOPS_RO_TYPE(zfs, dt_filesfree);
 
-struct lprocfs_seq_vars lprocfs_osd_obd_vars[] = {
+struct lprocfs_vars lprocfs_osd_obd_vars[] = {
 	{ .name	=	"blocksize",
 	  .fops	=	&zfs_dt_blksize_fops		},
 	{ .name	=	"kbytestotal",
@@ -321,8 +321,9 @@ int osd_procfs_init(struct osd_device *osd, const char *name)
 	LASSERT(name != NULL);
 	LASSERT(type != NULL);
 
-	osd->od_proc_entry = lprocfs_seq_register(name, type->typ_procroot,
-			lprocfs_osd_obd_vars, &osd->od_dt_dev);
+	osd->od_proc_entry = lprocfs_register(name, type->typ_procroot,
+					      lprocfs_osd_obd_vars,
+					      &osd->od_dt_dev);
 	if (IS_ERR(osd->od_proc_entry)) {
 		rc = PTR_ERR(osd->od_proc_entry);
 		CERROR("Error %d setting up lprocfs for %s\n", rc, name);

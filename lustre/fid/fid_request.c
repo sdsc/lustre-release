@@ -423,7 +423,7 @@ EXPORT_SYMBOL(seq_client_flush);
 
 static void seq_client_proc_fini(struct lu_client_seq *seq)
 {
-#ifdef LPROCFS
+#ifdef CONFIG_PROC_FS
 	ENTRY;
 	if (seq->lcs_proc_dir) {
 		if (!IS_ERR(seq->lcs_proc_dir))
@@ -431,18 +431,17 @@ static void seq_client_proc_fini(struct lu_client_seq *seq)
 		seq->lcs_proc_dir = NULL;
 	}
 	EXIT;
-#endif /* LPROCFS */
+#endif /* CONFIG_PROC_FS */
 }
 
 static int seq_client_proc_init(struct lu_client_seq *seq)
 {
-#ifdef LPROCFS
+#ifdef CONFIG_PROC_FS
         int rc;
         ENTRY;
 
-	seq->lcs_proc_dir = lprocfs_seq_register(seq->lcs_name,
-						 seq_type_proc_dir,
-						 NULL, NULL);
+	seq->lcs_proc_dir = lprocfs_register(seq->lcs_name, seq_type_proc_dir,
+					     NULL, NULL);
         if (IS_ERR(seq->lcs_proc_dir)) {
                 CERROR("%s: LProcFS failed in seq-init\n",
                        seq->lcs_name);
@@ -450,8 +449,7 @@ static int seq_client_proc_init(struct lu_client_seq *seq)
                 RETURN(rc);
         }
 
-	rc = lprocfs_seq_add_vars(seq->lcs_proc_dir,
-				  seq_client_proc_list, seq);
+	rc = lprocfs_add_vars(seq->lcs_proc_dir, seq_client_proc_list, seq);
         if (rc) {
                 CERROR("%s: Can't init sequence manager "
                        "proc, rc %d\n", seq->lcs_name, rc);
@@ -464,7 +462,7 @@ out_cleanup:
         seq_client_proc_fini(seq);
         return rc;
 
-#else /* LPROCFS */
+#else /* !CONFIG_PROC_FS */
 	return 0;
 #endif
 }
@@ -574,9 +572,8 @@ struct proc_dir_entry *seq_type_proc_dir;
 
 static int __init fid_mod_init(void)
 {
-	seq_type_proc_dir = lprocfs_seq_register(LUSTRE_SEQ_NAME,
-						 proc_lustre_root,
-						 NULL, NULL);
+	seq_type_proc_dir = lprocfs_register(LUSTRE_SEQ_NAME, proc_lustre_root,
+					     NULL, NULL);
 	if (IS_ERR(seq_type_proc_dir))
 		return PTR_ERR(seq_type_proc_dir);
 

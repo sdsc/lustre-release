@@ -237,9 +237,9 @@ static int lov_connect(const struct lu_env *env,
         if (data)
                 lov->lov_ocd = *data;
 
-	lov->targets_proc_entry = lprocfs_seq_register("target_obds",
-						       obd->obd_proc_entry,
-						       NULL, NULL);
+	lov->targets_proc_entry = lprocfs_register("target_obds",
+						   obd->obd_proc_entry,
+						   NULL, NULL);
 	if (IS_ERR(lov->targets_proc_entry)) {
 		CERROR("%s: cannot register "
 		       "/proc/fs/lustre/%s/%s/target_obds\n",
@@ -782,7 +782,7 @@ int lov_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 {
 	struct lov_desc *desc;
 	struct lov_obd *lov = &obd->u.lov;
-#ifdef LPROCFS
+#ifdef CONFIG_PROC_FS
 	struct obd_type *type;
 #endif
 	int rc;
@@ -838,7 +838,7 @@ int lov_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
         if (rc)
 		GOTO(out, rc);
 
-#ifdef LPROCFS
+#ifdef CONFIG_PROC_FS
 	obd->obd_vars = lprocfs_lov_obd_vars;
 	/* If this is true then both client (lov) and server
 	 * (lod) are on the same node. The lod layer if loaded
@@ -847,9 +847,9 @@ int lov_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 	 * Instead we use type->typ_procsym as the parent. */
 	type = class_search_type(LUSTRE_LOD_NAME);
 	if (type != NULL && type->typ_procsym != NULL) {
-		obd->obd_proc_entry = lprocfs_seq_register(obd->obd_name,
-							   type->typ_procsym,
-							   obd->obd_vars, obd);
+		obd->obd_proc_entry = lprocfs_register(obd->obd_name,
+						       type->typ_procsym,
+						       obd->obd_vars, obd);
 		if (IS_ERR(obd->obd_proc_entry)) {
 			rc = PTR_ERR(obd->obd_proc_entry);
 			CERROR("error %d setting up lprocfs for %s\n", rc,
@@ -866,9 +866,9 @@ int lov_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 		if (rc)
 			CWARN("Error adding the target_obd file\n");
 
-		lov->lov_pool_proc_entry = lprocfs_seq_register("pools",
-							obd->obd_proc_entry,
-							NULL, NULL);
+		lov->lov_pool_proc_entry = lprocfs_register("pools",
+							    obd->obd_proc_entry,
+							    NULL, NULL);
 		if (IS_ERR(lov->lov_pool_proc_entry)) {
 			rc = PTR_ERR(lov->lov_pool_proc_entry);
 			CERROR("error %d setting up lprocfs for pools\n", rc);
@@ -909,10 +909,10 @@ static int lov_precleanup(struct obd_device *obd, enum obd_cleanup_stage stage)
 
 static int lov_cleanup(struct obd_device *obd)
 {
-        struct lov_obd *lov = &obd->u.lov;
+	struct lov_obd *lov = &obd->u.lov;
 	struct list_head *pos, *tmp;
-        struct pool_desc *pool;
-        ENTRY;
+	struct pool_desc *pool;
+	ENTRY;
 
 	list_for_each_safe(pos, tmp, &lov->lov_pool_list) {
 		pool = list_entry(pos, struct pool_desc, pool_list);
@@ -927,6 +927,7 @@ static int lov_cleanup(struct obd_device *obd)
         lov_ost_pool_free(&lov->lov_packed);
 
 	lprocfs_obd_cleanup(obd);
+
         if (lov->lov_tgts) {
                 int i;
                 obd_getref(obd);

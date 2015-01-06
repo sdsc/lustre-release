@@ -711,12 +711,12 @@ void ll_ra_read_ex(struct file *f, struct ll_ra_read *rar);
 struct ll_ra_read *ll_ra_read_get(struct file *f);
 
 /* llite/lproc_llite.c */
-#ifdef LPROCFS
+#ifdef CONFIG_PROC_FS
 int lprocfs_register_mountpoint(struct proc_dir_entry *parent,
                                 struct super_block *sb, char *osc, char *mdc);
 void lprocfs_unregister_mountpoint(struct ll_sb_info *sbi);
 void ll_stats_ops_tally(struct ll_sb_info *sbi, int op, int count);
-extern struct lprocfs_seq_vars lprocfs_llite_obd_vars[];
+extern struct lprocfs_vars lprocfs_llite_obd_vars[];
 #else
 static inline int lprocfs_register_mountpoint(struct proc_dir_entry *parent,
                         struct super_block *sb, char *osc, char *mdc){return 0;}

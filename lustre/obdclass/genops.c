@@ -159,7 +159,7 @@ EXPORT_SYMBOL(class_put_type);
 #define CLASS_MAX_NAME 1024
 
 int class_register_type(struct obd_ops *dt_ops, struct md_ops *md_ops,
-			bool enable_proc, struct lprocfs_seq_vars *vars,
+			bool enable_proc, struct lprocfs_vars *vars,
 			const char *name, struct lu_device_type *ldt)
 {
         struct obd_type *type;
@@ -195,11 +195,11 @@ int class_register_type(struct obd_ops *dt_ops, struct md_ops *md_ops,
         strcpy(type->typ_name, name);
 	spin_lock_init(&type->obd_type_lock);
 
-#ifdef LPROCFS
+#ifdef CONFIG_PROC_FS
 	if (enable_proc) {
-		type->typ_procroot = lprocfs_seq_register(type->typ_name,
-							  proc_lustre_root,
-							  vars, type);
+		type->typ_procroot = lprocfs_register(type->typ_name,
+						      proc_lustre_root,
+						      vars, type);
 		if (IS_ERR(type->typ_procroot)) {
 			rc = PTR_ERR(type->typ_procroot);
 			type->typ_procroot = NULL;
@@ -222,15 +222,9 @@ int class_register_type(struct obd_ops *dt_ops, struct md_ops *md_ops,
 
 failed:
 	if (type->typ_name != NULL) {
-#ifdef LPROCFS
-		if (type->typ_procroot != NULL) {
-#ifndef HAVE_ONLY_PROCFS_SEQ
-			lprocfs_try_remove_proc_entry(type->typ_name,
-						      proc_lustre_root);
-#else
+#ifdef CONFIG_PROC_FS
+		if (type->typ_procroot != NULL)
 			remove_proc_subtree(type->typ_name, proc_lustre_root);
-#endif
-		}
 #endif
                 OBD_FREE(type->typ_name, strlen(name) + 1);
 	}
@@ -266,15 +260,9 @@ int class_unregister_type(const char *name)
 	 * other modules can share names (i.e. lod can use lov entry). so
 	 * we can't reference pointer as it can get invalided when another
 	 * module removes the entry */
-#ifdef LPROCFS
-	if (type->typ_procroot != NULL) {
-#ifndef HAVE_ONLY_PROCFS_SEQ
-		lprocfs_try_remove_proc_entry(type->typ_name, proc_lustre_root);
-#else
+#ifdef CONFIG_PROC_FS
+	if (type->typ_procroot != NULL)
 		remove_proc_subtree(type->typ_name, proc_lustre_root);
-#endif
-	}
-
 	if (type->typ_procsym != NULL)
 		lprocfs_remove(&type->typ_procsym);
 #endif

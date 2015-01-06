@@ -44,10 +44,7 @@
 
 #include "lmv_internal.h"
 
-#ifndef LPROCFS
-static struct lprocfs_vars lprocfs_module_vars[] = { {0} };
-static struct lprocfs_vars lprocfs_obd_vars[] = { {0} };
-#else
+#ifdef CONFIG_PROC_FS
 static int lmv_numobd_seq_show(struct seq_file *m, void *v)
 {
 	struct obd_device	*dev = (struct obd_device *)m->private;
@@ -205,7 +202,7 @@ static int lmv_target_seq_open(struct inode *inode, struct file *file)
 
 LPROC_SEQ_FOPS_RO_TYPE(lmv, uuid);
 
-struct lprocfs_seq_vars lprocfs_lmv_obd_vars[] = {
+struct lprocfs_vars lprocfs_lmv_obd_vars[] = {
 	{ .name	=	"numobd",
 	  .fops	=	&lmv_numobd_fops	},
 	{ .name	=	"placement",
@@ -226,4 +223,4 @@ struct file_operations lmv_proc_target_fops = {
         .llseek               = seq_lseek,
         .release              = seq_release,
 };
-#endif /* LPROCFS */
+#endif /* CONFIG_PROC_FS */

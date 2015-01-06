@@ -42,7 +42,7 @@
 
 #include "mdc_internal.h"
 
-#ifdef LPROCFS
+#ifdef CONFIG_PROC_FS
 
 static int mdc_max_rpcs_in_flight_seq_show(struct seq_file *m, void *v)
 {
@@ -100,7 +100,7 @@ LPROC_SEQ_FOPS_RO(mdc_obd_max_pages_per_rpc);
 LPROC_SEQ_FOPS_RW_TYPE(mdc, import);
 LPROC_SEQ_FOPS_RW_TYPE(mdc, pinger_recov);
 
-struct lprocfs_seq_vars lprocfs_mdc_obd_vars[] = {
+struct lprocfs_vars lprocfs_mdc_obd_vars[] = {
 	{ .name	=	"uuid",
 	  .fops	=	&mdc_uuid_fops		},
 	{ .name	=	"ping",
@@ -144,4 +144,4 @@ struct lprocfs_seq_vars lprocfs_mdc_obd_vars[] = {
 	  .fops	=	&mdc_pinger_recov_fops		},
 	{ 0 }
 };
-#endif /* LPROCFS */
+#endif /* CONFIG_PROC_FS */

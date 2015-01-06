@@ -402,8 +402,8 @@ int ofd_txn_stop_cb(const struct lu_env *env, struct thandle *txn,
 		    void *cookie);
 
 /* lproc_ofd.c */
-#ifdef LPROCFS
-extern struct lprocfs_seq_vars lprocfs_ofd_obd_vars[];
+#ifdef CONFIG_PROC_FS
+extern struct lprocfs_vars lprocfs_ofd_obd_vars[];
 void ofd_stats_counter_init(struct lprocfs_stats *stats);
 #else
 static inline void ofd_stats_counter_init(struct lprocfs_stats *stats) {}

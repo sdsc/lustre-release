@@ -375,7 +375,7 @@ enum dt_txn_op {
  * osd dev stats
  */
 
-#ifdef LPROCFS
+#ifdef CONFIG_PROC_FS
 enum {
         LPROC_OSD_READ_BYTES    = 0,
         LPROC_OSD_WRITE_BYTES   = 1,
@@ -643,10 +643,10 @@ static inline int __osd_xattr_set(struct osd_thread_info *info,
 	return inode->i_op->setxattr(dentry, name, buf, buflen, fl);
 }
 
-#ifdef LPROCFS
+#ifdef CONFIG_PROC_FS
 /* osd_lproc.c */
-extern struct lprocfs_seq_vars lprocfs_osd_obd_vars[];
-extern struct lprocfs_seq_vars lprocfs_osd_module_vars[];
+extern struct lprocfs_vars lprocfs_osd_obd_vars[];
+extern struct lprocfs_vars lprocfs_osd_module_vars[];
 int osd_procfs_init(struct osd_device *osd, const char *name);
 int osd_procfs_fini(struct osd_device *osd);
 void osd_brw_stats_update(struct osd_device *osd, struct osd_iobuf *iobuf);

@@ -2943,7 +2943,7 @@ int osc_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 
 	cli->cl_grant_shrink_interval = GRANT_SHRINK_INTERVAL;
 
-#ifdef LPROCFS
+#ifdef CONFIG_PROC_FS
 	obd->obd_vars = lprocfs_osc_obd_vars;
 #endif
 	/* If this is true then both client (osc) and server (osp) are on the
@@ -2952,9 +2952,9 @@ int osc_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 	 * tree to type->typ_procsym instead of obd->obd_type->typ_procroot. */
 	type = class_search_type(LUSTRE_OSP_NAME);
 	if (type && type->typ_procsym) {
-		obd->obd_proc_entry = lprocfs_seq_register(obd->obd_name,
-							   type->typ_procsym,
-							   obd->obd_vars, obd);
+		obd->obd_proc_entry = lprocfs_register(obd->obd_name,
+						       type->typ_procsym,
+						       obd->obd_vars, obd);
 		if (IS_ERR(obd->obd_proc_entry)) {
 			rc = PTR_ERR(obd->obd_proc_entry);
 			CERROR("error %d setting up lprocfs for %s\n", rc,

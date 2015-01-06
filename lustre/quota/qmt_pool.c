@@ -170,7 +170,7 @@ static int qpi_state_seq_show(struct seq_file *m, void *data)
 }
 LPROC_SEQ_FOPS_RO(qpi_state);
 
-static struct lprocfs_seq_vars lprocfs_quota_qpi_vars[] = {
+static struct lprocfs_vars lprocfs_quota_qpi_vars[] = {
 	{ .name	=	"info",
 	  .fops	=	&qpi_state_fops	},
 	{ NULL }
@@ -213,8 +213,8 @@ static int qmt_pool_alloc(const struct lu_env *env, struct qmt_device *qmt,
 
 	/* create pool proc directory */
 	sprintf(qti->qti_buf, "%s-0x%x", RES_NAME(pool_type), pool_id);
-	pool->qpi_proc = lprocfs_seq_register(qti->qti_buf, qmt->qmt_proc,
-						lprocfs_quota_qpi_vars, pool);
+	pool->qpi_proc = lprocfs_register(qti->qti_buf, qmt->qmt_proc,
+					  lprocfs_quota_qpi_vars, pool);
 	if (IS_ERR(pool->qpi_proc)) {
 		rc = PTR_ERR(pool->qpi_proc);
 		CERROR("%s: failed to create proc entry for pool %s (%d)\n",
@@ -565,7 +565,7 @@ int qmt_pool_prepare(const struct lu_env *env, struct qmt_device *qmt,
 			if (IS_ERR(lqe))
 				RETURN(PTR_ERR(lqe));
 			pool->qpi_grace_lqe[qtype] = lqe;
-#ifdef LPROCFS
+#ifdef CONFIG_PROC_FS
 			/* add procfs file to dump the global index, mostly for
 			 * debugging purpose */
 			sprintf(qti->qti_buf, "glb-%s", QTYPE_NAME(qtype));

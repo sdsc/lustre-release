@@ -51,7 +51,7 @@
 #include <lustre_fid.h>
 #include "fld_internal.h"
 
-#ifdef LPROCFS
+#ifdef CONFIG_PROC_FS
 static int
 fld_proc_targets_seq_show(struct seq_file *m, void *unused)
 {
@@ -136,7 +136,7 @@ LPROC_SEQ_FOPS_RO(fld_proc_targets);
 LPROC_SEQ_FOPS(fld_proc_hash);
 LPROC_SEQ_FOPS_WO_TYPE(fld, cache_flush);
 
-struct lprocfs_seq_vars fld_client_proc_list[] = {
+struct lprocfs_vars fld_client_proc_list[] = {
 	{ .name	=	"targets",
 	  .fops	=	&fld_proc_targets_fops	},
 	{ .name	=	"hash",
@@ -279,10 +279,6 @@ static int fldb_seq_open(struct inode *inode, struct file *file)
 	int			env_init = 0;
 	int			rc;
 
-	rc = LPROCFS_ENTRY_CHECK(inode);
-	if (rc < 0)
-		return rc;
-
 	rc = seq_open(file, &fldb_sops);
 	if (rc)
 		GOTO(out, rc);
@@ -359,10 +355,10 @@ const struct file_operations fld_proc_seq_fops = {
 	.release = fldb_seq_release,
 };
 
-struct lprocfs_seq_vars fld_server_proc_list[] = {
+struct lprocfs_vars fld_server_proc_list[] = {
 	{ NULL }
 };
 
 # endif /* HAVE_SERVER_SUPPORT */
 
-#endif /* LPROCFS */
+#endif /* CONFIG_PROC_FS */

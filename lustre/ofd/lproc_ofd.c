@@ -48,7 +48,7 @@
 
 #include "ofd_internal.h"
 
-#ifdef LPROCFS
+#ifdef CONFIG_PROC_FS
 
 /**
  * Show number of FID allocation sequences.
@@ -983,7 +983,7 @@ LPROC_SEQ_FOPS_RO_TYPE(ofd, target_instance);
 LPROC_SEQ_FOPS_RW_TYPE(ofd, ir_factor);
 LPROC_SEQ_FOPS_RW_TYPE(ofd, job_interval);
 
-struct lprocfs_seq_vars lprocfs_ofd_obd_vars[] = {
+struct lprocfs_vars lprocfs_ofd_obd_vars[] = {
 	{ .name =	"uuid",
 	  .fops =	&ofd_uuid_fops			},
 	{ .name =	"blocksize",
@@ -1094,4 +1094,4 @@ void ofd_stats_counter_init(struct lprocfs_stats *stats)
 			     0, "quotactl", "reqs");
 }
 
-#endif /* LPROCFS */
+#endif /* CONFIG_PROC_FS */

@@ -184,7 +184,7 @@ static const char *ll_eopcode2str(__u32 opcode)
         return ll_eopcode_table[opcode].opname;
 }
 
-#ifdef LPROCFS
+#ifdef CONFIG_PROC_FS
 static void ptlrpc_lprocfs_register(struct proc_dir_entry *root, char *dir,
                              char *name, struct proc_dir_entry **procroot_ret,
                              struct lprocfs_stats **stats_ret)
@@ -203,7 +203,7 @@ static void ptlrpc_lprocfs_register(struct proc_dir_entry *root, char *dir,
                 return;
 
         if (dir) {
-		svc_procroot = lprocfs_seq_register(dir, root, NULL, NULL);
+		svc_procroot = lprocfs_register(dir, root, NULL, NULL);
                 if (IS_ERR(svc_procroot)) {
                         lprocfs_free_stats(&svc_stats);
                         return;
@@ -980,10 +980,6 @@ ptlrpc_lprocfs_svc_req_history_open(struct inode *inode, struct file *file)
 	struct seq_file	*seqf;
 	int		rc;
 
-	rc = LPROCFS_ENTRY_CHECK(inode);
-	if (rc < 0)
-		return rc;
-
 	rc = seq_open(file, &sops);
 	if (rc)
 		return rc;
@@ -1020,7 +1016,7 @@ static int ptlrpc_lprocfs_timeouts_seq_show(struct seq_file *m, void *n)
 			   DHMS_FMT" ago) ", "service",
 			   cur, worst, worstt, DHMS_VARS(&ts));
 
-		lprocfs_seq_at_hist_helper(m, &svcpt->scp_at_estimate);
+		lprocfs_at_hist_helper(m, &svcpt->scp_at_estimate);
 	}
 
 	return 0;
@@ -1060,7 +1056,7 @@ LPROC_SEQ_FOPS(ptlrpc_lprocfs_hp_ratio);
 void ptlrpc_lprocfs_register_service(struct proc_dir_entry *entry,
                                      struct ptlrpc_service *svc)
 {
-	struct lprocfs_seq_vars lproc_vars[] = {
+	struct lprocfs_vars lproc_vars[] = {
 		{ .name	= "high_priority_ratio",
 		  .fops	= &ptlrpc_lprocfs_hp_ratio_fops,
 		  .data = svc },
@@ -1103,7 +1099,7 @@ void ptlrpc_lprocfs_register_service(struct proc_dir_entry *entry,
 	if (svc->srv_procroot == NULL)
 		return;
 
-	lprocfs_seq_add_vars(svc->srv_procroot, lproc_vars, NULL);
+	lprocfs_add_vars(svc->srv_procroot, lproc_vars, NULL);
 
 	rc = lprocfs_seq_create(svc->srv_procroot, "req_history",
 				0400, &req_history_fops, svc);
@@ -1314,4 +1310,4 @@ lprocfs_pinger_recov_seq_write(struct file *file, const char *buffer,
 }
 EXPORT_SYMBOL(lprocfs_pinger_recov_seq_write);
 
-#endif /* LPROCFS */
+#endif /* CONFIG_PROC_FS */

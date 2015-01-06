@@ -167,7 +167,6 @@ struct obd_type {
 	struct md_ops		*typ_md_ops;
 	struct proc_dir_entry	*typ_procroot;
 	struct proc_dir_entry	*typ_procsym;
-	__u32			 typ_sym_filter;
 	char			*typ_name;
 	int			 typ_refcnt;
 	struct lu_device_type	*typ_lu;
@@ -680,7 +679,7 @@ struct obd_device {
 	struct proc_dir_entry	*obd_proc_exports_entry;
 	struct proc_dir_entry	*obd_svc_procroot;
 	struct lprocfs_stats	*obd_svc_stats;
-	struct lprocfs_seq_vars	*obd_vars;
+	struct lprocfs_vars	*obd_vars;
 	atomic_t		obd_evict_inprogress;
 	wait_queue_head_t	obd_evict_inprogress_waitq;
 	struct list_head	obd_evict_list;	/* protected with pet_lock */

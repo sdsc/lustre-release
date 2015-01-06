@@ -213,7 +213,7 @@ struct miscdevice obd_psdev = {
 };
 
 
-#ifdef LPROCFS
+#ifdef CONFIG_PROC_FS
 static int obd_proc_version_seq_show(struct seq_file *m, void *v)
 {
 	return seq_printf(m, "lustre: %s\nkernel: %s\nbuild:  %s\n",
@@ -313,7 +313,7 @@ LPROC_SEQ_FOPS(obd_proc_jobid_var);
 struct proc_dir_entry *proc_lustre_root = NULL;
 EXPORT_SYMBOL(proc_lustre_root);
 
-static struct lprocfs_seq_vars lprocfs_base[] = {
+static struct lprocfs_vars lprocfs_base[] = {
 	{ .name =	"version",
 	  .fops	=	&obd_proc_version_fops	},
 	{ .name =	"pinger",
@@ -326,7 +326,7 @@ static struct lprocfs_seq_vars lprocfs_base[] = {
 };
 #else
 #define lprocfs_base NULL
-#endif /* LPROCFS */
+#endif /* CONFIG_PROC_FS */
 
 static void *obd_device_list_seq_start(struct seq_file *p, loff_t *pos)
 {
@@ -412,7 +412,7 @@ int class_procfs_init(void)
 
 	obd_sysctl_init();
 
-	entry = lprocfs_seq_register("fs/lustre", NULL, lprocfs_base, NULL);
+	entry = lprocfs_register("fs/lustre", NULL, lprocfs_base, NULL);
 	if (IS_ERR(entry)) {
 		rc = PTR_ERR(entry);
 		CERROR("cannot create '/proc/fs/lustre': rc = %d\n", rc);

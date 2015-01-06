@@ -45,6 +45,7 @@
 #include <obd_support.h>
 #include <obd_class.h>
 #include <lustre_net.h>
+#include <lprocfs_status.h>
 #include <lustre/lustre_idl.h>
 #include <lustre_req_layout.h>
 #include "ptlrpc_internal.h"
@@ -1161,7 +1162,7 @@ static void nrs_orr_req_stop(struct ptlrpc_nrs_policy *policy,
  * lprocfs interface
  */
 
-#ifdef LPROCFS
+#ifdef CONFIG_PROC_FS
 
 /**
  * This allows to bundle the policy name into the lprocfs_vars::data pointer
@@ -1858,7 +1859,7 @@ static int nrs_orr_lprocfs_init(struct ptlrpc_service *svc)
 {
 	int	i;
 
-	struct lprocfs_seq_vars nrs_orr_lprocfs_vars[] = {
+	struct lprocfs_vars nrs_orr_lprocfs_vars[] = {
 		{ .name		= "nrs_orr_quantum",
 		  .fops		= &ptlrpc_lprocfs_nrs_orr_quantum_fops	},
 		{ .name		= "nrs_orr_offset_type",
@@ -1876,7 +1877,7 @@ static int nrs_orr_lprocfs_init(struct ptlrpc_service *svc)
 	for (i = 0; i < ARRAY_SIZE(nrs_orr_lprocfs_vars); i++)
 		nrs_orr_lprocfs_vars[i].data = &lprocfs_orr_data;
 
-	return lprocfs_seq_add_vars(svc->srv_procroot, nrs_orr_lprocfs_vars, NULL);
+	return lprocfs_add_vars(svc->srv_procroot, nrs_orr_lprocfs_vars, NULL);
 }
 
 static void nrs_orr_lprocfs_fini(struct ptlrpc_service *svc)
@@ -1889,7 +1890,7 @@ static void nrs_orr_lprocfs_fini(struct ptlrpc_service *svc)
 	lprocfs_remove_proc_entry("nrs_orr_supported", svc->srv_procroot);
 }
 
-#endif /* LPROCFS */
+#endif /* CONFIG_PROC_FS */
 
 static const struct ptlrpc_nrs_pol_ops nrs_orr_ops = {
 	.op_policy_init		= nrs_orr_init,
@@ -1902,7 +1903,7 @@ static const struct ptlrpc_nrs_pol_ops nrs_orr_ops = {
 	.op_req_enqueue		= nrs_orr_req_add,
 	.op_req_dequeue		= nrs_orr_req_del,
 	.op_req_stop		= nrs_orr_req_stop,
-#ifdef LPROCFS
+#ifdef CONFIG_PROC_FS
 	.op_lprocfs_init	= nrs_orr_lprocfs_init,
 	.op_lprocfs_fini	= nrs_orr_lprocfs_fini,
 #endif
@@ -1921,14 +1922,13 @@ struct ptlrpc_nrs_pol_conf nrs_conf_orr = {
  * TRR reuses much of the functions and data structures of ORR
  */
 
-#ifdef LPROCFS
+#ifdef CONFIG_PROC_FS
 
 static int nrs_trr_lprocfs_init(struct ptlrpc_service *svc)
 {
-	int	rc;
 	int	i;
 
-	struct lprocfs_seq_vars nrs_trr_lprocfs_vars[] = {
+	struct lprocfs_vars nrs_trr_lprocfs_vars[] = {
 		{ .name		= "nrs_trr_quantum",
 		  .fops		= &ptlrpc_lprocfs_nrs_orr_quantum_fops },
 		{ .name		= "nrs_trr_offset_type",
@@ -1946,9 +1946,7 @@ static int nrs_trr_lprocfs_init(struct ptlrpc_service *svc)
 	for (i = 0; i < ARRAY_SIZE(nrs_trr_lprocfs_vars); i++)
 		nrs_trr_lprocfs_vars[i].data = &lprocfs_trr_data;
 
-	rc = lprocfs_seq_add_vars(svc->srv_procroot, nrs_trr_lprocfs_vars, NULL);
-
-	return rc;
+	return lprocfs_add_vars(svc->srv_procroot, nrs_trr_lprocfs_vars, NULL);
 }
 
 static void nrs_trr_lprocfs_fini(struct ptlrpc_service *svc)
@@ -1961,7 +1959,7 @@ static void nrs_trr_lprocfs_fini(struct ptlrpc_service *svc)
 	lprocfs_remove_proc_entry("nrs_trr_supported", svc->srv_procroot);
 }
 
-#endif /* LPROCFS */
+#endif /* CONFIG_PROC_FS */
 
 /**
  * Reuse much of the ORR functionality for TRR.
@@ -1977,7 +1975,7 @@ static const struct ptlrpc_nrs_pol_ops nrs_trr_ops = {
 	.op_req_enqueue		= nrs_orr_req_add,
 	.op_req_dequeue		= nrs_orr_req_del,
 	.op_req_stop		= nrs_orr_req_stop,
-#ifdef LPROCFS
+#ifdef CONFIG_PROC_FS
 	.op_lprocfs_init	= nrs_trr_lprocfs_init,
 	.op_lprocfs_fini	= nrs_trr_lprocfs_fini,
 #endif
