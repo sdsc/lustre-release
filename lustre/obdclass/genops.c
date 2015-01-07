@@ -118,8 +118,11 @@ struct obd_type *class_get_type(const char *name)
         if (!type) {
                 const char *modname = name;
 
-		if (strcmp(modname, "obdfilter") == 0)
+		if (strcmp(modname, LUSTRE_OST_NAME) == 0)
 			modname = "ofd";
+
+		if (strcmp(modname, LUSTRE_OSS_NAME) == 0)
+			modname = "ost";
 
 		if (strcmp(modname, LUSTRE_LWP_NAME) == 0)
 			modname = LUSTRE_OSP_NAME;

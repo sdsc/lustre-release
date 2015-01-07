@@ -3006,6 +3006,27 @@ static struct lu_device_type ofd_device_type = {
 	.ldt_ctx_tags	= LCT_DT_THREAD
 };
 
+/*
+ * In the normal case all we have is one symlink, type->typ_procsym
+ * to address the renaming of proc directories due to the OSD api
+ * introducton. OFD is special in that this subsystem the name has
+ * changed from obdfilter to ofd to lastly ost. So we need two
+ * symlinks to point to "ost". Hopefully in 2.9 we can removal all
+ * this symlink madness. The "obdfilter" symlink is stored in the
+ * default type->typ_procsym.
+ *
+ * Symlink called "ofd" that points to "ost" directory.
+ */
+static struct proc_dir_entry *ofd_symlink;
+
+/* One of long term goals has been to make the ost stats information
+ * be modeled after how the mds maps it out. The mds stats is mapped
+ * out as mds/MDS/mdt_* so the equivalent would be oss/OSS/ost_*. At
+ * the same time we need backwards compatibility so the below symlink
+ * is used to create the link between oss/OSS and ost/OSS which is
+ * present in older versions of lustre. */
+static struct proc_dir_entry *oss_symlink;
+
 /**
  * Initialize OFD module.
  *
@@ -3017,7 +3038,8 @@ static struct lu_device_type ofd_device_type = {
  */
 static int __init ofd_init(void)
 {
-	int				rc;
+	struct obd_type *type;
+	int rc;
 
 	rc = lu_kmem_init(ofd_caches);
 	if (rc)
@@ -3031,6 +3053,27 @@ static int __init ofd_init(void)
 
 	rc = class_register_type(&ofd_obd_ops, NULL, true, NULL,
 				 LUSTRE_OST_NAME, &ofd_device_type);
+
+	/* For forward compatibility symlink "obdfilter" and "ofd" to "ost"
+	 * in procfs. Remove the symlinks entirely when access via
+	 * "obdfilter/ofd" can be deprecated, maybe 2.9? */
+	type = class_search_type(LUSTRE_OST_NAME);
+	LASSERT(type != NULL);
+	type->typ_procsym = lprocfs_add_symlink("obdfilter", proc_lustre_root,
+						"ost");
+	if (type->typ_procsym == NULL)
+		CWARN("ost: failed to create proc symlink obdfilter -> ost\n");
+
+	ofd_symlink = lprocfs_add_symlink("ofd", proc_lustre_root, "ost");
+	if (ofd_symlink == NULL)
+		CWARN("ost: failed to create proc symlink ofd -> ost\n");
+
+	oss_symlink = lprocfs_add_symlink("OSS", type->typ_procroot,
+					  "../oss/OSS");
+	if (oss_symlink == NULL) {
+		CWARN("ost : failed to create proc symlink oss/OSS -> "
+		      "ost/OSS\n");
+	}
 	return rc;
 }
 
@@ -3042,8 +3085,18 @@ static int __init ofd_init(void)
  */
 static void __exit ofd_exit(void)
 {
+	struct obd_type *type = class_search_type(LUSTRE_OST_NAME);
+
 	ofd_fmd_exit();
 	lu_kmem_fini(ofd_caches);
+
+	if (oss_symlink != NULL)
+		lprocfs_remove(&oss_symlink);
+	if (ofd_symlink != NULL)
+		lprocfs_remove(&ofd_symlink);
+	if (type != NULL && type->typ_procsym != NULL)
+		lprocfs_remove(&type->typ_procsym);
+
 	class_unregister_type(LUSTRE_OST_NAME);
 }
 
