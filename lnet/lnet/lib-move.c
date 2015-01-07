@@ -641,44 +641,79 @@ lnet_ni_recv(lnet_ni_t *ni, void *private, lnet_msg_t *msg, int delayed,
                 lnet_finalize(ni, msg, rc);
 }
 
-void
-lnet_setpayloadbuffer(lnet_msg_t *msg)
+static int
+lnet_setpayloadbuffer(lnet_ni_t *ni, lnet_msg_t *msg)
 {
+	struct cfs_crypto_hash_desc *hdesc = NULL;
         lnet_libmd_t *md = msg->msg_md;
+	int rc = 0, i = 0;
 
-        LASSERT (msg->msg_len > 0);
-        LASSERT (!msg->msg_routing);
-        LASSERT (md != NULL);
-        LASSERT (msg->msg_niov == 0);
-        LASSERT (msg->msg_iov == NULL);
-        LASSERT (msg->msg_kiov == NULL);
+	LASSERT(msg->msg_len > 0);
+	LASSERT(!msg->msg_routing);
+	LASSERT(md != NULL);
+	LASSERT(msg->msg_niov == 0);
+	LASSERT(msg->msg_iov == NULL);
+	LASSERT(msg->msg_kiov == NULL);
 
-        msg->msg_niov = md->md_niov;
-        if ((md->md_options & LNET_MD_KIOV) != 0)
-                msg->msg_kiov = md->md_iov.kiov;
-        else
-                msg->msg_iov = md->md_iov.iov;
+	if (ni != NULL && ni->ni_cksum_algo != CFS_HASH_ALG_NULL) {
+		hdesc = cfs_crypto_hash_init(ni->ni_cksum_algo, NULL, 0);
+		if (IS_ERR(hdesc)) {
+			rc = PTR_ERR(hdesc);
+			CERROR("%s: Unable to initialize checksum hash %s:"
+			       " rc %d\n", libcfs_nid2str(ni->ni_nid),
+			       cfs_crypto_hash_name(ni->ni_cksum_algo), rc);
+			hdesc = NULL;
+		}
+	}
+
+	msg->msg_niov = md->md_niov;
+	if ((md->md_options & LNET_MD_KIOV) != 0) {
+		lnet_kiov_t *kiov = md->md_iov.kiov;
+		int cksum_size = 64;
+
+		msg->msg_kiov = kiov;
+
+		if (hdesc == NULL)
+			goto no_cksum;
+
+		for (i = 0; i < md->md_niov; i++) {
+			unsigned long addr = kiov[i].kiov_offset & ~PAGE_MASK;
+			struct page *kpage = kiov[i].kiov_page;
+
+			if (kpage != NULL)
+				cfs_crypto_hash_update_page(hdesc, kpage, addr,
+							    kiov[i].kiov_len);
+		}
+		rc = cfs_crypto_hash_final(hdesc, msg->msg_cksum, &cksum_size);
+
+	} else
+		msg->msg_iov = md->md_iov.iov;
+no_cksum:
+	return rc;
 }
 
-void
-lnet_prep_send(lnet_msg_t *msg, int type, lnet_process_id_t target,
-               unsigned int offset, unsigned int len) 
+int
+lnet_prep_send(lnet_ni_t *ni, lnet_msg_t *msg, int type,
+	       lnet_process_id_t target, unsigned int offset, unsigned int len)
 {
-        msg->msg_type = type;
-        msg->msg_target = target;
-        msg->msg_len = len;
-        msg->msg_offset = offset;
+	int rc = 0;
 
-        if (len != 0)
-                lnet_setpayloadbuffer(msg);
+	msg->msg_type = type;
+	msg->msg_target = target;
+	msg->msg_len = len;
+	msg->msg_offset = offset;
 
-        memset (&msg->msg_hdr, 0, sizeof (msg->msg_hdr));
-        msg->msg_hdr.type           = cpu_to_le32(type);
-        msg->msg_hdr.dest_nid       = cpu_to_le64(target.nid);
-        msg->msg_hdr.dest_pid       = cpu_to_le32(target.pid);
-        /* src_nid will be set later */
-        msg->msg_hdr.src_pid        = cpu_to_le32(the_lnet.ln_pid);
-        msg->msg_hdr.payload_length = cpu_to_le32(len);
+	if (len != 0)
+		rc = lnet_setpayloadbuffer(ni, msg);
+
+	memset(&msg->msg_hdr, 0, sizeof(msg->msg_hdr));
+	msg->msg_hdr.type	    = cpu_to_le32(type);
+	msg->msg_hdr.dest_nid	    = cpu_to_le64(target.nid);
+	msg->msg_hdr.dest_pid	    = cpu_to_le32(target.pid);
+	/* src_nid will be set later */
+	msg->msg_hdr.src_pid	    = cpu_to_le32(the_lnet.ln_pid);
+	msg->msg_hdr.payload_length = cpu_to_le32(len);
+	return rc;
 }
 
 void
@@ -1492,13 +1527,14 @@ lnet_drop_message(lnet_ni_t *ni, int cpt, void *private, unsigned int nob)
 	lnet_ni_recv(ni, private, NULL, 0, 0, 0, nob);
 }
 
-static void
+static int
 lnet_recv_put(lnet_ni_t *ni, lnet_msg_t *msg)
 {
 	lnet_hdr_t	*hdr = &msg->msg_hdr;
+	int		 rc = 0;
 
 	if (msg->msg_wanted != 0)
-		lnet_setpayloadbuffer(msg);
+		rc = lnet_setpayloadbuffer(ni, msg);
 
 	lnet_build_msg_event(msg, LNET_EVENT_PUT);
 
@@ -1509,6 +1545,7 @@ lnet_recv_put(lnet_ni_t *ni, lnet_msg_t *msg)
 
 	lnet_ni_recv(ni, msg->msg_private, msg, msg->msg_rx_delayed,
 		     msg->msg_offset, msg->msg_wanted, hdr->payload_length);
+	return rc;
 }
 
 static int
@@ -1540,8 +1577,8 @@ lnet_parse_put(lnet_ni_t *ni, lnet_msg_t *msg)
                 LBUG();
 
         case LNET_MATCHMD_OK:
-		lnet_recv_put(ni, msg);
-                return 0;
+		rc = lnet_recv_put(ni, msg);
+		return rc;
 
         case LNET_MATCHMD_NONE:
 		if (msg->msg_rx_delayed) /* attached on delayed list */
@@ -1599,8 +1636,10 @@ lnet_parse_get(lnet_ni_t *ni, lnet_msg_t *msg, int rdma_get)
 
 	reply_wmd = hdr->msg.get.return_wmd;
 
-	lnet_prep_send(msg, LNET_MSG_REPLY, info.mi_id,
-		       msg->msg_offset, msg->msg_wanted);
+	rc = lnet_prep_send(ni, msg, LNET_MSG_REPLY, info.mi_id,
+			    msg->msg_offset, msg->msg_wanted);
+	if (rc < 0)
+		goto out;
 
         msg->msg_hdr.msg.reply.dst_wmd = reply_wmd;
 
@@ -1616,6 +1655,7 @@ lnet_parse_get(lnet_ni_t *ni, lnet_msg_t *msg, int rdma_get)
 
 	rc = lnet_send(ni->ni_nid, msg, LNET_NID_ANY);
 	if (rc < 0) {
+out:
 		/* didn't get as far as lnet_ni_send() */
 		CERROR("%s: Unable to send REPLY for GET from %s: %d\n",
 		       libcfs_nid2str(ni->ni_nid),
@@ -1636,7 +1676,8 @@ lnet_parse_reply(lnet_ni_t *ni, lnet_msg_t *msg)
         lnet_libmd_t     *md;
         int               rlength;
         int               mlength;
-	int			cpt;
+	int		  cpt;
+	int		  rc = 0;
 
 	cpt = lnet_cpt_of_cookie(hdr->msg.reply.dst_wmd.wh_object_cookie);
 	lnet_res_lock(cpt);
@@ -1678,20 +1719,22 @@ lnet_parse_reply(lnet_ni_t *ni, lnet_msg_t *msg)
         }
 
         CDEBUG(D_NET, "%s: Reply from %s of length %d/%d into md "LPX64"\n",
-               libcfs_nid2str(ni->ni_nid), libcfs_id2str(src), 
+	       libcfs_nid2str(ni->ni_nid), libcfs_id2str(src),
                mlength, rlength, hdr->msg.reply.dst_wmd.wh_object_cookie);
 
 	lnet_msg_attach_md(msg, md, 0, mlength);
 
 	if (mlength != 0)
-		lnet_setpayloadbuffer(msg);
+		rc = lnet_setpayloadbuffer(ni, msg);
 
 	lnet_res_unlock(cpt);
 
-	lnet_build_msg_event(msg, LNET_EVENT_REPLY);
+	if (rc == 0) {
+		lnet_build_msg_event(msg, LNET_EVENT_REPLY);
 
-	lnet_ni_recv(ni, private, msg, 0, 0, mlength, rlength);
-	return 0;
+		lnet_ni_recv(ni, private, msg, 0, 0, mlength, rlength);
+	}
+	return rc;
 }
 
 static int
@@ -2183,6 +2226,7 @@ lnet_recv_delayed_msg_list(struct list_head *head)
 	while (!list_empty(head)) {
 		lnet_msg_t	  *msg;
 		lnet_process_id_t  id;
+		int		   rc = 0;
 
 		msg = list_entry(head->next, lnet_msg_t, msg_list);
 		list_del(&msg->msg_list);
@@ -2205,7 +2249,11 @@ lnet_recv_delayed_msg_list(struct list_head *head)
 			msg->msg_hdr.msg.put.offset,
 			msg->msg_hdr.payload_length);
 
-		lnet_recv_put(msg->msg_rxpeer->lp_ni, msg);
+		rc = lnet_recv_put(msg->msg_rxpeer->lp_ni, msg);
+		if (rc < 0) {
+			CERROR("%s: Invalid checksum for delayed message\n",
+			       libcfs_id2str(id));
+		}
 	}
 }
 
@@ -2259,6 +2307,7 @@ LNetPut(lnet_nid_t self, lnet_handle_md_t mdh, lnet_ack_req_t ack,
         __u64 match_bits, unsigned int offset,
         __u64 hdr_data)
 {
+	struct lnet_ni		*src_ni = NULL;
 	struct lnet_msg		*msg;
 	struct lnet_libmd	*md;
 	int			cpt;
@@ -2303,7 +2352,14 @@ LNetPut(lnet_nid_t self, lnet_handle_md_t mdh, lnet_ack_req_t ack,
 
 	lnet_msg_attach_md(msg, md, 0, 0);
 
-        lnet_prep_send(msg, LNET_MSG_PUT, target, 0, md->md_length);
+	src_ni = lnet_nid2ni_locked(self, cpt);
+
+	rc = lnet_prep_send(src_ni, msg, LNET_MSG_PUT, target, 0,
+			    md->md_length);
+	if (rc < 0) {
+		lnet_res_unlock(cpt);
+		goto out;
+	}
 
         msg->msg_hdr.msg.put.match_bits = cpu_to_le64(match_bits);
         msg->msg_hdr.msg.put.ptl_index = cpu_to_le32(portal);
@@ -2312,14 +2368,14 @@ LNetPut(lnet_nid_t self, lnet_handle_md_t mdh, lnet_ack_req_t ack,
 
         /* NB handles only looked up by creator (no flips) */
         if (ack == LNET_ACK_REQ) {
-                msg->msg_hdr.msg.put.ack_wmd.wh_interface_cookie = 
+		msg->msg_hdr.msg.put.ack_wmd.wh_interface_cookie =
                         the_lnet.ln_interface_cookie;
-                msg->msg_hdr.msg.put.ack_wmd.wh_object_cookie = 
+		msg->msg_hdr.msg.put.ack_wmd.wh_object_cookie =
                         md->md_lh.lh_cookie;
         } else {
-                msg->msg_hdr.msg.put.ack_wmd.wh_interface_cookie = 
+		msg->msg_hdr.msg.put.ack_wmd.wh_interface_cookie =
                         LNET_WIRE_HANDLE_COOKIE_NONE;
-                msg->msg_hdr.msg.put.ack_wmd.wh_object_cookie = 
+		msg->msg_hdr.msg.put.ack_wmd.wh_object_cookie =
                         LNET_WIRE_HANDLE_COOKIE_NONE;
         }
 
@@ -2329,6 +2385,7 @@ LNetPut(lnet_nid_t self, lnet_handle_md_t mdh, lnet_ack_req_t ack,
 
 	rc = lnet_send(self, msg, LNET_NID_ANY);
         if (rc != 0) {
+out:
                 CNETERR( "Error sending PUT to %s: %d\n",
                        libcfs_id2str(target), rc);
                 lnet_finalize (NULL, msg, rc);
@@ -2458,6 +2515,7 @@ LNetGet(lnet_nid_t self, lnet_handle_md_t mdh,
 	lnet_process_id_t target, unsigned int portal,
 	__u64 match_bits, unsigned int offset)
 {
+	struct lnet_ni		*src_ni = NULL;
 	struct lnet_msg		*msg;
 	struct lnet_libmd	*md;
 	int			cpt;
@@ -2503,7 +2561,13 @@ LNetGet(lnet_nid_t self, lnet_handle_md_t mdh,
 
 	lnet_msg_attach_md(msg, md, 0, 0);
 
-        lnet_prep_send(msg, LNET_MSG_GET, target, 0, 0);
+	src_ni = lnet_nid2ni_locked(self, cpt);
+
+	rc = lnet_prep_send(src_ni, msg, LNET_MSG_GET, target, 0, 0);
+	if (rc < 0) {
+		lnet_res_unlock(cpt);
+		goto out;
+	}
 
         msg->msg_hdr.msg.get.match_bits = cpu_to_le64(match_bits);
         msg->msg_hdr.msg.get.ptl_index = cpu_to_le32(portal);
@@ -2522,6 +2586,7 @@ LNetGet(lnet_nid_t self, lnet_handle_md_t mdh,
 
 	rc = lnet_send(self, msg, LNET_NID_ANY);
 	if (rc < 0) {
+out:
 		CNETERR("Error sending GET to %s: %d\n",
 			libcfs_id2str(target), rc);
 		lnet_finalize(NULL, msg, rc);
