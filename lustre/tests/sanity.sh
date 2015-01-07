@@ -12899,18 +12899,18 @@ test_300b() {
 		error "set striped dir error"
 	for ((i=0; i<10; i++)); do
 		mtime1=$(stat -c %Y $DIR/$tdir/striped_dir)
-		sleep 1
+		sleep 2
 		touch $DIR/$tdir/striped_dir/file_$i ||
 					error "touch error $i"
 		mtime2=$(stat -c %Y $DIR/$tdir/striped_dir)
 		[ $mtime1 -eq $mtime2 ] &&
-			error "mtime not change after create"
-		sleep 1
+			error "mtime unchanged after create: $mtime1"
+		sleep 2
 		rm -f $DIR/$tdir/striped_dir/file_$i ||
 					error "unlink error $i"
 		mtime3=$(stat -c %Y $DIR/$tdir/striped_dir)
 		[ $mtime2 -eq $mtime3 ] &&
-			error "mtime did not change after unlink"
+			error "mtime unchanged after unlink: $mtime2"
 	done
 	true
 }
