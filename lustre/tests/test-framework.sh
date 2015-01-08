@@ -3491,83 +3491,90 @@ writeconf_all () {
 }
 
 setupall() {
-    nfs_client_mode && return
+	nfs_client_mode && return
 
-    sanity_mount_check ||
-        error "environments are insane!"
+	sanity_mount_check ||
+		error "environments are insane!"
 
-    load_modules
+	load_modules
 
-    if [ -z "$CLIENTONLY" ]; then
-        echo Setup mgs, mdt, osts
-        echo $WRITECONF | grep -q "writeconf" && \
-            writeconf_all
-        if ! combined_mgs_mds ; then
-            start mgs $(mgsdevname) $MGS_MOUNT_OPTS
-        fi
+	if [ -z "$CLIENTONLY" ]; then
+		DAEMON_STARTED=""
+		if [ "$DAEMONFILE" ]; then
+			$LCTL debug_daemon start $DAEMONFILE $DAEMONSIZE
+			DAEMON_STARTED="yes"
+		fi
+		echo Setup mgs, mdt, osts
+		echo $WRITECONF | grep -q "writeconf" && \
+			writeconf_all
+		if ! combined_mgs_mds ; then
+			start mgs $(mgsdevname) $MGS_MOUNT_OPTS
+		fi
 
-        for num in `seq $MDSCOUNT`; do
-            DEVNAME=$(mdsdevname $num)
-            start mds$num $DEVNAME $MDS_MOUNT_OPTS
+		for num in `seq $MDSCOUNT`; do
+			DEVNAME=$(mdsdevname $num)
+			start mds$num $DEVNAME $MDS_MOUNT_OPTS
 
-            # We started mds, now we should set failover variables properly.
-            # Set mds${num}failover_HOST if it is not set (the default failnode).
-            local varname=mds${num}failover_HOST
-            if [ -z "${!varname}" ]; then
-                eval mds${num}failover_HOST=$(facet_host mds$num)
-            fi
+			# We started mds, now we should set failover variables properly.
+			# Set mds${num}failover_HOST if it is not set (the default failnode).
+			local varname=mds${num}failover_HOST
+			if [ -z "${!varname}" ]; then
+				eval mds${num}failover_HOST=$(facet_host mds$num)
+			fi
 
-            if [ $IDENTITY_UPCALL != "default" ]; then
-                switch_identity $num $IDENTITY_UPCALL
-            fi
-        done
-        for num in `seq $OSTCOUNT`; do
-            DEVNAME=$(ostdevname $num)
-            start ost$num $DEVNAME $OST_MOUNT_OPTS
+			if [ $IDENTITY_UPCALL != "default" ]; then
+				switch_identity $num $IDENTITY_UPCALL
+			fi
+		done
+		for num in `seq $OSTCOUNT`; do
+			DEVNAME=$(ostdevname $num)
+			start ost$num $DEVNAME $OST_MOUNT_OPTS
 
-            # We started ost$num, now we should set ost${num}failover variable properly.
-            # Set ost${num}failover_HOST if it is not set (the default failnode).
-            varname=ost${num}failover_HOST
-            if [ -z "${!varname}" ]; then
-                eval ost${num}failover_HOST=$(facet_host ost${num})
-            fi
+			# We started ost$num, now we should set ost${num}failover variable properly.
+			# Set ost${num}failover_HOST if it is not set (the default failnode).
+			varname=ost${num}failover_HOST
+			if [ -z "${!varname}" ]; then
+				eval ost${num}failover_HOST=$(facet_host ost${num})
+			fi
 
-        done
-    fi
+		done
+	fi
 
-    if [ -z "$SERVERONLY" ]; then
-        init_gss
+	if [ -z "$SERVERONLY" ]; then
+		init_gss
 
-        # wait a while to allow sptlrpc configuration be propogated to targets,
-        # only needed when mounting new target devices.
-        if $GSS; then
-            sleep 10
-        fi
+		# wait a while to allow sptlrpc configuration be propogated to targets,
+		# only needed when mounting new target devices.
+		if $GSS; then
+			sleep 10
+		fi
 
-        [ "$DAEMONFILE" ] && $LCTL debug_daemon start $DAEMONFILE $DAEMONSIZE
-        mount_client $MOUNT
-        [ -n "$CLIENTS" ] && zconf_mount_clients $CLIENTS $MOUNT
-        clients_up
+		if [ -n "$DAEMONFILE" -a -z "$DAEMON_STARTED" ]; then
+			$LCTL debug_daemon start $DAEMONFILE $DAEMONSIZE
+		fi
+		mount_client $MOUNT
+		[ -n "$CLIENTS" ] && zconf_mount_clients $CLIENTS $MOUNT
+		clients_up
 
-        if [ "$MOUNT_2" ]; then
-            mount_client $MOUNT2
-            [ -n "$CLIENTS" ] && zconf_mount_clients $CLIENTS $MOUNT2
-        fi
+		if [ "$MOUNT_2" ]; then
+			mount_client $MOUNT2
+			[ -n "$CLIENTS" ] && zconf_mount_clients $CLIENTS $MOUNT2
+		fi
 
-        init_param_vars
+		init_param_vars
 
-        # by remounting mdt before ost, initial connect from mdt to ost might
-        # timeout because ost is not ready yet. wait some time to its fully
-        # recovery. initial obd_connect timeout is 5s; in GSS case it's preceeded
-        # by a context negotiation rpc with $TIMEOUT.
-        # FIXME better by monitoring import status.
-        if $GSS; then
-            set_flavor_all $SEC
-            sleep $((TIMEOUT + 5))
-        else
-            sleep 5
-        fi
-    fi
+		# by remounting mdt before ost, initial connect from mdt to ost might
+		# timeout because ost is not ready yet. wait some time to its fully
+		# recovery. initial obd_connect timeout is 5s; in GSS case it's preceeded
+		# by a context negotiation rpc with $TIMEOUT.
+		# FIXME better by monitoring import status.
+		if $GSS; then
+			set_flavor_all $SEC
+			sleep $((TIMEOUT + 5))
+		else
+			sleep 5
+		fi
+	fi
 }
 
 mounted_lustre_filesystems() {
