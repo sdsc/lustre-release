@@ -160,3 +160,9 @@ SHARED_DIRECTORY=${SHARED_DIRECTORY:-$TMP}	# bug 17839 comment 65
 # Please refer to init_agt_vars() in sanity-hsm.sh for the default values of
 # these variables.
 #
+
+# Control whether test-framework.sh:setupall() starts both server and client side, or not
+# "" or unset is false, any other value is true
+# Default for both settings is false, meaning server and client components are all started.
+CLIENTONLY=${CLIENTONLY:-""}
+SERVERONLY=${SERVERONLY:-""}

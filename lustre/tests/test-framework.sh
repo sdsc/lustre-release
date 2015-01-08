@@ -3503,7 +3503,7 @@ setupall() {
         echo $WRITECONF | grep -q "writeconf" && \
             writeconf_all
         if ! combined_mgs_mds ; then
-			start mgs $(mgsdevname) $MGS_MOUNT_OPTS
+            start mgs $(mgsdevname) $MGS_MOUNT_OPTS
         fi
 
         for num in `seq $MDSCOUNT`; do
@@ -3535,36 +3535,38 @@ setupall() {
         done
     fi
 
-    init_gss
+    if [ -z "$SERVERONLY" ]; then
+        init_gss
 
-    # wait a while to allow sptlrpc configuration be propogated to targets,
-    # only needed when mounting new target devices.
-    if $GSS; then
-        sleep 10
-    fi
+        # wait a while to allow sptlrpc configuration be propogated to targets,
+        # only needed when mounting new target devices.
+        if $GSS; then
+            sleep 10
+        fi
 
-    [ "$DAEMONFILE" ] && $LCTL debug_daemon start $DAEMONFILE $DAEMONSIZE
-    mount_client $MOUNT
-    [ -n "$CLIENTS" ] && zconf_mount_clients $CLIENTS $MOUNT
-    clients_up
+        [ "$DAEMONFILE" ] && $LCTL debug_daemon start $DAEMONFILE $DAEMONSIZE
+        mount_client $MOUNT
+        [ -n "$CLIENTS" ] && zconf_mount_clients $CLIENTS $MOUNT
+        clients_up
 
-    if [ "$MOUNT_2" ]; then
-        mount_client $MOUNT2
-        [ -n "$CLIENTS" ] && zconf_mount_clients $CLIENTS $MOUNT2
-    fi
+        if [ "$MOUNT_2" ]; then
+            mount_client $MOUNT2
+            [ -n "$CLIENTS" ] && zconf_mount_clients $CLIENTS $MOUNT2
+        fi
 
-    init_param_vars
+        init_param_vars
 
-    # by remounting mdt before ost, initial connect from mdt to ost might
-    # timeout because ost is not ready yet. wait some time to its fully
-    # recovery. initial obd_connect timeout is 5s; in GSS case it's preceeded
-    # by a context negotiation rpc with $TIMEOUT.
-    # FIXME better by monitoring import status.
-    if $GSS; then
-        set_flavor_all $SEC
-        sleep $((TIMEOUT + 5))
-    else
-        sleep 5
+        # by remounting mdt before ost, initial connect from mdt to ost might
+        # timeout because ost is not ready yet. wait some time to its fully
+        # recovery. initial obd_connect timeout is 5s; in GSS case it's preceeded
+        # by a context negotiation rpc with $TIMEOUT.
+        # FIXME better by monitoring import status.
+        if $GSS; then
+            set_flavor_all $SEC
+            sleep $((TIMEOUT + 5))
+        else
+            sleep 5
+        fi
     fi
 }
 
