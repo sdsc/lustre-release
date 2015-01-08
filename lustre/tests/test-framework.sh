@@ -3499,6 +3499,11 @@ setupall() {
     load_modules
 
     if [ -z "$CLIENTONLY" ]; then
+        DAEMON_STARTED=""
+        if [ "$DAEMONFILE" ]; then
+            $LCTL debug_daemon start $DAEMONFILE $DAEMONSIZE
+            DAEMON_STARTED="yes"
+        fi
         echo Setup mgs, mdt, osts
         echo $WRITECONF | grep -q "writeconf" && \
             writeconf_all
@@ -3544,7 +3549,7 @@ setupall() {
             sleep 10
         fi
 
-        [ "$DAEMONFILE" ] && $LCTL debug_daemon start $DAEMONFILE $DAEMONSIZE
+        [ -n "$DAEMONFILE" -a -z "$DAEMON_STARTED" ] && $LCTL debug_daemon start $DAEMONFILE $DAEMONSIZE
         mount_client $MOUNT
         [ -n "$CLIENTS" ] && zconf_mount_clients $CLIENTS $MOUNT
         clients_up
