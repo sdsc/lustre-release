@@ -1037,6 +1037,12 @@ static int mdd_xattr_set(const struct lu_env *env, struct md_object *obj,
 	if (rc)
 		RETURN(rc);
 
+	/* Except Name LINK(see LU-6027), do not set other EA to orphan
+	 * object */
+	if (unlikely((mdd_obj->mod_flags & DEAD_OBJ)) &&
+	    strcmp(name, XATTR_NAME_LINK) != 0)
+		RETURN(-ENOENT);
+
 	rc = mdd_xattr_sanity_check(env, mdd_obj, attr);
 	if (rc)
 		RETURN(rc);
