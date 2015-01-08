@@ -1037,6 +1037,9 @@ static int mdd_xattr_set(const struct lu_env *env, struct md_object *obj,
 	if (rc)
 		RETURN(rc);
 
+	if (unlikely((mdd_obj->mod_flags & DEAD_OBJ)))
+		RETURN(-ENOENT);
+
 	rc = mdd_xattr_sanity_check(env, mdd_obj, attr);
 	if (rc)
 		RETURN(rc);
