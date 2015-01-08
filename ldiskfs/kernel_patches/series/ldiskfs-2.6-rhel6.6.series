@@ -5,7 +5,6 @@ rhel6.3/ext4-use-ext4_kvzalloc-ext4_kvmalloc-for-s_group_desc-and-s_group_info.p
 rhel6.3/ext4-wantedi-2.6.patch
 rhel6.3/ext4-map_inode_page-2.6.18.patch
 rhel6.3/export-ext4-2.6.patch
-rhel6.3/ext4-remove-cond_resched-calls.patch
 rhel6.3/ext4-nlink-2.6.patch
 sles11sp1/ext4-ext_generation.patch
 rhel6.3/ext4-inode-version.patch
