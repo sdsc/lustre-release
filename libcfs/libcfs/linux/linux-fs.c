@@ -66,4 +66,3 @@ filp_user_write(struct file *filp, const void *buf, size_t count,
 
 	return size;
 }
-EXPORT_SYMBOL(filp_user_write);
