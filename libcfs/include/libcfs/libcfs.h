@@ -146,9 +146,6 @@ void lc_watchdog_disable(struct lc_watchdog *lcw);
 /* Clean up the watchdog */
 void lc_watchdog_delete(struct lc_watchdog *lcw);
 
-/* Dump a debug log */
-void lc_watchdog_dumplog(pid_t pid, void *data);
-
 #endif /* __KERNEL__ */
 
 /* need both kernel and user-land acceptor */
@@ -196,29 +193,6 @@ sigset_t cfs_block_sigs(unsigned long sigs);
 sigset_t cfs_block_sigsinv(unsigned long sigs);
 void cfs_restore_sigs(sigset_t);
 void cfs_clear_sigpending(void);
-
-int convert_server_error(__u64 ecode);
-int convert_client_oflag(int cflag, int *result);
-
-/*
- * Stack-tracing filling.
- */
-
-/*
- * Platform-dependent data-type to hold stack frames.
- */
-struct cfs_stack_trace;
-
-/*
- * Fill @trace with current back-trace.
- */
-void cfs_stack_trace_fill(struct cfs_stack_trace *trace);
-
-/*
- * Return instruction pointer for frame @frame_no. NULL if @frame_no is
- * invalid.
- */
-void *cfs_stack_trace_frame(struct cfs_stack_trace *trace, int frame_no);
 
 /*
  * Random number handling
