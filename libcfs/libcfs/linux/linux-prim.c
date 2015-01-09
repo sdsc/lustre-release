@@ -64,7 +64,6 @@ void cfs_timer_done(struct timer_list *t)
 {
 	return;
 }
-EXPORT_SYMBOL(cfs_timer_done);
 
 void cfs_timer_arm(struct timer_list *t, cfs_time_t deadline)
 {
@@ -179,11 +178,7 @@ libcfs_arch_cleanup(void)
         return;
 }
 
-EXPORT_SYMBOL(libcfs_arch_init);
-EXPORT_SYMBOL(libcfs_arch_cleanup);
-EXPORT_SYMBOL(cfs_enter_debugger);
 EXPORT_SYMBOL(cfs_block_allsigs);
-EXPORT_SYMBOL(cfs_block_sigs);
 EXPORT_SYMBOL(cfs_block_sigsinv);
 EXPORT_SYMBOL(cfs_restore_sigs);
 EXPORT_SYMBOL(cfs_signal_pending);
