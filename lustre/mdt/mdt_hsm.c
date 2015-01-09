@@ -435,6 +435,9 @@ int mdt_hsm_action(struct tgt_session_info *tsi)
 	case HSMA_CANCEL:
 		hca->hca_action = HUA_CANCEL;
 		break;
+	case HSMA_MIGRATE:
+		hca->hca_action = HUA_MIGRATE;
+		break;
 	default:
 		hca->hca_action = HUA_NONE;
 		CERROR("%s: Unknown hsm action: %d on "DFID"\n",
@@ -523,6 +526,9 @@ int mdt_hsm_request(struct tgt_session_info *tsi)
 		break;
 	case HUA_CANCEL:
 		action = HSMA_CANCEL;
+		break;
+	case HUA_MIGRATE:
+		action = HSMA_MIGRATE;
 		break;
 	default:
 		CERROR("Unknown hsm action: %d\n", hr->hr_action);
