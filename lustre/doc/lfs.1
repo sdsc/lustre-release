@@ -35,6 +35,11 @@ lfs \- Lustre utility to create a file with specific striping pattern, find the 
         \fB[--layout|-L]
         \fB[--pool|-p] [--recursive|-r] [--raw|-R] <dirname|filename> ...\fR
 .br
+.B lfs migrate [--stripe-size|-S stripe_size] [--stripe-count|-c stripe_count]
+        \fB[--stripe-index|-i start_ost_index] [--pool|-p <poolname>]
+        \fB[--ost-list|-o <ost_indices>] [--block|-b] <filename>
+        \fB[--hsm|-H] [--archive|-a NUM] <filename>\fR
+.br
 .B lfs setstripe [--stripe-size|-S stripe_size] [--stripe-count|-c stripe_count]
         \fB[--stripe-index|-i start_ost_index] [--pool|-p <poolname>]
         \fB[--ost-list|-o <ost_indices>] <directory|filename>\fR
@@ -176,7 +181,7 @@ You can limit the returned files to those with objects on a specific OST with
 .TP
 .B setstripe [--stripe-count|-c stripe_count] [--stripe-size|-S stripe_size]
         \fB[--stripe-index|-i start_ost_index] [--pool <poolname>]
-        \fB[--ost-index|-o <ost_indices>] <dirname|filename>\fR
+        \fB[--ost-list|-o <ost_indices>] <dirname|filename>\fR
 .br
 To create a new file, or set the directory default, with the specified striping
 parameters.  The
@@ -238,6 +243,41 @@ must be part of the pool or an error will be returned.
 .TP
 .B setstripe -d
 Delete the default striping on the specified directory.
+.TP
+
+
+
+.B migrate [--stripe-count|-c stripe_count] [--stripe-size|-S stripe_size]
+        \fB[--stripe-index|-i start_ost_index] [--pool <poolname>]
+        \fB[--ost-list|-o <ost_indices>] [--block|-b] <filename>
+        \fB[--hsm|-H] [--archive|-a NUM] <filename>\fR
+.br
+To migrate a file with a Lustre filesystem, optionaly with the specified striping
+parameters.  See
+.B setstripe
+for an explanation for the
+.I stripe_count
+,
+.I stripe_size
+,
+.I stripe_index
+,
+.I pool
+and
+.I ost_list
+options.
+The
+.B -b
+option will block access to the file until it is migrated.
+Without the
+.B -H
+option, lfs will perform the copy itself. If set, the request will be
+forwarded to HSM, and the copytool will perform the copy
+asynchronously. If the
+.B -a
+option is set, the copytool that has registered for this archive will
+be used for the transfer, else the default copytool will be used (if one is set.)
+
 .TP
 .B fid2path [--link <linkno>] <fsname|rootpath> <fid> ...
 Print out the pathname(s) for the specified \fIfid\fR(s) from the filesystem
