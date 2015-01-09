@@ -204,7 +204,6 @@ static struct file_operations lprocfs_generic_fops = {
 
 /* for b=10866, global variable */
 DECLARE_RWSEM(_lprocfs_lock);
-EXPORT_SYMBOL(_lprocfs_lock);
 
 static struct proc_dir_entry *__lprocfs_srch(struct proc_dir_entry *head,
 					     const char *name)
@@ -233,7 +232,6 @@ struct proc_dir_entry *lprocfs_srch(struct proc_dir_entry *head,
 	LPROCFS_SRCH_EXIT();
 	return temp;
 }
-EXPORT_SYMBOL(lprocfs_srch);
 
 static int __lprocfs_add_vars(struct proc_dir_entry *root,
 			      struct lprocfs_vars *list,
@@ -322,7 +320,6 @@ int lprocfs_add_vars(struct proc_dir_entry *root, struct lprocfs_vars *list,
 
 	return rc;
 }
-EXPORT_SYMBOL(lprocfs_add_vars);
 #endif
 
 /**
@@ -466,7 +463,6 @@ void lprocfs_try_remove_proc_entry(const char *name,
 
 	return;
 }
-EXPORT_SYMBOL(lprocfs_try_remove_proc_entry);
 
 struct proc_dir_entry *lprocfs_register(const char *name,
 					struct proc_dir_entry *parent,
@@ -497,7 +493,6 @@ out:
 	LPROCFS_WRITE_EXIT();
 	return entry;
 }
-EXPORT_SYMBOL(lprocfs_register);
 #endif
 
 struct proc_dir_entry *
@@ -790,7 +785,6 @@ void lprocfs_stats_collect(struct lprocfs_stats *stats, int idx,
 
 	lprocfs_stats_unlock(stats, LPROCFS_GET_NUM_CPU, &flags);
 }
-EXPORT_SYMBOL(lprocfs_stats_collect);
 
 /**
  * Append a space separated list of current set flags to str.
@@ -1286,7 +1280,6 @@ int lprocfs_stats_alloc_one(struct lprocfs_stats *stats, unsigned int cpuid)
 	}
 	return rc;
 }
-EXPORT_SYMBOL(lprocfs_stats_alloc_one);
 
 struct lprocfs_stats *lprocfs_alloc_stats(unsigned int num,
                                           enum lprocfs_stats_flags flags)
@@ -1607,7 +1600,6 @@ void lprocfs_init_mps_stats(int num_private_stats, struct lprocfs_stats *stats)
         LPROCFS_MD_OP_INIT(num_private_stats, stats, intent_getattr_async);
         LPROCFS_MD_OP_INIT(num_private_stats, stats, revalidate_lock);
 }
-EXPORT_SYMBOL(lprocfs_init_mps_stats);
 
 int lprocfs_alloc_md_stats(struct obd_device *obd,
 			   unsigned int num_private_stats)
@@ -1839,7 +1831,6 @@ int lprocfs_read_frac_helper(char *buffer, unsigned long count, long val,
         buffer[prtn++] ='\n';
         return prtn;
 }
-EXPORT_SYMBOL(lprocfs_read_frac_helper);
 
 int lprocfs_seq_read_frac_helper(struct seq_file *m, long val, int mult)
 {
@@ -2070,7 +2061,6 @@ int lprocfs_obd_rd_max_pages_per_rpc(char *page, char **start, off_t off,
 
 	return rc;
 }
-EXPORT_SYMBOL(lprocfs_obd_rd_max_pages_per_rpc);
 
 int lprocfs_obd_max_pages_per_rpc_seq_show(struct seq_file *m, void *data)
 {
