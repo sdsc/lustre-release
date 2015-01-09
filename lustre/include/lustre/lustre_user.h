@@ -792,14 +792,14 @@ enum changelog_rec_flags {
 
 /* 3 bits field => 8 values allowed */
 enum hsm_event {
-        HE_ARCHIVE      = 0,
-        HE_RESTORE      = 1,
-        HE_CANCEL       = 2,
-        HE_RELEASE      = 3,
-        HE_REMOVE       = 4,
-        HE_STATE        = 5,
-        HE_SPARE1       = 6,
-        HE_SPARE2       = 7,
+	HE_ARCHIVE      = 0,
+	HE_RESTORE      = 1,
+	HE_CANCEL       = 2,
+	HE_RELEASE      = 3,
+	HE_REMOVE       = 4,
+	HE_STATE        = 5,
+	HE_MIGRATE      = 6,
+	HE_SPARE2       = 7,
 };
 
 static inline enum hsm_event hsm_get_cl_event(__u16 flags)
@@ -1045,10 +1045,11 @@ enum hsm_states {
 	HS_NORELEASE	= 0x00000010,
 	HS_NOARCHIVE	= 0x00000020,
 	HS_LOST		= 0x00000040,
+	HS_NOMIGRATE	= 0x00000080,
 };
 
 /* HSM user-setable flags. */
-#define HSM_USER_MASK   (HS_NORELEASE | HS_NOARCHIVE | HS_DIRTY)
+#define HSM_USER_MASK   (HS_NORELEASE | HS_NOARCHIVE | HS_DIRTY | HS_NOMIGRATE)
 
 /* Other HSM flags. */
 #define HSM_STATUS_MASK (HS_EXISTS | HS_LOST | HS_RELEASED | HS_ARCHIVED)
@@ -1128,7 +1129,8 @@ enum hsm_user_action {
         HUA_RESTORE = 11, /* prestage */
         HUA_RELEASE = 12, /* drop ost objects */
         HUA_REMOVE  = 13, /* remove from archive */
-        HUA_CANCEL  = 14  /* cancel a request */
+	HUA_CANCEL  = 14, /* cancel a request */
+	HUA_MIGRATE = 15,  /* migrate a file between OSTs */
 };
 
 static inline const char *hsm_user_action2name(enum hsm_user_action  a)
@@ -1140,6 +1142,7 @@ static inline const char *hsm_user_action2name(enum hsm_user_action  a)
         case HUA_RELEASE: return "RELEASE";
         case HUA_REMOVE:  return "REMOVE";
         case HUA_CANCEL:  return "CANCEL";
+	case HUA_MIGRATE: return "MIGRATE";
         default:          return "UNKNOWN";
         }
 }
@@ -1147,9 +1150,10 @@ static inline const char *hsm_user_action2name(enum hsm_user_action  a)
 /*
  * List of hr_flags (bit field)
  */
-#define HSM_FORCE_ACTION 0x0001
-/* used by CT, connot be set by user */
-#define HSM_GHOST_COPY   0x0002
+#define HSM_FORCE_ACTION	0x0001
+/* GHOST_COPY is used only by CT, cannot be set by user */
+#define HSM_GHOST_COPY		0x0002
+#define HSM_MIGRATION_BLOCKS	0x0004
 
 /**
  * Contains all the fixed part of struct hsm_user_request.
@@ -1157,7 +1161,8 @@ static inline const char *hsm_user_action2name(enum hsm_user_action  a)
  */
 struct hsm_request {
 	__u32 hr_action;	/* enum hsm_user_action */
-	__u32 hr_archive_id;	/* archive id, used only with HUA_ARCHIVE */
+	__u32 hr_archive_id;	/* archive id, used only with
+				 * HUA_ARCHIVE and HUA_MIGRATE */
 	__u64 hr_flags;		/* request flags */
 	__u32 hr_itemcount;	/* item count in hur_user_item vector */
 	__u32 hr_data_len;
@@ -1211,11 +1216,12 @@ enum hsm_message_type {
 
 /* Actions the copytool may be instructed to take for a given action_item */
 enum hsm_copytool_action {
-        HSMA_NONE    = 10, /* no action */
-        HSMA_ARCHIVE = 20, /* arbitrary offset */
-        HSMA_RESTORE = 21,
-        HSMA_REMOVE  = 22,
-        HSMA_CANCEL  = 23
+	HSMA_NONE    = 10, /* no action */
+	HSMA_ARCHIVE = 20, /* arbitrary offset */
+	HSMA_RESTORE = 21,
+	HSMA_REMOVE  = 22,
+	HSMA_CANCEL  = 23,
+	HSMA_MIGRATE = 24,
 };
 
 static inline const char *hsm_copytool_action2name(enum hsm_copytool_action  a)
@@ -1226,6 +1232,7 @@ static inline const char *hsm_copytool_action2name(enum hsm_copytool_action  a)
         case HSMA_RESTORE: return "RESTORE";
         case HSMA_REMOVE:  return "REMOVE";
         case HSMA_CANCEL:  return "CANCEL";
+	case HSMA_MIGRATE: return "MIGRATE";
         default:           return "UNKNOWN";
         }
 }
@@ -1241,6 +1248,24 @@ struct hsm_action_item {
 	__u64      hai_gid;     /* grouplock id */
 	char       hai_data[0]; /* variable length */
 } __attribute__((packed));
+
+/*
+ * Similar to struct llapi_stripe_param. At least lsp_stripe_count or
+ * lsp_osts_count will be 0. This structure is used for migration,
+ * and is stored in the hai_data field.
+ *
+ * The mdt_index is unused yet. It must be set to -1 for
+ * default MDT, for forward compatibility. */
+struct hsm_migrate_param {
+	char			lsp_pool[LOV_MAXPOOLNAME+1];
+	__u64			lsp_stripe_size;
+	__s32			mdt_index;
+	__s32			lsp_stripe_offset;
+	__s32			lsp_stripe_pattern;
+	__u32			lsp_stripe_count;
+	__u32			lsp_osts_count;
+	__u32			lsp_osts[0];
+};
 
 /*
  * helper function which print in hexa the first bytes of

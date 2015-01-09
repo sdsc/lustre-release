@@ -2014,6 +2014,11 @@ static void check_hsm_state_set(void)
 	CHECK_MEMBER(hsm_state_set, hss_archive_id);
 	CHECK_MEMBER(hsm_state_set, hss_setmask);
 	CHECK_MEMBER(hsm_state_set, hss_clearmask);
+
+	CHECK_VALUE_X(HS_NORELEASE);
+	CHECK_VALUE_X(HS_NOARCHIVE);
+	CHECK_VALUE_X(HS_LOST);
+	CHECK_VALUE_X(HS_NOMIGRATE);
 }
 
 static void check_hsm_current_action(void)
@@ -2036,6 +2041,29 @@ static void check_hsm_request(void)
 	CHECK_MEMBER(hsm_request, hr_data_len);
 	CHECK_VALUE_X(HSM_FORCE_ACTION);
 	CHECK_VALUE_X(HSM_GHOST_COPY);
+	CHECK_VALUE_X(HSM_MIGRATION_BLOCKS);
+
+	CHECK_VALUE(HUA_ARCHIVE);
+	CHECK_VALUE(HUA_RESTORE);
+	CHECK_VALUE(HUA_RELEASE);
+	CHECK_VALUE(HUA_REMOVE);
+	CHECK_VALUE(HUA_CANCEL);
+	CHECK_VALUE(HUA_MIGRATE);
+
+	CHECK_VALUE(HE_ARCHIVE);
+	CHECK_VALUE(HE_RESTORE);
+	CHECK_VALUE(HE_CANCEL);
+	CHECK_VALUE(HE_RELEASE);
+	CHECK_VALUE(HE_REMOVE);
+	CHECK_VALUE(HE_STATE);
+	CHECK_VALUE(HE_MIGRATE);
+
+	CHECK_VALUE(HSMA_NONE);
+	CHECK_VALUE(HSMA_ARCHIVE);
+	CHECK_VALUE(HSMA_RESTORE);
+	CHECK_VALUE(HSMA_REMOVE);
+	CHECK_VALUE(HSMA_CANCEL);
+	CHECK_VALUE(HSMA_MIGRATE);
 }
 
 static void check_hsm_user_request(void)
@@ -2059,6 +2087,20 @@ static void check_hsm_user_import(void)
 	CHECK_MEMBER(hsm_user_import, hui_mtime);
 	CHECK_MEMBER(hsm_user_import, hui_mtime_ns);
 	CHECK_MEMBER(hsm_user_import, hui_archive_id);
+}
+
+static void check_hsm_migrate_param(void)
+{
+	BLANK_LINE();
+	CHECK_STRUCT(hsm_migrate_param);
+	CHECK_MEMBER(hsm_migrate_param, lsp_pool);
+	CHECK_MEMBER(hsm_migrate_param, lsp_stripe_size);
+	CHECK_MEMBER(hsm_migrate_param, mdt_index);
+	CHECK_MEMBER(hsm_migrate_param, lsp_stripe_offset);
+	CHECK_MEMBER(hsm_migrate_param, lsp_stripe_pattern);
+	CHECK_MEMBER(hsm_migrate_param, lsp_stripe_count);
+	CHECK_MEMBER(hsm_migrate_param, lsp_osts_count);
+	CHECK_MEMBER(hsm_migrate_param, lsp_osts[0]);
 }
 
 static void check_object_update_param(void)
@@ -2563,6 +2605,7 @@ main(int argc, char **argv)
 	check_hsm_request();
 	check_hsm_user_request();
 	check_hsm_user_import();
+	check_hsm_migrate_param();
 
 	check_object_update_param();
 	check_object_update();
