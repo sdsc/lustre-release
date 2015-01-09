@@ -46,7 +46,7 @@
 #include <linux/spinlock.h>
 
 #ifdef CONFIG_PROC_FS
-# ifndef HAVE_ONLY_PROCFS_SEQ
+# ifndef HAVE_REMOVE_PROC_SUBTREE
 /* in lprocfs_stat.c, to protect the private data for proc entries */
 extern struct rw_semaphore		_lprocfs_lock;
 
@@ -86,7 +86,7 @@ static inline int LPROCFS_ENTRY_CHECK(struct inode *inode)
 
 #  define PDE_DATA(inode)	(PDE(inode)->data)
 
-# else /* HAVE_ONLY_PROCFS_SEQ */
+# else /* HAVE_REMOVE_PROC_SUBTREE */
 
 static inline int LPROCFS_ENTRY_CHECK(struct inode *inode)
 {
@@ -96,6 +96,6 @@ static inline int LPROCFS_ENTRY_CHECK(struct inode *inode)
 #define LPROCFS_WRITE_ENTRY() do {} while(0)
 #define LPROCFS_WRITE_EXIT()  do {} while(0)
 
-# endif /* !HAVE_ONLY_PROCFS_SEQ */
+# endif /* !HAVE_REMOVE_PROC_SUBTREE */
 #endif /* CONFIG_PROC_FS */
 #endif  /* __PARAMS_TREE_H__ */
