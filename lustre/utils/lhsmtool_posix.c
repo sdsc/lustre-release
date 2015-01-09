@@ -1261,6 +1261,174 @@ fini:
 	return rc;
 }
 
+/*
+ * Migrate a file to a new pool or set of OSTs
+ *
+ * \param[in] hai          hsm_action_item describing migrate operation
+ * \param[in] hal_flags    hsm action list flags for operation
+ * \retval                 0 on success
+ * \retval                 negative errno on failure
+ */
+static int ct_migrate(const struct hsm_action_item *hai, const long hal_flags)
+{
+	struct hsm_copyaction_private *hcp = NULL;
+	int			 rc;
+	int			 hp_flags = 0;
+	int			 src_fd = -1;
+	int			 dst_fd = -1;
+	int			 gid;
+	struct stat		 src_stbuf;
+	struct stat		 dst_stbuf;
+	__u64			 dv1;
+	bool			 have_gl = false;
+	char			 src_fidstr[FID_LEN];
+	char			*dst_name = "[volatile file]";
+
+	sprintf(src_fidstr, DFID, PFID(&hai->hai_fid));
+
+	/* Begin migration. */
+	rc = ct_begin(&hcp, hai);
+	if (rc < 0)
+		goto fini;
+
+	if (opt.o_dry_run) {
+		rc = -ECANCELED;
+		goto fini;
+	}
+
+	/* Open source file in read/write mode because we need to do the
+	 * layout swap later. */
+	src_fd = llapi_open_by_fid(opt.o_mnt, &hai->hai_fid,
+				   O_RDWR | O_NOATIME |
+				   O_NONBLOCK | O_NOFOLLOW);
+	if (src_fd < 0) {
+		rc = -errno;
+		goto fini;
+	}
+
+	/* Destination has been created by ct_begin */
+	dst_fd = llapi_hsm_action_get_fd(hcp);
+	if (dst_fd < 0) {
+		rc = dst_fd;
+		dst_fd = -1;
+		CT_ERROR(rc, "cannot get fd for volatile file");
+		goto fini;
+	}
+
+	/* Not-owner (root?) special case.
+	 * Need to set owner/group of volatile file like original.
+	 * This will allow to pass related check during layout_swap.
+	 */
+	rc = fstat(src_fd, &src_stbuf);
+	if (rc != 0) {
+		rc = -errno;
+		CT_ERROR(rc, "cannot stat '%s'", src_fidstr);
+		goto fini;
+	}
+	rc = fstat(dst_fd, &dst_stbuf);
+	if (rc != 0) {
+		rc = -errno;
+		CT_ERROR(rc, "cannot stat '%s'", dst_name);
+		goto fini;
+	}
+	if (src_stbuf.st_uid != dst_stbuf.st_uid ||
+	    src_stbuf.st_gid != dst_stbuf.st_gid) {
+		rc = fchown(dst_fd, src_stbuf.st_uid, src_stbuf.st_gid);
+		if (rc != 0) {
+			rc = -errno;
+			CT_ERROR(rc, "cannot chown %s", dst_name);
+			goto fini;
+		}
+	}
+
+	/* get file data version */
+	rc = llapi_get_data_version(src_fd, &dv1, LL_DV_RD_FLUSH);
+	if (rc != 0) {
+		CT_ERROR(rc,
+			 "cannot get dataversion on source %s\n", src_fidstr);
+		goto fini;
+	}
+
+	if (hal_flags & HSM_MIGRATION_BLOCKS) {
+		/* take group lock to limit concurent access
+		 * this will be no more needed when exclusive access will
+		 * be implemented (see LU-2919) */
+		/* group lock is taken after data version read because it
+		 * blocks data version call */
+		do {
+			gid = random();
+		} while (gid == 0);
+		rc = llapi_group_lock(src_fd, gid);
+		if (rc < 0) {
+			CT_ERROR(rc, "cannot get group lock on source: %s",
+				 src_fidstr);
+			goto fini;
+		}
+		have_gl = true;
+	}
+
+	rc = ct_copy_data(hcp, src_fidstr, dst_name, src_fd, dst_fd,
+			  hai, hal_flags);
+	if (rc < 0) {
+		CT_ERROR(rc, "data copy failed from '%s' to '%s'",
+			 src_fidstr, dst_name);
+		goto fini;
+	}
+
+	/* flush data */
+	fsync(dst_fd);
+
+	if (have_gl) {
+		/* give back group lock */
+		rc = llapi_group_unlock(src_fd, gid);
+		if (rc < 0)
+			CT_ERROR(rc, "cannot put group lock on source %s",
+				 src_fidstr);
+		have_gl = false;
+	}
+
+	/* swap layouts
+	 * for a migration we need to:
+	 * - check data version on file did not change
+	 * - keep file mtime
+	 * - keep file atime
+	 */
+	rc = llapi_fswap_layouts(src_fd, dst_fd, dv1, 0,
+				 SWAP_LAYOUTS_CHECK_DV1 |
+				 SWAP_LAYOUTS_KEEP_MTIME |
+				 SWAP_LAYOUTS_KEEP_ATIME);
+	if (rc == -EAGAIN) {
+		CT_ERROR(rc,
+			 "dataversion changed during copy, migration aborted");
+		goto fini;
+	}
+
+	if (rc != 0)
+		CT_ERROR(rc, "swap layout to new file failed");
+
+	CT_TRACE("data migration done");
+
+fini:
+	rc = ct_fini(&hcp, hai, hp_flags, rc);
+
+	/* give back group lock */
+	if (have_gl) {
+		int rc2;
+
+		/* we keep the original error in rc */
+		rc2 = llapi_group_unlock(src_fd, gid);
+		if (rc2 < 0)
+			CT_ERROR(rc2, "cannot put group lock on source");
+	}
+
+	if (src_fd != -1)
+		close(src_fd);
+	if (dst_fd != -1)
+		close(dst_fd);
+
+	return rc;
+}
+
 static int ct_process_item(struct hsm_action_item *hai, const long hal_flags)
 {
 	int	rc = 0;
@@ -1294,6 +1462,9 @@ static int ct_process_item(struct hsm_action_item *hai, const long hal_flags)
 		break;
 	case HSMA_REMOVE:
 		rc = ct_remove(hai, hal_flags);
+		break;
+	case HSMA_MIGRATE:
+		rc = ct_migrate(hai, hal_flags);
 		break;
 	case HSMA_CANCEL:
 		CT_TRACE("cancel not implemented for file system '%s'",
@@ -1977,4 +2148,3 @@ error_cleanup:
 
 	return -rc;
 }
-
