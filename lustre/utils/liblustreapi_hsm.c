@@ -7,6 +7,7 @@
  *     alternatives
  *
  * Copyright (c) 2013, 2014, Intel Corporation.
+ * Copyright 2014 Cray Inc., All rights reserved.
  *
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the GNU Lesser General Public License
@@ -112,6 +113,11 @@ enum ct_event {
 	CT_REMOVE_FINISH	= HSMA_REMOVE + CT_FINISH,
 	CT_REMOVE_CANCEL	= HSMA_REMOVE + CT_CANCEL,
 	CT_REMOVE_ERROR		= HSMA_REMOVE + CT_ERROR,
+	CT_MIGRATE_START	= HSMA_MIGRATE,
+	CT_MIGRATE_RUNNING	= HSMA_MIGRATE + CT_RUNNING,
+	CT_MIGRATE_FINISH	= HSMA_MIGRATE + CT_FINISH,
+	CT_MIGRATE_CANCEL	= HSMA_MIGRATE + CT_CANCEL,
+	CT_MIGRATE_ERROR	= HSMA_MIGRATE + CT_ERROR,
 	CT_EVENT_MAX
 };
 
@@ -156,6 +162,16 @@ static inline const char *llapi_hsm_ct_ev2str(int type)
 		return "REMOVE_CANCEL";
 	case CT_REMOVE_ERROR:
 		return "REMOVE_ERROR";
+	case CT_MIGRATE_START:
+		return "MIGRATE_START";
+	case CT_MIGRATE_RUNNING:
+		return "MIGRATE_RUNNING";
+	case CT_MIGRATE_FINISH:
+		return "MIGRATE_FINISH";
+	case CT_MIGRATE_CANCEL:
+		return "MIGRATE_CANCEL";
+	case CT_MIGRATE_ERROR:
+		return "MIGRATE_ERROR";
 	default:
 		llapi_err_noerrno(LLAPI_MSG_ERROR,
 				  "Unknown event type: %d", type);
@@ -1023,6 +1039,84 @@ err_cleanup:
 	return rc;
 }
 
+/**
+ * Converts the stripe info in an hsm_action_item back to a
+ * struct llapi_stripe_param. Used by migration.
+ *
+ * \param[in]	hai		hsm action item containing the stripe param as
+ *				its data payload
+ * \param[out]	hsm_param	the stripe parameters
+ * \param[out]	mdt_index	the MDT index
+ * \retval 0	Success
+ * \retval	negative errno on error
+ */
+static int hai_to_stripe_info(const struct hsm_action_item *hai,
+			      struct llapi_stripe_param **param_out,
+			      int *mdt_index)
+{
+	struct llapi_stripe_param *param;
+	struct hsm_migrate_param *hsm_param;
+	size_t data_len;
+	int rc;
+
+	*param_out = NULL;
+	*mdt_index = -1;
+
+	/* Ensure the hai data is long enough. */
+	if (hai->hai_len < sizeof(*hai))  {
+		rc = -EINVAL;
+		llapi_err_noerrno(LLAPI_MSG_ERROR, "HAI is too short (%u/%zd)",
+				  hai->hai_len, sizeof(*hai));
+		return rc;
+	}
+
+	data_len = hai->hai_len - sizeof(*hai);
+	if (data_len < sizeof(struct hsm_migrate_param)) {
+		rc = -EINVAL;
+		llapi_err_noerrno(LLAPI_MSG_ERROR, "migrate info is too short");
+		return rc;
+	}
+	hsm_param = (struct hsm_migrate_param *)hai->hai_data;
+
+	if (data_len < offsetof(struct hsm_migrate_param,
+				lsp_osts[hsm_param->lsp_osts_count])) {
+		rc = -EINVAL;
+		llapi_err_noerrno(LLAPI_MSG_ERROR, "migrate info is too short");
+		return rc;
+	}
+
+	param = calloc(1, offsetof(typeof(*param),
+				   lsp_osts[hsm_param->lsp_osts_count]));
+	if (param == NULL) {
+		rc = -errno;
+		llapi_err_noerrno(LLAPI_MSG_ERROR,
+				  "cannot allocate new stripe param");
+		return rc;
+	}
+
+	param->lsp_stripe_size = hsm_param->lsp_stripe_size;
+	if (hsm_param->lsp_pool[0] == '\0')
+		param->lsp_pool = NULL;
+	else
+		param->lsp_pool = hsm_param->lsp_pool;
+	param->lsp_stripe_offset = hsm_param->lsp_stripe_offset;
+	param->lsp_stripe_pattern = hsm_param->lsp_stripe_pattern;
+	if (hsm_param->lsp_osts_count == 0) {
+		param->lsp_is_specific = false;
+		param->lsp_stripe_count = hsm_param->lsp_stripe_count;
+	} else {
+		param->lsp_is_specific = true;
+		param->lsp_stripe_count = hsm_param->lsp_osts_count;
+		memcpy(param->lsp_osts, hsm_param->lsp_osts,
+		       sizeof(__u32) * hsm_param->lsp_osts_count);
+	}
+
+	*param_out = param;
+	*mdt_index = hsm_param->mdt_index;
+
+	return 0;
+}
+
 /** Start processing an HSM action.
  * Should be called by copytools just before starting handling a request.
  * It could be skipped if copytool only want to directly report an error,
@@ -1049,6 +1143,7 @@ int llapi_hsm_action_begin(struct hsm_copyaction_private **phcp,
 {
 	struct hsm_copyaction_private	*hcp;
 	int				 rc;
+	struct llapi_stripe_param *sparam = NULL;
 
 	hcp = calloc(1, sizeof(*hcp));
 	if (hcp == NULL)
@@ -1072,6 +1167,32 @@ int llapi_hsm_action_begin(struct hsm_copyaction_private **phcp,
 		if (rc < 0)
 			goto err_out;
 	}
+	else if (hai->hai_action == HSMA_MIGRATE) {
+		/* Convert the stripe info back to a struct llapi_stripe_param and
+		 * extract the MDT index */
+		int mdt_index;
+
+		rc = hai_to_stripe_info(hai, &sparam, &mdt_index);
+		if (rc < 0)
+			goto err_out;
+
+		/* Create volatile destination */
+		hcp->data_fd = llapi_create_volatile_param(hcp->ct_priv->mnt,
+							   mdt_index,
+							   0, S_IRUSR | S_IWUSR,
+							   sparam);
+		if (hcp->data_fd < 0) {
+			hcp->data_fd = -1;
+			goto err_out;
+		}
+
+		rc = llapi_fd2fid(hcp->data_fd, &hcp->copy.hc_hai.hai_dfid);
+		if (rc < 0)
+			goto err_out;
+
+		free(sparam);
+		sparam = NULL;
+	}
 
 	rc = ioctl(ct->mnt_fd, LL_IOC_HSM_COPY_START, &hcp->copy);
 	if (rc < 0) {
@@ -1087,9 +1208,10 @@ ok_out:
 	return 0;
 
 err_out:
-	if (!(hcp->data_fd < 0))
+	if (hcp->data_fd >= 0)
 		close(hcp->data_fd);
 
+	free(sparam);
 	free(hcp);
 
 	return rc;
@@ -1201,8 +1323,13 @@ int llapi_hsm_action_progress(struct hsm_copyaction_private *hcp,
 	hp.hp_cookie = hai->hai_cookie;
 	hp.hp_flags  = hp_flags;
 
-	/* Progress is made on the data fid */
-	hp.hp_fid = hai->hai_dfid;
+	if (hai->hai_action == HSMA_MIGRATE) {
+		/* Progress is made on the fid */
+		hp.hp_fid = hai->hai_fid;
+	} else {
+		/* Progress is made on the data fid */
+		hp.hp_fid = hai->hai_dfid;
+	}
 	hp.hp_extent = *he;
 
 	rc = ioctl(hcp->ct_priv->mnt_fd, LL_IOC_HSM_PROGRESS, &hp);
@@ -1225,7 +1352,9 @@ int llapi_hsm_action_get_dfid(const struct hsm_copyaction_private *hcp,
 	if (hcp->magic != CP_PRIV_MAGIC)
 		return -EINVAL;
 
-	if (hai->hai_action != HSMA_RESTORE && hai->hai_action != HSMA_ARCHIVE)
+	if (hai->hai_action != HSMA_RESTORE &&
+		hai->hai_action != HSMA_ARCHIVE &&
+		hai->hai_action != HSMA_MIGRATE)
 		return -EINVAL;
 
 	*fid = hai->hai_dfid;
@@ -1251,8 +1380,10 @@ int llapi_hsm_action_get_fd(const struct hsm_copyaction_private *hcp)
 	if (hai->hai_action == HSMA_ARCHIVE) {
 		return ct_open_by_fid(hcp->ct_priv, &hai->hai_dfid,
 				O_RDONLY | O_NOATIME | O_NOFOLLOW | O_NONBLOCK);
-	} else if (hai->hai_action == HSMA_RESTORE) {
+	} else if (hai->hai_action == HSMA_RESTORE ||
+		   hai->hai_action == HSMA_MIGRATE) {
 		fd = dup(hcp->data_fd);
+
 		return fd < 0 ? -errno : fd;
 	} else {
 		return -EINVAL;
@@ -1495,4 +1626,3 @@ int llapi_hsm_request(const char *path, const struct hsm_user_request *request)
 	close(fd);
 	return rc;
 }
-
