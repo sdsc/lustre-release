@@ -43,13 +43,13 @@
 #include <cl_object.h>
 
 #include "llite_internal.h"
-
+#include "vvp_internal.h" /* FIXME ccc_env_thread_io(), ccc_env_lock() */
 
 /* Initialize the default and maximum LOV EA and cookie sizes.  This allows
  * us to make MDS RPCs with large enough reply buffers to hold the
  * maximum-sized (= maximum striped) EA and cookie without having to
  * calculate this (via a call into the LOV + OSCs) each time we make an RPC. */
-int cl_init_ea_size(struct obd_export *md_exp, struct obd_export *dt_exp)
+static int cl_init_ea_size(struct obd_export *md_exp, struct obd_export *dt_exp)
 {
 	struct lov_stripe_md lsm = { .lsm_magic = LOV_MAGIC_V3 };
 	__u32 valsize = sizeof(struct lov_desc);
@@ -126,7 +126,7 @@ int cl_ocd_update(struct obd_device *host,
 #define GROUPLOCK_SCOPE "grouplock"
 
 int cl_get_grouplock(struct cl_object *obj, unsigned long gid, int nonblock,
-                     struct ccc_grouplock *cg)
+		     struct cl_grouplock *cg)
 {
         struct lu_env          *env;
         struct cl_io           *io;
@@ -182,7 +182,7 @@ int cl_get_grouplock(struct cl_object *obj, unsigned long gid, int nonblock,
         return 0;
 }
 
-void cl_put_grouplock(struct ccc_grouplock *cg)
+void cl_put_grouplock(struct cl_grouplock *cg)
 {
 	struct lu_env  *env  = cg->cg_env;
 	struct cl_io   *io   = cg->cg_io;

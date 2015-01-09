@@ -59,6 +59,7 @@
 #include <cl_object.h>
 
 #include "llite_internal.h"
+#include "vvp_internal.h"
 
 static const struct cl_req_operations ccc_req_ops;
 
@@ -454,6 +455,15 @@ int ccc_prep_size(const struct lu_env *env, struct cl_object *obj,
  *
  */
 
+static inline void cl_stats_tally(struct cl_device *dev, enum cl_req_type crt,
+				  int rc)
+{
+	int opc = (crt == CRT_READ) ? LPROC_LL_OSC_READ :
+				      LPROC_LL_OSC_WRITE;
+
+	ll_stats_ops_tally(ll_s2sbi(cl2vvp_dev(dev)->vdv_sb), opc, rc);
+}
+
 void ccc_req_completion(const struct lu_env *env,
                         const struct cl_req_slice *slice, int ioret)
 {
@@ -738,28 +748,6 @@ void cl_inode_fini(struct inode *inode)
                         cl_env_put(env, &refcheck);
                 cl_env_reexit(cookie);
         }
-}
-
-/**
- * return IF_* type for given lu_dirent entry.
- * IF_* flag shld be converted to particular OS file type in
- * platform llite module.
- */
-__u16 ll_dirent_type_get(struct lu_dirent *ent)
-{
-        __u16 type = 0;
-        struct luda_type *lt;
-        int len = 0;
-
-        if (le32_to_cpu(ent->lde_attrs) & LUDA_TYPE) {
-                const unsigned align = sizeof(struct luda_type) - 1;
-
-                len = le16_to_cpu(ent->lde_namelen);
-                len = (len + align) & ~align;
-		lt = (void *)ent->lde_name + len;
-		type = IFTODT(le16_to_cpu(lt->lt_type));
-	}
-	return type;
 }
 
 /**

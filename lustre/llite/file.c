@@ -45,11 +45,13 @@
 #include <linux/pagemap.h>
 #include <linux/file.h>
 #include <linux/sched.h>
-#include "llite_internal.h"
 #include <lustre/ll_fiemap.h>
 #include <lustre_ioctl.h>
 
 #include "cl_object.h"
+
+#include "llite_internal.h"
+#include "vvp_internal.h"
 
 static int
 ll_put_grouplock(struct inode *inode, struct file *file, unsigned long arg);
@@ -1632,7 +1634,7 @@ ll_get_grouplock(struct inode *inode, struct file *file, unsigned long arg)
 {
         struct ll_inode_info   *lli = ll_i2info(inode);
         struct ll_file_data    *fd = LUSTRE_FPRIVATE(file);
-        struct ccc_grouplock    grouplock;
+	struct cl_grouplock	grouplock;
         int                     rc;
         ENTRY;
 
@@ -1680,7 +1682,7 @@ static int ll_put_grouplock(struct inode *inode, struct file *file,
 {
 	struct ll_inode_info   *lli = ll_i2info(inode);
 	struct ll_file_data    *fd = LUSTRE_FPRIVATE(file);
-	struct ccc_grouplock    grouplock;
+	struct cl_grouplock	grouplock;
 	ENTRY;
 
 	spin_lock(&lli->lli_lock);

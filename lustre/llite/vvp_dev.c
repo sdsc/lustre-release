@@ -41,6 +41,7 @@
 
 #define DEBUG_SUBSYSTEM S_LLITE
 
+#include "vvp_internal.h" /* XXX */
 
 #include <obd.h>
 #include "llite_internal.h"

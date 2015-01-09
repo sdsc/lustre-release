@@ -44,30 +44,9 @@
 #include <lustre/lustre_idl.h>
 #include <cl_object.h>
 
-enum obd_notify_event;
-struct inode;
-struct lov_stripe_md;
-struct lustre_md;
-struct obd_capa;
-struct obd_device;
-struct obd_export;
 struct page;
 
-blkcnt_t dirty_cnt(struct inode *inode);
-
-int cl_glimpse_size0(struct inode *inode, int agl);
-int cl_glimpse_lock(const struct lu_env *env, struct cl_io *io,
-		    struct inode *inode, struct cl_object *clob, int agl);
-
-static inline int cl_glimpse_size(struct inode *inode)
-{
-	return cl_glimpse_size0(inode, 0);
-}
-
-static inline int cl_agl(struct inode *inode)
-{
-	return cl_glimpse_size0(inode, 1);
-}
+extern struct lu_device_type vvp_device_type;
 
 /**
  * Locking policy for setattr.
@@ -370,17 +349,6 @@ struct ccc_io *cl2ccc_io(const struct lu_env *env,
 			 const struct cl_io_slice *slice);
 struct ccc_req *cl2ccc_req(const struct cl_req_slice *slice);
 
-int cl_setattr_ost(struct inode *inode, const struct iattr *attr,
-		   struct obd_capa *capa);
-
-int cl_file_inode_init(struct inode *inode, struct lustre_md *md);
-void cl_inode_fini(struct inode *inode);
-int cl_local_size(struct inode *inode);
-
-__u16 ll_dirent_type_get(struct lu_dirent *ent);
-__u64 cl_fid_build_ino(const struct lu_fid *fid, int api32);
-__u32 cl_fid_build_gen(const struct lu_fid *fid);
-
 #ifdef CONFIG_LUSTRE_DEBUG_EXPENSIVE_CHECK
 # define CLOBINVRNT(env, clob, expr)					\
 	do {								\
@@ -395,44 +363,6 @@ __u32 cl_fid_build_gen(const struct lu_fid *fid);
 	((void)sizeof(env), (void)sizeof(clob), (void)sizeof !!(expr))
 #endif /* CONFIG_LUSTRE_DEBUG_EXPENSIVE_CHECK */
 
-int cl_init_ea_size(struct obd_export *md_exp, struct obd_export *dt_exp);
-int cl_ocd_update(struct obd_device *host,
-		  struct obd_device *watched,
-		  enum obd_notify_event ev, void *owner, void *data);
-
-struct ccc_grouplock {
-	struct lu_env	*cg_env;
-	struct cl_io	*cg_io;
-	struct cl_lock	*cg_lock;
-	unsigned long	 cg_gid;
-};
-
-int cl_get_grouplock(struct cl_object *obj, unsigned long gid, int nonblock,
-		     struct ccc_grouplock *cg);
-void cl_put_grouplock(struct ccc_grouplock *cg);
-
-/**
- * New interfaces to get and put lov_stripe_md from lov layer. This violates
- * layering because lov_stripe_md is supposed to be a private data in lov.
- *
- * NB: If you find you have to use these interfaces for your new code, please
- * think about it again. These interfaces may be removed in the future for
- * better layering. */
-struct lov_stripe_md *lov_lsm_get(struct cl_object *clobj);
-void lov_lsm_put(struct cl_object *clobj, struct lov_stripe_md *lsm);
-int lov_read_and_clear_async_rc(struct cl_object *clob);
-
-struct lov_stripe_md *ccc_inode_lsm_get(struct inode *inode);
-void ccc_inode_lsm_put(struct inode *inode, struct lov_stripe_md *lsm);
-
-enum {
-	LUSTRE_OPC_MKDIR	= 0,
-	LUSTRE_OPC_SYMLINK	= 1,
-	LUSTRE_OPC_MKNOD	= 2,
-	LUSTRE_OPC_CREATE	= 3,
-	LUSTRE_OPC_ANY		= 5,
-};
-
 int vvp_io_init(const struct lu_env *env, struct cl_object *obj,
 		struct cl_io *io);
 int vvp_lock_init(const struct lu_env *env, struct cl_object *obj,
@@ -442,6 +372,9 @@ int vvp_page_init(const struct lu_env *env, struct cl_object *obj,
 struct lu_object *vvp_object_alloc(const struct lu_env *env,
 				   const struct lu_object_header *hdr,
 				   struct lu_device *dev);
+
+void vvp_write_pending(struct vvp_object *club, struct vvp_page *page);
+void vvp_write_complete(struct vvp_object *club, struct vvp_page *page);
 
 extern const struct file_operations vvp_dump_pgcache_file_ops;
 

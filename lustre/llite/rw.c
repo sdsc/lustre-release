@@ -60,6 +60,7 @@
 #include <obd_cksum.h>
 #include "llite_internal.h"
 #include <linux/lustre_compat25.h>
+#include "vvp_internal.h"
 
 struct obd_capa *cl_capa_lookup(struct inode *inode, enum cl_req_type crt)
 {

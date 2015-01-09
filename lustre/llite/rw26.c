@@ -63,6 +63,7 @@
 #define DEBUG_SUBSYSTEM S_LLITE
 
 #include "llite_internal.h"
+#include "vvp_internal.h"
 #include <linux/lustre_compat25.h>
 
 /**

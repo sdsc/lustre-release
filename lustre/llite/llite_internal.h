@@ -48,9 +48,14 @@
 #include <lustre_mdc.h>
 #include <lustre_intent.h>
 #include <linux/compat.h>
-
-#include "vvp_internal.h"
 #include "range_lock.h"
+
+enum obd_notify_event;
+struct inode;
+struct lov_stripe_md;
+struct obd_capa;
+struct obd_device;
+struct obd_export;
 
 #ifndef FMODE_EXEC
 #define FMODE_EXEC 0
@@ -490,6 +495,10 @@ struct lustre_client_ocd {
 	struct obd_export	*lco_dt_exp;
 };
 
+int cl_ocd_update(struct obd_device *host,
+		  struct obd_device *watched,
+		  enum obd_notify_event ev, void *owner, void *data);
+
 struct ll_sb_info {
 	struct list_head		  ll_list;
 	/* this protects pglist and ra_info.  It isn't safe to
@@ -660,11 +669,22 @@ struct ll_readahead_state {
         unsigned long   ras_consecutive_stride_requests;
 };
 
+struct cl_grouplock {
+	struct lu_env	*cg_env;
+	struct cl_io	*cg_io;
+	struct cl_lock	*cg_lock;
+	unsigned long	 cg_gid;
+};
+
+int cl_get_grouplock(struct cl_object *obj, unsigned long gid, int nonblock,
+		     struct cl_grouplock *lg);
+void cl_put_grouplock(struct cl_grouplock *lg);
+
 extern struct kmem_cache *ll_file_data_slab;
 struct lustre_handle;
 struct ll_file_data {
 	struct ll_readahead_state fd_ras;
-	struct ccc_grouplock fd_grouplock;
+	struct cl_grouplock fd_grouplock;
 	__u64 lfd_pos;
 	__u32 fd_flags;
 	fmode_t fd_omode;
@@ -937,6 +957,15 @@ int ll_get_default_mdsize(struct ll_sb_info *sbi, int *default_mdsize);
 int ll_get_max_cookiesize(struct ll_sb_info *sbi, int *max_cookiesize);
 int ll_get_default_cookiesize(struct ll_sb_info *sbi, int *default_cookiesize);
 int ll_process_config(struct lustre_cfg *lcfg);
+
+enum {
+	LUSTRE_OPC_MKDIR	= 0,
+	LUSTRE_OPC_SYMLINK	= 1,
+	LUSTRE_OPC_MKNOD	= 2,
+	LUSTRE_OPC_CREATE	= 3,
+	LUSTRE_OPC_ANY		= 5,
+};
+
 struct md_op_data *ll_prep_md_op_data(struct md_op_data *op_data,
 				      struct inode *i1, struct inode *i2,
 				      const char *name, size_t namelen,
@@ -985,9 +1014,6 @@ struct ll_close_queue {
 	struct completion	lcq_comp;
 	atomic_t		lcq_stop;
 };
-
-void vvp_write_pending(struct vvp_object *club, struct vvp_page *page);
-void vvp_write_complete(struct vvp_object *club, struct vvp_page *page);
 
 /* specific achitecture can implement only part of this list */
 enum vvp_io_subtype {
@@ -1242,9 +1268,6 @@ void ll_truncate_free_capa(struct obd_capa *ocapa);
 void ll_clear_inode_capas(struct inode *inode);
 void ll_print_capa_stat(struct ll_sb_info *sbi);
 
-/* llite/llite_cl.c */
-extern struct lu_device_type vvp_device_type;
-
 /**
  * Common IO arguments for various VFS I/O interfaces.
  */
@@ -1332,6 +1355,22 @@ struct ll_statahead_info {
 int ll_statahead(struct inode *dir, struct dentry **dentry, bool unplug);
 void ll_authorize_statahead(struct inode *dir, void *key);
 void ll_deauthorize_statahead(struct inode *dir, void *key);
+
+blkcnt_t dirty_cnt(struct inode *inode);
+
+int cl_glimpse_size0(struct inode *inode, int agl);
+int cl_glimpse_lock(const struct lu_env *env, struct cl_io *io,
+		    struct inode *inode, struct cl_object *clob, int agl);
+
+static inline int cl_glimpse_size(struct inode *inode)
+{
+	return cl_glimpse_size0(inode, 0);
+}
+
+static inline int cl_agl(struct inode *inode)
+{
+	return cl_glimpse_size0(inode, 1);
+}
 
 static inline int ll_glimpse_size(struct inode *inode)
 {
@@ -1452,15 +1491,6 @@ struct ll_dio_pages {
         /** # of pages in the array. */
         int           ldp_nr;
 };
-
-static inline void cl_stats_tally(struct cl_device *dev, enum cl_req_type crt,
-                                  int rc)
-{
-        int opc = (crt == CRT_READ) ? LPROC_LL_OSC_READ :
-                                      LPROC_LL_OSC_WRITE;
-
-	ll_stats_ops_tally(ll_s2sbi(cl2vvp_dev(dev)->vdv_sb), opc, rc);
-}
 
 extern ssize_t ll_direct_rw_pages(const struct lu_env *env, struct cl_io *io,
                                   int rw, struct inode *inode,
@@ -1605,5 +1635,30 @@ int ll_page_sync_io(const struct lu_env *env, struct cl_io *io,
 		    struct cl_page *page, enum cl_req_type crt);
 
 int ll_getparent(struct file *file, struct getparent __user *arg);
+
+int cl_setattr_ost(struct inode *inode, const struct iattr *attr,
+		   struct obd_capa *capa);
+
+int cl_file_inode_init(struct inode *inode, struct lustre_md *md);
+void cl_inode_fini(struct inode *inode);
+int cl_local_size(struct inode *inode);
+
+__u64 cl_fid_build_ino(const struct lu_fid *fid, int api32);
+__u32 cl_fid_build_gen(const struct lu_fid *fid);
+
+/**
+ * New interfaces to get and put lov_stripe_md from lov layer. This violates
+ * layering because lov_stripe_md is supposed to be a private data in lov.
+ *
+ * NB: If you find you have to use these interfaces for your new code, please
+ * think about it again. These interfaces may be removed in the future for
+ * better layering. */
+
+struct lov_stripe_md *lov_lsm_get(struct cl_object *clobj);
+void lov_lsm_put(struct cl_object *clobj, struct lov_stripe_md *lsm);
+int lov_read_and_clear_async_rc(struct cl_object *clob);
+
+struct lov_stripe_md *ccc_inode_lsm_get(struct inode *inode);
+void ccc_inode_lsm_put(struct inode *inode, struct lov_stripe_md *lsm);
 
 #endif /* LLITE_INTERNAL_H */
