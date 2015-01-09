@@ -199,6 +199,9 @@ static bool hsm_action_is_needed(struct hsm_action_item *hai, int hal_an,
 	case HSMA_CANCEL:
 		is_needed = true;
 		break;
+	case HSMA_MIGRATE:
+		is_needed = true;
+		break;
 	}
 	CDEBUG(D_HSM, "fid="DFID" action=%s rq_flags="LPX64
 		      " extent="LPX64"-"LPX64" hsm_flags=%X %s\n",
@@ -237,6 +240,7 @@ static bool hal_is_sane(struct hsm_action_list *hal)
 		case HSMA_RESTORE:
 		case HSMA_REMOVE:
 		case HSMA_CANCEL:
+		case HSMA_MIGRATE:
 			break;
 		default:
 			RETURN(false);
