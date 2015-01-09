@@ -7,6 +7,7 @@
  *     alternatives
  *
  * Copyright (c) 2013, 2014, Intel Corporation.
+ * Copyright 2014 Cray Inc., All rights reserved.
  *
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the GNU Lesser General Public License
@@ -54,6 +55,7 @@
 #else
 #include <unistd.h>
 #endif
+#include <json.h>
 
 #include <libcfs/libcfs.h>
 #include <lnet/lnetctl.h>
@@ -112,6 +114,11 @@ enum ct_event {
 	CT_REMOVE_FINISH	= HSMA_REMOVE + CT_FINISH,
 	CT_REMOVE_CANCEL	= HSMA_REMOVE + CT_CANCEL,
 	CT_REMOVE_ERROR		= HSMA_REMOVE + CT_ERROR,
+	CT_MIGRATE_START	= HSMA_MIGRATE,
+	CT_MIGRATE_RUNNING	= HSMA_MIGRATE + CT_RUNNING,
+	CT_MIGRATE_FINISH	= HSMA_MIGRATE + CT_FINISH,
+	CT_MIGRATE_CANCEL	= HSMA_MIGRATE + CT_CANCEL,
+	CT_MIGRATE_ERROR	= HSMA_MIGRATE + CT_ERROR,
 	CT_EVENT_MAX
 };
 
@@ -156,6 +163,16 @@ static inline const char *llapi_hsm_ct_ev2str(int type)
 		return "REMOVE_CANCEL";
 	case CT_REMOVE_ERROR:
 		return "REMOVE_ERROR";
+	case CT_MIGRATE_START:
+		return "MIGRATE_START";
+	case CT_MIGRATE_RUNNING:
+		return "MIGRATE_RUNNING";
+	case CT_MIGRATE_FINISH:
+		return "MIGRATE_FINISH";
+	case CT_MIGRATE_CANCEL:
+		return "MIGRATE_CANCEL";
+	case CT_MIGRATE_ERROR:
+		return "MIGRATE_ERROR";
 	default:
 		llapi_err_noerrno(LLAPI_MSG_ERROR,
 				  "Unknown event type: %d", type);
@@ -1023,6 +1040,163 @@ err_cleanup:
 	return rc;
 }
 
+#define set_number(root, name, number, errors) do {	\
+	JsonNode *_obj = json_find_member(root, name); \
+	if (!_obj || _obj->tag != JSON_NUMBER_INT) errors++; \
+	else number = _obj->number_int; \
+	} while(0)
+
+#define set_string(root, name, string, errors) do {	\
+	JsonNode *_obj = json_find_member(root, name); \
+	if (!_obj || _obj->tag != JSON_STRING) errors++; \
+	else string = _obj->string_; \
+	} while(0)
+
+/**
+ * Converts the stripe info in an hsm_action_item back to a
+ * struct llapi_stripe_param. Used by migration.
+ *
+ * \param[in]	hai		hsm action item containing the stripe param as
+ *				its data payload
+ * \param[out]	hsm_param	the stripe parameters
+ * \param[out]	mdt_index	the MDT index
+ * \retval 0	Success
+ * \retval	negative errno on error
+ */
+static int hai_to_stripe_info(const struct hsm_action_item *hai,
+			      struct llapi_stripe_param **param_out,
+			      int *mdt_index)
+{
+	struct llapi_stripe_param *param;
+	const char *hsm_param;
+	size_t data_len;
+	int rc;
+	JsonNode *jroot;
+	JsonNode *obj;
+	JsonNode *lsp_obj;
+	JsonNode *osts_obj;
+	size_t osts_count;
+	int errors;
+	int i;
+	int json_mdt_index;
+	char *json_pool;
+
+	*param_out = NULL;
+	*mdt_index = -1;
+
+	/* Ensure the hai data is long enough. */
+	if (hai->hai_len < sizeof(*hai))  {
+		rc = -EINVAL;
+		llapi_err_noerrno(LLAPI_MSG_ERROR, "HAI is too short (%u/%zd)",
+				  hai->hai_len, sizeof(*hai));
+		return rc;
+	}
+
+	data_len = hai->hai_len - sizeof(*hai);
+	if (data_len < 3) {
+		rc = -EINVAL;
+		llapi_err_noerrno(LLAPI_MSG_ERROR, "migrate info is too short");
+		return rc;
+	}
+	hsm_param = hai->hai_data;
+
+	/* Ensure the string is terminated */
+	if (hsm_param[data_len-1] != 0) {
+		rc = -EINVAL;
+		llapi_err_noerrno(LLAPI_MSG_ERROR, "migrate info is not NUL terminated");
+		return rc;
+	}
+
+	/* Deserialize migrate request */
+	jroot = json_decode(hsm_param);
+	if (!jroot) {
+		rc = -EINVAL;
+		llapi_err_noerrno(LLAPI_MSG_ERROR, "received invalid JSON: %s",
+				  hsm_param);
+		return rc;
+	}
+
+	errors = 0;
+
+	if (jroot->tag != JSON_OBJECT) {
+		rc = -EINVAL;
+		llapi_err_noerrno(LLAPI_MSG_ERROR,
+				  "JSON message root is not an object");
+		goto fail;
+	}
+
+	lsp_obj = json_find_member(jroot, "lsp");
+	if (!lsp_obj) {
+		rc = -EINVAL;
+		llapi_err_noerrno(LLAPI_MSG_ERROR, "Cannot find lsp member");
+		goto fail;
+	}
+
+	osts_count = 0;
+	osts_obj = json_find_member(lsp_obj, "osts");
+	if (osts_obj) {
+		json_foreach(obj, osts_obj)
+			osts_count ++;
+	} else {
+		osts_count = 0;
+	}
+
+	param = calloc(1, offsetof(typeof(*param), lsp_osts[osts_count]));
+	if (param == NULL) {
+		rc = -errno;
+		llapi_err_noerrno(LLAPI_MSG_ERROR,
+				  "cannot allocate new stripe param");
+		goto fail;
+	}
+
+	set_string(lsp_obj, "pool", json_pool, errors);
+	if (json_pool && json_pool[0] != 0) {
+		if (strlen(json_pool) > LOV_MAXPOOLNAME)
+			errors ++;
+		else
+			param->lsp_pool = strdup(json_pool);
+	}
+	set_number(lsp_obj, "stripe_size", param->lsp_stripe_size, errors);
+	set_number(lsp_obj, "stripe_pattern", param->lsp_stripe_pattern, errors);
+	set_number(lsp_obj, "stripe_offset", param->lsp_stripe_offset, errors);
+	set_number(lsp_obj, "stripe_pattern", param->lsp_stripe_pattern, errors);
+
+	if (osts_obj) {
+		param->lsp_is_specific = true;
+		param->lsp_stripe_count = osts_count;
+		json_foreach(obj, osts_obj) {
+			if (obj->tag != JSON_NUMBER_INT)
+				errors++;
+			else
+				param->lsp_osts[i] = obj->number_int;
+		}
+	} else {
+		param->lsp_is_specific = false;
+		set_number(lsp_obj, "stripe_count", param->lsp_stripe_count, errors);
+	}
+
+	set_number(jroot, "mdt_index", json_mdt_index, errors);
+
+	if (errors) {
+		rc = -EINVAL;
+		llapi_err_noerrno(LLAPI_MSG_ERROR,
+				  "invalid values in migrate JSON string: %s",
+				  hsm_param);
+		return rc;
+	}
+
+	json_delete(jroot);
+
+	*param_out = param;
+	*mdt_index = json_mdt_index;
+
+	return 0;
+
+fail:
+	json_delete(jroot);
+	return rc;
+}
+
 /** Start processing an HSM action.
  * Should be called by copytools just before starting handling a request.
  * It could be skipped if copytool only want to directly report an error,
@@ -1049,6 +1223,7 @@ int llapi_hsm_action_begin(struct hsm_copyaction_private **phcp,
 {
 	struct hsm_copyaction_private	*hcp;
 	int				 rc;
+	struct llapi_stripe_param *sparam = NULL;
 
 	hcp = calloc(1, sizeof(*hcp));
 	if (hcp == NULL)
@@ -1072,6 +1247,33 @@ int llapi_hsm_action_begin(struct hsm_copyaction_private **phcp,
 		if (rc < 0)
 			goto err_out;
 	}
+	else if (hai->hai_action == HSMA_MIGRATE) {
+		/* Convert the stripe info back to a struct llapi_stripe_param and
+		 * extract the MDT index */
+		int mdt_index;
+
+		rc = hai_to_stripe_info(hai, &sparam, &mdt_index);
+		if (rc < 0)
+			goto err_out;
+
+		/* Create volatile destination */
+		hcp->data_fd = llapi_create_volatile_param(hcp->ct_priv->mnt,
+							   mdt_index,
+							   0, S_IRUSR | S_IWUSR,
+							   sparam);
+		if (hcp->data_fd < 0) {
+			hcp->data_fd = -1;
+			goto err_out;
+		}
+
+		rc = llapi_fd2fid(hcp->data_fd, &hcp->copy.hc_hai.hai_dfid);
+		if (rc < 0)
+			goto err_out;
+
+		free(sparam->lsp_pool);
+		free(sparam);
+		sparam = NULL;
+	}
 
 	rc = ioctl(ct->mnt_fd, LL_IOC_HSM_COPY_START, &hcp->copy);
 	if (rc < 0) {
@@ -1087,9 +1289,13 @@ ok_out:
 	return 0;
 
 err_out:
-	if (!(hcp->data_fd < 0))
+	if (hcp->data_fd >= 0)
 		close(hcp->data_fd);
 
+	if (sparam) {
+		free(sparam->lsp_pool);
+		free(sparam);
+	}
 	free(hcp);
 
 	return rc;
@@ -1201,8 +1407,13 @@ int llapi_hsm_action_progress(struct hsm_copyaction_private *hcp,
 	hp.hp_cookie = hai->hai_cookie;
 	hp.hp_flags  = hp_flags;
 
-	/* Progress is made on the data fid */
-	hp.hp_fid = hai->hai_dfid;
+	if (hai->hai_action == HSMA_MIGRATE) {
+		/* Progress is made on the fid */
+		hp.hp_fid = hai->hai_fid;
+	} else {
+		/* Progress is made on the data fid */
+		hp.hp_fid = hai->hai_dfid;
+	}
 	hp.hp_extent = *he;
 
 	rc = ioctl(hcp->ct_priv->mnt_fd, LL_IOC_HSM_PROGRESS, &hp);
@@ -1225,7 +1436,9 @@ int llapi_hsm_action_get_dfid(const struct hsm_copyaction_private *hcp,
 	if (hcp->magic != CP_PRIV_MAGIC)
 		return -EINVAL;
 
-	if (hai->hai_action != HSMA_RESTORE && hai->hai_action != HSMA_ARCHIVE)
+	if (hai->hai_action != HSMA_RESTORE &&
+		hai->hai_action != HSMA_ARCHIVE &&
+		hai->hai_action != HSMA_MIGRATE)
 		return -EINVAL;
 
 	*fid = hai->hai_dfid;
@@ -1251,8 +1464,10 @@ int llapi_hsm_action_get_fd(const struct hsm_copyaction_private *hcp)
 	if (hai->hai_action == HSMA_ARCHIVE) {
 		return ct_open_by_fid(hcp->ct_priv, &hai->hai_dfid,
 				O_RDONLY | O_NOATIME | O_NOFOLLOW | O_NONBLOCK);
-	} else if (hai->hai_action == HSMA_RESTORE) {
+	} else if (hai->hai_action == HSMA_RESTORE ||
+		   hai->hai_action == HSMA_MIGRATE) {
 		fd = dup(hcp->data_fd);
+
 		return fd < 0 ? -errno : fd;
 	} else {
 		return -EINVAL;
@@ -1495,4 +1710,3 @@ int llapi_hsm_request(const char *path, const struct hsm_user_request *request)
 	close(fd);
 	return rc;
 }
-
