@@ -83,7 +83,6 @@ cfs_cpu_core_siblings(int cpu, cpumask_t *mask)
 	/* return cpumask of cores in the same socket */
 	cpumask_copy(mask, topology_core_cpumask(cpu));
 }
-EXPORT_SYMBOL(cfs_cpu_core_siblings);
 
 /* return number of cores in the same socket of \a cpu */
 int
@@ -100,7 +99,6 @@ cfs_cpu_core_nsiblings(int cpu)
 
 	return num;
 }
-EXPORT_SYMBOL(cfs_cpu_core_nsiblings);
 
 /* return cpumask of HTs in the same core */
 void
@@ -108,7 +106,6 @@ cfs_cpu_ht_siblings(int cpu, cpumask_t *mask)
 {
 	cpumask_copy(mask, topology_thread_cpumask(cpu));
 }
-EXPORT_SYMBOL(cfs_cpu_ht_siblings);
 
 /* return number of HTs in the same core of \a cpu */
 int
@@ -137,7 +134,6 @@ cfs_node_to_cpumask(int node, cpumask_t *mask)
 	else
 		cpumask_clear(mask);
 }
-EXPORT_SYMBOL(cfs_node_to_cpumask);
 
 void
 cfs_cpt_table_free(struct cfs_cpt_table *cptab)
@@ -269,7 +265,6 @@ cfs_cpt_table_print(struct cfs_cpt_table *cptab, char *buf, int len)
 
 	return tmp - buf;
 }
-EXPORT_SYMBOL(cfs_cpt_table_print);
 
 int
 cfs_cpt_number(struct cfs_cpt_table *cptab)
@@ -298,7 +293,6 @@ cfs_cpt_online(struct cfs_cpt_table *cptab, int cpt)
 	       any_online_cpu(*cptab->ctb_cpumask) != NR_CPUS :
 	       any_online_cpu(*cptab->ctb_parts[cpt].cpt_cpumask) != NR_CPUS;
 }
-EXPORT_SYMBOL(cfs_cpt_online);
 
 cpumask_t *
 cfs_cpt_cpumask(struct cfs_cpt_table *cptab, int cpt)
@@ -358,7 +352,6 @@ cfs_cpt_set_cpu(struct cfs_cpt_table *cptab, int cpt, int cpu)
 
 	return 1;
 }
-EXPORT_SYMBOL(cfs_cpt_set_cpu);
 
 void
 cfs_cpt_unset_cpu(struct cfs_cpt_table *cptab, int cpt, int cpu)
@@ -420,7 +413,6 @@ cfs_cpt_unset_cpu(struct cfs_cpt_table *cptab, int cpt, int cpu)
 
 	return;
 }
-EXPORT_SYMBOL(cfs_cpt_unset_cpu);
 
 int
 cfs_cpt_set_cpumask(struct cfs_cpt_table *cptab, int cpt, cpumask_t *mask)
@@ -440,7 +432,6 @@ cfs_cpt_set_cpumask(struct cfs_cpt_table *cptab, int cpt, cpumask_t *mask)
 
 	return 1;
 }
-EXPORT_SYMBOL(cfs_cpt_set_cpumask);
 
 void
 cfs_cpt_unset_cpumask(struct cfs_cpt_table *cptab, int cpt, cpumask_t *mask)
@@ -450,7 +441,6 @@ cfs_cpt_unset_cpumask(struct cfs_cpt_table *cptab, int cpt, cpumask_t *mask)
 	for_each_cpu_mask(i, *mask)
 		cfs_cpt_unset_cpu(cptab, cpt, i);
 }
-EXPORT_SYMBOL(cfs_cpt_unset_cpumask);
 
 int
 cfs_cpt_set_node(struct cfs_cpt_table *cptab, int cpt, int node)
@@ -497,7 +487,6 @@ cfs_cpt_unset_node(struct cfs_cpt_table *cptab, int cpt, int node)
 
 	mutex_unlock(&cpt_data.cpt_mutex);
 }
-EXPORT_SYMBOL(cfs_cpt_unset_node);
 
 int
 cfs_cpt_set_nodemask(struct cfs_cpt_table *cptab, int cpt, nodemask_t *mask)
@@ -511,7 +500,6 @@ cfs_cpt_set_nodemask(struct cfs_cpt_table *cptab, int cpt, nodemask_t *mask)
 
 	return 1;
 }
-EXPORT_SYMBOL(cfs_cpt_set_nodemask);
 
 void
 cfs_cpt_unset_nodemask(struct cfs_cpt_table *cptab, int cpt, nodemask_t *mask)
@@ -521,7 +509,6 @@ cfs_cpt_unset_nodemask(struct cfs_cpt_table *cptab, int cpt, nodemask_t *mask)
 	for_each_node_mask(i, *mask)
 		cfs_cpt_unset_node(cptab, cpt, i);
 }
-EXPORT_SYMBOL(cfs_cpt_unset_nodemask);
 
 void
 cfs_cpt_clear(struct cfs_cpt_table *cptab, int cpt)
@@ -541,7 +528,6 @@ cfs_cpt_clear(struct cfs_cpt_table *cptab, int cpt)
 			cfs_cpt_unset_cpu(cptab, cpt, i);
 	}
 }
-EXPORT_SYMBOL(cfs_cpt_clear);
 
 int
 cfs_cpt_spread_node(struct cfs_cpt_table *cptab, int cpt)
@@ -574,7 +560,6 @@ cfs_cpt_spread_node(struct cfs_cpt_table *cptab, int cpt)
 	LBUG();
 	return 0;
 }
-EXPORT_SYMBOL(cfs_cpt_spread_node);
 
 int
 cfs_cpt_current(struct cfs_cpt_table *cptab, int remap)
@@ -602,7 +587,6 @@ cfs_cpt_of_cpu(struct cfs_cpt_table *cptab, int cpu)
 
 	return cptab->ctb_cpu2cpt[cpu];
 }
-EXPORT_SYMBOL(cfs_cpt_of_cpu);
 
 int
 cfs_cpt_bind(struct cfs_cpt_table *cptab, int cpt)
