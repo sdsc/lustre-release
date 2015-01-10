@@ -127,20 +127,22 @@ struct md_som_data {
 };
 
 struct md_attr {
-        __u64                   ma_valid;
-        __u64                   ma_need;
-        __u64                   ma_attr_flags;
-        struct lu_attr          ma_attr;
-        struct lu_fid           ma_pfid;
-        struct md_hsm           ma_hsm;
-        struct lov_mds_md      *ma_lmm;
-	union lmv_mds_md       *ma_lmv;
-        void                   *ma_acl;
-        struct lustre_capa     *ma_capa;
-        struct md_som_data     *ma_som;
-        int                     ma_lmm_size;
-        int                     ma_lmv_size;
-        int                     ma_acl_size;
+	__u64			ma_valid;
+	__u64			ma_need;
+	__u64			ma_attr_flags;
+	struct lu_attr		ma_attr;
+	struct lu_fid		ma_pfid;
+	struct md_hsm		ma_hsm;
+	struct lov_mds_md	*ma_lmm;
+	union lmv_mds_md	*ma_lmv;
+	union lmv_mds_md	*ma_default_lmv;
+	void			*ma_acl;
+	struct lustre_capa	*ma_capa;
+	struct md_som_data	*ma_som;
+	int			ma_lmm_size;
+	int			ma_lmv_size;
+	int			ma_default_lmv_size;
+	int			ma_acl_size;
 };
 
 /** Additional parameters for create */

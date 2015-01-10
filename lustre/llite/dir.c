@@ -608,7 +608,10 @@ int ll_dir_getstripe(struct inode *inode, void **plmm, int *plmm_size,
 	body = req_capsule_server_get(&req->rq_pill, &RMF_MDT_BODY);
 	LASSERT(body != NULL);
 
-	lmm_size = body->mbo_eadatasize;
+	if (valid & OBD_MD_DEFAULT_MEA)
+		lmm_size = body->mbo_eadatasize2;
+	else
+		lmm_size = body->mbo_eadatasize;
 
 	if (!(body->mbo_valid & (OBD_MD_FLEASIZE | OBD_MD_FLDIREA)) ||
 	    lmm_size == 0) {

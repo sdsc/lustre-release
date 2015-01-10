@@ -1205,6 +1205,11 @@ static void ll_dir_clear_lsm_md(struct inode *inode)
 
 	LASSERT(S_ISDIR(inode->i_mode));
 
+	if (lli->lli_default_lsm_md != NULL) {
+		OBD_FREE_PTR(lli->lli_default_lsm_md);
+		lli->lli_default_lsm_md = NULL;
+	}
+
 	if (lli->lli_lsm_md != NULL) {
 		lmv_free_memmd(lli->lli_lsm_md);
 		lli->lli_lsm_md = NULL;
@@ -1319,12 +1324,38 @@ static int ll_update_lsm_md(struct inode *inode, struct lustre_md *md)
 {
 	struct ll_inode_info *lli = ll_i2info(inode);
 	struct lmv_stripe_md *lsm = md->lmv;
+	struct lmv_user_md   *default_lum = md->default_lmv;
 	int	rc;
 	ENTRY;
 
 	LASSERT(S_ISDIR(inode->i_mode));
 	CDEBUG(D_INODE, "update lsm %p of "DFID"\n", lli->lli_lsm_md,
 	       PFID(ll_inode2fid(inode)));
+
+	if (default_lum != NULL) {
+		if (lli->lli_default_lsm_md != NULL) {
+			if (memcmp(lli->lli_default_lsm_md, default_lum,
+				   sizeof(*default_lum))) {
+				CDEBUG(D_HA, DFID" default lmv not match"
+				       "default magic %u stripe %u offset %u"
+				       "got lum magic %u stripe %u offset %u\n",
+				       PFID(&lli->lli_fid),
+				       lli->lli_default_lsm_md->lum_magic,
+				     lli->lli_default_lsm_md->lum_stripe_count,
+				     lli->lli_default_lsm_md->lum_stripe_offset,
+				     default_lum->lum_magic,
+				     default_lum->lum_stripe_count,
+				     default_lum->lum_stripe_offset);
+				OBD_FREE_PTR(lli->lli_default_lsm_md);
+				lli->lli_default_lsm_md = default_lum;
+			} else {
+				OBD_FREE_PTR(default_lum);
+				md->default_lmv = NULL;
+			}
+		} else {
+			lli->lli_default_lsm_md = default_lum;
+		}
+	}
 
 	/* no striped information from request. */
 	if (lsm == NULL) {
@@ -2537,8 +2568,13 @@ struct md_op_data * ll_prep_md_op_data(struct md_op_data *op_data,
 	ll_i2gids(op_data->op_suppgids, i1, i2);
 	op_data->op_fid1 = *ll_inode2fid(i1);
 	op_data->op_capa1 = ll_mdscapa_get(i1);
-	if (S_ISDIR(i1->i_mode))
+	op_data->op_default_stripe_offset = -1;
+	if (S_ISDIR(i1->i_mode)) {
 		op_data->op_mea1 = ll_i2info(i1)->lli_lsm_md;
+		if (ll_i2info(i1)->lli_default_lsm_md != NULL)
+			op_data->op_default_stripe_offset =
+			   ll_i2info(i1)->lli_default_lsm_md->lum_stripe_offset;
+	}
 
 	if (i2) {
 		op_data->op_fid2 = *ll_inode2fid(i2);

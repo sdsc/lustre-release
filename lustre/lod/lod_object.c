@@ -1432,7 +1432,7 @@ static int lod_xattr_get(const struct lu_env *env, struct dt_object *dt,
 /**
  * Verify LVM EA.
  *
- * Checks that the magic and the number of the stripes are sane.
+ * Checks that the magic of the stripe is sane.
  *
  * \param[in] lod	lod device
  * \param[in] lum	a buffer storing LMV EA to verify
@@ -1443,22 +1443,16 @@ static int lod_xattr_get(const struct lu_env *env, struct dt_object *dt,
 static int lod_verify_md_striping(struct lod_device *lod,
 				  const struct lmv_user_md_v1 *lum)
 {
-	int	rc = 0;
-	ENTRY;
-
-	if (unlikely(le32_to_cpu(lum->lum_magic) != LMV_USER_MAGIC))
-		GOTO(out, rc = -EINVAL);
-
-	if (unlikely(le32_to_cpu(lum->lum_stripe_count) == 0))
-		GOTO(out, rc = -EINVAL);
-out:
-	if (rc != 0)
+	if (unlikely(le32_to_cpu(lum->lum_magic) != LMV_USER_MAGIC)) {
 		CERROR("%s: invalid lmv_user_md: magic = %x, "
 		       "stripe_offset = %d, stripe_count = %u: rc = %d\n",
 		       lod2obd(lod)->obd_name, le32_to_cpu(lum->lum_magic),
 		       (int)le32_to_cpu(lum->lum_stripe_offset),
-		       le32_to_cpu(lum->lum_stripe_count), rc);
-	return rc;
+		       le32_to_cpu(lum->lum_stripe_count), -EINVAL);
+		return -EINVAL;
+	}
+
+	return 0;
 }
 
 /**
@@ -3037,7 +3031,11 @@ static int lod_cache_parent_striping(const struct lu_env *env,
 			RETURN(rc);
 	}
 
-	if (S_ISDIR(child_mode) && !lp->ldo_dir_striping_cached)
+	/* If the parent is on the remote MDT, we should always
+	 * try to refresh the default stripeEA cache, XXX fix this
+	 * when we have better cross-MDT locking management. */
+	if (S_ISDIR(child_mode) && (!lp->ldo_dir_striping_cached ||
+				    dt_object_remote(&lp->ldo_obj)))
 		rc = lod_cache_parent_lmv_striping(env, lp);
 
 	RETURN(rc);

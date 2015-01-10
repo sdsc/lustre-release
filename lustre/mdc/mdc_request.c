@@ -540,9 +540,10 @@ int mdc_get_lustre_md(struct obd_export *exp, struct ptlrpc_request *req,
 			GOTO(out, rc = -EPROTO);
 		}
 
-		if (md->body->mbo_eadatasize == 0) {
+		if (md->body->mbo_eadatasize == 0 &&
+		    md->body->mbo_eadatasize2 == 0) {
 			CDEBUG(D_INFO, "OBD_MD_FLDIREA is set, "
-			       "but eadatasize 0\n");
+			       "but both eadatasize and eadatasize2 are 0.\n");
 			RETURN(-EPROTO);
 		}
 
@@ -564,6 +565,29 @@ int mdc_get_lustre_md(struct obd_export *exp, struct ptlrpc_request *req,
 					rc, (int)sizeof(*md->lmv));
 				GOTO(out, rc = -EPROTO);
 			}
+		}
+
+		if (md->body->mbo_valid & OBD_MD_DEFAULT_MEA) {
+			lmvsize = md->body->mbo_eadatasize2;
+			lmv = req_capsule_server_sized_get(pill, &RMF_MDT_MD1,
+							   lmvsize);
+			if (lmv == NULL)
+				GOTO(out, rc = -EPROTO);
+
+			if (lmvsize != sizeof(*md->default_lmv)) {
+				CDEBUG(D_INFO, "size != sizeof(*md->lmv) (%d < %d)\n",
+					lmvsize, (int)sizeof(*md->default_lmv));
+				GOTO(out, rc = -EPROTO);
+			}
+
+			if (ptlrpc_rep_need_swab(req))
+				lustre_swab_lmv_user_md((struct lmv_user_md *)lmv);
+
+			OBD_ALLOC_PTR(md->default_lmv);
+			if (md->default_lmv == NULL)
+				GOTO(out, rc = -ENOMEM);
+
+			memcpy(md->default_lmv, lmv, lmvsize);
 		}
         }
         rc = 0;

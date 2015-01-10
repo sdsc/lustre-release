@@ -212,6 +212,8 @@ struct ll_inode_info {
 			loff_t				lli_stripe_dir_size;
 			/* striped directory nlink */
 			__u64				lli_stripe_dir_nlink;
+			/* default directory stripe information */
+			struct lmv_user_md		*lli_default_lsm_md;
 		};
 
 		/* for non-directory */

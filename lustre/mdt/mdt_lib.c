@@ -649,10 +649,15 @@ int mdt_fix_reply(struct mdt_thread_info *info)
         LASSERT(body != NULL);
 
 	if (body->mbo_valid & (OBD_MD_FLDIREA | OBD_MD_FLEASIZE |
-			       OBD_MD_LINKNAME))
+			       OBD_MD_LINKNAME)) {
 		md_size = body->mbo_eadatasize;
-	else
+		/* Maybe it is trying to get default EA,
+		 * mdt_getattr_internal() */
+		if (md_size == 0)
+			md_size = body->mbo_eadatasize2;
+	} else {
 		md_size = 0;
+	}
 
 	acl_size = body->mbo_aclsize;
 

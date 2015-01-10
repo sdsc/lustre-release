@@ -2332,8 +2332,8 @@ struct mdt_body {
 	__u32	mbo_max_cookiesize;
 	__u32	mbo_uid_h; /* high 32-bits of uid, for FUID */
 	__u32	mbo_gid_h; /* high 32-bits of gid, for FUID */
-	__u32	mbo_padding_5; /* also fix lustre_swab_mdt_body */
-	__u64	mbo_padding_6;
+	__u32	mbo_eadatasize2;
+	__u64	mbo_padding_6;  /* also fix lustre_swab_mdt_body */
 	__u64	mbo_padding_7;
 	__u64	mbo_padding_8;
 	__u64	mbo_padding_9;

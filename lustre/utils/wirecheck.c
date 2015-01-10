@@ -926,7 +926,7 @@ check_mdt_body(void)
 	CHECK_MEMBER(mdt_body, mbo_max_cookiesize);
 	CHECK_MEMBER(mdt_body, mbo_uid_h);
 	CHECK_MEMBER(mdt_body, mbo_gid_h);
-	CHECK_MEMBER(mdt_body, mbo_padding_5);
+	CHECK_MEMBER(mdt_body, mbo_eadatasize2);
 	CHECK_MEMBER(mdt_body, mbo_padding_6);
 	CHECK_MEMBER(mdt_body, mbo_padding_7);
 	CHECK_MEMBER(mdt_body, mbo_padding_8);

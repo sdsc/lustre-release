@@ -421,7 +421,8 @@ static const struct req_msg_field *ldlm_intent_open_server[] = {
         &RMF_MDT_MD,
         &RMF_ACL,
         &RMF_CAPA1,
-        &RMF_CAPA2
+        &RMF_CAPA2,
+        &RMF_MDT_MD1
 };
 
 static const struct req_msg_field *ldlm_intent_getattr_client[] = {
@@ -439,7 +440,8 @@ static const struct req_msg_field *ldlm_intent_getattr_server[] = {
         &RMF_MDT_BODY,
         &RMF_MDT_MD,
         &RMF_ACL,
-        &RMF_CAPA1
+        &RMF_CAPA1,
+        &RMF_MDT_MD1
 };
 
 static const struct req_msg_field *ldlm_intent_create_client[] = {
@@ -1047,6 +1049,10 @@ EXPORT_SYMBOL(RMF_DLM_GL_DESC);
 struct req_msg_field RMF_MDT_MD =
         DEFINE_MSGF("mdt_md", RMF_F_NO_SIZE_CHECK, MIN_MD_SIZE, NULL, NULL);
 EXPORT_SYMBOL(RMF_MDT_MD);
+
+struct req_msg_field RMF_MDT_MD1 =
+        DEFINE_MSGF("mdt_md", RMF_F_NO_SIZE_CHECK, MIN_MD_SIZE, NULL, NULL);
+EXPORT_SYMBOL(RMF_MDT_MD1);
 
 struct req_msg_field RMF_REC_REINT =
         DEFINE_MSGF("rec_reint", 0, sizeof(struct mdt_rec_reint),

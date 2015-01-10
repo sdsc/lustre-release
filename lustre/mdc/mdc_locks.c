@@ -344,6 +344,8 @@ mdc_intent_open_pack(struct obd_export *exp, struct lookup_intent *it,
 	req_capsule_set_size(&req->rq_pill, &RMF_MDT_MD, RCL_SERVER,
 			     obddev->u.cli.cl_max_mds_easize);
 
+	req_capsule_set_size(&req->rq_pill, &RMF_MDT_MD1, RCL_SERVER,
+			     sizeof(union lmv_mds_md));
         /* for remote client, fetch remote perm for current user */
         if (client_is_remote(exp))
                 req_capsule_set_size(&req->rq_pill, &RMF_ACL, RCL_SERVER,
@@ -451,6 +453,7 @@ static struct ptlrpc_request *mdc_intent_getattr_pack(struct obd_export *exp,
 	u64			 valid = OBD_MD_FLGETATTR | OBD_MD_FLEASIZE |
 					 OBD_MD_FLMODEASIZE | OBD_MD_FLDIREA |
 					 OBD_MD_FLMDSCAPA | OBD_MD_MEA |
+					 OBD_MD_DEFAULT_MEA |
 					 (client_is_remote(exp) ?
 					  OBD_MD_FLRMTPERM : OBD_MD_FLACL);
 	struct ldlm_intent	*lit;
@@ -489,6 +492,9 @@ static struct ptlrpc_request *mdc_intent_getattr_pack(struct obd_export *exp,
 	if (client_is_remote(exp))
 		req_capsule_set_size(&req->rq_pill, &RMF_ACL, RCL_SERVER,
 				     sizeof(struct mdt_remote_perm));
+	req_capsule_set_size(&req->rq_pill, &RMF_MDT_MD1, RCL_SERVER,
+			     sizeof(union lmv_mds_md));
+
 	ptlrpc_request_set_replen(req);
 	RETURN(req);
 }

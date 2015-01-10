@@ -1891,7 +1891,8 @@ void lustre_swab_mdt_body (struct mdt_body *b)
 	__swab32s(&b->mbo_max_cookiesize);
 	__swab32s(&b->mbo_uid_h);
 	__swab32s(&b->mbo_gid_h);
-	CLASSERT(offsetof(typeof(*b), mbo_padding_5) != 0);
+	__swab32s(&b->mbo_eadatasize2);
+	CLASSERT(offsetof(typeof(*b), mbo_padding_6) != 0);
 }
 EXPORT_SYMBOL(lustre_swab_mdt_body);
 

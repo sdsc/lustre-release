@@ -634,9 +634,10 @@ int mdt_stripe_get(struct mdt_thread_info *info, struct mdt_object *o,
 		buf->lb_len = ma->ma_lmv_size;
 		LASSERT(!(ma->ma_valid & MA_LMV));
 	} else if (strcmp(name, XATTR_NAME_DEFAULT_LMV) == 0) {
-		buf->lb_buf = ma->ma_lmv;
-		buf->lb_len = ma->ma_lmv_size;
+		buf->lb_buf = ma->ma_default_lmv;
+		buf->lb_len = ma->ma_default_lmv_size;
 		LASSERT(!(ma->ma_valid & MA_LMV_DEF));
+		LASSERT(buf->lb_buf != NULL);
 	} else {
 		return -EINVAL;
 	}
@@ -666,7 +667,7 @@ got:
 			ma->ma_lmv_size = rc;
 			ma->ma_valid |= MA_LMV;
 		} else if (strcmp(name, XATTR_NAME_DEFAULT_LMV) == 0) {
-			ma->ma_lmv_size = rc;
+			ma->ma_default_lmv_size = rc;
 			ma->ma_valid |= MA_LMV_DEF;
 		}
 
@@ -892,16 +893,40 @@ static int mdt_getattr_internal(struct mdt_thread_info *info,
 
 	/* If it is dir object and client require MEA, then we got MEA */
 	if (S_ISDIR(lu_object_attr(&next->mo_lu)) &&
-	    (reqbody->mbo_valid & (OBD_MD_MEA | OBD_MD_DEFAULT_MEA))) {
+	    reqbody->mbo_valid & (OBD_MD_MEA | OBD_MD_DEFAULT_MEA)) {
+		__u64 valid = reqbody->mbo_valid & (OBD_MD_MEA |
+						    OBD_MD_DEFAULT_MEA);
+
+
 		/* Assumption: MDT_MD size is enough for lmv size. */
-		ma->ma_lmv = buffer->lb_buf;
-		ma->ma_lmv_size = buffer->lb_len;
 		ma->ma_need = MA_INODE;
-		if (ma->ma_lmv_size > 0) {
-			if (reqbody->mbo_valid & OBD_MD_MEA)
-				ma->ma_need |= MA_LMV;
-			else if (reqbody->mbo_valid & OBD_MD_DEFAULT_MEA)
+
+		if (buffer->lb_len > 0 && valid & OBD_MD_MEA) {
+			ma->ma_lmv = buffer->lb_buf;
+			ma->ma_lmv_size = buffer->lb_len;
+			ma->ma_need |= MA_LMV;
+		}
+
+		if (valid == (OBD_MD_MEA | OBD_MD_DEFAULT_MEA)) {
+			/* Need both MEA and default MEA, which happens
+			 * during intent getattr */
+			if (!req_capsule_has_field(pill, &RMF_MDT_MD1,
+						   RCL_SERVER))
+				GOTO(out, rc = -EPROTO);
+			ma->ma_default_lmv = req_capsule_server_get(pill,
+								&RMF_MDT_MD1);
+			if (ma->ma_default_lmv == NULL)
+				GOTO(out, rc = -EPROTO);
+			ma->ma_default_lmv_size = req_capsule_get_size(pill,
+						&RMF_MDT_MD1, RCL_SERVER);
+
+			ma->ma_need |= MA_LMV_DEF;
+		} else {
+			if (buffer->lb_len > 0) {
+				ma->ma_default_lmv = buffer->lb_buf;
+				ma->ma_default_lmv_size = buffer->lb_len;
 				ma->ma_need |= MA_LMV_DEF;
+			}
 		}
 	} else {
 		ma->ma_lmm = buffer->lb_buf;
@@ -992,7 +1017,7 @@ static int mdt_getattr_internal(struct mdt_thread_info *info,
 			if (!mdt_is_striped_client(req->rq_export))
 				RETURN(-ENOTSUPP);
 			LASSERT(S_ISDIR(la->la_mode));
-			repbody->mbo_eadatasize = ma->ma_lmv_size;
+			repbody->mbo_eadatasize2 = ma->ma_default_lmv_size;
 			repbody->mbo_valid |= (OBD_MD_FLDIREA |
 					       OBD_MD_DEFAULT_MEA);
 		}
@@ -1811,6 +1836,10 @@ static int mdt_reint_internal(struct mdt_thread_info *info,
         /* for replay (no_create) lmm is not needed, client has it already */
         if (req_capsule_has_field(pill, &RMF_MDT_MD, RCL_SERVER))
                 req_capsule_set_size(pill, &RMF_MDT_MD, RCL_SERVER,
+				     DEF_REP_MD_SIZE);
+
+	if (req_capsule_has_field(pill, &RMF_MDT_MD1, RCL_SERVER))
+		req_capsule_set_size(pill, &RMF_MDT_MD1, RCL_SERVER,
 				     DEF_REP_MD_SIZE);
 
 	/* llog cookies are always 0, the field is kept for compatibility */
@@ -2794,6 +2823,9 @@ static int mdt_unpack_req_pack_rep(struct mdt_thread_info *info, __u32 flags)
                 /* Pack reply. */
                 if (req_capsule_has_field(pill, &RMF_MDT_MD, RCL_SERVER))
                         req_capsule_set_size(pill, &RMF_MDT_MD, RCL_SERVER,
+					     DEF_REP_MD_SIZE);
+                if (req_capsule_has_field(pill, &RMF_MDT_MD1, RCL_SERVER))
+                        req_capsule_set_size(pill, &RMF_MDT_MD1, RCL_SERVER,
 					     DEF_REP_MD_SIZE);
                 if (req_capsule_has_field(pill, &RMF_LOGCOOKIES, RCL_SERVER))
 			req_capsule_set_size(pill, &RMF_LOGCOOKIES,

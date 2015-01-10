@@ -676,6 +676,17 @@ void mdt_prep_ma_buf_from_rep(struct mdt_thread_info *info,
 						       RCL_SERVER);
 		if (ma->ma_lmv_size > 0)
 			ma->ma_need |= MA_LMV;
+
+		if (req_capsule_has_field(info->mti_pill, &RMF_MDT_MD1,
+					  RCL_SERVER)) {
+			ma->ma_default_lmv = req_capsule_server_get(
+								info->mti_pill,
+								&RMF_MDT_MD1);
+			ma->ma_default_lmv_size = req_capsule_get_size(
+						info->mti_pill,
+						&RMF_MDT_MD1, RCL_SERVER);
+			ma->ma_need |= MA_LMV_DEF;
+		}
 	} else {
 		ma->ma_lmm = req_capsule_server_get(info->mti_pill,
 						    &RMF_MDT_MD);

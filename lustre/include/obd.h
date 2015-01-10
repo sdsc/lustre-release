@@ -834,6 +834,9 @@ struct md_op_data {
 	/* File object data version for HSM release, on client */
 	__u64			op_data_version;
 	struct lustre_handle	op_lease_handle;
+
+	/* default stripe offset */
+	__u32			op_default_stripe_offset;
 };
 
 struct md_callback {
@@ -982,6 +985,7 @@ struct lustre_md {
 	struct mdt_body         *body;
 	struct lov_stripe_md    *lsm;
 	struct lmv_stripe_md    *lmv;
+	struct lmv_user_md	*default_lmv;
 #ifdef CONFIG_FS_POSIX_ACL
 	struct posix_acl        *posix_acl;
 #endif

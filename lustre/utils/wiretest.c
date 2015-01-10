@@ -65,7 +65,6 @@ void lustre_assert_wire_constants(void)
 	  * running on Linux q 2.6.32-431.5.1.el6.lustre.x86_64 #1 SMP Wed Feb 12 11:01:08 CST 2014 x8
 	  * with gcc version 4.4.7 20120313 (Red Hat 4.4.7-3) (GCC)  */
 
-
 	/* Constants... */
 	LASSERTF(PTL_RPC_MSG_REQUEST == 4711, "found %lld\n",
 		 (long long)PTL_RPC_MSG_REQUEST);
@@ -1507,10 +1506,10 @@ void lustre_assert_wire_constants(void)
 	LASSERTF((int)sizeof(((struct lov_mds_md_v3 *)0)->lmm_layout_gen) == 2, "found %lld\n",
 		 (long long)(int)sizeof(((struct lov_mds_md_v3 *)0)->lmm_layout_gen));
 	CLASSERT(LOV_MAXPOOLNAME == 15);
-	LASSERTF((int)offsetof(struct lov_mds_md_v3, lmm_pool_name[16]) == 48, "found %lld\n",
-		 (long long)(int)offsetof(struct lov_mds_md_v3, lmm_pool_name[16]));
-	LASSERTF((int)sizeof(((struct lov_mds_md_v3 *)0)->lmm_pool_name[16]) == 1, "found %lld\n",
-		 (long long)(int)sizeof(((struct lov_mds_md_v3 *)0)->lmm_pool_name[16]));
+	LASSERTF((int)offsetof(struct lov_mds_md_v3, lmm_pool_name[15 + 1]) == 48, "found %lld\n",
+		 (long long)(int)offsetof(struct lov_mds_md_v3, lmm_pool_name[15 + 1]));
+	LASSERTF((int)sizeof(((struct lov_mds_md_v3 *)0)->lmm_pool_name[15 + 1]) == 1, "found %lld\n",
+		 (long long)(int)sizeof(((struct lov_mds_md_v3 *)0)->lmm_pool_name[15 + 1]));
 	LASSERTF((int)offsetof(struct lov_mds_md_v3, lmm_objects[0]) == 48, "found %lld\n",
 		 (long long)(int)offsetof(struct lov_mds_md_v3, lmm_objects[0]));
 	LASSERTF((int)sizeof(((struct lov_mds_md_v3 *)0)->lmm_objects[0]) == 24, "found %lld\n",
@@ -1560,10 +1559,10 @@ void lustre_assert_wire_constants(void)
 		 (long long)(int)offsetof(struct lmv_mds_md_v1, lmv_padding3));
 	LASSERTF((int)sizeof(((struct lmv_mds_md_v1 *)0)->lmv_padding3) == 8, "found %lld\n",
 		 (long long)(int)sizeof(((struct lmv_mds_md_v1 *)0)->lmv_padding3));
-	LASSERTF((int)offsetof(struct lmv_mds_md_v1, lmv_pool_name[16]) == 56, "found %lld\n",
-		 (long long)(int)offsetof(struct lmv_mds_md_v1, lmv_pool_name[16]));
-	LASSERTF((int)sizeof(((struct lmv_mds_md_v1 *)0)->lmv_pool_name[16]) == 1, "found %lld\n",
-		 (long long)(int)sizeof(((struct lmv_mds_md_v1 *)0)->lmv_pool_name[16]));
+	LASSERTF((int)offsetof(struct lmv_mds_md_v1, lmv_pool_name[15]) == 55, "found %lld\n",
+		 (long long)(int)offsetof(struct lmv_mds_md_v1, lmv_pool_name[15]));
+	LASSERTF((int)sizeof(((struct lmv_mds_md_v1 *)0)->lmv_pool_name[15]) == 1, "found %lld\n",
+		 (long long)(int)sizeof(((struct lmv_mds_md_v1 *)0)->lmv_pool_name[15]));
 	LASSERTF((int)offsetof(struct lmv_mds_md_v1, lmv_stripe_fids[0]) == 56, "found %lld\n",
 		 (long long)(int)offsetof(struct lmv_mds_md_v1, lmv_stripe_fids[0]));
 	LASSERTF((int)sizeof(((struct lmv_mds_md_v1 *)0)->lmv_stripe_fids[0]) == 16, "found %lld\n",
@@ -2090,10 +2089,10 @@ void lustre_assert_wire_constants(void)
 		 (long long)(int)offsetof(struct mdt_body, mbo_gid_h));
 	LASSERTF((int)sizeof(((struct mdt_body *)0)->mbo_gid_h) == 4, "found %lld\n",
 		 (long long)(int)sizeof(((struct mdt_body *)0)->mbo_gid_h));
-	LASSERTF((int)offsetof(struct mdt_body, mbo_padding_5) == 172, "found %lld\n",
-		 (long long)(int)offsetof(struct mdt_body, mbo_padding_5));
-	LASSERTF((int)sizeof(((struct mdt_body *)0)->mbo_padding_5) == 4, "found %lld\n",
-		 (long long)(int)sizeof(((struct mdt_body *)0)->mbo_padding_5));
+	LASSERTF((int)offsetof(struct mdt_body, mbo_eadatasize2) == 172, "found %lld\n",
+		 (long long)(int)offsetof(struct mdt_body, mbo_eadatasize2));
+	LASSERTF((int)sizeof(((struct mdt_body *)0)->mbo_eadatasize2) == 4, "found %lld\n",
+		 (long long)(int)sizeof(((struct mdt_body *)0)->mbo_eadatasize2));
 	LASSERTF((int)offsetof(struct mdt_body, mbo_padding_6) == 176, "found %lld\n",
 		 (long long)(int)offsetof(struct mdt_body, mbo_padding_6));
 	LASSERTF((int)sizeof(((struct mdt_body *)0)->mbo_padding_6) == 8, "found %lld\n",
@@ -4768,4 +4767,3 @@ void lustre_assert_wire_constants(void)
 	LASSERTF((int)sizeof(((struct lfsck_reply *)0)->lr_padding_2) == 8, "found %lld\n",
 		 (long long)(int)sizeof(((struct lfsck_reply *)0)->lr_padding_2));
 }
-
