@@ -399,14 +399,7 @@ int mdd_update_time(const struct lu_env *env, struct mdd_object *obj,
 	LASSERT(attr->la_valid & LA_CTIME);
 	LASSERT(oattr != NULL);
 
-	/* Make sure the ctime is increased only, however, it's not strictly
-	 * reliable at here because there is not guarantee to hold lock on
-	 * object, so we just bypass some unnecessary cmtime setting first
-	 * and OSD has to check it again. */
-	if (attr->la_ctime < oattr->la_ctime)
-		attr->la_valid &= ~(LA_MTIME | LA_CTIME);
-	else if (attr->la_valid == LA_CTIME &&
-		 attr->la_ctime == oattr->la_ctime)
+	if (attr->la_valid == LA_CTIME && attr->la_ctime == oattr->la_ctime)
 		attr->la_valid &= ~LA_CTIME;
 
 	if (attr->la_valid != 0)
@@ -454,7 +447,7 @@ static int mdd_fix_attr(const struct lu_env *env, struct mdd_object *obj,
 			 * on remote MDS. */
 			rc = mdd_may_delete(env, NULL, NULL, obj, oattr, NULL,
 					    1, 0);
-		if (rc == 0 && la->la_ctime <= oattr->la_ctime)
+		if (rc == 0 && la->la_ctime == oattr->la_ctime)
 			la->la_valid &= ~LA_CTIME;
 		RETURN(rc);
 	}
@@ -627,13 +620,6 @@ static int mdd_fix_attr(const struct lu_env *env, struct mdd_object *obj,
 				if (rc != 0)
 					RETURN(rc);
 			}
-		}
-		if (la->la_valid & LA_CTIME) {
-			/* The pure setattr, it has the priority over what is
-			 * already set, do not drop it if ctime is equal. */
-			if (la->la_ctime < oattr->la_ctime)
-				la->la_valid &= ~(LA_ATIME | LA_MTIME |
-							LA_CTIME);
 		}
 	}
 
