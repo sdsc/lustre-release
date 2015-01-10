@@ -65,12 +65,6 @@
 # define NSEC_PER_SEC 1000000000UL
 #endif
 
-/* copytool uses a 32b bitmask field to register with kuc
- * archive num = 0 => all
- * archive num from 1 to 32
- */
-#define MAX_ARCHIVE_CNT (sizeof(__u32) * 8)
-
 enum ct_action {
 	CA_IMPORT = 1,
 	CA_REBIND,
