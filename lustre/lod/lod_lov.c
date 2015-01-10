@@ -992,6 +992,9 @@ int lod_load_striping_locked(const struct lu_env *env, struct lod_object *lo)
 		 */
 		rc = lod_parse_dir_striping(env, lo, buf);
 	}
+
+	if (rc == 0)
+		lo->ldo_striping_cached = 1;
 out:
 	RETURN(rc);
 }
@@ -1016,6 +1019,9 @@ int lod_load_striping(const struct lu_env *env, struct lod_object *lo)
 {
 	struct dt_object	*next = dt_object_child(&lo->ldo_obj);
 	int			rc = 0;
+
+	if (lo->ldo_striping_cached)
+		return rc;
 
 	/* currently this code is supposed to be called from declaration
 	 * phase only, thus the object is not expected to be locked by caller */

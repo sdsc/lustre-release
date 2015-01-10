@@ -1579,7 +1579,7 @@ void mdd_object_make_hint(const struct lu_env *env, struct mdd_object *parent,
 			  const struct md_op_spec *spec,
 			  struct dt_allocation_hint *hint)
 {
-	struct dt_object *np = parent ?  mdd_object_child(parent) : NULL;
+	struct dt_object *np = mdd_object_child(parent);
 	struct dt_object *nc = mdd_object_child(child);
 
 	memset(hint, 0, sizeof(*hint));
