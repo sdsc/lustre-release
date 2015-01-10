@@ -373,26 +373,17 @@ void test51(void)
 			hus.hus_archive_id, i);
 	}
 
-	/* Bugs following. This should not succeed. Builds the following file:
-	 *
-	 *   $ ../utils/lfs hsm_state /mnt/lustre/hsm_check_test
-	 *
-	 *   /mnt/lustre/hsm_check_test: (0x8008007d) released exists
-	 *     archived never_release never_archive lost_from_hsm,
-	 *     archive_id:-1789
-	 */
-
 	/* Invalid archive numbers */
 	rc = llapi_hsm_state_set_fd(fd, HS_EXISTS, 0, 33);
-	ASSERTF(rc == 0, "llapi_hsm_state_set_fd failed: %s", strerror(-rc));
+	ASSERTF(rc == -EINVAL, "llapi_hsm_state_set_fd: %s", strerror(-rc));
 
 	rc = llapi_hsm_state_set_fd(fd, HS_EXISTS, 0, 151);
-	ASSERTF(rc == 0, "llapi_hsm_state_set_fd failed: %s", strerror(-rc));
+	ASSERTF(rc == -EINVAL, "llapi_hsm_state_set_fd: %s", strerror(-rc));
 
 	rc = llapi_hsm_state_set_fd(fd, HS_EXISTS, 0, -1789);
-	ASSERTF(rc == 0, "llapi_hsm_state_set_fd failed: %s", strerror(-rc));
+	ASSERTF(rc == -EINVAL, "llapi_hsm_state_set_fd: %s", strerror(-rc));
 
-	/* Setable + Unsettable flags */
+	/* Settable flags */
 	rc = llapi_hsm_state_set_fd(fd, HS_DIRTY, 0, 0);
 	ASSERTF(rc == 0, "llapi_hsm_state_set_fd failed: %s", strerror(-rc));
 
@@ -402,24 +393,39 @@ void test51(void)
 	rc = llapi_hsm_state_set_fd(fd, HS_ARCHIVED, 0, 0);
 	ASSERTF(rc == 0, "llapi_hsm_state_set_fd failed: %s", strerror(-rc));
 
+	rc = llapi_hsm_state_set_fd(fd, 0, HS_ARCHIVED, 0);
+	ASSERTF(rc == 0, "llapi_hsm_state_set_fd failed: %s", strerror(-rc));
+
 	rc = llapi_hsm_state_set_fd(fd, HS_RELEASED, 0, 0);
+	ASSERTF(rc == 0, "llapi_hsm_state_set_fd failed: %s", strerror(-rc));
+
+	rc = llapi_hsm_state_set_fd(fd, 0, HS_RELEASED, 0);
 	ASSERTF(rc == 0, "llapi_hsm_state_set_fd failed: %s", strerror(-rc));
 
 	rc = llapi_hsm_state_set_fd(fd, HS_NORELEASE, 0, 0);
 	ASSERTF(rc == 0, "llapi_hsm_state_set_fd failed: %s", strerror(-rc));
 
+	rc = llapi_hsm_state_set_fd(fd, 0, HS_NORELEASE, 0);
+	ASSERTF(rc == 0, "llapi_hsm_state_set_fd failed: %s", strerror(-rc));
+
 	rc = llapi_hsm_state_set_fd(fd, HS_NOARCHIVE, 0, 0);
+	ASSERTF(rc == 0, "llapi_hsm_state_set_fd failed: %s", strerror(-rc));
+
+	rc = llapi_hsm_state_set_fd(fd, 0, HS_NOARCHIVE, 0);
 	ASSERTF(rc == 0, "llapi_hsm_state_set_fd failed: %s", strerror(-rc));
 
 	rc = llapi_hsm_state_set_fd(fd, HS_LOST, 0, 0);
 	ASSERTF(rc == 0, "llapi_hsm_state_set_fd failed: %s", strerror(-rc));
 
-	/* Bogus flags for good measure. */
-	rc = llapi_hsm_state_set_fd(fd, 0x00080000, 0, 0);
+	rc = llapi_hsm_state_set_fd(fd, 0, HS_LOST, 0);
 	ASSERTF(rc == 0, "llapi_hsm_state_set_fd failed: %s", strerror(-rc));
 
+	/* Bogus flags for good measure. */
+	rc = llapi_hsm_state_set_fd(fd, 0x00080000, 0, 0);
+	ASSERTF(rc == -EINVAL, "llapi_hsm_state_set_fd: %s", strerror(-rc));
+
 	rc = llapi_hsm_state_set_fd(fd, 0x80000000, 0, 0);
-	ASSERTF(rc == 0, "llapi_hsm_state_set_fd failed: %s", strerror(-rc));
+	ASSERTF(rc == -EINVAL, "llapi_hsm_state_set_fd: %s", strerror(-rc));
 
 	close(fd);
 }
