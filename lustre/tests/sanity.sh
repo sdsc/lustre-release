@@ -1251,6 +1251,23 @@ test_24C() {
 }
 run_test 24C "check .. in striped dir"
 
+test_24D() { # LU-6101
+	local NFILES=50000
+
+	rm -rf $DIR/$tdir
+	mkdir -p $DIR/$tdir
+	createmany -m $DIR/$tdir/$tfile $NFILES
+	local t=$(ls $DIR/$tdir | wc -l)
+	local u=$(ls $DIR/$tdir | sort -u | wc -l)
+	local v=$(ls -ai $DIR/$tdir | sort -u | wc -l)
+	if [ $t -ne $NFILES -o $u -ne $NFILES -o $v -ne $((NFILES + 2)) ] ; then
+		error "Expected $NFILES files, got $t ($u unique $v .&..)"
+	fi
+
+	rm -rf $DIR/$tdir || error "Can not delete directories"
+}
+run_test 24D "readdir() returns correct number of entries after cursor reload"
+
 test_25a() {
 	echo '== symlink sanity ============================================='
 
