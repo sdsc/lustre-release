@@ -43,7 +43,6 @@
 #define _LPROCFS_SNMP_H
 
 #include <lustre/lustre_idl.h>
-#include <libcfs/params_tree.h>
 
 #ifndef HAVE_ONLY_PROCFS_SEQ
 struct lprocfs_vars {
@@ -649,6 +648,22 @@ extern void lprocfs_try_remove_proc_entry(const char *name,
 
 extern struct proc_dir_entry *lprocfs_srch(struct proc_dir_entry *root,
                                           const char *name);
+
+#define PDE_DATA(inode)		(PDE(inode)->data)
+
+static inline int LPROCFS_ENTRY_CHECK(struct inode *inode)
+{
+	struct proc_dir_entry *dp = PDE(inode);
+	int deleted = 0;
+
+	spin_lock(&(dp)->pde_unload_lock);
+	if (dp->proc_fops == NULL)
+		deleted = 1;
+	spin_unlock(&(dp)->pde_unload_lock);
+	if (deleted)
+		return -ENODEV;
+	return 0;
+}
 #endif
 extern int lprocfs_obd_setup(struct obd_device *dev);
 extern int lprocfs_obd_cleanup(struct obd_device *obd);
@@ -1048,6 +1063,8 @@ static inline void lprocfs_try_remove_proc_entry(const char *name,
 { return; }
 static inline struct proc_dir_entry *lprocfs_srch(struct proc_dir_entry *head,
                                                  const char *name)
+{ return 0; }
+static inline int LPROCFS_ENTRY_CHECK(struct inode *inode)
 { return 0; }
 #endif
 static inline int lprocfs_obd_setup(struct obd_device *dev)

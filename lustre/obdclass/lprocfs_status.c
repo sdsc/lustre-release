@@ -206,6 +206,26 @@ static struct file_operations lprocfs_generic_fops = {
 DECLARE_RWSEM(_lprocfs_lock);
 EXPORT_SYMBOL(_lprocfs_lock);
 
+#define LPROCFS_SRCH_ENTRY()			\
+	do {					\
+		down_read(&_lprocfs_lock);	\
+	} while (0)
+
+#define LPROCFS_SRCH_EXIT()			\
+	do {					\
+		up_read(&_lprocfs_lock);	\
+	} while (0)
+
+#define LPROCFS_WRITE_ENTRY()			\
+	do {					\
+		down_write(&_lprocfs_lock);	\
+	} while (0)
+
+#define LPROCFS_WRITE_EXIT()			\
+	do {					\
+		up_write(&_lprocfs_lock);	\
+	} while (0)
+
 static struct proc_dir_entry *__lprocfs_srch(struct proc_dir_entry *head,
 					     const char *name)
 {
