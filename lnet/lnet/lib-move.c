@@ -721,98 +721,70 @@ lnet_ni_eager_recv(lnet_ni_t *ni, lnet_msg_t *msg)
 }
 
 /* NB: caller shall hold a ref on 'lp' as I'd drop lnet_net_lock */
-static void
-lnet_ni_query_locked(lnet_ni_t *ni, lnet_peer_t *lp)
+void
+lnet_ni_query_locked(lnet_ni_t *ni, lnet_peer_t *lp, unsigned int interval)
 {
+	cfs_time_t next_query = lp->lp_last_query + cfs_time_seconds(interval);
 	cfs_time_t last_alive = 0;
 
 	LASSERT(lnet_peer_aliveness_enabled(lp));
 	LASSERT(ni->ni_lnd->lnd_query != NULL);
 
+	if (interval != 0 && time_before(cfs_time_current(), next_query))
+		return;
+
 	lnet_net_unlock(lp->lp_cpt);
-	(ni->ni_lnd->lnd_query)(ni, lp->lp_nid, &last_alive);
+	ni->ni_lnd->lnd_query(ni, lp->lp_nid, &last_alive);
 	lnet_net_lock(lp->lp_cpt);
 
 	lp->lp_last_query = cfs_time_current();
-
 	if (last_alive != 0) /* NI has updated timestamp */
 		lp->lp_last_alive = last_alive;
 }
 
 /* NB: always called with lnet_net_lock held */
 static inline int
-lnet_peer_is_alive (lnet_peer_t *lp, cfs_time_t now)
+lnet_peer_is_alive(lnet_peer_t *lp)
 {
-        int        alive;
         cfs_time_t deadline;
 
-        LASSERT (lnet_peer_aliveness_enabled(lp));
-
-        /* Trust lnet_notify() if it has more recent aliveness news, but
-         * ignore the initial assumed death (see lnet_peers_start_down()).
-         */
-        if (!lp->lp_alive && lp->lp_alive_count > 0 &&
-            cfs_time_aftereq(lp->lp_timestamp, lp->lp_last_alive))
+        /* Trust lnet_notify() if it has more recent aliveness news */
+        if (!lp->lp_alive && time_after_eq(lp->lp_timestamp, lp->lp_last_alive))
                 return 0;
 
         deadline = cfs_time_add(lp->lp_last_alive,
                                 cfs_time_seconds(lp->lp_ni->ni_peertimeout));
-        alive = cfs_time_after(deadline, now);
-
-        /* Update obsolete lp_alive except for routers assumed to be dead
-         * initially, because router checker would update aliveness in this
-         * case, and moreover lp_last_alive at peer creation is assumed.
-         */
-        if (alive && !lp->lp_alive &&
-            !(lnet_isrouter(lp) && lp->lp_alive_count == 0))
-                lnet_notify_locked(lp, 0, 1, lp->lp_last_alive);
-
-        return alive;
+        return time_after(deadline, cfs_time_current());
 }
-
 
 /* NB: returns 1 when alive, 0 when dead, negative when error;
  *     may drop the lnet_net_lock */
 static int
-lnet_peer_alive_locked (lnet_peer_t *lp)
+lnet_peer_alive_locked(lnet_peer_t *lp)
 {
-        cfs_time_t now = cfs_time_current();
+	bool	alive;
 
-        if (!lnet_peer_aliveness_enabled(lp))
-                return -ENODEV;
+	/* return dead if it is a router assumed to be dead initially, router
+	 * checker would update aliveness status and alive_count in this case.
+	 */
+	if (lnet_isrouter(lp) && lp->lp_alive_count == 0 &&
+	    lnet_peers_start_down()) {
+		LASSERT(!lp->lp_alive);
+		return 0;
+	}
 
-        if (lnet_peer_is_alive(lp, now))
-                return 1;
+	if (!lnet_peer_aliveness_enabled(lp))
+		return -ENODEV;
 
-        /* Peer appears dead, but we should avoid frequent NI queries (at
-         * most once per lnet_queryinterval seconds). */
-        if (lp->lp_last_query != 0) {
-                static const int lnet_queryinterval = 1;
+	/* query NI for latest aliveness news */
+	lnet_ni_query_locked(lp->lp_ni, lp, LNET_NI_QUERY_INTERVAL);
 
-                cfs_time_t next_query =
-                           cfs_time_add(lp->lp_last_query,
-                                        cfs_time_seconds(lnet_queryinterval));
+	alive = lnet_peer_is_alive(lp);
+	if (alive && lp->lp_alive)
+		return 1; /* not a news */
 
-                if (cfs_time_before(now, next_query)) {
-                        if (lp->lp_alive)
-                                CWARN("Unexpected aliveness of peer %s: "
-                                      "%d < %d (%d/%d)\n",
-                                      libcfs_nid2str(lp->lp_nid),
-                                      (int)now, (int)next_query,
-                                      lnet_queryinterval,
-                                      lp->lp_ni->ni_peertimeout);
-                        return 0;
-                }
-        }
-
-        /* query NI for latest aliveness news */
-	lnet_ni_query_locked(lp->lp_ni, lp);
-
-        if (lnet_peer_is_alive(lp, now))
-                return 1;
-
-        lnet_notify_locked(lp, 0, 0, lp->lp_last_alive);
-        return 0;
+	lnet_notify_locked(lp, 0, alive, lp->lp_last_alive);
+	return alive;
 }
 
 /**
@@ -841,7 +813,8 @@ lnet_post_send_locked(lnet_msg_t *msg, int do_send)
 
 	/* NB 'lp' is always the next hop */
 	if ((msg->msg_target.pid & LNET_PID_USERFLAG) == 0 &&
-	    lnet_peer_alive_locked(lp) == 0) {
+	    lnet_peer_alive_locked(lp) == 0 &&
+	    !lnet_msg_is_rc_ping(msg)) { /* send RC ping even for dead router */
 		the_lnet.ln_counters[cpt]->drop_count++;
 		the_lnet.ln_counters[cpt]->drop_length += msg->msg_len;
 		lnet_net_unlock(cpt);
@@ -1193,6 +1166,28 @@ lnet_compare_routes(lnet_route_t *r1, lnet_route_t *r2)
 {
 	lnet_peer_t *p1 = r1->lr_gateway;
 	lnet_peer_t *p2 = r2->lr_gateway;
+
+	if (p1->lp_ni->ni_peertimeout > 0 && p2->lp_ni->ni_peertimeout > 0) {
+		/* If a router has queued bytes but no aliveness update for
+		 * 10 seconds, it could be potentially dead or congested, we
+		 * prefer not to choose it even its status is still alive.
+		 */
+		int	   router_slow = cfs_time_seconds(10);
+		cfs_time_t now	       = cfs_time_current();
+		bool	   r1_slow;
+		bool	   r2_slow;
+
+		r1_slow = p1->lp_txqnob != 0 &&
+			  time_after_eq(now, p1->lp_last_alive + router_slow);
+		r2_slow = p2->lp_txqnob != 0 &&
+			  time_after_eq(now, p2->lp_last_alive + router_slow);
+
+		if (!r1_slow && r2_slow)
+			return 1;
+
+		if (r1_slow && !r2_slow)
+			return -1;
+	}
 
 	if (r1->lr_priority < r2->lr_priority)
 		return 1;
@@ -2055,9 +2050,10 @@ lnet_parse(lnet_ni_t *ni, lnet_hdr_t *hdr, lnet_nid_t from_nid,
 		goto drop;
 	}
 
-	if (lnet_isrouter(msg->msg_rxpeer)) {
+	if (lnet_peer_aware_aliveness(msg->msg_rxpeer)) {
 		lnet_peer_set_alive(msg->msg_rxpeer);
-		if (avoid_asym_router_failure &&
+
+		if (lnet_isrouter(msg->msg_rxpeer) &&
 		    LNET_NIDNET(src_nid) != LNET_NIDNET(from_nid)) {
 			/* received a remote message from router, update
 			 * remote NI status on this router.
@@ -2069,7 +2065,6 @@ lnet_parse(lnet_ni_t *ni, lnet_hdr_t *hdr, lnet_nid_t from_nid,
 	}
 
 	lnet_msg_commit(msg, cpt);
-
 	/* message delay simulation */
 	if (unlikely(!list_empty(&the_lnet.ln_delay_rules) &&
 		     lnet_delay_rule_match_locked(hdr, msg))) {
