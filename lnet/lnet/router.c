@@ -87,7 +87,7 @@ static int check_routers_before_use = 0;
 CFS_MODULE_PARM(check_routers_before_use, "i", int, 0444,
 		"Assume routers are down and ping them before use");
 
-int avoid_asym_router_failure = 1;
+static int avoid_asym_router_failure = 1;
 CFS_MODULE_PARM(avoid_asym_router_failure, "i", int, 0644,
 		"Avoid asymmetrical router failures (0 to disable)");
 
@@ -831,12 +831,15 @@ lnet_router_ni_update_locked(lnet_peer_t *gw, __u32 net)
 {
 	lnet_route_t *rte;
 
-	if ((gw->lp_ping_feats & LNET_PING_FEAT_NI_STATUS) != 0) {
-		list_for_each_entry(rte, &gw->lp_routes, lr_gwlist) {
-			if (rte->lr_net == net) {
-				rte->lr_downis = 0;
-				break;
-			}
+	if (!avoid_asym_router_failure ||
+	    (gw->lp_ping_feats & LNET_PING_FEAT_NI_STATUS) == 0)
+		return;
+
+	/* NB: this can't help for multi-hop routing */
+	list_for_each_entry(rte, &gw->lp_routes, lr_gwlist) {
+		if (rte->lr_net == net) {
+			rte->lr_downis = 0;
+			return;
 		}
 	}
 }

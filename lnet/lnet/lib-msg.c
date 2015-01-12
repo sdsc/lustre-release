@@ -438,6 +438,7 @@ void
 lnet_finalize (lnet_ni_t *ni, lnet_msg_t *msg, int status)
 {
 	struct lnet_msg_container	*container;
+	lnet_peer_t			*peer;
 	int				my_slot;
 	int				cpt;
 	int				rc;
@@ -489,7 +490,18 @@ lnet_finalize (lnet_ni_t *ni, lnet_msg_t *msg, int status)
 	 * (finalize sending first then finalize receiving)
 	 */
 	cpt = msg->msg_tx_committed ? msg->msg_tx_cpt : msg->msg_rx_cpt;
+
 	lnet_net_lock(cpt);
+
+	peer = msg->msg_txpeer;
+	if (status == 0 && msg->msg_tx_committed &&
+	    peer != NULL && lnet_peer_aliveness_enabled(peer)) {
+		/* successful send is not always a sign of peer alive (see
+		 * ksocknal_transmit), but it is a chance to query NI for
+		 * accurate aliveness news.
+		 */
+		lnet_ni_query_locked(peer->lp_ni, peer, LNET_NI_QUERY_INTERVAL);
+	}
 
 	container = the_lnet.ln_msg_containers[cpt];
 	list_add_tail(&msg->msg_list, &container->msc_finalizing);
