@@ -409,6 +409,20 @@ static int lfs_migrate(char *name, __u64 migration_flags,
 	int			 gid;
 	int			 have_gl = 0;
 	struct stat		 st, stv;
+	struct hsm_user_state	 hus;
+
+	/* Ensure the file has not been released. */
+	rc = llapi_hsm_state_get(name, &hus);
+	if (rc) {
+		fprintf(stderr, "%s: cannot get hsm state: %s\n",
+			name, strerror(-rc));
+		return rc;
+	}
+	if (hus.hus_states & HS_RELEASED) {
+		fprintf(stderr, "%s: cannot migrate a file released by HSM\n",
+			name);
+		return -EINVAL;
+	}
 
 	/* find the right size for the IO and allocate the buffer */
 	lumsz = lov_user_md_size(LOV_MAX_STRIPE_COUNT, LOV_USER_MAGIC_V3);
