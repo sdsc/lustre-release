@@ -651,6 +651,39 @@ lnet_isrouter(lnet_peer_t *lp)
         return lp->lp_rtr_refcount != 0;
 }
 
+/* check if it's a router checker ping */
+static inline bool
+lnet_msg_is_rc_ping(struct lnet_msg *msg)
+{
+	lnet_get_t *get;
+
+	if (msg->msg_type != LNET_MSG_GET)
+		return false;
+
+	get = &msg->msg_hdr.msg.get;
+	return get->ptl_index == cpu_to_le32(LNET_RESERVED_PORTAL) &&
+	       get->match_bits == cpu_to_le64(LNET_PROTO_PING_MATCHBITS);
+}
+
+/* @lp should be aware of aliveness if it is a router or peer on router. */
+static inline bool
+lnet_peer_aware_aliveness(struct lnet_peer *lp)
+{
+	return the_lnet.ln_routing || lnet_isrouter(lp);
+}
+
+/* peer aliveness is enabled in a network where lnet_ni_t::ni_peertimeout has
+ * been set to a positive value.
+ */
+static inline bool
+lnet_peer_aliveness_enabled(struct lnet_peer *lp)
+{
+	if (lp->lp_ni->ni_peertimeout <= 0)
+		return false;
+
+	return lnet_peer_aware_aliveness(lp);
+}
+
 static inline void
 lnet_ni_addref_locked(lnet_ni_t *ni, int cpt)
 {
@@ -685,6 +718,11 @@ lnet_ni_decref(lnet_ni_t *ni)
 	lnet_net_unlock(0);
 }
 
+/* we should avoid frequent NI queries (at most once per second by default) */
+#define LNET_NI_QUERY_INTERVAL		1
+
+void lnet_ni_query_locked(lnet_ni_t *ni, lnet_peer_t *lp,
+			  unsigned int interval);
 void lnet_ni_free(lnet_ni_t *ni);
 lnet_ni_t *
 lnet_ni_alloc(__u32 net, struct cfs_expr_list *el, struct list_head *nilist);
@@ -704,7 +742,6 @@ lnet_net2rnethash(__u32 net)
 }
 
 extern lnd_t the_lolnd;
-extern int avoid_asym_router_failure;
 
 #ifndef __KERNEL__
 /* unconditional registration */
