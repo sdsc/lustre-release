@@ -1088,9 +1088,16 @@ static int vvp_io_read_page(const struct lu_env *env,
 	ENTRY;
 
 	if (sbi->ll_ra_info.ra_max_pages_per_file > 0 &&
-	    sbi->ll_ra_info.ra_max_pages > 0)
-		ras_update(sbi, inode, ras, vvp_index(vpg),
-			   vpg->vpg_defer_uptodate);
+	    sbi->ll_ra_info.ra_max_pages > 0) {
+		struct vvp_io *vio = vvp_env_io(env);
+		unsigned int flags = 0;
+
+		if (vpg->vpg_defer_uptodate)
+			flags |= LL_RAS_HIT;
+		if (!vio->cui_ra_window_set)
+			flags |= LL_RAS_MMAP;
+		ras_update(sbi, inode, ras, vvp_index(vpg), flags);
+	}
 
 	if (vpg->vpg_defer_uptodate) {
 		vpg->vpg_ra_used = 1;
