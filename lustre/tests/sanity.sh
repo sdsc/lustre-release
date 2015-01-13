@@ -9283,6 +9283,12 @@ test_133f() {
 run_test 133f "Check for LBUGs/Oopses/unreadable files in /proc"
 
 test_133g() {
+	[ $(lustre_version_code $SINGLEMDS) -le $(version_code 2.5.54) ] &&
+		skip "Too old lustre on MDS" && return
+
+	[ $(lustre_version_code ost1) -le $(version_code 2.5.54) ] &&
+		skip "Too old lustre on ost1" && return
+
 	local proc_dirs
 
 	local dirs="/proc/fs/lustre/ /proc/sys/lnet/ /proc/sys/lustre/ \
@@ -9303,12 +9309,6 @@ test_133g() {
 		-not -name changelog_mask \
 		-exec badarea_io '{}' \; &> /dev/null ||
 		error "find $proc_dirs failed"
-
-	[ $(lustre_version_code $SINGLEMDS) -le $(version_code 2.5.54) ] &&
-		skip "Too old lustre on MDS"
-
-	[ $(lustre_version_code ost1) -le $(version_code 2.5.54) ] &&
-		skip "Too old lustre on ost1"
 
 	for facet in $SINGLEMDS ost1; do
 		do_facet $facet find $proc_dirs \
