@@ -5192,6 +5192,7 @@ require_dsh_ost()
 
 remote_mgs_nodsh()
 {
+	[ "$CLIENTONLY" ] && return 0 || true
     local MGS 
     MGS=$(facet_host mgs)
     remote_node $MGS && [ "$PDSH" = "no_dsh" -o -z "$PDSH" -o -z "$ost_HOST" ]

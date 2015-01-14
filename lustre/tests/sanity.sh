@@ -7198,6 +7198,8 @@ free_min_max () {
 
 test_116a() { # was previously test_116()
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
+
 	[[ $OSTCOUNT -lt 2 ]] && skip_env "$OSTCOUNT < 2 OSTs" && return
 
 	echo -n "Free space priority "
@@ -11840,6 +11842,8 @@ run_test 219 "LU-394: Write partial won't cause uncontiguous pages vec at LND"
 test_220() { #LU-325
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
 	remote_ost_nodsh && skip "remote OST with nodsh" && return
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
+	remote_mgs_nodsh && skip "remote MGS with nodsh" && return
 	local OSTIDX=0
 
 	test_mkdir -p $DIR/$tdir
@@ -11977,6 +11981,7 @@ run_test 224b "Don't panic on bulk IO failure"
 MDSSURVEY=${MDSSURVEY:-$(which mds-survey 2>/dev/null || true)}
 test_225a () {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
 	if [ -z ${MDSSURVEY} ]; then
 	      skip_env "mds-survey not found" && return
 	fi
@@ -12006,7 +12011,7 @@ run_test 225a "Metadata survey sanity with zero-stripe"
 
 test_225b () {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
-
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
 	if [ -z ${MDSSURVEY} ]; then
 	      skip_env "mds-survey not found" && return
 	fi
