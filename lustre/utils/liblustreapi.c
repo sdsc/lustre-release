@@ -1641,12 +1641,26 @@ static int get_lmd_info(char *path, DIR *parent, DIR *dir,
         if (dir) {
                 ret = ioctl(dirfd(dir), LL_IOC_MDC_GETINFO, (void *)lmd);
         } else if (parent) {
-                char *fname = strrchr(path, '/');
+		char *fname = strrchr(path, '/');
 
-                fname = (fname == NULL ? path : fname + 1);
-                /* retrieve needed file info */
+		/* To avoid opening, locking, and closing each file on the
+		 * client if that is not needed. The GETFILEINFO ioctl can
+		 * be done on the patent dir with a single open for all
+		 * files in that directory, and it also doesn't pollute the
+		 * client dcache with millions of dentries when traversing
+		 * a large filesystem.
+		 *
+		 * Since we do not build inode cache for this file, so it
+		 * is not easy do get FILEINFO for directory, because if
+		 * the file is a striped directory, it needs to merge
+		 * the attributes from all stripes based on inode cache.
+		 * For this reason, this should only be called for
+		 * non-directory, and it will return -EINVAL, if we call
+		 * it for a directory */
+		fname = (fname == NULL ? path : fname + 1);
+		/* retrieve needed file info */
 		strlcpy((char *)lmd, fname, lumlen);
-                ret = ioctl(dirfd(parent), IOC_MDC_GETFILEINFO, (void *)lmd);
+		ret = ioctl(dirfd(parent), IOC_MDC_GETFILEINFO, (void *)lmd);
         }
 
         if (ret) {
