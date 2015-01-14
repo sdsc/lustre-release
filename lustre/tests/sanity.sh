@@ -4975,6 +4975,19 @@ test_56z() { # LU-4824
 }
 run_test 56z "lfs find should continue after an error"
 
+test_56A() { # LU-5937
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+
+	mkdir $DIR/$tdir
+	$LFS setdirstripe -c$MDSCOUNT $DIR/$tdir/striped_dir
+
+	touch $DIR/$tdir/striped_dir/{0..1024}
+	local dirs=$(lfs find --size +8k $DIR/$tdir/)
+
+	[ -n "$dirs" ] || error "lfs find --size wrong under striped dir"
+}
+run_test 56A "lfs find --size under striped dir"
+
 test_57a() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
 	# note test will not do anything if MDS is not local

@@ -1641,12 +1641,16 @@ static int get_lmd_info(char *path, DIR *parent, DIR *dir,
         if (dir) {
                 ret = ioctl(dirfd(dir), LL_IOC_MDC_GETINFO, (void *)lmd);
         } else if (parent) {
-                char *fname = strrchr(path, '/');
+		char *fname = strrchr(path, '/');
 
-                fname = (fname == NULL ? path : fname + 1);
-                /* retrieve needed file info */
+		/* Note: this should only be called for non-directory, because
+		 * IOC_MDC_GETFILEINFO can not handle striped directory
+		 * (see ll_dir_ioctl()), luckily this is still true, see
+		 * cb_find_init() */
+		fname = (fname == NULL ? path : fname + 1);
+		/* retrieve needed file info */
 		strlcpy((char *)lmd, fname, lumlen);
-                ret = ioctl(dirfd(parent), IOC_MDC_GETFILEINFO, (void *)lmd);
+		ret = ioctl(dirfd(parent), IOC_MDC_GETFILEINFO, (void *)lmd);
         }
 
         if (ret) {
