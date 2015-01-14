@@ -1380,6 +1380,7 @@ test_27g() {
 run_test 27g "$GETSTRIPE with no objects"
 
 test_27i() {
+	test_mkdir -p $DIR/d27
 	touch $DIR/d27/fsome || error "touch failed"
 	[[ $($GETSTRIPE -c $DIR/d27/fsome) -gt 0 ]] || error "missing objects"
 }
