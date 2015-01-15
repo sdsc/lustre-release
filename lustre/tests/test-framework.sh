@@ -4961,6 +4961,14 @@ run_one() {
 		ps auxww | grep -v grep | grep -q multiop &&
 					error "multiop still running"
 	fi
+
+	# LU-5242 DEBUG
+	for ((i=1; i<=${OSTCOUNT}; i++)) do
+		local facet=ost$i
+		local name=OST$(printf '%04x' $((i - 1)))
+		local num=$(do_facet $facet "$LCTL get_param -n obdfilter.${FSNAME}-${name}.num_exports")
+		[ $num -le 5 ] || error "LU-5242 $facet had large obd_export size $num (obdfilter.${FSNAME}-${name}.num_exports)"
+	done
 	unset TESTNAME
 	unset tdir
 	unset tfile
