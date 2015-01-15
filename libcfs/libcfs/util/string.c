@@ -22,8 +22,6 @@
 /*
  * Copyright (c) 2014 Intel Corporation.
  */
-#ifndef __KERNEL__
-
 #include <string.h>
 
 /*
@@ -63,5 +61,3 @@ size_t strlcat(char *dst, const char *src, size_t size)
 	return ret;
 }
 #endif
-
-#endif /* __KERNEL__ */

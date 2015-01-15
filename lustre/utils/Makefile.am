@@ -11,9 +11,8 @@ AM_LDFLAGS := -L$(top_builddir)/lnet/utils
 MNTMODLDFLAGS := -rdynamic -ldl
 MNTMODCFLAGS := -DPLUGIN_DIR=\"${pkglibdir}\"
 
-LIBPTLCTL := $(top_builddir)/lnet/utils/libptlctl.a \
-	     $(top_builddir)/libcfs/libcfs/libcfsutil.a \
-	     $(top_builddir)/libcfs/libcfs/libcfs.a
+LIBCFS = $(top_builddir)/libcfs/libcfs/libcfsutil.la
+LIBPTLCTL := $(top_builddir)/lnet/utils/libptlctl.la
 
 if TESTS
 EXTRA_PROGRAMS = wirecheck
@@ -80,14 +79,13 @@ llverfs_LDADD := $(EXT2FSLIB) $(E2PLIB)
 
 llverdev_LDADD := $(EXT2FSLIB) $(BLKIDLIB)
 
-L_STRING := $(top_builddir)/libcfs/libcfs/user-string.c
-L_IOCTL := $(top_builddir)/libcfs/libcfs/util/l_ioctl.c
 L_KERNELCOMM := $(top_builddir)/libcfs/libcfs/kernel_user_comm.c
 liblustreapi_la_SOURCES = liblustreapi.c liblustreapi_hsm.c \
 			    liblustreapi_nodemap.c lustreapi_internal.h \
 			    liblustreapi_json.c liblustreapi_layout.c \
-			    liblustreapi_lease.c \
-			    $(L_IOCTL) $(L_KERNELCOMM) $(L_STRING)
+			    liblustreapi_lease.c $(L_KERNELCOMM)
+liblustreapi_la_LDFLAGS = -version-number 1:0:0
+liblustreapi_la_LIBADD = $(LIBCFS)
 
 if LDISKFS_ENABLED
 libiam_a_SOURCES = libiam.c
@@ -96,8 +94,8 @@ endif
 req_layout_SOURCES = req-layout.c
 
 llog_reader_SOURCES = llog_reader.c
-llog_reader_LDADD := $(LIBPTLCTL)
-llog_reader_DEPENDENCIES := $(LIBPTLCTL)
+llog_reader_LDADD := $(LIBCFS)
+llog_reader_DEPENDENCIES := $(LIBCFS)
 
 lr_reader_SOURCES = lr_reader.c
 
@@ -123,14 +121,14 @@ endif
 
 mount_lustre_SOURCES = mount_lustre.c mount_utils.c mount_utils.h
 mount_lustre_CPPFLAGS = $(AM_CPPFLAGS) ${MNTMODCFLAGS}
-mount_lustre_LDADD := $(LIBPTLCTL) $(SELINUX)
-mount_lustre_DEPENDENCIES := $(LIBPTLCTL)
+mount_lustre_LDADD := $(LIBCFS) $(SELINUX)
+mount_lustre_DEPENDENCIES := $(LIBCFS)
 mount_lustre_LDFLAGS = ${MNTMODLDFLAGS}
 
 mkfs_lustre_SOURCES = mkfs_lustre.c mount_utils.c mount_utils.h
 mkfs_lustre_CPPFLAGS = -UTUNEFS $(AM_CPPFLAGS) ${MNTMODCFLAGS}
-mkfs_lustre_LDADD := $(LIBPTLCTL)
-mkfs_lustre_DEPENDENCIES := $(LIBPTLCTL)
+mkfs_lustre_LDADD := $(LIBCFS)
+mkfs_lustre_DEPENDENCIES := $(LIBCFS)
 mkfs_lustre_LDFLAGS = ${MNTMODLDFLAGS}
 
 tunefs_lustre_SOURCES = mkfs_lustre.c mount_utils.c mount_utils.h
@@ -140,14 +138,14 @@ tunefs_lustre_DEPENDENCIES := $(mkfs_lustre_DEPENDENCIES)
 tunefs_lustre_LDFLAGS = ${MNTMODLDFLAGS}
 
 l_getidentity_SOURCES = l_getidentity.c
-l_getidentity_LDADD := $(LIBPTLCTL)
-l_getidentity_DEPENDENCIES := $(LIBPTLCTL)
+l_getidentity_LDADD := $(LIBCFS)
+l_getidentity_DEPENDENCIES := $(LIBCFS)
 
 ltrack_stats_SOURCES = ltrack_stats.c
 
 lhsmtool_posix_SOURCES = lhsmtool_posix.c
-lhsmtool_posix_LDADD := liblustreapi.la $(LIBPTLCTL) $(PTHREAD_LIBS)
-lhsmtool_posix_DEPENDENCIES := liblustreapi.la $(LIBPTLCTL)
+lhsmtool_posix_LDADD := liblustreapi.la $(LIBCFS) $(LIBREADLINE) $(PTHREAD_LIBS)
+lhsmtool_posix_DEPENDENCIES := liblustreapi.la $(LIBCFS)
 
 wirecheck_SOURCES = wirecheck.c
 wirecheck_CPPFLAGS = -DCC="\"$(CC)\""
