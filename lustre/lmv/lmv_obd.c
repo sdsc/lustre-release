@@ -3435,17 +3435,15 @@ int lmv_quotacheck(struct obd_device *unused, struct obd_export *exp,
         RETURN(rc);
 }
 
-int lmv_update_lsm_md(struct obd_export *exp, struct lmv_stripe_md *lsm,
-		      struct mdt_body *body, ldlm_blocking_callback cb_blocking)
-{
-	return lmv_revalidate_slaves(exp, body, lsm, cb_blocking, 0);
-}
-
 int lmv_merge_attr(struct obd_export *exp, const struct lmv_stripe_md *lsm,
-		   struct cl_attr *attr)
+		   struct cl_attr *attr, ldlm_blocking_callback cb_blocking)
 {
+	int rc;
 	int i;
 
+	rc = lmv_revalidate_slaves(exp, lsm, cb_blocking, 0);
+	if (rc < 0)
+		return rc;
 	for (i = 0; i < lsm->lsm_md_stripe_count; i++) {
 		struct inode *inode = lsm->lsm_md_oinfo[i].lmo_root;
 
@@ -3522,7 +3520,6 @@ struct md_ops lmv_md_ops = {
         .m_lock_match           = lmv_lock_match,
 	.m_get_lustre_md        = lmv_get_lustre_md,
 	.m_free_lustre_md       = lmv_free_lustre_md,
-	.m_update_lsm_md	= lmv_update_lsm_md,
 	.m_merge_attr		= lmv_merge_attr,
         .m_set_open_replay_data = lmv_set_open_replay_data,
         .m_clear_open_replay_data = lmv_clear_open_replay_data,

@@ -3277,7 +3277,7 @@ static int ll_merge_md_attr(struct inode *inode)
 
 	LASSERT(ll_i2info(inode)->lli_lsm_md != NULL);
 	rc = md_merge_attr(ll_i2mdexp(inode), ll_i2info(inode)->lli_lsm_md,
-			   &attr);
+			   &attr, ll_md_blocking_ast);
 	if (rc != 0)
 		RETURN(rc);
 
