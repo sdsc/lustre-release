@@ -152,8 +152,8 @@ out:
 	return rc;
 }
 
-int lmv_revalidate_slaves(struct obd_export *exp, struct mdt_body *mbody,
-			  struct lmv_stripe_md *lsm,
+int lmv_revalidate_slaves(struct obd_export *exp,
+			  const struct lmv_stripe_md *lsm,
 			  ldlm_blocking_callback cb_blocking,
 			  int extra_lock_flags)
 {
@@ -416,7 +416,7 @@ lmv_intent_lookup(struct obd_export *exp, struct md_op_data *op_data,
 		/* If RPC happens, lsm information will be revalidated
 		 * during update_inode process (see ll_update_lsm_md) */
 		if (op_data->op_mea2 != NULL) {
-			rc = lmv_revalidate_slaves(exp, NULL, op_data->op_mea2,
+			rc = lmv_revalidate_slaves(exp, op_data->op_mea2,
 						   cb_blocking,
 						   extra_lock_flags);
 			if (rc != 0)
