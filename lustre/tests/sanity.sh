@@ -61,8 +61,8 @@ init_logging
 [ "$SLOW" = "no" ] && EXCEPT_SLOW="24o 27m 64b 68 71 77f 78 115 124b 230d"
 
 if [ $(facet_fstype $SINGLEMDS) = "zfs" ]; then
-	# bug number for skipped test: LU-1593	LU-4536 LU-5242	LU-1957	LU-2805
-	ALWAYS_EXCEPT="$ALWAYS_EXCEPT  34h	65ic	132	180	184c"
+	# bug number for skipped test: LU-1593	LU-4536 LU-1957	LU-2805
+	ALWAYS_EXCEPT="$ALWAYS_EXCEPT  34h	65ic	180	184c"
 	[ "$SLOW" = "no" ] && EXCEPT_SLOW="$EXCEPT_SLOW 51b 51ba"
 fi
 
@@ -140,6 +140,16 @@ mke2fs -j -F $EXT2_DEV 8000 > /dev/null
 echo # add a newline after mke2fs.
 
 umask 077
+
+# DEBUG TEST for LU-5242 fault
+test_lu5242A() {
+    stopall
+    setupall
+}
+test_lu5242B() {
+    stopall
+    setupall
+}
 
 OLDDEBUG=$(lctl get_param -n debug 2> /dev/null)
 lctl set_param debug=-1 2> /dev/null || true
@@ -3945,6 +3955,8 @@ test_49() { # LU-1030
 }
 run_test 49 "Change max_pages_per_rpc won't break osc extent"
 
+run_test lu5242A "Check for LU-5242 failure before test 50"
+
 test_50() {
 	# bug 1485
 	test_mkdir $DIR/$tdir
@@ -6086,6 +6098,8 @@ test_99f() {
     rm -fr $DIR/d99cvsroot
 }
 run_test 99f "cvs commit ======================================="
+
+run_test lu5242B "Check for LU-5242 Failure before test 100"
 
 test_100() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
