@@ -2936,6 +2936,19 @@ static inline const char *bulk2type(struct ptlrpc_request *req)
 	return "UNKNOWN";
 }
 
+static inline bool req_stale_conn_cnt(struct obd_export *exp,
+				      struct ptlrpc_request *req)
+{
+	/* Note: Updates between MDT are transferred by bulk RPC,
+	 * and these bulk replay req connect count might < exp_conn_cnt
+	 * and the connection in this case should not be considered
+	 * as stale. */
+	if (exp->exp_conn_cnt > lustre_msg_get_conn_cnt(req->rq_reqmsg) &&
+	     !(exp_connect_flags(exp) & OBD_CONNECT_MDS_MDS))
+		return true;
+	return false;
+}
+
 int target_bulk_io(struct obd_export *exp, struct ptlrpc_bulk_desc *desc,
                    struct l_wait_info *lwi)
 {
@@ -2956,8 +2969,9 @@ int target_bulk_io(struct obd_export *exp, struct ptlrpc_bulk_desc *desc,
 	}
 
 	/* Check if client was evicted or reconnected already. */
-	if (exp->exp_failed ||
-	    exp->exp_conn_cnt > lustre_msg_get_conn_cnt(req->rq_reqmsg)) {
+	/* Updates between MDT are transferred by bulk RPC, and these
+	 * bulk replay req connect count might < exp_conn_cnt */
+	if (exp->exp_failed || req_stale_conn_cnt(exp, req)) {
 		rc = -ENOTCONN;
 	} else {
 		if (req->rq_bulk_read)
@@ -2990,12 +3004,12 @@ int target_bulk_io(struct obd_export *exp, struct ptlrpc_bulk_desc *desc,
 
 		*lwi = LWI_TIMEOUT_INTERVAL(timeout, cfs_time_seconds(1),
 					    target_bulk_timeout, desc);
+		/* Updates between MDT are transferred by bulk RPC, and those
+		 * replay bulk RPC might still use old connect count */
 		rc = l_wait_event(desc->bd_waitq,
 				  !ptlrpc_server_bulk_active(desc) ||
 				  exp->exp_failed ||
-				  exp->exp_conn_cnt >
-				  lustre_msg_get_conn_cnt(req->rq_reqmsg),
-				  lwi);
+				  req_stale_conn_cnt(exp, req), lwi);
 		LASSERT(rc == 0 || rc == -ETIMEDOUT);
 		/* Wait again if we changed rq_deadline. */
 		rq_deadline = ACCESS_ONCE(req->rq_deadline);
@@ -3015,8 +3029,7 @@ int target_bulk_io(struct obd_export *exp, struct ptlrpc_bulk_desc *desc,
 			  bulk2type(req));
 		rc = -ENOTCONN;
 		ptlrpc_abort_bulk(desc);
-	} else if (exp->exp_conn_cnt >
-		   lustre_msg_get_conn_cnt(req->rq_reqmsg)) {
+	} else if (req_stale_conn_cnt(exp, req)) {
 		DEBUG_REQ(D_ERROR, req, "Reconnect on bulk %s",
 			  bulk2type(req));
 		/* We don't reply anyway. */
