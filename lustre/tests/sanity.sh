@@ -61,8 +61,8 @@ init_logging
 [ "$SLOW" = "no" ] && EXCEPT_SLOW="24o 24D 27m 64b 68 71 77f 78 115 124b 230d"
 
 if [ $(facet_fstype $SINGLEMDS) = "zfs" ]; then
-	# bug number for skipped test: LU-1593	LU-4536 LU-5242	LU-1957	LU-2805
-	ALWAYS_EXCEPT="$ALWAYS_EXCEPT  34h	65ic	132	180	184c"
+	# bug number for skipped test: LU-1593	LU-4536 LU-1957	LU-2805
+	ALWAYS_EXCEPT="$ALWAYS_EXCEPT  34h	65ic	180	184c"
 	[ "$SLOW" = "no" ] && EXCEPT_SLOW="$EXCEPT_SLOW 51b 51ba"
 fi
 
@@ -140,6 +140,20 @@ mke2fs -j -F $EXT2_DEV 8000 > /dev/null
 echo # add a newline after mke2fs.
 
 umask 077
+
+# DEBUG TEST for LU-5242 fault
+test_lu5242A() {
+    stopall
+    setupall
+}
+test_lu5242B() {
+    stopall
+    setupall
+}
+test_lu5242C() {
+    stopall
+    setupall
+}
 
 OLDDEBUG=$(lctl get_param -n debug 2> /dev/null)
 lctl set_param debug=-1 2> /dev/null || true
@@ -5984,6 +5998,8 @@ test_79() { # bug 12743
 }
 run_test 79 "df report consistency check ======================="
 
+run_test lu5242A "Check for LU-5242 Failure before test 80"
+
 test_80() { # bug 10718
 	remote_ost_nodsh && skip "remote OST with nodsh" && return
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
@@ -6030,6 +6046,8 @@ test_81a() { # LU-456
 }
 run_test 81a "OST should retry write when get -ENOSPC ==============="
 
+run_test lu5242B "Check for LU-5242 Failure before test 81b"
+
 test_81b() { # LU-456
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
         remote_ost_nodsh && skip "remote OST with nodsh" && return
@@ -6069,6 +6087,8 @@ test_82() { # LU-1031
 	wait $MULTIPID2
 }
 run_test 82 "Basic grouplock test ==============================="
+
+run_test lu5242C "Check for LU-5242 Failure before test 99a"
 
 test_99a() {
 	[ -z "$(which cvs 2>/dev/null)" ] && skip_env "could not find cvs" &&
