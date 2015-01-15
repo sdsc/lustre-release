@@ -1,0 +1,469 @@
+		******************************************
+		* Overview of Dynamic Lnet Configuration *
+		******************************************
+
+Origianl Authors:
+=================
+Amir Shehata <amir.shehata@intel.com>
+
+Topics
+1. Introduction
+	1.1 Objectives
+	1.3 Motivation
+	1.2 Overview
+2. YAML Interface
+3. DLC API
+4. LNet Backend Design
+	4.1 router.c
+		4.1.1 Enabling/Disabling Routing and Router Pools
+		4.1.2 Configuring Router Pools
+	4.2 api-ni.c
+		4.2.1 Dynamically Adding an NI
+		4.2.2 Dynamically Deleting an NI
+		4.2.3 Internal Functions
+
+===================
+= 1. Introduction =
+===================
+
+1.1 Objectives
+==============
+
+Dynamic Lnet Configuration (DLC) strives to accomplish four objectives:
+
+- Allow changes to some LNet parameters to be dynamic so they can be altered
+  without having to stop/start LNet.
+- Remove the limits on how many NI's or route's which can be configured.
+- Work towards replacing the LNet module parameters with user space scripts
+  (i.e. /etc/rc.d and /etc/sysconfig/network-scripts) which operate much more
+  like conventional network config systems on Linux.
+- Allow sysadmins to use a command line utility for making dynamic changes to
+  the LNet configuration.
+
+1.2 Motivation
+==============
+
+DLC introduces a new shared library.  The DLC CAPI Library is provided as part
+of the standard lustre installation.  This library must be under the LGPL
+license in order to protect third-party code.  This API will serve the
+following purposes:
+
+- Provide a funnel for all LNET configurations.  This way there isn't multiple
+  ways to configure the same thing
+- Provide a CAPI that configures specific parameters.  This CAPI will translate
+  into ioctl to the kernel module.
+- Provide a YAML interface, which ensures that YAML parsing is done in one
+  location.
+- Provide more detailed return values from the kernel presented in YAML format
+- Provide a set of API calls to parse out the YAML error return if need be.
+
+1.3 Overview
+============
+
+DLC introduces a userspace library which exposes a set of APIs to:
+
+- configure/unconfigure LNet
+- add/delete/show routes
+- add/delete/show networks
+- set large router buffers
+- set small router buffers
+- set tiny router buffers
+- enable/disable routing
+- import YAML configuration
+- export configuration in YAML format
+- show peer credit information
+
+DLC API uses IOCTL to communicate with the kernel.  This has the following advantage:
+
+- No need to do any string parsing in the kernel
+- By pass the 4K limit, since each command will be downloaded to the kernel
+  separately.  EX: if there are 100 routes to configure, then this translates
+  to 100 ioctls to the kernel.
+- Provide a more intuitive user facing interface.  The user need not know how
+  to talk to the kernel via ioctl.  This will be achieved in two ways:
+	a. The configuration can be presented in YAML syntax, as shown below
+	b. A more traditional C API will be exported, Each translates to exactly
+	   one ioctl to the kernel module.
+
+=====================
+= 2. YAML Interface =
+=====================
+
+DLC APIs provides functions which configure specific parameters, as well as,
+provides APIs which take a YAML formatted string and configures all parameters
+defined therein.
+
+To aid in parsing and building YAML stings a 3rd party library, libyaml, is
+used.  lnet/utils/cyaml/cyaml.c is written to interface with the libyaml
+library.  When parsing a yaml string or file, it builds an internal tree
+representation of the YAML string.  lnet/utils/cyaml/cyaml.c then provides a set
+of APIs to extract data from the tree.  It also provides a set of APIs to build
+a YAML tree, which can then be printed textually.
+
+The YAML API is used by the DLC API to parse and extract YAML configuration, as
+well as build a YAML representation of the success or error status per DLC API.
+
+==============
+= 3. DLC API =
+==============
+
+/*
+ * lustre_lnet_config_lib_init()
+ *   Initialize the Library to enable communication with the LNET kernel
+ *   module.  This API initializes IOCTL communication with the kernel.
+ *
+ *   Returns the device ID or -EINVAL if there is an error
+ */
+int lustre_lnet_config_lib_init();
+
+/*
+ * lustre_lnet_config_ni_system
+ *   Initialize/Uninitialize the lnet NI system.
+ *
+ *   If load_ni_from_mod is set to 0, no Networks nor routes are loaded from
+ *   the module parameters.
+ *
+ *   up - whehter to init or uninit the system
+ *   load_ni_from_mod - load NI from mod params.
+ *   seq_no - sequence number of the request
+ *   err_rc - [OUT] struct cYAML tree describing the error. Freed by
+ *            caller
+ */
+int lustre_lnet_config_ni_system(bool up, bool load_ni_from_mod,
+				 int seq_no, struct cYAML **err_rc);
+
+/*
+ * lustre_lnet_config_route
+ *   Send down an IOCTL to the kernel to configure the route
+ *
+ *   If this is the first route being added in the system the router checker
+ *   thread is triggered to wakeup every second to check for alive or dead
+ *   routers.  Otherwise the router checker thread sleeps indefinitely.
+ *
+ *   nw - network
+ *   gw - gateway
+ *   hops - number of hops passed down by the user
+ *   prio - priority of the route
+ *   seq_no - sequence number of the request
+ *   err_rc - [OUT] struct cYAML tree describing the error. Freed by caller
+ */
+int lustre_lnet_config_route(char *nw, char *gw, int hops, int prio,
+			     int seq_no, struct cYAML **err_rc);
+
+/*
+ * lustre_lnet_del_route
+ *   Send down an IOCTL to the kernel to delete a route
+ *
+ *   If there are no more routes in the system after the successful completion
+ *   of this operation, then the router checker thread sleeps indefinitely until
+ *   it's woken up.
+ *
+ *   nw - network
+ *   gw - gateway
+ *   seq_no - sequence number of the request
+ *   err_rc - [OUT] struct cYAML tree describing the error. Freed by caller
+ */
+int lustre_lnet_del_route(char *nw, char *gw, int seq_no,
+			  struct cYAML **err_rc);
+
+/*
+ * lustre_lnet_show_route
+ *   Send down an IOCTL to the kernel to show routes
+ *   This function will get one route at a time and filter according to
+ *   provided parameters. If no routes are available then it will dump all
+ *   routes that are in the system.
+ *
+ *   nw - network.  Optional.  Used to filter output
+ *   gw - gateway. Optional. Used to filter ouptut
+ *   hops - number of hops passed down by the user
+ *          Optional.  Used to filter output.
+ *   prio - priority of the route.  Optional.  Used to filter output.
+ *   detail - flag to indicate whether detail output is required
+ *   seq_no - sequence number of the request
+ *   show_rc - [OUT] The show output in YAML.  Must be freed by caller.
+ *   err_rc - [OUT] struct cYAML tree describing the error. Freed by caller
+ */
+int lustre_lnet_show_route(char *nw, char *gw,
+			   int hops, int prio, int detail,
+			   int seq_no, struct cYAML **show_rc,
+			   struct cYAML **err_rc);
+
+/*
+ * lustre_lnet_config_net
+ *   Send down an IOCTL to configure a network.
+ *
+ *   The acceptor thread does not run by default unless there exists an LND
+ *   which requires it.  When starting an NI the system check if the acceptor
+ *   thread is needed.  If needed it starts it, otherwise it does not.
+ *
+ *   net - the network name
+ *   intf - the interface of the network of the form net_name(intf)
+ *   ip2net - this parameter allows configuring multiple networks.
+ *	it takes precedence over the net and intf parameters
+ *   peer_to - peer timeout
+ *   peer_cr - peer credit
+ *   peer_buf_cr - peer buffer credits
+ *       - the above are LND tunable parameters and are optional
+ *   credits - network interface credits
+ *   smp - cpu affinity
+ *   seq_no - sequence number of the request
+ *   err_rc - [OUT] struct cYAML tree describing the error. Freed by caller
+ */
+int lustre_lnet_config_net(char *net, char *intf, char *ip2net,
+			   int peer_to, int peer_cr, int peer_buf_cr,
+			   int credits, char *smp, int seq_no,
+			   struct cYAML **err_rc);
+
+/*
+ * lustre_lnet_del_net
+ *   Send down an IOCTL to delete a network.
+ *
+ *   If the network being deleted is the last one that requires the acceptor
+ *   thread, then it is stopped after the successful network deletion.
+ *
+ *   nw - network to delete.
+ *   seq_no - sequence number of the request
+ *   err_rc - [OUT] struct cYAML tree describing the error. Freed by caller
+ */
+int lustre_lnet_del_net(char *nw, int seq_no,
+			struct cYAML **err_rc);
+
+/*
+ * lustre_lnet_show_net
+ *   Send down an IOCTL to show networks.
+ *   This function will use the nw paramter to filter the output.  If it's
+ *   not provided then all networks are listed.
+ *
+ *   nw - network to show.  Optional.  Used to filter output.
+ *   detail - flag to indicate if we require detail output.
+ *   seq_no - sequence number of the request
+ *   show_rc - [OUT] The show output in YAML.  Must be freed by caller.
+ *   err_rc - [OUT] struct cYAML tree describing the error. Freed by caller
+ */
+int lustre_lnet_show_net(char *nw, int detail, int seq_no,
+			 struct cYAML **show_rc, struct cYAML **err_rc);
+
+/*
+ * lustre_lnet_enable_routing
+ *   Send down an IOCTL to enable or diable routing
+ *
+ *   The node which has routing configured can be used a s a router.
+ *   As a result of configuring routing, the large, small and tiny
+ *   router buffers are allocated to the default number of buffers:
+ *   1024, 16384 and 2048 respectively.  The default number of buffers
+ *   are for all CPU partitions.  If there are more than one CPU partition
+ *   the default number of buffers are spread evenly accross all CPU
+ *   partitions.
+ *
+ *   enable - 1 to enable routing, 0 to disable routing
+ *   seq_no - sequence number of the request
+ *   err_rc - [OUT] struct cYAML tree describing the error. Freed by caller
+ */
+int lustre_lnet_enable_routing(int enable, int seq_no,
+			       struct cYAML **err_rc);
+
+/*
+ * lustre_lnet_config_buffers
+ *   Send down an IOCTL to configure routing buffer sizes.  A value of 0 means
+ *   default that particular buffer to default size. A value of -1 means
+ *   leave the value of the buffer un changed.
+ *
+ *   tiny - tiny buffers
+ *   small - small buffers
+ *   large - large buffers.
+ *   seq_no - sequence number of the request
+ *   err_rc - [OUT] struct cYAML tree describing the error. Freed by caller
+ */
+int lustre_lnet_config_buffers(int tiny, int small, int large,
+			       int seq_no, struct cYAML **err_rc);
+
+/*
+ * lustre_lnet_show_routing
+ *   Send down an IOCTL to dump buffers and routing status
+ *   This function is used to dump buffers for all CPU partitions.
+ *
+ *   seq_no - sequence number of the request
+ *   show_rc - [OUT] The show output in YAML.  Must be freed by caller.
+ *   err_rc - [OUT] struct cYAML tree describing the error. Freed by caller
+ */
+int lustre_lnet_show_routing(int seq_no, struct cYAML **show_rc,
+			     struct cYAML **err_rc);
+
+/*
+ * lustre_lnet_show_peer_credits
+ *   Shows credit details on the peers in the system
+ *
+ *     seq_no - sequence number of the command
+ *     show_rc - YAML structure of the resultant show
+ *     err_rc - YAML strucutre of the resultant return code.
+ */
+int lustre_lnet_show_peer_credits(int seq_no, struct cYAML **show_rc,
+				  struct cYAML **err_rc);
+
+/*
+ * lustre_lnet_show_stats
+ *   Shows internal LNET statistics.  This is useful to display the
+ *   current LNET activity, such as number of messages route, etc
+ *
+ *     seq_no - sequence number of the command
+ *     show_rc - YAML structure of the resultant show
+ *     err_rc - YAML strucutre of the resultant return code.
+ */
+int lustre_lnet_show_stats(int seq_no, struct cYAML **show_rc,
+			   struct cYAML **err_rc);
+
+/*
+ * lustre_yaml_config
+ *   Parses the provided YAML file and then calls the specific APIs
+ *   to configure the entities identified in the file
+ *
+ *   f - YAML file
+ *   err_rc - [OUT] struct cYAML tree describing the error. Freed by caller
+ */
+int lustre_yaml_config(char *f, struct cYAML **err_rc);
+
+/*
+ * lustre_yaml_del
+ *   Parses the provided YAML file and then calls the specific APIs
+ *   to delete the entities identified in the file
+ *
+ *   f - YAML file
+ *   err_rc - [OUT] struct cYAML tree describing the error. Freed by caller
+ */
+int lustre_yaml_del(char *f, struct cYAML **err_rc);
+
+/*
+ * lustre_yaml_show
+ *   Parses the provided YAML file and then calls the specific APIs
+ *   to show the entities identified in the file
+ *
+ *   f - YAML file
+ *   show_rc - [OUT] The show output in YAML.  Must be freed by caller.
+ *   err_rc - [OUT] struct cYAML tree describing the error. Freed by caller
+ */
+int lustre_yaml_show(char *f, struct cYAML **show_rc,
+		     struct cYAML **err_rc);
+
+==========================
+= 4. LNET Backend Design =
+==========================
+
+4.1 lnet/lnet/router.c
+=======================
+
+In router.c the following three functions are used to add, delete and get a
+route.
+
+- lnet_add_route() – adds a new route entry.
+- lnet_del_route() – removes an existing routing entry.
+- lnet_get_route() – retrieves information on an existing route.
+
+These functions will be called from the ioctl handler.
+
+The Router buffer pools will be controlled via the following APIs:
+
+- lnet_rtrpools_enable() - enable routing and allocate router buffers
+- lnet_rtrpools_disable() - disable routing and free router buffers
+- lnet_rtrpools_adjust() - configure the number of router buffer pools
+
+4.1.1 Enabling/Disabling Routing and Router Pools
+=================================================
+
+lnet_rtrpools_enable()
+lnet_rtrpools_disable()
+
+These APIs will explicitly enable and disable rtrpools respectively.  If the
+rtrpools are being enabled then the default values of the tiny, small and
+large buffers are used.
+
+    #define LNET_NRB_TINY        (LNET_NRB_TINY_MIN * 4)
+    #define LNET_NRB_SMALL        (LNET_NRB_SMALL_MIN * 4)
+    #define LNET_NRB_LARGE        (LNET_NRB_LARGE_MIN * 4)
+
+4.1.2 Configuring Router Pools
+==============================
+
+lnet_rtrpools_adjust()
+
+This API will set the tiny, small and large buffers.  rtrpools must be enabled
+prior to calling this API.  If not enabled, this API is a no-op.
+
+Below is the behavior when adjusting the router pools:
+
+- A value of 0 indicates that the default values (listed above) are used.
+- Each pool size will be run through the current sizing algorithm to ensure the
+  given values are not below the minimum standards.  As such, a user could get
+  the defaults for all three pools by just passing in "0 0 0" for pool sizes.
+- If a pool size is being made bigger, add the new buffers to the pool checking
+  if there are any queued messages waiting for a buffer on that pool.  If so,
+  schedule those messages to be sent with the new buffer.
+- If a pool size is being made smaller, change the maximum value for the number
+  of buffers on the pool only.  When the system returns buffers to the pool, it
+  will see there are "excess" buffers on the pool and will discard the buffer
+  rather than return it to the pool.
+
+4.2 lnet/lnet/api-ni.c
+=======================
+
+The file api-ni.c contains the interface routines for working with network
+interfaces.  Four new routines will be added to this file to support this
+feature.
+
+lnet_dyn_add_ni() - adds an NI dynamically
+lnet_dyn_del_ni() - deletes an NI dynamically
+lnet_startup_lndni() - starts a single LND.
+lnet_shutdown_lndni() - shuts down a single LND.
+
+4.2.1 Dynamically Adding an NI
+==============================
+
+lnet_dyn_add_ni()
+
+This function is called to startup a network passed in through userspace as a
+string.  It is expecting to start only one network at a time.
+
+Peer timeout, peer credits, and credits are passed in as well, since DLC makes
+these tunable parameters configurable per network interface.
+
+This function does the following:
+
+- Parses the network string passed in.
+- Initializes a new ping info structure in preparation of adding the Network
+  Interface.
+- Starts up the NI
+- Updates the global ping info.
+- If there is any failure in any of these steps, appropriate cleanup action is
+  taken.
+
+4.2.2 Dynamically Deleting an NI
+================================
+
+lnet_dyn_del_ni()
+
+This function does the following:
+
+- Allocates a new ping info for the number of networks without the one being
+  removed.
+- Shuts down the NI
+- Updates the global ping info appropriately.
+
+4.2.3 Internal Functions
+========================
+
+lnet_startup_lndni()
+
+The code was restructured to breakup the function lnet_startup_lndnis() into
+two functions: lnet_startup_lndni() and lnet_startup_lndnis().  This way the
+new lnet_dyn_add_ni() can call lnet_startup_lndni() to startup one NI, and on
+standard startup lnet_startup_lndnis() can start up all NIs configured in the
+module parameters, by calling lnet_startup_lndni() repeatedly.
+
+lnet_shutdown_lndni()
+
+This function was introduced to shutdown only one NI.  It coexists with the
+original lnet_shutdown_lndnis() which shuts down all NIs, which is needed when
+LNet is being unconfigured.
+
+lnet_shutdown_lndni() is called from lnet_dyn_del_ni() and from
+lnet_startup_lndni() in case there is a failure starting the NI.
+
