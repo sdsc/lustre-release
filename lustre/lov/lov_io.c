@@ -90,9 +90,7 @@ static void lov_io_sub_inherit(struct cl_io *io, struct lov_io *lio,
 
         switch(io->ci_type) {
         case CIT_SETATTR: {
-                io->u.ci_setattr.sa_attr = parent->u.ci_setattr.sa_attr;
-                io->u.ci_setattr.sa_valid = parent->u.ci_setattr.sa_valid;
-                io->u.ci_setattr.sa_capa = parent->u.ci_setattr.sa_capa;
+		io->u.ci_setattr = parent->u.ci_setattr;
                 if (cl_io_is_trunc(io)) {
                         loff_t new_size = parent->u.ci_setattr.sa_attr.lvb_size;
 

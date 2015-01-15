@@ -308,10 +308,9 @@ out:
         RETURN(rc);
 }
 
-int osc_setattr_async_base(struct obd_export *exp, struct obd_info *oinfo,
-                           struct obd_trans_info *oti,
-                           obd_enqueue_update_f upcall, void *cookie,
-                           struct ptlrpc_request_set *rqset)
+int osc_setattr_async(struct obd_export *exp, struct obd_info *oinfo,
+		      obd_enqueue_update_f upcall, void *cookie,
+		      struct ptlrpc_request_set *rqset)
 {
         struct ptlrpc_request   *req;
         struct osc_setattr_args *sa;
@@ -328,9 +327,6 @@ int osc_setattr_async_base(struct obd_export *exp, struct obd_info *oinfo,
                 ptlrpc_request_free(req);
                 RETURN(rc);
         }
-
-        if (oti && oinfo->oi_oa->o_valid & OBD_MD_FLCOOKIE)
-                oinfo->oi_oa->o_lcookie = *oti->oti_logcookies;
 
         osc_pack_req_body(req, oinfo);
 
@@ -357,14 +353,6 @@ int osc_setattr_async_base(struct obd_export *exp, struct obd_info *oinfo,
         }
 
         RETURN(0);
-}
-
-static int osc_setattr_async(struct obd_export *exp, struct obd_info *oinfo,
-                             struct obd_trans_info *oti,
-                             struct ptlrpc_request_set *rqset)
-{
-        return osc_setattr_async_base(exp, oinfo, oti,
-                                      oinfo->oi_cb_up, oinfo, rqset);
 }
 
 static int osc_create(const struct lu_env *env, struct obd_export *exp,
@@ -3104,7 +3092,6 @@ static struct obd_ops osc_obd_ops = {
         .o_getattr              = osc_getattr,
         .o_getattr_async        = osc_getattr_async,
         .o_setattr              = osc_setattr,
-        .o_setattr_async        = osc_setattr_async,
         .o_change_cbdata        = osc_change_cbdata,
         .o_find_cbdata          = osc_find_cbdata,
         .o_iocontrol            = osc_iocontrol,

@@ -370,8 +370,8 @@ struct ccc_io *cl2ccc_io(const struct lu_env *env,
 			 const struct cl_io_slice *slice);
 struct ccc_req *cl2ccc_req(const struct cl_req_slice *slice);
 
-int cl_setattr_ost(struct inode *inode, const struct iattr *attr,
-		   struct obd_capa *capa);
+int cl_setattr_ost(struct cl_object *obj, const struct iattr *attr,
+		   unsigned int attr_flags, struct obd_capa *capa);
 
 int cl_file_inode_init(struct inode *inode, struct lustre_md *md);
 void cl_inode_fini(struct inode *inode);

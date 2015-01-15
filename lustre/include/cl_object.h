@@ -1857,6 +1857,7 @@ struct cl_io {
                 struct cl_io_rw_common ci_rw;
                 struct cl_setattr_io {
                         struct ost_lvb   sa_attr;
+			unsigned int	 sa_attr_flags;
                         unsigned int     sa_valid;
                         struct obd_capa *sa_capa;
                 } ci_setattr;
