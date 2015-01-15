@@ -259,8 +259,8 @@ static const struct cl_req_operations ccc_req_ops = {
         .cro_completion = ccc_req_completion
 };
 
-int cl_setattr_ost(struct inode *inode, const struct iattr *attr,
-                   struct obd_capa *capa)
+int cl_setattr_ost(struct cl_object *obj, const struct iattr *attr,
+		   unsigned int attr_flags, struct obd_capa *capa)
 {
         struct lu_env *env;
         struct cl_io  *io;
@@ -274,14 +274,15 @@ int cl_setattr_ost(struct inode *inode, const struct iattr *attr,
                 RETURN(PTR_ERR(env));
 
         io = ccc_env_thread_io(env);
-	io->ci_obj = ll_i2info(inode)->lli_clob;
+	io->ci_obj = obj;
 
 	io->u.ci_setattr.sa_attr.lvb_atime = LTIME_S(attr->ia_atime);
 	io->u.ci_setattr.sa_attr.lvb_mtime = LTIME_S(attr->ia_mtime);
 	io->u.ci_setattr.sa_attr.lvb_ctime = LTIME_S(attr->ia_ctime);
 	io->u.ci_setattr.sa_attr.lvb_size = attr->ia_size;
+	io->u.ci_setattr.sa_attr_flags = attr_flags;
 	io->u.ci_setattr.sa_valid = attr->ia_valid;
-	io->u.ci_setattr.sa_parent_fid = ll_inode2fid(inode);
+	io->u.ci_setattr.sa_parent_fid = lu_object_fid(&obj->co_lu);
 	io->u.ci_setattr.sa_capa = capa;
 
 again:
