@@ -2782,8 +2782,11 @@ int target_bulk_io(struct obd_export *exp, struct ptlrpc_bulk_desc *desc,
 	}
 
 	/* Check if client was evicted or reconnected already. */
+	/* Updates between MDT are transferred by bulk RPC, and these
+	 * bulk replay req connect count might < exp_conn_cnt */
 	if (exp->exp_failed ||
-	    exp->exp_conn_cnt > lustre_msg_get_conn_cnt(req->rq_reqmsg)) {
+	    (exp->exp_conn_cnt > lustre_msg_get_conn_cnt(req->rq_reqmsg) &&
+	     !(exp_connect_flags(exp) & OBD_CONNECT_MDS_MDS))) {
 		rc = -ENOTCONN;
 	} else {
 		if (is_bulk_put_sink(desc->bd_type))
@@ -2842,7 +2845,10 @@ int target_bulk_io(struct obd_export *exp, struct ptlrpc_bulk_desc *desc,
 		rc = -ENOTCONN;
 		ptlrpc_abort_bulk(desc);
 	} else if (exp->exp_conn_cnt >
-		   lustre_msg_get_conn_cnt(req->rq_reqmsg)) {
+		   lustre_msg_get_conn_cnt(req->rq_reqmsg) &&
+		   !(exp_connect_flags(exp) & OBD_CONNECT_MDS_MDS)) {
+		/* Updates between MDT are transferred by bulk RPC, and these
+		 * bulk replay req connect count might < exp_conn_cnt */
 		DEBUG_REQ(D_ERROR, req, "Reconnect on bulk %s",
 			  bulk2type(desc));
 		/* We don't reply anyway. */

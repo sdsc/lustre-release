@@ -50,7 +50,8 @@ void ptlrpc_fill_bulk_md(lnet_md_t *md, struct ptlrpc_bulk_desc *desc,
 {
 	CLASSERT(PTLRPC_MAX_BRW_PAGES < LI_POISON);
 
-	LASSERT(is_bulk_desc_kiov(desc->bd_type));
+	LASSERT(is_bulk_desc_kiov(desc->bd_type) ||
+		is_bulk_desc_iovec(desc->bd_type));
 	LASSERT(mdidx < desc->bd_md_max_brw);
 	LASSERT(desc->bd_iov_count <= PTLRPC_MAX_BRW_PAGES);
 	LASSERT(!(md->options & (LNET_MD_IOVEC | LNET_MD_KIOV |

@@ -90,7 +90,7 @@ EXPORT_SYMBOL(update_op_str);
  * \retval			-E2BIG if packing exceeds the maxima length.
  */
 int out_update_header_pack(const struct lu_env *env,
-			   struct object_update *update, size_t max_update_size,
+			   struct object_update *update, size_t *max_update_size,
 			   enum update_type update_op, const struct lu_fid *fid,
 			   int params_count, __u16 *params_sizes)
 {
@@ -103,8 +103,10 @@ int out_update_header_pack(const struct lu_env *env,
 	for (i = 0; i < params_count; i++)
 		update_size += cfs_size_round(sizeof(*param) + params_sizes[i]);
 
-	if (unlikely(update_size >= max_update_size))
+	if (unlikely(update_size >= *max_update_size)) {
+		*max_update_size = update_size;
 		return -E2BIG;
+	}
 
 	update->ou_fid = *fid;
 	update->ou_type = (__u16)update_op;
@@ -135,7 +137,7 @@ int out_update_header_pack(const struct lu_env *env,
  * \retval		negative errno if updates packing fails
  **/
 int out_update_pack(const struct lu_env *env, struct object_update *update,
-		    size_t max_update_size, enum update_type op,
+		    size_t *max_update_size, enum update_type op,
 		    const struct lu_fid *fid, int params_count,
 		    __u16 *param_sizes, const void **param_bufs)
 {
@@ -176,7 +178,7 @@ EXPORT_SYMBOL(out_update_pack);
  * \retval		negative errno if insertion fails.
  */
 int out_create_pack(const struct lu_env *env, struct object_update *update,
-		    size_t max_update_size, const struct lu_fid *fid,
+		    size_t *max_update_size, const struct lu_fid *fid,
 		    const struct lu_attr *attr, struct dt_allocation_hint *hint,
 		    struct dt_object_format *dof)
 {
@@ -215,7 +217,7 @@ int out_create_pack(const struct lu_env *env, struct object_update *update,
 EXPORT_SYMBOL(out_create_pack);
 
 int out_ref_del_pack(const struct lu_env *env, struct object_update *update,
-		     size_t max_update_length, const struct lu_fid *fid)
+		     size_t *max_update_length, const struct lu_fid *fid)
 {
 	return out_update_pack(env, update, max_update_length, OUT_REF_DEL, fid,
 			       0, NULL, NULL);
@@ -223,7 +225,7 @@ int out_ref_del_pack(const struct lu_env *env, struct object_update *update,
 EXPORT_SYMBOL(out_ref_del_pack);
 
 int out_ref_add_pack(const struct lu_env *env, struct object_update *update,
-		     size_t max_update_length, const struct lu_fid *fid)
+		     size_t *max_update_length, const struct lu_fid *fid)
 {
 	return out_update_pack(env, update, max_update_length, OUT_REF_ADD, fid,
 			       0, NULL, NULL);
@@ -231,7 +233,7 @@ int out_ref_add_pack(const struct lu_env *env, struct object_update *update,
 EXPORT_SYMBOL(out_ref_add_pack);
 
 int out_attr_set_pack(const struct lu_env *env, struct object_update *update,
-		      size_t max_update_length, const struct lu_fid *fid,
+		      size_t *max_update_length, const struct lu_fid *fid,
 		      const struct lu_attr *attr)
 {
 	struct obdo		*obdo;
@@ -254,7 +256,7 @@ int out_attr_set_pack(const struct lu_env *env, struct object_update *update,
 EXPORT_SYMBOL(out_attr_set_pack);
 
 int out_xattr_set_pack(const struct lu_env *env, struct object_update *update,
-		       size_t max_update_length, const struct lu_fid *fid,
+		       size_t *max_update_length, const struct lu_fid *fid,
 		       const struct lu_buf *buf, const char *name, int flag)
 {
 	__u16	sizes[3] = {strlen(name) + 1, buf->lb_len, sizeof(flag)};
@@ -267,7 +269,7 @@ int out_xattr_set_pack(const struct lu_env *env, struct object_update *update,
 EXPORT_SYMBOL(out_xattr_set_pack);
 
 int out_xattr_del_pack(const struct lu_env *env, struct object_update *update,
-		       size_t max_update_length, const struct lu_fid *fid,
+		       size_t *max_update_length, const struct lu_fid *fid,
 		       const char *name)
 {
 	__u16	size = strlen(name) + 1;
@@ -277,10 +279,9 @@ int out_xattr_del_pack(const struct lu_env *env, struct object_update *update,
 }
 EXPORT_SYMBOL(out_xattr_del_pack);
 
-
 int out_index_insert_pack(const struct lu_env *env,
 			  struct object_update *update,
-			  size_t max_update_length, const struct lu_fid *fid,
+			  size_t *max_update_length, const struct lu_fid *fid,
 			  const struct dt_rec *rec, const struct dt_key *key)
 {
 	struct dt_insert_rec	   *rec1 = (struct dt_insert_rec *)rec;
@@ -302,7 +303,7 @@ EXPORT_SYMBOL(out_index_insert_pack);
 
 int out_index_delete_pack(const struct lu_env *env,
 			  struct object_update *update,
-			  size_t max_update_length, const struct lu_fid *fid,
+			  size_t *max_update_length, const struct lu_fid *fid,
 			  const struct dt_key *key)
 {
 	__u16	size = strlen((char *)key) + 1;
@@ -315,7 +316,7 @@ EXPORT_SYMBOL(out_index_delete_pack);
 
 int out_object_destroy_pack(const struct lu_env *env,
 			    struct object_update *update,
-			    size_t max_update_length, const struct lu_fid *fid,
+			    size_t *max_update_length, const struct lu_fid *fid,
 			    __u16 cookie_size, const void *cookie)
 {
 	return out_update_pack(env, update, max_update_length, OUT_DESTROY, fid,
@@ -324,7 +325,7 @@ int out_object_destroy_pack(const struct lu_env *env,
 EXPORT_SYMBOL(out_object_destroy_pack);
 
 int out_write_pack(const struct lu_env *env, struct object_update *update,
-		   size_t max_update_length, const struct lu_fid *fid,
+		   size_t *max_update_length, const struct lu_fid *fid,
 		   const struct lu_buf *buf, loff_t pos)
 {
 	__u16		sizes[2] = {buf->lb_len, sizeof(pos)};
@@ -355,7 +356,7 @@ EXPORT_SYMBOL(out_write_pack);
  **/
 int out_index_lookup_pack(const struct lu_env *env,
 			  struct object_update *update,
-			  size_t max_update_length, const struct lu_fid *fid,
+			  size_t *max_update_length, const struct lu_fid *fid,
 			  struct dt_rec *rec, const struct dt_key *key)
 {
 	const void	*name = key;
@@ -367,7 +368,7 @@ int out_index_lookup_pack(const struct lu_env *env,
 EXPORT_SYMBOL(out_index_lookup_pack);
 
 int out_attr_get_pack(const struct lu_env *env, struct object_update *update,
-		      size_t max_update_length, const struct lu_fid *fid)
+		      size_t *max_update_length, const struct lu_fid *fid)
 {
 	return out_update_pack(env, update, max_update_length, OUT_ATTR_GET,
 			       fid, 0, NULL, NULL);
@@ -375,7 +376,7 @@ int out_attr_get_pack(const struct lu_env *env, struct object_update *update,
 EXPORT_SYMBOL(out_attr_get_pack);
 
 int out_xattr_get_pack(const struct lu_env *env, struct object_update *update,
-		       size_t max_update_length, const struct lu_fid *fid,
+		       size_t *max_update_length, const struct lu_fid *fid,
 		       const char *name)
 {
 	__u16 size;
@@ -389,7 +390,7 @@ int out_xattr_get_pack(const struct lu_env *env, struct object_update *update,
 EXPORT_SYMBOL(out_xattr_get_pack);
 
 int out_read_pack(const struct lu_env *env, struct object_update *update,
-		  int max_update_length, const struct lu_fid *fid,
+		  size_t *max_update_length, const struct lu_fid *fid,
 		  ssize_t size, loff_t pos)
 {
 	__u16		sizes[2] = {sizeof(size), sizeof(pos)};

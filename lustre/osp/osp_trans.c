@@ -59,6 +59,7 @@
 
 #define DEBUG_SUBSYSTEM S_MDS
 
+#include <lustre_net.h> 
 #include "osp_internal.h"
 
 /**
@@ -109,6 +110,72 @@ static void object_update_request_free(struct object_update_request *ourq,
 		OBD_FREE_LARGE(ourq, ourq_size);
 }
 
+#define OUT_UPDATE_BUFFER_SIZE_ADD	4096
+#define OUT_UPDATE_BUFFER_SIZE_MAX	(256 * 4096)  /*  1M update size now */
+
+/**
+ * Allocate new update request
+ *
+ * Allocate new update request and insert it to the req_update_list.
+ *
+ * \param [in] our	osp_udate_request where to create a new
+ *                      update request
+ *
+ * \retval	0 if creation succeeds.
+ * \retval	negative errno if creation fails.
+ */
+int osp_object_update_request_create(struct osp_update_request *our,
+				     size_t size)
+{
+	struct osp_update_request_list *ourl;
+
+	OBD_ALLOC_PTR(ourl);
+	if (ourl == NULL)
+		return -ENOMEM;
+
+	ourl->ourl_req = object_update_request_alloc(size);
+
+	if (IS_ERR(ourl->ourl_req)) {
+		OBD_FREE_PTR(ourl);
+		return -ENOMEM;
+	}
+
+	ourl->ourl_req_size = size;
+	INIT_LIST_HEAD(&ourl->ourl_list);
+	list_add_tail(&ourl->ourl_list, &our->our_req_list);
+
+	return 0;
+}
+
+/**
+ * Get current update request
+ *
+ * Get current object update request from our_req_list in
+ * osp_update_request, because we always insert the new update
+ * request in the last position, so the last update request
+ * in the list will be the current update req.
+ *
+ * \param[in] our	osp update request where to get the
+ *                      current object update.
+ *
+ * \retval		the current object update.
+ **/
+struct osp_update_request_list*
+osp_current_object_update_request(struct osp_update_request *our)
+{
+	struct osp_update_request_list	*ourl;
+	struct list_head		*tmp;
+
+	if (list_empty(&our->our_req_list))
+		return NULL;
+
+	tmp = our->our_req_list.prev;
+	ourl = list_entry(tmp, struct osp_update_request_list,
+			  ourl_list);
+
+	return ourl;
+}
+
 /**
  * Allocate and initialize osp_update_request
  *
@@ -123,26 +190,18 @@ static void object_update_request_free(struct object_update_request *ourq,
  */
 struct osp_update_request *osp_update_request_create(struct dt_device *dt)
 {
-	struct osp_update_request *osp_update_req;
-	struct object_update_request *ourq;
+	struct osp_update_request *our;
 
-	OBD_ALLOC_PTR(osp_update_req);
-	if (!osp_update_req)
+	OBD_ALLOC_PTR(our);
+	if (our == NULL)
 		return ERR_PTR(-ENOMEM);
 
-	ourq = object_update_request_alloc(OUT_UPDATE_INIT_BUFFER_SIZE);
-	if (IS_ERR(ourq)) {
-		OBD_FREE_PTR(osp_update_req);
-		return ERR_CAST(ourq);
-	}
+	INIT_LIST_HEAD(&our->our_req_list);
+	INIT_LIST_HEAD(&our->our_cb_items);
+	INIT_LIST_HEAD(&our->our_list);
 
-	osp_update_req->our_req = ourq;
-	osp_update_req->our_req_size = OUT_UPDATE_INIT_BUFFER_SIZE;
-
-	INIT_LIST_HEAD(&osp_update_req->our_cb_items);
-	INIT_LIST_HEAD(&osp_update_req->our_list);
-
-	return osp_update_req;
+	osp_object_update_request_create(our, OUT_UPDATE_INIT_BUFFER_SIZE);
+	return our;
 }
 
 /**
@@ -152,11 +211,18 @@ struct osp_update_request *osp_update_request_create(struct dt_device *dt)
  */
 void osp_update_request_destroy(struct osp_update_request *our)
 {
+	struct osp_update_request_list *ourl;
+	struct osp_update_request_list *tmp;
+
 	if (our == NULL)
 		return;
 
-	object_update_request_free(our->our_req,
-				   our->our_req_size);
+	list_for_each_entry_safe(ourl, tmp, &our->our_req_list, ourl_list) {
+		list_del(&ourl->ourl_list);
+		object_update_request_free(ourl->ourl_req,
+					   ourl->ourl_req_size);
+		OBD_FREE_PTR(ourl);
+	}
 	OBD_FREE_PTR(our);
 }
 
@@ -199,40 +265,71 @@ object_update_request_dump(const struct object_update_request *ourq, __u32 umask
  * \retval		negative errno if preparation fails.
  */
 int osp_prep_update_req(const struct lu_env *env, struct obd_import *imp,
-			const struct object_update_request *ureq,
+			struct osp_update_request *our,
 			struct ptlrpc_request **reqp)
 {
 	struct ptlrpc_request		*req;
-	struct object_update_request	*tmp;
-	int				ureq_len;
+	struct ptlrpc_bulk_desc		*desc;
+	struct osp_update_request_list	*ourl;
+	struct out_update_header	*ouh;
+	struct out_update_buffer	*oub;
+	__u32				buf_count = 0;
 	int				rc;
 	ENTRY;
 
-	object_update_request_dump(ureq, D_INFO);
+	list_for_each_entry(ourl, &our->our_req_list, ourl_list) {
+		object_update_request_dump(ourl->ourl_req, D_INFO);
+		buf_count ++;
+	}
+
 	req = ptlrpc_request_alloc(imp, &RQF_OUT_UPDATE);
 	if (req == NULL)
 		RETURN(-ENOMEM);
 
-	ureq_len = object_update_request_size(ureq);
-	req_capsule_set_size(&req->rq_pill, &RMF_OUT_UPDATE, RCL_CLIENT,
-			     ureq_len);
+	req_capsule_set_size(&req->rq_pill, &RMF_OUT_UPDATE_BUF, RCL_CLIENT,
+			     buf_count * sizeof(*oub));
 
 	rc = ptlrpc_request_pack(req, LUSTRE_MDS_VERSION, OUT_UPDATE);
-	if (rc != 0) {
-		ptlrpc_req_finished(req);
-		RETURN(rc);
+	if (rc != 0)
+		GOTO(out_finish, rc);
+
+	ouh = req_capsule_client_get(&req->rq_pill, &RMF_OUT_UPDATE_HEADER);
+	ouh->ouh_magic = cpu_to_le32(OUT_UPDATE_HEADER_MAGIC);
+	ouh->ouh_count = cpu_to_le32(buf_count);
+	ouh->ouh_xid = cpu_to_le64(req->rq_xid);
+
+	oub = req_capsule_client_get(&req->rq_pill, &RMF_OUT_UPDATE_BUF);
+	list_for_each_entry(ourl, &our->our_req_list, ourl_list) {
+		oub->oub_offset = 0;
+		oub->oub_length = ourl->ourl_req_size;
+		oub++;
+	}
+
+	req->rq_bulk_write = 1;
+	desc = ptlrpc_prep_bulk_imp(req, buf_count,
+		MD_MAX_BRW_SIZE >> LNET_MTU_BITS,
+		BULK_GET_SOURCE | BULK_BUF_IOVEC, MDS_BULK_PORTAL,
+		&ptlrpc_bulk_iovec_ops);
+	if (desc == NULL)
+		GOTO(out_finish, rc = -ENOMEM);
+
+	/* NB req now owns desc and will free it when it gets freed */
+	list_for_each_entry(ourl, &our->our_req_list, ourl_list) {
+		desc->bd_frag_ops->add_iov_frag(desc, ourl->ourl_req,
+						ourl->ourl_req_size);
 	}
 
 	req_capsule_set_size(&req->rq_pill, &RMF_OUT_UPDATE_REPLY,
 			     RCL_SERVER, OUT_UPDATE_REPLY_SIZE);
 
-	tmp = req_capsule_client_get(&req->rq_pill, &RMF_OUT_UPDATE);
-	memcpy(tmp, ureq, ureq_len);
-
 	ptlrpc_request_set_replen(req);
 	req->rq_request_portal = OUT_PORTAL;
 	req->rq_reply_portal = OSC_REPLY_PORTAL;
 	*reqp = req;
+
+out_finish:
+	if (rc < 0)
+		ptlrpc_req_finished(req);
 
 	RETURN(rc);
 }
@@ -258,7 +355,7 @@ int osp_remote_sync(const struct lu_env *env, struct obd_import *imp,
 	int			rc;
 	ENTRY;
 
-	rc = osp_prep_update_req(env, imp, our->our_req, &req);
+	rc = osp_prep_update_req(env, imp, our, &req);
 	if (rc != 0)
 		RETURN(rc);
 
@@ -460,7 +557,7 @@ int osp_unplug_async_request(const struct lu_env *env,
 	int			 rc;
 
 	rc = osp_prep_update_req(env, osp->opd_obd->u.cli.cl_import,
-				 our->our_req, &req);
+				 our, &req);
 	if (rc != 0) {
 		struct osp_update_callback *ouc;
 		struct osp_update_callback *next;
@@ -580,6 +677,7 @@ int osp_insert_async_request(const struct lu_env *env, enum update_type op,
 	struct object_update		*object_update;
 	size_t				max_update_size;
 	struct object_update_request	*ureq;
+	struct osp_update_request_list	*ourl;
 	int				rc = 0;
 	ENTRY;
 
@@ -589,11 +687,13 @@ int osp_insert_async_request(const struct lu_env *env, enum update_type op,
 		RETURN(PTR_ERR(our));
 
 again:
-	ureq = our->our_req;
-	max_update_size = our->our_req_size - object_update_request_size(ureq);
+	ourl = osp_current_object_update_request(our);
+
+	ureq = ourl->ourl_req;
+	max_update_size = ourl->ourl_req_size - object_update_request_size(ureq);
 
 	object_update = update_buffer_get_update(ureq, ureq->ourq_count);
-	rc = out_update_pack(env, object_update, max_update_size, op,
+	rc = out_update_pack(env, object_update, &max_update_size, op,
 			     lu_object_fid(osp2lu_obj(obj)), count, lens, bufs);
 	/* The queue is full. */
 	if (rc == -E2BIG) {
@@ -837,7 +937,7 @@ static int osp_send_update_req(const struct lu_env *env,
 	LASSERT(oth != NULL);
 
 	rc = osp_prep_update_req(env, osp->opd_obd->u.cli.cl_import,
-				 our->our_req, &req);
+				 our, &req);
 	if (rc != 0) {
 		osp_trans_callback(env, oth, rc);
 		RETURN(rc);
@@ -1142,8 +1242,7 @@ int osp_trans_stop(const struct lu_env *env, struct dt_device *dt,
 	int			 rc = 0;
 	ENTRY;
 
-	if (our == NULL || our->our_req == NULL ||
-	    our->our_req->ourq_count == 0) {
+	if (our == NULL || list_empty(&our->our_req_list)) {
 		osp_trans_callback(env, oth, th->th_result);
 		GOTO(out, rc = th->th_result);
 	}

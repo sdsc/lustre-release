@@ -59,6 +59,11 @@ struct ptlrpc_bulk_frag_ops ptlrpc_bulk_kiov_nopin_ops = {
 };
 EXPORT_SYMBOL(ptlrpc_bulk_kiov_nopin_ops);
 
+struct ptlrpc_bulk_frag_ops ptlrpc_bulk_iovec_ops = {
+	.add_iov_frag = ptlrpc_prep_bulk_frag,
+};
+EXPORT_SYMBOL(ptlrpc_bulk_iovec_ops);
+
 static int ptlrpc_send_new_req(struct ptlrpc_request *req);
 static int ptlrpcd_check_work(struct ptlrpc_request *req);
 static int ptlrpc_unregister_reply(struct ptlrpc_request *request, int async);
@@ -222,6 +227,7 @@ int ptlrpc_prep_bulk_frag(struct ptlrpc_bulk_desc *desc,
 			  void *frag, int len)
 {
 	struct iovec *iovec;
+	ENTRY;
 
 	LASSERT(desc->bd_iov_count < desc->bd_max_iov);
 	LASSERT(frag != NULL);
@@ -237,7 +243,7 @@ int ptlrpc_prep_bulk_frag(struct ptlrpc_bulk_desc *desc,
 
 	desc->bd_iov_count++;
 
-	return desc->bd_nob;
+	RETURN(desc->bd_nob);
 }
 EXPORT_SYMBOL(ptlrpc_prep_bulk_frag);
 
@@ -250,16 +256,17 @@ void ptlrpc_free_bulk(struct ptlrpc_bulk_desc *desc)
 	LASSERT(desc->bd_md_count == 0);         /* network hands off */
 	LASSERT((desc->bd_export != NULL) ^ (desc->bd_import != NULL));
 	LASSERT(desc->bd_frag_ops != NULL);
-	LASSERT(desc->bd_frag_ops->release_frag != NULL);
 
-	sptlrpc_enc_pool_put_pages(desc);
+	if (is_bulk_desc_kiov(desc->bd_type))
+		sptlrpc_enc_pool_put_pages(desc);
 
 	if (desc->bd_export)
 		class_export_put(desc->bd_export);
 	else
 		class_import_put(desc->bd_import);
 
-	desc->bd_frag_ops->release_frag(desc);
+	if (desc->bd_frag_ops->release_frag != NULL)
+		desc->bd_frag_ops->release_frag(desc);
 
 	if (is_bulk_desc_kiov(desc->bd_type))
 		OBD_FREE(desc, offsetof(struct ptlrpc_bulk_desc,
