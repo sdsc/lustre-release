@@ -826,7 +826,7 @@ static int lod_qos_is_ost_used(const struct lu_env *env, int ost, __u32 stripes)
 }
 
 /**
- * Allocate a striping using round-robin algorigthm.
+ * Allocate a striping using round-robin algorithm.
  *
  * Allocates a new striping using round-robin algorithm. The function refreshes
  * all the internal structures (statfs cache, array of available OSTs sorted
