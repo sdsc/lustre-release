@@ -1,4 +1,4 @@
-LIBCFS = $(top_builddir)/libcfs/libcfs/libcfs.a
+LIBCFS = $(top_builddir)/libcfs/libcfs/libcfsutil.la
 LIBLUSTREAPI = $(top_builddir)/lustre/utils/liblustreapi.la
 
 # Lustre test Makefile
@@ -91,13 +91,13 @@ endif # TESTS
 
 mmap_sanity_SOURCES= mmap_sanity.c
 
-multiop_LDADD=$(LIBLUSTREAPI) $(PTHREAD_LIBS) $(LIBCFS)
-llapi_layout_test_LDADD=$(LIBLUSTREAPI)
+multiop_LDADD=$(LIBLUSTREAPI) $(LIBREADLINE) $(PTHREAD_LIBS)
+llapi_layout_test_LDADD=$(LIBLUSTREAPI) $(LIBREADLINE)
 it_test_LDADD=$(LIBCFS)
 rwv_LDADD=$(LIBCFS)
 
 ll_dirstripe_verify_SOURCES= ll_dirstripe_verify.c
-ll_dirstripe_verify_LDADD= $(PTHREAD_LIBS) $(LIBLUSTREAPI) $(LIBCFS)
+ll_dirstripe_verify_LDADD= $(PTHREAD_LIBS) $(LIBLUSTREAPI) $(LIBREADLINE)
 
 flocks_test_SOURCES=flocks_test.c
 flocks_test_LDADD=-lpthread

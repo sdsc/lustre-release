@@ -44,8 +44,7 @@ endif
 
 AM_LDFLAGS := -L$(top_builddir)/lnet/utils/lnetconfig
 
-LIBCFS= $(top_builddir)/libcfs/libcfs/libcfs.a
-LIBCFSUTIL= $(top_builddir)/libcfs/libcfs/libcfsutil.a
+LIBCFSUTIL= $(top_builddir)/libcfs/libcfs/libcfsutil.la
 
 if UTILS
 sbin_PROGRAMS = routerstat lst
@@ -57,8 +56,8 @@ endif
 routerstat_SOURCES = routerstat.c
 
 lst_SOURCES = lst.c
-lst_LDADD = -L. -lptlctl $(LIBCFSUTIL) $(LIBCFS) $(LIBREADLINE) $(LIBEFENCE)
-lst_DEPENDENCIES = libptlctl.a
+lst_LDADD = -L. -lptlctl $(LIBCFSUTIL) $(LIBREADLINE) $(LIBEFENCE)
+lst_DEPENDENCIES = libptlctl.la
 
 if TESTS
 sbin_PROGRAMS += wirecheck
@@ -66,13 +65,12 @@ sbin_PROGRAMS += wirecheck
 wirecheck_SOURCES = wirecheck.c
 endif
 
-lib_LIBRARIES = libptlctl.a
-
-libptlctl_a_SOURCES = portals.c debug.c
+noinst_LTLIBRARIES = libptlctl.la
+libptlctl_la_SOURCES = portals.c debug.c
 
 CYAML := $(top_builddir)/lnet/utils/cyaml/cyaml.c
 lnetctl_SOURCES = lnetctl.c $(CYAML)
 lnetctl_LDADD = -L. -lm -lyaml -llnetconfig \
-		$(LIBCFSUTIL) $(LIBCFS) $(LIBREADLINE) $(LIBEFENCE)
+		$(LIBCFSUTIL) $(LIBREADLINE) $(LIBEFENCE)
 lnetctl_DEPENDENCIES = $(top_builddir)/lnet/utils/lnetconfig/liblnetconfig.so
 endif # UTILS
