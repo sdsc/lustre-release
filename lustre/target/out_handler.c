@@ -58,14 +58,22 @@ static inline int out_check_resent(const struct lu_env *env,
 				   struct dt_device *dt,
 				   struct dt_object *obj,
 				   struct ptlrpc_request *req,
+				   __u64  last_xid,
 				   out_reconstruct_t reconstruct,
 				   struct object_update_reply *reply,
 				   int index)
 {
+	struct lsd_client_data *lcd;
+
 	if (likely(!(lustre_msg_get_flags(req->rq_reqmsg) & MSG_RESENT)))
 		return 0;
 
-	if (req_xid_is_last(req)) {
+	/* Note: we can not use xid in the request to check the last
+	 * resend request, because client will generate a new xid for
+	 * resend bulk request */
+	lcd = req->rq_export->exp_target_data.ted_lcd;
+	if (last_xid == lcd->lcd_last_xid ||
+	    last_xid == lcd->lcd_last_close_xid) {
 		struct lsd_client_data *lcd;
 
 		lcd = req->rq_export->exp_target_data.ted_lcd;
@@ -857,42 +865,45 @@ int out_handle(struct tgt_session_info *tsi)
 	struct thandle_exec_args	*ta = &tti->tti_tea;
 	struct req_capsule		*pill = tsi->tsi_pill;
 	struct dt_device		*dt = tsi->tsi_tgt->lut_bottom;
-	struct object_update_request	*ureq;
+	struct out_update_header	*ouh;
+	struct out_update_buffer	*oub;
 	struct object_update		*update;
 	struct object_update_reply	*reply;
-	int				 bufsize;
-	int				 count;
+	struct ptlrpc_bulk_desc		*desc;
+	struct l_wait_info		lwi;
+	char				**update_bufs;
 	int				 current_batchid = -1;
+	__u32				count;
 	int				 i;
+	int				 k = 0;
 	int				 rc = 0;
 	int				 rc1 = 0;
 
 	ENTRY;
 
 	req_capsule_set(pill, &RQF_OUT_UPDATE);
-	ureq = req_capsule_client_get(pill, &RMF_OUT_UPDATE);
-	if (ureq == NULL) {
+	ouh = req_capsule_client_get(pill, &RMF_OUT_UPDATE_HEADER);
+	if (ouh == NULL) {
 		CERROR("%s: No buf!: rc = %d\n", tgt_name(tsi->tsi_tgt),
 		       -EPROTO);
 		RETURN(err_serious(-EPROTO));
 	}
 
-	bufsize = req_capsule_get_size(pill, &RMF_OUT_UPDATE, RCL_CLIENT);
-	if (bufsize != object_update_request_size(ureq)) {
-		CERROR("%s: invalid bufsize %d: rc = %d\n",
-		       tgt_name(tsi->tsi_tgt), bufsize, -EPROTO);
-		RETURN(err_serious(-EPROTO));
-	}
-
-	if (ureq->ourq_magic != UPDATE_REQUEST_MAGIC) {
+	if (ouh->ouh_magic != OUT_UPDATE_HEADER_MAGIC) {
 		CERROR("%s: invalid update buffer magic %x expect %x: "
-		       "rc = %d\n", tgt_name(tsi->tsi_tgt), ureq->ourq_magic,
+		       "rc = %d\n", tgt_name(tsi->tsi_tgt), ouh->ouh_magic,
 		       UPDATE_REQUEST_MAGIC, -EPROTO);
 		RETURN(err_serious(-EPROTO));
 	}
 
-	count = ureq->ourq_count;
-	if (count <= 0) {
+	if (ouh->ouh_xid == 0) {
+		CERROR("%s: invalid update buffer xid == 0 rc = %d\n",
+		       tgt_name(tsi->tsi_tgt), -EPROTO);
+		RETURN(err_serious(-EPROTO));
+	}
+
+	count = ouh->ouh_count;
+	if (count == 0) {
 		CERROR("%s: empty update: rc = %d\n", tgt_name(tsi->tsi_tgt),
 		       -EPROTO);
 		RETURN(err_serious(-EPROTO));
@@ -907,11 +918,41 @@ int out_handle(struct tgt_session_info *tsi)
 		RETURN(rc);
 	}
 
+	OBD_ALLOC(update_bufs, sizeof(*update_bufs) * count);
+	if (update_bufs == NULL)
+		RETURN(-ENOMEM);
+
+	oub = req_capsule_client_get(pill, &RMF_OUT_UPDATE_BUF);
+	desc = ptlrpc_prep_bulk_exp(pill->rc_req, count, PTLRPC_BULK_OPS_COUNT,
+				    BULK_GET_SINK | BULK_BUF_IOVEC,
+				    MDS_BULK_PORTAL, &ptlrpc_bulk_iovec_ops);
+	if (desc == NULL)
+		GOTO(out_free, rc = -ENOMEM);
+
+	/* NB Having prepped, we must commit... */
+	for (i = 0; i < count; i++, oub++) {
+		OBD_ALLOC(update_bufs[i], oub->oub_length);
+		if (update_bufs[i] == NULL)
+			GOTO(out_free, rc = -ENOMEM);
+
+		desc->bd_frag_ops->add_iov_frag(desc, update_bufs[i],
+						oub->oub_length);
+	}
+
+	pill->rc_req->rq_bulk_write = 1;
+	rc = sptlrpc_svc_prep_bulk(pill->rc_req, desc);
+	if (rc != 0)
+		GOTO(out_free, rc);
+
+	rc = target_bulk_io(pill->rc_req->rq_export, desc, &lwi);
+	if (rc < 0)
+		GOTO(out_free, rc);
+
 	/* Prepare the update reply buffer */
 	reply = req_capsule_server_get(pill, &RMF_OUT_UPDATE_REPLY);
 	if (reply == NULL)
-		RETURN(err_serious(-EPROTO));
-	object_update_reply_init(reply, count);
+		GOTO(out_free, rc = err_serious(-EPROTO));
+	reply->ourp_magic = cpu_to_le32(UPDATE_REPLY_MAGIC);
 	tti->tti_u.update.tti_update_reply = reply;
 	tti->tti_mult_trans = !req_is_replay(tgt_ses_req(tsi));
 
@@ -919,95 +960,130 @@ int out_handle(struct tgt_session_info *tsi)
 	for (i = 0; i < count; i++) {
 		struct tgt_handler	*h;
 		struct dt_object	*dt_obj;
+		int			update_count;
+		struct object_update_request *our;
+		int			j;
 
-		update = object_update_request_get(ureq, i, NULL);
-		if (update == NULL)
+		our = (struct object_update_request *)update_bufs[i];
+		if (our->ourq_magic != UPDATE_REQUEST_MAGIC) {
+			CERROR("%s: invalid update buffer magic %x"
+			       " expect %x: rc = %d\n",
+			       tgt_name(tsi->tsi_tgt), our->ourq_magic,
+			       UPDATE_REQUEST_MAGIC, -EPROTO);
 			GOTO(out, rc = -EPROTO);
-
-		if (ptlrpc_req_need_swab(pill->rc_req))
-			lustre_swab_object_update(update);
-
-		if (!fid_is_sane(&update->ou_fid)) {
-			CERROR("%s: invalid FID "DFID": rc = %d\n",
-			       tgt_name(tsi->tsi_tgt), PFID(&update->ou_fid),
-			       -EPROTO);
-			GOTO(out, rc = err_serious(-EPROTO));
 		}
 
-		dt_obj = dt_locate(env, dt, &update->ou_fid);
-		if (IS_ERR(dt_obj))
-			GOTO(out, rc = PTR_ERR(dt_obj));
+		update_count = le32_to_cpu(our->ourq_count);
+		reply->ourp_count += update_count;
+		for (j = 0; j < update_count; j++) {
+			update = object_update_request_get(our, j, NULL);
+			if (update == NULL)
+				GOTO(out, rc = -EPROTO);
 
-		if (dt->dd_record_fid_accessed) {
-			lfsck_pack_rfa(&tti->tti_lr,
-				       lu_object_fid(&dt_obj->do_lu),
-				       LE_FID_ACCESSED,
-				       LFSCK_TYPE_LAYOUT);
-			tgt_lfsck_in_notify(env, dt, &tti->tti_lr, NULL);
-		}
+			if (ptlrpc_req_need_swab(pill->rc_req))
+				lustre_swab_object_update(update);
 
-		tti->tti_u.update.tti_dt_object = dt_obj;
-		tti->tti_u.update.tti_update = update;
-		tti->tti_u.update.tti_update_reply_index = i;
+			if (!fid_is_sane(&update->ou_fid)) {
+				CERROR("%s: invalid FID "DFID": rc = %d\n",
+				       tgt_name(tsi->tsi_tgt),
+				       PFID(&update->ou_fid), -EPROTO);
+				GOTO(out, rc = err_serious(-EPROTO));
+			}
 
-		h = out_handler_find(update->ou_type);
-		if (unlikely(h == NULL)) {
-			CERROR("%s: unsupported opc: 0x%x\n",
-			       tgt_name(tsi->tsi_tgt), update->ou_type);
-			GOTO(next, rc = -ENOTSUPP);
-		}
+			dt_obj = dt_locate(env, dt, &update->ou_fid);
+			if (IS_ERR(dt_obj))
+				GOTO(out, rc = PTR_ERR(dt_obj));
 
-		/* Check resend case only for modifying RPC */
-		if (h->th_flags & MUTABOR) {
-			struct ptlrpc_request *req = tgt_ses_req(tsi);
+			if (dt->dd_record_fid_accessed) {
+				lfsck_pack_rfa(&tti->tti_lr,
+					       lu_object_fid(&dt_obj->do_lu),
+					       LE_FID_ACCESSED,
+					       LFSCK_TYPE_LAYOUT);
+				tgt_lfsck_in_notify(env, dt, &tti->tti_lr,
+						    NULL);
+			}
 
-			if (out_check_resent(env, dt, dt_obj, req,
-					     out_reconstruct, reply, i))
-				GOTO(next, rc = 0);
-		}
+			tti->tti_u.update.tti_dt_object = dt_obj;
+			tti->tti_u.update.tti_update = update;
+			tti->tti_u.update.tti_update_reply_index = k;
 
-		/* start transaction for modification RPC only */
-		if (h->th_flags & MUTABOR && current_batchid == -1) {
-			current_batchid = update->ou_batchid;
-			rc = out_tx_start(env, dt, ta, tsi->tsi_exp);
-			if (rc != 0)
-				GOTO(next, rc);
-			if (update->ou_flags & UPDATE_FL_SYNC)
-				ta->ta_handle->th_sync = 1;
-		}
+			h = out_handler_find(update->ou_type);
+			if (unlikely(h == NULL)) {
+				CERROR("%s: unsupported opc: 0x%x\n",
+				       tgt_name(tsi->tsi_tgt), update->ou_type);
+				GOTO(next, rc = -ENOTSUPP);
+			}
 
-		/* Stop the current update transaction, if the update has
-		 * different batchid, or read-only update */
-		if (((current_batchid != update->ou_batchid) ||
-		     !(h->th_flags & MUTABOR)) && ta->ta_handle != NULL) {
-			rc = out_tx_end(env, ta, rc);
-			current_batchid = -1;
-			if (rc != 0)
-				GOTO(next, rc);
-
-			/* start a new transaction if needed */
+			/* Check resend case only for modifying RPC */
 			if (h->th_flags & MUTABOR) {
+				struct ptlrpc_request *req = tgt_ses_req(tsi);
+
+				if (out_check_resent(env, dt, dt_obj, req,
+						     ouh->ouh_xid,
+						     out_reconstruct, reply, k))
+					GOTO(next, rc = 0);
+			}
+
+			/* start transaction for modification RPC only */
+			if (h->th_flags & MUTABOR && current_batchid == -1) {
+				current_batchid = update->ou_batchid;
 				rc = out_tx_start(env, dt, ta, tsi->tsi_exp);
 				if (rc != 0)
 					GOTO(next, rc);
 				if (update->ou_flags & UPDATE_FL_SYNC)
 					ta->ta_handle->th_sync = 1;
-				current_batchid = update->ou_batchid;
 			}
-		}
 
-		rc = h->th_act(tsi);
+			/* Stop the current update transaction, if the update
+			 * has different batchid, or read-only update */
+			if (((current_batchid != update->ou_batchid) ||
+			     !(h->th_flags & MUTABOR)) &&
+			     ta->ta_handle != NULL) {
+				rc = out_tx_end(env, ta, rc);
+				current_batchid = -1;
+				if (rc != 0)
+					GOTO(next, rc);
+
+				/* start a new transaction if needed */
+				if (h->th_flags & MUTABOR) {
+					rc = out_tx_start(env, dt, ta,
+							  tsi->tsi_exp);
+					if (rc != 0)
+						GOTO(next, rc);
+					if (update->ou_flags & UPDATE_FL_SYNC)
+						ta->ta_handle->th_sync = 1;
+					current_batchid = update->ou_batchid;
+				}
+			}
+
+			rc = h->th_act(tsi);
 next:
-		lu_object_put(env, &dt_obj->do_lu);
-		if (rc < 0)
-			GOTO(out, rc);
+			k++;
+			lu_object_put(env, &dt_obj->do_lu);
+			if (rc < 0)
+				GOTO(out, rc);
+		}
 	}
 out:
+	reply->ourp_count = cpu_to_le32(reply->ourp_count);
 	if (current_batchid != -1) {
 		rc1 = out_tx_end(env, ta, rc);
 		if (rc == 0)
 			rc = rc1;
 	}
+
+out_free:
+	oub = req_capsule_client_get(pill, &RMF_OUT_UPDATE_BUF);
+	if (update_bufs != NULL) {
+		for (i = 0; i < count; i++, oub++) {
+			if (update_bufs[i] != NULL)
+				OBD_FREE(update_bufs[i], oub->oub_length);
+		}
+		OBD_FREE(update_bufs, sizeof(update_bufs[i]) * count);
+	}
+
+	if (desc)
+		ptlrpc_free_bulk(desc);
 
 	RETURN(rc);
 }

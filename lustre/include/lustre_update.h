@@ -344,13 +344,6 @@ object_update_request_size(const struct object_update_request *our)
 }
 
 static inline void
-object_update_reply_init(struct object_update_reply *reply, size_t count)
-{
-	reply->ourp_magic = UPDATE_REPLY_MAGIC;
-	reply->ourp_count = count;
-}
-
-static inline void
 object_update_result_insert(struct object_update_reply *reply,
 			    void *data, size_t data_len, size_t index,
 			    int rc)
@@ -401,62 +394,62 @@ object_update_result_data_get(const struct object_update_reply *reply,
 
 /* target/out_lib.c */
 int out_update_pack(const struct lu_env *env, struct object_update *update,
-		    size_t max_update_size, enum update_type op,
+		    size_t *max_update_size, enum update_type op,
 		    const struct lu_fid *fid, int params_count,
 		    __u16 *param_sizes, const void **bufs);
 int out_create_pack(const struct lu_env *env, struct object_update *update,
-		    size_t max_update_size, const struct lu_fid *fid,
+		    size_t *max_update_size, const struct lu_fid *fid,
 		    const struct lu_attr *attr, struct dt_allocation_hint *hint,
 		    struct dt_object_format *dof);
 int out_striped_create_pack(const struct lu_env *env,
 			    struct object_update *update,
-			    size_t max_update_size,
+			    size_t *max_update_size,
 			    const struct lu_fid *fid, const void *buffer,
 			    int buffer_length, struct lu_attr *attr);
 int out_object_destroy_pack(const struct lu_env *env,
 			    struct object_update *update,
-			    size_t max_update_size,
+			    size_t *max_update_size,
 			    const struct lu_fid *fid, __u16 cookie_size,
 			    const void *cookie);
 int out_index_delete_pack(const struct lu_env *env,
-			  struct object_update *update, size_t max_update_size,
+			  struct object_update *update, size_t *max_update_size,
 			  const struct lu_fid *fid, const struct dt_key *key);
 int out_index_insert_pack(const struct lu_env *env,
-			  struct object_update *update, size_t max_update_size,
+			  struct object_update *update, size_t *max_update_size,
 			  const struct lu_fid *fid, const struct dt_rec *rec,
 			  const struct dt_key *key);
 int out_xattr_set_pack(const struct lu_env *env,
-		       struct object_update *update, size_t max_update_size,
+		       struct object_update *update, size_t *max_update_size,
 		       const struct lu_fid *fid, const struct lu_buf *buf,
 		       const char *name, int flag);
 int out_xattr_del_pack(const struct lu_env *env,
-		       struct object_update *update, size_t max_update_size,
+		       struct object_update *update, size_t *max_update_size,
 		       const struct lu_fid *fid, const char *name);
 int out_attr_set_pack(const struct lu_env *env,
-		      struct object_update *update, size_t max_update_size,
+		      struct object_update *update, size_t *max_update_size,
 		      const struct lu_fid *fid, const struct lu_attr *attr);
 int out_ref_add_pack(const struct lu_env *env,
-		     struct object_update *update, size_t max_update_size,
+		     struct object_update *update, size_t *max_update_size,
 		     const struct lu_fid *fid);
 int out_ref_del_pack(const struct lu_env *env,
-		     struct object_update *update, size_t max_update_size,
+		     struct object_update *update, size_t *max_update_size,
 		     const struct lu_fid *fid);
 int out_write_pack(const struct lu_env *env,
-		   struct object_update *update, size_t max_update_size,
+		   struct object_update *update, size_t *max_update_size,
 		   const struct lu_fid *fid, const struct lu_buf *buf,
 		   loff_t pos);
 int out_attr_get_pack(const struct lu_env *env,
-		      struct object_update *update, size_t max_update_size,
+		      struct object_update *update, size_t *max_update_size,
 		      const struct lu_fid *fid);
 int out_index_lookup_pack(const struct lu_env *env,
-			  struct object_update *update, size_t max_update_size,
+			  struct object_update *update, size_t *max_update_size,
 			  const struct lu_fid *fid, struct dt_rec *rec,
 			  const struct dt_key *key);
 int out_xattr_get_pack(const struct lu_env *env,
-		       struct object_update *update, size_t max_update_size,
+		       struct object_update *update, size_t *max_update_size,
 		       const struct lu_fid *fid, const char *name);
 int out_read_pack(const struct lu_env *env, struct object_update *update,
-		  int max_update_length, const struct lu_fid *fid,
+		  size_t *max_update_length, const struct lu_fid *fid,
 		  ssize_t size, loff_t pos);
 
 const char *update_op_str(__u16 opcode);
