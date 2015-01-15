@@ -2888,6 +2888,13 @@ do_nodes() {
     local rnodes=$1
     shift
 
+    # remove duplicates from the node list.
+    # If a name is repeated in the hostlist, pdsh will execute the
+    # command more than once.  Some remote commands will
+    # fail or behave differently than if they were run only once.
+    # Note the order of the list may be changed.
+    rnodes=$(expand_list $rnodes)
+
     if single_local_node $rnodes; then
         if $verbose; then
            do_nodev $rnodes "$@"
@@ -3496,9 +3503,17 @@ setupall() {
     sanity_mount_check ||
         error "environments are insane!"
 
+    local clients=${CLIENTS:-`hostname -s`}
+    local DAEMON_STARTED=""
+
     load_modules
 
     if [ -z "$CLIENTONLY" ]; then
+        if [ -n "$DAEMONFILE" ]; then
+            do_nodes $(comma_list $(mdts_nodes) $(osts_nodes)) \
+                     "$LCTL debug_daemon start $DAEMONFILE.\$(hostname -s).log $DAEMONSIZE"
+            DAEMON_STARTED="yes"
+        fi
         echo Setup mgs, mdt, osts
         echo $WRITECONF | grep -q "writeconf" && \
             writeconf_all
@@ -3544,7 +3559,9 @@ setupall() {
             sleep 10
         fi
 
-        [ "$DAEMONFILE" ] && $LCTL debug_daemon start $DAEMONFILE $DAEMONSIZE
+        if [ -n "$DAEMONFILE" -a -z "$DAEMON_STARTED" ]; then
+            do_nodes ${clients} "$LCTL debug_daemon start $DAEMONFILE.\$(hostname -s).log $DAEMONSIZE"
+        fi
         mount_client $MOUNT
         [ -n "$CLIENTS" ] && zconf_mount_clients $CLIENTS $MOUNT
         clients_up
