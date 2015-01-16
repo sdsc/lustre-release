@@ -973,7 +973,7 @@ static int mdt_close_handle_unpack(struct mdt_thread_info *info)
 	if (ioepoch == NULL)
 		RETURN(-EPROTO);
 
-	info->mti_close_handle = ioepoch->handle;
+	info->mti_close_handle = ioepoch->mio_handle;
 
 	RETURN(0);
 }
