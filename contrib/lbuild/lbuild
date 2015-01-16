@@ -1092,7 +1092,7 @@ build_spl_zfs() {
         sh autogen.sh || return 255
 
         if  ! ./configure --with-linux=${LINUX} --with-linux-obj=${LINUXOBJ:-$LINUX} \
-                          ${spldir:+--with-spl="${spldir}"} 2>&1 ||
+                          --enable-debug=yes ${spldir:+--with-spl="${spldir}"} 2>&1 ||
             ! make dist 2>&1; then
             popd
             return 255
