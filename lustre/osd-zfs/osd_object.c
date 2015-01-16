@@ -695,6 +695,7 @@ static void osd_object_write_lock(const struct lu_env *env,
 	struct osd_object *obj = osd_dt_obj(dt);
 
 	LASSERT(osd_invariant(obj));
+	LASSERT(atomic_read(&dt->do_lu.lo_header->loh_ref) > 0);
 
 	down_write(&obj->oo_sem);
 }
