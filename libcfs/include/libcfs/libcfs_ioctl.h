@@ -185,7 +185,9 @@ struct libcfs_ioctl_handler {
 						 IOCTL_CONFIG_SIZE)
 #define IOC_LIBCFS_GET_LNET_STATS	   _IOWR(IOC_LIBCFS_TYPE, 91, \
 						 IOCTL_CONFIG_SIZE)
-#define IOC_LIBCFS_MAX_NR			      91
+#define IOC_LIBCFS_GET_CONN_INFO	   _IOWR(IOC_LIBCFS_TYPE, 92, \
+						 IOCTL_CONFIG_SIZE)
+#define IOC_LIBCFS_MAX_NR			      92
 
 static inline int libcfs_ioctl_packlen(struct libcfs_ioctl_data *data)
 {
