@@ -390,7 +390,7 @@ __must_hold(&req->rq_lock)
 	req->rq_deadline = req->rq_sent + req->rq_timeout +
 			   ptlrpc_at_get_net_latency(req);
 
-	DEBUG_REQ(D_ADAPTTO, req,
+	DEBUG_REQ(D_ADAPTTO|D_WARNING, req,
 		  "Early reply #%d, new deadline in "CFS_DURATION_T"s "
 		  "("CFS_DURATION_T"s)", req->rq_early_count,
 		  cfs_time_sub(req->rq_deadline, cfs_time_current_sec()),
