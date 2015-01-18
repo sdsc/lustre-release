@@ -1565,8 +1565,9 @@ static void extend_recovery_timer(struct obd_device *obd, int drt, bool extend)
                 to = drt;
         }
 
-        if (to > obd->obd_recovery_time_hard)
-                to = obd->obd_recovery_time_hard;
+	if (to > obd->obd_recovery_time_soft)
+		to = obd->obd_recovery_time_soft;
+
 	if (obd->obd_recovery_timeout < to) {
                 obd->obd_recovery_timeout = to;
 		end = obd->obd_recovery_start + to;
