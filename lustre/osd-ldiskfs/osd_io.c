@@ -471,6 +471,12 @@ int osd_bufs_get(const struct lu_env *env, struct dt_object *d, loff_t pos,
                  * needs to keep the pages all aligned properly. */
                 lnb->dentry = (void *) obj;
 
+		if (i_size_read(obj->oo_inode) <= lnb[i].lnb_file_offset)
+			CWARN("may map one more page in excess for inode %p "
+			      "since short-read should occur before offset "
+			      LPU64".\n", obj->oo_inode,
+			      lnb[i].lnb_file_offset);
+
 		lnb->page = osd_get_page(d, lnb->lnb_file_offset, rw);
                 if (lnb->page == NULL)
                         GOTO(cleanup, rc = -ENOMEM);
@@ -829,6 +835,7 @@ static int osd_read_prep(const struct lu_env *env, struct dt_object *dt,
         struct timeval start, end;
         unsigned long timediff;
         int rc = 0, i, m = 0, cache = 0;
+	bool shortread = false;
 
         LASSERT(inode);
 
@@ -850,10 +857,21 @@ static int osd_read_prep(const struct lu_env *env, struct dt_object *dt,
                         break;
 
                 if (i_size_read(inode) <
-		    lnb[i].lnb_file_offset + lnb[i].len - 1)
+		    lnb[i].lnb_file_offset + lnb[i].len - 1) {
 			lnb[i].rc = i_size_read(inode) - lnb[i].lnb_file_offset;
-                else
+			if (shortread == true)
+				CWARN("had to read %d more bytes after "
+				      "short-read for inode %p.\n", lnb[i].rc,
+				      inode);
+			else
+				shortread = true;
+                } else {
                         lnb[i].rc = lnb[i].len;
+			if (shortread == true)
+				CWARN("had to read %d more bytes after "
+				      "short-read for inode %p.\n", lnb[i].rc,
+				      inode);
+		}
                 m += lnb[i].len;
 
                 lprocfs_counter_add(osd->od_stats, LPROC_OSD_CACHE_ACCESS, 1);

@@ -893,7 +893,7 @@ static int ost_brw_read(struct ptlrpc_request *req, struct obd_trans_info *oti)
                 if (page_rc != local_nb[i].len) { /* short read */
                         /* All subsequent pages should be 0 */
                         while(++i < npages)
-                                LASSERT(local_nb[i].rc == 0);
+                                BUG_ON(!(local_nb[i].rc == 0));
                         break;
                 }
         }
