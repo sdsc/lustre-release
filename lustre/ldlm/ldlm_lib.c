@@ -1565,8 +1565,12 @@ static void extend_recovery_timer(struct obd_device *obd, int drt, bool extend)
                 to = drt;
         }
 
-        if (to > obd->obd_recovery_time_hard)
-                to = obd->obd_recovery_time_hard;
+	/* don't allow single timer to extend on more that 1/3 of hard
+	 * timeout, otherwise recovery will be aborted right after timeout
+	 * without any attempt to finish softly with VBR. */
+	if (to > (obd->obd_recovery_time_hard / 3))
+		to = obd->obd_recovery_time_hard / 3;
+
 	if (obd->obd_recovery_timeout < to) {
                 obd->obd_recovery_timeout = to;
 		end = obd->obd_recovery_start + to;

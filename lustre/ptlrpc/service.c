@@ -1953,6 +1953,26 @@ ptlrpc_server_handle_req_in(struct ptlrpc_service_part *svcpt,
                     MSGHDR_AT_SUPPORT) ?
                    /* The max time the client expects us to take */
                    lustre_msg_get_timeout(req->rq_reqmsg) : obd_timeout;
+
+	/* This is attempt to avoid requests with timeout bigger than recovery
+	 * half of recovery window. Such requests might be not resent by client
+	 * in recovery time if reply is lost. Such conditions may occur during
+	 * consequent recovery process usually. Meanwhile this code helps with
+	 * just an extra early reply sent back to a client to reset request
+	 * timeout to fit into recovery window.
+	 */
+	if (req->rq_export != NULL &&
+	    lustre_msg_get_flags(req->rq_reqmsg) &
+	    (MSG_REPLAY | MSG_REQ_REPLAY_DONE) &&
+	    deadline > req->rq_export->exp_obd->obd_recovery_timeout / 2) {
+		DEBUG_REQ(D_WARNING, req, "Request dealine %u is close to "
+			  "recovery window %u\n", deadline,
+			  req->rq_export->exp_obd->obd_recovery_timeout);
+		/* Reduce request deadline to send early reply back and adapt
+		 * request timeout to be in recovery window */
+		deadline = req->rq_export->exp_obd->obd_recovery_timeout / 4;
+	}
+
         req->rq_deadline = req->rq_arrival_time.tv_sec + deadline;
         if (unlikely(deadline == 0)) {
                 DEBUG_REQ(D_ERROR, req, "Dropping request with 0 timeout");
