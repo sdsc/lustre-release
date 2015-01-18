@@ -829,6 +829,7 @@ static int osd_read_prep(const struct lu_env *env, struct dt_object *dt,
         struct timeval start, end;
         unsigned long timediff;
         int rc = 0, i, m = 0, cache = 0;
+	bool shortread = false;
 
         LASSERT(inode);
 
@@ -850,10 +851,25 @@ static int osd_read_prep(const struct lu_env *env, struct dt_object *dt,
                         break;
 
                 if (i_size_read(inode) <
-		    lnb[i].lnb_file_offset + lnb[i].len - 1)
+		    lnb[i].lnb_file_offset + lnb[i].len - 1) {
 			lnb[i].rc = i_size_read(inode) - lnb[i].lnb_file_offset;
-                else
+			if (shortread == true)
+				CWARN("had to read %d more bytes after "
+				      "short-read for inode %p (ino %lu, FID "
+				      DFID").\n", lnb[i].rc, inode,
+				      inode->i_ino,
+				      PFID(lu_object_fid(&dt->do_lu)));
+			else
+				shortread = true;
+                } else {
                         lnb[i].rc = lnb[i].len;
+			if (shortread == true)
+				CWARN("had to read %d more bytes after "
+				      "short-read for inode %p (ino %lu, FID "
+				      DFID").\n", lnb[i].rc, inode,
+				      inode->i_ino,
+				      PFID(lu_object_fid(&dt->do_lu)));
+		}
                 m += lnb[i].len;
 
                 lprocfs_counter_add(osd->od_stats, LPROC_OSD_CACHE_ACCESS, 1);
