@@ -3196,26 +3196,26 @@ obd_matches:
 	    param->fp_lmd->lmd_lmm.lmm_stripe_count)
                 decision = 0;
 
-        while (!decision) {
+	if (param->fp_check_size && S_ISDIR(st->st_mode))
+		decision = 0;
+
+	if (!decision) {
                 /* For regular files with the stripe the decision may have not
                  * been taken yet if *time or size is to be checked. */
-                LASSERT((S_ISREG(st->st_mode) &&
-			param->fp_lmd->lmd_lmm.lmm_stripe_count) ||
-			param->fp_mdt_index != OBD_NOT_FOUND);
-
 		if (param->fp_obd_index != OBD_NOT_FOUND)
                         print_failed_tgt(param, path, LL_STATFS_LOV);
 
 		if (param->fp_mdt_index != OBD_NOT_FOUND)
                         print_failed_tgt(param, path, LL_STATFS_LMV);
 
-		if (dir) {
+		if (S_ISDIR(st->st_mode))
+			ret = fstat_f(dirfd(dir), st);
+		else if (dir != NULL)
 			ret = ioctl(dirfd(dir), IOC_LOV_GETINFO,
 				    (void *)param->fp_lmd);
-		} else if (parent) {
+		else
 			ret = ioctl(dirfd(parent), IOC_LOV_GETINFO,
 				    (void *)param->fp_lmd);
-		}
 
                 if (ret) {
                         if (errno == ENOENT) {
@@ -3236,8 +3236,6 @@ obd_matches:
                 decision = find_time_check(st, param, 0);
                 if (decision == -1)
                         goto decided;
-
-                break;
         }
 
 	if (param->fp_check_size)
