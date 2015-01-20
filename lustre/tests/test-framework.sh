@@ -6695,29 +6695,36 @@ check_write_access() {
 }
 
 init_logging() {
-    if [[ -n $YAML_LOG ]]; then
-        return
-    fi
-    local SAVE_UMASK=`umask`
-    umask 0000
+	[[ -n $YAML_LOG ]] && return
+	local SAVE_UMASK=$(umask)
+	umask 0000
 
-    export YAML_LOG=${LOGDIR}/results.yml
-    mkdir -p $LOGDIR
-    init_clients_lists
+	export YAML_LOG=${LOGDIR}/results.yml
+	mkdir -p $LOGDIR
+	init_clients_lists
 
-    if [ ! -f $YAML_LOG ]; then       # If the yaml log already exists then we will just append to it
-      if check_shared_dir $LOGDIR; then
-          touch $LOGDIR/shared
-          echo "Logging to shared log directory: $LOGDIR"
-      else
-          echo "Logging to local directory: $LOGDIR"
-      fi
+	# If the yaml log already exists then we will just append to it
+	if [ ! -f $YAML_LOG ]; then
+		if check_shared_dir $LOGDIR; then
+			touch $LOGDIR/shared
+			echo "Logging to shared log directory: $LOGDIR"
+		else
+			echo "Logging to local directory: $LOGDIR"
+		fi
 
-      yml_nodes_file $LOGDIR >> $YAML_LOG
-      yml_results_file >> $YAML_LOG
-    fi
+		yml_nodes_file $LOGDIR >> $YAML_LOG
+		yml_results_file >> $YAML_LOG
+	fi
 
-    umask $SAVE_UMASK
+	umask $SAVE_UMASK
+
+	# If modules are not yet loaded then older "lctl lustre_build_version"
+	# will fail.  Use lctl build version instead.
+	log "Client: $($LCTL lustre_build_version)"
+	log "MDS: $(do_facet $SINGLEMDS $LCTL lustre_build_version 2>/dev/null||
+		    do_facet $SINGLEMDS $LCTL --version)"
+	log "OSS: $(do_facet ost1 $LCTL lustre_build_version 2> /dev/null ||
+		    do_facet ost1 $LCTL --version)"
 }
 
 log_test() {
