@@ -925,17 +925,16 @@ int jt_obd_abort_recovery(int argc, char **argv)
 
 int jt_get_version(int argc, char **argv)
 {
-        int rc;
-        char rawbuf[MAX_IOC_BUFLEN];
-        char *version;
+	int rc;
+	char version[128];
 
-        if (argc != 1)
-                return CMD_HELP;
+	if (argc != 1)
+		return CMD_HELP;
 
-        rc = llapi_get_version(rawbuf, MAX_IOC_BUFLEN, &version);
-        if (rc)
-                fprintf(stderr, "error: %s: %s\n", jt_cmdname(argv[0]),
-                        strerror(-rc));
+	rc = llapi_get_build_version(version, sizeof(version));
+	if (rc)
+		fprintf(stderr, "error: %s: %s\n", jt_cmdname(argv[0]),
+			strerror(-rc));
 	else
 		printf("Lustre version: %s\n", version);
 
