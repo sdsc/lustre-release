@@ -72,13 +72,16 @@ command_t cmdlist[] = {
         /* User interface commands */
         {"======== control =========", jt_noop, 0, "control commands"},
         {"help", Parser_help, 0, "help"},
-        {"lustre_build_version", jt_get_version, 0,
-         "print the build version of lustre\n"
+        {"lustre_build_version", jt_build_version, 0,
+         "print detailed build version of Lustre modules (if available)\n"
          "usage: lustre_build_version"},
+        {"lustre_release_version", jt_release_version, 0,
+         "print short release version of Lustre modules (if available)\n"
+         "usage: lustre_release_version"},
 	{"exit", Parser_quit, 0, "quit"},
 	{"quit", Parser_quit, 0, "quit"},
 	{"--version", Parser_version, 0,
-	 "output build version of the utility and exit"},
+	 "print build version of this utility and exit"},
 
 	/* Network configuration commands */
 	{"===== network config =====", jt_noop, 0, "network config"},
