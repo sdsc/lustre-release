@@ -29,10 +29,10 @@ STRIPECOUNT=`$LCTL get_param -n lov.*.activeobd | head -n 1`
 ORIGFREE=`$LCTL get_param -n llite.*.kbytesavail | head -n 1`
 MAXFREE=${MAXFREE:-$((400000 * $STRIPECOUNT))}
 echo STRIPECOUNT=$STRIPECOUNT ORIGFREE=$ORIGFREE MAXFREE=$MAXFREE
-if [ $ORIGFREE -gt $MAXFREE ]; then
-	skip "$0: ${ORIGFREE}kB free gt MAXFREE ${MAXFREE}kB, increase $MAXFREE (or reduce test fs size) to proceed"
-	exit 0
-fi
+#if [ $ORIGFREE -gt $MAXFREE ]; then
+#	skip "$0: ${ORIGFREE}kB free gt MAXFREE ${MAXFREE}kB, increase $MAXFREE (or reduce test fs size) to proceed"
+#	exit 0
+#fi
 
 export LANG=C LC_LANG=C # for "No space left on device" message
 
