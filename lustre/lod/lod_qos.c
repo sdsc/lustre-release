@@ -1811,16 +1811,22 @@ int lod_qos_prep_create(const struct lu_env *env, struct lod_object *lo,
 	struct dt_object      **stripe;
 	int			stripe_len;
 	int			flag = LOV_USES_ASSIGNED_STRIPE;
-	int			i, rc;
+	int			i = 0, rc;
 	ENTRY;
 
 	LASSERT(lo);
 
-	/* no OST available */
-	/* XXX: should we be waiting a bit to prevent failures during
-	 * cluster initialization? */
-	if (d->lod_ostnr == 0)
+again:
+	/* no OST available, sleep a bit and retry. */
+	if (d->lod_ostnr == 0) {
+		schedule_timeout(cfs_time_seconds(1));
+		/* An hour should be enough I hope? */
+		if (i++ < 3600)
+			goto again; 
+
+		/* Abandon all hope */
 		GOTO(out, rc = -EIO);
+	}
 
 	/*
 	 * by this time, the object's ldo_stripenr and ldo_stripe_size
