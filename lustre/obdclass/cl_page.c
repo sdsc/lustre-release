@@ -1109,7 +1109,7 @@ int cl_page_cancel(const struct lu_env *env, struct cl_page *page)
 EXPORT_SYMBOL(cl_page_cancel);
 
 /**
- * Converts a byte offset within object \a obj into a page index.
+ * Converts a page index into a byte offset within object \a obj.
  */
 loff_t cl_offset(const struct cl_object *obj, pgoff_t idx)
 {
@@ -1118,7 +1118,7 @@ loff_t cl_offset(const struct cl_object *obj, pgoff_t idx)
 EXPORT_SYMBOL(cl_offset);
 
 /**
- * Converts a page index into a byte offset within object \a obj.
+ * Converts a byte offset within object \a obj into a page index.
  */
 pgoff_t cl_index(const struct cl_object *obj, loff_t offset)
 {

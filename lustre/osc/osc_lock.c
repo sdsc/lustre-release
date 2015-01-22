@@ -270,12 +270,26 @@ static void osc_lock_granted(const struct lu_env *env, struct osc_lock *oscl,
 	if (dlmlock->l_granted_mode == dlmlock->l_req_mode) {
 		struct ldlm_extent *ext = &dlmlock->l_policy_data.l_extent;
 		struct cl_lock_descr *descr = &oscl->ols_cl.cls_lock->cll_descr;
+		pgoff_t	start;
+		pgoff_t	end;
 
 		/* extend the lock extent, otherwise it will have problem when
 		 * we decide whether to grant a lockless lock. */
 		descr->cld_mode  = osc_ldlm2cl_lock(dlmlock->l_granted_mode);
-		descr->cld_start = cl_index(descr->cld_obj, ext->start);
-		descr->cld_end   = cl_index(descr->cld_obj, ext->end);
+
+		start = cl_index(descr->cld_obj, ext->start);
+		end = cl_index(descr->cld_obj, ext->end);
+
+		if (unlikely(start > descr->cld_start ||
+			     end < descr->cld_end)) {
+			CERROR("locked range: start %lu, end %lu, "DDESCR"\n",
+			       start, end, PDESCR(descr));
+			LDLM_ERROR(dlmlock, "Invalid extent lock\n");
+			LBUG();
+		}
+
+		descr->cld_start = start;
+		descr->cld_end   = end;
 		descr->cld_gid   = ext->gid;
 
 		/* no lvb update for matched lock */

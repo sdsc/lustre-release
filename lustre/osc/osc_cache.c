@@ -658,8 +658,9 @@ static struct osc_extent *osc_extent_find(const struct lu_env *env,
 	/* grants has been allocated by caller */
 	LASSERTF(*grants >= chunksize + cli->cl_extent_tax,
 		 "%u/%u/%u.\n", *grants, chunksize, cli->cl_extent_tax);
-	LASSERTF((max_end - cur->oe_start) < max_pages, EXTSTR"\n",
-		 EXTPARA(cur));
+	LASSERTF((max_end - cur->oe_start) < max_pages,
+		 EXTSTR", index %lu, "DDESCR"\n",
+		 EXTPARA(cur), index, PDESCR(descr));
 
 restart:
 	osc_object_lock(obj);
