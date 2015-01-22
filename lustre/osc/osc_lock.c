@@ -151,12 +151,16 @@ static void osc_lock_fini(const struct lu_env *env,
 
 static void osc_lock_build_policy(const struct lu_env *env,
                                   const struct cl_lock *lock,
-                                  ldlm_policy_data_t *policy)
+                                  ldlm_policy_data_t *policy,
+				  __u32 stride)
 {
         const struct cl_lock_descr *d = &lock->cll_descr;
 
+	CDEBUG(D_DLMTRACE,"stride: %d\n",(int) stride);
+
         osc_index2policy(policy, d->cld_obj, d->cld_start, d->cld_end);
         policy->l_extent.gid = d->cld_gid;
+	policy->l_extent.stride = stride;
 }
 
 static __u64 osc_enq2ldlm_flags(__u32 enqflags)
@@ -243,6 +247,8 @@ static void osc_lock_granted(const struct lu_env *env, struct osc_lock *oscl,
 {
 	struct ldlm_lock *dlmlock;
 
+	ENTRY;
+
 	dlmlock = ldlm_handle2lock_long(lockh, 0);
 	LASSERT(dlmlock != NULL);
 
@@ -272,12 +278,18 @@ static void osc_lock_granted(const struct lu_env *env, struct osc_lock *oscl,
 		struct cl_lock_descr *descr = &oscl->ols_cl.cls_lock->cll_descr;
 
 		/* extend the lock extent, otherwise it will have problem when
-		 * we decide whether to grant a lockless lock. */
-		descr->cld_mode  = osc_ldlm2cl_lock(dlmlock->l_granted_mode);
-		descr->cld_start = cl_index(descr->cld_obj, ext->start);
-		descr->cld_end   = cl_index(descr->cld_obj, ext->end);
-		descr->cld_gid   = ext->gid;
-
+		 * we decide whether to grant a lockless lock. 
+		 * We cannot do this for strided locks, because the strided lock
+		 * repeats and we may not have matched the first extent. 
+		 * Also, strided locks can have >1 osc_lock per ldlm_lock.
+		 * This means the guarantee that we can use the entire extent of
+		 * the ldlm lock is not valid. (Range locking makes this safe.) */
+		if(!ldlm_ex_is_strided(*ext)) { 
+			descr->cld_mode  = osc_ldlm2cl_lock(dlmlock->l_granted_mode);
+			descr->cld_start = cl_index(descr->cld_obj, ext->start);
+			descr->cld_end   = cl_index(descr->cld_obj, ext->end);
+			descr->cld_gid   = ext->gid;
+		}
 		/* no lvb update for matched lock */
 		if (lvb_update) {
 			LASSERT(oscl->ols_flags & LDLM_FL_LVB_READY);
@@ -290,6 +302,8 @@ static void osc_lock_granted(const struct lu_env *env, struct osc_lock *oscl,
 
 	LASSERT(oscl->ols_state != OLS_GRANTED);
 	oscl->ols_state = OLS_GRANTED;
+
+	EXIT;
 }
 
 /**
@@ -461,14 +475,37 @@ static int osc_dlm_blocking_ast0(const struct lu_env *env,
 	if (obj != NULL) {
 		struct ldlm_extent *extent = &dlmlock->l_policy_data.l_extent;
 		struct cl_attr *attr = &osc_env_info(env)->oti_attr;
+		struct list_head *tmp;
+		struct ldlm_extent_list *extent_node;
 		__u64 old_kms;
+		off_t start, end;
 
 		/* Destroy pages covered by the extent of the DLM lock */
+		CDEBUG(D_DLMTRACE, "Writing out base extent: Start: %lu End: %lu Stride: %lu \n",(unsigned long) extent->start,(unsigned long) extent->end,(unsigned long) extent->stride);
 		result = osc_lock_flush(cl2osc(obj),
 					cl_index(obj, extent->start),
 					cl_index(obj, extent->end),
 					mode, discard);
 
+		/* For strided locks, we must write out other dirty extents */
+		if (ldlm_is_strided(dlmlock)) {
+			list_for_each(tmp, &dlmlock->l_extent_list) {
+				extent_node = list_entry(tmp,
+						struct ldlm_extent_list,
+						extents);
+				CDEBUG(D_DLMTRACE, "Writing out secondary extent: Start: %lu End: %lu Stride: %lu \n",(unsigned long) extent_node->extent.start,(unsigned long) extent_node->extent.end,(unsigned long) extent_node->extent.stride);
+				start = extent_node->extent.start;
+				end = extent_node->extent.end;
+				result = osc_lock_flush(cl2osc(obj),
+							cl_index(obj, start),
+							cl_index(obj, end),
+							mode, discard);
+			}
+			/* Once the pages have been written out, the
+			 * list of extents can & should be freed
+			 * immediately. */
+			ldlm_free_extent_list(&dlmlock->l_extent_list);
+		}
 		/* losing a lock, update kms */
 		lock_res_and_lock(dlmlock);
 		cl_object_attr_lock(obj);
@@ -916,7 +953,7 @@ restart:
  */
 static int osc_lock_enqueue(const struct lu_env *env,
 			    const struct cl_lock_slice *slice,
-			    struct cl_io *unused, struct cl_sync_io *anchor)
+			    struct cl_io *io, struct cl_sync_io *anchor)
 {
 	struct osc_thread_info		*info  = osc_env_info(env);
 	struct osc_io			*oio   = osc_env_io(env);
@@ -928,12 +965,15 @@ static int osc_lock_enqueue(const struct lu_env *env,
 	osc_enqueue_upcall_f		upcall   = osc_lock_upcall;
 	void				*cookie  = oscl;
 	bool				async    = false;
+	unsigned int			stride   = io->ci_stride;
 	int				result;
 
         ENTRY;
 
 	LASSERTF(ergo(oscl->ols_glimpse, lock->cll_descr.cld_mode <= CLM_READ),
 		"lock = %p, ols = %p\n", lock, oscl);
+
+	CDEBUG(D_DLMTRACE,"stride: %d\n",stride);
 
 	if (oscl->ols_state == OLS_GRANTED)
 		RETURN(0);
@@ -972,7 +1012,7 @@ enqueue_base:
 	 */
 	ostid_build_res_name(&osc->oo_oinfo->loi_oi, resname);
 	osc_lock_build_einfo(env, lock, osc, &oscl->ols_einfo);
-	osc_lock_build_policy(env, lock, policy);
+	osc_lock_build_policy(env, lock, policy, stride);
 	if (oscl->ols_agl) {
 		oscl->ols_einfo.ei_cbdata = NULL;
 		/* hold a reference for callback */
@@ -1120,10 +1160,17 @@ static void osc_lock_set_writer(const struct lu_env *env,
 	pgoff_t io_start;
 	pgoff_t io_end;
 
-	if (!cl_object_same(io->ci_obj, obj))
+	ENTRY;
+
+	CDEBUG(D_DLMTRACE,"env: %p io: %p obj: %p oscl: %p\n",env,io,obj,oscl);
+
+	if (!cl_object_same(io->ci_obj, obj)) {
+		EXIT;
 		return;
+	}
 
 	if (likely(io->ci_type == CIT_WRITE)) {
+		CDEBUG(D_DLMTRACE, "CIT_WRITE\n");
 		io_start = cl_index(obj, io->u.ci_rw.crw_pos);
 		io_end = cl_index(obj, io->u.ci_rw.crw_pos +
 						io->u.ci_rw.crw_count - 1);
@@ -1136,14 +1183,21 @@ static void osc_lock_set_writer(const struct lu_env *env,
 		io_start = io_end = io->u.ci_fault.ft_index;
 	}
 
+	CDEBUG(D_DLMTRACE,"io_start: %lu io_end: %lu crw_pos: %lu crw_count %lu: \n",io_start,io_end, (unsigned long) io->u.ci_rw.crw_pos, (unsigned long) io->u.ci_rw.crw_count);
+
+	CDEBUG(D_DLMTRACE,"cld_start: %lu cld_end %lu\n", (unsigned long) descr->cld_start, (unsigned long) descr->cld_end);
+
 	if (descr->cld_mode >= CLM_WRITE &&
 	    descr->cld_start <= io_start && descr->cld_end >= io_end) {
 		struct osc_io *oio = osc_env_io(env);
 
+		CDEBUG(D_DLMTRACE, "Setting osclock: (oscl) %p, osc_io: %p\n",oscl,oio);
 		/* There must be only one lock to match the write region */
 		LASSERT(oio->oi_write_osclock == NULL);
 		oio->oi_write_osclock = oscl;
 	}
+
+	EXIT;
 }
 
 int osc_lock_init(const struct lu_env *env,
@@ -1210,6 +1264,8 @@ struct ldlm_lock *osc_dlmlock_at_pgoff(const struct lu_env *env,
 	ostid_build_res_name(&obj->oo_oinfo->loi_oi, resname);
 	osc_index2policy(policy, osc2cl(obj), index, index);
 	policy->l_extent.gid = LDLM_GID_ANY;
+
+	CDEBUG(D_DLMTRACE,"Policy. Start: %lu End: %lu Stride: %lu \n",(unsigned long) policy->l_extent.start,(unsigned long) policy->l_extent.end,(unsigned long) policy->l_extent.stride);
 
 	flags = LDLM_FL_BLOCK_GRANTED | LDLM_FL_TEST_LOCK;
 	if (pending)

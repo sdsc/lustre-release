@@ -45,7 +45,7 @@
 #include <obd_class.h>
 #include "ldlm_internal.h"
 
-struct kmem_cache *ldlm_resource_slab, *ldlm_lock_slab;
+struct kmem_cache *ldlm_resource_slab, *ldlm_lock_slab, *ldlm_extent_list_slab;
 
 int ldlm_srv_namespace_nr = 0;
 int ldlm_cli_namespace_nr = 0;
@@ -1038,6 +1038,8 @@ static struct ldlm_resource *ldlm_resource_new(void)
 	INIT_LIST_HEAD(&res->lr_granted);
 	INIT_LIST_HEAD(&res->lr_converting);
 	INIT_LIST_HEAD(&res->lr_waiting);
+	/* FIXME: Usage not implemented yet */
+	INIT_LIST_HEAD(&res->lr_strided);
 
 	/* Initialize interval trees for each lock mode. */
 	for (idx = 0; idx < LCK_MODE_NUM; idx++) {

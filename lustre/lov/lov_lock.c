@@ -61,6 +61,8 @@ static struct lov_sublock_env *lov_sublock_env_get(const struct lu_env *env,
         struct cl_io           *io     = lio->lis_cl.cis_io;
         struct lov_io_sub      *sub;
 
+	ENTRY;
+
         subenv = &lov_env_session(env)->ls_subenv;
 
         /*
@@ -76,7 +78,8 @@ static struct lov_sublock_env *lov_sublock_env_get(const struct lu_env *env,
                 subenv->lse_env = env;
                 subenv->lse_io  = io;
                 subenv->lse_sub = NULL;
-        } else {
+        	CDEBUG(D_DLMTRACE,"stride: %d %p\n",(int)io->ci_stride, io);
+	} else {
                 sub = lov_sub_get(env, lio, lls->sub_stripe);
                 if (!IS_ERR(sub)) {
                         subenv->lse_env = sub->sub_env;
@@ -85,8 +88,9 @@ static struct lov_sublock_env *lov_sublock_env_get(const struct lu_env *env,
                 } else {
                         subenv = (void*)sub;
                 }
+		CDEBUG(D_DLMTRACE,"stride: %d %p\n",(int)io->ci_stride, io);
         }
-        return subenv;
+        RETURN(subenv);
 }
 
 static void lov_sublock_env_put(struct lov_sublock_env *subenv)

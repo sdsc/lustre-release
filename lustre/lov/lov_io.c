@@ -154,6 +154,8 @@ static int lov_io_sub_init(const struct lu_env *env, struct lov_io *lio,
 	if (unlikely(lov_r0(lov)->lo_sub[stripe] == NULL))
 		RETURN(-EIO);
 
+	CDEBUG(D_DLMTRACE,"stride: %d %p\n",(int)io->ci_stride, io);
+
         result = 0;
         sub->sub_io_initialized = 0;
         sub->sub_borrowed = 0;
@@ -163,6 +165,7 @@ static int lov_io_sub_init(const struct lu_env *env, struct lov_io *lio,
                 sub->sub_io  = &ld->ld_emrg[stripe]->emrg_subio;
                 sub->sub_env = ld->ld_emrg[stripe]->emrg_env;
                 sub->sub_borrowed = 1;
+		CDEBUG(D_DLMTRACE,"mem frozen\n");
         } else {
                 void *cookie;
 
@@ -192,6 +195,8 @@ static int lov_io_sub_init(const struct lu_env *env, struct lov_io *lio,
         if (result == 0) {
                 sub_obj = lovsub2cl(lov_r0(lov)->lo_sub[stripe]);
                 sub_io  = sub->sub_io;
+		CDEBUG(D_DLMTRACE,"stride (sub_io): %d %p\n",(int)sub_io->ci_stride, sub_io);
+
 
                 sub_io->ci_obj    = sub_obj;
                 sub_io->ci_result = 0;
@@ -201,10 +206,12 @@ static int lov_io_sub_init(const struct lu_env *env, struct lov_io *lio,
                 sub_io->ci_type    = io->ci_type;
                 sub_io->ci_no_srvlock = io->ci_no_srvlock;
 		sub_io->ci_noatime = io->ci_noatime;
+		sub_io->ci_stride = io->ci_stride;
 
                 lov_sub_enter(sub);
                 result = cl_io_sub_init(sub->sub_env, sub_io,
                                         io->ci_type, sub_obj);
+		CDEBUG(D_DLMTRACE,"stride (sub_io): %d %p\n",(int)sub_io->ci_stride, sub_io);
                 lov_sub_exit(sub);
                 if (result >= 0) {
                         lio->lis_active_subios++;

@@ -115,6 +115,7 @@ extern unsigned int ldlm_enqueue_min;
 /* ldlm_resource.c */
 extern struct kmem_cache *ldlm_resource_slab;
 extern struct kmem_cache *ldlm_lock_slab;
+extern struct kmem_cache *ldlm_extent_list_slab;
 
 int ldlm_resource_putref_locked(struct ldlm_resource *res);
 void ldlm_resource_insert_lock_after(struct ldlm_lock *original,

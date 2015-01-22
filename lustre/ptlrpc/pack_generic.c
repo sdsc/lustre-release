@@ -2265,6 +2265,7 @@ void lustre_swab_ldlm_policy_data (ldlm_wire_policy_data_t *d)
         __swab64s(&d->l_extent.start);
         __swab64s(&d->l_extent.end);
         __swab64s(&d->l_extent.gid);
+	__swab32s(&d->l_extent.stride);
         __swab64s(&d->l_flock.lfw_owner);
         __swab32s(&d->l_flock.lfw_pid);
 }

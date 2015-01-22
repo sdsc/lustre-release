@@ -3082,6 +3082,16 @@ int ldlm_init(void)
 		kmem_cache_destroy(ldlm_lock_slab);
                 return -ENOMEM;
         }
+
+	ldlm_extent_list_slab = kmem_cache_create("extent_list",
+				     sizeof(struct ldlm_extent_list),
+				     0, SLAB_HWCACHE_ALIGN, NULL);
+	if (ldlm_extent_list_slab == NULL) {
+                kmem_cache_destroy(ldlm_resource_slab);
+                kmem_cache_destroy(ldlm_lock_slab);
+                kmem_cache_destroy(ldlm_extent_list_slab);
+                return -ENOMEM;
+        }
 #if LUSTRE_TRACKS_LOCK_EXP_REFS
         class_export_dump_hook = ldlm_dump_export_locks;
 #endif

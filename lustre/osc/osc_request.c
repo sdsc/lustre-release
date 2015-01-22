@@ -1993,6 +1993,8 @@ static int osc_set_lock_data_with_check(struct ldlm_lock *lock,
         void *data = einfo->ei_cbdata;
         int set = 0;
 
+	ENTRY;
+
         LASSERT(lock != NULL);
         LASSERT(lock->l_blocking_ast == einfo->ei_cb_bl);
         LASSERT(lock->l_resource->lr_type == einfo->ei_type);
@@ -2001,14 +2003,20 @@ static int osc_set_lock_data_with_check(struct ldlm_lock *lock,
 
         lock_res_and_lock(lock);
 
-	if (lock->l_ast_data == NULL)
+	CDEBUG(D_DLMTRACE,"lock->l_ast_data: %p data: %p\n", (void *) lock->l_ast_data, data);
+
+	if (lock->l_ast_data == NULL) {
+		CDEBUG(D_DLMTRACE,"l_ast_data = data\n");
 		lock->l_ast_data = data;
-	if (lock->l_ast_data == data)
+	}
+	if (lock->l_ast_data == data) {
+		CDEBUG(D_DLMTRACE,"set = 1\n");
 		set = 1;
+	}
 
 	unlock_res_and_lock(lock);
 
-	return set;
+	RETURN(set);
 }
 
 static int osc_set_data_with_check(struct lustre_handle *lockh,
@@ -2204,6 +2212,7 @@ int osc_enqueue_base(struct obd_export *exp, struct ldlm_res_id *res_id,
                 mode |= LCK_PW;
         mode = ldlm_lock_match(obd->obd_namespace, *flags | match_lvb, res_id,
 			       einfo->ei_type, policy, mode, &lockh, 0);
+	CDEBUG(D_DLMTRACE,"mode: %d /n",(int) mode);
 	if (mode) {
 		struct ldlm_lock *matched;
 
@@ -2228,12 +2237,14 @@ int osc_enqueue_base(struct obd_export *exp, struct ldlm_res_id *res_id,
 			LDLM_LOCK_PUT(matched);
 			RETURN(ELDLM_OK);
 		} else {
+			CDEBUG(D_DLMTRACE,"Third way\n");
 			ldlm_lock_decref(&lockh, mode);
 			LDLM_LOCK_PUT(matched);
 		}
 	}
 
 no_match:
+	CDEBUG(D_DLMTRACE,"No match\n");
 	if (*flags & LDLM_FL_TEST_LOCK)
 		RETURN(-ENOLCK);
 

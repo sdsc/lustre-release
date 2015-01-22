@@ -791,6 +791,8 @@ static int vvp_io_write_start(const struct lu_env *env,
 
 	CDEBUG(D_VFSTRACE, "write: [%lli, %lli)\n", pos, pos + (long long)cnt);
 
+	CDEBUG(D_VFSTRACE,"stride: %d %p \n",(int)io->ci_stride, io);	
+
 	if (cio->cui_iov == NULL) {
 		/* from a temp io in ll_cl_init(). */
 		result = 0;
@@ -816,6 +818,7 @@ static int vvp_io_write_start(const struct lu_env *env,
 		}
 
 	}
+	CDEBUG(D_VFSTRACE,"stride: %d %p \n",(int)io->ci_stride,io);
 	if (result > 0) {
 		result = vvp_io_write_commit(env, io);
 		if (cio->u.write.cui_written > 0) {
@@ -826,6 +829,7 @@ static int vvp_io_write_start(const struct lu_env *env,
 				io->ci_nob, result);
 		}
 	}
+	CDEBUG(D_VFSTRACE,"stride: %d %p \n",(int)io->ci_stride,io);
 	if (result > 0) {
 		struct ll_inode_info *lli = ll_i2info(inode);
 
@@ -839,7 +843,7 @@ static int vvp_io_write_start(const struct lu_env *env,
 				  cio->cui_fd, pos, result, WRITE);
 		result = 0;
 	}
-
+	CDEBUG(D_VFSTRACE,"stride: %d %p \n",(int)io->ci_stride, io);
 	RETURN(result);
 }
 

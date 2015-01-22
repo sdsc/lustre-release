@@ -2967,19 +2967,23 @@ struct ldlm_extent {
         __u64 start;
         __u64 end;
         __u64 gid;
+	__u32 stride;
 };
 
-static inline int ldlm_extent_overlap(const struct ldlm_extent *ex1,
-				      const struct ldlm_extent *ex2)
-{
-	return ex1->start <= ex2->end && ex2->start <= ex1->end;
-}
+/*extern int ldlm_extent_overlap_strided(const struct ldlm_extent *ex1,
+				      const struct ldlm_extent *ex2);
+*/
+extern int ldlm_ex_is_strided(struct ldlm_extent ex);
 
-/* check if @ex1 contains @ex2 */
-static inline int ldlm_extent_contain(const struct ldlm_extent *ex1,
-				      const struct ldlm_extent *ex2)
+extern int ldlm_extent_match(struct ldlm_extent *rq, struct ldlm_extent *ex);
+
+/* check if @ex1 contains @ex2.  This is the same as 'does the lock
+ * represented by ex1 match for the request in ex2?', so it can be
+ * done with ldlm_extent_match */
+static inline int ldlm_extent_contain(struct ldlm_extent *ex1,
+				      struct ldlm_extent *ex2)
 {
-	return ex1->start <= ex2->start && ex1->end >= ex2->end;
+	return ldlm_extent_match(ex2, ex1);
 }
 
 struct ldlm_inodebits {

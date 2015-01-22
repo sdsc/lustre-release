@@ -649,6 +649,15 @@ enum lvb_type {
 	LVB_T_LAYOUT	= 3,
 };
 
+struct ldlm_extent_list {
+	struct list_head extents;
+	struct ldlm_extent extent;
+	/* FIXME: Need to record the mode in which each extent is used so
+	 * segments of a write lock that are used only for reading are handled
+	 * correctly. Not done yet. */
+	ldlm_mode_t mode;
+};
+
 /**
  * LDLM_GID_ANY is used to match any group id in ldlm_lock_match().
  */
@@ -770,6 +779,22 @@ struct ldlm_lock {
 	 * Examples are: extent range for extent lock or bitmask for ibits locks
 	 */
 	ldlm_policy_data_t	l_policy_data;
+
+	/**
+	 * List of used extents for a strided extent lock.
+	 * Does not include 'base' extent, that is handled the same way
+	 * for strided and non-strided locks.
+	 */ 
+	struct list_head	l_extent_list;
+
+	/* Lock to protect list of extents for strided locks. */
+	/* FIXME: Does this need to be a mutex?  When is it held?
+	 * I was thinking it would be held when cancelling the lock
+	 * but I believe that's already protected
+	 * so it shouldn't be necessary.
+	 * If it only needs to be held for adding to the list,
+	 * then a spin lock is just fine. */
+	spinlock_t		l_extent_list_lock;
 
 	/**
 	 * Lock state flags. Protected by lr_lock.
@@ -934,6 +959,11 @@ struct ldlm_resource {
 	 * List of locks that could not be granted due to conflicts and
 	 * that are waiting for conflicts to go away */
 	struct list_head	lr_waiting;
+	/**
+	 * List of granted strided locks, used to identify conflicting locks
+	 * FIXME: Usage not implemented yet...
+	 * */
+	struct list_head	lr_strided; 
 	/** @} */
 
 	/* XXX No longer needed? Remove ASAP */
@@ -1371,6 +1401,13 @@ void ldlm_reprocess_all(struct ldlm_resource *res);
 void ldlm_reprocess_all_ns(struct ldlm_namespace *ns);
 void ldlm_lock_dump_handle(int level, struct lustre_handle *);
 void ldlm_unlink_lock_skiplist(struct ldlm_lock *req);
+int ldlm_is_strided(struct ldlm_lock *lock);
+int ldlm_ex_is_strided(struct ldlm_extent ex);
+int ldlm_fits_strided(struct ldlm_extent rq, struct ldlm_extent ex);
+int ldlm_extent_match(struct ldlm_extent *rq, struct ldlm_extent *ex);
+int ldlm_extent_overlap(const struct ldlm_extent *ex1,
+			const struct ldlm_extent *ex2);
+void ldlm_free_extent_list(struct list_head *list);
 
 /* resource.c */
 struct ldlm_namespace *

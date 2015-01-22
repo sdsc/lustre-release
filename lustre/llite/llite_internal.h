@@ -665,6 +665,11 @@ struct ll_file_data {
 	 * false: unknown failure, should report. */
 	bool fd_write_failed;
 	rwlock_t fd_lock; /* protect lcc list */
+        /**
+         * The stride for strided locking.
+         * 0 indicates non-strided mode, & 1 is not an allowed value.
+         */
+        __u32                ll_stride;
 	struct list_head fd_lccs; /* list of ll_cl_context */
 };
 

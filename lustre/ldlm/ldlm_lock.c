@@ -150,7 +150,7 @@ char *ldlm_it2str(int it)
 }
 EXPORT_SYMBOL(ldlm_it2str);
 
-extern struct kmem_cache *ldlm_lock_slab;
+extern struct kmem_cache *ldlm_lock_slab, *ldlm_extent_list_slab;
 
 #ifdef HAVE_SERVER_SUPPORT
 static ldlm_processing_policy ldlm_processing_policy_table[] = {
@@ -471,6 +471,7 @@ static struct ldlm_lock *ldlm_lock_new(struct ldlm_resource *resource)
 		RETURN(NULL);
 
 	spin_lock_init(&lock->l_lock);
+	spin_lock_init(&lock->l_extent_list_lock);
 	lock->l_resource = resource;
 	lu_ref_add(&resource->lr_reference, "lock", lock);
 
@@ -481,6 +482,7 @@ static struct ldlm_lock *ldlm_lock_new(struct ldlm_resource *resource)
 	INIT_LIST_HEAD(&lock->l_bl_ast);
 	INIT_LIST_HEAD(&lock->l_cp_ast);
 	INIT_LIST_HEAD(&lock->l_rk_ast);
+	INIT_LIST_HEAD(&lock->l_extent_list);
 	init_waitqueue_head(&lock->l_waitq);
 	lock->l_blocking_lock = NULL;
 	INIT_LIST_HEAD(&lock->l_sl_mode);
@@ -1131,6 +1133,343 @@ void ldlm_grant_lock(struct ldlm_lock *lock, struct list_head *work_list)
         EXIT;
 }
 
+int ldlm_ex_is_strided(struct ldlm_extent ex) {
+	return !!(ex.stride);
+}
+EXPORT_SYMBOL(ldlm_ex_is_strided);
+
+int ldlm_is_strided(struct ldlm_lock *lock) {
+	return ldlm_ex_is_strided(lock->l_policy_data.l_extent);
+}
+EXPORT_SYMBOL(ldlm_is_strided);
+
+/* Intervals are [start,end], including both start and end, so size is
+ * end-start+1. */
+static off_t extent_size(const struct ldlm_extent ex)
+{
+	return (ex.end - ex.start)+1;
+}
+
+/* The full size of the stride of the lock.  The 'period' of the lock. */
+static off_t stride_size(const struct ldlm_extent ex)
+{
+	return (extent_size(ex))*(ex.stride);
+}
+
+static int strided_contains(const struct ldlm_extent strided, off_t offset);
+
+/* Checks if a requested extent fits in to an existing strided lock. 
+ * See comments on ldlm_extent_lock_match for more details.
+ * retval 0 - failed to match, retval 1 - matched */
+int ldlm_fits_strided(struct ldlm_extent rq, struct ldlm_extent ex) {
+
+	off_t rq_size = extent_size(rq);
+	off_t ex_size = extent_size(ex);
+
+	/* FIXME: Reduce debug in here. It will be called a lot. No entry/return? */
+	ENTRY;
+
+	LASSERT(ldlm_ex_is_strided(ex));
+
+	/* FIXME: Either improve (make clearer) or remove this debug. */
+	CDEBUG(D_DLMTRACE,"Request. Start: %lu End: %lu Stride: %lu \n",
+	       (unsigned long) rq.start,(unsigned long) rq.end,
+	       (unsigned long) rq.stride);
+	CDEBUG(D_DLMTRACE,"Existing. Start: %lu End: %lu Stride: %lu \n",
+	       (unsigned long) ex.start,(unsigned long) ex.end,
+	       (unsigned long) ex.stride);
+
+	/* Strided locks only go forwards, not backwards, so they cannot match
+	 * a request which starts before they do. */
+	if(rq.start < ex.start)
+		RETURN(0);
+
+	/* For strided-strided matching, strides & size must match.
+	 * It is possible for a strided lock with half the block size and 
+	 * twice the stride of an existing lock to fit completely inside that
+	 * existing lock, but strided locks of different strides are not part
+	 * of the same IO, so they should not be allowed to match.
+	 * For this reason, we require strided locks to have the size and
+	 * stride in order to match. */
+	if(ldlm_ex_is_strided(rq)) {
+		if(rq.stride != ex.stride || rq_size != ex_size) {
+			CDEBUG(D_DLMTRACE,"Requested lock of different stride \
+					   (%d) than existing lock (%d)\n",
+			       rq.stride, ex.stride);
+			RETURN(0);
+		}
+        } else {
+	/* For non-strided-strided matching, request size must be <=
+	 * existing size. */
+		if(!(rq_size <= ex_size))
+			RETURN(0);
+	}
+
+	/* Does the request fit in to the first segment of the strided lock?
+	 * If so, it matches; we already know rq.start >= ex.start, so this
+	 * only has to check rq.end.  Eliminating the case where
+	 * req.end <= ex.end also means we don't have negative numbers in the
+	 * modular arithmetic at the next step. */
+	if(rq.end <= ex.end)
+		RETURN(1);
+
+	/* See if requested extent fits in to a segment which is covered by 
+	 * the existing strided lock:
+	 *
+	 * We've already guaranteed the request is <= the length of the
+	 * segment, so we do not need to consider the case of a request that
+	 * exceeds the size of a segment.
+	 *
+	 * Since the gap between two segments in a strided lock is always
+	 * >= segment size, we know that if the start and end of the request
+	 * are contained by the strided lock, they are in the same segment.*/
+	/* FIXME: Looking at above, consider carefully stride=2, where ex_size
+	 * (segment size) is the same is the same size as the gap from the end
+	 * of one segment to the start of the next.
+	 * Have to avoid any off-by-one errors... */
+
+	/* FIXME: These debug statements will be removed eventually, they are
+	 * for verifying some of the math. */
+	CDEBUG(D_DLMTRACE,"rq.start-ex.start: %lu \n",(unsigned long) (rq.start-ex.start));
+	CDEBUG(D_DLMTRACE,"stride_size: %lu \n",(unsigned long) stride_size(ex));
+	CDEBUG(D_DLMTRACE,"rq.start-ex.start mod stride_size: %lu \n",(unsigned long) ((rq.start-ex.start) % stride_size(ex)));
+	if(!(strided_contains(ex, rq.start)) || !strided_contains(ex, rq.end))
+		RETURN(0);
+
+	RETURN(1);
+}
+EXPORT_SYMBOL(ldlm_fits_strided);
+
+/* FIXME: IMPROVE COMMENTS?
+ * Matching strided locks and non-strided locks result in four cases:
+ * 
+ * Request(R): Strided(S) or non-strided (N/S)
+ * Existing lock(L): Strided(s) or non-strided (N/S)
+ *
+ * (1)R: N/S, L: N/S (Can match) — Simple extent matching.
+ * (2)R: S, L: N/S (Cannot match) — Strided request cannot match 
+ * non-strided lock
+ * (3)R: N/S, L: S (Can match) — Non-strided request must fit a segment
+ * of the existing strided lock
+ * (4)R: S, L: S (Can match) — Must have same stride, and request
+ * must align with a segment of the existing strided lock
+ *
+ * retval 1 - matches, 0 does not match
+ */
+
+/* FIXME: Need to consider (in general) how much DLM tracing to do in the
+ * strided lock code.
+ */
+
+int ldlm_extent_match(struct ldlm_extent *rq, struct ldlm_extent *ex) {
+	/* Case 1: R: N/S, L: N/S.
+	 * Normal extent lock matching. */
+	if(!(ldlm_ex_is_strided(*rq)) && !(ldlm_ex_is_strided(*ex)) ) {
+		if (rq->start < ex->start || rq->end > ex->end)
+			return 0;
+		else
+			return 1;
+	}
+
+	/* Case 2: R:S, L: N/S
+	 * Strided lock requests cannot match non-strided existing locks */
+	if(ldlm_ex_is_strided(*rq) && !ldlm_ex_is_strided(*ex))
+		return 0;
+
+	/* Case 3: R:N/S E:S & Case 4: R:S, E:S are handled in
+	 * ldlm_fits_strided */
+	if(ldlm_ex_is_strided(*ex))
+		return ldlm_fits_strided(*rq, *ex);
+
+	CDEBUG(D_ERROR,"Lock must be either strided or non-strided.\n");
+	LBUG();
+}
+EXPORT_SYMBOL(ldlm_extent_match);
+
+
+/* Starting from 'offset', find the start of the next area covered by
+ * the strided extent 'ex'.  (The start of the next 'step' of the
+ * strided extent.) 
+ * Used to determine extent overlap */
+static off_t next_start_strided(const struct ldlm_extent ex, off_t offset)
+{
+	off_t relative_offset = offset - ex.start;
+	off_t stride_count = 0;
+
+	LASSERT(ldlm_ex_is_strided(ex));
+
+	/* integer division of relative_offset by interval gives one less than
+	 * the number of intervals to get to the offset */
+	stride_count = (relative_offset/stride_size(ex)) + 1;
+
+	/* Have to add ex.start back in to convert the relative value to an
+	 * absolute one. */
+	/* FIXME: Need to consider carefully the math here. */
+	return ex.start+(stride_size(ex)*stride_count);
+}
+
+/* Identify whether a particular offset is in one of the segments of the
+ * strided lock.
+ *
+ * We take the modulus (remainder of integer division) of the requested
+ * offset with the stride size and then verify it is less than the size
+ * of the strided lock segment.
+ * Note we must first 'zero' the offset to the start of the lock by
+ * subtracting it from the offset.
+ *
+ * Taking the modulus here gives us the distance between the offset and
+ * the start of the closest earlier segment of the strided lock.
+ * If it is less than the segment size, the offset is inside an area
+ * covered by the strided lock.
+ *
+ * retval 1, contains, retval 0, does not contain
+ */
+static int strided_contains(const struct ldlm_extent strided, off_t offset)
+{
+	off_t relative_offset = offset-strided.start;
+	off_t remainder;
+
+	/* Strided locks extend only forward, not back */
+	if(offset < strided.start)
+		return 0;
+
+	remainder = relative_offset % stride_size(strided);
+	if (remainder < extent_size(strided))
+		return 1;
+
+	return 0;
+}
+
+/* Handles overlap when one extent is strided and one is not.
+ *
+ * There are three ways a non-strided extent and a strided extent can overlap:
+ * Case 1: Start of non-strided extent is in a step
+ * Case 2: End of non-strided extent is in a step
+ * Case 3: Non-strided extent spans a step
+ * Note: The case where both the start & end of a non-strided extent are in a
+ * particular step is covered by both case 1 and case 2.
+ * retval 1 overlaps, retval 0 does not overlap*/
+static int extent_overlap_strided_non_strided(const struct ldlm_extent *strided,
+				       const struct ldlm_extent *non_strided)
+{
+	off_t next_start = next_start_strided(*strided, non_strided->start);
+
+	/* Case 1 */
+	if (non_strided->start >= strided->start && 
+	    strided_contains(*strided, non_strided->start))
+		return 1;
+
+	/* Case 2 */
+	if (non_strided->end >= strided->start &&
+	    strided_contains(*strided, non_strided->end))
+		return 1;
+
+	/* Case 3 */
+	if (next_start <= non_strided->end)
+		return 1;
+
+	return 0;
+}
+
+/* This handles overlap when at least one extent is strided. 
+ * retval 1 overlaps, retval 0 does not overlap*/
+static int ldlm_extent_overlap_strided(const struct ldlm_extent *ex1,
+				const struct ldlm_extent *ex2)
+{
+	if (ldlm_ex_is_strided(*ex1) && ldlm_ex_is_strided(*ex2)) {
+		/* If two strided locks have different strides,
+	 	* they are probably part of different IOs, so we say
+	 	* they overlap. */
+	 	if(ex1->stride != ex2->stride)
+			return 1;
+
+		/* Two strided locks on the same file must be the same size,
+ 	 	* since both should be 'stripe' size.  Enhanced layout might
+ 	 	* some day make this assertion obsolete.
+ 	 	* That will complicate overlap determination. */
+		LASSERT(ex1->end - ex1->start == ex2->end - ex2->start);
+		 /* Since the stride and size are the same, they will only
+		 * overlap if the starting extent for the one which starts later
+		 * fits in to the first one. */
+		 if(ex1->start < ex2->start)
+			return ldlm_fits_strided(*ex2, *ex1);
+		 else
+			return ldlm_fits_strided(*ex1, *ex2);
+	}
+	
+	/* Just one extent is strided. */
+	if (ldlm_ex_is_strided(*ex1) || ldlm_ex_is_strided(*ex2)) {
+		if(ldlm_ex_is_strided(*ex1))
+			return extent_overlap_strided_non_strided(ex1, ex2);
+		else
+			return extent_overlap_strided_non_strided(ex2, ex1);
+	}
+	
+	return 0;
+}
+
+ /* Strided locks introduce three cases for overlap, where the two
+ * extents are:
+ * 1) Both non-strided
+ * 2) One strided and one non-strided
+ * 3) Both strided
+ * retval 1 overlaps, retval 0 does not overlap */
+int ldlm_extent_overlap(const struct ldlm_extent *ex1,
+                                      const struct ldlm_extent *ex2)
+{
+	/* If this is NOT true, we know that two non-strided extents
+	 * do not overlap but more is needed for strided extents,
+	 * so return 0 only for case 1: Both extents non-strided.*/
+	if (ex1->start <= ex2->end && ex2->start <= ex1->end)
+		return 1;
+	else if (!ldlm_ex_is_strided(*ex1) && !ldlm_ex_is_strided(*ex2))
+		return 0;
+
+	/* Case 2 & 3 are handled in ldlm_extent_overlap_strided */
+	if (ldlm_ex_is_strided(*ex1) || ldlm_ex_is_strided(*ex2))
+		return ldlm_extent_overlap_strided(ex1, ex2);
+
+	CDEBUG(D_ERROR,"Lock must be either strided or non-strided.\n");
+	LBUG();
+}
+EXPORT_SYMBOL(ldlm_extent_overlap);
+
+// FIXME: Need to figure out error returns from here
+//static int 
+void ldlm_add_extent(struct ldlm_lock *lock, struct ldlm_extent ex)
+{
+	struct ldlm_extent_list *extent_node = NULL;
+
+	OBD_SLAB_ALLOC_PTR_GFP(extent_node, ldlm_extent_list_slab, GFP_NOFS);
+	//if (extent_node == NULL)
+	//	return -ENOMEM;
+	/* The stride value is not used for individual dirty extents
+	 * but it is set to maintain consistency. */
+	extent_node->extent.stride = ex.stride;
+	extent_node->extent.start = ex.start;
+	extent_node->extent.end = ex.end;
+
+	spin_lock(&lock->l_extent_list_lock);
+	list_add(&extent_node->extents, &lock->l_extent_list);
+	spin_unlock(&lock->l_extent_list_lock);
+
+	//return 0;
+}
+
+void ldlm_free_extent_list(struct list_head *list)
+{
+	struct list_head *pos, *next;
+	struct ldlm_extent_list *extent_node;
+
+	list_for_each_safe(pos, next, list) {
+		extent_node = list_entry(pos, struct ldlm_extent_list,
+					 extents);
+		list_del(pos);
+		OBD_FREE(extent_node, sizeof(struct ldlm_extent_list));
+	}
+}
+EXPORT_SYMBOL(ldlm_free_extent_list);
+
 /**
  * Search for a lock with given properties in a queue.
  *
@@ -1145,19 +1484,29 @@ static struct ldlm_lock *search_queue(struct list_head *queue,
 {
         struct ldlm_lock *lock;
 	struct list_head       *tmp;
+	/* FIXME: Super-useful, don't make part of patch but perhaps save. */
+	int reason=0;
+	ENTRY;
 
 	list_for_each(tmp, queue) {
                 ldlm_mode_t match;
 
 		lock = list_entry(tmp, struct ldlm_lock, l_res_link);
 
-                if (lock == old_lock)
+		LDLM_DEBUG(lock,"checking this");
+		CDEBUG(D_DLMTRACE,"Previous reason (always zero first time): %d\n",reason);
+
+                if (lock == old_lock) {
+			reason = 1;
                         break;
+		}
 
 		/* Check if this lock can be matched.
 		 * Used by LU-2919(exclusive open) for open lease lock */
-		if (ldlm_is_excl(lock))
+		if (ldlm_is_excl(lock)) {
+			reason = 2;
 			continue;
+		}
 
                 /* llite sometimes wants to match locks that will be
                  * canceled when their users drop, but we allow it to match
@@ -1166,42 +1515,70 @@ static struct ldlm_lock *search_queue(struct list_head *queue,
                  * whose parents already hold a lock so forward progress
                  * can still happen. */
 		if (ldlm_is_cbpending(lock) &&
-                    !(flags & LDLM_FL_CBPENDING))
+                    !(flags & LDLM_FL_CBPENDING)) {
+			reason = 3;
                         continue;
+		}
 		if (!unref && ldlm_is_cbpending(lock) &&
-                    lock->l_readers == 0 && lock->l_writers == 0)
+                    lock->l_readers == 0 && lock->l_writers == 0) {
+			reason = 4;
                         continue;
+		}
 
-                if (!(lock->l_req_mode & *mode))
+                if (!(lock->l_req_mode & *mode)) {
+			reason = 5;
                         continue;
+		}
                 match = lock->l_req_mode;
 
-                if (lock->l_resource->lr_type == LDLM_EXTENT &&
-                    (lock->l_policy_data.l_extent.start >
-                     policy->l_extent.start ||
-                     lock->l_policy_data.l_extent.end < policy->l_extent.end))
-                        continue;
+                if (lock->l_resource->lr_type == LDLM_EXTENT) {
+                        if(!ldlm_extent_match(&policy->l_extent,
+					      &lock->l_policy_data.l_extent)) {
+				reason = 6;
+				continue;
+			/* Since extent lock matched, we must track if it
+			 * uses an extent of a strided lock */
+			/* FIXME: Currently, if an extent is used only for
+			 * reading, its pages could be treated differently.
+			 * Long term, solution is to store access mode
+			 * per-extent; any reader intent is overrided by writer
+			 * intent, writer intent stays if a reader arrives later.
+			 * Essentially, track whether or not any user of this
+			 * extent planned to dirty the lock */
+			} else if (ldlm_is_strided(lock)) {
+				/* FIXME:How to deal with a return code here?*/
+				ldlm_add_extent(lock, policy->l_extent);
+			}
+		}
 
 		if (unlikely(match == LCK_GROUP) &&
 		    lock->l_resource->lr_type == LDLM_EXTENT &&
 		    policy->l_extent.gid != LDLM_GID_ANY &&
-		    lock->l_policy_data.l_extent.gid != policy->l_extent.gid)
+		    lock->l_policy_data.l_extent.gid != policy->l_extent.gid) {
+			reason = 7;
 			continue;
+		}
 
                 /* We match if we have existing lock with same or wider set
                    of bits. */
                 if (lock->l_resource->lr_type == LDLM_IBITS &&
                      ((lock->l_policy_data.l_inodebits.bits &
                       policy->l_inodebits.bits) !=
-                      policy->l_inodebits.bits))
+                      policy->l_inodebits.bits)) {
+			reason = 8;
                         continue;
+		}
 
-		if (!unref && LDLM_HAVE_MASK(lock, GONE))
+		if (!unref && LDLM_HAVE_MASK(lock, GONE)) {
+			reason = 9;
                         continue;
+		}
 
                 if ((flags & LDLM_FL_LOCAL_ONLY) &&
-		    !ldlm_is_local(lock))
+		    !ldlm_is_local(lock)) {
+			reason = 10;
                         continue;
+		}
 
                 if (flags & LDLM_FL_TEST_LOCK) {
                         LDLM_LOCK_GET(lock);
@@ -1210,10 +1587,12 @@ static struct ldlm_lock *search_queue(struct list_head *queue,
                         ldlm_lock_addref_internal_nolock(lock, match);
                 }
                 *mode = match;
-                return lock;
+                RETURN(lock);
         }
 
-        return NULL;
+	CDEBUG(D_DLMTRACE,"Failed match, last reason: %d\n",reason);
+
+        RETURN(NULL);
 }
 
 void ldlm_lock_fail_match_locked(struct ldlm_lock *lock)
@@ -1409,7 +1788,7 @@ ldlm_mode_t ldlm_lock_match(struct ldlm_namespace *ns, __u64 flags,
         if (old_lock)
                 LDLM_LOCK_PUT(old_lock);
 
-        return rc ? mode : 0;
+        RETURN(rc ? mode : 0);
 }
 EXPORT_SYMBOL(ldlm_lock_match);
 
@@ -1631,6 +2010,7 @@ ldlm_error_t ldlm_lock_enqueue(struct ldlm_namespace *ns,
         struct ldlm_interval *node = NULL;
         ENTRY;
 
+	LDLM_DEBUG(lock, "ldlm_lock_enqueue top");
         /* policies are not executed on the client or during replay */
         if ((*flags & (LDLM_FL_HAS_INTENT|LDLM_FL_REPLAY)) == LDLM_FL_HAS_INTENT
             && !local && ns->ns_policy) {
@@ -1748,6 +2128,7 @@ ldlm_error_t ldlm_lock_enqueue(struct ldlm_namespace *ns,
 #endif
 
 out:
+        LDLM_DEBUG(lock, "ldlm_lock_enqueue bottom");
         unlock_res_and_lock(lock);
         if (node)
                 OBD_SLAB_FREE(node, ldlm_interval_slab, sizeof(*node));
@@ -2470,8 +2851,9 @@ void _ldlm_lock_debug(struct ldlm_lock *lock,
 		libcfs_debug_vmsg2(msgdata, fmt, args,
 			" ns: %s lock: %p/"LPX64" lrc: %d/%d,%d mode: %s/%s "
 			"res: "DLDLMRES" rrc: %d type: %s ["LPU64"->"LPU64"] "
-			"(req "LPU64"->"LPU64") flags: "LPX64" nid: %s remote: "
-			LPX64" expref: %d pid: %u timeout: %lu lvb_type: %d\n",
+			"stride: %d (req "LPU64"->"LPU64") flags: "LPX64""
+			"nid: %s remote: "LPX64" expref: %d pid: %u"
+			"timeout: %lu lvb_type: %d\n",
 			ldlm_lock_to_ns_name(lock), lock,
 			lock->l_handle.h_cookie, atomic_read(&lock->l_refc),
 			lock->l_readers, lock->l_writers,
@@ -2482,6 +2864,7 @@ void _ldlm_lock_debug(struct ldlm_lock *lock,
 			ldlm_typename[resource->lr_type],
 			lock->l_policy_data.l_extent.start,
 			lock->l_policy_data.l_extent.end,
+			lock->l_policy_data.l_extent.stride,
 			lock->l_req_extent.start, lock->l_req_extent.end,
 			lock->l_flags, nid, lock->l_remote_handle.cookie,
 			exp ? atomic_read(&exp->exp_refcount) : -99,

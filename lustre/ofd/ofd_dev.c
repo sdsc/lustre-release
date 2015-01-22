@@ -2252,7 +2252,8 @@ static int ofd_prolong_extent_locks(struct tgt_session_info *tsi,
 	struct obdo		*oa  = &tsi->tsi_ost_body->oa;
 	struct ldlm_extent	 extent = {
 		.start = start,
-		.end = end
+		.end = end,
+		.stride = 0
 	};
 	struct ldlm_lock	*lock;
 	int			 lock_count = 0;
@@ -2288,6 +2289,15 @@ static int ofd_prolong_extent_locks(struct tgt_session_info *tsi,
 		if (!ldlm_res_eq(&tsi->tsi_resid, &lock->l_resource->lr_name))
 			continue;
 
+		/* FIXME: Should this comment be on ldllm_extent_overlap
+		 * instead? Or just a reference to another document?  */
+		/* Overlap is usually used to identify conflicting extents,
+		 * but this use is different.  This is used to help decide
+		 * to prolong locks when IOs arrive on the OST.
+		 * Two strided locks can be defined to overlap without
+		 * actually overlapping, so this would be a problem
+		 * for this usage, except that the actual IO (the BRW RPC)
+		 * is not strided. */
 		if (!ldlm_extent_overlap(&lock->l_policy_data.l_extent,
 					 &extent))
 			continue;
@@ -2338,6 +2348,7 @@ static int ofd_rw_hpreq_lock_match(struct ptlrpc_request *req,
 	ext.start = rnb->rnb_offset;
 	rnb += ioo->ioo_bufcnt - 1;
 	ext.end = rnb->rnb_offset + rnb->rnb_len - 1;
+	ext.stride = 0;
 
 	LASSERT(lock->l_resource != NULL);
 	if (!ostid_res_name_eq(&ioo->ioo_oid, &lock->l_resource->lr_name))
@@ -2353,6 +2364,9 @@ static int ofd_rw_hpreq_lock_match(struct ptlrpc_request *req,
 	if (!(lock->l_granted_mode & mode))
 		RETURN(0);
 
+	/* FIXME: This is the same as the other usage of ldlm_extent_overlap
+	 * (in the previous function).  Suggests comment should go in
+	 * ldlm_extent_overlap. */
 	RETURN(ldlm_extent_overlap(&lock->l_policy_data.l_extent, &ext));
 }
 

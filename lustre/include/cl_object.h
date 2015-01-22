@@ -1888,6 +1888,10 @@ struct cl_io {
         struct cl_2queue     ci_queue;
         size_t               ci_nob;
         int                  ci_result;
+        /**
+	 * 'stride' for strided locking.
+	 * 0 indicates non-strided mode, and 1 is not an allowed value. */
+	unsigned int	     ci_stride;
 	unsigned int         ci_continue:1,
 	/**
 	 * This io has held grouplock, to inform sublayers that

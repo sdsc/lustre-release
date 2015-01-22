@@ -77,6 +77,8 @@ static int osc_object_init(const struct lu_env *env, struct lu_object *obj,
         const struct cl_object_conf *cconf = lu2cl_conf(conf);
         int i;
 
+	ENTRY;
+
         osc->oo_oinfo = cconf->u.coc_oinfo;
 #ifdef CONFIG_LUSTRE_DEBUG_EXPENSIVE_CHECK
 	mutex_init(&osc->oo_debug_mutex);
@@ -104,7 +106,7 @@ static int osc_object_init(const struct lu_env *env, struct lu_object *obj,
 
 	cl_object_page_init(lu2cl(obj), sizeof(struct osc_page));
 
-	return 0;
+	RETURN(0);
 }
 
 static void osc_object_free(const struct lu_env *env, struct lu_object *obj)

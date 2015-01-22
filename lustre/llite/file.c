@@ -1169,6 +1169,8 @@ restart:
                         cio->cui_nrsegs = args->u.normal.via_nrsegs;
                         cio->cui_tot_nrsegs = cio->cui_nrsegs;
                         cio->cui_iocb = args->u.normal.via_iocb;
+CDEBUG(D_VFSTRACE,"io: %p cio: %p stride: %d \n",io,cio,(int) io->ci_stride);
+			io->ci_stride = cio->cui_fd->ll_stride;
                         if ((iot == CIT_WRITE) &&
                             !(cio->cui_fd->fd_flags & LL_FILE_GROUP_LOCKED)) {
 				CDEBUG(D_VFSTRACE, "Range lock "RL_FMT"\n",
@@ -2571,6 +2573,23 @@ ll_file_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 
 		OBD_FREE_PTR(hui);
 		RETURN(rc);
+	}
+	case LL_IOC_STRIDE_LOCK: {
+		/* FIXME: Proper conversion from 64 bit to 32 bit.
+		 * Check for correct values. Negatives, etc. */
+		int stride = arg;
+		
+		CDEBUG(D_VFSTRACE,"REMOVEME: strided_lock: arg %lu\n",arg);
+                CDEBUG(D_VFSTRACE,"REMOVEME: strided_lock: stride: %d \n", stride);
+		/* A stride of 1 or negative has no meaning.
+ 		 * 0 is used to clear the stride setting
+		 * Also catches overflow from conversion. */
+		if(stride < 0 || stride == 1)
+			RETURN(-EINVAL);
+
+		fd->ll_stride = stride;
+
+		RETURN(0);
 	}
 
 	default: {

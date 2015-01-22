@@ -227,12 +227,24 @@ static int osc_extent_sanity_check0(struct osc_extent *ext,
 		GOTO(out, rc = 90);
 
 	if (ext->oe_dlmlock != NULL) {
-		struct ldlm_extent *extent;
+		struct ldlm_extent *dlm_extent;
+		struct ldlm_extent osc_dlm_extent;
+		pgoff_t oe_start = cl_offset(osc2cl(obj), ext->oe_start);
+		pgoff_t oe_max_end = cl_offset(osc2cl(obj), ext->oe_max_end);
 
-		extent = &ext->oe_dlmlock->l_policy_data.l_extent;
-		if (!(extent->start <= cl_offset(osc2cl(obj), ext->oe_start) &&
-		      extent->end   >= cl_offset(osc2cl(obj), ext->oe_max_end)))
+		osc_dlm_extent.start = oe_start;
+		osc_dlm_extent.end = oe_max_end;
+		osc_dlm_extent.gid = 0;
+		osc_dlm_extent.stride = 0;
+
+		dlm_extent = &ext->oe_dlmlock->l_policy_data.l_extent;
+		if (!(ldlm_ex_is_strided(*dlm_extent)) &&
+		    !(dlm_extent->start <= oe_start && dlm_extent->end >= oe_max_end))
 			GOTO(out, rc = 100);
+
+		if(ldlm_ex_is_strided(*dlm_extent) && !ldlm_fits_strided(osc_dlm_extent,
+								   *dlm_extent))
+			GOTO(out, rc = 101);
 
 		if (!(ext->oe_dlmlock->l_granted_mode & (LCK_PW | LCK_GROUP)))
 			GOTO(out, rc = 102);
@@ -619,12 +631,16 @@ static struct osc_extent *osc_extent_find(const struct lu_env *env,
 	cur = osc_extent_alloc(obj);
 	if (cur == NULL)
 		RETURN(ERR_PTR(-ENOMEM));
+	CDEBUG(D_DLMTRACE, "index: %lu\n",index);
 
 	olck = osc_env_io(env)->oi_write_osclock;
+	CDEBUG(D_DLMTRACE, "olck: %p\n",olck);
 	LASSERTF(olck != NULL, "page %lu is not covered by lock\n", index);
 	LASSERT(olck->ols_state == OLS_GRANTED);
 
 	descr = &olck->ols_cl.cls_lock->cll_descr;
+	CDEBUG(D_DLMTRACE, "descr: %p\n",descr);
+	CDEBUG(D_DLMTRACE, "descr->cld_start: %lu, descr->cld_end: %lu \n",descr->cld_start,descr->cld_end);
 	LASSERT(descr->cld_mode >= CLM_WRITE);
 
 	LASSERT(cli->cl_chunkbits >= PAGE_CACHE_SHIFT);
@@ -637,19 +653,26 @@ static struct osc_extent *osc_extent_find(const struct lu_env *env,
 	max_pages = cli->cl_max_pages_per_rpc;
 	LASSERT((max_pages & ~chunk_mask) == 0);
 	max_end = index - (index % max_pages) + max_pages - 1;
+	CDEBUG(D_DLMTRACE, "max_end: %lu\n",max_end);
 	max_end = min_t(pgoff_t, max_end, descr->cld_end);
+	CDEBUG(D_DLMTRACE, "max_end(min): %lu\n",max_end);
 
 	/* initialize new extent by parameters so far */
 	cur->oe_max_end = max_end;
 	cur->oe_start   = index & chunk_mask;
 	cur->oe_end     = ((index + ~chunk_mask + 1) & chunk_mask) - 1;
+	CDEBUG(D_DLMTRACE, "oe_start: %lu\n",cur->oe_start);
+	CDEBUG(D_DLMTRACE, "oe_end: %lu\n",cur->oe_end);
 	if (cur->oe_start < descr->cld_start)
 		cur->oe_start = descr->cld_start;
 	if (cur->oe_end > max_end)
 		cur->oe_end = max_end;
+	CDEBUG(D_DLMTRACE, "oe_start: %lu\n",cur->oe_start);
+	CDEBUG(D_DLMTRACE, "oe_end: %lu\n",cur->oe_end);
 	cur->oe_grants  = 0;
 	cur->oe_mppr    = max_pages;
 	if (olck->ols_dlmlock != NULL) {
+		CDEBUG(D_DLMTRACE, "dlmlock %p\n", olck->ols_dlmlock);
 		LASSERT(olck->ols_hold);
 		cur->oe_dlmlock = LDLM_LOCK_GET(olck->ols_dlmlock);
 		lu_ref_add(&olck->ols_dlmlock->l_reference, "osc_extent", cur);
@@ -2336,7 +2359,9 @@ int osc_queue_async_io(const struct lu_env *env, struct cl_io *io,
 	 * 2. otherwise, a new extent will be allocated. */
 
 	ext = oio->oi_active;
+	CDEBUG(D_DLMTRACE,"ext: %p\n",ext);
 	if (ext != NULL && ext->oe_start <= index && ext->oe_max_end >= index) {
+		CDEBUG(D_DLMTRACE, "oe_start: %lu, oe_max_end: %lu \n",ext->oe_start, ext->oe_max_end);
 		/* one chunk plus extent overhead must be enough to write this
 		 * page */
 		grants = (1 << cli->cl_chunkbits) + cli->cl_extent_tax;
@@ -2348,6 +2373,7 @@ int osc_queue_async_io(const struct lu_env *env, struct cl_io *io,
 		rc = osc_enter_cache_try(cli, oap, grants, 0);
 		spin_unlock(&cli->cl_loi_list_lock);
 		if (rc == 0) { /* try failed */
+			CDEBUG(D_DLMTRACE,"enter cache try failed.\n");
 			grants = 0;
 			need_release = 1;
 		} else if (ext->oe_end < index) {
@@ -2355,6 +2381,7 @@ int osc_queue_async_io(const struct lu_env *env, struct cl_io *io,
 			/* try to expand this extent */
 			rc = osc_extent_expand(ext, index, &tmp);
 			if (rc < 0) {
+				CDEBUG(D_DLMTRACE,"extent_expand failed\n");
 				need_release = 1;
 				/* don't free reserved grant */
 			} else {
@@ -2366,10 +2393,12 @@ int osc_queue_async_io(const struct lu_env *env, struct cl_io *io,
 		}
 		rc = 0;
 	} else if (ext != NULL) {
+		CDEBUG(D_DLMTRACE,"does not fit.\n");
 		/* index is located outside of active extent */
 		need_release = 1;
 	}
 	if (need_release) {
+		CDEBUG(D_DLMTRACE,"Needs release\n");
 		osc_extent_release(env, ext);
 		oio->oi_active = NULL;
 		ext = NULL;
@@ -2377,6 +2406,8 @@ int osc_queue_async_io(const struct lu_env *env, struct cl_io *io,
 
 	if (ext == NULL) {
 		tmp = (1 << cli->cl_chunkbits) + cli->cl_extent_tax;
+
+		CDEBUG(D_DLMTRACE,"extent == NULL\n");
 
 		/* try to find new extent to cover this page */
 		LASSERT(oio->oi_active == NULL);
@@ -2386,14 +2417,18 @@ int osc_queue_async_io(const struct lu_env *env, struct cl_io *io,
 
 		rc = 0;
 		if (grants == 0) {
+			CDEBUG(D_DLMTRACE,"grants == 0 enter cache\n");
 			/* we haven't allocated grant for this page. */
 			rc = osc_enter_cache(env, cli, oap, tmp);
-			if (rc == 0)
+			if (rc == 0) {
+				CDEBUG(D_DLMTRACE,"grants = tmp\n");
 				grants = tmp;
+			}
 		}
 
 		tmp = grants;
 		if (rc == 0) {
+			CDEBUG(D_DLMTRACE,"rc == 0, osc_extent_find\n");
 			ext = osc_extent_find(env, osc, index, &tmp);
 			if (IS_ERR(ext)) {
 				LASSERT(tmp == grants);
@@ -2401,6 +2436,7 @@ int osc_queue_async_io(const struct lu_env *env, struct cl_io *io,
 				rc = PTR_ERR(ext);
 				ext = NULL;
 			} else {
+				CDEBUG(D_DLMTRACE,"found extent\n");
 				oio->oi_active = ext;
 			}
 		}
@@ -2413,6 +2449,8 @@ int osc_queue_async_io(const struct lu_env *env, struct cl_io *io,
 		EASSERTF(ext->oe_end >= index && ext->oe_start <= index,
 			 ext, "index = %lu.\n", index);
 		LASSERT((oap->oap_brw_flags & OBD_BRW_FROM_GRANT) != 0);
+
+		CDEBUG(D_DLMTRACE,"ext != NULL, srvlock, ec.\n");
 
 		osc_object_lock(osc);
 		if (ext->oe_nr_pages == 0)

@@ -374,6 +374,7 @@ int cl_io_lock(const struct lu_env *env, struct cl_io *io)
                 result = scan->cis_iop->op[io->ci_type].cio_lock(env, scan);
                 if (result != 0)
                         break;
+		CDEBUG(D_DLMTRACE,"stride: %d %p \n",(int)io->ci_stride, io);
         }
         if (result == 0) {
                 cl_io_locks_sort(io);
@@ -578,6 +579,7 @@ int cl_io_start(const struct lu_env *env, struct cl_io *io)
                 result = scan->cis_iop->op[io->ci_type].cio_start(env, scan);
                 if (result != 0)
                         break;
+		CDEBUG(D_DLMTRACE,"stride: %d %p \n",(int)io->ci_stride,io);
         }
         if (result >= 0)
                 result = 0;
@@ -827,6 +829,7 @@ int cl_io_loop(const struct lu_env *env, struct cl_io *io)
                         nob    = io->ci_nob;
                         result = cl_io_lock(env, io);
                         if (result == 0) {
+				CDEBUG(D_DLMTRACE,"stride: %d %p \n",(int)io->ci_stride, io);
                                 /*
                                  * Notify layers that locks has been taken,
                                  * and do actual i/o.

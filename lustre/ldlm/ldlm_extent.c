@@ -79,6 +79,8 @@ static void ldlm_extent_internal_policy_fixup(struct ldlm_lock *req,
         __u64 req_end = req->l_req_extent.end;
         __u64 req_align, mask;
 
+	ENTRY;
+
         if (conflicting > 32 && (req_mode == LCK_PW || req_mode == LCK_CW)) {
                 if (req_end < req_start + LDLM_MAX_GROWN_EXTENT)
                         new_ex->end = min(req_start + LDLM_MAX_GROWN_EXTENT,
@@ -112,6 +114,8 @@ static void ldlm_extent_internal_policy_fixup(struct ldlm_lock *req,
         LASSERTF(new_ex->end >= req_end,
                  "mask "LPX64" grant end "LPU64" req end "LPU64"\n",
                  mask, new_ex->end, req_end);
+
+	EXIT;
 }
 
 /**
@@ -138,6 +142,8 @@ static void ldlm_extent_internal_policy_granted(struct ldlm_lock *req,
         int conflicting = 0;
         int idx;
         ENTRY;
+
+	LASSERT(!ldlm_is_strided(req));
 
         lockmode_verify(req_mode);
 
@@ -190,6 +196,8 @@ ldlm_extent_internal_policy_waiting(struct ldlm_lock *req,
 	struct ldlm_lock *lock;
 	int conflicting = 0;
 	ENTRY;
+
+	LASSERT(!ldlm_is_strided(req));
 
 	lockmode_verify(req_mode);
 
@@ -269,7 +277,9 @@ static void ldlm_extent_policy(struct ldlm_resource *res,
 {
         struct ldlm_extent new_ex = { .start = 0, .end = OBD_OBJECT_EOF };
 
-        if (lock->l_export == NULL)
+	ENTRY;
+
+        if (lock->l_export == NULL) {
                 /*
                  * this is local lock taken by server (e.g., as a part of
                  * OST-side locking, or unlink handling). Expansion doesn't
@@ -277,15 +287,35 @@ static void ldlm_extent_policy(struct ldlm_resource *res,
                  * dropped immediately on operation completion and would only
                  * conflict with other threads.
                  */
-                return;
+                EXIT;
+		return;
+	}
 
         if (lock->l_policy_data.l_extent.start == 0 &&
-            lock->l_policy_data.l_extent.end == OBD_OBJECT_EOF)
+            lock->l_policy_data.l_extent.end == OBD_OBJECT_EOF) {
                 /* fast-path whole file locks */
-                return;
+		LASSERT(!ldlm_is_strided(lock));
+                EXIT;
+		return;
+	}
 
-        ldlm_extent_internal_policy_granted(lock, &new_ex);
-        ldlm_extent_internal_policy_waiting(lock, &new_ex);
+	/* Strided locks should not be expanded. */
+	if(!ldlm_is_strided(lock)) {
+		LDLM_DEBUG(lock,"non-strided");
+		ldlm_extent_internal_policy_granted(lock, &new_ex);
+        	ldlm_extent_internal_policy_waiting(lock, &new_ex);
+	} else {
+		LDLM_DEBUG(lock,"strided");
+		new_ex.start = lock->l_policy_data.l_extent.start;
+		new_ex.end = lock->l_policy_data.l_extent.end;
+		/* Fixup is normally done inside 'granted' and 'waiting' policies,
+		 * but since those are not used for strided locks, we do it here. */
+		/* FIXME: In theory, for strided locks, this shouldn't have any work to do,
+		 * since they should be stripe-size aligned, which should also be page
+		 * aligned, etc.
+ 		 * Need to examine fixup carefully and figure out possible implications. */
+		ldlm_extent_internal_policy_fixup(lock, &new_ex, 0);
+	}
 
         if (new_ex.start != lock->l_policy_data.l_extent.start ||
             new_ex.end != lock->l_policy_data.l_extent.end) {
@@ -293,6 +323,8 @@ static void ldlm_extent_policy(struct ldlm_resource *res,
                 lock->l_policy_data.l_extent.start = new_ex.start;
                 lock->l_policy_data.l_extent.end = new_ex.end;
         }
+
+	EXIT;
 }
 
 static int ldlm_check_contention(struct ldlm_lock *lock, int contended_locks)
@@ -486,10 +518,14 @@ ldlm_extent_compat_queue(struct list_head *queue, struct ldlm_lock *req,
                         /* locks are compatible, overlap doesn't matter */
                         if (lockmode_compat(lock->l_req_mode, req_mode)) {
                                 if (req_mode == LCK_PR &&
-                                    ((lock->l_policy_data.l_extent.start <=
+				    ldlm_extent_match(
+					&req->l_policy_data.l_extent,
+					&lock->l_policy_data.l_extent)) {
+                                    /* FIXME: Left this as a reference:
+				      * ((lock->l_policy_data.l_extent.start <=
                                       req->l_policy_data.l_extent.start) &&
                                      (lock->l_policy_data.l_extent.end >=
-                                      req->l_policy_data.l_extent.end))) {
+                                      req->l_policy_data.l_extent.end))) { */
 					/* If we met a PR lock just like us or
 					   wider, and nobody down the list
 					   conflicted with it, that means we
@@ -586,8 +622,10 @@ ldlm_extent_compat_queue(struct list_head *queue, struct ldlm_lock *req,
                                 } else {
                                         *flags |= LDLM_FL_NO_TIMEOUT;
                                 }
-                        } else if (lock->l_policy_data.l_extent.end < req_start ||
-                                   lock->l_policy_data.l_extent.start > req_end) {
+			} else if (!ldlm_extent_overlap(
+						&lock->l_policy_data.l_extent,
+						&req->l_policy_data.l_extent)) {
+                                   
                                 /* if a non group lock doesn't overlap skip it */
                                 continue;
                         } else if (lock->l_req_extent.end < req_start ||
@@ -961,6 +999,7 @@ void ldlm_extent_policy_wire_to_local(const ldlm_wire_policy_data_t *wpolicy,
         lpolicy->l_extent.start = wpolicy->l_extent.start;
         lpolicy->l_extent.end = wpolicy->l_extent.end;
         lpolicy->l_extent.gid = wpolicy->l_extent.gid;
+        lpolicy->l_extent.stride = wpolicy->l_extent.stride;
 }
 
 void ldlm_extent_policy_local_to_wire(const ldlm_policy_data_t *lpolicy,
@@ -970,5 +1009,6 @@ void ldlm_extent_policy_local_to_wire(const ldlm_policy_data_t *lpolicy,
         wpolicy->l_extent.start = lpolicy->l_extent.start;
         wpolicy->l_extent.end = lpolicy->l_extent.end;
         wpolicy->l_extent.gid = lpolicy->l_extent.gid;
+        wpolicy->l_extent.stride = lpolicy->l_extent.stride;
 }
 
