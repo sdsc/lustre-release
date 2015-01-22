@@ -2948,6 +2948,13 @@ static int osd_xattr_get(const struct lu_env *env, struct dt_object *dt,
         struct osd_thread_info *info   = osd_oti_get(env);
         struct dentry          *dentry = &info->oti_obj_dentry;
 
+	if (!dt_object_exists(dt))
+		return -ENOENT;
+
+	LASSERT(!dt_object_remote(dt));
+	LASSERT(inode->i_op != NULL);
+	LASSERT(inode->i_op->getxattr != NULL);
+
         /* version get is not real XATTR but uses xattr API */
         if (strcmp(name, XATTR_NAME_VERSION) == 0) {
                 /* for version we are just using xattr API but change inode
@@ -2962,13 +2969,6 @@ static int osd_xattr_get(const struct lu_env *env, struct dt_object *dt,
 
 		return sizeof(dt_obj_version_t);
         }
-
-	if (!dt_object_exists(dt))
-		return -ENOENT;
-
-	LASSERT(!dt_object_remote(dt));
-	LASSERT(inode->i_op != NULL);
-	LASSERT(inode->i_op->getxattr != NULL);
 
 	if (osd_object_auth(env, dt, capa, CAPA_OPC_META_READ))
 		return -EACCES;
@@ -3049,6 +3049,9 @@ static int osd_xattr_set(const struct lu_env *env, struct dt_object *dt,
 	ENTRY;
 
         LASSERT(handle != NULL);
+
+	if (!dt_object_exists(dt))
+		return -ENOENT;
 
         /* version set is not real XATTR */
         if (strcmp(name, XATTR_NAME_VERSION) == 0) {
