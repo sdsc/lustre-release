@@ -1095,9 +1095,21 @@ lnet_return_rx_credits_locked(lnet_msg_t *msg)
 		/* It is possible that a user has lowered the desired number of
 		 * buffers in this pool.  Make sure we never put back
 		 * more buffers than the stated number. */
-		if (rbp->rbp_credits >= rbp->rbp_nbuffers) {
-			/* Discard this buffer so we don't have too many. */
-			lnet_destroy_rtrbuf(rb, rbp->rbp_npages);
+		if (unlikely(rbp->rbp_credits >= rbp->rbp_req_nbuffers)) {
+			mutex_lock(&rbp->rbp_nbuf_mutex);
+			if (rbp->rbp_credits >= rbp->rbp_req_nbuffers) {
+				/* Discard this buffer so we don't have too
+				 * many. */
+				lnet_destroy_rtrbuf(rb, rbp->rbp_npages);
+				rbp->rbp_nbuffers--;
+				mutex_unlock(&rbp->rbp_nbuf_mutex);
+			} else {
+				mutex_unlock(&rbp->rbp_nbuf_mutex);
+				list_add(&rb->rb_list, &rbp->rbp_bufs);
+				rbp->rbp_credits++;
+				if (rbp->rbp_credits <= 0)
+					lnet_schedule_blocked_locked(rbp);
+			}
 		} else {
 			list_add(&rb->rb_list, &rbp->rbp_bufs);
 			rbp->rbp_credits++;
