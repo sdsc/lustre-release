@@ -1144,9 +1144,13 @@ lnet_return_rx_credits_locked(lnet_msg_t *msg)
 		/* It is possible that a user has lowered the desired number of
 		 * buffers in this pool.  Make sure we never put back
 		 * more buffers than the stated number. */
-		if (rbp->rbp_credits >= rbp->rbp_nbuffers) {
-			/* Discard this buffer so we don't have too many. */
-			lnet_destroy_rtrbuf(rb, rbp->rbp_npages);
+		if (unlikely(rbp->rbp_credits >= rbp->rbp_req_nbuffers)) {
+			if (!test_and_set_bit(0, &rbp->rbp_lock_nbuf)) {
+				/* Discard this buffer so we don't have too many. */
+				lnet_destroy_rtrbuf(rb, rbp->rbp_npages);
+				rbp->rbp_nbuffers--;
+				clear_bit(0, &rbp->rbp_lock_nbuf);
+			}
 		} else {
 			list_add(&rb->rb_list, &rbp->rbp_bufs);
 			rbp->rbp_credits++;
