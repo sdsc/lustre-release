@@ -43,22 +43,20 @@
 #ifndef __LIBCFS_STRING_H__
 #define __LIBCFS_STRING_H__
 
+#ifdef __KERNEL__
+# include <linux/string.h>
+# define strtoul(str, endp, base) (simple_strtoul(str, endp, base))
+#else /* ! __KERNEL__ */
+# include <stdarg.h>
+int vscnprintf(char *buf, size_t size, const char *fmt, va_list args);
+int scnprintf(char *buf, size_t size, const char *fmt, ...);
+#endif /* __KERNEL__ */
+
 /* libcfs_string.c */
 char *cfs_strrstr(const char *haystack, const char *needle);
 /* Convert a text string to a bitmask */
 int cfs_str2mask(const char *str, const char *(*bit2str)(int bit),
                  int *oldmask, int minmask, int allmask);
-
-/* Allocate space for and copy an existing string.
- * Must free with kfree().
- */
-char *cfs_strdup(const char *str, u_int32_t flags);
-
-/* safe vsnprintf */
-int cfs_vsnprintf(char *buf, size_t size, const char *fmt, va_list args);
-
-/* safe snprintf */
-int cfs_snprintf(char *buf, size_t size, const char *fmt, ...);
 
 /* trim leading and trailing space characters */
 char *cfs_firststr(char *str, size_t size);
@@ -131,9 +129,5 @@ void cfs_expr_list_free_list(struct list_head *list);
 int cfs_ip_addr_parse(char *str, int len, struct list_head *list);
 int cfs_ip_addr_match(__u32 addr, struct list_head *list);
 void cfs_ip_addr_free(struct list_head *list);
-
-#ifdef __KERNEL__
-#define	strtoul(str, endp, base)	simple_strtoul(str, endp, base)
-#endif
 
 #endif
