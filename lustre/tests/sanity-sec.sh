@@ -1522,6 +1522,10 @@ nodemap_clients_admin_trusted() {
 }
 
 test_16() {
+	[ $(lustre_version_code $SINGLEMGS) -lt $(version_code 2.6.90) ] &&
+		skip "Skip test on $(get_lustre_version) MGS, need 2.6.90+" &&
+		return
+
 	nodemap_test_setup 0
 
 	test_fops all_off
@@ -1530,6 +1534,10 @@ test_16() {
 run_test 16 "test nodemap all_off fileops"
 
 test_17() {
+	[ $(lustre_version_code $SINGLEMGS) -lt $(version_code 2.6.90) ] &&
+		skip "Skip test on $(get_lustre_version) MGS, need 2.6.90+" &&
+		return
+
 	nodemap_test_setup
 
 	nodemap_clients_admin_trusted 0 1
@@ -1539,6 +1547,10 @@ test_17() {
 run_test 17 "test nodemap trusted_noadmin fileops"
 
 test_18() {
+	[ $(lustre_version_code $SINGLEMGS) -lt $(version_code 2.6.90) ] &&
+		skip "Skip test on $(get_lustre_version) MGS, need 2.6.90+" &&
+		return
+
 	nodemap_test_setup
 	nodemap_clients_admin_trusted 0 0
 	test_fops mapped_noadmin 1
@@ -1547,6 +1559,10 @@ test_18() {
 run_test 18 "test nodemap mapped_noadmin fileops"
 
 test_19() {
+	[ $(lustre_version_code $SINGLEMGS) -lt $(version_code 2.6.90) ] &&
+		skip "Skip test on $(get_lustre_version) MGS, need 2.6.90+" &&
+		return
+
 	nodemap_test_setup
 	nodemap_clients_admin_trusted 1 1
 	test_fops trusted_admin 1
@@ -1555,6 +1571,10 @@ test_19() {
 run_test 19 "test nodemap trusted_admin fileops"
 
 test_20() {
+	[ $(lustre_version_code $SINGLEMGS) -lt $(version_code 2.6.90) ] &&
+		skip "Skip test on $(get_lustre_version) MGS, need 2.6.90+" &&
+		return
+
 	nodemap_test_setup
 	nodemap_clients_admin_trusted 1 0
 	test_fops mapped_admin 1
@@ -1563,6 +1583,10 @@ test_20() {
 run_test 20 "test nodemap mapped_admin fileops"
 
 test_21() {
+	[ $(lustre_version_code $SINGLEMGS) -lt $(version_code 2.6.90) ] &&
+		skip "Skip test on $(get_lustre_version) MGS, need 2.6.90+" &&
+		return
+
 	nodemap_test_setup
 	local x=1
 	local i=0
@@ -1582,6 +1606,10 @@ test_21() {
 run_test 21 "test nodemap mapped_trusted_noadmin fileops"
 
 test_22() {
+	[ $(lustre_version_code $SINGLEMGS) -lt $(version_code 2.6.90) ] &&
+		skip "Skip test on $(get_lustre_version) MGS, need 2.6.90+" &&
+		return
+
 	nodemap_test_setup
 	local x=1
 	local i=0
@@ -1662,6 +1690,10 @@ nodemap_acl_test() {
 }
 
 test_23() {
+	[ $(lustre_version_code $SINGLEMGS) -lt $(version_code 2.6.90) ] &&
+		skip "Skip test on $(get_lustre_version) MGS, need 2.6.90+" &&
+		return
+
 	nodemap_test_setup
 
 	# 1 trusted cluster, 1 mapped cluster
