@@ -1605,7 +1605,6 @@ int ll_setattr_raw(struct dentry *dentry, struct iattr *attr, bool hsm_import)
         struct ll_inode_info *lli = ll_i2info(inode);
         struct md_op_data *op_data = NULL;
         struct md_open_data *mod = NULL;
-	bool file_is_released = false;
 	int rc = 0, rc1 = 0;
 	ENTRY;
 
@@ -1680,25 +1679,7 @@ int ll_setattr_raw(struct dentry *dentry, struct iattr *attr, bool hsm_import)
 	 * but other attributes must be set
 	 */
 	if (S_ISREG(inode->i_mode)) {
-		struct lov_stripe_md *lsm;
-		__u32 gen;
-
-		ll_layout_refresh(inode, &gen);
-		lsm = ccc_inode_lsm_get(inode);
-		if (lsm && lsm->lsm_pattern & LOV_PATTERN_F_RELEASED)
-			file_is_released = true;
-		ccc_inode_lsm_put(inode, lsm);
-
 		if (!hsm_import && attr->ia_valid & ATTR_SIZE) {
-			if (file_is_released) {
-				rc = ll_layout_restore(inode, 0, attr->ia_size);
-				if (rc < 0)
-					GOTO(out, rc);
-
-				file_is_released = false;
-				ll_layout_refresh(inode, &gen);
-			}
-
 			/* If we are changing file size, file content is
 			 * modified, flag it. */
 			attr->ia_valid |= MDS_OPEN_OWNEROVERRIDE;
@@ -1728,7 +1709,7 @@ int ll_setattr_raw(struct dentry *dentry, struct iattr *attr, bool hsm_import)
 	}
 
 	ll_ioepoch_open(lli, op_data->op_ioepoch);
-	if (!S_ISREG(inode->i_mode) || file_is_released)
+	if (!S_ISREG(inode->i_mode))
 		GOTO(out, rc = 0);
 
 	if (attr->ia_valid & (ATTR_SIZE |
