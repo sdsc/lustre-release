@@ -546,12 +546,16 @@ typedef struct {
 	struct list_head	rbp_msgs;
 	/* # pages in each buffer */
 	int			rbp_npages;
-	/* # buffers */
+	/* requested number of buffers */
+	int			rbp_req_nbuffers;
+	/* # buffers actually allocated */
 	int			rbp_nbuffers;
 	/* # free buffers / blocked messages */
 	int			rbp_credits;
 	/* low water mark */
 	int			rbp_mincredits;
+	/* indicate that we need to skip freeing buffers */
+	unsigned long		rbp_lock_nbuf;
 } lnet_rtrbufpool_t;
 
 typedef struct {
