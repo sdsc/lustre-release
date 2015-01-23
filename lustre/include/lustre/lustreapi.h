@@ -399,6 +399,8 @@ extern int llapi_lease_put(int fd);
 int llapi_group_lock(int fd, int gid);
 int llapi_group_unlock(int fd, int gid);
 
+/* Ladvise */
+int llapi_ladvise(int fd, struct lu_ladvise *ladvise);
 /** @} llapi */
 
 /* llapi_layout user interface */

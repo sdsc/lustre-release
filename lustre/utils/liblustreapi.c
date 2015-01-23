@@ -4855,3 +4855,25 @@ int llapi_group_unlock(int fd, int gid)
 	}
 	return rc;
 }
+
+/*
+ * Give file access advices
+ *
+ * \param fd       File to give advice on.
+ * \param ladvise  Advice to give.
+ *
+ * \retval 0 on success.
+ * \retval -errno on failure.
+ */
+int llapi_ladvise(int fd, struct lu_ladvise *ladvise)
+{
+	int rc;
+
+	rc = ioctl(fd, LL_IOC_LADVISE, ladvise);
+	if (rc < 0) {
+		rc = -errno;
+		llapi_error(LLAPI_MSG_ERROR, rc, "cannot give advice");
+	}
+	return rc;
+}
+
