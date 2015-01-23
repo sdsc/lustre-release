@@ -4072,6 +4072,7 @@ static int lfs_swap_layouts(int argc, char **argv)
 }
 
 static const char *const ladvise_types[] = {
+	[LU_LADVISE_WILLNEED] = "willneed",
 };
 
 static enum lu_ladvise_type lfs_get_ladvice(const char *string)
