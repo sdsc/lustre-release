@@ -61,8 +61,8 @@ init_logging
 [ "$SLOW" = "no" ] && EXCEPT_SLOW="24o 24D 27m 64b 68 71 77f 78 115 124b 230d"
 
 if [ $(facet_fstype $SINGLEMDS) = "zfs" ]; then
-	# bug number for skipped test: LU-1593	LU-4536 LU-5242	 LU-1957 LU-2805
-	ALWAYS_EXCEPT="$ALWAYS_EXCEPT  34h	65ic	78 79 80 180	 184c"
+	# bug number for skipped test: LU-1593	LU-5242	 LU-1957 LU-2805
+	ALWAYS_EXCEPT="$ALWAYS_EXCEPT  34h	78 79 80 180	 184c"
 	[ "$SLOW" = "no" ] && EXCEPT_SLOW="$EXCEPT_SLOW 51b 51ba"
 fi
 
@@ -5404,7 +5404,12 @@ run_test 65ib "getstripe -v on -1 default directory striping"
 
 test_65ic() { # bug12836
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	debugsave
+	debug_size_save
+	do_nodes $(comma_list $(nodes_list)) "$LCTL set_param debug_mb=150"
+	do_nodes $(comma_list $(nodes_list)) "$LCTL set_param debug=+rpctrace;"
 	$LFS find -mtime -1 $MOUNT > /dev/null || error "find $MOUNT failed"
+	stop_full_debug_logging
 }
 run_test 65ic "new find on -1 default directory striping"
 
