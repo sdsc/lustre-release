@@ -32,6 +32,8 @@
 #define LNET_NRB_LARGE		(LNET_NRB_LARGE_MIN * 4)
 #define LNET_NRB_LARGE_PAGES	((LNET_MTU + PAGE_CACHE_SIZE - 1) >> \
 				  PAGE_CACHE_SHIFT)
+#define LNET_MAX_WAIT_RETRIES	10
+#define LNET_WAIT_TO		100
 
 static char *forwarding = "";
 CFS_MODULE_PARM(forwarding, "s", charp, 0444,
@@ -1353,10 +1355,13 @@ lnet_rtrpool_free_bufs(lnet_rtrbufpool_t *rbp, int cpt)
 	lnet_rtrbuf_t	 *rb;
 	struct list_head tmp;
 
-	if (rbp->rbp_nbuffers == 0) /* not initialized or already freed */
+	if (rbp->rbp_nbuffers == 0) { /* not initialized or already freed */
 		return;
+	}
 
 	INIT_LIST_HEAD(&tmp);
+
+	mutex_lock(&rbp->rbp_nbuf_mutex);
 
 	lnet_net_lock(cpt);
 	lnet_drop_routed_msgs_locked(&rbp->rbp_msgs, cpt);
@@ -1364,6 +1369,8 @@ lnet_rtrpool_free_bufs(lnet_rtrbufpool_t *rbp, int cpt)
 	rbp->rbp_nbuffers = rbp->rbp_credits = 0;
 	rbp->rbp_mincredits = 0;
 	lnet_net_unlock(cpt);
+
+	mutex_unlock(&rbp->rbp_nbuf_mutex);
 
 	/* Free buffers on the free list. */
 	while (!list_empty(&tmp)) {
@@ -1383,17 +1390,22 @@ lnet_rtrpool_adjust_bufs(lnet_rtrbufpool_t *rbp, int nbufs, int cpt)
 	int		npages = rbp->rbp_npages;
 
 	/* If we are called for less buffers than already in the pool, we
-	 * just lower the nbuffers number and excess buffers will be
+	 * just lower the req_nbuffers number and excess buffers will be
 	 * thrown away as they are returned to the free list.  Credits
 	 * then get adjusted as well. */
-	if (nbufs <= rbp->rbp_nbuffers) {
+	if (nbufs <= rbp->rbp_req_nbuffers) {
 		lnet_net_lock(cpt);
-		rbp->rbp_nbuffers = nbufs;
+		rbp->rbp_req_nbuffers = nbufs;
 		lnet_net_unlock(cpt);
 		return 0;
 	}
 
 	INIT_LIST_HEAD(&rb_list);
+
+	/* make sure that rbp_nbuffers can not change while we are
+	 * allocating the new set of buffers, to ensure we allocate
+	 * exactly the correct number needed */
+	mutex_lock(&rbp->rbp_nbuf_mutex);
 
 	/* allocate the buffers on a local list first.  If all buffers are
 	 * allocated successfully then join this list to the rbp buffer
@@ -1418,7 +1430,11 @@ lnet_rtrpool_adjust_bufs(lnet_rtrbufpool_t *rbp, int nbufs, int cpt)
 	list_splice_tail(&rb_list, &rbp->rbp_bufs);
 	rbp->rbp_nbuffers += num_buffers;
 	rbp->rbp_credits += num_buffers;
+	rbp->rbp_req_nbuffers = nbufs;
 	rbp->rbp_mincredits = rbp->rbp_credits;
+
+	mutex_unlock(&rbp->rbp_nbuf_mutex);
+
 	/* We need to schedule blocked msg using the newly
 	 * added buffers. */
 	while (!list_empty(&rbp->rbp_bufs) &&
@@ -1444,10 +1460,11 @@ lnet_rtrpool_init(lnet_rtrbufpool_t *rbp, int npages)
 {
 	INIT_LIST_HEAD(&rbp->rbp_msgs);
 	INIT_LIST_HEAD(&rbp->rbp_bufs);
+	mutex_init(&rbp->rbp_nbuf_mutex);
 
-        rbp->rbp_npages = npages;
-        rbp->rbp_credits = 0;
-        rbp->rbp_mincredits = 0;
+	rbp->rbp_npages = npages;
+	rbp->rbp_credits = 0;
+	rbp->rbp_mincredits = 0;
 }
 
 void
