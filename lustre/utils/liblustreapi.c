@@ -4683,29 +4683,17 @@ int llapi_create_volatile_idx(char *directory, int idx, int open_flags)
 	char	file_path[PATH_MAX];
 	char	filename[PATH_MAX];
 	int	fd;
-	int	random;
+	int	rnd;
 	int	rc;
 
-	fd = open("/dev/urandom", O_RDONLY);
-	if (fd < 0) {
-		llapi_error(LLAPI_MSG_ERROR, errno,
-			    "Cannot open /dev/urandom");
-		return -errno;
-	}
-	rc = read(fd, &random, sizeof(random));
-	close(fd);
-	if (rc < sizeof(random)) {
-		llapi_error(LLAPI_MSG_ERROR, errno,
-			    "cannot read %zu bytes from /dev/urandom",
-			    sizeof(random));
-		return -errno;
-	}
+	rnd = random();
+
 	if (idx == -1)
 		snprintf(filename, sizeof(filename),
-			 LUSTRE_VOLATILE_HDR"::%.4X", random);
+			 LUSTRE_VOLATILE_HDR"::%.4X", rnd);
 	else
 		snprintf(filename, sizeof(filename),
-			 LUSTRE_VOLATILE_HDR":%.4X:%.4X", idx, random);
+			 LUSTRE_VOLATILE_HDR":%.4X:%.4X", idx, rnd);
 
 	rc = snprintf(file_path, sizeof(file_path),
 		      "%s/%s", directory, filename);
@@ -4730,25 +4718,82 @@ int llapi_create_volatile_idx(char *directory, int idx, int open_flags)
 
 /**
  * Swap the layouts between 2 file descriptors
- * the 2 files must be open in write
+ * the 2 files must be open for writing
  * first fd received the ioctl, second fd is passed as arg
  * this is assymetric but avoid use of root path for ioctl
  */
-int llapi_fswap_layouts(int fd1, int fd2, __u64 dv1, __u64 dv2, __u64 flags)
+int llapi_fswap_layouts_grouplock(int fd1, int fd2, __u64 dv1, __u64 dv2,
+				  int gid, __u64 flags)
 {
-	struct lustre_swap_layouts lsl;
-	int rc;
+	struct lustre_swap_layouts	lsl;
+	struct stat			st1;
+	struct stat			st2;
+	int				rc;
 
-	srandom(time(NULL));
+	if (flags & (SWAP_LAYOUTS_KEEP_ATIME | SWAP_LAYOUTS_KEEP_MTIME)) {
+		rc = fstat(fd1, &st1);
+		if (rc < 0)
+			return -errno;
+
+		rc = fstat(fd2, &st2);
+		if (rc < 0)
+			return -errno;
+	}
 	lsl.sl_fd = fd2;
 	lsl.sl_flags = flags;
-	lsl.sl_gid = random();
+	lsl.sl_gid = gid;
 	lsl.sl_dv1 = dv1;
 	lsl.sl_dv2 = dv2;
 	rc = ioctl(fd1, LL_IOC_LOV_SWAP_LAYOUTS, &lsl);
-	if (rc)
-		rc = -errno;
-	return rc;
+	if (rc < 0)
+		return -errno;
+
+	if (flags & (SWAP_LAYOUTS_KEEP_ATIME | SWAP_LAYOUTS_KEEP_MTIME)) {
+		struct timeval	tv1[2];
+		struct timeval	tv2[2];
+
+		memset(tv1, 0, sizeof(tv1));
+		memset(tv2, 0, sizeof(tv2));
+
+		if (flags & SWAP_LAYOUTS_KEEP_ATIME) {
+			tv1[0].tv_sec = st1.st_atime;
+			tv2[0].tv_sec = st2.st_atime;
+		} else {
+			tv1[0].tv_sec = st2.st_atime;
+			tv2[0].tv_sec = st1.st_atime;
+		}
+
+		if (flags & SWAP_LAYOUTS_KEEP_MTIME) {
+			tv1[1].tv_sec = st1.st_mtime;
+			tv2[1].tv_sec = st2.st_mtime;
+		} else {
+			tv1[1].tv_sec = st2.st_mtime;
+			tv2[1].tv_sec = st1.st_mtime;
+		}
+
+		rc = futimes(fd1, tv1);
+		if (rc < 0)
+			return -errno;
+
+		rc = futimes(fd2, tv2);
+		if (rc < 0)
+			return -errno;
+	}
+
+	return 0;
+}
+
+int llapi_fswap_layouts(int fd1, int fd2, __u64 dv1, __u64 dv2, __u64 flags)
+{
+	int	rc;
+	int	grp_id;
+
+	grp_id = random();
+	rc = llapi_fswap_layouts_grouplock(fd1, fd2, dv1, dv2, grp_id, flags);
+	if (rc < 0)
+		return rc;
+
+	return 0;
 }
 
 /**
@@ -4854,4 +4899,34 @@ int llapi_group_unlock(int fd, int gid)
 		llapi_error(LLAPI_MSG_ERROR, rc, "cannot put group lock");
 	}
 	return rc;
+}
+
+/*
+ * Initializes the library
+ */
+static __attribute__ ((constructor)) void liblustreapi_init(void)
+{
+	unsigned int	seed;
+	struct timeval	tv;
+	int		fd;
+
+	/* Initializes the random number generator (random()). Get
+	 * data from different places in case one of them fails. This
+	 * is enough to get reasonably random numbers, but is not
+	 * strong enough to be used for cryptography. */
+	seed = syscall(SYS_gettid);
+	seed ^= time(NULL);
+
+	if (gettimeofday(&tv, NULL) == 0)
+		seed ^= tv.tv_usec;
+
+	fd = open("/dev/urandom", O_RDONLY | O_NOFOLLOW);
+	if (fd >= 0) {
+		unsigned int rnumber;
+
+		read(fd, &rnumber, sizeof(rnumber));
+		seed ^= rnumber;
+		close(fd);
+	}
+	srandom(seed);
 }
