@@ -263,7 +263,7 @@ struct osp_thread_info {
 	struct lu_attr		 osi_attr;
 	struct ost_id		 osi_oi;
 	struct ost_id		 osi_oi2;
-	obd_id			 osi_id;
+	u64			 osi_id;
 	loff_t			 osi_off;
 	union {
 		struct llog_rec_hdr		osi_hdr;
@@ -306,16 +306,16 @@ static inline void osp_objid_buf_prep(struct lu_buf *buf, loff_t *off,
 				      __u32 *id, int index)
 {
 	buf->lb_buf = (void *)id;
-	buf->lb_len = sizeof(obd_id);
-	*off = sizeof(obd_id) * index;
+	buf->lb_len = sizeof(u64);
+	*off = sizeof(u64) * index;
 }
 
 static inline void osp_objseq_buf_prep(struct lu_buf *buf, loff_t *off,
 				       __u64 *seq, int index)
 {
 	buf->lb_buf = (void *)seq;
-	buf->lb_len = sizeof(obd_id);
-	*off = sizeof(obd_id) * index;
+	buf->lb_len = sizeof(u64);
+	*off = sizeof(u64) * index;
 }
 
 static inline void osp_buf_prep(struct lu_buf *lb, void *buf, int buf_len)
@@ -504,7 +504,7 @@ typedef int (*osp_async_request_interpreter_t)(const struct lu_env *env,
 					       void *data, int index, int rc);
 
 /* osp_dev.c */
-void osp_update_last_id(struct osp_device *d, obd_id objid);
+void osp_update_last_id(struct osp_device *d, u64 objid);
 extern struct llog_operations osp_mds_ost_orig_logops;
 
 /* osp_trans.c */
