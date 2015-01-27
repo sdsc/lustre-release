@@ -401,6 +401,18 @@ your distribution.
 			AC_DEFINE(HAVE_DSL_SYNC_TASK_DO_NOWAIT, 1,
 				[Have dsl_sync_task_do_nowait in ZFS])
 		])
+		LB_CHECK_COMPILE([if zfs defines spa_maxblocksize],
+		spa_maxblocksize, [
+			#include <sys/spa.h>
+		],[
+			spa_t *spa = NULL;
+			int size;
+
+			size = spa_maxblocksize(spa);
+		],[
+			AC_DEFINE(HAVE_SPA_MAXBLOCKSIZE, 1,
+				[Have spa_maxblocksize in ZFS])
+		])
 	])
 
 	AM_CONDITIONAL(ZFS_ENABLED, [test "x$enable_zfs" = xyes])
