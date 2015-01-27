@@ -1137,11 +1137,14 @@ static const struct cl_io_operations vvp_io_ops = {
 			.cio_start  = vvp_io_fsync_start,
 			.cio_fini   = vvp_io_fini
 		},
-                [CIT_MISC] = {
-                        .cio_fini   = vvp_io_fini
-                }
-        },
-        .cio_read_page     = vvp_io_read_page,
+		[CIT_MISC] = {
+			.cio_fini   = vvp_io_fini
+		},
+		[CIT_LADVISE] = {
+			.cio_fini   = vvp_io_fini
+		},
+	},
+	.cio_read_page     = vvp_io_read_page,
 };
 
 int vvp_io_init(const struct lu_env *env, struct cl_object *obj,
