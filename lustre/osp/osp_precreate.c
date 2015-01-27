@@ -358,12 +358,12 @@ int osp_write_last_oid_seq_files(struct lu_env *env, struct osp_device *osp,
 	 * 64 bits for oid to keep compatiblity with the previous
 	 * version. */
 	lb_oid->lb_buf = &fid->f_oid;
-	lb_oid->lb_len = sizeof(obd_id);
-	oid_off = sizeof(obd_id) * osp->opd_index;
+	lb_oid->lb_len = sizeof(u64);
+	oid_off = sizeof(u64) * osp->opd_index;
 
 	lb_oseq->lb_buf = &fid->f_seq;
-	lb_oseq->lb_len = sizeof(obd_id);
-	oseq_off = sizeof(obd_id) * osp->opd_index;
+	lb_oseq->lb_len = sizeof(u64);
+	oseq_off = sizeof(u64) * osp->opd_index;
 
 	th = dt_trans_create(env, osp->opd_storage);
 	if (IS_ERR(th))
