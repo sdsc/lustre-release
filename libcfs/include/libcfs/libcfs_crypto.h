@@ -146,6 +146,7 @@ static inline unsigned char cfs_crypto_hash_alg(const char *algname)
 	return CFS_HASH_ALG_UNKNOWN;
 }
 
+#ifdef __KERNEL__
 int cfs_crypto_hash_digest(enum cfs_crypto_hash_alg hash_alg,
 			   const void *buf, unsigned int buf_len,
 			   unsigned char *key, unsigned int key_len,
@@ -167,4 +168,5 @@ int cfs_crypto_hash_final(struct cfs_crypto_hash_desc *desc,
 int cfs_crypto_register(void);
 void cfs_crypto_unregister(void);
 int cfs_crypto_hash_speed(enum cfs_crypto_hash_alg hash_alg);
+#endif	/* __KERNEL__ */
 #endif

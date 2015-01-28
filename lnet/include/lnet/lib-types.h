@@ -50,6 +50,7 @@
 # include <sys/types.h>
 #endif /* __KERNEL__ */
 
+#include <libcfs/libcfs_crypto.h>
 #include <libcfs/libcfs.h>
 #include <libcfs/list.h>
 #include <lnet/types.h>
@@ -228,6 +229,7 @@ typedef struct lnet_msg {
         unsigned int          msg_niov;
         struct iovec         *msg_iov;
         lnet_kiov_t          *msg_kiov;
+	char		      msg_cksum[CFS_CRYPTO_HASH_DIGESTSIZE_MAX];
 
         lnet_event_t          msg_ev;
         lnet_hdr_t            msg_hdr;
@@ -432,6 +434,7 @@ typedef struct lnet_ni {
 	int			ni_peerrtrcredits;
 	/* seconds to consider peer dead */
 	int			ni_peertimeout;
+	unsigned char		ni_cksum_algo;	/* Checksum algorithm */
 	int			ni_ncpts;	/* number of CPTs */
 	__u32			*ni_cpts;	/* bond NI on some CPTs */
 	lnet_nid_t		ni_nid;		/* interface's NID */

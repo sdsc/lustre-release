@@ -102,7 +102,9 @@ lnet_dyn_configure(struct libcfs_ioctl_hdr *hdr)
 				     conf->cfg_config_u.cfg_net.
 					net_peer_rtr_credits,
 				     conf->cfg_config_u.cfg_net.
-					net_max_tx_credits);
+					net_max_tx_credits,
+				     conf->cfg_config_u.cfg_net.
+					net_cksum_algo);
 	else
 		rc = -EINVAL;
 	LNET_MUTEX_UNLOCK(&lnet_config_mutex);

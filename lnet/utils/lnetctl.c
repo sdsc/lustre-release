@@ -81,6 +81,7 @@ command_t net_cmds[] = {
 	 "\t--net: net name (e.g. tcp0)\n"
 	 "\t--if: physical interface (e.g. eth0)\n"
 	 "\t--ip2net: specify networks based on IP address patterns\n"
+	 "\t--checksum: algorthim use to validate transmitted data\n"
 	 "\t--peer-timeout: time to wait before declaring a peer dead\n"
 	 "\t--peer-credits: define the max number of inflight messages\n"
 	 "\t--peer-buffer-credits: the number of buffer credits per peer\n"
@@ -414,9 +415,10 @@ static int jt_add_net(int argc, char **argv)
 	char *network = NULL, *intf = NULL, *ip2net = NULL, *cpt = NULL;
 	long int pto = -1, pc = -1, pbc = -1, cre = -1;
 	struct cYAML *err_rc = NULL;
+	char *cksum = "null";
 	int rc, opt;
 
-	const char *const short_options = "n:i:p:t:c:b:r:s:h";
+	const char *const short_options = "n:i:p:t:c:b:k:r:s:h";
 	const struct option long_options[] = {
 		{ "net", 1, NULL, 'n' },
 		{ "if", 1, NULL, 'i' },
@@ -424,6 +426,7 @@ static int jt_add_net(int argc, char **argv)
 		{ "peer-timeout", 1, NULL, 't' },
 		{ "peer-credits", 1, NULL, 'c' },
 		{ "peer-buffer-credits", 1, NULL, 'b' },
+		{ "checksum", 1, NULL, 'k' },
 		{ "credits", 1, NULL, 'r' },
 		{ "cpt", 1, NULL, 's' },
 		{ "help", 0, NULL, 'h' },
@@ -449,6 +452,9 @@ static int jt_add_net(int argc, char **argv)
 				pto = -1;
 				continue;
 			}
+			break;
+		case 'k':
+			cksum = optarg;
 			break;
 		case 'c':
 			rc = parse_long(optarg, &pc);
@@ -486,7 +492,7 @@ static int jt_add_net(int argc, char **argv)
 	}
 
 	rc = lustre_lnet_config_net(network, intf, ip2net, pto, pc, pbc,
-				    cre, cpt, -1, &err_rc);
+				    cre, cksum, cpt, -1, &err_rc);
 
 	if (rc != LUSTRE_CFG_RC_NO_ERR)
 		cYAML_print_tree2file(stderr, err_rc);
