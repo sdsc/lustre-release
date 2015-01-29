@@ -114,7 +114,16 @@ flag[23] = {
 	_EOF_;
 };
 
-// Skipped bits 24 through 29
+// Skipped bits 24 through 28
+
+flag[29] = {
+    f-name = fl_do_not_expand;
+    f-mask = on_wire, inherit;
+    f-desc = <<- _EOF_
+	Do not expand this lock.  Grant it only on the extent requested.
+	Used for client controlled lock ahead.
+	_EOF_;
+};
 
 flag[30] = {
     f-name  = deny_on_contention;
