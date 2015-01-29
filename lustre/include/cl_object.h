@@ -1623,7 +1623,7 @@ enum cl_enq_flags {
          * mmapped-buffer locks and glimpse locks that must be never converted
          * into lockless mode.
          *
-         * \see vvp_mmap_locks(), cl_glimpse_lock().
+         * \see vvp_mmap_locks(), cl_request_lock().
          */
         CEF_MUST         = 0x00000008,
         /**
@@ -1646,9 +1646,13 @@ enum cl_enq_flags {
 	 */
 	CEF_PEEK	= 0x00000040,
 	/**
+ 	* Do not expand the requested lock extent
+ 	*/
+	CEF_NO_EXPAND	= 0x00000080, 
+	/**
 	 * mask of enq_flags.
 	 */
-	CEF_MASK         = 0x0000007f,
+	CEF_MASK         = 0x000000ff,
 };
 
 /**
@@ -1836,7 +1840,13 @@ struct cl_io {
 	/**
 	 * O_NOATIME
 	 */
-			     ci_noatime:1;
+			     ci_noatime:1,
+	/**
+	 * Lock ahead - Identify lock ahead requests for client layers
+	 * Used to prevent returning early on read/write lock requests with
+	 * 0 bytes of payload
+	 */
+			     ci_lock_ahead:1;
 	/**
 	 * Number of pages owned by this IO. For invariant checking.
 	 */

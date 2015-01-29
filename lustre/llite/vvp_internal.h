@@ -55,18 +55,21 @@ struct page;
 
 blkcnt_t dirty_cnt(struct inode *inode);
 
-int cl_glimpse_size0(struct inode *inode, int agl);
-int cl_glimpse_lock(const struct lu_env *env, struct cl_io *io,
-		    struct inode *inode, struct cl_object *clob, int agl);
+int cl_request_lock(struct inode *inode, off_t start, off_t end,
+		     lock_mode_user mode, __u32 flags);
+int cl_request_lock0(const struct lu_env *env, struct cl_io *io,
+		    struct inode *inode, struct cl_object *clob,
+		    pgoff_t start, pgoff_t end, lock_mode_user mode,
+		    __u32 flags);
 
 static inline int cl_glimpse_size(struct inode *inode)
 {
-	return cl_glimpse_size0(inode, 0);
+	return cl_request_lock(inode, 0, 0, 0, 0);
 }
 
 static inline int cl_agl(struct inode *inode)
 {
-	return cl_glimpse_size0(inode, 1);
+	return cl_request_lock(inode, 0, 0, 0, CEF_AGL);
 }
 
 /**

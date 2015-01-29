@@ -169,7 +169,11 @@ static int vvp_prep_size(const struct lu_env *env, struct cl_object *obj,
 			 * of the buffer (C)
 			 */
 			vvp_object_size_unlock(obj);
-			result = cl_glimpse_lock(env, io, inode, obj, 0);
+			/* As there is already an associated IO, this calls
+			 * request_lock0 directly instead of using request_lock
+			 * to prep the IO environment. */
+			result = cl_request_lock0(env, io, inode, obj, 0, 0, 0,
+						  0);
 			if (result == 0 && exceed != NULL) {
 				/* If objective page index exceed end-of-file
 				 * page index, return directly. Do not expect
@@ -1410,8 +1414,9 @@ int vvp_io_init(const struct lu_env *env, struct cl_object *obj,
 
                 count = io->u.ci_rw.crw_count;
                 /* "If nbyte is 0, read() will return 0 and have no other
-                 *  results."  -- Single Unix Spec */
-                if (count == 0)
+                 *  results."  -- Single Unix Spec 
+                 *  Lock ahead requests aren't IO, so count == 0 is OK */
+                if (count == 0 && !io->ci_lock_ahead)
                         result = 1;
 		else {
 			vio->vui_tot_count = count;
@@ -1432,7 +1437,7 @@ int vvp_io_init(const struct lu_env *env, struct cl_object *obj,
 
 	/* ignore layout change for generic CIT_MISC but not for glimpse.
 	 * io context for glimpse must set ci_verify_layout to true,
-	 * see cl_glimpse_size0() for details. */
+	 * see cl_request_lock() for details. */
 	if (io->ci_type == CIT_MISC && !io->ci_verify_layout)
 		io->ci_ignore_layout = 1;
 

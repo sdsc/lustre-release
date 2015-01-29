@@ -277,6 +277,7 @@ struct ost_id {
 #define LL_IOC_MIGRATE			_IOR('f', 247, int)
 #define LL_IOC_FID2MDTIDX		_IOWR('f', 248, struct lu_fid)
 #define LL_IOC_GETPARENT		_IOWR('f', 249, struct getparent)
+#define LL_IOC_LOCK_AHEAD		_IOWR('f', 250, struct lock_ahead)
 
 /* Lease types for use as arg and return of LL_IOC_{GET,SET}_LEASE ioctl. */
 enum ll_lease_type {
@@ -1384,6 +1385,22 @@ struct llapi_json_item {
 struct llapi_json_item_list {
 	int			ljil_item_count;
 	struct llapi_json_item	*ljil_items;
+};
+
+typedef enum {
+	READ_USER = 1,
+	WRITE_USER,
+	MAX_USER,
+} lock_mode_user;
+
+/* lock ahead ioctl arguments */
+struct lock_ahead {
+	__u32		version;
+	__u64		start;
+	__u64		end;
+	lock_mode_user	mode;
+	/* Unused */
+	__u32		flags;
 };
 
 /** @} lustreuser */

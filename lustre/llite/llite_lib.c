@@ -2898,3 +2898,63 @@ ldata_free:
 
 	RETURN(rc);
 }
+
+/* lock types */
+char *user_lockname[] = {
+	[READ_USER]  = "READ",
+	[WRITE_USER] = "WRITE"
+};
+
+
+/* Prepare arguments for cl_lock_ahead. */
+int ll_lock_ahead(struct file *file, struct lock_ahead __user *arg)
+{
+	struct dentry           *dentry = file->f_dentry;
+	struct inode            *inode = file->f_dentry->d_inode;
+	__u32			version;
+	__u64			start;
+	__u64			end;
+	lock_mode_user		mode;
+	__u32			flags;
+
+	ENTRY;
+
+	/* Get args from user space */
+	if (get_user(version, &arg->version))
+		RETURN(-EFAULT);
+
+	if (get_user(start, &arg->start))
+		RETURN(-EFAULT);
+
+	if (get_user(end, &arg->end))
+		RETURN(-EFAULT);
+
+	if (end >= start)
+		RETURN(-EINVAL);
+
+	if (get_user(mode, &arg->mode))
+		RETURN(-EFAULT);
+
+	if (get_user(flags, &arg->flags))
+		RETURN(-EFAULT);
+
+	/* Sanity checks */
+	if(version != 1) {
+		CDEBUG(D_ERROR,"Invalid lock_ahead version (%d)\n",version);
+		RETURN(-EINVAL);
+	}
+
+	if (end >= start)
+		RETURN(-EINVAL);
+
+	/* Currently only READ and WRITE modes can be requested like this */
+	if(mode > WRITE_USER)
+		RETURN(-EINVAL);
+	
+	CDEBUG(D_VFSTRACE,"Lock ahead request: file=%.*s, inode=%p,\
+	       start="LPU64", end="LPU64", mode=%s\n",
+	       dentry->d_name.len,dentry->d_name.name,dentry->d_inode,
+	       start,end,user_lockname[mode]);
+
+	RETURN(cl_request_lock(inode, start, end, mode, flags));
+}

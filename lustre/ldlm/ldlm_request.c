@@ -878,26 +878,26 @@ int ldlm_cli_enqueue(struct obd_export *exp, struct ptlrpc_request **reqp,
 		     struct lustre_handle *lockh, int async)
 {
 	struct ldlm_namespace *ns;
-        struct ldlm_lock      *lock;
-        struct ldlm_request   *body;
-        int                    is_replay = *flags & LDLM_FL_REPLAY;
-        int                    req_passed_in = 1;
-        int                    rc, err;
-        struct ptlrpc_request *req;
-        ENTRY;
+	struct ldlm_lock      *lock;
+	struct ldlm_request   *body;
+	int                    is_replay = *flags & LDLM_FL_REPLAY;
+	int                    req_passed_in = 1;
+	int                    rc, err;
+	struct ptlrpc_request *req;
+	ENTRY;
 
-        LASSERT(exp != NULL);
+	LASSERT(exp != NULL);
 
 	ns = exp->exp_obd->obd_namespace;
 
-        /* If we're replaying this lock, just check some invariants.
-         * If we're creating a new lock, get everything all setup nice. */
-        if (is_replay) {
-                lock = ldlm_handle2lock_long(lockh, 0);
-                LASSERT(lock != NULL);
-                LDLM_DEBUG(lock, "client-side enqueue START");
-                LASSERT(exp == lock->l_conn_export);
-        } else {
+	/* If we're replaying this lock, just check some invariants.
+	 * If we're creating a new lock, get everything all setup nice. */
+	if (is_replay) {
+		lock = ldlm_handle2lock_long(lockh, 0);
+		LASSERT(lock != NULL);
+		LDLM_DEBUG(lock, "client-side enqueue START");
+		LASSERT(exp == lock->l_conn_export);
+	} else {
 		const struct ldlm_callback_suite cbs = {
 			.lcs_completion = einfo->ei_cb_cp,
 			.lcs_blocking	= einfo->ei_cb_bl,
@@ -908,9 +908,9 @@ int ldlm_cli_enqueue(struct obd_export *exp, struct ptlrpc_request **reqp,
 					lvb_len, lvb_type);
 		if (IS_ERR(lock))
 			RETURN(PTR_ERR(lock));
-                /* for the local lock, add the reference */
-                ldlm_lock_addref_internal(lock, einfo->ei_mode);
-                ldlm_lock2handle(lock, lockh);
+		/* for the local lock, add the reference */
+		ldlm_lock_addref_internal(lock, einfo->ei_mode);
+		ldlm_lock2handle(lock, lockh);
 		if (policy != NULL)
 			lock->l_policy_data = *policy;
 
@@ -928,77 +928,81 @@ int ldlm_cli_enqueue(struct obd_export *exp, struct ptlrpc_request **reqp,
 	lock->l_conn_export = exp;
 	lock->l_export = NULL;
 	lock->l_blocking_ast = einfo->ei_cb_bl;
-	lock->l_flags |= (*flags & (LDLM_FL_NO_LRU | LDLM_FL_EXCL));
-        lock->l_last_activity = cfs_time_current_sec();
+	lock->l_flags |= (*flags & (LDLM_FL_NO_LRU | LDLM_FL_EXCL |
+				    LDLM_FL_DO_NOT_EXPAND));
+	lock->l_last_activity = cfs_time_current_sec();
 
-        /* lock not sent to server yet */
+	CDEBUG(D_DLMTRACE, "flags: "LPX64" l_flags: "LPX64"\n", *flags,
+	       lock->l_flags);
 
-        if (reqp == NULL || *reqp == NULL) {
-                req = ptlrpc_request_alloc_pack(class_exp2cliimp(exp),
-                                                &RQF_LDLM_ENQUEUE,
-                                                LUSTRE_DLM_VERSION,
-                                                LDLM_ENQUEUE);
-                if (req == NULL) {
-                        failed_lock_cleanup(ns, lock, einfo->ei_mode);
-                        LDLM_LOCK_RELEASE(lock);
-                        RETURN(-ENOMEM);
-                }
-                req_passed_in = 0;
-                if (reqp)
-                        *reqp = req;
-        } else {
-                int len;
+	/* lock not sent to server yet */
 
-                req = *reqp;
-                len = req_capsule_get_size(&req->rq_pill, &RMF_DLM_REQ,
-                                           RCL_CLIENT);
-                LASSERTF(len >= sizeof(*body), "buflen[%d] = %d, not %d\n",
-                         DLM_LOCKREQ_OFF, len, (int)sizeof(*body));
-        }
+	if (reqp == NULL || *reqp == NULL) {
+		req = ptlrpc_request_alloc_pack(class_exp2cliimp(exp),
+						&RQF_LDLM_ENQUEUE,
+						LUSTRE_DLM_VERSION,
+						LDLM_ENQUEUE);
+		if (req == NULL) {
+			failed_lock_cleanup(ns, lock, einfo->ei_mode);
+			LDLM_LOCK_RELEASE(lock);
+			RETURN(-ENOMEM);
+		}
+		req_passed_in = 0;
+		if (reqp)
+			*reqp = req;
+	} else {
+		int len;
 
-        /* Dump lock data into the request buffer */
-        body = req_capsule_client_get(&req->rq_pill, &RMF_DLM_REQ);
-        ldlm_lock2desc(lock, &body->lock_desc);
+		req = *reqp;
+		len = req_capsule_get_size(&req->rq_pill, &RMF_DLM_REQ,
+					   RCL_CLIENT);
+		LASSERTF(len >= sizeof(*body), "buflen[%d] = %d, not %d\n",
+			 DLM_LOCKREQ_OFF, len, (int)sizeof(*body));
+	}
+
+	/* Dump lock data into the request buffer */
+	body = req_capsule_client_get(&req->rq_pill, &RMF_DLM_REQ);
+	ldlm_lock2desc(lock, &body->lock_desc);
 	body->lock_flags = ldlm_flags_to_wire(*flags);
-        body->lock_handle[0] = *lockh;
+	body->lock_handle[0] = *lockh;
 
-        /* Continue as normal. */
-        if (!req_passed_in) {
+	/* Continue as normal. */
+	if (!req_passed_in) {
 		if (lvb_len > 0)
 			req_capsule_extend(&req->rq_pill,
 					   &RQF_LDLM_ENQUEUE_LVB);
 		req_capsule_set_size(&req->rq_pill, &RMF_DLM_LVB, RCL_SERVER,
 				     lvb_len);
 		ptlrpc_request_set_replen(req);
-        }
+	}
 
-        if (async) {
-                LASSERT(reqp != NULL);
-                RETURN(0);
-        }
+	if (async) {
+		LASSERT(reqp != NULL);
+		RETURN(0);
+	}
 
-        LDLM_DEBUG(lock, "sending request");
+	LDLM_DEBUG(lock, "sending request");
 
-        rc = ptlrpc_queue_wait(req);
+	rc = ptlrpc_queue_wait(req);
 
-        err = ldlm_cli_enqueue_fini(exp, req, einfo->ei_type, policy ? 1 : 0,
-                                    einfo->ei_mode, flags, lvb, lvb_len,
-                                    lockh, rc);
+	err = ldlm_cli_enqueue_fini(exp, req, einfo->ei_type, policy ? 1 : 0,
+				    einfo->ei_mode, flags, lvb, lvb_len,
+				    lockh, rc);
 
-        /* If ldlm_cli_enqueue_fini did not find the lock, we need to free
-         * one reference that we took */
-        if (err == -ENOLCK)
-                LDLM_LOCK_RELEASE(lock);
-        else
-                rc = err;
+	/* If ldlm_cli_enqueue_fini did not find the lock, we need to free
+	 * one reference that we took */
+	if (err == -ENOLCK)
+		LDLM_LOCK_RELEASE(lock);
+	else
+		rc = err;
 
-        if (!req_passed_in && req != NULL) {
-                ptlrpc_req_finished(req);
-                if (reqp)
-                        *reqp = NULL;
-        }
+	if (!req_passed_in && req != NULL) {
+		ptlrpc_req_finished(req);
+			if (reqp)
+			*reqp = NULL;
+	}
 
-        RETURN(rc);
+	RETURN(rc);
 }
 EXPORT_SYMBOL(ldlm_cli_enqueue);
 

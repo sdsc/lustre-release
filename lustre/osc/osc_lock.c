@@ -173,6 +173,8 @@ static __u64 osc_enq2ldlm_flags(__u32 enqflags)
 		result |= LDLM_FL_AST_DISCARD_DATA;
 	if (enqflags & CEF_PEEK)
 		result |= LDLM_FL_TEST_LOCK;
+	if (enqflags & CEF_NO_EXPAND)
+		result |= LDLM_FL_DO_NOT_EXPAND;
 	return result;
 }
 
