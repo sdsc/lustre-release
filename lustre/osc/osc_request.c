@@ -3594,8 +3594,8 @@ int osc_cleanup(struct obd_device *obd)
 		cfs_list_del_init(&cli->cl_lru_osc);
 		spin_unlock(&cli->cl_cache->ccc_lru_lock);
 		cli->cl_lru_left = NULL;
-		cfs_atomic_dec(&cli->cl_cache->ccc_users);
-		cli->cl_cache = NULL;
+		if (cfs_atomic_dec_and_test(&cli->cl_cache->ccc_users))
+			OBD_FREE(cli->cl_cache, sizeof(*cli->cl_cache));
 	}
 
         /* free memory of osc quota cache */
