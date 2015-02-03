@@ -815,7 +815,7 @@ int mdd_changelog_ns_store(const struct lu_env *env,
 
 	crf = (crf & CLF_FLAGMASK);
 
-	if (uc->uc_jobid[0] != '\0')
+	if (uc && uc->uc_jobid[0] != '\0')
 		crf |= CLF_JOBID;
 
 	if (sname != NULL)
@@ -832,7 +832,7 @@ int mdd_changelog_ns_store(const struct lu_env *env,
 	if (crf & CLF_RENAME)
 		mdd_changelog_rec_ext_rename(&rec->cr, sfid, spfid, sname);
 
-	if (crf & CLF_JOBID)
+	if (uc && (crf & CLF_JOBID))
 		mdd_changelog_rec_ext_jobid(&rec->cr, uc->uc_jobid);
 
 	if (likely(target != NULL)) {

@@ -677,7 +677,7 @@ int mdd_changelog_data_store(const struct lu_env *env, struct mdd_device *mdd,
         }
 
 	flags = (flags & CLF_FLAGMASK) | CLF_VERSION;
-	if (uc->uc_jobid[0] != '\0')
+	if (uc && uc->uc_jobid[0] != '\0')
 		flags |= CLF_JOBID;
 
 	reclen = llog_data_len(changelog_rec_offset(flags & CLF_SUPPORTED));
@@ -692,7 +692,7 @@ int mdd_changelog_data_store(const struct lu_env *env, struct mdd_device *mdd,
 	rec->cr.cr_namelen = 0;
 	mdd_obj->mod_cltime = cfs_time_current_64();
 
-	if (flags & CLF_JOBID)
+	if (uc && (flags & CLF_JOBID))
 		mdd_changelog_rec_ext_jobid(&rec->cr, uc->uc_jobid);
 
 	rc = mdd_changelog_store(env, mdd, rec, handle);
