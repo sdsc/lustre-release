@@ -2444,20 +2444,17 @@ static int echo_client_prep_commit(const struct lu_env *env,
                 if (tot_pages < npages)
                         npages = tot_pages;
 
-		for (i = 0; i < npages; i++, off += PAGE_CACHE_SIZE) {
-			rnb[i].rnb_offset = off;
-			rnb[i].rnb_len = PAGE_CACHE_SIZE;
-			rnb[i].rnb_flags = brw_flags;
-                }
-
-                ioo.ioo_bufcnt = npages;
+		rnb[0].rnb_offset = off;
+		rnb[0].rnb_len = npages * PAGE_CACHE_SIZE;
+		rnb[0].rnb_flags = brw_flags;
+		ioo.ioo_bufcnt = 1;
+		off += npages * PAGE_CACHE_SIZE;
 
                 lpages = npages;
 		ret = obd_preprw(env, rw, exp, oa, 1, &ioo, rnb, &lpages,
                                  lnb, oti, NULL);
                 if (ret != 0)
                         GOTO(out, ret);
-                LASSERT(lpages == npages);
 
                 for (i = 0; i < lpages; i++) {
 			struct page *page = lnb[i].lnb_page;
