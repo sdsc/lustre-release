@@ -1323,5 +1323,4 @@ lnet_set_ip_niaddr (lnet_ni_t *ni)
         libcfs_ipif_free_enumeration(names, n);
         return -ENOENT;
 }
-EXPORT_SYMBOL(lnet_set_ip_niaddr);
 

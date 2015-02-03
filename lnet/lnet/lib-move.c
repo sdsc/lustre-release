@@ -368,7 +368,6 @@ lnet_copy_kiov2kiov (unsigned int ndiov, lnet_kiov_t *diov, unsigned int doffset
 	if (saddr != NULL)
 		kunmap(siov->kiov_page);
 }
-EXPORT_SYMBOL(lnet_copy_kiov2kiov);
 
 void
 lnet_copy_kiov2iov (unsigned int niov, struct iovec *iov, unsigned int iovoffset,
@@ -1738,7 +1737,6 @@ lnet_msgtyp2str (int type)
                 return ("<UNKNOWN>");
         }
 }
-EXPORT_SYMBOL(lnet_msgtyp2str);
 
 void
 lnet_print_hdr(lnet_hdr_t * hdr)

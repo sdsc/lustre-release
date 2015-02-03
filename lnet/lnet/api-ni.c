@@ -362,7 +362,6 @@ lnet_counters_reset(void)
 
 	lnet_net_unlock(LNET_LOCK_EX);
 }
-EXPORT_SYMBOL(lnet_counters_reset);
 
 static __u64 lnet_create_interface_cookie(void)
 {
@@ -2160,7 +2159,6 @@ LNetSnprintHandle(char *str, int len, lnet_handle_any_t h)
 {
         snprintf(str, len, LPX64, h.cookie);
 }
-EXPORT_SYMBOL(LNetSnprintHandle);
 
 static int
 lnet_ping(lnet_process_id_t id, int timeout_ms, lnet_process_id_t __user *ids,

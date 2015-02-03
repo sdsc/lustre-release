@@ -293,7 +293,6 @@ LNetEQGet (lnet_handle_eq_t eventq, lnet_event_t *event)
         return LNetEQPoll(&eventq, 1, 0,
                          event, &which);
 }
-EXPORT_SYMBOL(LNetEQGet);
 
 /**
  * Block the calling process until there is an event in the EQ.
@@ -319,7 +318,6 @@ LNetEQWait (lnet_handle_eq_t eventq, lnet_event_t *event)
         return LNetEQPoll(&eventq, 1, LNET_TIME_FOREVER,
                          event, &which);
 }
-EXPORT_SYMBOL(LNetEQWait);
 
 static int
 lnet_eq_wait_locked(int *timeout_ms)
