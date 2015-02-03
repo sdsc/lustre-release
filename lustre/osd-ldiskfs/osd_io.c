@@ -1807,7 +1807,7 @@ static int osd_punch(const struct lu_env *env, struct dt_object *dt,
 }
 
 static int osd_fiemap_get(const struct lu_env *env, struct dt_object *dt,
-                          struct ll_user_fiemap *fm)
+			  struct fiemap *fm)
 {
         struct inode *inode = osd_dt_obj(dt)->oo_inode;
         struct osd_thread_info *info   = osd_oti_get(env);
