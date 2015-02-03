@@ -1630,6 +1630,43 @@ static int lov_object_getstripe(const struct lu_env *env, struct cl_object *obj,
 	RETURN(rc);
 }
 
+static ssize_t
+lov_object_xattr_get(const struct lu_env *env, struct cl_object *obj,
+		     const char *name, void *buf, size_t buf_size)
+{
+	struct lov_object *lov = cl2lov(obj);
+	struct lov_stripe_md *lsm;
+	struct lov_mds_md *lmm;
+	ssize_t rc;
+	ENTRY;
+
+	if (strcmp(name, XATTR_LUSTRE_LOV) != 0 &&
+	    strcmp(name, XATTR_NAME_LOV) != 0)
+		RETURN(-ENODATA);
+
+	lsm = lov_lsm_addref(lov);
+	if (lsm == NULL)
+		RETURN(-ENODATA);
+
+	rc = lov_lsm_pack(lsm, buf, buf_size);
+	if (rc < 0)
+		GOTO(out, rc);
+
+	lmm = buf;
+	if (buf_size != 0 && sizeof(*lmm) <= rc) {
+		/* Do not return layout gen for getxattr() since
+		 * otherwise it would confuse tar --xattr by
+		 * recognizing layout gen as stripe offset when the
+		 * file is restored. See LU-2809. */
+		lmm->lmm_layout_gen = 0;
+	}
+
+out:
+	lov_lsm_put(obj, lsm);
+
+	RETURN(rc);
+}
+
 static int lov_object_find_cbdata(const struct lu_env *env,
 				  struct cl_object *obj, ldlm_iterator_t iter,
 				  void *data)
@@ -1651,6 +1688,7 @@ static const struct cl_object_operations lov_ops = {
 	.coo_attr_update  = lov_attr_update,
 	.coo_conf_set     = lov_conf_set,
 	.coo_getstripe    = lov_object_getstripe,
+	.coo_xattr_get    = lov_object_xattr_get,
 	.coo_find_cbdata  = lov_object_find_cbdata,
 	.coo_fiemap       = lov_object_fiemap,
 	.coo_obd_info_get = lov_object_obd_info_get,

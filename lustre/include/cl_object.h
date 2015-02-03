@@ -405,6 +405,12 @@ struct cl_object_operations {
 	int (*coo_getstripe)(const struct lu_env *env, struct cl_object *obj,
 			     struct lov_user_md __user *lum);
 	/**
+	 * Object getxattr method.
+	 */
+	ssize_t (*coo_xattr_get)(const struct lu_env *env,
+				 struct cl_object *obj, const char *name,
+				 void *buf, size_t buf_size);
+	/**
 	 * Find whether there is any callback data (ldlm lock) attached upon
 	 * the object.
 	 */
@@ -2205,6 +2211,8 @@ int  cl_object_prune      (const struct lu_env *env, struct cl_object *obj);
 void cl_object_kill       (const struct lu_env *env, struct cl_object *obj);
 int cl_object_getstripe(const struct lu_env *env, struct cl_object *obj,
 			struct lov_user_md __user *lum);
+ssize_t cl_object_xattr_get(const struct lu_env *env, struct cl_object *obj,
+			    const char *name, void *buf, size_t buf_size);
 int cl_object_find_cbdata(const struct lu_env *env, struct cl_object *obj,
 			  ldlm_iterator_t iter, void *data);
 int cl_object_fiemap(const struct lu_env *env, struct cl_object *obj,
