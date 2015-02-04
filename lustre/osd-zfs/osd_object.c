@@ -444,6 +444,9 @@ static void __osd_declare_object_destroy(const struct lu_env *env,
 	zap_cursor_t		*zc;
 	int			 rc = 0;
 
+	rc = dmu_free_long_range(osd->od_os, oid, 0, DMU_OBJECT_END);
+	LASSERTF(rc == 0, "dmu_free_long_range "LPU64" failed: %d\n", oid, rc);
+
 	dmu_tx_hold_free(tx, oid, 0, DMU_OBJECT_END);
 
 	/* zap holding xattrs */
