@@ -305,6 +305,17 @@ enum {
 	OBJECT_CONF_WAIT = 2
 };
 
+enum cl_layout_type {
+	CL_LAYOUT_TYPE_EMPTY,
+	CL_LAYOUT_TYPE_NORMAL,
+	CL_LAYOUT_TYPE_RELEASED,
+};
+
+enum {
+	CL_LAYOUT_GEN_NONE	= (u32)-2,	/* layout lock was cancelled */
+	CL_LAYOUT_GEN_EMPTY	= (u32)-1,	/* for empty layout */
+};
+
 /**
  * Operations implemented for each cl object layer.
  *
@@ -433,6 +444,11 @@ struct cl_object_operations {
 	 */
 	int (*coo_data_version)(const struct lu_env *env, struct cl_object *obj,
 				__u64 *version, int flags);
+	/**
+	 * Get layout type and generation of the object.
+	 */
+	int (*coo_layout_get)(const struct lu_env *env, struct cl_object *obj,
+			      enum cl_layout_type *type, u32 *gen);
 };
 
 /**
@@ -2218,6 +2234,8 @@ int cl_object_obd_info_get(const struct lu_env *env, struct cl_object *obj,
 			   struct ptlrpc_request_set *set);
 int cl_object_data_version(const struct lu_env *env, struct cl_object *obj,
 			   __u64 *version, int flags);
+int cl_object_layout_get(const struct lu_env *env, struct cl_object *obj,
+			 enum cl_layout_type *type, u32 *gen);
 
 /**
  * Returns true, iff \a o0 and \a o1 are slices of the same object.
