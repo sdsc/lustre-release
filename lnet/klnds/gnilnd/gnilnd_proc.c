@@ -27,6 +27,10 @@
 #include "gnilnd.h"
 #include <linux/seq_file.h>
 
+#ifndef PDE_DATA
+#define PDE_DATA(inode)		(PDE(inode)->data)
+#endif
+
 #define GNILND_PROC_STATS       "stats"
 #define GNILND_PROC_MDD         "mdd"
 #define GNILND_PROC_SMSG        "smsg"
