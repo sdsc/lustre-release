@@ -166,7 +166,7 @@ static void osd_trans_commit_cb(void *cb_data, int error)
 	th->th_dev = NULL;
 	lu_context_exit(&th->th_ctx);
 	lu_context_fini(&th->th_ctx);
-	thandle_put(&oh->ot_super);
+	thandle_put(th);
 
 	EXIT;
 }
@@ -216,7 +216,7 @@ static int osd_trans_start(const struct lu_env *env, struct dt_device *d,
 			CERROR("%s: can't assign tx: rc = %d\n",
 			       osd->od_svname, rc);
 	} else {
-		/* add commit callback */
+		thandle_get(th); /* +1 ref for the commit callback */
 		dmu_tx_callback_register(oh->ot_tx, osd_trans_commit_cb, oh);
 		oh->ot_assigned = 1;
 		lu_context_init(&th->th_ctx, th->th_tags);
@@ -225,6 +225,29 @@ static int osd_trans_start(const struct lu_env *env, struct dt_device *d,
 	}
 
 	RETURN(rc);
+}
+
+static int osd_unlinked_object_free(struct osd_device *osd, uint64_t oid);
+
+/*
+ * Concurrency: shouldn't matter, called only from osd_trans_stop()
+ */
+static void osd_unlinked_objects_free(struct osd_device *osd,
+				      struct osd_thandle *oh)
+{
+	struct osd_object *obj;
+	uint64_t	   oid;
+
+	while (!list_empty(&oh->ot_unlinked_list)) {
+		obj = list_entry(oh->ot_unlinked_list.next,
+				 struct osd_object, oo_unlinked_linkage);
+		LASSERT(obj->oo_db != NULL);
+		oid = obj->oo_db->db_object;
+
+		list_del_init(&obj->oo_unlinked_linkage);
+		if (oh->ot_assigned != 0)
+			(void)osd_unlinked_object_free(osd, oid);
+	}
 }
 
 /*
@@ -245,10 +268,11 @@ static int osd_trans_stop(const struct lu_env *env, struct dt_device *dt,
 		LASSERT(oh->ot_tx);
 		dmu_tx_abort(oh->ot_tx);
 		osd_object_sa_dirty_rele(oh);
+		osd_unlinked_objects_free(osd, oh);
 		/* there won't be any commit, release reserved quota space now,
 		 * if any */
 		qsd_op_end(env, osd->od_quota_slave, &oh->ot_quota_trans);
-		thandle_put(&oh->ot_super);
+		thandle_put(th);
 		RETURN(0);
 	}
 
@@ -272,9 +296,11 @@ static int osd_trans_stop(const struct lu_env *env, struct dt_device *dt,
 
 	osd_object_sa_dirty_rele(oh);
 	dmu_tx_commit(oh->ot_tx);
+	osd_unlinked_objects_free(osd, oh);
 
 	if (th->th_sync)
 		txg_wait_synced(dmu_objset_pool(osd->od_os), txg);
+	thandle_put(th);
 
 	RETURN(rc);
 }
@@ -301,8 +327,9 @@ static struct thandle *osd_trans_create(const struct lu_env *env,
 
 	oh->ot_tx = tx;
 	INIT_LIST_HEAD(&oh->ot_dcb_list);
+	INIT_LIST_HEAD(&oh->ot_unlinked_list);
 	INIT_LIST_HEAD(&oh->ot_sa_list);
-	sema_init(&oh->ot_sa_lock, 1);
+	sema_init(&oh->ot_lists_lock, 1);
 	memset(&oh->ot_quota_trans, 0, sizeof(oh->ot_quota_trans));
 	th = &oh->ot_super;
 	th->th_dev = dt;
@@ -739,6 +766,14 @@ static int osd_objset_open(struct osd_device *o)
 		GOTO(out, rc);
 	}
 
+	rc = -zap_lookup(o->od_os, MASTER_NODE_OBJ, ZFS_UNLINKED_SET,
+			 8, 1, &o->od_unlinkedid);
+	if (rc) {
+		CERROR("%s: lookup for %s failed: rc = %d\n",
+		       o->od_svname, ZFS_UNLINKED_SET, rc);
+		GOTO(out, rc);
+	}
+
 	/* Check that user/group usage tracking is supported */
 	if (!dmu_objset_userused_enabled(o->od_os) ||
 	    DMU_USERUSED_DNODE(o->od_os)->dn_type != DMU_OT_USERGROUP_USED ||
@@ -749,10 +784,79 @@ static int osd_objset_open(struct osd_device *o)
 	}
 
 out:
-	if (rc != 0 && o->od_os != NULL)
+	if (rc != 0 && o->od_os != NULL) {
 		dmu_objset_disown(o->od_os, o);
+		o->od_os = NULL;
+	}
 
 	RETURN(rc);
+}
+
+static int
+osd_unlinked_object_free(struct osd_device *osd, uint64_t oid)
+{
+	int	  rc;
+	dmu_tx_t *tx;
+
+	rc = -dmu_free_long_range(osd->od_os, oid, 0, DMU_OBJECT_END);
+	if (rc != 0) {
+		CWARN("%s: Cannot truncate "LPU64": rc = %d\n",
+		      osd->od_svname, oid, rc);
+		return rc;
+	}
+
+	tx = dmu_tx_create(osd->od_os);
+	dmu_tx_hold_free(tx, oid, 0, DMU_OBJECT_END);
+	dmu_tx_hold_zap(tx, osd->od_unlinkedid, FALSE, NULL);
+	rc = -dmu_tx_assign(tx, TXG_WAIT);
+	if (rc != 0) {
+		CWARN("%s: Cannot assign tx for "LPU64": rc = %d\n",
+		      osd->od_svname, oid, rc);
+		goto failed;
+	}
+
+	rc = -zap_remove_int(osd->od_os, osd->od_unlinkedid, oid, tx);
+	if (rc != 0) {
+		CWARN("%s: Cannot remove "LPU64" from unlinked set: rc = %d\n",
+		      osd->od_svname, oid, rc);
+		goto failed;
+	}
+
+	rc = -dmu_object_free(osd->od_os, oid, tx);
+	if (rc != 0) {
+		CWARN("%s: Cannot free "LPU64": rc = %d\n",
+		      osd->od_svname, oid, rc);
+		goto failed;
+	}
+	dmu_tx_commit(tx);
+
+	return 0;
+
+failed:
+	LASSERT(rc != 0);
+	dmu_tx_abort(tx);
+
+	return rc;
+}
+
+static void
+osd_unlinked_drain(const struct lu_env *env, struct osd_device *osd)
+{
+	zap_cursor_t	 zc;
+	zap_attribute_t	*za = &osd_oti_get(env)->oti_za;
+
+	zap_cursor_init(&zc, osd->od_os, osd->od_unlinkedid);
+
+	while (zap_cursor_retrieve(&zc, za) == 0) {
+		/* If cannot free the object, leave it in the unlinked set,
+		 * until the OSD is mounted again when obd_unlinked_drain()
+		 * will be called. */
+		if (osd_unlinked_object_free(osd, za->za_first_integer) != 0)
+			break;
+		zap_cursor_advance(&zc);
+	}
+
+	zap_cursor_fini(&zc);
 }
 
 static int osd_mount(const struct lu_env *env,
@@ -855,6 +959,7 @@ static int osd_mount(const struct lu_env *env,
 	if (opts == NULL || strstr(opts, "noacl") == NULL)
 		o->od_posix_acl = 1;
 
+	osd_unlinked_drain(env, o);
 err:
 	RETURN(rc);
 }

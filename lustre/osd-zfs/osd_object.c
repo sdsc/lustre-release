@@ -118,12 +118,12 @@ osd_object_sa_dirty_add(struct osd_object *obj, struct osd_thandle *oh)
 	if (!list_empty(&obj->oo_sa_linkage))
 		return;
 
-	down(&oh->ot_sa_lock);
+	down(&oh->ot_lists_lock);
 	write_lock(&obj->oo_attr_lock);
 	if (likely(list_empty(&obj->oo_sa_linkage)))
 		list_add(&obj->oo_sa_linkage, &oh->ot_sa_list);
 	write_unlock(&obj->oo_attr_lock);
-	up(&oh->ot_sa_lock);
+	up(&oh->ot_lists_lock);
 }
 
 /*
@@ -133,16 +133,16 @@ void osd_object_sa_dirty_rele(struct osd_thandle *oh)
 {
 	struct osd_object *obj;
 
-	down(&oh->ot_sa_lock);
+	down(&oh->ot_lists_lock);
 	while (!list_empty(&oh->ot_sa_list)) {
 		obj = list_entry(oh->ot_sa_list.next,
-				     struct osd_object, oo_sa_linkage);
+				 struct osd_object, oo_sa_linkage);
 		sa_spill_rele(obj->oo_sa_hdl);
 		write_lock(&obj->oo_attr_lock);
 		list_del_init(&obj->oo_sa_linkage);
 		write_unlock(&obj->oo_attr_lock);
 	}
-	up(&oh->ot_sa_lock);
+	up(&oh->ot_lists_lock);
 }
 
 /*
@@ -291,6 +291,7 @@ struct lu_object *osd_object_alloc(const struct lu_env *env,
 		mo->oo_dt.do_ops = &osd_obj_ops;
 		l->lo_ops = &osd_lu_obj_ops;
 		INIT_LIST_HEAD(&mo->oo_sa_linkage);
+		INIT_LIST_HEAD(&mo->oo_unlinked_linkage);
 		init_rwsem(&mo->oo_sem);
 		sema_init(&mo->oo_guard, 1);
 		rwlock_init(&mo->oo_attr_lock);
@@ -306,7 +307,7 @@ struct lu_object *osd_object_alloc(const struct lu_env *env,
 int osd_object_init0(const struct lu_env *env, struct osd_object *obj)
 {
 	struct osd_device	*osd = osd_obj2dev(obj);
-	const struct lu_fid	*fid  = lu_object_fid(&obj->oo_dt.do_lu);
+	const struct lu_fid	*fid = lu_object_fid(&obj->oo_dt.do_lu);
 	int			 rc = 0;
 	ENTRY;
 
@@ -432,54 +433,24 @@ static void osd_object_free(const struct lu_env *env, struct lu_object *l)
 	OBD_SLAB_FREE_PTR(obj, osd_object_kmem);
 }
 
-static void __osd_declare_object_destroy(const struct lu_env *env,
-					 struct osd_object *obj,
-					 struct osd_thandle *oh)
+/*
+ * Concurrency: there can't be concurrent destroys of a same object
+ */
+static void
+osd_object_unlinked_add(struct osd_object *obj, struct osd_thandle *oh)
 {
-	struct osd_device	*osd = osd_obj2dev(obj);
-	dmu_buf_t		*db = obj->oo_db;
-	zap_attribute_t		*za = &osd_oti_get(env)->oti_za;
-	uint64_t		 oid = db->db_object, xid;
-	dmu_tx_t		*tx = oh->ot_tx;
-	zap_cursor_t		*zc;
-	int			 rc = 0;
+	LASSERT(list_empty(&obj->oo_unlinked_linkage));
 
-	dmu_tx_hold_free(tx, oid, 0, DMU_OBJECT_END);
-
-	/* zap holding xattrs */
-	if (obj->oo_xattr != ZFS_NO_OBJECT) {
-		oid = obj->oo_xattr;
-
-		dmu_tx_hold_free(tx, oid, 0, DMU_OBJECT_END);
-
-		rc = osd_zap_cursor_init(&zc, osd->od_os, oid, 0);
-		if (rc)
-			goto out;
-
-		while ((rc = -zap_cursor_retrieve(zc, za)) == 0) {
-			BUG_ON(za->za_integer_length != sizeof(uint64_t));
-			BUG_ON(za->za_num_integers != 1);
-
-			rc = -zap_lookup(osd->od_os, obj->oo_xattr, za->za_name,
-					 sizeof(uint64_t), 1, &xid);
-			if (rc) {
-				CERROR("%s: xattr lookup failed: rc = %d\n",
-				       osd->od_svname, rc);
-				goto out_err;
-			}
-			dmu_tx_hold_free(tx, xid, 0, DMU_OBJECT_END);
-
-			zap_cursor_advance(zc);
-		}
-		if (rc == -ENOENT)
-			rc = 0;
-out_err:
-		osd_zap_cursor_fini(zc);
-	}
-out:
-	if (rc && tx->tx_err == 0)
-		tx->tx_err = -rc;
+	down(&oh->ot_lists_lock);
+	list_add(&obj->oo_unlinked_linkage, &oh->ot_unlinked_list);
+	up(&oh->ot_lists_lock);
 }
+
+/* Default to max data size covered by a level-1 indirect block */
+static unsigned long osd_sync_destroy_max_size =
+	1UL << (DN_MAX_INDBLKSHIFT - SPA_BLKPTRSHIFT + SPA_MAXBLOCKSHIFT);
+CFS_MODULE_PARM(osd_sync_destroy_max_size, "ul", ulong, 0644,
+		"Maximum object size to use synchronous destroy.");
 
 static int osd_declare_object_destroy(const struct lu_env *env,
 				      struct dt_object *dt,
@@ -490,8 +461,8 @@ static int osd_declare_object_destroy(const struct lu_env *env,
 	struct osd_object	*obj = osd_dt_obj(dt);
 	struct osd_device	*osd = osd_obj2dev(obj);
 	struct osd_thandle	*oh;
-	uint64_t		 zapid;
 	int			 rc;
+	uint64_t		 zapid;
 	ENTRY;
 
 	LASSERT(th != NULL);
@@ -500,19 +471,18 @@ static int osd_declare_object_destroy(const struct lu_env *env,
 	oh = container_of0(th, struct osd_thandle, ot_super);
 	LASSERT(oh->ot_tx != NULL);
 
-	/* declare that we'll destroy the object */
-	__osd_declare_object_destroy(env, obj, oh);
-
 	/* declare that we'll remove object from fid-dnode mapping */
 	zapid = osd_get_name_n_idx(env, osd, fid, buf);
 	dmu_tx_hold_bonus(oh->ot_tx, zapid);
-	dmu_tx_hold_zap(oh->ot_tx, zapid, 0, buf);
+	dmu_tx_hold_zap(oh->ot_tx, zapid, FALSE, buf);
+
+	osd_declare_xattrs_destroy(env, obj, oh);
 
 	/* declare that we'll remove object from inode accounting ZAPs */
 	dmu_tx_hold_bonus(oh->ot_tx, osd->od_iusr_oid);
-	dmu_tx_hold_zap(oh->ot_tx, osd->od_iusr_oid, 0, buf);
+	dmu_tx_hold_zap(oh->ot_tx, osd->od_iusr_oid, FALSE, buf);
 	dmu_tx_hold_bonus(oh->ot_tx, osd->od_igrp_oid);
-	dmu_tx_hold_zap(oh->ot_tx, osd->od_igrp_oid, 0, buf);
+	dmu_tx_hold_zap(oh->ot_tx, osd->od_igrp_oid, FALSE, buf);
 
 	/* one less inode */
 	rc = osd_declare_quota(env, osd, obj->oo_attr.la_uid,
@@ -523,68 +493,22 @@ static int osd_declare_object_destroy(const struct lu_env *env,
 	/* data to be truncated */
 	rc = osd_declare_quota(env, osd, obj->oo_attr.la_uid,
 			       obj->oo_attr.la_gid, 0, oh, true, NULL, false);
-	RETURN(rc);
-}
+	if (rc)
+		RETURN(rc);
 
-/*
- * Delete a DMU object
- *
- * The transaction passed to this routine must have
- * dmu_tx_hold_free(tx, oid, 0, DMU_OBJECT_END) called
- * and then assigned to a transaction group.
- *
- * This will release db and set it to NULL to prevent further dbuf releases.
- */
-static int __osd_object_destroy(const struct lu_env *env,
-				struct osd_object *obj,
-				dmu_tx_t *tx, void *tag)
-{
-	struct osd_device	*osd = osd_obj2dev(obj);
-	uint64_t		 xid;
-	zap_attribute_t		*za = &osd_oti_get(env)->oti_za;
-	zap_cursor_t		*zc;
-	int			 rc;
-
-	/* Assert that the transaction has been assigned to a
-	   transaction group. */
-	LASSERT(tx->tx_txg != 0);
-
-	/* zap holding xattrs */
-	if (obj->oo_xattr != ZFS_NO_OBJECT) {
-		rc = osd_zap_cursor_init(&zc, osd->od_os, obj->oo_xattr, 0);
-		if (rc)
-			return rc;
-		while ((rc = -zap_cursor_retrieve(zc, za)) == 0) {
-			BUG_ON(za->za_integer_length != sizeof(uint64_t));
-			BUG_ON(za->za_num_integers != 1);
-
-			rc = -zap_lookup(osd->od_os, obj->oo_xattr, za->za_name,
-					 sizeof(uint64_t), 1, &xid);
-			if (rc) {
-				CERROR("%s: lookup xattr %s failed: rc = %d\n",
-				       osd->od_svname, za->za_name, rc);
-				continue;
-			}
-			rc = -dmu_object_free(osd->od_os, xid, tx);
-			if (rc)
-				CERROR("%s: fetch xattr %s failed: rc = %d\n",
-				       osd->od_svname, za->za_name, rc);
-			zap_cursor_advance(zc);
-		}
-		osd_zap_cursor_fini(zc);
-
-		rc = -dmu_object_free(osd->od_os, obj->oo_xattr, tx);
-		if (rc)
-			CERROR("%s: freeing xattr failed: rc = %d\n",
-			       osd->od_svname, rc);
+	if (obj->oo_attr.la_size <= osd_sync_destroy_max_size) {
+		dmu_tx_hold_free(oh->ot_tx, obj->oo_db->db_object,
+				 0, DMU_OBJECT_END);
+	} else { /* Larger objects are destroyed asynchronously */
+		dmu_tx_hold_zap(oh->ot_tx, osd->od_unlinkedid, TRUE, NULL);
+		osd_object_unlinked_add(obj, oh);
 	}
 
-	return -dmu_object_free(osd->od_os, obj->oo_db->db_object, tx);
+	RETURN(0);
 }
 
 static int osd_object_destroy(const struct lu_env *env,
-			      struct dt_object *dt,
-			      struct thandle *th)
+			      struct dt_object *dt, struct thandle *th)
 {
 	char			*buf = osd_oti_get(env)->oti_str;
 	struct osd_object	*obj = osd_dt_obj(dt);
@@ -592,7 +516,7 @@ static int osd_object_destroy(const struct lu_env *env,
 	const struct lu_fid	*fid = lu_object_fid(&dt->do_lu);
 	struct osd_thandle	*oh;
 	int			 rc;
-	uint64_t		 zapid;
+	uint64_t		 oid, zapid;
 	ENTRY;
 
 	LASSERT(obj->oo_db != NULL);
@@ -603,13 +527,19 @@ static int osd_object_destroy(const struct lu_env *env,
 	LASSERT(oh != NULL);
 	LASSERT(oh->ot_tx != NULL);
 
-	zapid = osd_get_name_n_idx(env, osd, fid, buf);
-
 	/* remove obj ref from index dir (it depends) */
+	zapid = osd_get_name_n_idx(env, osd, fid, buf);
 	rc = -zap_remove(osd->od_os, zapid, buf, oh->ot_tx);
 	if (rc) {
-		CERROR("%s: zap_remove() failed: rc = %d\n",
-		       osd->od_svname, rc);
+		CERROR("%s: zap_remove(%s) failed: rc = %d\n",
+		       osd->od_svname, buf, rc);
+		GOTO(out, rc);
+	}
+
+	rc = osd_xattrs_destroy(env, obj, oh);
+	if (rc) {
+		CERROR("%s: cannot destroy xattrs for %s: rc = %d\n",
+		       osd->od_svname, buf, rc);
 		GOTO(out, rc);
 	}
 
@@ -617,24 +547,30 @@ static int osd_object_destroy(const struct lu_env *env,
 	 * operation if something goes wrong while updating accounting, but we
 	 * still log an error message to notify the administrator */
 	rc = -zap_increment_int(osd->od_os, osd->od_iusr_oid,
-			obj->oo_attr.la_uid, -1, oh->ot_tx);
+				obj->oo_attr.la_uid, -1, oh->ot_tx);
 	if (rc)
 		CERROR("%s: failed to remove "DFID" from accounting ZAP for usr"
-			" %d: rc = %d\n", osd->od_svname, PFID(fid),
-			obj->oo_attr.la_uid, rc);
+		       " %d: rc = %d\n", osd->od_svname, PFID(fid),
+		       obj->oo_attr.la_uid, rc);
 	rc = -zap_increment_int(osd->od_os, osd->od_igrp_oid,
 				obj->oo_attr.la_gid, -1, oh->ot_tx);
 	if (rc)
 		CERROR("%s: failed to remove "DFID" from accounting ZAP for grp"
-			" %d: rc = %d\n", osd->od_svname, PFID(fid),
-			obj->oo_attr.la_gid, rc);
+		       " %d: rc = %d\n", osd->od_svname, PFID(fid),
+		       obj->oo_attr.la_gid, rc);
 
-	/* kill object */
-	rc = __osd_object_destroy(env, obj, oh->ot_tx, osd_obj_tag);
-	if (rc) {
-		CERROR("%s: __osd_object_destroy() failed: rc = %d\n",
-		       osd->od_svname, rc);
-		GOTO(out, rc);
+	oid = obj->oo_db->db_object;
+	if (list_empty(&obj->oo_unlinked_linkage)) {
+		rc = -dmu_object_free(osd->od_os, oid, oh->ot_tx);
+		if (rc)
+			CERROR("%s: failed to free %s "LPU64": rc = %d\n",
+			       osd->od_svname, buf, oid, rc);
+	} else { /* asynchronous destroy */
+		rc = -zap_add_int(osd->od_os, osd->od_unlinkedid,
+				  oid, oh->ot_tx);
+		if (rc)
+			CERROR("%s: zap_add_int() failed %s "LPU64": rc = %d\n",
+			       osd->od_svname, buf, oid, rc);
 	}
 
 out:
