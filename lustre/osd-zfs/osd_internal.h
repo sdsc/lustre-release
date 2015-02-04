@@ -201,7 +201,9 @@ struct osd_thandle {
 	struct semaphore	 ot_sa_lock;
 	dmu_tx_t		*ot_tx;
 	struct lquota_trans	 ot_quota_trans;
+	uint64_t		 ot_oid; /* valid only when ot_async_destroy */
 	__u32			 ot_write_commit:1,
+				 ot_async_destroy:1,
 				 ot_assigned:1;
 };
 
@@ -239,6 +241,7 @@ struct osd_device {
 	/* information about underlying file system */
 	struct objset		*od_os;
 	uint64_t		 od_rootid;  /* id of root znode */
+	uint64_t		 od_unlinkedid; /* id of unlinked zapobj */
 	/* SA attr mapping->id,
 	 * name is the same as in ZFS to use defines SA_ZPL_...*/
 	sa_attr_type_t		 *z_attr_table;
@@ -488,6 +491,11 @@ int osd_declare_xattr_del(const struct lu_env *env, struct dt_object *dt,
 int osd_xattr_del(const struct lu_env *env, struct dt_object *dt,
 		  const char *name, struct thandle *handle,
 		  struct lustre_capa *capa);
+void osd_declare_xattrs_destroy(const struct lu_env *env,
+				struct osd_object *obj,
+				struct osd_thandle *oh);
+int osd_xattrs_destroy(const struct lu_env *env,
+		       struct osd_object *obj, struct osd_thandle *oh);
 int osd_xattr_list(const struct lu_env *env, struct dt_object *dt,
 		   const struct lu_buf *lb, struct lustre_capa *capa);
 void __osd_xattr_declare_set(const struct lu_env *env, struct osd_object *obj,
