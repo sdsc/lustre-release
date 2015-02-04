@@ -432,54 +432,9 @@ static void osd_object_free(const struct lu_env *env, struct lu_object *l)
 	OBD_SLAB_FREE_PTR(obj, osd_object_kmem);
 }
 
-static void __osd_declare_object_destroy(const struct lu_env *env,
-					 struct osd_object *obj,
-					 struct osd_thandle *oh)
-{
-	struct osd_device	*osd = osd_obj2dev(obj);
-	dmu_buf_t		*db = obj->oo_db;
-	zap_attribute_t		*za = &osd_oti_get(env)->oti_za;
-	uint64_t		 oid = db->db_object, xid;
-	dmu_tx_t		*tx = oh->ot_tx;
-	zap_cursor_t		*zc;
-	int			 rc = 0;
-
-	dmu_tx_hold_free(tx, oid, 0, DMU_OBJECT_END);
-
-	/* zap holding xattrs */
-	if (obj->oo_xattr != ZFS_NO_OBJECT) {
-		oid = obj->oo_xattr;
-
-		dmu_tx_hold_free(tx, oid, 0, DMU_OBJECT_END);
-
-		rc = osd_zap_cursor_init(&zc, osd->od_os, oid, 0);
-		if (rc)
-			goto out;
-
-		while ((rc = -zap_cursor_retrieve(zc, za)) == 0) {
-			BUG_ON(za->za_integer_length != sizeof(uint64_t));
-			BUG_ON(za->za_num_integers != 1);
-
-			rc = -zap_lookup(osd->od_os, obj->oo_xattr, za->za_name,
-					 sizeof(uint64_t), 1, &xid);
-			if (rc) {
-				CERROR("%s: xattr lookup failed: rc = %d\n",
-				       osd->od_svname, rc);
-				goto out_err;
-			}
-			dmu_tx_hold_free(tx, xid, 0, DMU_OBJECT_END);
-
-			zap_cursor_advance(zc);
-		}
-		if (rc == -ENOENT)
-			rc = 0;
-out_err:
-		osd_zap_cursor_fini(zc);
-	}
-out:
-	if (rc && tx->tx_err == 0)
-		tx->tx_err = -rc;
-}
+static unsigned long osd_async_destroy_min_size = 1UL << 30; /* 1G */
+CFS_MODULE_PARM(osd_async_destroy_min_size, "ul", ulong, 0644,
+		"Minimum object size to use asynchronous destroy.");
 
 static int osd_declare_object_destroy(const struct lu_env *env,
 				      struct dt_object *dt,
@@ -490,8 +445,8 @@ static int osd_declare_object_destroy(const struct lu_env *env,
 	struct osd_object	*obj = osd_dt_obj(dt);
 	struct osd_device	*osd = osd_obj2dev(obj);
 	struct osd_thandle	*oh;
-	uint64_t		 zapid;
 	int			 rc;
+	uint64_t		 oid, zapid;
 	ENTRY;
 
 	LASSERT(th != NULL);
@@ -500,19 +455,18 @@ static int osd_declare_object_destroy(const struct lu_env *env,
 	oh = container_of0(th, struct osd_thandle, ot_super);
 	LASSERT(oh->ot_tx != NULL);
 
-	/* declare that we'll destroy the object */
-	__osd_declare_object_destroy(env, obj, oh);
-
 	/* declare that we'll remove object from fid-dnode mapping */
 	zapid = osd_get_name_n_idx(env, osd, fid, buf);
 	dmu_tx_hold_bonus(oh->ot_tx, zapid);
-	dmu_tx_hold_zap(oh->ot_tx, zapid, 0, buf);
+	dmu_tx_hold_zap(oh->ot_tx, zapid, FALSE, buf);
+
+	osd_declare_xattrs_destroy(env, obj, oh);
 
 	/* declare that we'll remove object from inode accounting ZAPs */
 	dmu_tx_hold_bonus(oh->ot_tx, osd->od_iusr_oid);
-	dmu_tx_hold_zap(oh->ot_tx, osd->od_iusr_oid, 0, buf);
+	dmu_tx_hold_zap(oh->ot_tx, osd->od_iusr_oid, FALSE, buf);
 	dmu_tx_hold_bonus(oh->ot_tx, osd->od_igrp_oid);
-	dmu_tx_hold_zap(oh->ot_tx, osd->od_igrp_oid, 0, buf);
+	dmu_tx_hold_zap(oh->ot_tx, osd->od_igrp_oid, FALSE, buf);
 
 	/* one less inode */
 	rc = osd_declare_quota(env, osd, obj->oo_attr.la_uid,
@@ -523,68 +477,23 @@ static int osd_declare_object_destroy(const struct lu_env *env,
 	/* data to be truncated */
 	rc = osd_declare_quota(env, osd, obj->oo_attr.la_uid,
 			       obj->oo_attr.la_gid, 0, oh, true, NULL, false);
-	RETURN(rc);
-}
+	if (rc)
+		RETURN(rc);
 
-/*
- * Delete a DMU object
- *
- * The transaction passed to this routine must have
- * dmu_tx_hold_free(tx, oid, 0, DMU_OBJECT_END) called
- * and then assigned to a transaction group.
- *
- * This will release db and set it to NULL to prevent further dbuf releases.
- */
-static int __osd_object_destroy(const struct lu_env *env,
-				struct osd_object *obj,
-				dmu_tx_t *tx, void *tag)
-{
-	struct osd_device	*osd = osd_obj2dev(obj);
-	uint64_t		 xid;
-	zap_attribute_t		*za = &osd_oti_get(env)->oti_za;
-	zap_cursor_t		*zc;
-	int			 rc;
-
-	/* Assert that the transaction has been assigned to a
-	   transaction group. */
-	LASSERT(tx->tx_txg != 0);
-
-	/* zap holding xattrs */
-	if (obj->oo_xattr != ZFS_NO_OBJECT) {
-		rc = osd_zap_cursor_init(&zc, osd->od_os, obj->oo_xattr, 0);
-		if (rc)
-			return rc;
-		while ((rc = -zap_cursor_retrieve(zc, za)) == 0) {
-			BUG_ON(za->za_integer_length != sizeof(uint64_t));
-			BUG_ON(za->za_num_integers != 1);
-
-			rc = -zap_lookup(osd->od_os, obj->oo_xattr, za->za_name,
-					 sizeof(uint64_t), 1, &xid);
-			if (rc) {
-				CERROR("%s: lookup xattr %s failed: rc = %d\n",
-				       osd->od_svname, za->za_name, rc);
-				continue;
-			}
-			rc = -dmu_object_free(osd->od_os, xid, tx);
-			if (rc)
-				CERROR("%s: fetch xattr %s failed: rc = %d\n",
-				       osd->od_svname, za->za_name, rc);
-			zap_cursor_advance(zc);
-		}
-		osd_zap_cursor_fini(zc);
-
-		rc = -dmu_object_free(osd->od_os, obj->oo_xattr, tx);
-		if (rc)
-			CERROR("%s: freeing xattr failed: rc = %d\n",
-			       osd->od_svname, rc);
+	oid = obj->oo_db->db_object;
+	if (obj->oo_attr.la_size < osd_async_destroy_min_size) {
+		oh->ot_async_destroy = 0;
+		dmu_tx_hold_free(oh->ot_tx, oid, 0, DMU_OBJECT_END);
+	} else { /* Large objects are destroyed asynchronously */
+		oh->ot_oid = oid;
+		oh->ot_async_destroy = 1;
+		dmu_tx_hold_zap(oh->ot_tx, osd->od_unlinkedid, TRUE, NULL);
 	}
-
-	return -dmu_object_free(osd->od_os, obj->oo_db->db_object, tx);
+	RETURN(0);
 }
 
 static int osd_object_destroy(const struct lu_env *env,
-			      struct dt_object *dt,
-			      struct thandle *th)
+			      struct dt_object *dt, struct thandle *th)
 {
 	char			*buf = osd_oti_get(env)->oti_str;
 	struct osd_object	*obj = osd_dt_obj(dt);
@@ -592,7 +501,7 @@ static int osd_object_destroy(const struct lu_env *env,
 	const struct lu_fid	*fid = lu_object_fid(&dt->do_lu);
 	struct osd_thandle	*oh;
 	int			 rc;
-	uint64_t		 zapid;
+	uint64_t		 oid, zapid;
 	ENTRY;
 
 	LASSERT(obj->oo_db != NULL);
@@ -603,13 +512,19 @@ static int osd_object_destroy(const struct lu_env *env,
 	LASSERT(oh != NULL);
 	LASSERT(oh->ot_tx != NULL);
 
-	zapid = osd_get_name_n_idx(env, osd, fid, buf);
-
 	/* remove obj ref from index dir (it depends) */
+	zapid = osd_get_name_n_idx(env, osd, fid, buf);
 	rc = -zap_remove(osd->od_os, zapid, buf, oh->ot_tx);
 	if (rc) {
-		CERROR("%s: zap_remove() failed: rc = %d\n",
-		       osd->od_svname, rc);
+		CERROR("%s: zap_remove(%s) failed: rc = %d\n",
+		       osd->od_svname, buf, rc);
+		GOTO(out, rc);
+	}
+
+	rc = osd_xattrs_destroy(env, obj, oh);
+	if (rc) {
+		CERROR("%s: cannot destroy xattrs for %s: rc = %d\n",
+		       osd->od_svname, buf, rc);
 		GOTO(out, rc);
 	}
 
@@ -617,30 +532,35 @@ static int osd_object_destroy(const struct lu_env *env,
 	 * operation if something goes wrong while updating accounting, but we
 	 * still log an error message to notify the administrator */
 	rc = -zap_increment_int(osd->od_os, osd->od_iusr_oid,
-			obj->oo_attr.la_uid, -1, oh->ot_tx);
+				obj->oo_attr.la_uid, -1, oh->ot_tx);
 	if (rc)
 		CERROR("%s: failed to remove "DFID" from accounting ZAP for usr"
-			" %d: rc = %d\n", osd->od_svname, PFID(fid),
-			obj->oo_attr.la_uid, rc);
+		       " %d: rc = %d\n", osd->od_svname, PFID(fid),
+		       obj->oo_attr.la_uid, rc);
 	rc = -zap_increment_int(osd->od_os, osd->od_igrp_oid,
 				obj->oo_attr.la_gid, -1, oh->ot_tx);
 	if (rc)
 		CERROR("%s: failed to remove "DFID" from accounting ZAP for grp"
-			" %d: rc = %d\n", osd->od_svname, PFID(fid),
-			obj->oo_attr.la_gid, rc);
+		       " %d: rc = %d\n", osd->od_svname, PFID(fid),
+		       obj->oo_attr.la_gid, rc);
 
-	/* kill object */
-	rc = __osd_object_destroy(env, obj, oh->ot_tx, osd_obj_tag);
-	if (rc) {
-		CERROR("%s: __osd_object_destroy() failed: rc = %d\n",
-		       osd->od_svname, rc);
-		GOTO(out, rc);
+	oid = obj->oo_db->db_object;
+	if (oh->ot_async_destroy == 0) {
+		rc = -dmu_object_free(osd->od_os, oid, oh->ot_tx);
+		if (rc)
+			CERROR("%s: failed to free "LPU64": rc = %d\n",
+			       osd->od_svname, oid, rc);
+	} else {
+		rc = -zap_add_int(osd->od_os, osd->od_unlinkedid,
+				  oid, oh->ot_tx);
+		if (rc)
+			CERROR("%s: zap_add_int() failed: "LPU64" rc = %d\n",
+			       osd->od_svname, oid, rc);
 	}
 
 out:
 	/* not needed in the cache anymore */
 	set_bit(LU_OBJECT_HEARD_BANSHEE, &dt->do_lu.lo_header->loh_flags);
-
 	RETURN (0);
 }
 
