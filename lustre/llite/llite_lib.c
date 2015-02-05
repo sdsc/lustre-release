@@ -2898,3 +2898,91 @@ ldata_free:
 
 	RETURN(rc);
 }
+
+static char *user_lockname[] = {
+	[READ_USER]  = "READ",
+	[WRITE_USER] = "WRITE"
+};
+
+
+/* Prepare arguments for cl_lock_ahead. 
+ * FIXME: Doxygen comment */
+int ll_lock_ahead(struct file *file, struct llapi_lock_ahead __user *arg)
+{
+	struct dentry		*dentry = file->f_dentry;
+	struct inode		*inode = file->f_dentry->d_inode;
+	__u32			version;
+	lock_mode_user		mode;
+	__u32			flags;
+	__u32			count;
+	struct lu_extent	*extents;
+	__u64			start;
+	__u64			end;
+	size_t			len;
+	int			i;
+	int			rc;
+
+	ENTRY;
+
+	if (get_user(version, &arg->lla_version))
+		RETURN(-EFAULT);
+
+	if (get_user(mode, &arg->lla_lock_mode))
+		RETURN(-EFAULT);
+
+	if (get_user(flags, &arg->lla_flags))
+		RETURN(-EFAULT);
+
+	if (get_user(count, &arg->lla_extent_count))
+		RETURN(-EFAULT);
+
+	/* Sanity checks */
+	if (version != 1) {
+		CDEBUG(D_ERROR, "Invalid lock_ahead version (%d)\n", version);
+		RETURN(-EINVAL);
+	}
+
+	/* Currently only READ and WRITE modes can be requested */
+	if (mode > WRITE_USER)
+		RETURN(-EINVAL);
+
+	if (count == 0)
+		RETURN(-EINVAL);
+
+	/* Copy array of extents */
+	len = count*sizeof(struct llapi_lock_ahead);
+
+	OBD_ALLOC(extents, len);
+
+	rc = copy_from_user(extents, &arg->lla_extents, len);
+	if (rc < 0)
+		RETURN(rc);
+
+	CDEBUG(D_VFSTRACE, "Lock ahead request: file=%.*s, inode=%p, mode=%s "
+			   "extents=%d\n", dentry->d_name.len,
+			   dentry->d_name.name, dentry->d_inode,
+			   user_lockname[mode], count);
+
+	for(i=0; i < count; i++) {
+		struct lu_extent extent = extents[i];
+		start = extent.start;
+		end = extent.end;
+		if (start >= end)
+			RETURN(-EINVAL);
+
+		CDEBUG(D_VFSTRACE, "Lock ahead extent %d, start="LPU64", "
+				    "end="LPU64"\n", i, start, end);
+
+		rc = cl_lock_ahead(inode, start, end, mode, flags);
+
+		if (put_user(rc, &(arg->lla_extents[i].result)))
+			RETURN(-EFAULT);
+
+		/* -EWOULDBLOCK indicates a conflicting lock was found, but
+		 * we should continue to try to lock the other extents */
+		if (rc < 0 && rc != -EWOULDBLOCK)
+			RETURN(rc);
+	}
+
+	RETURN(0);
+}

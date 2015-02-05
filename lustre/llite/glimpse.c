@@ -114,7 +114,7 @@ int cl_glimpse_lock(const struct lu_env *env, struct cl_io *io,
 			descr->cld_mode  = CLM_READ;
 			descr->cld_enq_flags = CEF_ASYNC | CEF_MUST;
 			if (agl)
-				descr->cld_enq_flags |= CEF_AGL;
+				descr->cld_enq_flags |= CEF_SPECULATIVE;
 			/*
 			 * CEF_ASYNC is used because glimpse sub-locks cannot
 			 * deadlock (because they never conflict with other
@@ -122,8 +122,14 @@ int cl_glimpse_lock(const struct lu_env *env, struct cl_io *io,
 			 *
 			 * CEF_MUST protects glimpse lock from conversion into
 			 * a lockless mode.
+			 *
+			 * FIXME: Better comment here?
+			 * CEF_SPECULATIVE is used for asynchronous glimpse
+			 * locks to indicate there is no specific IO request
+			 * waiting for the lock
 			 */
 			result = cl_lock_request(env, io, lock);
+
 			if (result < 0)
 				RETURN(result);
 
@@ -150,7 +156,21 @@ int cl_glimpse_lock(const struct lu_env *env, struct cl_io *io,
 	RETURN(result);
 }
 
-static int cl_io_get(struct inode *inode, struct lu_env **envout,
+/**
+ * Get an IO environment for special operations such as glimpse locks and
+ * lock ahead
+ * FIXME: Ask Jinshan for a better comment here
+ *
+ * \param[in]	inode the operation is being performed on
+ * \param[out]	thread specific execution environment
+ * \param[out]	client io description
+ * \param[out]	reference check (???)
+ *
+ * \retval 1		on success
+ * \retval 0		not a regular file, cannot get environment
+ * \retval negative	negative errorno on error
+ */
+int cl_io_get(struct inode *inode, struct lu_env **envout,
 		     struct cl_io **ioout, int *refcheck)
 {
 	struct lu_env		*env;
