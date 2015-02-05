@@ -510,9 +510,9 @@ static int osd_declare_object_destroy(const struct lu_env *env,
 
 	/* declare that we'll remove object from inode accounting ZAPs */
 	dmu_tx_hold_bonus(oh->ot_tx, osd->od_iusr_oid);
-	dmu_tx_hold_zap(oh->ot_tx, osd->od_iusr_oid, 0, buf);
+	dmu_tx_hold_zap(oh->ot_tx, osd->od_iusr_oid, 0, NULL);
 	dmu_tx_hold_bonus(oh->ot_tx, osd->od_igrp_oid);
-	dmu_tx_hold_zap(oh->ot_tx, osd->od_igrp_oid, 0, buf);
+	dmu_tx_hold_zap(oh->ot_tx, osd->od_igrp_oid, 0, NULL);
 
 	/* one less inode */
 	rc = osd_declare_quota(env, osd, obj->oo_attr.la_uid,
