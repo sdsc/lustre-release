@@ -217,6 +217,15 @@ struct ost_id {
 #define DOSTID LPX64":"LPU64
 #define POSTID(oi) ostid_seq(oi), ostid_id(oi)
 
+struct ll_futimes_3 {
+	__u64 lfu_atime_sec;
+	__u64 lfu_atime_nsec;
+	__u64 lfu_mtime_sec;
+	__u64 lfu_mtime_nsec;
+	__u64 lfu_ctime_sec;
+	__u64 lfu_ctime_nsec;
+};
+
 /*
  * The ioctl naming rules:
  * LL_*     - works on the currently opened filehandle instead of parent dir
@@ -277,6 +286,7 @@ struct ost_id {
 #define LL_IOC_MIGRATE			_IOR('f', 247, int)
 #define LL_IOC_FID2MDTIDX		_IOWR('f', 248, struct lu_fid)
 #define LL_IOC_GETPARENT		_IOWR('f', 249, struct getparent)
+#define LL_IOC_FUTIMES_3		_IOWR('f', 249, struct ll_futimes_3)
 
 /* Lease types for use as arg and return of LL_IOC_{GET,SET}_LEASE ioctl. */
 enum ll_lease_type {
