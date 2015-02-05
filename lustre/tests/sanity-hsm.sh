@@ -2000,6 +2000,25 @@ test_24d() {
 }
 run_test 24d "check that read-only mounts are respected"
 
+test_24e() {
+	copytool_setup
+
+	mkdir -p $DIR/$tdir
+
+	local f=$DIR/$tdir/$tfile
+	local fid
+
+	fid=$(make_small $f) || error "cannot create $f"
+	$LFS hsm_archive $f || error "cannot archive $f"
+	wait_request_state $fid ARCHIVE SUCCEED
+	$LFS hsm_release $f || error "cannot release $f"
+
+	tar -cf /dev/null $DIR/$tdir || error "cannot tar $DIR/$tdir"
+
+	copytool_cleanup
+}
+run_test 24e "tar succeeds on HSM released files" # LU-6213
+
 test_25a() {
 	# test needs a running copytool
 	copytool_setup
