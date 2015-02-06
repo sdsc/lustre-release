@@ -1648,6 +1648,22 @@ static int lov_object_layout_get(const struct lu_env *env,
 	RETURN(0);
 }
 
+static loff_t lov_object_maxbytes(struct cl_object *obj)
+{
+	struct lov_object *lov = cl2lov(obj);
+	struct lov_stripe_md *lsm = lov_lsm_addref(lov);
+	loff_t maxbytes;
+
+	if (lsm == NULL)
+		return LLONG_MAX;
+
+	maxbytes = lsm->lsm_maxbytes;
+
+	lov_lsm_put(lsm);
+
+	return maxbytes;
+}
+
 static ssize_t
 lov_object_xattr_get(const struct lu_env *env, struct cl_object *obj,
 		     const char *name, void *buf, size_t buf_size)
@@ -1707,6 +1723,7 @@ static const struct cl_object_operations lov_ops = {
 	.coo_conf_set     = lov_conf_set,
 	.coo_getstripe    = lov_object_getstripe,
 	.coo_layout_get   = lov_object_layout_get,
+	.coo_maxbytes     = lov_object_maxbytes,
 	.coo_xattr_get    = lov_object_xattr_get,
 	.coo_find_cbdata  = lov_object_find_cbdata,
 	.coo_fiemap       = lov_object_fiemap,
