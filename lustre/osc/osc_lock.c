@@ -603,7 +603,6 @@ static void osc_lock_blocking(const struct lu_env *env,
 {
         struct cl_lock *lock = olck->ols_cl.cls_lock;
 
-        LASSERT(olck->ols_lock == dlmlock);
         CLASSERT(OLS_BLOCKED < OLS_CANCELLED);
         LASSERT(!osc_lock_is_lockless(olck));
 
