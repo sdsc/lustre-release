@@ -3733,12 +3733,15 @@ static int lfs_hsm_action(int argc, char **argv)
 
 		if ((hps == HPS_RUNNING) &&
 		    (hua == HUA_ARCHIVE || hua == HUA_RESTORE))
-			printf("("LPX64 " bytes moved)\n", he.length);
+			printf("(%lld bytes moved)\n",
+			       (unsigned long long)he.length);
 		else if ((he.offset + he.length) == LUSTRE_EOF)
-			printf("(from "LPX64 " to EOF)\n", he.offset);
+			printf("(from %lld to EOF)\n",
+			       (unsigned long long)he.offset);
 		else
-			printf("(from "LPX64 " to "LPX64")\n",
-			       he.offset, he.offset + he.length);
+			printf("(from %lld to %lld)\n",
+			       (unsigned long long)he.offset,
+			       (unsigned long long)(he.offset + he.length));
 
 	} while (++i < argc);
 
