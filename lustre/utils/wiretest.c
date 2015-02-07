@@ -116,7 +116,9 @@ void lustre_assert_wire_constants(void)
 		 (long long)OST_QUOTACTL);
 	LASSERTF(OST_QUOTA_ADJUST_QUNIT == 20, "found %lld\n",
 		 (long long)OST_QUOTA_ADJUST_QUNIT);
-	LASSERTF(OST_LAST_OPC == 21, "found %lld\n",
+	LASSERTF(OST_LADVISE == 21, "found %lld\n",
+		 (long long)OST_LADVISE);
+	LASSERTF(OST_LAST_OPC == 22, "found %lld\n",
 		 (long long)OST_LAST_OPC);
 	LASSERTF(OBD_OBJECT_EOF == 0xffffffffffffffffULL, "found 0x%.16llxULL\n",
 		 OBD_OBJECT_EOF);
@@ -4761,5 +4763,37 @@ void lustre_assert_wire_constants(void)
 		 (long long)(int)offsetof(struct lfsck_reply, lr_padding_2));
 	LASSERTF((int)sizeof(((struct lfsck_reply *)0)->lr_padding_2) == 8, "found %lld\n",
 		 (long long)(int)sizeof(((struct lfsck_reply *)0)->lr_padding_2));
+
+	/* Checks for struct lu_ladvise */
+	LASSERTF((int)sizeof(struct lu_ladvise) == 32, "found %lld\n",
+		 (long long)(int)sizeof(struct lu_ladvise));
+	LASSERTF((int)offsetof(struct lu_ladvise, lla_start) == 0, "found %lld\n",
+		 (long long)(int)offsetof(struct lu_ladvise, lla_start));
+	LASSERTF((int)sizeof(((struct lu_ladvise *)0)->lla_start) == 8, "found %lld\n",
+		 (long long)(int)sizeof(((struct lu_ladvise *)0)->lla_start));
+	LASSERTF((int)offsetof(struct lu_ladvise, lla_end) == 8, "found %lld\n",
+		 (long long)(int)offsetof(struct lu_ladvise, lla_end));
+	LASSERTF((int)sizeof(((struct lu_ladvise *)0)->lla_end) == 8, "found %lld\n",
+		 (long long)(int)sizeof(((struct lu_ladvise *)0)->lla_end));
+	LASSERTF((int)offsetof(struct lu_ladvise, lla_advice) == 16, "found %lld\n",
+		 (long long)(int)offsetof(struct lu_ladvise, lla_advice));
+	LASSERTF((int)sizeof(((struct lu_ladvise *)0)->lla_end) == 8, "found %lld\n",
+		 (long long)(int)sizeof(((struct lu_ladvise *)0)->lla_advice));
+	LASSERTF((int)offsetof(struct lu_ladvise, lla_padding) == 24, "found %lld\n",
+		 (long long)(int)offsetof(struct lu_ladvise, lla_padding));
+	LASSERTF((int)sizeof(((struct lu_ladvise *)0)->lla_padding) == 8, "found %lld\n",
+		 (long long)(int)sizeof(((struct lu_ladvise *)0)->lla_padding));
+	LASSERTF(LU_LADVISE_NORMAL == 1, "found %lld\n",
+		 (long long)LU_LADVISE_NORMAL);
+	LASSERTF(LU_LADVISE_RANDOM == 2, "found %lld\n",
+		 (long long)LU_LADVISE_RANDOM);
+	LASSERTF(LU_LADVISE_SEQUENTIAL == 3, "found %lld\n",
+		 (long long)LU_LADVISE_SEQUENTIAL);
+	LASSERTF(LU_LADVISE_WILLNEED == 4, "found %lld\n",
+		 (long long)LU_LADVISE_WILLNEED);
+	LASSERTF(LU_LADVISE_DONTNEED == 5, "found %lld\n",
+		 (long long)LU_LADVISE_DONTNEED);
+	LASSERTF(LU_LADVISE_NOREUSE == 6, "found %lld\n",
+		 (long long)LU_LADVISE_NOREUSE);
 }
 

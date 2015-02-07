@@ -2096,6 +2096,79 @@ out:
 }
 
 /**
+ * OFD request handler for OST_LADVISE RPC.
+ *
+ * Tune cache or perfetch policies according to advices.
+ *
+ * \param[in] tsi	target session environment for this request
+ *
+ * \retval		0 if successful
+ * \retval		negative errno on error
+ */
+static int ofd_ladvise_hdl(struct tgt_session_info *tsi)
+{
+	struct ptlrpc_request	*req = tgt_ses_req(tsi);
+	struct obd_export	*exp = tsi->tsi_exp;
+	struct ofd_device	*ofd = ofd_exp(exp);
+	struct ost_body		*body, *repbody;
+	obd_valid		 valid;
+	struct ofd_thread_info	*info;
+	struct ofd_object	*fo;
+	const struct lu_env	*env = req->rq_svc_thread->t_env;
+	int			 rc = 0;
+	struct lu_ladvise	*ladvise;
+	ENTRY;
+
+	body = tsi->tsi_ost_body;
+
+	valid = OBD_MD_FLID;
+	if ((body->oa.o_valid & valid) != valid)
+		RETURN(err_serious(-EPROTO));
+
+	ladvise = req_capsule_client_get(tsi->tsi_pill, &RMF_OST_LADVISE);
+	if (ladvise == NULL)
+		RETURN(err_serious(-EPROTO));
+
+	/* Skip unnecessary steps in advance for unsupported advice types */
+	switch (ladvise->lla_advice) {
+	default:
+		RETURN(-ENOTSUPP);
+	}
+
+	repbody = req_capsule_server_get(&req->rq_pill, &RMF_OST_BODY);
+	repbody->oa = body->oa;
+
+	info = ofd_info_init(env, exp);
+
+	rc = ostid_to_fid(&info->fti_fid, &body->oa.o_oi,
+			  ofd->ofd_lut.lut_lsd.lsd_osd_index);
+	if (rc != 0)
+		RETURN(rc);
+
+	rc = ofd_auth_capa(exp, &info->fti_fid, ostid_seq(&body->oa.o_oi),
+			   BYPASS_CAPA, CAPA_OPC_OSS_READ);
+	if (rc)
+		RETURN(rc);
+
+	fo = ofd_object_find(env, ofd, &info->fti_fid);
+	if (IS_ERR(fo)) {
+		rc = PTR_ERR(fo);
+		RETURN(rc);
+	}
+	LASSERT(fo != NULL);
+
+	/* Handle different advice types */
+	switch (ladvise->lla_advice) {
+	default:
+		rc = -ENOTSUPP;
+		break;
+	}
+
+	ofd_object_put(env, fo);
+	RETURN(rc);
+}
+
+/**
  * OFD request handler for OST_QUOTACTL RPC.
  *
  * This is part of request processing to validate incoming request fields,
@@ -2614,6 +2687,7 @@ TGT_OST_HDL_HP(HABEO_CORPUS| HABEO_REFERO | MUTABOR,
 							ofd_hp_punch),
 TGT_OST_HDL(HABEO_CORPUS| HABEO_REFERO,	OST_SYNC,	ofd_sync_hdl),
 TGT_OST_HDL(0		| HABEO_REFERO,	OST_QUOTACTL,	ofd_quotactl),
+TGT_OST_HDL(HABEO_CORPUS | HABEO_REFERO, OST_LADVISE,	ofd_ladvise_hdl),
 };
 
 static struct tgt_opc_slice ofd_common_slice[] = {
