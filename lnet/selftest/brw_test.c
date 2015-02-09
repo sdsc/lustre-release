@@ -302,7 +302,7 @@ brw_client_prep_rpc (sfw_test_unit_t *tsu,
 }
 
 static void
-brw_client_done_rpc (sfw_test_unit_t *tsu, srpc_client_rpc_t *rpc)
+brw_client_done_rpc(sfw_test_unit_t *tsu, srpc_client_rpc_t *rpc)
 {
         __u64                magic = BRW_MAGIC;
         sfw_test_instance_t *tsi = tsu->tsu_instance;
@@ -318,7 +318,7 @@ brw_client_done_rpc (sfw_test_unit_t *tsu, srpc_client_rpc_t *rpc)
                         libcfs_id2str(rpc->crpc_dest), rpc->crpc_status);
                 if (!tsi->tsi_stopping) /* rpc could have been aborted */
 			atomic_inc(&sn->sn_brw_errors);
-                goto out;
+                return;
         }
 
         if (msg->msg_magic != SRPC_MSG_MAGIC) {
@@ -333,10 +333,11 @@ brw_client_done_rpc (sfw_test_unit_t *tsu, srpc_client_rpc_t *rpc)
         if (reply->brw_status != 0) {
 		atomic_inc(&sn->sn_brw_errors);
                 rpc->crpc_status = -(int)reply->brw_status;
-                goto out;
+                return;
         }
 
-        if (reqst->brw_rw == LST_BRW_WRITE) goto out;
+        if (reqst->brw_rw == LST_BRW_WRITE)
+		return;
 
         if (brw_check_bulk(&rpc->crpc_bulk, reqst->brw_flags, magic) != 0) {
                 CERROR ("Bulk data from %s is corrupted!\n",
@@ -345,7 +346,6 @@ brw_client_done_rpc (sfw_test_unit_t *tsu, srpc_client_rpc_t *rpc)
                 rpc->crpc_status = -EBADMSG;
         }
 
-out:
         return;
 }
 
