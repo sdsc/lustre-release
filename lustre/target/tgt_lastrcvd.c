@@ -1209,6 +1209,7 @@ int tgt_txn_stop_cb(const struct lu_env *env, struct thandle *th,
 	struct tgt_session_info	*tsi;
 	struct tgt_thread_info	*tti = tgt_th_info(env);
 	struct dt_object	*obj = NULL;
+	struct ptlrpc_request	*req;
 	int			 rc;
 	bool			 echo_client;
 
@@ -1220,14 +1221,25 @@ int tgt_txn_stop_cb(const struct lu_env *env, struct thandle *th,
 	if (tsi->tsi_exp == NULL)
 		return 0;
 
-	echo_client = (tgt_ses_req(tsi) == NULL);
+	req = tgt_ses_req(tsi);
+
+	echo_client = (req == NULL);
 
 	if (tti->tti_has_trans && !echo_client) {
-		if (tti->tti_mult_trans == 0) {
+		if (tti->tti_mult_trans == 0)
 			CDEBUG(D_HA, "More than one transaction "LPU64"\n",
 			       tti->tti_transno);
-			RETURN(0);
-		}
+		/* There may be several transactions in the context of single
+		 * RPC, e.g. OUT handler or HSM request. The transaction number
+		 * is assigned for each transaction until the last one will be
+		 * done. That transaction number is reported in reply then, so
+		 * request will stay in replay queue until last transaction
+		 * will be committed. The replay will be done with that
+		 * transaction number and the last_rcvd should be updated only
+		 * once during replay.
+		 */
+		if (req_is_replay(req))
+			return 0;
 		/* we need another transno to be assigned */
 		tti->tti_transno = 0;
 	} else if (th->th_result == 0) {
@@ -1244,6 +1256,6 @@ int tgt_txn_stop_cb(const struct lu_env *env, struct thandle *th,
 					       tsi->tsi_exp);
 	else
 		rc = tgt_last_rcvd_update(env, tgt, obj, tsi->tsi_opdata, th,
-					  tgt_ses_req(tsi));
+					  req);
 	return rc;
 }
