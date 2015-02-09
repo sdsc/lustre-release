@@ -179,91 +179,37 @@ ssize_t lov_lsm_pack(const struct lov_stripe_md *lsm, void *buf,
 
 /* Pack LOV object metadata for disk storage.  It is packed in LE byte
  * order and is opaque to the networking layer.
- *
- * XXX In the future, this will be enhanced to get the EA size from the
- *     underlying OSC device(s) to get their EA sizes so we can stack
- *     LOVs properly.  For now lov_mds_md_size() just assumes one obd_id
- *     per stripe.
  */
-static int lov_obd_packmd(struct lov_obd *lov, struct lov_mds_md **lmmp,
-			  struct lov_stripe_md *lsm)
+static int lov_packmd(struct lov_mds_md **lmmp, struct lov_stripe_md *lsm)
 {
-	__u16 stripe_count;
-	int lmm_size, lmm_magic;
-        ENTRY;
+	u32 lmm_magic = lsm->lsm_magic;
+	u32 lmm_size;
+	u16 stripe_count;
+	ENTRY;
 
-        if (lsm) {
-                lmm_magic = lsm->lsm_magic;
-        } else {
-                if (lmmp && *lmmp)
-                        lmm_magic = le32_to_cpu((*lmmp)->lmm_magic);
-                else
-                        /* lsm == NULL and lmmp == NULL */
-                        lmm_magic = LOV_MAGIC;
-        }
+	LASSERT(lmmp != NULL && *lmmp == NULL);
 
-        if ((lmm_magic != LOV_MAGIC_V1) &&
-            (lmm_magic != LOV_MAGIC_V3)) {
-                CERROR("bad mem LOV MAGIC: 0x%08X != 0x%08X nor 0x%08X\n",
-                        lmm_magic, LOV_MAGIC_V1, LOV_MAGIC_V3);
-                RETURN(-EINVAL);
-
-        }
-
-        if (lsm) {
-                /* If we are just sizing the EA, limit the stripe count
-                 * to the actual number of OSTs in this filesystem. */
-		if (!lmmp) {
-			stripe_count = lov_get_stripecnt(lov, lmm_magic,
-							lsm->lsm_stripe_count);
-			lsm->lsm_stripe_count = stripe_count;
-		} else if (!lsm_is_released(lsm)) {
-			stripe_count = lsm->lsm_stripe_count;
-		} else {
-			stripe_count = 0;
-		}
-	} else {
-		/* To calculate maximum easize by active targets at present,
-		 * which is exactly the maximum easize to be seen by LOV */
-		stripe_count = lov->desc.ld_active_tgt_count;
+	if (lmm_magic != LOV_MAGIC_V1 && lmm_magic != LOV_MAGIC_V3) {
+		CERROR("bad mem LOV MAGIC: 0x%08X != 0x%08X nor 0x%08X\n",
+		       lmm_magic, LOV_MAGIC_V1, LOV_MAGIC_V3);
+		RETURN(-EINVAL);
 	}
 
-        /* XXX LOV STACKING call into osc for sizes */
-        lmm_size = lov_mds_md_size(stripe_count, lmm_magic);
+	if (!lsm_is_released(lsm))
+		stripe_count = lsm->lsm_stripe_count;
+	else
+		stripe_count = 0;
 
-        if (!lmmp)
-                RETURN(lmm_size);
+	lmm_size = lov_mds_md_size(stripe_count, lmm_magic);
 
-        if (*lmmp && !lsm) {
-                stripe_count = le16_to_cpu((*lmmp)->lmm_stripe_count);
-                lmm_size = lov_mds_md_size(stripe_count, lmm_magic);
-                OBD_FREE_LARGE(*lmmp, lmm_size);
-                *lmmp = NULL;
-                RETURN(0);
-        }
-
-        if (!*lmmp) {
-                OBD_ALLOC_LARGE(*lmmp, lmm_size);
-                if (!*lmmp)
-                        RETURN(-ENOMEM);
-        }
+	OBD_ALLOC_LARGE(*lmmp, lmm_size);
+	if (*lmmp == NULL)
+		RETURN(-ENOMEM);
 
 	CDEBUG(D_INFO, "lov_packmd: LOV_MAGIC 0x%08X, lmm_size = %d\n",
 	       lmm_magic, lmm_size);
 
-	if (!lsm)
-		RETURN(lmm_size);
-
 	RETURN(lov_lsm_pack(lsm, *lmmp, lmm_size));
-}
-
-int lov_packmd(struct obd_export *exp, struct lov_mds_md **lmmp,
-	       struct lov_stripe_md *lsm)
-{
-	struct obd_device *obd = class_exp2obd(exp);
-	struct lov_obd *lov = &obd->u.lov;
-
-	return lov_obd_packmd(lov, lmmp, lsm);
 }
 
 /* Find the max stripecount we should use */
@@ -437,7 +383,6 @@ int lov_getstripe(struct lov_object *obj, struct lov_stripe_md *lsm,
 	 * XXX huge struct allocated on stack.
 	 */
 	/* we use lov_user_md_v3 because it is larger than lov_user_md_v1 */
-	struct lov_obd		*lov;
 	struct lov_mds_md	*lmmk = NULL;
 	struct lov_user_md_v3	lum;
 	int			rc;
@@ -464,8 +409,8 @@ int lov_getstripe(struct lov_object *obj, struct lov_stripe_md *lsm,
 		rc = copy_to_user(lump, &lum, lum_size);
 		GOTO(out, rc = -EOVERFLOW);
 	}
-	lov = lu2lov_dev(obj->lo_cl.co_lu.lo_dev)->ld_lov;
-	rc = lov_obd_packmd(lov, &lmmk, lsm);
+
+	rc = lov_packmd(&lmmk, lsm);
 	if (rc < 0)
 		GOTO(out, rc);
 	lmmk_size = lmm_size = rc;
