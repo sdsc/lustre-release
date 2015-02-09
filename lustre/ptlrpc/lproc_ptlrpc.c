@@ -1267,7 +1267,7 @@ lprocfs_import_seq_write(struct file *file, const char __user *buffer,
 	}
 
 	if (do_reconn)
-		ptlrpc_recover_import(imp, uuid, 1);
+		ptlrpc_recover_import(imp, uuid, true, true);
 
 out:
 	OBD_FREE(kbuf, count + 1);

@@ -52,7 +52,8 @@ int ptlrpc_replay(struct obd_import *imp);
 int ptlrpc_resend(struct obd_import *imp);
 void ptlrpc_free_committed(struct obd_import *imp);
 void ptlrpc_wake_delayed(struct obd_import *imp);
-int ptlrpc_recover_import(struct obd_import *imp, char *new_uuid, int async);
+int ptlrpc_recover_import(struct obd_import *imp, char *new_uuid, bool async,
+			  bool disconn);
 int ptlrpc_set_import_active(struct obd_import *imp, int active);
 void ptlrpc_activate_import(struct obd_import *imp);
 void ptlrpc_deactivate_import(struct obd_import *imp);

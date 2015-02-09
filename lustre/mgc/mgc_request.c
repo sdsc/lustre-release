@@ -1195,10 +1195,10 @@ static int mgc_set_info_async(const struct lu_env *env, struct obd_export *exp,
                        imp->imp_deactive, imp->imp_invalid,
                        imp->imp_replayable, imp->imp_obd->obd_replayable,
                        ptlrpc_import_state_name(imp->imp_state));
-                /* Resurrect if we previously died */
-                if ((imp->imp_state != LUSTRE_IMP_FULL &&
-                     imp->imp_state != LUSTRE_IMP_NEW) || value > 1)
-                        ptlrpc_reconnect_import(imp);
+		/* Resurrect if we previously died, wait a reconnect finished */
+		if ((imp->imp_state != LUSTRE_IMP_FULL &&
+		     imp->imp_state != LUSTRE_IMP_NEW) || value > 1)
+			ptlrpc_reconnect_import(imp);
                 RETURN(0);
         }
         /* FIXME move this to mgc_process_config */

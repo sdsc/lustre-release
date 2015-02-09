@@ -1564,7 +1564,7 @@ static int osp_iocontrol(unsigned int cmd, struct obd_export *exp, int len,
 	switch (cmd) {
 	case OBD_IOC_CLIENT_RECOVER:
 		rc = ptlrpc_recover_import(obd->u.cli.cl_import,
-					   data->ioc_inlbuf1, 0);
+					   data->ioc_inlbuf1, false, false);
 		if (rc > 0)
 			rc = 0;
 		break;

@@ -2313,7 +2313,8 @@ static int mdc_iocontrol(unsigned int cmd, struct obd_export *exp, int len,
 		rc = mdc_ioc_hsm_request(exp, karg);
 		GOTO(out, rc);
         case OBD_IOC_CLIENT_RECOVER:
-                rc = ptlrpc_recover_import(imp, data->ioc_inlbuf1, 0);
+		rc = ptlrpc_recover_import(imp, data->ioc_inlbuf1,
+					   false, false);
                 if (rc < 0)
                         GOTO(out, rc);
                 GOTO(out, rc = 0);

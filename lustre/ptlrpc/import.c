@@ -441,53 +441,17 @@ void ptlrpc_fail_import(struct obd_import *imp, __u32 conn_cnt)
 }
 EXPORT_SYMBOL(ptlrpc_fail_import);
 
-int ptlrpc_reconnect_import(struct obd_import *imp)
+cfs_duration_t client_recovery_timeout(struct obd_import *imp)
 {
-#ifdef ENABLE_PINGER
-	struct l_wait_info lwi;
-	int secs = cfs_time_seconds(obd_timeout);
-	int rc;
+	cfs_duration_t timeout;
 
-	ptlrpc_pinger_force(imp);
+	if (imp->imp_server_timeout)
+		timeout = cfs_time_seconds(obd_timeout / 2);
+	else
+		timeout = cfs_time_seconds(obd_timeout);
 
-	CDEBUG(D_HA, "%s: recovery started, waiting %u seconds\n",
-	       obd2cli_tgt(imp->imp_obd), secs);
-
-	lwi = LWI_TIMEOUT(secs, NULL, NULL);
-	rc = l_wait_event(imp->imp_recovery_waitq,
-			  !ptlrpc_import_in_recovery(imp), &lwi);
-	CDEBUG(D_HA, "%s: recovery finished s:%s\n", obd2cli_tgt(imp->imp_obd),
-	       ptlrpc_import_state_name(imp->imp_state));
-	return rc;
-#else
-	ptlrpc_set_import_discon(imp, 0);
-	/* Force a new connect attempt */
-	ptlrpc_invalidate_import(imp);
-	/* Do a fresh connect next time by zeroing the handle */
-	ptlrpc_disconnect_import(imp, 1);
-	/* Wait for all invalidate calls to finish */
-	if (atomic_read(&imp->imp_inval_count) > 0) {
-		struct l_wait_info lwi = LWI_INTR(LWI_ON_SIGNAL_NOOP, NULL);
-		int rc;
-
-		rc = l_wait_event(imp->imp_recovery_waitq,
-				  (atomic_read(&imp->imp_inval_count) == 0),
-				  &lwi);
-		if (rc)
-			CERROR("Interrupted, inval=%d\n",
-			       atomic_read(&imp->imp_inval_count));
-	}
-
-	/* Allow reconnect attempts */
-	imp->imp_obd->obd_no_recov = 0;
-	/* Remove 'invalid' flag */
-	ptlrpc_activate_import(imp);
-	/* Attempt a new connect */
-	ptlrpc_recover_import(imp, NULL, 0);
-	return 0;
-#endif
+	return timeout;
 }
-EXPORT_SYMBOL(ptlrpc_reconnect_import);
 
 /**
  * Connection on import \a imp is changed to another one (if more than one is
@@ -1478,6 +1442,8 @@ int ptlrpc_disconnect_import(struct obd_import *imp, int noclose)
 {
 	struct ptlrpc_request *req;
 	int rq_opc, rc = 0;
+	struct l_wait_info lwi;
+	cfs_duration_t timeout;
 	ENTRY;
 
 	if (imp->imp_obd->obd_force)
@@ -1502,34 +1468,22 @@ int ptlrpc_disconnect_import(struct obd_import *imp, int noclose)
 		RETURN(rc);
 	}
 
-        if (ptlrpc_import_in_recovery(imp)) {
-                struct l_wait_info lwi;
-                cfs_duration_t timeout;
+	timeout = client_recovery_timeout(imp);
 
-                if (AT_OFF) {
-                        if (imp->imp_server_timeout)
-                                timeout = cfs_time_seconds(obd_timeout / 2);
-                        else
-                                timeout = cfs_time_seconds(obd_timeout);
-                } else {
-                        int idx = import_at_get_index(imp,
-                                imp->imp_client->cli_request_portal);
-                        timeout = cfs_time_seconds(
-                                at_get(&imp->imp_at.iat_service_estimate[idx]));
-                }
-
-                lwi = LWI_TIMEOUT_INTR(cfs_timeout_cap(timeout),
-                                       back_to_sleep, LWI_ON_SIGNAL_NOOP, NULL);
-                rc = l_wait_event(imp->imp_recovery_waitq,
-                                  !ptlrpc_import_in_recovery(imp), &lwi);
-
-        }
+	lwi = LWI_TIMEOUT_INTR(cfs_timeout_cap(timeout),
+			back_to_sleep, LWI_ON_SIGNAL_NOOP, NULL);
+	rc = l_wait_event(imp->imp_recovery_waitq,
+			(!ptlrpc_import_in_recovery(imp) ||
+			  ptlrpc_import_disconnected(imp)),
+			&lwi);
 
 	spin_lock(&imp->imp_lock);
-	if (imp->imp_state != LUSTRE_IMP_FULL)
-		GOTO(out, rc);
+	if (ptlrpc_import_disconnected(imp))
+		GOTO(out, rc = 0);
 	spin_unlock(&imp->imp_lock);
 
+	/* Even if the import didn't finish recovery or isn't in FULL state,
+	* try to disconnect from the server anyway to release resources. */
         req = ptlrpc_request_alloc_pack(imp, &RQF_MDS_DISCONNECT,
                                         LUSTRE_OBD_VERSION, rq_opc);
         if (req) {
@@ -1579,6 +1533,19 @@ void ptlrpc_cleanup_imp(struct obd_import *imp)
 	EXIT;
 }
 EXPORT_SYMBOL(ptlrpc_cleanup_imp);
+
+int ptlrpc_reconnect_import(struct obd_import *imp)
+{
+	/* import may be FULL but pinger din't found a failed link
+	 * so - reping it, or return a error in case reconnect
+	 * or recovery needs */
+	if (ptlrpc_obd_ping(imp->imp_obd) == 0)
+		RETURN(0);
+
+	/* ping failed - wait recovery */
+	return ptlrpc_recover_import(imp, NULL, false, false);
+}
+EXPORT_SYMBOL(ptlrpc_reconnect_import);
 
 /* Adaptive Timeout utils */
 extern unsigned int at_min, at_max, at_history;
