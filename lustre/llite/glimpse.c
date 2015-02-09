@@ -92,7 +92,7 @@ int cl_glimpse_lock(const struct lu_env *env, struct cl_io *io,
         result = 0;
         if (!(lli->lli_flags & LLIF_MDS_SIZE_LOCK)) {
                 CDEBUG(D_DLMTRACE, "Glimpsing inode "DFID"\n", PFID(fid));
-		if (lli->lli_has_smd) {
+		if (lli->lli_layout_type == CL_LAYOUT_TYPE_NORMAL) {
 			struct cl_lock *lock = ccc_env_lock(env);
 			struct cl_lock_descr *descr = &lock->cll_descr;
 
@@ -227,7 +227,7 @@ int cl_local_size(struct inode *inode)
 
         ENTRY;
 
-	if (!ll_i2info(inode)->lli_has_smd)
+	if (ll_i2info(inode)->lli_layout_type != CL_LAYOUT_TYPE_NORMAL)
                 RETURN(0);
 
         result = cl_io_get(inode, &env, &io, &refcheck);

@@ -695,7 +695,7 @@ restart:
 
         ll_capa_open(inode);
 
-	if (!lli->lli_has_smd &&
+	if (lli->lli_layout_type == CL_LAYOUT_TYPE_EMPTY &&
 	    (cl_is_lov_delay_create(file->f_flags) ||
 	     (file->f_mode & FMODE_WRITE) == 0)) {
 		CDEBUG(D_INODE, "object creation was delayed\n");
@@ -3625,11 +3625,10 @@ int ll_layout_conf(struct inode *inode, const struct cl_object_conf *conf)
 		if (rc < 0)
 			GOTO(out, rc);
 
-		lli->lli_has_smd = (type == CL_LAYOUT_TYPE_NORMAL);
-
 		CDEBUG(D_VFSTRACE,
 		       DFID": layout version change: %u -> %u\n",
 		       PFID(&lli->lli_fid), ll_layout_version_get(lli), gen);
+		lli->lli_layout_type = type;
 		ll_layout_version_set(lli, gen);
 	}
 
@@ -3762,6 +3761,9 @@ static int ll_layout_lock_set(struct lustre_handle *lockh, ldlm_mode_t mode,
 				PFID(&lli->lli_fid), rc);
 			GOTO(out, rc);
 		}
+
+		LASSERTF(md.lsm != NULL, "lvb_data = %p, lvb_len = %u\n",
+			 lock->l_lvb_data, lock->l_lvb_len);
 
 		rc = 0;
 	}
