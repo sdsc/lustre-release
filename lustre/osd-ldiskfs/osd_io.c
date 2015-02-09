@@ -1826,7 +1826,7 @@ static int osd_fiemap_get(const struct lu_env *env, struct dt_object *dt,
 
         saved_fs = get_fs();
         set_fs(get_ds());
-        /* ldiskfs_ioctl does not have a inode argument */
+	/* ldiskfs_ioctl does not have an inode argument */
         if (inode->i_fop->unlocked_ioctl)
                 rc = inode->i_fop->unlocked_ioctl(file, FSFILT_IOC_FIEMAP,
                                                   (long)fm);
