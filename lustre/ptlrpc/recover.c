@@ -155,7 +155,7 @@ int ptlrpc_replay_next(struct obd_import *imp, int *inflight)
 
 	/* If need to resend the last sent transno (because a reconnect
 	 * has occurred), then stop on the matching req and send it again.
-	 * If, however, the last sent transno has been committed then we 
+	 * If, however, the last sent transno has been committed then we
 	 * continue replay from the next request. */
 	if (req != NULL && imp->imp_resend_replay)
 		lustre_msg_add_flags(req->rq_reqmsg, MSG_RESENT);
@@ -267,7 +267,7 @@ void ptlrpc_request_handle_notconn(struct ptlrpc_request *failed_req)
 }
 
 /**
- * Administratively active/deactive a client. 
+ * Administratively active/deactive a client.
  * This should only be called by the ioctl interface, currently
  *  - the lctl deactivate and activate commands
  *  - echo 0/1 >> /proc/osc/XXX/active
@@ -315,7 +315,7 @@ int ptlrpc_set_import_active(struct obd_import *imp, int active)
 }
 EXPORT_SYMBOL(ptlrpc_set_import_active);
 
-/* Attempt to reconnect an import */
+/* Attempt to reconnect and reconnect an import */
 int ptlrpc_recover_import(struct obd_import *imp, char *new_uuid, int async)
 {
 	int rc = 0;
@@ -323,58 +323,61 @@ int ptlrpc_recover_import(struct obd_import *imp, char *new_uuid, int async)
 
 	spin_lock(&imp->imp_lock);
 	if (imp->imp_state == LUSTRE_IMP_NEW || imp->imp_deactive ||
-	    atomic_read(&imp->imp_inval_count))
+			atomic_read(&imp->imp_inval_count))
 		rc = -EINVAL;
 	spin_unlock(&imp->imp_lock);
-        if (rc)
-                GOTO(out, rc);
+	if (rc)
+		GOTO(out, rc);
 
-        /* force import to be disconnected. */
-        ptlrpc_set_import_discon(imp, 0);
+	if (new_uuid) {
+		struct obd_uuid uuid;
 
-        if (new_uuid) {
-                struct obd_uuid uuid;
+		/* force import to be disconnected. */
+		ptlrpc_set_import_discon(imp, 0);
 
-                /* intruct import to use new uuid */
-                obd_str2uuid(&uuid, new_uuid);
-                rc = import_set_conn_priority(imp, &uuid);
-                if (rc)
-                        GOTO(out, rc);
-        }
-
-        /* Check if reconnect is already in progress */
-	spin_lock(&imp->imp_lock);
-	if (imp->imp_state != LUSTRE_IMP_DISCON) {
-		imp->imp_force_verify = 1;
-		rc = -EALREADY;
+		/* intruct import to use new uuid */
+		obd_str2uuid(&uuid, new_uuid);
+		rc = import_set_conn_priority(imp, &uuid);
+		if (rc)
+			GOTO(out, rc);
 	}
-	spin_unlock(&imp->imp_lock);
-        if (rc)
-                GOTO(out, rc);
 
-        rc = ptlrpc_connect_import(imp);
-        if (rc)
-                GOTO(out, rc);
+	rc = ptlrpc_connect_import(imp);
+	if (rc && rc != -EALREADY)
+		GOTO(out, rc);
 
-        if (!async) {
-                struct l_wait_info lwi;
-                int secs = cfs_time_seconds(obd_timeout);
+	if (!async) {
+		struct l_wait_info lwi;
+		int secs = client_recovery_timeout(imp);
 
-                CDEBUG(D_HA, "%s: recovery started, waiting %u seconds\n",
-                       obd2cli_tgt(imp->imp_obd), secs);
+		CDEBUG(D_HA, "%s: recovery started, waiting %u seconds\n",
+				obd2cli_tgt(imp->imp_obd), secs);
 
-                lwi = LWI_TIMEOUT(secs, NULL, NULL);
-                rc = l_wait_event(imp->imp_recovery_waitq,
-                                  !ptlrpc_import_in_recovery(imp), &lwi);
-                CDEBUG(D_HA, "%s: recovery finished\n",
-                       obd2cli_tgt(imp->imp_obd));
-        }
+		lwi = LWI_TIMEOUT(secs, NULL, NULL);
+		/* we don't want exit on disconnect as it's may result
+		 * of previous connect request, but we need exit on
+		 * critical error */
+		rc = l_wait_event(imp->imp_recovery_waitq,
+				!ptlrpc_import_in_recovery(imp), &lwi);
+		CDEBUG(D_HA, "%s: recovery finished\n",
+				obd2cli_tgt(imp->imp_obd));
+	}
         EXIT;
 
 out:
         return rc;
 }
 EXPORT_SYMBOL(ptlrpc_recover_import);
+
+int ptlrpc_import_disconnected(struct obd_import *imp)
+{
+	int discon = 0;
+
+	if (imp->imp_state == LUSTRE_IMP_DISCON)
+		discon = 1;
+
+	return discon;
+}
 
 int ptlrpc_import_in_recovery(struct obd_import *imp)
 {
@@ -383,7 +386,6 @@ int ptlrpc_import_in_recovery(struct obd_import *imp)
 	spin_lock(&imp->imp_lock);
 	if (imp->imp_state == LUSTRE_IMP_FULL ||
 	    imp->imp_state == LUSTRE_IMP_CLOSED ||
-	    imp->imp_state == LUSTRE_IMP_DISCON ||
 	    imp->imp_obd->obd_no_recov)
 		in_recovery = 0;
 	spin_unlock(&imp->imp_lock);
