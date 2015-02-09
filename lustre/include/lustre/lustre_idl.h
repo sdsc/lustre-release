@@ -1531,7 +1531,8 @@ typedef enum {
         OST_QUOTACHECK = 18,
         OST_QUOTACTL   = 19,
 	OST_QUOTA_ADJUST_QUNIT = 20, /* not used since 2.4 */
-        OST_LAST_OPC
+	OST_LADVISE    = 21,
+	OST_LAST_OPC
 } ost_cmd_t;
 #define OST_FIRST_OPC  OST_REPLY
 
@@ -4179,5 +4180,7 @@ struct close_data {
 
 void lustre_swab_close_data(struct close_data *data);
 
+#define LADVISE_MAGIC 0x1ADF1CE0
+void lustre_swab_ladvise(struct lu_ladvise *ladvise);
 #endif
 /** @} lustreidl */
