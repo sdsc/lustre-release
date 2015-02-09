@@ -255,11 +255,11 @@ struct ll_inode_info {
          *      In the future, if more members are added only for directory,
          *      some of the following members can be moved into u.f.
          */
-	bool                            lli_has_smd;
 	struct cl_object		*lli_clob;
 
 	/* mutex to request for layout lock exclusively. */
 	struct mutex			lli_layout_mutex;
+	enum cl_layout_type		lli_layout_type;
 	/* Layout version, protected by lli_layout_lock */
 	__u32				lli_layout_gen;
 	spinlock_t			lli_layout_lock;

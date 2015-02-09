@@ -81,28 +81,11 @@ struct lov_layout_operations {
 
 static int lov_layout_wait(const struct lu_env *env, struct lov_object *lov);
 
-struct lov_stripe_md *lov_lsm_get(struct cl_object *clobj)
-{
-	struct lu_object *luobj;
-	struct lov_stripe_md *lsm = NULL;
-
-	if (clobj == NULL)
-		return NULL;
-
-	luobj = lu_object_locate(&cl_object_header(clobj)->coh_lu,
-				 &lov_device_type);
-	if (luobj != NULL)
-		lsm = lov_lsm_addref(lu2lov(luobj));
-	return lsm;
-}
-EXPORT_SYMBOL(lov_lsm_get);
-
-void lov_lsm_put(struct cl_object *unused, struct lov_stripe_md *lsm)
+static void lov_lsm_put(struct lov_stripe_md *lsm)
 {
 	if (lsm != NULL)
 		lov_free_memmd(&lsm);
 }
-EXPORT_SYMBOL(lov_lsm_put);
 
 /*****************************************************************************
  *
@@ -1441,8 +1424,10 @@ obj_put:
 out:
 	if (fm_local != NULL)
 		OBD_FREE_LARGE(fm_local, buffer_size);
-	lov_lsm_put(obj, lsm);
-	RETURN(rc);
+
+	lov_lsm_put(lsm);
+
+	return rc;
 }
 
 static int lov_dispatch_obd_info_get(const struct lu_env *env,
@@ -1558,7 +1543,7 @@ static int lov_object_obd_info_get(const struct lu_env *env,
 			 OBD_MD_FLMTIME | OBD_MD_FLCTIME | OBD_MD_FLSIZE |
 			 OBD_MD_FLDATAVERSION | OBD_MD_FLFLAGS);
 out:
-	lov_lsm_put(obj, lsm);
+	lov_lsm_put(lsm);
 	RETURN(rc);
 }
 
@@ -1618,7 +1603,7 @@ static int lov_object_data_version(const struct lu_env *env,
 out_obdo:
 	OBD_FREE_PTR(obdo);
 out:
-	lov_lsm_put(obj, lsm);
+	lov_lsm_put(lsm);
 	RETURN(rc);
 }
 
@@ -1635,7 +1620,7 @@ static int lov_object_getstripe(const struct lu_env *env, struct cl_object *obj,
 		RETURN(-ENODATA);
 
 	rc = lov_getstripe(cl2lov(obj), lsm, lum);
-	lov_lsm_put(obj, lsm);
+	lov_lsm_put(lsm);
 	RETURN(rc);
 }
 
@@ -1658,7 +1643,7 @@ static int lov_object_layout_get(const struct lu_env *env,
 	}
 
 	if (lsm != NULL)
-		lov_lsm_put(obj, lsm);
+		lov_lsm_put(lsm);
 
 	RETURN(0);
 }
@@ -1695,7 +1680,7 @@ lov_object_xattr_get(const struct lu_env *env, struct cl_object *obj,
 	}
 
 out:
-	lov_lsm_put(obj, lsm);
+	lov_lsm_put(lsm);
 
 	RETURN(rc);
 }
