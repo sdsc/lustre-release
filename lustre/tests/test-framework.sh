@@ -4456,6 +4456,7 @@ exit_status () {
 
 error() {
 	error_noexit "$@"
+	reset_fail_loc
 	exit 1
 }
 
