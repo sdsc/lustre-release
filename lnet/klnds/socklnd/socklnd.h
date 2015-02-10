@@ -410,6 +410,8 @@ typedef struct ksock_peer
 	struct list_head	ksnp_list;	/* stash on global peer list */
 	cfs_time_t            ksnp_last_alive;  /* when (in jiffies) I was last alive */
 	lnet_process_id_t     ksnp_id;       /* who's on the other end(s) */
+	/* CPT this peer is bounded to */
+	int			ksnp_cpt;
 	atomic_t              ksnp_refcount; /* # users */
 	int                   ksnp_sharecount;  /* lconf usage counter */
 	int                   ksnp_closing;  /* being closed */

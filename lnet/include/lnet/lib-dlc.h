@@ -87,7 +87,7 @@ struct lnet_ioctl_config_data {
 struct lnet_ioctl_peer {
 	struct libcfs_ioctl_hdr pr_hdr;
 	__u32 pr_count;
-	__u32 pr_pad;
+	__u32 pr_detail;
 	__u64 pr_nid;
 
 	union {
@@ -101,7 +101,92 @@ struct lnet_ioctl_peer {
 			__u32 cr_peer_tx_qnob;
 			__u32 cr_ncpt;
 		} pr_peer_credits;
+		struct {
+			__u32 peer_ref_count;
+			__u32 connecting;
+			__u32 accepting;
+			__u32 active_conn;
+			__u32 waiting_conn;
+			__u32 cpt;
+
+			union {
+				struct {
+					__u32 local_ip;
+					__u32 peer_ip;
+					__u32 peer_port;
+					__u32 conn_count;
+					__u32 shared_count;
+					__u32 pid;
+				} socklnd;
+				struct {
+					__u64 peer_stamp;
+					__u32 dev_id;
+					__u32 peer_status;
+					__u32 fmaq_len;
+					__u32 nfma;
+					__u32 tx_seq;
+					__u32 rx_seq;
+					__u32 nrdma;
+					__u32 pad;
+				} gnilnd;
+			} pr_lnd;
+		} pr_peer_details;
 	} pr_lnd_u;
+};
+
+struct ioctl_tx_queue {
+	int tx_sending;
+	int tx_queued;
+	int tx_waiting;
+	int tx_status;
+	unsigned long tx_deadline;
+	__u64 tx_cookie;
+	__u8 tx_msg_type;
+	__u8 tx_msg_credits;
+};
+
+enum tx_conn_queue_type {
+	TX_QUEUE_NOOPS = 0,
+	TX_QUEUE_CR,
+	TX_QUEUE_NCR,
+	TX_QUEUE_RSRVD,
+	TX_QUEUE_ACTIVE,
+	TX_QUEUE_MAX,
+};
+
+struct lnet_ioctl_conn {
+	struct libcfs_ioctl_hdr conn_hdr;
+	__u64 conn_nid;
+	__u32 conn_count;
+	__u32 conn_state;
+	__u32 conn_vers;
+	__u32 conn_pad;
+
+	union {
+		struct {
+			__u32 tx_buf_size;
+			__u32 nagle;
+			__u32 peer_ip;
+			__u32 peer_port;
+			__u32 local_ip;
+			__u32 type;
+			__u32 cpt;
+			__u32 rx_buf_size;
+			__u32 pid;
+			__u32 pad;
+		} socklnd_conn;
+		struct {
+			__u32 gnd_id;
+			__u32 pad;
+		} gnilnd_conn;
+		struct {
+			__u32 path_mtu;
+			__u32 queue_type;
+			__u32 num_entries;
+			__u32 pad;
+			struct ioctl_tx_queue tx_q[MAX_NUM_SHOW_ENTRIES];
+		} o2iblnd_conn;
+	} conn_lnd_u;
 };
 
 struct lnet_ioctl_lnet_stats {

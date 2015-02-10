@@ -168,6 +168,36 @@ parameter\.
 Show router buffers values as well as show the status of routing (IE: whether
 the node is set to be a router)
 .
+
+.SS "Peer Information"
+.
+.TP
+\fBlnetctl peers\fR show
+Show all current peers if no parameters given, or filter on
+given parameters\. More details can be shown by specifying the
+\-\-verbose parameter\.
+.
+.br
+\-\-net: net name (e.g. tcp0) to filter on. Can also filter using a specific
+nid.
+.
+.SS "Connection Information"
+.
+.TP
+\fBlnetctl conns\fR show
+Show all current connections if no parameters given, or filter on
+given parameters\. More details can be shown by specifying the
+\-\-verbose parameter\.
+.
+.br
+\-\-net: net name (e.g. tcp0) to filter on. Can also filter using a specific
+peer nid.
+.
+.br
+\-\-queue: TX queue to examine. Can inquire about a specific queue's depth,
+status, data in transition and other pieces of information. Currently this
+is only functional for infiniband LNETs.
+.
 .SS "Value Setting"
 Individual values can be set using the \fBlnetctl set\fR command\.
 .
@@ -503,6 +533,86 @@ routing:
 .
 .br
 	\- enable: 1
+.
+.SS "Show peers"
+.
+.IP "\(bu" 4
+lnetctl peers show
+.
+.IP "" 0
+.
+.P
+peers:
+.
+.br
+	\- nid: 192.168.1.1@tcp0
+.
+.br
+	\- nid: 192.168.1.2@tcp0
+.
+.IP "\(bu" 4
+lnetctl peers show -net 192.168.1.1@tcp0 --verbose
+.
+.IP "" 0
+.
+.P
+peers:
+.
+.br
+	\- nid: 192.168.1.1@tcp0
+.
+.br
+	  CPT: 1
+.
+.br
+	  peer_ref_count: 2
+.
+.br
+	  active_conn: 0
+.
+.br
+	  waiting_conn: 1
+.
+.br
+	  connecting: 1
+.
+.br
+	  accepting: 0
+.
+.SS "Show connections"
+.
+.IP "\(bu" 4
+lnetctl conns show
+.
+.IP "" 0
+.
+.P
+peers:
+.
+.br
+	\- peer: 192.168.1.1@tcp0
+.
+.br
+	  conns:
+.
+.br
+	      nid: 192.168.8@tcp0
+.
+.br
+	      nid: 192.168.9@tcp0
+.
+.
+.br
+	\- peer: 192.168.1.2@tcp0
+.
+.br
+	  conns:
+.
+.br
+	      nid: 192.168.8@tcp0
+.
+.br
+	      nid: 192.168.9@tcp0
 .
 .SS "Setting variables"
 .

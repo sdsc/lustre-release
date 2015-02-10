@@ -1264,13 +1264,13 @@ kgnilnd_unlink_peer_locked(kgn_peer_t *peer)
 }
 
 int
-kgnilnd_get_peer_info(int index,
-		      kgn_peer_t **found_peer,
-		      lnet_nid_t *id, __u32 *nic_addr,
-		      int *refcount, int *connecting)
+kgnilnd_get_peer_info(int index, kgn_peer_t **found_peer, lnet_nid_t *id,
+		      __u32 *nic_addr, int *connecting, int *refcount,
+		      int *active_conns)
 {
-	struct list_head  *ptmp;
+	struct list_head  *ptmp, *ctmp;
 	kgn_peer_t        *peer;
+	kgn_conn_t	  *conn;
 	int               i;
 	int               rc = -ENOENT;
 
@@ -1292,6 +1292,14 @@ kgnilnd_get_peer_info(int index,
 			*nic_addr    = peer->gnp_host_id;
 			*refcount    = atomic_read(&peer->gnp_refcount);
 			*connecting  = peer->gnp_connecting;
+
+			list_for_each(ctmp, &peer->gnp_tx_queue)
+				(*waiting_conn)++;
+
+			list_for_each_entry(conn, &peer->gnp_conns, gnc_list) {
+				if (!conn->gnc_in_purgatory)
+					(*active_conns)++;
+			}
 
 			rc = 0;
 			goto out;
@@ -1759,51 +1767,80 @@ kgnilnd_ctl(lnet_ni_t *ni, unsigned int cmd, void *arg)
 	LASSERT(ni == net->gnn_ni);
 
 	switch (cmd) {
+	case IOC_LIBCFS_GET_PEER_INFO:
 	case IOC_LIBCFS_GET_PEER: {
 		lnet_nid_t   nid = 0;
 		kgn_peer_t  *peer = NULL;
 		__u32 nic_addr = 0;
 		__u64 peerstamp = 0;
+		int device_id = 0, index = data->ioc_count;
 		int peer_refcount = 0, peer_connecting = 0;
-		int device_id = 0;
+		int active_conns = 0;
 		int tx_seq = 0, rx_seq = 0;
 		int fmaq_len = 0, nfma = 0, nrdma = 0;
+		struct lnet_ioctl_peer *data_peer = NULL;
 
-		rc = kgnilnd_get_peer_info(data->ioc_count, &peer,
-					   &nid, &nic_addr, &peer_refcount,
-					   &peer_connecting);
+		/* For the PEER_INFO case pass back a different data
+		 * structure */
+		if (cmd == IOC_LIBCFS_GET_PEER_INFO) {
+			data_peer = arg;
+			index = data_peer->pr_count;
+		}
+
+		rc = kgnilnd_get_peer_info(index, &peer, &nid, &nic_addr,
+					   &peer_connecting, &peer_refcount,
+					   &active_conns);
 		if (rc)
 			break;
 
-		/* Barf */
 		/* LNET_MKNID is used to mask from lnet the multiplexing/demultiplexing of connections and peers
 		 * LNET assumes a conn and peer per net, the LNET_MKNID/LNET_NIDADDR allows us to let Lnet see what it
 		 * wants to see instead of the underlying network that is being used to send the data
 		 */
-		data->ioc_nid    = LNET_MKNID(LNET_NIDNET(ni->ni_nid), LNET_NIDADDR(nid));
-		data->ioc_flags  = peer_connecting;
-		data->ioc_count  = peer_refcount;
+		if (data_peer == NULL) {
+			/* Barf */
+			data->ioc_nid = LNET_MKNID(LNET_NIDNET(ni->ni_nid), LNET_NIDADDR(nid));
+			data->ioc_count  = peer_refcount;
+		} else {
+			/* !!!! FIXME !!!!!! Need to implement accepting,connecting */
+			data_peer->lnd_u.pr_peer_details.peer_ref_count = peer_refcount;
+			data_peer->lnd_u.pr_peer_details.active_conns = active_conns;
 
+			data_peer->lnd_u.pr_peer_details.pr_lnd.gnilnd.peer_status = peer_connecting;
+		}
 		rc = kgnilnd_get_conn_info(peer, &device_id, &peerstamp,
 					   &tx_seq, &rx_seq, &fmaq_len,
 					   &nfma, &nrdma);
-
 		/* This is allowable - a persistent peer could not
 		 * have a connection */
 		if (rc) {
 			/* flag to indicate we are not connected -
 			 * need to print as such */
-			data->ioc_flags |= (1<<16);
+			if (data_peer != NULL)
+				data_peer->lnd_u.gnilnd.peer_status |= (1 << 16);
+			else
+				data->ioc_flags |= (1 << 16);
 			rc = 0;
 		} else {
-			/* still barf */
-			data->ioc_net = device_id;
-			data->ioc_u64[0] = peerstamp;
-			data->ioc_u32[0] = fmaq_len;
-			data->ioc_u32[1] = nfma;
-			data->ioc_u32[2] = tx_seq;
-			data->ioc_u32[3] = rx_seq;
-			data->ioc_u32[4] = nrdma;
+			/* still barf in the case of old PEER_INFO */
+			if (data_peer == NULL) {
+				data->ioc_net = device_id;
+				data->ioc_u64[0] = peerstamp;
+				data->ioc_u32[0] = fmaq_len;
+				data->ioc_u32[1] = nfma;
+				data->ioc_u32[2] = tx_seq;
+				data->ioc_u32[3] = rx_seq;
+				data->ioc_u32[4] = nrdma;
+			} else {
+				/* Gemini specific data */
+				data_peer->lnd_u.pr_peer_details.pr_lnd.gnilnd.dev_id = device_id;
+				data_peer->lnd_u.pr_peer_details.pr_lnd.gnilnd.peer_stamp = peerstamp;
+				data_peer->lnd_u.pr_peer_details.pr_lnd.gnilnd.fmaq_len = fmaq_len;
+				data_peer->lnd_u.pr_peer_details.pr_lnd.gnilnd.nfma = nfma;
+				data_peer->lnd_u.pr_peer_details.pr_lnd.gnilnd.tx_seq = tx_seq;
+				data_peer->lnd_u.pr_peer_details.pr_lnd.gnilnd.rx_seq = rx_seq;
+				data_peer->lnd_u.pr_peer_details.pr_lnd.gnilnd.nrdma = nrdma;
+			}
 		}
 		break;
 	}
@@ -1821,9 +1858,18 @@ kgnilnd_ctl(lnet_ni_t *ni, unsigned int cmd, void *arg)
 					      GNILND_DEL_PEER, -EUCLEAN);
 		break;
 	}
+	case IOC_LIBCFS_GET_CONN_INFO:
 	case IOC_LIBCFS_GET_CONN: {
-		kgn_conn_t *conn = kgnilnd_get_conn_by_idx(data->ioc_count);
+		struct lnet_ioctl_conn *dconn = NULL;
+		int index = data->ioc_count;
+		kgn_conn_t *conn;
 
+		if (cmd == IOC_LIBCFS_GET_CONN) {
+			dconn = arg;
+			index = dconn->conn_count;
+		}
+
+		conn = kgnilnd_get_conn_by_idx(index);
 		if (conn == NULL)
 			rc = -ENOENT;
 		else {
@@ -1831,8 +1877,13 @@ kgnilnd_ctl(lnet_ni_t *ni, unsigned int cmd, void *arg)
 			/* LNET_MKNID is used to build the correct address based on what LNET wants to see instead of
 			 * the generic connection that is used to send the data
 			 */
-			data->ioc_nid    = LNET_MKNID(LNET_NIDNET(ni->ni_nid), LNET_NIDADDR(conn->gnc_peer->gnp_nid));
-			data->ioc_u32[0] = conn->gnc_device->gnd_id;
+			if (dconn == NULL) {
+				data->ioc_nid = LNET_MKNID(LNET_NIDNET(ni->ni_nid), LNET_NIDADDR(conn->gnc_peer->gnp_nid));
+				data->ioc_u32[0] = conn->gnc_device->gnd_id;
+			} else {
+				dconn->conn_nid = LNET_MKNID(LNET_NIDNET(ni->ni_nid), LNET_NIDADDR(conn->gnc_peer->gnp_nid));
+				dconn->conn_lnd_u.gnilnd_conn.gnd_id = conn->gnc_device->gnd_id;
+			}
 			kgnilnd_conn_decref(conn);
 		}
 		break;
