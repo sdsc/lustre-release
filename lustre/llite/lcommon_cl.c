@@ -33,9 +33,6 @@
  * This file is part of Lustre, http://www.lustre.org/
  * Lustre is a trademark of Sun Microsystems, Inc.
  *
- * cl code shared between vvp and liblustre (and other Lustre clients in the
- * future).
- *
  *   Author: Nikita Danilov <nikita.danilov@sun.com>
  */
 
@@ -59,6 +56,7 @@
 #include <cl_object.h>
 
 #include "llite_internal.h"
+#include "vvp_internal.h"
 
 /**
  * An `emergency' environment used by cl_inode_fini() when cl_env_get()
@@ -269,28 +267,6 @@ void cl_inode_fini(struct inode *inode)
 
                 cl_env_reexit(cookie);
         }
-}
-
-/**
- * return IF_* type for given lu_dirent entry.
- * IF_* flag shld be converted to particular OS file type in
- * platform llite module.
- */
-__u16 ll_dirent_type_get(struct lu_dirent *ent)
-{
-        __u16 type = 0;
-        struct luda_type *lt;
-        int len = 0;
-
-        if (le32_to_cpu(ent->lde_attrs) & LUDA_TYPE) {
-                const unsigned align = sizeof(struct luda_type) - 1;
-
-                len = le16_to_cpu(ent->lde_namelen);
-                len = (len + align) & ~align;
-		lt = (void *)ent->lde_name + len;
-		type = IFTODT(le16_to_cpu(lt->lt_type));
-	}
-	return type;
 }
 
 /**

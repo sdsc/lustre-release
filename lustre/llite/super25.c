@@ -45,6 +45,7 @@
 #include <linux/fs.h>
 #include <lprocfs_status.h>
 #include "llite_internal.h"
+#include "vvp_internal.h"
 
 static struct kmem_cache *ll_inode_cachep;
 

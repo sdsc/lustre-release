@@ -52,22 +52,6 @@ struct obd_device;
 struct obd_export;
 struct page;
 
-blkcnt_t dirty_cnt(struct inode *inode);
-
-int cl_glimpse_size0(struct inode *inode, int agl);
-int cl_glimpse_lock(const struct lu_env *env, struct cl_io *io,
-		    struct inode *inode, struct cl_object *clob, int agl);
-
-static inline int cl_glimpse_size(struct inode *inode)
-{
-	return cl_glimpse_size0(inode, 0);
-}
-
-static inline int cl_agl(struct inode *inode)
-{
-	return cl_glimpse_size0(inode, 1);
-}
-
 enum vvp_io_subtype {
 	/** normal IO */
 	IO_NORMAL,
@@ -155,6 +139,8 @@ struct vvp_io {
 	/* Set when vui_ra_{start,count} have been initialized. */
 	bool		vui_ra_valid;
 };
+
+extern struct lu_device_type vvp_device_type;
 
 extern struct lu_context_key vvp_session_key;
 extern struct lu_context_key vvp_thread_key;
@@ -354,20 +340,6 @@ static inline struct vvp_lock *cl2vvp_lock(const struct cl_lock_slice *slice)
 	return container_of(slice, struct vvp_lock, vlk_cl);
 }
 
-extern struct lu_env *cl_inode_fini_env;
-extern int cl_inode_fini_refcheck;
-
-int cl_setattr_ost(struct cl_object *obj, const struct iattr *attr,
-		   unsigned int attr_flags, struct obd_capa *capa);
-
-int cl_file_inode_init(struct inode *inode, struct lustre_md *md);
-void cl_inode_fini(struct inode *inode);
-int cl_local_size(struct inode *inode);
-
-__u16 ll_dirent_type_get(struct lu_dirent *ent);
-__u64 cl_fid_build_ino(const struct lu_fid *fid, int api32);
-__u32 cl_fid_build_gen(const struct lu_fid *fid);
-
 #ifdef CONFIG_LUSTRE_DEBUG_EXPENSIVE_CHECK
 # define CLOBINVRNT(env, clob, expr)					\
 	do {								\
@@ -384,14 +356,6 @@ __u32 cl_fid_build_gen(const struct lu_fid *fid);
 
 int lov_read_and_clear_async_rc(struct cl_object *clob);
 
-enum {
-	LUSTRE_OPC_MKDIR	= 0,
-	LUSTRE_OPC_SYMLINK	= 1,
-	LUSTRE_OPC_MKNOD	= 2,
-	LUSTRE_OPC_CREATE	= 3,
-	LUSTRE_OPC_ANY		= 5,
-};
-
 int vvp_io_init(const struct lu_env *env, struct cl_object *obj,
 		struct cl_io *io);
 int vvp_io_write_commit(const struct lu_env *env, struct cl_io *io);
@@ -404,6 +368,12 @@ int vvp_req_init(const struct lu_env *env, struct cl_device *dev,
 struct lu_object *vvp_object_alloc(const struct lu_env *env,
 				   const struct lu_object_header *hdr,
 				   struct lu_device *dev);
+
+void vvp_write_pending(struct vvp_object *club, struct vvp_page *page);
+void vvp_write_complete(struct vvp_object *club, struct vvp_page *page);
+
+int vvp_global_init(void);
+void vvp_global_fini(void);
 
 extern const struct file_operations vvp_dump_pgcache_file_ops;
 

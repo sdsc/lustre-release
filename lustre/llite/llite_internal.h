@@ -48,7 +48,6 @@
 #include <lustre_mdc.h>
 #include <lustre_intent.h>
 #include <linux/compat.h>
-
 #include "vvp_internal.h"
 #include "range_lock.h"
 
@@ -696,7 +695,6 @@ static inline int ll_need_32bit_api(struct ll_sb_info *sbi)
 void ll_ras_enter(struct file *f);
 
 /* llite/lcommon_misc.c */
-int cl_init_ea_size(struct obd_export *md_exp, struct obd_export *dt_exp);
 int cl_ocd_update(struct obd_device *host, struct obd_device *watched,
 		  enum obd_notify_event ev, void *owner, void *data);
 int cl_get_grouplock(struct cl_object *obj, unsigned long gid, int nonblock,
@@ -927,6 +925,15 @@ int ll_get_default_mdsize(struct ll_sb_info *sbi, int *default_mdsize);
 int ll_get_max_cookiesize(struct ll_sb_info *sbi, int *max_cookiesize);
 int ll_get_default_cookiesize(struct ll_sb_info *sbi, int *default_cookiesize);
 int ll_process_config(struct lustre_cfg *lcfg);
+
+enum {
+	LUSTRE_OPC_MKDIR	= 0,
+	LUSTRE_OPC_SYMLINK	= 1,
+	LUSTRE_OPC_MKNOD	= 2,
+	LUSTRE_OPC_CREATE	= 3,
+	LUSTRE_OPC_ANY		= 5,
+};
+
 struct md_op_data *ll_prep_md_op_data(struct md_op_data *op_data,
 				      struct inode *i1, struct inode *i2,
 				      const char *name, size_t namelen,
@@ -975,9 +982,6 @@ struct ll_close_queue {
 	struct completion	lcq_comp;
 	atomic_t		lcq_stop;
 };
-
-void vvp_write_pending(struct vvp_object *club, struct vvp_page *page);
-void vvp_write_complete(struct vvp_object *club, struct vvp_page *page);
 
 /**
  * IO arguments for various VFS I/O interfaces.
@@ -1036,9 +1040,6 @@ static inline struct vvp_io_args *ll_env_args(const struct lu_env *env,
 
 	return via;
 }
-
-int vvp_global_init(void);
-void vvp_global_fini(void);
 
 void ll_queue_done_writing(struct inode *inode, unsigned long flags);
 void ll_close_thread_shutdown(struct ll_close_queue *lcq);
@@ -1163,9 +1164,6 @@ void ll_truncate_free_capa(struct obd_capa *ocapa);
 void ll_clear_inode_capas(struct inode *inode);
 void ll_print_capa_stat(struct ll_sb_info *sbi);
 
-/* llite/llite_cl.c */
-extern struct lu_device_type vvp_device_type;
-
 /**
  * Common IO arguments for various VFS I/O interfaces.
  */
@@ -1253,6 +1251,23 @@ struct ll_statahead_info {
 int ll_statahead(struct inode *dir, struct dentry **dentry, bool unplug);
 void ll_authorize_statahead(struct inode *dir, void *key);
 void ll_deauthorize_statahead(struct inode *dir, void *key);
+
+/* glimpse.c */
+blkcnt_t dirty_cnt(struct inode *inode);
+
+int cl_glimpse_size0(struct inode *inode, int agl);
+int cl_glimpse_lock(const struct lu_env *env, struct cl_io *io,
+		    struct inode *inode, struct cl_object *clob, int agl);
+
+static inline int cl_glimpse_size(struct inode *inode)
+{
+	return cl_glimpse_size0(inode, 0);
+}
+
+static inline int cl_agl(struct inode *inode)
+{
+	return cl_glimpse_size0(inode, 1);
+}
 
 static inline int ll_glimpse_size(struct inode *inode)
 {
@@ -1611,5 +1626,19 @@ static inline int lustre_swab_lum_obj(struct lov_mds_md *lmm,
 
 	return 0;
 }
+
+/* lcommon_cl.c */
+int cl_setattr_ost(struct cl_object *obj, const struct iattr *attr,
+		   unsigned int attr_flags, struct obd_capa *capa);
+
+extern struct lu_env *cl_inode_fini_env;
+extern int cl_inode_fini_refcheck;
+
+int cl_file_inode_init(struct inode *inode, struct lustre_md *md);
+void cl_inode_fini(struct inode *inode);
+int cl_local_size(struct inode *inode);
+
+u64 cl_fid_build_ino(const struct lu_fid *fid, int api32);
+u32 cl_fid_build_gen(const struct lu_fid *fid);
 
 #endif /* LLITE_INTERNAL_H */

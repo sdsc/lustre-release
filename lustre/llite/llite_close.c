@@ -43,6 +43,7 @@
 #define DEBUG_SUBSYSTEM S_LLITE
 
 #include "llite_internal.h"
+#include "vvp_internal.h"
 
 /** records that a write is in flight */
 void vvp_write_pending(struct vvp_object *club, struct vvp_page *page)

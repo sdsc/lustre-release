@@ -44,12 +44,11 @@
 
 #include "llite_internal.h"
 
-
 /* Initialize the default and maximum LOV EA and cookie sizes.  This allows
  * us to make MDS RPCs with large enough reply buffers to hold the
  * maximum-sized (= maximum striped) EA and cookie without having to
  * calculate this (via a call into the LOV + OSCs) each time we make an RPC. */
-int cl_init_ea_size(struct obd_export *md_exp, struct obd_export *dt_exp)
+static int cl_init_ea_size(struct obd_export *md_exp, struct obd_export *dt_exp)
 {
 	u32 val_size;
 	u32 max_easize;

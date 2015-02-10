@@ -45,11 +45,13 @@
 #include <linux/pagemap.h>
 #include <linux/file.h>
 #include <linux/sched.h>
-#include "llite_internal.h"
 #include <lustre/ll_fiemap.h>
 #include <lustre_ioctl.h>
 
 #include "cl_object.h"
+
+#include "llite_internal.h"
+#include "vvp_internal.h"
 
 static int
 ll_put_grouplock(struct inode *inode, struct file *file, unsigned long arg);
