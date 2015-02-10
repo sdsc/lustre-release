@@ -1240,7 +1240,7 @@ static ssize_t ll_file_aio_read(struct kiocb *iocb, const struct iovec *iov,
         if (IS_ERR(env))
                 RETURN(PTR_ERR(env));
 
-        args = vvp_env_args(env, IO_NORMAL);
+	args = ll_env_args(env, IO_NORMAL);
         args->u.normal.via_iov = (struct iovec *)iov;
         args->u.normal.via_nrsegs = nr_segs;
         args->u.normal.via_iocb = iocb;
@@ -1265,8 +1265,8 @@ static ssize_t ll_file_read(struct file *file, char __user *buf, size_t count,
         if (IS_ERR(env))
                 RETURN(PTR_ERR(env));
 
-        local_iov = &vvp_env_info(env)->vti_local_iov;
-        kiocb = &vvp_env_info(env)->vti_kiocb;
+	local_iov = &ll_env_info(env)->lti_local_iov;
+	kiocb = &ll_env_info(env)->lti_kiocb;
         local_iov->iov_base = (void __user *)buf;
         local_iov->iov_len = count;
         init_sync_kiocb(kiocb, file);
@@ -1306,7 +1306,7 @@ static ssize_t ll_file_aio_write(struct kiocb *iocb, const struct iovec *iov,
         if (IS_ERR(env))
                 RETURN(PTR_ERR(env));
 
-        args = vvp_env_args(env, IO_NORMAL);
+	args = ll_env_args(env, IO_NORMAL);
         args->u.normal.via_iov = (struct iovec *)iov;
         args->u.normal.via_nrsegs = nr_segs;
         args->u.normal.via_iocb = iocb;
@@ -1331,8 +1331,8 @@ static ssize_t ll_file_write(struct file *file, const char __user *buf,
         if (IS_ERR(env))
                 RETURN(PTR_ERR(env));
 
-        local_iov = &vvp_env_info(env)->vti_local_iov;
-        kiocb = &vvp_env_info(env)->vti_kiocb;
+	local_iov = &ll_env_info(env)->lti_local_iov;
+	kiocb = &ll_env_info(env)->lti_kiocb;
         local_iov->iov_base = (void __user *)buf;
         local_iov->iov_len = count;
         init_sync_kiocb(kiocb, file);
@@ -1367,7 +1367,7 @@ static ssize_t ll_file_splice_read(struct file *in_file, loff_t *ppos,
         if (IS_ERR(env))
                 RETURN(PTR_ERR(env));
 
-        args = vvp_env_args(env, IO_SPLICE);
+	args = ll_env_args(env, IO_SPLICE);
         args->u.splice.via_pipe = pipe;
         args->u.splice.via_flags = flags;
 
