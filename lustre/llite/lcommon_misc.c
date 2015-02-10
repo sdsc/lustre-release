@@ -128,7 +128,7 @@ int cl_ocd_update(struct obd_device *host,
 #define GROUPLOCK_SCOPE "grouplock"
 
 int cl_get_grouplock(struct cl_object *obj, unsigned long gid, int nonblock,
-                     struct ccc_grouplock *cg)
+		     struct ll_grouplock *lg)
 {
         struct lu_env          *env;
         struct cl_io           *io;
@@ -174,25 +174,25 @@ int cl_get_grouplock(struct cl_object *obj, unsigned long gid, int nonblock,
 		return rc;
 	}
 
-        cg->cg_env  = cl_env_get(&refcheck);
-        cg->cg_io   = io;
-        cg->cg_lock = lock;
-        cg->cg_gid  = gid;
-        LASSERT(cg->cg_env == env);
+	lg->lg_env = cl_env_get(&refcheck);
+	lg->lg_io = io;
+	lg->lg_lock = lock;
+	lg->lg_gid = gid;
+	LASSERT(lg->lg_env == env);
 
-        cl_env_unplant(env, &refcheck);
-        return 0;
+	cl_env_unplant(env, &refcheck);
+	return 0;
 }
 
-void cl_put_grouplock(struct ccc_grouplock *cg)
+void cl_put_grouplock(struct ll_grouplock *lg)
 {
-	struct lu_env  *env  = cg->cg_env;
-	struct cl_io   *io   = cg->cg_io;
-	struct cl_lock *lock = cg->cg_lock;
+	struct lu_env  *env  = lg->lg_env;
+	struct cl_io   *io   = lg->lg_io;
+	struct cl_lock *lock = lg->lg_lock;
 	int             refcheck;
 
-	LASSERT(cg->cg_env);
-	LASSERT(cg->cg_gid);
+	LASSERT(lg->lg_env != NULL);
+	LASSERT(lg->lg_gid != 0);
 
 	cl_env_implant(env, &refcheck);
 	cl_env_put(env, &refcheck);
@@ -201,4 +201,3 @@ void cl_put_grouplock(struct ccc_grouplock *cg)
 	cl_io_fini(env, io);
 	cl_env_put(env, NULL);
 }
-

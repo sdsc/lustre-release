@@ -402,22 +402,6 @@ __u32 cl_fid_build_gen(const struct lu_fid *fid);
 	((void)sizeof(env), (void)sizeof(clob), (void)sizeof !!(expr))
 #endif /* CONFIG_LUSTRE_DEBUG_EXPENSIVE_CHECK */
 
-int cl_init_ea_size(struct obd_export *md_exp, struct obd_export *dt_exp);
-int cl_ocd_update(struct obd_device *host,
-		  struct obd_device *watched,
-		  enum obd_notify_event ev, void *owner, void *data);
-
-struct ccc_grouplock {
-	struct lu_env	*cg_env;
-	struct cl_io	*cg_io;
-	struct cl_lock	*cg_lock;
-	unsigned long	 cg_gid;
-};
-
-int cl_get_grouplock(struct cl_object *obj, unsigned long gid, int nonblock,
-		     struct ccc_grouplock *cg);
-void cl_put_grouplock(struct ccc_grouplock *cg);
-
 int lov_read_and_clear_async_rc(struct cl_object *clob);
 
 enum {
