@@ -64,6 +64,11 @@ scriptlibdir = @libexecdir@/@PACKAGE@
 scriptlib_SCRIPTS = haconfig
 scriptlib_DATA = lc_common
 endif # SERVER
+
+if ZFS_ENABLED
+sbin_SCRIPTS += zfsobj2fid.py
+endif
+
 endif # UTILS
 
 EXTRA_DIST = license-status version_tag.pl version_tag-git.pl \

@@ -472,6 +472,9 @@ find $RPM_BUILD_ROOT%{?rootdir}/lib/modules/%{kversion}/%{kmoddir} \
 %files -f lustre.files
 %defattr(-,root,root)
 %{_sbindir}/*
+%if %{with zfs}
+%exclude %{_sbindir}/zfsobj2fid.py
+%endif
 %if %{with lustre_utils}
 %if %{with servers}
 %{_libexecdir}/lustre/lc_common
@@ -541,6 +544,7 @@ find $RPM_BUILD_ROOT%{?rootdir}/lib/modules/%{kversion}/%{kmoddir} \
 %files osd-zfs
 %defattr(-,root,root)
 %{?rootdir}/lib/modules/%{kversion}/%{kmoddir}/kernel/fs/@PACKAGE@/osd_zfs.ko
+%{_sbindir}/zfsobj2fid.py
 %if %{defined rpm_post_base}
 %attr(0555, root, root) %{rpm_post_base}-osd-zfs.sh
 %endif
