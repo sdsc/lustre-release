@@ -260,10 +260,8 @@ int lov_getattr_interpret(struct ptlrpc_request_set *rqset, void *data, int rc);
 /* lov_pack.c */
 ssize_t lov_lsm_pack(const struct lov_stripe_md *lsm, void *buf,
 		     size_t buf_size);
-int lov_unpackmd(struct obd_export *exp, struct lov_stripe_md **lsmp,
-                 struct lov_mds_md *lmm, int lmm_bytes);
-int lov_alloc_memmd(struct lov_stripe_md **lsmp, __u16 stripe_count,
-                    int pattern, int magic);
+struct lov_stripe_md *lov_unpackmd(struct lov_obd *lov, struct lov_mds_md *lmm,
+				   size_t lmm_size);
 int lov_free_memmd(struct lov_stripe_md **lsmp);
 
 void lov_dump_lmm_v1(int level, struct lov_mds_md_v1 *lmm);
@@ -272,7 +270,7 @@ void lov_dump_lmm_common(int level, void *lmmp);
 void lov_dump_lmm(int level, void *lmm);
 
 /* lov_ea.c */
-struct lov_stripe_md *lsm_alloc_plain(__u16 stripe_count, int *size);
+struct lov_stripe_md *lsm_alloc_plain(u16 stripe_count);
 void lsm_free_plain(struct lov_stripe_md *lsm);
 void dump_lsm(unsigned int level, const struct lov_stripe_md *lsm);
 

@@ -1395,7 +1395,6 @@ out_rmdir:
 get_stat:
 		if (cmd == IOC_MDC_GETFILEINFO || cmd == LL_IOC_MDC_GETINFO) {
 			struct lov_user_mds_data __user *lmdp;
-			struct lov_stripe_md	*lsm = NULL;
 			struct inode		*finode;
 			struct lustre_md	md = { 0 };
 			lstat_t			st = { 0 };
@@ -1418,10 +1417,10 @@ get_stat:
 				goto copy_stat;
 
 			/*
-			 * Get file's size/time from OST.
-			 * From here, we've copied lmm to user space, we need
-			 * it to form a lsm to get the inode of the file under
-			 * the dir, then get its size/time from OSTs.
+			 * Get file's size/time from OST. From here,
+			 * we've copied lmm to user space, we need it
+			 * to get the inode of the file under the dir,
+			 * then get its size/time from OSTs.
 			 */
 			if (LOV_MAGIC == cpu_to_le32(LOV_MAGIC))
 				goto get_inode;
@@ -1430,12 +1429,9 @@ get_stat:
 			lustre_swab_lum(lmm, LL_TO_LE);
 			lustre_swab_lum_obj(lmm, LL_TO_LE);
 get_inode:
-			/* derive a lsm from lmm */
-			rc = obd_unpackmd(sbi->ll_dt_exp, &lsm, lmm, lmmsize);
-			if (rc < 0)
-				goto copy_stat;
 			md.body = body;
-			md.lsm = lsm;
+			md.layout.lb_buf = lmm;
+			md.layout.lb_len = lmmsize;
 			finode = ll_iget(inode->i_sb,
 					 cl_fid_build_ino(&body->mbo_fid1,
 					 sbi->ll_flags & LL_SBI_32BIT_API),
@@ -1453,8 +1449,6 @@ get_inode:
 			}
 			iput(finode);
 copy_stat:
-			if (lsm != NULL)
-				obd_free_memmd(sbi->ll_dt_exp, &lsm);
 			lmdp = (struct lov_user_mds_data __user *)arg;
 			if (copy_to_user(&lmdp->lmd_st, &st, sizeof(st)))
 				rc = -EFAULT;
