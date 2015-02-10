@@ -57,12 +57,17 @@
  * "llite_" (var. "ll_") prefix.
  */
 
+static struct kmem_cache *ll_thread_kmem;
 struct kmem_cache *vvp_lock_kmem;
 struct kmem_cache *vvp_object_kmem;
 struct kmem_cache *vvp_req_kmem;
-static struct kmem_cache *vvp_thread_kmem;
 static struct kmem_cache *vvp_session_kmem;
 static struct lu_kmem_descr vvp_caches[] = {
+	{
+		.ckd_cache = &ll_thread_kmem,
+		.ckd_name  = "ll_thread_kmem",
+		.ckd_size  = sizeof(struct ll_thread_info),
+	},
 	{
 		.ckd_cache = &vvp_lock_kmem,
 		.ckd_name  = "vvp_lock_kmem",
@@ -79,11 +84,6 @@ static struct lu_kmem_descr vvp_caches[] = {
 		.ckd_size  = sizeof(struct vvp_req),
 	},
         {
-                .ckd_cache = &vvp_thread_kmem,
-                .ckd_name  = "vvp_thread_kmem",
-                .ckd_size  = sizeof (struct vvp_thread_info),
-        },
-        {
                 .ckd_cache = &vvp_session_kmem,
                 .ckd_name  = "vvp_session_kmem",
                 .ckd_size  = sizeof (struct vvp_session)
@@ -93,23 +93,31 @@ static struct lu_kmem_descr vvp_caches[] = {
         }
 };
 
-static void *vvp_key_init(const struct lu_context *ctx,
-			  struct lu_context_key *key)
+static void *ll_thread_key_init(const struct lu_context *ctx,
+				struct lu_context_key *key)
 {
-	struct vvp_thread_info *info;
+	struct ll_thread_info *lti;
 
-	OBD_SLAB_ALLOC_PTR_GFP(info, vvp_thread_kmem, GFP_NOFS);
-	if (info == NULL)
-		info = ERR_PTR(-ENOMEM);
-	return info;
+	OBD_SLAB_ALLOC_PTR_GFP(lti, ll_thread_kmem, GFP_NOFS);
+	if (lti == NULL)
+		lti = ERR_PTR(-ENOMEM);
+
+	return lti;
 }
 
-static void vvp_key_fini(const struct lu_context *ctx,
-                         struct lu_context_key *key, void *data)
+static void ll_thread_key_fini(const struct lu_context *ctx,
+			       struct lu_context_key *key, void *data)
 {
-        struct vvp_thread_info *info = data;
-        OBD_SLAB_FREE_PTR(info, vvp_thread_kmem);
+	struct ll_thread_info *lti = data;
+
+	OBD_SLAB_FREE_PTR(lti, ll_thread_kmem);
 }
+
+struct lu_context_key ll_thread_key = {
+	.lct_tags = LCT_CL_THREAD,
+	.lct_init = ll_thread_key_init,
+	.lct_fini = ll_thread_key_fini,
+};
 
 static void *vvp_session_key_init(const struct lu_context *ctx,
 				  struct lu_context_key *key)
@@ -130,12 +138,6 @@ static void vvp_session_key_fini(const struct lu_context *ctx,
 }
 
 
-struct lu_context_key vvp_key = {
-        .lct_tags = LCT_CL_THREAD,
-        .lct_init = vvp_key_init,
-        .lct_fini = vvp_key_fini
-};
-
 struct lu_context_key vvp_session_key = {
         .lct_tags = LCT_SESSION,
         .lct_init = vvp_session_key_init,
@@ -143,7 +145,7 @@ struct lu_context_key vvp_session_key = {
 };
 
 /* type constructor/destructor: vvp_type_{init,fini,start,stop}(). */
-LU_TYPE_INIT_FINI(vvp, &ccc_key, &vvp_key, &vvp_session_key);
+LU_TYPE_INIT_FINI(vvp, &ccc_key, &ll_thread_key, &vvp_session_key);
 
 static const struct lu_device_operations vvp_lu_ops = {
         .ldo_object_alloc      = vvp_object_alloc
