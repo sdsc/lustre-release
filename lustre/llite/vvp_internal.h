@@ -227,7 +227,7 @@ static inline struct vvp_io *vvp_env_io(const struct lu_env *env)
 }
 
 /**
- * ccc-private object state.
+ * VPP-private object state.
  */
 struct vvp_object {
 	struct cl_object_header vob_header;
@@ -311,10 +311,6 @@ struct vvp_req {
 	struct cl_req_slice vrq_cl;
 };
 
-void ccc_umount(const struct lu_env *env, struct cl_device *dev);
-int ccc_global_init(struct lu_device_type *device_type);
-void ccc_global_fini(struct lu_device_type *device_type);
-
 static inline struct lu_device *vvp2lu_dev(struct vvp_device *vdv)
 {
 	return &vdv->vdv_cl.cd_lu_dev;
@@ -357,6 +353,9 @@ static inline struct vvp_lock *cl2vvp_lock(const struct cl_lock_slice *slice)
 {
 	return container_of(slice, struct vvp_lock, vlk_cl);
 }
+
+extern struct lu_env *cl_inode_fini_env;
+extern int cl_inode_fini_refcheck;
 
 int cl_setattr_ost(struct cl_object *obj, const struct iattr *attr,
 		   unsigned int attr_flags, struct obd_capa *capa);
