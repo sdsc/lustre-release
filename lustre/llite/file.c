@@ -270,9 +270,9 @@ static int ll_md_close(struct obd_export *md_exp, struct inode *inode,
         int rc = 0;
         ENTRY;
 
-        /* clear group lock, if present */
-        if (unlikely(fd->fd_flags & LL_FILE_GROUP_LOCKED))
-                ll_put_grouplock(inode, file, fd->fd_grouplock.cg_gid);
+	/* clear group lock, if present */
+	if (unlikely(fd->fd_flags & LL_FILE_GROUP_LOCKED))
+		ll_put_grouplock(inode, file, fd->fd_grouplock.lg_gid);
 
 	if (fd->fd_lease_och != NULL) {
 		bool lease_broken;
@@ -1546,7 +1546,7 @@ ll_get_grouplock(struct inode *inode, struct file *file, unsigned long arg)
 {
         struct ll_inode_info   *lli = ll_i2info(inode);
         struct ll_file_data    *fd = LUSTRE_FPRIVATE(file);
-        struct ccc_grouplock    grouplock;
+	struct ll_grouplock	grouplock;
         int                     rc;
         ENTRY;
 
@@ -1561,11 +1561,11 @@ ll_get_grouplock(struct inode *inode, struct file *file, unsigned long arg)
 	spin_lock(&lli->lli_lock);
 	if (fd->fd_flags & LL_FILE_GROUP_LOCKED) {
 		CWARN("group lock already existed with gid %lu\n",
-		      fd->fd_grouplock.cg_gid);
+		      fd->fd_grouplock.lg_gid);
 		spin_unlock(&lli->lli_lock);
 		RETURN(-EINVAL);
 	}
-	LASSERT(fd->fd_grouplock.cg_lock == NULL);
+	LASSERT(fd->fd_grouplock.lg_lock == NULL);
 	spin_unlock(&lli->lli_lock);
 
 	rc = cl_get_grouplock(ll_i2info(inode)->lli_clob,
@@ -1594,7 +1594,7 @@ static int ll_put_grouplock(struct inode *inode, struct file *file,
 {
 	struct ll_inode_info   *lli = ll_i2info(inode);
 	struct ll_file_data    *fd = LUSTRE_FPRIVATE(file);
-	struct ccc_grouplock    grouplock;
+	struct ll_grouplock	grouplock;
 	ENTRY;
 
 	spin_lock(&lli->lli_lock);
@@ -1603,11 +1603,12 @@ static int ll_put_grouplock(struct inode *inode, struct file *file,
                 CWARN("no group lock held\n");
                 RETURN(-EINVAL);
         }
-        LASSERT(fd->fd_grouplock.cg_lock != NULL);
 
-        if (fd->fd_grouplock.cg_gid != arg) {
-                CWARN("group lock %lu doesn't match current id %lu\n",
-                       arg, fd->fd_grouplock.cg_gid);
+	LASSERT(fd->fd_grouplock.lg_lock != NULL);
+
+	if (fd->fd_grouplock.lg_gid != arg) {
+		CWARN("group lock %lu doesn't match current id %lu\n",
+		      arg, fd->fd_grouplock.lg_gid);
 		spin_unlock(&lli->lli_lock);
 		RETURN(-EINVAL);
 	}
