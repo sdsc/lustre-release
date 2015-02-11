@@ -1559,6 +1559,7 @@ int tgt_brw_lock(struct ldlm_namespace *ns, struct ldlm_res_id *res_id,
 			       nb[nrbufs - 1].rnb_len - 1,
 			       lh, mode, &flags));
 }
+EXPORT_SYMBOL(tgt_brw_lock);
 
 void tgt_brw_unlock(struct obd_ioobj *obj, struct niobuf_remote *niob,
 		    struct lustre_handle *lh, int mode)
@@ -1574,6 +1575,7 @@ void tgt_brw_unlock(struct obd_ioobj *obj, struct niobuf_remote *niob,
 		tgt_extent_unlock(lh, mode);
 	EXIT;
 }
+EXPORT_SYMBOL(tgt_brw_unlock);
 
 static __u32 tgt_checksum_bulk(struct lu_target *tgt,
 			       struct ptlrpc_bulk_desc *desc, int opc,
