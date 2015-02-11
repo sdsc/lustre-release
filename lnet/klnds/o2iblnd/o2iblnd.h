@@ -737,6 +737,8 @@ typedef struct kib_peer
 	lnet_nid_t		ibp_nid;
 	/* LNet interface */
 	lnet_ni_t		*ibp_ni;
+	/* CPT this peer is bound to */
+	int			ibp_cpt;
 	/* # users */
 	atomic_t		ibp_refcount;
 	/* all active connections */
