@@ -322,7 +322,7 @@ struct inode;
 void obdo_from_la(struct obdo *dst, const struct lu_attr *la, __u64 valid);
 void la_from_obdo(struct lu_attr *la, const struct obdo *dst, u32 valid);
 
-void obdo_cpy_md(struct obdo *dst, const struct obdo *src, u32 valid);
+void obdo_cpy_md(struct obdo *dst, const struct obdo *src, u64 valid);
 void obdo_to_ioobj(const struct obdo *oa, struct obd_ioobj *ioobj);
 
 #define OBT(dev)        (dev)->obd_type
