@@ -267,9 +267,7 @@ static int osd_bufs_put(const struct lu_env *env, struct dt_object *dt,
 	LASSERT(obj->oo_db);
 
 	for (i = 0; i < npages; i++) {
-		if (lnb[i].lnb_page == NULL)
-			continue;
-		if (lnb[i].lnb_page->mapping == (void *)obj) {
+		if (lnb[i].lnb_page && lnb[i].lnb_page->mapping == (void *)obj) {
 			/* this is anonymous page allocated for copy-write */
 			lnb[i].lnb_page->mapping = NULL;
 			__free_page(lnb[i].lnb_page);
@@ -327,10 +325,7 @@ static int osd_bufs_get_read(const struct lu_env *env, struct osd_object *obj,
 	struct osd_device *osd = osd_obj2dev(obj);
 	int                rc, i, numbufs, npages = 0;
 	dmu_buf_t	 **dbp;
-	unsigned long	   start;
 	ENTRY;
-
-	start = cfs_time_current();
 
 	/* grab buffers for read:
 	 * OSD API let us to grab buffers first, then initiate IO(s)
@@ -340,7 +335,7 @@ static int osd_bufs_get_read(const struct lu_env *env, struct osd_object *obj,
 	 * can get own replacement for dmu_buf_hold_array_by_bonus().
 	 */
 	while (len > 0) {
-		rc = -dmu_buf_hold_array_by_bonus(obj->oo_db, off, len, TRUE,
+		rc = -dmu_buf_hold_array_by_bonus(obj->oo_db, off, len, FALSE,
 						  osd_zerocopy_tag, &numbufs,
 						  &dbp);
 		if (unlikely(rc))
@@ -368,10 +363,9 @@ static int osd_bufs_get_read(const struct lu_env *env, struct osd_object *obj,
 
 				lnb->lnb_rc = 0;
 				lnb->lnb_file_offset = off;
-				lnb->lnb_page_offset = bufoff & ~CFS_PAGE_MASK;
+				lnb->lnb_page_offset = bufoff;
 				lnb->lnb_len = thispage;
-				lnb->lnb_page = kmem_to_page(dbp[i]->db_data +
-							     bufoff);
+
 				/* mark just a single slot: we need this
 				 * reference to dbuf to be release once */
 				lnb->lnb_data = dbf;
@@ -392,9 +386,6 @@ static int osd_bufs_get_read(const struct lu_env *env, struct osd_object *obj,
 
 		dmu_buf_rele_array(dbp, numbufs, osd_zerocopy_tag);
 	}
-
-	record_start_io(osd, READ, npages, 0);
-	record_end_io(osd, READ, cfs_time_current() - start, npages * PAGE_SIZE);
 
 	RETURN(npages);
 
@@ -807,20 +798,61 @@ static int osd_read_prep(const struct lu_env *env, struct dt_object *dt,
 			struct niobuf_local *lnb, int npages)
 {
 	struct osd_object *obj  = osd_dt_obj(dt);
-	int                i;
-	unsigned long	   size = 0;
+	struct osd_device *osd = osd_obj2dev(obj);
+	unsigned long	   start, ptr, flags, size = 0;
+	zio_t		  *zio = NULL;
+	dmu_buf_t	  *dbp = NULL;
 	loff_t		   eof;
+	int                i, rc;
 
 	LASSERT(dt_object_exists(dt));
 	LASSERT(obj->oo_db);
+
+	start = cfs_time_current();
+	record_start_io(osd, READ, npages, 0);
 
 	read_lock(&obj->oo_attr_lock);
 	eof = obj->oo_attr.la_size;
 	read_unlock(&obj->oo_attr_lock);
 
+	flags = DB_RF_CANFAIL | DB_RF_NEVERWAIT | DB_RF_HAVESTRUCT | DB_RF_NOPREFETCH;
+	zio = zio_root(osd->od_os->os_spa, NULL, NULL, ZIO_FLAG_CANFAIL);
+	LASSERT(zio != NULL);
+
 	for (i = 0; i < npages; i++) {
 		if (unlikely(lnb[i].lnb_rc < 0))
 			continue;
+
+		ptr = ((unsigned long)lnb[i].lnb_data) & ~1UL;
+		if (ptr == 0)
+			continue;
+
+		dbuf_read((void *)ptr, zio, flags);
+	}
+
+	rc = -zio_wait(zio);
+	LASSERT(rc == 0);
+
+	for (i = 0; i < npages; i++) {
+		if (unlikely(lnb[i].lnb_rc < 0))
+			continue;
+
+		ptr = ((unsigned long)lnb[i].lnb_data) & ~1UL;
+		if (ptr != 0) {
+			dmu_buf_impl_t *db = (dmu_buf_impl_t *)ptr;
+			mutex_enter(&db->db_mtx);
+			while (db->db_state == DB_READ ||
+			    db->db_state == DB_FILL)
+				cv_wait(&db->db_changed, &db->db_mtx);
+			if (db->db_state == DB_UNCACHED) {
+				rc = -EIO;
+				LBUG();
+			}
+			mutex_exit(&db->db_mtx);
+			dbp = (dmu_buf_t *)db;
+		}
+		lnb[i].lnb_page = kmem_to_page(dbp->db_data + lnb[i].lnb_page_offset);
+		lnb[i].lnb_page_offset = lnb[i].lnb_page_offset & ~CFS_PAGE_MASK;
 
 		lnb[i].lnb_rc = lnb[i].lnb_len;
 		size += lnb[i].lnb_rc;
@@ -836,6 +868,8 @@ static int osd_read_prep(const struct lu_env *env, struct dt_object *dt,
 			break;
 		}
 	}
+
+	record_end_io(osd, READ, cfs_time_current() - start, npages * PAGE_SIZE);
 
 	return 0;
 }
