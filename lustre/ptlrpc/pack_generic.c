@@ -2613,3 +2613,13 @@ void lustre_swab_orphan_ent(struct lu_orphan_ent *ent)
 	__swab32s(&ent->loe_rec.lor_gid);
 }
 EXPORT_SYMBOL(lustre_swab_orphan_ent);
+
+
+void lustre_swab_ladvise(struct lu_ladvise *ladvise)
+{
+	__swab64s(&ladvise->lla_start);
+	__swab64s(&ladvise->lla_end);
+	__swab64s(&ladvise->lla_advice);
+	CLASSERT(offsetof(typeof(*ladvise), lla_padding) != 0);
+}
+EXPORT_SYMBOL(lustre_swab_ladvise);
