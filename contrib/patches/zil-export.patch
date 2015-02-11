@@ -1,0 +1,25 @@
+From c9d470044c1614514c647bf4a27674ce25de4b82 Mon Sep 17 00:00:00 2001
+From: Alex Zhuravlev <alexey.zhuravlev@intel.com>
+Date: Wed, 11 Feb 2015 17:42:20 +0300
+Subject: [PATCH] export zio_root() and zio_wait()
+
+---
+ module/zfs/zio.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/module/zfs/zio.c b/module/zfs/zio.c
+index 332d50c..521e532 100644
+--- a/module/zfs/zio.c
++++ b/module/zfs/zio.c
+@@ -3333,6 +3333,8 @@ EXPORT_SYMBOL(zio_handle_fault_injection);
+ EXPORT_SYMBOL(zio_handle_device_injection);
+ EXPORT_SYMBOL(zio_handle_label_injection);
+ EXPORT_SYMBOL(zio_type_name);
++EXPORT_SYMBOL(zio_wait);
++EXPORT_SYMBOL(zio_root);
+ 
+ module_param(zio_bulk_flags, int, 0644);
+ MODULE_PARM_DESC(zio_bulk_flags, "Additional flags to pass to bulk buffers");
+-- 
+1.9.3 (Apple Git-50)
+
