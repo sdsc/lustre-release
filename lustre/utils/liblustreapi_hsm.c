@@ -81,7 +81,7 @@ struct hsm_copyaction_private {
 	__s32					 data_fd;
 	const struct hsm_copytool_private	*ct_priv;
 	struct hsm_copy				 copy;
-	struct stat				 stat;
+	lstat_t					 stat;
 };
 
 #include <libcfs/libcfs.h>
@@ -962,16 +962,18 @@ static int ct_open_by_fid(const struct hsm_copytool_private *ct,
 	return fd < 0 ? -errno : fd;
 }
 
-static int ct_stat_by_fid(const struct hsm_copytool_private *ct,
+static int ct_mdc_getattr(const struct hsm_copytool_private *ct,
 			  const struct lu_fid *fid,
-			  struct stat *buf)
+			  lstat_t *st)
 {
-	char fid_name[FID_NOBRACE_LEN + 1];
 	int rc;
 
-	snprintf(fid_name, sizeof(fid_name), DFID_NOBRACE, PFID(fid));
+	CLASSERT(FID_NOBRACE_LEN + 1 <= sizeof(*st));
 
-	rc = fstatat(ct->open_by_fid_fd, fid_name, buf, 0);
+	snprintf((void *)st, sizeof(*st), DFID_NOBRACE, PFID(fid));
+
+	rc = ioctl(ct->open_by_fid_fd, IOC_MDC_GETATTR_NAME, st);
+
 	return rc ? -errno : 0;
 }
 
@@ -1063,7 +1065,7 @@ int llapi_hsm_action_begin(struct hsm_copyaction_private **phcp,
 		goto ok_out;
 
 	if (hai->hai_action == HSMA_RESTORE) {
-		rc = ct_stat_by_fid(hcp->ct_priv, &hai->hai_fid, &hcp->stat);
+		rc = ct_mdc_getattr(hcp->ct_priv, &hai->hai_fid, &hcp->stat);
 		if (rc < 0)
 			goto err_out;
 

@@ -1314,6 +1314,55 @@ out_rmdir:
 		RETURN(-EPERM);
 	case IOC_OBD_STATFS:
 		RETURN(ll_obd_statfs(inode, (void __user *)arg));
+	case IOC_MDC_GETATTR_NAME: {
+		struct ptlrpc_request *req = NULL;
+		struct md_op_data *op_data;
+		struct mdt_body *body;
+		char *name;
+		lstat_t st;
+
+		name = ll_getname((const char __user *)arg);
+		if (IS_ERR(name))
+			RETURN(PTR_ERR(name));
+
+		op_data = ll_prep_md_op_data(NULL, inode, NULL, name,
+					     strlen(name), 0, LUSTRE_OPC_ANY,
+					     NULL);
+		if (IS_ERR(op_data))
+			GOTO(out, rc = PTR_ERR(op_data));
+
+		op_data->op_valid = OBD_MD_FLGETATTR;
+		rc = md_getattr_name(sbi->ll_md_exp, op_data, &req);
+		ll_finish_md_op_data(op_data);
+		if (rc < 0)
+			GOTO(out, rc);
+
+		body = req_capsule_server_get(&req->rq_pill, &RMF_MDT_BODY);
+		if (body == NULL)
+			GOTO(out, rc = -EPROTO);
+
+		memset(&st, 0, sizeof(st));
+		st.st_dev = inode->i_sb->s_dev;
+		st.st_ino = cl_fid_build_ino(&body->mbo_fid1, 0);
+		st.st_mode = body->mbo_mode;
+		st.st_nlink = body->mbo_nlink;
+		st.st_uid = body->mbo_uid;
+		st.st_gid = body->mbo_gid;
+		st.st_rdev = body->mbo_rdev;
+		st.st_size = body->mbo_size;
+		st.st_blocks = body->mbo_blocks;
+		st.st_atime = body->mbo_atime;
+		st.st_mtime = body->mbo_mtime;
+		st.st_ctime = body->mbo_ctime;
+
+		if (copy_to_user((lstat_t __user *)arg, &st, sizeof(st)))
+			GOTO(out, rc = -EFAULT);
+out:
+		ptlrpc_req_finished(req);
+		ll_putname(name);
+
+		return rc;
+	}
         case LL_IOC_LOV_GETSTRIPE:
         case LL_IOC_MDC_GETINFO:
         case IOC_MDC_GETFILEINFO:

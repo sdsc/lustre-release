@@ -294,6 +294,7 @@ enum ll_lease_type {
 #define IOC_MDC_GETFILESTRIPE   _IOWR(IOC_MDC_TYPE, 21, struct lov_user_md *)
 #define IOC_MDC_GETFILEINFO     _IOWR(IOC_MDC_TYPE, 22, struct lov_user_mds_data *)
 #define LL_IOC_MDC_GETINFO      _IOWR(IOC_MDC_TYPE, 23, struct lov_user_mds_data *)
+#define IOC_MDC_GETATTR_NAME	_IOWR(IOC_MDC_TYPE, 25, lstat_t *)
 
 #define MAX_OBD_NAME 128 /* If this changes, a NEW ioctl must be added */
 
