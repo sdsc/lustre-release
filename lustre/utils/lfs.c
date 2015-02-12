@@ -815,11 +815,36 @@ static int lfs_setstripe(int argc, char **argv)
 		return CMD_HELP;
 	}
 
-	if (pool_name_arg && strlen(pool_name_arg) > LOV_MAXPOOLNAME) {
-		fprintf(stderr,
-			"error: %s: pool name '%s' is too long (max is %d characters)\n",
-			argv[0], pool_name_arg, LOV_MAXPOOLNAME);
-		return CMD_HELP;
+	if (pool_name_arg != NULL) {
+		char	*ptr;
+		int	len;
+
+		len = strlen(pool_name_arg);
+		ptr = strchr(pool_name_arg, '.');
+		if (ptr != NULL) {
+			len = ptr - pool_name_arg;
+			if (len == 0) {
+				fprintf(stderr, "error: %s: fsname is empty "
+					"in pool name '%s'\n",
+					argv[0], pool_name_arg);
+				return CMD_HELP;
+			}
+
+			len = strlen(ptr + 1);
+			if (len == 0) {
+				fprintf(stderr, "error: %s: poolname '%s' is "
+					"empty\n",
+					argv[0], pool_name_arg);
+				return CMD_HELP;
+			}
+		}
+
+		if (len > LOV_MAXPOOLNAME) {
+			fprintf(stderr, "error: %s: pool name '%s' is too long "
+				"(max is %d characters)\n",
+				argv[0], pool_name_arg, LOV_MAXPOOLNAME);
+			return CMD_HELP;
+		}
 	}
 
 	/* get the stripe size */
