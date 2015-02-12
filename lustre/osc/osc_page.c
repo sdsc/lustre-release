@@ -521,6 +521,7 @@ static int osc_cache_too_much(struct client_obd *cli)
 	long pages = atomic_long_read(&cli->cl_lru_in_list);
 	unsigned long budget;
 
+	LASSERT(cache != NULL);
 	budget = cache->ccc_lru_max / atomic_read(&cache->ccc_users);
 
 	/* if it's going to run out LRU slots, we should free some, but not

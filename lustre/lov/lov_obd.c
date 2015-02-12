@@ -951,6 +951,10 @@ static int lov_cleanup(struct obd_device *obd)
                          lov->lov_tgt_size);
                 lov->lov_tgt_size = 0;
         }
+
+	if (lov->lov_cache != NULL)
+		cl_cache_decref(&lov->lov_cache);
+
         RETURN(0);
 }
 
@@ -1919,6 +1923,7 @@ static int lov_set_info_async(const struct lu_env *env, struct obd_export *exp,
 		LASSERT(lov->lov_cache == NULL);
 		lov->lov_cache = val;
 		do_inactive = 1;
+		cl_cache_incref(lov->lov_cache);
 	}
 
 	for (i = 0; i < count; i++) {
