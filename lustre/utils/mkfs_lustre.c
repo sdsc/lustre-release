@@ -436,11 +436,16 @@ int parse_opts(int argc, char *const argv[], struct mkfs_opts *mop,
                                         "1-8 chars\n", progname);
                                 return 1;
                         }
-                        if ((tmp = strpbrk(optarg, "/:"))) {
-                                fprintf(stderr, "%s: char '%c' not allowed in "
-                                        "filesystem name\n", progname, *tmp);
-                                return 1;
-                        }
+
+			for (tmp = optarg; *tmp != '\0'; ++tmp) {
+				if (isalnum(*tmp) || *tmp == '-' || *tmp == '_')
+					continue;
+
+				fprintf(stderr, "%s: char '%c' not allowed in "
+					"filesystem name\n", progname, *tmp);
+				return 1;
+			}
+
                         strscpy(mop->mo_ldd.ldd_fsname, optarg,
                                 sizeof(mop->mo_ldd.ldd_fsname));
                         break;
