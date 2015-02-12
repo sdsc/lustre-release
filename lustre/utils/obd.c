@@ -74,6 +74,7 @@
 #include <lnet/lnetctl.h>
 #include <libcfs/libcfsutil.h>
 #include <lustre/lustreapi.h>
+#include <lustre_param.h>
 
 #define MAX_STRING_SIZE 128
 #define DEVICES_LIST "/proc/fs/lustre/devices"
@@ -3997,46 +3998,56 @@ static int get_array_idx(char *rule, char *format, int **array)
 
 static int extract_fsname_poolname(char *arg, char *fsname, char *poolname)
 {
-        char *ptr;
-        int len;
-        int rc;
+	char *ptr;
+	char *tmp;
+	int rc;
 
-        strcpy(fsname, arg);
-        ptr = strchr(fsname, '.');
-        if (ptr == NULL) {
-                fprintf(stderr, ". is missing in %s\n", fsname);
-                rc = -EINVAL;
-                goto err;
-        }
+	strncpy(fsname, arg, PATH_MAX + 1);
+	ptr = strchr(fsname, '.');
+	if (ptr == NULL) {
+		fprintf(stderr, ". is missing in %s\n", fsname);
+		rc = -EINVAL;
+		goto err;
+	}
 
-        len = ptr - fsname;
-        if (len == 0) {
-                fprintf(stderr, "fsname is empty\n");
-                rc = -EINVAL;
-                goto err;
-        }
+	if ((ptr - fsname) == 0) {
+		fprintf(stderr, "fsname is empty\n");
+		rc = -EINVAL;
+		goto err;
+	}
 
-        len = strlen(ptr + 1);
-        if (len == 0) {
-                fprintf(stderr, "poolname is empty\n");
-                rc = -EINVAL;
-                goto err;
-        }
-        if (len > LOV_MAXPOOLNAME) {
-                fprintf(stderr,
-                        "poolname %s is too long (length is %d max is %d)\n",
-                        ptr + 1, len, LOV_MAXPOOLNAME);
-                rc = -ENAMETOOLONG;
-                goto err;
-        }
-        strncpy(poolname, ptr + 1, LOV_MAXPOOLNAME);
-        poolname[LOV_MAXPOOLNAME] = '\0';
-        *ptr = '\0';
-        return 0;
+	*ptr = '\0';
+	++ptr;
+	if (*ptr == '\0') {
+		fprintf(stderr, "poolname is empty\n");
+		rc = -EINVAL;
+		goto err;
+	}
+
+	if (strlen(ptr) > LOV_MAXPOOLNAME) {
+		fprintf(stderr,
+			"poolname %s is too long (max is %d)\n",
+			ptr, LOV_MAXPOOLNAME);
+		rc = -ENAMETOOLONG;
+		goto err;
+	}
+
+	for (tmp = ptr; *tmp != '\0'; ++tmp) {
+		if (is_poolname_allowed(*tmp))
+			continue;
+		fprintf(stderr, "char '%c' not allowed in pool name '%s'\n",
+			*tmp, ptr);
+		rc = -EINVAL;
+		goto err;
+	}
+
+	strncpy(poolname, ptr, LOV_MAXPOOLNAME);
+	poolname[LOV_MAXPOOLNAME] = '\0';
+	return 0;
 
 err:
-        fprintf(stderr, "argument %s must be <fsname>.<poolname>\n", arg);
-        return rc;
+	fprintf(stderr, "argument %s must be <fsname>.<poolname>\n", arg);
+	return rc;
 }
 
 int jt_pool_cmd(int argc, char **argv)

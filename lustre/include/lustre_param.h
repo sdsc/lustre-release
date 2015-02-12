@@ -123,4 +123,14 @@ int do_lcfg(char *cfgname, lnet_nid_t nid, int cmd,
 
 /** @} param */
 
+static inline bool is_fsname_allowed(const char c)
+{
+	return isalnum(c) || c == '-' || c == '_';
+}
+
+static inline bool is_poolname_allowed(const char c)
+{
+	return is_fsname_allowed(c);
+}
+
 #endif /* _LUSTRE_PARAM_H */
