@@ -2020,8 +2020,7 @@ LNetCtl(unsigned int cmd, void *arg)
 		if (peer_info->pr_hdr.ioc_len < sizeof(*peer_info))
 			return -EINVAL;
 
-		return lnet_get_peer_info(
-		   peer_info->pr_count,
+		rc = lnet_get_peer_info(peer_info->pr_count,
 		   &peer_info->pr_nid,
 		   peer_info->pr_lnd_u.pr_peer_credits.cr_aliveness,
 		   &peer_info->pr_lnd_u.pr_peer_credits.cr_ncpt,
@@ -2031,6 +2030,32 @@ LNetCtl(unsigned int cmd, void *arg)
 		   &peer_info->pr_lnd_u.pr_peer_credits.cr_peer_rtr_credits,
 		   &peer_info->pr_lnd_u.pr_peer_credits.cr_peer_min_rtr_credits,
 		   &peer_info->pr_lnd_u.pr_peer_credits.cr_peer_tx_qnob);
+
+		if (rc != 0 || peer_info->pr_detail == 0)
+			return rc;
+
+		ni = lnet_net2ni(LNET_NIDNET(peer_info->pr_nid));
+		if (ni == NULL || ni->ni_lnd->lnd_ctl == NULL)
+			peer_info->pr_detail = 0;
+		else
+			rc = ni->ni_lnd->lnd_ctl(ni, cmd, peer_info);
+
+		if (ni != NULL)
+			lnet_ni_decref(ni);
+		return rc;
+	}
+
+	case IOC_LIBCFS_GET_CONN_INFO: {
+		struct lnet_ioctl_conn *conn_info = arg;
+
+		rc = 0;
+		ni = lnet_net2ni(LNET_NIDNET(conn_info->conn_nid));
+		if (ni != NULL) {
+			if (ni->ni_lnd->lnd_ctl != NULL)
+				rc = ni->ni_lnd->lnd_ctl(ni, cmd, conn_info);
+			lnet_ni_decref(ni);
+		}
+		return rc;
 	}
 
 	case IOC_LIBCFS_NOTIFY_ROUTER:
