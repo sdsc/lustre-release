@@ -123,4 +123,55 @@ int do_lcfg(char *cfgname, lnet_nid_t nid, int cmd,
 
 /** @} param */
 
+/**
+ * Check whether the fsname is valid.
+ *
+ * \param fsname [in]	the fsname to be checked
+ * \param minlen [in]	the minimum length of the fsname
+ * \param maxlen [in]	the maximum length of the fsname
+ *
+ * \retval 0	the fsname is valid
+ * \retval >0	the invalid charater in the fsname
+ * \retval -1	the fsname is too short
+ * \retval -2	the fsname is too long
+ */
+static inline int is_fsname_valid(const char *fsname, const int minlen,
+				  const int maxlen)
+{
+	const char *tmp;
+
+	if (strlen(fsname) < minlen)
+		return -1;
+
+	if (strlen(fsname) > maxlen)
+		return -2;
+
+	for (tmp = fsname; *tmp != '\0'; ++tmp) {
+		if (isalnum(*tmp) || *tmp == '-' || *tmp == '_')
+			continue;
+		else
+			break;
+	}
+
+	return *tmp == '\0' ? 0 : *tmp;
+}
+
+/**
+ * Check whether the poolname is valid.
+ *
+ * \param poolname [in]	the poolname to be checked
+ * \param minlen [in]	the minimum length of the poolname
+ * \param maxlen [in]	the maximum length of the poolname
+ *
+ * \retval 0	the poolname is valid
+ * \retval >0	the invalid charater in the poolname
+ * \retval -1	the poolname is too short
+ * \retval -2	the poolname is too long
+ */
+static inline int is_poolname_valid(const char *poolname, const int minlen,
+				    const int maxlen)
+{
+	return is_fsname_valid(poolname, minlen, maxlen);
+}
+
 #endif /* _LUSTRE_PARAM_H */
