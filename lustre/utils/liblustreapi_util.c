@@ -66,9 +66,9 @@ static __attribute__ ((constructor)) void liblustreapi_init(void)
 
 	fd = open("/dev/urandom", O_RDONLY | O_NOFOLLOW);
 	if (fd >= 0) {
-		unsigned int rnumber;
+		unsigned int rnumber, rc;
 
-		(void)read(fd, &rnumber, sizeof(rnumber));
+		rc = read(fd, &rnumber, sizeof(rnumber));
 		seed ^= rnumber;
 		close(fd);
 	}
