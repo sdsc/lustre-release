@@ -135,7 +135,8 @@ static struct dentry *mgs_fid2dentry(struct mgs_obd *mgs, struct ll_fid *fid)
 
         /* under ext3 this is neither supposed to return bad inodes
            nor NULL inodes. */
-        result = ll_lookup_one_len(fid_name, mgs->mgs_fid_de, strlen(fid_name));
+        result = ll_lookup_one_len(fid_name, mgs->mgs_fid_de,
+				   strlen(fid_name), 0);
         if (IS_ERR(result))
                 RETURN(result);
 
@@ -222,7 +223,7 @@ int mgs_fs_setup(struct obd_device *obd, struct vfsmount *mnt)
         /* Need the iopen dir for fid2dentry, required by
            LLOG_ORIGIN_HANDLE_READ_HEADER */
         dentry = ll_lookup_one_len("__iopen__", cfs_fs_pwd(current->fs),
-                                   strlen("__iopen__"));
+                                   strlen("__iopen__"), 1);
         if (IS_ERR(dentry)) {
                 rc = PTR_ERR(dentry);
                 CERROR("cannot lookup __iopen__ directory: rc = %d\n", rc);

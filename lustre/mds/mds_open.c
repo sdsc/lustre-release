@@ -590,7 +590,7 @@ static void reconstruct_open(struct mds_update_record *rec, int offset,
                         return;
                 }
 
-                dchild = mds_lookup(obd, rec->ur_name, parent, rec->ur_namelen - 1);
+                dchild = mds_lookup(obd, rec->ur_name, parent, rec->ur_namelen - 1, 1);
                 l_dput(parent);
                 if (IS_ERR(dchild)) {
                         rc = PTR_ERR(dchild);
@@ -883,7 +883,7 @@ static int mds_open_by_fid(struct ptlrpc_request *req, struct ll_fid *fid,
 
         ldlm_reply_set_disposition(rep, DISP_LOOKUP_EXECD);
         fidlen = ll_fid2str(fidname, fid->id, fid->generation);
-        dchild = mds_lookup(obd, fidname, mds->mds_pending_dir, fidlen);
+        dchild = mds_lookup(obd, fidname, mds->mds_pending_dir, fidlen, 1);
         if (IS_ERR(dchild)) {
                 rc = PTR_ERR(dchild);
                 CERROR("error looking up %s in PENDING: rc = %d\n",fidname, rc);

@@ -188,7 +188,7 @@ int mds_get_parents_children_locked(struct obd_device *obd,
 struct dentry *mds_lookup(struct obd_device *obd,
                           const char *fid_name,
                           struct dentry *dparent,
-                          int fid_namelen);
+                          int fid_namelen, int locking);
 
 void mds_shrink_body_reply(struct ptlrpc_request *req, int req_mdoff,
                            int reply_mdoff);

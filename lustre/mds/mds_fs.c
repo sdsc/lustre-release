@@ -772,7 +772,7 @@ int mds_fs_setup(struct obd_device *obd, struct vfsmount *mnt)
         dput(dentry);
 
         dentry = ll_lookup_one_len("__iopen__", cfs_fs_pwd(current->fs),
-                                   strlen("__iopen__"));
+                                   strlen("__iopen__"), 1);
         if (IS_ERR(dentry)) {
                 rc = PTR_ERR(dentry);
                 CERROR("cannot lookup __iopen__ directory: rc = %d\n", rc);
@@ -977,7 +977,8 @@ int mds_obd_create(struct obd_export *exp, struct obdo *oa,
         push_ctxt(saved, &exp->exp_obd->obd_lvfs_ctxt, &ucred);
 
         sprintf(fidname, "%u.%u", tmpname, current->pid);
-        dchild = ll_lookup_one_len(fidname, mds->mds_objects_dir, strlen(fidname));
+        dchild = ll_lookup_one_len(fidname, mds->mds_objects_dir,
+				   strlen(fidname), 1);
         if (IS_ERR(dchild)) {
                 CERROR("getting neg dentry for obj: %u\n", tmpname);
                 GOTO(out_pop, rc = PTR_ERR(dchild));

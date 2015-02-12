@@ -264,7 +264,7 @@ struct dentry *simple_mknod(struct dentry *dir, char *name, int mode, int fix)
         ASSERT_KERNEL_CTXT("kernel doing mknod outside kernel context\n");
         CDEBUG(D_INODE, "creating file %.*s\n", (int)strlen(name), name);
 
-        dchild = ll_lookup_one_len(name, dir, strlen(name));
+        dchild = ll_lookup_one_len(name, dir, strlen(name), 1);
         if (IS_ERR(dchild))
                 GOTO(out_up, dchild);
 
@@ -309,7 +309,7 @@ struct dentry *simple_mkdir(struct dentry *dir, struct vfsmount *mnt,
 
         ASSERT_KERNEL_CTXT("kernel doing mkdir outside kernel context\n");
         CDEBUG(D_INODE, "creating directory %.*s\n", (int)strlen(name), name);
-        dchild = ll_lookup_one_len(name, dir, strlen(name));
+        dchild = ll_lookup_one_len(name, dir, strlen(name), 1);
         if (IS_ERR(dchild))
                 GOTO(out_up, dchild);
 
@@ -360,14 +360,14 @@ int lustre_rename(struct dentry *dir, struct vfsmount *mnt,
         CDEBUG(D_INODE, "renaming file %.*s to %.*s\n", 
                (int)strlen(oldname), oldname, (int)strlen(newname), newname);
 
-        dchild_old = ll_lookup_one_len(oldname, dir, strlen(oldname));
+        dchild_old = ll_lookup_one_len(oldname, dir, strlen(oldname), 1);
         if (IS_ERR(dchild_old))
                 RETURN(PTR_ERR(dchild_old));
 
         if (!dchild_old->d_inode) 
                 GOTO(put_old, err = -ENOENT);
 
-        dchild_new = ll_lookup_one_len(newname, dir, strlen(newname));
+        dchild_new = ll_lookup_one_len(newname, dir, strlen(newname), 1);
         if (IS_ERR(dchild_new))
                 GOTO(put_old, err = PTR_ERR(dchild_new));
 
@@ -519,7 +519,7 @@ int simple_truncate(struct dentry *dir, struct vfsmount *mnt,
 
         CDEBUG(D_INODE, "truncating file %.*s to %lld\n", (int)strlen(name),
                name, (long long)length);
-        dchild = ll_lookup_one_len(name, dir, strlen(name));
+        dchild = ll_lookup_one_len(name, dir, strlen(name), 1);
         if (IS_ERR(dchild))
                 GOTO(out, err = PTR_ERR(dchild));
 

@@ -87,14 +87,14 @@ struct mds_logcancel_data {
  *  if it exists by checking OBD_INCOMPAT_FID.
  */
 struct dentry *mds_lookup(struct obd_device *obd, const char *fid_name,
-                          struct dentry *dparent, int fid_namelen)
+                          struct dentry *dparent, int fid_namelen, int locking)
 {
         struct dentry *dchild;
         struct lr_server_data *lsd = obd->u.mds.mds_server_data;
         int rc;
         ENTRY;
 
-        dchild = ll_lookup_one_len(fid_name, dparent, fid_namelen);
+        dchild = ll_lookup_one_len(fid_name, dparent, fid_namelen, locking);
 
         if (!IS_ERR(dchild) && (dchild->d_inode != NULL) &&
             unlikely((lsd->lsd_feature_incompat & OBD_INCOMPAT_FID) ||
@@ -960,7 +960,7 @@ static void reconstruct_reint_create(struct mds_update_record *rec, int offset,
                 return;
         }
         child = mds_lookup(exp->exp_obd, rec->ur_name, parent,
-                           rec->ur_namelen - 1);
+                           rec->ur_namelen - 1, 1);
         if (IS_ERR(child)) {
                 rc = PTR_ERR(child);
                 LCONSOLE_WARN("Child "LPU64"/%u lookup error %d." 
@@ -1036,7 +1036,7 @@ static int mds_reint_create(struct mds_update_record *rec, int offset,
 
         ldlm_lock_dump_handle(D_OTHER, &lockh);
 
-        dchild = mds_lookup(obd, rec->ur_name, dparent, rec->ur_namelen - 1);
+        dchild = mds_lookup(obd, rec->ur_name, dparent, rec->ur_namelen - 1, 1);
         if (IS_ERR(dchild)) {
                 rc = PTR_ERR(dchild);
                 dchild = NULL;
@@ -1529,7 +1529,7 @@ static int mds_verify_child(struct obd_device *obd,
         if (name == NULL)
                 RETURN(0);
 
-        vchild = ll_lookup_one_len(name, dparent, namelen - 1);
+        vchild = ll_lookup_one_len(name, dparent, namelen - 1, 1);
         if (IS_ERR(vchild))
                 GOTO(cleanup, rc = PTR_ERR(vchild));
 
@@ -1648,7 +1648,7 @@ int mds_get_parent_child_locked(struct obd_device *obd, struct mds_obd *mds,
                 GOTO(retry_locks, rc);
 
         /* Step 2: Lookup child (without DLM lock, to get resource name) */
-        *dchildp = mds_lookup(obd, name, *dparentp, namelen - 1);
+        *dchildp = mds_lookup(obd, name, *dparentp, namelen - 1, 1);
         if (IS_ERR(*dchildp)) {
                 rc = PTR_ERR(*dchildp);
                 *dchildp = NULL;
@@ -2300,7 +2300,7 @@ static int mds_reint_link(struct mds_update_record *rec, int offset,
         }
 
         /* Step 3: Lookup the child */
-        dchild = mds_lookup(obd, rec->ur_name, de_tgt_dir, rec->ur_namelen-1);
+        dchild = mds_lookup(obd, rec->ur_name, de_tgt_dir, rec->ur_namelen-1, 1);
         if (IS_ERR(dchild)) {
                 rc = PTR_ERR(dchild);
                 dchild = NULL;
@@ -2467,7 +2467,7 @@ int mds_get_parents_children_locked(struct obd_device *obd,
         p2_res_id.name[1] = (*de_tgtdirp)->d_inode->i_generation;
 
         /* Step 3: Lookup the source child entry */
-        *de_oldp = mds_lookup(obd, old_name, *de_srcdirp, old_len - 1);
+        *de_oldp = mds_lookup(obd, old_name, *de_srcdirp, old_len - 1, 1);
         if (IS_ERR(*de_oldp)) {
                 rc = PTR_ERR(*de_oldp);
                 CDEBUG(D_INODE, "old child lookup error (%.*s): rc %d\n",
@@ -2491,7 +2491,7 @@ int mds_get_parents_children_locked(struct obd_device *obd,
         /* Step 4: Lookup the target child entry */
         if (!new_name)
                 GOTO(retry_locks, rc);
-        *de_newp = mds_lookup(obd, new_name, *de_tgtdirp, new_len - 1);
+        *de_newp = mds_lookup(obd, new_name, *de_tgtdirp, new_len - 1, 1);
         if (IS_ERR(*de_newp)) {
                 rc = PTR_ERR(*de_newp);
                 CDEBUG(D_DENTRY, "new child lookup error (%.*s): rc %d\n",

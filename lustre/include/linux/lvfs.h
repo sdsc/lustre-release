@@ -131,13 +131,15 @@ static inline void l_dput(struct dentry *de)
  */
 static inline struct dentry *ll_lookup_one_len(const char *fid_name,
                                                struct dentry *dparent,
-                                               int fid_namelen)
+                                               int fid_namelen, int locking)
 {
         struct dentry *dchild;
 
-        LOCK_INODE_MUTEX(dparent->d_inode);
+	if (locking)
+		LOCK_INODE_MUTEX(dparent->d_inode);
         dchild = lookup_one_len(fid_name, dparent, fid_namelen);
-        UNLOCK_INODE_MUTEX(dparent->d_inode);
+	if (locking)
+		UNLOCK_INODE_MUTEX(dparent->d_inode);
 
         if (IS_ERR(dchild) || dchild->d_inode == NULL)
                 return dchild;

@@ -236,7 +236,7 @@ struct dentry *mds_fid2dentry(struct mds_obd *mds, struct ll_fid *fid,
 
         /* under ext3 this is neither supposed to return bad inodes
            nor NULL inodes. */
-        result = mds_lookup(obd, fid_name, mds->mds_fid_de, strlen(fid_name));
+        result = mds_lookup(obd, fid_name, mds->mds_fid_de, strlen(fid_name), 0);
         if (IS_ERR(result))
                 RETURN(result);
 
