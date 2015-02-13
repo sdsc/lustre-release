@@ -86,8 +86,9 @@ L_IOCTL := $(top_builddir)/libcfs/libcfs/util/l_ioctl.c
 L_KERNELCOMM := $(top_builddir)/libcfs/libcfs/kernel_user_comm.c
 liblustreapitmp_a_SOURCES = liblustreapi.c liblustreapi_hsm.c \
 			    liblustreapi_nodemap.c lustreapi_internal.h \
-			    liblustreapi_json.c liblustreapi_layout.c \
+			    liblustreapi_layout.c \
 			    liblustreapi_lease.c liblustreapi_util.c \
+			    ccan/json/ccanjson.c ccan/json/json.h \
 			    $(L_IOCTL) $(L_KERNELCOMM) $(L_STRING)
 
 if UTILS
@@ -177,7 +178,7 @@ wiretest_SOURCES = wiretest.c
 endif # UTILS
 
 EXTRA_DIST = llstat llobdstat plot-llstat \
-	ccan/json/json.c ccan/json/json.h \
+	ccan/json/json.c \
 	ccan/json/_info ccan/json/LICENSE ccan/json/test/run-decode-encode.c \
 	ccan/json/test/test-strings ccan/json/test/test-strings-reencoded \
 	ccan/json/test/run-construction.c ccan/json/test/common.h \
