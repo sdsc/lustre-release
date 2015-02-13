@@ -84,9 +84,10 @@ llverdev_LDADD := $(EXT2FSLIB) $(BLKIDLIB)
 L_STRING := $(top_builddir)/libcfs/libcfs/util/string.c
 liblustreapitmp_a_SOURCES = liblustreapi.c liblustreapi_hsm.c \
 			    liblustreapi_nodemap.c lustreapi_internal.h \
-			    liblustreapi_json.c liblustreapi_layout.c \
+			    liblustreapi_layout.c \
 			    liblustreapi_lease.c liblustreapi_util.c \
-			    liblustreapi_kernelconn.c $(L_STRING)
+			    liblustreapi_kernelconn.c $(L_STRING) \
+			    ccan/json/ccanjson.c ccan/json/json.h
 
 if UTILS
 # build static and shared lib lustreapi
@@ -174,7 +175,7 @@ wiretest_SOURCES = wiretest.c
 endif # UTILS
 
 EXTRA_DIST = llstat llobdstat plot-llstat \
-	ccan/json/json.c ccan/json/json.h \
+	ccan/json/json.c \
 	ccan/json/_info ccan/json/LICENSE
 
 # NOTE: this should only be run on i386.
