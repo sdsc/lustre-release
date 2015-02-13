@@ -31,7 +31,8 @@ typedef enum {
 	JSON_NULL,
 	JSON_BOOL,
 	JSON_STRING,
-	JSON_NUMBER,
+	JSON_NUMBER_FLOAT,
+	JSON_NUMBER_INT,
 	JSON_ARRAY,
 	JSON_OBJECT,
 } JsonTag;
@@ -55,8 +56,11 @@ struct JsonNode
 		/* JSON_STRING */
 		char *string_; /* Must be valid UTF-8. */
 		
-		/* JSON_NUMBER */
-		double number_;
+		/* JSON_NUMBER_FLOAT */
+		double number_float;
+
+		/* JSON_NUMBER_INT */
+		long long number_int;
 		
 		/* JSON_ARRAY */
 		/* JSON_OBJECT */
@@ -93,7 +97,8 @@ JsonNode   *json_first_child    (const JsonNode *node);
 JsonNode *json_mknull(void);
 JsonNode *json_mkbool(bool b);
 JsonNode *json_mkstring(const char *s);
-JsonNode *json_mknumber(double n);
+JsonNode *json_mknumber_float(double n);
+JsonNode *json_mknumber_int(long long n);
 JsonNode *json_mkarray(void);
 JsonNode *json_mkobject(void);
 
