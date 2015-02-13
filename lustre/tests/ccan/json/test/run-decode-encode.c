@@ -2,8 +2,8 @@
 
 int main(void)
 {
-	const char *strings_file = "test/test-strings";
-	const char *strings_reencoded_file = "test/test-strings-reencoded";
+	const char *strings_file = "ccan/json/test/test-strings";
+	const char *strings_reencoded_file = "ccan/json/test/test-strings-reencoded";
 	FILE *f, *f2;
 	char buffer[1024], buffer2[1024];
 	
