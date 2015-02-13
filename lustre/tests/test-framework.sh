@@ -278,6 +278,10 @@ init_test_env() {
     export SAVE_PWD=${SAVE_PWD:-$LUSTRE/tests}
     export AT_MAX_PATH
 
+	export DMSETUP=${DMSETUP:-dmsetup}
+	export DM_DEV_PATH=${DM_DEV_PATH:-/dev/mapper}
+	export LOSETUP=${LOSETUP:-losetup}
+
     if [ "$ACCEPTOR_PORT" ]; then
         export PORT_OPT="--port $ACCEPTOR_PORT"
     fi
@@ -1161,6 +1165,246 @@ csa_add() {
 	echo -n "$opts"
 }
 
+#
+# Associate loop device with a given regular file.
+# Return the loop device.
+#
+setup_loop_dev() {
+	local facet=$1
+	local file=$2
+
+	do_facet $facet "loop_dev=\\\$($LOSETUP -j $file | cut -d : -f 1);
+if [[ -z \\\$loop_dev ]]; then
+	loop_dev=\\\$($LOSETUP -f);
+	$LOSETUP \\\$loop_dev $file || loop_dev=;
+fi;
+echo -n \\\$loop_dev"
+}
+
+#
+# Detach a loop device.
+#
+cleanup_loop_dev() {
+	local facet=$1
+	local loop_dev=$2
+
+	do_facet $facet "! $LOSETUP $loop_dev >/dev/null 2>&1 ||
+			 $LOSETUP -d $loop_dev"
+}
+
+#
+# Check if a given device is a block device.
+#
+is_blkdev() {
+	local facet=$1
+	local dev=$2
+	local size=${3:-""}
+
+	[[ -n "$dev" ]] || return 1
+	do_facet $facet "test -b $dev" || return 1
+	if [[ -n "$size" ]]; then
+		local in=$(do_facet $facet "dd if=$dev of=/dev/null bs=1k \
+					    count=1 skip=$size 2>&1" |
+					    awk '($3 == "in") { print $1 }')
+		[[ "$in" = "1+0" ]] || return 1
+	fi
+}
+
+#
+# Check if a given device is a device-mapper device.
+#
+is_dm_dev() {
+	local facet=$1
+	local dev=$2
+
+	[[ -n "$dev" ]] || return 1
+	do_facet $facet "$DMSETUP status $dev >/dev/null 2>&1"
+}
+
+#
+# Check if device-mapper flakey device is supported by the kernel
+# of $facet node or not.
+#
+dm_flakey_supported() {
+	local facet=$1
+
+	do_facet $facet "rc=0;
+which $DMSETUP >/dev/null 2>&1 || rc=\\\${PIPESTATUS[0]};
+modprobe dm-flakey >/dev/null 2>&1 || rc=\\\${PIPESTATUS[0]};
+$DMSETUP targets | grep -q flakey || rc=\\\${PIPESTATUS[1]};
+exit \\\$rc"
+}
+
+#
+# Get the device-mapper flakey device name of a given facet.
+#
+dm_facet_devname() {
+	local facet=$1
+
+	echo -n ${facet}_flakey
+}
+
+#
+# Get the device-mapper flakey device of a given facet.
+# A device created by dmsetup will appear as /dev/mapper/<device-name>.
+#
+dm_facet_devpath() {
+	local facet=$1
+
+	echo -n $DM_DEV_PATH/$(dm_facet_devname $facet)
+}
+
+#
+# Set a device-mapper device with a new table.
+#
+# The table has the following format:
+# <logical_start_sector> <num_sectors> <target_type> <target_args>
+#
+# flakey <target_args> includes:
+# <destination_device> <offset> <up_interval> <down_interval> \
+# [<num_features> [<feature_arguments>]]
+#
+# linear <target_args> includes:
+# <destination_device> <start_sector>
+#
+dm_set_dev_table() {
+	local facet=$1
+	local dm_dev=$2
+	local target_type=$3
+	local num_sectors
+	local real_dev
+	local tmp
+	local table
+
+	read tmp num_sectors tmp real_dev tmp \
+		<<< $(do_facet $facet "$DMSETUP table $dm_dev")
+
+	case $target_type in
+	flakey)
+		table="0 $num_sectors flakey $real_dev 0 0 1800 1 drop_writes"
+		;;
+	linear)
+		table="0 $num_sectors linear $real_dev 0"
+		;;
+	*) error "invalid target type $target_type" ;;
+	esac
+
+	do_facet $facet "$DMSETUP suspend $dm_dev" ||
+		error "failed to suspend $dm_dev"
+	do_facet $facet "$DMSETUP load $dm_dev --table \\\"$table\\\"" ||
+		error "failed to load $target_type table into $dm_dev"
+	do_facet $facet "$DMSETUP resume $dm_dev" ||
+		error "failed to resume $dm_dev"
+}
+
+#
+# Set a device-mapper flakey device as "read-only" by using the "drop_writes"
+# feature parameter.
+#
+# drop_writes:
+#	All write I/O is silently ignored.
+#	Read I/O is handled correctly.
+#
+dm_set_dev_readonly() {
+	local facet=$1
+	local dm_dev=${2:-$(dm_facet_devpath $facet)}
+
+	dm_set_dev_table $facet $dm_dev flakey
+}
+
+#
+# Set a device-mapper device to traditional linear mapping mode.
+#
+dm_clear_dev_readonly() {
+	local facet=$1
+	local dm_dev=${2:-$(dm_facet_devpath $facet)}
+
+	dm_set_dev_table $facet $dm_dev linear
+}
+
+#
+# Set the device of a given facet as "read-only".
+#
+set_dev_readonly() {
+	local facet=$1
+	local svc=${facet}_svc
+
+	if [[ $(facet_fstype $facet) = zfs ]] ||
+		! dm_flakey_supported $facet; then
+		do_facet $facet $LCTL --device ${!svc} readonly
+	else
+		dm_set_dev_readonly $facet
+	fi
+}
+
+#
+# Get size in 512-byte sectors (BLKGETSIZE64 / 512) of a given device.
+#
+get_num_sectors() {
+	local facet=$1
+	local dev=$2
+	local num_sectors
+
+	num_sectors=$(do_facet $facet "blockdev --getsz $dev 2>/dev/null")
+	[[ ${PIPESTATUS[0]} = 0 && -n "$num_sectors" ]] || num_sectors=0
+	echo -n $num_sectors
+}
+
+#
+# Create a device-mapper device with a given block device or regular file (will
+# be associated with loop device).
+# Return the full path of the device-mapper device.
+#
+dm_create_dev() {
+	local facet=$1
+	local real_dev=$2				   # destination device
+	local dm_dev_name=${3:-$(dm_facet_devname $facet)} # device name
+	local dm_dev=$DM_DEV_PATH/$dm_dev_name		  # device-mapper device
+
+	# check if the device-mapper device to be created already exists
+	! is_dm_dev $facet $dm_dev || {	echo -n $dm_dev; return 0; }
+
+	# check if the destination device is a block device, and if not,
+	# associate it with a loop device
+	is_blkdev $facet $real_dev ||
+		real_dev=$(setup_loop_dev $facet $real_dev)
+	[[ -n "$real_dev" ]] || { echo -n $real_dev; return 2; }
+
+	# now create the device-mapper device
+	local num_sectors=$(get_num_sectors $facet $real_dev)
+	local table="0 $num_sectors linear $real_dev 0"
+	local rc=0
+
+	do_facet $facet "$DMSETUP create $dm_dev_name --table \\\"$table\\\"" ||
+		{ rc=${PIPESTATUS[0]}; dm_dev=; }
+	do_facet $facet "$DMSETUP mknodes >/dev/null 2>&1"
+
+	echo -n $dm_dev
+	return $rc
+}
+
+#
+# Remove a device-mapper device.
+# If the destination device is a loop device, then also detach it.
+#
+dm_cleanup_dev() {
+	local facet=$1
+	local dm_dev=${2:-$(dm_facet_devpath $facet)}
+	local major
+	local minor
+
+	is_dm_dev $facet $dm_dev || return 0
+
+	read major minor <<< $(do_facet $facet "$DMSETUP table $dm_dev" |
+		awk '{ print $4 }' | awk -F: '{ print $1" "$2 }')
+
+	do_facet $facet "$DMSETUP remove $dm_dev"
+	do_facet $facet "$DMSETUP mknodes >/dev/null 2>&1"
+
+	# detach a loop device
+	[[ $major -ne 7 ]] || cleanup_loop_dev $facet /dev/loop$minor
+}
+
 mount_facet() {
 	local facet=$1
 	shift
@@ -1168,10 +1412,15 @@ mount_facet() {
 	local opt=${facet}_opt
 	local mntpt=$(facet_mntpt $facet)
 	local opts="${!opt} $@"
+	local dm_dev=${!dev}
 
-	if [ $(facet_fstype $facet) == ldiskfs ] &&
-	   ! do_facet $facet test -b ${!dev}; then
-		opts=$(csa_add "$opts" -o loop)
+	if [[ $(facet_fstype $facet) == ldiskfs ]]; then
+		if dm_flakey_supported $facet; then
+			dm_dev=$(dm_create_dev $facet ${!dev})
+			[[ -n "$dm_dev" ]] || dm_dev=${!dev}
+		fi
+
+		is_blkdev $facet $dm_dev || opts=$(csa_add "$opts" -o loop)
 	fi
 
 	if [[ $(facet_fstype $facet) == zfs ]]; then
@@ -1179,26 +1428,27 @@ mount_facet() {
 		import_zpool $facet || return ${PIPESTATUS[0]}
 	fi
 
-	echo "Starting ${facet}: $opts ${!dev} $mntpt"
+	echo "Starting ${facet}: $opts $dm_dev $mntpt"
 	# for testing LU-482 error handling in mount_facets() and test_0a()
 	if [ -f $TMP/test-lu482-trigger ]; then
 		RC=2
 	else
 		do_facet ${facet} "mkdir -p $mntpt; $MOUNT_CMD $opts \
-		                   ${!dev} $mntpt"
+				   $dm_dev $mntpt"
 		RC=${PIPESTATUS[0]}
 	fi
 	if [ $RC -ne 0 ]; then
-		echo "Start of ${!dev} on ${facet} failed ${RC}"
-    else
-        set_default_debug_facet $facet
+		echo "Start of $dm_dev on ${facet} failed ${RC}"
+	else
+		set_default_debug_facet $facet
 
-		label=$(devicelabel ${facet} ${!dev})
-        [ -z "$label" ] && echo no label for ${!dev} && exit 1
-        eval export ${facet}_svc=${label}
-        echo Started ${label}
-    fi
-    return $RC
+		label=$(devicelabel ${facet} $dm_dev)
+		[ -z "$label" ] && echo no label for $dm_dev && exit 1
+		eval export ${facet}_svc=${label}
+		echo Started ${label}
+	fi
+
+	return $RC
 }
 
 # start facet device options
@@ -1233,18 +1483,18 @@ start() {
 }
 
 stop() {
-    local running
-    local facet=$1
-    shift
-    local HOST=`facet_active_host $facet`
-    [ -z $HOST ] && echo stop: no host for $facet && return 0
+	local running
+	local facet=$1
+	shift
+	local HOST=$(facet_active_host $facet)
+	[[ -z $HOST ]] && echo stop: no host for $facet && return 0
 
-    local mntpt=$(facet_mntpt $facet)
-    running=$(do_facet ${facet} "grep -c $mntpt' ' /proc/mounts") || true
-    if [ ${running} -ne 0 ]; then
-        echo "Stopping $mntpt (opts:$@) on $HOST"
-        do_facet ${facet} umount -d $@ $mntpt
-    fi
+	local mntpt=$(facet_mntpt $facet)
+	running=$(do_facet ${facet} "grep -c $mntpt' ' /proc/mounts") || true
+	if [ ${running} -ne 0 ]; then
+		echo "Stopping $mntpt (opts:$@) on $HOST"
+		do_facet ${facet} umount -d $@ $mntpt
+	fi
 
 	# umount should block, but we should wait for unrelated obd's
 	# like the MGS or MGC to also stop.
@@ -1253,6 +1503,8 @@ stop() {
 	if [[ $(facet_fstype $facet) == zfs ]]; then
 		# export ZFS storage pool
 		export_zpool $facet
+	elif dm_flakey_supported $facet; then
+		dm_cleanup_dev $facet
 	fi
 }
 
@@ -2460,7 +2712,8 @@ replay_barrier() {
 	# handled by stop() and mount_facet() separately, which are used
 	# inside fail() and fail_abort().
 	#
-	do_facet $facet $LCTL --device ${!svc} readonly
+	set_dev_readonly $facet
+
 	do_facet $facet $LCTL mark "$facet REPLAY BARRIER on ${!svc}"
 	$LCTL mark "local REPLAY BARRIER on ${!svc}"
 }
@@ -2471,7 +2724,7 @@ replay_barrier_nodf() {
 	local svc=${facet}_svc
 	echo Replay barrier on ${!svc}
 	do_facet $facet $LCTL --device ${!svc} notransno
-	do_facet $facet $LCTL --device ${!svc} readonly
+	set_dev_readonly $facet
 	do_facet $facet $LCTL mark "$facet REPLAY BARRIER on ${!svc}"
 	$LCTL mark "local REPLAY BARRIER on ${!svc}"
 }
@@ -2481,7 +2734,7 @@ replay_barrier_nosync() {
 	local svc=${facet}_svc
 	echo Replay barrier on ${!svc}
 	do_facet $facet $LCTL --device ${!svc} notransno
-	do_facet $facet $LCTL --device ${!svc} readonly
+	set_dev_readonly $facet
 	do_facet $facet $LCTL mark "$facet REPLAY BARRIER on ${!svc}"
 	$LCTL mark "local REPLAY BARRIER on ${!svc}"
 }
