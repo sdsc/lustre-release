@@ -13391,6 +13391,14 @@ test_400b() { # LU-1606, LU-5011
 }
 run_test 400b "packaged headers can be compiled"
 
+test_401() {
+	json-construction || error "json-construction failed"
+	json-decode-encode || error "json-decode-encode failed"
+	json-stringify || error "json-stringify failed"
+	json-validate || error "json-validate failed"
+}
+run_test 401 "CCAN json tests"
+
 #
 # tests that do cleanup/setup should be run at the end
 #
