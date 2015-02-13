@@ -41,16 +41,36 @@ static void test_number(void)
 {
 	JsonNode *num;
 	
-	num = json_mknumber(5678901234.0);
+	num = json_mknumber_float(5678901234.0);
 	should_be(num, "5678901234");
 	json_delete(num);
 	
-	num = json_mknumber(-5678901234.0);
+	num = json_mknumber_float(-5678901234.0);
 	should_be(num, "-5678901234");
 	json_delete(num);
 	
-	num = json_mknumber(0.0 / 0.0);
+	num = json_mknumber_float(0.0 / 0.0);
 	should_be(num, "null");
+	json_delete(num);
+
+	num = json_mknumber_int(5678901234LL);
+	should_be(num, "5678901234");
+	json_delete(num);
+
+	num = json_mknumber_int(-5678901234LL);
+	should_be(num, "-5678901234");
+	json_delete(num);
+
+	num = json_mknumber_int(0);
+	should_be(num, "0");
+	json_delete(num);
+
+	num = json_mknumber_int(8223372036854775808LL);
+	should_be(num, "8223372036854775808");
+	json_delete(num);
+
+	num = json_mknumber_int(-8223372036854775808);
+	should_be(num, "-8223372036854775808");
 	json_delete(num);
 }
 
@@ -62,11 +82,11 @@ static void test_array(void)
 	array = json_mkarray();
 	should_be(array, "[]");
 	
-	children[1] = json_mknumber(1);
-	children[2] = json_mknumber(2);
-	children[3] = json_mknumber(3);
-	children[4] = json_mknumber(4);
-	children[5] = json_mknumber(5);
+	children[1] = json_mknumber_int(1);
+	children[2] = json_mknumber_int(2);
+	children[3] = json_mknumber_int(3);
+	children[4] = json_mknumber_int(4);
+	children[5] = json_mknumber_int(5);
 	
 	json_append_element(array, children[3]);
 	should_be(array, "[3]");
@@ -126,9 +146,9 @@ static void test_object(void)
 	object = json_mkobject();
 	should_be(object, "{}");
 	
-	children[1] = json_mknumber(1);
-	children[2] = json_mknumber(2);
-	children[3] = json_mknumber(3);
+	children[1] = json_mknumber_int(1);
+	children[2] = json_mknumber_int(2);
+	children[3] = json_mknumber_int(3);
 	
 	ok1(json_find_member(object, "one") == NULL);
 	ok1(json_find_member(object, "two") == NULL);
@@ -164,7 +184,7 @@ int main(void)
 	
 	(void) chomp;
 	
-	plan_tests(49);
+	plan_tests(54);
 	
 	ok1(json_find_element(NULL, 0) == NULL);
 	ok1(json_find_member(NULL, "") == NULL);
