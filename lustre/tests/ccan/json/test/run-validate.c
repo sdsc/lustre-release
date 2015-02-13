@@ -2,7 +2,7 @@
 
 int main(void)
 {
-	const char *strings_file = "test/test-strings";
+	const char *strings_file = "ccan/json/test/test-strings";
 	FILE *f;
 	char buffer[1024];
 	
