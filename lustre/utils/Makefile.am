@@ -176,7 +176,12 @@ wiretest_SOURCES = wiretest.c
 
 endif # UTILS
 
-EXTRA_DIST = llstat llobdstat plot-llstat
+EXTRA_DIST = llstat llobdstat plot-llstat \
+	ccan/json/json.c ccan/json/json.h \
+	ccan/json/_info ccan/json/LICENSE ccan/json/test/run-decode-encode.c \
+	ccan/json/test/test-strings ccan/json/test/test-strings-reencoded \
+	ccan/json/test/run-construction.c ccan/json/test/common.h \
+	ccan/json/test/run-stringify.c ccan/json/test/run-validate.c
 
 # NOTE: this should only be run on i386.
 newwiretest: wirehdr.c wirecheck

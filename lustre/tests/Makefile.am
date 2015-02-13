@@ -59,7 +59,12 @@ nobase_noinst_DATA += rmtacl/getfacl-noacl.test rmtacl/inheritance.test
 nobase_noinst_DATA += clientapi/simple_test.c
 
 EXTRA_DIST = $(noinst_SCRIPTS) $(noinst_DATA) \
-             $(nobase_noinst_SCRIPTS) $(nobase_noinst_DATA)
+	$(nobase_noinst_SCRIPTS) $(nobase_noinst_DATA) \
+	ccan/compiler/compiler.h ccan/compiler/_info ccan/compiler/LICENSE \
+	ccan/compiler/test/compile_fail-printf.c \
+	ccan/compiler/test/run-is_compile_constant.c \
+	ccan/tap/_info ccan/tap/tap.h ccan/tap/tap.3 ccan/tap/tap.c \
+	ccan/tap/test/run.c
 
 if TESTS
 if MPITESTS
@@ -79,7 +84,8 @@ noinst_PROGRAMS += listxattr_size_check check_fhandle_syscalls badarea_io
 noinst_PROGRAMS += llapi_layout_test orphan_linkea_check llapi_hsm_test
 noinst_PROGRAMS += group_lock_test
 
-bin_PROGRAMS = mcreate munlink
+bin_PROGRAMS = mcreate munlink json-construction json-stringify \
+	json-decode-encode json-validate
 testdir = $(libdir)/lustre/tests
 test_SCRIPTS = $(noinst_SCRIPTS) $(noinst_PROGRAMS)
 nobase_test_SCRIPTS = $(nobase_noinst_SCRIPTS)
@@ -96,6 +102,22 @@ llapi_hsm_test_LDADD=$(LIBLUSTREAPI)
 group_lock_test_LDADD=$(LIBLUSTREAPI)
 it_test_LDADD=$(LIBCFS)
 rwv_LDADD=$(LIBCFS)
+
+json_construction_SOURCES=ccan/tap/tap.c ccan/tap/tap.h \
+	../utils/ccan/json/test/run-construction.c
+json_construction_CFLAGS=-I../utils/
+
+json_stringify_SOURCES=ccan/tap/tap.c ccan/tap/tap.h \
+	../utils/ccan/json/test/run-stringify.c
+json_stringify_CFLAGS=-I../utils/
+
+json_decode_encode_SOURCES=ccan/tap/tap.c ccan/tap/tap.h \
+	../utils/ccan/json/test/run-decode-encode.c
+json_decode_encode_CFLAGS=-I../utils/
+
+json_validate_SOURCES=ccan/tap/tap.c ccan/tap/tap.h \
+	../utils/ccan/json/test/run-validate.c
+json_validate_CFLAGS=-I../utils/
 
 ll_dirstripe_verify_SOURCES= ll_dirstripe_verify.c
 ll_dirstripe_verify_LDADD= -L$(top_builddir)/lustre/utils $(PTHREAD_LIBS) $(LIBLUSTREAPI) $(LIBCFS)
