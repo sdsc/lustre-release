@@ -2096,6 +2096,67 @@ out:
 }
 
 /**
+ * Prefetch data for OST_LADVISE RPC.
+ *
+ * Prepare and read pages from a given range of an object.
+ *
+ * \retval		0 if successful
+ * \retval		negative errno on error
+ */
+static int ofd_ladvise_prefetch(const struct lu_env *env,
+				struct ofd_object *fo,
+				__u64 start, __u64 end)
+{
+	pgoff_t			 start_index, end_index, pages;
+	struct niobuf_local	*lnb;
+	int			 rc = 0;
+
+	OBD_ALLOC_LARGE(lnb, sizeof(*lnb) * PTLRPC_MAX_BRW_PAGES);
+	if (lnb == NULL)
+		RETURN(-ENOMEM);
+
+	ofd_read_lock(env, fo);
+	if (!ofd_object_exists(fo))
+		GOTO(unlock, rc = -ENOENT);
+
+	/* We need page aligned offset and length */
+	start_index = start >> PAGE_CACHE_SHIFT;
+	if (start == end) {
+		pages = 0;
+	} else if (start > end || end < 1) {
+		GOTO(unlock, rc = -EINVAL);
+	} else {
+		end_index = (end - 1) >> PAGE_CACHE_SHIFT;
+		pages = end_index - start_index + 1;
+	}
+	while (pages > 0) {
+		struct niobuf_remote	rnb;
+		int			nr_local;
+
+		nr_local = pages <= PTLRPC_MAX_BRW_PAGES ? pages :
+			PTLRPC_MAX_BRW_PAGES;
+		rnb.rnb_offset = start_index << PAGE_CACHE_SHIFT;
+		rnb.rnb_len = nr_local << PAGE_CACHE_SHIFT;
+		rc = dt_bufs_get(env, ofd_object_child(fo), &rnb,
+				 lnb, 0, ofd_object_capa(env, fo));
+		if (unlikely(rc < 0))
+			break;
+		nr_local = rc;
+		rc = dt_read_prep(env, ofd_object_child(fo), lnb, nr_local);
+		dt_bufs_put(env, ofd_object_child(fo), lnb, nr_local);
+		if (unlikely(rc))
+			break;
+		start_index += nr_local;
+		pages -= nr_local;
+	}
+
+unlock:
+	ofd_read_unlock(env, fo);
+	OBD_FREE_LARGE(lnb, sizeof(*lnb) * PTLRPC_MAX_BRW_PAGES);
+	RETURN(rc);
+}
+
+/**
  * OFD request handler for OST_LADVISE RPC.
  *
  * Tune cache or perfetch policies according to advices.
@@ -2120,6 +2181,9 @@ static int ofd_ladvise_hdl(struct tgt_session_info *tsi)
 	int			 num_advise;
 	struct ladvise_hdr	*ladvise_hdr;
 	int			 i;
+	struct obd_ioobj	 ioo;
+	struct niobuf_remote	 remote_nb = { 0 };
+	struct lustre_handle	 lockh = { 0 };
 	ENTRY;
 
 	body = tsi->tsi_ost_body;
@@ -2172,6 +2236,26 @@ static int ofd_ladvise_hdl(struct tgt_session_info *tsi)
 	for (i = 0; i < num_advise; i++, ladvise++) {
 		/* Handle different advice types */
 		switch (ladvise->lla_advice) {
+		case LU_LADVISE_WILLNEED:
+			ioo.ioo_oid = body->oa.o_oi;
+			ioo.ioo_bufcnt = 1;
+			remote_nb.rnb_offset = ladvise->lla_start;
+			remote_nb.rnb_len = ladvise->lla_end -
+					    ladvise->lla_start;
+			if (remote_nb.rnb_len == 0)
+				break;
+
+			rc = tgt_brw_lock(exp->exp_obd->obd_namespace,
+					  &tsi->tsi_resid, &ioo, &remote_nb,
+					  &lockh, LCK_PR);
+			if (rc != 0)
+				break;
+
+			rc = ofd_ladvise_prefetch(env, fo,
+						  ladvise->lla_start,
+						  ladvise->lla_end);
+			tgt_brw_unlock(&ioo, &remote_nb, &lockh, LCK_PR);
+			break;
 		default:
 			rc = -ENOTSUPP;
 			break;
