@@ -60,6 +60,7 @@
 #include <lustre/lustre_idl.h>
 #include <lustre/lustreapi.h>
 #include "lustreapi_internal.h"
+#include "ccan/json/json.h"
 
 #define OPEN_BY_FID_PATH dot_lustre_name"/fid"
 
@@ -167,30 +168,26 @@ static inline const char *llapi_hsm_ct_ev2str(int type)
  * Writes a JSON event to the monitor FIFO. Noop if no FIFO has been
  * registered.
  *
- * \param event              A list of llapi_json_items comprising a
- *                           single JSON-formatted event.
+ * \param json_items              A JSON object
  *
  * \retval 0 on success.
  * \retval -errno on error.
  */
-static int llapi_hsm_write_json_event(struct llapi_json_item_list **event)
+static int llapi_hsm_write_json_event(JsonNode *json_items)
 {
 	int				rc;
 	char				time_string[40];
-	char				json_buf[PIPE_BUF];
-	FILE				*buf_file;
 	time_t				event_time = time(0);
 	struct tm			time_components;
-	struct llapi_json_item_list	*json_items;
+	char				*json_str;
+	JsonNode			*obj;
 
 	/* Noop unless the event fd was initialized */
 	if (llapi_hsm_event_fd < 0)
 		return 0;
 
-	if (event == NULL || *event == NULL)
+	if (json_items == NULL)
 		return -EINVAL;
-
-	json_items = *event;
 
 	localtime_r(&event_time, &time_components);
 
@@ -201,31 +198,25 @@ static int llapi_hsm_write_json_event(struct llapi_json_item_list **event)
 		return rc;
 	}
 
-	rc = llapi_json_add_item(&json_items, "event_time", LLAPI_JSON_STRING,
-				 time_string);
-	if (rc < 0) {
-		llapi_error(LLAPI_MSG_ERROR, -rc, "error in "
-			    "llapi_json_add_item()");
-		return rc;
+	obj = json_mkstring(time_string);
+	if (obj == NULL) {
+		llapi_err_noerrno(LLAPI_MSG_ERROR, "error in json_mkstring");
+		return -ENOMEM;
 	}
+	json_append_member(json_items, "event_time", obj);
 
-	buf_file = fmemopen(json_buf, sizeof(json_buf), "w");
-	if (buf_file == NULL)
-		return -errno;
+	json_str = json_stringify(json_items, NULL);
+	if (json_str == NULL)
+		return -ENOMEM;
 
-	rc = llapi_json_write_list(event, buf_file);
+	rc = write(llapi_hsm_event_fd, json_str, strlen(json_str));
+	free(json_str);
 	if (rc < 0) {
-		fclose(buf_file);
-		return rc;
-	}
-
-	fclose(buf_file);
-
-	if (write(llapi_hsm_event_fd, json_buf, strlen(json_buf)) < 0) {
 		/* Ignore write failures due to missing reader. */
 		if (errno != EPIPE)
 			return -errno;
 	}
+	write(llapi_hsm_event_fd, "\n", 1);
 
 	return 0;
 }
@@ -247,7 +238,8 @@ static int llapi_hsm_log_ct_registration(struct hsm_copytool_private **priv,
 	int				rc;
 	char				agent_uuid[UUID_MAX];
 	struct hsm_copytool_private	*ct;
-	struct llapi_json_item_list	*json_items;
+	JsonNode			*json_items;
+	JsonNode			*obj;
 
 	/* Noop unless the event fd was initialized */
 	if (llapi_hsm_event_fd < 0)
@@ -263,36 +255,46 @@ static int llapi_hsm_log_ct_registration(struct hsm_copytool_private **priv,
 	if (event_type != CT_REGISTER && event_type != CT_UNREGISTER)
 		return -EINVAL;
 
-	rc = llapi_json_init_list(&json_items);
-	if (rc < 0)
+	json_items = json_mkobject();
+	if (json_items == NULL) {
+		rc = -ENOMEM;
 		goto err;
+	}
 
 	rc = llapi_get_agent_uuid(ct->mnt, agent_uuid, sizeof(agent_uuid));
 	if (rc < 0)
 		goto err;
 	llapi_chomp_string(agent_uuid);
 
-	rc = llapi_json_add_item(&json_items, "uuid", LLAPI_JSON_STRING,
-				 agent_uuid);
-	if (rc < 0)
+	obj = json_mkstring(agent_uuid);
+	if (obj == NULL) {
+		rc = -ENOMEM;
 		goto err;
+	}
+	json_append_member(json_items, "uuid", obj);
 
-	rc = llapi_json_add_item(&json_items, "mount_point", LLAPI_JSON_STRING,
-				 ct->mnt);
-	if (rc < 0)
+	obj = json_mkstring(ct->mnt);
+	if (obj == NULL) {
+		rc = -ENOMEM;
 		goto err;
+	}
+	json_append_member(json_items, "mount_point", obj);
 
-	rc = llapi_json_add_item(&json_items, "archive", LLAPI_JSON_INTEGER,
-				 &ct->archives);
-	if (rc < 0)
+	obj = json_mknumber_int(ct->archives);
+	if (obj == NULL) {
+		rc = -ENOMEM;
 		goto err;
+	}
+	json_append_member(json_items, "archive", obj);
 
-	rc = llapi_json_add_item(&json_items, "event_type", LLAPI_JSON_STRING,
-				 (char *)llapi_hsm_ct_ev2str(event_type));
-	if (rc < 0)
+	obj = json_mkstring((char *)llapi_hsm_ct_ev2str(event_type));
+	if (obj == NULL) {
+		rc = -ENOMEM;
 		goto err;
+	}
+	json_append_member(json_items, "event_type", obj);
 
-	rc = llapi_hsm_write_json_event(&json_items);
+	rc = llapi_hsm_write_json_event(json_items);
 	if (rc < 0)
 		goto err;
 
@@ -304,7 +306,7 @@ err:
 
 out_free:
 	if (json_items != NULL)
-		llapi_json_destroy_list(&json_items);
+		json_delete(json_items);
 
 	return rc;
 }
@@ -361,7 +363,8 @@ static int llapi_hsm_log_ct_progress(struct hsm_copyaction_private **phcp,
 	char				lustre_path[PATH_MAX];
 	char				strfid[FID_NOBRACE_LEN + 1];
 	struct hsm_copyaction_private	*hcp;
-	struct llapi_json_item_list	*json_items;
+	JsonNode			*json_items;
+	JsonNode			*obj;
 
 	/* Noop unless the event fd was initialized */
 	if (llapi_hsm_event_fd < 0)
@@ -372,21 +375,27 @@ static int llapi_hsm_log_ct_progress(struct hsm_copyaction_private **phcp,
 
 	hcp = *phcp;
 
-	rc = llapi_json_init_list(&json_items);
-	if (rc < 0)
+	json_items = json_mkobject();
+	if (json_items == NULL) {
+		rc = -ENOMEM;
 		goto err;
+	}
 
 	snprintf(strfid, sizeof(strfid), DFID_NOBRACE, PFID(&hai->hai_dfid));
-	rc = llapi_json_add_item(&json_items, "data_fid",
-				 LLAPI_JSON_STRING, strfid);
-	if (rc < 0)
+	obj = json_mkstring(strfid);
+	if (obj == NULL) {
+		rc = -ENOMEM;
 		goto err;
+	}
+	json_append_member(json_items, "data_fid", obj);
 
 	snprintf(strfid, sizeof(strfid), DFID_NOBRACE, PFID(&hai->hai_fid));
-	rc = llapi_json_add_item(&json_items, "source_fid",
-				 LLAPI_JSON_STRING, strfid);
-	if (rc < 0)
+	obj = json_mkstring(strfid);
+	if (obj == NULL) {
+		rc = -ENOMEM;
 		goto err;
+	}
+	json_append_member(json_items, "source_fid", obj);
 
 	if (hcp->copy.hc_errval == ECANCELED) {
 		progress_type = CT_CANCEL;
@@ -396,17 +405,19 @@ static int llapi_hsm_log_ct_progress(struct hsm_copyaction_private **phcp,
 	if (hcp->copy.hc_errval != 0) {
 		progress_type = CT_ERROR;
 
-		rc = llapi_json_add_item(&json_items, "errno",
-					 LLAPI_JSON_INTEGER,
-					 &hcp->copy.hc_errval);
-		if (rc < 0)
+		obj = json_mknumber_int(hcp->copy.hc_errval);
+		if (obj == NULL) {
+			rc = -ENOMEM;
 			goto err;
+		}
+		json_append_member(json_items, "errno", obj);
 
-		rc = llapi_json_add_item(&json_items, "error",
-					 LLAPI_JSON_STRING,
-					 strerror(hcp->copy.hc_errval));
-		if (rc < 0)
+		obj = json_mkstring(strerror(hcp->copy.hc_errval));
+		if (obj == NULL) {
+			rc = -ENOMEM;
 			goto err;
+		}
+		json_append_member(json_items, "error", obj);
 
 		goto cancel;
 	}
@@ -419,31 +430,40 @@ static int llapi_hsm_log_ct_progress(struct hsm_copyaction_private **phcp,
 		if (rc < 0)
 			goto err;
 
-		rc = llapi_json_add_item(&json_items, "lustre_path",
-					 LLAPI_JSON_STRING, lustre_path);
-		if (rc < 0)
+		obj = json_mkstring(lustre_path);
+		if (obj == NULL) {
+			rc = -ENOMEM;
 			goto err;
+		}
+		json_append_member(json_items, "lustre_path", obj);
 
-		rc = llapi_json_add_item(&json_items, "total_bytes",
-					 LLAPI_JSON_BIGNUM, &total);
-		if (rc < 0)
+		obj = json_mknumber_int(total);
+		if (obj == NULL) {
+			rc = -ENOMEM;
 			goto err;
+		}
+		json_append_member(json_items, "total_bytes", obj);
 	}
 
-	if (progress_type == CT_RUNNING)
-		rc = llapi_json_add_item(&json_items, "current_bytes",
-					 LLAPI_JSON_BIGNUM, &current);
-		if (rc < 0)
+	if (progress_type == CT_RUNNING) {
+		obj = json_mknumber_int(current);
+		if (obj == NULL) {
+			rc = -ENOMEM;
 			goto err;
+		}
+		json_append_member(json_items, "current_bytes", obj);
+	}
 
 cancel:
-	rc = llapi_json_add_item(&json_items, "event_type", LLAPI_JSON_STRING,
-				 (char *)llapi_hsm_ct_ev2str(hai->hai_action +
-							     progress_type));
-	if (rc < 0)
+	obj = json_mkstring(llapi_hsm_ct_ev2str(hai->hai_action +
+						progress_type));
+	if (obj == NULL) {
+		rc = -ENOMEM;
 		goto err;
+	}
+	json_append_member(json_items, "event_type", obj);
 
-	rc = llapi_hsm_write_json_event(&json_items);
+	rc = llapi_hsm_write_json_event(json_items);
 	if (rc < 0)
 		goto err;
 
@@ -455,7 +475,7 @@ err:
 
 out_free:
 	if (json_items != NULL)
-		llapi_json_destroy_list(&json_items);
+		json_delete(json_items);
 
 	return rc;
 }
@@ -573,28 +593,33 @@ void llapi_hsm_log_error(enum llapi_message_level level, int _rc,
 	int				real_level;
 	char				*msg = NULL;
 	va_list				args2;
-	struct llapi_json_item_list	*json_items;
+	JsonNode			*json_items;
+	JsonNode			*obj;
 
 	/* Noop unless the event fd was initialized */
 	if (llapi_hsm_event_fd < 0)
 		return;
 
-	rc = llapi_json_init_list(&json_items);
-	if (rc < 0)
+	json_items = json_mkobject();
+	if (json_items == NULL) {
+		rc = -ENOMEM;
 		goto err;
+	}
 
 	if ((level & LLAPI_MSG_NO_ERRNO) == 0) {
-		rc = llapi_json_add_item(&json_items, "errno",
-					 LLAPI_JSON_INTEGER,
-					 &_rc);
-		if (rc < 0)
+		obj = json_mknumber_int(_rc);
+		if (obj == NULL) {
+			rc = -ENOMEM;
 			goto err;
+		}
+		json_append_member(json_items, "errno", obj);
 
-		rc = llapi_json_add_item(&json_items, "error",
-					 LLAPI_JSON_STRING,
-					 strerror(abs(_rc)));
-		if (rc < 0)
+		obj = json_mkstring(strerror(abs(_rc)));
+		if (obj == NULL) {
+			rc = -ENOMEM;
 			goto err;
+		}
+		json_append_member(json_items, "error", obj);
 	}
 
 	va_copy(args2, args);
@@ -611,33 +636,39 @@ void llapi_hsm_log_error(enum llapi_message_level level, int _rc,
 		if (rc < 0)
 			goto err;
 
-		rc = llapi_json_add_item(&json_items, "message",
-					 LLAPI_JSON_STRING,
-					 msg);
-		if (rc < 0)
+		obj = json_mkstring(msg);
+		if (obj == NULL) {
+			rc = -ENOMEM;
 			goto err;
+		}
+		json_append_member(json_items, "message", obj);
 	} else {
-		rc = llapi_json_add_item(&json_items, "message",
-					 LLAPI_JSON_STRING,
-					 "INTERNAL ERROR: message failed");
-		if (rc < 0)
+		obj = json_mkstring("INTERNAL ERROR: message failed");
+		if (obj == NULL) {
+			rc = -ENOMEM;
 			goto err;
+		}
+		json_append_member(json_items, "message", obj);
 	}
 
 	real_level = level & LLAPI_MSG_NO_ERRNO;
 	real_level = real_level > 0 ? level - LLAPI_MSG_NO_ERRNO : level;
 
-	rc = llapi_json_add_item(&json_items, "level", LLAPI_JSON_STRING,
-				 (void *)llapi_msg_level2str(real_level));
-	if (rc < 0)
+	obj = json_mkstring(llapi_msg_level2str(real_level));
+	if (obj == NULL) {
+		rc = -ENOMEM;
 		goto err;
+	}
+	json_append_member(json_items, "level", obj);
 
-	rc = llapi_json_add_item(&json_items, "event_type", LLAPI_JSON_STRING,
-				 "LOGGED_MESSAGE");
-	if (rc < 0)
+	obj = json_mkstring("LOGGED_MESSAGE");
+	if (obj == NULL) {
+		rc = -ENOMEM;
 		goto err;
+	}
+	json_append_member(json_items, "event_type", obj);
 
-	rc = llapi_hsm_write_json_event(&json_items);
+	rc = llapi_hsm_write_json_event(json_items);
 	if (rc < 0)
 		goto err;
 
@@ -650,7 +681,7 @@ err:
 
 out_free:
 	if (json_items != NULL)
-		llapi_json_destroy_list(&json_items);
+		json_delete(json_items);
 
 	return;
 }
