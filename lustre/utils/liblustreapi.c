@@ -3264,7 +3264,7 @@ decided:
 	return 0;
 }
 
-static int cb_mv_init(char *path, DIR *parent, DIR **dirp,
+static int cb_migrate_mdt_init(char *path, DIR *parent, DIR **dirp,
 		      void *param_data, struct dirent64 *de)
 {
 	struct find_param	*param = (struct find_param *)param_data;
@@ -3337,9 +3337,9 @@ out:
 	return ret;
 }
 
-int llapi_mv(char *path, struct find_param *param)
+int llapi_migrate_mdt(char *path, struct find_param *param)
 {
-	return param_callback(path, cb_mv_init, cb_common_fini, param);
+	return param_callback(path, cb_migrate_mdt_init, cb_common_fini, param);
 }
 
 int llapi_find(char *path, struct find_param *param)
