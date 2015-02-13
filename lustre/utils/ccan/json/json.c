@@ -330,7 +330,8 @@ static void to_surrogate_pair(uchar_t unicode, uint16_t *uc, uint16_t *lc)
 
 static bool parse_value     (const char **sp, JsonNode        **out);
 static bool parse_string    (const char **sp, char            **out);
-static bool parse_number    (const char **sp, double           *out);
+static bool parse_number(const char **sp, JsonTag *numtype,
+			 long long *out_int, double *out_float);
 static bool parse_array     (const char **sp, JsonNode        **out);
 static bool parse_object    (const char **sp, JsonNode        **out);
 static bool parse_hex16     (const char **sp, uint16_t         *out);
@@ -341,7 +342,8 @@ static void skip_space      (const char **sp);
 static void emit_value              (SB *out, const JsonNode *node);
 static void emit_value_indented     (SB *out, const JsonNode *node, const char *space, int indent_level);
 static void emit_string             (SB *out, const char *str);
-static void emit_number             (SB *out, double num);
+static void emit_number_float(SB *out, double num);
+static void emit_number_int(SB *out, long long num);
 static void emit_array              (SB *out, const JsonNode *array);
 static void emit_array_indented     (SB *out, const JsonNode *array, const char *space, int indent_level);
 static void emit_object             (SB *out, const JsonNode *object);
@@ -516,10 +518,17 @@ JsonNode *json_mkstring(const char *s)
 	return mkstring(json_strdup(s));
 }
 
-JsonNode *json_mknumber(double n)
+JsonNode *json_mknumber_float(double n)
 {
-	JsonNode *node = mknode(JSON_NUMBER);
-	node->number_ = n;
+	JsonNode *node = mknode(JSON_NUMBER_FLOAT);
+	node->number_float = n;
+	return node;
+}
+
+JsonNode *json_mknumber_int(long long n)
+{
+	JsonNode *node = mknode(JSON_NUMBER_INT);
+	node->number_int = n;
 	return node;
 }
 
@@ -678,14 +687,23 @@ static bool parse_value(const char **sp, JsonNode **out)
 			return false;
 		
 		default: {
-			double num;
-			if (parse_number(&s, out ? &num : NULL)) {
-				if (out)
-					*out = json_mknumber(num);
-				*sp = s;
-				return true;
+			long long num_int;
+			double num_float;
+			JsonTag numtype;
+
+			if (parse_number(&s, out ? &numtype : NULL,
+					 out ? &num_int : NULL,
+					 out ? &num_float : NULL) == false)
+				return false;
+
+			if (out) {
+				if (numtype == JSON_NUMBER_INT)
+					*out = json_mknumber_int(num_int);
+				else
+					*out = json_mknumber_float(num_float);
 			}
-			return false;
+			*sp = s;
+			return true;
 		}
 	}
 }
@@ -915,13 +933,18 @@ failed:
  *
  * This function takes the strict approach.
  */
-bool parse_number(const char **sp, double *out)
+static bool parse_number(const char **sp, JsonTag *numtype,
+			 long long *out_int, double *out_float)
 {
 	const char *s = *sp;
+	bool is_float = false;
+	bool negative = false;
 
 	/* '-'? */
-	if (*s == '-')
+	if (*s == '-') {
+		negative = true;
 		s++;
+	}
 
 	/* (0 | [1-9][0-9]*) */
 	if (*s == '0') {
@@ -936,6 +959,7 @@ bool parse_number(const char **sp, double *out)
 
 	/* ('.' [0-9]+)? */
 	if (*s == '.') {
+		is_float = true;
 		s++;
 		if (!is_digit(*s))
 			return false;
@@ -946,6 +970,7 @@ bool parse_number(const char **sp, double *out)
 
 	/* ([Ee] [+-]? [0-9]+)? */
 	if (*s == 'E' || *s == 'e') {
+		is_float = true;
 		s++;
 		if (*s == '+' || *s == '-')
 			s++;
@@ -956,8 +981,18 @@ bool parse_number(const char **sp, double *out)
 		} while (is_digit(*s));
 	}
 
-	if (out)
-		*out = strtod(*sp, NULL);
+	if (numtype) {
+		if (is_float) {
+			*numtype = JSON_NUMBER_FLOAT;
+			*out_float = strtod(*sp, NULL);
+		} else {
+			*numtype = JSON_NUMBER_INT;
+			if (negative)
+				*out_int = strtoll(*sp, NULL, 0);
+			else
+				*out_int = strtoull(*sp, NULL, 0);
+		}
+	}
 
 	*sp = s;
 	return true;
@@ -984,8 +1019,11 @@ static void emit_value(SB *out, const JsonNode *node)
 		case JSON_STRING:
 			emit_string(out, node->string_);
 			break;
-		case JSON_NUMBER:
-			emit_number(out, node->number_);
+		case JSON_NUMBER_FLOAT:
+			emit_number_float(out, node->number_float);
+			break;
+		case JSON_NUMBER_INT:
+			emit_number_int(out, node->number_int);
 			break;
 		case JSON_ARRAY:
 			emit_array(out, node);
@@ -1011,8 +1049,11 @@ void emit_value_indented(SB *out, const JsonNode *node, const char *space, int i
 		case JSON_STRING:
 			emit_string(out, node->string_);
 			break;
-		case JSON_NUMBER:
-			emit_number(out, node->number_);
+		case JSON_NUMBER_FLOAT:
+			emit_number_float(out, node->number_float);
+			break;
+		case JSON_NUMBER_INT:
+			emit_number_int(out, node->number_int);
 			break;
 		case JSON_ARRAY:
 			emit_array_indented(out, node, space, indent_level);
@@ -1222,7 +1263,7 @@ void emit_string(SB *out, const char *str)
 	out->cur = b;
 }
 
-static void emit_number(SB *out, double num)
+static void emit_number_float(SB *out, double num)
 {
 	/*
 	 * This isn't exactly how JavaScript renders numbers,
@@ -1239,6 +1280,13 @@ static void emit_number(SB *out, double num)
 		sb_puts(out, "null");
 }
 
+static void emit_number_int(SB *out, long long num)
+{
+	char buf[64];
+	sprintf(buf, "%lld", num);
+	sb_puts(out, buf);
+}
+
 static bool tag_is_valid(unsigned int tag)
 {
 	return (/* tag >= JSON_NULL && */ tag <= JSON_OBJECT);
@@ -1246,7 +1294,7 @@ static bool tag_is_valid(unsigned int tag)
 
 static bool number_is_valid(const char *num)
 {
-	return (parse_number(&num, NULL) && *num == '\0');
+	return parse_number(&num, NULL, NULL, NULL) && *num == '\0';
 }
 
 static bool expect_literal(const char **sp, const char *str)
