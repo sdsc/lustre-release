@@ -57,9 +57,16 @@ nobase_noinst_DATA += rmtacl/misc.test rmtacl/permissions.test
 nobase_noinst_DATA += rmtacl/setfacl.test rmtacl/cp.test
 nobase_noinst_DATA += rmtacl/getfacl-noacl.test rmtacl/inheritance.test
 nobase_noinst_DATA += clientapi/simple_test.c
+nobase_noinst_DATA += ccan/json/test/test-strings
+nobase_noinst_DATA += ccan/json/test/test-strings-reencoded
 
 EXTRA_DIST = $(noinst_SCRIPTS) $(noinst_DATA) \
-             $(nobase_noinst_SCRIPTS) $(nobase_noinst_DATA)
+	$(nobase_noinst_SCRIPTS) $(nobase_noinst_DATA) \
+	ccan/compiler/compiler.h ccan/compiler/_info ccan/compiler/LICENSE \
+	ccan/compiler/test/compile_fail-printf.c \
+	ccan/compiler/test/run-is_compile_constant.c \
+	ccan/tap/_info ccan/tap/tap.h ccan/tap/tap.3 ccan/tap/tap.c \
+	ccan/tap/test/run.c
 
 if TESTS
 if MPITESTS
@@ -78,6 +85,8 @@ noinst_PROGRAMS += write_time_limit rwv lgetxattr_size_check checkfiemap
 noinst_PROGRAMS += listxattr_size_check check_fhandle_syscalls badarea_io
 noinst_PROGRAMS += llapi_layout_test orphan_linkea_check llapi_hsm_test
 noinst_PROGRAMS += group_lock_test llapi_fid_test sendfile_grouplock
+noinst_PROGRAMS += json-construction json-stringify
+noinst_PROGRAMS += json-decode-encode json-validate
 
 bin_PROGRAMS = mcreate munlink
 testdir = $(libdir)/lustre/tests
@@ -100,6 +109,22 @@ rwv_LDADD=$(LIBCFS)
 
 ll_dirstripe_verify_SOURCES = ll_dirstripe_verify.c
 ll_dirstripe_verify_LDADD = $(LIBLUSTREAPI) $(LIBCFS) $(PTHREAD_LIBS)
+
+json_construction_SOURCES=ccan/tap/tap.c ccan/tap/tap.h \
+	ccan/json/test/run-construction.c ccan/json/test/common.h
+json_construction_CFLAGS=-I../utils/
+
+json_stringify_SOURCES=ccan/tap/tap.c ccan/tap/tap.h \
+	ccan/json/test/run-stringify.c ccan/json/test/common.h
+json_stringify_CFLAGS=-I../utils/
+
+json_decode_encode_SOURCES=ccan/tap/tap.c ccan/tap/tap.h \
+	ccan/json/test/run-decode-encode.c ccan/json/test/common.h
+json_decode_encode_CFLAGS=-I../utils/
+
+json_validate_SOURCES=ccan/tap/tap.c ccan/tap/tap.h \
+	ccan/json/test/run-validate.c ccan/json/test/common.h
+json_validate_CFLAGS=-I../utils/
 
 flocks_test_SOURCES=flocks_test.c
 flocks_test_LDADD=$(PTHREAD_LIBS)
