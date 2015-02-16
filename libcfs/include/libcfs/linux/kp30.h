@@ -47,6 +47,7 @@
 #include <linux/unistd.h>
 #include <linux/kmod.h>
 #include <linux/notifier.h>
+#include <linux/net.h>
 #include <linux/fs.h>
 #include <linux/miscdevice.h>
 #include <linux/vmalloc.h>
@@ -59,6 +60,7 @@
 #include <asm/atomic.h>
 #include <asm/uaccess.h>
 #include <linux/rwsem.h>
+#include <linux/seq_file.h>
 #include <linux/proc_fs.h>
 #include <linux/file.h>
 #include <linux/smp.h>
