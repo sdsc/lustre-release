@@ -1,0 +1,6 @@
+{
+    global:
+	llapi_*;
+    local:
+	*;
+};
