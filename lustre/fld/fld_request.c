@@ -433,7 +433,7 @@ again:
 	}
 
 	if (rc != 0) {
-		if (imp->imp_state != LUSTRE_IMP_CLOSED) {
+		if (imp->imp_state != LUSTRE_IMP_CLOSED && !imp->imp_deactive) {
 			/* Since LWP is not replayable, so it will keep
 			 * trying unless umount happens, otherwise it would
 			 * cause unecessary failure of the application. */
