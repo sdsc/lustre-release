@@ -1397,6 +1397,7 @@ enum lu_ladvise_type {
 };
 
 #define LU_LADVISE_NAMES {  \
+	[LU_LADVISE_WILLNEED] = "willneed", \
 }
 
 struct lu_ladvise {
