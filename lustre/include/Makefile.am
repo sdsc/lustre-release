@@ -46,6 +46,7 @@ EXTRA_DIST = \
 	interval_tree.h \
 	liblustre.h \
 	lprocfs_status.h \
+	lu_cache.h \
 	lu_object.h \
 	lu_ref.h \
 	lustre_acl.h \

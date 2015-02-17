@@ -15,7 +15,7 @@ obdclass-all-objs += cl_object.o cl_page.o cl_lock.o cl_io.o lu_ref.o
 obdclass-all-objs += acl.o
 obdclass-all-objs += linkea.o
 
-@SERVER_TRUE@obdclass-all-objs += idmap.o
+@SERVER_TRUE@obdclass-all-objs += idmap.o upcall_cache.o
 @SERVER_TRUE@obdclass-all-objs += lprocfs_jobstats.o
 @SERVER_TRUE@obdclass-all-objs += lprocfs_status_server.o
 @SERVER_TRUE@obdclass-all-objs += lu_ucred.o
