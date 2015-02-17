@@ -150,7 +150,8 @@ void lu_object_put(const struct lu_env *env, struct lu_object *o)
         }
 
 	if (!lu_object_is_dying(top) &&
-	    (lu_object_exists(orig) || lu_object_is_cl(orig))) {
+	    (lu_object_exists(orig) || lu_object_is_cl(orig)) &&
+	    !lu_object_is_striped(top)) {
 		LASSERT(list_empty(&top->loh_lru));
 		list_add_tail(&top->loh_lru, &bkt->lsb_lru);
 		bkt->lsb_lru_len++;

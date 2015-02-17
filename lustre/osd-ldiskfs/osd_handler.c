@@ -607,13 +607,15 @@ static int osd_fid_lookup(const struct lu_env *env, struct osd_object *obj,
 	if (conf != NULL && conf->loc_flags & LOC_F_NEW)
 		GOTO(out, result = 0);
 
+#if 0
+	/* Disable OIC cache until LU-6465 is resolved */
 	/* Search order: 1. per-thread cache. */
 	if (lu_fid_eq(fid, &oic->oic_fid) &&
 	    likely(oic->oic_dev == dev)) {
 		id = &oic->oic_lid;
 		goto iget;
 	}
-
+#endif
 	id = &info->oti_id;
 	if (!list_empty(&scrub->os_inconsistent_items)) {
 		/* Search order: 2. OI scrub pending list. */
@@ -3928,6 +3930,7 @@ static int osd_ea_add_rec(const struct lu_env *env, struct osd_object *pobj,
         return rc;
 }
 
+#if 0
 static void
 osd_consistency_check(struct osd_thread_info *oti, struct osd_device *dev,
 		      struct osd_idmap_cache *oic)
@@ -3978,6 +3981,7 @@ again:
 
 	EXIT;
 }
+#endif
 
 static int osd_fail_fid_lookup(struct osd_thread_info *oti,
 			       struct osd_device *dev,
@@ -4169,9 +4173,10 @@ static int osd_ea_lookup_rec(const struct lu_env *env, struct osd_object *obj,
 
 		if (osd_remote_fid(env, dev, fid))
 			GOTO(out, rc = 0);
-
+#if 0
 		osd_add_oi_cache(osd_oti_get(env), osd_obj2dev(obj), id, fid);
 		osd_consistency_check(oti, dev, oic);
+#endif
 	} else {
 		rc = -ENOENT;
 	}
