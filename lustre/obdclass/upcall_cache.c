@@ -33,17 +33,19 @@
  * This file is part of Lustre, http://www.lustre.org/
  * Lustre is a trademark of Sun Microsystems, Inc.
  *
- * libcfs/libcfs/upcall_cache.c
+ * lustre/mdt/mdt_upcall_cache.c
  *
  * Supplementary groups cache.
  */
 #define DEBUG_SUBSYSTEM S_SEC
 
-#include <libcfs/lucache.h>
+#include <libcfs/libcfs.h>
+
+#include <lu_cache.h>
 #include <lnet/types.h>
 
 static struct upcall_cache_entry *alloc_entry(struct upcall_cache *cache,
-                                              __u64 key, void *args)
+					      __u64 key, void *args)
 {
 	struct upcall_cache_entry *entry;
 
@@ -63,7 +65,7 @@ static struct upcall_cache_entry *alloc_entry(struct upcall_cache *cache,
 
 /* protected by cache lock */
 static void free_entry(struct upcall_cache *cache,
-                       struct upcall_cache_entry *entry)
+		       struct upcall_cache_entry *entry)
 {
 	if (cache->uc_ops->free_entry)
 		cache->uc_ops->free_entry(cache, entry);
@@ -75,29 +77,29 @@ static void free_entry(struct upcall_cache *cache,
 }
 
 static inline int upcall_compare(struct upcall_cache *cache,
-                                 struct upcall_cache_entry *entry,
-                                 __u64 key, void *args)
+				 struct upcall_cache_entry *entry,
+				 __u64 key, void *args)
 {
-        if (entry->ue_key != key)
-                return -1;
+	if (entry->ue_key != key)
+		return -1;
 
-        if (cache->uc_ops->upcall_compare)
-                return cache->uc_ops->upcall_compare(cache, entry, key, args);
+	if (cache->uc_ops->upcall_compare)
+		return cache->uc_ops->upcall_compare(cache, entry, key, args);
 
-        return 0;
+	return 0;
 }
 
 static inline int downcall_compare(struct upcall_cache *cache,
-                                   struct upcall_cache_entry *entry,
-                                   __u64 key, void *args)
+				   struct upcall_cache_entry *entry,
+				   __u64 key, void *args)
 {
-        if (entry->ue_key != key)
-                return -1;
+	if (entry->ue_key != key)
+		return -1;
 
-        if (cache->uc_ops->downcall_compare)
-                return cache->uc_ops->downcall_compare(cache, entry, key, args);
+	if (cache->uc_ops->downcall_compare)
+		return cache->uc_ops->downcall_compare(cache, entry, key, args);
 
-        return 0;
+	return 0;
 }
 
 static inline void get_entry(struct upcall_cache_entry *entry)
@@ -140,14 +142,14 @@ static int check_unlink_entry(struct upcall_cache *cache,
 }
 
 static inline int refresh_entry(struct upcall_cache *cache,
-                         struct upcall_cache_entry *entry)
+			 struct upcall_cache_entry *entry)
 {
-        LASSERT(cache->uc_ops->do_upcall);
-        return cache->uc_ops->do_upcall(cache, entry);
+	LASSERT(cache->uc_ops->do_upcall);
+	return cache->uc_ops->do_upcall(cache, entry);
 }
 
 struct upcall_cache_entry *upcall_cache_get_entry(struct upcall_cache *cache,
-                                                  __u64 key, void *args)
+						  __u64 key, void *args)
 {
 	struct upcall_cache_entry *entry = NULL, *new = NULL, *next;
 	struct list_head *head;
@@ -155,7 +157,7 @@ struct upcall_cache_entry *upcall_cache_get_entry(struct upcall_cache *cache,
 	int rc, found;
 	ENTRY;
 
-        LASSERT(cache);
+	LASSERT(cache);
 
 	head = &cache->uc_hashtable[UC_CACHE_HASH_INDEX(key)];
 find_again:
@@ -193,16 +195,16 @@ find_again:
 	}
 	get_entry(entry);
 
-        /* acquire for new one */
-        if (UC_CACHE_IS_NEW(entry)) {
-                UC_CACHE_SET_ACQUIRING(entry);
-                UC_CACHE_CLEAR_NEW(entry);
+	/* acquire for new one */
+	if (UC_CACHE_IS_NEW(entry)) {
+		UC_CACHE_SET_ACQUIRING(entry);
+		UC_CACHE_CLEAR_NEW(entry);
 		spin_unlock(&cache->uc_lock);
 		rc = refresh_entry(cache, entry);
 		spin_lock(&cache->uc_lock);
-                entry->ue_acquire_expire =
-                        cfs_time_shift(cache->uc_acquire_expire);
-                if (rc < 0) {
+		entry->ue_acquire_expire =
+			cfs_time_shift(cache->uc_acquire_expire);
+		if (rc < 0) {
 			UC_CACHE_CLEAR_ACQUIRING(entry);
 			UC_CACHE_SET_INVALID(entry);
 			wake_up_all(&entry->ue_waitq);
@@ -210,13 +212,13 @@ find_again:
 				put_entry(cache, entry);
 				GOTO(out, entry = ERR_PTR(rc));
 			}
-                }
-        }
-        /* someone (and only one) is doing upcall upon this item,
-         * wait it to complete */
-        if (UC_CACHE_IS_ACQUIRING(entry)) {
-                long expiry = (entry == new) ?
-                              cfs_time_seconds(cache->uc_acquire_expire) :
+		}
+	}
+	/* someone (and only one) is doing upcall upon this item,
+	 * wait it to complete */
+	if (UC_CACHE_IS_ACQUIRING(entry)) {
+		long expiry = (entry == new) ?
+			      cfs_time_seconds(cache->uc_acquire_expire) :
 			      MAX_SCHEDULE_TIMEOUT;
 		long left;
 
@@ -238,24 +240,24 @@ find_again:
 			put_entry(cache, entry);
 			GOTO(out, entry = ERR_PTR(rc));
 		}
-        }
+	}
 
-        /* invalid means error, don't need to try again */
-        if (UC_CACHE_IS_INVALID(entry)) {
-                put_entry(cache, entry);
-                GOTO(out, entry = ERR_PTR(-EIDRM));
-        }
+	/* invalid means error, don't need to try again */
+	if (UC_CACHE_IS_INVALID(entry)) {
+		put_entry(cache, entry);
+		GOTO(out, entry = ERR_PTR(-EIDRM));
+	}
 
-        /* check expired
-         * We can't refresh the existing one because some
-         * memory might be shared by multiple processes.
-         */
-        if (check_unlink_entry(cache, entry)) {
-                /* if expired, try again. but if this entry is
-                 * created by me but too quickly turn to expired
-                 * without any error, should at least give a
-                 * chance to use it once.
-                 */
+	/* check expired
+	 * We can't refresh the existing one because some
+	 * memory might be shared by multiple processes.
+	 */
+	if (check_unlink_entry(cache, entry)) {
+		/* if expired, try again. but if this entry is
+		 * created by me but too quickly turn to expired
+		 * without any error, should at least give a
+		 * chance to use it once.
+		 */
 		if (entry != new) {
 			put_entry(cache, entry);
 			spin_unlock(&cache->uc_lock);
@@ -264,7 +266,7 @@ find_again:
 		}
 	}
 
-        /* Now we know it's good */
+	/* Now we know it's good */
 out:
 	spin_unlock(&cache->uc_lock);
 	RETURN(entry);
@@ -272,7 +274,7 @@ out:
 EXPORT_SYMBOL(upcall_cache_get_entry);
 
 void upcall_cache_put_entry(struct upcall_cache *cache,
-                            struct upcall_cache_entry *entry)
+			    struct upcall_cache_entry *entry)
 {
 	ENTRY;
 
@@ -290,7 +292,7 @@ void upcall_cache_put_entry(struct upcall_cache *cache,
 EXPORT_SYMBOL(upcall_cache_put_entry);
 
 int upcall_cache_downcall(struct upcall_cache *cache, __u32 err, __u64 key,
-                          void *args)
+			  void *args)
 {
 	struct upcall_cache_entry *entry = NULL;
 	struct list_head *head;
@@ -310,43 +312,43 @@ int upcall_cache_downcall(struct upcall_cache *cache, __u32 err, __u64 key,
 		}
 	}
 
-        if (!found) {
-                CDEBUG(D_OTHER, "%s: upcall for key "LPU64" not expected\n",
-                       cache->uc_name, key);
-                /* haven't found, it's possible */
+	if (!found) {
+		CDEBUG(D_OTHER, "%s: upcall for key "LPU64" not expected\n",
+		       cache->uc_name, key);
+		/* haven't found, it's possible */
 		spin_unlock(&cache->uc_lock);
-                RETURN(-EINVAL);
-        }
+		RETURN(-EINVAL);
+	}
 
-        if (err) {
-                CDEBUG(D_OTHER, "%s: upcall for key "LPU64" returned %d\n",
-                       cache->uc_name, entry->ue_key, err);
-                GOTO(out, rc = -EINVAL);
-        }
+	if (err) {
+		CDEBUG(D_OTHER, "%s: upcall for key "LPU64" returned %d\n",
+		       cache->uc_name, entry->ue_key, err);
+		GOTO(out, rc = -EINVAL);
+	}
 
-        if (!UC_CACHE_IS_ACQUIRING(entry)) {
-                CDEBUG(D_RPCTRACE,"%s: found uptodate entry %p (key "LPU64")\n",
-                       cache->uc_name, entry, entry->ue_key);
-                GOTO(out, rc = 0);
-        }
+	if (!UC_CACHE_IS_ACQUIRING(entry)) {
+		CDEBUG(D_RPCTRACE, "%s: found uptodate entry %p (key "LPU64")\n",
+		       cache->uc_name, entry, entry->ue_key);
+		GOTO(out, rc = 0);
+	}
 
-        if (UC_CACHE_IS_INVALID(entry) || UC_CACHE_IS_EXPIRED(entry)) {
-                CERROR("%s: found a stale entry %p (key "LPU64") in ioctl\n",
-                       cache->uc_name, entry, entry->ue_key);
-                GOTO(out, rc = -EINVAL);
-        }
+	if (UC_CACHE_IS_INVALID(entry) || UC_CACHE_IS_EXPIRED(entry)) {
+		CERROR("%s: found a stale entry %p (key "LPU64") in ioctl\n",
+		       cache->uc_name, entry, entry->ue_key);
+		GOTO(out, rc = -EINVAL);
+	}
 
 	spin_unlock(&cache->uc_lock);
 	if (cache->uc_ops->parse_downcall)
 		rc = cache->uc_ops->parse_downcall(cache, entry, args);
 	spin_lock(&cache->uc_lock);
-        if (rc)
-                GOTO(out, rc);
+	if (rc)
+		GOTO(out, rc);
 
-        entry->ue_expire = cfs_time_shift(cache->uc_entry_expire);
-        UC_CACHE_SET_VALID(entry);
-        CDEBUG(D_OTHER, "%s: created upcall cache entry %p for key "LPU64"\n",
-               cache->uc_name, entry, entry->ue_key);
+	entry->ue_expire = cfs_time_shift(cache->uc_entry_expire);
+	UC_CACHE_SET_VALID(entry);
+	CDEBUG(D_OTHER, "%s: created upcall cache entry %p for key "LPU64"\n",
+	       cache->uc_name, entry, entry->ue_key);
 out:
 	if (rc) {
 		UC_CACHE_SET_INVALID(entry);
@@ -428,7 +430,7 @@ void upcall_cache_flush_one(struct upcall_cache *cache, __u64 key, void *args)
 EXPORT_SYMBOL(upcall_cache_flush_one);
 
 struct upcall_cache *upcall_cache_init(const char *name, const char *upcall,
-                                       struct upcall_cache_ops *ops)
+				       struct upcall_cache_ops *ops)
 {
 	struct upcall_cache *cache;
 	int i;
@@ -440,7 +442,7 @@ struct upcall_cache *upcall_cache_init(const char *name, const char *upcall,
 
 	spin_lock_init(&cache->uc_lock);
 	rwlock_init(&cache->uc_upcall_rwlock);
-        for (i = 0; i < UC_CACHE_HASH_SIZE; i++)
+	for (i = 0; i < UC_CACHE_HASH_SIZE; i++)
 		INIT_LIST_HEAD(&cache->uc_hashtable[i]);
 	strlcpy(cache->uc_name, name, sizeof(cache->uc_name));
 	/* upcall pathname proc tunable */
@@ -455,9 +457,9 @@ EXPORT_SYMBOL(upcall_cache_init);
 
 void upcall_cache_cleanup(struct upcall_cache *cache)
 {
-        if (!cache)
-                return;
-        upcall_cache_flush_all(cache);
-        LIBCFS_FREE(cache, sizeof(*cache));
+	if (!cache)
+		return;
+	upcall_cache_flush_all(cache);
+	LIBCFS_FREE(cache, sizeof(*cache));
 }
 EXPORT_SYMBOL(upcall_cache_cleanup);
