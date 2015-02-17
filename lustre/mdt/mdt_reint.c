@@ -778,6 +778,7 @@ static int mdt_reint_unlink(struct mdt_thread_info *info,
         struct mdt_object       *mc;
         struct mdt_lock_handle  *parent_lh;
         struct mdt_lock_handle  *child_lh;
+	__u64			lock_ibits;
 	struct ldlm_enqueue_info *einfo = &info->mti_einfo;
 	struct mdt_lock_handle  *s0_lh = NULL;
 	struct mdt_object	*s0_obj = NULL;
@@ -913,11 +914,6 @@ static int mdt_reint_unlink(struct mdt_thread_info *info,
 	/* We used to acquire MDS_INODELOCK_FULL here but we can't do
 	 * this now because a running HSM restore on the child (unlink
 	 * victim) will hold the layout lock. See LU-4002. */
-<<<<<<< HEAD
-	rc = mdt_object_lock(info, mc, child_lh,
-			     MDS_INODELOCK_LOOKUP | MDS_INODELOCK_UPDATE,
-			     MDT_CROSS_LOCK);
-=======
 	lock_ibits = MDS_INODELOCK_LOOKUP | MDS_INODELOCK_UPDATE;
 	if (mdt_object_remote(mp)) {
 		/* Enqueue lookup lock from parent MDT */
@@ -932,7 +928,6 @@ static int mdt_reint_unlink(struct mdt_thread_info *info,
 	}
 
 	rc = mdt_object_lock(info, mc, child_lh, lock_ibits);
->>>>>>> b8fc9fe... LU-3537 mdt: allow cross-MDT rename and link
 	if (rc != 0)
 		GOTO(put_child, rc);
 	/*
@@ -1357,6 +1352,7 @@ static int mdt_reint_migrate_internal(struct mdt_thread_info *info,
 	struct mdt_lock_handle  *lh_tgtp = NULL;
 	struct lu_fid           *old_fid = &info->mti_tmp_fid1;
 	struct list_head	lock_list;
+	__u64			lock_ibits;
 	int			rc;
 	ENTRY;
 
@@ -1445,7 +1441,7 @@ static int mdt_reint_migrate_internal(struct mdt_thread_info *info,
 
 	rc = mdt_object_lock(info, mold, lh_childp, lock_ibits);
 	if (rc != 0)
-		GOTO(out_unlock_list, rc);
+		GOTO(out_unlock_child, rc);
 
 	ma->ma_need = MA_LMV;
 	ma->ma_valid = 0;
@@ -1453,7 +1449,7 @@ static int mdt_reint_migrate_internal(struct mdt_thread_info *info,
 	ma->ma_lmv_size = sizeof(info->mti_xattr_buf);
 	rc = mdt_stripe_get(info, mold, ma, XATTR_NAME_LMV);
 	if (rc != 0)
-		GOTO(out_unlock_list, rc);
+		GOTO(out_unlock_child, rc);
 
 	if ((ma->ma_valid & MA_LMV)) {
 		struct lmv_mds_md_v1 *lmm1;
