@@ -778,6 +778,7 @@ static int mdt_reint_unlink(struct mdt_thread_info *info,
         struct mdt_object       *mc;
         struct mdt_lock_handle  *parent_lh;
         struct mdt_lock_handle  *child_lh;
+	__u64			lock_ibits;
 	struct ldlm_enqueue_info *einfo = &info->mti_einfo;
 	struct mdt_lock_handle  *s0_lh = NULL;
 	struct mdt_object	*s0_obj = NULL;
@@ -1441,7 +1442,7 @@ static int mdt_reint_migrate_internal(struct mdt_thread_info *info,
 
 	rc = mdt_object_lock(info, mold, lh_childp, lock_ibits);
 	if (rc != 0)
-		GOTO(out_unlock_list, rc);
+		GOTO(out_unlock_child, rc);
 
 	ma->ma_need = MA_LMV;
 	ma->ma_valid = 0;
@@ -1449,7 +1450,7 @@ static int mdt_reint_migrate_internal(struct mdt_thread_info *info,
 	ma->ma_lmv_size = sizeof(info->mti_xattr_buf);
 	rc = mdt_stripe_get(info, mold, ma, XATTR_NAME_LMV);
 	if (rc != 0)
-		GOTO(out_unlock_list, rc);
+		GOTO(out_unlock_child, rc);
 
 	if ((ma->ma_valid & MA_LMV)) {
 		struct lmv_mds_md_v1 *lmm1;
