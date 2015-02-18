@@ -6888,7 +6888,9 @@ test_mkdir() {
 	local path
 	local p_option
 	local option2
+	local option3
 	local stripe_count=2
+	local stripe_index=-1
 	local rc=0
 
 	case $# in
@@ -6898,6 +6900,10 @@ test_mkdir() {
 		3) option=$1
 		   option2=$2
 		   path=$3;;
+		4) option=$1
+		   option2=$2
+		   option3=$3
+		   path=$4;;
 		*) error "Only creating single directory is supported";;
 	esac
 
@@ -6913,10 +6919,20 @@ test_mkdir() {
 
 	if [ "${option:0:2}" == "-c" ]; then
 		stripe_count=$(echo $option | sed 's/^-c//')
+	elif [ "${option:0:2}" == "-i" ]; then
+		stripe_index=$(echo $option | sed 's/^-i//')
 	fi
 
 	if [ "${option2:0:2}" == "-c" ]; then
 		stripe_count=$(echo $option2 | sed 's/^-c//')
+	elif [ "${option2:0:2}" == "-i" ]; then
+		stripe_index=$(echo $option2 | sed 's/^-i//')
+	fi
+
+	if [ "${option3:0:2}" == "-c" ]; then
+		stripe_count=$(echo $option3 | sed 's/^-c//')
+	elif [ "${option3:0:2}" == "-i" ]; then
+		stripe_index=$(echo $option3 | sed 's/^-i//')
 	fi
 
 	if [ ! -d ${parent} ]; then
@@ -6930,10 +6946,14 @@ test_mkdir() {
 	if [ $MDSCOUNT -le 1 ]; then
 		mkdir $p_option $parent/$child || rc=$?
 	else
-		local mdt_idx=$($LFS getstripe -M $parent)
 		local test_num=$(echo $testnum | sed -e 's/[^0-9]*//g')
+		local mdt_idx
 
-		mdt_idx=$((test_num % MDSCOUNT))
+		if [ $stripe_index -eq -1 ]; then
+			mdt_idx=$((test_num % MDSCOUNT))
+		else
+			mdt_idx=$stripe_index
+		fi
 		echo "striped dir -i$mdt_idx -c$stripe_count $path"
 		$LFS setdirstripe -i$mdt_idx -c$stripe_count $path || rc=$?
 	fi
