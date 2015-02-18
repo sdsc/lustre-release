@@ -45,6 +45,9 @@
 #include <getopt.h>
 #include <time.h>
 #include <utime.h>
+#ifdef HAVE_LIBPTHREAD
+#include <pthread.h>
+#endif
 #include <sys/time.h>
 #include <sys/xattr.h>
 #include <sys/syscall.h>
