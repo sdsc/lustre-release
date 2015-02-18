@@ -6884,56 +6884,53 @@ generate_logname() {
 test_mkdir() {
 	local option
 	local parent
-	local child
 	local path
 	local p_option
-	local option2
 	local stripe_count=2
+	local stripe_index=-1
 	local rc=0
+	local OPTIND=1
 
-	case $# in
-		1) path=$1;;
-		2) option=$1
-		   path=$2;;
-		3) option=$1
-		   option2=$2
-		   path=$3;;
-		*) error "Only creating single directory is supported";;
-	esac
+	while getopts "c:i:p" opt $*; do
+		case $opt in
+			c) stripe_count=$OPTARG;;
+			i) stripe_index=$OPTARG;;
+			p) p_option="-p";;
+			\?) usage;;
+		esac
+	done
 
-	child=$(basename $path)
-	parent=$(dirname $path)
+	shift $((OPTIND - 1))
+	[ $# -eq 1 ] || error "Only creating single directory is supported"
+	path="$*"
 
-	if [ "$option" == "-p" -o "$option2" == "-p" ]; then
-		if [ -d $parent/$child ]; then
-			return $rc
+	if [ "$p_option" == "-p" ]; then
+		if [ -d $path ]; then
+			return 0
 		fi
 		p_option="-p"
 	fi
 
-	if [ "${option:0:2}" == "-c" ]; then
-		stripe_count=$(echo $option | sed 's/^-c//')
-	fi
-
-	if [ "${option2:0:2}" == "-c" ]; then
-		stripe_count=$(echo $option2 | sed 's/^-c//')
-	fi
-
-	if [ ! -d ${parent} ]; then
-		if [ "$p_option" == "-p" ]; then
-			mkdir -p ${parent}
-		else
-			return 1
-		fi
-	fi
-
 	if [ $MDSCOUNT -le 1 ]; then
-		mkdir $p_option $parent/$child || rc=$?
+		mkdir $p_option $path || rc=$?
 	else
-		local mdt_idx=$($LFS getstripe -M $parent)
 		local test_num=$(echo $testnum | sed -e 's/[^0-9]*//g')
+		local parent=$(dirname $path)
+		local mdt_idx
 
-		mdt_idx=$((test_num % MDSCOUNT))
+		if [ ! -d ${parent} ]; then
+			if [ "$p_option" == "-p" ]; then
+				mkdir -p ${parent}
+			else
+				return 1
+			fi
+		fi
+
+		if [ $stripe_index -eq -1 ]; then
+			mdt_idx=$((test_num % MDSCOUNT))
+		else
+			mdt_idx=$stripe_index
+		fi
 		echo "striped dir -i$mdt_idx -c$stripe_count $path"
 		$LFS setdirstripe -i$mdt_idx -c$stripe_count $path || rc=$?
 	fi
