@@ -40,13 +40,12 @@
 
 #include <getopt.h>
 #include <pwd.h>
+#include <unistd.h>
+
 #include <libcfs/libcfsutil.h>
 #include <lnet/lnetctl.h>
 #include <lnet/lnetst.h>
-#include <lnet/nidstr.h>
-/* NB: these includes are layering violation */
-#include <lustre_ver.h>
-#include <lustre/lustre_idl.h>
+#include <lnet/lnet.h>
 
 lst_sid_t LST_INVALID_SID = {LNET_NID_ANY, -1};
 static lst_sid_t           session_id;
@@ -2969,7 +2968,7 @@ lst_get_bulk_param(int argc, char **argv, lst_test_bulk_param_t *bulk)
                         else if (*end == 'm' || *end == 'M')
                                 bulk->blk_size *= 1024 * 1024;
 
-			if (bulk->blk_size > PAGE_CACHE_SIZE * LNET_MAX_IOV) {
+			if (bulk->blk_size > sysconf(_SC_PAGESIZE) * LNET_MAX_IOV) {
                                 fprintf(stderr, "Size exceed limitation: %d bytes\n",
                                         bulk->blk_size);
                                 return -1;

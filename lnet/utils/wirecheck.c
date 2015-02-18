@@ -44,9 +44,9 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/wait.h>
-#include <lnet/lib-types.h>
 
-#include <string.h>
+#include <libcfs/libcfsutil.h>
+#include <lnet/lnet.h>
 
 #ifndef HAVE_STRNLEN
 #define strnlen(s, i) strlen(s)

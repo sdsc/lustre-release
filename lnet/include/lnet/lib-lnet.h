@@ -43,7 +43,8 @@
 
 #include <libcfs/libcfs.h>
 #include <lnet/types.h>
-#include <lnet/lnet.h>
+#include <lnet/api.h>
+#include <lnet/nidstr.h>
 #include <lnet/lib-types.h>
 #include <lnet/lib-dlc.h>
 
