@@ -312,6 +312,27 @@ LB_LINUX_TRY_COMPILE([
 ])
 
 #
+# 2.6.38 kstrtoul is added (backported to RHEL6)
+#
+AC_DEFUN([LIBCFS_KSTRTOUL],
+[AC_MSG_CHECKING([if kstrtoul exists])
+tmp_flags="$EXTRA_KCFLAGS"
+EXTRA_KCFLAGS="-Werror"
+LB_LINUX_TRY_COMPILE([
+	#include <linux/kernel.h>
+],[
+	unsigned long result;
+	return kstrtoul("12345", 0, &result);
+],[
+	AC_DEFINE(HAVE_KSTRTOUL, 1, [kstrtoul exists])
+	AC_MSG_RESULT([yes])
+],[
+	AC_MSG_RESULT([no])
+])
+EXTRA_KCFLAGS="$tmp_flags"
+])
+
+#
 # FC15 2.6.40-5 backported the "shrink_control" parameter to the memory
 # pressure shrinker from Linux 3.0
 #
@@ -381,6 +402,8 @@ LIBCFS_SYSCTL_CTLNAME
 LIBCFS_ADD_WAIT_QUEUE_EXCLUSIVE
 # 2.6.35
 LC_SK_SLEEP
+# 2.6.38
+LIBCFS_KSTRTOUL
 # 2.6.40 fc15
 LC_SHRINK_CONTROL
 # 3.7

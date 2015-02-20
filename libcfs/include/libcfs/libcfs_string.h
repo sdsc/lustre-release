@@ -135,6 +135,17 @@ void cfs_ip_addr_free(cfs_list_t *list);
 
 #ifdef __KERNEL__
 #define	strtoul(str, endp, base)	simple_strtoul(str, endp, base)
+
+#ifndef HAVE_KSTRTOUL
+static inline int kstrtoul(const char *s, unsigned int base, unsigned long *res)
+{
+	char *end = (char *)s;
+
+	*res = simple_strtoul(s, &end, base);
+
+	return end - s;
+}
+#endif /* !HAVE_KSTRTOUL */
 #endif
 
 #endif
