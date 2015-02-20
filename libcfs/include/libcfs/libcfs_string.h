@@ -132,8 +132,15 @@ int cfs_ip_addr_parse(char *str, int len, struct list_head *list);
 int cfs_ip_addr_match(__u32 addr, struct list_head *list);
 void cfs_ip_addr_free(struct list_head *list);
 
-#ifdef __KERNEL__
-#define	strtoul(str, endp, base)	simple_strtoul(str, endp, base)
-#endif
+#ifndef HAVE_KSTRTOUL
+static inline int kstrtoul(const char *s, unsigned int base, unsigned long *res)
+{
+	char *end = (char *)s;
+
+	*res = simple_strtoul(s, &end, base);
+
+	return end - s;
+}
+#endif /* !HAVE_KSTRTOUL */
 
 #endif
