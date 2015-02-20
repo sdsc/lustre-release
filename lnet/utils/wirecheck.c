@@ -44,9 +44,9 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/wait.h>
-#include <lnet/lib-types.h>
+#include <lnet/types.h>
 
-#include <string.h>
+#define offsetof(typ,memb) ((long)(long)((char *)&(((typ *)0)->memb)))
 
 #ifndef HAVE_STRNLEN
 #define strnlen(s, i) strlen(s)

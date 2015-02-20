@@ -27,8 +27,8 @@
 #ifndef LNET_DLC_H
 #define LNET_DLC_H
 
+#include <lnet/types.h>
 #include <libcfs/libcfs_ioctl.h>
-#include <lnet/lib-types.h>
 
 #define MAX_NUM_SHOW_ENTRIES	32
 #define LNET_MAX_STR_LEN	128
@@ -39,6 +39,13 @@ struct lnet_ioctl_net_config {
 	__u32 ni_status;
 	__u32 ni_cpts[LNET_MAX_SHOW_NUM_CPT];
 };
+
+#define LNET_TINY_BUF_IDX	0
+#define LNET_SMALL_BUF_IDX	1
+#define LNET_LARGE_BUF_IDX	2
+
+/* # different router buffer pools */
+#define LNET_NRBPOOLS		(LNET_LARGE_BUF_IDX + 1)
 
 struct lnet_ioctl_pool_cfg {
 	struct {
