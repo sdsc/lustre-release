@@ -889,20 +889,12 @@ LNetSetLazyPortal(int portal)
 }
 EXPORT_SYMBOL(LNetSetLazyPortal);
 
-/**
- * Turn off the lazy portal attribute. Delayed requests on the portal,
- * if any, will be all dropped when this function returns.
- *
- * \param portal Index of the portal to disable the lazy attribute on.
- *
- * \retval 0       On success.
- * \retval -EINVAL If \a portal is not a valid index.
- */
-int
-LNetClearLazyPortal(int portal)
+static int
+lnet_clear_lazy_portal(struct lnet_ni *ni, int portal, char *reason)
 {
 	struct lnet_portal	*ptl;
-	struct list_head        zombies = LIST_HEAD_INIT(zombies);
+	struct list_head	zombies = LIST_HEAD_INIT(zombies);
+	struct lnet_msg		*msg;
 
 	if (portal < 0 || portal >= the_lnet.ln_nportals)
 		return -EINVAL;
@@ -918,21 +910,66 @@ LNetClearLazyPortal(int portal)
 		return 0;
 	}
 
-	if (the_lnet.ln_shutdown)
-		CWARN("Active lazy portal %d on exit\n", portal);
-	else
-		CDEBUG(D_NET, "clearing portal %d lazy\n", portal);
+	if (ni != NULL) {
+		/* grab all messages which are on the NI passed in */
+		while (!list_empty(&ptl->ptl_msg_delayed)) {
+			msg = list_entry(ptl->ptl_msg_delayed.next,
+					 struct lnet_msg,
+					 msg_list);
+			if (msg->msg_rxpeer->lp_ni == ni) {
+				list_del(&msg->msg_list);
+				list_add_tail(&msg->msg_list, &zombies);
+			}
+		}
+	} else {
+		if (the_lnet.ln_shutdown)
+			CWARN("Active lazy portal %d on exit\n", portal);
+		else
+			CDEBUG(D_NET, "clearing portal %d lazy\n", portal);
 
-	/* grab all the blocked messages atomically */
-	list_splice_init(&ptl->ptl_msg_delayed, &zombies);
+		/* grab all the blocked messages atomically */
+		list_splice_init(&ptl->ptl_msg_delayed, &zombies);
 
-	lnet_ptl_unsetopt(ptl, LNET_PTL_LAZY);
+		lnet_ptl_unsetopt(ptl, LNET_PTL_LAZY);
+	}
 
 	lnet_ptl_unlock(ptl);
 	lnet_res_unlock(LNET_LOCK_EX);
 
-	lnet_drop_delayed_msg_list(&zombies, "Clearing lazy portal attr");
+	lnet_drop_delayed_msg_list(&zombies, reason);
 
 	return 0;
 }
+
+/**
+ * Turn off the lazy portal attribute. Delayed requests on the portal,
+ * if any, will be all dropped when this function returns.
+ *
+ * \param portal Index of the portal to disable the lazy attribute on.
+ *
+ * \retval 0       On success.
+ * \retval -EINVAL If \a portal is not a valid index.
+ */
+int
+LNetClearLazyPortal(int portal)
+{
+	return lnet_clear_lazy_portal(NULL, portal,
+				      "Clearing lazy portal attr");
+}
 EXPORT_SYMBOL(LNetClearLazyPortal);
+
+/**
+ * drop all messages on the specified NI.
+ *
+ * \param Network Interface
+ * \param portal Index of the portal to disable the lazy attribute on.
+ *
+ * \retval 0       On success.
+ * \retval -EINVAL If \a portal is not a valid index.
+ */
+int
+LNetClearNILazyPortal(struct lnet_ni *ni, int portal)
+{
+	return lnet_clear_lazy_portal(NULL, portal, "Shutting down NI");
+}
+EXPORT_SYMBOL(LNetClearNILazyPortal);

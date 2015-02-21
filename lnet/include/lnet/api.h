@@ -46,6 +46,7 @@
  */
 
 #include <lnet/types.h>
+#include <lnet/lib-types.h>
 
 /** \defgroup lnet_init_fini Initialization and cleanup
  * The LNet must be properly initialized before any LNet calls can be made.
@@ -206,6 +207,7 @@ int LNetGet(lnet_nid_t        self,
 
 int LNetSetLazyPortal(int portal);
 int LNetClearLazyPortal(int portal);
+int LNetClearNILazyPortal(struct lnet_ni *ni, int portal);
 int LNetCtl(unsigned int cmd, void *arg);
 
 /** @} lnet_misc */
