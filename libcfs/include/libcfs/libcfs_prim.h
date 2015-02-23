@@ -40,9 +40,12 @@
 #ifndef __LIBCFS_PRIM_H__
 #define __LIBCFS_PRIM_H__
 
-/*
- * Wait Queues
- */
+#include <linux/sched.h>
+#ifndef HAVE_LIBCFS_CPT
+/* Need this for cfs_cpt_table */
+#include <libcfs/libcfs_cpu.h>
+#endif
+
 /*
  * Timer
  */
@@ -59,6 +62,18 @@ cfs_time_t cfs_timer_deadline(struct timer_list *t);
 /*
  * Memory
  */
+#if BITS_PER_LONG == 32
+/* limit to lowmem on 32-bit systems */
+#define NUM_CACHEPAGES \
+	min(totalram_pages, 1UL << (30 - PAGE_CACHE_SHIFT) * 3 / 4)
+#else
+#define NUM_CACHEPAGES totalram_pages
+#endif
+
+#define memory_pressure_get() (current->flags & PF_MEMALLOC)
+#define memory_pressure_set() do { current->flags |= PF_MEMALLOC; } while (0)
+#define memory_pressure_clr() do { current->flags &= ~PF_MEMALLOC; } while (0)
+
 static inline int cfs_memory_pressure_get_and_set(void)
 {
 	int old = memory_pressure_get();
@@ -76,4 +91,14 @@ static inline void cfs_memory_pressure_restore(int old)
 		memory_pressure_clr();
 	return;
 }
+
+extern void *cfs_cpt_malloc(struct cfs_cpt_table *cptab, int cpt,
+			    size_t nr_bytes, gfp_t flags);
+extern void *cfs_cpt_vzalloc(struct cfs_cpt_table *cptab, int cpt,
+			     size_t nr_bytes);
+extern struct page *cfs_page_cpt_alloc(struct cfs_cpt_table *cptab,
+				      int cpt, gfp_t flags);
+extern void *cfs_mem_cache_cpt_alloc(struct kmem_cache *cachep,
+				     struct cfs_cpt_table *cptab,
+				     int cpt, gfp_t flags);
 #endif

@@ -24,6 +24,7 @@
 
 #include <sys/ioctl.h>
 #include <sys/mman.h>
+#include <unistd.h>
 #include <libcfs/libcfsutil.h>
 #include <lnet/lnetctl.h>
 
