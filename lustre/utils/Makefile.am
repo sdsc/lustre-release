@@ -81,7 +81,7 @@ llverfs_LDADD := $(EXT2FSLIB) $(E2PLIB)
 
 llverdev_LDADD := $(EXT2FSLIB) $(BLKIDLIB)
 
-L_STRING := $(top_builddir)/libcfs/libcfs/user-string.c
+L_STRING := $(top_builddir)/libcfs/libcfs/util/user-string.c
 L_IOCTL := $(top_builddir)/libcfs/libcfs/util/l_ioctl.c
 L_KERNELCOMM := $(top_builddir)/libcfs/libcfs/kernel_user_comm.c
 liblustreapitmp_a_SOURCES = liblustreapi.c liblustreapi_hsm.c \

@@ -318,7 +318,6 @@ static int init_libcfs_module(void)
 	int rc;
 
 	libcfs_arch_init();
-	libcfs_init_nidstrings();
 	init_rwsem(&cfs_tracefile_sem);
 	mutex_init(&cfs_trace_thread_mutex);
 	init_rwsem(&ioctl_list_sem);
