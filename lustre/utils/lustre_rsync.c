@@ -121,6 +121,7 @@
 #include <utime.h>
 #include <sys/xattr.h>
 
+#include <libcfs/util/string.h>
 #include <libcfs/libcfsutil.h>
 #include <lustre/lustreapi.h>
 #include <lustre/lustre_idl.h>

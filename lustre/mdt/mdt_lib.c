@@ -48,6 +48,9 @@
 
 #define DEBUG_SUBSYSTEM S_MDS
 
+#ifdef HAVE_UIDGID_HEADER
+#include <linux/uidgid.h>
+#endif
 #include "mdt_internal.h"
 #include <lnet/nidstr.h>
 #include <lustre_nodemap.h>

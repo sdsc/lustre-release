@@ -41,6 +41,14 @@
 
 /* FIXME - rename these to libcfs_ */
 
+#ifndef min
+# define min(x,y) ((x)<(y) ? (x) : (y))
+#endif
+
+#ifndef max
+# define max(x,y) ((x)>(y) ? (x) : (y))
+#endif
+
 int libcfs_ioctl_pack(struct libcfs_ioctl_data *data, char **pbuf, int max);
 void libcfs_ioctl_unpack(struct libcfs_ioctl_data *data, char *pbuf);
 typedef int (ioc_handler_t)(int dev_id, unsigned int opc, void *buf);

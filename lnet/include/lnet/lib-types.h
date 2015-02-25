@@ -42,6 +42,7 @@
 #ifndef __LNET_LIB_TYPES_H__
 #define __LNET_LIB_TYPES_H__
 
+#include <linux/kthread.h>
 #include <linux/uio.h>
 #include <linux/types.h>
 #include <net/sock.h>
