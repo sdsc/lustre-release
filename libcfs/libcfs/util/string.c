@@ -137,23 +137,6 @@ int cfs_str2mask(const char *str, const char *(*bit2str)(int bit),
 	return 0;
 }
 
-/* Duplicate a string in a platform-independent way */
-char *cfs_strdup(const char *str, u_int32_t flags)
-{
-	size_t lenz; /* length of str + zero byte */
-	char *dup_str;
-
-	lenz = strlen(str) + 1;
-
-	dup_str = kmalloc(lenz, flags);
-	if (dup_str == NULL)
-		return NULL;
-
-	memcpy(dup_str, str, lenz);
-
-	return dup_str;
-}
-
 /**
  * cfs_{v}snprintf() return the actual size that is printed rather than
  * the size that would be printed in standard functions.
