@@ -638,6 +638,16 @@ int tgt_request_handle(struct ptlrpc_request *req)
 	else
 		tsi->tsi_jobid = NULL;
 
+	LASSERT(req->rq_xid != 0);
+	if (req->rq_export != NULL) {
+		__u64	xid = lustre_msg_get_lastseen(msg);
+		if (xid != 0)
+			req->rq_export->exp_last_seen = xid;
+		LASSERTF(req->rq_xid > req->rq_export->exp_last_seen,
+			 "xid %llx, last %llx\n", req->rq_xid,
+			 req->rq_export->exp_last_seen);
+	}
+
 	request_fail_id = tgt->lut_request_fail_id;
 	tsi->tsi_reply_fail_id = tgt->lut_reply_fail_id;
 

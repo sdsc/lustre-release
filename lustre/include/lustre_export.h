@@ -269,6 +269,7 @@ struct obd_export {
         } u;
 
 	struct adaptive_timeout    exp_bl_lock_at;
+	__u64			exp_last_seen;
 };
 
 #define exp_target_data u.eu_target_data
