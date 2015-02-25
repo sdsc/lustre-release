@@ -19,3 +19,5 @@ it is possible to automatically check every patch and commit against the
 Lustre Coding Guidelines.  To do this, run in the top-level lustre/ tree:
 
     cp build/{prepare-,}commit-msg .git/hooks/
+
+Changing more stuff here
