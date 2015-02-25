@@ -1091,6 +1091,24 @@ __u64 lustre_msg_get_transno(struct lustre_msg *msg)
 }
 EXPORT_SYMBOL(lustre_msg_get_transno);
 
+__u64 lustre_msg_get_lastseen(struct lustre_msg *msg)
+{
+	switch (msg->lm_magic) {
+	case LUSTRE_MSG_MAGIC_V2: {
+		struct ptlrpc_body *pb = lustre_msg_ptlrpc_body(msg);
+		if (unlikely(pb == NULL)) {
+			CERROR("invalid msg %p: no ptlrpc body!\n", msg);
+			return 0;
+		}
+		return pb->pb_last_seen;
+	}
+	default:
+		CERROR("incorrect message magic: %08x\n", msg->lm_magic);
+		return 0;
+	}
+}
+EXPORT_SYMBOL(lustre_msg_get_lastseen);
+
 int lustre_msg_get_status(struct lustre_msg *msg)
 {
         switch (msg->lm_magic) {
@@ -1439,6 +1457,21 @@ void lustre_msg_set_transno(struct lustre_msg *msg, __u64 transno)
         }
 }
 EXPORT_SYMBOL(lustre_msg_set_transno);
+
+void lustre_msg_set_lastseen(struct lustre_msg *msg, __u64 lastseen)
+{
+	switch (msg->lm_magic) {
+	case LUSTRE_MSG_MAGIC_V2: {
+		struct ptlrpc_body *pb = lustre_msg_ptlrpc_body(msg);
+		LASSERTF(pb, "invalid msg %p: no ptlrpc body!\n", msg);
+		pb->pb_last_seen = lastseen;
+		return;
+	}
+	default:
+		LASSERTF(0, "incorrect message magic: %08x\n", msg->lm_magic);
+	}
+}
+EXPORT_SYMBOL(lustre_msg_set_lastseen);
 
 void lustre_msg_set_status(struct lustre_msg *msg, __u32 status)
 {

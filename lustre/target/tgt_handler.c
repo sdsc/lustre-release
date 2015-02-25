@@ -638,6 +638,20 @@ int tgt_request_handle(struct ptlrpc_request *req)
 	else
 		tsi->tsi_jobid = NULL;
 
+	if (req->rq_export != NULL) {
+		__u64	xid = lustre_msg_get_lastseen(msg);
+		if (xid != 0)
+			req->rq_export->exp_last_seen = xid;
+#if LUSTRE_VERSION_CODE < OBD_OCD_VERSION(2, 7, 53, 0)
+		LASSERT(req->rq_xid != 0);
+		LASSERTF(req->rq_xid > req->rq_export->exp_last_seen,
+			 "xid %llx, last %llx\n", req->rq_xid,
+			 req->rq_export->exp_last_seen);
+#else
+#error "return an error instead"
+#endif
+	}
+
 	request_fail_id = tgt->lut_request_fail_id;
 	tsi->tsi_reply_fail_id = tgt->lut_reply_fail_id;
 
