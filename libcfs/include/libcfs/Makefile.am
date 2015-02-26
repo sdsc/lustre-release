@@ -29,6 +29,4 @@ EXTRA_DIST = \
 	libcfsutil.h \
 	list.h \
 	types.h \
-	user-bitops.h \
-	user-crypto.h \
 	user-time.h
