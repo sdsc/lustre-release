@@ -49,54 +49,12 @@
 #error This include is only for kernel use.
 #endif
 
-#include <linux/module.h>
-#include <linux/init.h>
-#include <linux/kernel.h>
-#include <linux/version.h>
-#include <linux/proc_fs.h>
-#include <linux/mm.h>
-#include <linux/timer.h>
-#include <linux/signal.h>
 #include <linux/sched.h>
-#include <linux/kthread.h>
-#ifdef HAVE_LINUX_RANDOM_H
-#include <linux/random.h>
-#endif
-#ifdef HAVE_UIDGID_HEADER
-#include <linux/uidgid.h>
-#endif
-#include <linux/user_namespace.h>
-#include <linux/miscdevice.h>
-#include <asm/div64.h>
-
-#include <libcfs/linux/linux-time.h>
-
-
-/*
- * CPU
- */
-#ifdef for_each_possible_cpu
-#define cfs_for_each_possible_cpu(cpu) for_each_possible_cpu(cpu)
-#elif defined(for_each_cpu)
-#define cfs_for_each_possible_cpu(cpu) for_each_cpu(cpu)
-#endif
-
-#ifndef NR_CPUS
-#define NR_CPUS				1
-#endif
+#include <linux/wait.h>
 
 /*
  * Wait Queue
  */
-
-
-#define CFS_DECL_WAITQ(wq)		DECLARE_WAIT_QUEUE_HEAD(wq)
-
-#define LIBCFS_WQITQ_MACROS           1
-#define init_waitqueue_entry_current(w)          init_waitqueue_entry(w, current)
-#define waitq_wait(w, s)          schedule()
-#define waitq_timedwait(w, s, t)  schedule_timeout(t)
-
 #ifndef HAVE___ADD_WAIT_QUEUE_EXCLUSIVE
 static inline void __add_wait_queue_exclusive(wait_queue_head_t *q,
 					      wait_queue_t *wait)
@@ -127,32 +85,5 @@ static inline void __add_wait_queue_exclusive(wait_queue_head_t *q,
 	__add_wait_queue_exclusive(waitq, link);			\
 	spin_unlock_irqrestore(&((waitq)->lock), flags);		\
 }
-
-#define schedule_timeout_and_set_state(state, timeout)			\
-{									\
-	set_current_state(state);					\
-	schedule_timeout(timeout);					\
-}
-
-/* deschedule for a bit... */
-#define cfs_pause(ticks)						\
-{									\
-	set_current_state(TASK_UNINTERRUPTIBLE);			\
-	schedule_timeout(ticks);					\
-}
-
-#define DECL_JOURNAL_DATA           void *journal_info
-#define PUSH_JOURNAL                do {    \
-        journal_info = current->journal_info;   \
-        current->journal_info = NULL;           \
-        } while(0)
-#define POP_JOURNAL                 do {    \
-        current->journal_info = journal_info;   \
-        } while(0)
-
-/* Module interfaces */
-#define cfs_module(name, version, init, fini) \
-        module_init(init);                    \
-        module_exit(fini)
 
 #endif

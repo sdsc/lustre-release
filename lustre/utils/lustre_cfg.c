@@ -50,13 +50,13 @@
 #include <ctype.h>
 #include <glob.h>
 
+#include <libcfs/util/string.h>
 #include <libcfs/libcfs.h>
 #include <lnet/nidstr.h>
-#include <lustre_cfg.h>
 #include <lustre/lustre_idl.h>
 #include <lustre/lustre_build_version.h>
+#include <lustre_cfg.h>
 
-#include <unistd.h>
 #include <sys/un.h>
 #include <time.h>
 #include <sys/time.h>

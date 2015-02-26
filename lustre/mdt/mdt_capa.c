@@ -42,6 +42,7 @@
 
 #define DEBUG_SUBSYSTEM S_MDS
 
+#include <linux/kthread.h>
 #include "mdt_internal.h"
 
 static inline void set_capa_key_expiry(struct mdt_device *mdt)

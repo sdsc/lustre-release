@@ -39,6 +39,7 @@
  */
 
 #include <linux/module.h>
+#include <linux/kthread.h>
 
 #define DEBUG_SUBSYSTEM S_LLITE
 
