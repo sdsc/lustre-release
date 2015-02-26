@@ -104,10 +104,6 @@ static inline void mdc_get_rpc_lock(struct mdc_rpc_lock *lck,
 {
 	ENTRY;
 
-	if (it != NULL && (it->it_op == IT_GETATTR || it->it_op == IT_LOOKUP ||
-			   it->it_op == IT_LAYOUT || it->it_op == IT_READDIR))
-		return;
-
 	/* This would normally block until the existing request finishes.
 	 * If fail_loc is set it will block until the regular request is
 	 * done, then set rpcl_it to MDC_FAKE_RPCL_IT.  Once that is set
@@ -142,10 +138,6 @@ static inline void mdc_get_rpc_lock(struct mdc_rpc_lock *lck,
 static inline void mdc_put_rpc_lock(struct mdc_rpc_lock *lck,
 				    struct lookup_intent *it)
 {
-	if (it != NULL && (it->it_op == IT_GETATTR || it->it_op == IT_LOOKUP ||
-			   it->it_op == IT_LAYOUT || it->it_op == IT_READDIR))
-		goto out;
-
 	if (lck->rpcl_it == MDC_FAKE_RPCL_IT) { /* OBD_FAIL_MDC_RPCS_SEM */
 		mutex_lock(&lck->rpcl_mutex);
 
@@ -161,7 +153,54 @@ static inline void mdc_put_rpc_lock(struct mdc_rpc_lock *lck,
 	}
 
 	mutex_unlock(&lck->rpcl_mutex);
- out:
+
+	EXIT;
+}
+
+static inline void mdc_get_in_flight(struct ptlrpc_request *req,
+				     struct lookup_intent *it)
+{
+	struct client_obd	*cli = &req->rq_import->imp_obd->u.cli;
+	__u32			 opc;
+	struct mdc_rpc_lock	*lck;
+	ENTRY;
+
+	LASSERT(req->rq_reqmsg);
+
+	/* read-only access doesn't need a slot for reply reconstruction */
+	if (it != NULL && (it->it_op == IT_GETATTR || it->it_op == IT_LOOKUP ||
+			   it->it_op == IT_LAYOUT || it->it_op == IT_READDIR)) {
+		EXIT;
+		return;
+	}
+
+	opc = lustre_msg_get_opc(req->rq_reqmsg);
+	lck = cli->cl_rpc_lock;
+	if (opc == MDS_CLOSE || opc == MDS_DONE_WRITING)
+		lck = cli->cl_close_lock;
+	mdc_get_rpc_lock(lck, it);
+	EXIT;
+}
+
+static inline void mdc_put_in_flight(struct ptlrpc_request *req,
+				     struct lookup_intent *it)
+{
+	struct client_obd	*cli = &req->rq_import->imp_obd->u.cli;
+	struct mdc_rpc_lock	*lck;
+	__u32			opc;
+	ENTRY;
+
+	if (it != NULL && (it->it_op == IT_GETATTR || it->it_op == IT_LOOKUP ||
+			   it->it_op == IT_LAYOUT || it->it_op == IT_READDIR)) {
+		EXIT;
+		return;
+	}
+
+	opc = lustre_msg_get_opc(req->rq_reqmsg);
+	lck = cli->cl_rpc_lock;
+	if (opc == MDS_CLOSE || opc == MDS_DONE_WRITING)
+		lck = cli->cl_close_lock;
+	mdc_put_rpc_lock(lck, it);
 	EXIT;
 }
 
