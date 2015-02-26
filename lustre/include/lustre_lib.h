@@ -226,7 +226,7 @@ do {                                                                           \
 	if (condition)                                                         \
 		break;                                                         \
 									       \
-	init_waitqueue_entry_current(&__wait);				       \
+	init_waitqueue_entry(&__wait, current);				       \
 	l_add_wait(&wq, &__wait);                                              \
 									       \
 	/* Block all signals (just the non-fatal ones if no timeout). */       \
@@ -236,27 +236,19 @@ do {                                                                           \
 		__blocked = cfs_block_sigsinv(0);                              \
 									       \
 	for (;;) {                                                             \
-		unsigned       __wstate;                                       \
-									       \
-		__wstate = info->lwi_on_signal != NULL &&                      \
-			   (__timeout == 0 || __allow_intr) ?                  \
-			TASK_INTERRUPTIBLE : TASK_UNINTERRUPTIBLE;             \
-									       \
 		set_current_state(TASK_INTERRUPTIBLE);			       \
 									       \
 		if (condition)                                                 \
 			break;                                                 \
 									       \
 		if (__timeout == 0) {                                          \
-			waitq_wait(&__wait, __wstate);                         \
+			schedule();					       \
 		} else {                                                       \
 			cfs_duration_t interval = info->lwi_interval?          \
 					     min_t(cfs_duration_t,             \
 						 info->lwi_interval,__timeout):\
 					     __timeout;                        \
-			cfs_duration_t remaining = waitq_timedwait(&__wait,    \
-						   __wstate,                   \
-						   interval);                  \
+			cfs_duration_t remaining = schedule_timeout(interval); \
 			__timeout = cfs_time_sub(__timeout,                    \
 					    cfs_time_sub(interval, remaining));\
 			if (__timeout == 0) {                                  \
@@ -294,10 +286,9 @@ do {                                                                           \
                                                                                \
 	cfs_restore_sigs(__blocked);                                           \
                                                                                \
-	set_current_state(TASK_RUNNING);                               	       \
+	set_current_state(TASK_RUNNING);				       \
 	remove_wait_queue(&wq, &__wait);                                       \
 } while (0)
-
 
 
 #define l_wait_event(wq, condition, info)                       \
