@@ -118,7 +118,7 @@ kportal_memhog_alloc(struct libcfs_device_userstate *ldu, int npages,
 	while (ldu->ldu_memhog_pages < npages &&
 	       count1 < PAGE_CACHE_SIZE/sizeof(struct page *)) {
 
-		if (cfs_signal_pending())
+		if (signal_pending(current))
 			return -EINTR;
 
 		*level1p = alloc_page(flags);
@@ -133,7 +133,7 @@ kportal_memhog_alloc(struct libcfs_device_userstate *ldu, int npages,
 		while (ldu->ldu_memhog_pages < npages &&
 		       count2 < PAGE_CACHE_SIZE/sizeof(struct page *)) {
 
-			if (cfs_signal_pending())
+			if (signal_pending(current))
 				return -EINTR;
 
 			*level2p = alloc_page(flags);
@@ -308,15 +308,9 @@ struct cfs_psdev_ops libcfs_psdev_ops = {
         libcfs_ioctl
 };
 
-MODULE_AUTHOR("Peter J. Braam <braam@clusterfs.com>");
-MODULE_DESCRIPTION("Portals v3.1");
-MODULE_LICENSE("GPL");
-
 static int init_libcfs_module(void)
 {
 	int rc;
-
-	libcfs_arch_init();
 
 	rc = libcfs_debug_init(5 * 1024 * 1024);
 	if (rc < 0) {
@@ -408,8 +402,12 @@ static void exit_libcfs_module(void)
 	if (rc)
 		printk(KERN_ERR "LustreError: libcfs_debug_cleanup: %d\n",
 		       rc);
-
-	libcfs_arch_cleanup();
 }
 
-cfs_module(libcfs, "1.0.0", init_libcfs_module, exit_libcfs_module);
+MODULE_AUTHOR("Peter J. Braam <braam@clusterfs.com>");
+MODULE_DESCRIPTION("Libcfs v3.1");
+MODULE_VERSION("1.0.0");
+MODULE_LICENSE("GPL");
+
+module_init(init_libcfs_module);
+module_exit(exit_libcfs_module);

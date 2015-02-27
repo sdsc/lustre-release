@@ -3297,10 +3297,6 @@ main(int argc, char **argv)
 
         setlinebuf(stdout);
 
-        rc = libcfs_arch_init();
-        if (rc < 0)
-                return rc;
-
         rc = lst_initialize();
         if (rc < 0)
                 goto errorout;
@@ -3308,7 +3304,7 @@ main(int argc, char **argv)
         rc = ptl_initialize(argc, argv);
         if (rc < 0)
                 goto errorout;
-        
+
         Parser_init("lst > ", lst_cmdlist);
 
         if (argc != 1)  {
@@ -3317,8 +3313,6 @@ main(int argc, char **argv)
         }
 
         Parser_commands();
-
 errorout:
-        libcfs_arch_cleanup();
         return rc;
 }

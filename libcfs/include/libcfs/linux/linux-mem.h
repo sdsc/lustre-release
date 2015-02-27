@@ -57,11 +57,6 @@
 # include <linux/mm_inline.h>
 #endif
 
-#ifndef HAVE_LIBCFS_CPT
-/* Need this for cfs_cpt_table */
-#include <libcfs/libcfs_cpu.h>
-#endif
-
 /* GFP_IOFS was added in 2.6.33 kernel */
 #ifndef GFP_IOFS
 #define GFP_IOFS       (__GFP_IO | __GFP_FS)
