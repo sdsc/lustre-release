@@ -573,12 +573,12 @@ int lprocfs_recovery_status_seq_show(struct seq_file *m, void *data)
 	seq_printf(m, "RECOVERING\n");
 	seq_printf(m, "recovery_start: %lu\n", obd->obd_recovery_start);
 	seq_printf(m, "time_remaining: %lu\n",
-		   cfs_time_current_sec() >=
+		   get_seconds() >=
 		   obd->obd_recovery_start +
 		   obd->obd_recovery_timeout ? 0 :
 		   obd->obd_recovery_start +
 		   obd->obd_recovery_timeout -
-		   cfs_time_current_sec());
+		   get_seconds());
 	seq_printf(m, "connected_clients: %d/%d\n",
 		   atomic_read(&obd->obd_connected_clients),
 		   obd->obd_max_recoverable_clients);

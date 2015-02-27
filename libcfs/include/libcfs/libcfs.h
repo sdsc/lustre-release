@@ -62,7 +62,6 @@
 # include <sys/stat.h>
 # include <sys/time.h>
 # include <sys/types.h>
-# include <libcfs/user-time.h>
 #endif /* __KERNEL__ */
 
 #include "curproc.h"
@@ -232,24 +231,24 @@ void cfs_get_random_bytes(void *buf, int size);
 
 #include <libcfs/byteorder.h>
 #include <libcfs/err.h>
+#ifdef __KERNEL__
+# include <libcfs/libcfs_time.h>
+#endif
 #include <libcfs/libcfs_debug.h>
 #include <libcfs/libcfs_private.h>
 #ifdef __KERNEL__
-#include <libcfs/bitmap.h>
-#include <libcfs/libcfs_cpu.h>
-#endif /* __KERNEL__ */
-#include <libcfs/libcfs_ioctl.h>
-#ifdef __KERNEL__
+# include <libcfs/bitmap.h>
+# include <libcfs/libcfs_cpu.h>
 # include <libcfs/libcfs_prim.h>
 #endif /* __KERNEL__ */
-#include <libcfs/libcfs_time.h>
-#include <libcfs/libcfs_string.h>
+#include <libcfs/libcfs_ioctl.h>
 #include <libcfs/libcfs_kernelcomm.h>
-#include <libcfs/libcfs_workitem.h>
 #ifdef __KERNEL__
+# include <libcfs/libcfs_string.h>
+# include <libcfs/libcfs_workitem.h>
 # include <libcfs/libcfs_hash.h>
-#include <libcfs/libcfs_heap.h>
-#include <libcfs/libcfs_fail.h>
+# include <libcfs/libcfs_heap.h>
+# include <libcfs/libcfs_fail.h>
 #endif /* __KERNEL__ */
 
 /* container_of depends on "likely" which is defined in libcfs_private.h */

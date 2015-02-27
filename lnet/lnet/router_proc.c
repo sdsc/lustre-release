@@ -330,8 +330,8 @@ proc_lnet_routers(struct ctl_table *table, int write, void __user *buffer,
 
                 if (peer != NULL) {
                         lnet_nid_t nid = peer->lp_nid;
-                        cfs_time_t now = cfs_time_current();
-                        cfs_time_t deadline = peer->lp_ping_deadline;
+			unsigned long now = jiffies;
+			unsigned long deadline = peer->lp_ping_deadline;
                         int nrefs     = peer->lp_refcount;
                         int nrtrrefs  = peer->lp_rtr_refcount;
                         int alive_cnt = peer->lp_alive_count;
@@ -510,8 +510,8 @@ proc_lnet_peers(struct ctl_table *table, int write, void __user *buffer,
                                 aliveness = peer->lp_alive ? "up" : "down";
 
                         if (lnet_peer_aliveness_enabled(peer)) {
-                                cfs_time_t     now = cfs_time_current();
-                                cfs_duration_t delta;
+				unsigned long now = jiffies;
+				long delta;
 
                                 delta = cfs_time_sub(now, peer->lp_last_alive);
                                 lastalive = cfs_duration_sec(delta);
@@ -682,7 +682,7 @@ proc_lnet_nis(struct ctl_table *table, int write, void __user *buffer,
                 if (ni != NULL) {
 			struct lnet_tx_queue	*tq;
 			char	*stat;
-			long	now = cfs_time_current_sec();
+			long	now = get_seconds();
 			int	last_alive = -1;
 			int	i;
 			int	j;

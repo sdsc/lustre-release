@@ -101,7 +101,7 @@ lstcon_node_find(lnet_process_id_t id, lstcon_node_t **ndpp, int create)
 
         ndl->ndl_node->nd_ref   = 1;
         ndl->ndl_node->nd_id    = id;
-        ndl->ndl_node->nd_stamp = cfs_time_current();
+	ndl->ndl_node->nd_stamp = jiffies;
         ndl->ndl_node->nd_state = LST_NODE_UNKNOWN;
         ndl->ndl_node->nd_timeout = 0;
         memset(&ndl->ndl_node->nd_ping, 0, sizeof(lstcon_rpc_t));
@@ -1722,7 +1722,7 @@ lstcon_new_session_id(lst_sid_t *sid)
 
         LNetGetId(1, &id);
         sid->ses_nid   = id.nid;
-        sid->ses_stamp = cfs_time_current();
+	sid->ses_stamp = jiffies;
 }
 
 int
@@ -2039,7 +2039,7 @@ lstcon_console_init(void)
 	console_session.ses_expired	    = 0;
 	console_session.ses_feats_updated   = 0;
 	console_session.ses_features	    = LST_FEATS_MASK;
-	console_session.ses_laststamp	    = cfs_time_current_sec();
+	console_session.ses_laststamp	    = get_seconds();
 
 	mutex_init(&console_session.ses_mutex);
 

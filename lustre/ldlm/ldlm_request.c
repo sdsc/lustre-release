@@ -96,20 +96,17 @@ int ldlm_expired_completion_wait(void *data)
 
         ENTRY;
         if (lock->l_conn_export == NULL) {
-                static cfs_time_t next_dump = 0, last_dump = 0;
+		static unsigned long next_dump = 0, last_dump = 0;
 
-		LCONSOLE_WARN("lock timed out (enqueued at "CFS_TIME_T", "
-			      CFS_DURATION_T"s ago)\n",
+		LCONSOLE_WARN("lock timed out (enqueued at %lu, %lds ago)\n",
 			      lock->l_last_activity,
-			      cfs_time_sub(cfs_time_current_sec(),
+			      cfs_time_sub(get_seconds(),
 					   lock->l_last_activity));
-		LDLM_DEBUG(lock, "lock timed out (enqueued at "CFS_TIME_T", "
-			   CFS_DURATION_T"s ago); not entering recovery in "
-			   "server code, just going back to sleep",
-			   lock->l_last_activity,
-			   cfs_time_sub(cfs_time_current_sec(),
-					lock->l_last_activity));
-                if (cfs_time_after(cfs_time_current(), next_dump)) {
+		LDLM_DEBUG(lock, "lock timed out (enqueued at %lu, %lds ago); "
+			   "not entering recovery in server code, just going "
+			   "back to sleep", lock->l_last_activity,
+			   cfs_time_sub(get_seconds(), lock->l_last_activity));
+		if (time_after(jiffies, next_dump)) {
                         last_dump = next_dump;
                         next_dump = cfs_time_shift(300);
                         ldlm_namespace_dump(D_DLMTRACE,
@@ -123,10 +120,9 @@ int ldlm_expired_completion_wait(void *data)
         obd = lock->l_conn_export->exp_obd;
         imp = obd->u.cli.cl_import;
         ptlrpc_fail_import(imp, lwd->lwd_conn_cnt);
-        LDLM_ERROR(lock, "lock timed out (enqueued at "CFS_TIME_T", "
-                  CFS_DURATION_T"s ago), entering recovery for %s@%s",
-                  lock->l_last_activity,
-                  cfs_time_sub(cfs_time_current_sec(), lock->l_last_activity),
+	LDLM_ERROR(lock, "lock timed out (enqueued at %lu, %lds ago), "
+		  "entering recovery for %s@%s", lock->l_last_activity,
+		  cfs_time_sub(get_seconds(), lock->l_last_activity),
                   obd2cli_tgt(obd), imp->imp_connection->c_remote_uuid.uuid);
 
         RETURN(0);
@@ -175,10 +171,10 @@ static int ldlm_completion_tail(struct ldlm_lock *lock, void *data)
 		LDLM_DEBUG(lock, "client-side enqueue: granted");
 	} else {
 		/* Take into AT only CP RPC, not immediately granted locks */
-		delay = cfs_time_sub(cfs_time_current_sec(),
+		delay = cfs_time_sub(get_seconds(),
 				     lock->l_last_activity);
-		LDLM_DEBUG(lock, "client-side enqueue: granted after "
-			   CFS_DURATION_T"s", delay);
+		LDLM_DEBUG(lock, "client-side enqueue: granted after %lds",
+			   delay);
 
 		/* Update our time estimate */
 		at_measured(ldlm_lock_to_ns_at(lock), delay);
@@ -269,7 +265,7 @@ noreproc:
 	timeout = ldlm_cp_timeout(lock);
 
 	lwd.lwd_lock = lock;
-	lock->l_last_activity = cfs_time_current_sec();
+	lock->l_last_activity = get_seconds();
 
 	if (ldlm_is_no_timeout(lock)) {
                 LDLM_DEBUG(lock, "waiting indefinitely because of NO_TIMEOUT");
@@ -929,7 +925,7 @@ int ldlm_cli_enqueue(struct obd_export *exp, struct ptlrpc_request **reqp,
 	lock->l_export = NULL;
 	lock->l_blocking_ast = einfo->ei_cb_bl;
 	lock->l_flags |= (*flags & (LDLM_FL_NO_LRU | LDLM_FL_EXCL));
-        lock->l_last_activity = cfs_time_current_sec();
+	lock->l_last_activity = get_seconds();
 
         /* lock not sent to server yet */
 
@@ -1476,10 +1472,10 @@ static ldlm_policy_res_t ldlm_cancel_lrur_policy(struct ldlm_namespace *ns,
                                                  int unused, int added,
                                                  int count)
 {
-	cfs_time_t cur = cfs_time_current();
+	unsigned long cur = jiffies;
 	struct ldlm_pool *pl = &ns->ns_pool;
 	__u64 slv, lvf, lv;
-	cfs_time_t la;
+	unsigned long la;
 
 	/* Stop LRU processing when we reach past @count or have checked all
 	 * locks in LRU. */
@@ -1538,8 +1534,7 @@ static ldlm_policy_res_t ldlm_cancel_aged_policy(struct ldlm_namespace *ns,
 						 int count)
 {
 	if ((added >= count) &&
-	    cfs_time_before(cfs_time_current(),
-			    cfs_time_add(lock->l_last_used, ns->ns_max_age)))
+	    time_before(jiffies, lock->l_last_used + ns->ns_max_age))
 		return LDLM_POLICY_KEEP_LOCK;
 
 	return LDLM_POLICY_CANCEL_LOCK;

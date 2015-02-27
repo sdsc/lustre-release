@@ -279,7 +279,7 @@ static int osd_do_bio(struct osd_device *osd, struct inode *inode,
         LASSERT(iobuf->dr_npages == npages);
 
         osd_brw_stats_update(osd, iobuf);
-        iobuf->dr_start_time = cfs_time_current();
+	iobuf->dr_start_time = jiffies;
 
         for (page_idx = 0, block_idx = 0;
              page_idx < npages;

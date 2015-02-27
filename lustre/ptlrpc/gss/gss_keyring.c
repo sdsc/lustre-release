@@ -218,7 +218,7 @@ struct ptlrpc_cli_ctx *ctx_create_kr(struct ptlrpc_sec *sec,
                 return NULL;
         }
 
-	ctx->cc_expire = cfs_time_current_sec() + KEYRING_UPCALL_TIMEOUT;
+	ctx->cc_expire = get_seconds() + KEYRING_UPCALL_TIMEOUT;
 	clear_bit(PTLRPC_CTX_NEW_BIT, &ctx->cc_flags);
 	atomic_inc(&ctx->cc_refcount); /* for the caller */
 
@@ -526,14 +526,14 @@ void rvs_sec_install_root_ctx_kr(struct ptlrpc_sec *sec,
 	struct gss_sec_keyring	*gsec_kr = sec2gsec_keyring(sec);
 	struct hlist_node	__maybe_unused *hnode;
 	struct ptlrpc_cli_ctx	*ctx;
-	cfs_time_t		now;
+	unsigned long		now;
 	ENTRY;
 
         LASSERT(sec_is_reverse(sec));
 
 	spin_lock(&sec->ps_lock);
 
-        now = cfs_time_current_sec();
+	now = get_seconds();
 
         /* set all existing ctxs short expiry */
         cfs_hlist_for_each_entry(ctx, hnode, &gsec_kr->gsk_clist, cc_cache) {
@@ -994,7 +994,7 @@ int gss_sec_display_kr(struct ptlrpc_sec *sec, struct seq_file *seq)
 	struct hlist_node	__maybe_unused *pos, *next;
 	struct ptlrpc_cli_ctx	*ctx;
 	struct gss_cli_ctx	*gctx;
-	time_t			 now = cfs_time_current_sec();
+	time_t			 now = get_seconds();
 	ENTRY;
 
 	spin_lock(&sec->ps_lock);

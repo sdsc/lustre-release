@@ -76,9 +76,8 @@ struct mdd_changelog {
 };
 
 static inline __u64 cl_time(void) {
-	cfs_fs_time_t time;
+	struct timespec time = CURRENT_TIME;
 
-	cfs_fs_time_current(&time);
 	return (((__u64)time.tv_sec) << 30) + time.tv_nsec;
 }
 

@@ -438,9 +438,8 @@ void qmt_adjust_edquot(struct lquota_entry *lqe, __u64 now)
 
 			/* Let's give more time to slave to release space */
 			if (lqe->lqe_may_rel != 0 &&
-			    cfs_time_before_64(cfs_time_shift_64(
-					    		-QMT_REBA_TIMEOUT),
-				    	       lqe->lqe_revoke_time))
+			    time_before64(cfs_time_shift_64(-QMT_REBA_TIMEOUT),
+					  lqe->lqe_revoke_time))
 				RETURN_EXIT;
 		} else {
 			/* When exceeding softlimit, block qunit will be shrunk
@@ -672,7 +671,7 @@ done:
 		qmt_id_lock_notify(pool->qpi_qmt, lqe);
 	else if (lqe->lqe_qunit == pool->qpi_least_qunit)
 		/* initial qunit value is the smallest one */
-		lqe->lqe_revoke_time = cfs_time_current_64();
+		lqe->lqe_revoke_time = get_jiffies_64();
 	EXIT;
 }
 
@@ -687,6 +686,6 @@ void qmt_revalidate(const struct lu_env *env, struct lquota_entry *lqe)
 		 * were initialized */
 		qmt_adjust_qunit(env, lqe);
 		if (lqe->lqe_qunit != 0)
-			qmt_adjust_edquot(lqe, cfs_time_current_sec());
+			qmt_adjust_edquot(lqe, get_seconds());
 	}
 }

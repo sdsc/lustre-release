@@ -1781,9 +1781,9 @@ struct ptlrpc_cli_req {
 	/** For bulk requests on client only: bulk descriptor */
 	struct ptlrpc_bulk_desc		*cr_bulk;
 	/** optional time limit for send attempts */
-	cfs_duration_t			 cr_delay_limit;
+	long			 cr_delay_limit;
 	/** time request was first queued */
-	cfs_time_t			 cr_queued_time;
+	unsigned long			 cr_queued_time;
 	/** request sent timeval */
 	struct timeval			 cr_sent_tv;
 	/** time for request really sent out */
@@ -2670,7 +2670,7 @@ struct ptlrpc_service_part {
 	/** incoming reqs */
 	struct list_head		scp_req_incoming;
 	/** timeout before re-posting reqs, in tick */
-	cfs_duration_t			scp_rqbd_timeout;
+	long				scp_rqbd_timeout;
 	/**
 	 * all threads sleep on this. This wait-queue is signalled when new
 	 * incoming request arrives and when difficult reply has to be handled.
@@ -2721,7 +2721,7 @@ struct ptlrpc_service_part {
 	/** early reply timer */
 	struct timer_list		scp_at_timer;
 	/** debug */
-	cfs_time_t			scp_at_checktime;
+	unsigned long			scp_at_checktime;
 	/** check early replies */
 	unsigned			scp_at_check;
 	/** @} */
@@ -2930,7 +2930,7 @@ static inline int ptlrpc_client_bulk_active(struct ptlrpc_request *req)
 	desc = req->rq_bulk;
 
         if (OBD_FAIL_CHECK(OBD_FAIL_PTLRPC_LONG_BULK_UNLINK) &&
-            req->rq_bulk_deadline > cfs_time_current_sec())
+	    req->rq_bulk_deadline > get_seconds())
                 return 1;
 
         if (!desc)
@@ -3331,7 +3331,7 @@ static inline int
 ptlrpc_client_early(struct ptlrpc_request *req)
 {
         if (OBD_FAIL_CHECK(OBD_FAIL_PTLRPC_LONG_REPL_UNLINK) &&
-            req->rq_reply_deadline > cfs_time_current_sec())
+	    req->rq_reply_deadline > get_seconds())
                 return 0;
         return req->rq_early;
 }
@@ -3343,7 +3343,7 @@ static inline int
 ptlrpc_client_replied(struct ptlrpc_request *req)
 {
         if (OBD_FAIL_CHECK(OBD_FAIL_PTLRPC_LONG_REPL_UNLINK) &&
-            req->rq_reply_deadline > cfs_time_current_sec())
+	    req->rq_reply_deadline > get_seconds())
                 return 0;
         return req->rq_replied;
 }
@@ -3353,7 +3353,7 @@ static inline int
 ptlrpc_client_recv(struct ptlrpc_request *req)
 {
         if (OBD_FAIL_CHECK(OBD_FAIL_PTLRPC_LONG_REPL_UNLINK) &&
-            req->rq_reply_deadline > cfs_time_current_sec())
+	    req->rq_reply_deadline > get_seconds())
                 return 1;
         return req->rq_receiving_reply;
 }
@@ -3365,7 +3365,7 @@ ptlrpc_client_recv_or_unlink(struct ptlrpc_request *req)
 
 	spin_lock(&req->rq_lock);
 	if (OBD_FAIL_CHECK(OBD_FAIL_PTLRPC_LONG_REPL_UNLINK) &&
-	    req->rq_reply_deadline > cfs_time_current_sec()) {
+	    req->rq_reply_deadline > get_seconds()) {
 		spin_unlock(&req->rq_lock);
 		return 1;
 	}
@@ -3429,9 +3429,8 @@ static inline int ptlrpc_req_get_repsize(struct ptlrpc_request *req)
 static inline int ptlrpc_send_limit_expired(struct ptlrpc_request *req)
 {
         if (req->rq_delay_limit != 0 &&
-            cfs_time_before(cfs_time_add(req->rq_queued_time,
-                                         cfs_time_seconds(req->rq_delay_limit)),
-                            cfs_time_current())) {
+	    time_before(req->rq_queued_time +
+			cfs_time_seconds(req->rq_delay_limit), jiffies)) {
                 return 1;
         }
         return 0;

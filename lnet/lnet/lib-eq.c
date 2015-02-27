@@ -328,7 +328,7 @@ __must_hold(&the_lnet.ln_eq_wait_lock)
 	int		tms = *timeout_ms;
 	int		wait;
 	wait_queue_t	wl;
-	cfs_time_t      now;
+	unsigned long	now;
 
 	if (tms == 0)
 		return -1; /* don't want to wait and no new event */
@@ -344,9 +344,9 @@ __must_hold(&the_lnet.ln_eq_wait_lock)
 	} else {
 		struct timeval tv;
 
-		now = cfs_time_current();
+		now = jiffies;
 		schedule_timeout(cfs_time_seconds(tms) / 1000);
-		cfs_duration_usec(cfs_time_sub(cfs_time_current(), now), &tv);
+		cfs_duration_usec(cfs_time_sub(jiffies, now), &tv);
 		tms -= (int)(tv.tv_sec * 1000 + tv.tv_usec / 1000);
 		if (tms < 0) /* no more wait but may have new event */
 			tms = 0;

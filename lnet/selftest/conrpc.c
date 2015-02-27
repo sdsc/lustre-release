@@ -77,7 +77,7 @@ lstcon_rpc_done(srpc_client_rpc_t *rpc)
 		/* not aborted */
 		LASSERT (crpc->crp_status == 0);
 
-		crpc->crp_stamp  = cfs_time_current();
+		crpc->crp_stamp  = jiffies;
 		crpc->crp_status = rpc->crpc_status;
 	}
 
@@ -297,14 +297,14 @@ lstcon_rpc_trans_abort(lstcon_rpc_trans_t *trans, int error)
 		if (!crpc->crp_posted || /* not posted */
 		    crpc->crp_stamp != 0) { /* rpc done or aborted already */
 			if (crpc->crp_stamp == 0) {
-				crpc->crp_stamp = cfs_time_current();
+				crpc->crp_stamp = jiffies;
 				crpc->crp_status = -EINTR;
 			}
 			spin_unlock(&rpc->crpc_lock);
 			continue;
 		}
 
-		crpc->crp_stamp  = cfs_time_current();
+		crpc->crp_stamp  = jiffies;
 		crpc->crp_status = error;
 
 		spin_unlock(&rpc->crpc_lock);
@@ -315,7 +315,7 @@ lstcon_rpc_trans_abort(lstcon_rpc_trans_t *trans, int error)
 			continue;
 
 		nd = crpc->crp_node;
-		if (cfs_time_after(nd->nd_stamp, crpc->crp_stamp))
+		if (time_after(nd->nd_stamp, crpc->crp_stamp))
 			continue;
 
 		nd->nd_stamp = crpc->crp_stamp;
@@ -405,7 +405,7 @@ lstcon_rpc_get_reply(lstcon_rpc_t *crpc, srpc_msg_t **msgpp)
                 crpc->crp_unpacked = 1;
         }
 
-        if (cfs_time_after(nd->nd_stamp, crpc->crp_stamp))
+	if (time_after(nd->nd_stamp, crpc->crp_stamp))
                 return 0;
 
         nd->nd_stamp = crpc->crp_stamp;
@@ -479,7 +479,7 @@ lstcon_rpc_trans_interpreter(lstcon_rpc_trans_t *trans,
         lstcon_rpc_t         *crpc;
         srpc_msg_t           *msg;
         lstcon_node_t        *nd;
-        cfs_duration_t        dur;
+	long        dur;
         struct timeval        tv;
         int                   error;
 
@@ -505,8 +505,8 @@ lstcon_rpc_trans_interpreter(lstcon_rpc_trans_t *trans,
 
                 nd = crpc->crp_node;
 
-                dur = (cfs_duration_t)cfs_time_sub(crpc->crp_stamp,
-                      (cfs_time_t)console_session.ses_id.ses_stamp);
+		dur = (long)cfs_time_sub(crpc->crp_stamp,
+		      (unsigned long)console_session.ses_id.ses_stamp);
                 cfs_duration_usec(dur, &tv);
 
 		if (copy_to_user(&ent->rpe_peer,
@@ -1193,7 +1193,7 @@ lstcon_rpc_pinger(void *arg)
         }
 
         if (!console_session.ses_expired &&
-            cfs_time_current_sec() - console_session.ses_laststamp >
+	    get_seconds() - console_session.ses_laststamp >
             (time_t)console_session.ses_timeout)
                 console_session.ses_expired = 1;
 
@@ -1250,7 +1250,7 @@ lstcon_rpc_pinger(void *arg)
                 if (nd->nd_state != LST_NODE_ACTIVE)
                         continue;
 
-                intv = cfs_duration_sec(cfs_time_sub(cfs_time_current(),
+		intv = cfs_duration_sec(cfs_time_sub(jiffies,
                                                      nd->nd_stamp));
                 if (intv < (time_t)nd->nd_timeout / 2)
                         continue;
@@ -1280,7 +1280,7 @@ lstcon_rpc_pinger(void *arg)
 
         CDEBUG(D_NET, "Ping %d nodes in session\n", count);
 
-        ptimer->stt_expires = (cfs_time_t)(cfs_time_current_sec() + LST_PING_INTERVAL);
+	ptimer->stt_expires = (unsigned long)(get_seconds() + LST_PING_INTERVAL);
         stt_add_timer(ptimer);
 
 	mutex_unlock(&console_session.ses_mutex);
@@ -1303,7 +1303,7 @@ lstcon_rpc_pinger_start(void)
         }
 
         ptimer = &console_session.ses_ping_timer;
-        ptimer->stt_expires = (cfs_time_t)(cfs_time_current_sec() + LST_PING_INTERVAL);
+	ptimer->stt_expires = (unsigned long)(get_seconds() + LST_PING_INTERVAL);
 
         stt_add_timer(ptimer);
 

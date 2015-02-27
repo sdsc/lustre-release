@@ -619,7 +619,7 @@ static void qmt_id_lock_glimpse(const struct lu_env *env,
 		lqe_write_lock(lqe);
 		if (lqe->lqe_revoke_time == 0 &&
 		    lqe->lqe_qunit == pool->qpi_least_qunit)
-			lqe->lqe_revoke_time = cfs_time_current_64();
+			lqe->lqe_revoke_time = get_jiffies_64();
 		lqe_write_unlock(lqe);
 		RETURN_EXIT;
 	}
@@ -657,8 +657,8 @@ static void qmt_id_lock_glimpse(const struct lu_env *env,
 	if (lqe->lqe_revoke_time == 0 &&
 	    qti->qti_gl_desc.lquota_desc.gl_qunit == pool->qpi_least_qunit &&
 	    lqe->lqe_qunit == pool->qpi_least_qunit) {
-		lqe->lqe_revoke_time = cfs_time_current_64();
-		qmt_adjust_edquot(lqe, cfs_time_current_sec());
+		lqe->lqe_revoke_time = get_jiffies_64();
+		qmt_adjust_edquot(lqe, get_seconds());
 	}
 	LASSERT(lqe->lqe_gl);
 	lqe->lqe_gl = false;

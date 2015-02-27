@@ -462,8 +462,8 @@ void lnet_fini(void);
 
 extern int portal_rotor;
 
-int lnet_notify(lnet_ni_t *ni, lnet_nid_t peer, int alive, cfs_time_t when);
-void lnet_notify_locked(lnet_peer_t *lp, int notifylnd, int alive, cfs_time_t when);
+int lnet_notify(lnet_ni_t *ni, lnet_nid_t peer, int alive, unsigned long when);
+void lnet_notify_locked(lnet_peer_t *lp, int notifylnd, int alive, unsigned long when);
 int lnet_add_route(__u32 net, unsigned int hops, lnet_nid_t gateway_nid,
 		   unsigned int priority);
 int lnet_check_routes(void);
@@ -758,7 +758,7 @@ int lnet_get_peer_info(__u32 peer_index, __u64 *nid,
 static inline void
 lnet_peer_set_alive(lnet_peer_t *lp)
 {
-	lp->lp_last_alive = lp->lp_last_query = cfs_time_current();
+	lp->lp_last_alive = lp->lp_last_query = jiffies;
 	if (!lp->lp_alive)
 		lnet_notify_locked(lp, 0, 1, lp->lp_last_alive);
 }

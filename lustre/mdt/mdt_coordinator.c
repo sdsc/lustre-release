@@ -292,7 +292,7 @@ static int mdt_coordinator_cb(const struct lu_env *env,
 	}
 	case ARS_STARTED: {
 		struct cdt_agent_req *car;
-		cfs_time_t last;
+		unsigned long last;
 
 		/* we search for a running request
 		 * error may happen if coordinator crashes or stopped
@@ -309,7 +309,7 @@ static int mdt_coordinator_cb(const struct lu_env *env,
 		/* test if request too long, if yes cancel it
 		 * the same way the copy tool acknowledge a cancel request */
 		if ((last + cdt->cdt_active_req_timeout)
-		     < cfs_time_current_sec()) {
+		     < get_seconds()) {
 			struct hsm_progress_kernel pgs;
 
 			dump_llog_agent_req_rec("mdt_coordinator_cb(): "
@@ -382,7 +382,7 @@ static int mdt_coordinator_cb(const struct lu_env *env,
 	case ARS_CANCELED:
 	case ARS_SUCCEED:
 		if ((larr->arr_req_change + cdt->cdt_grace_delay) <
-		    cfs_time_current_sec())
+		    get_seconds())
 			RETURN(LLOG_DEL_RECORD);
 		break;
 	}
@@ -965,10 +965,10 @@ int mdt_hsm_cdt_start(struct mdt_device *mdt)
 
 	cdt->cdt_state = CDT_INIT;
 
-	atomic_set(&cdt->cdt_compound_id, cfs_time_current_sec());
+	atomic_set(&cdt->cdt_compound_id, get_seconds());
 	/* just need to be larger than previous one */
 	/* cdt_last_cookie is protected by cdt_llog_lock */
-	cdt->cdt_last_cookie = cfs_time_current_sec();
+	cdt->cdt_last_cookie = get_seconds();
 	atomic_set(&cdt->cdt_request_count, 0);
 	cdt->cdt_user_request_mask = (1UL << HSMA_RESTORE);
 	cdt->cdt_group_request_mask = (1UL << HSMA_RESTORE);
@@ -1603,7 +1603,7 @@ static int mdt_cancel_all_cb(const struct lu_env *env,
 	if (larr->arr_status == ARS_WAITING ||
 	    larr->arr_status == ARS_STARTED) {
 		larr->arr_status = ARS_CANCELED;
-		larr->arr_req_change = cfs_time_current_sec();
+		larr->arr_req_change = get_seconds();
 		rc = mdt_agent_llog_update_rec(env, hcad->mdt, llh, larr);
 		if (rc == 0)
 			RETURN(LLOG_DEL_RECORD);

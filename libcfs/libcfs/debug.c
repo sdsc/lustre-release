@@ -237,7 +237,7 @@ void libcfs_debug_dumplog_internal(void *arg)
 	journal_info = current->journal_info;
 	current->journal_info = NULL;
 
-	current_time = cfs_time_current_sec();
+	current_time = get_seconds();
 
 	if (strncmp(libcfs_debug_file_path_arr, "NONE", 4) != 0 &&
 	    current_time > last_dump_time) {

@@ -830,7 +830,7 @@ out:
 
 int gss_svc_upcall_expire_rvs_ctx(rawobj_t *handle)
 {
-        const cfs_time_t        expire = 20;
+	const unsigned long	expire = 20;
         struct rsc             *rscp;
 
         rscp = gss_svc_searchbyctx(handle);
@@ -838,7 +838,7 @@ int gss_svc_upcall_expire_rvs_ctx(rawobj_t *handle)
                 CDEBUG(D_SEC, "reverse svcctx %p (rsc %p) expire soon\n",
                        &rscp->ctx, rscp);
 
-                rscp->h.expiry_time = cfs_time_current_sec() + expire;
+		rscp->h.expiry_time = get_seconds() + expire;
                 COMPAT_RSC_PUT(&rscp->h, &rsc_cache);
         }
         return 0;

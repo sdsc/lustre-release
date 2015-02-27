@@ -1871,7 +1871,7 @@ kgnilnd_ctl(lnet_ni_t *ni, unsigned int cmd, void *arg)
 }
 
 void
-kgnilnd_query(lnet_ni_t *ni, lnet_nid_t nid, cfs_time_t *when)
+kgnilnd_query(lnet_ni_t *ni, lnet_nid_t nid, unsigned long *when)
 {
 	kgn_net_t               *net = ni->ni_data;
 	kgn_tx_t                *tx;

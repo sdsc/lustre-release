@@ -1389,9 +1389,9 @@ static int lfsck_layout_double_scan_result(const struct lu_env *env,
 	struct lfsck_layout	*lo    = com->lc_file_ram;
 
 	down_write(&com->lc_sem);
-	lo->ll_run_time_phase2 += cfs_duration_sec(cfs_time_current() +
+	lo->ll_run_time_phase2 += cfs_duration_sec(jiffies +
 				HALF_SEC - lfsck->li_time_last_checkpoint);
-	lo->ll_time_last_checkpoint = cfs_time_current_sec();
+	lo->ll_time_last_checkpoint = get_seconds();
 	lo->ll_objs_checked_phase2 += com->lc_new_checked;
 
 	if (rc > 0) {
@@ -3957,9 +3957,9 @@ static int lfsck_layout_master_checkpoint(const struct lu_env *env,
 	} else {
 		lo->ll_pos_last_checkpoint =
 				lfsck->li_pos_checkpoint.lp_oit_cookie;
-		lo->ll_run_time_phase1 += cfs_duration_sec(cfs_time_current() +
+		lo->ll_run_time_phase1 += cfs_duration_sec(jiffies +
 				HALF_SEC - lfsck->li_time_last_checkpoint);
-		lo->ll_time_last_checkpoint = cfs_time_current_sec();
+		lo->ll_time_last_checkpoint = get_seconds();
 		lo->ll_objs_checked_phase1 += com->lc_new_checked;
 		com->lc_new_checked = 0;
 	}
@@ -3991,9 +3991,9 @@ static int lfsck_layout_slave_checkpoint(const struct lu_env *env,
 	} else {
 		lo->ll_pos_last_checkpoint =
 				lfsck->li_pos_checkpoint.lp_oit_cookie;
-		lo->ll_run_time_phase1 += cfs_duration_sec(cfs_time_current() +
+		lo->ll_run_time_phase1 += cfs_duration_sec(jiffies +
 				HALF_SEC - lfsck->li_time_last_checkpoint);
-		lo->ll_time_last_checkpoint = cfs_time_current_sec();
+		lo->ll_time_last_checkpoint = get_seconds();
 		lo->ll_objs_checked_phase1 += com->lc_new_checked;
 		com->lc_new_checked = 0;
 	}
@@ -4037,7 +4037,7 @@ static int lfsck_layout_prep(const struct lu_env *env,
 	}
 
 	down_write(&com->lc_sem);
-	lo->ll_time_latest_start = cfs_time_current_sec();
+	lo->ll_time_latest_start = get_seconds();
 	spin_lock(&lfsck->li_lock);
 	if (lo->ll_flags & LF_SCANNED_ONCE) {
 		if (!lfsck->li_drop_dryrun ||
@@ -4648,9 +4648,9 @@ static int lfsck_layout_master_post(const struct lu_env *env,
 	spin_unlock(&lfsck->li_lock);
 
 	if (!init) {
-		lo->ll_run_time_phase1 += cfs_duration_sec(cfs_time_current() +
+		lo->ll_run_time_phase1 += cfs_duration_sec(jiffies +
 				HALF_SEC - lfsck->li_time_last_checkpoint);
-		lo->ll_time_last_checkpoint = cfs_time_current_sec();
+		lo->ll_time_last_checkpoint = get_seconds();
 		lo->ll_objs_checked_phase1 += com->lc_new_checked;
 		com->lc_new_checked = 0;
 	}
@@ -4716,9 +4716,9 @@ static int lfsck_layout_slave_post(const struct lu_env *env,
 				     LE_LASTID_REBUILT);
 
 	if (!init) {
-		lo->ll_run_time_phase1 += cfs_duration_sec(cfs_time_current() +
+		lo->ll_run_time_phase1 += cfs_duration_sec(jiffies +
 				HALF_SEC - lfsck->li_time_last_checkpoint);
-		lo->ll_time_last_checkpoint = cfs_time_current_sec();
+		lo->ll_time_last_checkpoint = get_seconds();
 		lo->ll_objs_checked_phase1 += com->lc_new_checked;
 		com->lc_new_checked = 0;
 	}
@@ -4805,7 +4805,7 @@ static int lfsck_layout_dump(const struct lu_env *env,
 	if (lo->ll_status == LS_SCANNING_PHASE1) {
 		__u64 pos;
 		const struct dt_it_ops *iops;
-		cfs_duration_t duration = cfs_time_current() -
+		long duration = jiffies -
 					  lfsck->li_time_last_checkpoint;
 		__u64 checked = lo->ll_objs_checked_phase1 +
 				com->lc_new_checked;
@@ -4848,7 +4848,7 @@ static int lfsck_layout_dump(const struct lu_env *env,
 		seq_printf(m, "current_position: "LPU64"\n", pos);
 
 	} else if (lo->ll_status == LS_SCANNING_PHASE2) {
-		cfs_duration_t duration = cfs_time_current() -
+		long duration = jiffies -
 					  lfsck->li_time_last_checkpoint;
 		__u64 checked = lo->ll_objs_checked_phase2 +
 				com->lc_new_checked;
@@ -4973,7 +4973,7 @@ static int lfsck_layout_slave_double_scan(const struct lu_env *env,
 
 	com->lc_new_checked = 0;
 	com->lc_new_scanned = 0;
-	com->lc_time_last_checkpoint = cfs_time_current();
+	com->lc_time_last_checkpoint = jiffies;
 	com->lc_time_next_checkpoint = com->lc_time_last_checkpoint +
 				cfs_time_seconds(LFSCK_CHECKPOINT_INTERVAL);
 

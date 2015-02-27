@@ -338,7 +338,7 @@ void qsd_adjust_schedule(struct lquota_entry *lqe, bool defer, bool cancel)
 		else
 			lqe->lqe_adjust_time = defer ?
 				cfs_time_shift_64(QSD_WB_INTERVAL) :
-				cfs_time_current_64();
+				get_jiffies_64();
 		/* lqe reference transfered to list */
 		if (defer)
 			list_add_tail(&lqe->lqe_link,
@@ -371,8 +371,8 @@ static bool qsd_job_pending(struct qsd_instance *qsd, struct list_head *upd,
 		struct lquota_entry *lqe;
 		lqe = list_entry(qsd->qsd_adjust_list.next,
 				     struct lquota_entry, lqe_link);
-		if (cfs_time_beforeq_64(lqe->lqe_adjust_time,
-					cfs_time_current_64()))
+		if (time_before_eq64(lqe->lqe_adjust_time,
+					get_jiffies_64()))
 			job_pending = true;
 	}
 	spin_unlock(&qsd->qsd_adjust_lock);
@@ -449,12 +449,12 @@ static int qsd_upd_thread(void *arg)
 		}
 
 		spin_lock(&qsd->qsd_adjust_lock);
-		cur_time = cfs_time_current_64();
+		cur_time = get_jiffies_64();
 		while (!list_empty(&qsd->qsd_adjust_list)) {
 			lqe = list_entry(qsd->qsd_adjust_list.next,
 					 struct lquota_entry, lqe_link);
 			/* deferred items are sorted by time */
-			if (!cfs_time_beforeq_64(lqe->lqe_adjust_time,
+			if (!time_before_eq64(lqe->lqe_adjust_time,
 						 cur_time))
 				break;
 

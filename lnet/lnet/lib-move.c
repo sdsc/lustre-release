@@ -40,6 +40,7 @@
 
 #define DEBUG_SUBSYSTEM S_LNET
 
+#include <linux/jiffies.h>
 #include <lnet/lib-lnet.h>
 
 static int local_nid_dist_zero = 1;
@@ -680,7 +681,7 @@ lnet_ni_eager_recv(lnet_ni_t *ni, lnet_msg_t *msg)
 static void
 lnet_ni_query_locked(lnet_ni_t *ni, lnet_peer_t *lp)
 {
-	cfs_time_t last_alive = 0;
+	unsigned long last_alive = 0;
 
 	LASSERT(lnet_peer_aliveness_enabled(lp));
 	LASSERT(ni->ni_lnd->lnd_query != NULL);
@@ -689,7 +690,7 @@ lnet_ni_query_locked(lnet_ni_t *ni, lnet_peer_t *lp)
 	(ni->ni_lnd->lnd_query)(ni, lp->lp_nid, &last_alive);
 	lnet_net_lock(lp->lp_cpt);
 
-	lp->lp_last_query = cfs_time_current();
+	lp->lp_last_query = jiffies;
 
 	if (last_alive != 0) /* NI has updated timestamp */
 		lp->lp_last_alive = last_alive;
@@ -697,10 +698,10 @@ lnet_ni_query_locked(lnet_ni_t *ni, lnet_peer_t *lp)
 
 /* NB: always called with lnet_net_lock held */
 static inline int
-lnet_peer_is_alive (lnet_peer_t *lp, cfs_time_t now)
+lnet_peer_is_alive (lnet_peer_t *lp, unsigned long now)
 {
         int        alive;
-        cfs_time_t deadline;
+	unsigned long deadline;
 
         LASSERT (lnet_peer_aliveness_enabled(lp));
 
@@ -708,12 +709,12 @@ lnet_peer_is_alive (lnet_peer_t *lp, cfs_time_t now)
          * ignore the initial assumed death (see lnet_peers_start_down()).
          */
         if (!lp->lp_alive && lp->lp_alive_count > 0 &&
-            cfs_time_aftereq(lp->lp_timestamp, lp->lp_last_alive))
+	    time_after_eq(lp->lp_timestamp, lp->lp_last_alive))
                 return 0;
 
-        deadline = cfs_time_add(lp->lp_last_alive,
-                                cfs_time_seconds(lp->lp_ni->ni_peertimeout));
-        alive = cfs_time_after(deadline, now);
+	deadline = lp->lp_last_alive +
+			cfs_time_seconds(lp->lp_ni->ni_peertimeout);
+	alive = time_after(deadline, now);
 
         /* Update obsolete lp_alive except for routers assumed to be dead
          * initially, because router checker would update aliveness in this
@@ -732,7 +733,7 @@ lnet_peer_is_alive (lnet_peer_t *lp, cfs_time_t now)
 static int
 lnet_peer_alive_locked (lnet_peer_t *lp)
 {
-        cfs_time_t now = cfs_time_current();
+	unsigned long now = jiffies;
 
         if (!lnet_peer_aliveness_enabled(lp))
                 return -ENODEV;
@@ -744,12 +745,10 @@ lnet_peer_alive_locked (lnet_peer_t *lp)
          * most once per lnet_queryinterval seconds). */
         if (lp->lp_last_query != 0) {
                 static const int lnet_queryinterval = 1;
+		unsigned long next_query = lp->lp_last_query +
+					cfs_time_seconds(lnet_queryinterval);
 
-                cfs_time_t next_query =
-                           cfs_time_add(lp->lp_last_query,
-                                        cfs_time_seconds(lnet_queryinterval));
-
-                if (cfs_time_before(now, next_query)) {
+		if (time_before(now, next_query)) {
                         if (lp->lp_alive)
                                 CWARN("Unexpected aliveness of peer %s: "
                                       "%d < %d (%d/%d)\n",
@@ -1862,10 +1861,10 @@ lnet_parse(lnet_ni_t *ni, lnet_hdr_t *hdr, lnet_nid_t from_nid,
 	}
 
 	if (the_lnet.ln_routing &&
-	    ni->ni_last_alive != cfs_time_current_sec()) {
+	    ni->ni_last_alive != get_seconds()) {
 		/* NB: so far here is the only place to set NI status to "up */
 		lnet_ni_lock(ni);
-		ni->ni_last_alive = cfs_time_current_sec();
+		ni->ni_last_alive = get_seconds();
 		if (ni->ni_status != NULL &&
 		    ni->ni_status->ns_status == LNET_NI_STATUS_DOWN)
 			ni->ni_status->ns_status = LNET_NI_STATUS_UP;

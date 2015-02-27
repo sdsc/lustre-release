@@ -115,7 +115,7 @@ static int qmt_set(const struct lu_env *env, struct qmt_device *qmt,
 	if (IS_ERR(th))
 		GOTO(out_nolock, rc = PTR_ERR(th));
 
-	now = cfs_time_current_sec();
+	now = get_seconds();
 
 	lqe_write_lock(lqe);
 	LQUOTA_DEBUG(lqe, "changing quota settings valid:%x hard:"LPU64" soft:"
@@ -414,7 +414,7 @@ int qmt_dqacq0(const struct lu_env *env, struct lquota_entry *lqe,
 	slv_granted_bck = slv_granted;
 
 	/* record current time for soft limit & grace time management */
-	now = (__u64)cfs_time_current_sec();
+	now = (__u64)get_seconds();
 
 	if (req_is_rel(qb_flags)) {
 		/* Slave would like to release quota space */

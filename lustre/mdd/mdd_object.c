@@ -43,6 +43,7 @@
 #define DEBUG_SUBSYSTEM S_MDS
 
 #include <linux/module.h>
+#include <linux/jiffies.h>
 #include <obd.h>
 #include <obd_class.h>
 #include <obd_support.h>
@@ -669,7 +670,7 @@ int mdd_changelog_data_store(const struct lu_env *env, struct mdd_device *mdd,
 	tfid = mdo2fid(mdd_obj);
 
         if ((type >= CL_MTIME) && (type <= CL_ATIME) &&
-            cfs_time_before_64(mdd->mdd_cl.mc_starttime, mdd_obj->mod_cltime)) {
+	    time_before64(mdd->mdd_cl.mc_starttime, mdd_obj->mod_cltime)) {
                 /* Don't need multiple updates in this log */
                 /* Don't check under lock - no big deal if we get an extra
                    entry */
@@ -690,7 +691,7 @@ int mdd_changelog_data_store(const struct lu_env *env, struct mdd_device *mdd,
 	rec->cr.cr_type = (__u32)type;
 	rec->cr.cr_tfid = *tfid;
 	rec->cr.cr_namelen = 0;
-	mdd_obj->mod_cltime = cfs_time_current_64();
+	mdd_obj->mod_cltime = get_jiffies_64();
 
 	if (flags & CLF_JOBID)
 		mdd_changelog_rec_ext_jobid(&rec->cr, uc->uc_jobid);

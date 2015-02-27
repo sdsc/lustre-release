@@ -336,7 +336,7 @@ int cli_ctx_expire(struct ptlrpc_cli_ctx *ctx)
 		      ctx, ctx->cc_vcred.vc_uid, sec2target_str(ctx->cc_sec),
 		      ctx->cc_expire,
 		      ctx->cc_expire == 0 ? 0 :
-		      cfs_time_sub(ctx->cc_expire, cfs_time_current_sec()));
+		      cfs_time_sub(ctx->cc_expire, get_seconds()));
 
 		sptlrpc_cli_ctx_wakeup(ctx);
 		return 1;
@@ -359,7 +359,7 @@ int cli_ctx_check_death(struct ptlrpc_cli_ctx *ctx)
                 return 0;
 
         /* check real expiration */
-        if (cfs_time_after(ctx->cc_expire, cfs_time_current_sec()))
+	if (time_after(ctx->cc_expire, get_seconds()))
                 return 0;
 
         cli_ctx_expire(ctx);
@@ -390,13 +390,13 @@ void gss_cli_ctx_uptodate(struct gss_cli_ctx *gctx)
                 CWARN("server installed reverse ctx %p idx "LPX64", "
                       "expiry %lu(%+lds)\n", ctx,
                       gss_handle_to_u64(&gctx->gc_handle),
-                      ctx->cc_expire, ctx->cc_expire - cfs_time_current_sec());
+		      ctx->cc_expire, ctx->cc_expire - get_seconds());
         } else {
                 CWARN("client refreshed ctx %p idx "LPX64" (%u->%s), "
                       "expiry %lu(%+lds)\n", ctx,
                       gss_handle_to_u64(&gctx->gc_handle),
                       ctx->cc_vcred.vc_uid, sec2target_str(ctx->cc_sec),
-                      ctx->cc_expire, ctx->cc_expire - cfs_time_current_sec());
+		      ctx->cc_expire, ctx->cc_expire - get_seconds());
 
                 /* install reverse svc ctx for root context */
                 if (ctx->cc_vcred.vc_uid == 0)

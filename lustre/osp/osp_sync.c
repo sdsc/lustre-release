@@ -1370,8 +1370,8 @@ static int osp_sync_llog_init(const struct lu_env *env, struct osp_device *d)
 	 * put a mark in the llog till which we'll be processing
 	 * old records restless
 	 */
-	d->opd_syn_generation.mnt_cnt = cfs_time_current();
-	d->opd_syn_generation.conn_cnt = cfs_time_current();
+	d->opd_syn_generation.mnt_cnt = jiffies;
+	d->opd_syn_generation.conn_cnt = jiffies;
 
 	osi->osi_hdr.lrh_type = LLOG_GEN_REC;
 	osi->osi_hdr.lrh_len = sizeof(osi->osi_gen);

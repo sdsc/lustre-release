@@ -57,9 +57,9 @@ struct lnet_drop_rule {
 	/**
 	 * seconds to drop the next message, it's exclusive with dr_drop_at
 	 */
-	cfs_time_t		dr_drop_time;
+	unsigned long		dr_drop_time;
 	/** baseline to caculate dr_drop_time */
-	cfs_time_t		dr_time_base;
+	unsigned long		dr_time_base;
 	/** statistic of dropped messages */
 	struct lnet_fault_stat	dr_stat;
 };
@@ -312,12 +312,12 @@ drop_rule_match(struct lnet_drop_rule *rule, lnet_nid_t src,
 	/* match this rule, check drop rate now */
 	spin_lock(&rule->dr_lock);
 	if (rule->dr_drop_time != 0) { /* time based drop */
-		cfs_time_t now = cfs_time_current();
+		unsigned long now = jiffies;
 
 		rule->dr_stat.fs_count++;
-		drop = cfs_time_aftereq(now, rule->dr_drop_time);
+		drop = time_after_eq(now, rule->dr_drop_time);
 		if (drop) {
-			if (cfs_time_after(now, rule->dr_time_base))
+			if (time_after(now, rule->dr_time_base))
 				rule->dr_time_base = now;
 
 			rule->dr_drop_time = rule->dr_time_base +
@@ -326,8 +326,7 @@ drop_rule_match(struct lnet_drop_rule *rule, lnet_nid_t src,
 			rule->dr_time_base += cfs_time_seconds(attr->u.drop.
 							       da_interval);
 
-			CDEBUG(D_NET, "Drop Rule %s->%s: next drop : "
-				      CFS_TIME_T"\n",
+			CDEBUG(D_NET, "Drop Rule %s->%s: next drop : %lu\n",
 				      libcfs_nid2str(attr->fa_src),
 				      libcfs_nid2str(attr->fa_dst),
 				      rule->dr_drop_time);
@@ -411,9 +410,9 @@ struct lnet_delay_rule {
 	/**
 	 * seconds to delay the next message, it's exclusive with dl_delay_at
 	 */
-	cfs_time_t		dl_delay_time;
+	unsigned long		dl_delay_time;
 	/** baseline to caculate dl_delay_time */
-	cfs_time_t		dl_time_base;
+	unsigned long		dl_time_base;
 	/** jiffies to send the next delayed message */
 	unsigned long		dl_msg_send;
 	/** delayed message list */
@@ -443,8 +442,8 @@ struct delay_daemon_data {
 
 static struct delay_daemon_data	delay_dd;
 
-static cfs_time_t
-round_timeout(cfs_time_t timeout)
+static unsigned long
+round_timeout(unsigned long timeout)
 {
 	return cfs_time_seconds((unsigned int)
 			cfs_duration_sec(cfs_time_sub(timeout, 0)) + 1);
@@ -480,12 +479,12 @@ delay_rule_match(struct lnet_delay_rule *rule, lnet_nid_t src,
 	/* match this rule, check delay rate now */
 	spin_lock(&rule->dl_lock);
 	if (rule->dl_delay_time != 0) { /* time based delay */
-		cfs_time_t now = cfs_time_current();
+		unsigned long now = jiffies;
 
 		rule->dl_stat.fs_count++;
-		delay = cfs_time_aftereq(now, rule->dl_delay_time);
+		delay = time_after_eq(now, rule->dl_delay_time);
 		if (delay) {
-			if (cfs_time_after(now, rule->dl_time_base))
+			if (time_after(now, rule->dl_time_base))
 				rule->dl_time_base = now;
 
 			rule->dl_delay_time = rule->dl_time_base +
@@ -494,8 +493,7 @@ delay_rule_match(struct lnet_delay_rule *rule, lnet_nid_t src,
 			rule->dl_time_base += cfs_time_seconds(attr->u.delay.
 							       la_interval);
 
-			CDEBUG(D_NET, "Delay Rule %s->%s: next delay : "
-				      CFS_TIME_T"\n",
+			CDEBUG(D_NET, "Delay Rule %s->%s: next delay : %lu\n",
 				      libcfs_nid2str(attr->fa_src),
 				      libcfs_nid2str(attr->fa_dst),
 				      rule->dl_delay_time);
@@ -571,7 +569,7 @@ delayed_msg_check(struct lnet_delay_rule *rule, bool all,
 {
 	struct lnet_msg *msg;
 	struct lnet_msg *tmp;
-	unsigned long	 now = cfs_time_current();
+	unsigned long	 now = jiffies;
 
 	if (!all && rule->dl_msg_send > now)
 		return;

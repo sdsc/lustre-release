@@ -837,7 +837,7 @@ int mdd_changelog_ns_store(const struct lu_env *env,
 
 	if (likely(target != NULL)) {
 		rec->cr.cr_tfid = *mdo2fid(target);
-		target->mod_cltime = cfs_time_current_64();
+		target->mod_cltime = get_jiffies_64();
 	} else {
 		fid_zero(&rec->cr.cr_tfid);
 	}

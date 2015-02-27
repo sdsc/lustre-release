@@ -683,11 +683,11 @@ static int osp_sync_timeout(void *data)
 static int osp_sync(const struct lu_env *env, struct dt_device *dev)
 {
 	struct osp_device *d = dt2osp_dev(dev);
-	cfs_time_t	   expire;
+	unsigned long	   expire;
 	struct l_wait_info lwi = { 0 };
 	unsigned long	   id, old;
 	int		   rc = 0;
-	unsigned long	   start = cfs_time_current();
+	unsigned long	   start = jiffies;
 	ENTRY;
 
 	if (unlikely(d->opd_imp_active == 0))
@@ -701,7 +701,7 @@ static int osp_sync(const struct lu_env *env, struct dt_device *dev)
 
 	/* make sure the connection is fine */
 	expire = cfs_time_shift(obd_timeout);
-	lwi = LWI_TIMEOUT(expire - cfs_time_current(), osp_sync_timeout, d);
+	lwi = LWI_TIMEOUT(expire - jiffies, osp_sync_timeout, d);
 	rc = l_wait_event(d->opd_syn_barrier_waitq,
 			  atomic_read(&d->opd_async_updates_count) == 0,
 			  &lwi);
@@ -719,7 +719,7 @@ static int osp_sync(const struct lu_env *env, struct dt_device *dev)
 
 		/* make sure the connection is fine */
 		expire = cfs_time_shift(obd_timeout);
-		lwi = LWI_TIMEOUT(expire - cfs_time_current(),
+		lwi = LWI_TIMEOUT(expire - jiffies,
 				  osp_sync_timeout, d);
 		l_wait_event(d->opd_syn_barrier_waitq,
 			     d->opd_syn_last_processed_id >= id,
@@ -753,7 +753,7 @@ static int osp_sync(const struct lu_env *env, struct dt_device *dev)
 		old = d->opd_syn_rpc_in_flight;
 
 		expire = cfs_time_shift(obd_timeout);
-		lwi = LWI_TIMEOUT(expire - cfs_time_current(),
+		lwi = LWI_TIMEOUT(expire - jiffies,
 				  osp_sync_timeout, d);
 		l_wait_event(d->opd_syn_barrier_waitq,
 				d->opd_syn_rpc_in_flight == 0, &lwi);
@@ -776,7 +776,7 @@ out:
 	__osp_sync_check_for_work(d);
 
 	CDEBUG(D_CACHE, "%s: done in %lu: rc = %d\n", d->opd_obd->obd_name,
-	       cfs_time_current() - start, rc);
+	       jiffies - start, rc);
 
 	RETURN(rc);
 }

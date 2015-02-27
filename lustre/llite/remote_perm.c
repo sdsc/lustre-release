@@ -241,7 +241,7 @@ again:
                 lrp->lrp_fsgid       = perm->rp_fsgid;
 		hlist_add_head(&lrp->lrp_list, head);
         }
-        lli->lli_rmtperm_time = cfs_time_current();
+	lli->lli_rmtperm_time = jiffies;
 	spin_unlock(&lli->lli_lock);
 
         CDEBUG(D_SEC, "new remote perm@%p: %u/%u/%u/%u - %#x\n",
@@ -258,7 +258,7 @@ int lustre_check_remote_perm(struct inode *inode, int mask)
         struct ptlrpc_request *req = NULL;
         struct mdt_remote_perm *perm;
         struct obd_capa *oc;
-        cfs_time_t save;
+	unsigned long save;
         int i = 0, rc;
         ENTRY;
 

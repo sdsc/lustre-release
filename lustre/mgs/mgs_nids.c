@@ -400,13 +400,13 @@ static int mgs_nidtbl_init_fs(const struct lu_env *env, struct fs_db *fsdb)
 void mgs_ir_notify_complete(struct fs_db *fsdb)
 {
 	struct timeval tv;
-	cfs_duration_t delta;
+	long delta;
 
 	atomic_set(&fsdb->fsdb_notify_phase, 0);
 
         /* do statistic */
         fsdb->fsdb_notify_count++;
-        delta = cfs_time_sub(cfs_time_current(), fsdb->fsdb_notify_start);
+	delta = cfs_time_sub(jiffies, fsdb->fsdb_notify_start);
         fsdb->fsdb_notify_total += delta;
         if (delta > fsdb->fsdb_notify_max)
                 fsdb->fsdb_notify_max = delta;
@@ -444,7 +444,7 @@ static int mgs_ir_notify(void *arg)
 		CDEBUG(D_MGS, "%s woken up, phase is %d\n",
 		       name, atomic_read(&fsdb->fsdb_notify_phase));
 
-		fsdb->fsdb_notify_start = cfs_time_current();
+		fsdb->fsdb_notify_start = jiffies;
 		mgs_revoke_lock(fsdb->fsdb_mgs, fsdb, CONFIG_T_RECOVER);
 	}
 
@@ -461,8 +461,8 @@ int mgs_ir_init_fs(const struct lu_env *env, struct mgs_device *mgs,
 		ir_timeout = OBD_IR_MGS_TIMEOUT;
 
 	fsdb->fsdb_ir_state = IR_FULL;
-	if (cfs_time_before(cfs_time_current_sec(),
-			    mgs->mgs_start_time + ir_timeout))
+	if (time_before(get_seconds(),
+			mgs->mgs_start_time + ir_timeout))
 		fsdb->fsdb_ir_state = IR_STARTUP;
 	fsdb->fsdb_nonir_clients = 0;
 	INIT_LIST_HEAD(&fsdb->fsdb_clients);
@@ -503,14 +503,14 @@ void mgs_ir_fini_fs(struct mgs_device *mgs, struct fs_db *fsdb)
 /* caller must have held fsdb_mutex */
 static inline void ir_state_graduate(struct fs_db *fsdb)
 {
-        if (fsdb->fsdb_ir_state == IR_STARTUP) {
-		if (cfs_time_before(fsdb->fsdb_mgs->mgs_start_time + ir_timeout,
-                                    cfs_time_current_sec())) {
-                        fsdb->fsdb_ir_state = IR_FULL;
-                        if (fsdb->fsdb_nonir_clients)
-                                fsdb->fsdb_ir_state = IR_PARTIAL;
-                }
-        }
+	if (fsdb->fsdb_ir_state == IR_STARTUP) {
+		if (time_before(fsdb->fsdb_mgs->mgs_start_time + ir_timeout,
+				get_seconds())) {
+			fsdb->fsdb_ir_state = IR_FULL;
+			if (fsdb->fsdb_nonir_clients)
+				fsdb->fsdb_ir_state = IR_PARTIAL;
+		}
+	}
 }
 
 int mgs_ir_update(const struct lu_env *env, struct mgs_device *mgs,

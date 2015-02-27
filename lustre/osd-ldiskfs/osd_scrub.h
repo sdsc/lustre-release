@@ -207,10 +207,10 @@ struct osd_scrub {
 	struct inode	       *os_inode;
 
 	/* The time for last checkpoint, jiffies */
-	cfs_time_t		os_time_last_checkpoint;
+	unsigned long		os_time_last_checkpoint;
 
 	/* The time for next checkpoint, jiffies */
-	cfs_time_t		os_time_next_checkpoint;
+	unsigned long		os_time_next_checkpoint;
 
 	/* statistics for /lost+found are in ram only, it will be reset
 	 * when each time the device remount. */

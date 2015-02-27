@@ -935,7 +935,7 @@ static int lfsck_create_lpf(const struct lu_env *env,
 	}
 
 	memset(la, 0, sizeof(*la));
-	la->la_atime = la->la_mtime = la->la_ctime = cfs_time_current_sec();
+	la->la_atime = la->la_mtime = la->la_ctime = get_seconds();
 	la->la_mode = S_IFDIR | S_IRWXU;
 	la->la_valid = LA_ATIME | LA_MTIME | LA_CTIME | LA_MODE |
 		       LA_UID | LA_GID;
@@ -1654,7 +1654,7 @@ int lfsck_time_dump(struct seq_file *m, __u64 time, const char *prefix)
 {
 	if (time != 0)
 		seq_printf(m, "%s: "LPU64" seconds\n", prefix,
-			  cfs_time_current_sec() - time);
+			   get_seconds() - time);
 	else
 		seq_printf(m, "%s: N/A\n", prefix);
 	return 0;

@@ -464,7 +464,7 @@ static int lfsck_checkpoint(const struct lu_env *env,
 	int			rc  = 0;
 	int			rc1 = 0;
 
-	if (likely(cfs_time_beforeq(cfs_time_current(),
+	if (likely(time_before_eq(jiffies,
 				    lfsck->li_time_next_checkpoint)))
 		return 0;
 
@@ -475,7 +475,7 @@ static int lfsck_checkpoint(const struct lu_env *env,
 			rc1 = rc;
 	}
 
-	lfsck->li_time_last_checkpoint = cfs_time_current();
+	lfsck->li_time_last_checkpoint = jiffies;
 	lfsck->li_time_next_checkpoint = lfsck->li_time_last_checkpoint +
 				cfs_time_seconds(LFSCK_CHECKPOINT_INTERVAL);
 	return rc1 != 0 ? rc1 : rc;
@@ -578,7 +578,7 @@ out:
 			break;
 	}
 
-	lfsck->li_time_last_checkpoint = cfs_time_current();
+	lfsck->li_time_last_checkpoint = jiffies;
 	lfsck->li_time_next_checkpoint = lfsck->li_time_last_checkpoint +
 				cfs_time_seconds(LFSCK_CHECKPOINT_INTERVAL);
 	return rc;
@@ -676,7 +676,7 @@ static int lfsck_post(const struct lu_env *env, struct lfsck_instance *lfsck,
 			       (__u32)com->lc_type, rc);
 	}
 
-	lfsck->li_time_last_checkpoint = cfs_time_current();
+	lfsck->li_time_last_checkpoint = jiffies;
 	lfsck->li_time_next_checkpoint = lfsck->li_time_last_checkpoint +
 				cfs_time_seconds(LFSCK_CHECKPOINT_INTERVAL);
 
@@ -1709,7 +1709,7 @@ int lfsck_assistant_engine(void *args)
 
 			com->lc_new_checked = 0;
 			com->lc_new_scanned = 0;
-			com->lc_time_last_checkpoint = cfs_time_current();
+			com->lc_time_last_checkpoint = jiffies;
 			com->lc_time_next_checkpoint =
 				com->lc_time_last_checkpoint +
 				cfs_time_seconds(LFSCK_CHECKPOINT_INTERVAL);

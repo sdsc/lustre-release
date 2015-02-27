@@ -396,7 +396,7 @@ console:
         if (cdls != NULL) {
                 if (libcfs_console_ratelimit &&
                     cdls->cdls_next != 0 &&     /* not first time ever */
-                    !cfs_time_after(cfs_time_current(), cdls->cdls_next)) {
+		    !time_after(jiffies, cdls->cdls_next)) {
                         /* skipping a console message */
                         cdls->cdls_count++;
                         if (tcd != NULL)
@@ -404,9 +404,9 @@ console:
                         return 1;
                 }
 
-                if (cfs_time_after(cfs_time_current(), cdls->cdls_next +
-                                                       libcfs_console_max_delay
-                                                       + cfs_time_seconds(10))) {
+		if (time_after(jiffies, cdls->cdls_next +
+						   libcfs_console_max_delay
+						   + cfs_time_seconds(10))) {
                         /* last timeout was a long time ago */
                         cdls->cdls_delay /= libcfs_console_backoff * 4;
                 } else {
@@ -419,7 +419,7 @@ console:
 			cdls->cdls_delay = libcfs_console_max_delay;
 
                 /* ensure cdls_next is never zero after it's been seen */
-                cdls->cdls_next = (cfs_time_current() + cdls->cdls_delay) | 1;
+		cdls->cdls_next = (jiffies + cdls->cdls_delay) | 1;
         }
 
         if (tcd != NULL) {

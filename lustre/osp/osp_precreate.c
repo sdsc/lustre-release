@@ -70,7 +70,7 @@
  */
 static inline int osp_statfs_need_update(struct osp_device *d)
 {
-	return !cfs_time_before(cfs_time_current(),
+	return !time_before(jiffies,
 				d->opd_statfs_fresh_till);
 }
 
@@ -1290,7 +1290,7 @@ static int osp_precreate_timeout_condition(void *data)
 int osp_precreate_reserve(const struct lu_env *env, struct osp_device *d)
 {
 	struct l_wait_info	 lwi;
-	cfs_time_t		 expire = cfs_time_shift(obd_timeout);
+	unsigned long		 expire = cfs_time_shift(obd_timeout);
 	int			 precreated, rc;
 
 	ENTRY;
@@ -1364,9 +1364,9 @@ int osp_precreate_reserve(const struct lu_env *env, struct osp_device *d)
 		/* XXX: don't wake up if precreation is in progress */
 		wake_up(&d->opd_pre_waitq);
 
-		lwi = LWI_TIMEOUT(expire - cfs_time_current(),
+		lwi = LWI_TIMEOUT(expire - jiffies,
 				osp_precreate_timeout_condition, d);
-		if (cfs_time_aftereq(cfs_time_current(), expire)) {
+		if (time_after_eq(jiffies, expire)) {
 			rc = -ETIMEDOUT;
 			break;
 		}
@@ -1561,7 +1561,7 @@ int osp_init_precreate(struct osp_device *d)
 	d->opd_statfs_maxage = 5; /* default update interval */
 	d->opd_statfs_fresh_till = cfs_time_shift(-1000);
 	CDEBUG(D_OTHER, "current %llu, fresh till %llu\n",
-	       (unsigned long long)cfs_time_current(),
+	       (unsigned long long)jiffies,
 	       (unsigned long long)d->opd_statfs_fresh_till);
 	cfs_timer_init(&d->opd_statfs_timer, osp_statfs_timer_cb, d);
 

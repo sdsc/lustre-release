@@ -130,7 +130,7 @@ static void ptlrpc_update_next_ping(struct obd_import *imp, int soon)
 
 void ptlrpc_ping_import_soon(struct obd_import *imp)
 {
-        imp->imp_next_ping = cfs_time_current();
+	imp->imp_next_ping = jiffies;
 }
 
 static inline int imp_is_deactive(struct obd_import *imp)
@@ -147,10 +147,10 @@ static inline int ptlrpc_next_reconnect(struct obd_import *imp)
                 return cfs_time_shift(obd_timeout);
 }
 
-static cfs_duration_t pinger_check_timeout(cfs_time_t time)
+static long pinger_check_timeout(unsigned long time)
 {
         struct timeout_item *item;
-        cfs_time_t timeout = PING_INTERVAL;
+	unsigned long timeout = PING_INTERVAL;
 
         /* The timeout list is a increase order sorted list */
 	mutex_lock(&pinger_mutex);
@@ -162,8 +162,7 @@ static cfs_duration_t pinger_check_timeout(cfs_time_t time)
         }
 	mutex_unlock(&pinger_mutex);
 
-        return cfs_time_sub(cfs_time_add(time, cfs_time_seconds(timeout)),
-                                         cfs_time_current());
+	return cfs_time_sub(time + cfs_time_seconds(timeout), jiffies);
 }
 
 
@@ -203,7 +202,7 @@ static void ptlrpc_pinger_process_import(struct obd_import *imp,
 
 	imp->imp_force_verify = 0;
 
-	if (cfs_time_aftereq(imp->imp_next_ping - 5 * CFS_TICK, this_ping) &&
+	if (time_after_eq(imp->imp_next_ping - 5 * CFS_TICK, this_ping) &&
 	    !force) {
 		spin_unlock(&imp->imp_lock);
 		return;
@@ -252,9 +251,9 @@ static int ptlrpc_pinger_main(void *arg)
 
 	/* And now, loop forever, pinging as needed. */
 	while (1) {
-		cfs_time_t this_ping = cfs_time_current();
+		unsigned long this_ping = jiffies;
 		struct l_wait_info lwi;
-		cfs_duration_t time_to_next_wake;
+		long time_to_next_wake;
 		struct timeout_item *item;
 		struct list_head *iter;
 
@@ -270,9 +269,8 @@ static int ptlrpc_pinger_main(void *arg)
                         ptlrpc_pinger_process_import(imp, this_ping);
                         /* obd_timeout might have changed */
                         if (imp->imp_pingable && imp->imp_next_ping &&
-                            cfs_time_after(imp->imp_next_ping,
-                                           cfs_time_add(this_ping,
-                                                        cfs_time_seconds(PING_INTERVAL))))
+			    time_after(imp->imp_next_ping, this_ping +
+				       cfs_time_seconds(PING_INTERVAL)))
                                 ptlrpc_update_next_ping(imp, 0);
                 }
 		mutex_unlock(&pinger_mutex);
@@ -287,11 +285,10 @@ static int ptlrpc_pinger_main(void *arg)
                    next ping time to next_ping + .01 sec, which means
                    we will SKIP the next ping at next_ping, and the
                    ping will get sent 2 timeouts from now!  Beware. */
-                CDEBUG(D_INFO, "next wakeup in "CFS_DURATION_T" ("
-                       CFS_TIME_T")\n", time_to_next_wake,
-                       cfs_time_add(this_ping,cfs_time_seconds(PING_INTERVAL)));
+		CDEBUG(D_INFO, "next wakeup in %ld (%lu)\n", time_to_next_wake,
+		       this_ping + cfs_time_seconds(PING_INTERVAL));
                 if (time_to_next_wake > 0) {
-                        lwi = LWI_TIMEOUT(max_t(cfs_duration_t,
+			lwi = LWI_TIMEOUT(max_t(long,
                                                 time_to_next_wake,
                                                 cfs_time_seconds(1)),
                                           NULL, NULL);
@@ -631,7 +628,7 @@ static int ping_evictor_main(void *arg)
 				 obd_evict_list);
 		spin_unlock(&pet_lock);
 
-		expire_time = cfs_time_current_sec() - PING_EVICT_TIMEOUT;
+		expire_time = get_seconds() - PING_EVICT_TIMEOUT;
 
 		CDEBUG(D_HA, "evicting all exports of obd %s older than %ld\n",
 		       obd->obd_name, expire_time);
@@ -656,9 +653,9 @@ static int ping_evictor_main(void *arg)
                                               obd->obd_name,
                                               obd_uuid2str(&exp->exp_client_uuid),
                                               obd_export_nid2str(exp),
-                                              (long)(cfs_time_current_sec() -
+					      (long)(get_seconds() -
                                                      exp->exp_last_request_time),
-                                              exp, (long)cfs_time_current_sec(),
+					      exp, (long)get_seconds(),
                                               (long)expire_time,
                                               (long)exp->exp_last_request_time);
                                 CDEBUG(D_HA, "Last request was at %ld\n",

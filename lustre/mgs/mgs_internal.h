@@ -57,7 +57,7 @@ struct mgs_nidtbl_target {
 	struct mgs_nidtbl      *mnt_fs;
 	u64			mnt_version;
 	int			mnt_type;	/* OST or MDT */
-	cfs_time_t		mnt_last_active;
+	unsigned long		mnt_last_active;
 	struct mgs_target_info	mnt_mti;
 };
 
@@ -148,7 +148,7 @@ struct fs_db {
 	struct mgs_device    *fsdb_mgs;
 	wait_queue_head_t     fsdb_notify_waitq;
 	struct completion     fsdb_notify_comp;
-	cfs_time_t            fsdb_notify_start;
+	unsigned long            fsdb_notify_start;
 	atomic_t	      fsdb_notify_phase;
 	volatile unsigned int fsdb_notify_async:1,
                              fsdb_notify_stop:1;
@@ -171,7 +171,7 @@ struct mgs_device {
 	struct proc_dir_entry           *mgs_proc_osd;
 	struct proc_dir_entry           *mgs_proc_fstype;
 	struct proc_dir_entry		*mgs_proc_mntdev;
-	cfs_time_t			 mgs_start_time;
+	unsigned long			 mgs_start_time;
 	struct obd_device		*mgs_obd;
 	struct local_oid_storage	*mgs_los;
 	struct mutex			 mgs_mutex;

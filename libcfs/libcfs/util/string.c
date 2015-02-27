@@ -39,7 +39,8 @@
  *
  * Author: Nathan Rutman <nathan.rutman@sun.com>
  */
-
+#include <libcfs/util/string.h>
+#include <libcfs/libcfs_string.h>
 #include <libcfs/libcfs.h>
 
 char *cfs_strrstr(const char *haystack, const char *needle)

@@ -698,7 +698,7 @@ int ofd_statfs_internal(const struct lu_env *env, struct ofd_device *ofd,
 		GOTO(out, rc = -ENOSPC);
 
 	spin_lock(&ofd->ofd_osfs_lock);
-	if (cfs_time_before_64(ofd->ofd_osfs_age, max_age) || max_age == 0) {
+	if (time_before64(ofd->ofd_osfs_age, max_age) || max_age == 0) {
 		u64 unstable;
 
 		/* statfs data are too old, get up-to-date one.
@@ -753,7 +753,7 @@ int ofd_statfs_internal(const struct lu_env *env, struct ofd_device *ofd,
 
 		/* finally udpate cached statfs data */
 		ofd->ofd_osfs = *osfs;
-		ofd->ofd_osfs_age = cfs_time_current_64();
+		ofd->ofd_osfs_age = get_jiffies_64();
 
 		ofd->ofd_statfs_inflight--; /* stop tracking */
 		if (ofd->ofd_statfs_inflight == 0)

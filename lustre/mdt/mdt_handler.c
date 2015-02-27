@@ -49,6 +49,7 @@
 #define DEBUG_SUBSYSTEM S_MDS
 
 #include <linux/module.h>
+#include <linux/jiffies.h>
 /*
  * struct OBD_{ALLOC,FREE}*()
  */
@@ -338,15 +339,15 @@ static int mdt_statfs(struct tgt_session_info *tsi)
 		GOTO(out, rc = -EPROTO);
 
 	/** statfs information are cached in the mdt_device */
-	if (cfs_time_before_64(info->mti_mdt->mdt_osfs_age,
-			       cfs_time_shift_64(-OBD_STATFS_CACHE_SECONDS))) {
+	if (time_before64(info->mti_mdt->mdt_osfs_age,
+			   cfs_time_shift_64(-OBD_STATFS_CACHE_SECONDS))) {
 		/** statfs data is too old, get up-to-date one */
 		rc = next->md_ops->mdo_statfs(info->mti_env, next, osfs);
 		if (rc)
 			GOTO(out, rc);
 		spin_lock(&info->mti_mdt->mdt_osfs_lock);
 		info->mti_mdt->mdt_osfs = *osfs;
-		info->mti_mdt->mdt_osfs_age = cfs_time_current_64();
+		info->mti_mdt->mdt_osfs_age = get_jiffies_64();
 		spin_unlock(&info->mti_mdt->mdt_osfs_lock);
 	} else {
 		/** use cached statfs data */
@@ -1599,7 +1600,7 @@ static int mdt_getattr_name_lock(struct mdt_thread_info *info,
                         if (ma->ma_valid & MA_INODE &&
                             ma->ma_attr.la_valid & LA_CTIME &&
                             info->mti_mdt->mdt_namespace->ns_ctime_age_limit +
-                                ma->ma_attr.la_ctime < cfs_time_current_sec())
+				ma->ma_attr.la_ctime < get_seconds())
                                 child_bits |= MDS_INODELOCK_UPDATE;
                 }
 

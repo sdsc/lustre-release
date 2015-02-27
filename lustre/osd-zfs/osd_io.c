@@ -126,7 +126,7 @@ static ssize_t osd_read(const struct lu_env *env, struct dt_object *dt,
 	LASSERT(dt_object_exists(dt));
 	LASSERT(obj->oo_db);
 
-	start = cfs_time_current();
+	start = jiffies;
 
 	read_lock(&obj->oo_attr_lock);
 	old_size = obj->oo_attr.la_size;
@@ -144,7 +144,7 @@ static ssize_t osd_read(const struct lu_env *env, struct dt_object *dt,
 	rc = -dmu_read(osd->od_os, obj->oo_db->db_object, *pos, size,
 			buf->lb_buf, DMU_READ_PREFETCH);
 
-	record_end_io(osd, READ, cfs_time_current() - start, size);
+	record_end_io(osd, READ, jiffies - start, size);
 	if (rc == 0) {
 		rc = size;
 		*pos += size;
@@ -791,7 +791,7 @@ static int osd_read_prep(const struct lu_env *env, struct dt_object *dt,
 	LASSERT(dt_object_exists(dt));
 	LASSERT(obj->oo_db);
 
-	start = cfs_time_current();
+	start = jiffies;
 
 	record_start_io(osd, READ, npages, 0);
 
@@ -816,7 +816,7 @@ static int osd_read_prep(const struct lu_env *env, struct dt_object *dt,
 		}
 	}
 
-	record_end_io(osd, READ, cfs_time_current() - start, size);
+	record_end_io(osd, READ, jiffies - start, size);
 
 	return 0;
 }

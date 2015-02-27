@@ -182,7 +182,7 @@ struct osp_device {
 	 * statfs related fields: OSP maintains it on its own
 	 */
 	struct obd_statfs		 opd_statfs;
-	cfs_time_t			 opd_statfs_fresh_till;
+	unsigned long			 opd_statfs_fresh_till;
 	struct timer_list			 opd_statfs_timer;
 	int				 opd_statfs_update_in_progress;
 	/* how often to update statfs data */

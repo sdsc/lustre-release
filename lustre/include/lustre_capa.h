@@ -82,7 +82,7 @@ struct obd_capa {
 
 	struct lustre_capa	c_capa;		/* capa */
 	atomic_t		c_refc;		/* ref count */
-	cfs_time_t		c_expiry;	/* jiffies */
+	unsigned long		c_expiry;	/* jiffies */
 	spinlock_t		c_lock;	/* protect capa content */
 	int			c_site;
 
@@ -266,20 +266,19 @@ static inline __u64 capa_open_opc(int mode)
 
 static inline void set_capa_expiry(struct obd_capa *ocapa)
 {
-        cfs_time_t expiry = cfs_time_sub((cfs_time_t)ocapa->c_capa.lc_expiry,
-                                         cfs_time_current_sec());
-        ocapa->c_expiry = cfs_time_add(cfs_time_current(),
-                                       cfs_time_seconds(expiry));
+	unsigned long expiry = cfs_time_sub((unsigned long)ocapa->c_capa.lc_expiry,
+					 get_seconds());
+	ocapa->c_expiry = jiffies + cfs_time_seconds(expiry);
 }
 
 static inline int capa_is_expired_sec(struct lustre_capa *capa)
 {
-        return (capa->lc_expiry - cfs_time_current_sec() <= 0);
+	return (capa->lc_expiry - get_seconds() <= 0);
 }
 
 static inline int capa_is_expired(struct obd_capa *ocapa)
 {
-        return cfs_time_beforeq(ocapa->c_expiry, cfs_time_current());
+	return time_before_eq(ocapa->c_expiry, jiffies);
 }
 
 static inline int capa_opc_supported(struct lustre_capa *capa, __u64 opc)

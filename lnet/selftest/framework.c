@@ -179,8 +179,7 @@ sfw_add_session_timer (void)
         LASSERT (!sn->sn_timer_active);
 
         sn->sn_timer_active = 1;
-        timer->stt_expires = cfs_time_add(sn->sn_timeout,
-                                          cfs_time_current_sec());
+	timer->stt_expires = sn->sn_timeout + get_seconds();
         stt_add_timer(timer);
         return;
 }
@@ -286,7 +285,7 @@ sfw_init_session(sfw_session_t *sn, lst_sid_t sid,
         sn->sn_id           = sid;
 	sn->sn_features	    = features;
         sn->sn_timeout      = session_timeout;
-        sn->sn_started      = cfs_time_current();
+	sn->sn_started      = jiffies;
 
         timer->stt_data = sn;
         timer->stt_func = sfw_session_expired;
@@ -401,7 +400,7 @@ sfw_get_stats (srpc_stat_reqst_t *request, srpc_stat_reply_t *reply)
 
         /* send over the msecs since the session was started
          - with 32 bits to send, this is ~49 days */
-        cfs_duration_usec(cfs_time_sub(cfs_time_current(),
+	cfs_duration_usec(cfs_time_sub(jiffies,
                                        sn->sn_started), &tv);
 
         cnt->running_ms      = (__u32)(tv.tv_sec * 1000 + tv.tv_usec / 1000);

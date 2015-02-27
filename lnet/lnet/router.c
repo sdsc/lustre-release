@@ -99,9 +99,9 @@ lnet_peers_start_down(void)
 }
 
 void
-lnet_notify_locked(lnet_peer_t *lp, int notifylnd, int alive, cfs_time_t when)
+lnet_notify_locked(lnet_peer_t *lp, int notifylnd, int alive, unsigned long when)
 {
-        if (cfs_time_before(when, lp->lp_timestamp)) { /* out of date information */
+	if (time_before(when, lp->lp_timestamp)) { /* out of date information */
                 CDEBUG(D_NET, "Out of date\n");
                 return;
         }
@@ -776,7 +776,7 @@ lnet_router_checker_event(lnet_event_t *event)
 	 * we ping alive routers to try to detect router death before
 	 * apps get burned). */
 
-	lnet_notify_locked(lp, 1, (event->status == 0), cfs_time_current());
+	lnet_notify_locked(lp, 1, (event->status == 0), jiffies);
 	/* The router checker will wake up very shortly and do the
 	 * actual notification.
 	 * XXX If 'lp' stops being a router before then, it will still
@@ -848,7 +848,7 @@ lnet_update_ni_status_locked(void)
 	timeout = router_ping_timeout +
 		  MAX(live_router_check_interval, dead_router_check_interval);
 
-	now = cfs_time_current_sec();
+	now = get_seconds();
 	list_for_each_entry(ni, &the_lnet.ln_nis, ni_list) {
 		if (ni->ni_lnd->lnd_type == LOLND)
 			continue;
@@ -983,13 +983,13 @@ static void
 lnet_ping_router_locked (lnet_peer_t *rtr)
 {
         lnet_rc_data_t *rcd = NULL;
-        cfs_time_t      now = cfs_time_current();
+	unsigned long      now = jiffies;
         int             secs;
 
         lnet_peer_addref_locked(rtr);
 
         if (rtr->lp_ping_deadline != 0 && /* ping timed out? */
-            cfs_time_after(now, rtr->lp_ping_deadline))
+	    time_after(now, rtr->lp_ping_deadline))
                 lnet_notify_locked(rtr, 1, 0, now);
 
 	/* Run any outstanding notifications */
@@ -1018,8 +1018,7 @@ lnet_ping_router_locked (lnet_peer_t *rtr)
                rtr->lp_alive, rtr->lp_alive_count, rtr->lp_ping_timestamp);
 
         if (secs != 0 && !rtr->lp_ping_notsent &&
-            cfs_time_after(now, cfs_time_add(rtr->lp_ping_timestamp,
-                                             cfs_time_seconds(secs)))) {
+	    time_after(now, rtr->lp_ping_timestamp + cfs_time_seconds(secs))) {
                 int               rc;
                 lnet_process_id_t id;
                 lnet_handle_md_t  mdh;
@@ -1710,10 +1709,10 @@ lnet_rtrpools_disable(void)
 }
 
 int
-lnet_notify(lnet_ni_t *ni, lnet_nid_t nid, int alive, cfs_time_t when)
+lnet_notify(lnet_ni_t *ni, lnet_nid_t nid, int alive, unsigned long when)
 {
 	struct lnet_peer	*lp = NULL;
-	cfs_time_t		now = cfs_time_current();
+	unsigned long		now = jiffies;
 	int			cpt = lnet_cpt_of_nid(nid);
 
 	LASSERT (!in_interrupt ());
@@ -1732,7 +1731,7 @@ lnet_notify(lnet_ni_t *ni, lnet_nid_t nid, int alive, cfs_time_t when)
         }
 
         /* can't do predictions... */
-        if (cfs_time_after(when, now)) {
+	if (time_after(when, now)) {
                 CWARN ("Ignoring prediction from %s of %s %s "
                        "%ld seconds in the future\n",
                        (ni == NULL) ? "userspace" : libcfs_nid2str(ni->ni_nid),

@@ -286,7 +286,7 @@ void ptlrpc_at_adj_net_latency(struct ptlrpc_request *req,
 {
         unsigned int nl, oldnl;
         struct imp_at *at;
-        time_t now = cfs_time_current_sec();
+	time_t now = get_seconds();
 
         LASSERT(req->rq_import);
 
@@ -300,9 +300,8 @@ void ptlrpc_at_adj_net_latency(struct ptlrpc_request *req,
 		 */
 		CDEBUG((lustre_msg_get_flags(req->rq_reqmsg) & MSG_RESENT) ?
 		       D_ADAPTTO : D_WARNING,
-		       "Reported service time %u > total measured time "
-		       CFS_DURATION_T"\n", service_time,
-		       cfs_time_sub(now, req->rq_sent));
+		       "Reported service time %u > total measured time %ld\n",
+		       service_time, cfs_time_sub(now, req->rq_sent));
 		return;
 	}
 
@@ -393,9 +392,9 @@ __must_hold(&req->rq_lock)
 			   ptlrpc_at_get_net_latency(req);
 
 	DEBUG_REQ(D_ADAPTTO, req,
-		  "Early reply #%d, new deadline in "CFS_DURATION_T"s "
-		  "("CFS_DURATION_T"s)", req->rq_early_count,
-		  cfs_time_sub(req->rq_deadline, cfs_time_current_sec()),
+		  "Early reply #%d, new deadline in %lds "
+		  "(%lds)", req->rq_early_count,
+		  cfs_time_sub(req->rq_deadline, get_seconds()),
 		  cfs_time_sub(req->rq_deadline, olddl));
 
 	RETURN(rc);
@@ -996,7 +995,7 @@ void ptlrpc_set_add_req(struct ptlrpc_request_set *set,
 	list_add_tail(&req->rq_set_chain, &set->set_requests);
 	req->rq_set = set;
 	atomic_inc(&set->set_remaining);
-	req->rq_queued_time = cfs_time_current();
+	req->rq_queued_time = jiffies;
 
 	if (req->rq_reqmsg != NULL)
 		lustre_msg_set_jobid(req->rq_reqmsg, NULL);
@@ -1027,7 +1026,7 @@ void ptlrpc_set_add_new_req(struct ptlrpcd_ctl *pc,
 	 * The set takes over the caller's request reference.
 	 */
 	req->rq_set = set;
-	req->rq_queued_time = cfs_time_current();
+	req->rq_queued_time = jiffies;
 	list_add_tail(&req->rq_set_chain, &set->set_new_requests);
 	count = atomic_inc_return(&set->set_new_count);
 	spin_unlock(&set->set_new_req_lock);
@@ -1270,7 +1269,7 @@ static int after_reply(struct ptlrpc_request *req)
 	/* retry indefinitely on EINPROGRESS */
 	if (lustre_msg_get_status(req->rq_repmsg) == -EINPROGRESS &&
 	    ptlrpc_no_resend(req) == 0 && !req->rq_no_retry_einprogress) {
-		time_t	now = cfs_time_current_sec();
+		time_t	now = get_seconds();
 
 		DEBUG_REQ(D_RPCTRACE, req, "Resending request on EINPROGRESS");
 		spin_lock(&req->rq_lock);
@@ -1420,7 +1419,7 @@ static int ptlrpc_send_new_req(struct ptlrpc_request *req)
         ENTRY;
 
         LASSERT(req->rq_phase == RQ_PHASE_NEW);
-        if (req->rq_sent && (req->rq_sent > cfs_time_current_sec()) &&
+	if (req->rq_sent && (req->rq_sent > get_seconds()) &&
             (!req->rq_generation_set ||
              req->rq_import_generation == imp->imp_generation))
                 RETURN (0);
@@ -1563,7 +1562,7 @@ int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set)
 
 		/* delayed resend - skip */
 		if (req->rq_phase == RQ_PHASE_RPC && req->rq_resend &&
-		    req->rq_sent > cfs_time_current_sec())
+		    req->rq_sent > get_seconds())
 			continue;
 
                 if (!(req->rq_phase == RQ_PHASE_RPC ||
@@ -1929,12 +1928,11 @@ int ptlrpc_expire_one_request(struct ptlrpc_request *req, int async_unlink)
 	req->rq_timedout = 1;
 	spin_unlock(&req->rq_lock);
 
-	DEBUG_REQ(D_WARNING, req, "Request sent has %s: [sent "CFS_DURATION_T
-		  "/real "CFS_DURATION_T"]",
+	DEBUG_REQ(D_WARNING, req, "Request sent has %s: [sent %ld/real %ld]",
                   req->rq_net_err ? "failed due to network error" :
                      ((req->rq_real_sent == 0 ||
-                       cfs_time_before(req->rq_real_sent, req->rq_sent) ||
-                       cfs_time_aftereq(req->rq_real_sent, req->rq_deadline)) ?
+		       time_before((unsigned long)req->rq_real_sent, (unsigned long)req->rq_sent) ||
+		       time_after_eq((unsigned long)req->rq_real_sent, (unsigned long)req->rq_deadline)) ?
                       "timed out for sent delay" : "timed out for slow reply"),
                   req->rq_sent, req->rq_real_sent);
 
@@ -1994,7 +1992,7 @@ int ptlrpc_expired_set(void *data)
 {
 	struct ptlrpc_request_set	*set = data;
 	struct list_head		*tmp;
-	time_t				now = cfs_time_current_sec();
+	time_t				now = get_seconds();
 	ENTRY;
 
 	LASSERT(set != NULL);
@@ -2075,7 +2073,7 @@ static void ptlrpc_interrupted_set(void *data)
 int ptlrpc_set_next_timeout(struct ptlrpc_request_set *set)
 {
 	struct list_head	*tmp;
-	time_t			 now = cfs_time_current_sec();
+	time_t			 now = get_seconds();
 	int			 timeout = 0;
 	struct ptlrpc_request	*req;
 	int			 deadline;
@@ -2390,7 +2388,7 @@ static int ptlrpc_unregister_reply(struct ptlrpc_request *request, int async)
 	 */
         if (OBD_FAIL_CHECK(OBD_FAIL_PTLRPC_LONG_REPL_UNLINK) &&
             async && request->rq_reply_deadline == 0)
-                request->rq_reply_deadline = cfs_time_current_sec()+LONG_UNLINK;
+		request->rq_reply_deadline = get_seconds()+LONG_UNLINK;
 
         /*
          * Nothing left to do.
@@ -2967,7 +2965,7 @@ static spinlock_t ptlrpc_last_xid_lock;
 #define YEAR_2004 (1ULL << 30)
 void ptlrpc_init_xid(void)
 {
-	time_t now = cfs_time_current_sec();
+	time_t now = get_seconds();
 
 	spin_lock_init(&ptlrpc_last_xid_lock);
 	if (now < YEAR_2004) {
@@ -3055,7 +3053,7 @@ static void ptlrpcd_add_work_req(struct ptlrpc_request *req)
 {
 	/* re-initialize the req */
 	req->rq_timeout		= obd_timeout;
-	req->rq_sent		= cfs_time_current_sec();
+	req->rq_sent		= get_seconds();
 	req->rq_deadline	= req->rq_sent + req->rq_timeout;
 	req->rq_reply_deadline	= req->rq_deadline;
 	req->rq_phase		= RQ_PHASE_INTERPRET;

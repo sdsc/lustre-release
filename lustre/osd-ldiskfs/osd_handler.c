@@ -863,7 +863,7 @@ static void osd_th_started(struct osd_thandle *oth)
  * Helper function to convert time interval to microseconds packed in
  * long int.
  */
-static long interval_to_usec(cfs_time_t start, cfs_time_t end)
+static long interval_to_usec(unsigned long start, unsigned long end)
 {
         struct timeval val;
 
@@ -875,10 +875,10 @@ static long interval_to_usec(cfs_time_t start, cfs_time_t end)
  * Check whether the we deal with this handle for too long.
  */
 static void __osd_th_check_slow(void *oth, struct osd_device *dev,
-                                cfs_time_t alloced, cfs_time_t started,
-                                cfs_time_t closed)
+				unsigned long alloced, unsigned long started,
+				unsigned long closed)
 {
-        cfs_time_t now = cfs_time_current();
+	unsigned long now = cfs_time_current();
 
         LASSERT(dev != NULL);
 
@@ -889,12 +889,9 @@ static void __osd_th_check_slow(void *oth, struct osd_device *dev,
         lprocfs_counter_add(dev->od_stats, LPROC_OSD_THANDLE_CLOSING,
                             interval_to_usec(closed, now));
 
-        if (cfs_time_before(cfs_time_add(alloced, cfs_time_seconds(30)), now)) {
+	if (time_before(alloced + cfs_time_seconds(30), now)) {
                 CWARN("transaction handle %p was open for too long: "
-                      "now "CFS_TIME_T" ,"
-                      "alloced "CFS_TIME_T" ,"
-                      "started "CFS_TIME_T" ,"
-                      "closed "CFS_TIME_T"\n",
+		      "now %lu, alloced %lu, started %lu, closed %lu\n",
                       oth, now, alloced, started, closed);
                 libcfs_debug_dumpstack(NULL);
         }
@@ -902,9 +899,9 @@ static void __osd_th_check_slow(void *oth, struct osd_device *dev,
 
 #define OSD_CHECK_SLOW_TH(oth, dev, expr)                               \
 {                                                                       \
-        cfs_time_t __closed = cfs_time_current();                       \
-        cfs_time_t __alloced = oth->oth_alloced;                        \
-        cfs_time_t __started = oth->oth_started;                        \
+	unsigned long __closed = cfs_time_current();                       \
+	unsigned long __alloced = oth->oth_alloced;                        \
+	unsigned long __started = oth->oth_started;                        \
                                                                         \
         expr;                                                           \
         __osd_th_check_slow(oth, dev, __alloced, __started, __closed);  \
@@ -3304,7 +3301,7 @@ static struct obd_capa *osd_capa_get(const struct lu_env *env,
 	spin_unlock(&capa_lock);
 
 	capa->lc_keyid = key->lk_keyid;
-	capa->lc_expiry = cfs_time_current_sec() + osd->od_capa_timeout;
+	capa->lc_expiry = get_seconds() + osd->od_capa_timeout;
 
 	rc = capa_hmac(capa->lc_hmac, capa, key->lk_key);
 	if (rc) {

@@ -897,9 +897,8 @@ int lprocfs_state_seq_show(struct seq_file *m, void *data)
 			&imp->imp_state_hist[(k + j) % IMP_STATE_HIST_LEN];
 		if (ish->ish_state == 0)
 			continue;
-		seq_printf(m, " - [ "CFS_TIME_T", %s ]\n",
-			   ish->ish_time,
-		ptlrpc_import_state_name(ish->ish_state));
+		seq_printf(m, " - [ %lu, %s ]\n", ish->ish_time,
+			   ptlrpc_import_state_name(ish->ish_state));
 	}
 
 	LPROCFS_CLIMP_EXIT(obd);
@@ -931,7 +930,7 @@ int lprocfs_timeouts_seq_show(struct seq_file *m, void *data)
 	LPROCFS_CLIMP_CHECK(obd);
 	imp = obd->u.cli.cl_import;
 
-	now = cfs_time_current_sec();
+	now = get_seconds();
 
 	/* Some network health info for kicks */
 	s2dhms(&ts, now - imp->imp_last_reply_time);

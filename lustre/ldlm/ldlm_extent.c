@@ -298,7 +298,7 @@ static void ldlm_extent_policy(struct ldlm_resource *res,
 static int ldlm_check_contention(struct ldlm_lock *lock, int contended_locks)
 {
         struct ldlm_resource *res = lock->l_resource;
-        cfs_time_t now = cfs_time_current();
+	unsigned long now = jiffies;
 
         if (OBD_FAIL_CHECK(OBD_FAIL_LDLM_SET_CONTENTION))
                 return 1;
@@ -306,8 +306,8 @@ static int ldlm_check_contention(struct ldlm_lock *lock, int contended_locks)
         CDEBUG(D_DLMTRACE, "contended locks = %d\n", contended_locks);
         if (contended_locks > ldlm_res_to_ns(res)->ns_contended_locks)
                 res->lr_contention_time = now;
-        return cfs_time_before(now, cfs_time_add(res->lr_contention_time,
-                cfs_time_seconds(ldlm_res_to_ns(res)->ns_contention_time)));
+	return time_before(now, res->lr_contention_time +
+		cfs_time_seconds(ldlm_res_to_ns(res)->ns_contention_time));
 }
 
 struct ldlm_extent_compat_args {

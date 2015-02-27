@@ -1136,10 +1136,10 @@ kiblnd_ctl(lnet_ni_t *ni, unsigned int cmd, void *arg)
 }
 
 static void
-kiblnd_query(lnet_ni_t *ni, lnet_nid_t nid, cfs_time_t *when)
+kiblnd_query(lnet_ni_t *ni, lnet_nid_t nid, unsigned long *when)
 {
-	cfs_time_t	last_alive = 0;
-	cfs_time_t	now = cfs_time_current();
+	unsigned long	last_alive = 0;
+	unsigned long	now = jiffies;
 	rwlock_t	*glock = &kiblnd_data.kib_global_lock;
 	kib_peer_t	*peer;
 	unsigned long	flags;
@@ -1571,13 +1571,13 @@ kiblnd_init_fmr_poolset(kib_fmr_poolset_t *fps, int cpt, kib_net_t *net,
 }
 
 static int
-kiblnd_fmr_pool_is_idle(kib_fmr_pool_t *fpo, cfs_time_t now)
+kiblnd_fmr_pool_is_idle(kib_fmr_pool_t *fpo, unsigned long now)
 {
         if (fpo->fpo_map_count != 0) /* still in use */
                 return 0;
         if (fpo->fpo_failed)
                 return 1;
-        return cfs_time_aftereq(now, fpo->fpo_deadline);
+	return time_after_eq(now, fpo->fpo_deadline);
 }
 
 void
@@ -1586,7 +1586,7 @@ kiblnd_fmr_pool_unmap(kib_fmr_t *fmr, int status)
 	struct list_head   zombies = LIST_HEAD_INIT(zombies);
 	kib_fmr_pool_t    *fpo = fmr->fmr_pool;
 	kib_fmr_poolset_t *fps = fpo->fpo_owner;
-	cfs_time_t         now = cfs_time_current();
+	unsigned long         now = jiffies;
 	kib_fmr_pool_t    *tmp;
 	int                rc;
 
@@ -1668,7 +1668,7 @@ again:
 
 	}
 
-	if (cfs_time_before(cfs_time_current(), fps->fps_next_retry)) {
+	if (time_before(jiffies, fps->fps_next_retry)) {
 		/* someone failed recently */
 		spin_unlock(&fps->fps_lock);
 		return -EAGAIN;
@@ -1793,13 +1793,13 @@ kiblnd_init_poolset(kib_poolset_t *ps, int cpt,
 }
 
 static int
-kiblnd_pool_is_idle(kib_pool_t *pool, cfs_time_t now)
+kiblnd_pool_is_idle(kib_pool_t *pool, unsigned long now)
 {
         if (pool->po_allocated != 0) /* still in use */
                 return 0;
         if (pool->po_failed)
                 return 1;
-        return cfs_time_aftereq(now, pool->po_deadline);
+	return time_after_eq(now, pool->po_deadline);
 }
 
 void
@@ -1808,7 +1808,7 @@ kiblnd_pool_free_node(kib_pool_t *pool, struct list_head *node)
 	struct list_head zombies = LIST_HEAD_INIT(zombies);
 	kib_poolset_t	*ps = pool->po_owner;
 	kib_pool_t	*tmp;
-	cfs_time_t	 now = cfs_time_current();
+	unsigned long	 now = jiffies;
 
 	spin_lock(&ps->ps_lock);
 
@@ -1870,7 +1870,7 @@ again:
                 goto again;
         }
 
-	if (cfs_time_before(cfs_time_current(), ps->ps_next_retry)) {
+	if (time_before(jiffies, ps->ps_next_retry)) {
 		/* someone failed recently */
 		spin_unlock(&ps->ps_lock);
 		return NULL;

@@ -114,14 +114,13 @@ static void ofd_fmd_expire_nolock(struct obd_export *exp,
 	struct filter_export_data	*fed = &exp->exp_filter_data;
 	struct ofd_device		*ofd = ofd_exp(exp);
 	struct ofd_mod_data		*fmd, *tmp;
-
-	cfs_time_t now = cfs_time_current();
+	unsigned long			now = jiffies;
 
 	list_for_each_entry_safe(fmd, tmp, &fed->fed_mod_list, fmd_list) {
 		if (fmd == keep)
 			break;
 
-		if (cfs_time_before(now, fmd->fmd_expire) &&
+		if (time_before(now, fmd->fmd_expire) &&
 		    fed->fed_mod_count < ofd->ofd_fmd_max_num)
 			break;
 
@@ -166,7 +165,7 @@ static struct ofd_mod_data *ofd_fmd_find_nolock(struct obd_export *exp,
 	struct ofd_mod_data		*found = NULL, *fmd;
 	struct ofd_device		*ofd = ofd_exp(exp);
 
-	cfs_time_t now = cfs_time_current();
+	unsigned long now = jiffies;
 
 	assert_spin_locked(&fed->fed_lock);
 
@@ -175,7 +174,7 @@ static struct ofd_mod_data *ofd_fmd_find_nolock(struct obd_export *exp,
 			found = fmd;
 			list_del(&fmd->fmd_list);
 			list_add_tail(&fmd->fmd_list, &fed->fed_mod_list);
-			fmd->fmd_expire = cfs_time_add(now, ofd->ofd_fmd_max_age);
+			fmd->fmd_expire = now + ofd->ofd_fmd_max_age;
 			break;
 		}
 	}
@@ -230,8 +229,7 @@ struct ofd_mod_data *ofd_fmd_get(struct obd_export *exp, const struct lu_fid *fi
 	struct filter_export_data	*fed = &exp->exp_filter_data;
 	struct ofd_device		*ofd = ofd_exp(exp);
 	struct ofd_mod_data		*found = NULL, *fmd_new = NULL;
-
-	cfs_time_t now = cfs_time_current();
+	unsigned long			now = jiffies;
 
 	OBD_SLAB_ALLOC_PTR(fmd_new, ll_fmd_cachep);
 
@@ -251,7 +249,7 @@ struct ofd_mod_data *ofd_fmd_get(struct obd_export *exp, const struct lu_fid *fi
 	}
 	if (found) {
 		found->fmd_refcount++; /* caller reference */
-		found->fmd_expire = cfs_time_add(now, ofd->ofd_fmd_max_age);
+		found->fmd_expire = now + ofd->ofd_fmd_max_age;
 	}
 
 	spin_unlock(&fed->fed_lock);

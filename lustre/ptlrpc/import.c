@@ -79,7 +79,7 @@ static void __import_set_state(struct obd_import *imp,
         imp->imp_state = state;
         imp->imp_state_hist[imp->imp_state_hist_idx].ish_state = state;
         imp->imp_state_hist[imp->imp_state_hist_idx].ish_time =
-                cfs_time_current_sec();
+		get_seconds();
         imp->imp_state_hist_idx = (imp->imp_state_hist_idx + 1) %
                 IMP_STATE_HIST_LEN;
 }
@@ -257,7 +257,7 @@ ptlrpc_inflight_deadline(struct ptlrpc_request *req, time_t now)
 
 static unsigned int ptlrpc_inflight_timeout(struct obd_import *imp)
 {
-	time_t now = cfs_time_current_sec();
+	time_t now = get_seconds();
 	struct list_head *tmp, *n;
 	struct ptlrpc_request *req;
 	unsigned int timeout = 0;
@@ -519,8 +519,8 @@ static int import_select_connection(struct obd_import *imp)
                 /* If we have not tried this connection since
                    the last successful attempt, go with this one */
                 if ((conn->oic_last_attempt == 0) ||
-                    cfs_time_beforeq_64(conn->oic_last_attempt,
-                                       imp->imp_last_success_conn)) {
+		    time_before_eq64(conn->oic_last_attempt,
+				     imp->imp_last_success_conn)) {
                         imp_conn = conn;
                         tried_all = 0;
                         break;
@@ -531,7 +531,7 @@ static int import_select_connection(struct obd_import *imp)
                    least recently used */
                 if (!imp_conn)
                         imp_conn = conn;
-                else if (cfs_time_before_64(conn->oic_last_attempt,
+		else if (time_before64(conn->oic_last_attempt,
                                             imp_conn->oic_last_attempt))
                         imp_conn = conn;
         }
@@ -561,7 +561,7 @@ static int import_select_connection(struct obd_import *imp)
 			"to %ds\n", imp->imp_obd->obd_name, at_get(at));
 	}
 
-        imp_conn->oic_last_attempt = cfs_time_current_64();
+	imp_conn->oic_last_attempt = get_jiffies_64();
 
         /* switch connection, don't mind if it's same as the current one */
         if (imp->imp_connection)
@@ -1503,7 +1503,7 @@ int ptlrpc_disconnect_import(struct obd_import *imp, int noclose)
 
         if (ptlrpc_import_in_recovery(imp)) {
                 struct l_wait_info lwi;
-                cfs_duration_t timeout;
+		long timeout;
 
                 if (AT_OFF) {
                         if (imp->imp_server_timeout)
@@ -1591,7 +1591,7 @@ extern unsigned int at_min, at_max, at_history;
 int at_measured(struct adaptive_timeout *at, unsigned int val)
 {
         unsigned int old = at->at_current;
-        time_t now = cfs_time_current_sec();
+	time_t now = get_seconds();
         time_t binlimit = max_t(time_t, at_history / AT_BINS, 1);
 
         LASSERT(at);

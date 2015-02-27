@@ -1843,8 +1843,8 @@ kiblnd_thread_fini (void)
 static void
 kiblnd_peer_alive (kib_peer_t *peer)
 {
-	/* This is racy, but everyone's only writing cfs_time_current() */
-	peer->ibp_last_alive = cfs_time_current();
+	/* This is racy, but everyone's only writing jiffies */
+	peer->ibp_last_alive = jiffies;
 	smp_mb();
 }
 
@@ -1852,7 +1852,7 @@ static void
 kiblnd_peer_notify (kib_peer_t *peer)
 {
         int           error = 0;
-        cfs_time_t    last_alive = 0;
+	unsigned long last_alive = 0;
         unsigned long flags;
 
 	read_lock_irqsave(&kiblnd_data.kib_global_lock, flags);
@@ -3029,7 +3029,7 @@ kiblnd_check_txs_locked(kib_conn_t *conn, struct list_head *txs)
 			LASSERT(tx->tx_waiting || tx->tx_sending != 0);
 		}
 
-		if (cfs_time_aftereq(jiffies, tx->tx_deadline)) {
+		if (time_after_eq(jiffies, tx->tx_deadline)) {
 			CERROR("Timed out tx: %s, %lu seconds\n",
 			       kiblnd_queue2str(conn, txs),
 			       cfs_duration_sec(jiffies - tx->tx_deadline));
@@ -3091,7 +3091,7 @@ kiblnd_check_conns (int idx)
 				CERROR("Timed out RDMA with %s (%lu): "
 				       "c: %u, oc: %u, rc: %u\n",
 				       libcfs_nid2str(peer->ibp_nid),
-				       cfs_duration_sec(cfs_time_current() -
+				       cfs_duration_sec(jiffies -
 							peer->ibp_last_alive),
 				       conn->ibc_credits,
 				       conn->ibc_outstanding_credits,
@@ -3491,8 +3491,7 @@ kiblnd_failover_thread(void *arg)
 
 		list_for_each_entry(dev, &kiblnd_data.kib_failed_devs,
                                     ibd_fail_list) {
-                        if (cfs_time_before(cfs_time_current(),
-                                            dev->ibd_next_failover))
+			if (time_before(jiffies, dev->ibd_next_failover))
                                 continue;
                         do_failover = 1;
                         break;

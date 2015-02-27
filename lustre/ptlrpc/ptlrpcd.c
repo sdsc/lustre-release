@@ -159,7 +159,7 @@ void ptlrpcd_add_rqset(struct ptlrpc_request_set *set)
 
 		LASSERT(req->rq_phase == RQ_PHASE_NEW);
 		req->rq_set = new;
-		req->rq_queued_time = cfs_time_current();
+		req->rq_queued_time = jiffies;
 	}
 
 	spin_lock(&new->set_new_req_lock);

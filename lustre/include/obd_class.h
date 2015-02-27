@@ -36,7 +36,7 @@
 #ifndef __CLASS_OBD_H
 #define __CLASS_OBD_H
 
-
+#include <linux/jiffies.h>
 #include <obd_support.h>
 #include <lustre_import.h>
 #include <lustre_net.h>
@@ -1140,7 +1140,7 @@ static inline int obd_statfs_async(struct obd_export *exp,
 
         CDEBUG(D_SUPER, "%s: osfs %p age "LPU64", max_age "LPU64"\n",
                obd->obd_name, &obd->obd_osfs, obd->obd_osfs_age, max_age);
-        if (cfs_time_before_64(obd->obd_osfs_age, max_age)) {
+	if (time_before64(obd->obd_osfs_age, max_age)) {
                 rc = OBP(obd, statfs_async)(exp, oinfo, max_age, rqset);
         } else {
                 CDEBUG(D_SUPER,"%s: use %p cache blocks "LPU64"/"LPU64
@@ -1199,12 +1199,12 @@ static inline int obd_statfs(const struct lu_env *env, struct obd_export *exp,
 
         CDEBUG(D_SUPER, "osfs "LPU64", max_age "LPU64"\n",
                obd->obd_osfs_age, max_age);
-        if (cfs_time_before_64(obd->obd_osfs_age, max_age)) {
+	if (time_before64(obd->obd_osfs_age, max_age)) {
                 rc = OBP(obd, statfs)(env, exp, osfs, max_age, flags);
                 if (rc == 0) {
 			spin_lock(&obd->obd_osfs_lock);
 			memcpy(&obd->obd_osfs, osfs, sizeof(obd->obd_osfs));
-			obd->obd_osfs_age = cfs_time_current_64();
+			obd->obd_osfs_age = get_jiffies_64();
 			spin_unlock(&obd->obd_osfs_lock);
 		}
 	} else {

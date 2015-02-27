@@ -145,8 +145,7 @@ int mdc_setattr(struct obd_export *exp, struct md_op_data *op_data,
         rpc_lock = obd->u.cli.cl_rpc_lock;
 
         if (op_data->op_attr.ia_valid & (ATTR_MTIME | ATTR_CTIME))
-                CDEBUG(D_INODE, "setting mtime "CFS_TIME_T
-                       ", ctime "CFS_TIME_T"\n",
+		CDEBUG(D_INODE, "setting mtime %lu, ctime %lu\n",
                        LTIME_S(op_data->op_attr.ia_mtime),
                        LTIME_S(op_data->op_attr.ia_ctime));
         mdc_setattr_pack(req, op_data, ea, ealen, ea2, ea2len);
@@ -274,7 +273,7 @@ rebuild:
         if (resends) {
                 req->rq_generation_set = 1;
                 req->rq_import_generation = generation;
-                req->rq_sent = cfs_time_current_sec() + resends;
+		req->rq_sent = get_seconds() + resends;
         }
         level = LUSTRE_IMP_FULL;
  resend:

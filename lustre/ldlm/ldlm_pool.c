@@ -342,12 +342,12 @@ static int ldlm_srv_pool_recalc(struct ldlm_pool *pl)
         time_t recalc_interval_sec;
         ENTRY;
 
-        recalc_interval_sec = cfs_time_current_sec() - pl->pl_recalc_time;
+	recalc_interval_sec = get_seconds() - pl->pl_recalc_time;
         if (recalc_interval_sec < pl->pl_recalc_period)
                 RETURN(0);
 
 	spin_lock(&pl->pl_lock);
-	recalc_interval_sec = cfs_time_current_sec() - pl->pl_recalc_time;
+	recalc_interval_sec = get_seconds() - pl->pl_recalc_time;
 	if (recalc_interval_sec < pl->pl_recalc_period) {
 		spin_unlock(&pl->pl_lock);
 		RETURN(0);
@@ -368,7 +368,7 @@ static int ldlm_srv_pool_recalc(struct ldlm_pool *pl)
          */
         ldlm_pool_recalc_grant_plan(pl);
 
-        pl->pl_recalc_time = cfs_time_current_sec();
+	pl->pl_recalc_time = get_seconds();
         lprocfs_counter_add(pl->pl_stats, LDLM_POOL_TIMING_STAT,
                             recalc_interval_sec);
 	spin_unlock(&pl->pl_lock);
@@ -481,7 +481,7 @@ static int ldlm_cli_pool_recalc(struct ldlm_pool *pl)
 	int ret;
         ENTRY;
 
-        recalc_interval_sec = cfs_time_current_sec() - pl->pl_recalc_time;
+	recalc_interval_sec = get_seconds() - pl->pl_recalc_time;
         if (recalc_interval_sec < pl->pl_recalc_period)
                 RETURN(0);
 
@@ -489,7 +489,7 @@ static int ldlm_cli_pool_recalc(struct ldlm_pool *pl)
 	/*
 	 * Check if we need to recalc lists now.
 	 */
-	recalc_interval_sec = cfs_time_current_sec() - pl->pl_recalc_time;
+	recalc_interval_sec = get_seconds() - pl->pl_recalc_time;
 	if (recalc_interval_sec < pl->pl_recalc_period) {
 		spin_unlock(&pl->pl_lock);
                 RETURN(0);
@@ -522,7 +522,7 @@ out:
 	 * Time of LRU resizing might be longer than period,
 	 * so update after LRU resizing rather than before it.
 	 */
-	pl->pl_recalc_time = cfs_time_current_sec();
+	pl->pl_recalc_time = get_seconds();
 	lprocfs_counter_add(pl->pl_stats, LDLM_POOL_TIMING_STAT,
 			    recalc_interval_sec);
 	spin_unlock(&pl->pl_lock);
@@ -583,10 +583,10 @@ int ldlm_pool_recalc(struct ldlm_pool *pl)
 	time_t recalc_interval_sec;
 	int count;
 
-	recalc_interval_sec = cfs_time_current_sec() - pl->pl_recalc_time;
+	recalc_interval_sec = get_seconds() - pl->pl_recalc_time;
 	if (recalc_interval_sec > 0) {
 		spin_lock(&pl->pl_lock);
-		recalc_interval_sec = cfs_time_current_sec() -
+		recalc_interval_sec = get_seconds() -
 			pl->pl_recalc_time;
 
 		if (recalc_interval_sec > 0) {
@@ -610,7 +610,7 @@ int ldlm_pool_recalc(struct ldlm_pool *pl)
 				    count);
 	}
 
-	recalc_interval_sec = pl->pl_recalc_time - cfs_time_current_sec() +
+	recalc_interval_sec = pl->pl_recalc_time - get_seconds() +
 			      pl->pl_recalc_period;
 	if (recalc_interval_sec <= 0) {
 		/* DEBUG: should be re-removed after LU-4536 is fixed */
@@ -859,7 +859,7 @@ int ldlm_pool_init(struct ldlm_pool *pl, struct ldlm_namespace *ns,
 
 	spin_lock_init(&pl->pl_lock);
 	atomic_set(&pl->pl_granted, 0);
-	pl->pl_recalc_time = cfs_time_current_sec();
+	pl->pl_recalc_time = get_seconds();
 	atomic_set(&pl->pl_lock_volume_factor, 1);
 
 	atomic_set(&pl->pl_grant_rate, 0);

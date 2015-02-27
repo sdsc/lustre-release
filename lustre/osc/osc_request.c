@@ -864,14 +864,14 @@ int osc_shrink_grant_to_target(struct client_obd *cli, __u64 target_bytes)
 
 static int osc_should_shrink_grant(struct client_obd *client)
 {
-        cfs_time_t time = cfs_time_current();
-        cfs_time_t next_shrink = client->cl_next_shrink_grant;
+	unsigned long time = jiffies;
+	unsigned long next_shrink = client->cl_next_shrink_grant;
 
         if ((client->cl_import->imp_connect_data.ocd_connect_flags &
              OBD_CONNECT_GRANT_SHRINK) == 0)
                 return 0;
 
-	if (cfs_time_aftereq(time, next_shrink - 5 * CFS_TICK)) {
+	if (time_after_eq(time, next_shrink - 5 * CFS_TICK)) {
 		/* Get the current RPC size directly, instead of going via:
 		 * cli_brw_size(obd->u.cli.cl_import->imp_obd->obd_self_export)
 		 * Keep comment here so that it can be found by searching. */
@@ -1556,9 +1556,9 @@ static int osc_brw_redo_request(struct ptlrpc_request *request,
 	/* cap resend delay to the current request timeout, this is similar to
 	 * what ptlrpc does (see after_reply()) */
 	if (aa->aa_resends > new_req->rq_timeout)
-		new_req->rq_sent = cfs_time_current_sec() + new_req->rq_timeout;
+		new_req->rq_sent = get_seconds() + new_req->rq_timeout;
 	else
-		new_req->rq_sent = cfs_time_current_sec() + aa->aa_resends;
+		new_req->rq_sent = get_seconds() + aa->aa_resends;
         new_req->rq_generation_set = 1;
         new_req->rq_import_generation = request->rq_import_generation;
 

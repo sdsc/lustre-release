@@ -212,7 +212,7 @@ typedef struct
 	char			ibd_ifname[KIB_IFNAME_SIZE];
 	int			ibd_nnets;	/* # nets extant */
 
-	cfs_time_t		ibd_next_failover;
+	unsigned long		ibd_next_failover;
 	/* # failover failures */
 	int			ibd_failed_failover;
 	/* failover in progress */
@@ -287,7 +287,7 @@ typedef struct kib_poolset
 	/* failed pool list */
 	struct list_head	ps_failed_pool_list;
 	/* time stamp for retry if failed to allocate */
-	cfs_time_t		ps_next_retry;
+	unsigned long		ps_next_retry;
 	/* is allocating new pool */
 	int			ps_increasing;
 	/* new pool size */
@@ -314,7 +314,7 @@ typedef struct kib_pool
 	/* pool_set of this pool */
 	kib_poolset_t	       *po_owner;
 	/* deadline of this pool */
-	cfs_time_t		po_deadline;
+	unsigned long		po_deadline;
 	/* # of elements in use */
 	int			po_allocated;
 	/* pool is created on failed HCA */
@@ -357,7 +357,7 @@ typedef struct
 	/* is allocating new pool */
 	int			fps_increasing;
 	/* time stamp for retry if failed to allocate */
-	cfs_time_t		fps_next_retry;
+	unsigned long		fps_next_retry;
 } kib_fmr_poolset_t;
 
 typedef struct
@@ -366,7 +366,7 @@ typedef struct
 	struct kib_hca_dev     *fpo_hdev;	/* device for this pool */
 	kib_fmr_poolset_t      *fpo_owner;	/* owner of this pool */
 	struct ib_fmr_pool     *fpo_fmr_pool;	/* IB FMR pool */
-	cfs_time_t		fpo_deadline;	/* deadline of this pool */
+	unsigned long		fpo_deadline;	/* deadline of this pool */
 	int			fpo_failed;	/* fmr pool is failed */
 	int			fpo_map_count;	/* # of mapped FMR */
 } kib_fmr_pool_t;
@@ -755,7 +755,7 @@ typedef struct kib_peer
 	/* errno on closing this peer */
 	int			ibp_error;
 	/* when (in jiffies) I was last alive */
-	cfs_time_t		ibp_last_alive;
+	unsigned long		ibp_last_alive;
 } kib_peer_t;
 
 extern kib_data_t      kiblnd_data;
@@ -862,9 +862,9 @@ static inline int
 kiblnd_send_keepalive(kib_conn_t *conn)
 {
 	return (*kiblnd_tunables.kib_keepalive > 0) &&
-		cfs_time_after(jiffies, conn->ibc_last_send +
-			       msecs_to_jiffies(*kiblnd_tunables.kib_keepalive *
-						MSEC_PER_SEC));
+		time_after(jiffies, conn->ibc_last_send +
+			    msecs_to_jiffies(*kiblnd_tunables.kib_keepalive *
+					     MSEC_PER_SEC));
 }
 
 static inline int

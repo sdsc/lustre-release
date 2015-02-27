@@ -40,6 +40,8 @@
 
 #define DEBUG_SUBSYSTEM S_LNET
 
+#include <libcfs/util/string.h>
+#include <libcfs/libcfs_string.h>
 #include <libcfs/libcfs.h>
 #include <lnet/nidstr.h>
 #ifndef __KERNEL__

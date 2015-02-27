@@ -49,7 +49,7 @@ struct lc_watchdog {
 	int			lcw_refcount;	/* must hold lcw_pending_timers_lock */
 	struct timer_list	lcw_timer;	/* kernel timer */
 	struct list_head	lcw_list;	/* chain on pending list */
-	cfs_time_t		lcw_last_touched;/* last touched stamp */
+	unsigned long		lcw_last_touched;/* last touched stamp */
 	struct task_struct     *lcw_task;	/* owner task */
 	void			(*lcw_callback)(pid_t, void *);
 	void			*lcw_data;
@@ -98,7 +98,7 @@ static DEFINE_SPINLOCK(lcw_pending_timers_lock);
 static struct list_head lcw_pending_timers = LIST_HEAD_INIT(lcw_pending_timers);
 
 /* Last time a watchdog expired */
-static cfs_time_t lcw_last_watchdog_time;
+static unsigned long lcw_last_watchdog_time;
 static int lcw_recent_watchdog_count;
 
 static void
@@ -158,11 +158,11 @@ static int is_watchdog_fired(void)
 
 static void lcw_dump_stack(struct lc_watchdog *lcw)
 {
-        cfs_time_t      current_time;
-        cfs_duration_t  delta_time;
-        struct timeval  timediff;
+	unsigned long	current_time;
+	long		delta_time;
+	struct timeval	timediff;
 
-        current_time = cfs_time_current();
+	current_time = jiffies;
         delta_time = cfs_time_sub(current_time, lcw->lcw_last_touched);
         cfs_duration_usec(delta_time, &timediff);
 
@@ -368,9 +368,9 @@ struct lc_watchdog *lc_watchdog_add(int timeout,
 
         /* Keep this working in case we enable them by default */
         if (lcw->lcw_state == LC_WATCHDOG_ENABLED) {
-                lcw->lcw_last_touched = cfs_time_current();
+		lcw->lcw_last_touched = jiffies;
                 cfs_timer_arm(&lcw->lcw_timer, cfs_time_seconds(timeout) +
-                              cfs_time_current());
+			      jiffies);
         }
 
         RETURN(lcw);
@@ -379,11 +379,11 @@ EXPORT_SYMBOL(lc_watchdog_add);
 
 static void lcw_update_time(struct lc_watchdog *lcw, const char *message)
 {
-	cfs_time_t newtime = cfs_time_current();
+	unsigned long newtime = jiffies;
 
         if (lcw->lcw_state == LC_WATCHDOG_EXPIRED) {
                 struct timeval timediff;
-                cfs_time_t delta_time = cfs_time_sub(newtime,
+		unsigned long delta_time = cfs_time_sub(newtime,
                                                      lcw->lcw_last_touched);
                 cfs_duration_usec(delta_time, &timediff);
 
@@ -421,7 +421,7 @@ void lc_watchdog_touch(struct lc_watchdog *lcw, int timeout)
 
         lcw_update_time(lcw, "resumed");
 
-        cfs_timer_arm(&lcw->lcw_timer, cfs_time_current() +
+	cfs_timer_arm(&lcw->lcw_timer, jiffies +
                       cfs_time_seconds(timeout));
 	lcw->lcw_state = LC_WATCHDOG_ENABLED;
 

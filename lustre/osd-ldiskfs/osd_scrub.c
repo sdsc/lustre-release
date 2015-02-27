@@ -359,7 +359,7 @@ int osd_scrub_file_store(struct osd_scrub *scrub)
 		       "expected = %d: rc = %d\n",
 		       osd_scrub2name(scrub), len, rc);
 
-	scrub->os_time_last_checkpoint = cfs_time_current();
+	scrub->os_time_last_checkpoint = jiffies;
 	scrub->os_time_next_checkpoint = scrub->os_time_last_checkpoint +
 				cfs_time_seconds(SCRUB_CHECKPOINT_INTERVAL);
 	return rc;
@@ -698,7 +698,7 @@ static int osd_scrub_prep(struct osd_device *dev)
 
 	scrub->os_pos_current = sf->sf_pos_latest_start;
 	sf->sf_status = SS_SCANNING;
-	sf->sf_time_latest_start = cfs_time_current_sec();
+	sf->sf_time_latest_start = get_seconds();
 	sf->sf_time_last_checkpoint = sf->sf_time_latest_start;
 	sf->sf_pos_last_checkpoint = sf->sf_pos_latest_start - 1;
 	rc = osd_scrub_file_store(scrub);
@@ -718,8 +718,8 @@ static int osd_scrub_checkpoint(struct osd_scrub *scrub)
 	struct scrub_file *sf = &scrub->os_file;
 	int		   rc;
 
-	if (likely(cfs_time_before(cfs_time_current(),
-				   scrub->os_time_next_checkpoint) ||
+	if (likely(time_before(jiffies,
+			       scrub->os_time_next_checkpoint) ||
 		   scrub->os_new_checked == 0))
 		return 0;
 
@@ -727,8 +727,8 @@ static int osd_scrub_checkpoint(struct osd_scrub *scrub)
 	sf->sf_items_checked += scrub->os_new_checked;
 	scrub->os_new_checked = 0;
 	sf->sf_pos_last_checkpoint = scrub->os_pos_current;
-	sf->sf_time_last_checkpoint = cfs_time_current_sec();
-	sf->sf_run_time += cfs_duration_sec(cfs_time_current() + HALF_SEC -
+	sf->sf_time_last_checkpoint = get_seconds();
+	sf->sf_run_time += cfs_duration_sec(jiffies + HALF_SEC -
 					    scrub->os_time_last_checkpoint);
 	rc = osd_scrub_file_store(scrub);
 	up_write(&scrub->os_rwsem);
@@ -753,7 +753,7 @@ static void osd_scrub_post(struct osd_scrub *scrub, int result)
 		scrub->os_new_checked = 0;
 		sf->sf_pos_last_checkpoint = scrub->os_pos_current;
 	}
-	sf->sf_time_last_checkpoint = cfs_time_current_sec();
+	sf->sf_time_last_checkpoint = get_seconds();
 	if (result > 0) {
 		struct osd_device *dev =
 			container_of0(scrub, struct osd_device, od_scrub);
@@ -776,7 +776,7 @@ static void osd_scrub_post(struct osd_scrub *scrub, int result)
 	} else {
 		sf->sf_status = SS_FAILED;
 	}
-	sf->sf_run_time += cfs_duration_sec(cfs_time_current() + HALF_SEC -
+	sf->sf_run_time += cfs_duration_sec(jiffies + HALF_SEC -
 					    scrub->os_time_last_checkpoint);
 	result = osd_scrub_file_store(scrub);
 	up_write(&scrub->os_rwsem);
@@ -1208,7 +1208,7 @@ static void osd_scrub_join(struct osd_device *dev, __u32 flags,
 		sf->sf_pos_latest_start = LDISKFS_FIRST_INO(osd_sb(dev)) + 1;
 
 	scrub->os_pos_current = sf->sf_pos_latest_start;
-	sf->sf_time_latest_start = cfs_time_current_sec();
+	sf->sf_time_latest_start = get_seconds();
 	sf->sf_time_last_checkpoint = sf->sf_time_latest_start;
 	sf->sf_pos_last_checkpoint = sf->sf_pos_latest_start - 1;
 	rc = osd_scrub_file_store(scrub);
@@ -2787,7 +2787,7 @@ int osd_oii_insert(struct osd_device *dev, struct osd_idmap_cache *oic,
 	oii->oii_insert = insert;
 
 	if (scrub->os_partial_scan) {
-		__u64 now = cfs_time_current_sec();
+		__u64 now = get_seconds();
 
 		/* If there haven't been errors in a long time,
 		 * decay old count until either the errors are
@@ -2900,7 +2900,7 @@ static int scrub_time_dump(struct seq_file *m, __u64 time, const char *prefix)
 
 	if (time != 0)
 		rc = seq_printf(m, "%s: "LPU64" seconds\n", prefix,
-			      cfs_time_current_sec() - time);
+				get_seconds() - time);
 	else
 		rc = seq_printf(m, "%s: N/A\n", prefix);
 	return rc;
@@ -2991,8 +2991,7 @@ int osd_scrub_dump(struct seq_file *m, struct osd_device *dev)
 
 	speed = checked;
 	if (thread_is_running(&scrub->os_thread)) {
-		cfs_duration_t duration = cfs_time_current() -
-					  scrub->os_time_last_checkpoint;
+		long duration = jiffies - scrub->os_time_last_checkpoint;
 		__u64 new_checked = msecs_to_jiffies(scrub->os_new_checked *
 						     MSEC_PER_SEC);
 		__u32 rtime = sf->sf_run_time +

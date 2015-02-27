@@ -249,7 +249,7 @@ static int mdt_ck_thread_main(void *args)
 			break;
 		thread_clear_flags(thread, SVC_EVENT);
 
-		if (cfs_time_before(cfs_time_current(), mdt->mdt_ck_expiry))
+		if (time_before(jiffies, mdt->mdt_ck_expiry))
 			break;
 
 		*tmp = *rkey;

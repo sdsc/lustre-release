@@ -697,7 +697,7 @@ static int target_handle_reconnect(struct lustre_handle *conn,
                                 int timeout = cfs_duration_sec(cfs_time_sub(
                                         cfs_timer_deadline(
                                         &target->obd_recovery_timer),
-                                        cfs_time_current()));
+					jiffies));
 
                                 LCONSOLE_WARN("%s: Client %s (at %s) reconnect"
                                         "ing, waiting for %d clients in recov"
@@ -996,7 +996,7 @@ no_export:
         CDEBUG(D_HA, "%s: connection from %s@%s %st"LPU64" exp %p cur %ld last %ld\n",
                target->obd_name, cluuid.uuid, libcfs_nid2str(req->rq_peer.nid),
               target->obd_recovering ? "recovering/" : "", data->ocd_transno,
-              export, (long)cfs_time_current_sec(),
+	      export, (long)get_seconds(),
               export ? (long)export->exp_last_request_time : 0);
 
 	/* If this is the first time a client connects, reset the recovery
@@ -1021,7 +1021,7 @@ no_export:
         if (export == NULL) {
 		/* allow lightweight connections during recovery */
 		if (target->obd_recovering && !lw_client) {
-                        cfs_time_t t;
+			unsigned long t;
 			int	c; /* connected */
 			int	i; /* in progress */
 			int	k; /* known */
@@ -1032,7 +1032,7 @@ no_export:
 			k = target->obd_max_recoverable_clients;
 			s = target->obd_stale_clients;
 			t = cfs_timer_deadline(&target->obd_recovery_timer);
-			t = cfs_time_sub(t, cfs_time_current());
+			t = cfs_time_sub(t, jiffies);
 			t = cfs_duration_sec(t);
 			LCONSOLE_WARN("%s: Denying connection for new client "
 				      "%s (at %s), waiting for all %d known "
@@ -1363,7 +1363,7 @@ static void target_finish_recovery(struct obd_device *obd)
 
 	/* Only log a recovery message when recovery has occurred. */
 	if (obd->obd_recovery_start) {
-		time_t elapsed_time = max_t(time_t, 1, cfs_time_current_sec() -
+		time_t elapsed_time = max_t(time_t, 1, get_seconds() -
 					obd->obd_recovery_start);
 		LCONSOLE_INFO("%s: Recovery over after %d:%.02d, of %d clients "
 			"%d recovered and %d %s evicted.\n", obd->obd_name,
@@ -1391,7 +1391,7 @@ static void target_finish_recovery(struct obd_device *obd)
 	}
 	spin_unlock(&obd->obd_recovery_task_lock);
 
-        obd->obd_recovery_end = cfs_time_current_sec();
+	obd->obd_recovery_end = get_seconds();
 
 	/* When recovery finished, cleanup orphans on MDS and OST. */
         if (OBT(obd) && OBP(obd, postrecov)) {
@@ -1522,7 +1522,7 @@ static void target_start_recovery_timer(struct obd_device *obd)
 
 	cfs_timer_arm(&obd->obd_recovery_timer,
 		      cfs_time_shift(obd->obd_recovery_timeout));
-	obd->obd_recovery_start = cfs_time_current_sec();
+	obd->obd_recovery_start = get_seconds();
 	spin_unlock(&obd->obd_dev_lock);
 
         LCONSOLE_WARN("%s: Will be in recovery for at least %d:%.02d, "
@@ -1543,9 +1543,9 @@ static void target_start_recovery_timer(struct obd_device *obd)
  */
 static void extend_recovery_timer(struct obd_device *obd, int drt, bool extend)
 {
-	cfs_time_t now;
-	cfs_time_t end;
-	cfs_duration_t left;
+	unsigned long now;
+	unsigned long end;
+	long left;
 	int to;
 
 	spin_lock(&obd->obd_dev_lock);
@@ -1555,7 +1555,7 @@ static void extend_recovery_timer(struct obd_device *obd, int drt, bool extend)
         }
         LASSERT(obd->obd_recovery_start != 0);
 
-        now  = cfs_time_current_sec();
+	now  = get_seconds();
         to   = obd->obd_recovery_timeout;
         end  = obd->obd_recovery_start + to;
         left = cfs_time_sub(end, now);
@@ -1763,7 +1763,7 @@ static int target_recovery_overseer(struct obd_device *obd,
 				    int (*health_check)(struct obd_export *))
 {
 repeat:
-	if ((obd->obd_recovery_start != 0) && (cfs_time_current_sec() >=
+	if ((obd->obd_recovery_start != 0) && (get_seconds() >=
 	      (obd->obd_recovery_start + obd->obd_recovery_time_hard))) {
 		CWARN("recovery is aborted by hard timeout\n");
 		obd->obd_abort_recovery = 1;
@@ -2132,7 +2132,7 @@ static void target_recovery_expired(unsigned long castmeharder)
 	CDEBUG(D_HA, "%s: recovery timed out; %d clients are still in recovery"
 	       " after %lds (%d clients connected)\n",
 	       obd->obd_name, atomic_read(&obd->obd_lock_replay_clients),
-	       cfs_time_current_sec()- obd->obd_recovery_start,
+	       get_seconds()- obd->obd_recovery_start,
 	       atomic_read(&obd->obd_connected_clients));
 
 	obd->obd_recovery_expired = 1;
@@ -2621,7 +2621,7 @@ int target_bulk_io(struct obd_export *exp, struct ptlrpc_bulk_desc *desc,
                    struct l_wait_info *lwi)
 {
 	struct ptlrpc_request	*req = desc->bd_req;
-	time_t			 start = cfs_time_current_sec();
+	time_t			 start = get_seconds();
 	time_t			 deadline;
 	int			 rc = 0;
 
@@ -2664,8 +2664,8 @@ int target_bulk_io(struct obd_export *exp, struct ptlrpc_bulk_desc *desc,
 		deadline = req->rq_deadline;
 
 	do {
-		long timeoutl = deadline - cfs_time_current_sec();
-		cfs_duration_t timeout = timeoutl <= 0 ?
+		long timeoutl = deadline - get_seconds();
+		long timeout = timeoutl <= 0 ?
 					 CFS_TICK : cfs_time_seconds(timeoutl);
 		time_t	rq_deadline;
 
@@ -2684,12 +2684,12 @@ int target_bulk_io(struct obd_export *exp, struct ptlrpc_bulk_desc *desc,
 		if (deadline > rq_deadline)
 			deadline = rq_deadline;
 	} while ((rc == -ETIMEDOUT) &&
-		 (deadline > cfs_time_current_sec()));
+		 (deadline > get_seconds()));
 
 	if (rc == -ETIMEDOUT) {
 		DEBUG_REQ(D_ERROR, req, "timeout on bulk %s after %ld%+lds",
 			  bulk2type(desc), deadline - start,
-			  cfs_time_current_sec() - deadline);
+			  get_seconds() - deadline);
 		ptlrpc_abort_bulk(desc);
 	} else if (exp->exp_failed) {
 		DEBUG_REQ(D_ERROR, req, "Eviction on bulk %s",

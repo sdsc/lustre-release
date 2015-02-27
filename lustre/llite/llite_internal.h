@@ -153,7 +153,7 @@ struct ll_inode_info {
 	 * capability needs renewal */
 	atomic_t			lli_open_count;
 	struct obd_capa		       *lli_mds_capa;
-	cfs_time_t			lli_rmtperm_time;
+	unsigned long			lli_rmtperm_time;
 
 	/* handle is to be sent to MDS later on done_writing and setattr.
 	 * Open handle data are needed for the recovery to reconstruct
@@ -227,7 +227,7 @@ struct ll_inode_info {
 			struct range_lock_tree		lli_write_tree;
 
 			struct rw_semaphore		lli_glimpse_sem;
-			cfs_time_t			lli_glimpse_time;
+			unsigned long			lli_glimpse_time;
 			struct list_head		lli_agl_list;
 			__u64				lli_agl_index;
 
@@ -1246,7 +1246,7 @@ static inline int ll_glimpse_size(struct inode *inode)
 
 	down_read(&lli->lli_glimpse_sem);
 	rc = cl_glimpse_size(inode);
-	lli->lli_glimpse_time = cfs_time_current();
+	lli->lli_glimpse_time = jiffies;
 	up_read(&lli->lli_glimpse_sem);
 	return rc;
 }

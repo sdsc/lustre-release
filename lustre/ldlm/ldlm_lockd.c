@@ -68,7 +68,7 @@ struct ldlm_cb_async_args {
 
 static struct ldlm_state *ldlm_state;
 
-inline cfs_time_t round_timeout(cfs_time_t timeout)
+inline unsigned long round_timeout(unsigned long timeout)
 {
         return cfs_time_seconds((int)cfs_duration_sec(cfs_time_sub(timeout, 0)) + 1);
 }
@@ -305,8 +305,8 @@ static void waiting_locks_callback(unsigned long unused)
 	while (!list_empty(&waiting_locks_list)) {
 		lock = list_entry(waiting_locks_list.next, struct ldlm_lock,
                                       l_pending_chain);
-                if (cfs_time_after(lock->l_callback_timeout,
-                                   cfs_time_current()) ||
+		if (time_after(lock->l_callback_timeout,
+				   jiffies) ||
                     (lock->l_req_mode == LCK_GROUP))
                         break;
 
@@ -337,7 +337,7 @@ static void waiting_locks_callback(unsigned long unused)
                 ldlm_lock_to_ns(lock)->ns_timeouts++;
                 LDLM_ERROR(lock, "lock callback timer expired after %lds: "
                            "evicting client at %s ",
-                           cfs_time_current_sec() - lock->l_last_activity,
+			   get_seconds() - lock->l_last_activity,
                            libcfs_nid2str(
                                    lock->l_export->exp_connection->c_peer.nid));
 
@@ -362,10 +362,10 @@ static void waiting_locks_callback(unsigned long unused)
          * left.
          */
 	if (!list_empty(&waiting_locks_list)) {
-                cfs_time_t timeout_rounded;
+		unsigned long timeout_rounded;
 		lock = list_entry(waiting_locks_list.next, struct ldlm_lock,
                                       l_pending_chain);
-                timeout_rounded = (cfs_time_t)round_timeout(lock->l_callback_timeout);
+		timeout_rounded = (unsigned long)round_timeout(lock->l_callback_timeout);
                 cfs_timer_arm(&waiting_locks_timer, timeout_rounded);
         }
 	spin_unlock_bh(&waiting_locks_spinlock);
@@ -385,8 +385,8 @@ static void waiting_locks_callback(unsigned long unused)
  */
 static int __ldlm_add_waiting_lock(struct ldlm_lock *lock, int seconds)
 {
-        cfs_time_t timeout;
-        cfs_time_t timeout_rounded;
+	unsigned long timeout;
+	unsigned long timeout_rounded;
 
 	if (!list_empty(&lock->l_pending_chain))
                 return 0;
@@ -396,12 +396,12 @@ static int __ldlm_add_waiting_lock(struct ldlm_lock *lock, int seconds)
                 seconds = 1;
 
         timeout = cfs_time_shift(seconds);
-        if (likely(cfs_time_after(timeout, lock->l_callback_timeout)))
+	if (likely(time_after(timeout, lock->l_callback_timeout)))
                 lock->l_callback_timeout = timeout;
 
         timeout_rounded = round_timeout(lock->l_callback_timeout);
 
-        if (cfs_time_before(timeout_rounded,
+	if (time_before(timeout_rounded,
                             cfs_timer_deadline(&waiting_locks_timer)) ||
             !cfs_timer_is_armed(&waiting_locks_timer)) {
                 cfs_timer_arm(&waiting_locks_timer, timeout_rounded);
@@ -426,17 +426,17 @@ static int ldlm_add_waiting_lock(struct ldlm_lock *lock)
 
 	spin_lock_bh(&waiting_locks_spinlock);
 	if (ldlm_is_destroyed(lock)) {
-		static cfs_time_t next;
+		static unsigned long next;
 		spin_unlock_bh(&waiting_locks_spinlock);
 		LDLM_ERROR(lock, "not waiting on destroyed lock (bug 5653)");
-		if (cfs_time_after(cfs_time_current(), next)) {
+		if (time_after(jiffies, next)) {
 			next = cfs_time_shift(14400);
 			libcfs_debug_dumpstack(NULL);
 		}
 		return 0;
 	}
 
-	lock->l_last_activity = cfs_time_current_sec();
+	lock->l_last_activity = get_seconds();
 	ret = __ldlm_add_waiting_lock(lock, timeout);
 	if (ret) {
 		/* grab ref on the lock if it has been added to the
@@ -887,7 +887,7 @@ int ldlm_server_blocking_ast(struct ldlm_lock *lock,
         if (AT_OFF)
                 req->rq_timeout = ldlm_get_rq_timeout();
 
-	lock->l_last_activity = cfs_time_current_sec();
+	lock->l_last_activity = get_seconds();
 
         if (lock->l_export && lock->l_export->exp_nid_stats &&
             lock->l_export->exp_nid_stats->nid_ldlm_stats)
@@ -978,7 +978,7 @@ int ldlm_server_completion_ast(struct ldlm_lock *lock, __u64 flags, void *data)
 		}
         }
 
-	lock->l_last_activity = cfs_time_current_sec();
+	lock->l_last_activity = get_seconds();
 
 	LDLM_DEBUG(lock, "server preparing completion AST");
 
@@ -1089,7 +1089,7 @@ int ldlm_server_glimpse_ast(struct ldlm_lock *lock, void *data)
         if (AT_OFF)
                 req->rq_timeout = ldlm_get_rq_timeout();
 
-	lock->l_last_activity = cfs_time_current_sec();
+	lock->l_last_activity = get_seconds();
 
 	req->rq_interpret_reply = ldlm_cb_interpret;
 
@@ -1653,10 +1653,10 @@ int ldlm_request_cancel(struct ptlrpc_request *req,
                 }
 
 		if ((flags & LATF_STATS) && ldlm_is_ast_sent(lock)) {
-			long delay = cfs_time_sub(cfs_time_current_sec(),
+			long delay = cfs_time_sub(get_seconds(),
 						  lock->l_last_activity);
 			LDLM_DEBUG(lock, "server cancels blocked lock after "
-				   CFS_DURATION_T"s", delay);
+				   "%lds", delay);
 			at_measured(&lock->l_export->exp_bl_lock_at, delay);
 		}
                 ldlm_lock_cancel(lock);
@@ -1920,9 +1920,7 @@ static void ldlm_handle_gl_callback(struct ptlrpc_request *req,
         lock_res_and_lock(lock);
         if (lock->l_granted_mode == LCK_PW &&
             !lock->l_readers && !lock->l_writers &&
-            cfs_time_after(cfs_time_current(),
-                           cfs_time_add(lock->l_last_used,
-                                        cfs_time_seconds(10)))) {
+	    time_after(jiffies, lock->l_last_used + cfs_time_seconds(10))) {
                 unlock_res_and_lock(lock);
                 if (ldlm_bl_to_thread_lock(ns, NULL, lock))
                         ldlm_handle_bl_callback(ns, NULL, lock);

@@ -144,7 +144,7 @@ int mdt_agent_record_add(const struct lu_env *env,
 	larr->arr_compound_id = compound_id;
 	larr->arr_archive_id = archive_id;
 	larr->arr_flags = flags;
-	larr->arr_req_create = cfs_time_current_sec();
+	larr->arr_req_create = get_seconds();
 	larr->arr_req_change = larr->arr_req_create;
 	memcpy(&larr->arr_hai, hai, hai->hai_len);
 
@@ -185,7 +185,7 @@ struct data_update_cb {
 	int			 cookies_count;
 	int			 cookies_done;
 	enum agent_req_status	 status;
-	cfs_time_t		 change_time;
+	unsigned long		 change_time;
 };
 
 /**
@@ -278,7 +278,7 @@ int mdt_agent_record_update(const struct lu_env *env, struct mdt_device *mdt,
 	ducb.cookies_count = cookies_count;
 	ducb.cookies_done = 0;
 	ducb.status = status;
-	ducb.change_time = cfs_time_current_sec();
+	ducb.change_time = get_seconds();
 
 	rc = cdt_llog_process(env, mdt, mdt_agent_record_update_cb, &ducb);
 	if (rc < 0)

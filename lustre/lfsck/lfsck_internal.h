@@ -510,10 +510,10 @@ struct lfsck_component {
 	struct lu_fid		 lc_fid_latest_scanned_phase2;
 
 	/* The time for last checkpoint, jiffies */
-	cfs_time_t		 lc_time_last_checkpoint;
+	unsigned long		 lc_time_last_checkpoint;
 
 	/* The time for next checkpoint, jiffies */
-	cfs_time_t		 lc_time_next_checkpoint;
+	unsigned long		 lc_time_next_checkpoint;
 
 	__u32			 lc_file_size;
 
@@ -624,10 +624,10 @@ struct lfsck_instance {
 	struct ptlrpc_thread	  li_thread;
 
 	/* The time for last checkpoint, jiffies */
-	cfs_time_t		  li_time_last_checkpoint;
+	unsigned long		  li_time_last_checkpoint;
 
 	/* The time for next checkpoint, jiffies */
-	cfs_time_t		  li_time_next_checkpoint;
+	unsigned long		  li_time_next_checkpoint;
 
 	lfsck_out_notify	  li_out_notify;
 	void			 *li_out_notify_data;

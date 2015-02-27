@@ -61,7 +61,7 @@ struct ofd_mod_data {
 	struct list_head fmd_list;	  /* linked to fed_mod_list */
 	struct lu_fid	 fmd_fid;	  /* FID being written to */
 	__u64		 fmd_mactime_xid; /* xid highest {m,a,c}time setattr */
-	cfs_time_t	 fmd_expire;	  /* time when the fmd should expire */
+	unsigned long	 fmd_expire;	  /* time when the fmd should expire */
 	int		 fmd_refcount;	  /* reference counter - list holds 1 */
 };
 
@@ -171,7 +171,7 @@ struct ofd_device {
 
 	/* ofd mod data: ofd_device wide values */
 	int			 ofd_fmd_max_num; /* per ofd ofd_mod_data */
-	cfs_duration_t		 ofd_fmd_max_age; /* time to fmd expiry */
+	long			 ofd_fmd_max_age; /* time to fmd expiry */
 
 	spinlock_t		 ofd_flags_lock;
 	unsigned long		 ofd_raid_degraded:1,
