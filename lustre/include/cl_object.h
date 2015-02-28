@@ -1423,6 +1423,11 @@ enum cl_io_type {
          * cl_io_loop() is never called for it.
          */
         CIT_MISC,
+	/**
+	 * ladvise handling
+	 * To give advice about access of a file
+	 */
+	CIT_LADVISE,
         CIT_OP_NR
 };
 
@@ -1732,6 +1737,10 @@ struct cl_io_rw_common {
         int         crw_nonblock;
 };
 
+struct lu_extent {
+	__u64 le_start;
+	__u64 le_end;
+};
 
 /**
  * State for io.
@@ -1801,6 +1810,13 @@ struct cl_io {
 			/* how many pages were written/discarded */
 			unsigned int       fi_nr_written;
 		} ci_fsync;
+		struct cl_ladvise_io {
+			struct lu_extent	 li_extent;
+			struct obd_capa		*li_capa;
+			/** file system level fid */
+			struct lu_fid		*li_fid;
+			enum lu_ladvise_type	 li_advice;
+		} ci_ladvise;
         } u;
         struct cl_2queue     ci_queue;
         size_t               ci_nob;
