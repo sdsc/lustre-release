@@ -104,10 +104,14 @@ typedef void (*dt_cb_t)(struct lu_env *env, struct thandle *th,
 #define TRANS_COMMIT_CB_MAGIC	0xa0a00a0a
 #define MAX_COMMIT_CB_STR_LEN	32
 
+#define DCB_TRANS_COMMIT	0x0
+#define DCB_TRANS_STOP		0x1
 struct dt_txn_commit_cb {
 	struct list_head	dcb_linkage;
 	dt_cb_t			dcb_func;
+	void			*dcb_data;
 	__u32			dcb_magic;
+	__u32			dcb_flags;
 	char			dcb_name[MAX_COMMIT_CB_STR_LEN];
 };
 
@@ -1833,18 +1837,11 @@ static inline struct dt_object *lu2dt_obj(struct lu_object *o)
 	return container_of0(o, struct dt_object, do_lu);
 }
 
-struct thandle_update {
-	/* In DNE, one transaction can be disassembled into
-	 * updates on several different MDTs, and these updates
-	 * will be attached to tu_remote_update_list per target.
-	 * Only single thread will access the list, no need lock
-	 */
-	struct list_head	tu_remote_update_list;
-
-	/* sent after or before local transaction */
-	unsigned int		tu_sent_after_local_trans:1,
-				tu_only_remote_trans:1;
-};
+static inline struct dt_object *dt_object_child(struct dt_object *o)
+{
+	return container_of0(lu_object_next(&(o)->do_lu),
+			     struct dt_object, do_lu);
+}
 
 /**
  * This is the general purpose transaction handle.
@@ -1864,10 +1861,23 @@ struct thandle {
 	/** the dt device on which the transactions are executed */
 	struct dt_device *th_dev;
 
-	atomic_t	th_refc;
-	/* the size of transaction */
-	int		th_alloc_size;
+	/* Sometimes, other layers might need to access the storage device(OSD)
+	 * directly, for example
+	 * 1. OSP will use this thandle when it needs to update some stuff
+	 *    in local OSD.
+	 * 2. MDD needs to access the llog, for example update log.
+	 * It is not easy to access OSD through layers, so we will use
+	 * th_storage_th here to point to the thandle created in OSD.
+	 */
+	struct thandle *th_storage_th;
 
+	/* point to the top thandle, XXX this is a bit hacky right now,
+	 * but normal device trans callback triggered by the bottom
+	 * device (OSP/OSD == sub thandle layer) needs to get the
+	 * top_thandle (see dt_txn_hook_start/stop()), so we put the
+	 * top thandle here for now, will fix it when we have better
+	 * callback mechanism */
+	struct thandle	*th_top;
 	/** context for this transaction, tag is LCT_TX_HANDLE */
 	struct lu_context th_ctx;
 
@@ -1879,27 +1889,13 @@ struct thandle {
 	__s32             th_result;
 
 	/** whether we need sync commit */
-	unsigned int		th_sync:1;
-
+	unsigned int		th_sync:1,
 	/* local transation, no need to inform other layers */
-	unsigned int		th_local:1;
-
-	struct thandle_update	*th_update;
+				th_local:1,
+	/* Whether we need wait the transaction to be submitted */
+				th_wait_submit:1;
 };
 
-static inline void thandle_get(struct thandle *thandle)
-{
-	atomic_inc(&thandle->th_refc);
-}
-
-static inline void thandle_put(struct thandle *thandle)
-{
-	if (atomic_dec_and_test(&thandle->th_refc)) {
-		if (thandle->th_update != NULL)
-			OBD_FREE_PTR(thandle->th_update);
-		OBD_FREE(thandle, thandle->th_alloc_size);
-	}
-}
 /**
  * Transaction call-backs.
  *
@@ -1974,6 +1970,18 @@ dt_locate(const struct lu_env *env, struct dt_device *dev,
 {
 	return dt_locate_at(env, dev, fid,
 			    dev->dd_lu_dev.ld_site->ls_top_dev, NULL);
+}
+
+static inline struct dt_object *
+dt_object_locate(struct dt_object *dto, struct dt_device *dt_dev)
+{
+	struct lu_object *lo;
+
+	list_for_each_entry(lo, &dto->do_lu.lo_header->loh_layers, lo_linkage) {
+		if (lo->lo_dev == &dt_dev->dd_lu_dev)
+			return container_of(lo, struct dt_object, do_lu);
+	}
+	return NULL;
 }
 
 int local_oid_storage_init(const struct lu_env *env, struct dt_device *dev,
@@ -2439,6 +2447,28 @@ static inline int dt_punch(const struct lu_env *env, struct dt_object *dt,
         LASSERT(dt->do_body_ops);
         LASSERT(dt->do_body_ops->dbo_punch);
         return dt->do_body_ops->dbo_punch(env, dt, start, end, th, capa);
+}
+
+static inline int dt_declare_write(const struct lu_env *env,
+				   struct dt_object *dt,
+				   const struct lu_buf *buf,
+				   loff_t pos, struct thandle *th)
+{
+	LASSERT(dt);
+	LASSERT(dt->do_body_ops);
+	LASSERT(dt->do_body_ops->dbo_declare_write);
+	return dt->do_body_ops->dbo_declare_write(env, dt, buf, pos, th);
+}
+
+static inline size_t dt_write(const struct lu_env *env, struct dt_object *dt,
+			      const struct lu_buf *buf, loff_t *pos,
+			      struct thandle *th,
+			      struct lustre_capa *capa, int ignore)
+{
+	LASSERT(dt);
+	LASSERT(dt->do_body_ops);
+	LASSERT(dt->do_body_ops->dbo_write);
+	return dt->do_body_ops->dbo_write(env, dt, buf, pos, th, capa, ignore);
 }
 
 static inline int dt_fiemap_get(const struct lu_env *env, struct dt_object *d,

@@ -958,7 +958,7 @@ static void osd_trans_commit_cb(struct super_block *sb,
 
         lu_context_exit(&th->th_ctx);
         lu_context_fini(&th->th_ctx);
-	thandle_put(th);
+	OBD_FREE_PTR(oh);
 }
 
 static struct thandle *osd_trans_create(const struct lu_env *env,
@@ -983,10 +983,9 @@ static struct thandle *osd_trans_create(const struct lu_env *env,
 		th->th_result = 0;
 		th->th_tags = LCT_TX_HANDLE;
 		oh->ot_credits = 0;
-		atomic_set(&th->th_refc, 1);
-		th->th_alloc_size = sizeof(*oh);
 		oti->oti_dev = osd_dt_dev(d);
 		INIT_LIST_HEAD(&oh->ot_dcb_list);
+		INIT_LIST_HEAD(&oh->ot_stop_dcb_list);
 		osd_th_alloced(oh);
 
 		memset(oti->oti_declare_ops, 0,
@@ -1122,6 +1121,22 @@ static int osd_seq_exists(const struct lu_env *env,
 	RETURN(ss->ss_node_id == range->lsr_index);
 }
 
+static void osd_trans_stop_cb(struct osd_thandle *oth, int result)
+{
+	struct dt_txn_commit_cb	*dcb;
+	struct dt_txn_commit_cb	*tmp;
+
+	/* call per-transaction stop callbacks if any */
+	list_for_each_entry_safe(dcb, tmp, &oth->ot_stop_dcb_list,
+				 dcb_linkage) {
+		LASSERTF(dcb->dcb_magic == TRANS_COMMIT_CB_MAGIC,
+			 "commit callback entry: magic=%x name='%s'\n",
+			 dcb->dcb_magic, dcb->dcb_name);
+		list_del_init(&dcb->dcb_linkage);
+		dcb->dcb_func(NULL, &oth->ot_super, dcb, result);
+	}
+}
+
 /*
  * Concurrency: shouldn't matter.
  */
@@ -1141,10 +1156,10 @@ static int osd_trans_stop(const struct lu_env *env, struct dt_device *dt,
 	qtrans = oh->ot_quota_trans;
 	oh->ot_quota_trans = NULL;
 
-        if (oh->ot_handle != NULL) {
+	if (oh->ot_handle != NULL) {
                 handle_t *hdl = oh->ot_handle;
 
-                /*
+		/*
                  * add commit callback
                  * notice we don't do this in osd_trans_start()
                  * as underlying transaction can change during truncate
@@ -1154,10 +1169,12 @@ static int osd_trans_stop(const struct lu_env *env, struct dt_device *dt,
 
                 LASSERT(oti->oti_txns == 1);
                 oti->oti_txns--;
+
                 rc = dt_txn_hook_stop(env, th);
                 if (rc != 0)
                         CERROR("Failure in transaction hook: %d\n", rc);
 
+		osd_trans_stop_cb(oh, rc);
 		/* hook functions might modify th_sync */
 		hdl->h_sync = th->th_sync;
 
@@ -1166,9 +1183,10 @@ static int osd_trans_stop(const struct lu_env *env, struct dt_device *dt,
                                   rc = ldiskfs_journal_stop(hdl));
                 if (rc != 0)
                         CERROR("Failure to stop transaction: %d\n", rc);
-        } else {
-		thandle_put(&oh->ot_super);
-        }
+	} else {
+		osd_trans_stop_cb(oh, th->th_result);
+		OBD_FREE_PTR(oh);
+	}
 
 	/* inform the quota slave device that the transaction is stopping */
 	qsd_op_end(env, qsd, qtrans);
@@ -1198,7 +1216,10 @@ static int osd_trans_cb_add(struct thandle *th, struct dt_txn_commit_cb *dcb)
 
 	LASSERT(dcb->dcb_magic == TRANS_COMMIT_CB_MAGIC);
 	LASSERT(&dcb->dcb_func != NULL);
-	list_add(&dcb->dcb_linkage, &oh->ot_dcb_list);
+	if (dcb->dcb_flags & DCB_TRANS_STOP)
+		list_add(&dcb->dcb_linkage, &oh->ot_stop_dcb_list);
+	else
+		list_add(&dcb->dcb_linkage, &oh->ot_dcb_list);
 
 	return 0;
 }
@@ -5923,12 +5944,15 @@ static int osd_fid_init(const struct lu_env *env, struct osd_device *osd)
 
 	rc = seq_client_init(osd->od_cl_seq, NULL, LUSTRE_SEQ_METADATA,
 			     osd->od_svname, ss->ss_server_seq);
-
 	if (rc != 0) {
 		OBD_FREE_PTR(osd->od_cl_seq);
 		osd->od_cl_seq = NULL;
 	}
 
+	/* Allocate new sequence now to avoid creating local transaction
+	 * in the normal transaction process */
+	rc = seq_server_alloc_meta(osd->od_cl_seq->lcs_srv,
+				   &osd->od_cl_seq->lcs_space, env);
 	RETURN(rc);
 }
 

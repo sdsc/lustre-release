@@ -249,7 +249,7 @@ int osp_sync_declare_add(const struct lu_env *env, struct osp_object *o,
 
 	/* it's a layering violation, to access internals of th,
 	 * but we can do this as a sanity check, for a while */
-	LASSERT(th->th_dev == d->opd_storage);
+	LASSERT(th->th_storage_th->th_dev == d->opd_storage);
 
 	switch (type) {
 	case MDS_UNLINK64_REC:
@@ -263,12 +263,13 @@ int osp_sync_declare_add(const struct lu_env *env, struct osp_object *o,
 	}
 
 	/* we want ->dt_trans_start() to allocate per-thandle structure */
-	th->th_tags |= LCT_OSP_THREAD;
+	th->th_storage_th->th_tags |= LCT_OSP_THREAD;
 
 	ctxt = llog_get_context(d->opd_obd, LLOG_MDS_OST_ORIG_CTXT);
 	LASSERT(ctxt);
 
-	rc = llog_declare_add(env, ctxt->loc_handle, &osi->osi_hdr, th);
+	rc = llog_declare_add(env, ctxt->loc_handle, &osi->osi_hdr,
+			      th->th_storage_th);
 	llog_ctxt_put(ctxt);
 
 	RETURN(rc);
@@ -309,7 +310,8 @@ static int osp_sync_add_rec(const struct lu_env *env, struct osp_device *d,
 
 	/* it's a layering violation, to access internals of th,
 	 * but we can do this as a sanity check, for a while */
-	LASSERT(th->th_dev == d->opd_storage);
+	LASSERT(th->th_storage_th != NULL);
+	LASSERT(th->th_storage_th->th_dev == d->opd_storage);
 
 	switch (type) {
 	case MDS_UNLINK64_REC:
@@ -335,7 +337,7 @@ static int osp_sync_add_rec(const struct lu_env *env, struct osp_device *d,
 		LBUG();
 	}
 
-	txn = osp_txn_info(&th->th_ctx);
+	txn = osp_txn_info(&th->th_storage_th->th_ctx);
 	LASSERT(txn);
 
 	txn->oti_current_id = osp_sync_id_get(d, txn->oti_current_id);
@@ -346,7 +348,7 @@ static int osp_sync_add_rec(const struct lu_env *env, struct osp_device *d,
 		RETURN(-ENOMEM);
 
 	rc = llog_add(env, ctxt->loc_handle, &osi->osi_hdr, &osi->osi_cookie,
-		      th);
+		      th->th_storage_th);
 	llog_ctxt_put(ctxt);
 
 	if (likely(rc >= 0)) {
@@ -733,7 +735,7 @@ static int osp_prep_unlink_update_req(const struct lu_env *env,
 				      struct ptlrpc_request **reqp)
 {
 	struct llog_unlink64_rec	*rec = (struct llog_unlink64_rec *)h;
-	struct dt_update_request	*update = NULL;
+	struct osp_update_request	*update = NULL;
 	struct ptlrpc_request		*req;
 	struct llog_cookie		lcookie;
 	const void			*buf;
@@ -741,19 +743,19 @@ static int osp_prep_unlink_update_req(const struct lu_env *env,
 	int				rc;
 	ENTRY;
 
-	update = dt_update_request_create(&osp->opd_dt_dev);
+	update = osp_update_request_create(&osp->opd_dt_dev);
 	if (IS_ERR(update))
 		RETURN(PTR_ERR(update));
 
 	/* This can only happens for unlink slave directory, so decrease
 	 * ref for ".." and "." */
-	rc = out_update_pack(env, &update->dur_buf, OUT_REF_DEL, &rec->lur_fid,
-			     0, NULL, NULL, 0);
+	osp_update_rpc_pack(env, ref_del, rc, update, OUT_REF_DEL,
+			    &rec->lur_fid);
 	if (rc != 0)
 		GOTO(out, rc);
 
-	rc = out_update_pack(env, &update->dur_buf, OUT_REF_DEL, &rec->lur_fid,
-			     0, NULL, NULL, 0);
+	osp_update_rpc_pack(env, ref_del, rc, update, OUT_REF_DEL,
+			    &rec->lur_fid);
 	if (rc != 0)
 		GOTO(out, rc);
 
@@ -763,13 +765,13 @@ static int osp_prep_unlink_update_req(const struct lu_env *env,
 	size = sizeof(lcookie);
 	buf = &lcookie;
 
-	rc = out_update_pack(env, &update->dur_buf, OUT_DESTROY, &rec->lur_fid,
-			     1, &size, &buf, 0);
+	osp_update_rpc_pack(env, object_destroy, rc, update,
+			    OUT_DESTROY, &rec->lur_fid, size, buf);
 	if (rc != 0)
 		GOTO(out, rc);
 
-	rc = out_prep_update_req(env, osp->opd_obd->u.cli.cl_import,
-				 update->dur_buf.ub_req, &req);
+	rc = osp_prep_update_req(env, osp->opd_obd->u.cli.cl_import,
+				 update, &req);
 	if (rc != 0)
 		GOTO(out, rc);
 
@@ -781,7 +783,7 @@ static int osp_prep_unlink_update_req(const struct lu_env *env,
 	*reqp = req;
 out:
 	if (update != NULL)
-		dt_update_request_destroy(update);
+		osp_update_request_destroy(update);
 
 	RETURN(rc);
 }
@@ -1326,7 +1328,8 @@ static int osp_sync_llog_init(const struct lu_env *env, struct osp_device *d)
 	       POSTID(&osi->osi_cid.lci_logid.lgl_oi),
 	       osi->osi_cid.lci_logid.lgl_ogen);
 
-	rc = llog_setup(env, obd, &obd->obd_olg, LLOG_MDS_OST_ORIG_CTXT, obd,
+	rc = llog_setup(env, obd, &obd->obd_olg, LLOG_MDS_OST_ORIG_CTXT,
+			d->opd_storage->dd_lu_dev.ld_obd,
 			&osp_mds_ost_orig_logops);
 	if (rc)
 		RETURN(rc);
@@ -1521,7 +1524,10 @@ static void osp_sync_tracker_commit_cb(struct thandle *th, void *cookie)
 
 	LASSERT(tr);
 
-	txn = osp_txn_info(&th->th_ctx);
+	if (th->th_storage_th == NULL)
+		return;
+
+	txn = osp_txn_info(&th->th_storage_th->th_ctx);
 	if (txn == NULL || txn->oti_current_id < tr->otr_committed_id)
 		return;
 

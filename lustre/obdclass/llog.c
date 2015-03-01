@@ -346,7 +346,7 @@ repeat:
 
 			if (rec->lrh_index == 0) {
 				/* probably another rec just got added? */
-				if (index <= loghandle->lgh_last_idx)
+				if (saved_index <= loghandle->lgh_last_idx)
 					GOTO(repeat, rc = 0);
 				GOTO(out, rc = 0); /* no more records */
 			}
@@ -791,6 +791,7 @@ int llog_open_create(const struct lu_env *env, struct llog_ctxt *ctxt,
 	if (IS_ERR(th))
 		GOTO(out, rc = PTR_ERR(th));
 
+	th->th_wait_submit = 1;
 	rc = llog_declare_create(env, *res, th);
 	if (rc == 0) {
 		rc = dt_trans_start_local(env, d, th);

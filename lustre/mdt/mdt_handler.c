@@ -1334,12 +1334,12 @@ static int mdt_swap_layouts(struct tgt_session_info *tsi)
 	mdt_lock_reg_init(lh2, LCK_EX);
 
 	rc = mdt_object_lock(info, o1, lh1, MDS_INODELOCK_LAYOUT |
-			     MDS_INODELOCK_XATTR, MDT_LOCAL_LOCK);
+			     MDS_INODELOCK_XATTR);
 	if (rc < 0)
 		GOTO(put, rc);
 
 	rc = mdt_object_lock(info, o2, lh2, MDS_INODELOCK_LAYOUT |
-			     MDS_INODELOCK_XATTR, MDT_LOCAL_LOCK);
+			     MDS_INODELOCK_XATTR);
 	if (rc < 0)
 		GOTO(unlock1, rc);
 
@@ -1446,8 +1446,7 @@ static int mdt_getattr_name_lock(struct mdt_thread_info *info,
 					MDS_INODELOCK_LAYOUT);
 			child_bits |= MDS_INODELOCK_PERM | MDS_INODELOCK_UPDATE;
 
-			rc = mdt_object_lock(info, child, lhc, child_bits,
-					     MDT_LOCAL_LOCK);
+			rc = mdt_object_lock(info, child, lhc, child_bits);
 			if (rc < 0)
 				RETURN(rc);
 		}
@@ -1525,12 +1524,11 @@ static int mdt_getattr_name_lock(struct mdt_thread_info *info,
 		if (S_ISDIR(lu_object_attr(&parent->mot_obj))) {
 			lhp = &info->mti_lh[MDT_LH_PARENT];
 			mdt_lock_pdo_init(lhp, LCK_PR, lname);
-                        rc = mdt_object_lock(info, parent, lhp,
-                                             MDS_INODELOCK_UPDATE,
-                                             MDT_LOCAL_LOCK);
-                        if (unlikely(rc != 0))
-                                RETURN(rc);
-                }
+			rc = mdt_object_lock(info, parent, lhp,
+					     MDS_INODELOCK_UPDATE);
+			if (unlikely(rc != 0))
+				RETURN(rc);
+		}
 
                 /* step 2: lookup child's fid by name */
                 fid_zero(child_fid);
@@ -1619,12 +1617,12 @@ static int mdt_getattr_name_lock(struct mdt_thread_info *info,
 			child_bits |= MDS_INODELOCK_LAYOUT;
 			/* try layout lock, it may fail to be granted due to
 			 * contention at LOOKUP or UPDATE */
-			if (!mdt_object_lock_try(info, child, lhc, child_bits,
-						 MDT_CROSS_LOCK)) {
+			if (!mdt_object_lock_try(info, child, lhc,
+						 child_bits)) {
 				child_bits &= ~MDS_INODELOCK_LAYOUT;
 				LASSERT(child_bits != 0);
 				rc = mdt_object_lock(info, child, lhc,
-						child_bits, MDT_CROSS_LOCK);
+						     child_bits);
 			} else {
 				ma_need |= MA_LOV;
 			}
@@ -1633,8 +1631,7 @@ static int mdt_getattr_name_lock(struct mdt_thread_info *info,
 			 * client will enqueue the lock to the remote MDT */
 			if (mdt_object_remote(child))
 				child_bits &= ~MDS_INODELOCK_UPDATE;
-			rc = mdt_object_lock(info, child, lhc, child_bits,
-						MDT_CROSS_LOCK);
+			rc = mdt_object_lock(info, child, lhc, child_bits);
 		}
                 if (unlikely(rc != 0))
                         GOTO(out_child, rc);
@@ -2486,7 +2483,7 @@ int mdt_remote_object_lock(struct mdt_thread_info *mti,
 static int mdt_object_local_lock(struct mdt_thread_info *info,
 				 struct mdt_object *o,
 				 struct mdt_lock_handle *lh, __u64 ibits,
-				 bool nonblock, int locality)
+				 bool nonblock)
 {
         struct ldlm_namespace *ns = info->mti_mdt->mdt_namespace;
         ldlm_policy_data_t *policy = &info->mti_policy;
@@ -2577,21 +2574,13 @@ out_unlock:
 static int
 mdt_object_lock_internal(struct mdt_thread_info *info, struct mdt_object *o,
 			 struct mdt_lock_handle *lh, __u64 ibits,
-			 bool nonblock, int locality)
+			 bool nonblock)
 {
 	int rc;
 	ENTRY;
 
 	if (!mdt_object_remote(o))
-		return mdt_object_local_lock(info, o, lh, ibits, nonblock,
-					     locality);
-
-	if (locality == MDT_LOCAL_LOCK) {
-		CERROR("%s: try to get local lock for remote object"
-		       DFID".\n", mdt_obd_name(info->mti_mdt),
-		       PFID(mdt_object_fid(o)));
-		RETURN(-EPROTO);
-	}
+		return mdt_object_local_lock(info, o, lh, ibits, nonblock);
 
 	/* XXX do not support PERM/LAYOUT/XATTR lock for remote object yet */
 	ibits &= ~(MDS_INODELOCK_PERM | MDS_INODELOCK_LAYOUT |
@@ -2622,7 +2611,7 @@ mdt_object_lock_internal(struct mdt_thread_info *info, struct mdt_object *o,
 	if (ibits & MDS_INODELOCK_LOOKUP) {
 		rc = mdt_object_local_lock(info, o, lh,
 					   MDS_INODELOCK_LOOKUP,
-					   nonblock, locality);
+					   nonblock);
 		if (rc != ELDLM_OK)
 			RETURN(rc);
 	}
@@ -2631,18 +2620,18 @@ mdt_object_lock_internal(struct mdt_thread_info *info, struct mdt_object *o,
 }
 
 int mdt_object_lock(struct mdt_thread_info *info, struct mdt_object *o,
-		    struct mdt_lock_handle *lh, __u64 ibits, int locality)
+		    struct mdt_lock_handle *lh, __u64 ibits)
 {
-	return mdt_object_lock_internal(info, o, lh, ibits, false, locality);
+	return mdt_object_lock_internal(info, o, lh, ibits, false);
 }
 
 int mdt_object_lock_try(struct mdt_thread_info *info, struct mdt_object *o,
-		        struct mdt_lock_handle *lh, __u64 ibits, int locality)
+			struct mdt_lock_handle *lh, __u64 ibits)
 {
 	struct mdt_lock_handle tmp = *lh;
 	int rc;
 
-	rc = mdt_object_lock_internal(info, o, &tmp, ibits, true, locality);
+	rc = mdt_object_lock_internal(info, o, &tmp, ibits, true);
 	if (rc == 0)
 		*lh = tmp;
 
@@ -2746,8 +2735,7 @@ struct mdt_object *mdt_object_find_lock(struct mdt_thread_info *info,
         if (!IS_ERR(o)) {
                 int rc;
 
-                rc = mdt_object_lock(info, o, lh, ibits,
-                                     MDT_LOCAL_LOCK);
+		rc = mdt_object_lock(info, o, lh, ibits);
                 if (rc != 0) {
                         mdt_object_put(info->mti_env, o);
                         o = ERR_PTR(rc);
@@ -3258,8 +3246,7 @@ static int mdt_intent_getxattr(enum mdt_it_code opcode,
 	if (!lustre_handle_is_used(&lhc->mlh_reg_lh)) {
 		mdt_lock_reg_init(lhc, (*lockp)->l_req_mode);
 		rc = mdt_object_lock(info, info->mti_object, lhc,
-					MDS_INODELOCK_XATTR,
-					MDT_LOCAL_LOCK);
+				     MDS_INODELOCK_XATTR);
 		if (rc)
 			return rc;
 	}
@@ -4929,6 +4916,7 @@ static int mdt_prepare(const struct lu_env *env,
 	}
 
 	LASSERT(!test_bit(MDT_FL_CFGLOG, &mdt->mdt_state));
+
 	target_recovery_init(&mdt->mdt_lut, tgt_request_handle);
 	set_bit(MDT_FL_CFGLOG, &mdt->mdt_state);
 	LASSERT(obd->obd_no_conn);
@@ -5232,7 +5220,8 @@ static int mdt_obd_connect(const struct lu_env *env,
 	 *      at some point we should find a better one
 	 */
 	if (!test_bit(MDT_FL_SYNCED, &mdt->mdt_state) && data != NULL &&
-	    !(data->ocd_connect_flags & OBD_CONNECT_LIGHTWEIGHT)) {
+	    !(data->ocd_connect_flags & OBD_CONNECT_LIGHTWEIGHT) &&
+	    !(data->ocd_connect_flags & OBD_CONNECT_MDS_MDS)) {
 		rc = obd_get_info(env, mdt->mdt_child_exp,
 				  sizeof(KEY_OSP_CONNECTED),
 				  KEY_OSP_CONNECTED, NULL, NULL, NULL);
@@ -5262,11 +5251,6 @@ static int mdt_obd_connect(const struct lu_env *env,
 
 			mdt_export_stats_init(obd, lexp, localdata);
 		}
-
-		/* For phase I, sync for cross-ref operation. */
-		spin_lock(&lexp->exp_lock);
-		lexp->exp_keep_sync = 1;
-		spin_unlock(&lexp->exp_lock);
 	}
 out:
 	if (rc != 0) {
@@ -5793,6 +5777,7 @@ static int mdt_iocontrol(unsigned int cmd, struct obd_export *exp, int len,
                 break;
 	case OBD_IOC_ABORT_RECOVERY:
 		CERROR("%s: Aborting recovery for device\n", mdt_obd_name(mdt));
+		obd->obd_force_abort_recovery = 1;
 		target_stop_recovery_thread(obd);
 		rc = 0;
 		break;

@@ -122,9 +122,11 @@ struct lod_tgt_desc {
 	__u32              ltd_index;
 	struct ltd_qos     ltd_qos; /* qos info per target */
 	struct obd_statfs  ltd_statfs;
+	struct ptlrpc_thread	*ltd_recovery_thread;
 	unsigned long      ltd_active:1,/* is this target up for requests */
 			   ltd_activate:1,/* should  target be activated */
-			   ltd_reap:1;  /* should this target be deleted */
+			   ltd_reap:1,  /* should this target be deleted */
+			   ltd_got_update_log:1; /* Already got update log */
 };
 
 #define TGT_PTRS		256     /* number of pointers at 1st level */
@@ -169,7 +171,8 @@ struct lod_device {
 	int		      lod_connects;
 	unsigned int	      lod_recovery_completed:1,
 			      lod_initialized:1,
-			      lod_lmv_failout:1;
+			      lod_lmv_failout:1,
+			      lod_child_got_update_log:1;
 
 	/* lov settings descriptor storing static information */
 	struct lov_desc	      lod_desc;
@@ -181,6 +184,9 @@ struct lod_device {
 	struct lod_tgt_descs  lod_ost_descs;
 	/* Description of MDT */
 	struct lod_tgt_descs  lod_mdt_descs;
+
+	/* Recovery thread for lod_child */
+	struct ptlrpc_thread	lod_child_recovery_thread;
 
 	/* maximum EA size underlied OSD may have */
 	unsigned int	      lod_osd_max_easize;
@@ -296,6 +302,8 @@ struct lod_thread_info {
 	struct lu_name	  lti_name;
 	struct lu_buf	  lti_linkea_buf;
 	struct dt_insert_rec lti_dt_rec;
+	struct llog_catid lti_cid;
+	struct llog_cookie lti_cookie;
 };
 
 extern const struct lu_device_operations lod_lu_ops;
@@ -355,12 +363,6 @@ static inline struct dt_object* lod_object_child(struct lod_object *o)
 			struct dt_object, do_lu);
 }
 
-static inline struct dt_object *dt_object_child(struct dt_object *o)
-{
-	return container_of0(lu_object_next(&(o)->do_lu),
-			struct dt_object, do_lu);
-}
-
 extern struct lu_context_key lod_thread_key;
 
 static inline struct lod_thread_info *lod_env_info(const struct lu_env *env)
@@ -386,10 +388,20 @@ lod_name_get(const struct lu_env *env, const void *area, int len)
 	if ((__dev)->lod_osts_size > 0)	\
 		cfs_foreach_bit((__dev)->lod_ost_bitmap, (index))
 
+#define lod_foreach_mdt(mdt_dev, index)	\
+	cfs_foreach_bit((mdt_dev)->lod_mdt_bitmap, (index))
+
 /* lod_dev.c */
 extern struct kmem_cache *lod_object_kmem;
 int lod_fld_lookup(const struct lu_env *env, struct lod_device *lod,
 		   const struct lu_fid *fid, __u32 *tgt, int *flags);
+
+int lod_sub_init_llog(const struct lu_env *env, struct lod_device *lod,
+		      struct dt_device *dt);
+void lod_sub_fini_llog(const struct lu_env *env,
+		       struct dt_device *dt, struct ptlrpc_thread *thread);
+int lodname2mdt_index(char *lodname, __u32 *mdt_index);
+
 /* lod_lov.c */
 void lod_getref(struct lod_tgt_descs *ltd);
 void lod_putref(struct lod_device *lod, struct lod_tgt_descs *ltd);
@@ -482,5 +494,95 @@ int lod_striping_create(const struct lu_env *env, struct dt_object *dt,
 			struct thandle *th);
 void lod_object_free_striping(const struct lu_env *env, struct lod_object *lo);
 
-#endif
+/* lod_sub_object.c */
+struct thandle *lod_sub_get_thandle(const struct lu_env *env,
+				    struct thandle *th,
+				    const struct dt_object *sub_obj,
+				    bool *record_update);
+int lod_sub_object_declare_create(const struct lu_env *env,
+				  struct dt_object *dt,
+				  struct lu_attr *attr,
+				  struct dt_allocation_hint *hint,
+				  struct dt_object_format *dof,
+				  struct thandle *th);
+int lod_sub_object_create(const struct lu_env *env, struct dt_object *dt,
+			  struct lu_attr *attr,
+			  struct dt_allocation_hint *hint,
+			  struct dt_object_format *dof,
+			  struct thandle *th);
+int lod_sub_object_declare_ref_add(const struct lu_env *env,
+				   struct dt_object *dt,
+				   struct thandle *th);
+int lod_sub_object_ref_add(const struct lu_env *env, struct dt_object *dt,
+			   struct thandle *th);
+int lod_sub_object_declare_ref_del(const struct lu_env *env,
+				   struct dt_object *dt,
+				   struct thandle *th);
+int lod_sub_object_ref_del(const struct lu_env *env, struct dt_object *dt,
+			   struct thandle *th);
+int lod_sub_object_declare_destroy(const struct lu_env *env,
+				   struct dt_object *dt,
+				   struct thandle *th);
+int lod_sub_object_destroy(const struct lu_env *env, struct dt_object *dt,
+			   struct thandle *th);
+int lod_sub_object_declare_insert(const struct lu_env *env,
+				  struct dt_object *dt,
+				  const struct dt_rec *rec,
+				  const struct dt_key *key,
+				  struct thandle *th);
+int lod_sub_object_index_insert(const struct lu_env *env, struct dt_object *dt,
+				const struct dt_rec *rec,
+				const struct dt_key *key, struct thandle *th,
+				struct lustre_capa *capa, int ign);
+int lod_sub_object_declare_delete(const struct lu_env *env,
+				  struct dt_object *dt,
+				  const struct dt_key *key,
+				  struct thandle *th);
+int lod_sub_object_delete(const struct lu_env *env, struct dt_object *dt,
+			  const struct dt_key *name, struct thandle *th,
+			  struct lustre_capa *capa);
+int lod_sub_object_declare_xattr_set(const struct lu_env *env,
+				     struct dt_object *dt,
+				     const struct lu_buf *buf,
+				     const char *name, int fl,
+				     struct thandle *th);
+int lod_sub_object_xattr_set(const struct lu_env *env, struct dt_object *dt,
+			     const struct lu_buf *buf, const char *name, int fl,
+			     struct thandle *th, struct lustre_capa *capa);
+int lod_sub_object_declare_attr_set(const struct lu_env *env,
+				    struct dt_object *dt,
+				    const struct lu_attr *attr,
+				    struct thandle *th);
+int lod_sub_object_attr_set(const struct lu_env *env,
+			    struct dt_object *dt,
+			    const struct lu_attr *attr,
+			    struct thandle *th,
+			    struct lustre_capa *capa);
+int lod_sub_object_declare_xattr_del(const struct lu_env *env,
+				     struct dt_object *dt,
+				     const char *name,
+				     struct thandle *th);
+int lod_sub_object_xattr_del(const struct lu_env *env,
+			     struct dt_object *dt,
+			     const char *name,
+			     struct thandle *th,
+			     struct lustre_capa *capa);
+int lod_sub_object_declare_write(const struct lu_env *env,
+				 struct dt_object *dt,
+				 const struct lu_buf *buf, loff_t pos,
+				 struct thandle *th);
+ssize_t lod_sub_object_write(const struct lu_env *env, struct dt_object *dt,
+			     const struct lu_buf *buf, loff_t *pos,
+			     struct thandle *th, struct lustre_capa *capa,
+			     int rq);
+int lod_sub_object_declare_punch(const struct lu_env *env,
+				 struct dt_object *dt,
+				 __u64 start, __u64 end,
+				 struct thandle *th);
+int lod_sub_object_punch(const struct lu_env *env, struct dt_object *dt,
+			 __u64 start, __u64 end, struct thandle *th,
+			 struct lustre_capa *capa);
 
+int lod_sub_prep_llog(const struct lu_env *env, struct lod_device *lod,
+		      struct dt_device *dt, int index);
+#endif
