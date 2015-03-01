@@ -168,7 +168,7 @@ static void osp_object_assign_fid(const struct lu_env *env,
  * \retval		0 for success
  * \retval		negative error number on failure
  */
-static int osp_oac_init(struct osp_object *obj)
+int osp_oac_init(struct osp_object *obj)
 {
 	struct osp_object_attr *ooa;
 
@@ -544,7 +544,7 @@ int osp_attr_get(const struct lu_env *env, struct dt_object *dt,
 	struct osp_device		*osp = lu2osp_dev(dt->do_lu.lo_dev);
 	struct osp_object		*obj = dt2osp_obj(dt);
 	struct dt_device		*dev = &osp->opd_dt_dev;
-	struct dt_update_request	*update;
+	struct osp_update_request	*update;
 	struct object_update_reply	*reply;
 	struct ptlrpc_request		*req = NULL;
 	int				rc = 0;
@@ -564,12 +564,12 @@ int osp_attr_get(const struct lu_env *env, struct dt_object *dt,
 		spin_unlock(&obj->opo_lock);
 	}
 
-	update = dt_update_request_create(dev);
+	update = osp_update_request_create(dev);
 	if (IS_ERR(update))
 		RETURN(PTR_ERR(update));
 
-	rc = out_attr_get_pack(env, &update->dur_buf,
-			       lu_object_fid(&dt->do_lu));
+	osp_update_rpc_pack(env, attr_get, rc, update,
+			    OUT_ATTR_GET, lu_object_fid(&dt->do_lu));
 	if (rc != 0) {
 		CERROR("%s: Insert update error "DFID": rc = %d\n",
 		       dev->dd_lu_dev.ld_obd->obd_name,
@@ -578,7 +578,7 @@ int osp_attr_get(const struct lu_env *env, struct dt_object *dt,
 		GOTO(out, rc);
 	}
 
-	rc = out_remote_sync(env, osp->opd_obd->u.cli.cl_import, update, &req);
+	rc = osp_remote_sync(env, osp->opd_obd->u.cli.cl_import, update, &req);
 	if (rc != 0) {
 		if (rc == -ENOENT) {
 			osp2lu_obj(obj)->lo_header->loh_attr &= ~LOHA_EXISTS;
@@ -610,7 +610,7 @@ out:
 	if (req != NULL)
 		ptlrpc_req_finished(req);
 
-	dt_update_request_destroy(update);
+	osp_update_request_destroy(update);
 
 	return rc;
 }
@@ -667,7 +667,7 @@ static int __osp_attr_set(const struct lu_env *env, struct dt_object *dt,
 	} else {
 		/* It is for OST-object attr_set directly without updating
 		 * local MDT-object attribute. It is usually used by LFSCK. */
-		rc = __osp_md_attr_set(env, dt, attr, th);
+		rc = osp_md_attr_set(env, dt, attr, th, NULL);
 	}
 
 	if (rc != 0 || o->opo_ooa == NULL)
@@ -889,19 +889,21 @@ static int osp_declare_xattr_get(const struct lu_env *env, struct dt_object *dt,
 		mutex_unlock(&osp->opd_async_requests_mutex);
 		osp_oac_xattr_put(oxe);
 	} else {
-		struct dt_update_request *update;
+		struct osp_update_request *our;
+		struct osp_update_request_list *ourl;
 
 		/* XXX: Currently, we trigger the batched async OUT
 		 *	RPC via dt_declare_xattr_get(). It is not
 		 *	perfect solution, but works well now.
 		 *
 		 *	We will improve it in the future. */
-		update = osp->opd_async_requests;
-		if (update != NULL && update->dur_buf.ub_req != NULL &&
-		    update->dur_buf.ub_req->ourq_count > 0) {
+		our = osp->opd_async_requests;
+		ourl = osp_current_object_update_request(our);
+		if (ourl != NULL && ourl->ourl_req != NULL &&
+		    ourl->ourl_req->ourq_count > 0) {
 			osp->opd_async_requests = NULL;
 			mutex_unlock(&osp->opd_async_requests_mutex);
-			rc = osp_unplug_async_request(env, osp, update);
+			rc = osp_unplug_async_request(env, osp, our);
 		} else {
 			mutex_unlock(&osp->opd_async_requests_mutex);
 		}
@@ -942,7 +944,7 @@ int osp_xattr_get(const struct lu_env *env, struct dt_object *dt,
 	struct osp_object	*obj	= dt2osp_obj(dt);
 	struct dt_device	*dev	= &osp->opd_dt_dev;
 	struct lu_buf		*rbuf	= &osp_env_info(env)->osi_lb2;
-	struct dt_update_request *update = NULL;
+	struct osp_update_request *update = NULL;
 	struct ptlrpc_request	*req	= NULL;
 	struct object_update_reply *reply;
 	struct osp_xattr_entry	*oxe	= NULL;
@@ -993,19 +995,19 @@ unlock:
 		spin_unlock(&obj->opo_lock);
 	}
 
-	update = dt_update_request_create(dev);
+	update = osp_update_request_create(dev);
 	if (IS_ERR(update))
 		GOTO(out, rc = PTR_ERR(update));
 
-	rc = out_xattr_get_pack(env, &update->dur_buf,
-				lu_object_fid(&dt->do_lu), name);
+	osp_update_rpc_pack(env, xattr_get, rc, update,
+			    OUT_XATTR_GET, lu_object_fid(&dt->do_lu), name);
 	if (rc != 0) {
 		CERROR("%s: Insert update error "DFID": rc = %d\n",
 		       dname, PFID(lu_object_fid(&dt->do_lu)), rc);
 		GOTO(out, rc);
 	}
 
-	rc = out_remote_sync(env, osp->opd_obd->u.cli.cl_import, update, &req);
+	rc = osp_remote_sync(env, osp->opd_obd->u.cli.cl_import, update, &req);
 	if (rc != 0) {
 		if (rc == -ENOENT) {
 			dt->do_lu.lo_header->loh_attr &= ~LOHA_EXISTS;
@@ -1111,7 +1113,7 @@ out:
 		ptlrpc_req_finished(req);
 
 	if (update != NULL && !IS_ERR(update))
-		dt_update_request_destroy(update);
+		osp_update_request_destroy(update);
 
 	if (oxe != NULL)
 		osp_oac_xattr_put(oxe);
@@ -1119,33 +1121,86 @@ out:
 	return rc;
 }
 
-static int __osp_xattr_set(const struct lu_env *env, struct dt_object *dt,
-			   const struct lu_buf *buf, const char *name,
-			   int flag, struct thandle *th)
+/**
+ * Implement OSP layer dt_object_operations::do_declare_xattr_set() interface.
+ *
+ * Declare that the caller will set extended attribute to the specified
+ * MDT/OST object.
+ *
+ * If it is non-remote transaction, it will add an OUT_XATTR_SET sub-request
+ * to the OUT RPC that will be flushed when the transaction start. And if the
+ * OSP attributes cache is initialized, then check whether the name extended
+ * attribute entry exists in the cache or not. If yes, replace it; otherwise,
+ * add the extended attribute to the cache.
+ *
+ * \param[in] env	pointer to the thread context
+ * \param[in] dt	pointer to the OSP layer dt_object
+ * \param[in] buf	pointer to the lu_buf to hold the extended attribute
+ * \param[in] name	the name of the extended attribute to be set
+ * \param[in] flag	to indicate the detailed set operation: LU_XATTR_CREATE
+ *			or LU_XATTR_REPLACE or others
+ * \param[in] th	pointer to the transaction handler
+ *
+ * \retval		0 for success
+ * \retval		negative error number on failure
+ */
+int osp_declare_xattr_set(const struct lu_env *env, struct dt_object *dt,
+			  const struct lu_buf *buf, const char *name,
+			  int flag, struct thandle *th)
+{
+	return osp_trans_update_request_create(th);
+}
+
+/**
+ * Implement OSP layer dt_object_operations::do_xattr_set() interface.
+ *
+ * Set extended attribute to the specified MDT/OST object.
+ *
+ * If it is remote transaction, it will add an OUT_XATTR_SET sub-request into
+ * the OUT RPC that will be flushed when the transaction stop. And if the OSP
+ * attributes cache is initialized, then check whether the name extended
+ * attribute entry exists in the cache or not. If yes, replace it; otherwise,
+ * add the extended attribute to the cache.
+ *
+ * \param[in] env	pointer to the thread context
+ * \param[in] dt	pointer to the OSP layer dt_object
+ * \param[in] buf	pointer to the lu_buf to hold the extended attribute
+ * \param[in] name	the name of the extended attribute to be set
+ * \param[in] fl	to indicate the detailed set operation: LU_XATTR_CREATE
+ *			or LU_XATTR_REPLACE or others
+ * \param[in] th	pointer to the transaction handler
+ * \param[in] capa	the capability for this operation
+ *
+ * \retval		0 for success
+ * \retval		negative error number on failure
+ */
+int osp_xattr_set(const struct lu_env *env, struct dt_object *dt,
+		  const struct lu_buf *buf, const char *name, int fl,
+		  struct thandle *th, struct lustre_capa *capa)
 {
 	struct osp_object	*o = dt2osp_obj(dt);
-	struct dt_update_request *update;
+	struct osp_update_request *update;
 	struct osp_xattr_entry	*oxe;
 	int			rc;
 	ENTRY;
 
 	LASSERT(buf->lb_len > 0 && buf->lb_buf != NULL);
+	update = thandle_to_osp_update_request(th);
+	LASSERT(update != NULL);
 
-	update = dt_update_request_find_or_create(th, dt);
-	if (IS_ERR(update)) {
-		CERROR("%s: Get OSP update buf failed "DFID": rc = %d\n",
-		       dt->do_lu.lo_dev->ld_obd->obd_name,
-		       PFID(lu_object_fid(&dt->do_lu)),
-		       (int)PTR_ERR(update));
+	CDEBUG(D_INODE, DFID" set xattr '%s' with size %zd\n",
+	       PFID(lu_object_fid(&dt->do_lu)), name, buf->lb_len);
 
-		RETURN(PTR_ERR(update));
+	osp_update_rpc_pack(env, xattr_set, rc, update,
+			    OUT_XATTR_SET, lu_object_fid(&dt->do_lu),
+			    buf, name, fl);
+	if (rc != 0)
+		return rc;
+
+	if (o->opo_ooa == NULL) {
+		rc = osp_insert_update_callback(env, update, o, NULL, NULL);
+		return rc;
 	}
-
-	rc = out_xattr_set_pack(env, &update->dur_buf,
-				lu_object_fid(&dt->do_lu),
-				buf, name, flag, update->dur_batchid);
-	if (rc != 0 || o->opo_ooa == NULL)
-		RETURN(rc);
 
 	oxe = osp_oac_xattr_find_or_add(o, name, buf->lb_len);
 	if (oxe == NULL) {
@@ -1190,113 +1245,6 @@ static int __osp_xattr_set(const struct lu_env *env, struct dt_object *dt,
 }
 
 /**
- * Implement OSP layer dt_object_operations::do_declare_xattr_set() interface.
- *
- * Declare that the caller will set extended attribute to the specified
- * MDT/OST object.
- *
- * If it is non-remote transaction, it will add an OUT_XATTR_SET sub-request
- * to the OUT RPC that will be flushed when the transaction start. And if the
- * OSP attributes cache is initialized, then check whether the name extended
- * attribute entry exists in the cache or not. If yes, replace it; otherwise,
- * add the extended attribute to the cache.
- *
- * \param[in] env	pointer to the thread context
- * \param[in] dt	pointer to the OSP layer dt_object
- * \param[in] buf	pointer to the lu_buf to hold the extended attribute
- * \param[in] name	the name of the extended attribute to be set
- * \param[in] flag	to indicate the detailed set operation: LU_XATTR_CREATE
- *			or LU_XATTR_REPLACE or others
- * \param[in] th	pointer to the transaction handler
- *
- * \retval		0 for success
- * \retval		negative error number on failure
- */
-int osp_declare_xattr_set(const struct lu_env *env, struct dt_object *dt,
-			  const struct lu_buf *buf, const char *name,
-			  int flag, struct thandle *th)
-{
-	int rc = 0;
-
-	if (!is_only_remote_trans(th)) {
-		rc = __osp_xattr_set(env, dt, buf, name, flag, th);
-
-		CDEBUG(D_INFO, "declare xattr %s set object "DFID": rc = %d\n",
-		       name, PFID(&dt->do_lu.lo_header->loh_fid), rc);
-	}
-
-	return rc;
-}
-
-/**
- * Implement OSP layer dt_object_operations::do_xattr_set() interface.
- *
- * Set extended attribute to the specified MDT/OST object.
- *
- * If it is remote transaction, it will add an OUT_XATTR_SET sub-request into
- * the OUT RPC that will be flushed when the transaction stop. And if the OSP
- * attributes cache is initialized, then check whether the name extended
- * attribute entry exists in the cache or not. If yes, replace it; otherwise,
- * add the extended attribute to the cache.
- *
- * \param[in] env	pointer to the thread context
- * \param[in] dt	pointer to the OSP layer dt_object
- * \param[in] buf	pointer to the lu_buf to hold the extended attribute
- * \param[in] name	the name of the extended attribute to be set
- * \param[in] fl	to indicate the detailed set operation: LU_XATTR_CREATE
- *			or LU_XATTR_REPLACE or others
- * \param[in] th	pointer to the transaction handler
- * \param[in] capa	the capability for this operation
- *
- * \retval		0 for success
- * \retval		negative error number on failure
- */
-int osp_xattr_set(const struct lu_env *env, struct dt_object *dt,
-		  const struct lu_buf *buf, const char *name, int fl,
-		  struct thandle *th, struct lustre_capa *capa)
-{
-	int rc = 0;
-
-	if (is_only_remote_trans(th)) {
-		rc = __osp_xattr_set(env, dt, buf, name, fl, th);
-
-		CDEBUG(D_INFO, "xattr %s set object "DFID": rc = %d\n",
-		       name, PFID(&dt->do_lu.lo_header->loh_fid), rc);
-	}
-
-	return rc;
-}
-
-static int __osp_xattr_del(const struct lu_env *env, struct dt_object *dt,
-			   const char *name, struct thandle *th)
-{
-	struct dt_update_request *update;
-	const struct lu_fid	 *fid;
-	struct osp_object	 *o	= dt2osp_obj(dt);
-	struct osp_xattr_entry	 *oxe;
-	int			  rc;
-
-	update = dt_update_request_find_or_create(th, dt);
-	if (IS_ERR(update))
-		return PTR_ERR(update);
-
-	fid = lu_object_fid(&dt->do_lu);
-
-	rc = out_xattr_del_pack(env, &update->dur_buf, fid, name,
-				update->dur_batchid);
-
-	if (rc != 0 || o->opo_ooa == NULL)
-		return rc;
-
-	oxe = osp_oac_xattr_find(o, name, true);
-	if (oxe != NULL)
-		/* Drop the ref for entry on list. */
-		osp_oac_xattr_put(oxe);
-
-	return 0;
-}
-
-/**
  * Implement OSP layer dt_object_operations::do_declare_xattr_del() interface.
  *
  * Declare that the caller will delete extended attribute on the specified
@@ -1318,16 +1266,7 @@ static int __osp_xattr_del(const struct lu_env *env, struct dt_object *dt,
 int osp_declare_xattr_del(const struct lu_env *env, struct dt_object *dt,
 			  const char *name, struct thandle *th)
 {
-	int rc = 0;
-
-	if (!is_only_remote_trans(th)) {
-		rc = __osp_xattr_del(env, dt, name, th);
-
-		CDEBUG(D_INFO, "declare xattr %s del object "DFID": rc = %d\n",
-		       name, PFID(&dt->do_lu.lo_header->loh_fid), rc);
-	}
-
-	return rc;
+	return osp_trans_update_request_create(th);
 }
 
 /**
@@ -1353,16 +1292,30 @@ int osp_xattr_del(const struct lu_env *env, struct dt_object *dt,
 		  const char *name, struct thandle *th,
 		  struct lustre_capa *capa)
 {
-	int rc = 0;
+	struct osp_update_request *update;
+	const struct lu_fid	 *fid = lu_object_fid(&dt->do_lu);
+	struct osp_object	 *o	= dt2osp_obj(dt);
+	struct osp_xattr_entry	 *oxe;
+	int			  rc;
 
-	if (is_only_remote_trans(th)) {
-		rc = __osp_xattr_del(env, dt, name, th);
+	update = thandle_to_osp_update_request(th);
+	LASSERT(update != NULL);
 
-		CDEBUG(D_INFO, "xattr %s del object "DFID": rc = %d\n",
-		       name, PFID(&dt->do_lu.lo_header->loh_fid), rc);
-	}
+	osp_update_rpc_pack(env, xattr_del, rc, update,
+			    OUT_XATTR_DEL, fid, name);
+	if (rc != 0)
+		return rc;
 
-	return rc;
+	rc = osp_insert_update_callback(env, update, o, NULL, NULL);
+	if (rc != 0 || o->opo_ooa == NULL)
+		return rc;
+
+	oxe = osp_oac_xattr_find(o, name, true);
+	if (oxe != NULL)
+		/* Drop the ref for entry on list. */
+		osp_oac_xattr_put(oxe);
+
+	return 0;
 }
 
 /**
@@ -1434,7 +1387,8 @@ static int osp_declare_object_create(const struct lu_env *env,
 		osi->osi_lb.lb_len = sizeof(osi->osi_id);
 		osi->osi_lb.lb_buf = NULL;
 		rc = dt_declare_record_write(env, d->opd_last_used_oid_file,
-					     &osi->osi_lb, osi->osi_off, th);
+					     &osi->osi_lb, osi->osi_off,
+					     th->th_storage_th);
 		RETURN(rc);
 	}
 
@@ -1459,7 +1413,8 @@ static int osp_declare_object_create(const struct lu_env *env,
 		osi->osi_lb.lb_len = sizeof(osi->osi_id);
 		osi->osi_lb.lb_buf = NULL;
 		rc = dt_declare_record_write(env, d->opd_last_used_oid_file,
-					     &osi->osi_lb, osi->osi_off, th);
+					     &osi->osi_lb, osi->osi_off,
+					     th->th_storage_th);
 	} else {
 		/* not needed in the cache anymore */
 		set_bit(LU_OBJECT_HEARD_BANSHEE,
@@ -1575,7 +1530,7 @@ static int osp_object_create(const struct lu_env *env, struct dt_object *dt,
 			   &d->opd_last_used_fid.f_oid, d->opd_index);
 
 	rc = dt_record_write(env, d->opd_last_used_oid_file, &osi->osi_lb,
-			     &osi->osi_off, th);
+			     &osi->osi_off, th->th_storage_th);
 
 	CDEBUG(D_HA, "%s: Wrote last used FID: "DFID", index %d: %d\n",
 	       d->opd_obd->obd_name, PFID(fid), d->opd_index, rc);
@@ -1602,15 +1557,16 @@ int osp_declare_object_destroy(const struct lu_env *env,
 			       struct dt_object *dt, struct thandle *th)
 {
 	struct osp_object	*o = dt2osp_obj(dt);
+	struct osp_device	*osp = lu2osp_dev(dt->do_lu.lo_dev);
 	int			 rc = 0;
 
 	ENTRY;
 
-	/*
-	 * track objects to be destroyed via llog
-	 */
-	rc = osp_sync_declare_add(env, o, MDS_UNLINK64_REC, th);
-
+	if (!osp->opd_connect_mdt)
+		rc = osp_sync_declare_add(env, o, MDS_UNLINK64_REC, th);
+	else
+		rc = osp_trans_update_request_create(th);
+	
 	RETURN(rc);
 }
 
@@ -1635,16 +1591,32 @@ int osp_object_destroy(const struct lu_env *env, struct dt_object *dt,
 		       struct thandle *th)
 {
 	struct osp_object	*o = dt2osp_obj(dt);
+	struct osp_device	*osp = lu2osp_dev(dt->do_lu.lo_dev);
 	int			 rc = 0;
 
 	ENTRY;
 
 	o->opo_non_exist = 1;
-	/*
-	 * once transaction is committed put proper command on
-	 * the queue going to our OST
-	 */
-	rc = osp_sync_add(env, o, MDS_UNLINK64_REC, th, NULL);
+	if (!osp->opd_connect_mdt) {
+		/* once transaction is committed put proper command on
+		 * the queue going to our OST. */
+		rc = osp_sync_add(env, o, MDS_UNLINK64_REC, th, NULL);
+	} else {
+		struct osp_update_request	*update;
+
+		update = thandle_to_osp_update_request(th);
+		LASSERT(update != NULL);
+
+		osp_update_rpc_pack(env, object_destroy, rc, update,
+				    OUT_DESTROY, lu_object_fid(&dt->do_lu),
+				    0, NULL);
+		if (rc != 0)
+			RETURN(rc);
+
+		rc = osp_insert_update_callback(env, update, o, NULL, NULL);
+		if (rc != 0)
+			RETURN(rc);
+	}
 
 	/* not needed in cache any more */
 	set_bit(LU_OBJECT_HEARD_BANSHEE, &dt->do_lu.lo_header->loh_flags);
@@ -1829,15 +1801,18 @@ static int osp_it_fetch(const struct lu_env *env, struct osp_it *it)
 
 	ptlrpc_at_set_req_timeout(req);
 
-	desc = ptlrpc_prep_bulk_imp(req, npages, 1, BULK_PUT_SINK,
-				    MDS_BULK_PORTAL);
+	desc = ptlrpc_prep_bulk_imp(req, npages, 1,
+				    BULK_PUT_SINK | BULK_BUF_KIOV,
+				    MDS_BULK_PORTAL,
+				    &ptlrpc_bulk_kiov_pin_ops);
 	if (desc == NULL) {
 		ptlrpc_request_free(req);
 		RETURN(-ENOMEM);
 	}
 
 	for (i = 0; i < npages; i++)
-		ptlrpc_prep_bulk_page_pin(desc, pages[i], 0, PAGE_CACHE_SIZE);
+		desc->bd_frag_ops->add_kiov_frag(desc, pages[i], 0,
+						 PAGE_CACHE_SIZE);
 
 	ptlrpc_request_set_replen(req);
 	rc = ptlrpc_queue_wait(req);

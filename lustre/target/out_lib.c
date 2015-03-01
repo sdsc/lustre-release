@@ -32,388 +32,125 @@
 #define DEBUG_SUBSYSTEM S_CLASS
 
 #include <lu_target.h>
+#include <md_object.h>
 #include <lustre_update.h>
 #include <obd.h>
 #include <obd_class.h>
+#include "tgt_internal.h"
 
 #define OUT_UPDATE_BUFFER_SIZE_ADD	4096
 #define OUT_UPDATE_BUFFER_SIZE_MAX	(256 * 4096)  /* 1MB update size now */
 
-struct dt_update_request*
-out_find_update(struct thandle_update *tu, struct dt_device *dt_dev)
+const char *update_op_str(__u16 opc)
 {
-	struct dt_update_request   *dt_update;
+	static const char *opc_str[] = {
+		[OUT_START] = "start",
+		[OUT_CREATE] = "create",
+		[OUT_DESTROY] = "destroy", 
+		[OUT_REF_ADD] = "ref_add",
+		[OUT_REF_DEL] = "ref_del" ,
+		[OUT_ATTR_SET] = "attr_set",
+		[OUT_ATTR_GET] = "attr_get",
+		[OUT_XATTR_SET] = "xattr_set",
+		[OUT_XATTR_GET] = "xattr_get",
+		[OUT_INDEX_LOOKUP] = "lookup",
+		[OUT_INDEX_INSERT] = "insert",
+		[OUT_INDEX_DELETE] = "delete",
+		[OUT_WRITE] = "write",
+		[OUT_XATTR_DEL]	= "xattr_del",
+		[OUT_PUNCH] = "punch",
+		[OUT_READ] = "read",
+	};
 
-	list_for_each_entry(dt_update, &tu->tu_remote_update_list,
-			    dur_list) {
-		if (dt_update->dur_dt == dt_dev)
-			return dt_update;
-	}
-	return NULL;
+	if (opc < ARRAY_SIZE(opc_str) && opc_str[opc] != NULL)
+		return opc_str[opc];
+	else
+		return "unknown";
 }
-EXPORT_SYMBOL(out_find_update);
-
-static struct object_update_request *object_update_request_alloc(size_t size)
-{
-	struct object_update_request *ourq;
-
-	OBD_ALLOC_LARGE(ourq, size);
-	if (ourq == NULL)
-		RETURN(ERR_PTR(-ENOMEM));
-
-	ourq->ourq_magic = UPDATE_REQUEST_MAGIC;
-	ourq->ourq_count = 0;
-
-	RETURN(ourq);
-}
-
-static void object_update_request_free(struct object_update_request *ourq,
-				       size_t ourq_size)
-{
-	if (ourq != NULL)
-		OBD_FREE_LARGE(ourq, ourq_size);
-}
-
-void dt_update_request_destroy(struct dt_update_request *dt_update)
-{
-	if (dt_update == NULL)
-		return;
-
-	list_del(&dt_update->dur_list);
-
-	object_update_request_free(dt_update->dur_buf.ub_req,
-				   dt_update->dur_buf.ub_req_size);
-	OBD_FREE_PTR(dt_update);
-}
-EXPORT_SYMBOL(dt_update_request_destroy);
+EXPORT_SYMBOL(update_op_str);
 
 /**
- * Allocate and initialize dt_update_request
+ * Fill object update header
  *
- * dt_update_request is being used to track updates being executed on
- * this dt_device(OSD or OSP). The update buffer will be 8k initially,
- * and increased if needed.
+ * Only fill the object update header, and parameters will be filled later
+ * in other functions.
  *
- * \param [in] dt	dt device
+ * \params[in] env		execution environment
+ * \params[in] update		object update to be filled
+ * \params[in] max_update_size	maximum object update size, if the current
+ *                              update length equals or exceeds the size, it
+ *                              will return -E2BIG.
+ * \params[in] update_op	update type
+ * \params[in] fid		object FID of the update
+ * \params[in] params_count	the count of the update parameters
+ * \params[in] params_sizes	the length of each parameters
  *
- * \retval		dt_update_request being allocated if succeed
- * \retval		ERR_PTR(errno) if failed
+ * \retval			0 if packing succeeds.
+ * \retval			-E2BIG if packing exceeds the maximum length.
  */
-struct dt_update_request *dt_update_request_create(struct dt_device *dt)
+int out_update_header_pack(const struct lu_env *env,
+			   struct object_update *update,
+			   size_t *max_update_size,
+			   enum update_type update_op,
+			   const struct lu_fid *fid,
+			   int params_count, __u16 *params_sizes)
 {
-	struct dt_update_request *dt_update;
-	struct object_update_request *ourq;
-
-	OBD_ALLOC_PTR(dt_update);
-	if (!dt_update)
-		return ERR_PTR(-ENOMEM);
-
-	ourq = object_update_request_alloc(OUT_UPDATE_INIT_BUFFER_SIZE);
-	if (IS_ERR(ourq)) {
-		OBD_FREE_PTR(dt_update);
-		return ERR_CAST(ourq);
-	}
-
-	dt_update->dur_buf.ub_req = ourq;
-	dt_update->dur_buf.ub_req_size = OUT_UPDATE_INIT_BUFFER_SIZE;
-
-	INIT_LIST_HEAD(&dt_update->dur_list);
-	dt_update->dur_dt = dt;
-	dt_update->dur_batchid = 0;
-	INIT_LIST_HEAD(&dt_update->dur_cb_items);
-
-	return dt_update;
-}
-EXPORT_SYMBOL(dt_update_request_create);
-
-/**
- * Find or create dt_update_request.
- *
- * Find or create one loc in th_dev/dev_obj_update for the update,
- * Because only one thread can access this thandle, no need
- * lock now.
- *
- * \param[in] th	transaction handle
- * \param[in] dt	lookup update request by dt_object
- *
- * \retval		pointer of dt_update_request if it can be created
- *                      or found.
- * \retval		ERR_PTR(errno) if it can not be created or found.
- */
-struct dt_update_request *
-dt_update_request_find_or_create(struct thandle *th, struct dt_object *dt)
-{
-	struct dt_device	*dt_dev = lu2dt_dev(dt->do_lu.lo_dev);
-	struct thandle_update	*tu = th->th_update;
-	struct dt_update_request *update;
-	ENTRY;
-
-	if (tu == NULL) {
-		OBD_ALLOC_PTR(tu);
-		if (tu == NULL)
-			RETURN(ERR_PTR(-ENOMEM));
-
-		INIT_LIST_HEAD(&tu->tu_remote_update_list);
-		tu->tu_sent_after_local_trans = 0;
-		th->th_update = tu;
-	}
-
-	update = out_find_update(tu, dt_dev);
-	if (update != NULL)
-		RETURN(update);
-
-	update = dt_update_request_create(dt_dev);
-	if (IS_ERR(update))
-		RETURN(update);
-
-	list_add_tail(&update->dur_list, &tu->tu_remote_update_list);
-
-	if (!tu->tu_only_remote_trans)
-		thandle_get(th);
-
-	RETURN(update);
-}
-EXPORT_SYMBOL(dt_update_request_find_or_create);
-
-/**
- * Prepare update request.
- *
- * Prepare OUT update ptlrpc request, and the request usually includes
- * all of updates (stored in \param ureq) from one operation.
- *
- * \param[in] env	execution environment
- * \param[in] imp	import on which ptlrpc request will be sent
- * \param[in] ureq	hold all of updates which will be packed into the req
- * \param[in] reqp	request to be created
- *
- * \retval		0 if preparation succeeds.
- * \retval		negative errno if preparation fails.
- */
-int out_prep_update_req(const struct lu_env *env, struct obd_import *imp,
-			const struct object_update_request *ureq,
-			struct ptlrpc_request **reqp)
-{
-	struct ptlrpc_request		*req;
-	struct object_update_request	*tmp;
-	int				ureq_len;
-	int				rc;
-	ENTRY;
-
-	req = ptlrpc_request_alloc(imp, &RQF_OUT_UPDATE);
-	if (req == NULL)
-		RETURN(-ENOMEM);
-
-	ureq_len = object_update_request_size(ureq);
-	req_capsule_set_size(&req->rq_pill, &RMF_OUT_UPDATE, RCL_CLIENT,
-			     ureq_len);
-
-	rc = ptlrpc_request_pack(req, LUSTRE_MDS_VERSION, OUT_UPDATE);
-	if (rc != 0) {
-		ptlrpc_req_finished(req);
-		RETURN(rc);
-	}
-
-	req_capsule_set_size(&req->rq_pill, &RMF_OUT_UPDATE_REPLY,
-			     RCL_SERVER, OUT_UPDATE_REPLY_SIZE);
-
-	tmp = req_capsule_client_get(&req->rq_pill, &RMF_OUT_UPDATE);
-	memcpy(tmp, ureq, ureq_len);
-
-	ptlrpc_request_set_replen(req);
-	req->rq_request_portal = OUT_PORTAL;
-	req->rq_reply_portal = OSC_REPLY_PORTAL;
-	*reqp = req;
-
-	RETURN(rc);
-}
-EXPORT_SYMBOL(out_prep_update_req);
-
-/**
- * Send update RPC.
- *
- * Send update request to the remote MDT synchronously.
- *
- * \param[in] env	execution environment
- * \param[in] imp	import on which ptlrpc request will be sent
- * \param[in] dt_update	hold all of updates which will be packed into the req
- * \param[in] reqp	request to be created
- *
- * \retval		0 if RPC succeeds.
- * \retval		negative errno if RPC fails.
- */
-int out_remote_sync(const struct lu_env *env, struct obd_import *imp,
-		    struct dt_update_request *dt_update,
-		    struct ptlrpc_request **reqp)
-{
-	struct ptlrpc_request	*req = NULL;
-	int			rc;
-	ENTRY;
-
-	rc = out_prep_update_req(env, imp, dt_update->dur_buf.ub_req, &req);
-	if (rc != 0)
-		RETURN(rc);
-
-	/* Note: some dt index api might return non-zero result here, like
-	 * osd_index_ea_lookup, so we should only check rc < 0 here */
-	rc = ptlrpc_queue_wait(req);
-	if (rc < 0) {
-		ptlrpc_req_finished(req);
-		dt_update->dur_rc = rc;
-		RETURN(rc);
-	}
-
-	if (reqp != NULL) {
-		*reqp = req;
-		RETURN(rc);
-	}
-
-	dt_update->dur_rc = rc;
-
-	ptlrpc_req_finished(req);
-
-	RETURN(rc);
-}
-EXPORT_SYMBOL(out_remote_sync);
-
-/**
- * resize update buffer
- *
- * Extend the update buffer by new_size.
- *
- * \param[in] ubuf	update buffer to be extended
- * \param[in] new_size  new size of the update buffer
- *
- * \retval		0 if extending succeeds.
- * \retval		negative errno if extending fails.
- */
-static int update_buffer_resize(struct update_buffer *ubuf, size_t new_size)
-{
-	struct object_update_request *ureq;
-
-	if (new_size > ubuf->ub_req_size)
-		return 0;
-
-	OBD_ALLOC_LARGE(ureq, new_size);
-	if (ureq == NULL)
-		return -ENOMEM;
-
-	memcpy(ureq, ubuf->ub_req, ubuf->ub_req_size);
-
-	OBD_FREE_LARGE(ubuf->ub_req, ubuf->ub_req_size);
-
-	ubuf->ub_req = ureq;
-	ubuf->ub_req_size = new_size;
-
-	return 0;
-}
-
-/**
- * Pack the header of object_update_request
- *
- * Packs updates into the update_buffer header, which will either be sent to
- * the remote MDT or stored in the local update log. The maximum update buffer
- * size is 1MB for now.
- *
- * \param[in] env	execution environment
- * \param[in] ubuf	update bufer which it will pack the update in
- * \param[in] op	update operation
- * \param[in] fid	object FID for this update
- * \param[in] param_count	parameters count for this update
- * \param[in] lens	each parameters length of this update
- * \param[in] batchid	batchid(transaction no) of this update
- *
- * \retval		0 pack update succeed.
- *                      negative errno pack update failed.
- **/
-static struct object_update*
-out_update_header_pack(const struct lu_env *env, struct update_buffer *ubuf,
-		       enum update_type op, const struct lu_fid *fid,
-		       int params_count, __u16 *param_sizes, __u64 batchid)
-{
-	struct object_update_request	*ureq = ubuf->ub_req;
-	size_t				ureq_size = ubuf->ub_req_size;
-	struct object_update		*obj_update;
 	struct object_update_param	*param;
-	size_t				update_size;
-	int				rc = 0;
 	unsigned int			i;
-	ENTRY;
+	size_t				update_size;
 
-	/* Check update size to make sure it can fit into the buffer */
-	ureq_size = object_update_request_size(ureq);
-	update_size = offsetof(struct object_update, ou_params[0]);
+	/* Check whether the packing exceeding the maxima update length */
+	update_size = sizeof(*update);
 	for (i = 0; i < params_count; i++)
-		update_size += cfs_size_round(param_sizes[i] + sizeof(*param));
+		update_size += cfs_size_round(sizeof(*param) + params_sizes[i]);
 
-	if (unlikely(cfs_size_round(ureq_size + update_size) >
-		     ubuf->ub_req_size)) {
-		size_t new_size = ubuf->ub_req_size;
-
-		/* enlarge object update request size */
-		while (new_size <
-		       cfs_size_round(ureq_size + update_size))
-			new_size += OUT_UPDATE_BUFFER_SIZE_ADD;
-		if (new_size >= OUT_UPDATE_BUFFER_SIZE_MAX)
-			RETURN(ERR_PTR(-E2BIG));
-
-		rc = update_buffer_resize(ubuf, new_size);
-		if (rc < 0)
-			RETURN(ERR_PTR(rc));
-
-		ureq = ubuf->ub_req;
+	if (unlikely(update_size >= *max_update_size)) {
+		*max_update_size = update_size;
+		return -E2BIG;
 	}
 
-	/* fill the update into the update buffer */
-	obj_update = (struct object_update *)((char *)ureq + ureq_size);
-	obj_update->ou_fid = *fid;
-	obj_update->ou_type = op;
-	obj_update->ou_params_count = (__u16)params_count;
-	obj_update->ou_batchid = batchid;
-	param = &obj_update->ou_params[0];
+	update->ou_fid = *fid;
+	update->ou_type = update_op;
+	update->ou_params_count = params_count;
+	param = &update->ou_params[0];
 	for (i = 0; i < params_count; i++) {
-		param->oup_len = param_sizes[i];
+		param->oup_len = params_sizes[i];
 		param = (struct object_update_param *)((char *)param +
 			 object_update_param_size(param));
 	}
-	ureq->ourq_count++;
 
-	CDEBUG(D_INFO, "%p "DFID" idx %u: op %d params %d:%d\n",
-	       ureq, PFID(fid), ureq->ourq_count, op, params_count,
-	       (int)update_size);
-
-	RETURN(obj_update);
+	return 0;
 }
 
 /**
  * Packs one update into the update_buffer.
  *
  * \param[in] env	execution environment
- * \param[in] ubuf	bufer where update will be packed
+ * \param[in] update	update to be packed
+ * \param[in] max_update_length	maxima length of \a update
  * \param[in] op	update operation (enum update_type)
  * \param[in] fid	object FID for this update
  * \param[in] param_count	number of parameters for this update
  * \param[in] param_sizes	array of parameters length of this update
  * \param[in] param_bufs	parameter buffers
- * \param[in] batchid	transaction no of this update, plus mdt_index, which
- *                      will be globally unique
  *
  * \retval		= 0 if updates packing succeeds
  * \retval		negative errno if updates packing fails
  **/
-int out_update_pack(const struct lu_env *env, struct update_buffer *ubuf,
-		    enum update_type op, const struct lu_fid *fid,
-		    int params_count, __u16 *param_sizes,
-		    const void **param_bufs, __u64 batchid)
+int out_update_pack(const struct lu_env *env, struct object_update *update,
+		    size_t *max_update_size, enum update_type op,
+		    const struct lu_fid *fid, int params_count,
+		    __u16 *param_sizes, const void **param_bufs)
 {
-	struct object_update		*update;
 	struct object_update_param	*param;
 	unsigned int			i;
+	int				rc;
 	ENTRY;
 
-	update = out_update_header_pack(env, ubuf, op, fid, params_count,
-					param_sizes, batchid);
-	if (IS_ERR(update))
-		RETURN(PTR_ERR(update));
+	rc = out_update_header_pack(env, update, max_update_size, op, fid,
+				    params_count, param_sizes);
+	if (rc != 0)
+		RETURN(rc);
 
 	param = &update->ou_params[0];
 	for (i = 0; i < params_count; i++) {
@@ -437,77 +174,78 @@ EXPORT_SYMBOL(out_update_pack);
  * \param[in] env	execution environment
  * \param[in] ubuf	update buffer
  * \param[in] fid	fid of this object for the update
- * \param[in] batchid	batch id of this update
  *
  * \retval		0 if insertion succeeds.
  * \retval		negative errno if insertion fails.
  */
-int out_create_pack(const struct lu_env *env, struct update_buffer *ubuf,
-		    const struct lu_fid *fid, struct lu_attr *attr,
-		    struct dt_allocation_hint *hint,
-		    struct dt_object_format *dof, __u64 batchid)
+int out_create_pack(const struct lu_env *env, struct object_update *update,
+		    size_t *max_update_size, const struct lu_fid *fid,
+		    const struct lu_attr *attr, struct dt_allocation_hint *hint,
+		    struct dt_object_format *dof)
 {
 	struct obdo		*obdo;
 	__u16			sizes[2] = {sizeof(*obdo), 0};
 	int			buf_count = 1;
-	const struct lu_fid	*fid1 = NULL;
-	struct object_update	*update;
+	const struct lu_fid	*parent_fid = NULL;
+	int			rc;
 	ENTRY;
 
 	if (hint != NULL && hint->dah_parent) {
-		fid1 = lu_object_fid(&hint->dah_parent->do_lu);
-		sizes[1] = sizeof(*fid1);
+		parent_fid = lu_object_fid(&hint->dah_parent->do_lu);
+		sizes[1] = sizeof(*parent_fid);
 		buf_count++;
 	}
 
-	update = out_update_header_pack(env, ubuf, OUT_CREATE, fid,
-					buf_count, sizes, batchid);
-	if (IS_ERR(update))
-		RETURN(PTR_ERR(update));
+	rc = out_update_header_pack(env, update, max_update_size, OUT_CREATE,
+				    fid, buf_count, sizes);
+	if (rc != 0)
+		RETURN(rc);
 
 	obdo = object_update_param_get(update, 0, NULL);
 	obdo->o_valid = 0;
 	obdo_from_la(obdo, attr, attr->la_valid);
 	lustre_set_wire_obdo(NULL, obdo, obdo);
-	if (fid1 != NULL) {
+
+	if (parent_fid != NULL) {
 		struct lu_fid *fid;
+
 		fid = object_update_param_get(update, 1, NULL);
-		fid_cpu_to_le(fid, fid1);
+		fid_cpu_to_le(fid, parent_fid);
 	}
 
 	RETURN(0);
 }
 EXPORT_SYMBOL(out_create_pack);
 
-int out_ref_del_pack(const struct lu_env *env, struct update_buffer *ubuf,
-		     const struct lu_fid *fid, __u64 batchid)
+int out_ref_del_pack(const struct lu_env *env, struct object_update *update,
+		     size_t *max_update_length, const struct lu_fid *fid)
 {
-	return out_update_pack(env, ubuf, OUT_REF_DEL, fid, 0, NULL, NULL,
-			       batchid);
+	return out_update_pack(env, update, max_update_length, OUT_REF_DEL, fid,
+			       0, NULL, NULL);
 }
 EXPORT_SYMBOL(out_ref_del_pack);
 
-int out_ref_add_pack(const struct lu_env *env, struct update_buffer *ubuf,
-		     const struct lu_fid *fid, __u64 batchid)
+int out_ref_add_pack(const struct lu_env *env, struct object_update *update,
+		     size_t *max_update_length, const struct lu_fid *fid)
 {
-	return out_update_pack(env, ubuf, OUT_REF_ADD, fid, 0, NULL, NULL,
-			       batchid);
+	return out_update_pack(env, update, max_update_length, OUT_REF_ADD, fid,
+			       0, NULL, NULL);
 }
 EXPORT_SYMBOL(out_ref_add_pack);
 
-int out_attr_set_pack(const struct lu_env *env, struct update_buffer *ubuf,
-		      const struct lu_fid *fid, const struct lu_attr *attr,
-		      __u64 batchid)
+int out_attr_set_pack(const struct lu_env *env, struct object_update *update,
+		      size_t *max_update_length, const struct lu_fid *fid,
+		      const struct lu_attr *attr)
 {
-	struct object_update	*update;
 	struct obdo		*obdo;
 	__u16			size = sizeof(*obdo);
+	int			rc;
 	ENTRY;
 
-	update = out_update_header_pack(env, ubuf, OUT_ATTR_SET, fid, 1,
-					&size, batchid);
-	if (IS_ERR(update))
-		RETURN(PTR_ERR(update));
+	rc = out_update_header_pack(env, update, max_update_length,
+				    OUT_ATTR_SET, fid, 1, &size);
+	if (rc != 0)
+		RETURN(rc);
 
 	obdo = object_update_param_get(update, 0, NULL);
 	obdo->o_valid = 0;
@@ -518,34 +256,34 @@ int out_attr_set_pack(const struct lu_env *env, struct update_buffer *ubuf,
 }
 EXPORT_SYMBOL(out_attr_set_pack);
 
-int out_xattr_set_pack(const struct lu_env *env, struct update_buffer *ubuf,
-		       const struct lu_fid *fid, const struct lu_buf *buf,
-		       const char *name, int flag, __u64 batchid)
+int out_xattr_set_pack(const struct lu_env *env, struct object_update *update,
+		       size_t *max_update_length, const struct lu_fid *fid,
+		       const struct lu_buf *buf, const char *name, int flag)
 {
 	__u16	sizes[3] = {strlen(name) + 1, buf->lb_len, sizeof(flag)};
 	const void *bufs[3] = {(char *)name, (char *)buf->lb_buf,
 			       (char *)&flag};
 
-	return out_update_pack(env, ubuf, OUT_XATTR_SET, fid,
-			       ARRAY_SIZE(sizes), sizes, bufs, batchid);
+	return out_update_pack(env, update, max_update_length, OUT_XATTR_SET,
+			       fid, ARRAY_SIZE(sizes), sizes, bufs);
 }
 EXPORT_SYMBOL(out_xattr_set_pack);
 
-int out_xattr_del_pack(const struct lu_env *env, struct update_buffer *ubuf,
-		       const struct lu_fid *fid, const char *name,
-		       __u64 batchid)
+int out_xattr_del_pack(const struct lu_env *env, struct object_update *update,
+		       size_t *max_update_length, const struct lu_fid *fid,
+		       const char *name)
 {
 	__u16	size = strlen(name) + 1;
 
-	return out_update_pack(env, ubuf, OUT_XATTR_DEL, fid, 1, &size,
-			       (const void **)&name, batchid);
+	return out_update_pack(env, update, max_update_length, OUT_XATTR_DEL,
+			       fid, 1, &size, (const void **)&name);
 }
 EXPORT_SYMBOL(out_xattr_del_pack);
 
-
-int out_index_insert_pack(const struct lu_env *env, struct update_buffer *ubuf,
-			  const struct lu_fid *fid, const struct dt_rec *rec,
-			  const struct dt_key *key, __u64 batchid)
+int out_index_insert_pack(const struct lu_env *env,
+			  struct object_update *update,
+			  size_t *max_update_length, const struct lu_fid *fid,
+			  const struct dt_rec *rec, const struct dt_key *key)
 {
 	struct dt_insert_rec	   *rec1 = (struct dt_insert_rec *)rec;
 	struct lu_fid		   rec_fid;
@@ -559,35 +297,37 @@ int out_index_insert_pack(const struct lu_env *env, struct update_buffer *ubuf,
 
 	fid_cpu_to_le(&rec_fid, rec1->rec_fid);
 
-	return out_update_pack(env, ubuf, OUT_INDEX_INSERT, fid,
-			       ARRAY_SIZE(sizes), sizes, bufs, batchid);
+	return out_update_pack(env, update, max_update_length, OUT_INDEX_INSERT,
+			       fid, ARRAY_SIZE(sizes), sizes, bufs);
 }
 EXPORT_SYMBOL(out_index_insert_pack);
 
-int out_index_delete_pack(const struct lu_env *env, struct update_buffer *ubuf,
-			  const struct lu_fid *fid, const struct dt_key *key,
-			  __u64 batchid)
+int out_index_delete_pack(const struct lu_env *env,
+			  struct object_update *update,
+			  size_t *max_update_length, const struct lu_fid *fid,
+			  const struct dt_key *key)
 {
 	__u16	size = strlen((char *)key) + 1;
 	const void *buf = key;
 
-	return out_update_pack(env, ubuf, OUT_INDEX_DELETE, fid, 1, &size,
-			       &buf, batchid);
+	return out_update_pack(env, update, max_update_length, OUT_INDEX_DELETE,
+			       fid, 1, &size, &buf);
 }
 EXPORT_SYMBOL(out_index_delete_pack);
 
 int out_object_destroy_pack(const struct lu_env *env,
-			    struct update_buffer *ubuf,
-			    const struct lu_fid *fid, __u64 batchid)
+			    struct object_update *update,
+			    size_t *max_update_length, const struct lu_fid *fid,
+			    __u16 cookie_size, const void *cookie)
 {
-	return out_update_pack(env, ubuf, OUT_DESTROY, fid, 0, NULL, NULL,
-			       batchid);
+	return out_update_pack(env, update, max_update_length, OUT_DESTROY, fid,
+			       1, &cookie_size, &cookie);
 }
 EXPORT_SYMBOL(out_object_destroy_pack);
 
-int out_write_pack(const struct lu_env *env, struct update_buffer *ubuf,
-		   const struct lu_fid *fid, const struct lu_buf *buf,
-		   loff_t pos, __u64 batchid)
+int out_write_pack(const struct lu_env *env, struct object_update *update,
+		   size_t *max_update_length, const struct lu_fid *fid,
+		   const struct lu_buf *buf, loff_t pos)
 {
 	__u16		sizes[2] = {buf->lb_len, sizeof(pos)};
 	const void	*bufs[2] = {(char *)buf->lb_buf, (char *)&pos};
@@ -595,8 +335,8 @@ int out_write_pack(const struct lu_env *env, struct update_buffer *ubuf,
 
 	pos = cpu_to_le64(pos);
 
-	rc = out_update_pack(env, ubuf, OUT_WRITE, fid, ARRAY_SIZE(sizes),
-			     sizes, bufs, batchid);
+	rc = out_update_pack(env, update, max_update_length, OUT_WRITE, fid,
+			     ARRAY_SIZE(sizes), sizes, bufs);
 	return rc;
 }
 EXPORT_SYMBOL(out_write_pack);
@@ -612,36 +352,851 @@ EXPORT_SYMBOL(out_write_pack);
  * \param[in] fid	fid of this object for the update
  * \param[in] ubuf	update buffer
  *
- * \retval		0 if packing succeeds.
- * \retval		negative errno if packing fails.
- */
-int out_index_lookup_pack(const struct lu_env *env, struct update_buffer *ubuf,
-			  const struct lu_fid *fid, struct dt_rec *rec,
-			  const struct dt_key *key)
+ * \retval		= 0 pack succeed.
+ *                      < 0 pack failed.
+ **/
+int out_index_lookup_pack(const struct lu_env *env,
+			  struct object_update *update,
+			  size_t *max_update_length, const struct lu_fid *fid,
+			  struct dt_rec *rec, const struct dt_key *key)
 {
 	const void	*name = key;
 	__u16		size = strlen((char *)name) + 1;
 
-	return out_update_pack(env, ubuf, OUT_INDEX_LOOKUP, fid, 1, &size,
-			       &name, 0);
+	return out_update_pack(env, update, max_update_length, OUT_INDEX_LOOKUP,
+			       fid, 1, &size, &name);
 }
 EXPORT_SYMBOL(out_index_lookup_pack);
 
-int out_attr_get_pack(const struct lu_env *env, struct update_buffer *ubuf,
-		      const struct lu_fid *fid)
+int out_attr_get_pack(const struct lu_env *env, struct object_update *update,
+		      size_t *max_update_length, const struct lu_fid *fid)
 {
-	return out_update_pack(env, ubuf, OUT_ATTR_GET, fid, 0, NULL, NULL, 0);
+	return out_update_pack(env, update, max_update_length, OUT_ATTR_GET,
+			       fid, 0, NULL, NULL);
 }
 EXPORT_SYMBOL(out_attr_get_pack);
 
-int out_xattr_get_pack(const struct lu_env *env, struct update_buffer *ubuf,
-		       const struct lu_fid *fid, const char *name)
+int out_xattr_get_pack(const struct lu_env *env, struct object_update *update,
+		       size_t *max_update_length, const struct lu_fid *fid,
+		       const char *name)
 {
 	__u16 size;
 
 	LASSERT(name != NULL);
 	size = strlen(name) + 1;
-	return out_update_pack(env, ubuf, OUT_XATTR_GET, fid, 1, &size,
-			       (const void **)&name, 0);
+
+	return out_update_pack(env, update, max_update_length, OUT_XATTR_GET,
+			       fid, 1, &size, (const void **)&name);
 }
 EXPORT_SYMBOL(out_xattr_get_pack);
+
+int out_read_pack(const struct lu_env *env, struct object_update *update,
+		  size_t *max_update_length, const struct lu_fid *fid,
+		  size_t size, __u64 pos)
+{
+	__u16		sizes[2] = {sizeof(size), sizeof(pos)};
+	const void	*bufs[2] = {&size, &pos};
+
+	size = cpu_to_le64(size);
+	pos = cpu_to_le64(pos);
+
+	return out_update_pack(env, update, max_update_length, OUT_READ, fid,
+			       ARRAY_SIZE(sizes), sizes, bufs);
+}
+EXPORT_SYMBOL(out_read_pack);
+
+static int tx_extend_args(struct thandle_exec_args *ta, int new_alloc_ta)
+{
+	struct tx_arg	**new_ta;
+	int		i;
+	int		rc = 0;
+
+	if (ta->ta_alloc_args >= new_alloc_ta)
+		return 0;
+
+	OBD_ALLOC(new_ta, sizeof(*new_ta) * new_alloc_ta);
+	if (new_ta == NULL)
+		return -ENOMEM;
+
+	for (i = 0; i < new_alloc_ta; i++) {
+		if (i < ta->ta_alloc_args) {
+			/* copy the old args to new one */
+			new_ta[i] = ta->ta_args[i];
+		} else {
+			OBD_ALLOC_PTR(new_ta[i]);
+			if (new_ta[i] == NULL)
+				GOTO(out, rc = -ENOMEM);
+		}
+	}
+
+	/* free the old args */
+	if (ta->ta_args != NULL)
+		OBD_FREE(ta->ta_args, sizeof(ta->ta_args[0]) *
+				      ta->ta_alloc_args);
+
+	ta->ta_args = new_ta;
+	ta->ta_alloc_args = new_alloc_ta;
+out:
+	if (rc != 0) {
+		for (i = 0; i < new_alloc_ta; i++) {
+			if (new_ta[i] != NULL)
+				OBD_FREE_PTR(new_ta[i]);
+		}
+		OBD_FREE(new_ta, sizeof(*new_ta) * new_alloc_ta);
+	}
+	return rc;
+}
+
+#define TX_ALLOC_STEP	8
+struct tx_arg *tx_add_exec(struct thandle_exec_args *ta,
+			   tx_exec_func_t func, tx_exec_func_t undo,
+			   const char *file, int line)
+{
+	int rc;
+	int i;
+
+	LASSERT(ta != NULL);
+	LASSERT(func != NULL);
+
+	if (ta->ta_argno + 1 >= ta->ta_alloc_args) {
+		rc = tx_extend_args(ta, ta->ta_alloc_args + TX_ALLOC_STEP);
+		if (rc != 0)
+			return ERR_PTR(rc);
+	}
+
+	i = ta->ta_argno;
+
+	ta->ta_argno++;
+
+	ta->ta_args[i]->exec_fn = func;
+	ta->ta_args[i]->undo_fn = undo;
+	ta->ta_args[i]->file    = file;
+	ta->ta_args[i]->line    = line;
+
+	return ta->ta_args[i];
+}
+
+static int out_obj_destroy(const struct lu_env *env, struct dt_object *dt_obj,
+			   struct thandle *th)
+{
+	int rc;
+
+	CDEBUG(D_INFO, "%s: destroy "DFID"\n", dt_obd_name(th->th_dev),
+	       PFID(lu_object_fid(&dt_obj->do_lu)));
+
+	dt_write_lock(env, dt_obj, MOR_TGT_CHILD);
+	rc = dt_destroy(env, dt_obj, th);
+	dt_write_unlock(env, dt_obj);
+
+	return rc;
+}
+
+/**
+ * All of the xxx_undo will be used once execution failed,
+ * But because all of the required resource has been reserved in
+ * declare phase, i.e. if declare succeed, it should make sure
+ * the following executing phase succeed in anyway, so these undo
+ * should be useless for most of the time in Phase I
+ */
+static int out_tx_create_undo(const struct lu_env *env, struct thandle *th,
+			      struct tx_arg *arg)
+{
+	int rc;
+
+	rc = out_obj_destroy(env, arg->object, th);
+	if (rc != 0)
+		CERROR("%s: undo failure, we are doomed!: rc = %d\n",
+		       dt_obd_name(th->th_dev), rc);
+	return rc;
+}
+
+int out_tx_create_exec(const struct lu_env *env, struct thandle *th,
+		       struct tx_arg *arg)
+{
+	struct dt_object	*dt_obj = arg->object;
+	int			 rc;
+
+	CDEBUG(D_OTHER, "%s: create "DFID": dof %u, mode %o\n",
+	       dt_obd_name(th->th_dev),
+	       PFID(lu_object_fid(&arg->object->do_lu)),
+	       arg->u.create.dof.dof_type,
+	       arg->u.create.attr.la_mode & S_IFMT);
+
+	dt_write_lock(env, dt_obj, MOR_TGT_CHILD);
+	rc = dt_create(env, dt_obj, &arg->u.create.attr,
+		       &arg->u.create.hint, &arg->u.create.dof, th);
+
+	dt_write_unlock(env, dt_obj);
+
+	CDEBUG(D_INFO, "%s: insert create reply %p index %d: rc = %d\n",
+	       dt_obd_name(th->th_dev), arg->reply, arg->index, rc);
+
+	if (arg->reply != NULL)
+		object_update_result_insert(arg->reply, NULL, 0, arg->index,
+					    rc);
+
+	return rc;
+}
+
+/**
+ * Add create update to thandle
+ *
+ * Declare create updates and add the update to the thandle updates
+ * exec array.
+ *
+ * \param [in] env	execution environment
+ * \param [in] obj	object to be created
+ * \param [in] attr	attributes of the creation
+ * \param [in] parent_fid the fid of the parent
+ * \param [in] dof	dt object format of the creation
+ * \param [in] ta	thandle execuation args where all of updates
+ *                      of the transaction are stored
+ * \param [in] th	thandle for this update
+ * \param [in] reply	reply of the updates
+ * \param [in] index	index of the reply
+ * \param [in] file	the file name where the function is called,
+ *                      which is only for debugging purpose.
+ * \param [in] line	the line number where the funtion is called,
+ *                      which is only for debugging purpose.
+ *
+ * \retval		0 if updates is added successfully.
+ * \retval		negative errno if update adding fails.
+ */
+int out_create_add_exec(const struct lu_env *env, struct dt_object *obj,
+			struct lu_attr *attr, struct lu_fid *parent_fid,
+			struct dt_object_format *dof,
+			struct thandle_exec_args *ta,
+			struct thandle	*th,
+			struct object_update_reply *reply,
+			int index, const char *file, int line)
+{
+	struct tx_arg *arg;
+	int rc;
+
+	rc = dt_declare_create(env, obj, attr, NULL, dof, th);
+	if (rc != 0)
+		return rc;
+
+	arg = tx_add_exec(ta, out_tx_create_exec, out_tx_create_undo, file,
+			  line);
+	if (IS_ERR(arg))
+		return PTR_ERR(arg);
+
+	/* release the object in out_trans_stop */
+	lu_object_get(&obj->do_lu);
+	arg->object = obj;
+	arg->u.create.attr = *attr;
+	if (parent_fid != NULL)
+		arg->u.create.fid = *parent_fid;
+	memset(&arg->u.create.hint, 0, sizeof(arg->u.create.hint));
+	arg->u.create.dof  = *dof;
+	arg->reply = reply;
+	arg->index = index;
+
+	return 0;
+}
+
+static int out_tx_attr_set_undo(const struct lu_env *env,
+				struct thandle *th, struct tx_arg *arg)
+{
+	CERROR("%s: attr set undo "DFID" unimplemented yet!: rc = %d\n",
+	       dt_obd_name(th->th_dev),
+	       PFID(lu_object_fid(&arg->object->do_lu)), -ENOTSUPP);
+
+	return -ENOTSUPP;
+}
+
+static int out_tx_attr_set_exec(const struct lu_env *env, struct thandle *th,
+				struct tx_arg *arg)
+{
+	struct dt_object	*dt_obj = arg->object;
+	int			rc;
+
+	CDEBUG(D_OTHER, "%s: attr set "DFID"\n", dt_obd_name(th->th_dev),
+	       PFID(lu_object_fid(&dt_obj->do_lu)));
+
+	dt_write_lock(env, dt_obj, MOR_TGT_CHILD);
+	rc = dt_attr_set(env, dt_obj, &arg->u.attr_set.attr, th, NULL);
+	dt_write_unlock(env, dt_obj);
+
+	CDEBUG(D_INFO, "%s: insert attr_set reply %p index %d: rc = %d\n",
+	       dt_obd_name(th->th_dev), arg->reply, arg->index, rc);
+
+	if (arg->reply != NULL)
+		object_update_result_insert(arg->reply, NULL, 0,
+					    arg->index, rc);
+
+	return rc;
+}
+
+int out_attr_set_add_exec(const struct lu_env *env, struct dt_object *dt_obj,
+			  const struct lu_attr *attr,
+			  struct thandle_exec_args *ta,
+			  struct thandle *th, struct object_update_reply *reply,
+			  int index, const char *file, int line)
+{
+	struct tx_arg	*arg;
+	int		rc;
+
+	rc = dt_declare_attr_set(env, dt_obj, attr, th);
+	if (rc != 0)
+		return rc;
+
+	arg = tx_add_exec(ta, out_tx_attr_set_exec, out_tx_attr_set_undo,
+			  file, line);
+	if (IS_ERR(arg))
+		return PTR_ERR(arg);
+
+	lu_object_get(&dt_obj->do_lu);
+	arg->object = dt_obj;
+	arg->u.attr_set.attr = *attr;
+	arg->reply = reply;
+	arg->index = index;
+	return 0;
+}
+
+static int out_tx_write_exec(const struct lu_env *env, struct thandle *th,
+			     struct tx_arg *arg)
+{
+	struct dt_object *dt_obj = arg->object;
+	int rc;
+
+	CDEBUG(D_INFO, "write "DFID" pos "LPU64" buf %p, len %lu\n",
+	       PFID(lu_object_fid(&dt_obj->do_lu)), arg->u.write.pos,
+	       arg->u.write.buf.lb_buf, (unsigned long)arg->u.write.buf.lb_len);
+
+	dt_write_lock(env, dt_obj, MOR_TGT_CHILD);
+	rc = dt_record_write(env, dt_obj, &arg->u.write.buf,
+			     &arg->u.write.pos, th);
+	dt_write_unlock(env, dt_obj);
+
+	if (rc == 0)
+		rc = arg->u.write.buf.lb_len;
+
+	if (arg->reply != NULL)
+		object_update_result_insert(arg->reply, NULL, 0, arg->index,
+					    rc);
+
+	return rc > 0 ? 0 : rc;
+}
+
+int out_write_add_exec(const struct lu_env *env, struct dt_object *dt_obj,
+		       const struct lu_buf *buf, loff_t pos,
+		       struct thandle_exec_args *ta, struct thandle *th,
+		       struct object_update_reply *reply, int index,
+		       const char *file, int line)
+{
+	struct tx_arg	*arg;
+	int		rc;
+
+	rc = dt_declare_record_write(env, dt_obj, buf, pos, th);
+	if (rc != 0)
+		return rc;
+
+	arg = tx_add_exec(ta, out_tx_write_exec, NULL, file, line);
+	if (IS_ERR(arg))
+		return PTR_ERR(arg);
+
+	lu_object_get(&dt_obj->do_lu);
+	arg->object = dt_obj;
+	arg->u.write.buf = *buf;
+	arg->u.write.pos = pos;
+	arg->reply = reply;
+	arg->index = index;
+	return 0;
+}
+
+static int out_tx_xattr_set_exec(const struct lu_env *env,
+				 struct thandle *th,
+				 struct tx_arg *arg)
+{
+	struct dt_object *dt_obj = arg->object;
+	int rc;
+
+	CDEBUG(D_INFO, "%s: set xattr buf %p name %s flag %d\n",
+	       dt_obd_name(th->th_dev), arg->u.xattr_set.buf.lb_buf,
+	       arg->u.xattr_set.name, arg->u.xattr_set.flags);
+
+	if (!lu_object_exists(&dt_obj->do_lu))
+		GOTO(out, rc = -ENOENT);
+
+	dt_write_lock(env, dt_obj, MOR_TGT_CHILD);
+	rc = dt_xattr_set(env, dt_obj, &arg->u.xattr_set.buf,
+			  arg->u.xattr_set.name, arg->u.xattr_set.flags,
+			  th, NULL);
+	/**
+	 * Ignore errors if this is LINK EA
+	 **/
+	if (unlikely(rc != 0 &&
+		     strcmp(arg->u.xattr_set.name, XATTR_NAME_LINK) == 0)) {
+		/* XXX: If the linkEA is overflow, then we need to notify the
+		 *	namespace LFSCK to skip "nlink" attribute verification
+		 *	on this object to avoid the "nlink" to be shrinked by
+		 *	wrong. It may be not good an interaction with LFSCK
+		 *	like this. We will consider to replace it with other
+		 *	mechanism in future. LU-5802. */
+		if (rc == -ENOSPC && arg->reply != NULL) {
+			struct lfsck_request *lr = &tgt_th_info(env)->tti_lr;
+
+			lfsck_pack_rfa(lr, lu_object_fid(&dt_obj->do_lu),
+				       LE_SKIP_NLINK, LFSCK_TYPE_NAMESPACE);
+			tgt_lfsck_in_notify(env,
+				tgt_ses_info(env)->tsi_tgt->lut_bottom, lr, th);
+		}
+
+		rc = 0;
+	}
+	dt_write_unlock(env, dt_obj);
+
+out:
+	CDEBUG(D_INFO, "%s: insert xattr set reply %p index %d: rc = %d\n",
+	       dt_obd_name(th->th_dev), arg->reply, arg->index, rc);
+
+	if (arg->reply != NULL)
+		object_update_result_insert(arg->reply, NULL, 0, arg->index,
+					    rc);
+
+	return rc;
+}
+
+int out_xattr_set_add_exec(const struct lu_env *env, struct dt_object *dt_obj,
+			   const struct lu_buf *buf, const char *name,
+			   int flags, struct thandle_exec_args *ta,
+			   struct thandle *th,
+			   struct object_update_reply *reply,
+			   int index, const char *file, int line)
+{
+	struct tx_arg	*arg;
+	int		rc;
+
+	rc = dt_declare_xattr_set(env, dt_obj, buf, name, flags, th);
+	if (rc != 0)
+		return rc;
+
+	if (strcmp(name, XATTR_NAME_LINK) == 0 && reply != NULL) {
+		struct lfsck_request *lr = &tgt_th_info(env)->tti_lr;
+
+		/* XXX: If the linkEA is overflow, then we need to notify the
+		 *	namespace LFSCK to skip "nlink" attribute verification
+		 *	on this object to avoid the "nlink" to be shrinked by
+		 *	wrong. It may be not good an interaction with LFSCK
+		 *	like this. We will consider to replace it with other
+		 *	mechanism in future. LU-5802. */
+		lfsck_pack_rfa(lr, lu_object_fid(&dt_obj->do_lu),
+			       LE_SKIP_NLINK_DECLARE, LFSCK_TYPE_NAMESPACE);
+		rc = tgt_lfsck_in_notify(env,
+					 tgt_ses_info(env)->tsi_tgt->lut_bottom,
+					 lr, ta->ta_handle);
+		if (rc != 0)
+			return rc;
+	}
+
+	arg = tx_add_exec(ta, out_tx_xattr_set_exec, NULL, file, line);
+	if (IS_ERR(arg))
+		return PTR_ERR(arg);
+
+	lu_object_get(&dt_obj->do_lu);
+	arg->object = dt_obj;
+	arg->u.xattr_set.name = name;
+	arg->u.xattr_set.flags = flags;
+	arg->u.xattr_set.buf = *buf;
+	arg->reply = reply;
+	arg->index = index;
+	arg->u.xattr_set.csum = 0;
+	return 0;
+}
+
+static int out_tx_xattr_del_exec(const struct lu_env *env, struct thandle *th,
+				 struct tx_arg *arg)
+{
+	struct dt_object *dt_obj = arg->object;
+	int rc;
+
+	CDEBUG(D_INFO, "%s: del xattr name '%s' on "DFID"\n",
+	       dt_obd_name(th->th_dev), arg->u.xattr_set.name,
+	       PFID(lu_object_fid(&dt_obj->do_lu)));
+
+	if (!lu_object_exists(&dt_obj->do_lu))
+		GOTO(out, rc = -ENOENT);
+
+	dt_write_lock(env, dt_obj, MOR_TGT_CHILD);
+	rc = dt_xattr_del(env, dt_obj, arg->u.xattr_set.name,
+			  th, NULL);
+	dt_write_unlock(env, dt_obj);
+out:
+	CDEBUG(D_INFO, "%s: insert xattr del reply %p index %d: rc = %d\n",
+	       dt_obd_name(th->th_dev), arg->reply, arg->index, rc);
+
+	if (arg->reply != NULL)
+		object_update_result_insert(arg->reply, NULL, 0, arg->index,
+					    rc);
+
+	return rc;
+}
+
+int out_xattr_del_add_exec(const struct lu_env *env, struct dt_object *dt_obj,
+			   const char *name, struct thandle_exec_args *ta,
+			   struct thandle *th,
+			   struct object_update_reply *reply, int index,
+			   const char *file, int line)
+{
+	struct tx_arg	*arg;
+	int		rc;
+
+	rc = dt_declare_xattr_del(env, dt_obj, name, th);
+	if (rc != 0)
+		return rc;
+
+	arg = tx_add_exec(ta, out_tx_xattr_del_exec, NULL, file, line);
+	if (IS_ERR(arg))
+		return PTR_ERR(arg);
+
+	lu_object_get(&dt_obj->do_lu);
+	arg->object = dt_obj;
+	arg->u.xattr_set.name = name;
+	arg->reply = reply;
+	arg->index = index;
+	return 0;
+}
+
+static int out_obj_ref_add(const struct lu_env *env,
+			   struct dt_object *dt_obj,
+			   struct thandle *th)
+{
+	int rc;
+
+	dt_write_lock(env, dt_obj, MOR_TGT_CHILD);
+	rc = dt_ref_add(env, dt_obj, th);
+	dt_write_unlock(env, dt_obj);
+
+	return rc;
+}
+
+static int out_obj_ref_del(const struct lu_env *env,
+			   struct dt_object *dt_obj,
+			   struct thandle *th)
+{
+	int rc;
+
+	dt_write_lock(env, dt_obj, MOR_TGT_CHILD);
+	rc = dt_ref_del(env, dt_obj, th);
+	dt_write_unlock(env, dt_obj);
+
+	return rc;
+}
+
+static int out_tx_ref_add_exec(const struct lu_env *env, struct thandle *th,
+			       struct tx_arg *arg)
+{
+	struct dt_object *dt_obj = arg->object;
+	int rc;
+
+	rc = out_obj_ref_add(env, dt_obj, th);
+
+	CDEBUG(D_INFO, "%s: insert ref_add reply %p index %d: rc = %d\n",
+	       dt_obd_name(th->th_dev), arg->reply, arg->index, rc);
+
+	if (arg->reply != NULL)
+		object_update_result_insert(arg->reply, NULL, 0, arg->index,
+					    rc);
+	return rc;
+}
+
+static int out_tx_ref_add_undo(const struct lu_env *env, struct thandle *th,
+			       struct tx_arg *arg)
+{
+	return out_obj_ref_del(env, arg->object, th);
+}
+
+int out_ref_add_add_exec(const struct lu_env *env, struct dt_object *dt_obj,
+			 struct thandle_exec_args *ta,
+			 struct thandle *th,
+			 struct object_update_reply *reply, int index,
+			 const char *file, int line)
+{
+	struct tx_arg	*arg;
+	int		rc;
+
+	rc = dt_declare_ref_add(env, dt_obj, th);
+	if (rc != 0)
+		return rc;
+
+	arg = tx_add_exec(ta, out_tx_ref_add_exec, out_tx_ref_add_undo, file,
+			  line);
+	if (IS_ERR(arg))
+		return PTR_ERR(arg);
+
+	lu_object_get(&dt_obj->do_lu);
+	arg->object = dt_obj;
+	arg->reply = reply;
+	arg->index = index;
+	return 0;
+}
+
+static int out_tx_ref_del_exec(const struct lu_env *env, struct thandle *th,
+			       struct tx_arg *arg)
+{
+	struct dt_object	*dt_obj = arg->object;
+	int			 rc;
+
+	rc = out_obj_ref_del(env, dt_obj, th);
+
+	CDEBUG(D_INFO, "%s: insert ref_del reply %p index %d: rc = %d\n",
+	       dt_obd_name(th->th_dev), arg->reply, arg->index, 0);
+
+	if (arg->reply != NULL)
+		object_update_result_insert(arg->reply, NULL, 0, arg->index,
+					    rc);
+
+	return rc;
+}
+
+static int out_tx_ref_del_undo(const struct lu_env *env, struct thandle *th,
+			       struct tx_arg *arg)
+{
+	return out_obj_ref_add(env, arg->object, th);
+}
+
+int out_ref_del_add_exec(const struct lu_env *env, struct dt_object *dt_obj,
+			 struct thandle_exec_args *ta,
+			 struct thandle *th,
+			 struct object_update_reply *reply, int index,
+			 const char *file, int line)
+{
+	struct tx_arg	*arg;
+	int		rc;
+
+	rc = dt_declare_ref_del(env, dt_obj, th);
+	if (rc != 0)
+		return rc;
+
+	arg = tx_add_exec(ta, out_tx_ref_del_exec, out_tx_ref_del_undo, file,
+			  line);
+	if (IS_ERR(arg))
+		return PTR_ERR(arg);
+
+	lu_object_get(&dt_obj->do_lu);
+	arg->object = dt_obj;
+	arg->reply = reply;
+	arg->index = index;
+	return 0;
+}
+
+static int out_obj_index_insert(const struct lu_env *env,
+				struct dt_object *dt_obj,
+				const struct dt_rec *rec,
+				const struct dt_key *key,
+				struct thandle *th)
+{
+	int rc;
+
+	CDEBUG(D_INFO, "%s: index insert "DFID" name: %s fid "DFID", type %u\n",
+	       dt_obd_name(th->th_dev), PFID(lu_object_fid(&dt_obj->do_lu)),
+	       (char *)key, PFID(((struct dt_insert_rec *)rec)->rec_fid),
+	       ((struct dt_insert_rec *)rec)->rec_type);
+
+	if (dt_try_as_dir(env, dt_obj) == 0)
+		return -ENOTDIR;
+
+	dt_write_lock(env, dt_obj, MOR_TGT_CHILD);
+	rc = dt_insert(env, dt_obj, rec, key, th, NULL, 0);
+	dt_write_unlock(env, dt_obj);
+
+	return rc;
+}
+
+static int out_obj_index_delete(const struct lu_env *env,
+				struct dt_object *dt_obj,
+				const struct dt_key *key,
+				struct thandle *th)
+{
+	int rc;
+
+	CDEBUG(D_INFO, "%s: index delete "DFID" name: %s\n",
+	       dt_obd_name(th->th_dev), PFID(lu_object_fid(&dt_obj->do_lu)),
+	       (char *)key);
+
+	if (dt_try_as_dir(env, dt_obj) == 0)
+		return -ENOTDIR;
+
+	dt_write_lock(env, dt_obj, MOR_TGT_CHILD);
+	rc = dt_delete(env, dt_obj, key, th, NULL);
+	dt_write_unlock(env, dt_obj);
+
+	return rc;
+}
+
+static int out_tx_index_insert_exec(const struct lu_env *env,
+				    struct thandle *th, struct tx_arg *arg)
+{
+	struct dt_object *dt_obj = arg->object;
+	int rc;
+
+	if (unlikely(!dt_object_exists(dt_obj)))
+		RETURN(-ESTALE);
+
+	rc = out_obj_index_insert(env, dt_obj,
+				  (const struct dt_rec *)&arg->u.insert.rec,
+				  arg->u.insert.key, th);
+
+	CDEBUG(D_INFO, "%s: insert idx insert reply %p index %d: rc = %d\n",
+	       dt_obd_name(th->th_dev), arg->reply, arg->index, rc);
+
+	if (arg->reply != NULL)
+		object_update_result_insert(arg->reply, NULL, 0, arg->index,
+					    rc);
+	return rc;
+}
+
+static int out_tx_index_insert_undo(const struct lu_env *env,
+				    struct thandle *th, struct tx_arg *arg)
+{
+	return out_obj_index_delete(env, arg->object, arg->u.insert.key, th);
+}
+
+int out_index_insert_add_exec(const struct lu_env *env,
+			      struct dt_object *dt_obj,
+			      const struct dt_rec *rec,
+			      const struct dt_key *key,
+			      struct thandle_exec_args *ta,
+			      struct thandle *th,
+			      struct object_update_reply *reply,
+			      int index, const char *file, int line)
+{
+	struct tx_arg	*arg;
+	int		rc;
+
+	if (dt_try_as_dir(env, dt_obj) == 0) {
+		rc = -ENOTDIR;
+		return rc;
+	}
+
+	rc = dt_declare_insert(env, dt_obj, rec, key, th);
+	if (rc != 0)
+		return rc;
+
+	arg = tx_add_exec(ta, out_tx_index_insert_exec,
+			  out_tx_index_insert_undo, file, line);
+	if (IS_ERR(arg))
+		return PTR_ERR(arg);
+
+	lu_object_get(&dt_obj->do_lu);
+	arg->object = dt_obj;
+	arg->reply = reply;
+	arg->index = index;
+	arg->u.insert.rec = *(const struct dt_insert_rec *)rec;
+	arg->u.insert.key = key;
+
+	return 0;
+}
+
+static int out_tx_index_delete_exec(const struct lu_env *env,
+				    struct thandle *th,
+				    struct tx_arg *arg)
+{
+	int rc;
+
+	rc = out_obj_index_delete(env, arg->object, arg->u.insert.key, th);
+
+	CDEBUG(D_INFO, "%s: delete idx insert reply %p index %d: rc = %d\n",
+	       dt_obd_name(th->th_dev), arg->reply, arg->index, rc);
+
+	if (arg->reply != NULL)
+		object_update_result_insert(arg->reply, NULL, 0, arg->index,
+					    rc);
+
+	return rc;
+}
+
+static int out_tx_index_delete_undo(const struct lu_env *env,
+				    struct thandle *th,
+				    struct tx_arg *arg)
+{
+	CERROR("%s: Oops, can not rollback index_delete yet: rc = %d\n",
+	       dt_obd_name(th->th_dev), -ENOTSUPP);
+	return -ENOTSUPP;
+}
+
+int out_index_delete_add_exec(const struct lu_env *env,
+			      struct dt_object *dt_obj,
+			      const struct dt_key *key,
+			      struct thandle_exec_args *ta,
+			      struct thandle *th,
+			      struct object_update_reply *reply,
+			      int index, const char *file, int line)
+{
+	struct tx_arg	*arg;
+	int		rc;
+
+	if (dt_try_as_dir(env, dt_obj) == 0) {
+		rc = -ENOTDIR;
+		return rc;
+	}
+
+	LASSERT(ta->ta_handle != NULL);
+	rc = dt_declare_delete(env, dt_obj, key, th);
+	if (rc != 0)
+		return rc;
+
+	arg = tx_add_exec(ta, out_tx_index_delete_exec,
+			  out_tx_index_delete_undo, file, line);
+	if (IS_ERR(arg))
+		return PTR_ERR(arg);
+
+	lu_object_get(&dt_obj->do_lu);
+	arg->object = dt_obj;
+	arg->reply = reply;
+	arg->index = index;
+	arg->u.insert.key = key;
+	return 0;
+}
+
+static int out_tx_destroy_exec(const struct lu_env *env, struct thandle *th,
+			       struct tx_arg *arg)
+{
+	struct dt_object *dt_obj = arg->object;
+	int rc;
+
+	rc = out_obj_destroy(env, dt_obj, th);
+
+	CDEBUG(D_INFO, "%s: insert destroy reply %p index %d: rc = %d\n",
+	       dt_obd_name(th->th_dev), arg->reply, arg->index, rc);
+
+	if (arg->reply != NULL)
+		object_update_result_insert(arg->reply, NULL, 0, arg->index,
+					    rc);
+
+	RETURN(rc);
+}
+
+static int out_tx_destroy_undo(const struct lu_env *env, struct thandle *th,
+			       struct tx_arg *arg)
+{
+	CERROR("%s: not support destroy undo yet!: rc = %d\n",
+	       dt_obd_name(th->th_dev), -ENOTSUPP);
+	return -ENOTSUPP;
+}
+
+int out_destroy_add_exec(const struct lu_env *env, struct dt_object *dt_obj,
+			 struct thandle_exec_args *ta, struct thandle *th,
+			 struct object_update_reply *reply,
+			 int index, const char *file, int line)
+{
+	struct tx_arg	*arg;
+	int		rc;
+
+	rc = dt_declare_destroy(env, dt_obj, th);
+	if (rc != 0)
+		return rc;
+
+	arg = tx_add_exec(ta, out_tx_destroy_exec, out_tx_destroy_undo,
+			  file, line);
+	if (IS_ERR(arg))
+		return PTR_ERR(arg);
+
+	lu_object_get(&dt_obj->do_lu);
+	arg->object = dt_obj;
+	arg->reply = reply;
+	arg->index = index;
+	return 0;
+}

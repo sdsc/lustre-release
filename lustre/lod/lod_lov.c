@@ -349,7 +349,7 @@ int lod_add_device(const struct lu_env *env, struct lod_device *lod,
 		}
 	}
 
-	if (!strcmp(LUSTRE_OSC_NAME, type)) {
+	if (for_ost) {
 		/* pool and qos are not supported for MDS stack yet */
 		rc = lod_ost_pool_add(&lod->lod_pool_info, index,
 				      lod->lod_osts_size);
@@ -381,13 +381,25 @@ int lod_add_device(const struct lu_env *env, struct lod_device *lod,
 	if (lod->lod_recovery_completed)
 		ldev->ld_ops->ldo_recovery_complete(env, ldev);
 
+	if (!for_ost && lod->lod_initialized) {
+		rc = lod_sub_init_llog(env, lod, tgt_desc->ltd_tgt);
+		if (rc != 0) {
+			CERROR("%s: cannot start llog on %s:rc = %d\n",
+			       lod2obd(lod)->obd_name, osp, rc);
+			GOTO(out_pool, rc);
+		}
+	}
+
 	rc = lfsck_add_target(env, lod->lod_child, d, exp, index, for_ost);
-	if (rc != 0)
+	if (rc != 0) {
 		CERROR("Fail to add LFSCK target: name = %s, type = %s, "
 		       "index = %u, rc = %d\n", osp, type, index, rc);
-
+		GOTO(out_fini_llog, rc);
+	}
 	RETURN(rc);
-
+out_fini_llog:
+	lod_sub_fini_llog(env, tgt_desc->ltd_tgt,
+			  tgt_desc->ltd_recovery_thread);
 out_pool:
 	lod_ost_pool_remove(&lod->lod_pool_info, index);
 out_mutex:
@@ -422,6 +434,13 @@ static void __lod_del_device(const struct lu_env *env, struct lod_device *lod,
 
 	lfsck_del_target(env, lod->lod_child, LTD_TGT(ltd, idx)->ltd_tgt,
 			 idx, for_ost);
+
+	if (!for_ost && LTD_TGT(ltd, idx)->ltd_recovery_thread != NULL) {
+		struct ptlrpc_thread *thread;
+
+		thread = LTD_TGT(ltd, idx)->ltd_recovery_thread;
+		OBD_FREE_PTR(thread);
+	}
 
 	if (LTD_TGT(ltd, idx)->ltd_reap == 0) {
 		LTD_TGT(ltd, idx)->ltd_reap = 1;
@@ -594,6 +613,7 @@ int lod_generate_and_set_lovea(const struct lu_env *env,
 	const struct lu_fid	*fid  = lu_object_fid(&lo->ldo_obj.do_lu);
 	struct lov_mds_md_v1	*lmm;
 	struct lov_ost_data_v1	*objs;
+	struct thandle		*sub_th;
 	__u32			 magic;
 	int			 i, rc;
 	size_t			 lmm_size;
@@ -668,10 +688,14 @@ int lod_generate_and_set_lovea(const struct lu_env *env,
 		objs[i].l_ost_idx = cpu_to_le32(index);
 	}
 
+	sub_th = get_sub_thandle(env, th, next);
+	if (IS_ERR(sub_th))
+		return PTR_ERR(sub_th);
+
 	info->lti_buf.lb_buf = lmm;
 	info->lti_buf.lb_len = lmm_size;
 	rc = dt_xattr_set(env, next, &info->lti_buf, XATTR_NAME_LOV, 0,
-			  th, BYPASS_CAPA);
+			  sub_th, BYPASS_CAPA);
 	if (rc < 0)
 		lod_object_free_striping(env, lo);
 
