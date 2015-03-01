@@ -484,6 +484,90 @@ static int osp_disconnect(struct osp_device *d)
 }
 
 /**
+ * Initialize the osp_update structure in OSP device
+ *
+ * Allocate osp update structure and start update thread.
+ *
+ * \param[in] osp	OSP device
+ *
+ * \retval		0 if initialization succeeds.
+ * \retval		negative errno if initialization fails.
+ */
+static int osp_update_init(struct osp_device *osp)
+{
+	struct l_wait_info	lwi = { 0 };
+	struct task_struct	*task;
+
+	ENTRY;
+
+	LASSERT(osp->opd_connect_mdt);
+
+	OBD_ALLOC_PTR(osp->opd_update);
+	if (osp->opd_update == NULL)
+		RETURN(-ENOMEM);
+
+	init_waitqueue_head(&osp->opd_update_thread.t_ctl_waitq);
+	init_waitqueue_head(&osp->opd_update->ou_waitq);
+	spin_lock_init(&osp->opd_update->ou_lock);
+	INIT_LIST_HEAD(&osp->opd_update->ou_list);
+	osp->opd_update->ou_rpc_version = 0;
+	osp->opd_update->ou_version = 0;
+
+	/* start thread handling sending updates to the remote MDT */
+	task = kthread_run(osp_send_update_thread, osp,
+			   "osp_up%u-%u", osp->opd_index, osp->opd_group);
+	if (IS_ERR(task)) {
+		int rc = PTR_ERR(task);
+
+		CERROR("%s: can't start precreate thread: rc = %d\n",
+		       osp->opd_obd->obd_name, rc);
+		RETURN(rc);
+	}
+
+	l_wait_event(osp->opd_update_thread.t_ctl_waitq,
+		     osp_send_update_thread_running(osp) ||
+		     osp_send_update_thread_stopped(osp), &lwi);
+
+	RETURN(0);
+}
+
+/**
+ * Finialize osp_update structure in OSP device
+ *
+ * Stop the OSP update sending thread, then delete the left
+ * osp thandle in the sending list.
+ *
+ * \param [in] osp	OSP device.
+ */
+static void osp_update_fini(struct osp_device *osp)
+{
+	struct osp_thandle *oth;
+	struct osp_thandle *tmp;
+	struct osp_update *ou = osp->opd_update;
+
+	if (ou == NULL)
+		return;
+
+	osp->opd_update_thread.t_flags = SVC_STOPPING;
+	wake_up(&ou->ou_waitq);
+
+	wait_event(osp->opd_update_thread.t_ctl_waitq,
+		   osp->opd_update_thread.t_flags & SVC_STOPPED);
+
+	/* Remove the left osp thandle from the list */
+	spin_lock(&ou->ou_lock);
+	list_for_each_entry_safe(oth, tmp, &ou->ou_list,
+				 ot_list) {
+		list_del_init(&oth->ot_list);
+		osp_thandle_put(oth);
+	}
+	spin_unlock(&ou->ou_lock);
+
+	OBD_FREE_PTR(ou);
+	osp->opd_update = NULL;
+}
+
+/**
  * Cleanup OSP, which includes disconnect import, cleanup unlink log, stop
  * precreate threads etc.
  *
@@ -543,6 +627,7 @@ static int osp_process_config(const struct lu_env *env,
 	switch (lcfg->lcfg_command) {
 	case LCFG_PRE_CLEANUP:
 		rc = osp_disconnect(d);
+		osp_update_fini(d);
 		break;
 	case LCFG_CLEANUP:
 		lu_dev_del_linkage(dev->ld_site, dev);
@@ -787,6 +872,7 @@ const struct dt_device_operations osp_dt_ops = {
 	.dt_trans_create = osp_trans_create,
 	.dt_trans_start  = osp_trans_start,
 	.dt_trans_stop   = osp_trans_stop,
+	.dt_trans_cb_add   = osp_trans_cb_add,
 };
 
 /**
@@ -842,6 +928,27 @@ static int osp_connect_to_osd(const struct lu_env *env, struct osp_device *osp,
 out:
 	OBD_FREE_PTR(data);
 	RETURN(rc);
+}
+
+/**
+ * Determine if the lock needs to be cancelled
+ *
+ * Determine if the unused lock should be cancelled before replay, see
+ * (ldlm_cancel_no_wait_policy()). Currently, only inode bits lock exists
+ * between MDTs.
+ *
+ * \param[in] lock	lock to be checked.
+ *
+ * \retval		1 if the lock needs to be cancelled before replay.
+ * \retval		0 if the lock does not need to be cancelled before
+ *                      replay.
+ */
+static int osp_cancel_weight(struct ldlm_lock *lock)
+{
+	if (lock->l_resource->lr_type != LDLM_IBITS)
+		RETURN(0);
+
+	RETURN(1);
 }
 
 /**
@@ -1047,7 +1154,13 @@ static int osp_init0(const struct lu_env *env, struct osp_device *osp,
 		rc = osp_init_precreate(osp);
 		if (rc)
 			GOTO(out_last_used, rc);
+	} else {
+		rc = osp_update_init(osp);
+		if (rc != 0)
+			GOTO(out_fid, rc);
 	}
+
+	ns_register_cancel(obd->obd_namespace, osp_cancel_weight);
 
 	/*
 	 * Initialize synhronization mechanism taking
@@ -1080,6 +1193,8 @@ out_precreat:
 	/* stop precreate thread */
 	if (!osp->opd_connect_mdt)
 		osp_precreate_fini(osp);
+	else
+		osp_update_fini(osp);
 out_last_used:
 	if (!osp->opd_connect_mdt)
 		osp_last_used_fini(env, osp);
@@ -1193,7 +1308,7 @@ static struct lu_device *osp_device_fini(const struct lu_env *env,
 	ENTRY;
 
 	if (osp->opd_async_requests != NULL) {
-		dt_update_request_destroy(osp->opd_async_requests);
+		osp_update_request_destroy(osp->opd_async_requests);
 		osp->opd_async_requests = NULL;
 	}
 
@@ -1310,6 +1425,9 @@ static int osp_obd_connect(const struct lu_env *env, struct obd_export **exp,
 	if (rc) {
 		CERROR("%s: can't connect obd: rc = %d\n", obd->obd_name, rc);
 		GOTO(out, rc);
+	} else {
+		osp->opd_obd->u.cli.cl_seq->lcs_exp =
+				class_export_get(osp->opd_exp);
 	}
 
 	ptlrpc_pinger_add_import(imp);
@@ -1427,26 +1545,6 @@ out:
 }
 
 /**
- * Prepare fid client.
- *
- * This function prepares the FID client for the OSP. It will check and assign
- * the export (to MDT0) for its FID client, so OSP can allocate super sequence
- * or lookup sequence in FLDB of MDT0.
- *
- * \param[in] osp	OSP device
- */
-static void osp_prepare_fid_client(struct osp_device *osp)
-{
-	LASSERT(osp->opd_obd->u.cli.cl_seq != NULL);
-	if (osp->opd_obd->u.cli.cl_seq->lcs_exp != NULL)
-		return;
-
-	LASSERT(osp->opd_exp != NULL);
-	osp->opd_obd->u.cli.cl_seq->lcs_exp =
-				class_export_get(osp->opd_exp);
-}
-
-/**
  * Implementation of obd_ops::o_import_event
  *
  * This function is called when some related import event happens. It will
@@ -1494,7 +1592,6 @@ static int osp_import_event(struct obd_device *obd, struct obd_import *imp,
 	case IMP_EVENT_ACTIVE:
 		d->opd_imp_active = 1;
 
-		osp_prepare_fid_client(d);
 		if (d->opd_got_disconnected)
 			d->opd_new_connection = 1;
 		d->opd_imp_connected = 1;
@@ -1661,8 +1758,7 @@ static int osp_fid_alloc(const struct lu_env *env, struct obd_export *exp,
 
 	LASSERT(osp->opd_obd->u.cli.cl_seq != NULL);
 	/* Sigh, fid client is not ready yet */
-	if (osp->opd_obd->u.cli.cl_seq->lcs_exp == NULL)
-		RETURN(-ENOTCONN);
+	LASSERT(osp->opd_obd->u.cli.cl_seq->lcs_exp != NULL);
 
 	RETURN(seq_client_alloc_fid(env, seq, fid));
 }

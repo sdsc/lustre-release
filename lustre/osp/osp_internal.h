@@ -93,6 +93,40 @@ struct osp_precreate {
 	int				 osp_pre_recovering;
 };
 
+struct osp_update_request_list {
+	struct object_update_request	*ourl_req;
+	__u32				ourl_req_size;
+	struct list_head		ourl_list;
+};
+
+/**
+ * Tracking the updates being executed on this dt_device.
+ */
+struct osp_update_request {
+	int				our_flags;
+	/* update request result */
+	int				our_rc;
+
+	/* List of osp_update_req_item */
+	struct list_head		our_req_list;
+
+	struct list_head		our_cb_items;
+
+	/* points to thandle if this update request belongs to one */
+	struct osp_thandle		*our_th;
+	/* linked to the list(ou_list) in osp_update */
+	struct list_head		our_list;
+};
+
+struct osp_update {
+	struct list_head	ou_list;
+	spinlock_t		ou_lock;
+	wait_queue_head_t	ou_waitq;
+	/* wait for next updates */
+	__u64			ou_rpc_version;
+	__u64			ou_version;
+};
+
 struct osp_device {
 	struct dt_device		 opd_dt_dev;
 	/* corresponded OST index */
@@ -139,6 +173,11 @@ struct osp_device {
 	struct ptlrpc_thread		 opd_pre_thread;
 	/* thread waits for signals about pool going empty */
 	wait_queue_head_t		 opd_pre_waitq;
+
+	/* send update thread */
+	struct osp_update		*opd_update;
+	/* dedicate update thread */
+	struct ptlrpc_thread		 opd_update_thread;
 
 	/*
 	 * OST synchronization
@@ -195,7 +234,7 @@ struct osp_device {
 	 * osp_device::opd_async_requests via declare() functions, these
 	 * requests can be packed together and sent to the remote server
 	 * via single OUT RPC later. */
-	struct dt_update_request	*opd_async_requests;
+	struct osp_update_request	*opd_async_requests;
 	/* Protect current operations on opd_async_requests. */
 	struct mutex			 opd_async_requests_mutex;
 	struct list_head		 opd_async_updates;
@@ -295,11 +334,39 @@ struct osp_it {
 	struct page		 **ooi_pages;
 };
 
+#define OSP_THANDLE_MAGIC	0x20141214
+struct osp_thandle {
+	struct thandle		 ot_super;
+	__u32			 ot_magic;
+	struct list_head	 ot_dcb_list;
+	struct list_head	 ot_stop_dcb_list;
+	struct osp_update_request *ot_our;
+	atomic_t		 ot_refcount;
+	struct list_head	 ot_list;
+	__u64			 ot_version;
+	unsigned int		 ot_set_version:1;
+};
+
+static inline struct osp_thandle *
+thandle_to_osp_thandle(struct thandle *th)
+{
+	return container_of0(th, struct osp_thandle, ot_super);
+}
+
+static inline struct osp_update_request *
+thandle_to_osp_update_request(struct thandle *th)
+{
+	struct osp_thandle *oth;
+
+	oth = thandle_to_osp_thandle(th);
+	return oth->ot_our;
+}
+
 /* The transaction only include the updates on the remote node, and
  * no local updates at all */
 static inline bool is_only_remote_trans(struct thandle *th)
 {
-	return th->th_dev != NULL && th->th_dev->dd_ops == &osp_dt_ops;
+	return th->th_top == NULL;
 }
 
 static inline void osp_objid_buf_prep(struct lu_buf *buf, loff_t *off,
@@ -497,11 +564,67 @@ static inline int osp_is_fid_client(struct osp_device *osp)
 	return imp->imp_connect_data.ocd_connect_flags & OBD_CONNECT_FID;
 }
 
-typedef int (*osp_async_request_interpreter_t)(const struct lu_env *env,
-					       struct object_update_reply *rep,
-					       struct ptlrpc_request *req,
-					       struct osp_object *obj,
-					       void *data, int index, int rc);
+struct object_update *
+update_buffer_get_update(struct object_update_request *request, int index);
+
+int osp_extend_update_buffer(const struct lu_env *env,
+			     struct osp_update_request *our);
+
+struct osp_update_request_list*
+osp_current_object_update_request(struct osp_update_request *our);
+
+int osp_object_update_request_create(struct osp_update_request *our,
+				     size_t size);
+
+#define osp_update_rpc_pack(env, name, rc, our, op, ...)		\
+do {                                                                    \
+	struct object_update	*object_update;				\
+	size_t			max_update_length;			\
+	struct osp_update_request_list *ourl;				\
+									\
+	ourl = osp_current_object_update_request(our);			\
+	max_update_length = ourl->ourl_req_size -			\
+			    object_update_request_size(ourl->ourl_req); \
+									\
+	object_update = update_buffer_get_update(ourl->ourl_req,	\
+					 ourl->ourl_req->ourq_count);	\
+	object_update->ou_flags |= our->our_flags;			\
+	rc = out_##name##_pack(env, object_update, &max_update_length,	\
+			       __VA_ARGS__);				\
+	if (rc == -E2BIG) {						\
+		int rc1;						\
+		/* Create new object update request */			\
+		rc1 = osp_object_update_request_create(our,		\
+			max_update_length  +				\
+			offsetof(struct object_update_request,		\
+				 ourq_updates[0]) + 1);			\
+		if (rc1 != 0) {						\
+			rc = rc1;					\
+			break;						\
+		}							\
+		continue;						\
+	} else {							\
+		if (rc == 0)						\
+			ourl->ourl_req->ourq_count++;			\
+		break;							\
+	}								\
+} while (1)
+
+static inline bool osp_send_update_thread_running(struct osp_device *osp)
+{
+	return !!(osp->opd_update_thread.t_flags & SVC_RUNNING);
+}
+
+static inline bool osp_send_update_thread_stopped(struct osp_device *osp)
+{
+	return !!(osp->opd_update_thread.t_flags & SVC_STOPPED);
+}
+
+typedef int (*osp_update_interpreter_t)(const struct lu_env *env,
+					struct object_update_reply *rep,
+					struct ptlrpc_request *req,
+					struct osp_object *obj,
+					void *data, int index, int rc);
 
 /* osp_dev.c */
 void osp_update_last_id(struct osp_device *d, obd_id objid);
@@ -511,14 +634,43 @@ extern struct llog_operations osp_mds_ost_orig_logops;
 int osp_insert_async_request(const struct lu_env *env, enum update_type op,
 			     struct osp_object *obj, int count, __u16 *lens,
 			     const void **bufs, void *data,
-			     osp_async_request_interpreter_t interpreter);
+			     osp_update_interpreter_t interpreter);
+
 int osp_unplug_async_request(const struct lu_env *env,
 			     struct osp_device *osp,
-			     struct dt_update_request *update);
+			     struct osp_update_request *update);
+int osp_trans_update_request_create(struct thandle *th);
 struct thandle *osp_trans_create(const struct lu_env *env,
 				 struct dt_device *d);
 int osp_trans_start(const struct lu_env *env, struct dt_device *dt,
 		    struct thandle *th);
+int osp_insert_update_callback(const struct lu_env *env,
+			       struct osp_update_request *update,
+			       struct osp_object *obj, void *data,
+			       osp_update_interpreter_t interpreter);
+int osp_prep_update_req(const struct lu_env *env, struct obd_import *imp,
+			struct osp_update_request *our,
+			struct ptlrpc_request **reqp);
+int osp_remote_sync(const struct lu_env *env, struct obd_import *imp,
+		    struct osp_update_request *update,
+		    struct ptlrpc_request **reqp);
+struct osp_update_request *osp_update_request_create(struct dt_device *dt);
+void osp_update_request_destroy(struct osp_update_request *update);
+
+int osp_send_update_thread(void *_arg);
+void osp_check_and_set_rpc_version(struct osp_thandle *oth);
+
+void osp_thandle_destroy(struct osp_thandle *oth);
+static inline void osp_thandle_get(struct osp_thandle *oth)
+{
+	atomic_inc(&oth->ot_refcount);
+}
+
+static inline void osp_thandle_put(struct osp_thandle *oth)
+{
+	if (atomic_dec_and_test(&oth->ot_refcount))
+		osp_thandle_destroy(oth);
+}
 
 /* osp_object.c */
 int osp_attr_get(const struct lu_env *env, struct dt_object *dt,
@@ -545,6 +697,7 @@ int osp_object_destroy(const struct lu_env *env, struct dt_object *dt,
 
 int osp_trans_stop(const struct lu_env *env, struct dt_device *dt,
 		   struct thandle *th);
+int osp_trans_cb_add(struct thandle *th, struct dt_txn_commit_cb *dcb);
 
 struct dt_it *osp_it_init(const struct lu_env *env, struct dt_object *dt,
 			  __u32 attr, struct lustre_capa *capa);
@@ -556,6 +709,7 @@ __u64 osp_it_store(const struct lu_env *env, const struct dt_it *di);
 int osp_it_key_rec(const struct lu_env *env, const struct dt_it *di,
 		   void *key_rec);
 int osp_it_next_page(const struct lu_env *env, struct dt_it *di);
+int osp_oac_init(struct osp_object *obj);
 /* osp_md_object.c */
 int osp_md_declare_object_create(const struct lu_env *env,
 				 struct dt_object *dt,
@@ -566,8 +720,9 @@ int osp_md_declare_object_create(const struct lu_env *env,
 int osp_md_object_create(const struct lu_env *env, struct dt_object *dt,
 			 struct lu_attr *attr, struct dt_allocation_hint *hint,
 			 struct dt_object_format *dof, struct thandle *th);
-int __osp_md_attr_set(const struct lu_env *env, struct dt_object *dt,
-		      const struct lu_attr *attr, struct thandle *th);
+int osp_md_attr_set(const struct lu_env *env, struct dt_object *dt,
+		    const struct lu_attr *attr, struct thandle *th,
+		    struct lustre_capa *capa);
 extern const struct dt_index_operations osp_md_index_ops;
 
 /* osp_precreate.c */

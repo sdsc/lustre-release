@@ -182,18 +182,12 @@ static int mdd_is_parent(const struct lu_env *env,
 			GOTO(out, rc = 0);
                 if (lu_fid_eq(pfid, lf))
                         GOTO(out, rc = 1);
-                if (parent)
-                        mdd_object_put(env, parent);
+		if (parent)
+			mdd_object_put(env, parent);
 
 		parent = mdd_object_find(env, mdd, pfid);
-		if (IS_ERR(parent)) {
+		if (IS_ERR(parent))
 			GOTO(out, rc = PTR_ERR(parent));
-		} else if (mdd_object_remote(parent)) {
-			/*FIXME: Because of the restriction of rename in Phase I.
-			 * If the parent is remote, we just assumed lf is not the
-			 * parent of P1 for now */
-			GOTO(out, rc = 0);
-		}
 		p1 = parent;
         }
         EXIT;
@@ -689,7 +683,8 @@ int mdd_declare_changelog_store(const struct lu_env *env,
 	if (ctxt == NULL)
 		return -ENXIO;
 
-	rc = llog_declare_add(env, ctxt->loc_handle, &rec->cr_hdr, handle);
+	rc = llog_declare_add(env, ctxt->loc_handle, &rec->cr_hdr,
+			      handle->th_storage_th);
 	llog_ctxt_put(ctxt);
 
 	return rc;
@@ -728,7 +723,8 @@ int mdd_changelog_store(const struct lu_env *env, struct mdd_device *mdd,
 		return -ENXIO;
 
 	/* nested journal transaction */
-	rc = llog_add(env, ctxt->loc_handle, &rec->cr_hdr, NULL, th);
+	rc = llog_add(env, ctxt->loc_handle, &rec->cr_hdr, NULL,
+		      th->th_storage_th);
 	llog_ctxt_put(ctxt);
 	if (rc > 0)
 		rc = 0;
@@ -1116,9 +1112,11 @@ int mdd_links_write(const struct lu_env *env, struct mdd_object *mdd_obj,
 
 	rc = mdo_xattr_set(env, mdd_obj, buf, XATTR_NAME_LINK, 0, handle,
 			   mdd_object_capa(env, mdd_obj));
+
 	if (unlikely(rc == -ENOSPC) && S_ISREG(mdd_object_type(mdd_obj)) &&
 	    mdd_object_remote(mdd_obj) == 0) {
 		struct lfsck_request *lr = &mdd_env_info(env)->mti_lr;
+		struct thandle	*sub_th;
 
 		/* XXX: If the linkEA is overflow, then we need to notify the
 		 *	namespace LFSCK to skip "nlink" attribute verification
@@ -1128,8 +1126,11 @@ int mdd_links_write(const struct lu_env *env, struct mdd_object *mdd_obj,
 		 *	mechanism in future. LU-5802. */
 		lfsck_pack_rfa(lr, mdo2fid(mdd_obj), LE_SKIP_NLINK,
 			       LFSCK_TYPE_NAMESPACE);
+
+		sub_th = get_sub_thandle_by_dt(env, handle,
+				mdo2mdd(&mdd_obj->mod_obj)->mdd_bottom);
 		lfsck_in_notify(env, mdo2mdd(&mdd_obj->mod_obj)->mdd_bottom,
-				lr, handle);
+				lr, sub_th);
 	}
 
 	return rc;
@@ -1160,6 +1161,7 @@ int mdd_declare_links_add(const struct lu_env *env, struct mdd_object *mdd_obj,
 
 	if (mdd_object_remote(mdd_obj) == 0 && overflow == MLAO_CHECK) {
 		struct lfsck_request *lr = &mdd_env_info(env)->mti_lr;
+		struct thandle	*sub_th;
 
 		/* XXX: If the linkEA is overflow, then we need to notify the
 		 *	namespace LFSCK to skip "nlink" attribute verification
@@ -1169,9 +1171,12 @@ int mdd_declare_links_add(const struct lu_env *env, struct mdd_object *mdd_obj,
 		 *	mechanism in future. LU-5802. */
 		lfsck_pack_rfa(lr, mdo2fid(mdd_obj), LE_SKIP_NLINK_DECLARE,
 			       LFSCK_TYPE_NAMESPACE);
+
+		sub_th = get_sub_thandle_by_dt(env, handle,
+				mdo2mdd(&mdd_obj->mod_obj)->mdd_bottom);
 		rc = lfsck_in_notify(env,
 				     mdo2mdd(&mdd_obj->mod_obj)->mdd_bottom,
-				     lr, handle);
+				     lr, sub_th);
 	}
 
 	return rc;
@@ -2079,13 +2084,6 @@ static int mdd_declare_create(const struct lu_env *env, struct mdd_device *mdd,
 		if (rc)
 			return rc;
 	}
-
-	/* XXX: For remote create, it should indicate the remote RPC
-	 * will be sent after local transaction is finished, which
-	 * is not very nice, but it will be removed once we fully support
-	 * async update */
-	if (mdd_object_remote(p) && handle->th_update != NULL)
-		handle->th_update->tu_sent_after_local_trans = 1;
 out:
 	return rc;
 }
@@ -2616,15 +2614,13 @@ static int mdd_declare_rename(const struct lu_env *env,
 	if (rc != 0)
 		return rc;
 
-        /* name from target dir (old name), we declare it unconditionally
-         * as mdd_rename() calls delete unconditionally as well. so just
-         * to balance declarations vs calls to change ... */
-        rc = mdo_declare_index_delete(env, mdd_tpobj, tname->ln_name, handle);
-        if (rc)
-                return rc;
-
         if (mdd_tobj && mdd_object_exists(mdd_tobj)) {
                 /* delete target child in target parent directory */
+		rc = mdo_declare_index_delete(env, mdd_tpobj, tname->ln_name,
+					      handle);
+		if (rc)
+			return rc;
+
                 rc = mdo_declare_ref_del(env, mdd_tobj, handle);
                 if (rc)
                         return rc;
@@ -2764,20 +2760,13 @@ static int mdd_rename(const struct lu_env *env,
                         GOTO(fixup_spobj, rc);
         }
 
-        /* Remove target name from target directory
-         * Here tobj can be remote one, so we do index_delete unconditionally
-         * and -ENOENT is allowed.
-         */
-        rc = __mdd_index_delete(env, mdd_tpobj, tname, is_dir, handle,
-                                mdd_object_capa(env, mdd_tpobj));
-        if (rc != 0) {
-                if (mdd_tobj) {
-                        /* tname might been renamed to something else */
-                        GOTO(fixup_spobj, rc);
-                }
-                if (rc != -ENOENT)
-                        GOTO(fixup_spobj, rc);
-        }
+	if (mdd_tobj != NULL && mdd_object_exists(mdd_tobj)) {
+		rc = __mdd_index_delete(env, mdd_tpobj, tname, is_dir, handle,
+					mdd_object_capa(env, mdd_tpobj));
+		if (rc != 0)
+			/* tname might been renamed to something else */
+			GOTO(fixup_spobj, rc);
+	}
 
         /* Insert new fid with target name into target dir */
 	rc = __mdd_index_insert(env, mdd_tpobj, lf, cattr->la_mode,
@@ -3626,13 +3615,6 @@ static int mdd_migrate_entries(const struct lu_env *env,
 						mdd_object_capa(env, mdd_tobj));
 			if (rc != 0)
 				GOTO(out_put, rc);
-
-			if (is_dir) {
-				rc = mdo_ref_add(env, mdd_tobj, handle);
-				if (rc != 0)
-					GOTO(out_put, rc);
-
-			}
 		}
 
 		rc = __mdd_index_delete(env, mdd_sobj, name, is_dir, handle,
@@ -3746,6 +3728,10 @@ static int mdd_declare_migrate_update_name(const struct lu_env *env,
 	rc = mdo_declare_index_insert(env, mdd_pobj, mdo2fid(mdd_tobj),
 				      mdd_object_type(mdd_tobj),
 				      lname->ln_name, handle);
+	if (rc != 0)
+		return rc;
+
+	rc = mdd_declare_links_add(env, mdd_tobj, handle, NULL, MLAO_IGNORE);
 	if (rc != 0)
 		return rc;
 

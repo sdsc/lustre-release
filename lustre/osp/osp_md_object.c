@@ -56,106 +56,57 @@
 #include <lustre_log.h>
 #include "osp_internal.h"
 
-static const char dot[] = ".";
-static const char dotdot[] = "..";
+#define OUT_UPDATE_BUFFER_SIZE_ADD	4096
+#define OUT_UPDATE_BUFFER_SIZE_MAX	(256 * 4096)  /*  1M update size now */
 
 /**
- * Add OUT_CREATE sub-request into the OUT RPC.
+ * Interpreter call for object creation
  *
- * Note: if the object has already been created, we must add object
- * destroy sub-request ahead of the create, so it will destroy then
- * re-create the object.
+ * Object creation interpreter, which will be called after creating
+ * the remote object to set flags and status.
  *
  * \param[in] env	execution environment
- * \param[in] dt	object to be created
- * \param[in] attr	attribute of the created object
- * \param[in] hint	creation hint
- * \param[in] dof	creation format information
- * \param[in] th	the transaction handle
+ * \param[in] reply	update reply
+ * \param[in] req	ptlrpc update request for creating object
+ * \param[in] obj	object to be created
+ * \param[in] data	data used in this function.
+ * \param[in] index	index(position) of create update in the whole
+ *                      updates
+ * \param[in] rc	update result on the remote MDT.
  *
  * \retval		only return 0 for now
  */
-static int __osp_md_declare_object_create(const struct lu_env *env,
-					  struct dt_object *dt,
-					  struct lu_attr *attr,
-					  struct dt_allocation_hint *hint,
-					  struct dt_object_format *dof,
-					  struct thandle *th)
+static int osp_object_create_interpreter(const struct lu_env *env,
+					 struct object_update_reply *reply,
+					 struct ptlrpc_request *req,
+					 struct osp_object *obj,
+					 void *data, int index, int rc)
 {
-	struct dt_update_request	*update;
-	int				rc;
-
-	update = dt_update_request_find_or_create(th, dt);
-	if (IS_ERR(update)) {
-		CERROR("%s: Get OSP update buf failed: rc = %d\n",
-		       dt->do_lu.lo_dev->ld_obd->obd_name,
-		       (int)PTR_ERR(update));
-		return PTR_ERR(update);
+	if (rc != 0) {
+		obj->opo_obj.do_lu.lo_header->loh_attr &= ~LOHA_EXISTS;
+		obj->opo_non_exist = 0;
+		return rc;
 	}
 
-	if (lu_object_exists(&dt->do_lu)) {
-		/* If the object already exists, we needs to destroy
-		 * this orphan object first.
-		 *
-		 * The scenario might happen in this case
-		 *
-		 * 1. client send remote create to MDT0.
-		 * 2. MDT0 send create update to MDT1.
-		 * 3. MDT1 finished create synchronously.
-		 * 4. MDT0 failed and reboot.
-		 * 5. client resend remote create to MDT0.
-		 * 6. MDT0 tries to resend create update to MDT1,
-		 *    but find the object already exists
-		 */
-		CDEBUG(D_HA, "%s: object "DFID" exists, destroy this orphan\n",
-		       dt->do_lu.lo_dev->ld_obd->obd_name,
-		       PFID(lu_object_fid(&dt->do_lu)));
-
-		rc = out_ref_del_pack(env, &update->dur_buf,
-				      lu_object_fid(&dt->do_lu),
-				      update->dur_batchid);
-		if (rc != 0)
-			GOTO(out, rc);
-
-		if (S_ISDIR(lu_object_attr(&dt->do_lu))) {
-			/* decrease for ".." */
-			rc = out_ref_del_pack(env, &update->dur_buf,
-					      lu_object_fid(&dt->do_lu),
-					      update->dur_batchid);
-			if (rc != 0)
-				GOTO(out, rc);
-		}
-
-		rc = out_object_destroy_pack(env, &update->dur_buf,
-					     lu_object_fid(&dt->do_lu),
-					     update->dur_batchid);
-		if (rc != 0)
-			GOTO(out, rc);
-
-		dt->do_lu.lo_header->loh_attr &= ~LOHA_EXISTS;
-		/* Increase batchid to add this orphan object deletion
-		 * to separate transaction */
-		update_inc_batchid(update);
+	/* Invalid the opo cache for the object after the object
+	 * is being created, so attr_get will try to get attr
+	 * from the remote object. XXX this can be improved when
+	 * we have object lock/cache invalidate mechanism in OSP
+	 * layer */
+	if (obj->opo_ooa != NULL) {
+		spin_lock(&obj->opo_lock);
+		obj->opo_ooa->ooa_attr.la_valid = 0;
+		spin_unlock(&obj->opo_lock);
 	}
 
-	rc = out_create_pack(env, &update->dur_buf,
-			     lu_object_fid(&dt->do_lu), attr, hint, dof,
-			     update->dur_batchid);
-	if (rc != 0)
-		GOTO(out, rc);
-out:
-	if (rc)
-		CERROR("%s: Insert update error: rc = %d\n",
-		       dt->do_lu.lo_dev->ld_obd->obd_name, rc);
-
-	return rc;
+	return 0;
 }
 
 /**
  * Implementation of dt_object_operations::do_declare_create
  *
- * For non-remote transaction, it will add an OUT_CREATE sub-request
- * into the OUT RPC that will be flushed when the transaction start.
+ * Create the dt_update_request to track the update for this OSP
+ * in the transaction.
  *
  * \param[in] env	execution environment
  * \param[in] dt	remote object to be created
@@ -174,28 +125,40 @@ int osp_md_declare_object_create(const struct lu_env *env,
 				 struct dt_object_format *dof,
 				 struct thandle *th)
 {
-	int rc = 0;
+	struct osp_object *obj = dt2osp_obj(dt);
+	int		  rc;
 
-	if (!is_only_remote_trans(th)) {
-		rc = __osp_md_declare_object_create(env, dt, attr, hint,
-						    dof, th);
-
-		CDEBUG(D_INFO, "declare create md_object "DFID": rc = %d\n",
-		       PFID(&dt->do_lu.lo_header->loh_fid), rc);
+	if (obj->opo_ooa == NULL) {
+		rc = osp_oac_init(obj);
+		if (rc != 0)
+			return rc;
 	}
 
-	return rc;
+	return osp_trans_update_request_create(th);
+}
+
+struct object_update *
+update_buffer_get_update(struct object_update_request *request,
+			 int index)
+{
+	void	*ptr;
+	int	i;
+
+	if (index > request->ourq_count)
+		return NULL;
+
+	ptr = &request->ourq_updates[0];
+	for (i = 0; i < index; i++)
+		ptr += object_update_size(ptr);
+
+	return ptr;
 }
 
 /**
  * Implementation of dt_object_operations::do_create
  *
- * For remote transaction, it will add an OUT_CREATE sub-request into
- * the OUT RPC that will be flushed when the transaction stop.
- *
- * It sets necessary flags for created object. In DNE phase I,
- * remote updates are actually executed during transaction start,
- * i.e. the object has already been created when calling this method.
+ * It adds an OUT_CREATE sub-request into the OUT RPC that will be flushed
+ * when the transaction stop, and sets necessary flags for created object.
  *
  * \param[in] env	execution environment
  * \param[in] dt	object to be created
@@ -210,60 +173,39 @@ int osp_md_object_create(const struct lu_env *env, struct dt_object *dt,
 			 struct lu_attr *attr, struct dt_allocation_hint *hint,
 			 struct dt_object_format *dof, struct thandle *th)
 {
-	int rc = 0;
-
-	if (is_only_remote_trans(th)) {
-		rc = __osp_md_declare_object_create(env, dt, attr, hint,
-						    dof, th);
-
-		CDEBUG(D_INFO, "create md_object "DFID": rc = %d\n",
-		       PFID(&dt->do_lu.lo_header->loh_fid), rc);
-	}
-
-	if (rc == 0) {
-		dt->do_lu.lo_header->loh_attr |= LOHA_EXISTS |
-						 (attr->la_mode & S_IFMT);
-		dt2osp_obj(dt)->opo_non_exist = 0;
-	}
-
-	return rc;
-}
-
-/**
- * Add OUT_REF_DEL sub-request into the OUT RPC.
- *
- * \param[in] env	execution environment
- * \param[in] dt	object to decrease the reference count.
- * \param[in] th	the transaction handle of refcount decrease.
- *
- * \retval		0 if the insertion succeeds.
- * \retval		negative errno if the insertion fails.
- */
-static int __osp_md_ref_del(const struct lu_env *env, struct dt_object *dt,
-			    struct thandle *th)
-{
-	struct dt_update_request	*update;
+	struct osp_update_request	*update;
+	struct osp_object		*obj = dt2osp_obj(dt);
 	int				rc;
 
-	update = dt_update_request_find_or_create(th, dt);
-	if (IS_ERR(update)) {
-		CERROR("%s: Get OSP update buf failed: rc = %d\n",
-		       dt->do_lu.lo_dev->ld_obd->obd_name,
-		      (int)PTR_ERR(update));
-		return PTR_ERR(update);
-	}
+	update = thandle_to_osp_update_request(th);
+	LASSERT(update != NULL);
 
-	rc = out_ref_del_pack(env, &update->dur_buf,
-			      lu_object_fid(&dt->do_lu),
-			      update->dur_batchid);
+	osp_update_rpc_pack(env, create, rc, update, OUT_CREATE,
+			    lu_object_fid(&dt->do_lu), attr, hint, dof);
+	if (rc != 0)
+		GOTO(out, rc);
+
+	dt->do_lu.lo_header->loh_attr |= LOHA_EXISTS | (attr->la_mode & S_IFMT);
+	obj->opo_non_exist = 0;
+	rc = osp_insert_update_callback(env, update, dt2osp_obj(dt), attr,
+					osp_object_create_interpreter);
+	if (rc != 0)
+		GOTO(out, rc);
+
+	obj->opo_obj.do_lu.lo_header->loh_attr |=
+			LOHA_EXISTS | (attr->la_mode & S_IFMT);
+
+	LASSERT(obj->opo_ooa != NULL);
+	obj->opo_ooa->ooa_attr = *attr;
+out:
 	return rc;
 }
 
 /**
  * Implementation of dt_object_operations::do_declare_ref_del
  *
- * For non-remote transaction, it will add an OUT_REF_DEL sub-request
- * into the OUT RPC that will be flushed when the transaction start.
+ * Create the dt_update_request to track the update for this OSP
+ * in the transaction.
  *
  * \param[in] env	execution environment
  * \param[in] dt	object to decrease the reference count.
@@ -275,23 +217,14 @@ static int __osp_md_ref_del(const struct lu_env *env, struct dt_object *dt,
 static int osp_md_declare_ref_del(const struct lu_env *env,
 				  struct dt_object *dt, struct thandle *th)
 {
-	int rc = 0;
-
-	if (!is_only_remote_trans(th)) {
-		rc = __osp_md_ref_del(env, dt, th);
-
-		CDEBUG(D_INFO, "declare ref del "DFID": rc = %d\n",
-		       PFID(&dt->do_lu.lo_header->loh_fid), rc);
-	}
-
-	return rc;
+	return osp_trans_update_request_create(th);
 }
 
 /**
  * Implementation of dt_object_operations::do_ref_del
  *
- * For remote transaction, it will add an OUT_REF_DEL sub-request into
- * the OUT RPC that will be flushed when the transaction stop.
+ * Add an OUT_REF_DEL sub-request into the OUT RPC that will be
+ * flushed when the transaction stop.
  *
  * \param[in] env	execution environment
  * \param[in] dt	object to decrease the reference count
@@ -302,45 +235,19 @@ static int osp_md_declare_ref_del(const struct lu_env *env,
 static int osp_md_ref_del(const struct lu_env *env, struct dt_object *dt,
 			  struct thandle *th)
 {
-	int rc = 0;
-
-	if (is_only_remote_trans(th)) {
-		rc = __osp_md_ref_del(env, dt, th);
-
-		CDEBUG(D_INFO, "ref del "DFID": rc = %d\n",
-		       PFID(&dt->do_lu.lo_header->loh_fid), rc);
-	}
-
-	return rc;
-}
-
-/**
- * Add OUT_REF_ADD sub-request into the OUT RPC.
- *
- * \param[in] env	execution environment
- * \param[in] dt	object on which to increase the reference count.
- * \param[in] th	the transaction handle.
- *
- * \retval		0 if the insertion succeeds.
- * \retval		negative errno if the insertion fails.
- */
-static int __osp_md_ref_add(const struct lu_env *env, struct dt_object *dt,
-			    struct thandle *th)
-{
-	struct dt_update_request	*update;
+	struct osp_update_request	*update;
 	int				rc;
 
-	update = dt_update_request_find_or_create(th, dt);
-	if (IS_ERR(update)) {
-		CERROR("%s: Get OSP update buf failed: rc = %d\n",
-		       dt->do_lu.lo_dev->ld_obd->obd_name,
-		       (int)PTR_ERR(update));
-		return PTR_ERR(update);
-	}
+	update = thandle_to_osp_update_request(th);
+	LASSERT(update != NULL);
 
-	rc = out_ref_add_pack(env, &update->dur_buf,
-			      lu_object_fid(&dt->do_lu),
-			      update->dur_batchid);
+	osp_update_rpc_pack(env, ref_del, rc, update,
+			    OUT_REF_DEL, lu_object_fid(&dt->do_lu));
+	if (rc != 0)
+		return rc;
+
+	rc = osp_insert_update_callback(env, update, dt2osp_obj(dt), NULL,
+					NULL);
 
 	return rc;
 }
@@ -348,8 +255,8 @@ static int __osp_md_ref_add(const struct lu_env *env, struct dt_object *dt,
 /**
  * Implementation of dt_object_operations::do_declare_ref_del
  *
- * For non-remote transaction, it will add an OUT_REF_ADD sub-request
- * into the OUT RPC that will be flushed when the transaction start.
+ * Create the dt_update_request to track the update for this OSP
+ * in the transaction.
  *
  * \param[in] env	execution environment
  * \param[in] dt	object on which to increase the reference count.
@@ -361,23 +268,14 @@ static int __osp_md_ref_add(const struct lu_env *env, struct dt_object *dt,
 static int osp_md_declare_ref_add(const struct lu_env *env,
 				  struct dt_object *dt, struct thandle *th)
 {
-	int rc = 0;
-
-	if (!is_only_remote_trans(th)) {
-		rc = __osp_md_ref_add(env, dt, th);
-
-		CDEBUG(D_INFO, "declare ref add "DFID": rc = %d\n",
-		       PFID(&dt->do_lu.lo_header->loh_fid), rc);
-	}
-
-	return rc;
+	return osp_trans_update_request_create(th);
 }
 
 /**
  * Implementation of dt_object_operations::do_ref_add
  *
- * For remote transaction, it will add an OUT_REF_ADD sub-request into
- * the OUT RPC that will be flushed when the transaction stop.
+ * Add an OUT_REF_ADD sub-request into the OUT RPC that will be flushed
+ * when the transaction stop.
  *
  * \param[in] env	execution environment
  * \param[in] dt	object on which to increase the reference count
@@ -388,15 +286,19 @@ static int osp_md_declare_ref_add(const struct lu_env *env,
 static int osp_md_ref_add(const struct lu_env *env, struct dt_object *dt,
 			  struct thandle *th)
 {
-	int rc = 0;
+	struct osp_update_request	*update;
+	int				rc;
 
-	if (is_only_remote_trans(th)) {
-		rc = __osp_md_ref_add(env, dt, th);
+	update = thandle_to_osp_update_request(th);
+	LASSERT(update != NULL);
 
-		CDEBUG(D_INFO, "ref add "DFID": rc = %d\n",
-		       PFID(&dt->do_lu.lo_header->loh_fid), rc);
-	}
+	osp_update_rpc_pack(env, ref_add, rc, update,
+			    OUT_REF_ADD, lu_object_fid(&dt->do_lu));
+	if (rc != 0)
+		return rc;
 
+	rc = osp_insert_update_callback(env, update, dt2osp_obj(dt), NULL,
+					NULL);
 	return rc;
 }
 
@@ -427,44 +329,10 @@ static void osp_md_ah_init(const struct lu_env *env,
 }
 
 /**
- * Add OUT_ATTR_SET sub-request into the OUT RPC.
- *
- * \param[in] env	execution environment
- * \param[in] dt	object on which to set attributes
- * \param[in] attr	attributes to be set
- * \param[in] th	the transaction handle
- *
- * \retval		0 if the insertion succeeds.
- * \retval		negative errno if the insertion fails.
- */
-int __osp_md_attr_set(const struct lu_env *env, struct dt_object *dt,
-		      const struct lu_attr *attr, struct thandle *th)
-{
-	struct dt_update_request	*update;
-	int				rc;
-
-	update = dt_update_request_find_or_create(th, dt);
-	if (IS_ERR(update)) {
-		CERROR("%s: Get OSP update buf failed: %d\n",
-		       dt->do_lu.lo_dev->ld_obd->obd_name,
-		       (int)PTR_ERR(update));
-		return PTR_ERR(update);
-	}
-
-	rc = out_attr_set_pack(env, &update->dur_buf,
-			       lu_object_fid(&dt->do_lu), attr,
-			       update->dur_batchid);
-
-	return rc;
-}
-
-/**
  * Implementation of dt_object_operations::do_declare_attr_get
  *
- * Declare setting attributes to the specified remote object.
- *
- * If the transaction is a non-remote transaction, then add the OUT_ATTR_SET
- * sub-request into the OUT RPC that will be flushed when the transaction start.
+ * Create the dt_update_request to track the update for this OSP
+ * in the transaction.
  *
  * \param[in] env	execution environment
  * \param[in] dt	object on which to set attributes
@@ -477,16 +345,7 @@ int __osp_md_attr_set(const struct lu_env *env, struct dt_object *dt,
 int osp_md_declare_attr_set(const struct lu_env *env, struct dt_object *dt,
 			    const struct lu_attr *attr, struct thandle *th)
 {
-	int rc = 0;
-
-	if (!is_only_remote_trans(th)) {
-		rc = __osp_md_attr_set(env, dt, attr, th);
-
-		CDEBUG(D_INFO, "declare attr set md_object "DFID": rc = %d\n",
-		       PFID(&dt->do_lu.lo_header->loh_fid), rc);
-	}
-
-	return rc;
+	return osp_trans_update_request_create(th);
 }
 
 /**
@@ -494,8 +353,8 @@ int osp_md_declare_attr_set(const struct lu_env *env, struct dt_object *dt,
  *
  * Set attributes to the specified remote object.
  *
- * If the transaction is a remote transaction, then add the OUT_ATTR_SET
- * sub-request into the OUT RPC that will be flushed when the transaction stop.
+ * Add the OUT_ATTR_SET sub-request into the OUT RPC that will be flushed
+ * when the transaction stop.
  *
  * \param[in] env	execution environment
  * \param[in] dt	object to set attributes
@@ -509,15 +368,19 @@ int osp_md_attr_set(const struct lu_env *env, struct dt_object *dt,
 		    const struct lu_attr *attr, struct thandle *th,
 		    struct lustre_capa *capa)
 {
-	int rc = 0;
+	struct osp_update_request	*update;
+	int				rc;
 
-	if (is_only_remote_trans(th)) {
-		rc = __osp_md_attr_set(env, dt, attr, th);
+	update = thandle_to_osp_update_request(th);
+	LASSERT(update != NULL);
 
-		CDEBUG(D_INFO, "attr set md_object "DFID": rc = %d\n",
-		       PFID(&dt->do_lu.lo_header->loh_fid), rc);
-	}
+	osp_update_rpc_pack(env, attr_set, rc, update, OUT_ATTR_SET,
+			    lu_object_fid(&dt->do_lu), attr);
+	if (rc != 0)
+		return rc;
 
+	rc = osp_insert_update_callback(env, update, dt2osp_obj(dt), NULL,
+					NULL);
 	return rc;
 }
 
@@ -636,7 +499,7 @@ static int osp_md_index_lookup(const struct lu_env *env, struct dt_object *dt,
 	struct lu_buf		*lbuf	= &osp_env_info(env)->osi_lb2;
 	struct osp_device	*osp	= lu2osp_dev(dt->do_lu.lo_dev);
 	struct dt_device	*dt_dev	= &osp->opd_dt_dev;
-	struct dt_update_request   *update;
+	struct osp_update_request   *update;
 	struct object_update_reply *reply;
 	struct ptlrpc_request	   *req = NULL;
 	struct lu_fid		   *fid;
@@ -647,19 +510,20 @@ static int osp_md_index_lookup(const struct lu_env *env, struct dt_object *dt,
 	 * just create an update buffer, instead of attaching the
 	 * update_remote list of the thandle.
 	 */
-	update = dt_update_request_create(dt_dev);
+	update = osp_update_request_create(dt_dev);
 	if (IS_ERR(update))
 		RETURN(PTR_ERR(update));
 
-	rc = out_index_lookup_pack(env, &update->dur_buf,
-				   lu_object_fid(&dt->do_lu), rec, key);
+	osp_update_rpc_pack(env, index_lookup, rc, update,
+			    OUT_INDEX_LOOKUP, lu_object_fid(&dt->do_lu),
+			    rec, key);
 	if (rc != 0) {
 		CERROR("%s: Insert update error: rc = %d\n",
 		       dt_dev->dd_lu_dev.ld_obd->obd_name, rc);
 		GOTO(out, rc);
 	}
 
-	rc = out_remote_sync(env, osp->opd_obd->u.cli.cl_import, update, &req);
+	rc = osp_remote_sync(env, osp->opd_obd->u.cli.cl_import, update, &req);
 	if (rc < 0)
 		GOTO(out, rc);
 
@@ -703,51 +567,16 @@ out:
 	if (req != NULL)
 		ptlrpc_req_finished(req);
 
-	dt_update_request_destroy(update);
+	osp_update_request_destroy(update);
 
-	return rc;
-}
-
-/**
- * Add OUT_INDEX_INSERT sub-request into the OUT RPC.
- *
- * \param[in] env	execution environment
- * \param[in] dt	object for which to insert index
- * \param[in] rec	record of the index which will be inserted
- * \param[in] key	key of the index which will be inserted
- * \param[in] th	the transaction handle
- *
- * \retval		0 if the insertion succeeds.
- * \retval		negative errno if the insertion fails.
- */
-static int __osp_md_index_insert(const struct lu_env *env,
-				 struct dt_object *dt,
-				 const struct dt_rec *rec,
-				 const struct dt_key *key,
-				 struct thandle *th)
-{
-	struct dt_update_request *update;
-	int			 rc;
-
-	update = dt_update_request_find_or_create(th, dt);
-	if (IS_ERR(update)) {
-		CERROR("%s: Get OSP update buf failed: rc = %d\n",
-		       dt->do_lu.lo_dev->ld_obd->obd_name,
-		       (int)PTR_ERR(update));
-		return PTR_ERR(update);
-	}
-
-	rc = out_index_insert_pack(env, &update->dur_buf,
-				   lu_object_fid(&dt->do_lu), rec, key,
-				   update->dur_batchid);
 	return rc;
 }
 
 /**
  * Implementation of dt_index_operations::dio_declare_insert
  *
- * For non-remote transaction, it will add an OUT_INDEX_INSERT sub-request
- * into the OUT RPC that will be flushed when the transaction start.
+ * Create the dt_update_request to track the update for this OSP
+ * in the transaction.
  *
  * \param[in] env	execution environment
  * \param[in] dt	object for which to insert index
@@ -764,25 +593,14 @@ static int osp_md_declare_index_insert(const struct lu_env *env,
 				       const struct dt_key *key,
 				       struct thandle *th)
 {
-	int rc = 0;
-
-	if (!is_only_remote_trans(th)) {
-		rc = __osp_md_index_insert(env, dt, rec, key, th);
-
-		CDEBUG(D_INFO, "declare index insert "DFID" key %s, rec "DFID
-		       ": rc = %d\n", PFID(&dt->do_lu.lo_header->loh_fid),
-		       (char *)key,
-		       PFID(((struct dt_insert_rec *)rec)->rec_fid), rc);
-	}
-
-	return rc;
+	return osp_trans_update_request_create(th);
 }
 
 /**
  * Implementation of dt_index_operations::dio_insert
  *
- * For remote transaction, it will add an OUT_INDEX_INSERT sub-request
- * into the OUT RPC that will be flushed when the transaction stop.
+ * Add an OUT_INDEX_INSERT sub-request into the OUT RPC that will
+ * be flushed when the transaction stop.
  *
  * \param[in] env	execution environment
  * \param[in] dt	object for which to insert index
@@ -802,58 +620,28 @@ static int osp_md_index_insert(const struct lu_env *env,
 			       struct lustre_capa *capa,
 			       int ignore_quota)
 {
-	int rc = 0;
-
-	if (is_only_remote_trans(th)) {
-		rc = __osp_md_index_insert(env, dt, rec, key, th);
-
-		CDEBUG(D_INFO, "index insert "DFID" key %s, rec "DFID
-		       ": rc = %d\n", PFID(&dt->do_lu.lo_header->loh_fid),
-		       (char *)key,
-		       PFID(((struct dt_insert_rec *)rec)->rec_fid), rc);
-	}
-
-	return rc;
-}
-
-/**
- * Add OUT_INDEX_DELETE sub-request into the OUT RPC.
- *
- * \param[in] env	execution environment
- * \param[in] dt	object for which to delete index
- * \param[in] key	key of the index
- * \param[in] th	the transaction handle
- *
- * \retval		0 if the insertion succeeds.
- * \retval		negative errno if the insertion fails.
- */
-static int __osp_md_index_delete(const struct lu_env *env,
-				 struct dt_object *dt,
-				 const struct dt_key *key,
-				 struct thandle *th)
-{
-	struct dt_update_request *update;
+	struct osp_update_request *update;
 	int			 rc;
 
-	update = dt_update_request_find_or_create(th, dt);
-	if (IS_ERR(update)) {
-		CERROR("%s: Get OSP update buf failed: rc = %d\n",
-		       dt->do_lu.lo_dev->ld_obd->obd_name,
-		       (int)PTR_ERR(update));
-		return PTR_ERR(update);
-	}
+	update = thandle_to_osp_update_request(th);
+	LASSERT(update != NULL);
 
-	rc = out_index_delete_pack(env, &update->dur_buf,
-				   lu_object_fid(&dt->do_lu), key,
-				   update->dur_batchid);
+	osp_update_rpc_pack(env, index_insert, rc, update,
+			    OUT_INDEX_INSERT, lu_object_fid(&dt->do_lu),
+			    rec, key);
+	if (rc != 0)
+		return rc;
+
+	rc = osp_insert_update_callback(env, update, dt2osp_obj(dt), NULL,
+					NULL);
 	return rc;
 }
 
 /**
  * Implementation of dt_index_operations::dio_declare_delete
  *
- * For non-remote transaction, it will add an OUT_INDEX_DELETE sub-request
- * into the OUT RPC that will be flushed when the transaction start.
+ * Create the dt_update_request to track the update for this OSP
+ * in the transaction.
  *
  * \param[in] env	execution environment
  * \param[in] dt	object for which to delete index
@@ -868,23 +656,14 @@ static int osp_md_declare_index_delete(const struct lu_env *env,
 				       const struct dt_key *key,
 				       struct thandle *th)
 {
-	int rc = 0;
-
-	if (!is_only_remote_trans(th)) {
-		rc = __osp_md_index_delete(env, dt, key, th);
-
-		CDEBUG(D_INFO, "declare index delete "DFID" %s: rc = %d\n",
-		       PFID(&dt->do_lu.lo_header->loh_fid), (char *)key, rc);
-	}
-
-	return rc;
+	return osp_trans_update_request_create(th);
 }
 
 /**
  * Implementation of dt_index_operations::dio_delete
  *
- * For remote transaction, it will add an OUT_INDEX_DELETE sub-request
- * into the OUT RPC that will be flushed when the transaction stop.
+ * Add an OUT_INDEX_DELETE sub-request into the OUT RPC that will
+ * be flushed when the transaction stop.
  *
  * \param[in] env	execution environment
  * \param[in] dt	object for which to delete index
@@ -900,15 +679,19 @@ static int osp_md_index_delete(const struct lu_env *env,
 			       struct thandle *th,
 			       struct lustre_capa *capa)
 {
-	int rc = 0;
+	struct osp_update_request *update;
+	int			 rc;
 
-	if (is_only_remote_trans(th)) {
-		rc = __osp_md_index_delete(env, dt, key, th);
+	update = thandle_to_osp_update_request(th);
+	LASSERT(update != NULL);
 
-		CDEBUG(D_INFO, "index delete "DFID" %s: rc = %d\n",
-		       PFID(&dt->do_lu.lo_header->loh_fid), (char *)key, rc);
-	}
+	osp_update_rpc_pack(env, index_delete, rc, update,
+			    OUT_INDEX_DELETE, lu_object_fid(&dt->do_lu), key);
+	if (rc != 0)
+		return rc;
 
+	rc = osp_insert_update_callback(env, update, dt2osp_obj(dt), NULL,
+					NULL);
 	return rc;
 }
 
@@ -1149,6 +932,7 @@ static int osp_md_object_lock(const struct lu_env *env,
 	if (IS_ERR(req))
 		RETURN(PTR_ERR(req));
 
+	req->rq_allow_replay = 1;
 	rc = ldlm_cli_enqueue(osp->opd_exp, &req, einfo, res_id,
 			      (const ldlm_policy_data_t *)policy,
 			      &flags, NULL, 0, LVB_T_NONE, lh, 0);
@@ -1214,9 +998,9 @@ struct dt_object_operations osp_md_obj_ops = {
 /**
  * Implementation of dt_body_operations::dbo_declare_write
  *
- * Declare an object write. In DNE phase I, it will pack the write
- * object update into the RPC.
- *
+ * Create the dt_update_request to track the update for this OSP
+ * in the transaction.
+  *
  * \param[in] env	execution environment
  * \param[in] dt	object to be written
  * \param[in] buf	buffer to write which includes an embedded size field
@@ -1231,30 +1015,29 @@ static ssize_t osp_md_declare_write(const struct lu_env *env,
 				    const struct lu_buf *buf,
 				    loff_t pos, struct thandle *th)
 {
-	struct dt_update_request  *update;
-	ssize_t			  rc;
+	return osp_trans_update_request_create(th);
+}
 
-	update = dt_update_request_find_or_create(th, dt);
-	if (IS_ERR(update)) {
-		CERROR("%s: Get OSP update buf failed: rc = %d\n",
-		       dt->do_lu.lo_dev->ld_obd->obd_name,
-		       (int)PTR_ERR(update));
-		return PTR_ERR(update);
+static int osp_object_write_interpterer(const struct lu_env *env,
+					struct object_update_reply *reply,
+					struct ptlrpc_request *req,
+					struct osp_object *obj,
+					void *data, int index, int rc)
+{
+	if (obj->opo_ooa != NULL) {
+		spin_lock(&obj->opo_lock);
+		obj->opo_ooa->ooa_attr.la_valid = 0;
+		spin_unlock(&obj->opo_lock);
 	}
 
-	rc = out_write_pack(env, &update->dur_buf, lu_object_fid(&dt->do_lu),
-			    buf, pos, update->dur_batchid);
-
-	return rc;
-
+	return 0;
 }
 
 /**
  * Implementation of dt_body_operations::dbo_write
  *
- * Return the buffer size. In DNE phase I, remote updates
- * are actually executed during transaction start, the buffer has
- * already been written when this method is being called.
+ * Pack the write object update into the RPC buffer, which will be sent
+ * to the remote MDT during transaction stop.
  *
  * \param[in] env	execution environment
  * \param[in] dt	object to be written
@@ -1268,15 +1051,121 @@ static ssize_t osp_md_declare_write(const struct lu_env *env,
  */
 static ssize_t osp_md_write(const struct lu_env *env, struct dt_object *dt,
 			    const struct lu_buf *buf, loff_t *pos,
-			    struct thandle *handle,
-			    struct lustre_capa *capa, int ignore_quota)
+			    struct thandle *th, struct lustre_capa *capa,
+			    int ignore_quota)
 {
+	struct osp_object	  *obj = dt2osp_obj(dt);
+	struct osp_update_request  *update;
+	struct osp_thandle	  *oth = thandle_to_osp_thandle(th);
+	ssize_t			  rc;
+	ENTRY;
+
+	update = thandle_to_osp_update_request(th);
+	LASSERT(update != NULL);
+
+	osp_update_rpc_pack(env, write, rc, update,
+			    OUT_WRITE, lu_object_fid(&dt->do_lu),
+			    buf, *pos);
+	if (rc < 0)
+		RETURN(rc);
+
+	rc = osp_insert_update_callback(env, update, obj, NULL,
+					osp_object_write_interpterer);
+	if (rc < 0)
+		RETURN(rc);
+
+	CDEBUG(D_INFO, "write "DFID" offset = "LPU64" length = %zu\n",
+	       PFID(lu_object_fid(&dt->do_lu)), *pos, buf->lb_len);
+
+	/* XXX: how about the write error happened later? */
 	*pos += buf->lb_len;
-	return buf->lb_len;
+	/* Update size if the osp attr is cached. Note: it is only for current
+	 * transaction, and the cache will be invalid after the current
+	 * transaction, see osp_object_write_interpterer().*/
+	if (obj->opo_ooa != NULL &&
+	    obj->opo_ooa->ooa_attr.la_valid & LA_SIZE &&
+	    obj->opo_ooa->ooa_attr.la_size < *pos)
+		obj->opo_ooa->ooa_attr.la_size = *pos;
+
+	osp_check_and_set_rpc_version(oth);
+
+	RETURN(buf->lb_len);
+}
+
+static ssize_t osp_md_read(const struct lu_env *env, struct dt_object *dt,
+			   struct lu_buf *rbuf, loff_t *pos,
+			   struct lustre_capa *capa)
+{
+	struct osp_device	*osp	= lu2osp_dev(dt->do_lu.lo_dev);
+	struct dt_device	*dt_dev	= &osp->opd_dt_dev;
+	struct lu_buf		*lbuf	= &osp_env_info(env)->osi_lb2;
+	struct osp_update_request   *update;
+	struct object_update_reply *reply;
+	struct ptlrpc_request	   *req = NULL;
+	int			   rc;
+	ENTRY;
+
+	/* Because it needs send the update buffer right away,
+	 * just create an update buffer, instead of attaching the
+	 * update_remote list of the thandle.
+	 */
+	update = osp_update_request_create(dt_dev);
+	if (IS_ERR(update))
+		RETURN(PTR_ERR(update));
+
+	osp_update_rpc_pack(env, read, rc, update, OUT_READ,
+			    lu_object_fid(&dt->do_lu), rbuf->lb_len, *pos);
+	if (rc != 0) {
+		CERROR("%s: cannot insert update: rc = %d\n",
+		       dt_dev->dd_lu_dev.ld_obd->obd_name, rc);
+		GOTO(out, rc);
+	}
+
+	rc = osp_remote_sync(env, osp->opd_obd->u.cli.cl_import, update, &req);
+	if (rc < 0)
+		GOTO(out, rc);
+
+	reply = req_capsule_server_sized_get(&req->rq_pill,
+					     &RMF_OUT_UPDATE_REPLY,
+					     OUT_UPDATE_REPLY_SIZE);
+	if (reply->ourp_magic != UPDATE_REPLY_MAGIC) {
+		CERROR("%s: invalid update reply magic %x expected %x:"
+		       " rc = %d\n", dt_dev->dd_lu_dev.ld_obd->obd_name,
+		       reply->ourp_magic, UPDATE_REPLY_MAGIC, -EPROTO);
+		GOTO(out, rc = -EPROTO);
+	}
+
+	rc = object_update_result_data_get(reply, lbuf, 0);
+	if (rc < 0)
+		GOTO(out, rc);
+
+	if (lbuf->lb_len < sizeof(*pos))
+		GOTO(out, rc = -EPROTO);
+
+	*pos = *((loff_t *)lbuf->lb_buf);
+	*pos = le64_to_cpu(*pos);
+
+	lbuf->lb_buf = (char *)lbuf->lb_buf + sizeof(*pos);
+	lbuf->lb_len = lbuf->lb_len - sizeof(*pos);
+
+	memcpy(rbuf->lb_buf, lbuf->lb_buf, lbuf->lb_len);
+
+	CDEBUG(D_INFO, "%s: read "DFID" pos "LPU64" len %d\n",
+	       osp->opd_obd->obd_name, PFID(lu_object_fid(&dt->do_lu)),
+	       *pos, (int)lbuf->lb_len);
+	GOTO(out, rc = lbuf->lb_len);
+out:
+	if (req != NULL)
+		ptlrpc_req_finished(req);
+
+	osp_update_request_destroy(update);
+
+	return rc;
 }
 
 /* These body operation will be used to write symlinks during migration etc */
 struct dt_body_operations osp_md_body_ops = {
 	.dbo_declare_write	= osp_md_declare_write,
 	.dbo_write		= osp_md_write,
+	.dbo_read		= osp_md_read,
 };

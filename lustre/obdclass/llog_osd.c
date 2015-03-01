@@ -516,12 +516,24 @@ static int llog_osd_write_rec(const struct lu_env *env,
 		LBUG(); /* should never happen */
 	}
 	llh->llh_count++;
-	spin_unlock(&loghandle->lgh_hdr_lock);
+
+	/* XXX It is a bit tricky here, if the log object is local,
+	 * we do not need lock during write here, because if there is
+	 * race, the transaction(jbd2, what about ZFS?) will make sure the
+	 * conflicts will all committed in the same transaction group.
+	 * But for remote object, we need lock the whole process, so to
+	 * set the version of the remote transaction to make sure they
+	 * are being sent in order. (see osp_md_write()) */
+	if (!dt_object_remote(o))
+		spin_unlock(&loghandle->lgh_hdr_lock);
 
 	lgi->lgi_off = 0;
 	lgi->lgi_buf.lb_len = llh->llh_hdr.lrh_len;
 	lgi->lgi_buf.lb_buf = &llh->llh_hdr;
 	rc = dt_record_write(env, o, &lgi->lgi_buf, &lgi->lgi_off, th);
+	/* unlock here for remote object */
+	if (dt_object_remote(o))
+		spin_unlock(&loghandle->lgh_hdr_lock);
 	if (rc)
 		GOTO(out, rc);
 
@@ -531,7 +543,7 @@ static int llog_osd_write_rec(const struct lu_env *env,
 		GOTO(out, rc);
 
 	LASSERT(lgi->lgi_attr.la_valid & LA_SIZE);
-	lgi->lgi_off = lgi->lgi_attr.la_size;
+	lgi->lgi_off = max_t(__u64, lgi->lgi_attr.la_size, (__u64)lgi->lgi_off);
 	lgi->lgi_buf.lb_len = reclen;
 	lgi->lgi_buf.lb_buf = rec;
 	rc = dt_record_write(env, o, &lgi->lgi_buf, &lgi->lgi_off, th);
@@ -668,7 +680,13 @@ static int llog_osd_next_block(const struct lu_env *env,
 	if (rc)
 		GOTO(out, rc);
 
-	while (*cur_offset < lgi->lgi_attr.la_size) {
+	/* Reach the end of the file */
+	if (*cur_offset == lgi->lgi_attr.la_size) {
+		*cur_idx = loghandle->lgh_last_idx + 1;
+		GOTO(out, rc = 0);
+	}
+
+	while (*cur_offset <= lgi->lgi_attr.la_size) {
 		struct llog_rec_hdr	*rec, *last_rec;
 		struct llog_rec_tail	*tail;
 
@@ -947,7 +965,7 @@ static int llog_osd_open(const struct lu_env *env, struct llog_handle *handle,
 	struct dt_object		*o;
 	struct dt_device		*dt;
 	struct ls_device		*ls;
-	struct local_oid_storage	*los;
+	struct local_oid_storage	*los = NULL;
 	int				 rc = 0;
 
 	ENTRY;
@@ -958,6 +976,23 @@ static int llog_osd_open(const struct lu_env *env, struct llog_handle *handle,
 	LASSERT(ctxt->loc_exp->exp_obd);
 	dt = ctxt->loc_exp->exp_obd->obd_lvfs_ctxt.dt;
 	LASSERT(dt);
+	if (ctxt->loc_flags & LLOG_CTXT_FLAG_NORMAL_FID) {
+		if (logid != NULL) {
+			logid_to_fid(logid, &lgi->lgi_fid);
+		} else {
+			rc = obd_fid_alloc(env, ctxt->loc_exp,
+					   &lgi->lgi_fid, NULL);
+			if (rc < 0)
+				RETURN(rc);
+			rc = 0;
+		}
+
+		o = dt_locate(env, dt, &lgi->lgi_fid);
+		if (IS_ERR(o))
+			RETURN(PTR_ERR(o));
+
+		goto after_open;
+	}
 
 	ls = ls_device_get(dt);
 	if (IS_ERR(ls))
@@ -1007,6 +1042,7 @@ static int llog_osd_open(const struct lu_env *env, struct llog_handle *handle,
 	if (IS_ERR(o))
 		GOTO(out_name, rc = PTR_ERR(o));
 
+after_open:
 	/* No new llog is expected but doesn't exist */
 	if (open_param != LLOG_OPEN_NEW && !dt_object_exists(o))
 		GOTO(out_put, rc = -ENOENT);
@@ -1024,7 +1060,8 @@ out_name:
 	if (handle->lgh_name != NULL)
 		OBD_FREE(handle->lgh_name, strlen(name) + 1);
 out:
-	dt_los_put(los);
+	if (los != NULL)
+		dt_los_put(los);
 	RETURN(rc);
 }
 
@@ -1044,6 +1081,103 @@ static int llog_osd_exist(struct llog_handle *handle)
 	return (dt_object_exists(handle->lgh_obj) &&
 		!lu_object_is_dying(handle->lgh_obj->do_lu.lo_header));
 }
+
+/**
+ * Get dir for regular fid log object
+ *
+ * Get directory for regular fid log object, and these regular fid log
+ * object will be inserted under this directory, to satisfy the FS
+ * consistency check, e2fsck etc.
+ *
+ * \param [in] env	execution environment
+ * \param [in] dto	llog object
+ *
+ * \retval		pointer to the directory if it is found.
+ * \retval		ERR_PTR(negative errno) if it fails.
+ */
+struct dt_object *llog_osd_get_regular_fid_dir(const struct lu_env *env,
+					       struct dt_object *dto)
+{
+	struct llog_thread_info *lgi = llog_info(env);
+	struct seq_server_site *ss = dto->do_lu.lo_dev->ld_site->ld_seq_site;
+	struct lu_seq_range	*range = &lgi->lgi_range;
+	struct lu_fid		*dir_fid = &lgi->lgi_fid;
+	struct dt_object	*dir;
+	int			rc;
+	ENTRY;
+
+	fld_range_set_any(range);
+	LASSERT(ss != NULL);
+	rc = ss->ss_server_fld->lsf_seq_lookup(env, ss->ss_server_fld,
+				   fid_seq(lu_object_fid(&dto->do_lu)), range);
+	if (rc < 0)
+		RETURN(ERR_PTR(rc));
+
+	lu_update_log_dir_fid(dir_fid, range->lsr_index);
+	dir = dt_locate(env, lu2dt_dev(dto->do_lu.lo_dev), dir_fid);
+	if (IS_ERR(dir))
+		RETURN(dir);
+
+	if (!dt_try_as_dir(env, dir)) {
+		lu_object_put(env, &dir->do_lu);
+		RETURN(ERR_PTR(-ENOTDIR));
+	}
+
+	RETURN(dir);
+}
+
+/**
+ * Add llog object with regular FID to name entry
+ *
+ * Add llog object with regular FID to name space (under update_log_dir),
+ * so to satisfy the namespace consistency check, e2fsck etc.
+ *
+ * \param [in] env	execution environment
+ * \param [in] dto	llog object
+ * \param [in] th	thandle
+ * \param [in] declare	if it is declare or execution
+ *
+ * \retval		0 if insertion succeeds.
+ * \retval		negative errno if insertion fails.
+ */
+static int
+llog_osd_regular_fid_add_name_entry(const struct lu_env *env,
+				    struct dt_object *dto,
+				    struct thandle *th, bool declare)
+{
+	struct llog_thread_info *lgi = llog_info(env);
+	const struct lu_fid	*fid = lu_object_fid(&dto->do_lu);
+	struct dt_insert_rec	*rec = &lgi->lgi_dt_rec;
+	struct dt_object	*dir;
+	char			*name = lgi->lgi_name;
+	int			rc;
+	ENTRY;
+
+	if (!fid_is_norm(fid))
+		RETURN(0);
+
+	dir = llog_osd_get_regular_fid_dir(env, dto);
+	if (IS_ERR(dir))
+		RETURN(PTR_ERR(dir));
+
+	rec->rec_fid = fid;
+	rec->rec_type = S_IFREG;
+	snprintf(name, sizeof(lgi->lgi_name), DFID, PFID(fid));
+	dt_write_lock(env, dir, 0);
+	if (declare) {
+		rc = dt_declare_insert(env, dir, (struct dt_rec *)rec,
+			       (struct dt_key *)name, th);
+	} else {
+		rc = dt_insert(env, dir, (struct dt_rec *)rec,
+			       (struct dt_key *)name,
+			       th, BYPASS_CAPA, 1);
+	}
+	dt_write_unlock(env, dir);
+
+	lu_object_put(env, &dir->do_lu);
+	RETURN(rc);
+}
+
 
 /**
  * Implementation of the llog_operations::lop_declare_create
@@ -1077,6 +1211,24 @@ static int llog_osd_declare_create(const struct lu_env *env,
 	if (dt_object_exists(o))
 		RETURN(0);
 
+	if (res->lgh_ctxt->loc_flags & LLOG_CTXT_FLAG_NORMAL_FID) {
+		struct llog_thread_info *lgi = llog_info(env);
+
+		lgi->lgi_attr.la_valid = LA_MODE | LA_SIZE;
+		lgi->lgi_attr.la_size = 0;
+		lgi->lgi_attr.la_mode = S_IFREG | S_IRUGO | S_IWUSR;
+		lgi->lgi_dof.dof_type = dt_mode_to_dft(S_IFREG);
+
+		rc = dt_declare_create(env, o, &lgi->lgi_attr, NULL,
+				       &lgi->lgi_dof, th);
+		if (rc < 0)
+			RETURN(rc);
+
+
+		rc = llog_osd_regular_fid_add_name_entry(env, o, th, true);
+
+		RETURN(rc);
+	}
 	los = res->private_data;
 	LASSERT(los);
 
@@ -1140,6 +1292,26 @@ static int llog_osd_create(const struct lu_env *env, struct llog_handle *res,
 	if (dt_object_exists(o))
 		RETURN(-EEXIST);
 
+	if (res->lgh_ctxt->loc_flags & LLOG_CTXT_FLAG_NORMAL_FID) {
+		struct llog_thread_info *lgi = llog_info(env);
+
+		lgi->lgi_attr.la_valid = LA_TYPE | LA_MODE | LA_SIZE;
+		lgi->lgi_attr.la_size = 0;
+		lgi->lgi_attr.la_mode = S_IFREG | S_IRUGO | S_IWUSR;
+		lgi->lgi_dof.dof_type = dt_mode_to_dft(S_IFREG);
+
+		dt_write_lock(env, o, 0);
+		rc = dt_create(env, o, &lgi->lgi_attr, NULL,
+			       &lgi->lgi_dof, th);
+		dt_write_unlock(env, o);
+		if (rc < 0)
+			RETURN(rc);
+
+		rc = llog_osd_regular_fid_add_name_entry(env, o, th, false);
+
+		RETURN(rc);
+	}
+
 	los = res->private_data;
 	LASSERT(los);
 
@@ -1198,8 +1370,15 @@ static int llog_osd_close(const struct lu_env *env, struct llog_handle *handle)
 
 	LASSERT(handle->lgh_obj);
 
-	lu_object_put(env, &handle->lgh_obj->do_lu);
-
+	if (handle->lgh_ctxt->loc_flags & LLOG_CTXT_FLAG_NORMAL_FID) {
+		/* Remove the object from the cache, otherwise it may
+		 * hold LOD being released during cleanup process */
+		lu_object_put_nocache(env, &handle->lgh_obj->do_lu);
+		LASSERT(handle->private_data == NULL);
+		RETURN(rc);
+	} else {
+		lu_object_put(env, &handle->lgh_obj->do_lu);
+	}
 	los = handle->private_data;
 	LASSERT(los);
 	dt_los_put(los);
@@ -1209,6 +1388,55 @@ static int llog_osd_close(const struct lu_env *env, struct llog_handle *handle)
 
 	RETURN(rc);
 }
+
+/**
+ * delete llog object name entry
+ *
+ * Delete llog object (with regular FID) from name space (under
+ * update_log_dir).
+ *
+ * \param [in] env	execution environment
+ * \param [in] dto	llog object
+ * \param [in] th	thandle
+ * \param [in] declare	if it is declare or execution
+ *
+ * \retval		0 if deletion succeeds.
+ * \retval		negative errno if deletion fails.
+ */
+static int
+llog_osd_regular_fid_del_name_entry(const struct lu_env *env,
+				    struct dt_object *dto,
+				    struct thandle *th, bool declare)
+{
+	struct llog_thread_info *lgi = llog_info(env);
+	const struct lu_fid	*fid = lu_object_fid(&dto->do_lu);
+	struct dt_object	*dir;
+	char			*name = lgi->lgi_name;
+	int			rc;
+	ENTRY;
+
+	if (!fid_is_norm(fid))
+		RETURN(0);
+
+	dir = llog_osd_get_regular_fid_dir(env, dto);
+	if (IS_ERR(dir))
+		RETURN(PTR_ERR(dir));
+
+	snprintf(name, sizeof(lgi->lgi_name), DFID, PFID(fid));
+	dt_write_lock(env, dir, 0);
+	if (declare) {
+		rc = dt_declare_delete(env, dir, (struct dt_key *)name,
+				       th);
+	} else {
+		rc = dt_delete(env, dir, (struct dt_key *)name,
+			       th, BYPASS_CAPA);
+	}
+	dt_write_unlock(env, dir);
+
+	lu_object_put(env, &dir->do_lu);
+	RETURN(rc);
+}
+
 
 /**
  * Implementation of the llog_operations::lop_destroy
@@ -1270,6 +1498,12 @@ static int llog_osd_destroy(const struct lu_env *env,
 	if (rc)
 		GOTO(out_trans, rc);
 
+	if (loghandle->lgh_ctxt->loc_flags & LLOG_CTXT_FLAG_NORMAL_FID) {
+		rc = llog_osd_regular_fid_del_name_entry(env, o, th, true);
+		if (rc < 0)
+			GOTO(out_trans, rc);
+	}
+
 	rc = dt_trans_start_local(env, d, th);
 	if (rc)
 		GOTO(out_trans, rc);
@@ -1293,6 +1527,14 @@ static int llog_osd_destroy(const struct lu_env *env,
 		rc = dt_destroy(env, o, th);
 		if (rc)
 			GOTO(out_unlock, rc);
+
+		if (loghandle->lgh_ctxt->loc_flags &
+						LLOG_CTXT_FLAG_NORMAL_FID) {
+			rc = llog_osd_regular_fid_del_name_entry(env, o, th,
+								 false);
+			if (rc < 0)
+				GOTO(out_unlock, rc);
+		}
 	}
 out_unlock:
 	dt_write_unlock(env, o);
@@ -1332,6 +1574,9 @@ static int llog_osd_setup(const struct lu_env *env, struct obd_device *obd,
 
 	ctxt = llog_ctxt_get(olg->olg_ctxts[ctxt_idx]);
 	LASSERT(ctxt);
+
+	if (disk_obd == NULL)
+		GOTO(out, rc = 0);
 
 	/* initialize data allowing to generate new fids,
 	 * literally we need a sequece */
@@ -1454,6 +1699,9 @@ int llog_osd_get_cat_list(const struct lu_env *env, struct dt_device *d,
 		lgi->lgi_attr.la_valid = LA_MODE;
 		lgi->lgi_attr.la_mode = S_IFREG | S_IRUGO | S_IWUSR;
 		lgi->lgi_dof.dof_type = dt_mode_to_dft(S_IFREG);
+
+		th->th_wait_submit = 1;
+		th->th_sync = 1;
 
 		rc = dt_declare_create(env, o, &lgi->lgi_attr, NULL,
 				       &lgi->lgi_dof, th);
@@ -1586,6 +1834,8 @@ int llog_osd_put_cat_list(const struct lu_env *env, struct dt_device *d,
 	rc = dt_trans_start_local(env, d, th);
 	if (rc)
 		GOTO(out_trans, rc);
+
+	th->th_wait_submit = 1;
 
 	rc = dt_record_write(env, o, &lgi->lgi_buf, &lgi->lgi_off, th);
 	if (rc)
