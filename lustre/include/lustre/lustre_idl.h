@@ -1348,6 +1348,7 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb);
 						       name in request */
 #define OBD_CONNECT_LFSCK      0x40000000000000ULL/* support online LFSCK */
 #define OBD_CONNECT_UNLINK_CLOSE 0x100000000000000ULL/* close file in unlink */
+#define OBD_CONNECT_MULTISLOT	 0x200000000000000ULL /* many reqs in flight */
 #define OBD_CONNECT_DIR_STRIPE	 0x400000000000000ULL /* striped DNE dir */
 
 /* XXX README XXX:
