@@ -887,6 +887,11 @@ static const char *obd_connect_names[] = {
 	"pingless",
 	"flock_deadlock",
 	"disp_stripe",
+	"open_by_fid",
+	"lfsck",
+	"unlink_close",
+	"multi_mod_rpcs",
+	"dir_stripe",
 	"unknown",
 	NULL
 };
