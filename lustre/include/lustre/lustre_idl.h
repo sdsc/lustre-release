@@ -1299,7 +1299,12 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb);
 #define OBD_CONNECT_PINGLESS	0x4000000000000ULL/* pings not required */
 #define OBD_CONNECT_FLOCK_DEAD	0x8000000000000ULL/* improved flock deadlock detection */
 #define OBD_CONNECT_DISP_STRIPE 0x10000000000000ULL/* create stripe disposition*/
-
+#define OBD_CONNECT_OPEN_BY_FID	0x20000000000000ULL /* open by fid won't pack
+						       name in request */
+#define OBD_CONNECT_LFSCK	 0x40000000000000ULL/* support online LFSCK */
+#define OBD_CONNECT_UNLINK_CLOSE 0x100000000000000ULL/* close file in unlink */
+#define OBD_CONNECT_MULTISLOT	 0x200000000000000ULL /* many reqs in flight */
+#define OBD_CONNECT_DIR_STRIPE	 0x400000000000000ULL /* striped DNE dir */
 /* XXX README XXX:
  * Please DO NOT add flag values here before first ensuring that this same
  * flag value is not in use on some other branch.  Please clear any such
