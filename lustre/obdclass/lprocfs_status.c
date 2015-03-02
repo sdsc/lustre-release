@@ -650,7 +650,7 @@ static const char *obd_connect_names[] = {
 	"lfsck",
 	"unknown",
 	"unlink_close",
-	"unknown",
+	"multi_mod_rpcs",
 	"dir_stripe",
 	"unknown",
 	NULL
