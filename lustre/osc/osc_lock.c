@@ -402,7 +402,7 @@ static int osc_lock_flush(struct osc_object *obj, pgoff_t start, pgoff_t end,
 	if (IS_ERR(env))
 		RETURN(PTR_ERR(env));
 
-	if (mode == CLM_WRITE) {
+	if (mode == CLM_WRITE || mode == CLM_GROUP) {
 		rc = osc_cache_writeback_range(env, obj, start, end, 1,
 					       discard);
 		CDEBUG(D_CACHE, "object %p: [%lu -> %lu] %d pages were %s.\n",

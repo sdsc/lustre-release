@@ -3187,6 +3187,7 @@ int osc_lock_discard_pages(const struct lu_env *env, struct osc_object *osc,
 	if (result != 0)
 		GOTO(out, result);
 
+	/* CLM_WRITE and CLM_GROUP will use discard_cb(). */
 	cb = mode == CLM_READ ? check_and_discard_cb : discard_cb;
 	info->oti_fn_index = info->oti_next_index = start;
 	do {
