@@ -2,6 +2,7 @@
 
 set -e
 
+
 #         bug  5493  LU2034
 ALWAYS_EXCEPT="52    60      $RECOVERY_SMALL_EXCEPT"
 
