@@ -87,7 +87,16 @@ check_swap_layouts_support()
 	return 1
 }
 
+SAVE_FILESET=$FILESET
+FILESET=""
 check_and_setup_lustre
+export FILESET=$SAVE_FILESET
+if [ -n $(lctl get_param -n mdc.$FSNAME-MDT0000*.import | grep subtree) ];then
+	[ ! -n $FILESET ] && mkdir -p $MOUNT/$FILESET && remount_client $MOUNT
+else
+	echo "Fileset feature is not supported, skip fileset mounting"
+	export FILESET=""
+fi
 
 DIR=${DIR:-$MOUNT}
 assert_DIR
@@ -13084,6 +13093,64 @@ test_244()
 	rm -rf $DIR/$tdir
 }
 run_test 244 "sendfile with group lock tests"
+
+test_245a() {
+	local res=$(lctl get_param -n mdc.$FSNAME-MDT0000*.import | grep subtree)
+	[ ! -n "$res" ] && skip "Fileset feature is not supported" && return
+
+	[ -n "$FILESET" ] && [ $(basename $FILESET) != "/" ] &&
+		FILESET="$FILESET/$tdir"
+
+	local submount=${MOUNT}_$tdir
+
+	mkdir $MOUNT/$tdir
+	mkdir -p $submount || error "mkdir $submount failed"
+	FILESET="/$tdir" mount_client $submount ||
+		error "mount $submount failed"
+	echo foo > $submount/$tfile || error "write $submount/$tfile failed"
+	[ $(cat $MOUNT/$tdir/$tfile) = "foo" ] ||
+		error "read $MOUNT/$tdir/$tfile failed"
+	umount_client $submount || error "umount $submount failed"
+	rmdir $submount
+}
+run_test 245a "mount subdir as fileset"
+
+test_245b() {
+	local res=$(lctl get_param -n mdc.$FSNAME-MDT0000*.import | grep subtree)
+	[ ! -n "$res" ] && skip "Fileset feature is not supported" && return
+
+	[ -n "$FILESET" ] && [ $(basename $FILESET) != "/" ] &&
+		FILESET="$FILESET/$tdir"
+
+	local submount=${MOUNT}_$tdir
+
+	rm -rf $MOUNT/$tdir
+	mkdir -p $submount || error "mkdir $submount failed"
+	FILESET="/$tdir" mount_client $submount &&
+		error "mount $submount should fail"
+	rmdir $submount
+}
+run_test 245b "mount subdir that dose not exist"
+
+test_245c() {
+	local res=$(lctl get_param -n mdc.$FSNAME-MDT0000*.import | grep subtree)
+	[ ! -n "$res" ] && skip "Fileset feature is not supported" && return
+
+	[ -n "$FILESET" ] && [ $(basename $FILESET) != "/" ] &&
+		FILESET="$FILESET/$tdir"
+
+	local submount=${MOUNT}_$tdir
+
+	mkdir -p $MOUNT/$tdir/dir1
+	mkdir -p $submount || error "mkdir $submount failed"
+	FILESET="/$tdir" mount_client $submount ||
+		error "mount $submount failed"
+	local fid=$($LFS path2fid $MOUNT/)
+	$LFS fid2path $submount $fid && error "fid2path should fail"
+	umount_client $submount || error "umount $submount failed"
+	rmdir $submount
+}
+run_test 245c "running fid2path outside root"
 
 test_250() {
 	[ "$(facet_fstype ost$(($($GETSTRIPE -i $DIR/$tfile) + 1)))" = "zfs" ] \
