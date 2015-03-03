@@ -1367,6 +1367,7 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb);
 #define OBD_CONNECT_MULTIMODRPCS 0x200000000000000ULL /* support multiple modify
 							 RPCs in parallel */
 #define OBD_CONNECT_DIR_STRIPE	 0x400000000000000ULL /* striped DNE dir */
+#define OBD_CONNECT_SUBTREE	0x800000000000000ULL/* fileset mount support  */
 /** bulk matchbits is sent within ptlrpc_body */
 #define OBD_CONNECT_BULK_MBITS	 0x2000000000000000ULL
 /* XXX README XXX:
@@ -1415,7 +1416,8 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb);
 				OBD_CONNECT_OPEN_BY_FID | \
 				OBD_CONNECT_DIR_STRIPE | \
 				OBD_CONNECT_BULK_MBITS | \
-				OBD_CONNECT_MULTIMODRPCS)
+				OBD_CONNECT_MULTIMODRPCS | \
+				OBD_CONNECT_SUBTREE)
 
 #define OST_CONNECT_SUPPORTED  (OBD_CONNECT_SRVLOCK | OBD_CONNECT_GRANT | \
                                 OBD_CONNECT_REQPORTAL | OBD_CONNECT_VERSION | \
@@ -3909,7 +3911,10 @@ struct getinfo_fid2path {
         __u64           gf_recno;
         __u32           gf_linkno;
         __u32           gf_pathlen;
-        char            gf_path[0];
+	union {
+		char            gf_path[0];
+		struct lu_fid   gf_root_fid[0];
+	} gf_u;
 } __attribute__((packed));
 
 void lustre_swab_fid2path (struct getinfo_fid2path *gf);
