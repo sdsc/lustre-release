@@ -1365,6 +1365,7 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb);
 							 RPCs in parallel */
 #define OBD_CONNECT_DIR_STRIPE	 0x400000000000000ULL /* striped DNE dir */
 
+#define OBD_CONNECT_SUBTREE 0x800000000000000ULL /* fileset mount support */
 /* XXX README XXX:
  * Please DO NOT add flag values here before first ensuring that this same
  * flag value is not in use on some other branch.  Please clear any such
@@ -1409,7 +1410,7 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb);
 				OBD_CONNECT_FLOCK_DEAD | \
 				OBD_CONNECT_DISP_STRIPE | OBD_CONNECT_LFSCK | \
 				OBD_CONNECT_OPEN_BY_FID | \
-				OBD_CONNECT_DIR_STRIPE)
+				OBD_CONNECT_DIR_STRIPE | OBD_CONNECT_SUBTREE)
 
 #define OST_CONNECT_SUPPORTED  (OBD_CONNECT_SRVLOCK | OBD_CONNECT_GRANT | \
                                 OBD_CONNECT_REQPORTAL | OBD_CONNECT_VERSION | \
@@ -3901,7 +3902,10 @@ struct getinfo_fid2path {
         __u64           gf_recno;
         __u32           gf_linkno;
         __u32           gf_pathlen;
-        char            gf_path[0];
+	union {
+	       char            gf_path[0];
+	       struct lu_fid   gf_root_fid[0];
+	} gf_u;
 } __attribute__((packed));
 
 void lustre_swab_fid2path (struct getinfo_fid2path *gf);
