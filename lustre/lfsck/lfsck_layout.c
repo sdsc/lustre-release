@@ -4782,13 +4782,13 @@ static int lfsck_layout_dump(const struct lu_env *env,
 	if (rc < 0)
 		goto out;
 
-	rc = lfsck_time_dump(m, lo->ll_time_last_complete,
-			     "time_since_last_completed");
+	rc = lfsck_local_time_dump(m, lo->ll_time_last_complete,
+				   "last_lfsck_completed_time");
 	if (rc < 0)
 		goto out;
 
-	rc = lfsck_time_dump(m, lo->ll_time_latest_start,
-			     "time_since_latest_start");
+	rc = lfsck_local_time_dump(m, lo->ll_time_latest_start,
+				   "latest_lfsck_started_time");
 	if (rc < 0)
 		goto out;
 

@@ -1626,8 +1626,11 @@ int lfsck_bits_dump(struct seq_file *m, int bits, const char *names[],
 	int flag;
 	int i;
 	bool newline = (bits != 0 ? false : true);
+	int rc;
 
-	seq_printf(m, "%s:%c", prefix, bits != 0 ? ' ' : '\n');
+	rc = seq_printf(m, "%s:%c", prefix, bits != 0 ? ' ' : '\n');
+	if (rc < 0)
+		return rc;
 
 	for (i = 0, flag = 1; bits != 0; i++, flag = 1 << i) {
 		if (flag & bits) {
@@ -1636,25 +1639,63 @@ int lfsck_bits_dump(struct seq_file *m, int bits, const char *names[],
 				if (bits == 0)
 					newline = true;
 
-				seq_printf(m, "%s%c", names[i],
-					   newline ? '\n' : ',');
+				rc = seq_printf(m, "%s%c", names[i],
+						newline ? '\n' : ',');
+				if (rc < 0)
+					return rc;
 			}
 		}
 	}
 
 	if (!newline)
-		seq_printf(m, "\n");
-	return 0;
+		rc = seq_printf(m, "\n");
+
+	return rc;
+}
+
+static inline const char *lfsck_day2week(int day)
+{
+	switch (day) {
+	case 0:
+		return "Sun";
+	case 1:
+		return "Mon";
+	case 2:
+		return "Tue";
+	case 3:
+		return "Wed";
+	case 4:
+		return "Thu";
+	case 5:
+		return "Fri";
+	case 6:
+		return "Sat";
+	default:
+		return "Inv";
+	}
+}
+
+int lfsck_local_time_dump(struct seq_file *m, __u64 time, const char *prefix)
+{
+	struct tm tm;
+
+	if (time == 0)
+		return seq_printf(m, "%s: N/A\n", prefix);
+
+	time_to_tm(time, 0 - sys_tz.tz_minuteswest * 60, &tm);
+	return seq_printf(m, "%s: %ld/%02d/%02d %02d:%02d:%02d %s\n",
+			  prefix, tm.tm_year + 1900, tm.tm_mon + 1,
+			  tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec,
+			  lfsck_day2week(tm.tm_wday));
 }
 
 int lfsck_time_dump(struct seq_file *m, __u64 time, const char *prefix)
 {
-	if (time != 0)
-		seq_printf(m, "%s: "LPU64" seconds\n", prefix,
+	if (time == 0)
+		return seq_printf(m, "%s: N/A\n", prefix);
+
+	return seq_printf(m, "%s: "LPU64" seconds\n", prefix,
 			  cfs_time_current_sec() - time);
-	else
-		seq_printf(m, "%s: N/A\n", prefix);
-	return 0;
 }
 
 int lfsck_pos_dump(struct seq_file *m, struct lfsck_position *pos,
@@ -1662,17 +1703,15 @@ int lfsck_pos_dump(struct seq_file *m, struct lfsck_position *pos,
 {
 	if (fid_is_zero(&pos->lp_dir_parent)) {
 		if (pos->lp_oit_cookie == 0)
-			seq_printf(m, "%s: N/A, N/A, N/A\n",
-				   prefix);
-		else
-			seq_printf(m, "%s: "LPU64", N/A, N/A\n",
-				   prefix, pos->lp_oit_cookie);
-	} else {
-		seq_printf(m, "%s: "LPU64", "DFID", "LPX64"\n",
-			   prefix, pos->lp_oit_cookie,
-			   PFID(&pos->lp_dir_parent), pos->lp_dir_cookie);
+			return seq_printf(m, "%s: N/A, N/A, N/A\n", prefix);
+
+		return seq_printf(m, "%s: "LPU64", N/A, N/A\n",
+				  prefix, pos->lp_oit_cookie);
 	}
-	return 0;
+
+	return seq_printf(m, "%s: "LPU64", "DFID", "LPX64"\n",
+			  prefix, pos->lp_oit_cookie,
+			  PFID(&pos->lp_dir_parent), pos->lp_dir_cookie);
 }
 
 void lfsck_pos_fill(const struct lu_env *env, struct lfsck_instance *lfsck,
