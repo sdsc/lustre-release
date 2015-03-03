@@ -1470,25 +1470,26 @@ setup_quota(){
 }
 
 zconf_mount() {
-    local client=$1
-    local mnt=$2
-    local opts=${3:-$MOUNT_OPTS}
-    opts=${opts:+-o $opts}
-    local flags=${4:-$MOUNT_FLAGS}
+	local client=$1
+	local mnt=$2
+	local opts=${3:-$MOUNT_OPTS}
+	opts=${opts:+-o $opts}
+	local flags=${4:-$MOUNT_FLAGS}
 
-    local device=$MGSNID:/$FSNAME
-    if [ -z "$mnt" -o -z "$FSNAME" ]; then
-        echo Bad zconf mount command: opt=$flags $opts dev=$device mnt=$mnt
-        exit 1
-    fi
+	local device=$MGSNID:/$FSNAME$FILESET
+	if [ -z "$mnt" -o -z "$FSNAME" ]; then
+		echo Bad zconf mount command: opt=$flags $opts dev=$device \
+		     mnt=$mnt
+		exit 1
+	fi
 
-    echo "Starting client: $client: $flags $opts $device $mnt"
-    do_node $client mkdir -p $mnt
-    do_node $client $MOUNT_CMD $flags $opts $device $mnt || return 1
+	echo "Starting client: $client: $flags $opts $device $mnt"
+	do_node $client mkdir -p $mnt
+	do_node $client $MOUNT_CMD $flags $opts $device $mnt || return 1
 
-    set_default_debug_nodes $client
+	set_default_debug_nodes $client
 
-    return 0
+	return 0
 }
 
 zconf_umount() {
@@ -1578,21 +1579,22 @@ sanity_mount_check () {
 
 # mount clients if not mouted
 zconf_mount_clients() {
-    local clients=$1
-    local mnt=$2
-    local opts=${3:-$MOUNT_OPTS}
-    opts=${opts:+-o $opts}
-    local flags=${4:-$MOUNT_FLAGS}
+	local clients=$1
+	local mnt=$2
+	local opts=${3:-$MOUNT_OPTS}
+	opts=${opts:+-o $opts}
+	local flags=${4:-$MOUNT_FLAGS}
 
-    local device=$MGSNID:/$FSNAME
-    if [ -z "$mnt" -o -z "$FSNAME" ]; then
-        echo Bad zconf mount command: opt=$flags $opts dev=$device mnt=$mnt
-        exit 1
-    fi
+	local device=$MGSNID:/$FSNAME$FILESET
+	if [ -z "$mnt" -o -z "$FSNAME" ]; then
+		echo Bad zconf mount command: opt=$flags $opts dev=$device \
+		     mnt=$mnt
+		exit 1
+	fi
 
-    echo "Starting client $clients: $flags $opts $device $mnt"
+	echo "Starting client $clients: $flags $opts $device $mnt"
 
-    do_nodes $clients "
+	do_nodes $clients "
 running=\\\$(mount | grep -c $mnt' ');
 rc=0;
 if [ \\\$running -eq 0 ] ; then
@@ -1602,12 +1604,12 @@ if [ \\\$running -eq 0 ] ; then
 fi;
 exit \\\$rc" || return ${PIPESTATUS[0]}
 
-    echo "Started clients $clients: "
-    do_nodes $clients "mount | grep $mnt' '"
+	echo "Started clients $clients: "
+	do_nodes $clients "mount | grep $mnt' '"
 
-    set_default_debug_nodes $clients
+	set_default_debug_nodes $clients
 
-    return 0
+	return 0
 }
 
 zconf_umount_clients() {

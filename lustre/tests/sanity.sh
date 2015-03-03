@@ -12962,6 +12962,25 @@ test_243()
 }
 run_test 243 "various group lock tests"
 
+test_244() {
+	[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.7.0) ] &&
+		skip "Need MDS version at least 2.7.0" && return
+
+	[ "$FILESET" ] && skip "mount subdir" && return
+
+	local submount=${MOUNT}_$tdir
+
+	mkdir $MOUNT/$tdir
+	mkdir -p $submount || "mkdir $submount failed"
+	FILESET="/$tdir" mount_client $submount
+	echo foo > $submount/$tfile || error "write $submount/$tfile failed"
+	[ $(cat $MOUNT/$tdir/$tfile) = "foo" ] ||
+		error "read $MOUNT/$tdir/$tfile failed"
+	zconf_umount_clients $HOSTNAME $submount || true
+	rm -rf $submount
+}
+run_test 244 "mount subdir as fileset"
+
 test_250() {
 	[ "$(facet_fstype ost$(($($GETSTRIPE -i $DIR/$tfile) + 1)))" = "zfs" ] \
 	 && skip "no 16TB file size limit on ZFS" && return

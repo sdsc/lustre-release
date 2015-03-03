@@ -694,6 +694,7 @@ static int lmv_fid2path(struct obd_export *exp, int len, void *karg, void *uarg)
 	struct getinfo_fid2path *gf;
 	struct lmv_tgt_desc     *tgt;
 	struct getinfo_fid2path *remote_gf = NULL;
+	struct lu_fid		root_fid;
 	int			remote_gf_size = 0;
 	int			rc;
 
@@ -701,6 +702,9 @@ static int lmv_fid2path(struct obd_export *exp, int len, void *karg, void *uarg)
 	tgt = lmv_find_target(lmv, &gf->gf_fid);
 	if (IS_ERR(tgt))
 		RETURN(PTR_ERR(tgt));
+
+	root_fid = *(struct lu_fid *)gf->gf_root_fid;
+	LASSERT(fid_is_sane(&root_fid));
 
 repeat_fid2path:
 	rc = obd_iocontrol(OBD_IOC_FID2PATH, tgt->ltd_exp, len, gf, uarg);
@@ -760,6 +764,7 @@ repeat_fid2path:
 	remote_gf->gf_recno = -1;
 	remote_gf->gf_linkno = -1;
 	memset(remote_gf->gf_path, 0, remote_gf->gf_pathlen);
+	*(struct lu_fid *)remote_gf->gf_root_fid = root_fid;
 	gf = remote_gf;
 	goto repeat_fid2path;
 
@@ -1508,19 +1513,20 @@ out_free_temp:
 }
 
 static int lmv_getstatus(struct obd_export *exp,
-                         struct lu_fid *fid,
-                         struct obd_capa **pc)
+			 const char *fileset,
+			 struct lu_fid *fid,
+			 struct obd_capa **pc)
 {
-        struct obd_device    *obd = exp->exp_obd;
-        struct lmv_obd       *lmv = &obd->u.lmv;
-        int                   rc;
-        ENTRY;
+	struct obd_device *obd = exp->exp_obd;
+	struct lmv_obd *lmv = &obd->u.lmv;
+	int rc;
+	ENTRY;
 
-        rc = lmv_check_connect(obd);
-        if (rc)
-                RETURN(rc);
+	rc = lmv_check_connect(obd);
+	if (rc)
+		RETURN(rc);
 
-	rc = md_getstatus(lmv->tgts[0]->ltd_exp, fid, pc);
+	rc = md_getstatus(lmv->tgts[0]->ltd_exp, fileset, fid, pc);
 	RETURN(rc);
 }
 
