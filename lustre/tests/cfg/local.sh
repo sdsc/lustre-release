@@ -7,6 +7,9 @@ mgs_HOST=${mgs_HOST:-$mds_HOST}
 ost_HOST=${ost_HOST:-$(hostname)}
 ostfailover_HOST=${ostfailover_HOST}
 CLIENTS=""
+# description of FILESET variable
+FILESET=${FILESET:-""}
+[[ -z "$FILESET" ]] || [[ "${FILESET:0:1}" = "/" ]] || FILESET="/$FILESET"
 
 TMP=${TMP:-/tmp}
 
