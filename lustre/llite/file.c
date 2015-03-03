@@ -1838,6 +1838,7 @@ out:
 int ll_fid2path(struct inode *inode, void __user *arg)
 {
 	struct obd_export	*exp = ll_i2mdexp(inode);
+	struct ll_sb_info	*sbi = ll_i2sbi(inode);
 	const struct getinfo_fid2path __user *gfin = arg;
 	__u32			 pathlen;
 	struct getinfo_fid2path	*gfout;
@@ -1864,6 +1865,10 @@ int ll_fid2path(struct inode *inode, void __user *arg)
 
 	if (copy_from_user(gfout, arg, sizeof(*gfout)))
 		GOTO(gf_free, rc = -EFAULT);
+	/* append root FID after gfout to let MDT know the root FID so that it
+	 * can lookup the correct path, this is mainly for fileset.
+	 * old server without fileset mount support will ignore this. */
+	*(struct lu_fid *)gfout->gf_root_fid = sbi->ll_root_fid;
 
 	/* Call mdc_iocontrol */
 	rc = obd_iocontrol(OBD_IOC_FID2PATH, exp, outsize, gfout, NULL);

@@ -491,6 +491,12 @@ static const struct req_msg_field *ldlm_intent_getxattr_server[] = {
 	&RMF_EAVALS_LENS
 };
 
+static const struct req_msg_field *mds_getstatus_client[] = {
+	&RMF_PTLRPC_BODY,
+	&RMF_MDT_BODY,
+	&RMF_NAME
+};
+
 static const struct req_msg_field *mds_getxattr_client[] = {
         &RMF_PTLRPC_BODY,
         &RMF_MDT_BODY,
@@ -1315,7 +1321,7 @@ struct req_format RQF_LDLM_INTENT_QUOTA =
 EXPORT_SYMBOL(RQF_LDLM_INTENT_QUOTA);
 
 struct req_format RQF_MDS_GETSTATUS =
-        DEFINE_REQ_FMT0("MDS_GETSTATUS", mdt_body_only, mdt_body_capa);
+	DEFINE_REQ_FMT0("MDS_GETSTATUS", mds_getstatus_client, mdt_body_capa);
 EXPORT_SYMBOL(RQF_MDS_GETSTATUS);
 
 struct req_format RQF_MDS_STATFS =
