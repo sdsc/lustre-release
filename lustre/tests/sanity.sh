@@ -87,7 +87,15 @@ check_swap_layouts_support()
 	return 1
 }
 
+SAVE_FILESET=$FILESET
+FILESET=""
 check_and_setup_lustre
+export FILESET=$SAVE_FILESET
+if [ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.7.53) ];then
+	[ ! -z $FILESET ] && mkdir -p $MOUNT/$FILESET && remount_client $MOUNT
+else
+	"Fileset Need MDS version at least 2.7.53, skip fileset mounting"
+fi
 
 DIR=${DIR:-$MOUNT}
 assert_DIR
@@ -12971,6 +12979,61 @@ test_244()
 	rm -rf $DIR/$tdir
 }
 run_test 244 "sendfile with group lock tests"
+
+test_245() {
+	[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.7.53) ] &&
+		skip "Need MDS version at least 2.7.53" && return
+
+	[ "$FILESET"] && [ `basename $FILESET` != "/" ] && skip "mount fileset" && return
+
+	local submount=${MOUNT}_$tdir
+
+	mkdir $MOUNT/$tdir
+	mkdir -p $submount || error "mkdir $submount failed"
+	FILESET="/$tdir" mount_client $submount ||
+		error "mount $submount failed"
+	echo foo > $submount/$tfile || error "write $submount/$tfile failed"
+	[ $(cat $MOUNT/$tdir/$tfile) = "foo" ] ||
+		error "read $MOUNT/$tdir/$tfile failed"
+	umount_client $submount || error "umount $submount failed"
+	rmdir $submount
+}
+run_test 245 "mount subdir as fileset"
+
+test_245a() {
+	[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.7.53) ] &&
+		skip "Need MDS version at least 2.7.53" && return
+
+	[ "$FILESET"] && [ `basename $FILESET` != "/" ] && skip "mount fileset" && return
+
+	local submount=${MOUNT}_$tdir
+
+	rm -rf $MOUNT/$tdir
+	mkdir -p $submount || error "mkdir $submount failed"
+	FILESET="/$tdir" mount_client $submount &&
+		error "mount $submount should"
+	rmdir $submount
+}
+run_test 245a "mount subdir that dose not exist"
+
+test_245b() {
+	[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.7.53) ] &&
+		skip "Need MDS version at least 2.7.53" && return
+
+	[ "$FILESET"] && [ `basename $FILESET` != "/" ] && skip "mount fileset" && return
+
+	local submount=${MOUNT}_$tdir
+
+	mkdir -p $MOUNT/$tdir/dir1
+	mkdir -p $submount || error "mkdir $submount failed"
+	FILESET="/$tdir" mount_client $submount ||
+		error "mount $submount failed"
+	local fid=`$LFS path2fid $MOUNT/`
+	$LFS fid2path $submount $fid && error "fid2path should fail"
+	umount_client $submount || error "umount $submount failed"
+	rmdir $submount
+}
+run_test 245b "running fid2path outside root"
 
 test_250() {
 	[ "$(facet_fstype ost$(($($GETSTRIPE -i $DIR/$tfile) + 1)))" = "zfs" ] \
