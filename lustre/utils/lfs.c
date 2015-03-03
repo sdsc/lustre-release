@@ -922,6 +922,7 @@ static int lfs_setstripe(int argc, char **argv)
 	__u64				 migration_flags = 0;
 	__u32				 osts[LOV_MAX_STRIPE_COUNT] = { 0 };
 	int				 nr_osts = 0;
+	char				 resolved_path[4096];
 
 	struct option		 long_opts[] = {
 		/* --block is only valid in migrate mode */
@@ -1196,8 +1197,13 @@ static int lfs_setstripe(int argc, char **argv)
 	}
 
 	for (fname = argv[optind]; fname != NULL; fname = argv[++optind]) {
+		if (!realpath(fname, resolved_path)) {
+			fprintf(stderr, "failed to get realpath for %s\n", fname);
+			result2 = -errno;
+			break;
+		}
 		if (!migrate_mode) {
-			result = llapi_file_open_param(fname,
+			result = llapi_file_open_param(resolved_path,
 						       O_CREAT | O_WRONLY,
 						       0644, param);
 			if (result >= 0) {
@@ -1205,9 +1211,9 @@ static int lfs_setstripe(int argc, char **argv)
 				result = 0;
 			}
 		} else if (mdt_idx_arg != NULL) {
-			result = llapi_migrate_mdt(fname, &migrate_mdt_param);
+			result = llapi_migrate_mdt(resolved_path, &migrate_mdt_param);
 		} else {
-			result = lfs_migrate(fname, migration_flags, param);
+			result = lfs_migrate(resolved_path, migration_flags, param);
 		}
 		if (result) {
 			/* Save the first error encountered. */
