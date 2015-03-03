@@ -106,7 +106,6 @@ check_swap_layouts_support()
 }
 
 check_and_setup_lustre
-
 DIR=${DIR:-$MOUNT}
 assert_DIR
 
@@ -2029,6 +2028,7 @@ run_test 27C "check full striping across all OSTs"
 
 test_27D() {
 	[ $OSTCOUNT -lt 2 ] && skip "needs >= 2 OSTs" && return
+	[ -n "$FILESET" ] && skip "SKIP due to FILESET set" && return
 	local POOL=${POOL:-testpool}
 	local first_ost=0
 	local last_ost=$(($OSTCOUNT - 1))
@@ -9922,6 +9922,7 @@ test_154a() {
 	[[ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.2.51) ]] ||
 		{ skip "Need MDS version at least 2.2.51"; return 0; }
 	[ -z "$(which setfacl)" ] && skip "must have setfacl tool" && return
+	[ -n "$FILESET" ] && skip "SKIP due to FILESET set" && return
 
 	cp /etc/hosts $DIR/$tfile
 
@@ -9948,6 +9949,7 @@ test_154b() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
 	[[ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.2.51) ]] ||
 		{ skip "Need MDS version at least 2.2.51"; return 0; }
+	[ -n "$FILESET" ] && skip "SKIP due to FILESET set" && return
 
 	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
 
@@ -10044,6 +10046,7 @@ test_154e()
 run_test 154e ".lustre is not returned by readdir"
 
 test_154f() {
+	[ -n "$FILESET" ] && skip "SKIP due to FILESET set" && return
 	# create parent directory on a single MDT to avoid cross-MDT hardlinks
 	test_mkdir -p -c1 $DIR/$tdir/d
 	# test dirs inherit from its stripe
@@ -10123,6 +10126,7 @@ test_154g()
 {
 	[[ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.6.92) ]] ||
 		{ skip "Need MDS version at least 2.6.92"; return 0; }
+	[ -n "$FILESET" ] && skip "SKIP due to FILESET set" && return
 
 	mkdir -p $DIR/$tdir
 	llapi_fid_test -d $DIR/$tdir
@@ -11405,6 +11409,7 @@ test_185() { # LU-2441
 	# LU-3553 - no volatile file support in old servers
 	[[ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.3.60) ]] ||
 		{ skip "Need MDS version at least 2.3.60"; return 0; }
+	[ -n "$FILESET" ] && skip "SKIP due to FILESET set" && return
 
 	mkdir -p $DIR/$tdir || error "creating dir $DIR/$tdir"
 	touch $DIR/$tdir/spoo
@@ -11477,6 +11482,7 @@ run_test 187b "Test data version change on volatile file"
 test_200() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
 	remote_mgs_nodsh && skip "remote MGS with nodsh" && return
+	[ -n "$FILESET" ] && skip "SKIP due to FILESET set" && return
 
 	local POOL=${POOL:-cea1}
 	local POOL_ROOT=${POOL_ROOT:-$DIR/d200.pools}
@@ -13112,6 +13118,7 @@ run_test 232 "failed lock should not block umount"
 test_233a() {
 	[ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.3.64) ] ||
 	{ skip "Need MDS version at least 2.3.64"; return; }
+	[ -n "$FILESET" ] && skip "SKIP due to FILESET set" && return
 
 	local fid=$($LFS path2fid $MOUNT)
 	stat $MOUNT/.lustre/fid/$fid > /dev/null ||
@@ -13122,6 +13129,7 @@ run_test 233a "checking that OBF of the FS root succeeds"
 test_233b() {
 	[ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.5.90) ] ||
 	{ skip "Need MDS version at least 2.5.90"; return; }
+	[ -n "$FILESET" ] && skip "SKIP due to FILESET set" && return
 
 	local fid=$($LFS path2fid $MOUNT/.lustre)
 	stat $MOUNT/.lustre/fid/$fid > /dev/null ||
@@ -13389,6 +13397,57 @@ test_245() {
 		error "import should have connect data $connect_data_name"
 }
 run_test 245 "check mdc connection flag/data: multiple modify RPCs"
+
+test_246a() {
+	lctl get_param -n mdc.$FSNAME-MDT0000*.import | \
+		grep -q subtree || \
+		{ skip "Fileset feature is not supported"; return; }
+
+	local submount=${MOUNT}_$tdir
+
+	mkdir $MOUNT/$tdir
+	mkdir -p $submount || error "mkdir $submount failed"
+	FILESET="$FILESET/$tdir" mount_client $submount ||
+		error "mount $submount failed"
+	echo foo > $submount/$tfile || error "write $submount/$tfile failed"
+	[ $(cat $MOUNT/$tdir/$tfile) = "foo" ] ||
+		error "read $MOUNT/$tdir/$tfile failed"
+	umount_client $submount || error "umount $submount failed"
+	rmdir $submount
+}
+run_test 246a "mount subdir as fileset"
+
+test_246b() {
+	lctl get_param -n mdc.$FSNAME-MDT0000*.import | grep -q subtree ||
+		{ skip "Fileset feature is not supported"; return; }
+
+	local submount=${MOUNT}_$tdir
+
+	rm -rf $MOUNT/$tdir
+	mkdir -p $submount || error "mkdir $submount failed"
+	SKIP_FILESET=1
+	FILESET="/$tdir" mount_client $submount && \
+		error "mount $submount should fail"
+	rmdir $submount
+}
+run_test 246b "mount subdir that dose not exist"
+
+test_246c() {
+	lctl get_param -n mdc.$FSNAME-MDT0000*.import | grep -q subtree ||
+		{ skip "Fileset feature is not supported"; return; }
+
+	local submount=${MOUNT}_$tdir
+
+	mkdir -p $MOUNT/$tdir/dir1
+	mkdir -p $submount || error "mkdir $submount failed"
+	FILESET="/$tdir" mount_client $submount ||
+		error "mount $submount failed"
+	local fid=$($LFS path2fid $MOUNT/)
+	$LFS fid2path $submount $fid && error "fid2path should fail"
+	umount_client $submount || error "umount $submount failed"
+	rmdir $submount
+}
+run_test 246c "running fid2path outside root"
 
 test_250() {
 	[ "$(facet_fstype ost$(($($GETSTRIPE -i $DIR/$tfile) + 1)))" = "zfs" ] \
