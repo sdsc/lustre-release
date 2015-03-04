@@ -288,7 +288,8 @@ int ll_removexattr(struct dentry *dentry, const char *name)
 }
 
 int ll_getxattr_common(struct inode *inode, const char *name,
-                       void *buffer, size_t size, __u64 valid)
+		       void *buffer, size_t size, __u64 valid,
+		       bool security_check)
 {
         struct ll_sb_info *sbi = ll_i2sbi(inode);
         struct ptlrpc_request *req = NULL;
@@ -312,8 +313,12 @@ int ll_getxattr_common(struct inode *inode, const char *name,
                 goto do_getxattr;
         }
 
-        xattr_type = get_xattr_type(name);
-        rc = xattr_type_filter(sbi, xattr_type);
+	xattr_type = get_xattr_type(name);
+
+	if (!security_check)
+		goto do_getxattr;
+
+	rc = xattr_type_filter(sbi, xattr_type);
         if (rc)
                 RETURN(rc);
 
@@ -529,7 +534,8 @@ out:
                 return(rc);
         }
 
-        return ll_getxattr_common(inode, name, buffer, size, OBD_MD_FLXATTR);
+	return ll_getxattr_common(inode, name, buffer, size, OBD_MD_FLXATTR,
+				  true);
 }
 
 ssize_t ll_listxattr(struct dentry *dentry, char *buffer, size_t size)
@@ -547,9 +553,10 @@ ssize_t ll_listxattr(struct dentry *dentry, char *buffer, size_t size)
 
         ll_stats_ops_tally(ll_i2sbi(inode), LPROC_LL_LISTXATTR, 1);
 
-        rc = ll_getxattr_common(inode, NULL, buffer, size, OBD_MD_FLXATTRLS);
-        if (rc < 0)
-                GOTO(out, rc);
+	rc = ll_getxattr_common(inode, NULL, buffer, size, OBD_MD_FLXATTRLS,
+				true);
+	if (rc < 0)
+		GOTO(out, rc);
 
 	if (buffer != NULL) {
 		struct ll_sb_info *sbi = ll_i2sbi(inode);

@@ -957,7 +957,7 @@ again:
 
 			rc = ll_getxattr_common(dir, XATTR_NAME_DEFAULT_LMV,
 						lum, sizeof(*lum),
-						OBD_MD_FLXATTR);
+						OBD_MD_FLXATTR, false);
 			if (rc < 0) {
 				OBD_FREE_PTR(lum);
 				if (rc == -ENODATA)

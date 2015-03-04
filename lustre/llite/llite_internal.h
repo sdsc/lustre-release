@@ -1515,7 +1515,8 @@ int ll_xattr_init(void);
 void ll_xattr_fini(void);
 
 int ll_getxattr_common(struct inode *inode, const char *name,
-		       void *buffer, size_t size, __u64 valid);
+		       void *buffer, size_t size, __u64 valid,
+		       bool security_check);
 int ll_page_sync_io(const struct lu_env *env, struct cl_io *io,
 		    struct cl_page *page, enum cl_req_type crt);
 
