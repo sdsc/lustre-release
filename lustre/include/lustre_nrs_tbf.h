@@ -32,7 +32,7 @@
 
 #ifndef _LUSTRE_NRS_TBF_H
 #define _LUSTRE_NRS_TBF_H
-#include <lustre_net.h>
+#include <lustre_nrs.h>
 
 /* \name tbf
  *
