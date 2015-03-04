@@ -8,13 +8,9 @@
 set -e
 
 ONLY=${ONLY:-"$*"}
-# bug number for skipped test: 13297 2108 9789 3637 9789 3561 12622 5188
-ALWAYS_EXCEPT="                42a  42b  42c  42d  45   51d   68b   $SANITY_EXCEPT"
+# bug number for skipped test:
+ALWAYS_EXCEPT="$SANITY_EXCEPT"
 # UPDATE THE COMMENT ABOVE WITH BUG NUMBERS WHEN CHANGING ALWAYS_EXCEPT!
-
-# with LOD/OSP landing
-# bug number for skipped tests: LU-2036
-ALWAYS_EXCEPT="                 76     $ALWAYS_EXCEPT"
 
 SRCDIR=$(cd $(dirname $0); echo $PWD)
 export PATH=$PATH:/sbin
@@ -61,8 +57,6 @@ init_logging
 [ "$SLOW" = "no" ] && EXCEPT_SLOW="24o 24D 27m 64b 68 71 77f 78 115 124b 230d"
 
 if [ $(facet_fstype $SINGLEMDS) = "zfs" ]; then
-	# bug number for skipped test: LU-4536 LU-5242	 LU-1957 LU-2805
-	ALWAYS_EXCEPT="$ALWAYS_EXCEPT  65ic	78 79 80 180	 184c"
 	[ "$SLOW" = "no" ] && EXCEPT_SLOW="$EXCEPT_SLOW 51b 51ba"
 fi
 
