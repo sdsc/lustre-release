@@ -93,7 +93,7 @@ struct osc_enqueue_args {
 	void			*oa_cookie;
 	struct ost_lvb		*oa_lvb;
 	struct lustre_handle	oa_lockh;
-	unsigned int		oa_agl:1;
+	unsigned int		oa_speculative:1;
 };
 
 static void osc_release_ppga(struct brw_page **ppga, obd_count count);
@@ -2027,7 +2027,7 @@ static int osc_set_data_with_check(struct lustre_handle *lockh,
 static int osc_enqueue_fini(struct ptlrpc_request *req,
 			    osc_enqueue_upcall_f upcall, void *cookie,
 			    struct lustre_handle *lockh, ldlm_mode_t mode,
-			    __u64 *flags, int agl, int errcode)
+			    __u64 *flags, int speculative, int errcode)
 {
 	bool intent = *flags & LDLM_FL_HAS_INTENT;
 	int rc;
@@ -2044,7 +2044,7 @@ static int osc_enqueue_fini(struct ptlrpc_request *req,
 			ptlrpc_status_ntoh(rep->lock_policy_res1);
 		if (rep->lock_policy_res1)
 			errcode = rep->lock_policy_res1;
-		if (!agl)
+		if (!speculative)
 			*flags |= LDLM_FL_LVB_READY;
 	} else if (errcode == ELDLM_OK) {
 		*flags |= LDLM_FL_LVB_READY;
@@ -2094,7 +2094,7 @@ static int osc_enqueue_interpret(const struct lu_env *env,
 	/* Let CP AST to grant the lock first. */
 	OBD_FAIL_TIMEOUT(OBD_FAIL_OSC_CP_ENQ_RACE, 1);
 
-	if (aa->oa_agl) {
+	if (aa->oa_speculative) {
 		LASSERT(aa->oa_lvb == NULL);
 		LASSERT(aa->oa_flags == NULL);
 		aa->oa_flags = &flags;
@@ -2106,7 +2106,7 @@ static int osc_enqueue_interpret(const struct lu_env *env,
 				   lockh, rc);
 	/* Complete osc stuff. */
 	rc = osc_enqueue_fini(req, aa->oa_upcall, aa->oa_cookie, lockh, mode,
-			      aa->oa_flags, aa->oa_agl, rc);
+			      aa->oa_flags, aa->oa_speculative, rc);
 
         OBD_FAIL_TIMEOUT(OBD_FAIL_OSC_CP_CANCEL_RACE, 10);
 
@@ -2129,13 +2129,14 @@ int osc_enqueue_base(struct obd_export *exp, struct ldlm_res_id *res_id,
 		     struct ost_lvb *lvb, int kms_valid,
 		     osc_enqueue_upcall_f upcall, void *cookie,
 		     struct ldlm_enqueue_info *einfo,
-		     struct ptlrpc_request_set *rqset, int async, int agl)
+		     struct ptlrpc_request_set *rqset, int async,
+		     int speculative)
 {
 	struct obd_device *obd = exp->exp_obd;
 	struct lustre_handle lockh = { 0 };
 	struct ptlrpc_request *req = NULL;
 	int intent = *flags & LDLM_FL_HAS_INTENT;
-	__u64 match_lvb = agl ? 0 : LDLM_FL_LVB_READY;
+	__u64 match_lvb = speculative ? 0 : LDLM_FL_LVB_READY;
 	ldlm_mode_t mode;
 	int rc;
 	ENTRY;
@@ -2178,10 +2179,11 @@ int osc_enqueue_base(struct obd_export *exp, struct ldlm_res_id *res_id,
 			RETURN(ELDLM_OK);
 
 		matched = ldlm_handle2lock(&lockh);
-		if (agl) {
-			/* AGL enqueues DLM locks speculatively. Therefore if
-			 * it already exists a DLM lock, it wll just inform the
-			 * caller to cancel the AGL process for this stripe. */
+		if (speculative) {
+			/* This DLM lock request is speculative, and does not
+			 * have an associated IO request. Therefore if there
+			 * is already a DLM lock, it wll just inform the
+			 * caller to cancel the request for this stripe. */
 			ldlm_lock_decref(&lockh, mode);
 			LDLM_LOCK_PUT(matched);
 			RETURN(-ECANCELED);
@@ -2231,14 +2233,14 @@ no_match:
 			struct osc_enqueue_args *aa;
 			CLASSERT(sizeof(*aa) <= sizeof(req->rq_async_args));
 			aa = ptlrpc_req_async_args(req);
-			aa->oa_exp    = exp;
-			aa->oa_mode   = einfo->ei_mode;
-			aa->oa_type   = einfo->ei_type;
+			aa->oa_exp	   = exp;
+			aa->oa_mode	   = einfo->ei_mode;
+			aa->oa_type	   = einfo->ei_type;
 			lustre_handle_copy(&aa->oa_lockh, &lockh);
-			aa->oa_upcall = upcall;
-			aa->oa_cookie = cookie;
-			aa->oa_agl    = !!agl;
-			if (!agl) {
+			aa->oa_upcall	   = upcall;
+			aa->oa_cookie	   = cookie;
+			aa->oa_speculative = !!speculative;
+			if (!speculative) {
 				aa->oa_flags  = flags;
 				aa->oa_lvb    = lvb;
 			} else {
@@ -2262,7 +2264,7 @@ no_match:
         }
 
 	rc = osc_enqueue_fini(req, upcall, cookie, &lockh, einfo->ei_mode,
-			      flags, agl, rc);
+			      flags, speculative, rc);
 	if (intent)
 		ptlrpc_req_finished(req);
 

@@ -1520,5 +1520,6 @@ int ll_page_sync_io(const struct lu_env *env, struct cl_io *io,
 		    struct cl_page *page, enum cl_req_type crt);
 
 int ll_getparent(struct file *file, struct getparent __user *arg);
+int ll_lock_ahead(struct file *file, struct llapi_lock_ahead __user *arg);
 
 #endif /* LLITE_INTERNAL_H */

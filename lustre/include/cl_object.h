@@ -1620,10 +1620,10 @@ enum cl_enq_flags {
         CEF_DISCARD_DATA = 0x00000004,
         /**
          * tell the sub layers that it must be a `real' lock. This is used for
-         * mmapped-buffer locks and glimpse locks that must be never converted
-         * into lockless mode.
+         * mmapped-buffer locks, glimpse locks, and lock ahead locks that must
+         * never be converted into lockless mode.
          *
-         * \see vvp_mmap_locks(), cl_glimpse_lock().
+	 * \see vvp_mmap_locks(), cl_glimpse_lock, cl_lock_ahead().
          */
         CEF_MUST         = 0x00000008,
         /**
@@ -1637,18 +1637,23 @@ enum cl_enq_flags {
          * that are described by the enqueue flags.
          */
         CEF_NEVER        = 0x00000010,
-        /**
-         * for async glimpse lock.
-         */
-        CEF_AGL          = 0x00000020,
+	/**
+	 * tell the sub layers this is a speculative lock request
+	 * used for asynchronous glimpse locks and lock ahead
+	 */
+	CEF_SPECULATIVE          = 0x00000020,
 	/**
 	 * enqueue a lock to test DLM lock existence.
 	 */
 	CEF_PEEK	= 0x00000040,
 	/**
+	 * tell the sub layers this is a lock ahead request
+	 */
+	CEF_LOCK_AHEAD	= 0x00000080,
+	/**
 	 * mask of enq_flags.
 	 */
-	CEF_MASK         = 0x0000007f,
+	CEF_MASK         = 0x000000ff,
 };
 
 /**

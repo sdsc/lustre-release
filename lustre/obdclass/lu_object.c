@@ -177,6 +177,7 @@ void lu_object_put(const struct lu_env *env, struct lu_object *o)
          * kill it.
          */
         lu_object_free(env, orig);
+
 }
 EXPORT_SYMBOL(lu_object_put);
 

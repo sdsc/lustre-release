@@ -1930,10 +1930,10 @@ int ldlm_work_gl_ast_lock(struct ptlrpc_request_set *rqset, void *opaq)
 	if (lock->l_glimpse_ast(lock, (void*)arg) == 0)
 		rc = 1;
 
-	LDLM_LOCK_RELEASE(lock);
-
-	if ((gl_work->gl_flags & LDLM_GL_WORK_NOFREE) == 0)
+	if ((gl_work->gl_flags & LDLM_GL_WORK_NOFREE) == 0) {
+		LDLM_LOCK_RELEASE(lock);
 		OBD_FREE_PTR(gl_work);
+	}
 
 	RETURN(rc);
 }
