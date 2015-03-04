@@ -3,8 +3,8 @@
 set -e
 
 ONLY=${ONLY:-"$*"}
-# bug number for skipped test: 3192 LU-1205 15528/3811 9977 15528/11549 18080
-ALWAYS_EXCEPT="                14b  18c     19         28   29          35    $SANITYN_EXCEPT"
+# bug number for skipped test:
+ALWAYS_EXCEPT="$SANITYN_EXCEPT"
 # UPDATE THE COMMENT ABOVE WITH BUG NUMBERS WHEN CHANGING ALWAYS_EXCEPT!
 
 SRCDIR=$(dirname $0)
@@ -33,8 +33,6 @@ init_test_env $@
 init_logging
 
 if [ $(facet_fstype $SINGLEMDS) = "zfs" ]; then
-# bug number for skipped test:        LU-2189 LU-2776
-	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 36      51a"
 # LU-2829 / LU-2887 - make allowances for ZFS slowness
 	TEST33_NFILES=${TEST33_NFILES:-1000}
 fi
