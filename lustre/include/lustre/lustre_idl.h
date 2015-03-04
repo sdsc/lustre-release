@@ -138,28 +138,7 @@
 #define SEQ_DATA_PORTAL                31
 #define SEQ_CONTROLLER_PORTAL          32
 #define MGS_BULK_PORTAL                33
-
-/* Portal 63 is reserved for the Cray Inc DVS - nic@cray.com, roe@cray.com, n8851@cray.com */
-
-/* packet types */
-#define PTL_RPC_MSG_REQUEST 4711
-#define PTL_RPC_MSG_ERR     4712
-#define PTL_RPC_MSG_REPLY   4713
-
-/* DON'T use swabbed values of MAGIC as magic! */
-#define LUSTRE_MSG_MAGIC_V2 0x0BD00BD3
-#define LUSTRE_MSG_MAGIC_V2_SWABBED 0xD30BD00B
-
-#define LUSTRE_MSG_MAGIC LUSTRE_MSG_MAGIC_V2
-
-#define PTLRPC_MSG_VERSION  0x00000003
-#define LUSTRE_VERSION_MASK 0xffff0000
-#define LUSTRE_OBD_VERSION  0x00010000
-#define LUSTRE_MDS_VERSION  0x00020000
-#define LUSTRE_OST_VERSION  0x00030000
-#define LUSTRE_DLM_VERSION  0x00040000
-#define LUSTRE_LOG_VERSION  0x00050000
-#define LUSTRE_MGS_VERSION  0x00060000
+/* Portal 63 is reserved for the Cray Inc DVS - roe@cray.com, n8851@cray.com */
 
 /**
  * Describes a range of sequence, lsr_start is included but lsr_end is
@@ -1055,54 +1034,102 @@ static inline void lustre_handle_copy(struct lustre_handle *tgt,
 	tgt->cookie = src->cookie;
 }
 
-/* flags for lm_flags */
-#define MSGHDR_AT_SUPPORT               0x1
-#define MSGHDR_CKSUM_INCOMPAT18         0x2
+/* lustre_msg struct magic.  DON'T use swabbed values of MAGIC as magic! */
+#define LUSTRE_MSG_MAGIC_V2		0x0BD00BD3
+#define LUSTRE_MSG_MAGIC_V2_SWABBED	0xD30BD00B
+#define LUSTRE_MSG_MAGIC		LUSTRE_MSG_MAGIC_V2
 
+/* flags for lm_flags */
+#define MSGHDR_AT_SUPPORT	0x1	/* adaptive timeouts, lm_cksum valid
+					 * in early reply messages */
+#define MSGHDR_CKSUM_INCOMPAT18	0x2	/* compat for 1.8, needs to be set well
+					 * beyond 2.8.0 for compatibility */
 #define lustre_msg lustre_msg_v2
 /* we depend on this structure to be 8-byte aligned */
 /* this type is only endian-adjusted in lustre_unpack_msg() */
 struct lustre_msg_v2 {
-        __u32 lm_bufcount;
-        __u32 lm_secflvr;
-        __u32 lm_magic;
-        __u32 lm_repsize;
-        __u32 lm_cksum;
-        __u32 lm_flags;
-        __u32 lm_padding_2;
-        __u32 lm_padding_3;
-        __u32 lm_buflens[0];
+	__u32 lm_bufcount;	/* number of buffers in lm_buflens[] */
+	__u32 lm_secflvr;	/* 0 = no crypto, or sptlrpc security flavour */
+	__u32 lm_magic;		/* RPC version magic = LUSTRE_MSG_MAGIC_V2 */
+	__u32 lm_repsize;	/* size of preallocated reply buffer */
+	__u32 lm_cksum;		/* CRC32 of ptlrpc_body early reply messages */
+	__u32 lm_flags;		/* MSGHDR_* flags */
+	__u32 lm_padding_2;	/* unused */
+	__u32 lm_padding_3;	/* unused */
+	__u32 lm_buflens[0];	/* length of additional buffers in bytes,
+				 * padded to a multiple of 8 bytes. */
+	/*
+	 * message buffers are packed after padded lm_buflens[] array,
+	 * padded to a multiple of 8 bytes each to align contents.
+	 */
 };
 
-/* without gss, ptlrpc_body is put at the first buffer. */
+/* ptlrpc_body packet pb_types */
+#define PTL_RPC_MSG_REQUEST	4711	/* normal RPC request message */
+#define PTL_RPC_MSG_ERR		4712	/* error reply if request unprocessed */
+#define PTL_RPC_MSG_REPLY	4713	/* normal RPC reply message */
+
+/* ptlrpc_body pb_version ((target_version << 16) | rpc_version) */
+#define PTLRPC_MSG_VERSION	0x00000003
+#define LUSTRE_VERSION_MASK	0xffff0000
+#define LUSTRE_OBD_VERSION	0x00010000
+#define LUSTRE_MDS_VERSION	0x00020000
+#define LUSTRE_OST_VERSION	0x00030000
+#define LUSTRE_DLM_VERSION	0x00040000
+#define LUSTRE_LOG_VERSION	0x00050000
+#define LUSTRE_MGS_VERSION	0x00060000
+
+/* pb_flags that apply to all requests */
+#define MSG_LAST_REPLAY		    0x0001
+#define MSG_RESENT		    0x0002
+#define MSG_REPLAY		    0x0004
+/* #define MSG_AT_SUPPORT	    0x0008 obsolete 1.5 */
+#define MSG_DELAY_REPLAY	    0x0010
+#define MSG_VERSION_REPLAY	    0x0020
+#define MSG_REQ_REPLAY_DONE	    0x0040
+#define MSG_LOCK_REPLAY_DONE	    0x0080
+
+/* pb_op_flags for all connect opcodes (MDS_CONNECT, OST_CONNECT) */
+#define MSG_CONNECT_RECOVERING	0x00000001
+#define MSG_CONNECT_RECONNECT	0x00000002
+#define MSG_CONNECT_REPLAYABLE	0x00000004
+/* #define MSG_CONNECT_PEER	0x00000008 obsolete */
+#define MSG_CONNECT_LIBCLIENT	0x00000010
+#define MSG_CONNECT_INITIAL	0x00000020
+#define MSG_CONNECT_ASYNC	0x00000040
+#define MSG_CONNECT_NEXT_VER	0x00000080 /* use next version of lustre_msg */
+#define MSG_CONNECT_TRANSNO	0x00000100 /* report transno */
+
+/* number of previous object versions in pb_pre_versions[] */
 #define PTLRPC_NUM_VERSIONS     4
+/* without gss, ptlrpc_body is put at the first buffer. */
 struct ptlrpc_body_v3 {
 	struct lustre_handle pb_handle;
-	__u32 pb_type;
-	__u32 pb_version;
-	__u32 pb_opc;
-	__u32 pb_status;
-	__u64 pb_last_xid; /* highest replied XID without lower unreplied XID */
-	__u16 pb_tag;      /* virtual slot idx for multiple modifying RPCs */
+	__u32 pb_type;		/* request/reply/err type: PTL_RPC_MSG_* */
+	__u32 pb_version;	/* LUSTRE_*_VERSION | PTLRPC_MSG_VERSION */
+	__u32 pb_opc;		/* RPC opcodes: MDS_*, OST_*, LDLM_, ... */
+	__u32 pb_status;	/* negative Linux x86 error number */
+	__u64 pb_last_xid;	/* highest replied XID w/o lower unreplied XID*/
+	__u16 pb_tag;		/* multiple modifying RPCs virtual slot index */
 	__u16 pb_padding0;
 	__u32 pb_padding1;
-	__u64 pb_last_committed;
-	__u64 pb_transno;
-	__u32 pb_flags;
-	__u32 pb_op_flags;
-	__u32 pb_conn_cnt;
-	__u32 pb_timeout;  /* for req, the deadline, for rep, the service est */
-	__u32 pb_service_time; /* for rep, actual service time */
-	__u32 pb_limit;
-	__u64 pb_slv;
-	/* VBR: pre-versions */
+	__u64 pb_last_committed;/* rep: highest pb_transno committed to disk */
+	__u64 pb_transno;	/* server-assigned transno for modifying RPCs */
+	__u32 pb_flags;		/* req: MSG_* flags */
+	__u32 pb_op_flags;	/* req: MSG_CONNECT_* flags */
+	__u32 pb_conn_cnt;	/* connect instance of this client on server */
+	__u32 pb_timeout;	/* req: max wait time; rep: service estimate */
+	__u32 pb_service_time;	/* rep: server arrival to reply in seconds */
+	__u32 pb_limit;		/* rep: dynamic DLM LRU lock count limit */
+	__u64 pb_slv;		/* rep: dynamic DLM LRU server lock volume */
+	/* VBR: rep: previous pb_version(s) of objects modified by this RPC */
 	__u64 pb_pre_versions[PTLRPC_NUM_VERSIONS];
 	__u64 pb_mbits;	/**< match bits for bulk request */
-	/* padding for future needs */
+	/* padding for future needs - fix lustre_swab_ptlrpc_body() also */
 	__u64 pb_padding64_0;
 	__u64 pb_padding64_1;
 	__u64 pb_padding64_2;
-	char  pb_jobid[LUSTRE_JOBID_SIZE];
+	char  pb_jobid[LUSTRE_JOBID_SIZE]; /* req: ASCII MPI jobid from env */
 };
 #define ptlrpc_body     ptlrpc_body_v3
 
@@ -1159,38 +1186,6 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb);
 
 /** only use in req->rq_{req,rep}_swab_mask */
 #define MSG_PTLRPC_HEADER_OFF           31
-
-/* Flags that are operation-specific go in the top 16 bits. */
-#define MSG_OP_FLAG_MASK   0xffff0000
-#define MSG_OP_FLAG_SHIFT  16
-
-/* Flags that apply to all requests are in the bottom 16 bits */
-#define MSG_GEN_FLAG_MASK     0x0000ffff
-#define MSG_LAST_REPLAY           0x0001
-#define MSG_RESENT                0x0002
-#define MSG_REPLAY                0x0004
-/* #define MSG_AT_SUPPORT         0x0008
- * This was used in early prototypes of adaptive timeouts, and while there
- * shouldn't be any users of that code there also isn't a need for using this
- * bits. Defer usage until at least 1.10 to avoid potential conflict. */
-#define MSG_DELAY_REPLAY          0x0010
-#define MSG_VERSION_REPLAY        0x0020
-#define MSG_REQ_REPLAY_DONE       0x0040
-#define MSG_LOCK_REPLAY_DONE      0x0080
-
-/*
- * Flags for all connect opcodes (MDS_CONNECT, OST_CONNECT)
- */
-
-#define MSG_CONNECT_RECOVERING  0x00000001
-#define MSG_CONNECT_RECONNECT   0x00000002
-#define MSG_CONNECT_REPLAYABLE  0x00000004
-//#define MSG_CONNECT_PEER        0x8
-#define MSG_CONNECT_LIBCLIENT   0x00000010
-#define MSG_CONNECT_INITIAL     0x00000020
-#define MSG_CONNECT_ASYNC       0x00000040
-#define MSG_CONNECT_NEXT_VER    0x00000080 /* use next version of lustre_msg */
-#define MSG_CONNECT_TRANSNO     0x00000100 /* report transno */
 
 /* Connect flags */
 #define OBD_CONNECT_RDONLY                0x1ULL /*client has read-only access*/
@@ -1411,7 +1406,6 @@ typedef enum {
 
 /* opcodes */
 typedef enum {
-        OST_REPLY      =  0,       /* reply ? */
         OST_GETATTR    =  1,
         OST_SETATTR    =  2,
         OST_READ       =  3,
@@ -1432,7 +1426,7 @@ typedef enum {
 	OST_QUOTA_ADJUST_QUNIT = 20, /* not used since 2.4 */
         OST_LAST_OPC
 } ost_cmd_t;
-#define OST_FIRST_OPC  OST_REPLY
+#define OST_FIRST_OPC  OST_GETATTR
 
 enum obdo_flags {
         OBD_FL_INLINEDATA   = 0x00000001,
@@ -2747,7 +2741,7 @@ typedef enum {
 	LFSCK_NOTIFY		= 1101,
 	LFSCK_QUERY		= 1102,
 	LFSCK_LAST_OPC,
-	LFSCK_FIRST_OPC 	= LFSCK_NOTIFY
+	LFSCK_FIRST_OPC		= LFSCK_NOTIFY
 } lfsck_cmd_t;
 
 /*
@@ -2939,10 +2933,10 @@ extern void lustre_swab_ldlm_lock_desc(struct ldlm_lock_desc *l);
 #define LDLM_ENQUEUE_CANCEL_OFF 1
 
 struct ldlm_request {
-        __u32 lock_flags;
-        __u32 lock_count;
-        struct ldlm_lock_desc lock_desc;
-        struct lustre_handle lock_handle[LDLM_LOCKREQ_HANDLES];
+	__u32 lock_flags;		/* LDLM_FL_*, see lustre_dlm_flags.h */
+	__u32 lock_count;		/* number of locks in lock_handle[] */
+	struct ldlm_lock_desc lock_desc;/* lock descriptor */
+	struct lustre_handle lock_handle[LDLM_LOCKREQ_HANDLES];
 };
 
 extern void lustre_swab_ldlm_request (struct ldlm_request *rq);
@@ -2976,14 +2970,14 @@ extern void lustre_swab_ldlm_reply (struct ldlm_reply *r);
  * Opcodes for mountconf (mgs and mgc)
  */
 typedef enum {
-        MGS_CONNECT = 250,
-        MGS_DISCONNECT,
-        MGS_EXCEPTION,         /* node died, etc. */
-        MGS_TARGET_REG,        /* whenever target starts up */
-        MGS_TARGET_DEL,
-        MGS_SET_INFO,
-        MGS_CONFIG_READ,
-        MGS_LAST_OPC
+	MGS_CONNECT	= 250,
+	MGS_DISCONNECT	= 251,
+	MGS_EXCEPTION	= 252,		/* node died, etc. */
+	MGS_TARGET_REG	= 253,		/* whenever target starts up */
+	MGS_TARGET_DEL	= 254,
+	MGS_SET_INFO	= 255,
+	MGS_CONFIG_READ	= 256,
+	MGS_LAST_OPC
 } mgs_cmd_t;
 #define MGS_FIRST_OPC MGS_CONNECT
 
@@ -3002,7 +2996,7 @@ struct mgs_target_info {
         __u32            mti_lustre_ver;
         __u32            mti_stripe_index;
         __u32            mti_config_ver;
-        __u32            mti_flags;
+        __u32            mti_flags;	/* LDD_F_* */
         __u32            mti_nid_count;
         __u32            mti_instance; /* Running instance of target */
         char             mti_fsname[MTI_NAME_MAXLEN];
@@ -3071,13 +3065,13 @@ extern void lustre_swab_cfg_marker(struct cfg_marker *marker,
  */
 
 typedef enum {
-        OBD_PING = 400,
-        OBD_LOG_CANCEL,
-	OBD_QC_CALLBACK, /* not used since 2.4 */
-	OBD_IDX_READ,
-        OBD_LAST_OPC
+	OBD_PING	= 400,
+	OBD_LOG_CANCEL	= 401,
+/*	OBD_QC_CALLBACK = 402, obsolete 2.4 */
+	OBD_IDX_READ	= 403,
+	OBD_LAST_OPC,
+	OBD_FIRST_OPC	= OBD_PING
 } obd_cmd_t;
-#define OBD_FIRST_OPC OBD_PING
 
 /**
  * llog contexts indices.
@@ -3707,11 +3701,11 @@ union lu_page {
 
 /* security opcodes */
 typedef enum {
-        SEC_CTX_INIT            = 801,
-        SEC_CTX_INIT_CONT       = 802,
-        SEC_CTX_FINI            = 803,
-        SEC_LAST_OPC,
-        SEC_FIRST_OPC           = SEC_CTX_INIT
+	SEC_CTX_INIT		= 801,
+	SEC_CTX_INIT_CONT	= 802,
+	SEC_CTX_FINI		= 803,
+	SEC_LAST_OPC,
+	SEC_FIRST_OPC		= SEC_CTX_INIT
 } sec_cmd_t;
 
 /*

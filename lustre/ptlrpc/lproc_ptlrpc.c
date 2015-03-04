@@ -49,7 +49,6 @@ static struct ll_rpc_opcode {
      __u32       opcode;
      const char *opname;
 } ll_rpc_opcode_table[LUSTRE_MAX_OPCODES] = {
-        { OST_REPLY,        "ost_reply" },
         { OST_GETATTR,      "ost_getattr" },
         { OST_SETATTR,      "ost_setattr" },
         { OST_READ,         "ost_read" },
@@ -115,7 +114,6 @@ static struct ll_rpc_opcode {
         { MGS_CONFIG_READ,  "mgs_config_read" },
         { OBD_PING,         "obd_ping" },
 	{ OBD_LOG_CANCEL,	"llog_cancel" },
-        { OBD_QC_CALLBACK,  "obd_quota_callback" },
 	{ OBD_IDX_READ,	    "dt_index_read" },
 	{ LLOG_ORIGIN_HANDLE_CREATE,	 "llog_origin_handle_open" },
         { LLOG_ORIGIN_HANDLE_NEXT_BLOCK, "llog_origin_handle_next_block" },

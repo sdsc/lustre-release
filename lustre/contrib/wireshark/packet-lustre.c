@@ -160,7 +160,6 @@ static const value_string portal_indices[] = {
 };
 
 typedef enum {
-  OST_REPLY      =  0,       /* reply ? */
   OST_GETATTR    =  1,
   OST_SETATTR    =  2,
   OST_READ       =  3,
@@ -1125,7 +1124,6 @@ const value_string lustre_mds_reint_t_vals[] = {
 };
 const value_string lustre_op_codes[] = {
   /*OST Opcodes*/
-  {0 , "OST_REPLY"},
   {1 , "OST_GETATTR"},
   {2 , "OST_SETATTR"},
   {3 , "OST_READ"},
@@ -8387,8 +8385,6 @@ lustre_ost_opcode_process(tvbuff_t *tvb _U_, int offset _U_, packet_info *pinfo 
   guint32 i ;
 
   switch (opc){
-    case OST_REPLY: /* obsolete so nothing */
-      break;
     case OST_GETATTR:
       offset=lustre_dissect_struct_ost_body(tvb, offset, pinfo, tree, hf_lustre_ost_body) ;
       if (pb_type == PTL_RPC_MSG_REQUEST)

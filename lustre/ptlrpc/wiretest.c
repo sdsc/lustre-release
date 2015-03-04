@@ -66,8 +66,6 @@ void lustre_assert_wire_constants(void)
 	LASSERTF(DEAD_HANDLE_MAGIC == 0xdeadbeefcafebabeULL, "found 0x%.16llxULL\n",
 		 DEAD_HANDLE_MAGIC);
 	CLASSERT(MTI_NAME_MAXLEN == 64);
-	LASSERTF(OST_REPLY == 0, "found %lld\n",
-		 (long long)OST_REPLY);
 	LASSERTF(OST_GETATTR == 1, "found %lld\n",
 		 (long long)OST_GETATTR);
 	LASSERTF(OST_SETATTR == 2, "found %lld\n",
@@ -340,8 +338,6 @@ void lustre_assert_wire_constants(void)
 		 (long long)OBD_PING);
 	LASSERTF(OBD_LOG_CANCEL == 401, "found %lld\n",
 		 (long long)OBD_LOG_CANCEL);
-	LASSERTF(OBD_QC_CALLBACK == 402, "found %lld\n",
-		 (long long)OBD_QC_CALLBACK);
 	LASSERTF(OBD_IDX_READ == 403, "found %lld\n",
 		 (long long)OBD_IDX_READ);
 	LASSERTF(OBD_LAST_OPC == 404, "found %lld\n",
@@ -900,12 +896,6 @@ void lustre_assert_wire_constants(void)
 		 (long long)MSGHDR_AT_SUPPORT);
 	LASSERTF(MSGHDR_CKSUM_INCOMPAT18 == 2, "found %lld\n",
 		 (long long)MSGHDR_CKSUM_INCOMPAT18);
-	LASSERTF(MSG_OP_FLAG_MASK == 0xffff0000UL, "found 0x%.8xUL\n",
-		(unsigned)MSG_OP_FLAG_MASK);
-	LASSERTF(MSG_OP_FLAG_SHIFT == 16, "found %lld\n",
-		 (long long)MSG_OP_FLAG_SHIFT);
-	LASSERTF(MSG_GEN_FLAG_MASK == 0x0000ffffUL, "found 0x%.8xUL\n",
-		(unsigned)MSG_GEN_FLAG_MASK);
 	LASSERTF(MSG_LAST_REPLAY == 0x00000001UL, "found 0x%.8xUL\n",
 		(unsigned)MSG_LAST_REPLAY);
 	LASSERTF(MSG_RESENT == 0x00000002UL, "found 0x%.8xUL\n",
