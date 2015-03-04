@@ -49,7 +49,6 @@ static struct ll_rpc_opcode {
 	__u32       opcode;
 	const char *opname;
 } ll_rpc_opcode_table[LUSTRE_MAX_OPCODES] = {
-	{ OSS_REPLY,			"oss_reply" },
 	{ OSS_GETATTR,			"oss_getattr" },
 	{ OSS_SETATTR,			"oss_setattr" },
 	{ OSS_READ,			"oss_read" },
@@ -60,16 +59,10 @@ static struct ll_rpc_opcode {
 	{ OSS_CONNECT,			"oss_connect" },
 	{ OSS_DISCONNECT,		"oss_disconnect" },
 	{ OSS_PUNCH,			"oss_punch" },
-	{ 11, /* was OSS_OPEN */	NULL },
-	{ 12, /* was OSS_CLOSE */	NULL },
 	{ OSS_STATFS,			"oss_statfs" },
-	{ 14, /* was OSS_SAN_READ */	NULL },
-	{ 15, /* was OSS_SAN_WRITE */	NULL },
 	{ OSS_SYNC,			"oss_sync" },
 	{ OSS_SET_INFO,			"oss_set_info" },
-	{ 18, /* was OSS_QUOTACHECK */	NULL },
 	{ OSS_QUOTACTL,			"oss_quotactl" },
-	{ 20, /* was OSS_QUOTA_ADJUST_QUNIT */	NULL },
 	{ OSS_LADVISE,			"oss_ladvise" },
         { MDS_GETATTR,      "mds_getattr" },
         { MDS_GETATTR_NAME, "mds_getattr_lock" },
@@ -116,7 +109,6 @@ static struct ll_rpc_opcode {
         { MGS_CONFIG_READ,  "mgs_config_read" },
         { OBD_PING,         "obd_ping" },
 	{ OBD_LOG_CANCEL,	"llog_cancel" },
-        { 402, /* was OBD_QC_CALLBACK */ "obd_quota_callback" },
 	{ OBD_IDX_READ,	    "dt_index_read" },
 	{ LLOG_ORIGIN_HANDLE_CREATE,	 "llog_origin_handle_open" },
         { LLOG_ORIGIN_HANDLE_NEXT_BLOCK, "llog_origin_handle_next_block" },

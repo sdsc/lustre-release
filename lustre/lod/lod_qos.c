@@ -864,8 +864,8 @@ static int lod_check_and_reserve_ost(const struct lu_env *env,
 	}
 
 	/*
-	 * We expect number of precreated objects in f_ffree at
-	 * the first iteration, skip OSPs with no objects ready
+	 * We expect number of precreated objects at the first iteration.
+	 * Skip OSPs with no objects ready
 	 */
 	if (sfs->os_fprecreated == 0 && speed == 0) {
 		QOS_DEBUG("#%d: precreation is empty\n", ost_idx);
@@ -1259,9 +1259,9 @@ repeat_find:
 		}
 
 		/*
-		 * We expect number of precreated objects in f_ffree at
-		 * the first iteration, skip OSPs with no objects ready
-		 * don't apply this logic to OST specified with stripe_offset
+		 * We expect number of precreated objects at the first
+		 * iteration.  Skip OSPs with no objects ready.  Don't apply
+		 * this logic to OST specified with stripe_offset.
 		 */
 		if (i != 0 && sfs->os_fprecreated == 0 && speed == 0)
 			continue;

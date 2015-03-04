@@ -104,29 +104,29 @@ enum obd_statfs_state {
         OS_STATE_RDONLY_3       = 0x00000010, /**< obsolete 1.6, was EROFS=30 */
 };
 
+/** filesystem statistics/attributes for target device */
 struct obd_statfs {
-        __u64           os_type;
-        __u64           os_blocks;
-        __u64           os_bfree;
-        __u64           os_bavail;
-        __u64           os_files;
-        __u64           os_ffree;
-        __u8            os_fsid[40];
-        __u32           os_bsize;
-        __u32           os_namelen;
-        __u64           os_maxbytes;
-        __u32           os_state;       /**< obd_statfs_state OS_STATE_* flag */
-	__u32           os_fprecreated;	/* objs available now to the caller */
-					/* used in QoS code to find preferred
-					 * OSTs */
-        __u32           os_spare2;
-        __u32           os_spare3;
-        __u32           os_spare4;
-        __u32           os_spare5;
-        __u32           os_spare6;
-        __u32           os_spare7;
-        __u32           os_spare8;
-        __u32           os_spare9;
+	__u64		os_type;	/* EXT4_SUPER_MAGIC, UBERBLOCK_MAGIC */
+	__u64		os_blocks;	/* total size in #os_bsize blocks */
+	__u64		os_bfree;	/* number of unused blocks */
+	__u64		os_bavail;	/* blocks available for client write */
+	__u64		os_files;	/* total number of objects */
+	__u64		os_ffree;	/* # objects that could be created */
+	__u8		os_fsid[40];	/* numeric identifier for filesystem */
+	__u32		os_bsize;	/* block size in bytes (os_blocks) */
+	__u32		os_namelen;	/* maximum length of filename in bytes*/
+	__u64		os_maxbytes;	/* maximum object size in bytes */
+	__u32		os_state;       /**< obd_statfs_state OS_STATE_* flag */
+	__u32		os_fprecreated;	/* objs available now to the caller,
+					 * used in QoS to find preferred OSTs */
+	__u32		os_spare2;	/* Unused padding fields.  Remember */
+	__u32		os_spare3;	/* to fix lustre_swab_obd_statfs() */
+	__u32		os_spare4;
+	__u32		os_spare5;
+	__u32		os_spare6;
+	__u32		os_spare7;
+	__u32		os_spare8;
+	__u32		os_spare9;
 };
 
 /**

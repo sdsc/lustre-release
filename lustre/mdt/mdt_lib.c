@@ -1033,7 +1033,7 @@ static int mdt_intent_close_unpack(struct mdt_thread_info *info)
 	if (!(ma->ma_attr_flags & (MDS_HSM_RELEASE | MDS_CLOSE_LAYOUT_SWAP)))
 		RETURN(0);
 
-	req_capsule_extend(pill, &RQF_MDS_INTENT_CLOSE);
+	req_capsule_extend(pill, &RQF_MDS_CLOSE_RELEASE);
 
 	if (!(req_capsule_has_field(pill, &RMF_CLOSE_DATA, RCL_CLIENT) &&
 	    req_capsule_field_present(pill, &RMF_CLOSE_DATA, RCL_CLIENT)))

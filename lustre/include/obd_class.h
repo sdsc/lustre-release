@@ -190,7 +190,7 @@ enum {
 struct config_llog_data {
         struct ldlm_res_id          cld_resid;
         struct config_llog_instance cld_cfg;
-	struct list_head	    cld_list_chain;
+	struct list_head	    cld_list_chain;/* on config_llog_list */
 	atomic_t		    cld_refcount;
 	struct config_llog_data    *cld_sptlrpc;/* depended sptlrpc log */
 	struct config_llog_data	   *cld_params;	/* common parameters log */

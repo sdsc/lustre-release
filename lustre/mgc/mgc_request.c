@@ -120,7 +120,7 @@ static int mgc_logname2resid(char *logname, struct ldlm_res_id *res_id,
 
 /********************** config llog list **********************/
 static struct list_head config_llog_list = LIST_HEAD_INIT(config_llog_list);
-static DEFINE_SPINLOCK(config_list_lock);
+static DEFINE_SPINLOCK(config_list_lock);	/* protects config_llog_list */
 
 /* Take a reference to a config log */
 static int config_log_get(struct config_llog_data *cld)

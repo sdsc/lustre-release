@@ -1151,7 +1151,7 @@ const value_string lustre_op_codes[] = {
   { MDS_READPAGE, "MDS_READPAGE" },
   { MDS_CONNECT, "MDS_CONNECT" },
   { MDS_DISCONNECT, "MDS_DISCONNECT" },
-  { MDS_GETSTATUS, "MDS_GETSTATUS" },
+  { MDS_GET_ROOT, "MDS_GET_ROOT" },
   { MDS_STATFS, "MDS_STATFS" },
   { MDS_PIN, "MDS_PIN" },
   { MDS_UNPIN, "MDS_UNPIN" },
@@ -8461,8 +8461,6 @@ lustre_ost_opcode_process(tvbuff_t *tvb _U_, int offset _U_, packet_info *pinfo 
   guint32 i ;
 
   switch (opc){
-    case OSS_REPLY: /* obsolete so nothing */
-      break;
     case OSS_GETATTR:
       offset=lustre_dissect_struct_ost_body(tvb, offset, pinfo, tree, hf_lustre_ost_body) ;
       if (pb_type == PTL_RPC_MSG_REQUEST)
