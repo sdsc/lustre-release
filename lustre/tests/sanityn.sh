@@ -3,16 +3,9 @@
 set -e
 
 ONLY=${ONLY:-"$*"}
-# bug number for skipped test: 3192 LU-1205 15528/3811 16929 9977 15528/11549 18080
-ALWAYS_EXCEPT="                14b  18c     19         22    28   29          35    $SANITYN_EXCEPT"
+# bug number for skipped test:
+ALWAYS_EXCEPT="$SANITYN_EXCEPT"
 # UPDATE THE COMMENT ABOVE WITH BUG NUMBERS WHEN CHANGING ALWAYS_EXCEPT!
-
-# bug number for skipped test:        12652 12652
-grep -q 'Enterprise Server 10' /etc/SuSE-release 2> /dev/null &&
-	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 11    14" || true
-
-# It will be ported soon.
-EXCEPT="$EXCEPT 22"
 
 SRCDIR=`dirname $0`
 PATH=$PWD/$SRCDIR:$SRCDIR:$SRCDIR/../utils:$PATH
@@ -38,13 +31,6 @@ SETUP=${SETUP:-:}
 init_test_env $@
 . ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}
 init_logging
-
-if [ $(facet_fstype $SINGLEMDS) = "zfs" ]; then
-# bug number for skipped test:        LU-2189 LU-2776
-	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 36      51a"
-# LU-2829 / LU-2887 - make allowances for ZFS slowness
-	TEST33_NFILES=${TEST33_NFILES:-1000}
-fi
 
 [ "$SLOW" = "no" ] && EXCEPT_SLOW="33a"
 

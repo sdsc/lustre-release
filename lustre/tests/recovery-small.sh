@@ -2,9 +2,6 @@
 
 set -e
 
-#         bug  5493  LU2034
-ALWAYS_EXCEPT="52    60      $RECOVERY_SMALL_EXCEPT"
-
 export MULTIOP=${MULTIOP:-multiop}
 PTLDEBUG=${PTLDEBUG:--1}
 LUSTRE=${LUSTRE:-`dirname $0`/..}
@@ -18,10 +15,6 @@ require_dsh_mds || exit 0
 # also long tests: 19, 21a, 21e, 21f, 23, 27
 #                                   1  2.5  2.5    4    4          (min)"
 [ "$SLOW" = "no" ] && EXCEPT_SLOW="17  26a  26b    50   51     57"
-
-[ $(facet_fstype $SINGLEMDS) = "zfs" ] &&
-# bug number for skipped test:	      LU-2547
-	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 24a 24b"
 
 build_test_filter
 
