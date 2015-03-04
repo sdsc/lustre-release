@@ -28,10 +28,6 @@ ALWAYS_EXCEPT="                 61d	$REPLAY_SINGLE_EXCEPT"
 #                                                  63 min  7 min  AT AT AT AT"
 [ "$SLOW" = "no" ] && EXCEPT_SLOW="1 2 3 4 6 12 16 44a      44b    65 66 67 68"
 
-[ $(facet_fstype $SINGLEMDS) = "zfs" ] &&
-# bug number for skipped test:        LU-1867	LU-3127
-        ALWAYS_EXCEPT="$ALWAYS_EXCEPT 89	73b"
-
 build_test_filter
 
 check_and_setup_lustre

@@ -3,8 +3,8 @@
 set -e
 
 ONLY=${ONLY:-"$*"}
-# bug number for skipped test: 3192 LU-1205 15528/3811 9977 15528/11549 18080
-ALWAYS_EXCEPT="                14b  18c     19         28   29          35    $SANITYN_EXCEPT"
+# bug number for skipped test: bz9977
+ALWAYS_EXCEPT="$SANITYN_EXCEPT 28"
 # UPDATE THE COMMENT ABOVE WITH BUG NUMBERS WHEN CHANGING ALWAYS_EXCEPT!
 
 SRCDIR=$(dirname $0)
@@ -33,8 +33,6 @@ init_test_env $@
 init_logging
 
 if [ $(facet_fstype $SINGLEMDS) = "zfs" ]; then
-# bug number for skipped test:        LU-2189 LU-2776
-	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 36      51a"
 # LU-2829 / LU-2887 - make allowances for ZFS slowness
 	TEST33_NFILES=${TEST33_NFILES:-1000}
 fi
@@ -650,23 +648,28 @@ test_28() { # bug 9977
 	tECHOID=`$LCTL dl | grep $ECHO_UUID | awk '{ print $1 }'`
 	$LCTL --device $tECHOID destroy "${tOBJID}:0"
 
-    	$LCTL <<-EOF
+	$LCTL <<-EOF
 		cfg_device ECHO_osc1
 		cleanup
 		detach
 	EOF
 
 	# reading of 1st stripe should pass
-	dd if=$DIR2/$tfile of=/dev/null bs=1024k count=1 || error
+	dd if=$DIR2/$tfile of=/dev/null bs=1024k count=1 ||
+		error "dd from $DIR2/$tfile failed"
 	# reading of 2nd stripe should fail (this stripe was destroyed)
-	dd if=$DIR2/$tfile of=/dev/null bs=1024k count=1 skip=1 && error
+	dd if=$DIR2/$tfile of=/dev/null bs=1024k count=1 skip=1 &&
+		error "dd should fail"
 
 	# now, recreating test file
-	dd if=/dev/zero of=$DIR1/$tfile bs=1024k count=2 || error
+	dd if=/dev/zero of=$DIR1/$tfile bs=1024k count=2 ||
+		error "dd $DIR1/$tfile failed"
 	# reading of 1st stripe should pass
-	dd if=$DIR2/$tfile of=/dev/null bs=1024k count=1 || error
+	dd if=$DIR2/$tfile of=/dev/null bs=1024k count=1 ||
+		error "dd from $DIR2/$tfile failed - first stripe"
 	# reading of 2nd stripe should pass
-	dd if=$DIR2/$tfile of=/dev/null bs=1024k count=1 skip=1 || error
+	dd if=$DIR2/$tfile of=/dev/null bs=1024k count=1 skip=1 ||
+		error "dd from $DIR2/$tfile failed - second stripe"
 }
 run_test 28 "read/write/truncate file with lost stripes"
 
