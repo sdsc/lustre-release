@@ -85,11 +85,6 @@ static int ptlrpcd_bind_policy = PDB_POLICY_PAIR;
 CFS_MODULE_PARM(ptlrpcd_bind_policy, "i", int, 0644,
 		"Ptlrpcd threads binding mode.");
 
-/* Temp parameter to allow before/after testing w/o recompiling. */
-static int ptlrpcd_use_cpts;
-CFS_MODULE_PARM(ptlrpcd_use_cpts, "i", int, 0644,
-		"Make ptlrpcd threads honour CPU partitions.");
-
 static char *ptlrpcd_cpts;
 CFS_MODULE_PARM(ptlrpcd_cpts, "s", charp, 0644,
 		"CPU partitions ptlrpcd threads should run on");
@@ -122,9 +117,7 @@ ptlrpcd_select_pc(struct ptlrpc_request *req, pdl_policy_t policy, int index)
 	 * Otherwise pick an arbitrary one.
 	 */
 	cpt = cfs_cpt_current(cfs_cpt_table, 1);
-	if (ptlrpcd_use_cpts == 0) {
-		idx = 0;
-	} else if (ptlrpcds_cpts == NULL) {
+	if (ptlrpcds_cpts == NULL) {
 		idx = cpt;
 	} else {
 		for (idx = 0; idx < ptlrpcds_ncpts; idx++)
@@ -140,10 +133,6 @@ ptlrpcd_select_pc(struct ptlrpc_request *req, pdl_policy_t policy, int index)
 
 	switch (policy) {
 	case PDL_POLICY_SAME:
-		if (pd->pd_cpt == CFS_CPT_ANY) {
-			idx = smp_processor_id() % pd->pd_nthreads;
-			break;
-		}
 		for (idx = 0; idx < pd->pd_nthreads; idx++)
 			if (pd->pd_threads[idx].pc_cpu == smp_processor_id())
 				break;
@@ -155,10 +144,6 @@ ptlrpcd_select_pc(struct ptlrpc_request *req, pdl_policy_t policy, int index)
 		index = -1;
 	case PDL_POLICY_PREFERRED:
 		if (index >= 0 && index < num_online_cpus()) {
-			if (pd->pd_cpt == CFS_CPT_ANY) {
-				idx = index % pd->pd_nthreads;
-				break;
-			}
 			for (idx = 0; idx < pd->pd_nthreads; idx++)
 				if (pd->pd_threads[idx].pc_cpu == index)
 					break;
@@ -428,36 +413,23 @@ static int ptlrpcd(void *arg)
 
 	pd = (void *)pc - offsetof(struct ptlrpcd, pd_threads[pc->pc_index]);
 
-	/* If a CPT is defined, always bind to that CPT. */
-	if (pd->pd_cpt != CFS_CPT_ANY) {
-		if (cfs_cpt_bind(cfs_cpt_table, pd->pd_cpt) != 0) {
-			CWARN("Failed to bind %s on CPT %d\n",
-			      pc->pc_name, pd->pd_cpt);
-		}
-#if defined(CONFIG_SMP)
-		if (test_bit(LIOD_BIND, &pc->pc_flags)) {
-			cpumask_t	*mask;
-			int		index;
-
-			mask = cfs_cpt_cpumask(cfs_cpt_table, pd->pd_cpt);
-			pc->pc_cpu = cpumask_first(mask);
-			for (index = pc->pc_index; index > 0; index--)
-				pc->pc_cpu = cpumask_next(pc->pc_cpu, mask);
-			set_cpus_allowed_ptr(current, cpumask_of(pc->pc_cpu));
-		}
-	} else if (test_bit(LIOD_BIND, &pc->pc_flags)) {
-		int	index = pc->pc_index;
-
-		if (index >= 0 && index < num_possible_cpus()) {
-			while (!cpu_online(index)) {
-				if (++index >= num_possible_cpus())
-					index = 0;
-			}
-			set_cpus_allowed_ptr(current,
-				     cpumask_of_node(cpu_to_node(index)));
-		}
-#endif
+	if (cfs_cpt_bind(cfs_cpt_table, pd->pd_cpt) != 0) {
+		CWARN("Failed to bind %s on CPT %d\n",
+		      pc->pc_name, pd->pd_cpt);
 	}
+#if defined(CONFIG_SMP)
+	if (test_bit(LIOD_BIND, &pc->pc_flags)) {
+		/* Bind to CPU number pc_index in the CPT. */
+		cpumask_t	*mask;
+		int		index;
+
+		mask = cfs_cpt_cpumask(cfs_cpt_table, pd->pd_cpt);
+		pc->pc_cpu = cpumask_first(mask);
+		for (index = pc->pc_index; index > 0; index--)
+			pc->pc_cpu = cpumask_next(pc->pc_cpu, mask);
+		set_cpus_allowed_ptr(current, cpumask_of(pc->pc_cpu));
+	}
+#endif
 
 	/* Both client and server (MDT/OST) may use the environment. */
 	rc = lu_context_init(&env.le_ctx, LCT_MD_THREAD | LCT_DT_THREAD |
@@ -817,33 +789,29 @@ static int ptlrpcd_init(void)
 	ENTRY;
 
 	cptable = cfs_cpt_table;
-	if (ptlrpcd_use_cpts == 0) {
-		ncpts = 1;
-	} else {
-		ncpts = cfs_cpt_number(cptable);
-		if (ptlrpcd_cpts != NULL) {
-			struct cfs_expr_list	*el;
+	ncpts = cfs_cpt_number(cptable);
+	if (ptlrpcd_cpts != NULL) {
+		struct cfs_expr_list	*el;
 
-			rc = cfs_expr_list_parse(ptlrpcd_cpts,
-						 strlen(ptlrpcd_cpts),
-						 0, ncpts - 1, &el);
-			if (rc != 0) {
-				CERROR("%s: invalid CPT pattern string: %s",
-				       "ptlrpcd_cpts", ptlrpcd_cpts);
-				GOTO(out, rc = -EINVAL);
-			}
-
-			rc = cfs_expr_list_values(el, ncpts, &cpts);
-			cfs_expr_list_free(el);
-			if (rc <= 0) {
-				CERROR("%s: failed to parse CPT array %s: %d\n",
-				       "ptlrpcd_cpts", ptlrpcd_cpts, rc);
-				if (rc == 0)
-					rc = -EINVAL;
-				GOTO(out, rc);
-			}
-			ncpts = rc;
+		rc = cfs_expr_list_parse(ptlrpcd_cpts,
+					 strlen(ptlrpcd_cpts),
+					 0, ncpts - 1, &el);
+		if (rc != 0) {
+			CERROR("%s: invalid CPT pattern string: %s",
+			       "ptlrpcd_cpts", ptlrpcd_cpts);
+			GOTO(out, rc = -EINVAL);
 		}
+
+		rc = cfs_expr_list_values(el, ncpts, &cpts);
+		cfs_expr_list_free(el);
+		if (rc <= 0) {
+			CERROR("%s: failed to parse CPT array %s: %d\n",
+			       "ptlrpcd_cpts", ptlrpcd_cpts, rc);
+			if (rc == 0)
+				rc = -EINVAL;
+			GOTO(out, rc);
+		}
+		ncpts = rc;
 	}
 	ptlrpcds_ncpts = ncpts;
 	ptlrpcds_cpts = cpts;
@@ -855,10 +823,7 @@ static int ptlrpcd_init(void)
 	memset(ptlrpcds, 0, size);
 
 	for (i = 0; i < ncpts; i++) {
-		if (ptlrpcd_use_cpts == 0)
-			cpt = CFS_CPT_ANY;
-		else
-			cpt = (cpts != NULL ? cpts[i] : i);
+		cpt = (cpts != NULL ? cpts[i] : i);
 
 		nthreads = cfs_cpt_weight(cptable, cpt);
 		if (max_ptlrpcds > 0 && max_ptlrpcds < nthreads)
@@ -882,10 +847,7 @@ static int ptlrpcd_init(void)
 		pd->pd_nthreads = nthreads;
 		ptlrpcds[i] = pd;
 
-		if (cpt == CFS_CPT_ANY)
-			snprintf(name, sizeof(name), "ptlrpcd_rcv");
-		else
-			snprintf(name, sizeof(name), "ptlrpcd_%02d_rcv", cpt);
+		snprintf(name, sizeof(name), "ptlrpcd_%02d_rcv", cpt);
 		set_bit(LIOD_RECOVERY, &pd->pd_thread_rcv.pc_flags);
 		rc = ptlrpcd_start(pd, -1, name);
 		if (rc < 0)
@@ -911,13 +873,8 @@ static int ptlrpcd_init(void)
 		 *      another trouble.
 		 */
 		for (j = 0; j < nthreads; j++) {
-			if (cpt == CFS_CPT_ANY) {
-				snprintf(name, sizeof(name),
-					"ptlrpcd_%02d", j);
-			} else {
-				snprintf(name, sizeof(name),
-					"ptlrpcd_%02d_%02d", cpt, j);
-			}
+			snprintf(name, sizeof(name),
+				"ptlrpcd_%02d_%02d", cpt, j);
 			rc = ptlrpcd_start(pd, j, name);
 			if (rc < 0)
 				GOTO(out, rc);
