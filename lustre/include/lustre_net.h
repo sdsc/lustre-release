@@ -2977,6 +2977,7 @@ void ptlrpc_cleanup_imp(struct obd_import *imp);
 void ptlrpc_abort_set(struct ptlrpc_request_set *set);
 
 struct ptlrpc_request_set *ptlrpc_prep_set(void);
+struct ptlrpc_request_set *ptlrpc_prep_set_cpt(int cpt);
 struct ptlrpc_request_set *ptlrpc_prep_fcset(int max, set_producer_func func,
 					     void *arg);
 int ptlrpc_set_add_cb(struct ptlrpc_request_set *set,
