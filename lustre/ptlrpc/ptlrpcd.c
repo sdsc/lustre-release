@@ -672,17 +672,17 @@ int ptlrpcd_start(struct ptlrpcd *pd, int index, const char *name)
 	init_completion(&pc->pc_finishing);
 	spin_lock_init(&pc->pc_lock);
 	strlcpy(pc->pc_name, name, sizeof(pc->pc_name));
-        pc->pc_set = ptlrpc_prep_set();
-        if (pc->pc_set == NULL)
-                GOTO(out, rc = -ENOMEM);
+	pc->pc_set = ptlrpc_prep_set_cpt(pd->pd_cpt);
+	if (pc->pc_set == NULL)
+		GOTO(out, rc = -ENOMEM);
 
-        /*
-         * So far only "client" ptlrpcd uses an environment. In the future,
-         * ptlrpcd thread (or a thread-set) has to be given an argument,
-         * describing its "scope".
-         */
-        rc = lu_context_init(&pc->pc_env.le_ctx, LCT_CL_THREAD|LCT_REMEMBER);
-        if (rc != 0)
+	/*
+	 * So far only "client" ptlrpcd uses an environment. In the future,
+	 * ptlrpcd thread (or a thread-set) has to be given an argument,
+	 * describing its "scope".
+	 */
+	rc = lu_context_init(&pc->pc_env.le_ctx, LCT_CL_THREAD|LCT_REMEMBER);
+	if (rc != 0)
 		GOTO(out_set, rc);
 
 	if (index >= 0) {

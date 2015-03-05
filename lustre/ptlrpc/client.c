@@ -849,15 +849,15 @@ ptlrpc_prep_req(struct obd_import *imp, __u32 version, int opcode, int count,
 }
 
 /**
- * Allocate and initialize new request set structure.
+ * Allocate and initialize new request set structure on a specified CPT.
  * Returns a pointer to the newly allocated set structure or NULL on error.
  */
-struct ptlrpc_request_set *ptlrpc_prep_set(void)
+struct ptlrpc_request_set *ptlrpc_prep_set_cpt(int cpt)
 {
-	struct ptlrpc_request_set *set;
+	struct ptlrpc_request_set	*set;
 
 	ENTRY;
-	OBD_ALLOC(set, sizeof *set);
+	OBD_CPT_ALLOC(set, cfs_cpt_table, cpt, sizeof *set);
 	if (!set)
 		RETURN(NULL);
 	atomic_set(&set->set_refcount, 1);
@@ -874,6 +874,16 @@ struct ptlrpc_request_set *ptlrpc_prep_set(void)
 	set->set_rc           = 0;
 
 	RETURN(set);
+}
+EXPORT_SYMBOL(ptlrpc_prep_set_cpt);
+
+/**
+ * Allocate and initialize new request set structure on the current CPT.
+ * Returns a pointer to the newly allocated set structure or NULL on error.
+ */
+struct ptlrpc_request_set *ptlrpc_prep_set(void)
+{
+	return ptlrpc_prep_set_cpt(cfs_cpt_current(cfs_cpt_table, 0));
 }
 EXPORT_SYMBOL(ptlrpc_prep_set);
 
