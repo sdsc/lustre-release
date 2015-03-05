@@ -1493,6 +1493,12 @@ int lfsck_namespace_repair_bad_name_hash(const struct lu_env *env,
 	if (IS_ERR(parent))
 		GOTO(log, rc = PTR_ERR(parent));
 
+	if (unlikely(!dt_object_exists(parent)))
+		/* We have ever accessed the parent object when verified
+		 * the slave LMV EA. So here, it should because that the
+		 * striped directory is removing. */
+		GOTO(log, rc = 1);
+
 	*lmv2 = llmv->ll_lmv;
 	lmv2->lmv_hash_type = LMV_HASH_TYPE_UNKNOWN | LMV_HASH_FLAG_BAD_TYPE;
 	rc = lfsck_namespace_set_lmv_master(env, com, parent, lmv2,
@@ -1659,6 +1665,7 @@ out:
  * \param[in] obj	pointer to the object which LMV EA will be checked
  * \param[in] llmv	pointer to buffer holding the slave LMV EA
  *
+ * \retval		positive number if nothing to be done
  * \retval		zero for succeed
  * \retval		negative error number on failure
  */
@@ -1703,6 +1710,9 @@ int lfsck_namespace_verify_stripe_slave(const struct lu_env *env,
 
 		GOTO(out, rc);
 	}
+
+	if (unlikely(!dt_object_exists(parent)))
+		GOTO(out, rc = 1);
 
 	if (unlikely(!dt_try_as_dir(env, parent)))
 		GOTO(out, rc = -ENOTDIR);
