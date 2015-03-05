@@ -66,22 +66,37 @@
 
 #include "ptlrpc_internal.h"
 
+/* One of these per CPT. */
 struct ptlrpcd {
-        int                pd_size;
-        int                pd_index;
-        int                pd_nthreads;
-        struct ptlrpcd_ctl pd_thread_rcv;
-        struct ptlrpcd_ctl pd_threads[0];
+	int			pd_size;
+	int			pd_index;
+	int			pd_cpt;
+	int			pd_cursor;
+	int			pd_nthreads;
+	struct ptlrpcd_ctl	pd_thread_rcv;
+	struct ptlrpcd_ctl	pd_threads[0];
 };
 
 static int max_ptlrpcds;
 CFS_MODULE_PARM(max_ptlrpcds, "i", int, 0644,
-                "Max ptlrpcd thread count to be started.");
+		"Max ptlrpcd thread count to be started per cpt.");
 
 static int ptlrpcd_bind_policy = PDB_POLICY_PAIR;
 CFS_MODULE_PARM(ptlrpcd_bind_policy, "i", int, 0644,
-                "Ptlrpcd threads binding mode.");
-static struct ptlrpcd *ptlrpcds;
+		"Ptlrpcd threads binding mode.");
+
+/* Temp parameter to allow before/after testing w/o recompiling. */
+static int ptlrpcd_use_cpts;
+CFS_MODULE_PARM(ptlrpcd_use_cpts, "i", int, 0644,
+		"Make ptlrpcd threads honour CPU partitions.");
+
+static char *ptlrpcd_cpts;
+CFS_MODULE_PARM(ptlrpcd_cpts, "s", charp, 0644,
+		"CPU partitions ptlrpcd threads should run on");
+
+static int		ptlrpcds_ncpts;
+static __u32		*ptlrpcds_cpts;
+static struct ptlrpcd	**ptlrpcds;
 
 struct mutex ptlrpcd_mutex;
 static int ptlrpcd_users = 0;
@@ -98,43 +113,73 @@ EXPORT_SYMBOL(ptlrpcd_wake);
 static struct ptlrpcd_ctl *
 ptlrpcd_select_pc(struct ptlrpc_request *req, pdl_policy_t policy, int index)
 {
-        int idx = 0;
+	struct ptlrpcd	*pd;
+	int		cpt;
+	int		idx;
 
-        if (req != NULL && req->rq_send_state != LUSTRE_IMP_FULL)
-                return &ptlrpcds->pd_thread_rcv;
+	/*
+	 * Use the struct ptlrpcd for the current CPT if there is one.
+	 * Otherwise pick an arbitrary one.
+	 */
+	cpt = cfs_cpt_current(cfs_cpt_table, 1);
+	if (ptlrpcd_use_cpts == 0) {
+		idx = 0;
+	} else if (ptlrpcds_cpts == NULL) {
+		idx = cpt;
+	} else {
+		for (idx = 0; idx < ptlrpcds_ncpts; idx++)
+			if (ptlrpcds_cpts[idx] == cpt)
+				break;
+		if (idx >= ptlrpcds_ncpts)
+			idx = cpt % ptlrpcds_ncpts;
+	}
+	pd = ptlrpcds[idx];
+
+	if (req != NULL && req->rq_send_state != LUSTRE_IMP_FULL)
+		return &pd->pd_thread_rcv;
 
 	switch (policy) {
 	case PDL_POLICY_SAME:
-		idx = smp_processor_id() % ptlrpcds->pd_nthreads;
-		break;
-        case PDL_POLICY_LOCAL:
-                /* Before CPU partition patches available, process it the same
-                 * as "PDL_POLICY_ROUND". */
-# ifdef CFS_CPU_MODE_NUMA
-# warning "fix this code to use new CPU partition APIs"
-# endif
-                /* Fall through to PDL_POLICY_ROUND until the CPU
-                 * CPU partition patches are available. */
-                index = -1;
-        case PDL_POLICY_PREFERRED:
+		if (pd->pd_cpt == CFS_CPT_ANY) {
+			idx = smp_processor_id() % pd->pd_nthreads;
+			break;
+		}
+		for (idx = 0; idx < pd->pd_nthreads; idx++)
+			if (pd->pd_threads[idx].pc_cpu == smp_processor_id())
+				break;
+		if (idx < pd->pd_nthreads)
+			break;
+		/* Fall through to PDL_POLICY_LOCAL */
+	case PDL_POLICY_LOCAL:
+		/* Fall through to PDL_POLICY_ROUND. */
+		index = -1;
+	case PDL_POLICY_PREFERRED:
 		if (index >= 0 && index < num_online_cpus()) {
-                        idx = index % ptlrpcds->pd_nthreads;
-                        break;
-                }
-                /* Fall through to PDL_POLICY_ROUND for bad index. */
-        default:
-                /* Fall through to PDL_POLICY_ROUND for unknown policy. */
-        case PDL_POLICY_ROUND:
-                /* We do not care whether it is strict load balance. */
-                idx = ptlrpcds->pd_index + 1;
-		if (idx == smp_processor_id())
-                        idx++;
-                idx %= ptlrpcds->pd_nthreads;
-                ptlrpcds->pd_index = idx;
-                break;
-        }
+			if (pd->pd_cpt == CFS_CPT_ANY) {
+				idx = index % pd->pd_nthreads;
+				break;
+			}
+			for (idx = 0; idx < pd->pd_nthreads; idx++)
+				if (pd->pd_threads[idx].pc_cpu == index)
+					break;
+			if (idx < pd->pd_nthreads)
+				break;
+		}
+		/* Fall through to PDL_POLICY_ROUND for bad index. */
+	default:
+		/* Fall through to PDL_POLICY_ROUND for unknown policy. */
+	case PDL_POLICY_ROUND:
+		/* We do not care whether it is strict load balance. */
+		idx = pd->pd_cursor;
+		do {
+			if (++idx == pd->pd_nthreads)
+				idx = 0;
+		} while (pd->pd_threads[idx].pc_cpu == smp_processor_id());
+		pd->pd_cursor = idx;
+		break;
+	}
 
-        return &ptlrpcds->pd_threads[idx];
+	return &pd->pd_threads[idx];
 }
 
 /**
@@ -370,17 +415,38 @@ static int ptlrpcd_check(struct lu_env *env, struct ptlrpcd_ctl *pc)
  */
 static int ptlrpcd(void *arg)
 {
-	struct ptlrpcd_ctl *pc = arg;
-	struct ptlrpc_request_set *set = pc->pc_set;
-	struct lu_context ses = { 0 };
-	struct lu_env env = { .le_ses = &ses };
-	int rc, exit = 0;
+	struct ptlrpcd_ctl		*pc = arg;
+	struct ptlrpc_request_set	*set = pc->pc_set;
+	struct ptlrpcd			*pd;
+	struct lu_context		ses = { 0 };
+	struct lu_env			env = { .le_ses = &ses };
+	int				rc;
+	int				exit = 0;
 	ENTRY;
 
 	unshare_fs_struct();
+
+	pd = (void *)pc - offsetof(struct ptlrpcd, pd_threads[pc->pc_index]);
+
+	/* If a CPT is defined, always bind to that CPT. */
+	if (pd->pd_cpt != CFS_CPT_ANY) {
+		if (cfs_cpt_bind(cfs_cpt_table, pd->pd_cpt) != 0) {
+			CWARN("Failed to bind %s on CPT %d\n",
+			      pc->pc_name, pd->pd_cpt);
+		}
 #if defined(CONFIG_SMP)
-	if (test_bit(LIOD_BIND, &pc->pc_flags)) {
-		int index = pc->pc_index;
+		if (test_bit(LIOD_BIND, &pc->pc_flags)) {
+			cpumask_t	*mask;
+			int		index;
+
+			mask = cfs_cpt_cpumask(cfs_cpt_table, pd->pd_cpt);
+			pc->pc_cpu = cpumask_first(mask);
+			for (index = pc->pc_index; index > 0; index--)
+				pc->pc_cpu = cpumask_next(pc->pc_cpu, mask);
+			set_cpus_allowed_ptr(current, cpumask_of(pc->pc_cpu));
+		}
+	} else if (test_bit(LIOD_BIND, &pc->pc_flags)) {
+		int	index = pc->pc_index;
 
 		if (index >= 0 && index < num_possible_cpus()) {
 			while (!cpu_online(index)) {
@@ -390,8 +456,9 @@ static int ptlrpcd(void *arg)
 			set_cpus_allowed_ptr(current,
 				     cpumask_of_node(cpu_to_node(index)));
 		}
-	}
 #endif
+	}
+
 	/* Both client and server (MDT/OST) may use the environment. */
 	rc = lu_context_init(&env.le_ctx, LCT_MD_THREAD | LCT_DT_THREAD |
 					  LCT_CL_THREAD | LCT_REMEMBER |
@@ -488,119 +555,107 @@ static int ptlrpcd(void *arg)
  *      partnership based on the patches for CPU partition. But before such
  *      patches are available, we prefer to use the simplest one.
  */
-# ifdef CFS_CPU_MODE_NUMA
-# warning "fix ptlrpcd_bind() to use new CPU partition APIs"
-# endif
-static int ptlrpcd_bind(int index, int max)
+static int ptlrpcd_partners(struct ptlrpcd *pd, int index)
 {
-	struct ptlrpcd_ctl *pc;
-	int rc = 0;
+	struct ptlrpcd_ctl	*pc;
 #if defined(CONFIG_NUMA)
-	cpumask_t mask;
+	struct ptlrpcd_ctl	*ppc;
+	int			i;
 #endif
+	int			rc = 0;
 	ENTRY;
 
-        LASSERT(index <= max - 1);
-        pc = &ptlrpcds->pd_threads[index];
-        switch (ptlrpcd_bind_policy) {
-        case PDB_POLICY_NONE:
-                pc->pc_npartners = -1;
-                break;
-        case PDB_POLICY_FULL:
-                pc->pc_npartners = 0;
+	LASSERT(index >= 0 && index < pd->pd_nthreads);
+	pc = &pd->pd_threads[index];
+	switch (ptlrpcd_bind_policy) {
+	case PDB_POLICY_NONE:
+		pc->pc_npartners = -1;
+		break;
+	case PDB_POLICY_FULL:
+		pc->pc_npartners = 0;
 		set_bit(LIOD_BIND, &pc->pc_flags);
-                break;
-        case PDB_POLICY_PAIR:
-                LASSERT(max % 2 == 0);
-                pc->pc_npartners = 1;
-                break;
+		break;
+	case PDB_POLICY_PAIR:
+		LASSERT(pd->pd_nthreads % 2 == 0);
+		pc->pc_npartners = 1;
+		break;
 	case PDB_POLICY_NEIGHBOR:
 #if defined(CONFIG_NUMA)
-	{
-		int i;
-		mask = *cpumask_of_node(cpu_to_node(index));
-		for (i = max; i < num_online_cpus(); i++)
-			cpu_clear(i, mask);
-		pc->pc_npartners = cpus_weight(mask) - 1;
+		pc->pc_npartners = pd->pd_nthreads - 1;
 		set_bit(LIOD_BIND, &pc->pc_flags);
+#else
+		LASSERT(pd->pd_nthreads >= 3);
+		pc->pc_npartners = 2;
+#endif
+		break;
+	default:
+		CERROR("unknown ptlrpcd bind policy %d\n", ptlrpcd_bind_policy);
+		rc = -EINVAL;
 	}
-#else
-                LASSERT(max >= 3);
-                pc->pc_npartners = 2;
-#endif
-                break;
-        default:
-                CERROR("unknown ptlrpcd bind policy %d\n", ptlrpcd_bind_policy);
-                rc = -EINVAL;
-        }
 
-        if (rc == 0 && pc->pc_npartners > 0) {
-                OBD_ALLOC(pc->pc_partners,
-                          sizeof(struct ptlrpcd_ctl *) * pc->pc_npartners);
-                if (pc->pc_partners == NULL) {
-                        pc->pc_npartners = 0;
-                        rc = -ENOMEM;
-                } else {
-                        switch (ptlrpcd_bind_policy) {
-                        case PDB_POLICY_PAIR:
-                                if (index & 0x1) {
-					set_bit(LIOD_BIND, &pc->pc_flags);
-                                        pc->pc_partners[0] = &ptlrpcds->
-                                                pd_threads[index - 1];
-                                        ptlrpcds->pd_threads[index - 1].
-                                                pc_partners[0] = pc;
-                                }
-                                break;
-			case PDB_POLICY_NEIGHBOR:
+	if (rc != 0)
+		GOTO(out, rc);
+	if (pc->pc_npartners <= 0)
+		GOTO(out, rc);
+
+	OBD_CPT_ALLOC(pc->pc_partners, cfs_cpt_table, pd->pd_cpt,
+		      sizeof(struct ptlrpcd_ctl *) * pc->pc_npartners);
+	if (pc->pc_partners == NULL) {
+		pc->pc_npartners = 0;
+		GOTO(out, rc = -ENOMEM);
+	}
+
+	switch (ptlrpcd_bind_policy) {
+	case PDB_POLICY_PAIR:
+		if (index & 0x1) {
+			set_bit(LIOD_BIND, &pc->pc_flags);
+			pc->pc_partners[0] = &pd->pd_threads[index - 1];
+			pd->pd_threads[index - 1].pc_partners[0] = pc;
+		}
+		break;
+	case PDB_POLICY_NEIGHBOR:
 #if defined(CONFIG_NUMA)
-			{
-				struct ptlrpcd_ctl *ppc;
-				int i, pidx;
-				/* partners are cores in the same NUMA node.
-				 * setup partnership only with ptlrpcd threads
-				 * that are already initialized
-				 */
-				for (pidx = 0, i = 0; i < index; i++) {
-					if (cpu_isset(i, mask)) {
-						ppc = &ptlrpcds->pd_threads[i];
-						pc->pc_partners[pidx++] = ppc;
-						ppc->pc_partners[ppc->
-							  pc_npartners++] = pc;
-					}
-				}
-                                /* adjust number of partners to the number
-                                 * of partnership really setup */
-                                pc->pc_npartners = pidx;
-			}
+		/*
+		 * partners are cores in the same cpu partition. setup
+		 * partnership only with ptlrpcd threads that are
+		 * already initialized.
+		 */
+		for (i = 0; i < index; i++) {
+			ppc = &pd->pd_threads[i];
+			pc->pc_partners[i] = ppc;
+			ppc->pc_partners[index - 1] = pc;
+		}
 #else
-                                if (index & 0x1)
-					set_bit(LIOD_BIND, &pc->pc_flags);
-                                if (index > 0) {
-                                        pc->pc_partners[0] = &ptlrpcds->
-                                                pd_threads[index - 1];
-                                        ptlrpcds->pd_threads[index - 1].
-                                                pc_partners[1] = pc;
-                                        if (index == max - 1) {
-                                                pc->pc_partners[1] =
-                                                &ptlrpcds->pd_threads[0];
-                                                ptlrpcds->pd_threads[0].
-                                                pc_partners[0] = pc;
-                                        }
-                                }
+		if (index & 0x1)
+			set_bit(LIOD_BIND, &pc->pc_flags);
+		if (index > 0) {
+			pc->pc_partners[0] = &pd->pd_threads[index - 1];
+			pd->pd_threads[index - 1].pc_partners[1] = pc;
+			if (index == pd->pd_nthreads - 1) {
+				pc->pc_partners[1] = &pd->pd_threads[0];
+				pd->pd_threads[0].pc_partners[0] = pc;
+			}
+		}
 #endif
-                                break;
-                        }
-                }
-        }
-
-        RETURN(rc);
+		break;
+	}
+out:
+	EXIT;
+	RETURN(rc);
 }
 
-
-int ptlrpcd_start(int index, int max, const char *name, struct ptlrpcd_ctl *pc)
+int ptlrpcd_start(struct ptlrpcd *pd, int index, const char *name)
 {
-        int rc;
+	struct ptlrpcd_ctl	*pc;
+	struct task_struct	*task;
+	int			rc = 0;
         ENTRY;
+
+	LASSERT(index >= -1 && index < pd->pd_nthreads);
+	if (index < 0)
+		pc = &pd->pd_thread_rcv;
+	else
+		pc = &pd->pd_threads[index];
 
         /*
          * Do not allow start second thread for one pc.
@@ -611,6 +666,7 @@ int ptlrpcd_start(int index, int max, const char *name, struct ptlrpcd_ctl *pc)
 		RETURN(0);
 	}
 
+	pc->pc_cpu = -1;
 	pc->pc_index = index;
 	init_completion(&pc->pc_starting);
 	init_completion(&pc->pc_finishing);
@@ -629,20 +685,18 @@ int ptlrpcd_start(int index, int max, const char *name, struct ptlrpcd_ctl *pc)
         if (rc != 0)
 		GOTO(out_set, rc);
 
-	{
-		struct task_struct *task;
-		if (index >= 0) {
-			rc = ptlrpcd_bind(index, max);
-			if (rc < 0)
-				GOTO(out_env, rc);
-		}
-
-		task = kthread_run(ptlrpcd, pc, pc->pc_name);
-		if (IS_ERR(task))
-			GOTO(out_env, rc = PTR_ERR(task));
-
-		wait_for_completion(&pc->pc_starting);
+	if (index >= 0) {
+		rc = ptlrpcd_partners(pd, index);
+		if (rc < 0)
+			GOTO(out_env, rc);
 	}
+
+	task = kthread_run(ptlrpcd, pc, pc->pc_name);
+	if (IS_ERR(task))
+		GOTO(out_env, rc = PTR_ERR(task));
+
+	wait_for_completion(&pc->pc_starting);
+
 	RETURN(0);
 
 out_env:
@@ -718,84 +772,160 @@ out:
 
 static void ptlrpcd_fini(void)
 {
-	int i;
+	int	i;
+	int	j;
 	ENTRY;
 
 	if (ptlrpcds != NULL) {
-		for (i = 0; i < ptlrpcds->pd_nthreads; i++)
-			ptlrpcd_stop(&ptlrpcds->pd_threads[i], 0);
-		for (i = 0; i < ptlrpcds->pd_nthreads; i++)
-			ptlrpcd_free(&ptlrpcds->pd_threads[i]);
-		ptlrpcd_stop(&ptlrpcds->pd_thread_rcv, 0);
-		ptlrpcd_free(&ptlrpcds->pd_thread_rcv);
-		OBD_FREE(ptlrpcds, ptlrpcds->pd_size);
-		ptlrpcds = NULL;
+		for (i = 0; i < ptlrpcds_ncpts; i++) {
+			if (ptlrpcds[i] == NULL)
+				continue;
+			for (j = 0; j < ptlrpcds[i]->pd_nthreads; j++)
+				ptlrpcd_stop(&ptlrpcds[i]->pd_threads[j], 0);
+			for (j = 0; j < ptlrpcds[i]->pd_nthreads; j++)
+				ptlrpcd_free(&ptlrpcds[i]->pd_threads[j]);
+			ptlrpcd_stop(&ptlrpcds[i]->pd_thread_rcv, 0);
+			ptlrpcd_free(&ptlrpcds[i]->pd_thread_rcv);
+			OBD_FREE(ptlrpcds[i], ptlrpcds[i]->pd_size);
+			ptlrpcds[i] = NULL;
+		}
+		OBD_FREE(ptlrpcds, sizeof(struct ptlrpcd *) * ptlrpcds_ncpts);
 	}
+
+	if (ptlrpcds_cpts != NULL) {
+		cfs_expr_list_values_free(ptlrpcds_cpts, ptlrpcds_ncpts);
+		ptlrpcds_cpts = NULL;
+	}
+	ptlrpcds_ncpts = 0;
 
 	EXIT;
 }
 
 static int ptlrpcd_init(void)
 {
-	int	nthreads = num_online_cpus();
-	char	name[16];
-	int	size, i = -1, j, rc = 0;
+	int			nthreads;
+	char			name[16];
+	int			size;
+	int			i;
+	int			j;
+	int			rc = 0;
+	struct cfs_cpt_table	*cptable;
+	__u32			*cpts = NULL;
+	int			ncpts;
+	int			cpt;
+	struct ptlrpcd		*pd;
 	ENTRY;
 
-        if (max_ptlrpcds > 0 && max_ptlrpcds < nthreads)
-                nthreads = max_ptlrpcds;
-        if (nthreads < 2)
-                nthreads = 2;
-        if (nthreads < 3 && ptlrpcd_bind_policy == PDB_POLICY_NEIGHBOR)
-                ptlrpcd_bind_policy = PDB_POLICY_PAIR;
-        else if (nthreads % 2 != 0 && ptlrpcd_bind_policy == PDB_POLICY_PAIR)
-                nthreads &= ~1; /* make sure it is even */
+	cptable = cfs_cpt_table;
+	if (ptlrpcd_use_cpts == 0) {
+		ncpts = 1;
+	} else {
+		ncpts = cfs_cpt_number(cptable);
+		if (ptlrpcd_cpts != NULL) {
+			struct cfs_expr_list	*el;
 
-        size = offsetof(struct ptlrpcd, pd_threads[nthreads]);
-        OBD_ALLOC(ptlrpcds, size);
-        if (ptlrpcds == NULL)
-                GOTO(out, rc = -ENOMEM);
+			rc = cfs_expr_list_parse(ptlrpcd_cpts,
+						 strlen(ptlrpcd_cpts),
+						 0, ncpts - 1, &el);
+			if (rc != 0) {
+				CERROR("%s: invalid CPT pattern string: %s",
+				       "ptlrpcd_cpts", ptlrpcd_cpts);
+				GOTO(out, rc = -EINVAL);
+			}
 
-        snprintf(name, 15, "ptlrpcd_rcv");
-	set_bit(LIOD_RECOVERY, &ptlrpcds->pd_thread_rcv.pc_flags);
-        rc = ptlrpcd_start(-1, nthreads, name, &ptlrpcds->pd_thread_rcv);
-        if (rc < 0)
-                GOTO(out, rc);
+			rc = cfs_expr_list_values(el, ncpts, &cpts);
+			cfs_expr_list_free(el);
+			if (rc <= 0) {
+				CERROR("%s: failed to parse CPT array %s: %d\n",
+				       "ptlrpcd_cpts", ptlrpcd_cpts, rc);
+				if (rc == 0)
+					rc = -EINVAL;
+				GOTO(out, rc);
+			}
+			ncpts = rc;
+		}
+	}
+	ptlrpcds_ncpts = ncpts;
+	ptlrpcds_cpts = cpts;
 
-        /* XXX: We start nthreads ptlrpc daemons. Each of them can process any
-         *      non-recovery async RPC to improve overall async RPC efficiency.
-         *
-         *      But there are some issues with async I/O RPCs and async non-I/O
-         *      RPCs processed in the same set under some cases. The ptlrpcd may
-         *      be blocked by some async I/O RPC(s), then will cause other async
-         *      non-I/O RPC(s) can not be processed in time.
-         *
-         *      Maybe we should distinguish blocked async RPCs from non-blocked
-         *      async RPCs, and process them in different ptlrpcd sets to avoid
-         *      unnecessary dependency. But how to distribute async RPCs load
-         *      among all the ptlrpc daemons becomes another trouble. */
-        for (i = 0; i < nthreads; i++) {
-                snprintf(name, 15, "ptlrpcd_%d", i);
-                rc = ptlrpcd_start(i, nthreads, name, &ptlrpcds->pd_threads[i]);
-                if (rc < 0)
-                        GOTO(out, rc);
-        }
+	size = ncpts * sizeof(struct ptlrpcd *);
+	OBD_ALLOC(ptlrpcds, size);
+	if (ptlrpcds == NULL)
+		GOTO(out, rc = -ENOMEM);
+	memset(ptlrpcds, 0, size);
 
-        ptlrpcds->pd_size = size;
-        ptlrpcds->pd_index = 0;
-        ptlrpcds->pd_nthreads = nthreads;
+	for (i = 0; i < ncpts; i++) {
+		if (ptlrpcd_use_cpts == 0)
+			cpt = CFS_CPT_ANY;
+		else
+			cpt = (cpts != NULL ? cpts[i] : i);
 
+		nthreads = cfs_cpt_weight(cptable, cpt);
+		if (max_ptlrpcds > 0 && max_ptlrpcds < nthreads)
+			nthreads = max_ptlrpcds;
+		if (nthreads < 2)
+			nthreads = 2;
+		if (nthreads < 3 && ptlrpcd_bind_policy == PDB_POLICY_NEIGHBOR)
+			ptlrpcd_bind_policy = PDB_POLICY_PAIR;
+		if (nthreads % 2 != 0 && ptlrpcd_bind_policy == PDB_POLICY_PAIR)
+			nthreads &= ~1; /* make sure it is even */
+
+		size = offsetof(struct ptlrpcd, pd_threads[nthreads]);
+		OBD_CPT_ALLOC(pd, cptable, cpt, size);
+		if (!pd)
+			GOTO(out, rc = -ENOMEM);
+		memset(pd, 0, size);
+		pd->pd_size = size;
+		pd->pd_index = i;
+		pd->pd_cpt = cpt;
+		pd->pd_cursor = 0;
+		pd->pd_nthreads = nthreads;
+		ptlrpcds[i] = pd;
+
+		if (cpt == CFS_CPT_ANY)
+			snprintf(name, sizeof(name), "ptlrpcd_rcv");
+		else
+			snprintf(name, sizeof(name), "ptlrpcd_%02d_rcv", cpt);
+		set_bit(LIOD_RECOVERY, &pd->pd_thread_rcv.pc_flags);
+		rc = ptlrpcd_start(pd, -1, name);
+		if (rc < 0)
+			GOTO(out, rc);
+
+		/* XXX: We start nthreads ptlrpc daemons on this cpt.
+		 *      Each of them can process any non-recovery
+		 *      async RPC to improve overall async RPC
+		 *      efficiency.
+		 *
+		 *      But there are some issues with async I/O RPCs
+		 *      and async non-I/O RPCs processed in the same
+		 *      set under some cases. The ptlrpcd may be
+		 *      blocked by some async I/O RPC(s), then will
+		 *      cause other async non-I/O RPC(s) can not be
+		 *      processed in time.
+		 *
+		 *      Maybe we should distinguish blocked async RPCs
+		 *      from non-blocked async RPCs, and process them
+		 *      in different ptlrpcd sets to avoid unnecessary
+		 *      dependency. But how to distribute async RPCs
+		 *      load among all the ptlrpc daemons becomes
+		 *      another trouble.
+		 */
+		for (j = 0; j < nthreads; j++) {
+			if (cpt == CFS_CPT_ANY) {
+				snprintf(name, sizeof(name),
+					"ptlrpcd_%02d", j);
+			} else {
+				snprintf(name, sizeof(name),
+					"ptlrpcd_%02d_%02d", cpt, j);
+			}
+			rc = ptlrpcd_start(pd, j, name);
+			if (rc < 0)
+				GOTO(out, rc);
+		}
+	}
 out:
-        if (rc != 0 && ptlrpcds != NULL) {
-                for (j = 0; j <= i; j++)
-                        ptlrpcd_stop(&ptlrpcds->pd_threads[j], 0);
-		for (j = 0; j <= i; j++)
-			ptlrpcd_free(&ptlrpcds->pd_threads[j]);
-		ptlrpcd_stop(&ptlrpcds->pd_thread_rcv, 0);
-		ptlrpcd_free(&ptlrpcds->pd_thread_rcv);
-                OBD_FREE(ptlrpcds, size);
-                ptlrpcds = NULL;
-        }
+	if (rc != 0)
+		ptlrpcd_fini();
 
 	RETURN(rc);
 }

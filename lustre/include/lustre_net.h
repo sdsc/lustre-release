@@ -2766,34 +2766,38 @@ struct ptlrpcd_ctl {
 	 * Stop completion.
 	 */
 	struct completion		pc_finishing;
-        /**
-         * Thread requests set.
-         */
-        struct ptlrpc_request_set  *pc_set;
-        /**
+	/**
+	 * Thread requests set.
+	 */
+	struct ptlrpc_request_set	*pc_set;
+	/**
 	 * Thread name used in kthread_run()
-         */
-        char                        pc_name[16];
-        /**
-         * Environment for request interpreters to run in.
-         */
-        struct lu_env               pc_env;
+	 */
+	char				pc_name[16];
+	/**
+	 * Environment for request interpreters to run in.
+	 */
+	struct lu_env			pc_env;
+	/**
+	 * CPU the thread is bound on (-1 if not bound).
+	 */
+	int				pc_cpu;
         /**
          * Index of ptlrpcd thread in the array.
          */
-        int                         pc_index;
-        /**
-         * Number of the ptlrpcd's partners.
-         */
-        int                         pc_npartners;
-        /**
-         * Pointer to the array of partners' ptlrpcd_ctl structure.
-         */
-        struct ptlrpcd_ctl        **pc_partners;
-        /**
-         * Record the partner index to be processed next.
-         */
-        int                         pc_cursor;
+	int				pc_index;
+	/**
+	 * Pointer to the array of partners' ptlrpcd_ctl structure.
+	 */
+	struct ptlrpcd_ctl		**pc_partners;
+	/**
+	 * Number of the ptlrpcd's partners.
+	 */
+	int				pc_npartners;
+	/**
+	 * Record the partner index to be processed next.
+	 */
+	int				pc_cursor;
 };
 
 /* Bits for pc_flags */
