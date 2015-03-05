@@ -4992,6 +4992,7 @@ static int lfsck_namespace_assistant_handler_p1(const struct lu_env *env,
 	struct lfsck_instance	   *lfsck    = com->lc_lfsck;
 	struct lfsck_bookmark	   *bk	     = &lfsck->li_bookmark_ram;
 	struct lfsck_namespace	   *ns	     = com->lc_file_ram;
+	struct lfsck_assistant_data *lad     = com->lc_data;
 	struct linkea_data	    ldata    = { NULL };
 	const struct lu_name	   *cname;
 	struct thandle		   *handle   = NULL;
@@ -5009,6 +5010,7 @@ static int lfsck_namespace_assistant_handler_p1(const struct lu_env *env,
 	bool			    newdata;
 	bool			    log      = false;
 	bool			    bad_hash = false;
+	bool			    bad_linkea = false;
 	int			    idx      = 0;
 	int			    count    = 0;
 	int			    rc	     = 0;
@@ -5143,7 +5145,7 @@ dangling:
 		GOTO(out, rc);
 	}
 
-	if (!(bk->lb_param & LPF_DRYRUN) && repaired) {
+	if (!(bk->lb_param & LPF_DRYRUN) && lad->lad_advance_lock) {
 
 again:
 		rc = lfsck_ibits_lock(env, lfsck, obj, &lh,
@@ -5264,6 +5266,7 @@ nodata:
 		if (!lustre_handle_is_used(&lh))
 			goto again;
 
+		bad_linkea = true;
 		if (rc == -ENODATA)
 			ns->ln_flags |= LF_UPGRADE;
 		else
@@ -5493,6 +5496,8 @@ trace:
 
 	if (dir != NULL && !IS_ERR(dir))
 		lfsck_object_put(env, dir);
+
+	lad->lad_advance_lock = bad_linkea;
 
 	return rc;
 }
