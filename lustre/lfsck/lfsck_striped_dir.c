@@ -1493,6 +1493,13 @@ int lfsck_namespace_repair_bad_name_hash(const struct lu_env *env,
 	if (IS_ERR(parent))
 		GOTO(log, rc = PTR_ERR(parent));
 
+	if (unlikely(!dt_object_exists(parent))) {
+		if (lfsck_is_dead_obj(shard))
+			GOTO(log, rc = 1);
+
+		LBUG();
+	}
+
 	*lmv2 = llmv->ll_lmv;
 	lmv2->lmv_hash_type = LMV_HASH_TYPE_UNKNOWN | LMV_HASH_FLAG_BAD_TYPE;
 	rc = lfsck_namespace_set_lmv_master(env, com, parent, lmv2,
@@ -1659,6 +1666,7 @@ out:
  * \param[in] obj	pointer to the object which LMV EA will be checked
  * \param[in] llmv	pointer to buffer holding the slave LMV EA
  *
+ * \retval		positive number if nothing to be done
  * \retval		zero for succeed
  * \retval		negative error number on failure
  */
@@ -1700,6 +1708,16 @@ int lfsck_namespace_verify_stripe_slave(const struct lu_env *env,
 	if (IS_ERR(parent)) {
 		rc = lfsck_namespace_trace_update(env, com, cfid,
 					LNTF_UNCERTAIN_LMV, true);
+
+		GOTO(out, rc);
+	}
+
+	if (unlikely(!dt_object_exists(parent))) {
+		if (lfsck_is_dead_obj(obj))
+			GOTO(out, rc = 1);
+
+		rc = lfsck_namespace_trace_update(env, com, cfid,
+						  LNTF_CHECK_PARENT, true);
 
 		GOTO(out, rc);
 	}
