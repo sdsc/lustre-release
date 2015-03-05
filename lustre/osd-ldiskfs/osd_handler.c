@@ -5674,17 +5674,18 @@ static inline int osd_it_ea_rec(const struct lu_env *env,
 	} else {
 		attr &= ~LU_DIRENT_ATTRS_MASK;
 		if (!fid_is_sane(fid)) {
+			int dd = 0;
 			if (it->oie_dirent->oied_namelen == 2 &&
 			    it->oie_dirent->oied_name[0] == '.' &&
-			    it->oie_dirent->oied_name[1] == '.') {
-				/* If the parent is on remote MDT, and there
-				 * is no FID-in-dirent, then we have to get
-				 * the parent FID from the linkEA.  */
-				if (ino == osd_remote_parent_ino(dev))
-					rc = osd_get_pfid_from_linkea(env, obj,
-								      fid);
+			    it->oie_dirent->oied_name[1] == '.')
+				dd = 1;
+			/* If the parent is on remote MDT, and there
+			 * is no FID-in-dirent, then we have to get
+			 * the parent FID from the linkEA.  */
+			if (ino == osd_remote_parent_ino(dev) && dd) {
+				rc = osd_get_pfid_from_linkea(env, obj, fid);
 			} else {
-				if (OBD_FAIL_CHECK(OBD_FAIL_FID_LOOKUP))
+				if (!dd && OBD_FAIL_CHECK(OBD_FAIL_FID_LOOKUP))
 					RETURN(-ENOENT);
 
 				rc = osd_ea_fid_get(env, obj, ino, fid, id);
