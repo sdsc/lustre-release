@@ -46,7 +46,9 @@
 #include <libcfs/libcfs.h>
 #include <lnet/nidstr.h>
 #include <lustre/lustre_idl.h>
+#include <lustre_log_user.h>
 #include <lustre_cfg.h>
+
 
 static inline int ext2_test_bit(int nr, const void *addr)
 {
@@ -144,6 +146,12 @@ int llog_pack_buffer(int fd, struct llog_log_hdr **llog,
                 goto out;
         }
         file_size = st.st_size;
+
+        if (st.st_size < LLOG_HEADER_SIZE){
+                printf("File too small; not a valid llog.\n");
+                rc = -EINVAL;
+                goto out;
+        }
 
         file_buf = malloc(file_size);
         if (file_buf == NULL){
@@ -473,11 +481,26 @@ void print_lustre_cfg(struct lustre_cfg *lcfg, int *skip)
         return;
 }
 
-static void print_logid(struct llog_logid_rec *lid)
+static void print_log_path(struct llog_logid_rec *lid)
 {
-	printf("ogen=%X name="DOSTID"\n",
-		lid->lid_id.lgl_ogen,
-		POSTID(&lid->lid_id.lgl_oi));
+
+	/*
+	* ldiskfs path: O/%u/d%u/%u",f_seq,f_oid%32, f_oid
+	*  where f_seq is FID_SEQ_LLOG=1, and f_oid is 32 bits (x*10^9)
+	*  so about a max of 18 characters, likely more like 12
+	*/
+	char			ldiskfs_path[255];
+	struct lu_fid		fid_from_logid;
+	logid_to_fid(&lid->lid_id, &fid_from_logid);
+
+	snprintf(ldiskfs_path, sizeof(ldiskfs_path), "O/"LPU64"/d%u/%u",
+		fid_from_logid.f_seq, fid_from_logid.f_oid % 32,
+		fid_from_logid.f_oid);
+
+	printf(" llog file at: (ldiskfs-osd) %s   (zfs-osd) oi."LPU64"/"DFID_NOBRACE"\n",
+		ldiskfs_path, fid_from_logid.f_seq,
+		PFID(&fid_from_logid)
+	);
 }
 
 static void print_hsm_action(struct llog_agent_req_rec *larr)
@@ -507,6 +530,17 @@ static void print_hsm_action(struct llog_agent_req_rec *larr)
 	       hai_dump_data_field(&larr->arr_hai, buf, sizeof(buf)));
 }
 
+void print_changelog_rec(struct llog_changelog_rec *rec)
+{
+	printf("changelog record id:0x%x cr_flags:0x%x cr_type:%s(0x%x)\n",
+		le32_to_cpu(rec->cr_hdr.lrh_id),
+		le32_to_cpu(rec->cr.cr_flags),
+		changelog_type2str(le32_to_cpu(rec->cr.cr_type)),
+		le32_to_cpu(rec->cr.cr_type)
+		);
+}
+
+
 void print_records(struct llog_rec_hdr **recs, int rec_number)
 {
 	__u32 lopt;
@@ -514,7 +548,7 @@ void print_records(struct llog_rec_hdr **recs, int rec_number)
 
 	for (i = 0; i < rec_number; i++) {
 		printf("#%.2d (%.3d)", le32_to_cpu(recs[i]->lrh_index),
-		       le32_to_cpu(recs[i]->lrh_len));
+			le32_to_cpu(recs[i]->lrh_len));
 
 		lopt = le32_to_cpu(recs[i]->lrh_type);
 
@@ -531,10 +565,16 @@ void print_records(struct llog_rec_hdr **recs, int rec_number)
 			printf("padding\n");
 			break;
 		case LLOG_LOGID_MAGIC:
-			print_logid((struct llog_logid_rec *)recs[i]);
+			print_log_path((struct llog_logid_rec *)recs[i]);
 			break;
 		case HSM_AGENT_REC:
 			print_hsm_action((struct llog_agent_req_rec *)recs[i]);
+			break;
+		case CHANGELOG_REC:
+			print_changelog_rec((struct llog_changelog_rec *)recs[i]);
+			break;
+		case CHANGELOG_USER_REC:
+			printf("changelog_user record id:0x%x\n",le32_to_cpu(recs[i]->lrh_id));
 			break;
 		default:
 			printf("unknown type %x\n", lopt);
