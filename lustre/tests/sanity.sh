@@ -5126,11 +5126,78 @@ test_60a() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
 	remote_mgs_nodsh && skip "remote MGS with nodsh" && return
 	do_facet mgs "! which run-llog.sh &> /dev/null" &&
-		skip_env "missing subtest run-llog.sh" && return
+		do_facet mgs "! ls run-llog.sh &> /dev/null" &&
+			skip_env "missing subtest run-llog.sh" && return
+
 	log "$TEST60_HEAD - from kernel mode"
+	do_facet mgs "$LCTL set_param debug=warning; $LCTL dk > /dev/null"
 	do_facet mgs sh run-llog.sh
+	do_facet mgs $LCTL dk > $TMP/$tfile
+
+	# LU-6388: test llog_reader
+	local llog_reader=${llog_reader:-"$LUSTRE/utils/llog_reader"}
+	local fstype=$(facet_fstype mgs)
+	local mntpt=$(facet_mntpt mgs)
+	local mgsdev=$(mgsdevname 1)
+	local fid_list
+	local fid
+	local rec_list
+	local rec
+	local rec_type
+	local obj_file
+	local path
+	local seq
+	local oid
+
+	#get fid and record list
+	fid_list=($(grep "9_sub" $TMP/$tfile | grep "record" | tail -n 4 |
+		awk '{print $NF}'))
+	rec_list=($(grep "9_sub" $TMP/$tfile | grep "record" | tail -n 4 |
+		awk '{print $((NF-3))}'))
+	#remount mgs as ldiskfs or zfs type
+	stop mgs || error "stop mgs failed"
+	mount_fstype mgs || "remount mgs failed"
+	for ((i = 0; i < ${#fid_list[@]}; i++)); do
+		fid=${fid_list[i]}
+		rec=${rec_list[i]}
+		seq=$(echo $fid | awk -F ':' '{print $1}' | sed -e "s/^0x//g")
+		oid=$(echo $fid | awk -F ':' '{print $2}' | sed -e "s/^0x//g")
+		oid=$((16#$oid))
+
+		case $fstype in
+		ldiskfs )
+			obj_file=$mntpt/O/$seq/d$((oid%32))/$oid
+		;;
+		zfs )
+			obj_file=$mntpt/oi.$(($((16#$seq))&127))/$fid
+		;;
+		* )
+			error "unknown fstype!";;
+		esac
+		echo "obj_file is $obj_file"
+		do_facet mgs $llog_reader $obj_file
+
+		rec_type=$(do_facet mgs $llog_reader $obj_file | grep "type=" |
+			awk '{print $3}' | sed -e "s/^type=//g")
+		[ $rec_type == $rec ] ||
+			error "wrong record type $rec_type, should be $rec"
+
+		#check obj path if record type is LLOG_LOGID_MAGIC
+		if [ "$rec" == "1064553b" ]; then
+			path=$(do_facet mgs $llog_reader $obj_file |
+				grep "path=" | awk '{print $NF}' |
+					sed -e "s/^path=//g")
+			[ $obj_file == $mntpt/$path ] ||
+				error "wrong obj path $montpt/$path,
+					should be $obj_file"
+		fi
+	done
+	rm -f $TMP/$tfile
+	#restart mgs
+	stop mgs || error "stop mgs failed"
+	start mgs $(mgsdevname) $MGS_MOUNT_OPTS || error "start mgs failed"
 }
-run_test 60a "llog sanity tests run from kernel module =========="
+run_test 60a "llog_test run from kernel module and test llog_reader =========="
 
 test_60b() { # bug 6411
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
