@@ -2794,6 +2794,10 @@ struct ptlrpcd_ctl {
          * Record the partner index to be processed next.
          */
         int                         pc_cursor;
+	/**
+	 * CPU the ptlrpcd thread is bound
+	 */
+	int			    pc_cpu;
 };
 
 /* Bits for pc_flags */
@@ -3522,10 +3526,11 @@ typedef enum {
         /* <free1 bound1> <free2 bound2> ... <freeN boundN> */
         PDB_POLICY_PAIR          = 3,
         /* <free1 bound1> <bound1 free2> ... <freeN boundN> <boundN free1>,
-         * means each ptlrpcd[X] has two partners: thread[X-1] and thread[X+1].
-         * If kernel supports NUMA, pthrpcd threads are binded and
-         * grouped by NUMA node */
+         * means each ptlrpcd[X] has 2 partners: thread[X-1] and thread[X+1] */
         PDB_POLICY_NEIGHBOR      = 4,
+	/* all ptlrpcd threads are bound. Their partners are threads bound
+	 * to cpus of the same CPT */
+	PDB_POLICY_CPT           = 5,
 } pdb_policy_t;
 
 /* ptlrpc daemon load policy

@@ -378,19 +378,24 @@ static int ptlrpcd(void *arg)
 	ENTRY;
 
 	unshare_fs_struct();
-#if defined(CONFIG_SMP)
-	if (test_bit(LIOD_BIND, &pc->pc_flags)) {
-		int index = pc->pc_index;
 
-		if (index >= 0 && index < num_possible_cpus()) {
-			while (!cpu_online(index)) {
-				if (++index >= num_possible_cpus())
-					index = 0;
-			}
-			set_cpus_allowed_ptr(current,
-				     cpumask_of_node(cpu_to_node(index)));
-		}
-	}
+#if defined(CONFIG_SMP)
+        if (test_bit(LIOD_BIND, &pc->pc_flags)) {
+                int index = pc->pc_index;
+
+		if (ptlrpcd_bind_policy == PDB_POLICY_CPT)
+			cfs_cpt_bind(cfs_cpt_table,
+				     cfs_cpt_of_cpu(cfs_cpt_table, pc->pc_cpu));
+
+		else if (index >= 0 && index < num_possible_cpus()) {
+                        while (!cpu_online(index)) {
+                                if (++index >= num_possible_cpus())
+                                        index = 0;
+                        }
+                        set_cpus_allowed_ptr(current,
+                                     cpumask_of_node(cpu_to_node(index)));
+                }
+        }
 #endif
 	/* Both client and server (MDT/OST) may use the environment. */
 	rc = lu_context_init(&env.le_ctx, LCT_MD_THREAD | LCT_DT_THREAD |
@@ -488,16 +493,13 @@ static int ptlrpcd(void *arg)
  *      partnership based on the patches for CPU partition. But before such
  *      patches are available, we prefer to use the simplest one.
  */
-# ifdef CFS_CPU_MODE_NUMA
-# warning "fix ptlrpcd_bind() to use new CPU partition APIs"
-# endif
 static int ptlrpcd_bind(int index, int max)
 {
 	struct ptlrpcd_ctl *pc;
 	int rc = 0;
-#if defined(CONFIG_NUMA)
-	cpumask_t mask;
-#endif
+	int cpt = CFS_CPT_ANY;
+	int cpu;
+	int i;
 	ENTRY;
 
         LASSERT(index <= max - 1);
@@ -515,20 +517,23 @@ static int ptlrpcd_bind(int index, int max)
                 pc->pc_npartners = 1;
                 break;
 	case PDB_POLICY_NEIGHBOR:
-#if defined(CONFIG_NUMA)
-	{
-		int i;
-		mask = *cpumask_of_node(cpu_to_node(index));
-		for (i = max; i < num_online_cpus(); i++)
-			cpu_clear(i, mask);
-		pc->pc_npartners = cpus_weight(mask) - 1;
-		set_bit(LIOD_BIND, &pc->pc_flags);
-	}
-#else
                 LASSERT(max >= 3);
                 pc->pc_npartners = 2;
-#endif
                 break;
+	case PDB_POLICY_CPT:
+		i = 0;
+		/* retrieve ith cpu of cptable */
+		for_each_cpu_mask(cpu,
+				*cfs_cpt_cpumask(cfs_cpt_table, CFS_CPT_ANY)) {
+			if (i++ == index)
+				break;
+		}
+		LASSERT(cpu != NR_CPUS);
+		pc->pc_cpu = cpu;
+		cpt = cfs_cpt_of_cpu(cfs_cpt_table, pc->pc_cpu);
+		pc->pc_npartners = cfs_cpt_weight(cfs_cpt_table, cpt) - 1;
+		set_bit(LIOD_BIND, &pc->pc_flags);
+		break;
         default:
                 CERROR("unknown ptlrpcd bind policy %d\n", ptlrpcd_bind_policy);
                 rc = -EINVAL;
@@ -552,27 +557,6 @@ static int ptlrpcd_bind(int index, int max)
                                 }
                                 break;
 			case PDB_POLICY_NEIGHBOR:
-#if defined(CONFIG_NUMA)
-			{
-				struct ptlrpcd_ctl *ppc;
-				int i, pidx;
-				/* partners are cores in the same NUMA node.
-				 * setup partnership only with ptlrpcd threads
-				 * that are already initialized
-				 */
-				for (pidx = 0, i = 0; i < index; i++) {
-					if (cpu_isset(i, mask)) {
-						ppc = &ptlrpcds->pd_threads[i];
-						pc->pc_partners[pidx++] = ppc;
-						ppc->pc_partners[ppc->
-							  pc_npartners++] = pc;
-					}
-				}
-                                /* adjust number of partners to the number
-                                 * of partnership really setup */
-                                pc->pc_npartners = pidx;
-			}
-#else
                                 if (index & 0x1)
 					set_bit(LIOD_BIND, &pc->pc_flags);
                                 if (index > 0) {
@@ -587,9 +571,34 @@ static int ptlrpcd_bind(int index, int max)
                                                 pc_partners[0] = pc;
                                         }
                                 }
-#endif
                                 break;
-                        }
+			case PDB_POLICY_CPT:
+			{
+				/* partners are cores in the same CPT
+				 * setup partnership only with ptlrpcd threads
+				 * that are already initialized
+				 */
+				struct ptlrpcd_ctl *ppc;
+				int pcpt;
+				int i;
+				int pidx = 0;
+				for (i = 0; i < index; i++) {
+					ppc = &ptlrpcds->pd_threads[i];
+					pcpt = cfs_cpt_of_cpu(cfs_cpt_table,
+							      ppc->pc_cpu);
+					if (pcpt != cpt)
+						continue;
+					/* setup reciproc partnership */
+					pc->pc_partners[pidx++] = ppc;
+					ppc->pc_partners[ppc->
+							   pc_npartners++] = pc;
+				}
+                                /* adjust number of partners to the number
+                                 * of partnership really setup */
+                                pc->pc_npartners = pidx;
+				break;
+			}
+			}
                 }
         }
 
@@ -742,9 +751,11 @@ static int ptlrpcd_init(void)
 	int	size, i = -1, j, rc = 0;
 	ENTRY;
 
+	if (ptlrpcd_bind_policy == PDB_POLICY_CPT)
+		nthreads = cfs_cpt_weight(cfs_cpt_table, CFS_CPT_ANY);
         if (max_ptlrpcds > 0 && max_ptlrpcds < nthreads)
                 nthreads = max_ptlrpcds;
-        if (nthreads < 2)
+	if (nthreads < 2 && ptlrpcd_bind_policy != PDB_POLICY_CPT)
                 nthreads = 2;
         if (nthreads < 3 && ptlrpcd_bind_policy == PDB_POLICY_NEIGHBOR)
                 ptlrpcd_bind_policy = PDB_POLICY_PAIR;
