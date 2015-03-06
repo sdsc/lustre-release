@@ -36,3 +36,4 @@ ext4-mballoc-group_check-rhel5.patch
 ext4-store-tree-generation-at-find.patch
 ext4-fix-ext4_mb_add_n_trim.patch
 ext4-try-one-more-time-with-buffer-locked.patch
+ext4-make-block-group-as-read-only-if-bitmap-validat.patch

@@ -1,0 +1,50 @@
+From b952d2b6da55da4c087f9529330a0d53b22dbf47 Mon Sep 17 00:00:00 2001
+From: Wang Shilong <wshilong@ddn.com>
+Date: Fri, 6 Mar 2015 10:52:40 +0800
+Subject: [PATCH] ext4: make block group as read only if bitmap validation
+ failed
+
+If one block group bitmap are corruptd, we just reset its free
+blocks/inodes to zero, and continue next block group, also in
+such case, just output a warning intead of make FS RO.
+
+Signed-off-by: Wang Shilong <wshilong@ddn.com>
+---
+ fs/ext4/balloc.c | 13 +++++++++++--
+ 1 file changed, 11 insertions(+), 2 deletions(-)
+
+diff --git a/fs/ext4/balloc.c b/fs/ext4/balloc.c
+index c4cb83d..a5907e0 100644
+--- a/fs/ext4/balloc.c
++++ b/fs/ext4/balloc.c
+@@ -285,7 +285,7 @@ static int ext4_valid_block_bitmap(struct super_block *sb,
+ 	}
+ 
+ err_out:
+-	ext4_error(sb, "Invalid block bitmap - group_first_block = %llu, "
++	ext4_warning(sb, "Invalid block bitmap - group_first_block = %llu, "
+ 			"block_bitmap = %llu, inode_bitmap = %llu "
+ 			"inode_table_bitmap = %llu, "
+ 			"inode_table_block_per_group =%ld, "
+@@ -372,8 +372,17 @@ ext4_read_block_bitmap(struct super_block *sb, ext4_group_t block_group)
+ 		lock_buffer(bh);
+ 		ret = ext4_valid_block_bitmap(sb, desc, block_group, bh);
+ 		unlock_buffer(bh);
+-		if (ret)
++		if (ret) {
+ 			ext4_warning(sb, "second call ext4_valid_block_bitmap passed");
++		} else {
++			ext4_lock_group(sb, block_group);
++			ext4_free_blks_set(sb, desc, 0);
++			ext4_free_inodes_set(sb, desc, 0);
++			ext4_itable_unused_set(sb, desc, 0);
++			EXT4_SB(sb)->s_mount_state |= EXT4_ERROR_FS;
++			EXT4_SB(sb)->s_es->s_state |= cpu_to_le16(EXT4_ERROR_FS);
++			ext4_unlock_group(sb, block_group);
++		}
+ 	}
+ 	/*
+ 	 * file system mounted not to panic on error,
+-- 
+1.8.2.1
+
