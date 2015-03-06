@@ -33,20 +33,29 @@
  * This file is part of Lustre, http://www.lustre.org/
  * Lustre is a trademark of Sun Microsystems, Inc.
  */
- /* Interpret configuration llogs */
-
+/** \defgroup llog_reader Lustre Log Reader
+ *
+ * Interpret llogs used for storing configuration and changelog data
+ *
+ * @{
+ */
 
 #include <stdio.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <endian.h>
 #include <fcntl.h>
+#include <sys/vfs.h>
+#include <linux/magic.h>
 
 #include <time.h>
 #include <libcfs/libcfs.h>
 #include <lnet/nidstr.h>
 #include <lustre/lustre_idl.h>
+#include <lustre_log_user.h>
+#include <lustre/lustreapi.h>
 #include <lustre_cfg.h>
+
 
 static inline int ext2_test_bit(int nr, const void *addr)
 {
@@ -58,11 +67,12 @@ static inline int ext2_test_bit(int nr, const void *addr)
 #endif
 }
 
+int is_fstype_ext(int fd);
 int llog_pack_buffer(int fd, struct llog_log_hdr **llog_buf,
                      struct llog_rec_hdr ***recs, int *recs_number);
 
 void print_llog_header(struct llog_log_hdr *llog_buf);
-void print_records(struct llog_rec_hdr **recs_buf,int rec_number);
+void print_records(struct llog_rec_hdr **recs_buf, int rec_number, int is_ext);
 void llog_unpack_buffer(int fd, struct llog_log_hdr *llog_buf,
                         struct llog_rec_hdr **recs_buf);
 
@@ -93,6 +103,7 @@ char* portals_command[17]=
 int main(int argc, char **argv)
 {
         int rc = 0;
+	int is_ext;
         int fd, rec_number;
         struct llog_log_hdr *llog_buf = NULL;
         struct llog_rec_hdr **recs_buf = NULL;
@@ -109,15 +120,24 @@ int main(int argc, char **argv)
                 printf("Could not open the file %s\n", argv[1]);
                 goto out;
         }
+
+	is_ext = is_fstype_ext(fd);
+	if (is_ext < 0) {
+		printf("Unable to determine type of filesystem containing %s\n",
+		       argv[1]);
+		goto out;
+	}
+
         rc = llog_pack_buffer(fd, &llog_buf, &recs_buf, &rec_number);
         if (rc < 0) {
                 printf("Could not pack buffer; rc=%d\n", rc);
                 goto out_fd;
         }
 
-        print_llog_header(llog_buf);
-        print_records(recs_buf,rec_number);
-        llog_unpack_buffer(fd,llog_buf,recs_buf);
+	print_llog_header(llog_buf);
+	print_records(recs_buf, rec_number, is_ext);
+	llog_unpack_buffer(fd, llog_buf, recs_buf);
+
 out_fd:
         close(fd);
 out:
@@ -473,11 +493,55 @@ void print_lustre_cfg(struct lustre_cfg *lcfg, int *skip)
         return;
 }
 
-static void print_logid(struct llog_logid_rec *lid)
+int is_fstype_ext(int fd)
 {
-	printf("ogen=%X name="DOSTID"\n",
-		lid->lid_id.lgl_ogen,
-		POSTID(&lid->lid_id.lgl_oi));
+	struct statfs		st;
+	int			rc;
+
+	rc = fstatfs(fd, &st);
+	if (rc < 0) {
+		llapi_error(LLAPI_MSG_ERROR, rc, "Got statfs error.");
+		return -errno;
+	}
+
+	return (st.f_type == EXT4_SUPER_MAGIC);
+}
+
+
+/**
+ * Attempt to display a path to the object (file) containing changelog entries,
+ * referred to by this changelog_catalog record.
+ *
+ * This path depends on the implementation of the OSD device; zfs-osd and
+ * ldiskfs-osd are different.
+ *
+ * Assumes that if the file system containing the changelog_catalog is
+ * ext{2,3,4}, the backend is ldiskfs-osd; otherwise it is either zfs-osd or at
+ * least names objects based on FID and the zfs-osd path (which includes the
+ * FID) will be sufficient.
+ *
+ * The Object ID stored in the record is also displayed untranslated.
+ */
+static void print_log_path(struct llog_logid_rec *lid, int is_ext)
+{
+
+	char			object_path[255];
+	struct lu_fid		fid_from_logid;
+
+	logid_to_fid(&lid->lid_id, &fid_from_logid);
+
+	if (is_ext)
+		snprintf(object_path, sizeof(object_path),
+			 "O/"LPU64"/d%u/%u", fid_from_logid.f_seq,
+			 fid_from_logid.f_oid % 32, fid_from_logid.f_oid);
+	else
+		snprintf(object_path, sizeof(object_path),
+			 "oi."LPU64"/"DFID_NOBRACE, fid_from_logid.f_seq,
+			 PFID(&fid_from_logid));
+
+	printf("ogen=%X id="DOSTID" path=%s\n",
+		lid->lid_id.lgl_ogen, POSTID(&lid->lid_id.lgl_oi),
+		object_path);
 }
 
 static void print_hsm_action(struct llog_agent_req_rec *larr)
@@ -507,7 +571,17 @@ static void print_hsm_action(struct llog_agent_req_rec *larr)
 	       hai_dump_data_field(&larr->arr_hai, buf, sizeof(buf)));
 }
 
-void print_records(struct llog_rec_hdr **recs, int rec_number)
+void print_changelog_rec(struct llog_changelog_rec *rec)
+{
+	printf("changelog record id:0x%x cr_flags:0x%x cr_type:%s(0x%x)\n",
+	       le32_to_cpu(rec->cr_hdr.lrh_id),
+	       le32_to_cpu(rec->cr.cr_flags),
+	       changelog_type2str(le32_to_cpu(rec->cr.cr_type)),
+	       le32_to_cpu(rec->cr.cr_type));
+}
+
+
+void print_records(struct llog_rec_hdr **recs, int rec_number, int is_ext)
 {
 	__u32 lopt;
 	int i, skip = 0;
@@ -531,10 +605,19 @@ void print_records(struct llog_rec_hdr **recs, int rec_number)
 			printf("padding\n");
 			break;
 		case LLOG_LOGID_MAGIC:
-			print_logid((struct llog_logid_rec *)recs[i]);
+			print_log_path((struct llog_logid_rec *)recs[i],
+				       is_ext);
 			break;
 		case HSM_AGENT_REC:
 			print_hsm_action((struct llog_agent_req_rec *)recs[i]);
+			break;
+		case CHANGELOG_REC:
+			print_changelog_rec((struct llog_changelog_rec *)
+					    recs[i]);
+			break;
+		case CHANGELOG_USER_REC:
+			printf("changelog_user record id:0x%x\n",
+			       le32_to_cpu(recs[i]->lrh_id));
 			break;
 		default:
 			printf("unknown type %x\n", lopt);
@@ -542,3 +625,5 @@ void print_records(struct llog_rec_hdr **recs, int rec_number)
 		}
 	}
 }
+
+/** @} llog_reader */
