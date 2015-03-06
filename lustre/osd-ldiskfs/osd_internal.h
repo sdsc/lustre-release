@@ -606,6 +606,8 @@ struct osd_thread_info {
 	unsigned short		oti_declare_ops_rb[OSD_OT_MAX];
 	unsigned short		oti_declare_ops_cred[OSD_OT_MAX];
 	bool			oti_rollback;
+	/* whether write is going on */
+	bool			oti_write;
 };
 
 extern int ldiskfs_pdo;
