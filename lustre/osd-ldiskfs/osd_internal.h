@@ -138,6 +138,10 @@ struct osd_object {
 #ifdef CONFIG_LOCKDEP
         struct lockdep_map      oo_dep_map;
 #endif
+	/**
+	 * jiffies of when will the cache advices timeout
+	 */
+	cfs_time_t		oo_next_cache_timeout;
 };
 
 struct osd_obj_seq {
@@ -256,9 +260,8 @@ struct osd_device {
 	struct osd_obj_map	*od_ost_map;
 	struct osd_mdobj_map	*od_mdt_map;
 
-	unsigned long long	od_readcache_max_filesize;
-	int			od_read_cache;
-	int			od_writethrough_cache;
+	unsigned long long	od_cache_max_filesize;
+	int			od_cache;
 
 	struct brw_stats	od_brw_stats;
 	atomic_t		od_r_in_flight;

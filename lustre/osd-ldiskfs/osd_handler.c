@@ -6126,9 +6126,8 @@ static int osd_device_init0(const struct lu_env *env,
 	if (o->od_capa_hash == NULL)
 		GOTO(out, rc = -ENOMEM);
 
-	o->od_read_cache = 1;
-	o->od_writethrough_cache = 1;
-	o->od_readcache_max_filesize = OSD_MAX_CACHE_SIZE;
+	o->od_cache = 1;
+	o->od_cache_max_filesize = OSD_MAX_CACHE_SIZE;
 
 	cplen = strlcpy(o->od_svname, lustre_cfg_string(cfg, 4),
 			sizeof(o->od_svname));

@@ -430,6 +430,30 @@ static struct page *osd_get_page(struct dt_object *dt, loff_t offset, int rw)
         return page;
 }
 
+static int osd_should_cache(const struct lu_env *env, struct dt_object *dt)
+{
+	struct osd_device *osd = osd_obj2dev(osd_dt_obj(dt));
+	struct osd_object *obj = osd_dt_obj(dt);
+	cfs_time_t next_timeout = obj->oo_next_cache_timeout;
+	struct inode *inode = obj->oo_inode;
+	cfs_time_t time = cfs_time_current();
+
+	/*
+	 * Advices from ladvise feature have the highest priority,
+	 * even when the read cache of this OSD is not enabled.
+	 */
+	if (cfs_time_aftereq(next_timeout, time))
+		return 1;
+
+	/* If the file size is too big, do not cache */
+	if (i_size_read(inode) > osd->od_cache_max_filesize)
+		return 0;
+
+	if (osd->od_cache)
+		return 1;
+	return 0;
+}
+
 /*
  * there are following "locks":
  * journal_start
@@ -465,10 +489,22 @@ static int osd_bufs_put(const struct lu_env *env, struct dt_object *dt,
 			struct niobuf_local *lnb, int npages)
 {
 	int i;
+	struct inode *inode = osd_dt_obj(dt)->oo_inode;
+	int cache = osd_should_cache(env, dt);
 
 	for (i = 0; i < npages; i++) {
 		if (lnb[i].lnb_page == NULL)
 			continue;
+		/* A page might be removed from cache when its reference is
+		 * being released. It is not the best way, since the pages
+		 * that should be removed because of timeout advices might
+		 * be kept in the cache for a long time if they are not
+		 * accessed any more. However, it is impossible to improve
+		 * this behavior without changing page shrinker.
+		 */
+		if (cache == 0)
+			generic_error_remove_page(inode->i_mapping,
+						  lnb[i].lnb_page);
 		LASSERT(PageLocked(lnb[i].lnb_page));
 		unlock_page(lnb[i].lnb_page);
 		page_cache_release(lnb[i].lnb_page);
@@ -982,7 +1018,6 @@ static int osd_write_prep(const struct lu_env *env, struct dt_object *dt,
         __s64                   maxidx;
         int                     rc = 0;
         int                     i;
-        int                     cache = 0;
 
         LASSERT(inode);
 
@@ -993,18 +1028,8 @@ static int osd_write_prep(const struct lu_env *env, struct dt_object *dt,
 	isize = i_size_read(inode);
 	maxidx = ((isize + PAGE_CACHE_SIZE - 1) >> PAGE_CACHE_SHIFT) - 1;
 
-        if (osd->od_writethrough_cache)
-                cache = 1;
-        if (isize > osd->od_readcache_max_filesize)
-                cache = 0;
-
 	do_gettimeofday(&start);
 	for (i = 0; i < npages; i++) {
-
-		if (cache == 0)
-			generic_error_remove_page(inode->i_mapping,
-						  lnb[i].lnb_page);
-
 		/*
 		 * till commit the content of the page is undefined
 		 * we'll set it uptodate once bulk is done. otherwise
@@ -1285,7 +1310,7 @@ static int osd_read_prep(const struct lu_env *env, struct dt_object *dt,
         struct osd_device *osd = osd_obj2dev(osd_dt_obj(dt));
         struct timeval start, end;
         unsigned long timediff;
-	int rc = 0, i, cache = 0, cache_hits = 0, cache_misses = 0;
+	int rc = 0, i, cache_hits = 0, cache_misses = 0;
 	loff_t isize;
 
         LASSERT(inode);
@@ -1296,14 +1321,8 @@ static int osd_read_prep(const struct lu_env *env, struct dt_object *dt,
 
 	isize = i_size_read(inode);
 
-	if (osd->od_read_cache)
-		cache = 1;
-	if (isize > osd->od_readcache_max_filesize)
-		cache = 0;
-
 	do_gettimeofday(&start);
 	for (i = 0; i < npages; i++) {
-
 		if (isize <= lnb[i].lnb_file_offset)
 			/* If there's no more data, abort early.
 			 * lnb->lnb_rc == 0, so it's easy to detect later. */
@@ -1320,10 +1339,6 @@ static int osd_read_prep(const struct lu_env *env, struct dt_object *dt,
 			cache_misses++;
 			osd_iobuf_add_page(iobuf, lnb[i].lnb_page);
 		}
-
-		if (cache == 0)
-			generic_error_remove_page(inode->i_mapping,
-						  lnb[i].lnb_page);
 	}
 	do_gettimeofday(&end);
 	timediff = cfs_timeval_sub(&end, &start, NULL);

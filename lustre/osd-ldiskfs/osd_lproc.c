@@ -267,7 +267,7 @@ static int ldiskfs_osd_cache_seq_show(struct seq_file *m, void *data)
 	if (unlikely(osd->od_mnt == NULL))
 		return -EINPROGRESS;
 
-	return seq_printf(m, "%u\n", osd->od_read_cache);
+	return seq_printf(m, "%u\n", osd->od_cache);
 }
 
 static ssize_t
@@ -287,43 +287,10 @@ ldiskfs_osd_cache_seq_write(struct file *file, const char *buffer,
 	if (rc)
 		return rc;
 
-	osd->od_read_cache = !!val;
+	osd->od_cache = !!val;
 	return count;
 }
 LPROC_SEQ_FOPS(ldiskfs_osd_cache);
-
-static int ldiskfs_osd_wcache_seq_show(struct seq_file *m, void *data)
-{
-	struct osd_device *osd = osd_dt_dev((struct dt_device *)m->private);
-
-	LASSERT(osd != NULL);
-	if (unlikely(osd->od_mnt == NULL))
-		return -EINPROGRESS;
-
-	return seq_printf(m, "%u\n", osd->od_writethrough_cache);
-}
-
-static ssize_t
-ldiskfs_osd_wcache_seq_write(struct file *file, const char *buffer,
-				size_t count, loff_t *off)
-{
-	struct seq_file	  *m = file->private_data;
-	struct dt_device  *dt = m->private;
-	struct osd_device *osd = osd_dt_dev(dt);
-	int		   val, rc;
-
-	LASSERT(osd != NULL);
-	if (unlikely(osd->od_mnt == NULL))
-		return -EINPROGRESS;
-
-	rc = lprocfs_write_helper(buffer, count, &val);
-	if (rc)
-		return rc;
-
-	osd->od_writethrough_cache = !!val;
-	return count;
-}
-LPROC_SEQ_FOPS(ldiskfs_osd_wcache);
 
 static ssize_t
 lprocfs_osd_force_sync_seq_write(struct file *file, const char *buffer,
@@ -514,7 +481,8 @@ static int ldiskfs_osd_oi_scrub_seq_show(struct seq_file *m, void *data)
 }
 LPROC_SEQ_FOPS_RO(ldiskfs_osd_oi_scrub);
 
-static int ldiskfs_osd_readcache_seq_show(struct seq_file *m, void *data)
+static int ldiskfs_osd_cache_max_filesize_seq_show(struct seq_file *m,
+						   void *data)
 {
 	struct osd_device *osd = osd_dt_dev((struct dt_device *)m->private);
 
@@ -522,12 +490,12 @@ static int ldiskfs_osd_readcache_seq_show(struct seq_file *m, void *data)
 	if (unlikely(osd->od_mnt == NULL))
 		return -EINPROGRESS;
 
-	return seq_printf(m, LPU64"\n", osd->od_readcache_max_filesize);
+	return seq_printf(m, LPU64"\n", osd->od_cache_max_filesize);
 }
 
 static ssize_t
-ldiskfs_osd_readcache_seq_write(struct file *file, const char *buffer,
-				size_t count, loff_t *off)
+ldiskfs_osd_cache_max_filesize_seq_write(struct file *file, const char *buffer,
+					 size_t count, loff_t *off)
 {
 	struct seq_file	  *m = file->private_data;
 	struct dt_device  *dt = m->private;
@@ -543,11 +511,11 @@ ldiskfs_osd_readcache_seq_write(struct file *file, const char *buffer,
 	if (rc)
 		return rc;
 
-	osd->od_readcache_max_filesize = val > OSD_MAX_CACHE_SIZE ?
+	osd->od_cache_max_filesize = val > OSD_MAX_CACHE_SIZE ?
 					 OSD_MAX_CACHE_SIZE : val;
 	return count;
 }
-LPROC_SEQ_FOPS(ldiskfs_osd_readcache);
+LPROC_SEQ_FOPS(ldiskfs_osd_cache_max_filesize);
 
 #if LUSTRE_VERSION_CODE < OBD_OCD_VERSION(3, 0, 52, 0)
 static int ldiskfs_osd_index_in_idif_seq_show(struct seq_file *m, void *data)
@@ -664,10 +632,8 @@ struct lprocfs_vars lprocfs_osd_obd_vars[] = {
 	  .fops	=	&ldiskfs_osd_oi_scrub_fops	},
 	{ .name	=	"read_cache_enable",
 	  .fops	=	&ldiskfs_osd_cache_fops		},
-	{ .name	=	"writethrough_cache_enable",
-	  .fops	=	&ldiskfs_osd_wcache_fops	},
-	{ .name	=	"readcache_max_filesize",
-	  .fops	=	&ldiskfs_osd_readcache_fops	},
+	{ .name	=	"cache_max_filesize",
+	  .fops	=	&ldiskfs_osd_cache_max_filesize_fops	},
 	{ NULL }
 };
 
