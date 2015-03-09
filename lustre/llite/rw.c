@@ -246,20 +246,17 @@ static int ll_read_ahead_page(const struct lu_env *env, struct cl_io *io,
 			      pgoff_t index, pgoff_t *max_index)
 {
 	struct cl_object *clob  = io->ci_obj;
-	struct inode     *inode = vvp_object_inode(clob);
-        struct page      *vmpage;
-        struct cl_page   *page;
-        enum ra_stat      which = _NR_RA_STAT; /* keep gcc happy */
-	gfp_t		  gfp_mask;
-        int               rc    = 0;
-        const char       *msg   = NULL;
+	struct inode	 *inode = vvp_object_inode(clob);
+	struct page	*vmpage;
+	struct cl_page	*page;
+	enum ra_stat	 which = _NR_RA_STAT; /* keep gcc happy */
+	gfp_t		 gfp_mask;
+	int		 rc    = 0;
+	const char	*msg   = NULL;
 
-        ENTRY;
+	ENTRY;
 
-        gfp_mask = GFP_HIGHUSER & ~__GFP_WAIT;
-#ifdef __GFP_NOWARN
-        gfp_mask |= __GFP_NOWARN;
-#endif
+	gfp_mask = (GFP_HIGHUSER & ~__GFP_WAIT) | __GFP_NOWARN;
 	vmpage = grab_cache_page_nowait(inode->i_mapping, index);
 	if (vmpage != NULL) {
 		/* Check if vmpage was truncated or reclaimed */
