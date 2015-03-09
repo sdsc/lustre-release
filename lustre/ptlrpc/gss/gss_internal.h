@@ -127,6 +127,10 @@ __u32 import_to_gss_svc(struct obd_import *imp)
                 return LUSTRE_GSS_TGT_MDS;
         if (!strcmp(name, LUSTRE_OSC_NAME))
                 return LUSTRE_GSS_TGT_OSS;
+	if (!strcmp(name, LUSTRE_LWP_NAME))
+		return LUSTRE_GSS_TGT_MDS;
+	if (!strcmp(name, LUSTRE_OSP_NAME))
+		return LUSTRE_GSS_TGT_OSS;
         LBUG();
         return 0;
 }
