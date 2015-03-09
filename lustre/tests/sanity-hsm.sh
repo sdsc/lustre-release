@@ -835,10 +835,10 @@ run_test 2 "Check file dirtyness when doing setattr"
 
 test_3() {
 	mkdir -p $DIR/$tdir
-	f=$DIR/$tdir/$tfile
+	local f=$DIR/$tdir/$tfile
 
 	# New files are not dirty
-	cp -p /etc/passwd $f
+	local fid=$(make_small $f)
 	check_hsm_flags $f "0x00000000"
 
 	# For test, we simulate an archived file.
@@ -855,16 +855,16 @@ test_3() {
 	check_hsm_flags $f "0x00000001"
 
 	# Append to a file sets it dirty
-	cp -p /etc/passwd $f.append || error "could not create file"
+	fid=$(make_small $f.append)
 	$LFS hsm_set --exists $f.append ||
 		error "user could not change hsm flags"
-	dd if=/etc/passwd of=$f.append bs=1 count=3\
+	dd if=/dev/zero of=$f.append bs=1 count=3\
 	   conv=notrunc oflag=append status=noxfer ||
 		file_creation_failure dd $f.append $?
 	check_hsm_flags $f.append "0x00000003"
 
 	# Modify a file sets it dirty
-	cp -p /etc/passwd $f.modify || error "could not create file"
+	fid=$(make_small $f.modify)
 	$LFS hsm_set --exists $f.modify ||
 		error "user could not change hsm flags"
 	dd if=/dev/zero of=$f.modify bs=1 count=3\
@@ -873,14 +873,15 @@ test_3() {
 	check_hsm_flags $f.modify "0x00000003"
 
 	# Open O_TRUNC sets dirty
-	cp -p /etc/passwd $f.trunc || error "could not create file"
+	fid=$(make_small $f.trunc)
 	$LFS hsm_set --exists $f.trunc ||
 		error "user could not change hsm flags"
-	cp /etc/group $f.trunc || error "could not override a file"
+	dd if=/dev/zero of=$f.trunc bs=1 count=3 status=noxfer ||
+		file_creation_failure dd $f.trunc $?
 	check_hsm_flags $f.trunc "0x00000003"
 
 	# Mmapped a file sets dirty
-	cp -p /etc/passwd $f.mmap || error "could not create file"
+	fid=$(make_small $f.mmap)
 	$LFS hsm_set --exists $f.mmap ||
 		error "user could not change hsm flags"
 	multiop $f.mmap OSMWUc || error "could not mmap a file"
@@ -905,7 +906,7 @@ test_8() {
 
 	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
-	local fid=$(copy_file /etc/passwd $f)
+	local fid=$(make_small $f)
 	$LFS hsm_archive $f
 	wait_request_state $fid ARCHIVE SUCCEED
 
@@ -918,7 +919,7 @@ run_test 8 "Test default archive number"
 test_9() {
 	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
-	local fid=$(copy_file /etc/passwd $f)
+	local fid=$(make_file $f)
 	# we do not use the default one to be sure
 	local new_an=$((HSM_ARCHIVE_NUMBER + 1))
 	copytool_cleanup
@@ -969,7 +970,7 @@ test_10a() {
 
 	mkdir -p $DIR/$tdir/d1
 	local f=$DIR/$tdir/$tfile
-	local fid=$(copy_file /etc/hosts $f)
+	local fid=$(make_small $f)
 	$LFS hsm_archive -a $HSM_ARCHIVE_NUMBER $f ||
 		error "hsm_archive failed"
 	wait_request_state $fid ARCHIVE SUCCEED
@@ -997,7 +998,7 @@ test_10b() {
 
 	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
-	local fid=$(copy_file /etc/hosts $f)
+	local fid=$(make_small $f)
 	$LFS hsm_archive $f || error "archive request failed"
 	wait_request_state $fid ARCHIVE SUCCEED
 
@@ -1016,7 +1017,7 @@ test_10c() {
 
 	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
-	local fid=$(copy_file /etc/hosts $f)
+	local fid=$(make_small $f)
 	$LFS hsm_set --noarchive $f
 	$LFS hsm_archive $f && error "archive a noarchive file must fail"
 
@@ -1030,7 +1031,7 @@ test_10d() {
 
 	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
-	local fid=$(copy_file /etc/hosts $f)
+	local fid=$(make_small $f)
 	$LFS hsm_archive $f || error "cannot archive $f"
 	wait_request_state $fid ARCHIVE SUCCEED
 
@@ -1045,7 +1046,9 @@ run_test 10d "Archive a file on the default archive id"
 
 test_11a() {
 	mkdir -p $DIR/$tdir
-	copy2archive /etc/hosts $tdir/$tfile
+	local f_ref=$DIR/$tdir/$tfile.ref
+	local fid=$(make_small $f_ref)
+	copy2archive $f_ref $tdir/$tfile
 	local f=$DIR/$tdir/$tfile
 
 	import_file $tdir/$tfile $f
@@ -1061,7 +1064,7 @@ test_11a() {
 	local PTRN=$($GETSTRIPE -L $f)
 	echo $PTRN
 	[[ $PTRN == 80000001 ]] || error "Is not released"
-	local fid=$(path2fid $f)
+	fid=$(path2fid $f)
 	echo "Verifying new fid $fid in archive"
 
 	local AFILE=$(do_facet $SINGLEAGT ls $HSM_ARCHIVE'/*/*/*/*/*/*/'$fid) ||
@@ -1075,7 +1078,7 @@ test_11b() {
 
 	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
-	local fid=$(copy_file /etc/hosts $f)
+	local fid=$(make_small $f)
 	$LFS hsm_archive -a $HSM_ARCHIVE_NUMBER $f ||
 		error "hsm_archive failed"
 	wait_request_state $fid ARCHIVE SUCCEED
@@ -1098,7 +1101,9 @@ test_12a() {
 	copytool_setup
 
 	mkdir -p $DIR/$tdir
-	copy2archive /etc/hosts $tdir/$tfile
+	local f_ref=$DIR/$tdir/$tfile.ref
+	local fid=$(make_small $f_ref)
+	copy2archive $f_ref $tdir/$tfile
 
 	local f=$DIR/$tdir/$tfile
 	import_file $tdir/$tfile $f
@@ -1106,7 +1111,7 @@ test_12a() {
 	echo "Verifying released state: "
 	check_hsm_flags $f2 "0x0000000d"
 
-	local fid=$(path2fid $f2)
+	fid=$(path2fid $f2)
 	$LFS hsm_restore $f2
 	wait_request_state $fid RESTORE SUCCEED
 
@@ -1126,7 +1131,9 @@ test_12b() {
 	copytool_setup
 
 	mkdir -p $DIR/$tdir
-	copy2archive /etc/hosts $tdir/$tfile
+	local f_ref=$DIR/$tdir/$tfile.ref
+	local fid=$(make_small $f_ref)
+	copy2archive $f_ref $tdir/$tfile
 
 	local f=$DIR/$tdir/$tfile
 	import_file $tdir/$tfile $f
@@ -1180,7 +1187,7 @@ test_12d() {
 	mkdir -p $DIR/$tdir
 
 	local f=$DIR/$tdir/$tfile
-	local fid=$(copy_file /etc/hosts $f)
+	local fid=$(make_small $f)
 	$LFS hsm_restore $f || error "restore of non archived file failed"
 	local cnt=$(get_request_count $fid RESTORE)
 	[[ "$cnt" == "0" ]] ||
@@ -1205,12 +1212,13 @@ test_12e() {
 
 	mkdir -p $DIR/$tdir $HSM_ARCHIVE/$tdir
 	local f=$DIR/$tdir/$tfile
-	local fid=$(copy_file /etc/hosts $f)
+	local fid=$(make_small $f)
 	$LFS hsm_archive $f || error "archive request failed"
 	wait_request_state $fid ARCHIVE SUCCEED
 
 	# make file dirty
-	cat /etc/hosts >> $f
+	dd if=/dev/zero of=$f bs=1 count=3 conv=notrunc status=noxfer ||
+		file_creation_failure dd $f.modify $?
 	sync
 	$LFS hsm_state $f
 
@@ -1226,7 +1234,9 @@ test_12f() {
 
 	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
-	local fid=$(copy_file /etc/hosts $f)
+	local f_ref=$DIR/$tdir/$tfile.ref
+	local fid=$(make_small $f_ref)
+	fid=$(copy_file $f_ref $f)
 
 	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER $f
 	wait_request_state $fid ARCHIVE SUCCEED
@@ -1237,7 +1247,7 @@ test_12f() {
 	echo -n "Verifying file state: "
 	check_hsm_flags $f "0x00000009"
 
-	diff -q /etc/hosts $f
+	diff -q $f_ref $f
 
 	[[ $? -eq 0 ]] || error "Restored file differs"
 
@@ -1251,13 +1261,15 @@ test_12g() {
 
 	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
-	local fid=$(copy_file /etc/hosts $f)
+	local f_ref=$DIR/$tdir/$tfile.ref
+	local fid=$(make_small $f_ref)
+	fid=$(copy_file $f_ref $f)
 
 	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER $f
 	wait_request_state $fid ARCHIVE SUCCEED
 	$LFS hsm_release $f || error "release of $f failed"
 
-	diff -q /etc/hosts $f
+	diff -q $f_ref $f
 	local st=$?
 
 	# we check we had a restore done
@@ -1277,13 +1289,15 @@ test_12h() {
 
 	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
-	local fid=$(copy_file /etc/hosts $f)
+	local f_ref=$DIR/$tdir/$tfile.ref
+	local fid=$(make_small $f_ref)
+	fid=$(copy_file $f_ref $f)
 
 	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER $f
 	wait_request_state $fid ARCHIVE SUCCEED
 	$LFS hsm_release $f || error "release of $f failed"
 
-	do_node $CLIENT2 diff -q /etc/hosts $f
+	do_node $CLIENT2 diff -q $f_ref $f
 	local st=$?
 
 	# we check we had a restore done
@@ -1301,13 +1315,15 @@ test_12m() {
 
 	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
-	local fid=$(copy_file /etc/passwd $f)
+	local f_ref=$DIR/$tdir/$tfile.ref
+	local fid=$(make_small $f_ref)
+	fid=$(copy_file $f_ref $f)
 	$LFS hsm_archive $f || error "archive of $f failed"
 	wait_request_state $fid ARCHIVE SUCCEED
 
 	$LFS hsm_release $f || error "release of $f failed"
 
-	cmp /etc/passwd $f
+	cmp $f_ref $f
 
 	[[ $? -eq 0 ]] || error "Restored file differs"
 
@@ -1320,12 +1336,14 @@ test_12n() {
 	copytool_setup
 
 	mkdir -p $DIR/$tdir
-	copy2archive /etc/hosts $tdir/$tfile
+	local f_ref=$DIR/$tdir/$tfile.ref
+	local fid=$(make_small $f_ref)
+	copy2archive $f_ref $tdir/$tfile
 
 	local f=$DIR/$tdir/$tfile
 	import_file $tdir/$tfile $f
 
-	do_facet $SINGLEAGT cmp /etc/hosts $f ||
+	do_facet $SINGLEAGT cmp $f_ref $f ||
 		error "Restored file differs"
 
 	$LFS hsm_release $f || error "release of $f failed"
@@ -1340,7 +1358,9 @@ test_12o() {
 
 	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
-	local fid=$(copy_file /etc/hosts $f)
+	local f_ref=$DIR/$tdir/$tfile.ref
+	local fid=$(make_small $f_ref)
+	fid=$(copy_file $f_ref $f)
 
 	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER $f
 	wait_request_state $fid ARCHIVE SUCCEED
@@ -1352,7 +1372,7 @@ test_12o() {
 	# set no retry action mode
 	cdt_set_no_retry
 
-	diff -q /etc/hosts $f
+	diff -q $f_ref $f
 	local st=$?
 
 	# we check we had a restore failure
@@ -1373,7 +1393,7 @@ test_12o() {
 	cdt_purge
 	wait_for_grace_delay
 
-	diff -q /etc/hosts $f
+	diff -q $f_ref $f
 	st=$?
 
 	# we check we had a restore done
@@ -1985,7 +2005,9 @@ test_25a() {
 	copytool_setup
 
 	mkdir -p $DIR/$tdir
-	copy2archive /etc/hosts $tdir/$tfile
+	local f_ref=$DIR/$tdir/$tfile.ref
+	local fid=$(make_small $f_ref)
+	copy2archive $f_ref $tdir/$tfile
 
 	local f=$DIR/$tdir/$tfile
 
@@ -2010,7 +2032,7 @@ test_25b() {
 	mkdir -p $DIR/$tdir
 
 	local f=$DIR/$tdir/$tfile
-	local fid=$(copy_file /etc/passwd $f)
+	local fid=$(make_small $f)
 
 	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER $f
 	wait_request_state $fid ARCHIVE SUCCEED
@@ -2431,7 +2453,7 @@ test_35() {
 	fid=$(make_large_for_progress $f)
 	[ $? != 0 ] && skip "not enough free space" && return
 
-	local fid1=$(copy_file /etc/passwd $f1)
+	local fid1=$(make_small $f1)
 	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER $f
 	wait_request_state $fid ARCHIVE SUCCEED
 	$LFS hsm_release $f
@@ -2518,7 +2540,7 @@ test_40() {
 
 	for i in $(seq 1 $file_count); do
 		for p in $(seq 1 $stream_count); do
-			fid=$(copy_file /etc/hosts $f.$p.$i)
+			fid=$(make_small $f.$p.$i)
 		done
 	done
 	# force copytool to use a local/temp archive dir to ensure best
@@ -2551,7 +2573,7 @@ test_52() {
 
 	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
-	local fid=$(copy_file /etc/motd $f 1)
+	local fid=$(make_small $f)
 
 	$LFS hsm_archive $f || error "could not archive file"
 	wait_request_state $fid ARCHIVE SUCCEED
@@ -2578,7 +2600,7 @@ test_53() {
 
 	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
-	local fid=$(copy_file /etc/motd $f 1)
+	local fid=$(make_small $f)
 
 	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER $f ||
 		error "could not archive file"
@@ -2721,7 +2743,7 @@ truncate_released_file() {
 	local trunc_to=$2
 
 	local sz=$(stat -c %s $src_file)
-	local f=$DIR/$tdir/$tfile
+	local f=$DIR/$tdir/$tfile.truncf
 	local fid=$(copy_file $1 $f)
 	local ref=$f-ref
 	cp $f $f-ref
@@ -2757,17 +2779,19 @@ test_58() {
 	copytool_setup
 
 	mkdir -p $DIR/$tdir
+	local f=$DIR/$tdir/$tfile
+	local fid=$(make_small $f)
 
-	local sz=$(stat -c %s /etc/passwd)
+	local sz=$(stat -c %s $f)
 
 	echo "truncate up from $sz to $((sz*2))"
-	truncate_released_file /etc/passwd $((sz*2))
+	truncate_released_file $f $((sz*2))
 
 	echo "truncate down from $sz to $((sz/2))"
-	truncate_released_file /etc/passwd $((sz/2))
+	truncate_released_file $f $((sz/2))
 
 	echo "truncate to 0"
-	truncate_released_file /etc/passwd 0
+	truncate_released_file $f 0
 
 	copytool_cleanup
 }
@@ -3086,7 +3110,7 @@ test_90() {
 
 	rm -f $FILELIST
 	for i in $(seq 1 $file_count); do
-		fid=$(copy_file /etc/hosts $f.$i)
+		fid=$(make_small $f.$i)
 		echo $f.$i >> $FILELIST
 	done
 	# force copytool to use a local/temp archive dir to ensure best
@@ -3158,7 +3182,7 @@ test_103() {
 
 	mkdir -p $DIR/$tdir
 	for i in $(seq 1 20); do
-		fid=$(copy_file /etc/passwd $DIR/$tdir/$i)
+		fid=$(make_small $DIR/$tdir/$i)
 	done
 	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER $DIR/$tdir/*
 
@@ -3205,10 +3229,11 @@ run_test 104 "Copy tool data field"
 test_105() {
 	mkdir -p $DIR/$tdir
 	local i=""
+	local fid=""
 
 	cdt_disable
 	for i in $(seq -w 1 10); do
-		cp /etc/passwd $DIR/$tdir/$i
+		fid=$(make_small $DIR/$tdir/$i)
 		$LFS hsm_archive $DIR/$tdir/$i
 	done
 	local reqcnt1=$(do_facet $SINGLEMDS "$LCTL get_param -n\
@@ -3300,14 +3325,14 @@ test_107() {
 	# create and archive file
 	mkdir -p $DIR/$tdir
 	local f1=$DIR/$tdir/$tfile
-	local fid=$(copy_file /etc/passwd $f1)
+	local fid=$(make_small $f1)
 	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER $f1
 	wait_request_state $fid ARCHIVE SUCCEED
 	# shutdown and restart MDS
 	fail $SINGLEMDS
 	# check the copytool still gets messages from MDT
 	local f2=$DIR/$tdir/2
-	local fid=$(copy_file /etc/passwd $f2)
+	local fid=$(make_small $f2)
 	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER $f2
 	# main check of this sanity: this request MUST succeed
 	wait_request_state $fid ARCHIVE SUCCEED
@@ -3355,12 +3380,13 @@ test_110a() {
 	copytool_setup
 
 	mkdir -p $DIR/$tdir
-
-	copy2archive /etc/passwd $tdir/$tfile
+	local f_ref=$DIR/$tdir/$tfile.ref
+	local fid=$(make_small $f_ref)
+	copy2archive $f_ref $tdir/$tfile
 
 	local f=$DIR/$tdir/$tfile
 	import_file $tdir/$tfile $f
-	local fid=$(path2fid $f)
+	fid=$(path2fid $f)
 
 	cdt_set_non_blocking_restore
 	md5sum $f
@@ -3385,7 +3411,7 @@ test_110b() {
 
 	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
-	local fid=$(copy_file /etc/passwd $f)
+	local fid=$(make_small $f)
 	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER $f
 	wait_request_state $fid ARCHIVE SUCCEED
 	$LFS hsm_release $f
@@ -3411,13 +3437,15 @@ test_111a() {
 	# test needs a running copytool
 	copytool_setup
 
-	mkdir -p $DIR/$tdir
-	copy2archive /etc/passwd $tdir/$tfile
+	mkdir $DIR/$tdir || error "mkdir $DIR/$tdir failed"
+	local f_ref=$DIR/$tdir/$tfile.ref
+	local fid=$(make_small $f_ref)
+	copy2archive $f_ref $tdir/$tfile
 
 	local f=$DIR/$tdir/$tfile
 
 	import_file $tdir/$tfile $f
-	local fid=$(path2fid $f)
+	fid=$(path2fid $f)
 
 	cdt_set_no_retry
 
@@ -3444,7 +3472,7 @@ test_111b() {
 
 	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
-	local fid=$(copy_file /etc/passwd $f)
+	local fid=$(make_small $f)
 	cdt_set_no_retry
 	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER $f
 	wait_request_state $fid ARCHIVE SUCCEED
@@ -3473,7 +3501,7 @@ test_112() {
 
 	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
-	local fid=$(copy_file /etc/passwd $f)
+	local fid=$(make_small $f)
 	cdt_disable
 	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER $f
 	local l=$($LFS hsm_action $f)
@@ -3565,7 +3593,7 @@ test_220() {
 	mkdir -p $DIR/$tdir
 
 	local f=$DIR/$tdir/$tfile
-	local fid=$(copy_file /etc/passwd $f)
+	local fid=$(make_small $f)
 
 	changelog_setup
 
@@ -3615,11 +3643,13 @@ test_222a() {
 	copytool_setup
 
 	mkdir -p $DIR/$tdir
-	copy2archive /etc/passwd $tdir/$tfile
+	local f_ref=$DIR/$tdir/$tfile.ref
+	local fid=$(make_small $f_ref)
+	copy2archive $f_ref $tdir/$tfile
 
 	local f=$DIR/$tdir/$tfile
 	import_file $tdir/$tfile $f
-	local fid=$(path2fid $f)
+	fid=$(path2fid $f)
 
 	changelog_setup
 
@@ -3641,7 +3671,7 @@ test_222b() {
 
 	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
-	local fid=$(copy_file /etc/passwd $f)
+	local fid=$(make_small $f)
 
 	changelog_setup
 	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER $f
@@ -3729,7 +3759,7 @@ test_224() {
 	mkdir -p $DIR/$tdir
 
 	local f=$DIR/$tdir/$tfile
-	local fid=$(copy_file /etc/passwd $f)
+	local fid=$(make_small $f)
 
 	changelog_setup
 	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER $f
@@ -3797,9 +3827,9 @@ test_226() {
 	local f1=$DIR/$tdir/$tfile-1
 	local f2=$DIR/$tdir/$tfile-2
 	local f3=$DIR/$tdir/$tfile-3
-	local fid1=$(copy_file /etc/passwd $f1)
-	local fid2=$(copy_file /etc/passwd $f2)
-	copy_file /etc/passwd $f3
+	local fid1=$(make_small $f1)
+	local fid2=$(make_small $f2)
+	copy_file $f2 $f3
 
 	changelog_setup
 	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER $f1
@@ -3871,12 +3901,12 @@ test_227() {
 	for i in norelease noarchive exists archived
 	do
 		local f=$DIR/$tdir/$tfile-$i
-		local fid=$(copy_file /etc/passwd $f)
+		local fid=$(make_small $f)
 		check_flags_changes $f $fid $i 0 1
 	done
 
 	f=$DIR/$tdir/$tfile---lost
-	fid=$(copy_file /etc/passwd $f)
+	fid=$(make_small $f)
 	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER $f
 	wait_request_state $fid ARCHIVE SUCCEED
 	check_flags_changes $f $fid lost 3 1
