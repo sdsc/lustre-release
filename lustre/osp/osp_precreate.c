@@ -1370,6 +1370,8 @@ int osp_precreate_reserve(const struct lu_env *env, struct osp_device *d)
 			break;
 		}
 
+		LCONSOLE_INFO("now %lu expire %lu\n",
+			      cfs_time_current(), expire);
 		l_wait_event(d->opd_pre_user_waitq,
 			     osp_precreate_ready_condition(env, d), &lwi);
 	}
