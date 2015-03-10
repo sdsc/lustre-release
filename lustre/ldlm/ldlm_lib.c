@@ -1794,10 +1794,23 @@ static int target_recovery_overseer(struct obd_device *obd,
 				    int (*health_check)(struct obd_export *))
 {
 repeat:
+	spin_lock(&obd->obd_dev_lock);
+	if (obd->obd_abort_recovery) {
+		/*
+		 * recovery abort has been started, don't need to wait for
+		 * event
+		 */
+		spin_unlock(&obd->obd_dev_lock);
+		return 1;
+	}
+
 	if ((obd->obd_recovery_start != 0) && (cfs_time_current_sec() >=
 	      (obd->obd_recovery_start + obd->obd_recovery_time_hard))) {
-		CWARN("recovery is aborted by hard timeout\n");
 		obd->obd_abort_recovery = 1;
+		spin_unlock(&obd->obd_dev_lock);
+		CWARN("recovery is aborted by hard timeout\n");
+	} else {
+		spin_unlock(&obd->obd_dev_lock);
 	}
 
 	while (wait_event_timeout(obd->obd_next_transno_waitq,
