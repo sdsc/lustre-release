@@ -279,9 +279,9 @@ int gss_cli_ctx_unwrap_bulk(struct ptlrpc_cli_ctx *ctx,
                         if (desc->bd_nob == 0)
                                 RETURN(0);
 
-                        token.data = bsdv->bsd_data;
-                        token.len = lustre_msg_buflen(vmsg, voff) -
-                                    sizeof(*bsdr);
+			token.data = bsdv->bsd_data;
+			token.len = lustre_msg_buflen(vmsg, voff) -
+				    sizeof(*bsdv);
 
                         maj = lgss_unwrap_bulk(gctx->gc_mechctx, desc,
                                                &token, 1);

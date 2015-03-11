@@ -2672,7 +2672,8 @@ int target_bulk_io(struct obd_export *exp, struct ptlrpc_bulk_desc *desc,
 	    exp->exp_conn_cnt > lustre_msg_get_conn_cnt(req->rq_reqmsg)) {
 		rc = -ENOTCONN;
 	} else {
-		if (desc->bd_type == BULK_PUT_SINK)
+		if ((desc->bd_type == BULK_PUT_SINK) ||
+		    (desc->bd_type == BULK_PUT_SOURCE))
 			rc = sptlrpc_svc_wrap_bulk(req, desc);
 		if (rc == 0)
 			rc = ptlrpc_start_bulk_transfer(desc);
@@ -2734,10 +2735,8 @@ int target_bulk_io(struct obd_export *exp, struct ptlrpc_bulk_desc *desc,
 		/* We don't reply anyway. */
 		rc = -ETIMEDOUT;
 		ptlrpc_abort_bulk(desc);
-	} else if (desc->bd_failure ||
-		   desc->bd_nob_transferred != desc->bd_nob) {
-		DEBUG_REQ(D_ERROR, req, "%s bulk %s %d(%d)",
-			  desc->bd_failure ? "network error on" : "truncated",
+	} else if (desc->bd_failure) {
+		DEBUG_REQ(D_ERROR, req, "network error on bulk %s %d(%d)",
 			  bulk2type(desc), desc->bd_nob_transferred,
 			  desc->bd_nob);
 		/* XXX Should this be a different errno? */
