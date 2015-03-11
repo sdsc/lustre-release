@@ -384,8 +384,16 @@ static int tgt_handle_request0(struct tgt_session_info *tsi,
 {
 	int	 serious = 0;
 	int	 rc;
+	__u32    opc = lustre_msg_get_opc(req->rq_reqmsg);
 
 	ENTRY;
+
+	switch (opc) {
+	case SEC_CTX_INIT:
+	case SEC_CTX_INIT_CONT:
+	case SEC_CTX_FINI:
+		GOTO(out, rc = 0);
+	}
 
 	/*
 	 * Checking for various OBD_FAIL_$PREF_$OPC_NET codes. _Do_ not try
@@ -454,6 +462,7 @@ static int tgt_handle_request0(struct tgt_session_info *tsi,
 	if (likely(rc == 0 && req->rq_export))
 		target_committed_to_req(req);
 
+out:
 	target_send_reply(req, rc, tsi->tsi_reply_fail_id);
 	RETURN(0);
 }
@@ -624,6 +633,12 @@ int tgt_request_handle(struct ptlrpc_request *req)
 	}
 
 	if (unlikely(!class_connected_export(req->rq_export))) {
+		if (opc == SEC_CTX_INIT || opc == SEC_CTX_INIT_CONT ||
+		    opc == SEC_CTX_FINI) {
+			tsi->tsi_reply_fail_id = OBD_FAIL_SEC_CTX_INIT_NET;
+			h = NULL;
+			GOTO(handle_recov, rc = 0);
+		}
 		CDEBUG(D_HA, "operation %d on unconnected OST from %s\n",
 		       opc, libcfs_id2str(req->rq_peer));
 		req->rq_status = -ENOTCONN;
@@ -648,6 +663,9 @@ int tgt_request_handle(struct ptlrpc_request *req)
 		GOTO(out, rc);
 	}
 
+	LASSERTF(h->th_opc == opc, "opcode mismatch %d != %d\n",
+		 h->th_opc, opc);
+
 	if (CFS_FAIL_CHECK_ORSET(request_fail_id, CFS_FAIL_ONCE))
 		GOTO(out, rc = 0);
 
@@ -661,10 +679,9 @@ int tgt_request_handle(struct ptlrpc_request *req)
 		GOTO(out, rc);
 	}
 
+handle_recov:
 	rc = tgt_handle_recovery(req, tsi->tsi_reply_fail_id);
 	if (likely(rc == 1)) {
-		LASSERTF(h->th_opc == opc, "opcode mismatch %d != %d\n",
-			 h->th_opc, opc);
 		rc = tgt_handle_request0(tsi, h, req);
 		if (rc)
 			GOTO(out, rc);
