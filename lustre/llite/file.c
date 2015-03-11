@@ -1156,7 +1156,7 @@ restart:
 	/* The maximum Lustre file size is variable, based on the
 	 * OST maximum object size and number of stripes.  This
 	 * needs another check in addition to the VFS checks earlier. */
-	end = (io->u.ci_wr.wr_append ? i_size_read(inode) : *ppos) + count;
+	end = (cl_io_is_append(io) ? i_size_read(inode) : *ppos) + count;
 	if (end > ll_file_maxbytes(inode)) {
 		result = -EFBIG;
 		CDEBUG(D_INODE, "%s: file "DFID" offset %llu > maxbytes "LPU64
