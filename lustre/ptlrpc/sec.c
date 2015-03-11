@@ -438,7 +438,7 @@ int sptlrpc_req_get_ctx(struct ptlrpc_request *req)
 
         if (!req->rq_cli_ctx) {
                 CERROR("req %p: fail to get context\n", req);
-                RETURN(-ENOMEM);
+                RETURN(-ECONNREFUSED);
         }
 
         RETURN(0);
