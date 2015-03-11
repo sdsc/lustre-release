@@ -1286,10 +1286,12 @@ static int tgt_last_rcvd_update(const struct lu_env *env, struct lu_target *tgt,
 		if (*transno_p > tti->tti_transno) {
 			if (!tgt->lut_no_reconstruct) {
 				CERROR("%s: trying to overwrite bigger transno:"
-				       "on-disk: "LPU64", new: "LPU64" replay: "
-				       "%d. See LU-617.\n", tgt_name(tgt),
-				       *transno_p, tti->tti_transno,
-				       req_is_replay(req));
+				       " on-disk: "LPU64" new: "LPU64" replay: "
+				       "%d opc: %d thread:%.20s, see LU-617\n",
+				       tgt_name(tgt), *transno_p,
+				       tti->tti_transno, req_is_replay(req),
+				       lustre_msg_get_opc(req->rq_reqmsg),
+				       current->comm);
 				if (req_is_replay(req)) {
 					spin_lock(&req->rq_export->exp_lock);
 					req->rq_export->exp_vbr_failed = 1;
@@ -1305,7 +1307,8 @@ static int tgt_last_rcvd_update(const struct lu_env *env, struct lu_target *tgt,
 
 	if (!lw_client) {
 		tti->tti_off = ted->ted_lr_off;
-		rc = tgt_client_data_write(env, tgt, ted->ted_lcd, &tti->tti_off, th);
+		rc = tgt_client_data_write(env, tgt, ted->ted_lcd,
+					   &tti->tti_off, th);
 		if (rc < 0) {
 			mutex_unlock(&ted->ted_lcd_lock);
 			RETURN(rc);
