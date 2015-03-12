@@ -666,6 +666,7 @@ enum {
 #include <lustre_nrs_tbf.h>
 #include <lustre_nrs_crr.h>
 #include <lustre_nrs_orr.h>
+#include <lustre_nrs_delay.h>
 
 /**
  * NRS request
@@ -712,6 +713,10 @@ struct ptlrpc_nrs_request {
 		 * TBF request definition
 		 */
 		struct nrs_tbf_req	tbf;
+		/**
+		 * Fields for the delay policy
+		 */
+		struct nrs_delay_req	delay;
 	} nr_u;
 	/**
 	 * Externally-registering policies may want to use this to allocate
