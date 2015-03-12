@@ -3323,6 +3323,40 @@ test_77i() {
 }
 run_test 77i "Change rank of TBF rule"
 
+set_nrs_var_all_svcs() {
+	local facet="$1"
+	local var_name="$2"
+	local value="$3"
+
+	do_facet $facet lctl set_param *.*.*.$var_name="$value"
+	[ $? -ne 0 ] &&
+		error "failed to set $var_name=$value on $host"
+}
+
+test_77h() {
+	set_nrs_var_all_svcs "$SINGLEMDS" "nrs_policies" "delay"
+	set_nrs_var_all_svcs "$SINGLEMDS" "nrs_delay_min" "1"
+	set_nrs_var_all_svcs "$SINGLEMDS" "nrs_delay_max" "5"
+	set_nrs_var_all_svcs "$SINGLEMDS" "nrs_delay_pct" "50"
+
+	for i in $(seq 1 $OSTCOUNT)
+	do
+		set_nrs_var_all_svcs "ost$i" "nrs_policies" "delay"
+		set_nrs_var_all_svcs "ost$i" "nrs_delay_min" "1"
+		set_nrs_var_all_svcs "ost$i" "nrs_delay_max" "5"
+		set_nrs_var_all_svcs "ost$i" "nrs_delay_pct" "50"
+	done
+	nrs_write_read "$RUNAS"
+
+	set_nrs_var_all_svcs "$SINGLEMDS" "nrs_policies" "fifo"
+	for i in $(seq 1 $OSTCOUNT)
+	do
+		set_nrs_var_all_svcs "ost$i" "nrs_policies" "fifo"
+	done
+	return 0
+}
+run_test 77h "check NRS Delay can perform I/O"
+
 test_78() { #LU-6673
 	local rc
 
