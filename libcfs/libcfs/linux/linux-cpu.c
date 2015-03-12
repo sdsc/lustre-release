@@ -59,6 +59,8 @@ CFS_MODULE_PARM(cpu_npartitions, "i", int, 0444, "# of CPU partitions");
  * i.e: "N 0[0,1] 1[2,3]" the first character 'N' means numbers in bracket
  *       are NUMA node ID, number before bracket is CPU partition ID.
  *
+ * i.e: "N", create CPU partition table that can match NUMA topology
+ *
  * NB: If user specified cpu_pattern, cpu_npartitions will be ignored
  */
 static char	*cpu_pattern = "";
@@ -874,22 +876,28 @@ cfs_cpt_table_create_pattern(char *pattern)
 {
 	struct cfs_cpt_table	*cptab;
 	char			*str	= pattern;
-	int			node	= 0;
+	bool			node	= false;
+	int			ncpt	= 0;
 	int			high;
-	int			ncpt;
+	int			cpt;
+	int			rc;
 	int			c;
-
-	for (ncpt = 0;; ncpt++) { /* quick scan bracket */
-		str = strchr(str, '[');
-		if (str == NULL)
-			break;
-		str++;
-	}
+	int			i;
 
 	str = cfs_trimwhite(pattern);
 	if (*str == 'n' || *str == 'N') {
 		pattern = str + 1;
-		node = 1;
+		node = true;
+		if (*pattern == '\0')
+			ncpt = num_online_nodes();
+	}
+
+	if (ncpt == 0) { /* quick scan bracket which is sign of partition */
+		for (str = pattern;; str++, ncpt++) {
+			str = strchr(str, '[');
+			if (str == NULL)
+				break;
+		}
 	}
 
 	if (ncpt == 0 ||
@@ -900,21 +908,35 @@ cfs_cpt_table_create_pattern(char *pattern)
 		return NULL;
 	}
 
-	high = node ? MAX_NUMNODES - 1 : NR_CPUS - 1;
-
 	cptab = cfs_cpt_table_alloc(ncpt);
 	if (cptab == NULL) {
 		CERROR("Failed to allocate cpu partition table\n");
 		return NULL;
 	}
 
+	if (node && ncpt == num_online_nodes()) {
+		/* create CPT table which can match numa topology */
+		cpt = 0;
+		for_each_online_node(i) {
+			if (cpt >= ncpt) {
+				CERROR("CPU changed while setting CPU "
+				       "partition table, %d/%d\n", cpt, ncpt);
+				goto failed;
+			}
+
+			rc = cfs_cpt_set_node(cptab, cpt++, i);
+			if (!rc)
+				goto failed;
+		}
+		return cptab;
+	}
+
+	high = node ? MAX_NUMNODES - 1 : NR_CPUS - 1;
+
 	for (str = cfs_trimwhite(pattern), c = 0;; c++) {
 		struct cfs_range_expr	*range;
 		struct cfs_expr_list	*el;
 		char			*bracket = strchr(str, '[');
-		int			cpt;
-		int			rc;
-		int			i;
 		int			n;
 
 		if (bracket == NULL) {
