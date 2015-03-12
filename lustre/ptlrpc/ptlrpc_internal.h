@@ -55,6 +55,7 @@ extern struct ptlrpc_nrs_pol_conf nrs_conf_crrn;
 extern struct ptlrpc_nrs_pol_conf nrs_conf_orr;
 extern struct ptlrpc_nrs_pol_conf nrs_conf_trr;
 extern struct ptlrpc_nrs_pol_conf nrs_conf_tbf;
+extern struct ptlrpc_nrs_pol_conf nrs_conf_delay;
 #endif /* HAVE_SERVER_SUPPORT */
 
 /**
