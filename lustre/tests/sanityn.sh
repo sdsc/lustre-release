@@ -3190,6 +3190,29 @@ test_77g() {
 }
 run_test 77g "Change TBF type directly"
 
+test_77h() {
+	do_facet $SINGLEMDS lctl set_param *.*.*.nrs_policies="delay"
+	do_facet $SINGLEMDS lctl set_param *.*.*.nrs_delay_min="1"
+	do_facet $SINGLEMDS lctl set_param *.*.*.nrs_delay_max="5"
+	do_facet $SINGLEMDS lctl set_param *.*.*.nrs_delay_pct="50"
+
+	for i in $(seq 1 $OSTCOUNT)
+	do
+		do_facet ost"$i" lctl set_param *.*.*.nrs_policies="delay"
+		do_facet ost"$i" lctl set_param *.*.*.nrs_delay_min="1"
+		do_facet ost"$i" lctl set_param *.*.*.nrs_delay_max="5"
+		do_facet ost"$i" lctl set_param *.*.*.nrs_delay_pct="50"
+	done
+	nrs_write_read
+
+	do_facet $SINGLEMDS lctl set_param mds.MDS.mdt.nrs_policies="fifo"
+	for i in $(seq 1 $OSTCOUNT)
+	do
+		do_facet ost"$i" lctl set_param *.*.*.nrs_policies="fifo"
+	done
+}
+run_test 77h "check NRS Delay can perform I/O"
+
 test_78() { #LU-6673
 	local rc
 
