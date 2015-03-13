@@ -608,6 +608,10 @@ struct lu_site {
          * objects hash table
          */
 	cfs_hash_t		*ls_obj_hash;
+	/**
+	 * Total number of objects in all bucket lsb_lru_lists
+	 */
+	long			ls_lru_total;
         /**
          * index of bucket on hash table while purging
          */

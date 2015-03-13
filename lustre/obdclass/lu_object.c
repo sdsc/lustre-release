@@ -154,6 +154,7 @@ void lu_object_put(const struct lu_env *env, struct lu_object *o)
 		LASSERT(list_empty(&top->loh_lru));
 		list_add_tail(&top->loh_lru, &bkt->lsb_lru);
 		bkt->lsb_lru_len++;
+		site->ls_lru_total++;
                 cfs_hash_bd_unlock(site->ls_obj_hash, &bd, 1);
                 return;
         }
@@ -212,6 +213,7 @@ void lu_object_unhash(const struct lu_env *env, struct lu_object *o)
 			list_del_init(&top->loh_lru);
 			bkt = cfs_hash_bd_extra_get(obj_hash, &bd);
 			bkt->lsb_lru_len--;
+			o->lo_dev->ld_site->ls_lru_total--;
 		}
 		cfs_hash_bd_del_locked(obj_hash, &bd, &top->loh_hash);
 		cfs_hash_bd_unlock(obj_hash, &bd, 1);
@@ -389,6 +391,7 @@ int lu_site_purge(const struct lu_env *env, struct lu_site *s, int nr)
                                                &bd2, &h->loh_hash);
 			list_move(&h->loh_lru, &dispose);
 			bkt->lsb_lru_len--;
+			s->ls_lru_total--;
                         if (did_sth == 0)
                                 did_sth = 1;
 
@@ -604,6 +607,7 @@ static struct lu_object *htable_lookup(struct lu_site *s,
 		if (!list_empty(&h->loh_lru)) {
 			list_del_init(&h->loh_lru);
 			bkt->lsb_lru_len--;
+			s->ls_lru_total--;
 		}
                 return lu_object_top(h);
         }
@@ -1947,7 +1951,6 @@ static void lu_site_stats_get(cfs_hash_t *hs,
 static unsigned long lu_cache_shrink_count(struct shrinker *sk,
 					   struct shrink_control *sc)
 {
-	lu_site_stats_t stats;
 	struct lu_site *s;
 	struct lu_site *tmp;
 	unsigned long cached = 0;
@@ -1957,9 +1960,7 @@ static unsigned long lu_cache_shrink_count(struct shrinker *sk,
 
 	mutex_lock(&lu_sites_guard);
 	list_for_each_entry_safe(s, tmp, &lu_sites, ls_linkage) {
-		memset(&stats, 0, sizeof(stats));
-		lu_site_stats_get(s->ls_obj_hash, &stats, 0);
-		cached += stats.lss_total - stats.lss_busy;
+		cached += s->ls_lru_total;
 	}
 	mutex_unlock(&lu_sites_guard);
 
@@ -2038,7 +2039,8 @@ static int lu_cache_shrink(SHRINKER_ARGS(sc, nr_to_scan, gfp_mask))
 
 	CDEBUG(D_INODE, "Shrink %lu objects\n", scv.nr_to_scan);
 
-	lu_cache_shrink_scan(shrinker, &scv);
+	if (scv.nr_to_scan != 0)
+		lu_cache_shrink_scan(shrinker, &scv);
 
 	cached = lu_cache_shrink_count(shrinker, &scv);
 	if (scv.nr_to_scan == 0)
