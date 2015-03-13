@@ -2020,6 +2020,13 @@ test_120() {
 run_test 120 "flock race: completion vs. evict"
 
 test_113() {
+	local server_version=$(lustre_version_code $SINGLEMDS)
+
+	[[ $server_version -ge $(version_code 2.6.0) ]] ||
+	[[ $server_version -ge $(version_code 2.5.3.90) &&
+	   $server_version -lt $(version_code 2.5.11) ]] ||
+		{ skip "Need MDS version 2.5.3.90+ or 2.6.0+"; return; }
+
 	local BEFORE=$(date +%s)
 	local EVICT
 
