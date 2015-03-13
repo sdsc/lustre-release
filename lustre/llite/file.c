@@ -2203,6 +2203,72 @@ static inline long ll_lease_type_from_fmode(fmode_t fmode)
 	       ((fmode & FMODE_WRITE) ? LL_LEASE_WRLCK : 0);
 }
 
+int cl_ladvise_file_range(struct inode *inode, loff_t start, loff_t end,
+			  enum lu_ladvise_type advice)
+{
+	struct cl_env_nest nest;
+	struct lu_env *env;
+	struct cl_io *io;
+	struct obd_capa *capa = NULL;
+	struct cl_ladvise_io *lio;
+	int rc;
+	ENTRY;
+
+	env = cl_env_nested_get(&nest);
+	if (IS_ERR(env))
+		RETURN(PTR_ERR(env));
+
+	capa = ll_osscapa_get(inode, CAPA_OPC_OSS_READ);
+
+	io = ccc_env_thread_io(env);
+	io->ci_obj = ll_i2info(inode)->lli_clob;
+
+	/* initialize parameters for ladvise */
+	lio = &io->u.ci_ladvise;
+	lio->li_capa = capa;
+	lio->li_extent.le_start = start;
+	lio->li_extent.le_end = end;
+	lio->li_fid = ll_inode2fid(inode);
+	lio->li_advice = advice;
+
+	if (cl_io_init(env, io, CIT_LADVISE, io->ci_obj) == 0)
+		rc = cl_io_loop(env, io);
+	else
+		rc = io->ci_result;
+
+	cl_io_fini(env, io);
+	cl_env_nested_put(&nest, env);
+
+	capa_put(capa);
+
+	RETURN(rc);
+}
+
+/*
+ * Give file access advices
+ *
+ * The ladvise interface is similar to Linux fadvise() system call, except it
+ * forwards the advices directly from Lustre client to server. The server side
+ * codes will apply appropriate read-ahead and caching techniques for the
+ * corresponding files.
+ *
+ * A typical workload for ladvise is e.g. a bunch of different clients are
+ * doing small random reads of a file, so prefetching pages into OSS cache
+ * with big linear reads before the random IO is a net benefit. Fetching
+ * all that data into each client cache with fadvise() may not be, due to
+ * much more data being sent to the client.
+ */
+static int ll_ladvise(struct inode *inode, struct file *file,
+		      struct lu_ladvise *ladvise)
+{
+	int	rc;
+	ENTRY;
+
+	rc = cl_ladvise_file_range(inode, ladvise->lla_start, ladvise->lla_end,
+				   ladvise->lla_advice);
+	RETURN(rc);
+}
+
 static long
 ll_file_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
@@ -2512,7 +2578,53 @@ ll_file_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		OBD_FREE_PTR(hui);
 		RETURN(rc);
 	}
+	case LL_IOC_LADVISE: {
+		struct ladvise_hdr *ladvise_hdr;
+		int i;
+		int num_advise;
+		int alloc_size = sizeof(*ladvise_hdr);
 
+		rc = 0;
+		OBD_ALLOC_PTR(ladvise_hdr);
+		if (ladvise_hdr == NULL)
+			RETURN(-ENOMEM);
+
+		if (copy_from_user(ladvise_hdr,
+				   (const struct ladvise_hdr __user *)arg,
+				   alloc_size))
+			GOTO(out_ladvise, rc = -EFAULT);
+
+		if (ladvise_hdr->lah_magic != LADVISE_MAGIC ||
+		    ladvise_hdr->lah_count < 1)
+			GOTO(out_ladvise, rc = -EINVAL);
+
+		num_advise = ladvise_hdr->lah_count;
+		if (num_advise >= MAX_NUM_LADVISE)
+			GOTO(out_ladvise, rc = -EFBIG);
+
+		OBD_FREE_PTR(ladvise_hdr);
+		alloc_size = offsetof(typeof(*ladvise_hdr),
+				      lah_advise[num_advise]);
+		OBD_ALLOC(ladvise_hdr, alloc_size);
+		if (ladvise_hdr == NULL)
+			RETURN(-ENOMEM);
+
+		if (copy_from_user(ladvise_hdr,
+				   (const struct ladvise_hdr __user *)arg,
+				   alloc_size))
+			GOTO(out_ladvise, rc = -EFAULT);
+
+		for (i = 0; i < num_advise; i++) {
+			rc = ll_ladvise(inode, file,
+					&ladvise_hdr->lah_advise[i]);
+			if (rc)
+				break;
+		}
+
+out_ladvise:
+		OBD_FREE(ladvise_hdr, alloc_size);
+		RETURN(rc);
+	}
 	default: {
 		int err;
 

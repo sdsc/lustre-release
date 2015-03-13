@@ -114,6 +114,7 @@ static int lfs_hsm_remove(int argc, char **argv);
 static int lfs_hsm_cancel(int argc, char **argv);
 static int lfs_swap_layouts(int argc, char **argv);
 static int lfs_mv(int argc, char **argv);
+static int lfs_ladvise(int argc, char **argv);
 
 #define SETSTRIPE_USAGE(_cmd, _tgt) \
 	"usage: "_cmd" [--stripe-count|-c <stripe_count>]\n"\
@@ -345,6 +346,11 @@ command_t cmdlist[] = {
 	 "To move directories between MDTs.\n"
 	 "usage: mv <directory|filename> [--mdt-index|-M] <mdt_index> "
 	 "[--verbose|-v]\n"},
+	{"ladvise", lfs_ladvise, 0,
+	 "Provide servers with advice about access patterns for a file.\n"
+	 "usage: ladvise [--start|-s START[kMGT]] [--end|-e END[kMGT]]\n"
+	 "               [--length|-l LENGTH[kMGT]] <--advice|-a ADVICE>\n"
+	 "               <file> ..."},
 	{"help", Parser_help, 0, "help"},
 	{"exit", Parser_quit, 0, "quit"},
 	{"quit", Parser_quit, 0, "quit"},
@@ -4044,6 +4050,193 @@ static int lfs_swap_layouts(int argc, char **argv)
 	return llapi_swap_layouts(argv[1], argv[2], 0, 0,
 				  SWAP_LAYOUTS_KEEP_MTIME |
 				  SWAP_LAYOUTS_KEEP_ATIME);
+}
+
+static const char *const ladvise_names[] = LU_LADVISE_NAMES;
+
+static enum lu_ladvise_type lfs_get_ladvice(const char *string)
+{
+	enum lu_ladvise_type advice;
+
+	for (advice = 0;
+	     advice < ARRAY_SIZE(ladvise_names); advice++) {
+		if (ladvise_names[advice] == NULL)
+			continue;
+		if (strcmp(string, ladvise_names[advice]) == 0)
+			return advice;
+	}
+
+	return 0;
+}
+
+static int lfs_ladvise(int argc, char **argv)
+{
+	struct option		 long_opts[] = {
+		{"advice", 1, 0, 'a'},
+		{"end", 1, 0, 'e'},
+		{"start", 1, 0, 's'},
+		{"length", 1, 0, 'l'},
+		{0, 0, 0, 0}
+	};
+	char			 short_opts[] = "a:e:s:";
+	int			 c;
+	int			 rc = 0;
+	const char		*path;
+	int			 fd;
+	struct lu_ladvise	 advice;
+	enum lu_ladvise_type	 advice_type = LU_LADVISE_INVALID;
+	struct stat		 st;
+	unsigned long long	 start = 0;
+	unsigned long long	 end = 0;
+	unsigned long long	 length = 0;
+	unsigned long long	 size_units;
+	bool			 eof;
+
+	optind = 0;
+	while ((c = getopt_long(argc, argv, short_opts,
+				long_opts, NULL)) != -1) {
+		switch (c) {
+		case 'a':
+			advice_type = lfs_get_ladvice(optarg);
+			if (advice_type == LU_LADVISE_INVALID) {
+				fprintf(stderr, "invalid advice type '%s'\n",
+					optarg);
+				fprintf(stderr, "valid types:");
+
+				for (advice_type = 0;
+				     advice_type < ARRAY_SIZE(ladvise_names);
+				     advice_type++) {
+					if (ladvise_names[advice_type] == NULL)
+						continue;
+					fprintf(stderr, " %s",
+						ladvise_names[advice_type]);
+				}
+				fprintf(stderr, "\n");
+
+				return CMD_HELP;
+			}
+			break;
+		case 'e':
+			size_units = 1;
+			rc = llapi_parse_size(optarg, &end,
+					      &size_units, 0);
+			if (rc) {
+				fprintf(stderr, "error: bad end offset '%s'\n",
+					optarg);
+				return CMD_HELP;
+			}
+			break;
+		case 's':
+			size_units = 1;
+			rc = llapi_parse_size(optarg, &start,
+					      &size_units, 0);
+			if (rc) {
+				fprintf(stderr, "error: bad start offset "
+					"'%s'\n", optarg);
+				return CMD_HELP;
+			}
+			break;
+		case 'l':
+			size_units = 1;
+			rc = llapi_parse_size(optarg, &length,
+					      &size_units, 0);
+			if (rc) {
+				fprintf(stderr, "error: bad length '%s'\n",
+					optarg);
+				return CMD_HELP;
+			}
+			break;
+		case '?':
+			return CMD_HELP;
+		default:
+			fprintf(stderr, "error: %s: option '%s' unrecognized\n",
+				argv[0], argv[optind - 1]);
+			return CMD_HELP;
+		}
+	}
+
+	if (advice_type == LU_LADVISE_INVALID) {
+		fprintf(stderr, "please give a advice type\n");
+		fprintf(stderr, "valid types:");
+		for (advice_type = 0; advice_type < ARRAY_SIZE(ladvise_names);
+		     advice_type++) {
+			if (ladvise_names[advice_type] == NULL)
+				continue;
+			fprintf(stderr, " %s", ladvise_names[advice_type]);
+		}
+		fprintf(stderr, "\n");
+		return CMD_HELP;
+	}
+
+	if (argc <= optind) {
+		fprintf(stderr, "please give one or more file names\n");
+		return CMD_HELP;
+	}
+
+	eof = end == 0 && length == 0;
+	if (end != 0 && length != 0) {
+		if (end != start + length - 1) {
+			fprintf(stderr, "conflicting arguments of -l and -e\n");
+			return CMD_HELP;
+		}
+	}
+
+	if (!eof && length != 0)
+		end = start + length - 1;
+
+	while (optind < argc) {
+		int rc2;
+		unsigned long long tmp_end = 0;
+
+		path = argv[optind++];
+
+		rc2 = stat(path, &st);
+		if (rc2 < 0) {
+			fprintf(stderr, "%s: cannot stat file: %s\n",
+				path, strerror(errno));
+			rc2 = -errno;
+			goto next;
+		}
+
+		if (eof || end > st.st_size)
+			tmp_end = st.st_size;
+		else
+			tmp_end = end;
+
+		if (tmp_end < start) {
+			fprintf(stderr, "%s: range error: [%llu, %llu]\n",
+				path, start, tmp_end);
+			rc2 = -EINVAL;
+			goto next;
+		} else if (tmp_end == start) {
+			goto next;
+		}
+
+		fd = open(path, O_RDONLY);
+		if (fd < 0) {
+			fprintf(stderr, "%s: cannot open file: %s\n",
+				path, strerror(errno));
+			rc2 = -errno;
+			goto next;
+		}
+
+		advice.lla_start = start;
+		advice.lla_end = tmp_end;
+		advice.lla_advice = advice_type;
+		advice.lla_padding = 0;
+		rc2 = llapi_ladvise(fd, 1, &advice);
+		close(fd);
+		if (rc2) {
+			fprintf(stderr, "%s: cannot give advice '%s': %s\n",
+				path, ladvise_names[advice_type],
+				strerror(errno));
+			rc2 = -errno;
+		}
+next:
+		if (rc == 0 && rc2 < 0)
+			rc = rc2;
+	}
+	return rc;
 }
 
 int main(int argc, char **argv)
