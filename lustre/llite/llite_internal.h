@@ -1493,6 +1493,10 @@ struct if_quotactl_18 {
 /* End compatibility for old (1.8) compiled userspace quota code */
 #endif /* LUSTRE_VERSION_CODE < OBD_OCD_VERSION(2, 7, 53, 0) */
 
+#ifdef HAVE_DENTRY_D_U_D_ALIAS
+#define d_alias d_u.d_alias
+#endif
+
 int ll_layout_conf(struct inode *inode, const struct cl_object_conf *conf);
 int ll_layout_refresh(struct inode *inode, __u32 *gen);
 int ll_layout_restore(struct inode *inode, loff_t start, __u64 length);
