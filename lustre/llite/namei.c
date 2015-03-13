@@ -160,7 +160,11 @@ static void ll_invalidate_negative_children(struct inode *dir)
 
 			list_for_each_entry_safe(child, tmp_subdir,
 						 &dentry->d_subdirs,
+#ifdef HAVE_DENTRY_D_CHILD
+						 d_child) {
+#else
 						 d_u.d_child) {
+#endif
 				if (child->d_inode == NULL)
 					d_lustre_invalidate(child, 1);
 			}
