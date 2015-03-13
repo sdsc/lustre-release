@@ -2352,6 +2352,9 @@ static int mdd_create(const struct lu_env *env, struct md_object *pobj,
 	rc = mdd_declare_create(env, mdd, mdd_pobj, son, lname, attr,
 				handle, spec, ldata, &def_acl_buf, &acl_buf,
 				hint);
+	if (rc == -ENOSPC)
+		CERROR("mdd_declare_create no space\n");
+
         if (rc)
                 GOTO(out_stop, rc);
 
