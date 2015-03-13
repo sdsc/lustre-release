@@ -1463,6 +1463,10 @@ enum {
 	LL_LAYOUT_GEN_EMPTY = ((__u32)-1) 	/* for empty layout */
 };
 
+#ifdef HAVE_DENTRY_D_U_D_ALIAS
+#define d_alias d_u.d_alias
+#endif
+
 int ll_layout_conf(struct inode *inode, const struct cl_object_conf *conf);
 int ll_layout_refresh(struct inode *inode, __u32 *gen);
 int ll_layout_restore(struct inode *inode, loff_t start, __u64 length);

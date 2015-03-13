@@ -1420,6 +1420,47 @@ d_count, [
 ]) # LC_HAVE_DCOUNT
 
 #
+# LC_HAVE_DENTRY_D_U_D_ALIAS
+#
+# 3.11 kernel 3.2 d_alias has been moved to d_u.d_alias
+# in struct dentry
+#
+AC_DEFUN([LC_HAVE_DENTRY_D_U_D_ALIAS], [
+LB_CHECK_COMPILE([if 'dentry.d_u.d_alias' exist],
+d_alias, [
+	#include <linux/list.h>
+	#include <linux/dcache.h>
+],[
+	struct dentry de;
+	INIT_LIST_HEAD(&de.d_u.d_alias);
+],[
+	AC_DEFINE(HAVE_DENTRY_D_U_D_ALIAS, 1,
+		[dentry.d_u.d_alias exist])
+])
+]) # LC_HAVE_DENTRY_D_U_D_ALIAS
+
+#
+# LC_HAVE_DENTRY_D_CHILD
+#
+# 3.11 kernel 3.2 d_u.d_child has been moved to d_child
+# in struct dentry
+#
+AC_DEFUN([LC_HAVE_DENTRY_D_CHILD], [
+LB_CHECK_COMPILE([if 'dentry.d_child' exist],
+d_child, [
+	#include <linux/list.h>
+	#include <linux/dcache.h>
+],[
+	struct dentry de;
+	INIT_LIST_HEAD(&de.d_child);
+],[
+	AC_DEFINE(HAVE_DENTRY_D_CHILD, 1,
+		[dentry.d_child exist])
+])
+]) # LC_HAVE_DENTRY_D_CHILD
+
+#
+#
 # LC_OLDSIZE_TRUNCATE_PAGECACHE
 #
 # 3.12 truncate_pagecache without oldsize parameter
@@ -1650,6 +1691,8 @@ AC_DEFUN([LC_PROG_LINUX], [
 	LC_HAVE_DIR_CONTEXT
 	LC_D_COMPARE_5ARGS
 	LC_HAVE_DCOUNT
+	LC_HAVE_DENTRY_D_U_D_ALIAS
+	LC_HAVE_DENTRY_D_CHILD
 
 	# 3.12
 	LC_OLDSIZE_TRUNCATE_PAGECACHE
