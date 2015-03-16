@@ -868,6 +868,13 @@ static int osp_sync_thread(void *_arg)
 	}
 
 	rc = llog_cat_process(&env, llh, osp_sync_process_queues, d, 0, 0);
+	if (rc == -EIO || osp_sync_running(d) != 0) {
+		/* couldn't process the llog, just wait for umount */
+		struct l_wait_info lwi = { 0 };
+		l_wait_event(d->opd_syn_waitq, !osp_sync_running(d), &lwi);
+		rc = 0;
+	}
+
 	LASSERTF(rc == 0 || rc == LLOG_PROC_BREAK,
 		 "%lu changes, %u in progress, %u in flight: %d\n",
 		 d->opd_syn_changes, d->opd_syn_rpc_in_progress,
