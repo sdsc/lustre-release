@@ -363,7 +363,7 @@ echo '%{_sysconfdir}/ha.d/resource.d/Lustre.ha_v2' >>lustre.files
 echo '%{_sysconfdir}/ha.d/resource.d/Lustre' >>lustre.files
 %endif
 
-%if %{_vendor}=="redhat"
+%if %{_vendor}=="redhat" && %{undefined cross_path}
 # The following scripts are Red Hat specific
 %if %{with servers}
 echo '%{_sysconfdir}/sysconfig/lustre' >>lustre.files
