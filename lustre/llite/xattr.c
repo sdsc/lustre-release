@@ -136,7 +136,13 @@ int ll_setxattr_common(struct inode *inode, const char *name,
         if ((xattr_type == XATTR_TRUSTED_T && strcmp(name, "trusted.lov") == 0) ||
             (xattr_type == XATTR_LUSTRE_T && strcmp(name, "lustre.lov") == 0))
                 RETURN(0);
-
+        /*LU-6214: ignore hsm special xattr for now*/
+		if ((xattr_type == XATTR_TRUSTED_T && strcmp(name, XATTR_NAME_HSM ) == 0) ||
+				(xattr_type == XATTR_LUSTRE_T && strcmp(name, XATTR_NAME_LMA ) == 0) ||
+				(xattr_type == XATTR_LUSTRE_T && strcmp(name, XATTR_NAME_LINK) == 0)
+		   )
+			RETURN(0);
+	   
         /* b15587: ignore security.capability xattr for now */
         if ((xattr_type == XATTR_SECURITY_T &&
             strcmp(name, "security.capability") == 0))
