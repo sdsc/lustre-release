@@ -51,6 +51,8 @@
 #include <sys/types.h>
 #include <lustre/lustre_idl.h>
 #include <lustre/lustreapi.h>
+#include <fcntl.h>
+#include <sys/mman.h>
 
 /* Progress reporting period */
 #define REPORT_INTERVAL_DEFAULT 30
@@ -1779,6 +1781,172 @@ static void handler(int signal)
 	if (opt.o_event_fifo != NULL)
 		llapi_hsm_unregister_event_fifo(opt.o_event_fifo);
 	_exit(1);
+}
+
+#define ACTION_LEN 10
+/* Complete previous hsm activities */
+struct lu_pre_active_request {
+    char fid[FID_NOBRACE_LEN];
+    __u32 archive_id;
+    char action[ACTION_LEN];
+};
+
+static inline enum hsm_user_action
+hsm_copytool_name2action(const char *name)
+{
+    if (strcasecmp(name, "NOOP") == 0)
+        return HUA_NONE;
+    else if (strcasecmp(name, "ARCHIVE") == 0)
+        return HUA_ARCHIVE;
+    else if (strcasecmp(name, "RESTORE") == 0)
+        return HUA_RESTORE;
+    else if (strcasecmp(name, "REMOVE") == 0)
+        return HUA_REMOVE;
+    else if (strcasecmp(name, "CANCEL") == 0)
+        return HUA_CANCEL;
+    else
+        return -1;
+}
+
+static int
+complete_hsm_request(struct lu_pre_active_request previous_act_request)
+{
+    char mntdir[PATH_MAX] = "", fullpath[PATH_MAX + 1] = "", fsname[PATH_MAX] = "";
+    int index = 0, rc = 0;
+
+    /* Get the LUSTRE MOUNT POINT which is required to get FILE PATH using FID */
+    rc = llapi_search_mounts(fullpath, index++, mntdir, fsname);
+    if (rc < 0) {
+        fprintf(stderr, "Failed to get root path\n");
+        return rc;
+    }
+    /* Get the FILE PATH */
+    int lnktmp = 0;
+    long long rectmp = -1;
+
+    rc = llapi_fid2path(mntdir, previous_act_request.fid, fullpath, PATH_MAX,
+                         &rectmp, &lnktmp);
+    if (rc < 0) {
+        fprintf(stderr, "DEBUG: error on FID %s: %s\n",
+                previous_act_request.fid, strerror(errno = -rc));
+        return rc;
+    }
+    /* concatenate root path with the file path*/
+    strcat(mntdir, "/");
+    strcat(mntdir, fullpath);
+    strcpy(fullpath, mntdir);
+
+    fprintf(stdout, "DEBUG: full path = %s mntdir = %s\n", fullpath, mntdir);
+
+    struct hsm_user_request *hur;
+    int nbfile = 1, opaque_len = 0, action;
+
+    /* allocate mem for hsm request structure
+     * nbfile = 1 opaque len = 0
+     */
+    hur = llapi_hsm_user_request_alloc(nbfile, opaque_len);
+    if (hur == NULL) {
+        fprintf(stderr, "Cannot create the request: %s\n",
+            strerror(errno));
+        return -errno;
+    }
+
+    action = hsm_copytool_name2action(previous_act_request.action);
+    if (action < 0)
+        GOTO(out_free, rc = -EINVAL);
+
+    hur->hur_request.hr_action = action;
+    hur->hur_request.hr_archive_id = previous_act_request.archive_id;
+    hur->hur_request.hr_flags = 0;
+    hur->hur_request.hr_data_len = 0;
+    hur->hur_request.hr_itemcount = 1;
+
+    /* Call hsm functions on the file depending on the ACTION.*/
+   rc = llapi_hsm_request(fullpath, hur);
+    if (rc) {
+        fprintf(stderr, "Cannot send HSM request (use of %s): %s\n",
+            fullpath, strerror(-rc));
+        goto out_free;
+    }
+
+out_free:
+    free(hur);
+    return rc;
+}
+
+void ct_complete_previous_active_requests(void)
+{
+    struct lu_pre_active_request previous_act_request;
+    int rc = 0;
+    char *memblock_ptr = NULL;
+    int fd;
+    struct stat sb ;
+
+    fd = open("/tmp/active_requests", O_CREAT | O_APPEND);
+    if (fd < 0) {
+        return;
+    }
+
+/*
+ * Format:
+ * cat /proc/fs/lustre/mdt/lustre-MDT0000/hsm/active_requests
+ >> fid=[0x200000400:0x1:0x0] dfid=[0x200000400:0x3:0x0] compound/cookie=0x54f55498/0x54f55498 action=RESTORE archive#=1 flags=0x0
+    extent=0x0-0xffffffffffffffff gid=0x0 data=[] canceled=0 uuid=613a1404-7cc7-c4fa-d7aa-912c4ed56ef0 done=0
+ */
+    rc = system("/bin/cat /proc/fs/lustre/mdt/lustre-MDT0000/hsm/active_requests > /tmp/active_requests");
+    if (rc < 0) {
+        goto out;
+    }
+
+    rc = fstat (fd, &sb);
+    if (0 != rc || sb.st_size == 0) {
+        goto out;
+    }
+
+    system("/bin/echo 1 > /proc/fs/lustre/mdt/lustre-MDT0000/hsm/active_request_timeout");
+    sleep(50);
+    system("/bin/echo 3600 > /proc/fs/lustre/mdt/lustre-MDT0000/hsm/active_request_timeout");
+
+    memblock_ptr = mmap(NULL, sb.st_size, PROT_READ,
+                        MAP_PRIVATE, fd, 0);
+    while (memblock_ptr != NULL) {
+        memblock_ptr = strstr(memblock_ptr, "fid");
+        if(memblock_ptr != NULL) {
+            /*skip fid=[ and retrieve the fid */
+            rc = sscanf(memblock_ptr, "fid=[%s",
+                    previous_act_request.fid);
+            if(0 == rc) {
+                continue;
+            }
+            previous_act_request.fid[strlen(previous_act_request.fid) -1 ] = '\0';
+
+            memblock_ptr = strstr(memblock_ptr, "action");
+            /* skip the action= and retrieve the actual action */
+            rc = sscanf(memblock_ptr, "action=%s",
+                    previous_act_request.action);
+            if (0 == rc) {
+                continue;
+            }
+            memblock_ptr = strstr(memblock_ptr, "archive");
+            /* skip the archive= and retrieve the actual action */
+            rc = sscanf(memblock_ptr, "archive#=%d",
+                    &previous_act_request.archive_id);
+            fprintf(stdout, "action = %s fid = %s archive=%d \n",
+                    previous_act_request.action,
+                    previous_act_request.fid,
+                    previous_act_request.archive_id);
+
+            if (complete_hsm_request(previous_act_request)) {
+                    fprintf(stderr, "Failed to complete action = %s for"
+                            " fid = ", previous_act_request.action);
+                continue;
+            }
+            memblock_ptr = strstr(memblock_ptr, "\n");
+        }
+    }
+    rc = munmap((void *)memblock_ptr, sb.st_size);
+out:
+    rc = close(fd);
 }
 
 /* Daemon waits for messages from the kernel; run it in the background. */
