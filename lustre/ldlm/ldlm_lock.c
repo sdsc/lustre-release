@@ -1159,22 +1159,27 @@ static struct ldlm_lock *search_queue(struct list_head *queue,
 		if (ldlm_is_excl(lock))
 			continue;
 
+		match = lock->l_req_mode;
+
                 /* llite sometimes wants to match locks that will be
                  * canceled when their users drop, but we allow it to match
                  * if it passes in CBPENDING and the lock still has users.
                  * this is generally only going to be used by children
                  * whose parents already hold a lock so forward progress
                  * can still happen. */
-		if (ldlm_is_cbpending(lock) &&
+		/* Group locks are not called back like normal locks, so
+		 * cbpending status is irrelevant - LU-6368 */
+		if (!match == LCK_GROUP &&
+		    ldlm_is_cbpending(lock) &&
                     !(flags & LDLM_FL_CBPENDING))
                         continue;
-		if (!unref && ldlm_is_cbpending(lock) &&
+		if (!match == LCK_GROUP &&
+		    !unref && ldlm_is_cbpending(lock) &&
                     lock->l_readers == 0 && lock->l_writers == 0)
                         continue;
 
                 if (!(lock->l_req_mode & *mode))
                         continue;
-                match = lock->l_req_mode;
 
                 if (lock->l_resource->lr_type == LDLM_EXTENT &&
                     (lock->l_policy_data.l_extent.start >
