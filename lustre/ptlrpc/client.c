@@ -1855,6 +1855,16 @@ int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set)
 
                 ptlrpc_req_interpret(env, req, req->rq_status);
 
+		if (cfs_time_before(req->rq_real_sent + obd_timeout,
+		    cfs_time_current_sec()))
+			DEBUG_REQ(D_ERROR, req, "Request cost too much time,"
+				  CFS_DURATION_T" [sent "CFS_DURATION_T"/real "
+				  CFS_DURATION_T"], current "CFS_DURATION_T,
+				  cfs_time_sub(cfs_time_current_sec(),
+					       req->rq_sent),
+				  req->rq_sent, req->rq_real_sent,
+				  cfs_time_current_sec());
+
 		if (ptlrpcd_check_work(req)) {
 			atomic_dec(&set->set_remaining);
 			continue;

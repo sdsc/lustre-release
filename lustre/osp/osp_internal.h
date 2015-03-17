@@ -127,7 +127,9 @@ struct osp_device {
 					 opd_imp_connected:1,
 					 opd_imp_active:1,
 					 opd_imp_seen_connected:1,
-					 opd_connect_mdt:1;
+					 opd_connect_mdt:1,
+					 opd_pre_running:1,
+					 opd_pre_pending:1;
 
 	/* whether local recovery is completed:
 	 * reported via ->ldo_recovery_complete() */
@@ -201,6 +203,8 @@ struct osp_device {
 	struct list_head		 opd_async_updates;
 	struct rw_semaphore		 opd_async_updates_rwsem;
 	atomic_t			 opd_async_updates_count;
+
+	int				 opd_pre_req_timeout;
 };
 
 #define opd_pre_lock			opd_pre->osp_pre_lock

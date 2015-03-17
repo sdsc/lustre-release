@@ -379,6 +379,9 @@ int ofd_start_inconsistency_verification_thread(struct ofd_device *ofd);
 int ofd_stop_inconsistency_verification_thread(struct ofd_device *ofd);
 int ofd_verify_ff(const struct lu_env *env, struct ofd_object *fo,
 		  struct obdo *oa);
+int ofd_handle_recreate(const struct lu_env *env, struct obd_export *exp,
+			struct ofd_device *ofd, const struct lu_fid *fid,
+			struct obdo *oa);
 int ofd_preprw(const struct lu_env *env,int cmd, struct obd_export *exp,
 	       struct obdo *oa, int objcount, struct obd_ioobj *obj,
 	       struct niobuf_remote *rnb, int *nr_local,

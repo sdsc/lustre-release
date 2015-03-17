@@ -1058,6 +1058,8 @@ static int osp_init0(const struct lu_env *env, struct osp_device *osp,
 	if (rc)
 		GOTO(out_precreat, rc);
 
+	osp->opd_pre_req_timeout = obd_timeout;
+
 	/*
 	 * Initiate connect to OST
 	 */
