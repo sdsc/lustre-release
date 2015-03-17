@@ -2984,13 +2984,13 @@ static int mdc_renew_capa(struct obd_export *exp, struct obd_capa *oc,
         mdc_pack_body(req, &oc->c_capa.lc_fid, oc, OBD_MD_FLOSSCAPA, 0, -1, 0);
         ptlrpc_request_set_replen(req);
 
-        CLASSERT(sizeof(*ra) <= sizeof(req->rq_async_args));
-        ra = ptlrpc_req_async_args(req);
-        ra->ra_oc = oc;
-        ra->ra_cb = cb;
-        req->rq_interpret_reply = mdc_interpret_renew_capa;
-        ptlrpcd_add_req(req, PDL_POLICY_LOCAL, -1);
-        RETURN(0);
+	CLASSERT(sizeof(*ra) <= sizeof(req->rq_async_args));
+	ra = ptlrpc_req_async_args(req);
+	ra->ra_oc = oc;
+	ra->ra_cb = cb;
+	req->rq_interpret_reply = mdc_interpret_renew_capa;
+	ptlrpcd_add_req(req);
+	RETURN(0);
 }
 
 static struct obd_ops mdc_obd_ops = {
