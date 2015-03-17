@@ -45,6 +45,7 @@ struct ldlm_namespace;
 struct obd_import;
 struct ldlm_res_id;
 struct ptlrpc_request_set;
+struct ptlrpcd;
 extern int test_req_buffer_pressure;
 extern struct list_head ptlrpc_all_services;
 extern struct mutex ptlrpc_all_services_mutex;
@@ -68,7 +69,7 @@ extern struct mutex pinger_mutex;
 
 int ptlrpc_start_thread(struct ptlrpc_service_part *svcpt, int wait);
 /* ptlrpcd.c */
-int ptlrpcd_start(int index, int max, const char *name, struct ptlrpcd_ctl *pc);
+int ptlrpcd_start(struct ptlrpcd *pd, int index, const char *name);
 
 /* client.c */
 void ptlrpc_at_adj_net_latency(struct ptlrpc_request *req,
