@@ -334,7 +334,7 @@ int osp_unplug_async_request(const struct lu_env *env,
 		args->oaua_waitq = NULL;
 		args->oaua_flow_control = false;
 		req->rq_interpret_reply = osp_update_interpret;
-		ptlrpcd_add_req(req, PDL_POLICY_LOCAL, -1);
+		ptlrpcd_add_req(req);
 	}
 
 	return rc;
@@ -668,7 +668,7 @@ static int osp_trans_trigger(const struct lu_env *env, struct osp_device *osp,
 			atomic_inc(args->oaua_count);
 		}
 
-		ptlrpcd_add_req(req, PDL_POLICY_LOCAL, -1);
+		ptlrpcd_add_req(req);
 	} else {
 		osp_get_rpc_lock(osp);
 		args->oaua_flow_control = false;
