@@ -94,9 +94,6 @@ void ll_pack_inode2opdata(struct inode *inode, struct md_op_data *op_data,
         if (fh)
                 op_data->op_handle = *fh;
         op_data->op_capa1 = ll_mdscapa_get(inode);
-
-	if (LLIF_DATA_MODIFIED & ll_i2info(inode)->lli_flags)
-		op_data->op_bias |= MDS_DATA_MODIFIED;
 }
 
 /**
@@ -115,6 +112,19 @@ static void ll_prepare_close(struct inode *inode, struct md_op_data *op_data,
                 goto out;
 
 	op_data->op_attr.ia_valid |= ATTR_SIZE | ATTR_BLOCKS;
+
+	/* For HSM: if inode data has been modified, pack it so that MDT can
+	 * set data dirty flag in the archive. */
+	if (LLIF_DATA_MODIFIED & ll_i2info(inode)->lli_flags) {
+		struct ll_inode_info *lli = ll_i2info(inode);
+
+		spin_lock(&lli->lli_lock);
+		if (LLIF_DATA_MODIFIED & lli->lli_flags) {
+			lli->lli_flags &= ~LLIF_DATA_MODIFIED;
+			op_data->op_bias |= MDS_DATA_MODIFIED;
+		}
+		spin_unlock(&lli->lli_lock);
+	}
 
 out:
         ll_pack_inode2opdata(inode, op_data, &och->och_fh);
@@ -163,16 +173,6 @@ static int ll_close_inode_openhandle(struct obd_export *md_exp,
 		CERROR("%s: inode "DFID" mdc close failed: rc = %d\n",
 		       ll_i2mdexp(inode)->exp_obd->obd_name,
 		       PFID(ll_inode2fid(inode)), rc);
-	}
-
-	/* DATA_MODIFIED flag was successfully sent on close, cancel data
-	 * modification flag. */
-	if (rc == 0 && (op_data->op_bias & MDS_DATA_MODIFIED)) {
-		struct ll_inode_info *lli = ll_i2info(inode);
-
-		spin_lock(&lli->lli_lock);
-		lli->lli_flags &= ~LLIF_DATA_MODIFIED;
-		spin_unlock(&lli->lli_lock);
 	}
 
 	if (rc == 0 && op_data->op_bias & MDS_HSM_RELEASE) {

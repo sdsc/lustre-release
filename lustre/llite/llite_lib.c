@@ -1673,9 +1673,6 @@ int ll_setattr_raw(struct dentry *dentry, struct iattr *attr, bool hsm_import)
 			/* If we are changing file size, file content is
 			 * modified, flag it. */
 			attr->ia_valid |= MDS_OPEN_OWNEROVERRIDE;
-			spin_lock(&lli->lli_lock);
-			lli->lli_flags |= LLIF_DATA_MODIFIED;
-			spin_unlock(&lli->lli_lock);
 			op_data->op_bias |= MDS_DATA_MODIFIED;
 		}
 	}
@@ -1685,13 +1682,6 @@ int ll_setattr_raw(struct dentry *dentry, struct iattr *attr, bool hsm_import)
 	rc = ll_md_setattr(dentry, op_data);
 	if (rc)
 		GOTO(out, rc);
-
-	/* RPC to MDT is sent, cancel data modification flag */
-	if (rc == 0 && (op_data->op_bias & MDS_DATA_MODIFIED)) {
-		spin_lock(&lli->lli_lock);
-		lli->lli_flags &= ~LLIF_DATA_MODIFIED;
-		spin_unlock(&lli->lli_lock);
-	}
 
 	if (!S_ISREG(inode->i_mode) || file_is_released)
 		GOTO(out, rc = 0);
@@ -2474,12 +2464,12 @@ int ll_process_config(struct lustre_cfg *lcfg)
 }
 
 /* this function prepares md_op_data hint for passing ot down to MD stack. */
-struct md_op_data * ll_prep_md_op_data(struct md_op_data *op_data,
-				       struct inode *i1, struct inode *i2,
-				       const char *name, size_t namelen,
-				       __u32 mode, __u32 opc, void *data)
+struct md_op_data *ll_prep_md_op_data(struct md_op_data *op_data,
+				      struct inode *i1, struct inode *i2,
+				      const char *name, size_t namelen,
+				      __u32 mode, __u32 opc, void *data)
 {
-        LASSERT(i1 != NULL);
+	LASSERT(i1 != NULL);
 
 	if (name == NULL) {
 		/* Do not reuse namelen for something else. */
@@ -2541,10 +2531,6 @@ struct md_op_data * ll_prep_md_op_data(struct md_op_data *op_data,
 		op_data->op_mds = 0;
 	}
 	op_data->op_data = data;
-
-	/* When called by ll_setattr_raw, file is i1. */
-	if (LLIF_DATA_MODIFIED & ll_i2info(i1)->lli_flags)
-		op_data->op_bias |= MDS_DATA_MODIFIED;
 
 	return op_data;
 }
