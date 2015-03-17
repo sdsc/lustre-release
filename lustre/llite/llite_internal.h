@@ -112,20 +112,26 @@ struct ll_remote_perm {
                                                     lrp_fsuid/lrp_fsgid. */
 };
 
-enum lli_flags {
+enum ll_file_flags {
 	/* File data is modified. */
-	LLIF_DATA_MODIFIED      = 1 << 0,
+	LLIF_DATA_MODIFIED      = 0,
 	/* File is being restored */
-	LLIF_FILE_RESTORING	= 1 << 1,
+	LLIF_FILE_RESTORING	= 1,
 	/* Xattr cache is attached to the file */
-	LLIF_XATTR_CACHE	= 1 << 2,
+	LLIF_XATTR_CACHE	= 2,
 };
+
+#define ll_file_set_flag(lli, flag)	set_bit(flag, &(lli)->lli_flags)
+#define ll_file_test_flag(lli, flag)	test_bit(flag, &(lli)->lli_flags)
+#define ll_file_clear_flag(lli, flag)	clear_bit(flag, &(lli)->lli_flags)
+#define ll_file_test_and_clear_flag(lli, flag)	\
+		test_and_clear_bit(flag, &(lli)->lli_flags)
 
 struct ll_inode_info {
 	__u32				lli_inode_magic;
-	__u32				lli_flags;
-
 	spinlock_t			lli_lock;
+
+	volatile unsigned long		lli_flags;
 	struct posix_acl		*lli_posix_acl;
 
 	struct hlist_head		*lli_remote_perms;
@@ -807,8 +813,6 @@ int ll_glimpse_ioctl(struct ll_sb_info *sbi,
                      struct lov_stripe_md *lsm, lstat_t *st);
 int ll_release_openhandle(struct dentry *, struct lookup_intent *);
 int ll_md_real_close(struct inode *inode, fmode_t fmode);
-void ll_pack_inode2opdata(struct inode *inode, struct md_op_data *op_data,
-                          struct lustre_handle *fh);
 extern void ll_rw_stats_tally(struct ll_sb_info *sbi, pid_t pid,
                               struct ll_file_data *file, loff_t pos,
                               size_t count, int rw);
