@@ -94,13 +94,17 @@ static void obd_device_free(struct obd_device *obd)
 
 struct obd_type *class_search_type(const char *name)
 {
+	const char *typ_name = name;
 	struct list_head *tmp;
 	struct obd_type *type;
+
+	if (strcmp(name, "obdfilter") == 0)
+		typ_name = LUSTRE_OST_NAME;
 
 	spin_lock(&obd_types_lock);
 	list_for_each(tmp, &obd_types) {
 		type = list_entry(tmp, struct obd_type, typ_chain);
-		if (strcmp(type->typ_name, name) == 0) {
+		if (strcmp(type->typ_name, typ_name) == 0) {
 			spin_unlock(&obd_types_lock);
 			return type;
 		}
@@ -118,8 +122,11 @@ struct obd_type *class_get_type(const char *name)
         if (!type) {
                 const char *modname = name;
 
-		if (strcmp(modname, "obdfilter") == 0)
+		if (strcmp(modname, LUSTRE_OST_NAME) == 0)
 			modname = "ofd";
+
+		if (strcmp(modname, LUSTRE_OSS_NAME) == 0)
+			modname = "ost";
 
 		if (strcmp(modname, LUSTRE_LWP_NAME) == 0)
 			modname = LUSTRE_OSP_NAME;

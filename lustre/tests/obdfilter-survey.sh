@@ -34,8 +34,13 @@ if [ $(( size * 1024 )) -ge $minsize  ]; then
 fi
 
 get_devs() {
-        echo $(do_nodes $1 'lctl dl | grep obdfilter' | \
-             awk '{print $4}' | sort -u)
+	target=$(do_node $1 '$LCTL dl | grep obdfilter' | \
+		 awk '{print $4}' | sort -u)
+	if [ -z "$target" ]; then
+		target=$(do_node $1 '$LCTL dl | grep ost' | \
+			 awk '{print $4}' | sort -u)
+	fi
+	echo $target
 }
 
 get_targets () {

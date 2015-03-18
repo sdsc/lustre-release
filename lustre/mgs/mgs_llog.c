@@ -2491,24 +2491,28 @@ static int mgs_write_log_ost(const struct lu_env *env,
                 RETURN(-EALREADY);
         }
 
-        /*
-        attach obdfilter ost1 ost1_UUID
-        setup /dev/loop2 ldiskfs f|n errors=remount-ro,user_xattr
-        */
-        if (class_find_param(ptr, PARAM_FAILMODE, &ptr) == 0)
-                failout = (strncmp(ptr, "failout", 7) == 0);
+	/*
+	 * attach ost ost1 ost1_UUID
+	 * setup /dev/loop2 ldiskfs f|n errors=remount-ro,user_xattr
+	 */
+	if (class_find_param(ptr, PARAM_FAILMODE, &ptr) == 0)
+		failout = (strncmp(ptr, "failout", 7) == 0);
 	rc = record_start_log(env, mgs, &llh, mti->mti_svname);
-        if (rc)
-                RETURN(rc);
-        /* FIXME these should be a single journal transaction */
+	if (rc)
+		RETURN(rc);
+	/* FIXME these should be a single journal transaction */
 	rc = record_marker(env, llh, fsdb, CM_START, mti->mti_svname,"add ost");
 	if (rc)
 		GOTO(out_end, rc);
-        if (*mti->mti_uuid == '\0')
-                snprintf(mti->mti_uuid, sizeof(mti->mti_uuid),
-                         "%s_UUID", mti->mti_svname);
+	if (*mti->mti_uuid == '\0')
+		snprintf(mti->mti_uuid, sizeof(mti->mti_uuid),
+			 "%s_UUID", mti->mti_svname);
+	/* Older file systems recorded in its llogs the
+	 * service named "obdfilter" instead of the proper
+	 * LUSTRE_OST_NAME. Changing this will break down
+	 * grades unless older versions are patched. */
 	rc = record_attach(env, llh, mti->mti_svname,
-                           "obdfilter"/*LUSTRE_OST_NAME*/, mti->mti_uuid);
+			   "obdfilter"/*LUSTRE_OST_NAME*/, mti->mti_uuid);
 	if (rc)
 		GOTO(out_end, rc);
 	rc = record_setup(env, llh, mti->mti_svname,

@@ -501,8 +501,8 @@ struct niobuf_local {
 #define LUSTRE_MDS_NAME         "mds"
 #define LUSTRE_MDT_NAME         "mdt"
 #define LUSTRE_MDC_NAME         "mdc"
-#define LUSTRE_OSS_NAME         "ost"       /* FIXME change name to oss */
-#define LUSTRE_OST_NAME         "obdfilter" /* FIXME change name to ost */
+#define LUSTRE_OSS_NAME         "oss"
+#define LUSTRE_OST_NAME         "ost"
 #define LUSTRE_OSC_NAME         "osc"
 #define LUSTRE_LOV_NAME         "lov"
 #define LUSTRE_MGS_NAME         "mgs"

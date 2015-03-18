@@ -10882,6 +10882,9 @@ test_180b() {
 		      "{ insmod ${LUSTRE}/obdecho/obdecho.ko || "        \
 		      "modprobe obdecho; }" && rmmod_remote=1
 	target=$(do_facet ost1 $LCTL dl | awk '/obdfilter/ {print $4;exit}')
+	[[ -z $target ]] && {
+		target=$(do_facet ost1 $LCTL dl | awk '/ost/ {print $4;exit}')
+	}
 	[[ -n $target ]] && { obdecho_test $target ost1 || rc=1; }
 	[ $rmmod_remote -eq 1 ] && do_facet ost1 "rmmod obdecho"
 	return $rc
@@ -10904,10 +10907,14 @@ test_180c() { # LU-2598
 
 	target=$(do_facet ost1 $LCTL dl | awk '/obdfilter/ { print $4 }' |
 		head -n1)
+	if [ -z "$target" ]; then
+		target=$(do_facet ost1 $LCTL dl | awk '/ost/ { print $4 }' |
+			 head -n1)
+	fi
 	if [ -n "$target" ]; then
 		obdecho_test "$target" ost1 "$pages" || rc=${PIPESTATUS[0]}
 	else
-		echo "there is no obdfilter target on ost1"
+		echo "there is no ofd target on ost1"
 		rc=2
 	fi
 	$rmmod_remote && do_facet ost1 "rmmod obdecho" || true
