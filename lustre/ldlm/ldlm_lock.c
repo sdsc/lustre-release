@@ -1129,88 +1129,130 @@ void ldlm_grant_lock(struct ldlm_lock *lock, struct list_head *work_list)
 }
 
 /**
- * Search for a lock with given properties in a queue.
+ * Search for a lock matching requested properties in a queue.
+ *
+ * \param[in] queue	queue to search
+ * \param[in] mode	requested lock mode
+ * \param[in] policy	requested lock policy data
+ * \param[in] old_lock	existing lock we want to look for a duplicate of
+ * \param[in] flags	LDLM_FL_* flags for the request, puts conditions on
+ * 			matched locks
+ * \param[in] unref	FIXME: Not clear what this is for
  *
  * \retval a referenced lock or NULL.  See the flag descriptions below, in the
  * comment above ldlm_lock_match
  */
 static struct ldlm_lock *search_queue(struct list_head *queue,
-                                      ldlm_mode_t *mode,
-                                      ldlm_policy_data_t *policy,
-                                      struct ldlm_lock *old_lock,
+				      ldlm_mode_t *mode,
+				      ldlm_policy_data_t *policy,
+				      struct ldlm_lock *old_lock,
 				      __u64 flags, int unref)
 {
-        struct ldlm_lock *lock;
+	struct ldlm_lock *lock;
 	struct list_head       *tmp;
+	int reason = 0;
+
+	ENTRY;
 
 	list_for_each(tmp, queue) {
-                ldlm_mode_t match;
+		ldlm_mode_t match;
 
 		lock = list_entry(tmp, struct ldlm_lock, l_res_link);
 
-                if (lock == old_lock)
-                        break;
+		if (reason != 0) {
+			CDEBUG(D_DLMTRACE,"Reason previous lock failed"
+					  "to match: %d\n",reason);
+		}
+
+		LDLM_DEBUG(lock,"Trying to match this lock.");
+
+		if (lock == old_lock) {
+			reason = 1;
+			break;
+		}
 
 		/* Check if this lock can be matched.
 		 * Used by LU-2919(exclusive open) for open lease lock */
-		if (ldlm_is_excl(lock))
+		if (ldlm_is_excl(lock)) {
+			reason = 2;
 			continue;
+		}
 
-                /* llite sometimes wants to match locks that will be
-                 * canceled when their users drop, but we allow it to match
-                 * if it passes in CBPENDING and the lock still has users.
-                 * this is generally only going to be used by children
-                 * whose parents already hold a lock so forward progress
-                 * can still happen. */
+		/* llite sometimes wants to match locks that will be
+		 * canceled when their users drop, but we allow it to match
+		 * if it passes in CBPENDING and the lock still has users.
+		 * this is generally only going to be used by children
+		 * whose parents already hold a lock so forward progress
+		 * can still happen. */
 		if (ldlm_is_cbpending(lock) &&
-                    !(flags & LDLM_FL_CBPENDING))
-                        continue;
+		    !(flags & LDLM_FL_CBPENDING)) {
+			reason = 3;
+			continue;
+		}
+
 		if (!unref && ldlm_is_cbpending(lock) &&
-                    lock->l_readers == 0 && lock->l_writers == 0)
-                        continue;
+		    lock->l_readers == 0 && lock->l_writers == 0) {
+			reason = 4;
+			continue;
+		}
 
-                if (!(lock->l_req_mode & *mode))
-                        continue;
-                match = lock->l_req_mode;
+		if (!(lock->l_req_mode & *mode)) {
+			reason = 5;
+			continue;
+		}
 
-                if (lock->l_resource->lr_type == LDLM_EXTENT &&
-                    (lock->l_policy_data.l_extent.start >
-                     policy->l_extent.start ||
-                     lock->l_policy_data.l_extent.end < policy->l_extent.end))
-                        continue;
+		match = lock->l_req_mode;
+
+		if (lock->l_resource->lr_type == LDLM_EXTENT &&
+		    (lock->l_policy_data.l_extent.start >
+		     policy->l_extent.start ||
+		     lock->l_policy_data.l_extent.end < policy->l_extent.end)) {
+			reason = 6;
+			continue;
+		}
 
 		if (unlikely(match == LCK_GROUP) &&
 		    lock->l_resource->lr_type == LDLM_EXTENT &&
 		    policy->l_extent.gid != LDLM_GID_ANY &&
-		    lock->l_policy_data.l_extent.gid != policy->l_extent.gid)
+		    lock->l_policy_data.l_extent.gid != policy->l_extent.gid) {
+			reason = 7;
 			continue;
+		}
 
-                /* We match if we have existing lock with same or wider set
-                   of bits. */
-                if (lock->l_resource->lr_type == LDLM_IBITS &&
-                     ((lock->l_policy_data.l_inodebits.bits &
-                      policy->l_inodebits.bits) !=
-                      policy->l_inodebits.bits))
-                        continue;
+		/* We match if we have existing lock with same or wider set
+		   of bits. */
+		if (lock->l_resource->lr_type == LDLM_IBITS &&
+		     ((lock->l_policy_data.l_inodebits.bits &
+		      policy->l_inodebits.bits) !=
+		      policy->l_inodebits.bits)) {
+			reason = 8;
+			continue;
+		}
 
-		if (!unref && LDLM_HAVE_MASK(lock, GONE))
-                        continue;
+		if (!unref && LDLM_HAVE_MASK(lock, GONE)) {
+			reason = 9;
+			continue;
+		}
 
-                if ((flags & LDLM_FL_LOCAL_ONLY) &&
-		    !ldlm_is_local(lock))
-                        continue;
+		if ((flags & LDLM_FL_LOCAL_ONLY) &&
+		    !ldlm_is_local(lock)) {
+			reason = 10;
+			continue;
+		}
 
-                if (flags & LDLM_FL_TEST_LOCK) {
-                        LDLM_LOCK_GET(lock);
-                        ldlm_lock_touch_in_lru(lock);
-                } else {
-                        ldlm_lock_addref_internal_nolock(lock, match);
-                }
-                *mode = match;
-                return lock;
-        }
+		if (flags & LDLM_FL_TEST_LOCK) {
+			LDLM_LOCK_GET(lock);
+			ldlm_lock_touch_in_lru(lock);
+		} else {
+			ldlm_lock_addref_internal_nolock(lock, match);
+		}
+		*mode = match;
+		RETURN(lock);
+	}
 
-        return NULL;
+	CDEBUG(D_DLMTRACE,"Failed to match, reason: %d\n",reason);
+
+	RETURN(NULL);
 }
 
 void ldlm_lock_fail_match_locked(struct ldlm_lock *lock)
