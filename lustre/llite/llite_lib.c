@@ -1527,7 +1527,11 @@ static int ll_md_setattr(struct dentry *dentry, struct md_op_data *op_data)
 	/* inode size will be in ll_setattr_ost, can't do it now since dirty
 	 * cache is not cleared yet. */
 	op_data->op_attr.ia_valid &= ~(TIMES_SET_FLAGS | ATTR_SIZE);
+	if (S_ISREG(inode->i_mode))
+		mutex_lock(&inode->i_mutex);
 	rc = simple_setattr(dentry, &op_data->op_attr);
+	if (S_ISREG(inode->i_mode))
+		mutex_unlock(&inode->i_mutex);
 	op_data->op_attr.ia_valid = ia_valid;
 
 	rc = ll_update_inode(inode, &md);
@@ -1576,7 +1580,6 @@ int ll_setattr_raw(struct dentry *dentry, struct iattr *attr, bool hsm_import)
         struct inode *inode = dentry->d_inode;
         struct ll_inode_info *lli = ll_i2info(inode);
         struct md_op_data *op_data = NULL;
-	bool file_is_released = false;
 	int rc = 0;
 	ENTRY;
 
@@ -1633,57 +1636,33 @@ int ll_setattr_raw(struct dentry *dentry, struct iattr *attr, bool hsm_import)
                        LTIME_S(attr->ia_mtime), LTIME_S(attr->ia_ctime),
                        cfs_time_current_sec());
 
-        /* We always do an MDS RPC, even if we're only changing the size;
-         * only the MDS knows whether truncate() should fail with -ETXTBUSY */
-
-        OBD_ALLOC_PTR(op_data);
-        if (op_data == NULL)
-                RETURN(-ENOMEM);
-
-	if (!S_ISDIR(inode->i_mode)) {
+	if (S_ISREG(inode->i_mode)) {
 		if (attr->ia_valid & ATTR_SIZE)
 			inode_dio_write_done(inode);
 		mutex_unlock(&inode->i_mutex);
 	}
 
-	/* truncate on a released file must failed with -ENODATA,
-	 * so size must not be set on MDS for released file
-	 * but other attributes must be set
-	 */
-	if (S_ISREG(inode->i_mode)) {
-		struct lov_stripe_md *lsm;
-		__u32 gen;
+	/* We always do an MDS RPC, even if we're only changing the size;
+	 * only the MDS knows whether truncate() should fail with -ETXTBUSY */
 
-		ll_layout_refresh(inode, &gen);
-		lsm = ccc_inode_lsm_get(inode);
-		if (lsm && lsm->lsm_pattern & LOV_PATTERN_F_RELEASED)
-			file_is_released = true;
-		ccc_inode_lsm_put(inode, lsm);
-
-		if (!hsm_import && attr->ia_valid & ATTR_SIZE) {
-			if (file_is_released) {
-				rc = ll_layout_restore(inode, 0, attr->ia_size);
-				if (rc < 0)
-					GOTO(out, rc);
-
-				file_is_released = false;
-				ll_layout_refresh(inode, &gen);
-			}
-
-			/* If we are changing file size, file content is
-			 * modified, flag it. */
-			attr->ia_valid |= MDS_OPEN_OWNEROVERRIDE;
-			op_data->op_bias |= MDS_DATA_MODIFIED;
-		}
-	}
+	OBD_ALLOC_PTR(op_data);
+	if (op_data == NULL)
+		GOTO(out, rc = -ENOMEM);
 
 	memcpy(&op_data->op_attr, attr, sizeof(*attr));
+
+	if (!hsm_import && attr->ia_valid & ATTR_SIZE) {
+		/* If we are changing file size, file content is
+		 * modified, flag it. */
+		attr->ia_valid |= MDS_OPEN_OWNEROVERRIDE;
+		op_data->op_bias |= MDS_DATA_MODIFIED;
+	}
 
 	rc = ll_md_setattr(dentry, op_data);
 	if (rc)
 		GOTO(out, rc);
 
-	if (!S_ISREG(inode->i_mode) || file_is_released)
+	if (!S_ISREG(inode->i_mode) || hsm_import)
 		GOTO(out, rc = 0);
 
 	if (attr->ia_valid & (ATTR_SIZE |
@@ -1700,13 +1679,26 @@ int ll_setattr_raw(struct dentry *dentry, struct iattr *attr, bool hsm_import)
 		rc = ll_setattr_ost(inode, attr);
 		if (attr->ia_valid & ATTR_SIZE)
 			up_write(&lli->lli_trunc_sem);
+
+		/* If the file was restored, it needs to set dirty flag */
+		if (ll_file_test_and_clear_flag(lli, LLIF_DATA_MODIFIED)) {
+			struct hsm_state_set hss = { 0 };
+			int rc2;
+
+			hss.hss_valid = HSS_SETMASK;
+			hss.hss_setmask = HS_DIRTY;
+			rc2 = ll_hsm_state_set(inode, &hss);
+			if (rc2 < 0)
+				CERROR(DFID "HSM set dirty failed: rc2 = %d\n",
+				       PFID(ll_inode2fid(inode)), rc2);
+		}
 	}
 	EXIT;
 out:
 	if (op_data != NULL)
 		ll_finish_md_op_data(op_data);
 
-	if (!S_ISDIR(inode->i_mode)) {
+	if (S_ISREG(inode->i_mode)) {
 		mutex_lock(&inode->i_mutex);
 		if ((attr->ia_valid & ATTR_SIZE) && !hsm_import)
 			inode_dio_wait(inode);
