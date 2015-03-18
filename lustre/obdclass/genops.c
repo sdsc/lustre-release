@@ -1966,6 +1966,15 @@ int obd_set_max_rpcs_in_flight(struct client_obd *cli, __u32 max)
 	if (max > OBD_MAX_RIF_MAX || max < 1)
 		return -ERANGE;
 
+	/* cannot be lower or equal to max_mod_rpcs_in_flight */
+	if (max <= cli->cl_max_mod_rpcs_in_flight) {
+		CERROR("%s: can't set max_rpcs_in_flight to a value (%u) "
+		       "lower or equal to max_mod_rpcs_in_flight value (%hu)\n",
+		       cli->cl_import->imp_obd->obd_name,
+		       max, cli->cl_max_mod_rpcs_in_flight);
+		return -ERANGE;
+	}
+
 	spin_lock(&cli->cl_loi_list_lock);
 	old = cli->cl_max_rpcs_in_flight;
 	cli->cl_max_rpcs_in_flight = max;
@@ -1987,3 +1996,54 @@ int obd_set_max_rpcs_in_flight(struct client_obd *cli, __u32 max)
 	return 0;
 }
 EXPORT_SYMBOL(obd_set_max_rpcs_in_flight);
+
+__u16 obd_get_max_mod_rpcs_in_flight(struct client_obd *cli)
+{
+	return cli->cl_max_mod_rpcs_in_flight;
+}
+EXPORT_SYMBOL(obd_get_max_mod_rpcs_in_flight);
+
+int obd_set_max_mod_rpcs_in_flight(struct client_obd *cli, int max)
+{
+	struct obd_connect_data	*ocd;
+	__u16 maxmodrpcs;
+
+	if (max > OBD_MAX_RIF_MAX || max < 1)
+		return -ERANGE;
+
+	/* cannot exceed or equal max_rpcs_in_flight */
+	if (max >= cli->cl_max_rpcs_in_flight) {
+		CERROR("%s: can't set max_mod_rpcs_in_flight to a value (%d) "
+		       "higher or equal to max_rpcs_in_flight value (%u)\n",
+		       cli->cl_import->imp_obd->obd_name,
+		       max, cli->cl_max_rpcs_in_flight);
+		return -ERANGE;
+	}
+
+	/* cannot exceed max modify RPCs in flight supported by the server */
+	ocd = &cli->cl_import->imp_connect_data;
+	if (ocd->ocd_connect_flags & OBD_CONNECT_MULTIMODRPCS)
+		maxmodrpcs = ocd->ocd_maxmodrpcs;
+	else
+		maxmodrpcs = 1;
+	if (max > maxmodrpcs) {
+		CERROR("%s: can't set max_mod_rpcs_in_flight to a value (%d) "
+		       "higher than max_mod_rpcs_per_client value (%hu) "
+		       "returned by the server at connection\n",
+		       cli->cl_import->imp_obd->obd_name,
+		       max, maxmodrpcs);
+		return -ERANGE;
+	}
+
+	spin_lock(&cli->cl_mod_rpcs_lock);
+
+	cli->cl_max_mod_rpcs_in_flight = max;
+
+	/* will have to wakeup waiters if max has been increased */
+
+	spin_unlock(&cli->cl_mod_rpcs_lock);
+
+	return 0;
+}
+EXPORT_SYMBOL(obd_set_max_mod_rpcs_in_flight);
+
