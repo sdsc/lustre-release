@@ -1072,7 +1072,7 @@ static int tgt_last_rcvd_update(const struct lu_env *env, struct lu_target *tgt,
 	struct tg_export_data	*ted;
 	__u64			*transno_p;
 	int			 rc = 0;
-	bool			 lw_client, update = false;
+	bool			 lw_client;
 
 	ENTRY;
 
@@ -1124,25 +1124,19 @@ static int tgt_last_rcvd_update(const struct lu_env *env, struct lu_target *tgt,
 		spin_lock(&tgt->lut_translock);
 		if (tti->tti_transno > tgt->lut_lsd.lsd_last_transno) {
 			tgt->lut_lsd.lsd_last_transno = tti->tti_transno;
-			update = true;
+			spin_unlock(&tgt->lut_translock);
+			/* Although lightweight (LW) connections have no slot
+			 * in last_rcvd, we still want to maintain the
+			 * in-memory lsd_client_data structure in order to
+			 * properly handle reply reconstruction. */
+			rc = tgt_server_data_write(env, tgt, th);
+		} else {
+			spin_unlock(&tgt->lut_translock);
 		}
-		spin_unlock(&tgt->lut_translock);
-		/* Although lightweight (LW) connections have no slot in
-		 * last_rcvd, we still want to maintain the in-memory
-		 * lsd_client_data structure in order to properly handle reply
-		 * reconstruction. */
 	} else if (ted->ted_lr_off == 0) {
 		CERROR("%s: client idx %d has offset %lld\n",
 		       tgt_name(tgt), ted->ted_lr_idx, ted->ted_lr_off);
 		RETURN(-EINVAL);
-	}
-
-	/* if the export has already been disconnected, we have no last_rcvd
-	 * slot, update server data with latest transno then */
-	if (ted->ted_lcd == NULL) {
-		CWARN("commit transaction for disconnected client %s: rc %d\n",
-		      req->rq_export->exp_client_uuid.uuid, rc);
-		GOTO(srv_update, rc = 0);
 	}
 
 	/* Target that supports multiple reply data */
@@ -1155,7 +1149,7 @@ static int tgt_last_rcvd_update(const struct lu_env *env, struct lu_target *tgt,
 
 		OBD_ALLOC_PTR(trd);
 		if (unlikely(trd == NULL))
-			GOTO(srv_update, rc = -ENOMEM);
+			RETURN(-ENOMEM);
 
 		/* update export last transno */
 		mutex_lock(&ted->ted_lcd_lock);
@@ -1184,7 +1178,7 @@ static int tgt_last_rcvd_update(const struct lu_env *env, struct lu_target *tgt,
 		if (unlikely(i < 0)) {
 			CERROR("%s: couldn't find a slot for reply data: "
 			       "rc = %d\n", tgt_name(tgt), i);
-			GOTO(srv_update, rc = i);
+			GOTO(trd_free, rc = i);
 		}
 		trd->trd_index = i;
 
@@ -1194,7 +1188,7 @@ static int tgt_last_rcvd_update(const struct lu_env *env, struct lu_target *tgt,
 		if (unlikely(rc != 0)) {
 			CERROR("%s: can't update %s file: rc = %d\n",
 			       tgt_name(tgt), REPLY_DATA, rc);
-			RETURN(rc);
+			GOTO(trd_free, rc);
 		}
 
 		/* add reply data to target export's reply list */
@@ -1210,7 +1204,10 @@ static int tgt_last_rcvd_update(const struct lu_env *env, struct lu_target *tgt,
 		       trd, lrd->lrd_xid, lrd->lrd_transno,
 		       trd->trd_tag, lrd->lrd_client_gen, i);
 
-		GOTO(srv_update, rc = 0);
+		RETURN(0);
+trd_free:
+		OBD_FREE_PTR(trd);
+		return rc;
 	}
 
 	mutex_lock(&ted->ted_lcd_lock);
@@ -1239,21 +1236,27 @@ static int tgt_last_rcvd_update(const struct lu_env *env, struct lu_target *tgt,
 
 	/* Update transno in slot only if non-zero number, i.e. no errors */
 	if (likely(tti->tti_transno != 0)) {
-		if (*transno_p > tti->tti_transno &&
-		    !tgt->lut_no_reconstruct) {
-			CERROR("%s: trying to overwrite bigger transno:"
-			       "on-disk: "LPU64", new: "LPU64" replay: %d. "
-			       "see LU-617.\n", tgt_name(tgt), *transno_p,
-			       tti->tti_transno, req_is_replay(req));
-			if (req_is_replay(req)) {
-				spin_lock(&req->rq_export->exp_lock);
-				req->rq_export->exp_vbr_failed = 1;
-				spin_unlock(&req->rq_export->exp_lock);
+		/* Don't overwrite bigger transaction number with lower one.
+		 * That is not sign of problem in all cases, but in any case
+		 * this value should be monotonically increased only. */
+		if (*transno_p > tti->tti_transno) {
+			if (!tgt->lut_no_reconstruct) {
+				CERROR("%s: trying to overwrite bigger transno:"
+				       "on-disk: "LPU64", new: "LPU64" replay: "
+				       "%d. see LU-617.\n", tgt_name(tgt),
+				       *transno_p, tti->tti_transno,
+				       req_is_replay(req));
+				if (req_is_replay(req)) {
+					spin_lock(&req->rq_export->exp_lock);
+					req->rq_export->exp_vbr_failed = 1;
+					spin_unlock(&req->rq_export->exp_lock);
+				}
+				mutex_unlock(&ted->ted_lcd_lock);
+				RETURN(req_is_replay(req) ? -EOVERFLOW : 0);
 			}
-			mutex_unlock(&ted->ted_lcd_lock);
-			RETURN(req_is_replay(req) ? -EOVERFLOW : 0);
+		} else {
+			*transno_p = tti->tti_transno;
 		}
-		*transno_p = tti->tti_transno;
 	}
 
 	if (!lw_client) {
@@ -1265,11 +1268,7 @@ static int tgt_last_rcvd_update(const struct lu_env *env, struct lu_target *tgt,
 		}
 	}
 	mutex_unlock(&ted->ted_lcd_lock);
-	EXIT;
-srv_update:
-	if (update)
-		rc = tgt_server_data_write(env, tgt, th);
-	return rc;
+	RETURN(rc);
 }
 
 /*
