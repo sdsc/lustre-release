@@ -48,43 +48,43 @@ static char debug_file_name[1024];
 
 unsigned int libcfs_subsystem_debug = ~0;
 CFS_MODULE_PARM(libcfs_subsystem_debug, "i", int, 0644,
-                "Lustre kernel debug subsystem mask");
+		"Lustre kernel debug subsystem mask");
 EXPORT_SYMBOL(libcfs_subsystem_debug);
 
 unsigned int libcfs_debug = (D_CANTMASK |
 			     D_NETERROR | D_HA | D_CONFIG | D_IOCTL | D_LFSCK);
 CFS_MODULE_PARM(libcfs_debug, "i", int, 0644,
-                "Lustre kernel debug mask");
+		"Lustre kernel debug mask");
 EXPORT_SYMBOL(libcfs_debug);
 
 unsigned int libcfs_debug_mb;
 CFS_MODULE_PARM(libcfs_debug_mb, "i", uint, 0644,
-                "Total debug buffer size.");
+		"Total debug buffer size.");
 EXPORT_SYMBOL(libcfs_debug_mb);
 
 unsigned int libcfs_printk = D_CANTMASK;
 CFS_MODULE_PARM(libcfs_printk, "i", uint, 0644,
-                "Lustre kernel debug console mask");
+		"Lustre kernel debug console mask");
 EXPORT_SYMBOL(libcfs_printk);
 
 unsigned int libcfs_console_ratelimit = 1;
 CFS_MODULE_PARM(libcfs_console_ratelimit, "i", uint, 0644,
-                "Lustre kernel debug console ratelimit (0 to disable)");
+		"Lustre kernel debug console ratelimit (0 to disable)");
 EXPORT_SYMBOL(libcfs_console_ratelimit);
 
 unsigned int libcfs_console_max_delay;
 CFS_MODULE_PARM(libcfs_console_max_delay, "l", uint, 0644,
-                "Lustre kernel debug console max delay (jiffies)");
+		"Lustre kernel debug console max delay (jiffies)");
 EXPORT_SYMBOL(libcfs_console_max_delay);
 
 unsigned int libcfs_console_min_delay;
 CFS_MODULE_PARM(libcfs_console_min_delay, "l", uint, 0644,
-                "Lustre kernel debug console min delay (jiffies)");
+		"Lustre kernel debug console min delay (jiffies)");
 EXPORT_SYMBOL(libcfs_console_min_delay);
 
 unsigned int libcfs_console_backoff = CDEBUG_DEFAULT_BACKOFF;
 CFS_MODULE_PARM(libcfs_console_backoff, "i", uint, 0644,
-                "Lustre kernel debug console backoff factor");
+		"Lustre kernel debug console backoff factor");
 EXPORT_SYMBOL(libcfs_console_backoff);
 
 unsigned int libcfs_debug_binary = 1;
@@ -104,7 +104,7 @@ EXPORT_SYMBOL(libcfs_watchdog_ratelimit);
 
 unsigned int libcfs_panic_on_lbug = 1;
 CFS_MODULE_PARM(libcfs_panic_on_lbug, "i", uint, 0644,
-                "Lustre kernel panic on LBUG");
+		"Lustre kernel panic on LBUG");
 EXPORT_SYMBOL(libcfs_panic_on_lbug);
 
 atomic_t libcfs_kmemory = ATOMIC_INIT(0);
@@ -117,8 +117,8 @@ char libcfs_debug_file_path_arr[PATH_MAX] = LIBCFS_DEBUG_FILE_PATH_DEFAULT;
 /* We need to pass a pointer here, but elsewhere this must be a const */
 static char *libcfs_debug_file_path;
 CFS_MODULE_PARM(libcfs_debug_file_path, "s", charp, 0644,
-                "Path for dumping debug logs, "
-                "set 'NONE' to prevent log dumping");
+		"Path for dumping debug logs, "
+		"set 'NONE' to prevent log dumping");
 
 int libcfs_panic_in_progress;
 
@@ -149,79 +149,79 @@ static const char *libcfs_debug_dbg2str(int debug)
 int
 libcfs_debug_mask2str(char *str, int size, int mask, int is_subsys)
 {
-        const char *(*fn)(int bit) = is_subsys ? libcfs_debug_subsys2str :
-                                                 libcfs_debug_dbg2str;
-        int           len = 0;
-        const char   *token;
-        int           i;
+	const char *(*fn)(int bit) = is_subsys ? libcfs_debug_subsys2str :
+						 libcfs_debug_dbg2str;
+	int	    len = 0;
+	const char *token;
+	int	    i;
 
-        if (mask == 0) {                        /* "0" */
-                if (size > 0)
-                        str[0] = '0';
-                len = 1;
-        } else {                                /* space-separated tokens */
-                for (i = 0; i < 32; i++) {
-                        if ((mask & (1 << i)) == 0)
-                                continue;
+	if (mask == 0) {			/* "0" */
+		if (size > 0)
+			str[0] = '0';
+		len = 1;
+	} else {				/* space-separated tokens */
+		for (i = 0; i < 32; i++) {
+			if ((mask & (1 << i)) == 0)
+				continue;
 
-                        token = fn(i);
-                        if (token == NULL)              /* unused bit */
-                                continue;
+			token = fn(i);
+			if (token == NULL)	/* unused bit */
+				continue;
 
-                        if (len > 0) {                  /* separator? */
-                                if (len < size)
-                                        str[len] = ' ';
-                                len++;
-                        }
+			if (len > 0) {		/* separator? */
+				if (len < size)
+					str[len] = ' ';
+				len++;
+			}
 
-                        while (*token != 0) {
-                                if (len < size)
-                                        str[len] = *token;
-                                token++;
-                                len++;
-                        }
-                }
-        }
+			while (*token != 0) {
+				if (len < size)
+					str[len] = *token;
+				token++;
+				len++;
+			}
+		}
+	}
 
-        /* terminate 'str' */
-        if (len < size)
-                str[len] = 0;
-        else
-                str[size - 1] = 0;
+	/* terminate 'str' */
+	if (len < size)
+		str[len] = 0;
+	else
+		str[size - 1] = 0;
 
-        return len;
+	return len;
 }
 
 int
 libcfs_debug_str2mask(int *mask, const char *str, int is_subsys)
 {
-        const char *(*fn)(int bit) = is_subsys ? libcfs_debug_subsys2str :
-                                                 libcfs_debug_dbg2str;
-        int         m = 0;
-        int         matched;
-        int         n;
-        int         t;
+	const char *(*fn)(int bit) = is_subsys ? libcfs_debug_subsys2str :
+						 libcfs_debug_dbg2str;
+	int	    m = 0;
+	int	    matched;
+	int	    n;
+	int	    t;
 
-        /* Allow a number for backwards compatibility */
+	/* Allow a number for backwards compatibility */
 
-        for (n = strlen(str); n > 0; n--)
-                if (!isspace(str[n-1]))
-                        break;
-        matched = n;
+	for (n = strlen(str); n > 0; n--)
+		if (!isspace(str[n-1]))
+			break;
+	matched = n;
 
-        if ((t = sscanf(str, "%i%n", &m, &matched)) >= 1 &&
-            matched == n) {
-                /* don't print warning for lctl set_param debug=0 or -1 */
-                if (m != 0 && m != -1)
-                        CWARN("You are trying to use a numerical value for the "
-                              "mask - this will be deprecated in a future "
-                              "release.\n");
-                *mask = m;
-                return 0;
-        }
+	t = sscanf(str, "%i%n", &m, &matched);
+	if (t >= 1 && matched == n) {
+		/* don't print warning for lctl set_param debug=0 or -1 */
+		if (m != 0 && m != -1)
+			CWARN("You are trying to use a numerical value for the "
+			      "mask - this will be deprecated in a future "
+			      "release.\n");
+		*mask = m;
+		return 0;
+	}
 
-        return cfs_str2mask(str, fn, mask, is_subsys ? 0 : D_CANTMASK,
-                            0xffffffff);
+	return cfs_str2mask(str, fn, mask, is_subsys ? 0 : D_CANTMASK,
+			    0xffffffff);
 }
 
 /**
@@ -230,7 +230,7 @@ libcfs_debug_str2mask(int *mask, const char *str, int is_subsys)
 void libcfs_debug_dumplog_internal(void *arg)
 {
 	static time_t last_dump_time;
-	time_t current_time;
+	time_t	      current_time;
 	DECL_JOURNAL_DATA;
 
 	PUSH_JOURNAL;
@@ -260,8 +260,8 @@ static int libcfs_debug_dumplog_thread(void *arg)
 
 void libcfs_debug_dumplog(void)
 {
-	wait_queue_t wait;
-	struct task_struct    *dumper;
+	wait_queue_t	    wait;
+	struct task_struct *dumper;
 	ENTRY;
 
 	/* we're being careful to ensure that the kernel thread is
@@ -288,7 +288,7 @@ EXPORT_SYMBOL(libcfs_debug_dumplog);
 
 int libcfs_debug_init(unsigned long bufsize)
 {
-	int    rc = 0;
+	int	     rc = 0;
 	unsigned int max = libcfs_debug_mb;
 
 	init_waitqueue_head(&debug_ctlwq);
@@ -316,23 +316,23 @@ int libcfs_debug_init(unsigned long bufsize)
 	}
 	rc = cfs_tracefile_init(max);
 
-        if (rc == 0)
-                libcfs_register_panic_notifier();
+	if (rc == 0)
+		libcfs_register_panic_notifier();
 
-        return rc;
+	return rc;
 }
 
 int libcfs_debug_cleanup(void)
 {
-        libcfs_unregister_panic_notifier();
-        cfs_tracefile_exit();
-        return 0;
+	libcfs_unregister_panic_notifier();
+	cfs_tracefile_exit();
+	return 0;
 }
 
 int libcfs_debug_clear_buffer(void)
 {
-        cfs_trace_flush_pages();
-        return 0;
+	cfs_trace_flush_pages();
+	return 0;
 }
 
 /* Debug markers, although printed by S_LNET
@@ -341,11 +341,11 @@ int libcfs_debug_clear_buffer(void)
 #define DEBUG_SUBSYSTEM S_UNDEFINED
 int libcfs_debug_mark_buffer(const char *text)
 {
-        CDEBUG(D_TRACE,"***************************************************\n");
-        LCONSOLE(D_WARNING, "DEBUG MARKER: %s\n", text);
-        CDEBUG(D_TRACE,"***************************************************\n");
+	CDEBUG(D_TRACE, "**************************************************\n");
+	LCONSOLE(D_WARNING, "DEBUG MARKER: %s\n", text);
+	CDEBUG(D_TRACE, "**************************************************\n");
 
-        return 0;
+	return 0;
 }
 #undef DEBUG_SUBSYSTEM
 #define DEBUG_SUBSYSTEM S_LNET
@@ -361,16 +361,16 @@ EXPORT_SYMBOL(libcfs_debug_set_level);
 
 long libcfs_log_return(struct libcfs_debug_msg_data *msgdata, long rc)
 {
-        libcfs_debug_msg(msgdata, "Process leaving (rc=%lu : %ld : %lx)\n",
-                         rc, rc, rc);
-        return rc;
+	libcfs_debug_msg(msgdata, "Process leaving (rc=%lu : %ld : %lx)\n",
+			 rc, rc, rc);
+	return rc;
 }
 EXPORT_SYMBOL(libcfs_log_return);
 
 void libcfs_log_goto(struct libcfs_debug_msg_data *msgdata, const char *label,
-                     long_ptr_t rc)
+		     long_ptr_t rc)
 {
-        libcfs_debug_msg(msgdata, "Process leaving via %s (rc=" LPLU " : " LPLD
-                         " : " LPLX ")\n", label, (ulong_ptr_t)rc, rc, rc);
+	libcfs_debug_msg(msgdata, "Process leaving via %s (rc=" LPLU " : " LPLD
+			 " : " LPLX ")\n", label, (ulong_ptr_t)rc, rc, rc);
 }
 EXPORT_SYMBOL(libcfs_log_goto);
