@@ -1154,13 +1154,24 @@ restart:
         GOTO(out, result);
 out:
         cl_io_fini(env, io);
-	/* If any bit been read/written (result != 0), we just return
-	 * short read/write instead of restart io. */
+
 	if ((result == 0 || result == -ENODATA) && io->ci_need_restart) {
 		CDEBUG(D_VFSTRACE, "Restart %s on %s from %lld, count:%zu\n",
 		       iot == CIT_READ ? "read" : "write",
 		       file->f_dentry->d_name.name, *ppos, count);
 		LASSERTF(io->ci_nob == 0, "%zd\n", io->ci_nob);
+		goto restart;
+	}
+
+	/** Restart io for short read/write */
+	if (result > 0 && io->u.ci_wr.wr.crw_count > 0 &&
+	    (iot == CIT_WRITE ||
+	    (iot == CIT_READ && *ppos <= i_size_read(inode)))) {
+		CDEBUG(D_VFSTRACE, "Restart %s on %s from %lld, count:%zu, "
+		       "done %zd, left %zd\n",
+		       iot == CIT_READ ? "read" : "write",
+		       file->f_dentry->d_name.name, *ppos, count,
+		       result, io->u.ci_wr.wr.crw_count);
 		goto restart;
 	}
 
