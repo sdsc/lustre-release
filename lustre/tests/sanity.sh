@@ -12962,6 +12962,93 @@ test_243()
 }
 run_test 243 "various group lock tests"
 
+verify_timestamps() {
+	local filename=$1
+	local atime=$(stat -c %X $filename)
+	local mtime=$(stat -c %Y $filename)
+	local ctime=$(stat -c %Z $filename)
+	local cur_time=$(date +%s)
+	local diff=$((60 * 60 * 24)) # 1 day
+
+	[ $cur_time -lt $atime ] &&
+		{ echo "$cur_time is behind the $atime"; return 1; }
+	[ $(($cur_time - $atime)) -gt $diff ] &&
+		{ echo "$cur_time is far ahead of $atime"; return 1; }
+
+	[ $cur_time -lt $mtime ] &&
+		{ echo "$cur_time is behind the $mtime"; return 1; }
+	[ $(($cur_time - $mtime)) -gt $diff ] &&
+		{ echo "$cur_time is far ahead of $mtime"; return 1; }
+
+	[ $cur_time -lt $ctime ] &&
+		{ echo "$cur_time is behind the $ctime"; return 1; }
+	[ $(($cur_time - $ctime)) -gt $diff ] &&
+		{ echo "$cur_time is far ahead of $ctime"; return 1; }
+
+	return 0
+}
+
+test_244_sub() {
+	local adj=$1
+	local srv_time
+
+	if [ $adj == "after" ] ; then
+		srv_time=$(date -d '1 year')
+	else
+		srv_time=$(date -d '1 year ago')
+	fi
+
+	do_nodes $(comma_list $(osts_nodes)) "date --set='$srv_time'"
+	do_nodes $(comma_list $(mdts_nodes)) "date --set='$srv_time'"
+
+	echo "create $DIR/$tfile"
+	touch $DIR/$tfile || error "create file"
+	verify_timestamps $DIR/$tfile ||
+		error "$adj: wrong timestamps after create"
+
+	echo "write to $DIR/$tfile"
+	echo "blah.." >> $DIR/$tfile || error "write file"
+	sync; sync
+	verify_timestamps $DIR/$tfile ||
+		error "$adj: wrong timestamps after write"
+
+	echo "chown to $DIR/$tfile"
+	chown $RUNAS_ID.$RUNAS_ID $DIR/$tfile || error "chown"
+	# wait for setattr on OST objects finished"
+	wait_delete_completed
+	verify_timestamps $DIR/$tfile ||
+		error "$adj: wrong timestamps after chown"
+
+	echo "setfattr to $DIR/$tfile"
+	setfattr -n user.author1 $DIR/$tfile || error "set acl"
+	verify_timestamps $DIR/$tfile ||
+		error "$adj: wrong timestamps after setacl"
+
+	echo "mv $DIR/$tfile to $DIR/$tfile.rename"
+	mv $DIR/$tfile $DIR/$tfile.rename|| error "mv file"
+	verify_timestamps $DIR/$tfile.rename ||
+		error "$adj: wrong timestamps after mv"
+
+	rm -f $DIR/$tfile.rename
+	if [ $adj == "after" ] ; then
+		srv_time=$(date -d "$srv_time - 1 year")
+	else
+		srv_time=$(date -d "$srv_time + 1 year")
+	fi
+
+	do_nodes $(comma_list $(osts_nodes)) "date --set='$srv_time'"
+	do_nodes $(comma_list $(mdts_nodes)) "date --set='$srv_time'"
+}
+
+test_244() {
+	echo "set both MDS & OSS time 1 year ahead of client time"
+	test_244_sub "after"
+
+	echo "set both MDS & OSS time 1 year before the client time"
+	test_244_sub "ago"
+}
+run_test 244 "server time should not be used"
+
 test_250() {
 	[ "$(facet_fstype ost$(($($GETSTRIPE -i $DIR/$tfile) + 1)))" = "zfs" ] \
 	 && skip "no 16TB file size limit on ZFS" && return
