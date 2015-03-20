@@ -992,37 +992,25 @@ ll_file_io_generic(const struct lu_env *env, struct vvp_io_args *args,
 		   struct file *file, enum cl_io_type iot,
 		   loff_t *ppos, size_t count)
 {
-	struct inode *inode = file->f_dentry->d_inode;
-	struct ll_inode_info *lli = ll_i2info(inode);
-	loff_t               end;
-	struct ll_file_data  *fd  = LUSTRE_FPRIVATE(file);
-	struct cl_io         *io;
-	ssize_t               result;
-	struct range_lock     range;
+	struct vvp_io		*vio = vvp_env_io(env);
+	struct inode		*inode = file->f_dentry->d_inode;
+	struct ll_inode_info	*lli = ll_i2info(inode);
+	struct ll_file_data	*fd  = LUSTRE_FPRIVATE(file);
+	struct cl_io		*io;
+	ssize_t			result = 0;
+	int			rc = 0;
+	struct range_lock	range;
+
 	ENTRY;
 
 	CDEBUG(D_VFSTRACE, "file: %s, type: %d ppos: "LPU64", count: %zu\n",
 		file->f_dentry->d_name.name, iot, *ppos, count);
 
 restart:
-        io = ccc_env_thread_io(env);
-        ll_io_init(io, file, iot == CIT_WRITE);
+	io = ccc_env_thread_io(env);
+	ll_io_init(io, file, iot == CIT_WRITE);
 
-	/* The maximum Lustre file size is variable, based on the
-	 * OST maximum object size and number of stripes.  This
-	 * needs another check in addition to the VFS checks earlier. */
-	end = (io->u.ci_wr.wr_append ? i_size_read(inode) : *ppos) + count;
-	if (end > ll_file_maxbytes(inode)) {
-		result = -EFBIG;
-		CDEBUG(D_INODE, "%s: file "DFID" offset %llu > maxbytes "LPU64
-		       ": rc = %zd\n", ll_get_fsname(inode->i_sb, NULL, 0),
-		       PFID(&lli->lli_fid), end, ll_file_maxbytes(inode),
-		       result);
-		RETURN(result);
-	}
-
-        if (cl_io_rw_init(env, io, iot, *ppos, count) == 0) {
-		struct vvp_io *vio = vvp_env_io(env);
+	if (cl_io_rw_init(env, io, iot, *ppos, count) == 0) {
 		bool range_locked = false;
 
 		if (file->f_flags & O_APPEND)
@@ -1043,10 +1031,9 @@ restart:
 			    !(vio->vui_fd->fd_flags & LL_FILE_GROUP_LOCKED)) {
 				CDEBUG(D_VFSTRACE, "Range lock "RL_FMT"\n",
 				       RL_PARA(&range));
-				result = range_lock(&lli->lli_write_tree,
-						    &range);
-				if (result < 0)
-					GOTO(out, result);
+				rc = range_lock(&lli->lli_write_tree, &range);
+				if (rc < 0)
+					GOTO(out, rc);
 
 				range_locked = true;
 			}
@@ -1062,7 +1049,7 @@ restart:
 		}
 
 		ll_cl_add(file, env, io);
-                result = cl_io_loop(env, io);
+		rc = cl_io_loop(env, io);
 		ll_cl_remove(file, env);
 
 		if (args->via_io_subtype == IO_NORMAL)
@@ -1072,46 +1059,53 @@ restart:
 			       RL_PARA(&range));
 			range_unlock(&lli->lli_write_tree, &range);
 		}
-        } else {
-                /* cl_io_rw_init() handled IO */
-                result = io->ci_result;
-        }
+	} else {
+		/* cl_io_rw_init() handled IO */
+		rc = io->ci_result;
+	}
 
-        if (io->ci_nob > 0) {
-                result = io->ci_nob;
-                *ppos = io->u.ci_wr.wr.crw_pos;
-        }
-        GOTO(out, result);
+	if (io->ci_nob > 0) {
+		result += io->ci_nob;
+		count -= io->ci_nob;
+		*ppos = io->u.ci_wr.wr.crw_pos; /* for splice */
+
+		/* prepare IO restart */
+		if (count > 0 && args->via_io_subtype == IO_NORMAL) {
+			args->u.normal.via_iov = vio->vui_iov;
+			args->u.normal.via_nrsegs = vio->vui_tot_nrsegs;
+		}
+	}
+	GOTO(out, rc);
 out:
-        cl_io_fini(env, io);
-	/* If any bit been read/written (result != 0), we just return
-	 * short read/write instead of restart io. */
-	if ((result == 0 || result == -ENODATA) && io->ci_need_restart) {
-		CDEBUG(D_VFSTRACE, "Restart %s on %s from %lld, count:%zu\n",
+	cl_io_fini(env, io);
+
+	if (count > 0 && io->ci_need_restart) {
+		CDEBUG(D_VFSTRACE,
+		       "%s: restart %s from %lld, count:%zu, result: %zd\n",
+		       file->f_dentry->d_name.name,
 		       iot == CIT_READ ? "read" : "write",
-		       file->f_dentry->d_name.name, *ppos, count);
-		LASSERTF(io->ci_nob == 0, "%zd\n", io->ci_nob);
+		       *ppos, count, result);
 		goto restart;
 	}
 
-        if (iot == CIT_READ) {
-                if (result >= 0)
-                        ll_stats_ops_tally(ll_i2sbi(file->f_dentry->d_inode),
-                                           LPROC_LL_READ_BYTES, result);
-        } else if (iot == CIT_WRITE) {
-                if (result >= 0) {
-                        ll_stats_ops_tally(ll_i2sbi(file->f_dentry->d_inode),
-                                           LPROC_LL_WRITE_BYTES, result);
+	if (iot == CIT_READ) {
+		if (result > 0)
+			ll_stats_ops_tally(ll_i2sbi(file->f_dentry->d_inode),
+					   LPROC_LL_READ_BYTES, result);
+	} else if (iot == CIT_WRITE) {
+		if (result > 0) {
+			ll_stats_ops_tally(ll_i2sbi(file->f_dentry->d_inode),
+					   LPROC_LL_WRITE_BYTES, result);
 			fd->fd_write_failed = false;
-		} else if (result != -ERESTARTSYS) {
+		} else if (rc != -ERESTARTSYS) {
 			fd->fd_write_failed = true;
 		}
 	}
+
 	CDEBUG(D_VFSTRACE, "iot: %d, result: %zd\n", iot, result);
 
-	return result;
+	return result > 0 ? result : rc;
 }
-
 
 /*
  * XXX: exact copy from kernel code (__generic_file_aio_write_nolock)
@@ -1149,6 +1143,7 @@ static ssize_t ll_file_aio_read(struct kiocb *iocb, const struct iovec *iov,
 {
         struct lu_env      *env;
         struct vvp_io_args *args;
+	struct iovec       *local_iov;
         size_t              count;
         ssize_t             result;
         int                 refcheck;
@@ -1162,22 +1157,40 @@ static ssize_t ll_file_aio_read(struct kiocb *iocb, const struct iovec *iov,
         if (IS_ERR(env))
                 RETURN(PTR_ERR(env));
 
-        args = vvp_env_args(env, IO_NORMAL);
-        args->u.normal.via_iov = (struct iovec *)iov;
-        args->u.normal.via_nrsegs = nr_segs;
-        args->u.normal.via_iocb = iocb;
+	if (nr_segs == 1) {
+		local_iov = &vvp_env_info(env)->vti_local_iov;
+		*local_iov = *iov;
+	} else {
+		OBD_ALLOC(local_iov, sizeof(*iov) * nr_segs);
+		if (local_iov == NULL) {
+			cl_env_put(env, &refcheck);
+			RETURN(-ENOMEM);
+		}
 
-        result = ll_file_io_generic(env, args, iocb->ki_filp, CIT_READ,
-                                    &iocb->ki_pos, count);
-        cl_env_put(env, &refcheck);
-        RETURN(result);
+		memcpy(local_iov, iov, sizeof(*iov) * nr_segs);
+	}
+
+	args = vvp_env_args(env, IO_NORMAL);
+	args->u.normal.via_iov = local_iov;
+	args->u.normal.via_nrsegs = nr_segs;
+	args->u.normal.via_iocb = iocb;
+
+	result = ll_file_io_generic(env, args, iocb->ki_filp, CIT_READ,
+				    &iocb->ki_pos, count);
+
+	cl_env_put(env, &refcheck);
+
+	if (nr_segs > 1)
+		OBD_FREE(local_iov, sizeof(*iov) * nr_segs);
+
+	RETURN(result);
 }
 
 static ssize_t ll_file_read(struct file *file, char __user *buf, size_t count,
                             loff_t *ppos)
 {
         struct lu_env *env;
-        struct iovec  *local_iov;
+	struct iovec   iov = { .iov_base = buf, .iov_len = count };
         struct kiocb  *kiocb;
         ssize_t        result;
         int            refcheck;
@@ -1187,10 +1200,7 @@ static ssize_t ll_file_read(struct file *file, char __user *buf, size_t count,
         if (IS_ERR(env))
                 RETURN(PTR_ERR(env));
 
-        local_iov = &vvp_env_info(env)->vti_local_iov;
         kiocb = &vvp_env_info(env)->vti_kiocb;
-        local_iov->iov_base = (void __user *)buf;
-        local_iov->iov_len = count;
         init_sync_kiocb(kiocb, file);
         kiocb->ki_pos = *ppos;
 #ifdef HAVE_KIOCB_KI_LEFT
@@ -1199,7 +1209,7 @@ static ssize_t ll_file_read(struct file *file, char __user *buf, size_t count,
         kiocb->ki_nbytes = count;
 #endif
 
-        result = ll_file_aio_read(kiocb, local_iov, 1, kiocb->ki_pos);
+	result = ll_file_aio_read(kiocb, &iov, 1, kiocb->ki_pos);
         *ppos = kiocb->ki_pos;
 
         cl_env_put(env, &refcheck);
@@ -1215,6 +1225,7 @@ static ssize_t ll_file_aio_write(struct kiocb *iocb, const struct iovec *iov,
 {
         struct lu_env      *env;
         struct vvp_io_args *args;
+	struct iovec       *local_iov;
         size_t              count;
         ssize_t             result;
         int                 refcheck;
@@ -1228,22 +1239,40 @@ static ssize_t ll_file_aio_write(struct kiocb *iocb, const struct iovec *iov,
         if (IS_ERR(env))
                 RETURN(PTR_ERR(env));
 
-        args = vvp_env_args(env, IO_NORMAL);
-        args->u.normal.via_iov = (struct iovec *)iov;
-        args->u.normal.via_nrsegs = nr_segs;
-        args->u.normal.via_iocb = iocb;
+	if (nr_segs == 1) {
+		local_iov = &vvp_env_info(env)->vti_local_iov;
+		*local_iov = *iov;
+	} else {
+		OBD_ALLOC(local_iov, sizeof(*iov) * nr_segs);
+		if (local_iov == NULL) {
+			cl_env_put(env, &refcheck);
+			RETURN(-ENOMEM);
+		}
 
-        result = ll_file_io_generic(env, args, iocb->ki_filp, CIT_WRITE,
-                                  &iocb->ki_pos, count);
-        cl_env_put(env, &refcheck);
+		memcpy(local_iov, iov, sizeof(*iov) * nr_segs);
+	}
+
+	args = vvp_env_args(env, IO_NORMAL);
+	args->u.normal.via_iov = local_iov;
+	args->u.normal.via_nrsegs = nr_segs;
+	args->u.normal.via_iocb = iocb;
+
+	result = ll_file_io_generic(env, args, iocb->ki_filp, CIT_WRITE,
+				  &iocb->ki_pos, count);
+	cl_env_put(env, &refcheck);
+
+	if (nr_segs > 1)
+		OBD_FREE(local_iov, sizeof(*iov) * nr_segs);
+
         RETURN(result);
 }
 
 static ssize_t ll_file_write(struct file *file, const char __user *buf,
 			     size_t count, loff_t *ppos)
 {
-        struct lu_env *env;
-        struct iovec  *local_iov;
+	struct lu_env *env;
+	struct iovec   iov = { .iov_base = (void __user *)buf,
+			       .iov_len = count };
         struct kiocb  *kiocb;
         ssize_t        result;
         int            refcheck;
@@ -1253,10 +1282,7 @@ static ssize_t ll_file_write(struct file *file, const char __user *buf,
         if (IS_ERR(env))
                 RETURN(PTR_ERR(env));
 
-        local_iov = &vvp_env_info(env)->vti_local_iov;
         kiocb = &vvp_env_info(env)->vti_kiocb;
-        local_iov->iov_base = (void __user *)buf;
-        local_iov->iov_len = count;
         init_sync_kiocb(kiocb, file);
         kiocb->ki_pos = *ppos;
 #ifdef HAVE_KIOCB_KI_LEFT
@@ -1265,7 +1291,7 @@ static ssize_t ll_file_write(struct file *file, const char __user *buf,
         kiocb->ki_nbytes = count;
 #endif
 
-        result = ll_file_aio_write(kiocb, local_iov, 1, kiocb->ki_pos);
+	result = ll_file_aio_write(kiocb, &iov, 1, kiocb->ki_pos);
         *ppos = kiocb->ki_pos;
 
         cl_env_put(env, &refcheck);
