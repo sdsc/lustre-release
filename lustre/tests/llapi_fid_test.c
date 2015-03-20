@@ -92,7 +92,7 @@ static void cleanup(void)
 	rc = snprintf(cmd, sizeof(cmd), "rm -rf -- '%s'", mainpath);
 	ASSERTF(rc > 0 && rc < sizeof(cmd),
 		"invalid delete command for path '%s'", mainpath);
-	system(cmd);
+	rc = system(cmd);
 }
 
 /* Helper - call path2fid, fd2fid and fid2path against an existing

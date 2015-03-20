@@ -158,8 +158,10 @@ void qword_print(FILE *f, char *str)
 {
 	char *bp = qword_buf;
 	int len = sizeof(qword_buf);
+	size_t sret __attribute__ ((unused));
+
 	qword_add(&bp, &len, str);
-	fwrite(qword_buf, bp-qword_buf, 1, f);
+	sret = fwrite(qword_buf, bp-qword_buf, 1, f);
 	/* XXX: */
 	memcpy(tmp_buf, qword_buf, bp-qword_buf);
 	tmp_buf[bp-qword_buf] = '\0';
@@ -170,8 +172,10 @@ void qword_printhex(FILE *f, char *str, int slen)
 {
 	char *bp = qword_buf;
 	int len = sizeof(qword_buf);
+	size_t sret __attribute__ ((unused));
+
 	qword_addhex(&bp, &len, str, slen);
-	fwrite(qword_buf, bp-qword_buf, 1, f);
+	sret = fwrite(qword_buf, bp-qword_buf, 1, f);
 	/* XXX: */
 	memcpy(tmp_buf, qword_buf, bp-qword_buf);
 	tmp_buf[bp-qword_buf] = '\0';
