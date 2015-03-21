@@ -258,6 +258,10 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
         if (sbi->ll_flags & LL_SBI_RMT_CLIENT)
                 data->ocd_connect_flags |= OBD_CONNECT_RMT_CLIENT_FORCE;
 
+        /* always ping even server suppress_pings */
+        if (sbi->ll_flags & LL_SBI_ALWAYS_PING)
+                data->ocd_connect_flags &= ~OBD_CONNECT_PINGLESS;
+
 	data->ocd_brw_size = MD_MAX_BRW_SIZE;
 
         err = obd_connect(NULL, &sbi->ll_md_exp, obd, &sbi->ll_sb_uuid, data, NULL);
@@ -433,6 +437,10 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
 #endif
         if (sbi->ll_flags & LL_SBI_RMT_CLIENT)
                 data->ocd_connect_flags |= OBD_CONNECT_RMT_CLIENT_FORCE;
+
+        /* always ping even server suppress_pings */
+        if (sbi->ll_flags & LL_SBI_ALWAYS_PING)
+                data->ocd_connect_flags &= ~OBD_CONNECT_PINGLESS;
 
         CDEBUG(D_RPCTRACE, "ocd_connect_flags: "LPX64" ocd_version: %d "
                "ocd_grant: %d\n", data->ocd_connect_flags,
@@ -925,6 +933,12 @@ static int ll_options(char *options, int *flags)
                 tmp = ll_set_opt("noverbose", s1, LL_SBI_VERBOSE);
                 if (tmp) {
                         *flags &= ~tmp;
+                        goto next;
+                }
+                tmp = ll_set_opt("always_ping", s1, LL_SBI_ALWAYS_PING);
+                if (tmp) {
+                        CDEBUG(D_SUPER, "set opt=%s\n", "always_ping");
+                        *flags |= tmp;
                         goto next;
                 }
                 LCONSOLE_ERROR_MSG(0x152, "Unknown option '%s', won't mount.\n",
@@ -2589,6 +2603,9 @@ int ll_show_options(struct seq_file *seq, struct vfsmount *vfs)
 
 	if (sbi->ll_flags & LL_SBI_USER_FID2PATH)
 		seq_puts(seq, ",user_fid2path");
+
+	if (sbi->ll_flags & LL_SBI_ALWAYS_PING)
+		seq_puts(seq, ",always_ping");
 
         RETURN(0);
 }
