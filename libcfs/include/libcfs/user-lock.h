@@ -120,15 +120,15 @@ void __up(struct semaphore *s);
 void __down(struct semaphore *s);
 int __down_interruptible(struct semaphore *s);
 
-#define DEFINE_SEMAPHORE(name)      struct semaphore name = { 1 }
+#define DEFINE_SEMAPHORE(name)	struct semaphore name = { 1 }
 
-#define up(s)				__up(s)
+#define up(s)			__up(s)
 #define down(s)			__down(s)
-#define down_interruptible(s)		__down_interruptible(s)
+#define down_interruptible(s)	__down_interruptible(s)
 
 static inline int down_trylock(struct semaphore *sem)
 {
-        return 0;
+	return 0;
 }
 
 /*
@@ -157,7 +157,7 @@ struct completion {
 #else /* !HAVE_LIBPTHREAD */
 
 struct completion {
-	unsigned int	done;
+	unsigned int		done;
 	wait_queue_head_t	wait;
 };
 #endif /* HAVE_LIBPTHREAD */
@@ -174,9 +174,7 @@ int wait_for_completion_interruptible(struct completion *c);
 #define COMPLETION_INITIALIZER(work) \
 	{ 0, __WAIT_QUEUE_HEAD_INITIALIZER((work).wait) }
 
-
 #define INIT_COMPLETION(x)	((x).done = 0)
-
 
 /*
  * rw_semaphore:
@@ -203,7 +201,7 @@ int down_write_trylock(struct rw_semaphore *s);
 void up_read(struct rw_semaphore *s);
 void up_write(struct rw_semaphore *s);
 void fini_rwsem(struct rw_semaphore *s);
-#define DECLARE_RWSEM(name)  struct rw_semaphore name = { }
+#define DECLARE_RWSEM(name)	struct rw_semaphore name = { }
 
 /*
  * read-write lock : Need to be investigated more!!
@@ -269,7 +267,7 @@ typedef struct { volatile int counter; } atomic_t;
 #define atomic_sub_return(n,a) ((a)->counter -= n)
 #define atomic_dec_return(a)  atomic_sub_return(1,a)
 #define atomic_add_unless(v, a, u) \
-        ((v)->counter != u ? (v)->counter += a : 0)
+	((v)->counter != u ? (v)->counter += a : 0)
 #define atomic_inc_not_zero(v) atomic_add_unless((v), 1, 0)
 #define atomic_cmpxchg(v, ov, nv) \
 	((v)->counter == ov ? ((v)->counter = nv, ov) : (v)->counter)
@@ -372,7 +370,7 @@ static inline void mutex_destroy(struct mutex *lock)
  */
 static inline int mutex_is_locked(struct mutex *lock)
 {
-        return 1;
+	return 1;
 }
 
 
@@ -383,7 +381,7 @@ static inline int mutex_is_locked(struct mutex *lock)
  **************************************************************************/
 
 struct lock_class_key {
-        int foo;
+	int foo;
 };
 
 static inline void lockdep_set_class(void *lock, struct lock_class_key *key)
