@@ -43,7 +43,7 @@ EXPORT_SYMBOL(cfs_cpt_table);
 
 #ifndef HAVE_LIBCFS_CPT
 
-#define CFS_CPU_VERSION_MAGIC           0xbabecafe
+#define CFS_CPU_VERSION_MAGIC	0xbabecafe
 
 struct cfs_cpt_table *
 cfs_cpt_table_alloc(unsigned int ncpt)

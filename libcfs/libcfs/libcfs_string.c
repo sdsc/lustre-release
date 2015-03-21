@@ -71,89 +71,93 @@ EXPORT_SYMBOL(cfs_strrstr);
 
 /* Convert a text string to a bitmask */
 int cfs_str2mask(const char *str, const char *(*bit2str)(int bit),
-                 int *oldmask, int minmask, int allmask)
+		 int *oldmask, int minmask, int allmask)
 {
-        const char *debugstr;
-        char op = 0;
-        int newmask = minmask, i, len, found = 0;
-        ENTRY;
+	const char *debugstr;
+	char	    op = 0;
+	int	    newmask = minmask;
+	int	    i;
+	int	    len;
+	int	    found = 0;
+	ENTRY;
 
-        /* <str> must be a list of tokens separated by whitespace
-         * and optionally an operator ('+' or '-').  If an operator
-         * appears first in <str>, '*oldmask' is used as the starting point
-         * (relative), otherwise minmask is used (absolute).  An operator
-         * applies to all following tokens up to the next operator. */
-        while (*str != 0) {
-                while (isspace(*str))
-                        str++;
-                if (*str == 0)
-                        break;
-                if (*str == '+' || *str == '-') {
-                        op = *str++;
-                        if (!found)
-                                /* only if first token is relative */
-                                newmask = *oldmask;
-                        while (isspace(*str))
-                                str++;
-                        if (*str == 0)          /* trailing op */
-                                return -EINVAL;
-                }
+	/* <str> must be a list of tokens separated by whitespace
+	 * and optionally an operator ('+' or '-').  If an operator
+	 * appears first in <str>, '*oldmask' is used as the starting point
+	 * (relative), otherwise minmask is used (absolute).  An operator
+	 * applies to all following tokens up to the next operator. */
+	while (*str != 0) {
+		while (isspace(*str))
+			str++;
+		if (*str == 0)
+			break;
+		if (*str == '+' || *str == '-') {
+			op = *str++;
+			if (!found)
+				/* only if first token is relative */
+				newmask = *oldmask;
+			while (isspace(*str))
+				str++;
+			if (*str == 0)	/* trailing op */
+				return -EINVAL;
+		}
 
-                /* find token length */
-                for (len = 0; str[len] != 0 && !isspace(str[len]) &&
-                      str[len] != '+' && str[len] != '-'; len++);
+		/* find token length */
+		for (len = 0; str[len] != 0 && !isspace(str[len]) &&
+		     str[len] != '+' && str[len] != '-'; len++)
+			;
 
-                /* match token */
-                found = 0;
-                for (i = 0; i < 32; i++) {
-                        debugstr = bit2str(i);
-                        if (debugstr != NULL &&
-                            strlen(debugstr) == len &&
+		/* match token */
+		found = 0;
+		for (i = 0; i < 32; i++) {
+			debugstr = bit2str(i);
+			if (debugstr != NULL &&
+			    strlen(debugstr) == len &&
 			    strncasecmp(str, debugstr, len) == 0) {
-                                if (op == '-')
-                                        newmask &= ~(1 << i);
-                                else
-                                        newmask |= (1 << i);
-                                found = 1;
-                                break;
-                        }
-                }
-                if (!found && len == 3 &&
+				if (op == '-')
+					newmask &= ~(1 << i);
+				else
+					newmask |= (1 << i);
+				found = 1;
+				break;
+			}
+		}
+		if (!found && len == 3 &&
 		    (strncasecmp(str, "ALL", len) == 0)) {
-                        if (op == '-')
-                                newmask = minmask;
-                        else
-                                newmask = allmask;
-                        found = 1;
-                }
-                if (!found) {
-                        CWARN("unknown mask '%.*s'.\n"
-                              "mask usage: [+|-]<all|type> ...\n", len, str);
-                        return -EINVAL;
-                }
-                str += len;
-        }
+			if (op == '-')
+				newmask = minmask;
+			else
+				newmask = allmask;
+			found = 1;
+		}
+		if (!found) {
+			CWARN("unknown mask '%.*s'.\n"
+			      "mask usage: [+|-]<all|type> ...\n", len, str);
+			return -EINVAL;
+		}
+		str += len;
+	}
 
-        *oldmask = newmask;
-        return 0;
+	*oldmask = newmask;
+	return 0;
 }
 EXPORT_SYMBOL(cfs_str2mask);
 
 /* Duplicate a string in a platform-independent way */
 char *cfs_strdup(const char *str, u_int32_t flags)
 {
-        size_t lenz; /* length of str + zero byte */
-        char *dup_str;
+	size_t	 lenz; /* length of str + zero byte */
+	char	*dup_str;
 
-        lenz = strlen(str) + 1;
+	lenz = strlen(str) + 1;
 
 	dup_str = kmalloc(lenz, flags);
-        if (dup_str == NULL)
-                return NULL;
+	if (dup_str == NULL)
+		return NULL;
 
-        memcpy(dup_str, str, lenz);
+	memcpy(dup_str, str, lenz);
 
-        return dup_str;
+	return dup_str;
 }
 EXPORT_SYMBOL(cfs_strdup);
 
@@ -164,54 +168,54 @@ EXPORT_SYMBOL(cfs_strdup);
 /* safe vsnprintf */
 int cfs_vsnprintf(char *buf, size_t size, const char *fmt, va_list args)
 {
-        int i;
+	int i;
 
-        LASSERT(size > 0);
-        i = vsnprintf(buf, size, fmt, args);
+	LASSERT(size > 0);
+	i = vsnprintf(buf, size, fmt, args);
 
-        return  (i >= size ? size - 1 : i);
+	return (i >= size ? size - 1 : i);
 }
 EXPORT_SYMBOL(cfs_vsnprintf);
 
 /* safe snprintf */
 int cfs_snprintf(char *buf, size_t size, const char *fmt, ...)
 {
-        va_list args;
-        int i;
+	va_list args;
+	int	i;
 
-        va_start(args, fmt);
-        i = cfs_vsnprintf(buf, size, fmt, args);
-        va_end(args);
+	va_start(args, fmt);
+	i = cfs_vsnprintf(buf, size, fmt, args);
+	va_end(args);
 
-        return  i;
+	return i;
 }
 EXPORT_SYMBOL(cfs_snprintf);
 
 /* get the first string out of @str */
 char *cfs_firststr(char *str, size_t size)
 {
-        size_t i = 0;
-        char  *end;
+	size_t i = 0;
+	char  *end;
 
-        /* trim leading spaces */
-        while (i < size && *str && isspace(*str)) {
-                ++i;
-                ++str;
-        }
+	/* trim leading spaces */
+	while (i < size && *str && isspace(*str)) {
+		++i;
+		++str;
+	}
 
-        /* string with all spaces */
-        if (*str == '\0')
-                goto out;
+	/* string with all spaces */
+	if (*str == '\0')
+		goto out;
 
-        end = str;
-        while (i < size && *end != '\0' && !isspace(*end)) {
-                ++i;
-                ++end;
-        }
+	end = str;
+	while (i < size && *end != '\0' && !isspace(*end)) {
+		++i;
+		++end;
+	}
 
-        *end= '\0';
+	*end = '\0';
 out:
-        return str;
+	return str;
 }
 EXPORT_SYMBOL(cfs_firststr);
 
@@ -408,7 +412,7 @@ static int
 cfs_range_expr_print(char *buffer, int count, struct cfs_range_expr *expr,
 		     bool bracketed)
 {
-	int i;
+	int  i;
 	char s[] = "[";
 	char e[] = "]";
 
@@ -438,8 +442,9 @@ int
 cfs_expr_list_print(char *buffer, int count, struct cfs_expr_list *expr_list)
 {
 	struct cfs_range_expr *expr;
-	int i = 0, j = 0;
-	int numexprs = 0;
+	int		       i = 0;
+	int		       j = 0;
+	int		       numexprs = 0;
 
 	if (count <= 0)
 		return 0;
@@ -687,7 +692,7 @@ int
 cfs_ip_addr_match(__u32 addr, struct list_head *list)
 {
 	struct cfs_expr_list *el;
-	int i = 0;
+	int		      i = 0;
 
 	list_for_each_entry_reverse(el, list, el_link) {
 		if (!cfs_expr_list_match(addr & 0xff, el))

@@ -125,7 +125,7 @@ void *
 cfs_percpt_current(void *vars)
 {
 	struct cfs_var_array *arr;
-	int    cpt;
+	int		      cpt;
 
 	arr = container_of(vars, struct cfs_var_array, va_ptrs[0]);
 	cpt = cfs_cpt_current(arr->va_cptab, 0);

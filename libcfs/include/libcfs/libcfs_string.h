@@ -47,7 +47,7 @@
 char *cfs_strrstr(const char *haystack, const char *needle);
 /* Convert a text string to a bitmask */
 int cfs_str2mask(const char *str, const char *(*bit2str)(int bit),
-                 int *oldmask, int minmask, int allmask);
+		 int *oldmask, int minmask, int allmask);
 
 /* Allocate space for and copy an existing string.
  * Must free with kfree().
