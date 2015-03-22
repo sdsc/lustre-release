@@ -57,6 +57,7 @@
  * Author: Fan, Yong <fan.yong@intel.com>
  */
 
+/* test for ZFS-DNE */
 #define DEBUG_SUBSYSTEM S_MDS
 
 #include "osp_internal.h"
