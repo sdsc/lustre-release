@@ -495,6 +495,11 @@ enum lu_object_header_flags {
 	 * Mark this object has already been taken out of cache.
 	 */
 	LU_OBJECT_UNHASHED = 1,
+	/**
+	 * The object has been destroyed or to be destroyed after the last
+	 * open handle closed.
+	 */
+	LU_OBJECT_DESTROYED = 2,
 };
 
 enum lu_object_header_attr {
