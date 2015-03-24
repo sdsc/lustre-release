@@ -1313,6 +1313,9 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
 		 PFID(mdt_object_fid(parent)), PNAME(&rr->rr_name),
 		 PFID(child_fid));
 
+	if (result == -ENOSPC)
+		CDEBUG(D_ERROR, "mdo_lookup return no space\n");
+
         if (result != 0 && result != -ENOENT && result != -ESTALE)
                 GOTO(out_parent, result);
 
@@ -1386,6 +1389,10 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
 				    mdt_object_child(child),
 				    &info->mti_spec,
 				    &info->mti_attr);
+
+		if (result == -ENOSPC)
+			CDEBUG(D_ERROR, "mdo_create failed with -ENOSPC\n");
+
                 if (result == -ERESTART) {
                         mdt_clear_disposition(info, ldlm_rep, DISP_OPEN_CREATE);
                         GOTO(out_child, result);
@@ -1470,6 +1477,9 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
 	/* Try to open it now. */
 	rc = mdt_finish_open(info, parent, child, create_flags,
 			     created, ldlm_rep);
+	if (rc == -ENOSPC)
+		CDEBUG(D_ERROR, "mds_finis_open failed with  -ENOSPC\n");
+
 	if (rc) {
 		result = rc;
 		/* openlock will be released if mdt_finish_open failed */
