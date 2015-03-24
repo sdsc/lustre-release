@@ -706,7 +706,6 @@ int osp_trans_stop(const struct lu_env *env, struct dt_device *dt,
 			if (rc != 0)
 				obd_put_request_slot(cli);
 		} else {
-			rc = th->th_result;
 			dt_update_request_destroy(dt_update);
 		}
 	} else {
