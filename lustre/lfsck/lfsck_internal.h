@@ -1199,7 +1199,8 @@ static inline int lfsck_is_dead_obj(const struct dt_object *obj)
 {
 	struct lu_object_header *loh = obj->do_lu.lo_header;
 
-	return !!test_bit(LU_OBJECT_HEARD_BANSHEE, &loh->loh_flags);
+	return !!test_bit(LU_OBJECT_HEARD_BANSHEE, &loh->loh_flags) ||
+	       !!test_bit(LU_OBJECT_DESTROYED, &loh->loh_flags);
 }
 
 static inline struct dt_object *lfsck_object_get(struct dt_object *obj)

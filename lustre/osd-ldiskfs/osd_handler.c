@@ -2834,6 +2834,10 @@ static int osd_object_ref_del(const struct lu_env *env, struct dt_object *dt,
 	ldiskfs_dec_count(oh->ot_handle, inode);
 	spin_unlock(&obj->oo_guard);
 
+	if (inode->i_nlink == 0 ||
+	    (S_ISDIR(inode->i_mode) && inode->i_nlink == 2))
+		set_bit(LU_OBJECT_DESTROYED, &dt->do_lu.lo_header->loh_flags);
+
 	ll_dirty_inode(inode, I_DIRTY_DATASYNC);
 	LINVRNT(osd_invariant(obj));
 

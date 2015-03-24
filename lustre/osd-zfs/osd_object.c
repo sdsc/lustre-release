@@ -1595,6 +1595,10 @@ static int osd_object_ref_del(const struct lu_env *env,
 	write_unlock(&obj->oo_attr_lock);
 
 	rc = osd_object_sa_update(obj, SA_ZPL_LINKS(osd), &nlink, 8, oh);
+	if (rc == 0 &&
+	    (nlink == 0 || (S_ISDIR(obj->oo_attr.la_mode) && nlink == 2)))
+		set_bit(LU_OBJECT_DESTROYED, &dt->do_lu.lo_header->loh_flags);
+
 	return rc;
 }
 
