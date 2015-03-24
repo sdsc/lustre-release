@@ -106,8 +106,7 @@ typedef int (*osc_enqueue_upcall_f)(void *cookie, struct lustre_handle *lockh,
 
 int osc_enqueue_base(struct obd_export *exp, struct ldlm_res_id *res_id,
 		     __u64 *flags, ldlm_policy_data_t *policy,
-		     struct ost_lvb *lvb, int kms_valid,
-		     osc_enqueue_upcall_f upcall,
+		     struct ost_lvb *lvb, osc_enqueue_upcall_f upcall,
 		     void *cookie, struct ldlm_enqueue_info *einfo,
 		     struct ptlrpc_request_set *rqset, int async, int agl);
 int osc_cancel_base(struct lustre_handle *lockh, __u32 mode);
