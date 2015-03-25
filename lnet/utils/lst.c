@@ -40,7 +40,8 @@
 
 #include <getopt.h>
 #include <pwd.h>
-#include <libcfs/libcfsutil.h>
+#include <libcfs/util/ioctl.h>
+#include <libcfs/util/parser.h>
 #include <lnet/lnetctl.h>
 #include <lnet/lnetst.h>
 #include <lnet/nidstr.h>

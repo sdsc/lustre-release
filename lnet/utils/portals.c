@@ -20,7 +20,7 @@
  *
  */
 
-#include <libcfs/libcfsutil.h>
+#include <libcfs/util/ioctl.h>
 #include <lnet/nidstr.h>
 #include <lnet/lnetctl.h>
 #include <lnet/socklnd.h>
