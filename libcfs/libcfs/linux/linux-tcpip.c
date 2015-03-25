@@ -54,49 +54,32 @@ static inline wait_queue_head_t *sk_sleep(struct sock *sk)
 static int
 libcfs_sock_ioctl(int cmd, unsigned long arg)
 {
-	mm_segment_t    oldmm = get_fs();
 	struct socket  *sock;
-	int             fd = -1;
 	int             rc;
-	struct file    *sock_filp;
 
-        rc = sock_create (PF_INET, SOCK_STREAM, 0, &sock);
+	rc = sock_create_kern (PF_INET, SOCK_STREAM, 0, &sock);
         if (rc != 0) {
                 CERROR ("Can't create socket: %d\n", rc);
                 return rc;
         }
 
-#if !defined(HAVE_SOCK_ALLOC_FILE) && !defined(HAVE_SOCK_ALLOC_FILE_3ARGS)
-	fd = sock_map_fd(sock, 0);
-	if (fd < 0) {
-		rc = fd;
-		sock_release(sock);
-		goto out;
+	if (cmd == SIOCGIFFLAGS) {
+		/* This cmd is used only to get IFF_UP flag */
+		struct net_device *dev;
+		struct ifreq *ifr = (struct ifreq *)arg;
+		dev = dev_get_by_name(sock_net(sock->sk), ifr->ifr_name);
+		if (dev) {
+			ifr->ifr_flags = dev->flags;
+			dev_put(dev);
+			rc = 0;
+		} else {
+			rc = -ENODEV;
+		}
+	} else {
+		rc = kernel_sock_ioctl(sock, cmd, arg);
 	}
-	sock_filp = fget(fd);
-#else
-# ifdef HAVE_SOCK_ALLOC_FILE_3ARGS
-	sock_filp = sock_alloc_file(sock, 0, NULL);
-# else
-	sock_filp = sock_alloc_file(sock, 0);
-# endif
-#endif
-        if (!sock_filp) {
-                rc = -ENOMEM;
-		sock_release(sock);
-                goto out;
-        }
 
-	set_fs(KERNEL_DS);
-	if (sock_filp->f_op->unlocked_ioctl)
-		rc = sock_filp->f_op->unlocked_ioctl(sock_filp, cmd, arg);
-	set_fs(oldmm);
-
-        fput(sock_filp);
-
- out:
-	if (fd >= 0)
-		sys_close(fd);
+	sock_release(sock);
 
         return rc;
 }
@@ -175,97 +158,72 @@ EXPORT_SYMBOL(libcfs_ipif_query);
 int
 libcfs_ipif_enumerate (char ***namesp)
 {
-        /* Allocate and fill in 'names', returning # interfaces/error */
-        char           **names;
-        int             toobig;
-        int             nalloc;
-        int             nfound;
-        struct ifreq   *ifr;
-        struct ifconf   ifc;
-        int             rc;
-        int             nob;
-        int             i;
+	/* Allocate and fill in 'names', returning # interfaces/error */
+	char           **names;
+	int             toobig;
+	int             nalloc;
+	int             nfound;
+	int             rc;
+	int             nob;
+	int             i;
+	struct socket	*sock;
+	struct net_device *dev;
 
+	nalloc = 16;        /* first guess at max interfaces */
+	toobig = 0;
+	nfound = 0;
 
-        nalloc = 16;        /* first guess at max interfaces */
-        toobig = 0;
-        for (;;) {
-		if (nalloc * sizeof(*ifr) > PAGE_CACHE_SIZE) {
-			toobig = 1;
-			nalloc = PAGE_CACHE_SIZE/sizeof(*ifr);
-			CWARN("Too many interfaces: only enumerating first %d\n",
-			      nalloc);
+	rc = sock_create_kern(PF_INET, SOCK_STREAM, 0, &sock);
+	if (rc != 0) {
+		CERROR("Can't create socket: %d\n", rc);
+		return rc;
+	}
+
+	for_each_netdev(sock_net(sock->sk), dev) {
+		nfound++;
+	}
+
+	if (nfound == 0)
+		goto out1;
+
+	LIBCFS_ALLOC(names, nfound * sizeof(*names));
+	if (names == NULL) {
+		rc = -ENOMEM;
+		goto out1;
+	}
+
+	i = 0;
+	for_each_netdev(sock_net(sock->sk), dev) {
+		nob = strnlen(dev->name, IFNAMSIZ);
+		CERROR("netdev %s\n", dev->name);
+		if (nob == IFNAMSIZ) {
+			/* no space for terminating NULL */
+		CERROR("interface name %.*s too long (%d max)\n",
+		       nob, dev->name, IFNAMSIZ);
+			rc = -ENAMETOOLONG;
+			goto out2;
 		}
 
-                LIBCFS_ALLOC(ifr, nalloc * sizeof(*ifr));
-                if (ifr == NULL) {
-                        CERROR ("ENOMEM enumerating up to %d interfaces\n", nalloc);
-                        rc = -ENOMEM;
-                        goto out0;
-                }
+		LIBCFS_ALLOC(names[i], IFNAMSIZ);
+		if (names[i] == NULL) {
+			rc = -ENOMEM;
+			goto out2;
+		}
 
-                ifc.ifc_buf = (char *)ifr;
-                ifc.ifc_len = nalloc * sizeof(*ifr);
+		memcpy(names[i], dev->name, nob);
+		names[i][nob] = 0;
+		i++;
+	}
 
-                rc = libcfs_sock_ioctl(SIOCGIFCONF, (unsigned long)&ifc);
+	*namesp = names;
+	rc = nfound;
 
-                if (rc < 0) {
-                        CERROR ("Error %d enumerating interfaces\n", rc);
-                        goto out1;
-                }
-
-                LASSERT (rc == 0);
-
-                nfound = ifc.ifc_len/sizeof(*ifr);
-                LASSERT (nfound <= nalloc);
-
-                if (nfound < nalloc || toobig)
-                        break;
-
-                LIBCFS_FREE(ifr, nalloc * sizeof(*ifr));
-                nalloc *= 2;
-        }
-
-        if (nfound == 0)
-                goto out1;
-
-        LIBCFS_ALLOC(names, nfound * sizeof(*names));
-        if (names == NULL) {
-                rc = -ENOMEM;
-                goto out1;
-        }
-
-        for (i = 0; i < nfound; i++) {
-
-                nob = strnlen (ifr[i].ifr_name, IFNAMSIZ);
-                if (nob == IFNAMSIZ) {
-                        /* no space for terminating NULL */
-                        CERROR("interface name %.*s too long (%d max)\n",
-                               nob, ifr[i].ifr_name, IFNAMSIZ);
-                        rc = -ENAMETOOLONG;
-                        goto out2;
-                }
-
-                LIBCFS_ALLOC(names[i], IFNAMSIZ);
-                if (names[i] == NULL) {
-                        rc = -ENOMEM;
-                        goto out2;
-                }
-
-                memcpy(names[i], ifr[i].ifr_name, nob);
-                names[i][nob] = 0;
-        }
-
-        *namesp = names;
-        rc = nfound;
-
- out2:
-        if (rc < 0)
-                libcfs_ipif_free_enumeration(names, nfound);
- out1:
-        LIBCFS_FREE(ifr, nalloc * sizeof(*ifr));
- out0:
-        return rc;
+out2:
+	if (rc < 0)
+		libcfs_ipif_free_enumeration(names, nfound);
+out1:
+	sock_release(sock);
+	return rc;
 }
 
 EXPORT_SYMBOL(libcfs_ipif_enumerate);
@@ -289,7 +247,6 @@ int
 libcfs_sock_write (struct socket *sock, void *buffer, int nob, int timeout)
 {
 	int		rc;
-	mm_segment_t	oldmm = get_fs();
 	long		jiffies_left = timeout * msecs_to_jiffies(MSEC_PER_SEC);
 	unsigned long	then;
 	struct timeval	tv;
@@ -317,10 +274,8 @@ libcfs_sock_write (struct socket *sock, void *buffer, int nob, int timeout)
 					    USEC_PER_SEC) /
 					    msecs_to_jiffies(MSEC_PER_SEC)
 			};
-                        set_fs(KERNEL_DS);
-                        rc = sock_setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO,
-                                             (char *)&tv, sizeof(tv));
-                        set_fs(oldmm);
+			rc = kernel_setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO,
+					       (char *)&tv, sizeof(tv));
                         if (rc != 0) {
                                 CERROR("Can't set socket send timeout "
                                        "%ld.%06d: %d\n",
@@ -359,7 +314,6 @@ int
 libcfs_sock_read (struct socket *sock, void *buffer, int nob, int timeout)
 {
 	int		rc;
-	mm_segment_t	oldmm = get_fs();
 	long		jiffies_left = timeout * msecs_to_jiffies(MSEC_PER_SEC);
 	unsigned long	then;
 	struct timeval	tv;
@@ -384,10 +338,8 @@ libcfs_sock_read (struct socket *sock, void *buffer, int nob, int timeout)
 				    USEC_PER_SEC) /
 				    msecs_to_jiffies(MSEC_PER_SEC)
 		};
-                set_fs(KERNEL_DS);
-                rc = sock_setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO,
-                                     (char *)&tv, sizeof(tv));
-                set_fs(oldmm);
+		rc = kernel_setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO,
+					(char *)&tv, sizeof(tv));
                 if (rc != 0) {
                         CERROR("Can't set socket recv timeout %ld.%06d: %d\n",
                                (long)tv.tv_sec, (int)tv.tv_usec, rc);
@@ -425,23 +377,20 @@ libcfs_sock_create (struct socket **sockp, int *fatal,
         struct socket      *sock;
         int                 rc;
         int                 option;
-        mm_segment_t        oldmm = get_fs();
 
         /* All errors are fatal except bind failure if the port is in use */
         *fatal = 1;
 
-        rc = sock_create (PF_INET, SOCK_STREAM, 0, &sock);
+        rc = sock_create_kern (PF_INET, SOCK_STREAM, 0, &sock);
         *sockp = sock;
         if (rc != 0) {
                 CERROR ("Can't create socket: %d\n", rc);
                 return (rc);
         }
 
-        set_fs (KERNEL_DS);
         option = 1;
-        rc = sock_setsockopt(sock, SOL_SOCKET, SO_REUSEADDR,
+        rc = kernel_setsockopt(sock, SOL_SOCKET, SO_REUSEADDR,
                              (char *)&option, sizeof (option));
-        set_fs (oldmm);
         if (rc != 0) {
                 CERROR("Can't set SO_REUSEADDR for socket: %d\n", rc);
                 goto failed;
@@ -478,16 +427,13 @@ libcfs_sock_create (struct socket **sockp, int *fatal,
 int
 libcfs_sock_setbuf (struct socket *sock, int txbufsize, int rxbufsize)
 {
-        mm_segment_t        oldmm = get_fs();
         int                 option;
         int                 rc;
 
         if (txbufsize != 0) {
                 option = txbufsize;
-                set_fs (KERNEL_DS);
-                rc = sock_setsockopt(sock, SOL_SOCKET, SO_SNDBUF,
+                rc = kernel_setsockopt(sock, SOL_SOCKET, SO_SNDBUF,
                                      (char *)&option, sizeof (option));
-                set_fs (oldmm);
                 if (rc != 0) {
                         CERROR ("Can't set send buffer %d: %d\n",
                                 option, rc);
@@ -497,10 +443,8 @@ libcfs_sock_setbuf (struct socket *sock, int txbufsize, int rxbufsize)
 
         if (rxbufsize != 0) {
                 option = rxbufsize;
-                set_fs (KERNEL_DS);
-                rc = sock_setsockopt (sock, SOL_SOCKET, SO_RCVBUF,
+                rc = kernel_setsockopt (sock, SOL_SOCKET, SO_RCVBUF,
                                       (char *)&option, sizeof (option));
-                set_fs (oldmm);
                 if (rc != 0) {
                         CERROR ("Can't set receive buffer %d: %d\n",
                                 option, rc);
@@ -593,7 +537,7 @@ libcfs_sock_accept (struct socket **newsockp, struct socket *sock)
 
         /* XXX this should add a ref to sock->ops->owner, if
          * TCP could be a module */
-        rc = sock_create_lite(PF_PACKET, sock->type, IPPROTO_TCP, &newsock);
+        rc = sock_create_kern(PF_INET, sock->type, IPPROTO_TCP, &newsock);
         if (rc) {
                 CERROR("Can't allocate socket\n");
                 return rc;
