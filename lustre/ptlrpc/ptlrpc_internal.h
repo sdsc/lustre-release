@@ -387,4 +387,25 @@ static inline void ptlrpc_srv_req_init(struct ptlrpc_request *req)
 	INIT_LIST_HEAD(&sr->sr_hist_list);
 }
 
+static inline void ptlrpc_set_remove_req_nolock(struct ptlrpc_request *req)
+{
+	LASSERT(req->rq_set != NULL);
+
+	req->rq_set = NULL;
+	req->rq_invalid_rqset = 0;
+
+	if (req->rq_phase == RQ_PHASE_NEW)
+		LASSERT(req->rq_send_state == LUSTRE_IMP_REPLAY ||
+			req->rq_transno == 0);
+
+	list_del_init(&req->rq_set_chain);
+	wake_up(&req->rq_set_waitq);
+}
+
+static inline void ptlrpc_set_remove_req(struct ptlrpc_request *req)
+{
+	spin_lock(&req->rq_lock);
+	ptlrpc_set_remove_req_nolock(req);
+	spin_unlock(&req->rq_lock);
+}
 #endif /* PTLRPC_INTERNAL_H */
