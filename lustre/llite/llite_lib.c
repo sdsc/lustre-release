@@ -317,7 +317,7 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
 
 	size = sizeof(*data);
 	err = obd_get_info(NULL, sbi->ll_md_exp, sizeof(KEY_CONN_DATA),
-			   KEY_CONN_DATA,  &size, data, NULL);
+			   KEY_CONN_DATA,  &size, data);
 	if (err) {
 		CERROR("%s: Get connect data failed: rc = %d\n",
 		       sbi->ll_md_exp->exp_obd->obd_name, err);
@@ -631,7 +631,7 @@ int ll_get_max_mdsize(struct ll_sb_info *sbi, int *lmmsize)
 	*lmmsize = obd_size_diskmd(sbi->ll_dt_exp, NULL);
 	size = sizeof(int);
 	rc = obd_get_info(NULL, sbi->ll_md_exp, sizeof(KEY_MAX_EASIZE),
-			  KEY_MAX_EASIZE, &size, lmmsize, NULL);
+			  KEY_MAX_EASIZE, &size, lmmsize);
 	if (rc)
 		CERROR("Get max mdsize error rc %d\n", rc);
 
@@ -655,7 +655,7 @@ int ll_get_default_mdsize(struct ll_sb_info *sbi, int *lmmsize)
 
 	size = sizeof(int);
 	rc = obd_get_info(NULL, sbi->ll_md_exp, sizeof(KEY_DEFAULT_EASIZE),
-			 KEY_DEFAULT_EASIZE, &size, lmmsize, NULL);
+			 KEY_DEFAULT_EASIZE, &size, lmmsize);
 	if (rc)
 		CERROR("Get default mdsize error rc %d\n", rc);
 
@@ -694,7 +694,7 @@ int ll_get_max_cookiesize(struct ll_sb_info *sbi, int *lmmsize)
 
 	size = sizeof(int);
 	rc = obd_get_info(NULL, sbi->ll_md_exp, sizeof(KEY_MAX_COOKIESIZE),
-			  KEY_MAX_COOKIESIZE, &size, lmmsize, NULL);
+			  KEY_MAX_COOKIESIZE, &size, lmmsize);
 	if (rc)
 		CERROR("Get max cookiesize error rc %d\n", rc);
 
@@ -707,7 +707,7 @@ int ll_get_default_cookiesize(struct ll_sb_info *sbi, int *lmmsize)
 
 	size = sizeof(int);
 	rc = obd_get_info(NULL, sbi->ll_md_exp, sizeof(KEY_DEFAULT_COOKIESIZE),
-			  KEY_DEFAULT_COOKIESIZE, &size, lmmsize, NULL);
+			  KEY_DEFAULT_COOKIESIZE, &size, lmmsize);
 	if (rc)
 		CERROR("Get default cookiesize error rc %d\n", rc);
 
