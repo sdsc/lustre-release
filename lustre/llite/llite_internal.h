@@ -253,11 +253,11 @@ struct ll_inode_info {
          *      In the future, if more members are added only for directory,
          *      some of the following members can be moved into u.f.
          */
-	bool                            lli_has_smd;
 	struct cl_object		*lli_clob;
 
 	/* mutex to request for layout lock exclusively. */
 	struct mutex			lli_layout_mutex;
+	enum cl_layout_type		lli_layout_type;
 	/* Layout version, protected by lli_layout_lock */
 	__u32				lli_layout_gen;
 	spinlock_t			lli_layout_lock;
@@ -1492,11 +1492,6 @@ struct if_quotactl_18 {
 #define LL_IOC_QUOTACTL_18              _IOWR('f', 162, struct if_quotactl_18 *)
 /* End compatibility for old (1.8) compiled userspace quota code */
 #endif /* LUSTRE_VERSION_CODE < OBD_OCD_VERSION(2, 7, 53, 0) */
-
-enum {
-	LL_LAYOUT_GEN_NONE  = ((__u32)-2),	/* layout lock was cancelled */
-	LL_LAYOUT_GEN_EMPTY = ((__u32)-1) 	/* for empty layout */
-};
 
 int ll_layout_conf(struct inode *inode, const struct cl_object_conf *conf);
 int ll_layout_refresh(struct inode *inode, __u32 *gen);

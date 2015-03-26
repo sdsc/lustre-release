@@ -482,6 +482,21 @@ int cl_object_data_version(const struct lu_env *env, struct cl_object *obj,
 }
 EXPORT_SYMBOL(cl_object_data_version);
 
+int cl_object_layout_get(const struct lu_env *env, struct cl_object *obj,
+			 enum cl_layout_type *type, u32 *gen)
+{
+	struct lu_object_header	*top = obj->co_lu.lo_header;
+	ENTRY;
+
+	list_for_each_entry(obj, &top->loh_layers, co_lu.lo_linkage) {
+		if (obj->co_ops->coo_layout_get != NULL)
+			return obj->co_ops->coo_layout_get(env, obj, type, gen);
+	}
+
+	RETURN(-EOPNOTSUPP);
+}
+EXPORT_SYMBOL(cl_object_layout_get);
+
 /**
  * Helper function removing all object locks, and marking object for
  * deletion. All object pages must have been deleted at this point.

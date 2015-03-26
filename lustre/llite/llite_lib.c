@@ -964,9 +964,9 @@ void ll_lli_init(struct ll_inode_info *lli)
         lli->lli_open_fd_exec_count = 0;
 	mutex_init(&lli->lli_och_mutex);
 	spin_lock_init(&lli->lli_agl_lock);
-	lli->lli_has_smd = false;
 	spin_lock_init(&lli->lli_layout_lock);
-	ll_layout_version_set(lli, LL_LAYOUT_GEN_NONE);
+	lli->lli_layout_type = CL_LAYOUT_TYPE_NONE;
+	ll_layout_version_set(lli, CL_LAYOUT_GEN_NONE);
 	lli->lli_clob = NULL;
 
 	init_rwsem(&lli->lli_xattrs_list_rwsem);
@@ -1477,7 +1477,7 @@ void ll_clear_inode(struct inode *inode)
 	 * cl_object still uses inode lsm.
 	 */
 	cl_inode_fini(inode);
-	lli->lli_has_smd = false;
+	lli->lli_layout_type = CL_LAYOUT_TYPE_NONE;
 
 	EXIT;
 }
@@ -1651,14 +1651,14 @@ int ll_setattr_raw(struct dentry *dentry, struct iattr *attr, bool hsm_import)
 	 * but other attributes must be set
 	 */
 	if (S_ISREG(inode->i_mode)) {
-		struct lov_stripe_md *lsm;
 		__u32 gen;
 
-		ll_layout_refresh(inode, &gen);
-		lsm = ccc_inode_lsm_get(inode);
-		if (lsm && lsm->lsm_pattern & LOV_PATTERN_F_RELEASED)
+		rc = ll_layout_refresh(inode, &gen);
+		if (rc < 0)
+			GOTO(out, rc);
+
+		if (lli->lli_layout_type == CL_LAYOUT_TYPE_RELEASED)
 			file_is_released = true;
-		ccc_inode_lsm_put(inode, lsm);
 
 		if (!hsm_import && attr->ia_valid & ATTR_SIZE) {
 			if (file_is_released) {
@@ -1875,7 +1875,7 @@ int ll_update_inode(struct inode *inode, struct lustre_md *md)
 
 	LASSERT((lsm != NULL) == ((body->mbo_valid & OBD_MD_FLEASIZE) != 0));
 	if (lsm != NULL) {
-		if (!lli->lli_has_smd &&
+		if (lli->lli_layout_type != CL_LAYOUT_TYPE_NORMAL &&
 		    !(sbi->ll_flags & LL_SBI_LAYOUT_LOCK))
 			cl_file_inode_init(inode, md);
 
@@ -2011,7 +2011,7 @@ int ll_read_inode2(struct inode *inode, void *opaque)
         CDEBUG(D_VFSTRACE, "VFS Op:inode="DFID"(%p)\n",
                PFID(&lli->lli_fid), inode);
 
-	LASSERT(!lli->lli_has_smd);
+	LASSERT(lli->lli_layout_type == CL_LAYOUT_TYPE_NONE);
 
         /* Core attributes from the MDS first.  This is a new inode, and
          * the VFS doesn't zero times in the core inode so we have to do

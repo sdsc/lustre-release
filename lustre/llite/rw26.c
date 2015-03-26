@@ -384,7 +384,7 @@ static ssize_t ll_direct_IO_26(int rw, struct kiocb *iocb,
         int refcheck;
         ENTRY;
 
-	if (!lli->lli_has_smd)
+	if (lli->lli_layout_type != CL_LAYOUT_TYPE_NORMAL)
                 RETURN(-EBADF);
 
         /* FIXME: io smaller than PAGE_SIZE is broken on ia64 ??? */
