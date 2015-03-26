@@ -85,7 +85,7 @@ static bool can_populate_pages(const struct lu_env *env, struct cl_io *io,
 		 * extent lock and GROUP lock has to hold to swap layout */
 		if (lli->lli_layout_gen != cio->cui_layout_gen) {
 			io->ci_need_restart = 1;
-			/* this will return application a short read/write */
+			/* this will cause a short read/write */
 			io->ci_continue = 0;
 			rc = false;
 		}
@@ -594,6 +594,15 @@ static int vvp_io_write_start(const struct lu_env *env,
         }
 
         CDEBUG(D_VFSTRACE, "write: [%lli, %lli)\n", pos, pos + (long long)cnt);
+
+	if (pos + cnt > ll_file_maxbytes(inode)) {
+		CDEBUG(D_INODE,
+		       "%s: file "DFID" offset %llu > maxbytes "LPU64"\n",
+		       ll_get_fsname(inode->i_sb, NULL, 0),
+		       PFID(ll_inode2fid(inode)), pos + cnt,
+		       ll_file_maxbytes(inode));
+		RETURN(-EFBIG);
+	}
 
         if (cio->cui_iov == NULL) /* from a temp io in ll_cl_init(). */
                 result = 0;
