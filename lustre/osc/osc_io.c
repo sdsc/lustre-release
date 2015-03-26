@@ -546,6 +546,11 @@ static int osc_io_setattr_start(const struct lu_env *env,
                         LASSERT(oio->oi_lockless == 0);
                 }
 
+		if (ia_valid & ATTR_ATTR_FLAG) {
+			oa->o_flags = io->u.ci_setattr.sa_attr_flags;
+			oa->o_valid |= OBD_MD_FLFLAGS;
+		}
+
                 oinfo.oi_oa = oa;
                 oinfo.oi_capa = io->u.ci_setattr.sa_capa;
 		init_completion(&cbargs->opc_sync);
@@ -555,10 +560,10 @@ static int osc_io_setattr_start(const struct lu_env *env,
 						&oinfo, osc_async_upcall,
                                                 cbargs, PTLRPCD_SET);
                 else
-                        result = osc_setattr_async_base(osc_export(cl2osc(obj)),
-                                                        &oinfo, NULL,
-							osc_async_upcall,
-                                                        cbargs, PTLRPCD_SET);
+			result = osc_setattr_async(osc_export(cl2osc(obj)),
+						   &oinfo,
+						   osc_async_upcall,
+						   cbargs, PTLRPCD_SET);
 		cbargs->opc_rpc_sent = result == 0;
         }
         return result;
