@@ -66,6 +66,7 @@
 # include <sys/quota.h>
 #endif
 
+#include <libcfs/util/string.h>
 #include <libcfs/libcfs.h>
 #include <libcfs/libcfsutil.h>
 #include <lustre/lustreapi.h>

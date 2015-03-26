@@ -92,6 +92,7 @@ typedef int (*libcfs_kkuc_cb_t)(void *data, void *cb_arg);
 #define KUC_GRP_MAX           KUC_GRP_HSM
 
 /* Kernel methods */
+#ifdef __KERNEL__
 extern int libcfs_kkuc_msg_put(struct file *fp, void *payload);
 extern int libcfs_kkuc_group_put(int group, void *payload);
 extern int libcfs_kkuc_group_add(struct file *fp, int uid, int group,
@@ -99,6 +100,7 @@ extern int libcfs_kkuc_group_add(struct file *fp, int uid, int group,
 extern int libcfs_kkuc_group_rem(int uid, int group, void **pdata);
 extern int libcfs_kkuc_group_foreach(int group, libcfs_kkuc_cb_t cb_func,
 				     void *cb_arg);
+#endif /* !__KERNEL__ */
 
 #define LK_FLG_STOP 0x01
 #define LK_NOFD -1U

@@ -51,6 +51,7 @@
 #include <sys/xattr.h>
 #include <sys/syscall.h>
 #include <sys/types.h>
+#include <libcfs/util/string.h>
 #include <lustre/lustre_idl.h>
 #include <lustre/lustreapi.h>
 
