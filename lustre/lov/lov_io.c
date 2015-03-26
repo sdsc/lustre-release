@@ -909,6 +909,13 @@ static void lov_empty_io_fini(const struct lu_env *env,
 	EXIT;
 }
 
+static int lov_empty_io_submit(const struct lu_env *env,
+			       const struct cl_io_slice *ios,
+			       enum cl_req_type crt, struct cl_2queue *queue)
+{
+	return -EBADF;
+}
+
 static void lov_empty_impossible(const struct lu_env *env,
                                  struct cl_io_slice *ios)
 {
@@ -959,7 +966,7 @@ static const struct cl_io_operations lov_empty_io_ops = {
 			.cio_fini      = lov_empty_io_fini
 		}
 	},
-	.cio_submit                    = LOV_EMPTY_IMPOSSIBLE,
+	.cio_submit                    = lov_empty_io_submit,
 	.cio_commit_async              = LOV_EMPTY_IMPOSSIBLE
 };
 
@@ -997,11 +1004,11 @@ int lov_io_init_empty(const struct lu_env *env, struct cl_object *obj,
 	switch (io->ci_type) {
 	default:
 		LBUG();
-	case CIT_MISC:
 	case CIT_READ:
 		result = 0;
 		break;
 	case CIT_FSYNC:
+	case CIT_MISC:
 	case CIT_SETATTR:
 		result = +1;
 		break;
