@@ -42,6 +42,9 @@
 #define DEBUG_SUBSYSTEM S_CLASS
 #define D_KUC D_OTHER
 
+#ifndef __KERNEL__
+# include <unistd.h>
+#endif /* !__KERNEL__ */
 #include <libcfs/libcfs.h>
 
 #ifdef LUSTRE_UTILS

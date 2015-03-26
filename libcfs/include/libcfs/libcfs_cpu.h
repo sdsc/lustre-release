@@ -209,6 +209,31 @@ int cfs_cpt_spread_node(struct cfs_cpt_table *cptab, int cpt);
 int cfs_cpu_ht_nsiblings(int cpu);
 
 /**
+ *
+ */
+void *cfs_cpt_malloc(struct cfs_cpt_table *cptab, int cpt,
+		     size_t nr_bytes, gfp_t flags);
+
+/**
+ *
+ */
+void *cfs_cpt_vzalloc(struct cfs_cpt_table *cptab, int cpt,
+		      size_t nr_bytes);
+
+/**
+ *
+ */
+struct page *cfs_page_cpt_alloc(struct cfs_cpt_table *cptab,
+				int cpt, gfp_t flags);
+
+/**
+ *
+ */
+void *cfs_mem_cache_cpt_alloc(struct kmem_cache *cachep,
+			      struct cfs_cpt_table *cptab,
+			      int cpt, gfp_t flags);
+
+/**
  * iterate over all CPU partitions in \a cptab
  */
 #define cfs_cpt_for_each(i, cptab)	\

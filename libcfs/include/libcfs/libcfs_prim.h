@@ -40,9 +40,8 @@
 #ifndef __LIBCFS_PRIM_H__
 #define __LIBCFS_PRIM_H__
 
-/*
- * Wait Queues
- */
+#include <linux/sched.h>
+
 /*
  * Timer
  */
@@ -59,6 +58,18 @@ cfs_time_t cfs_timer_deadline(struct timer_list *t);
 /*
  * Memory
  */
+#if BITS_PER_LONG == 32
+/* limit to lowmem on 32-bit systems */
+# define NUM_CACHEPAGES \
+	min(totalram_pages, 1UL << (30 - PAGE_CACHE_SHIFT) * 3 / 4)
+#else
+# define NUM_CACHEPAGES totalram_pages
+#endif
+
+#define memory_pressure_get() (current->flags & PF_MEMALLOC)
+#define memory_pressure_set() do { current->flags |= PF_MEMALLOC; } while (0)
+#define memory_pressure_clr() do { current->flags &= ~PF_MEMALLOC; } while (0)
+
 static inline int cfs_memory_pressure_get_and_set(void)
 {
 	int old = memory_pressure_get();
