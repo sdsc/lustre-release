@@ -362,6 +362,29 @@ int cl_object_getstripe(const struct lu_env *env, struct cl_object *obj,
 EXPORT_SYMBOL(cl_object_getstripe);
 
 /**
+ * Get cached stripe xattr of this object. For trusted.lov and lustre.lov.
+ */
+ssize_t cl_object_xattr_get(const struct lu_env *env, struct cl_object *obj,
+			    const char *name, void *buf, size_t buf_size)
+{
+	struct lu_object_header	*top = obj->co_lu.lo_header;
+	ssize_t rc = -ENODATA;
+	ENTRY;
+
+	list_for_each_entry(obj, &top->loh_layers, co_lu.lo_linkage) {
+		if (obj->co_ops->coo_xattr_get != NULL) {
+			rc = obj->co_ops->coo_xattr_get(env, obj, name,
+							buf, buf_size);
+			if (rc != -ENODATA)
+				break;
+		}
+	}
+
+	RETURN(rc);
+}
+EXPORT_SYMBOL(cl_object_xattr_get);
+
+/**
  * Find whether there is any callback data (ldlm lock) attached upon this
  * object.
  */
