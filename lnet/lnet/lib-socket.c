@@ -48,59 +48,34 @@
 #include <lnet/lib-lnet.h>
 
 static int
-kernel_sock_unlocked_ioctl(struct file *filp, int cmd, unsigned long arg)
-{
-	mm_segment_t oldfs = get_fs();
-	int err;
-
-	set_fs(KERNEL_DS);
-	err = filp->f_op->unlocked_ioctl(filp, cmd, arg);
-	set_fs(oldfs);
-
-	return err;
-}
-
-static int
 lnet_sock_ioctl(int cmd, unsigned long arg)
 {
-	struct file    *sock_filp;
 	struct socket  *sock;
-	int		fd = -1;
 	int		rc;
 
-	rc = sock_create(PF_INET, SOCK_STREAM, 0, &sock);
+	rc = sock_create_kern(PF_INET, SOCK_STREAM, 0, &sock);
 	if (rc != 0) {
 		CERROR("Can't create socket: %d\n", rc);
 		return rc;
 	}
 
-#if !defined(HAVE_SOCK_ALLOC_FILE) && !defined(HAVE_SOCK_ALLOC_FILE_3ARGS)
-	fd = sock_map_fd(sock, 0);
-	if (fd < 0) {
-		rc = fd;
-		sock_release(sock);
-		goto out;
+	if (cmd == SIOCGIFFLAGS) {
+		/* This cmd is used only to get IFF_UP flag */
+		struct net_device *dev;
+		struct ifreq *ifr = (struct ifreq *)arg;
+		dev = dev_get_by_name(sock_net(sock->sk), ifr->ifr_name);
+		if (dev) {
+			ifr->ifr_flags = dev->flags;
+			dev_put(dev);
+			rc = 0;
+		} else {
+			rc = -ENODEV;
+		}
+	} else {
+		rc = kernel_sock_ioctl(sock, cmd, arg);
 	}
-	sock_filp = fget(fd);
-#else
-# ifdef HAVE_SOCK_ALLOC_FILE_3ARGS
-	sock_filp = sock_alloc_file(sock, 0, NULL);
-# else
-	sock_filp = sock_alloc_file(sock, 0);
-# endif
-#endif
-	if (!sock_filp) {
-		rc = -ENOMEM;
-		sock_release(sock);
-		goto out;
-	}
+	sock_release(sock);
 
-	rc = kernel_sock_unlocked_ioctl(sock_filp, cmd, arg);
-
-	fput(sock_filp);
-out:
-	if (fd >= 0)
-		sys_close(fd);
 	return rc;
 }
 
@@ -189,55 +164,29 @@ int
 lnet_ipif_enumerate(char ***namesp)
 {
 	/* Allocate and fill in 'names', returning # interfaces/error */
-	char	      **names;
-	int		toobig;
-	int		nalloc;
-	int		nfound;
-	struct ifreq   *ifr;
-	struct ifconf	ifc;
-	int		rc;
-	int		nob;
-	int		i;
+	char           **names;
+	int             toobig;
+	int             nalloc;
+	int             nfound;
+	int             rc;
+	int             nob;
+	int             i;
+	struct socket	*sock;
+	struct net_device *dev;
 
-	nalloc = 16;	/* first guess at max interfaces */
+	nalloc = 16;        /* first guess at max interfaces */
 	toobig = 0;
-	for (;;) {
-		if (nalloc * sizeof(*ifr) > PAGE_CACHE_SIZE) {
-			toobig = 1;
-			nalloc = PAGE_CACHE_SIZE/sizeof(*ifr);
-			CWARN("Too many interfaces: only enumerating "
-			      "first %d\n", nalloc);
-		}
+	nfound = 0;
 
-		LIBCFS_ALLOC(ifr, nalloc * sizeof(*ifr));
-		if (ifr == NULL) {
-			CERROR("ENOMEM enumerating up to %d interfaces\n",
-			       nalloc);
-			rc = -ENOMEM;
-			goto out0;
-		}
-
-		ifc.ifc_buf = (char *)ifr;
-		ifc.ifc_len = nalloc * sizeof(*ifr);
-
-		rc = lnet_sock_ioctl(SIOCGIFCONF, (unsigned long)&ifc);
-		if (rc < 0) {
-			CERROR("Error %d enumerating interfaces\n", rc);
-			goto out1;
-		}
-
-		LASSERT(rc == 0);
-
-		nfound = ifc.ifc_len/sizeof(*ifr);
-		LASSERT(nfound <= nalloc);
-
-		if (nfound < nalloc || toobig)
-			break;
-
-		LIBCFS_FREE(ifr, nalloc * sizeof(*ifr));
-		nalloc *= 2;
+	rc = sock_create_kern(PF_INET, SOCK_STREAM, 0, &sock);
+	if (rc != 0) {
+		CERROR("Can't create socket: %d\n", rc);
+		return rc;
 	}
 
+	for_each_netdev(sock_net(sock->sk), dev) {
+		nfound++;
+	}
 	if (nfound == 0)
 		goto out1;
 
@@ -247,12 +196,14 @@ lnet_ipif_enumerate(char ***namesp)
 		goto out1;
 	}
 
-	for (i = 0; i < nfound; i++) {
-		nob = strnlen(ifr[i].ifr_name, IFNAMSIZ);
+	i = 0;
+	for_each_netdev(sock_net(sock->sk), dev) {
+		nob = strnlen(dev->name, IFNAMSIZ);
+		CERROR("netdev %s\n", dev->name);
 		if (nob == IFNAMSIZ) {
 			/* no space for terminating NULL */
 			CERROR("interface name %.*s too long (%d max)\n",
-			       nob, ifr[i].ifr_name, IFNAMSIZ);
+			       nob, dev->name, IFNAMSIZ);
 			rc = -ENAMETOOLONG;
 			goto out2;
 		}
@@ -263,8 +214,9 @@ lnet_ipif_enumerate(char ***namesp)
 			goto out2;
 		}
 
-		memcpy(names[i], ifr[i].ifr_name, nob);
+		memcpy(names[i], dev->name, nob);
 		names[i][nob] = 0;
+		i++;
 	}
 
 	*namesp = names;
@@ -274,8 +226,7 @@ lnet_ipif_enumerate(char ***namesp)
 	if (rc < 0)
 		lnet_ipif_free_enumeration(names, nfound);
  out1:
-	LIBCFS_FREE(ifr, nalloc * sizeof(*ifr));
- out0:
+	sock_release(sock);
 	return rc;
 }
 EXPORT_SYMBOL(lnet_ipif_enumerate);
@@ -417,7 +368,7 @@ lnet_sock_create(struct socket **sockp, int *fatal,
 	/* All errors are fatal except bind failure if the port is in use */
 	*fatal = 1;
 
-	rc = sock_create(PF_INET, SOCK_STREAM, 0, &sock);
+	rc = sock_create_kern(PF_INET, SOCK_STREAM, 0, &sock);
 	*sockp = sock;
 	if (rc != 0) {
 		CERROR("Can't create socket: %d\n", rc);
@@ -565,7 +516,7 @@ lnet_sock_accept(struct socket **newsockp, struct socket *sock)
 
 	/* XXX this should add a ref to sock->ops->owner, if
 	 * TCP could be a module */
-	rc = sock_create_lite(PF_PACKET, sock->type, IPPROTO_TCP, &newsock);
+	rc = sock_create_kern(PF_INET, sock->type, IPPROTO_TCP, &newsock);
 	if (rc) {
 		CERROR("Can't allocate socket\n");
 		return rc;
