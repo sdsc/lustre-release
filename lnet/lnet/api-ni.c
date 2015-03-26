@@ -1222,7 +1222,8 @@ lnet_shutdown_lndni(struct lnet_ni *ni)
 
 static int
 lnet_startup_lndni(struct lnet_ni *ni, __s32 peer_timeout,
-		   __s32 peer_cr, __s32 peer_buf_cr, __s32 credits)
+		   __s32 peer_cr, __s32 peer_buf_cr, __s32 credits,
+		   __u32 cksum_algo)
 {
 	int			rc = -EINVAL;
 	__u32			lnd_type;
@@ -1307,6 +1308,10 @@ lnet_startup_lndni(struct lnet_ni *ni, __s32 peer_timeout,
 		ni->ni_peerrtrcredits = peer_buf_cr;
 	if (peer_timeout >= 0)
 		ni->ni_peertimeout = peer_timeout;
+	if (cksum_algo >= CFS_HASH_ALG_NULL &&
+	    cksum_algo < CFS_HASH_ALG_MAX)
+		ni->ni_cksum_algo = cksum_algo;
+
 	/*
 	 * TODO
 	 * Note: For now, don't allow the user to change
@@ -1377,7 +1382,7 @@ lnet_startup_lndnis(struct list_head *nilist)
 	while (!list_empty(nilist)) {
 		ni = list_entry(nilist->next, lnet_ni_t, ni_list);
 		list_del(&ni->ni_list);
-		rc = lnet_startup_lndni(ni, -1, -1, -1, -1);
+		rc = lnet_startup_lndni(ni, -1, -1, -1, -1, CFS_HASH_ALG_NULL);
 
 		if (rc < 0)
 			goto failed;
@@ -1653,12 +1658,14 @@ EXPORT_SYMBOL(LNetNIFini);
  * \param[out] peer_tx_crdits	NI peer transmit credits
  * \param[out] peer_rtr_credits NI peer router credits
  * \param[out] max_tx_credits	NI max transmit credit
+ * \param[out] cksum_algo	which check sum algorithm NI is using
  * \param[out] net_config	Network configuration
  */
 static void
 lnet_fill_ni_info(struct lnet_ni *ni, __u32 *cpt_count, __u64 *nid,
 		  int *peer_timeout, int *peer_tx_credits,
 		  int *peer_rtr_credits, int *max_tx_credits,
+		  enum cfs_crypto_hash_alg *cksum_algo,
 		  struct lnet_ioctl_net_config *net_config)
 {
 	int i;
@@ -1687,6 +1694,8 @@ lnet_fill_ni_info(struct lnet_ni *ni, __u32 *cpt_count, __u64 *nid,
 	*peer_tx_credits = ni->ni_peertxcredits;
 	*peer_rtr_credits = ni->ni_peerrtrcredits;
 	*max_tx_credits = ni->ni_maxtxcredits;
+	/* In the future users will be able to control this */
+	*cksum_algo = ni->ni_cksum_algo;
 
 	net_config->ni_status = ni->ni_status->ns_status;
 
@@ -1702,7 +1711,7 @@ lnet_fill_ni_info(struct lnet_ni *ni, __u32 *cpt_count, __u64 *nid,
 int
 lnet_get_net_config(int idx, __u32 *cpt_count, __u64 *nid, int *peer_timeout,
 		    int *peer_tx_credits, int *peer_rtr_credits,
-		    int *max_tx_credits,
+		    int *max_tx_credits, enum cfs_crypto_hash_alg *cksum_algo,
 		    struct lnet_ioctl_net_config *net_config)
 {
 	struct lnet_ni		*ni;
@@ -1719,7 +1728,8 @@ lnet_get_net_config(int idx, __u32 *cpt_count, __u64 *nid, int *peer_timeout,
 			lnet_ni_lock(ni);
 			lnet_fill_ni_info(ni, cpt_count, nid, peer_timeout,
 					  peer_tx_credits, peer_rtr_credits,
-					  max_tx_credits, net_config);
+					  max_tx_credits, cksum_algo,
+					  net_config);
 			lnet_ni_unlock(ni);
 			break;
 		}
@@ -1732,7 +1742,7 @@ lnet_get_net_config(int idx, __u32 *cpt_count, __u64 *nid, int *peer_timeout,
 int
 lnet_dyn_add_ni(lnet_pid_t requested_pid, char *nets,
 		__s32 peer_timeout, __s32 peer_cr, __s32 peer_buf_cr,
-		__s32 credits)
+		__s32 credits, __u32 cksum_algo)
 {
 	lnet_ping_info_t	*pinfo;
 	lnet_handle_md_t	md_handle;
@@ -1777,7 +1787,7 @@ lnet_dyn_add_ni(lnet_pid_t requested_pid, char *nets,
 	list_del_init(&ni->ni_list);
 
 	rc = lnet_startup_lndni(ni, peer_timeout, peer_cr,
-				peer_buf_cr, credits);
+				peer_buf_cr, credits, cksum_algo);
 	if (rc != 0)
 		goto failed1;
 
@@ -1958,6 +1968,8 @@ LNetCtl(unsigned int cmd, void *arg)
 						net_peer_rtr_credits,
 					   &config->cfg_config_u.cfg_net.
 						net_max_tx_credits,
+					   &config->cfg_config_u.cfg_net.
+						net_cksum_algo,
 					   net_config);
 	}
 

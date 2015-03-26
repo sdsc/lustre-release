@@ -478,6 +478,7 @@ int lnet_get_net_config(int idx,
 			int *peer_tx_credits,
 			int *peer_rtr_cr,
 			int *max_tx_credits,
+			enum cfs_crypto_hash_alg *cksum_algo,
 			struct lnet_ioctl_net_config *net_config);
 int lnet_get_rtr_pool_cfg(int idx, struct lnet_ioctl_pool_cfg *pool_cfg);
 
@@ -492,7 +493,7 @@ void lnet_rtrpools_free(int keep_pools);
 lnet_remotenet_t *lnet_find_net_locked (__u32 net);
 int lnet_dyn_add_ni(lnet_pid_t requested_pid, char *nets,
 		    __s32 peer_timeout, __s32 peer_cr, __s32 peer_buf_cr,
-		    __s32 credits);
+		    __s32 credits, enum cfs_crypto_hash_alg cksum_algo);
 int lnet_dyn_del_ni(__u32 net);
 int lnet_clear_lazy_portal(struct lnet_ni *ni, int portal, char *reason);
 
@@ -508,8 +509,9 @@ void lnet_msg_commit(lnet_msg_t *msg, int cpt);
 void lnet_msg_decommit(lnet_msg_t *msg, int cpt, int status);
 
 void lnet_eq_enqueue_event(lnet_eq_t *eq, lnet_event_t *ev);
-void lnet_prep_send(lnet_msg_t *msg, int type, lnet_process_id_t target,
-                    unsigned int offset, unsigned int len);
+int lnet_prep_send(lnet_ni_t *ni, lnet_msg_t *msg, int type,
+		    lnet_process_id_t target, unsigned int offset,
+		    unsigned int len);
 int lnet_send(lnet_nid_t nid, lnet_msg_t *msg, lnet_nid_t rtr_nid);
 void lnet_return_tx_credits_locked(lnet_msg_t *msg);
 void lnet_return_rx_credits_locked(lnet_msg_t *msg);

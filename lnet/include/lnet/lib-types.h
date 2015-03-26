@@ -50,6 +50,7 @@
 #include <linux/types.h>
 #include <net/sock.h>
 
+#include <libcfs/libcfs_crypto.h>
 #include <lnet/lnetctl.h>
 
 /* Max payload size */
@@ -116,6 +117,7 @@ typedef struct lnet_msg {
         unsigned int          msg_niov;
         struct iovec         *msg_iov;
         lnet_kiov_t          *msg_kiov;
+	char		      msg_cksum[CFS_CRYPTO_HASH_DIGESTSIZE_MAX];
 
         lnet_event_t          msg_ev;
         lnet_hdr_t            msg_hdr;
@@ -268,27 +270,41 @@ struct lnet_tx_queue {
 };
 
 typedef struct lnet_ni {
-	spinlock_t		ni_lock;
-	struct list_head	ni_list;	/* chain on ln_nis */
-	struct list_head	ni_cptlist;	/* chain on ln_nis_cpt */
-	int			ni_maxtxcredits; /* # tx credits  */
+	spinlock_t			ni_lock;
+	/* chain on ln_nis */
+	struct list_head		ni_list;
+	/* chain on ln_nis_cpt */
+	struct list_head		ni_cptlist;
+	/* # tx credits */
+	int				ni_maxtxcredits;
 	/* # per-peer send credits */
-	int			ni_peertxcredits;
+	int				ni_peertxcredits;
 	/* # per-peer router buffer credits */
-	int			ni_peerrtrcredits;
+	int				ni_peerrtrcredits;
 	/* seconds to consider peer dead */
-	int			ni_peertimeout;
-	int			ni_ncpts;	/* number of CPTs */
-	__u32			*ni_cpts;	/* bond NI on some CPTs */
-	lnet_nid_t		ni_nid;		/* interface's NID */
-	void			*ni_data;	/* instance-specific data */
-	lnd_t			*ni_lnd;	/* procedural interface */
-	struct lnet_tx_queue	**ni_tx_queues;	/* percpt TX queues */
-	int			**ni_refs;	/* percpt reference count */
-	long			ni_last_alive;	/* when I was last alive */
-	lnet_ni_status_t	*ni_status;	/* my health status */
+	int				ni_peertimeout;
+	/* Checksum algorithm */
+	enum cfs_crypto_hash_alg	ni_cksum_algo;
+	/* number of CPTs */
+	int				ni_ncpts;
+	/* bond NI on some CPTs */
+	__u32				*ni_cpts;
+	/* interface's NID */
+	lnet_nid_t			ni_nid;
+	/* instance-specific data */
+	void				*ni_data;
+	/* procedural interface */
+	lnd_t				*ni_lnd;
+	/* percpt TX queues */
+	struct lnet_tx_queue		**ni_tx_queues;
+	/* percpt reference count */
+	int				**ni_refs;
+	/* when I was last alive */
+	long				ni_last_alive;
+	/* my health status */
+	lnet_ni_status_t		*ni_status;
 	/* equivalent interfaces to use */
-	char			*ni_interfaces[LNET_MAX_INTERFACES];
+	char				*ni_interfaces[LNET_MAX_INTERFACES];
 } lnet_ni_t;
 
 #define LNET_PROTO_PING_MATCHBITS	0x8000000000000000LL
