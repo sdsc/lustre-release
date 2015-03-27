@@ -65,6 +65,7 @@ cfs_time_t cfs_timer_deadline(struct timer_list *t);
 #else
 # define NUM_CACHEPAGES totalram_pages
 #endif
+#include <libcfs/linux/linux-prim.h>
 
 #define memory_pressure_get() (current->flags & PF_MEMALLOC)
 #define memory_pressure_set() do { current->flags |= PF_MEMALLOC; } while (0)

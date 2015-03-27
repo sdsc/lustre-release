@@ -100,6 +100,14 @@
 /*
  *  GENERAL STUFF
  */
+#ifndef min
+# define min(x, y) ((x) < (y) ? (x) : (y))
+#endif
+
+#ifndef max
+# define max(x, y) ((x) > (y) ? (x) : (y))
+#endif
+
 /* FOO_REQUEST_PORTAL is for incoming requests on the FOO
  * FOO_REPLY_PORTAL   is for incoming replies on the FOO
  * FOO_BULK_PORTAL    is for incoming bulk on the FOO

@@ -31,5 +31,4 @@ EXTRA_DIST = \
 	types.h \
 	user-bitops.h \
 	user-crypto.h \
-	user-prim.h \
 	user-time.h
