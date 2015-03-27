@@ -815,6 +815,7 @@ int mdt_hsm_copytool_send(struct obd_export *exp);
 /* lprocfs stuff */
 enum {
         LPROC_MDT_OPEN = 0,
+	LPROC_MDT_CREAT,
         LPROC_MDT_CLOSE,
         LPROC_MDT_MKNOD,
         LPROC_MDT_LINK,

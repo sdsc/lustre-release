@@ -142,8 +142,11 @@
 
 /*
  * Max age for locks on clients.
+ * Terascala: Set to default 2 minute max age
+ *      Units are seconds.
+ *      This actually kicks in lru eviction after 7 minutes at this setting.
  */
-#define LDLM_POOL_MAX_AGE (36000)
+static u_int32_t ldlm_pool_max_age=120;
 
 /*
  * The granularity of SLV calculation.
@@ -161,12 +164,12 @@ static inline __u64 dru(__u64 val, __u32 shift, int round_up)
 
 static inline __u64 ldlm_pool_slv_max(__u32 L)
 {
-        /*
-         * Allow to have all locks for 1 client for 10 hrs.
-         * Formula is the following: limit * 10h / 1 client.
-         */
-        __u64 lim = (__u64)L *  LDLM_POOL_MAX_AGE / 1;
-        return lim;
+	/*
+	 * Allow to have all locks for 1 client for 10 minutes.
+	 * Formula is the following: limit * 2 min / 1 client.
+	 */
+	__u64 lim = (__u64)L *  ldlm_pool_max_age / 1; /* Terascala */
+	return lim;
 }
 
 static inline __u64 ldlm_pool_slv_min(__u32 L)
@@ -804,6 +807,13 @@ static int ldlm_pool_proc_init(struct ldlm_pool *pl)
         pool_vars[0].read_fptr = lprocfs_rd_atomic;
         pool_vars[0].write_fptr = lprocfs_wr_atomic;
         lprocfs_add_vars(pl->pl_proc_dir, pool_vars, 0);
+
+	/* Terascala */
+	snprintf(var_name, MAX_STRING_SIZE, "ldlm_pool_max_age");
+	pool_vars[0].data = &ldlm_pool_max_age;
+	pool_vars[0].read_fptr = lprocfs_rd_uint;
+	pool_vars[0].write_fptr = lprocfs_wr_uint;
+	lprocfs_add_vars(pl->pl_proc_dir, pool_vars, 0);
 
         snprintf(var_name, MAX_STRING_SIZE, "state");
         pool_vars[0].data = pl;

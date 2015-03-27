@@ -1430,6 +1430,7 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
                         if (result != 0)
                                 GOTO(out_child, result);
                 }
+		mdt_counter_incr(req->rq_export, LPROC_MDT_CREAT);
                 created = 1;
         } else {
                 /* We have to get attr & lov ea for this object */

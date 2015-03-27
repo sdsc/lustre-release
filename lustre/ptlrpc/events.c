@@ -67,6 +67,7 @@ void request_out_callback(lnet_event_t *ev)
                  ev->type == LNET_EVENT_UNLINK);
         LASSERT (ev->unlinked);
 
+	if (0) // Debug message removed by Terascala
         DEBUG_REQ(D_NET, req, "type %d, status %d", ev->type, ev->status);
 
         sptlrpc_request_out_callback(req);

@@ -1039,6 +1039,7 @@ void mdt_counter_incr(struct obd_export *exp, int opcode)
 void mdt_stats_counter_init(struct lprocfs_stats *stats)
 {
         lprocfs_counter_init(stats, LPROC_MDT_OPEN, 0, "open", "reqs");
+	lprocfs_counter_init(stats, LPROC_MDT_CREAT, 0, "file_create", "reqs");
         lprocfs_counter_init(stats, LPROC_MDT_CLOSE, 0, "close", "reqs");
         lprocfs_counter_init(stats, LPROC_MDT_MKNOD, 0, "mknod", "reqs");
         lprocfs_counter_init(stats, LPROC_MDT_LINK, 0, "link", "reqs");
