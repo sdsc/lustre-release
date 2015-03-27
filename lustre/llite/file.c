@@ -653,12 +653,6 @@ restart:
 
         ll_capa_open(inode);
 
-	if (!lli->lli_has_smd &&
-	    (cl_is_lov_delay_create(file->f_flags) ||
-	     (file->f_mode & FMODE_WRITE) == 0)) {
-		CDEBUG(D_INODE, "object creation was delayed\n");
-		GOTO(out_och_free, rc);
-	}
 	cl_lov_delay_create_clear(&file->f_flags);
 	GOTO(out_och_free, rc);
 
@@ -3587,7 +3581,6 @@ int ll_layout_conf(struct inode *inode, const struct cl_object_conf *conf)
 		       PFID(&lli->lli_fid), ll_layout_version_get(lli),
 		       layout.cl_layout_gen);
 		ll_layout_version_set(lli, layout.cl_layout_gen);
-		lli->lli_has_smd = lsm_has_objects(conf->u.coc_md->lsm);
 	}
 
 out:
