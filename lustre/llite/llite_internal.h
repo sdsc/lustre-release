@@ -253,7 +253,6 @@ struct ll_inode_info {
          *      In the future, if more members are added only for directory,
          *      some of the following members can be moved into u.f.
          */
-	bool                            lli_has_smd;
 	struct cl_object		*lli_clob;
 
 	/* mutex to request for layout lock exclusively. */
