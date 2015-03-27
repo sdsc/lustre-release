@@ -1056,6 +1056,7 @@ static int ptlrpc_import_delay_req(struct obd_import *imp,
                         *status = -EIO;
                 }
         } else if (imp->imp_invalid || imp->imp_obd->obd_no_recov) {
+		if (0) // Debug message removed by Terascala
                 if (!imp->imp_deactive)
                           DEBUG_REQ(D_ERROR, req, "IMP_INVALID");
                 *status = -ESHUTDOWN; /* bz 12940 */

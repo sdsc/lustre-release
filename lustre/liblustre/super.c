@@ -141,6 +141,7 @@ void llu_update_inode(struct inode *inode, struct lustre_md *md)
         struct mdt_body *body = md->body;
         struct lov_stripe_md *lsm = md->lsm;
         struct intnl_stat *st = llu_i2stat(inode);
+	struct ll_sb_info *sbi = ll_i2sbi(inode);
 
         LASSERT ((lsm != NULL) == ((body->valid & OBD_MD_FLEASIZE) != 0));
 
@@ -181,7 +182,8 @@ void llu_update_inode(struct inode *inode, struct lustre_md *md)
                 lli->lli_lvb.lvb_ctime = body->ctime;
         }
         if (S_ISREG(st->st_mode))
-                st->st_blksize = min(2UL * PTLRPC_MAX_BRW_SIZE, LL_MAX_BLKSIZE);
+		st->st_blksize = min(2UL * PTLRPC_MAX_BRW_SIZE,
+				     1UL<< sbi->ll_max_blksize_bits);
         else
                 st->st_blksize = 4096;
         if (body->valid & OBD_MD_FLUID)
