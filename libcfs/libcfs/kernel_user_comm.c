@@ -42,6 +42,9 @@
 #define DEBUG_SUBSYSTEM S_CLASS
 #define D_KUC D_OTHER
 
+#ifndef __KERNEL__
+# include <unistd.h>
+#endif /* !__KERNEL__ */
 #include <libcfs/libcfs.h>
 
 #ifdef LUSTRE_UTILS
@@ -190,14 +193,9 @@ int libcfs_kkuc_msg_put(struct file *filp, void *payload)
         }
 
 #ifdef __KERNEL__
-	{
-		loff_t offset = 0;
-		rc = filp_user_write(filp, payload, kuch->kuc_msglen,
-				     &offset);
-	}
+	rc = kernel_write(filp, payload, kuch->kuc_msglen, 0);
 #endif
-
-        if (rc < 0)
+	if (rc < kuch->kuc_msglen)
                 CWARN("message send failed (%d)\n", rc);
         else
                 CDEBUG(D_KUC, "Sent message rc=%d, fp=%p\n", rc, filp);

@@ -665,8 +665,6 @@ int cfs_tracefile_dump_all_pages(char *filename)
 	struct cfs_trace_page	*tmp;
 	int rc;
 
-	DECL_MMSPACE;
-
 	cfs_tracefile_write_lock();
 
 	filp = filp_open(filename, O_CREAT|O_EXCL|O_WRONLY|O_LARGEFILE, 0600);
@@ -687,13 +685,12 @@ int cfs_tracefile_dump_all_pages(char *filename)
 
         /* ok, for now, just write the pages.  in the future we'll be building
          * iobufs with the pages and calling generic_direct_IO */
-	MMSPACE_OPEN;
 	list_for_each_entry_safe(tage, tmp, &pc.pc_pages, linkage) {
 
                 __LASSERT_TAGE_INVARIANT(tage);
 
-		rc = filp_write(filp, page_address(tage->page),
-				tage->used, filp_poff(filp));
+		rc = kernel_write(filp, page_address(tage->page),
+				  tage->used, filp->f_pos);
 		if (rc != (int)tage->used) {
 			printk(KERN_WARNING "wanted to write %u but wrote "
 			       "%d\n", tage->used, rc);
@@ -704,7 +701,6 @@ int cfs_tracefile_dump_all_pages(char *filename)
 		list_del(&tage->linkage);
                 cfs_tage_free(tage);
         }
-	MMSPACE_CLOSE;
 	rc = ll_vfs_fsync_range(filp, 0, LLONG_MAX, 1);
 	if (rc)
 		printk(KERN_ERR "sync returns %d\n", rc);
@@ -955,8 +951,6 @@ static int tracefiled(void *arg)
 	int last_loop = 0;
 	int rc;
 
-	DECL_MMSPACE;
-
 	/* we're started late enough that we pick up init's fs context */
 	/* this is so broken in uml?  what on earth is going on? */
 
@@ -990,8 +984,6 @@ static int tracefiled(void *arg)
                         goto end_loop;
                 }
 
-		MMSPACE_OPEN;
-
 		list_for_each_entry_safe(tage, tmp, &pc.pc_pages, linkage) {
                         static loff_t f_pos;
 
@@ -1002,8 +994,8 @@ static int tracefiled(void *arg)
 			else if (f_pos > (off_t)filp_size(filp))
 				f_pos = filp_size(filp);
 
-			rc = filp_write(filp, page_address(tage->page),
-					tage->used, &f_pos);
+			rc = kernel_write(filp, page_address(tage->page),
+					  tage->used, f_pos);
 			if (rc != (int)tage->used) {
 				printk(KERN_WARNING "wanted to write %u "
 				       "but wrote %d\n", tage->used, rc);
@@ -1012,7 +1004,6 @@ static int tracefiled(void *arg)
 				break;
 			}
                 }
-		MMSPACE_CLOSE;
 
 		filp_close(filp, NULL);
                 put_pages_on_daemon_list(&pc);

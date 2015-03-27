@@ -22,6 +22,7 @@
 
 #define __USE_FILE_OFFSET64
 
+#include <unistd.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <libcfs/libcfsutil.h>

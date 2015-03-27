@@ -83,8 +83,10 @@
 #define flock_end(fl)			((fl)->fl_end)
 #define flock_set_end(fl, end)		do { (fl)->fl_end = (end); } while (0)
 
-ssize_t filp_user_write(struct file *filp, const void *buf, size_t count,
-			loff_t *offset);
+#ifndef HAVE_KERNEL_WRITE
+ssize_t kernel_write(struct file *filp, const void *buf, size_t count,
+		     loff_t offset);
+#endif
 
 #ifndef IFSHIFT
 #define IFSHIFT			12
