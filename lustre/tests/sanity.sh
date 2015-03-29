@@ -12180,6 +12180,29 @@ test_238() {
 	rm -f $DIR/$tfile*
 }
 run_test 238 "Verify linkea consistency"
+
+test_251() {
+	local server_version=$(lustre_version_code $SINGLEMDS)
+
+	[[ $server_version -ge $(version_code 2.7.52) ]] ||
+	[[ $server_version -ge $(version_code 2.5.3) &&
+	   $server_version -lt $(version_code 2.5.11) ]] ||
+		{ skip "Need MDS version at least 2.7.52 or 2.5.4"; return; }
+
+	$SETSTRIPE -c -1 -S 1048576 $DIR/$tfile
+	dd if=/dev/zero of=$DIR/$tfile bs=2M count=1
+
+	#define OBD_FAIL_LLITE_LOST_LAYOUT 0x1407
+	$LCTL set_param fail_loc=0xa0001407
+	$LCTL set_param fail_val=1
+
+	$MULTIOP $DIR/$tfile or2097152c 2>&1 | grep -q "short read" &&
+		error "short read happened"
+
+	rm -f $DIR/$tfile
+}
+run_test 251 "Handling short read and write correctly"
+
 #
 # tests that do cleanup/setup should be run at the end
 #
