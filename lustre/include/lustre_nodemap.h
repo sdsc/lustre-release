@@ -62,7 +62,7 @@ struct lu_nodemap {
 				nmf_hmac_required:1,
 				nmf_encryption_required:1;
 	/* unique ID set by MGS */
-	int			nm_id;
+	unsigned int		nm_id;
 	/* nodemap ref counter */
 	atomic_t		nm_refcount;
 	/* UID to squash unmapped UIDs */

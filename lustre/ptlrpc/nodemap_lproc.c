@@ -52,10 +52,18 @@
  */
 static int nodemap_idmap_show(struct seq_file *m, void *data)
 {
-	struct lu_nodemap	*nodemap = m->private;
+	struct lu_nodemap	*nodemap;
 	struct lu_idmap		*idmap;
 	struct rb_node		*node;
 	bool			cont = 0;
+	int rc;
+
+	rc = nodemap_lookup(m->private, &nodemap);
+	if (rc < 0) {
+		CERROR("lprocfs unable to find nodemap %s\n",
+		       (char *)m->private);
+		return -EINVAL;
+	}
 
 	seq_printf(m, "[\n");
 	read_lock(&nodemap->nm_idmap_lock);
@@ -84,6 +92,7 @@ static int nodemap_idmap_show(struct seq_file *m, void *data)
 	seq_printf(m, "\n");
 	seq_printf(m, "]\n");
 
+	nodemap_putref(nodemap);
 	return 0;
 }
 
@@ -110,15 +119,23 @@ static int nodemap_idmap_open(struct inode *inode, struct file *file)
  */
 static int nodemap_ranges_show(struct seq_file *m, void *data)
 {
-	struct lu_nodemap		*nodemap = m->private;
+	struct lu_nodemap		*nodemap;
 	struct lu_nid_range		*range;
 	struct interval_node_extent	ext;
 	char				start_nidstr[LNET_NIDSTR_SIZE];
 	char				end_nidstr[LNET_NIDSTR_SIZE];
 	bool				cont = false;
+	int rc;
+
+	rc = nodemap_lookup(m->private, &nodemap);
+	if (rc < 0) {
+		CERROR("lprocfs unable to find nodemap %s\n",
+		       (char *)m->private);
+		return -EINVAL;
+	}
 
 	seq_printf(m, "[\n");
-	read_lock(&nm_range_tree_lock);
+	nodemap_lock_active_ranges();
 	list_for_each_entry(range, &nodemap->nm_ranges, rn_list) {
 		if (cont)
 			seq_printf(m, ",\n");
@@ -129,10 +146,11 @@ static int nodemap_ranges_show(struct seq_file *m, void *data)
 		seq_printf(m, " { id: %u, start_nid: %s, end_nid: %s }",
 			   range->rn_id, start_nidstr, end_nidstr);
 	}
-	read_unlock(&nm_range_tree_lock);
+	nodemap_unlock_active_ranges();
 	seq_printf(m, "\n");
 	seq_printf(m, "]\n");
 
+	nodemap_putref(nodemap);
 	return 0;
 }
 
@@ -188,7 +206,15 @@ static int nodemap_exports_show_cb(cfs_hash_t *hs, cfs_hash_bd_t *bd,
  */
 static int nodemap_exports_show(struct seq_file *m, void *data)
 {
-	struct lu_nodemap	*nodemap = m->private;
+	struct lu_nodemap		*nodemap;
+	int rc;
+
+	rc = nodemap_lookup(m->private, &nodemap);
+	if (rc < 0) {
+		CERROR("lprocfs unable to find nodemap %s\n",
+		       (char *)m->private);
+		return -EINVAL;
+	}
 
 	seq_printf(m, "[\n");
 
@@ -197,6 +223,7 @@ static int nodemap_exports_show(struct seq_file *m, void *data)
 	seq_printf(m, "\n");
 	seq_printf(m, "]\n");
 
+	nodemap_putref(nodemap);
 	return 0;
 }
 
@@ -258,7 +285,7 @@ nodemap_active_seq_write(struct file *file, const char __user *buffer,
 	if (rc != 0)
 		return -EINVAL;
 
-	nodemap_active = active;
+	nodemap_activate(active);
 
 	return count;
 }
@@ -273,9 +300,19 @@ LPROC_SEQ_FOPS(nodemap_active);
  */
 static int nodemap_id_seq_show(struct seq_file *m, void *data)
 {
-	struct lu_nodemap *nodemap = m->private;
+	struct lu_nodemap *nodemap;
+	int rc;
 
-	return seq_printf(m, "%u\n", nodemap->nm_id);
+	rc = nodemap_lookup(m->private, &nodemap);
+	if (rc < 0) {
+		CERROR("lprocfs unable to find nodemap %s\n",
+		       (char *)m->private);
+		return -EINVAL;
+	}
+
+	rc = seq_printf(m, "%u\n", nodemap->nm_id);
+	nodemap_putref(nodemap);
+	return rc;
 }
 LPROC_SEQ_FOPS_RO(nodemap_id);
 
@@ -288,9 +325,19 @@ LPROC_SEQ_FOPS_RO(nodemap_id);
  */
 static int nodemap_squash_uid_seq_show(struct seq_file *m, void *data)
 {
-	struct lu_nodemap *nodemap = m->private;
+	struct lu_nodemap *nodemap;
+	int rc;
 
-	return seq_printf(m, "%u\n", nodemap->nm_squash_uid);
+	rc = nodemap_lookup(m->private, &nodemap);
+	if (rc < 0) {
+		CERROR("lprocfs unable to find nodemap %s\n",
+		       (char *)m->private);
+		return -EINVAL;
+	}
+
+	rc = seq_printf(m, "%u\n", nodemap->nm_squash_uid);
+	nodemap_putref(nodemap);
+	return rc;
 }
 
 /**
@@ -302,9 +349,19 @@ static int nodemap_squash_uid_seq_show(struct seq_file *m, void *data)
  */
 static int nodemap_squash_gid_seq_show(struct seq_file *m, void *data)
 {
-	struct lu_nodemap *nodemap = m->private;
+	struct lu_nodemap *nodemap;
+	int rc;
 
-	return seq_printf(m, "%u\n", nodemap->nm_squash_gid);
+	rc = nodemap_lookup(m->private, &nodemap);
+	if (rc < 0) {
+		CERROR("lprocfs unable to find nodemap %s\n",
+		       (char *)m->private);
+		return -EINVAL;
+	}
+
+	rc = seq_printf(m, "%u\n", nodemap->nm_squash_gid);
+	nodemap_putref(nodemap);
+	return rc;
 }
 
 /**
@@ -316,9 +373,19 @@ static int nodemap_squash_gid_seq_show(struct seq_file *m, void *data)
  */
 static int nodemap_trusted_seq_show(struct seq_file *m, void *data)
 {
-	struct lu_nodemap *nodemap = m->private;
+	struct lu_nodemap *nodemap;
+	int rc;
 
-	return seq_printf(m, "%d\n", (int)nodemap->nmf_trust_client_ids);
+	rc = nodemap_lookup(m->private, &nodemap);
+	if (rc < 0) {
+		CERROR("lprocfs unable to find nodemap %s\n",
+		       (char *)m->private);
+		return -EINVAL;
+	}
+
+	rc = seq_printf(m, "%d\n", (int)nodemap->nmf_trust_client_ids);
+	nodemap_putref(nodemap);
+	return rc;
 }
 
 /**
@@ -330,9 +397,19 @@ static int nodemap_trusted_seq_show(struct seq_file *m, void *data)
  */
 static int nodemap_admin_seq_show(struct seq_file *m, void *data)
 {
-	struct lu_nodemap *nodemap = m->private;
+	struct lu_nodemap *nodemap;
+	int rc;
 
-	return seq_printf(m, "%d\n", (int)nodemap->nmf_allow_root_access);
+	rc = nodemap_lookup(m->private, &nodemap);
+	if (rc < 0) {
+		CERROR("lprocfs unable to find nodemap %s\n",
+		       (char *)m->private);
+		return -EINVAL;
+	}
+
+	rc = seq_printf(m, "%d\n", (int)nodemap->nmf_allow_root_access);
+	nodemap_putref(nodemap);
+	return rc;
 }
 
 #ifdef NODEMAP_PROC_DEBUG
@@ -387,7 +464,7 @@ nodemap_squash_uid_seq_write(struct file *file, const char __user *buffer,
 {
 	char			 squash[NODEMAP_LPROC_ID_LEN + 1];
 	struct seq_file		*m = file->private_data;
-	struct lu_nodemap	*nodemap = m->private;
+	struct lu_nodemap	*nodemap;
 	long unsigned int	 squash_uid;
 	int			 rc;
 
@@ -405,8 +482,16 @@ nodemap_squash_uid_seq_write(struct file *file, const char __user *buffer,
 	if (rc != 0)
 		return -EINVAL;
 
+	rc = nodemap_lookup(m->private, &nodemap);
+	if (rc < 0) {
+		CERROR("lprocfs unable to find nodemap %s\n",
+		       (char *)m->private);
+		return -EINVAL;
+	}
+
 	nodemap->nm_squash_uid = squash_uid;
 
+	nodemap_putref(nodemap);
 	return count;
 }
 
@@ -426,7 +511,7 @@ nodemap_squash_gid_seq_write(struct file *file, const char __user *buffer,
 {
 	char			 squash[NODEMAP_LPROC_ID_LEN + 1];
 	struct seq_file		*m = file->private_data;
-	struct lu_nodemap	*nodemap = m->private;
+	struct lu_nodemap	*nodemap;
 	long unsigned int	 squash_gid;
 	int			 rc;
 
@@ -444,8 +529,16 @@ nodemap_squash_gid_seq_write(struct file *file, const char __user *buffer,
 	if (rc != 0)
 		return -EINVAL;
 
+	rc = nodemap_lookup(m->private, &nodemap);
+	if (rc < 0) {
+		CERROR("lprocfs unable to find nodemap %s\n",
+		       (char *)m->private);
+		return -EINVAL;
+	}
+
 	nodemap->nm_squash_gid = squash_gid;
 
+	nodemap_putref(nodemap);
 	return count;
 }
 
@@ -464,9 +557,16 @@ nodemap_trusted_seq_write(struct file *file, const char __user *buffer,
 			  size_t count, loff_t *off)
 {
 	struct seq_file		*m = file->private_data;
-	struct lu_nodemap	*nodemap = m->private;
+	struct lu_nodemap	*nodemap;
 	int			flags;
 	int			rc;
+
+	rc = nodemap_lookup(m->private, &nodemap);
+	if (rc < 0) {
+		CERROR("lprocfs unable to find nodemap %s\n",
+		       (char *)m->private);
+		return -EINVAL;
+	}
 
 	rc = nodemap_proc_read_flag(buffer, count, &flags);
 	if (rc >= 0) {
@@ -474,7 +574,8 @@ nodemap_trusted_seq_write(struct file *file, const char __user *buffer,
 		nm_member_revoke_locks(nodemap);
 	}
 
-	return rc;
+	nodemap_putref(nodemap);
+	return count;
 }
 
 /**
@@ -492,9 +593,16 @@ nodemap_admin_seq_write(struct file *file, const char __user *buffer,
 			size_t count, loff_t *off)
 {
 	struct seq_file		*m = file->private_data;
-	struct lu_nodemap	*nodemap = m->private;
+	struct lu_nodemap	*nodemap;
 	int			flags;
 	int			rc;
+
+	rc = nodemap_lookup(m->private, &nodemap);
+	if (rc < 0) {
+		CERROR("lprocfs unable to find nodemap %s\n",
+		       (char *)m->private);
+		return -EINVAL;
+	}
 
 	rc = nodemap_proc_read_flag(buffer, count, &flags);
 	if (rc >= 0) {
@@ -502,7 +610,8 @@ nodemap_admin_seq_write(struct file *file, const char __user *buffer,
 		nm_member_revoke_locks(nodemap);
 	}
 
-	return rc;
+	nodemap_putref(nodemap);
+	return count;
 }
 
 /**
@@ -1064,12 +1173,12 @@ int lprocfs_nodemap_register(const char *name,
 		nodemap_proc_entry =
 			lprocfs_register(name, proc_lustre_nodemap_root,
 					 lprocfs_default_nodemap_vars,
-					 nodemap);
+					 nodemap->nm_name);
 	else
 		nodemap_proc_entry =
 			lprocfs_register(name, proc_lustre_nodemap_root,
 					 lprocfs_nodemap_vars,
-					 nodemap);
+					 nodemap->nm_name);
 
 	if (IS_ERR(nodemap_proc_entry)) {
 		rc = PTR_ERR(nodemap_proc_entry);
