@@ -1521,7 +1521,6 @@ extern int cl_inode_fini_refcheck;
 
 int cl_file_inode_init(struct inode *inode, struct lustre_md *md);
 void cl_inode_fini(struct inode *inode);
-int cl_local_size(struct inode *inode);
 
 u64 cl_fid_build_ino(const struct lu_fid *fid, int api32);
 u32 cl_fid_build_gen(const struct lu_fid *fid);

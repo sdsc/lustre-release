@@ -1657,13 +1657,9 @@ enum cl_enq_flags {
          */
         CEF_AGL          = 0x00000020,
 	/**
-	 * enqueue a lock to test DLM lock existence.
-	 */
-	CEF_PEEK	= 0x00000040,
-	/**
 	 * mask of enq_flags.
 	 */
-	CEF_MASK         = 0x0000007f,
+	CEF_MASK         = 0x0000003f,
 };
 
 /**

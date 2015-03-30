@@ -171,8 +171,6 @@ static __u64 osc_enq2ldlm_flags(__u32 enqflags)
 		result |= LDLM_FL_HAS_INTENT;
 	if (enqflags & CEF_DISCARD_DATA)
 		result |= LDLM_FL_AST_DISCARD_DATA;
-	if (enqflags & CEF_PEEK)
-		result |= LDLM_FL_TEST_LOCK;
 	return result;
 }
 
