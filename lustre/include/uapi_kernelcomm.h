@@ -35,52 +35,43 @@
  *
  * Author: Nathan Rutman <nathan.rutman@sun.com>
  *
- * libcfs/include/libcfs/libcfs_kernelcomm.h
- *
  * Kernel <-> userspace communication routines.
  * The definitions below are used in the kernel and userspace.
  *
  */
 
-#ifndef __LIBCFS_KERNELCOMM_H__
-#define __LIBCFS_KERNELCOMM_H__
+#ifndef __UAPI_KERNELCOMM_H__
+#define __UAPI_KERNELCOMM_H__
 
-#ifndef __LIBCFS_LIBCFS_H__
-#error Do not #include this file directly. #include <libcfs/libcfs.h> instead
-#endif
-
+#include <linux/types.h>
 
 /* KUC message header.
  * All current and future KUC messages should use this header.
  * To avoid having to include Lustre headers from libcfs, define this here.
  */
 struct kuc_hdr {
-        __u16 kuc_magic;
-        __u8  kuc_transport;  /* Each new Lustre feature should use a different
-                                 transport */
-        __u8  kuc_flags;
-        __u16 kuc_msgtype;    /* Message type or opcode, transport-specific */
-        __u16 kuc_msglen;     /* Including header */
+	__u16 kuc_magic;
+	__u8  kuc_transport;  /* Each new Lustre feature should use a different
+				 transport */
+	__u8  kuc_flags;
+	__u16 kuc_msgtype;    /* Message type or opcode, transport-specific */
+	__u16 kuc_msglen;     /* Including header */
 } __attribute__((aligned(sizeof(__u64))));
 
 #define KUC_CHANGELOG_MSG_MAXSIZE (sizeof(struct kuc_hdr)+CR_MAXSIZE)
 
 #define KUC_MAGIC  0x191C /*Lustre9etLinC */
-#define KUC_FL_BLOCK 0x01   /* Wait for send */
 
 /* kuc_msgtype values are defined in each transport */
 enum kuc_transport_type {
-        KUC_TRANSPORT_GENERIC   = 1,
-        KUC_TRANSPORT_HSM       = 2,
-        KUC_TRANSPORT_CHANGELOG = 3,
+	KUC_TRANSPORT_GENERIC   = 1,
+	KUC_TRANSPORT_HSM       = 2,
+	KUC_TRANSPORT_CHANGELOG = 3,
 };
 
 enum kuc_generic_message_type {
-        KUC_MSG_SHUTDOWN = 1,
+	KUC_MSG_SHUTDOWN = 1,
 };
-
-/* prototype for callback function on kuc groups */
-typedef int (*libcfs_kkuc_cb_t)(void *data, void *cb_arg);
 
 /* KUC Broadcast Groups. This determines which userspace process hears which
  * messages.  Mutliple transports may be used within a group, or multiple
@@ -88,37 +79,20 @@ typedef int (*libcfs_kkuc_cb_t)(void *data, void *cb_arg);
  * groups need not be used if e.g. a UID is specified instead;
  * use group 0 to signify unicast.
  */
-#define KUC_GRP_HSM           0x02
-#define KUC_GRP_MAX           KUC_GRP_HSM
-
-/* Kernel methods */
-extern int libcfs_kkuc_msg_put(struct file *fp, void *payload);
-extern int libcfs_kkuc_group_put(int group, void *payload);
-extern int libcfs_kkuc_group_add(struct file *fp, int uid, int group,
-				 void *data);
-extern int libcfs_kkuc_group_rem(int uid, int group, void **pdata);
-extern int libcfs_kkuc_group_foreach(int group, libcfs_kkuc_cb_t cb_func,
-				     void *cb_arg);
+#define KUC_GRP_HSM	0x02
+#define KUC_GRP_MAX	KUC_GRP_HSM
 
 #define LK_FLG_STOP 0x01
 #define LK_NOFD -1U
 
 /* kernelcomm control structure, passed from userspace to kernel */
-typedef struct lustre_kernelcomm {
-        __u32 lk_wfd;
-        __u32 lk_rfd;
-        __u32 lk_uid;
-        __u32 lk_group;
-        __u32 lk_data;
-        __u32 lk_flags;
-} __attribute__((packed)) lustre_kernelcomm;
+struct lustre_kernelcomm {
+	__u32 lk_wfd;
+	__u32 lk_rfd;
+	__u32 lk_uid;
+	__u32 lk_group;
+	__u32 lk_data;
+	__u32 lk_flags;
+} __attribute__((packed));
 
-/* Userspace methods */
-extern int libcfs_ukuc_start(lustre_kernelcomm *l, int groups, int rfd_flags);
-extern int libcfs_ukuc_stop(lustre_kernelcomm *l);
-int libcfs_ukuc_get_rfd(lustre_kernelcomm *link);
-extern int libcfs_ukuc_msg_get(lustre_kernelcomm *l, char *buf, int maxsize,
-                               int transport);
-
-#endif /* __LIBCFS_KERNELCOMM_H__ */
-
+#endif	/* __UAPI_KERNELCOMM_H__ */

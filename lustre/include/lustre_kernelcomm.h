@@ -24,46 +24,39 @@
  * GPL HEADER END
  */
 /*
- * Copyright (c) 2008, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2009, 2010, Oracle and/or its affiliates. All rights reserved.
  * Use is subject to license terms.
  *
- * Copyright (c) 2014, Intel Corporation.
+ * Copyright (c) 2013, Intel Corporation.
  */
 /*
  * This file is part of Lustre, http://www.lustre.org/
  * Lustre is a trademark of Sun Microsystems, Inc.
+ *
+ * Author: Nathan Rutman <nathan.rutman@sun.com>
+ *
+ * Kernel <-> userspace communication routines.
+ * The definitions below are used in the kernel and userspace.
+ *
  */
 
-# define DEBUG_SUBSYSTEM S_LNET
+#ifndef __LUSTRE_KERNELCOMM_H__
+#define __LUSTRE_KERNELCOMM_H__
 
-#include <linux/fs.h>
-#include <linux/kdev_t.h>
-#include <linux/ctype.h>
-#include <asm/uaccess.h>
+/* For declarations shared with userspace */
+#include <uapi_kernelcomm.h>
 
-#include <libcfs/libcfs.h>
+/* prototype for callback function on kuc groups */
+typedef int (*libcfs_kkuc_cb_t)(void *data, void *cb_arg);
 
-/* write a userspace buffer to disk.
- * NOTE: this returns 0 on success, not the number of bytes written. */
-ssize_t
-filp_user_write(struct file *filp, const void *buf, size_t count,
-		loff_t *offset)
-{
-	mm_segment_t fs;
-	ssize_t size = 0;
+/* Kernel methods */
+int libcfs_kkuc_msg_put(struct file *fp, void *payload);
+int libcfs_kkuc_group_put(int group, void *payload);
+int libcfs_kkuc_group_add(struct file *fp, int uid, int group,
+			  void *data);
+int libcfs_kkuc_group_rem(int uid, int group, void **pdata);
+int libcfs_kkuc_group_foreach(int group, libcfs_kkuc_cb_t cb_func,
+			      void *cb_arg);
 
-	fs = get_fs();
-	set_fs(KERNEL_DS);
-	while ((ssize_t)count > 0) {
-		size = vfs_write(filp, (const void __user *)buf, count, offset);
-		if (size < 0)
-			break;
-		count -= size;
-                buf += size;
-		size = 0;
-	}
-	set_fs(fs);
+#endif /* __LUSTRE_KERNELCOMM_H__ */
 
-	return size;
-}
-EXPORT_SYMBOL(filp_user_write);
