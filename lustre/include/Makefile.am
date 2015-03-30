@@ -92,4 +92,5 @@ EXTRA_DIST = \
 	obd.h \
 	obd_support.h \
 	obd_target.h \
-	upcall_cache.h
+	upcall_cache.h \
+	uapi/kernel_comm.h
