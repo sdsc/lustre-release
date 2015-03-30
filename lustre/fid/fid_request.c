@@ -62,6 +62,7 @@ static int seq_client_rpc(struct lu_client_seq *seq,
 	__u32                 *op;
 	unsigned int           debug_mask;
 	int                    rc;
+	bool		       is_mdc;
 	ENTRY;
 
 	LASSERT(exp != NULL && !IS_ERR(exp));
@@ -112,13 +113,22 @@ static int seq_client_rpc(struct lu_client_seq *seq,
 
 	ptlrpc_at_set_req_timeout(req);
 
-	if (opc != SEQ_ALLOC_SUPER && seq->lcs_type == LUSTRE_SEQ_METADATA)
-		mdc_get_rpc_lock(exp->exp_obd->u.cli.cl_rpc_lock, NULL);
+	is_mdc = strcmp(exp->exp_obd->obd_type->typ_name, LUSTRE_MDC_NAME) == 0;
+	if (opc != SEQ_ALLOC_SUPER && seq->lcs_type == LUSTRE_SEQ_METADATA) {
+		if (is_mdc)
+			mdc_get_mod_rpc_slot(req, NULL);
+		else
+			mdc_get_rpc_lock(exp->exp_obd->u.cli.cl_rpc_lock, NULL);
+	}
 
 	rc = ptlrpc_queue_wait(req);
 
-	if (opc != SEQ_ALLOC_SUPER && seq->lcs_type == LUSTRE_SEQ_METADATA)
-		mdc_put_rpc_lock(exp->exp_obd->u.cli.cl_rpc_lock, NULL);
+	if (opc != SEQ_ALLOC_SUPER && seq->lcs_type == LUSTRE_SEQ_METADATA) {
+		if (is_mdc)
+			mdc_put_mod_rpc_slot(req, NULL);
+		else
+			mdc_put_rpc_lock(exp->exp_obd->u.cli.cl_rpc_lock, NULL);
+	}
 	if (rc)
 		GOTO(out_req, rc);
 
