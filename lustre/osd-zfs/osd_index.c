@@ -165,7 +165,17 @@ static struct dt_it *osd_index_it_init(const struct lu_env *env,
 
 	LASSERT(lu_object_exists(lo));
 	LASSERT(obj->oo_db);
-	LASSERT(osd_object_is_zap(obj->oo_db));
+	if (!osd_object_is_zap(obj->oo_db)) {
+		dmu_buf_impl_t *dbi = (dmu_buf_impl_t *) obj->oo_db;
+		dnode_t *dn;
+
+		DB_DNODE_ENTER(dbi);
+		dn = DB_DNODE(dbi);
+		CERROR(DFID "dn_type %d\n",
+		       PFID(lu_object_fid(&obj->oo_dt.do_lu)), dn->dn_type);
+		DB_DNODE_EXIT(dbi);
+		LBUG();
+	}
 	LASSERT(info);
 
 	OBD_SLAB_ALLOC_PTR_GFP(it, osd_zapit_cachep, GFP_NOFS);

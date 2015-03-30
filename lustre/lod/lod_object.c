@@ -784,6 +784,7 @@ int lod_load_lmv_shards(const struct lu_env *env, struct lod_object *lo,
 	__u32			 stripes;
 	__u32			 magic	= le32_to_cpu(lmv1->lmv_magic);
 	size_t			 lmv1_size;
+	unsigned int		 i;
 	int			 rc;
 	ENTRY;
 
@@ -822,6 +823,17 @@ int lod_load_lmv_shards(const struct lu_env *env, struct lod_object *lo,
 
 	if (unlikely(!dt_try_as_dir(env, obj)))
 		RETURN(-ENOTDIR);
+
+	CDEBUG(D_HA, "lo fid "DFID" magic %x stripe_count %d mdt_index %d"
+	       " hash_type %u layout_version %u\n",
+	       PFID(lu_object_fid(&lo->ldo_obj.do_lu)),
+	       lmv1->lmv_magic, lmv1->lmv_stripe_count,
+	       lmv1->lmv_master_mdt_index, lmv1->lmv_hash_type,
+	       lmv1->lmv_layout_version);
+
+	for (i = 0; i < stripes; i++)
+		CDEBUG(D_HA, " i %u "DFID"\n", i,
+		       PFID(&lmv1->lmv_stripe_fids[i]));
 
 	memset(&lmv1->lmv_stripe_fids[0], 0, stripes * sizeof(struct lu_fid));
 	iops = &obj->do_index_ops->dio_it;
