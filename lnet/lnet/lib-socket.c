@@ -572,6 +572,8 @@ lnet_sock_accept(struct socket **newsockp, struct socket *sock)
 	}
 
 	newsock->ops = sock->ops;
+
+	set_current_state(TASK_INTERRUPTIBLE);
 	add_wait_queue(sk_sleep(sock->sk), &wait);
 
 	rc = sock->ops->accept(sock, newsock, O_NONBLOCK);
