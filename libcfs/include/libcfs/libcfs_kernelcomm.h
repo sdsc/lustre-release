@@ -49,6 +49,7 @@
 #error Do not #include this file directly. #include <libcfs/libcfs.h> instead
 #endif
 
+#ifdef __KERNEL__
 
 /* KUC message header.
  * All current and future KUC messages should use this header.
@@ -66,7 +67,6 @@ struct kuc_hdr {
 #define KUC_CHANGELOG_MSG_MAXSIZE (sizeof(struct kuc_hdr)+CR_MAXSIZE)
 
 #define KUC_MAGIC  0x191C /*Lustre9etLinC */
-#define KUC_FL_BLOCK 0x01   /* Wait for send */
 
 /* kuc_msgtype values are defined in each transport */
 enum kuc_transport_type {
@@ -113,12 +113,7 @@ typedef struct lustre_kernelcomm {
         __u32 lk_flags;
 } __attribute__((packed)) lustre_kernelcomm;
 
-/* Userspace methods */
-extern int libcfs_ukuc_start(lustre_kernelcomm *l, int groups, int rfd_flags);
-extern int libcfs_ukuc_stop(lustre_kernelcomm *l);
-int libcfs_ukuc_get_rfd(lustre_kernelcomm *link);
-extern int libcfs_ukuc_msg_get(lustre_kernelcomm *l, char *buf, int maxsize,
-                               int transport);
+#endif
 
 #endif /* __LIBCFS_KERNELCOMM_H__ */
 
