@@ -404,12 +404,12 @@ static int mdc_xattr_common(struct obd_export *exp,const struct req_format *fmt,
 
         /* make rpc */
         if (opcode == MDS_REINT)
-                mdc_get_rpc_lock(exp->exp_obd->u.cli.cl_rpc_lock, NULL);
+		mdc_get_mod_rpc_slot(req, NULL);
 
         rc = ptlrpc_queue_wait(req);
 
         if (opcode == MDS_REINT)
-                mdc_put_rpc_lock(exp->exp_obd->u.cli.cl_rpc_lock, NULL);
+		mdc_put_mod_rpc_slot(req, NULL);
 
         if (rc)
                 ptlrpc_req_finished(req);
@@ -886,9 +886,9 @@ static int mdc_close(struct obd_export *exp, struct md_op_data *op_data,
 
         ptlrpc_request_set_replen(req);
 
-        mdc_get_rpc_lock(obd->u.cli.cl_close_lock, NULL);
-        rc = ptlrpc_queue_wait(req);
-        mdc_put_rpc_lock(obd->u.cli.cl_close_lock, NULL);
+	mdc_get_mod_rpc_slot(req, NULL);
+	rc = ptlrpc_queue_wait(req);
+	mdc_put_mod_rpc_slot(req, NULL);
 
         if (req->rq_repmsg == NULL) {
                 CDEBUG(D_RPCTRACE, "request failed to send: %p, %d\n", req,
@@ -2779,23 +2779,13 @@ static int mdc_setup(struct obd_device *obd, struct lustre_cfg *cfg)
 	int				rc;
 	ENTRY;
 
-        OBD_ALLOC(cli->cl_rpc_lock, sizeof (*cli->cl_rpc_lock));
-        if (!cli->cl_rpc_lock)
-                RETURN(-ENOMEM);
-        mdc_init_rpc_lock(cli->cl_rpc_lock);
-
 	rc = ptlrpcd_addref();
 	if (rc < 0)
-		GOTO(err_rpc_lock, rc);
-
-        OBD_ALLOC(cli->cl_close_lock, sizeof (*cli->cl_close_lock));
-        if (!cli->cl_close_lock)
-                GOTO(err_ptlrpcd_decref, rc = -ENOMEM);
-        mdc_init_rpc_lock(cli->cl_close_lock);
+		RETURN(rc);
 
         rc = client_obd_setup(obd, cfg);
         if (rc)
-                GOTO(err_close_lock, rc);
+		GOTO(err_ptlrpcd_decref, rc);
 #ifdef CONFIG_PROC_FS
 	obd->obd_vars = lprocfs_mdc_obd_vars;
 	lprocfs_obd_setup(obd);
@@ -2816,16 +2806,22 @@ static int mdc_setup(struct obd_device *obd, struct lustre_cfg *cfg)
         }
 
 	spin_lock_init(&cli->cl_mod_rpcs_lock);
+	spin_lock_init(&cli->cl_mod_rpcs_hist.oh_lock);
 	cli->cl_max_mod_rpcs_in_flight = OBD_MAX_RIF_DEFAULT - 1;
+	cli->cl_mod_rpcs_in_flight = 0;
+	cli->cl_close_rpcs_in_flight = 0;
+	init_waitqueue_head(&cli->cl_mod_rpcs_waitq);
+
+	OBD_ALLOC(cli->cl_mod_tag_bitmap, BITS_TO_LONGS(OBD_MAX_RIF_MAX));
+	if (cli->cl_mod_tag_bitmap == NULL) {
+		mdc_cleanup(obd);
+		rc = -ENOMEM;
+	}
 
         RETURN(rc);
 
-err_close_lock:
-        OBD_FREE(cli->cl_close_lock, sizeof (*cli->cl_close_lock));
 err_ptlrpcd_decref:
         ptlrpcd_decref();
-err_rpc_lock:
-        OBD_FREE(cli->cl_rpc_lock, sizeof (*cli->cl_rpc_lock));
         RETURN(rc);
 }
 
@@ -2885,10 +2881,7 @@ static int mdc_precleanup(struct obd_device *obd, enum obd_cleanup_stage stage)
 
 static int mdc_cleanup(struct obd_device *obd)
 {
-        struct client_obd *cli = &obd->u.cli;
-
-        OBD_FREE(cli->cl_rpc_lock, sizeof (*cli->cl_rpc_lock));
-        OBD_FREE(cli->cl_close_lock, sizeof (*cli->cl_close_lock));
+	OBD_FREE(obd->u.cli.cl_mod_tag_bitmap, BITS_TO_LONGS(OBD_MAX_RIF_MAX));
 
         ptlrpcd_decref();
 

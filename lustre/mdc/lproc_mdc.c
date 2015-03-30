@@ -110,6 +110,64 @@ static ssize_t mdc_max_mod_rpcs_in_flight_seq_write(struct file *file,
 }
 LPROC_SEQ_FOPS(mdc_max_mod_rpcs_in_flight);
 
+
+#define pct(a, b) (b ? a * 100 / b : 0)
+
+static int mdc_rpc_stats_seq_show(struct seq_file *seq, void *v)
+{
+	struct timeval now;
+	struct obd_device *dev = seq->private;
+	struct client_obd *cli = &dev->u.cli;
+	unsigned long mod_tot = 0, mod_cum;
+	int i;
+
+	do_gettimeofday(&now);
+
+	spin_lock(&cli->cl_mod_rpcs_lock);
+
+	seq_printf(seq, "snapshot_time:         %lu.%lu (secs.usecs)\n",
+		   now.tv_sec, now.tv_usec);
+	seq_printf(seq, "modify RPCs in flight:  %hu\n",
+		   cli->cl_mod_rpcs_in_flight);
+
+	seq_printf(seq, "\n\t\t\tmodify\n");
+	seq_printf(seq, "rpcs in flight        rpcs   %% cum %%\n");
+
+	mod_tot = lprocfs_oh_sum(&cli->cl_mod_rpcs_hist);
+
+	mod_cum = 0;
+	for (i = 0; i < OBD_HIST_MAX; i++) {
+		unsigned long mod = cli->cl_mod_rpcs_hist.oh_buckets[i];
+		mod_cum += mod;
+		seq_printf(seq, "%d:\t\t%10lu %3lu %3lu\n",
+				 i, mod, pct(mod, mod_tot),
+				 pct(mod_cum, mod_tot));
+		if (mod_cum == mod_tot)
+			break;
+	}
+
+	spin_unlock(&cli->cl_mod_rpcs_lock);
+
+	return 0;
+}
+#undef pct
+
+
+static ssize_t mdc_rpc_stats_seq_write(struct file *file,
+				       const char __user *buf,
+				       size_t len, loff_t *off)
+{
+	struct seq_file *seq = file->private_data;
+	struct obd_device *dev = seq->private;
+	struct client_obd *cli = &dev->u.cli;
+
+	lprocfs_oh_clear(&cli->cl_mod_rpcs_hist);
+
+	return len;
+}
+LPROC_SEQ_FOPS(mdc_rpc_stats);
+
+
 LPROC_SEQ_FOPS_WO_TYPE(mdc, ping);
 
 LPROC_SEQ_FOPS_RO_TYPE(mdc, uuid);
@@ -178,6 +236,8 @@ struct lprocfs_vars lprocfs_mdc_obd_vars[] = {
 	  .fops	=	&mdc_state_fops			},
 	{ .name	=	"pinger_recov",
 	  .fops	=	&mdc_pinger_recov_fops		},
+	{ .name	=	"rpc_stats",
+	  .fops	=	&mdc_rpc_stats_fops		},
 	{ NULL }
 };
 #endif /* CONFIG_PROC_FS */
