@@ -245,9 +245,7 @@ ssize_t ll_direct_rw_pages(const struct lu_env *env, struct cl_io *io,
 	loff_t file_offset  = pv->ldp_start_offset;
 	size_t size         = pv->ldp_size;
 	int page_count      = pv->ldp_nr;
-	struct page **pages = pv->ldp_pages;
 	size_t page_size    = cl_page_size(obj);
-	bool do_io;
 	int  io_pages       = 0;
 	ENTRY;
 
@@ -265,6 +263,8 @@ ssize_t ll_direct_rw_pages(const struct lu_env *env, struct cl_io *io,
                         break;
                 }
 
+		LASSERT(clp->cp_type == CPT_TRANSIENT);
+
                 rc = cl_page_own(env, io, clp);
                 if (rc) {
                         LASSERT(clp->cp_state == CPS_FREEING);
@@ -272,51 +272,15 @@ ssize_t ll_direct_rw_pages(const struct lu_env *env, struct cl_io *io,
                         break;
                 }
 
-                do_io = true;
+		cl_2queue_add(queue, clp);
 
-                /* check the page type: if the page is a host page, then do
-                 * write directly */
-                if (clp->cp_type == CPT_CACHEABLE) {
-			struct page *vmpage = cl_page_vmpage(clp);
-			struct page *src_page;
-			struct page *dst_page;
-                        void       *src;
-                        void       *dst;
+		/*
+		 * Set page clip to tell transfer formation engine
+		 * that page has to be sent even if it is beyond KMS.
+		 */
+		cl_page_clip(env, clp, 0, min(size, page_size));
 
-                        src_page = (rw == WRITE) ? pages[i] : vmpage;
-                        dst_page = (rw == WRITE) ? vmpage : pages[i];
-
-                        src = ll_kmap_atomic(src_page, KM_USER0);
-                        dst = ll_kmap_atomic(dst_page, KM_USER1);
-                        memcpy(dst, src, min(page_size, size));
-                        ll_kunmap_atomic(dst, KM_USER1);
-                        ll_kunmap_atomic(src, KM_USER0);
-
-                        /* make sure page will be added to the transfer by
-                         * cl_io_submit()->...->vvp_page_prep_write(). */
-                        if (rw == WRITE)
-                                set_page_dirty(vmpage);
-
-                        if (rw == READ) {
-                                /* do not issue the page for read, since it
-                                 * may reread a ra page which has NOT uptodate
-                                 * bit set. */
-                                cl_page_disown(env, io, clp);
-                                do_io = false;
-                        }
-                }
-
-                if (likely(do_io)) {
-                        cl_2queue_add(queue, clp);
-
-                        /*
-                         * Set page clip to tell transfer formation engine
-                         * that page has to be sent even if it is beyond KMS.
-                         */
-                        cl_page_clip(env, clp, 0, min(size, page_size));
-
-                        ++io_pages;
-                }
+		++io_pages;
 
                 /* drop the reference count for cl_page_find */
                 cl_page_put(env, clp);
@@ -324,7 +288,7 @@ ssize_t ll_direct_rw_pages(const struct lu_env *env, struct cl_io *io,
                 file_offset += page_size;
         }
 
-        if (rc == 0 && io_pages) {
+        if (rc == 0 && io_pages > 0) {
                 rc = cl_io_submit_sync(env, io,
                                        rw == READ ? CRT_READ : CRT_WRITE,
 				       queue, 0);
