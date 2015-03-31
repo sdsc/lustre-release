@@ -359,7 +359,7 @@ lnet_msg_detach_md(lnet_msg_t *msg, int status)
 }
 
 static int
-lnet_complete_msg_locked(lnet_msg_t *msg, int cpt)
+lnet_complete_msg_locked(lnet_ni_t *ni, lnet_msg_t *msg, int cpt)
 {
         lnet_handle_wire_t ack_wmd;
         int                rc;
@@ -380,7 +380,8 @@ lnet_complete_msg_locked(lnet_msg_t *msg, int cpt)
 
                 ack_wmd = msg->msg_hdr.msg.put.ack_wmd;
 
-                lnet_prep_send(msg, LNET_MSG_ACK, msg->msg_ev.initiator, 0, 0);
+		lnet_prep_send(ni, msg, LNET_MSG_ACK, msg->msg_ev.initiator,
+			       0, 0);
 
                 msg->msg_hdr.msg.ack.dst_wmd = ack_wmd;
                 msg->msg_hdr.msg.ack.match_bits = msg->msg_ev.match_bits;
@@ -521,7 +522,7 @@ lnet_finalize (lnet_ni_t *ni, lnet_msg_t *msg, int status)
 
 		/* NB drops and regains the lnet lock if it actually does
 		 * anything, so my finalizing friends can chomp along too */
-		rc = lnet_complete_msg_locked(msg, cpt);
+		rc = lnet_complete_msg_locked(ni, msg, cpt);
 		if (rc != 0)
 			break;
 	}
