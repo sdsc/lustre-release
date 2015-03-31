@@ -526,11 +526,11 @@ static int tgt_handle_recovery(struct ptlrpc_request *req, int reply_fail_id)
 
 	/* sanity check: if the xid matches, the request must be marked as a
 	 * resent or replayed */
-	if (req_xid_is_last(req)) {
+	if (req_can_reconstruct(req, NULL)) {
 		if (!(lustre_msg_get_flags(req->rq_reqmsg) &
 		      (MSG_RESENT | MSG_REPLAY))) {
 			DEBUG_REQ(D_WARNING, req, "rq_xid "LPU64" matches "
-				  "last_xid, expected REPLAY or RESENT flag "
+				  "saved xid, expected REPLAY or RESENT flag "
 				  "(%x)", req->rq_xid,
 				  lustre_msg_get_flags(req->rq_reqmsg));
 			req->rq_status = -ENOTCONN;
@@ -669,6 +669,16 @@ int tgt_request_handle(struct ptlrpc_request *req)
 
 	request_fail_id = tgt->lut_request_fail_id;
 	tsi->tsi_reply_fail_id = tgt->lut_reply_fail_id;
+
+	/* try to release in-memory reply data */
+	if (tgt_is_multimodrpcs_client(req->rq_export)) {
+		tgt_handle_received_xid(req->rq_export,
+				lustre_msg_get_last_xid(req->rq_reqmsg));
+		if (!(lustre_msg_get_flags(req->rq_reqmsg) &
+		    (MSG_RESENT | MSG_REPLAY)))
+			tgt_handle_tag(req->rq_export,
+				       lustre_msg_get_tag(req->rq_reqmsg));
+	}
 
 	h = tgt_handler_find_check(req);
 	if (IS_ERR(h)) {

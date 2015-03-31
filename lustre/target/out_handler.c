@@ -62,20 +62,24 @@ static inline int out_check_resent(const struct lu_env *env,
 				   struct object_update_reply *reply,
 				   int index)
 {
+	struct tg_reply_data *trd = NULL;
+	struct lsd_reply_data *lrd;
+	int rc;
+
 	if (likely(!(lustre_msg_get_flags(req->rq_reqmsg) & MSG_RESENT)))
 		return 0;
 
-	if (req_xid_is_last(req)) {
-		struct lsd_client_data *lcd;
+	OBD_ALLOC_PTR(trd);
+	if (trd == NULL)
+		return -ENOMEM;
 
-		/* XXX this does not support mulitple transactions yet, i.e.
-		 * only 1 update RPC each time betwee MDTs */
-		lcd = req->rq_export->exp_target_data.ted_lcd;
-
-		req->rq_transno = lcd->lcd_last_transno;
-		req->rq_status = lcd->lcd_last_result;
+	if (req_can_reconstruct(req, trd)) {
+		lrd = &trd->trd_reply;
+		req->rq_transno = lrd->lrd_transno;
+		req->rq_status = lrd->lrd_result;
 		if (req->rq_status != 0)
 			req->rq_transno = 0;
+
 		lustre_msg_set_transno(req->rq_repmsg, req->rq_transno);
 		lustre_msg_set_status(req->rq_repmsg, req->rq_status);
 
@@ -83,11 +87,15 @@ static inline int out_check_resent(const struct lu_env *env,
 			  req->rq_transno, req->rq_status);
 
 		reconstruct(env, dt, obj, reply, index);
-		return 1;
+		rc = 1;
+	} else {
+		DEBUG_REQ(D_HA, req, "no reply for RESENT req");
+		rc = 0;
 	}
-	DEBUG_REQ(D_HA, req, "no reply for RESENT req (have "LPD64")",
-		 req->rq_export->exp_target_data.ted_lcd->lcd_last_xid);
-	return 0;
+
+	OBD_FREE_PTR(trd);
+
+	return rc;
 }
 
 static int out_create(struct tgt_session_info *tsi)
@@ -958,8 +966,11 @@ int out_handle(struct tgt_session_info *tsi)
 		if (h->th_flags & MUTABOR) {
 			struct ptlrpc_request *req = tgt_ses_req(tsi);
 
-			if (out_check_resent(env, dt, dt_obj, req,
-					     out_reconstruct, reply, i))
+			rc = out_check_resent(env, dt, dt_obj, req,
+					      out_reconstruct, reply, i);
+			if (rc < 0)
+				GOTO(next, rc);
+			else if (rc == 1)
 				GOTO(next, rc = 0);
 		}
 
