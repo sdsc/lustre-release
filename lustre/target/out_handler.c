@@ -62,18 +62,25 @@ static inline int out_check_resent(const struct lu_env *env,
 				   struct object_update_reply *reply,
 				   int index)
 {
+	struct tg_reply_data *trd;
+
 	if (likely(!(lustre_msg_get_flags(req->rq_reqmsg) & MSG_RESENT)))
 		return 0;
 
-	if (req_xid_is_last(req)) {
-		struct lsd_client_data *lcd;
+	if (req_can_reconstruct(req, &trd)) {
+		if (!tgt_is_multimodrpcs_client(req->rq_export)) {
+			struct lsd_client_data *lcd;
 
-		/* XXX this does not support mulitple transactions yet, i.e.
-		 * only 1 update RPC each time betwee MDTs */
-		lcd = req->rq_export->exp_target_data.ted_lcd;
+			lcd = req->rq_export->exp_target_data.ted_lcd;
+			req->rq_transno = lcd->lcd_last_transno;
+			req->rq_status = lcd->lcd_last_result;
+		} else {
+			struct lsd_reply_data *lrd;
 
-		req->rq_transno = lcd->lcd_last_transno;
-		req->rq_status = lcd->lcd_last_result;
+			lrd = &trd->trd_reply;
+			req->rq_transno = lrd->lrd_transno;
+			req->rq_status = lrd->lrd_result;
+		}
 		if (req->rq_status != 0)
 			req->rq_transno = 0;
 		lustre_msg_set_transno(req->rq_repmsg, req->rq_transno);
@@ -85,8 +92,7 @@ static inline int out_check_resent(const struct lu_env *env,
 		reconstruct(env, dt, obj, reply, index);
 		return 1;
 	}
-	DEBUG_REQ(D_HA, req, "no reply for RESENT req (have "LPD64")",
-		 req->rq_export->exp_target_data.ted_lcd->lcd_last_xid);
+	DEBUG_REQ(D_HA, req, "no reply for RESENT req");
 	return 0;
 }
 

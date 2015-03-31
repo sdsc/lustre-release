@@ -71,6 +71,10 @@
 #include <lustre_lfsck.h>
 #include <lustre_nodemap.h>
 
+static unsigned int max_mod_rpcs_per_client = 8;
+CFS_MODULE_PARM(max_mod_rpcs_per_client, "i", uint, 0644,
+		"maximum number of modify RPCs in flight allowed per client");
+
 mdl_mode_t mdt_mdl_lock_modes[] = {
         [LCK_MINMODE] = MDL_MINMODE,
         [LCK_EX]      = MDL_EX,
@@ -3035,7 +3039,7 @@ static void mdt_intent_fixup_resent(struct mdt_thread_info *info,
          * If the xid matches, then we know this is a resent request, and allow
          * it. (It's probably an OPEN, for which we don't send a lock.
          */
-        if (req_xid_is_last(req))
+	if (req_can_reconstruct(req, NULL))
                 return;
 
         /*
@@ -4858,6 +4862,18 @@ static int mdt_connect_internal(struct obd_export *exp,
 	}
 
 	data->ocd_max_easize = mdt->mdt_max_ea_size;
+
+	/* NB: Disregard the rule against updating
+	 * exp_connect_data.ocd_connect_flags in this case, since
+	 * tgt_client_new() needs to know if this is client supports
+	 * multiple modify RPCs, and it is safe to expose this flag before
+	 * connection processing completes. */
+	if (data->ocd_connect_flags & OBD_CONNECT_MULTIMODRPCS) {
+		data->ocd_maxmodrpcs = max_mod_rpcs_per_client;
+		spin_lock(&exp->exp_lock);
+		*exp_connect_flags_ptr(exp) |= OBD_CONNECT_MULTIMODRPCS;
+		spin_unlock(&exp->exp_lock);
+	}
 
 	return 0;
 }
