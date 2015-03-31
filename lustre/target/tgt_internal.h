@@ -107,6 +107,7 @@ struct tgt_thread_info {
 	/* server and client data buffers */
 	struct lr_server_data	 tti_lsd;
 	struct lsd_client_data	 tti_lcd;
+	struct lsd_reply_data	 tti_lrd;
 	struct lu_buf		 tti_buf;
 	loff_t			 tti_off;
 
@@ -155,14 +156,16 @@ static inline struct tgt_thread_info *tgt_th_info(const struct lu_env *env)
 
 int tgt_request_handle(struct ptlrpc_request *req);
 
-/* check if request's xid is equal to last one or not*/
 static inline int req_xid_is_last(struct ptlrpc_request *req)
 {
 	struct lsd_client_data *lcd = req->rq_export->exp_target_data.ted_lcd;
 
 	LASSERT(lcd != NULL);
-	return (req->rq_xid == lcd->lcd_last_xid ||
-		req->rq_xid == lcd->lcd_last_close_xid);
+	if (tgt_is_multimodrpcs_client(req->rq_export))
+		return tgt_lookup_reply(req) != NULL;
+	else
+		return (req->rq_xid == lcd->lcd_last_xid ||
+			req->rq_xid == lcd->lcd_last_close_xid);
 }
 
 static inline char *dt_obd_name(struct dt_device *dt)
@@ -220,5 +223,19 @@ int tgt_txn_start_cb(const struct lu_env *env, struct thandle *th,
 		     void *cookie);
 int tgt_txn_stop_cb(const struct lu_env *env, struct thandle *th,
 		    void *cookie);
+int tgt_handle_received_xid(struct obd_export *exp, __u64 rcvd_xid);
+int tgt_handle_tag(struct obd_export *exp, __u16 tag);
+
+/**
+ * Target reply data
+ */
+struct tg_reply_data {
+	/** chain of reply data anchored in tg_export_data */
+	struct list_head	trd_list;
+	/** copy of on-disk reply data */
+	struct lsd_reply_data	trd_reply;
+	/** slot index in reply_data file */
+	int			trd_index;
+};
 
 #endif /* _TG_INTERNAL_H */
