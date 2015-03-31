@@ -347,7 +347,9 @@ int client_obd_setup(struct obd_device *obddev, struct lustre_cfg *lcfg)
 	/* FIXME: Should limit this for the sum of all cl_dirty_max_pages. */
 	/* cl_dirty_max_pages may be changed at connect time in
 	 * ptlrpc_connect_interpret(). */
+	printk(KERN_ALERT "%s before cl_dirty_max_pages: %lu\n", __FUNCTION__, cli->cl_dirty_max_pages);
 	client_adjust_max_dirty(cli);
+	printk(KERN_ALERT "%s cl_dirty_max_pages: %lu\n", __FUNCTION__, cli->cl_dirty_max_pages);
 	INIT_LIST_HEAD(&cli->cl_cache_waiters);
 	INIT_LIST_HEAD(&cli->cl_loi_ready_list);
 	INIT_LIST_HEAD(&cli->cl_loi_hp_ready_list);
@@ -393,8 +395,10 @@ int client_obd_setup(struct obd_device *obddev, struct lustre_cfg *lcfg)
 	 * ptlrpc_connect_interpret() . We initialize it to only
 	 * 1MB until we know what the performance looks like.
 	 * In the future this should likely be increased. LU-1431 */
+	printk(KERN_ALERT "%s before cl_max_pages_per_rpc: %u\n", __FUNCTION__, cli->cl_max_pages_per_rpc);
 	cli->cl_max_pages_per_rpc = min_t(int, PTLRPC_MAX_BRW_PAGES,
 					  LNET_MTU >> PAGE_CACHE_SHIFT);
+	printk(KERN_ALERT "%s cl_max_pages_per_rpc: %u\n", __FUNCTION__, cli->cl_max_pages_per_rpc);
 
 	/* set cl_chunkbits default value to PAGE_CACHE_SHIFT,
 	 * it will be updated at OSC connection time. */

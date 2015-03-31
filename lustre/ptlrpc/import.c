@@ -884,6 +884,7 @@ static int ptlrpc_connect_set_flags(struct obd_import *imp,
 	}
 	cli->cl_cksum_type = cksum_type_select(cli->cl_supp_cksum_types);
 
+	printk(KERN_ALERT "%s cl_max_pages_per_rpc: %u\n", __FUNCTION__, cli->cl_max_pages_per_rpc);
 	if (ocd->ocd_connect_flags & OBD_CONNECT_BRW_SIZE)
 		cli->cl_max_pages_per_rpc =
 			min(ocd->ocd_brw_size >> PAGE_CACHE_SHIFT,
@@ -895,7 +896,9 @@ static int ptlrpc_connect_set_flags(struct obd_import *imp,
 	LASSERT((cli->cl_max_pages_per_rpc <= PTLRPC_MAX_BRW_PAGES) &&
 		(cli->cl_max_pages_per_rpc > 0));
 
+	printk(KERN_ALERT "%s before cl_dirty_max_pages: %lu\n", __FUNCTION__, cli->cl_dirty_max_pages);
 	client_adjust_max_dirty(cli);
+	printk(KERN_ALERT "%s cl_dirty_max_pages: %lu\n", __FUNCTION__, cli->cl_dirty_max_pages);
 
 
 	/* Reset ns_connect_flags only for initial connect. It might be

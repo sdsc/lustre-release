@@ -110,10 +110,12 @@ static ssize_t osc_max_rpcs_in_flight_seq_write(struct file *file,
         if (pool && val > cli->cl_max_rpcs_in_flight)
                 pool->prp_populate(pool, val-cli->cl_max_rpcs_in_flight);
 
+	printk(KERN_ALERT "%s before cl_dirty_max_pages: %lu\n", __FUNCTION__, cli->cl_dirty_max_pages);
 	spin_lock(&cli->cl_loi_list_lock);
 	cli->cl_max_rpcs_in_flight = val;
 	client_adjust_max_dirty(cli);
 	spin_unlock(&cli->cl_loi_list_lock);
+	printk(KERN_ALERT "%s cl_dirty_max_pages: %lu\n", __FUNCTION__, cli->cl_dirty_max_pages);
 
 	LPROCFS_CLIMP_EXIT(dev);
 	return count;
@@ -153,10 +155,12 @@ static ssize_t osc_max_dirty_mb_seq_write(struct file *file,
 	    pages_number > totalram_pages / 4) /* 1/4 of RAM */
 		return -ERANGE;
 
+	printk(KERN_ALERT "%s before cl_dirty_max_pages: %lu\n", __FUNCTION__, cli->cl_dirty_max_pages);
 	spin_lock(&cli->cl_loi_list_lock);
 	cli->cl_dirty_max_pages = pages_number;
 	osc_wake_cache_waiters(cli);
 	spin_unlock(&cli->cl_loi_list_lock);
+	printk(KERN_ALERT "%s cl_dirty_max_pages: %lu\n", __FUNCTION__, cli->cl_dirty_max_pages);
 
 	return count;
 }
@@ -520,17 +524,24 @@ static ssize_t osc_obd_max_pages_per_rpc_seq_write(struct file *file,
 
 	LPROCFS_CLIMP_CHECK(dev);
 
+	printk(KERN_ALERT "%s cl_max_pages_per_rpc: %u set value: %llu, ocd_brw_size_pages: %u\n",
+	       __FUNCTION__, cli->cl_max_pages_per_rpc, val,
+	       ocd->ocd_brw_size >> PAGE_CACHE_SHIFT);
 	chunk_mask = ~((1 << (cli->cl_chunkbits - PAGE_CACHE_SHIFT)) - 1);
 	/* max_pages_per_rpc must be chunk aligned */
 	val = (val + ~chunk_mask) & chunk_mask;
-	if (val == 0 || val > ocd->ocd_brw_size >> PAGE_CACHE_SHIFT) {
+	if (val == 0 || (ocd->ocd_brw_size != 0 &&
+			 val > ocd->ocd_brw_size >> PAGE_CACHE_SHIFT)) {
 		LPROCFS_CLIMP_EXIT(dev);
 		return -ERANGE;
 	}
+	printk(KERN_ALERT "%s before cl_dirty_max_pages: %lu\n", __FUNCTION__, cli->cl_dirty_max_pages);
 	spin_lock(&cli->cl_loi_list_lock);
 	cli->cl_max_pages_per_rpc = val;
 	client_adjust_max_dirty(cli);
 	spin_unlock(&cli->cl_loi_list_lock);
+	printk(KERN_ALERT "%s cl_dirty_max_pages: %lu\n", __FUNCTION__, cli->cl_dirty_max_pages);
+	printk(KERN_ALERT "%s cl_max_pages_per_rpc: %u\n", __FUNCTION__, cli->cl_max_pages_per_rpc);
 
 	LPROCFS_CLIMP_EXIT(dev);
 	return count;
