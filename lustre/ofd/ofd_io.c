@@ -495,6 +495,70 @@ unlock:
 	return rc;
 }
 
+int ofd_handle_recreate(const struct lu_env *env, struct obd_export *exp,
+			struct ofd_device *ofd, const struct lu_fid *fid,
+			struct obdo *oa)
+{
+	int rc = 0;
+	u64 seq = fid_seq(fid);
+	u64 oid = fid_oid(fid);
+	struct ofd_seq *oseq;
+
+	if (likely(exp->exp_obd->obd_recovering == 0 &&
+		   ofd->ofd_object_sync_pending == 0))
+		return 0;
+
+	oseq = ofd_seq_load(env, ofd, seq);
+	if (IS_ERR(oseq)) {
+		CERROR("%s: Can't find FID Sequence "LPX64": rc = %d\n",
+		       ofd_name(ofd), seq, (int)PTR_ERR(oseq));
+		return -EINVAL;
+	}
+
+	if (oid > ofd_seq_last_oid(oseq)) {
+		int sync = 0;
+		int diff;
+
+		mutex_lock(&oseq->os_create_lock);
+		diff = oid - ofd_seq_last_oid(oseq);
+
+		/* Do sync create if the seq is about to used up */
+		if (fid_seq_is_idif(seq) || fid_seq_is_mdt0(seq)) {
+			if (unlikely(oid >= IDIF_MAX_OID - 1))
+				sync = 1;
+		} else if (fid_seq_is_norm(seq)) {
+			if (unlikely(oid >=
+				     LUSTRE_DATA_SEQ_MAX_WIDTH - 1))
+				sync = 1;
+		} else {
+			CERROR("%s : invalid o_seq "DOSTID"\n",
+			       ofd_name(ofd), POSTID(&oa->o_oi));
+			mutex_unlock(&oseq->os_create_lock);
+			GOTO(out, rc = -EINVAL);
+		}
+
+		while (diff > 0) {
+			u64 next_id = ofd_seq_last_oid(oseq) + 1;
+			int count = ofd_precreate_batch(ofd, diff);
+
+			rc = ofd_precreate_objects(env, ofd, next_id,
+						   oseq, count, sync);
+			if (rc < 0) {
+				mutex_unlock(&oseq->os_create_lock);
+				GOTO(out, rc);
+			}
+
+			diff -= rc;
+		}
+
+		mutex_unlock(&oseq->os_create_lock);
+	}
+
+out:
+	ofd_seq_put(env, oseq);
+	return rc;
+}
+
 /**
  * Prepare buffers for write request processing.
  *
@@ -532,61 +596,9 @@ static int ofd_preprw_write(const struct lu_env *env, struct obd_export *exp,
 	LASSERT(env != NULL);
 	LASSERT(objcount == 1);
 
-	if (unlikely(exp->exp_obd->obd_recovering)) {
-		u64 seq = fid_seq(fid);
-		u64 oid = fid_oid(fid);
-		struct ofd_seq *oseq;
-
-		oseq = ofd_seq_load(env, ofd, seq);
-		if (IS_ERR(oseq)) {
-			CERROR("%s: Can't find FID Sequence "LPX64": rc = %d\n",
-			       ofd_name(ofd), seq, (int)PTR_ERR(oseq));
-			GOTO(out, rc = -EINVAL);
-		}
-
-		if (oid > ofd_seq_last_oid(oseq)) {
-			int sync = 0;
-			int diff;
-
-			mutex_lock(&oseq->os_create_lock);
-			diff = oid - ofd_seq_last_oid(oseq);
-
-			/* Do sync create if the seq is about to used up */
-			if (fid_seq_is_idif(seq) || fid_seq_is_mdt0(seq)) {
-				if (unlikely(oid >= IDIF_MAX_OID - 1))
-					sync = 1;
-			} else if (fid_seq_is_norm(seq)) {
-				if (unlikely(oid >=
-					     LUSTRE_DATA_SEQ_MAX_WIDTH - 1))
-					sync = 1;
-			} else {
-				CERROR("%s : invalid o_seq "DOSTID"\n",
-				       ofd_name(ofd), POSTID(&oa->o_oi));
-				mutex_unlock(&oseq->os_create_lock);
-				ofd_seq_put(env, oseq);
-				GOTO(out, rc = -EINVAL);
-			}
-
-			while (diff > 0) {
-				u64 next_id = ofd_seq_last_oid(oseq) + 1;
-				int count = ofd_precreate_batch(ofd, diff);
-
-				rc = ofd_precreate_objects(env, ofd, next_id,
-							   oseq, count, sync);
-				if (rc < 0) {
-					mutex_unlock(&oseq->os_create_lock);
-					ofd_seq_put(env, oseq);
-					GOTO(out, rc);
-				}
-
-				diff -= rc;
-			}
-
-			mutex_unlock(&oseq->os_create_lock);
-		}
-
-		ofd_seq_put(env, oseq);
-	}
+	rc = ofd_handle_recreate(env, exp, ofd, fid, oa);
+	if (rc)
+		GOTO(out, rc);
 
 	fo = ofd_object_find(env, ofd, fid);
 	if (IS_ERR(fo))
