@@ -71,6 +71,10 @@
 #include <lustre_lfsck.h>
 #include <lustre_nodemap.h>
 
+static unsigned int max_mod_rpcs_per_client = 8;
+CFS_MODULE_PARM(max_mod_rpcs_per_client, "i", uint, 0644,
+		"maximum number of modify RPCs in flight allowed per client");
+
 mdl_mode_t mdt_mdl_lock_modes[] = {
         [LCK_MINMODE] = MDL_MINMODE,
         [LCK_EX]      = MDL_EX,
@@ -4853,6 +4857,9 @@ static int mdt_connect_internal(struct obd_export *exp,
 	}
 
 	data->ocd_max_easize = mdt->mdt_max_ea_size;
+
+	if (data->ocd_connect_flags & OBD_CONNECT_MULTIMODRPCS)
+		data->ocd_maxmodrpcs = max_mod_rpcs_per_client;
 
 	return 0;
 }

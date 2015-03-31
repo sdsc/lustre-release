@@ -71,6 +71,16 @@ struct tg_export_data {
 	/** nodemap this export is a member of */
 	struct lu_nodemap	*ted_nodemap;
 	struct hlist_node	ted_nodemap_member;
+
+	/** List of reply data */
+	struct list_head	ted_reply_list;
+	int			ted_reply_cnt;
+	/** Reply data with highest transno is retained */
+	struct tg_reply_data	*ted_last_reply;
+	/* Statistics */
+	int			ted_reply_hwm;
+	int			ted_release_xid;
+	int			ted_release_tag;
 };
 
 /**
