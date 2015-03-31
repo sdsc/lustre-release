@@ -75,7 +75,20 @@ struct lu_target {
 	spinlock_t		 lut_client_bitmap_lock;
 	/** Bitmap of known clients */
 	unsigned long		*lut_client_bitmap;
+	/* Number of clients supporting multiple modify RPCs
+	 * recorded in the bitmap */
+	unsigned int		 lut_num_clients;
+	/* Client generation to identify client slot reuse */
+	atomic_t		 lut_client_generation;
+	/** reply_data file */
+	struct dt_object	*lut_reply_data;
+	/** Bitmap of used slots in the reply data file */
+	unsigned long		**lut_reply_bitmap;
 };
+
+/* number of slots in reply bitmap */
+#define LUT_REPLY_SLOTS_PER_CHUNK (1<<20)
+#define LUT_REPLY_SLOTS_MAX_CHUNKS 16
 
 extern struct lu_context_key tgt_session_key;
 
@@ -237,6 +250,12 @@ static inline int req_is_replay(struct ptlrpc_request *req)
 	return !!(lustre_msg_get_flags(req->rq_reqmsg) & MSG_REPLAY);
 }
 
+static inline bool tgt_is_multimodrpcs_client(struct obd_export *exp)
+{
+	return exp_connect_flags(exp) & OBD_CONNECT_MULTIMODRPCS;
+}
+
+
 /* target/tgt_handler.c */
 int tgt_request_handle(struct ptlrpc_request *req);
 char *tgt_name(struct lu_target *tgt);
@@ -332,6 +351,8 @@ int tgt_server_data_update(const struct lu_env *env, struct lu_target *tg,
 			   int sync);
 int tgt_truncate_last_rcvd(const struct lu_env *env, struct lu_target *tg,
 			   loff_t off);
+int tgt_reply_data_init(const struct lu_env *env, struct lu_target *tgt);
+struct lsd_reply_data *tgt_lookup_reply(struct ptlrpc_request *req);
 
 enum {
 	ESERIOUS = 0x0001000
@@ -469,5 +490,25 @@ static inline void tgt_drop_id(struct obd_export *exp, struct obdo *oa)
 #define TGT_UPDATE_HDL(flags, name, fn)					\
 	TGT_RPC_HANDLER(OUT_UPDATE, flags, name, fn, &RQF_ ## name,	\
 			LUSTRE_MDS_VERSION)
+
+/* check if request can be reconstructed from saved reply data */
+static inline bool req_can_reconstruct(struct ptlrpc_request *req,
+				       struct lsd_reply_data **lrd)
+{
+	if (tgt_is_multimodrpcs_client(req->rq_export)) {
+		struct lsd_reply_data *reply;
+
+		reply = tgt_lookup_reply(req);
+		if (lrd != NULL)
+			*lrd = reply;
+		return reply != NULL;
+	} else {
+		struct lsd_client_data *lcd;
+
+		lcd = req->rq_export->exp_target_data.ted_lcd;
+		return (req->rq_xid == lcd->lcd_last_xid ||
+			req->rq_xid == lcd->lcd_last_close_xid);
+	}
+}
 
 #endif /* __LUSTRE_LU_TARGET_H */

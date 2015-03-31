@@ -84,6 +84,7 @@ struct named_oid {
 
 static const struct named_oid oids[] = {
 	{ LAST_RECV_OID,		LAST_RCVD },
+	{ REPLY_DATA_OID,		REPLY_DATA },
 	{ OFD_LAST_GROUP_OID,		"LAST_GROUP" },
 	{ LLOG_CATALOGS_OID,		"CATALOGS" },
 	{ MGS_CONFIGS_OID,              NULL /*MOUNT_CONFIGS_DIR*/ },

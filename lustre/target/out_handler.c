@@ -136,12 +136,11 @@ static inline int out_check_resent(const struct lu_env *env,
 	if (likely(!(lustre_msg_get_flags(req->rq_reqmsg) & MSG_RESENT)))
 		return 0;
 
-	if (req_xid_is_last(req)) {
+	if (req_can_reconstruct(req, NULL)) {
 		reconstruct(env, dt, obj, reply, index);
 		return 1;
 	}
-	DEBUG_REQ(D_HA, req, "no reply for RESENT req (have "LPD64")",
-		 req->rq_export->exp_target_data.ted_lcd->lcd_last_xid);
+	DEBUG_REQ(D_HA, req, "no reply for RESENT req");
 	return 0;
 }
 
