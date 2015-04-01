@@ -42,33 +42,63 @@
 #include <unistd.h>
 #include <stdlib.h>
 
+#include <lustre/lustre_user.h>
+#include <lustre/lustreapi.h>
+
+static void usage(char *prog)
+{
+	printf("usage: %s [-i mdt_index] dirnamebase count\n", prog);
+	exit(1);
+}
+
 int main(int argc, char ** argv)
 {
-        int i, rc = 0, count;
-        char dirname[4096];
+	int i, rc = 0, count;
+	char *dirnamebase;
+	char dirname[4096];
+	int c;
+	int stripe_offset = 0;
+	int stripe_count = 0;
+	int stripe_pattern = LMV_HASH_TYPE_FNV_1A_64;
+	char *end;
+	mode_t mode = 0444;
 
-        if (argc < 3) {
-                printf("Usage %s dirnamebase count\n", argv[0]);
-                return 1;
-        }
+	while ((c = getopt(argc, argv, "i:")) != -1) {
+		switch (c) {
+		case 'i':
+			stripe_offset = strtoul(optarg, &end, 0);
+			if (*end != '\0') {
+				fprintf(stderr, "invalid MDT index '%s'\n",
+					optarg);
+				return 1;
+			}
+			break;
+		}
+	}
 
-        if (strlen(argv[1]) > 4080) {
-                printf("name too long\n");
-                return 1;
-        }
+	if (argc - optind < 2)
+		usage(argv[0]);
 
-        count = strtoul(argv[2], NULL, 0);
+	dirnamebase = argv[argc - 2];
+	if (strlen(dirnamebase) > 4080) {
+		printf("name too long\n");
+		return 1;
+	}
 
-        for (i = 0; i < count; i++) {
-                sprintf(dirname, "%s-%d", argv[1], i);
-                rc = mkdir(dirname, 0444);
-                if (rc) {
-                        printf("mkdir(%s) error: %s\n",
-                               dirname, strerror(errno));
-                        break;
-                }
+	count = strtoul(argv[argc - 1], NULL, 0);
+
+	for (i = 0; i < count; i++) {
+		snprintf(dirname, 4096, "%s-%d", dirnamebase, i);
+		rc = llapi_dir_create_pool(dirname, mode,
+					   stripe_offset, stripe_count,
+					   stripe_pattern, NULL);
+		if (rc) {
+			printf("llapi_dir_create_poll(%s) error: %s\n",
+			       dirname, strerror(-rc));
+			break;
+		}
 		if ((i % 10000) == 0)
 		    printf(" - created %d (time %ld)\n", i, time(0));
-        }
-        return rc;
+	}
+	return rc;
 }
