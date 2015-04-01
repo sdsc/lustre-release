@@ -97,6 +97,7 @@ llapi_fid_test_LDADD=$(LIBLUSTREAPI)
 sendfile_grouplock_LDADD=$(LIBLUSTREAPI)
 it_test_LDADD=$(LIBCFS)
 rwv_LDADD=$(LIBCFS)
+mkdirmany_LDADD=$(LIBLUSTREAPI)
 
 ll_dirstripe_verify_SOURCES = ll_dirstripe_verify.c
 ll_dirstripe_verify_LDADD = $(LIBLUSTREAPI) $(LIBCFS) $(PTHREAD_LIBS)
