@@ -1322,6 +1322,23 @@ static int mdt_getattr_name_lock(struct mdt_thread_info *info,
 				RETURN(rc);
 		}
 
+		/* If the object is being evicted from the cache, then maybe
+		 * the object is already destroyed. So we should release the
+		 * object, and re-get the object to make sure the object
+		 * still exists. */
+		if (lu_object_is_dying(&child->mot_header)) {
+			*child_fid = child->mot_header.loh_fid;
+			mdt_object_put(info->mti_env, child);
+			info->mti_object = NULL;
+			child = mdt_object_find(info->mti_env, info->mti_mdt,
+						child_fid);
+			if (unlikely(IS_ERR(child))) {
+				mdt_object_unlock(info, NULL, lhc, 1);
+				RETURN(PTR_ERR(child));
+			}
+			info->mti_object = child;
+		}
+
 		/* Finally, we can get attr for child. */
 		if (!mdt_object_exists(child)) {
 			LU_OBJECT_DEBUG(D_INFO, info->mti_env,
