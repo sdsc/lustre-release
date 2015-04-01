@@ -1411,7 +1411,8 @@ static int mdt_getattr_name_lock(struct mdt_thread_info *info,
 		}
 
 		/* Finally, we can get attr for child. */
-		if (!mdt_object_exists(child)) {
+		if (!mdt_object_exists(child) ||
+		    lu_object_is_dying(&child->mot_header)) {
 			LU_OBJECT_DEBUG(D_INFO, info->mti_env,
 					&child->mot_obj,
 					"remote object doesn't exist.\n");
