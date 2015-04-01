@@ -670,10 +670,10 @@ static int osp_trans_trigger(const struct lu_env *env, struct osp_device *osp,
 
 		ptlrpcd_add_req(req, PDL_POLICY_LOCAL, -1);
 	} else {
-		osp_get_rpc_lock(osp);
+		osp_get_mod_rpc_slot(req);
 		args->oaua_flow_control = false;
 		rc = ptlrpc_queue_wait(req);
-		osp_put_rpc_lock(osp);
+		osp_put_mod_rpc_slot(req);
 		ptlrpc_req_finished(req);
 	}
 
