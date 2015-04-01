@@ -1002,10 +1002,16 @@ static int osp_init0(const struct lu_env *env, struct osp_device *osp,
 	if (osp->opd_connect_mdt) {
 		struct client_obd *cli = &osp->opd_obd->u.cli;
 
-		OBD_ALLOC(cli->cl_rpc_lock, sizeof(*cli->cl_rpc_lock));
-		if (!cli->cl_rpc_lock)
-			GOTO(out_fini, rc = -ENOMEM);
-		osp_init_rpc_lock(cli->cl_rpc_lock);
+		spin_lock_init(&cli->cl_mod_rpcs_lock);
+		spin_lock_init(&cli->cl_mod_rpcs_hist.oh_lock);
+		cli->cl_max_mod_rpcs_in_flight = OBD_MAX_RIF_DEFAULT - 1;
+		cli->cl_mod_rpcs_in_flight = 0;
+		init_waitqueue_head(&cli->cl_mod_rpcs_waitq);
+
+		OBD_ALLOC(cli->cl_mod_tag_bitmap,
+			  BITS_TO_LONGS(OBD_MAX_RIF_MAX));
+		if (cli->cl_mod_tag_bitmap == NULL)
+			RETURN(-ENOMEM);
 	}
 
 	osp->opd_dt_dev.dd_lu_dev.ld_ops = &osp_lu_ops;
@@ -1101,10 +1107,8 @@ out_ref:
 out_disconnect:
 	if (osp->opd_connect_mdt) {
 		struct client_obd *cli = &osp->opd_obd->u.cli;
-		if (cli->cl_rpc_lock != NULL) {
-			OBD_FREE_PTR(cli->cl_rpc_lock);
-			cli->cl_rpc_lock = NULL;
-		}
+		OBD_FREE(cli->cl_mod_tag_bitmap,
+			 BITS_TO_LONGS(OBD_MAX_RIF_MAX));
 	}
 	obd_disconnect(osp->opd_storage_exp);
 out_fini:
@@ -1221,10 +1225,8 @@ static struct lu_device *osp_device_fini(const struct lu_env *env,
 
 	if (osp->opd_connect_mdt) {
 		struct client_obd *cli = &osp->opd_obd->u.cli;
-		if (cli->cl_rpc_lock != NULL) {
-			OBD_FREE_PTR(cli->cl_rpc_lock);
-			cli->cl_rpc_lock = NULL;
-		}
+		OBD_FREE(cli->cl_mod_tag_bitmap,
+			 BITS_TO_LONGS(OBD_MAX_RIF_MAX));
 	}
 
 	rc = client_obd_cleanup(osp->opd_obd);
