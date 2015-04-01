@@ -245,9 +245,10 @@ int osd_xattr_get(const struct lu_env *env, struct dt_object *dt,
 	int                 rc, size = 0;
 	ENTRY;
 
+	if (!dt_object_exists(dt) || obj->oo_dead)
+		RETURN(-ENOENT);
 	LASSERT(obj->oo_db != NULL);
 	LASSERT(osd_invariant(obj));
-	LASSERT(dt_object_exists(dt));
 
 	if (!osd_obj2dev(obj)->od_posix_acl &&
 	    (strcmp(name, POSIX_ACL_XATTR_ACCESS) == 0 ||
@@ -591,9 +592,11 @@ int osd_xattr_set(const struct lu_env *env, struct dt_object *dt,
 	int rc = 0;
 	ENTRY;
 
+	if (!dt_object_exists(dt) || obj->oo_dead)
+		RETURN(-ENOENT);
+
 	LASSERT(handle != NULL);
 	LASSERT(osd_invariant(obj));
-	LASSERT(dt_object_exists(dt));
 	LASSERT(obj->oo_db);
 
 	if (!osd_obj2dev(obj)->od_posix_acl &&
@@ -659,8 +662,10 @@ int osd_declare_xattr_del(const struct lu_env *env, struct dt_object *dt,
 	struct osd_thandle *oh;
 	ENTRY;
 
+	if (!dt_object_exists(dt) || obj->oo_dead)
+		RETURN(-ENOENT);
+
 	LASSERT(handle != NULL);
-	LASSERT(dt_object_exists(dt));
 	LASSERT(osd_invariant(obj));
 
 	oh = container_of0(handle, struct osd_thandle, ot_super);
@@ -733,10 +738,12 @@ int osd_xattr_del(const struct lu_env *env, struct dt_object *dt,
 	int                 rc;
 	ENTRY;
 
+	if (!dt_object_exists(dt) || obj->oo_dead)
+		RETURN(-ENOENT);
+
 	LASSERT(handle != NULL);
 	LASSERT(obj->oo_db != NULL);
 	LASSERT(osd_invariant(obj));
-	LASSERT(dt_object_exists(dt));
 	oh = container_of0(handle, struct osd_thandle, ot_super);
 	LASSERT(oh->ot_tx != NULL);
 
@@ -798,9 +805,11 @@ int osd_xattr_list(const struct lu_env *env, struct dt_object *dt,
 	int                    rc, counted;
 	ENTRY;
 
+	if (!dt_object_exists(dt) || obj->oo_dead)
+		RETURN(-ENOENT);
+
 	LASSERT(obj->oo_db != NULL);
 	LASSERT(osd_invariant(obj));
-	LASSERT(dt_object_exists(dt));
 
 	down(&obj->oo_guard);
 

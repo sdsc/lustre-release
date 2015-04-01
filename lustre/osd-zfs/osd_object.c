@@ -495,7 +495,9 @@ static int osd_declare_object_destroy(const struct lu_env *env,
 	ENTRY;
 
 	LASSERT(th != NULL);
-	LASSERT(dt_object_exists(dt));
+
+	if (!dt_object_exists(dt) || obj->oo_dead)
+		RETURN(-ENOENT);
 
 	oh = container_of0(th, struct osd_thandle, ot_super);
 	LASSERT(oh->ot_tx != NULL);
@@ -596,7 +598,9 @@ static int osd_object_destroy(const struct lu_env *env,
 	ENTRY;
 
 	LASSERT(obj->oo_db != NULL);
-	LASSERT(dt_object_exists(dt));
+
+	if (!dt_object_exists(dt) || obj->oo_dead)
+		RETURN(-ENOENT);
 	LASSERT(!lu_object_is_dying(dt->do_lu.lo_header));
 
 	oh = container_of0(th, struct osd_thandle, ot_super);
@@ -640,6 +644,8 @@ static int osd_object_destroy(const struct lu_env *env,
 out:
 	/* not needed in the cache anymore */
 	set_bit(LU_OBJECT_HEARD_BANSHEE, &dt->do_lu.lo_header->loh_flags);
+	if (rc == 0)
+		obj->oo_dead = 1;
 
 	RETURN (0);
 }
@@ -740,7 +746,8 @@ static int osd_attr_get(const struct lu_env *env,
 	uint64_t		 blocks;
 	uint32_t		 blksize;
 
-	LASSERT(dt_object_exists(dt));
+	if (!dt_object_exists(dt) || obj->oo_dead)
+		RETURN(-ENOENT);
 	LASSERT(osd_invariant(obj));
 	LASSERT(obj->oo_db);
 
@@ -916,8 +923,10 @@ static int osd_attr_set(const struct lu_env *env, struct dt_object *dt,
 	int			 rc = 0;
 
 	ENTRY;
+	if (!dt_object_exists(dt) || obj->oo_dead)
+		RETURN(-ENOENT);
+
 	LASSERT(handle != NULL);
-	LASSERT(dt_object_exists(dt));
 	LASSERT(osd_invariant(obj));
 	LASSERT(obj->oo_sa_hdl);
 
@@ -1547,8 +1556,10 @@ static int osd_object_ref_add(const struct lu_env *env,
 
 	ENTRY;
 
+	if (!dt_object_exists(dt) || obj->oo_dead)
+		RETURN(-ENOENT);
+
 	LASSERT(osd_invariant(obj));
-	LASSERT(dt_object_exists(dt));
 	LASSERT(obj->oo_sa_hdl != NULL);
 
 	oh = container_of0(handle, struct osd_thandle, ot_super);
@@ -1583,8 +1594,10 @@ static int osd_object_ref_del(const struct lu_env *env,
 
 	ENTRY;
 
+	if (!dt_object_exists(dt) || obj->oo_dead)
+		RETURN(-ENOENT);
+
 	LASSERT(osd_invariant(obj));
-	LASSERT(dt_object_exists(dt));
 	LASSERT(obj->oo_sa_hdl != NULL);
 
 	oh = container_of0(handle, struct osd_thandle, ot_super);

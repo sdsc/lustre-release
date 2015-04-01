@@ -158,7 +158,8 @@ static struct dt_it *osd_it_acct_init(const struct lu_env *env,
 	int			 rc;
 	ENTRY;
 
-	LASSERT(lu_object_exists(lo));
+	if (!dt_object_exists(dt) || osd_dt_obj(dt)->oo_dead)
+		RETURN(ERR_PTR(-ENOENT));
 
 	if (info == NULL)
 		RETURN(ERR_PTR(-ENOMEM));

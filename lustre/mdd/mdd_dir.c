@@ -1656,8 +1656,12 @@ static int mdd_unlink(const struct lu_env *env, struct md_object *pobj,
 	rc = mdd_finish_unlink(env, mdd_cobj, ma, mdd_pobj, lname, handle);
 
 	/* fetch updated nlink */
-	if (rc == 0)
-		rc = mdd_la_get(env, mdd_cobj, cattr);
+	if (rc == 0) {
+		if  (mdd_is_dead_obj(mdd_cobj) && !mdd_is_orphan_obj(mdd_cobj))
+			cattr->la_nlink = 0;
+		else
+			rc = mdd_la_get(env, mdd_cobj, cattr);
+	}
 
 	/* if object is removed then we can't get its attrs, use last get */
 	if (cattr->la_nlink == 0) {

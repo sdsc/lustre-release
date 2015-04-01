@@ -160,7 +160,9 @@ static struct dt_it *osd_index_it_init(const struct lu_env *env,
 	int			 rc;
 	ENTRY;
 
-	LASSERT(lu_object_exists(lo));
+	if (!dt_object_exists(dt) || obj->oo_dead)
+		RETURN(ERR_PTR(-ENOENT));
+
 	LASSERT(obj->oo_db);
 	LASSERT(osd_object_is_zap(obj->oo_db));
 	LASSERT(info);
@@ -582,7 +584,9 @@ static int osd_dir_insert(const struct lu_env *env, struct dt_object *dt,
 	LASSERT(parent->oo_db);
 	LASSERT(osd_object_is_zap(parent->oo_db));
 
-	LASSERT(dt_object_exists(dt));
+	if (!dt_object_exists(dt) || parent->oo_dead)
+		RETURN(-ENOENT);
+
 	LASSERT(osd_invariant(parent));
 
 	LASSERT(th != NULL);
@@ -673,7 +677,9 @@ static int osd_declare_dir_delete(const struct lu_env *env,
 	struct osd_thandle *oh;
 	ENTRY;
 
-	LASSERT(dt_object_exists(dt));
+	if (!dt_object_exists(dt) || obj->oo_dead)
+		RETURN(-ENOENT);
+
 	LASSERT(osd_invariant(obj));
 
 	LASSERT(th != NULL);
@@ -1182,8 +1188,10 @@ static int osd_index_insert(const struct lu_env *env, struct dt_object *dt,
 	int                 rc;
 	ENTRY;
 
+	if (!dt_object_exists(dt) || obj->oo_dead)
+		RETURN(-ENOENT);
+
 	LASSERT(obj->oo_db);
-	LASSERT(dt_object_exists(dt));
 	LASSERT(osd_invariant(obj));
 	LASSERT(th != NULL);
 
@@ -1207,7 +1215,8 @@ static int osd_declare_index_delete(const struct lu_env *env,
 	struct osd_thandle *oh;
 	ENTRY;
 
-	LASSERT(dt_object_exists(dt));
+	if (!dt_object_exists(dt) || obj->oo_dead)
+		RETURN(-ENOENT);
 	LASSERT(osd_invariant(obj));
 	LASSERT(th != NULL);
 	LASSERT(obj->oo_db);
@@ -1608,8 +1617,8 @@ int osd_index_try(const struct lu_env *env, struct dt_object *dt,
 	struct osd_object *obj = osd_dt_obj(dt);
 	ENTRY;
 
-	LASSERT(dt_object_exists(dt));
-
+	if (!dt_object_exists(dt) || obj->oo_dead)
+		RETURN(-ENOENT);
 	/*
 	 * XXX: implement support for fixed-size keys sorted with natural
 	 *      numerical way (not using internal hash value)

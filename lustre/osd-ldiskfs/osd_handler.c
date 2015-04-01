@@ -1638,7 +1638,7 @@ static int osd_attr_get(const struct lu_env *env,
 {
 	struct osd_object *obj = osd_dt_obj(dt);
 
-	if (!dt_object_exists(dt))
+	if (!dt_object_exists(dt) || obj->oo_dead)
 		return -ENOENT;
 
 	LASSERT(!dt_object_remote(dt));
@@ -1879,7 +1879,7 @@ static int osd_attr_set(const struct lu_env *env,
 	struct inode      *inode;
 	int rc;
 
-	if (!dt_object_exists(dt))
+	if (!dt_object_exists(dt) || obj->oo_dead)
 		return -ENOENT;
 
 	LASSERT(handle != NULL);
@@ -2432,6 +2432,7 @@ static int osd_object_destroy(const struct lu_env *env,
 
         /* not needed in the cache anymore */
         set_bit(LU_OBJECT_HEARD_BANSHEE, &dt->do_lu.lo_header->loh_flags);
+	obj->oo_dead = 1;
 
         RETURN(0);
 }
@@ -2730,7 +2731,7 @@ static int osd_object_ref_add(const struct lu_env *env,
 	struct osd_thandle *oh;
 	int		    rc = 0;
 
-	if (!dt_object_exists(dt))
+	if (!dt_object_exists(dt) || obj->oo_dead)
 		return -ENOENT;
 
 	LINVRNT(osd_invariant(obj));
@@ -2802,7 +2803,7 @@ static int osd_object_ref_del(const struct lu_env *env, struct dt_object *dt,
 	struct osd_device	*osd = osd_dev(dt->do_lu.lo_dev);
 	struct osd_thandle      *oh;
 
-	if (!dt_object_exists(dt))
+	if (!dt_object_exists(dt) || obj->oo_dead)
 		return -ENOENT;
 
 	LINVRNT(osd_invariant(obj));
@@ -2880,7 +2881,7 @@ static int osd_xattr_get(const struct lu_env *env, struct dt_object *dt,
 		return sizeof(dt_obj_version_t);
         }
 
-	if (!dt_object_exists(dt))
+	if (!dt_object_exists(dt) || obj->oo_dead)
 		return -ENOENT;
 
 	LASSERT(!dt_object_remote(dt));
@@ -3018,7 +3019,7 @@ static int osd_xattr_list(const struct lu_env *env, struct dt_object *dt,
 	struct osd_thread_info *info   = osd_oti_get(env);
 	struct dentry          *dentry = &info->oti_obj_dentry;
 
-	if (!dt_object_exists(dt))
+	if (!dt_object_exists(dt) || obj->oo_dead)
 		return -ENOENT;
 
 	LASSERT(!dt_object_remote(dt));
@@ -3066,7 +3067,7 @@ static int osd_xattr_del(const struct lu_env *env, struct dt_object *dt,
 	struct dentry          *dentry = &info->oti_obj_dentry;
 	int                     rc;
 
-	if (!dt_object_exists(dt))
+	if (!dt_object_exists(dt) || obj->oo_dead)
 		return -ENOENT;
 
 	LASSERT(!dt_object_remote(dt));
@@ -3352,7 +3353,7 @@ static int osd_index_iam_delete(const struct lu_env *env, struct dt_object *dt,
 	int                     rc;
 	ENTRY;
 
-	if (!dt_object_exists(dt))
+	if (!dt_object_exists(dt) || obj->oo_dead)
 		RETURN(-ENOENT);
 
 	LINVRNT(osd_invariant(obj));
@@ -3470,7 +3471,7 @@ static int osd_index_ea_delete(const struct lu_env *env, struct dt_object *dt,
 	int			   rc;
 	ENTRY;
 
-	if (!dt_object_exists(dt))
+	if (!dt_object_exists(dt) || obj->oo_dead)
 		RETURN(-ENOENT);
 
 	LINVRNT(osd_invariant(obj));
@@ -3622,7 +3623,7 @@ static int osd_index_iam_lookup(const struct lu_env *env, struct dt_object *dt,
 	int                     rc;
 	ENTRY;
 
-	if (!dt_object_exists(dt))
+	if (!dt_object_exists(dt) || obj->oo_dead)
 		RETURN(-ENOENT);
 
 	LASSERT(osd_invariant(obj));
@@ -3711,7 +3712,7 @@ static int osd_index_iam_insert(const struct lu_env *env, struct dt_object *dt,
 	int                     rc;
 	ENTRY;
 
-	if (!dt_object_exists(dt))
+	if (!dt_object_exists(dt) || obj->oo_dead)
 		RETURN(-ENOENT);
 
 	LINVRNT(osd_invariant(obj));
@@ -4337,7 +4338,7 @@ static int osd_index_ea_insert(const struct lu_env *env, struct dt_object *dt,
 	int			rc;
 	ENTRY;
 
-	if (!dt_object_exists(dt))
+	if (!dt_object_exists(dt) || obj->oo_dead)
 		RETURN(-ENOENT);
 
 	LASSERT(osd_invariant(obj));
@@ -4420,7 +4421,7 @@ static struct dt_it *osd_it_iam_init(const struct lu_env *env,
 	struct iam_path_descr  *ipd;
 	struct iam_container   *bag = &obj->oo_dir->od_container;
 
-	if (!dt_object_exists(dt))
+	if (!dt_object_exists(dt) || obj->oo_dead)
 		return ERR_PTR(-ENOENT);
 
 	OBD_ALLOC_PTR(it);
@@ -4701,7 +4702,7 @@ static struct dt_it *osd_it_ea_init(const struct lu_env *env,
 	struct dentry		*obj_dentry;
 	ENTRY;
 
-	if (!dt_object_exists(dt))
+	if (!dt_object_exists(dt) || obj->oo_dead)
 		RETURN(ERR_PTR(-ENOENT));
 
 	OBD_SLAB_ALLOC_PTR_GFP(oie, osd_itea_cachep, GFP_NOFS);

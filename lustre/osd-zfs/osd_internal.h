@@ -322,6 +322,7 @@ struct osd_object {
 	unsigned char		 oo_keysize;
 	unsigned char		 oo_recsize;
 	unsigned char		 oo_recusize;	/* unit size */
+	unsigned int		 oo_dead:1;
 };
 
 int osd_statfs(const struct lu_env *, struct dt_device *, struct obd_statfs *);

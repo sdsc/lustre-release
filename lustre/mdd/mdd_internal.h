@@ -436,6 +436,11 @@ static inline int mdd_is_dead_obj(struct mdd_object *obj)
         return obj && obj->mod_flags & DEAD_OBJ;
 }
 
+static inline int mdd_is_orphan_obj(struct mdd_object *obj)
+{
+	return obj && obj->mod_flags & ORPHAN_OBJ;
+}
+
 static inline int mdd_object_exists(struct mdd_object *obj)
 {
         return lu_object_exists(mdd2lu_obj(obj));

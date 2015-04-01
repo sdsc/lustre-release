@@ -805,8 +805,11 @@ int mdt_handle_last_unlink(struct mdt_thread_info *info, struct mdt_object *mo,
         repbody = req_capsule_server_get(info->mti_pill, &RMF_MDT_BODY);
         LASSERT(repbody != NULL);
 
-        if (ma->ma_valid & MA_INODE)
-                mdt_pack_attr2body(info, repbody, la, mdt_object_fid(mo));
+	if (ma->ma_valid & MA_INODE) {
+		mdt_pack_attr2body(info, repbody, la, mdt_object_fid(mo));
+		if (la->la_nlink == 0)
+			mo->mot_header.loh_flags &= ~LOHA_EXISTS;
+	}
 
         if (ma->ma_valid & MA_LOV) {
 		CERROR("No need in LOV EA upon unlink\n");

@@ -121,7 +121,8 @@ static ssize_t osd_read(const struct lu_env *env, struct dt_object *dt,
 	int		   rc;
 	unsigned long	   start;
 
-	LASSERT(dt_object_exists(dt));
+	if (!dt_object_exists(dt) || obj->oo_dead)
+		RETURN(-ENOENT);
 	LASSERT(obj->oo_db);
 
 	start = cfs_time_current();
@@ -209,7 +210,9 @@ static ssize_t osd_write(const struct lu_env *env, struct dt_object *dt,
 
 	ENTRY;
 
-	LASSERT(dt_object_exists(dt));
+	if (!dt_object_exists(dt) || obj->oo_dead)
+		RETURN(-ENOENT);
+
 	LASSERT(obj->oo_db);
 
 	LASSERT(th != NULL);
@@ -262,7 +265,8 @@ static int osd_bufs_put(const struct lu_env *env, struct dt_object *dt,
 	unsigned long      ptr;
 	int                i;
 
-	LASSERT(dt_object_exists(dt));
+	if (!dt_object_exists(dt) || obj->oo_dead)
+		RETURN(-ENOENT);
 	LASSERT(obj->oo_db);
 
 	for (i = 0; i < npages; i++) {
@@ -515,7 +519,8 @@ static int osd_bufs_get(const struct lu_env *env, struct dt_object *dt,
 	struct osd_object *obj  = osd_dt_obj(dt);
 	int                rc;
 
-	LASSERT(dt_object_exists(dt));
+	if (!dt_object_exists(dt) || obj->oo_dead)
+		RETURN(-ENOENT);
 	LASSERT(obj->oo_db);
 
 	if (rw == 0)
@@ -531,7 +536,8 @@ static int osd_write_prep(const struct lu_env *env, struct dt_object *dt,
 {
 	struct osd_object *obj = osd_dt_obj(dt);
 
-	LASSERT(dt_object_exists(dt));
+	if (!dt_object_exists(dt) || obj->oo_dead)
+		RETURN(-ENOENT);
 	LASSERT(obj->oo_db);
 
 	return 0;
@@ -621,7 +627,9 @@ static int osd_declare_write_commit(const struct lu_env *env,
 	unsigned long	    discont_pages = 0;
 	ENTRY;
 
-	LASSERT(dt_object_exists(dt));
+	if (!dt_object_exists(dt) || obj->oo_dead)
+		RETURN(-ENOENT);
+
 	LASSERT(obj->oo_db);
 
 	LASSERT(lnb);
@@ -731,7 +739,8 @@ static int osd_write_commit(const struct lu_env *env, struct dt_object *dt,
 	unsigned long	   iosize = 0;
 	ENTRY;
 
-	LASSERT(dt_object_exists(dt));
+	if (!dt_object_exists(dt) || obj->oo_dead)
+		RETURN(-ENOENT);
 	LASSERT(obj->oo_db);
 
 	LASSERT(th != NULL);
@@ -811,7 +820,8 @@ static int osd_read_prep(const struct lu_env *env, struct dt_object *dt,
 	unsigned long	   size = 0;
 	loff_t		   eof;
 
-	LASSERT(dt_object_exists(dt));
+	if (!dt_object_exists(dt) || obj->oo_dead)
+		RETURN(-ENOENT);
 	LASSERT(obj->oo_db);
 
 	read_lock(&obj->oo_attr_lock);
@@ -884,7 +894,8 @@ static int osd_punch(const struct lu_env *env, struct dt_object *dt,
 	int                 rc = 0;
 	ENTRY;
 
-	LASSERT(dt_object_exists(dt));
+	if (!dt_object_exists(dt) || obj->oo_dead)
+		RETURN(-ENOENT);
 	LASSERT(osd_invariant(obj));
 
 	LASSERT(th != NULL);
