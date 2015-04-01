@@ -640,6 +640,8 @@ static int osd_object_destroy(const struct lu_env *env,
 out:
 	/* not needed in the cache anymore */
 	set_bit(LU_OBJECT_HEARD_BANSHEE, &dt->do_lu.lo_header->loh_flags);
+	/* clear EXIST flag */
+	dt->do_lu.lo_header->loh_flags &= ~LOHA_EXISTS;
 
 	RETURN (0);
 }
