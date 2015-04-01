@@ -10962,7 +10962,7 @@ test_181() { # bug 22177
 }
 run_test 181 "Test open-unlinked dir ========================"
 
-test_182() {
+test_182a() {
 	local fcount=1000
 	local tcount=10
 
@@ -10988,7 +10988,37 @@ test_182() {
 
 	rm -rf $DIR/$tdir
 }
-run_test 182 "Test parallel modify metadata operations ================"
+run_test 182a "Test parallel modify metadata operations from mdc ========="
+
+test_182b() {
+	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+	local dcount=1000
+	local tcount=10
+
+	mkdir -p $DIR/$tdir || error "creating dir $DIR/$tdir"
+
+	do_facet mds1 $LCTL set_param \
+		osp.$FSNAME-MDT0000-osp-MDT0001.rpc_stats=clear
+
+	for (( i = 0; i < $tcount; i++ )) ; do
+		mkdir $DIR/$tdir/$i
+	done
+
+	for (( i = 0; i < $tcount; i++ )) ; do
+		mkdirmany -i1 $DIR/$tdir/$i/d- $dcount &
+	done
+	wait
+
+	for (( i = 0; i < $tcount; i++ )) ; do
+		rm -rf $DIR/$tdir/$i &
+	done
+	wait
+
+	do_facet mds1 $LCTL get_param osp.$FSNAME-MDT0000-osp-MDT0001.rpc_stats
+}
+run_test 182b "Test parallel modify metadata operations from osp ========="
+
 
 test_183() { # LU-2275
 	remote_mds_nodsh && skip "remote MDS with nodsh" && return
@@ -12977,6 +13007,36 @@ test_244()
 	rm -rf $DIR/$tdir
 }
 run_test 244 "sendfile with group lock tests"
+
+test_246() {
+	local flagname="multi_mod_rpcs"
+	local connect_data_name="max_mod_rpcs"
+	local out
+
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
+	[[ $MDSCOUNT -lt 2 ]] && skip "needs >= 2 MDTs" && return
+
+	# check if multiple modify RPCs flag is set
+	out=$(do_facet mds1 \
+		$LCTL get_param osp.$FSNAME-MDT0000-osp-MDT0001.import |
+		grep "connect_flags:")
+	echo "$out"
+
+	echo "$out" | grep -qw $flagname
+	if [ $? -ne 0 ]; then
+		echo "connect flag $flagname is not set"
+		return
+	fi
+
+	# check if multiple modify RPCs data is set
+	out=$(do_facet mds1 \
+		$LCTL get_param osp.$FSNAME-MDT0000-osp-MDT0001.import)
+	echo "$out"
+
+	echo "$out" | grep -qw $connect_data_name ||
+		error "import should have connect data $connect_data_name"
+}
+run_test 246 "check osp connection flag/data: multiple modify RPCs"
 
 test_250() {
 	[ "$(facet_fstype ost$(($($GETSTRIPE -i $DIR/$tfile) + 1)))" = "zfs" ] \

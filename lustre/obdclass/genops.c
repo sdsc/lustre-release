@@ -2014,12 +2014,15 @@ int obd_set_max_mod_rpcs_in_flight(struct client_obd *cli, __u16 max)
 	struct obd_connect_data	*ocd;
 	__u16 maxmodrpcs;
 	__u16 prev;
+	char *typ_name;
 
 	if (max > OBD_MAX_RIF_MAX || max < 1)
 		return -ERANGE;
 
 	/* cannot exceed or equal max_rpcs_in_flight */
-	if (max >= cli->cl_max_rpcs_in_flight) {
+	typ_name = cli->cl_import->imp_obd->obd_type->typ_name;
+	if (strcmp(typ_name, LUSTRE_MDC_NAME) == 0 &&
+	    max >= cli->cl_max_rpcs_in_flight) {
 		CERROR("%s: can't set max_mod_rpcs_in_flight to a value (%hu) "
 		       "higher or equal to max_rpcs_in_flight value (%u)\n",
 		       cli->cl_import->imp_obd->obd_name,

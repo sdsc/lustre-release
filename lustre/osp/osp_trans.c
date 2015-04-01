@@ -985,9 +985,9 @@ static int osp_send_update_req(const struct lu_env *env,
 		if (top_device->ld_obd->obd_recovering)
 			req->rq_allow_replay = 1;
 
-		osp_get_rpc_lock(osp);
+		osp_get_mod_rpc_slot(req);
 		rc = ptlrpc_queue_wait(req);
-		osp_put_rpc_lock(osp);
+		osp_put_mod_rpc_slot(req);
 		if ((rc == -ENOMEM && req->rq_set == NULL) ||
 		    (req->rq_transno == 0 && !req->rq_committed)) {
 			if (args->oaua_update != NULL) {

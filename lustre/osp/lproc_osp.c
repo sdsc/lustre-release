@@ -693,6 +693,88 @@ osp_lfsck_max_rpcs_in_flight_seq_write(struct file *file,
 }
 LPROC_SEQ_FOPS(osp_lfsck_max_rpcs_in_flight);
 
+/**
+ * Show maximum number of modify RPCs in flight
+ *
+ * \param[in] m		seq_file handle
+ * \param[in] data	unused for single entry
+ * \retval		0 on success
+ * \retval		negative number on error
+ */
+static int
+osp_max_mod_rpcs_in_flight_seq_show(struct seq_file *m, void *data)
+{
+	struct obd_device *dev = m->private;
+	__u16 max;
+	int rc;
+
+	max = obd_get_max_mod_rpcs_in_flight(&dev->u.cli);
+	rc = seq_printf(m, "%hu\n", max);
+
+	return rc;
+}
+
+/**
+ * Change maximum number of modify RPCs in flight
+ *
+ * \param[in] file	proc file
+ * \param[in] buffer	string which represents maximum number of modify
+ *                      RPCs in flight
+ * \param[in] count	\a buffer length
+ * \param[in] off	unused for single entry
+ * \retval		\a count on success
+ * \retval		negative number on error
+ */
+static ssize_t
+osp_max_mod_rpcs_in_flight_seq_write(struct file *file,
+				     const char __user *buffer,
+				     size_t count, loff_t *off)
+{
+	struct seq_file	  *m = file->private_data;
+	struct obd_device *dev = m->private;
+	int val;
+	int rc;
+
+	rc = lprocfs_write_helper(buffer, count, &val);
+	if (rc != 0)
+		return rc;
+
+	if (val < 0 || val > USHRT_MAX)
+		return -ERANGE;
+
+	rc = obd_set_max_mod_rpcs_in_flight(&dev->u.cli, val);
+	if (rc != 0)
+		count = rc;
+
+	return count;
+}
+LPROC_SEQ_FOPS(osp_max_mod_rpcs_in_flight);
+
+
+static int osp_rpc_stats_seq_show(struct seq_file *seq, void *v)
+{
+	struct obd_device *dev = seq->private;
+
+	return obd_mod_rpc_stats_seq_show(&dev->u.cli, seq);
+}
+
+
+static ssize_t osp_rpc_stats_seq_write(struct file *file,
+				       const char __user *buf,
+				       size_t len, loff_t *off)
+{
+	struct seq_file *seq = file->private_data;
+	struct obd_device *dev = seq->private;
+	struct client_obd *cli = &dev->u.cli;
+
+	lprocfs_oh_clear(&cli->cl_mod_rpcs_hist);
+
+	return len;
+}
+LPROC_SEQ_FOPS(osp_rpc_stats);
+
+
+
 LPROC_SEQ_FOPS_WO_TYPE(osp, ping);
 LPROC_SEQ_FOPS_RO_TYPE(osp, uuid);
 LPROC_SEQ_FOPS_RO_TYPE(osp, connect_flags);
@@ -733,6 +815,8 @@ static struct lprocfs_vars lprocfs_osp_obd_vars[] = {
 	  .fops =	&osp_active_fops		},
 	{ .name =	"max_rpcs_in_flight",
 	  .fops =	&osp_max_rpcs_in_flight_fops	},
+	{ .name =	"max_mod_rpcs_in_flight",
+	  .fops =	&osp_max_mod_rpcs_in_flight_fops	},
 	{ .name =	"max_rpcs_in_progress",
 	  .fops =	&osp_max_rpcs_in_prog_fops	},
 	{ .name =	"create_count",
@@ -767,12 +851,14 @@ static struct lprocfs_vars lprocfs_osp_obd_vars[] = {
 	  .fops =	&osp_syn_in_prog_fops		},
 	{ .name =	"old_sync_processed",
 	  .fops =	&osp_old_sync_processed_fops	},
+	{ .name =	"rpc_stats",
+	  .fops =	&osp_rpc_stats_fops		},
 
 	/* for compatibility reasons */
 	{ .name =	"destroys_in_flight",
 	  .fops =	&osp_destroys_in_flight_fops		},
-	{ .name	=	"lfsck_max_rpcs_in_flight",
-	  .fops	=	&osp_lfsck_max_rpcs_in_flight_fops	},
+	{ .name =	"lfsck_max_rpcs_in_flight",
+	  .fops =	&osp_lfsck_max_rpcs_in_flight_fops	},
 	{ NULL }
 };
 
