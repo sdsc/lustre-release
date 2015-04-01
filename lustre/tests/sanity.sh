@@ -10926,7 +10926,38 @@ test_182() {
 
 	rm -rf $DIR/$tdir
 }
-run_test 182 "Test parallel modify metadata operations ================"
+run_test 182 "Test parallel modify metadata operations from mdc ========="
+
+test_182b() {
+	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+	local dcount=1000
+	local tcount=10
+
+	mkdir -p $DIR/$tdir || error "creating dir $DIR/$tdir"
+
+	do_facet mds0 $LCTL set_param osp.*.rpc_stats="clear"
+
+	for (( i=0; i < $tcount; i++ )) ; do
+		mkdir $DIR/$tdir/$i
+	done
+
+	for (( i=0; i < $tcount; i++ )) ; do
+		mkdirmany -i1 $DIR/$tdir/$i/d- $dcount &
+	done
+	wait
+
+	for (( i=0; i < $tcount; i++ )) ; do
+		rm -rf $DIR/$tdir/$i &
+	done
+	wait
+
+	do_facet mds0 $LCTL get_param osp.*.rpc_stats
+
+	rm -rf $DIR/$tdir
+}
+run_test 182b "Test parallel modify metadata operations from osp ========="
+
 
 test_183() { # LU-2275
 	remote_mds_nodsh && skip "remote MDS with nodsh" && return

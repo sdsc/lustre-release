@@ -1972,7 +1972,8 @@ int obd_set_max_rpcs_in_flight(struct client_obd *cli, __u32 max)
 		return -ERANGE;
 
 	typ_name = cli->cl_import->imp_obd->obd_type->typ_name;
-	if (strcmp(typ_name, LUSTRE_MDC_NAME) == 0) {
+	if (strcmp(typ_name, LUSTRE_MDC_NAME) == 0 ||
+	    strcmp(typ_name, LUSTRE_OSP_NAME) == 0) {
 		/* adjust max_mod_rpcs_in_flight to ensure it is always
 		 * strictly lower that max_rpcs_in_flight */
 		if (max < 2) {
