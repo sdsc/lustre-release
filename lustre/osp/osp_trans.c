@@ -499,10 +499,10 @@ int osp_remote_sync(const struct lu_env *env, struct osp_device *osp,
 	/* Note: some dt index api might return non-zero result here, like
 	 * osd_index_ea_lookup, so we should only check rc < 0 here */
 	if (rpc_lock)
-		osp_get_rpc_lock(osp);
+		osp_get_mod_rpc_slot(req);
 	rc = ptlrpc_queue_wait(req);
 	if (rpc_lock)
-		osp_put_rpc_lock(osp);
+		osp_put_mod_rpc_slot(req);
 	if (rc < 0) {
 		ptlrpc_req_finished(req);
 		dt_update->dur_rc = rc;

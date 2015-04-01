@@ -48,7 +48,6 @@
 #include <lustre_fid.h>
 #include <lustre_update.h>
 #include <lu_target.h>
-#include <lustre_mdc.h>
 
 /*
  * Infrastructure to support tracking of last committed llog record
@@ -413,20 +412,26 @@ static inline struct seq_server_site *osp_seq_site(struct osp_device *osp)
 	return osp->opd_dt_dev.dd_lu_dev.ld_site->ld_seq_site;
 }
 
-#define osp_init_rpc_lock(lck) mdc_init_rpc_lock(lck)
-
-static inline void osp_get_rpc_lock(struct osp_device *osp)
+static inline void osp_get_mod_rpc_slot(struct ptlrpc_request *req)
 {
-	struct mdc_rpc_lock *rpc_lock = osp->opd_obd->u.cli.cl_rpc_lock;
+	struct client_obd *cli = &req->rq_import->imp_obd->u.cli;
+	__u32 opc;
+	__u16 tag;
 
-	mdc_get_rpc_lock(rpc_lock, NULL);
+	opc = lustre_msg_get_opc(req->rq_reqmsg);
+	tag = obd_get_mod_rpc_slot(cli, opc, NULL);
+	lustre_msg_set_tag(req->rq_reqmsg, tag);
 }
 
-static inline void osp_put_rpc_lock(struct osp_device *osp)
+static inline void osp_put_mod_rpc_slot(struct ptlrpc_request *req)
 {
-	struct mdc_rpc_lock *rpc_lock = osp->opd_obd->u.cli.cl_rpc_lock;
+	struct client_obd *cli = &req->rq_import->imp_obd->u.cli;
+	__u32 opc;
+	__u16 tag;
 
-	mdc_put_rpc_lock(rpc_lock, NULL);
+	opc = lustre_msg_get_opc(req->rq_reqmsg);
+	tag = lustre_msg_get_tag(req->rq_reqmsg);
+	obd_put_mod_rpc_slot(cli, opc, NULL, tag);
 }
 
 static inline int osp_fid_diff(const struct lu_fid *fid1,
