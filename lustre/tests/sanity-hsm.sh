@@ -4,6 +4,7 @@
 # Skip specific tests by setting EXCEPT.
 #
 # exit on error
+
 set -e
 set +o monitor
 
