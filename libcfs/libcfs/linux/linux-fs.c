@@ -41,29 +41,20 @@
 #include <linux/ctype.h>
 #include <asm/uaccess.h>
 
-#include <libcfs/libcfs.h>
-
-/* write a userspace buffer to disk.
- * NOTE: this returns 0 on success, not the number of bytes written. */
+#ifndef HAVE_KERNEL_WRITE
+/* write a userspace buffer to disk. */
 ssize_t
-filp_user_write(struct file *filp, const void *buf, size_t count,
-		loff_t *offset)
+kernel_write(struct file *filp, const void *buf, size_t count,
+	     loff_t offset)
 {
 	mm_segment_t fs;
-	ssize_t size = 0;
+	ssize_t size;
 
 	fs = get_fs();
 	set_fs(KERNEL_DS);
-	while ((ssize_t)count > 0) {
-		size = vfs_write(filp, (const void __user *)buf, count, offset);
-		if (size < 0)
-			break;
-		count -= size;
-                buf += size;
-		size = 0;
-	}
+	size = vfs_write(filp, (const void __user *)buf, count, &offset);
 	set_fs(fs);
 
 	return size;
 }
-EXPORT_SYMBOL(filp_user_write);
+#endif /* !HAVE_KERNEL_WRITE */

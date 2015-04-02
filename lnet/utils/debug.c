@@ -43,9 +43,10 @@
 #define  _GNU_SOURCE
 #endif
 
+#include <unistd.h>
+
 #include <libcfs/libcfsutil.h>
 #include <lnet/lnetctl.h>
-
 
 static char rawbuf[8192];
 static char *buf = rawbuf;

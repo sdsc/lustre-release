@@ -42,6 +42,9 @@
 #define DEBUG_SUBSYSTEM S_CLASS
 #define D_KUC D_OTHER
 
+#ifndef __KERNEL__
+# include <unistd.h>
+#endif /* !__KERNEL__ */
 #include <libcfs/libcfs.h>
 
 #ifdef LUSTRE_UTILS
@@ -178,29 +181,31 @@ int libcfs_ukuc_msg_get(lustre_kernelcomm *link, char *buf, int maxsize,
  */
 int libcfs_kkuc_msg_put(struct file *filp, void *payload)
 {
-        struct kuc_hdr *kuch = (struct kuc_hdr *)payload;
-        int rc = -ENOSYS;
+	struct kuc_hdr *kuch = (struct kuc_hdr *)payload;
+	int rc = -ENOSYS;
+	ssize_t size;
 
-        if (filp == NULL || IS_ERR(filp))
-                return -EBADF;
+	if (filp == NULL || IS_ERR(filp))
+		return -EBADF;
 
-        if (kuch->kuc_magic != KUC_MAGIC) {
-                CERROR("KernelComm: bad magic %x\n", kuch->kuc_magic);
-                return -ENOSYS;
-        }
-
-#ifdef __KERNEL__
-	{
-		loff_t offset = 0;
-		rc = filp_user_write(filp, payload, kuch->kuc_msglen,
-				     &offset);
+	if (kuch->kuc_magic != KUC_MAGIC) {
+		CERROR("KernelComm: bad magic %x\n", kuch->kuc_magic);
+		return rc;
 	}
-#endif
 
-        if (rc < 0)
-                CWARN("message send failed (%d)\n", rc);
-        else
+	while ((ssize_t)kuch->kuc_msglen > 0) {
+		size = kernel_write(filp, payload, kuch->kuc_msglen, 0);
+		if (size < 0)
+			break;
+		kuch->kuc_msglen -= size;
+		payload += size;
+		size = 0;
+	}
+	if (size == 0) {
                 CDEBUG(D_KUC, "Sent message rc=%d, fp=%p\n", rc, filp);
+		rc = 0;
+	} else
+		CWARN("message send failed (%d)\n", rc);
 
         return rc;
 }
