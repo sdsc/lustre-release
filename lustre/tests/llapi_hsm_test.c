@@ -1042,12 +1042,15 @@ int main(int argc, char *argv[])
 	 * stream under I/O redirection may appear incorrectly. */
 	setvbuf(stdout, NULL, _IOLBF, 0);
 
+	/*
 	PERFORM(test1);
 	PERFORM(test2);
 	PERFORM(test3);
 	PERFORM(test4);
 	PERFORM(test5);
 	PERFORM(test6);
+
+	*/
 	PERFORM(test7);
 	PERFORM(test50);
 	PERFORM(test51);
