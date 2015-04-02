@@ -27,8 +27,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <getopt.h>
+#include <libcfs/util/parser.h>
 #include <lnet/lnetctl.h>
-#include <libcfs/libcfsutil.h>
 #include "cyaml/cyaml.h"
 #include "lnetconfig/liblnetconfig.h"
 

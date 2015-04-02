@@ -42,7 +42,8 @@
 #include <pwd.h>
 #include <unistd.h>
 
-#include <libcfs/libcfsutil.h>
+#include <libcfs/util/ioctl.h>
+#include <libcfs/util/parser.h>
 #include <lnet/lnetctl.h>
 #include <lnet/lnetst.h>
 #include <lnet/lnet.h>

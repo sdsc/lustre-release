@@ -40,8 +40,8 @@
 
 #include "obdctl.h"
 
+#include <libcfs/util/ioctl.h>
 #include <lustre/lustre_lfsck_user.h>
-#include <libcfs/libcfsutil.h>
 #include <lnet/lnetctl.h>
 #include <lustre_ioctl.h>
 
