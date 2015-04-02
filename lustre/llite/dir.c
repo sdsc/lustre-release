@@ -697,7 +697,8 @@ static int ll_ioc_copy_start(struct super_block *sb, struct hsm_copy *copy)
 {
 	struct ll_sb_info		*sbi = ll_s2sbi(sb);
 	struct hsm_progress_kernel	 hpk;
-	int				 rc;
+	int				 rc = 0;
+	int				 rc2;
 	ENTRY;
 
 	/* Forge a hsm_progress based on data from copy. */
@@ -748,10 +749,12 @@ progress:
 	/* On error, the request should be considered as completed */
 	if (hpk.hpk_errval > 0)
 		hpk.hpk_flags |= HP_FLAG_COMPLETED;
-	rc = obd_iocontrol(LL_IOC_HSM_PROGRESS, sbi->ll_md_exp, sizeof(hpk),
-			   &hpk, NULL);
 
-	RETURN(rc);
+	rc2 = obd_iocontrol(LL_IOC_HSM_PROGRESS, sbi->ll_md_exp, sizeof(hpk),
+			    &hpk, NULL);
+
+	/* Return first error */
+	RETURN(rc != 0 ? rc : rc2);
 }
 
 /**
