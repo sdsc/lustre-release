@@ -4,6 +4,7 @@
 # Skip specific tests by setting EXCEPT.
 #
 # exit on error
+
 set -e
 set +o monitor
 
@@ -803,7 +804,7 @@ test_1() {
 	check_hsm_flags_user $f "0x00000000"
 
 }
-run_test 1 "lfs hsm flags root/non-root access"
+#run_test 1 "lfs hsm flags root/non-root access"
 
 test_2() {
 	mkdir -p $DIR/$tdir
@@ -831,7 +832,7 @@ test_2() {
 	$LFS hsm_clear --dirty $f || error "could not clear hsm flags"
 	check_hsm_flags $f "0x00000001"
 }
-run_test 2 "Check file dirtyness when doing setattr"
+#run_test 2 "Check file dirtyness when doing setattr"
 
 test_3() {
 	mkdir -p $DIR/$tdir
@@ -886,7 +887,7 @@ test_3() {
 	multiop $f.mmap OSMWUc || error "could not mmap a file"
 	check_hsm_flags $f.mmap "0x00000003"
 }
-run_test 3 "Check file dirtyness when opening for write"
+#run_test 3 "Check file dirtyness when opening for write"
 
 test_4() {
 	mkdir -p $DIR/$tdir
@@ -897,7 +898,7 @@ test_4() {
 	local st=$(get_request_state $fid CANCEL)
 	[[ -z "$st" ]] || error "hsm_cancel must not be registered (state=$st)"
 }
-run_test 4 "Useless cancel must not be registered"
+#run_test 4 "Useless cancel must not be registered"
 
 test_8() {
 	# test needs a running copytool
@@ -913,7 +914,7 @@ test_8() {
 
 	copytool_cleanup
 }
-run_test 8 "Test default archive number"
+#run_test 8 "Test default archive number"
 
 test_9() {
 	mkdir -p $DIR/$tdir
@@ -930,7 +931,7 @@ test_9() {
 
 	copytool_cleanup
 }
-run_test 9 "Use of explict archive number, with dedicated copytool"
+#run_test 9 "Use of explict archive number, with dedicated copytool"
 
 test_9a() {
 	needclients 3 || return 0
@@ -961,7 +962,7 @@ test_9a() {
 	trap - EXIT
 	copytool_cleanup $(comma_list $(agts_nodes))
 }
-run_test 9a "Multiple remote agents"
+#run_test 9a "Multiple remote agents"
 
 test_10a() {
 	# test needs a running copytool
@@ -989,7 +990,7 @@ test_10a() {
 	copytool_cleanup
 
 }
-run_test 10a "Archive a file"
+#run_test 10a "Archive a file"
 
 test_10b() {
 	# test needs a running copytool
@@ -1008,7 +1009,7 @@ test_10b() {
 
 	copytool_cleanup
 }
-run_test 10b "Archive of non dirty file must work without doing request"
+#run_test 10b "Archive of non dirty file must work without doing request"
 
 test_10c() {
 	# test needs a running copytool
@@ -1022,7 +1023,7 @@ test_10c() {
 
 	copytool_cleanup
 }
-run_test 10c "Check forbidden archive"
+#run_test 10c "Check forbidden archive"
 
 test_10d() {
 	# test needs a running copytool
@@ -1041,7 +1042,7 @@ test_10d() {
 
 	copytool_cleanup
 }
-run_test 10d "Archive a file on the default archive id"
+#run_test 10d "Archive a file on the default archive id"
 
 test_11a() {
 	mkdir -p $DIR/$tdir
@@ -1067,7 +1068,7 @@ test_11a() {
 	local AFILE=$(do_facet $SINGLEAGT ls $HSM_ARCHIVE'/*/*/*/*/*/*/'$fid) ||
 		error "fid $fid not in archive $HSM_ARCHIVE"
 }
-run_test 11a "Import a file"
+#run_test 11a "Import a file"
 
 test_11b() {
 	# test needs a running copytool
@@ -1091,7 +1092,7 @@ test_11b() {
 
 	copytool_cleanup
 }
-run_test 11b "Import a deleted file using its FID"
+#run_test 11b "Import a deleted file using its FID"
 
 test_12a() {
 	# test needs a running copytool
@@ -1119,7 +1120,7 @@ test_12a() {
 
 	copytool_cleanup
 }
-run_test 12a "Restore an imported file explicitly"
+#run_test 12a "Restore an imported file explicitly"
 
 test_12b() {
 	# test needs a running copytool
@@ -1144,7 +1145,7 @@ test_12b() {
 
 	copytool_cleanup
 }
-run_test 12b "Restore an imported file implicitly"
+#run_test 12b "Restore an imported file implicitly"
 
 test_12c() {
 	[ "$OSTCOUNT" -lt "2" ] && skip_env "skipping 2-stripe test" && return
@@ -1171,7 +1172,7 @@ test_12c() {
 
 	copytool_cleanup
 }
-run_test 12c "Restore a file with stripe of 2"
+#run_test 12c "Restore a file with stripe of 2"
 
 test_12d() {
 	# test needs a running copytool
@@ -1196,8 +1197,8 @@ test_12d() {
 
 	copytool_cleanup
 }
-run_test 12d "Restore of a non archived, non released file must work"\
-		" without doing request"
+#run_test 12d "Restore of a non archived, non released file must work"\
+#		" without doing request"
 
 test_12e() {
 	# test needs a running copytool
@@ -1218,7 +1219,7 @@ test_12e() {
 
 	copytool_cleanup
 }
-run_test 12e "Check forbidden restore"
+#run_test 12e "Check forbidden restore"
 
 test_12f() {
 	# test needs a running copytool
@@ -1243,7 +1244,7 @@ test_12f() {
 
 	copytool_cleanup
 }
-run_test 12f "Restore a released file explicitly"
+#run_test 12f "Restore a released file explicitly"
 
 test_12g() {
 	# test needs a running copytool
@@ -1267,7 +1268,7 @@ test_12g() {
 
 	copytool_cleanup
 }
-run_test 12g "Restore a released file implicitly"
+#run_test 12g "Restore a released file implicitly"
 
 test_12h() {
 	needclients 2 || return 0
@@ -1293,7 +1294,7 @@ test_12h() {
 
 	copytool_cleanup
 }
-run_test 12h "Restore a released file implicitly from a second node"
+#run_test 12h "Restore a released file implicitly from a second node"
 
 test_12m() {
 	# test needs a running copytool
@@ -1313,7 +1314,7 @@ test_12m() {
 
 	copytool_cleanup
 }
-run_test 12m "Archive/release/implicit restore"
+#run_test 12m "Archive/release/implicit restore"
 
 test_12n() {
 	# test needs a running copytool
@@ -1332,7 +1333,7 @@ test_12n() {
 
 	copytool_cleanup
 }
-run_test 12n "Import/implicit restore/release"
+#run_test 12n "Import/implicit restore/release"
 
 test_12o() {
 	# test needs a running copytool
@@ -1383,7 +1384,7 @@ test_12o() {
 
 	copytool_cleanup
 }
-run_test 12o "Layout-swap failure during Restore leaves file released"
+#run_test 12o "Layout-swap failure during Restore leaves file released"
 
 test_12p() {
 	# test needs a running copytool
@@ -1403,7 +1404,7 @@ test_12p() {
 
 	copytool_cleanup
 }
-run_test 12p "implicit restore of a file on copytool mount point"
+#run_test 12p "implicit restore of a file on copytool mount point"
 
 test_13() {
 	# test needs a running copytool
@@ -1441,7 +1442,7 @@ test_13() {
 
 	copytool_cleanup
 }
-run_test 13 "Recursively import and restore a directory"
+#run_test 13 "Recursively import and restore a directory"
 
 test_14() {
 	# test needs a running copytool
@@ -1477,7 +1478,7 @@ test_14() {
 
 	copytool_cleanup
 }
-run_test 14 "Rebind archived file to a new fid"
+#run_test 14 "Rebind archived file to a new fid"
 
 test_15() {
 	# test needs a running copytool
@@ -1530,7 +1531,7 @@ test_15() {
 	rm -f $tmpfile
 	copytool_cleanup
 }
-run_test 15 "Rebind a list of files"
+#run_test 15 "Rebind a list of files"
 
 test_16() {
 	# test needs a running copytool
@@ -1557,7 +1558,7 @@ test_16() {
 
 	copytool_cleanup
 }
-run_test 16 "Test CT bandwith control option"
+#run_test 16 "Test CT bandwith control option"
 
 test_20() {
 	mkdir -p $DIR/$tdir
@@ -1586,7 +1587,7 @@ test_20() {
 	$LFS hsm_release $f && error "release should not succeed"
 	$LFS hsm_clear --dirty $f || error "could not remove flag"
 }
-run_test 20 "Release is not permitted"
+#run_test 20 "Release is not permitted"
 
 test_21() {
 	# test needs a running copytool
@@ -1655,7 +1656,7 @@ test_21() {
 
 	copytool_cleanup
 }
-run_test 21 "Simple release tests"
+#run_test 21 "Simple release tests"
 
 test_22() {
 	# test needs a running copytool
@@ -1683,7 +1684,7 @@ test_22() {
 	true
 	copytool_cleanup
 }
-run_test 22 "Could not swap a release file"
+#run_test 22 "Could not swap a release file"
 
 test_23() {
 	# test needs a running copytool
@@ -1714,7 +1715,7 @@ test_23() {
 
 	copytool_cleanup
 }
-run_test 23 "Release does not change a/mtime (utime)"
+#run_test 23 "Release does not change a/mtime (utime)"
 
 test_24a() {
 	local file=$DIR/$tdir/$tfile
@@ -1821,7 +1822,7 @@ test_24a() {
 	[ $ctime0 -le $ctime1 ] ||
 		error "remount changed ctime from $ctime0 to $ctime1"
 }
-run_test 24a "Archive, release, and restore does not change a/mtime (i/o)"
+#run_test 24a "Archive, release, and restore does not change a/mtime (i/o)"
 
 test_24b() {
 	local file=$DIR/$tdir/$tfile
@@ -1870,7 +1871,7 @@ test_24b() {
 
 	copytool_cleanup
 }
-run_test 24b "root can archive, release, and restore user files"
+#run_test 24b "root can archive, release, and restore user files"
 
 cleanup_test_24c() {
 	trap 0
@@ -1951,7 +1952,7 @@ test_24c() {
 	copytool_cleanup
 	cleanup_test_24c
 }
-run_test 24c "check that user,group,other request masks work"
+#run_test 24c "check that user,group,other request masks work"
 
 cleanup_test_24d() {
 	trap 0
@@ -1998,7 +1999,7 @@ test_24d() {
 	copytool_cleanup
 	cleanup_test_24d
 }
-run_test 24d "check that read-only mounts are respected"
+#run_test 24d "check that read-only mounts are respected"
 
 test_25a() {
 	# test needs a running copytool
@@ -2020,8 +2021,8 @@ test_25a() {
 
 	copytool_cleanup
 }
-run_test 25a "Restore lost file (HS_LOST flag) from import"\
-	     " (Operation not permitted)"
+#run_test 25a "Restore lost file (HS_LOST flag) from import"\
+#	     " (Operation not permitted)"
 
 test_25b() {
 	# test needs a running copytool
@@ -2044,8 +2045,8 @@ test_25b() {
 
 	copytool_cleanup
 }
-run_test 25b "Restore lost file (HS_LOST flag) after release"\
-	     " (Operation not permitted)"
+#run_test 25b "Restore lost file (HS_LOST flag) after release"\
+#	     " (Operation not permitted)"
 
 test_26() {
 	# test needs a running copytool
@@ -2067,7 +2068,7 @@ test_26() {
 
 	copytool_cleanup
 }
-run_test 26 "Remove the archive of a valid file"
+#run_test 26 "Remove the archive of a valid file"
 
 test_27a() {
 	# test needs a running copytool
@@ -2085,7 +2086,7 @@ test_27a() {
 
 	copytool_cleanup
 }
-run_test 27a "Remove the archive of an imported file (Operation not permitted)"
+#run_test 27a "Remove the archive of an imported file (Operation not permitted)"
 
 test_27b() {
 	# test needs a running copytool
@@ -2107,7 +2108,7 @@ test_27b() {
 
 	copytool_cleanup
 }
-run_test 27b "Remove the archive of a relased file (Operation not permitted)"
+#run_test 27b "Remove the archive of a relased file (Operation not permitted)"
 
 test_28() {
 	# test needs a running copytool
@@ -2133,7 +2134,7 @@ test_28() {
 
 	copytool_cleanup
 }
-run_test 28 "Concurrent archive/file remove"
+#run_test 28 "Concurrent archive/file remove"
 
 test_30a() {
 	# restore at exec cannot work on agent node (because of Linux kernel
@@ -2165,7 +2166,7 @@ test_30a() {
 
 	copytool_cleanup
 }
-run_test 30a "Restore at exec (import case)"
+#run_test 30a "Restore at exec (import case)"
 
 test_30b() {
 	# restore at exec cannot work on agent node (because of Linux kernel
@@ -2197,7 +2198,7 @@ test_30b() {
 
 	copytool_cleanup
 }
-run_test 30b "Restore at exec (release case)"
+#run_test 30b "Restore at exec (release case)"
 
 test_30c() {
 	needclients 2 || return 0
@@ -2238,7 +2239,7 @@ test_30c() {
 
 	copytool_cleanup
 }
-run_test 30c "Update during exec of released file must fail"
+#run_test 30c "Update during exec of released file must fail"
 
 restore_and_check_size() {
 	local f=$1
@@ -2292,7 +2293,7 @@ test_31a() {
 
 	copytool_cleanup
 }
-run_test 31a "Import a large file and check size during restore"
+#run_test 31a "Import a large file and check size during restore"
 
 
 test_31b() {
@@ -2317,7 +2318,7 @@ test_31b() {
 
 	copytool_cleanup
 }
-run_test 31b "Restore a large unaligned file and check size during restore"
+#run_test 31b "Restore a large unaligned file and check size during restore"
 
 test_31c() {
 	# test needs a running copytool
@@ -2341,7 +2342,7 @@ test_31c() {
 
 	copytool_cleanup
 }
-run_test 31c "Restore a large aligned file and check size during restore"
+#run_test 31c "Restore a large aligned file and check size during restore"
 
 test_33() {
 	# test needs a running copytool
@@ -2408,7 +2409,7 @@ test_33() {
 
 	copytool_cleanup
 }
-run_test 33 "Kill a restore waiting process"
+#run_test 33 "Kill a restore waiting process"
 
 test_34() {
 	# test needs a running copytool
@@ -2443,7 +2444,7 @@ test_34() {
 
 	copytool_cleanup
 }
-run_test 34 "Remove file during restore"
+#run_test 34 "Remove file during restore"
 
 test_35() {
 	# test needs a running copytool
@@ -2483,7 +2484,7 @@ test_35() {
 
 	copytool_cleanup
 }
-run_test 35 "Overwrite file during restore"
+#run_test 35 "Overwrite file during restore"
 
 test_36() {
 	# test needs a running copytool
@@ -2520,7 +2521,7 @@ test_36() {
 
 	copytool_cleanup
 }
-run_test 36 "Move file during restore"
+#run_test 36 "Move file during restore"
 
 multi_archive() {
 	local prefix=$1
@@ -2569,7 +2570,7 @@ test_40() {
 	wait_all_done 100
 	copytool_cleanup
 }
-run_test 40 "Parallel archive requests"
+#run_test 40 "Parallel archive requests"
 
 test_52() {
 	# test needs a running copytool
@@ -2596,7 +2597,7 @@ test_52() {
 
 	copytool_cleanup
 }
-run_test 52 "Opened for write file on an evicted client should be set dirty"
+#run_test 52 "Opened for write file on an evicted client should be set dirty"
 
 test_53() {
 	# test needs a running copytool
@@ -2624,7 +2625,7 @@ test_53() {
 
 	copytool_cleanup
 }
-run_test 53 "Opened for read file on an evicted client should not be set dirty"
+#run_test 53 "Opened for read file on an evicted client should not be set dirty"
 
 test_54() {
 	# test needs a running copytool
@@ -2652,7 +2653,7 @@ test_54() {
 	cdt_clear_no_retry
 	copytool_cleanup
 }
-run_test 54 "Write during an archive cancels it"
+#run_test 54 "Write during an archive cancels it"
 
 test_55() {
 	# test needs a running copytool
@@ -2680,7 +2681,7 @@ test_55() {
 	cdt_clear_no_retry
 	copytool_cleanup
 }
-run_test 55 "Truncate during an archive cancels it"
+#run_test 55 "Truncate during an archive cancels it"
 
 test_56() {
 	# test needs a running copytool
@@ -2709,7 +2710,7 @@ test_56() {
 
 	copytool_cleanup
 }
-run_test 56 "Setattr during an archive is ok"
+#run_test 56 "Setattr during an archive is ok"
 
 test_57() {
 	# Need one client for I/O, one for request
@@ -2740,7 +2741,7 @@ test_57() {
 
 	copytool_cleanup
 }
-run_test 57 "Archive a file with dirty cache on another node"
+#run_test 57 "Archive a file with dirty cache on another node"
 
 truncate_released_file() {
 	local src_file=$1
@@ -2797,7 +2798,7 @@ test_58() {
 
 	copytool_cleanup
 }
-run_test 58 "Truncate a released file will trigger restore"
+#run_test 58 "Truncate a released file will trigger restore"
 
 test_60() {
 	# This test validates the fix for LU-4512. Ensure that the -u
@@ -2871,7 +2872,7 @@ test_60() {
 	cdt_clear_no_retry
 	copytool_cleanup
 }
-run_test 60 "Changing progress update interval from default"
+#run_test 60 "Changing progress update interval from default"
 
 test_70() {
 	# test needs a new running copytool
@@ -2917,7 +2918,7 @@ test_70() {
 	copytool_monitor_cleanup
 	echo "Register/Unregister events look OK."
 }
-run_test 70 "Copytool logs JSON register/unregister events to FIFO"
+#run_test 70 "Copytool logs JSON register/unregister events to FIFO"
 
 test_71() {
 	# Bump progress interval for livelier events.
@@ -2998,7 +2999,7 @@ test_71() {
 	copytool_cleanup
 	copytool_monitor_cleanup
 }
-run_test 71 "Copytool logs JSON archive events to FIFO"
+#run_test 71 "Copytool logs JSON archive events to FIFO"
 
 test_72() {
 	# Bump progress interval for livelier events.
@@ -3101,7 +3102,7 @@ test_72() {
 
 	rm -rf $test_dir
 }
-run_test 72 "Copytool logs JSON restore events to FIFO"
+#run_test 72 "Copytool logs JSON restore events to FIFO"
 
 test_90() {
 	file_count=51 # Max number of files constrained by LNET message size
@@ -3136,7 +3137,7 @@ test_90() {
 	wait_all_done 100
 	copytool_cleanup
 }
-run_test 90 "Archive/restore a file list"
+#run_test 90 "Archive/restore a file list"
 
 double_verify_reset_hsm_param() {
 	local p=$1
@@ -3166,14 +3167,14 @@ test_100() {
 	double_verify_reset_hsm_param max_requests
 	double_verify_reset_hsm_param default_archive_id
 }
-run_test 100 "Set coordinator /proc tunables"
+#run_test 100 "Set coordinator /proc tunables"
 
 test_102() {
 	cdt_disable
 	cdt_enable
 	cdt_restart
 }
-run_test 102 "Verify coordinator control"
+#run_test 102 "Verify coordinator control"
 
 test_103() {
 	# test needs a running copytool
@@ -3199,7 +3200,7 @@ test_103() {
 
 	copytool_cleanup
 }
-run_test 103 "Purge all requests"
+#run_test 103 "Purge all requests"
 
 DATA=CEA
 DATAHEX='[434541]'
@@ -3226,7 +3227,7 @@ test_104() {
 
 	copytool_cleanup
 }
-run_test 104 "Copy tool data field"
+#run_test 104 "Copy tool data field"
 
 test_105() {
 	mkdir -p $DIR/$tdir
@@ -3251,7 +3252,7 @@ test_105() {
 		error "Requests count after shutdown $reqcnt2 != "\
 		      "before shutdown $reqcnt1"
 }
-run_test 105 "Restart of coordinator"
+#run_test 105 "Restart of coordinator"
 
 get_agent_by_uuid_mdt() {
 	local uuid=$1
@@ -3318,7 +3319,7 @@ test_106() {
 
 	copytool_cleanup
 }
-run_test 106 "Copytool register/unregister"
+#run_test 106 "Copytool register/unregister"
 
 test_107() {
 	# test needs a running copytool
@@ -3339,7 +3340,7 @@ test_107() {
 	wait_request_state $fid ARCHIVE SUCCEED
 	copytool_cleanup
 }
-run_test 107 "Copytool re-register after MDS restart"
+#run_test 107 "Copytool re-register after MDS restart"
 
 policy_set_and_test()
 {
@@ -3374,7 +3375,7 @@ test_109() {
 	echo "Back to default policy"
 	cdt_set_sanity_policy
 }
-run_test 109 "Policy display/change"
+#run_test 109 "Policy display/change"
 
 test_110a() {
 	# test needs a running copytool
@@ -3403,7 +3404,7 @@ test_110a() {
 
 	copytool_cleanup
 }
-run_test 110a "Non blocking restore policy (import case)"
+#run_test 110a "Non blocking restore policy (import case)"
 
 test_110b() {
 	# test needs a running copytool
@@ -3431,7 +3432,7 @@ test_110b() {
 
 	copytool_cleanup
 }
-run_test 110b "Non blocking restore policy (release case)"
+#run_test 110b "Non blocking restore policy (release case)"
 
 test_111a() {
 	# test needs a running copytool
@@ -3461,8 +3462,8 @@ test_111a() {
 
 	copytool_cleanup
 }
-run_test 111a "No retry policy (import case), restore will error"\
-	      " (No such file or directory)"
+#run_test 111a "No retry policy (import case), restore will error"\
+#	      " (No such file or directory)"
 
 test_111b() {
 	# test needs a running copytool
@@ -3490,8 +3491,8 @@ test_111b() {
 
 	copytool_cleanup
 }
-run_test 111b "No retry policy (release case), restore will error"\
-	      " (No such file or directory)"
+#run_test 111b "No retry policy (release case), restore will error"\
+#	      " (No such file or directory)"
 
 test_112() {
 	# test needs a running copytool
@@ -3515,7 +3516,7 @@ test_112() {
 
 	copytool_cleanup
 }
-run_test 112 "State of recorded request"
+#run_test 112 "State of recorded request"
 
 test_200() {
 	# test needs a running copytool
@@ -3537,7 +3538,7 @@ test_200() {
 
 	copytool_cleanup
 }
-run_test 200 "Register/Cancel archive"
+#run_test 200 "Register/Cancel archive"
 
 test_201() {
 	# test needs a running copytool
@@ -3559,7 +3560,7 @@ test_201() {
 
 	copytool_cleanup
 }
-run_test 201 "Register/Cancel restore"
+#run_test 201 "Register/Cancel restore"
 
 test_202() {
 	# test needs a running copytool
@@ -3582,7 +3583,7 @@ test_202() {
 
 	copytool_cleanup
 }
-run_test 202 "Register/Cancel remove"
+#run_test 202 "Register/Cancel remove"
 
 test_220() {
 	# test needs a running copytool
@@ -3606,7 +3607,7 @@ test_220() {
 
 	copytool_cleanup
 }
-run_test 220 "Changelog for archive"
+#run_test 220 "Changelog for archive"
 
 test_221() {
 	# test needs a running copytool
@@ -3634,7 +3635,7 @@ test_221() {
 
 	cleanup
 }
-run_test 221 "Changelog for archive canceled"
+#run_test 221 "Changelog for archive canceled"
 
 test_222a() {
 	# test needs a running copytool
@@ -3659,7 +3660,7 @@ test_222a() {
 
 	cleanup
 }
-run_test 222a "Changelog for explicit restore"
+#run_test 222a "Changelog for explicit restore"
 
 test_222b() {
 	# test needs a running copytool
@@ -3685,7 +3686,7 @@ test_222b() {
 
 	cleanup
 }
-run_test 222b "Changelog for implicit restore"
+#run_test 222b "Changelog for implicit restore"
 
 test_223a() {
 	# test needs a running copytool
@@ -3715,7 +3716,7 @@ test_223a() {
 
 	cleanup
 }
-run_test 223a "Changelog for restore canceled (import case)"
+#run_test 223a "Changelog for restore canceled (import case)"
 
 test_223b() {
 	# test needs a running copytool
@@ -3746,7 +3747,7 @@ test_223b() {
 
 	cleanup
 }
-run_test 223b "Changelog for restore canceled (release case)"
+#run_test 223b "Changelog for restore canceled (release case)"
 
 test_224() {
 	# test needs a running copytool
@@ -3772,7 +3773,7 @@ test_224() {
 
 	cleanup
 }
-run_test 224 "Changelog for remove"
+#run_test 224 "Changelog for remove"
 
 test_225() {
 	# test needs a running copytool
@@ -3812,7 +3813,7 @@ test_225() {
 
 	cleanup
 }
-run_test 225 "Changelog for remove canceled"
+#run_test 225 "Changelog for remove canceled"
 
 test_226() {
 	# test needs a running copytool
@@ -3852,7 +3853,7 @@ test_226() {
 
 	cleanup
 }
-run_test 226 "changelog for last rm/mv with exiting archive"
+#run_test 226 "changelog for last rm/mv with exiting archive"
 
 check_flags_changes() {
 	local f=$1
@@ -3909,7 +3910,7 @@ test_227() {
 
 	cleanup
 }
-run_test 227 "changelog when explicit setting of HSM flags"
+#run_test 227 "changelog when explicit setting of HSM flags"
 
 test_228() {
 	# test needs a running copytool
@@ -3945,7 +3946,7 @@ test_228() {
 		error "rm $DIR/$tfile or $DIR/$tfile.2 failed"
 	copytool_cleanup
 }
-run_test 228 "On released file, return extend to FIEMAP. For [cp,tar] --sparse"
+#run_test 228 "On released file, return extend to FIEMAP. For [cp,tar] --sparse"
 
 test_250() {
 	# test needs a running copytool
@@ -3983,7 +3984,7 @@ test_250() {
 
 	copytool_cleanup
 }
-run_test 250 "Coordinator max request"
+#run_test 250 "Coordinator max request"
 
 test_251() {
 	# test needs a running copytool
@@ -4019,7 +4020,7 @@ test_251() {
 
 	copytool_cleanup
 }
-run_test 251 "Coordinator request timeout"
+#run_test 251 "Coordinator request timeout"
 
 test_300() {
 	# the only way to test ondisk conf is to restart MDS ...
@@ -4046,7 +4047,7 @@ test_300() {
 
 	# we are back to original state (cdt started at mount)
 }
-run_test 300 "On disk coordinator state kept between MDT umount/mount"
+#run_test 300 "On disk coordinator state kept between MDT umount/mount"
 
 test_301() {
 	local ai=$(get_hsm_param default_archive_id)
@@ -4061,7 +4062,7 @@ test_301() {
 
 	[[ $new == $res ]] || error "Value after MDS restart is $res != $new"
 }
-run_test 301 "HSM tunnable are persistent"
+#run_test 301 "HSM tunnable are persistent"
 
 test_302() {
 	local ai=$(get_hsm_param default_archive_id)
@@ -4087,7 +4088,7 @@ test_302() {
 
 	[[ $new == $res ]] || error "Value after MDS restart is $res != $new"
 }
-run_test 302 "HSM tunnable are persistent when CDT is off"
+#run_test 302 "HSM tunnable are persistent when CDT is off"
 
 test_400() {
 	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
@@ -4121,7 +4122,7 @@ test_400() {
 	# clean test files and directories
 	rm -rf $dir_mdt0 $dir_mdt1
 }
-run_test 400 "Single request is sent to the right MDT"
+#run_test 400 "Single request is sent to the right MDT"
 
 test_401() {
 	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
@@ -4153,7 +4154,7 @@ test_401() {
 	# clean test files and directories
 	rm -rf $dir_mdt0 $dir_mdt1
 }
-run_test 401 "Compound requests split and sent to their respective MDTs"
+#run_test 401 "Compound requests split and sent to their respective MDTs"
 
 mdc_change_state() # facet, MDT_pattern, activate|deactivate
 {
@@ -4186,7 +4187,7 @@ test_402() {
 	# reactivate MDCs
 	mdc_change_state $SINGLEAGT "$FSNAME-MDT000." "activate"
 }
-run_test 402 "Copytool start fails if all MDTs are inactive"
+#run_test 402 "Copytool start fails if all MDTs are inactive"
 
 test_403() {
 	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
@@ -4216,7 +4217,7 @@ test_403() {
 
 	copytool_cleanup
 }
-run_test 403 "Copytool starts with inactive MDT and register on reconnect"
+#run_test 403 "Copytool starts with inactive MDT and register on reconnect"
 
 test_404() {
 	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
