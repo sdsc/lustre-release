@@ -236,19 +236,14 @@ do {                                                                           \
 		__blocked = cfs_block_sigsinv(0);                              \
 									       \
 	for (;;) {                                                             \
-		unsigned       __wstate;                                       \
-									       \
-		__wstate = info->lwi_on_signal != NULL &&                      \
-			   (__timeout == 0 || __allow_intr) ?                  \
-			TASK_INTERRUPTIBLE : TASK_UNINTERRUPTIBLE;             \
-									       \
-		set_current_state(TASK_INTERRUPTIBLE);			       \
-									       \
 		if (condition)                                                 \
 			break;                                                 \
 									       \
+		set_current_state(TASK_INTERRUPTIBLE);			       \
+									       \
 		if (__timeout == 0) {                                          \
 			waitq_wait(&__wait, __wstate);                         \
+			set_current_state(TASK_RUNNING);		       \
 		} else {                                                       \
 			cfs_duration_t interval = info->lwi_interval?          \
 					     min_t(cfs_duration_t,             \
@@ -257,6 +252,7 @@ do {                                                                           \
 			cfs_duration_t remaining = waitq_timedwait(&__wait,    \
 						   __wstate,                   \
 						   interval);                  \
+			set_current_state(TASK_RUNNING);		       \
 			__timeout = cfs_time_sub(__timeout,                    \
 					    cfs_time_sub(interval, remaining));\
 			if (__timeout == 0) {                                  \
@@ -294,7 +290,6 @@ do {                                                                           \
                                                                                \
 	cfs_restore_sigs(__blocked);                                           \
                                                                                \
-	set_current_state(TASK_RUNNING);                               	       \
 	remove_wait_queue(&wq, &__wait);                                       \
 } while (0)
 
