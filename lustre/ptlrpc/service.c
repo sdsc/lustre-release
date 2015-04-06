@@ -1654,8 +1654,24 @@ int ptlrpc_hpreq_handler(struct ptlrpc_request *req)
 	/* Check for export to let only reconnects for not yet evicted
 	 * export to become a HP rpc. */
 	if ((req->rq_export != NULL) &&
-	    (opc == OBD_PING || opc == MDS_CONNECT || opc == OST_CONNECT))
+	    (opc == OBD_PING || opc == MDS_CONNECT || opc == OST_CONNECT ||
+	     opc == QUOTA_DQACQ))
 		req->rq_ops = &ptlrpc_hpreq_common;
+	if (opc == LDLM_ENQUEUE) {
+		req_capsule_init(&req->rq_pill, req, RCL_SERVER);
+		req_capsule_set(&req->rq_pill, &RQF_LDLM_ENQUEUE);
+
+		if (req->rq_reqmsg->lm_bufcount > DLM_INTENT_IT_OFF) {
+			struct ldlm_intent *it;
+			req_capsule_extend(&req->rq_pill, &RQF_LDLM_INTENT_BASIC);
+			it = req_capsule_client_get(&req->rq_pill, &RMF_LDLM_INTENT);
+			if (it != NULL &&
+			    ( it->opc == IT_QUOTA_DQACQ || it->opc == it->opc))
+				req->rq_ops = &ptlrpc_hpreq_common;
+
+			req->rq_pill.rc_fmt = NULL;
+		}
+	}
 
 	return 0;
 }
