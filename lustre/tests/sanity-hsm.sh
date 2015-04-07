@@ -2069,6 +2069,30 @@ test_26() {
 }
 run_test 26 "Remove the archive of a valid file"
 
+test_26a() {
+	# test needs a running copytool
+	copytool_setup
+
+	set_hsm_param remove_archive_on_last_unlink 1
+
+	mkdir -p $DIR/$tdir
+	local f=$DIR/$tdir/$tfile
+	local fid
+	fid=$(make_large_for_progress $f)
+	[ $? != 0 ] && skip "not enough free space" && return
+
+	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER $f
+	wait_request_state $fid ARCHIVE SUCCEED
+
+	rm -f $f
+	wait_request_state $fid REMOVE SUCCEED
+
+	set_hsm_param remove_archive_on_last_unlink 0
+
+	copytool_cleanup
+}
+run_test 26a "Remove Archive On Last Unlink (raolu) policy"
+
 test_27a() {
 	# test needs a running copytool
 	copytool_setup

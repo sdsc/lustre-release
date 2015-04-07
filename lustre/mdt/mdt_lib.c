@@ -808,6 +808,45 @@ int mdt_handle_last_unlink(struct mdt_thread_info *info, struct mdt_object *mo,
         if (ma->ma_valid & MA_INODE)
                 mdt_pack_attr2body(info, repbody, la, mdt_object_fid(mo));
 
+	/* if HSM attrs fetched, CDT must be running and raolu policy has
+	 * been enabled, so if an archived file, send a remove request to all
+	 * archives */
+	if ((ma->ma_valid & MA_HSM) && (ma->ma_hsm.mh_flags & HS_EXISTS)) {
+		struct hsm_action_list *hal;
+		struct hsm_action_item *hai;
+		/* only one item, with no data */
+		int hal_size = sizeof(*hal) +
+			       cfs_size_round(MTI_NAME_MAXLEN) /* fsname */ +
+			       sizeof(*hai);
+		__u64 compound_id;
+		int rc;
+
+		MDT_HSM_ALLOC(hal, hal_size);
+		if (hal == NULL) {
+			CERROR("Unable to allocate implicit remove req\n");
+		} else {
+			hal->hal_version = HAL_VERSION;
+			hal->hal_archive_id = ma->ma_hsm.mh_arch_id;
+			hal->hal_flags = 0;
+			obd_uuid2fsname(hal->hal_fsname,
+					mdt_obd_name(info->mti_mdt),
+					MTI_NAME_MAXLEN);
+			hal->hal_count = 1;
+			hai = hai_first(hal);
+			hai->hai_action = HSMA_REMOVE;
+			hai->hai_cookie = 0;
+			hai->hai_gid = 0;
+			hai->hai_fid = *mdt_object_fid(mo);
+			hai->hai_extent.length = -1;
+			hai->hai_len = sizeof(*hai);
+			rc = mdt_hsm_add_actions(info, hal, &compound_id);
+			if (rc)
+				CERROR("Unable to submit implicit remove req,"
+				       " rc=%d\n", rc);
+			MDT_HSM_FREE(hal, hal_size);
+		}
+	}
+
         if (ma->ma_valid & MA_LOV) {
 		CERROR("No need in LOV EA upon unlink\n");
 		dump_stack();

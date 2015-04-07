@@ -91,6 +91,19 @@ struct mdt_file_data {
 	struct mdt_object	*mfd_object;
 };
 
+/* Max allocation to satisfy single HSM RPC. */
+#define MDT_HSM_ALLOC_MAX (1 << 20)
+
+#define MDT_HSM_ALLOC(ptr, size)			\
+	do {						\
+		if ((size) <= MDT_HSM_ALLOC_MAX)	\
+			OBD_ALLOC_LARGE((ptr), (size));	\
+		else					\
+			(ptr) = NULL;			\
+	} while (0)
+
+#define MDT_HSM_FREE(ptr, size) OBD_FREE_LARGE((ptr), (size))
+
 #define CDT_NONBLOCKING_RESTORE		(1ULL << 0)
 #define CDT_NORETRY_ACTION		(1ULL << 1)
 #define CDT_POLICY_LAST			CDT_NORETRY_ACTION
@@ -156,6 +169,9 @@ struct coordinator {
 	__u64			 cdt_user_request_mask;
 	__u64			 cdt_group_request_mask;
 	__u64			 cdt_other_request_mask;
+
+	/* Remove archive on last unlink policy */
+	bool			cdt_raolu;
 };
 
 /* mdt state flag bits */
