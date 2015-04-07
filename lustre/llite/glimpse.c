@@ -153,6 +153,9 @@ static int cl_io_get(struct inode *inode, struct lu_env **envout,
 	struct cl_object	*clob = lli->lli_clob;
 	int result;
 
+	if (clob == NULL)
+		return -ENOENT;
+
 	if (S_ISREG(inode->i_mode)) {
                 env = cl_env_get(refcheck);
                 if (!IS_ERR(env)) {
