@@ -934,33 +934,28 @@ again:
 		/* If the client doesn't know where to create a subdirectory (or
 		 * in case of a race that sends the RPC to the wrong MDS), the
 		 * MDS will return -EREMOTE and the client will fetch the layout
-		 * for the directory, either from the local xattr cache or the
-		 * MDS, then create the directory on the right MDT. */
+		 * of the directory, then create the directory on the right
+		 * MDT. */
 		if (err == -EREMOTE) {
-			struct lmv_user_md *lum;
-			int rc;
+			struct lmv_user_md	*lum;
+			int			lumsize;
+			int			rc;
 
 			ptlrpc_req_finished(request);
 			request = NULL;
 
-			OBD_ALLOC_PTR(lum);
-			if (lum == NULL)
-				GOTO(err_exit, err = -ENOMEM);
-
-			rc = ll_getxattr_common(dir, XATTR_NAME_DEFAULT_LMV,
-						lum, sizeof(*lum),
-						OBD_MD_FLXATTR);
+			rc = ll_dir_getstripe(dir, (void **)&lum, &lumsize,
+					      &request, OBD_MD_DEFAULT_MEA);
 			if (rc < 0) {
-				OBD_FREE_PTR(lum);
 				if (rc == -ENODATA)
-					GOTO(err_exit, err);
-				else
-					GOTO(err_exit, rc);
+					rc = -EREMOTE;
+				GOTO(err_exit, err = rc);
 			}
 
 			ll_i2info(dir)->lli_def_stripe_offset =
-				le32_to_cpu(lum->lum_stripe_offset);
-			OBD_FREE_PTR(lum);
+						lum->lum_stripe_offset;
+			ptlrpc_req_finished(request);
+			request = NULL;
 			goto again;
 		}
 		GOTO(err_exit, err);
