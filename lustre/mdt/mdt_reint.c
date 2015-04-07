@@ -954,8 +954,13 @@ static int mdt_reint_unlink(struct mdt_thread_info *info,
 
 	mutex_unlock(&mc->mot_lov_mutex);
 
-	if (rc == 0 && !lu_object_is_dying(&mc->mot_header))
+	if (rc == 0 && !lu_object_is_dying(&mc->mot_header)) {
+		/* fetch HSM attrs if raolu policy */
+		if ((info->mti_mdt->mdt_coordinator.cdt_state != CDT_STOPPED) &&
+		    (info->mti_mdt->mdt_coordinator.cdt_raolu == true))
+			ma->ma_need |= MA_HSM;
 		rc = mdt_attr_get_complex(info, mc, ma);
+	}
 	if (rc == 0)
 		mdt_handle_last_unlink(info, mc, ma);
 

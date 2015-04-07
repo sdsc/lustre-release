@@ -39,19 +39,6 @@
 
 #include "mdt_internal.h"
 
-/* Max allocation to satisfy single HSM RPC. */
-#define MDT_HSM_ALLOC_MAX (1 << 20)
-
-#define MDT_HSM_ALLOC(ptr, size)			\
-	do {						\
-		if ((size) <= MDT_HSM_ALLOC_MAX)	\
-			OBD_ALLOC_LARGE((ptr), (size));	\
-		else					\
-			(ptr) = NULL;			\
-	} while (0)
-
-#define MDT_HSM_FREE(ptr, size) OBD_FREE_LARGE((ptr), (size))
-
 /**
  * Update on-disk HSM attributes.
  */
