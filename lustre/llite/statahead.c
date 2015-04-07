@@ -537,9 +537,9 @@ static void ll_agl_trigger(struct inode *inode, struct ll_statahead_info *sai)
         CDEBUG(D_READA, "Handling (init) async glimpse: inode = "
                DFID", idx = "LPU64"\n", PFID(&lli->lli_fid), index);
 
-        cl_agl(inode);
-        lli->lli_agl_index = 0;
-        lli->lli_glimpse_time = cfs_time_current();
+	(void)cl_agl(inode);
+	lli->lli_agl_index = 0;
+	lli->lli_glimpse_time = cfs_time_current();
 	up_write(&lli->lli_glimpse_sem);
 
         CDEBUG(D_READA, "Handled (init) async glimpse: inode= "
