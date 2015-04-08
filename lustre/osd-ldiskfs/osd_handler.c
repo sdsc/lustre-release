@@ -1842,8 +1842,9 @@ static int osd_mkfile(struct osd_thread_info *info, struct osd_object *obj,
         oth = container_of(th, struct osd_thandle, ot_super);
         LASSERT(oth->ot_handle->h_transaction != NULL);
 
-        if (hint && hint->dah_parent)
-                parent = hint->dah_parent;
+	if (hint != NULL && hint->dah_parent &&
+	    !dt_object_remote(hint->dah_parent))
+		parent = hint->dah_parent;
 
         inode = ldiskfs_create_inode(oth->ot_handle,
                                      parent ? osd_dt_obj(parent)->oo_inode :
