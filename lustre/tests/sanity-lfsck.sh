@@ -43,6 +43,9 @@ setupall
 [[ $(lustre_version_code $SINGLEMDS) -le $(version_code 2.4.90) ]] &&
 	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 2c"
 
+[[ $(lustre_version_code $SINGLEMDS) -gt $(version_code 2.7.50) ]] &&
+	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 9"
+
 build_test_filter
 
 $LCTL set_param debug=+lfsck > /dev/null || true
