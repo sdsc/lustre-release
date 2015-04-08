@@ -1474,7 +1474,7 @@ static int osd_object_create(const struct lu_env *env, struct dt_object *dt,
 	/* to follow ZFS on-disk format we need
 	 * to initialize parent dnode properly */
 	zapid = 0;
-	if (hint && hint->dah_parent)
+	if (hint && hint->dah_parent && !dt_object_remote(hint->dah_parent))
 		zapid = osd_dt_obj(hint->dah_parent)->oo_db->db_object;
 
 	db = osd_create_type_f(dof->dof_type)(env, obj, attr, zapid, oh);
