@@ -45,6 +45,9 @@ setupall
 [[ $(lustre_version_code ost1) -lt $(version_code 2.5.55) ]] &&
 	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 11 12 13 14 15 16 17 18 19 20 21"
 
+[[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.6.0) ]] &&
+	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 9"
+
 [[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.6.50) ]] &&
 	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 2d 2e 3 22 23 24 25 26 27 28 29 30 31"
 
