@@ -13317,6 +13317,28 @@ test_300i() {
 }
 run_test 300i "client handle unknown hash type striped directory"
 
+test_300j() {
+	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+	local stripe_index
+
+	test_mkdir -p $DIR/$tdir/striped_dir
+	chown $RUNAS_ID $DIR/$tdir/striped_dir ||
+			error "chown $RUNAS_ID failed"
+	$LFS setdirstripe -i 1 -D $DIR/$tdir/striped_dir ||
+		error "set default striped dir failed"
+
+	#set the stripe to be unknown hash type
+	#define OBD_FAIL_MDS_STALE_DIR_LAYOUT	 0x158
+	$LCTL set_param fail_loc=0x80000158
+	$RUNAS mkdir $DIR/$tdir/striped_dir/test_dir || error "create dir fails"
+
+	stripe_index=$($LFS getdirstripe -i $DIR/$tdir/striped_dir/test_dir)
+	[ $stripe_index -eq 1 ] ||
+		error "expect 0 get $stripe_index for $dir"
+}
+run_test 300j "non-root user to create dir under stripeddir with stale layout"
+
 test_400a() { # LU-1606, was conf-sanity test_74
 	local extra_flags=''
 	local out=$TMP/$tfile
