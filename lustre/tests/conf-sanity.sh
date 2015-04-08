@@ -4926,6 +4926,37 @@ test_80() {
 }
 run_test 80 "mgc import reconnect race"
 
+test_81() {
+	local OST_OPTS="$(mkfs_opts ost1 $(ostdevname 1)) \
+                --reformat $(ostdevname 1) $(ostvdevname 1)"
+
+	local NEWSIZE=1024
+	local OLDSIZE=$(do_facet ost1 "$DEBUGFS -c -R stats `ostdevname 1`" \
+		| awk '/Flex block group size: / { print $NF; exit;}')
+
+	local opts=OST_OPTS
+        if [[ ${!opts} != *mkfsoptions* ]]; then
+            eval opts=\"${!opts} \
+	    --mkfsoptions='\\\"-O flex_bg -G $NEWSIZE\\\"'\"
+	else
+            val=${!opts//--mkfsoptions=\\\"/ \
+		    --mkfsoptions=\\\"-O flex_bg -G $NEWSIZE }
+            eval opts='${val}'
+        fi
+
+	echo "params: $opts"
+
+	add ost1 $opts || error "add ost1 failed with new params"
+
+	local FOUNDSIZE=$(do_facet ost1 "$DEBUGFS -c -R stats `ostdevname 1`" \
+		| awk '/Flex block group size: / { print $NF; exit;}')
+
+	[[ $FOUNDSIZE -ne $NEWSIZE ]] && error \
+		"Flex block group size: "$FOUNDSIZE", expected: "$NEWSIZE""
+	return 0
+}
+run_test 81 "Replacing mkfs.lustre -G option"
+
 # Save the original values of $OSTCOUNT and $OSTINDEX$i.
 save_ostindex() {
 	local new_ostcount=$1
