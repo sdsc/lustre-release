@@ -36,7 +36,7 @@
  * libcfs/include/libcfs/libcfs_ioctl.h
  *
  * Low-level ioctl data structures. Kernel ioctl functions declared here,
- * and user space functions are in libcfsutil_ioctl.h.
+ * and user space functions are in libcfs/util/ioctl.h.
  *
  */
 
@@ -190,8 +190,8 @@ struct libcfs_ioctl_handler {
 static inline int libcfs_ioctl_packlen(struct libcfs_ioctl_data *data)
 {
 	int len = sizeof(*data);
-	len += cfs_size_round(data->ioc_inllen1);
-	len += cfs_size_round(data->ioc_inllen2);
+	len += ALIGN(data->ioc_inllen1, 8);
+	len += ALIGN(data->ioc_inllen2, 8);
 	return len;
 }
 
@@ -243,7 +243,7 @@ static inline bool libcfs_ioctl_is_invalid(struct libcfs_ioctl_data *data)
 		return 1;
 	}
 	if (data->ioc_inllen2 &&
-	    data->ioc_bulk[cfs_size_round(data->ioc_inllen1) +
+	    data->ioc_bulk[ALIGN(data->ioc_inllen1, 8) +
 			   data->ioc_inllen2 - 1] != '\0') {
 		CERROR("LIBCFS ioctl: inlbuf2 not 0 terminated\n");
 		return 1;
