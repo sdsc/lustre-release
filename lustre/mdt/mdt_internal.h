@@ -156,6 +156,9 @@ struct coordinator {
 	__u64			 cdt_user_request_mask;
 	__u64			 cdt_group_request_mask;
 	__u64			 cdt_other_request_mask;
+
+	/* Remove archive on last unlink policy */
+	bool			cdt_raolu;
 };
 
 /* mdt state flag bits */
