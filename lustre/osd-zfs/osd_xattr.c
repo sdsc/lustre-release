@@ -249,6 +249,11 @@ int osd_xattr_get(const struct lu_env *env, struct dt_object *dt,
 	LASSERT(osd_invariant(obj));
 	LASSERT(dt_object_exists(dt));
 
+	if (obj->oo_destroyed) {
+		dump_stack();
+		return -ENOENT;
+	}
+
 	if (!osd_obj2dev(obj)->od_posix_acl &&
 	    (strcmp(name, POSIX_ACL_XATTR_ACCESS) == 0 ||
 	     strcmp(name, POSIX_ACL_XATTR_DEFAULT) == 0))
