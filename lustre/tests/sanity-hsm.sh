@@ -2069,6 +2069,92 @@ test_26() {
 }
 run_test 26 "Remove the archive of a valid file"
 
+test_26a() {
+	# test needs a running copytool
+	copytool_setup
+
+	mkdir -p $DIR/$tdir
+	local f=$DIR/$tdir/$tfile
+	local fid=$(copy_file /etc/passwd $f)
+
+	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER $f
+	wait_request_state $fid ARCHIVE SUCCEED
+
+	local save_raolu=$(get_hsm_param remove_archive_on_last_unlink)
+	set_hsm_param remove_archive_on_last_unlink 0
+
+	rm -f $f
+	local cnt=$(do_facet $SINGLEMDS "$LCTL get_param -n\
+			$HSM_PARAM.actions | grep $fid |\
+			grep REMOVE | wc -l")
+
+	[[ $cnt -eq 0 ]] || error "File being removed on archive"
+
+	f=$DIR/$tdir/${tfile}_2
+	fid=$(copy_file /etc/passwd $f)
+
+	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER $f
+	wait_request_state $fid ARCHIVE SUCCEED
+
+	set_hsm_param remove_archive_on_last_unlink 1
+
+	rm -f $f
+	cnt=$(do_facet $SINGLEMDS "$LCTL get_param -n\
+			$HSM_PARAM.actions | grep $fid |\
+			grep REMOVE | wc -l")
+
+	set_hsm_param remove_archive_on_last_unlink $save_raolu
+
+	[[ $cnt -eq 0 ]] && error "File not being removed on archive"
+	wait_request_state $fid REMOVE SUCCEED
+
+	copytool_cleanup
+}
+run_test 26a "Remove Archive On Last Unlink (RAoLU) policy"
+
+test_26b() {
+	# test needs a running copytool
+	copytool_setup
+
+	mkdir -p $DIR/$tdir
+	local f=$DIR/$tdir/$tfile
+	local fid=$(copy_file /etc/passwd $f)
+
+	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER $f
+	wait_request_state $fid ARCHIVE SUCCEED
+
+	local save_raolu=$(get_hsm_param remove_archive_on_last_unlink)
+	set_hsm_param remove_archive_on_last_unlink 1
+
+	start_full_debug_logging
+
+	cdt_shutdown
+	cdt_check_state stopped
+
+	rm -f $f
+	cnt=$(do_facet $SINGLEMDS "$LCTL get_param -n\
+			$HSM_PARAM.actions | grep $fid |\
+			grep REMOVE | wc -l")
+
+	set_hsm_param remove_archive_on_last_unlink $save_raolu
+
+	[[ $cnt -eq 0 ]] && error "File not being removed on archive"
+	sleep 10
+	wait_request_state $fid REMOVE WAITING
+
+	cdt_enable
+	# copytool must re-register
+	search_and_kill_copytool
+	copytool_setup
+
+	wait_request_state $fid REMOVE SUCCEED
+
+	stop_full_debug_logging
+
+	copytool_cleanup
+}
+run_test 26b "RAoLU policy when CDT off"
+
 test_27a() {
 	# test needs a running copytool
 	copytool_setup
