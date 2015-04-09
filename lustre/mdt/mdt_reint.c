@@ -1231,9 +1231,10 @@ static int mdt_is_subdir(struct mdt_thread_info *info,
 	rc = mdo_is_subdir(info->mti_env, mdt_object_child(dir),
 			   fid, &dir_fid);
 	if (rc < 0) {
-		CERROR("%s: failed subdir check in "DFID" for "DFID
-		       ": rc = %d\n", mdt_obd_name(info->mti_mdt),
-		       PFID(&dir_fid), PFID(fid), rc);
+		if (rc != -ENOENT)
+			CERROR("%s: failed subdir check in "DFID" for "DFID
+			       ": rc = %d\n", mdt_obd_name(info->mti_mdt),
+			       PFID(&dir_fid), PFID(fid), rc);
 		/* Return EINVAL only if a parent is the @fid */
 		if (rc == -EINVAL)
 			rc = -EIO;

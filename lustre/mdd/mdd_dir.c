@@ -57,6 +57,10 @@ static struct lu_name lname_dotdot = {
         sizeof(dotdot) - 1
 };
 
+static bool mdd_hsm_archive_exists(const struct lu_env *env,
+				   struct mdd_object *obj,
+				   struct md_attr *ma);
+
 static inline int
 mdd_name_check(struct mdd_device *m, const struct lu_name *ln)
 {
@@ -1426,6 +1430,9 @@ int mdd_finish_unlink(const struct lu_env *env,
 		if (rc != 0)
 			RETURN(rc);
 
+		/* fetch HSM attribute before object is destroyed */
+		mdd_hsm_archive_exists(env, obj, ma);
+
                 /* add new orphan and the object
                  * will be deleted during mdd_close() */
                 if (obj->mod_count) {
@@ -1676,15 +1683,22 @@ static int mdd_unlink(const struct lu_env *env, struct md_object *pobj,
 	ma->ma_valid |= MA_INODE;
 	rc = mdd_finish_unlink(env, mdd_cobj, ma, mdd_pobj, lname, handle);
 
-	/* fetch updated nlink */
-	if (rc == 0)
+	if (mdd_cobj->mod_flags & DEAD_OBJ) {
+		if (mdd_cobj->mod_flags & ORPHAN_OBJ) {
+			/* still open, close will destroy it */
+			rc = mdd_la_get(env, mdd_cobj, cattr);
+		} else {
+			/* the object is removed, we can't get its attrs,
+			 * use last get */
+			ma->ma_attr = *cattr;
+			ma->ma_attr.la_nlink = 0;
+			ma->ma_valid |= MA_INODE;
+		}
+	} else {
+		/* just some reference gone, the object is still around */
 		rc = mdd_la_get(env, mdd_cobj, cattr);
-
-	/* if object is removed then we can't get its attrs, use last get */
-	if (cattr->la_nlink == 0) {
-		ma->ma_attr = *cattr;
-		ma->ma_valid |= MA_INODE;
 	}
+
 	EXIT;
 cleanup:
 	if (likely(mdd_cobj != NULL))
@@ -1696,7 +1710,8 @@ cleanup:
 		if (cattr->la_nlink == 0) {
 			cl_flags |= CLF_UNLINK_LAST;
 			/* search for an existing archive */
-			if (mdd_hsm_archive_exists(env, mdd_cobj, ma))
+			if ((ma->ma_valid & MA_HSM) &&
+			    (ma->ma_hsm.mh_flags & HS_EXISTS))
 				cl_flags |= CLF_UNLINK_HSM_EXISTS;
 		}
 
@@ -2844,21 +2859,26 @@ static int mdd_rename(const struct lu_env *env,
 		}
 
 		/* fetch updated nlink */
-		rc = mdd_la_get(env, mdd_tobj, tattr);
-		if (rc != 0) {
-			CERROR("%s: Failed to get nlink for tobj "
-				DFID": rc = %d\n",
-				mdd2obd_dev(mdd)->obd_name,
-				PFID(tpobj_fid), rc);
-			GOTO(fixup_tpobj, rc);
+		if (mdd_tobj->mod_flags & DEAD_OBJ) {
+			if (mdd_tobj->mod_flags & ORPHAN_OBJ) {
+				rc = mdd_la_get(env, mdd_tobj, tattr);
+			} else {
+				/* the object is removed, we can't get its attrs,
+				 * use last get */
+				tattr->la_nlink = 0;
+			}
+		} else {
+			rc = mdd_la_get(env, mdd_tobj, tattr);
 		}
+
 		/* XXX: this transfer to ma will be removed with LOD/OSP */
 		ma->ma_attr = *tattr;
 		ma->ma_valid |= MA_INODE;
 
 		if (tattr->la_nlink == 0) {
 			cl_flags |= CLF_RENAME_LAST;
-			if (mdd_hsm_archive_exists(env, mdd_tobj, ma))
+			if ((ma->ma_valid & MA_HSM) &&
+			    (ma->ma_hsm.mh_flags & HS_EXISTS))
 				cl_flags |= CLF_RENAME_LAST_EXISTS;
 		}
         }
