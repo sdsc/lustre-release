@@ -796,10 +796,12 @@ int mdt_fix_reply(struct mdt_thread_info *info)
 /* if object is dying, pack the lov/llog data,
  * parameter info->mti_attr should be valid at this point! */
 int mdt_handle_last_unlink(struct mdt_thread_info *info, struct mdt_object *mo,
-                           const struct md_attr *ma)
+			   struct md_attr *ma)
 {
         struct mdt_body       *repbody;
         const struct lu_attr *la = &ma->ma_attr;
+	struct coordinator   *cdt = &info->mti_mdt->mdt_coordinator;
+	int		     rc;
         ENTRY;
 
         repbody = req_capsule_server_get(info->mti_pill, &RMF_MDT_BODY);
@@ -807,6 +809,50 @@ int mdt_handle_last_unlink(struct mdt_thread_info *info, struct mdt_object *mo,
 
         if (ma->ma_valid & MA_INODE)
                 mdt_pack_attr2body(info, repbody, la, mdt_object_fid(mo));
+
+	/* For last unlink on a file, HSM attrs should have been fetched,
+	 * but just in case. */
+	if ((ma->ma_attr->la_nlink == 0) && (mo->mot_open_count == 0) &&
+	    !(ma->ma_valid & MA_HSM)) {
+		ma->ma_need |= MA_HSM;
+		rc = mdt_attr_get_complex(info, mo, ma);
+		if (rc)
+			CERROR("%s: unable to fetch missing HSM attributes of"
+			       DFID": rc=%d\n", mdt_obd_name(info->mti_mdt),
+			       PFID(mdt_object_fid(mo)), rc);
+	}
+
+	/* If an archived file and RAoLU policy has been enabled, send a
+	 * remove request to archive for all unlinked files when closed.
+	 * If CDT is not running, requests will be logged for later. */
+	if ((ma->ma_attr->la_nlink == 0) && (mo->mot_open_count == 0) &&
+	    (ma->ma_valid & MA_HSM) && (ma->ma_hsm.mh_flags & HS_EXISTS) &&
+	    (cdt->cdt_raolu == true)) {
+		struct hsm_action_item hai = {
+			.hai_len = sizeof(hai),
+			.hai_action = HSMA_REMOVE,
+			.hai_extent.length = -1,
+			.hai_cookie = 0,
+			.hai_gid = 0,
+		};
+		__u64 compound_id;
+		int archive_id;
+
+		compound_id = atomic_inc_return(&cdt->cdt_compound_id);
+		if (ma->ma_hsm.mh_arch_id != 0)
+			archive_id = ma->ma_hsm.mh_arch_id;
+		else
+			archive_id = cdt->cdt_default_archive_id;
+
+		hai.hai_fid = *mdt_object_fid(mo);
+
+		rc = mdt_agent_record_add(info->mti_env, info->mti_mdt,
+					  compound_id, archive_id, 0, &hai);
+		if (rc)
+			CERROR("%s: unable to add HSM remove request for "DFID
+			       ": rc=%d\n", mdt_obd_name(info->mti_mdt),
+			       PFID(mdt_object_fid(mo)), rc);
+	}
 
         if (ma->ma_valid & MA_LOV) {
 		CERROR("No need in LOV EA upon unlink\n");
