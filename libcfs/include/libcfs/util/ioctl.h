@@ -33,23 +33,63 @@
  * This file is part of Lustre, http://www.lustre.org/
  * Lustre is a trademark of Sun Microsystems, Inc.
  *
- * libcfs/include/libcfs/util/libcfsutil_ioctl.h
+ * libcfs/include/libcfs/util/ioctl.h
  *
  * Utility functions for calling ioctls.
  *
  */
+#include <stdbool.h>
+
+#include <linux/types.h>
+
+/* Sparse annotation. */
+#define __user
+
+#ifndef ALIGN
+#define __ALIGN_MASK(x, mask)	(((x)+(mask))&~(mask))
+#define ALIGN(x, a)		__ALIGN_MASK(x, (typeof(x))(a)-1)
+#endif /* !ALIGN */
+
+#ifndef CERROR
+#define CERROR(format, ...)     fprintf(stderr, format, ## __VA_ARGS__)
+#endif /* !CERROR */
+
+#ifndef CDEBUG
+#define CDEBUG(type, format, ...) fprintf(stdout, format, ## __VA_ARGS__)
+#endif /* !CDEBUG */
+
+#include <libcfs/libcfs_ioctl.h>
+
+#ifndef LOGL
+#define LOGL(var, len, ptr)					\
+do {								\
+	if (var)						\
+		memcpy((char *)ptr, (const char *)var, len);	\
+	ptr += ALIGN(len, 8);					\
+} while (0)
+#endif /* !LOGL */
+
+#ifndef LOGU
+#define LOGU(var, len, ptr)					\
+do {								\
+	if (var)						\
+		memcpy((char *)var, (const char *)ptr, len);	\
+	ptr += ALIGN(len, 8);					\
+} while (0)
+#endif /* !LOGU */
+
+#define likely(x)	__builtin_expect(!!(x), 1)
+#define unlikely(x)	__builtin_expect(!!(x), 0)
+
+#ifndef ARRAY_SIZE
+#define ARRAY_SIZE(a) ((sizeof(a)) / (sizeof((a)[0])))
+#endif /* ARRAY_SIZE */
+
+#include <libcfs/libcfs_ioctl.h>
 
 /* FIXME - rename these to libcfs_ */
-
 int libcfs_ioctl_pack(struct libcfs_ioctl_data *data, char **pbuf, int max);
 void libcfs_ioctl_unpack(struct libcfs_ioctl_data *data, char *pbuf);
-typedef int (ioc_handler_t)(int dev_id, unsigned int opc, void *buf);
-void set_ioc_handler(ioc_handler_t *handler);
-int register_ioc_dev(int dev_id, const char * dev_name, int major, int minor);
+int register_ioc_dev(int dev_id, const char *dev_name, int major, int minor);
 void unregister_ioc_dev(int dev_id);
-int set_ioctl_dump(char * file);
 int l_ioctl(int dev_id, unsigned int opc, void *buf);
-int parse_dump(char * dump_file, ioc_handler_t ioc_func);
-int jt_ioc_dump(int argc, char **argv);
-extern char *dump_filename;
-int dump(int dev_id, unsigned int opc, void *buf);
