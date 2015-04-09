@@ -636,7 +636,7 @@ static int osd_object_destroy(const struct lu_env *env,
 		       osd->od_svname, rc);
 		GOTO(out, rc);
 	}
-
+	obj->oo_destroyed = 1;
 out:
 	/* not needed in the cache anymore */
 	set_bit(LU_OBJECT_HEARD_BANSHEE, &dt->do_lu.lo_header->loh_flags);
@@ -743,6 +743,11 @@ static int osd_attr_get(const struct lu_env *env,
 	LASSERT(dt_object_exists(dt));
 	LASSERT(osd_invariant(obj));
 	LASSERT(obj->oo_db);
+
+	if (obj->oo_destroyed) {
+		dump_stack();
+		return -ENOENT;
+	}
 
 	read_lock(&obj->oo_attr_lock);
 	*attr = obj->oo_attr;
