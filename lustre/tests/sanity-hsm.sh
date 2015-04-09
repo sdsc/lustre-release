@@ -2069,6 +2069,109 @@ test_26() {
 }
 run_test 26 "Remove the archive of a valid file"
 
+test_26a() {
+	# test needs a running copytool
+	copytool_setup
+
+	mkdir -p $DIR/$tdir
+	local f=$DIR/$tdir/$tfile
+	local fid=$(copy_file /etc/passwd $f)
+
+	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER $f
+	wait_request_state $fid ARCHIVE SUCCEED
+
+	local save_raolu=$(get_hsm_param remove_archive_on_last_unlink)
+	set_hsm_param remove_archive_on_last_unlink 0
+
+	rm -f $f
+
+	local f2=$DIR/$tdir/${tfile}_2
+	local fid2=$(copy_file /etc/passwd $f2)
+
+	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER $f2
+	wait_request_state $fid2 ARCHIVE SUCCEED
+
+	cat $f2 > /dev/null
+
+	local f3=$DIR/$tdir/${tfile}_3
+	local fid3=$(copy_file /etc/passwd $f3)
+
+	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER $f3
+	wait_request_state $fid3 ARCHIVE SUCCEED
+
+	local f4=$DIR/$tdir/${tfile}_4
+	local fid4=$(copy_file /etc/passwd $f4)
+
+	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER $f4
+	wait_request_state $fid4 ARCHIVE SUCCEED
+
+	set_hsm_param remove_archive_on_last_unlink 1
+
+	rm -f $f3
+	cat $f4 > /dev/null
+
+	# Just to be sure CDT will wake-up to send remove request
+	# and copytool will process it, wait for loop_period + some
+	# extra-time.
+	local loop=$(get_hsm_param loop_period)
+	loop=$((loop + 5))
+	sleep $loop
+
+	set_hsm_param remove_archive_on_last_unlink $save_raolu
+
+	do_facet $SINGLEAGT ls $HSM_ARCHIVE'/*/*/*/*/*/*/'$fid
+	[[ $? -eq 0 ]] || error "File being removed on archive"
+
+	do_facet $SINGLEAGT ls $HSM_ARCHIVE'/*/*/*/*/*/*/'$fid2
+	[[ $? -eq 0 ]] || error "File being removed on archive"
+
+	do_facet $SINGLEAGT ls $HSM_ARCHIVE'/*/*/*/*/*/*/'$fid3
+	[[ $? -eq 0 ]] && error "File not being removed on archive"
+
+	do_facet $SINGLEAGT ls $HSM_ARCHIVE'/*/*/*/*/*/*/'$fid4
+	[[ $? -eq 0 ]] || error "File being removed on archive"
+
+	# previous actions elapsed time should be < grace_delay
+	wait_request_state $fid3 REMOVE SUCCEED
+
+	copytool_cleanup
+}
+run_test 26a "Remove Archive On Last Unlink (RAoLU) policy"
+
+test_26b() {
+	# test needs a running copytool
+	copytool_setup
+
+	mkdir -p $DIR/$tdir
+	local f=$DIR/$tdir/$tfile
+	local fid=$(copy_file /etc/passwd $f)
+
+	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER $f
+	wait_request_state $fid ARCHIVE SUCCEED
+
+	local save_raolu=$(get_hsm_param remove_archive_on_last_unlink)
+	set_hsm_param remove_archive_on_last_unlink 1
+
+	cdt_shutdown
+	cdt_check_state stopped
+
+	rm -f $f
+
+	set_hsm_param remove_archive_on_last_unlink $save_raolu
+
+	wait_request_state $fid REMOVE WAITING
+
+	cdt_enable
+	# copytool must re-register
+	search_and_kill_copytool
+	copytool_setup
+
+	wait_request_state $fid REMOVE SUCCEED
+
+	copytool_cleanup
+}
+run_test 26b "RAoLU policy when CDT off"
+
 test_27a() {
 	# test needs a running copytool
 	copytool_setup
