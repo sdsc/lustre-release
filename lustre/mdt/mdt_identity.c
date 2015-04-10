@@ -118,11 +118,13 @@ static int mdt_identity_do_upcall(struct upcall_cache *cache,
 
         if (unlikely(!strcmp(cache->uc_upcall, "NONE"))) {
                 CERROR("no upcall set\n");
+		read_unlock(&cache->uc_upcall_rwlock);
                 GOTO(out, rc = -EREMCHG);
         }
 
-        argv[0] = cache->uc_upcall;
-        snprintf(keystr, sizeof(keystr), LPU64, entry->ue_key);
+	argv[0] = kstrdup(cache->uc_upcall, GFP_ATOMIC);
+	read_unlock(&cache->uc_upcall_rwlock);
+	snprintf(keystr, sizeof(keystr), LPU64, entry->ue_key);
 
 	do_gettimeofday(&start);
 	rc = call_usermodehelper(argv[0], argv, envp, UMH_WAIT_EXEC);
@@ -139,9 +141,9 @@ static int mdt_identity_do_upcall(struct upcall_cache *cache,
                        cfs_timeval_sub(&end, &start, NULL));
                 rc = 0;
         }
+	kfree(argv[0]);
         EXIT;
 out:
-	read_unlock(&cache->uc_upcall_rwlock);
         return rc;
 }
 
