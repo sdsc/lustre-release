@@ -10,6 +10,12 @@ CLIENTS=""
 
 TMP=${TMP:-/tmp}
 
+# In test-frameworks.sh:setupall(), debug_daemon will be started prior to server
+# starts or client mounts if DAEMONFILE is defined.  The log will be stored at
+# ${DAEMONFILE}.$(hostname -s).log on the machine where the lustre component was
+# started.  $DAEMONSIZE sets the maximum file size.
+# Default is not to start debug_daemon
+DAEMONFILE=${DAEMONFILE:-""}
 DAEMONSIZE=${DAEMONSIZE:-500}
 MDSCOUNT=${MDSCOUNT:-1}
 MDSDEVBASE=${MDSDEVBASE:-$TMP/${FSNAME}-mdt}
