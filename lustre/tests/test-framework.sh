@@ -2904,6 +2904,13 @@ do_nodes() {
     local rnodes=$1
     shift
 
+    # remove duplicates from the node list.
+    # If a name is repeated in the hostlist, pdsh will execute the
+    # command more than once.  Some remote commands will
+    # fail or behave differently than if they were run only once.
+    # Note the order of the list may be changed.
+	rnodes=$(expand_list $rnodes)
+
     if single_local_node $rnodes; then
         if $verbose; then
            do_nodev $rnodes "$@"
@@ -3503,9 +3510,13 @@ writeconf_all () {
 }
 
 setupservers() {
+	if [ -n "$DAEMON_FNAME" ]; then
+		do_nodes $(comma_list $(mdts_nodes) $(osts_nodes)) \
+			 "$LCTL debug_daemon start $DAEMON_FNAME $DAEMONSIZE"
+		DAEMON_STARTED="yes"
+	fi
 	echo Setup mgs, mdt, osts
-	echo $WRITECONF | grep -q "writeconf" && \
-		writeconf_all
+	echo $WRITECONF | grep -q "writeconf" && writeconf_all
 	if ! combined_mgs_mds ; then
 		start mgs $(mgsdevname) $MGS_MOUNT_OPTS
 	fi
@@ -3551,7 +3562,9 @@ setupclients() {
 		sleep 10
 	fi
 
-	[ "$DAEMONFILE" ] && $LCTL debug_daemon start $DAEMONFILE $DAEMONSIZE
+	if [ -n "$DAEMON_FNAME" -a -z "$DAEMON_STARTED" ]; then
+		do_nodes ${clients} "$LCTL debug_daemon start $DAEMON_FNAME $DAEMONSIZE"
+	fi
 	mount_client $MOUNT
 	[ -n "$CLIENTS" ] && zconf_mount_clients $CLIENTS $MOUNT
 	clients_up
@@ -3579,22 +3592,24 @@ setupclients() {
 setupall() {
 	nfs_client_mode && return
 
-	sanity_mount_check ||
-		error "environments are insane!"
+	sanity_mount_check || error "environments are insane!"
 
 	load_modules
 
-	if [ -z "$CLIENTONLY" ]; then
-		setupservers
+	local clients=${CLIENTS:-$HOSTNAME}
+	local DAEMON_STARTED=""
+	local DAEMON_FNAME=""
+	if [ $DAEMONFILE ]; then
+		DAEMON_FNAME="$DAEMONFILE.\$(hostname -s).log"
 	fi
 
-	if [ -z "$SERVERONLY" ]; then
-		setupclients
-	fi
+	[ "$CLIENTONLY" ] || setupservers
+
+	[ "$SERVERONLY" ] || setupclients
 }
 
 mounted_lustre_filesystems() {
-		awk '($3 ~ "lustre" && $1 ~ ":") { print $2 }' /proc/mounts
+	awk '($3 ~ "lustre" && $1 ~ ":") { print $2 }' /proc/mounts
 }
 
 init_facet_vars () {
