@@ -454,6 +454,7 @@ typedef struct kgn_tunables {
 	int              *kgn_max_immediate;    /* immediate payload breakpoint */
 	int              *kgn_checksum;         /* checksum data */
 	int              *kgn_checksum_dump;    /* dump raw data to D_INFO log when checksumming */
+	int		 *kgn_checksum_algo;	/* checksum algothrim to use */
 	int              *kgn_bte_dlvr_mode;    /* BTE delivery mode mask */
 	int              *kgn_bte_relaxed_ordering; /* relaxed ordering (PASSPW) on BTE transfers */
 	int              *kgn_ptag;             /* PTAG for cdm_create */
@@ -515,14 +516,44 @@ typedef struct kgn_fma_memblock {
 	kgn_mbox_info_t    *gnm_mbox_info;                         /* array of mbox_information about each mbox */
 } kgn_fma_memblock_t;
 
+#define KGN_THREAD_SHIFT		12
+#define KGN_THREAD_ID(gni_id, cpt, tid)	((gni_id) << KGN_THREAD_SHIFT *2 | (cpt) << KGN_THREAD_SHIFT | (tid))
+#define KGN_THREAD_DEV(id)		((id) >> KGN_THREAD_SHIFT * 2)
+#define KGN_THREAD_CPT(id)		(((id) >> KGN_THREAD_SHIFT) & ((11UL << KGN_THREAD_SHIFT) - 1))
+#define KGN_THREAD_TID(id)		((id) & ((1UL << KGN_THREAD_SHIFT) - 1))
+
+struct kgn_cpt_info {
+	unsigned long           kgn_sched_alive;	/* scheduler thread alive stamp */
+	short                   kgn_sched_ready;	/* stuff to do in scheduler thread */
+	wait_queue_head_t	kgn_sched_waitq;	/* scheduler wakeup */
+
+	struct timer_list       kgn_rdmaq_timer;	/* wakey-wakey */
+	struct timer_list       kgn_map_timer;		/* wakey-wakey */
+
+	struct page          ***kgn_cksum_map_pages;	/* page arrays for mapping pages on checksum */
+	__u64			kgn_cksum_npages;	/* Number of pages allocated for checksumming */
+
+	int			kgn_cpt;
+};
+
+struct kgn_cpt_dgram {
+	wait_queue_head_t       kgn_dgram_waitq;	/* dgram_mover thread wakeup */
+	wait_queue_head_t       kgn_dgping_waitq;	/* dgram thread ping-pong */
+	int                     kgn_dgram_ready;	/* dgrams need movin' */
+
+	int			kgn_cpt;		/* dgram thread cpt its mapped to */
+};
+
 typedef struct kgn_device {
 	gni_nic_handle_t        gnd_handle;       /* device handle */
 	gni_cdm_handle_t        gnd_domain;       /* GNI communication domain */
 	gni_err_handle_t        gnd_err_handle;   /* device error handle */
-	unsigned long           gnd_sched_alive;  /* scheduler thread alive stamp */
 	gni_cq_handle_t         gnd_rcv_fma_cqh;  /* FMA rcv. completion queue handle */
 	gni_cq_handle_t         gnd_snd_rdma_cqh; /* rdma send completion queue handle */
 	gni_cq_handle_t         gnd_snd_fma_cqh;  /* rdma send completion queue handle */
+	struct kgn_cpt_info   **gnd_cpts;	  /* CPU partiton info mapped to this device */
+	atomic_t		gnd_sched_ncpts;  /* Number of CPTs mapped to device */
+	struct kgn_cpt_dgram   *gnd_dgram_cpt;	  /* SMP datagram state */
 	struct mutex            gnd_cq_mutex;     /* CQ access serialization */
 	__u32                   gnd_host_id;      /* ph. host ID of the NIC */
 	int                     gnd_id;           /* device id, also index in kgn_devices */
@@ -533,23 +564,17 @@ typedef struct kgn_device {
 	atomic_t                gnd_nfmablk;      /* # of fmablk live */
 	atomic_t                gnd_fmablk_vers;  /* gnd_fma_bufs stamp */
 	atomic_t                gnd_neps;         /* # EP allocated to conns */
-	short                   gnd_ready;        /* stuff to do in scheduler thread */
 	struct list_head        gnd_ready_conns;  /* connections ready to tx/rx */
 	struct list_head        gnd_map_tx;       /* TX: needing buffer mapping */
-	wait_queue_head_t       gnd_waitq;        /* scheduler wakeup */
 	spinlock_t              gnd_lock;         /* serialise gnd_ready_conns */
 	struct list_head        gnd_connd_peers;  /* peers waiting for a connection */
 	spinlock_t              gnd_connd_lock;   /* serialise connd_peers */
-	wait_queue_head_t       gnd_dgram_waitq;  /* dgram_mover thread wakeup */
-	wait_queue_head_t       gnd_dgping_waitq; /* dgram thread ping-pong */
-	int                     gnd_dgram_ready;  /* dgrams need movin' */
 	struct list_head       *gnd_dgrams;       /* nid hash to dgrams */
 	atomic_t                gnd_ndgrams;      /* # dgrams extant */
 	atomic_t                gnd_nwcdgrams;    /* # wildcard dgrams to post*/
 	spinlock_t              gnd_dgram_lock;   /* serialize gnd_dgrams */
 	struct list_head        gnd_map_list;     /* list of all mapped regions */
 	int                     gnd_map_version;  /* version flag for map list */
-	struct timer_list       gnd_map_timer;    /* wakey-wakey */
 	atomic_t                gnd_n_mdd;        /* number of total MDD - fma, tx, etc */
 	atomic_t                gnd_n_mdd_held;   /* number of total MDD held - fma, tx, etc */
 	atomic_t                gnd_nq_map;       /* # queued waiting for mapping (MDD/GART) */
@@ -568,7 +593,6 @@ typedef struct kgn_device {
 	atomic64_t              gnd_rdmaq_bytes_ok;  /* # bytes allowed until deadline */
 	atomic_t                gnd_rdmaq_nstalls;   /* # stalls due to throttle */
 	unsigned long           gnd_rdmaq_deadline;  /* when does bucket roll over ? */
-	struct timer_list       gnd_rdmaq_timer;     /* wakey-wakey */
 	atomic_t                gnd_short_ntx;      /* TX stats: short messages */
 	atomic64_t              gnd_short_txbytes;  /* TX stats: short message  payload*/
 	atomic_t                gnd_rdma_ntx;       /* TX stats: rdma messages */
@@ -691,6 +715,7 @@ typedef struct kgn_tx {                         /* message descriptor */
 
 typedef struct kgn_conn {
 	kgn_device_t       *gnc_device;         /* which device */
+	struct kgn_cpt_info *gnc_sched;		/* SMP thread info */
 	struct kgn_peer    *gnc_peer;           /* owning peer */
 	int                 gnc_magic;          /* magic value cleared before free */
 	struct list_head    gnc_list;           /* stash on peer's conn list - or pending purgatory lists as we clear them */
@@ -759,6 +784,8 @@ typedef struct kgn_peer {
 	struct list_head    gnp_tx_queue;               /* msgs waiting for a conn */
 	kgn_net_t          *gnp_net;                    /* net instance for this peer */
 	lnet_nid_t          gnp_nid;                    /* who's on the other end(s) */
+	kgn_device_t	   *gnp_dev;			/* Which device */
+	int		    gnp_cpt;			/* CPT this peer is using */
 	atomic_t            gnp_refcount;               /* # users */
 	__u32               gnp_host_id;                /* ph. host ID of the peer */
 	short               gnp_connecting;             /* connection forming */
@@ -767,7 +794,7 @@ typedef struct kgn_peer {
 	unsigned long       gnp_last_alive;             /* last time I had valid comms */
 	int                 gnp_last_dgram_errno;       /* last error dgrams saw */
 	unsigned long       gnp_last_dgram_time;        /* last time I tried to connect */
-	unsigned long       gnp_reconnect_time;         /* get_seconds() when reconnect OK */
+	unsigned long       gnp_reconnect_time;         /* CURRENT_SECONDS when reconnect OK */
 	unsigned long       gnp_reconnect_interval;     /* exponential backoff */
 	atomic_t            gnp_dirty_eps;              /* # of old but yet to be destroyed EPs from conns */
 	int                 gnp_down;                   /* rca says peer down */
@@ -841,8 +868,6 @@ typedef struct kgn_data {
 	atomic_t                kgn_ntx;              /* # tx in use */
 	struct kmem_cache      *kgn_dgram_cache;      /* outgoing datagrams */
 
-	struct page          ***kgn_cksum_map_pages;  /* page arrays for mapping pages on checksum */
-	__u64                   kgn_cksum_npages;     /* # pages alloc'd for checksumming */
 	atomic_t                kgn_nvmap_cksum;      /* # times we vmapped for checksums */
 	atomic_t                kgn_nvmap_short;      /* # times we vmapped for short kiov */
 
@@ -861,6 +886,7 @@ typedef struct kgn_data {
 	atomic_t                kgn_rev_copy_buff;    /* # of REV rdma buffer copies */
 	struct socket          *kgn_sock;             /* for Apollo */
 	unsigned long           free_pages_limit;     /* # of free pages reserve from fma block allocations */
+	struct kgn_cpt_info   **kgn_scheds;	      /* percpt data for schedulers */
 } kgn_data_t;
 
 extern kgn_data_t         kgnilnd_data;
@@ -1680,6 +1706,9 @@ void kgnilnd_shutdown(lnet_ni_t *ni);
 int kgnilnd_base_startup(void);
 void kgnilnd_base_shutdown(void);
 
+unsigned int
+kgnilnd_cpt_of_nid(kgn_device_t *dev, lnet_nid_t nid);
+
 int kgnilnd_allocate_phys_fmablk(kgn_device_t *device);
 int kgnilnd_map_phys_fmablk(kgn_device_t *device);
 void kgnilnd_unmap_fma_blocks(kgn_device_t *device);
@@ -1695,7 +1724,9 @@ int kgnilnd_recv(lnet_ni_t *ni, void *private, lnet_msg_t *lntmsg,
 		struct iovec *iov, lnet_kiov_t *kiov,
 		unsigned int offset, unsigned int mlen, unsigned int rlen);
 
-__u16 kgnilnd_cksum_kiov(unsigned int nkiov, lnet_kiov_t *kiov, unsigned int offset, unsigned int nob, int dump_blob);
+__u16 kgnilnd_cksum_kiov(struct kgn_cpt_info *sched, unsigned int nkiov,
+			 lnet_kiov_t *kiov, unsigned int offset,
+			 unsigned int nob, int dump_blob);
 
 /* purgatory functions */
 void kgnilnd_add_purgatory_locked(kgn_conn_t *conn, kgn_peer_t *peer);
@@ -1705,14 +1736,14 @@ void kgnilnd_release_purgatory_list(struct list_head *conn_list);
 
 void kgnilnd_update_reaper_timeout(long timeout);
 void kgnilnd_unmap_buffer(kgn_tx_t *tx, int error);
-kgn_tx_t *kgnilnd_new_tx_msg(int type, lnet_nid_t source);
+kgn_tx_t *kgnilnd_new_tx_msg(kgn_device_t *dev, int type, lnet_nid_t source);
 void kgnilnd_tx_done(kgn_tx_t *tx, int completion);
 void kgnilnd_txlist_done(struct list_head *txlist, int error);
 void kgnilnd_unlink_peer_locked(kgn_peer_t *peer);
 int _kgnilnd_schedule_conn(kgn_conn_t *conn, const char *caller, int line, int refheld);
 int kgnilnd_schedule_process_conn(kgn_conn_t *conn, int sched_intent);
 
-void kgnilnd_schedule_dgram(kgn_device_t *dev);
+void kgnilnd_schedule_dgram(struct kgn_cpt_dgram *dgram);
 int kgnilnd_create_peer_safe(kgn_peer_t **peerp, lnet_nid_t nid, kgn_net_t *net, int node_state);
 void kgnilnd_add_peer_locked(lnet_nid_t nid, kgn_peer_t *new_stub_peer, kgn_peer_t **peerp);
 int kgnilnd_add_peer(kgn_net_t *net, lnet_nid_t nid, kgn_peer_t **peerp);
@@ -1726,7 +1757,7 @@ void kgnilnd_launch_tx(kgn_tx_t *tx, kgn_net_t *net, lnet_process_id_t *target);
 int kgnilnd_send_mapped_tx(kgn_tx_t *tx, int try_map_if_full);
 void kgnilnd_consume_rx(kgn_rx_t *rx);
 
-void kgnilnd_schedule_device(kgn_device_t *dev);
+void kgnilnd_schedule_device(struct kgn_cpt_info *sched);
 void kgnilnd_device_callback(__u32 devid, __u64 arg);
 void kgnilnd_schedule_device_timer(unsigned long arg);
 
@@ -1735,7 +1766,7 @@ int kgnilnd_scheduler(void *arg);
 int kgnilnd_dgram_mover(void *arg);
 int kgnilnd_rca(void *arg);
 
-int kgnilnd_create_conn(kgn_conn_t **connp, kgn_device_t *dev);
+int kgnilnd_create_conn(kgn_conn_t **connp, kgn_device_t *dev, int cpt);
 int kgnilnd_conn_isdup_locked(kgn_peer_t *peer, kgn_conn_t *newconn);
 kgn_conn_t *kgnilnd_find_conn_locked(kgn_peer_t *peer);
 int kgnilnd_get_conn(kgn_conn_t **connp, kgn_peer_t);

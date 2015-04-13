@@ -99,10 +99,12 @@ kgnilnd_bump_timeouts(__u32 nap_time, char *reason)
 void
 kgnilnd_quiesce_wait(char *reason)
 {
-	int             i;
+	struct kgn_cpt_info	*sched;
+	int			i;
 
 	if (kgnilnd_data.kgn_quiesce_trigger) {
 		unsigned long   quiesce_deadline, quiesce_to;
+
 		/* FREEZE TAG!!!! */
 
 		/* morning sunshine */
@@ -112,12 +114,15 @@ kgnilnd_quiesce_wait(char *reason)
 
 		for (i = 0; i < kgnilnd_data.kgn_ndevs; i++) {
 			kgn_device_t *dev = &kgnilnd_data.kgn_devices[i];
+			struct kgn_cpt_dgram *dgram = dev->gnd_dgram_cpt;
 
-			wake_up_all(&dev->gnd_waitq);
-			wake_up_all(&dev->gnd_dgram_waitq);
-			wake_up_all(&dev->gnd_dgping_waitq);
+			wake_up_all(&dgram->kgn_dgram_waitq);
+			wake_up_all(&dgram->kgn_dgping_waitq);
 		}
 
+		cfs_percpt_for_each(sched, i, kgnilnd_data.kgn_scheds) {
+			wake_up_all(&sched->kgn_sched_waitq);
+		}
 		kgnilnd_wakeup_rca_thread();
 
 		/* we'll wait for 10x the timeout for the threads to pause */
@@ -147,8 +152,9 @@ kgnilnd_quiesce_wait(char *reason)
 		LCONSOLE_INFO("Quiesce complete: %s\n", reason);
 
 		for (i = 0; i < kgnilnd_data.kgn_ndevs; i++) {
-			kgn_device_t *dev = &kgnilnd_data.kgn_devices[i];
-			kgnilnd_schedule_dgram(dev);
+			struct kgn_cpt_dgram *dgram = dev->gnd_dgram_cpt;
+
+			kgnilnd_schedule_dgram(dgram);
 		}
 
 		/* wait for everyone to check-in as running - they will be spinning
