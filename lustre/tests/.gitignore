@@ -21,11 +21,14 @@
 /flocks_test
 /fsx
 /getdents
+/group_lock_test
 /listxattr_size_check
 /iopentest1
 /iopentest2
 /it_test
 /lgetxattr_size_check
+/llapi_fid_test
+/llapi_hsm_test
 /ll_dirstripe_verify
 /ll_getstripe_info
 /ll_sparseness_verify
@@ -53,6 +56,7 @@
 /openfilleddirunlink
 /openme
 /openunlink
+/orphan_linkea_check
 /ostactive
 /reads
 /rename_many
