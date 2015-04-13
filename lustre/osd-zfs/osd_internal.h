@@ -50,20 +50,33 @@
 #include <md_object.h>
 #include <lustre_quota.h>
 
-#define _SPL_KMEM_H
-#include <sys/kstat.h>
-#define kmem_zalloc(a, b)	kzalloc(a, b)
-#define kmem_free(ptr, sz)	((void)(sz), kfree(ptr))
-#ifndef KM_SLEEP
-#define KM_SLEEP		GFP_KERNEL
-#endif
-
 #include <sys/arc.h>
 
 #include <sys/nvpair.h>
 
 #include <sys/zfs_znode.h>
 #include "udmu.h"
+
+/**
+ * By design including kmem.h overrides the Linux slab interfaces to provide
+ * the Illumos kmem cache interfaces.  To override this and gain access to
+ * the Linux interfaces these preprocessor macros must be undefined.
+ */
+#ifdef kmem_cache_destroy
+#undef kmem_cache_destroy
+#endif
+
+#ifdef kmem_cache_create
+#undef kmem_cache_create
+#endif
+
+#ifdef kmem_cache_alloc
+#undef kmem_cache_alloc
+#endif
+
+#ifdef kmem_cache_free
+#undef kmem_cache_free
+#endif
 
 #define LUSTRE_ROOT_FID_SEQ	0
 #define DMU_OSD_SVNAME		"svname"
@@ -517,6 +530,23 @@ static inline void dsl_pool_config_exit(dsl_pool_t *dp, char *name)
 {
 }
 
+#endif
+
+#ifdef HAVE_SA_SPILL_ALLOC
+static inline void *
+osd_zio_buf_alloc(size_t size)
+{
+	return sa_spill_alloc(KM_SLEEP);
+}
+
+static inline void
+osd_zio_buf_free(void *buf, size_t size)
+{
+	sa_spill_free(buf);
+}
+#else
+#define osd_zio_buf_alloc(size)         zio_buf_alloc(size)
+#define osd_zio_buf_free(buf, size)     zio_buf_free(buf, size)
 #endif
 
 #endif /* _OSD_INTERNAL_H */
