@@ -48,7 +48,7 @@ int libcfs_kkuc_msg_put(struct file *fp, void *payload);
 int libcfs_kkuc_group_put(int group, void *payload);
 int libcfs_kkuc_group_add(struct file *fp, int uid, int group,
 			  void *data);
-int libcfs_kkuc_group_rem(int uid, int group, void **pdata);
+int libcfs_kkuc_group_rem(__u32 serial, int uid, int group, void **pdata);
 int libcfs_kkuc_group_foreach(int group, libcfs_kkuc_cb_t cb_func,
 			      void *cb_arg);
 

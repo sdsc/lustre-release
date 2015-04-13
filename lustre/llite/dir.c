@@ -1720,14 +1720,32 @@ out_rmdir:
 				   NULL);
 		RETURN(rc);
 	}
-	case LL_IOC_HSM_CT_START:
+	case LL_IOC_HSM_CT_START: {
+		struct lustre_kernelcomm *kcomm;
+
 		if (!cfs_capable(CFS_CAP_SYS_ADMIN))
 			RETURN(-EPERM);
 
-		rc = copy_and_ioctl(cmd, sbi->ll_md_exp, (void __user *)arg,
-				    sizeof(struct lustre_kernelcomm));
-		RETURN(rc);
+		OBD_ALLOC_PTR(kcomm);
+		if (kcomm == NULL)
+			RETURN(-ENOMEM);
 
+		if (copy_from_user(kcomm, (void __user *)arg,
+				   sizeof(struct lustre_kernelcomm))) {
+			OBD_FREE_PTR(kcomm);
+			RETURN(-EFAULT);
+		}
+
+		rc = obd_iocontrol(cmd, sbi->ll_md_exp,
+				   sizeof(struct lustre_kernelcomm),
+				   kcomm, NULL);
+		if (rc == 0 && copy_to_user((void __user *)arg, kcomm,
+					    sizeof(struct lustre_kernelcomm)))
+			rc = -EFAULT;
+
+		OBD_FREE_PTR(kcomm);
+		RETURN(rc);
+	}
 	case LL_IOC_HSM_COPY_START: {
 		struct hsm_copy	*copy;
 		int		 rc;
