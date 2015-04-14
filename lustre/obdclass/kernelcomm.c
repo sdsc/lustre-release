@@ -103,9 +103,11 @@ struct kkuc_reg {
 	int		 kr_uid;
 	struct file	*kr_fp;
 	void		*kr_data;
+	__u32		 kr_serial;
 };
 
 static struct list_head kkuc_groups[KUC_GRP_MAX+1] = {};
+static __u32 kkuc_serial = 1;
 /* Protect message sending against remove and adds */
 static DECLARE_RWSEM(kg_sem);
 
@@ -114,10 +116,13 @@ static DECLARE_RWSEM(kg_sem);
  * @param uid identifier for this receiver
  * @param group group number
  * @param data user data
+ *
+ * return current kkuc serial on success, or negative errno.
  */
 int libcfs_kkuc_group_add(struct file *filp, int uid, int group, void *data)
 {
 	struct kkuc_reg *reg;
+	int serial = 0;
 
 	if (group > KUC_GRP_MAX) {
 		CDEBUG(D_WARNING, "Kernelcomm: bad group %d\n", group);
@@ -140,16 +145,24 @@ int libcfs_kkuc_group_add(struct file *filp, int uid, int group, void *data)
 	down_write(&kg_sem);
 	if (kkuc_groups[group].next == NULL)
 		INIT_LIST_HEAD(&kkuc_groups[group]);
+
+	serial = kkuc_serial;
+	reg->kr_serial = serial;
+
+	kkuc_serial++;
+	if (kkuc_serial == 0)
+		kkuc_serial++;
+
 	list_add(&reg->kr_chain, &kkuc_groups[group]);
 	up_write(&kg_sem);
 
 	CDEBUG(D_KUC, "Added uid=%d fp=%p to group %d\n", uid, filp, group);
 
-	return 0;
+	return serial;
 }
 EXPORT_SYMBOL(libcfs_kkuc_group_add);
 
-int libcfs_kkuc_group_rem(int uid, int group, void **pdata)
+int libcfs_kkuc_group_rem(__u32 serial, int uid, int group, void **pdata)
 {
 	struct kkuc_reg *reg, *next;
 	ENTRY;
@@ -170,7 +183,8 @@ int libcfs_kkuc_group_rem(int uid, int group, void **pdata)
 
 	down_write(&kg_sem);
 	list_for_each_entry_safe(reg, next, &kkuc_groups[group], kr_chain) {
-		if ((uid == 0) || (uid == reg->kr_uid)) {
+		if ((uid == 0) ||
+		    (uid == reg->kr_uid && serial == reg->kr_serial)) {
 			list_del(&reg->kr_chain);
 			CDEBUG(D_KUC, "Removed uid=%d fp=%p from group %d\n",
 				reg->kr_uid, reg->kr_fp, group);
