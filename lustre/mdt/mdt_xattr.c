@@ -467,7 +467,12 @@ int mdt_reint_setxattr(struct mdt_thread_info *info,
 	if (IS_ERR(obj))
 		GOTO(out, rc = PTR_ERR(obj));
 
-	tgt_vbr_obj_set(env, mdt_obj2dt(obj));
+	/* the content of XATTR_NAME_IMA and XATTR_NAME_EVM depends on
+	 * the inode->i_version, then it should not alter it.
+	 */
+	if (strcmp(xattr_name, XATTR_NAME_IMA) != 0)
+		tgt_vbr_obj_set(env, mdt_obj2dt(obj));
+
 	rc = mdt_version_get_check_save(info, obj, 0);
 	if (rc)
 		GOTO(out_unlock, rc);
