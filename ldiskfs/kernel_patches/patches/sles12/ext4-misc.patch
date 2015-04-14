@@ -1,0 +1,56 @@
+---
+ fs/ext4/ext4.h      |    3 +++
+ fs/ext4/ext4_jbd2.h |    2 ++
+ fs/ext4/super.c     |    4 ++++
+ 3 files changed, 15 insertions(+)
+
+--- a/fs/ext4/ext4.h
++++ b/fs/ext4/ext4.h
+@@ -1438,6 +1438,9 @@
+ 
+ #define NEXT_ORPHAN(inode) EXT4_I(inode)->i_dtime
+ 
++/* Has been moved to linux/magic.h but we need it for Lustre */
++#define EXT4_SUPER_MAGIC	0xEF53
++
+ /*
+  * Codes for operating systems
+  */
+--- a/fs/ext4/ext4_jbd2.h
++++ b/fs/ext4/ext4_jbd2.h
+@@ -37,6 +37,8 @@
+ 	(EXT4_HAS_INCOMPAT_FEATURE(sb, EXT4_FEATURE_INCOMPAT_EXTENTS)   \
+ 	 ? 20U : 8U)
+ 
++#define ext4_journal_dirty_metadata(handle, bh)  \
++		ext4_handle_dirty_metadata(handle, NULL, bh)
+ /* Extended attribute operations touch at most two data buffers,
+  * two bitmap buffers, and two group summaries, in addition to the inode
+  * and the superblock, which are already accounted for. */
+--- a/fs/ext4/super.c
++++ b/fs/ext4/super.c
+@@ -1144,6 +1144,7 @@
+ 	Opt_dioread_nolock, Opt_dioread_lock,
+ 	Opt_discard, Opt_nodiscard, Opt_init_itable, Opt_noinit_itable,
+ 	Opt_max_dir_size_kb,
++	Opt_mballoc,
+ };
+ 
+ static const match_table_t tokens = {
+@@ -1195,6 +1196,7 @@
+ 	{Opt_noquota, "noquota"},
+ 	{Opt_quota, "quota"},
+ 	{Opt_usrquota, "usrquota"},
++	{Opt_mballoc, "mballoc"},
+ 	{Opt_barrier, "barrier=%u"},
+ 	{Opt_barrier, "barrier"},
+ 	{Opt_nobarrier, "nobarrier"},
+@@ -1456,6 +1458,8 @@
+ 	case Opt_i_version:
+ 		sb->s_flags |= MS_I_VERSION;
+ 		return 1;
++	case Opt_mballoc:
++		return 1;
+ 	}
+ 
+ 	for (m = ext4_mount_opts; m->token != Opt_err; m++)
