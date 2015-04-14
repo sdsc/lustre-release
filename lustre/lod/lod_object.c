@@ -1176,8 +1176,7 @@ static int lod_declare_attr_set(const struct lu_env *env,
 			RETURN(0);
 	} else {
 		if (!(attr->la_valid & (LA_UID | LA_GID | LA_MODE |
-					LA_ATIME | LA_MTIME | LA_CTIME |
-					LA_FLAGS)))
+					LA_ATIME | LA_MTIME | LA_CTIME)))
 			RETURN(rc);
 	}
 	/*
@@ -1268,8 +1267,7 @@ static int lod_attr_set(const struct lu_env *env,
 			RETURN(0);
 	} else {
 		if (!(attr->la_valid & (LA_UID | LA_GID | LA_MODE |
-					LA_ATIME | LA_MTIME | LA_CTIME |
-					LA_FLAGS)))
+					LA_ATIME | LA_MTIME | LA_CTIME)))
 			RETURN(rc);
 	}
 
@@ -1815,7 +1813,7 @@ static int lod_prep_md_striped_create(const struct lu_env *env,
 		if (i == 0) {
 			/* Right now, master stripe and master object are
 			 * on the same MDT */
-			idx = lu_site2seq(lod2lu_dev(lod)->ld_site)->ss_node_id;
+			idx = le32_to_cpu(lum->lum_stripe_offset);
 			rc = obd_fid_alloc(env, lod->lod_child_exp, &fid,
 					   NULL);
 			if (rc < 0)

@@ -964,6 +964,7 @@ void ll_lli_init(struct ll_inode_info *lli)
         lli->lli_open_fd_exec_count = 0;
 	mutex_init(&lli->lli_och_mutex);
 	spin_lock_init(&lli->lli_agl_lock);
+	lli->lli_has_smd = false;
 	spin_lock_init(&lli->lli_layout_lock);
 	ll_layout_version_set(lli, CL_LAYOUT_GEN_NONE);
 	lli->lli_clob = NULL;
@@ -1476,6 +1477,7 @@ void ll_clear_inode(struct inode *inode)
 	 * cl_object still uses inode lsm.
 	 */
 	cl_inode_fini(inode);
+	lli->lli_has_smd = false;
 
 	EXIT;
 }
@@ -1888,7 +1890,9 @@ int ll_update_inode(struct inode *inode, struct lustre_md *md)
 
 	LASSERT((lsm != NULL) == ((body->mbo_valid & OBD_MD_FLEASIZE) != 0));
 	if (lsm != NULL) {
-		cl_file_inode_init(inode, md);
+		if (!lli->lli_has_smd &&
+		    !(sbi->ll_flags & LL_SBI_LAYOUT_LOCK))
+			cl_file_inode_init(inode, md);
 
 		lli->lli_maxbytes = lsm->lsm_maxbytes;
 		if (lli->lli_maxbytes > MAX_LFS_FILESIZE)
@@ -2021,6 +2025,8 @@ int ll_read_inode2(struct inode *inode, void *opaque)
 
         CDEBUG(D_VFSTRACE, "VFS Op:inode="DFID"(%p)\n",
                PFID(&lli->lli_fid), inode);
+
+	LASSERT(!lli->lli_has_smd);
 
         /* Core attributes from the MDS first.  This is a new inode, and
          * the VFS doesn't zero times in the core inode so we have to do
