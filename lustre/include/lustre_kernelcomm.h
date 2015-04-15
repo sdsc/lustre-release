@@ -46,9 +46,9 @@ typedef int (*libcfs_kkuc_cb_t)(void *data, void *cb_arg);
 /* Kernel methods */
 int libcfs_kkuc_msg_put(struct file *fp, void *payload);
 int libcfs_kkuc_group_put(int group, void *payload);
-int libcfs_kkuc_group_add(struct file *fp, int uid, int group,
+int libcfs_kkuc_group_add(struct file *fp, int uid, int group, int rfd,
 			  void *data);
-int libcfs_kkuc_group_rem(int uid, int group, void **pdata);
+int libcfs_kkuc_group_rem(int uid, int group, int rfd, void **pdata);
 int libcfs_kkuc_group_foreach(int group, libcfs_kkuc_cb_t cb_func,
 			      void *cb_arg);
 

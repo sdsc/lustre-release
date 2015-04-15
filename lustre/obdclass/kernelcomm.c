@@ -103,6 +103,8 @@ struct kkuc_reg {
 	int		 kr_uid;
 	struct file	*kr_fp;
 	void		*kr_data;
+	pid_t		 kr_pid;
+	int		 kr_rfd;
 };
 
 static struct list_head kkuc_groups[KUC_GRP_MAX+1] = {};
@@ -115,7 +117,8 @@ static DECLARE_RWSEM(kg_sem);
  * @param group group number
  * @param data user data
  */
-int libcfs_kkuc_group_add(struct file *filp, int uid, int group, void *data)
+int libcfs_kkuc_group_add(struct file *filp, int uid, int group, int rfd,
+			  void *data)
 {
 	struct kkuc_reg *reg;
 
@@ -136,6 +139,8 @@ int libcfs_kkuc_group_add(struct file *filp, int uid, int group, void *data)
 	reg->kr_fp = filp;
 	reg->kr_uid = uid;
 	reg->kr_data = data;
+	reg->kr_pid = current_pid();
+	reg->kr_rfd = rfd;
 
 	down_write(&kg_sem);
 	if (kkuc_groups[group].next == NULL)
@@ -149,7 +154,7 @@ int libcfs_kkuc_group_add(struct file *filp, int uid, int group, void *data)
 }
 EXPORT_SYMBOL(libcfs_kkuc_group_add);
 
-int libcfs_kkuc_group_rem(int uid, int group, void **pdata)
+int libcfs_kkuc_group_rem(int uid, int group, int rfd, void **pdata)
 {
 	struct kkuc_reg *reg, *next;
 	ENTRY;
@@ -170,7 +175,9 @@ int libcfs_kkuc_group_rem(int uid, int group, void **pdata)
 
 	down_write(&kg_sem);
 	list_for_each_entry_safe(reg, next, &kkuc_groups[group], kr_chain) {
-		if ((uid == 0) || (uid == reg->kr_uid)) {
+		if ((uid == 0) ||
+		    (uid == reg->kr_uid && current_pid() == reg->kr_pid &&
+		     reg->kr_rfd == rfd)) {
 			list_del(&reg->kr_chain);
 			CDEBUG(D_KUC, "Removed uid=%d fp=%p from group %d\n",
 				reg->kr_uid, reg->kr_fp, group);
