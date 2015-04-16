@@ -5938,6 +5938,10 @@ get_clientmdc_proc_path() {
     echo "${1}-mdc-*"
 }
 
+get_clientmgc_proc_path() {
+    echo "*"
+}
+
 do_rpc_nodes () {
 	local list=$1
 	shift
@@ -5966,9 +5970,10 @@ wait_clients_import_state () {
     local label=$(convert_facet2label $facet)
     local proc_path
     case $facet in
-        ost* ) proc_path="osc.$(get_clientosc_proc_path $label).ost_server_uuid" ;;
-        mds* ) proc_path="mdc.$(get_clientmdc_proc_path $label).mds_server_uuid" ;;
-        *) error "unknown facet!" ;;
+	ost* ) proc_path="osc.$(get_clientosc_proc_path $label).ost_server_uuid" ;;
+	mds* ) proc_path="mdc.$(get_clientmdc_proc_path $label).mds_server_uuid" ;;
+	mgs* ) proc_path="mgc.$(get_clientmgc_proc_path $label).mgs_server_uuid" ;;
+	*) error "unknown facet!" ;;
     esac
     local params=$(expand_list $params $proc_path)
     done
