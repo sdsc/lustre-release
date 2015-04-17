@@ -75,14 +75,14 @@ in a single directory.
  	bh = ext4_read_dirblock(dir, 0, INDEX);
  	if (IS_ERR(bh)) {
  		*err = PTR_ERR(bh);
-@@ -418,9 +636,16 @@ dx_probe(const struct qstr *d_name, stru
- 		goto fail;
+@@ -418,10 +636,15 @@ dx_probe(const struct qstr *d_name, stru
  	}
  
--	if ((indirect = info->indirect_levels) > 1) {
--		ext4_warning(dir->i_sb, "Unimplemented inode hash depth: %#06x",
--			     info->indirect_levels);
-+	indirect = info->indirect_levels;
+ 	indirect = info->indirect_levels;
+-	if (indirect > 1) {
+-		ext4_warning(dir->i_sb,
+-			     "inode #%lu: unimplemented hash depth %u",
+-			     dir->i_ino, info->indirect_levels);
 +	if (indirect >= ext4_dir_htree_level(dir->i_sb)) {
 +		ext4_warning(dir->i_sb,
 +			     "Directory (ino: %lu) htree depth %#06x exceed "
@@ -104,7 +104,7 @@ in a single directory.
  	if (frames[0].bh == NULL)
  		return;
  
- 	info = dx_get_dx_info((struct ext4_dir_entry_2*)frames[0].bh->b_data);
+ 	info = dx_get_dx_info((struct ext4_dir_entry_2 *)frames[0].bh->b_data);
 -	if (info->indirect_levels)
 -		brelse(frames[1].bh);
 -	brelse(frames[0].bh);
@@ -273,7 +273,7 @@ in a single directory.
 +				goto cleanup;
 +			}
  		} else {
- 			struct dx_root_info * info;
+ 			struct dx_root_info *info;
 -			dxtrace(printk(KERN_DEBUG
 -				       "Creating second level index...\n"));
 +
@@ -283,7 +283,7 @@ in a single directory.
 @@ -1778,23 +2158,16 @@ static int ext4_dx_add_entry(handle_t *h
  			dx_set_block(entries + 0, newblock);
  			info = dx_get_dx_info((struct ext4_dir_entry_2*)
- 					frames[0].bh->b_data);
+ 					      frames[0].bh->b_data);
 -			info->indirect_levels = 1;
 +			info->indirect_levels += 1;
 +			dxtrace(printk(KERN_DEBUG
