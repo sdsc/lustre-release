@@ -4813,6 +4813,8 @@ build_test_filter() {
         log "excepting tests: `echo $EXCEPT $ALWAYS_EXCEPT`"
     [ "$EXCEPT_SLOW" ] && \
         log "skipping tests SLOW=no: `echo $EXCEPT_SLOW`"
+    [ "$EXCEPT_INCOMP" ] && \
+        log "skipping incompatible tests: `echo $EXCEPT_INCOMP`"
     for E in $EXCEPT; do
         eval EXCEPT_${E}=true
     done
@@ -4821,6 +4823,9 @@ build_test_filter() {
     done
     for E in $EXCEPT_SLOW; do
         eval EXCEPT_SLOW_${E}=true
+    done
+    for E in $EXCEPT_INCOMP; do
+        eval EXCEPT_INCOMP_${E}=true
     done
     for G in $GRANT_CHECK_LIST; do
         eval GCHECK_ONLY_${G}=true
@@ -4897,6 +4902,16 @@ run_test() {
 	testname=EXCEPT_SLOW_$base
 	if [ ${!testname}x != x ]; then
 		TESTNAME=test_$1 skip "skipping SLOW test $1 (base $base)"
+		return 0
+	fi
+	testname=EXCEPT_INCOMP_$1
+	if [ ${!testname}x != x ]; then
+		TESTNAME=test_$1 skip "skipping incompatible test $1"
+		return 0
+	fi
+	testname=EXCEPT_INCOMP_$base
+	if [ ${!testname}x != x ]; then
+		TESTNAME=test_$1 skip "skipping incompatible $1 (base $base)"
 		return 0
 	fi
 
