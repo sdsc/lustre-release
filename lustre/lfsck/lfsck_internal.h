@@ -480,7 +480,7 @@ struct lfsck_tgt_descs {
 #define OST_TGT(lfsck, index)   LTD_TGT(&lfsck->li_ost_descs, index)
 #define MDT_TGT(lfsck, index)   LTD_TGT(&lfsck->li_mdt_descs, index)
 
-#define LFSCK_STF_BITS	4
+#define LFSCK_STF_BITS	0
 /* If want to adjust the LFSCK_STF_COUNT, please change LFSCK_STF_BITS. */
 #define LFSCK_STF_COUNT	(1 << LFSCK_STF_BITS)
 
