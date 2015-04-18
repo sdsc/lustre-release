@@ -175,26 +175,20 @@ static int lov_init_sub(const struct lu_env *env, struct lov_object *lov,
 	} else {
 		struct lu_object  *old_obj;
 		struct lov_object *old_lov;
-		unsigned int mask = D_INODE;
 
 		spin_unlock(&subhdr->coh_attr_guard);
 		old_obj = lu_object_locate(&parent->coh_lu, &lov_device_type);
 		LASSERT(old_obj != NULL);
 		old_lov = cl2lov(lu2cl(old_obj));
-		if (old_lov->lo_layout_invalid) {
-			/* the object's layout has already changed but isn't
-			 * refreshed */
-			lu_object_unhash(env, &stripe->co_lu);
-			result = -EAGAIN;
-		} else {
-			mask = D_ERROR;
-			result = -EIO;
-		}
 
-		LU_OBJECT_DEBUG(mask, env, &stripe->co_lu,
+		/* the object's layout has already changed but isn't
+		 * refreshed */
+		lu_object_unhash(env, &stripe->co_lu);
+		result = -EAGAIN;
+		LU_OBJECT_DEBUG(D_INODE, env, &stripe->co_lu,
 				"stripe %d is already owned.\n", idx);
-		LU_OBJECT_DEBUG(mask, env, old_obj, "owned.\n");
-		LU_OBJECT_HEADER(mask, env, lov2lu(lov), "try to own.\n");
+		LU_OBJECT_DEBUG(D_INODE, env, old_obj, "owned.\n");
+		LU_OBJECT_HEADER(D_INODE, env, lov2lu(lov), "try to own.\n");
 		cl_object_put(env, stripe);
 	}
 	return result;
