@@ -3365,7 +3365,7 @@ static int mdd_migrate_create(const struct lu_env *env,
 			RETURN(rc);
 		}
 		spec->u.sp_symname = link_buf.lb_buf;
-	} else if S_ISREG(la->la_mode) {
+	} else if (S_ISREG(la->la_mode)) {
 		/* retrieve lov of the old object */
 		rc = mdd_get_lov_ea(env, mdd_sobj, &lmm_buf);
 		if (rc != 0 && rc != -ENODATA)
@@ -3851,7 +3851,13 @@ static int mdd_migrate_update_name(const struct lu_env *env,
 
 	ma->ma_attr = *so_attr;
 	ma->ma_valid |= MA_INODE;
+	/* Increase mod_count to add the source object to the orphan list,
+	 * so if other clients still send RPC to the old object, then these
+	 * objects can help the request to find the new object, see
+	 * mdt_reint_open() */
+	mdd_sobj->mod_count++;
 	rc = mdd_finish_unlink(env, mdd_sobj, ma, mdd_pobj, lname, handle);
+	mdd_sobj->mod_count--;
 	if (rc != 0)
 		GOTO(out_unlock, rc);
 
@@ -3930,15 +3936,15 @@ static int mdd_migrate_sanity_check(const struct lu_env *env,
 	if (rc != 0) {
 		/* For multiple links files, if there are no linkEA data at all,
 		 * means the file might be created before linkEA is enabled, and
-		 * all all of its links should not be migrated yet, otherwise
-		 * it should have some linkEA there */
+		 * all of its links should not be migrated yet, otherwise it
+		 * should have some linkEA there */
 		if (rc == -ENOENT || rc == -ENODATA)
 			RETURN(1);
 		RETURN(rc);
 	}
 
-	/* If it is mulitple links file, we need update the name entry for
-	 * all parent */
+	/* If there are still links locally, then the file will not be
+	 * migrated. */
 	LASSERT(ldata->ld_leh != NULL);
 	ldata->ld_lee = (struct link_ea_entry *)(ldata->ld_leh + 1);
 	for (count = 0; count < ldata->ld_leh->leh_reccount; count++) {
