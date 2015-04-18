@@ -1230,7 +1230,10 @@ int __osd_object_create(const struct lu_env *env, struct osd_object *obj,
 
 	LASSERT(la->la_valid & LA_MODE);
 	la->la_size = 0;
-	la->la_nlink = 1;
+	if (S_ISREG(la->la_mode) && OBD_FAIL_CHECK(OBD_FAIL_LFSCK_MORE_NLINK2))
+		la->la_nlink = 2;
+	else
+		la->la_nlink = 1;
 
 	rc = __osd_attr_init(env, osd, oid, tx, la, parent);
 	if (rc != 0) {

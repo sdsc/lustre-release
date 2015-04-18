@@ -2054,9 +2054,17 @@ static int osd_mkreg(struct osd_thread_info *info, struct osd_object *obj,
                      struct dt_object_format *dof,
                      struct thandle *th)
 {
-        LASSERT(S_ISREG(attr->la_mode));
-        return osd_mkfile(info, obj, (attr->la_mode &
-                               (S_IFMT | S_IALLUGO | S_ISVTX)), hint, th);
+	int rc;
+
+	LASSERT(S_ISREG(attr->la_mode));
+	rc = osd_mkfile(info, obj, (attr->la_mode &
+				(S_IFMT | S_IALLUGO | S_ISVTX)), hint, th);
+	if (rc == 0 && OBD_FAIL_CHECK(OBD_FAIL_LFSCK_MORE_NLINK2)) {
+		attr->la_nlink = 2;
+		attr->la_valid |= LA_NLINK;
+	}
+
+	return rc;
 }
 
 static int osd_mksym(struct osd_thread_info *info, struct osd_object *obj,
@@ -3422,6 +3430,8 @@ static inline int osd_get_fid_from_dentry(struct ldiskfs_dir_entry_2 *de,
         if (de->file_type & LDISKFS_DIRENT_LUFID) {
                 rec = (struct osd_fid_pack *) (de->name + de->name_len + 1);
                 rc = osd_fid_unpack((struct lu_fid *)fid, rec);
+		if (rc == 0 && unlikely(!fid_is_sane((struct lu_fid *)fid)))
+			rc = -EINVAL;
         }
 	return rc;
 }
