@@ -1607,6 +1607,8 @@ int lod_parse_dir_striping(const struct lu_env *env, struct lod_object *lo,
 	}
 out:
 	lo->ldo_stripe = stripe;
+	set_bit(LU_OBJECT_MASTER_STRIPED,
+		&lo->ldo_obj.do_lu.lo_header->loh_flags);
 	lo->ldo_stripenr = le32_to_cpu(lmv1->lmv_stripe_count);
 	lo->ldo_stripes_allocated = le32_to_cpu(lmv1->lmv_stripe_count);
 	if (rc != 0)
@@ -1903,6 +1905,8 @@ next:
 	lo->ldo_stripe = stripe;
 	lo->ldo_stripenr = i;
 	lo->ldo_stripes_allocated = stripe_count;
+	set_bit(LU_OBJECT_MASTER_STRIPED,
+		&lo->ldo_obj.do_lu.lo_header->loh_flags);
 
 	if (lo->ldo_stripenr == 0)
 		GOTO(out_put, rc = -ENOSPC);
