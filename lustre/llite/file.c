@@ -990,7 +990,6 @@ ll_file_io_generic(const struct lu_env *env, struct vvp_io_args *args,
 {
 	struct inode *inode = file->f_dentry->d_inode;
 	struct ll_inode_info *lli = ll_i2info(inode);
-	loff_t               end;
 	struct ll_file_data  *fd  = LUSTRE_FPRIVATE(file);
 	struct cl_io         *io;
 	ssize_t               result;
@@ -1003,19 +1002,6 @@ ll_file_io_generic(const struct lu_env *env, struct vvp_io_args *args,
 restart:
 	io = vvp_env_thread_io(env);
         ll_io_init(io, file, iot == CIT_WRITE);
-
-	/* The maximum Lustre file size is variable, based on the
-	 * OST maximum object size and number of stripes.  This
-	 * needs another check in addition to the VFS checks earlier. */
-	end = (io->u.ci_wr.wr_append ? i_size_read(inode) : *ppos) + count;
-	if (end > ll_file_maxbytes(inode)) {
-		result = -EFBIG;
-		CDEBUG(D_INODE, "%s: file "DFID" offset %llu > maxbytes "LPU64
-		       ": rc = %zd\n", ll_get_fsname(inode->i_sb, NULL, 0),
-		       PFID(&lli->lli_fid), end, ll_file_maxbytes(inode),
-		       result);
-		RETURN(result);
-	}
 
         if (cl_io_rw_init(env, io, iot, *ppos, count) == 0) {
 		struct vvp_io *vio = vvp_env_io(env);
@@ -2513,7 +2499,7 @@ static loff_t ll_file_seek(struct file *file, loff_t offset, int origin)
 	}
 
 	retval = ll_generic_file_llseek_size(file, offset, origin,
-					  ll_file_maxbytes(inode), eof);
+					     MAX_LFS_FILESIZE, eof);
 	RETURN(retval);
 }
 

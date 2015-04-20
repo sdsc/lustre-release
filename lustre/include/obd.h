@@ -84,19 +84,10 @@ static inline void loi_init(struct lov_oinfo *loi)
 {
 }
 
-/* If we are unable to get the maximum object size from the OST in
- * ocd_maxbytes using OBD_CONNECT_MAXBYTES, then we fall back to using
- * the old maximum object size from ext3. */
-#define LUSTRE_EXT3_STRIPE_MAXBYTES 0x1fffffff000ULL
-
 struct lov_stripe_md {
 	atomic_t	lsm_refc;
 	spinlock_t	lsm_lock;
 	pid_t		lsm_lock_owner; /* debugging */
-
-	/* maximum possible file size, might change as OSTs status changes,
-	 * e.g. disconnected, deactivated */
-	__u64		lsm_maxbytes;
 	struct ost_id	lsm_oi;
 	__u32		lsm_magic;
 	__u32		lsm_stripe_size;

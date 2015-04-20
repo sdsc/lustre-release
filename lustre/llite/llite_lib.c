@@ -945,7 +945,6 @@ void ll_lli_init(struct ll_inode_info *lli)
 {
 	lli->lli_inode_magic = LLI_INODE_MAGIC;
 	lli->lli_flags = 0;
-	lli->lli_maxbytes = MAX_LFS_FILESIZE;
 	spin_lock_init(&lli->lli_lock);
 	lli->lli_posix_acl = NULL;
 	lli->lli_remote_perms = NULL;
@@ -1590,16 +1589,6 @@ int ll_setattr_raw(struct dentry *dentry, struct iattr *attr, bool hsm_import)
                 if (rc)
                         RETURN(rc);
 
-                /* The maximum Lustre file size is variable, based on the
-                 * OST maximum object size and number of stripes.  This
-                 * needs another check in addition to the VFS check above. */
-                if (attr->ia_size > ll_file_maxbytes(inode)) {
-                        CDEBUG(D_INODE,"file "DFID" too large %llu > "LPU64"\n",
-                               PFID(&lli->lli_fid), attr->ia_size,
-                               ll_file_maxbytes(inode));
-                        RETURN(-EFBIG);
-                }
-
                 attr->ia_valid |= ATTR_MTIME | ATTR_CTIME;
         }
 
@@ -1887,13 +1876,8 @@ int ll_update_inode(struct inode *inode, struct lustre_md *md)
 	struct ll_sb_info *sbi = ll_i2sbi(inode);
 
 	LASSERT((lsm != NULL) == ((body->mbo_valid & OBD_MD_FLEASIZE) != 0));
-	if (lsm != NULL) {
+	if (lsm != NULL)
 		cl_file_inode_init(inode, md);
-
-		lli->lli_maxbytes = lsm->lsm_maxbytes;
-		if (lli->lli_maxbytes > MAX_LFS_FILESIZE)
-			lli->lli_maxbytes = MAX_LFS_FILESIZE;
-	}
 
 	if (S_ISDIR(inode->i_mode)) {
 		int	rc;
