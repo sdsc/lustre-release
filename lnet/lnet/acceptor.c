@@ -506,11 +506,15 @@ lnet_acceptor_start(void)
 void
 lnet_acceptor_stop(void)
 {
+	struct sock *sk = lnet_acceptor_state.pta_sock->sk;
+
 	if (lnet_acceptor_state.pta_shutdown) /* not running */
 		return;
 
 	lnet_acceptor_state.pta_shutdown = 1;
-	wake_up_all(sk_sleep(lnet_acceptor_state.pta_sock->sk));
+
+	/* sock_def_wakeup(lnet_acceptor_state.pta_sock->sk); */
+	sk->sk_state_change(sk);
 
 	/* block until acceptor signals exit */
 	wait_for_completion(&lnet_acceptor_state.pta_signal);
