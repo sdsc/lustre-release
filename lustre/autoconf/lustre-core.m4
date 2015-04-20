@@ -1142,20 +1142,19 @@ generic_file_llseek_size_5args, [
 AC_DEFUN([LC_HAVE_DENTRY_D_ALIAS_HLIST], [
 tmp_flags="$EXTRA_KCFLAGS"
 EXTRA_KCFLAGS="-Werror"
-LB_CHECK_COMPILE([if 'i_dentry/d_alias' uses 'hlist'],
-i_dentry_d_alias_hlist, [
+LB_CHECK_COMPILE([if 'i_dentry/d_alias' uses 'list'],
+i_dentry_d_alias_list, [
 	#include <linux/fs.h>
 	#include <linux/list.h>
 ],[
 	struct inode inode;
 	struct dentry dentry;
-	struct hlist_head head;
-	struct hlist_node node;
+	struct list_head head;
 	inode.i_dentry = head;
-	dentry.d_alias = node;
+	dentry.d_alias = head;
 ],[
-	AC_DEFINE(HAVE_DENTRY_D_ALIAS_HLIST, 1,
-		[have i_dentry/d_alias uses hlist])
+	AC_DEFINE(HAVE_DENTRY_D_ALIAS_LIST, 1,
+		[have i_dentry/d_alias uses list])
 ])
 EXTRA_KCFLAGS="$tmp_flags"
 ]) # LC_HAVE_DENTRY_D_ALIAS_HLIST
@@ -1263,9 +1262,10 @@ hlist_for_each_entry_3args, [
 	#include <linux/list.h>
 	#include <linux/fs.h>
 ],[
+	struct hlist_head *head = NULL;
 	struct inode *inode;
-	struct dentry *dentry;
-	hlist_for_each_entry(dentry, &inode->i_dentry, d_alias) {
+
+	hlist_for_each_entry(inode, head, i_hash) {
 		continue;
 	}
 ],[
@@ -1437,6 +1437,46 @@ truncate_pagecache_old_size, [
 ]) # LC_OLDSIZE_TRUNCATE_PAGECACHE
 
 #
+# LC_HAVE_DENTRY_D_U_D_ALIAS
+#
+# 3.11 kernel 3.2 d_alias has been moved to d_u.d_alias
+# in struct dentry
+#
+AC_DEFUN([LC_HAVE_DENTRY_D_U_D_ALIAS], [
+LB_CHECK_COMPILE([if 'dentry.d_u.d_alias' exist],
+d_alias, [
+	#include <linux/list.h>
+	#include <linux/dcache.h>
+],[
+	struct dentry de;
+	INIT_LIST_HEAD(&de.d_u.d_alias);
+],[
+	AC_DEFINE(HAVE_DENTRY_D_U_D_ALIAS, 1,
+		[dentry.d_u.d_alias exist])
+])
+]) # LC_HAVE_DENTRY_D_U_D_ALIAS
+
+#
+# LC_HAVE_DENTRY_D_CHILD
+#
+# 3.11 kernel 3.2 d_u.d_child has been moved to d_child
+# in struct dentry
+#
+AC_DEFUN([LC_HAVE_DENTRY_D_CHILD], [
+LB_CHECK_COMPILE([if 'dentry.d_child' exist],
+d_child, [
+	#include <linux/list.h>
+	#include <linux/dcache.h>
+],[
+	struct dentry de;
+	INIT_LIST_HEAD(&de.d_child);
+],[
+	AC_DEFINE(HAVE_DENTRY_D_CHILD, 1,
+		[dentry.d_child exist])
+])
+]) # LC_HAVE_DENTRY_D_CHILD
+
+#
 # LC_KIOCB_KI_LEFT
 #
 # 3.12 ki_left removed from struct kiocb
@@ -1522,6 +1562,7 @@ truncate_ipages_final, [
 		[kernel has truncate_inode_pages_final])
 ])
 ]) # LC_HAVE_TRUNCATE_IPAGES_FINAL
+
 #
 # LC_VFS_RENAME_6ARGS
 #
@@ -1650,6 +1691,8 @@ AC_DEFUN([LC_PROG_LINUX], [
 	LC_HAVE_DIR_CONTEXT
 	LC_D_COMPARE_5ARGS
 	LC_HAVE_DCOUNT
+	LC_HAVE_DENTRY_D_U_D_ALIAS
+	LC_HAVE_DENTRY_D_CHILD
 
 	# 3.12
 	LC_OLDSIZE_TRUNCATE_PAGECACHE
