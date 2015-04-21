@@ -15,11 +15,12 @@ rm -f $LOG $DEBUGLOG
 exec 2>$DEBUGLOG
 set -x
 
-. $(dirname $0)/functions.sh
+LUSTRE=${LUSTRE:-$(cd $(dirname $0)/..; echo $PWD)}
+. $LUSTRE/tests/test-framework.sh
 
 IOR=${IOR:-"$(which IOR)"}
 
-assert_env MOUNT END_RUN_FILE LOAD_PID_FILE IOR
+assert_env MOUNT END_RUN_FILE LOAD_PID_FILE IOR LFS MDSCOUNT NODENUM
 
 trap signaled TERM
 
@@ -36,11 +37,14 @@ NUM_CLIENTS=$(cat $MACHINEFILE | wc -l)
 echo $$ >$LOAD_PID_FILE
 
 TESTDIR=${TESTDIR:-$MOUNT/d0.ior-$(hostname)}
+rm -rf $TESTDIR
 
 CONTINUE=true
 while [ ! -e "$END_RUN_FILE" ] && $CONTINUE; do
 	echoerr "$(date +'%F %H:%M:%S'): IOR run starting"
-	mkdir -p $TESTDIR
+	MDT_IDX=$((NODENUM % MDSCOUNT))
+	test_mkdir -i $MDT_IDX -c$MDSCOUNT $TESTDIR
+	$LFS setdirstripe -D -c$MDSCOUNT $TESTDIR
 	# need this only if TESTDIR is not default
 	chmod -R 777 $TESTDIR
 
