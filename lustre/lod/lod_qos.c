@@ -867,6 +867,7 @@ static int lod_alloc_rr(const struct lu_env *env, struct lod_object *lo,
 	__u32		   stripe_cnt = lo->ldo_stripenr;
 	__u32		   stripe_cnt_min = min_stripe_count(stripe_cnt, flags);
 	__u32		   ost_idx;
+	int		   precreate_inprogress = 0;
 	ENTRY;
 
 	if (lo->ldo_pool)
@@ -977,6 +978,9 @@ repeat_find:
 			CDEBUG(D_OTHER, "can't declare new object on #%u: %d\n",
 			       ost_idx, (int) PTR_ERR(o));
 			rc = PTR_ERR(o);
+			if (rc == -EINPROGRESS)
+				precreate_inprogress = 1;
+
 			continue;
 		}
 
@@ -1003,7 +1007,10 @@ repeat_find:
 		rc = 0;
 	} else {
 		/* nobody provided us with a single object */
-		rc = -ENOSPC;
+		if (precreate_inprogress == 0)
+			rc = -ENOSPC;
+		else
+			rc = -EINPROGRESS;
 	}
 
 out:
