@@ -652,7 +652,7 @@ static void request_key_unlink(struct key *key)
 	case KEY_REQKEY_DEFL_SESSION_KEYRING:
 		rcu_read_lock();
 		ring = key_get(rcu_dereference(key_tgcred(tsk)
-					       ->session_keyring));
+					       ->session_keyring, 0));
 		rcu_read_unlock();
 		if (ring)
 			break;
