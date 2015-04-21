@@ -49,6 +49,7 @@
 
 #define DEBUG_SUBSYSTEM S_CLASS
 
+#include <linux/kthread.h>
 #include <lu_target.h>
 #include <lustre_log.h>
 #include <lustre_update.h>
