@@ -46,17 +46,17 @@ setupall
 	exit 0
 
 [[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.3.90) ]] &&
-	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 1a"
+	EXCEPT_INCOMP="$EXCEPT_INCOMP 1a"
+
+[[ $(lustre_version_code ost1) -lt $(version_code 2.4.50) ]] &&
+	EXCEPT_INCOMP="$EXCEPT_INCOMP 11 12 13 14"
 
 [[ $(lustre_version_code $SINGLEMDS) -le $(version_code 2.4.1) ]] &&
-	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 15"
+	EXCEPT_INCOMP="$EXCEPT_INCOMP 15"
 
 [[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.4.90) ]] &&
 [[ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.4.50) ]] &&
-	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 15"
-
-[[ $(lustre_version_code ost1) -lt $(version_code 2.4.50) ]] &&
-	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 11 12 13 14"
+	EXCEPT_INCOMP="$EXCEPT_INCOMP 15"
 
 [[ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.5.59) ]] &&
 	SCRUB_ONLY="-t scrub"
