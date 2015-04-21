@@ -178,6 +178,7 @@ autodetect_target() {
     case ${distro} in
           oel5) target="2.6-oel5";;
          rhel5) target="2.6-rhel5";;
+         rhel6.6) target="2.6-rhel6.6";;
          rhel6) target="2.6-rhel6";;
         sles10) target="2.6-sles10";;
         sles11) target="$(uname -r | cut -d . -f 1,2)-sles11"
