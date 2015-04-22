@@ -4,9 +4,10 @@ if GSS
 SUBDIRS = gss
 endif
 
-AM_CFLAGS=$(LLCFLAGS)
-AM_CPPFLAGS=$(LLCPPFLAGS) -DLUSTRE_UTILS=1 -D_FILE_OFFSET_BITS=64
-AM_LDFLAGS := -L$(top_builddir)/lnet/utils
+AM_CPPFLAGS := -D_GNU_SOURCE \
+	       -D_LARGEFILE64_SOURCE=1 -D_FILE_OFFSET_BITS=64 -DLUSTRE_UTILS=1
+AM_CFLAGS   := -fPIC
+AM_LDFLAGS  := -L$(top_builddir)/lnet/utils
 
 MNTMODLDFLAGS := -rdynamic -ldl
 MNTMODCFLAGS := -DPLUGIN_DIR=\"${pkglibdir}\"
