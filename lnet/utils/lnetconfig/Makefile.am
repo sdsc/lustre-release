@@ -26,13 +26,11 @@
 #   Amir Shehata <amir.shehata@intel.com>
 #
 
-SUBDIRS =
-
-AM_CFLAGS=$(LLCFLAGS)
-AM_CPPFLAGS=$(LLCPPFLAGS) -I$(top_builddir)/lnet/utils \
-			  -I$(top_builddir)/lnet/utils/cyaml \
-			  -DLUSTRE_UTILS=1
-AM_LDFLAGS := -L$(top_builddir)/libcfs/libcfs
+AM_CPPFLAGS := -I$(top_builddir)/lnet/utils \
+	       -I$(top_builddir)/lnet/utils/cyaml \
+	       -D_LARGEFILE64_SOURCE=1 -DLUSTRE_UTILS=1
+AM_CFLAGS   := -fPIC
+AM_LDFLAGS  := -L$(top_builddir)/libcfs/libcfs
 
 lib_LIBRARIES = liblnetconfig.a
 noinst_LIBRARIES = liblnetconfigtmp.a
