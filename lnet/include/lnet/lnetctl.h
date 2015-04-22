@@ -16,6 +16,9 @@
  *
  * header for libptlctl.a
  */
+/*
+ * Copyright (c) 2015 FUJITSU LIMITED
+ */
 #ifndef _PTLCTL_H_
 #define _PTLCTL_H_
 
@@ -63,6 +66,10 @@ int jt_ptl_print_routes (int argc, char **argv);
 int jt_ptl_fail_nid (int argc, char **argv);
 int jt_ptl_testprotocompat(int argc, char **argv);
 int jt_ptl_memhog(int argc, char **argv);
+int jt_ptl_net_status(int argc, char **argv);
+int jt_ptl_add_o2ibs(int argc, char **argv);
+int jt_ptl_show_o2ibs(int argc, char **argv);
+int jt_ptl_chk_o2ibs(int argc, char **argv);
 
 int dbg_initialize(int argc, char **argv);
 int jt_dbg_filter(int argc, char **argv);

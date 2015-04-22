@@ -28,6 +28,8 @@
  * Use is subject to license terms.
  *
  * Copyright (c) 2011, 2013, Intel Corporation.
+ *
+ * Copyright (c) 2015 FUJITSU LIMITED
  */
 /*
  * This file is part of Lustre, http://www.lustre.org/
@@ -121,6 +123,7 @@ typedef struct
 	int              *kib_use_priv_port;    /* use privileged port for active connect */
 	/* # threads on each CPT */
 	int		 *kib_nscheds;
+	int		 *kib_recovery_interval; /* recovery interval (seconds) */
 } kib_tunables_t;
 
 extern kib_tunables_t  kiblnd_tunables;
@@ -218,6 +221,14 @@ typedef struct
 	unsigned int		ibd_failover;
 	/* IPoIB interface is a bonding master */
 	unsigned int		ibd_can_failover;
+
+	int			ibd_index;	/* device index */
+	int			ibd_state;	/* device status */
+#define IBLND_DEV_PORT_DOWN	0
+#define IBLND_DEV_PORT_ACTIVE	1
+#define IBLND_DEV_PORT_DEGRADE	2
+#define IBLND_DEV_FATAL		3
+
 	struct list_head	ibd_nets;
 	struct kib_hca_dev	*ibd_hdev;
 } kib_dev_t;
@@ -234,9 +245,25 @@ typedef struct kib_hca_dev
 	int                  ibh_nmrs;          /* # of global MRs */
 	struct ib_mr       **ibh_mrs;           /* global MR */
 	struct ib_pd        *ibh_pd;            /* PD */
+	u8                   ibh_port;          /* port number */
+        struct ib_event_handler
+                             ibh_event_handler; /* IB event handler */
 	kib_dev_t           *ibh_dev;           /* owner */
 	atomic_t             ibh_ref;           /* refcount */
 } kib_hca_dev_t;
+
+#define IBLND_DEV_LINK_SPEED(width, speed)    ((width) * (speed))
+#define IBLND_DEV_LINK_WIDTH_4X   (4)
+#define IBLND_DEV_LINK_SPEED_QDR  (4)
+#define IBLND_DEV_LINK_SPEED_MAX(rate)  \
+        IBLND_DEV_LINK_SPEED(IBLND_DEV_LINK_WIDTH_4X, (rate))
+
+typedef struct
+{
+        kib_hca_dev_t       *ibe_dev;
+        struct ib_event      ibe_event;
+        struct work_struct   ibe_work;
+} kib_event_t;
 
 /** # of seconds to keep pool alive */
 #define IBLND_POOL_DEADLINE     300
@@ -263,7 +290,7 @@ typedef struct {
 struct kib_pool;
 struct kib_poolset;
 
-typedef int  (*kib_ps_pool_create_t)(struct kib_poolset *ps,
+typedef int  (*kib_ps_pool_create_t)(kib_dev_t *dev, struct kib_poolset *ps,
 				     int inc, struct kib_pool **pp_po);
 typedef void (*kib_ps_pool_destroy_t)(struct kib_pool *po);
 typedef void (*kib_ps_node_init_t)(struct kib_pool *po, struct list_head *node);
@@ -375,22 +402,55 @@ typedef struct {
         kib_fmr_pool_t         *fmr_pool;               /* pool of FMR */
 } kib_fmr_t;
 
+typedef struct kib_route {
+        struct list_head        rt_list;
+        __u32                   rt_state;               /* route state */
+#define IBLND_ROUTE_INIT                0               /* being initialised */
+#define IBLND_ROUTE_CONNECTING          1               /* connecting */
+#define IBLND_ROUTE_ESTABLISHED         2               /* connection established */
+#define IBLND_ROUTE_DISCONNECTED        3               /* disconnected */
+#define IBLND_ROUTE_RECOVERY            4               /* try recovery */
+#define IBLND_ROUTE_NEEDS_RECOVERY      5               /* needs recovery */
+        __u32                   rt_addr;                /* remote address */
+        kib_dev_t              *rt_dev;                 /* local device structure */
+        lnet_ni_t              *rt_ni;                  /* LNet interface */
+        lnet_nid_t              rt_nid;                 /* who's on the other end(s) */
+        unsigned long           rt_last_changed;        /* last state changed timestamp */
+        int                     rt_list_flags;          /* list registration state */
+        int                     rt_list_count;          /* registration block count */
+} kib_route_t;
+
+typedef struct kib_routes {
+        struct list_head        rts_list;
+        lnet_nid_t              rts_nid;                /* nid */
+        kib_route_t             rts_route[LNET_MAX_INTERFACES]; /* route lists */
+        int                     rts_nroute;             /* number of route entry */
+        int                     rts_next;               /* next use index */
+} kib_routes_t;
+
+typedef struct kib_interface {
+	/* chain on kib_dev_t::ibd_nets */
+	struct list_head	ibi_list;
+	int			ibi_init;	/* initialisation state */
+	atomic_t		ibi_npeers;	/* # peers extant */
+	atomic_t		ibi_nconns;	/* # connections extant */
+
+	kib_tx_poolset_t	**ibi_tx_ps;	/* tx pool-set */
+	kib_fmr_poolset_t	**ibi_fmr_ps;	/* fmr pool-set */
+	kib_pmr_poolset_t	**ibi_pmr_ps;	/* pmr pool-set */
+
+	kib_dev_t		*ibi_dev;	/* underlying IB device */
+} kib_interface_t;
+
 typedef struct kib_net
 {
-	/* chain on kib_dev_t::ibd_nets */
-	struct list_head	ibn_list;
 	__u64			ibn_incarnation;/* my epoch */
 	int			ibn_init;	/* initialisation state */
 	int			ibn_shutdown;	/* shutting down? */
 
-	atomic_t		ibn_npeers;	/* # peers extant */
-	atomic_t		ibn_nconns;	/* # connections extant */
-
-	kib_tx_poolset_t	**ibn_tx_ps;	/* tx pool-set */
-	kib_fmr_poolset_t	**ibn_fmr_ps;	/* fmr pool-set */
-	kib_pmr_poolset_t	**ibn_pmr_ps;	/* pmr pool-set */
-
-	kib_dev_t		*ibn_dev;	/* underlying IB device */
+	int			ibn_ninterfaces;/* number of interface */
+	kib_interface_t		ibn_interfaces[LNET_MAX_INTERFACES];
+	struct list_head	ibn_routes;	/* route lists */
 } kib_net_t;
 
 #define KIB_THREAD_SHIFT		16
@@ -411,6 +471,21 @@ struct kib_sched_info {
 	int			ibs_nthreads_max;
 	int			ibs_cpt;	/* CPT id */
 };
+
+typedef struct kib_target {
+        struct list_head        tg_list;
+        lnet_nid_t              tg_nid;         /* nid */
+        int                     tg_naddr;       /* number of address entry */
+        __u32                   tg_addr[LNET_MAX_INTERFACES];   /* target address */
+} kib_target_t;
+
+typedef struct {
+        struct list_head        tgt_list;
+        lnet_nid_t              tg_nid;         /* nid */
+        int                     tg_naddr;       /* number of address entry */
+        int                     tg_add;         /* add flag                */
+        __u32                   tg_addr[LNET_MAX_INTERFACES];   /* target address */
+} kib_targetlist_t;
 
 typedef struct
 {
@@ -434,12 +509,16 @@ typedef struct
 	struct list_head	kib_connd_conns;
 	/* connections with zero refcount */
 	struct list_head	kib_connd_zombies;
+	/* connections to recovery */
+	struct list_head	kib_connd_recovery;
 	/* connection daemon sleeps here */
 	wait_queue_head_t	kib_connd_waitq;
 	spinlock_t		kib_connd_lock;	/* serialise */
 	struct ib_qp_attr	kib_error_qpa;	/* QP->ERROR */
 	/* percpt data for schedulers */
 	struct kib_sched_info	**kib_scheds;
+	/* ipoib interface list */
+	struct list_head	kib_targets;
 } kib_data_t;
 
 #define IBLND_INIT_NOTHING         0
@@ -755,6 +834,8 @@ typedef struct kib_peer
 	int			ibp_error;
 	/* when (in jiffies) I was last alive */
 	cfs_time_t		ibp_last_alive;
+	/* real route */
+	kib_route_t		*ibp_route;
 } kib_peer_t;
 
 extern kib_data_t      kiblnd_data;
@@ -961,6 +1042,13 @@ kiblnd_set_conn_state (kib_conn_t *conn, int state)
 }
 
 static inline void
+kiblnd_set_route_state (kib_route_t *route, int state)
+{
+        route->rt_state = state;
+        route->rt_last_changed = jiffies;
+}
+
+static inline void
 kiblnd_init_msg (kib_msg_t *msg, int type, int body_nob)
 {
         msg->ibm_type = type;
@@ -1147,9 +1235,9 @@ int kiblnd_map_tx(lnet_ni_t *ni, kib_tx_t *tx,
                   kib_rdma_desc_t *rd, int nfrags);
 void kiblnd_unmap_tx(lnet_ni_t *ni, kib_tx_t *tx);
 void kiblnd_pool_free_node(kib_pool_t *pool, struct list_head *node);
-struct list_head *kiblnd_pool_alloc_node(kib_poolset_t *ps);
+struct list_head *kiblnd_pool_alloc_node(kib_dev_t *dev, kib_poolset_t *ps);
 
-int  kiblnd_fmr_pool_map(kib_fmr_poolset_t *fps, __u64 *pages,
+int  kiblnd_fmr_pool_map(kib_dev_t *dev, kib_fmr_poolset_t *fps, __u64 *pages,
                          int npages, __u64 iov, kib_fmr_t *fmr);
 void kiblnd_fmr_pool_unmap(kib_fmr_t *fmr, int status);
 
@@ -1178,12 +1266,12 @@ int  kiblnd_cm_callback(struct rdma_cm_id *cmid,
 int  kiblnd_translate_mtu(int value);
 
 int  kiblnd_dev_failover(kib_dev_t *dev);
-int  kiblnd_create_peer (lnet_ni_t *ni, kib_peer_t **peerp, lnet_nid_t nid);
+int  kiblnd_create_peer (lnet_ni_t *ni, kib_peer_t **peerp, lnet_nid_t nid, kib_route_t *route);
 void kiblnd_destroy_peer (kib_peer_t *peer);
 void kiblnd_destroy_dev (kib_dev_t *dev);
 void kiblnd_unlink_peer_locked (kib_peer_t *peer);
 void kiblnd_peer_alive (kib_peer_t *peer);
-kib_peer_t *kiblnd_find_peer_locked (lnet_nid_t nid);
+kib_peer_t *kiblnd_find_peer_locked (lnet_nid_t nid, kib_route_t *route);
 void kiblnd_peer_connect_failed (kib_peer_t *peer, int active, int error);
 int  kiblnd_close_stale_conns_locked (kib_peer_t *peer,
                                       int version, __u64 incarnation);
@@ -1199,7 +1287,7 @@ void kiblnd_close_conn_locked (kib_conn_t *conn, int error);
 int  kiblnd_init_rdma (kib_conn_t *conn, kib_tx_t *tx, int type,
                        int nob, kib_rdma_desc_t *dstrd, __u64 dstcookie);
 
-void kiblnd_launch_tx (lnet_ni_t *ni, kib_tx_t *tx, lnet_nid_t nid);
+void kiblnd_launch_tx (lnet_ni_t *ni, kib_tx_t *tx, lnet_nid_t nid, kib_route_t *route);
 void kiblnd_queue_tx_locked (kib_tx_t *tx, kib_conn_t *conn);
 void kiblnd_queue_tx (kib_tx_t *tx, kib_conn_t *conn);
 void kiblnd_init_tx_msg (lnet_ni_t *ni, kib_tx_t *tx, int type, int body_nob);
@@ -1220,3 +1308,16 @@ int  kiblnd_recv(lnet_ni_t *ni, void *private, lnet_msg_t *lntmsg, int delayed,
                  unsigned int niov, struct iovec *iov, lnet_kiov_t *kiov,
                  unsigned int offset, unsigned int mlen, unsigned int rlen);
 
+void kiblnd_destroy_targets(void);
+__u32 kiblnd_target_nid2addr(lnet_nid_t nid, int idx);
+int   kiblnd_target_nid2naddr(lnet_nid_t nid);
+void kiblnd_destroy_routes(lnet_ni_t *ni);
+int kiblnd_create_routes(lnet_ni_t *ni, lnet_nid_t nid);
+kib_routes_t *kiblnd_find_routes_locked(lnet_ni_t *ni, lnet_nid_t nid);
+kib_route_t *kiblnd_find_route(lnet_ni_t *ni, lnet_nid_t nid,
+                               __u32 addr, kib_dev_t *dev);
+kib_route_t *kiblnd_find_route_locked(lnet_ni_t *ni, lnet_nid_t nid,
+                               __u32 addr, kib_dev_t *dev);
+kib_route_t *kiblnd_next_route(lnet_ni_t *ni, lnet_nid_t nid);
+kib_route_t *kiblnd_next_route_locked(lnet_ni_t *ni, lnet_nid_t nid);
+int kiblnd_device_addr2idx(kib_net_t *net, __u32 addr);

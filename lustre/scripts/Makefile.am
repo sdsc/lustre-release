@@ -28,6 +28,8 @@
 # Copyright (c) 1999, 2010, Oracle and/or its affiliates. All rights reserved.
 # Use is subject to license terms.
 #
+# Copyright (c) 2015 FUJITSU LIMITED
+#
 
 #
 # This file is part of Lustre, http://www.lustre.org/
@@ -36,6 +38,7 @@
 
 sbinscripts = lc_servip lustre_up14 lustre_rmmod lhbadm ldev
 sbinscripts += lustre_routes_config lustre_routes_conversion
+sbinscripts += lustre_o2ibs_config
 
 # These are scripts that are generated from .in files
 genscripts = lustre_config lc_modprobe lc_net lc_hb lc_cluman lustre_createcsv \

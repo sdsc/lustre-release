@@ -28,6 +28,8 @@
  * Use is subject to license terms.
  *
  * Copyright (c) 2012, Intel Corporation.
+ *
+ * Copyright (c) 2015 FUJITSU LIMITED
  */
 /*
  * This file is part of Lustre, http://www.lustre.org/
@@ -131,6 +133,11 @@ static int pmr_pool_size = 512;
 CFS_MODULE_PARM(pmr_pool_size, "i", int, 0444,
 		"size of MR cache pmr pool on each CPT");
 
+static int recovery_interval = 600;
+CFS_MODULE_PARM(recovery_interval, "i", int, 0644,
+                "recovery interval (seconds)");
+
+
 /*
  * 0: disable failover
  * 1: enable failover if necessary
@@ -171,6 +178,7 @@ kib_tunables_t kiblnd_tunables = {
         .kib_fmr_flush_trigger      = &fmr_flush_trigger,
         .kib_fmr_cache              = &fmr_cache,
         .kib_pmr_pool_size          = &pmr_pool_size,
+        .kib_recovery_interval      = &recovery_interval,
         .kib_require_priv_port      = &require_privileged_port,
 	.kib_use_priv_port	    = &use_privileged_port,
 	.kib_nscheds		    = &nscheds
@@ -340,6 +348,17 @@ static struct ctl_table kiblnd_ctl_table[] = {
 		.maxlen		= sizeof(int),
 		.mode		= 0444,
 		.proc_handler	= &proc_dointvec
+	},
+	{
+		INIT_CTL_NAME
+		.procname = "recovery_interval",
+		.data     = &recovery_interval,
+		.maxlen   = sizeof(int),
+		.mode     = 0444,
+		.proc_handler = &proc_dointvec
+	},
+	{
+		INIT_CTL_NAME
 	},
 	{
 		INIT_CTL_NAME

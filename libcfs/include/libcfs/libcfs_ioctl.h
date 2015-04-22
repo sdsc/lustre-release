@@ -26,6 +26,8 @@
 /*
  * Copyright (c) 2008, 2010, Oracle and/or its affiliates. All rights reserved.
  * Use is subject to license terms.
+ *
+ * Copyright (c) 2015 FUJITSU LIMITED
  */
 /*
  * This file is part of Lustre, http://www.lustre.org/
@@ -145,8 +147,13 @@ struct libcfs_ioctl_handler {
 #define IOC_LIBCFS_ADD_INTERFACE           _IOWR('e', 78, IOCTL_LIBCFS_TYPE)
 #define IOC_LIBCFS_DEL_INTERFACE           _IOWR('e', 79, IOCTL_LIBCFS_TYPE)
 #define IOC_LIBCFS_GET_INTERFACE           _IOWR('e', 80, IOCTL_LIBCFS_TYPE)
+#define IOC_LIBCFS_GET_NET_STATUS          _IOWR('e', 81, IOCTL_LIBCFS_TYPE)
+/* o2ib ioctls */
+#define IOC_LIBCFS_ADD_O2IBS               _IOWR('e', 82, IOCTL_LIBCFS_TYPE)
+#define IOC_LIBCFS_GET_O2IBS               _IOWR('e', 83, IOCTL_LIBCFS_TYPE)
+#define IOC_LIBCFS_CHECK_O2IBS             _IOWR('e', 84, IOCTL_LIBCFS_TYPE)
 
-#define IOC_LIBCFS_MAX_NR                             80
+#define IOC_LIBCFS_MAX_NR                             84
 
 static inline int libcfs_ioctl_packlen(struct libcfs_ioctl_data *data)
 {

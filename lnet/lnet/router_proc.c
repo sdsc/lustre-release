@@ -3,6 +3,8 @@
  *
  * Copyright (c) 2011, 2013, Intel Corporation.
  *
+ * Copyright (c) 2015 FUJITSU LIMITED
+ *
  *   This file is part of Portals
  *   http://sourceforge.net/projects/sandiaportals/
  *
@@ -834,6 +836,103 @@ out:
 }
 DECLARE_PROC_HANDLER(proc_lnet_portal_rotor);
 
+int LL_PROC_PROTO(proc_lnet_net_status)
+{
+        int        rc = 0;
+        char      *tmpstr;
+        char      *s;
+        const int  tmpsiz = 256;
+        int        len;
+
+        LASSERT (!write);
+
+        if (*lenp == 0)
+                return 0;
+
+        LIBCFS_ALLOC(tmpstr, tmpsiz);
+        if (tmpstr == NULL)
+                return -ENOMEM;
+
+        s = tmpstr; /* points to current position in tmpstr[] */
+
+        if (*ppos == 0) {
+                s += snprintf(s, tmpstr + tmpsiz - s,
+                              "%-24s %7s %7s %7s\n",
+                              "nid", "device", "active", "degrade");
+                LASSERT (tmpstr + tmpsiz - s > 0);
+        } else {
+                struct list_head  *n;
+                lnet_ni_t         *ni   = NULL;
+                int                skip = *ppos - 1;
+
+                lnet_net_lock(0);
+
+                n = the_lnet.ln_nis.next;
+
+                while (n != &the_lnet.ln_nis) {
+                        lnet_ni_t *a_ni = list_entry(n, lnet_ni_t, ni_list);
+
+                        /* net_status reports ib status olny */
+                        if (a_ni->ni_lnd->lnd_type != O2IBLND) {
+                                n = n->next;
+                                continue;
+                        }
+
+                        if (skip == 0) {
+                                ni = a_ni;
+                                break;
+                        }
+
+                        skip--;
+                        n = n->next;
+                }
+
+                if (ni != NULL) {
+                        lnet_nid_t  nid = ni->ni_nid;
+                        int         all = 0;
+                        int         active = 0;
+                        int         degrade = 0;
+                        struct libcfs_ioctl_data  data;
+
+                        /* IOC_LIBCFS_GET_NET_STATUS */
+                        if (ni->ni_lnd->lnd_ctl != NULL) {
+                                if (!(ni->ni_lnd->lnd_ctl(ni,
+                                         IOC_LIBCFS_GET_NET_STATUS, &data))) {
+                                        all     = data.ioc_u32[0];
+                                        active  = data.ioc_u32[1];
+                                        degrade = data.ioc_u32[2];
+                                }
+                        }
+
+                        s += snprintf(s, tmpstr + tmpsiz - s,
+                                      "%-24s %7d %7d %7d\n",
+                                      libcfs_nid2str(nid),
+                                      all, active, degrade);
+                        LASSERT (tmpstr + tmpsiz - s > 0);
+                }
+
+                lnet_net_unlock(0);
+        }
+
+        len = s - tmpstr;     /* how many bytes was written */
+
+        if (len > *lenp) {    /* linux-supplied buffer is too small */
+                rc = -EINVAL;
+        } else if (len > 0) { /* wrote something */
+                if (copy_to_user(buffer, tmpstr, len))
+                        rc = -EFAULT;
+                else
+                        *ppos += 1;
+        }
+
+        LIBCFS_FREE(tmpstr, tmpsiz);
+
+        if (rc == 0)
+                *lenp = len;
+
+        return rc;
+}
+
 static struct ctl_table lnet_table[] = {
 	/*
 	 * NB No .strategy entries have been provided since sysctl(8) prefers
@@ -880,6 +979,12 @@ static struct ctl_table lnet_table[] = {
 		.procname	= "portal_rotor",
 		.mode		= 0644,
 		.proc_handler	= &proc_lnet_portal_rotor,
+	},
+	{
+		INIT_CTL_NAME
+		.procname	= "net_status",
+		.mode		= 0444,
+		.proc_handler	= &proc_lnet_net_status,
 	},
 	{ 0 }
 };

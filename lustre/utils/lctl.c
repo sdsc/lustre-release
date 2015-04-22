@@ -28,6 +28,8 @@
  * Use is subject to license terms.
  *
  * Copyright (c) 2012, 2013, Intel Corporation.
+ *
+ * Copyright (c) 2015 FUJITSU LIMITED
  */
 /*
  * This file is part of Lustre, http://www.lustre.org/
@@ -115,6 +117,14 @@ command_t cmdlist[] = {
          "usage: show_route"},
         {"ping", jt_ptl_ping, 0, "Check LNET connectivity\n"
          "usage: ping nid [timeout] [pid]"},
+        {"net_status", jt_ptl_net_status, 0, "show network driver status\n"
+         "usage: net_status"},
+        {"add_o2ibs", jt_ptl_add_o2ibs, 0, "add NID for o2ibs\n"
+         "usage: add_o2ibs NID IP [IP ...]"},
+        {"show_o2ibs", jt_ptl_show_o2ibs, 0, "show o2ib driver settings\n"
+         "usage: show_o2ibs"},
+        {"check_o2ibs", jt_ptl_chk_o2ibs, 0, "check o2ib driver settings\n"
+         "usage: check_o2ibs"},
 
         /* Device selection commands */
         {"==== obd device selection ====", jt_noop, 0, "device selection"},
