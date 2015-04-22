@@ -25,7 +25,9 @@
 #include <lnet/socklnd.h>
 #include <lnet/lnet.h>
 #include <getopt.h>
-#include <netdb.h>
+#ifdef HAVE_NETDB_H
+# include <netdb.h>
+#endif
 
 unsigned int libcfs_debug;
 unsigned int libcfs_printk = D_CANTMASK;
