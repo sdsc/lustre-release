@@ -44,7 +44,9 @@
 #include <fcntl.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
-#include <netdb.h>
+#ifdef HAVE_NETDB_H
+# include <netdb.h>
+#endif
 #include <string.h>
 #include <sys/wait.h>
 #include <sys/time.h>

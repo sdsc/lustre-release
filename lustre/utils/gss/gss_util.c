@@ -70,7 +70,9 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <sys/param.h>
-#include <netdb.h>
+#ifdef HAVE_NETDB_H
+# include <netdb.h>
+#endif
 #include <fcntl.h>
 #include <gssapi/gssapi.h>
 #if defined(HAVE_KRB5) && !defined(GSS_C_NT_HOSTBASED_SERVICE)
