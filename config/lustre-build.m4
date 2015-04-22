@@ -636,7 +636,7 @@ fi
 AS_IF([test "x$enable_utils" = xno], [enable_tests="no"])
 
 m4_ifdef([LC_NODEMAP_PROC_DEBUG], [LC_NODEMAP_PROC_DEBUG])
-LN_CONFIG_CDEBUG
+LIBCFS_CONFIG_CDEBUG
 LC_QUOTA
 
 LB_PATH_SNMP
