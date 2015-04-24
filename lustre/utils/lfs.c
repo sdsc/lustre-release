@@ -346,7 +346,11 @@ command_t cmdlist[] = {
 	 "usage: hsm_release [--filelist FILELIST] [--data DATA] <file> ..."},
 	{"hsm_remove", lfs_hsm_remove, 0,
 	 "Remove file copy from external storage.\n"
-	 "usage: hsm_remove [--filelist FILELIST] [--data DATA] <file> ..."},
+	 "usage: hsm_remove [--filelist FILELIST] [--data DATA] [--mntpath MOUNTPATH] [--archive NUM] <file> ...\n\n"
+	 "Note: To remove files from the archive that have been deleted on\n"
+	 "Lustre, set mntpath and optionally archive. In that case, all the\n"
+	 "positional arguments and entries in the file list must be FIDs."
+	},
 	{"hsm_cancel", lfs_hsm_cancel, 0,
 	 "Cancel requests related to specified files.\n"
 	 "usage: hsm_cancel [--filelist FILELIST] [--data DATA] <file> ..."},
@@ -3798,7 +3802,7 @@ static int lfs_hsm_clear(int argc, char **argv)
  *
  * \return 0 on success.
  */
-static int lfs_hsm_prepare_file(char *file, struct lu_fid *fid,
+static int lfs_hsm_prepare_file(const char *file, struct lu_fid *fid,
 				dev_t *last_dev)
 {
 	struct stat	st;
@@ -3833,16 +3837,51 @@ static int lfs_hsm_prepare_file(char *file, struct lu_fid *fid,
 	return 0;
 }
 
+/* Fill an HSM HUR item with a given file name. If mntpath is set,
+ * then the filename is actually a FID, and no lookup on the
+ * filesystem will be performed.
+ *
+ * idx is the index of the HUI inside the HUR.
+ */
+static int fill_hur_item(struct hsm_user_request *hur, unsigned int idx,
+			 const char *mntpath, const char *fname,
+			 dev_t *last_dev)
+{
+	struct hsm_user_item *hui = &hur->hur_user_item[idx];
+	int rc;
+
+	hui->hui_extent.length = -1;
+	/* If mntpath is set then fname must be a fid. Otherwise it is
+	 * a filename. */
+	if (mntpath == NULL) {
+		rc = lfs_hsm_prepare_file(fname, &hui->hui_fid, last_dev);
+	} else {
+		if (*fname == '[')
+			fname++;
+		rc = sscanf(fname, SFID, RFID(&hui->hui_fid));
+		if (rc == 3)
+			rc = 0;
+		else {
+			fprintf(stderr, "Not a FID: %s\n", fname);
+			rc = -EINVAL;
+		}
+	}
+	hur->hur_request.hr_itemcount++;
+
+	return rc;
+}
+
 static int lfs_hsm_request(int argc, char **argv, int action)
 {
 	struct option		 long_opts[] = {
 		{"filelist", 1, 0, 'l'},
 		{"data", 1, 0, 'D'},
 		{"archive", 1, 0, 'a'},
+		{"mntpath", 1, 0, 'm'},
 		{0, 0, 0, 0}
 	};
 	dev_t			 last_dev = 0;
-	char			 short_opts[] = "l:D:a:";
+	char			 short_opts[] = "l:D:a:m:";
 	struct hsm_user_request	*hur, *oldhur;
 	int			 c, i;
 	size_t			 len;
@@ -3855,7 +3894,8 @@ static int lfs_hsm_request(int argc, char **argv, int action)
 	int			 archive_id = 0;
 	FILE			*fp;
 	int			 nbfile_alloc = 0;
-	char			 some_file[PATH_MAX+1] = "";
+	char			*some_file = NULL;
+	char			*mntpath = NULL;
 	int			 rc;
 
 	if (argc < 2)
@@ -3871,13 +3911,20 @@ static int lfs_hsm_request(int argc, char **argv, int action)
 			opaque = optarg;
 			break;
 		case 'a':
-			if (action != HUA_ARCHIVE) {
+			if (action != HUA_ARCHIVE &&
+			    action != HUA_REMOVE) {
 				fprintf(stderr,
 					"error: -a is supported only "
-					"when archiving\n");
+					"when archiving or removing\n");
 				return CMD_HELP;
 			}
 			archive_id = atoi(optarg);
+			break;
+		case 'm':
+			if (some_file == NULL) {
+				mntpath = optarg;
+				some_file = strdup(optarg);
+			}
 			break;
 		case '?':
 			return CMD_HELP;
@@ -3912,20 +3959,12 @@ static int lfs_hsm_request(int argc, char **argv, int action)
 	hur->hur_request.hr_flags = 0;
 
 	/* All remaining args are files, add them */
-	if (nbfile != 0) {
-		if (strlen(argv[optind]) > sizeof(some_file)-1) {
-			free(hur);
-			return -E2BIG;
-		}
-		strncpy(some_file, argv[optind], sizeof(some_file));
-	}
+	if (nbfile != 0 && some_file == NULL)
+		some_file = strdup(argv[optind]);
 
 	for (i = 0; i < nbfile; i++) {
-		hur->hur_user_item[i].hui_extent.length = -1;
-		rc = lfs_hsm_prepare_file(argv[optind + i],
-					  &hur->hur_user_item[i].hui_fid,
-					  &last_dev);
-		hur->hur_request.hr_itemcount++;
+		rc = fill_hur_item(hur, i, mntpath, argv[optind + i],
+				   &last_dev);
 		if (rc)
 			goto out_free;
 	}
@@ -3943,8 +3982,6 @@ static int lfs_hsm_request(int argc, char **argv, int action)
 		}
 
 		while ((rc = getline(&line, &len, fp)) != -1) {
-			struct hsm_user_item *hui;
-
 			/* If allocated buffer was too small, get something
 			 * larger */
 			if (nbfile_alloc <= hur->hur_request.hr_itemcount) {
@@ -3982,25 +4019,21 @@ static int lfs_hsm_request(int argc, char **argv, int action)
 			if (line[strlen(line) - 1] == '\n')
 				line[strlen(line) - 1] = '\0';
 
-			hui =
-			     &hur->hur_user_item[hur->hur_request.hr_itemcount];
-			hui->hui_extent.length = -1;
-			rc = lfs_hsm_prepare_file(line, &hui->hui_fid,
-						  &last_dev);
-			hur->hur_request.hr_itemcount++;
+			rc = fill_hur_item(hur, hur->hur_request.hr_itemcount,
+					   mntpath, line, &last_dev);
 			if (rc) {
 				fclose(fp);
 				goto out_free;
 			}
 
-			if ((some_file[0] == '\0') &&
-			    (strlen(line) < sizeof(some_file)))
-				strcpy(some_file, line);
+			if (some_file == NULL) {
+				some_file = line;
+				line = NULL;
+			}
 		}
 
 		rc = fclose(fp);
-		if (line)
-			free(line);
+		free(line);
 	}
 
 	/* If a --data was used, add it to the request */
@@ -4021,6 +4054,7 @@ static int lfs_hsm_request(int argc, char **argv, int action)
 	}
 
 out_free:
+	free(some_file);
 	free(hur);
 	return rc;
 }
