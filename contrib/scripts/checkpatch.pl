@@ -395,6 +395,7 @@ my %dep_functions = (
 	'cfs_hlist_unhashed',		'hlist_unhashed',
 
 	'cfs_inode_t',			'struct inode',
+	'f_dentry',			'f_path.dentry',
 
 	'CFS_INIT_LIST_HEAD',		'INIT_LIST_HEAD',
 	'CFS_LIST_HEAD',		'struct list_head foo = LIST_HEAD_INIT(foo);',
