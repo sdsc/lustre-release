@@ -8,6 +8,10 @@
 # probe: true
 # config: /etc/sysconfig/lnet
 
+#
+# Copyright (c) 2015 FUJITSU LIMITED
+#
+
 # Source function library.
 [ -f /etc/rc.d/init.d/functions ] && . /etc/rc.d/init.d/functions
 
@@ -112,6 +116,7 @@ status ()
 	eval $old_nullglob
 }
 
+LUSTRE_O2IBS_CONFIG_FILE=${LUSTRE_O2IBS_CONFIG_FILE:-/etc/sysconfig/lnet_o2ibs.conf}
 LUSTRE_ROUTES_CONFIG_FILE="/etc/sysconfig/lnet_routes.conf"
 LUSTRE_LNET_CONFIG_FILE="/etc/sysconfig/lnet.conf"
 LUSTRE_LNET_CONFIG_UTILITY="/usr/sbin/lnetctl"
@@ -136,6 +141,13 @@ case "$1" in
 	# in YAML format in the config file.
 	if [ -x $LUSTRE_LNET_CONFIG_UTILITY -a -f "$LUSTRE_LNET_CONFIG_FILE" ]; then
 		$LUSTRE_LNET_CONFIG_UTILITY import < $LUSTRE_LNET_CONFIG_FILE
+	fi
+	# Configure IB LND targets
+	if [ -f "$LUSTRE_O2IBS_CONFIG_FILE" ]; then
+		/usr/sbin/lustre_o2ibs_config "$LUSTRE_O2IBS_CONFIG_FILE"
+		if [ $? -ne 0 ]; then
+			exit 1
+		fi
 	fi
 	# if a routes config file is given then use it to configure the
 	# routes if not then default to LUSTRE_ROUTES_CONFIG_FILE

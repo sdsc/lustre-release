@@ -82,19 +82,20 @@ libcfs_next_nidstring(void)
 }
 EXPORT_SYMBOL(libcfs_next_nidstring);
 
-static int
-libcfs_lo_str2addr(const char *str, int nob, __u32 *addr)
-{
-	*addr = 0;
-	return 1;
-}
-
-static void
+void
 libcfs_ip_addr2str(__u32 addr, char *str, size_t size)
 {
 	snprintf(str, size, "%u.%u.%u.%u",
 		 (addr >> 24) & 0xff, (addr >> 16) & 0xff,
 		 (addr >> 8) & 0xff, addr & 0xff);
+}
+EXPORT_SYMBOL(libcfs_ip_addr2str);
+
+static int
+libcfs_lo_str2addr(const char *str, int nob, __u32 *addr)
+{
+	*addr = 0;
+	return 1;
 }
 
 /* CAVEAT EMPTOR XscanfX
