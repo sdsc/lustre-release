@@ -30,6 +30,8 @@
 #
 # Copyright (c) 2013, 2014, Intel Corporation.
 #
+# Copyright (c) 2015 FUJITSU LIMITED
+#
 
 #
 # This file is part of Lustre, http://www.lustre.org/
@@ -51,6 +53,7 @@ endif
 
 if UTILS
 sbin_SCRIPTS += ldev lustre_routes_config lustre_routes_conversion
+sbin_SCRIPTS += lustre_o2ibs_config
 bin_SCRIPTS   = lfs_migrate
 
 if SERVER
@@ -74,6 +77,7 @@ endif # UTILS
 EXTRA_DIST = license-status version_tag.pl version_tag-git.pl \
 	     version_tag-none.pl lustre_rmmod ldev lc_mon lhbadm \
 	     lc_servip lustre_routes_config lustre_routes_conversion \
+	     lustre_o2ibs_config \
 	     $(addsuffix .in,$(genscripts)) lfs_migrate lustre_req_history \
 	     lustre lnet lc_common haconfig Lustre.ha_v2 dkms.mkconf zfsobj2fid
 
