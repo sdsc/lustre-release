@@ -84,7 +84,6 @@ libcfs_next_nidstring(void)
 EXPORT_SYMBOL(libcfs_next_nidstring);
 
 static int  libcfs_lo_str2addr(const char *str, int nob, __u32 *addr);
-static void libcfs_ip_addr2str(__u32 addr, char *str, size_t size);
 static int  libcfs_ip_str2addr(const char *str, int nob, __u32 *addr);
 static bool cfs_ip_is_contiguous(struct list_head *nidlist);
 static void cfs_ip_min_max(struct list_head *nidlist, __u32 *min, __u32 *max);
@@ -271,14 +270,6 @@ libcfs_lo_str2addr(const char *str, int nob, __u32 *addr)
 	return 1;
 }
 
-static void
-libcfs_ip_addr2str(__u32 addr, char *str, size_t size)
-{
-	snprintf(str, size, "%u.%u.%u.%u",
-		 (addr >> 24) & 0xff, (addr >> 16) & 0xff,
-		 (addr >> 8) & 0xff, addr & 0xff);
-}
-
 /* CAVEAT EMPTOR XscanfX
  * I use "%n" at the end of a sscanf format to detect trailing junk.  However
  * sscanf may return immediately if it sees the terminating '0' in a string, so
@@ -376,6 +367,15 @@ libcfs_name2netstrfns(const char *name)
 
 	return NULL;
 }
+
+void
+libcfs_ip_addr2str(__u32 addr, char *str, size_t size)
+{
+	snprintf(str, size, "%u.%u.%u.%u",
+		 (addr >> 24) & 0xff, (addr >> 16) & 0xff,
+		 (addr >> 8) & 0xff, addr & 0xff);
+}
+EXPORT_SYMBOL(libcfs_ip_addr2str);
 
 int
 libcfs_isknown_lnd(__u32 lnd)
