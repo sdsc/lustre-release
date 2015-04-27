@@ -173,6 +173,11 @@ int jt_ptl_delay_del(int argc, char **argv);
 int jt_ptl_delay_reset(int argc, char **argv);
 int jt_ptl_delay_list(int argc, char **argv);
 
+int jt_ptl_net_status(int argc, char **argv);
+int jt_ptl_add_o2ibs(int argc, char **argv);
+int jt_ptl_show_o2ibs(int argc, char **argv);
+int jt_ptl_chk_o2ibs(int argc, char **argv);
+
 int dbg_initialize(int argc, char **argv);
 int jt_dbg_filter(int argc, char **argv);
 int jt_dbg_show(int argc, char **argv);
