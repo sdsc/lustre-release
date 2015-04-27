@@ -170,7 +170,7 @@ struct ldlm_flock_lookup_cb_data {
 	struct obd_export *exp;
 };
 
-static int ldlm_flock_lookup_cb(cfs_hash_t *hs, cfs_hash_bd_t *bd,
+static int ldlm_flock_lookup_cb(struct cfs_hash *hs, struct cfs_hash_bd *bd,
 				struct hlist_node *hnode, void *data)
 {
 	struct ldlm_flock_lookup_cb_data *cb_data = data;
@@ -878,7 +878,7 @@ void ldlm_flock_policy_local_to_wire(const ldlm_policy_data_t *lpolicy,
  * Export handle<->flock hash operations.
  */
 static unsigned
-ldlm_export_flock_hash(cfs_hash_t *hs, const void *key, unsigned mask)
+ldlm_export_flock_hash(struct cfs_hash *hs, const void *key, unsigned mask)
 {
 	return cfs_hash_u64_hash(*(__u64 *)key, mask);
 }
@@ -905,7 +905,7 @@ ldlm_export_flock_object(struct hlist_node *hnode)
 }
 
 static void
-ldlm_export_flock_get(cfs_hash_t *hs, struct hlist_node *hnode)
+ldlm_export_flock_get(struct cfs_hash *hs, struct hlist_node *hnode)
 {
 	struct ldlm_lock *lock;
 	struct ldlm_flock *flock;
@@ -920,7 +920,7 @@ ldlm_export_flock_get(cfs_hash_t *hs, struct hlist_node *hnode)
 }
 
 static void
-ldlm_export_flock_put(cfs_hash_t *hs, struct hlist_node *hnode)
+ldlm_export_flock_put(struct cfs_hash *hs, struct hlist_node *hnode)
 {
 	struct ldlm_lock *lock;
 	struct ldlm_flock *flock;

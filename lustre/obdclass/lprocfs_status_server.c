@@ -137,7 +137,7 @@ static void lprocfs_free_client_stats(struct nid_stat *client_stat)
 
 void lprocfs_free_per_client_stats(struct obd_device *obd)
 {
-	cfs_hash_t *hash = obd->obd_nid_stats_hash;
+	struct cfs_hash *hash = obd->obd_nid_stats_hash;
 	struct nid_stat *stat;
 	ENTRY;
 
@@ -154,7 +154,7 @@ void lprocfs_free_per_client_stats(struct obd_device *obd)
 }
 EXPORT_SYMBOL(lprocfs_free_per_client_stats);
 
-static int lprocfs_exp_print_uuid_seq(cfs_hash_t *hs, cfs_hash_bd_t *bd,
+static int lprocfs_exp_print_uuid_seq(struct cfs_hash *hs, struct cfs_hash_bd *bd,
 				      struct hlist_node *hnode, void *cb_data)
 {
 	struct seq_file *m = cb_data;
@@ -165,7 +165,7 @@ static int lprocfs_exp_print_uuid_seq(cfs_hash_t *hs, cfs_hash_bd_t *bd,
 	return 0;
 }
 
-static int lprocfs_exp_print_nodemap_seq(cfs_hash_t *hs, cfs_hash_bd_t *bd,
+static int lprocfs_exp_print_nodemap_seq(struct cfs_hash *hs, struct cfs_hash_bd *bd,
 					struct hlist_node *hnode, void *cb_data)
 {
 	struct seq_file *m = cb_data;
@@ -199,7 +199,7 @@ static int lprocfs_exp_uuid_seq_show(struct seq_file *m, void *data)
 }
 LPROC_SEQ_FOPS_RO(lprocfs_exp_uuid);
 
-static int lprocfs_exp_print_hash_seq(cfs_hash_t *hs, cfs_hash_bd_t *bd,
+static int lprocfs_exp_print_hash_seq(struct cfs_hash *hs, struct cfs_hash_bd *bd,
 				      struct hlist_node *hnode, void *cb_data)
 
 {

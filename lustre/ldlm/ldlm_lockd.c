@@ -2473,7 +2473,7 @@ static int ldlm_hpreq_handler(struct ptlrpc_request *req)
         RETURN(0);
 }
 
-static int ldlm_revoke_lock_cb(cfs_hash_t *hs, cfs_hash_bd_t *bd,
+static int ldlm_revoke_lock_cb(struct cfs_hash *hs, struct cfs_hash_bd *bd,
 			       struct hlist_node *hnode, void *data)
 
 {
@@ -2718,7 +2718,7 @@ void ldlm_put_ref(void)
  * Export handle<->lock hash operations.
  */
 static unsigned
-ldlm_export_lock_hash(cfs_hash_t *hs, const void *key, unsigned mask)
+ldlm_export_lock_hash(struct cfs_hash *hs, const void *key, unsigned mask)
 {
         return cfs_hash_u64_hash(((struct lustre_handle *)key)->cookie, mask);
 }
@@ -2754,7 +2754,7 @@ ldlm_export_lock_object(struct hlist_node *hnode)
 }
 
 static void
-ldlm_export_lock_get(cfs_hash_t *hs, struct hlist_node *hnode)
+ldlm_export_lock_get(struct cfs_hash *hs, struct hlist_node *hnode)
 {
         struct ldlm_lock *lock;
 
@@ -2763,7 +2763,7 @@ ldlm_export_lock_get(cfs_hash_t *hs, struct hlist_node *hnode)
 }
 
 static void
-ldlm_export_lock_put(cfs_hash_t *hs, struct hlist_node *hnode)
+ldlm_export_lock_put(struct cfs_hash *hs, struct hlist_node *hnode)
 {
         struct ldlm_lock *lock;
 

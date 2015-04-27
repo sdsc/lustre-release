@@ -162,7 +162,7 @@ static int lprocfs_ns_resources_seq_show(struct seq_file *m, void *v)
 {
 	struct ldlm_namespace	*ns  = m->private;
 	__u64			res = 0;
-	cfs_hash_bd_t		bd;
+	struct cfs_hash_bd		bd;
 	int			i;
 
 	/* result is not strictly consistant */
@@ -390,7 +390,7 @@ static int ldlm_namespace_proc_register(struct ldlm_namespace *ns)
 
 #endif /* CONFIG_PROC_FS */
 
-static unsigned ldlm_res_hop_hash(cfs_hash_t *hs,
+static unsigned ldlm_res_hop_hash(struct cfs_hash *hs,
                                   const void *key, unsigned mask)
 {
         const struct ldlm_res_id     *id  = key;
@@ -402,7 +402,7 @@ static unsigned ldlm_res_hop_hash(cfs_hash_t *hs,
         return val & mask;
 }
 
-static unsigned ldlm_res_hop_fid_hash(cfs_hash_t *hs,
+static unsigned ldlm_res_hop_fid_hash(struct cfs_hash *hs,
                                       const void *key, unsigned mask)
 {
         const struct ldlm_res_id *id = key;
@@ -454,7 +454,7 @@ static void *ldlm_res_hop_object(struct hlist_node *hnode)
 	return hlist_entry(hnode, struct ldlm_resource, lr_hash);
 }
 
-static void ldlm_res_hop_get_locked(cfs_hash_t *hs, struct hlist_node *hnode)
+static void ldlm_res_hop_get_locked(struct cfs_hash *hs, struct hlist_node *hnode)
 {
         struct ldlm_resource *res;
 
@@ -462,7 +462,7 @@ static void ldlm_res_hop_get_locked(cfs_hash_t *hs, struct hlist_node *hnode)
         ldlm_resource_getref(res);
 }
 
-static void ldlm_res_hop_put_locked(cfs_hash_t *hs, struct hlist_node *hnode)
+static void ldlm_res_hop_put_locked(struct cfs_hash *hs, struct hlist_node *hnode)
 {
         struct ldlm_resource *res;
 
@@ -471,7 +471,7 @@ static void ldlm_res_hop_put_locked(cfs_hash_t *hs, struct hlist_node *hnode)
         ldlm_resource_putref_locked(res);
 }
 
-static void ldlm_res_hop_put(cfs_hash_t *hs, struct hlist_node *hnode)
+static void ldlm_res_hop_put(struct cfs_hash *hs, struct hlist_node *hnode)
 {
         struct ldlm_resource *res;
 
@@ -565,7 +565,7 @@ struct ldlm_namespace *ldlm_namespace_new(struct obd_device *obd, char *name,
         struct ldlm_namespace *ns = NULL;
         struct ldlm_ns_bucket *nsb;
         ldlm_ns_hash_def_t    *nsd;
-        cfs_hash_bd_t          bd;
+	struct cfs_hash_bd          bd;
         int                    idx;
         int                    rc;
         ENTRY;
@@ -752,7 +752,7 @@ static void cleanup_resource(struct ldlm_resource *res, struct list_head *q,
         } while (1);
 }
 
-static int ldlm_resource_clean(cfs_hash_t *hs, cfs_hash_bd_t *bd,
+static int ldlm_resource_clean(struct cfs_hash *hs, struct cfs_hash_bd *bd,
 			       struct hlist_node *hnode, void *arg)
 {
         struct ldlm_resource *res = cfs_hash_object(hs, hnode);
@@ -765,7 +765,7 @@ static int ldlm_resource_clean(cfs_hash_t *hs, cfs_hash_bd_t *bd,
         return 0;
 }
 
-static int ldlm_resource_complain(cfs_hash_t *hs, cfs_hash_bd_t *bd,
+static int ldlm_resource_complain(struct cfs_hash *hs, struct cfs_hash_bd *bd,
 				  struct hlist_node *hnode, void *arg)
 {
 	struct ldlm_resource  *res = cfs_hash_object(hs, hnode);
@@ -1068,7 +1068,7 @@ ldlm_resource_get(struct ldlm_namespace *ns, struct ldlm_resource *parent,
 {
 	struct hlist_node	*hnode;
 	struct ldlm_resource	*res = NULL;
-	cfs_hash_bd_t		bd;
+	struct cfs_hash_bd		bd;
 	__u64			version;
 	int			ns_refcount = 0;
 
@@ -1148,7 +1148,7 @@ struct ldlm_resource *ldlm_resource_getref(struct ldlm_resource *res)
 	return res;
 }
 
-static void __ldlm_resource_putref_final(cfs_hash_bd_t *bd,
+static void __ldlm_resource_putref_final(struct cfs_hash_bd *bd,
                                          struct ldlm_resource *res)
 {
         struct ldlm_ns_bucket *nsb = res->lr_ns_bucket;
@@ -1179,7 +1179,7 @@ static void __ldlm_resource_putref_final(cfs_hash_bd_t *bd,
 int ldlm_resource_putref(struct ldlm_resource *res)
 {
 	struct ldlm_namespace *ns = ldlm_res_to_ns(res);
-	cfs_hash_bd_t   bd;
+	struct cfs_hash_bd   bd;
 
 	LASSERT_ATOMIC_GT_LT(&res->lr_refcount, 0, LI_POISON);
 	CDEBUG(D_INFO, "putref res: %p count: %d\n",
@@ -1208,7 +1208,7 @@ int ldlm_resource_putref_locked(struct ldlm_resource *res)
 	       res, atomic_read(&res->lr_refcount) - 1);
 
 	if (atomic_dec_and_test(&res->lr_refcount)) {
-		cfs_hash_bd_t bd;
+		struct cfs_hash_bd bd;
 
 		cfs_hash_bd_get(ldlm_res_to_ns(res)->ns_rs_hash,
 				&res->lr_name, &bd);
@@ -1316,7 +1316,7 @@ void ldlm_dump_all_namespaces(ldlm_side_t client, int level)
 	mutex_unlock(ldlm_namespace_lock(client));
 }
 
-static int ldlm_res_hash_dump(cfs_hash_t *hs, cfs_hash_bd_t *bd,
+static int ldlm_res_hash_dump(struct cfs_hash *hs, struct cfs_hash_bd *bd,
 			      struct hlist_node *hnode, void *arg)
 {
         struct ldlm_resource *res = cfs_hash_object(hs, hnode);

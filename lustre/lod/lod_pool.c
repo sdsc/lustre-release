@@ -140,7 +140,7 @@ static void pool_putref_locked(struct pool_desc *pool)
  *
  * \retval		computed hash value from \a key and limited by \a mask
  */
-static __u32 pool_hashfn(cfs_hash_t *hash_body, const void *key, unsigned mask)
+static __u32 pool_hashfn(struct cfs_hash *hash_body, const void *key, unsigned mask)
 {
 	return cfs_hash_djb2_hash(key, strnlen(key, LOV_MAXPOOLNAME), mask);
 }
@@ -195,7 +195,7 @@ static void *pool_hashobject(struct hlist_node *hnode)
 	return hlist_entry(hnode, struct pool_desc, pool_hash);
 }
 
-static void pool_hashrefcount_get(cfs_hash_t *hs, struct hlist_node *hnode)
+static void pool_hashrefcount_get(struct cfs_hash *hs, struct hlist_node *hnode)
 {
 	struct pool_desc *pool;
 
@@ -203,7 +203,7 @@ static void pool_hashrefcount_get(cfs_hash_t *hs, struct hlist_node *hnode)
 	pool_getref(pool);
 }
 
-static void pool_hashrefcount_put_locked(cfs_hash_t *hs,
+static void pool_hashrefcount_put_locked(struct cfs_hash *hs,
 					 struct hlist_node *hnode)
 {
 	struct pool_desc *pool;

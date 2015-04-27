@@ -693,7 +693,7 @@ static struct lprocfs_vars lprocfs_mdt_obd_vars[] = {
 	{ NULL }
 };
 
-static int lprocfs_mdt_print_open_files(cfs_hash_t *hs, cfs_hash_bd_t *bd,
+static int lprocfs_mdt_print_open_files(struct cfs_hash *hs, struct cfs_hash_bd *bd,
 					struct hlist_node *hnode, void *v)
 {
 	struct obd_export	*exp = cfs_hash_object(hs, hnode);
