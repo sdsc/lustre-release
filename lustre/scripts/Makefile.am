@@ -30,6 +30,8 @@
 #
 # Copyright (c) 2013, 2014, Intel Corporation.
 #
+# Copyright (c) 2015 FUJITSU LIMITED
+#
 
 #
 # This file is part of Lustre, http://www.lustre.org/
@@ -51,6 +53,7 @@ endif
 
 if UTILS
 sbin_SCRIPTS += ldev lustre_routes_config lustre_routes_conversion
+sbin_SCRIPTS += lustre_o2ibs_config
 bin_SCRIPTS   = lfs_migrate
 
 if SERVER
