@@ -1166,8 +1166,8 @@ static int lov_iocontrol(unsigned int cmd, struct obd_export *exp, int len,
                 if (rc)
                         RETURN(rc);
 		if (copy_to_user(data->ioc_pbuf1, &stat_buf,
-                                     min((int) data->ioc_plen1,
-                                         (int) sizeof(stat_buf))))
+				 min((unsigned long)data->ioc_plen1,
+				     (unsigned long)sizeof(struct obd_statfs))))
                         RETURN(-EFAULT);
                 break;
         }
