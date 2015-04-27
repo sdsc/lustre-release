@@ -8,6 +8,10 @@
 # probe: true
 # config: /etc/sysconfig/lnet
 
+#
+# Copyright (c) 2015 FUJITSU LIMITED
+#
+
 # Source function library.
 [ -f /etc/rc.d/init.d/functions ] && . /etc/rc.d/init.d/functions
 

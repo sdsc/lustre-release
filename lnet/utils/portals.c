@@ -38,6 +38,7 @@
 #include <libcfs/util/ioctl.h>
 #include <lnet/lnetctl.h>
 #include <lnet/socklnd.h>
+#include <sys/stat.h>
 #include <lnet/lnet.h>
 
 unsigned int libcfs_debug;
@@ -1742,5 +1743,4 @@ int jt_ptl_testprotocompat(int argc, char **argv)
         printf("test proto compat %x OK\n", flags);
         return 0;
 }
-
 

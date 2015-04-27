@@ -139,7 +139,6 @@ do {							\
 #define IOC_LIBCFS_DEL_INTERFACE	   _IOWR('e', 79, IOCTL_LIBCFS_TYPE)
 #define IOC_LIBCFS_GET_INTERFACE	   _IOWR('e', 80, IOCTL_LIBCFS_TYPE)
 
-
 /*
  * DLC Specific IOCTL numbers.
  * In order to maintain backward compatibility with any possible external

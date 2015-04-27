@@ -30,6 +30,8 @@
 #
 # Copyright (c) 2013, 2014, Intel Corporation.
 #
+# Copyright (c) 2015 FUJITSU LIMITED
+#
 
 #
 # This file is part of Lustre, http://www.lustre.org/

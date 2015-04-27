@@ -856,7 +856,6 @@ proc_lnet_portal_rotor(struct ctl_table *table, int write, void __user *buffer,
 				    __proc_lnet_portal_rotor);
 }
 
-
 static struct ctl_table lnet_table[] = {
 	/*
 	 * NB No .strategy entries have been provided since sysctl(8) prefers
