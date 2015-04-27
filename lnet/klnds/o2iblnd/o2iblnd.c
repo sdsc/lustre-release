@@ -28,6 +28,8 @@
  * Use is subject to license terms.
  *
  * Copyright (c) 2011, 2012, Intel Corporation.
+ *
+ * Copyright (c) 2015 FUJITSU LIMITED
  */
 /*
  * This file is part of Lustre, http://www.lustre.org/
@@ -44,6 +46,402 @@
 static lnd_t the_o2iblnd;
 
 kib_data_t              kiblnd_data;
+
+void
+kiblnd_destroy_targets(void)
+{
+	kib_target_t *target;
+
+	while (!list_empty(&kiblnd_data.kib_targets)) {
+		target = list_entry(kiblnd_data.kib_targets.next,
+				    kib_target_t, tg_list);
+		list_del(&target->tg_list);
+		LIBCFS_FREE(target, sizeof(kib_target_t));
+	}
+
+	return;
+}
+
+__u32
+kiblnd_target_nid2addr(lnet_nid_t nid, int idx)
+{
+	kib_target_t  *target = NULL;
+	struct list_head  *tmp;
+
+	list_for_each(tmp, &kiblnd_data.kib_targets) {
+		target = list_entry(tmp, kib_target_t, tg_list);
+		if (target->tg_nid == nid) {
+			if (idx < target->tg_naddr) {
+				return target->tg_addr[idx];
+			} else {
+				break;
+			}
+		}
+	}
+
+	return 0;
+}
+
+int
+kiblnd_target_nid2naddr(lnet_nid_t nid)
+{
+	kib_target_t  *target = NULL;
+	struct list_head  *tmp;
+
+	list_for_each(tmp, &kiblnd_data.kib_targets) {
+		target = list_entry(tmp, kib_target_t, tg_list);
+		if (target->tg_nid == nid) {
+			return target->tg_naddr;
+		}
+	}
+
+	return 0;
+}
+
+void
+kiblnd_destroy_routes(lnet_ni_t *ni)
+{
+	kib_net_t    *net    = (kib_net_t *)ni->ni_data;
+	kib_routes_t *routes;
+
+	while (!list_empty(&net->ibn_routes)) {
+		routes = list_entry(net->ibn_routes.next, kib_routes_t, rts_list);
+		list_del(&routes->rts_list);
+		LIBCFS_FREE(routes, sizeof(kib_routes_t));
+	}
+
+	return;
+}
+
+int
+kiblnd_create_routes(lnet_ni_t *ni, lnet_nid_t nid)
+{
+	kib_net_t    *net = (kib_net_t *)ni->ni_data;
+	kib_routes_t *routes;
+	int           tn;
+	int           fn;
+	int           i;
+	int           cpt = lnet_cpt_of_nid(nid);
+
+	LIBCFS_CPT_ALLOC_GFP(routes, lnet_cpt_table(), cpt,
+			     sizeof(*routes), GFP_ATOMIC);
+	if (routes == NULL) {
+		CERROR("Cannot allocate routes\n");
+		return -1;
+	}
+
+	INIT_LIST_HEAD(&routes->rts_list);
+	routes->rts_nid = nid;
+	routes->rts_next = 0;
+
+	fn = net->ibn_ninterfaces;
+	tn = kiblnd_target_nid2naddr(nid);
+	routes->rts_nroute = (fn > tn) ? fn : tn;
+
+	LASSERT(routes->rts_nroute > 0);
+
+	for (i = 0; i < routes->rts_nroute; i++) {
+		INIT_LIST_HEAD(&routes->rts_route[i].rt_list);
+		routes->rts_route[i].rt_ni = ni;
+		routes->rts_route[i].rt_nid = nid;
+		routes->rts_route[i].rt_addr = (tn)?
+						kiblnd_target_nid2addr(nid, i % tn):
+						LNET_NIDADDR(nid);
+		routes->rts_route[i].rt_dev  = net->ibn_interfaces[i % fn].ibi_dev;
+		kiblnd_set_route_state(&routes->rts_route[i], IBLND_ROUTE_INIT);
+		routes->rts_route[i].rt_list_flags = 0;
+		routes->rts_route[i].rt_list_count = 0;
+	}
+
+	list_add_tail(&routes->rts_list, &net->ibn_routes);
+
+	return 0;
+}
+
+int
+kiblnd_update_routes(lnet_ni_t *ni, lnet_nid_t nid)
+{
+	kib_net_t         *net = (kib_net_t *)ni->ni_data;
+	kib_routes_t      *routes = NULL;
+	rwlock_t          *g_lock = &kiblnd_data.kib_global_lock;
+	unsigned long      flags;
+	struct list_head  *tmp;
+	int                i;
+	int                tn;
+	int                fn;
+	int                oroutes;
+	unsigned int       dest;
+
+	write_lock_irqsave(g_lock, flags);
+
+	list_for_each (tmp, &net->ibn_routes) {
+		routes = list_entry(tmp, kib_routes_t, rts_list);
+		if (routes->rts_nid == nid)
+			break;
+		routes = NULL;
+	}
+
+	if (!routes)
+		goto out;
+
+	fn = net->ibn_ninterfaces;
+	tn = kiblnd_target_nid2naddr(nid);
+	oroutes = routes->rts_nroute;
+	routes->rts_nroute = (fn > tn) ? fn : tn;
+
+	LASSERT (routes->rts_nroute > 0);
+
+	for (i = 0; i < routes->rts_nroute; i++) {
+		if (i < oroutes) {
+			/* Update route */
+			dest = (tn > 0) ? kiblnd_target_nid2addr(nid, i % tn)
+					: LNET_NIDADDR(nid);
+			if (routes->rts_route[i].rt_addr != dest) {
+				/* in recovery */
+				spin_lock(&kiblnd_data.kib_connd_lock);
+				if (routes->rts_route[i].rt_list_flags) {
+					list_del(&routes->rts_route[i].rt_list);
+					routes->rts_route[i].rt_list_flags = 0;
+				}
+				spin_unlock(&kiblnd_data.kib_connd_lock);
+
+				routes->rts_route[i].rt_addr = dest;
+				kiblnd_set_route_state(&routes->rts_route[i], IBLND_ROUTE_INIT);
+			}
+		} else {
+			/* Add new route */
+			INIT_LIST_HEAD(&routes->rts_route[i].rt_list);
+			routes->rts_route[i].rt_ni = ni;
+			routes->rts_route[i].rt_nid = nid;
+			routes->rts_route[i].rt_addr
+				= (tn > 0) ? kiblnd_target_nid2addr(nid, i % tn)
+					   : LNET_NIDADDR(nid);
+			routes->rts_route[i].rt_dev
+				= net->ibn_interfaces[i % fn].ibi_dev;
+			kiblnd_set_route_state(&routes->rts_route[i], IBLND_ROUTE_INIT);
+			routes->rts_route[i].rt_list_flags = 0;
+			routes->rts_route[i].rt_list_count = 0;
+		}
+	}
+
+out:
+	write_unlock_irqrestore(g_lock, flags);
+
+	return 0;
+}
+
+kib_routes_t *
+kiblnd_find_routes_locked(lnet_ni_t *ni, lnet_nid_t nid)
+{
+	kib_net_t     *net    = (kib_net_t *)ni->ni_data;
+	kib_routes_t  *routes = NULL;
+	struct list_head  *tmp;
+
+	list_for_each(tmp, &net->ibn_routes) {
+		routes = list_entry(tmp, kib_routes_t, rts_list);
+		if (routes->rts_nid == nid) {
+			return routes;
+		}
+	}
+
+	if (kiblnd_create_routes(ni, nid))
+		return NULL;
+
+	return kiblnd_find_routes_locked(ni, nid);
+}
+
+kib_route_t *
+kiblnd_find_route_locked(lnet_ni_t *ni, lnet_nid_t nid, __u32 addr, kib_dev_t *dev)
+{
+	kib_net_t     *net = (kib_net_t *)ni->ni_data;
+	kib_routes_t  *routes = NULL;
+	struct list_head  *tmp;
+	int            i;
+
+	list_for_each(tmp, &net->ibn_routes) {
+		routes = list_entry(tmp, kib_routes_t, rts_list);
+		if (routes->rts_nid == nid) {
+			for (i = 0; i < routes->rts_nroute; i++) {
+				if (routes->rts_route[i].rt_addr == addr
+				   && routes->rts_route[i].rt_dev == dev) {
+					return &routes->rts_route[i];
+				}
+			}
+			return NULL;
+		}
+	}
+
+	if (kiblnd_create_routes(ni, nid))
+		return NULL;
+
+	return kiblnd_find_route_locked(ni, nid, addr, dev);
+}
+
+kib_route_t *
+kiblnd_find_route(lnet_ni_t *ni, lnet_nid_t nid, __u32 addr, kib_dev_t *dev)
+{
+	rwlock_t      *g_lock = &kiblnd_data.kib_global_lock;
+	unsigned long  flags;
+	kib_route_t   *route  = NULL;
+
+	write_lock_irqsave(g_lock, flags);
+	route = kiblnd_find_route_locked(ni, nid, addr, dev);
+	write_unlock_irqrestore(g_lock, flags);
+
+	return route;
+}
+
+static void
+kiblnd_recovery_route(kib_routes_t *routes, int force)
+{
+	int            i;
+	unsigned long  flags;
+	kib_route_t   *tmp_route  = NULL;
+
+	for(i = 0; i < routes->rts_nroute; i++) {
+		tmp_route = &routes->rts_route[i];
+		if((force &&
+		    tmp_route->rt_state == IBLND_ROUTE_DISCONNECTED &&
+		   (tmp_route->rt_dev->ibd_state == IBLND_DEV_PORT_ACTIVE ||
+		    tmp_route->rt_dev->ibd_state == IBLND_DEV_PORT_DEGRADE)) ||
+		    tmp_route->rt_state == IBLND_ROUTE_NEEDS_RECOVERY) {
+			/* Do recovery disconnected route */
+			kiblnd_set_route_state(tmp_route, IBLND_ROUTE_RECOVERY);
+
+			/* Kick connd for recovery */
+			spin_lock_irqsave(&kiblnd_data.kib_connd_lock, flags);
+			if (tmp_route->rt_list_flags == 0) {
+				tmp_route->rt_list_flags = 1;
+				list_add_tail(&tmp_route->rt_list,
+					      &kiblnd_data.kib_connd_recovery);
+			} else {
+				tmp_route->rt_list_count ++;    /* debug */
+			}
+			wake_up(&kiblnd_data.kib_connd_waitq);
+			spin_unlock_irqrestore(&kiblnd_data.kib_connd_lock, flags);
+		}
+	}
+
+	return;
+}
+
+kib_route_t *
+kiblnd_next_route_locked(lnet_ni_t *ni, lnet_nid_t nid)
+{
+	kib_net_t     *net = (kib_net_t *)ni->ni_data;
+	kib_routes_t  *routes = NULL;
+	kib_route_t   *route  = NULL;
+	kib_route_t   *tmp_route  = NULL;
+	kib_route_t   *alt_route  = NULL;
+	int            first;
+	int            needs_recovery = 0;
+	struct list_head  *tmp;
+
+	list_for_each(tmp, &net->ibn_routes) {
+		routes = list_entry(tmp, kib_routes_t, rts_list);
+		if (routes->rts_nid == nid) {
+			first = routes->rts_next;
+			do {
+				tmp_route = &routes->rts_route[routes->rts_next];
+				if(tmp_route->rt_dev->ibd_state == IBLND_DEV_PORT_ACTIVE ||
+				   tmp_route->rt_dev->ibd_state == IBLND_DEV_PORT_DEGRADE) {
+					if(tmp_route->rt_state <= IBLND_ROUTE_ESTABLISHED) {
+						route = tmp_route;
+						alt_route = NULL;
+					} else if(!alt_route) {
+						alt_route = tmp_route;
+					}
+				}
+
+				/* check DISCONNECTED route */
+				if(tmp_route->rt_state == IBLND_ROUTE_DISCONNECTED &&
+				   time_after(jiffies, tmp_route->rt_last_changed +
+					     (*kiblnd_tunables.kib_recovery_interval * HZ))) {
+					if(tmp_route->rt_dev->ibd_state == IBLND_DEV_PORT_ACTIVE ||
+					   tmp_route->rt_dev->ibd_state == IBLND_DEV_PORT_DEGRADE) {
+						/* Check need the route recovery */
+						needs_recovery++;
+						kiblnd_set_route_state(tmp_route,
+								       IBLND_ROUTE_NEEDS_RECOVERY);
+					} else {
+						/* update timestamp only */
+						kiblnd_set_route_state(tmp_route,
+								       IBLND_ROUTE_DISCONNECTED);
+					}
+				}
+				++routes->rts_next;
+				routes->rts_next = routes->rts_next % routes->rts_nroute;
+			} while (!route && first != routes->rts_next);
+
+			if(!route && alt_route) {
+				/* if any available route was not found,
+				      use DISCONNECED route without RECOVERY */
+				route = alt_route;
+				kiblnd_set_route_state(route, IBLND_ROUTE_RECOVERY);
+			}
+
+			/* Do recovery */
+			if(needs_recovery || alt_route) {
+				kiblnd_recovery_route(routes, !!alt_route);
+			}
+
+			return route;
+		}
+	}
+
+	if (kiblnd_create_routes(ni, nid))
+		return NULL;
+
+	return kiblnd_next_route_locked(ni, nid);
+}
+
+kib_route_t *
+kiblnd_next_route(lnet_ni_t *ni, lnet_nid_t nid)
+{
+	rwlock_t      *g_lock = &kiblnd_data.kib_global_lock;
+	unsigned long  flags;
+	kib_route_t   *route  = NULL;
+
+	write_lock_irqsave(g_lock, flags);
+	route = kiblnd_next_route_locked(ni, nid);
+	write_unlock_irqrestore(g_lock, flags);
+
+	return route;
+}
+
+void
+kiblnd_get_device_status(lnet_ni_t *ni, lnet_nid_t *nid,
+			 int *all, int *active, int *degrade)
+{
+	kib_net_t    *net = (kib_net_t *)ni->ni_data;
+	int           i;
+	int           cnt = 0;
+	int           cnt2 = 0;
+	unsigned long flags;
+
+	read_lock_irqsave(&kiblnd_data.kib_global_lock, flags);
+
+	for (i = 0; i < net->ibn_ninterfaces; i++) {
+		if (net->ibn_interfaces[i].ibi_dev->ibd_state
+			      == IBLND_DEV_PORT_ACTIVE) {
+			cnt++;
+		} else if (net->ibn_interfaces[i].ibi_dev->ibd_state
+			      == IBLND_DEV_PORT_DEGRADE) {
+			cnt++;
+			cnt2++;
+		}
+
+	}
+
+	*nid    = ni->ni_nid;
+	*all    = net->ibn_ninterfaces;
+	*active = cnt;
+	*degrade = cnt2;
+
+	read_unlock_irqrestore(&kiblnd_data.kib_global_lock, flags);
+
+	return;
+}
 
 static __u32
 kiblnd_cksum (void *ptr, int nob)
@@ -172,8 +570,8 @@ kiblnd_unpack_rd(kib_msg_t *msg, int flip)
                 return 0;
 
         for (i = 0; i < n; i++) {
-                __swab32s(&rd->rd_frags[i].rf_nob);
-                __swab64s(&rd->rd_frags[i].rf_addr);
+                rd->rd_frags[i].rf_nob  = __swab32(rd->rd_frags[i].rf_nob);
+                rd->rd_frags[i].rf_addr = __swab64(rd->rd_frags[i].rf_addr);
         }
 
         return 0;
@@ -264,10 +662,10 @@ kiblnd_unpack_msg(kib_msg_t *msg, int nob)
                 CLASSERT (sizeof(msg->ibm_type) == 1);
                 CLASSERT (sizeof(msg->ibm_credits) == 1);
                 msg->ibm_nob     = msg_nob;
-                __swab64s(&msg->ibm_srcnid);
-                __swab64s(&msg->ibm_srcstamp);
-                __swab64s(&msg->ibm_dstnid);
-                __swab64s(&msg->ibm_dststamp);
+                msg->ibm_srcnid   = __swab64(msg->ibm_srcnid);
+                msg->ibm_srcstamp = __swab64(msg->ibm_srcstamp);
+                msg->ibm_dstnid   = __swab64(msg->ibm_dstnid);
+                msg->ibm_dststamp = __swab64(msg->ibm_dststamp);
         }
 
         if (msg->ibm_srcnid == LNET_NID_ANY) {
@@ -317,15 +715,18 @@ kiblnd_unpack_msg(kib_msg_t *msg, int nob)
 }
 
 int
-kiblnd_create_peer(lnet_ni_t *ni, kib_peer_t **peerp, lnet_nid_t nid)
+kiblnd_create_peer(lnet_ni_t *ni, kib_peer_t **peerp, lnet_nid_t nid, kib_route_t *route)
 {
 	kib_peer_t	*peer;
 	kib_net_t	*net = ni->ni_data;
+	kib_interface_t  *iface;
 	int		cpt = lnet_cpt_of_nid(nid);
 	unsigned long   flags;
 
 	LASSERT(net != NULL);
 	LASSERT(nid != LNET_NID_ANY);
+
+	iface = &net->ibn_interfaces[route->rt_dev->ibd_index];
 
 	LIBCFS_CPT_ALLOC(peer, lnet_cpt_table(), cpt, sizeof(*peer));
         if (peer == NULL) {
@@ -337,6 +738,7 @@ kiblnd_create_peer(lnet_ni_t *ni, kib_peer_t **peerp, lnet_nid_t nid)
 	peer->ibp_nid = nid;
 	peer->ibp_error = 0;
 	peer->ibp_last_alive = 0;
+        peer->ibp_route = route;
 	atomic_set(&peer->ibp_refcount, 1);	/* 1 ref for caller */
 
 	INIT_LIST_HEAD(&peer->ibp_list);	/* not in the peer table yet */
@@ -349,7 +751,7 @@ kiblnd_create_peer(lnet_ni_t *ni, kib_peer_t **peerp, lnet_nid_t nid)
 	LASSERT(net->ibn_shutdown == 0);
 
 	/* npeers only grows with the global lock held */
-	atomic_inc(&net->ibn_npeers);
+	atomic_inc(&iface->ibi_npeers);
 
 	write_unlock_irqrestore(&kiblnd_data.kib_global_lock, flags);
 
@@ -361,6 +763,7 @@ void
 kiblnd_destroy_peer (kib_peer_t *peer)
 {
 	kib_net_t *net = peer->ibp_ni->ni_data;
+	kib_interface_t *iface;
 
 	LASSERT(net != NULL);
 	LASSERT (atomic_read(&peer->ibp_refcount) == 0);
@@ -370,17 +773,19 @@ kiblnd_destroy_peer (kib_peer_t *peer)
 	LASSERT(list_empty(&peer->ibp_conns));
 	LASSERT(list_empty(&peer->ibp_tx_queue));
 
+	iface = &net->ibn_interfaces[peer->ibp_route->rt_dev->ibd_index];
+
 	LIBCFS_FREE(peer, sizeof(*peer));
 
 	/* NB a peer's connections keep a reference on their peer until
 	 * they are destroyed, so we can be assured that _all_ state to do
 	 * with this peer has been cleaned up when its refcount drops to
 	 * zero. */
-	atomic_dec(&net->ibn_npeers);
+        atomic_dec(&iface->ibi_npeers);
 }
 
 kib_peer_t *
-kiblnd_find_peer_locked (lnet_nid_t nid)
+kiblnd_find_peer_locked (lnet_nid_t nid, kib_route_t *route)
 {
 	/* the caller is responsible for accounting the additional reference
 	 * that this creates */
@@ -397,6 +802,10 @@ kiblnd_find_peer_locked (lnet_nid_t nid)
 			!list_empty(&peer->ibp_conns));	/* active conn */
 
 		if (peer->ibp_nid != nid)
+			continue;
+
+		if (peer->ibp_route->rt_addr != route->rt_addr ||
+		    peer->ibp_route->rt_dev != route->rt_dev)
 			continue;
 
 		CDEBUG(D_NET, "got peer [%p] -> %s (%d) version: %x\n",
@@ -717,6 +1126,7 @@ kiblnd_create_conn(kib_peer_t *peer, struct rdma_cm_id *cmid,
 	 * its ref on 'cmid'). */
 	rwlock_t	       *glock = &kiblnd_data.kib_global_lock;
 	kib_net_t              *net = peer->ibp_ni->ni_data;
+	kib_interface_t        *iface;
 	kib_dev_t              *dev;
 	struct ib_qp_init_attr *init_qp_attr;
 	struct kib_sched_info	*sched;
@@ -730,7 +1140,8 @@ kiblnd_create_conn(kib_peer_t *peer, struct rdma_cm_id *cmid,
 	LASSERT(net != NULL);
 	LASSERT(!in_interrupt());
 
-	dev = net->ibn_dev;
+	dev = peer->ibp_route->rt_dev;
+        iface = &net->ibn_interfaces[dev->ibd_index];
 
 	cpt = lnet_cpt_of_nid(peer->ibp_nid);
 	sched = kiblnd_data.kib_scheds[cpt];
@@ -902,7 +1313,7 @@ kiblnd_create_conn(kib_peer_t *peer, struct rdma_cm_id *cmid,
         conn->ibc_state = state;
 
         /* 1 more conn */
-	atomic_inc(&net->ibn_nconns);
+	atomic_inc(&iface->ibi_nconns);
         return conn;
 
  failed_2:
@@ -972,10 +1383,11 @@ kiblnd_destroy_conn (kib_conn_t *conn)
 	/* See CAVEAT EMPTOR above in kiblnd_create_conn */
 	if (conn->ibc_state != IBLND_CONN_INIT) {
 		kib_net_t *net = peer->ibp_ni->ni_data;
+		kib_interface_t *iface = &net->ibn_interfaces[peer->ibp_route->rt_dev->ibd_index];
 
 		kiblnd_peer_decref(peer);
 		rdma_destroy_id(cmid);
-		atomic_dec(&net->ibn_nconns);
+		atomic_dec(&iface->ibi_nconns);
 	}
 
 	LIBCFS_FREE(conn, sizeof(*conn));
@@ -1081,6 +1493,139 @@ kiblnd_close_matching_conns(lnet_ni_t *ni, lnet_nid_t nid)
 	return (count == 0) ? -ENOENT : 0;
 }
 
+int
+kiblnd_add_o2ibs(lnet_nid_t nid, int ipnaddr, __u32 iplen, char *ipbuf)
+{
+	unsigned long flags;
+	int           cnt;
+	kib_target_t  *target = NULL;
+
+	read_lock_irqsave(&kiblnd_data.kib_global_lock, flags);
+	cnt = kiblnd_target_nid2naddr(nid);
+	read_unlock_irqrestore(&kiblnd_data.kib_global_lock, flags);
+
+	if (cnt != 0)
+		return 0;
+
+	LIBCFS_ALLOC(target, sizeof(kib_target_t));
+
+	if (target == NULL)
+		return -ENOMEM;
+
+	INIT_LIST_HEAD(&target->tg_list);
+	target->tg_nid = nid;
+	target->tg_naddr = ipnaddr;
+
+	if (copy_from_user(target->tg_addr, ipbuf, iplen)) {
+		LIBCFS_FREE(target, sizeof(kib_target_t));
+		return -EFAULT;
+	}
+
+	write_lock_irqsave(&kiblnd_data.kib_global_lock, flags);
+	list_add_tail(&target->tg_list, &kiblnd_data.kib_targets);
+	write_unlock_irqrestore(&kiblnd_data.kib_global_lock, flags);
+
+	CDEBUG(D_NET, "target: nid=%s naddr=%d\n",
+	       libcfs_nid2str(target->tg_nid), target->tg_naddr);
+
+	return 0;
+}
+
+int
+kiblnd_get_o2ibs(__u32 net, lnet_nid_t *nid, __u32 index,
+		 int *ipnaddr, void *ipbuf)
+{
+	kib_target_t      *target = NULL;
+	__u32              loop = 0;
+	struct list_head  *tmp;
+	unsigned long      flags;
+	__u32              ipaddr[LNET_MAX_INTERFACES];
+
+	read_lock_irqsave(&kiblnd_data.kib_global_lock, flags);
+
+	if (list_empty(&kiblnd_data.kib_targets)) {
+		read_unlock_irqrestore(&kiblnd_data.kib_global_lock, flags);
+		return -ENOENT;
+	}
+
+	*ipnaddr = 0;
+
+	list_for_each(tmp, &kiblnd_data.kib_targets) {
+		target = list_entry(tmp, kib_target_t, tg_list);
+		if ((LNET_NIDNET(target->tg_nid) == net)) {
+			if (loop == index) {
+				memcpy(ipaddr, target->tg_addr,
+				       sizeof(__u32) * target->tg_naddr);
+				*ipnaddr = target->tg_naddr;
+				*nid = target->tg_nid;
+				break;
+			}
+			loop++;
+		}
+	}
+
+	read_unlock_irqrestore(&kiblnd_data.kib_global_lock, flags);
+
+	if (*ipnaddr == 0)
+		return -ENOENT;
+
+	if (copy_to_user(ipbuf, ipaddr, *ipnaddr * sizeof(__u32)))
+		return -EFAULT;
+
+	return 0;
+}
+
+int
+kiblnd_chk_o2ibs(lnet_ni_t *ni)
+{
+	int		i;
+	int		rc = 0;
+	int		cnt = 0;
+	kib_net_t	*net = (kib_net_t *)ni->ni_data;
+	__u32		targetaddr;
+	__u32		ifip;
+	unsigned long	flags;
+	char		ip_buf[LNET_IPSTRING_LENGTH];
+	char		tip_buf[LNET_IPSTRING_LENGTH];
+
+	read_lock_irqsave(&kiblnd_data.kib_global_lock, flags);
+
+	cnt = kiblnd_target_nid2naddr(ni->ni_nid);
+
+	if (cnt < 1 && net->ibn_ninterfaces == 1)
+		goto end;
+
+	if (cnt != net->ibn_ninterfaces) {
+		CERROR("o2ibs setting is error setting(%s). cnt=%d, if=%d\n",
+			libcfs_net2str(LNET_NIDNET(ni->ni_nid)),
+			cnt, net->ibn_ninterfaces);
+		rc = -EINVAL;
+		goto end;
+	}
+
+	for (i = 0; i < net->ibn_ninterfaces; i++) {
+		targetaddr = kiblnd_target_nid2addr(ni->ni_nid, i);
+		ifip = net->ibn_interfaces[i].ibi_dev->ibd_ifip;
+
+		if (ifip != targetaddr) {
+			libcfs_ip_addr2str(ifip, ip_buf, sizeof(ip_buf));
+			libcfs_ip_addr2str(targetaddr, tip_buf,
+					   sizeof(tip_buf));
+			CERROR("o2ibs setting is error setting(%s). "
+			       "ifip=%s, target=%s\n",
+			       libcfs_net2str(LNET_NIDNET(ni->ni_nid)),
+			       ip_buf, tip_buf);
+			rc = -EINVAL;
+			goto end;
+		}
+	}
+
+end:
+	read_unlock_irqrestore(&kiblnd_data.kib_global_lock, flags);
+
+	return rc;
+}
+
 static int
 kiblnd_ctl(lnet_ni_t *ni, unsigned int cmd, void *arg)
 {
@@ -1127,6 +1672,46 @@ kiblnd_ctl(lnet_ni_t *ni, unsigned int cmd, void *arg)
                 rc = kiblnd_close_matching_conns(ni, data->ioc_nid);
                 break;
         }
+        case IOC_LIBCFS_GET_NET_STATUS: {
+                lnet_nid_t   nid = 0;
+                int          all = 0;
+                int          active = 0;
+                int          degrade = 0;
+
+                kiblnd_get_device_status(ni, &nid, &all, &active, &degrade);
+
+                data->ioc_nid    = nid;
+                data->ioc_u32[0] = all;
+                data->ioc_u32[1] = active;
+                data->ioc_u32[2] = degrade;
+                rc = 0;
+                break;
+        }
+        case IOC_LIBCFS_ADD_O2IBS: {
+                kib_net_t  *net = (kib_net_t *)ni->ni_data;
+
+                if (kiblnd_data.kib_shutdown) {
+                        rc = -ENETDOWN;
+                        break;
+                }
+
+                rc = kiblnd_add_o2ibs(data->ioc_nid, data->ioc_u32[0],
+                                data->ioc_plen1, data->ioc_pbuf1);
+
+                if (!list_empty(&net->ibn_routes))
+                        kiblnd_update_routes(ni, data->ioc_nid);
+                break;
+        }
+        case IOC_LIBCFS_GET_O2IBS: {
+                rc = kiblnd_get_o2ibs(data->ioc_net, &(data->ioc_nid),
+                                      data->ioc_count, &(data->ioc_u32[0]),
+                                      data->ioc_pbuf1);
+                break;
+        }
+        case IOC_LIBCFS_CHECK_O2IBS: {
+                rc = kiblnd_chk_o2ibs(ni);
+                break;
+        }
 
         default:
                 break;
@@ -1138,36 +1723,69 @@ kiblnd_ctl(lnet_ni_t *ni, unsigned int cmd, void *arg)
 static void
 kiblnd_query(lnet_ni_t *ni, lnet_nid_t nid, cfs_time_t *when)
 {
-	cfs_time_t	last_alive = 0;
-	cfs_time_t	now = cfs_time_current();
-	rwlock_t	*glock = &kiblnd_data.kib_global_lock;
-	kib_peer_t	*peer;
-	unsigned long	flags;
+        cfs_time_t     last_alive = 0;
+        rwlock_t      *glock = &kiblnd_data.kib_global_lock;
+        kib_peer_t    *peer = NULL;
+        unsigned long  flags;
+        kib_routes_t  *routes;
+        kib_route_t   *route;
+        int            i;
 
-	read_lock_irqsave(glock, flags);
+        write_lock_irqsave(glock, flags);
 
-	peer = kiblnd_find_peer_locked(nid);
-	if (peer != NULL) {
-		LASSERT(peer->ibp_connecting > 0 || /* creating conns */
-			peer->ibp_accepting > 0 ||
-			!list_empty(&peer->ibp_conns));  /* active conn */
-		last_alive = peer->ibp_last_alive;
-	}
+        routes = kiblnd_find_routes_locked(ni, nid);
+        if (routes == NULL) {
+                write_unlock_irqrestore(glock, flags);
+                return;
+        }
 
-	read_unlock_irqrestore(glock, flags);
+        for (i = 0; i < routes->rts_nroute; i++) {
+                peer = kiblnd_find_peer_locked(nid, &routes->rts_route[i]);
+                if (peer != NULL) {
+                        LASSERT (peer->ibp_connecting > 0 || /* creating conns */
+                                 peer->ibp_accepting > 0 ||
+                                 !list_empty(&peer->ibp_conns));  /* active conn */
+                        if (last_alive < peer->ibp_last_alive) {
+                                last_alive = peer->ibp_last_alive;
+                        }
+                }
+        }
+
+        if(!last_alive) {
+                for (i = 0; i < routes->rts_nroute; i++) {
+                        route = &routes->rts_route[i];
+                        if((route->rt_state != IBLND_ROUTE_DISCONNECTED &&
+                            route->rt_state != IBLND_ROUTE_INIT) ||
+                          (route->rt_dev->ibd_state != IBLND_DEV_PORT_ACTIVE &&
+                           route->rt_dev->ibd_state != IBLND_DEV_PORT_DEGRADE))
+                                continue;
+
+                        if(route->rt_state == IBLND_ROUTE_INIT)
+                                kiblnd_set_route_state(route, IBLND_ROUTE_CONNECTING);
+                        else /* route->rt_state == IBLND_ROUTE_DISCONNECTED */
+                                kiblnd_set_route_state(route, IBLND_ROUTE_RECOVERY);
+
+                        /* peer is not persistent in hash, trigger peer creation
+                         * and connection establishment with a NULL tx */
+                        spin_lock(&kiblnd_data.kib_connd_lock);
+                        if (route->rt_list_flags == 0) {
+                                route->rt_list_flags = 1;
+                                list_add_tail(&route->rt_list,
+                                              &kiblnd_data.kib_connd_recovery);
+                        } else {
+                                route->rt_list_count ++;        /* debug */
+                        }
+                        wake_up(&kiblnd_data.kib_connd_waitq);
+                        spin_unlock(&kiblnd_data.kib_connd_lock);
+                }
+        }
+
+        write_unlock_irqrestore(glock, flags);
 
 	if (last_alive != 0)
 		*when = last_alive;
 
-	/* peer is not persistent in hash, trigger peer creation
-	 * and connection establishment with a NULL tx */
-	if (peer == NULL)
-		kiblnd_launch_tx(ni, NULL, nid);
-
-	CDEBUG(D_NET, "Peer %s %p, alive %ld secs ago\n",
-	       libcfs_nid2str(nid), peer,
-	       last_alive ? cfs_duration_sec(now - last_alive) : -1);
-	return;
+        return;
 }
 
 static void
@@ -1329,21 +1947,16 @@ kiblnd_current_hdev(kib_dev_t *dev)
 }
 
 static void
-kiblnd_map_tx_pool(kib_tx_pool_t *tpo)
+kiblnd_map_tx_pool(kib_dev_t *dev, kib_tx_pool_t *tpo)
 {
         kib_pages_t    *txpgs = tpo->tpo_tx_pages;
         kib_pool_t     *pool  = &tpo->tpo_pool;
-        kib_net_t      *net   = pool->po_owner->ps_net;
-	kib_dev_t      *dev;
         struct page    *page;
         kib_tx_t       *tx;
         int             page_offset;
         int             ipage;
         int             i;
 
-        LASSERT (net != NULL);
-
-	dev = net->ibn_dev;
 
         /* pre-mapped messages are not bigger than 1 page */
         CLASSERT (IBLND_MSG_SIZE <= PAGE_SIZE);
@@ -1475,10 +2088,10 @@ static int kiblnd_fmr_flush_trigger(int ncpts)
 }
 
 static int
-kiblnd_create_fmr_pool(kib_fmr_poolset_t *fps, kib_fmr_pool_t **pp_fpo)
+kiblnd_create_fmr_pool(kib_dev_t *dev, kib_fmr_poolset_t *fps,
+		       kib_fmr_pool_t **pp_fpo)
 {
         /* FMR pool for RDMA */
-        kib_dev_t               *dev = fps->fps_net->ibn_dev;
         kib_fmr_pool_t          *fpo;
         struct ib_fmr_pool_param param = {
                 .max_pages_per_fmr = LNET_MAX_PAYLOAD/PAGE_SIZE,
@@ -1547,9 +2160,10 @@ kiblnd_fini_fmr_poolset(kib_fmr_poolset_t *fps)
 }
 
 static int
-kiblnd_init_fmr_poolset(kib_fmr_poolset_t *fps, int cpt, kib_net_t *net,
+kiblnd_init_fmr_poolset(kib_fmr_poolset_t *fps, int cpt, kib_net_t *net, int index,
 			int pool_size, int flush_trigger)
 {
+	kib_interface_t *iface = &net->ibn_interfaces[index];
 	kib_fmr_pool_t *fpo;
 	int		rc;
 
@@ -1563,7 +2177,7 @@ kiblnd_init_fmr_poolset(kib_fmr_poolset_t *fps, int cpt, kib_net_t *net,
 	INIT_LIST_HEAD(&fps->fps_pool_list);
 	INIT_LIST_HEAD(&fps->fps_failed_pool_list);
 
-	rc = kiblnd_create_fmr_pool(fps, &fpo);
+	rc = kiblnd_create_fmr_pool(iface->ibi_dev, fps, &fpo);
 	if (rc == 0)
 		list_add_tail(&fpo->fpo_list, &fps->fps_pool_list);
 
@@ -1621,7 +2235,7 @@ kiblnd_fmr_pool_unmap(kib_fmr_t *fmr, int status)
 }
 
 int
-kiblnd_fmr_pool_map(kib_fmr_poolset_t *fps, __u64 *pages, int npages,
+kiblnd_fmr_pool_map(kib_dev_t *dev, kib_fmr_poolset_t *fps, __u64 *pages, int npages,
                     __u64 iov, kib_fmr_t *fmr)
 {
         struct ib_pool_fmr *pfmr;
@@ -1678,7 +2292,7 @@ again:
 	spin_unlock(&fps->fps_lock);
 
 	CDEBUG(D_NET, "Allocate new FMR pool\n");
-	rc = kiblnd_create_fmr_pool(fps, &fpo);
+	rc = kiblnd_create_fmr_pool(dev, fps, &fpo);
 	spin_lock(&fps->fps_lock);
 	fps->fps_increasing = 0;
 	if (rc == 0) {
@@ -1758,12 +2372,13 @@ kiblnd_fini_poolset(kib_poolset_t *ps)
 
 static int
 kiblnd_init_poolset(kib_poolset_t *ps, int cpt,
-		    kib_net_t *net, char *name, int size,
+		    kib_net_t *net, int index, char *name, int size,
 		    kib_ps_pool_create_t po_create,
 		    kib_ps_pool_destroy_t po_destroy,
 		    kib_ps_node_init_t nd_init,
 		    kib_ps_node_fini_t nd_fini)
 {
+	kib_interface_t *iface = &net->ibn_interfaces[index];
 	kib_pool_t	*pool;
 	int		rc;
 
@@ -1783,7 +2398,7 @@ kiblnd_init_poolset(kib_poolset_t *ps, int cpt,
 	INIT_LIST_HEAD(&ps->ps_pool_list);
 	INIT_LIST_HEAD(&ps->ps_failed_pool_list);
 
-	rc = ps->ps_pool_create(ps, size, &pool);
+	rc = ps->ps_pool_create(iface->ibi_dev, ps, size, &pool);
 	if (rc == 0)
 		list_add(&pool->po_list, &ps->ps_pool_list);
 	else
@@ -1834,7 +2449,7 @@ kiblnd_pool_free_node(kib_pool_t *pool, struct list_head *node)
 }
 
 struct list_head *
-kiblnd_pool_alloc_node(kib_poolset_t *ps)
+kiblnd_pool_alloc_node(kib_dev_t *dev, kib_poolset_t *ps)
 {
 	struct list_head	*node;
 	kib_pool_t		*pool;
@@ -1881,7 +2496,7 @@ again:
 
 	CDEBUG(D_NET, "%s pool exhausted, allocate new pool\n", ps->ps_name);
 
-	rc = ps->ps_pool_create(ps, ps->ps_pool_size, &pool);
+	rc = ps->ps_pool_create(dev, ps, ps->ps_pool_size, &pool);
 
 	spin_lock(&ps->ps_lock);
 	ps->ps_increasing = 0;
@@ -1918,7 +2533,7 @@ kiblnd_pmr_pool_map(kib_pmr_poolset_t *pps, kib_hca_dev_t *hdev,
 	int		  rc;
 	int		  i;
 
-	node = kiblnd_pool_alloc_node(&pps->pps_poolset);
+	node = kiblnd_pool_alloc_node(hdev->ibh_dev, &pps->pps_poolset);
 	if (node == NULL) {
 		CERROR("Failed to allocate PMR descriptor\n");
 		return -ENOMEM;
@@ -1994,7 +2609,7 @@ static inline int kiblnd_pmr_pool_size(int ncpts)
 }
 
 static int
-kiblnd_create_pmr_pool(kib_poolset_t *ps, int size, kib_pool_t **pp_po)
+kiblnd_create_pmr_pool(kib_dev_t *dev, kib_poolset_t *ps, int size, kib_pool_t **pp_po)
 {
 	struct kib_pmr_pool	*ppo;
 	struct kib_pool		*pool;
@@ -2031,7 +2646,7 @@ kiblnd_create_pmr_pool(kib_poolset_t *ps, int size, kib_pool_t **pp_po)
                 return -ENOMEM;
         }
 
-        ppo->ppo_hdev = kiblnd_current_hdev(ps->ps_net->ibn_dev);
+        ppo->ppo_hdev = kiblnd_current_hdev(dev);
         *pp_po = pool;
         return 0;
 }
@@ -2093,7 +2708,7 @@ static int kiblnd_tx_pool_size(int ncpts)
 }
 
 static int
-kiblnd_create_tx_pool(kib_poolset_t *ps, int size, kib_pool_t **pp_po)
+kiblnd_create_tx_pool(kib_dev_t *dev, kib_poolset_t *ps, int size, kib_pool_t **pp_po)
 {
         int            i;
         int            npg;
@@ -2132,7 +2747,7 @@ kiblnd_create_tx_pool(kib_poolset_t *ps, int size, kib_pool_t **pp_po)
                 kib_tx_t *tx = &tpo->tpo_tx_descs[i];
 
                 tx->tx_pool = tpo;
-		if (ps->ps_net->ibn_fmr_ps != NULL) {
+		if (ps->ps_net->ibn_interfaces[dev->ibd_index].ibi_fmr_ps != NULL) {
 			LIBCFS_CPT_ALLOC(tx->tx_pages,
 					 lnet_cpt_table(), ps->ps_cpt,
 					 LNET_MAX_IOV * sizeof(*tx->tx_pages));
@@ -2167,7 +2782,7 @@ kiblnd_create_tx_pool(kib_poolset_t *ps, int size, kib_pool_t **pp_po)
         }
 
         if (i == size) {
-                kiblnd_map_tx_pool(tpo);
+                kiblnd_map_tx_pool(dev, tpo);
                 *pp_po = pool;
                 return 0;
         }
@@ -2187,58 +2802,60 @@ kiblnd_tx_init(kib_pool_t *pool, struct list_head *node)
 }
 
 static void
-kiblnd_net_fini_pools(kib_net_t *net)
+kiblnd_net_fini_pools(kib_net_t *net, int index)
 {
 	int	i;
+	kib_interface_t  *iface = &net->ibn_interfaces[index];
 
 	cfs_cpt_for_each(i, lnet_cpt_table()) {
 		kib_tx_poolset_t	*tps;
 		kib_fmr_poolset_t	*fps;
 		kib_pmr_poolset_t	*pps;
 
-		if (net->ibn_tx_ps != NULL) {
-			tps = net->ibn_tx_ps[i];
-			kiblnd_fini_poolset(&tps->tps_poolset);
-		}
+		if (iface->ibi_tx_ps != NULL) {
+			tps = iface->ibi_tx_ps[i];
+ 			kiblnd_fini_poolset(&tps->tps_poolset);
+ 		}
 
-		if (net->ibn_fmr_ps != NULL) {
-			fps = net->ibn_fmr_ps[i];
+		if (iface->ibi_fmr_ps != NULL) {
+			fps = iface->ibi_fmr_ps[i];
 			kiblnd_fini_fmr_poolset(fps);
 		}
 
-		if (net->ibn_pmr_ps != NULL) {
-			pps = net->ibn_pmr_ps[i];
+		if (iface->ibi_pmr_ps != NULL) {
+			pps = iface->ibi_pmr_ps[i];
 			kiblnd_fini_poolset(&pps->pps_poolset);
 		}
 	}
 
-	if (net->ibn_tx_ps != NULL) {
-		cfs_percpt_free(net->ibn_tx_ps);
-		net->ibn_tx_ps = NULL;
+	if (iface->ibi_tx_ps != NULL) {
+		cfs_percpt_free(iface->ibi_tx_ps);
+		iface->ibi_tx_ps = NULL;
 	}
 
-	if (net->ibn_fmr_ps != NULL) {
-		cfs_percpt_free(net->ibn_fmr_ps);
-		net->ibn_fmr_ps = NULL;
+	if (iface->ibi_fmr_ps != NULL) {
+		cfs_percpt_free(iface->ibi_fmr_ps);
+		iface->ibi_fmr_ps = NULL;
 	}
 
-	if (net->ibn_pmr_ps != NULL) {
-		cfs_percpt_free(net->ibn_pmr_ps);
-		net->ibn_pmr_ps = NULL;
+	if (iface->ibi_pmr_ps != NULL) {
+		cfs_percpt_free(iface->ibi_pmr_ps);
+		iface->ibi_pmr_ps = NULL;
 	}
 }
 
 static int
-kiblnd_net_init_pools(kib_net_t *net, __u32 *cpts, int ncpts)
+kiblnd_net_init_pools(kib_net_t *net, int index, __u32 *cpts, int ncpts)
 {
 	unsigned long	flags;
 	int		cpt;
 	int		rc;
 	int		i;
+	kib_interface_t  *iface = &net->ibn_interfaces[index];
 
 	read_lock_irqsave(&kiblnd_data.kib_global_lock, flags);
 	if (*kiblnd_tunables.kib_map_on_demand == 0 &&
-	    net->ibn_dev->ibd_hdev->ibh_nmrs == 1) {
+	    iface->ibi_dev->ibd_hdev->ibh_nmrs == 1) {
 		read_unlock_irqrestore(&kiblnd_data.kib_global_lock,
 					   flags);
 		goto create_tx_pool;
@@ -2257,14 +2874,14 @@ kiblnd_net_init_pools(kib_net_t *net, __u32 *cpts, int ncpts)
 
 	/* TX pool must be created later than FMR/PMR, see LU-2268
 	 * for details */
-	LASSERT(net->ibn_tx_ps == NULL);
+	LASSERT(iface->ibi_tx_ps == NULL);
 
 	/* premapping can fail if ibd_nmr > 1, so we always create
 	 * FMR/PMR pool and map-on-demand if premapping failed */
 
-	net->ibn_fmr_ps = cfs_percpt_alloc(lnet_cpt_table(),
-					   sizeof(kib_fmr_poolset_t));
-	if (net->ibn_fmr_ps == NULL) {
+	iface->ibi_fmr_ps = cfs_percpt_alloc(lnet_cpt_table(),
+					     sizeof(kib_fmr_poolset_t));
+	if (iface->ibi_fmr_ps == NULL) {
 		CERROR("Failed to allocate FMR pool array\n");
 		rc = -ENOMEM;
 		goto failed;
@@ -2272,7 +2889,7 @@ kiblnd_net_init_pools(kib_net_t *net, __u32 *cpts, int ncpts)
 
 	for (i = 0; i < ncpts; i++) {
 		cpt = (cpts == NULL) ? i : cpts[i];
-		rc = kiblnd_init_fmr_poolset(net->ibn_fmr_ps[cpt], cpt, net,
+		rc = kiblnd_init_fmr_poolset(iface->ibi_fmr_ps[cpt], cpt, net, index,
 					     kiblnd_fmr_pool_size(ncpts),
 					     kiblnd_fmr_flush_trigger(ncpts));
 		if (rc == -ENOSYS && i == 0) /* no FMR */
@@ -2290,8 +2907,8 @@ kiblnd_net_init_pools(kib_net_t *net, __u32 *cpts, int ncpts)
 		goto create_tx_pool;
 	}
 
-	cfs_percpt_free(net->ibn_fmr_ps);
-	net->ibn_fmr_ps = NULL;
+	cfs_percpt_free(iface->ibi_fmr_ps);
+	iface->ibi_fmr_ps = NULL;
 
 	CWARN("Device does not support FMR, failing back to PMR\n");
 
@@ -2304,9 +2921,9 @@ kiblnd_net_init_pools(kib_net_t *net, __u32 *cpts, int ncpts)
 		goto failed;
 	}
 
-	net->ibn_pmr_ps = cfs_percpt_alloc(lnet_cpt_table(),
-					   sizeof(kib_pmr_poolset_t));
-	if (net->ibn_pmr_ps == NULL) {
+	iface->ibi_pmr_ps = cfs_percpt_alloc(lnet_cpt_table(),
+					     sizeof(kib_pmr_poolset_t));
+	if (iface->ibi_pmr_ps == NULL) {
 		CERROR("Failed to allocate PMR pool array\n");
 		rc = -ENOMEM;
 		goto failed;
@@ -2314,8 +2931,8 @@ kiblnd_net_init_pools(kib_net_t *net, __u32 *cpts, int ncpts)
 
 	for (i = 0; i < ncpts; i++) {
 		cpt = (cpts == NULL) ? i : cpts[i];
-		rc = kiblnd_init_poolset(&net->ibn_pmr_ps[cpt]->pps_poolset,
-					 cpt, net, "PMR",
+		rc = kiblnd_init_poolset(&iface->ibi_pmr_ps[cpt]->pps_poolset,
+					 cpt, net, index, "PMR",
 					 kiblnd_pmr_pool_size(ncpts),
 					 kiblnd_create_pmr_pool,
 					 kiblnd_destroy_pmr_pool, NULL, NULL);
@@ -2327,9 +2944,9 @@ kiblnd_net_init_pools(kib_net_t *net, __u32 *cpts, int ncpts)
 	}
 
  create_tx_pool:
-	net->ibn_tx_ps = cfs_percpt_alloc(lnet_cpt_table(),
-					  sizeof(kib_tx_poolset_t));
-	if (net->ibn_tx_ps == NULL) {
+	iface->ibi_tx_ps = cfs_percpt_alloc(lnet_cpt_table(),
+					    sizeof(kib_tx_poolset_t));
+	if (iface->ibi_tx_ps == NULL) {
 		CERROR("Failed to allocate tx pool array\n");
 		rc = -ENOMEM;
 		goto failed;
@@ -2337,8 +2954,8 @@ kiblnd_net_init_pools(kib_net_t *net, __u32 *cpts, int ncpts)
 
 	for (i = 0; i < ncpts; i++) {
 		cpt = (cpts == NULL) ? i : cpts[i];
-		rc = kiblnd_init_poolset(&net->ibn_tx_ps[cpt]->tps_poolset,
-					 cpt, net, "TX",
+		rc = kiblnd_init_poolset(&iface->ibi_tx_ps[cpt]->tps_poolset,
+					 cpt, net, index, "TX",
 					 kiblnd_tx_pool_size(ncpts),
 					 kiblnd_create_tx_pool,
 					 kiblnd_destroy_tx_pool,
@@ -2352,9 +2969,128 @@ kiblnd_net_init_pools(kib_net_t *net, __u32 *cpts, int ncpts)
 
 	return 0;
  failed:
-	kiblnd_net_fini_pools(net);
+	kiblnd_net_fini_pools(net, index);
 	LASSERT(rc != 0);
 	return rc;
+}
+
+
+static int
+kiblnd_port_get_attr(kib_hca_dev_t *hdev)
+{
+        struct ib_port_attr *port_attr;
+        kib_dev_t *ibdev = hdev->ibh_dev;
+        int port_link_speed;
+        int rc;
+        int max_rate = IBLND_DEV_LINK_SPEED_QDR;
+        unsigned long flags;/* #1413 */
+        rwlock_t *g_lock = &kiblnd_data.kib_global_lock;/* #1413 */
+
+        LIBCFS_ALLOC(port_attr, sizeof(*port_attr));
+        if (port_attr == NULL) {
+                CERROR("Out of memory\n");
+                return -ENOMEM;
+        }
+
+        rc = ib_query_port(hdev->ibh_ibdev, hdev->ibh_port, port_attr);
+
+        write_lock_irqsave(g_lock, flags);/* #1413 */
+
+        if(rc == 0){
+                ibdev->ibd_state = port_attr->state == IB_PORT_ACTIVE
+                                 ? IBLND_DEV_PORT_ACTIVE
+                                 : IBLND_DEV_PORT_DOWN;
+
+                if(ibdev->ibd_state == IBLND_DEV_PORT_ACTIVE){
+                        port_link_speed = IBLND_DEV_LINK_SPEED(
+                                                ib_width_enum_to_int(port_attr->active_width),
+                                                port_attr->active_speed);
+                        if(port_link_speed < IBLND_DEV_LINK_SPEED_MAX(max_rate)){
+                                ibdev->ibd_state = IBLND_DEV_PORT_DEGRADE;
+                        }
+                }
+        }
+        write_unlock_irqrestore(g_lock, flags);/* #1413 */
+        LIBCFS_FREE(port_attr, sizeof(*port_attr));
+
+        if (rc != 0) {
+                CERROR("Failed to query IB port: %d\n", rc);
+                return rc;
+        }
+        return 0;
+}
+
+#ifdef HAVE_3ARGS_INIT_WORK
+void
+kiblnd_port_active_event(void *workp)
+#else
+void
+kiblnd_port_active_event(struct work_struct *workp)
+#endif
+{
+        kib_event_t  *work;
+        kib_hca_dev_t  *hdev;
+
+        work = container_of(workp, kib_event_t, ibe_work);
+        hdev = work->ibe_dev;
+
+        kiblnd_port_get_attr(hdev);
+        LIBCFS_FREE(work, sizeof(*work));
+        return;
+}
+
+void
+kiblnd_event_handler(struct ib_event_handler *handler, struct ib_event *event)
+{
+        kib_dev_t   *ibdev;
+        kib_hca_dev_t  *hdev;
+        kib_event_t  *work;
+        rwlock_t    *g_lock = &kiblnd_data.kib_global_lock;
+        unsigned long flags;
+
+        hdev = container_of(handler, kib_hca_dev_t, ibh_event_handler);
+        ibdev = hdev->ibh_dev;
+
+        write_lock_irqsave(g_lock, flags);
+        if(ibdev->ibd_state == IBLND_DEV_FATAL){
+                CDEBUG(D_NET, "device already crashed, event(0x%x) ignore.\n", event->event);
+                write_unlock_irqrestore(g_lock, flags);
+                return;
+        }
+
+        switch(event->event) {
+        case IB_EVENT_DEVICE_FATAL:
+                ibdev->ibd_state = IBLND_DEV_FATAL;
+                break;
+        case IB_EVENT_PORT_ACTIVE:
+                if(event->element.port_num == hdev->ibh_port) {
+                        LIBCFS_ALLOC_ATOMIC(work, sizeof(*work));
+                        if(work == NULL){
+                                CERROR("Out of memory\n");
+                                write_unlock_irqrestore(g_lock, flags);
+                                return;
+                        }
+
+#ifdef HAVE_3ARGS_INIT_WORK
+                        INIT_WORK(&work->ibe_work, kiblnd_port_active_event, &work->ibe_work);
+#else
+                        INIT_WORK(&work->ibe_work, kiblnd_port_active_event);
+#endif
+                        work->ibe_dev = hdev;
+                        work->ibe_event = *event;
+
+                        schedule_work(&work->ibe_work);
+                }
+                break;
+        case IB_EVENT_PORT_ERR:
+                if(event->element.port_num == hdev->ibh_port)
+                        ibdev->ibd_state = IBLND_DEV_PORT_DOWN;
+                break;
+        default:
+                break;
+        }
+        write_unlock_irqrestore(g_lock, flags);
+        return;
 }
 
 static int
@@ -2383,6 +3119,11 @@ kiblnd_hdev_get_attr(kib_hca_dev_t *hdev)
 
         if (rc != 0) {
                 CERROR("Failed to query IB device: %d\n", rc);
+                return rc;
+        }
+
+        rc = kiblnd_port_get_attr(hdev);
+        if (rc != 0) {
                 return rc;
         }
 
@@ -2425,6 +3166,10 @@ kiblnd_hdev_cleanup_mrs(kib_hca_dev_t *hdev)
 void
 kiblnd_hdev_destroy(kib_hca_dev_t *hdev)
 {
+        if(hdev->ibh_event_handler.device != NULL){
+                ib_unregister_event_handler(&hdev->ibh_event_handler);
+        }
+
         kiblnd_hdev_cleanup_mrs(hdev);
 
         if (hdev->ibh_pd != NULL)
@@ -2595,8 +3340,8 @@ kiblnd_dev_failover(kib_dev_t *dev)
         struct rdma_cm_id  *cmid  = NULL;
         kib_hca_dev_t      *hdev  = NULL;
         kib_hca_dev_t      *old;
+	kib_interface_t    *iface;
         struct ib_pd       *pd;
-        kib_net_t          *net;
         struct sockaddr_in  addr;
         unsigned long       flags;
         int                 rc = 0;
@@ -2662,6 +3407,7 @@ kiblnd_dev_failover(kib_dev_t *dev)
         hdev->ibh_dev   = dev;
         hdev->ibh_cmid  = cmid;
         hdev->ibh_ibdev = cmid->device;
+        hdev->ibh_port  = cmid->port_num;
 
         pd = ib_alloc_pd(cmid->device);
         if (IS_ERR(pd)) {
@@ -2684,23 +3430,33 @@ kiblnd_dev_failover(kib_dev_t *dev)
                 goto out;
         }
 
+        INIT_IB_EVENT_HANDLER(&hdev->ibh_event_handler,
+                              hdev->ibh_ibdev, kiblnd_event_handler);
+
+        rc = ib_register_event_handler(&hdev->ibh_event_handler);
+        if(rc != 0) {
+                hdev->ibh_event_handler.device = NULL;
+                CERROR("Failed ib_register_event_handler: %d\n", rc);
+                goto out;
+        }
+
 	write_lock_irqsave(&kiblnd_data.kib_global_lock, flags);
 
 	old = dev->ibd_hdev;
 	dev->ibd_hdev = hdev;	/* take over the refcount */
 	hdev = old;
 
-	list_for_each_entry(net, &dev->ibd_nets, ibn_list) {
+	list_for_each_entry(iface, &dev->ibd_nets, ibi_list) {
 		cfs_cpt_for_each(i, lnet_cpt_table()) {
-			kiblnd_fail_poolset(&net->ibn_tx_ps[i]->tps_poolset,
+			kiblnd_fail_poolset(&iface->ibi_tx_ps[i]->tps_poolset,
 					    &zombie_tpo);
 
-			if (net->ibn_fmr_ps != NULL) {
-				kiblnd_fail_fmr_poolset(net->ibn_fmr_ps[i],
+			if (iface->ibi_fmr_ps != NULL) {
+				kiblnd_fail_fmr_poolset(iface->ibi_fmr_ps[i],
 							&zombie_fpo);
 
-			} else if (net->ibn_pmr_ps != NULL) {
-				kiblnd_fail_poolset(&net->ibn_pmr_ps[i]->
+			} else if (iface->ibi_pmr_ps != NULL) {
+				kiblnd_fail_poolset(&iface->ibi_pmr_ps[i]->
 						    pps_poolset, &zombie_ppo);
 			}
 		}
@@ -2741,7 +3497,7 @@ kiblnd_destroy_dev (kib_dev_t *dev)
 }
 
 static kib_dev_t *
-kiblnd_create_dev(char *ifname)
+kiblnd_create_dev(char *ifname, int index)
 {
         struct net_device *netdev;
         kib_dev_t         *dev;
@@ -2782,6 +3538,7 @@ kiblnd_create_dev(char *ifname)
 	INIT_LIST_HEAD(&dev->ibd_nets);
 	INIT_LIST_HEAD(&dev->ibd_list); /* not yet in kib_devs */
 	INIT_LIST_HEAD(&dev->ibd_fail_list);
+	dev->ibd_index = index;
         dev->ibd_ifip = ip;
         strcpy(&dev->ibd_ifname[0], ifname);
 
@@ -2860,6 +3617,8 @@ kiblnd_base_shutdown(void)
 	if (kiblnd_data.kib_scheds != NULL)
 		cfs_percpt_free(kiblnd_data.kib_scheds);
 
+        kiblnd_destroy_targets();
+
         CDEBUG(D_MALLOC, "after LND base cleanup: kmem %d\n",
 	       atomic_read(&libcfs_kmemory));
 
@@ -2873,6 +3632,7 @@ kiblnd_shutdown (lnet_ni_t *ni)
         kib_net_t        *net = ni->ni_data;
 	rwlock_t     *g_lock = &kiblnd_data.kib_global_lock;
         int               i;
+        int               index;
         unsigned long     flags;
 
         LASSERT(kiblnd_data.kib_init == IBLND_INIT_ALL);
@@ -2887,59 +3647,69 @@ kiblnd_shutdown (lnet_ni_t *ni)
 	net->ibn_shutdown = 1;
 	write_unlock_irqrestore(g_lock, flags);
 
-        switch (net->ibn_init) {
-        default:
-                LBUG();
+	for (index = 0; index < net->ibn_ninterfaces; index++) {
+		switch (net->ibn_interfaces[index].ibi_init) {
+		default:
+			LBUG();
 
-        case IBLND_INIT_ALL:
-                /* nuke all existing peers within this net */
-                kiblnd_del_peer(ni, LNET_NID_ANY);
+		case IBLND_INIT_ALL:
+			/* nuke all existing peers within this net */
+			kiblnd_del_peer(ni, LNET_NID_ANY);
 
-		/* Wait for all peer state to clean up */
-		i = 2;
-		while (atomic_read(&net->ibn_npeers) != 0) {
-			i++;
-			/* power of 2? */
-			CDEBUG(((i & (-i)) == i) ? D_WARNING : D_NET,
-			       "%s: waiting for %d peers to disconnect\n",
-			       libcfs_nid2str(ni->ni_nid),
-			       atomic_read(&net->ibn_npeers));
-			set_current_state(TASK_UNINTERRUPTIBLE);
-			schedule_timeout(cfs_time_seconds(1));
+			if (net->ibn_interfaces[index].ibi_dev == NULL) {
+				break;
+			}
+			/* Wait for all peer state to clean up */
+			i = 2;
+			while (atomic_read(&net->ibn_interfaces[index].ibi_npeers) != 0) {
+				i++;
+				CDEBUG(((i & (-i)) == i) ? D_WARNING : D_NET, /* 2**n? */
+					"%s: waiting for %d peers to disconnect\n",
+					libcfs_nid2str(ni->ni_nid),
+					atomic_read(&net->ibn_interfaces[index].ibi_npeers));
+				set_current_state(TASK_UNINTERRUPTIBLE);
+				schedule_timeout(cfs_time_seconds(1));
+			}
+
+			kiblnd_net_fini_pools(net, index);
+
+			write_lock_irqsave(g_lock, flags);
+			LASSERT(net->ibn_interfaces[index].ibi_dev->ibd_nnets > 0);
+			net->ibn_interfaces[index].ibi_dev->ibd_nnets--;
+			list_del(&net->ibn_interfaces[index].ibi_list);
+			write_unlock_irqrestore(g_lock, flags);
+
+			/* fall through */
+
+		case IBLND_INIT_NOTHING:
+			LASSERT (atomic_read(&net->ibn_interfaces[index].ibi_nconns) == 0);
+
+			if (net->ibn_interfaces[index].ibi_dev != NULL &&
+			    net->ibn_interfaces[index].ibi_dev->ibd_nnets == 0)
+				kiblnd_destroy_dev(net->ibn_interfaces[index].ibi_dev);
+
+			break;
 		}
 
-		kiblnd_net_fini_pools(net);
+		net->ibn_interfaces[index].ibi_init = IBLND_INIT_NOTHING;
+	}
 
-		write_lock_irqsave(g_lock, flags);
-		LASSERT(net->ibn_dev->ibd_nnets > 0);
-		net->ibn_dev->ibd_nnets--;
-		list_del(&net->ibn_list);
-		write_unlock_irqrestore(g_lock, flags);
+	write_lock_irqsave(g_lock, flags);
+	kiblnd_destroy_routes(ni);
+	write_unlock_irqrestore(g_lock, flags);
 
-                /* fall through */
-
-        case IBLND_INIT_NOTHING:
-		LASSERT (atomic_read(&net->ibn_nconns) == 0);
-
-                if (net->ibn_dev != NULL &&
-                    net->ibn_dev->ibd_nnets == 0)
-                        kiblnd_destroy_dev(net->ibn_dev);
-
-                break;
-        }
-
-        CDEBUG(D_MALLOC, "after LND net cleanup: kmem %d\n",
+	CDEBUG(D_MALLOC, "after LND net cleanup: kmem %d\n",
 	       atomic_read(&libcfs_kmemory));
 
-        net->ibn_init = IBLND_INIT_NOTHING;
-        ni->ni_data = NULL;
+	net->ibn_init = IBLND_INIT_NOTHING;
+	ni->ni_data = NULL;
 
-        LIBCFS_FREE(net, sizeof(*net));
+	LIBCFS_FREE(net, sizeof(*net));
 
 out:
 	if (list_empty(&kiblnd_data.kib_devs))
-                kiblnd_base_shutdown();
-        return;
+		kiblnd_base_shutdown();
+	return;
 }
 
 static int
@@ -2972,6 +3742,7 @@ kiblnd_base_startup(void)
 	spin_lock_init(&kiblnd_data.kib_connd_lock);
 	INIT_LIST_HEAD(&kiblnd_data.kib_connd_conns);
 	INIT_LIST_HEAD(&kiblnd_data.kib_connd_zombies);
+	INIT_LIST_HEAD(&kiblnd_data.kib_connd_recovery);
 	init_waitqueue_head(&kiblnd_data.kib_connd_waitq);
 	init_waitqueue_head(&kiblnd_data.kib_failover_waitq);
 
@@ -3001,6 +3772,8 @@ kiblnd_base_startup(void)
 	}
 
         kiblnd_data.kib_error_qpa.qp_state = IB_QPS_ERR;
+
+        INIT_LIST_HEAD(&kiblnd_data.kib_targets);
 
         /* lists/ptrs/locks initialised */
         kiblnd_data.kib_init = IBLND_INIT_DATA;
@@ -3138,10 +3911,12 @@ kiblnd_startup (lnet_ni_t *ni)
         char                     *ifname;
         kib_dev_t                *ibdev = NULL;
         kib_net_t                *net;
+	kib_interface_t		 *iface = NULL;
         struct timeval            tv;
         unsigned long             flags;
         int                       rc;
 	int			  newdev;
+	int			  index = 0;
 
         LASSERT (ni->ni_lnd == &the_o2iblnd);
 
@@ -3160,66 +3935,71 @@ kiblnd_startup (lnet_ni_t *ni)
 
 	do_gettimeofday(&tv);
 	net->ibn_incarnation = (((__u64)tv.tv_sec) * 1000000) + tv.tv_usec;
+        INIT_LIST_HEAD(&net->ibn_routes);
 
         ni->ni_peertimeout    = *kiblnd_tunables.kib_peertimeout;
         ni->ni_maxtxcredits   = *kiblnd_tunables.kib_credits;
         ni->ni_peertxcredits  = *kiblnd_tunables.kib_peertxcredits;
         ni->ni_peerrtrcredits = *kiblnd_tunables.kib_peerrtrcredits;
 
-        if (ni->ni_interfaces[0] != NULL) {
-                /* Use the IPoIB interface specified in 'networks=' */
+        CLASSERT (LNET_MAX_INTERFACES > 1);
 
-                CLASSERT (LNET_MAX_INTERFACES > 1);
-                if (ni->ni_interfaces[1] != NULL) {
-                        CERROR("Multiple interfaces not supported\n");
+        for (index = 0; index < LNET_MAX_INTERFACES; index++) {
+		iface = &net->ibn_interfaces[index];
+
+                if (ni->ni_interfaces[index] != NULL) {
+                        /* Use the IPoIB interface specified in 'networks=' */
+                        ifname = ni->ni_interfaces[index];
+                } else if(index == 0) {
+                        ifname = *kiblnd_tunables.kib_default_ipif;
+                } else {
+                        break;
+                }
+
+                if (strlen(ifname) >= sizeof(ibdev->ibd_ifname)) {
+                        CERROR("IPoIB interface name too long: %s\n", ifname);
                         goto failed;
                 }
 
-                ifname = ni->ni_interfaces[0];
-        } else {
-                ifname = *kiblnd_tunables.kib_default_ipif;
+                ibdev = kiblnd_dev_search(ifname);
+
+                newdev = ibdev == NULL;
+                /* hmm...create kib_dev even for alias */
+                if (ibdev == NULL || strcmp(&ibdev->ibd_ifname[0], ifname) != 0)
+                        ibdev = kiblnd_create_dev(ifname, index);
+
+                if (ibdev == NULL)
+                        goto failed;
+
+                iface->ibi_dev = ibdev;
+                net->ibn_ninterfaces++;
+
+                if (index == 0)
+                        ni->ni_nid = LNET_MKNID(LNET_NIDNET(ni->ni_nid), ibdev->ibd_ifip);
+
+                rc = kiblnd_dev_start_threads(ibdev, newdev,
+                                              ni->ni_cpts, ni->ni_ncpts);
+                if (rc != 0)
+                        goto failed;
+
+                rc = kiblnd_net_init_pools(net, index, ni->ni_cpts, ni->ni_ncpts);
+                if (rc != 0) {
+                        CERROR("Failed to initialize NI pools: %d\n", rc);
+                        goto failed;
+                }
+
+                write_lock_irqsave(&kiblnd_data.kib_global_lock, flags);
+                ibdev->ibd_nnets++;
+                list_add_tail(&iface->ibi_list, &ibdev->ibd_nets);
+                write_unlock_irqrestore(&kiblnd_data.kib_global_lock, flags);
+
+                iface->ibi_init = IBLND_INIT_ALL;
         }
-
-        if (strlen(ifname) >= sizeof(ibdev->ibd_ifname)) {
-                CERROR("IPoIB interface name too long: %s\n", ifname);
-                goto failed;
-        }
-
-	ibdev = kiblnd_dev_search(ifname);
-
-	newdev = ibdev == NULL;
-	/* hmm...create kib_dev even for alias */
-	if (ibdev == NULL || strcmp(&ibdev->ibd_ifname[0], ifname) != 0)
-                ibdev = kiblnd_create_dev(ifname);
-
-        if (ibdev == NULL)
-                goto failed;
-
-        net->ibn_dev = ibdev;
-        ni->ni_nid = LNET_MKNID(LNET_NIDNET(ni->ni_nid), ibdev->ibd_ifip);
-
-	rc = kiblnd_dev_start_threads(ibdev, newdev,
-				      ni->ni_cpts, ni->ni_ncpts);
-	if (rc != 0)
-		goto failed;
-
-	rc = kiblnd_net_init_pools(net, ni->ni_cpts, ni->ni_ncpts);
-        if (rc != 0) {
-                CERROR("Failed to initialize NI pools: %d\n", rc);
-                goto failed;
-        }
-
-	write_lock_irqsave(&kiblnd_data.kib_global_lock, flags);
-	ibdev->ibd_nnets++;
-	list_add_tail(&net->ibn_list, &ibdev->ibd_nets);
-	write_unlock_irqrestore(&kiblnd_data.kib_global_lock, flags);
-
-        net->ibn_init = IBLND_INIT_ALL;
 
         return 0;
 
 failed:
-	if (net != NULL && net->ibn_dev == NULL && ibdev != NULL)
+	if (net != NULL && iface != NULL && iface->ibi_dev == NULL && ibdev != NULL)
                 kiblnd_destroy_dev(ibdev);
 
         kiblnd_shutdown(ni);

@@ -53,8 +53,10 @@ enum {
 
 struct list_head;
 
-#define LNET_NIDSTR_COUNT  1024    /* # of nidstrings */
-#define LNET_NIDSTR_SIZE   32      /* size of each one (see below for usage) */
+#define LNET_IPSTRING_LENGTH 16
+#define LNET_NIDSTR_COUNT    1024    /* # of nidstrings */
+#define LNET_NIDSTR_SIZE     32      /* size of each one
+					(see below for usage) */
 
 /* support decl needed by both kernel and user space */
 char *libcfs_next_nidstring(void);
@@ -67,6 +69,7 @@ static inline char *libcfs_lnd2str(__u32 lnd)
 				LNET_NIDSTR_SIZE);
 }
 int libcfs_str2lnd(const char *str);
+void libcfs_ip_addr2str(__u32 addr, char *str, size_t size);
 char *libcfs_net2str_r(__u32 net, char *buf, size_t buf_size);
 static inline char *libcfs_net2str(__u32 net)
 {

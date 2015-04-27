@@ -57,8 +57,6 @@
 /* max value for numeric network address */
 #define MAX_NUMERIC_VALUE 0xffffffff
 
-#define IPSTRING_LENGTH 16
-
 /* CAVEAT VENDITOR! Keep the canonical string representation of nets/nids
  * consistent in all conversion functions.  Some code fragments are copied
  * around for the sake of clarity...
@@ -88,7 +86,6 @@ libcfs_next_nidstring(void)
 }
 
 static int  libcfs_lo_str2addr(const char *str, int nob, __u32 *addr);
-static void libcfs_ip_addr2str(__u32 addr, char *str, size_t size);
 static int  libcfs_ip_str2addr(const char *str, int nob, __u32 *addr);
 static bool cfs_ip_is_contiguous(struct list_head *nidlist);
 static void cfs_ip_min_max(struct list_head *nidlist, __u32 *min, __u32 *max);
@@ -275,7 +272,7 @@ libcfs_lo_str2addr(const char *str, int nob, __u32 *addr)
 	return 1;
 }
 
-static void
+void
 libcfs_ip_addr2str(__u32 addr, char *str, size_t size)
 {
 	snprintf(str, size, "%u.%u.%u.%u",
@@ -1264,8 +1261,8 @@ void cfs_nidrange_find_min_max(struct list_head *nidlist, char *min_nid,
 	__u32			min_addr;
 	__u32			max_addr;
 	char			*lndname = NULL;
-	char			min_addr_str[IPSTRING_LENGTH];
-	char			max_addr_str[IPSTRING_LENGTH];
+	char			min_addr_str[LNET_IPSTRING_LENGTH];
+	char			max_addr_str[LNET_IPSTRING_LENGTH];
 
 	list_for_each_entry(nr, nidlist, nr_link) {
 		nf = nr->nr_netstrfns;

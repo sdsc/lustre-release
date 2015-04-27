@@ -110,6 +110,14 @@ command_t cmdlist[] = {
          "usage: show_route"},
         {"ping", jt_ptl_ping, 0, "Check LNET connectivity\n"
          "usage: ping nid [timeout] [pid]"},
+	{"net_status", jt_ptl_net_status, 0, "show network driver status\n"
+	 "usage: net_status"},
+	{"add_o2ibs", jt_ptl_add_o2ibs, 0, "add NID for o2ibs\n"
+	 "usage: add_o2ibs NID IP [IP ...]"},
+	{"show_o2ibs", jt_ptl_show_o2ibs, 0, "show o2ib driver settings\n"
+	 "usage: show_o2ibs"},
+	{"check_o2ibs", jt_ptl_chk_o2ibs, 0, "check o2ib driver settings\n"
+	 "usage: check_o2ibs"},
 	{"net_drop_add", jt_ptl_drop_add, 0, "Add LNet drop rule\n"
 	 "usage: net_drop_add <-s | --source NID>\n"
 	 "		      <-d | --dest NID>\n"
