@@ -1,6 +1,6 @@
 #!/bin/sh
 
-# NOTE: Please avoid bashisms (bash specific syntax) in this script
+# NOTE2: Please avoid bashisms (bash specific syntax) in this script
 
 # die a horrible death.  All output goes to stderr.
 #
