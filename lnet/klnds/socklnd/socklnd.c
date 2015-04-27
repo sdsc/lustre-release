@@ -1454,19 +1454,17 @@ ksocknal_close_conn_locked (ksock_conn_t *conn, int error)
 		/* No more connections to this peer */
 
 		if (!list_empty(&peer->ksnp_tx_queue)) {
-				ksock_tx_t *tx;
+			ksock_tx_t *tx;
 
 			LASSERT(conn->ksnc_proto == &ksocknal_protocol_v3x);
 
 			/* throw them to the last connection...,
 			 * these TXs will be send to /dev/null by scheduler */
-			list_for_each_entry(tx, &peer->ksnp_tx_queue,
-					    tx_list)
+			list_for_each_entry(tx, &peer->ksnp_tx_queue, tx_list)
 				ksocknal_tx_prep(conn, tx);
 
 			spin_lock_bh(&conn->ksnc_scheduler->kss_lock);
-			list_splice_init(&peer->ksnp_tx_queue,
-					 &conn->ksnc_tx_queue);
+			list_splice_init(&peer->ksnp_tx_queue, &conn->ksnc_tx_queue);
 			spin_unlock_bh(&conn->ksnc_scheduler->kss_lock);
 		}
 
@@ -1484,8 +1482,7 @@ ksocknal_close_conn_locked (ksock_conn_t *conn, int error)
 
 	spin_lock_bh(&ksocknal_data.ksnd_reaper_lock);
 
-	list_add_tail(&conn->ksnc_list,
-		      &ksocknal_data.ksnd_deathrow_conns);
+	list_add_tail(&conn->ksnc_list, &ksocknal_data.ksnd_deathrow_conns);
 	wake_up(&ksocknal_data.ksnd_reaper_waitq);
 
 	spin_unlock_bh(&ksocknal_data.ksnd_reaper_lock);

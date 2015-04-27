@@ -2630,7 +2630,7 @@ int ksocknal_reaper(void *arg)
                 ksocknal_data.ksnd_reaper_waketime =
                         cfs_time_add(cfs_time_current(), timeout);
 
-			set_current_state(TASK_INTERRUPTIBLE);
+		set_current_state(TASK_INTERRUPTIBLE);
 		add_wait_queue(&ksocknal_data.ksnd_reaper_waitq, &wait);
 
 		if (!ksocknal_data.ksnd_shuttingdown &&
