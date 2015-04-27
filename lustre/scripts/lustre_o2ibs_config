@@ -1,0 +1,64 @@
+# !/bin/bash
+#
+# lustre_o2ibs_config
+# This script configures lnet with the o2ibs in the passed in file.
+#
+# The purpose of this script is to circumvent the limitation on the number of
+# o2ibs which could be configured through the lnet_o2ibs.conf module parameters.
+#
+# Copyright (c) 2015 FUJITSU LIMITED
+#
+###########################################################################
+
+
+progname=$(/bin/basename $0)
+
+# print usage
+usage() {
+	/bin/cat <<- USAGE
+	Setup or cleanup LNET o2ibs from specified config file
+	usage: $progname <config_file>
+	USAGE
+}
+
+# sanity check
+[ -z "$1" ] && usage && exit 1
+
+# check parameters
+while [ ! -f "$1" ]; do
+	case "$1" in
+	-h|--help)    usage; exit 0 ;;
+	*)            usage; exit 1 ;;
+	esac
+done
+
+nids=(`/usr/sbin/lctl list_nids 2> /dev/null | /bin/grep o2ib`)
+
+if [ -z $nids ]; then
+	exit 0
+fi
+
+READCMD="/bin/sed -e s/#.*$// -e /^\s*$/d"
+while read line; do
+	params=($line)
+	network=${params[0]/*@/}
+
+	/usr/sbin/lctl --net $network add_o2ibs $line
+	RC=$?
+	if [ $RC -ne 0 ]; then
+		/bin/echo "add_o2ibs error $RC: $line" >&2
+		exit $RC
+	fi
+done < <($READCMD $1)
+
+for line in ${nids[*]}
+do
+	network=${line/*@/}
+
+	/usr/sbin/lctl --net $network check_o2ibs
+	RC=$?
+	if [ $RC -ne 0 ]; then
+		/bin/echo "check_o2ibs error $RC: $line" >&2
+		exit $RC
+	fi
+done
