@@ -315,6 +315,7 @@ int parse_opts(int argc, char *const argv[], struct mkfs_opts *mop,
 	int rc, longidx;
 	int failnode_set = 0, servicenode_set = 0;
 	int replace = 0;
+	int index_option = 0;
 
         while ((opt = getopt_long(argc, argv, optstring, long_opt, &longidx)) !=
                EOF) {
@@ -399,13 +400,7 @@ int parse_opts(int argc, char *const argv[], struct mkfs_opts *mop,
                         usage(stdout);
                         return 1;
                 case 'i':
-                        if (!(mop->mo_ldd.ldd_flags &
-                              (LDD_F_UPGRADE14 | LDD_F_VIRGIN |
-                               LDD_F_WRITECONF))) {
-                                fprintf(stderr, "%s: cannot change the index of"
-                                        " a registered target\n", progname);
-                                return 1;
-                        }
+			index_option = 1;
 			/* LU-2374: check whether it is OST/MDT later */
 			mop->mo_ldd.ldd_svindex = atol(optarg);
 			if (mop->mo_ldd.ldd_svindex >= INDEX_UNASSIGNED) {
@@ -423,14 +418,6 @@ int parse_opts(int argc, char *const argv[], struct mkfs_opts *mop,
                         break;
                 case 'L': {
                         char *tmp;
-                        if (!(mop->mo_flags & MO_FORCEFORMAT) &&
-                            (!(mop->mo_ldd.ldd_flags &
-                               (LDD_F_UPGRADE14 | LDD_F_VIRGIN |
-                                LDD_F_WRITECONF)))) {
-                                fprintf(stderr, "%s: cannot change the name of"
-                                        " a registered target\n", progname);
-                                return 1;
-                        }
                         if ((strlen(optarg) < 1) || (strlen(optarg) > 8)) {
                                 fprintf(stderr, "%s: filesystem name must be "
                                         "1-8 chars\n", progname);
@@ -530,6 +517,23 @@ int parse_opts(int argc, char *const argv[], struct mkfs_opts *mop,
                         return EINVAL;
                 }
         }//while
+
+	if (mop->mo_ldd.ldd_fsname &&
+	    !(mop->mo_flags & MO_FORCEFORMAT) &&
+	    (!(mop->mo_ldd.ldd_flags &
+	       (LDD_F_UPGRADE14 | LDD_F_VIRGIN |
+		LDD_F_WRITECONF)))) {
+		fprintf(stderr, "%s: cannot change the name of"
+			" a registered target\n", progname);
+		return 1;
+	}
+	if (index_option && !(mop->mo_ldd.ldd_flags &
+	      (LDD_F_UPGRADE14 | LDD_F_VIRGIN |
+	       LDD_F_WRITECONF))) {
+		fprintf(stderr, "%s: cannot change the index of"
+			" a registered target\n", progname);
+		return 1;
+	}
 
 	/* Need to clear this flag after parsing 'L' and 'i' options. */
 	if (replace)
