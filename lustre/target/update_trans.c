@@ -746,10 +746,27 @@ static bool top_trans_is_stopped(struct top_thandle *top_th)
  */
 static int top_trans_wait_result(struct top_thandle *top_th)
 {
-	struct l_wait_info	lwi = {0};
+	struct l_wait_info lwi = LWI_TIMEOUT(cfs_time_seconds(5), NULL, NULL);
+	int rc;
 
-	l_wait_event(top_th->tt_multiple_thandle->tmt_stop_waitq,
-		     top_trans_is_stopped(top_th), &lwi);
+	do {
+		rc = l_wait_event(top_th->tt_multiple_thandle->tmt_stop_waitq,
+				  top_trans_is_stopped(top_th), &lwi);
+
+		if (rc == -ETIMEDOUT) {
+			struct top_multiple_thandle	*tmt;
+			struct sub_thandle		*st;
+
+			tmt = top_th->tt_multiple_thandle;
+			list_for_each_entry(st, &tmt->tmt_sub_thandle_list,
+					    st_sub_list) {
+				CDEBUG(D_ERROR, "%s: committed = %d, "
+				       "stopped = %d\n",
+				       st->st_dt->dd_lu_dev.ld_obd->obd_name,
+				       st->st_committed, st->st_stopped);
+			}
+		}
+	}while (rc == -ETIMEDOUT);
 
 	RETURN(top_th->tt_super.th_result);
 }

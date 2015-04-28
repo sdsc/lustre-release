@@ -843,7 +843,7 @@ int mdd_attr_set(const struct lu_env *env, struct md_object *obj,
         if (IS_ERR(handle))
                 RETURN(PTR_ERR(handle));
 
-	rc = mdd_declare_attr_set(env, mdd, mdd_obj, la, handle);
+	rc = mdd_declare_attr_set(env, mdd, mdd_obj, la_copy, handle);
         if (rc)
                 GOTO(stop, rc);
 
