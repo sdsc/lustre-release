@@ -211,6 +211,7 @@ static int osc_object_ast_clear(struct ldlm_lock *lock, void *data)
 
 	if (lock->l_ast_data == data)
 		lock->l_ast_data = NULL;
+	lock->l_flags |= LDLM_FL_CBPENDING;
 	RETURN(LDLM_ITER_CONTINUE);
 }
 
@@ -218,6 +219,7 @@ static int osc_object_prune(const struct lu_env *env, struct cl_object *obj)
 {
 	struct osc_object       *osc = cl2osc(obj);
 	struct ldlm_res_id      *resname = &osc_env_info(env)->oti_resname;
+	struct ldlm_namespace	*ns = osc_export(osc)->exp_obd->obd_namespace;
 
 	LASSERTF(osc->oo_npages == 0,
 		 DFID "still have %lu pages, obj: %p, osc: %p\n",
@@ -226,8 +228,13 @@ static int osc_object_prune(const struct lu_env *env, struct cl_object *obj)
 	/* DLM locks don't hold a reference of osc_object so we have to
 	 * clear it before the object is being destroyed. */
 	ostid_build_res_name(&osc->oo_oinfo->loi_oi, resname);
-	ldlm_resource_iterate(osc_export(osc)->exp_obd->obd_namespace, resname,
-			      osc_object_ast_clear, osc);
+	/* destroy unused locks for this object */
+	ldlm_cli_cancel_unused(ns, resname, LCF_LOCAL, osc);
+	/* set CBPENDING for async AGL locks */
+	ldlm_resource_iterate(ns, resname, osc_object_ast_clear, osc);
+	/* destroy unused locks again in case of race */
+	ldlm_cli_cancel_unused(ns, resname, LCF_LOCAL, NULL);
+
 	return 0;
 }
 /**

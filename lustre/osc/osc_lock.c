@@ -982,7 +982,6 @@ enqueue_base:
 	}
 	result = osc_enqueue_base(osc_export(osc), resname, &oscl->ols_flags,
 				  policy, &oscl->ols_lvb,
-				  osc->oo_oinfo->loi_kms_valid,
 				  upcall, cookie,
 				  &oscl->ols_einfo, PTLRPCD_SET, async,
 				  oscl->ols_agl);
