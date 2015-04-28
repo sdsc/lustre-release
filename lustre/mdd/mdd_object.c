@@ -820,6 +820,7 @@ int mdd_attr_set(const struct lu_env *env, struct md_object *obj,
 	struct lu_attr *attr = MDD_ENV_VAR(env, cattr);
 	const struct lu_attr *la = &ma->ma_attr;
 	int rc;
+	int diff = 0;
 	ENTRY;
 
 	/* we do not use ->attr_set() for LOV/HSM EA any more */
@@ -835,6 +836,9 @@ int mdd_attr_set(const struct lu_env *env, struct md_object *obj,
 	if (rc)
 		RETURN(rc);
 
+	if (la->la_valid != la_copy->la_valid)
+		diff = 1;
+
         /* setattr on "close" only change atime, or do nothing */
 	if (la->la_valid == LA_ATIME && la_copy->la_valid == 0)
                 RETURN(0);
@@ -843,7 +847,7 @@ int mdd_attr_set(const struct lu_env *env, struct md_object *obj,
         if (IS_ERR(handle))
                 RETURN(PTR_ERR(handle));
 
-	rc = mdd_declare_attr_set(env, mdd, mdd_obj, la, handle);
+	rc = mdd_declare_attr_set(env, mdd, mdd_obj, la_copy, handle);
         if (rc)
                 GOTO(stop, rc);
 
@@ -871,6 +875,12 @@ int mdd_attr_set(const struct lu_env *env, struct md_object *obj,
 	GOTO(stop, rc);
 
 stop:
+	if (diff)
+		CERROR("la_valid "LPX64":"LPX64", la_mode: %u:%u, "
+		       "la_flags %u:%u\n", la->la_valid, la_copy->la_valid,
+		       la->la_mode, la_copy->la_mode, la->la_flags,
+		       la_copy->la_flags);
+
 	mdd_trans_stop(env, mdd, rc, handle);
 	return rc;
 }
