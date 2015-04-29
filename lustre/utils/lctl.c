@@ -94,6 +94,9 @@ command_t cmdlist[] = {
 	{"replace_nids", jt_replace_nids, 0,
 	 "replace primary NIDs for a device\n"
 	 "usage: replace_nids <device> <nid1>[,nid2,nid3]"},
+	{"clear_conf", jt_clear_configs, 0,
+	 "clear config logs for a device or filesystem\n"
+	 "usage: clear_conf <device|fsname>"},
 	{"interface_list", jt_ptl_print_interfaces, 0,
 	 "print network interface entries\n"
 	 "usage: interface_list"},
@@ -114,7 +117,7 @@ command_t cmdlist[] = {
 	 "usage: net_drop_add <-s | --source NID>\n"
 	 "		      <-d | --dest NID>\n"
 	 "		      <<-r | --rate DROP_RATE> |\n"
-	 "		       <-i | --interval SECONDS>>\n"
+	 "		      <-i | --interval SECONDS>>\n"
 	 "		      [<-p | --portal> PORTAL...]\n"
 	 "		      [<-m | --message> <PUT|ACK|GET|REPLY>...]\n"},
 	{"net_drop_del", jt_ptl_drop_del, 0, "remove LNet drop rule\n"
