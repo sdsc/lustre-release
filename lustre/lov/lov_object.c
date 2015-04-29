@@ -1499,7 +1499,7 @@ static int lov_object_data_version(const struct lu_env *env,
 				   int flags)
 {
 	struct ptlrpc_request_set	*set;
-	struct obd_info			oinfo =  { { { 0 } } };
+	struct obd_info			oinfo;
 	struct obdo			*obdo = NULL;
 	struct lov_stripe_md		*lsm;
 	int				rc;
@@ -1516,6 +1516,7 @@ static int lov_object_data_version(const struct lu_env *env,
 	if (obdo == NULL)
 		GOTO(out, rc = -ENOMEM);
 
+	memset(&oinfo, 0, sizeof(oinfo));
 	oinfo.oi_md = lsm;
 	oinfo.oi_oa = obdo;
 	obdo->o_oi = lsm->lsm_oi;

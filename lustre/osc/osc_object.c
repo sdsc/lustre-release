@@ -356,14 +356,13 @@ static int osc_object_obd_info_get(const struct lu_env *env,
 	if (req == NULL)
 		RETURN(-ENOMEM);
 
-	osc_set_capa_size(req, &RMF_CAPA1, oinfo->oi_capa);
 	rc = ptlrpc_request_pack(req, LUSTRE_OST_VERSION, OST_GETATTR);
 	if (rc != 0) {
 		ptlrpc_request_free(req);
 		RETURN(rc);
 	}
 
-	osc_pack_req_body(req, oinfo);
+	osc_pack_req_body(req, oinfo->oi_oa);
 
 	ptlrpc_request_set_replen(req);
 	req->rq_interpret_reply = (ptlrpc_interpterer_t)osc_getattr_interpret;

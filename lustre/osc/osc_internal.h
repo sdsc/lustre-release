@@ -116,13 +116,13 @@ int osc_match_base(struct obd_export *exp, struct ldlm_res_id *res_id,
 		   __u64 *flags, void *data, struct lustre_handle *lockh,
 		   int unref);
 
-int osc_setattr_async(struct obd_export *exp, struct obd_info *oinfo,
+int osc_setattr_async(struct obd_export *exp, struct obdo *oa,
 		      obd_enqueue_update_f upcall, void *cookie,
 		      struct ptlrpc_request_set *rqset);
-int osc_punch_base(struct obd_export *exp, struct obd_info *oinfo,
+int osc_punch_base(struct obd_export *exp, struct obdo *oa,
                    obd_enqueue_update_f upcall, void *cookie,
                    struct ptlrpc_request_set *rqset);
-int osc_sync_base(struct obd_export *exp, struct obd_info *oinfo,
+int osc_sync_base(struct obd_export *exp, struct obdo *oa,
 		  obd_enqueue_update_f upcall, void *cookie,
 		  struct ptlrpc_request_set *rqset);
 
@@ -229,9 +229,7 @@ enum osc_dap_flags {
 struct ldlm_lock *osc_dlmlock_at_pgoff(const struct lu_env *env,
 				       struct osc_object *obj, pgoff_t index,
 				       enum osc_dap_flags flags);
-void osc_pack_req_body(struct ptlrpc_request *req, struct obd_info *oinfo);
-void osc_set_capa_size(struct ptlrpc_request *req,
-		       const struct req_msg_field *field, struct obd_capa *oc);
+void osc_pack_req_body(struct ptlrpc_request *req, struct obdo *oa);
 int osc_getattr_interpret(const struct lu_env *env,
 			  struct ptlrpc_request *req,
 			  struct osc_async_args *aa, int rc);
