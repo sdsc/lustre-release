@@ -302,7 +302,6 @@ int lov_prep_getattr_set(struct obd_export *exp, struct obd_info *oinfo,
                        sizeof(*req->rq_oi.oi_oa));
                 req->rq_oi.oi_oa->o_oi = loi->loi_oi;
                 req->rq_oi.oi_cb_up = cb_getattr_update;
-                req->rq_oi.oi_capa = oinfo->oi_capa;
 
                 lov_set_add_req(req, set);
         }

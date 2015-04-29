@@ -134,10 +134,6 @@ typedef int (*obd_enqueue_update_f)(void *cookie, int rc);
 
 /* obd info for a particular level (lov, osc). */
 struct obd_info {
-        /* Lock policy. It keeps an extent which is specific for a particular
-         * OSC. (e.g. lov_prep_enqueue_set initialises extent of the policy,
-         * and osc_enqueue passes it into ldlm_lock_match & ldlm_cli_enqueue. */
-        ldlm_policy_data_t      oi_policy;
         /* Flags used for set request specific flags:
            - while lock handling, the flags obtained on the enqueue
            request are set here.
@@ -156,9 +152,6 @@ struct obd_info {
          * request in osc level for enqueue requests. It is also possible to
          * update some caller data from LOV layer if needed. */
         obd_enqueue_update_f    oi_cb_up;
-        /* oss capability, its type is obd_capa in client to avoid copy.
-         * in contrary its type is lustre_capa in OSS. */
-        void                   *oi_capa;
 };
 
 struct obd_type {
@@ -923,9 +916,9 @@ struct obd_ops {
 	int (*o_destroy)(const struct lu_env *env, struct obd_export *exp,
 			 struct obdo *oa);
 	int (*o_setattr)(const struct lu_env *, struct obd_export *exp,
-			 struct obd_info *oinfo);
-        int (*o_getattr)(const struct lu_env *env, struct obd_export *exp,
-                         struct obd_info *oinfo);
+			 struct obdo *oa);
+	int (*o_getattr)(const struct lu_env *env, struct obd_export *exp,
+			 struct obdo *oa);
 	int (*o_preprw)(const struct lu_env *env, int cmd,
 			struct obd_export *exp, struct obdo *oa, int objcount,
 			struct obd_ioobj *obj, struct niobuf_remote *remote,

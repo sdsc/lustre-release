@@ -1818,7 +1818,6 @@ struct cl_io {
 			unsigned int		 sa_valid;
 			int			 sa_stripe_index;
 			const struct lu_fid	*sa_parent_fid;
-			struct obd_capa		*sa_capa;
 		} ci_setattr;
                 struct cl_fault_io {
                         /** page index within file. */
@@ -1837,7 +1836,6 @@ struct cl_io {
 		struct cl_fsync_io {
 			loff_t             fi_start;
 			loff_t             fi_end;
-			struct obd_capa   *fi_capa;
 			/** file system level fid */
 			struct lu_fid     *fi_fid;
 			enum cl_fsync_mode fi_mode;
@@ -1956,8 +1954,6 @@ struct cl_io {
 struct cl_req_attr {
 	/** Generic attributes for the server consumption. */
 	struct obdo	*cra_oa;
-	/** Capability. */
-	struct obd_capa	*cra_capa;
 	/** Jobid */
 	char		 cra_jobid[LUSTRE_JOBID_SIZE];
 };
