@@ -49,8 +49,17 @@
 #include <lustre_param.h>
 #include <lustre_fid.h>
 #include <obd_class.h>
+#include <obd.h>
+#include <lustre_net.h>
 #include "osc_internal.h"
 #include "osc_cl_internal.h"
+
+atomic_t osc_pool_req_count;
+u64 osc_reqpool_maxreqcount;
+DEFINE_PER_CPU(struct ptlrpc_request_pool *, osc_rq_pools) = NULL;
+
+/* max memory used for request pool, unit is MB */
+static uint osc_reqpool_mem_max;
 
 struct osc_brw_async_args {
 	struct obdo		 *aa_oa;
@@ -1003,8 +1012,8 @@ osc_brw_prep_request(int cmd, struct client_obd *cli, struct obdo *oa,
         if ((cmd & OBD_BRW_WRITE) != 0) {
                 opc = OST_WRITE;
                 req = ptlrpc_request_alloc_pool(cli->cl_import,
-                                                cli->cl_import->imp_rq_pool,
-                                                &RQF_OST_BRW_WRITE);
+						__get_cpu_var(osc_rq_pools),
+						&RQF_OST_BRW_WRITE);
         } else {
                 opc = OST_READ;
                 req = ptlrpc_request_alloc(cli->cl_import, &RQF_OST_BRW_READ);
@@ -2627,6 +2636,7 @@ int osc_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 	struct obd_type	  *type;
 	void		  *handler;
 	int		   rc;
+	int			   i, inc;
 	ENTRY;
 
 	rc = ptlrpcd_addref();
@@ -2683,16 +2693,23 @@ int osc_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 		ptlrpc_lprocfs_register_obd(obd);
 	}
 
-	/* We need to allocate a few requests more, because
-	 * brw_interpret tries to create new requests before freeing
-	 * previous ones, Ideally we want to have 2x max_rpcs_in_flight
-	 * reserved, but I'm afraid that might be too much wasted RAM
-	 * in fact, so 2 is just my guess and still should work. */
-	cli->cl_import->imp_rq_pool =
-		ptlrpc_init_rq_pool(cli->cl_max_rpcs_in_flight + 2,
-				    OST_MAXREQSIZE,
-				    ptlrpc_add_rqs_to_pool);
+	/* We try to control the total number of requests with a upper
+	 * limit osc_reqpool_maxreqcount. It will not alloc request any
+	 * more if the number of requests exceed the limit.
+	 */
+	for_each_online_cpu(i) {
+		if (unlikely(per_cpu(osc_rq_pools, i) == NULL))
+			continue;
 
+		if (atomic_read(&osc_pool_req_count) +
+		    cli->cl_max_rpcs_in_flight + 2 > osc_reqpool_maxreqcount)
+			break;
+
+		inc = ptlrpc_add_rqs_to_pool(per_cpu(osc_rq_pools, i),
+					      cli->cl_max_rpcs_in_flight
+					      + 2);
+		atomic_add(inc, &osc_pool_req_count);
+	}
 	INIT_LIST_HEAD(&cli->cl_grant_shrink_list);
 	ns_register_cancel(obd->obd_namespace, osc_cancel_weight);
 	RETURN(0);
@@ -2778,12 +2795,12 @@ int osc_cleanup(struct obd_device *obd)
 	}
 
         /* free memory of osc quota cache */
-        osc_quota_cleanup(obd);
+	osc_quota_cleanup(obd);
 
-        rc = client_obd_cleanup(obd);
+	rc = client_obd_cleanup(obd);
 
-        ptlrpcd_decref();
-        RETURN(rc);
+	ptlrpcd_decref();
+	RETURN(rc);
 }
 
 int osc_process_config_base(struct obd_device *obd, struct lustre_cfg *lcfg)
@@ -2824,7 +2841,11 @@ static int __init osc_init(void)
 {
 	bool enable_proc = true;
 	struct obd_type *type;
-	int rc;
+	struct sysinfo si;
+	u64 size;
+	int rc, reqsize;
+	int i;
+
 	ENTRY;
 
         /* print an address of _any_ initialized kernel symbol from this
@@ -2846,15 +2867,54 @@ static int __init osc_init(void)
                 lu_kmem_fini(osc_caches);
                 RETURN(rc);
         }
+	si_meminfo(&si);
+	size = ((si.totalram - si.totalhigh) << PAGE_SHIFT) / 100;
+	if (osc_reqpool_mem_max != 0 && size > osc_reqpool_mem_max << 20)
+		size = osc_reqpool_mem_max << 20;
+
+	reqsize = 1;
+	while (reqsize < OST_IO_MAXREQSIZE)
+		reqsize = reqsize << 1;
+
+	osc_reqpool_maxreqcount = size / reqsize;
+
+	/*
+	 * we use 10 here to make sure every cpu core will has
+	 * a pool. 10 is cl_max_rpcs_in_flight + 2, it need to
+	 * change if the default value of cl_max_rpcs_in_flight
+	 * change.
+	 */
+	if (osc_reqpool_maxreqcount <
+	    num_online_cpus() * (OBD_MAX_RIF_DEFAULT + 2))
+		osc_reqpool_maxreqcount =
+			num_online_cpus() * (OBD_MAX_RIF_DEFAULT + 2);
+
+	atomic_set(&osc_pool_req_count, 0);
+	for_each_online_cpu(i)
+		per_cpu(osc_rq_pools, i) =
+			ptlrpc_init_rq_pool(0,
+					    OST_IO_MAXREQSIZE,
+					    ptlrpc_add_rqs_to_pool);
 
 	RETURN(rc);
 }
 
 static void /*__exit*/ osc_exit(void)
 {
+	int i;
+
 	class_unregister_type(LUSTRE_OSC_NAME);
 	lu_kmem_fini(osc_caches);
+
+	for_each_online_cpu(i) {
+		if (unlikely(per_cpu(osc_rq_pools, i) == NULL))
+			continue;
+
+		ptlrpc_free_rq_pool(per_cpu(osc_rq_pools, i));
+	}
 }
+
+module_param(osc_reqpool_mem_max, uint, 0444);
 
 MODULE_AUTHOR("Sun Microsystems, Inc. <http://www.lustre.org/>");
 MODULE_DESCRIPTION("Lustre Object Storage Client (OSC)");

@@ -96,8 +96,10 @@ static ssize_t osc_max_rpcs_in_flight_seq_write(struct file *file,
 {
 	struct obd_device *dev = ((struct seq_file *)file->private_data)->private;
         struct client_obd *cli = &dev->u.cli;
-        struct ptlrpc_request_pool *pool = cli->cl_import->imp_rq_pool;
+	struct ptlrpc_request_pool *pool;
         int val, rc;
+	int i;
+	int inc, add;
 
         rc = lprocfs_write_helper(buffer, count, &val);
         if (rc)
@@ -107,8 +109,26 @@ static ssize_t osc_max_rpcs_in_flight_seq_write(struct file *file,
                 return -ERANGE;
 
         LPROCFS_CLIMP_CHECK(dev);
-        if (pool && val > cli->cl_max_rpcs_in_flight)
-                pool->prp_populate(pool, val-cli->cl_max_rpcs_in_flight);
+
+	inc = val - cli->cl_max_rpcs_in_flight;
+	if (inc > 0) {
+		for_each_online_cpu(i) {
+			pool = per_cpu(osc_rq_pools, i);
+			if (unlikely(pool == NULL))
+				continue;
+
+			if (atomic_read(&osc_pool_req_count) + inc >
+			    osc_reqpool_maxreqcount)
+				break;
+
+			/* It's possible that more than one threads come
+			 * into here. But, anyway, it just alloc a certain
+			 * amount of requests more.
+			 */
+			add = pool->prp_populate(pool, inc);
+			atomic_add(add, &osc_pool_req_count);
+		}
+	}
 
 	spin_lock(&cli->cl_loi_list_lock);
 	cli->cl_max_rpcs_in_flight = val;

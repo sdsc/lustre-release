@@ -39,6 +39,10 @@
 
 #define OAP_MAGIC 8675309
 
+extern atomic_t osc_pool_req_count;
+extern u64 osc_reqpool_maxreqcount;
+DECLARE_PER_CPU(struct ptlrpc_request_pool *, osc_rq_pools);
+
 struct lu_env;
 
 enum async_flags {
