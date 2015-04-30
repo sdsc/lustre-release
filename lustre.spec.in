@@ -441,7 +441,19 @@ find $RPM_BUILD_ROOT%{?rootdir}/lib/modules/%{kversion}/%{kmoddir} \
 
 %files -f lustre.files
 %defattr(-,root,root)
-%{_sbindir}/*
+%{_sbindir}/l_getidentity
+%{_sbindir}/lctl
+%{_sbindir}/ldev
+%{_sbindir}/lhsmtool_posix
+%{_sbindir}/llverfs
+%{_sbindir}/lnetctl
+%{_sbindir}/lst
+%{_sbindir}/ltrack_stats
+%{_sbindir}/lustre_rmmod
+%{_sbindir}/lustre_routes_config
+%{_sbindir}/lustre_routes_conversion
+%{_sbindir}/lustre_rsync
+%{_sbindir}/routerstat
 %if %{with zfs}
 %exclude %{_sbindir}/zfsobj2fid
 %endif
