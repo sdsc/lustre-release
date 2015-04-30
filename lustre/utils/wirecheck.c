@@ -301,6 +301,24 @@ check_lu_dirpage(void)
 }
 
 static void
+check_lu_ladvise(void)
+{
+	BLANK_LINE();
+	CHECK_STRUCT(lu_ladvise);
+	CHECK_MEMBER(lu_ladvise, lla_start);
+	CHECK_MEMBER(lu_ladvise, lla_end);
+	CHECK_MEMBER(lu_ladvise, lla_advice);
+	CHECK_MEMBER(lu_ladvise, lla_padding);
+
+	CHECK_VALUE(LU_LADVISE_NORMAL);
+	CHECK_VALUE(LU_LADVISE_RANDOM);
+	CHECK_VALUE(LU_LADVISE_SEQUENTIAL);
+	CHECK_VALUE(LU_LADVISE_WILLNEED);
+	CHECK_VALUE(LU_LADVISE_DONTNEED);
+	CHECK_VALUE(LU_LADVISE_NOREUSE);
+}
+
+static void
 check_lustre_handle(void)
 {
 	BLANK_LINE();
@@ -2258,6 +2276,7 @@ main(int argc, char **argv)
 	CHECK_VALUE(OST_QUOTACHECK);
 	CHECK_VALUE(OST_QUOTACTL);
 	CHECK_VALUE(OST_QUOTA_ADJUST_QUNIT);
+	CHECK_VALUE(OST_LADVISE);
 	CHECK_VALUE(OST_LAST_OPC);
 
 	CHECK_DEFINE_64X(OBD_OBJECT_EOF);
@@ -2451,6 +2470,7 @@ main(int argc, char **argv)
 	check_lu_dirent();
 	check_luda_type();
 	check_lu_dirpage();
+	check_lu_ladvise();
 	check_lustre_handle();
 	check_lustre_msg_v2();
 	check_ptlrpc_body();

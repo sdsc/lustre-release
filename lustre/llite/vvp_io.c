@@ -1353,10 +1353,13 @@ static const struct cl_io_operations vvp_io_ops = {
 			.cio_start  = vvp_io_fsync_start,
 			.cio_fini   = vvp_io_fini
 		},
-                [CIT_MISC] = {
-                        .cio_fini   = vvp_io_fini
-                }
-        },
+		[CIT_MISC] = {
+			.cio_fini   = vvp_io_fini
+		},
+		[CIT_LADVISE] = {
+			.cio_fini   = vvp_io_fini
+		},
+	},
 	.cio_read_ahead = vvp_io_read_ahead
 };
 

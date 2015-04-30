@@ -4833,3 +4833,40 @@ int llapi_group_unlock(int fd, int gid)
 	}
 	return rc;
 }
+
+/*
+ * Give file access advices
+ *
+ * \param fd       File to give advice on.
+ * \param ladvise  Advice to give.
+ *
+ * \retval 0 on success.
+ * \retval -errno on failure.
+ */
+int llapi_ladvise(int fd, int num_advise, struct lu_ladvise *ladvise)
+{
+	int rc;
+	struct ladvise_hdr *ladvise_hdr;
+
+	if (num_advise < 1 || num_advise >= MAX_NUM_LADVISE) {
+		rc = -EINVAL;
+		llapi_error(LLAPI_MSG_ERROR, rc,
+			    "bad advice number %d", num_advise);
+		return rc;
+	}
+
+	ladvise_hdr = calloc(1, offsetof(typeof(*ladvise_hdr),
+			     lah_advise[num_advise]));
+	ladvise_hdr->lah_magic = LADVISE_MAGIC;
+	ladvise_hdr->lah_count = num_advise;
+	memcpy(ladvise_hdr->lah_advise, ladvise, sizeof(*ladvise) * num_advise);
+
+	rc = ioctl(fd, LL_IOC_LADVISE, ladvise_hdr);
+	if (rc < 0) {
+		rc = -errno;
+		llapi_error(LLAPI_MSG_ERROR, rc, "cannot give advice");
+		return rc;
+	}
+	return 0;
+}
+

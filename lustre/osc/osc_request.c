@@ -80,6 +80,12 @@ struct osc_fsync_args {
 	void			*fa_cookie;
 };
 
+struct osc_ladvise_args {
+	struct obd_info     *la_oi;
+	obd_enqueue_update_f la_upcall;
+	void                *la_cookie;
+};
+
 struct osc_enqueue_args {
 	struct obd_export	*oa_exp;
 	ldlm_type_t		oa_type;
@@ -316,6 +322,85 @@ int osc_setattr_async(struct obd_export *exp, struct obd_info *oinfo,
         }
 
         RETURN(0);
+}
+
+static int osc_ladvise_interpret(const struct lu_env *env,
+				 struct ptlrpc_request *req,
+				 void *arg, int rc)
+{
+	struct osc_fsync_args *fa = arg;
+	struct ost_body *body;
+	ENTRY;
+
+	if (rc != 0)
+		GOTO(out, rc);
+
+	body = req_capsule_server_get(&req->rq_pill, &RMF_OST_BODY);
+	if (body == NULL)
+		GOTO(out, rc = -EPROTO);
+
+	*fa->fa_oi->oi_oa = body->oa;
+out:
+	rc = fa->fa_upcall(fa->fa_cookie, rc);
+	RETURN(rc);
+}
+
+int osc_ladvise_base(struct obd_export *exp, struct obd_info *oinfo,
+		     struct ladvise_hdr *ladvise_hdr,
+		     obd_enqueue_update_f upcall, void *cookie,
+		     struct ptlrpc_request_set *rqset)
+{
+	struct ptlrpc_request	*req;
+	struct ost_body		*body;
+	struct osc_ladvise_args	*la;
+	int			 rc;
+	struct lu_ladvise	*req_ladvise;
+	struct lu_ladvise	*ladvise = ladvise_hdr->lah_advise;
+	int			 num_advise = ladvise_hdr->lah_count;
+	struct ladvise_hdr	*req_ladvise_hdr;
+	ENTRY;
+
+	req = ptlrpc_request_alloc(class_exp2cliimp(exp), &RQF_OST_LADVISE);
+	if (req == NULL)
+		RETURN(-ENOMEM);
+
+	req_capsule_set_size(&req->rq_pill, &RMF_OST_LADVISE, RCL_CLIENT,
+			     num_advise * sizeof(*ladvise));
+	osc_set_capa_size(req, &RMF_CAPA1, oinfo->oi_capa);
+	rc = ptlrpc_request_pack(req, LUSTRE_OST_VERSION, OST_LADVISE);
+	if (rc != 0) {
+		ptlrpc_request_free(req);
+		RETURN(rc);
+	}
+	req->rq_request_portal = OST_IO_PORTAL;
+	ptlrpc_at_set_req_timeout(req);
+
+	body = req_capsule_client_get(&req->rq_pill, &RMF_OST_BODY);
+	lustre_set_wire_obdo(&req->rq_import->imp_connect_data, &body->oa,
+			     oinfo->oi_oa);
+	osc_pack_capa(req, body, oinfo->oi_capa);
+
+	req_ladvise_hdr = req_capsule_client_get(&req->rq_pill,
+						 &RMF_OST_LADVISE_HDR);
+	memcpy(req_ladvise_hdr, ladvise_hdr, sizeof(*ladvise_hdr));
+
+	req_ladvise = req_capsule_client_get(&req->rq_pill, &RMF_OST_LADVISE);
+	memcpy(req_ladvise, ladvise, sizeof(*ladvise) * num_advise);
+	ptlrpc_request_set_replen(req);
+
+	req->rq_interpret_reply = osc_ladvise_interpret;
+	CLASSERT(sizeof(*la) <= sizeof(req->rq_async_args));
+	la = ptlrpc_req_async_args(req);
+	la->la_oi = oinfo;
+	la->la_upcall = upcall;
+	la->la_cookie = cookie;
+
+	if (rqset == PTLRPCD_SET)
+		ptlrpcd_add_req(req, PDL_POLICY_ROUND, -1);
+	else
+		ptlrpc_set_add_req(rqset, req);
+
+	RETURN(0);
 }
 
 static int osc_create(const struct lu_env *env, struct obd_export *exp,

@@ -109,6 +109,8 @@
 #define lustre_swab_lmv_user_md NULL
 #define lustre_swab_lfsck_request NULL
 #define lustre_swab_lfsck_reply NULL
+#define lustre_swab_ladvise_hdr NULL
+#define lustre_swab_ladvise NULL
 
 /*
  * Yes, include .c file.
