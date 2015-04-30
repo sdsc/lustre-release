@@ -435,17 +435,6 @@ struct cl_object_operations {
 			  struct ll_fiemap_info_key *fmkey,
 			  struct fiemap *fiemap, size_t *buflen);
 	/**
-	 * Get attributes of the object from server. (top->bottom)
-	 */
-	int (*coo_obd_info_get)(const struct lu_env *env, struct cl_object *obj,
-				struct obd_info *oinfo,
-				struct ptlrpc_request_set *set);
-	/**
-	 * Get data version of the object. (top->bottom)
-	 */
-	int (*coo_data_version)(const struct lu_env *env, struct cl_object *obj,
-				__u64 *version, int flags);
-	/**
 	 * Get layout and generation of the object.
 	 */
 	int (*coo_layout_get)(const struct lu_env *env, struct cl_object *obj,
@@ -1414,6 +1403,8 @@ enum cl_io_type {
         CIT_WRITE,
         /** truncate, utime system calls */
         CIT_SETATTR,
+	/** get data version */
+	CIT_DATA_VERSION,
         /**
          * page fault handling
          */
@@ -1816,6 +1807,10 @@ struct cl_io {
 			const struct lu_fid	*sa_parent_fid;
 			struct obd_capa		*sa_capa;
 		} ci_setattr;
+		struct cl_data_version_io {
+			u64 dv_data_version;
+			int dv_flags;
+		} ci_data_version;
                 struct cl_fault_io {
                         /** page index within file. */
                         pgoff_t         ft_index;
@@ -2225,11 +2220,6 @@ int cl_object_find_cbdata(const struct lu_env *env, struct cl_object *obj,
 int cl_object_fiemap(const struct lu_env *env, struct cl_object *obj,
 		     struct ll_fiemap_info_key *fmkey, struct fiemap *fiemap,
 		     size_t *buflen);
-int cl_object_obd_info_get(const struct lu_env *env, struct cl_object *obj,
-			   struct obd_info *oinfo,
-			   struct ptlrpc_request_set *set);
-int cl_object_data_version(const struct lu_env *env, struct cl_object *obj,
-			   __u64 *version, int flags);
 int cl_object_layout_get(const struct lu_env *env, struct cl_object *obj,
 			 struct cl_layout *cl);
 
