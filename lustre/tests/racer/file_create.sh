@@ -9,7 +9,7 @@ OSTCOUNT=${OSTCOUNT:-$($LFS df $DIR 2> /dev/null | grep -c OST)}
 while /bin/true; do
 	file=$((RANDOM % MAX))
 	# $RANDOM is between 0 and 32767, and we want $blockcount in 64kB units
-	blockcount=$((RANDOM * MAX_MB / 32 / 64))
+	blockcount=$((RANDOM % 4))
 	stripecount=$((RANDOM % (OSTCOUNT + 1)))
 	[ $OSTCOUNT -gt 0 ] &&
 		$LFS setstripe -c $stripecount $DIR/$file 2> /dev/null
