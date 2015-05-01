@@ -781,11 +781,13 @@ out_los:
 	if (rc < 0) {
 		local_oid_storage_fini(env, cli->cl_mgc_los);
 		cli->cl_mgc_los = NULL;
-		mutex_unlock(&cli->cl_mgc_mutex);
 	}
 out_env:
 	lu_env_fini(env);
 out_err:
+	if (rc < 0)
+		mutex_unlock(&cli->cl_mgc_mutex);
+
 	OBD_FREE_PTR(env);
 	return rc;
 }
