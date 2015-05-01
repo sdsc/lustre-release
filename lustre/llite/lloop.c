@@ -188,7 +188,7 @@ static int do_bio_lustrebacked(struct lloop_device *lo, struct bio *head)
 {
         const struct lu_env  *env   = lo->lo_env;
         struct cl_io         *io    = &lo->lo_io;
-        struct inode         *inode = lo->lo_backing_file->f_dentry->d_inode;
+	struct inode         *inode = lo->lo_backing_file->f_path.dentry->d_inode;
         struct cl_object     *obj = ll_i2info(inode)->lli_clob;
         pgoff_t               offset;
         int                   ret;
@@ -673,7 +673,7 @@ static int lo_ioctl(struct block_device *bdev, fmode_t mode,
 			break;
 		}
                 if (inode == NULL)
-                        inode = lo->lo_backing_file->f_dentry->d_inode;
+			inode = lo->lo_backing_file->f_path.dentry->d_inode;
                 if (lo->lo_state == LLOOP_BOUND)
                         fid = ll_i2info(inode)->lli_fid;
                 else
@@ -738,8 +738,8 @@ static enum llioc_iter lloop_ioctl(struct inode *unused, struct file *file,
                                         lo_free = lo;
                                 continue;
                         }
-                        if (lo->lo_backing_file->f_dentry->d_inode ==
-                            file->f_dentry->d_inode)
+			if (lo->lo_backing_file->f_path.dentry->d_inode ==
+			    file->f_path.dentry->d_inode)
                                 break;
                 }
                 if (lo || !lo_free)
