@@ -1969,6 +1969,15 @@ int obd_set_max_rpcs_in_flight(struct client_obd *cli, __u32 max)
 	if (max > OBD_MAX_RIF_MAX || max < 1)
 		return -ERANGE;
 
+	/* cannot be lower or equal to max_mod_rpcs_in_flight */
+	if (max <= cli->cl_max_mod_rpcs_in_flight) {
+		CERROR("%s: can't set max_rpcs_in_flight to a value (%u) "
+		       "lower or equal to max_mod_rpcs_in_flight value (%hu)\n",
+		       cli->cl_import->imp_obd->obd_name,
+		       max, cli->cl_max_mod_rpcs_in_flight);
+		return -ERANGE;
+	}
+
 	spin_lock(&cli->cl_loi_list_lock);
 	old = cli->cl_max_rpcs_in_flight;
 	cli->cl_max_rpcs_in_flight = max;
@@ -1990,3 +1999,179 @@ int obd_set_max_rpcs_in_flight(struct client_obd *cli, __u32 max)
 	return 0;
 }
 EXPORT_SYMBOL(obd_set_max_rpcs_in_flight);
+
+__u16 obd_get_max_mod_rpcs_in_flight(struct client_obd *cli)
+{
+	return cli->cl_max_mod_rpcs_in_flight;
+}
+EXPORT_SYMBOL(obd_get_max_mod_rpcs_in_flight);
+
+int obd_set_max_mod_rpcs_in_flight(struct client_obd *cli, __u16 max)
+{
+	struct obd_connect_data	*ocd;
+	__u16 maxmodrpcs;
+	__u16 prev;
+
+	if (max > OBD_MAX_RIF_MAX || max < 1)
+		return -ERANGE;
+
+	/* cannot exceed or equal max_rpcs_in_flight */
+	if (max >= cli->cl_max_rpcs_in_flight) {
+		CERROR("%s: can't set max_mod_rpcs_in_flight to a value (%hu) "
+		       "higher or equal to max_rpcs_in_flight value (%u)\n",
+		       cli->cl_import->imp_obd->obd_name,
+		       max, cli->cl_max_rpcs_in_flight);
+		return -ERANGE;
+	}
+
+	/* cannot exceed max modify RPCs in flight supported by the server */
+	ocd = &cli->cl_import->imp_connect_data;
+	if (ocd->ocd_connect_flags & OBD_CONNECT_MULTIMODRPCS)
+		maxmodrpcs = ocd->ocd_maxmodrpcs;
+	else
+		maxmodrpcs = 1;
+	if (max > maxmodrpcs) {
+		CERROR("%s: can't set max_mod_rpcs_in_flight to a value (%hu) "
+		       "higher than max_mod_rpcs_per_client value (%hu) "
+		       "returned by the server at connection\n",
+		       cli->cl_import->imp_obd->obd_name,
+		       max, maxmodrpcs);
+		return -ERANGE;
+	}
+
+	spin_lock(&cli->cl_mod_rpcs_lock);
+
+	prev = cli->cl_max_mod_rpcs_in_flight;
+	cli->cl_max_mod_rpcs_in_flight = max;
+
+	/* wakeup waiters if limit has been increased */
+	if (cli->cl_max_mod_rpcs_in_flight > prev)
+		wake_up(&cli->cl_mod_rpcs_waitq);
+
+	spin_unlock(&cli->cl_mod_rpcs_lock);
+
+	return 0;
+}
+EXPORT_SYMBOL(obd_set_max_mod_rpcs_in_flight);
+
+
+/* The number of modify RPCs sent in parallel is limited
+ * because the server has a finite number of slots per client to
+ * store request result and ensure reply reconstruction when needed.
+ * On the client, this limit is stored in cl_max_mod_rpcs_in_flight
+ * that takes into account server limit and cl_max_rpcs_in_flight
+ * value.
+ * On the MDC client, to avoid a potential deadlock (see Bugzilla 3462),
+ * one close request is allowed above the maximum.
+ */
+static inline bool obd_mod_rpc_slot_avail(struct client_obd *cli,
+					  bool close_req, bool has_lock)
+{
+	bool avail;
+
+	if (!has_lock)
+		spin_lock(&cli->cl_mod_rpcs_lock);
+
+	/* A slot is available if
+	 * - number of modify RPCs in flight is less than the max
+	 * - it's a close RPC and no other close request is in flight
+	 */
+	avail = cli->cl_mod_rpcs_in_flight < cli->cl_max_mod_rpcs_in_flight ||
+		(close_req && cli->cl_close_rpcs_in_flight == 0);
+
+	if (!has_lock)
+		spin_unlock(&cli->cl_mod_rpcs_lock);
+
+	return avail;
+}
+
+/* Get a modify RPC slot from the obd client @cli according
+ * to the kind of operation @opc that is going to be sent
+ * and the intent @it of the operation if it applies.
+ * If the maximum number of modify RPCs in flight is reached
+ * the thread is put to sleep.
+ * Returns the tag to be set in the request message. Tag 0
+ * is reserved for non-modifying requests.
+ */
+__u16 obd_get_mod_rpc_slot(struct client_obd *cli, __u32 opc,
+			   struct lookup_intent *it)
+{
+	struct l_wait_info	lwi = LWI_INTR(NULL, NULL);
+	bool			close_req = false;
+	__u16			i, max;
+
+	/* read-only metadata RPCs don't consume a slot on MDT
+	 * for reply reconstruction
+	 */
+	if (it != NULL && (it->it_op == IT_GETATTR || it->it_op == IT_LOOKUP ||
+			   it->it_op == IT_LAYOUT || it->it_op == IT_READDIR))
+		return 0;
+
+	if (opc == MDS_CLOSE)
+		close_req = true;
+
+	do {
+		spin_lock(&cli->cl_mod_rpcs_lock);
+		max = cli->cl_max_mod_rpcs_in_flight;
+		if (obd_mod_rpc_slot_avail(cli, close_req, true)) {
+			/* there is a slot available */
+			cli->cl_mod_rpcs_in_flight++;
+			if (close_req)
+				cli->cl_close_rpcs_in_flight++;
+			lprocfs_oh_tally(&cli->cl_mod_rpcs_hist,
+					 cli->cl_mod_rpcs_in_flight);
+			/* find a free tag */
+			i = find_first_zero_bit(cli->cl_mod_tag_bitmap,
+						max + 1);
+			LASSERT(i < OBD_MAX_RIF_MAX);
+			LASSERT(test_and_set_bit(i, cli->cl_mod_tag_bitmap) == 0);
+			spin_unlock(&cli->cl_mod_rpcs_lock);
+			/* tag 0 is reserved for non-modify RPCs */
+			return i + 1;
+		}
+		spin_unlock(&cli->cl_mod_rpcs_lock);
+
+		CDEBUG(D_RPCTRACE, "%s: sleeping for a modify RPC slot "
+		       "opc %u, max %hu\n",
+		       cli->cl_import->imp_obd->obd_name, opc, max);
+
+		l_wait_event(cli->cl_mod_rpcs_waitq,
+			     obd_mod_rpc_slot_avail(cli, close_req, false),
+			     &lwi);
+	} while (true);
+}
+EXPORT_SYMBOL(obd_get_mod_rpc_slot);
+
+/* Put a modify RPC slot from the obd client @cli according
+ * to the kind of operation @opc that has been sent and the
+ * intent @it of the operation if it applies.
+ */
+void obd_put_mod_rpc_slot(struct client_obd *cli, __u32 opc,
+			  struct lookup_intent *it, __u16 tag)
+{
+	bool			close_req = false;
+
+	if (it != NULL && (it->it_op == IT_GETATTR || it->it_op == IT_LOOKUP ||
+			   it->it_op == IT_LAYOUT || it->it_op == IT_READDIR))
+		return;
+
+	if (opc == MDS_CLOSE)
+		close_req = true;
+
+	spin_lock(&cli->cl_mod_rpcs_lock);
+	cli->cl_mod_rpcs_in_flight--;
+	if (close_req)
+		cli->cl_close_rpcs_in_flight--;
+	/* release the tag in the bitmap */
+	LASSERT(tag - 1 < OBD_MAX_RIF_MAX);
+	if (test_and_clear_bit(tag - 1, cli->cl_mod_tag_bitmap) == 0) {
+		CERROR("%s: tag %hu was not set in modify RPC tag bitmap "
+		       "(opc=%u). RPC message may have been corrupted\n",
+		       cli->cl_import->imp_obd->obd_name, tag, opc);
+	}
+
+	spin_unlock(&cli->cl_mod_rpcs_lock);
+	wake_up(&cli->cl_mod_rpcs_waitq);
+}
+EXPORT_SYMBOL(obd_put_mod_rpc_slot);
+
