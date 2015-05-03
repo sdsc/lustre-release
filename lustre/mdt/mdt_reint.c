@@ -518,6 +518,7 @@ static int mdt_attr_set(struct mdt_thread_info *info, struct mdt_object *mo,
 	struct ldlm_enqueue_info *einfo = &info->mti_einfo;
 	struct mdt_lock_handle  *s0_lh;
 	struct mdt_object	*s0_obj = NULL;
+	bool			lock_slaves = false;
 	int rc;
 	ENTRY;
 
@@ -535,11 +536,19 @@ static int mdt_attr_set(struct mdt_thread_info *info, struct mdt_object *mo,
         if (rc != 0)
                 RETURN(rc);
 
-	s0_lh = &info->mti_lh[MDT_LH_LOCAL];
-	mdt_lock_reg_init(s0_lh, LCK_PW);
-	rc = mdt_lock_slaves(info, mo, LCK_PW, lockpart, s0_lh, &s0_obj, einfo);
-	if (rc != 0)
-		GOTO(out_unlock, rc);
+	/* Only certain attributes will be set to all stripes, for other
+	 * attributes, it will only be set to the master object, so we
+	 * do not need lock stripes */
+	if ((ma->ma_attr.la_valid & (LA_UID | LA_GID | LA_MODE | LA_ATIME |
+				     LA_MTIME | LA_CTIME | LA_FLAGS))) {
+		lock_slaves = true;
+		s0_lh = &info->mti_lh[MDT_LH_LOCAL];
+		mdt_lock_reg_init(s0_lh, LCK_PW);
+		rc = mdt_lock_slaves(info, mo, LCK_PW, lockpart, s0_lh, &s0_obj,
+				     einfo);
+		if (rc != 0)
+			GOTO(out_unlock, rc);
+	}
 
         /* all attrs are packed into mti_attr in unpack_setattr */
         mdt_fail_write(info->mti_env, info->mti_mdt->mdt_bottom,
@@ -573,7 +582,8 @@ static int mdt_attr_set(struct mdt_thread_info *info, struct mdt_object *mo,
 
         EXIT;
 out_unlock:
-	mdt_unlock_slaves(info, mo, lockpart, s0_lh, s0_obj, einfo);
+	if (lock_slaves)
+		mdt_unlock_slaves(info, mo, lockpart, s0_lh, s0_obj, einfo);
         mdt_object_unlock(info, mo, lh, rc);
         return rc;
 }
