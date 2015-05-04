@@ -120,16 +120,11 @@ scrub_prep() {
 	echo "preparing... $(date)"
 	for n in $(seq $MDSCOUNT); do
 		echo "creating $nfiles files on mds$n"
-		if [ $n -eq 1 ]; then
-			mkdir $DIR/$tdir/mds$n ||
-				error "Failed to create directory mds$n"
-		else
-			$LFS mkdir -i $((n - 1)) $DIR/$tdir/mds$n ||
-				error "Failed to create remote directory mds$n"
-		fi
+		$LFS mkdir -i $((n - 1)) $DIR/$tdir/mds$n ||
+			error "Failed to create remote directory mds$n"
 		cp $LUSTRE/tests/*.sh $DIR/$tdir/mds$n ||
 			error "Failed to copy files to mds$n"
-		mkdir -p $DIR/$tdir/mds$n/d_$tfile ||
+		mkdir $DIR/$tdir/mds$n/d_$tfile ||
 			error "mkdir failed on mds$n"
 		createmany -m $DIR/$tdir/mds$n/d_$tfile/f 2 > \
 			/dev/null || error "create failed on mds$n"
@@ -332,7 +327,7 @@ test_1a() {
 	#define OBD_FAIL_OSD_FID_MAPPING			0x193
 	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x193
 	# update .lustre OI mapping
-	touch $MOUNT/.lustre
+	touch $MOUNT/.lustre || error "touch $MOUNT/.lustre failed"
 	do_facet $SINGLEMDS $LCTL set_param fail_loc=0
 	umount_client $MOUNT || error "(5) Fail to stop client!"
 
@@ -423,7 +418,7 @@ test_4a() {
 	local -a updated0
 	for n in $(seq $MDSCOUNT); do
 		updated0[$n]=$(scrub_status $n |
-			       awk '/^sf_items_updated_prior/ { print $2 }')
+			       awk '/^prior_updated/ { print $2 }')
 	done
 
 	scrub_check_data2 sanity-scrub.sh 9
@@ -432,7 +427,7 @@ test_4a() {
 	local -a updated1
 	for n in $(seq $MDSCOUNT); do
 		updated1[$n]=$(scrub_status $n |
-			       awk '/^sf_items_updated_prior/ { print $2 }')
+			       awk '/^prior_updated/ { print $2 }')
 		[ ${updated0[$n]} -eq ${updated1[$n]} ] ||
 			error "(10) NOT auto trigger full scrub as expected"
 	done
@@ -458,7 +453,7 @@ test_4b() {
 	local -a updated0
 	for n in $(seq $MDSCOUNT); do
 		updated0[$n]=$(scrub_status $n |
-			       awk '/^sf_items_updated_prior/ { print $2 }')
+			       awk '/^prior_updated/ { print $2 }')
 	done
 
 	scrub_check_data2 sanity-scrub.sh 9
@@ -470,7 +465,7 @@ test_4b() {
 	local -a updated1
 	for n in $(seq $MDSCOUNT); do
 		updated1[$n]=$(scrub_status $n |
-			       awk '/^sf_items_updated_prior/ { print $2 }')
+			       awk '/^prior_updated/ { print $2 }')
 		[ ${updated0[$n]} -lt ${updated1[$n]} ] ||
 			error "(12) Auto trigger full scrub unexpectedly"
 	done
@@ -486,7 +481,7 @@ test_4b() {
 
 	for n in $(seq $MDSCOUNT); do
 		updated0[$n]=$(scrub_status $n |
-			       awk '/^sf_items_updated_prior/ { print $2 }')
+			       awk '/^prior_updated/ { print $2 }')
 		[ ${updated0[$n]} -gt ${updated1[$n]} ] ||
 			error "(16) Auto trigger full scrub unexpectedly"
 	done
@@ -498,7 +493,7 @@ test_4b() {
 
 	for n in $(seq $MDSCOUNT); do
 		updated1[$n]=$(scrub_status $n |
-			       awk '/^sf_items_updated_prior/ { print $2 }')
+			       awk '/^prior_updated/ { print $2 }')
 		[ ${updated0[$n]} -eq ${updated1[$n]} ] ||
 			error "(18) NOT auto trigger full scrub as expected"
 	done
@@ -524,7 +519,7 @@ test_4c() {
 	local -a updated0
 	for n in $(seq $MDSCOUNT); do
 		updated0[$n]=$(scrub_status $n |
-			       awk '/^sf_items_updated_prior/ { print $2 }')
+			       awk '/^prior_updated/ { print $2 }')
 	done
 
 	scrub_check_data2 sanity-scrub.sh 9
@@ -536,7 +531,7 @@ test_4c() {
 	local -a updated1
 	for n in $(seq $MDSCOUNT); do
 		updated1[$n]=$(scrub_status $n |
-			       awk '/^sf_items_updated_prior/ { print $2 }')
+			       awk '/^prior_updated/ { print $2 }')
 		[ ${updated0[$n]} -lt ${updated1[$n]} ] ||
 			error "(12) Auto trigger full scrub unexpectedly"
 	done
@@ -552,7 +547,7 @@ test_4c() {
 
 	for n in $(seq $MDSCOUNT); do
 		updated0[$n]=$(scrub_status $n |
-			       awk '/^sf_items_updated_prior/ { print $2 }')
+			       awk '/^prior_updated/ { print $2 }')
 		[ ${updated0[$n]} -gt ${updated1[$n]} ] ||
 			error "(16) Auto trigger full scrub unexpectedly"
 	done
@@ -564,7 +559,7 @@ test_4c() {
 
 	for n in $(seq $MDSCOUNT); do
 		updated1[$n]=$(scrub_status $n |
-			       awk '/^sf_items_updated_prior/ { print $2 }')
+			       awk '/^prior_updated/ { print $2 }')
 		[ ${updated0[$n]} -eq ${updated1[$n]} ] ||
 			error "(18) NOT auto trigger full scrub as expected"
 	done
@@ -816,7 +811,7 @@ test_9() {
 		(RUN_TIME1 + TIME_DIFF)) / RUN_TIME1 * 12 / 10))
 	local n
 	for n in $(seq $MDSCOUNT); do
-		local SPEED=$(scrub_status $n | \
+		local SPEED=$(scrub_status $n |
 			awk '/^average_speed/ { print $2 }')
 		[ $SPEED -lt $MAX_SPEED ] ||
 			error "(10) Got speed $SPEED, expected less than" \
@@ -862,7 +857,7 @@ run_test 9 "OI scrub speed control"
 test_10a() {
 	scrub_prep 0
 	scrub_backup_restore 1
-	echo "starting mds$n with OI scrub disabled"
+	echo "starting MDTs with OI scrub disabled"
 	scrub_start_mds 2 "$MOUNT_OPTS_NOSCRUB"
 	scrub_check_flags 4 inconsistent
 	mount_client $MOUNT || error "(5) Fail to start client!"
@@ -977,13 +972,14 @@ run_test 11 "OI scrub skips the new created objects only once"
 
 test_12() {
 	check_mount_and_prep
-	$SETSTRIPE -c 1 -i 0 $DIR/$tdir
+	$SETSTRIPE -c 1 -i 0 $DIR/$tdir || error "setstripe failed"
 
 	#define OBD_FAIL_OSD_COMPAT_INVALID_ENTRY		0x195
 	do_facet ost1 $LCTL set_param fail_loc=0x195
 	local count=$(precreated_ost_obj_count 0 0)
 
-	createmany -o $DIR/$tdir/f $((count + 32))
+	createmany -o $DIR/$tdir/f $((count + 32)) ||
+			error "Fail to create under $DIR/$tdir"
 	umount_client $MOUNT || error "(1) Fail to stop client!"
 
 	stop ost1 || error "(2) Fail to stop ost1"
@@ -1015,13 +1011,14 @@ run_test 12 "OI scrub can rebuild invalid /O entries"
 
 test_13() {
 	check_mount_and_prep
-	$SETSTRIPE -c 1 -i 0 $DIR/$tdir
+	$SETSTRIPE -c 1 -i 0 $DIR/$tdir || error "setstripe failed"
 
 	#define OBD_FAIL_OSD_COMPAT_NO_ENTRY		0x196
 	do_facet ost1 $LCTL set_param fail_loc=0x196
 	local count=$(precreated_ost_obj_count 0 0)
 
-	createmany -o $DIR/$tdir/f $((count + 32))
+	createmany -o $DIR/$tdir/f $((count + 32)) ||
+			error "Fail to create under $DIR/$tdir"
 	do_facet ost1 $LCTL set_param fail_loc=0
 
 	umount_client $MOUNT || error "(1) Fail to stop client!"
@@ -1048,13 +1045,14 @@ run_test 13 "OI scrub can rebuild missed /O entries"
 
 test_14() {
 	check_mount_and_prep
-	$SETSTRIPE -c 1 -i 0 $DIR/$tdir
+	$SETSTRIPE -c 1 -i 0 $DIR/$tdir || error "setstripe failed"
 
 	#define OBD_FAIL_OSD_COMPAT_NO_ENTRY		0x196
 	do_facet ost1 $LCTL set_param fail_loc=0x196
 	local count=$(precreated_ost_obj_count 0 0)
 
-	createmany -o $DIR/$tdir/f $((count + 32))
+	createmany -o $DIR/$tdir/f $((count + 32)) ||
+			error "Fail to create under $DIR/$tdir"
 	do_facet ost1 $LCTL set_param fail_loc=0
 
 	umount_client $MOUNT || error "(1) Fail to stop client!"
