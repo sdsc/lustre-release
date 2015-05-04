@@ -1621,6 +1621,23 @@ vfs_rename_6args, [
 ]) # LC_VFS_RENAME_6ARGS
 
 #
+# LC_HAVE_HLIST_ADD_BEHIND
+#
+# 3.17 renamed hlist_add_after to hlist_add_behind
+#
+AC_DEFUN([LC_HAVE_HLIST_ADD_BEHIND], [
+LB_CHECK_COMPILE([if 'hlist_add_behind' exist],
+hlist_add_behind, [
+	#include <linux/list.h>
+],[
+	hlist_add_behind(NULL, NULL);
+],[
+	AC_DEFINE(HAVE_HLIST_ADD_BEHIND, 1,
+		[hlist_add_behind exist])
+])
+]) # LC_HAVE_HLIST_ADD_BEHIND
+
+#
 # LC_PROG_LINUX
 #
 # Lustre linux kernel checks

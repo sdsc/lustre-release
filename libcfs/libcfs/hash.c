@@ -116,6 +116,10 @@ CFS_MODULE_PARM(warn_on_depth, "i", uint, 0644,
                 "warning when hash depth is high.");
 #endif
 
+#ifndef HAVE_HLIST_ADD_BEHIND
+#define hlist_add_behind(n, prev) hlist_add_after(prev, n)
+#endif
+
 struct cfs_wi_sched *cfs_sched_rehash;
 
 static inline void
