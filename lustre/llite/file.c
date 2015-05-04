@@ -86,23 +86,19 @@ static void ll_file_data_put(struct ll_file_data *fd)
                 OBD_SLAB_FREE_PTR(fd, ll_file_data_slab);
 }
 
-void ll_pack_inode2opdata(struct inode *inode, struct md_op_data *op_data,
-                          struct lustre_handle *fh)
+static void ll_pack_inode2opdata(struct inode *inode,
+				 struct md_op_data *op_data,
+				 struct lustre_handle *fh)
 {
-        op_data->op_fid1 = ll_i2info(inode)->lli_fid;
-        op_data->op_attr.ia_mode = inode->i_mode;
-        op_data->op_attr.ia_atime = inode->i_atime;
-        op_data->op_attr.ia_mtime = inode->i_mtime;
-        op_data->op_attr.ia_ctime = inode->i_ctime;
-        op_data->op_attr.ia_size = i_size_read(inode);
-        op_data->op_attr_blocks = inode->i_blocks;
+	op_data->op_attr.ia_mode = inode->i_mode;
+	op_data->op_attr.ia_atime = inode->i_atime;
+	op_data->op_attr.ia_mtime = inode->i_mtime;
+	op_data->op_attr.ia_ctime = inode->i_ctime;
+	op_data->op_attr.ia_size = i_size_read(inode);
+	op_data->op_attr_blocks = inode->i_blocks;
 	op_data->op_attr_flags = ll_inode_to_ext_flags(inode->i_flags);
-        if (fh)
-                op_data->op_handle = *fh;
-        op_data->op_capa1 = ll_mdscapa_get(inode);
-
-	if (LLIF_DATA_MODIFIED & ll_i2info(inode)->lli_flags)
-		op_data->op_bias |= MDS_DATA_MODIFIED;
+	if (fh != NULL)
+		op_data->op_handle = *fh;
 }
 
 /**
@@ -111,22 +107,23 @@ void ll_pack_inode2opdata(struct inode *inode, struct md_op_data *op_data,
 static void ll_prepare_close(struct inode *inode, struct md_op_data *op_data,
                              struct obd_client_handle *och)
 {
-        ENTRY;
+	ENTRY;
 
-	op_data->op_attr.ia_valid = ATTR_MODE | ATTR_ATIME | ATTR_ATIME_SET |
-					ATTR_MTIME | ATTR_MTIME_SET |
-					ATTR_CTIME | ATTR_CTIME_SET;
+	ll_prep_md_op_data(op_data, inode, NULL, NULL,
+			   0, 0, LUSTRE_OPC_ANY, NULL);
 
-        if (!(och->och_flags & FMODE_WRITE))
-                goto out;
+	ll_pack_inode2opdata(inode, op_data, &och->och_fh);
+	op_data->op_attr.ia_valid |= ATTR_MODE | ATTR_ATIME | ATTR_ATIME_SET |
+				     ATTR_MTIME | ATTR_MTIME_SET |
+				     ATTR_CTIME | ATTR_CTIME_SET;
 
-	op_data->op_attr.ia_valid |= ATTR_SIZE | ATTR_BLOCKS;
+	if (och->och_flags & FMODE_WRITE &&
+	    ll_file_test_and_clear_flag(ll_i2info(inode), LLIF_DATA_MODIFIED))
+		/* For HSM: if inode data has been modified, pack it so that
+		 * MDT can set data dirty flag in the archive. */
+		op_data->op_bias |= MDS_DATA_MODIFIED;
 
-out:
-        ll_pack_inode2opdata(inode, op_data, &och->och_fh);
-        ll_prep_md_op_data(op_data, inode, NULL, NULL,
-                           0, 0, LUSTRE_OPC_ANY, NULL);
-        EXIT;
+	EXIT;
 }
 
 static int ll_close_inode_openhandle(struct obd_export *md_exp,
@@ -169,16 +166,6 @@ static int ll_close_inode_openhandle(struct obd_export *md_exp,
 		CERROR("%s: inode "DFID" mdc close failed: rc = %d\n",
 		       ll_i2mdexp(inode)->exp_obd->obd_name,
 		       PFID(ll_inode2fid(inode)), rc);
-	}
-
-	/* DATA_MODIFIED flag was successfully sent on close, cancel data
-	 * modification flag. */
-	if (rc == 0 && (op_data->op_bias & MDS_DATA_MODIFIED)) {
-		struct ll_inode_info *lli = ll_i2info(inode);
-
-		spin_lock(&lli->lli_lock);
-		lli->lli_flags &= ~LLIF_DATA_MODIFIED;
-		spin_unlock(&lli->lli_lock);
 	}
 
 	if (rc == 0 && op_data->op_bias & MDS_HSM_RELEASE) {
@@ -3174,7 +3161,7 @@ ll_inode_revalidate(struct dentry *dentry, __u64 ibits)
 		 * restore the MDT holds the layout lock so the glimpse will
 		 * block up to the end of restore (getattr will block)
 		 */
-		if (!(ll_i2info(inode)->lli_flags & LLIF_FILE_RESTORING))
+		if (!ll_file_test_flag(ll_i2info(inode), LLIF_FILE_RESTORING))
 			rc = ll_glimpse_size(inode);
 	}
 	RETURN(rc);
