@@ -74,7 +74,7 @@ init_agt_vars() {
 	fi
 
 	for n in $(seq $AGTCOUNT); do
-		eval export AGTDEV$n=\$\{AGTDEV$n:-"$SHARED_DIRECTORY/arc$n"\}
+		eval export AGTDEV$n=\$\{AGTDEV$n:-"$TMP/arc$n"\}
 		agent=CLIENT$((n + 1))
 		if [[ -z "${!agent}" ]]; then
 			[[ $CLIENTCOUNT -eq 1 ]] && agent=CLIENT1 ||
@@ -83,6 +83,7 @@ init_agt_vars() {
 		eval export agt${n}_HOST=\$\{agt${n}_HOST:-${!agent}\}
 	done
 
+	echo "AGTDEV1 = ${AGTDEV1}"
 	export SINGLEAGT=${SINGLEAGT:-agt1}
 
 	export HSMTOOL=${HSMTOOL:-"lhsmtool_posix"}
