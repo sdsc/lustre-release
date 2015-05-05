@@ -46,7 +46,7 @@
 
 /*
  *  include our .h file
- */ 
+ */
 
 #include <sys/types.h>
 #include <sys/vfs.h>
@@ -70,17 +70,17 @@
  * Trap OIDS
  *************************************************************************/
 
-static oid objid_snmptrap[] =                       
+static oid objid_snmptrap[] =
     { 1,3,6,1,6,3,1,1,4,1,0};
-static oid lustre_portals_trap[] = 
+static oid lustre_portals_trap[] =
     { 1,3,6,1,4,1,13140,2,1,0,1};
-static oid lustre_portals_trap_string[]= 
+static oid lustre_portals_trap_string[]=
     { 1,3,6,1,4,1,13140,2,1,0,2};
-static oid lustre_unhealthy_trap[] = 
+static oid lustre_unhealthy_trap[] =
     { 1,3,6,1,4,1,13140,2,1,0,3};
-static oid lustre_unhealthy_trap_device_name_string[]= 
+static oid lustre_unhealthy_trap_device_name_string[]=
     { 1,3,6,1,4,1,13140,2,1,0,4};
-static oid lustre_unhealthy_trap_reason_string[]= 
+static oid lustre_unhealthy_trap_reason_string[]=
     { 1,3,6,1,4,1,13140,2,1,0,5};
 
 /**************************************************************************
@@ -90,13 +90,13 @@ static oid lustre_unhealthy_trap_reason_string[]=
 typedef struct obd_unhealthy_entry_struct{
 
     /*1-if seen as part of the the is_unhealthy scan, otherwise 0*/
-    int seen;                         
+    int seen;
 
     /*single linked list pointer*/
-    struct obd_unhealthy_entry_struct *next; 
+    struct obd_unhealthy_entry_struct *next;
 
     /*obdname - variable size*/
-    char name[0];                     
+    char name[0];
 
 }obd_unhealthy_entry;
 
@@ -132,7 +132,7 @@ static char *g_health_check_test_file = 0;
  * Output:  Global g_poll_interval_seconds is set.
  *
  ****************************************************************************/
- 
+
 void initilize_trap_handler(void)
 {
     g_poll_interval_seconds = get_poll_interval_seconds();
@@ -141,10 +141,10 @@ void initilize_trap_handler(void)
     if (g_registration_handle == 0)
         report("%s %s: line %d %s", __FILE__, __FUNCTION__, __LINE__,
             "snmp_alarm_register failed");
-            
+
     DEBUGMSGTL(("lsnmpd","lsnmp alarm registered poll interval = %d seconds\n",g_poll_interval_seconds));
-    
-    g_health_check_test_file = getenv(SNMP_HEALTH_CHECK_TEST_FILE);    
+
+    g_health_check_test_file = getenv(SNMP_HEALTH_CHECK_TEST_FILE);
     if(g_health_check_test_file != 0)
         DEBUGMSGTL(("lsnmpd","lsnmp health check test file set to  \'%s\'\n",g_health_check_test_file));
 }
@@ -168,7 +168,7 @@ void terminate_trap_handler(void)
 /*****************************************************************************
  * Function: get_poll_interval_seconds
  *
- * Description: This function used to get the poll period for timer, which 
+ * Description: This function used to get the poll period for timer, which
  *              is used to read throughput values periodically.
  * Input:   void
  * Output:  Alarm period, default value(if env var not set) otherwise.
@@ -226,92 +226,94 @@ void health_poll_worker(unsigned int registration_number, void *clientarg)
  * Input:  'None
  * Output: void
  *****************************************************************************/
- 
- void health_entry_parser(void)
+void health_entry_parser(void)
 {
-    FILE    *fptr = NULL;
-    char string[MAX_LINE_SIZE];
-    int b_seen_portals_catastrophe = 0;
-    const char *filename =  g_health_check_test_file == 0 ? 
-            LUSTRE_PATH FILENAME_SYSHEALTHCHECK : 
-            g_health_check_test_file;
-    
-    /*DEBUGMSGTL(("lsnmpd","health_entry_parser(%s)\n",filename));*/
+	FILE *fptr = NULL;
+	char string[MAX_LINE_SIZE];
+	int b_seen_portals_catastrophe = 0;
+	char *filename;
+	char path[PATH_MAX];
 
-    /* Open the file.  Use the test file env variable if
-       there is one */    
-    fptr = fopen(filename,"r");
-        
-    /* If the path is not found do nothing */
-    if( NULL == fptr)
-        return;
-       
-    while( NULL != fgets(string, sizeof(string), fptr)){
-        
-        /*DEBUGMSGTL(("lsnmpd","health_entry_parser() looking at = \'%s\'\n",string));*/
-       
-        /*
-         * First handle the portals catastrophe 
-         * Look for the string "LBUG"
-         */
-        if(0 == strncmp(string,"LBUG",4)){
-            /*
-             * If we haven't sent the catastrophe message yet
-             * send it now.  And keep track that we've sent it
-             */
-            if(!g_sent_portals_catastrophe){
-                send_portals_catastrophe_trap("LBUG");
-                g_sent_portals_catastrophe = 1;
-            }
-            b_seen_portals_catastrophe = 1;
-        }
-            
-        /*
-         * Now handle any of the OBD object failures
-         * look for "device <OBDNAME> reported unhealthy"
-         */
-        else if(0 == strncmp(string,"device ",7)){
-            char *obd_name = string+7;
-            char *space_after_obd_name;
-            
-            /*
-             * Now find the space after the obd name
-             * Again if there is no space we're in trouble
-             */
-            space_after_obd_name = strchr(obd_name,' ');
-            if(space_after_obd_name == 0)
-                break;
+	if (cfs_get_procpath(path, sizeof(path), "lustre/health_check"))
+		return;
 
-            /*
-             * Null terminate the obd_name
-             */
-            *space_after_obd_name = 0;
-            
-            DEBUGMSGTL(("lsnmpd","Looking at obd=%s\n",obd_name));
+	filename = g_health_check_test_file == 0 ? path
+						 : g_health_check_test_file;
 
-            /*
-             * If we haven't sent a trap for this one
-             * then send it now
-             */
-            if(is_obd_newly_unhealthy(obd_name))
-                send_obd_unhealthy_trap(obd_name,"unhealthy");
-        }
-    }        
-    
-    /* If we don't find it reset the catastrope flag*/            
-    if(!b_seen_portals_catastrophe && g_sent_portals_catastrophe)
-    {
-        DEBUGMSGTL(("lsnmpd","LBUG has been cleared\n"));
-        g_sent_portals_catastrophe = 0;
-    }
-                
-    /*
-     *  Any <OBDNAMES> that weren't queried above are now unhealthy. 
-     * Scan through and cleanup the newly healthy obds
-     */
-    obd_unhealthy_scan();
-    
-    fclose(fptr);
+	/*DEBUGMSGTL(("lsnmpd","health_entry_parser(%s)\n",filename));*/
+
+	/* Open the file. Use the test file env variable if there is one */
+	fptr = fopen(filename, "r");
+
+	/* If the path is not found do nothing */
+	if(NULL == fptr)
+		return;
+
+	while (NULL != fgets(string, sizeof(string), fptr)) {
+
+		/*DEBUGMSGTL(("lsnmpd","health_entry_parser() looking at = \'%s\'\n",string));*/
+
+		/*
+		 * First handle the portals catastrophe
+		 * Look for the string "LBUG"
+		 */
+		if (0 == strncmp(string, "LBUG", 4)) {
+			/*
+			 * If we haven't sent the catastrophe message yet
+			 * send it now.  And keep track that we've sent it
+			 */
+			if (!g_sent_portals_catastrophe) {
+				send_portals_catastrophe_trap("LBUG");
+				g_sent_portals_catastrophe = 1;
+			}
+			b_seen_portals_catastrophe = 1;
+		}
+
+		/*
+		 * Now handle any of the OBD object failures
+		 * look for "device <OBDNAME> reported unhealthy"
+		 */
+		else if (0 == strncmp(string, "device ", 7)) {
+			char *obd_name = string + 7;
+			char *space_after_obd_name;
+
+			/*
+			 * Now find the space after the obd name
+			 * Again if there is no space we're in trouble
+			 */
+			space_after_obd_name = strchr(obd_name, ' ');
+			if(space_after_obd_name == 0)
+				break;
+
+			/*
+			 * Null terminate the obd_name
+			 */
+			*space_after_obd_name = 0;
+
+			DEBUGMSGTL(("lsnmpd","Looking at obd=%s\n", obd_name));
+
+			/*
+			 * If we haven't sent a trap for this one
+			 * then send it now
+			 */
+			if (is_obd_newly_unhealthy(obd_name))
+				send_obd_unhealthy_trap(obd_name, "unhealthy");
+		}
+	}
+
+	/* If we don't find it reset the catastrope flag*/
+	if (!b_seen_portals_catastrophe && g_sent_portals_catastrophe) {
+		DEBUGMSGTL(("lsnmpd","LBUG has been cleared\n"));
+		g_sent_portals_catastrophe = 0;
+	}
+
+	/*
+	 *  Any <OBDNAMES> that weren't queried above are now unhealthy.
+	 * Scan through and cleanup the newly healthy obds
+	 */
+	obd_unhealthy_scan();
+
+	fclose(fptr);
 }
 
 /*****************************************************************************
@@ -320,22 +322,22 @@ void health_poll_worker(unsigned int registration_number, void *clientarg)
  * Description: Send the SNMP V2 trap
  *
  * Input:  'reason_string' the reason for the catastrope.
- 
+
  * Output: none
  *****************************************************************************/
- 
+
 void send_portals_catastrophe_trap(char *reason_string)
 {
     /*
-     * Setup the trap variables.  
+     * Setup the trap variables.
      * It's a linked list of netsnmp_variable_list items.
      */
     netsnmp_variable_list var_trap[2];
 
     DEBUGMSGTL(("lsnmpd","Sending portals catastrophe trap reason=%s\n",reason_string));
 
-    /* 
-     * Setup the first variable in the trap data. 
+    /*
+     * Setup the first variable in the trap data.
      * Have it chain to another variable.
      */
     var_trap[0].next_variable = &var_trap[1];
@@ -349,8 +351,8 @@ void send_portals_catastrophe_trap(char *reason_string)
     var_trap[0].val.objid = lustre_portals_trap;
     var_trap[0].val_len = sizeof(lustre_portals_trap);
 
-    /* 
-     * Setup the second variable in the trap data. 
+    /*
+     * Setup the second variable in the trap data.
      * It is the last in the chain so set next to NULL
      */
     var_trap[1].next_variable = NULL;
@@ -379,19 +381,19 @@ void send_portals_catastrophe_trap(char *reason_string)
  *         'reason_string' the reason for the catastrope.
  * Output: none
  *****************************************************************************/
- 
+
 void send_obd_unhealthy_trap(char *obd_name,char *reason_string)
 {
     /*
-     * Setup the trap variables.  
+     * Setup the trap variables.
      * It's a linked list of netsnmp_variable_list items.
      */
     netsnmp_variable_list var_trap[3];
 
     DEBUGMSGTL(("lsnmpd","Sending OBD unhealthy trap obd=%s reason=%s\n",obd_name,reason_string));
 
-    /* 
-     * Setup the first variable in the trap data. 
+    /*
+     * Setup the first variable in the trap data.
      * Have it chain to another variable.
      */
     var_trap[0].next_variable = &var_trap[1];
@@ -405,8 +407,8 @@ void send_obd_unhealthy_trap(char *obd_name,char *reason_string)
     var_trap[0].val.objid = lustre_unhealthy_trap;
     var_trap[0].val_len = sizeof(lustre_unhealthy_trap);
 
-    /* 
-     * Setup the second variable in the trap data. 
+    /*
+     * Setup the second variable in the trap data.
      * Have it chain to another variable.
      */
     var_trap[1].next_variable = &var_trap[2];;
@@ -468,7 +470,7 @@ int is_obd_newly_unhealthy(const char* obd_name)
             /* Commented out because it was just to noisy!
              * DEBUGMSGTL(("lsnmpd","obd %s was already unhealthy\n",obd_name));
              */
-            
+
             /*Mark the entry as seen, and return that it was previously unhealthy*/
             walker->seen =1;
             return 0;
@@ -503,15 +505,15 @@ int is_obd_newly_unhealthy(const char* obd_name)
  * Function:  obd_unhealthy_scan
  *
  * Description: Deterime if any obd is going from unhealthy->healthy
- *              Any of the obds that weren't "seen" by the 
- *              is_obd_newly_unhealthy() pass are now health so 
+ *              Any of the obds that weren't "seen" by the
+ *              is_obd_newly_unhealthy() pass are now health so
  *              remove them from the lists
  *              Also clear all "seen" flags.
  *
  * Input:  None
  * Output: None
  *****************************************************************************/
- 
+
 void obd_unhealthy_scan(void)
 {
     /*fore all elements in g_obd_unhealthy_list*/
@@ -541,7 +543,7 @@ void obd_unhealthy_scan(void)
         }
 
         /*Mark all other entries as NOT seen for next pass through*/
-        else 
+        else
         {
             walker->seen = 0;
             /*Go onto the next entry*/
