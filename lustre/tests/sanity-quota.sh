@@ -6,15 +6,16 @@
 # Run test by setting NOSETUP=true when ltest has setup env for us
 set -e
 
-SRCDIR=`dirname $0`
+SRCDIR=$(dirname $0)
 export PATH=$PWD/$SRCDIR:$SRCDIR:$PWD/$SRCDIR/../utils:$PATH:/sbin
 
 ONLY=${ONLY:-"$*"}
+# Bug number for skipped test:
 ALWAYS_EXCEPT="$SANITY_QUOTA_EXCEPT"
 # UPDATE THE COMMENT ABOVE WITH BUG NUMBERS WHEN CHANGING ALWAYS_EXCEPT!
 
 [ "$ALWAYS_EXCEPT$EXCEPT" ] &&
-	echo "Skipping tests: `echo $ALWAYS_EXCEPT $EXCEPT`"
+	echo "Skipping tests: $ALWAYS_EXCEPT $EXCEPT"
 
 TMP=${TMP:-/tmp}
 
@@ -71,15 +72,13 @@ export QUOTA_AUTO=0
 
 check_and_setup_lustre
 
-LOVNAME=`lctl get_param -n llite.*.lov.common_name | tail -n 1`
-OSTCOUNT=`lctl get_param -n lov.$LOVNAME.numobd`
+LOVNAME=$(lctl get_param -n llite.*.lov.common_name | tail -n 1)
+OSTCOUNT=$(lctl get_param -n lov.$LOVNAME.numobd)
 
 SHOW_QUOTA_USER="$LFS quota -v -u $TSTUSR $DIR"
 SHOW_QUOTA_USERID="$LFS quota -v -u $TSTID $DIR"
-SHOW_QUOTA_USER2="$LFS quota -v -u $TSTUSR2 $DIR"
 SHOW_QUOTA_GROUP="$LFS quota -v -g $TSTUSR $DIR"
 SHOW_QUOTA_GROUPID="$LFS quota -v -g $TSTID $DIR"
-SHOW_QUOTA_GROUP2="$LFS quota -v -g $TSTUSR2 $DIR"
 SHOW_QUOTA_INFO_USER="$LFS quota -t -u $DIR"
 SHOW_QUOTA_INFO_GROUP="$LFS quota -t -g $DIR"
 
@@ -160,7 +159,6 @@ quota_log() {
 # get quota for a user or a group
 # usage: getquota -u|-g <username>|<groupname> global|<obd_uuid> \
 #		  bhardlimit|bsoftlimit|bgrace|ihardlimit|isoftlimit|igrace
-#
 getquota() {
 	local spec
 	local uuid
@@ -294,11 +292,10 @@ wait_ost_reint() {
 }
 
 setup_quota_test() {
-	rm -rf $DIR/$tdir
 	wait_delete_completed
 	echo "Creating test directory"
-	mkdir -p $DIR/$tdir
-	chmod 0777 $DIR/$tdir
+	mkdir $DIR/$tdir || return 1
+	chmod 0777 $DIR/$tdir || return 2
 	# always clear fail_loc in case of fail_loc isn't cleared
 	# properly when previous test failed
 	lustre_fail mds_ost 0
@@ -386,7 +383,7 @@ test_0() {
 	[ $free_space -le $((MB * 1024)) ] &&
 		skip "not enough space ${free_space} KB, " \
 			"required $((MB * 1024)) KB" && return
-	setup_quota_test
+	setup_quota_test || error "setup quota failed with $?"
 	trap cleanup_quota_test EXIT
 
 	set_ost_qtype "none" || error "disable ost quota failed"
@@ -407,7 +404,7 @@ test_1() {
 	local LIMIT=10  # 10M
 	local TESTFILE="$DIR/$tdir/$tfile-0"
 
-	setup_quota_test
+	setup_quota_test || error "setup quota failed with $?"
 	trap cleanup_quota_test EXIT
 
 	# enable ost quota
@@ -422,8 +419,8 @@ test_1() {
 	local USED=$(getquota -u $TSTUSR global curspace)
 	[ $USED -ne 0 ] && error "Used space($USED) for user $TSTUSR isn't 0."
 
-	$LFS setstripe $TESTFILE -c 1
-	chown $TSTUSR.$TSTUSR $TESTFILE
+	$SETSTRIPE $TESTFILE -c 1 || error "setstripe $TESTFILE failed"
+	chown $TSTUSR.$TSTUSR $TESTFILE || error "chown $TESTFILE failed"
 
 	log "Write..."
 	$RUNAS $DD of=$TESTFILE count=$((LIMIT/2)) ||
@@ -437,7 +434,7 @@ test_1() {
 		quota_error u $TSTUSR "user write success, but expect EDQUOT"
 
 	rm -f $TESTFILE
-	wait_delete_completed
+	wait_delete_completed || error "wait_delete_completed failed"
 	sync_all_data || true
 	USED=$(getquota -u $TSTUSR global curspace)
 	[ $USED -ne 0 ] && quota_error u $TSTUSR \
@@ -455,8 +452,8 @@ test_1() {
 	USED=$(getquota -g $TSTUSR global curspace)
 	[ $USED -ne 0 ] && error "Used space($USED) for group $TSTUSR isn't 0"
 
-	$LFS setstripe $TESTFILE -c 1
-	chown $TSTUSR.$TSTUSR $TESTFILE
+	$SETSTRIPE $TESTFILE -c 1 || error "setstripe $TESTFILE failed"
+	chown $TSTUSR.$TSTUSR $TESTFILE || error "chown $TESTFILE failed"
 
 	log "Write ..."
 	$RUNAS $DD of=$TESTFILE count=$((LIMIT/2)) ||
@@ -492,7 +489,7 @@ test_2() {
 		skip "not enough free inodes $FREE_INODES required $LIMIT" &&
 		return
 
-	setup_quota_test
+	setup_quota_test || error "setup quota failed with $?"
 	trap cleanup_quota_test EXIT
 
 	# enable mdt quota
@@ -508,14 +505,14 @@ test_2() {
 	[ $USED -ne 0 ] && error "Used inodes($USED) for user $TSTUSR isn't 0."
 
 	log "Create $LIMIT files ..."
-	$RUNAS createmany -m ${TESTFILE} $LIMIT || \
+	$RUNAS createmany -m ${TESTFILE} $LIMIT ||
 		quota_error u $TSTUSR "user create failure, but expect success"
 	log "Create out of file quota ..."
-	$RUNAS touch ${TESTFILE}_xxx && \
+	$RUNAS touch ${TESTFILE}_xxx &&
 		quota_error u $TSTUSR "user create success, but expect EDQUOT"
 
 	# cleanup
-	unlinkmany ${TESTFILE} $LIMIT
+	unlinkmany ${TESTFILE} $LIMIT || error "unlinkmany $TESTFILE failed"
 	rm -f ${TESTFILE}_xxx
 	wait_delete_completed
 
@@ -530,7 +527,7 @@ test_2() {
 	$LFS setquota -g $TSTUSR -b 0 -B 0 -i 0 -I $LIMIT $DIR ||
 		error "set group quota failed"
 
-        TESTFILE=$DIR/$tdir/$tfile-1
+	TESTFILE=$DIR/$tdir/$tfile-1
 	# make sure the system is clean
 	USED=$(getquota -g $TSTUSR global curinodes)
 	[ $USED -ne 0 ] && error "Used inodes($USED) for group $TSTUSR isn't 0."
@@ -539,11 +536,11 @@ test_2() {
 	$RUNAS createmany -m ${TESTFILE} $LIMIT ||
 		quota_error g $TSTUSR "group create failure, but expect success"
 	log "Create out of file quota ..."
-	$RUNAS touch ${TESTFILE}_xxx && \
+	$RUNAS touch ${TESTFILE}_xxx &&
 		quota_error g $TSTUSR "group create success, but expect EDQUOT"
 
 	# cleanup
-	unlinkmany ${TESTFILE} $LIMIT
+	unlinkmany ${TESTFILE} $LIMIT || error "unlinkmany $TESTFILE failed"
 	rm -f ${TESTFILE}_xxx
 	wait_delete_completed
 
@@ -565,7 +562,7 @@ test_block_soft() {
 	setup_quota_test
 	trap cleanup_quota_test EXIT
 
-	$LFS setstripe $TESTFILE -c 1 -i 0
+	$SETSTRIPE $TESTFILE -c 1 -i 0
 	chown $TSTUSR.$TSTUSR $TESTFILE
 
 	echo "Write up to soft limit"
@@ -622,7 +619,7 @@ test_block_soft() {
 	$SHOW_QUOTA_INFO_USER
 	$SHOW_QUOTA_INFO_GROUP
 
-	$LFS setstripe $TESTFILE -c 1 -i 0
+	$SETSTRIPE $TESTFILE -c 1 -i 0
 	chown $TSTUSR.$TSTUSR $TESTFILE
 
 	echo "Write ..."
@@ -788,7 +785,8 @@ test_4b() {
 	local GR_STR3="5s"
 	local GR_STR4="1w2d3h4m5s"
 	local GR_STR5="5c"
-	local GR_STR6="1111111111111111"
+	local GR_STR6="18446744073709551615"
+	local GR_STR7="-1"
 
 	wait_delete_completed
 
@@ -805,6 +803,8 @@ test_4b() {
 	echo "  Invalid grace strings test"
 	! $LFS setquota -t -u --block-grace $GR_STR4 --inode-grace $GR_STR5 $DIR
 	! $LFS setquota -t -g --block-grace $GR_STR4 --inode-grace $GR_STR6 $DIR
+	! $LFS setquota -t -g --block-grace $GR_STR4 --inode-grace \
+		$GR_STR7 $DIR
 
 	# cleanup
 	$LFS setquota -t -u --block-grace $MAX_DQ_TIME --inode-grace \
@@ -819,7 +819,7 @@ test_5() {
 	local BLIMIT=10 # 10M
 	local ILIMIT=10 # 10 inodes
 
-	setup_quota_test
+	setup_quota_test || error "setup quota failed with $?"
 	trap cleanup_quota_test EXIT
 
 	set_mdt_qtype "ug" || error "enable mdt quota failed"
@@ -848,13 +848,14 @@ test_5() {
 		error "write failure, expect success"
 
 	echo "Chown files to $TSTUSR.$TSTUSR ..."
-	for i in `seq 0 $ILIMIT`; do
+	for i in $(seq 0 $ILIMIT); do
 		chown $TSTUSR.$TSTUSR $DIR/$tdir/$tfile-0_$i ||
 			quota_error a $TSTUSR "chown failure, expect success"
 	done
 
 	# cleanup
-	unlinkmany $DIR/$tdir/$tfile-0_ $((ILIMIT + 1))
+	unlinkmany $DIR/$tdir/$tfile-0_ $((ILIMIT + 1)) ||
+		error "unlinkmany $DIR/$tdir/$tfile-0_ failed"
 	cleanup_quota_test
 
 	resetquota -u $TSTUSR
@@ -870,7 +871,7 @@ test_6() {
 	# test output
 	do_facet ost1 dmesg -c > /dev/null
 
-	setup_quota_test
+	setup_quota_test || error "setup quota failed with $?"
 	trap cleanup_quota_test EXIT
 
 	# make sure the system is clean
@@ -883,13 +884,13 @@ test_6() {
 
 	# create file for $TSTUSR
 	local TESTFILE=$DIR/$tdir/$tfile-$TSTUSR
-	$LFS setstripe $TESTFILE -c 1 -i 0
-	chown $TSTUSR.$TSTUSR $TESTFILE
+	$SETSTRIPE $TESTFILE -c 1 -i 0 || error "setstripe $TESTFILE failed"
+	chown $TSTUSR.$TSTUSR $TESTFILE || error "chown $TESTFILE failed"
 
 	# create file for $TSTUSR2
 	local TESTFILE2=$DIR/$tdir/$tfile-$TSTUSR2
-	$LFS setstripe $TESTFILE2 -c 1 -i 0
-	chown $TSTUSR2.$TSTUSR2 $TESTFILE2
+	$SETSTRIPE $TESTFILE2 -c 1 -i 0 || error "setstripe $TESTFILE2 failed"
+	chown $TSTUSR2.$TSTUSR2 $TESTFILE2 || error "chown $TESTFILE2 failed"
 
 	# cache per-ID lock for $TSTUSR on slave
 	$LFS setquota -u $TSTUSR -b 0 -B ${LIMIT}M -i 0 -I 0 $DIR ||
@@ -963,7 +964,7 @@ test_7a() {
 
 	[ "$SLOW" = "no" ] && LIMIT=5
 
-	setup_quota_test
+	setup_quota_test || error "setup quota failed with $?"
 	trap cleanup_quota_test EXIT
 
 	# make sure the system is clean
@@ -977,12 +978,12 @@ test_7a() {
 
 	local OSTUUID=$(ostuuid_from_index 0)
 	USED=$(getquota -u $TSTUSR $OSTUUID bhardlimit)
-	[ $USED -ne 0 ] && error "limit($USED) on $OSTUUID for user" \
-		"$TSTUSR isn't 0."
+	[ $USED -ne 0 ] &&
+		error "limit($USED) on $OSTUUID for user $TSTUSR isn't 0"
 
 	# create test file
-	$LFS setstripe $TESTFILE -c 1 -i 0
-	chown $TSTUSR.$TSTUSR $TESTFILE
+	$SETSTRIPE $TESTFILE -c 1 -i 0 || error "setstripe $TESTFILE failed"
+	chown $TSTUSR.$TSTUSR $TESTFILE || error "chown $TESTFILE failed"
 
 	echo "Stop ost1..."
 	stop ost1
@@ -993,7 +994,7 @@ test_7a() {
 		error "set quota failed"
 
 	echo "Start ost1..."
-	start ost1 $(ostdevname 1) $OST_MOUNT_OPTS
+	start ost1 $(ostdevname 1) $OST_MOUNT_OPTS || error "start ost1 failed"
 	quota_init
 
 	wait_ost_reint "ug" || error "reintegration failed"
@@ -1015,7 +1016,7 @@ test_7a() {
 		error "clear quota failed"
 
 	echo "Start ost1..."
-	start ost1 $(ostdevname 1) $OST_MOUNT_OPTS
+	start ost1 $(ostdevname 1) $OST_MOUNT_OPTS || error "start ost1 failed"
 	quota_init
 
 	wait_ost_reint "ug" || error "reintegration failed"
@@ -1034,7 +1035,7 @@ test_7b() {
 	local LIMIT="100G"
 	local TESTFILE=$DIR/$tdir/$tfile
 
-	setup_quota_test
+	setup_quota_test || error "setup quota failed with $?"
 	trap cleanup_quota_test EXIT
 
 	# make sure the system is clean
@@ -1048,12 +1049,12 @@ test_7b() {
 
 	local OSTUUID=$(ostuuid_from_index 0)
 	USED=$(getquota -u $TSTUSR $OSTUUID bhardlimit)
-	[ $USED -ne 0 ] && error "limit($USED) on $OSTUUID for user" \
-		"$TSTUSR isn't 0."
+	[ $USED -ne 0 ] &&
+		error "limit($USED) on $OSTUUID for user $TSTUSR isn't 0"
 
 	# create test file
-	$LFS setstripe $TESTFILE -c 1 -i 0
-	chown $TSTUSR.$TSTUSR $TESTFILE
+	$SETSTRIPE $TESTFILE -c 1 -i 0 || error "setstripe $TESTFILE failed"
+	chown $TSTUSR.$TSTUSR $TESTFILE || error "chown $TESTFILE failed"
 
 	# consume some space to make sure the granted space will not
 	# be released during reconciliation
@@ -1076,7 +1077,7 @@ test_7b() {
 
 	echo "Restart ost to trigger reintegration..."
 	stop ost1
-	start ost1 $(ostdevname 1) $OST_MOUNT_OPTS
+	start ost1 $(ostdevname 1) $OST_MOUNT_OPTS || error "start ost1 failed"
 	quota_init
 
 	wait_ost_reint "ug" || error "reintegration failed"
@@ -1097,7 +1098,7 @@ test_7c() {
 
 	[ "$SLOW" = "no" ] && LIMIT=5
 
-	setup_quota_test
+	setup_quota_test || error "setup quota failed with $?"
 	trap cleanup_quota_test EXIT
 
 	# make sure the system is clean
@@ -1148,7 +1149,7 @@ test_7d(){
 	local TESTFILE1="$DIR/$tdir/$tfile"-1
 	local limit=20 #20M
 
-	setup_quota_test
+	setup_quota_test || error "setup quota failed with $?"
 	trap cleanup_quota_test EXIT
 
 	set_ost_qtype "none" || error "disable ost quota failed"
@@ -1187,7 +1188,7 @@ test_7e() {
 	local ilimit=$((1024 * 2)) # 2k inodes
 	local TESTFILE=$DIR/${tdir}-1/$tfile
 
-	setup_quota_test
+	setup_quota_test || error "setup quota failed with $?"
 	trap cleanup_quota_test EXIT
 
 	# make sure the system is clean
@@ -1209,7 +1210,7 @@ test_7e() {
 
 	echo "Enable quota & set quota limit for $TSTUSR"
 	set_mdt_qtype "ug" || error "enable mdt quota failed"
-	$LFS setquota -u $TSTUSR -b 0 -B 0 -i 0 -I $ilimit  $DIR ||
+	$LFS setquota -u $TSTUSR -b 0 -B 0 -i 0 -I $ilimit $DIR ||
 		error "set quota failed"
 
 	echo "Start mds${MDSCOUNT}..."
@@ -1261,7 +1262,7 @@ test_8() {
 	local BLK_LIMIT="100g" #100G
 	local FILE_LIMIT=1000000
 
-	setup_quota_test
+	setup_quota_test || error "setup quota failed with $?"
 	trap cleanup_quota_test EXIT
 
 	set_mdt_qtype "ug" || error "enable mdt quota failed"
@@ -1305,7 +1306,7 @@ test_9() {
 
 	check_whether_skip && return 0
 
-	setup_quota_test
+	setup_quota_test || error "setup quota failed with $?"
 	trap cleanup_quota_test EXIT
 
 	set_ost_qtype "ug" || error "enable ost quota failed"
@@ -1330,8 +1331,8 @@ test_9() {
 	quota_show_check a g $TSTUSR
 
 	echo "Create test file"
-	$LFS setstripe $TESTFILE -c 1 -i 0
-	chown $TSTUSR.$TSTUSR $TESTFILE
+	$SETSTRIPE $TESTFILE -c 1 -i 0 || error "setstripe $TESTFILE failed"
+	chown $TSTUSR.$TSTUSR $TESTFILE || error "chown $TESTFILE failed"
 
 	log "Write the big file of 4.5G ..."
 	$RUNAS $DD of=$TESTFILE count=$filesize ||
@@ -1352,7 +1353,7 @@ run_test 9 "Block limit larger than 4GB (b10707)"
 test_10() {
 	local TESTFILE=$DIR/$tdir/$tfile
 
-	setup_quota_test
+	setup_quota_test || error "setup quota failed with $?"
 	trap cleanup_quota_test EXIT
 
 	# set limit to root user should fail
@@ -1368,8 +1369,8 @@ test_10() {
 		error "set quota failed"
 	quota_show_check b u $TSTUSR
 
-	$LFS setstripe $TESTFILE -c 1
-	chown $TSTUSR.$TSTUSR $TESTFILE
+	$SETSTRIPE $TESTFILE -c 1 || error "setstripe $TESTFILE failed"
+	chown $TSTUSR.$TSTUSR $TESTFILE || error "chown $TESTFILE failed"
 
 	runas -u 0 -g 0 $DD of=$TESTFILE count=3 oflag=sync ||
 		error "write failure, expect success"
@@ -1381,18 +1382,18 @@ run_test 10 "Test quota for root user"
 
 test_11() {
 	local TESTFILE=$DIR/$tdir/$tfile
-	setup_quota_test
+	setup_quota_test || error "setup quota failed with $?"
 	trap cleanup_quota_test EXIT
 
 	set_mdt_qtype "ug" || "enable mdt quota failed"
 	$LFS setquota -u $TSTUSR -b 0 -B 0 -i 0 -I 1 $DIR ||
 		error "set quota failed"
 
-	touch "$TESTFILE"-0
-	touch "$TESTFILE"-1
+	touch "$TESTFILE"-0 || error "touch $TESTFILE-0 failed"
+	touch "$TESTFILE"-1 || error "touch $TESTFILE-0 failed"
 
-	chown $TSTUSR.$TSTUSR "$TESTFILE"-0
-	chown $TSTUSR.$TSTUSR "$TESTFILE"-1
+	chown $TSTUSR.$TSTUSR "$TESTFILE"-0 || error "chown $TESTFILE-0 failed"
+	chown $TSTUSR.$TSTUSR "$TESTFILE"-1 || error "chown $TESTFILE-1 failed"
 
 	$SHOW_QUOTA_USER
 	local USED=$(getquota -u $TSTUSR global curinodes)
@@ -1411,7 +1412,7 @@ test_12a() {
 	local TESTFILE0="$DIR/$tdir/$tfile"-0
 	local TESTFILE1="$DIR/$tdir/$tfile"-1
 
-	setup_quota_test
+	setup_quota_test || error "setup quota failed with $?"
 	trap cleanup_quota_test EXIT
 
 	set_ost_qtype "u" || "enable ost quota failed"
@@ -1420,10 +1421,10 @@ test_12a() {
 	$LFS setquota -u $TSTUSR -b 0 -B "$blimit"M -i 0 -I 0 $DIR ||
 		error "set quota failed"
 
-	$LFS setstripe $TESTFILE0 -c 1 -i 0
-	$LFS setstripe $TESTFILE1 -c 1 -i 1
-	chown $TSTUSR.$TSTUSR $TESTFILE0
-	chown $TSTUSR.$TSTUSR $TESTFILE1
+	$SETSTRIPE $TESTFILE0 -c 1 -i 0 || error "setstripe $TESTFILE0 failed"
+	$SETSTRIPE $TESTFILE1 -c 1 -i 1 || error "setstripe $TESTFILE1 failed"
+	chown $TSTUSR.$TSTUSR $TESTFILE0 || error "chown $TESTFILE0 failed"
+	chown $TSTUSR.$TSTUSR $TESTFILE1 || error "chown $TESTFILE1 failed"
 
 	echo "Write to ost0..."
 	$RUNAS $DD of=$TESTFILE0 count=$blk_cnt oflag=sync ||
@@ -1454,7 +1455,7 @@ test_12b() {
 	local TESTFILE0=$DIR/$tdir/$tfile
 	local TESTFILE1=$DIR/${tdir}-1/$tfile
 
-	setup_quota_test
+	setup_quota_test || error "setup quota failed with $?"
 	trap cleanup_quota_test EXIT
 
 	$LFS mkdir -i 1 $DIR/${tdir}-1 || error "create remote dir failed"
@@ -1497,7 +1498,7 @@ test_13(){
 	# the name of lwp on ost1 name is MDT0000-lwp-OST0000
 	local procf="ldlm.namespaces.*MDT0000-lwp-OST0000.lru_size"
 
-	setup_quota_test
+	setup_quota_test || error "setup quota failed with $?"
 	trap cleanup_quota_test EXIT
 
 	set_ost_qtype "u" || "enable ost quota failed"
@@ -1505,8 +1506,8 @@ test_13(){
 
 	$LFS setquota -u $TSTUSR -b 0 -B 10M -i 0 -I 0 $DIR ||
 		error "set quota failed"
-	$LFS setstripe $TESTFILE -c 1 -i 0
-	chown $TSTUSR.$TSTUSR $TESTFILE
+	$SETSTRIPE $TESTFILE -c 1 -i 0 || error "setstripe $TESTFILE failed"
+	chown $TSTUSR.$TSTUSR $TESTFILE || error "chown $TESTFILE failed"
 
 	# clear the locks in cache first
 	do_facet ost1 $LCTL set_param -n $procf=clear
@@ -1547,7 +1548,7 @@ test_15(){
 	wait_delete_completed
 	sync_all_data || true
 
-        # test for user
+	# test for user
 	$LFS setquota -u $TSTUSR -b 0 -B $LIMIT -i 0 -I 0 $DIR ||
 		error "set user quota failed"
 	local TOTAL_LIMIT=$(getquota -u $TSTUSR global bhardlimit)
@@ -1570,7 +1571,7 @@ test_17sub() {
 	local BLKS=1    # 1M less than limit
 	local TESTFILE=$DIR/$tdir/$tfile
 
-	setup_quota_test
+	setup_quota_test || error "setup quota failed with $?"
 	trap cleanup_quota_test EXIT
 
 	# make sure the system is clean
@@ -1615,7 +1616,7 @@ test_17sub() {
 	sync; sync_all_data || true
 
 	USED=$(getquota -u $TSTUSR global curspace)
-	[ $USED -ge $(($BLKS * 1024)) ] || quota_error u $TSTUSR \
+	[ $USED -ge $((BLKS * 1024)) ] || quota_error u $TSTUSR \
 		"Used space(${USED}K) is less than ${BLKS}M"
 
 	cleanup_quota_test
@@ -1648,7 +1649,7 @@ test_18_sub () {
 	local blimit="200m" # 200M
 	local TESTFILE="$DIR/$tdir/$tfile"
 
-	setup_quota_test
+	setup_quota_test || error "setup quota failed with $?"
 	trap cleanup_quota_test EXIT
 
 	set_ost_qtype "u" || error "enable ost quota failed"
@@ -1657,8 +1658,8 @@ test_18_sub () {
 		error "set quota failed"
 	quota_show_check b u $TSTUSR
 
-	$LFS setstripe $TESTFILE -i 0 -c 1
-	chown $TSTUSR.$TSTUSR $TESTFILE
+	$SETSTRIPE $TESTFILE -i 0 -c 1 || error "setstripe $TESTFILE failed"
+	chown $TSTUSR.$TSTUSR $TESTFILE || error "chown $TESTFILE failed"
 
 	local timeout=$(sysctl -n lustre.timeout)
 
@@ -1728,16 +1729,16 @@ test_19() {
 	local blimit=5 # 5M
 	local TESTFILE=$DIR/$tdir/$tfile
 
-	setup_quota_test
+	setup_quota_test || error "setup quota failed with $?"
 	trap cleanup_quota_test EXIT
 
 	set_ost_qtype "ug" || error "enable ost quota failed"
 
 	# bind file to a single OST
-	$LFS setstripe -c 1 $TESTFILE
-	chown $TSTUSR.$TSTUSR $TESTFILE
+	$SETSTRIPE -c 1 $TESTFILE || error "setstripe $TESTFILE failed"
+	chown $TSTUSR.$TSTUSR $TESTFILE || error "chown $TESTFILE failed"
 
-	echo "Set user quota (limit: "$blimit"M)"
+	echo "Set user quota (limit: ${blimit}M)"
 	$LFS setquota -u $TSTUSR -b 0 -B "$blimit"M -i 0 -I 0 $MOUNT ||
 		error "set user quota failed"
 	quota_show_check b u $TSTUSR
@@ -1762,7 +1763,8 @@ run_test 19 "Updating admin limits doesn't zero operational limits(b14790)"
 test_20() { # b15754
 	local LSTR=(2g 1t 4k 3m) # limits strings
 	# limits values
-	local LVAL=($[2*1024*1024] $[1*1024*1024*1024] $[4*1024] $[3*1024*1024])
+	local LVAL=($((2*1024*1024)) $((1*1024*1024*1024)) $((4*1024)) \
+		    $((3*1024*1024)))
 
 	resetquota -u $TSTUSR
 
@@ -1804,7 +1806,7 @@ test_21() {
 	local BLIMIT=10 # 10G
 	local ILIMIT=1000000
 
-	setup_quota_test
+	setup_quota_test || error "setup quota failed with $?"
 	trap cleanup_quota_test EXIT
 
 	set_ost_qtype "ug" || error "Enable ost quota failed"
@@ -1872,7 +1874,7 @@ test_22() {
 	set_ost_qtype "ug" || error "enable ost quota failed"
 
 	echo "Restart..."
-	stopall
+	stopall || error "failed to stopall (1)"
 	mount
 	setupall
 
@@ -1887,7 +1889,7 @@ test_22() {
 	set_ost_qtype "none" || error "disable ost quota failed"
 
 	echo "Restart..."
-	stopall
+	stopall || error "failed to stopall (2)"
 	mount
 	setupall
 	quota_init
@@ -1906,7 +1908,7 @@ test_23_sub() {
 	local TESTFILE="$DIR/$tdir/$tfile"
 	local LIMIT=$1
 
-	setup_quota_test
+	setup_quota_test || error "setup quota failed with $?"
 	trap cleanup_quota_test EXIT
 
 	set_ost_qtype "ug" || error "Enable ost quota failed"
@@ -1917,8 +1919,8 @@ test_23_sub() {
 		error "set quota failed"
 	quota_show_check b u $TSTUSR
 
-	$LFS setstripe $TESTFILE -c 1 -i 0
-	chown $TSTUSR.$TSTUSR $TESTFILE
+	$SETSTRIPE $TESTFILE -c 1 -i 0 || error "setstripe $TESTFILE failed"
+	chown $TSTUSR.$TSTUSR $TESTFILE || error "chown $TESTFILE failed"
 
 	log "Step1: trigger EDQUOT with O_DIRECT"
 	log "Write half of file"
@@ -1966,16 +1968,16 @@ test_24() {
 	local blimit=5 # 5M
 	local TESTFILE="$DIR/$tdir/$tfile"
 
-	setup_quota_test
+	setup_quota_test || error "setup quota failed with $?"
 	trap cleanup_quota_test EXIT
 
 	set_ost_qtype "ug" || error "enable ost quota failed"
 
 	# bind file to a single OST
-	$LFS setstripe -c 1 $TESTFILE
-	chown $TSTUSR.$TSTUSR $TESTFILE
+	$SETSTRIPE -c 1 $TESTFILE || error "setstripe $TESTFILE failed"
+	chown $TSTUSR.$TSTUSR $TESTFILE || error "chown $TESTFILE failed"
 
-	echo "Set user quota (limit: "$blimit"M)"
+	echo "Set user quota (limit: ${blimit}M)"
 	$LFS setquota -u $TSTUSR -b 0 -B "$blimit"M -i 0 -I 0 $MOUNT ||
 		error "set quota failed"
 
@@ -2041,18 +2043,17 @@ test_27c() {
 run_test 27c "lfs quota should support human-readable output"
 
 test_30() {
-	local output
 	local LIMIT=4 # 4MB
 	local TESTFILE="$DIR/$tdir/$tfile"
 	local GRACE=10
 
-	setup_quota_test
+	setup_quota_test || error "setup quota failed with $?"
 	trap cleanup_quota_test EXIT
 
 	set_ost_qtype "u" || error "enable ost quota failed"
 
-	$LFS setstripe $TESTFILE -i 0 -c 1
-	chown $TSTUSR.$TSTUSR $TESTFILE
+	$SETSTRIPE $TESTFILE -i 0 -c 1 || error "setstripe $TESTFILE failed"
+	chown $TSTUSR.$TSTUSR $TESTFILE || error "chown $TESTFILE failed"
 
 	$LFS setquota -t -u --block-grace $GRACE --inode-grace \
 		$MAX_IQ_TIME $DIR || error "set grace time failed"
@@ -2085,7 +2086,7 @@ test_33() {
 	local BLK_CNT=2 # of 2M each
 	local TOTAL_BLKS=$((INODES * BLK_CNT * 1024))
 
-	setup_quota_test
+	setup_quota_test || error "setup quota failed with $?"
 	trap cleanup_quota_test EXIT
 
 	# make sure the system is clean
@@ -2097,7 +2098,7 @@ test_33() {
 		error "Used space ($USED) for group $TSTID isn't 0."
 
 	echo "Write files..."
-	for i in `seq 0 $INODES`; do
+	for i in $(seq 0 $INODES); do
 		$RUNAS $DD of=$DIR/$tdir/$tfile-$i count=$BLK_CNT 2>/dev/null ||
 			error "write failed"
 		echo "Iteration $i/$INODES completed"
@@ -2137,10 +2138,10 @@ run_test 33 "Basic usage tracking for user & group"
 
 # usage transfer test for user & group
 test_34() {
-        local BLK_CNT=2 # 2MB
+	local BLK_CNT=2 # 2MB
 
-	setup_quota_test
-        trap cleanup_quota_test EXIT
+	setup_quota_test || error "setup quota failed with $?"
+	trap cleanup_quota_test EXIT
 
 	# make sure the system is clean
 	local USED=$(getquota -u $TSTID global curspace)
@@ -2213,7 +2214,7 @@ run_test 34 "Usage transfer for user & group"
 test_35() {
 	local BLK_CNT=2 # 2 MB
 
-	setup_quota_test
+	setup_quota_test || error "setup quota failed with $?"
 	trap cleanup_quota_test EXIT
 
 	echo "Write file..."
@@ -2287,7 +2288,7 @@ run_test 35 "Usage is still accessible across reboot"
 # chown/chgrp to the file created with MDS_OPEN_DELAY_CREATE
 # LU-5006
 test_37() {
-	setup_quota_test
+	setup_quota_test || error "setup quota failed with $?"
 	trap cleanup_quota_test EXIT
 
 	# make sure the system is clean
@@ -2296,7 +2297,7 @@ test_37() {
 		error "Used space ($USED) for user $TSTID isn't 0."
 
 	# create file with MDS_OPEN_DELAY_CREATE flag
-	$LFS setstripe -c 1 -i 0 $DIR/$tdir/$tfile ||
+	$SETSTRIPE -c 1 -i 0 $DIR/$tdir/$tfile ||
 		error "Create file failed"
 	# write to file
 	dd if=/dev/zero of=$DIR/$tdir/$tfile bs=1M count=1 conv=notrunc \
@@ -2316,7 +2317,7 @@ run_test 37 "Quota accounted properly for file created by 'lfs setstripe'"
 
 quota_fini()
 {
-        do_nodes $(comma_list $(nodes_list)) "lctl set_param debug=-quota"
+	do_nodes $(comma_list $(nodes_list)) "lctl set_param debug=-quota"
 }
 quota_fini
 
