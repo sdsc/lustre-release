@@ -1642,6 +1642,25 @@ direct_io_iter, [
 ]) # LC_DIRECTIO_USE_ITER
 
 #
+# LC_NFS_FILLDIR_USE_CTX
+#
+# 3.18 kernel moved from void cookie to struct dir_context
+#
+AC_DEFUN([LC_NFS_FILLDIR_USE_CTX], [
+LB_CHECK_COMPILE([if filldir_t uses struct dir_context],
+filldir_ctx, [
+	#include <linux/fs.h>
+],[
+	struct dir_context ctx;
+
+	ctx.actor(&ctx, NULL, 0, (loff_t) 0, 0, 0);
+],[
+	AC_DEFINE(HAVE_FILLDIR_USE_CTX, 1,
+		[filldir_t needs struct dir_context as argument])
+])
+]) # LC_NFS_FILLDIR_USE_CTX
+
+#
 # LC_CANCEL_DIRTY_PAGE
 #
 # 4.0.0 kernel removed cancle_dirty_page
@@ -1790,6 +1809,9 @@ AC_DEFUN([LC_PROG_LINUX], [
 
 	# 3.16
 	LC_DIRECTIO_USE_ITER
+
+	# 3.18
+	LC_NFS_FILLDIR_USE_CTX
 
 	# 4.0.0
 	LC_CANCEL_DIRTY_PAGE
