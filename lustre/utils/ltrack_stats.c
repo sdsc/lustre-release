@@ -64,7 +64,7 @@
 /* Length of llstat command with all its switches and command line options */
 #define LEN_LLSTAT (25 + LEN_STATS)
 
-/* strlen of each lustre client entry in /proc/fs/lustre/llite/ */
+/* strlen of each lustre client entry in /{proc,sys}/fs/lustre/llite/ */
 #define LEN_CLIENT 1024
 
 /* size of output of llstat command we read at a time */
@@ -80,13 +80,13 @@ void print_usage()
         printf("ltrack_stats runs command given and does one of the "
                 "following:\n"
                 "\t1. Writes its pid to "
-                "/proc/fs/lustre/llite/.../stats_track_pid\n"
+		"/{proc,sys}/fs/lustre/llite/.../stats_track_pid\n"
                 " to collects stats for that process.\n"
                 "\t2. Writes its ppid to "
-                "/proc/fs/lustre/llite/.../stats_track_ppid\n"
+		"/{proc,sys}/fs/lustre/llite/.../stats_track_ppid\n"
                 " to collect stats of that process and all its children \n"
                 "\t3. Sets gid of process to some random gid (444) and also\n"
-                " writes that to/proc/fs/lustre/llite/.../stats_track_gid to"
+		" writes that to/{proc,sys}/fs/lustre/llite/.../stats_track_gid to"
                 " collect stats \nof all processes in that group\n\n"
                 " It also uses llstat to generate output with interval of 1 "
                 " second and duration\n of run of command for plot-llstat to "
@@ -328,14 +328,14 @@ char* get_path_stats(int with_llstat, char* stats_path)
 
         /* doing glob() for attaching llstat to monitor each vfs_ops_stat for
          * mulitiple lustre clients */
-        if (glob("/proc/fs/lustre/llite/*", GLOB_DOOFFS, NULL,
+	if (glob("/{proc,sys}/fs/lustre/llite/*", GLOB_DOOFFS, NULL,
                  &stats_glob_buffer) != 0) {
                 fprintf(stderr,"Error: Couldn't find /proc entry for "
                         "lustre\n");
                 exit(1);
         }
 
-        /* If multiple client entries found in /proc/fs/lustre/llite user will
+	/* If multiple client entries found in /{proc,sys}/fs/lustre/llite user will
          * be prompted with choice of all */
         if (stats_glob_buffer.gl_pathc > 1 && with_llstat) {
                 check_llstat(); 
