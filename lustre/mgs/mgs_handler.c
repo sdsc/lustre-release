@@ -217,6 +217,7 @@ void mgs_revoke_lock(struct mgs_device *mgs, struct fs_db *fsdb, int type)
 	LASSERT(rc == 0);
 	switch (type) {
 	case CONFIG_T_CONFIG:
+	case CONFIG_T_NODEMAP:
 		cp = mgs_completion_ast_config;
 		if (test_and_set_bit(FSDB_REVOKING_LOCK, &fsdb->fsdb_flags))
 			rc = -EALREADY;
@@ -493,6 +494,9 @@ static int mgs_config_read(struct tgt_session_info *tsi)
 	case CONFIG_T_RECOVER:
 		rc = mgs_get_ir_logs(req);
 		break;
+	case CONFIG_T_NODEMAP:
+		rc = mgs_get_nodemap_config(req);
+		break;
 	case CONFIG_T_CONFIG:
 		rc = -EOPNOTSUPP;
 		break;
@@ -632,6 +636,7 @@ static int mgs_iocontrol_nodemap(const struct lu_env *env,
 {
 	struct lustre_cfg	*lcfg = NULL;
 	struct lu_nodemap	*nodemap;
+	struct fs_db		*fsdb;
 	lnet_nid_t		nid;
 	const char		*nodemap_name = NULL;
 	const char		*nidstr = NULL;
@@ -752,6 +757,10 @@ static int mgs_iocontrol_nodemap(const struct lu_env *env,
 		       nodemap_name, rc);
 		GOTO(out_lcfg, rc);
 	}
+
+	/* revoke nodemap lock */
+	rc = mgs_find_or_make_fsdb(env, mgs, NODEMAP_FILENAME, &fsdb);
+	mgs_revoke_lock(mgs, fsdb, CONFIG_T_NODEMAP);
 
 out_lcfg:
 	OBD_FREE(lcfg, data->ioc_plen1);

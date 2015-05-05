@@ -114,6 +114,8 @@ int nodemap_del_idmap(const char *name, enum nodemap_id_type id_type,
 __u32 nodemap_map_id(struct lu_nodemap *nodemap,
 		     enum nodemap_id_type id_type,
 		     enum nodemap_tree_type tree_type, __u32 id);
+int nodemap_reint_index(const struct lu_env *env, struct obd_export *exp,
+			struct lu_fid *fid);
 int nodemap_idx_nodemap_add(const struct lu_env *env,
 			    struct local_oid_storage *los,
 			    struct dt_device *mgs_bottom,

@@ -4017,6 +4017,14 @@ int mgs_nodemap_cmd(const struct lu_env *env, struct mgs_device *mgs,
 					     nodemap_name);
 		break;
 	case LCFG_NODEMAP_DEL:
+		rc = nodemap_idx_nodemap_del(env, mgs->mgs_los, mgs->mgs_bottom,
+					     mgs->mgs_configs_dir,
+					     nodemap_name);
+		/* XXX: should we just warn or fail? */
+		if (rc != 0)
+			CWARN("unable to delete nodemap %s from index file.\n",
+			      nodemap_name);
+
 		rc = nodemap_del(nodemap_name);
 		if (rc != 0)
 			break;
@@ -4036,6 +4044,10 @@ int mgs_nodemap_cmd(const struct lu_env *env, struct mgs_device *mgs,
 		break;
 	case LCFG_NODEMAP_DEL_RANGE:
 		rc = nodemap_parse_range(param, nid);
+		if (rc != 0)
+			break;
+		rc = nodemap_idx_del_range(env, mgs->mgs_los, mgs->mgs_bottom,
+					   mgs->mgs_configs_dir, nid);
 		if (rc != 0)
 			break;
 		rc = nodemap_del_range(nodemap_name, nid);
@@ -4264,4 +4276,92 @@ out_cancel:
 out_label:
 	OBD_FREE(label, label_sz);
         return rc;
+}
+
+int mgs_get_nodemap_config(struct ptlrpc_request *req)
+{
+	struct mgs_config_body	*body;
+	struct lu_env		*env = req->rq_svc_thread->t_env;
+	struct mgs_device	*mgs = exp2mgs_dev(req->rq_export);
+	struct mgs_config_res	*res;
+	struct lu_rdpg		 rdpg;
+	struct idx_info		 nodemap_ii;
+	struct ptlrpc_bulk_desc *desc;
+	struct l_wait_info	 lwi;
+	int			 i;
+	int			 page_count;
+	int			 bytes = 0;
+	int			 rc = 0;
+
+	body = req_capsule_client_get(&req->rq_pill, &RMF_MGS_CONFIG_BODY);
+	if (body == NULL)
+		RETURN(-EINVAL);
+
+	if (body->mcb_type != CONFIG_T_NODEMAP)
+		RETURN(-EINVAL);
+
+	rdpg.rp_count = (body->mcb_units << body->mcb_bits);
+	rdpg.rp_npages = (rdpg.rp_count + PAGE_CACHE_SIZE - 1) >>
+		PAGE_CACHE_SHIFT;
+	if (rdpg.rp_npages > PTLRPC_MAX_BRW_PAGES)
+		RETURN(-EINVAL);
+
+	CDEBUG(D_MGS, "Reading nodemap config %s bufsize %u.\n",
+	       body->mcb_name, rdpg.rp_count);
+
+	/* allocate pages to store the containers */
+	OBD_ALLOC(rdpg.rp_pages, sizeof(*rdpg.rp_pages) * rdpg.rp_npages);
+	if (rdpg.rp_pages == NULL)
+		RETURN(-ENOMEM);
+	for (i = 0; i < rdpg.rp_npages; i++) {
+		rdpg.rp_pages[i] = alloc_page(GFP_IOFS);
+		if (rdpg.rp_pages[i] == NULL)
+			GOTO(out, rc = -ENOMEM);
+	}
+
+	rdpg.rp_hash = body->mcb_offset;
+	/* XXX: need to save version number in client export if offset is 0
+	*	need to check version number hasn't changed if offset non-0 */
+
+	nodemap_ii.ii_magic = IDX_INFO_MAGIC;
+	nodemap_ii.ii_flags = II_FL_NOHASH;
+	if (rc < 0)
+		GOTO(out, rc);
+
+	bytes = nodemap_index_read(env, mgs->mgs_los, mgs->mgs_configs_dir,
+				   &nodemap_ii, &rdpg);
+	if (bytes < 0)
+		GOTO(out, rc = bytes);
+
+	res = req_capsule_server_get(&req->rq_pill, &RMF_MGS_CONFIG_RES);
+	if (res == NULL)
+		GOTO(out, rc = -EINVAL);
+	res->mcr_offset = nodemap_ii.ii_hash_end;
+	res->mcr_size = bytes;
+
+	page_count = (bytes + PAGE_CACHE_SIZE - 1) >> PAGE_CACHE_SHIFT;
+	LASSERT(page_count <= rdpg.rp_count);
+	desc = ptlrpc_prep_bulk_exp(req, page_count, 1,
+				    BULK_PUT_SOURCE, MGS_BULK_PORTAL);
+	if (desc == NULL)
+		GOTO(out, rc = -ENOMEM);
+
+	for (i = 0; i < page_count && bytes > 0; i++) {
+		ptlrpc_prep_bulk_page_pin(desc, rdpg.rp_pages[i], 0,
+					  min_t(int, bytes, PAGE_CACHE_SIZE));
+		bytes -= PAGE_CACHE_SIZE;
+	}
+
+	rc = target_bulk_io(req->rq_export, desc, &lwi);
+	ptlrpc_free_bulk_pin(desc);
+
+out:
+	if (rdpg.rp_pages) {
+		for (i = 0; i < rdpg.rp_npages; i++)
+			if (rdpg.rp_pages[i])
+				__free_page(rdpg.rp_pages[i]);
+		OBD_FREE(rdpg.rp_pages,
+			 rdpg.rp_npages * sizeof(rdpg.rp_pages[0]));
+	}
+	return rc;
 }

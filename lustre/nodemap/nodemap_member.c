@@ -108,6 +108,12 @@ void nm_member_del(struct lu_nodemap *nodemap, struct obd_export *exp)
 {
 	struct obd_export *exp1;
 
+	if (!nodemap->nm_member_hash) {
+		CWARN("null member hash, trying to delete member exp %p from "
+		      "%s\n", exp, nodemap->nm_name);
+		return;
+	}
+
 	exp1 = cfs_hash_del_key(nodemap->nm_member_hash, exp);
 	if (exp1 != NULL)
 		class_export_put(exp1);
@@ -216,7 +222,7 @@ int nm_member_add(struct lu_nodemap *nodemap, struct obd_export *exp)
 	}
 
 	exp->exp_target_data.ted_nodemap = nodemap;
-
+	CDEBUG(D_INFO, "member_add getting exp\n");
 	rc = cfs_hash_add_unique(nodemap->nm_member_hash, exp,
 				 &exp->exp_target_data.ted_nodemap_member);
 
@@ -262,6 +268,13 @@ static int nm_member_reclassify_cb(cfs_hash_t *hs, cfs_hash_bd_t *bd,
 	if (exp->exp_target_data.ted_nodemap != nodemap) {
 		cfs_hash_bd_del_locked(hs, bd, hnode);
 		exp->exp_target_data.ted_nodemap = nodemap;
+
+		if (nodemap->nm_member_hash == NULL) {
+			CWARN("null member hash, trying to add member exp "
+			      "%p from %s\n", exp, nodemap->nm_name);
+			goto out;
+		}
+
 		cfs_hash_add_unique(nodemap->nm_member_hash, exp,
 				&exp->exp_target_data.ted_nodemap_member);
 	}

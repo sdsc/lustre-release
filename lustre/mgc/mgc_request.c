@@ -48,6 +48,7 @@
 #include <lprocfs_status.h>
 #include <lustre_log.h>
 #include <lustre_disk.h>
+#include <lustre_nodemap.h>
 #include <dt_object.h>
 
 #include "mgc_internal.h"
@@ -78,6 +79,7 @@ static int mgc_name2resid(char *name, int len, struct ldlm_res_id *res_id,
                 break;
 	case CONFIG_T_RECOVER:
 	case CONFIG_T_PARAMS:
+	case CONFIG_T_NODEMAP:
                 resname = type;
                 break;
         default:
@@ -151,6 +153,8 @@ static void config_log_put(struct config_llog_data *cld)
                         config_log_put(cld->cld_sptlrpc);
 		if (cld->cld_params)
 			config_log_put(cld->cld_params);
+		if (cld->cld_nodemap)
+			config_log_put(cld->cld_nodemap);
                 if (cld_is_sptlrpc(cld))
                         sptlrpc_conf_log_stop(cld->cld_logname);
 
@@ -243,10 +247,12 @@ struct config_llog_data *do_config_log_add(struct obd_device *obd,
                 RETURN(ERR_PTR(rc));
         }
 
-        if (cld_is_sptlrpc(cld)) {
+	/* XXX: should there be a process now flag? */
+	if (cld_is_sptlrpc(cld) || cld_is_nodemap(cld)) {
                 rc = mgc_process_log(obd, cld);
 		if (rc && rc != -ENOENT)
-                        CERROR("failed processing sptlrpc log: %d\n", rc);
+			CERROR("failed processing log: %d (type: %d)\n", rc,
+			       type);
         }
 
         RETURN(cld);
@@ -313,6 +319,7 @@ static int config_log_add(struct obd_device *obd, char *logname,
 	struct config_llog_data *cld;
 	struct config_llog_data *sptlrpc_cld;
 	struct config_llog_data *params_cld;
+	struct config_llog_data *nodemap_cld;
 	char			seclogname[32];
 	char			*ptr;
 	int			rc;
@@ -350,14 +357,27 @@ static int config_log_add(struct obd_device *obd, char *logname,
 		GOTO(out_err1, rc);
 	}
 
+	nodemap_cld = config_log_find(NODEMAP_FILENAME, NULL);
+	if (!nodemap_cld && IS_SERVER(lsi) && !IS_MGS(lsi)) {
+		nodemap_cld = do_config_log_add(obd, NODEMAP_FILENAME,
+						CONFIG_T_NODEMAP, NULL, NULL);
+		if (IS_ERR(nodemap_cld)) {
+			rc = PTR_ERR(nodemap_cld);
+			CERROR("%s: can't create nodemap log: rc = %d\n",
+					obd->obd_name, rc);
+			GOTO(out_err2, rc);
+		}
+	}
+
 	cld = do_config_log_add(obd, logname, CONFIG_T_CONFIG, cfg, sb);
 	if (IS_ERR(cld)) {
 		CERROR("can't create log: %s\n", logname);
-		GOTO(out_err2, rc = PTR_ERR(cld));
+		GOTO(out_err3, rc = PTR_ERR(cld));
 	}
 
 	cld->cld_sptlrpc = sptlrpc_cld;
 	cld->cld_params = params_cld;
+	cld->cld_nodemap = nodemap_cld;
 
         LASSERT(lsi->lsi_lmd);
         if (!(lsi->lsi_lmd->lmd_flags & LMD_FLG_NOIR)) {
@@ -374,14 +394,17 @@ static int config_log_add(struct obd_device *obd, char *logname,
 		}
                 recover_cld = config_recover_log_add(obd, seclogname, cfg, sb);
 		if (IS_ERR(recover_cld))
-			GOTO(out_err3, rc = PTR_ERR(recover_cld));
+			GOTO(out_err4, rc = PTR_ERR(recover_cld));
 		cld->cld_recover = recover_cld;
 	}
 
 	RETURN(0);
 
-out_err3:
+out_err4:
 	config_log_put(cld);
+
+out_err3:
+	config_log_put(nodemap_cld);
 
 out_err2:
 	config_log_put(params_cld);
@@ -1551,6 +1574,126 @@ static int mgc_apply_recover_logs(struct obd_device *mgc,
         RETURN(rc);
 }
 
+static int mgc_process_nodemap_log(struct obd_device *obd,
+				   struct config_llog_data *cld)
+{
+	struct ptlrpc_request	*req = NULL;
+	struct mgs_config_body	*body;
+	struct mgs_config_res	*res = NULL;
+	struct ptlrpc_bulk_desc *desc;
+	struct page		**pages;
+	__u64			 offset = 0;
+	int			 ealen;
+	int			 i;
+	int			 j;
+	int			 rc;
+
+	/* alloc memory for bulk xfer */
+	OBD_ALLOC(pages, sizeof(*pages) * CONFIG_READ_NRPAGES_INIT);
+	if (pages == NULL)
+		GOTO(out, rc = -ENOMEM);
+	for (i = 0; i < CONFIG_READ_NRPAGES_INIT; i++) {
+		pages[i] = alloc_page(GFP_IOFS);
+		if (pages[i] == NULL)
+			GOTO(out, rc = -ENOMEM);
+	}
+
+	/* XXX: nodemaps need to be locked against reads during update */
+
+	/* wipe out any pre-existing configuration */
+	nodemap_cleanup_light();
+again:
+	if (!cld_is_nodemap(cld))
+		GOTO(out, rc = -EINVAL);
+
+	if (!mutex_is_locked(&cld->cld_lock)) {
+		CWARN("Config llog lock needed for nodemap index transfer.\n");
+		GOTO(out, rc = -EINVAL);
+	}
+
+	req = ptlrpc_request_alloc(class_exp2cliimp(cld->cld_mgcexp),
+				   &RQF_MGS_CONFIG_READ);
+	if (req == NULL)
+		GOTO(out, rc = -ENOMEM);
+
+	rc = ptlrpc_request_pack(req, LUSTRE_MGS_VERSION, MGS_CONFIG_READ);
+	if (rc)
+		GOTO(out, rc);
+
+	/* pack request */
+	body = req_capsule_client_get(&req->rq_pill, &RMF_MGS_CONFIG_BODY);
+	LASSERT(body != NULL);
+	LASSERT(sizeof(body->mcb_name) > strlen(cld->cld_logname));
+	if (strlcpy(body->mcb_name, cld->cld_logname, sizeof(body->mcb_name))
+	    >= sizeof(body->mcb_name))
+		GOTO(out, rc = -E2BIG);
+	body->mcb_offset = offset;
+	body->mcb_type   = cld->cld_type;
+	body->mcb_bits   = PAGE_CACHE_SHIFT;
+	body->mcb_units  = CONFIG_READ_NRPAGES_INIT;
+
+	/* allocate bulk transfer descriptor */
+	desc = ptlrpc_prep_bulk_imp(req, CONFIG_READ_NRPAGES_INIT, 1,
+				    BULK_PUT_SINK, MGS_BULK_PORTAL);
+	if (desc == NULL)
+		GOTO(out, rc = -ENOMEM);
+
+	for (i = 0; i < CONFIG_READ_NRPAGES_INIT; i++)
+		ptlrpc_prep_bulk_page_pin(desc, pages[i], 0, PAGE_CACHE_SIZE);
+
+	ptlrpc_request_set_replen(req);
+	rc = ptlrpc_queue_wait(req);
+	if (rc)
+		GOTO(out, rc);
+
+	res = req_capsule_server_get(&req->rq_pill, &RMF_MGS_CONFIG_RES);
+	offset = res->mcr_offset;
+
+	ealen = sptlrpc_cli_unwrap_bulk_read(req, req->rq_bulk, 0);
+	if (ealen < 0)
+		GOTO(out, rc = ealen);
+	if (ealen == 0 || ealen > CONFIG_READ_NRPAGES_INIT << PAGE_CACHE_SHIFT)
+		GOTO(out, rc = -EINVAL);
+
+	for (i = 0; i < CONFIG_READ_NRPAGES_INIT && ealen > 0; i++) {
+		union lu_page	*lip = kmap(pages[i]);
+		for (j = 0; j < LU_PAGE_COUNT; j++) {
+			if (lip->lp_idx.lip_magic != LIP_MAGIC) {
+				CERROR("invalid magic (%x != %x) for page "
+				       "%d/%d while transferring nodemap index\n",
+				       lip->lp_idx.lip_magic, LIP_MAGIC, i + 1,
+				       CONFIG_READ_NRPAGES_INIT);
+				GOTO(out, rc = -EINVAL);
+			}
+			rc = nodemap_process_idx_page(lip);
+			if (rc)
+				GOTO(out, rc);
+			lip++;
+		}
+
+		ealen -= PAGE_CACHE_SIZE;
+	}
+
+out:
+	if (req)
+		ptlrpc_req_finished(req);
+
+	if (rc == 0 && offset != II_END_OFF) {
+		if (false)
+			goto again;
+	}
+
+	if (pages) {
+		for (i = 0; i < CONFIG_READ_NRPAGES_INIT; i++) {
+			if (pages[i] == NULL)
+				break;
+			__free_page(pages[i]);
+		}
+		OBD_FREE(pages, sizeof(*pages) * CONFIG_READ_NRPAGES_INIT);
+	}
+	return rc;
+}
+
 /**
  * This function is called if this client was notified for target restarting
  * by the MGS. A CONFIG_READ RPC is going to send to fetch recovery logs.
@@ -1900,16 +2043,19 @@ int mgc_process_log(struct obd_device *mgc, struct config_llog_data *cld)
         }
 
 
-        if (cld_is_recover(cld)) {
-                rc = 0; /* this is not a fatal error for recover log */
-                if (rcl == 0)
-                        rc = mgc_process_recover_log(mgc, cld);
-        } else {
-                rc = mgc_process_cfg_log(mgc, cld, rcl != 0);
-        }
+	if (cld_is_recover(cld)) {
+		rc = 0; /* this is not a fatal error for recover log */
+		if (rcl == 0)
+			rc = mgc_process_recover_log(mgc, cld);
+	} else if (cld_is_nodemap(cld)) {
+		/* XXX: does we need to deal with rcl? */
+		rc = mgc_process_nodemap_log(mgc, cld);
+	} else {
+		rc = mgc_process_cfg_log(mgc, cld, rcl != 0);
+	}
 
-        CDEBUG(D_MGC, "%s: configuration from log '%s' %sed (%d).\n",
-               mgc->obd_name, cld->cld_logname, rc ? "fail" : "succeed", rc);
+	CDEBUG(D_MGC, "%s: configuration from log '%s' %sed (%d).\n",
+	       mgc->obd_name, cld->cld_logname, rc ? "fail" : "succeed", rc);
 
 	mutex_unlock(&cld->cld_lock);
 
