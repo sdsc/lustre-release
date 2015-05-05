@@ -536,7 +536,7 @@ lprocfs_add_nodemap_seq_write(struct file *file, const char __user *buffer,
 	nodemap_name[count] = '\0';
 
 	cpybuf = nodemap_name;
-	pos = strsep(&cpybuf, " \n");
+	pos = strsep(&cpybuf, "\n");
 	if (pos == NULL)
 		return -EINVAL;
 
@@ -579,7 +579,7 @@ lprocfs_del_nodemap_seq_write(struct file *file, const char __user *buffer,
 	nodemap_name[count] = '\0';
 
 	cpybuf = nodemap_name;
-	pos = strsep(&cpybuf, " \n");
+	pos = strsep(&cpybuf, "\n");
 	if (pos == NULL)
 		return -EINVAL;
 
@@ -669,7 +669,7 @@ lprocfs_add_nodemap_range_seq_write(struct file *file,
 	if (name == NULL)
 		GOTO(out, rc = -EINVAL);
 
-	rangestr = strsep(&cpybuf, " \n");
+	rangestr = strsep(&cpybuf, "\n");
 	if (rangestr == NULL)
 		GOTO(out, rc = -EINVAL);
 
@@ -728,7 +728,7 @@ lprocfs_del_nodemap_range_seq_write(struct file *file,
 	if (name == NULL)
 		GOTO(out, rc = -EINVAL);
 
-	rangestr = strsep(&cpybuf, " \n");
+	rangestr = strsep(&cpybuf, "\n");
 	if (rangestr == NULL)
 		GOTO(out, rc = -EINVAL);
 
@@ -791,7 +791,7 @@ lprocfs_add_nodemap_idmap_seq_write(struct file *file,
 	if (idtypestr == NULL)
 		GOTO(out, rc = -EINVAL);
 
-	idmapstr = strsep(&cpybuf, " \n");
+	idmapstr = strsep(&cpybuf, "\n");
 	if (idmapstr == NULL)
 		GOTO(out, rc = -EINVAL);
 
@@ -860,7 +860,7 @@ lprocfs_del_nodemap_idmap_seq_write(struct file *file,
 	if (idtypestr == NULL)
 		GOTO(out, rc = -EINVAL);
 
-	idmapstr = strsep(&cpybuf, " \n");
+	idmapstr = strsep(&cpybuf, "\n");
 	if (idmapstr == NULL)
 		GOTO(out, rc = -EINVAL);
 

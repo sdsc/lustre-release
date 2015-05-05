@@ -1140,6 +1140,9 @@ static int mgs_init0(const struct lu_env *env, struct mgs_device *mgs,
 	if (rc)
 		GOTO(err_fs, rc);
 
+	/* load nodemap configuration from disk */
+	rc = nodemap_load_entries(env, mgs->mgs_los, mgs->mgs_configs_dir);
+
 	/* XXX: we need this trick till N:1 stack is supported
 	 * set "current" directory for named llogs */
 	ctxt = llog_get_context(mgs->mgs_obd, LLOG_CONFIG_ORIG_CTXT);

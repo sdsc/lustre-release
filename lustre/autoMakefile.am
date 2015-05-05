@@ -42,7 +42,7 @@ AUTOMAKE_OPTIONS = foreign
 ALWAYS_SUBDIRS = include obdclass ldlm ptlrpc obdecho \
 	mgc fid fld doc utils tests scripts autoconf contrib conf
 
-SERVER_SUBDIRS = ost mgs mdt mdd ofd osd-zfs osd-ldiskfs \
+SERVER_SUBDIRS = ost mgs mdt mdd nodemap ofd osd-zfs osd-ldiskfs \
 	quota osp lod target lfsck
 
 CLIENT_SUBDIRS = mdc lmv llite lov osc

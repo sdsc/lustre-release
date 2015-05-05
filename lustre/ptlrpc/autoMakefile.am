@@ -50,8 +50,12 @@ LDLM_COMM_SOURCES= $(top_srcdir)/lustre/ldlm/l_lock.c	\
 	$(top_srcdir)/lustre/ldlm/ldlm_flock.c		\
 	$(top_srcdir)/lustre/ldlm/ldlm_pool.c
 
-NODEMAP_SOURCES = nodemap_handler.c nodemap_idmap.c nodemap_lproc.c \
-	nodemap_member.c nodemap_range.c nodemap_rbtree.c
+NODEMAP_SOURCES = $(top_srcdir)/lustre/nodemap/nodemap_handler.c	\
+	$(top_srcdir)/lustre/nodemap/nodemap_idmap.c			\
+	$(top_srcdir)/lustre/nodemap/nodemap_lproc.c			\
+	$(top_srcdir)/lustre/nodemap/nodemap_member.c			\
+	$(top_srcdir)/lustre/nodemap/nodemap_range.c			\
+	$(top_srcdir)/lustre/nodemap/nodemap_rbtree.c
 
 COMMON_SOURCES = client.c recover.c connection.c niobuf.c pack_generic.c       \
 	events.c ptlrpc_module.c service.c pinger.c llog_net.c sec_ctx.c       \

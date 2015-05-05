@@ -27,8 +27,9 @@
 #ifndef _LUSTRE_NODEMAP_H
 #define _LUSTRE_NODEMAP_H
 
+#include <dt_object.h>
+
 #define LUSTRE_NODEMAP_NAME "nodemap"
-#define LUSTRE_NODEMAP_NAME_LENGTH 16
 
 #define LUSTRE_NODEMAP_DEFAULT_ID 0
 
@@ -62,7 +63,7 @@ struct lu_nodemap {
 				nmf_hmac_required:1,
 				nmf_encryption_required:1;
 	/* unique ID set by MGS */
-	int			nm_id;
+	unsigned int		nm_id;
 	/* nodemap ref counter */
 	atomic_t		nm_refcount;
 	/* UID to squash unmapped UIDs */
@@ -87,6 +88,8 @@ struct lu_nodemap {
 	cfs_hash_t		*nm_member_hash;
 	/* access by nodemap name */
 	struct hlist_node	nm_hash;
+	/* used when loading from index */
+	struct list_head	nm_load_list;
 };
 
 void nodemap_activate(const bool value);
@@ -111,6 +114,55 @@ int nodemap_del_idmap(const char *name, enum nodemap_id_type id_type,
 __u32 nodemap_map_id(struct lu_nodemap *nodemap,
 		     enum nodemap_id_type id_type,
 		     enum nodemap_tree_type tree_type, __u32 id);
+int nodemap_idx_nodemap_add(const struct lu_env *env,
+			    struct local_oid_storage *los,
+			    struct dt_device *mgs_bottom,
+			    struct dt_object *mgs_configs_dir,
+			    const char *nodemap_name);
+int nodemap_idx_nodemap_update(const struct lu_env *env,
+			       struct local_oid_storage *los,
+			       struct dt_device *mgs_bottom,
+			       struct dt_object *mgs_configs_dir,
+			       const char *nodemap_name);
+int nodemap_idx_nodemap_del(const struct lu_env *env,
+			    struct local_oid_storage *los,
+			    struct dt_device *mgs_bottom,
+			    struct dt_object *mgs_configs_dir,
+			    const char *nodemap_name);
+int nodemap_idx_add_range(const struct lu_env *env,
+			  struct local_oid_storage *los,
+			  struct dt_device *mgs_bottom,
+			  struct dt_object *mgs_configs_dir,
+			  const lnet_nid_t nid[2]);
+int nodemap_idx_del_range(const struct lu_env *env,
+			  struct local_oid_storage *los,
+			  struct dt_device *mgs_bottom,
+			  struct dt_object *mgs_configs_dir,
+			  const lnet_nid_t nid[2]);
+int nodemap_idx_add_idmap(const struct lu_env *env,
+			  struct local_oid_storage *los,
+			  struct dt_device *mgs_bottom,
+			  struct dt_object *mgs_configs_dir,
+			  const char *nodemap_name, const __u32 map[2],
+			  bool is_gid);
+int nodemap_idx_del_idmap(const struct lu_env *env,
+			  struct local_oid_storage *los,
+			  struct dt_device *mgs_bottom,
+			  struct dt_object *mgs_configs_dir,
+			  const char *nodemap_name, const __u32 map[2],
+			  bool is_gid);
+int nodemap_load_entries(const struct lu_env *env,
+			 struct local_oid_storage *los,
+			 struct dt_object *parent);
+int nodemap_idx_get_fid(const struct lu_env *env,
+			struct local_oid_storage *los,
+			struct dt_object *parent,
+			struct lu_fid *fid);
+int nodemap_process_idx_page(union lu_page *lip);
+int nodemap_index_read(const struct lu_env *env, struct local_oid_storage *los,
+		       struct dt_object *parent, struct idx_info *ii,
+		       const struct lu_rdpg *rdpg);
+void nodemap_cleanup_light(void);
 ssize_t nodemap_map_acl(struct lu_nodemap *nodemap, void *buf, size_t size,
 			enum nodemap_tree_type tree_type);
 #endif	/* _LUSTRE_NODEMAP_H */

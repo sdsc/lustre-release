@@ -3847,7 +3847,7 @@ int jt_nodemap_add_idmap(int argc, char **argv)
 	rc = nodemap_cmd(cmd, NULL, 0, argv[0], nodemap_name, idmap, NULL);
 	if (rc != 0) {
 		errno = -rc;
-		fprintf(stderr, "cannot add %smap '%s' to nodemap '%s'"
+		fprintf(stderr, "cannot del %smap '%s' to nodemap '%s'"
 			": rc = %d\n", idtype, idmap, nodemap_name, rc);
 	}
 

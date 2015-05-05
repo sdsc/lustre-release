@@ -1036,4 +1036,3 @@ void nm_member_revoke_all()
 {
 	cfs_hash_for_each_safe(nodemap_hash, nm_member_revoke_all_cb, NULL);
 }
-
