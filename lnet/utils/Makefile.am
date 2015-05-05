@@ -55,6 +55,7 @@ sbin_PROGRAMS += lnetctl
 endif # BUILD_DLC
 
 routerstat_SOURCES = routerstat.c
+routerstat_LDADD = $(LIBCFS)
 
 lst_SOURCES = lst.c
 lst_LDADD = -lptlctl $(LIBCFSUTIL) $(LIBCFS) $(LIBREADLINE) $(LIBEFENCE)
@@ -67,7 +68,6 @@ wirecheck_SOURCES = wirecheck.c
 endif # TESTS
 
 lib_LIBRARIES = libptlctl.a
-
 libptlctl_a_SOURCES = portals.c debug.c
 
 CYAML := $(top_builddir)/lnet/utils/cyaml/cyaml.c
