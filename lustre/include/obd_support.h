@@ -244,6 +244,8 @@ extern char obd_jobid_var[];
 #define OBD_FAIL_MDS_RENAME3             0x155
 #define OBD_FAIL_MDS_RENAME4             0x156
 #define OBD_FAIL_MDS_LDLM_REPLY_NET	 0x157
+#define OBD_FAIL_MDS_REINT_MULTI_NET     0x158
+#define OBD_FAIL_MDS_REINT_MULTI_NET_REP 0x159
 
 /* layout lock */
 #define OBD_FAIL_MDS_NO_LL_GETATTR	 0x170
