@@ -1642,6 +1642,23 @@ direct_io_iter, [
 ]) # LC_DIRECTIO_USE_ITER
 
 #
+# LC_CANCEL_DIRTY_PAGE
+#
+# 4.0.0 kernel removed cancle_dirty_page
+#
+AC_DEFUN([LC_CANCEL_DIRTY_PAGE], [
+LB_CHECK_COMPILE([if cancel_dirty_page still exist],
+cancel_dirty_page, [
+	#include <linux/mm.h>
+],[
+	cancel_dirty_page(NULL, PAGE_SIZE);
+],[
+	AC_DEFINE(HAVE_CANCEL_DIRTY_PAGE, 1,
+		[cancel_dirty_page is still available])
+])
+]) # LC_CANCEL_DIRTY_PAGE
+
+#
 # LC_PROG_LINUX
 #
 # Lustre linux kernel checks
@@ -1773,6 +1790,9 @@ AC_DEFUN([LC_PROG_LINUX], [
 
 	# 3.16
 	LC_DIRECTIO_USE_ITER
+
+	# 4.0.0
+	LC_CANCEL_DIRTY_PAGE
 
 	#
 	AS_IF([test "x$enable_server" != xno], [
