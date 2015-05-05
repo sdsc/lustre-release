@@ -3036,6 +3036,187 @@ test_101() { #LU-5648
 }
 run_test 101 "Shouldn't reassign precreated objs to other files after recovery"
 
+test_102a() {
+	local num
+	local i
+	local pids pid
+
+	$LFS mkdir -i0 $DIR/$tdir || error "mkdir $DIR/$tdir failed"
+
+	# get current value of max_mod_rcps_in_flight
+	num=$($LCTL get_param -n \
+		mdc.$FSNAME-MDT0000-mdc-*.max_mod_rpcs_in_flight)
+
+	echo "creating $num files ..."
+	umask 0022
+	for i in $(seq $num); do
+		touch $DIR/$tdir/file-$i
+	done
+
+	# drop request on MDT to force resend
+	#define OBD_FAIL_MDS_REINT_MULTI_NET 0x158
+	do_facet mds1 "$LCTL set_param fail_loc=0x158"
+	echo "launch $num chmod in parallel ($(date +%H:%M:%S)) ..."
+	for i in $(seq $num); do
+		chmod 0600 $DIR/$tdir/file-$i &
+		pids="$pids $!"
+	done
+	sleep 1
+	do_facet mds1 "$LCTL set_param fail_loc=0"
+	for pid in $pids; do
+		wait $pid || error "chmod failed"
+	done
+	echo "done ($(date +%H:%M:%S))"
+
+	# check chmod succeed
+	for i in $(seq $num); do
+		checkstat -vp 0600 $DIR/$tdir/file-$i
+	done
+
+	rm -rf $DIR/$tdir
+}
+run_test 102a "check resend (request lost) with multiple modify RPCs in flight"
+
+test_102b() {
+	local num
+	local i
+	local pids pid
+
+	$LFS mkdir -i0 $DIR/$tdir || error "mkdir $DIR/$tdir failed"
+
+	# get current value of max_mod_rcps_in_flight
+	num=$($LCTL get_param -n \
+		mdc.$FSNAME-MDT0000-mdc-*.max_mod_rpcs_in_flight)
+
+	echo "creating $num files ..."
+	umask 0022
+	for i in $(seq $num); do
+		touch $DIR/$tdir/file-$i
+	done
+
+	# drop reply on MDT to force reconstruction
+	#define OBD_FAIL_MDS_REINT_MULTI_NET_REP 0x159
+	do_facet mds1 "$LCTL set_param fail_loc=0x159"
+	echo "launch $num chmod in parallel ($(date +%H:%M:%S)) ..."
+	for i in $(seq $num); do
+		chmod 0600 $DIR/$tdir/file-$i &
+		pids="$pids $!"
+	done
+	sleep 1
+	do_facet mds1 "$LCTL set_param fail_loc=0"
+	for pid in $pids; do
+		wait $pid || error "chmod failed"
+	done
+	echo "done ($(date +%H:%M:%S))"
+
+	# check chmod succeed
+	for i in $(seq $num); do
+		checkstat -vp 0600 $DIR/$tdir/file-$i
+	done
+
+	rm -rf $DIR/$tdir
+}
+run_test 102b "check resend (reply lost) with multiple modify RPCs in flight"
+
+test_102c() {
+	local num
+	local i
+	local pids pid
+
+	$LFS mkdir -i0 $DIR/$tdir || error "mkdir $DIR/$tdir failed"
+
+	# get current value of max_mod_rcps_in_flight
+	num=$($LCTL get_param -n \
+		mdc.$FSNAME-MDT0000-mdc-*.max_mod_rpcs_in_flight)
+
+	echo "creating $num files ..."
+	umask 0022
+	for i in $(seq $num); do
+		touch $DIR/$tdir/file-$i
+	done
+
+	replay_barrier mds1
+
+	# drop reply on MDT
+	#define OBD_FAIL_MDS_REINT_MULTI_NET_REP 0x159
+	do_facet mds1 "$LCTL set_param fail_loc=0x159"
+	echo "launch $num chmod in parallel ($(date +%H:%M:%S)) ..."
+	for i in $(seq $num); do
+		chmod 0600 $DIR/$tdir/file-$i &
+		pids="$pids $!"
+	done
+	sleep 1
+	do_facet mds1 "$LCTL set_param fail_loc=0"
+
+	# fail MDT
+	fail mds1
+
+	for pid in $pids; do
+		wait $pid || error "chmod failed"
+	done
+	echo "done ($(date +%H:%M:%S))"
+
+	# check chmod succeed
+	for i in $(seq $num); do
+		checkstat -vp 0600 $DIR/$tdir/file-$i
+	done
+
+	rm -rf $DIR/$tdir
+}
+run_test 102c "check replay w/o reconstruction with multiple mod RPCs in flight"
+
+test_102d() {
+	local num
+	local i
+	local pids pid
+
+	$LFS mkdir -i0 $DIR/$tdir || error "mkdir $DIR/$tdir failed"
+
+	# get current value of max_mod_rcps_in_flight
+	num=$($LCTL get_param -n \
+		mdc.$FSNAME-MDT0000-mdc-*.max_mod_rpcs_in_flight)
+
+	echo "creating $num files ..."
+	umask 0022
+	for i in $(seq $num); do
+		touch $DIR/$tdir/file-$i
+	done
+
+	# drop reply on MDT
+	#define OBD_FAIL_MDS_REINT_MULTI_NET_REP 0x159
+	do_facet mds1 "$LCTL set_param fail_loc=0x159"
+	echo "launch $num chmod in parallel ($(date +%H:%M:%S)) ..."
+	for i in $(seq $num); do
+		chmod 0600 $DIR/$tdir/file-$i &
+		pids="$pids $!"
+	done
+	sleep 1
+
+	# write MDT transactions to disk
+	do_facet mds1 "sync; sync; sync"
+
+	do_facet mds1 "$LCTL set_param fail_loc=0"
+
+	# fail MDT
+	fail mds1
+
+	for pid in $pids; do
+		wait $pid || error "chmod failed"
+	done
+	echo "done ($(date +%H:%M:%S))"
+
+	# check chmod succeed
+	for i in $(seq $num); do
+		checkstat -vp 0600 $DIR/$tdir/file-$i
+	done
+
+	rm -rf $DIR/$tdir
+}
+run_test 102d "check replay & reconstruction with multiple mod RPCs in flight"
+
+
+
+
 complete $SECONDS
 check_and_cleanup_lustre
 exit_status

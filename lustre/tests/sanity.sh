@@ -10899,7 +10899,7 @@ test_181() { # bug 22177
 }
 run_test 181 "Test open-unlinked dir ========================"
 
-test_182() {
+test_182a() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
 	# disable MDC RPC lock wouldn't crash client
 	local fcount=1000
@@ -12905,6 +12905,66 @@ test_244()
 	rm -rf $DIR/$tdir
 }
 run_test 244 "sendfile with group lock tests"
+
+
+test_245a() {
+	local flagname="multi_mod_rpcs"
+	local out
+
+	out=$($LCTL get_param mdc.$FSNAME-MDT0000-*.import |
+		grep "connect_flags:")
+	echo "$out"
+
+	echo "$out" | grep -qw $flagname ||
+		error "import without connect flag $flagname"
+}
+run_test 245a "check mdc import connection flag: multiple modify RPCs"
+
+test_245b() {
+	local connect_data_name="max_mod_rpcs"
+	local out
+
+	out=$($LCTL get_param mdc.$FSNAME-MDT0000-*.import)
+	echo "$out"
+
+	echo "$out" | grep -qw $connect_data_name ||
+		error "import without connect data $connect_data_name"
+}
+run_test 245b "check mdc import connection data: multiple modify RPCs"
+
+test_245c() {
+	local flagname="multi_mod_rpcs"
+	local out
+
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
+	[[ $MDSCOUNT -lt 2 ]] && skip "needs >= 2 MDTs" && return
+
+	out=$(do_facet mds1 \
+		$LCTL get_param osp.$FSNAME-MDT0001-osp-MDT0000.import |
+		grep "connect_flags:")
+	echo "$out"
+
+	echo "$out" | grep -qw $flagname ||
+		error "import without connect flag $flagname"
+}
+run_test 245c "check osp import connection flag: multiple modify RPCs"
+
+test_245d() {
+	local connect_data_name="max_mod_rpcs"
+	local out
+
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
+	[[ $MDSCOUNT -lt 2 ]] && skip "needs >= 2 MDTs" && return
+
+	out=$(do_facet mds1 \
+		$LCTL get_param osp.$FSNAME-MDT0001-osp-MDT0000.import)
+	echo "$out"
+
+	echo "$out" | grep -w $connect_data_name ||
+		error "import without connect data $connect_data_name"
+}
+run_test 245d "check osp import connection data: multiple modify RPCs"
+
 
 test_250() {
 	[ "$(facet_fstype ost$(($($GETSTRIPE -i $DIR/$tfile) + 1)))" = "zfs" ] \

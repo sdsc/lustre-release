@@ -2420,6 +2420,9 @@ static int target_send_reply_msg(struct ptlrpc_request *req,
                 DEBUG_REQ(D_ERROR, req, "dropping reply");
                 return (-ECOMM);
         }
+	if (unlikely(lustre_msg_get_opc(req->rq_reqmsg) == MDS_REINT &&
+	    OBD_FAIL_CHECK(OBD_FAIL_MDS_REINT_MULTI_NET_REP)))
+		return -ECOMM;
 
         if (unlikely(rc)) {
                 DEBUG_REQ(D_NET, req, "processing error (%d)", rc);
