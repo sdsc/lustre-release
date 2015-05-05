@@ -50,6 +50,7 @@
 #include <lustre_fid.h>
 
 #include <lustre_quota.h>
+#include <lustre_nodemap.h>
 
 /* context key constructor/destructor: dt_global_key_init, dt_global_key_fini */
 LU_KEY_INIT(dt_global, struct dt_thread_info);
@@ -614,6 +615,17 @@ const struct dt_index_features dt_quota_slv_features = {
 	.dif_ptrsize		= 4
 };
 EXPORT_SYMBOL(dt_quota_slv_features);
+
+/* nodemap files */
+const struct dt_index_features dt_nodemap_features = {
+	.dif_flags		= DT_IND_UPDATE,
+	.dif_keysize_min	= sizeof(__u64), /* 64-bit nodemap/record id */
+	.dif_keysize_max	= sizeof(__u64), /* 64-bit nodemap/record id */
+	.dif_recsize_min	= sizeof(struct nodemap_rec), /* 32 bytes */
+	.dif_recsize_max	= sizeof(struct nodemap_rec), /* 32 bytes */
+	.dif_ptrsize		= 4
+};
+EXPORT_SYMBOL(dt_nodemap_features);
 
 /* helper function returning what dt_index_features structure should be used
  * based on the FID sequence. This is used by OBD_IDX_READ RPC */

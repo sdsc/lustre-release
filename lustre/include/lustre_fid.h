@@ -239,6 +239,7 @@ enum local_oid {
 	/* This definition is obsolete
 	 * SLAVE_LLOG_CATALOGS_OID	= 4124UL,
 	 */
+	NODEMAP_OID		= 4125UL,
 };
 
 static inline void lu_local_obj_fid(struct lu_fid *fid, __u32 oid)

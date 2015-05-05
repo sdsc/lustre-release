@@ -3999,47 +3999,90 @@ int mgs_nodemap_cmd(const struct lu_env *env, struct mgs_device *mgs,
 		    enum lcfg_command_type cmd, const char *nodemap_name,
 		    char *param)
 {
-	lnet_nid_t	nid[2];
-	__u32		idmap[2];
-	bool		bool_switch;
-	__u32		int_id;
-	int		rc = 0;
+	lnet_nid_t		nid[2];
+	__u32			idmap[2];
+	bool			bool_switch;
+	__u32			int_id;
+	int			rc = 0;
+	enum nodemap_id_type	id_type;
 	ENTRY;
 
 	switch (cmd) {
 	case LCFG_NODEMAP_ADD:
 		rc = nodemap_add(nodemap_name);
+		if (rc != 0)
+			break;
+		rc = nodemap_idx_nodemap_add(env, mgs->mgs_los, mgs->mgs_bottom,
+					     mgs->mgs_configs_dir,
+					     nodemap_name);
 		break;
 	case LCFG_NODEMAP_DEL:
 		rc = nodemap_del(nodemap_name);
+		if (rc != 0)
+			break;
+		rc = nodemap_idx_nodemap_del(env, mgs->mgs_los, mgs->mgs_bottom,
+					     mgs->mgs_configs_dir,
+					     nodemap_name);
 		break;
 	case LCFG_NODEMAP_ADD_RANGE:
 		rc = nodemap_parse_range(param, nid);
 		if (rc != 0)
 			break;
 		rc = nodemap_add_range(nodemap_name, nid);
+		if (rc != 0)
+			break;
+		rc = nodemap_idx_add_range(env, mgs->mgs_los, mgs->mgs_bottom,
+					   mgs->mgs_configs_dir, nid);
 		break;
 	case LCFG_NODEMAP_DEL_RANGE:
 		rc = nodemap_parse_range(param, nid);
 		if (rc != 0)
 			break;
 		rc = nodemap_del_range(nodemap_name, nid);
+		if (rc != 0)
+			break;
+		rc = nodemap_idx_del_range(env, mgs->mgs_los, mgs->mgs_bottom,
+					   mgs->mgs_configs_dir, nid);
 		break;
 	case LCFG_NODEMAP_ADMIN:
 		bool_switch = simple_strtoul(param, NULL, 10);
 		rc = nodemap_set_allow_root(nodemap_name, bool_switch);
+		if (rc != 0)
+			break;
+		rc = nodemap_idx_nodemap_update(env, mgs->mgs_los,
+						mgs->mgs_bottom,
+						mgs->mgs_configs_dir,
+						nodemap_name);
 		break;
 	case LCFG_NODEMAP_TRUSTED:
 		bool_switch = simple_strtoul(param, NULL, 10);
 		rc = nodemap_set_trust_client_ids(nodemap_name, bool_switch);
+		if (rc != 0)
+			break;
+		rc = nodemap_idx_nodemap_update(env, mgs->mgs_los,
+						mgs->mgs_bottom,
+						mgs->mgs_configs_dir,
+						nodemap_name);
 		break;
 	case LCFG_NODEMAP_SQUASH_UID:
 		int_id = simple_strtoul(param, NULL, 10);
 		rc = nodemap_set_squash_uid(nodemap_name, int_id);
+		if (rc != 0)
+			break;
+		rc = nodemap_idx_nodemap_update(env, mgs->mgs_los,
+						mgs->mgs_bottom,
+						mgs->mgs_configs_dir,
+						nodemap_name);
 		break;
 	case LCFG_NODEMAP_SQUASH_GID:
 		int_id = simple_strtoul(param, NULL, 10);
 		rc = nodemap_set_squash_gid(nodemap_name, int_id);
+		if (rc != 0)
+			break;
+		rc = nodemap_idx_nodemap_update(env, mgs->mgs_los,
+						mgs->mgs_bottom,
+						mgs->mgs_configs_dir,
+						nodemap_name);
 		break;
 	case LCFG_NODEMAP_ADD_UIDMAP:
 	case LCFG_NODEMAP_ADD_GIDMAP:
@@ -4047,11 +4090,15 @@ int mgs_nodemap_cmd(const struct lu_env *env, struct mgs_device *mgs,
 		if (rc != 0)
 			break;
 		if (cmd == LCFG_NODEMAP_ADD_UIDMAP)
-			rc = nodemap_add_idmap(nodemap_name, NODEMAP_UID,
-					       idmap);
+			id_type = NODEMAP_UID;
 		else
-			rc = nodemap_add_idmap(nodemap_name, NODEMAP_GID,
-					       idmap);
+			id_type = NODEMAP_GID;
+		rc = nodemap_add_idmap(nodemap_name, id_type, idmap);
+		if (rc != 0)
+			break;
+		rc = nodemap_idx_add_idmap(env, mgs->mgs_los, mgs->mgs_bottom,
+					   mgs->mgs_configs_dir, nodemap_name,
+					   idmap, id_type);
 		break;
 	case LCFG_NODEMAP_DEL_UIDMAP:
 	case LCFG_NODEMAP_DEL_GIDMAP:
@@ -4059,11 +4106,15 @@ int mgs_nodemap_cmd(const struct lu_env *env, struct mgs_device *mgs,
 		if (rc != 0)
 			break;
 		if (cmd == LCFG_NODEMAP_DEL_UIDMAP)
-			rc = nodemap_del_idmap(nodemap_name, NODEMAP_UID,
-					       idmap);
+			id_type = NODEMAP_UID;
 		else
-			rc = nodemap_del_idmap(nodemap_name, NODEMAP_GID,
-					       idmap);
+			id_type = NODEMAP_GID;
+		rc = nodemap_del_idmap(nodemap_name, id_type, idmap);
+		if (rc != 0)
+			break;
+		rc = nodemap_idx_del_idmap(env, mgs->mgs_los, mgs->mgs_bottom,
+					   mgs->mgs_configs_dir, nodemap_name,
+					   idmap, id_type);
 		break;
 	default:
 		rc = -EINVAL;

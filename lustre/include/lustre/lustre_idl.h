@@ -4113,5 +4113,40 @@ struct close_data {
 
 void lustre_swab_close_data(struct close_data *data);
 
+/* nodemap records, uses 256 bit record length */
+#define LUSTRE_NODEMAP_NAME_LENGTH 16
+struct nodemap_cluster_rec {
+	char name[LUSTRE_NODEMAP_NAME_LENGTH + 1];
+	__u32 squash_uid;
+	__u32 squash_gid;
+	__u8 flags;
+	__u8 padding[2];
+};
+
+struct nodemap_range_rec {
+	lnet_nid_t start_nid;
+	lnet_nid_t end_nid;
+	__u8 padding[16];
+};
+
+struct nodemap_id_rec {
+	__u32 id_fs;
+	__u8 padding[27];
+};
+
+struct nodemap_global_rec {
+	__u8 is_active;
+	__u8 padding[31];
+};
+
+struct nodemap_rec {
+	union {
+		struct nodemap_cluster_rec n;
+		struct nodemap_range_rec r;
+		struct nodemap_id_rec i;
+		struct nodemap_global_rec g;
+	} val;
+};
+
 #endif
 /** @} lustreidl */
