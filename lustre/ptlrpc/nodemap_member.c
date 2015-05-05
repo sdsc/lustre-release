@@ -272,8 +272,8 @@ out:
 	return 0;
 }
 
-/* Mutex used to serialize calls to reclassify_nodemap_lock */
-DEFINE_MUTEX(reclassify_nodemap_lock);
+/* Spinlock used to serialize calls to reclassify_nodemap */
+static DEFINE_SPINLOCK(reclassify_nodemap_lock);
 
 /**
  * Reclassify the members of a nodemap after range changes or activation.
@@ -297,11 +297,11 @@ DEFINE_MUTEX(reclassify_nodemap_lock);
 void nm_member_reclassify_nodemap(struct lu_nodemap *nodemap)
 {
 	/* reclassify only one nodemap at a time to avoid deadlock */
-	mutex_lock(&reclassify_nodemap_lock);
+	spin_lock(&reclassify_nodemap_lock);
 	cfs_hash_for_each_safe(nodemap->nm_member_hash,
 			       nm_member_reclassify_cb,
 			       NULL);
-	mutex_unlock(&reclassify_nodemap_lock);
+	spin_unlock(&reclassify_nodemap_lock);
 }
 
 static int nm_member_revoke_locks_cb(cfs_hash_t *hs, cfs_hash_bd_t *bd,
