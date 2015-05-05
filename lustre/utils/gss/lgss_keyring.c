@@ -116,8 +116,6 @@ struct keyring_upcall_param {
  * child process: gss negotiation       *
  ****************************************/
 
-#define INIT_CHANNEL    "/proc/fs/lustre/sptlrpc/gss/init_channel"
-
 int do_nego_rpc(struct lgss_nego_data *lnd,
                 gss_buffer_desc *gss_token,
                 struct lgss_init_res *gr)
@@ -127,6 +125,8 @@ int do_nego_rpc(struct lgss_nego_data *lnd,
         int                       fd, ret, res;
         char                      outbuf[8192];
         unsigned int             *p;
+	int rc;
+	char path[PATH_MAX];
 
         logmsg(LL_TRACE, "start negotiation rpc\n");
 
@@ -148,11 +148,16 @@ int do_nego_rpc(struct lgss_nego_data *lnd,
         param.reply_buf_size = sizeof(outbuf);
         param.reply_buf = outbuf;
 
-        logmsg(LL_TRACE, "to open " INIT_CHANNEL "\n");
+	rc = cfs_get_procpath(path, PATH_MAX,
+				"lustre/sptlrpc/gss/init_channel");
+	if (rc != 0)
+		return rc;
 
-        fd = open(INIT_CHANNEL, O_WRONLY);
+	logmsg(LL_TRACE, "to open %s \n", path);
+
+	fd = open(path, O_WRONLY);
         if (fd < 0) {
-                logmsg(LL_ERR, "can't open " INIT_CHANNEL "\n");
+		logmsg(LL_ERR, "can't open %s \n", path);
                 return -EACCES;
         }
 
@@ -604,14 +609,16 @@ static int parse_callout_info(const char *coinfo,
 	return 0;
 }
 
-#define LOG_LEVEL_PATH  "/proc/fs/lustre/sptlrpc/gss/lgss_keyring/debug_level"
-
 static void set_log_level()
 {
         FILE         *file;
         unsigned int  level;
+	char path[PATH_MAX];
 
-        file = fopen(LOG_LEVEL_PATH, "r");
+	if (cfs_get_procpath(path, PATH_MAX,
+			       "lustre/sptlrpc/gss/lgss_keyring/debug_level"))
+		return;
+	file = fopen(path, "r");
         if (file == NULL)
                 return;
 

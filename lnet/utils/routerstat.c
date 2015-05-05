@@ -42,6 +42,10 @@
 #include <stdlib.h>
 #include <sys/types.h>
 #include <sys/time.h>
+#include <limits.h>
+#include <glob.h>
+
+#include <libcfs/util/param.h>
 
 double
 timenow ()
@@ -170,26 +174,29 @@ do_stat (int fd)
 
 int main (int argc, char **argv)
 {
+   char path[PATH_MAX];
    int  interval = 0;
    int  fd;
 
    if (argc > 1)
       interval = atoi (argv[1]);
 
-   fd = open ("/proc/sys/lnet/stats", O_RDONLY);
-   if (fd < 0)
-   {
+   if (cfs_get_procpath(path, PATH_MAX, "lnet/stats"))
+	return (1);
+
+   fd = open(path, O_RDONLY);
+   if (fd < 0) {
       fprintf (stderr, "Can't open stat: %s\n", strerror (errno));
       return (1);
    }
 
-   do_stat (fd);
+   do_stat(fd);
    if (interval == 0)
       return (0);
 
    for (;;)
    {
-      sleep (interval);
-      do_stat (fd);
+      sleep(interval);
+      do_stat(fd);
    }
 }

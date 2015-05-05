@@ -37,7 +37,7 @@
  *
  * Author: PJ Kirner <pjkirner@clusterfs.com>
  */
- 
+
 #include <net-snmp/net-snmp-config.h>
 #include <net-snmp/net-snmp-includes.h>
 #include <net-snmp/agent/net-snmp-agent-includes.h>
@@ -45,9 +45,11 @@
 #include <pthread.h>
 #include "lustre-snmp.h"
 
+#include <libcfs/util/param.h>
+
 #define LNET_CHECK_INTERVAL 500
 
-/* 
+/*
  * clusterFileSystems_variables_oid:
  *   this is the top level oid that we want to register under.  This
  *   is essentially a prefix, with the suffix appearing in the
@@ -230,43 +232,44 @@ var_clusterFileSystems(struct variable *vp,
                 size_t  *var_len, 
                 WriteMethod **write_method)
 {
+	/* variables we may use later */
+	static long long_ret;
+	static u_long ulong_ret;
+	static unsigned char string[SPRINT_MAX_LEN];
+	char path[MAX_PATH_SIZE];
+	uint32_t num;
+	char *dir_list;
 
+	if (header_generic(vp,name,length,exact,var_len,write_method) ==
+	    MATCH_FAILED)
+		return NULL;
 
-  /* variables we may use later */
-  static long long_ret;
-  static u_long ulong_ret;
-  static unsigned char string[SPRINT_MAX_LEN];
-  char file_path[MAX_PATH_SIZE];
-  uint32_t num;
-  char *dir_list;
+	if (cfs_get_procpath(path, MAX_PATH_SIZE, NULL) < 0)
+		return NULL;
 
-  if (header_generic(vp,name,length,exact,var_len,write_method)
-                                  == MATCH_FAILED )
-    return NULL;
-
-
-  /* 
+  /*
    * this is where we do the value assignments for the mib results.
    */
   switch(vp->magic) {
 
     case SYSVERSION:
-        sprintf(file_path, "%s%s", LUSTRE_PATH,"version");
-        if( SUCCESS != read_string(file_path, (char *)string,sizeof(string)))
+	strcat(path, "version");
+
+	if( SUCCESS != read_string(path, (char *)string, sizeof(string)))
             return NULL;
         *var_len = strlen((char *)string);
         return (unsigned char *) string;
 
     case SYSKERNELVERSION:
-        sprintf(file_path, "%s%s", LUSTRE_PATH,"kernel_version");
-        if( SUCCESS != read_string(file_path, (char *)string,sizeof(string)))
+	strcat(path, "kernel_version");
+	if( SUCCESS != read_string(path, (char *)string, sizeof(string)))
             return NULL;
         *var_len = strlen((char *)string);
         return (unsigned char *) string;
 
     case SYSHEALTHCHECK:
-        sprintf(file_path, "%s%s", LUSTRE_PATH,FILENAME_SYSHEALTHCHECK);
-        if( SUCCESS != read_string(file_path, (char *)string,sizeof(string)))
+	strcat(path, "health_check");
+	if( SUCCESS != read_string(path, (char *)string, sizeof(string)))
             return NULL;
         *var_len = strlen((char*)string);
         return (unsigned char *) string;
@@ -279,57 +282,64 @@ var_clusterFileSystems(struct variable *vp,
         return NULL;
                       
     case OSDNUMBER:
-        if( 0 == (dir_list = get_file_list(OSD_PATH, DIR_TYPE, &num)))
+	strcat(path, "obdfilter/");
+	if( 0 == (dir_list = get_file_list(path, DIR_TYPE, &num)))
             return NULL;
-        DEBUGMSGTL(("lsnmpd","num(%s)=%d\n",OSD_PATH,num));  
+	DEBUGMSGTL(("lsnmpd", "num(%s)=%d\n", path, num));
         ulong_ret =  num;
         free(dir_list);
         return (unsigned char *) &ulong_ret;
 
     case OSCNUMBER:
-        if( 0 == (dir_list = get_file_list(OSC_PATH, DIR_TYPE, &num)))
+	strcat(path, "osc/");
+	if( 0 == (dir_list = get_file_list(path, DIR_TYPE, &num)))
             return NULL;
-        DEBUGMSGTL(("lsnmpd","num(%s)=%d\n",OSC_PATH,num));  
+	DEBUGMSGTL(("lsnmpd", "num(%s)=%d\n", path, num));
         ulong_ret =  num;
         free(dir_list);
         return (unsigned char *) &ulong_ret;
 
     case MDDNUMBER:
-        if( 0 == (dir_list = get_file_list(MDS_PATH, DIR_TYPE, &num)))
+	strcat(path, "mds/");
+	if( 0 == (dir_list = get_file_list(path, DIR_TYPE, &num)))
             return NULL;
-        DEBUGMSGTL(("lsnmpd","num(%s)=%d\n",MDS_PATH,num));  
+	DEBUGMSGTL(("lsnmpd", "num(%s)=%d\n", path, num));
         ulong_ret =  num;
         free(dir_list);
         return (unsigned char *) &ulong_ret;
 
     case MDCNUMBER:
-        if( 0 == (dir_list = get_file_list(MDC_PATH, DIR_TYPE, &num)))
+	strcat(path, "mdc/");
+	if( 0 == (dir_list = get_file_list(path, DIR_TYPE, &num)))
             return NULL;
-        DEBUGMSGTL(("lsnmpd","num(%s)=%d\n",MDC_PATH,num));  
+	DEBUGMSGTL(("lsnmpd", "num(%s)=%d\n", path, num));
         ulong_ret =  num;
         free(dir_list);
         return (unsigned char *) &ulong_ret;
 
     case CLIMOUNTNUMBER:
-        if( 0 == (dir_list = get_file_list(CLIENT_PATH, DIR_TYPE, &num)))
+	strcat(path, "llite/");
+	if( 0 == (dir_list = get_file_list(path, DIR_TYPE, &num)))
             return NULL;
-        DEBUGMSGTL(("lsnmpd","num(%s)=%d\n",CLIENT_PATH,num));  
+	DEBUGMSGTL(("lsnmpd", "num(%s)=%d\n", path, num));
         ulong_ret =  num;
         free(dir_list);
         return (unsigned char *) &ulong_ret;
 
     case LOVNUMBER:
-        if( 0 == (dir_list = get_file_list(LOV_PATH, DIR_TYPE, &num)))
+	strcat(path, "lov/");
+	if( 0 == (dir_list = get_file_list(path, DIR_TYPE, &num)))
             return NULL;
-        DEBUGMSGTL(("lsnmpd","num(%s)=%d\n",LOV_PATH,num));  
+	DEBUGMSGTL(("lsnmpd", "num(%s)=%d\n", path, num));
         ulong_ret =  num;
         free(dir_list);
         return (unsigned char *) &ulong_ret;
 
     case LDLMNUMBER:
-        if( 0 == (dir_list = get_file_list(LDLM_PATH, DIR_TYPE, &num)))
+	strcat(path, "ldlm/namespaces/");
+	if( 0 == (dir_list = get_file_list(path, DIR_TYPE, &num)))
             return NULL;
-        DEBUGMSGTL(("lsnmpd","num(%s)=%d\n",LDLM_PATH,num));  
+	DEBUGMSGTL(("lsnmpd", "num(%s)=%d\n", path, num));
         ulong_ret =  num;
         free(dir_list);
         return (unsigned char *) &ulong_ret;
@@ -364,8 +374,13 @@ var_osdTable(struct variable *vp,
     	    size_t  *var_len,
     	    WriteMethod **write_method)
 {
+	char path[MAX_PATH_SIZE];
+
+	if (cfs_get_procpath(path, MAX_PATH_SIZE, "lustre/obdfilter/"))
+		return NULL;
+
     return var_genericTable(vp,name,length,exact,var_len,write_method,
-        OSD_PATH,osd_table);
+				path, osd_table);
 }
 
 struct oid_table osc_table[] =
@@ -392,8 +407,13 @@ var_oscTable(struct variable *vp,
     	    size_t  *var_len,
     	    WriteMethod **write_method)
 {
+	char path[MAX_PATH_SIZE];
+
+	if (cfs_get_procpath(path, MAX_PATH_SIZE, "lustre/osc/"))
+		return NULL;
+
     return var_genericTable(vp,name,length,exact,var_len,write_method,
-        OSC_PATH,osc_table);
+				path, osc_table);
 }
 
 struct oid_table mds_table[] =
@@ -419,8 +439,13 @@ var_mdsTable(struct variable *vp,
     	    size_t  *var_len,
     	    WriteMethod **write_method)
 {
+	char path[MAX_PATH_SIZE];
+
+	if (cfs_get_procpath(path, MAX_PATH_SIZE, "lustre/mds/"))
+		return NULL;
+
     return var_genericTable(vp,name,length,exact,var_len,write_method,
-        MDS_PATH,mds_table);
+				path, mds_table);
 }
 
 struct oid_table mdc_table[] =
@@ -448,8 +473,13 @@ var_mdcTable(struct variable *vp,
     	    size_t  *var_len,
     	    WriteMethod **write_method)
 {
+	char path[MAX_PATH_SIZE];
+
+	if (cfs_get_procpath(path, MAX_PATH_SIZE, "lustre/mdc/"))
+		return NULL;
+
     return var_genericTable(vp,name,length,exact,var_len,write_method,
-        MDC_PATH,mdc_table);
+				path, mdc_table);
 }
 
 
@@ -477,8 +507,13 @@ var_cliTable(struct variable *vp,
     	    size_t  *var_len,
     	    WriteMethod **write_method)
 {
+	char path[MAX_PATH_SIZE];
+
+	if (cfs_get_procpath(path, MAX_PATH_SIZE, "lustre/llite/"))
+		return NULL;
+
     return var_genericTable(vp,name,length,exact,var_len,write_method,
-        CLIENT_PATH,cli_table);
+				path, cli_table);
 }
 
 
@@ -512,8 +547,13 @@ var_lovTable(struct variable *vp,
     	    size_t  *var_len,
     	    WriteMethod **write_method)
 {
+	char path[MAX_PATH_SIZE];
+
+	if (cfs_get_procpath(path, MAX_PATH_SIZE, "lustre/lov/"))
+		return NULL;
+
     return var_genericTable(vp,name,length,exact,var_len,write_method,
-        LOV_PATH,lov_table);
+				path, lov_table);
 }
 
 struct oid_table ldlm_table[] =
@@ -538,8 +578,13 @@ var_ldlmTable(struct variable *vp,
     	    size_t  *var_len,
     	    WriteMethod **write_method)
 {
+	char path[MAX_PATH_SIZE];
+
+	if (cfs_get_procpath(path, MAX_PATH_SIZE, "lustre/ldlm/namespaces/"))
+		return NULL;
+
     return var_genericTable(vp,name,length,exact,var_len,write_method,
-        LDLM_PATH,ldlm_table);
+				path, ldlm_table);
 }
 
 /*****************************************************************************
@@ -569,7 +614,8 @@ var_lnetInformation(struct variable *vp,
         gettimeofday(&current_tv, NULL);
         current = current_tv.tv_sec * 1000000 + current_tv.tv_usec;
         if (current >= next_update) {
-                sprintf(file_path, "%s%s", LNET_PATH, "stats");
+		if (cfs_get_procpath(file_path, MAX_PATH_SIZE, "lnet/stats"))
+			return NULL;
                 if (read_string(file_path, (char *) string, sizeof(string))
                     != SUCCESS)
                         return NULL;

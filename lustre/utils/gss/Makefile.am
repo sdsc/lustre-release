@@ -6,7 +6,7 @@ AM_CFLAGS=$(LLCFLAGS)
 AM_CPPFLAGS=$(LLCPPFLAGS) -DLUSTRE_UTILS=1
 AM_LDFLAGS := -L$(top_builddir)/libcfs/libcfs
 
-LIBCFS := $(top_builddir)/libcfs/libcfs/libcfs.a $(top_builddir)/libcfs/libcfs/libcfsutil.a
+LIBCFS := $(top_builddir)/libcfs/libcfs/libcfs.a
 
 sbin_PROGRAMS = lsvcgssd l_idmap
 

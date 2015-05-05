@@ -51,6 +51,7 @@
 #include <errno.h>
 #include <dirent.h>
 
+#include <libcfs/util/param.h>
 #include <lustre/lustreapi.h>
 
 #define MAX_LOV_UUID_COUNT      1000
@@ -97,19 +98,25 @@ int read_proc_entry(char *proc_path, char *buf, int len)
 }
 
 int compare(struct lov_user_md *lum_dir, struct lov_user_md *lum_file1,
-            struct lov_user_md *lum_file2)
+	    struct lov_user_md *lum_file2)
 {
-        int stripe_count = 0, min_stripe_count = 0, def_stripe_count = 1;
-        int stripe_size = 0;
-        int stripe_offset = -1;
-        int ost_count;
-        char buf[128];
-        char lov_path[PATH_MAX];
-        char tmp_path[PATH_MAX];
-        int i;
-        FILE *fp;
+	int stripe_count = 0, min_stripe_count = 0, def_stripe_count = 1;
+	int stripe_size = 0;
+	int stripe_offset = -1;
+	int ost_count;
+	char buf[128];
+	char proc_path[PATH_MAX];
+	char lov_path[PATH_MAX];
+	char tmp_path[PATH_MAX];
+	char cmd[PATH_MAX];
+	FILE *fp;
+	int i;
 
-	fp = popen("\\ls -d  /proc/fs/lustre/lov/*clilov* | head -1", "r");
+	if (cfs_get_procpath(proc_path, PATH_MAX, "lov") != 0)
+		return (1);
+
+	sprintf(cmd, "ls -d %s/*clilov* | head -1", proc_path);
+	fp = popen(cmd, "r");
 	if (fp == NULL) {
 		llapi_error(LLAPI_MSG_ERROR, -errno,
 			    "open(lustre/lov/*clilov*) failed");

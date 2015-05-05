@@ -66,6 +66,7 @@
 #include "obdctl.h"
 #include <libcfs/libcfs.h>
 #include <libcfs/util/ioctl.h>
+#include <libcfs/util/param.h>
 #include <libcfs/util/parser.h>
 
 #include <lnet/nidstr.h>
@@ -952,8 +953,10 @@ static void print_obd_line(char *s)
 		 sizeof(obd_name) - 1);
 	if (sscanf(s, buf, obd_name) == 0)
                 goto try_mdc;
-        snprintf(buf, sizeof(buf),
-                 "/proc/fs/lustre/osc/%s/ost_conn_uuid", obd_name);
+	if ( cfs_get_procpath(buf, sizeof(buf),
+				"lustre/osc/%s/ost_conn_uuid", obd_name))
+		goto try_mdc;
+
         if ((fp = fopen(buf, "r")) == NULL)
                 goto try_mdc;
         goto got_one;
@@ -963,8 +966,9 @@ try_mdc:
 		 sizeof(obd_name) - 1);
 	if (sscanf(s, buf, obd_name) == 0)
                 goto fail;
-        snprintf(buf, sizeof(buf),
-                 "/proc/fs/lustre/mdc/%s/mds_conn_uuid", obd_name);
+	if ( cfs_get_procpath(buf, sizeof(buf),
+				"lustre/mdc/%s/mds_conn_uuid", obd_name))
+		goto fail;
         if ((fp = fopen(buf, "r")) == NULL)
                 goto fail;
 
@@ -1045,10 +1049,14 @@ int jt_obd_list(int argc, char **argv)
                         return CMD_HELP;
         }
 
-        fp = fopen(DEVICES_LIST, "r");
+	rc = cfs_get_procpath(buf, MAX_STRING_SIZE, "lustre/devices");
+	if (rc != 0)
+		return rc;
+
+	fp = fopen(buf, "r");
         if (fp == NULL) {
-                fprintf(stderr, "error: %s: %s opening "DEVICES_LIST"\n",
-                        jt_cmdname(argv[0]), strerror(rc =  errno));
+		fprintf(stderr, "error: %s: %s opening %s\n",
+			jt_cmdname(argv[0]), strerror(rc =  errno), buf);
                 return jt_obd_list_ioctl(argc, argv);
         }
 

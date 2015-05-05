@@ -88,6 +88,7 @@ nobase_test_DATA = $(nobase_noinst_DATA)
 endif # TESTS
 
 mmap_sanity_SOURCES= mmap_sanity.c
+mmap_sanity_LDADD=$(LIBCFS)
 
 LIBLUSTREAPI = $(top_builddir)/lustre/utils/liblustreapi.a
 multiop_LDADD=$(LIBLUSTREAPI) $(PTHREAD_LIBS) $(LIBCFS)

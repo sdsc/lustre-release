@@ -62,6 +62,8 @@
 #include <gssapi/gssapi.h>
 #include <netdb.h>
 
+#include <lustre/lustreapi.h>
+
 #include "gssd.h"
 #include "err_util.h"
 #include "gss_util.h"
@@ -629,13 +631,13 @@ int do_negotiation(struct lustre_gss_data *lgd,
 		   struct lustre_gss_init_res *gr,
 		   int timeout)
 {
-	char *file = "/proc/fs/lustre/sptlrpc/gss/init_channel";
 	struct lgssd_ioctl_param param;
 	struct passwd *pw;
 	int fd, ret;
 	char outbuf[8192];
 	unsigned int *p;
 	int res;
+	char path[PATH_MAX];
 
 	pw = getpwuid(lgd->lgd_uid);
 	if (!pw) {
@@ -654,9 +656,12 @@ int do_negotiation(struct lustre_gss_data *lgd,
 	param.reply_buf_size = sizeof(outbuf);
 	param.reply_buf = outbuf;
 
-	fd = open(file, O_RDWR);
+	if (cfs_get_procpath(path, PATH_MAX,
+			       "lustre/sptlrpc/gss/init_channel"))
+		return -1;
+	fd = open(path, O_RDWR);
 	if (fd < 0) {
-		printerr(0, "can't open file %s\n", file);
+		printerr(0, "can't open file %s\n", path);
 		return -1;
 	}
 

@@ -226,16 +226,19 @@ void health_poll_worker(unsigned int registration_number, void *clientarg)
  * Input:  'None
  * Output: void
  *****************************************************************************/
- 
- void health_entry_parser(void)
+void health_entry_parser(void)
 {
     FILE    *fptr = NULL;
     char string[MAX_LINE_SIZE];
     int b_seen_portals_catastrophe = 0;
-    const char *filename =  g_health_check_test_file == 0 ? 
-            LUSTRE_PATH FILENAME_SYSHEALTHCHECK : 
-            g_health_check_test_file;
-    
+    char *filename;
+    char path[PATH_MAX];
+
+    if (cfs_get_procpath(path, PATH_MAX, "lustre/health_check"))
+	return;
+
+    filename = g_health_check_test_file == 0 ? path : g_health_check_test_file;
+
     /*DEBUGMSGTL(("lsnmpd","health_entry_parser(%s)\n",filename));*/
 
     /* Open the file.  Use the test file env variable if

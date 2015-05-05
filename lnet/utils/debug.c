@@ -46,6 +46,7 @@
 #include <unistd.h>
 #include <libcfs/libcfs.h>
 #include <libcfs/util/ioctl.h>
+#include <libcfs/util/param.h>
 #include <lnet/lnetctl.h>
 
 static char rawbuf[8192];
@@ -60,15 +61,23 @@ static int debug_mask = ~0;
 static const char *libcfs_debug_subsystems[] = LIBCFS_DEBUG_SUBSYS_NAMES;
 static const char *libcfs_debug_masks[] = LIBCFS_DEBUG_MASKS_NAMES;
 
-#define DAEMON_CTL_NAME		"/proc/sys/lnet/daemon_file"
-#define SUBSYS_DEBUG_CTL_NAME	"/proc/sys/lnet/subsystem_debug"
-#define DEBUG_CTL_NAME		"/proc/sys/lnet/debug"
-#define DUMP_KERNEL_CTL_NAME	"/proc/sys/lnet/dump_kernel"
+#define DAEMON_CTL_NAME		"lnet/daemon_file"
+#define SUBSYS_DEBUG_CTL_NAME	"lnet/subsystem_debug"
+#define DEBUG_CTL_NAME		"lnet/debug"
+#define DUMP_KERNEL_CTL_NAME	"lnet/dump_kernel"
 
 static int
 dbg_open_ctlhandle(const char *str)
 {
-	int fd;
+	char path[PATH_MAX];
+	int fd, rc;
+
+	rc = cfs_get_procpath(path, PATH_MAX, str);
+	if (rc < 0) {
+		fprintf(stderr, "invalid command %s\n", str);
+		return -1;
+	}
+
 	fd = open(str, O_WRONLY);
 	if (fd < 0) {
 		fprintf(stderr, "open %s failed: %s\n", str,
@@ -195,7 +204,7 @@ static void applymask_all(unsigned int subs_mask, unsigned int debug_mask)
 {
 	applymask(SUBSYS_DEBUG_CTL_NAME, subs_mask);
 	applymask(DEBUG_CTL_NAME, debug_mask);
-	printf("Applied subsystem_debug=%d, debug=%d to /proc/sys/lnet\n",
+	printf("Applied subsystem_debug=%d, debug=%d to lnet\n",
 	       subs_mask, debug_mask);
 }
 
