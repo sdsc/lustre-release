@@ -389,20 +389,20 @@ static int vvp_mmap_locks(const struct lu_env *env,
 			  struct vvp_io *vio, struct cl_io *io)
 {
 	struct vvp_thread_info *vti = vvp_env_info(env);
-        struct mm_struct       *mm = current->mm;
-        struct vm_area_struct  *vma;
-	struct cl_lock_descr   *descr = &vti->vti_descr;
-        ldlm_policy_data_t      policy;
-        unsigned long           addr;
-        unsigned long           seg;
-        ssize_t                 count;
-	int                     result = 0;
-        ENTRY;
+	struct mm_struct *mm = current->mm;
+	struct vm_area_struct *vma;
+	struct cl_lock_descr *descr = &vti->vti_descr;
+	union ldlm_policy_data policy;
+	unsigned long addr;
+	unsigned long seg;
+	ssize_t count;
+	int result = 0;
+	ENTRY;
 
-        LASSERT(io->ci_type == CIT_READ || io->ci_type == CIT_WRITE);
+	LASSERT(io->ci_type == CIT_READ || io->ci_type == CIT_WRITE);
 
-        if (!cl_is_normalio(env, io))
-                RETURN(0);
+	if (!cl_is_normalio(env, io))
+		RETURN(0);
 
 	if (vio->vui_iov == NULL) /* nfs or loop back device write */
 		RETURN(0);
