@@ -109,6 +109,12 @@ static void ll_prepare_close(struct inode *inode, struct md_op_data *op_data,
 	op_data->op_attr_flags = ll_inode_to_ext_flags(inode->i_flags);
 	op_data->op_handle = och->och_fh;
 
+	/* LU-5564: use original uid or gid to close the file */
+	if ((inode->i_mode & S_ISUID) && inode->i_uid == current_fsuid())
+		op_data->op_fsuid = current_uid();
+	if ((inode->i_mode & S_ISGID) && inode->i_gid == current_fsgid())
+		op_data->op_fsgid = current_gid();
+
 	if (och->och_flags & FMODE_WRITE &&
 	    ll_file_test_and_clear_flag(ll_i2info(inode), LLIF_DATA_MODIFIED))
 		/* For HSM: if inode data has been modified, pack it so that

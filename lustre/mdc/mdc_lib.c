@@ -476,13 +476,16 @@ static void mdc_intent_close_pack(struct ptlrpc_request *req,
 
 void mdc_close_pack(struct ptlrpc_request *req, struct md_op_data *op_data)
 {
-        struct mdt_ioepoch *epoch;
-        struct mdt_rec_setattr *rec;
+	struct mdt_ioepoch *epoch;
+	struct mdt_rec_setattr *rec;
 
-        epoch = req_capsule_client_get(&req->rq_pill, &RMF_MDT_EPOCH);
-        rec = req_capsule_client_get(&req->rq_pill, &RMF_REC_REINT);
+	epoch = req_capsule_client_get(&req->rq_pill, &RMF_MDT_EPOCH);
+	rec = req_capsule_client_get(&req->rq_pill, &RMF_REC_REINT);
 
-        mdc_setattr_pack_rec(rec, op_data);
-        mdc_ioepoch_pack(epoch, op_data);
+	mdc_setattr_pack_rec(rec, op_data);
+	rec->sa_fsuid = op_data->op_fsuid;
+	rec->sa_fsgid = op_data->op_fsgid;
+
+	mdc_ioepoch_pack(epoch, op_data);
 	mdc_intent_close_pack(req, op_data);
 }
