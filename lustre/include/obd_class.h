@@ -1571,12 +1571,10 @@ static inline int md_set_lock_data(struct obd_export *exp,
         RETURN(MDP(exp->exp_obd, set_lock_data)(exp, lockh, data, bits));
 }
 
-static inline int md_cancel_unused(struct obd_export *exp,
-                                   const struct lu_fid *fid,
-                                   ldlm_policy_data_t *policy,
-                                   ldlm_mode_t mode,
-                                   ldlm_cancel_flags_t flags,
-                                   void *opaque)
+static inline
+int md_cancel_unused(struct obd_export *exp, const struct lu_fid *fid,
+		     union ldlm_policy_data *policy, enum ldlm_mode mode,
+		     enum ldlm_cancel_flags flags, void *opaque)
 {
         int rc;
         ENTRY;
@@ -1589,18 +1587,18 @@ static inline int md_cancel_unused(struct obd_export *exp,
         RETURN(rc);
 }
 
-static inline ldlm_mode_t md_lock_match(struct obd_export *exp, __u64 flags,
-                                        const struct lu_fid *fid,
-                                        ldlm_type_t type,
-                                        ldlm_policy_data_t *policy,
-                                        ldlm_mode_t mode,
-                                        struct lustre_handle *lockh)
+static inline enum ldlm_mode md_lock_match(struct obd_export *exp, __u64 flags,
+					   const struct lu_fid *fid,
+					   enum ldlm_type type,
+					   union ldlm_policy_data *policy,
+					   enum ldlm_mode mode,
+					   struct lustre_handle *lockh)
 {
-        ENTRY;
-        EXP_CHECK_MD_OP(exp, lock_match);
-        EXP_MD_COUNTER_INCREMENT(exp, lock_match);
-        RETURN(MDP(exp->exp_obd, lock_match)(exp, flags, fid, type,
-                                             policy, mode, lockh));
+	ENTRY;
+	EXP_CHECK_MD_OP(exp, lock_match);
+	EXP_MD_COUNTER_INCREMENT(exp, lock_match);
+	RETURN(MDP(exp->exp_obd, lock_match)(exp, flags, fid, type,
+					     policy, mode, lockh));
 }
 
 static inline int md_init_ea_size(struct obd_export *exp, __u32 ea_size,
