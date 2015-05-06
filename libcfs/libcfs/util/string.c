@@ -316,6 +316,7 @@ cfs_expr_list_print(char *buffer, int count, struct cfs_expr_list *expr_list)
  * \retval 1 if \a value matches
  * \retval 0 otherwise
  */
+#ifdef __KERNEL__
 int
 cfs_expr_list_match(__u32 value, struct cfs_expr_list *expr_list)
 {
@@ -329,6 +330,7 @@ cfs_expr_list_match(__u32 value, struct cfs_expr_list *expr_list)
 
 	return 0;
 }
+#endif
 
 /**
  * Frees cfs_range_expr structures of \a expr_list.
