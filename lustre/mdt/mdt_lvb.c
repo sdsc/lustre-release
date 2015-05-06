@@ -114,7 +114,8 @@ static int mdt_lvbo_fill(struct ldlm_lock *lock, void *lvb, int lvblen)
 		RETURN(rc);
 	}
 
-	if (!ldlm_has_layout(lock))
+	/* Only fill layout if layout lock is granted */
+	if (!ldlm_has_layout(lock) || lock->l_granted_mode == LCK_MINMODE)
 		RETURN(0);
 
 	/* layout lock will be granted to client, fill in lvb with layout */
