@@ -407,7 +407,7 @@ static int mdt_unlock_slaves(struct mdt_thread_info *mti,
 			     struct mdt_object *s0_obj,
 			     struct ldlm_enqueue_info *einfo)
 {
-	ldlm_policy_data_t	*policy = &mti->mti_policy;
+	union ldlm_policy_data	*policy = &mti->mti_policy;
 	int			rc;
 	ENTRY;
 
@@ -433,12 +433,12 @@ static int mdt_unlock_slaves(struct mdt_thread_info *mti,
  * will be stored in einfo->ei_cbdata.
  **/
 static int mdt_lock_slaves(struct mdt_thread_info *mti, struct mdt_object *obj,
-			   ldlm_mode_t mode, __u64 ibits,
+			   enum ldlm_mode mode, __u64 ibits,
 			   struct mdt_lock_handle *s0_lh,
 			   struct mdt_object **s0_objp,
 			   struct ldlm_enqueue_info *einfo)
 {
-	ldlm_policy_data_t	*policy = &mti->mti_policy;
+	union ldlm_policy_data	*policy = &mti->mti_policy;
 	struct lu_buf		*buf = &mti->mti_buf;
 	struct lmv_mds_md_v1	*lmv;
 	struct lu_fid		*fid = &mti->mti_tmp_fid1;
@@ -1104,7 +1104,7 @@ static int mdt_pdir_hash_lock(struct mdt_thread_info *info,
 {
 	struct ldlm_res_id *res = &info->mti_res_id;
 	struct ldlm_namespace *ns = info->mti_mdt->mdt_namespace;
-	ldlm_policy_data_t *policy = &info->mti_policy;
+	union ldlm_policy_data *policy = &info->mti_policy;
 	int rc;
 
 	/*
@@ -1154,7 +1154,7 @@ static int mdt_rename_lock(struct mdt_thread_info *info,
 		mdt_object_put(info->mti_env, obj);
 	} else {
 		struct ldlm_namespace	*ns = info->mti_mdt->mdt_namespace;
-		ldlm_policy_data_t	*policy = &info->mti_policy;
+		union ldlm_policy_data	*policy = &info->mti_policy;
 		struct ldlm_res_id	*res_id = &info->mti_res_id;
 		__u64			flags = 0;
 

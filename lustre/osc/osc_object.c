@@ -262,9 +262,9 @@ static int osc_object_fiemap(const struct lu_env *env, struct cl_object *obj,
 {
 	struct obd_export		*exp = osc_export(cl2osc(obj));
 	struct ldlm_res_id		resid;
-	ldlm_policy_data_t		policy;
+	union ldlm_policy_data		policy;
 	struct lustre_handle		lockh;
-	ldlm_mode_t			mode = 0;
+	enum ldlm_mode			mode = LCK_MINMODE;
 	struct ptlrpc_request		*req;
 	struct fiemap			*reply;
 	char				*tmp;

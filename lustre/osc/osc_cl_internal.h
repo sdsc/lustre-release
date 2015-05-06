@@ -101,12 +101,12 @@ struct osc_session {
 
 #define OTI_PVEC_SIZE 256
 struct osc_thread_info {
-        struct ldlm_res_id      oti_resname;
-        ldlm_policy_data_t      oti_policy;
-        struct cl_lock_descr    oti_descr;
-        struct cl_attr          oti_attr;
-        struct lustre_handle    oti_handle;
-        struct cl_page_list     oti_plist;
+	struct ldlm_res_id	oti_resname;
+	union ldlm_policy_data	oti_policy;
+	struct cl_lock_descr	oti_descr;
+	struct cl_attr		oti_attr;
+	struct lustre_handle	oti_handle;
+	struct cl_page_list	oti_plist;
 	struct cl_io		oti_io;
 	void			*oti_pvec[OTI_PVEC_SIZE];
 	/**
@@ -416,10 +416,10 @@ struct lu_object *osc_object_alloc(const struct lu_env *env,
 int osc_page_init(const struct lu_env *env, struct cl_object *obj,
 		  struct cl_page *page, pgoff_t ind);
 
-void osc_index2policy  (ldlm_policy_data_t *policy, const struct cl_object *obj,
-                        pgoff_t start, pgoff_t end);
-int  osc_lvb_print     (const struct lu_env *env, void *cookie,
-                        lu_printer_t p, const struct ost_lvb *lvb);
+void osc_index2policy(union ldlm_policy_data *policy,
+		      const struct cl_object *obj, pgoff_t start, pgoff_t end);
+int  osc_lvb_print(const struct lu_env *env, void *cookie,
+		   lu_printer_t p, const struct ost_lvb *lvb);
 
 void osc_lru_add_batch(struct client_obd *cli, struct list_head *list);
 void osc_page_submit(const struct lu_env *env, struct osc_page *opg,
@@ -518,7 +518,7 @@ static inline struct cl_object *osc2cl(const struct osc_object *obj)
 	return (struct cl_object *)&obj->oo_cl;
 }
 
-static inline ldlm_mode_t osc_cl_lock2ldlm(enum cl_lock_mode mode)
+static inline enum ldlm_mode osc_cl_lock2ldlm(enum cl_lock_mode mode)
 {
         LASSERT(mode == CLM_READ || mode == CLM_WRITE || mode == CLM_GROUP);
         if (mode == CLM_READ)
@@ -529,7 +529,7 @@ static inline ldlm_mode_t osc_cl_lock2ldlm(enum cl_lock_mode mode)
                 return LCK_GROUP;
 }
 
-static inline enum cl_lock_mode osc_ldlm2cl_lock(ldlm_mode_t mode)
+static inline enum cl_lock_mode osc_ldlm2cl_lock(enum ldlm_mode mode)
 {
         LASSERT(mode == LCK_PR || mode == LCK_PW || mode == LCK_GROUP);
         if (mode == LCK_PR)
