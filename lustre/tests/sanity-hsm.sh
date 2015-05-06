@@ -139,9 +139,26 @@ search_copytools() {
 
 search_and_kill_copytool() {
 	local agents=${1:-$(facet_active_host $SINGLEAGT)}
+	local end_wait=$(( SECONDS + TIMEOUT ))
 
 	echo "Killing existing copytools on $agents"
-	do_nodesv $agents "killall -q $HSMTOOL_BASE" || true
+	do_nodesv $agents "killall -q $HSMTOOL_BASE" || return 0
+
+	while (( SECONDS < end_wait )); do
+		sleep 2
+		search_copytools
+		if [ $? -ne 0 ]; then
+			echo "Copytool is stopped on $agents"
+			break
+		fi
+		echo "Copytool still running on $agents"
+	done
+	if $(search_copytools) ; then
+		error "Copytool failed to stop in ${TIMEOUT}s ..."
+	else
+		echo "Copytool has stopped in " \
+		     "$((TIMEOUT - (end_wait - SECONDS)))s."
+	fi
 }
 
 copytool_monitor_setup() {
@@ -215,8 +232,13 @@ copytool_setup() {
 	fi
 
 	if $HSM_ARCHIVE_PURGE; then
+		# avoid rm from /
+		[[ -z $hsm_root ]] && continue
+		[[ $(dirname $hsm_root) = $(basename $hsm_root) ]] && continue
 		echo "Purging archive on $agent"
-		do_facet $facet "rm -rf $hsm_root/*"
+		if do_facet $facet "df $hsm_root" >/dev/null 2>&1 ; then
+			do_facet $facet "rm -rf $hsm_root/*"
+		fi
 	fi
 
 	echo "Starting copytool $facet on $agent"
@@ -260,32 +282,15 @@ get_copytool_event_log() {
 
 copytool_cleanup() {
 	trap - EXIT
-	local facet=$SINGLEAGT
-	local agents=${1:-$(facet_active_host $facet)}
+	local agent
+	local agents=${1:-$(facet_active_host $SINGLEAGT)}
 	local mdtno
 	local idx
 	local oldstate
 	local mdt_hsmctrl
-	local hsm_root=$(copytool_device $facet)
-	local end_wait=$(( SECONDS + TIMEOUT ))
+	local hsm_root
 
-	do_nodesv $agents "pkill -INT -x $HSMTOOL_BASE" || return 0
-
-	while (( SECONDS < end_wait )); do
-		sleep 2
-		do_nodesv $agents "pgrep -x $HSMTOOL_BASE"
-		if [ $? -ne 0 ]; then
-			echo "Copytool is stopped on $agents"
-			break
-		fi
-		echo "Copytool still running on $agents"
-	done
-	if do_nodesv $agents "pgrep -x $HSMTOOL_BASE"; then
-		error "Copytool failed to stop in ${TIMEOUT}s ..."
-	else
-		echo "Copytool has stopped in " \
-		     "$((TIMEOUT - (end_wait - SECONDS)))s."
-	fi
+	search_and_kill_copytool $agents
 
 	# clean all CDTs orphans requests from previous tests
 	# that would otherwise need to timeout to clear.
@@ -306,9 +311,15 @@ copytool_cleanup() {
 			"$oldstate" 20 ||
 			error "mds${mdtno} cdt state is not $oldstate"
 	done
-	if do_facet $facet "df $hsm_root" >/dev/null 2>&1 ; then
-		do_facet $facet "rm -rf $hsm_root/*"
-	fi
+	for agent in ${agents//,/ }; do
+		hsm_root=$(copytool_device $agent)
+		# avoid rm from /
+		[[ -z $hsm_root ]] && continue
+		[[ $(dirname $hsm_root) = $(basename $hsm_root) ]] && continue
+		if do_node $agent "df $hsm_root" >/dev/null 2>&1 ; then
+			do_node $agent "rm -rf $hsm_root/*"
+		fi
+	done
 }
 
 copytool_suspend() {
