@@ -1051,7 +1051,7 @@ build_spl_zfs() {
     # destination for the rpms
     export RPM_BUILD_ROOT=$TOPDIR
     SPLZFSVER=${SPLZFSVER:-0.6.4.2}
-    SPLZFSTAG=${SPLZFSTAG:-}
+    SPLZFSTAG=${SPLZFSTAG:-lustre-sdsc-b3}
 
     # The files expect a kver to be set to the kernel version .
     local kver=$(find_linux_release)
