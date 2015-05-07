@@ -3315,61 +3315,77 @@ static int mgs_write_log_param(const struct lu_env *env,
 		GOTO(end, rc);
 	}
 
-        if (class_match_param(ptr, PARAM_OSC""PARAM_ACTIVE, &tmp) == 0) {
-                /* active=0 means off, anything else means on */
-                int flag = (*tmp == '0') ? CM_EXCLUDE : 0;
-                int i;
+	if (class_match_param(ptr, PARAM_OSC""PARAM_ACTIVE, &tmp) == 0 ||
+	    class_match_param(ptr, PARAM_MDC""PARAM_ACTIVE, &tmp) == 0) {
+		/* active=0 means off, anything else means on */
+		int flag = (*tmp == '0') ? CM_EXCLUDE : 0;
+		bool deactive_osc = memcmp(ptr, PARAM_OSC""PARAM_ACTIVE,
+					  strlen(PARAM_OSC""PARAM_ACTIVE)) == 0;
+		int i;
 
-                if (!(mti->mti_flags & LDD_F_SV_TYPE_OST)) {
-                        LCONSOLE_ERROR_MSG(0x144, "%s: Only OSCs can "
-                                           "be (de)activated.\n",
-                                           mti->mti_svname);
-                        GOTO(end, rc = -EINVAL);
-                }
-                LCONSOLE_WARN("Permanently %sactivating %s\n",
-                              flag ? "de": "re", mti->mti_svname);
-                /* Modify clilov */
+		if (!deactive_osc) {
+			__u32	index;
+
+			rc = server_name2index(mti->mti_svname, &index, NULL);
+			if (rc < 0)
+				GOTO(end, rc);
+
+			if (index == 0) {
+				LCONSOLE_ERROR_MSG(0x144, "%s: MDC0 can not be"
+						   " (de)activated.\n",
+						   mti->mti_svname);
+				GOTO(end, rc = -EINVAL);
+			}
+		}
+
+		LCONSOLE_WARN("Permanently %sactivating %s\n",
+			      flag ? "de" : "re", mti->mti_svname);
+		/* Modify clilov */
 		rc = name_create(&logname, mti->mti_fsname, "-client");
-		if (rc)
+		if (rc < 0)
 			GOTO(end, rc);
 		rc = mgs_modify(env, mgs, fsdb, mti, logname,
-                                mti->mti_svname, "add osc", flag);
-                name_destroy(&logname);
-                if (rc)
-                        goto active_err;
-                /* Modify mdtlov */
-                /* Add to all MDT logs for CMD */
-                for (i = 0; i < INDEX_MAP_SIZE * 8; i++) {
+				mti->mti_svname,
+				deactive_osc ? "add osc" : "add mdc", flag);
+		name_destroy(&logname);
+		if (rc < 0)
+			goto active_err;
+
+		/* Modify mdtlov */
+		/* Add to all MDT logs for DNE */
+		for (i = 0; i < INDEX_MAP_SIZE * 8; i++) {
 			if (!test_bit(i, fsdb->fsdb_mdt_index_map))
-                                continue;
+				continue;
 			rc = name_create_mdt(&logname, mti->mti_fsname, i);
-			if (rc)
+			if (rc < 0)
 				GOTO(end, rc);
 			rc = mgs_modify(env, mgs, fsdb, mti, logname,
-					mti->mti_svname, "add osc", flag);
-                        name_destroy(&logname);
-                        if (rc)
-                                goto active_err;
-                }
-        active_err:
-                if (rc) {
-                        LCONSOLE_ERROR_MSG(0x145, "Couldn't find %s in"
-                                           "log (%d). No permanent "
-                                           "changes were made to the "
-                                           "config log.\n",
-                                           mti->mti_svname, rc);
+					mti->mti_svname,
+					deactive_osc ? "add osc" : "add osp",
+					flag);
+			name_destroy(&logname);
+			if (rc < 0)
+				goto active_err;
+		}
+active_err:
+		if (rc < 0) {
+			LCONSOLE_ERROR_MSG(0x145, "Couldn't find %s in"
+					   "log (%d). No permanent "
+					   "changes were made to the "
+					   "config log.\n",
+					   mti->mti_svname, rc);
 			if (test_bit(FSDB_OLDLOG14, &fsdb->fsdb_flags))
-                                LCONSOLE_ERROR_MSG(0x146, "This may be"
-                                                   " because the log"
-                                                   "is in the old 1.4"
-                                                   "style. Consider "
-                                                   " --writeconf to "
-                                                   "update the logs.\n");
-                        GOTO(end, rc);
-                }
-                /* Fall through to osc proc for deactivating live OSC
-                   on running MDT / clients. */
-        }
+				LCONSOLE_ERROR_MSG(0x146, "This may be"
+						   " because the log"
+						   "is in the old 1.4"
+						   "style. Consider "
+						   " --writeconf to "
+						   "update the logs.\n");
+			GOTO(end, rc);
+		}
+		/* Fall through to osc/mdc proc for deactivating live
+		   OSC/OSP on running MDT / clients. */
+	}
         /* Below here, let obd's XXX_process_config methods handle it */
 
         /* All lov. in proc */
@@ -3489,6 +3505,47 @@ static int mgs_write_log_param(const struct lu_env *env,
 				}
 			}
 		}
+
+		/* mdc params affect the MDT as well */
+		if (!rc && (mti->mti_flags & LDD_F_SV_TYPE_MDT)) {
+			char suffix[16];
+			int i;
+			int index;
+
+			rc = server_name2index(mti->mti_svname, &index, NULL);
+			if (rc < 0)
+				GOTO(end, rc);
+
+			for (i = 0; i < INDEX_MAP_SIZE * 8; i++) {
+				if (!test_bit(i, fsdb->fsdb_mdt_index_map))
+					continue;
+
+				if (i == index)
+					continue;
+
+				name_destroy(&logname);
+				rc = name_create_mdt(&logname, mti->mti_fsname,
+						     index);
+				if (rc < 0)
+					break;
+
+				name_destroy(&cname);
+				sprintf(suffix, "-osp-MDT%04x", i);
+				rc = name_create(&cname, logname, suffix);
+				if (rc < 0)
+					break;
+
+				if (!mgs_log_is_empty(env, mgs, logname)) {
+					rc = mgs_wlp_lcfg(env, mgs, fsdb,
+							  mti, logname,
+							  &mgi->mgi_bufs,
+							  cname, ptr);
+					if (rc < 0)
+						break;
+				}
+			}
+		}
+
 		name_destroy(&logname);
 		name_destroy(&cname);
 		GOTO(end, rc);
