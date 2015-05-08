@@ -157,6 +157,9 @@ static int nrs_orr_key_fill(struct nrs_orr_data *orrd,
 	if (nrq->nr_u.orr.or_orr_set || nrq->nr_u.orr.or_trr_set)
 		memset(&nrq->nr_u.orr.or_key, 0, sizeof(nrq->nr_u.orr.or_key));
 
+	if (req->rq_export == NULL)
+		return 0;
+
 	ost_idx = class_server_data(req->rq_export->exp_obd)->lsd_osd_index;
 
 	if (is_orr) {
