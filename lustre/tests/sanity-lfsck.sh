@@ -1630,7 +1630,8 @@ test_15c() {
 	[ $repaired -eq 0 ] ||
 		error "(4) Unexpectedly repaird multiple references: $repaired"
 }
-run_test 15c "LFSCK can repair unmatched MDT-object/OST-object pairs (3)"
+#Disable this test see LU_6437
+#run_test 15c "LFSCK can repair unmatched MDT-object/OST-object pairs (3)"
 
 test_16() {
 	echo "#####"
