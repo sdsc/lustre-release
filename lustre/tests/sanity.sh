@@ -12483,7 +12483,7 @@ test_230b() {
 	ln -s $other_dir/$tfile $migrate_dir/${tfile}_ln_other
 
 	$LFS mv -v -M $MDTIDX $migrate_dir ||
-		error "migrate remote dir error"
+		error "fails on migrating remote dir to MDT1"
 
 	echo "migratate to MDT1, then checking.."
 	for ((i = 0; i < 10; i++)); do
@@ -12547,7 +12547,7 @@ test_230b() {
 	#migrate back to MDT0
 	MDTIDX=0
 	$LFS mv -v -M $MDTIDX $migrate_dir ||
-		error "migrate remote dir error"
+		error "fails on migrating remote dir to MDT0"
 
 	echo "migrate back to MDT0, checking.."
 	for file in $(find $migrate_dir); do
@@ -12625,6 +12625,12 @@ test_230c() {
 	local t=$(ls $migrate_dir | wc -l)
 	$LFS mv --mdt-index $MDTIDX $migrate_dir &&
 		error "migrate should fail after 5 entries"
+
+	mkdir $migrate_dir/dir &&
+		error "mkdir succeeds under migrating directory"
+	touch $migrate_dir/file &&
+		error "touch file succeeds under migrating directory"
+
 	local u=$(ls $migrate_dir | wc -l)
 	[ "$u" == "$t" ] || error "$u != $t during migration"
 
