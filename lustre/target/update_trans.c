@@ -115,10 +115,9 @@ static int sub_declare_updates_write(const struct lu_env *env,
 	 * for example if the the OSP is used to connect to OST */
 	ctxt = llog_get_context(dt->dd_lu_dev.ld_obd,
 				LLOG_UPDATELOG_ORIG_CTXT);
-	LASSERT(ctxt != NULL);
 
 	/* Not ready to record updates yet. */
-	if (ctxt->loc_handle == NULL) {
+	if (ctxt == NULL || ctxt->loc_handle == NULL) {
 		llog_ctxt_put(ctxt);
 		return 0;
 	}
@@ -158,11 +157,11 @@ static int sub_updates_write(const struct lu_env *env,
 
 	ctxt = llog_get_context(dt->dd_lu_dev.ld_obd,
 				LLOG_UPDATELOG_ORIG_CTXT);
-	LASSERT(ctxt != NULL);
-
-	/* Not ready to record updates yet, usually happens
-	 * in error handler path */
-	if (ctxt->loc_handle == NULL) {
+	/* If ctxt == NULL, then it means updates on OST (only happens
+	 * during migration), and we do not track those updates for now */
+	/* If ctxt->loc_handle == NULL, then it does not need to record
+	 * update, usually happens in error handler path */
+	if (ctxt == NULL || ctxt->loc_handle == NULL) {
 		llog_ctxt_put(ctxt);
 		RETURN(0);
 	}
@@ -1091,7 +1090,8 @@ static int distribute_txn_cancel_records(const struct lu_env *env,
 
 		obd = st->st_dt->dd_lu_dev.ld_obd;
 		ctxt = llog_get_context(obd, LLOG_UPDATELOG_ORIG_CTXT);
-		LASSERT(ctxt);
+		if (ctxt == NULL)
+			continue;
 
 		rc = llog_cat_cancel_records(env, ctxt->loc_handle, 1,
 					     cookie);
