@@ -1345,6 +1345,7 @@ static int mdt_reint_migrate_internal(struct mdt_thread_info *info,
 	struct lu_fid           *old_fid = &info->mti_tmp_fid1;
 	struct list_head	lock_list;
 	__u64			lock_ibits;
+	bool			lock_open_sem = false;
 	int			rc;
 	ENTRY;
 
@@ -1407,6 +1408,9 @@ static int mdt_reint_migrate_internal(struct mdt_thread_info *info,
 	rc = mdt_remote_permission(info, msrcdir, mold);
 	if (rc != 0)
 		GOTO(out_put_child, rc);
+
+	down_write(&mold->mot_open_sem);
+	lock_open_sem = true;
 
 	/* 3: iterate the linkea of the object and lock all of the objects */
 	INIT_LIST_HEAD(&lock_list);
@@ -1505,6 +1509,39 @@ static int mdt_reint_migrate_internal(struct mdt_thread_info *info,
 			 mdt_object_child(mnew), ma);
 	if (rc != 0)
 		GOTO(out_unlock_new, rc);
+
+	if (rc == 0 && info->mti_spec.sp_migrate_close) {
+		struct mdt_body		*repbody;
+		struct close_data	*data;
+		struct ldlm_lock	*lease;
+
+		if (!req_capsule_field_present(info->mti_pill, &RMF_MDT_EPOCH,
+				      RCL_CLIENT) ||
+		    !req_capsule_field_present(info->mti_pill, &RMF_CLOSE_DATA,
+				      RCL_CLIENT))
+			GOTO(out_unlock_new, rc = -EPROTO);
+
+		/* First Close file */
+		rc = mdt_close_internal(info, mdt_info_req(info), NULL);
+		if (rc < 0)
+			GOTO(out_unlock_new, rc);
+
+		/* Then cancel lease lock */
+		data = req_capsule_client_get(info->mti_pill, &RMF_CLOSE_DATA);
+		if (data == NULL)
+			GOTO(out_unlock_new, rc = -EPROTO);
+
+		lease = ldlm_handle2lock(&data->cd_handle);
+		if (lease != NULL) {
+			LDLM_DEBUG(lease, DFID "cancel lease\n",
+				   PFID(mdt_object_fid(mold)));
+			ldlm_lock_cancel(lease);
+		}
+
+		repbody = req_capsule_server_get(info->mti_pill, &RMF_MDT_BODY);
+		repbody->mbo_valid |= OBD_MD_CLOSE_INTENT_EXECED;
+	}
+
 out_unlock_new:
 	if (lh_tgtp != NULL)
 		mdt_object_unlock(info, mnew, lh_tgtp, rc);
@@ -1516,6 +1553,8 @@ out_unlock_child:
 out_unlock_list:
 	mdt_unlock_list(info, &lock_list, rc);
 out_put_child:
+	if (lock_open_sem)
+		up_write(&mold->mot_open_sem);
 	mdt_object_put(info->mti_env, mold);
 out_unlock_parent:
 	mdt_object_unlock(info, msrcdir, lh_dirp, rc);
