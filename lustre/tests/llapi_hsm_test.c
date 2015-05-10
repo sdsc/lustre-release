@@ -998,6 +998,28 @@ void test112(void)
 	helper_archiving(test112_progress, length);
 }
 
+/* The registered copytools will be cleaned up during umounting Lustre.
+ *
+ * Pleaes keep this test as the last one, for it will register several
+ * copytools waiting to be cleaned up by umounting Lustre.
+ */
+int test900(void)
+{
+	int rc;
+	struct hsm_copytool_private *ctdata1;
+	struct hsm_copytool_private *ctdata2;
+
+	rc = llapi_hsm_copytool_register(&ctdata1, fsmountdir, 0, NULL, 0);
+	ASSERTF(rc == 0, "llapi_hsm_copytool_register failed: %s",
+		strerror(-rc));
+
+	rc = llapi_hsm_copytool_register(&ctdata1, fsmountdir, 0, NULL, 0);
+	ASSERTF(rc == 0, "llapi_hsm_copytool_register failed: %s",
+		strerror(-rc));
+
+	return 0;
+}
+
 static void usage(char *prog)
 {
 	fprintf(stderr, "Usage: %s [-d lustre_dir]\n", prog);
@@ -1066,5 +1088,6 @@ int main(int argc, char *argv[])
 	PERFORM(test111);
 	PERFORM(test112);
 
+	PERFORM(test900);
 	return EXIT_SUCCESS;
 }
