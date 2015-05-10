@@ -2835,7 +2835,8 @@ ll_file_flock(struct file *file, int cmd, struct file_lock *file_lock)
 }
 
 int ll_get_fid_by_name(struct inode *parent, const char *name,
-		       int namelen, struct lu_fid *fid)
+		       int namelen, struct lu_fid *fid,
+		       struct inode **inode)
 {
 	struct md_op_data	*op_data = NULL;
 	struct mdt_body		*body;
@@ -2848,7 +2849,7 @@ int ll_get_fid_by_name(struct inode *parent, const char *name,
 	if (IS_ERR(op_data))
 		RETURN(PTR_ERR(op_data));
 
-	op_data->op_valid = OBD_MD_FLID;
+	op_data->op_valid = OBD_MD_FLID | OBD_MD_FLTYPE;
 	rc = md_getattr_name(ll_i2sbi(parent)->ll_md_exp, op_data, &req);
 	ll_finish_md_op_data(op_data);
 	if (rc < 0)
@@ -2859,6 +2860,9 @@ int ll_get_fid_by_name(struct inode *parent, const char *name,
 		GOTO(out_req, rc = -EFAULT);
 	if (fid != NULL)
 		*fid = body->mbo_fid1;
+
+	if (inode != NULL)
+                rc = ll_prep_inode(inode, req, parent->i_sb, NULL);
 out_req:
 	ptlrpc_req_finished(req);
 	RETURN(rc);
@@ -2867,12 +2871,15 @@ out_req:
 int ll_migrate(struct inode *parent, struct file *file, int mdtidx,
 	       const char *name, int namelen)
 {
+	struct lu_env		*env = NULL;
 	struct dentry         *dchild = NULL;
 	struct inode          *child_inode = NULL;
 	struct md_op_data     *op_data;
 	struct ptlrpc_request *request = NULL;
+	struct obd_client_handle *och = NULL;
 	struct qstr           qstr;
 	int                    rc;
+	int			refcheck;
 	ENTRY;
 
 	CDEBUG(D_VFSTRACE, "migrate %s under "DFID" to MDT%04x\n",
@@ -2898,11 +2905,17 @@ int ll_migrate(struct inode *parent, struct file *file, int mdtidx,
 			}
 		}
 		dput(dchild);
-	} else {
+	}
+
+	if (child_inode == NULL) {
 		rc = ll_get_fid_by_name(parent, name, namelen,
-					&op_data->op_fid3);
+					&op_data->op_fid3, &child_inode);
 		if (rc != 0)
 			GOTO(out_free, rc);
+		LASSERT(child_inode != NULL);
+		mutex_lock(&child_inode->i_mutex);
+		op_data->op_fid3 = *ll_inode2fid(child_inode);
+		ll_invalidate_aliases(child_inode);
 	}
 
 	if (!fid_is_sane(&op_data->op_fid3)) {
@@ -2922,6 +2935,49 @@ int ll_migrate(struct inode *parent, struct file *file, int mdtidx,
 		GOTO(out_free, rc = 0);
 	}
 
+	if (S_ISREG(child_inode->i_mode)) {
+		struct cl_io	*io;
+
+		och = ll_lease_open(child_inode, NULL, FMODE_WRITE, 0);
+		if (IS_ERR(och)) {
+			rc = PTR_ERR(och);
+			och = NULL;
+			GOTO(out_free, rc);
+		}
+
+		env = cl_env_get(&refcheck);
+		if (IS_ERR(env)) {
+			rc = PTR_ERR(env);
+			env = NULL;
+			GOTO(out_free, rc);
+		}
+
+		io = vvp_env_thread_io(env);
+		io->ci_obj     = ll_i2info(child_inode)->lli_clob;
+		io->ci_lockreq = CILR_MAYBE;
+		rc = cl_io_rw_init(env, io, CIT_READ, 0, OBD_OBJECT_EOF);
+		if (rc != 0)
+			GOTO(out_put, rc = io->ci_result);
+
+		rc = cl_io_iter_init(env, io);
+		if (rc != 0)
+			GOTO(out_fini, rc);
+
+		/* lock/unlock to force other clients to flush all dirty
+		 * data to the server */
+		rc = cl_io_lock(env, io);
+		if (rc == 0)
+			cl_io_unlock(env, io);
+out_fini:
+		cl_io_fini(env, io);
+out_put:
+		cl_env_put(env, &refcheck);
+		env = NULL;
+
+		if (rc < 0)
+			GOTO(out_free, rc);
+	}
+
 	op_data->op_mds = mdtidx;
 	op_data->op_cli_flags = CLI_MIGRATE;
 	rc = md_rename(ll_i2sbi(parent)->ll_md_exp, op_data, name,
@@ -2935,6 +2991,8 @@ int ll_migrate(struct inode *parent, struct file *file, int mdtidx,
 
 out_free:
 	if (child_inode != NULL) {
+		if (och != NULL) /* close the file */
+			ll_lease_close(och, child_inode, NULL);
 		clear_nlink(child_inode);
 		mutex_unlock(&child_inode->i_mutex);
 		iput(child_inode);
