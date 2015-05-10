@@ -3365,7 +3365,7 @@ static int mdd_migrate_create(const struct lu_env *env,
 			RETURN(rc);
 		}
 		spec->u.sp_symname = link_buf.lb_buf;
-	} else if S_ISREG(la->la_mode) {
+	} else if (S_ISREG(la->la_mode)) {
 		/* retrieve lov of the old object */
 		rc = mdd_get_lov_ea(env, mdd_sobj, &lmm_buf);
 		if (rc != 0 && rc != -ENODATA)
@@ -3702,6 +3702,13 @@ static int mdd_declare_migrate_update_name(const struct lu_env *env,
 					   handle);
 		if (rc != 0)
 			return rc;
+
+		handle->th_complex = 1;
+		rc = mdo_declare_xattr_set(env, mdd_tobj, NULL,
+					   XATTR_NAME_FID,
+					   LU_XATTR_REPLACE, handle);
+		if (rc < 0)
+			return rc;
 	}
 
 	if (S_ISDIR(mdd_object_type(mdd_sobj))) {
@@ -3825,6 +3832,12 @@ static int mdd_migrate_update_name(const struct lu_env *env,
 					   handle);
 			if (rc != 0 && rc != -ENODATA)
 				GOTO(stop_trans, rc);
+
+			rc = mdo_xattr_set(env, mdd_tobj, NULL,
+					   XATTR_NAME_FID,
+					   LU_XATTR_REPLACE, handle);
+			if (rc < 0)
+				GOTO(stop_trans, rc);
 		}
 	}
 
@@ -3840,6 +3853,17 @@ static int mdd_migrate_update_name(const struct lu_env *env,
 		GOTO(stop_trans, rc);
 
 	mdd_write_lock(env, mdd_sobj, MOR_SRC_CHILD);
+
+	/* Increase mod_count to add the source object to the orphan list,
+	 * so if other clients still send RPC to the old object, then these
+	 * objects can help the request to find the new object, see
+	 * mdt_reint_open() */
+	mdd_sobj->mod_count++;
+	rc = mdd_finish_unlink(env, mdd_sobj, ma, mdd_pobj, lname, handle);
+	mdd_sobj->mod_count--;
+	if (rc != 0)
+		GOTO(out_unlock, rc);
+
 	mdo_ref_del(env, mdd_sobj, handle);
 	if (is_dir)
 		mdo_ref_del(env, mdd_sobj, handle);
@@ -3851,9 +3875,6 @@ static int mdd_migrate_update_name(const struct lu_env *env,
 
 	ma->ma_attr = *so_attr;
 	ma->ma_valid |= MA_INODE;
-	rc = mdd_finish_unlink(env, mdd_sobj, ma, mdd_pobj, lname, handle);
-	if (rc != 0)
-		GOTO(out_unlock, rc);
 
 	rc = mdd_attr_set_internal(env, mdd_pobj, p_la, handle, 0);
 	if (rc != 0)
@@ -3930,15 +3951,15 @@ static int mdd_migrate_sanity_check(const struct lu_env *env,
 	if (rc != 0) {
 		/* For multiple links files, if there are no linkEA data at all,
 		 * means the file might be created before linkEA is enabled, and
-		 * all all of its links should not be migrated yet, otherwise
-		 * it should have some linkEA there */
+		 * all of its links should not be migrated yet, otherwise it
+		 * should have some linkEA there */
 		if (rc == -ENOENT || rc == -ENODATA)
 			RETURN(1);
 		RETURN(rc);
 	}
 
-	/* If it is mulitple links file, we need update the name entry for
-	 * all parent */
+	/* If there are still links locally, then the file will not be
+	 * migrated. */
 	LASSERT(ldata->ld_leh != NULL);
 	ldata->ld_lee = (struct link_ea_entry *)(ldata->ld_leh + 1);
 	for (count = 0; count < ldata->ld_leh->leh_reccount; count++) {
