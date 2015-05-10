@@ -2916,7 +2916,7 @@ test_77d() { #LU-3266
 }
 run_test 77d "check TRR nrs policy"
 
-test_80() {
+test_80a() {
 	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
 	local MDTIDX=1
 	local mdt_index
@@ -2956,7 +2956,68 @@ test_80() {
 
 	rm -rf $DIR1/$tdir || error "rm dir failed after migration"
 }
-run_test 80 "migrate directory when some children is being opened"
+run_test 80a "migrate directory when some children is being opened"
+
+cleanup_80b() {
+	trap 0
+	killall -9 migrate.sh || error "can not stop migrate"
+}
+
+test_80b() {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+	local migrate_dir1=$DIR1/$tdir/migrate_dir
+	local migrate_dir2=$DIR2/$tdir/migrate_dir
+	local migrate_run=$LUSTRE/tests/migrate.sh
+	local start_time
+	local end_time
+	local show_time=1
+
+	trap cleanup_80b EXIT
+	#prepare migrate directory
+	mkdir -p $migrate_dir1
+	for F in {1,2,3,4,5}; do
+		echo "$F$F$F$F$F" > $migrate_dir1/file$F
+		echo "$F$F$F$F$F" > $DIR/$tdir/file$F
+	done
+
+	#migrate the directories among MDTs
+	$migrate_run $migrate_dir1 &
+
+	#Access the files at the same time
+	start_time=$(date +%s)
+	echo "accessing the migrating directory for 5 minutes..."
+	while true; do
+		ls $migrate_dir2 > /dev/null || error "read dir fails"
+		diff -u $DIR2/$tdir/file1 $migrate_dir2/file1 ||
+					error "access file1 fails"
+
+		cat $migrate_dir2/file2 > $migrate_dir2/file3 ||
+					error "access file2/3 fails"
+
+		echo "aaaaa" > $migrate_dir2/file4 > /dev/null ||
+					error "access file4 fails"
+
+		stat $migrate_dir2/file5 > /dev/null ||
+					error "stat file5 fails"
+		end_time=$(date +%s)
+		duration=$((end_time - start_time))
+		if [ $((duration % 10)) -eq 0 ]; then
+			if [ $show_time -eq 1 ]; then
+				echo "...$duration seconds"
+				show_time=0
+			fi
+		else
+			show_time=1
+		fi
+		[ $duration -ge 300 ] && break
+	done
+
+	#check migration are still there
+	[ -z $(ps auxwww | grep -v grep | grep -q $migrate_run)] ||
+		error "migration stopped"
+	true
+}
+run_test 80b "Accessing directory during migration"
 
 test_81() {
 	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
