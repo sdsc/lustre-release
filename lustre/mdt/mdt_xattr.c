@@ -51,6 +51,11 @@
 #include <lustre_acl.h>
 #include "mdt_internal.h"
 
+/* xattr related to IMA(Integrity Measurement Architecture) */
+#ifndef XATTR_NAME_IMA
+#define XATTR_NAME_IMA		"security.ima"
+#define XATTR_NAME_EVM		"security.evm"
+#endif
 
 /* return EADATA length to the caller. negative value means error */
 static int mdt_getxattr_pack_reply(struct mdt_thread_info * info)
@@ -467,7 +472,12 @@ int mdt_reint_setxattr(struct mdt_thread_info *info,
 	if (IS_ERR(obj))
 		GOTO(out, rc = PTR_ERR(obj));
 
-	tgt_vbr_obj_set(env, mdt_obj2dt(obj));
+	/* the content of XATTR_NAME_IMA_IMA and XATTR_NAME_IMA_EVM depends on
+	 * the inode->i_version, then it should not alter it.
+	 */
+	if (strcmp(xattr_name, XATTR_NAME_IMA) != 0)
+		tgt_vbr_obj_set(env, mdt_obj2dt(obj));
+
 	rc = mdt_version_get_check_save(info, obj, 0);
 	if (rc)
 		GOTO(out_unlock, rc);
