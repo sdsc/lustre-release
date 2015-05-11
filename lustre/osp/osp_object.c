@@ -1146,7 +1146,6 @@ int osp_xattr_set(const struct lu_env *env, struct dt_object *dt,
 	int			rc;
 	ENTRY;
 
-	LASSERT(buf->lb_len > 0 && buf->lb_buf != NULL);
 	update = thandle_to_dt_update_request(th);
 	LASSERT(update != NULL);
 
@@ -1192,7 +1191,8 @@ int osp_xattr_set(const struct lu_env *env, struct dt_object *dt,
 
 	spin_lock(&o->opo_lock);
 	oxe->oxe_vallen = buf->lb_len;
-	memcpy(oxe->oxe_value, buf->lb_buf, buf->lb_len);
+	if (buf->lb_buf != NULL)
+		memcpy(oxe->oxe_value, buf->lb_buf, buf->lb_len);
 	oxe->oxe_exist = 1;
 	oxe->oxe_ready = 1;
 	spin_unlock(&o->opo_lock);

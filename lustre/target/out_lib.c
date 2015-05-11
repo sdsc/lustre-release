@@ -180,7 +180,9 @@ int out_update_pack(const struct lu_env *env, struct update_buffer *ubuf,
 
 	param = &update->ou_params[0];
 	for (i = 0; i < params_count; i++) {
-		memcpy(&param->oup_buf[0], param_bufs[i], param_sizes[i]);
+		if (param_bufs[i] != NULL)
+			memcpy(&param->oup_buf[0], param_bufs[i],
+			       param_sizes[i]);
 		param = (struct object_update_param *)((char *)param +
 			 object_update_param_size(param));
 	}

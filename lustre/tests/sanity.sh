@@ -6946,6 +6946,11 @@ test_102r() {
 	setfattr -n user.$(basename $tfile) $DIR/$tfile || error "setfattr"
 	getfattr -n user.$(basename $tfile) $DIR/$tfile || error "getfattr"
 	rm $DIR/$tfile || error "rm"
+
+	test_mkdir -p $DIR/$tdir || error "mkdir"
+	setfattr -n user.$(basename $tdir) $DIR/$tdir || error "setfattr dir"
+	getfattr -n user.$(basename $tdir) $DIR/$tdir || error "getfattr dir"
+	rmdir $DIR/$tdir || error "rmdir"
 }
 run_test 102r "set EAs with empty values"
 
