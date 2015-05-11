@@ -1528,8 +1528,11 @@ test_58b() {
 
 	large_xattr_enabled &&
 		orig="$(generate_string $(max_xattr_size))" || orig="bar"
+	# Original extended attribute can be long. Print a small version of
+	# attribute if an error occurs
+	local sm_msg=$(printf "%.9s" $orig)
 
-	mount_client $MOUNT2
+	mount_client $MOUNT2 || error "mount_client on $MOUNT2 failed"
 	mkdir $DIR/$tdir || error "mkdir $DIR/$tdir failed"
 	touch $DIR/$tdir/$tfile || error "touch $DIR/$tdir/$tfile failed"
 	replay_barrier $SINGLEMDS
@@ -1537,7 +1540,7 @@ test_58b() {
 	fail $SINGLEMDS
 	new=$(get_xattr_value trusted.foo $MOUNT2/$tdir/$tfile)
 	[[ "$new" = "$orig" ]] ||
-		error "xattr set ($orig) is not what was returned ($new)"
+		error "xattr set ($sm_msg...) differs from xattr get ($new)"
 	rm -f $DIR/$tdir/$tfile
 	rmdir $DIR/$tdir
 	cleanup_58
@@ -1545,35 +1548,40 @@ test_58b() {
 run_test 58b "test replay of setxattr op"
 
 test_58c() { # bug 16570
-    local orig
-    local orig1
-    local new
+	local orig
+	local orig1
+	local new
 
-    trap cleanup_58 EXIT
+	trap cleanup_58 EXIT
 
-    if large_xattr_enabled; then
-        local xattr_size=$(max_xattr_size)
-        orig="$(generate_string $((xattr_size / 2)))"
-        orig1="$(generate_string $xattr_size)"
-    else
-        orig="bar"
-        orig1="bar1"
-    fi
+	if large_xattr_enabled; then
+		local xattr_size=$(max_xattr_size)
+		orig="$(generate_string $((xattr_size / 2)))"
+		orig1="$(generate_string $xattr_size)"
+	else
+		orig="bar"
+		orig1="bar1"
+	fi
 
-	mount_client $MOUNT2
+	# Original extended attribute can be long. Print a small version of
+	# attribute if an error occurs
+	local sm_msg=$(printf "%.9s" $orig)
+	local sm_msg1=$(printf "%.9s" $orig1)
+
+	mount_client $MOUNT2 || error "mount_client on $MOUNT2 failed"
 	mkdir $DIR/$tdir || error "mkdir $DIR/$tdir failed"
 	touch $DIR/$tdir/$tfile || error "touch $DIR/$tdir/$tfile failed"
 	drop_request "setfattr -n trusted.foo -v $orig $DIR/$tdir/$tfile" ||
 		error "drop_request for setfattr failed"
 	new=$(get_xattr_value trusted.foo $MOUNT2/$tdir/$tfile)
 	[[ "$new" = "$orig" ]] ||
-		error "xattr set ($orig) is not what was returned ($new)"
+		error "xattr set ($sm_msg...) differs from xattr get ($new)"
 	drop_reint_reply "setfattr -n trusted.foo1 \
 			  -v $orig1 $DIR/$tdir/$tfile" ||
-		error "drop_request for setfattr failed"
+		error "drop_reint_reply for setfattr failed"
 	new=$(get_xattr_value trusted.foo1 $MOUNT2/$tdir/$tfile)
 	[[ "$new" = "$orig1" ]] ||
-		error "second xattr set ($orig1) not what was returned ($new)"
+		error "second xattr set ($sm_msg1...) differs xattr get ($new)"
 	rm -f $DIR/$tdir/$tfile
 	rmdir $DIR/$tdir
 	cleanup_58
