@@ -87,6 +87,9 @@ struct lu_nodemap {
 	cfs_hash_t		*nm_member_hash;
 	/* access by nodemap name */
 	struct hlist_node	nm_hash;
+
+	/* used when unloading nodemaps */
+	struct list_head        nm_list;
 };
 
 void nodemap_activate(const bool value);
