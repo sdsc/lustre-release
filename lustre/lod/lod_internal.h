@@ -194,7 +194,7 @@ struct lod_device {
 	/* OST pool data */
 	struct ost_pool		lod_pool_info; /* all OSTs in a packed array */
 	int			lod_pool_count;
-	cfs_hash_t	       *lod_pools_hash_body; /* used for key access */
+	struct cfs_hash	       *lod_pools_hash_body; /* used for key access */
 	struct list_head	lod_pool_list; /* used for sequential access */
 	struct proc_dir_entry  *lod_pool_proc_entry;
 
