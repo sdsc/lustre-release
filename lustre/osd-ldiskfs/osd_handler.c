@@ -2033,6 +2033,7 @@ static void osd_attr_init(struct osd_thread_info *info, struct osd_object *obj,
 	int             result;
 
 	attr->la_valid &= ~(LA_TYPE | LA_MODE);
+	LASSERT((attr->la_valid & LA_SIZE) == 0);
 
         if (dof->dof_type != DFT_NODE)
                 attr->la_valid &= ~LA_RDEV;
