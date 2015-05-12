@@ -138,6 +138,7 @@ struct osd_object {
 #ifdef CONFIG_LOCKDEP
         struct lockdep_map      oo_dep_map;
 #endif
+	__u32			oo_destroyed:1;
 };
 
 struct osd_obj_seq {
