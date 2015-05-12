@@ -125,6 +125,12 @@ static void ptlrpc_update_next_ping(struct obd_import *imp, int soon)
                 time = min(time, dtime);
         }
         imp->imp_next_ping = cfs_time_shift(time);
+
+	CDEBUG(D_HA, "%s->%s: deactive %u pingable %u next_ping %lu time %d"
+	       "soon %d\n", imp->imp_obd->obd_uuid.uuid,
+	       obd2cli_tgt(imp->imp_obd), imp->imp_deactive, imp->imp_pingable,
+	       imp->imp_next_ping, time, soon);
+
 #endif /* ENABLE_PINGER */
 }
 
@@ -206,6 +212,14 @@ static void ptlrpc_pinger_process_import(struct obd_import *imp,
 	if (cfs_time_aftereq(imp->imp_next_ping - 5 * CFS_TICK, this_ping) &&
 	    !force) {
 		spin_unlock(&imp->imp_lock);
+
+		CDEBUG(D_HA, "%s->%s: level %s/%u force %u force_next %u "
+		       "deactive %u pingable %u suppress %u this_ping %lu "
+		       "next_ping %lu\n",
+		       imp->imp_obd->obd_uuid.uuid, obd2cli_tgt(imp->imp_obd),
+		       ptlrpc_import_state_name(level), level, force,
+		       force_next, imp->imp_deactive, imp->imp_pingable,
+		       suppress, this_ping, imp->imp_next_ping);
 		return;
 	}
 
@@ -213,11 +227,12 @@ static void ptlrpc_pinger_process_import(struct obd_import *imp,
 
 	spin_unlock(&imp->imp_lock);
 
-	CDEBUG(level == LUSTRE_IMP_FULL ? D_INFO : D_HA, "%s->%s: level %s/%u "
-	       "force %u force_next %u deactive %u pingable %u suppress %u\n",
+	CDEBUG(D_HA, "%s->%s: level %s/%u force %u force_next %u deactive %u "
+	       "pingable %u suppress %u, this_ping %lu next_ping %lu\n",
 	       imp->imp_obd->obd_uuid.uuid, obd2cli_tgt(imp->imp_obd),
 	       ptlrpc_import_state_name(level), level, force, force_next,
-	       imp->imp_deactive, imp->imp_pingable, suppress);
+	       imp->imp_deactive, imp->imp_pingable, suppress, this_ping,
+	       imp->imp_next_ping);
 
         if (level == LUSTRE_IMP_DISCON && !imp_is_deactive(imp)) {
                 /* wait for a while before trying recovery again */
