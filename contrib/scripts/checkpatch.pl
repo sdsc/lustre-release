@@ -438,6 +438,8 @@ my %dep_functions = (
 
 	'cfs_rcu_head_t',		'struct rcu_head',
 
+	'f_dentry',			'f_path.dentry',
+
 	'LPROCFS',			'CONFIG_PROC_FS',
 	'alloca',			'malloc',
 	'mktemp',			'mkstemp',
