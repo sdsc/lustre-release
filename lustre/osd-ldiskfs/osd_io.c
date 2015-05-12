@@ -1771,6 +1771,7 @@ static int osd_punch(const struct lu_env *env, struct dt_object *dt,
 	LASSERT(dt_object_exists(dt));
 	LASSERT(osd_invariant(obj));
 	LASSERT(inode != NULL);
+	LASSERT(S_ISDIR(inode->i_mode) == 0);
 	ll_vfs_dq_init(inode);
 
 	LASSERT(th);
