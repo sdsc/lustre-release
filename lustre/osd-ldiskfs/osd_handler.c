@@ -2033,6 +2033,7 @@ static void osd_attr_init(struct osd_thread_info *info, struct osd_object *obj,
 	int             result;
 
 	attr->la_valid &= ~(LA_TYPE | LA_MODE);
+	LASSERT((attr->la_valid & LA_SIZE) == 0);
 
         if (dof->dof_type != DFT_NODE)
                 attr->la_valid &= ~LA_RDEV;
@@ -3660,6 +3661,12 @@ static int __osd_ea_add_rec(struct osd_thread_info *info,
         LASSERT(oth->ot_handle->h_transaction != NULL);
 	LASSERT(pobj->oo_inode);
 
+	{
+		struct ldiskfs_inode_info *ei = LDISKFS_I(pobj->oo_inode);
+		LASSERT(ei->i_disksize >= 4096);
+		LASSERT(pobj->oo_inode->i_size >= 4096);
+	}
+
 	ldp = (struct ldiskfs_dentry_param *)info->oti_ldp;
 	if (unlikely(pobj->oo_inode ==
 		     osd_sb(osd_obj2dev(pobj))->s_root->d_inode))
@@ -3692,6 +3699,12 @@ static int __osd_ea_add_rec(struct osd_thread_info *info,
 				brelse(bh);
 			}
 		}
+	}
+
+	{
+		struct ldiskfs_inode_info *ei = LDISKFS_I(pobj->oo_inode);
+		LASSERT(ei->i_disksize >= 4096);
+		LASSERT(pobj->oo_inode->i_size >= 4096);
 	}
 
 	RETURN(rc);
