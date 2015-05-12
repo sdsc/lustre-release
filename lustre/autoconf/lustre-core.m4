@@ -1168,6 +1168,25 @@ generic_file_llseek_size_5args, [
 ]) # LC_FILE_LLSEEK_SIZE_5ARG
 
 #
+# LC_HAVE_KUID_KGID_T
+#
+# 3.5 kernel has kuid_t and kgid_t
+#
+AC_DEFUN([LC_HAVE_KUID_KGID_T], [
+LB_CHECK_COMPILE([if kuid_kgid_t exist],
+kuid_kgid_t, [
+	#include <linux/uidgid.h>
+],[
+	make_kuid(&init_user_ns, 0);
+],[
+	AC_DEFINE(HAVE_KUID_KGID_T, 1,
+		[kuid_kgid_t exist])
+])
+]) # LC_HAVE_KUID_KGID_T
+
+#
+# LC_PROG_LINUX
+#
 # LC_LLITE_DATA_IS_LIST
 #
 # 3.6 switch i_dentry/d_alias from list to hlist
@@ -1741,8 +1760,6 @@ iov_iter_rw, [
 ]) # LC_IOV_ITER_RW
 
 #
-# LC_PROG_LINUX
-#
 # Lustre linux kernel checks
 #
 AC_DEFUN([LC_PROG_LINUX], [
@@ -1825,6 +1842,7 @@ AC_DEFUN([LC_PROG_LINUX], [
 	LC_HAVE_CLEAR_INODE
 	LC_HAVE_ENCODE_FH_PARENT
 	LC_FILE_LLSEEK_SIZE_5ARG
+	LC_HAVE_KUID_KGID_T
 
 	# 3.6
 	LC_DATA_FOR_LLITE_IS_LIST
