@@ -3010,6 +3010,57 @@ test_82() {
 }
 run_test 82 "fsetxattr and fgetxattr on orphan files"
 
+test_83() {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+
+	local start_ts=$(date +%s)
+	local run_lfs=$DIR1/run_lfs.sh
+	local runtime=120
+	local show_time=0
+	local elapsed
+	local end_time
+	local duration
+
+	#create lfs_run.sh
+	echo "set -e" > $run_lfs
+	echo "export PATH=$PATH:$LUSTRE/utils/:$LUSTRE/tests/:" >> $run_lfs
+	echo "while true; do " >> $run_lfs 
+	echo "lfs mkdir -i1 -c2 $DIR1/test_dir > /dev/null 2>&1" >> $run_lfs
+	echo "rmdir $DIR1/test_dir"	>> $run_lfs
+	echo "done"	>> $run_lfs 
+
+	chmod +x $run_lfs
+
+	cat $run_lfs
+
+	$run_lfs &
+	pid=$!
+
+	echo "start $run_lfs (pid $pid) to create/unlink striped directory"
+	#Access the directory at the same time
+	start_time=$(date +%s)
+	while true; do
+		stat $DIR2/test_dir > /dev/null 2>&1
+		end_time=$(date +%s)
+		duration=$((end_time - start_time))
+		if [ $((duration % 10)) -eq 0 ]; then
+			if [ $show_time -eq 1 ]; then
+				echo "...$duration seconds"
+				show_time=0
+			fi
+		else
+			show_time=1
+		fi
+		[ $duration -ge $runtime ] && break
+	done
+
+	kill -9 $pid 
+
+	rm $run_lfs
+	return 0
+}
+run_test 83 "access striped directory while it is being created/unlinked"
+
 log "cleanup: ======================================================"
 
 [ "$(mount | grep $MOUNT2)" ] && umount $MOUNT2
