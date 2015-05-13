@@ -46,11 +46,9 @@ struct lprocfs_static_vars;
 extern struct proc_dir_entry *proc_lustre_nodemap_root;
 /* flag if nodemap is active */
 extern bool nodemap_active;
-/* lock for range interval tree, used in nodemap_lproc.c */
-extern rwlock_t nm_range_tree_lock;
 
 struct lu_nid_range {
-	/* unique id set my mgs */
+	/* unique id set by mgs */
 	unsigned int		 rn_id;
 	/* lu_nodemap containing this range */
 	struct lu_nodemap	*rn_nodemap;
@@ -71,19 +69,70 @@ struct lu_idmap {
 	struct rb_node	id_fs_to_client;
 };
 
+struct nodemap_range_tree {
+	struct interval_node *nmrt_range_interval_root;
+	int nmrt_range_highest_id;
+};
+
+struct nodemap_config {
+	/* Highest numerical lu_nodemap.nm_id defined */
+	atomic_t nmc_nodemap_highest_id;
+
+	/* Simple flag to determine if nodemaps are active */
+	bool nmc_nodemap_active;
+
+	/**
+	 * pointer to default nodemap kept to keep from
+	 * lookup it up in the hash since it is needed
+	 * more often
+	 */
+	struct lu_nodemap *nmc_default_nodemap;
+
+	/**
+	 * Lock required to access the range tree.
+	 */
+	rwlock_t nmc_range_tree_lock;
+	struct nodemap_range_tree nmc_range_tree;
+
+	/**
+	 * Hash keyed on nodemap name containing all
+	 * nodemaps
+	 */
+	cfs_hash_t *nmc_nodemap_hash;
+
+};
+
+struct nodemap_config *nodemap_config_alloc(void);
+void nodemap_config_dealloc(struct nodemap_config *config);
+void nodemap_config_set_active(struct nodemap_config *config);
+struct lu_nodemap *nodemap_create(const char *name,
+				  struct nodemap_config *config,
+				  bool is_default);
+void nodemap_putref(struct lu_nodemap *nodemap);
+int nodemap_lookup(const char *name, struct lu_nodemap **nodemap);
+
 int nodemap_procfs_init(void);
 int lprocfs_nodemap_register(const char *name, bool is_default_nodemap,
 			     struct lu_nodemap *nodemap);
-struct lu_nid_range *range_create(lnet_nid_t min, lnet_nid_t max,
+struct lu_nid_range *nodemap_range_find(lnet_nid_t start_nid,
+					lnet_nid_t end_nid);
+struct lu_nid_range *range_create(struct nodemap_range_tree *nm_range_tree,
+				  lnet_nid_t start_nid, lnet_nid_t end_nid,
 				  struct lu_nodemap *nodemap);
 void range_destroy(struct lu_nid_range *range);
-int range_insert(struct lu_nid_range *data);
-void range_delete(struct lu_nid_range *data);
-struct lu_nid_range *range_search(lnet_nid_t nid);
-struct lu_nid_range *range_find(lnet_nid_t start_nid, lnet_nid_t end_nid);
+int range_insert(struct nodemap_range_tree *nm_range_tree,
+		 struct lu_nid_range *data);
+void range_delete(struct nodemap_range_tree *nm_range_tree,
+		  struct lu_nid_range *data);
+struct lu_nid_range *range_search(struct nodemap_range_tree *nm_range_tree,
+				  lnet_nid_t nid);
+struct lu_nid_range *range_find(struct nodemap_range_tree *nm_range_tree,
+				lnet_nid_t start_nid, lnet_nid_t end_nid);
 int range_parse_nidstring(char *range_string, lnet_nid_t *start_nid,
 			  lnet_nid_t *end_nid);
 void range_init_tree(void);
+void nodemap_lock_active_ranges(void);
+void nodemap_unlock_active_ranges(void);
 struct lu_idmap *idmap_create(__u32 client_id, __u32 fs_id);
 void idmap_insert(enum nodemap_id_type id_type, struct lu_idmap *idmap,
 		 struct lu_nodemap *nodemap);
@@ -94,7 +143,6 @@ struct lu_idmap *idmap_search(struct lu_nodemap *nodemap,
 			      enum nodemap_tree_type,
 			      enum nodemap_id_type id_type,
 			      __u32 id);
-int nodemap_cleanup_nodemaps(void);
 int nm_member_init_hash(struct lu_nodemap *nodemap);
 int nm_member_add(struct lu_nodemap *nodemap, struct obd_export *exp);
 void nm_member_del(struct lu_nodemap *nodemap, struct obd_export *exp);
@@ -102,6 +150,13 @@ void nm_member_delete_hash(struct lu_nodemap *nodemap);
 void nm_member_reclassify_nodemap(struct lu_nodemap *nodemap);
 void nm_member_revoke_locks(struct lu_nodemap *nodemap);
 void nm_member_revoke_all(void);
+
+int nodemap_add_idmap_helper(struct lu_nodemap *nodemap,
+			     enum nodemap_id_type id_type,
+			     const __u32 map[2]);
+int nodemap_add_range_helper(struct nodemap_config *config,
+			     struct lu_nodemap *nodemap,
+			     const lnet_nid_t nid[2]);
 
 struct rb_node *nm_rb_next_postorder(const struct rb_node *node);
 struct rb_node *nm_rb_first_postorder(const struct rb_root *root);

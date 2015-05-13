@@ -257,7 +257,7 @@ static int nm_member_reclassify_cb(cfs_hash_t *hs, cfs_hash_bd_t *bd,
 	/* Must use bd_del_locked inside a cfs_hash callback, and exp->nodemap
 	 * should never be NULL. For those reasons, can't use member_del.
 	 */
-	read_lock(&nm_range_tree_lock);
+	nodemap_lock_active_ranges();
 	nodemap = nodemap_classify_nid(exp->exp_connection->c_peer.nid);
 	if (exp->exp_target_data.ted_nodemap != nodemap) {
 		cfs_hash_bd_del_locked(hs, bd, hnode);
@@ -265,7 +265,7 @@ static int nm_member_reclassify_cb(cfs_hash_t *hs, cfs_hash_bd_t *bd,
 		cfs_hash_add_unique(nodemap->nm_member_hash, exp,
 				&exp->exp_target_data.ted_nodemap_member);
 	}
-	read_unlock(&nm_range_tree_lock);
+	nodemap_unlock_active_ranges();
 
 	nm_member_exp_revoke(exp);
 out:
