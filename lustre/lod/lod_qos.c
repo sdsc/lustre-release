@@ -941,6 +941,7 @@ static int lod_alloc_rr(const struct lu_env *env, struct lod_object *lo,
 	__u32		   stripe_cnt = lo->ldo_stripenr;
 	__u32		   stripe_cnt_min = min_stripe_count(stripe_cnt, flags);
 	__u32		   ost_idx;
+	int		   precreate_inprogress = 0;
 	ENTRY;
 
 	if (lo->ldo_pool)
@@ -1012,6 +1013,9 @@ repeat_find:
 		rc = lod_check_and_reserve_ost(env, m, sfs, ost_idx, speed,
 					       &stripe_idx, stripe, th);
 		spin_lock(&lqr->lqr_alloc);
+
+		if (rc == -EINPROGRESS)
+			precreate_inprogress = 1;
 	}
 	if ((speed < 2) && (stripe_idx < stripe_cnt_min)) {
 		/* Try again, allowing slower OSCs */
@@ -1029,7 +1033,10 @@ repeat_find:
 		rc = 0;
 	} else {
 		/* nobody provided us with a single object */
-		rc = -ENOSPC;
+		if (precreate_inprogress == 0)
+			rc = -ENOSPC;
+		else
+			rc = -EINPROGRESS;
 	}
 
 out:
