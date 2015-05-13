@@ -594,6 +594,7 @@ int tgt_request_handle(struct ptlrpc_request *req)
 	int			 request_fail_id = 0;
 	__u32			 opc = lustre_msg_get_opc(msg);
 	int			 rc;
+	__u64			 last_xid;
 
 	ENTRY;
 
@@ -641,6 +642,15 @@ int tgt_request_handle(struct ptlrpc_request *req)
 		req->rq_status = -EINVAL;
 		rc = ptlrpc_error(req);
 		GOTO(out, rc);
+	}
+
+	/* check last xid value is consistent */
+	last_xid = lustre_msg_get_last_xid(req->rq_reqmsg);
+	if (last_xid != 0) {
+		LASSERT(req->rq_xid != 0);
+		LASSERTF(req->rq_xid > last_xid,
+			 "xid %llx, last_xid %llx\n",
+			 req->rq_xid, last_xid);
 	}
 
 	request_fail_id = tgt->lut_request_fail_id;
