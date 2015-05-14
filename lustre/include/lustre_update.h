@@ -34,8 +34,7 @@
 #include <dt_object.h>
 
 #define OUT_UPDATE_INIT_BUFFER_SIZE	4096
-/* 16KB, the current biggest size is llog header(8KB) */
-#define OUT_UPDATE_REPLY_SIZE		16384
+#define OUT_UPDATE_REPLY_SIZE		4096
 
 struct dt_key;
 struct dt_rec;
@@ -476,6 +475,9 @@ int out_read_pack(const struct lu_env *env, struct object_update *update,
 		  size_t size, loff_t pos);
 
 const char *update_op_str(__u16 opcode);
+
+void update_records_dump(const struct update_records *records,
+			 unsigned int mask, bool dump_updates);
 
 /* target/update_trans.c */
 struct thandle *thandle_get_sub_by_dt(const struct lu_env *env,

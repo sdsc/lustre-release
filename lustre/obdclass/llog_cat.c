@@ -66,6 +66,7 @@ static int llog_cat_new_log(const struct lu_env *env,
 	struct llog_thread_info	*lgi = llog_info(env);
 	struct llog_logid_rec	*rec = &lgi->lgi_logid;
 	int			 rc;
+	int			flags = LLOG_F_IS_PLAIN | LLOG_F_ZAP_WHEN_EMPTY;
 
 	ENTRY;
 
@@ -90,8 +91,10 @@ static int llog_cat_new_log(const struct lu_env *env,
 		RETURN(rc);
 	}
 
-	rc = llog_init_handle(env, loghandle,
-			      LLOG_F_IS_PLAIN | LLOG_F_ZAP_WHEN_EMPTY,
+	if (cathandle->lgh_hdr->llh_flags & LLOG_F_BIG_CHUNK)
+		flags |= LLOG_F_BIG_CHUNK;
+
+	rc = llog_init_handle(env, loghandle, flags,
 			      &cathandle->lgh_hdr->llh_tgtuuid);
 	if (rc)
 		GOTO(out_destroy, rc);
@@ -316,7 +319,10 @@ int llog_cat_add_rec(const struct lu_env *env, struct llog_handle *cathandle,
         int rc;
         ENTRY;
 
-        LASSERT(rec->lrh_len <= LLOG_CHUNK_SIZE);
+	if (cathandle->lgh_hdr->llh_flags & LLOG_F_BIG_CHUNK)
+		LASSERT(rec->lrh_len <= LLOG_BIG_CHUNK_SIZE);
+	else
+		LASSERT(rec->lrh_len <= LLOG_CHUNK_SIZE);
 	loghandle = llog_cat_current_log(cathandle, th);
 	LASSERT(!IS_ERR(loghandle));
 

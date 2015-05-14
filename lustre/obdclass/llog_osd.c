@@ -286,8 +286,6 @@ static int llog_osd_declare_write_rec(const struct lu_env *env,
 	LASSERT(th);
 	LASSERT(loghandle);
 	LASSERT(rec);
-	LASSERT(rec->lrh_len <= LLOG_CHUNK_SIZE);
-
 	o = loghandle->lgh_obj;
 	LASSERT(o);
 
@@ -346,6 +344,7 @@ static int llog_osd_write_rec(const struct lu_env *env,
 	int			 index, rc;
 	struct llog_rec_tail	*lrt;
 	struct dt_object	*o;
+	int			chunk_size;
 	size_t			 left;
 
 	ENTRY;
@@ -360,8 +359,14 @@ static int llog_osd_write_rec(const struct lu_env *env,
 	CDEBUG(D_OTHER, "new record %x to "DFID"\n",
 	       rec->lrh_type, PFID(lu_object_fid(&o->do_lu)));
 
-	/* record length should not bigger than LLOG_CHUNK_SIZE */
-	if (reclen > LLOG_CHUNK_SIZE)
+	if (llh->llh_flags & LLOG_F_BIG_CHUNK &&
+	    llh->llh_flags & LLOG_F_IS_PLAIN)
+		chunk_size = LLOG_BIG_CHUNK_SIZE;
+	else
+		chunk_size = LLOG_CHUNK_SIZE;
+
+	/* record length should not bigger than chunk_size */
+	if (reclen > chunk_size)
 		RETURN(-E2BIG);
 
 	rc = dt_attr_get(env, o, &lgi->lgi_attr);
@@ -475,7 +480,7 @@ static int llog_osd_write_rec(const struct lu_env *env,
 	 */
 	LASSERT(lgi->lgi_attr.la_valid & LA_SIZE);
 	lgi->lgi_off = lgi->lgi_attr.la_size;
-	left = LLOG_CHUNK_SIZE - (lgi->lgi_off & (LLOG_CHUNK_SIZE - 1));
+	left = chunk_size - (lgi->lgi_off & (chunk_size - 1));
 	/* NOTE: padding is a record, but no bit is set */
 	if (left != 0 && left != reclen &&
 	    left < (reclen + LLOG_MIN_REC_SIZE)) {
@@ -585,8 +590,9 @@ out_remote_unlock:
 	if (rc < 0)
 		GOTO(out, rc);
 
-	CDEBUG(D_OTHER, "added record "DOSTID": idx: %u, %u\n",
-	       POSTID(&loghandle->lgh_id.lgl_oi), index, rec->lrh_len);
+	CDEBUG(D_OTHER, "added record "DOSTID": idx: %u, %u %llu type %x\n",
+	       POSTID(&loghandle->lgh_id.lgl_oi), index, rec->lrh_len,
+	       lgi->lgi_off, rec->lrh_type);
 	if (reccookie != NULL) {
 		reccookie->lgc_lgl = loghandle->lgh_id;
 		reccookie->lgc_index = index;
@@ -621,12 +627,16 @@ out:
  * actual records are larger than minimum size) we just skip
  * some more records.
  */
-static inline void llog_skip_over(__u64 *off, int curr, int goal)
+static inline void llog_skip_over(__u64 *off, int curr, int goal,
+				  int chunk_size)
 {
 	if (goal <= curr)
 		return;
-	*off = (*off + (goal - curr - 1) * LLOG_MIN_REC_SIZE) &
-		~(LLOG_CHUNK_SIZE - 1);
+	*off += (goal - curr - 1) * LLOG_MIN_REC_SIZE;
+	if (*off > chunk_size)
+		*off &= ~(chunk_size - 1);
+	else if (*off > LLOG_CHUNK_SIZE)
+		*off = LLOG_CHUNK_SIZE;
 }
 
 /**
@@ -667,8 +677,7 @@ static void changelog_block_trim_ext(struct llog_rec_hdr *hdr,
  * \param[in]     next_idx	target index to find
  * \param[in,out] cur_offset	furtherst point read in the file
  * \param[in]     buf		pointer to data buffer to fill
- * \param[in]     len		required len to read, it is
- *				LLOG_CHUNK_SIZE usually.
+ * \param[in]     chunk_size	llog chunk size.
  *
  * \retval			0 on successful buffer read
  * \retval			negative value on error
@@ -676,7 +685,7 @@ static void changelog_block_trim_ext(struct llog_rec_hdr *hdr,
 static int llog_osd_next_block(const struct lu_env *env,
 			       struct llog_handle *loghandle, int *cur_idx,
 			       int next_idx, __u64 *cur_offset, void *buf,
-			       int len)
+			       int chunk_size)
 {
 	struct llog_thread_info	*lgi = llog_info(env);
 	struct dt_object	*o;
@@ -688,11 +697,11 @@ static int llog_osd_next_block(const struct lu_env *env,
 	LASSERT(env);
 	LASSERT(lgi);
 
-	if (len == 0 || len & (LLOG_CHUNK_SIZE - 1))
+	if (chunk_size == 0)
 		RETURN(-EINVAL);
 
-	CDEBUG(D_OTHER, "looking for log index %u (cur idx %u off "LPU64")\n",
-	       next_idx, *cur_idx, *cur_offset);
+	CDEBUG(D_OTHER, "looking for log index %u chunk_size %d(cur idx %u off "
+	       LPU64")\n", next_idx, chunk_size, *cur_idx, *cur_offset);
 
 	LASSERT(loghandle);
 	LASSERT(loghandle->lgh_ctxt);
@@ -711,11 +720,11 @@ static int llog_osd_next_block(const struct lu_env *env,
 		struct llog_rec_hdr	*rec, *last_rec;
 		struct llog_rec_tail	*tail;
 
-		llog_skip_over(cur_offset, *cur_idx, next_idx);
+		llog_skip_over(cur_offset, *cur_idx, next_idx, chunk_size);
 
-		/* read up to next LLOG_CHUNK_SIZE block */
-		lgi->lgi_buf.lb_len = LLOG_CHUNK_SIZE -
-				      (*cur_offset & (LLOG_CHUNK_SIZE - 1));
+		/* read up to next chunk_size block */
+		lgi->lgi_buf.lb_len = chunk_size -
+				      (*cur_offset & (chunk_size - 1));
 		lgi->lgi_buf.lb_buf = buf;
 
 		rc = dt_read(env, o, &lgi->lgi_buf, cur_offset);
@@ -728,10 +737,10 @@ static int llog_osd_next_block(const struct lu_env *env,
 			GOTO(out, rc);
 		}
 
-		if (rc < len) {
+		if (rc < chunk_size) {
 			/* signal the end of the valid buffer to
 			 * llog_process */
-			memset(buf + rc, 0, len - rc);
+			memset(buf + rc, 0, chunk_size - rc);
 		}
 
 		if (rc == 0) /* end of file, nothing to do */
@@ -807,14 +816,14 @@ out:
  * \param[in] loghandle	llog handle of the current llog
  * \param[in] prev_idx	target index to find
  * \param[in] buf	pointer to data buffer to fill
- * \param[in] len	required len to read, it is LLOG_CHUNK_SIZE usually.
+ * \param[in] chunk_size llog chunk_size.
  *
  * \retval		0 on successful buffer read
  * \retval		negative value on error
  */
 static int llog_osd_prev_block(const struct lu_env *env,
 			       struct llog_handle *loghandle,
-			       int prev_idx, void *buf, int len)
+			       int prev_idx, void *buf, int chunk_size)
 {
 	struct llog_thread_info	*lgi = llog_info(env);
 	struct dt_object	*o;
@@ -824,7 +833,7 @@ static int llog_osd_prev_block(const struct lu_env *env,
 
 	ENTRY;
 
-	if (len == 0 || len & (LLOG_CHUNK_SIZE - 1))
+	if (chunk_size == 0)
 		RETURN(-EINVAL);
 
 	CDEBUG(D_OTHER, "looking for log index %u\n", prev_idx);
@@ -839,7 +848,7 @@ static int llog_osd_prev_block(const struct lu_env *env,
 	LASSERT(dt);
 
 	cur_offset = LLOG_CHUNK_SIZE;
-	llog_skip_over(&cur_offset, 0, prev_idx);
+	llog_skip_over(&cur_offset, 0, prev_idx, chunk_size);
 
 	rc = dt_attr_get(env, o, &lgi->lgi_attr);
 	if (rc)
@@ -849,7 +858,7 @@ static int llog_osd_prev_block(const struct lu_env *env,
 		struct llog_rec_hdr	*rec, *last_rec;
 		struct llog_rec_tail	*tail;
 
-		lgi->lgi_buf.lb_len = len;
+		lgi->lgi_buf.lb_len = chunk_size;
 		lgi->lgi_buf.lb_buf = buf;
 		rc = dt_read(env, o, &lgi->lgi_buf, &cur_offset);
 		if (rc < 0) {

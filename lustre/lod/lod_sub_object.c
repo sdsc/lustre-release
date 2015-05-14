@@ -930,6 +930,8 @@ int lod_sub_prep_llog(const struct lu_env *env, struct lod_device *lod,
 	if (rc != 0)
 		GOTO(out_close, rc);
 
+	lgh->lgh_hdr->llh_flags |= LLOG_F_BIG_CHUNK;
+
 	if (need_put) {
 		rc = llog_osd_put_cat_list(env, dt, index, 1, cid, fid);
 		if (rc != 0)

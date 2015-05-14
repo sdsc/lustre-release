@@ -275,6 +275,7 @@ static int llog_process_thread(void *arg)
 	struct llog_log_hdr		*llh = loghandle->lgh_hdr;
 	struct llog_process_cat_data	*cd  = lpi->lpi_catdata;
 	char				*buf;
+	int				chunk_size = LLOG_CHUNK_SIZE;
 	__u64				 cur_offset = LLOG_CHUNK_SIZE;
 	__u64				 last_offset;
 	int				 rc = 0, index = 1, last_index;
@@ -285,11 +286,15 @@ static int llog_process_thread(void *arg)
 
         LASSERT(llh);
 
-        OBD_ALLOC(buf, LLOG_CHUNK_SIZE);
-        if (!buf) {
-                lpi->lpi_rc = -ENOMEM;
+	if (llh->llh_flags & LLOG_F_BIG_CHUNK &&
+	    llh->llh_flags & LLOG_F_IS_PLAIN)
+		chunk_size = LLOG_BIG_CHUNK_SIZE;
+
+	OBD_ALLOC_LARGE(buf, chunk_size);
+	if (buf == NULL) {
+		lpi->lpi_rc = -ENOMEM;
 		RETURN(0);
-        }
+	}
 
         if (cd != NULL) {
                 last_called_index = cd->lpcd_first_idx;
@@ -320,19 +325,19 @@ repeat:
                 CDEBUG(D_OTHER, "index: %d last_index %d\n",
                        index, last_index);
 
-                /* get the buf with our target record; avoid old garbage */
-                memset(buf, 0, LLOG_CHUNK_SIZE);
-                last_offset = cur_offset;
+		/* get the buf with our target record; avoid old garbage */
+		memset(buf, 0, chunk_size);
+		last_offset = cur_offset;
 		rc = llog_next_block(lpi->lpi_env, loghandle, &saved_index,
-				     index, &cur_offset, buf, LLOG_CHUNK_SIZE);
-                if (rc)
-                        GOTO(out, rc);
+				     index, &cur_offset, buf, chunk_size);
+		if (rc)
+			GOTO(out, rc);
 
 		/* NB: when rec->lrh_len is accessed it is already swabbed
 		 * since it is used at the "end" of the loop and the rec
 		 * swabbing is done at the beginning of the loop. */
 		for (rec = (struct llog_rec_hdr *)buf;
-		     (char *)rec < buf + LLOG_CHUNK_SIZE;
+		     (char *)rec < buf + chunk_size;
 		     rec = llog_rec_hdr_next(rec)) {
 
 			CDEBUG(D_OTHER, "processing rec 0x%p type %#x\n",
@@ -350,8 +355,7 @@ repeat:
 					GOTO(repeat, rc = 0);
 				GOTO(out, rc = 0); /* no more records */
 			}
-			if (rec->lrh_len == 0 ||
-			    rec->lrh_len > LLOG_CHUNK_SIZE) {
+			if (rec->lrh_len == 0 || rec->lrh_len > chunk_size) {
                                 CWARN("invalid length %d in llog record for "
                                       "index %d/%d\n", rec->lrh_len,
                                       rec->lrh_index, index);
@@ -364,10 +368,10 @@ repeat:
                                 continue;
                         }
 
-                        CDEBUG(D_OTHER,
-                               "lrh_index: %d lrh_len: %d (%d remains)\n",
-                               rec->lrh_index, rec->lrh_len,
-                               (int)(buf + LLOG_CHUNK_SIZE - (char *)rec));
+			CDEBUG(D_OTHER,
+			       "lrh_index: %d lrh_len: %d (%d remains)\n",
+			       rec->lrh_index, rec->lrh_len,
+			       (int)(buf + chunk_size - (char *)rec));
 
                         loghandle->lgh_cur_idx = rec->lrh_index;
                         loghandle->lgh_cur_offset = (char *)rec - (char *)buf +
@@ -416,7 +420,7 @@ out:
 		rc = 0;
 	}
 
-	OBD_FREE(buf, LLOG_CHUNK_SIZE);
+	OBD_FREE_LARGE(buf, chunk_size);
         lpi->lpi_rc = rc;
         return 0;
 }
@@ -505,11 +509,16 @@ int llog_reverse_process(const struct lu_env *env,
 {
         struct llog_log_hdr *llh = loghandle->lgh_hdr;
         struct llog_process_cat_data *cd = catdata;
+	int chunk_size = LLOG_CHUNK_SIZE;
         void *buf;
         int rc = 0, first_index = 1, index, idx;
         ENTRY;
 
-        OBD_ALLOC(buf, LLOG_CHUNK_SIZE);
+	if (llh->llh_flags & LLOG_F_BIG_CHUNK &&
+	    llh->llh_flags & LLOG_F_IS_PLAIN)
+		chunk_size = LLOG_BIG_CHUNK_SIZE;
+
+	OBD_ALLOC_LARGE(buf, chunk_size);
         if (!buf)
                 RETURN(-ENOMEM);
 
@@ -533,10 +542,9 @@ int llog_reverse_process(const struct lu_env *env,
                 if (index == first_index - 1)
                         break;
 
-                /* get the buf with our target record; avoid old garbage */
-                memset(buf, 0, LLOG_CHUNK_SIZE);
-		rc = llog_prev_block(env, loghandle, index, buf,
-				     LLOG_CHUNK_SIZE);
+		/* get the buf with our target record; avoid old garbage */
+		memset(buf, 0, chunk_size);
+		rc = llog_prev_block(env, loghandle, index, buf, chunk_size);
 		if (rc)
 			GOTO(out, rc);
 
@@ -582,9 +590,9 @@ int llog_reverse_process(const struct lu_env *env,
         }
 
 out:
-        if (buf)
-                OBD_FREE(buf, LLOG_CHUNK_SIZE);
-        RETURN(rc);
+	if (buf != NULL)
+		OBD_FREE_LARGE(buf, LLOG_CHUNK_SIZE);
+	RETURN(rc);
 }
 EXPORT_SYMBOL(llog_reverse_process);
 

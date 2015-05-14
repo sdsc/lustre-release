@@ -2058,8 +2058,6 @@ static void check_object_update_param(void)
 	BLANK_LINE();
 	CHECK_STRUCT(object_update_param);
 	CHECK_MEMBER(object_update_param, oup_len);
-	CHECK_MEMBER(object_update_param, oup_padding);
-	CHECK_MEMBER(object_update_param, oup_padding2);
 	CHECK_MEMBER(object_update_param, oup_buf);
 }
 
