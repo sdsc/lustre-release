@@ -646,11 +646,17 @@ static int osp_sync_new_setattr_job(struct osp_device *d,
 	ENTRY;
 	LASSERT(h->lrh_type == MDS_SETATTR64_REC);
 
+	if (OBD_FAIL_CHECK(OBD_FAIL_OSP_CHECK_INVALID_REC))
+		RETURN(0);
 	/* lsr_valid can only be 0 or have OBD_MD_{FLUID,FLGID} set,
 	 * so no bits other than these should be set. */
 	if ((rec->lsr_valid & ~(OBD_MD_FLUID | OBD_MD_FLGID)) != 0) {
 		CERROR("%s: invalid setattr record, lsr_valid:"LPU64"\n",
 		       d->opd_obd->obd_name, rec->lsr_valid);
+		spin_lock(&d->opd_syn_lock);
+		if (d->opd_syn_prev_done)
+			d->opd_syn_changes--;
+		spin_unlock(&d->opd_syn_lock);
 		/* return 0 so that sync thread can continue processing
 		 * other records. */
 		RETURN(0);
