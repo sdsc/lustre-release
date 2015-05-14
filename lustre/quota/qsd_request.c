@@ -231,6 +231,7 @@ int qsd_intent_lock(const struct lu_env *env, struct obd_export *exp,
 		ptlrpc_request_free(req);
 		GOTO(out, rc);
 	}
+	req->rq_request_portal = MDS_READPAGE_PORTAL;
 
 	lit = req_capsule_client_get(&req->rq_pill, &RMF_LDLM_INTENT);
 	lit->opc = (__u64)it_op;
