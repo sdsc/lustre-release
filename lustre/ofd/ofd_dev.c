@@ -1069,6 +1069,11 @@ static int lock_zero_regions(struct ldlm_namespace *ns,
 
 	CDEBUG(D_OTHER, "extents count %u\n", fiemap->fm_mapped_extents);
 	for (i = 0; i < fiemap->fm_mapped_extents; i++) {
+		if (i > 0)
+			LASSERT(fiemap_start[i].fe_logical >=
+				(fiemap_start[i - 1].fe_logical +
+				 fiemap_start[i - 1].fe_length));
+
 		if (fiemap_start[i].fe_logical > begin) {
 			CDEBUG(D_OTHER, "ost lock [%llu,%llu]\n",
 			       begin, fiemap_start[i].fe_logical);
