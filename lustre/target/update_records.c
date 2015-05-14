@@ -203,8 +203,7 @@ static int update_records_update_pack(const struct lu_env *env,
 
 	for (i = 0; i < param_bufs_count; i++)
 		total_param_sizes +=
-			cfs_size_round(sizeof(struct object_update_param) +
-				       param_sizes[i]);
+			sizeof(struct object_update_param) + param_sizes[i];
 
 	/* Check whether the packing exceeding the maximum parameter size */
 	if (unlikely(*max_param_size < total_param_sizes)) {

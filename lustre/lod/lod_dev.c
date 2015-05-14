@@ -304,6 +304,8 @@ static int lod_process_recovery_updates(const struct lu_env *env,
 	__u32				index = 0;
 	ENTRY;
 
+	LASSERT(llh->lgh_hdr->llh_flags & LLOG_F_IS_PLAIN);
+	LASSERT(llh->lgh_hdr->llh_flags & LLOG_F_BIG_CHUNK);
 	if (lrd->lrd_ltd == NULL) {
 		int rc;
 
@@ -316,10 +318,14 @@ static int lod_process_recovery_updates(const struct lu_env *env,
 
 	if (rec->lrh_len !=
 		llog_update_record_size((struct llog_update_record *)rec)) {
-		CERROR("%s broken update record! index %u "DOSTID":%u :"
-		       " rc = %d\n", lod2obd(lrd->lrd_lod)->obd_name, index,
-		       POSTID(&llh->lgh_id.lgl_oi), rec->lrh_index, -EIO);
-		return -EIO;
+		CERROR("%s broken update record! index %u "DOSTID ":%u"
+		       " lrh_len %u llog_record_size %zu: rc = %d\n",
+		       lod2obd(lrd->lrd_lod)->obd_name, index,
+		       POSTID(&llh->lgh_id.lgl_oi), rec->lrh_index,
+		       rec->lrh_len,
+		    llog_update_record_size((struct llog_update_record *)rec),
+		       -EIO);
+		RETURN(-EIO);
 	}
 
 	cookie->lgc_lgl = llh->lgh_id;
@@ -383,6 +389,7 @@ static int lod_sub_recovery_thread(void *arg)
 	LASSERT(ctxt != NULL);
 	LASSERT(ctxt->loc_handle != NULL);
 
+	LASSERT(ctxt->loc_handle->lgh_hdr->llh_flags & LLOG_F_BIG_CHUNK);
 	rc = llog_cat_process(&env, ctxt->loc_handle,
 			      lod_process_recovery_updates, lrd, 0, 0);
 	llog_ctxt_put(ctxt);

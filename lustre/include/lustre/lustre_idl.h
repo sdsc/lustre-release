@@ -3420,6 +3420,7 @@ struct llog_gen_rec {
 
 /* On-disk header structure of each log object, stored in little endian order */
 #define LLOG_CHUNK_SIZE         8192
+#define LLOG_BIG_CHUNK_SIZE	32768
 #define LLOG_HEADER_SIZE        (96)
 #define LLOG_BITMAP_BYTES       (LLOG_CHUNK_SIZE - LLOG_HEADER_SIZE)
 
@@ -3431,8 +3432,11 @@ enum llog_flag {
 	LLOG_F_IS_CAT		= 0x2,
 	LLOG_F_IS_PLAIN		= 0x4,
 	LLOG_F_EXT_JOBID	= 0x8,
+	/* The log has big chunk size llog record, Note: llog header still
+	 * keep the same size (8K) */
+	LLOG_F_BIG_CHUNK	= 0x10,
 
-	LLOG_F_EXT_MASK = LLOG_F_EXT_JOBID,
+	LLOG_F_EXT_MASK = LLOG_F_EXT_JOBID | LLOG_F_BIG_CHUNK,
 };
 
 struct llog_log_hdr {
@@ -4023,15 +4027,13 @@ enum update_flag {
 
 struct object_update_param {
 	__u16	oup_len;	/* length of this parameter */
-	__u16	oup_padding;
-	__u32	oup_padding2;
 	char	oup_buf[0];
 };
 
 static inline size_t
 object_update_param_size(const struct object_update_param *param)
 {
-	return cfs_size_round(sizeof(*param) + param->oup_len);
+	return sizeof(*param) + param->oup_len;
 }
 
 /* object update */

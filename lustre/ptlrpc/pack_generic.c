@@ -2507,8 +2507,6 @@ void lustre_swab_object_update(struct object_update *ou)
 	param = &ou->ou_params[0];
 	for (i = 0; i < ou->ou_params_count; i++) {
 		__swab16s(&param->oup_len);
-		__swab16s(&param->oup_padding);
-		__swab32s(&param->oup_padding2);
 		param = (struct object_update_param *)((char *)param +
 			 object_update_param_size(param));
 	}

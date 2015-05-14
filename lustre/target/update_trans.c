@@ -245,6 +245,9 @@ static int prepare_writing_updates(const struct lu_env *env,
 	lur->lur_hdr.lrh_len = llog_update_record_size(lur);
 	lur->lur_hdr.lrh_type = UPDATE_REC;
 
+	if (lur->lur_hdr.lrh_len > LLOG_BIG_CHUNK_SIZE)
+		return -E2BIG;
+
 	/* Dump updates for debugging purpose */
 	update_records_dump(&lur->lur_update_rec, D_INFO, true);
 
