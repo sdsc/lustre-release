@@ -2437,10 +2437,8 @@ static int target_recovery_thread(void *arg)
 	delta = jiffies_to_msecs(jiffies - delta) / MSEC_PER_SEC;
 	CDEBUG(D_INFO,"4: recovery completed in %lus - %d/%d reqs/locks\n",
 	      delta, obd->obd_replayed_requests, obd->obd_replayed_locks);
-	if (delta > OBD_RECOVERY_TIME_SOFT) {
+	if (delta > OBD_RECOVERY_TIME_SOFT)
 		CWARN("too long recovery - read logs\n");
-		libcfs_debug_dumplog();
-	}
 
 	target_finish_recovery(lut);
 
