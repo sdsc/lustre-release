@@ -521,9 +521,10 @@ static struct dentry *ll_lookup_it(struct inode *parent, struct dentry *dentry,
 	struct dentry *save = dentry, *retval;
 	struct ptlrpc_request *req = NULL;
 	struct md_op_data *op_data = NULL;
-        __u32 opc;
-        int rc;
-        ENTRY;
+	__u32 opc;
+	int rc;
+	int retries = 0;
+	ENTRY;
 
         if (dentry->d_name.len > ll_i2sbi(parent)->ll_namelen)
                 RETURN(ERR_PTR(-ENAMETOOLONG));
@@ -549,6 +550,7 @@ static struct dentry *ll_lookup_it(struct inode *parent, struct dentry *dentry,
 	else
 		opc = LUSTRE_OPC_ANY;
 
+again:
 	op_data = ll_prep_md_op_data(NULL, parent, NULL, dentry->d_name.name,
 				     dentry->d_name.len, 0, opc, NULL);
 	if (IS_ERR(op_data))
@@ -560,6 +562,20 @@ static struct dentry *ll_lookup_it(struct inode *parent, struct dentry *dentry,
 
 	rc = md_intent_lock(ll_i2mdexp(parent), op_data, it, &req,
 			    &ll_md_blocking_ast, 0);
+
+	if (rc == -EINPROGRESS && it->it_op & IT_CREAT) {
+		if (retries++ < 5) {
+			ll_finish_md_op_data(op_data);
+			ptlrpc_req_finished(req);
+			goto again;
+		}
+
+		CERROR("can't create the file (name=%.*s, dir="DFID"(%p)) "
+		       "after 5 tries!\n",
+		       dentry->d_name.len, dentry->d_name.name,
+		       PFID(ll_inode2fid(parent)), parent);
+	}
+
 	/* If the MDS allows the client to chgrp (CFS_SETGRP_PERM), but the
 	 * client does not know which suppgid should be sent to the MDS, or
 	 * some other(s) changed the target file's GID after this RPC sent
@@ -914,12 +930,13 @@ static int ll_new_node(struct inode *dir, struct dentry *dchild,
 		       const char *tgt, umode_t mode, int rdev, __u32 opc)
 {
 	struct qstr *name = &dchild->d_name;
-        struct ptlrpc_request *request = NULL;
-        struct md_op_data *op_data;
-        struct inode *inode = NULL;
-        struct ll_sb_info *sbi = ll_i2sbi(dir);
-        int tgt_len = 0;
-        int err;
+	struct ptlrpc_request *request = NULL;
+	struct md_op_data *op_data;
+	struct inode *inode = NULL;
+	struct ll_sb_info *sbi = ll_i2sbi(dir);
+	int tgt_len = 0;
+	int retries = 0;
+	int err;
 
         ENTRY;
         if (unlikely(tgt != NULL))
@@ -970,6 +987,17 @@ again:
 		ptlrpc_req_finished(request);
 		request = NULL;
 		goto again;
+	} else if (err == -EINPROGRESS) {
+		if (retries++ < 5) {
+			ptlrpc_req_finished(request);
+			request = NULL;
+			goto again;
+		}
+
+		CERROR("can't create the file (name=%.*s, dir="DFID
+		       "(%p)) after 5 tries!\n",
+		       dchild->d_name.len, dchild->d_name.name,
+		       PFID(ll_inode2fid(dir)), dir);
 	}
 
         ll_update_times(request, dir);
