@@ -1399,6 +1399,11 @@ static int ofd_setattr_hdl(struct tgt_session_info *tsi)
 		RETURN(-EPERM);
 	}
 
+	rc = ofd_handle_recreate(tsi->tsi_env, tsi->tsi_exp, ofd,
+				 &tsi->tsi_fid, &body->oa);
+	if (rc)
+		GOTO(out, rc);
+
 	fo = ofd_object_find_exists(tsi->tsi_env, ofd, &tsi->tsi_fid);
 	if (IS_ERR(fo))
 		GOTO(out, rc = PTR_ERR(fo));
@@ -1778,6 +1783,9 @@ static int ofd_create_hdl(struct tgt_session_info *tsi)
 	ofd_counter_incr(exp, LPROC_OFD_STATS_CREATE,
 			 tsi->tsi_jobid, 1);
 out:
+	if (oa->o_flags & OBD_FL_DELORPHAN)
+		oseq->os_object_sync_pending = 0;
+
 	mutex_unlock(&oseq->os_create_lock);
 out_nolock:
 	if (rc == 0) {
