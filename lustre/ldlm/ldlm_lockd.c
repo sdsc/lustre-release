@@ -273,7 +273,7 @@ static int __ldlm_add_waiting_lock(struct ldlm_lock *lock, int seconds);
  * Check if there is a request in the export request list
  * which prevents the lock canceling.
  */
-static int ldlm_lock_busy(struct ldlm_lock *lock)
+static int ldlm_lock_busy(struct ldlm_lock *lock, bool check_all)
 {
 	struct ptlrpc_request *req;
 	int match = 0;
@@ -292,6 +292,25 @@ static int ldlm_lock_busy(struct ldlm_lock *lock)
 		}
 	}
 	spin_unlock_bh(&lock->l_export->exp_rpc_lock);
+
+	if (match != 0 || !check_all)
+		RETURN(match);
+
+	spin_lock_bh(&lock->l_export->exp_rpc_lock);
+	list_for_each_entry(req, &lock->l_export->exp_reg_rpcs,
+				rq_exp_list) {
+		__u32 opc = lustre_msg_get_opc(req->rq_reqmsg);
+		if (opc != OST_WRITE && opc != OST_READ)
+			continue;
+
+		if (req->rq_ops->hpreq_lock_match) {
+			match = req->rq_ops->hpreq_lock_match(req, lock);
+			if (match)
+				break;
+		}
+	}
+	spin_unlock_bh(&lock->l_export->exp_rpc_lock);
+
 	RETURN(match);
 }
 
@@ -312,7 +331,7 @@ static void waiting_locks_callback(unsigned long unused)
 
                 /* Check if we need to prolong timeout */
                 if (!OBD_FAIL_CHECK(OBD_FAIL_PTLRPC_HPREQ_TIMEOUT) &&
-                    ldlm_lock_busy(lock)) {
+                    ldlm_lock_busy(lock, false)) {
                         int cont = 1;
 
                         if (lock->l_pending_chain.next == &waiting_locks_list)
@@ -336,10 +355,12 @@ static void waiting_locks_callback(unsigned long unused)
                 }
                 ldlm_lock_to_ns(lock)->ns_timeouts++;
                 LDLM_ERROR(lock, "lock callback timer expired after %lds: "
-                           "evicting client at %s ",
+                           "evicting client at %s (lock busy: %d %d)",
                            cfs_time_current_sec() - lock->l_last_activity,
                            libcfs_nid2str(
-                                   lock->l_export->exp_connection->c_peer.nid));
+                                   lock->l_export->exp_connection->c_peer.nid),
+			   ldlm_lock_busy(lock, false),
+			   ldlm_lock_busy(lock, true));
 
                 /* no needs to take an extra ref on the lock since it was in
                  * the waiting_locks_list and ldlm_add_waiting_lock()
@@ -2246,6 +2267,9 @@ static int ldlm_callback_handler(struct ptlrpc_request *req)
                                              &dlm_req->lock_handle[0]);
                         RETURN(0);
                 }
+
+		LDLM_CONSOLE(lock, "blocking AST\n");
+
 		/* BL_AST locks are not needed in LRU.
 		 * Let ldlm_cancel_lru() be fast. */
                 ldlm_lock_remove_from_lru(lock);

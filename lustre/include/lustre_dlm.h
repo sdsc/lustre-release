@@ -1153,6 +1153,12 @@ void _ldlm_lock_debug(struct ldlm_lock *lock,
 #define LDLM_ERROR(lock, fmt, a...) LDLM_DEBUG_LIMIT(D_ERROR, lock, fmt, ## a)
 #define LDLM_WARN(lock, fmt, a...)  LDLM_DEBUG_LIMIT(D_WARNING, lock, fmt, ## a)
 
+#define LDLM_CONSOLE(lock, fmt, a...) do {				    \
+	LIBCFS_DEBUG_MSG_DATA_DECL(msgdata, D_CONSOLE, NULL);		    \
+	ldlm_lock_debug(&msgdata, D_CONSOLE, NULL, lock,		    \
+			"### " fmt , ##a);				    \
+	} while (0)
+
 /** Non-rate-limited lock printing function for debugging purposes. */
 #define LDLM_DEBUG(lock, fmt, a...)   do {                                  \
 	if (likely(lock != NULL)) {					    \
@@ -1167,6 +1173,7 @@ void _ldlm_lock_debug(struct ldlm_lock *lock,
 # define LDLM_DEBUG_LIMIT(mask, lock, fmt, a...) ((void)0)
 # define LDLM_DEBUG(lock, fmt, a...) ((void)0)
 # define LDLM_ERROR(lock, fmt, a...) ((void)0)
+# define LDLM_CONSOLE(lock, fmt, a...) ((void)0)
 #endif
 
 typedef int (*ldlm_processing_policy)(struct ldlm_lock *lock, __u64 *flags,
