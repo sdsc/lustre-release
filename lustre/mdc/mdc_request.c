@@ -2668,22 +2668,23 @@ static int mdc_precleanup(struct obd_device *obd, enum obd_cleanup_stage stage)
         int rc = 0;
         ENTRY;
 
-        switch (stage) {
-        case OBD_CLEANUP_EARLY:
-                break;
-        case OBD_CLEANUP_EXPORTS:
+	switch (stage) {
+	case OBD_CLEANUP_EARLY:
+		mdc_ioc_hsm_ct_unregister(obd->u.cli.cl_import);
+		break;
+	case OBD_CLEANUP_EXPORTS:
 		/* Failsafe, ok if racy */
 		if (obd->obd_type->typ_refcnt <= 1)
-			libcfs_kkuc_group_rem(0, KUC_GRP_HSM, NULL);
+			libcfs_kkuc_group_rem(0, KUC_GRP_HSM, -1,  NULL);
 
-                obd_cleanup_client_import(obd);
-                ptlrpc_lprocfs_unregister_obd(obd);
-                lprocfs_obd_cleanup(obd);
+		obd_cleanup_client_import(obd);
+		ptlrpc_lprocfs_unregister_obd(obd);
+		lprocfs_obd_cleanup(obd);
 		lprocfs_free_md_stats(obd);
 		mdc_llog_finish(obd);
-                break;
-        }
-        RETURN(rc);
+		break;
+	}
+	RETURN(rc);
 }
 
 static int mdc_cleanup(struct obd_device *obd)
