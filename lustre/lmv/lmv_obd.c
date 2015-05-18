@@ -828,7 +828,8 @@ static int lmv_hsm_ct_unregister(struct lmv_obd *lmv, unsigned int cmd, int len,
 	 * Unreached coordinators will get EPIPE on next requests
 	 * and will unregister automatically.
 	 */
-	rc = libcfs_kkuc_group_rem(lk->lk_uid, lk->lk_group, (void **)&kcd);
+	rc = libcfs_kkuc_group_rem(lk->lk_uid, lk->lk_group, lk->lk_rfd,
+				   (void **)&kcd);
 	if (kcd != NULL)
 		OBD_FREE_PTR(kcd);
 
@@ -899,7 +900,8 @@ static int lmv_hsm_ct_register(struct lmv_obd *lmv, unsigned int cmd, int len,
 	kcd->kcd_uuid = lmv->cluuid;
 	kcd->kcd_archive = lk->lk_data;
 
-	rc = libcfs_kkuc_group_add(filp, lk->lk_uid, lk->lk_group, kcd);
+	rc = libcfs_kkuc_group_add(filp, lk->lk_uid, lk->lk_group, lk->lk_rfd,
+				   kcd, sizeof(*kcd));
 	if (rc != 0) {
 		if (filp != NULL)
 			fput(filp);
