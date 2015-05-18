@@ -298,8 +298,7 @@ static int in_mntlist(char *opt, char *mntlist)
  * present in mountopts.  The justwarn boolean toggles between error and
  * warning message.  Return an error count.
  */
-int check_mountfsoptions(char *mountopts, char *wanted_mountopts,
-			 int justwarn)
+int check_mountfsoptions(char *mountopts, char *wanted_mountopts)
 {
 	char *ml, *mlp, *item, *ctx = NULL;
 	int errors = 0;
@@ -311,9 +310,7 @@ int check_mountfsoptions(char *mountopts, char *wanted_mountopts,
 	mlp = ml;
 	while ((item = strtok_r(mlp, ",", &ctx))) {
 		if (!in_mntlist(item, mountopts)) {
-			fprintf(stderr, "%s: %s mount option `%s' is missing\n",
-				progname, justwarn ? "Warning: default"
-				: "Error: mandatory", item);
+			fprintf(stderr, "%s: Error: mandatory mount option `%s'"				" is missing\n", progname, item);
 			errors++;
 		}
 		mlp = NULL;
@@ -535,6 +532,7 @@ struct module_backfs_ops *load_backfs_module(enum ldd_mount_type mount_type)
 	DLSYM(name, ops, is_lustre);
 	DLSYM(name, ops, make_lustre);
 	DLSYM(name, ops, prepare_lustre);
+	DLSYM(name, ops, fix_mountopts);
 	DLSYM(name, ops, tune_lustre);
 	DLSYM(name, ops, label_lustre);
 	DLSYM(name, ops, enable_quota);
@@ -644,20 +642,29 @@ int osd_make_lustre(struct mkfs_opts *mop)
 }
 
 int osd_prepare_lustre(struct mkfs_opts *mop,
-		char *default_mountopts, int default_len,
-		char *always_mountopts, int always_len)
+		       char *wanted_mountopts, size_t len)
 {
 	struct lustre_disk_data *ldd = &mop->mo_ldd;
 	int ret;
 
 	if (backfs_mount_type_okay(ldd->ldd_mount_type))
 		ret = backfs_ops[ldd->ldd_mount_type]->prepare_lustre(mop,
-			default_mountopts, default_len,
-			always_mountopts, always_len);
+							wanted_mountopts, len);
 
 	else
 		ret = EINVAL;
 
+	return ret;
+}
+
+int osd_fix_mountopts(struct mkfs_opts *mop, char *mountopts, size_t len)
+{
+	struct lustre_disk_data *ldd = &mop->mo_ldd;
+	int ret = EINVAL;
+
+	if (backfs_mount_type_okay(ldd->ldd_mount_type))
+		ret = backfs_ops[ldd->ldd_mount_type]->fix_mountopts(mop,
+								mountopts, len);
 	return ret;
 }
 

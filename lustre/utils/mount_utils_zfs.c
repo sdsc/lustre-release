@@ -563,8 +563,7 @@ int zfs_enable_quota(struct mkfs_opts *mop)
 }
 
 int zfs_prepare_lustre(struct mkfs_opts *mop,
-		char *default_mountopts, int default_len,
-		char *always_mountopts, int always_len)
+		       char *wanted_mountopts, size_t len)
 {
 	if (osd_check_zfs_setup() == 0)
 		return EINVAL;
@@ -582,6 +581,11 @@ int zfs_prepare_lustre(struct mkfs_opts *mop,
 		return EINVAL;
 	}
 
+	return 0;
+}
+
+int zfs_fix_mountopts(struct mkfs_opts *mop, char *mountopts, size_t len)
+{
 	return 0;
 }
 
