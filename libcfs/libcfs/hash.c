@@ -584,7 +584,6 @@ cfs_hash_bd_move_locked(struct cfs_hash *hs, struct cfs_hash_bd *bd_old,
         if (unlikely(nbkt->hsb_version == 0))
                 nbkt->hsb_version++;
 }
-EXPORT_SYMBOL(cfs_hash_bd_move_locked);
 
 enum {
         /** always set, for sanity (avoid ZERO intent) */
@@ -682,7 +681,6 @@ cfs_hash_bd_findadd_locked(struct cfs_hash *hs, struct cfs_hash_bd *bd,
 					CFS_HS_LOOKUP_IT_ADD |
 					(!noref * CFS_HS_LOOKUP_MASK_REF));
 }
-EXPORT_SYMBOL(cfs_hash_bd_findadd_locked);
 
 struct hlist_node *
 cfs_hash_bd_finddel_locked(struct cfs_hash *hs, struct cfs_hash_bd *bd,
@@ -692,7 +690,6 @@ cfs_hash_bd_finddel_locked(struct cfs_hash *hs, struct cfs_hash_bd *bd,
 	return cfs_hash_bd_lookup_intent(hs, bd, key, hnode,
 					CFS_HS_LOOKUP_IT_FINDDEL);
 }
-EXPORT_SYMBOL(cfs_hash_bd_finddel_locked);
 
 static void
 cfs_hash_multi_bd_lock(struct cfs_hash *hs, struct cfs_hash_bd *bds,
@@ -842,21 +839,18 @@ cfs_hash_dual_bd_get(struct cfs_hash *hs, const void *key,
 
         cfs_hash_bd_order(&bds[0], &bds[1]);
 }
-EXPORT_SYMBOL(cfs_hash_dual_bd_get);
 
 void
 cfs_hash_dual_bd_lock(struct cfs_hash *hs, struct cfs_hash_bd *bds, int excl)
 {
         cfs_hash_multi_bd_lock(hs, bds, 2, excl);
 }
-EXPORT_SYMBOL(cfs_hash_dual_bd_lock);
 
 void
 cfs_hash_dual_bd_unlock(struct cfs_hash *hs, struct cfs_hash_bd *bds, int excl)
 {
         cfs_hash_multi_bd_unlock(hs, bds, 2, excl);
 }
-EXPORT_SYMBOL(cfs_hash_dual_bd_unlock);
 
 struct hlist_node *
 cfs_hash_dual_bd_lookup_locked(struct cfs_hash *hs, struct cfs_hash_bd *bds,
@@ -864,7 +858,6 @@ cfs_hash_dual_bd_lookup_locked(struct cfs_hash *hs, struct cfs_hash_bd *bds,
 {
         return cfs_hash_multi_bd_lookup_locked(hs, bds, 2, key);
 }
-EXPORT_SYMBOL(cfs_hash_dual_bd_lookup_locked);
 
 struct hlist_node *
 cfs_hash_dual_bd_findadd_locked(struct cfs_hash *hs, struct cfs_hash_bd *bds,
@@ -874,7 +867,6 @@ cfs_hash_dual_bd_findadd_locked(struct cfs_hash *hs, struct cfs_hash_bd *bds,
 	return cfs_hash_multi_bd_findadd_locked(hs, bds, 2, key,
 						hnode, noref);
 }
-EXPORT_SYMBOL(cfs_hash_dual_bd_findadd_locked);
 
 struct hlist_node *
 cfs_hash_dual_bd_finddel_locked(struct cfs_hash *hs, struct cfs_hash_bd *bds,
@@ -882,7 +874,6 @@ cfs_hash_dual_bd_finddel_locked(struct cfs_hash *hs, struct cfs_hash_bd *bds,
 {
 	return cfs_hash_multi_bd_finddel_locked(hs, bds, 2, key, hnode);
 }
-EXPORT_SYMBOL(cfs_hash_dual_bd_finddel_locked);
 
 static void
 cfs_hash_buckets_free(struct cfs_hash_bucket **buckets,
@@ -1810,7 +1801,6 @@ cfs_hash_rehash_cancel_locked(struct cfs_hash *hs)
 		cfs_hash_lock(hs, 1);
 	}
 }
-EXPORT_SYMBOL(cfs_hash_rehash_cancel_locked);
 
 void
 cfs_hash_rehash_cancel(struct cfs_hash *hs)
@@ -1819,7 +1809,6 @@ cfs_hash_rehash_cancel(struct cfs_hash *hs)
         cfs_hash_rehash_cancel_locked(hs);
         cfs_hash_unlock(hs, 1);
 }
-EXPORT_SYMBOL(cfs_hash_rehash_cancel);
 
 int
 cfs_hash_rehash(struct cfs_hash *hs, int do_rehash)
@@ -1849,7 +1838,6 @@ cfs_hash_rehash(struct cfs_hash *hs, int do_rehash)
 
         return cfs_hash_rehash_worker(&hs->hs_rehash_wi);
 }
-EXPORT_SYMBOL(cfs_hash_rehash);
 
 static int
 cfs_hash_rehash_bd(struct cfs_hash *hs, struct cfs_hash_bd *old)
