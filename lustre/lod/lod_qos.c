@@ -525,6 +525,13 @@ static int lod_qos_used(struct lod_device *lod, struct ost_pool *osts,
 	RETURN(0);
 }
 
+void lod_qos_rr_init(struct lod_qos_rr *lqr)
+{
+	spin_lock_init(&lqr->lqr_alloc);
+	lqr->lqr_dirty = 1;
+}
+
+
 #define LOV_QOS_EMPTY ((__u32)-1)
 
 /**
@@ -825,6 +832,69 @@ static int lod_qos_is_ost_used(const struct lu_env *env, int ost, __u32 stripes)
 	return 0;
 }
 
+struct dt_object *lod_check_and_declare_obj(const struct lu_env *env,
+					    struct lod_device *m,
+					    struct lod_qos_rr *lqr,
+					    struct obd_statfs *sfs,
+					    __u32 ost_idx, int speed,
+					    __u32 stripe_idx,
+					    int *ret, struct thandle *th)
+{
+
+	struct dt_object   *obj = NULL;
+	int rc;
+
+	spin_unlock(&lqr->lqr_alloc);
+
+	rc = lod_statfs_and_check(env, m, ost_idx, sfs);
+	if (rc) {
+		/* this OSP doesn't feel well */
+		GOTO(out, rc = -EINVAL);
+	}
+
+	/*
+	 * skip full devices
+	 */
+	if (lod_qos_dev_is_full(sfs)) {
+		QOS_DEBUG("#%d is full\n", ost_idx);
+		GOTO(out, rc = -EIO);
+	}
+
+	/*
+	 * We expect number of precreated objects in f_ffree at
+	 * the first iteration, skip OSPs with no objects ready
+	 */
+	if (sfs->os_fprecreated == 0 && speed == 0) {
+		QOS_DEBUG("#%d: precreation is empty\n", ost_idx);
+		GOTO(out, rc = -EINVAL);
+	}
+
+	/*
+	 * try to use another OSP if this one is degraded
+	 */
+	if (sfs->os_state & OS_STATE_DEGRADED && speed < 2) {
+		QOS_DEBUG("#%d: degraded\n", ost_idx);
+		GOTO(out, rc = -EINVAL);
+	}
+
+	/*
+	 * do not put >1 objects on a single OST
+	 */
+	if (speed && lod_qos_is_ost_used(env, ost_idx, stripe_idx))
+		GOTO(out, rc = -EINVAL);
+
+	obj = lod_qos_declare_object_on(env, m, ost_idx, th);
+	if (IS_ERR(obj)) {
+		CDEBUG(D_OTHER, "can't declare new object on #%u: %d\n",
+		       ost_idx, (int) PTR_ERR(obj));
+		GOTO(out, rc = PTR_ERR(obj));
+	}
+
+out:
+	spin_lock(&lqr->lqr_alloc);
+	ret = &rc;
+	RETURN(obj);
+}
 /**
  * Allocate a striping using round-robin algorithm.
  *
@@ -858,7 +928,7 @@ static int lod_alloc_rr(const struct lu_env *env, struct lod_object *lo,
 	struct pool_desc  *pool = NULL;
 	struct ost_pool   *osts;
 	struct lod_qos_rr *lqr;
-	struct dt_object  *o;
+	struct dt_object  *obj;
 	unsigned int	   i, array_idx;
 	int		   rc;
 	__u32		   ost_start_idx_temp;
@@ -889,6 +959,8 @@ static int lod_alloc_rr(const struct lu_env *env, struct lod_object *lo,
 	if (rc)
 		GOTO(out, rc);
 
+	down_read(&m->lod_qos.lq_rw_sem);
+	spin_lock(&lqr->lqr_alloc);
 	if (--lqr->lqr_start_count <= 0) {
 		lqr->lqr_start_idx = cfs_rand() % osts->op_count;
 		lqr->lqr_start_count =
@@ -903,22 +975,19 @@ static int lod_alloc_rr(const struct lu_env *env, struct lod_object *lo,
 		if (stripe_cnt > 1 && (osts->op_count % stripe_cnt) != 1)
 			++lqr->lqr_offset_idx;
 	}
-	down_read(&m->lod_qos.lq_rw_sem);
 	ost_start_idx_temp = lqr->lqr_start_idx;
 
 repeat_find:
-	array_idx = (lqr->lqr_start_idx + lqr->lqr_offset_idx) %
-			osts->op_count;
 
 	QOS_DEBUG("pool '%s' want %d startidx %d startcnt %d offset %d "
-		  "active %d count %d arrayidx %d\n",
+		  "active %d count %d\n",
 		  lo->ldo_pool ? lo->ldo_pool : "",
 		  stripe_cnt, lqr->lqr_start_idx, lqr->lqr_start_count,
-		  lqr->lqr_offset_idx, osts->op_count, osts->op_count,
-		  array_idx);
+		  lqr->lqr_offset_idx, osts->op_count, osts->op_count);
 
-	for (i = 0; i < osts->op_count && stripe_idx < lo->ldo_stripenr;
-	     i++, array_idx = (array_idx + 1) % osts->op_count) {
+	for (i = 0; i < osts->op_count && stripe_idx < lo->ldo_stripenr; i++) {
+		array_idx = (lqr->lqr_start_idx + lqr->lqr_offset_idx) %
+				osts->op_count;
 		++lqr->lqr_start_idx;
 		ost_idx = lqr->lqr_pool.op_array[array_idx];
 
@@ -935,58 +1004,16 @@ repeat_find:
 		if (OBD_FAIL_CHECK(OBD_FAIL_MDS_OSC_PRECREATE) && ost_idx == 0)
 			continue;
 
-		rc = lod_statfs_and_check(env, m, ost_idx, sfs);
-		if (rc) {
-			/* this OSP doesn't feel well */
-			continue;
+		obj = lod_check_and_declare_obj(env, m, lqr, sfs, ost_idx,
+						speed, stripe_idx, &rc, th);
+		if (!rc) {
+			/*
+			 * We've successfully declared (reserved) an object
+			 */
+			lod_qos_ost_in_use(env, stripe_idx, ost_idx);
+			stripe[stripe_idx] = obj;
+			stripe_idx++;
 		}
-
-		/*
-		 * skip full devices
-		 */
-		if (lod_qos_dev_is_full(sfs)) {
-			QOS_DEBUG("#%d is full\n", ost_idx);
-			continue;
-		}
-
-		/*
-		 * We expect number of precreated objects in f_ffree at
-		 * the first iteration, skip OSPs with no objects ready
-		 */
-		if (sfs->os_fprecreated == 0 && speed == 0) {
-			QOS_DEBUG("#%d: precreation is empty\n", ost_idx);
-			continue;
-		}
-
-		/*
-		 * try to use another OSP if this one is degraded
-		 */
-		if (sfs->os_state & OS_STATE_DEGRADED && speed < 2) {
-			QOS_DEBUG("#%d: degraded\n", ost_idx);
-			continue;
-		}
-
-		/*
-		 * do not put >1 objects on a single OST
-		 */
-		if (speed && lod_qos_is_ost_used(env, ost_idx, stripe_idx))
-			continue;
-
-		o = lod_qos_declare_object_on(env, m, ost_idx, th);
-		if (IS_ERR(o)) {
-			CDEBUG(D_OTHER, "can't declare new object on #%u: %d\n",
-			       ost_idx, (int) PTR_ERR(o));
-			rc = PTR_ERR(o);
-			continue;
-		}
-
-		/*
-		 * We've successfully declared (reserved) an object
-		 */
-		lod_qos_ost_in_use(env, stripe_idx, ost_idx);
-		stripe[stripe_idx] = o;
-		stripe_idx++;
-
 	}
 	if ((speed < 2) && (stripe_idx < stripe_cnt_min)) {
 		/* Try again, allowing slower OSCs */
@@ -995,6 +1022,7 @@ repeat_find:
 		goto repeat_find;
 	}
 
+	spin_unlock(&lqr->lqr_alloc);
 	up_read(&m->lod_qos.lq_rw_sem);
 
 	if (stripe_idx) {
