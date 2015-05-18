@@ -415,6 +415,22 @@ int client_obd_setup(struct obd_device *obddev, struct lustre_cfg *lcfg)
 		else
 			cli->cl_max_rpcs_in_flight = OBD_MAX_RIF_DEFAULT;
         }
+
+	if (connect_op == MDS_CONNECT) {
+		spin_lock_init(&cli->cl_mod_rpcs_lock);
+		spin_lock_init(&cli->cl_mod_rpcs_hist.oh_lock);
+		cli->cl_max_mod_rpcs_in_flight = cli->cl_max_rpcs_in_flight - 1;
+		cli->cl_mod_rpcs_in_flight = 0;
+		cli->cl_close_rpcs_in_flight = 0;
+		init_waitqueue_head(&cli->cl_mod_rpcs_waitq);
+		cli->cl_mod_tag_bitmap = NULL;
+
+		OBD_ALLOC(cli->cl_mod_tag_bitmap,
+			  BITS_TO_LONGS(OBD_MAX_RIF_MAX));
+		if (cli->cl_mod_tag_bitmap == NULL)
+			GOTO(err, rc = -ENOMEM);
+	}
+
         rc = ldlm_get_ref();
         if (rc) {
                 CERROR("ldlm_get_ref failed: %d\n", rc);
@@ -471,6 +487,10 @@ err_import:
 err_ldlm:
         ldlm_put_ref();
 err:
+	if (cli->cl_mod_tag_bitmap != NULL)
+		OBD_FREE(cli->cl_mod_tag_bitmap,
+			 BITS_TO_LONGS(OBD_MAX_RIF_MAX));
+	cli->cl_mod_tag_bitmap = NULL;
         RETURN(rc);
 
 }
@@ -478,6 +498,7 @@ EXPORT_SYMBOL(client_obd_setup);
 
 int client_obd_cleanup(struct obd_device *obddev)
 {
+	struct client_obd *cli = &obddev->u.cli;
 	ENTRY;
 
 	ldlm_namespace_free_post(obddev->obd_namespace);
@@ -487,6 +508,12 @@ int client_obd_cleanup(struct obd_device *obddev)
 	LASSERT(obddev->u.cli.cl_import == NULL);
 
 	ldlm_put_ref();
+
+	if (cli->cl_mod_tag_bitmap != NULL)
+		OBD_FREE(cli->cl_mod_tag_bitmap,
+			 BITS_TO_LONGS(OBD_MAX_RIF_MAX));
+	cli->cl_mod_tag_bitmap = NULL;
+
 	RETURN(0);
 }
 EXPORT_SYMBOL(client_obd_cleanup);
