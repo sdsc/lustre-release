@@ -116,7 +116,7 @@ static int llog_osd_create_new_object(const struct lu_env *env,
  * This function writes a padding record to the end of llog. That may
  * be needed if llog contains records of variable size, e.g. config logs
  * or changelogs.
- * The padding record just aligns llog to the LLOG_CHUNK_SIZE boundary if
+ * The padding record just aligns llog to the llog chunk_size boundary if
  * the current record doesn't fit in the remaining space.
  *
  * It allocates full length to avoid two separate writes for header and tail.
@@ -189,10 +189,9 @@ static int llog_osd_read_header(const struct lu_env *env,
 	struct llog_thread_info	*lgi;
 	enum llog_flag		 flags;
 	int			 rc;
+	__u32			max_size = handle->lgh_hdr_size;
 
 	ENTRY;
-
-	LASSERT(sizeof(*handle->lgh_hdr) == LLOG_CHUNK_SIZE);
 
 	o = handle->lgh_obj;
 	LASSERT(o);
@@ -214,8 +213,7 @@ static int llog_osd_read_header(const struct lu_env *env,
 
 	lgi->lgi_off = 0;
 	lgi->lgi_buf.lb_buf = handle->lgh_hdr;
-	lgi->lgi_buf.lb_len = LLOG_CHUNK_SIZE;
-
+	lgi->lgi_buf.lb_len = max_size;
 	rc = dt_record_read(env, o, &lgi->lgi_buf, &lgi->lgi_off);
 	if (rc) {
 		CERROR("%s: error reading log header from "DFID": rc = %d\n",
@@ -235,19 +233,20 @@ static int llog_osd_read_header(const struct lu_env *env,
 		       PFID(lu_object_fid(&o->do_lu)),
 		       llh_hdr->lrh_type, LLOG_HDR_MAGIC);
 		RETURN(-EIO);
-	} else if (llh_hdr->lrh_len != LLOG_CHUNK_SIZE) {
+	} else if (llh_hdr->lrh_len < LLOG_MIN_CHUNK_SIZE ||
+		   llh_hdr->lrh_len > max_size) {
 		CERROR("%s: incorrectly sized log %s "DFID" header: "
-		       "%#x (expected %#x)\n"
+		       "%#x (expected at least %#x)\n"
 		       "you may need to re-run lconf --write_conf.\n",
 		       o->do_lu.lo_dev->ld_obd->obd_name,
 		       handle->lgh_name ? handle->lgh_name : "",
 		       PFID(lu_object_fid(&o->do_lu)),
-		       llh_hdr->lrh_len, LLOG_CHUNK_SIZE);
+		       llh_hdr->lrh_len, LLOG_MIN_CHUNK_SIZE);
 		RETURN(-EIO);
 	}
 
 	handle->lgh_hdr->llh_flags |= (flags & LLOG_F_EXT_MASK);
-	handle->lgh_last_idx = handle->lgh_hdr->llh_tail.lrt_index;
+	handle->lgh_last_idx = LLOG_HDR_TAIL(handle->lgh_hdr)->lrt_index;
 
 	RETURN(0);
 }
@@ -286,7 +285,7 @@ static int llog_osd_declare_write_rec(const struct lu_env *env,
 	LASSERT(th);
 	LASSERT(loghandle);
 	LASSERT(rec);
-	LASSERT(rec->lrh_len <= LLOG_CHUNK_SIZE);
+	LASSERT(rec->lrh_len <= loghandle->lgh_ctxt->loc_chunk_size);
 
 	o = loghandle->lgh_obj;
 	LASSERT(o);
@@ -348,7 +347,7 @@ static int llog_osd_write_rec(const struct lu_env *env,
 	struct dt_object	*o;
 	size_t			 left;
 	bool			 header_is_updated = false;
-
+	__u32			chunk_size;
 	ENTRY;
 
 	LASSERT(env);
@@ -358,11 +357,12 @@ static int llog_osd_write_rec(const struct lu_env *env,
 	LASSERT(o);
 	LASSERT(th);
 
+	chunk_size = llh->llh_hdr.lrh_len;
 	CDEBUG(D_OTHER, "new record %x to "DFID"\n",
 	       rec->lrh_type, PFID(lu_object_fid(&o->do_lu)));
 
-	/* record length should not bigger than LLOG_CHUNK_SIZE */
-	if (reclen > LLOG_CHUNK_SIZE)
+	/* record length should not bigger than  */
+	if (reclen > loghandle->lgh_hdr->llh_hdr.lrh_len)
 		RETURN(-E2BIG);
 
 	rc = dt_attr_get(env, o, &lgi->lgi_attr);
@@ -390,7 +390,7 @@ static int llog_osd_write_rec(const struct lu_env *env,
 		/* llog can be empty only when first record is being written */
 		LASSERT(ergo(idx > 0, lgi->lgi_attr.la_size > 0));
 
-		if (!ext2_test_bit(idx, llh->llh_bitmap)) {
+		if (!ext2_test_bit(idx, LLOG_HDR_BITMAP(llh))) {
 			CERROR("%s: modify unset record %u\n",
 			       o->do_lu.lo_dev->ld_obd->obd_name, idx);
 			RETURN(-ENOENT);
@@ -476,7 +476,7 @@ static int llog_osd_write_rec(const struct lu_env *env,
 	 */
 	LASSERT(lgi->lgi_attr.la_valid & LA_SIZE);
 	lgi->lgi_off = lgi->lgi_attr.la_size;
-	left = LLOG_CHUNK_SIZE - (lgi->lgi_off & (LLOG_CHUNK_SIZE - 1));
+	left = chunk_size - (lgi->lgi_off & (chunk_size - 1));
 	/* NOTE: padding is a record, but no bit is set */
 	if (left != 0 && left != reclen &&
 	    left < (reclen + LLOG_MIN_REC_SIZE)) {
@@ -487,20 +487,20 @@ static int llog_osd_write_rec(const struct lu_env *env,
 		loghandle->lgh_last_idx++; /* for pad rec */
 	}
 	/* if it's the last idx in log file, then return -ENOSPC */
-	if (loghandle->lgh_last_idx >= LLOG_BITMAP_SIZE(llh) - 1)
+	if (loghandle->lgh_last_idx >= LLOG_HDR_BITMAP_SIZE(llh) - 1)
 		RETURN(-ENOSPC);
 
 	/* increment the last_idx along with llh_tail index, they should
 	 * be equal for a llog lifetime */
 	loghandle->lgh_last_idx++;
 	index = loghandle->lgh_last_idx;
-	llh->llh_tail.lrt_index = index;
+	LLOG_HDR_TAIL(llh)->lrt_index = index;
 	/**
 	 * NB: the caller should make sure only 1 process access
 	 * the lgh_last_idx, e.g. append should be exclusive.
 	 * Otherwise it might hit the assert.
 	 */
-	LASSERT(index < LLOG_BITMAP_SIZE(llh));
+	LASSERT(index < LLOG_HDR_BITMAP_SIZE(llh));
 	rec->lrh_index = index;
 	lrt = rec_tail(rec);
 	lrt->lrt_len = rec->lrh_len;
@@ -509,7 +509,7 @@ static int llog_osd_write_rec(const struct lu_env *env,
 	/* the lgh_hdr_lock protects llog header data from concurrent
 	 * update/cancel, the llh_count and llh_bitmap are protected */
 	spin_lock(&loghandle->lgh_hdr_lock);
-	if (ext2_set_bit(index, llh->llh_bitmap)) {
+	if (ext2_set_bit(index, LLOG_HDR_BITMAP(llh))) {
 		CERROR("%s: index %u already set in log bitmap\n",
 		       o->do_lu.lo_dev->ld_obd->obd_name, index);
 		spin_unlock(&loghandle->lgh_hdr_lock);
@@ -556,13 +556,13 @@ static int llog_osd_write_rec(const struct lu_env *env,
 out:
 	/* cleanup llog for error case */
 	spin_lock(&loghandle->lgh_hdr_lock);
-	ext2_clear_bit(index, llh->llh_bitmap);
+	ext2_clear_bit(index, LLOG_HDR_BITMAP(llh));
 	llh->llh_count--;
 	spin_unlock(&loghandle->lgh_hdr_lock);
 
 	/* restore llog last_idx */
 	loghandle->lgh_last_idx--;
-	llh->llh_tail.lrt_index = loghandle->lgh_last_idx;
+	LLOG_HDR_TAIL(llh)->lrt_index = loghandle->lgh_last_idx;
 
 	/* restore the header on disk if it was written */
 	if (header_is_updated) {
@@ -582,12 +582,13 @@ out:
  * actual records are larger than minimum size) we just skip
  * some more records.
  */
-static inline void llog_skip_over(__u64 *off, int curr, int goal)
+static inline void llog_skip_over(__u64 *off, int curr, int goal,
+				  __u32 chunk_size)
 {
 	if (goal <= curr)
 		return;
 	*off = (*off + (goal - curr - 1) * LLOG_MIN_REC_SIZE) &
-		~(LLOG_CHUNK_SIZE - 1);
+		~(chunk_size - 1);
 }
 
 /**
@@ -629,7 +630,7 @@ static void changelog_block_trim_ext(struct llog_rec_hdr *hdr,
  * \param[in,out] cur_offset	furtherst point read in the file
  * \param[in]     buf		pointer to data buffer to fill
  * \param[in]     len		required len to read, it is
- *				LLOG_CHUNK_SIZE usually.
+ *				usually llog chunk_size.
  *
  * \retval			0 on successful buffer read
  * \retval			negative value on error
@@ -643,13 +644,14 @@ static int llog_osd_next_block(const struct lu_env *env,
 	struct dt_object	*o;
 	struct dt_device	*dt;
 	int			 rc;
+	__u32			chunk_size = loghandle->lgh_hdr->llh_hdr.lrh_len;
 
 	ENTRY;
 
 	LASSERT(env);
 	LASSERT(lgi);
 
-	if (len == 0 || len & (LLOG_CHUNK_SIZE - 1))
+	if (len == 0 || len & (chunk_size - 1))
 		RETURN(-EINVAL);
 
 	CDEBUG(D_OTHER, "looking for log index %u (cur idx %u off "LPU64")\n",
@@ -672,11 +674,11 @@ static int llog_osd_next_block(const struct lu_env *env,
 		struct llog_rec_hdr	*rec, *last_rec;
 		struct llog_rec_tail	*tail;
 
-		llog_skip_over(cur_offset, *cur_idx, next_idx);
+		llog_skip_over(cur_offset, *cur_idx, next_idx, chunk_size);
 
-		/* read up to next LLOG_CHUNK_SIZE block */
-		lgi->lgi_buf.lb_len = LLOG_CHUNK_SIZE -
-				      (*cur_offset & (LLOG_CHUNK_SIZE - 1));
+		/* read up to next llog chunk_size block */
+		lgi->lgi_buf.lb_len = chunk_size -
+				      (*cur_offset & (chunk_size - 1));
 		lgi->lgi_buf.lb_buf = buf;
 
 		rc = dt_read(env, o, &lgi->lgi_buf, cur_offset);
@@ -768,7 +770,7 @@ out:
  * \param[in] loghandle	llog handle of the current llog
  * \param[in] prev_idx	target index to find
  * \param[in] buf	pointer to data buffer to fill
- * \param[in] len	required len to read, it is LLOG_CHUNK_SIZE usually.
+ * \param[in] len	required len to read, it is llog_chunk_size usually.
  *
  * \retval		0 on successful buffer read
  * \retval		negative value on error
@@ -781,11 +783,12 @@ static int llog_osd_prev_block(const struct lu_env *env,
 	struct dt_object	*o;
 	struct dt_device	*dt;
 	loff_t			 cur_offset;
+	__u32			chunk_size = loghandle->lgh_hdr->llh_hdr.lrh_len;
 	int			 rc;
 
 	ENTRY;
 
-	if (len == 0 || len & (LLOG_CHUNK_SIZE - 1))
+	if (len == 0 || len & (chunk_size - 1))
 		RETURN(-EINVAL);
 
 	CDEBUG(D_OTHER, "looking for log index %u\n", prev_idx);
@@ -799,8 +802,8 @@ static int llog_osd_prev_block(const struct lu_env *env,
 	dt = lu2dt_dev(o->do_lu.lo_dev);
 	LASSERT(dt);
 
-	cur_offset = LLOG_CHUNK_SIZE;
-	llog_skip_over(&cur_offset, 0, prev_idx);
+	cur_offset = chunk_size;
+	llog_skip_over(&cur_offset, 0, prev_idx, chunk_size);
 
 	rc = dt_attr_get(env, o, &lgi->lgi_attr);
 	if (rc)

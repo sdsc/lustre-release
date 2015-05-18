@@ -294,6 +294,7 @@ static int mdd_changelog_llog_init(const struct lu_env *env,
 	ctxt = llog_get_context(obd, LLOG_CHANGELOG_ORIG_CTXT);
 	LASSERT(ctxt);
 
+	ctxt->loc_chunk_size = LLOG_MIN_CHUNK_SIZE * 4;
 	rc = llog_open_create(env, ctxt, &ctxt->loc_handle, NULL,
 			      CHANGELOG_CATALOG);
 	if (rc)
