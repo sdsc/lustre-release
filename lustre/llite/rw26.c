@@ -339,6 +339,24 @@ ssize_t ll_direct_rw_pages(const struct lu_env *env, struct cl_io *io,
 }
 EXPORT_SYMBOL(ll_direct_rw_pages);
 
+#if defined(HAVE_DIRECTIO_ITER) || defined(HAVE_IOV_ITER_RW)
+static ssize_t
+ll_direct_IO_317_seg(const struct lu_env *env, struct cl_io *io,
+		     int rw, struct inode *inode,
+		     struct address_space *mapping,
+		     size_t size, loff_t file_offset,
+		     struct page **pages, int page_count)
+{
+	struct ll_dio_pages pvec = { .ldp_pages	= pages,
+				     .ldp_nr	= page_count,
+				     .ldp_size	= size,
+				     .ldp_offsets = NULL,
+				     .ldp_start_offset = file_offset
+				   };
+
+	return ll_direct_rw_pages(env, io, rw, inode, &pvec);
+}
+#else
 static ssize_t ll_direct_IO_26_seg(const struct lu_env *env, struct cl_io *io,
                                    int rw, struct inode *inode,
                                    struct address_space *mapping,
@@ -354,6 +372,7 @@ static ssize_t ll_direct_IO_26_seg(const struct lu_env *env, struct cl_io *io,
 
     return ll_direct_rw_pages(env, io, rw, inode, &pvec);
 }
+#endif
 
 #ifdef KMALLOC_MAX_SIZE
 #define MAX_MALLOC KMALLOC_MAX_SIZE
@@ -368,27 +387,154 @@ static ssize_t ll_direct_IO_26_seg(const struct lu_env *env, struct cl_io *io,
  * up to 22MB for 128kB kmalloc and up to 682MB for 4MB kmalloc. */
 #define MAX_DIO_SIZE ((MAX_MALLOC / sizeof(struct brw_page) * PAGE_CACHE_SIZE) & \
 		      ~(DT_MAX_BRW_SIZE - 1))
+
+#if defined(HAVE_DIRECTIO_ITER) || defined(HAVE_IOV_ITER_RW)
+static ssize_t
+ll_direct_IO_317(
+#ifndef HAVE_IOV_ITER_RW
+		 int rw,
+#endif
+		 struct kiocb *iocb, struct iov_iter *iter,
+		 loff_t file_offset)
+{
+	struct lu_env *env;
+	struct cl_io *io;
+	struct file *file = iocb->ki_filp;
+	struct inode *inode = file->f_mapping->host;
+	ssize_t count = iov_iter_count(iter);
+	ssize_t tot_bytes = 0, result = 0;
+	size_t size = MAX_DIO_SIZE;
+	int refcheck;
+
+	/* FIXME: io smaller than PAGE_SIZE is broken on ia64 ??? */
+	if ((file_offset & ~PAGE_MASK) || (count & ~PAGE_MASK))
+		return -EINVAL;
+
+	CDEBUG(D_VFSTRACE, "VFS Op:inode="DFID"(%p), size=%zd (max %lu), "
+	       "offset=%lld=%llx, pages %zd (max %lu)\n",
+	       PFID(ll_inode2fid(inode)), inode, count, MAX_DIO_SIZE,
+	       file_offset, file_offset, count >> PAGE_CACHE_SHIFT,
+	       MAX_DIO_SIZE >> PAGE_CACHE_SHIFT);
+
+	/* Check that all user buffers are aligned as well */
+	if (iov_iter_alignment(iter) & ~PAGE_MASK)
+		return -EINVAL;
+
+	env = cl_env_get(&refcheck);
+	LASSERT(!IS_ERR(env));
+	io = vvp_env_io(env)->vui_cl.cis_io;
+	LASSERT(io != NULL);
+
+	/* 0. Need locking between buffered and direct access. and race with
+	 *    size changing by concurrent truncates and writes.
+	 * 1. Need inode mutex to operate transient pages.
+	 */
+#ifdef HAVE_IOV_ITER_RW
+	if (iov_iter_rw(iter) == READ)
+#else
+	if (rw == READ)
+#endif
+		mutex_lock(&inode->i_mutex);
+
+	while (iov_iter_count(iter)) {
+		struct page **pages;
+		size_t offs;
+
+		count = min_t(size_t, iov_iter_count(iter), size);
+#ifdef HAVE_IOV_ITER_RW
+		if (iov_iter_rw(iter) == READ) {
+#else
+		if (rw == READ) {
+#endif
+			if (file_offset >= i_size_read(inode))
+				break;
+			if (file_offset + count > i_size_read(inode))
+				count = i_size_read(inode) - file_offset;
+		}
+
+		result = iov_iter_get_pages_alloc(iter, &pages, count, &offs);
+		if (likely(result > 0)) {
+			int n = DIV_ROUND_UP(result + offs, PAGE_SIZE);
+
+			result = ll_direct_IO_317_seg(env, io,
+#ifdef HAVE_IOV_ITER_RW
+						      iov_iter_rw(iter),
+#else
+						      rw,
+#endif
+						      inode, file->f_mapping,
+						      result, file_offset,
+						      pages, n);
+			ll_free_user_pages(pages, n,
+#ifdef HAVE_IOV_ITER_RW
+					   iov_iter_rw(iter) == READ
+#else
+					   rw == READ
+#endif
+					   );
+		}
+		if (unlikely(result <= 0)) {
+			/* If we can't allocate a large enough buffer
+			 * for the request, shrink it to a smaller
+			 * PAGE_SIZE multiple and try again.
+			 * We should always be able to kmalloc for a
+			 * page worth of page pointers = 4MB on i386. */
+			if (result == -ENOMEM &&
+			    size > (PAGE_CACHE_SIZE / sizeof(*pages)) *
+				    PAGE_CACHE_SIZE) {
+				size = ((((size / 2) - 1) |
+					~PAGE_MASK) + 1) & PAGE_MASK;
+				CDEBUG(D_VFSTRACE, "DIO size now %zu\n",
+				       size);
+				continue;
+			}
+
+			GOTO(out, result);
+		}
+		iov_iter_advance(iter, result);
+		tot_bytes += result;
+		file_offset += result;
+	}
+out:
+#ifdef HAVE_IOV_ITER_RW
+	if (iov_iter_rw(iter) == READ)
+#else
+	if (rw == READ)
+#endif
+		mutex_unlock(&inode->i_mutex);
+
+	if (tot_bytes > 0) {
+		struct vvp_io *vio = vvp_env_io(env);
+
+		/* no commit async for direct IO */
+		vio->u.write.vui_written += tot_bytes;
+	}
+
+	cl_env_put(env, &refcheck);
+	return tot_bytes ? : result;
+}
+#else
 static ssize_t ll_direct_IO_26(int rw, struct kiocb *iocb,
                                const struct iovec *iov, loff_t file_offset,
                                unsigned long nr_segs)
 {
-        struct lu_env *env;
-        struct cl_io *io;
-        struct file *file = iocb->ki_filp;
-        struct inode *inode = file->f_mapping->host;
-        long count = iov_length(iov, nr_segs);
-        long tot_bytes = 0, result = 0;
-        unsigned long seg = 0;
-        long size = MAX_DIO_SIZE;
-        int refcheck;
-        ENTRY;
+	struct lu_env *env;
+	struct cl_io *io;
+	struct file *file = iocb->ki_filp;
+	struct inode *inode = file->f_mapping->host;
+	ssize_t count = iov_length(iov, nr_segs);
+	ssize_t tot_bytes = 0, result = 0;
+	unsigned long seg = 0;
+	size_t size = MAX_DIO_SIZE;
+	int refcheck;
+	ENTRY;
 
         /* FIXME: io smaller than PAGE_SIZE is broken on ia64 ??? */
 	if ((file_offset & ~PAGE_MASK) || (count & ~PAGE_MASK))
                 RETURN(-EINVAL);
 
-	CDEBUG(D_VFSTRACE, "VFS Op:inode="DFID"(%p), size=%lu (max %lu), "
-	       "offset=%lld=%llx, pages %lu (max %lu)\n",
+	CDEBUG(D_VFSTRACE, "VFS Op:inode="DFID"(%p), size=%zd (max %lu), "
+	       "offset=%lld=%llx, pages %zd (max %lu)\n",
 	       PFID(ll_inode2fid(inode)), inode, count, MAX_DIO_SIZE,
 	       file_offset, file_offset, count >> PAGE_CACHE_SHIFT,
 	       MAX_DIO_SIZE >> PAGE_CACHE_SHIFT);
@@ -406,7 +552,7 @@ static ssize_t ll_direct_IO_26(int rw, struct kiocb *iocb,
         LASSERT(io != NULL);
 
         for (seg = 0; seg < nr_segs; seg++) {
-                long iov_left = iov[seg].iov_len;
+		size_t iov_left = iov[seg].iov_len;
                 unsigned long user_addr = (unsigned long)iov[seg].iov_base;
 
                 if (rw == READ) {
@@ -419,7 +565,7 @@ static ssize_t ll_direct_IO_26(int rw, struct kiocb *iocb,
                 while (iov_left > 0) {
                         struct page **pages;
                         int page_count, max_pages = 0;
-                        long bytes;
+			size_t bytes;
 
                         bytes = min(size, iov_left);
                         page_count = ll_get_user_pages(rw, user_addr, bytes,
@@ -449,7 +595,7 @@ static ssize_t ll_direct_IO_26(int rw, struct kiocb *iocb,
                                         size = ((((size / 2) - 1) |
 						 ~PAGE_CACHE_MASK) + 1) &
 						PAGE_CACHE_MASK;
-                                        CDEBUG(D_VFSTRACE,"DIO size now %lu\n",
+					CDEBUG(D_VFSTRACE, "DIO size now %zu\n",
                                                size);
                                         continue;
                                 }
@@ -474,6 +620,7 @@ out:
 	cl_env_put(env, &refcheck);
 	RETURN(tot_bytes ? tot_bytes : result);
 }
+#endif /* HAVE_DIRECTIO_ITER || HAVE_IOV_ITER_RW */
 
 /**
  * Prepare partially written-to page for a write.
@@ -688,22 +835,30 @@ static int ll_migratepage(struct address_space *mapping,
 #ifndef MS_HAS_NEW_AOPS
 const struct address_space_operations ll_aops = {
 	.readpage	= ll_readpage,
-        .direct_IO      = ll_direct_IO_26,
-        .writepage      = ll_writepage,
-	.writepages     = ll_writepages,
-        .set_page_dirty = __set_page_dirty_nobuffers,
-        .write_begin    = ll_write_begin,
-        .write_end      = ll_write_end,
-        .invalidatepage = ll_invalidatepage,
-        .releasepage    = (void *)ll_releasepage,
+#if defined(HAVE_DIRECTIO_ITER) || defined(HAVE_IOV_ITER_RW)
+	.direct_IO	= ll_direct_IO_317,
+#else
+	.direct_IO	= ll_direct_IO_26,
+#endif
+	.writepage	= ll_writepage,
+	.writepages	= ll_writepages,
+	.set_page_dirty	= __set_page_dirty_nobuffers,
+	.write_begin	= ll_write_begin,
+	.write_end	= ll_write_end,
+	.invalidatepage	= ll_invalidatepage,
+	.releasepage	= (void *)ll_releasepage,
 #ifdef CONFIG_MIGRATION
-        .migratepage    = ll_migratepage,
+	.migratepage	= ll_migratepage,
 #endif
 };
 #else
 const struct address_space_operations_ext ll_aops = {
 	.orig_aops.readpage		= ll_readpage,
+#if defined(HAVE_DIRECTIO_ITER) || defined(HAVE_IOV_ITER_RW)
+	.orig_aops.direct_IO		= ll_direct_IO_317,
+#else
 	.orig_aops.direct_IO		= ll_direct_IO_26,
+#endif
 	.orig_aops.writepage		= ll_writepage,
 	.orig_aops.writepages		= ll_writepages,
 	.orig_aops.set_page_dirty	= __set_page_dirty_nobuffers,
