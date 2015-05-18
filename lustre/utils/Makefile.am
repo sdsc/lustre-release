@@ -40,24 +40,23 @@ sbin_PROGRAMS += lhsmtool_posix
 endif
 
 pkglib_LTLIBRARIES =
-lib_LIBRARIES = liblustreapi.a
+lib_LTLIBRARIES = liblustreapi.la
 if LDISKFS_ENABLED
-lib_LIBRARIES += libiam.a
+lib_LIBRARIES = libiam.a
 endif
-noinst_LIBRARIES = liblustreapitmp.a
 endif # UTILS
 
 lctl_SOURCES = lustre_lfsck.c obd.c lustre_cfg.c lctl.c obdctl.h
-lctl_LDADD :=  liblustreapi.a $(LIBPTLCTL) $(LIBREADLINE) $(PTHREAD_LIBS)
-lctl_DEPENDENCIES := $(LIBPTLCTL) liblustreapi.a
+lctl_LDADD :=  liblustreapi.la $(LIBPTLCTL) $(LIBREADLINE) $(PTHREAD_LIBS)
+lctl_DEPENDENCIES := $(LIBPTLCTL) liblustreapi.la
 
 lfs_SOURCES = lfs.c
-lfs_LDADD := liblustreapi.a $(LIBPTLCTL) $(LIBREADLINE)
-lfs_DEPENDENCIES := $(LIBPTLCTL) liblustreapi.a
+lfs_LDADD := liblustreapi.la $(LIBPTLCTL) $(LIBREADLINE)
+lfs_DEPENDENCIES := $(LIBPTLCTL) liblustreapi.la
 
 lustre_rsync_SOURCES = lustre_rsync.c obd.c lustre_cfg.c lustre_rsync.h
-lustre_rsync_LDADD :=  liblustreapi.a $(LIBPTLCTL) $(LIBREADLINE) $(PTHREAD_LIBS)
-lustre_rsync_DEPENDENCIES := $(LIBPTLCTL) liblustreapi.a
+lustre_rsync_LDADD :=  liblustreapi.la $(LIBPTLCTL) $(LIBREADLINE) $(PTHREAD_LIBS)
+lustre_rsync_DEPENDENCIES := $(LIBPTLCTL) liblustreapi.la
 
 ll_recover_lost_found_objs_SOURCES = ll_recover_lost_found_objs.c
 ll_recover_lost_found_objs_LDADD := $(LIBPTLCTL)
@@ -81,30 +80,14 @@ llverfs_LDADD := $(EXT2FSLIB) $(E2PLIB)
 
 llverdev_LDADD := $(EXT2FSLIB) $(BLKIDLIB)
 
-L_STRING := $(top_builddir)/libcfs/libcfs/util/string.c
-liblustreapitmp_a_SOURCES = liblustreapi.c liblustreapi_hsm.c \
-			    liblustreapi_nodemap.c lustreapi_internal.h \
-			    liblustreapi_json.c liblustreapi_layout.c \
-			    liblustreapi_lease.c liblustreapi_util.c \
-			    liblustreapi_kernelconn.c $(L_STRING)
-
 if UTILS
-# build static and shared lib lustreapi
-liblustreapi.a : liblustreapitmp.a
-	rm -f liblustreapi.a liblustreapi.so
-	$(CC) $(LDFLAGS) -shared -o liblustreapi.so `$(AR) -t liblustreapitmp.a`
-	mv liblustreapitmp.a liblustreapi.a
-
-install-exec-hook: liblustreapi.so
-	@$(NORMAL_INSTALL)
-	$(mkinstalldirs) $(DESTDIR)$(libdir)
-	@list=$< ; for p in $$list; do \
-	  if test -f $$p; then \
-	    f="`echo $$p | sed -e 's|^.*/||'`"; \
-	    echo " $(INSTALL_DATA) $$p $(DESTDIR)$(libdir)/$$f"; \
-	    $(INSTALL_DATA) $$p $(DESTDIR)$(libdir)/$$f; \
-	  else :; fi; \
-	done
+L_STRING := $(top_builddir)/libcfs/libcfs/util/string.c
+liblustreapi_la_SOURCES = liblustreapi.c liblustreapi_hsm.c \
+			  liblustreapi_nodemap.c lustreapi_internal.h \
+			  liblustreapi_json.c liblustreapi_layout.c \
+			  liblustreapi_lease.c liblustreapi_util.c \
+			  liblustreapi_kernelconn.c $(L_STRING)
+liblustreapi_la_LDFLAGS = -version-info 1:0:0
 endif # UTILS
 
 if LDISKFS_ENABLED
@@ -114,8 +97,8 @@ endif
 req_layout_SOURCES = req-layout.c
 
 llog_reader_SOURCES = llog_reader.c
-llog_reader_LDADD := $(LIBPTLCTL) liblustreapi.a
-llog_reader_DEPENDENCIES := $(LIBPTLCTL) liblustreapi.a
+llog_reader_LDADD := $(LIBPTLCTL) liblustreapi.la
+llog_reader_DEPENDENCIES := $(LIBPTLCTL) liblustreapi.la
 
 lr_reader_SOURCES = lr_reader.c
 
@@ -163,8 +146,8 @@ l_getidentity_DEPENDENCIES := $(LIBPTLCTL)
 ltrack_stats_SOURCES = ltrack_stats.c
 
 lhsmtool_posix_SOURCES = lhsmtool_posix.c
-lhsmtool_posix_LDADD := liblustreapi.a $(LIBPTLCTL) $(PTHREAD_LIBS)
-lhsmtool_posix_DEPENDENCIES := liblustreapi.a $(LIBPTLCTL)
+lhsmtool_posix_LDADD := liblustreapi.la $(LIBPTLCTL) $(PTHREAD_LIBS)
+lhsmtool_posix_DEPENDENCIES := liblustreapi.la $(LIBPTLCTL)
 
 wirecheck_SOURCES = wirecheck.c
 wirecheck_CPPFLAGS := -DCC="\"$(CC)\""
