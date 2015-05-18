@@ -10201,7 +10201,7 @@ test_160a() {
 		error "User $USER not found in changelog_users"
 
 	# change something
-	test_mkdir -p $DIR/$tdir/pics/2008/zachy
+	mkdir -p $DIR/$tdir/pics/2008/zachy
 	touch $DIR/$tdir/pics/2008/zachy/timestamp
 	cp /etc/hosts $DIR/$tdir/pics/2008/zachy/pic1.jpg
 	mv $DIR/$tdir/pics/2008/zachy $DIR/$tdir/pics/zach
@@ -10221,7 +10221,7 @@ test_160a() {
 	changelog_chmask "MKDIR"
 	changelog_chmask "CLOSE"
 
-	test_mkdir -p $DIR/$tdir/pics/2008/sofia
+	mkdir -p $DIR/$tdir/pics/2008/sofia
 	echo "zzzzzz" > $DIR/$tdir/pics/zach/file
 
 	$LFS changelog $MDT0
