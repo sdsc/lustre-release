@@ -525,6 +525,13 @@ static int lod_qos_used(struct lod_device *lod, struct ost_pool *osts,
 	RETURN(0);
 }
 
+void lod_qos_rr_init(struct lod_qos_rr *lqr)
+{
+	spin_lock_init(&lqr->lqr_alloc);
+	lqr->lqr_dirty = 1;
+}
+
+
 #define LOV_QOS_EMPTY ((__u32)-1)
 
 /**
@@ -889,6 +896,8 @@ static int lod_alloc_rr(const struct lu_env *env, struct lod_object *lo,
 	if (rc)
 		GOTO(out, rc);
 
+	down_read(&m->lod_qos.lq_rw_sem);
+	spin_lock(&lqr->lqr_alloc);
 	if (--lqr->lqr_start_count <= 0) {
 		lqr->lqr_start_idx = cfs_rand() % osts->op_count;
 		lqr->lqr_start_count =
@@ -903,22 +912,19 @@ static int lod_alloc_rr(const struct lu_env *env, struct lod_object *lo,
 		if (stripe_cnt > 1 && (osts->op_count % stripe_cnt) != 1)
 			++lqr->lqr_offset_idx;
 	}
-	down_read(&m->lod_qos.lq_rw_sem);
 	ost_start_idx_temp = lqr->lqr_start_idx;
 
 repeat_find:
-	array_idx = (lqr->lqr_start_idx + lqr->lqr_offset_idx) %
-			osts->op_count;
 
 	QOS_DEBUG("pool '%s' want %d startidx %d startcnt %d offset %d "
-		  "active %d count %d arrayidx %d\n",
+		  "active %d count %d\n",
 		  lo->ldo_pool ? lo->ldo_pool : "",
 		  stripe_cnt, lqr->lqr_start_idx, lqr->lqr_start_count,
-		  lqr->lqr_offset_idx, osts->op_count, osts->op_count,
-		  array_idx);
+		  lqr->lqr_offset_idx, osts->op_count, osts->op_count);
 
-	for (i = 0; i < osts->op_count && stripe_idx < lo->ldo_stripenr;
-	     i++, array_idx = (array_idx + 1) % osts->op_count) {
+	for (i = 0; i < osts->op_count && stripe_idx < lo->ldo_stripenr; i++) {
+		array_idx = (lqr->lqr_start_idx + lqr->lqr_offset_idx) %
+				osts->op_count;
 		++lqr->lqr_start_idx;
 		ost_idx = lqr->lqr_pool.op_array[array_idx];
 
@@ -935,10 +941,12 @@ repeat_find:
 		if (OBD_FAIL_CHECK(OBD_FAIL_MDS_OSC_PRECREATE) && ost_idx == 0)
 			continue;
 
+		spin_unlock(&lqr->lqr_alloc);
+
 		rc = lod_statfs_and_check(env, m, ost_idx, sfs);
 		if (rc) {
 			/* this OSP doesn't feel well */
-			continue;
+			goto lock_lgr;
 		}
 
 		/*
@@ -946,7 +954,7 @@ repeat_find:
 		 */
 		if (lod_qos_dev_is_full(sfs)) {
 			QOS_DEBUG("#%d is full\n", ost_idx);
-			continue;
+			goto lock_lgr;
 		}
 
 		/*
@@ -955,7 +963,7 @@ repeat_find:
 		 */
 		if (sfs->os_fprecreated == 0 && speed == 0) {
 			QOS_DEBUG("#%d: precreation is empty\n", ost_idx);
-			continue;
+			goto lock_lgr;
 		}
 
 		/*
@@ -963,21 +971,21 @@ repeat_find:
 		 */
 		if (sfs->os_state & OS_STATE_DEGRADED && speed < 2) {
 			QOS_DEBUG("#%d: degraded\n", ost_idx);
-			continue;
+			goto lock_lgr;
 		}
 
 		/*
 		 * do not put >1 objects on a single OST
 		 */
 		if (speed && lod_qos_is_ost_used(env, ost_idx, stripe_idx))
-			continue;
+			goto lock_lgr;
 
 		o = lod_qos_declare_object_on(env, m, ost_idx, th);
 		if (IS_ERR(o)) {
 			CDEBUG(D_OTHER, "can't declare new object on #%u: %d\n",
 			       ost_idx, (int) PTR_ERR(o));
 			rc = PTR_ERR(o);
-			continue;
+			goto lock_lgr;
 		}
 
 		/*
@@ -987,6 +995,8 @@ repeat_find:
 		stripe[stripe_idx] = o;
 		stripe_idx++;
 
+lock_lgr:
+		spin_lock(&lqr->lqr_alloc);
 	}
 	if ((speed < 2) && (stripe_idx < stripe_cnt_min)) {
 		/* Try again, allowing slower OSCs */
@@ -995,6 +1005,7 @@ repeat_find:
 		goto repeat_find;
 	}
 
+	spin_unlock(&lqr->lqr_alloc);
 	up_read(&m->lod_qos.lq_rw_sem);
 
 	if (stripe_idx) {
