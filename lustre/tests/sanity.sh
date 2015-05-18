@@ -10585,7 +10585,10 @@ test_162() {
 	# fid2path dir/fsname should both work
 	check_path "$tdir/d2/a/b/c/new_file" $FSNAME $FID --link 1 ||
 		error "check path $tdir/d2/a/b/c/new_file failed"
-	check_path "$DIR/$tdir/d2/p/q/r/hlink" $DIR $FID --link 0 ||
+	# Line below needed to replace sequences of repeated slashes
+	# with a single slash and to remove a trailing slash.
+	local dir=$(echo $DIR | sed s#//*#/#g | sed s#/\$#''#g)
+	check_path "$DIR/$tdir/d2/p/q/r/hlink" $dir $FID --link 0 ||
 		error "check path $DIR/$tdir/d2/p/q/r/hlink failed"
 
 	# hardlink count: check that there are 2 links
@@ -12097,7 +12100,7 @@ mcreate_path2fid () {
 	local minor=$3
 	local name=$4
 	local desc=$5
-	local path=$DIR/$tdir/$name
+	local path=$(echo $DIR/$tdir/$name | sed s#//*#/#g)
 	local fid
 	local rc
 	local fid_path
