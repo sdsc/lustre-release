@@ -1540,6 +1540,11 @@ t32_verify_quota() {
 	local qval
 	local cmd
 
+	[ $(version_code $img_commit) -ge $(version_code 2.4.2) ] || {
+		echo "skip quota migration test for $img_commit"
+		return 0
+	}
+
 	$LFS quota -u $T32_QID -v $mnt
 
 	qval=$($LFS quota -v -u $T32_QID $mnt |
