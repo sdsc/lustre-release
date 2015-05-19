@@ -127,6 +127,11 @@ extern int llapi_get_poollist(const char *name, char **poollist, int list_size,
                               char *buffer, int buffer_size);
 extern int llapi_get_poolmembers(const char *poolname, char **members,
                                  int list_size, char *buffer, int buffer_size);
+extern int llapi_get_param(char ***list, const char *param, ...)
+			   __attribute__((__format__(__printf__, 2, 3)));
+extern int llapi_set_param(const void *val, size_t val_size,
+			   const char *param, ...)
+			   __attribute__((__format__(__printf__, 3, 4)));
 extern int llapi_file_get_stripe(const char *path, struct lov_user_md *lum);
 #define HAVE_LLAPI_FILE_LOOKUP
 extern int llapi_file_lookup(int dirfd, const char *name);
@@ -296,7 +301,8 @@ extern int llapi_path2parent(const char *path, unsigned int linkno,
 extern int llapi_fd2parent(int fd, unsigned int linkno,
 			   lustre_fid *parent_fid, char *name,
 			   size_t name_size);
-extern int llapi_chomp_string(char *buf);
+extern char *llapi_chomp_string(char *buf);
+extern char *llapi_trim_string(char *buf);
 extern int llapi_open_by_fid(const char *dir, const lustre_fid *fid,
 			     int open_flags);
 
@@ -313,7 +319,7 @@ extern int llapi_hsm_unregister_event_fifo(const char *path);
 extern void llapi_hsm_log_error(enum llapi_message_level level, int _rc,
 				const char *fmt, va_list args);
 
-extern int llapi_get_agent_uuid(char *path, char *buf, size_t bufsize);
+extern int llapi_get_agent_uuid(const char *path, char *buf, size_t buf_size);
 extern int llapi_create_volatile_idx(char *directory, int idx, int mode);
 static inline int llapi_create_volatile(char *directory, int mode)
 {
