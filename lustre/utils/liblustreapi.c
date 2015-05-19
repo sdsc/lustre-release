@@ -286,174 +286,115 @@ int llapi_stripe_limit_check(unsigned long long stripe_size, int stripe_offset,
 	return 0;
 }
 
-static int find_target_obdpath(char *fsname, char *path)
-{
-        char pattern[PATH_MAX + 1];
-        int rc;
-
-	rc = cfs_get_procpath(pattern, sizeof(pattern),
-				"lustre/lov/%s-*/target_obd",
-                 fsname);
-	if (rc == -ENODEV)
-		return rc;
-
-	if (rc != 0)
-                return -EINVAL;
-
-	strcpy(path, pattern);
-        return 0;
-}
-
-static int find_poolpath(char *fsname, char *poolname, char *poolpath)
-{
-        char pattern[PATH_MAX + 1];
-        int rc;
-
-	rc = cfs_get_procpath(pattern, sizeof(pattern),
-				"lustre/lov/%s-*/pools/%s",
-                 fsname, poolname);
-        /* If no pools, make sure the lov is available */
-	if ((rc == -ENODEV) &&
-            (find_target_obdpath(fsname, poolpath) == -ENODEV))
-                return -ENODEV;
-	if (rc != 0)
-                return -EINVAL;
-
-	strcpy(poolpath, pattern);
-        return 0;
-}
-
 /*
  * Trim a trailing newline from a string, if it exists.
  */
-int llapi_chomp_string(char *buf)
+char *llapi_chomp_string(char *buf)
 {
-	if (!buf || !*buf)
-		return 0;
+	int i;
 
-	while (buf[1])
-		buf++;
+	if (buf == NULL || *buf == '\0')
+		return buf;
 
-	if (*buf != '\n')
-		return 0;
+	for (i = strlen(buf) - 1;
+	     i >= 0 && (buf[i] == '\r' || buf[i] == '\n');
+	     i--)
+		buf[i] = '\0';
 
-	*buf = '\0';
-	return '\n';
+	return buf;
+}
+
+/*
+ * returns a string, with leading and trailing whitespace omitted.
+ */
+char *llapi_trim_string(char *buf)
+{
+	char *p;
+	int i;
+
+	if (buf == NULL || *buf == '\0')
+		return buf;
+
+	for (p = buf; *p != '\0' && strchr(" \t\r\n", *p) != NULL; p++)
+		/* empty */;
+	if (*p == '\0')
+		return p;
+
+	for (i = strlen(p) - 1;
+	     i >= 0 && strchr(" \t\r\n", p[i]) != NULL;
+	     i--)
+		p[i] = '\0';
+
+	return p;
 }
 
 /**
-  * return a parameter string for a specific device type or mountpoint
-  *
-  * \param param_path the path to the file containing parameter data
-  * \param result buffer for parameter value string
-  * \param result_size size of buffer for return value
-  *
-  * The \param param_path is appended to /{proc,sys}/{fs,sys}/{lnet,lustre} to
-  * complete the absolute path to the file containing the parameter data
-  * the user is requesting. If that file exist then the data is read from
-  * the file and placed into the \param result buffer that is passed by
-  * the user. Data is only copied up to the \param result_size to prevent
-  * overflow of the array.
-  *
-  * Return 0 for success, with a NUL-terminated string in \param result.
-  * Return -ve value for error.
-  */
-int get_param(const char *param_path, char *result,
-                     unsigned int result_size)
-{
-	char file[PATH_MAX + 1], buf[result_size];
-        FILE *fp = NULL;
-        int rc = 0;
-
-	rc = cfs_get_procpath(file, sizeof(file), "{lnet,lustre}/%s",
-			      param_path);
-	if (rc != 0)
-		return -ENOENT;
-
-        fp = fopen(file, "r");
-        if (fp != NULL) {
-                while (fgets(buf, result_size, fp) != NULL)
-                        strcpy(result, buf);
-                fclose(fp);
-        } else {
-                rc = -errno;
-        }
-        return rc;
-}
-
-/**
-  * return a parameter string for a specific device type or mountpoint
-  *
-  * \param fsname Lustre filesystem name (optional)
-  * \param file_path path to file in filesystem (optional, if fsname unset)
-  * \param obd_type Lustre OBD device type
-  * \param param_name parameter name to fetch
-  * \param value return buffer for parameter value string
-  * \param val_len size of buffer for return value
-  *
-  * If fsname is specified then the parameter will be from that filesystem
-  * (if it exists). If file_path is given and it is in a mounted Lustre
-  * filesystem, then the parameter will be otherwise the value may be
-  * from any mounted filesystem (if there is more than one).
-  *
-  * If "obd_type" matches a Lustre device then the first matching device
-  * (as with "lctl dl", constrained by \param fsname or \param mount_path)
-  * will be used to provide the return value, otherwise the first such
-  * device found will be used.
-  *
-  * Return 0 for success, with a NUL-terminated string in \param buffer.
-  * Return -ve value for error.
-  */
+ * return a parameter string for a specific device type or mountpoint
+ *
+ * \param fsname Lustre filesystem name (optional)
+ * \param file_path path to file in filesystem (optional, if fsname unset)
+ * \param obd_type Lustre OBD device type
+ * \param param_name parameter name to fetch
+ * \param value return buffer for parameter value string
+ * \param val_len size of buffer for return value
+ *
+ * If fsname is specified then the parameter will be from that filesystem
+ * (if it exists). If file_path is given and it is in a mounted Lustre
+ * filesystem, then the parameter will be otherwise the value may be
+ * from any mounted filesystem (if there is more than one).
+ *
+ * If "obd_type" matches a Lustre device then the first matching device
+ * (as with "lctl dl", constrained by \param fsname or \param mount_path)
+ * will be used to provide the return value, otherwise the first such
+ * device found will be used.
+ *
+ * Return 0 for success, with a NUL-terminated string in \param buffer.
+ * Return -ve value for error.
+ */
 static int get_param_obdvar(const char *fsname, const char *file_path,
-                            const char *obd_type, const char *param_name,
-                            char *value, unsigned int val_len)
+			    const char *obd_type, const char *param_name,
+			    char *value, unsigned int val_len)
 {
-	char devices[PATH_MAX];
-	char dev[PATH_MAX] = "*";
 	char fs[PATH_MAX];
-	FILE *fp = NULL;
-	int rc = 0;
-	char buf[PATH_MAX];
-
-	rc = cfs_get_procpath(buf, sizeof(buf), "lustre/devices");
-	if (rc != 0)
-		return -ENOENT;
-
-	fp = fopen(buf, "r");
-	if (fp == NULL) {
-		rc = -errno;
-		llapi_error(LLAPI_MSG_ERROR, rc, "error: opening '%s'", buf);
-		goto out;
-	}
+	char dev[PATH_MAX] = "*";
+	char **list = NULL;
+	int i;
+	int rc;
 
 	if (fsname == NULL && file_path != NULL) {
 		rc = llapi_search_fsname(file_path, fs);
-		if (rc) {
+		if (rc != 0) {
 			llapi_error(LLAPI_MSG_ERROR, rc,
 				    "'%s' is not on a Lustre filesystem",
 				    file_path);
-			goto out;
+			return rc;
 		}
 	} else if (fsname != NULL) {
 		rc = strlcpy(fs, fsname, sizeof(fs));
-		if (rc >= sizeof(fs)) {
-			rc = -E2BIG;
-			goto out;
-		}
+		if (rc >= sizeof(fs))
+			return -E2BIG;
 	}
 
-	while (fgets(devices, sizeof(devices) - 1, fp) != NULL) {
-		char *bufp = devices, *tmp;
+	rc = llapi_get_param(&list, "devices");
+	if (rc != 0)
+		return rc;
 
-		devices[sizeof(devices) - 1] = '\0';
-		while (bufp[0] == ' ')
-			++bufp;
+	for (i = 0; list[i] != NULL; i++) {
+		char *obd_type_name;
+		char *bufp;
+		int j;
 
-		tmp = strstr(bufp, obd_type);
-		if (tmp != NULL) {
-			tmp += strlen(obd_type) + 1;
-			if (strcmp(tmp, fs))
+		bufp = llapi_trim_string(list[i]);
+
+		for (j = 0; j < 3; j++)
+			obd_type_name = strsep(&bufp, " ");
+
+		if (strncmp(obd_type_name, obd_type, strlen(obd_type)) == 0) {
+			char *tmp = strsep(&bufp, " ");
+
+			if (strncmp(tmp, fs, strlen(fs)) != 0)
 				continue;
+
 			rc = strlcpy(dev, tmp, sizeof(dev));
 			if (rc >= sizeof(dev)) {
 				rc = -E2BIG;
@@ -474,58 +415,60 @@ static int get_param_obdvar(const char *fsname, const char *file_path,
 			goto out;
 		}
 	}
-	rc = snprintf(devices, sizeof(devices), "%s/%s/%s", obd_type, dev,
-		      param_name);
-	if (rc >= sizeof(devices)) {
+
+	rc = llapi_get_param(&list, "%s/%s/%s", obd_type, dev, param_name);
+	if (rc != 0 || list[0] == NULL) {
+		rc = -ENOENT;
+		goto out;
+	}
+
+	for (i = 1; list[i] != NULL; i++)
+		/* empty */;
+
+	rc = strlcpy(value, llapi_trim_string(list[--i]), val_len);
+	if (rc >= val_len) {
 		rc = -E2BIG;
-		goto out;
-	}
-
-	fclose(fp);
-	return get_param(devices, value, val_len);
-out:
-	if (fp != NULL)
-		fclose(fp);
-	return rc;
-}
-
-/*
- * TYPE one of llite, lmv, lov.
- * /{proc,sys}/fs/lustre/TYPE/INST the directory of interest.
- */
-static int get_param_cli(const char *type, const char *inst,
-			 const char *param, char *buf, size_t buf_size)
-{
-	char param_path[PATH_MAX];
-	FILE *param_file = NULL;
-	int rc;
-
-	rc = cfs_get_procpath(param_path, sizeof(param_path),
-				"lustre/%s/%s/%s", type, inst, param);
-	if (rc != 0)
-		return -ENOENT;
-
-	param_file = fopen(param_path, "r");
-	if (param_file == NULL) {
-		rc = -errno;
-		goto out;
-	}
-
-	if (fgets(buf, buf_size, param_file) == NULL) {
-		rc = -errno;
 		goto out;
 	}
 
 	rc = 0;
 out:
-	if (param_file != NULL)
-		fclose(param_file);
+	free(list);
 
 	return rc;
 }
 
-static int get_param_llite(const char *path,
-			   const char *param, char *buf, size_t buf_size)
+/*
+ * TYPE one of llite, lmv, lov.
+ * {procfs,sysfs,debugfs}/lustre/TYPE/INST the directory of interest.
+ */
+static int get_param_cli(const char *type, const char *inst, const char *param,
+			 char *buf, size_t buf_size)
+{
+	char **list = NULL;
+	int rc;
+
+	rc = llapi_get_param(&list, "%s/%s/%s", type, inst, param);
+	if (rc != 0 || list[0] == NULL) {
+		rc = -ENOENT;
+		goto out;
+	}
+
+	rc = strlcpy(buf, llapi_trim_string(list[0]), buf_size);
+	if (rc >= buf_size) {
+		rc = -E2BIG;
+		goto out;
+	}
+
+	rc = 0;
+out:
+	free(list);
+
+	return rc;
+}
+
+static int get_param_llite(const char *path, const char *param,
+			   char *buf, size_t buf_size)
 {
 	char inst[80];
 	int rc;
@@ -537,8 +480,8 @@ static int get_param_llite(const char *path,
 	return get_param_cli("llite", inst, param, buf, buf_size);
 }
 
-static int get_param_lov(const char *path,
-			 const char *param, char *buf, size_t buf_size)
+static int get_param_lov(const char *path, const char *param,
+			 char *buf, size_t buf_size)
 {
 	struct obd_uuid uuid;
 	int rc;
@@ -550,8 +493,8 @@ static int get_param_lov(const char *path,
 	return get_param_cli("lov", uuid.uuid, param, buf, buf_size);
 }
 
-static int get_param_lmv(const char *path,
-			 const char *param, char *buf, size_t buf_size)
+static int get_param_lmv(const char *path, const char *param,
+			 char *buf, size_t buf_size)
 {
 	struct obd_uuid uuid;
 	int rc;
@@ -569,7 +512,7 @@ static int get_mds_md_size(const char *path)
 	char buf[80];
 	int rc;
 
-	/* Get the max ea size from llite proc. */
+	/* Get the max ea size from llite */
 	rc = get_param_llite(path, "max_easize", buf, sizeof(buf));
 	if (rc != 0)
 		goto out;
@@ -582,65 +525,84 @@ out:
 	return md_size;
 }
 
-int llapi_get_agent_uuid(char *path, char *buf, size_t bufsize)
+int llapi_get_agent_uuid(const char *path, char *buf, size_t buf_size)
 {
-	return get_param_lmv(path, "uuid", buf, bufsize);
+	return get_param_lmv(path, "uuid", buf, buf_size);
 }
 
 /*
  * if pool is NULL, search ostname in target_obd
  * if pool is not NULL:
- *  if pool not found returns errno < 0
- *  if ostname is NULL, returns 1 if pool is not empty and 0 if pool empty
- *  if ostname is not NULL, returns 1 if OST is in pool and 0 if not
+ * if pool not found returns errno < 0
+ * if ostname is NULL, returns 1 if pool is not empty and 0 if pool empty
+ * if ostname is not NULL, returns 1 if OST is in pool and 0 if not
  */
 int llapi_search_ost(char *fsname, char *poolname, char *ostname)
 {
-        FILE *fd;
-        char buffer[PATH_MAX + 1];
-        int len = 0, rc;
+	char **list = NULL;
+	size_t len = 0;
+	int i;
+	int rc;
 
-        if (ostname != NULL)
-                len = strlen(ostname);
+	if (ostname != NULL)
+		len = strlen(ostname);
 
 	if (poolname == NULL) {
-		if (len == 0)
+		if (len != 0) {
+			rc = llapi_get_param(&list, "lov/%s-*/target_obd",
+					     fsname);
+			if ((rc != 0) && (rc != -ENODEV))
+				rc = -EINVAL;
+		} else {
 			rc = -EINVAL;
-		else
-			rc = find_target_obdpath(fsname, buffer);
+		}
 	} else {
-                rc = find_poolpath(fsname, poolname, buffer);
+		rc = llapi_get_param(&list, "lov/%s-*/pools/%s",
+				     fsname, poolname);
+		if (rc != 0) {
+			if (rc == -ENODEV) {
+				rc = llapi_get_param(&list,
+						     "lov/%s-*/target_obd",
+						     fsname);
+				if (rc == -ENODEV)
+					rc = -ENODEV;
+				else
+					rc = -EINVAL;
+			} else {
+				rc = -EINVAL;
+			}
+		}
 	}
-        if (rc)
-                return rc;
 
-        fd = fopen(buffer, "r");
-        if (fd == NULL)
-                return -errno;
+	if (rc != 0)
+		goto out;
 
-        while (fgets(buffer, sizeof(buffer), fd) != NULL) {
-                if (poolname == NULL) {
-                        char *ptr;
-                        /* Search for an ostname in the list of OSTs
-                         Line format is IDX: fsname-OSTxxxx_UUID STATUS */
-                        ptr = strchr(buffer, ' ');
-                        if ((ptr != NULL) &&
-                            (strncmp(ptr + 1, ostname, len) == 0)) {
-                                fclose(fd);
-                                return 1;
-                        }
-                } else {
-                        /* Search for an ostname in a pool,
-                         (or an existing non-empty pool if no ostname) */
-                        if ((ostname == NULL) ||
-                            (strncmp(buffer, ostname, len) == 0)) {
-                                fclose(fd);
-                                return 1;
-                        }
-                }
-        }
-        fclose(fd);
-        return 0;
+	for (i = 0; list[i] != NULL; i++) {
+		char *ptr;
+
+		if (poolname == NULL) {
+			/* Search for an ostname in the list of OSTs
+			   Line format is IDX: fsname-OSTxxxx_UUID STATUS */
+			ptr = strchr(llapi_trim_string(list[i]), ' ');
+			if (ptr != NULL && !strncmp(++ptr, ostname, len)) {
+				rc = 1;
+				goto out;
+			}
+		} else {
+			/* Search for an ostname in a pool,
+			   (or an existing non-empty pool if no ostname) */
+			ptr = llapi_trim_string(list[i]);
+			if (ostname == NULL || !strncmp(ptr, ostname, len)) {
+				rc = 1;
+				goto out;
+			}
+		}
+	}
+	rc = 0;
+out:
+	free(list);
+
+	return rc;
 }
 
 /**
@@ -1175,7 +1137,7 @@ int llapi_search_fsname(const char *pathname, char *fsname)
                 if (path == NULL) {
                         ptr = strrchr(buf, '/');
                         if (ptr == NULL)
-                                return -ENOENT;
+				return -ENOENT;
                         *ptr = '\0';
                         path = realpath(buf, NULL);
                         if (path == NULL) {
@@ -1221,39 +1183,6 @@ int llapi_getname(const char *path, char *buf, size_t size)
         return rc;
 }
 
-
-/*
- * find the pool directory path under /{proc,sys}/fs
- * (can be also used to test if a fsname is known)
- */
-static int poolpath(char *fsname, char *pathname, char *pool_pathname)
-{
-	int rc = 0;
-	char pattern[PATH_MAX];
-	char buffer[PATH_MAX];
-
-        if (fsname == NULL) {
-                rc = llapi_search_fsname(pathname, buffer);
-                if (rc != 0)
-                        return rc;
-                fsname = buffer;
-                strcpy(pathname, fsname);
-        }
-
-	rc = cfs_get_procpath(pattern, sizeof(pattern), "lustre/lov/%s-*/pools",
-				fsname);
-	if (rc != 0)
-		return -ENOENT;
-
-	strcpy(buffer, pattern);
-
-        /* in fsname test mode, pool_pathname is NULL */
-        if (pool_pathname != NULL)
-		strcpy(pool_pathname, pattern);
-
-        return 0;
-}
-
 /**
  * Get the list of pool members.
  * \param poolname    string of format \<fsname\>.\<poolname\>
@@ -1265,74 +1194,65 @@ static int poolpath(char *fsname, char *pathname, char *pool_pathname)
  * \return number of members retrieved for this pool
  * \retval -error failure
  */
-int llapi_get_poolmembers(const char *poolname, char **members,
-                          int list_size, char *buffer, int buffer_size)
+int llapi_get_poolmembers(const char *poolname, char **members, int list_size,
+			  char *buffer, int buffer_size)
 {
 	char fsname[PATH_MAX];
-	char *pool, *tmp;
-	char pathname[PATH_MAX];
-	char path[PATH_MAX];
-	char buf[1024];
-        FILE *fd;
-        int rc = 0;
-        int nb_entries = 0;
-        int used = 0;
+	char *pool;
+	char **list = NULL;
+	size_t used = 0;
+	size_t len;
+	int i;
+	int rc;
 
-        /* name is FSNAME.POOLNAME */
-	if (strlen(poolname) >= sizeof(fsname))
+	/* initilize output array */
+	for (i = 0; i < list_size; i++)
+		members[i] = NULL;
+
+	/* name is FSNAME.POOLNAME */
+	rc = strlcpy(fsname, poolname, sizeof(fsname));
+	if (rc >= sizeof(fsname))
 		return -EOVERFLOW;
-	strlcpy(fsname, poolname, sizeof(fsname));
-        pool = strchr(fsname, '.');
-        if (pool == NULL)
-                return -EINVAL;
 
-        *pool = '\0';
-        pool++;
+	pool = strchr(fsname, '.');
+	if (pool == NULL)
+		return -EINVAL;
 
-        rc = poolpath(fsname, NULL, pathname);
-        if (rc != 0) {
-                llapi_error(LLAPI_MSG_ERROR, rc,
-                            "Lustre filesystem '%s' not found",
-                            fsname);
-                return rc;
-        }
+	*pool++ = '\0';
 
-        llapi_printf(LLAPI_MSG_NORMAL, "Pool: %s.%s\n", fsname, pool);
-	rc = snprintf(path, sizeof(path), "%s/%s", pathname, pool);
-	if (rc >= sizeof(path))
-		return -EOVERFLOW;
-        fd = fopen(path, "r");
-        if (fd == NULL) {
-                rc = -errno;
-                llapi_error(LLAPI_MSG_ERROR, rc, "Cannot open %s", path);
-                return rc;
-        }
+	llapi_printf(LLAPI_MSG_NORMAL, "Pool: %s.%s\n", fsname, pool);
 
-        rc = 0;
-        while (fgets(buf, sizeof(buf), fd) != NULL) {
-                if (nb_entries >= list_size) {
-                        rc = -EOVERFLOW;
-                        break;
-                }
-		buf[sizeof(buf) - 1] = '\0';
-                /* remove '\n' */
-                tmp = strchr(buf, '\n');
-                if (tmp != NULL)
-                        *tmp='\0';
-                if (used + strlen(buf) + 1 > buffer_size) {
-                        rc = -EOVERFLOW;
-                        break;
-                }
+	rc = llapi_get_param(&list, "lov/%s-*/pools/%s", fsname, pool);
+	if (rc != 0) {
+		llapi_error(LLAPI_MSG_ERROR, rc,
+			    "Cannot open 'lov/%s-*/pools/%s'", fsname, pool);
+		return -ENOENT;
+	}
 
-                strcpy(buffer + used, buf);
-                members[nb_entries] = buffer + used;
-                used += strlen(buf) + 1;
-                nb_entries++;
-                rc = nb_entries;
-        }
+	for (i = 0; list[i] != NULL; i++) {
+		char *p;
 
-        fclose(fd);
-        return rc;
+		/* check output bounds */
+		if (i >= list_size) {
+			i = -EOVERFLOW;
+			break;
+		}
+
+		p = llapi_trim_string(list[i]);
+
+		len = strlen(p) + 1;
+		if (used + len > buffer_size) {
+			i = -EOVERFLOW;
+			break;
+		}
+
+		strncpy(buffer + used, p, len);
+		members[i] = buffer + used;
+		used += len;
+	}
+
+	free(list);
+	return i;
 }
 
 /**
@@ -1347,117 +1267,113 @@ int llapi_get_poolmembers(const char *poolname, char **members,
  * \retval -error failure
  */
 int llapi_get_poollist(const char *name, char **poollist, int list_size,
-                       char *buffer, int buffer_size)
+		       char *buffer, int buffer_size)
 {
-        char fsname[PATH_MAX + 1], rname[PATH_MAX + 1], pathname[PATH_MAX + 1];
-        char *ptr;
-        DIR *dir;
-        struct dirent pool;
-        struct dirent *cookie = NULL;
-        int rc = 0;
-        unsigned int nb_entries = 0;
-        unsigned int used = 0;
-        unsigned int i;
+	char poolname[PATH_MAX];
+	char fsname[PATH_MAX];
+	char **list = NULL;
+	size_t used = 0;
+	size_t len;
+	int i;
+	int rc = 0;
 
-        /* initilize output array */
-        for (i = 0; i < list_size; i++)
-                poollist[i] = NULL;
+	/* initilize output array */
+	for (i = 0; i < list_size; i++)
+		poollist[i] = NULL;
 
-        /* is name a pathname ? */
-        ptr = strchr(name, '/');
-        if (ptr != NULL) {
-                /* only absolute pathname is supported */
-                if (*name != '/')
-                        return -EINVAL;
+	/* is name a pathname ? */
+	if (strchr(name, '/') != NULL) {
+		char buf[PATH_MAX];
+		char *rname;
 
-                if (!realpath(name, rname)) {
-                        rc = -errno;
-                        llapi_error(LLAPI_MSG_ERROR, rc, "invalid path '%s'",
-                                    name);
-                        return rc;
-                }
+		/* only absolute pathname is supported */
+		if (*name != '/')
+			return -EINVAL;
 
-                rc = poolpath(NULL, rname, pathname);
-                if (rc != 0) {
-                        llapi_error(LLAPI_MSG_ERROR, rc, "'%s' is not"
-                                    " a Lustre filesystem", name);
-                        return rc;
-                }
-		if (strlen(rname) > sizeof(fsname)-1)
-			return -E2BIG;
-		strncpy(fsname, rname, sizeof(fsname));
-        } else {
-                /* name is FSNAME */
-		if (strlen(name) > sizeof(fsname)-1)
-			return -E2BIG;
-		strncpy(fsname, name, sizeof(fsname));
-                rc = poolpath(fsname, NULL, pathname);
-        }
-        if (rc != 0) {
-                llapi_error(LLAPI_MSG_ERROR, rc,
-                            "Lustre filesystem '%s' not found", name);
-                return rc;
-        }
-
-        llapi_printf(LLAPI_MSG_NORMAL, "Pools from %s:\n", fsname);
-        dir = opendir(pathname);
-        if (dir == NULL) {
-                rc = -errno;
-                llapi_error(LLAPI_MSG_ERROR, rc,
-                            "Could not open pool list for '%s'",
-                            name);
-                return rc;
-        }
-
-        while(1) {
-                rc = readdir_r(dir, &pool, &cookie);
-
-                if (rc != 0) {
-                        rc = -errno;
-                        llapi_error(LLAPI_MSG_ERROR, rc,
-                                    "Error reading pool list for '%s'", name);
-			goto out;
-                } else if ((rc == 0) && (cookie == NULL)) {
-                        /* end of directory */
-                        break;
-                }
-
-                /* ignore . and .. */
-                if (!strcmp(pool.d_name, ".") || !strcmp(pool.d_name, ".."))
-                        continue;
-
-                /* check output bounds */
-		if (nb_entries >= list_size) {
-			rc = -EOVERFLOW;
-			goto out;
+		rname = realpath(name, NULL);
+		if (rname == NULL) {
+			rc = -errno;
+			llapi_error(LLAPI_MSG_ERROR, rc, "invalid path '%s'",
+					name);
+			return rc;
 		}
 
-                /* +2 for '.' and final '\0' */
-		if (used + strlen(pool.d_name) + strlen(fsname) + 2
-		    > buffer_size) {
-			rc = -EOVERFLOW;
-			goto out;
+		rc = llapi_search_fsname(rname, buf);
+		if (rc != 0) {
+			free(rname);
+			return rc;
 		}
 
-                sprintf(buffer + used, "%s.%s", fsname, pool.d_name);
-                poollist[nb_entries] = buffer + used;
-                used += strlen(pool.d_name) + strlen(fsname) + 2;
-                nb_entries++;
-        }
+		rc = strlcpy(fsname, rname, sizeof(fsname));
+		free(rname);
+		if (rc >= sizeof(fsname))
+			return -E2BIG;
 
-out:
-        closedir(dir);
-	return ((rc != 0) ? rc : nb_entries);
+		rc = snprintf(poolname, sizeof(poolname), "lov/%s-*/pools",
+			      buf);
+		if (rc >= sizeof(poolname))
+			return -E2BIG;
+	} else {
+		/* name is FSNAME */
+		rc = strlcpy(fsname, name, sizeof(fsname));
+		if (rc >= sizeof(fsname))
+			return -E2BIG;
+
+		rc = snprintf(poolname, sizeof(poolname), "lov/%s-*/pools",
+			      fsname);
+		if (rc >= sizeof(poolname))
+			return -E2BIG;
+	}
+
+	llapi_printf(LLAPI_MSG_NORMAL, "Pools from %s:\n", fsname);
+
+	rc = llapi_get_param(&list, poolname);
+	if (rc != 0)
+		return rc;
+
+	for (i = 0; list[i] != NULL; i++) {
+		char *p;
+
+		/* check output bounds */
+		if (i >= list_size) {
+			i = -EOVERFLOW;
+			break;
+		}
+
+		p = llapi_trim_string(list[i]);
+
+		/* +2 for '.' and final '\0' */
+		len = strlen(fsname) + strlen(p) + 2;
+		if (used + len > buffer_size) {
+			i = -EOVERFLOW;
+			break;
+		}
+
+		snprintf(buffer + used, buffer_size - used, "%s.%s",
+			 fsname, p);
+		poollist[i] = buffer + used;
+		used += len;
+	}
+
+	free(list);
+	return i;
 }
 
 /* wrapper for lfs.c and obd.c */
 int llapi_poollist(const char *name)
 {
-        /* list of pool names (assume that pool count is smaller
-           than OST count) */
-        char **list, *buffer = NULL, *path = NULL, *fsname = NULL;
-        int obdcount, bufsize, rc, nb, i;
-        char *poolname = NULL, *tmp = NULL, data[16];
+	char **list;
+	char *path = NULL;
+	char *fsname = NULL;
+	char *poolname = NULL;
+	char *buffer = NULL;
+	size_t bufsize;
+	char *tmp;
+	char data[16];
+	int obdcount;
+	int nb;
+	int i;
+	int rc;
 
 	if (name == NULL)
 		return -EINVAL;
@@ -1467,56 +1383,58 @@ int llapi_poollist(const char *name)
 		if (fsname == NULL)
 			return -ENOMEM;
 
-                poolname = strchr(fsname, '.');
-                if (poolname)
-                        *poolname = '\0';
-        } else {
-                path = (char *) name;
-        }
+		poolname = strchr(fsname, '.');
+		if (poolname != NULL)
+			*poolname++ = '\0';
+	} else {
+		path = (char *)name;
+	}
 
-        rc = get_param_obdvar(fsname, path, "lov", "numobd",
-                              data, sizeof(data));
-        if (rc < 0)
-                goto err;
-        obdcount = atoi(data);
+	rc = get_param_obdvar(fsname, path, "lov", "numobd",
+			      data, sizeof(data));
+	if (rc != 0)
+		goto err;
+	obdcount = atoi(data);
 
-        /* Allocate space for each fsname-OST0000_UUID, 1 per OST,
-         * and also an array to store the pointers for all that
-         * allocated space. */
+	/* Allocate space for each fsname-OST0000_UUID, 1 per OST,
+	 * and also an array to store the pointers for all that
+	 * allocated space. */
 retry_get_pools:
-        bufsize = sizeof(struct obd_uuid) * obdcount;
-        buffer = realloc(tmp, bufsize + sizeof(*list) * obdcount);
-        if (buffer == NULL) {
-                rc = -ENOMEM;
-                goto err;
-        }
-        list = (char **) (buffer + bufsize);
+	bufsize = sizeof(struct obd_uuid) * obdcount;
+	tmp = realloc(buffer, bufsize + sizeof(*list) * obdcount);
+	if (tmp == NULL) {
+		rc = -ENOMEM;
+		goto err;
+	}
+	buffer = tmp;
 
-        if (!poolname) {
-                /* name is a path or fsname */
-                nb = llapi_get_poollist(name, list, obdcount,
-                                        buffer, bufsize);
-        } else {
-                /* name is a pool name (<fsname>.<poolname>) */
-                nb = llapi_get_poolmembers(name, list, obdcount,
-                                           buffer, bufsize);
-        }
+	list = (char **)(buffer + bufsize);
 
-        if (nb == -EOVERFLOW) {
-                obdcount *= 2;
-                tmp = buffer;
-                goto retry_get_pools;
-        }
+	if (poolname == NULL) {
+		/* name is a path or fsname */
+		nb = llapi_get_poollist(name, list, obdcount,
+					buffer, bufsize);
+	} else {
+		/* name is a pool name (<fsname>.<poolname>) */
+		nb = llapi_get_poolmembers(name, list, obdcount,
+					   buffer, bufsize);
+	}
 
-        for (i = 0; i < nb; i++)
-                llapi_printf(LLAPI_MSG_NORMAL, "%s\n", list[i]);
-        rc = (nb < 0 ? nb : 0);
+	if (nb == -EOVERFLOW) {
+		obdcount *= 2;
+		goto retry_get_pools;
+	}
+
+	for (i = 0; i < nb; i++)
+		llapi_printf(LLAPI_MSG_NORMAL, "%s\n", list[i]);
+
+	rc = (nb < 0) ? nb : 0;
 err:
-        if (buffer)
-                free(buffer);
-        if (fsname)
-                free(fsname);
-        return rc;
+	if (buffer != NULL)
+		free(buffer);
+	if (fsname != NULL)
+		free(fsname);
+	return rc;
 }
 
 typedef int (semantic_func_t)(char *path, DIR *parent, DIR **d,
@@ -1871,52 +1789,44 @@ static int llapi_get_target_uuids(int fd, struct obd_uuid *uuidp,
                                   int *ost_count, enum tgt_type type)
 {
 	struct obd_uuid name;
-	char buf[1024];
 	char format[32];
-	FILE *fp;
-	int rc = 0, index = 0;
+	char **list = NULL;
+	int i;
+	int rc;
 
-        /* Get the lov name */
-        if (type == LOV_TYPE) {
-                rc = llapi_file_fget_lov_uuid(fd, &name);
-                if (rc)
-                        return rc;
-        } else {
-                rc = llapi_file_fget_lmv_uuid(fd, &name);
-                if (rc)
-                        return rc;
-        }
+	/* Get the lov name */
+	if (type == LOV_TYPE) {
+		rc = llapi_file_fget_lov_uuid(fd, &name);
+		if (rc)
+			return rc;
+	} else {
+		rc = llapi_file_fget_lmv_uuid(fd, &name);
+		if (rc)
+			return rc;
+	}
 
-	/* Now get the ost uuids from /{proc,sys} */
-	rc = cfs_get_procpath(buf, sizeof(buf), "lustre/%s/%s/target_obd",
-                 type == LOV_TYPE ? "lov" : "lmv", name.uuid);
+	/* Now get the ost uuids from procfs, sysfs or debugfs */
+	rc = llapi_get_param(&list, "%s/%s/target_obd",
+			     type == LOV_TYPE ? "lov" : "lmv", name.uuid);
 	if (rc != 0)
 		return -ENOENT;
 
-        fp = fopen(buf, "r");
-        if (fp == NULL) {
-                rc = -errno;
-                llapi_error(LLAPI_MSG_ERROR, rc, "error: opening '%s'", buf);
-                return rc;
-        }
-
 	snprintf(format, sizeof(format),
 		 "%%d: %%%zus", sizeof(uuidp[0].uuid) - 1);
-	while (fgets(buf, sizeof(buf), fp) != NULL) {
-		if (uuidp && (index < *ost_count)) {
-			if (sscanf(buf, format, &index, uuidp[index].uuid) < 2)
-                                break;
-                }
-                index++;
-        }
+	for (i = 0; list[i] != NULL; i++) {
+		if (uuidp != NULL && i < *ost_count) {
+			int index;
 
-        fclose(fp);
+			rc = sscanf(list[i], format, &index, uuidp[index].uuid);
+			if (rc < 2)
+				break;
+		}
+	}
 
-        if (uuidp && (index > *ost_count))
-                rc = -EOVERFLOW;
+	rc = (uuidp != NULL && i > *ost_count) ? -EOVERFLOW : 0;
+	*ost_count = i;
 
-        *ost_count = index;
-        return rc;
+	return rc;
 }
 
 int llapi_lov_get_uuids(int fd, struct obd_uuid *uuidp, int *ost_count)
@@ -1973,44 +1883,36 @@ int llapi_uuid_match(char *real_uuid, char *search_uuid)
 static int setup_obd_uuid(DIR *dir, char *dname, struct find_param *param)
 {
 	struct obd_uuid obd_uuid;
-	char buf[1024];
 	char format[32];
-	FILE *fp;
+	char **list = NULL;
+	int i;
 	int rc = 0;
 
 	if (param->fp_got_uuids)
-                return rc;
+		return rc;
 
-        /* Get the lov/lmv name */
+	/* Get the lov/lmv name */
 	if (param->fp_get_lmv)
-                rc = llapi_file_fget_lmv_uuid(dirfd(dir), &obd_uuid);
-        else
-                rc = llapi_file_fget_lov_uuid(dirfd(dir), &obd_uuid);
-        if (rc) {
-                if (rc != -ENOTTY) {
-                        llapi_error(LLAPI_MSG_ERROR, rc,
-                                    "error: can't get lov name: %s", dname);
-                } else {
-                        rc = 0;
-                }
-                return rc;
-        }
+		rc = llapi_file_fget_lmv_uuid(dirfd(dir), &obd_uuid);
+	else
+		rc = llapi_file_fget_lov_uuid(dirfd(dir), &obd_uuid);
+	if (rc != 0) {
+		if (rc != -ENOTTY) {
+			llapi_error(LLAPI_MSG_ERROR, rc,
+				    "error: can't get lov name: %s", dname);
+		} else {
+			rc = 0;
+		}
+		return rc;
+	}
 
 	param->fp_got_uuids = 1;
 
-	/* Now get the ost uuids from /{proc,sys} */
-	rc = cfs_get_procpath(buf, sizeof(buf), "lustre/%s/%s/target_obd",
-				param->fp_get_lmv ? "lmv" : "lov",
-				obd_uuid.uuid);
+	/* Now get the ost uuids */
+	rc = llapi_get_param(&list, "%s/%s/target_obd",
+			     param->fp_get_lmv ? "lmv" : "lov", obd_uuid.uuid);
 	if (rc != 0)
 		return -ENOENT;
-
-        fp = fopen(buf, "r");
-        if (fp == NULL) {
-                rc = -errno;
-                llapi_error(LLAPI_MSG_ERROR, rc, "error: opening '%s'", buf);
-                return rc;
-        }
 
 	if (!param->fp_obd_uuid && !param->fp_quiet && !param->fp_obds_printed)
 		llapi_printf(LLAPI_MSG_NORMAL, "%s:\n",
@@ -2018,10 +1920,10 @@ static int setup_obd_uuid(DIR *dir, char *dname, struct find_param *param)
 
 	snprintf(format, sizeof(format),
 		 "%%d: %%%zus", sizeof(obd_uuid.uuid) - 1);
-	while (fgets(buf, sizeof(buf), fp) != NULL) {
+	for (i = 0; list[i] != NULL; i++) {
 		int index;
 
-		if (sscanf(buf, format, &index, obd_uuid.uuid) < 2)
+		if (sscanf(list[i], format, &index, obd_uuid.uuid) < 2)
 			break;
 
 		if (param->fp_obd_uuid) {
@@ -2032,12 +1934,10 @@ static int setup_obd_uuid(DIR *dir, char *dname, struct find_param *param)
 			}
 		} else if (!param->fp_quiet && !param->fp_obds_printed) {
 			/* Print everything */
-			llapi_printf(LLAPI_MSG_NORMAL, "%s", buf);
+			llapi_printf(LLAPI_MSG_NORMAL, "%s", list[i]);
 		}
 	}
 	param->fp_obds_printed = 1;
-
-        fclose(fp);
 
 	if (param->fp_obd_uuid && (param->fp_obd_index == OBD_NOT_FOUND)) {
 		llapi_err_noerrno(LLAPI_MSG_ERROR,
@@ -2046,7 +1946,7 @@ static int setup_obd_uuid(DIR *dir, char *dname, struct find_param *param)
 		rc = -EINVAL;
 	}
 
-        return (rc);
+	return rc;
 }
 
 /* In this case, param->fp_obd_uuid will be an array of obduuids and
@@ -2197,9 +2097,9 @@ int llapi_ostlist(char *path, struct find_param *param)
 static int clilovpath(const char *fsname, const char *const pathname,
                       char *clilovpath)
 {
-        int rc;
 	char pattern[PATH_MAX];
-        char buffer[PATH_MAX + 1];
+	char buffer[PATH_MAX];
+	int rc;
 
         if (fsname == NULL) {
                 rc = llapi_search_fsname(pathname, buffer);
@@ -2209,14 +2109,13 @@ static int clilovpath(const char *fsname, const char *const pathname,
         }
 
 	rc = cfs_get_procpath(pattern, sizeof(pattern),
-				"lustre/lov/%s-clilov-*",
-                 fsname);
-        if (rc != 0)
+			      "lustre/lov/%s-clilov-*", fsname);
+	if (rc != 0)
 		return -ENOENT;
 
 	strlcpy(clilovpath, pattern, sizeof(pattern));
 
-        return 0;
+	return 0;
 }
 
 /*
@@ -2226,7 +2125,6 @@ static int clilovpath(const char *fsname, const char *const pathname,
 static int sattr_read_attr(const char *const fpath,
                            unsigned int *attr)
 {
-
         FILE *f;
         char line[PATH_MAX + 1];
         int rc = 0;
@@ -2264,26 +2162,32 @@ static int sattr_get_defaults(const char *const fsname,
         char dpath[PATH_MAX + 1];
         char fpath[PATH_MAX + 1];
 
-        rc = clilovpath(fsname, pathname, dpath);
-        if (rc != 0)
-                return rc;
+	if (fsname == NULL) {
+		rc = llapi_search_fsname(pathname, dpath);
+		if (rc != 0)
+			return rc;
+	}
+
 
         if (scount) {
-                snprintf(fpath, PATH_MAX, "%s/stripecount", dpath);
+		snprintf(fpath, sizeof(fpath), "lov/%s-clilov-*/stripecount",
+			 dpath);
                 rc = sattr_read_attr(fpath, scount);
                 if (rc != 0)
                         return rc;
         }
 
         if (ssize) {
-                snprintf(fpath, PATH_MAX, "%s/stripesize", dpath);
+		snprintf(fpath, sizeof(fpath), "lov/%s-clilov-*/stripesize",
+			 dpath);
                 rc = sattr_read_attr(fpath, ssize);
                 if (rc != 0)
                         return rc;
         }
 
         if (soffset) {
-                snprintf(fpath, PATH_MAX, "%s/stripeoffset", dpath);
+		snprintf(fpath, sizeof(fpath), "lov/%s-clilov-*/stripeoffset",
+			 dpath);
                 rc = sattr_read_attr(fpath, soffset);
                 if (rc != 0)
                         return rc;
@@ -2587,7 +2491,7 @@ void lmv_dump_user_lmm(struct lmv_user_md *lum, char *pool_name,
 		separator = "\n";
 	}
 
-	if (verbose & VERBOSE_OBJID && lum->lum_magic != LMV_USER_MAGIC) {
+	if ((verbose & VERBOSE_OBJID) && lum->lum_magic != LMV_USER_MAGIC) {
 		llapi_printf(LLAPI_MSG_NORMAL, "%s", separator);
 		if (obdstripe == 1 && lum->lum_stripe_count > 0)
 			llapi_printf(LLAPI_MSG_NORMAL,
@@ -3612,50 +3516,40 @@ int llapi_ping(char *obd_type, char *obd_name)
 }
 
 int llapi_target_iterate(int type_num, char **obd_type,
-                         void *args, llapi_cb_t cb)
+			 void *args, llapi_cb_t cb)
 {
-        char buf[MAX_STRING_SIZE];
-	FILE *fp;
-        int i, rc = 0;
+	char **list;
+	int i;
+	int rc;
 
-	rc = cfs_get_procpath(buf, sizeof(buf), "lustre/devices");
+	rc = llapi_get_param(&list, "devices");
 	if (rc != 0)
 		return -ENOENT;
 
-	fp = fopen(buf, "r");
-        if (fp == NULL) {
-                rc = -errno;
-		llapi_error(LLAPI_MSG_ERROR, rc, "error: opening '%s'", buf);
-                return rc;
-        }
+	for (i = 0; list[i] != NULL; i++) {
+		char *obd_type_name = NULL;
+		char *obd_name = NULL;
+		char *obd_uuid = NULL;
+		char *bufp;
+		int j;
 
-        while (fgets(buf, sizeof(buf), fp) != NULL) {
-                char *obd_type_name = NULL;
-                char *obd_name = NULL;
-                char *obd_uuid = NULL;
-                char *bufp = buf;
-                struct obd_statfs osfs_buffer;
+		bufp = llapi_trim_string(list[i]);
 
-                while(bufp[0] == ' ')
-                        ++bufp;
+		for (j = 0; j < 3; j++)
+			obd_type_name = strsep(&bufp, " ");
 
-                for(i = 0; i < 3; i++) {
-                        obd_type_name = strsep(&bufp, " ");
-                }
-                obd_name = strsep(&bufp, " ");
-                obd_uuid = strsep(&bufp, " ");
+		obd_name = strsep(&bufp, " ");
+		obd_uuid = strsep(&bufp, " ");
 
-                memset(&osfs_buffer, 0, sizeof (osfs_buffer));
+		for (j = 0; j < type_num; j++) {
+			if (strcmp(obd_type_name, obd_type[j]) != 0)
+				continue;
 
-                for (i = 0; i < type_num; i++) {
-                        if (strcmp(obd_type_name, obd_type[i]) != 0)
-                                continue;
+			cb(obd_type_name, obd_name, obd_uuid, args);
+		}
+	}
 
-                        cb(obd_type_name, obd_name, obd_uuid, args);
-                }
-        }
-        fclose(fp);
-        return 0;
+	return 0;
 }
 
 static void do_target_check(char *obd_type_name, char *obd_name,

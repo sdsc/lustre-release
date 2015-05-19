@@ -87,7 +87,8 @@ liblustreapitmp_a_SOURCES = liblustreapi.c liblustreapi_hsm.c \
 			    liblustreapi_nodemap.c lustreapi_internal.h \
 			    liblustreapi_json.c liblustreapi_layout.c \
 			    liblustreapi_lease.c liblustreapi_util.c \
-			    liblustreapi_kernelconn.c $(L_STRING) $(L_PARAM)
+			    liblustreapi_kernelconn.c liblustreapi_param.c \
+			    $(L_STRING) $(L_PARAM)
 
 if UTILS
 # build static and shared lib lustreapi

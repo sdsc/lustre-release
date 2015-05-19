@@ -1034,39 +1034,34 @@ int jt_obd_list_ioctl(int argc, char **argv)
 
 int jt_obd_list(int argc, char **argv)
 {
-        int rc;
-        char buf[MAX_STRING_SIZE];
-        FILE *fp = NULL;
-        int print_obd = 0;
+	char **list = NULL;
+	int print_obd = 0;
+	int i;
+	int rc;
 
-        if (argc > 2)
-                return CMD_HELP;
-        else if (argc == 2) {
-                if (strcmp(argv[1], "-t") == 0)
-                        print_obd = 1;
-                else
-                        return CMD_HELP;
-        }
+	if (argc > 2)
+		return CMD_HELP;
+	else if (argc == 2) {
+		if (strcmp(argv[1], "-t") == 0)
+			print_obd = 1;
+		else
+			return CMD_HELP;
+	}
 
-	rc = cfs_get_procpath(buf, sizeof(buf), "lustre/devices");
-	if (rc != 0)
-		return rc;
+	rc = llapi_get_param(&list, "devices");
+	if (rc != 0) {
+		fprintf(stderr, "error: %s: %s opening devices\n",
+			jt_cmdname(argv[0]), strerror(rc));
+		return jt_obd_list_ioctl(argc, argv);
+	}
 
-	fp = fopen(buf, "r");
-        if (fp == NULL) {
-		fprintf(stderr, "error: %s: %s opening %s\n",
-			jt_cmdname(argv[0]), strerror(rc =  errno), buf);
-                return jt_obd_list_ioctl(argc, argv);
-        }
+	for (i = 0; list[i] != NULL; i++)
+		if (print_obd)
+			print_obd_line(list[i]);
+		else
+			printf("%s", list[i]);
 
-        while (fgets(buf, sizeof(buf), fp) != NULL)
-                if (print_obd)
-                        print_obd_line(buf);
-                else
-                        printf("%s", buf);
-
-        fclose(fp);
-        return 0;
+	return 0;
 }
 
 struct jt_fid_space {
