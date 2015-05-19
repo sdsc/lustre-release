@@ -1233,10 +1233,18 @@ static inline int cl_glimpse_size(struct inode *inode)
 	return cl_glimpse_size0(inode, 0);
 }
 
+/* AGL is 'asychronous glimpse lock', which is a speculative lock taken as
+ * part of statahead. */
 static inline int cl_agl(struct inode *inode)
 {
 	return cl_glimpse_size0(inode, 1);
 }
+
+int cl_lock_ahead(struct inode *inode, off_t start, off_t end,
+		  lock_mode_user mode, __u32 flags);
+
+int cl_io_get(struct inode *inode, struct lu_env **envout,
+	      struct cl_io **ioout, int *refcheck);
 
 static inline int ll_glimpse_size(struct inode *inode)
 {
@@ -1491,6 +1499,7 @@ int ll_page_sync_io(const struct lu_env *env, struct cl_io *io,
 		    struct cl_page *page, enum cl_req_type crt);
 
 int ll_getparent(struct file *file, struct getparent __user *arg);
+int ll_lock_ahead(struct file *file, struct llapi_lock_ahead __user *arg);
 
 /* lcommon_cl.c */
 int cl_setattr_ost(struct cl_object *obj, const struct iattr *attr,
