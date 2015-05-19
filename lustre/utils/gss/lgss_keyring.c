@@ -50,8 +50,8 @@
 #include <keyutils.h>
 #include <gssapi/gssapi.h>
 
+#include <lustre/lustreapi.h>
 #include <libcfs/util/string.h>
-#include <libcfs/util/param.h>
 #include "lsupport.h"
 #include "lgss_utils.h"
 #include "write_bytes.h"
@@ -121,13 +121,11 @@ int do_nego_rpc(struct lgss_nego_data *lnd,
                 gss_buffer_desc *gss_token,
                 struct lgss_init_res *gr)
 {
-        struct lgssd_ioctl_param  param;
-        struct passwd            *pw;
-        int                       fd, ret, res;
-        char                      outbuf[8192];
-        unsigned int             *p;
+	struct lgssd_ioctl_param param;
+	struct passwd *pw;
+	char outbuf[8192];
+	unsigned int *p;
 	int rc;
-	char path[PATH_MAX];
 
         logmsg(LL_TRACE, "start negotiation rpc\n");
 
@@ -149,28 +147,9 @@ int do_nego_rpc(struct lgss_nego_data *lnd,
         param.reply_buf_size = sizeof(outbuf);
         param.reply_buf = outbuf;
 
-	rc = cfs_get_procpath(path, sizeof(path),
-				"lustre/sptlrpc/gss/init_channel");
+	rc = llapi_set_param(&param, sizeof(param), "sptlrpc/gss/init_channel");
 	if (rc != 0)
 		return rc;
-
-	logmsg(LL_TRACE, "to open %s\n", path);
-
-	fd = open(path, O_WRONLY);
-        if (fd < 0) {
-		logmsg(LL_ERR, "can't open %s\n", path);
-                return -EACCES;
-        }
-
-        logmsg(LL_TRACE, "to down-write\n");
-
-        ret = write(fd, &param, sizeof(param));
-        if (ret != sizeof(param)) {
-                logmsg(LL_ERR, "lustre ioctl err: %d\n", strerror(errno));
-                close(fd);
-                return -EACCES;
-        }
-        close(fd);
 
         logmsg(LL_TRACE, "do_nego_rpc: to parse reply\n");
         if (param.status) {
@@ -188,7 +167,7 @@ int do_nego_rpc(struct lgss_nego_data *lnd,
         }
 
         p = (unsigned int *)outbuf;
-        res = *p++;
+	rc = *p++;
         gr->gr_major = *p++;
         gr->gr_minor = *p++;
         gr->gr_win = *p++;
@@ -204,7 +183,7 @@ int do_nego_rpc(struct lgss_nego_data *lnd,
         p += (((gr->gr_token.length + 3) & ~3) / 4);
 
 	logmsg(LL_DEBUG, "do_nego_rpc: receive handle len %d, token len %d, " \
-	       "res %d\n", gr->gr_ctx.length, gr->gr_token.length, res);
+	       "res %d\n", gr->gr_ctx.length, gr->gr_token.length, rc);
 	return 0;
 }
 
@@ -612,26 +591,20 @@ static int parse_callout_info(const char *coinfo,
 
 static void set_log_level()
 {
-        FILE         *file;
-        unsigned int  level;
-	char path[PATH_MAX];
+	char **list = NULL;
+	unsigned int level;
+	int rc;
 
-	if (cfs_get_procpath(path, sizeof(path),
-			       "lustre/sptlrpc/gss/lgss_keyring/debug_level"))
+	rc = llapi_get_param(&list, "sptlrpc/gss/lgss_keyring/debug_level");
+	if (rc != 0 || list[0] == NULL)
 		return;
-	file = fopen(path, "r");
-        if (file == NULL)
-                return;
 
-        if (fscanf(file, "%u", &level) != 1)
-                goto out;
+	rc = sscanf(llapi_trim_string(list[0]), "%u", &level);
+	if (rc != 1)
+		return;
 
-        if (level >= LL_MAX)
-                goto out;
-
-        lgss_set_loglevel(level);
-out:
-        fclose(file);
+	if (level < LL_MAX)
+		lgss_set_loglevel(level);
 }
 
 /****************************************

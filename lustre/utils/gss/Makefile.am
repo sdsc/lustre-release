@@ -3,8 +3,10 @@
 AM_CFLAGS := -fPIC \
 	     -D_LARGEFILE64_SOURCE=1 -D_FILE_OFFSET_BITS=64 -DLUSTRE_UTILS=1
 
-LIBCFS := $(top_builddir)/libcfs/libcfs/libcfs.a
+LIBCFS       := $(top_builddir)/libcfs/libcfs/libcfs.a
+LIBLUSTREAPI := $(top_builddir)/lustre/utils/liblustreapi.a
 
+if UTILS
 sbin_PROGRAMS = lsvcgssd l_idmap
 
 if GSS_KEYRING
@@ -14,6 +16,7 @@ endif
 if GSS_PIPEFS
 sbin_PROGRAMS += lgssd
 endif
+endif # UTILS
 
 COMMON_SRCS = \
         context.c \
@@ -87,8 +90,8 @@ lgss_keyring_SOURCES = \
 	lsupport.h
 
 lgss_keyring_CFLAGS = $(AM_CFLAGS) $(CFLAGS) $(KRBCFLAGS) -D _NEW_BUILD_
-lgss_keyring_LDADD = $(LIBCFS) -lkeyutils $(GSSAPI_LIBS) $(KRBLIBS)
+lgss_keyring_LDADD = $(LIBLUSTREAPI) $(LIBCFS) -lkeyutils $(GSSAPI_LIBS) $(KRBLIBS)
 lgss_keyring_LDFLAGS = $(KRBLDFLAGS)
-lgss_keyring_DEPENDENCIES = $(LIBCFS)
+lgss_keyring_DEPENDENCIES = $(LIBLUSTREAPI) $(LIBCFS)
 
 EXTRA_DIST =

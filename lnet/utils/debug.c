@@ -51,30 +51,24 @@
 
 static char rawbuf[8192];
 static char *buf = rawbuf;
-static int max = 8192;
+static int max = sizeof(rawbuf);
 /*static int g_pfd = -1;*/
-static int subsystem_mask = ~0;
-static int debug_mask = ~0;
+static unsigned int subsystem_mask = ~0;
+static unsigned int debug_mask = ~0;
 
 #define MAX_MARK_SIZE 256
 
 static const char *libcfs_debug_subsystems[] = LIBCFS_DEBUG_SUBSYS_NAMES;
 static const char *libcfs_debug_masks[] = LIBCFS_DEBUG_MASKS_NAMES;
 
-#define DAEMON_CTL_NAME		"lnet/daemon_file"
-#define SUBSYS_DEBUG_CTL_NAME	"lnet/subsystem_debug"
-#define DEBUG_CTL_NAME		"lnet/debug"
-#define DUMP_KERNEL_CTL_NAME	"lnet/dump_kernel"
-
-static int
-dbg_open_ctlhandle(const char *str)
+static int dbg_open_ctlhandle(const char *name)
 {
 	char path[PATH_MAX];
 	int fd, rc;
 
-	rc = cfs_get_procpath(path, sizeof(path), str);
+	rc = cfs_get_procpath(path, sizeof(path), "lnet/%s", name);
 	if (rc < 0) {
-		fprintf(stderr, "invalid command '%s'\n", str);
+		fprintf(stderr, "invalid command '%s'\n", name);
 		return -1;
 	}
 
@@ -87,22 +81,19 @@ dbg_open_ctlhandle(const char *str)
 	return fd;
 }
 
-static void
-dbg_close_ctlhandle(int fd)
+static void dbg_close_ctlhandle(int fd)
 {
-	close(fd);
+	(void)close(fd);
 }
 
-static int
-dbg_write_cmd(int fd, char *str, int len)
+static int dbg_write_cmd(int fd, const char *str, size_t len)
 {
 	int rc = write(fd, str, len);
 
-	return (rc == len ? 0 : 1);
+	return (rc == len) ? 0 : -1;
 }
 
-
-static int do_debug_mask(char *name, int enable)
+static int do_debug_mask(const char *name, int enable)
 {
 	int found = 0;
 	int i;
@@ -177,34 +168,28 @@ int jt_dbg_show(int argc, char **argv)
 	return 0;
 }
 
-static int applymask(char* procpath, int value)
+static int applymask(const char *name, unsigned int value)
 {
+	char	buf[8];
+	size_t	len;
 	int	rc;
-	char	buf[64];
-	int	len = snprintf(buf, 64, "%d", value);
 
-	int fd = dbg_open_ctlhandle(procpath);
-	if (fd == -1) {
-		fprintf(stderr, "Unable to open %s: %s\n",
-			procpath, strerror(errno));
-		return fd;
-	}
-	rc = dbg_write_cmd(fd, buf, len+1);
+	len = snprintf(buf, sizeof(buf), "%u", value);
+
+	rc = llapi_set_param(buf, len + 1, name);
 	if (rc != 0) {
-		fprintf(stderr, "Write to %s failed: %s\n",
-			procpath, strerror(errno));
+		fprintf(stderr, "Write to '%s' failed: %s\n",
+			name, strerror(-rc));
 	}
-
-	dbg_close_ctlhandle(fd);
 
 	return rc;
 }
 
 static void applymask_all(unsigned int subs_mask, unsigned int debug_mask)
 {
-	applymask(SUBSYS_DEBUG_CTL_NAME, subs_mask);
-	applymask(DEBUG_CTL_NAME, debug_mask);
-	printf("Applied subsystem_debug=%d, debug=%d to lnet\n",
+	applymask("subsystem_debug", subs_mask);
+	applymask("debug", debug_mask);
+	printf("Applied subsystem_debug=%u, debug=%u to lnet\n",
 	       subs_mask, debug_mask);
 }
 
@@ -231,6 +216,7 @@ int jt_dbg_list(int argc, char **argv)
 	} else if (strcasecmp(argv[1], "applymasks") == 0) {
 		applymask_all(subsystem_mask, debug_mask);
 	}
+
 	return 0;
 }
 
@@ -269,7 +255,7 @@ static void print_rec(struct dbg_line ***linevp, int used, int fdout)
 		struct ptldebug_header	*hdr = line->hdr;
 		char			 out[4097];
 		char			*buf = out;
-		int			 bytes;
+		ssize_t			 bytes;
 		ssize_t			 bytes_written;
 
 		bytes = snprintf(out, sizeof(out),
@@ -420,15 +406,15 @@ retry_alloc:
 		line = malloc(sizeof(*line));
 		if (line == NULL) {
 			if (linev) {
-				fprintf(stderr, "error: line malloc(%u): "
+				fprintf(stderr, "error: line malloc(%zu): "
 					"printing accumulated records\n",
-					(unsigned int)sizeof(*line));
+					sizeof(*line));
 				print_rec(&linev, kept, fdout);
 
 				goto retry_alloc;
 			}
-			fprintf(stderr, "error: line malloc(%u): exiting\n",
-				(unsigned int)sizeof(*line));
+			fprintf(stderr, "error: line malloc(%zu): exiting\n",
+				sizeof(*line));
 			break;
 		}
 
@@ -444,7 +430,7 @@ retry_alloc:
 				goto retry_alloc;
 			}
 			fprintf(stderr, "error: hdr malloc(%u): exiting\n",
-					hdr->ph_len + 1);
+				hdr->ph_len + 1);
 			break;
 		}
 
@@ -462,7 +448,7 @@ retry_alloc:
 retry_add:
 		if (add_rec(line, &linev, &linev_len, kept) < 0) {
 			if (linev) {
-				fprintf(stderr, "error: add_rec[%u] failed; "
+				fprintf(stderr, "error: add_rec[%d] failed; "
 					"print accumulated records\n",
 					linev_len);
 				print_rec(&linev, kept, fdout);
@@ -490,7 +476,6 @@ int jt_dbg_debug_kernel(int argc, char **argv)
 	struct stat	st;
 	char		filename[PATH_MAX];
 	int		raw = 0;
-	int		save_errno;
 	int		fdin;
 	int		fdout;
 	int		rc;
@@ -529,19 +514,10 @@ int jt_dbg_debug_kernel(int argc, char **argv)
 	if (stat(filename, &st) == 0 && S_ISREG(st.st_mode))
 		unlink(filename);
 
-	fdin = dbg_open_ctlhandle(DUMP_KERNEL_CTL_NAME);
-	if (fdin < 0) {
-		fprintf(stderr, "open(dump_kernel) failed: %s\n",
-			strerror(errno));
-		return 1;
-	}
-
-	rc = dbg_write_cmd(fdin, filename, strlen(filename));
-	save_errno = errno;
-	dbg_close_ctlhandle(fdin);
+	rc = llapi_set_param(filename, strlen(filename), "dump_kernel");
 	if (rc != 0) {
 		fprintf(stderr, "write(%s) failed: %s\n", filename,
-			strerror(save_errno));
+			strerror(rc));
 		return 1;
 	}
 
@@ -571,7 +547,7 @@ int jt_dbg_debug_kernel(int argc, char **argv)
 
 	rc = parse_buffer(fdin, fdout);
 	close(fdin);
-	if (argc > 1)
+	if (fdout != fileno(stdout))
 		close(fdout);
 	if (rc) {
 		fprintf(stderr, "parse_buffer failed; leaving tmp file %s "
@@ -639,7 +615,7 @@ int jt_dbg_debug_daemon(int argc, char **argv)
 		return 1;
 	}
 
-	fd = dbg_open_ctlhandle(DAEMON_CTL_NAME);
+	fd = dbg_open_ctlhandle("daemon_file");
 	if (fd < 0)
 		return -1;
 

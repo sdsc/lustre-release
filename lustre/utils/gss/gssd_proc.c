@@ -633,11 +633,9 @@ int do_negotiation(struct lustre_gss_data *lgd,
 {
 	struct lgssd_ioctl_param param;
 	struct passwd *pw;
-	int fd, ret;
 	char outbuf[8192];
 	unsigned int *p;
-	int res;
-	char path[PATH_MAX];
+	int rc;
 
 	pw = getpwuid(lgd->lgd_uid);
 	if (!pw) {
@@ -656,24 +654,12 @@ int do_negotiation(struct lustre_gss_data *lgd,
 	param.reply_buf_size = sizeof(outbuf);
 	param.reply_buf = outbuf;
 
-	if (cfs_get_procpath(path, sizeof(path),
-			       "lustre/sptlrpc/gss/init_channel"))
-		return -1;
-	fd = open(path, O_RDWR);
-	if (fd < 0) {
-		printerr(0, "can't open file %s\n", path);
-		return -1;
-	}
-
-	ret = write(fd, &param, sizeof(param));
-
-	if (ret != sizeof(param)) {
-		printerr(0, "lustre ioctl err: %d\n", strerror(errno));
-		close(fd);
+	rc = llapi_set_param(&param, sizeof(param), "sptlrpc/gss/init_channel");
+	if (rc != 0) {
+		printerr(0, "lustre err: %s\n", strerror(errno));
 		return -1;
 	}
 	if (param.status) {
-		close(fd);
 		printerr(0, "status: %d (%s)\n",
 			 param.status, strerror((int)param.status));
 		if (param.status == -ETIMEDOUT) {
@@ -690,7 +676,7 @@ int do_negotiation(struct lustre_gss_data *lgd,
 		return -1;
 	}
 	p = (unsigned int *)outbuf;
-	res = *p++;
+	rc = *p++;
 	gr->gr_major = *p++;
 	gr->gr_minor = *p++;
 	gr->gr_win = *p++;
@@ -707,7 +693,6 @@ int do_negotiation(struct lustre_gss_data *lgd,
 
 	printerr(2, "do_negotiation: receive handle len %d, token len %d\n",
 		 gr->gr_ctx.length, gr->gr_token.length);
-	close(fd);
 	return 0;
 }
 
