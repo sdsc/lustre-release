@@ -184,8 +184,13 @@ static int ll_close_inode_openhandle(struct obd_export *md_exp,
 	if (rc == 0 && op_data->op_bias & MDS_HSM_RELEASE) {
 		struct mdt_body *body;
 		body = req_capsule_server_get(&req->rq_pill, &RMF_MDT_BODY);
-		if (!(body->mbo_valid & OBD_MD_FLRELEASED))
-			rc = -EBUSY;
+		if (!(body->mbo_valid & OBD_MD_FLRELEASED)) {
+		/* LU-5836 check for dirty flag */
+			if (!(body->mbo_valid & OBD_MD_FLDIRTY))
+				rc = -EBUSY;
+			else
+				rc = -EPERM;
+		}
 	}
 
         ll_finish_md_op_data(op_data);

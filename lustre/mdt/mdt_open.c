@@ -1726,13 +1726,16 @@ out_close:
 	mdt_object_put(info->mti_env, orphan);
 
 out_unlock:
-	up_write(&o->mot_open_sem);
-
-	if (rc == 0) { /* already released */
+   {
+		/* LU-5836 fix setting OBD flag to dirty */
 		struct mdt_body *repbody;
+		up_write(&o->mot_open_sem);
 		repbody = req_capsule_server_get(info->mti_pill, &RMF_MDT_BODY);
 		LASSERT(repbody != NULL);
-		repbody->mbo_valid |= OBD_MD_FLRELEASED;
+		if (rc == 0)  /* already released */
+			repbody->mbo_valid |= OBD_MD_FLRELEASED;
+		else if (rc == -EPERM)
+			repbody->mbo_valid |= OBD_MD_FLDIRTY;
 	}
 
 out_reprocess:

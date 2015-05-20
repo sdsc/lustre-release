@@ -1799,6 +1799,9 @@ lov_mds_md_max_stripe_count(size_t buf_size, __u32 lmm_magic)
 
 #define OBD_MD_FLXATTRALL (OBD_MD_FLXATTR | OBD_MD_FLXATTRLS)
 
+/* LU-5836 flag to detect archived copy and local copy are mismatched */
+#define OBD_MD_FLDIRTY      (0x0080000000000000ULL)
+
 /* don't forget obdo_fid which is way down at the bottom so it can
  * come after the definition of llog_cookie */
 
