@@ -128,7 +128,6 @@ static struct lu_device *lovsub_device_fini(const struct lu_env *env,
         ENTRY;
         lsd = lu2lovsub_dev(d);
         next = cl2lu_dev(lsd->acid_next);
-        lsd->acid_super = NULL;
         lsd->acid_next = NULL;
         RETURN(next);
 }

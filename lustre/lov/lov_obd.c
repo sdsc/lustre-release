@@ -1021,15 +1021,8 @@ out:
         RETURN(rc);
 }
 
-#define ASSERT_LSM_MAGIC(lsmp)                                                  \
-do {                                                                            \
-        LASSERT((lsmp) != NULL);                                                \
-        LASSERTF(((lsmp)->lsm_magic == LOV_MAGIC_V1 ||                          \
-                 (lsmp)->lsm_magic == LOV_MAGIC_V3),                            \
-                 "%p->lsm_magic=%x\n", (lsmp), (lsmp)->lsm_magic);              \
-} while (0)
-
-int lov_statfs_interpret(struct ptlrpc_request_set *rqset, void *data, int rc)
+static int
+lov_statfs_interpret(struct ptlrpc_request_set *rqset, void *data, int rc)
 {
 	struct lov_request_set *lovset = (struct lov_request_set *)data;
 	int err;

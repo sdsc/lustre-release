@@ -59,7 +59,6 @@ static void lovsub_lock_fini(const struct lu_env *env,
 
         ENTRY;
         lsl = cl2lovsub_lock(slice);
-	LASSERT(list_empty(&lsl->lss_parents));
         OBD_SLAB_FREE_PTR(lsl, lovsub_lock_kmem);
         EXIT;
 }
@@ -77,7 +76,6 @@ int lovsub_lock_init(const struct lu_env *env, struct cl_object *obj,
 	ENTRY;
 	OBD_SLAB_ALLOC_PTR_GFP(lsk, lovsub_lock_kmem, GFP_NOFS);
 	if (lsk != NULL) {
-		INIT_LIST_HEAD(&lsk->lss_parents);
 		cl_lock_slice_add(lock, &lsk->lss_cl, obj, &lovsub_lock_ops);
 		result = 0;
 	} else
