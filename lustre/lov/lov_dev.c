@@ -55,11 +55,6 @@ struct kmem_cache *lovsub_lock_kmem;
 struct kmem_cache *lovsub_object_kmem;
 struct kmem_cache *lovsub_req_kmem;
 
-struct kmem_cache *lov_lock_link_kmem;
-
-/** Lock class of lov_device::ld_mutex. */
-static struct lock_class_key cl_lov_device_mutex_class;
-
 struct lu_kmem_descr lov_caches[] = {
         {
                 .ckd_cache = &lov_lock_kmem,
@@ -100,11 +95,6 @@ struct lu_kmem_descr lov_caches[] = {
                 .ckd_cache = &lovsub_req_kmem,
                 .ckd_name  = "lovsub_req_kmem",
                 .ckd_size  = sizeof (struct lovsub_req)
-        },
-        {
-                .ckd_cache = &lov_lock_link_kmem,
-                .ckd_name  = "lov_lock_link_kmem",
-                .ckd_size  = sizeof (struct lov_lock_link)
         },
         {
                 .ckd_cache = NULL
@@ -238,8 +228,6 @@ static int lov_device_init(const struct lu_env *env, struct lu_device *d,
                         break;
                 }
                 lsd = cl2lovsub_dev(cl);
-                lsd->acid_idx = i;
-                lsd->acid_super = ld;
                 ld->ld_target[i] = lsd;
         }
 
@@ -271,24 +259,6 @@ static const struct cl_device_operations lov_cl_ops = {
         .cdo_req_init = lov_req_init
 };
 
-static void lov_emerg_free(struct lov_device_emerg **emrg, int nr)
-{
-        int i;
-
-        for (i = 0; i < nr; ++i) {
-                struct lov_device_emerg *em;
-
-                em = emrg[i];
-                if (em != NULL) {
-                        LASSERT(em->emrg_page_list.pl_nr == 0);
-                        if (em->emrg_env != NULL)
-                                cl_env_put(em->emrg_env, &em->emrg_refcheck);
-                        OBD_FREE_PTR(em);
-                }
-        }
-        OBD_FREE(emrg, nr * sizeof emrg[0]);
-}
-
 static struct lu_device *lov_device_free(const struct lu_env *env,
                                          struct lu_device *d)
 {
@@ -298,8 +268,7 @@ static struct lu_device *lov_device_free(const struct lu_env *env,
         cl_device_fini(lu2cl_dev(d));
         if (ld->ld_target != NULL)
                 OBD_FREE(ld->ld_target, nr * sizeof ld->ld_target[0]);
-        if (ld->ld_emrg != NULL)
-                lov_emerg_free(ld->ld_emrg, nr);
+
         OBD_FREE_PTR(ld);
         return NULL;
 }
@@ -317,40 +286,6 @@ static void lov_cl_del_target(const struct lu_env *env, struct lu_device *dev,
         EXIT;
 }
 
-static struct lov_device_emerg **lov_emerg_alloc(int nr)
-{
-        struct lov_device_emerg **emerg;
-        int i;
-        int result;
-
-        OBD_ALLOC(emerg, nr * sizeof emerg[0]);
-        if (emerg == NULL)
-                return ERR_PTR(-ENOMEM);
-        for (result = i = 0; i < nr && result == 0; i++) {
-                struct lov_device_emerg *em;
-
-                OBD_ALLOC_PTR(em);
-                if (em != NULL) {
-                        emerg[i] = em;
-                        cl_page_list_init(&em->emrg_page_list);
-                        em->emrg_env = cl_env_alloc(&em->emrg_refcheck,
-                                                    LCT_REMEMBER|LCT_NOREF);
-                        if (!IS_ERR(em->emrg_env))
-                                em->emrg_env->le_ctx.lc_cookie = 0x2;
-                        else {
-                                result = PTR_ERR(em->emrg_env);
-                                em->emrg_env = NULL;
-                        }
-                } else
-                        result = -ENOMEM;
-        }
-        if (result != 0) {
-                lov_emerg_free(emerg, nr);
-                emerg = ERR_PTR(result);
-        }
-        return emerg;
-}
-
 static int lov_expand_targets(const struct lu_env *env, struct lov_device *dev)
 {
         int   result;
@@ -362,34 +297,24 @@ static int lov_expand_targets(const struct lu_env *env, struct lov_device *dev)
         tgt_size = dev->ld_lov->lov_tgt_size;
         sub_size = dev->ld_target_nr;
         if (sub_size < tgt_size) {
-                struct lovsub_device    **newd;
-                struct lov_device_emerg **emerg;
-                const size_t              sz   = sizeof newd[0];
+		struct lovsub_device **newd;
+		const size_t sz = sizeof(newd[0]);
 
-                emerg = lov_emerg_alloc(tgt_size);
-                if (IS_ERR(emerg))
-                        RETURN(PTR_ERR(emerg));
+		OBD_ALLOC(newd, tgt_size * sz);
+		if (newd != NULL) {
+			if (sub_size > 0) {
+				memcpy(newd, dev->ld_target, sub_size * sz);
+				OBD_FREE(dev->ld_target, sub_size * sz);
+			}
 
-                OBD_ALLOC(newd, tgt_size * sz);
-                if (newd != NULL) {
-			mutex_lock(&dev->ld_mutex);
-                        if (sub_size > 0) {
-                                memcpy(newd, dev->ld_target, sub_size * sz);
-                                OBD_FREE(dev->ld_target, sub_size * sz);
-                        }
-                        dev->ld_target    = newd;
-                        dev->ld_target_nr = tgt_size;
+			dev->ld_target = newd;
+			dev->ld_target_nr = tgt_size;
+		} else {
+			result = -ENOMEM;
+		}
+	}
 
-                        if (dev->ld_emrg != NULL)
-                                lov_emerg_free(dev->ld_emrg, sub_size);
-                        dev->ld_emrg = emerg;
-			mutex_unlock(&dev->ld_mutex);
-                } else {
-                        lov_emerg_free(emerg, tgt_size);
-                        result = -ENOMEM;
-                }
-        }
-        RETURN(result);
+	RETURN(result);
 }
 
 static int lov_cl_add_target(const struct lu_env *env, struct lu_device *dev,
@@ -422,8 +347,6 @@ static int lov_cl_add_target(const struct lu_env *env, struct lu_device *dev,
                                    tgt->ltd_obd->obd_lu_dev);
                 if (!IS_ERR(cl)) {
                         lsd = cl2lovsub_dev(cl);
-                        lsd->acid_idx = index;
-                        lsd->acid_super = ld;
                         ld->ld_target[index] = lsd;
                 } else {
                         CERROR("add failed (%d), deleting %s\n", rc,
@@ -488,9 +411,6 @@ static struct lu_device *lov_device_alloc(const struct lu_env *env,
         d = lov2lu_dev(ld);
         d->ld_ops        = &lov_lu_ops;
         ld->ld_cl.cd_ops = &lov_cl_ops;
-
-	mutex_init(&ld->ld_mutex);
-	lockdep_set_class(&ld->ld_mutex, &cl_lov_device_mutex_class);
 
         /* setup the LOV OBD */
         obd = class_name2obd(lustre_cfg_string(cfg, 0));
