@@ -172,7 +172,7 @@ static int ofd_inconsistency_verification_main(void *args)
 
 	OBD_ALLOC_PTR(lr);
 	if (unlikely(lr == NULL))
-		GOTO(out, rc = -ENOMEM);
+		GOTO(out1, rc = -ENOMEM);
 
 	lr->lr_event = LE_PAIRS_VERIFY;
 	lr->lr_active = LFSCK_TYPE_LAYOUT;
@@ -224,6 +224,13 @@ static int ofd_inconsistency_verification_main(void *args)
 	GOTO(out, rc = 0);
 
 out:
+	thread_set_flags(thread, SVC_STOPPED);
+	wake_up_all(&thread->t_ctl_waitq);
+	spin_unlock(&ofd->ofd_inconsistency_lock);
+	lu_env_fini(&env);
+
+out1:
+	spin_lock(&ofd->ofd_inconsistency_lock);
 	thread_set_flags(thread, SVC_STOPPED);
 	wake_up_all(&thread->t_ctl_waitq);
 	spin_unlock(&ofd->ofd_inconsistency_lock);
