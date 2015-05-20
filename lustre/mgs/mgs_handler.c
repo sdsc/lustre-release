@@ -631,7 +631,6 @@ static int mgs_iocontrol_nodemap(const struct lu_env *env,
 				 struct obd_ioctl_data *data)
 {
 	struct lustre_cfg	*lcfg = NULL;
-	struct lu_nodemap	*nodemap;
 	lnet_nid_t		nid;
 	const char		*nodemap_name = NULL;
 	const char		*nidstr = NULL;
@@ -687,10 +686,9 @@ static int mgs_iocontrol_nodemap(const struct lu_env *env,
 			GOTO(out_lcfg, rc = -EINVAL);
 		nidstr = lustre_cfg_string(lcfg, 1);
 		nid = libcfs_str2nid(nidstr);
-		nodemap = nodemap_classify_nid(nid);
 		memset(data->ioc_pbuf1, 0, data->ioc_plen1);
-		if (copy_to_user(data->ioc_pbuf1, nodemap->nm_name,
-				 strlen(nodemap->nm_name)) != 0)
+		rc = nodemap_test_nid(nid, data->ioc_pbuf1, data->ioc_plen1);
+		if (rc != 0)
 			GOTO(out_lcfg, rc = -EFAULT);
 		break;
 	case LCFG_NODEMAP_TEST_ID:
@@ -701,16 +699,13 @@ static int mgs_iocontrol_nodemap(const struct lu_env *env,
 		client_idstr = lustre_cfg_string(lcfg, 3);
 
 		nid = libcfs_str2nid(nidstr);
-		nodemap = nodemap_classify_nid(nid);
-		client_id = simple_strtoul(client_idstr, NULL, 10);
-
 		if (strcmp(idtype_str, "uid") == 0)
 			idtype = NODEMAP_UID;
 		else
 			idtype = NODEMAP_GID;
+		client_id = simple_strtoul(client_idstr, NULL, 10);
 
-		fs_id = nodemap_map_id(nodemap, idtype, NODEMAP_CLIENT_TO_FS,
-				       client_id);
+		fs_id = nodemap_test_id(nid, idtype, client_id);
 
 		if (data->ioc_plen1 < sizeof(fs_idstr))
 			GOTO(out_lcfg, rc = -EINVAL);
