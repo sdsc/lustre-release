@@ -1253,7 +1253,7 @@ static int llog_osd_destroy(const struct lu_env *env,
 	if (loghandle->lgh_name) {
 		llog_dir = llog_osd_dir_get(env, ctxt);
 		if (IS_ERR(llog_dir))
-			GOTO(out_trans, rc = PTR_ERR(llog_dir));
+			GOTO(out_trans, rc = -ENOENT);
 
 		name = loghandle->lgh_name;
 		rc = dt_declare_delete(env, llog_dir,
