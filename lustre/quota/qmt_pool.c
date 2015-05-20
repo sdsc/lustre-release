@@ -86,7 +86,8 @@ static inline void qpi_putref_locked(struct qmt_pool_info *pool)
  * Hash functions for qmt_pool_info management
  */
 
-static unsigned qpi_hash_hash(cfs_hash_t *hs, const void *key, unsigned mask)
+static unsigned
+qpi_hash_hash(struct cfs_hash *hs, const void *key, unsigned mask)
 {
 	return cfs_hash_u32_hash(*((__u32 *)key), mask);
 }
@@ -110,21 +111,21 @@ static void *qpi_hash_object(struct hlist_node *hnode)
 	return hlist_entry(hnode, struct qmt_pool_info, qpi_hash);
 }
 
-static void qpi_hash_get(cfs_hash_t *hs, struct hlist_node *hnode)
+static void qpi_hash_get(struct cfs_hash *hs, struct hlist_node *hnode)
 {
 	struct qmt_pool_info *pool;
 	pool = hlist_entry(hnode, struct qmt_pool_info, qpi_hash);
 	qpi_getref(pool);
 }
 
-static void qpi_hash_put_locked(cfs_hash_t *hs, struct hlist_node *hnode)
+static void qpi_hash_put_locked(struct cfs_hash *hs, struct hlist_node *hnode)
 {
 	struct qmt_pool_info *pool;
 	pool = hlist_entry(hnode, struct qmt_pool_info, qpi_hash);
 	qpi_putref_locked(pool);
 }
 
-static void qpi_hash_exit(cfs_hash_t *hs, struct hlist_node *hnode)
+static void qpi_hash_exit(struct cfs_hash *hs, struct hlist_node *hnode)
 {
 	CERROR("Should not have any item left!\n");
 }

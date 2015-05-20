@@ -103,7 +103,7 @@ static cfs_binheap_ops_t nrs_crrn_heap_ops = {
 #define NRS_NID_BKT_BITS	8
 #define NRS_NID_BITS		16
 
-static unsigned nrs_crrn_hop_hash(cfs_hash_t *hs, const void *key,
+static unsigned nrs_crrn_hop_hash(struct cfs_hash *hs, const void *key,
 				  unsigned mask)
 {
 	return cfs_hash_djb2_hash(key, sizeof(lnet_nid_t), mask);
@@ -131,7 +131,7 @@ static void *nrs_crrn_hop_object(struct hlist_node *hnode)
 	return hlist_entry(hnode, struct nrs_crrn_client, cc_hnode);
 }
 
-static void nrs_crrn_hop_get(cfs_hash_t *hs, struct hlist_node *hnode)
+static void nrs_crrn_hop_get(struct cfs_hash *hs, struct hlist_node *hnode)
 {
 	struct nrs_crrn_client *cli = hlist_entry(hnode,
 						      struct nrs_crrn_client,
@@ -139,7 +139,7 @@ static void nrs_crrn_hop_get(cfs_hash_t *hs, struct hlist_node *hnode)
 	atomic_inc(&cli->cc_ref);
 }
 
-static void nrs_crrn_hop_put(cfs_hash_t *hs, struct hlist_node *hnode)
+static void nrs_crrn_hop_put(struct cfs_hash *hs, struct hlist_node *hnode)
 {
 	struct nrs_crrn_client	*cli = hlist_entry(hnode,
 						       struct nrs_crrn_client,
@@ -147,7 +147,7 @@ static void nrs_crrn_hop_put(cfs_hash_t *hs, struct hlist_node *hnode)
 	atomic_dec(&cli->cc_ref);
 }
 
-static void nrs_crrn_hop_exit(cfs_hash_t *hs, struct hlist_node *hnode)
+static void nrs_crrn_hop_exit(struct cfs_hash *hs, struct hlist_node *hnode)
 {
 	struct nrs_crrn_client	*cli = hlist_entry(hnode,
 						       struct nrs_crrn_client,
