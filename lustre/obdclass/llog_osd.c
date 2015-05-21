@@ -365,6 +365,15 @@ static int llog_osd_write_rec(const struct lu_env *env,
 	if (reclen > LLOG_CHUNK_SIZE)
 		RETURN(-E2BIG);
 
+	/* sanity check for fixed-records llog */
+	if (idx != LLOG_HEADER_IDX &&
+	    llh->llh_size > 0 && llh->llh_size != reclen) {
+		CERROR("%s: wrong record size, llh_size is %u but record "
+		       "size is %u\n", o->do_lu.lo_dev->ld_obd->obd_name,
+		       llh->llh_size, reclen);
+		RETURN(-EINVAL);
+	}
+
 	rc = dt_attr_get(env, o, &lgi->lgi_attr);
 	if (rc)
 		RETURN(rc);
@@ -432,13 +441,6 @@ static int llog_osd_write_rec(const struct lu_env *env,
 			       POSTID(&loghandle->lgh_id.lgl_oi), idx,
 			       rec->lrh_len, (long long)lgi->lgi_off);
 		} else if (llh->llh_size > 0) {
-			if (llh->llh_size != rec->lrh_len) {
-				CERROR("%s: wrong record size, llh_size is %u"
-				       " but record size is %u\n",
-				       o->do_lu.lo_dev->ld_obd->obd_name,
-				       llh->llh_size, rec->lrh_len);
-				RETURN(-EINVAL);
-			}
 			lgi->lgi_off = sizeof(*llh) + (idx - 1) * reclen;
 		} else {
 			/* This can be result of lgh_cur_idx is not set during
@@ -486,9 +488,16 @@ static int llog_osd_write_rec(const struct lu_env *env,
 			RETURN(rc);
 		loghandle->lgh_last_idx++; /* for pad rec */
 	}
-	/* if it's the last idx in log file, then return -ENOSPC */
-	if (loghandle->lgh_last_idx >= LLOG_BITMAP_SIZE(llh) - 1)
-		RETURN(-ENOSPC);
+	/* if it's the last idx in log file, then return -ENOSPC
+	 * or roll-back if a catalog */
+	if ((loghandle->lgh_last_idx >= LLOG_BITMAP_SIZE(llh) - 1) ||
+	    unlikely(llh->llh_flags & LLOG_F_IS_CAT &&
+	     OBD_FAIL_CHECK(OBD_FAIL_CAT_RECORDS))) {
+		if (llh->llh_flags & LLOG_F_IS_CAT)
+			loghandle->lgh_last_idx = 0;
+		else
+			RETURN(-ENOSPC);
+	}
 
 	/* increment the last_idx along with llh_tail index, they should
 	 * be equal for a llog lifetime */
@@ -526,12 +535,20 @@ static int llog_osd_write_rec(const struct lu_env *env,
 		GOTO(out, rc);
 
 	header_is_updated = true;
-	rc = dt_attr_get(env, o, &lgi->lgi_attr);
-	if (rc)
-		GOTO(out, rc);
 
-	LASSERT(lgi->lgi_attr.la_valid & LA_SIZE);
-	lgi->lgi_off = lgi->lgi_attr.la_size;
+	/* computed index can be used to determine offset for fixed-size
+	 * records. This also allows to handle Catalog rolled back case */
+	if (llh->llh_size > 0) {
+		lgi->lgi_off = sizeof(*llh) + (index - 1) * reclen;
+	} else {
+		rc = dt_attr_get(env, o, &lgi->lgi_attr);
+		if (rc)
+			GOTO(out, rc);
+
+		LASSERT(lgi->lgi_attr.la_valid & LA_SIZE);
+		lgi->lgi_off = lgi->lgi_attr.la_size;
+	}
+
 	lgi->lgi_buf.lb_len = reclen;
 	lgi->lgi_buf.lb_buf = rec;
 	rc = dt_record_write(env, o, &lgi->lgi_buf, &lgi->lgi_off, th);
@@ -561,7 +578,10 @@ out:
 	spin_unlock(&loghandle->lgh_hdr_lock);
 
 	/* restore llog last_idx */
-	loghandle->lgh_last_idx--;
+	if (--loghandle->lgh_last_idx == 0)
+		/* catalog had just roll-back case */
+		LASSERT(llh->llh_flags & LLOG_F_IS_CAT);
+		loghandle->lgh_last_idx = LLOG_BITMAP_SIZE(llh) - 1;
 	llh->llh_tail.lrt_index = loghandle->lgh_last_idx;
 
 	/* restore the header on disk if it was written */

@@ -65,9 +65,21 @@ static int llog_cat_new_log(const struct lu_env *env,
 {
 	struct llog_thread_info	*lgi = llog_info(env);
 	struct llog_logid_rec	*rec = &lgi->lgi_logid;
-	int			 rc;
+	int			 rc, newindex;
 
 	ENTRY;
+
+	/* will Catalog roll-back ? */
+	newindex = (cathandle->lgh_last_idx + 1) %
+		LLOG_BITMAP_SIZE(cathandle->lgh_hdr);
+	if (newindex == 0)
+		newindex = 1;
+	/* will indexes overlap ? */
+	if (newindex == cathandle->lgh_hdr->llh_cat_idx) {
+		CWARN("%s: there is no more free slots in catalog\n",
+		      loghandle->lgh_ctxt->loc_obd->obd_name);
+		RETURN(-ENOSPC);
+	}
 
 	if (OBD_FAIL_CHECK(OBD_FAIL_MDS_LLOG_CREATE_FAILED))
 		RETURN(-ENOSPC);
@@ -100,7 +112,7 @@ static int llog_cat_new_log(const struct lu_env *env,
 	if (rc < 0)
 		GOTO(out_destroy, rc);
 
-	CDEBUG(D_OTHER, "new recovery log "DOSTID":%x for index %u of catalog"
+	CDEBUG(D_OTHER, "new plain log "DOSTID":%x for index %u of catalog"
 	       DOSTID"\n", POSTID(&loghandle->lgh_id.lgl_oi),
 	       loghandle->lgh_id.lgl_ogen, rec->lid_hdr.lrh_index,
 	       POSTID(&cathandle->lgh_id.lgl_oi));
