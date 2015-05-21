@@ -117,6 +117,11 @@ struct lprocfs_stats *obd_memory = NULL;
 EXPORT_SYMBOL(obd_memory);
 #endif
 
+__u64 ldlm_watermark_low = 0;
+EXPORT_SYMBOL(ldlm_watermark_low);
+__u64 ldlm_watermark_high = 0;
+EXPORT_SYMBOL(ldlm_watermark_high);
+
 /* Get jobid of current process by reading the environment variable
  * stored in between the "env_start" & "env_end" of task struct.
  *

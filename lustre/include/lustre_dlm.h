@@ -507,6 +507,11 @@ struct ldlm_namespace {
 	 * recalculation of LDLM pool statistics should be skipped.
 	 */
 	unsigned		ns_stopping:1;
+
+	/**
+	 * Which resource should we start whit the lock reclaim.
+	 */
+	unsigned		ns_reclaim_cursor;
 };
 
 /**
@@ -1562,6 +1567,29 @@ void ldlm_pool_set_limit(struct ldlm_pool *pl, __u32 limit);
 void ldlm_pool_add(struct ldlm_pool *pl, struct ldlm_lock *lock);
 void ldlm_pool_del(struct ldlm_pool *pl, struct ldlm_lock *lock);
 /** @} */
+
+static inline __u64 ldlm_wm2locknr(__u64 watermark)
+{
+	__u64 locknr;
+
+	if (watermark == 0) {
+		return 0;
+	} else if (watermark < 100) { /* ratio of total mem */
+		locknr = NUM_CACHEPAGES;
+		locknr = (locknr << PAGE_CACHE_SHIFT) * watermark;
+		do_div(locknr, 100 * sizeof(struct ldlm_lock));
+	} else { /* kbytes */
+		locknr = (watermark << 10);
+		do_div(locknr, sizeof(struct ldlm_lock));
+	}
+
+	return locknr ? locknr : 1;
+}
+
+static inline __u64 ldlm_locknr2wm(__u64 locknr)
+{
+	return (locknr * sizeof(struct ldlm_lock)) >> 10;
+}
 
 #endif
 /** @} LDLM */

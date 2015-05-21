@@ -53,6 +53,7 @@
 #include <obd_support.h>
 #include <lprocfs_status.h>
 #include <obd_class.h>
+#include <lustre_dlm.h>
 
 #ifdef CONFIG_SYSCTL
 static struct ctl_table_header *obd_table_header;
@@ -249,6 +250,43 @@ static int proc_alloc_fail_rate(struct ctl_table *table, int write,
 }
 #endif
 
+static int proc_ldlm_watermark(struct ctl_table *table, int write,
+			       void __user *buffer, size_t *lenp, loff_t *ppos)
+{
+	int rc = 0;
+	__u64 watermark;
+
+	if (!table->data || !table->maxlen || !*lenp || (*ppos && !write)) {
+		*lenp = 0;
+		return rc;
+	}
+
+	if (write) {
+		rc = lprocfs_write_u64_helper(buffer, *lenp, &watermark);
+		if (rc) {
+			CERROR("Failed to set watermark, rc=%d.\n", rc);
+		} else {
+			*(__u64 *)table->data = ldlm_wm2locknr(watermark);
+			if (ldlm_watermark_low > ldlm_watermark_high)
+				ldlm_watermark_low = ldlm_watermark_high;
+		}
+	} else {
+		char buf[22];
+		int len;
+
+		watermark = ldlm_locknr2wm(*(__u64 *)table->data);
+		len = lprocfs_read_frac_helper(buf, 22, (long)watermark, 1);
+		if (len > *lenp)
+			len = *lenp;
+		buf[len] = '\0';
+		if (copy_to_user(buffer, buf, len))
+			return -EFAULT;
+		*lenp = len;
+	}
+	*ppos += *lenp;
+	return rc;
+}
+
 #ifdef CONFIG_SYSCTL
 static struct ctl_table obd_table[] = {
 	{
@@ -389,6 +427,23 @@ static struct ctl_table obd_table[] = {
 		.mode		= 0644,
 		.proc_handler	= &proc_dointvec
 	},
+	{
+		INIT_CTL_NAME
+		.procname	= "ldlm_watermark_kb_low",
+		.data		= &ldlm_watermark_low,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= &proc_ldlm_watermark
+	},
+	{
+		INIT_CTL_NAME
+		.procname	= "ldlm_watermark_kb_high",
+		.data		= &ldlm_watermark_high,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= &proc_ldlm_watermark
+	},
+
 	{ 0 }
 };
 
