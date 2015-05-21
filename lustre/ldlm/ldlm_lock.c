@@ -251,7 +251,6 @@ int ldlm_lock_remove_from_lru(struct ldlm_lock *lock)
 
 	ENTRY;
 	if (ldlm_is_ns_srv(lock)) {
-		LASSERT(list_empty(&lock->l_lru));
 		RETURN(0);
 	}
 
@@ -2134,10 +2133,11 @@ void ldlm_lock_cancel(struct ldlm_lock *lock)
 	LASSERT(!ldlm_is_waited(lock));
 
         ldlm_resource_unlink_lock(lock);
-        ldlm_lock_destroy_nolock(lock);
 
-        if (lock->l_granted_mode == lock->l_req_mode)
-                ldlm_pool_del(&ns->ns_pool, lock);
+	if (lock->l_granted_mode == lock->l_req_mode)
+		ldlm_pool_del(&ns->ns_pool, lock);
+
+	ldlm_lock_destroy_nolock(lock);
 
         /* Make sure we will not be called again for same lock what is possible
          * if not to zero out lock->l_granted_mode */

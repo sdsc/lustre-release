@@ -339,3 +339,10 @@ void ldlm_flock_policy_wire_to_local(const ldlm_wire_policy_data_t *wpolicy,
 
 void ldlm_flock_policy_local_to_wire(const ldlm_policy_data_t *lpolicy,
                                      ldlm_wire_policy_data_t *wpolicy);
+
+/* ldlm_reclaim.c */
+int ldlm_reclaim_setup(void);
+void ldlm_reclaim_cleanup(void);
+void ldlm_reclaim_add(struct ldlm_lock *lock);
+void ldlm_reclaim_del(struct ldlm_lock *lock);
+bool ldlm_granted_full(void);
