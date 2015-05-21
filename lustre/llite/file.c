@@ -164,8 +164,8 @@ static int ll_close_inode_openhandle(struct obd_export *md_exp,
 		op_data->op_attr.ia_valid |= ATTR_SIZE | ATTR_BLOCKS;
 	}
 
-        rc = md_close(md_exp, op_data, och->och_mod, &req);
-	if (rc) {
+	rc = md_close(md_exp, op_data, och->och_mod, &req);
+	if (rc != -EINTR) {
 		CERROR("%s: inode "DFID" mdc close failed: rc = %d\n",
 		       ll_i2mdexp(inode)->exp_obd->obd_name,
 		       PFID(ll_inode2fid(inode)), rc);
