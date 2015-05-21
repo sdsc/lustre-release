@@ -65,9 +65,31 @@ static int llog_cat_new_log(const struct lu_env *env,
 {
 	struct llog_thread_info	*lgi = llog_info(env);
 	struct llog_logid_rec	*rec = &lgi->lgi_logid;
+	struct llog_log_hdr	*llh = cathandle->lgh_hdr;
 	int			 rc;
 
 	ENTRY;
+
+	/* check that new llog index will not overlap with the first one.
+	 * - llh_cat_idx is the index before the first used index in catalog
+	 * - lgh_last_idx is the index of the last used plain llog
+	 *
+	 * When catalog is not looped yet then last index is always larger
+	 * than the first one. After the rolling back the last index starts
+	 * from 0 and llh_cat_idx is the upper limit for it, unless
+	 * catalog has been emptied.
+	 *
+	 * Check if catalog is looped back already or not yet by comparing
+	 * last_idx and cat_idx */
+	if ((cathandle->lgh_last_idx != 0 &&
+	     cathandle->lgh_last_idx == llh->llh_cat_idx &&
+	     ext2_test_bit(cathandle->lgh_last_idx, llh->llh_bitmap)) ||
+	    (cathandle->lgh_last_idx == (LLOG_BITMAP_SIZE(llh) - 1) &&
+	     llh->llh_cat_idx == 0)) {
+		CWARN("%s: there is no more free slots in catalog\n",
+		      loghandle->lgh_ctxt->loc_obd->obd_name);
+		RETURN(-ENOSPC);
+	}
 
 	if (OBD_FAIL_CHECK(OBD_FAIL_MDS_LLOG_CREATE_FAILED))
 		RETURN(-ENOSPC);
@@ -100,7 +122,7 @@ static int llog_cat_new_log(const struct lu_env *env,
 	if (rc < 0)
 		GOTO(out_destroy, rc);
 
-	CDEBUG(D_OTHER, "new recovery log "DOSTID":%x for index %u of catalog"
+	CDEBUG(D_OTHER, "new plain log "DOSTID":%x for index %u of catalog"
 	       DOSTID"\n", POSTID(&loghandle->lgh_id.lgl_oi),
 	       loghandle->lgh_id.lgl_ogen, rec->lid_hdr.lrh_index,
 	       POSTID(&cathandle->lgh_id.lgl_oi));
