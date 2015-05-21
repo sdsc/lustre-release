@@ -486,9 +486,16 @@ static int llog_osd_write_rec(const struct lu_env *env,
 			RETURN(rc);
 		loghandle->lgh_last_idx++; /* for pad rec */
 	}
-	/* if it's the last idx in log file, then return -ENOSPC */
-	if (loghandle->lgh_last_idx >= LLOG_BITMAP_SIZE(llh) - 1)
-		RETURN(-ENOSPC);
+	/* if it's the last idx in log file, then return -ENOSPC
+	 * or roll-back if a catalog */
+	if ((loghandle->lgh_last_idx >= LLOG_BITMAP_SIZE(llh) - 1) ||
+	    ((llh->llh_flags & LLOG_F_IS_CAT) &&
+	     OBD_FAIL_CHECK(OBD_FAIL_CAT_RECORDS))) {
+		if (llh->llh_flags & LLOG_F_IS_CAT)
+			loghandle->lgh_last_idx = 0;
+		else
+			RETURN(-ENOSPC);
+	}
 
 	/* increment the last_idx along with llh_tail index, they should
 	 * be equal for a llog lifetime */
@@ -510,10 +517,24 @@ static int llog_osd_write_rec(const struct lu_env *env,
 	 * update/cancel, the llh_count and llh_bitmap are protected */
 	spin_lock(&loghandle->lgh_hdr_lock);
 	if (ext2_set_bit(index, llh->llh_bitmap)) {
-		CERROR("%s: index %u already set in log bitmap\n",
-		       o->do_lu.lo_dev->ld_obd->obd_name, index);
-		spin_unlock(&loghandle->lgh_hdr_lock);
-		LBUG(); /* should never happen */
+		if ((llh->llh_flags & LLOG_F_IS_CAT) &&
+		    (loghandle->lgh_last_idx == llh->llh_cat_idx)) {
+			/* catalog is full after roll-back */
+			/* restore llog last_idx */
+			loghandle->lgh_last_idx--;
+			if (loghandle->lgh_last_idx <= 0)
+				/* catalog had just roll-back */
+				loghandle->lgh_last_idx = LLOG_BITMAP_SIZE(llh)
+							  - 1;
+			llh->llh_tail.lrt_index = loghandle->lgh_last_idx;
+			CERROR("no free catalog slots for log...\n");
+			RETURN(-ENOSPC);
+		} else {
+			CERROR("%s: index %u already set in log bitmap\n",
+			       o->do_lu.lo_dev->ld_obd->obd_name, index);
+			spin_unlock(&loghandle->lgh_hdr_lock);
+			LBUG(); /* should never happen */
+		}
 	}
 	llh->llh_count++;
 	spin_unlock(&loghandle->lgh_hdr_lock);
@@ -531,7 +552,15 @@ static int llog_osd_write_rec(const struct lu_env *env,
 		GOTO(out, rc);
 
 	LASSERT(lgi->lgi_attr.la_valid & LA_SIZE);
-	lgi->lgi_off = lgi->lgi_attr.la_size;
+
+	if (llh->llh_flags & LLOG_F_IS_CAT)
+		/* for a catalog use index to compute offset because
+		 * records are of fixed size and it may have already
+		 * roll-back */
+		lgi->lgi_off = sizeof(*llh) + (index - 1) * reclen;
+	else
+		lgi->lgi_off = lgi->lgi_attr.la_size;
+
 	lgi->lgi_buf.lb_len = reclen;
 	lgi->lgi_buf.lb_buf = rec;
 	rc = dt_record_write(env, o, &lgi->lgi_buf, &lgi->lgi_off, th);
@@ -562,6 +591,9 @@ out:
 
 	/* restore llog last_idx */
 	loghandle->lgh_last_idx--;
+	if (loghandle->lgh_last_idx <= 0)
+		/* catalog had just roll-back */
+		loghandle->lgh_last_idx = LLOG_BITMAP_SIZE(llh) - 1;
 	llh->llh_tail.lrt_index = loghandle->lgh_last_idx;
 
 	/* restore the header on disk if it was written */

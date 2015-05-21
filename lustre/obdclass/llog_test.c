@@ -87,7 +87,9 @@ static int verify_handle(char *test, struct llog_handle *llh, int num_recs)
                 RETURN(-ERANGE);
         }
 
-        if (llh->lgh_last_idx < last_idx) {
+	/* a catalog may wrap */
+	if (!(llh->lgh_hdr->llh_flags & LLOG_F_IS_CAT) &&
+	    (llh->lgh_last_idx < last_idx)) {
                 CERROR("%s: handle->last_idx is %d, expected %d after write\n",
                        test, llh->lgh_last_idx, last_idx);
                 RETURN(-ERANGE);
@@ -1074,6 +1076,165 @@ out_put:
 	RETURN(rc);
 }
 
+/* test catalog roll-back */
+static int llog_test_9(const struct lu_env *env, struct obd_device *obd)
+{
+	struct llog_handle	*cath, *plainh;
+	char			 name[10];
+	int			 rc, rc2, i, start, end;
+	struct llog_mini_rec	 lmr;
+	struct llog_cookie	 cookie;
+	struct llog_ctxt	*ctxt;
+	struct lu_attr		 la;
+	__u64			 cat_max_size;
+
+	ENTRY;
+
+	ctxt = llog_get_context(obd, LLOG_TEST_ORIG_CTXT);
+	LASSERT(ctxt);
+
+	lmr.lmr_hdr.lrh_len = lmr.lmr_tail.lrt_len = LLOG_MIN_REC_SIZE;
+	lmr.lmr_hdr.lrh_type = 0xf00f00;
+
+	snprintf(name, sizeof(name), "%x", llog_test_rand + 2);
+	CWARN("9a: create a catalog log with name: %s\n", name);
+	rc = llog_open_create(env, ctxt, &cath, NULL, name);
+	if (rc) {
+		CERROR("9a: llog_create with name %s failed: %d\n", name, rc);
+		GOTO(ctxt_release, rc);
+	}
+	rc = llog_init_handle(env, cath, LLOG_F_IS_CAT, &uuid);
+	if (rc) {
+		CERROR("9a: can't init llog handle: %d\n", rc);
+		GOTO(out, rc);
+	}
+
+	cat_logid = cath->lgh_id;
+
+	/* force catalog wrap for 5th plain LLOG */
+	cfs_fail_loc = CFS_FAIL_SKIP|OBD_FAIL_CAT_RECORDS;
+	cfs_fail_val = 4;
+
+	CWARN("9b: write %d log records\n", LLOG_TEST_RECNUM);
+	for (i = 0; i < LLOG_TEST_RECNUM; i++) {
+		rc = llog_cat_add(env, cath, &lmr.lmr_hdr, NULL);
+		if (rc) {
+			CERROR("9b: write %d records failed at #%d: %d\n",
+			       LLOG_TEST_RECNUM, i + 1, rc);
+			GOTO(out, rc);
+		}
+	}
+
+	/* make sure 2 new plain llog appears in catalog (+1 with hdr) */
+	rc = verify_handle("9b", cath, 3);
+	if (rc)
+		GOTO(out, rc);
+
+	CWARN("9c: write %d more log records\n", 2*LLOG_TEST_RECNUM);
+	for (i = 0; i < 2*LLOG_TEST_RECNUM; i++) {
+		rc = llog_cat_add(env, cath, &lmr.lmr_hdr, NULL);
+		if (rc) {
+			CERROR("9c: write %d records failed at #%d: %d\n",
+			       2*LLOG_TEST_RECNUM, i + 1, rc);
+			GOTO(out, rc);
+		}
+	}
+
+	/* make sure 2 new plain llog appears in catalog (+1 with hdr) */
+	rc = verify_handle("9c", cath, 5);
+	if (rc)
+		GOTO(out, rc);
+
+	rc = dt_attr_get(env, cath->lgh_obj, &la);
+	if (rc) {
+		CERROR("9e: failed to get catalog attrs: %d\n", rc);
+		GOTO(out, rc);
+	}
+	cat_max_size = la.la_size;
+
+	/* cancel all 1st plain llog records to empty it, this will also cause
+	 * its catalog entry to be freed for forced wrap */
+	CWARN("9d: cancel all 1st plain llog records\n");
+
+	/* 1st/oldest plain llog must be 1st in chain (post LU-5405) */
+	plainh = list_entry(cath->u.chd.chd_head.next, struct llog_handle,
+			    u.phd.phd_entry);
+	cookie.lgc_lgl = plainh->lgh_id;
+
+	/* in a full plain LLOG llh_cat_idx should be 1 which is 1st non
+	 * header index number, and need to use a copy of lgh_last_idx
+	 * instead to reference if for loop boundary check, because it will
+	 * be garbled/freed upon last record cancel */
+	start = plainh->lgh_hdr->llh_cat_idx;
+	end = plainh->lgh_last_idx;
+	for (i = start; i <= end; i++) {
+		cookie.lgc_index = i;
+		rc = llog_cat_cancel_records(env, cath, 1, &cookie);
+		/* tolerate ENOENT to handle pading records
+		 * this may generate Console msgs */
+		if (rc && rc != -ENOENT) {
+			CERROR("9d: cancel 1st plain llog based record with "
+			       "index=%d failed: %d\n", i, rc);
+			GOTO(out, rc);
+		}
+	}
+
+	/* verify one down in catalog (+1 with hdr) */
+	rc = verify_handle("9d", cath, 4);
+	if (rc)
+		GOTO(out, rc);
+
+	CWARN("9e: write %d more log records\n", LLOG_TEST_RECNUM);
+	for (i = 0; i < LLOG_TEST_RECNUM; i++) {
+		rc = llog_cat_add(env, cath, &lmr.lmr_hdr, NULL);
+		if (rc) {
+			CERROR("9e: write %d records failed at #%d: %d\n",
+			       LLOG_TEST_RECNUM, i + 1, rc);
+			GOTO(out, rc);
+		}
+	}
+
+	/* make sure 1 new plain llog appears in catalog (+1 with hdr) */
+	rc = verify_handle("9e", cath, 5);
+	if (rc)
+		GOTO(out, rc);
+
+	/* verify catalog has looped back */
+	if (cath->lgh_last_idx > cath->lgh_hdr->llh_cat_idx) {
+		CERROR("9e: catalog failed to loop back\n");
+		GOTO(out, rc = -EINVAL);
+	}
+
+	rc = dt_attr_get(env, cath->lgh_obj, &la);
+	if (rc) {
+		CERROR("9e: failed to get catalog attrs: %d\n", rc);
+		GOTO(out, rc);
+	}
+
+	if (la.la_size != cat_max_size) {
+		CERROR("9e: catalog size has changed after it has looped back,"
+		       " current size = "LPU64", expected size = "LPU64"\n",
+		       la.la_size, cat_max_size);
+		GOTO(out, rc = -EINVAL);
+	}
+	CWARN("9e: catalog successfully looped\n");
+
+out:
+	cfs_fail_loc = 0;
+	cfs_fail_val = 0;
+
+	CWARN("9f: put newly-created catalog\n");
+	rc2 = llog_cat_close(env, cath);
+	if (rc2) {
+		CERROR("9: close log %s failed: %d\n", name, rc2);
+		if (rc == 0)
+			rc = rc2;
+	}
+ctxt_release:
+	llog_ctxt_put(ctxt);
+	RETURN(rc);
+}
+
 /* -------------------------------------------------------------------------
  * Tests above, boring obd functions below
  * ------------------------------------------------------------------------- */
@@ -1119,6 +1280,10 @@ static int llog_run_tests(const struct lu_env *env, struct obd_device *obd)
 		GOTO(cleanup, rc);
 
 	rc = llog_test_8(env, obd);
+	if (rc)
+		GOTO(cleanup, rc);
+
+	rc = llog_test_9(env, obd);
 	if (rc)
 		GOTO(cleanup, rc);
 
