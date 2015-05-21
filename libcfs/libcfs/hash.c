@@ -1595,7 +1595,7 @@ EXPORT_SYMBOL(cfs_hash_size_get);
  */
 static int
 cfs_hash_for_each_relax(struct cfs_hash *hs, cfs_hash_for_each_cb_t func,
-			void *data)
+			void *data, int start)
 {
 	struct hlist_node	*hnode;
 	struct hlist_node	*tmp;
@@ -1603,18 +1603,24 @@ cfs_hash_for_each_relax(struct cfs_hash *hs, cfs_hash_for_each_cb_t func,
 	__u32			version;
 	int			count = 0;
 	int			stop_on_change;
-	int			rc;
-	int			i;
+	int			rc = 0;
+	int			i, end = -1;
 	ENTRY;
 
 	stop_on_change = cfs_hash_with_rehash_key(hs) ||
 			 !cfs_hash_with_no_itemref(hs) ||
 			 hs->hs_ops->hs_put_locked == NULL;
 	cfs_hash_lock(hs, 0);
+again:
 	LASSERT(!cfs_hash_is_rehashing(hs));
 
 	cfs_hash_for_each_bucket(hs, &bd, i) {
 		struct hlist_head *hhead;
+
+		if (i < start)
+			continue;
+		else if (end > 0 && i >= end)
+			break;
 
                 cfs_hash_bd_lock(hs, &bd, 0);
                 version = cfs_hash_bd_version_get(&bd);
@@ -1655,6 +1661,13 @@ cfs_hash_for_each_relax(struct cfs_hash *hs, cfs_hash_for_each_cb_t func,
 		if (rc) /* callback wants to break iteration */
 			break;
         }
+
+	if (start > 0 && rc != 0) {
+		end = start;
+		start = 0;
+		goto again;
+	}
+
         cfs_hash_unlock(hs, 0);
 
         return count;
@@ -1662,7 +1675,7 @@ cfs_hash_for_each_relax(struct cfs_hash *hs, cfs_hash_for_each_cb_t func,
 
 int
 cfs_hash_for_each_nolock(struct cfs_hash *hs,
-                         cfs_hash_for_each_cb_t func, void *data)
+                         cfs_hash_for_each_cb_t func, void *data, int start)
 {
         ENTRY;
 
@@ -1677,7 +1690,7 @@ cfs_hash_for_each_nolock(struct cfs_hash *hs,
 		RETURN(-EOPNOTSUPP);
 
         cfs_hash_for_each_enter(hs);
-        cfs_hash_for_each_relax(hs, func, data);
+        cfs_hash_for_each_relax(hs, func, data, start);
         cfs_hash_for_each_exit(hs);
 
         RETURN(0);
@@ -1711,7 +1724,7 @@ cfs_hash_for_each_empty(struct cfs_hash *hs,
 		return -EOPNOTSUPP;
 
         cfs_hash_for_each_enter(hs);
-        while (cfs_hash_for_each_relax(hs, func, data)) {
+        while (cfs_hash_for_each_relax(hs, func, data, 0)) {
                 CDEBUG(D_INFO, "Try to empty hash: %s, loop: %u\n",
                        hs->hs_name, i++);
         }

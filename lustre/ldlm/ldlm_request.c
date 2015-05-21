@@ -1992,7 +1992,7 @@ int ldlm_cli_cancel_unused(struct ldlm_namespace *ns,
                                                        opaque));
         } else {
                 cfs_hash_for_each_nolock(ns->ns_rs_hash,
-                                         ldlm_cli_hash_cancel_unused, &arg);
+                                         ldlm_cli_hash_cancel_unused, &arg, 0);
                 RETURN(ELDLM_OK);
         }
 }
@@ -2065,7 +2065,7 @@ void ldlm_namespace_foreach(struct ldlm_namespace *ns,
 	struct iter_helper_data helper = { .iter = iter, .closure = closure };
 
         cfs_hash_for_each_nolock(ns->ns_rs_hash,
-                                 ldlm_res_iter_helper, &helper);
+                                 ldlm_res_iter_helper, &helper, 0);
 
 }
 

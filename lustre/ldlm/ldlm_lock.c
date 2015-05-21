@@ -2103,7 +2103,7 @@ void ldlm_reprocess_all_ns(struct ldlm_namespace *ns)
 
         if (ns != NULL) {
                 cfs_hash_for_each_nolock(ns->ns_rs_hash,
-                                         ldlm_reprocess_res, NULL);
+                                         ldlm_reprocess_res, NULL, 0);
         }
         EXIT;
 }
