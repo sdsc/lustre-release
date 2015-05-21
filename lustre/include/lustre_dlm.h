@@ -693,8 +693,11 @@ struct ldlm_lock {
 	 */
 	struct ldlm_resource	*l_resource;
 	/**
-	 * List item for client side LRU list.
-	 * Protected by ns_lock in struct ldlm_namespace.
+	 * For client lock: Link into the unused LRU list in struct
+	 * ldlm_namespace, which is protected by ns_lock.
+	 *
+	 * For server lock: Link into the granted LRU list in struct
+	 * ldlm_resource, which is protected by lr_lock.
 	 */
 	struct list_head	l_lru;
 	/**
@@ -797,7 +800,8 @@ struct ldlm_lock {
 	cfs_time_t		l_last_activity;
 
 	/**
-	 * Time last used by e.g. being matched by lock match.
+	 * For client lock: Time last used by e.g. being matched by lock match.
+	 * For server lock: Time being granted.
 	 * Jiffies. Should be converted to time if needed.
 	 */
 	cfs_time_t		l_last_used;
@@ -900,6 +904,8 @@ struct ldlm_lock {
 	struct list_head	l_exp_list;
 };
 
+#define l_grant_time	l_last_used
+
 /**
  * LDLM resource description.
  * Basically, resource is a representation for a single object.
@@ -928,6 +934,8 @@ struct ldlm_resource {
 	 * @{ */
 	/** List of locks in granted state */
 	struct list_head	lr_granted;
+	/** LRU list of granted locks */
+	struct list_head	lr_granted_lru;
 	/** List of locks waiting to change their granted mode (converted) */
 	struct list_head	lr_converting;
 	/**
