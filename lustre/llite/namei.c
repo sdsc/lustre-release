@@ -764,7 +764,14 @@ static struct dentry *ll_lookup_nd(struct inode *parent, struct dentry *dentry,
                         ll_d2d(dentry)->lld_it = NULL;
                 } else {
 			if ((nd->flags & LOOKUP_CREATE) &&
-			    !(nd->flags & LOOKUP_OPEN))
+			    !(nd->flags & LOOKUP_OPEN) &&
+			/*
+			 * When last.name has "/" on the end we have to do
+			 * lookup to see if the directory actually exists.
+			 * If returning here caller may return -ENOENT
+			 * even if the directry exists
+			 */
+			    !(nd->last.name[nd->last.len]))
                                 RETURN(NULL);
 
                         it = ll_convert_intent(&nd->intent.open, nd->flags);
