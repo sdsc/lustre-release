@@ -199,11 +199,16 @@ struct lustre_profile {
 	char			*lp_profile;
 	char			*lp_dt;
 	char			*lp_md;
+	int			 lp_refs;
+	bool			 lp_list_deleted;
 };
 
+extern void class_init_profile_list_lock(void);
 struct lustre_profile *class_get_profile(const char * prof);
 void class_del_profile(const char *prof);
+void class_put_profile(struct lustre_profile *lprof);
 void class_del_profiles(void);
+
 
 #if LUSTRE_TRACKS_LOCK_EXP_REFS
 
