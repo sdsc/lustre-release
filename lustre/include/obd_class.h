@@ -196,14 +196,19 @@ struct config_llog_data {
 
 struct lustre_profile {
 	struct list_head	 lp_list;
+	char			 lp_list_deleted;
 	char			*lp_profile;
 	char			*lp_dt;
 	char			*lp_md;
+	int			 lp_refs;
 };
 
+extern void class_init_profile_list_lock(void);
 struct lustre_profile *class_get_profile(const char * prof);
 void class_del_profile(const char *prof);
+void class_put_profile(struct lustre_profile *lprof);
 void class_del_profiles(void);
+
 
 #if LUSTRE_TRACKS_LOCK_EXP_REFS
 

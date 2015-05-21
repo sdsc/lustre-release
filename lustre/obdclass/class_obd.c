@@ -519,6 +519,7 @@ static int __init init_obdclass(void)
         LCONSOLE_INFO("Lustre: Build Version: "BUILD_VERSION"\n");
 
 	spin_lock_init(&obd_types_lock);
+	class_init_profile_list_lock();
         obd_zombie_impexp_init();
 #ifdef CONFIG_PROC_FS
         obd_memory = lprocfs_alloc_stats(OBD_STATS_NUM,

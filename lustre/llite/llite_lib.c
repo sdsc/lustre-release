@@ -1099,6 +1099,9 @@ out_free:
                 OBD_FREE(md, strlen(lprof->lp_md) + instlen + 2);
         if (dt)
                 OBD_FREE(dt, strlen(lprof->lp_dt) + instlen + 2);
+	if (lprof)
+		class_put_profile(lprof);
+
         if (err)
                 ll_put_super(sb);
         else if (sbi->ll_flags & LL_SBI_VERBOSE)
