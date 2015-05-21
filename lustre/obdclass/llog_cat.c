@@ -65,9 +65,21 @@ static int llog_cat_new_log(const struct lu_env *env,
 {
 	struct llog_thread_info	*lgi = llog_info(env);
 	struct llog_logid_rec	*rec = &lgi->lgi_logid;
-	int			 rc;
+	int			 rc, newindex;
 
 	ENTRY;
+
+	/* will Catalog roll-back ? */
+	index = (cathandle->lgh_last_idx + 1) %
+		LLOG_BITMAP_SIZE(cathandle->lgh_hdr);
+	if (index == 0)
+		index = 1;
+	/* will indexes overlap ? */
+	if (index == cathandle->lgh_hdr->llh_cat_idx) {
+		CWARN("%s: there is no more free slots in catalog\n",
+		      loghandle->lgh_ctxt->loc_obd->obd_name);
+		RETURN(-ENOSPC);
+	}
 
 	if (OBD_FAIL_CHECK(OBD_FAIL_MDS_LLOG_CREATE_FAILED))
 		RETURN(-ENOSPC);
