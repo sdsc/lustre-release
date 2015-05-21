@@ -1033,6 +1033,7 @@ static struct ldlm_resource *ldlm_resource_new(void)
 		return NULL;
 
 	INIT_LIST_HEAD(&res->lr_granted);
+	INIT_LIST_HEAD(&res->lr_granted_lru);
 	INIT_LIST_HEAD(&res->lr_converting);
 	INIT_LIST_HEAD(&res->lr_waiting);
 
@@ -1156,6 +1157,11 @@ static void __ldlm_resource_putref_final(cfs_hash_bd_t *bd,
                 ldlm_resource_dump(D_ERROR, res);
                 LBUG();
         }
+
+	if (!list_empty(&res->lr_granted_lru)) {
+		ldlm_resource_dump(D_ERROR, res);
+		LBUG();
+	}
 
 	if (!list_empty(&res->lr_converting)) {
                 ldlm_resource_dump(D_ERROR, res);
@@ -1284,6 +1290,9 @@ void ldlm_resource_unlink_lock(struct ldlm_lock *lock)
         else if (type == LDLM_EXTENT)
                 ldlm_extent_unlink_lock(lock);
 	list_del_init(&lock->l_res_link);
+
+	if (!ns_is_client(ldlm_res_to_ns(lock->l_resource)))
+		list_del_init(&lock->l_lru);
 }
 EXPORT_SYMBOL(ldlm_resource_unlink_lock);
 
