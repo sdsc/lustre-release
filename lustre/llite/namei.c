@@ -764,7 +764,8 @@ static struct dentry *ll_lookup_nd(struct inode *parent, struct dentry *dentry,
                         ll_d2d(dentry)->lld_it = NULL;
                 } else {
 			if ((nd->flags & LOOKUP_CREATE) &&
-			    !(nd->flags & LOOKUP_OPEN))
+			    !(nd->flags & LOOKUP_OPEN) &&
+			    !(nd->last.name[nd->last.len]))
                                 RETURN(NULL);
 
                         it = ll_convert_intent(&nd->intent.open, nd->flags);
