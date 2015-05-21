@@ -134,26 +134,25 @@ static int ll_close_inode_openhandle(struct obd_export *md_exp,
 				     struct obd_client_handle *och,
 				     const __u64 *data_version)
 {
-        struct obd_export *exp = ll_i2mdexp(inode);
-        struct md_op_data *op_data;
-        struct ptlrpc_request *req = NULL;
-        struct obd_device *obd = class_exp2obd(exp);
-        int rc;
-        ENTRY;
+	struct obd_export *exp = ll_i2mdexp(inode);
+	struct ll_inode_info *lli = ll_i2info(inode);
+	struct md_op_data *op_data;
+	struct ptlrpc_request *req = NULL;
+	struct obd_device *obd = class_exp2obd(exp);
+	int rc;
+	ENTRY;
 
-        if (obd == NULL) {
-                /*
-                 * XXX: in case of LMV, is this correct to access
-                 * ->exp_handle?
-                 */
-                CERROR("Invalid MDC connection handle "LPX64"\n",
-                       ll_i2mdexp(inode)->exp_handle.h_cookie);
-                GOTO(out, rc = 0);
-        }
+	if (obd == NULL) {
+		CERROR("%s: invalid MDC connection handle "LPX64"\n",
+		       md_exp->exp_obd->obd_name, md_exp->exp_handle.h_cookie);
+		GOTO(out, rc = 0);
+	}
 
-        OBD_ALLOC_PTR(op_data);
-        if (op_data == NULL)
-                GOTO(out, rc = -ENOMEM); // XXX We leak openhandle and request here.
+	OBD_ALLOC_PTR(op_data);
+	if (op_data == NULL)
+		/* We leak openhandle and request here, but not much to be done
+		 * in OOM case since app won't retry close on error either. */
+		GOTO(out, rc = -ENOMEM);
 
 	ll_prepare_close(inode, op_data, och);
 	if (data_version != NULL) {
@@ -164,18 +163,14 @@ static int ll_close_inode_openhandle(struct obd_export *md_exp,
 		op_data->op_attr.ia_valid |= ATTR_SIZE | ATTR_BLOCKS;
 	}
 
-        rc = md_close(md_exp, op_data, och->och_mod, &req);
-	if (rc) {
+	rc = md_close(md_exp, op_data, och->och_mod, &req);
+	if (rc != 0 && rc != -EINTR)
 		CERROR("%s: inode "DFID" mdc close failed: rc = %d\n",
-		       ll_i2mdexp(inode)->exp_obd->obd_name,
-		       PFID(ll_inode2fid(inode)), rc);
-	}
+		       md_exp->exp_obd->obd_name, PFID(&lli->lli_fid), rc);
 
 	/* DATA_MODIFIED flag was successfully sent on close, cancel data
 	 * modification flag. */
 	if (rc == 0 && (op_data->op_bias & MDS_DATA_MODIFIED)) {
-		struct ll_inode_info *lli = ll_i2info(inode);
-
 		spin_lock(&lli->lli_lock);
 		lli->lli_flags &= ~LLIF_DATA_MODIFIED;
 		spin_unlock(&lli->lli_lock);
@@ -183,22 +178,23 @@ static int ll_close_inode_openhandle(struct obd_export *md_exp,
 
 	if (rc == 0 && op_data->op_bias & MDS_HSM_RELEASE) {
 		struct mdt_body *body;
+
 		body = req_capsule_server_get(&req->rq_pill, &RMF_MDT_BODY);
 		if (!(body->mbo_valid & OBD_MD_FLRELEASED))
 			rc = -EBUSY;
 	}
 
-        ll_finish_md_op_data(op_data);
-        EXIT;
+	ll_finish_md_op_data(op_data);
+	EXIT;
 out:
 
 	md_clear_open_replay_data(md_exp, och);
 	och->och_fh.cookie = DEAD_HANDLE_MAGIC;
 	OBD_FREE_PTR(och);
 
-        if (req) /* This is close request */
-                ptlrpc_req_finished(req);
-        return rc;
+	if (req != NULL) /* This is close request */
+		ptlrpc_req_finished(req);
+	return rc;
 }
 
 int ll_md_real_close(struct inode *inode, fmode_t fmode)
