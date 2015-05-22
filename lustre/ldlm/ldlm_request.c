@@ -1251,7 +1251,18 @@ int ldlm_cli_cancel_req(struct obd_export *exp, struct list_head *cancels,
                            req->rq_import_generation == imp->imp_generation) {
                         ptlrpc_req_finished(req);
                         continue;
-                } else if (rc != ELDLM_OK) {
+		} else if (rc == -EWOULDBLOCK &&
+			   req->rq_import_generation == imp->imp_generation) {
+			struct l_wait_info lwi;
+			lwi = LWI_TIMEOUT_INTR(cfs_time_seconds(1),
+					       NULL, NULL, NULL);
+			/* just wanna have a short break to wait for
+			 * the targe's import state to be full */
+			l_wait_event(req->rq_reply_waitq,
+			     req->rq_send_state == imp->imp_state, &lwi);
+			ptlrpc_req_finished(req);
+			continue;
+		} else if (rc != ELDLM_OK) {
 			/* -ESHUTDOWN is common on umount */
 			CDEBUG_LIMIT(rc == -ESHUTDOWN ? D_DLMTRACE : D_ERROR,
 				     "Got rc %d from cancel RPC: "
