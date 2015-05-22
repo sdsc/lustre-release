@@ -718,18 +718,28 @@ static void cleanup_resource(struct ldlm_resource *res, struct list_head *q,
                          * alternative: pretend that we got a blocking AST from
                          * the server, so that when the lock is decref'd, it
                          * will go away ... */
+			struct l_wait_info lwi;
+			lwi = LWI_TIMEOUT(0, NULL, NULL);
                         unlock_res(res);
                         LDLM_DEBUG(lock, "setting FL_LOCAL_ONLY");
-			if (lock->l_flags & LDLM_FL_FAIL_LOC) {
-				set_current_state(TASK_UNINTERRUPTIBLE);
-				schedule_timeout(cfs_time_seconds(4));
-				set_current_state(TASK_RUNNING);
+			if (res->lr_type == LDLM_EXTENT) {
+				l_wait_event(lock->l_waitq,
+					!lock->l_readers && !lock->l_writers
+					&& atomic_read(&lock->l_refc) == 1,
+					&lwi);
+				lock_res(res);
+			} else {
+				if (lock->l_flags & LDLM_FL_FAIL_LOC) {
+					set_current_state(TASK_UNINTERRUPTIBLE);
+					schedule_timeout(cfs_time_seconds(4));
+					set_current_state(TASK_RUNNING);
+				}
+				if (lock->l_completion_ast)
+					lock->l_completion_ast(lock,
+							LDLM_FL_FAILED, NULL);
+				LDLM_LOCK_RELEASE(lock);
+				continue;
 			}
-                        if (lock->l_completion_ast)
-				lock->l_completion_ast(lock,
-						       LDLM_FL_FAILED, NULL);
-                        LDLM_LOCK_RELEASE(lock);
-                        continue;
                 }
 
                 if (client) {

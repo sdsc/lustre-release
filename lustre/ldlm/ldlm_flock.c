@@ -690,7 +690,7 @@ ldlm_flock_completion_ast(struct ldlm_lock *lock, __u64 flags, void *data)
 			/* mds granted the lock in the reply */
 			goto granted;
 		/* CP AST RPC: lock get granted, wake it up */
-		wake_up(&lock->l_waitq);
+		wake_up_all(&lock->l_waitq);
 		RETURN(0);
 	}
 
@@ -782,7 +782,7 @@ granted:
 		unlock_res_and_lock(lock);
 
 		/* Need to wake up the waiter if we were evicted */
-		wake_up(&lock->l_waitq);
+		wake_up_all(&lock->l_waitq);
 
 		/* An error is still to be returned, to propagate it up to
 		 * ldlm_cli_enqueue_fini() caller. */

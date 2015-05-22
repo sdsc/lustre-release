@@ -200,7 +200,7 @@ int ldlm_completion_ast_async(struct ldlm_lock *lock, __u64 flags, void *data)
 	}
 
 	if (!(flags & LDLM_FL_BLOCKED_MASK)) {
-		wake_up(&lock->l_waitq);
+		wake_up_all(&lock->l_waitq);
 		RETURN(ldlm_completion_tail(lock, data));
 	}
 
@@ -249,7 +249,7 @@ int ldlm_completion_ast(struct ldlm_lock *lock, __u64 flags, void *data)
         }
 
 	if (!(flags & LDLM_FL_BLOCKED_MASK)) {
-		wake_up(&lock->l_waitq);
+		wake_up_all(&lock->l_waitq);
 		RETURN(0);
 	}
 

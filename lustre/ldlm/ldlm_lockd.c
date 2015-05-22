@@ -1882,7 +1882,7 @@ out:
 		lock_res_and_lock(lock);
 		ldlm_set_failed(lock);
 		unlock_res_and_lock(lock);
-		wake_up(&lock->l_waitq);
+		wake_up_all(&lock->l_waitq);
 	}
 	LDLM_LOCK_RELEASE(lock);
 }
