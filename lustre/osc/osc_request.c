@@ -2044,6 +2044,11 @@ no_match:
 	if (*flags & LDLM_FL_TEST_LOCK)
 		RETURN(-ENOLCK);
 
+	if (einfo->ei_mode == LCK_GROUP &&
+	    (policy->l_extent.start != 0 ||
+	     policy->l_extent.end != CL_PAGE_EOF))
+		RETURN(-ENOLCK);
+
 	if (intent) {
 		req = ptlrpc_request_alloc(class_exp2cliimp(exp),
 					   &RQF_LDLM_ENQUEUE_LVB);

@@ -788,8 +788,19 @@ static void cleanup_resource(struct ldlm_resource *res, struct list_head *q,
                         if (lock->l_completion_ast)
 				lock->l_completion_ast(lock,
 						       LDLM_FL_FAILED, NULL);
-                        LDLM_LOCK_RELEASE(lock);
-                        continue;
+			if (res->lr_type == LDLM_EXTENT &&
+			    lock->l_granted_mode != LCK_GROUP) {
+				struct l_wait_info lwi;
+				lwi = LWI_TIMEOUT(0, NULL, NULL);
+				l_wait_event(lock->l_waitq,
+					!lock->l_readers && !lock->l_writers
+					&& atomic_read(&lock->l_refc) == 1,
+					&lwi);
+				lock_res(res);
+			} else {
+				LDLM_LOCK_RELEASE(lock);
+				continue;
+			}
                 }
 
                 if (client) {
