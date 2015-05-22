@@ -4059,9 +4059,17 @@ test_66() {
 	[[ $(lustre_version_code mgs) -ge $(version_code 2.3.59) ]] ||
 		{ skip "Need MGS version at least 2.3.59"; return 0; }
 
+	load_modules
 	setup
 	local OST1_NID=$(do_facet ost1 $LCTL list_nids | head -1)
 	local MDS_NID=$(do_facet $SINGLEMDS $LCTL list_nids | head -1)
+
+	# add EXCLUDE records to config log, they are not to be
+	# removed by lctl replace_nids
+	set_conf_param_and_check mds				     \
+	    "$LCTL get_param -n osc.$FSNAME-OST0000-osc-MDT*.active" \
+	    "$FSNAME-OST0000.osc.active"			     \
+	    "0"
 
 	echo "replace_nids should fail if MDS, OSTs and clients are UP"
 	do_facet mgs $LCTL replace_nids $FSNAME-OST0000 $OST1_NID &&
@@ -4118,7 +4126,14 @@ test_66() {
 		stop_mds || error "Unable to stop MDS"
 	fi
 
-	setup_noconfig
+	start_mgsmds || error "start mgsmds failed"
+	set_conf_param_and_check mds				     \
+	    "$LCTL get_param -n osc.$FSNAME-OST0000-osc-MDT*.active" \
+	    "$FSNAME-OST0000.osc.active"			     \
+	    "1"
+
+	start_ost
+	mount_client $MOUNT
 	check_mount || error "error after nid replace"
 	cleanup || error "cleanup failed"
 	reformat
