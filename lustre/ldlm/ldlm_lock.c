@@ -217,7 +217,11 @@ void ldlm_lock_put(struct ldlm_lock *lock)
                 ldlm_interval_free(ldlm_interval_detach(lock));
                 lu_ref_fini(&lock->l_reference);
 		OBD_FREE_RCU(lock, sizeof(*lock), &lock->l_handle);
-        }
+        } else {
+		if (atomic_read(&lock->l_refc) == 1 &&
+		    !(lock->l_readers || lock->l_writers))
+			wake_up(&lock->l_waitq);
+	}
 
         EXIT;
 }
