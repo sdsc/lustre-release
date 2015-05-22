@@ -788,8 +788,21 @@ static void cleanup_resource(struct ldlm_resource *res, struct list_head *q,
                         if (lock->l_completion_ast)
 				lock->l_completion_ast(lock,
 						       LDLM_FL_FAILED, NULL);
-                        LDLM_LOCK_RELEASE(lock);
-                        continue;
+			if (lock->l_granted_mode == LCK_GROUP) {
+				lock_res_and_lock(lock);
+				ldlm_set_discard_data(lock);
+				unlock_res_and_lock(lock);
+				lock->l_blocking_ast(lock, NULL, lock->l_ast_data,
+						     LDLM_CB_CANCELING);
+				LDLM_LOCK_RELEASE(lock);
+				continue;
+			} else {
+				struct l_wait_info lwi;
+				lwi = LWI_TIMEOUT(0, NULL, NULL);
+				l_wait_event(lock->l_waitq,
+					lock_not_in_use(lock), &lwi);
+				lock_res(res);
+			}
                 }
 
                 if (client) {
