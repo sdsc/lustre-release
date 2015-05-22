@@ -776,13 +776,15 @@ static int lmv_hsm_req_count(struct lmv_obd *lmv,
 	/* count how many requests must be sent to the given target */
 	for (i = 0; i < hur->hur_request.hr_itemcount; i++) {
 		curr_tgt = lmv_find_target(lmv, &hur->hur_user_item[i].hui_fid);
+		if (IS_ERR(curr_tgt))
+			RETURN(PTR_ERR(curr_tgt));
 		if (obd_uuid_equals(&curr_tgt->ltd_uuid, &tgt_mds->ltd_uuid))
 			nr++;
 	}
 	return nr;
 }
 
-static void lmv_hsm_req_build(struct lmv_obd *lmv,
+static int lmv_hsm_req_build(struct lmv_obd *lmv,
 			      struct hsm_user_request *hur_in,
 			      const struct lmv_tgt_desc *tgt_mds,
 			      struct hsm_user_request *hur_out)
@@ -796,6 +798,8 @@ static void lmv_hsm_req_build(struct lmv_obd *lmv,
 	for (i = 0; i < hur_in->hur_request.hr_itemcount; i++) {
 		curr_tgt = lmv_find_target(lmv,
 					   &hur_in->hur_user_item[i].hui_fid);
+		if (IS_ERR(curr_tgt))
+			RETURN(PTR_ERR(curr_tgt));
 		if (obd_uuid_equals(&curr_tgt->ltd_uuid, &tgt_mds->ltd_uuid)) {
 			hur_out->hur_user_item[nr_out] =
 						hur_in->hur_user_item[i];
@@ -805,6 +809,8 @@ static void lmv_hsm_req_build(struct lmv_obd *lmv,
 	hur_out->hur_request.hr_itemcount = nr_out;
 	memcpy(hur_data(hur_out), hur_data(hur_in),
 	       hur_in->hur_request.hr_data_len);
+
+	RETURN(0);
 }
 
 static int lmv_hsm_ct_unregister(struct lmv_obd *lmv, unsigned int cmd, int len,
@@ -1101,6 +1107,8 @@ static int lmv_iocontrol(unsigned int cmd, struct obd_export *exp,
 					continue;
 
 				nr = lmv_hsm_req_count(lmv, hur, tgt);
+				if (nr < 0)
+					RETURN(nr);
 				if (nr == 0) /* nothing for this MDS */
 					continue;
 
@@ -1111,11 +1119,12 @@ static int lmv_iocontrol(unsigned int cmd, struct obd_export *exp,
 				OBD_ALLOC_LARGE(req, reqlen);
 				if (req == NULL)
 					RETURN(-ENOMEM);
-
-				lmv_hsm_req_build(lmv, hur, tgt, req);
-
+				rc1 = lmv_hsm_req_build(lmv, hur, tgt, req);
+				if (rc1 < 0)
+					GOTO(hsm_req_err, rc1);
 				rc1 = obd_iocontrol(cmd, tgt->ltd_exp, reqlen,
 						    req, uarg);
+hsm_req_err:
 				if (rc1 != 0 && rc == 0)
 					rc = rc1;
 				OBD_FREE_LARGE(req, reqlen);
