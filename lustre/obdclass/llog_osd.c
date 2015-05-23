@@ -276,6 +276,7 @@ static int llog_osd_declare_write_rec(const struct lu_env *env,
 				      int idx, struct thandle *th)
 {
 	struct llog_thread_info	*lgi = llog_info(env);
+	__u32			chunk_size;
 	struct dt_object	*o;
 	int			 rc;
 
@@ -290,7 +291,8 @@ static int llog_osd_declare_write_rec(const struct lu_env *env,
 	o = loghandle->lgh_obj;
 	LASSERT(o);
 
-	lgi->lgi_buf.lb_len = sizeof(struct llog_log_hdr);
+	chunk_size = loghandle->lgh_ctxt->loc_chunk_size;
+	lgi->lgi_buf.lb_len = chunk_size;
 	lgi->lgi_buf.lb_buf = NULL;
 	/* each time we update header */
 	rc = dt_declare_record_write(env, o, &lgi->lgi_buf, 0,
@@ -302,7 +304,7 @@ static int llog_osd_declare_write_rec(const struct lu_env *env,
 	 * the pad record can be inserted so take into account double
 	 * record size
 	 */
-	lgi->lgi_buf.lb_len = rec->lrh_len * 2;
+	lgi->lgi_buf.lb_len = chunk_size * 2;
 	lgi->lgi_buf.lb_buf = NULL;
 	/* XXX: implement declared window or multi-chunks approach */
 	rc = dt_declare_record_write(env, o, &lgi->lgi_buf, -1, th);
@@ -559,9 +561,10 @@ static int llog_osd_write_rec(const struct lu_env *env,
 		if (rc != 0)
 			GOTO(out_remote_unlock, rc);
 
-		lgi->lgi_off = offsetof(typeof(*llh), llh_tail);
+		lgi->lgi_off =  (unsigned long)LLOG_HDR_TAIL(llh) -
+				(unsigned long)llh;
 		lgi->lgi_buf.lb_len = sizeof(llh->llh_tail);
-		lgi->lgi_buf.lb_buf = &llh->llh_tail;
+		lgi->lgi_buf.lb_buf = LLOG_HDR_TAIL(llh);
 		rc = dt_record_write(env, o, &lgi->lgi_buf, &lgi->lgi_off, th);
 		if (rc != 0)
 			GOTO(out_remote_unlock, rc);
