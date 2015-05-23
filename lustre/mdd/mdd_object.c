@@ -477,8 +477,7 @@ static int mdd_fix_attr(const struct lu_env *env, struct mdd_object *obj,
 		unsigned int newflags = la->la_flags &
 				(LUSTRE_IMMUTABLE_FL | LUSTRE_APPEND_FL);
 
-		if ((uc->uc_fsuid != oattr->la_uid) &&
-		    !md_capable(uc, CFS_CAP_FOWNER))
+		if (uc->uc_fsuid != oattr->la_uid)
 			RETURN(-EPERM);
 
 		/* The IMMUTABLE and APPEND_ONLY flags can
@@ -499,8 +498,7 @@ static int mdd_fix_attr(const struct lu_env *env, struct mdd_object *obj,
 	/* Check for setting the obj time. */
 	if ((la->la_valid & (LA_MTIME | LA_ATIME | LA_CTIME)) &&
 	    !(la->la_valid & ~(LA_MTIME | LA_ATIME | LA_CTIME))) {
-		if ((uc->uc_fsuid != oattr->la_uid) &&
-		    !md_capable(uc, CFS_CAP_FOWNER)) {
+		if (uc->uc_fsuid != oattr->la_uid) {
 			rc = mdd_permission_internal(env, obj, oattr,
 						     MAY_WRITE);
 			if (rc)
@@ -532,8 +530,7 @@ static int mdd_fix_attr(const struct lu_env *env, struct mdd_object *obj,
 	/* Make sure a caller can chmod. */
 	if (la->la_valid & LA_MODE) {
 		if (!(flags & MDS_PERM_BYPASS) &&
-		    (uc->uc_fsuid != oattr->la_uid) &&
-		    !md_capable(uc, CFS_CAP_FOWNER))
+		    (uc->uc_fsuid != oattr->la_uid))
 			RETURN(-EPERM);
 
 		if (la->la_mode == (umode_t) -1)
@@ -900,7 +897,7 @@ static int mdd_xattr_sanity_check(const struct lu_env *env,
 	if (attr->la_flags & (LUSTRE_IMMUTABLE_FL | LUSTRE_APPEND_FL))
 		RETURN(-EPERM);
 
-	if ((uc->uc_fsuid != attr->la_uid) && !md_capable(uc, CFS_CAP_FOWNER))
+	if ((uc->uc_fsuid != attr->la_uid))
 		RETURN(-EPERM);
 
 	RETURN(0);
