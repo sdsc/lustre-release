@@ -646,6 +646,8 @@ static int osp_sync_new_setattr_job(struct osp_device *d,
 	ENTRY;
 	LASSERT(h->lrh_type == MDS_SETATTR64_REC);
 
+	if (OBD_FAIL_CHECK(OBD_FAIL_OSP_CHECK_INVALID_REC))
+		RETURN(0);
 	/* lsr_valid can only be 0 or have OBD_MD_{FLUID,FLGID} set,
 	 * so no bits other than these should be set. */
 	if ((rec->lsr_valid & ~(OBD_MD_FLUID | OBD_MD_FLGID)) != 0) {
@@ -873,6 +875,8 @@ static int osp_sync_process_record(const struct lu_env *env,
 		spin_lock(&d->opd_syn_lock);
 		d->opd_syn_rpc_in_flight--;
 		d->opd_syn_rpc_in_progress--;
+		if (d->opd_syn_prev_done)
+			d->opd_syn_changes--;
 		spin_unlock(&d->opd_syn_lock);
 	}
 

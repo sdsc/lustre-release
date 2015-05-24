@@ -594,6 +594,8 @@ int obd_alloc_fail(const void *ptr, const char *name, const char *type,
 #define OBD_FAIL_DT_DELETE			0x2017
 #define OBD_FAIL_DT_LOOKUP			0x2018
 
+#define OBD_FAIL_OSP_CHECK_INVALID_REC		0x2100
+
 /* Assign references to moved code to reduce code changes */
 #define OBD_FAIL_PRECHECK(id)                   CFS_FAIL_PRECHECK(id)
 #define OBD_FAIL_CHECK(id)                      CFS_FAIL_CHECK(id)
