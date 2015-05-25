@@ -1803,6 +1803,10 @@ int tgt_brw_read(struct tgt_session_info *tsi)
 	remote_nb = req_capsule_client_get(&req->rq_pill, &RMF_NIOBUF_REMOTE);
 	LASSERT(remote_nb != NULL); /* must exists after tgt_ost_body_unpack */
 
+	rc = check_remotebuf(remote_nb, ioo->ioo_bufcnt);
+	if (rc < 0)
+		RETURN(rc);
+
 	local_nb = tbc->local;
 
 	rc = tgt_brw_lock(exp->exp_obd->obd_namespace, &tsi->tsi_resid, ioo,
@@ -1832,6 +1836,10 @@ int tgt_brw_read(struct tgt_session_info *tsi)
 	rc = obd_preprw(tsi->tsi_env, OBD_BRW_READ, exp, &repbody->oa, 1,
 			ioo, remote_nb, &npages, local_nb);
 	if (rc != 0)
+		GOTO(out_lock, rc);
+
+	rc = check_localbuf(local_nb, npages);
+	if (rc < 0)
 		GOTO(out_lock, rc);
 
 	desc = ptlrpc_prep_bulk_exp(req, npages, ioobj_max_brw_get(ioo),
@@ -2048,6 +2056,12 @@ int tgt_brw_write(struct tgt_session_info *tsi)
 			sizeof(*remote_nb))
 		RETURN(err_serious(-EPROTO));
 
+	for (i = 0; i < objcount; ++i) {
+		rc = check_remotebuf(&remote_nb[i], ioo[i].ioo_bufcnt);
+		if (rc < 0)
+			RETURN(rc);
+	}
+
 	if ((remote_nb[0].rnb_flags & OBD_BRW_MEMALLOC) &&
 	    (exp->exp_connection->c_peer.nid == exp->exp_connection->c_self))
 		memory_pressure_set();
@@ -2100,6 +2114,10 @@ int tgt_brw_write(struct tgt_session_info *tsi)
 	npages = PTLRPC_MAX_BRW_PAGES;
 	rc = obd_preprw(tsi->tsi_env, OBD_BRW_WRITE, exp, &repbody->oa,
 			objcount, ioo, remote_nb, &npages, local_nb);
+	if (rc < 0)
+		GOTO(out_lock, rc);
+
+	rc = check_localbuf(local_nb, npages);
 	if (rc < 0)
 		GOTO(out_lock, rc);
 

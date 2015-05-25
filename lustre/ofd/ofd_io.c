@@ -735,6 +735,10 @@ int ofd_preprw(const struct lu_env *env, int cmd, struct obd_export *exp,
 	LASSERT(objcount == 1);
 	LASSERT(obj->ioo_bufcnt > 0);
 
+	if (check_remotebuf(rnb, obj->ioo_bufcnt) < 0)
+		RETURN(-EPROTO);
+
+
 	if (cmd == OBD_BRW_WRITE) {
 		la_from_obdo(&info->fti_attr, oa, OBD_MD_FLGETATTR);
 		rc = ofd_preprw_write(env, exp, ofd, fid, &info->fti_attr, oa,
