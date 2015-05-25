@@ -369,6 +369,8 @@ static int osd_bufs_get_read(const struct lu_env *env, struct osd_object *obj,
 				lnb->lnb_file_offset = off;
 				lnb->lnb_page_offset = bufoff & ~PAGE_MASK;
 				lnb->lnb_len = thispage;
+				LASSERT(lnb->lnb_page_offset + lnb->lnb_len <=
+					PAGE_CACHE_SIZE);
 				lnb->lnb_page = kmem_to_page(dbp[i]->db_data +
 							     bufoff);
 				/* mark just a single slot: we need this
