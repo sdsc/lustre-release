@@ -3772,6 +3772,7 @@ static int osd_ea_add_rec(const struct lu_env *env, struct osd_object *pobj,
 {
         struct osd_thread_info *info   = osd_oti_get(env);
         struct htree_lock      *hlock;
+	struct osd_thandle     *oh;
         int                     rc;
 
         hlock = pobj->oo_hl_head != NULL ? info->oti_hlock : NULL;
@@ -3812,6 +3813,15 @@ static int osd_ea_add_rec(const struct lu_env *env, struct osd_object *pobj,
                 ldiskfs_htree_unlock(hlock);
         else
 		up_write(&pobj->oo_ext_idx_sem);
+
+	/* ext4_append() doesn't call ldiskfs_mark_inode_dirty()
+	 * this seem as an optimization as usually it's called
+	 * later to refresh mtime of the parent. Lustre does not
+	 * update mtime in few cases (e.g. PENDING/) */
+	/* XXX: this is a workaround */
+	oh = container_of0(th, struct osd_thandle, ot_super);
+	LASSERT(oh->ot_handle != NULL);
+	ldiskfs_mark_inode_dirty(oh->ot_handle, pobj->oo_inode);
 
         return rc;
 }
