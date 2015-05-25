@@ -1640,8 +1640,12 @@ cfs_hash_for_each_relax(cfs_hash_t *hs, cfs_hash_for_each_cb_t func, void *data)
                                 if (rc) /* callback wants to break iteration */
                                         break;
                         }
+			if (rc) /* callback wants to break iteration */
+				break;
                 }
                 cfs_hash_bd_unlock(hs, &bd, 0);
+		if (rc) /* callback wants to break iteration */
+			break;
         }
         cfs_hash_unlock(hs, 0);
 
