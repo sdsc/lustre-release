@@ -434,6 +434,38 @@ struct niobuf_local {
 	void		*lnb_data;
 };
 
+/**
+ * Check the local buffers
+ *
+ * \param[in] lnb	local buffers
+ * \param[in] cnt	number of the buffers
+ *
+ * \retval		0 if the @lnb is sane
+ * \retval		negative value otherwise
+ */
+static inline int check_localbuf(struct niobuf_local *lnb, int cnt)
+{
+	int rc = 0;
+	int i;
+
+	for (i = 0; i < cnt; ++i) {
+		CDEBUG(D_BUFFS, "localbuf[%d](file_off:"LPU64"/page_off:%u/"
+		       "adj_len:%u/orig_len:%u)\n",
+		       i, lnb->lnb_file_offset, lnb->lnb_page_offset,
+		       lnb->lnb_rc, lnb->lnb_len);
+		if (lnb->lnb_rc > 0 &&
+		    lnb->lnb_page_offset + lnb->lnb_rc > PAGE_CACHE_SIZE) {
+			CERROR("localbuf[%d](file_off:"LPU64"/page_off:%u/"
+			       "adj_len:%u/orig_len:%u) not within a page "
+			       "size\n", i,
+			       lnb->lnb_file_offset, lnb->lnb_page_offset,
+			       lnb->lnb_rc, lnb->lnb_len);
+			rc = -EINVAL;
+		}
+	}
+	return rc;
+}
+
 #define LUSTRE_FLD_NAME         "fld"
 #define LUSTRE_SEQ_NAME         "seq"
 

@@ -1818,6 +1818,41 @@ struct niobuf_remote {
 
 void lustre_swab_niobuf_remote(struct niobuf_remote *nbr);
 
+/**
+ * Check the remote buffer received from client
+ *
+ * \param[in] rnb	remote buffers
+ * \param[in] cnt	number of the buffers
+ *
+ * \retval		0 if the @rnb is sane
+ * \retval		negative value otherwise
+ */
+static inline int check_remotebuf(struct niobuf_remote *rnb, int cnt)
+{
+	struct niobuf_remote *prev = NULL;
+	int rc = 0;
+	int i;
+
+	for (i = 0; i < cnt; ++i) {
+		CDEBUG(D_BUFFS, "remotebuf[%d]("LPU64"/%u/%#x)\n",
+		       i, rnb->rnb_offset, rnb->rnb_len, rnb->rnb_flags);
+		if (prev != NULL &&
+		    prev->rnb_offset + prev->rnb_len > rnb->rnb_offset) {
+			CERROR("an overlap in the remote buffers, "
+			       "[%d]("LPU64"/%u/%#x)->[%d]("LPU64"/%u/%#x)\n",
+			       i - 1,
+			       prev->rnb_offset, prev->rnb_len, prev->rnb_flags,
+			       i,
+			       rnb->rnb_offset, rnb->rnb_len, rnb->rnb_flags);
+			rc = -EINVAL;
+		}
+		prev = rnb;
+		++rnb;
+	}
+
+	return rc;
+}
+
 /* lock value block communicated between the filter and llite */
 
 /* OST_LVB_ERR_INIT is needed because the return code in rc is
