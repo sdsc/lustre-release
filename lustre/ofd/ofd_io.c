@@ -664,6 +664,41 @@ out:
 }
 
 /**
+ * Check the remote buffer received from client
+ *
+ * \param[in] rnb	remote buffers
+ * \param[in] cnt	number of the buffers
+ *
+ * \retval		0 if the @rnb in sane
+ * \retval		negative value otherwise
+ */
+int ofd_check_remotebuf(struct niobuf_remote *rnb, int cnt)
+{
+	struct niobuf_remote *prev = NULL;
+	int rc = 0;
+	int i;
+
+	for (i = 0; i < cnt; ++i) {
+		CDEBUG(D_BUFFS, "remotebuf[%d]("LPU64"/%u/0x%x)\n",
+		       i, rnb->rnb_offset, rnb->rnb_len, rnb->rnb_flags);
+		if (prev != NULL &&
+		    prev->rnb_offset + prev->rnb_len > rnb->rnb_offset) {
+			CERROR("an overlap in the remote buffers, "
+			       "[%d]("LPU64"/%u/0x%x)->[%d]("LPU64"/%u/0x%x)\n",
+			       i - 1,
+			       prev->rnb_offset, prev->rnb_len, prev->rnb_flags,
+			       i,
+			       rnb->rnb_offset, rnb->rnb_len, rnb->rnb_flags);
+			rc = -EINVAL;
+		}
+		prev = rnb;
+		++rnb;
+	}
+
+	return rc;
+}
+
+/**
  * Prepare bulk IO requests for processing.
  *
  * This function does initial checks of IO and calls corresponding
@@ -734,6 +769,10 @@ int ofd_preprw(const struct lu_env *env, int cmd, struct obd_export *exp,
 
 	LASSERT(objcount == 1);
 	LASSERT(obj->ioo_bufcnt > 0);
+
+	if (ofd_check_remotebuf(rnb, obj->ioo_bufcnt) != 0)
+		RETURN(-EPROTO);
+
 
 	if (cmd == OBD_BRW_WRITE) {
 		la_from_obdo(&info->fti_attr, oa, OBD_MD_FLGETATTR);

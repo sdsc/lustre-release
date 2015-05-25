@@ -369,6 +369,14 @@ static int osd_bufs_get_read(const struct lu_env *env, struct osd_object *obj,
 				lnb->lnb_file_offset = off;
 				lnb->lnb_page_offset = bufoff & ~PAGE_MASK;
 				lnb->lnb_len = thispage;
+				CDEBUG(D_BUFFS,
+				       "lnb_page_offset:%x, lnb_len:%x "
+				       "bufoff:%x, tocpy:%x, thispage:%x "
+				       "file_offset:%llx, len:%zx "
+				       "db_offset:%llx, db_size:%llx\n",
+				       lnb->lnb_page_offset, lnb->lnb_len,
+				       bufoff, tocpy, thispage, off, len,
+				       dbp[i]->db_offset, dbp[i]->db_size);
 				lnb->lnb_page = kmem_to_page(dbp[i]->db_data +
 							     bufoff);
 				/* mark just a single slot: we need this
