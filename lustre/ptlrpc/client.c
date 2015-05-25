@@ -170,7 +170,8 @@ void __ptlrpc_prep_bulk_page(struct ptlrpc_bulk_desc *desc,
 	LASSERT(page != NULL);
 	LASSERT(pageoffset >= 0);
 	LASSERT(len > 0);
-	LASSERT(pageoffset + len <= PAGE_CACHE_SIZE);
+	LASSERTF(pageoffset + len <= PAGE_CACHE_SIZE, "offset %i, len %i\n",
+		 pageoffset, len);
 
 	desc->bd_nob += len;
 
