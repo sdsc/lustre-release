@@ -48,11 +48,13 @@
 #include <libgen.h>
 #include <syslog.h>
 
+#include <libcfs/util/param.h>
 #include <libcfs/util/string.h>
 #include <libcfs/libcfs.h>
 #include <lnet/nidstr.h>
 #include <lustre/lustre_user.h>
 #include <lustre/lustre_idl.h>
+#include <lustre/lustreapi.h>
 
 #define PERM_PATHNAME "/etc/lustre/perm.conf"
 
@@ -78,7 +80,7 @@ static void usage(void)
         fprintf(stderr,
                 "\nusage: %s {mdtname} {uid}\n"
                 "Normally invoked as an upcall from Lustre, set via:\n"
-                "/proc/fs/lustre/mdt/${mdtname}/identity_upcall\n",
+		"/{proc,sys}/fs/lustre/mdt/${mdtname}/identity_upcall\n",
                 progname);
 }
 
@@ -473,8 +475,11 @@ downcall:
                 goto out;
         }
 
-        snprintf(procname, sizeof(procname),
-                 "/proc/fs/lustre/mdt/%s/identity_info", argv[1]);
+	rc = cfs_get_procpath(procname, sizeof(procname),
+				"lustre/mdt/%s/identity_info", argv[1]);
+	if (rc != 0)
+		goto out;
+
         fd = open(procname, O_WRONLY);
         if (fd < 0) {
                 errlog("can't open file %s: %s\n", procname, strerror(errno));

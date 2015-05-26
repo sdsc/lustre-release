@@ -39,6 +39,7 @@
 #include <sys/wait.h>
 #include <sys/time.h>
 #include <sys/mman.h>
+#include <limits.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -46,6 +47,8 @@
 #include <getopt.h>
 #include <string.h>
 #include <errno.h>
+
+#include <libcfs/util/param.h>
 
 char *dir = NULL, *dir2 = NULL;
 long page_size;
@@ -443,6 +446,7 @@ static int cancel_lru_locks(char *prefix)
         FILE *file;
         pid_t child;
         int len = 1024, rc = 0;
+	char path[PATH_MAX];
 
         child = fork();
         if (child < 0)
@@ -455,12 +459,15 @@ static int cancel_lru_locks(char *prefix)
                 return rc;
         }
 
-        if (prefix)
-                sprintf(cmd,
-                        "ls /proc/fs/lustre/ldlm/namespaces/*-%s-*/lru_size",
-                        prefix);
-        else
-                sprintf(cmd, "ls /proc/fs/lustre/ldlm/namespaces/*/lru_size");
+	rc = cfs_get_procpath(path, sizeof(path), "lustre/ldlm/namespaces");
+	if (rc != 0)
+		return -EINVAL;
+
+	if (prefix != NULL)
+		snprintf(cmd, sizeof(cmd), "ls %s/*-%s-*/lru_size", path,
+			 prefix);
+	else
+		snprintf(cmd, sizeof(cmd), "ls %s/*/lru_size", path);
 
         file = popen(cmd, "r");
         if (file == NULL) {
