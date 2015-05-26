@@ -2034,6 +2034,10 @@ test_70b () {
 	local start_ts=$(date +%s)
 	local cmd="rundbench 1 -t $duration"
 	local pid=""
+	if [ $MDSCOUNT -ge 2 ]; then
+		test_mkdir -p -c$MDSCOUNT $DIR/$tdir
+		$LFS setdirstripe -D -c$MDSCOUNT $DIR/$tdir
+	fi
 	do_nodesv $clients "set -x; MISSING_DBENCH_OK=$MISSING_DBENCH_OK \
 		PATH=\$PATH:$LUSTRE/utils:$LUSTRE/tests/:$DBENCH_LIB \
 		DBENCH_LIB=$DBENCH_LIB TESTSUITE=$TESTSUITE TESTNAME=$TESTNAME \
@@ -2054,6 +2058,7 @@ test_70b () {
 
 	elapsed=$(($(date +%s) - start_ts))
 	local num_failovers=0
+	local fail_index=1
 	while [ $elapsed -lt $duration ]; do
 		if ! check_for_process $clients dbench; then
 			error_noexit "dbench stopped on some of $clients!"
@@ -2061,18 +2066,88 @@ test_70b () {
 			break
 		fi
 		sleep 1
-		replay_barrier $SINGLEMDS
+		replay_barrier mds$fail_index
 		sleep 1 # give clients a time to do operations
 		# Increment the number of failovers
 		num_failovers=$((num_failovers+1))
-		log "$TESTNAME fail $SINGLEMDS $num_failovers times"
-		fail $SINGLEMDS
+		log "$TESTNAME fail mds$fail_index $num_failovers times"
+		fail mds$fail_index
 		elapsed=$(($(date +%s) - start_ts))
+		if [ $fail_index -ge $MDSCOUNT ]; then
+			fail_index=1
+		else
+			fail_index=$((fail_index+1))
+		fi
 	done
 
 	wait $pid || error "rundbench load on $clients failed!"
 }
-run_test 70b "mds recovery; $CLIENTCOUNT clients"
+run_test 70b "dbench ${MDSCOUNT}mdts recovery; $CLIENTCOUNT clients"
+
+cleanup_70c() {
+	trap 0
+	kill -9 $tar_70c_pid
+}
+test_70c () {
+	local clients=${CLIENTS:-$HOSTNAME}
+	local rc=0
+
+	zconf_mount_clients $clients $MOUNT
+
+	local duration=300
+	[ "$SLOW" = "no" ] && duration=120
+	# set duration to 900 because it takes some time to boot node
+	[ "$FAILURE_MODE" = HARD ] && duration=900
+
+	local elapsed
+	local start_ts=$(date +%s)
+
+	trap cleanup_70c EXIT
+	(
+		while true; do
+			test_mkdir -p -c$MDSCOUNT $DIR/$tdir || break
+			if [ $MDSCOUNT -ge 2 ]; then
+				$LFS setdirstripe -D -c$MDSCOUNT $DIR/$tdir ||
+				error "set default dirstripe failed"
+			fi
+			cd $DIR/$tdir || break
+			tar cf - /etc | tar xf - || error "tar failed"
+			cd $DIR || break
+			rm -rf $DIR/$tdir || break
+		done
+	)&
+	tar_70c_pid=$!
+	echo "Started tar $tar_70c_pid"
+
+	elapsed=$(($(date +%s) - start_ts))
+	local num_failovers=0
+	local fail_index=1
+	while [ $elapsed -lt $duration ]; do
+		ps auxwww | grep -v grep | grep -q $tar_70c_pid ||
+			error "tar $tar_70c_pid stopped"
+		sleep 1
+		replay_barrier mds$fail_index
+		sleep 1 # give clients a time to do operations
+		# Increment the number of failovers
+		num_failovers=$((num_failovers+1))
+		log "$TESTNAME fail mds$fail_index $num_failovers times"
+		fail mds$fail_index
+		elapsed=$(($(date +%s) - start_ts))
+		if [ $fail_index -ge $MDSCOUNT ]; then
+			fail_index=1
+		else
+			fail_index=$((fail_index+1))
+		fi
+	done
+
+	ps auxwww | grep -v grep | grep -q $tar_70c_pid ||
+		error "tar $tar_70c_pid stopped"
+
+	cleanup_70c
+	true
+}
+run_test 70c "tar ${MDSCOUNT}mdts recovery"
+
 # end multi-client tests
 
 test_73a() {
@@ -2153,6 +2228,7 @@ test_80a() {
 	$LFS mkdir -i $MDTIDX $remote_dir &
 	local CLIENT_PID=$!
 
+	replay_barrier mds1
 	fail mds${MDTIDX}
 
 	wait $CLIENT_PID || error "remote creation failed"
@@ -2180,6 +2256,8 @@ test_80b() {
 	$LFS mkdir -i $MDTIDX $remote_dir &
 	local CLIENT_PID=$!
 
+	replay_barrier mds1
+	replay_barrier mds2
 	fail mds$((MDTIDX + 1))
 
 	wait $CLIENT_PID || error "remote creation failed"
@@ -2207,6 +2285,8 @@ test_80c() {
 	$LFS mkdir -i $MDTIDX $remote_dir &
 	local CLIENT_PID=$!
 
+	replay_barrier mds1
+	replay_barrier mds2
 	fail mds${MDTIDX}
 	fail mds$((MDTIDX + 1))
 
@@ -2233,6 +2313,9 @@ test_80d() {
 	# sleep 3 seconds to make sure MDTs are failed after
 	# lfs mkdir -i has finished on all of MDTs.
 	sleep 3
+
+	replay_barrier mds1
+	replay_barrier mds2
 	fail mds${MDTIDX},mds$((MDTIDX + 1))
 
 	wait $CLIENT_PID || error "remote creation failed"
@@ -2264,6 +2347,7 @@ test_80e() {
 	# lfs mkdir -i has finished on all of MDTs.
 	sleep 3
 
+	replay_barrier mds1
 	fail mds${MDTIDX}
 
 	wait $CLIENT_PID || error "remote creation failed"
@@ -2290,6 +2374,7 @@ test_80f() {
 	$LFS mkdir -i $MDTIDX $remote_dir &
 	local CLIENT_PID=$!
 
+	replay_barrier mds2
 	fail mds$((MDTIDX + 1))
 
 	wait $CLIENT_PID || error "remote creation failed"
@@ -2321,6 +2406,8 @@ test_80g() {
 	# lfs mkdir -i has finished on all of MDTs.
 	sleep 3
 
+	replay_barrier mds1
+	replay_barrier mds2
 	fail mds${MDTIDX}
 	fail mds$((MDTIDX + 1))
 
@@ -2348,6 +2435,8 @@ test_80h() {
 	# lfs mkdir -i has finished on all of MDTs.
 	sleep 3
 
+	replay_barrier mds1
+	replay_barrier mds2
 	fail mds${MDTIDX},mds$((MDTIDX + 1))
 
 	wait $CLIENT_PID || error "remote dir creation failed"
@@ -2378,6 +2467,7 @@ test_81a() {
 	rmdir $remote_dir &
 	local CLIENT_PID=$!
 
+	replay_barrier mds2
 	fail mds$((MDTIDX + 1))
 
 	wait $CLIENT_PID || error "rm remote dir failed"
@@ -2407,6 +2497,7 @@ test_81b() {
 	rmdir $remote_dir &
 	local CLIENT_PID=$!
 
+	replay_barrier mds1
 	fail mds${MDTIDX}
 
 	wait $CLIENT_PID || error "rm remote dir failed"
@@ -2437,6 +2528,8 @@ test_81c() {
 	rmdir $remote_dir &
 	local CLIENT_PID=$!
 
+	replay_barrier mds1
+	replay_barrier mds2
 	fail mds${MDTIDX}
 	fail mds$((MDTIDX + 1))
 
@@ -2463,6 +2556,8 @@ test_81d() {
 	rmdir $remote_dir &
 	local CLIENT_PID=$!
 
+	replay_barrier mds1
+	replay_barrier mds2
 	fail mds${MDTIDX},mds$((MDTIDX + 1))
 
 	wait $CLIENT_PID || error "rm remote dir failed"
@@ -2494,6 +2589,7 @@ test_81e() {
 	local CLIENT_PID=$!
 	do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0
 
+	replay_barrier mds1
 	fail mds${MDTIDX}
 
 	wait $CLIENT_PID || error "rm remote dir failed"
@@ -2524,6 +2620,7 @@ test_81f() {
 	rmdir $remote_dir &
 	local CLIENT_PID=$!
 
+	replay_barrier mds2
 	fail mds$((MDTIDX + 1))
 
 	wait $CLIENT_PID || error "rm remote dir failed"
@@ -2554,6 +2651,8 @@ test_81g() {
 	rmdir $remote_dir &
 	local CLIENT_PID=$!
 
+	replay_barrier mds1
+	replay_barrier mds2
 	fail mds${MDTIDX}
 	fail mds$((MDTIDX + 1))
 
@@ -2580,6 +2679,8 @@ test_81h() {
 	rmdir $remote_dir &
 	local CLIENT_PID=$!
 
+	replay_barrier mds1
+	replay_barrier mds2
 	fail mds${MDTIDX},mds$((MDTIDX + 1))
 
 	wait $CLIENT_PID || error "rm remote dir failed"
@@ -3039,6 +3140,703 @@ test_101() { #LU-5648
 	rm -rf $DIR/$tdir
 }
 run_test 101 "Shouldn't reassign precreated objs to other files after recovery"
+
+check_striped_dir_110()
+{
+	$CHECKSTAT -t dir $DIR/$tdir/striped_dir ||
+			error "create striped dir failed"
+	local stripe_count=$($LFS getdirstripe -c $DIR/$tdir/striped_dir)
+	[ $stripe_count -eq $MDSCOUNT ] ||
+		error "$stripe_count != 2 after recovery"
+}
+
+test_110a() {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+	([ $FAILURE_MODE == "HARD" ] &&
+		[ "$(facet_host mds1)" == "$(facet_host mds2)" ]) &&
+		skip "MDTs needs to be on diff hosts for HARD fail mode" &&
+		return 0
+
+	mkdir -p $DIR/$tdir
+	replay_barrier mds1
+	$LFS mkdir -i1 -c$MDSCOUNT $DIR/$tdir/striped_dir
+	fail mds1
+
+	check_striped_dir_110 || error "check striped_dir failed"
+	rm -rf $DIR/$tdir || error "rmdir failed"
+
+	return 0
+}
+run_test 110a "DNE: create striped dir, fail MDT1"
+
+test_110b() {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+	([ $FAILURE_MODE == "HARD" ] &&
+		[ "$(facet_host mds1)" == "$(facet_host mds2)" ]) &&
+		skip "MDTs needs to be on diff hosts for HARD fail mode" &&
+		return 0
+
+	mkdir -p $DIR/$tdir
+	replay_barrier mds1
+	$LFS mkdir -i1 -c$MDSCOUNT $DIR/$tdir/striped_dir
+	umount $MOUNT
+	fail mds1
+	zconf_mount $(hostname) $MOUNT
+	client_up || return 1
+
+	check_striped_dir_110 || error "check striped_dir failed"
+
+	rm -rf $DIR/$tdir || error "rmdir failed"
+
+	return 0
+}
+run_test 110b "DNE: create striped dir, fail MDT1 and client"
+
+test_110c() {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+	([ $FAILURE_MODE == "HARD" ] &&
+		[ "$(facet_host mds1)" == "$(facet_host mds2)" ]) &&
+		skip "MDTs needs to be on diff hosts for HARD fail mode" &&
+		return 0
+
+	mkdir -p $DIR/$tdir
+	replay_barrier mds2
+	$LFS mkdir -i1 -c$MDSCOUNT $DIR/$tdir/striped_dir
+	fail mds2
+
+	check_striped_dir_110 || error "check striped_dir failed"
+
+	rm -rf $DIR/$tdir || error "rmdir failed"
+
+	return 0
+}
+run_test 110c "DNE: create striped dir, fail MDT2"
+
+test_110d() {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+	([ $FAILURE_MODE == "HARD" ] &&
+		[ "$(facet_host mds1)" == "$(facet_host mds2)" ]) &&
+		skip "MDTs needs to be on diff hosts for HARD fail mode" &&
+		return 0
+
+	mkdir -p $DIR/$tdir
+	replay_barrier mds2
+	$LFS mkdir -i1 -c$MDSCOUNT $DIR/$tdir/striped_dir
+	umount $MOUNT
+	fail mds2
+	zconf_mount $(hostname) $MOUNT
+	client_up || return 1
+
+	check_striped_dir_110 || error "check striped_dir failed"
+
+	rm -rf $DIR/$tdir || error "rmdir failed"
+
+	return 0
+}
+run_test 110d "DNE: create striped dir, fail MDT2 and client"
+
+test_110e() {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+	([ $FAILURE_MODE == "HARD" ] &&
+		[ "$(facet_host mds1)" == "$(facet_host mds2)" ]) &&
+		skip "MDTs needs to be on diff hosts for HARD fail mode" &&
+		return 0
+
+	mkdir -p $DIR/$tdir
+	replay_barrier mds2
+	$LFS mkdir -i1 -c$MDSCOUNT $DIR/$tdir/striped_dir
+	umount $MOUNT
+	replay_barrier mds1
+	fail mds1,mds2
+	zconf_mount $(hostname) $MOUNT
+	client_up || return 1
+
+	check_striped_dir_110 || error "check striped_dir failed"
+
+	rm -rf $DIR/$tdir || error "rmdir failed"
+
+	return 0
+}
+run_test 110e "DNE: create striped dir, uncommit on MDT2, fail client/MDT1/MDT2"
+
+test_110f() {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+	([ $FAILURE_MODE == "HARD" ] &&
+		[ "$(facet_host mds1)" == "$(facet_host mds2)" ]) &&
+		skip "MDTs needs to be on diff hosts for HARD fail mode" &&
+		return 0
+
+	mkdir -p $DIR/$tdir
+	replay_barrier mds1
+	replay_barrier mds2
+	$LFS mkdir -i1 -c$MDSCOUNT $DIR/$tdir/striped_dir
+	fail mds1,mds2
+
+	check_striped_dir_110 || error "check striped_dir failed"
+
+	rm -rf $DIR/$tdir || error "rmdir failed"
+
+	return 0
+}
+run_test 110f "DNE: create striped dir, fail MDT1/MDT2"
+
+test_110g() {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+	([ $FAILURE_MODE == "HARD" ] &&
+		[ "$(facet_host mds1)" == "$(facet_host mds2)" ]) &&
+		skip "MDTs needs to be on diff hosts for HARD fail mode" &&
+		return 0
+
+	mkdir -p $DIR/$tdir
+	replay_barrier mds1
+	$LFS mkdir -i1 -c$MDSCOUNT $DIR/$tdir/striped_dir
+	umount $MOUNT
+	replay_barrier mds2
+	fail mds1,mds2
+	zconf_mount $(hostname) $MOUNT
+	client_up || return 1
+
+	check_striped_dir_110 || error "check striped_dir failed"
+
+	rm -rf $DIR/$tdir || error "rmdir failed"
+
+	return 0
+}
+run_test 110g "DNE: create striped dir, uncommit on MDT1, fail client/MDT1/MDT2"
+
+test_111a() {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+	([ $FAILURE_MODE == "HARD" ] &&
+		[ "$(facet_host mds1)" == "$(facet_host mds2)" ]) &&
+		skip "MDTs needs to be on diff hosts for HARD fail mode" &&
+		return 0
+
+	mkdir -p $DIR/$tdir
+	$LFS mkdir -i1 -c2 $DIR/$tdir/striped_dir
+	replay_barrier mds1
+	rm -rf $DIR/$tdir/striped_dir
+	fail mds1
+
+	$CHECKSTAT -t dir $DIR/$tdir/striped_dir &&
+			error "striped dir still exists"
+	return 0
+}
+run_test 111a "DNE: unlink striped dir, fail MDT1"
+
+test_111b() {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+	([ $FAILURE_MODE == "HARD" ] &&
+		[ "$(facet_host mds1)" == "$(facet_host mds2)" ]) &&
+		skip "MDTs needs to be on diff hosts for HARD fail mode" &&
+		return 0
+
+	mkdir -p $DIR/$tdir
+	$LFS mkdir -i1 -c2 $DIR/$tdir/striped_dir
+	replay_barrier mds2
+	rm -rf $DIR/$tdir/striped_dir
+	umount $MOUNT
+	fail mds2
+	zconf_mount $(hostname) $MOUNT
+	client_up || return 1
+
+	$CHECKSTAT -t dir $DIR/$tdir/striped_dir &&
+			error "striped dir still exists"
+	return 0
+}
+run_test 111b "DNE: unlink striped dir, fail MDT2"
+
+test_111c() {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+	([ $FAILURE_MODE == "HARD" ] &&
+		[ "$(facet_host mds1)" == "$(facet_host mds2)" ]) &&
+		skip "MDTs needs to be on diff hosts for HARD fail mode" &&
+		return 0
+
+	mkdir -p $DIR/$tdir
+	$LFS mkdir -i1 -c2 $DIR/$tdir/striped_dir
+	replay_barrier mds1
+	rm -rf $DIR/$tdir/striped_dir
+	umount $MOUNT
+	replay_barrier mds2
+	fail mds1,mds2
+	zconf_mount $(hostname) $MOUNT
+	client_up || return 1
+	$CHECKSTAT -t dir $DIR/$tdir/striped_dir &&
+			error "striped dir still exists"
+	return 0
+}
+run_test 111c "DNE: unlink striped dir, uncommit on MDT1, fail client/MDT1/MDT2"
+
+test_111d() {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+	([ $FAILURE_MODE == "HARD" ] &&
+		[ "$(facet_host mds1)" == "$(facet_host mds2)" ]) &&
+		skip "MDTs needs to be on diff hosts for HARD fail mode" &&
+		return 0
+
+	mkdir -p $DIR/$tdir
+	$LFS mkdir -i1 -c2 $DIR/$tdir/striped_dir
+	replay_barrier mds2
+	rm -rf $DIR/$tdir/striped_dir
+	umount $MOUNT
+	replay_barrier mds1
+	fail mds1,mds2
+	zconf_mount $(hostname) $MOUNT
+	client_up || return 1
+	$CHECKSTAT -t dir $DIR/$tdir/striped_dir &&
+			error "striped dir still exists"
+
+	return 0
+}
+run_test 111d "DNE: unlink striped dir, uncommit on MDT2, fail client/MDT1/MDT2"
+
+test_111e() {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+	([ $FAILURE_MODE == "HARD" ] &&
+		[ "$(facet_host mds1)" == "$(facet_host mds2)" ]) &&
+		skip "MDTs needs to be on diff hosts for HARD fail mode" &&
+		return 0
+
+	mkdir -p $DIR/$tdir
+	$LFS mkdir -i1 -c2 $DIR/$tdir/striped_dir
+	replay_barrier mds2
+	rm -rf $DIR/$tdir/striped_dir
+	replay_barrier mds1
+	fail mds1,mds2
+	$CHECKSTAT -t dir $DIR/$tdir/striped_dir &&
+			error "striped dir still exists"
+	return 0
+}
+run_test 111e "DNE: unlink striped dir, uncommit on MDT2, fail MDT1/MDT2"
+
+test_111f() {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+	([ $FAILURE_MODE == "HARD" ] &&
+		[ "$(facet_host mds1)" == "$(facet_host mds2)" ]) &&
+		skip "MDTs needs to be on diff hosts for HARD fail mode" &&
+		return 0
+
+	mkdir -p $DIR/$tdir
+	$LFS mkdir -i1 -c2 $DIR/$tdir/striped_dir
+	replay_barrier mds1
+	rm -rf $DIR/$tdir/striped_dir
+	replay_barrier mds2
+	fail mds1,mds2
+	$CHECKSTAT -t dir $DIR/$tdir/striped_dir &&
+			error "striped dir still exists"
+	return 0
+}
+run_test 111f "DNE: unlink striped dir, uncommit on MDT1, fail MDT1/MDT2"
+
+test_111g() {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+	([ $FAILURE_MODE == "HARD" ] &&
+		[ "$(facet_host mds1)" == "$(facet_host mds2)" ]) &&
+		skip "MDTs needs to be on diff hosts for HARD fail mode" &&
+		return 0
+
+	mkdir -p $DIR/$tdir
+	$LFS mkdir -i1 -c2 $DIR/$tdir/striped_dir
+	replay_barrier mds1
+	replay_barrier mds2
+	rm -rf $DIR/$tdir/striped_dir
+	fail mds1,mds2
+	$CHECKSTAT -t dir $DIR/$tdir/striped_dir &&
+			error "striped dir still exists"
+	return 0
+}
+run_test 111g "DNE: unlink striped dir, fail MDT1/MDT2"
+
+test_112_rename_prepare() {
+	mkdir -p $DIR/$tdir/src_dir
+	$LFS mkdir -i 1 $DIR/$tdir/src_dir/src_child ||
+		error "create remote source failed"
+
+	touch $DIR/$tdir/src_dir/src_child/a
+
+	$LFS mkdir -i 2 $DIR/$tdir/tgt_dir ||
+		error "create remote target dir failed"
+
+	$LFS mkdir -i 3 $DIR/$tdir/tgt_dir/tgt_child ||
+		error "create remote target child failed"
+}
+
+test_112_check() {
+	find $DIR/$tdir/
+	$CHECKSTAT -t dir $DIR/$tdir/src_dir/src_child &&
+		error "src_child still exists after rename"
+
+	$CHECKSTAT -t file $DIR/$tdir/tgt_dir/tgt_child/a ||
+		error "missing file(a) after rename"
+}
+
+test_112a() {
+	[ $MDSCOUNT -lt 4 ] && skip "needs >= 4 MDTs" && return 0
+	([ $FAILURE_MODE == "HARD" ] &&
+		[ "$(facet_host mds1)" == "$(facet_host mds2)" ]) &&
+		skip "MDTs needs to be on diff hosts for HARD fail mode" &&
+		return 0
+
+	test_112_rename_prepare
+	replay_barrier mds1
+
+	mrename $DIR/$tdir/src_dir/src_child $DIR/$tdir/tgt_dir/tgt_child ||
+		error "rename dir cross MDT failed!"
+	fail mds1
+
+	test_112_check
+	rm -rf $DIR/$tdir || error "rmdir failed"
+}
+run_test 112a "DNE: cross MDT rename, fail MDT1"
+
+test_112b() {
+	[ $MDSCOUNT -lt 4 ] && skip "needs >= 4 MDTs" && return 0
+	([ $FAILURE_MODE == "HARD" ] &&
+		[ "$(facet_host mds1)" == "$(facet_host mds2)" ]) &&
+		skip "MDTs needs to be on diff hosts for HARD fail mode" &&
+		return 0
+
+	test_112_rename_prepare
+	replay_barrier mds2
+
+	mrename $DIR/$tdir/src_dir/src_child $DIR/$tdir/tgt_dir/tgt_child ||
+		error "rename dir cross MDT failed!"
+
+	fail mds2
+
+	test_112_check
+	rm -rf $DIR/$tdir || error "rmdir failed"
+}
+run_test 112b "DNE: cross MDT rename, fail MDT2"
+
+test_112c() {
+	[ $MDSCOUNT -lt 4 ] && skip "needs >= 4 MDTs" && return 0
+	([ $FAILURE_MODE == "HARD" ] &&
+		[ "$(facet_host mds1)" == "$(facet_host mds2)" ]) &&
+		skip "MDTs needs to be on diff hosts for HARD fail mode" &&
+		return 0
+
+	test_112_rename_prepare
+	replay_barrier mds3
+
+	mrename $DIR/$tdir/src_dir/src_child $DIR/$tdir/tgt_dir/tgt_child ||
+		error "rename dir cross MDT failed!"
+
+	fail mds3
+
+	test_112_check
+	rm -rf $DIR/$tdir || error "rmdir failed"
+}
+run_test 112c "DNE: cross MDT rename, fail MDT3"
+
+test_112d() {
+	[ $MDSCOUNT -lt 4 ] && skip "needs >= 4 MDTs" && return 0
+	([ $FAILURE_MODE == "HARD" ] &&
+		[ "$(facet_host mds1)" == "$(facet_host mds2)" ]) &&
+		skip "MDTs needs to be on diff hosts for HARD fail mode" &&
+		return 0
+
+	test_112_rename_prepare
+	replay_barrier mds4
+
+	mrename $DIR/$tdir/src_dir/src_child $DIR/$tdir/tgt_dir/tgt_child ||
+		error "rename dir cross MDT failed!"
+
+	fail mds4
+
+	test_112_check
+	rm -rf $DIR/$tdir || error "rmdir failed"
+}
+run_test 112d "DNE: cross MDT rename, fail MDT4"
+
+test_112e() {
+	[ $MDSCOUNT -lt 4 ] && skip "needs >= 4 MDTs" && return 0
+	([ $FAILURE_MODE == "HARD" ] &&
+		[ "$(facet_host mds1)" == "$(facet_host mds2)" ]) &&
+		skip "MDTs needs to be on diff hosts for HARD fail mode" &&
+		return 0
+
+	test_112_rename_prepare
+	replay_barrier mds1
+	replay_barrier mds2
+
+	mrename $DIR/$tdir/src_dir/src_child $DIR/$tdir/tgt_dir/tgt_child ||
+		error "rename dir cross MDT failed!"
+
+	fail mds1,mds2
+
+	test_112_check
+	rm -rf $DIR/$tdir || error "rmdir failed"
+}
+run_test 112e "DNE: cross MDT rename, fail MDT1 and MDT2"
+
+test_112f() {
+	[ $MDSCOUNT -lt 4 ] && skip "needs >= 4 MDTs" && return 0
+	([ $FAILURE_MODE == "HARD" ] &&
+		[ "$(facet_host mds1)" == "$(facet_host mds2)" ]) &&
+		skip "MDTs needs to be on diff hosts for HARD fail mode" &&
+		return 0
+
+	test_112_rename_prepare
+	replay_barrier mds1
+	replay_barrier mds3
+
+	mrename $DIR/$tdir/src_dir/src_child $DIR/$tdir/tgt_dir/tgt_child ||
+		error "rename dir cross MDT failed!"
+
+	fail mds1,mds3
+
+	test_112_check
+	rm -rf $DIR/$tdir || error "rmdir failed"
+}
+run_test 112f "DNE: cross MDT rename, fail MDT1 and MDT3"
+
+test_112g() {
+	[ $MDSCOUNT -lt 4 ] && skip "needs >= 4 MDTs" && return 0
+	([ $FAILURE_MODE == "HARD" ] &&
+		[ "$(facet_host mds1)" == "$(facet_host mds2)" ]) &&
+		skip "MDTs needs to be on diff hosts for HARD fail mode" &&
+		return 0
+
+	test_112_rename_prepare
+	replay_barrier mds1
+	replay_barrier mds4
+
+	mrename $DIR/$tdir/src_dir/src_child $DIR/$tdir/tgt_dir/tgt_child ||
+		error "rename dir cross MDT failed!"
+
+	fail mds1,mds4
+
+	test_112_check
+	rm -rf $DIR/$tdir || error "rmdir failed"
+}
+run_test 112g "DNE: cross MDT rename, fail MDT1 and MDT4"
+
+test_112h() {
+	[ $MDSCOUNT -lt 4 ] && skip "needs >= 4 MDTs" && return 0
+	([ $FAILURE_MODE == "HARD" ] &&
+		[ "$(facet_host mds1)" == "$(facet_host mds2)" ]) &&
+		skip "MDTs needs to be on diff hosts for HARD fail mode" &&
+		return 0
+
+	test_112_rename_prepare
+	replay_barrier mds2
+	replay_barrier mds3
+
+	mrename $DIR/$tdir/src_dir/src_child $DIR/$tdir/tgt_dir/tgt_child ||
+		error "rename dir cross MDT failed!"
+
+	fail mds2,mds3
+
+	test_112_check
+	rm -rf $DIR/$tdir || error "rmdir failed"
+}
+run_test 112h "DNE: cross MDT rename, fail MDT2 and MDT3"
+
+test_112i() {
+	[ $MDSCOUNT -lt 4 ] && skip "needs >= 4 MDTs" && return 0
+	([ $FAILURE_MODE == "HARD" ] &&
+		[ "$(facet_host mds1)" == "$(facet_host mds2)" ]) &&
+		skip "MDTs needs to be on diff hosts for HARD fail mode" &&
+		return 0
+
+	test_112_rename_prepare
+	replay_barrier mds2
+	replay_barrier mds4
+
+	mrename $DIR/$tdir/src_dir/src_child $DIR/$tdir/tgt_dir/tgt_child ||
+		error "rename dir cross MDT failed!"
+
+	fail mds2,mds4
+
+	test_112_check
+	rm -rf $DIR/$tdir || error "rmdir failed"
+}
+run_test 112i "DNE: cross MDT rename, fail MDT2 and MDT4"
+
+test_112j() {
+	[ $MDSCOUNT -lt 4 ] && skip "needs >= 4 MDTs" && return 0
+	([ $FAILURE_MODE == "HARD" ] &&
+		[ "$(facet_host mds1)" == "$(facet_host mds2)" ]) &&
+		skip "MDTs needs to be on diff hosts for HARD fail mode" &&
+		return 0
+
+	test_112_rename_prepare
+	replay_barrier mds3
+	replay_barrier mds4
+
+	mrename $DIR/$tdir/src_dir/src_child $DIR/$tdir/tgt_dir/tgt_child ||
+		error "rename dir cross MDT failed!"
+
+	fail mds3,mds4
+
+	test_112_check
+	rm -rf $DIR/$tdir || error "rmdir failed"
+}
+run_test 112j "DNE: cross MDT rename, fail MDT3 and MDT4"
+
+test_112k() {
+	[ $MDSCOUNT -lt 4 ] && skip "needs >= 4 MDTs" && return 0
+	([ $FAILURE_MODE == "HARD" ] &&
+		[ "$(facet_host mds1)" == "$(facet_host mds2)" ]) &&
+		skip "MDTs needs to be on diff hosts for HARD fail mode" &&
+		return 0
+
+	test_112_rename_prepare
+	replay_barrier mds1
+	replay_barrier mds2
+	replay_barrier mds3
+
+	mrename $DIR/$tdir/src_dir/src_child $DIR/$tdir/tgt_dir/tgt_child ||
+		error "rename dir cross MDT failed!"
+
+	fail mds1,mds2,mds3
+
+	test_112_check
+	rm -rf $DIR/$tdir || error "rmdir failed"
+}
+run_test 112k "DNE: cross MDT rename, fail MDT1,MDT2,MDT3"
+
+test_112l() {
+	[ $MDSCOUNT -lt 4 ] && skip "needs >= 4 MDTs" && return 0
+	([ $FAILURE_MODE == "HARD" ] &&
+		[ "$(facet_host mds1)" == "$(facet_host mds2)" ]) &&
+		skip "MDTs needs to be on diff hosts for HARD fail mode" &&
+		return 0
+
+	test_112_rename_prepare
+	replay_barrier mds1
+	replay_barrier mds2
+	replay_barrier mds4
+
+	mrename $DIR/$tdir/src_dir/src_child $DIR/$tdir/tgt_dir/tgt_child ||
+		error "rename dir cross MDT failed!"
+
+	fail mds1,mds2,mds4
+
+	test_112_check
+	rm -rf $DIR/$tdir || error "rmdir failed"
+}
+run_test 112l "DNE: cross MDT rename, fail MDT1,MDT2,MDT4"
+
+test_112m() {
+	[ $MDSCOUNT -lt 4 ] && skip "needs >= 4 MDTs" && return 0
+	([ $FAILURE_MODE == "HARD" ] &&
+		[ "$(facet_host mds1)" == "$(facet_host mds2)" ]) &&
+		skip "MDTs needs to be on diff hosts for HARD fail mode" &&
+		return 0
+
+	test_112_rename_prepare
+	replay_barrier mds1
+	replay_barrier mds3
+	replay_barrier mds4
+
+	mrename $DIR/$tdir/src_dir/src_child $DIR/$tdir/tgt_dir/tgt_child ||
+		error "rename dir cross MDT failed!"
+
+	fail mds1,mds3,mds4
+
+	test_112_check
+	rm -rf $DIR/$tdir || error "rmdir failed"
+}
+run_test 112m "DNE: cross MDT rename, fail MDT1,MDT3,MDT4"
+
+test_112n() {
+	[ $MDSCOUNT -lt 4 ] && skip "needs >= 4 MDTs" && return 0
+	([ $FAILURE_MODE == "HARD" ] &&
+		[ "$(facet_host mds1)" == "$(facet_host mds2)" ]) &&
+		skip "MDTs needs to be on diff hosts for HARD fail mode" &&
+		return 0
+
+	test_112_rename_prepare
+	replay_barrier mds2
+	replay_barrier mds3
+	replay_barrier mds4
+
+	mrename $DIR/$tdir/src_dir/src_child $DIR/$tdir/tgt_dir/tgt_child ||
+		error "rename dir cross MDT failed!"
+
+	fail mds2,mds3,mds4
+
+	test_112_check
+	rm -rf $DIR/$tdir || error "rmdir failed"
+}
+run_test 112n "DNE: cross MDT rename, fail MDT2,MDT3,MDT4"
+
+test_115() {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+	([ $FAILURE_MODE == "HARD" ] &&
+		[ "$(facet_host mds1)" == "$(facet_host mds2)" ]) &&
+		skip "MDTs needs to be on diff hosts for HARD fail mode" &&
+		return 0
+	local fail_index=0
+	local index
+	local i
+	local j
+
+	mkdir -p $DIR/$tdir
+	for ((j=0;j<$((MDSCOUNT));j++)); do
+		fail_index=$((fail_index+1))
+		index=$((fail_index % MDSCOUNT))
+		replay_barrier mds$((index + 1))
+		for ((i=0;i<5;i++)); do
+			test_mkdir -i$index -c$MDSCOUNT $DIR/$tdir/test_$i ||
+				error "create striped dir $DIR/$tdir/test_$i"
+		done
+
+		fail mds$((index + 1))
+		for ((i=0;i<5;i++)); do
+			checkstat -t dir $DIR/$tdir/test_$i ||
+				error "$DIR/$tdir/test_$i does not exist!"
+		done
+		rm -rf $DIR/$tdir/test_* ||
+				error "rmdir fails"
+	done
+}
+run_test 115 "failover for create/unlink striped directory"
+
+test_116a() {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+	([ $FAILURE_MODE == "HARD" ] &&
+		[ "$(facet_host mds1)" == "$(facet_host mds2)" ]) &&
+		skip "MDTs needs to be on diff hosts for HARD fail mode" &&
+		return 0
+	local fail_index=0
+
+	mkdir -p $DIR/$tdir
+	replay_barrier mds1
+
+	# OBD_FAIL_SPLIT_UPDATE_REC       0x1702
+	do_facet mds1 "lctl set_param fail_loc=0x80001702"
+	$LFS setdirstripe -c$MDSCOUNT $DIR/$tdir/striped_dir
+
+	fail mds1
+	$CHECKSTAT -t dir $DIR/$tdir/striped_dir ||
+		error "stried_dir does not exists"
+}
+run_test 116a "large update log master MDT recovery"
+
+test_116b() {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+	([ $FAILURE_MODE == "HARD" ] &&
+		[ "$(facet_host mds1)" == "$(facet_host mds2)" ]) &&
+		skip "MDTs needs to be on diff hosts for HARD fail mode" &&
+		return 0
+	local fail_index=0
+
+	mkdir -p $DIR/$tdir
+	replay_barrier mds2
+
+	# OBD_FAIL_SPLIT_UPDATE_REC       0x1702
+	do_facet mds2 "lctl set_param fail_loc=0x80001702"
+	$LFS setdirstripe -c$MDSCOUNT $DIR/$tdir/striped_dir
+
+	fail mds2
+	$CHECKSTAT -t dir $DIR/$tdir/striped_dir ||
+		error "stried_dir does not exists"
+}
+run_test 116b "large update log slave MDT recovery"
+
 
 complete $SECONDS
 check_and_cleanup_lustre

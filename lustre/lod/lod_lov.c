@@ -346,7 +346,7 @@ int lod_add_device(const struct lu_env *env, struct lod_device *lod,
 		}
 	}
 
-	if (!strcmp(LUSTRE_OSC_NAME, type)) {
+	if (for_ost) {
 		/* pool and qos are not supported for MDS stack yet */
 		rc = lod_ost_pool_add(&lod->lod_pool_info, index,
 				      lod->lod_osts_size);
@@ -378,13 +378,25 @@ int lod_add_device(const struct lu_env *env, struct lod_device *lod,
 	if (lod->lod_recovery_completed)
 		ldev->ld_ops->ldo_recovery_complete(env, ldev);
 
+	if (!for_ost && lod->lod_initialized) {
+		rc = lod_sub_init_llog(env, lod, tgt_desc->ltd_tgt);
+		if (rc != 0) {
+			CERROR("%s: cannot start llog on %s:rc = %d\n",
+			       lod2obd(lod)->obd_name, osp, rc);
+			GOTO(out_pool, rc);
+		}
+	}
+
 	rc = lfsck_add_target(env, lod->lod_child, d, exp, index, for_ost);
-	if (rc != 0)
+	if (rc != 0) {
 		CERROR("Fail to add LFSCK target: name = %s, type = %s, "
 		       "index = %u, rc = %d\n", osp, type, index, rc);
-
+		GOTO(out_fini_llog, rc);
+	}
 	RETURN(rc);
-
+out_fini_llog:
+	lod_sub_fini_llog(env, tgt_desc->ltd_tgt,
+			  tgt_desc->ltd_recovery_thread);
 out_pool:
 	lod_ost_pool_remove(&lod->lod_pool_info, index);
 out_mutex:
@@ -419,6 +431,13 @@ static void __lod_del_device(const struct lu_env *env, struct lod_device *lod,
 
 	lfsck_del_target(env, lod->lod_child, LTD_TGT(ltd, idx)->ltd_tgt,
 			 idx, for_ost);
+
+	if (!for_ost && LTD_TGT(ltd, idx)->ltd_recovery_thread != NULL) {
+		struct ptlrpc_thread *thread;
+
+		thread = LTD_TGT(ltd, idx)->ltd_recovery_thread;
+		OBD_FREE_PTR(thread);
+	}
 
 	if (LTD_TGT(ltd, idx)->ltd_reap == 0) {
 		LTD_TGT(ltd, idx)->ltd_reap = 1;

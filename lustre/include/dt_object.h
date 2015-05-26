@@ -104,10 +104,13 @@ typedef void (*dt_cb_t)(struct lu_env *env, struct thandle *th,
 #define TRANS_COMMIT_CB_MAGIC	0xa0a00a0a
 #define MAX_COMMIT_CB_STR_LEN	32
 
+#define DCB_TRANS_STOP		0x1
 struct dt_txn_commit_cb {
 	struct list_head	dcb_linkage;
 	dt_cb_t			dcb_func;
+	void			*dcb_data;
 	__u32			dcb_magic;
+	__u32			dcb_flags;
 	char			dcb_name[MAX_COMMIT_CB_STR_LEN];
 };
 
@@ -1776,6 +1779,12 @@ static inline struct dt_object *lu2dt_obj(struct lu_object *o)
 	return container_of0(o, struct dt_object, do_lu);
 }
 
+static inline struct dt_object *dt_object_child(struct dt_object *o)
+{
+	return container_of0(lu_object_next(&(o)->do_lu),
+			     struct dt_object, do_lu);
+}
+
 /**
  * This is the general purpose transaction handle.
  * 1. Transaction Life Cycle
@@ -1794,9 +1803,13 @@ struct thandle {
 	/** the dt device on which the transactions are executed */
 	struct dt_device *th_dev;
 
-	/* In some callback function, it needs to access the top_th directly */
-	struct thandle *th_top;
-
+	/* point to the top thandle, XXX this is a bit hacky right now,
+	 * but normal device trans callback triggered by the bottom
+	 * device (OSP/OSD == sub thandle layer) needs to get the
+	 * top_thandle (see dt_txn_hook_start/stop()), so we put the
+	 * top thandle here for now, will fix it when we have better
+	 * callback mechanism */
+	struct thandle	*th_top;
 	/** context for this transaction, tag is LCT_TX_HANDLE */
 	struct lu_context th_ctx;
 
@@ -1810,7 +1823,9 @@ struct thandle {
 	/** whether we need sync commit */
 	unsigned int		th_sync:1,
 	/* local transation, no need to inform other layers */
-				th_local:1;
+				th_local:1,
+	/* Whether we need wait the transaction to be submitted */
+				th_wait_submit:1;
 };
 
 /**

@@ -17,7 +17,7 @@ file_list file_concat file_exec file_chown file_chmod file_mknod file_truncate \
 file_delxattr file_getxattr file_setxattr"
 
 if [ $MDSCOUNT -gt 1 ]; then
-	RACER_PROGS="${RACER_PROGS} dir_remote dir_migrate"
+	RACER_PROGS="${RACER_PROGS} dir_remote"
 fi
 
 racer_cleanup()

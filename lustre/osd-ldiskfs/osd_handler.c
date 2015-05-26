@@ -681,6 +681,10 @@ static void osd_object_free(const struct lu_env *env, struct lu_object *l)
 
         LINVRNT(osd_invariant(obj));
 
+	{
+		if (lu_object_is_dying(l->lo_header))
+			lu_dir_ref_del(l, "osd_delete", l);
+	}
         dt_object_fini(&obj->oo_dt);
         if (obj->oo_hl_head != NULL)
                 ldiskfs_htree_lock_head_free(obj->oo_hl_head);
@@ -831,7 +835,8 @@ static void osd_trans_commit_cb(struct super_block *sb,
         dt_txn_hook_commit(th);
 
 	/* call per-transaction callbacks if any */
-	list_for_each_entry_safe(dcb, tmp, &oh->ot_dcb_list, dcb_linkage) {
+	list_for_each_entry_safe(dcb, tmp, &oh->ot_commit_dcb_list,
+				 dcb_linkage) {
 		LASSERTF(dcb->dcb_magic == TRANS_COMMIT_CB_MAGIC,
 			 "commit callback entry: magic=%x name='%s'\n",
 			 dcb->dcb_magic, dcb->dcb_name);
@@ -870,7 +875,8 @@ static struct thandle *osd_trans_create(const struct lu_env *env,
 		th->th_result = 0;
 		th->th_tags = LCT_TX_HANDLE;
 		oh->ot_credits = 0;
-		INIT_LIST_HEAD(&oh->ot_dcb_list);
+		INIT_LIST_HEAD(&oh->ot_commit_dcb_list);
+		INIT_LIST_HEAD(&oh->ot_stop_dcb_list);
 		osd_th_alloced(oh);
 
 		memset(oti->oti_declare_ops, 0,
@@ -1006,6 +1012,22 @@ static int osd_seq_exists(const struct lu_env *env,
 	RETURN(ss->ss_node_id == range->lsr_index);
 }
 
+static void osd_trans_stop_cb(struct osd_thandle *oth, int result)
+{
+	struct dt_txn_commit_cb	*dcb;
+	struct dt_txn_commit_cb	*tmp;
+
+	/* call per-transaction stop callbacks if any */
+	list_for_each_entry_safe(dcb, tmp, &oth->ot_stop_dcb_list,
+				 dcb_linkage) {
+		LASSERTF(dcb->dcb_magic == TRANS_COMMIT_CB_MAGIC,
+			 "commit callback entry: magic=%x name='%s'\n",
+			 dcb->dcb_magic, dcb->dcb_name);
+		list_del_init(&dcb->dcb_linkage);
+		dcb->dcb_func(NULL, &oth->ot_super, dcb, result);
+	}
+}
+
 /*
  * Concurrency: shouldn't matter.
  */
@@ -1026,7 +1048,7 @@ static int osd_trans_stop(const struct lu_env *env, struct dt_device *dt,
 	qtrans = oh->ot_quota_trans;
 	oh->ot_quota_trans = NULL;
 
-        if (oh->ot_handle != NULL) {
+	if (oh->ot_handle != NULL) {
                 handle_t *hdl = oh->ot_handle;
 
                 /*
@@ -1039,11 +1061,13 @@ static int osd_trans_stop(const struct lu_env *env, struct dt_device *dt,
 
                 LASSERT(oti->oti_txns == 1);
                 oti->oti_txns--;
+
                 rc = dt_txn_hook_stop(env, th);
                 if (rc != 0)
 			CERROR("%s: failed in transaction hook: rc = %d\n",
 			       osd_name(osd), rc);
 
+		osd_trans_stop_cb(oh, rc);
 		/* hook functions might modify th_sync */
 		hdl->h_sync = th->th_sync;
 
@@ -1053,6 +1077,7 @@ static int osd_trans_stop(const struct lu_env *env, struct dt_device *dt,
 			CERROR("%s: failed to stop transaction: rc = %d\n",
 			       osd_name(osd), rc);
 	} else {
+		osd_trans_stop_cb(oh, th->th_result);
 		OBD_FREE_PTR(oh);
 	}
 
@@ -1084,7 +1109,10 @@ static int osd_trans_cb_add(struct thandle *th, struct dt_txn_commit_cb *dcb)
 
 	LASSERT(dcb->dcb_magic == TRANS_COMMIT_CB_MAGIC);
 	LASSERT(&dcb->dcb_func != NULL);
-	list_add(&dcb->dcb_linkage, &oh->ot_dcb_list);
+	if (dcb->dcb_flags & DCB_TRANS_STOP)
+		list_add(&dcb->dcb_linkage, &oh->ot_stop_dcb_list);
+	else
+		list_add(&dcb->dcb_linkage, &oh->ot_commit_dcb_list);
 
 	return 0;
 }
@@ -2318,6 +2346,8 @@ static int osd_object_destroy(const struct lu_env *env,
 
         /* not needed in the cache anymore */
         set_bit(LU_OBJECT_HEARD_BANSHEE, &dt->do_lu.lo_header->loh_flags);
+	if (S_ISDIR(inode->i_mode))
+		lu_dir_ref_add(&dt->do_lu, "osd_delete", &dt->do_lu);
 
         RETURN(0);
 }
@@ -5547,10 +5577,18 @@ static int osd_fid_init(const struct lu_env *env, struct osd_device *osd)
 
 	rc = seq_client_init(osd->od_cl_seq, NULL, LUSTRE_SEQ_METADATA,
 			     osd->od_svname, ss->ss_server_seq);
-
 	if (rc != 0) {
 		OBD_FREE_PTR(osd->od_cl_seq);
 		osd->od_cl_seq = NULL;
+		RETURN(rc);
+	}
+
+	if (ss->ss_node_id == 0) {
+		/* If the OSD on the sequence controller(MDT0), then allocate
+		 * sequence here, otherwise allocate sequence after connected
+		 * to MDT0 (see mdt_register_lwp_callback()). */
+		rc = seq_server_alloc_meta(osd->od_cl_seq->lcs_srv,
+				   &osd->od_cl_seq->lcs_space, env);
 	}
 
 	RETURN(rc);
