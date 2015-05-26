@@ -1,12 +1,11 @@
 # Administration utilities Makefile
 
 if GSS
-SUBDIRS = gss
+SUBDIRS = . gss
 endif
 
-AM_CFLAGS  := -fPIC -D_GNU_SOURCE \
-	      -D_LARGEFILE64_SOURCE=1 -D_FILE_OFFSET_BITS=64 -DLUSTRE_UTILS=1
-AM_LDFLAGS := -L$(top_builddir)/lnet/utils
+AM_CFLAGS := -fPIC -D_GNU_SOURCE \
+	     -D_LARGEFILE64_SOURCE=1 -D_FILE_OFFSET_BITS=64 -DLUSTRE_UTILS=1
 
 MNTMODLDFLAGS := -rdynamic -ldl
 MNTMODCFLAGS := -DPLUGIN_DIR=\"${pkglibdir}\"
@@ -35,15 +34,18 @@ if SERVER
 sbin_PROGRAMS += mkfs.lustre tunefs.lustre llverdev lr_reader \
 	ll_recover_lost_found_objs ll_decode_filter_fid llog_reader
 endif
+
 if LIBPTHREAD
 sbin_PROGRAMS += lhsmtool_posix
 endif
 
 pkglib_LTLIBRARIES =
 lib_LIBRARIES = liblustreapi.a
+
 if LDISKFS_ENABLED
 lib_LIBRARIES += libiam.a
 endif
+
 noinst_LIBRARIES = liblustreapitmp.a
 endif # UTILS
 
@@ -77,17 +79,17 @@ else
 BLKIDLIB =
 endif
 
-llverfs_LDADD := $(EXT2FSLIB) $(E2PLIB)
-
+llverfs_LDADD  := $(EXT2FSLIB) $(E2PLIB)
 llverdev_LDADD := $(EXT2FSLIB) $(BLKIDLIB)
 
 L_STRING := $(top_builddir)/libcfs/libcfs/util/string.c
-L_PARAM := $(top_builddir)/libcfs/libcfs/util/param.c
+L_PARAM  := $(top_builddir)/libcfs/libcfs/util/param.c
 liblustreapitmp_a_SOURCES = liblustreapi.c liblustreapi_hsm.c \
 			    liblustreapi_nodemap.c lustreapi_internal.h \
 			    liblustreapi_json.c liblustreapi_layout.c \
 			    liblustreapi_lease.c liblustreapi_util.c \
-			    liblustreapi_kernelconn.c $(L_STRING) $(L_PARAM)
+			    liblustreapi_kernelconn.c liblustreapi_param.c \
+			    $(L_STRING) $(L_PARAM)
 
 if UTILS
 # build static and shared lib lustreapi
@@ -125,7 +127,7 @@ if UTILS
 if ZFS_ENABLED
 pkglib_LTLIBRARIES += mount_osd_zfs.la
 
-mount_osd_zfs_la_SOURCES = mount_utils_zfs.c
+mount_osd_zfs_la_SOURCES  := mount_utils_zfs.c
 mount_osd_zfs_la_CPPFLAGS := -DHAVE_IOCTL_IN_UNISTD_H $(ZFS_LIBZFS_INCLUDE)
 mount_osd_zfs_la_LDFLAGS  := -pthread $(ZFS_LIBZFS_LDFLAGS)
 mount_osd_zfs_la_LDFLAGS  += -shared -export-dynamic -module -avoid-version
@@ -139,39 +141,38 @@ mount_osd_ldiskfs_la_LDFLAGS  := -shared -export-dynamic -module -avoid-version
 mount_osd_ldiskfs_la_LIBADD   := $(SELINUX)
 endif # LDISKFS_ENABLED
 
-mount_lustre_SOURCES = mount_lustre.c mount_utils.c mount_utils.h
+mount_lustre_SOURCES  := mount_lustre.c mount_utils.c mount_utils.h
 mount_lustre_CPPFLAGS := ${MNTMODCFLAGS}
 mount_lustre_LDFLAGS  := ${MNTMODLDFLAGS}
 mount_lustre_LDADD    := $(LIBPTLCTL) $(SELINUX)
 mount_lustre_DEPENDENCIES := $(LIBPTLCTL)
 
-mkfs_lustre_SOURCES = mkfs_lustre.c mount_utils.c mount_utils.h
+mkfs_lustre_SOURCES  := mkfs_lustre.c mount_utils.c mount_utils.h
 mkfs_lustre_CPPFLAGS := -UTUNEFS ${MNTMODCFLAGS}
 mkfs_lustre_LDFLAGS  := ${MNTMODLDFLAGS}
 mkfs_lustre_LDADD    := $(LIBPTLCTL)
 mkfs_lustre_DEPENDENCIES := $(LIBPTLCTL)
 
-tunefs_lustre_SOURCES = mkfs_lustre.c mount_utils.c mount_utils.h
+tunefs_lustre_SOURCES  := mkfs_lustre.c mount_utils.c mount_utils.h
 tunefs_lustre_CPPFLAGS := -DTUNEFS ${MNTMODCFLAGS}
 tunefs_lustre_LDFLAGS  := ${MNTMODLDFLAGS}
 tunefs_lustre_LDADD    := $(mkfs_lustre_LDADD)
 tunefs_lustre_DEPENDENCIES := $(mkfs_lustre_DEPENDENCIES)
 
-l_getidentity_SOURCES = l_getidentity.c
-l_getidentity_LDADD := $(LIBPTLCTL)
-l_getidentity_DEPENDENCIES := $(LIBPTLCTL)
+l_getidentity_SOURCES := l_getidentity.c
+l_getidentity_LDADD   := liblustreapi.a $(LIBPTLCTL)
+l_getidentity_DEPENDENCIES := liblustreapi.a $(LIBPTLCTL)
 
 ltrack_stats_SOURCES = ltrack_stats.c
 
-lhsmtool_posix_SOURCES = lhsmtool_posix.c
-lhsmtool_posix_LDADD := liblustreapi.a $(LIBPTLCTL) $(PTHREAD_LIBS)
+lhsmtool_posix_SOURCES := lhsmtool_posix.c
+lhsmtool_posix_LDADD   := liblustreapi.a $(LIBPTLCTL) $(PTHREAD_LIBS)
 lhsmtool_posix_DEPENDENCIES := liblustreapi.a $(LIBPTLCTL)
 
 wirecheck_SOURCES = wirecheck.c
 wirecheck_CPPFLAGS := -DCC="\"$(CC)\""
 
 wiretest_SOURCES = wiretest.c
-
 endif # UTILS
 
 EXTRA_DIST = llstat llobdstat plot-llstat

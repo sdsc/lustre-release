@@ -68,7 +68,7 @@ cfs_get_procpath(char *name, size_t name_size, const char *pattern, ...)
 	if (len >= sizeof(path) - path_len)
 		return -E2BIG;
 
-	rc = glob(path, GLOB_BRACE, NULL, &glob_info);
+	rc = glob(path, GLOB_NOSORT | GLOB_BRACE, NULL, &glob_info);
 	if (rc == GLOB_NOMATCH) {
 		rc = -ENODEV;
 		goto out;
