@@ -688,20 +688,16 @@ display_name(char *filename, size_t filename_size, struct param_opts *popt)
 		}
 	}
 
-	filename += strlen("/proc/");
-	if (strncmp(filename, "fs/", strlen("fs/")) == 0)
-		filename += strlen("fs/");
-	else
-		filename += strlen("sys/");
+	tmp = strstr(filename, "/lustre/");
+	if (tmp != NULL)
+		filename = tmp + strlen("/lustre/");
 
-	if (strncmp(filename, "lustre/", strlen("lustre/")) == 0)
-		filename += strlen("lustre/");
-	else if (strncmp(filename, "lnet/", strlen("lnet/")) == 0)
-		filename += strlen("lnet/");
+	tmp = strstr(filename, "/lnet/");
+	if (tmp != NULL)
+		filename = tmp + strlen("/lnet/");
 
 	/* replace '/' with '.' to match conf_param and sysctl */
-	tmp = filename;
-	while ((tmp = strchr(tmp, '/')) != NULL)
+	for (tmp = strchr(filename, '/'); tmp != NULL; tmp = strchr(tmp, '/'))
 		*tmp = '.';
 
 	/* Append the indicator to entries.  We know there is enough space
@@ -767,23 +763,6 @@ static void clean_path(char *path)
         }
 }
 
-/* Take a parameter name and turn it into a pathname glob.
- * Disallow relative pathnames to avoid potential problems. */
-static int lprocfs_param_pattern(const char *pattern, char *buf, size_t bufsize)
-{
-	int rc;
-
-	rc = snprintf(buf, bufsize, "/proc/{fs,sys}/{lnet,lustre}/%s", pattern);
-	if (rc < 0) {
-		rc = -errno;
-	} else if (rc >= bufsize) {
-		fprintf(stderr, "error: parameter '%s' too long\n", pattern);
-		rc = -E2BIG;
-	}
-
-	return rc;
-}
-
 static int listparam_cmdline(int argc, char **argv, struct param_opts *popt)
 {
 	int ch;
@@ -820,7 +799,8 @@ static int listparam_display(struct param_opts *popt, char *pattern)
 	int rc;
 	int i;
 
-	rc = lprocfs_param_pattern(pattern, filename, sizeof(filename));
+	rc = cfs_get_procpath(filename, sizeof(filename),
+			      "{lnet,lustre}/%s", pattern);
 	if (rc < 0)
 		return rc;
 
@@ -928,7 +908,8 @@ static int getparam_display(struct param_opts *popt, char *pattern)
 	int fd;
 	int i;
 
-	rc = lprocfs_param_pattern(pattern, filename, sizeof(filename));
+	rc = cfs_get_procpath(filename, sizeof(filename),
+			      "{lnet,lustre}/%s", pattern);
 	if (rc < 0)
 		return rc;
 
@@ -1124,7 +1105,8 @@ static int setparam_display(struct param_opts *popt, char *pattern, char *value)
 	int fd;
 	int i;
 
-	rc = lprocfs_param_pattern(pattern, filename, sizeof(filename));
+	rc = cfs_get_procpath(filename, sizeof(filename),
+			      "{lnet,lustre}/%s", pattern);
 	if (rc < 0)
 		return rc;
 
