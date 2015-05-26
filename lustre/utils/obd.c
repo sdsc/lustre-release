@@ -943,55 +943,34 @@ int jt_get_version(int argc, char **argv)
 
 static void print_obd_line(char *s)
 {
-        char buf[MAX_STRING_SIZE];
-        char obd_name[MAX_OBD_NAME];
-        FILE *fp = NULL;
-        char *ptr;
+	char buf[MAX_STRING_SIZE];
+	char obd_name[MAX_OBD_NAME];
+	char **list = NULL;
+	int rc;
 
 	snprintf(buf, sizeof(buf), " %%*d %%*s osc %%%zus %%*s %%*d ",
 		 sizeof(obd_name) - 1);
-	if (sscanf(s, buf, obd_name) == 0)
-                goto try_mdc;
-	if (cfs_get_procpath(buf, sizeof(buf),
-				"lustre/osc/%s/ost_conn_uuid", obd_name))
-		goto try_mdc;
+	rc = sscanf(s, buf, obd_name);
+	if (rc == 1)
+		rc = llapi_get_param(&list, "osc/%s/ost_conn_uuid", obd_name);
+	else
+		rc = -EINVAL;
 
-        if ((fp = fopen(buf, "r")) == NULL)
-                goto try_mdc;
-        goto got_one;
+	if (rc != 0) {
+		snprintf(buf, sizeof(buf), " %%*d %%*s mdc %%%zus %%*s %%*d ",
+			 sizeof(obd_name) - 1);
+		rc = sscanf(s, buf, obd_name);
+		if (rc == 1)
+			rc = llapi_get_param(&list, "mdc/%s/mds_conn_uuid",
+					     obd_name);
+		else
+			rc = -EINVAL;
+	}
 
-try_mdc:
-	snprintf(buf, sizeof(buf), " %%*d %%*s mdc %%%zus %%*s %%*d ",
-		 sizeof(obd_name) - 1);
-	if (sscanf(s, buf, obd_name) == 0)
-                goto fail;
-	if (cfs_get_procpath(buf, sizeof(buf),
-				"lustre/mdc/%s/mds_conn_uuid", obd_name))
-		goto fail;
-        if ((fp = fopen(buf, "r")) == NULL)
-                goto fail;
-
-got_one:
-        /* should not ignore fgets(3)'s return value */
-        if (!fgets(buf, sizeof(buf), fp)) {
-                fprintf(stderr, "reading from %s: %s", buf, strerror(errno));
-                fclose(fp);
-                return;
-        }
-        fclose(fp);
-
-        /* trim trailing newlines */
-        ptr = strrchr(buf, '\n');
-        if (ptr) *ptr = '\0';
-        ptr = strrchr(s, '\n');
-        if (ptr) *ptr = '\0';
-
-        printf("%s %s\n", s, buf);
-        return;
-
-fail:
-        printf("%s", s);
-        return;
+	if (rc == 0 && list[0] != NULL)
+		printf("%s %s\n", s, llapi_trim_string(list[0]));
+	else
+		printf("%s\n", s);
 }
 
 /* get device list by ioctl */
@@ -1034,39 +1013,34 @@ int jt_obd_list_ioctl(int argc, char **argv)
 
 int jt_obd_list(int argc, char **argv)
 {
-        int rc;
-        char buf[MAX_STRING_SIZE];
-        FILE *fp = NULL;
-        int print_obd = 0;
+	char **list = NULL;
+	int print_obd = 0;
+	int i;
+	int rc;
 
-        if (argc > 2)
-                return CMD_HELP;
-        else if (argc == 2) {
-                if (strcmp(argv[1], "-t") == 0)
-                        print_obd = 1;
-                else
-                        return CMD_HELP;
-        }
+	if (argc > 2)
+		return CMD_HELP;
+	else if (argc == 2) {
+		if (strcmp(argv[1], "-t") == 0)
+			print_obd = 1;
+		else
+			return CMD_HELP;
+	}
 
-	rc = cfs_get_procpath(buf, sizeof(buf), "lustre/devices");
-	if (rc != 0)
-		return rc;
+	rc = llapi_get_param(&list, "devices");
+	if (rc != 0) {
+		fprintf(stderr, "error: %s: %s opening devices\n",
+			jt_cmdname(argv[0]), strerror(rc));
+		return jt_obd_list_ioctl(argc, argv);
+	}
 
-	fp = fopen(buf, "r");
-        if (fp == NULL) {
-		fprintf(stderr, "error: %s: %s opening %s\n",
-			jt_cmdname(argv[0]), strerror(rc =  errno), buf);
-                return jt_obd_list_ioctl(argc, argv);
-        }
+	for (i = 0; list[i] != NULL; i++)
+		if (print_obd)
+			print_obd_line(list[i]);
+		else
+			printf("%s", list[i]);
 
-        while (fgets(buf, sizeof(buf), fp) != NULL)
-                if (print_obd)
-                        print_obd_line(buf);
-                else
-                        printf("%s", buf);
-
-        fclose(fp);
-        return 0;
+	return 0;
 }
 
 struct jt_fid_space {

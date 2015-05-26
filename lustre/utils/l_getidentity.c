@@ -421,11 +421,12 @@ static void show_result(struct identity_downcall_data *data)
 
 int main(int argc, char **argv)
 {
-        char *end;
-        struct identity_downcall_data *data = NULL;
-        char procname[1024];
-        unsigned long uid;
-        int fd, rc = -EINVAL, size, maxgroups;
+	char *end;
+	struct identity_downcall_data *data = NULL;
+	unsigned long uid;
+	unsigned int maxgroups;
+	size_t size;
+	int rc = -EINVAL;
 
         progname = basename(argv[0]);
         if (argc != 3) {
@@ -450,7 +451,7 @@ int main(int argc, char **argv)
         size = offsetof(struct identity_downcall_data, idd_groups[maxgroups]);
         data = malloc(size);
         if (!data) {
-                errlog("malloc identity downcall data(%d) failed!\n", size);
+		errlog("malloc identity downcall data(%zu) failed!\n", size);
                 rc = -ENOMEM;
                 goto out;
         }
@@ -467,7 +468,8 @@ int main(int argc, char **argv)
                         idd_groups[data->idd_ngroups]);
         /* read permission database */
         rc = get_perms(data);
-
+	if (rc)
+		goto out;
 downcall:
         if (getenv("L_GETIDENTITY_TEST")) {
                 show_result(data);
@@ -475,27 +477,7 @@ downcall:
                 goto out;
         }
 
-	rc = cfs_get_procpath(procname, sizeof(procname),
-				"lustre/mdt/%s/identity_info", argv[1]);
-	if (rc != 0)
-		goto out;
-
-        fd = open(procname, O_WRONLY);
-        if (fd < 0) {
-                errlog("can't open file %s: %s\n", procname, strerror(errno));
-                rc = -1;
-                goto out;
-        }
-
-        rc = write(fd, data, size);
-        close(fd);
-        if (rc != size) {
-                errlog("partial write ret %d: %s\n", rc, strerror(errno));
-                rc = -1;
-        } else {
-                rc = 0;
-        }
-
+	rc = llapi_set_param(data, size, "mdt/%s/identity_info", argv[1]);
 out:
         if (data != NULL)
                 free(data);
