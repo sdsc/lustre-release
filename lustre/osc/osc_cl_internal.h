@@ -68,6 +68,8 @@ struct osc_io {
         int                oi_lockless;
 	/** how many LRU pages are reserved for this IO */
 	unsigned long	   oi_lru_reserved;
+	/** using urgent lru slots */
+	int		   oi_lru_urgent;
 
 	/** active extents, we know how many bytes is going to be written,
 	 * so having an active extent will prevent it from being fragmented */
@@ -372,7 +374,11 @@ struct osc_page {
 	/**
 	 * Set if the page must be transferred with OBD_BRW_SRVLOCK.
 	 */
-			      ops_srvlock:1;
+			      ops_srvlock:1,
+	/**
+	 * in urgent LRU ?
+	 */
+			      ops_in_urgent_lru:1;
 	/**
 	 * lru page list. See osc_lru_{del|use}() in osc_page.c for usage.
 	 */

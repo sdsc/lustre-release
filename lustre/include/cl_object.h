@@ -2404,6 +2404,14 @@ struct cl_client_cache {
 	 */
 	spinlock_t		ccc_lru_lock;
 	/**
+	 * # of urgent lru slots in use
+	 */
+	unsigned long		ccc_lru_urgent;
+	/**
+	 * to protect ccc_lru_urgent
+	 */
+	spinlock_t		ccc_lru_urgent_lock;
+	/**
 	 * Set if unstable check is enabled
 	 */
 	unsigned int		ccc_unstable_check:1;

@@ -404,19 +404,22 @@ static int ll_max_cached_mb_seq_show(struct seq_file *m, void *v)
 	int shift = 20 - PAGE_CACHE_SHIFT;
 	long max_cached_mb;
 	long unused_mb;
+	int urgent_pages;
 
 	max_cached_mb = cache->ccc_lru_max >> shift;
 	unused_mb = atomic_long_read(&cache->ccc_lru_left) >> shift;
+	urgent_pages = cache->ccc_lru_urgent;
 	return seq_printf(m,
 			"users: %d\n"
 			"max_cached_mb: %ld\n"
 			"used_mb: %ld\n"
 			"unused_mb: %ld\n"
+			"urgent_pages: %d\n"
 			"reclaim_count: %u\n",
 			atomic_read(&cache->ccc_users),
 			max_cached_mb,
 			max_cached_mb - unused_mb,
-			unused_mb,
+			unused_mb, urgent_pages,
 			cache->ccc_lru_shrinkers);
 }
 

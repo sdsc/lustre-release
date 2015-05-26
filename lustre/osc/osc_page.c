@@ -534,11 +534,18 @@ void osc_lru_add_batch(struct client_obd *cli, struct list_head *plist)
 {
 	struct list_head lru = LIST_HEAD_INIT(lru);
 	struct osc_async_page *oap;
-	long npages = 0;
+	long npages = 0, wakeup = 0;
 
 	list_for_each_entry(oap, plist, oap_pending_item) {
 		struct osc_page *opg = oap2osc_page(oap);
 
+		if (opg->ops_in_urgent_lru) {
+			spin_lock(&cli->cl_cache->ccc_lru_urgent_lock);
+			cli->cl_cache->ccc_lru_urgent--;
+			spin_unlock(&cli->cl_cache->ccc_lru_urgent_lock);
+			opg->ops_in_urgent_lru = 0;
+			wakeup = 1;
+		}
 		if (!opg->ops_in_lru)
 			continue;
 
@@ -558,6 +565,8 @@ void osc_lru_add_batch(struct client_obd *cli, struct list_head *plist)
 		if (osc_cache_too_much(cli))
 			(void)ptlrpcd_queue_work(cli->cl_lru_work);
 	}
+	if (wakeup)
+		wake_up_all(&osc_lru_waitq);
 }
 
 static void __osc_lru_del(struct client_obd *cli, struct osc_page *opg)
@@ -592,6 +601,12 @@ static void osc_lru_del(struct client_obd *cli, struct osc_page *opg)
 		wake_up(&osc_lru_waitq);
 	} else {
 		LASSERT(list_empty(&opg->ops_lru));
+		if (opg->ops_in_urgent_lru) {
+			spin_lock(&cli->cl_cache->ccc_lru_urgent_lock);
+			cli->cl_cache->ccc_lru_urgent--;
+			spin_unlock(&cli->cl_cache->ccc_lru_urgent_lock);
+			opg->ops_in_urgent_lru = 0;
+		}
 	}
 }
 
@@ -857,6 +872,7 @@ out:
 static int osc_lru_reserve(const struct lu_env *env, struct osc_object *obj,
 			   struct osc_page *opg)
 {
+	static bool no_warned = true;
 	struct l_wait_info lwi = LWI_INTR(LWI_ON_SIGNAL_NOOP, NULL);
 	struct osc_io *oio = osc_env_io(env);
 	struct client_obd *cli = osc_cli(obj);
@@ -873,7 +889,7 @@ static int osc_lru_reserve(const struct lu_env *env, struct osc_object *obj,
 
 	LASSERT(atomic_long_read(cli->cl_lru_left) >= 0);
 	while (!atomic_long_add_unless(cli->cl_lru_left, -1, 0)) {
-
+		struct cl_client_cache *cache = cli->cl_cache;
 		/* run out of LRU spaces, try to drop some by itself */
 		rc = osc_lru_reclaim(cli);
 		if (rc < 0)
@@ -881,10 +897,37 @@ static int osc_lru_reserve(const struct lu_env *env, struct osc_object *obj,
 		if (rc > 0)
 			continue;
 
+		spin_lock(&cache->ccc_lru_urgent_lock);
+		/* this route let an only one brw-I/O exceed lru limit but
+		 * I think it's better than io hangs up */
+		if (!cache->ccc_lru_urgent || oio->oi_lru_urgent) {
+			/* use urgent slots */
+			cache->ccc_lru_urgent++;
+			oio->oi_lru_urgent = 1;
+			/* super-slowdown may occure so I think this kind of
+			 * messages will be needed to confirm whether or not
+			 * a bulk-I/O is actually running
+			 */
+			CDEBUG(D_TRACE, "urgent: %lu, owner: %u\n",
+			       cache->ccc_lru_urgent, current->pid);
+
+			if (no_warned) {
+				no_warned = false;
+				CWARN("performance degradation may occur ... "
+				      "are there enough lru slots ? check the "
+				      "max_cached_mb parameter or something\n");
+			}
+			spin_unlock(&cache->ccc_lru_urgent_lock);
+			opg->ops_in_urgent_lru = 1;
+			RETURN(0);
+		}
+		spin_unlock(&cache->ccc_lru_urgent_lock);
+
 		cond_resched();
 		rc = l_wait_event(osc_lru_waitq,
-				atomic_long_read(cli->cl_lru_left) > 0,
-				&lwi);
+				  atomic_long_read(cli->cl_lru_left) > 0 ||
+				  cache->ccc_lru_urgent == 0 ||
+				  oio->oi_lru_urgent, &lwi);
 		if (rc < 0)
 			break;
 	}
