@@ -59,6 +59,7 @@ static const char dot[] = ".";
 static const char dotdot[] = "..";
 
 static const struct dt_body_operations lod_body_lnk_ops;
+static const struct dt_body_operations lod_body_ops;
 
 /**
  * Implementation of dt_index_operations::dio_lookup
@@ -1604,6 +1605,8 @@ int lod_parse_dir_striping(const struct lu_env *env, struct lod_object *lo,
 		if (IS_ERR(dto))
 			GOTO(out, rc = PTR_ERR(dto));
 
+		lu_dir_ref_add(&dto->do_lu, "lod_stripe1", &lo->ldo_obj.do_lu);
+		set_bit(LU_OBJECT_SUB_STRIPED, &dto->do_lu.lo_header->loh_flags);
 		stripe[i] = dto;
 	}
 out:
@@ -1617,19 +1620,18 @@ out:
 }
 
 /**
- * Create a striped directory.
+ * Declare create a striped directory.
  *
- * Create a striped directory with a given stripe pattern on the specified MDTs.
- * A striped directory is represented as a regular directory - an index listing
- * all the stripes. The stripes point back to the master object with ".." and
- * LinkEA. The master object gets LMV EA which identifies it as a striped
- * directory. The function allocates FIDs for all the stripes.
+ * Declare creating a striped directory with a given stripe pattern on the
+ * specified MDTs. A striped directory is represented as a regular directory
+ * - an index listing all the stripes. The stripes point back to the master
+ * object with ".." and LinkEA. The master object gets LMV EA which
+ * identifies it as a striped directory. The function allocates FIDs
+ * for all stripes.
  *
  * \param[in] env	execution environment
  * \param[in] dt	object
  * \param[in] attr	attributes to initialize the objects with
- * \param[in] lum	a pattern specifying the number of stripes and
- *			MDT to start from
  * \param[in] dof	type of objects to be created
  * \param[in] th	transaction handle
  *
@@ -1896,6 +1898,9 @@ next:
 				   &conf);
 		if (IS_ERR(dto))
 			GOTO(out_put, rc = PTR_ERR(dto));
+
+		lu_dir_ref_add(&dto->do_lu, "lod_stripe2", &dt->do_lu);
+		set_bit(LU_OBJECT_SUB_STRIPED, &dto->do_lu.lo_header->loh_flags);
 		stripe[i] = dto;
 		idx_array[i] = idx;
 	}
@@ -1914,9 +1919,11 @@ next:
 
 out_put:
 	if (rc < 0) {
-		for (i = 0; i < stripe_count; i++)
+		for (i = 0; i < stripe_count; i++) {
+			lu_dir_ref_del(&stripe[i]->do_lu, "lod_stripe", &dt->do_lu);
 			if (stripe[i] != NULL)
 				lu_object_put(env, &stripe[i]->do_lu);
+		}
 		OBD_FREE(stripe, sizeof(stripe[0]) * stripe_count);
 		lo->ldo_stripenr = 0;
 		lo->ldo_stripes_allocated = 0;
@@ -2039,7 +2046,8 @@ static int lod_dir_declare_xattr_set(const struct lu_env *env,
 		RETURN(0);
 
 	for (i = 0; i < lo->ldo_stripenr; i++) {
-		LASSERT(lo->ldo_stripe[i]);
+		if (lo->ldo_stripe[i] == NULL)
+			continue;
 
 		rc = lod_sub_object_declare_xattr_set(env, lo->ldo_stripe[i],
 						buf, name, fl, th);
@@ -2138,7 +2146,8 @@ static void lod_lov_stripe_cache_clear(struct lod_object *lo)
 static int lod_xattr_set_internal(const struct lu_env *env,
 				  struct dt_object *dt,
 				  const struct lu_buf *buf,
-				  const char *name, int fl, struct thandle *th)
+				  const char *name, int fl,
+				  struct thandle *th)
 {
 	struct dt_object	*next = dt_object_child(dt);
 	struct lod_object	*lo = lod_dt_obj(dt);
@@ -2158,7 +2167,8 @@ static int lod_xattr_set_internal(const struct lu_env *env,
 		RETURN(0);
 
 	for (i = 0; i < lo->ldo_stripenr; i++) {
-		LASSERT(lo->ldo_stripe[i]);
+		if (lo->ldo_stripe[i] == NULL)
+			continue;
 
 		rc = lod_sub_object_xattr_set(env, lo->ldo_stripe[i], buf, name,
 					      fl, th);
@@ -2787,7 +2797,8 @@ static int lod_declare_xattr_del(const struct lu_env *env,
 		RETURN(0);
 
 	for (i = 0; i < lo->ldo_stripenr; i++) {
-		LASSERT(lo->ldo_stripe[i]);
+		if (lo->ldo_stripe[i] == NULL)
+			continue;
 		rc = lod_sub_object_declare_xattr_del(env, lo->ldo_stripe[i],
 						      name, th);
 		if (rc != 0)
@@ -2825,8 +2836,8 @@ static int lod_xattr_del(const struct lu_env *env, struct dt_object *dt,
 		RETURN(0);
 
 	for (i = 0; i < lo->ldo_stripenr; i++) {
-		LASSERT(lo->ldo_stripe[i]);
-
+		if (lo->ldo_stripe[i] == NULL)
+			continue;
 		rc = lod_sub_object_xattr_del(env, lo->ldo_stripe[i], name, th);
 		if (rc != 0)
 			break;
@@ -3420,6 +3431,8 @@ static int lod_declare_object_create(const struct lu_env *env,
 
 	if (dof->dof_type == DFT_SYM)
 		dt->do_body_ops = &lod_body_lnk_ops;
+	else if (dof->dof_type == DFT_REGULAR)
+		dt->do_body_ops = &lod_body_ops;
 
 	/*
 	 * it's lod_ah_init() that has decided the object will be striped
@@ -3692,8 +3705,14 @@ static int lod_object_destroy(const struct lu_env *env,
 			}
 
 			rc = lod_sub_object_destroy(env, lo->ldo_stripe[i], th);
-			if (rc != 0)
+			if (rc != 0) {
 				break;
+			} else {
+				if (S_ISDIR(lo->ldo_obj.do_lu.lo_header->loh_attr))
+					lu_dir_ref_del(&lo->ldo_stripe[i]->do_lu, "lod_stripe", &lo->ldo_obj.do_lu);
+				lu_object_put(env, &lo->ldo_stripe[i]->do_lu);
+				lo->ldo_stripe[i] = NULL;
+			}
 		}
 	}
 
@@ -3782,7 +3801,6 @@ static int lod_object_unlock_internal(const struct lu_env *env,
 				      struct ldlm_enqueue_info *einfo,
 				      ldlm_policy_data_t *policy)
 {
-	struct lod_object	*lo = lod_dt_obj(dt);
 	struct lod_slave_locks  *slave_locks = einfo->ei_cbdata;
 	int			rc = 0;
 	int			i;
@@ -3792,15 +3810,9 @@ static int lod_object_unlock_internal(const struct lu_env *env,
 		RETURN(0);
 
 	for (i = 1; i < slave_locks->lsl_lock_count; i++) {
-		if (lustre_handle_is_used(&slave_locks->lsl_handle[i])) {
-			int	rc1;
-
-			einfo->ei_cbdata = &slave_locks->lsl_handle[i];
-			rc1 = dt_object_unlock(env, lo->ldo_stripe[i], einfo,
-					       policy);
-			if (rc1 < 0)
-				rc = rc == 0 ? rc1 : rc;
-		}
+		if (lustre_handle_is_used(&slave_locks->lsl_handle[i]))
+			ldlm_lock_decref(&slave_locks->lsl_handle[i],
+					 einfo->ei_mode);
 	}
 
 	RETURN(rc);
@@ -3829,10 +3841,6 @@ static int lod_object_unlock(const struct lu_env *env, struct dt_object *dt,
 
 	if (!S_ISDIR(dt->do_lu.lo_header->loh_attr))
 		RETURN(-ENOTDIR);
-
-	rc = lod_load_striping(env, lo);
-	if (rc != 0)
-		RETURN(rc);
 
 	/* Note: for remote lock for single stripe dir, MDT will cancel
 	 * the lock by lockh directly */
@@ -3902,12 +3910,13 @@ static int lod_object_lock(const struct lu_env *env,
 		struct lustre_handle	lockh;
 		struct ldlm_res_id	*res_id;
 
+		if (lo->ldo_stripe[i] == NULL)
+			continue;
 		res_id = &lod_env_info(env)->lti_res_id;
 		fid_build_reg_res_name(lu_object_fid(&lo->ldo_stripe[i]->do_lu),
 				       res_id);
 		einfo->ei_res_id = res_id;
 
-		LASSERT(lo->ldo_stripe[i]);
 		rc = dt_object_lock(env, lo->ldo_stripe[i], &lockh, einfo,
 				    policy);
 		if (rc != 0)
@@ -3997,10 +4006,37 @@ static ssize_t lod_write(const struct lu_env *env, struct dt_object *dt,
 	return lod_sub_object_write(env, dt_object_child(dt), buf, pos, th, iq);
 }
 
+static int lod_declare_punch(const struct lu_env *env, struct dt_object *dt,
+			     __u64 start, __u64 end, struct thandle *th)
+{
+	if (dt_object_remote(dt))
+		return -ENOTSUPP;
+
+	return lod_sub_object_declare_punch(env, dt_object_child(dt), start,
+					    end, th);
+}
+
+static int lod_punch(const struct lu_env *env, struct dt_object *dt,
+		     __u64 start, __u64 end, struct thandle *th)
+{
+	if (dt_object_remote(dt))
+		return -ENOTSUPP;
+
+	return lod_sub_object_punch(env, dt_object_child(dt), start, end, th);
+}
+
 static const struct dt_body_operations lod_body_lnk_ops = {
 	.dbo_read		= lod_read,
 	.dbo_declare_write	= lod_declare_write,
 	.dbo_write		= lod_write
+};
+
+static const struct dt_body_operations lod_body_ops = {
+	.dbo_read		= lod_read,
+	.dbo_declare_write	= lod_declare_write,
+	.dbo_write		= lod_write,
+	.dbo_declare_punch	= lod_declare_punch,
+	.dbo_punch		= lod_punch,
 };
 
 /**
@@ -4100,8 +4136,11 @@ void lod_object_free_striping(const struct lu_env *env, struct lod_object *lo)
 		LASSERT(lo->ldo_stripes_allocated > 0);
 
 		for (i = 0; i < lo->ldo_stripenr; i++) {
-			if (lo->ldo_stripe[i])
+			if (lo->ldo_stripe[i]) {
+				if (S_ISDIR(lo->ldo_obj.do_lu.lo_header->loh_attr))
+					lu_dir_ref_del(&lo->ldo_stripe[i]->do_lu, "lod_stripe", &lo->ldo_obj.do_lu);
 				lu_object_put(env, &lo->ldo_stripe[i]->do_lu);
+			}
 		}
 
 		i = sizeof(struct dt_object *) * lo->ldo_stripes_allocated;
@@ -4122,8 +4161,16 @@ void lod_object_free_striping(const struct lu_env *env, struct lod_object *lo)
  */
 static int lod_object_start(const struct lu_env *env, struct lu_object *o)
 {
-	if (S_ISLNK(o->lo_header->loh_attr & S_IFMT))
+	if (S_ISLNK(o->lo_header->loh_attr & S_IFMT)) {
 		lu2lod_obj(o)->ldo_obj.do_body_ops = &lod_body_lnk_ops;
+	} else if (S_ISREG(o->lo_header->loh_attr & S_IFMT) ||
+		   fid_is_local_file(lu_object_fid(o))) {
+		/* Note: some local file (like last rcvd) is created
+		 * through bottom layer (OSD), so the object initialization
+		 * comes to lod, it does not set loh_attr yet, so
+		 * set do_body_ops for local file anyway */
+		lu2lod_obj(o)->ldo_obj.do_body_ops = &lod_body_ops;
+	}
 	return 0;
 }
 

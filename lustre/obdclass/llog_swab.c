@@ -44,6 +44,7 @@
 
 
 #include <lustre_log.h>
+#include <lustre_update.h>
 
 static void print_llogd_body(struct llogd_body *d)
 {
@@ -126,6 +127,21 @@ void lustre_swab_lu_seq_range(struct lu_seq_range *range)
         __swab32s (&range->lsr_flags);
 }
 EXPORT_SYMBOL(lustre_swab_lu_seq_range);
+
+void lustre_swab_update_ops(struct update_ops *uops, unsigned int op_count)
+{
+	unsigned int i;
+	unsigned int j;
+
+	for (i = 0; i < op_count; i++) {
+		lustre_swab_lu_fid(&uops->uops_op[i].uop_fid);
+		__swab16s(&uops->uops_op[i].uop_type);
+		__swab16s(&uops->uops_op[i].uop_param_count);
+		for (j = 0; j < uops->uops_op[i].uop_param_count; j++)
+			__swab16s(&uops->uops_op[i].uop_params_off[j]);
+	}
+}
+EXPORT_SYMBOL(lustre_swab_update_ops);
 
 void lustre_swab_llog_rec(struct llog_rec_hdr *rec)
 {
@@ -236,23 +252,23 @@ void lustre_swab_llog_rec(struct llog_rec_hdr *rec)
 		__swab64s(&lsr->lsr_valid);
 		tail = &lsr->lsr_tail;
 		break;
-        }
-        case OBD_CFG_REC:
-                /* these are swabbed as they are consumed */
-                break;
+	}
+	case OBD_CFG_REC:
+		/* these are swabbed as they are consumed */
+		break;
 	case LLOG_HDR_MAGIC:
 	{
-                struct llog_log_hdr *llh = (struct llog_log_hdr *)rec;
+		struct llog_log_hdr *llh = (struct llog_log_hdr *)rec;
 
-                __swab64s(&llh->llh_timestamp);
-                __swab32s(&llh->llh_count);
-                __swab32s(&llh->llh_bitmap_offset);
-                __swab32s(&llh->llh_flags);
-                __swab32s(&llh->llh_size);
-                __swab32s(&llh->llh_cat_idx);
-		tail = &llh->llh_tail;
-                break;
-        }
+		__swab64s(&llh->llh_timestamp);
+		__swab32s(&llh->llh_count);
+		__swab32s(&llh->llh_bitmap_offset);
+		__swab32s(&llh->llh_flags);
+		__swab32s(&llh->llh_size);
+		__swab32s(&llh->llh_cat_idx);
+		tail = LLOG_HDR_TAIL(llh);
+		break;
+	}
 	case LLOG_LOGID_MAGIC:
 	{
 		struct llog_logid_rec *lid = (struct llog_logid_rec *)rec;
@@ -272,6 +288,25 @@ void lustre_swab_llog_rec(struct llog_rec_hdr *rec)
 	}
         case LLOG_PAD_MAGIC:
                 break;
+	case UPDATE_REC:
+	{
+		struct llog_update_record *lur =
+				(struct llog_update_record *)rec;
+		struct update_records *record = &lur->lur_update_rec;
+
+		__swab32s(&record->ur_flags);
+		__swab64s(&record->ur_batchid);
+		__swab64s(&record->ur_master_transno);
+		__swab32s(&record->ur_param_count);
+		__swab32s(&record->ur_update_count);
+		lustre_swab_update_ops(&record->ur_ops,
+				       record->ur_update_count);
+
+		/* Compute tail location. */
+		tail = (struct llog_rec_tail *)((char *)record +
+						update_records_size(record));
+		break;
+	}
         default:
                 CERROR("Unknown llog rec type %#x swabbing rec %p\n",
                        rec->lrh_type, rec);
@@ -285,18 +320,20 @@ void lustre_swab_llog_rec(struct llog_rec_hdr *rec)
 
 static void print_llog_hdr(struct llog_log_hdr *h)
 {
-        CDEBUG(D_OTHER, "llog header: %p\n", h);
-        CDEBUG(D_OTHER, "\tllh_hdr.lrh_index: %#x\n", h->llh_hdr.lrh_index);
-        CDEBUG(D_OTHER, "\tllh_hdr.lrh_len: %#x\n", h->llh_hdr.lrh_len);
-        CDEBUG(D_OTHER, "\tllh_hdr.lrh_type: %#x\n", h->llh_hdr.lrh_type);
-        CDEBUG(D_OTHER, "\tllh_timestamp: "LPX64"\n", h->llh_timestamp);
-        CDEBUG(D_OTHER, "\tllh_count: %#x\n", h->llh_count);
-        CDEBUG(D_OTHER, "\tllh_bitmap_offset: %#x\n", h->llh_bitmap_offset);
-        CDEBUG(D_OTHER, "\tllh_flags: %#x\n", h->llh_flags);
-        CDEBUG(D_OTHER, "\tllh_size: %#x\n", h->llh_size);
-        CDEBUG(D_OTHER, "\tllh_cat_idx: %#x\n", h->llh_cat_idx);
-        CDEBUG(D_OTHER, "\tllh_tail.lrt_index: %#x\n", h->llh_tail.lrt_index);
-        CDEBUG(D_OTHER, "\tllh_tail.lrt_len: %#x\n", h->llh_tail.lrt_len);
+	CDEBUG(D_OTHER, "llog header: %p\n", h);
+	CDEBUG(D_OTHER, "\tllh_hdr.lrh_index: %#x\n", h->llh_hdr.lrh_index);
+	CDEBUG(D_OTHER, "\tllh_hdr.lrh_len: %#x\n", h->llh_hdr.lrh_len);
+	CDEBUG(D_OTHER, "\tllh_hdr.lrh_type: %#x\n", h->llh_hdr.lrh_type);
+	CDEBUG(D_OTHER, "\tllh_timestamp: "LPX64"\n", h->llh_timestamp);
+	CDEBUG(D_OTHER, "\tllh_count: %#x\n", h->llh_count);
+	CDEBUG(D_OTHER, "\tllh_bitmap_offset: %#x\n", h->llh_bitmap_offset);
+	CDEBUG(D_OTHER, "\tllh_flags: %#x\n", h->llh_flags);
+	CDEBUG(D_OTHER, "\tllh_size: %#x\n", h->llh_size);
+	CDEBUG(D_OTHER, "\tllh_cat_idx: %#x\n", h->llh_cat_idx);
+	CDEBUG(D_OTHER, "\tllh_tail.lrt_index: %#x\n",
+	       LLOG_HDR_TAIL(h)->lrt_index);
+	CDEBUG(D_OTHER, "\tllh_tail.lrt_len: %#x\n",
+	       LLOG_HDR_TAIL(h)->lrt_len);
 }
 
 void lustre_swab_llog_hdr (struct llog_log_hdr *h)

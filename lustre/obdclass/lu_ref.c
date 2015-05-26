@@ -48,8 +48,6 @@
 #include <obd_support.h>
 #include <lu_ref.h>
 
-#ifdef USE_LU_REF
-
 /**
  * Asserts a condition for a given lu_ref. Must be called with
  * lu_ref::lf_guard held.
@@ -135,6 +133,7 @@ void lu_ref_init_loc(struct lu_ref *ref, const char *func, const int line)
 	list_add(&ref->lf_linkage, &lu_ref_refs);
 	spin_unlock(&lu_ref_refs_guard);
 }
+EXPORT_SYMBOL(lu_ref_init_loc);
 
 void lu_ref_fini(struct lu_ref *ref)
 {
@@ -144,6 +143,7 @@ void lu_ref_fini(struct lu_ref *ref)
 	list_del_init(&ref->lf_linkage);
 	spin_unlock(&lu_ref_refs_guard);
 }
+EXPORT_SYMBOL(lu_ref_fini);
 
 static struct lu_ref_link *lu_ref_add_context(struct lu_ref *ref,
                                               int flags,
@@ -159,6 +159,10 @@ static struct lu_ref_link *lu_ref_add_context(struct lu_ref *ref,
                         link->ll_ref    = ref;
                         link->ll_scope  = scope;
                         link->ll_source = source;
+			link->ll_ref_count = atomic_read(&((struct lu_object *)source)->lo_header->loh_ref);
+			link->ll_master_reference = &((struct lu_object *)source)->lo_header->loh_reference;
+			link->ll_pid = current->pid;
+			link->ll_fid = ((struct lu_object *)source)->lo_header->loh_fid;
 			spin_lock(&ref->lf_guard);
 			list_add_tail(&link->ll_linkage, &ref->lf_list);
 			ref->lf_refs++;
@@ -176,13 +180,14 @@ static struct lu_ref_link *lu_ref_add_context(struct lu_ref *ref,
 	return link;
 }
 
-void lu_ref_add(struct lu_ref *ref, const char *scope, const void *source)
+void lu_ref_debug_add(struct lu_ref *ref, const char *scope, const void *source)
 {
 	might_sleep();
 	lu_ref_add_context(ref, GFP_IOFS, scope, source);
 }
+EXPORT_SYMBOL(lu_ref_debug_add);
 
-void lu_ref_add_at(struct lu_ref *ref, struct lu_ref_link *link,
+void lu_ref_debug_add_at(struct lu_ref *ref, struct lu_ref_link *link,
 		   const char *scope, const void *source)
 {
 	link->ll_ref = ref;
@@ -193,20 +198,22 @@ void lu_ref_add_at(struct lu_ref *ref, struct lu_ref_link *link,
 	ref->lf_refs++;
 	spin_unlock(&ref->lf_guard);
 }
+EXPORT_SYMBOL(lu_ref_debug_add_at);
 
 /**
  * Version of lu_ref_add() to be used in non-blockable contexts.
  */
-void lu_ref_add_atomic(struct lu_ref *ref, const char *scope,
+void lu_ref_debug_add_atomic(struct lu_ref *ref, const char *scope,
 		       const void *source)
 {
 	lu_ref_add_context(ref, GFP_ATOMIC, scope, source);
 }
+EXPORT_SYMBOL(lu_ref_debug_add_atomic);
 
 static inline int lu_ref_link_eq(const struct lu_ref_link *link,
                                  const char *scope, const void *source)
 {
-        return link->ll_source == source && !strcmp(link->ll_scope, scope);
+        return link->ll_source == source && !strncmp(link->ll_scope, scope, strlen(link->ll_scope) - 2);
 }
 
 /**
@@ -238,7 +245,7 @@ static struct lu_ref_link *lu_ref_find(struct lu_ref *ref, const char *scope,
         return NULL;
 }
 
-void lu_ref_del(struct lu_ref *ref, const char *scope, const void *source)
+void lu_ref_debug_del(struct lu_ref *ref, const char *scope, const void *source)
 {
 	struct lu_ref_link *link;
 
@@ -250,13 +257,16 @@ void lu_ref_del(struct lu_ref *ref, const char *scope, const void *source)
 		spin_unlock(&ref->lf_guard);
 		OBD_SLAB_FREE(link, lu_ref_link_kmem, sizeof(*link));
 	} else {
+#if 0
 		REFASSERT(ref, ref->lf_failed > 0);
 		ref->lf_failed--;
+#endif
 		spin_unlock(&ref->lf_guard);
 	}
 }
+EXPORT_SYMBOL(lu_ref_debug_del);
 
-void lu_ref_set_at(struct lu_ref *ref, struct lu_ref_link *link,
+void lu_ref_debug_set_at(struct lu_ref *ref, struct lu_ref_link *link,
 		   const char *scope,
 		   const void *source0, const void *source1)
 {
@@ -268,8 +278,9 @@ void lu_ref_set_at(struct lu_ref *ref, struct lu_ref_link *link,
 	link->ll_source = source1;
 	spin_unlock(&ref->lf_guard);
 }
+EXPORT_SYMBOL(lu_ref_debug_set_at);
 
-void lu_ref_del_at(struct lu_ref *ref, struct lu_ref_link *link,
+void lu_ref_debug_del_at(struct lu_ref *ref, struct lu_ref_link *link,
 		   const char *scope, const void *source)
 {
 	REFASSERT(ref, link != NULL && !IS_ERR(link));
@@ -280,6 +291,7 @@ void lu_ref_del_at(struct lu_ref *ref, struct lu_ref_link *link,
 	ref->lf_refs--;
 	spin_unlock(&ref->lf_guard);
 }
+EXPORT_SYMBOL(lu_ref_debug_del_at);
 
 #ifdef CONFIG_PROC_FS
 
@@ -345,8 +357,8 @@ static int lu_ref_seq_show(struct seq_file *seq, void *p)
                 int i = 0;
 
 		list_for_each_entry(link, &next->lf_list, ll_linkage)
-                        seq_printf(seq, "  #%d link: %s %p\n",
-                                   i++, link->ll_scope, link->ll_source);
+                        seq_printf(seq, "  #%d link: %s %p ref %u  obj_ref %d hold pid %u "DFID" master ref %p\n",
+                                   i++, link->ll_scope, link->ll_source, link->ll_ref_count, atomic_read(&((struct lu_object *)link->ll_source)->lo_header->loh_ref), link->ll_pid, PFID(&link->ll_fid), link->ll_master_reference);
         }
 	spin_unlock(&next->lf_guard);
 	spin_unlock(&lu_ref_refs_guard);
@@ -437,5 +449,3 @@ void lu_ref_global_fini(void)
 #endif /* CONFIG_PROC_FS */
         lu_kmem_fini(lu_ref_caches);
 }
-
-#endif /* USE_LU_REF */

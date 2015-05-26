@@ -116,7 +116,7 @@ static int llog_osd_create_new_object(const struct lu_env *env,
  * This function writes a padding record to the end of llog. That may
  * be needed if llog contains records of variable size, e.g. config logs
  * or changelogs.
- * The padding record just aligns llog to the LLOG_CHUNK_SIZE boundary if
+ * The padding record just aligns llog to the llog chunk_size boundary if
  * the current record doesn't fit in the remaining space.
  *
  * It allocates full length to avoid two separate writes for header and tail.
@@ -189,10 +189,9 @@ static int llog_osd_read_header(const struct lu_env *env,
 	struct llog_thread_info	*lgi;
 	enum llog_flag		 flags;
 	int			 rc;
+	__u32			max_size = handle->lgh_hdr_size;
 
 	ENTRY;
-
-	LASSERT(sizeof(*handle->lgh_hdr) == LLOG_CHUNK_SIZE);
 
 	o = handle->lgh_obj;
 	LASSERT(o);
@@ -214,8 +213,7 @@ static int llog_osd_read_header(const struct lu_env *env,
 
 	lgi->lgi_off = 0;
 	lgi->lgi_buf.lb_buf = handle->lgh_hdr;
-	lgi->lgi_buf.lb_len = LLOG_CHUNK_SIZE;
-
+	lgi->lgi_buf.lb_len = max_size;
 	rc = dt_record_read(env, o, &lgi->lgi_buf, &lgi->lgi_off);
 	if (rc) {
 		CERROR("%s: error reading log header from "DFID": rc = %d\n",
@@ -235,19 +233,20 @@ static int llog_osd_read_header(const struct lu_env *env,
 		       PFID(lu_object_fid(&o->do_lu)),
 		       llh_hdr->lrh_type, LLOG_HDR_MAGIC);
 		RETURN(-EIO);
-	} else if (llh_hdr->lrh_len != LLOG_CHUNK_SIZE) {
+	} else if (llh_hdr->lrh_len < LLOG_MIN_CHUNK_SIZE ||
+		   llh_hdr->lrh_len > max_size) {
 		CERROR("%s: incorrectly sized log %s "DFID" header: "
-		       "%#x (expected %#x)\n"
+		       "%#x (expected at least %#x)\n"
 		       "you may need to re-run lconf --write_conf.\n",
 		       o->do_lu.lo_dev->ld_obd->obd_name,
 		       handle->lgh_name ? handle->lgh_name : "",
 		       PFID(lu_object_fid(&o->do_lu)),
-		       llh_hdr->lrh_len, LLOG_CHUNK_SIZE);
+		       llh_hdr->lrh_len, LLOG_MIN_CHUNK_SIZE);
 		RETURN(-EIO);
 	}
 
 	handle->lgh_hdr->llh_flags |= (flags & LLOG_F_EXT_MASK);
-	handle->lgh_last_idx = handle->lgh_hdr->llh_tail.lrt_index;
+	handle->lgh_last_idx = LLOG_HDR_TAIL(handle->lgh_hdr)->lrt_index;
 
 	RETURN(0);
 }
@@ -277,6 +276,7 @@ static int llog_osd_declare_write_rec(const struct lu_env *env,
 				      int idx, struct thandle *th)
 {
 	struct llog_thread_info	*lgi = llog_info(env);
+	__u32			chunk_size;
 	struct dt_object	*o;
 	int			 rc;
 
@@ -286,12 +286,13 @@ static int llog_osd_declare_write_rec(const struct lu_env *env,
 	LASSERT(th);
 	LASSERT(loghandle);
 	LASSERT(rec);
-	LASSERT(rec->lrh_len <= LLOG_CHUNK_SIZE);
+	LASSERT(rec->lrh_len <= loghandle->lgh_ctxt->loc_chunk_size);
 
 	o = loghandle->lgh_obj;
 	LASSERT(o);
 
-	lgi->lgi_buf.lb_len = sizeof(struct llog_log_hdr);
+	chunk_size = loghandle->lgh_ctxt->loc_chunk_size;
+	lgi->lgi_buf.lb_len = chunk_size;
 	lgi->lgi_buf.lb_buf = NULL;
 	/* each time we update header */
 	rc = dt_declare_record_write(env, o, &lgi->lgi_buf, 0,
@@ -303,7 +304,7 @@ static int llog_osd_declare_write_rec(const struct lu_env *env,
 	 * the pad record can be inserted so take into account double
 	 * record size
 	 */
-	lgi->lgi_buf.lb_len = rec->lrh_len * 2;
+	lgi->lgi_buf.lb_len = chunk_size * 2;
 	lgi->lgi_buf.lb_buf = NULL;
 	/* XXX: implement declared window or multi-chunks approach */
 	rc = dt_declare_record_write(env, o, &lgi->lgi_buf, -1, th);
@@ -346,8 +347,8 @@ static int llog_osd_write_rec(const struct lu_env *env,
 	int			 index, rc;
 	struct llog_rec_tail	*lrt;
 	struct dt_object	*o;
+	__u32			chunk_size;
 	size_t			 left;
-	bool			 header_is_updated = false;
 
 	ENTRY;
 
@@ -358,11 +359,12 @@ static int llog_osd_write_rec(const struct lu_env *env,
 	LASSERT(o);
 	LASSERT(th);
 
+	chunk_size = llh->llh_hdr.lrh_len;
 	CDEBUG(D_OTHER, "new record %x to "DFID"\n",
 	       rec->lrh_type, PFID(lu_object_fid(&o->do_lu)));
 
-	/* record length should not bigger than LLOG_CHUNK_SIZE */
-	if (reclen > LLOG_CHUNK_SIZE)
+	/* record length should not bigger than  */
+	if (reclen > loghandle->lgh_hdr->llh_hdr.lrh_len)
 		RETURN(-E2BIG);
 
 	rc = dt_attr_get(env, o, &lgi->lgi_attr);
@@ -390,7 +392,7 @@ static int llog_osd_write_rec(const struct lu_env *env,
 		/* llog can be empty only when first record is being written */
 		LASSERT(ergo(idx > 0, lgi->lgi_attr.la_size > 0));
 
-		if (!ext2_test_bit(idx, llh->llh_bitmap)) {
+		if (!ext2_test_bit(idx, LLOG_HDR_BITMAP(llh))) {
 			CERROR("%s: modify unset record %u\n",
 			       o->do_lu.lo_dev->ld_obd->obd_name, idx);
 			RETURN(-ENOENT);
@@ -405,7 +407,7 @@ static int llog_osd_write_rec(const struct lu_env *env,
 
 		if (idx == LLOG_HEADER_IDX) {
 			/* llog header update */
-			LASSERT(reclen == sizeof(struct llog_log_hdr));
+			LASSERT(reclen >= sizeof(struct llog_log_hdr));
 			LASSERT(rec == &llh->llh_hdr);
 
 			lgi->lgi_off = 0;
@@ -476,7 +478,7 @@ static int llog_osd_write_rec(const struct lu_env *env,
 	 */
 	LASSERT(lgi->lgi_attr.la_valid & LA_SIZE);
 	lgi->lgi_off = lgi->lgi_attr.la_size;
-	left = LLOG_CHUNK_SIZE - (lgi->lgi_off & (LLOG_CHUNK_SIZE - 1));
+	left = chunk_size - (lgi->lgi_off & (chunk_size - 1));
 	/* NOTE: padding is a record, but no bit is set */
 	if (left != 0 && left != reclen &&
 	    left < (reclen + LLOG_MIN_REC_SIZE)) {
@@ -487,20 +489,20 @@ static int llog_osd_write_rec(const struct lu_env *env,
 		loghandle->lgh_last_idx++; /* for pad rec */
 	}
 	/* if it's the last idx in log file, then return -ENOSPC */
-	if (loghandle->lgh_last_idx >= LLOG_BITMAP_SIZE(llh) - 1)
+	if (loghandle->lgh_last_idx >= LLOG_HDR_BITMAP_SIZE(llh) - 1)
 		RETURN(-ENOSPC);
 
 	/* increment the last_idx along with llh_tail index, they should
 	 * be equal for a llog lifetime */
 	loghandle->lgh_last_idx++;
 	index = loghandle->lgh_last_idx;
-	llh->llh_tail.lrt_index = index;
+	LLOG_HDR_TAIL(llh)->lrt_index = index;
 	/**
 	 * NB: the caller should make sure only 1 process access
 	 * the lgh_last_idx, e.g. append should be exclusive.
 	 * Otherwise it might hit the assert.
 	 */
-	LASSERT(index < LLOG_BITMAP_SIZE(llh));
+	LASSERT(index < LLOG_HDR_BITMAP_SIZE(llh));
 	rec->lrh_index = index;
 	lrt = rec_tail(rec);
 	lrt->lrt_len = rec->lrh_len;
@@ -509,37 +511,87 @@ static int llog_osd_write_rec(const struct lu_env *env,
 	/* the lgh_hdr_lock protects llog header data from concurrent
 	 * update/cancel, the llh_count and llh_bitmap are protected */
 	spin_lock(&loghandle->lgh_hdr_lock);
-	if (ext2_set_bit(index, llh->llh_bitmap)) {
+	if (ext2_set_bit(index, LLOG_HDR_BITMAP(llh))) {
 		CERROR("%s: index %u already set in log bitmap\n",
 		       o->do_lu.lo_dev->ld_obd->obd_name, index);
 		spin_unlock(&loghandle->lgh_hdr_lock);
 		LBUG(); /* should never happen */
 	}
 	llh->llh_count++;
-	spin_unlock(&loghandle->lgh_hdr_lock);
 
-	lgi->lgi_off = 0;
-	lgi->lgi_buf.lb_len = llh->llh_hdr.lrh_len;
-	lgi->lgi_buf.lb_buf = &llh->llh_hdr;
-	rc = dt_record_write(env, o, &lgi->lgi_buf, &lgi->lgi_off, th);
+	/* XXX It is a bit tricky here, if the log object is local,
+	 * we do not need lock during write here, because if there is
+	 * race, the transaction(jbd2, what about ZFS?) will make sure the
+	 * conflicts will all committed in the same transaction group.
+	 * But for remote object, we need lock the whole process, so to
+	 * set the version of the remote transaction to make sure they
+	 * are being sent in order. (see osp_md_write()) */
+	if (!dt_object_remote(o))
+		spin_unlock(&loghandle->lgh_hdr_lock);
+
+	if (lgi->lgi_attr.la_size == 0) {
+		lgi->lgi_off = 0;
+		lgi->lgi_buf.lb_len = llh->llh_hdr.lrh_len;
+		lgi->lgi_buf.lb_buf = &llh->llh_hdr;
+		rc = dt_record_write(env, o, &lgi->lgi_buf, &lgi->lgi_off, th);
+		if (rc != 0)
+			GOTO(out_remote_unlock, rc);
+	} else {
+		/* Note: If this is not initialization (size == 0), then do not
+		 * write the whole header (8k bytes), only update header/tail
+		 * and bits needs to be updated. Because this update might be
+		 * part of cross-MDT operation, which needs to write these
+		 * updates into the update log(32KB limit) and also pack inside
+		 * the RPC (1MB limit), if we write 8K for each operation, which
+		 * will cost a lot space, and keep us adding more updates to one
+		 * update log.*/
+		lgi->lgi_off = offsetof(typeof(*llh), llh_count);
+		lgi->lgi_buf.lb_len = sizeof(llh->llh_count);
+		lgi->lgi_buf.lb_buf = &llh->llh_count;
+		rc = dt_record_write(env, o, &lgi->lgi_buf, &lgi->lgi_off, th);
+		if (rc != 0)
+			GOTO(out_remote_unlock, rc);
+
+		lgi->lgi_off = offsetof(typeof(*llh),
+			llh_bitmap[index / (sizeof(*llh->llh_bitmap) * 8)]);
+		lgi->lgi_buf.lb_len = sizeof(*llh->llh_bitmap);
+		lgi->lgi_buf.lb_buf =
+			&llh->llh_bitmap[index/(sizeof(*llh->llh_bitmap)*8)];
+		rc = dt_record_write(env, o, &lgi->lgi_buf, &lgi->lgi_off, th);
+		if (rc != 0)
+			GOTO(out_remote_unlock, rc);
+
+		lgi->lgi_off =  (unsigned long)LLOG_HDR_TAIL(llh) -
+				(unsigned long)llh;
+		lgi->lgi_buf.lb_len = sizeof(llh->llh_tail);
+		lgi->lgi_buf.lb_buf = LLOG_HDR_TAIL(llh);
+		rc = dt_record_write(env, o, &lgi->lgi_buf, &lgi->lgi_off, th);
+		if (rc != 0)
+			GOTO(out_remote_unlock, rc);
+	}
+
+out_remote_unlock:
+	/* unlock here for remote object */
+	if (dt_object_remote(o))
+		spin_unlock(&loghandle->lgh_hdr_lock);
 	if (rc)
 		GOTO(out, rc);
 
-	header_is_updated = true;
 	rc = dt_attr_get(env, o, &lgi->lgi_attr);
 	if (rc)
 		GOTO(out, rc);
 
 	LASSERT(lgi->lgi_attr.la_valid & LA_SIZE);
-	lgi->lgi_off = lgi->lgi_attr.la_size;
+	lgi->lgi_off = max_t(__u64, lgi->lgi_attr.la_size, lgi->lgi_off);
 	lgi->lgi_buf.lb_len = reclen;
 	lgi->lgi_buf.lb_buf = rec;
 	rc = dt_record_write(env, o, &lgi->lgi_buf, &lgi->lgi_off, th);
 	if (rc < 0)
 		GOTO(out, rc);
 
-	CDEBUG(D_OTHER, "added record "DOSTID": idx: %u, %u\n",
-	       POSTID(&loghandle->lgh_id.lgl_oi), index, rec->lrh_len);
+	CDEBUG(D_OTHER, "added record "DOSTID": idx: %u, %u off"LPU64"\n",
+	       POSTID(&loghandle->lgh_id.lgl_oi), index, rec->lrh_len,
+	       lgi->lgi_off);
 	if (reccookie != NULL) {
 		reccookie->lgc_lgl = loghandle->lgh_id;
 		reccookie->lgc_index = index;
@@ -556,21 +608,13 @@ static int llog_osd_write_rec(const struct lu_env *env,
 out:
 	/* cleanup llog for error case */
 	spin_lock(&loghandle->lgh_hdr_lock);
-	ext2_clear_bit(index, llh->llh_bitmap);
+	ext2_clear_bit(index, LLOG_HDR_BITMAP(llh));
 	llh->llh_count--;
 	spin_unlock(&loghandle->lgh_hdr_lock);
 
 	/* restore llog last_idx */
 	loghandle->lgh_last_idx--;
-	llh->llh_tail.lrt_index = loghandle->lgh_last_idx;
-
-	/* restore the header on disk if it was written */
-	if (header_is_updated) {
-		lgi->lgi_off = 0;
-		lgi->lgi_buf.lb_len = llh->llh_hdr.lrh_len;
-		lgi->lgi_buf.lb_buf = &llh->llh_hdr;
-		dt_record_write(env, o, &lgi->lgi_buf, &lgi->lgi_off, th);
-	}
+	LLOG_HDR_TAIL(llh)->lrt_index = loghandle->lgh_last_idx;
 
 	RETURN(rc);
 }
@@ -582,12 +626,13 @@ out:
  * actual records are larger than minimum size) we just skip
  * some more records.
  */
-static inline void llog_skip_over(__u64 *off, int curr, int goal)
+static inline void llog_skip_over(__u64 *off, int curr, int goal,
+				  __u32 chunk_size)
 {
 	if (goal <= curr)
 		return;
 	*off = (*off + (goal - curr - 1) * LLOG_MIN_REC_SIZE) &
-		~(LLOG_CHUNK_SIZE - 1);
+		~(chunk_size - 1);
 }
 
 /**
@@ -629,7 +674,7 @@ static void changelog_block_trim_ext(struct llog_rec_hdr *hdr,
  * \param[in,out] cur_offset	furtherst point read in the file
  * \param[in]     buf		pointer to data buffer to fill
  * \param[in]     len		required len to read, it is
- *				LLOG_CHUNK_SIZE usually.
+ *				usually llog chunk_size.
  *
  * \retval			0 on successful buffer read
  * \retval			negative value on error
@@ -643,13 +688,15 @@ static int llog_osd_next_block(const struct lu_env *env,
 	struct dt_object	*o;
 	struct dt_device	*dt;
 	int			 rc;
+	__u32			chunk_size;
 
 	ENTRY;
 
 	LASSERT(env);
 	LASSERT(lgi);
 
-	if (len == 0 || len & (LLOG_CHUNK_SIZE - 1))
+	chunk_size = loghandle->lgh_hdr->llh_hdr.lrh_len;
+	if (len == 0 || len & (chunk_size - 1))
 		RETURN(-EINVAL);
 
 	CDEBUG(D_OTHER, "looking for log index %u (cur idx %u off "LPU64")\n",
@@ -672,11 +719,11 @@ static int llog_osd_next_block(const struct lu_env *env,
 		struct llog_rec_hdr	*rec, *last_rec;
 		struct llog_rec_tail	*tail;
 
-		llog_skip_over(cur_offset, *cur_idx, next_idx);
+		llog_skip_over(cur_offset, *cur_idx, next_idx, chunk_size);
 
-		/* read up to next LLOG_CHUNK_SIZE block */
-		lgi->lgi_buf.lb_len = LLOG_CHUNK_SIZE -
-				      (*cur_offset & (LLOG_CHUNK_SIZE - 1));
+		/* read up to next llog chunk_size block */
+		lgi->lgi_buf.lb_len = chunk_size -
+				      (*cur_offset & (chunk_size - 1));
 		lgi->lgi_buf.lb_buf = buf;
 
 		rc = dt_read(env, o, &lgi->lgi_buf, cur_offset);
@@ -768,7 +815,7 @@ out:
  * \param[in] loghandle	llog handle of the current llog
  * \param[in] prev_idx	target index to find
  * \param[in] buf	pointer to data buffer to fill
- * \param[in] len	required len to read, it is LLOG_CHUNK_SIZE usually.
+ * \param[in] len	required len to read, it is llog_chunk_size usually.
  *
  * \retval		0 on successful buffer read
  * \retval		negative value on error
@@ -781,11 +828,13 @@ static int llog_osd_prev_block(const struct lu_env *env,
 	struct dt_object	*o;
 	struct dt_device	*dt;
 	loff_t			 cur_offset;
+	__u32			chunk_size;
 	int			 rc;
 
 	ENTRY;
 
-	if (len == 0 || len & (LLOG_CHUNK_SIZE - 1))
+	chunk_size = loghandle->lgh_hdr->llh_hdr.lrh_len;
+	if (len == 0 || len & (chunk_size - 1))
 		RETURN(-EINVAL);
 
 	CDEBUG(D_OTHER, "looking for log index %u\n", prev_idx);
@@ -799,8 +848,8 @@ static int llog_osd_prev_block(const struct lu_env *env,
 	dt = lu2dt_dev(o->do_lu.lo_dev);
 	LASSERT(dt);
 
-	cur_offset = LLOG_CHUNK_SIZE;
-	llog_skip_over(&cur_offset, 0, prev_idx);
+	cur_offset = chunk_size;
+	llog_skip_over(&cur_offset, 0, prev_idx, chunk_size);
 
 	rc = dt_attr_get(env, o, &lgi->lgi_attr);
 	if (rc)
@@ -947,7 +996,7 @@ static int llog_osd_open(const struct lu_env *env, struct llog_handle *handle,
 	struct dt_object		*o;
 	struct dt_device		*dt;
 	struct ls_device		*ls;
-	struct local_oid_storage	*los;
+	struct local_oid_storage	*los = NULL;
 	int				 rc = 0;
 
 	ENTRY;
@@ -958,6 +1007,25 @@ static int llog_osd_open(const struct lu_env *env, struct llog_handle *handle,
 	LASSERT(ctxt->loc_exp->exp_obd);
 	dt = ctxt->loc_exp->exp_obd->obd_lvfs_ctxt.dt;
 	LASSERT(dt);
+	if (ctxt->loc_flags & LLOG_CTXT_FLAG_NORMAL_FID) {
+		if (logid != NULL) {
+			logid_to_fid(logid, &lgi->lgi_fid);
+		} else {
+			/* If logid == NULL, then it means the caller needs
+			 * to allocate new FID (llog_cat_declare_add_rec()). */
+			rc = obd_fid_alloc(env, ctxt->loc_exp,
+					   &lgi->lgi_fid, NULL);
+			if (rc < 0)
+				RETURN(rc);
+			rc = 0;
+		}
+
+		o = dt_locate(env, dt, &lgi->lgi_fid);
+		if (IS_ERR(o))
+			RETURN(PTR_ERR(o));
+
+		goto after_open;
+	}
 
 	ls = ls_device_get(dt);
 	if (IS_ERR(ls))
@@ -1007,12 +1075,14 @@ static int llog_osd_open(const struct lu_env *env, struct llog_handle *handle,
 	if (IS_ERR(o))
 		GOTO(out_name, rc = PTR_ERR(o));
 
+after_open:
 	/* No new llog is expected but doesn't exist */
 	if (open_param != LLOG_OPEN_NEW && !dt_object_exists(o))
 		GOTO(out_put, rc = -ENOENT);
 
 	fid_to_logid(&lgi->lgi_fid, &handle->lgh_id);
 	handle->lgh_obj = o;
+	set_bit(LU_OBJECT_LLOG_OBJECT, &o->do_lu.lo_header->loh_flags);
 	handle->private_data = los;
 	LASSERT(handle->lgh_ctxt);
 
@@ -1024,7 +1094,8 @@ out_name:
 	if (handle->lgh_name != NULL)
 		OBD_FREE(handle->lgh_name, strlen(name) + 1);
 out:
-	dt_los_put(los);
+	if (los != NULL)
+		dt_los_put(los);
 	RETURN(rc);
 }
 
@@ -1044,6 +1115,103 @@ static int llog_osd_exist(struct llog_handle *handle)
 	return (dt_object_exists(handle->lgh_obj) &&
 		!lu_object_is_dying(handle->lgh_obj->do_lu.lo_header));
 }
+
+/**
+ * Get dir for regular fid log object
+ *
+ * Get directory for regular fid log object, and these regular fid log
+ * object will be inserted under this directory, to satisfy the FS
+ * consistency check, e2fsck etc.
+ *
+ * \param [in] env	execution environment
+ * \param [in] dto	llog object
+ *
+ * \retval		pointer to the directory if it is found.
+ * \retval		ERR_PTR(negative errno) if it fails.
+ */
+struct dt_object *llog_osd_get_regular_fid_dir(const struct lu_env *env,
+					       struct dt_object *dto)
+{
+	struct llog_thread_info *lgi = llog_info(env);
+	struct seq_server_site *ss = dto->do_lu.lo_dev->ld_site->ld_seq_site;
+	struct lu_seq_range	*range = &lgi->lgi_range;
+	struct lu_fid		*dir_fid = &lgi->lgi_fid;
+	struct dt_object	*dir;
+	int			rc;
+	ENTRY;
+
+	fld_range_set_any(range);
+	LASSERT(ss != NULL);
+	rc = ss->ss_server_fld->lsf_seq_lookup(env, ss->ss_server_fld,
+				   fid_seq(lu_object_fid(&dto->do_lu)), range);
+	if (rc < 0)
+		RETURN(ERR_PTR(rc));
+
+	lu_update_log_dir_fid(dir_fid, range->lsr_index);
+	dir = dt_locate(env, lu2dt_dev(dto->do_lu.lo_dev), dir_fid);
+	if (IS_ERR(dir))
+		RETURN(dir);
+
+	if (!dt_try_as_dir(env, dir)) {
+		lu_object_put(env, &dir->do_lu);
+		RETURN(ERR_PTR(-ENOTDIR));
+	}
+
+	RETURN(dir);
+}
+
+/**
+ * Add llog object with regular FID to name entry
+ *
+ * Add llog object with regular FID to name space, and each llog
+ * object on each MDT will be /update_log_dir/[seq:oid:ver],
+ * so to satisfy the namespace consistency check, e2fsck etc.
+ *
+ * \param [in] env	execution environment
+ * \param [in] dto	llog object
+ * \param [in] th	thandle
+ * \param [in] declare	if it is declare or execution
+ *
+ * \retval		0 if insertion succeeds.
+ * \retval		negative errno if insertion fails.
+ */
+static int
+llog_osd_regular_fid_add_name_entry(const struct lu_env *env,
+				    struct dt_object *dto,
+				    struct thandle *th, bool declare)
+{
+	struct llog_thread_info *lgi = llog_info(env);
+	const struct lu_fid	*fid = lu_object_fid(&dto->do_lu);
+	struct dt_insert_rec	*rec = &lgi->lgi_dt_rec;
+	struct dt_object	*dir;
+	char			*name = lgi->lgi_name;
+	int			rc;
+	ENTRY;
+
+	if (!fid_is_norm(fid))
+		RETURN(0);
+
+	dir = llog_osd_get_regular_fid_dir(env, dto);
+	if (IS_ERR(dir))
+		RETURN(PTR_ERR(dir));
+
+	rec->rec_fid = fid;
+	rec->rec_type = S_IFREG;
+	snprintf(name, sizeof(lgi->lgi_name), DFID, PFID(fid));
+	dt_write_lock(env, dir, 0);
+	if (declare) {
+		rc = dt_declare_insert(env, dir, (struct dt_rec *)rec,
+			       (struct dt_key *)name, th);
+	} else {
+		rc = dt_insert(env, dir, (struct dt_rec *)rec,
+			       (struct dt_key *)name, th, 1);
+	}
+	dt_write_unlock(env, dir);
+
+	lu_object_put(env, &dir->do_lu);
+	RETURN(rc);
+}
+
 
 /**
  * Implementation of the llog_operations::lop_declare_create
@@ -1077,6 +1245,24 @@ static int llog_osd_declare_create(const struct lu_env *env,
 	if (dt_object_exists(o))
 		RETURN(0);
 
+	if (res->lgh_ctxt->loc_flags & LLOG_CTXT_FLAG_NORMAL_FID) {
+		struct llog_thread_info *lgi = llog_info(env);
+
+		lgi->lgi_attr.la_valid = LA_MODE | LA_SIZE;
+		lgi->lgi_attr.la_size = 0;
+		lgi->lgi_attr.la_mode = S_IFREG | S_IRUGO | S_IWUSR;
+		lgi->lgi_dof.dof_type = dt_mode_to_dft(S_IFREG);
+
+		rc = dt_declare_create(env, o, &lgi->lgi_attr, NULL,
+				       &lgi->lgi_dof, th);
+		if (rc < 0)
+			RETURN(rc);
+
+
+		rc = llog_osd_regular_fid_add_name_entry(env, o, th, true);
+
+		RETURN(rc);
+	}
 	los = res->private_data;
 	LASSERT(los);
 
@@ -1140,6 +1326,26 @@ static int llog_osd_create(const struct lu_env *env, struct llog_handle *res,
 	if (dt_object_exists(o))
 		RETURN(-EEXIST);
 
+	if (res->lgh_ctxt->loc_flags & LLOG_CTXT_FLAG_NORMAL_FID) {
+		struct llog_thread_info *lgi = llog_info(env);
+
+		lgi->lgi_attr.la_valid = LA_MODE | LA_SIZE | LA_TYPE;
+		lgi->lgi_attr.la_size = 0;
+		lgi->lgi_attr.la_mode = S_IFREG | S_IRUGO | S_IWUSR;
+		lgi->lgi_dof.dof_type = dt_mode_to_dft(S_IFREG);
+
+		dt_write_lock(env, o, 0);
+		rc = dt_create(env, o, &lgi->lgi_attr, NULL,
+			       &lgi->lgi_dof, th);
+		dt_write_unlock(env, o);
+		if (rc < 0)
+			RETURN(rc);
+
+		rc = llog_osd_regular_fid_add_name_entry(env, o, th, false);
+
+		RETURN(rc);
+	}
+
 	los = res->private_data;
 	LASSERT(los);
 
@@ -1198,8 +1404,15 @@ static int llog_osd_close(const struct lu_env *env, struct llog_handle *handle)
 
 	LASSERT(handle->lgh_obj);
 
-	lu_object_put(env, &handle->lgh_obj->do_lu);
-
+	if (handle->lgh_ctxt->loc_flags & LLOG_CTXT_FLAG_NORMAL_FID) {
+		/* Remove the object from the cache, otherwise it may
+		 * hold LOD being released during cleanup process */
+		lu_object_put_nocache(env, &handle->lgh_obj->do_lu);
+		LASSERT(handle->private_data == NULL);
+		RETURN(rc);
+	} else {
+		lu_object_put(env, &handle->lgh_obj->do_lu);
+	}
 	los = handle->private_data;
 	LASSERT(los);
 	dt_los_put(los);
@@ -1209,6 +1422,54 @@ static int llog_osd_close(const struct lu_env *env, struct llog_handle *handle)
 
 	RETURN(rc);
 }
+
+/**
+ * delete llog object name entry
+ *
+ * Delete llog object (with regular FID) from name space (under
+ * update_log_dir).
+ *
+ * \param [in] env	execution environment
+ * \param [in] dto	llog object
+ * \param [in] th	thandle
+ * \param [in] declare	if it is declare or execution
+ *
+ * \retval		0 if deletion succeeds.
+ * \retval		negative errno if deletion fails.
+ */
+static int
+llog_osd_regular_fid_del_name_entry(const struct lu_env *env,
+				    struct dt_object *dto,
+				    struct thandle *th, bool declare)
+{
+	struct llog_thread_info *lgi = llog_info(env);
+	const struct lu_fid	*fid = lu_object_fid(&dto->do_lu);
+	struct dt_object	*dir;
+	char			*name = lgi->lgi_name;
+	int			rc;
+	ENTRY;
+
+	if (!fid_is_norm(fid))
+		RETURN(0);
+
+	dir = llog_osd_get_regular_fid_dir(env, dto);
+	if (IS_ERR(dir))
+		RETURN(PTR_ERR(dir));
+
+	snprintf(name, sizeof(lgi->lgi_name), DFID, PFID(fid));
+	dt_write_lock(env, dir, 0);
+	if (declare) {
+		rc = dt_declare_delete(env, dir, (struct dt_key *)name,
+				       th);
+	} else {
+		rc = dt_delete(env, dir, (struct dt_key *)name, th);
+	}
+	dt_write_unlock(env, dir);
+
+	lu_object_put(env, &dir->do_lu);
+	RETURN(rc);
+}
+
 
 /**
  * Implementation of the llog_operations::lop_destroy
@@ -1270,9 +1531,17 @@ static int llog_osd_destroy(const struct lu_env *env,
 	if (rc)
 		GOTO(out_trans, rc);
 
+	if (loghandle->lgh_ctxt->loc_flags & LLOG_CTXT_FLAG_NORMAL_FID) {
+		rc = llog_osd_regular_fid_del_name_entry(env, o, th, true);
+		if (rc < 0)
+			GOTO(out_trans, rc);
+	}
+
 	rc = dt_trans_start_local(env, d, th);
 	if (rc)
 		GOTO(out_trans, rc);
+
+	th->th_wait_submit = 1;
 
 	dt_write_lock(env, o, 0);
 	if (dt_object_exists(o)) {
@@ -1293,6 +1562,14 @@ static int llog_osd_destroy(const struct lu_env *env,
 		rc = dt_destroy(env, o, th);
 		if (rc)
 			GOTO(out_unlock, rc);
+
+		if (loghandle->lgh_ctxt->loc_flags &
+						LLOG_CTXT_FLAG_NORMAL_FID) {
+			rc = llog_osd_regular_fid_del_name_entry(env, o, th,
+								 false);
+			if (rc < 0)
+				GOTO(out_unlock, rc);
+		}
 	}
 out_unlock:
 	dt_write_unlock(env, o);
@@ -1332,6 +1609,9 @@ static int llog_osd_setup(const struct lu_env *env, struct obd_device *obd,
 
 	ctxt = llog_ctxt_get(olg->olg_ctxts[ctxt_idx]);
 	LASSERT(ctxt);
+
+	if (disk_obd == NULL)
+		GOTO(out, rc = 0);
 
 	/* initialize data allowing to generate new fids,
 	 * literally we need a sequece */
@@ -1404,6 +1684,25 @@ struct llog_operations llog_osd_ops = {
 };
 EXPORT_SYMBOL(llog_osd_ops);
 
+struct llog_operations llog_common_cat_ops = {
+	.lop_next_block		= llog_osd_next_block,
+	.lop_prev_block		= llog_osd_prev_block,
+	.lop_read_header	= llog_osd_read_header,
+	.lop_destroy		= llog_osd_destroy,
+	.lop_setup		= llog_osd_setup,
+	.lop_cleanup		= llog_osd_cleanup,
+	.lop_open		= llog_osd_open,
+	.lop_exist		= llog_osd_exist,
+	.lop_declare_create	= llog_osd_declare_create,
+	.lop_create		= llog_osd_create,
+	.lop_declare_write_rec	= llog_osd_declare_write_rec,
+	.lop_write_rec		= llog_osd_write_rec,
+	.lop_close		= llog_osd_close,
+	.lop_add		= llog_cat_add_rec,
+	.lop_declare_add	= llog_cat_declare_add_rec,
+};
+EXPORT_SYMBOL(llog_common_cat_ops);
+
 /**
  * Read the special file which contains the list of llog catalogs IDs
  *
@@ -1454,6 +1753,12 @@ int llog_osd_get_cat_list(const struct lu_env *env, struct dt_device *d,
 		lgi->lgi_attr.la_valid = LA_MODE;
 		lgi->lgi_attr.la_mode = S_IFREG | S_IRUGO | S_IWUSR;
 		lgi->lgi_dof.dof_type = dt_mode_to_dft(S_IFREG);
+
+		th->th_wait_submit = 1;
+		/* Make the llog object creation synchronization, so
+		 * it will be reliable to the reference, especially
+		 * for remote reference */
+		th->th_sync = 1;
 
 		rc = dt_declare_create(env, o, &lgi->lgi_attr, NULL,
 				       &lgi->lgi_dof, th);
@@ -1586,6 +1891,8 @@ int llog_osd_put_cat_list(const struct lu_env *env, struct dt_device *d,
 	rc = dt_trans_start_local(env, d, th);
 	if (rc)
 		GOTO(out_trans, rc);
+
+	th->th_wait_submit = 1;
 
 	rc = dt_record_write(env, o, &lgi->lgi_buf, &lgi->lgi_off, th);
 	if (rc)
