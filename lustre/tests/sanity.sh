@@ -12829,6 +12829,18 @@ test_239() {
 }
 run_test 239 "osp_sync test"
 
+test_239a() { #LU-5297
+	[ $RUNAS_ID -eq $UID ] &&
+		skip_env "RUNAS_ID = UID = $UID -- skipping" && return
+
+	touch $DIR/$tfile
+	#define OBD_FAIL_OSP_CHECK_INVALID_SETATTR     0x2100
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x2100
+	chgrp $RUNAS_GID $DIR/$tfile
+	wait_delete_completed
+}
+run_test 239a "process invalid osp sync record correctly"
+
 test_240() {
 	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
 
