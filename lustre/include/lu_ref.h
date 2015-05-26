@@ -155,11 +155,21 @@ struct lu_ref_link {
 	struct list_head ll_linkage;
 	const char	*ll_scope;
 	const void	*ll_source;
+	__u32		ll_ref_count;
+	struct lu_fid	ll_fid;
 };
 
-void lu_ref_init_loc(struct lu_ref *ref, const char *func, const int line);
-void lu_ref_fini    (struct lu_ref *ref);
-#define lu_ref_init(ref) lu_ref_init_loc(ref, __FUNCTION__, __LINE__)
+//void lu_ref_init_loc(struct lu_ref *ref, const char *func, const int line);
+//void lu_ref_fini    (struct lu_ref *ref);
+//#define lu_ref_init(ref) lu_ref_init_loc(ref, __FUNCTION__, __LINE__)
+static inline void lu_ref_init(struct lu_ref *ref)
+{
+}
+ 
+static inline void lu_ref_fini(struct lu_ref *ref)
+{
+}
+
 
 void lu_ref_add(struct lu_ref *ref, const char *scope, const void *source);
 
@@ -186,20 +196,71 @@ int lu_ref_global_init(void);
 void lu_ref_global_fini(void);
 
 #else /* !USE_LU_REF */
-
+/**
+ * Data-structure to keep track of references to a given object. This is used
+ * for debugging.
+ *
+ * lu_ref is embedded into an object which other entities (objects, threads,
+ * etc.) refer to.
+ */
 struct lu_ref {
+	/**
+	 * Spin-lock protecting lu_ref::lf_list.
+	 */
+	spinlock_t		lf_guard;
+	/**
+	 * List of all outstanding references (each represented by struct
+	 * lu_ref_link), pointing to this object.
+	 */
+	struct list_head	lf_list;
+        /**
+         * # of links.
+         */
+        short                lf_refs;
+        /**
+         * Flag set when lu_ref_add() failed to allocate lu_ref_link. It is
+         * used to mask spurious failure of the following lu_ref_del().
+         */
+        short                lf_failed;
+        /**
+         * flags - attribute for the lu_ref, for pad and future use.
+         */
+        short                lf_flags;
+        /**
+         * Where was I initialized?
+         */
+        short                lf_line;
+        const char          *lf_func;
+        /**
+         * Linkage into a global list of all lu_ref's (lu_ref_refs).
+         */
+	struct list_head	lf_linkage;
 };
 
 struct lu_ref_link {
+	struct lu_ref	*ll_ref;
+	struct list_head ll_linkage;
+	const char	*ll_scope;
+	const void	*ll_source;
+	__u32		ll_ref_count;
+	__u32		ll_pid;
+	struct lu_fid	ll_fid;
+	const void	*ll_master_reference;
 };
 
-static inline void lu_ref_init(struct lu_ref *ref)
-{
-}
+void lu_ref_init_loc(struct lu_ref *ref, const char *func, const int line);
+void lu_ref_fini    (struct lu_ref *ref);
+#define lu_ref_init(ref) lu_ref_init_loc(ref, __FUNCTION__, __LINE__)
 
-static inline void lu_ref_fini(struct lu_ref *ref)
-{
-}
+void lu_ref_debug_add(struct lu_ref *ref, const char *scope, const void *source);
+
+void lu_ref_debug_add_at(struct lu_ref *ref, struct lu_ref_link *link,
+		   const char *scope, const void *source);
+
+void lu_ref_debug_del(struct lu_ref *ref, const char *scope, const void *source);
+
+void lu_ref_debug_del_at(struct lu_ref *ref, struct lu_ref_link *link,
+			const char *scope, const void *source);
 
 static inline void lu_ref_add(struct lu_ref *ref,
 			      const char *scope,
@@ -236,22 +297,12 @@ static inline void lu_ref_del_at(struct lu_ref *ref, struct lu_ref_link *link,
 {
 }
 
-static inline int lu_ref_global_init(void)
-{
-        return 0;
-}
+int lu_ref_global_init(void);
+void lu_ref_global_fini(void);
 
-static inline void lu_ref_global_fini(void)
-{
-}
+void lu_ref_print(const struct lu_ref *ref);
 
-static inline void lu_ref_print(const struct lu_ref *ref)
-{
-}
-
-static inline void lu_ref_print_all(void)
-{
-}
+void lu_ref_print_all(void);
 #endif /* USE_LU_REF */
 
 /** @} lu */

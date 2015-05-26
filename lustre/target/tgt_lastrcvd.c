@@ -133,6 +133,7 @@ int tgt_client_data_write(const struct lu_env *env, struct lu_target *tgt,
 			  struct thandle *th)
 {
 	struct tgt_thread_info *tti = tgt_th_info(env);
+	struct dt_object	*dto;
 
 	lcd->lcd_last_result = ptlrpc_status_hton(lcd->lcd_last_result);
 	lcd->lcd_last_close_result =
@@ -140,7 +141,8 @@ int tgt_client_data_write(const struct lu_env *env, struct lu_target *tgt,
 	lcd_cpu_to_le(lcd, &tti->tti_lcd);
 	tti_buf_lcd(tti);
 
-	return dt_record_write(env, tgt->lut_last_rcvd, &tti->tti_buf, off, th);
+	dto = dt_object_locate(tgt->lut_last_rcvd, th->th_dev);
+	return dt_record_write(env, dto, &tti->tti_buf, off, th);
 }
 
 /**
@@ -227,6 +229,7 @@ int tgt_server_data_write(const struct lu_env *env, struct lu_target *tgt,
 			  struct thandle *th)
 {
 	struct tgt_thread_info	*tti = tgt_th_info(env);
+	struct dt_object	*dto;
 	int			 rc;
 
 	ENTRY;
@@ -235,8 +238,8 @@ int tgt_server_data_write(const struct lu_env *env, struct lu_target *tgt,
 	tti_buf_lsd(tti);
 	lsd_cpu_to_le(&tgt->lut_lsd, &tti->tti_lsd);
 
-	rc = dt_record_write(env, tgt->lut_last_rcvd, &tti->tti_buf,
-			     &tti->tti_off, th);
+	dto = dt_object_locate(tgt->lut_last_rcvd, th->th_dev);
+	rc = dt_record_write(env, dto, &tti->tti_buf, &tti->tti_off, th);
 
 	CDEBUG(D_INFO, "%s: write last_rcvd server data for UUID = %s, "
 	       "last_transno = "LPU64": rc = %d\n", tgt->lut_obd->obd_name,
@@ -489,11 +492,8 @@ static void tgt_cb_new_client(struct lu_env *env, struct thandle *th,
 	       ccb->lncc_exp->exp_client_uuid.uuid);
 
 	spin_lock(&ccb->lncc_exp->exp_lock);
-	/* XXX: Currently, we use per-export based sync/async policy for
-	 *	the update via OUT RPC, it is coarse-grained policy, and
-	 *	will be changed as per-request based by DNE II patches. */
-	if (!ccb->lncc_exp->exp_keep_sync)
-		ccb->lncc_exp->exp_need_sync = 0;
+
+	ccb->lncc_exp->exp_need_sync = 0;
 
 	spin_unlock(&ccb->lncc_exp->exp_lock);
 	class_export_cb_put(ccb->lncc_exp);
@@ -736,8 +736,10 @@ static int tgt_last_rcvd_update(const struct lu_env *env, struct lu_target *tgt,
 	spin_unlock(&tgt->lut_translock);
 
 	/** VBR: set new versions */
-	if (th->th_result == 0 && obj != NULL)
-		dt_version_set(env, obj, tti->tti_transno, th);
+	if (th->th_result == 0 && obj != NULL) {
+		struct dt_object *dto = dt_object_locate(obj, th->th_dev);
+		dt_version_set(env, dto, tti->tti_transno, th);
+	}
 
 	/* filling reply data */
 	CDEBUG(D_INODE, "transno = "LPU64", last_committed = "LPU64"\n",
@@ -1178,6 +1180,7 @@ int tgt_txn_start_cb(const struct lu_env *env, struct thandle *th,
 	struct lu_target	*tgt = cookie;
 	struct tgt_session_info	*tsi;
 	struct tgt_thread_info	*tti = tgt_th_info(env);
+	struct dt_object	*dto;
 	int			 rc;
 
 	/* if there is no session, then this transaction is not result of
@@ -1191,23 +1194,25 @@ int tgt_txn_start_cb(const struct lu_env *env, struct thandle *th,
 	if (tsi->tsi_exp == NULL)
 		return 0;
 
+	dto = dt_object_locate(tgt->lut_last_rcvd, th->th_dev);
 	tti_buf_lcd(tti);
-	rc = dt_declare_record_write(env, tgt->lut_last_rcvd,
-				     &tti->tti_buf,
+
+	rc = dt_declare_record_write(env, dto, &tti->tti_buf,
 				     tsi->tsi_exp->exp_target_data.ted_lr_off,
 				     th);
 	if (rc)
 		return rc;
 
 	tti_buf_lsd(tti);
-	rc = dt_declare_record_write(env, tgt->lut_last_rcvd,
-				     &tti->tti_buf, 0, th);
+	rc = dt_declare_record_write(env, dto, &tti->tti_buf, 0, th);
 	if (rc)
 		return rc;
 
 	if (tsi->tsi_vbr_obj != NULL &&
-	    !lu_object_remote(&tsi->tsi_vbr_obj->do_lu))
-		rc = dt_declare_version_set(env, tsi->tsi_vbr_obj, th);
+	    !lu_object_remote(&tsi->tsi_vbr_obj->do_lu)) {
+		dto = dt_object_locate(tsi->tsi_vbr_obj, th->th_dev);
+		rc = dt_declare_version_set(env, dto, th);
+	}
 
 	return rc;
 }

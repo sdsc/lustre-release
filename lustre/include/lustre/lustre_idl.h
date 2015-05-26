@@ -401,8 +401,8 @@ enum fid_seq {
 	FID_SEQ_OST_MDT0	= 0,
 	FID_SEQ_LLOG		= 1, /* unnamed llogs */
 	FID_SEQ_ECHO		= 2,
-	FID_SEQ_OST_MDT1	= 3,
-	FID_SEQ_OST_MAX		= 9, /* Max MDT count before OST_on_FID */
+	FID_SEQ_UNUSED_START	= 3,
+	FID_SEQ_UNUSED_END	= 9,
 	FID_SEQ_LLOG_NAME	= 10, /* named llogs */
 	FID_SEQ_RSVD		= 11,
 	FID_SEQ_IGIF		= 12,
@@ -426,6 +426,11 @@ enum fid_seq {
 	FID_SEQ_QUOTA_GLB	= 0x200000006ULL,
 	FID_SEQ_ROOT		= 0x200000007ULL,  /* Located on MDT0 */
 	FID_SEQ_LAYOUT_RBTREE	= 0x200000008ULL,
+	/* sequence is used for update logs of cross-MDT operation */
+	FID_SEQ_UPDATE_LOG	= 0x200000009ULL,
+	/* Sequence is used for the directory under which update logs
+	 * are created. */
+	FID_SEQ_UPDATE_LOG_DIR	= 0x20000000aULL,
 	FID_SEQ_NORMAL		= 0x200000400ULL,
 	FID_SEQ_LOV_DEFAULT	= 0xffffffffffffffffULL
 };
@@ -537,6 +542,20 @@ static inline void lu_echo_root_fid(struct lu_fid *fid)
 	fid->f_ver = 0;
 }
 
+static inline void lu_update_log_fid(struct lu_fid *fid, __u32 index)
+{
+	fid->f_seq = FID_SEQ_UPDATE_LOG;
+	fid->f_oid = index;
+	fid->f_ver = 0;
+}
+
+static inline void lu_update_log_dir_fid(struct lu_fid *fid, __u32 index)
+{
+	fid->f_seq = FID_SEQ_UPDATE_LOG_DIR;
+	fid->f_oid = index;
+	fid->f_ver = 0;
+}
+
 /**
  * Check if a fid is igif or not.
  * \param fid the fid to be tested.
@@ -585,6 +604,26 @@ static inline bool fid_is_norm(const struct lu_fid *fid)
 static inline int fid_is_layout_rbtree(const struct lu_fid *fid)
 {
 	return fid_seq(fid) == FID_SEQ_LAYOUT_RBTREE;
+}
+
+static inline bool fid_seq_is_update_log(__u64 seq)
+{
+	return seq == FID_SEQ_UPDATE_LOG;
+}
+
+static inline bool fid_is_update_log(const struct lu_fid *fid)
+{
+	return fid_seq_is_update_log(fid_seq(fid));
+}
+
+static inline bool fid_seq_is_update_log_dir(__u64 seq)
+{
+	return seq == FID_SEQ_UPDATE_LOG_DIR;
+}
+
+static inline bool fid_is_update_log_dir(const struct lu_fid *fid)
+{
+	return fid_seq_is_update_log_dir(fid_seq(fid));
 }
 
 /* convert an OST objid into an IDIF FID SEQ number */
@@ -807,7 +846,8 @@ static inline int fid_to_ostid(const struct lu_fid *fid, struct ost_id *ostid)
 /* Check whether the fid is for LAST_ID */
 static inline bool fid_is_last_id(const struct lu_fid *fid)
 {
-	return fid_oid(fid) == 0;
+	return fid_oid(fid) == 0 && fid_seq(fid) != FID_SEQ_UPDATE_LOG &&
+	       fid_seq(fid) != FID_SEQ_UPDATE_LOG_DIR;
 }
 
 /**
@@ -942,6 +982,9 @@ struct lu_orphan_ent {
 	struct lu_orphan_rec	loe_rec;
 };
 void lustre_swab_orphan_ent(struct lu_orphan_ent *ent);
+
+struct update_ops;
+void lustre_swab_update_ops(struct update_ops *uops, unsigned int op_count);
 
 /** @} lu_fid */
 
@@ -3148,6 +3191,8 @@ enum llog_ctxt_id {
 	/* for multiple changelog consumers */
 	LLOG_CHANGELOG_USER_ORIG_CTXT = 14,
 	LLOG_AGENT_ORIG_CTXT = 15, /**< agent requests generation on cdt */
+	LLOG_UPDATELOG_ORIG_CTXT = 16, /* update log */
+	LLOG_UPDATELOG_REPL_CTXT = 17, /* update log */
 	LLOG_MAX_CTXTS
 };
 
@@ -3190,6 +3235,7 @@ typedef enum {
 	CHANGELOG_REC		= LLOG_OP_MAGIC | 0x60000,
 	CHANGELOG_USER_REC	= LLOG_OP_MAGIC | 0x70000,
 	HSM_AGENT_REC		= LLOG_OP_MAGIC | 0x80000,
+	UPDATE_REC		= LLOG_OP_MAGIC | 0xa0000,
 	LLOG_HDR_MAGIC		= LLOG_OP_MAGIC | 0x45539,
 	LLOG_LOGID_MAGIC	= LLOG_OP_MAGIC | 0x4553b,
 } llog_op_type;
@@ -3372,13 +3418,6 @@ struct llog_gen_rec {
 	struct llog_rec_tail	lgr_tail;
 };
 
-/* On-disk header structure of each log object, stored in little endian order */
-#define LLOG_CHUNK_SIZE         8192
-#define LLOG_HEADER_SIZE        (96)
-#define LLOG_BITMAP_BYTES       (LLOG_CHUNK_SIZE - LLOG_HEADER_SIZE)
-
-#define LLOG_MIN_REC_SIZE       (24) /* round(llog_rec_hdr + llog_rec_tail) */
-
 /* flags for the logs */
 enum llog_flag {
 	LLOG_F_ZAP_WHEN_EMPTY	= 0x1,
@@ -3389,24 +3428,46 @@ enum llog_flag {
 	LLOG_F_EXT_MASK = LLOG_F_EXT_JOBID,
 };
 
+/* On-disk header structure of each log object, stored in little endian order */
+#define LLOG_MIN_CHUNK_SIZE	8192
+#define LLOG_HEADER_SIZE        (96) /* sizeof (llog_log_hdr) + sizeof(llh_tail)
+				      * - sizeof(llh_bitmap) */
+#define LLOG_BITMAP_BYTES       (LLOG_MIN_CHUNK_SIZE - LLOG_HEADER_SIZE)
+#define LLOG_MIN_REC_SIZE       (24) /* round(llog_rec_hdr + llog_rec_tail) */
+
 struct llog_log_hdr {
 	struct llog_rec_hdr	llh_hdr;
 	__s64			llh_timestamp;
-        __u32                   llh_count;
-        __u32                   llh_bitmap_offset;
-        __u32                   llh_size;
-        __u32                   llh_flags;
-        __u32                   llh_cat_idx;
-        /* for a catalog the first plain slot is next to it */
-        struct obd_uuid         llh_tgtuuid;
-        __u32                   llh_reserved[LLOG_HEADER_SIZE/sizeof(__u32) - 23];
-        __u32                   llh_bitmap[LLOG_BITMAP_BYTES/sizeof(__u32)];
-        struct llog_rec_tail    llh_tail;
+	__u32			llh_count;
+	__u32			llh_bitmap_offset;
+	__u32			llh_size;
+	__u32			llh_flags;
+	__u32			llh_cat_idx;
+	/* for a catalog the first plain slot is next to it */
+	struct obd_uuid		llh_tgtuuid;
+	__u32			llh_reserved[LLOG_HEADER_SIZE/sizeof(__u32)-23];
+	/* These fields must always be at the end of the llog_log_hdr.
+	 * Note: llh_bitmap size is variable because llog chunk size could be
+	 * bigger than LLOG_MIN_CHUNK_SIZE, i.e. sizeof(llog_log_hdr) > 8192
+	 * bytes, and the real size is stored in llh_hdr.lrh_len, which means
+	 * llh_tail should only be refered by LLOG_HDR_TAIL().
+	 * But this structure is also used by client/server llog interface
+	 * (see llog_client.c), it will be kept in its original way to avoid
+	 * compatiblity issue. */
+	__u32			llh_bitmap[LLOG_BITMAP_BYTES / sizeof(__u32)];
+	struct llog_rec_tail	llh_tail;
 } __attribute__((packed));
+#undef LLOG_HEADER_SIZE
+#undef LLOG_BITMAP_BYTES
 
-#define LLOG_BITMAP_SIZE(llh)  (__u32)((llh->llh_hdr.lrh_len -		\
-					llh->llh_bitmap_offset -	\
-					sizeof(llh->llh_tail)) * 8)
+#define LLOG_HDR_BITMAP_SIZE(llh)	(__u32)((llh->llh_hdr.lrh_len -	\
+					 llh->llh_bitmap_offset -	\
+					 sizeof(llh->llh_tail)) * 8)
+#define LLOG_HDR_BITMAP(llh)	(__u32 *)((char *)(llh) +		\
+					  (llh)->llh_bitmap_offset)
+#define LLOG_HDR_TAIL(llh)	((struct llog_rec_tail *)((char *)llh +	\
+						 llh->llh_hdr.lrh_len -	\
+						 sizeof(llh->llh_tail)))
 
 /** log cookies are used to reference a specific log file and a record therein */
 struct llog_cookie {
@@ -3945,9 +4006,11 @@ extern void lustre_swab_hsm_request(struct hsm_request *hr);
  */
 
 /**
- * Type of each update
+ * Type of each update, if adding/deleting update, please also update
+ * update_opcode in lustre/target/out_lib.c.
  */
 enum update_type {
+	OUT_START		= 0,
 	OUT_CREATE		= 1,
 	OUT_DESTROY		= 2,
 	OUT_REF_ADD		= 3,
@@ -3961,6 +4024,9 @@ enum update_type {
 	OUT_INDEX_DELETE	= 11,
 	OUT_WRITE		= 12,
 	OUT_XATTR_DEL		= 13,
+	OUT_PUNCH		= 14,
+	OUT_READ		= 15,
+	OUT_NOOP		= 16,
 	OUT_LAST
 };
 
@@ -4007,23 +4073,47 @@ struct object_update_request {
 	struct object_update	ourq_updates[0];
 };
 
+#define OUT_UPDATE_HEADER_MAGIC	0xBDDF0001
+/* Header for updates request between MDTs */
+struct out_update_header {
+	__u32		ouh_magic;
+	__u32		ouh_count;
+	__u64		ouh_xid;
+};
+
+struct out_update_buffer {
+	__u32	oub_size;
+	__u32	oub_padding;
+};
+
 void lustre_swab_object_update(struct object_update *ou);
 void lustre_swab_object_update_request(struct object_update_request *our);
+void lustre_swab_out_update_header(struct out_update_header *ouh);
+void lustre_swab_out_update_buffer(struct out_update_buffer *oub);
+
+static inline size_t
+object_update_params_size(const struct object_update *update)
+{
+	const struct object_update_param *param;
+	size_t				 total_size = 0;
+	unsigned int			 i;
+
+	param = &update->ou_params[0];
+	for (i = 0; i < update->ou_params_count; i++) {
+		size_t size = object_update_param_size(param);
+
+		param = (struct object_update_param *)((char *)param + size);
+		total_size += size;
+	}
+
+	return total_size;
+}
 
 static inline size_t
 object_update_size(const struct object_update *update)
 {
-	const struct	object_update_param *param;
-	size_t		size;
-	unsigned int	i;
-
-	size = offsetof(struct object_update, ou_params[0]);
-	for (i = 0; i < update->ou_params_count; i++) {
-		param = (struct object_update_param *)((char *)update + size);
-		size += object_update_param_size(param);
-	}
-
-	return size;
+	return offsetof(struct object_update, ou_params[0]) +
+	       object_update_params_size(update);
 }
 
 static inline struct object_update *
@@ -4094,6 +4184,30 @@ object_update_result_get(const struct object_update_reply *reply,
 		*size = reply->ourp_lens[index];
 
 	return ptr;
+}
+
+/* read update result */
+struct out_read_reply {
+	__u32	orr_size;
+	__u32	orr_padding;
+	__u64	orr_offset;
+	char	orr_data[0];
+};
+
+static inline void orr_cpu_to_le(struct out_read_reply *orr_dst,
+				 const struct out_read_reply *orr_src)
+{
+	orr_dst->orr_size = cpu_to_le32(orr_src->orr_size);
+	orr_dst->orr_padding = cpu_to_le32(orr_src->orr_padding);
+	orr_dst->orr_offset = cpu_to_le64(orr_dst->orr_offset);
+}
+
+static inline void orr_le_to_cpu(struct out_read_reply *orr_dst,
+				 const struct out_read_reply *orr_src)
+{
+	orr_dst->orr_size = le32_to_cpu(orr_src->orr_size);
+	orr_dst->orr_padding = le32_to_cpu(orr_src->orr_padding);
+	orr_dst->orr_offset = le64_to_cpu(orr_dst->orr_offset);
 }
 
 /** layout swap request structure

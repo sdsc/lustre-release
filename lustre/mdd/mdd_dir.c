@@ -123,12 +123,60 @@ int mdd_lookup(const struct lu_env *env,
         RETURN(rc);
 }
 
+/**
+ * Get parent FID of the directory
+ *
+ * Read parent FID from linkEA, if that fails, then do lookup
+ * dotdot to get the parent FID.
+ *
+ * \param[in] env	execution environment
+ * \param[in] obj	object from which to find the parent FID
+ * \param[in] attr	attribute of the object
+ * \param[out] fid	fid to get the parent FID
+ *
+ * \retval		0 if getting the parent FID succeeds.
+ * \retval		negative errno if getting the parent FID fails.
+ **/
 static inline int mdd_parent_fid(const struct lu_env *env,
 				 struct mdd_object *obj,
 				 const struct lu_attr *attr,
 				 struct lu_fid *fid)
 {
-	return __mdd_lookup(env, &obj->mod_obj, attr, &lname_dotdot, fid, 0);
+	struct mdd_thread_info  *info = mdd_env_info(env);
+	struct linkea_data	ldata = { NULL };
+	struct lu_buf		*buf = &info->mti_link_buf;
+	struct lu_name		lname;
+	int			rc = 0;
+
+	ENTRY;
+
+	if (!lu_object_exists(&obj->mod_obj.mo_lu))
+		RETURN(-ENOENT);
+
+	LASSERT(S_ISDIR(mdd_object_type(obj)));
+
+	buf = lu_buf_check_and_alloc(buf, PATH_MAX);
+	if (buf->lb_buf == NULL)
+		GOTO(lookup, rc = 0);
+
+	ldata.ld_buf = buf;
+	rc = mdd_links_read(env, obj, &ldata);
+	if (rc != 0)
+		GOTO(lookup, rc);
+
+	LASSERT(ldata.ld_leh != NULL);
+	/* Directory should only have 1 parent */
+	if (ldata.ld_leh->leh_reccount > 1)
+		GOTO(lookup, rc);
+
+	ldata.ld_lee = (struct link_ea_entry *)(ldata.ld_leh + 1);
+
+	linkea_entry_unpack(ldata.ld_lee, &ldata.ld_reclen, &lname, fid);
+	if (likely(fid_is_sane(fid)))
+		RETURN(0);
+lookup:
+	rc =  __mdd_lookup(env, &obj->mod_obj, attr, &lname_dotdot, fid, 0);
+	RETURN(rc);
 }
 
 /*
@@ -180,18 +228,12 @@ static int mdd_is_parent(const struct lu_env *env,
 			GOTO(out, rc = 0);
                 if (lu_fid_eq(pfid, lf))
                         GOTO(out, rc = 1);
-                if (parent)
-                        mdd_object_put(env, parent);
+		if (parent != NULL)
+			mdd_object_put(env, parent);
 
 		parent = mdd_object_find(env, mdd, pfid);
-		if (IS_ERR(parent)) {
+		if (IS_ERR(parent))
 			GOTO(out, rc = PTR_ERR(parent));
-		} else if (mdd_object_remote(parent)) {
-			/*FIXME: Because of the restriction of rename in Phase I.
-			 * If the parent is remote, we just assumed lf is not the
-			 * parent of P1 for now */
-			GOTO(out, rc = 0);
-		}
 		p1 = parent;
         }
         EXIT;
@@ -2613,15 +2655,13 @@ static int mdd_declare_rename(const struct lu_env *env,
 	if (rc != 0)
 		return rc;
 
-        /* name from target dir (old name), we declare it unconditionally
-         * as mdd_rename() calls delete unconditionally as well. so just
-         * to balance declarations vs calls to change ... */
-        rc = mdo_declare_index_delete(env, mdd_tpobj, tname->ln_name, handle);
-        if (rc)
-                return rc;
-
         if (mdd_tobj && mdd_object_exists(mdd_tobj)) {
                 /* delete target child in target parent directory */
+		rc = mdo_declare_index_delete(env, mdd_tpobj, tname->ln_name,
+					      handle);
+		if (rc)
+			return rc;
+
                 rc = mdo_declare_ref_del(env, mdd_tobj, handle);
                 if (rc)
                         return rc;
@@ -2758,19 +2798,12 @@ static int mdd_rename(const struct lu_env *env,
                         GOTO(fixup_spobj, rc);
         }
 
-        /* Remove target name from target directory
-         * Here tobj can be remote one, so we do index_delete unconditionally
-         * and -ENOENT is allowed.
-         */
-	rc = __mdd_index_delete(env, mdd_tpobj, tname, is_dir, handle);
-        if (rc != 0) {
-                if (mdd_tobj) {
-                        /* tname might been renamed to something else */
-                        GOTO(fixup_spobj, rc);
-                }
-                if (rc != -ENOENT)
-                        GOTO(fixup_spobj, rc);
-        }
+	if (mdd_tobj != NULL && mdd_object_exists(mdd_tobj)) {
+		rc = __mdd_index_delete(env, mdd_tpobj, tname, is_dir, handle);
+		if (rc != 0)
+			/* tname might been renamed to something else */
+			GOTO(fixup_spobj, rc);
+	}
 
         /* Insert new fid with target name into target dir */
 	rc = __mdd_index_insert(env, mdd_tpobj, lf, cattr->la_mode,
