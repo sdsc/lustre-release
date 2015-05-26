@@ -46,7 +46,7 @@
 
 /*
  *  include our .h file
- */ 
+ */
 
 #include <sys/types.h>
 #include <sys/vfs.h>
@@ -70,7 +70,7 @@
  *          If its of type FILE_TYPE then returns the list of files
  *          in that path.
  *          'count' pointer to number of elements returned in the
- *          return string. 
+ *          return string.
  *
  * Output:  List of  directories/files in that path.
  *
@@ -109,7 +109,7 @@ char *get_file_list(const char *dirname, int file_type, uint32_t *count)
         if ((pdirent->d_name[0] == '.') ||
             !strcmp(pdirent->d_name, FILENAME_NUM_REF))
             continue;
-        
+
         sprintf(filename, "%s/%s", dirname, pdirent->d_name);
         cond1 = (file_type == FILE_TYPE) && is_directory(filename);
         cond2 = (file_type == DIR_TYPE) && (!is_directory(filename));
@@ -117,24 +117,24 @@ char *get_file_list(const char *dirname, int file_type, uint32_t *count)
         if (cond1 || cond2)
             continue;
 
-        /* Calculate the number of bytes for this new entry.*/                    
+        /* Calculate the number of bytes for this new entry.*/
         byte_count += strlen(pdirent->d_name) + 1;
         file_count++;
     }
     if (count)
         *count = file_count;
-    
+
     if (file_count != 0) {
-        
+
         /* need one extra one for the finall NULL terminator*/
         if ((ret_str = (char *) malloc(byte_count + 1)) == NULL) {
             report("get_file_list() failed to malloc(%d)",byte_count+1);
             closedir(pdir);
             return NULL;
-        }    
-        
+        }
+
         rewinddir(pdir);
-        
+
         while (file_count != 0) {
             if ((pdirent = readdir(pdir)) == NULL)
                 break;
@@ -142,7 +142,7 @@ char *get_file_list(const char *dirname, int file_type, uint32_t *count)
             if ((pdirent->d_name[0] == '.') ||
                 !strcmp(pdirent->d_name, FILENAME_NUM_REF))
                 continue;
-            
+
             sprintf(filename, "%s/%s", dirname, pdirent->d_name);
             cond1 = (file_type == FILE_TYPE) && is_directory(filename);
             cond2 = (file_type == DIR_TYPE) && (!is_directory(filename));
@@ -194,13 +194,13 @@ int is_directory(const char *filename)
  *          'lustre_var' the data from the file is read into
  *           this variable, returned to the requestor.
  *          'var_max_size' the max size of the string
- *          'report_error' boolean if error should be reported on 
+ *          'report_error' boolean if error should be reported on
  *           missing filepath
  *
  * Output:  Returns SUCCESS if read successfully from file else
  *          returns ERROR.
  *********************************************************************/
- 
+
 int  read_string(const char *filepath, char *lustre_var, size_t var_max_size)
 {
     FILE    *fptr = NULL;
@@ -294,7 +294,7 @@ int get_sysstatus(void)
 {
     int     ret_val = ERROR ;
     char    sys_status[50] = {0};
-    
+
     if(SUCCESS == read_string(FILENAME_SYS_STATUS,sys_status,sizeof(sys_status)))
     {
         if (memcmp(sys_status, STR_ONLINE_PENDING,strlen(STR_ONLINE_PENDING)) == 0)
@@ -381,19 +381,19 @@ const char *get_nth_entry_from_list(const char* dir_list,int num,int index)
     int i;
     int cur_ptr = 0;
     for(i=0;i<num;i++){
-        
-        /* 
+
+        /*
          * if we've reached the end of the list for some reason
          * because num was wrong then stop processing
          */
         if( *(dir_list+cur_ptr) == 0)
             break;
-            
-        /* If we've found the right one */    
+
+        /* If we've found the right one */
         if( i == index )
             return dir_list+cur_ptr;
-            
-        /* Move to the next one*/            
+
+        /* Move to the next one*/
         cur_ptr += strlen(dir_list + cur_ptr)+1;
     }
     return NULL;
@@ -437,7 +437,7 @@ void report(const char *fmt, ...)
  *
  **************************************************************************/
 
-unsigned char* 
+unsigned char*
     oid_table_ulong_handler(
         const char* file_path,
         size_t  *var_len)
@@ -506,7 +506,7 @@ unsigned char* oid_table_c64_kb_handler(const char* file_path,size_t  *var_len)
  *
  **************************************************************************/
 
-unsigned char* 
+unsigned char*
     oid_table_obj_name_handler(
         const char* file_path,
         size_t  *var_len)
@@ -530,7 +530,7 @@ unsigned char*
  *
  **************************************************************************/
 
-unsigned char* 
+unsigned char*
     oid_table_string_handler(
         const char* file_path,
         size_t  *var_len)
@@ -546,7 +546,7 @@ unsigned char*
 /**************************************************************************
  * Function:   oid_table_is_directory_handler
  *
- * Description: Determine if the file_path is a directory.  
+ * Description: Determine if the file_path is a directory.
  *              Setup a boolean return value.
  *              Setup var_len, and return a pointer to the data.
  *
@@ -556,7 +556,7 @@ unsigned char*
  *
  **************************************************************************/
 
-unsigned char* 
+unsigned char*
     oid_table_is_directory_handler(
         const char* file_path,
         size_t *var_len)
@@ -590,8 +590,8 @@ var_genericTable(struct variable *vp,
     unsigned char *ret_val = NULL;
     int i=0;
     const char* obj_name;
-    
-    
+
+
     /*
      * Get the list of file.  If there are no elements
      * return nothing
@@ -648,7 +648,7 @@ var_genericTable(struct variable *vp,
         goto cleanup_and_exit;
 
     /*
-     * If the name is NULL is a special case and 
+     * If the name is NULL is a special case and
      * just just pass the obj_name as the file_path
      * otherwise we create a file path from the given components
      */
@@ -725,41 +725,64 @@ error_out :
  * Output: SUCCESS or ERROR on failure
  *
  **************************************************************************/
-extern int mds_stats_values(char * name_value, unsigned long long * nb_sample, unsigned long long * min, unsigned long long * max, unsigned long long * sum, unsigned long long * sum_square)
+extern int
+mds_stats_values(char *name_value, unsigned long long *nb_sample,
+		 unsigned long long *min, unsigned long long *max,
+		 unsigned long long *sum, unsigned long long *sum_square)
 {
-  unsigned long long tmp_nb_sample=0,tmp_min=0,tmp_max=0,tmp_sum=0,tmp_sum_square=0;
-/*we parse the three MDS stat files and sum values*/
-  if( stats_values(FILEPATH_MDS_SERVER_STATS,name_value,&tmp_nb_sample,&tmp_min,&tmp_max,&tmp_sum,&tmp_sum_square) == ERROR ) {
-    return ERROR;
-  } else {
-    *nb_sample=tmp_nb_sample;
-    *min=tmp_min;
-    *max=tmp_max;
-    *sum=tmp_sum;
-    *sum_square=tmp_sum_square;
-  }
+	unsigned long long tmp_nb_sample = 0;
+	unsigned long long tmp_min = 0;
+	unsigned long long tmp_max = 0;
+	unsigned long long tmp_sum = 0;
+	unsigned long long tmp_sum_square = 0;
+	char path[PATH_MAX];
 
-  if( stats_values(FILEPATH_MDS_SERVER_READPAGE_STATS,name_value,&tmp_nb_sample,&tmp_min,&tmp_max,&tmp_sum,&tmp_sum_square) == ERROR ) {
-    return ERROR;
-  } else {
-    *nb_sample += tmp_nb_sample;
-    *min += tmp_min;
-    *max += tmp_max;
-    *sum += tmp_sum;
-    *sum_square += tmp_sum_square;
-  }
+	/* we parse the three MDS stat files and sum values */
+	if (cfs_get_procpath(path, sizeof(path), "lustre/mdt/MDS/mds/stats"))
+		return ERROR;
+	if (stats_values(path, name_value, &tmp_nb_sample,
+			 &tmp_min, &tmp_max,
+			 &tmp_sum, &tmp_sum_square) == ERROR) {
+		return ERROR;
+	} else {
+		*nb_sample = tmp_nb_sample;
+		*min = tmp_min;
+		*max = tmp_max;
+		*sum = tmp_sum;
+		*sum_square = tmp_sum_square;
+	}
 
-  if( stats_values(FILEPATH_MDS_SERVER_SETATTR_STATS,name_value,&tmp_nb_sample,&tmp_min,&tmp_max,&tmp_sum,&tmp_sum_square) == ERROR ) {
-    return ERROR;
-  } else {
-    *nb_sample += tmp_nb_sample;
-    *min += tmp_min;
-    *max += tmp_max;
-    *sum += tmp_sum;
-    *sum_square += tmp_sum_square;
-  }
-  
-  return SUCCESS;
+	if (cfs_get_procpath(path, sizeof(path),
+			     "lustre/mdt/MDS/mds_readpage/stats"))
+		return ERROR;
+	if (stats_values(path, name_value, &tmp_nb_sample,
+			 &tmp_min, &tmp_max,
+			 &tmp_sum, &tmp_sum_square) == ERROR) {
+		return ERROR;
+	} else {
+		*nb_sample += tmp_nb_sample;
+		*min += tmp_min;
+		*max += tmp_max;
+		*sum += tmp_sum;
+		*sum_square += tmp_sum_square;
+	}
+
+	if (cfs_get_procpath(path, sizeof(path),
+			     "lustre/mdt/MDS/mds_setattr/stats"))
+		return ERROR;
+	if (stats_values(path, name_value, &tmp_nb_sample,
+			 &tmp_min, &tmp_max,
+			 &tmp_sum, &tmp_sum_square) == ERROR) {
+		return ERROR;
+	} else {
+		*nb_sample += tmp_nb_sample;
+		*min += tmp_min;
+		*max += tmp_max;
+		*sum += tmp_sum;
+		*sum_square += tmp_sum_square;
+	}
+
+	return SUCCESS;
 }
 
 void convert_ull(counter64 *c64, unsigned long long ull, size_t *var_len)
