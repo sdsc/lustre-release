@@ -1934,11 +1934,12 @@ static void ost_prolong_lock_one(struct ost_prolong_data *opd,
         ++opd->opd_locks;
 }
 
-static void ost_prolong_locks(struct ost_prolong_data *data)
+static int ost_prolong_locks(struct ost_prolong_data *data)
 {
         struct obd_export *exp = data->opd_exp;
         struct obdo       *oa  = data->opd_oa;
         struct ldlm_lock  *lock;
+	int		   rc = 0;
         ENTRY;
 
         if (oa->o_valid & OBD_MD_FLHANDLE) {
@@ -1946,20 +1947,25 @@ static void ost_prolong_locks(struct ost_prolong_data *data)
                  * fast path. */
                 lock = ldlm_handle2lock(&oa->o_handle);
                 if (lock != NULL) {
-                        /* Fast path to check if the lock covers the whole IO
-                         * region exclusively. */
-                        if (lock->l_granted_mode == LCK_PW &&
-                            ldlm_extent_contain(&lock->l_policy_data.l_extent,
-                                                &data->opd_extent)) {
-                                /* bingo */
-                                ost_prolong_lock_one(data, lock);
-                                LDLM_LOCK_PUT(lock);
-                                RETURN_EXIT;
-                        }
-                        LDLM_LOCK_PUT(lock);
+			/* Fast path to check if the lock covers the whole IO
+			 * region exclusively. */
+			if (lock->l_export != data->opd_exp) {
+				LDLM_ERROR(lock,
+					"LU-2232: lock export %p != req export "
+					"%p, this lock is obsolete!\n",
+					lock->l_export, data->opd_exp);
+				rc = -ESTALE;
+			} else if (lock->l_granted_mode == LCK_PW &&
+			      ldlm_extent_contain(&lock->l_policy_data.l_extent,
+						  &data->opd_extent)) {
+				/* bingo */
+				ost_prolong_lock_one(data, lock);
+				LDLM_LOCK_PUT(lock);
+				RETURN(0);
+			}
+			LDLM_LOCK_PUT(lock);
                 }
         }
-
 
 	spin_lock_bh(&exp->exp_bl_list_lock);
         cfs_list_for_each_entry(lock, &exp->exp_bl_list, l_exp_list) {
@@ -1973,11 +1979,19 @@ static void ost_prolong_locks(struct ost_prolong_data *data)
                                          &data->opd_extent))
                         continue;
 
-                ost_prolong_lock_one(data, lock);
+		if (lock->l_export != data->opd_exp) {
+			LDLM_ERROR(lock,
+				   "LU-2232: lock export %p != req export %p, "
+				   "this lock is obsolete!\n",
+				   lock->l_export, data->opd_exp);
+			rc = -ESTALE;
+		} else {
+			ost_prolong_lock_one(data, lock);
+		}
         }
 	spin_unlock_bh(&exp->exp_bl_list_lock);
 
-	EXIT;
+	RETURN(rc);
 }
 
 /**
@@ -2079,7 +2093,13 @@ static int ost_rw_hpreq_check(struct ptlrpc_request *req)
 	       opd.opd_resid.name[0], opd.opd_resid.name[1],
 	       opd.opd_extent.start, opd.opd_extent.end);
 
-        ost_prolong_locks(&opd);
+	if (ost_prolong_locks(&opd) < 0)
+		DEBUG_REQ(D_ERROR, req,
+			"%s %s: refresh rw locks: " LPU64"/"LPU64" ("LPU64"->"
+			LPU64")\n",
+			obd->obd_name, current->comm,
+			opd.opd_resid.name[0], opd.opd_resid.name[1],
+			opd.opd_extent.start, opd.opd_extent.end);
 
         CDEBUG(D_DLMTRACE, "%s: refreshed %u locks timeout for req %p.\n",
                obd->obd_name, opd.opd_locks, req);
@@ -2151,7 +2171,12 @@ static int ost_punch_hpreq_check(struct ptlrpc_request *req)
                opd.opd_resid.name[0], opd.opd_resid.name[1],
                opd.opd_extent.start, opd.opd_extent.end);
 
-        ost_prolong_locks(&opd);
+	if (ost_prolong_locks(&opd) < 0)
+		CDEBUG(D_ERROR,
+		      "%s: refresh locks: "LPU64"/"LPU64" ("LPU64"->"LPU64")\n",
+			obd->obd_name,
+			opd.opd_resid.name[0], opd.opd_resid.name[1],
+			opd.opd_extent.start, opd.opd_extent.end);
 
         CDEBUG(D_DLMTRACE, "%s: refreshed %u locks timeout for req %p.\n",
                obd->obd_name, opd.opd_locks, req);
