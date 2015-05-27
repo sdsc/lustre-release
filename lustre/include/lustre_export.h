@@ -182,6 +182,8 @@ struct obd_export {
 	struct list_head	exp_obd_chain;
 	struct hlist_node	exp_uuid_hash;	/** uuid-export hash*/
 	struct hlist_node	exp_nid_hash;	/** nid-export hash */
+	/* Unlinked export list */
+	struct list_head	exp_stale_list;
         /**
          * All exports eligible for ping evictor are linked into a list
          * through this field in "most time since last request on this export"
