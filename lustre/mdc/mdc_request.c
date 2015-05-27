@@ -690,7 +690,8 @@ static void mdc_free_open(struct md_open_data *mod)
 
 	LASSERT(mod->mod_open_req->rq_replay == 0);
 
-	DEBUG_REQ(D_RPCTRACE, mod->mod_open_req, "free open request\n");
+	DEBUG_REQ(D_RPCTRACE, mod->mod_open_req, "free open request (is_create"
+		  " %d, committed %d)\n", mod->mod_is_create, committed);
 
 	ptlrpc_request_committed(mod->mod_open_req, committed);
 	if (mod->mod_close_req)
