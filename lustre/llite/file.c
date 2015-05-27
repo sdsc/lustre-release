@@ -123,28 +123,25 @@ static void ll_prepare_close(struct inode *inode, struct md_op_data *op_data,
 	op_data->op_attr.ia_valid |= ATTR_SIZE | ATTR_BLOCKS;
 
 out:
-        ll_pack_inode2opdata(inode, op_data, &och->och_fh);
-        ll_prep_md_op_data(op_data, inode, NULL, NULL,
-                           0, 0, LUSTRE_OPC_ANY, NULL);
-        EXIT;
+	ll_pack_inode2opdata(inode, op_data, &och->och_fh);
+	ll_prep_md_op_data(op_data, inode, NULL, NULL,
+			   0, 0, LUSTRE_OPC_ANY, NULL);
+	EXIT;
 }
 
-static int ll_close_inode_openhandle(struct obd_export *md_exp,
-				     struct inode *inode,
+static int ll_close_inode_openhandle(struct inode *inode,
 				     struct obd_client_handle *och,
 				     const __u64 *data_version)
 {
-	struct obd_export *exp = ll_i2mdexp(inode);
+	struct obd_export *md_exp = ll_i2mdexp(inode);
 	struct ll_inode_info *lli = ll_i2info(inode);
 	struct md_op_data *op_data;
 	struct ptlrpc_request *req = NULL;
-	struct obd_device *obd = class_exp2obd(exp);
 	int rc;
 	ENTRY;
 
-	if (obd == NULL) {
-		CERROR("%s: invalid MDC connection handle "LPX64"\n",
-		       md_exp->exp_obd->obd_name, md_exp->exp_handle.h_cookie);
+	if (md_exp == NULL || class_exp2obd(md_exp) == NULL) {
+		CERROR("invalid MDC connection handle\n");
 		GOTO(out, rc = 0);
 	}
 
@@ -233,20 +230,18 @@ int ll_md_real_close(struct inode *inode, fmode_t fmode)
 	if (och != NULL) {
 		/* There might be a race and this handle may already
 		 * be closed. */
-		rc = ll_close_inode_openhandle(ll_i2sbi(inode)->ll_md_exp,
-					       inode, och, NULL);
+		rc = ll_close_inode_openhandle(inode, och, NULL);
 	}
 
 	RETURN(rc);
 }
 
-static int ll_md_close(struct obd_export *md_exp, struct inode *inode,
-		       struct file *file)
+static int ll_md_close(struct inode *inode, struct file *file)
 {
-        struct ll_file_data *fd = LUSTRE_FPRIVATE(file);
-        struct ll_inode_info *lli = ll_i2info(inode);
-        int rc = 0;
-        ENTRY;
+	struct ll_file_data *fd = LUSTRE_FPRIVATE(file);
+	struct ll_inode_info *lli = ll_i2info(inode);
+	int rc = 0;
+	ENTRY;
 
 	/* clear group lock, if present */
 	if (unlikely(fd->fd_flags & LL_FILE_GROUP_LOCKED))
@@ -265,7 +260,7 @@ static int ll_md_close(struct obd_export *md_exp, struct inode *inode,
 	}
 
 	if (fd->fd_och != NULL) {
-		rc = ll_close_inode_openhandle(md_exp, inode, fd->fd_och, NULL);
+		rc = ll_close_inode_openhandle(inode, fd->fd_och, NULL);
 		fd->fd_och = NULL;
 		GOTO(out, rc);
 	}
@@ -295,12 +290,12 @@ static int ll_md_close(struct obd_export *md_exp, struct inode *inode,
                 }
 		mutex_unlock(&lli->lli_och_mutex);
 
-                if (!md_lock_match(md_exp, flags, ll_inode2fid(inode),
-                                   LDLM_IBITS, &policy, lockmode,
-                                   &lockh)) {
-                        rc = ll_md_real_close(file->f_dentry->d_inode,
-                                              fd->fd_omode);
-                }
+		if (!md_lock_match(ll_i2mdexp(inode), flags,
+				   ll_inode2fid(inode), LDLM_IBITS, &policy,
+				   lockmode, &lockh)) {
+			rc = ll_md_real_close(file->f_dentry->d_inode,
+					      fd->fd_omode);
+		}
 	} else {
 		CERROR("released file has negative dentry: file = %p, "
 		       "dentry = %p, name = %s\n",
@@ -355,24 +350,24 @@ int ll_file_release(struct inode *inode, struct file *file)
 	if (S_ISDIR(inode->i_mode) && lli->lli_opendir_key == fd)
 		ll_deauthorize_statahead(inode, fd);
 
-        if (inode->i_sb->s_root == file->f_dentry) {
-                LUSTRE_FPRIVATE(file) = NULL;
-                ll_file_data_put(fd);
-                RETURN(0);
-        }
+	if (inode->i_sb->s_root == file->f_dentry) {
+		LUSTRE_FPRIVATE(file) = NULL;
+		ll_file_data_put(fd);
+		RETURN(0);
+	}
 
-        if (!S_ISDIR(inode->i_mode)) {
+	if (!S_ISDIR(inode->i_mode)) {
 		if (lli->lli_clob != NULL)
 			lov_read_and_clear_async_rc(lli->lli_clob);
-                lli->lli_async_rc = 0;
-        }
+		lli->lli_async_rc = 0;
+	}
 
-        rc = ll_md_close(sbi->ll_md_exp, inode, file);
+	rc = ll_md_close(inode, file);
 
-        if (CFS_FAIL_TIMEOUT_MS(OBD_FAIL_PTLRPC_DUMP_LOG, cfs_fail_val))
-                libcfs_debug_dumplog();
+	if (CFS_FAIL_TIMEOUT_MS(OBD_FAIL_PTLRPC_DUMP_LOG, cfs_fail_val))
+		libcfs_debug_dumplog();
 
-        RETURN(rc);
+	RETURN(rc);
 }
 
 static int ll_intent_file_open(struct file *file, void *lmm, int lmmsize,
@@ -830,7 +825,7 @@ out_close:
 		it.d.lustre.it_lock_mode = 0;
 		och->och_lease_handle.cookie = 0ULL;
 	}
-	rc2 = ll_close_inode_openhandle(sbi->ll_md_exp, inode, och, NULL);
+	rc2 = ll_close_inode_openhandle(inode, och, NULL);
 	if (rc2 < 0)
 		CERROR("%s: error closing file "DFID": %d\n",
 		       ll_get_fsname(inode->i_sb, NULL, 0),
@@ -872,8 +867,7 @@ static int ll_lease_close(struct obd_client_handle *och, struct inode *inode,
 	if (lease_broken != NULL)
 		*lease_broken = cancelled;
 
-	rc = ll_close_inode_openhandle(ll_i2sbi(inode)->ll_md_exp, inode, och,
-				       NULL);
+	rc = ll_close_inode_openhandle(inode, och, NULL);
 	RETURN(rc);
 }
 
@@ -1624,8 +1618,7 @@ int ll_release_openhandle(struct dentry *dentry, struct lookup_intent *it)
 
 	ll_och_fill(ll_i2sbi(inode)->ll_md_exp, it, och);
 
-        rc = ll_close_inode_openhandle(ll_i2sbi(inode)->ll_md_exp,
-				       inode, och, NULL);
+	rc = ll_close_inode_openhandle(inode, och, NULL);
 out:
 	/* this one is in place of ll_file_open */
 	if (it_disposition(it, DISP_ENQ_OPEN_REF)) {
@@ -1879,8 +1872,7 @@ int ll_hsm_release(struct inode *inode)
 	/* Release the file.
 	 * NB: lease lock handle is released in mdc_hsm_release_pack() because
 	 * we still need it to pack l_remote_handle to MDT. */
-	rc = ll_close_inode_openhandle(ll_i2sbi(inode)->ll_md_exp, inode, och,
-				       &data_version);
+	rc = ll_close_inode_openhandle(inode, och, &data_version);
 	och = NULL;
 
 	EXIT;
