@@ -487,7 +487,7 @@ static int qmt_glimpse_lock(const struct lu_env *env, struct qmt_device *qmt,
 				       obd_uuid2str(uuid), rc);
 		}
 
-		OBD_ALLOC_PTR(work);
+		OBD_ALLOC_GFP(work, sizeof(*work), GFP_ATOMIC);
 		if (work == NULL) {
 			CERROR("%s: failed to notify %s\n", qmt->qmt_svname,
 			       obd_uuid2str(uuid));
