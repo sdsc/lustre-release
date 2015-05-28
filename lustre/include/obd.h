@@ -735,6 +735,11 @@ struct obd_device {
         struct lu_ref          obd_reference;
 
 	int		       obd_conn_inprogress;
+
+	/* eviction notifier */
+	struct rw_semaphore	obd_en_mgc_mutex;
+	struct obd_export	*obd_en_mgcexp;
+	struct mgs_target_info	obd_en_mti;
 };
 
 enum obd_cleanup_stage {
@@ -771,6 +776,7 @@ enum obd_cleanup_stage {
 #define KEY_REGISTER_TARGET     "register_target"
 #define KEY_SET_FS              "set_fs"
 #define KEY_TGT_COUNT           "tgt_count"
+#define KEY_NOTIFY_EVICTION     "notify_eviction"
 /*      KEY_SET_INFO in lustre_idl.h */
 #define KEY_SPTLRPC_CONF        "sptlrpc_conf"
 

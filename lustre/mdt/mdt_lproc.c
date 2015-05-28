@@ -425,36 +425,7 @@ lprocfs_mds_evict_client_seq_write(struct file *file,
 				   const char __user *buffer,
 				   size_t count, loff_t *off)
 {
-	char *kbuf;
-	char *tmpbuf;
-
-        OBD_ALLOC(kbuf, BUFLEN);
-        if (kbuf == NULL)
-                return -ENOMEM;
-
-        /*
-         * OBD_ALLOC() will zero kbuf, but we only copy BUFLEN - 1
-         * bytes into kbuf, to ensure that the string is NUL-terminated.
-         * UUID_MAX should include a trailing NUL already.
-         */
-	if (copy_from_user(kbuf, buffer,
-			   min_t(unsigned long, BUFLEN - 1, count))) {
-                count = -EFAULT;
-                goto out;
-        }
-        tmpbuf = cfs_firststr(kbuf, min_t(unsigned long, BUFLEN - 1, count));
-
-        if (strncmp(tmpbuf, "nid:", 4) != 0) {
-		count = lprocfs_evict_client_seq_write(file, buffer, count,
-						       off);
-                goto out;
-        }
-
-        CERROR("NOT implement evict client by nid %s\n", tmpbuf);
-
-out:
-        OBD_FREE(kbuf, BUFLEN);
-        return count;
+	return lprocfs_evict_client_seq_write(file, buffer, count, off);
 }
 
 #undef BUFLEN

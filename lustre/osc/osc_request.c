@@ -2557,10 +2557,9 @@ static int osc_set_info_async(const struct lu_env *env, struct obd_export *exp,
         if (!KEY_IS(KEY_GRANT_SHRINK)) {
                 LASSERT(set != NULL);
                 ptlrpc_set_add_req(set, req);
-                ptlrpc_check_set(NULL, set);
-        } else
+	} else {
                 ptlrpcd_add_req(req, PDL_POLICY_ROUND, -1);
-
+	}
         RETURN(0);
 }
 

@@ -48,6 +48,15 @@
 #include <libcfs/list.h>
 #include "ldlm_internal.h"
 
+/* eviction notifier */
+#ifndef LDD_F_EVICT_SVR
+#define LDD_F_EVICT_SVR 0x00100000
+#endif
+
+#ifndef LDD_F_EVICT_CLT
+#define LDD_F_EVICT_CLT 0x00200000
+#endif
+
 static int ldlm_num_threads;
 CFS_MODULE_PARM(ldlm_num_threads, "i", int, 0444,
                 "number of DLM service threads to start");
@@ -2215,6 +2224,30 @@ static int ldlm_callback_handler(struct ptlrpc_request *req)
 		rc = ldlm_handle_qc_callback(req);
 		ldlm_callback_reply(req, rc);
 		RETURN(0);
+	case MGS_NOTIFY_EVICTION: {
+		struct mgs_target_info *mti = NULL;
+		rc = 0;
+		req_capsule_set(&req->rq_pill, &RQF_MGS_NOTIFY_EVICTION);
+		mti = req_capsule_client_get(&req->rq_pill,
+					     &RMF_MGS_NOTIFY_EVICTION);
+		if (mti) {
+			if (mti->mti_flags & LDD_F_EVICT_SVR) {
+				CDEBUG(D_HA, "got eviction notifier msg");
+				obd_exports_evict_by_uuid(mti->mti_uuid,
+							  LUSTRE_OST_NAME);
+				obd_exports_evict_by_uuid(mti->mti_uuid,
+							  LUSTRE_MDT_NAME);
+			} else if (mti->mti_flags & LDD_F_EVICT_CLT) {
+				CDEBUG(D_HA, "got eviction notifier msg");
+				ptlrpc_ping_targets_by_uuid(
+					(struct obd_uuid *)mti->mti_uuid);
+			} else {
+				CERROR("unknown flag 0x%08x\n", mti->mti_flags);
+			}
+		}
+		ldlm_callback_reply(req, rc);
+		RETURN(0);
+	}
         default:
                 CERROR("unknown opcode %u\n",
                        lustre_msg_get_opc(req->rq_reqmsg));

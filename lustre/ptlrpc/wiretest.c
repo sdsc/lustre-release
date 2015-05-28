@@ -369,7 +369,7 @@ void lustre_assert_wire_constants(void)
 		 (long long)MGS_TARGET_DEL);
 	LASSERTF(MGS_SET_INFO == 255, "found %lld\n",
 		 (long long)MGS_SET_INFO);
-	LASSERTF(MGS_LAST_OPC == 257, "found %lld\n",
+	LASSERTF(MGS_LAST_OPC == 258, "found %lld\n",
 		 (long long)MGS_LAST_OPC);
 	LASSERTF(SEC_CTX_INIT == 801, "found %lld\n",
 		 (long long)SEC_CTX_INIT);
