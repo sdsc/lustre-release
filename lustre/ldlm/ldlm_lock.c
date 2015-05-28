@@ -1188,9 +1188,8 @@ static struct ldlm_lock *search_queue(struct list_head *queue,
 		if (!unref && LDLM_HAVE_MASK(lock, GONE))
                         continue;
 
-                if ((flags & LDLM_FL_LOCAL_ONLY) &&
-		    !ldlm_is_local(lock))
-                        continue;
+		if (!equi(flags & LDLM_FL_LOCAL_ONLY, ldlm_is_local(lock)))
+			continue;
 
                 if (flags & LDLM_FL_TEST_LOCK) {
                         LDLM_LOCK_GET(lock);

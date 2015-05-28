@@ -85,6 +85,9 @@ struct osc_io {
 		int               opc_rc;
 		struct completion	opc_sync;
 	} oi_cbarg;
+
+	/** list member of osc_object::oo_ios */
+	struct list_head	oi_list;
 };
 
 /**
@@ -184,6 +187,12 @@ struct osc_object {
 	/* Protect osc_lock this osc_object has */
 	spinlock_t		oo_ol_spin;
 	struct list_head	oo_ol_list;
+
+	/* active IOs of this object */
+	spinlock_t		oo_io_lock;
+	bool			oo_io_pause;
+	wait_queue_head_t	oo_io_waitq;
+	struct list_head	oo_ios; /* list of osc_io */
 };
 
 static inline void osc_object_lock(struct osc_object *obj)
@@ -449,6 +458,9 @@ int osc_cache_writeback_range(const struct lu_env *env, struct osc_object *obj,
 			      pgoff_t start, pgoff_t end, int hp, int discard);
 int osc_cache_wait_range(const struct lu_env *env, struct osc_object *obj,
 			 pgoff_t start, pgoff_t end);
+int osc_cache_flush(struct osc_object *obj, pgoff_t start, pgoff_t end,
+		    enum cl_lock_mode mode, int discard);
+
 void osc_io_unplug(const struct lu_env *env, struct client_obd *cli,
 		   struct osc_object *osc, pdl_policy_t pol);
 int lru_queue_work(const struct lu_env *env, void *data);
@@ -683,9 +695,6 @@ struct osc_extent {
 int osc_extent_finish(const struct lu_env *env, struct osc_extent *ext,
 		      int sent, int rc);
 int osc_extent_release(const struct lu_env *env, struct osc_extent *ext);
-
-int osc_lock_discard_pages(const struct lu_env *env, struct osc_object *osc,
-			   pgoff_t start, pgoff_t end, enum cl_lock_mode mode);
 
 typedef int (*osc_page_gang_cbt)(const struct lu_env *, struct cl_io *,
 				 struct osc_page *, void *);

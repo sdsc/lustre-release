@@ -352,8 +352,25 @@ static int osc_io_commit_async(const struct lu_env *env,
 	RETURN(result);
 }
 
-static int osc_io_rw_iter_init(const struct lu_env *env,
-				const struct cl_io_slice *ios)
+static int osc_io_iter_init(const struct lu_env *env,
+			    const struct cl_io_slice *ios)
+{
+	struct osc_object *osc = cl2osc(ios->cis_obj);
+	struct osc_io *oio = osc_env_io(env);
+	int rc = -EIO;
+
+	spin_lock(&osc->oo_io_lock);
+	if (!osc->oo_io_pause) {
+		list_add_tail(&oio->oi_list, &osc->oo_ios);
+		rc = 0;
+	}
+	spin_unlock(&osc->oo_io_lock);
+
+	return rc;
+}
+
+static int osc_io_write_iter_init(const struct lu_env *env,
+				  const struct cl_io_slice *ios)
 {
 	struct cl_io *io = ios->cis_io;
 	struct osc_io *oio = osc_env_io(env);
@@ -365,7 +382,7 @@ static int osc_io_rw_iter_init(const struct lu_env *env,
 	ENTRY;
 
 	if (cl_io_is_append(io))
-		RETURN(0);
+		RETURN(osc_io_iter_init(env, ios));
 
 	npages = io->u.ci_rw.crw_count >> PAGE_CACHE_SHIFT;
 	if (io->u.ci_rw.crw_pos & ~PAGE_MASK)
@@ -386,11 +403,24 @@ static int osc_io_rw_iter_init(const struct lu_env *env,
 		c = atomic_long_read(cli->cl_lru_left);
 	}
 
-	RETURN(0);
+	RETURN(osc_io_iter_init(env, ios));
 }
 
-static void osc_io_rw_iter_fini(const struct lu_env *env,
-				const struct cl_io_slice *ios)
+static void osc_io_iter_fini(const struct lu_env *env,
+			     const struct cl_io_slice *ios)
+{
+	struct osc_object *osc = cl2osc(ios->cis_obj);
+	struct osc_io *oio = osc_env_io(env);
+
+	spin_lock(&osc->oo_io_lock);
+	list_del_init(&oio->oi_list);
+	if (list_empty(&osc->oo_ios))
+		wake_up_all(&osc->oo_io_waitq);
+	spin_unlock(&osc->oo_io_lock);
+}
+
+static void osc_io_write_iter_fini(const struct lu_env *env,
+				   const struct cl_io_slice *ios)
 {
 	struct osc_io *oio = osc_env_io(env);
 	struct osc_object *osc = cl2osc(ios->cis_obj);
@@ -401,6 +431,8 @@ static void osc_io_rw_iter_fini(const struct lu_env *env,
 		oio->oi_lru_reserved = 0;
 	}
 	oio->oi_write_osclock = NULL;
+
+	osc_io_iter_fini(env, ios);
 }
 
 static int osc_io_fault_start(const struct lu_env *env,
@@ -859,17 +891,21 @@ static void osc_io_end(const struct lu_env *env,
 static const struct cl_io_operations osc_io_ops = {
 	.op = {
 		[CIT_READ] = {
+			.cio_iter_init = osc_io_iter_init,
+			.cio_iter_fini = osc_io_iter_fini,
 			.cio_start  = osc_io_read_start,
 			.cio_fini   = osc_io_fini
 		},
 		[CIT_WRITE] = {
-			.cio_iter_init = osc_io_rw_iter_init,
-			.cio_iter_fini = osc_io_rw_iter_fini,
+			.cio_iter_init = osc_io_write_iter_init,
+			.cio_iter_fini = osc_io_write_iter_fini,
 			.cio_start  = osc_io_write_start,
 			.cio_end    = osc_io_end,
 			.cio_fini   = osc_io_fini
 		},
 		[CIT_SETATTR] = {
+			.cio_iter_init = osc_io_iter_init,
+			.cio_iter_fini = osc_io_iter_fini,
 			.cio_start  = osc_io_setattr_start,
 			.cio_end    = osc_io_setattr_end
 		},
@@ -878,6 +914,8 @@ static const struct cl_io_operations osc_io_ops = {
 			.cio_end    = osc_io_data_version_end,
 		},
 		[CIT_FAULT] = {
+			.cio_iter_init = osc_io_iter_init,
+			.cio_iter_fini = osc_io_iter_fini,
 			.cio_start  = osc_io_fault_start,
 			.cio_end    = osc_io_end,
 			.cio_fini   = osc_io_fini
@@ -1006,6 +1044,7 @@ int osc_io_init(const struct lu_env *env,
         struct osc_io *oio = osc_env_io(env);
 
         CL_IO_SLICE_CLEAN(oio, oi_cl);
+	INIT_LIST_HEAD(&oio->oi_list);
         cl_io_slice_add(io, &oio->oi_cl, obj, &osc_io_ops);
         return 0;
 }

@@ -226,7 +226,7 @@ static int osc_extent_sanity_check0(struct osc_extent *ext,
 	if (ext->oe_sync && ext->oe_grants > 0)
 		GOTO(out, rc = 90);
 
-	if (ext->oe_dlmlock != NULL) {
+	if (ext->oe_dlmlock != NULL && !ldlm_is_failed(ext->oe_dlmlock)) {
 		struct ldlm_extent *extent;
 
 		extent = &ext->oe_dlmlock->l_policy_data.l_extent;
@@ -3149,8 +3149,10 @@ static int discard_cb(const struct lu_env *env, struct cl_io *io,
 	/* page is top page. */
 	info->oti_next_index = osc_index(ops) + 1;
 	if (cl_page_own(env, io, page) == 0) {
-		KLASSERT(ergo(page->cp_type == CPT_CACHEABLE,
-			      !PageDirty(cl_page_vmpage(page))));
+		if (!ergo(page->cp_type == CPT_CACHEABLE,
+			  !PageDirty(cl_page_vmpage(page))))
+			CL_PAGE_DEBUG(D_ERROR, env, page,
+					"discard dirty page?\n");
 
 		/* discard the page */
 		cl_page_discard(env, io, page);
@@ -3170,8 +3172,8 @@ static int discard_cb(const struct lu_env *env, struct cl_io *io,
  * If error happens on any step, the process continues anyway (the reasoning
  * behind this being that lock cancellation cannot be delayed indefinitely).
  */
-int osc_lock_discard_pages(const struct lu_env *env, struct osc_object *osc,
-			   pgoff_t start, pgoff_t end, enum cl_lock_mode mode)
+static int osc_cache_discard(const struct lu_env *env, struct osc_object *osc,
+			     pgoff_t start, pgoff_t end, enum cl_lock_mode mode)
 {
 	struct osc_thread_info *info = osc_env_info(env);
 	struct cl_io *io = &info->oti_io;
@@ -3203,5 +3205,36 @@ out:
 	RETURN(result);
 }
 
+int osc_cache_flush(struct osc_object *obj, pgoff_t start, pgoff_t end,
+		    enum cl_lock_mode mode, int discard)
+{
+	struct lu_env		*env;
+	struct cl_env_nest	nest;
+	int			rc = 0;
+	int			rc2 = 0;
+
+	ENTRY;
+
+	env = cl_env_nested_get(&nest);
+	if (IS_ERR(env))
+		RETURN(PTR_ERR(env));
+
+	if (mode == CLM_WRITE) {
+		rc = osc_cache_writeback_range(env, obj, start, end, 1,
+					       discard);
+		CDEBUG(D_CACHE, "object %p: [%lu -> %lu] %d pages were %s.\n",
+		       obj, start, end, rc,
+		       discard ? "discarded" : "written back");
+		if (rc > 0)
+			rc = 0;
+	}
+
+	rc2 = osc_cache_discard(env, obj, start, end, mode);
+	if (rc == 0 && rc2 < 0)
+		rc = rc2;
+
+	cl_env_nested_put(&nest, env);
+	RETURN(rc);
+}
 
 /** @} osc */

@@ -388,38 +388,6 @@ out:
 	RETURN(ldlm_error2errno(errcode));
 }
 
-static int osc_lock_flush(struct osc_object *obj, pgoff_t start, pgoff_t end,
-			  enum cl_lock_mode mode, int discard)
-{
-	struct lu_env		*env;
-	struct cl_env_nest	nest;
-	int			rc = 0;
-	int			rc2 = 0;
-
-	ENTRY;
-
-	env = cl_env_nested_get(&nest);
-	if (IS_ERR(env))
-		RETURN(PTR_ERR(env));
-
-	if (mode == CLM_WRITE) {
-		rc = osc_cache_writeback_range(env, obj, start, end, 1,
-					       discard);
-		CDEBUG(D_CACHE, "object %p: [%lu -> %lu] %d pages were %s.\n",
-		       obj, start, end, rc,
-		       discard ? "discarded" : "written back");
-		if (rc > 0)
-			rc = 0;
-	}
-
-	rc2 = osc_lock_discard_pages(env, obj, start, end, mode);
-	if (rc == 0 && rc2 < 0)
-		rc = rc2;
-
-	cl_env_nested_put(&nest, env);
-	RETURN(rc);
-}
-
 /**
  * Helper for osc_dlm_blocking_ast() handling discrepancies between cl_lock
  * and ldlm_lock caches.
@@ -464,10 +432,10 @@ static int osc_dlm_blocking_ast0(const struct lu_env *env,
 		__u64 old_kms;
 
 		/* Destroy pages covered by the extent of the DLM lock */
-		result = osc_lock_flush(cl2osc(obj),
-					cl_index(obj, extent->start),
-					cl_index(obj, extent->end),
-					mode, discard);
+		result = osc_cache_flush(cl2osc(obj),
+					 cl_index(obj, extent->start),
+					 cl_index(obj, extent->end),
+					 mode, discard);
 
 		/* losing a lock, update kms */
 		lock_res_and_lock(dlmlock);
@@ -1100,8 +1068,8 @@ static void osc_lock_lockless_cancel(const struct lu_env *env,
 	int result;
 
 	LASSERT(ols->ols_dlmlock == NULL);
-	result = osc_lock_flush(osc, descr->cld_start, descr->cld_end,
-				descr->cld_mode, 0);
+	result = osc_cache_flush(osc, descr->cld_start, descr->cld_end,
+				 descr->cld_mode, 0);
         if (result)
                 CERROR("Pages for lockless lock %p were not purged(%d)\n",
                        ols, result);
