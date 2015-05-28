@@ -1549,7 +1549,7 @@ out_rmdir:
 
 		/* Copy the whole struct */
 		if (copy_from_user(hur, (void __user *)arg, totalsize)) {
-			OBD_FREE_LARGE(hur, totalsize);
+			OBD_FREE(hur, totalsize);
 			RETURN(-EFAULT);
 		}
 
@@ -1576,7 +1576,7 @@ out_rmdir:
 					   hur, NULL);
 		}
 
-		OBD_FREE_LARGE(hur, totalsize);
+		OBD_FREE(hur, totalsize);
 
 		RETURN(rc);
 	}

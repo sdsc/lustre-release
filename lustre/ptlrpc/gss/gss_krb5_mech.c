@@ -254,7 +254,7 @@ int get_keyblock(char **ptr, const char *end,
                 return -1;
 
         if (get_bytes(ptr, end, buf, keysize)) {
-                OBD_FREE_LARGE(buf, keysize);
+		OBD_FREE(buf, keysize);
                 return -1;
         }
 
@@ -1609,7 +1609,7 @@ arc4_out:
 
         major = GSS_S_COMPLETE;
 out_free:
-        OBD_FREE_LARGE(tmpbuf, bodysize);
+	OBD_FREE(tmpbuf, bodysize);
         rawobj_free(&cksum);
         return major;
 }

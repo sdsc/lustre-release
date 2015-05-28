@@ -2322,7 +2322,7 @@ void lu_buf_free(struct lu_buf *buf)
 	LASSERT(buf);
 	if (buf->lb_buf) {
 		LASSERT(buf->lb_len > 0);
-		OBD_FREE_LARGE(buf->lb_buf, buf->lb_len);
+		OBD_FREE(buf->lb_buf, buf->lb_len);
 		buf->lb_buf = NULL;
 		buf->lb_len = 0;
 	}
@@ -2379,7 +2379,7 @@ int lu_buf_check_and_grow(struct lu_buf *buf, size_t len)
 	/* Free the old buf */
 	if (buf->lb_buf != NULL) {
 		memcpy(ptr, buf->lb_buf, buf->lb_len);
-		OBD_FREE_LARGE(buf->lb_buf, buf->lb_len);
+		OBD_FREE(buf->lb_buf, buf->lb_len);
 	}
 
 	buf->lb_buf = ptr;

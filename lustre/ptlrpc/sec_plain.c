@@ -596,7 +596,7 @@ void plain_free_reqbuf(struct ptlrpc_sec *sec,
 {
         ENTRY;
         if (!req->rq_pool) {
-                OBD_FREE_LARGE(req->rq_reqbuf, req->rq_reqbuf_len);
+		OBD_FREE(req->rq_reqbuf, req->rq_reqbuf_len);
                 req->rq_reqbuf = NULL;
                 req->rq_reqbuf_len = 0;
         }
@@ -640,7 +640,7 @@ void plain_free_repbuf(struct ptlrpc_sec *sec,
                        struct ptlrpc_request *req)
 {
         ENTRY;
-        OBD_FREE_LARGE(req->rq_repbuf, req->rq_repbuf_len);
+	OBD_FREE(req->rq_repbuf, req->rq_repbuf_len);
         req->rq_repbuf = NULL;
         req->rq_repbuf_len = 0;
         EXIT;
@@ -696,7 +696,7 @@ int plain_enlarge_reqbuf(struct ptlrpc_sec *sec,
 
                 memcpy(newbuf, req->rq_reqbuf, req->rq_reqbuf_len);
 
-                OBD_FREE_LARGE(req->rq_reqbuf, req->rq_reqbuf_len);
+		OBD_FREE(req->rq_reqbuf, req->rq_reqbuf_len);
                 req->rq_reqbuf = newbuf;
                 req->rq_reqbuf_len = newbuf_size;
                 req->rq_reqmsg = lustre_msg_buf(req->rq_reqbuf,
@@ -847,7 +847,7 @@ void plain_free_rs(struct ptlrpc_reply_state *rs)
 	atomic_dec(&rs->rs_svc_ctx->sc_refcount);
 
 	if (!rs->rs_prealloc)
-		OBD_FREE_LARGE(rs, rs->rs_size);
+		OBD_FREE(rs, rs->rs_size);
 	EXIT;
 }
 

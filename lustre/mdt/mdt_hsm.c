@@ -50,7 +50,7 @@
 			(ptr) = NULL;			\
 	} while (0)
 
-#define MDT_HSM_FREE(ptr, size) OBD_FREE_LARGE((ptr), (size))
+#define MDT_HSM_FREE(ptr, size) OBD_FREE((ptr), (size))
 
 /**
  * Update on-disk HSM attributes.

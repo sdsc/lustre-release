@@ -209,7 +209,7 @@ static inline void obd_ioctl_freedata(char *buf, size_t len)
 {
 	ENTRY;
 
-	OBD_FREE_LARGE(buf, len);
+	OBD_FREE(buf, len);
 	EXIT;
 }
 

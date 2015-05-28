@@ -212,7 +212,7 @@ void ldlm_lock_put(struct ldlm_lock *lock)
                 }
 
                 if (lock->l_lvb_data != NULL)
-                        OBD_FREE_LARGE(lock->l_lvb_data, lock->l_lvb_len);
+			OBD_FREE(lock->l_lvb_data, lock->l_lvb_len);
 
                 ldlm_interval_free(ldlm_interval_detach(lock));
                 lu_ref_fini(&lock->l_reference);

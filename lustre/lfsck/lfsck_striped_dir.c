@@ -170,13 +170,13 @@ void lfsck_lmv_put(const struct lu_env *env, struct lfsck_lmv *llmv)
 
 			LASSERT(llmv->ll_lslr != NULL);
 
-			OBD_FREE_LARGE(llmv->ll_lslr,
+			OBD_FREE(llmv->ll_lslr,
 				       sizeof(*llmv->ll_lslr) *
 				       llmv->ll_stripes_allocated);
 			OBD_FREE_PTR(llu);
 		} else {
 			if (llmv->ll_lslr != NULL)
-				OBD_FREE_LARGE(llmv->ll_lslr,
+				OBD_FREE(llmv->ll_lslr,
 					sizeof(*llmv->ll_lslr) *
 					llmv->ll_stripes_allocated);
 
@@ -520,7 +520,7 @@ static int lfsck_record_lmv(const struct lu_env *env,
 		}
 
 		memcpy(new_lslr, llmv->ll_lslr, old_size);
-		OBD_FREE_LARGE(llmv->ll_lslr, old_size);
+		OBD_FREE(llmv->ll_lslr, old_size);
 		llmv->ll_stripes_allocated = new_stripes;
 		llmv->ll_lslr = new_lslr;
 	}
