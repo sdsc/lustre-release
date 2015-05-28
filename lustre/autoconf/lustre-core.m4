@@ -1642,6 +1642,24 @@ direct_io_iter, [
 ]) # LC_DIRECTIO_USE_ITER
 
 #
+# LC_FILE_ITER
+#
+# 3.16 introduces [read|write]_iter to struct file_operations
+#
+AC_DEFUN([LC_FILE_ITER], [
+LB_CHECK_COMPILE([if 'file_operations.[read|write]_iter' exist],
+file_function_iter, [
+	#include <linux/fs.h>
+],[
+	((struct file_operations *)0)->read_iter(NULL, NULL);
+	((struct file_operations *)0)->write_iter(NULL, NULL);
+],[
+	AC_DEFINE(HAVE_FILE_ITER, 1,
+		[file_operations.[read|write]_iter functions exist])
+])
+]) # LC_FILE_ITER
+
+#
 # LC_NFS_FILLDIR_USE_CTX
 #
 # 3.18 kernel moved from void cookie to struct dir_context
@@ -1858,6 +1876,7 @@ AC_DEFUN([LC_PROG_LINUX], [
 
 	# 3.16
 	LC_DIRECTIO_USE_ITER
+	LC_FILE_ITER
 
 	# 3.18
 	LC_NFS_FILLDIR_USE_CTX
