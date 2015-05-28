@@ -1221,6 +1221,11 @@ static int server_notify_target(struct super_block *sb, struct obd_device *obd)
 	    (mti->mti_flags & LDD_F_IR_CAPABLE))
 		lsi->lsi_flags |= LDD_F_IR_CAPABLE;
 
+	/* store the data needed by eviction notifier */
+	obd->obd_en_mgcexp = class_export_get(mgc->u.cli.cl_mgc_mgsexp);
+	/* flags is set in mgc_notify_eviction */
+	memcpy(&obd->obd_en_mti, mti, sizeof(struct mgs_target_info));
+
 out:
 	if (mti)
 		OBD_FREE_PTR(mti);

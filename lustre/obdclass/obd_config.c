@@ -532,6 +532,9 @@ int class_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 	class_incref(obd, "setup", obd);
 	spin_unlock(&obd->obd_dev_lock);
 
+	init_rwsem(&obd->obd_en_mgc_mutex);
+	obd->obd_en_mgcexp = NULL;
+
         CDEBUG(D_IOCTL, "finished setup of obd %s (uuid %s)\n",
                obd->obd_name, obd->obd_uuid.uuid);
 
@@ -620,6 +623,13 @@ int class_cleanup(struct obd_device *obd, struct lustre_cfg *lcfg)
 	while (obd->obd_conn_inprogress > 0)
 		yield();
 	smp_rmb();
+
+	down_write(&obd->obd_en_mgc_mutex);
+	if (obd->obd_en_mgcexp) {
+		class_export_put(obd->obd_en_mgcexp);
+		obd->obd_en_mgcexp = NULL;
+	}
+	up_write(&obd->obd_en_mgc_mutex);
 
         if (lcfg->lcfg_bufcount >= 2 && LUSTRE_CFG_BUFLEN(lcfg, 1) > 0) {
                 for (flag = lustre_cfg_string(lcfg, 1); *flag != 0; flag++)

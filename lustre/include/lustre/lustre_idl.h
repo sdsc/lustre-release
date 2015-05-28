@@ -3031,6 +3031,7 @@ typedef enum {
         MGS_TARGET_DEL,
         MGS_SET_INFO,
         MGS_CONFIG_READ,
+	MGS_NOTIFY_EVICTION,
         MGS_LAST_OPC
 } mgs_cmd_t;
 #define MGS_FIRST_OPC MGS_CONNECT
