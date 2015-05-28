@@ -1176,6 +1176,65 @@ static int mgc_target_register(struct obd_export *exp,
         RETURN(rc);
 }
 
+static int mgc_notify_eviction(struct obd_export *mgcexp,
+			       struct obd_export *exp,
+			       struct ptlrpc_request_set *set)
+{
+	int rc = 0;
+	struct ptlrpc_request *req = NULL;
+	struct obd_device *obd = NULL;
+	struct mgs_target_info *mti = NULL, *req_mti = NULL;
+	ENTRY;
+
+	if (!mgcexp || !exp)
+		GOTO(out, rc = -EINVAL);
+	obd = exp->exp_obd;
+		mti = &obd->obd_en_mti;
+
+	/* see if mti holds meaningful information */
+	if (mti->mti_lustre_ver != LUSTRE_VERSION_CODE)
+		/* mti wasn't initialized */
+		GOTO(out, rc = -EINVAL);
+
+	req = ptlrpc_request_alloc_pack(class_exp2cliimp(mgcexp),
+					&RQF_MGS_NOTIFY_EVICTION,
+					LUSTRE_MGS_VERSION,
+					MGS_NOTIFY_EVICTION);
+	if (!req)
+		GOTO(out, rc = -ENOMEM);
+
+	req_mti = req_capsule_client_get(&req->rq_pill,
+					 &RMF_MGS_NOTIFY_EVICTION);
+	if (!req_mti)
+		GOTO(out, rc = -EPROTO);
+
+	memcpy(req_mti, mti, sizeof(*req_mti));
+	/* fill the uuid field with client's uuid */
+	memcpy(&req_mti->mti_uuid, &exp->exp_client_uuid,
+	       sizeof(struct obd_uuid));
+	/* exp_connection is never released until the owner exp is destroyed,
+	 * so that we don't need to care about race or something */
+	if (exp->exp_connection)
+		req_mti->mti_nids[0] = exp->exp_connection->c_peer.nid;
+	else
+		GOTO(out, rc = -ENOTCONN);
+
+	ptlrpc_request_set_replen(req);
+	CDEBUG(D_MGC, "try to notify %s's eviction\n", obd->obd_name);
+
+	if (set) {
+		ptlrpc_set_add_req(set, req);
+		req = NULL;
+	} else {
+		ptlrpcd_add_req(req, PDL_POLICY_ROUND, -1);
+		req = NULL;
+	}
+out:
+	if (req)
+		ptlrpc_req_finished(req);
+	RETURN(rc);
+}
+
 static int mgc_set_info_async(const struct lu_env *env, struct obd_export *exp,
 			      u32 keylen, void *key,
 			      u32 vallen, void *val,
@@ -1278,6 +1337,11 @@ static int mgc_set_info_async(const struct lu_env *env, struct obd_export *exp,
                 }
                 RETURN(rc);
         }
+	if (KEY_IS(KEY_NOTIFY_EVICTION)) {
+		/* send reqs */
+		struct obd_export *doomed_exp = (struct obd_export *)val;
+		rc = mgc_notify_eviction(exp, doomed_exp, set);
+	}
 
         RETURN(rc);
 }

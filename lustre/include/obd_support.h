@@ -455,6 +455,7 @@ int obd_alloc_fail(const void *ptr, const char *name, const char *type,
 #define OBD_FAIL_MGS_TARGET_DEL_NET	 0x90b
 #define OBD_FAIL_MGS_CONFIG_READ_NET	 0x90c
 #define OBD_FAIL_MGS_LDLM_REPLY_NET	 0x90d
+#define OBD_FAIL_MGS_NOTIFY_EVICTION_NET 0x90e
 
 #define OBD_FAIL_QUOTA_DQACQ_NET			0xA01
 #define OBD_FAIL_QUOTA_EDQUOT            0xA02

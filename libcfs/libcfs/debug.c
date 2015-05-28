@@ -111,6 +111,11 @@ EXPORT_SYMBOL(libcfs_panic_on_lbug);
 atomic_t libcfs_kmemory = ATOMIC_INIT(0);
 EXPORT_SYMBOL(libcfs_kmemory);
 
+unsigned int libcfs_en_enable = 1;
+CFS_MODULE_PARM(libcfs_en_enable, "i", uint, 0600,
+		"enable eviction notifier");
+EXPORT_SYMBOL(libcfs_en_enable);
+
 static wait_queue_head_t debug_ctlwq;
 
 char libcfs_debug_file_path_arr[PATH_MAX] = LIBCFS_DEBUG_FILE_PATH_DEFAULT;

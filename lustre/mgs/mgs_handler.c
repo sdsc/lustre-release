@@ -504,6 +504,155 @@ static int mgs_config_read(struct tgt_session_info *tsi)
 	RETURN(rc);
 }
 
+
+static int do_notify_eviction(struct obd_import *imp,
+			      struct mgs_target_info *mti,
+			      bool async)
+{
+	int rc = 0;
+	struct ptlrpc_request *req;
+	struct mgs_target_info *req_mti = NULL;
+	ENTRY;
+
+	req = ptlrpc_request_alloc_pack(imp, &RQF_MGS_NOTIFY_EVICTION,
+					LUSTRE_MGS_VERSION,
+					MGS_NOTIFY_EVICTION);
+	if (!req)
+		GOTO(out, rc = -ENOMEM);
+
+	req_mti = req_capsule_client_get(&req->rq_pill,
+					 &RMF_MGS_NOTIFY_EVICTION);
+	if (!req_mti) {
+		ptlrpc_req_finished(req);
+		GOTO(out, rc = -ENOMEM);
+	}
+	memcpy(req_mti, mti, sizeof(*req_mti));
+	ptlrpc_request_set_replen(req);
+	req->rq_no_resend = 1;
+	req->rq_no_delay = 1;
+
+	if (async) {
+		ptlrpcd_add_req(req, PDL_POLICY_ROUND, -1);
+	} else {
+		rc = ptlrpc_queue_wait(req);
+		ptlrpc_req_finished(req);
+	}
+
+out:
+	RETURN(rc);
+}
+
+static int notify_eviction_to_clients(struct obd_device *obd,
+				      struct mgs_device *mgs,
+				      struct mgs_target_info *mti)
+{
+	int rc = 0;
+	struct fs_db *fsdb = NULL;
+	struct mgs_fsc *fsc = NULL;
+	struct obd_export *exp = NULL;
+	ENTRY;
+
+	mutex_lock(&mgs->mgs_mutex);
+	fsdb = mgs_find_fsdb(mgs, mti->mti_fsname);
+	if (!fsdb) {
+		mutex_unlock(&mgs->mgs_mutex);
+		GOTO(out, rc = 0);
+	}
+
+	mutex_lock(&fsdb->fsdb_mutex);
+	list_for_each_entry(fsc, &fsdb->fsdb_clients, mfc_fsdb_list) {
+		if (fsc->mfc_export->exp_connection->c_peer.nid ==
+		    mti->mti_nids[0]) {
+			exp = class_export_get(fsc->mfc_export);
+			break;
+		}
+	}
+	mutex_unlock(&fsdb->fsdb_mutex);
+	mutex_unlock(&mgs->mgs_mutex);
+	if (!exp)
+		GOTO(out, rc = 0);
+
+	mti->mti_flags = LDD_F_EVICT_CLT;
+	/* exp_imp_reverse is destroyed when the owner exp is destroyed */
+	rc = do_notify_eviction(exp->exp_imp_reverse, mti, true);
+	class_export_put(exp);
+out:
+	RETURN(rc);
+}
+
+static int notify_eviction_to_servers(struct obd_device *obd,
+				      struct mgs_target_info *mti)
+{
+	int rc = 0, idx = -1;
+	struct obd_export *exp = NULL, **exps = NULL;
+	size_t size = sizeof(struct obd_export *) * (obd->obd_num_exports - 1);
+	ENTRY;
+
+	OBD_ALLOC_LARGE(exps, size);
+	if (!exps)
+		GOTO(out, rc = -ENOMEM);
+	memset(exps, 0, size);
+
+	/* send a notification to all servers */
+	spin_lock(&obd->obd_dev_lock);
+	list_for_each_entry(exp, &obd->obd_exports, exp_obd_chain) {
+		if (exp == obd->obd_self_export)
+			continue;
+		exps[++idx] = class_export_get(exp);
+	}
+	spin_unlock(&obd->obd_dev_lock);
+
+	exp = NULL;
+	mti->mti_flags = LDD_F_EVICT_SVR;
+	for (; idx >= 0; idx--) {
+		exp = exps[idx];
+		rc = do_notify_eviction(exp->exp_imp_reverse, mti, false);
+		class_export_put(exp);
+	}
+out:
+	if (exps)
+		OBD_FREE_LARGE(exps, size);
+
+	RETURN(rc);
+}
+
+static int mgs_notify_eviction(struct tgt_session_info *tsi)
+{
+	int rc = 0;
+	struct mgs_target_info *mti = NULL;
+	/* mgs device */
+	struct obd_device *obd = class_exp2obd(tsi->tsi_exp);
+	struct mgs_device *mgs = exp2mgs_dev(tsi->tsi_exp);
+	ENTRY;
+
+	rc = lu_env_refill((struct lu_env *)tsi->tsi_env);
+	if (rc)
+		RETURN(err_serious(rc));
+
+	mti = req_capsule_client_get(tsi->tsi_pill, &RMF_MGS_NOTIFY_EVICTION);
+	if (!mti) {
+		CERROR("no mti was sent");
+		RETURN(err_serious(-EFAULT));
+	}
+	/* this uuid isn't target's uuid, the evicted client's one */
+	CDEBUG(D_MGS, "fsname:%s, svname:%s, uuid:%s\n",
+	       mti->mti_fsname, mti->mti_svname, mti->mti_uuid);
+
+	/* FUTURE WORK:
+	 * sending requests should be done on another thread or
+	 * it may eat up all mgs threads waiting request finishing */
+	rc = notify_eviction_to_servers(obd, mti);
+	if (rc < 0)
+		CERROR("eviction notifier failed: %d\n", rc);
+
+	rc = notify_eviction_to_clients(obd, mgs, mti);
+	if (rc < 0)
+		CERROR("eviction notifier failed: %d\n", rc);
+
+	/* return 0 */
+	RETURN(0);
+}
+
 static int mgs_llog_open(struct tgt_session_info *tsi)
 {
 	struct mgs_thread_info	*mgi;
@@ -1019,6 +1168,8 @@ TGT_MGS_HDL    (HABEO_REFERO | MUTABOR,	MGS_SET_INFO,	 mgs_set_info),
 TGT_MGS_HDL    (HABEO_REFERO | MUTABOR,	MGS_TARGET_REG,	 mgs_target_reg),
 TGT_MGS_HDL_VAR(0,			MGS_TARGET_DEL,	 mgs_target_del),
 TGT_MGS_HDL    (HABEO_REFERO,		MGS_CONFIG_READ, mgs_config_read),
+TGT_MGS_HDL    (HABEO_REFERO,           MGS_NOTIFY_EVICTION,
+							 mgs_notify_eviction),
 };
 
 static struct tgt_handler mgs_obd_handlers[] = {

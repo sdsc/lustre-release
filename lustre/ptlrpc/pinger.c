@@ -133,6 +133,44 @@ void ptlrpc_ping_import_soon(struct obd_import *imp)
         imp->imp_next_ping = cfs_time_current();
 }
 
+int ptlrpc_ping_targets_by_uuid(struct obd_uuid *uuid)
+{
+	int rc = 0, idx = 0;
+	ENTRY;
+
+	while (idx >= 0) {
+		struct obd_device *obd = NULL;
+		struct obd_import *imp = NULL;
+		idx = class_uuid2dev_n(uuid, idx);
+		if (idx < 0)
+			break;
+		obd = class_get_obd(idx);
+		if (!obd) {
+			idx++;
+			continue;
+		}
+		if (strcmp(obd->obd_type->typ_name, LUSTRE_OSC_NAME) &&
+		    strcmp(obd->obd_type->typ_name, LUSTRE_MDC_NAME)) {
+			idx++;
+			class_decref(obd, __func__, current);
+			continue;
+		}
+
+		down_read(&obd->u.cli.cl_sem);
+		if (obd->u.cli.cl_import)
+			imp = class_import_get(obd->u.cli.cl_import);
+		up_read(&obd->u.cli.cl_sem);
+		if (imp) {
+			ptlrpc_ping(imp);
+			class_import_put(imp);
+		}
+		class_decref(obd, __func__, current);
+		idx++;
+	}
+	RETURN(rc);
+}
+EXPORT_SYMBOL(ptlrpc_ping_targets_by_uuid);
+
 static inline int imp_is_deactive(struct obd_import *imp)
 {
         return (imp->imp_deactive ||

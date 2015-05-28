@@ -147,6 +147,7 @@ extern struct req_format RQF_OBD_IDX_READ;
 extern struct req_format RQF_MGS_TARGET_REG;
 extern struct req_format RQF_MGS_SET_INFO;
 extern struct req_format RQF_MGS_CONFIG_READ;
+extern struct req_format RQF_MGS_NOTIFY_EVICTION;
 /* fid/fld req_format */
 extern struct req_format RQF_SEQ_QUERY;
 extern struct req_format RQF_FLD_QUERY;
@@ -330,6 +331,8 @@ extern struct req_msg_field RMF_OST_ID;
 /* MGS config read message format */
 extern struct req_msg_field RMF_MGS_CONFIG_BODY;
 extern struct req_msg_field RMF_MGS_CONFIG_RES;
+
+extern struct req_msg_field RMF_MGS_NOTIFY_EVICTION;
 
 /* generic uint32 */
 extern struct req_msg_field RMF_U32;

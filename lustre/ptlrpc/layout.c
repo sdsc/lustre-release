@@ -96,6 +96,11 @@ static const struct req_msg_field *mgs_config_read_server[] = {
         &RMF_MGS_CONFIG_RES
 };
 
+static const struct req_msg_field *mgs_notify_eviction[] = {
+	&RMF_PTLRPC_BODY,
+	&RMF_MGS_NOTIFY_EVICTION
+};
+
 static const struct req_msg_field *log_cancel_client[] = {
         &RMF_PTLRPC_BODY,
         &RMF_LOGCOOKIES
@@ -706,6 +711,7 @@ static struct req_format *req_formats[] = {
         &RQF_MGS_TARGET_REG,
         &RQF_MGS_SET_INFO,
         &RQF_MGS_CONFIG_READ,
+	&RQF_MGS_NOTIFY_EVICTION,
         &RQF_SEQ_QUERY,
         &RQF_FLD_QUERY,
 	&RQF_FLD_READ,
@@ -866,6 +872,12 @@ struct req_msg_field RMF_MGS_CONFIG_RES =
                     sizeof(struct mgs_config_res),
                     lustre_swab_mgs_config_res, NULL);
 EXPORT_SYMBOL(RMF_MGS_CONFIG_RES);
+
+struct req_msg_field RMF_MGS_NOTIFY_EVICTION =
+	DEFINE_MSGF("mgs_notify_eviction", 0,
+		    sizeof(struct mgs_target_info),
+		    lustre_swab_mgs_target_info, NULL);
+EXPORT_SYMBOL(RMF_MGS_NOTIFY_EVICTION);
 
 struct req_msg_field RMF_U32 =
         DEFINE_MSGF("generic u32", 0,
@@ -1254,6 +1266,11 @@ struct req_format RQF_MGS_CONFIG_READ =
         DEFINE_REQ_FMT0("MGS_CONFIG_READ", mgs_config_read_client,
                          mgs_config_read_server);
 EXPORT_SYMBOL(RQF_MGS_CONFIG_READ);
+
+struct req_format RQF_MGS_NOTIFY_EVICTION =
+	DEFINE_REQ_FMT0("MGS_NOTIFY_EVICTION", mgs_notify_eviction,
+			mgs_notify_eviction);
+EXPORT_SYMBOL(RQF_MGS_NOTIFY_EVICTION);
 
 struct req_format RQF_SEQ_QUERY =
         DEFINE_REQ_FMT0("SEQ_QUERY", seq_query_client, seq_query_server);

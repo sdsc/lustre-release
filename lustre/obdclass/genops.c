@@ -450,6 +450,26 @@ int class_uuid2dev(struct obd_uuid *uuid)
         return -1;
 }
 
+int class_uuid2dev_n(struct obd_uuid *uuid, int idx)
+{
+	int i;
+
+	read_lock(&obd_dev_lock);
+	for (i = idx; i < class_devno_max(); i++) {
+		struct obd_device *obd = class_num2obd(i);
+
+		if (obd && obd_uuid_equals(uuid, &obd->obd_uuid)) {
+			LASSERT(obd->obd_magic == OBD_DEVICE_MAGIC);
+			read_unlock(&obd_dev_lock);
+			return i;
+		}
+	}
+	read_unlock(&obd_dev_lock);
+
+	return -1;
+}
+EXPORT_SYMBOL(class_uuid2dev_n);
+
 struct obd_device *class_uuid2obd(struct obd_uuid *uuid)
 {
         int dev = class_uuid2dev(uuid);
@@ -486,6 +506,32 @@ struct obd_device *class_num2obd(int num)
 
         return obd;
 }
+
+struct obd_device *class_get_obd(int num)
+{
+	struct obd_device *obd = NULL;
+
+	if (num >= 0 && num < class_devno_max()) {
+		read_lock(&obd_dev_lock);
+		obd = obd_devs[num];
+		/* see if this obd has been set up or not yet cleaned up */
+		if (!obd) {
+			read_unlock(&obd_dev_lock);
+			return NULL;
+		}
+		spin_lock(&obd->obd_dev_lock);
+		if (obd->obd_stopping || !obd->obd_set_up) {
+			spin_unlock(&obd->obd_dev_lock);
+			read_unlock(&obd_dev_lock);
+			return NULL;
+		}
+		class_incref(obd, __func__, current);
+		spin_unlock(&obd->obd_dev_lock);
+		read_unlock(&obd_dev_lock);
+	}
+	return obd;
+}
+EXPORT_SYMBOL(class_get_obd);
 
 /**
  * Get obd devices count. Device in any
@@ -1371,7 +1417,33 @@ void class_disconnect_stale_exports(struct obd_device *obd,
 }
 EXPORT_SYMBOL(class_disconnect_stale_exports);
 
-void class_fail_export(struct obd_export *exp)
+static int notify_eviction(struct obd_export *exp, bool notify,
+			   struct ptlrpc_request_set *set)
+{
+	int rc = 0;
+	struct obd_device *obd = exp->exp_obd;
+	ENTRY;
+
+	down_read(&obd->obd_en_mgc_mutex);
+	if (!obd->obd_en_mgcexp) {
+			rc = -ESHUTDOWN;
+	} else if (notify) {
+		rc = obd_set_info_async(NULL, obd->obd_en_mgcexp,
+					sizeof(KEY_NOTIFY_EVICTION),
+					KEY_NOTIFY_EVICTION,
+					sizeof(struct obd_export *),
+					exp, set);
+	}
+	up_read(&obd->obd_en_mgc_mutex);
+
+	if (rc < 0)
+		CERROR("eviction notifier failure: %d\n", rc);
+
+	RETURN(rc);
+}
+
+void do_fail_export(struct obd_export *exp, bool notify,
+		    struct ptlrpc_request_set *set)
 {
 	int rc, already_failed;
 
@@ -1405,7 +1477,14 @@ void class_fail_export(struct obd_export *exp)
         else
                 CDEBUG(D_HA, "disconnected export %p/%s\n",
                        exp, exp->exp_client_uuid.uuid);
+
+	notify_eviction(exp, notify, set);
+
 	class_export_put(exp);
+}
+void class_fail_export(struct obd_export *exp)
+{
+	do_fail_export(exp, libcfs_en_enable, NULL);
 }
 EXPORT_SYMBOL(class_fail_export);
 
@@ -1423,7 +1502,6 @@ int obd_export_evict_by_nid(struct obd_device *obd, const char *nid)
 	cfs_hash_t *nid_hash;
 	struct obd_export *doomed_exp = NULL;
 	int exports_evicted = 0;
-
 	lnet_nid_t nid_key = libcfs_str2nid((char *)nid);
 
 	spin_lock(&obd->obd_dev_lock);
@@ -1453,7 +1531,7 @@ int obd_export_evict_by_nid(struct obd_device *obd, const char *nid)
 			      "request\n", obd->obd_name,
 			      obd_uuid2str(&doomed_exp->exp_client_uuid),
 			      obd_export_nid2str(doomed_exp));
-                class_fail_export(doomed_exp);
+		do_fail_export(doomed_exp, libcfs_en_enable, NULL);
                 class_export_put(doomed_exp);
         } while (1);
 
@@ -1466,7 +1544,8 @@ int obd_export_evict_by_nid(struct obd_device *obd, const char *nid)
 }
 EXPORT_SYMBOL(obd_export_evict_by_nid);
 
-int obd_export_evict_by_uuid(struct obd_device *obd, const char *uuid)
+int __obd_export_evict_by_uuid(struct obd_device *obd, const char *uuid,
+			       bool notify)
 {
 	cfs_hash_t *uuid_hash;
 	struct obd_export *doomed_exp = NULL;
@@ -1497,7 +1576,7 @@ int obd_export_evict_by_uuid(struct obd_device *obd, const char *uuid)
         } else {
                 CWARN("%s: evicting %s at adminstrative request\n",
                        obd->obd_name, doomed_exp->exp_client_uuid.uuid);
-                class_fail_export(doomed_exp);
+		do_fail_export(doomed_exp, notify, NULL);
                 class_export_put(doomed_exp);
                 exports_evicted++;
         }
@@ -1505,6 +1584,31 @@ int obd_export_evict_by_uuid(struct obd_device *obd, const char *uuid)
 
         return exports_evicted;
 }
+EXPORT_SYMBOL(__obd_export_evict_by_uuid);
+
+int obd_export_evict_by_uuid(struct obd_device *obd, const char *uuid)
+{
+	return __obd_export_evict_by_uuid(obd, uuid, true);
+}
+EXPORT_SYMBOL(obd_export_evict_by_uuid);
+
+int obd_exports_evict_by_uuid(char *uuid, char *type)
+{
+	int rc = 0, i;
+	ENTRY;
+
+	for (i = 0; i < class_devno_max(); i++) {
+		struct obd_device *obd = class_get_obd(i);
+		if (!obd)
+			continue;
+		if (!strncmp(obd->obd_type->typ_name, type, strlen(type)))
+			rc += __obd_export_evict_by_uuid(obd, uuid, false);
+		class_decref(obd, __func__, current);
+	}
+	CDEBUG(D_HA, "%d exports %s evicted\n", rc, (rc > 1) ? "were" : "was");
+	RETURN(rc);
+}
+EXPORT_SYMBOL(obd_exports_evict_by_uuid);
 
 #if LUSTRE_TRACKS_LOCK_EXP_REFS
 void (*class_export_dump_hook)(struct obd_export*) = NULL;

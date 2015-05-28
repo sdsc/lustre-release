@@ -105,6 +105,10 @@
 /** process at lctl conf_param */
 #define LDD_F_PARAM2		0x8000
 
+/** eviction notifier */
+#define LDD_F_EVICT_SVR 0x00100000
+#define LDD_F_EVICT_CLT 0x00200000
+
 /* opc for target register */
 #define LDD_F_OPC_REG   0x10000000
 #define LDD_F_OPC_UNREG 0x20000000
