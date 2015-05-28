@@ -533,7 +533,7 @@ int sptlrpc_req_ctx_switch(struct ptlrpc_request *req,
                         req->rq_flvr = old_flvr;
                 }
 
-                OBD_FREE_LARGE(reqmsg, reqmsg_size);
+                OBD_FREE(reqmsg, reqmsg_size);
         }
         return rc;
 }
@@ -1199,7 +1199,7 @@ int sptlrpc_cli_unwrap_early_reply(struct ptlrpc_request *req,
 err_ctx:
         sptlrpc_cli_ctx_put(early_req->rq_cli_ctx, 1);
 err_buf:
-        OBD_FREE_LARGE(early_buf, early_bufsz);
+        OBD_FREE(early_buf, early_bufsz);
 err_req:
 	ptlrpc_request_cache_free(early_req);
 	RETURN(rc);
@@ -1217,7 +1217,7 @@ void sptlrpc_cli_finish_early_reply(struct ptlrpc_request *early_req)
 	LASSERT(early_req->rq_repmsg);
 
 	sptlrpc_cli_ctx_put(early_req->rq_cli_ctx, 1);
-	OBD_FREE_LARGE(early_req->rq_repbuf, early_req->rq_repbuf_len);
+	OBD_FREE(early_req->rq_repbuf, early_req->rq_repbuf_len);
 	ptlrpc_request_cache_free(early_req);
 }
 

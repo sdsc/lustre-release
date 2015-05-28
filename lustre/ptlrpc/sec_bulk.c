@@ -729,7 +729,7 @@ static inline void enc_pools_free(void)
         LASSERT(page_pools.epp_max_pools);
         LASSERT(page_pools.epp_pools);
 
-        OBD_FREE_LARGE(page_pools.epp_pools,
+        OBD_FREE(page_pools.epp_pools,
                        page_pools.epp_max_pools *
                        sizeof(*page_pools.epp_pools));
 }

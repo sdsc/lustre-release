@@ -444,7 +444,7 @@ static void lov_fini_raid0(const struct lu_env *env, struct lov_object *lov,
 	ENTRY;
 
 	if (r0->lo_sub != NULL) {
-		OBD_FREE_LARGE(r0->lo_sub, r0->lo_nr * sizeof r0->lo_sub[0]);
+		OBD_FREE(r0->lo_sub, r0->lo_nr * sizeof r0->lo_sub[0]);
 		r0->lo_sub = NULL;
 	}
 
@@ -1423,7 +1423,7 @@ obj_put:
 		cl_object_put(env, subobj);
 out:
 	if (fm_local != NULL)
-		OBD_FREE_LARGE(fm_local, buffer_size);
+		OBD_FREE(fm_local, buffer_size);
 
 	lov_lsm_put(lsm);
 

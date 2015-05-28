@@ -472,7 +472,7 @@ int llog_catalog_list(const struct lu_env *env, struct dt_device *d,
 			break;
 	}
 out:
-	OBD_FREE_LARGE(idarray, size);
+	OBD_FREE(idarray, size);
 	RETURN(rc);
 }
 EXPORT_SYMBOL(llog_catalog_list);

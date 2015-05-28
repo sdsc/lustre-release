@@ -446,7 +446,7 @@ void ptlrpc_free_rq_pool(struct ptlrpc_request_pool *pool)
 		list_del(&req->rq_list);
 		LASSERT(req->rq_reqbuf);
 		LASSERT(req->rq_reqbuf_len == pool->prp_rq_size);
-		OBD_FREE_LARGE(req->rq_reqbuf, pool->prp_rq_size);
+		OBD_FREE(req->rq_reqbuf, pool->prp_rq_size);
 		ptlrpc_request_cache_free(req);
 	}
 	spin_unlock(&pool->prp_lock);

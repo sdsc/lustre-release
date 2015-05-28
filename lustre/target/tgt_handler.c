@@ -1502,7 +1502,7 @@ void tgt_io_thread_done(struct ptlrpc_thread *thread)
 	 */
 	tbc = thread->t_data;
 	if (tbc != NULL) {
-		OBD_FREE_LARGE(tbc, sizeof(*tbc));
+		OBD_FREE(tbc, sizeof(*tbc));
 		thread->t_data = NULL;
 	}
 	EXIT;

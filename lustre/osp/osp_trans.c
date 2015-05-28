@@ -113,7 +113,7 @@ static void object_update_request_free(struct object_update_request *ourq,
 				       size_t ourq_size)
 {
 	if (ourq != NULL)
-		OBD_FREE_LARGE(ourq, ourq_size);
+		OBD_FREE(ourq, ourq_size);
 }
 
 /**

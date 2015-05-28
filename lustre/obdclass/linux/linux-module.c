@@ -119,13 +119,13 @@ int obd_ioctl_getdata(char **buf, int *len, void __user *arg)
         data = (struct obd_ioctl_data *)*buf;
 
 	if (copy_from_user(*buf, arg, hdr.ioc_len)) {
-		OBD_FREE_LARGE(*buf, hdr.ioc_len);
+		OBD_FREE(*buf, hdr.ioc_len);
 		RETURN(-EFAULT);
 	}
 
         if (obd_ioctl_is_invalid(data)) {
                 CERROR("ioctl not correctly formatted\n");
-                OBD_FREE_LARGE(*buf, hdr.ioc_len);
+                OBD_FREE(*buf, hdr.ioc_len);
                 RETURN(-EINVAL);
         }
 

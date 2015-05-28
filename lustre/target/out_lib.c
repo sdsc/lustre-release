@@ -62,7 +62,7 @@ static int update_buffer_resize(struct update_buffer *ubuf, size_t new_size)
 
 	memcpy(ureq, ubuf->ub_req, ubuf->ub_req_size);
 
-	OBD_FREE_LARGE(ubuf->ub_req, ubuf->ub_req_size);
+	OBD_FREE(ubuf->ub_req, ubuf->ub_req_size);
 
 	ubuf->ub_req = ureq;
 	ubuf->ub_req_size = new_size;

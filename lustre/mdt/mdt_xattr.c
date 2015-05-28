@@ -349,7 +349,7 @@ static int mdt_rmtlsetfacl(struct mdt_thread_info *info,
 
 _out:
         if (rc <= 0 && buf->lb_buf != NULL)
-                OBD_FREE_LARGE(buf->lb_buf, buf->lb_len);
+                OBD_FREE(buf->lb_buf, buf->lb_len);
         return rc;
 }
 

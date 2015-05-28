@@ -1457,13 +1457,13 @@ static int ll_lov_setea(struct inode *inode, struct file *file,
                 RETURN(-ENOMEM);
 
 	if (copy_from_user(lump, (struct lov_user_md __user *)arg, lum_size)) {
-		OBD_FREE_LARGE(lump, lum_size);
+		OBD_FREE(lump, lum_size);
 		RETURN(-EFAULT);
 	}
 
 	rc = ll_lov_setstripe_ea_info(inode, file, flags, lump, lum_size);
 
-	OBD_FREE_LARGE(lump, lum_size);
+	OBD_FREE(lump, lum_size);
 	RETURN(rc);
 }
 
@@ -1790,7 +1790,7 @@ static int ll_ioctl_fiemap(struct inode *inode, struct fiemap __user *arg)
 		rc = -EFAULT;
 
 error:
-	OBD_FREE_LARGE(fiemap, num_bytes);
+	OBD_FREE(fiemap, num_bytes);
 	RETURN(rc);
 }
 
@@ -3293,7 +3293,7 @@ static int ll_fiemap(struct inode *inode, struct fiemap_extent_info *fieinfo,
 		       fiemap->fm_mapped_extents *
 		       sizeof(struct ll_fiemap_extent));
 
-	OBD_FREE_LARGE(fiemap, num_bytes);
+	OBD_FREE(fiemap, num_bytes);
 	return rc;
 }
 
@@ -3700,7 +3700,7 @@ static int ll_layout_fetch(struct inode *inode, struct ldlm_lock *lock)
 	memcpy(lvbdata, lmm, lmmsize);
 	lock_res_and_lock(lock);
 	if (lock->l_lvb_data != NULL)
-		OBD_FREE_LARGE(lock->l_lvb_data, lock->l_lvb_len);
+		OBD_FREE(lock->l_lvb_data, lock->l_lvb_len);
 
 	lock->l_lvb_data = lvbdata;
 	lock->l_lvb_len = lmmsize;

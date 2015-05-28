@@ -210,7 +210,7 @@ static inline int ll_get_user_pages(int rw, unsigned long user_addr,
                                         NULL);
                 up_read(&current->mm->mmap_sem);
                 if (unlikely(result <= 0))
-                        OBD_FREE_LARGE(*pages, *max_pages * sizeof(**pages));
+                        OBD_FREE(*pages, *max_pages * sizeof(**pages));
         }
 
         return result;
@@ -230,7 +230,7 @@ static void ll_free_user_pages(struct page **pages, int npages, int do_dirty)
                 page_cache_release(pages[i]);
         }
 
-        OBD_FREE_LARGE(pages, npages * sizeof(*pages));
+        OBD_FREE(pages, npages * sizeof(*pages));
 }
 
 ssize_t ll_direct_rw_pages(const struct lu_env *env, struct cl_io *io,
