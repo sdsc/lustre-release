@@ -10668,6 +10668,9 @@ run_test 162b "striped directory path lookup sanity"
 
 # LU-4239: Verify fid2path works with paths 100 or more directories deep
 test_162c() {
+	[[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.6.92) ]] &&
+		{ skip "Need MDS version at least 2.6.92"; return 0; }
+
 	test_mkdir $DIR/$tdir.local
 	test_mkdir $DIR/$tdir.remote
 	local lpath=$tdir.local
@@ -10675,7 +10678,7 @@ test_162c() {
 
 	for ((i = 0; i <= 101; i++)); do
 		lpath="$lpath/$i"
-		mkdir $DIR/$lpath
+		mkdir $DIR/$lpath || error "mkdir $DIR/$lpath failed"
 		FID=$($LFS path2fid $DIR/$lpath | tr -d '[]') ||
 			error "get fid for local directory $DIR/$lpath failed"
 		check_path "$DIR/$lpath" $MOUNT $FID --link 0 ||
