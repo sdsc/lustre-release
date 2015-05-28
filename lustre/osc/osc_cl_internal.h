@@ -449,6 +449,7 @@ int osc_cache_writeback_range(const struct lu_env *env, struct osc_object *obj,
 			      pgoff_t start, pgoff_t end, int hp, int discard);
 int osc_cache_wait_range(const struct lu_env *env, struct osc_object *obj,
 			 pgoff_t start, pgoff_t end);
+int osc_dry_test_grant(struct client_obd *cli, unsigned int npages);
 void osc_io_unplug(const struct lu_env *env, struct client_obd *cli,
 		   struct osc_object *osc, pdl_policy_t pol);
 int lru_queue_work(const struct lu_env *env, void *data);

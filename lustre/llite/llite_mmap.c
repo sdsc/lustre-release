@@ -201,13 +201,17 @@ static int ll_page_mkwrite0(struct vm_area_struct *vma, struct page *vmpage,
 	vio->u.fault.ft_vma    = vma;
 	vio->u.fault.ft_vmpage = vmpage;
 
-	set = cfs_block_sigsinv(sigmask(SIGKILL) | sigmask(SIGTERM));
-
 	/* we grab lli_trunc_sem to exclude truncate case.
 	 * Otherwise, we could add dirty pages into osc cache
 	 * while truncate is on-going. */
 	inode = vvp_object_inode(io->ci_obj);
 	lli = ll_i2info(inode);
+
+	result = iosvc_sync_io(lli);
+	if (result < 0)
+		GOTO(out_io, result);
+
+	set = cfs_block_sigsinv(sigmask(SIGKILL) | sigmask(SIGTERM));
 	down_read(&lli->lli_trunc_sem);
 
 	result = cl_io_loop(env, io);
@@ -312,6 +316,8 @@ static int ll_fault0(struct vm_area_struct *vma, struct vm_fault *vmf)
 
         result = io->ci_result;
 	if (result == 0) {
+		struct inode *inode;
+		struct ll_inode_info *lli;
 		vio = vvp_env_io(env);
 		vio->u.fault.ft_vma       = vma;
 		vio->u.fault.ft_vmpage    = NULL;
@@ -319,6 +325,11 @@ static int ll_fault0(struct vm_area_struct *vma, struct vm_fault *vmf)
 		vio->u.fault.ft_flags = 0;
 		vio->u.fault.ft_flags_valid = 0;
 
+		inode = vvp_object_inode(io->ci_obj);
+		lli = ll_i2info(inode);
+		result = iosvc_sync_io(lli);
+		if (result < 0)
+			GOTO(out, fault_ret = -ENOMEM);
 		/* May call ll_readpage() */
 		ll_cl_add(vma->vm_file, env, io);
 
@@ -337,6 +348,7 @@ static int ll_fault0(struct vm_area_struct *vma, struct vm_fault *vmf)
 			vmf->page = NULL;
 		}
         }
+out:
 	cl_io_fini(env, io);
 	cl_env_nested_put(&nest, env);
 
@@ -500,6 +512,11 @@ int ll_file_mmap(struct file *file, struct vm_area_struct * vma)
         ll_stats_ops_tally(ll_i2sbi(inode), LPROC_LL_MAP, 1);
         rc = generic_file_mmap(file, vma);
         if (rc == 0) {
+		struct ll_inode_info *lli = ll_i2info(inode);
+		rc = iosvc_sync_io(lli);
+		if (rc < 0)
+			RETURN(rc);
+
                 vma->vm_ops = &ll_file_vm_ops;
                 vma->vm_ops->open(vma);
                 /* update the inode's size and mtime */

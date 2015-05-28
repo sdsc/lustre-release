@@ -509,7 +509,7 @@ int ll_file_open(struct inode *inode, struct file *file)
 					  .it_flags = file->f_flags };
 	struct obd_client_handle **och_p = NULL;
 	__u64 *och_usecount = NULL;
-	struct ll_file_data *fd;
+	struct ll_file_data *fd = NULL;
 	int rc = 0;
 	ENTRY;
 
@@ -518,6 +518,10 @@ int ll_file_open(struct inode *inode, struct file *file)
 
 	it = file->private_data; /* XXX: compat macro */
 	file->private_data = NULL; /* prevent ll_local_open assertion */
+
+	rc = iosvc_sync_io(lli);
+	if (rc < 0)
+		GOTO(out_openerr, rc);
 
 	fd = ll_file_data_get();
 	if (fd == NULL)
@@ -985,6 +989,37 @@ static void ll_io_init(struct cl_io *io, const struct file *file, int write)
         }
 
 	io->ci_noatime = file_is_noatime(file);
+	io->ci_iosvc_syscall_inprogress = 1;
+}
+
+int
+ll_file_io_or_enqueue(struct file *file, const struct lu_env *env,
+		      struct cl_io *io, enum cl_io_type iot,
+		      struct range_lock *range, int reserved)
+{
+	int result;
+
+	if (reserved & iosvc_check_avail(io, iot)) {
+		io->ci_iosvc_enqueueing = 1;
+		result = iosvc_enqueue(file, env, io, range);
+		io->ci_iosvc_enqueueing = 0;
+		if (!result) {
+			io->ci_iosvc_enqueued = 1;
+		} else {
+			if (io->ci_continue || io->ci_need_restart) {
+				result = 0;
+				CDEBUG(D_VFSTRACE,
+				       "retry the same I/O without iosvc\n");
+			} else {
+				CERROR("iosvc_enqueue: %d\n", result);
+			}
+		}
+	} else {
+		ll_cl_add(file, env, io);
+		result = cl_io_loop(env, io);
+		ll_cl_remove(file, env);
+	}
+	return result;
 }
 
 static ssize_t
@@ -992,20 +1027,87 @@ ll_file_io_generic(const struct lu_env *env, struct vvp_io_args *args,
 		   struct file *file, enum cl_io_type iot,
 		   loff_t *ppos, size_t count)
 {
+	bool range_locked;
+	int reserved = 0;
 	struct inode *inode = file->f_dentry->d_inode;
 	struct ll_inode_info *lli = ll_i2info(inode);
 	loff_t               end;
 	struct ll_file_data  *fd  = LUSTRE_FPRIVATE(file);
-	struct cl_io         *io;
+	struct cl_io         *io = NULL;
 	ssize_t               result;
-	struct range_lock     range;
+	struct range_lock     *range = NULL;
+	/* IOSVC */
+	const struct lu_env *target = NULL;
+	struct iovec *origin = args->u.normal.via_iov;
+
 	ENTRY;
 
 	CDEBUG(D_VFSTRACE, "file: %s, type: %d ppos: "LPU64", count: %zu\n",
 		file->f_dentry->d_name.name, iot, *ppos, count);
 
+	if (iosvc_precheck_avail(file, args, iot, count)) {
+		target = iosvc_reserve();
+		if (target) {
+			result = iosvc_duplicate_env(target, args);
+			if (result < 0) {
+				iosvc_cancel(target);
+				target = NULL;
+			} else {
+				/* succeed in making a proper lu_env
+				 * for iosvc */
+				reserved = 1;
+			}
+		} else {
+			CDEBUG(D_VFSTRACE, "Failed to get a new lu_env\n");
+		}
+	}
+
+	if (iot == CIT_READ) {
+		result = iosvc_sync_io(lli);
+		if (result < 0)
+			GOTO(out, result);
+	}
+
 restart:
-	io = vvp_env_thread_io(env);
+	if (!target)
+		target = env;
+
+	range_locked = false;
+	if ((args->via_io_subtype == IO_NORMAL) && count) {
+		struct ll_file_data *lfd = LUSTRE_FPRIVATE(file);
+		OBD_ALLOC_PTR(range);
+		if (!range) {
+			if (reserved) {
+				iosvc_cancel(target);
+				target = NULL;
+				reserved = 0;
+			}
+			GOTO(out, result = -ENOMEM);
+		}
+		if (file->f_flags & O_APPEND)
+			range_lock_init(range, 0, LUSTRE_EOF);
+		else
+			range_lock_init(range, *ppos, *ppos + count - 1);
+
+		if (!(lfd->fd_flags & LL_FILE_GROUP_LOCKED)) {
+			CDEBUG(D_VFSTRACE, "Range lock "RL_FMT"\n",
+			       RL_PARA(range));
+			result = range_lock(&lli->lli_write_tree, range);
+			if (result < 0) {
+				if (reserved) {
+					iosvc_cancel(target);
+					target = NULL;
+					reserved = 0;
+				}
+				OBD_FREE_PTR(range);
+				range = NULL;
+				GOTO(out, result);
+			}
+			range_locked = true;
+		}
+	}
+
+	io = vvp_env_thread_io(target);
         ll_io_init(io, file, iot == CIT_WRITE);
 
 	/* The maximum Lustre file size is variable, based on the
@@ -1013,6 +1115,7 @@ restart:
 	 * needs another check in addition to the VFS checks earlier. */
 	end = (io->u.ci_wr.wr_append ? i_size_read(inode) : *ppos) + count;
 	if (end > ll_file_maxbytes(inode)) {
+		range_unlock(&lli->lli_write_tree, range);
 		result = -EFBIG;
 		CDEBUG(D_INODE, "%s: file "DFID" offset %llu > maxbytes "LPU64
 		       ": rc = %zd\n", ll_get_fsname(inode->i_sb, NULL, 0),
@@ -1021,14 +1124,8 @@ restart:
 		RETURN(result);
 	}
 
-        if (cl_io_rw_init(env, io, iot, *ppos, count) == 0) {
-		struct vvp_io *vio = vvp_env_io(env);
-		bool range_locked = false;
-
-		if (file->f_flags & O_APPEND)
-			range_lock_init(&range, 0, LUSTRE_EOF);
-		else
-			range_lock_init(&range, *ppos, *ppos + count - 1);
+	if (cl_io_rw_init(target, io, iot, *ppos, count) == 0) {
+		struct vvp_io *vio = vvp_env_io(target);
 
 		vio->vui_fd  = LUSTRE_FPRIVATE(file);
 		vio->vui_io_subtype = args->via_io_subtype;
@@ -1039,21 +1136,6 @@ restart:
 			vio->vui_nrsegs = args->u.normal.via_nrsegs;
 			vio->vui_tot_nrsegs = vio->vui_nrsegs;
 			vio->vui_iocb = args->u.normal.via_iocb;
-			/* Direct IO reads must also take range lock,
-			 * or multiple reads will try to work on the same pages
-			 * See LU-6227 for details. */
-			if (((iot == CIT_WRITE) ||
-			    (iot == CIT_READ && (file->f_flags & O_DIRECT))) &&
-			    !(vio->vui_fd->fd_flags & LL_FILE_GROUP_LOCKED)) {
-				CDEBUG(D_VFSTRACE, "Range lock "RL_FMT"\n",
-				       RL_PARA(&range));
-				result = range_lock(&lli->lli_write_tree,
-						    &range);
-				if (result < 0)
-					GOTO(out, result);
-
-				range_locked = true;
-			}
 			down_read(&lli->lli_trunc_sem);
 			break;
 		case IO_SPLICE:
@@ -1065,37 +1147,70 @@ restart:
 			LBUG();
 		}
 
-		ll_cl_add(file, env, io);
-                result = cl_io_loop(env, io);
-		ll_cl_remove(file, env);
-
-		if (args->via_io_subtype == IO_NORMAL)
-			up_read(&lli->lli_trunc_sem);
-		if (range_locked) {
-			CDEBUG(D_VFSTRACE, "Range unlock "RL_FMT"\n",
-			       RL_PARA(&range));
-			range_unlock(&lli->lli_write_tree, &range);
+		/* return 0 in success */
+		result = ll_file_io_or_enqueue(file, target, io, iot, range,
+					       reserved);
+		if (!io->ci_iosvc_enqueued) {
+			if (args->via_io_subtype == IO_NORMAL)
+				up_read(&lli->lli_trunc_sem);
 		}
         } else {
                 /* cl_io_rw_init() handled IO */
                 result = io->ci_result;
         }
 
-        if (io->ci_nob > 0) {
+	/* ci_nob must be 0 in a case using iosvc */
+	if (io->ci_iosvc_enqueued) {
+		result = count;
+		*ppos += count;
+	} else if (io->ci_nob > 0) {
                 result = io->ci_nob;
                 *ppos = io->u.ci_wr.wr.crw_pos;
         }
         GOTO(out, result);
 out:
-        cl_io_fini(env, io);
+	if (io && !io->ci_iosvc_enqueued) {
+		cl_io_fini(target, io);
+		if (range) {
+			if (range_locked) {
+				CDEBUG(D_VFSTRACE, "Range unlock "RL_FMT"\n",
+				       RL_PARA(range));
+				range_unlock(&lli->lli_write_tree, range);
+			}
+			OBD_FREE_PTR(range);
+			range = NULL;
+		}
+	}
 	/* If any bit been read/written (result != 0), we just return
 	 * short read/write instead of restart io. */
-	if ((result == 0 || result == -ENODATA) && io->ci_need_restart) {
+	if ((result == 0 || result == -ENODATA) &&
+	    io && io->ci_need_restart) {
 		CDEBUG(D_VFSTRACE, "Restart %s on %s from %lld, count:%zu\n",
 		       iot == CIT_READ ? "read" : "write",
 		       file->f_dentry->d_name.name, *ppos, count);
 		LASSERTF(io->ci_nob == 0, "%zd\n", io->ci_nob);
+
+		if (!is_sync_kiocb(args->u.normal.via_iocb)) {
+			/* restore the original data */
+			args->u.normal.via_iocb = &ll_env_info(env)->lti_kiocb;
+			args->u.normal.via_iov = origin;
+		}
+
+		if (reserved) {
+			iosvc_cancel(target);
+			reserved = 0;
+		}
+		target = NULL;
 		goto restart;
+	}
+
+	if (io) {
+		io->ci_iosvc_syscall_inprogress = 0;
+		if (reserved && !io->ci_iosvc_enqueued) {
+			iosvc_cancel(target);
+			reserved = 0;
+			target = NULL;
+		}
 	}
 
         if (iot == CIT_READ) {
@@ -1115,7 +1230,6 @@ out:
 
 	return result;
 }
-
 
 /*
  * XXX: exact copy from kernel code (__generic_file_aio_write_nolock)
@@ -1237,8 +1351,8 @@ static ssize_t ll_file_aio_write(struct kiocb *iocb, const struct iovec *iov,
         args->u.normal.via_nrsegs = nr_segs;
         args->u.normal.via_iocb = iocb;
 
-        result = ll_file_io_generic(env, args, iocb->ki_filp, CIT_WRITE,
-                                  &iocb->ki_pos, count);
+	result = ll_file_io_generic(env, args, iocb->ki_filp, CIT_WRITE,
+				    &iocb->ki_pos, count);
         cl_env_put(env, &refcheck);
         RETURN(result);
 }
@@ -1268,6 +1382,7 @@ static ssize_t ll_file_write(struct file *file, const char __user *buf,
 #else
         kiocb->ki_nbytes = count;
 #endif
+	kiocb->ki_key = 0;
 
         result = ll_file_aio_write(kiocb, local_iov, 1, kiocb->ki_pos);
         *ppos = kiocb->ki_pos;
@@ -1287,7 +1402,15 @@ static ssize_t ll_file_splice_read(struct file *in_file, loff_t *ppos,
         struct vvp_io_args *args;
         ssize_t             result;
         int                 refcheck;
+	struct inode *in_inode = in_file->f_dentry->d_inode;
+	struct ll_inode_info *in_lli = ll_i2info(in_inode);
         ENTRY;
+
+	/* splice I/O holds no range lock, so we should wait for all I/Os
+	 * which is being handled by iosvc finishing */
+	result = iosvc_sync_io(in_lli);
+	if (result < 0)
+		RETURN(result);
 
         env = cl_env_get(&refcheck);
         if (IS_ERR(env))
@@ -1861,10 +1984,13 @@ static int ll_swap_layouts(struct file *file1, struct file *file2,
 {
 	struct mdc_swap_layouts	 msl;
 	struct md_op_data	*op_data;
-	__u32			 gid;
+	__u32			 gid = 0;
 	__u64			 dv;
 	struct ll_swap_stack	*llss = NULL;
 	int			 rc;
+	struct range_lock        range1, range2;
+	struct ll_inode_info    *lli1 = NULL, *lli2 = NULL;
+	int                      range1_locked = 0, range2_locked = 0;
 
 	OBD_ALLOC_PTR(llss);
 	if (llss == NULL)
@@ -1904,6 +2030,21 @@ static int ll_swap_layouts(struct file *file1, struct file *file2,
 		swap(llss->dv1, llss->dv2);
 		swap(llss->check_dv1, llss->check_dv2);
 	}
+
+	lli1 = ll_i2info(llss->inode1);
+	lli2 = ll_i2info(llss->inode2);
+	range_lock_init(&range1, 0, LUSTRE_EOF);
+	range_lock_init(&range2, 0, LUSTRE_EOF);
+
+	rc = range_lock(&lli1->lli_write_tree, &range1);
+	if (rc < 0)
+		GOTO(free, rc);
+	range1_locked = 1;
+
+	rc = range_lock(&lli2->lli_write_tree, &range2);
+	if (rc < 0)
+		GOTO(free, rc);
+	range2_locked = 1;
 
 	gid = lsl->sl_gid;
 	if (gid != 0) { /* application asks to flush dirty cache */
@@ -2004,6 +2145,10 @@ putgl:
 	}
 
 free:
+	if (range2_locked)
+		range_unlock(&lli2->lli_write_tree, &range2);
+	if (range1_locked)
+		range_unlock(&lli1->lli_write_tree, &range1);
 	if (llss != NULL)
 		OBD_FREE_PTR(llss);
 
@@ -2504,8 +2649,19 @@ static loff_t ll_file_seek(struct file *file, loff_t offset, int origin)
 {
 	struct inode *inode = file->f_dentry->d_inode;
 	loff_t retval, eof = 0;
+	struct ll_inode_info *lli = ll_i2info(inode);
 
 	ENTRY;
+	/*
+	 * want to know the actual file size so we have to flush out all
+	 * the write-I/Os which're being handled by iosvc threads
+	 */
+	if (origin == SEEK_END) {
+		retval = iosvc_sync_io(lli);
+		if (retval < 0)
+			RETURN(retval);
+	}
+
 	retval = offset + ((origin == SEEK_END) ? i_size_read(inode) :
 			   (origin == SEEK_CUR) ? file->f_pos : 0);
 	CDEBUG(D_VFSTRACE, "VFS Op:inode="DFID"(%p), to=%llu=%#llx(%d)\n",
@@ -2534,6 +2690,19 @@ static int ll_flush(struct file *file, fl_owner_t id)
 
 	LASSERT(!S_ISDIR(inode->i_mode));
 
+	do {
+		/* iosvc_sync_io returns the num of items which the func has
+		 * waited for completing in it */
+		err = iosvc_sync_io(lli);
+		if (err < 0 && signal_pending(current)) {
+			/* iosvc_sync_io returned -ENOMEM and got interrupted */
+			CERROR("iosvc_sync_io failed to sync I/Os with %d "
+			       "but got a signal ... gives up syncing\n", err);
+			return -EINTR;
+		}
+		if (!rc && err < 0)
+			rc = err;
+	} while (err < 0);
 	/* catch async errors that were recorded back when async writeback
 	 * failed for pages in this mapping. */
 	rc = lli->lli_async_rc;
@@ -2547,7 +2716,11 @@ static int ll_flush(struct file *file, fl_owner_t id)
 	/* The application has been told write failure already.
 	 * Do not report failure again. */
 	if (fd->fd_write_failed)
-		return 0;
+		rc = 0;
+
+	if (!rc)
+		rc = iosvc_get_and_clear_rc(lli);
+
 	return rc ? -EIO : 0;
 }
 
@@ -2638,6 +2811,16 @@ int ll_fsync(struct file *file, struct dentry *dentry, int datasync)
 	       PFID(ll_inode2fid(inode)), inode);
 	ll_stats_ops_tally(ll_i2sbi(inode), LPROC_LL_FSYNC, 1);
 
+	/* makes its best effort to flush all I/Os in iosvc out of a client */
+	do {
+		rc = iosvc_sync_io(lli);
+		if (rc < 0 && signal_pending(current)) {
+			CERROR("iosvc_sync_io failed to sync I/Os with %d "
+			       "but got a signal ... gives up syncing\n", rc);
+			RETURN(rc);
+		}
+	} while (rc < 0);
+
 #ifdef HAVE_FILE_FSYNC_4ARGS
 	rc = filemap_write_and_wait_range(inode->i_mapping, start, end);
 	mutex_lock(&inode->i_mutex);
@@ -2674,6 +2857,10 @@ int ll_fsync(struct file *file, struct dentry *dentry, int datasync)
 		err = cl_sync_file_range(inode, start, end, CL_FSYNC_ALL, 0);
 		if (rc == 0 && err < 0)
 			rc = err;
+
+		if (rc == 0)
+			rc = iosvc_get_and_clear_rc(lli);
+
 		if (rc < 0)
 			fd->fd_write_failed = true;
 		else
@@ -3186,6 +3373,12 @@ int ll_getattr(struct vfsmount *mnt, struct dentry *de, struct kstat *stat)
         struct ll_sb_info *sbi = ll_i2sbi(inode);
         struct ll_inode_info *lli = ll_i2info(inode);
         int res = 0;
+
+	/* flush all iosvc_items out of a client so that
+	 * we can know the up-to-date filesize by ll_glimpse_size */
+	res = iosvc_sync_io(lli);
+	if (res < 0)
+		return res;
 
 	res = ll_inode_revalidate(de, MDS_INODELOCK_UPDATE |
 				      MDS_INODELOCK_LOOKUP);

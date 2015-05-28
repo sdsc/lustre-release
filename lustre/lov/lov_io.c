@@ -126,6 +126,7 @@ static void lov_io_sub_inherit(struct cl_io *io, struct lov_io *lio,
 	case CIT_READ:
 	case CIT_WRITE: {
 		io->u.ci_wr.wr_sync = cl_io_is_sync_write(parent);
+		io->ci_iosvc_enqueueing = parent->ci_iosvc_enqueueing;
                 if (cl_io_is_append(parent)) {
                         io->u.ci_wr.wr_append = 1;
                 } else {

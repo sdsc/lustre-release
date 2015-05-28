@@ -1075,6 +1075,23 @@ void ll_cl_add(struct file *file, const struct lu_env *env, struct cl_io *io)
 	write_unlock(&fd->fd_lock);
 }
 
+void ll_cl_add_illegal(struct file *file, const struct lu_env *env,
+		       struct cl_io *io, void *cookie)
+{
+	struct ll_file_data *fd = LUSTRE_FPRIVATE(file);
+	struct ll_cl_context *lcc = &ll_env_info(env)->lti_io_ctx;
+
+	memset(lcc, 0, sizeof(*lcc));
+	INIT_LIST_HEAD(&lcc->lcc_list);
+	lcc->lcc_cookie = cookie;
+	lcc->lcc_env = env;
+	lcc->lcc_io = io;
+
+	write_lock(&fd->fd_lock);
+	list_add(&lcc->lcc_list, &fd->fd_lccs);
+	write_unlock(&fd->fd_lock);
+}
+
 void ll_cl_remove(struct file *file, const struct lu_env *env)
 {
 	struct ll_file_data *fd = LUSTRE_FPRIVATE(file);

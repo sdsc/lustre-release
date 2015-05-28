@@ -1447,6 +1447,7 @@ enum cl_io_type {
          * cl_io_loop() is never called for it.
          */
         CIT_MISC,
+	CIT_IOSVC_WRITE,
         CIT_OP_NR
 };
 
@@ -1473,7 +1474,6 @@ enum cl_io_state {
         /** cl_io finalized. */
         CIS_FINI
 };
-
 /**
  * IO state private for a layer.
  *
@@ -1879,7 +1879,12 @@ struct cl_io {
 	/**
 	 * O_NOATIME
 	 */
-			     ci_noatime:1;
+			     ci_noatime:1,
+
+			     ci_iosvc_enqueueing:1,
+			     ci_iosvc_enqueued:1,
+			     ci_iosvc_quota_checked:1,
+			     ci_iosvc_syscall_inprogress:1;
 	/**
 	 * Number of pages owned by this IO. For invariant checking.
 	 */
@@ -2411,6 +2416,15 @@ struct cl_client_cache {
 	 * # of unstable pages for this mount point
 	 */
 	atomic_long_t		ccc_unstable_nr;
+
+	/**
+	 * # of pages being held by iosvc
+	 */
+	unsigned long		ccc_iosvc_pages;
+	/**
+	 * to protect ccc_iosvc_pages
+	 */
+	spinlock_t		ccc_iosvc_lock;
 	/**
 	 * Waitq for awaiting unstable pages to reach zero.
 	 * Used at umounting time and signaled on BRW commit
@@ -2453,7 +2467,7 @@ int   cl_io_sub_init     (const struct lu_env *env, struct cl_io *io,
 int   cl_io_rw_init      (const struct lu_env *env, struct cl_io *io,
                           enum cl_io_type iot, loff_t pos, size_t count);
 int   cl_io_loop         (const struct lu_env *env, struct cl_io *io);
-
+int   cl_io_single(const struct lu_env *env, struct cl_io *io);
 void  cl_io_fini         (const struct lu_env *env, struct cl_io *io);
 int   cl_io_iter_init    (const struct lu_env *env, struct cl_io *io);
 void  cl_io_iter_fini    (const struct lu_env *env, struct cl_io *io);
@@ -2555,6 +2569,7 @@ static inline struct cl_page *cl_page_list_first(struct cl_page_list *plist)
 	list_for_each_entry_safe((page), (temp), &(list)->pl_pages, cp_batch)
 
 void cl_page_list_init   (struct cl_page_list *plist);
+void cl_page_list_init_illegal(struct cl_page_list *plist, void *owner);
 void cl_page_list_add    (struct cl_page_list *plist, struct cl_page *page);
 void cl_page_list_move   (struct cl_page_list *dst, struct cl_page_list *src,
                           struct cl_page *page);

@@ -88,7 +88,12 @@ static bool can_populate_pages(const struct lu_env *env, struct cl_io *io,
 		/* don't need lock here to check lli_layout_gen as we have held
 		 * extent lock and GROUP lock has to hold to swap layout */
 		if (ll_layout_version_get(lli) != vio->vui_layout_gen) {
-			io->ci_need_restart = 1;
+			/* iosvc cannot handle a restart case */
+			if (io->ci_iosvc_enqueued)
+				CDEBUG(D_VFSTRACE,
+				       "Layout change detected - io: %p\n", io);
+			else
+				io->ci_need_restart = 1;
 			/* this will return application a short read/write */
 			io->ci_continue = 0;
 			rc = false;
@@ -264,9 +269,14 @@ static int vvp_io_one_lock(const struct lu_env *env, struct cl_io *io,
 static int vvp_io_write_iter_init(const struct lu_env *env,
 				  const struct cl_io_slice *ios)
 {
+	void *owner;
+	struct ll_cl_context *lcc = &ll_env_info(env)->lti_io_ctx;
 	struct vvp_io *vio = cl2vvp_io(env, ios);
 
-	cl_page_list_init(&vio->u.write.vui_queue);
+	/* dirty hack */
+	owner = lcc->lcc_cookie;
+	cl_page_list_init_illegal(&vio->u.write.vui_queue, owner);
+
 	vio->u.write.vui_written = 0;
 	vio->u.write.vui_from = 0;
 	vio->u.write.vui_to = PAGE_SIZE;

@@ -606,7 +606,15 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
 		}
 	}
 
+	/* this func has to be called after finishing vvp_key init */
+	err = iosvc_start_service();
+	if (err) {
+		CERROR("Cannot start iosvc threads: rc=%d\n", err);
+		/* keep going without iosvc threads */
+	}
+
         RETURN(err);
+
 out_root:
         if (root)
                 iput(root);
@@ -996,6 +1004,12 @@ void ll_lli_init(struct ll_inode_info *lli)
 		lli->lli_async_rc = 0;
 	}
 	mutex_init(&lli->lli_layout_mutex);
+
+	/* init iosvc data */
+	INIT_LIST_HEAD(&lli->lli_iosvc_item_head);
+	lli->lli_iosvc_item_count = 0;
+	lli->lli_iosvc_rc = 0;
+	spin_lock_init(&lli->lli_iosvc_lock);
 }
 
 static inline int ll_bdi_register(struct backing_dev_info *bdi)
@@ -1013,6 +1027,7 @@ int ll_fill_super(struct super_block *sb, struct vfsmount *mnt)
         struct lustre_sb_info *lsi = s2lsi(sb);
         struct ll_sb_info *sbi;
         char  *dt = NULL, *md = NULL;
+	size_t dt_len = 0, md_len = 0;
         char  *profilenm = get_profile_name(sb);
         struct config_llog_instance *cfg;
         /* %p for void* in printf needs 16+2 characters: 0xffffffffffffffff */
@@ -1077,12 +1092,14 @@ int ll_fill_super(struct super_block *sb, struct vfsmount *mnt)
         CDEBUG(D_CONFIG, "Found profile %s: mdc=%s osc=%s\n", profilenm,
                lprof->lp_md, lprof->lp_dt);
 
-        OBD_ALLOC(dt, strlen(lprof->lp_dt) + instlen + 2);
+	dt_len = strlen(lprof->lp_dt);
+	OBD_ALLOC(dt, dt_len + instlen + 2);
         if (!dt)
                 GOTO(out_free, err = -ENOMEM);
         sprintf(dt, "%s-%p", lprof->lp_dt, cfg->cfg_instance);
 
-        OBD_ALLOC(md, strlen(lprof->lp_md) + instlen + 2);
+	md_len = strlen(lprof->lp_md);
+	OBD_ALLOC(md, md_len + instlen + 2);
         if (!md)
                 GOTO(out_free, err = -ENOMEM);
         sprintf(md, "%s-%p", lprof->lp_md, cfg->cfg_instance);
@@ -1096,9 +1113,9 @@ int ll_fill_super(struct super_block *sb, struct vfsmount *mnt)
 
 out_free:
         if (md)
-                OBD_FREE(md, strlen(lprof->lp_md) + instlen + 2);
+		OBD_FREE(md, md_len + instlen + 2);
         if (dt)
-                OBD_FREE(dt, strlen(lprof->lp_dt) + instlen + 2);
+		OBD_FREE(dt, dt_len + instlen + 2);
         if (err)
                 ll_put_super(sb);
         else if (sbi->ll_flags & LL_SBI_VERBOSE)
@@ -1123,17 +1140,18 @@ void ll_put_super(struct super_block *sb)
 
         ll_print_capa_stat(sbi);
 
+	if (sbi->ll_md_exp) {
+		obd = class_exp2obd(sbi->ll_md_exp);
+		if (obd)
+			force = obd->obd_force;
+	}
+	iosvc_stop_service(force);
+
         cfg.cfg_instance = sb;
         lustre_end_log(sb, profilenm, &cfg);
 
 	params_cfg.cfg_instance = sb;
 	lustre_end_log(sb, PARAMS_FILENAME, &params_cfg);
-
-        if (sbi->ll_md_exp) {
-                obd = class_exp2obd(sbi->ll_md_exp);
-                if (obd)
-                        force = obd->obd_force;
-        }
 
 	/* Wait for unstable pages to be committed to stable storage */
 	if (force == 0) {
@@ -1581,6 +1599,11 @@ int ll_setattr_raw(struct dentry *dentry, struct iattr *attr, bool hsm_import)
 	bool file_is_released = false;
 	int rc = 0;
 	ENTRY;
+
+	/* updates file stats */
+	rc = iosvc_sync_io(lli);
+	if (rc < 0)
+		RETURN(rc);
 
 	CDEBUG(D_VFSTRACE, "%s: setattr inode "DFID"(%p) from %llu to %llu, "
 	       "valid %x, hsm_import %d\n",

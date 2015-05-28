@@ -3010,6 +3010,1586 @@ test_82() {
 }
 run_test 82 "fsetxattr and fgetxattr on orphan files"
 
+##########################
+# IOSVC MULTI CLIENT TEST
+##########################
+iosvc_is_available() {
+	local SETUP=$($LCTL get_param -n iosvc.iosvc_setup)
+	[ -z $SETUP ] && return 0
+	[ $SETUP == "unavailable" ] && return 0
+
+	local ENABLE=$($LCTL get_param -n iosvc.iosvc_enable)
+	[ $ENABLE == "disable" ] && return 0
+
+	return 1
+}
+
+
+test_515a() {
+	local LOOP=256
+	local IOSZ="65536"
+	local STRP="128K"
+	local OFFSET=$(($IOSZ / 2))
+
+	iosvc_is_available && skip "iosvc isn't available" && return
+
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+
+	test_mkdir -p $DIR1/$tdir || error "mkdir $DIR1/$tdir failed"
+	mkdir -p $TMP/$tdir || error "mkdir $TMP/$tdir failed"
+	$SETSTRIPE -c -1 -S $STRP $DIR1/$tdir || error "setstripe failed"
+
+	$MULTIOP $TMP/$tdir/$tfile oO_CREAT:O_RDWR:w${IOSZ}yc || errro "multiop failed"
+	$MULTIOP $TMP/$tdir/$tfile oO_RDWR:z${OFFSET}w${IOSZ}yc || error "multiop failed"
+
+	trap "$LCTL set_param iosvc.iosvc_enable=1" EXIT
+	$LCTL set_param "iosvc.iosvc_enable=0"
+
+	local i=0
+	while [ $i -lt $LOOP ]; do
+		echo -n "."
+		$MULTIOP $DIR1/$tdir/$tfile oO_CREAT:O_RDWR:w${IOSZ}c || errro "multiop failed"
+		$MULTIOP $DIR2/$tdir/$tfile oO_RDWR:z${OFFSET}w${IOSZ}c || error "multiop failed"
+		cmp $DIR1/$tdir/$tfile $TMP/$tdir/$tfile || error "file contents different"
+		cmp $DIR1/$tdir/$tfile $DIR2/$tdir/$tfile || error "file contents different"
+		let i=i+1
+	done
+	echo
+	$LCTL set_param "iosvc.iosvc_enable=1"
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+}
+run_test 515a "writes a part of the same extent at the same time with iosvc_enable=0"
+
+test_515b() {
+	local LOOP=256
+	local IOSZ="65536"
+	local STRP="128K"
+	local OFFSET=$(($IOSZ / 2))
+
+	iosvc_is_available && skip "iosvc isn't available" && return
+
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+
+	test_mkdir -p $DIR1/$tdir || error "mkdir $DIR1/$tdir failed"
+	mkdir -p $TMP/$tdir || error "mkdir $TMP/$tdir failed"
+	$SETSTRIPE -c -1 -S $STRP $DIR1/$tdir || error "setstripe failed"
+
+	$MULTIOP $TMP/$tdir/$tfile oO_CREAT:O_RDWR:w${IOSZ}yc || errro "multiop failed"
+	$MULTIOP $TMP/$tdir/$tfile oO_RDWR:z${OFFSET}w${IOSZ}yc || error "multiop failed"
+
+	local i=0
+	while [ $i -lt $LOOP ]; do
+		echo -n "."
+		$MULTIOP $DIR1/$tdir/$tfile oO_CREAT:O_RDWR:w${IOSZ}c || errro "multiop failed"
+		$MULTIOP $DIR2/$tdir/$tfile oO_RDWR:z${OFFSET}w${IOSZ}c || error "multiop failed"
+		cmp $DIR1/$tdir/$tfile $TMP/$tdir/$tfile || error "file contents different"
+		cmp $DIR1/$tdir/$tfile $DIR2/$tdir/$tfile || error "file contents different"
+		let i=i+1
+	done
+	echo
+	rm -rf $DIR/$tdir
+	rm -rf $TMP/$tdir
+}
+run_test 515b "writes a part of the same extent at the same time with iosvc_enable=1"
+
+test_515ca() {
+	local LOOP=256
+	local IOSZ="65536"
+	local STRP="64K"
+	local OFFSET=$(($IOSZ / 2))
+
+	iosvc_is_available && skip "iosvc isn't available" && return
+
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+
+	test_mkdir -p $DIR1/$tdir || error "mkdir $DIR1/$tdir failed"
+	mkdir -p $TMP/$tdir || error "mkdir $TMP/$tdir failed"
+	$SETSTRIPE -c -1 -S $STRP $DIR1/$tdir || error "setstripe failed"
+
+	$MULTIOP $TMP/$tdir/$tfile oO_CREAT:O_RDWR:w${IOSZ}yc || errro "multiop failed"
+	$MULTIOP $TMP/$tdir/$tfile oO_RDWR:z${OFFSET}w$((${IOSZ} * 2))yc || error "multiop failed"
+
+	local i=0
+	while [ $i -lt $LOOP ]; do
+		echo -n "."
+		$MULTIOP $DIR1/$tdir/$tfile oO_CREAT:O_RDWR:w${IOSZ}c || errro "multiop failed"
+		$MULTIOP $DIR2/$tdir/$tfile oO_RDWR:z${OFFSET}w$((${IOSZ} * 2))c || error "multiop failed"
+		cmp $DIR1/$tdir/$tfile $TMP/$tdir/$tfile || error "file contents different"
+		cmp $DIR1/$tdir/$tfile $DIR2/$tdir/$tfile || error "file contents different"
+		let i=i+1
+	done
+	echo
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+}
+run_test 515ca "iosvc write and page cache write"
+
+test_515cb() {
+	local LOOP=256
+	local IOSZ="65536"
+	local STRP="64K"
+	local OFFSET=$(($IOSZ / 2))
+
+	iosvc_is_available && skip "iosvc isn't available" && return
+
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+
+	test_mkdir -p $DIR1/$tdir || error "mkdir $DIR1/$tdir failed"
+	mkdir -p $TMP/$tdir || error "mkdir $TMP/$tdir failed"
+	$SETSTRIPE -c -1 -S $STRP $DIR1/$tdir || error "setstripe failed"
+
+	$MULTIOP $TMP/$tdir/$tfile oO_CREAT:O_RDWR:w$((${IOSZ} * 2))yc || errro "multiop failed"
+	$MULTIOP $TMP/$tdir/$tfile oO_RDWR:z${OFFSET}w${IOSZ}yc || error "multiop failed"
+
+	local i=0
+	while [ $i -lt $LOOP ]; do
+		echo -n "."
+		$MULTIOP $DIR1/$tdir/$tfile oO_CREAT:O_RDWR:w$((${IOSZ} * 2))c || errro "multiop failed"
+		$MULTIOP $DIR2/$tdir/$tfile oO_RDWR:z${OFFSET}w${IOSZ}c || error "multiop failed"
+		cmp $DIR1/$tdir/$tfile $TMP/$tdir/$tfile || error "file contents different"
+		cmp $DIR1/$tdir/$tfile $DIR2/$tdir/$tfile || error "file contents different"
+		let i=i+1
+	done
+	echo
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+}
+run_test 515cb "page cache write and iosvc write"
+
+test_515da() {
+	local LOOP=256
+	local IOSZ="65536"
+	local STRP="64K"
+	local OFFSET=$(($IOSZ / 2))
+
+	iosvc_is_available && skip "iosvc isn't available" && return
+
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+
+	test_mkdir -p $DIR1/$tdir || error "mkdir $DIR1/$tdir failed"
+	mkdir -p $TMP/$tdir || error "mkdir $TMP/$tdir failed"
+	$SETSTRIPE -c -1 -S $STRP $DIR1/$tdir || error "setstripe failed"
+
+	$MULTIOP $TMP/$tdir/$tfile oO_CREAT:O_RDWR:w${IOSZ}yc || errro "multiop failed"
+	$MULTIOP $TMP/$tdir/$tfile oO_RDWR:O_DIRECT:z${OFFSET}w${IOSZ}yc || error "multiop failed"
+
+	local i=0
+	while [ $i -lt $LOOP ]; do
+		echo -n "."
+		$MULTIOP $DIR1/$tdir/$tfile oO_CREAT:O_RDWR:w${IOSZ}c || errro "multiop failed"
+		$MULTIOP $DIR2/$tdir/$tfile oO_RDWR:O_DIRECT:z${OFFSET}w${IOSZ}c || error "multiop failed"
+		cmp $DIR1/$tdir/$tfile $TMP/$tdir/$tfile || error "file contents different"
+		cmp $DIR1/$tdir/$tfile $DIR2/$tdir/$tfile || error "file contents different"
+		let i=i+1
+	done
+	echo
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+}
+run_test 515da "iosvc write and direct write"
+
+test_515db() {
+	local LOOP=256
+	local IOSZ="65536"
+	local STRP="64K"
+	local OFFSET=$(($IOSZ / 2))
+
+	iosvc_is_available && skip "iosvc isn't available" && return
+
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+
+	test_mkdir -p $DIR1/$tdir || error "mkdir $DIR1/$tdir failed"
+	mkdir -p $TMP/$tdir || error "mkdir $TMP/$tdir failed"
+	$SETSTRIPE -c -1 -S $STRP $DIR1/$tdir || error "setstripe failed"
+
+	$MULTIOP $TMP/$tdir/$tfile oO_CREAT:O_RDWR:O_DIRECT:w${IOSZ}yc || errro "multiop failed"
+	$MULTIOP $TMP/$tdir/$tfile oO_RDWR:z${OFFSET}w${IOSZ}yc || error "multiop failed"
+
+	local i=0
+	while [ $i -lt $LOOP ]; do
+		echo -n "."
+		$MULTIOP $DIR1/$tdir/$tfile oO_CREAT:O_RDWR:O_DIRECT:w${IOSZ}c || errro "multiop failed"
+		$MULTIOP $DIR2/$tdir/$tfile oO_RDWR:z${OFFSET}w${IOSZ}c || error "multiop failed"
+		cmp $DIR1/$tdir/$tfile $TMP/$tdir/$tfile || error "file contents different"
+		cmp $DIR1/$tdir/$tfile $DIR2/$tdir/$tfile || error "file contents different"
+		let i=i+1
+	done
+	echo
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+}
+run_test 515db "direct write and iosvc"
+
+test_516a() {
+	local LOOP=256
+	local IOSZ="65536"
+	local STRP="128K"
+	local OFFSET=$(($IOSZ / 2))
+
+	iosvc_is_available && skip "iosvc isn't available" && return
+
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+
+	test_mkdir -p $DIR1/$tdir || error "mkdir $DIR/$tdir failed"
+	mkdir -p $TMP/$tdir || error "mkdir $TMP/$tdir failed"
+	$SETSTRIPE -c -1 -S $STRP $DIR1/$tdir || error "setstripe failed"
+
+	trap "$LCTL set_param iosvc.iosvc_enable=1" EXIT
+	$LCTL set_param iosvc.iosvc_enable=0
+
+	$MULTIOP $TMP/$tdir/$tfile "oO_CREAT:O_RDWR:O_SYNC:w${IOSZ}c" || error "multiop failed"
+	$MULTIOP $TMP/$tdir/$tfile "oO_RDWR:O_APPEND:O_SYNC:w${IOSZ}c" || error "multiop failed"
+
+	local i=0
+	while [ $i -lt $LOOP ]; do
+		echo -n "."
+		$MULTIOP $DIR1/$tdir/$tfile "oO_CREAT:O_RDWR:w${IOSZ}c" || error "multiop failed"
+		$MULTIOP $DIR2/$tdir/$tfile "oO_RDWR:O_APPEND:w${IOSZ}c" || error "multiop failed"
+		cmp $DIR1/$tdir/$tfile $TMP/$tdir/$tfile || error "file contents different"
+		cmp $DIR1/$tdir/$tfile $DIR2/$tdir/$tfile || error "file contents different"
+		rm -f $DIR1/$tdir/$tfile || error "rm failed"
+		let i=i+1
+	done
+	echo
+	trap
+	$LCTL set_param "iosvc.iosvc_enable=1"
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+}
+run_test 516a "verify O_APPEND behavior with iosvc_enable=0"
+
+test_516b() {
+	local LOOP=256
+	local IOSZ="65536"
+	local STRP="128K"
+	local OFFSET=$(($IOSZ / 2))
+
+	iosvc_is_available && skip "iosvc isn't available" && return
+
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+
+	test_mkdir -p $DIR1/$tdir || error "mkdir $DIR1/$tdir failed"
+	mkdir -p $TMP/$tdir || error "mkdir $TMP/$tdir failed"
+	$SETSTRIPE -c -1 -S $STRP $DIR1/$tdir || error "setstripe failed"
+
+	$MULTIOP $TMP/$tdir/$tfile "oO_CREAT:O_RDWR:O_SYNC:w${IOSZ}c" || error "multiop failed"
+	$MULTIOP $TMP/$tdir/$tfile "oO_RDWR:O_APPEND:O_SYNC:w${IOSZ}c" || error "multiop failed"
+
+	local i=0
+	while [ $i -lt $LOOP ]; do
+		echo -n "."
+		$MULTIOP $DIR1/$tdir/$tfile "oO_CREAT:O_RDWR:w${IOSZ}c" || error "multiop failed"
+		$MULTIOP $DIR2/$tdir/$tfile "oO_RDWR:O_APPEND:w${IOSZ}c" || error "multiop failed"
+		cmp $DIR1/$tdir/$tfile $TMP/$tdir/$tfile || error "file contents different"
+		cmp $DIR1/$tdir/$tfile $DIR2/$tdir/$tfile || error "file contents different"
+		rm -f $DIR1/$tdir/$tfile || error "rm failed"
+		let i=i+1
+	done
+	echo
+	trap
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+}
+run_test 516b "verify O_APPEND behavior with iosvc_enable=1"
+
+test_516ca() {
+	local LOOP=256
+	local IOSZ="65536"
+	local STRP="64K"
+	local OFFSET=$(($IOSZ / 2))
+
+	iosvc_is_available && skip "iosvc isn't available" && return
+
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+
+	test_mkdir -p $DIR1/$tdir || error "mkdir $DIR1/$tdir failed"
+	mkdir -p $TMP/$tdir || error "mkdir $TMP/$tdir failed"
+	$SETSTRIPE -c -1 -S $STRP $DIR1/$tdir || error "setstripe failed"
+
+	$MULTIOP $TMP/$tdir/$tfile "oO_CREAT:O_RDWR:O_SYNC:w${IOSZ}c" || error "multiop failed"
+	$MULTIOP $TMP/$tdir/$tfile "oO_RDWR:O_APPEND:O_SYNC:w$((${IOSZ} * 2))c" || error "multiop failed"
+
+	local i=0
+	while [ $i -lt $LOOP ]; do
+		echo -n "."
+		$MULTIOP $DIR1/$tdir/$tfile "oO_CREAT:O_RDWR:w${IOSZ}c" || error "multiop failed"
+		$MULTIOP $DIR2/$tdir/$tfile "oO_RDWR:O_APPEND:w$((${IOSZ} * 2))c" || error "multiop failed"
+		cmp $DIR1/$tdir/$tfile $TMP/$tdir/$tfile || error "file contents different"
+		cmp $DIR1/$tdir/$tfile $DIR2/$tdir/$tfile || error "file contents different"
+		rm -f $DIR1/$tdir/$tfile || error "rm failed"
+		let i=i+1
+	done
+	echo
+	trap
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+}
+run_test 516ca "iosvc write and O_APPEND page cache write"
+
+test_516cb() {
+	local LOOP=256
+	local IOSZ="65536"
+	local STRP="64K"
+	local OFFSET=$(($IOSZ / 2))
+
+	iosvc_is_available && skip "iosvc isn't available" && return
+
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+
+	test_mkdir -p $DIR1/$tdir || error "mkdir $DIR1/$tdir failed"
+	mkdir -p $TMP/$tdir || error "mkdir $TMP/$tdir failed"
+	$SETSTRIPE -c -1 -S $STRP $DIR1/$tdir || error "setstripe failed"
+
+	$MULTIOP $TMP/$tdir/$tfile "oO_CREAT:O_RDWR:O_SYNC:w$((${IOSZ} * 2))c" || error "multiop failed"
+	$MULTIOP $TMP/$tdir/$tfile "oO_RDWR:O_APPEND:O_SYNC:w${IOSZ}c" || error "multiop failed"
+
+	local i=0
+	while [ $i -lt $LOOP ]; do
+		echo -n "."
+		$MULTIOP $DIR1/$tdir/$tfile "oO_CREAT:O_RDWR:w$((${IOSZ} * 2))c" || error "multiop failed"
+		$MULTIOP $DIR2/$tdir/$tfile "oO_RDWR:O_APPEND:w${IOSZ}c" || error "multiop failed"
+		cmp $DIR1/$tdir/$tfile $TMP/$tdir/$tfile || error "file contents different"
+		cmp $DIR1/$tdir/$tfile $DIR2/$tdir/$tfile || error "file contents different"
+		rm -f $DIR1/$tdir/$tfile || error "rm failed"
+		let i=i+1
+	done
+	echo
+	trap
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+}
+run_test 516cb "page cache write and O_APPEND iosvc write"
+
+test_516da() {
+	local LOOP=256
+	local IOSZ="65536"
+	local STRP="64K"
+	local OFFSET=$(($IOSZ / 2))
+
+	iosvc_is_available && skip "iosvc isn't available" && return
+
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+
+	test_mkdir -p $DIR1/$tdir || error "mkdir $DIR1/$tdir failed"
+	mkdir -p $TMP/$tdir || error "mkdir $TMP/$tdir failed"
+	$SETSTRIPE -c -1 -S $STRP $DIR1/$tdir || error "setstripe failed"
+
+	$MULTIOP $TMP/$tdir/$tfile "oO_CREAT:O_RDWR:O_SYNC:w${IOSZ}c" || error "multiop failed"
+	$MULTIOP $TMP/$tdir/$tfile "oO_RDWR:O_DIRECT:O_APPEND:w${IOSZ}c" || error "multiop failed"
+
+	local i=0
+	while [ $i -lt $LOOP ]; do
+		echo -n "."
+		$MULTIOP $DIR1/$tdir/$tfile "oO_CREAT:O_RDWR:w${IOSZ}c" || error "multiop failed"
+		$MULTIOP $DIR2/$tdir/$tfile "oO_RDWR:O_DIRECT:O_APPEND:w${IOSZ}c" || error "multiop failed"
+		cmp $DIR1/$tdir/$tfile $TMP/$tdir/$tfile || error "file contents different"
+		cmp $DIR1/$tdir/$tfile $DIR2/$tdir/$tfile || error "file contents different"
+		rm -f $DIR1/$tdir/$tfile || error "rm failed"
+		let i=i+1
+	done
+	echo
+	trap
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+}
+run_test 516da "iosvc write and O_APPEND direct write"
+
+test_516db() {
+	local LOOP=256
+	local IOSZ="65536"
+	local STRP="64K"
+	local OFFSET=$(($IOSZ / 2))
+
+	iosvc_is_available && skip "iosvc isn't available" && return
+
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+
+	test_mkdir -p $DIR1/$tdir || error "mkdir $DIR1/$tdir failed"
+	mkdir -p $TMP/$tdir || error "mkdir $TMP/$tdir failed"
+	$SETSTRIPE -c -1 -S $STRP $DIR1/$tdir || error "setstripe failed"
+
+	$MULTIOP $TMP/$tdir/$tfile "oO_CREAT:O_RDWR:O_DIRECT:w${IOSZ}c" || error "multiop failed"
+	$MULTIOP $TMP/$tdir/$tfile "oO_RDWR:O_APPEND:O_SYNC:w${IOSZ}c" || error "multiop failed"
+
+	local i=0
+	while [ $i -lt $LOOP ]; do
+		echo -n "."
+		$MULTIOP $DIR1/$tdir/$tfile "oO_CREAT:O_RDWR:O_DIRECT:w${IOSZ}c" || error "multiop failed"
+		$MULTIOP $DIR2/$tdir/$tfile "oO_RDWR:O_APPEND:w${IOSZ}c" || error "multiop failed"
+		cmp $DIR1/$tdir/$tfile $TMP/$tdir/$tfile || error "file contents different"
+		cmp $DIR1/$tdir/$tfile $DIR2/$tdir/$tfile || error "file contents different"
+		rm -f $DIR1/$tdir/$tfile || error "rm failed"
+		let i=i+1
+	done
+	echo
+	trap
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+}
+run_test 516db "direct write and O_APPEND iosvc write"
+
+test_517a() {
+	local LOOP=256
+	local IOSZ="65536"
+	local STRP="128K"
+	local OFFSET=$(($IOSZ / 2))
+
+	iosvc_is_available && skip "iosvc isn't available" && return
+
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+
+	test_mkdir -p $DIR1/$tdir || error "mkdir $DIR1/$tdir failed"
+	mkdir -p $TMP/$tdir || error "mkdir $TMP/$tdir failed"
+	$SETSTRIPE -c -1 -S $STRP $DIR/$tdir || error "setstripe failed"
+
+	trap "$LCTL set_param iosvc.iosvc_enable=1" EXIT
+	$LCTL set_param iosvc.iosvc_enable=0
+
+	$MULTIOP $TMP/$tdir/$tfile "oO_CREAT:O_RDWR:O_APPEND:O_SYNC:w${IOSZ}c" || error "multiop failed"
+	$MULTIOP $TMP/$tdir/$tfile "oO_RDWR:O_SYNC:w${IOSZ}c" || error "multiop failed"
+
+	local i=0
+	while [ $i -lt $LOOP ]; do
+		echo -n "."
+		$MULTIOP $DIR1/$tdir/$tfile "oO_CREAT:O_RDWR:O_APPEND:w${IOSZ}c" || error "multiop failed"
+		$MULTIOP $DIR2/$tdir/$tfile "oO_RDWR:w${IOSZ}c" || error "multiop failed"
+		cmp $DIR1/$tdir/$tfile $TMP/$tdir/$tfile || error "file contents different"
+		cmp $DIR1/$tdir/$tfile $DIR2/$tdir/$tfile || error "file contents different"
+		rm -f $DIR1/$tdir/$tfile || error "rm failed"
+		let i=i+1
+	done
+	echo
+	trap
+	$LCTL set_param "iosvc.iosvc_enable=1"
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+}
+run_test 517a "verify O_APPEND behavior with iosvc_enable=0"
+
+test_517b() {
+	local LOOP=256
+	local IOSZ="65536"
+	local STRP="128K"
+	local OFFSET=$(($IOSZ / 2))
+
+	iosvc_is_available && skip "iosvc isn't available" && return
+
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+
+	test_mkdir -p $DIR1/$tdir || error "mkdir $DIR1/$tdir failed"
+	mkdir -p $TMP/$tdir || error "mkdir $TMP/$tdir failed"
+	$SETSTRIPE -c -1 -S $STRP $DIR/$tdir || error "setstripe failed"
+
+	$MULTIOP $TMP/$tdir/$tfile "oO_CREAT:O_RDWR:O_APPEND:O_SYNC:w${IOSZ}c" || error "multiop failed"
+	$MULTIOP $TMP/$tdir/$tfile "oO_RDWR:O_SYNC:w${IOSZ}c" || error "multiop failed"
+
+	local i=0
+	while [ $i -lt $LOOP ]; do
+		echo -n "."
+		$MULTIOP $DIR1/$tdir/$tfile "oO_CREAT:O_RDWR:O_APPEND:w${IOSZ}c" || error "multiop failed"
+		$MULTIOP $DIR2/$tdir/$tfile "oO_RDWR:w${IOSZ}c" || error "multiop failed"
+		cmp $DIR1/$tdir/$tfile $TMP/$tdir/$tfile || error "file contents different"
+		cmp $DIR1/$tdir/$tfile $DIR2/$tdir/$tfile || error "file contents different"
+		rm -f $DIR1/$tdir/$tfile || error "rm failed"
+		let i=i+1
+	done
+	echo
+	trap
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+}
+run_test 517b "verify O_APPEND behavior with iosvc_enable=1"
+
+test_517ca() {
+	local LOOP=256
+	local IOSZ="65536"
+	local STRP="64K"
+	local OFFSET=$(($IOSZ / 2))
+
+	iosvc_is_available && skip "iosvc isn't available" && return
+
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+
+	test_mkdir -p $DIR1/$tdir || error "mkdir $DIR1/$tdir failed"
+	mkdir -p $TMP/$tdir || error "mkdir $TMP/$tdir failed"
+	$SETSTRIPE -c -1 -S $STRP $DIR1/$tdir || error "setstripe failed"
+
+	$MULTIOP $TMP/$tdir/$tfile "oO_CREAT:O_RDWR:O_APPEND:O_SYNC:w${IOSZ}c" || error "multiop failed"
+	$MULTIOP $TMP/$tdir/$tfile "oO_RDWR:O_SYNC:w$((${IOSZ} * 2))c" || error "multiop failed"
+
+	local i=0
+	while [ $i -lt $LOOP ]; do
+		echo -n "."
+		$MULTIOP $DIR1/$tdir/$tfile "oO_CREAT:O_RDWR:O_APPEND:w${IOSZ}c" || error "multiop failed"
+		$MULTIOP $DIR2/$tdir/$tfile "oO_RDWR:w$((${IOSZ} * 2))c" || error "multiop failed"
+		cmp $DIR1/$tdir/$tfile $TMP/$tdir/$tfile || error "file contents different"
+		cmp $DIR1/$tdir/$tfile $DIR2/$tdir/$tfile || error "file contents different"
+		rm -f $DIR1/$tdir/$tfile || error "rm failed"
+		let i=i+1
+	done
+	echo
+	trap
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+}
+run_test 517ca "O_APPEND iosvc write and page cache write"
+
+test_517cb() {
+	local LOOP=256
+	local IOSZ="65536"
+	local STRP="64K"
+	local OFFSET=$(($IOSZ / 2))
+
+	iosvc_is_available && skip "iosvc isn't available" && return
+
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+
+	test_mkdir -p $DIR1/$tdir || error "mkdir $DIR1/$tdir failed"
+	mkdir -p $TMP/$tdir || error "mkdir $TMP/$tdir failed"
+	$SETSTRIPE -c -1 -S $STRP $DIR1/$tdir || error "setstripe failed"
+
+	$MULTIOP $TMP/$tdir/$tfile "oO_CREAT:O_RDWR:O_APPEND:O_SYNC:w$((${IOSZ} * 2))c" || \
+		error "multiop failed"
+	$MULTIOP $TMP/$tdir/$tfile "oO_RDWR:O_SYNC:w${IOSZ}c" || \
+		error "multiop failed"
+
+	local i=0
+	while [ $i -lt $LOOP ]; do
+		echo -n "."
+		$MULTIOP $DIR1/$tdir/$tfile "oO_CREAT:O_RDWR:O_APPEND:w$((${IOSZ} * 2))c" || error "multiop failed"
+		$MULTIOP $DIR2/$tdir/$tfile "oO_RDWR:w${IOSZ}c" || error "multiop failed"
+		cmp $DIR1/$tdir/$tfile $TMP/$tdir/$tfile || error "file contents different"
+		cmp $DIR1/$tdir/$tfile $DIR2/$tdir/$tfile || error "file contents different"
+		rm -f $DIR1/$tdir/$tfile || error "rm failed"
+		let i=i+1
+	done
+	echo
+	trap
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+}
+run_test 517cb "O_APPEND page cache write and iosvc write"
+
+test_517da() {
+	local LOOP=256
+	local IOSZ="65536"
+	local STRP="64K"
+	local OFFSET=$(($IOSZ / 2))
+
+	iosvc_is_available && skip "iosvc isn't available" && return
+
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+
+	test_mkdir -p $DIR1/$tdir || error "mkdir $DIR1/$tdir failed"
+	mkdir -p $TMP/$tdir || error "mkdir $TMP/$tdir failed"
+	$SETSTRIPE -c -1 -S $STRP $DIR1/$tdir || error "setstripe failed"
+
+	$MULTIOP $TMP/$tdir/$tfile "oO_CREAT:O_RDWR:O_APPEND:O_SYNC:w${IOSZ}c" || error "multiop failed"
+	$MULTIOP $TMP/$tdir/$tfile "oO_RDWR:O_DIRECT:w${IOSZ}c" || error "multiop failed"
+
+	local i=0
+	while [ $i -lt $LOOP ]; do
+		echo -n "."
+		$MULTIOP $DIR1/$tdir/$tfile "oO_CREAT:O_RDWR:O_APPEND:w${IOSZ}c" || error "multiop failed"
+		$MULTIOP $DIR2/$tdir/$tfile "oO_RDWR:O_DIRECT:w${IOSZ}c" || error "multiop failed"
+		cmp $DIR1/$tdir/$tfile $TMP/$tdir/$tfile || error "file contents different"
+		cmp $DIR1/$tdir/$tfile $DIR2/$tdir/$tfile || error "file contents different"
+		rm -f $DIR1/$tdir/$tfile || error "rm failed"
+		let i=i+1
+	done
+	echo
+	trap
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+}
+run_test 517da "O_APPEND iosvc write and direct write"
+
+test_517db() {
+	local LOOP=256
+	local IOSZ="65536"
+	local STRP="64K"
+	local OFFSET=$(($IOSZ / 2))
+
+	iosvc_is_available && skip "iosvc isn't available" && return
+
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+
+	test_mkdir -p $DIR1/$tdir || error "mkdir $DIR1/$tdir failed"
+	mkdir -p $TMP/$tdir || error "mkdir $TMP/$tdir failed"
+	$SETSTRIPE -c -1 -S $STRP $DIR1/$tdir || error "setstripe failed"
+
+	$MULTIOP $TMP/$tdir/$tfile "oO_CREAT:O_RDWR:O_APPEND:O_DIRECT:w${IOSZ}c" || \
+		error "multiop failed"
+	$MULTIOP $TMP/$tdir/$tfile "oO_RDWR:O_SYNC:w${IOSZ}c" || \
+		error "multiop failed"
+
+	local i=0
+	while [ $i -lt $LOOP ]; do
+		echo -n "."
+		$MULTIOP $DIR1/$tdir/$tfile "oO_CREAT:O_RDWR:O_APPEND:O_DIRECT:w${IOSZ}c" || error "multiop failed"
+		$MULTIOP $DIR2/$tdir/$tfile "oO_RDWR:w${IOSZ}c" || error "multiop failed"
+		cmp $DIR1/$tdir/$tfile $TMP/$tdir/$tfile || error "file contents different"
+		cmp $DIR1/$tdir/$tfile $DIR2/$tdir/$tfile || error "file contents different"
+		rm -f $DIR1/$tdir/$tfile || error "rm failed"
+		let i=i+1
+	done
+	echo
+	trap
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+}
+run_test 517db "O_APPEND direct write and iosvc write"
+
+test_518a() {
+	local LOOP=256
+	local IOSZ="65536"
+	local STRP="128K"
+	local OFFSET=$(($IOSZ / 2))
+
+	iosvc_is_available && skip "iosvc isn't available" && return
+
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+
+	test_mkdir -p $DIR1/$tdir || error "mkdir $DIR1/$tdir failed"
+	mkdir -p $TMP/$tdir || error "mkdir $TMP/$tdir failed"
+	$SETSTRIPE -c -1 -S $STRP $DIR1/$tdir || error "setstripe failed"
+
+	trap "$LCTL set_param iosvc.iosvc_enable=1" EXIT
+	$LCTL set_param iosvc.iosvc_enable=0
+
+	$MULTIOP $TMP/$tdir/$tfile "oO_CREAT:O_RDWR:w${IOSZ}w${IOSZ}c" || error "multiop failed"
+	$MULTIOP $TMP/$tdir/$tfile "oO_RDWR:O_TRUNC:w${IOSZ}c" || error "multiop failed"
+
+	local i=0
+	while [ $i -lt $LOOP ]; do
+		echo -n "."
+		$MULTIOP $DIR1/$tdir/$tfile "oO_CREAT:O_RDWR:w${IOSZ}w${IOSZ}c" || error "multiop failed"
+		$MULTIOP $DIR2/$tdir/$tfile "oO_RDWR:O_TRUNC:w${IOSZ}c" || error "multiop failed"
+		cmp $DIR1/$tdir/$tfile $TMP/$tdir/$tfile || error "file contents different"
+		cmp $DIR1/$tdir/$tfile $DIR2/$tdir/$tfile || error "file contents different"
+		rm -f $DIR1/$tdir/$tfile || error "rm failed"
+		let i=i+1
+	done
+	echo
+	trap
+	$LCTL set_param "iosvc.iosvc_enable=1"
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+}
+run_test 518a "verify O_TRUNC behavior with page cache write"
+
+test_518b() {
+	local LOOP=256
+	local IOSZ="65536"
+	local STRP="128K"
+	local OFFSET=$(($IOSZ / 2))
+
+	iosvc_is_available && skip "iosvc isn't available" && return
+
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+
+	test_mkdir -p $DIR1/$tdir || error "mkdir $DIR1/$tdir failed"
+	mkdir -p $TMP/$tdir || error "mkdir $TMP/$tdir failed"
+	$SETSTRIPE -c -1 -S $STRP $DIR1/$tdir || error "setstripe failed"
+
+	$MULTIOP $TMP/$tdir/$tfile "oO_CREAT:O_RDWR:O_SYNC:w${IOSZ}w${IOSZ}c" || error "multiop failed"
+	$MULTIOP $TMP/$tdir/$tfile "oO_RDWR:O_TRUNC:O_SYNC:w${IOSZ}c" || error "multiop failed"
+
+	local i=0
+	while [ $i -lt $LOOP ]; do
+		echo -n "."
+		$MULTIOP $DIR1/$tdir/$tfile "oO_CREAT:O_RDWR:w${IOSZ}w${IOSZ}c" || error "multiop failed"
+		$MULTIOP $DIR2/$tdir/$tfile "oO_RDWR:O_TRUNC:w${IOSZ}c" || error "multiop failed"
+		cmp $DIR1/$tdir/$tfile $TMP/$tdir/$tfile || error "file contents different"
+		cmp $DIR1/$tdir/$tfile $DIR2/$tdir/$tfile || error "file contents different"
+		rm -f $DIR1/$tdir/$tfile || error "rm failed"
+		let i=i+1
+	done
+	echo
+	trap
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+}
+run_test 518b "verify O_TRUNC behavior with page cache write"
+
+test_519a() {
+	local LOOP=256
+	local IOSZ="65536"
+	local STRP="128K"
+	local OFFSET=$(($IOSZ / 2))
+
+	iosvc_is_available && skip "iosvc isn't available" && return
+
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+
+	test_mkdir -p $DIR1/$tdir || error "mkdir $DIR1/$tdir failed"
+	mkdir -p $TMP/$tdir || error "mkdir $TMP/$tdir failed"
+	$SETSTRIPE -c -1 -S $STRP $DIR1/$tdir || error "setstripe failed"
+
+	trap "$LCTL set_param iosvc.iosvc_enable=1" EXIT
+	$LCTL set_param iosvc.iosvc_enable=0
+
+	$MULTIOP $TMP/$tdir/$tfile "oO_CREAT:O_RDWR:O_SYNC:w${IOSZ}oO_RDWR:O_APPEND:O_SYNC:w${IOSZ}c" || \
+		error "multiop failed"
+	$MULTIOP $TMP/$tdir/$tfile "oO_RDWR:O_TRUNC:O_SYNC:w${IOSZ}c" || error "multiop failed"
+
+	local i=0
+	while [ $i -lt $LOOP ]; do
+		echo -n "."
+		$MULTIOP $DIR1/$tdir/$tfile "oO_CREAT:O_RDWR:w${IOSZ}oO_RDWR:O_APPEND:w${IOSZ}c" || \
+			error "multiop failed"
+		$MULTIOP $DIR2/$tdir/$tfile "oO_RDWR:O_TRUNC:w${IOSZ}c" || error "multiop failed"
+		cmp $DIR1/$tdir/$tfile $TMP/$tdir/$tfile || error "file contents different"
+		cmp $DIR1/$tdir/$tfile $DIR2/$tdir/$tfile || error "file contents different"
+		rm -f $DIR1/$tdir/$tfile || error "rm failed"
+		let i=i+1
+	done
+	echo
+	trap
+	$LCTL set_param "iosvc.iosvc_enable=1"
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+}
+run_test 519a "verify O_APPEND and O_TRUNC behavior with iosvc_enable=0"
+
+test_519b() {
+	local LOOP=256
+	local IOSZ="65536"
+	local STRP="128K"
+	local OFFSET=$(($IOSZ / 2))
+
+	iosvc_is_available && skip "iosvc isn't available" && return
+
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+
+	test_mkdir -p $DIR1/$tdir || error "mkdir $DIR1/$tdir failed"
+	mkdir -p $TMP/$tdir || error "mkdir $TMP/$tdir failed"
+	$SETSTRIPE -c -1 -S $STRP $DIR1/$tdir || error "setstripe failed"
+
+	$MULTIOP $TMP/$tdir/$tfile "oO_CREAT:O_RDWR:O_SYNC:w${IOSZ}oO_RDWR:O_APPEND:O_SYNC:w${IOSZ}c" || \
+		error "multiop failed"
+	$MULTIOP $TMP/$tdir/$tfile "oO_RDWR:O_TRUNC:O_SYNC:w${IOSZ}c" || error "multiop failed"
+
+	local i=0
+	while [ $i -lt $LOOP ]; do
+		echo -n "."
+		$MULTIOP $DIR1/$tdir/$tfile "oO_CREAT:O_RDWR:w${IOSZ}oO_RDWR:O_APPEND:w${IOSZ}c" || \
+			error "multiop failed"
+		$MULTIOP $DIR2/$tdir/$tfile "oO_RDWR:O_TRUNC:w${IOSZ}c" || error "multiop failed"
+		cmp $DIR1/$tdir/$tfile $TMP/$tdir/$tfile || error "file contents different"
+		cmp $DIR1/$tdir/$tfile $DIR2/$tdir/$tfile || error "file contents different"
+		rm -f $DIR1/$tdir/$tfile || error "rm failed"
+		let i=i+1
+	done
+	echo
+	trap
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+}
+run_test 519b "verify O_APPEND and O_TRUNC behavior with iosvc_enable=1"
+
+test_520a() {
+	local LOOP=8
+	local IOSZ="65536"
+	local STRP="64K"
+	local OFFSET=77
+
+	iosvc_is_available && skip "iosvc isn't available" && return
+
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+
+	test_mkdir -p $DIR1/$tdir || error "mkdir $DIR1/$tdir failed"
+	mkdir -p $TMP/$tdir || error "mkdir $TMP/$tdir failed"
+	$SETSTRIPE -c -1 -S $STRP $DIR1/$tdir || error "setstripe failed"
+
+	$MULTIOP $TMP/$tdir/$tfile "oO_CREAT:O_RDWR:w${IOSZ}c" || \
+		error "multiop failed"
+	$MULTIOP $TMP/$tdir/$tfile "oO_RDWR:z${OFFSET}w$((${IOSZ} * 2))c" || \
+		error "multiop failed"
+
+	trap "$LCTL set_param fail_loc=0" EXIT
+
+	local IOSVC_FAIL=(0xe01 0xe02 0xe03 0xe04)
+	for FAIL_LOC in ${IOSVC_FAIL[@]}; do
+		local i=0
+		$LCTL set_param fail_loc=$FAIL_LOC
+		while [ $i -lt $LOOP ]; do
+			echo -n "."
+			$MULTIOP $DIR1/$tdir/$tfile "oO_CREAT:O_RDWR:w${IOSZ}c" || \
+				error "multiop failed"
+			$MULTIOP $DIR2/$tdir/$tfile "oO_RDWR:z${OFFSET}w$((${IOSZ} * 2))c" || \
+				error "multiop failed"
+			cmp $DIR1/$tdir/$tfile $TMP/$tdir/$tfile || \
+				error "file contents different"
+			cmp $DIR1/$tdir/$tfile $DIR2/$tdir/$tfile || \
+				error "file contents different"
+			rm -f $DIR1/$tdir/$tfile || error "rm failed"
+			let i=i+1
+		done
+		$LCTL set_param fail_loc=0
+	done
+
+	echo
+	$LCTL set_param fail_loc=0
+	trap
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+}
+run_test 520a "delayed iosvc write and page cache write"
+
+test_520b() {
+	local LOOP=8
+	local IOSZ="65536"
+	local STRP="64K"
+	local OFFSET=77
+
+	iosvc_is_available && skip "iosvc isn't available" && return
+
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+
+	test_mkdir -p $DIR1/$tdir || error "mkdir $DIR1/$tdir failed"
+	mkdir -p $TMP/$tdir || error "mkdir $TMP/$tdir failed"
+	$SETSTRIPE -c -1 -S $STRP $DIR1/$tdir || error "setstripe failed"
+
+	$MULTIOP $TMP/$tdir/$tfile "oO_CREAT:O_RDWR:w${IOSZ}coO_RDWR:O_APPEND:w${IOSZ}c" || \
+		error "multiop failed"
+	$MULTIOP $TMP/$tdir/$tfile "oO_RDWR:z${OFFSET}w$((${IOSZ} * 2))c" || \
+		error "multiop failed"
+
+	trap "$LCTL set_param fail_loc=0" EXIT
+
+	local IOSVC_FAIL=(0xe01 0xe02 0xe03 0xe04)
+	for FAIL_LOC in ${IOSVC_FAIL[@]}; do
+		local i=0
+		$LCTL set_param fail_loc=$FAIL_LOC
+		while [ $i -lt $LOOP ]; do
+			echo -n "."
+			$MULTIOP $DIR1/$tdir/$tfile "oO_CREAT:O_RDWR:w${IOSZ}coO_RDWR:O_APPEND:w${IOSZ}c" || \
+				error "multiop failed"
+			$MULTIOP $DIR2/$tdir/$tfile "oO_RDWR:z${OFFSET}w$((${IOSZ} * 2))c" || \
+				error "multiop failed"
+			cmp $DIR1/$tdir/$tfile $TMP/$tdir/$tfile || \
+				error "file contents different"
+			cmp $DIR1/$tdir/$tfile $DIR2/$tdir/$tfile || \
+				error "file contents different"
+			rm -f $DIR1/$tdir/$tfile || error "rm failed"
+			let i=i+1
+		done
+		$LCTL set_param fail_loc=0
+	done
+
+	echo
+	$LCTL set_param fail_loc=0
+	trap
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+}
+run_test 520b "delayed O_APPEND iosvc write and page cache write"
+
+test_521a() {
+	local LOOP=8
+	local IOSZ="65536"
+	local STRP="64K"
+	local OFFSET=77
+
+	iosvc_is_available && skip "iosvc isn't available" && return
+
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+
+	test_mkdir -p $DIR1/$tdir || error "mkdir $DIR1/$tdir failed"
+	mkdir -p $TMP/$tdir || error "mkdir $TMP/$tdir failed"
+	$SETSTRIPE -c -1 -S $STRP $DIR1/$tdir || error "setstripe failed"
+
+	$MULTIOP $TMP/$tdir/$tfile "oO_CREAT:O_RDWR:w${IOSZ}c" || \
+		error "multiop failed"
+	$MULTIOP $TMP/$tdir/$tfile "oO_RDWR:z${OFFSET}w${IOSZ}c" || \
+		error "multiop failed"
+
+	trap "$LCTL set_param fail_loc=0" EXIT
+
+	local IOSVC_FAIL=(0xe01 0xe02 0xe03 0xe04)
+	for FAIL_LOC in ${IOSVC_FAIL[@]}; do
+		local i=0
+		$LCTL set_param fail_loc=$FAIL_LOC
+		while [ $i -lt $LOOP ]; do
+			echo -n "."
+			$MULTIOP $DIR1/$tdir/$tfile "oO_CREAT:O_RDWR:w${IOSZ}c" || \
+				error "multiop failed"
+			$MULTIOP $DIR2/$tdir/$tfile "oO_RDWR:z${OFFSET}w${IOSZ}c" || \
+				error "multiop failed"
+			cmp $DIR1/$tdir/$tfile $TMP/$tdir/$tfile || \
+				error "file contents different"
+			cmp $DIR1/$tdir/$tfile $DIR2/$tdir/$tfile || \
+				error "file contents different"
+			rm -f $DIR1/$tdir/$tfile || error "rm failed"
+			let i=i+1
+		done
+		$LCTL set_param fail_loc=0
+	done
+
+	echo
+	$LCTL set_param fail_loc=0
+	trap
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+
+}
+run_test 521a "delayed iosvc write and iosvc write"
+
+test_521b() {
+	local LOOP=8
+	local IOSZ="65536"
+	local STRP="64K"
+	local OFFSET=77
+
+	iosvc_is_available && skip "iosvc isn't available" && return
+
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+
+	test_mkdir -p $DIR1/$tdir || error "mkdir $DIR1/$tdir failed"
+	mkdir -p $TMP/$tdir || error "mkdir $TMP/$tdir failed"
+	$SETSTRIPE -c -1 -S $STRP $DIR1/$tdir || error "setstripe failed"
+
+	$MULTIOP $TMP/$tdir/$tfile "oO_CREAT:O_RDWR:w${IOSZ}coO_RDWR:O_APPEND:w${IOSZ}c" || \
+		error "multiop failed"
+	$MULTIOP $TMP/$tdir/$tfile "oO_RDWR:z${OFFSET}w${IOSZ}c" || \
+		error "multiop failed"
+
+	trap "$LCTL set_param fail_loc=0" EXIT
+
+	local IOSVC_FAIL=(0xe01 0xe02 0xe03 0xe04)
+	for FAIL_LOC in ${IOSVC_FAIL[@]}; do
+		local i=0
+		$LCTL set_param fail_loc=$FAIL_LOC
+		while [ $i -lt $LOOP ]; do
+			echo -n "."
+			$MULTIOP $DIR1/$tdir/$tfile "oO_CREAT:O_RDWR:w${IOSZ}coO_RDWR:O_APPEND:w${IOSZ}c" || \
+				error "multiop failed"
+			$MULTIOP $DIR2/$tdir/$tfile "oO_RDWR:z${OFFSET}w${IOSZ}c" || \
+				error "multiop failed"
+			cmp $DIR1/$tdir/$tfile $TMP/$tdir/$tfile || \
+				error "file contents different"
+			cmp $DIR1/$tdir/$tfile $DIR2/$tdir/$tfile || \
+				error "file contents different"
+			rm -f $DIR1/$tdir/$tfile || error "rm failed"
+			let i=i+1
+		done
+		$LCTL set_param fail_loc=0
+	done
+
+	echo
+	$LCTL set_param fail_loc=0
+	trap
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+
+}
+run_test 521b "delayed O_APPEND iosvc write and iosvc write"
+
+test_522a() {
+	local LOOP=8
+	local IOSZ="65536"
+	local STRP="64K"
+	local OFFSET=77
+
+	iosvc_is_available && skip "iosvc isn't available" && return
+
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+
+	test_mkdir -p $DIR1/$tdir || error "mkdir $DIR1/$tdir failed"
+	mkdir -p $TMP/$tdir || error "mkdir $TMP/$tdir failed"
+	$SETSTRIPE -c -1 -S $STRP $DIR1/$tdir || error "setstripe failed"
+
+	$MULTIOP $TMP/$tdir/$tfile "oO_CREAT:O_RDWR:w${IOSZ}c" || \
+		error "multiop failed"
+	$MULTIOP $TMP/$tdir/$tfile "oO_RDWR:O_DIRECT:z${IOSZ}w${IOSZ}c" || \
+		error "multiop failed"
+
+	trap "$LCTL set_param fail_loc=0" EXIT
+
+	local IOSVC_FAIL=(0xe01 0xe02 0xe03 0xe04)
+	for FAIL_LOC in ${IOSVC_FAIL[@]}; do
+		local i=0
+		$LCTL set_param fail_loc=$FAIL_LOC
+		while [ $i -lt $LOOP ]; do
+			echo -n "."
+			$MULTIOP $DIR1/$tdir/$tfile "oO_CREAT:O_RDWR:w${IOSZ}c" || \
+				error "multiop failed"
+			$MULTIOP $DIR2/$tdir/$tfile "oO_RDWR:O_DIRECT:z${IOSZ}w${IOSZ}c" || \
+				error "multiop failed"
+			cmp $DIR1/$tdir/$tfile $TMP/$tdir/$tfile || \
+				error "file contents different"
+			cmp $DIR1/$tdir/$tfile $DIR2/$tdir/$tfile || \
+				error "file contents different"
+			rm -f $DIR1/$tdir/$tfile || error "rm failed"
+			let i=i+1
+		done
+		$LCTL set_param fail_loc=0
+	done
+
+	echo
+	$LCTL set_param fail_loc=0
+	trap
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+
+}
+run_test 522a "delayed iosvc write and direct write"
+
+test_522b() {
+	local LOOP=8
+	local IOSZ="65536"
+	local STRP="64K"
+	local OFFSET=77
+
+	iosvc_is_available && skip "iosvc isn't available" && return
+
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+
+	test_mkdir -p $DIR1/$tdir || error "mkdir $DIR1/$tdir failed"
+	mkdir -p $TMP/$tdir || error "mkdir $TMP/$tdir failed"
+	$SETSTRIPE -c -1 -S $STRP $DIR1/$tdir || error "setstripe failed"
+
+	$MULTIOP $TMP/$tdir/$tfile "oO_CREAT:O_RDWR:w${IOSZ}coO_RDWR:O_APPEND:w${IOSZ}c" || \
+		error "multiop failed"
+	$MULTIOP $TMP/$tdir/$tfile "oO_RDWR:O_DIRECT:z${IOSZ}w${IOSZ}c" || \
+		error "multiop failed"
+
+	trap "$LCTL set_param fail_loc=0" EXIT
+
+	local IOSVC_FAIL=(0xe01 0xe02 0xe03 0xe04)
+	for FAIL_LOC in ${IOSVC_FAIL[@]}; do
+		local i=0
+		$LCTL set_param fail_loc=$FAIL_LOC
+		while [ $i -lt $LOOP ]; do
+			echo -n "."
+			$MULTIOP $DIR1/$tdir/$tfile "oO_CREAT:O_RDWR:w${IOSZ}coO_RDWR:O_APPEND:w${IOSZ}c" || \
+				error "multiop failed"
+			$MULTIOP $DIR2/$tdir/$tfile "oO_RDWR:O_DIRECT:z${IOSZ}w${IOSZ}c" || \
+				error "multiop failed"
+			cmp $DIR1/$tdir/$tfile $TMP/$tdir/$tfile || \
+				error "file contents different"
+			cmp $DIR1/$tdir/$tfile $DIR2/$tdir/$tfile || \
+				error "file contents different"
+			rm -f $DIR1/$tdir/$tfile || error "rm failed"
+			let i=i+1
+		done
+		$LCTL set_param fail_loc=0
+	done
+
+	echo
+	$LCTL set_param fail_loc=0
+	trap
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+
+}
+run_test 522b "delayed O_APPEND iosvc write and direct write"
+
+test_523a() {
+	local LOOP=8
+	local IOSZ="65536"
+	local STRP="64K"
+	local OFFSET=77
+
+	iosvc_is_available && skip "iosvc isn't available" && return
+
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+
+	test_mkdir -p $DIR1/$tdir || error "mkdir $DIR1/$tdir failed"
+	mkdir -p $TMP/$tdir || error "mkdir $TMP/$tdir failed"
+	$SETSTRIPE -c -1 -S $STRP $DIR1/$tdir || error "setstripe failed"
+
+	$MULTIOP $TMP/$tdir/$tfile "oO_CREAT:O_RDWR:w${IOSZ}c" || \
+		error "multiop failed"
+	$MULTIOP $TMP/$tdir/$tfile "oO_RDWR:O_SYNC:z${OFFSET}w${IOSZ}c" || \
+		error "multiop failed"
+
+	trap "$LCTL set_param fail_loc=0" EXIT
+
+	local IOSVC_FAIL=(0xe01 0xe02 0xe03 0xe04)
+	for FAIL_LOC in ${IOSVC_FAIL[@]}; do
+		local i=0
+		$LCTL set_param fail_loc=$FAIL_LOC
+		while [ $i -lt $LOOP ]; do
+			echo -n "."
+			$MULTIOP $DIR1/$tdir/$tfile "oO_CREAT:O_RDWR:w${IOSZ}c" || \
+				error "multiop failed"
+			$MULTIOP $DIR2/$tdir/$tfile "oO_RDWR:O_SYNC:z${OFFSET}w${IOSZ}c" || \
+				error "multiop failed"
+			cmp $DIR1/$tdir/$tfile $TMP/$tdir/$tfile || \
+				error "file contents different"
+			cmp $DIR1/$tdir/$tfile $DIR2/$tdir/$tfile || \
+				error "file contents different"
+			rm -f $DIR1/$tdir/$tfile || error "rm failed"
+			let i=i+1
+		done
+		$LCTL set_param fail_loc=0
+	done
+
+	echo
+	$LCTL set_param fail_loc=0
+	trap
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+
+}
+run_test 523a "delayed iosvc write and O_SYNC write"
+
+test_523b() {
+	local LOOP=8
+	local IOSZ="65536"
+	local STRP="64K"
+	local OFFSET=77
+
+	iosvc_is_available && skip "iosvc isn't available" && return
+
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+
+	test_mkdir -p $DIR1/$tdir || error "mkdir $DIR1/$tdir failed"
+	mkdir -p $TMP/$tdir || error "mkdir $TMP/$tdir failed"
+	$SETSTRIPE -c -1 -S $STRP $DIR1/$tdir || error "setstripe failed"
+
+	$MULTIOP $TMP/$tdir/$tfile "oO_CREAT:O_RDWR:w${IOSZ}coO_RDWR:O_APPEND:w${IOSZ}c" || \
+		error "multiop failed"
+	$MULTIOP $TMP/$tdir/$tfile "oO_RDWR:O_SYNC:z${OFFSET}w${IOSZ}c" || \
+		error "multiop failed"
+
+	trap "$LCTL set_param fail_loc=0" EXIT
+
+	local IOSVC_FAIL=(0xe01 0xe02 0xe03 0xe04)
+	for FAIL_LOC in ${IOSVC_FAIL[@]}; do
+		local i=0
+		$LCTL set_param fail_loc=$FAIL_LOC
+		while [ $i -lt $LOOP ]; do
+			echo -n "."
+			$MULTIOP $DIR1/$tdir/$tfile "oO_CREAT:O_RDWR:w${IOSZ}coO_RDWR:O_APPEND:w${IOSZ}c" || \
+				error "multiop failed"
+			$MULTIOP $DIR2/$tdir/$tfile "oO_RDWR:O_SYNC:z${OFFSET}w${IOSZ}c" || \
+				error "multiop failed"
+			cmp $DIR1/$tdir/$tfile $TMP/$tdir/$tfile || \
+				error "file contents different"
+			cmp $DIR1/$tdir/$tfile $DIR2/$tdir/$tfile || \
+				error "file contents different"
+			rm -f $DIR1/$tdir/$tfile || error "rm failed"
+			let i=i+1
+		done
+		$LCTL set_param fail_loc=0
+	done
+
+	echo
+	$LCTL set_param fail_loc=0
+	trap
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+
+}
+run_test 523b "delayed O_APPEND iosvc write and O_SYNC write"
+
+test_524a() {
+	local LOOP=8
+	local IOSZ="65536"
+	local STRP="64K"
+	local OFFSET=77
+
+	iosvc_is_available && skip "iosvc isn't available" && return
+
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+
+	test_mkdir -p $DIR1/$tdir || error "mkdir $DIR1/$tdir failed"
+	mkdir -p $TMP/$tdir || error "mkdir $TMP/$tdir failed"
+	$SETSTRIPE -c -1 -S $STRP $DIR1/$tdir || error "setstripe failed"
+
+	$MULTIOP $TMP/$tdir/$tfile "oO_CREAT:O_RDWR:w${IOSZ}c" || \
+		error "multiop failed"
+	$MULTIOP $TMP/$tdir/$tfile "oO_RDWR:O_APPEND:w${IOSZ}c" || \
+		error "multiop failed"
+
+	trap "$LCTL set_param fail_loc=0" EXIT
+
+	local IOSVC_FAIL=(0xe01 0xe02 0xe03 0xe04)
+	for FAIL_LOC in ${IOSVC_FAIL[@]}; do
+		local i=0
+		$LCTL set_param fail_loc=$FAIL_LOC
+		while [ $i -lt $LOOP ]; do
+			echo -n "."
+			$MULTIOP $DIR1/$tdir/$tfile "oO_CREAT:O_RDWR:w${IOSZ}c" || \
+				error "multiop failed"
+			$MULTIOP $DIR2/$tdir/$tfile "oO_RDWR:O_APPEND:w${IOSZ}c" || \
+				error "multiop failed"
+			cmp $DIR1/$tdir/$tfile $TMP/$tdir/$tfile || \
+				error "file contents different"
+			cmp $DIR1/$tdir/$tfile $DIR2/$tdir/$tfile || \
+				error "file contents different"
+			rm -f $DIR1/$tdir/$tfile || error "rm failed"
+			let i=i+1
+		done
+		$LCTL set_param fail_loc=0
+	done
+
+	echo
+	$LCTL set_param fail_loc=0
+	trap
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+
+}
+run_test 524a "delayed iosvc write and O_APPEND write"
+
+test_524b() {
+	local LOOP=8
+	local IOSZ="65536"
+	local STRP="64K"
+	local OFFSET=77
+
+	iosvc_is_available && skip "iosvc isn't available" && return
+
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+
+	test_mkdir -p $DIR1/$tdir || error "mkdir $DIR1/$tdir failed"
+	mkdir -p $TMP/$tdir || error "mkdir $TMP/$tdir failed"
+	$SETSTRIPE -c -1 -S $STRP $DIR1/$tdir || error "setstripe failed"
+
+	$MULTIOP $TMP/$tdir/$tfile "oO_CREAT:O_RDWR:w${IOSZ}coO_RDWR:O_APPEND:w${IOSZ}c" || \
+		error "multiop failed"
+	$MULTIOP $TMP/$tdir/$tfile "oO_RDWR:O_APPEND:w${IOSZ}c" || \
+		error "multiop failed"
+
+	trap "$LCTL set_param fail_loc=0" EXIT
+
+	local IOSVC_FAIL=(0xe01 0xe02 0xe03 0xe04)
+	for FAIL_LOC in ${IOSVC_FAIL[@]}; do
+		local i=0
+		$LCTL set_param fail_loc=$FAIL_LOC
+		while [ $i -lt $LOOP ]; do
+			echo -n "."
+			$MULTIOP $DIR1/$tdir/$tfile "oO_CREAT:O_RDWR:w${IOSZ}coO_RDWR:O_APPEND:w${IOSZ}c" || \
+				error "multiop failed"
+			$MULTIOP $DIR2/$tdir/$tfile "oO_RDWR:O_APPEND:w${IOSZ}c" || \
+				error "multiop failed"
+			cmp $DIR1/$tdir/$tfile $TMP/$tdir/$tfile || \
+				error "file contents different"
+			cmp $DIR1/$tdir/$tfile $DIR2/$tdir/$tfile || \
+				error "file contents different"
+			rm -f $DIR1/$tdir/$tfile || error "rm failed"
+			let i=i+1
+		done
+		$LCTL set_param fail_loc=0
+	done
+
+	echo
+	$LCTL set_param fail_loc=0
+	trap
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+
+}
+run_test 524b "delayed O_APPEND iosvc write and O_APPEND write"
+
+test_525a() {
+	local LOOP=8
+	local IOSZ="65536"
+	local STRP="64K"
+	local OFFSET=77
+
+	iosvc_is_available && skip "iosvc isn't available" && return
+
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+
+	test_mkdir -p $DIR1/$tdir || error "mkdir $DIR1/$tdir failed"
+	mkdir -p $TMP/$tdir || error "mkdir $TMP/$tdir failed"
+	$SETSTRIPE -c -1 -S $STRP $DIR1/$tdir || error "setstripe failed"
+
+	$MULTIOP $TMP/$tdir/$tfile "oO_CREAT:O_RDWR:w${IOSZ}c" || \
+		error "multiop failed"
+	$MULTIOP $TMP/$tdir/$tfile "oO_RDWR:O_TRUNC:z${OFFSET}w${IOSZ}c" || \
+		error "multiop failed"
+
+	trap "$LCTL set_param fail_loc=0" EXIT
+
+	local IOSVC_FAIL=(0xe01 0xe02 0xe03 0xe04)
+	for FAIL_LOC in ${IOSVC_FAIL[@]}; do
+		local i=0
+		$LCTL set_param fail_loc=$FAIL_LOC
+		while [ $i -lt $LOOP ]; do
+			echo -n "."
+			$MULTIOP $DIR1/$tdir/$tfile "oO_CREAT:O_RDWR:w${IOSZ}c" || \
+				error "multiop failed"
+			$MULTIOP $DIR2/$tdir/$tfile "oO_RDWR:O_TRUNC:z${OFFSET}w${IOSZ}c" || \
+				error "multiop failed"
+			cmp $DIR1/$tdir/$tfile $TMP/$tdir/$tfile || \
+				error "file contents different"
+			cmp $DIR1/$tdir/$tfile $DIR2/$tdir/$tfile || \
+				error "file contents different"
+			rm -f $DIR1/$tdir/$tfile || error "rm failed"
+			let i=i+1
+		done
+		$LCTL set_param fail_loc=0
+	done
+
+	echo
+	$LCTL set_param fail_loc=0
+	trap
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+
+}
+run_test 525a "delayed iosvc write and O_TRUNC open"
+
+test_525b() {
+	local LOOP=8
+	local IOSZ="65536"
+	local STRP="64K"
+	local OFFSET=77
+
+	iosvc_is_available && skip "iosvc isn't available" && return
+
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+
+	test_mkdir -p $DIR1/$tdir || error "mkdir $DIR1/$tdir failed"
+	mkdir -p $TMP/$tdir || error "mkdir $TMP/$tdir failed"
+	$SETSTRIPE -c -1 -S $STRP $DIR1/$tdir || error "setstripe failed"
+
+	$MULTIOP $TMP/$tdir/$tfile "oO_CREAT:O_RDWR:w${IOSZ}coO_RDWR:O_APPEND:w${IOSZ}c" || \
+		error "multiop failed"
+	$MULTIOP $TMP/$tdir/$tfile "oO_RDWR:O_TRUNC:z${OFFSET}w${IOSZ}c" || \
+		error "multiop failed"
+
+	trap "$LCTL set_param fail_loc=0" EXIT
+
+	local IOSVC_FAIL=(0xe01 0xe02 0xe03 0xe04)
+	for FAIL_LOC in ${IOSVC_FAIL[@]}; do
+		local i=0
+		$LCTL set_param fail_loc=$FAIL_LOC
+		while [ $i -lt $LOOP ]; do
+			echo -n "."
+			$MULTIOP $DIR1/$tdir/$tfile "oO_CREAT:O_RDWR:w${IOSZ}coO_RDWR:O_APPEND:w${IOSZ}c" || \
+				error "multiop failed"
+			$MULTIOP $DIR2/$tdir/$tfile "oO_RDWR:O_TRUNC:z${OFFSET}w${IOSZ}c" || \
+				error "multiop failed"
+			cmp $DIR1/$tdir/$tfile $TMP/$tdir/$tfile || \
+				error "file contents different"
+			cmp $DIR1/$tdir/$tfile $DIR2/$tdir/$tfile || \
+				error "file contents different"
+			rm -f $DIR1/$tdir/$tfile || error "rm failed"
+			let i=i+1
+		done
+		$LCTL set_param fail_loc=0
+	done
+
+	echo
+	$LCTL set_param fail_loc=0
+	trap
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+
+}
+run_test 525b "delayed O_APPEND iosvc write and O_TRUNC open"
+
+test_526() {
+	local LOOP=8
+	local IOSZ="65536"
+	local STRP="64K"
+	local OFFSET=77
+
+	iosvc_is_available && skip "iosvc isn't available" && return
+
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+
+	test_mkdir -p $DIR1/$tdir || error "mkdir $DIR1/$tdir failed"
+	mkdir -p $TMP/$tdir || error "mkdir $TMP/$tdir failed"
+	$SETSTRIPE -c -1 -S $STRP $DIR1/$tdir || error "setstripe failed"
+
+	$MULTIOP $TMP/$tdir/$tfile "Ow${IOSZ}z${OFFSET}w${IOSZ}c" || \
+		error "multiop failed"
+	$MULTIOP $TMP/$tdir/$tfile "OSMWUc" || \
+		error "multiop failed"
+
+	trap "$LCTL set_param fail_loc=0" EXIT
+
+	local IOSVC_FAIL=(0xe01 0xe02 0xe03 0xe04)
+	for FAIL_LOC in ${IOSVC_FAIL[@]}; do
+		local i=0
+		$LCTL set_param fail_loc=$FAIL_LOC
+		while [ $i -lt $LOOP ]; do
+			echo -n "."
+			$MULTIOP $DIR1/$tdir/$tfile "Ow${IOSZ}z${OFFSET}w${IOSZ}c" || \
+				error "multiop failed via $DIR1"
+			$MULTIOP $DIR2/$tdir/$tfile "OSMWUc" || \
+				error "multiop failed via $DIR2"
+			cmp $DIR1/$tdir/$tfile $TMP/$tdir/$tfile || \
+				error "file contents different"
+			cmp $DIR1/$tdir/$tfile $DIR2/$tdir/$tfile || \
+				error "file contents different"
+			rm -f $DIR1/$tdir/$tfile || error "rm failed"
+			let i=i+1
+		done
+		$LCTL set_param fail_loc=0
+	done
+
+	echo
+	$LCTL set_param fail_loc=0
+	trap
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+}
+run_test 526 "delayed iosvc write and mmap-write"
+
+test_527() {
+	local LOOP=256
+	local IOSZ="65536"
+	local STRP="64K"
+	local OFFSET=77
+
+	iosvc_is_available && skip "iosvc isn't available" && return
+
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+
+	test_mkdir -p $DIR1/$tdir || error "mkdir $DIR1/$tdir failed"
+	mkdir -p $TMP/$tdir || error "mkdir $TMP/$tdir failed"
+	$SETSTRIPE -c -1 -S $STRP $DIR1/$tdir || error "setstripe failed"
+
+	$MULTIOP $TMP/$tdir/$tfile "Ow${IOSZ}z${OFFSET}w${IOSZ}c" || \
+		error "multiop failed"
+	$MULTIOP $TMP/$tdir/$tfile "OSMWUc" || \
+		error "multiop failed"
+
+	local i=0
+	while [ $i -lt $LOOP ]; do
+		echo -n "."
+		$MULTIOP $DIR1/$tdir/$tfile "Ow${IOSZ}z${OFFSET}w${IOSZ}c" || \
+			error "multiop failed"
+		$MULTIOP $DIR2/$tdir/$tfile "OSMWUc" || \
+			error "multiop failed"
+		cmp $DIR1/$tdir/$tfile $TMP/$tdir/$tfile || \
+			error "file contents different"
+		cmp $DIR1/$tdir/$tfile $DIR2/$tdir/$tfile || \
+			error "file contents different"
+		rm -f $DIR1/$tdir/$tfile || error "rm failed"
+		let i=i+1
+	done
+	echo
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+}
+run_test 527 "iosvc write and mmap-write"
+
+test_528() {
+	local LOOP=256
+	local IOSZ="65536"
+	local STRP="64K"
+	local OFFSET=77
+
+	iosvc_is_available && skip "iosvc isn't available" && return
+
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+
+	test_mkdir -p $DIR1/$tdir || error "mkdir $DIR1/$tdir failed"
+	mkdir -p $TMP/$tdir || error "mkdir $TMP/$tdir failed"
+	$SETSTRIPE -c -1 -S $STRP $DIR1/$tdir || error "setstripe failed"
+
+	$MULTIOP $TMP/$tdir/$tfile "Ow${IOSZ}SMWUc" || \
+		error "multiop failed"
+	$MULTIOP $TMP/$tdir/$tfile "Ow${IOSZ}z${OFFSET}w${IOSZ}c" || \
+		error "multiop failed"
+
+	local i=0
+	while [ $i -lt $LOOP ]; do
+		echo -n "."
+		$MULTIOP $DIR1/$tdir/$tfile "Ow${IOSZ}SMWUc" || \
+			error "multiop failed"
+		$MULTIOP $DIR2/$tdir/$tfile "Ow${IOSZ}z${OFFSET}w${IOSZ}c" || \
+			error "multiop failed"
+		cmp $DIR1/$tdir/$tfile $TMP/$tdir/$tfile || \
+			error "file contents different"
+		cmp $DIR1/$tdir/$tfile $DIR2/$tdir/$tfile || \
+			error "file contents different"
+		rm -f $DIR1/$tdir/$tfile || error "rm failed"
+		let i=i+1
+	done
+	echo
+	rm -rf $DIR1/$tdir
+	rm -rf $TMP/$tdir
+}
+run_test 528 "mmap-write and iosvc write"
+
+
+cleanup_test530() {
+	remount_client $MOUNT1
+	remount_client $MOUNT2
+}
+
+test_530() {
+	local LOOP=64
+	iosvc_is_available && skip "iosvc isn't available" && return
+
+	cleanup_test530
+	trap "cleanup_test530" EXIT
+
+	umount_client $MOUNT1
+
+	{
+		local n=0
+		while [ $n -le 256 ]; do
+			echo -n "."
+			remount_client $MOUNT1 > /dev/null 2>&1
+			let n=n+1
+		done
+	} &
+
+	{
+		local m=0
+		while [ $m -le 256 ]; do
+			echo -n "."
+			remount_client $MOUNT2 > /dev/null 2>&1
+			let m=m+1
+		done
+	} &
+
+	wait
+	cleanup_test530
+	trap
+}
+run_test 530 "mount and umount the same filesystem"
+
 log "cleanup: ======================================================"
 
 [ "$(mount | grep $MOUNT2)" ] && umount $MOUNT2

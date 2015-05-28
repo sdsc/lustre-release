@@ -784,6 +784,7 @@ int cl_io_loop(const struct lu_env *env, struct cl_io *io)
                 size_t nob;
 
                 io->ci_continue = 0;
+
                 result = cl_io_iter_init(env, io);
                 if (result == 0) {
                         nob    = io->ci_nob;
@@ -815,6 +816,25 @@ int cl_io_loop(const struct lu_env *env, struct cl_io *io)
 	RETURN(result < 0 ? result : 0);
 }
 EXPORT_SYMBOL(cl_io_loop);
+
+int cl_io_single(const struct lu_env *env, struct cl_io *io)
+{
+	int result = 0;
+	size_t nob = io->ci_nob;
+	LINVRNT(cl_io_is_loopable(io));
+	ENTRY;
+
+	result = cl_io_start(env, io);
+	cl_io_end(env, io);
+	cl_io_unlock(env, io);
+	cl_io_rw_advance(env, io, io->ci_nob - nob);
+	cl_io_iter_fini(env, io);
+
+	if (result == 0)
+		result = io->ci_result;
+	RETURN(result < 0 ? result : 0);
+}
+EXPORT_SYMBOL(cl_io_single);
 
 /**
  * Adds io slice to the cl_io.
@@ -856,6 +876,16 @@ void cl_page_list_init(struct cl_page_list *plist)
 	EXIT;
 }
 EXPORT_SYMBOL(cl_page_list_init);
+
+void cl_page_list_init_illegal(struct cl_page_list *plist, void *owner)
+{
+	ENTRY;
+	plist->pl_nr = 0;
+	INIT_LIST_HEAD(&plist->pl_pages);
+	plist->pl_owner = owner;
+	EXIT;
+}
+EXPORT_SYMBOL(cl_page_list_init_illegal);
 
 /**
  * Adds a page to a page list.

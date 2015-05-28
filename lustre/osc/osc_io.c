@@ -364,6 +364,40 @@ static int osc_io_rw_iter_init(const struct lu_env *env,
 	unsigned long max_pages;
 	ENTRY;
 
+	/* ll_iosvc thread cannot return -EDQUOT to original write system call
+	 * that's why we have to check quota here in advance */
+	if (io->ci_iosvc_enqueueing) {
+		int rc = 0;
+		/* check quota only in the IOSVC case */
+		struct cl_object *obj;
+		struct cl_attr   *attr;
+		unsigned int qid[MAXQUOTAS];
+
+		/* this is a kind of weak-check to see if there's some space
+		 * in a target disk ... not so strictly, just check */
+		rc = osc_dry_test_grant(cli, cli->cl_cache->ccc_iosvc_pages);
+		if (rc < 0)
+			RETURN(rc = -EDQUOT);
+
+		io->ci_iosvc_enqueueing = 0;
+
+		obj = cl_object_top(&osc->oo_cl);
+		attr = &osc_env_info(env)->oti_attr;
+
+		cl_object_attr_lock(obj);
+		rc = cl_object_attr_get(env, obj, attr);
+		cl_object_attr_unlock(obj);
+
+		qid[USRQUOTA] = attr->cat_uid;
+		qid[GRPQUOTA] = attr->cat_gid;
+		if (rc == 0 && osc_quota_chkdq(cli, qid) == NO_QUOTA)
+			rc = -EDQUOT;
+		if (rc)
+			RETURN(rc);
+		/* ignore quota limit from now on */
+		io->ci_iosvc_quota_checked = 1;
+	}
+
 	if (cl_io_is_append(io))
 		RETURN(0);
 
@@ -392,6 +426,7 @@ static int osc_io_rw_iter_init(const struct lu_env *env,
 static void osc_io_rw_iter_fini(const struct lu_env *env,
 				const struct cl_io_slice *ios)
 {
+	struct cl_io *io = ios->cis_io;
 	struct osc_io *oio = osc_env_io(env);
 	struct osc_object *osc = cl2osc(ios->cis_obj);
 	struct client_obd *cli = osc_cli(osc);
@@ -401,6 +436,7 @@ static void osc_io_rw_iter_fini(const struct lu_env *env,
 		oio->oi_lru_reserved = 0;
 	}
 	oio->oi_write_osclock = NULL;
+	io->ci_iosvc_quota_checked = 0;
 }
 
 static int osc_io_fault_start(const struct lu_env *env,

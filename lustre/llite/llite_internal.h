@@ -53,6 +53,8 @@
 #include "vvp_internal.h"
 #include "range_lock.h"
 
+#include "range_lock.h"
+
 #ifndef FMODE_EXEC
 #define FMODE_EXEC 0
 #endif
@@ -263,6 +265,11 @@ struct ll_inode_info {
 	struct rw_semaphore		lli_xattrs_list_rwsem;
 	struct mutex			lli_xattrs_enq_lock;
 	struct list_head		lli_xattrs; /* ll_xattr_entry->xe_list */
+
+	struct list_head		lli_iosvc_item_head;
+	int				lli_iosvc_item_count;
+	int				lli_iosvc_rc;
+	spinlock_t			lli_iosvc_lock;
 };
 
 static inline __u32 ll_layout_version_get(struct ll_inode_info *lli)
@@ -795,6 +802,8 @@ void ll_readahead_init(struct inode *inode, struct ll_readahead_state *ras);
 int vvp_io_write_commit(const struct lu_env *env, struct cl_io *io);
 struct ll_cl_context *ll_cl_find(struct file *file);
 void ll_cl_add(struct file *file, const struct lu_env *env, struct cl_io *io);
+void ll_cl_add_illegal(struct file *file, const struct lu_env *env,
+		       struct cl_io *io, void *cookie);
 void ll_cl_remove(struct file *file, const struct lu_env *env);
 
 #ifndef MS_HAS_NEW_AOPS
@@ -1165,6 +1174,25 @@ void et_search_free(struct eacl_table *et, pid_t key);
 void et_init(struct eacl_table *et);
 void et_fini(struct eacl_table *et);
 #endif
+
+/* iosvc.c */
+int  iosvc_setup_service(void);
+void iosvc_cleanup_service(void);
+int  iosvc_is_setup(void);
+int  iosvc_start_service(void);
+void iosvc_stop_service(int force);
+struct lu_env *iosvc_reserve(void);
+int  iosvc_enqueue(struct file *file, const struct lu_env *env,
+		   struct cl_io *io, struct range_lock *range);
+int iosvc_check_avail(struct cl_io *io, enum cl_io_type iot);
+int iosvc_precheck_avail(struct file *file, struct vvp_io_args *args,
+			 enum cl_io_type iot, size_t count);
+int iosvc_duplicate_env(const struct lu_env *env, struct vvp_io_args *args);
+void iosvc_cancel(const struct lu_env *env);
+int iosvc_sync_io(struct ll_inode_info *lli);
+int iosvc_get_and_clear_rc(struct ll_inode_info *lli);
+int iosvc_get_rc(struct ll_inode_info *lli);
+void iosvc_set_rc(struct ll_inode_info *lli, int error);
 
 /* statahead.c */
 
