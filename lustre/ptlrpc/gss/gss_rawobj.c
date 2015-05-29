@@ -79,7 +79,7 @@ void rawobj_free(rawobj_t *obj)
 
         if (obj->len) {
                 LASSERT(obj->data);
-                OBD_FREE_LARGE(obj->data, obj->len);
+		OBD_FREE(obj->data, obj->len);
                 obj->len = 0;
                 obj->data = NULL;
         } else

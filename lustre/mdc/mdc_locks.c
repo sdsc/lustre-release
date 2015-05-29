@@ -765,7 +765,7 @@ static int mdc_finish_enqueue(struct obd_export *exp,
 		}
 		unlock_res_and_lock(lock);
 		if (lmm != NULL)
-			OBD_FREE_LARGE(lmm, lvb_len);
+			OBD_FREE(lmm, lvb_len);
 	}
 	if (lock != NULL)
 		LDLM_LOCK_PUT(lock);

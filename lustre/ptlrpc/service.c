@@ -113,7 +113,7 @@ ptlrpc_free_rqbd(struct ptlrpc_request_buffer_desc *rqbd)
 	svcpt->scp_nrqbds_total--;
 	spin_unlock(&svcpt->scp_lock);
 
-	OBD_FREE_LARGE(rqbd->rqbd_buffer, svcpt->scp_service->srv_buf_size);
+	OBD_FREE(rqbd->rqbd_buffer, svcpt->scp_service->srv_buf_size);
 	OBD_FREE_PTR(rqbd);
 }
 
@@ -1406,7 +1406,7 @@ out_put:
 	class_export_put(reqcopy->rq_export);
 out:
 	sptlrpc_svc_ctx_decref(reqcopy);
-	OBD_FREE_LARGE(reqmsg, req->rq_reqlen);
+	OBD_FREE(reqmsg, req->rq_reqlen);
 out_free:
 	ptlrpc_request_cache_free(reqcopy);
 	RETURN(rc);
@@ -3119,7 +3119,7 @@ ptlrpc_service_purge_all(struct ptlrpc_service *svc)
 					    struct ptlrpc_reply_state,
 					    rs_list);
 			list_del(&rs->rs_list);
-			OBD_FREE_LARGE(rs, svc->srv_max_reply_size);
+			OBD_FREE(rs, svc->srv_max_reply_size);
 		}
 	}
 }
