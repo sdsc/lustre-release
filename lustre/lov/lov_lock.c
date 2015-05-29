@@ -199,8 +199,8 @@ static struct lov_lock *lov_lock_sub_init(const struct lu_env *env,
 			cl_lock_fini(env, &lovlck->lls_sub[i].sub_lock);
 		}
 
-		OBD_FREE_LARGE(lovlck,
-				offsetof(struct lov_lock, lls_sub[nr]));
+		OBD_FREE(lovlck,
+			 offsetof(struct lov_lock, lls_sub[nr]));
 		lovlck = ERR_PTR(result);
 	}
 
@@ -220,8 +220,8 @@ static void lov_lock_fini(const struct lu_env *env,
 		if (lovlck->lls_sub[i].sub_initialized)
 			cl_lock_fini(env, &lovlck->lls_sub[i].sub_lock);
 	}
-	OBD_FREE_LARGE(lovlck,
-		       offsetof(struct lov_lock, lls_sub[lovlck->lls_nr]));
+	OBD_FREE(lovlck,
+		 offsetof(struct lov_lock, lls_sub[lovlck->lls_nr]));
 	EXIT;
 }
 

@@ -1117,7 +1117,7 @@ static int lmv_iocontrol(unsigned int cmd, struct obd_export *exp,
 						    req, uarg);
 				if (rc1 != 0 && rc == 0)
 					rc = rc1;
-				OBD_FREE_LARGE(req, reqlen);
+				OBD_FREE(req, reqlen);
 			}
 		}
 		break;
