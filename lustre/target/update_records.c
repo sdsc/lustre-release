@@ -738,8 +738,8 @@ int tur_update_records_extend(struct thandle_update_records *tur,
 	if (tur->tur_update_records != NULL) {
 		memcpy(record, tur->tur_update_records,
 		       tur->tur_update_records_buf_size);
-		OBD_FREE_LARGE(tur->tur_update_records,
-			       tur->tur_update_records_buf_size);
+		OBD_FREE(tur->tur_update_records,
+			 tur->tur_update_records_buf_size);
 	}
 
 	tur->tur_update_records = record;
@@ -848,8 +848,8 @@ int tur_update_params_extend(struct thandle_update_records *tur,
 	if (tur->tur_update_params != NULL) {
 		memcpy(params, tur->tur_update_params,
 		       tur->tur_update_params_buf_size);
-		OBD_FREE_LARGE(tur->tur_update_params,
-			       tur->tur_update_params_buf_size);
+		OBD_FREE(tur->tur_update_params,
+			 tur->tur_update_params_buf_size);
 	}
 
 	tur->tur_update_params = params;
@@ -919,11 +919,11 @@ static void update_key_fini(const struct lu_context *ctx,
 			 args->ta_alloc_args);
 
 	if (info->uti_tur.tur_update_records != NULL)
-		OBD_FREE_LARGE(info->uti_tur.tur_update_records,
-			       info->uti_tur.tur_update_records_buf_size);
+		OBD_FREE(info->uti_tur.tur_update_records,
+			 info->uti_tur.tur_update_records_buf_size);
 	if (info->uti_tur.tur_update_params != NULL)
-		OBD_FREE_LARGE(info->uti_tur.tur_update_params,
-			       info->uti_tur.tur_update_params_buf_size);
+		OBD_FREE(info->uti_tur.tur_update_params,
+			 info->uti_tur.tur_update_params_buf_size);
 
 	OBD_FREE_PTR(info);
 }

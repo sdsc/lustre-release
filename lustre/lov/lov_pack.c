@@ -222,7 +222,7 @@ static int lov_verify_lmm(void *lmm, int lmm_bytes, __u16 *stripe_count)
                                 sprintf(buffer+2*i, "%.2X", ((char *)lmm)[i]);
 			buffer[sz - 1] = '\0';
                         CERROR("%s\n", buffer);
-                        OBD_FREE_LARGE(buffer, sz);
+			OBD_FREE(buffer, sz);
                 }
                 return -EINVAL;
         }
@@ -438,7 +438,7 @@ int lov_getstripe(struct lov_object *obj, struct lov_stripe_md *lsm,
 
 	GOTO(out_free, rc = 0);
 out_free:
-	OBD_FREE_LARGE(lmmk, lmmk_size);
+	OBD_FREE(lmmk, lmmk_size);
 out:
 	return rc;
 }

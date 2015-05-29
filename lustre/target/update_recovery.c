@@ -356,7 +356,7 @@ void dtrq_destory(struct distribute_txn_replay_req *dtrq)
 	spin_unlock(&dtrq->dtrq_sub_list_lock);
 
 	if (dtrq->dtrq_lur != NULL)
-		OBD_FREE_LARGE(dtrq->dtrq_lur, dtrq->dtrq_lur_size);
+		OBD_FREE(dtrq->dtrq_lur, dtrq->dtrq_lur_size);
 
 	OBD_FREE_PTR(dtrq);
 }
