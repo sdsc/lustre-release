@@ -226,6 +226,7 @@ enum osc_dap_flags {
 struct ldlm_lock *osc_dlmlock_at_pgoff(const struct lu_env *env,
 				       struct osc_object *obj, pgoff_t index,
 				       enum osc_dap_flags flags);
+int osc_object_invalidate(const struct lu_env *env, struct osc_object *osc);
 void osc_pack_req_body(struct ptlrpc_request *req, struct obd_info *oinfo);
 void osc_set_capa_size(struct ptlrpc_request *req,
 		       const struct req_msg_field *field, struct obd_capa *oc);
