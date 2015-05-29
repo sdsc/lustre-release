@@ -576,8 +576,8 @@ int mdt_big_xattr_get(struct mdt_thread_info *info, struct mdt_object *o,
 		if (info->mti_big_lmmsize > 0) {
 			/* free old buffer */
 			LASSERT(info->mti_big_lmm);
-			OBD_FREE_LARGE(info->mti_big_lmm,
-				       info->mti_big_lmmsize);
+			OBD_FREE(info->mti_big_lmm,
+				 info->mti_big_lmmsize);
 			info->mti_big_lmm = NULL;
 			info->mti_big_lmmsize = 0;
 		}
@@ -5738,7 +5738,7 @@ static void mdt_key_fini(const struct lu_context *ctx,
 	struct mdt_thread_info *info = data;
 
 	if (info->mti_big_lmm) {
-		OBD_FREE_LARGE(info->mti_big_lmm, info->mti_big_lmmsize);
+		OBD_FREE(info->mti_big_lmm, info->mti_big_lmmsize);
 		info->mti_big_lmm = NULL;
 		info->mti_big_lmmsize = 0;
 	}

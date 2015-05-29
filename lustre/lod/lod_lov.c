@@ -555,7 +555,7 @@ int lod_ea_store_resize(struct lod_thread_info *info, size_t size)
 		LASSERT(info->lti_ea_store_size < round);
 		CDEBUG(D_INFO, "EA store size %d is not enough, need %d\n",
 		       info->lti_ea_store_size, round);
-		OBD_FREE_LARGE(info->lti_ea_store, info->lti_ea_store_size);
+		OBD_FREE(info->lti_ea_store, info->lti_ea_store_size);
 		info->lti_ea_store = NULL;
 		info->lti_ea_store_size = 0;
 	}
@@ -971,8 +971,8 @@ int lod_load_striping_locked(const struct lu_env *env, struct lod_object *lo)
 		if (rc == sizeof(struct lmv_mds_md_v1)) {
 			rc = lod_load_lmv_shards(env, lo, buf, true);
 			if (buf->lb_buf != info->lti_ea_store) {
-				OBD_FREE_LARGE(info->lti_ea_store,
-					       info->lti_ea_store_size);
+				OBD_FREE(info->lti_ea_store,
+					 info->lti_ea_store_size);
 				info->lti_ea_store = buf->lb_buf;
 				info->lti_ea_store_size = buf->lb_len;
 			}
