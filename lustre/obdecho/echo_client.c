@@ -1417,8 +1417,8 @@ static int echo_big_lmm_get(const struct lu_env *env, struct md_object *o,
 		if (info->eti_big_lmmsize > 0) {
 			/* free old buffer */
 			LASSERT(info->eti_big_lmm);
-			OBD_FREE_LARGE(info->eti_big_lmm,
-				       info->eti_big_lmmsize);
+			OBD_FREE(info->eti_big_lmm,
+				 info->eti_big_lmmsize);
 			info->eti_big_lmm = NULL;
 			info->eti_big_lmmsize = 0;
 		}
@@ -2165,7 +2165,7 @@ out_put:
         lu_object_put(env, parent);
 out_free:
 	LASSERT(info->eti_big_lmm);
-	OBD_FREE_LARGE(info->eti_big_lmm, info->eti_big_lmmsize);
+	OBD_FREE(info->eti_big_lmm, info->eti_big_lmmsize);
 	info->eti_big_lmm = NULL;
 	info->eti_big_lmmsize = 0;
 out_env:

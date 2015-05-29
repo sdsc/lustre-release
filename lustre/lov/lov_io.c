@@ -395,7 +395,7 @@ static void lov_io_fini(const struct lu_env *env, const struct cl_io_slice *ios)
 	if (lio->lis_subs != NULL) {
 		for (i = 0; i < lio->lis_nr_subios; i++)
 			lov_io_sub_fini(env, lio, &lio->lis_subs[i]);
-		OBD_FREE_LARGE(lio->lis_subs,
+		OBD_FREE(lio->lis_subs,
 			 lio->lis_nr_subios * sizeof lio->lis_subs[0]);
 		lio->lis_nr_subios = 0;
 	}

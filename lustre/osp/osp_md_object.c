@@ -169,7 +169,7 @@ int osp_extend_update_buffer(const struct lu_env *env,
 
 	memcpy(ureq, ubuf->ub_req, ubuf->ub_req_size);
 
-	OBD_FREE_LARGE(ubuf->ub_req, ubuf->ub_req_size);
+	OBD_FREE(ubuf->ub_req, ubuf->ub_req_size);
 
 	ubuf->ub_req = ureq;
 	ubuf->ub_req_size = new_size;
