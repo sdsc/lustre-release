@@ -53,6 +53,11 @@
 
 #include "ptlrpc_internal.h"
 
+static int enc_pool_max_memory_mb;
+CFS_MODULE_PARM(enc_pool_max_memory_mb, "i", int, 0644,
+		"Encoding pool max memory (MB), 1/8 of total physical memory by default");
+
+
 /****************************************
  * bulk encryption page pools           *
  ****************************************/
@@ -736,13 +741,17 @@ static inline void enc_pools_free(void)
 
 int sptlrpc_enc_pool_init(void)
 {
+	int mult = 20 - PAGE_CACHE_SHIFT;
+
 	DEF_SHRINKER_VAR(shvar, enc_pools_shrink,
 			 enc_pools_shrink_count, enc_pools_shrink_scan);
-	/*
-	 * maximum capacity is 1/8 of total physical memory.
-	 * is the 1/8 a good number?
-	 */
-	page_pools.epp_max_pages = totalram_pages / 8;
+
+	if (enc_pool_max_memory_mb > 0 &&
+	    enc_pool_max_memory_mb <= (totalram_pages >> mult))
+		page_pools.epp_max_pages = enc_pool_max_memory_mb << mult;
+	else
+		page_pools.epp_max_pages = totalram_pages / 8;
+
 	page_pools.epp_max_pools = npages_to_npools(page_pools.epp_max_pages);
 
 	init_waitqueue_head(&page_pools.epp_waitq);
