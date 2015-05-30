@@ -1542,6 +1542,22 @@ test_24() {
 }
 run_test 24 "check nodemap proc files for LBUGs and Oopses"
 
+test_25() {
+	nodemap_version_check || return 0
+	nodemap_test_setup
+
+	trap nodemap_test_cleanup EXIT
+	local tmpfile=$(mktemp)
+	lctl nodemap_info > $tmpfile
+	cleanup_and_setup_lustre
+	diff -q <(lctl nodemap_info) $tmpfile >& /dev/null ||
+		error "nodemap_info diff after remount"
+
+	nodemap_test_cleanup
+	rm -f $tmpfile
+}
+run_test 25 "test save and reload nodemap config"
+
 log "cleanup: ======================================================"
 
 sec_unsetup() {
