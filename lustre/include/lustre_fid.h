@@ -236,6 +236,7 @@ enum local_oid {
 	MDD_LOV_OBJ_OSEQ	= 4121UL,
 	LFSCK_NAMESPACE_OID     = 4122UL,
 	REMOTE_PARENT_DIR_OID	= 4123UL,
+	NODEMAP_OID		= 4125UL, /* XXX should this be 4124? */
 	/* This definition is obsolete
 	 * SLAVE_LLOG_CATALOGS_OID	= 4124UL,
 	 */
