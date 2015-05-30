@@ -34,6 +34,7 @@
 #include <interval_tree.h>
 
 #define MODULE_STRING "nodemap"
+#define DEFAULT_NODEMAP "default"
 
 /* Default nobody uid and gid values */
 
@@ -102,6 +103,42 @@ struct nodemap_config {
 
 };
 
+/* first 4 bits of the key is the index type */
+struct cluster_key {
+	__u32 id;
+	__u32 unused;
+};
+
+struct range_key {
+	__u32 nodemap_id;
+	__u32 range_id;
+};
+
+struct idmap_key {
+	__u32 nodemap_id;
+	__u32 id_client;
+};
+
+struct nodemap_key {
+	union {
+		struct cluster_key	n;
+		struct range_key	r;
+		struct idmap_key	i;
+		__u64			global;
+	} uid;
+};
+#define nm_idx_get_type(id) (id >> 28)
+#define nm_idx_set_type(id, t) (((id) & 0x0FFFFFFF) | (t << 28))
+
+enum nodemap_idx_type {
+	NODEMAP_EMPTY_IDX = 0,
+	NODEMAP_CLUSTER_IDX = 1,
+	NODEMAP_RANGE_IDX = 2,
+	NODEMAP_UIDMAP_IDX = 3,
+	NODEMAP_GIDMAP_IDX = 4,
+	NODEMAP_GLOBAL_IDX = 15,
+};
+
 struct nodemap_config *nodemap_config_alloc(void);
 void nodemap_config_dealloc(struct nodemap_config *config);
 void nodemap_config_set_active(struct nodemap_config *config);
@@ -156,7 +193,8 @@ int nodemap_add_idmap_helper(struct lu_nodemap *nodemap,
 			     const __u32 map[2]);
 int nodemap_add_range_helper(struct nodemap_config *config,
 			     struct lu_nodemap *nodemap,
-			     const lnet_nid_t nid[2]);
+			     const lnet_nid_t nid[2],
+			     bool save_to_index);
 
 struct rb_node *nm_rb_next_postorder(const struct rb_node *node);
 struct rb_node *nm_rb_first_postorder(const struct rb_root *root);
@@ -175,4 +213,17 @@ void nodemap_putref(struct lu_nodemap *nodemap);
 		n = (pos && nm_rb_next_postorder(&pos->field)) ?	\
 		rb_entry(nm_rb_next_postorder(&pos->field),		\
 		typeof(*pos), field) : NULL)
+
+int nodemap_idx_nodemap_add(struct lu_nodemap *nodemap);
+int nodemap_idx_nodemap_update(struct lu_nodemap *nodemap);
+int nodemap_idx_nodemap_del(struct lu_nodemap *nodemap);
+int nodemap_idx_idmap_add(struct lu_nodemap *nodemap,
+			  enum nodemap_id_type id_type,
+			  const __u32 map[2]);
+int nodemap_idx_idmap_del(struct lu_nodemap *nodemap,
+			  enum nodemap_id_type id_type,
+			  const __u32 map[2]);
+int nodemap_idx_range_add(struct lu_nid_range *range, const lnet_nid_t nid[2]);
+int nodemap_idx_range_del(struct lu_nid_range *range);
+int nodemap_idx_nodemap_activate(const bool value);
 #endif  /* _NODEMAP_INTERNAL_H */

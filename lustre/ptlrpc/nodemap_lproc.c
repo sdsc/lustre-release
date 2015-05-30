@@ -1152,19 +1152,29 @@ int lprocfs_nodemap_register(const char *name,
 	struct proc_dir_entry	*nodemap_proc_entry;
 	int			rc = 0;
 
-	if (is_default)
-		nodemap_proc_entry =
-			lprocfs_register(name, proc_lustre_nodemap_root,
-					 lprocfs_default_nodemap_vars,
-					 nodemap->nm_name);
-	else
-		nodemap_proc_entry =
-			lprocfs_register(name, proc_lustre_nodemap_root,
-					 lprocfs_nodemap_vars,
-					 nodemap->nm_name);
+	nodemap_proc_entry = proc_mkdir(name, proc_lustre_nodemap_root);
 
-	if (IS_ERR(nodemap_proc_entry)) {
-		rc = PTR_ERR(nodemap_proc_entry);
+	if (IS_ERR(nodemap_proc_entry))
+		GOTO(out, rc = PTR_ERR(nodemap_proc_entry));
+
+	/* Use the nodemap name as stored on the PDE as the private data. This
+	 * is so a nodemap struct can be replaced without updating the proc
+	 * entries.
+	 */
+	if (is_default)
+		rc = lprocfs_add_vars(nodemap_proc_entry,
+				      lprocfs_default_nodemap_vars,
+				      (void *)(nodemap_proc_entry->name));
+	else
+		rc = lprocfs_add_vars(nodemap_proc_entry,
+				      lprocfs_nodemap_vars,
+				      (void *)(nodemap_proc_entry->name));
+
+	if (rc != 0)
+		lprocfs_remove(&nodemap_proc_entry);
+
+out:
+	if (rc != 0) {
 		CERROR("cannot create 'nodemap/%s': rc = %d\n", name, rc);
 		nodemap_proc_entry = NULL;
 	}
