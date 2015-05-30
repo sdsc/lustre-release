@@ -1155,6 +1155,10 @@ int ll_readpage(struct file *file, struct page *vmpage)
 		if (likely(!PageUptodate(vmpage))) {
 			cl_page_assume(env, io, page);
 			result = ll_io_read_page(env, io, page);
+			if (result == 0) {
+				task_io_account_read(PAGE_SIZE *
+						     io->ci_queue.c2_qin.pl_nr);
+			}
 		} else {
 			/* Page from a non-object file. */
 			unlock_page(vmpage);
