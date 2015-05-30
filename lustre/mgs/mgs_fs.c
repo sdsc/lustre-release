@@ -119,6 +119,7 @@ int mgs_fs_setup(const struct lu_env *env, struct mgs_device *mgs)
 	struct dt_object	*o;
 	struct lu_fid		 rfid;
 	struct dt_object	*root;
+	struct dt_object	*ncf;
 	int			 rc;
 
 	ENTRY;
@@ -161,6 +162,28 @@ int mgs_fs_setup(const struct lu_env *env, struct mgs_device *mgs)
 
 	mgs->mgs_configs_dir = o;
 
+	ncf = local_index_find_or_create(env, mgs->mgs_los,
+					 mgs->mgs_configs_dir,
+					 LUSTRE_NODEMAP_NAME,
+					 S_IFREG | S_IRUGO | S_IWUSR,
+					 &dt_nodemap_features);
+	if (IS_ERR(ncf))
+		GOTO(out_root, rc = PTR_ERR(ncf));
+
+	if (ncf->do_index_ops == NULL) {
+		rc = ncf->do_ops->do_index_try(env, ncf, &dt_nodemap_features);
+
+		if (rc) {
+			lu_object_put(env, &ncf->do_lu);
+			GOTO(out_root, rc);
+		}
+	}
+	mgs->mgs_obd->obd_nodemap_config_file = nm_config_file_register(ncf);
+	if (mgs->mgs_obd->obd_nodemap_config_file == NULL) {
+		lu_object_put(env, &ncf->do_lu);
+		GOTO(out_root, rc = -ENOMEM);
+	}
+
 	/* create directory to store nid table versions */
 	o = local_file_find_or_create(env, mgs->mgs_los, root, MGS_NIDTBL_DIR,
 				      S_IFDIR | S_IRUGO | S_IWUSR | S_IXUGO);
@@ -197,6 +220,11 @@ int mgs_fs_cleanup(const struct lu_env *env, struct mgs_device *mgs)
 		lu_object_put(env, &mgs->mgs_nidtbl_dir->do_lu);
 		mgs->mgs_nidtbl_dir = NULL;
 	}
+	if (mgs->mgs_obd->obd_nodemap_config_file) {
+		nm_config_file_deregister(mgs->mgs_obd->obd_nodemap_config_file);
+		mgs->mgs_obd->obd_nodemap_config_file = NULL;
+	}
+
 	if (mgs->mgs_los) {
 		local_oid_storage_fini(env, mgs->mgs_los);
 		mgs->mgs_los = NULL;
