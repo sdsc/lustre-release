@@ -44,6 +44,7 @@
 #include <lustre_lib.h>
 #include <lustre/lustre_idl.h>
 #include <lprocfs_status.h>
+#include <lustre_nodemap.h>
 
 #define OBD_STATFS_NODELAY      0x0001  /* requests should be send without delay
                                          * and resends for avoid deadlocks */

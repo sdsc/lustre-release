@@ -63,10 +63,7 @@ struct lu_nodemap {
 	char			 nm_name[LUSTRE_NODEMAP_NAME_LENGTH + 1];
 	/* flags to govern nodemap behavior */
 	bool			 nmf_trust_client_ids:1,
-				 nmf_allow_root_access:1,
-				 nmf_block_lookups:1,
-				 nmf_hmac_required:1,
-				 nmf_encryption_required:1;
+				 nmf_allow_root_access:1;
 	/* unique ID set by MGS */
 	unsigned int		 nm_id;
 	/* nodemap ref counter */
@@ -94,8 +91,17 @@ struct lu_nodemap {
 	struct hlist_node	 nm_hash;
 	struct nodemap_pde	*nm_pde_data;
 
-	/* used when unloading nodemaps */
+	/* used when loading/unloading nodemaps */
 	struct list_head	 nm_list;
+};
+
+/* Store handles to local MGC storage to save config locally. In future
+ * versions of nodemap, mgc will receive the config directly and so this might
+ * not be needed.
+ */
+struct nm_config_file {
+	struct dt_object	*ncf_obj;
+	struct list_head	ncf_list;
 };
 
 void nodemap_activate(const bool value);
@@ -123,4 +129,6 @@ ssize_t nodemap_map_acl(struct lu_nodemap *nodemap, void *buf, size_t size,
 			enum nodemap_tree_type tree_type);
 int nodemap_test_nid(lnet_nid_t nid, char __user *user_buf, __u32 user_buf_len);
 int nodemap_test_id(lnet_nid_t nid, int idtype, __u32 client_id);
+struct nm_config_file *nm_config_file_register(struct dt_object *obj);
+void nm_config_file_deregister(struct nm_config_file *ncf);
 #endif	/* _LUSTRE_NODEMAP_H */
