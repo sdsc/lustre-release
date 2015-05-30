@@ -226,6 +226,11 @@ enum local_oid {
 	OTABLE_IT_OID		= 18UL,
 	OSD_LPF_OID		= 19UL,
 	REPLY_DATA_OID		= 21UL,
+	/* These two definitions are obsolete
+	 * OFD_GROUP0_LAST_OID     = 20UL,
+	 * OFD_GROUP4K_LAST_OID    = 20UL+4096,
+	 */
+	NODEMAP_OID		= 4116UL,
 	OFD_LAST_GROUP_OID	= 4117UL,
 	LLOG_CATALOGS_OID	= 4118UL,
 	MGS_CONFIGS_OID		= 4119UL,
