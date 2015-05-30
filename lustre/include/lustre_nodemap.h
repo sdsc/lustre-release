@@ -47,6 +47,12 @@ enum nodemap_tree_type {
 	NODEMAP_CLIENT_TO_FS,
 };
 
+struct nodemap_pde {
+	char			 npe_name[LUSTRE_NODEMAP_NAME_LENGTH + 1];
+	struct proc_dir_entry	*npe_proc_entry;
+	struct list_head	 npe_list_member;
+};
+
 /** The nodemap id 0 will be the default nodemap. It will have a configuration
  * set by the MGS, but no ranges will be allowed as all NIDs that do not map
  * will be added to the default nodemap
@@ -81,16 +87,24 @@ struct lu_nodemap {
 	struct rb_root		 nm_fs_to_client_gidmap;
 	/* GID map keyed by remote UID */
 	struct rb_root		 nm_client_to_fs_gidmap;
-	/* proc directory entry */
-	struct proc_dir_entry	*nm_proc_entry;
 	/* attached client members of this nodemap */
 	struct mutex		 nm_member_list_lock;
 	struct list_head	 nm_member_list;
 	/* access by nodemap name */
 	struct hlist_node	 nm_hash;
+	struct nodemap_pde	*nm_pde_data;
 
-	/* used when unloading nodemaps */
+	/* used when loading/unloading nodemaps */
 	struct list_head	 nm_list;
+};
+
+/* Store handles to local MGC storage to save config locally. In future
+ * versions of nodemap, mgc will receive the config directly and so this might
+ * not be needed.
+ */
+struct nm_config_file {
+	struct dt_object	*ncf_obj;
+	struct list_head	ncf_list;
 };
 
 void nodemap_activate(const bool value);
@@ -118,4 +132,6 @@ ssize_t nodemap_map_acl(struct lu_nodemap *nodemap, void *buf, size_t size,
 			enum nodemap_tree_type tree_type);
 int nodemap_test_nid(lnet_nid_t nid, char __user *user_buf, __u32 user_buf_len);
 int nodemap_test_id(lnet_nid_t nid, int idtype, __u32 client_id);
+struct nm_config_file *nm_config_file_register(struct dt_object *obj);
+void nm_config_file_deregister(struct nm_config_file *ncf);
 #endif	/* _LUSTRE_NODEMAP_H */

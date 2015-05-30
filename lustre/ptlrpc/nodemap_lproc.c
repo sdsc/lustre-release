@@ -43,6 +43,8 @@
  * yet */
 #define NODEMAP_PROC_DEBUG 1
 
+static struct list_head nodemap_pde_list = LIST_HEAD_INIT(nodemap_pde_list);
+
 /**
  * Reads and prints the idmap for the given nodemap.
  *
@@ -1138,6 +1140,26 @@ int nodemap_procfs_init(void)
 	return rc;
 }
 
+void nodemap_procfs_exit(void)
+{
+	struct nodemap_pde *nm_pde;
+	struct nodemap_pde *tmp;
+
+	lprocfs_remove(&proc_lustre_nodemap_root);
+	list_for_each_entry_safe(nm_pde, tmp, &nodemap_pde_list,
+				 npe_list_member) {
+		list_del(&nm_pde->npe_list_member);
+		OBD_FREE_PTR(nm_pde);
+	}
+}
+
+void lprocfs_nodemap_remove(struct nodemap_pde *nm_pde)
+{
+	lprocfs_remove(&nm_pde->npe_proc_entry);
+	list_del(&nm_pde->npe_list_member);
+	OBD_FREE_PTR(nm_pde);
+}
+
 /**
  * Register the proc directory for a nodemap
  *
@@ -1149,27 +1171,47 @@ int lprocfs_nodemap_register(const char *name,
 			     bool is_default,
 			     struct lu_nodemap *nodemap)
 {
-	struct proc_dir_entry	*nodemap_proc_entry;
-	int			rc = 0;
+	struct nodemap_pde	*nm_entry;
+	int			 rc = 0;
 
+	OBD_ALLOC_PTR(nm_entry);
+	if (nm_entry == NULL)
+		GOTO(out, rc = -ENOMEM);
+
+	nm_entry->npe_proc_entry = proc_mkdir(name, proc_lustre_nodemap_root);
+	if (IS_ERR(nm_entry->npe_proc_entry))
+		GOTO(out, rc = PTR_ERR(nm_entry->npe_proc_entry));
+
+	snprintf(nm_entry->npe_name, sizeof(nm_entry->npe_name), "%s", name);
+
+	/* Use the nodemap name as stored on the PDE as the private data. This
+	 * is so a nodemap struct can be replaced without updating the proc
+	 * entries.
+	 */
 	if (is_default)
-		nodemap_proc_entry =
-			lprocfs_register(name, proc_lustre_nodemap_root,
-					 lprocfs_default_nodemap_vars,
-					 nodemap->nm_name);
+		rc = lprocfs_add_vars(nm_entry->npe_proc_entry,
+				      lprocfs_default_nodemap_vars,
+				      nm_entry->npe_name);
 	else
-		nodemap_proc_entry =
-			lprocfs_register(name, proc_lustre_nodemap_root,
-					 lprocfs_nodemap_vars,
-					 nodemap->nm_name);
+		rc = lprocfs_add_vars(nm_entry->npe_proc_entry,
+				      lprocfs_nodemap_vars,
+				      nm_entry->npe_name);
 
-	if (IS_ERR(nodemap_proc_entry)) {
-		rc = PTR_ERR(nodemap_proc_entry);
+	if (rc != 0)
+		lprocfs_remove(&nm_entry->npe_proc_entry);
+	else
+		list_add(&nm_entry->npe_list_member, &nodemap_pde_list);
+
+out:
+	if (rc != 0) {
 		CERROR("cannot create 'nodemap/%s': rc = %d\n", name, rc);
-		nodemap_proc_entry = NULL;
+		if (nm_entry) {
+			OBD_FREE_PTR(nm_entry);
+			nm_entry = NULL;
+		}
 	}
 
-	nodemap->nm_proc_entry = nodemap_proc_entry;
+	nodemap->nm_pde_data = nm_entry;
 
 	return rc;
 }
