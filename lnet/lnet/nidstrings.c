@@ -82,605 +82,7 @@ libcfs_next_nidstring(void)
 }
 EXPORT_SYMBOL(libcfs_next_nidstring);
 
-static int
-libcfs_lo_str2addr(const char *str, int nob, __u32 *addr)
-{
-	*addr = 0;
-	return 1;
-}
-
-static void
-libcfs_ip_addr2str(__u32 addr, char *str, size_t size)
-{
-	snprintf(str, size, "%u.%u.%u.%u",
-		 (addr >> 24) & 0xff, (addr >> 16) & 0xff,
-		 (addr >> 8) & 0xff, addr & 0xff);
-}
-
-/* CAVEAT EMPTOR XscanfX
- * I use "%n" at the end of a sscanf format to detect trailing junk.  However
- * sscanf may return immediately if it sees the terminating '0' in a string, so
- * I initialise the %n variable to the expected length.  If sscanf sets it;
- * fine, if it doesn't, then the scan ended at the end of the string, which is
- * fine too :) */
-static int
-libcfs_ip_str2addr(const char *str, int nob, __u32 *addr)
-{
-	unsigned int	a;
-	unsigned int	b;
-	unsigned int	c;
-	unsigned int	d;
-	int		n = nob; /* XscanfX */
-
-	/* numeric IP? */
-	if (sscanf(str, "%u.%u.%u.%u%n", &a, &b, &c, &d, &n) >= 4 &&
-	    n == nob &&
-	    (a & ~0xff) == 0 && (b & ~0xff) == 0 &&
-	    (c & ~0xff) == 0 && (d & ~0xff) == 0) {
-		*addr = ((a<<24)|(b<<16)|(c<<8)|d);
-		return 1;
-	}
-	return 0;
-}
-
-/* Used by lnet/config.c so it can't be static */
-int
-cfs_ip_addr_parse(char *str, int len, struct list_head *list)
-{
-	struct cfs_expr_list *el;
-	struct cfs_lstr src;
-	int rc;
-	int i;
-
-	src.ls_str = str;
-	src.ls_len = len;
-	i = 0;
-
-	while (src.ls_str != NULL) {
-		struct cfs_lstr res;
-
-		if (!cfs_gettok(&src, '.', &res)) {
-			rc = -EINVAL;
-			goto out;
-		}
-
-		rc = cfs_expr_list_parse(res.ls_str, res.ls_len, 0, 255, &el);
-		if (rc != 0)
-			goto out;
-
-		list_add_tail(&el->el_link, list);
-		i++;
-	}
-
-	if (i == 4)
-		return 0;
-
-	rc = -EINVAL;
-out:
-	cfs_expr_list_free_list(list);
-
-	return rc;
-}
-
-static int
-libcfs_ip_addr_range_print(char *buffer, int count, struct list_head *list)
-{
-	int i = 0, j = 0;
-	struct cfs_expr_list *el;
-
-	list_for_each_entry(el, list, el_link) {
-		LASSERT(j++ < 4);
-		if (i != 0)
-			i += scnprintf(buffer + i, count - i, ".");
-		i += cfs_expr_list_print(buffer + i, count - i, el);
-	}
-	return i;
-}
-
-/**
- * Matches address (\a addr) against address set encoded in \a list.
- *
- * \retval 1 if \a addr matches
- * \retval 0 otherwise
- */
-int
-cfs_ip_addr_match(__u32 addr, struct list_head *list)
-{
-	struct cfs_expr_list *el;
-	int i = 0;
-
-	list_for_each_entry_reverse(el, list, el_link) {
-		if (!cfs_expr_list_match(addr & 0xff, el))
-			return 0;
-		addr >>= 8;
-		i++;
-	}
-
-	return i == 4;
-}
-
-/**
- * Print the network part of the nidrange \a nr into the specified \a buffer.
- *
- * \retval number of characters written
- */
-static void
-libcfs_decnum_addr2str(__u32 addr, char *str, size_t size)
-{
-	snprintf(str, size, "%u", addr);
-}
-
-static void
-libcfs_hexnum_addr2str(__u32 addr, char *str, size_t size)
-{
-	snprintf(str, size, "0x%x", addr);
-}
-
-static int
-libcfs_num_str2addr(const char *str, int nob, __u32 *addr)
-{
-	int     n;
-
-	n = nob;
-	if (sscanf(str, "0x%x%n", addr, &n) >= 1 && n == nob)
-		return 1;
-
-	n = nob;
-	if (sscanf(str, "0X%x%n", addr, &n) >= 1 && n == nob)
-		return 1;
-
-	n = nob;
-	if (sscanf(str, "%u%n", addr, &n) >= 1 && n == nob)
-		return 1;
-
-	return 0;
-}
-
-/**
- * Nf_parse_addrlist method for networks using numeric addresses.
- *
- * Examples of such networks are gm and elan.
- *
- * \retval 0 if \a str parsed to numeric address
- * \retval errno otherwise
- */
-static int
-libcfs_num_parse(char *str, int len, struct list_head *list)
-{
-	struct cfs_expr_list *el;
-	int	rc;
-
-	rc = cfs_expr_list_parse(str, len, 0, MAX_NUMERIC_VALUE, &el);
-	if (rc == 0)
-		list_add_tail(&el->el_link, list);
-
-	return rc;
-}
-
-static int
-libcfs_num_addr_range_print(char *buffer, int count, struct list_head *list)
-{
-	int i = 0, j = 0;
-	struct cfs_expr_list *el;
-
-	list_for_each_entry(el, list, el_link) {
-		LASSERT(j++ < 1);
-		i += cfs_expr_list_print(buffer + i, count - i, el);
-	}
-	return i;
-}
-
-/*
- * Nf_match_addr method for networks using numeric addresses
- *
- * \retval 1 on match
- * \retval 0 otherwise
- */
-static int
-libcfs_num_match(__u32 addr, struct list_head *numaddr)
-{
-	struct cfs_expr_list *el;
-
-	LASSERT(!list_empty(numaddr));
-	el = list_entry(numaddr->next, struct cfs_expr_list, el_link);
-
-	return cfs_expr_list_match(addr, el);
-}
-
-static bool cfs_ip_is_contiguous(struct list_head *nidlist);
-static void cfs_ip_min_max(struct list_head *nidlist, __u32 *min, __u32 *max);
-static bool cfs_num_is_contiguous(struct list_head *nidlist);
-static void cfs_num_min_max(struct list_head *nidlist, __u32 *min, __u32 *max);
-
-static struct netstrfns  libcfs_netstrfns[] = {
-	{/* .nf_type      */  LOLND,
-	 /* .nf_name      */  "lo",
-	 /* .nf_modname   */  "klolnd",
-	 /* .nf_addr2str  */  libcfs_decnum_addr2str,
-	 /* .nf_str2addr  */  libcfs_lo_str2addr,
-	 /* .nf_parse_addr*/  libcfs_num_parse,
-	 /* .nf_print_addrlist*/  libcfs_num_addr_range_print,
-	 /* .nf_match_addr*/	  libcfs_num_match,
-	 /* .nf_is_contiguous */  cfs_num_is_contiguous,
-	 /* .nf_min_max   */	  cfs_num_min_max},
-	{/* .nf_type      */  SOCKLND,
-	 /* .nf_name      */  "tcp",
-	 /* .nf_modname   */  "ksocklnd",
-	 /* .nf_addr2str  */  libcfs_ip_addr2str,
-	 /* .nf_str2addr  */  libcfs_ip_str2addr,
-	 /* .nf_parse_addrlist*/  cfs_ip_addr_parse,
-	 /* .nf_print_addrlist*/  libcfs_ip_addr_range_print,
-	 /* .nf_match_addr*/	  cfs_ip_addr_match,
-	 /* .nf_is_contiguous */  cfs_ip_is_contiguous,
-	 /* .nf_min_max   */	  cfs_ip_min_max},
-	{/* .nf_type      */  O2IBLND,
-	 /* .nf_name      */  "o2ib",
-	 /* .nf_modname   */  "ko2iblnd",
-	 /* .nf_addr2str  */  libcfs_ip_addr2str,
-	 /* .nf_str2addr  */  libcfs_ip_str2addr,
-	 /* .nf_parse_addrlist*/  cfs_ip_addr_parse,
-	 /* .nf_print_addrlist*/  libcfs_ip_addr_range_print,
-	 /* .nf_match_addr*/	  cfs_ip_addr_match,
-	 /* .nf_is_contiguous */  cfs_ip_is_contiguous,
-	 /* .nf_min_max   */	  cfs_ip_min_max},
-	{/* .nf_type      */  CIBLND,
-	 /* .nf_name      */  "cib",
-	 /* .nf_modname   */  "kciblnd",
-	 /* .nf_addr2str  */  libcfs_ip_addr2str,
-	 /* .nf_str2addr  */  libcfs_ip_str2addr,
-	 /* .nf_parse_addrlist*/  cfs_ip_addr_parse,
-	 /* .nf_print_addrlist*/  libcfs_ip_addr_range_print,
-	 /* .nf_match_addr*/	  cfs_ip_addr_match,
-	 /* .nf_is_contiguous */  cfs_ip_is_contiguous,
-	 /* .nf_min_max   */	  cfs_ip_min_max},
-	{/* .nf_type      */  OPENIBLND,
-	 /* .nf_name      */  "openib",
-	 /* .nf_modname   */  "kopeniblnd",
-	 /* .nf_addr2str  */  libcfs_ip_addr2str,
-	 /* .nf_str2addr  */  libcfs_ip_str2addr,
-	 /* .nf_parse_addrlist*/  cfs_ip_addr_parse,
-	 /* .nf_print_addrlist*/  libcfs_ip_addr_range_print,
-	 /* .nf_match_addr*/	  cfs_ip_addr_match,
-	 /* .nf_is_contiguous */  cfs_ip_is_contiguous,
-	 /* .nf_min_max   */	  cfs_ip_min_max},
-	{/* .nf_type      */  IIBLND,
-	 /* .nf_name      */  "iib",
-	 /* .nf_modname   */  "kiiblnd",
-	 /* .nf_addr2str  */  libcfs_ip_addr2str,
-	 /* .nf_str2addr  */  libcfs_ip_str2addr,
-	 /* .nf_parse_addrlist*/  cfs_ip_addr_parse,
-	 /* .nf_print_addrlist*/  libcfs_ip_addr_range_print,
-	 /* .nf_match_addr*/	  cfs_ip_addr_match,
-	 /* .nf_is_contiguous */  cfs_ip_is_contiguous,
-	 /* .nf_min_max   */	  cfs_ip_min_max},
-	{/* .nf_type      */  VIBLND,
-	 /* .nf_name      */  "vib",
-	 /* .nf_modname   */  "kviblnd",
-	 /* .nf_addr2str  */  libcfs_ip_addr2str,
-	 /* .nf_str2addr  */  libcfs_ip_str2addr,
-	 /* .nf_parse_addrlist*/  cfs_ip_addr_parse,
-	 /* .nf_print_addrlist*/  libcfs_ip_addr_range_print,
-	 /* .nf_match_addr*/	  cfs_ip_addr_match,
-	 /* .nf_is_contiguous */  cfs_ip_is_contiguous,
-	 /* .nf_min_max   */	  cfs_ip_min_max},
-	{/* .nf_type      */  RALND,
-	 /* .nf_name      */  "ra",
-	 /* .nf_modname   */  "kralnd",
-	 /* .nf_addr2str  */  libcfs_ip_addr2str,
-	 /* .nf_str2addr  */  libcfs_ip_str2addr,
-	 /* .nf_parse_addrlist*/  cfs_ip_addr_parse,
-	 /* .nf_print_addrlist*/  libcfs_ip_addr_range_print,
-	 /* .nf_match_addr*/	  cfs_ip_addr_match,
-	 /* .nf_is_contiguous */  cfs_ip_is_contiguous,
-	 /* .nf_min_max   */	  cfs_ip_min_max},
-	{/* .nf_type      */	  QSWLND,
-	 /* .nf_name      */	  "elan",
-	 /* .nf_modname   */	  "kqswlnd",
-	 /* .nf_addr2str  */	  libcfs_decnum_addr2str,
-	 /* .nf_str2addr  */	  libcfs_num_str2addr,
-	 /* .nf_parse_addrlist*/  libcfs_num_parse,
-	 /* .nf_print_addrlist*/  libcfs_num_addr_range_print,
-	 /* .nf_match_addr*/	  libcfs_num_match,
-	 /* .nf_is_contiguous */  cfs_num_is_contiguous,
-	 /* .nf_min_max   */	  cfs_num_min_max},
-	{/* .nf_type      */	  GMLND,
-	 /* .nf_name      */	  "gm",
-	 /* .nf_modname   */	  "kgmlnd",
-	 /* .nf_addr2str  */	  libcfs_hexnum_addr2str,
-	 /* .nf_str2addr  */	  libcfs_num_str2addr,
-	 /* .nf_parse_addrlist*/  libcfs_num_parse,
-	 /* .nf_print_addrlist*/  libcfs_num_addr_range_print,
-	 /* .nf_match_addr*/	  libcfs_num_match,
-	 /* .nf_is_contiguous */  cfs_num_is_contiguous,
-	 /* .nf_min_max   */	  cfs_num_min_max},
-	{/* .nf_type      */	  MXLND,
-	 /* .nf_name      */	  "mx",
-	 /* .nf_modname   */	  "kmxlnd",
-	 /* .nf_addr2str  */	  libcfs_ip_addr2str,
-	 /* .nf_str2addr  */	  libcfs_ip_str2addr,
-	 /* .nf_parse_addrlist*/  cfs_ip_addr_parse,
-	 /* .nf_print_addrlist*/  libcfs_ip_addr_range_print,
-	 /* .nf_match_addr*/	  cfs_ip_addr_match,
-	 /* .nf_is_contiguous */  cfs_ip_is_contiguous,
-	 /* .nf_min_max   */	  cfs_ip_min_max},
-	{/* .nf_type      */	  PTLLND,
-	 /* .nf_name      */	  "ptl",
-	 /* .nf_modname   */	  "kptllnd",
-	 /* .nf_addr2str  */	  libcfs_decnum_addr2str,
-	 /* .nf_str2addr  */	  libcfs_num_str2addr,
-	 /* .nf_parse_addrlist*/  libcfs_num_parse,
-	 /* .nf_print_addrlist*/  libcfs_num_addr_range_print,
-	 /* .nf_match_addr*/	  libcfs_num_match,
-	 /* .nf_is_contiguous */  cfs_num_is_contiguous,
-	 /* .nf_min_max   */	  cfs_num_min_max},
-	{/* .nf_type      */	  GNILND,
-	 /* .nf_name      */	  "gni",
-	 /* .nf_modname   */	  "kgnilnd",
-	 /* .nf_addr2str  */	  libcfs_decnum_addr2str,
-	 /* .nf_str2addr  */	  libcfs_num_str2addr,
-	 /* .nf_parse_addrlist*/  libcfs_num_parse,
-	 /* .nf_print_addrlist*/  libcfs_num_addr_range_print,
-	 /* .nf_match_addr*/	  libcfs_num_match,
-	 /* .nf_is_contiguous */  cfs_num_is_contiguous,
-	 /* .nf_min_max   */	  cfs_num_min_max},
-	{/* .nf_type      */	  GNIIPLND,
-	 /* .nf_name      */	  "gip",
-	 /* .nf_modname   */	  "kgnilnd",
-	 /* .nf_addr2str  */	  libcfs_ip_addr2str,
-	 /* .nf_str2addr  */	  libcfs_ip_str2addr,
-	 /* .nf_parse_addrlist*/  cfs_ip_addr_parse,
-	 /* .nf_print_addrlist*/  libcfs_ip_addr_range_print,
-	 /* .nf_match_addr*/	  cfs_ip_addr_match,
-	 /* .nf_is_contiguous */  cfs_ip_is_contiguous,
-	 /* .nf_min_max   */	  cfs_ip_min_max},
-	 /* placeholder for net0 alias.  It MUST BE THE LAST ENTRY */
-	{/* .nf_type      */  -1},
-};
-
-static const size_t libcfs_nnetstrfns = ARRAY_SIZE(libcfs_netstrfns);
-
-static struct netstrfns *
-libcfs_lnd2netstrfns(__u32 lnd)
-{
-	int	i;
-
-	for (i = 0; i < libcfs_nnetstrfns; i++)
-		if (lnd == libcfs_netstrfns[i].nf_type)
-			return &libcfs_netstrfns[i];
-
-	return NULL;
-}
-
-static struct netstrfns *
-libcfs_namenum2netstrfns(const char *name)
-{
-	struct netstrfns *nf;
-	int               i;
-
-	for (i = 0; i < libcfs_nnetstrfns; i++) {
-		nf = &libcfs_netstrfns[i];
-		if (nf->nf_type >= 0 &&
-		    !strncmp(name, nf->nf_name, strlen(nf->nf_name)))
-			return nf;
-	}
-	return NULL;
-}
-
-static struct netstrfns *
-libcfs_name2netstrfns(const char *name)
-{
-	int    i;
-
-	for (i = 0; i < libcfs_nnetstrfns; i++)
-		if (libcfs_netstrfns[i].nf_type >= 0 &&
-		    !strcmp(libcfs_netstrfns[i].nf_name, name))
-			return &libcfs_netstrfns[i];
-
-	return NULL;
-}
-
-int
-libcfs_isknown_lnd(__u32 lnd)
-{
-	return libcfs_lnd2netstrfns(lnd) != NULL;
-}
-EXPORT_SYMBOL(libcfs_isknown_lnd);
-
-char *
-libcfs_lnd2modname(__u32 lnd)
-{
-	struct netstrfns *nf = libcfs_lnd2netstrfns(lnd);
-
-	return (nf == NULL) ? NULL : nf->nf_modname;
-}
-EXPORT_SYMBOL(libcfs_lnd2modname);
-
-int
-libcfs_str2lnd(const char *str)
-{
-	struct netstrfns *nf = libcfs_name2netstrfns(str);
-
-	if (nf != NULL)
-		return nf->nf_type;
-
-	return -1;
-}
-EXPORT_SYMBOL(libcfs_str2lnd);
-
-char *
-libcfs_lnd2str_r(__u32 lnd, char *buf, size_t buf_size)
-{
-	struct netstrfns *nf;
-
-	nf = libcfs_lnd2netstrfns(lnd);
-	if (nf == NULL)
-		snprintf(buf, buf_size, "?%u?", lnd);
-	else
-		snprintf(buf, buf_size, "%s", nf->nf_name);
-
-	return buf;
-}
-EXPORT_SYMBOL(libcfs_lnd2str_r);
-
-char *
-libcfs_net2str_r(__u32 net, char *buf, size_t buf_size)
-{
-	__u32		  nnum = LNET_NETNUM(net);
-	__u32		  lnd  = LNET_NETTYP(net);
-	struct netstrfns *nf;
-
-	nf = libcfs_lnd2netstrfns(lnd);
-	if (nf == NULL)
-		snprintf(buf, buf_size, "<%u:%u>", lnd, nnum);
-	else if (nnum == 0)
-		snprintf(buf, buf_size, "%s", nf->nf_name);
-	else
-		snprintf(buf, buf_size, "%s%u", nf->nf_name, nnum);
-
-	return buf;
-}
-EXPORT_SYMBOL(libcfs_net2str_r);
-
-char *
-libcfs_nid2str_r(lnet_nid_t nid, char *buf, size_t buf_size)
-{
-	__u32		  addr = LNET_NIDADDR(nid);
-	__u32		  net  = LNET_NIDNET(nid);
-	__u32		  nnum = LNET_NETNUM(net);
-	__u32		  lnd  = LNET_NETTYP(net);
-	struct netstrfns *nf;
-
-	if (nid == LNET_NID_ANY) {
-		strncpy(buf, "<?>", buf_size);
-		buf[buf_size - 1] = '\0';
-		return buf;
-	}
-
-	nf = libcfs_lnd2netstrfns(lnd);
-	if (nf == NULL) {
-		snprintf(buf, buf_size, "%x@<%u:%u>", addr, lnd, nnum);
-	} else {
-		size_t addr_len;
-
-		nf->nf_addr2str(addr, buf, buf_size);
-		addr_len = strlen(buf);
-		if (nnum == 0)
-			snprintf(buf + addr_len, buf_size - addr_len, "@%s",
-				 nf->nf_name);
-		else
-			snprintf(buf + addr_len, buf_size - addr_len, "@%s%u",
-				 nf->nf_name, nnum);
-	}
-
-	return buf;
-}
-EXPORT_SYMBOL(libcfs_nid2str_r);
-
-static struct netstrfns *
-libcfs_str2net_internal(const char *str, __u32 *net)
-{
-	struct netstrfns *nf = NULL;
-	int		  nob;
-	unsigned int	  netnum;
-	int		  i;
-
-	for (i = 0; i < libcfs_nnetstrfns; i++) {
-		nf = &libcfs_netstrfns[i];
-		if (nf->nf_type >= 0 &&
-		    !strncmp(str, nf->nf_name, strlen(nf->nf_name)))
-			break;
-	}
-
-	if (i == libcfs_nnetstrfns)
-		return NULL;
-
-	nob = strlen(nf->nf_name);
-
-	if (strlen(str) == (unsigned int)nob) {
-		netnum = 0;
-	} else {
-		if (nf->nf_type == LOLND) /* net number not allowed */
-			return NULL;
-
-		str += nob;
-		i = strlen(str);
-		if (sscanf(str, "%u%n", &netnum, &i) < 1 ||
-		    i != (int)strlen(str))
-			return NULL;
-	}
-
-	*net = LNET_MKNET(nf->nf_type, netnum);
-	return nf;
-}
-
-__u32
-libcfs_str2net(const char *str)
-{
-	__u32  net;
-
-	if (libcfs_str2net_internal(str, &net) != NULL)
-		return net;
-
-	return LNET_NIDNET(LNET_NID_ANY);
-}
-EXPORT_SYMBOL(libcfs_str2net);
-
-lnet_nid_t
-libcfs_str2nid(const char *str)
-{
-	const char       *sep = strchr(str, '@');
-	struct netstrfns *nf;
-	__u32             net;
-	__u32             addr;
-
-	if (sep != NULL) {
-		nf = libcfs_str2net_internal(sep + 1, &net);
-		if (nf == NULL)
-			return LNET_NID_ANY;
-	} else {
-		sep = str + strlen(str);
-		net = LNET_MKNET(SOCKLND, 0);
-		nf = libcfs_lnd2netstrfns(SOCKLND);
-		LASSERT(nf != NULL);
-	}
-
-	if (!nf->nf_str2addr(str, (int)(sep - str), &addr))
-		return LNET_NID_ANY;
-
-	return LNET_MKNID(net, addr);
-}
-EXPORT_SYMBOL(libcfs_str2nid);
-
-char *
-libcfs_id2str(lnet_process_id_t id)
-{
-	char *str = libcfs_next_nidstring();
-
-	if (id.pid == LNET_PID_ANY) {
-		snprintf(str, LNET_NIDSTR_SIZE,
-			 "LNET_PID_ANY-%s", libcfs_nid2str(id.nid));
-		return str;
-	}
-
-	snprintf(str, LNET_NIDSTR_SIZE, "%s%u-%s",
-		 ((id.pid & LNET_PID_USERFLAG) != 0) ? "U" : "",
-		 (id.pid & ~LNET_PID_USERFLAG), libcfs_nid2str(id.nid));
-	return str;
-}
-EXPORT_SYMBOL(libcfs_id2str);
-
-int
-libcfs_str2anynid(lnet_nid_t *nidp, const char *str)
-{
-	if (!strcmp(str, "*")) {
-		*nidp = LNET_NID_ANY;
-		return 1;
-	}
-
-	*nidp = libcfs_str2nid(str);
-	return *nidp != LNET_NID_ANY;
-}
-EXPORT_SYMBOL(libcfs_str2anynid);
+static struct netstrfns *libcfs_namenum2netstrfns(const char *name);
 
 /**
  * Nid range list syntax.
@@ -999,7 +401,6 @@ cfs_print_network(char *buffer, int count, struct nidrange *nr)
 		return scnprintf(buffer, count, "@%s%u",
 				    nf->nf_name, nr->nr_netnum);
 }
-
 
 /**
  * Print a list of addrrange (\a addrranges) into the specified \a buffer.
@@ -1368,3 +769,609 @@ static void cfs_ip_min_max(struct list_head *nidlist, __u32 *min_nid,
 	if (max_nid != NULL)
 		*max_nid = max_ip_addr;
 }
+
+/*
+ * Functions needed for libcfs_netstrfns
+ */
+static int
+libcfs_lo_str2addr(const char *str, int nob, __u32 *addr)
+{
+	*addr = 0;
+	return 1;
+}
+
+static void
+libcfs_ip_addr2str(__u32 addr, char *str, size_t size)
+{
+	snprintf(str, size, "%u.%u.%u.%u",
+		 (addr >> 24) & 0xff, (addr >> 16) & 0xff,
+		 (addr >> 8) & 0xff, addr & 0xff);
+}
+
+/* CAVEAT EMPTOR XscanfX
+ * I use "%n" at the end of a sscanf format to detect trailing junk.  However
+ * sscanf may return immediately if it sees the terminating '0' in a string, so
+ * I initialise the %n variable to the expected length.  If sscanf sets it;
+ * fine, if it doesn't, then the scan ended at the end of the string, which is
+ * fine too :) */
+static int
+libcfs_ip_str2addr(const char *str, int nob, __u32 *addr)
+{
+	unsigned int	a;
+	unsigned int	b;
+	unsigned int	c;
+	unsigned int	d;
+	int		n = nob; /* XscanfX */
+
+	/* numeric IP? */
+	if (sscanf(str, "%u.%u.%u.%u%n", &a, &b, &c, &d, &n) >= 4 &&
+	    n == nob &&
+	    (a & ~0xff) == 0 && (b & ~0xff) == 0 &&
+	    (c & ~0xff) == 0 && (d & ~0xff) == 0) {
+		*addr = ((a<<24)|(b<<16)|(c<<8)|d);
+		return 1;
+	}
+	return 0;
+}
+
+/* Used by lnet/config.c so it can't be static */
+int
+cfs_ip_addr_parse(char *str, int len, struct list_head *list)
+{
+	struct cfs_expr_list *el;
+	struct cfs_lstr src;
+	int rc;
+	int i;
+
+	src.ls_str = str;
+	src.ls_len = len;
+	i = 0;
+
+	while (src.ls_str != NULL) {
+		struct cfs_lstr res;
+
+		if (!cfs_gettok(&src, '.', &res)) {
+			rc = -EINVAL;
+			goto out;
+		}
+
+		rc = cfs_expr_list_parse(res.ls_str, res.ls_len, 0, 255, &el);
+		if (rc != 0)
+			goto out;
+
+		list_add_tail(&el->el_link, list);
+		i++;
+	}
+
+	if (i == 4)
+		return 0;
+
+	rc = -EINVAL;
+out:
+	cfs_expr_list_free_list(list);
+
+	return rc;
+}
+
+static int
+libcfs_ip_addr_range_print(char *buffer, int count, struct list_head *list)
+{
+	int i = 0, j = 0;
+	struct cfs_expr_list *el;
+
+	list_for_each_entry(el, list, el_link) {
+		LASSERT(j++ < 4);
+		if (i != 0)
+			i += scnprintf(buffer + i, count - i, ".");
+		i += cfs_expr_list_print(buffer + i, count - i, el);
+	}
+	return i;
+}
+
+/**
+ * Matches address (\a addr) against address set encoded in \a list.
+ *
+ * \retval 1 if \a addr matches
+ * \retval 0 otherwise
+ */
+int
+cfs_ip_addr_match(__u32 addr, struct list_head *list)
+{
+	struct cfs_expr_list *el;
+	int i = 0;
+
+	list_for_each_entry_reverse(el, list, el_link) {
+		if (!cfs_expr_list_match(addr & 0xff, el))
+			return 0;
+		addr >>= 8;
+		i++;
+	}
+
+	return i == 4;
+}
+
+/**
+ * Print the network part of the nidrange \a nr into the specified \a buffer.
+ *
+ * \retval number of characters written
+ */
+static void
+libcfs_decnum_addr2str(__u32 addr, char *str, size_t size)
+{
+	snprintf(str, size, "%u", addr);
+}
+
+static void
+libcfs_hexnum_addr2str(__u32 addr, char *str, size_t size)
+{
+	snprintf(str, size, "0x%x", addr);
+}
+
+static int
+libcfs_num_str2addr(const char *str, int nob, __u32 *addr)
+{
+	int     n;
+
+	n = nob;
+	if (sscanf(str, "0x%x%n", addr, &n) >= 1 && n == nob)
+		return 1;
+
+	n = nob;
+	if (sscanf(str, "0X%x%n", addr, &n) >= 1 && n == nob)
+		return 1;
+
+	n = nob;
+	if (sscanf(str, "%u%n", addr, &n) >= 1 && n == nob)
+		return 1;
+
+	return 0;
+}
+
+/**
+ * Nf_parse_addrlist method for networks using numeric addresses.
+ *
+ * Examples of such networks are gm and elan.
+ *
+ * \retval 0 if \a str parsed to numeric address
+ * \retval errno otherwise
+ */
+static int
+libcfs_num_parse(char *str, int len, struct list_head *list)
+{
+	struct cfs_expr_list *el;
+	int	rc;
+
+	rc = cfs_expr_list_parse(str, len, 0, MAX_NUMERIC_VALUE, &el);
+	if (rc == 0)
+		list_add_tail(&el->el_link, list);
+
+	return rc;
+}
+
+static int
+libcfs_num_addr_range_print(char *buffer, int count, struct list_head *list)
+{
+	int i = 0, j = 0;
+	struct cfs_expr_list *el;
+
+	list_for_each_entry(el, list, el_link) {
+		LASSERT(j++ < 1);
+		i += cfs_expr_list_print(buffer + i, count - i, el);
+	}
+	return i;
+}
+
+/*
+ * Nf_match_addr method for networks using numeric addresses
+ *
+ * \retval 1 on match
+ * \retval 0 otherwise
+ */
+static int
+libcfs_num_match(__u32 addr, struct list_head *numaddr)
+{
+	struct cfs_expr_list *el;
+
+	LASSERT(!list_empty(numaddr));
+	el = list_entry(numaddr->next, struct cfs_expr_list, el_link);
+
+	return cfs_expr_list_match(addr, el);
+}
+
+static struct netstrfns  libcfs_netstrfns[] = {
+	{/* .nf_type      */  LOLND,
+	 /* .nf_name      */  "lo",
+	 /* .nf_modname   */  "klolnd",
+	 /* .nf_addr2str  */  libcfs_decnum_addr2str,
+	 /* .nf_str2addr  */  libcfs_lo_str2addr,
+	 /* .nf_parse_addr*/  libcfs_num_parse,
+	 /* .nf_print_addrlist*/  libcfs_num_addr_range_print,
+	 /* .nf_match_addr*/	  libcfs_num_match,
+	 /* .nf_is_contiguous */  cfs_num_is_contiguous,
+	 /* .nf_min_max   */	  cfs_num_min_max},
+	{/* .nf_type      */  SOCKLND,
+	 /* .nf_name      */  "tcp",
+	 /* .nf_modname   */  "ksocklnd",
+	 /* .nf_addr2str  */  libcfs_ip_addr2str,
+	 /* .nf_str2addr  */  libcfs_ip_str2addr,
+	 /* .nf_parse_addrlist*/  cfs_ip_addr_parse,
+	 /* .nf_print_addrlist*/  libcfs_ip_addr_range_print,
+	 /* .nf_match_addr*/	  cfs_ip_addr_match,
+	 /* .nf_is_contiguous */  cfs_ip_is_contiguous,
+	 /* .nf_min_max   */	  cfs_ip_min_max},
+	{/* .nf_type      */  O2IBLND,
+	 /* .nf_name      */  "o2ib",
+	 /* .nf_modname   */  "ko2iblnd",
+	 /* .nf_addr2str  */  libcfs_ip_addr2str,
+	 /* .nf_str2addr  */  libcfs_ip_str2addr,
+	 /* .nf_parse_addrlist*/  cfs_ip_addr_parse,
+	 /* .nf_print_addrlist*/  libcfs_ip_addr_range_print,
+	 /* .nf_match_addr*/	  cfs_ip_addr_match,
+	 /* .nf_is_contiguous */  cfs_ip_is_contiguous,
+	 /* .nf_min_max   */	  cfs_ip_min_max},
+	{/* .nf_type      */  CIBLND,
+	 /* .nf_name      */  "cib",
+	 /* .nf_modname   */  "kciblnd",
+	 /* .nf_addr2str  */  libcfs_ip_addr2str,
+	 /* .nf_str2addr  */  libcfs_ip_str2addr,
+	 /* .nf_parse_addrlist*/  cfs_ip_addr_parse,
+	 /* .nf_print_addrlist*/  libcfs_ip_addr_range_print,
+	 /* .nf_match_addr*/	  cfs_ip_addr_match,
+	 /* .nf_is_contiguous */  cfs_ip_is_contiguous,
+	 /* .nf_min_max   */	  cfs_ip_min_max},
+	{/* .nf_type      */  OPENIBLND,
+	 /* .nf_name      */  "openib",
+	 /* .nf_modname   */  "kopeniblnd",
+	 /* .nf_addr2str  */  libcfs_ip_addr2str,
+	 /* .nf_str2addr  */  libcfs_ip_str2addr,
+	 /* .nf_parse_addrlist*/  cfs_ip_addr_parse,
+	 /* .nf_print_addrlist*/  libcfs_ip_addr_range_print,
+	 /* .nf_match_addr*/	  cfs_ip_addr_match,
+	 /* .nf_is_contiguous */  cfs_ip_is_contiguous,
+	 /* .nf_min_max   */	  cfs_ip_min_max},
+	{/* .nf_type      */  IIBLND,
+	 /* .nf_name      */  "iib",
+	 /* .nf_modname   */  "kiiblnd",
+	 /* .nf_addr2str  */  libcfs_ip_addr2str,
+	 /* .nf_str2addr  */  libcfs_ip_str2addr,
+	 /* .nf_parse_addrlist*/  cfs_ip_addr_parse,
+	 /* .nf_print_addrlist*/  libcfs_ip_addr_range_print,
+	 /* .nf_match_addr*/	  cfs_ip_addr_match,
+	 /* .nf_is_contiguous */  cfs_ip_is_contiguous,
+	 /* .nf_min_max   */	  cfs_ip_min_max},
+	{/* .nf_type      */  VIBLND,
+	 /* .nf_name      */  "vib",
+	 /* .nf_modname   */  "kviblnd",
+	 /* .nf_addr2str  */  libcfs_ip_addr2str,
+	 /* .nf_str2addr  */  libcfs_ip_str2addr,
+	 /* .nf_parse_addrlist*/  cfs_ip_addr_parse,
+	 /* .nf_print_addrlist*/  libcfs_ip_addr_range_print,
+	 /* .nf_match_addr*/	  cfs_ip_addr_match,
+	 /* .nf_is_contiguous */  cfs_ip_is_contiguous,
+	 /* .nf_min_max   */	  cfs_ip_min_max},
+	{/* .nf_type      */  RALND,
+	 /* .nf_name      */  "ra",
+	 /* .nf_modname   */  "kralnd",
+	 /* .nf_addr2str  */  libcfs_ip_addr2str,
+	 /* .nf_str2addr  */  libcfs_ip_str2addr,
+	 /* .nf_parse_addrlist*/  cfs_ip_addr_parse,
+	 /* .nf_print_addrlist*/  libcfs_ip_addr_range_print,
+	 /* .nf_match_addr*/	  cfs_ip_addr_match,
+	 /* .nf_is_contiguous */  cfs_ip_is_contiguous,
+	 /* .nf_min_max   */	  cfs_ip_min_max},
+	{/* .nf_type      */	  QSWLND,
+	 /* .nf_name      */	  "elan",
+	 /* .nf_modname   */	  "kqswlnd",
+	 /* .nf_addr2str  */	  libcfs_decnum_addr2str,
+	 /* .nf_str2addr  */	  libcfs_num_str2addr,
+	 /* .nf_parse_addrlist*/  libcfs_num_parse,
+	 /* .nf_print_addrlist*/  libcfs_num_addr_range_print,
+	 /* .nf_match_addr*/	  libcfs_num_match,
+	 /* .nf_is_contiguous */  cfs_num_is_contiguous,
+	 /* .nf_min_max   */	  cfs_num_min_max},
+	{/* .nf_type      */	  GMLND,
+	 /* .nf_name      */	  "gm",
+	 /* .nf_modname   */	  "kgmlnd",
+	 /* .nf_addr2str  */	  libcfs_hexnum_addr2str,
+	 /* .nf_str2addr  */	  libcfs_num_str2addr,
+	 /* .nf_parse_addrlist*/  libcfs_num_parse,
+	 /* .nf_print_addrlist*/  libcfs_num_addr_range_print,
+	 /* .nf_match_addr*/	  libcfs_num_match,
+	 /* .nf_is_contiguous */  cfs_num_is_contiguous,
+	 /* .nf_min_max   */	  cfs_num_min_max},
+	{/* .nf_type      */	  MXLND,
+	 /* .nf_name      */	  "mx",
+	 /* .nf_modname   */	  "kmxlnd",
+	 /* .nf_addr2str  */	  libcfs_ip_addr2str,
+	 /* .nf_str2addr  */	  libcfs_ip_str2addr,
+	 /* .nf_parse_addrlist*/  cfs_ip_addr_parse,
+	 /* .nf_print_addrlist*/  libcfs_ip_addr_range_print,
+	 /* .nf_match_addr*/	  cfs_ip_addr_match,
+	 /* .nf_is_contiguous */  cfs_ip_is_contiguous,
+	 /* .nf_min_max   */	  cfs_ip_min_max},
+	{/* .nf_type      */	  PTLLND,
+	 /* .nf_name      */	  "ptl",
+	 /* .nf_modname   */	  "kptllnd",
+	 /* .nf_addr2str  */	  libcfs_decnum_addr2str,
+	 /* .nf_str2addr  */	  libcfs_num_str2addr,
+	 /* .nf_parse_addrlist*/  libcfs_num_parse,
+	 /* .nf_print_addrlist*/  libcfs_num_addr_range_print,
+	 /* .nf_match_addr*/	  libcfs_num_match,
+	 /* .nf_is_contiguous */  cfs_num_is_contiguous,
+	 /* .nf_min_max   */	  cfs_num_min_max},
+	{/* .nf_type      */	  GNILND,
+	 /* .nf_name      */	  "gni",
+	 /* .nf_modname   */	  "kgnilnd",
+	 /* .nf_addr2str  */	  libcfs_decnum_addr2str,
+	 /* .nf_str2addr  */	  libcfs_num_str2addr,
+	 /* .nf_parse_addrlist*/  libcfs_num_parse,
+	 /* .nf_print_addrlist*/  libcfs_num_addr_range_print,
+	 /* .nf_match_addr*/	  libcfs_num_match,
+	 /* .nf_is_contiguous */  cfs_num_is_contiguous,
+	 /* .nf_min_max   */	  cfs_num_min_max},
+	{/* .nf_type      */	  GNIIPLND,
+	 /* .nf_name      */	  "gip",
+	 /* .nf_modname   */	  "kgnilnd",
+	 /* .nf_addr2str  */	  libcfs_ip_addr2str,
+	 /* .nf_str2addr  */	  libcfs_ip_str2addr,
+	 /* .nf_parse_addrlist*/  cfs_ip_addr_parse,
+	 /* .nf_print_addrlist*/  libcfs_ip_addr_range_print,
+	 /* .nf_match_addr*/	  cfs_ip_addr_match,
+	 /* .nf_is_contiguous */  cfs_ip_is_contiguous,
+	 /* .nf_min_max   */	  cfs_ip_min_max},
+	 /* placeholder for net0 alias.  It MUST BE THE LAST ENTRY */
+	{/* .nf_type      */  -1},
+};
+
+static const size_t libcfs_nnetstrfns = ARRAY_SIZE(libcfs_netstrfns);
+
+static struct netstrfns *
+libcfs_lnd2netstrfns(__u32 lnd)
+{
+	int	i;
+
+	for (i = 0; i < libcfs_nnetstrfns; i++)
+		if (lnd == libcfs_netstrfns[i].nf_type)
+			return &libcfs_netstrfns[i];
+
+	return NULL;
+}
+
+static struct netstrfns *
+libcfs_namenum2netstrfns(const char *name)
+{
+	struct netstrfns *nf;
+	int               i;
+
+	for (i = 0; i < libcfs_nnetstrfns; i++) {
+		nf = &libcfs_netstrfns[i];
+		if (nf->nf_type >= 0 &&
+		    !strncmp(name, nf->nf_name, strlen(nf->nf_name)))
+			return nf;
+	}
+	return NULL;
+}
+
+static struct netstrfns *
+libcfs_name2netstrfns(const char *name)
+{
+	int    i;
+
+	for (i = 0; i < libcfs_nnetstrfns; i++)
+		if (libcfs_netstrfns[i].nf_type >= 0 &&
+		    !strcmp(libcfs_netstrfns[i].nf_name, name))
+			return &libcfs_netstrfns[i];
+
+	return NULL;
+}
+
+int
+libcfs_isknown_lnd(__u32 lnd)
+{
+	return libcfs_lnd2netstrfns(lnd) != NULL;
+}
+EXPORT_SYMBOL(libcfs_isknown_lnd);
+
+char *
+libcfs_lnd2modname(__u32 lnd)
+{
+	struct netstrfns *nf = libcfs_lnd2netstrfns(lnd);
+
+	return (nf == NULL) ? NULL : nf->nf_modname;
+}
+EXPORT_SYMBOL(libcfs_lnd2modname);
+
+int
+libcfs_str2lnd(const char *str)
+{
+	struct netstrfns *nf = libcfs_name2netstrfns(str);
+
+	if (nf != NULL)
+		return nf->nf_type;
+
+	return -1;
+}
+EXPORT_SYMBOL(libcfs_str2lnd);
+
+char *
+libcfs_lnd2str_r(__u32 lnd, char *buf, size_t buf_size)
+{
+	struct netstrfns *nf;
+
+	nf = libcfs_lnd2netstrfns(lnd);
+	if (nf == NULL)
+		snprintf(buf, buf_size, "?%u?", lnd);
+	else
+		snprintf(buf, buf_size, "%s", nf->nf_name);
+
+	return buf;
+}
+EXPORT_SYMBOL(libcfs_lnd2str_r);
+
+char *
+libcfs_net2str_r(__u32 net, char *buf, size_t buf_size)
+{
+	__u32		  nnum = LNET_NETNUM(net);
+	__u32		  lnd  = LNET_NETTYP(net);
+	struct netstrfns *nf;
+
+	nf = libcfs_lnd2netstrfns(lnd);
+	if (nf == NULL)
+		snprintf(buf, buf_size, "<%u:%u>", lnd, nnum);
+	else if (nnum == 0)
+		snprintf(buf, buf_size, "%s", nf->nf_name);
+	else
+		snprintf(buf, buf_size, "%s%u", nf->nf_name, nnum);
+
+	return buf;
+}
+EXPORT_SYMBOL(libcfs_net2str_r);
+
+char *
+libcfs_nid2str_r(lnet_nid_t nid, char *buf, size_t buf_size)
+{
+	__u32		  addr = LNET_NIDADDR(nid);
+	__u32		  net  = LNET_NIDNET(nid);
+	__u32		  nnum = LNET_NETNUM(net);
+	__u32		  lnd  = LNET_NETTYP(net);
+	struct netstrfns *nf;
+
+	if (nid == LNET_NID_ANY) {
+		strncpy(buf, "<?>", buf_size);
+		buf[buf_size - 1] = '\0';
+		return buf;
+	}
+
+	nf = libcfs_lnd2netstrfns(lnd);
+	if (nf == NULL) {
+		snprintf(buf, buf_size, "%x@<%u:%u>", addr, lnd, nnum);
+	} else {
+		size_t addr_len;
+
+		nf->nf_addr2str(addr, buf, buf_size);
+		addr_len = strlen(buf);
+		if (nnum == 0)
+			snprintf(buf + addr_len, buf_size - addr_len, "@%s",
+				 nf->nf_name);
+		else
+			snprintf(buf + addr_len, buf_size - addr_len, "@%s%u",
+				 nf->nf_name, nnum);
+	}
+
+	return buf;
+}
+EXPORT_SYMBOL(libcfs_nid2str_r);
+
+/* Hack to make Cray DVS to work */
+char *libcfs_nid2str(lnet_nid_t nid)
+{
+	return libcfs_nid2str_r(nid, libcfs_next_nidstring(),
+				LNET_NIDSTR_SIZE);
+}
+EXPORT_SYMBOL(libcfs_nid2str);
+
+static struct netstrfns *
+libcfs_str2net_internal(const char *str, __u32 *net)
+{
+	struct netstrfns *nf = NULL;
+	int		  nob;
+	unsigned int	  netnum;
+	int		  i;
+
+	for (i = 0; i < libcfs_nnetstrfns; i++) {
+		nf = &libcfs_netstrfns[i];
+		if (nf->nf_type >= 0 &&
+		    !strncmp(str, nf->nf_name, strlen(nf->nf_name)))
+			break;
+	}
+
+	if (i == libcfs_nnetstrfns)
+		return NULL;
+
+	nob = strlen(nf->nf_name);
+
+	if (strlen(str) == (unsigned int)nob) {
+		netnum = 0;
+	} else {
+		if (nf->nf_type == LOLND) /* net number not allowed */
+			return NULL;
+
+		str += nob;
+		i = strlen(str);
+		if (sscanf(str, "%u%n", &netnum, &i) < 1 ||
+		    i != (int)strlen(str))
+			return NULL;
+	}
+
+	*net = LNET_MKNET(nf->nf_type, netnum);
+	return nf;
+}
+
+__u32
+libcfs_str2net(const char *str)
+{
+	__u32  net;
+
+	if (libcfs_str2net_internal(str, &net) != NULL)
+		return net;
+
+	return LNET_NIDNET(LNET_NID_ANY);
+}
+EXPORT_SYMBOL(libcfs_str2net);
+
+lnet_nid_t
+libcfs_str2nid(const char *str)
+{
+	const char       *sep = strchr(str, '@');
+	struct netstrfns *nf;
+	__u32             net;
+	__u32             addr;
+
+	if (sep != NULL) {
+		nf = libcfs_str2net_internal(sep + 1, &net);
+		if (nf == NULL)
+			return LNET_NID_ANY;
+	} else {
+		sep = str + strlen(str);
+		net = LNET_MKNET(SOCKLND, 0);
+		nf = libcfs_lnd2netstrfns(SOCKLND);
+		LASSERT(nf != NULL);
+	}
+
+	if (!nf->nf_str2addr(str, (int)(sep - str), &addr))
+		return LNET_NID_ANY;
+
+	return LNET_MKNID(net, addr);
+}
+EXPORT_SYMBOL(libcfs_str2nid);
+
+char *
+libcfs_id2str(lnet_process_id_t id)
+{
+	char *str = libcfs_next_nidstring();
+
+	if (id.pid == LNET_PID_ANY) {
+		snprintf(str, LNET_NIDSTR_SIZE,
+			 "LNET_PID_ANY-%s", libcfs_nid2str(id.nid));
+		return str;
+	}
+
+	snprintf(str, LNET_NIDSTR_SIZE, "%s%u-%s",
+		 ((id.pid & LNET_PID_USERFLAG) != 0) ? "U" : "",
+		 (id.pid & ~LNET_PID_USERFLAG), libcfs_nid2str(id.nid));
+	return str;
+}
+EXPORT_SYMBOL(libcfs_id2str);
+
+int
+libcfs_str2anynid(lnet_nid_t *nidp, const char *str)
+{
+	if (!strcmp(str, "*")) {
+		*nidp = LNET_NID_ANY;
+		return 1;
+	}
+
+	*nidp = libcfs_str2nid(str);
+	return *nidp != LNET_NID_ANY;
+}
+EXPORT_SYMBOL(libcfs_str2anynid);
