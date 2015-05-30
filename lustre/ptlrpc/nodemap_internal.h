@@ -34,6 +34,7 @@
 #include <interval_tree.h>
 
 #define MODULE_STRING "nodemap"
+#define DEFAULT_NODEMAP "default"
 
 /* Default nobody uid and gid values */
 
@@ -102,6 +103,42 @@ struct nodemap_config {
 
 };
 
+/* first 4 bits of the key is the index type */
+struct cluster_key {
+	__u32 ck_id;
+	__u32 unused;
+};
+
+struct range_key {
+	__u32 rk_nodemap_id;
+	__u32 rk_range_id;
+};
+
+struct idmap_key {
+	__u32 ik_nodemap_id;
+	__u32 ik_id_client;
+};
+
+struct nodemap_key {
+	union {
+		struct cluster_key	ck;
+		struct range_key	rk;
+		struct idmap_key	ik;
+		__u64			global;
+	} nk;
+};
+#define nm_idx_get_type(id) (id >> 28)
+#define nm_idx_set_type(id, t) (((id) & 0x0FFFFFFF) | (t << 28))
+
+enum nodemap_idx_type {
+	NODEMAP_EMPTY_IDX = 0,		/* index created with blank record */
+	NODEMAP_CLUSTER_IDX = 1,	/* a nodemap cluster of nodes */
+	NODEMAP_RANGE_IDX = 2,		/* nid range assigned to a nm cluster */
+	NODEMAP_UIDMAP_IDX = 3,		/* uid map assigned to a nm cluster */
+	NODEMAP_GIDMAP_IDX = 4,		/* gid map assigned to a nm cluster */
+	NODEMAP_GLOBAL_IDX = 15,	/* stores nodemap activation status */
+};
+
 struct nodemap_config *nodemap_config_alloc(void);
 void nodemap_config_dealloc(struct nodemap_config *config);
 void nodemap_config_set_active(struct nodemap_config *config);
@@ -120,7 +157,8 @@ struct lu_nid_range *nodemap_range_find(lnet_nid_t start_nid,
 					lnet_nid_t end_nid);
 struct lu_nid_range *range_create(struct nodemap_range_tree *nm_range_tree,
 				  lnet_nid_t start_nid, lnet_nid_t end_nid,
-				  struct lu_nodemap *nodemap);
+				  struct lu_nodemap *nodemap,
+				  unsigned int range_id);
 void range_destroy(struct lu_nid_range *range);
 int range_insert(struct nodemap_range_tree *nm_range_tree,
 		 struct lu_nid_range *data);
@@ -158,7 +196,8 @@ int nodemap_add_idmap_helper(struct lu_nodemap *nodemap,
 			     const __u32 map[2]);
 int nodemap_add_range_helper(struct nodemap_config *config,
 			     struct lu_nodemap *nodemap,
-			     const lnet_nid_t nid[2]);
+			     const lnet_nid_t nid[2],
+			     unsigned int range_id);
 
 struct rb_node *nm_rb_next_postorder(const struct rb_node *node);
 struct rb_node *nm_rb_first_postorder(const struct rb_root *root);
@@ -177,4 +216,17 @@ void nodemap_putref(struct lu_nodemap *nodemap);
 		n = (pos && nm_rb_next_postorder(&pos->field)) ?	\
 		rb_entry(nm_rb_next_postorder(&pos->field),		\
 		typeof(*pos), field) : NULL)
+
+int nodemap_idx_nodemap_add(struct lu_nodemap *nodemap);
+int nodemap_idx_nodemap_update(struct lu_nodemap *nodemap);
+int nodemap_idx_nodemap_del(struct lu_nodemap *nodemap);
+int nodemap_idx_idmap_add(struct lu_nodemap *nodemap,
+			  enum nodemap_id_type id_type,
+			  const __u32 map[2]);
+int nodemap_idx_idmap_del(struct lu_nodemap *nodemap,
+			  enum nodemap_id_type id_type,
+			  const __u32 map[2]);
+int nodemap_idx_range_add(struct lu_nid_range *range, const lnet_nid_t nid[2]);
+int nodemap_idx_range_del(struct lu_nid_range *range);
+int nodemap_idx_nodemap_activate(const bool value);
 #endif  /* _NODEMAP_INTERNAL_H */
