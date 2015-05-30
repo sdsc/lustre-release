@@ -4502,6 +4502,11 @@ test_500()
 
 	test_mkdir -p $DIR/$tdir
 	llapi_hsm_test -d $DIR/$tdir || error "One llapi HSM test failed"
+
+	cleanupall
+	setupall
+
+	check_mem_leak || return 1
 }
 run_test 500 "various LLAPI HSM tests"
 
