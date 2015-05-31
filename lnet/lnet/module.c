@@ -38,7 +38,7 @@
 #include <lnet/lib-lnet.h>
 #include <lnet/lib-dlc.h>
 
-static int config_on_load = 0;
+static int config_on_load;
 CFS_MODULE_PARM(config_on_load, "i", int, 0444,
                 "configure network at module load");
 
