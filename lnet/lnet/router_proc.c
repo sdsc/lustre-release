@@ -27,7 +27,7 @@
 /* This is really lnet_proc.c. You might need to update sanity test 215
  * if any file format is changed. */
 
-static struct ctl_table_header *lnet_table_header = NULL;
+static struct ctl_table_header *lnet_table_header;
 
 #define LNET_LOFFT_BITS		(sizeof(loff_t) * 8)
 /*
@@ -150,7 +150,7 @@ proc_lnet_routes(struct ctl_table *table, int write, void __user *buffer,
 	off = LNET_PROC_HOFF_GET(*ppos);
 	ver = LNET_PROC_VER_GET(*ppos);
 
-        LASSERT (!write);
+	LASSERT(!write);
 
         if (*lenp == 0)
                 return 0;
@@ -164,11 +164,11 @@ proc_lnet_routes(struct ctl_table *table, int write, void __user *buffer,
         if (*ppos == 0) {
                 s += snprintf(s, tmpstr + tmpsiz - s, "Routing %s\n",
                               the_lnet.ln_routing ? "enabled" : "disabled");
-                LASSERT (tmpstr + tmpsiz - s > 0);
+		LASSERT(tmpstr + tmpsiz - s > 0);
 
 		s += snprintf(s, tmpstr + tmpsiz - s, "%-8s %4s %8s %7s %s\n",
 			      "net", "hops", "priority", "state", "router");
-                LASSERT (tmpstr + tmpsiz - s > 0);
+		LASSERT(tmpstr + tmpsiz - s > 0);
 
 		lnet_net_lock(0);
 		ver = (unsigned int)the_lnet.ln_remote_nets_version;
@@ -275,7 +275,7 @@ proc_lnet_routers(struct ctl_table *table, int write, void __user *buffer,
 	off = LNET_PROC_HOFF_GET(*ppos);
 	ver = LNET_PROC_VER_GET(*ppos);
 
-        LASSERT (!write);
+	LASSERT(!write);
 
         if (*lenp == 0)
                 return 0;
@@ -369,7 +369,7 @@ proc_lnet_routers(struct ctl_table *table, int write, void __user *buffer,
                                               pingsent,
                                               cfs_duration_sec(cfs_time_sub(deadline, now)),
                                               down_ni, libcfs_nid2str(nid));
-                        LASSERT (tmpstr + tmpsiz - s > 0);
+			LASSERT(tmpstr + tmpsiz - s > 0);
                 }
 
 		lnet_net_unlock(0);
@@ -433,7 +433,7 @@ proc_lnet_peers(struct ctl_table *table, int write, void __user *buffer,
                               "%-24s %4s %5s %5s %5s %5s %5s %5s %5s %s\n",
                               "nid", "refs", "state", "last", "max",
                               "rtr", "min", "tx", "min", "queue");
-                LASSERT (tmpstr + tmpsiz - s > 0);
+		LASSERT(tmpstr + tmpsiz - s > 0);
 
 		hoff++;
 	} else {
@@ -530,7 +530,7 @@ proc_lnet_peers(struct ctl_table *table, int write, void __user *buffer,
                                       libcfs_nid2str(nid), nrefs, aliveness,
                                       lastalive, maxcr, rtrcr, minrtrcr, txcr,
                                       mintxcr, txqnob);
-                        LASSERT (tmpstr + tmpsiz - s > 0);
+			LASSERT(tmpstr + tmpsiz - s > 0);
 
 		} else { /* peer is NULL */
 			lnet_net_unlock(cpt);
@@ -640,7 +640,7 @@ proc_lnet_nis(struct ctl_table *table, int write, void __user *buffer,
         char      *s;
         int        len;
 
-        LASSERT (!write);
+	LASSERT(!write);
 
         if (*lenp == 0)
                 return 0;
@@ -656,7 +656,7 @@ proc_lnet_nis(struct ctl_table *table, int write, void __user *buffer,
                               "%-24s %6s %5s %4s %4s %4s %5s %5s %5s\n",
                               "nid", "status", "alive", "refs", "peer",
                               "rtr", "max", "tx", "min");
-                LASSERT (tmpstr + tmpsiz - s > 0);
+		LASSERT(tmpstr + tmpsiz - s > 0);
         } else {
 		struct list_head  *n;
                 lnet_ni_t         *ni   = NULL;
