@@ -586,8 +586,9 @@ out_remote_unlock:
 	if (rc < 0)
 		GOTO(out, rc);
 
-	CDEBUG(D_OTHER, "added record "DOSTID": idx: %u, %u\n",
-	       POSTID(&loghandle->lgh_id.lgl_oi), index, rec->lrh_len);
+	CDEBUG(D_OTHER, "added record "DOSTID": idx: %u, len:%u, offset %llu\n",
+	       POSTID(&loghandle->lgh_id.lgl_oi), index, rec->lrh_len,
+	       (long long)lgi->lgi_off);
 	if (reccookie != NULL) {
 		reccookie->lgc_lgl = loghandle->lgh_id;
 		reccookie->lgc_index = index;

@@ -89,15 +89,12 @@ int cdt_llog_process(const struct lu_env *env, struct mdt_device *mdt,
 {
 	struct obd_device	*obd = mdt2obd_dev(mdt);
 	struct llog_ctxt	*lctxt = NULL;
-	struct coordinator	*cdt = &mdt->mdt_coordinator;
 	int			 rc;
 	ENTRY;
 
 	lctxt = llog_get_context(obd, LLOG_AGENT_ORIG_CTXT);
 	if (lctxt == NULL || lctxt->loc_handle == NULL)
 		RETURN(-ENOENT);
-
-	mutex_lock(&cdt->cdt_llog_lock);
 
 	rc = llog_cat_process(env, lctxt->loc_handle, cb, data, 0, 0);
 	if (rc < 0)
@@ -107,7 +104,6 @@ int cdt_llog_process(const struct lu_env *env, struct mdt_device *mdt,
 		rc = 0;
 
 	llog_ctxt_put(lctxt);
-	mutex_unlock(&cdt->cdt_llog_lock);
 	RETURN(rc);
 }
 
@@ -152,8 +148,6 @@ int mdt_agent_record_add(const struct lu_env *env,
 	if (lctxt == NULL || lctxt->loc_handle == NULL)
 		GOTO(free, rc = -ENOENT);
 
-	mutex_lock(&cdt->cdt_llog_lock);
-
 	/* in case of cancel request, the cookie is already set to the
 	 * value of the request cookie to be cancelled
 	 * so we do not change it */
@@ -166,7 +160,6 @@ int mdt_agent_record_add(const struct lu_env *env,
 	if (rc > 0)
 		rc = 0;
 
-	mutex_unlock(&cdt->cdt_llog_lock);
 	llog_ctxt_put(lctxt);
 
 	EXIT;
@@ -205,12 +198,10 @@ static int mdt_agent_record_update_cb(const struct lu_env *env,
 	struct llog_agent_req_rec	*larr;
 	struct data_update_cb		*ducb;
 	int				 rc, i;
-	int				 found;
 	ENTRY;
 
 	larr = (struct llog_agent_req_rec *)hdr;
 	ducb = data;
-	found = 0;
 
 	/* check if all done */
 	if (ducb->cookies_count == ducb->cookies_done)
@@ -237,20 +228,15 @@ static int mdt_agent_record_update_cb(const struct lu_env *env,
 
 			larr->arr_status = ducb->status;
 			larr->arr_req_change = ducb->change_time;
-			rc = mdt_agent_llog_update_rec(env, ducb->mdt, llh,
-						       larr);
+			rc = llog_write(env, llh, hdr, hdr->lrh_index);
 			ducb->cookies_done++;
-			found = 1;
 			break;
 		}
 	}
 
 	if (rc < 0)
-		CERROR("%s: mdt_agent_llog_update_rec() failed, rc = %d\n",
+		CERROR("%s: llog_write() failed, rc = %d\n",
 		       mdt_obd_name(ducb->mdt), rc);
-
-	if (found == 1)
-		RETURN(LLOG_DEL_RECORD);
 
 	RETURN(rc);
 }
@@ -287,35 +273,6 @@ int mdt_agent_record_update(const struct lu_env *env, struct mdt_device *mdt,
 		       mdt_obd_name(mdt), rc,
 		       agent_req_status2name(status),
 		       cookies_count, ducb.cookies_done);
-	RETURN(rc);
-}
-
-/**
- * update a llog record
- *  cdt_llog_lock must be hold
- * \param env [IN] environment
- * \param mdt [IN] mdt device
- * \param llh [IN] llog handle, must be a catalog handle
- * \param larr [IN] record
- * \retval 0 success
- * \retval -ve failure
- */
-int mdt_agent_llog_update_rec(const struct lu_env *env,
-			      struct mdt_device *mdt, struct llog_handle *llh,
-			      struct llog_agent_req_rec *larr)
-{
-	struct llog_rec_hdr	 saved_hdr;
-	int			 rc;
-	ENTRY;
-
-	/* saved old record info */
-	saved_hdr = larr->arr_hdr;
-	/* add new record with updated values */
-	larr->arr_hdr.lrh_id = 0;
-	larr->arr_hdr.lrh_index = 0;
-	rc = llog_cat_add(env, llh->u.phd.phd_cat_handle, &larr->arr_hdr,
-			  NULL);
-	larr->arr_hdr = saved_hdr;
 	RETURN(rc);
 }
 
@@ -456,7 +413,6 @@ static int hsm_actions_show_cb(const struct lu_env *env,
 static int mdt_hsm_actions_proc_show(struct seq_file *s, void *v)
 {
 	struct agent_action_iterator	*aai = s->private;
-	struct coordinator		*cdt = &aai->aai_mdt->mdt_coordinator;
 	int				 rc;
 	ENTRY;
 
@@ -468,11 +424,9 @@ static int mdt_hsm_actions_proc_show(struct seq_file *s, void *v)
 	if (aai->aai_eof)
 		RETURN(0);
 
-	mutex_lock(&cdt->cdt_llog_lock);
 	rc = llog_cat_process(&aai->aai_env, aai->aai_ctxt->loc_handle,
 			      hsm_actions_show_cb, s,
 			      aai->aai_cat_index, aai->aai_index + 1);
-	mutex_unlock(&cdt->cdt_llog_lock);
 	if (rc == 0) /* all llog parsed */
 		aai->aai_eof = true;
 	if (rc == LLOG_PROC_BREAK) /* buffer full */

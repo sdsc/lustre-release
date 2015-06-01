@@ -110,7 +110,6 @@ enum cdt_states { CDT_STOPPED = 0,
 		  CDT_STOPPING };
 
 /* when multiple lock are needed, the lock order is
- * cdt_llog_lock
  * cdt_agent_lock
  * cdt_counter_lock
  * cdt_restore_lock
@@ -128,8 +127,6 @@ struct coordinator {
 						       * counter */
 	__u64			 cdt_last_cookie;     /**< last cookie
 						       * allocated */
-	struct mutex		 cdt_llog_lock;       /**< protect llog
-						       * access */
 	struct rw_semaphore	 cdt_agent_lock;      /**< protect agent list */
 	struct rw_semaphore	 cdt_request_lock;    /**< protect request
 						       * list */
@@ -799,9 +796,6 @@ int mdt_agent_record_add(const struct lu_env *env, struct mdt_device *mdt,
 int mdt_agent_record_update(const struct lu_env *env,
 			    struct mdt_device *mdt, __u64 *cookies,
 			    int cookies_count, enum agent_req_status status);
-int mdt_agent_llog_update_rec(const struct lu_env *env, struct mdt_device *mdt,
-			      struct llog_handle *llh,
-			      struct llog_agent_req_rec *larr);
 
 /* mdt/mdt_hsm_cdt_agent.c */
 extern const struct file_operations mdt_hsm_agent_fops;

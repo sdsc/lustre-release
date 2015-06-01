@@ -327,10 +327,9 @@ static int mdt_coordinator_cb(const struct lu_env *env,
 			pgs.hpk_flags = HP_FLAG_COMPLETED;
 			pgs.hpk_errval = ENOSYS;
 			pgs.hpk_data_version = 0;
-			/* update request state, but do not record in llog, to
-			 * avoid deadlock on cdt_llog_lock
+			/* update request state, and record in llog
 			 */
-			rc = mdt_hsm_update_request_state(hsd->mti, &pgs, 0);
+			rc = mdt_hsm_update_request_state(hsd->mti, &pgs, 1);
 			if (rc)
 				CERROR("%s: Cannot cleanup timed out request: "
 				       DFID" for cookie "LPX64" action=%s\n",
@@ -875,7 +874,6 @@ int mdt_hsm_cdt_init(struct mdt_device *mdt)
 	cdt->cdt_state = CDT_STOPPED;
 
 	init_waitqueue_head(&cdt->cdt_thread.t_ctl_waitq);
-	mutex_init(&cdt->cdt_llog_lock);
 	init_rwsem(&cdt->cdt_agent_lock);
 	init_rwsem(&cdt->cdt_request_lock);
 	mutex_init(&cdt->cdt_restore_lock);
@@ -968,7 +966,6 @@ int mdt_hsm_cdt_start(struct mdt_device *mdt)
 
 	atomic_set(&cdt->cdt_compound_id, cfs_time_current_sec());
 	/* just need to be larger than previous one */
-	/* cdt_last_cookie is protected by cdt_llog_lock */
 	cdt->cdt_last_cookie = cfs_time_current_sec();
 	atomic_set(&cdt->cdt_request_count, 0);
 	cdt->cdt_user_request_mask = (1UL << HSMA_RESTORE);
@@ -1605,10 +1602,13 @@ static int mdt_cancel_all_cb(const struct lu_env *env,
 	    larr->arr_status == ARS_STARTED) {
 		larr->arr_status = ARS_CANCELED;
 		larr->arr_req_change = cfs_time_current_sec();
-		rc = mdt_agent_llog_update_rec(env, hcad->mdt, llh, larr);
-		if (rc == 0)
-			RETURN(LLOG_DEL_RECORD);
+		rc = llog_write(env, llh, hdr, hdr->lrh_index);
 	}
+
+	if (rc < 0)
+		CERROR("%s: llog_write() failed, rc = %d\n",
+		       mdt_obd_name(hcad->mdt), rc);
+
 	RETURN(rc);
 }
 
