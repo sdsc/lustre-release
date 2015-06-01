@@ -971,6 +971,7 @@ int ofd_destroy_by_fid(const struct lu_env *env, struct ofd_device *ofd,
 	struct lustre_handle	 lockh;
 	__u64			 flags = LDLM_FL_AST_DISCARD_DATA;
 	__u64			 rc = 0;
+	bool			 decref_lock = false;
 	ldlm_policy_data_t	 policy = {
 					.l_extent = { 0, OBD_OBJECT_EOF }
 				 };
@@ -990,13 +991,26 @@ int ofd_destroy_by_fid(const struct lu_env *env, struct ofd_device *ofd,
 				    ldlm_blocking_ast, ldlm_completion_ast,
 				    NULL, NULL, 0, LVB_T_NONE, NULL, &lockh);
 
-	/* We only care about the side-effects, just drop the lock. */
+	/**
+	 * If we got the destroy lock, since we only care about the side
+	 * effects, just drop the lock; If we could not get the lock, we still
+	 * continue to destroy the object, those clients which still refer to
+	 * the object's lock will later find out the object has been destroyed,
+	 * since when we reaches here, the object's MDT entry has been deleted,
+	 * we delete the object lest leave an orphan object w/o MDT reference.
+	 */
 	if (rc == ELDLM_OK)
-		ldlm_lock_decref(&lockh, LCK_PW);
+		decref_lock = true;
+	else
+		CDEBUG(D_INFO, "%s: cannot get the destroy lock for "DFID"\n",
+		       ofd_name(ofd), PFID(fid));
 
 	LASSERT(fo != NULL);
 
 	rc = ofd_object_destroy(env, fo, orphan);
+
+	if (decref_lock)
+		ldlm_lock_decref(&lockh, LCK_PW);
 	EXIT;
 
 	ofd_object_put(env, fo);
