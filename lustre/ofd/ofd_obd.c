@@ -1004,6 +1004,7 @@ static int ofd_destroy_by_fid(const struct lu_env *env,
 	struct lustre_handle	 lockh;
 	__u64			 flags = LDLM_FL_AST_DISCARD_DATA;
 	__u64			 rc = 0;
+	bool			 decref_lock = false;
 	ldlm_policy_data_t	 policy = {
 					.l_extent = { 0, OBD_OBJECT_EOF }
 				 };
@@ -1027,11 +1028,14 @@ static int ofd_destroy_by_fid(const struct lu_env *env,
 
 	/* We only care about the side-effects, just drop the lock. */
 	if (rc == ELDLM_OK)
-		ldlm_lock_decref(&lockh, LCK_PW);
+		decref_lock = true;
 
 	LASSERT(fo != NULL);
 
 	rc = ofd_object_destroy(env, fo, orphan);
+
+	if (decref_lock)
+		ldlm_lock_decref(&lockh, LCK_PW);
 	EXIT;
 out:
 	ofd_object_put(env, fo);

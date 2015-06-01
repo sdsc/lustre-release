@@ -1771,7 +1771,7 @@ int ost_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
 		rc = obd_sync(&env, lock->l_export, oinfo,
 			      lock->l_policy_data.l_extent.start,
 			      lock->l_policy_data.l_extent.end, NULL);
-		if (rc)
+		if (rc != 0 && rc != -ENOENT)
 			CERROR("Error %d syncing data on lock cancel\n", rc);
 
 		OBDO_FREE(oa);
