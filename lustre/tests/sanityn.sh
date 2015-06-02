@@ -2916,6 +2916,25 @@ test_77d() { #LU-3266
 }
 run_test 77d "check TRR nrs policy"
 
+test_78() { #LU-6673
+	local rc
+
+	do_facet $SINGLEMDS lctl set_param ost.OSS.*.nrs_policies="fifo"
+	for i in $(seq 1 $OSTCOUNT)
+	do
+		do_facet ost"$i" lctl set_param \
+			ost.OSS.ost_io.nrs_policies="orr" &
+		do_facet ost"$i" lctl set_param \
+			ost.OSS.*.nrs_orr_quantum=1
+		rc=$?
+		[ $rc -eq 0 ] && continue
+		[ $rc -eq 11 ] ||
+			error "Expected set_param to return 0 or EAGAIN"
+	done
+	return 0
+}
+run_test 78 "Enable policy and specify tunings right away"
+
 test_80() {
 	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
 	local MDTIDX=1
