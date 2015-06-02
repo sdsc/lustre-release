@@ -1,4 +1,5 @@
 TBD Intel Corporation
+       * Interop test between 2.5 clients and DNE2 server
        * version 2.8.0
        * See https://wiki.hpdd.intel.com/display/PUB/Lustre+Support+Matrix
          for currently supported client and server kernel versions.
