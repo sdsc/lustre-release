@@ -216,39 +216,6 @@ proc_max_dirty_pages_in_mb(struct ctl_table *table, int write,
 	return rc;
 }
 
-#ifdef RANDOM_FAIL_ALLOC
-static int proc_alloc_fail_rate(struct ctl_table *table, int write,
-				void __user *buffer, size_t *lenp, loff_t *ppos)
-{
-        int rc          = 0;
-
-        if (!table->data || !table->maxlen || !*lenp || (*ppos && !write)) {
-                *lenp = 0;
-                return 0;
-        }
-        if (write) {
-                rc = lprocfs_write_frac_helper(buffer, *lenp,
-                                               (unsigned int*)table->data,
-                                               OBD_ALLOC_FAIL_MULT);
-        } else {
-                char buf[21];
-                int  len;
-
-                len = lprocfs_read_frac_helper(buf, 21,
-                                               *(unsigned int*)table->data,
-                                               OBD_ALLOC_FAIL_MULT);
-                if (len > *lenp)
-                        len = *lenp;
-                buf[len] = '\0';
-		if (copy_to_user(buffer, buf, len))
-                        return -EFAULT;
-                *lenp = len;
-        }
-        *ppos += *lenp;
-        return rc;
-}
-#endif
-
 #ifdef CONFIG_SYSCTL
 static struct ctl_table obd_table[] = {
 	{
@@ -323,16 +290,6 @@ static struct ctl_table obd_table[] = {
 		.mode		= 0644,
 		.proc_handler	= &proc_set_timeout
 	},
-#ifdef RANDOM_FAIL_ALLOC
-	{
-		INIT_CTL_NAME
-		.procname	= "alloc_fail_rate",
-		.data		= &obd_alloc_fail_rate,
-		.maxlen		= sizeof(int),
-		.mode		= 0644,
-		.proc_handler	= &proc_alloc_fail_rate
-	},
-#endif
 	{
 		INIT_CTL_NAME
 		.procname	= "max_dirty_mb",
