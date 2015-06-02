@@ -2916,6 +2916,105 @@ test_77d() { #LU-3266
 }
 run_test 77d "check TRR nrs policy"
 
+tbf_rule_operate()
+{
+	local facet=$1
+	local rule=$2
+
+	do_facet $facet lctl set_param \
+		ost.OSS.ost_io.nrs_tbf_rule=$rule
+	[ $? -ne 0 ] &&
+		error "failed to operate on TBF rules"
+}
+
+test_77e() {
+	for i in $(seq 1 $OSTCOUNT)
+	do
+		do_facet ost"$i" lctl set_param \
+			ost.OSS.ost_io.nrs_policies="tbf\ nid"
+		[ $? -ne 0 ] &&
+			error "failed to set TBF policy"
+	done
+
+	# Only operate rules on ost0 since OSTs might run on the same OSS
+	# Add some rules
+	tbf_rule_operate ost0 "start\ localhost\ {0@lo}\ 1000"
+	tbf_rule_operate ost0 "start\ loginnode\ {192.168.1.1@tcp}\ 100"
+	tbf_rule_operate ost0 "start\ other_clients\ {192.168.*.*@tcp}\ 50"
+	nrs_write_read
+
+	# Change the rules
+	tbf_rule_operate ost0 "change\ localhost\ 1001"
+	tbf_rule_operate ost0 "change\ loginnode\ 101"
+	tbf_rule_operate ost0 "change\ other_clients\ 51"
+	nrs_write_read
+
+	# Stop the rules
+	tbf_rule_operate ost0 "stop\ localhost"
+	tbf_rule_operate ost0 "stop\ loginnode"
+	tbf_rule_operate ost0 "stop\ other_clients"
+	nrs_write_read
+
+	# FIXME: The command that changes policy from tbf-nid to tbf-jobid
+	# directly will be silently igored. In order to walk around it,
+	# the policy should be changed to fifo or any other policy type first.
+	# Otherwise, upcoming 77f test will fail in a weird way.
+	# Please check LU-5580 for more information.
+
+	# Cleanup the TBF policy
+	for i in $(seq 1 $OSTCOUNT)
+	do
+		do_facet ost"$i" lctl set_param \
+			ost.OSS.ost_io.nrs_policies="fifo"
+		[ $? -ne 0 ] &&
+			error "failed to set policy back to fifo"
+	done
+	nrs_write_read
+	return 0
+}
+run_test 77e "check TBF NID nrs policy"
+
+test_77f() {
+	for i in $(seq 1 $OSTCOUNT)
+	do
+		do_facet ost"$i" lctl set_param \
+			ost.OSS.ost_io.nrs_policies="tbf\ jobid"
+		[ $? -ne 0 ] &&
+			error "failed to set TBF policy"
+	done
+
+	# Only operate rules on ost0 since OSTs might run on the same OSS
+	# Add some rules
+	tbf_rule_operate ost0 "start\ user1\ {iozone.500\ dd.500\ tiotest.500}\ 1000"
+	tbf_rule_operate ost0 "start\ iozone_user1\ {iozone.500}\ 100"
+	tbf_rule_operate ost0 "start\ dd_user1\ {dd.500}\ 50"
+	nrs_write_read
+
+	# Change the rules
+	tbf_rule_operate ost0 "change\ user1\ 1001"
+	tbf_rule_operate ost0 "change\ iozone_user1\ 101"
+	tbf_rule_operate ost0 "change\ dd_user1\ 51"
+	nrs_write_read
+
+	# Stop the rules
+	tbf_rule_operate ost0 "stop\ user1"
+	tbf_rule_operate ost0 "stop\ iozone_user1"
+	tbf_rule_operate ost0 "stop\ dd_user1"
+	nrs_write_read
+
+	# Cleanup the TBF policy
+	for i in $(seq 1 $OSTCOUNT)
+	do
+		do_facet ost"$i" lctl set_param \
+			ost.OSS.ost_io.nrs_policies="fifo"
+		[ $? -ne 0 ] &&
+			error "failed to set policy back to fifo"
+	done
+	nrs_write_read
+	return 0
+}
+run_test 77f "check TBF JobID nrs policy"
+
 test_80() {
 	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
 	local MDTIDX=1
