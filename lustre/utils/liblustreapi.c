@@ -1556,6 +1556,7 @@ static int common_param_init(struct find_param *param, char *path)
 			    sizeof(lstat_t) + param->fp_lum_size);
 		return -ENOMEM;
 	}
+	memset(param->fp_lmd, 0, sizeof(lstat_t) + param->fp_lum_size);
 
 	param->fp_lmv_stripe_count = 256;
 	param->fp_lmv_md = malloc(lmv_user_md_size(param->fp_lmv_stripe_count,
@@ -1567,6 +1568,8 @@ static int common_param_init(struct find_param *param, char *path)
 					     LMV_MAGIC_V1));
 		return -ENOMEM;
 	}
+	memset(param->fp_lmv_md, 0, lmv_user_md_size(param->fp_lmv_stripe_count,
+						     LMV_MAGIC_V1));
 
 	param->fp_got_uuids = 0;
 	param->fp_obd_indexes = NULL;
