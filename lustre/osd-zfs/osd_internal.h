@@ -191,6 +191,10 @@ struct osd_thread_info {
 
 	struct lquota_id_info	 oti_qi;
 	struct lu_seq_range	 oti_seq_range;
+
+	/* minimum contiguous size from a write */
+	uint32_t		 oti_size;
+	bool			 oti_contiguous;
 };
 
 extern struct lu_context_key osd_key;

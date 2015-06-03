@@ -610,6 +610,7 @@ static int osd_declare_write_commit(const struct lu_env *env,
 				struct niobuf_local *lnb, int npages,
 				struct thandle *th)
 {
+	struct osd_thread_info *info = osd_oti_get(env);
 	struct osd_object  *obj = osd_dt_obj(dt);
 	struct osd_device  *osd = osd_obj2dev(obj);
 	struct osd_thandle *oh;
@@ -629,6 +630,9 @@ static int osd_declare_write_commit(const struct lu_env *env,
 	LASSERT(npages > 0);
 
 	oh = container_of0(th, struct osd_thandle, ot_super);
+
+	info->oti_size = SPA_MAXBLOCKSIZE;
+	info->oti_contiguous = true;
 
 	for (i = 0; i < npages; i++) {
 		if (last_page && lnb[i].lnb_page->index != (last_page->index + 1))
@@ -673,6 +677,9 @@ static int osd_declare_write_commit(const struct lu_env *env,
 		 * operation is committed, if required. */
 		space += osd_count_not_mapped(obj, offset, size);
 
+		info->oti_contiguous = false;
+		info->oti_size = min(info->oti_size, size);
+
 		offset = lnb[i].lnb_file_offset;
 		size = lnb[i].lnb_len;
 	}
@@ -681,6 +688,7 @@ static int osd_declare_write_commit(const struct lu_env *env,
 		dmu_tx_hold_write(oh->ot_tx, obj->oo_db->db_object,
 				  offset, size);
 		space += osd_count_not_mapped(obj, offset, size);
+		info->oti_size = min(info->oti_size, size);
 	}
 
 	dmu_tx_hold_sa(oh->ot_tx, obj->oo_sa_hdl, 0);
@@ -720,10 +728,64 @@ retry:
 	RETURN(rc);
 }
 
+/**
+ * Policy to grow ZFS block size by write pattern.
+ * Due to the overhead of cow on big blocksize, if the write from client side
+ * is not sequential, it tends to use the minimum contiguous size from the
+ * current write RPC.
+ */
+static int osd_grow_blocksize(struct osd_object *obj, struct osd_thandle *oh,
+			      uint64_t start, uint32_t size, bool contiguous)
+{
+	struct osd_device	*osd = osd_obj2dev(obj);
+	dmu_buf_impl_t		*db = (dmu_buf_impl_t *)obj->oo_db;
+	dnode_t			*dn;
+	uint32_t		 blksz;
+	int			 rc = 0;
+	ENTRY;
+
+	DB_DNODE_ENTER(db);
+	dn = DB_DNODE(db);
+
+	if (dn->dn_maxblkid > 0) /* can't change block size */
+		GOTO(out, rc);
+
+	blksz = dn->dn_datablksz;
+	if (blksz >= osd->od_max_blksz)
+		GOTO(out, rc);
+
+	if (!contiguous) {
+		blksz = size; /* minimum contiguous size from the write */
+	} else  {
+		/* now ZFS can support up to 16MB block size, and if client
+		 * still issues 1MB I/O, it will ensure to utilize maximum
+		 * block size for sequential RPC at least */
+		if (start <= blksz) /* sequential */
+			blksz = (uint32_t)(start + size);
+		else /* sparse write, just guess a size */
+			blksz = size;
+	}
+
+	if (!is_power_of_2(blksz))
+		blksz = size_roundup_power2(blksz);
+	if (blksz > osd->od_max_blksz)
+		blksz = osd->od_max_blksz;
+
+	if (blksz > dn->dn_datablksz) {
+		rc = -dmu_object_set_blocksize(osd->od_os, dn->dn_object,
+					       blksz, 0, oh->ot_tx);
+	}
+	EXIT;
+out:
+	DB_DNODE_EXIT(db);
+	return rc;
+}
+
 static int osd_write_commit(const struct lu_env *env, struct dt_object *dt,
 			struct niobuf_local *lnb, int npages,
 			struct thandle *th)
 {
+	struct osd_thread_info *info = osd_oti_get(env);
 	struct osd_object  *obj  = osd_dt_obj(dt);
 	struct osd_device  *osd = osd_obj2dev(obj);
 	struct osd_thandle *oh;
@@ -737,6 +799,13 @@ static int osd_write_commit(const struct lu_env *env, struct dt_object *dt,
 
 	LASSERT(th != NULL);
 	oh = container_of0(th, struct osd_thandle, ot_super);
+
+	/* adjust block size. Assume the buffers should be sorted. */
+	rc = osd_grow_blocksize(obj, oh, lnb[0].lnb_file_offset,
+				info->oti_size, info->oti_contiguous);
+	if (rc < 0) /* ignore the error */
+		CDEBUG(D_INODE, "obj "DFID": change block size error rc=%d\n",
+		       PFID(lu_object_fid(&dt->do_lu)), rc);
 
 	for (i = 0; i < npages; i++) {
 		CDEBUG(D_INODE, "write %u bytes at %u\n",
