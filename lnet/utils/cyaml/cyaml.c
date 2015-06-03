@@ -1132,8 +1132,11 @@ struct cYAML *cYAML_build_tree(char *yaml_file,
 					     (const unsigned char *) yaml_blk,
 					     yaml_blk_size);
 	} else
-		/* assume that we're getting our input froms stdin */
-		yaml_parser_set_input_file(&parser, stdin);
+		/* We can potentially read directly from stdin, but for
+		 * the purposes of this code we will assume that a YAML
+		 * block or file must be passed in, or else we return
+		 * NULL yaml_parser_set_input_file(&parser, stdin); */
+		return NULL;
 
 	/* Read the event sequence. */
 	while (!done) {

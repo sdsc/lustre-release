@@ -168,7 +168,17 @@ do {							\
 						 IOCTL_CONFIG_SIZE)
 #define IOC_LIBCFS_GET_LNET_STATS	   _IOWR(IOC_LIBCFS_TYPE, 91, \
 						 IOCTL_CONFIG_SIZE)
-#define IOC_LIBCFS_MAX_NR			      91
+#define IOC_LIBCFS_ADD_O2IBS		   _IOWR(IOC_LIBCFS_TYPE, 92, \
+						 IOCTL_CONFIG_SIZE)
+#define IOC_LIBCFS_DEL_O2IBS		   _IOWR(IOC_LIBCFS_TYPE, 93, \
+						 IOCTL_CONFIG_SIZE)
+#define IOC_LIBCFS_GET_O2IBS		   _IOWR(IOC_LIBCFS_TYPE, 94, \
+						 IOCTL_CONFIG_SIZE)
+#define IOC_LIBCFS_CHECK_O2IBS		   _IOWR(IOC_LIBCFS_TYPE, 95, \
+						 IOCTL_CONFIG_SIZE)
+#define IOC_LIBCFS_GET_NET_STATUS	   _IOWR(IOC_LIBCFS_TYPE, 96, \
+						 IOCTL_LIBCFS_TYPE)
+#define IOC_LIBCFS_MAX_NR			      97
 
 static inline int libcfs_ioctl_packlen(struct libcfs_ioctl_data *data)
 {

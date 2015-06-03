@@ -94,73 +94,72 @@ lnet_parse_port (int *port, char *str)
 
 #ifdef HAVE_GETHOSTBYNAME
 static struct hostent *
-ptl_gethostbyname(char * hname) {
-        struct hostent *he;
-        he = gethostbyname(hname);
-        if (!he) {
-                switch(h_errno) {
-                case HOST_NOT_FOUND:
-                case NO_ADDRESS:
-                        fprintf(stderr, "Unable to resolve hostname: %s\n",
-                                hname);
-                        break;
-                default:
-                        fprintf(stderr, "gethostbyname error for %s: %s\n",
-                                hname, strerror(h_errno));
-                        break;
-                }
-                return NULL;
-        }
-        return he;
+lnet_gethostbyname(char *hname) {
+	struct hostent *he;
+	he = gethostbyname(hname);
+	if (!he) {
+		switch (h_errno) {
+		case HOST_NOT_FOUND:
+		case NO_ADDRESS:
+			fprintf(stderr, "Unable to resolve hostname: %s\n",
+				hname);
+			break;
+		default:
+			fprintf(stderr, "gethostbyname error for %s: %s\n",
+				hname, strerror(h_errno));
+			break;
+		}
+		return NULL;
+	}
+	return he;
 }
 #endif
 
 int
-lnet_parse_ipquad (__u32 *ipaddrp, char *str)
+lnet_parse_ipquad(__u32 *ipaddrp, char *str)
 {
-        int             a;
-        int             b;
-        int             c;
-        int             d;
+	int a;
+	int b;
+	int c;
+	int d;
 
-        if (sscanf (str, "%d.%d.%d.%d", &a, &b, &c, &d) == 4 &&
-            (a & ~0xff) == 0 && (b & ~0xff) == 0 &&
-            (c & ~0xff) == 0 && (d & ~0xff) == 0)
-        {
-                *ipaddrp = (a<<24)|(b<<16)|(c<<8)|d;
-                return (0);
-        }
+	if (sscanf(str, "%d.%d.%d.%d", &a, &b, &c, &d) == 4 &&
+	    (a & ~0xff) == 0 && (b & ~0xff) == 0 &&
+	    (c & ~0xff) == 0 && (d & ~0xff) == 0) {
+		*ipaddrp = (a<<24)|(b<<16)|(c<<8)|d;
+		return 0;
+	}
 
-        return (-1);
+	return -1;
 }
 
 int
-lnet_parse_ipaddr (__u32 *ipaddrp, char *str)
+lnet_parse_ipaddr(__u32 *ipaddrp, char *str)
 {
 #ifdef HAVE_GETHOSTBYNAME
-        struct hostent *he;
+	struct hostent *he;
 #endif
 
-        if (!strcmp (str, "_all_")) {
-                *ipaddrp = 0;
-                return (0);
-        }
+	if (!strcmp(str, "_all_")) {
+		*ipaddrp = 0;
+		return 0;
+	}
 
-        if (lnet_parse_ipquad(ipaddrp, str) == 0)
-                return (0);
+	if (lnet_parse_ipquad(ipaddrp, str) == 0)
+		return 0;
 
 #ifdef HAVE_GETHOSTBYNAME
-        if ((('a' <= str[0] && str[0] <= 'z') ||
-             ('A' <= str[0] && str[0] <= 'Z')) &&
-             (he = ptl_gethostbyname (str)) != NULL) {
-                __u32 addr = *(__u32 *)he->h_addr;
+	if ((('a' <= str[0] && str[0] <= 'z') ||
+	     ('A' <= str[0] && str[0] <= 'Z')) &&
+	     (he = lnet_gethostbyname(str)) != NULL) {
+		__u32 addr = *(__u32 *)he->h_addr;
 
-                *ipaddrp = ntohl(addr);         /* HOST byte order */
-                return (0);
-        }
+		*ipaddrp = ntohl(addr);         /* HOST byte order */
+		return 0;
+	}
 #endif
 
-        return (-1);
+	return -1;
 }
 
 char *
