@@ -938,7 +938,7 @@ static int osd_mount(const struct lu_env *env,
 		GOTO(err, rc);
 
 	o->od_xattr_in_sa = B_TRUE;
-	o->od_max_blksz = SPA_OLD_MAXBLOCKSIZE;
+	o->od_max_blksz = min_t(uint64_t, SPA_MAXBLOCKSIZE, ONE_MB_BRW_SIZE);
 
 	rc = osd_objset_register_callbacks(o);
 	if (rc)

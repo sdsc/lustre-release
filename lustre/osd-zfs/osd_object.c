@@ -1292,16 +1292,9 @@ static dmu_buf_t *osd_mkreg(const struct lu_env *env, struct osd_object *obj,
 	if (rc)
 		return ERR_PTR(rc);
 
-	/*
-	 * XXX: This heuristic is non-optimal.  It would be better to
-	 * increase the blocksize up to osd->od_max_blksz during the write.
-	 * This is exactly how the ZPL behaves and it ensures that the right
-	 * blocksize is selected based on the file size rather than the
-	 * making broad assumptions based on the osd type.
-	 */
 	if (!lu_device_is_md(osd2lu_dev(osd))) {
 		rc = -dmu_object_set_blocksize(osd->od_os, db->db_object,
-					       osd->od_max_blksz, 0, oh->ot_tx);
+					       PAGE_CACHE_SIZE, 0, oh->ot_tx);
 		if (unlikely(rc)) {
 			CERROR("%s: can't change blocksize: %d\n",
 			       osd->od_svname, rc);
