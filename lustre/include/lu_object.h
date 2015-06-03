@@ -439,6 +439,44 @@ struct lu_attr {
         __u64          la_valid;
 };
 
+static inline void lu_attr_cpu_to_le(struct lu_attr *dst_attr,
+				     struct lu_attr *src_attr)
+{
+	dst_attr->la_size = cpu_to_le64(src_attr->la_size);
+	dst_attr->la_mtime = cpu_to_le64(src_attr->la_mtime);
+	dst_attr->la_atime = cpu_to_le64(src_attr->la_atime);
+	dst_attr->la_ctime = cpu_to_le64(src_attr->la_ctime);
+	dst_attr->la_blocks = cpu_to_le64(src_attr->la_blocks);
+	dst_attr->la_mode = cpu_to_le32(src_attr->la_mode);
+	dst_attr->la_uid = cpu_to_le32(src_attr->la_uid);
+	dst_attr->la_gid = cpu_to_le32(src_attr->la_gid);
+	dst_attr->la_flags = cpu_to_le32(src_attr->la_flags);
+	dst_attr->la_nlink = cpu_to_le32(src_attr->la_nlink);
+	dst_attr->la_blkbits = cpu_to_le32(src_attr->la_blkbits);
+	dst_attr->la_blksize = cpu_to_le32(src_attr->la_blksize);
+	dst_attr->la_rdev = cpu_to_le32(src_attr->la_rdev);
+	dst_attr->la_valid = cpu_to_le64(src_attr->la_valid);
+}
+
+static inline void lu_attr_le_to_cpu(struct lu_attr *dst_attr,
+				     struct lu_attr *src_attr)
+{
+	dst_attr->la_size = le64_to_cpu(src_attr->la_size);
+	dst_attr->la_mtime = le64_to_cpu(src_attr->la_mtime);
+	dst_attr->la_atime = le64_to_cpu(src_attr->la_atime);
+	dst_attr->la_ctime = le64_to_cpu(src_attr->la_ctime);
+	dst_attr->la_blocks = le64_to_cpu(src_attr->la_blocks);
+	dst_attr->la_mode = le32_to_cpu(src_attr->la_mode);
+	dst_attr->la_uid = le32_to_cpu(src_attr->la_uid);
+	dst_attr->la_gid = le32_to_cpu(src_attr->la_gid);
+	dst_attr->la_flags = le32_to_cpu(src_attr->la_flags);
+	dst_attr->la_nlink = le32_to_cpu(src_attr->la_nlink);
+	dst_attr->la_blkbits = le32_to_cpu(src_attr->la_blkbits);
+	dst_attr->la_blksize = le32_to_cpu(src_attr->la_blksize);
+	dst_attr->la_rdev = le32_to_cpu(src_attr->la_rdev);
+	dst_attr->la_valid = le64_to_cpu(src_attr->la_valid);
+}
+
 /** Bit-mask of valid attributes */
 enum la_valid {
         LA_ATIME = 1 << 0,
@@ -495,6 +533,11 @@ enum lu_object_header_flags {
 	 * Mark this object has already been taken out of cache.
 	 */
 	LU_OBJECT_UNHASHED = 1,
+	/* Mark this object is top object of some sub stripes.
+	 * (for striped dir). */
+//	LU_OBJECT_MASTER_STRIPED = 2,
+	LU_OBJECT_SUB_STRIPED=3,
+	LU_OBJECT_LLOG_OBJECT=4,
 };
 
 enum lu_object_header_attr {
@@ -860,6 +903,34 @@ static inline __u32 lu_object_attr(const struct lu_object *o)
 {
 	LASSERT(lu_object_exists(o) != 0);
         return o->lo_header->loh_attr;
+}
+
+static inline void lu_dir_ref_add(struct lu_object *o,
+				     const char *scope,
+				     const void *source)
+{
+	lu_ref_debug_add(&o->lo_header->loh_reference, scope, source);
+}
+
+static inline void lu_dir_ref_add_at(struct lu_object *o,
+					struct lu_ref_link *link,
+					const char *scope,
+					const void *source)
+{
+	lu_ref_debug_add_at(&o->lo_header->loh_reference, link, scope, source);
+}
+
+static inline void lu_dir_ref_del(struct lu_object *o,
+                                     const char *scope, const void *source)
+{
+        lu_ref_debug_del(&o->lo_header->loh_reference, scope, source);
+}
+
+static inline void lu_dir_ref_del_at(struct lu_object *o,
+                                        struct lu_ref_link *link,
+                                        const char *scope, const void *source)
+{
+        lu_ref_debug_del_at(&o->lo_header->loh_reference, link, scope, source);
 }
 
 static inline void lu_object_ref_add(struct lu_object *o,

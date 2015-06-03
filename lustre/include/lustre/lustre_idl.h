@@ -983,6 +983,9 @@ struct lu_orphan_ent {
 };
 void lustre_swab_orphan_ent(struct lu_orphan_ent *ent);
 
+struct update_ops;
+void lustre_swab_update_ops(struct update_ops *uops, unsigned int op_count);
+
 /** @} lu_fid */
 
 /** \defgroup lu_dir lu_dir
@@ -3417,13 +3420,6 @@ struct llog_gen_rec {
 	struct llog_rec_tail	lgr_tail;
 };
 
-/* On-disk header structure of each log object, stored in little endian order */
-#define LLOG_CHUNK_SIZE         8192
-#define LLOG_HEADER_SIZE        (96)
-#define LLOG_BITMAP_BYTES       (LLOG_CHUNK_SIZE - LLOG_HEADER_SIZE)
-
-#define LLOG_MIN_REC_SIZE       (24) /* round(llog_rec_hdr + llog_rec_tail) */
-
 /* flags for the logs */
 enum llog_flag {
 	LLOG_F_ZAP_WHEN_EMPTY	= 0x1,
@@ -3434,24 +3430,46 @@ enum llog_flag {
 	LLOG_F_EXT_MASK = LLOG_F_EXT_JOBID,
 };
 
+/* On-disk header structure of each log object, stored in little endian order */
+#define LLOG_MIN_CHUNK_SIZE	8192
+#define LLOG_HEADER_SIZE        (96) /* sizeof (llog_log_hdr) + sizeof(llh_tail)
+				      * - sizeof(llh_bitmap) */
+#define LLOG_BITMAP_BYTES       (LLOG_MIN_CHUNK_SIZE - LLOG_HEADER_SIZE)
+#define LLOG_MIN_REC_SIZE       (24) /* round(llog_rec_hdr + llog_rec_tail) */
+
 struct llog_log_hdr {
 	struct llog_rec_hdr	llh_hdr;
 	__s64			llh_timestamp;
-        __u32                   llh_count;
-        __u32                   llh_bitmap_offset;
-        __u32                   llh_size;
-        __u32                   llh_flags;
-        __u32                   llh_cat_idx;
-        /* for a catalog the first plain slot is next to it */
-        struct obd_uuid         llh_tgtuuid;
-        __u32                   llh_reserved[LLOG_HEADER_SIZE/sizeof(__u32) - 23];
-        __u32                   llh_bitmap[LLOG_BITMAP_BYTES/sizeof(__u32)];
-        struct llog_rec_tail    llh_tail;
+	__u32			llh_count;
+	__u32			llh_bitmap_offset;
+	__u32			llh_size;
+	__u32			llh_flags;
+	__u32			llh_cat_idx;
+	/* for a catalog the first plain slot is next to it */
+	struct obd_uuid		llh_tgtuuid;
+	__u32			llh_reserved[LLOG_HEADER_SIZE/sizeof(__u32)-23];
+	/* These fields must always be at the end of the llog_log_hdr.
+	 * Note: llh_bitmap size is variable because llog chunk size could be
+	 * bigger than LLOG_MIN_CHUNK_SIZE, i.e. sizeof(llog_log_hdr) > 8192
+	 * bytes, and the real size is stored in llh_hdr.lrh_len, which means
+	 * llh_tail should only be refered by LLOG_HDR_TAIL().
+	 * But this structure is also used by client/server llog interface
+	 * (see llog_client.c), it will be kept in its original way to avoid
+	 * compatiblity issue. */
+	__u32			llh_bitmap[LLOG_BITMAP_BYTES / sizeof(__u32)];
+	struct llog_rec_tail	llh_tail;
 } __attribute__((packed));
+#undef LLOG_HEADER_SIZE
+#undef LLOG_BITMAP_BYTES
 
-#define LLOG_BITMAP_SIZE(llh)  (__u32)((llh->llh_hdr.lrh_len -		\
-					llh->llh_bitmap_offset -	\
-					sizeof(llh->llh_tail)) * 8)
+#define LLOG_HDR_BITMAP_SIZE(llh)	(__u32)((llh->llh_hdr.lrh_len -	\
+					 llh->llh_bitmap_offset -	\
+					 sizeof(llh->llh_tail)) * 8)
+#define LLOG_HDR_BITMAP(llh)	(__u32 *)((char *)(llh) +		\
+					  (llh)->llh_bitmap_offset)
+#define LLOG_HDR_TAIL(llh)	((struct llog_rec_tail *)((char *)llh +	\
+						 llh->llh_hdr.lrh_len -	\
+						 sizeof(llh->llh_tail)))
 
 /** log cookies are used to reference a specific log file and a record therein */
 struct llog_cookie {
@@ -4010,6 +4028,7 @@ enum update_type {
 	OUT_XATTR_DEL		= 13,
 	OUT_PUNCH		= 14,
 	OUT_READ		= 15,
+	OUT_NOOP		= 16,
 	OUT_LAST
 };
 
@@ -4056,8 +4075,23 @@ struct object_update_request {
 	struct object_update	ourq_updates[0];
 };
 
+#define OUT_UPDATE_HEADER_MAGIC	0xBDDF0001
+/* Header for updates request between MDTs */
+struct out_update_header {
+	__u32		ouh_magic;
+	__u32		ouh_count;
+	__u64		ouh_xid;
+};
+
+struct out_update_buffer {
+	__u32	oub_size;
+	__u32	oub_padding;
+};
+
 void lustre_swab_object_update(struct object_update *ou);
 void lustre_swab_object_update_request(struct object_update_request *our);
+void lustre_swab_out_update_header(struct out_update_header *ouh);
+void lustre_swab_out_update_buffer(struct out_update_buffer *oub);
 
 static inline size_t
 object_update_params_size(const struct object_update *update)

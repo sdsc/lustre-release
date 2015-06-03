@@ -41,27 +41,6 @@ struct dt_key;
 struct dt_rec;
 struct object_update_param;
 
-struct update_buffer {
-	struct object_update_request	*ub_req;
-	size_t				ub_req_size;
-};
-
-/**
- * Tracking the updates being executed on this dt_device.
- */
-struct dt_update_request {
-	struct dt_device		*dur_dt;
-	/* attached itself to thandle */
-	int				dur_flags;
-	/* update request result */
-	int				dur_rc;
-	/* Current batch(transaction) id */
-	__u64				dur_batchid;
-	/* Holding object updates */
-	struct update_buffer		dur_buf;
-	struct list_head		dur_cb_items;
-};
-
 struct update_params {
 	struct object_update_param	up_params[0];
 };
@@ -100,6 +79,23 @@ update_params_get_param(const struct update_params *params,
 			object_update_param_size(param));
 
 	return param;
+}
+
+static inline void*
+update_params_get_param_buf(const struct update_params *params, __u16 index,
+			    unsigned int param_count, __u16 *size)
+{
+	struct object_update_param *param;
+
+	param = update_params_get_param(params, (unsigned int)index,
+					param_count);
+	if (param == NULL)
+		return NULL;
+
+	if (size != NULL)
+		*size = param->oup_len;
+
+	return param->oup_buf;
 }
 
 struct update_op {
@@ -141,6 +137,10 @@ static inline size_t update_ops_size(const struct update_ops *ops,
 	return total_size;
 }
 
+enum update_records_flag {
+	UPDATE_RECORD_CONTINUE = 1 >> 0,
+};
+
 /*
  * This is the update record format used to store the updates in
  * disk. All updates of the operation will be stored in ur_ops.
@@ -155,8 +155,11 @@ struct update_records {
 	__u64			ur_master_transno;
 	__u64			ur_batchid;
 	__u32			ur_flags;
-	__u32			ur_param_count;
+	/* If the operation includes multiple updates, then ur_index
+	 * means the index of the update inside the whole updates. */
+	__u32			ur_index;
 	__u32			ur_update_count;
+	__u32			ur_param_count;
 	struct update_ops	ur_ops;
 	 /* Note ur_ops has a variable size, so comment out
 	  * the following ur_params, in case some use it directly
@@ -187,13 +190,21 @@ update_records_get_params(const struct update_records *record)
 static inline size_t
 update_records_size(const struct update_records *record)
 {
-	struct update_params *params;
+	size_t op_size = 0;
+	size_t param_size = 0;
 
-	params = update_records_get_params(record);
+	if (record->ur_update_count > 0)
+		op_size = update_ops_size(&record->ur_ops,
+					  record->ur_update_count);
+	if (record->ur_param_count > 0) {
+		struct update_params *params;
+
+		params = update_records_get_params(record);
+		param_size = update_params_size(params, record->ur_param_count);
+	}
 
 	return cfs_size_round(offsetof(struct update_records, ur_ops) +
-	       update_ops_size(&record->ur_ops, record->ur_update_count) +
-	       update_params_size(params, record->ur_param_count));
+			      op_size + param_size);
 }
 
 static inline size_t
@@ -259,13 +270,6 @@ object_update_request_size(const struct object_update_request *our)
 		size += object_update_size(update);
 	}
 	return size;
-}
-
-static inline void
-object_update_reply_init(struct object_update_reply *reply, size_t count)
-{
-	reply->ourp_magic = UPDATE_REPLY_MAGIC;
-	reply->ourp_count = count;
 }
 
 static inline void
@@ -343,9 +347,11 @@ struct top_multiple_thandle {
 	/* All of update records will packed here */
 	struct thandle_update_records *tmt_update_records;
 
+	wait_queue_head_t	tmt_stop_waitq;
 	__u64			tmt_batchid;
 	int			tmt_result;
 	__u32			tmt_magic;
+	size_t			tmt_record_size;
 	__u32			tmt_committed:1;
 };
 
@@ -360,75 +366,134 @@ struct top_thandle {
 	struct top_multiple_thandle *tt_multiple_thandle;
 };
 
+struct sub_thandle_cookie {
+	struct llog_cookie	stc_cookie;
+	struct list_head	stc_list;
+};
+
 /* Sub thandle is used to track multiple sub thandles under one parent
  * thandle */
 struct sub_thandle {
 	struct thandle		*st_sub_th;
 	struct dt_device	*st_dt;
-	struct list_head	st_list;
-	struct llog_cookie	st_cookie;
+	struct list_head	st_cookie_list;
 	struct dt_txn_commit_cb	st_commit_dcb;
+	struct dt_txn_commit_cb	st_stop_dcb;
 	int			st_result;
 
 	/* linked to top_thandle */
 	struct list_head	st_sub_list;
 
 	/* If this sub thandle is committed */
-	bool			st_committed:1;
+	bool			st_committed:1,
+				st_stopped:1;
+};
+
+struct tx_arg;
+typedef int (*tx_exec_func_t)(const struct lu_env *env, struct thandle *th,
+			      struct tx_arg *ta);
+
+/* Structure for holding one update execution */
+struct tx_arg {
+	tx_exec_func_t		 exec_fn;
+	tx_exec_func_t		 undo_fn;
+	struct dt_object	*object;
+	const char		*file;
+	struct object_update_reply *reply;
+	int			 line;
+	int			 index;
+	union {
+		struct {
+			struct dt_insert_rec	 rec;
+			const struct dt_key	*key;
+		} insert;
+		struct {
+		} ref;
+		struct {
+			struct lu_attr	 attr;
+		} attr_set;
+		struct {
+			struct lu_buf	 buf;
+			const char	*name;
+			int		 flags;
+			__u32		 csum;
+		} xattr_set;
+		struct {
+			struct lu_attr			attr;
+			struct dt_allocation_hint	hint;
+			struct dt_object_format		dof;
+			struct lu_fid			fid;
+		} create;
+		struct {
+			struct lu_buf	buf;
+			loff_t		pos;
+		} write;
+		struct {
+			struct ost_body	    *body;
+		} destroy;
+	} u;
+};
+
+/* Structure for holding all update executations of one transaction */
+struct thandle_exec_args {
+	struct thandle		*ta_handle;
+	int			ta_argno;   /* used args */
+	int			ta_alloc_args; /* allocated args count */
+	struct tx_arg		**ta_args;
 };
 
 /* target/out_lib.c */
 int out_update_pack(const struct lu_env *env, struct object_update *update,
-		    size_t max_update_size, enum update_type op,
+		    size_t *max_update_size, enum update_type op,
 		    const struct lu_fid *fid, unsigned int params_count,
 		    __u16 *param_sizes, const void **param_bufs);
 int out_create_pack(const struct lu_env *env, struct object_update *update,
-		    size_t max_update_size, const struct lu_fid *fid,
+		    size_t *max_update_size, const struct lu_fid *fid,
 		    const struct lu_attr *attr, struct dt_allocation_hint *hint,
 		    struct dt_object_format *dof);
 int out_object_destroy_pack(const struct lu_env *env,
 			    struct object_update *update,
-			    size_t max_update_size,
+			    size_t *max_update_size,
 			    const struct lu_fid *fid);
 int out_index_delete_pack(const struct lu_env *env,
-			  struct object_update *update, size_t max_update_size,
+			  struct object_update *update, size_t *max_update_size,
 			  const struct lu_fid *fid, const struct dt_key *key);
 int out_index_insert_pack(const struct lu_env *env,
-			  struct object_update *update, size_t max_update_size,
+			  struct object_update *update, size_t *max_update_size,
 			  const struct lu_fid *fid, const struct dt_rec *rec,
 			  const struct dt_key *key);
 int out_xattr_set_pack(const struct lu_env *env,
-		       struct object_update *update, size_t max_update_size,
+		       struct object_update *update, size_t *max_update_size,
 		       const struct lu_fid *fid, const struct lu_buf *buf,
 		       const char *name, __u32 flag);
 int out_xattr_del_pack(const struct lu_env *env,
-		       struct object_update *update, size_t max_update_size,
+		       struct object_update *update, size_t *max_update_size,
 		       const struct lu_fid *fid, const char *name);
 int out_attr_set_pack(const struct lu_env *env,
-		      struct object_update *update, size_t max_update_size,
+		      struct object_update *update, size_t *max_update_size,
 		      const struct lu_fid *fid, const struct lu_attr *attr);
 int out_ref_add_pack(const struct lu_env *env,
-		     struct object_update *update, size_t max_update_size,
+		     struct object_update *update, size_t *max_update_size,
 		     const struct lu_fid *fid);
 int out_ref_del_pack(const struct lu_env *env,
-		     struct object_update *update, size_t max_update_size,
+		     struct object_update *update, size_t *max_update_size,
 		     const struct lu_fid *fid);
 int out_write_pack(const struct lu_env *env,
-		   struct object_update *update, size_t max_update_size,
+		   struct object_update *update, size_t *max_update_size,
 		   const struct lu_fid *fid, const struct lu_buf *buf,
 		   __u64 pos);
 int out_attr_get_pack(const struct lu_env *env,
-		      struct object_update *update, size_t max_update_size,
+		      struct object_update *update, size_t *max_update_size,
 		      const struct lu_fid *fid);
 int out_index_lookup_pack(const struct lu_env *env,
-			  struct object_update *update, size_t max_update_size,
+			  struct object_update *update, size_t *max_update_size,
 			  const struct lu_fid *fid, struct dt_rec *rec,
 			  const struct dt_key *key);
 int out_xattr_get_pack(const struct lu_env *env,
-		       struct object_update *update, size_t max_update_size,
+		       struct object_update *update, size_t *max_update_size,
 		       const struct lu_fid *fid, const char *name);
 int out_read_pack(const struct lu_env *env, struct object_update *update,
-		  size_t max_update_length, const struct lu_fid *fid,
+		  size_t *max_update_length, const struct lu_fid *fid,
 		  size_t size, loff_t pos);
 
 const char *update_op_str(__u16 opcode);
@@ -466,8 +531,48 @@ static inline void top_multiple_thandle_put(struct top_multiple_thandle *tmt)
 
 struct sub_thandle *lookup_sub_thandle(struct top_multiple_thandle *tmt,
 				       struct dt_device *dt_dev);
+int sub_thandle_trans_create(const struct lu_env *env,
+			     struct top_thandle *top_th,
+			     struct sub_thandle *st);
 
 /* update_records.c */
+size_t update_records_create_size(const struct lu_env *env,
+				  const struct lu_fid *fid,
+				  const struct lu_attr *attr,
+				  const struct dt_allocation_hint *hint,
+				  struct dt_object_format *dof);
+size_t update_records_attr_set_size(const struct lu_env *env,
+				    const struct lu_fid *fid,
+				    const struct lu_attr *attr);
+size_t update_records_ref_add_size(const struct lu_env *env,
+				   const struct lu_fid *fid);
+size_t update_records_ref_del_size(const struct lu_env *env,
+				   const struct lu_fid *fid);
+size_t update_records_object_destroy_size(const struct lu_env *env,
+					  const struct lu_fid *fid);
+size_t update_records_index_insert_size(const struct lu_env *env,
+					const struct lu_fid *fid,
+					const struct dt_rec *rec,
+					const struct dt_key *key);
+size_t update_records_index_delete_size(const struct lu_env *env,
+					const struct lu_fid *fid,
+					const struct dt_key *key);
+size_t update_records_xattr_set_size(const struct lu_env *env,
+				     const struct lu_fid *fid,
+				     const struct lu_buf *buf,
+				     const char *name,
+				     __u32 flag);
+size_t update_records_xattr_del_size(const struct lu_env *env,
+				     const struct lu_fid *fid,
+				     const char *name);
+size_t update_records_write_size(const struct lu_env *env,
+				 const struct lu_fid *fid,
+				 const struct lu_buf *buf,
+				 __u64 pos);
+size_t update_records_punch_size(const struct lu_env *env,
+				 const struct lu_fid *fid,
+				 __u64 start, __u64 end);
+
 int update_records_create_pack(const struct lu_env *env,
 			       struct update_ops *ops,
 			       unsigned int *op_count,
@@ -569,6 +674,14 @@ int update_records_punch_pack(const struct lu_env *env,
 			      size_t *max_param_size,
 			      const struct lu_fid *fid,
 			      __u64 start, __u64 end);
+int update_records_noop_pack(const struct lu_env *env,
+			     struct update_ops *ops,
+			     unsigned int *op_count,
+			     size_t *max_ops_size,
+			     struct update_params *params,
+			     unsigned int *param_count,
+			     size_t *max_param_size,
+			     const struct lu_fid *fid);
 
 int tur_update_records_extend(struct thandle_update_records *tur,
 			      size_t new_size);
@@ -615,5 +728,18 @@ int tur_update_extend(struct thandle_update_records *tur,
 		}							\
 	}								\
 	ret;								\
+})
+
+#define update_record_size(env, name, th, ...)				\
+({									\
+	struct top_thandle *top_th;					\
+	struct top_multiple_thandle *tmt;				\
+									\
+	top_th = container_of(th, struct top_thandle, tt_super);	\
+									\
+	LASSERT(top_th->tt_multiple_thandle != NULL);			\
+	tmt = top_th->tt_multiple_thandle;				\
+	tmt->tmt_record_size +=						\
+		update_records_##name##_size(env, __VA_ARGS__);		\
 })
 #endif
