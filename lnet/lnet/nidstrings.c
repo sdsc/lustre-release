@@ -84,7 +84,6 @@ libcfs_next_nidstring(void)
 EXPORT_SYMBOL(libcfs_next_nidstring);
 
 static int  libcfs_lo_str2addr(const char *str, int nob, __u32 *addr);
-static int  libcfs_ip_str2addr(const char *str, int nob, __u32 *addr);
 static bool cfs_ip_is_contiguous(struct list_head *nidlist);
 static void cfs_ip_min_max(struct list_head *nidlist, __u32 *min, __u32 *max);
 static void libcfs_decnum_addr2str(__u32 addr, char *str, size_t size);
@@ -276,7 +275,7 @@ libcfs_lo_str2addr(const char *str, int nob, __u32 *addr)
  * I initialise the %n variable to the expected length.  If sscanf sets it;
  * fine, if it doesn't, then the scan ended at the end of the string, which is
  * fine too :) */
-static int
+int
 libcfs_ip_str2addr(const char *str, int nob, __u32 *addr)
 {
 	unsigned int	a;

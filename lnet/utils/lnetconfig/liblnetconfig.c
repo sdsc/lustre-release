@@ -1210,6 +1210,325 @@ out:
 	return rc;
 }
 
+int lustre_lnet_add_o2ibs(char *tgt_nid, __u32 *ip_addrs, int ip_cnt,
+			  int seq_no, struct cYAML **err_rc)
+{
+	struct lnet_ioctl_config_data data;
+	lnet_nid_t nid;
+	int rc = LUSTRE_CFG_RC_NO_ERR;
+	char err_str[LNET_MAX_STR_LEN];
+	int i;
+	snprintf(err_str, sizeof(err_str), "\"Success\"");
+
+	if (tgt_nid == NULL || ip_cnt == 0 || ip_addrs == NULL) {
+		snprintf(err_str, sizeof(err_str),
+			 "\"missing mandatory parameter(s): '%s'\"",
+			 (tgt_nid == NULL && ip_cnt == 0) ? "NID, ip addresses" :
+			 (tgt_nid == NULL) ? "NID" : "ip addresses");
+		rc = LUSTRE_CFG_RC_MISSING_PARAM;
+		goto out;
+	}
+
+	if (ip_cnt >= LNET_MAX_INTERFACES) {
+		snprintf(err_str,  sizeof(err_str),
+			 "\"too many ip addresses.  Max = %d\"",
+			 LNET_MAX_INTERFACES);
+		rc = LUSTRE_CFG_RC_OUT_OF_RANGE_PARAM;
+		goto out;
+	}
+
+	nid = libcfs_str2nid(tgt_nid);
+	if (nid == LNET_NID_ANY) {
+		snprintf(err_str, sizeof(err_str),
+			"\"cannot parse target NID '%s'\"", tgt_nid);
+		rc = LUSTRE_CFG_RC_BAD_PARAM;
+		goto out;
+	}
+
+	LIBCFS_IOC_INIT_V2(data, cfg_hdr);
+	data.cfg_nid = nid;
+	data.cfg_net = LNET_NIDNET(nid);
+	for (i = 0; i < ip_cnt; i++)
+		data.cfg_config_u.cfg_o2ibs.o2ib_ipaddrs[i] = ip_addrs[i];
+	data.cfg_config_u.cfg_o2ibs.o2ib_count = ip_cnt;
+
+	rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_ADD_O2IBS, &data);
+	if (rc != 0) {
+		snprintf(err_str,
+			 sizeof(err_str),
+			 "\"cannot add o2ibs: %s\"", strerror(errno));
+		rc = -errno;
+		goto out;
+	}
+
+out:
+	cYAML_build_error(rc, seq_no, ADD_CMD, "o2ibs", err_str, err_rc);
+
+	return rc;
+}
+
+/*
+ * TODO: add the o2ib del later
+int lustre_lnet_del_ip_target(char *tgt_nid, char **ip_addrs, int ip_cnt,
+			      int seq_no, struct cYAML **err_rc)
+{
+	struct lnet_ioctl_config_data data;
+	lnet_nid_t nid = 0;
+	int rc = LUSTRE_CFG_RC_NO_ERR;
+	char err_str[LNET_MAX_STR_LEN];
+	int i;
+	snprintf(err_str, sizeof(err_str), "\"Success\"");
+
+	if (tgt_nid == NULL && ip_addrs != NULL) {
+		snprintf(err_str, sizeof(err_str),
+			 "\"at least one ip address must be specified"
+			 " if nid is not specified\"");
+		rc = LUSTRE_CFG_RC_MISSING_PARAM;
+		goto out;
+	}
+
+	if (ip_cnt >= LNET_MAX_INTERFACES) {
+		snprintf(err_str,  sizeof(err_str),
+			 "\"too many ip addresses.  Max = %d\"",
+			 LNET_MAX_INTERFACES);
+		rc = LUSTRE_CFG_RC_OUT_OF_RANGE_PARAM;
+		goto out;
+	}
+
+	if (tgt_nid != NULL) {
+		nid = libcfs_str2nid(tgt_nid);
+		if (nid == LNET_NID_ANY) {
+			snprintf(err_str,
+				sizeof(err_str),
+				"\"cannot parse target NID '%s'\"", tgt_nid);
+			rc = LUSTRE_CFG_RC_BAD_PARAM;
+			goto out;
+		}
+	}
+
+	LIBCFS_IOC_INIT_V2(data, cfg_hdr);
+	data.cfg_nid = nid;
+	for (i = 0; i < ip_cnt, i++) {
+		__u32 *ip = &data.cfg_config_u.cfg_o2ibs.o2ib_ipaddrs[i];
+		if (lnet_parse_ipaddr(ip, ip_addrs[i]) != 0) {
+			snprintf(err_str, sizeof(err_str),
+				"\"bad ip address '%s'\"", ip_addrs[i]);
+			rc = LUSTRE_CFG_RC_BAD_PARAM;
+			goto out;
+		}
+	}
+	data.cfg_config_u.cfg_o2ibs.o2ib_count = ip_cnt;
+
+	rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_DEL_O2IBS, &data);
+	if (rc != 0) {
+		snprintf(err_str,
+			 sizeof(err_str),
+			 "\"cannot del o2ibs: %s\"", strerror(errno));
+		rc = -errno;
+		goto out;
+	}
+
+out:
+	cYAML_build_error(rc, seq_no, DEL_CMD, "o2ibs", err_str, err_rc);
+
+	return rc;
+}
+*/
+
+void
+ip_addr2str(__u32 addr, char *str, size_t size)
+{
+	snprintf(str, size, "%u.%u.%u.%u",
+		 (addr >> 24) & 0xff, (addr >> 16) & 0xff,
+		 (addr >> 8) & 0xff, addr & 0xff);
+}
+
+int lustre_lnet_show_o2ibs(char *net, int seq_no, struct cYAML **show_rc,
+			   struct cYAML **err_rc)
+{
+	struct lnet_ioctl_config_data data;
+	__u32 tgt_net = LNET_NIDNET(LNET_NID_ANY);
+	int rc = LUSTRE_CFG_RC_OUT_OF_MEM;
+	int i;
+	struct cYAML *root = NULL, *nid_node = NULL, *ip_node = NULL,
+		     *item = NULL, *o2ibs = NULL, *first_seq = NULL;
+	char err_str[LNET_MAX_STR_LEN];
+	char ip_addr[LNET_MAX_STR_LEN];
+	bool exist = false;
+
+	snprintf(err_str, sizeof(err_str),
+		 "\"out of memory\"");
+
+	if (net != NULL) {
+		tgt_net = libcfs_str2net(net);
+		if (tgt_net == LNET_NIDNET(LNET_NID_ANY)) {
+			snprintf(err_str, sizeof(err_str),
+				 "\"cannot parse net '%s'\"", net);
+			rc = LUSTRE_CFG_RC_BAD_PARAM;
+			goto out;
+		}
+	} else {
+		snprintf(err_str, sizeof(err_str),
+			"\"a net must be provided\"");
+		rc = LUSTRE_CFG_RC_BAD_PARAM;
+		goto out;
+	}
+
+	/* create struct cYAML root object */
+	root = cYAML_create_object(NULL, NULL);
+	if (root == NULL)
+		goto out;
+
+	o2ibs = cYAML_create_seq(root, "o2ibs");
+	if (o2ibs == NULL)
+		goto out;
+
+	for (i = 0;; i++) {
+		int j;
+		LIBCFS_IOC_INIT_V2(data, cfg_hdr);
+		data.cfg_count = i;
+		data.cfg_net = tgt_net;
+
+		rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_GET_O2IBS, &data);
+		if (rc != 0)
+			break;
+
+		/* default rc to -1 incase we hit the goto */
+		rc = -1;
+		exist = true;
+
+		nid_node = cYAML_create_seq_item(o2ibs);
+		if (nid_node == NULL)
+			goto out;
+
+		if (first_seq == NULL)
+			first_seq = nid_node;
+
+		if (cYAML_create_string(nid_node, "nid",
+					libcfs_nid2str(data.cfg_nid)) == NULL)
+			goto out;
+
+		ip_node = cYAML_create_seq(nid_node, "ips");
+		if (ip_node == NULL)
+			goto out;
+
+		for (j = 0; j < data.cfg_config_u.cfg_o2ibs.o2ib_count; j++) {
+			item = cYAML_create_seq_item(ip_node);
+			if (item == NULL)
+				goto out;
+
+			ip_addr2str
+			   (data.cfg_config_u.cfg_o2ibs.o2ib_ipaddrs[j],
+			    ip_addr, sizeof(ip_addr));
+			if (cYAML_create_string(item, "ip", ip_addr) == NULL)
+				goto out;
+		}
+	}
+
+	/* print output iff show_rc is not provided */
+	if (show_rc == NULL)
+		cYAML_print_tree(root);
+
+	if (errno != ENOENT) {
+		snprintf(err_str,
+			 sizeof(err_str),
+			 "\"cannot get o2ibs: %s\"",
+			 strerror(errno));
+		rc = -errno;
+		goto out;
+	} else
+		rc = LUSTRE_CFG_RC_NO_ERR;
+
+	snprintf(err_str, sizeof(err_str), "\"success\"");
+out:
+	if (show_rc == NULL || rc != LUSTRE_CFG_RC_NO_ERR || !exist) {
+		cYAML_free_tree(root);
+	} else if (show_rc != NULL && *show_rc != NULL) {
+		struct cYAML *show_node;
+		/* find the route node, if one doesn't exist then
+		 * insert one.  Otherwise add to the one there
+		 */
+		show_node = cYAML_get_object_item(*show_rc, "o2ibs");
+		if (show_node != NULL && cYAML_is_sequence(show_node)) {
+			cYAML_insert_child(show_node, first_seq);
+			free(o2ibs);
+			free(root);
+		} else if (show_node == NULL) {
+			cYAML_insert_sibling((*show_rc)->cy_child,
+						o2ibs);
+			free(root);
+		} else {
+			cYAML_free_tree(root);
+		}
+	} else {
+		*show_rc = root;
+	}
+
+	cYAML_build_error(rc, seq_no, SHOW_CMD, "o2ibs", err_str, err_rc);
+
+	return rc;
+}
+
+int lustre_lnet_check_target(char *net, int seq_no, struct cYAML **err_rc)
+{
+	struct lnet_ioctl_config_data data;
+	int rc = LUSTRE_CFG_RC_NO_ERR;
+	__u32 tgt_net = LNET_NIDNET(LNET_NID_ANY);
+	char err_str[LNET_MAX_STR_LEN];
+
+	snprintf(err_str, sizeof(err_str), "\"Success\"");
+
+	if (net == NULL) {
+		snprintf(err_str,  sizeof(err_str),
+			 "\"missing mandatory parameter: 'net'\"");
+		rc = LUSTRE_CFG_RC_MISSING_PARAM;
+		goto out;
+	}
+
+	tgt_net = libcfs_str2net(net);
+	if (tgt_net == LNET_NIDNET(LNET_NID_ANY)) {
+		snprintf(err_str,
+			 sizeof(err_str),
+			 "\"cannot parse net %s\"", net);
+		rc = LUSTRE_CFG_RC_BAD_PARAM;
+		goto out;
+	}
+
+	if (LNET_NETTYP(tgt_net) == CIBLND    ||
+	    LNET_NETTYP(tgt_net) == OPENIBLND ||
+	    LNET_NETTYP(tgt_net) == IIBLND    ||
+	    LNET_NETTYP(tgt_net) == VIBLND) {
+		snprintf(err_str,
+			 sizeof(err_str),
+			 "\"obselete LNet type '%s'\"",
+			 libcfs_lnd2str(tgt_net));
+		rc = LUSTRE_CFG_RC_BAD_PARAM;
+		goto out;
+	}
+
+	LIBCFS_IOC_INIT_V2(data, cfg_hdr);
+	data.cfg_net = tgt_net;
+
+	rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_CHECK_O2IBS, &data);
+	if (rc != 0) {
+		snprintf(err_str,
+			 sizeof(err_str),
+			 "\"cannot sanity check o2ibs: %s\"", strerror(errno));
+		rc = -errno;
+		goto out;
+	} else {
+		strncpy(err_str, data.cfg_config_u.cfg_o2ibs_chk.chk_msg,
+			sizeof(err_str) - 1);
+		err_str[sizeof(err_str) - 1] = '\0';
+		rc = data.cfg_config_u.cfg_o2ibs_chk.rc;
+	}
+
+out:
+	cYAML_build_error(rc, seq_no, SHOW_CMD, "o2ibs", err_str, err_rc);
+
+	return rc;
+}
+
 typedef int (*cmd_handler_t)(struct cYAML *tree,
 			     struct cYAML **show_rc,
 			     struct cYAML **err_rc);
@@ -1326,6 +1645,58 @@ static int handle_yaml_config_routing(struct cYAML *tree,
 						    seq_no->cy_valueint : -1,
 						err_rc);
 	}
+
+	return rc;
+}
+
+static int handle_yaml_config_o2ibs(struct cYAML *tree,
+				    struct cYAML **show_rc,
+				    struct cYAML **err_rc)
+{
+	int rc = LUSTRE_CFG_RC_NO_ERR;
+	__u32 ip_addrs[LNET_MAX_INTERFACES];
+	int i = 0;
+	struct cYAML *seq_no, *nid, *ips, *addr = NULL;
+
+	seq_no = cYAML_get_object_item(tree, "seq_no");
+	nid = cYAML_get_object_item(tree, "nid");
+	ips = cYAML_get_object_item(tree, "ips");
+
+	if (!cYAML_is_sequence(ips))
+		return -EINVAL;
+
+	while (cYAML_get_next_seq_item(ips, &addr) &&
+	       i < LNET_MAX_INTERFACES) {
+		if (libcfs_ip_str2addr(addr->cy_child->cy_valuestring,
+				       strlen(addr->cy_child->cy_valuestring),
+				       &ip_addrs[i]) == 1)
+			i++;
+	}
+
+	fprintf(stderr, "ip_cnt = %d\n", i);
+	rc = lustre_lnet_add_o2ibs(nid->cy_valuestring,
+				   ip_addrs,
+				   i, (seq_no) ? seq_no->cy_valueint : -1,
+				   err_rc);
+
+	return rc;
+}
+
+static int handle_yaml_show_o2ibs(struct cYAML *tree,
+				  struct cYAML **show_rc,
+				  struct cYAML **err_rc)
+{
+	int rc = LUSTRE_CFG_RC_NO_ERR;
+	struct cYAML *seq_no, *nid;
+
+	seq_no = cYAML_get_object_item(tree, "seq_no");
+	nid = cYAML_get_object_item(tree, "nid");
+
+	rc = lustre_lnet_show_o2ibs((nid) ? libcfs_net2str(
+					LNET_NIDNET(libcfs_str2nid(
+						nid->cy_valuestring))) : NULL,
+				    (seq_no) ? seq_no->cy_valueint : -1,
+				    show_rc, err_rc);
 
 	return rc;
 }
@@ -1459,6 +1830,7 @@ static struct lookup_cmd_hdlr_tbl lookup_config_tbl[] = {
 	{"net", handle_yaml_config_net},
 	{"routing", handle_yaml_config_routing},
 	{"buffers", handle_yaml_config_buffers},
+	{"o2ibs", handle_yaml_config_o2ibs},
 	{NULL, NULL}
 };
 
@@ -1476,6 +1848,7 @@ static struct lookup_cmd_hdlr_tbl lookup_show_tbl[] = {
 	{"routing", handle_yaml_show_routing},
 	{"credits", handle_yaml_show_credits},
 	{"statistics", handle_yaml_show_stats},
+	{"o2ibs", handle_yaml_show_o2ibs},
 	{NULL, NULL}
 };
 

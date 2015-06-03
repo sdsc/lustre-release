@@ -70,6 +70,7 @@ static inline char *libcfs_lnd2str(__u32 lnd)
 }
 int libcfs_str2lnd(const char *str);
 void libcfs_ip_addr2str(__u32 addr, char *str, size_t size);
+int  libcfs_ip_str2addr(const char *str, int nob, __u32 *addr);
 char *libcfs_net2str_r(__u32 net, char *buf, size_t buf_size);
 static inline char *libcfs_net2str(__u32 net)
 {
