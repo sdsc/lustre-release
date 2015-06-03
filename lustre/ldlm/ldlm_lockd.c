@@ -1717,7 +1717,8 @@ void ldlm_handle_bl_callback(struct ldlm_namespace *ns,
         LDLM_DEBUG(lock, "client blocking AST callback handler");
 
         lock_res_and_lock(lock);
-	ldlm_set_cbpending(lock);
+	if (lock->l_granted_mode != LCK_GROUP)
+		ldlm_set_cbpending(lock);
 
 	if (ldlm_is_cancel_on_block(lock))
 		ldlm_set_cancel(lock);
