@@ -86,6 +86,14 @@ struct lnet_ioctl_config_data {
 			__s32 buf_small;
 			__s32 buf_large;
 		} cfg_buffers;
+		struct {
+			__u32 o2ib_count;
+			__u32 o2ib_ipaddrs[LNET_MAX_INTERFACES];
+		} cfg_o2ibs;
+		struct {
+			int rc;
+			char chk_msg[LNET_MAX_STR_LEN];
+		} cfg_o2ibs_chk;
 	} cfg_config_u;
 
 	char cfg_bulk[0];

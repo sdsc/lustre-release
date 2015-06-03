@@ -94,73 +94,72 @@ lnet_parse_port (int *port, char *str)
 
 #ifdef HAVE_GETHOSTBYNAME
 static struct hostent *
-ptl_gethostbyname(char * hname) {
-        struct hostent *he;
-        he = gethostbyname(hname);
-        if (!he) {
-                switch(h_errno) {
-                case HOST_NOT_FOUND:
-                case NO_ADDRESS:
-                        fprintf(stderr, "Unable to resolve hostname: %s\n",
-                                hname);
-                        break;
-                default:
-                        fprintf(stderr, "gethostbyname error for %s: %s\n",
-                                hname, strerror(h_errno));
-                        break;
-                }
-                return NULL;
-        }
-        return he;
+lnet_gethostbyname(char *hname) {
+	struct hostent *he;
+	he = gethostbyname(hname);
+	if (!he) {
+		switch (h_errno) {
+		case HOST_NOT_FOUND:
+		case NO_ADDRESS:
+			fprintf(stderr, "Unable to resolve hostname: %s\n",
+				hname);
+			break;
+		default:
+			fprintf(stderr, "gethostbyname error for %s: %s\n",
+				hname, strerror(h_errno));
+			break;
+		}
+		return NULL;
+	}
+	return he;
 }
 #endif
 
 int
-lnet_parse_ipquad (__u32 *ipaddrp, char *str)
+lnet_parse_ipquad(__u32 *ipaddrp, char *str)
 {
-        int             a;
-        int             b;
-        int             c;
-        int             d;
+	int a;
+	int b;
+	int c;
+	int d;
 
-        if (sscanf (str, "%d.%d.%d.%d", &a, &b, &c, &d) == 4 &&
-            (a & ~0xff) == 0 && (b & ~0xff) == 0 &&
-            (c & ~0xff) == 0 && (d & ~0xff) == 0)
-        {
-                *ipaddrp = (a<<24)|(b<<16)|(c<<8)|d;
-                return (0);
-        }
+	if (sscanf(str, "%d.%d.%d.%d", &a, &b, &c, &d) == 4 &&
+	    (a & ~0xff) == 0 && (b & ~0xff) == 0 &&
+	    (c & ~0xff) == 0 && (d & ~0xff) == 0) {
+		*ipaddrp = (a<<24)|(b<<16)|(c<<8)|d;
+		return 0;
+	}
 
-        return (-1);
+	return -1;
 }
 
 int
-lnet_parse_ipaddr (__u32 *ipaddrp, char *str)
+lnet_parse_ipaddr(__u32 *ipaddrp, char *str)
 {
 #ifdef HAVE_GETHOSTBYNAME
-        struct hostent *he;
+	struct hostent *he;
 #endif
 
-        if (!strcmp (str, "_all_")) {
-                *ipaddrp = 0;
-                return (0);
-        }
+	if (!strcmp(str, "_all_")) {
+		*ipaddrp = 0;
+		return 0;
+	}
 
-        if (lnet_parse_ipquad(ipaddrp, str) == 0)
-                return (0);
+	if (lnet_parse_ipquad(ipaddrp, str) == 0)
+		return 0;
 
 #ifdef HAVE_GETHOSTBYNAME
-        if ((('a' <= str[0] && str[0] <= 'z') ||
-             ('A' <= str[0] && str[0] <= 'Z')) &&
-             (he = ptl_gethostbyname (str)) != NULL) {
-                __u32 addr = *(__u32 *)he->h_addr;
+	if ((('a' <= str[0] && str[0] <= 'z') ||
+	     ('A' <= str[0] && str[0] <= 'Z')) &&
+	     (he = lnet_gethostbyname(str)) != NULL) {
+		__u32 addr = *(__u32 *)he->h_addr;
 
-                *ipaddrp = ntohl(addr);         /* HOST byte order */
-                return (0);
-        }
+		*ipaddrp = ntohl(addr);         /* HOST byte order */
+		return 0;
+	}
 #endif
 
-        return (-1);
+	return -1;
 }
 
 char *
@@ -1770,128 +1769,3 @@ jt_ptl_net_status (int argc, char **argv)
         return 0;
 }
 
-int
-jt_ptl_add_o2ibs(int argc, char **argv)
-{
-	struct libcfs_ioctl_data data;
-	lnet_nid_t               nid;
-	__u32                    ipaddrs[LNET_MAX_INTERFACES];
-	int                      i;
-	int                      rc;
-	int                      ipcnt = argc - 2;
-
-	if (!g_net_is_compatible(argv[0], O2IBLND, 0))
-		return -1;
-
-	if (argc < 3) {
-		fprintf(stderr, "usage: %s NID IP [IP ...]\n", argv[0]);
-		return -1;
-	}
-
-	if (LNET_MAX_INTERFACES + 2 < argc) {
-		fprintf(stderr, "Too many arguments\n");
-		return -1;
-	}
-
-	nid = libcfs_str2nid(argv[1]);
-	if (nid == LNET_NID_ANY) {
-		fprintf(stderr, "Can't parse NID : %s\n", argv[1]);
-		return -1;
-	}
-
-	for (i = 0; i < ipcnt; i++) {
-		if (lnet_parse_ipaddr(&ipaddrs[i], argv[i + 2]) != 0) {
-			fprintf(stderr, "Can't parse IP: %s\n", argv[i + 2]);
-			return -1;
-		}
-	}
-
-	if (LNET_NIDADDR(nid) != ipaddrs[0]) {
-		fprintf(stderr, "The first IP is Invalid: %s\n", argv[2]);
-		return -1;
-	}
-
-	LIBCFS_IOC_INIT(data);
-	data.ioc_net = g_net;
-	data.ioc_nid = nid;
-	data.ioc_u32[0] = ipcnt;
-	data.ioc_plen1 = ipcnt * sizeof(uint);
-	data.ioc_pbuf1 = (char *)ipaddrs;
-
-	rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_ADD_O2IBS, &data);
-
-	if (rc != 0) {
-		fprintf(stderr, "add_o2ibs error(%s), %s\n",
-			libcfs_net2str(g_net), strerror(errno));
-		return -1;
-	}
-
-	return 0;
-}
-
-int
-jt_ptl_show_o2ibs(int argc, char **argv)
-{
-	struct libcfs_ioctl_data data;
-	int                      rc;
-	int                      idx;
-	__u32                    ipaddr[LNET_MAX_INTERFACES];
-	int                      j;
-	char                     buffer[HOST_NAME_MAX + 1];
-
-	if (!g_net_is_compatible(argv[0], O2IBLND, 0))
-		return -1;
-
-	for (idx = 0; ; idx++) {
-		LIBCFS_IOC_INIT(data);
-
-		data.ioc_net   = g_net;
-		data.ioc_count = idx;
-		data.ioc_plen1 = sizeof(ipaddr);
-		data.ioc_pbuf1 = (char *)ipaddr;
-
-		rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_GET_O2IBS, &data);
-		if (rc != 0) {
-			if (errno == ENOENT) {
-				break;
-			} else {
-				fprintf(stderr, "show_o2ibs error(%s) :%s\n",
-					libcfs_net2str(g_net), strerror(errno));
-				return -1;
-			}
-		}
-
-		printf("%s\t", libcfs_nid2str(data.ioc_nid));
-		for (j = 0; j < data.ioc_u32[0]; j++) {
-			memset(buffer, 0, sizeof(buffer));
-			printf("%s%s", (j ? " " : ""),
-				ptl_ipaddr_2_str(((__u32 *)data.ioc_pbuf1)[j],
-				buffer, sizeof(buffer), 0));
-		}
-		printf("\n");
-	}
-
-	return 0;
-}
-
-int
-jt_ptl_chk_o2ibs(int argc, char **argv)
-{
-	struct libcfs_ioctl_data data;
-	int                      rc;
-
-	if (!g_net_is_compatible(argv[0], O2IBLND, 0))
-		return -1;
-
-	LIBCFS_IOC_INIT(data);
-	data.ioc_net = g_net;
-
-	rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_CHECK_O2IBS, &data);
-	if (rc != 0) {
-		fprintf(stderr, "check_o2ibs error(%s) :%s\n",
-			libcfs_net2str(g_net), strerror(errno));
-		return -1;
-	}
-
-	return 0;
-}
