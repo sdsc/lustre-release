@@ -1514,7 +1514,7 @@ kiblnd_close_matching_conns(lnet_ni_t *ni, lnet_nid_t nid)
 }
 
 int
-kiblnd_add_o2ibs(lnet_nid_t nid, int ipnaddr, __u32 iplen, char *ipbuf)
+kiblnd_add_o2ibs(lnet_nid_t nid, int ipnaddr, __u32 iplen, __u32 *ipbuf)
 {
 	unsigned long flags;
 	int           cnt;
@@ -1539,10 +1539,7 @@ kiblnd_add_o2ibs(lnet_nid_t nid, int ipnaddr, __u32 iplen, char *ipbuf)
 	target->tg_nid = nid;
 	target->tg_naddr = ipnaddr;
 
-	if (copy_from_user(target->tg_addr, ipbuf, iplen)) {
-		LIBCFS_FREE(target, sizeof(struct kib_target));
-		return -EFAULT;
-	}
+	memcpy(target->tg_addr, ipbuf, iplen);
 
 	write_lock_irqsave(&kiblnd_data.kib_global_lock, flags);
 	list_add_tail(&target->tg_list, &kiblnd_data.kib_targets);
@@ -1556,13 +1553,12 @@ kiblnd_add_o2ibs(lnet_nid_t nid, int ipnaddr, __u32 iplen, char *ipbuf)
 
 int
 kiblnd_get_o2ibs(__u32 net, lnet_nid_t *nid, __u32 index,
-		 int *ipnaddr, void *ipbuf)
+		 __u32 *ipnaddr, __u32 *ipbuf)
 {
 	struct kib_target      *target = NULL;
 	__u32              loop = 0;
 	struct list_head  *tmp;
 	unsigned long      flags;
-	__u32              ipaddr[LNET_MAX_INTERFACES];
 
 	read_lock_irqsave(&kiblnd_data.kib_global_lock, flags);
 
@@ -1577,9 +1573,9 @@ kiblnd_get_o2ibs(__u32 net, lnet_nid_t *nid, __u32 index,
 		target = list_entry(tmp, struct kib_target, tg_list);
 		if ((LNET_NIDNET(target->tg_nid) == net)) {
 			if (loop == index) {
-				memcpy(ipaddr, target->tg_addr,
+				memcpy(ipbuf, target->tg_addr,
 				       sizeof(__u32) * target->tg_naddr);
-				*ipnaddr = target->tg_naddr;
+				*ipnaddr = (__u32) target->tg_naddr;
 				*nid = target->tg_nid;
 				break;
 			}
@@ -1592,17 +1588,13 @@ kiblnd_get_o2ibs(__u32 net, lnet_nid_t *nid, __u32 index,
 	if (*ipnaddr == 0)
 		return -ENOENT;
 
-	if (copy_to_user(ipbuf, ipaddr, *ipnaddr * sizeof(__u32)))
-		return -EFAULT;
-
 	return 0;
 }
 
 int
-kiblnd_chk_o2ibs(lnet_ni_t *ni)
+kiblnd_chk_o2ibs(lnet_ni_t *ni, char *chk_msg, int str_len, int *rc)
 {
 	int		i;
-	int		rc = 0;
 	int		cnt = 0;
 	kib_net_t	*net = (kib_net_t *)ni->ni_data;
 	__u32		targetaddr;
@@ -1615,14 +1607,17 @@ kiblnd_chk_o2ibs(lnet_ni_t *ni)
 
 	cnt = kiblnd_target_nid2naddr(ni->ni_nid);
 
+	*rc = 0;
+
 	if (cnt < 1 && net->ibn_ninterfaces == 1)
 		goto end;
 
 	if (cnt != net->ibn_ninterfaces) {
-		CERROR("o2ibs setting is error setting(%s). cnt=%d, if=%d\n",
-			libcfs_net2str(LNET_NIDNET(ni->ni_nid)),
-			cnt, net->ibn_ninterfaces);
-		rc = -EINVAL;
+		snprintf(chk_msg, str_len,
+			 "o2ibs setting is error setting(%s). cnt=%d, if=%d",
+			 libcfs_net2str(LNET_NIDNET(ni->ni_nid)),
+			 cnt, net->ibn_ninterfaces);
+		*rc = -EINVAL;
 		goto end;
 	}
 
@@ -1634,11 +1629,12 @@ kiblnd_chk_o2ibs(lnet_ni_t *ni)
 			libcfs_ip_addr2str(ifip, ip_buf, sizeof(ip_buf));
 			libcfs_ip_addr2str(targetaddr, tip_buf,
 					   sizeof(tip_buf));
-			CERROR("o2ibs setting is error setting(%s). "
-			       "ifip=%s, target=%s\n",
-			       libcfs_net2str(LNET_NIDNET(ni->ni_nid)),
-			       ip_buf, tip_buf);
-			rc = -EINVAL;
+			snprintf(chk_msg, str_len,
+				"o2ibs setting is error setting(%s). "
+				"ifip=%s, target=%s",
+				libcfs_net2str(LNET_NIDNET(ni->ni_nid)),
+				ip_buf, tip_buf);
+			*rc = -EINVAL;
 			goto end;
 		}
 	}
@@ -1646,13 +1642,14 @@ kiblnd_chk_o2ibs(lnet_ni_t *ni)
 end:
 	read_unlock_irqrestore(&kiblnd_data.kib_global_lock, flags);
 
-	return rc;
+	return 0;
 }
 
 static int
 kiblnd_ctl(lnet_ni_t *ni, unsigned int cmd, void *arg)
 {
         struct libcfs_ioctl_data *data = arg;
+	struct lnet_ioctl_config_data *config;
         int                       rc = -EINVAL;
 
         switch(cmd) {
@@ -1696,43 +1693,52 @@ kiblnd_ctl(lnet_ni_t *ni, unsigned int cmd, void *arg)
                 break;
         }
 	case IOC_LIBCFS_GET_NET_STATUS: {
-		lnet_nid_t   nid = 0;
-		int          all = 0;
-		int          active = 0;
-		int          degrade = 0;
+		config = arg;
 
-		kiblnd_get_device_status(ni, &nid, &all, &active, &degrade);
+		kiblnd_get_device_status
+		  (ni, &config->cfg_nid,
+		   &config->cfg_config_u.cfg_o2ibs_net_status.num_intfs,
+		   &config->cfg_config_u.cfg_o2ibs_net_status.active_intfs,
+		   &config->cfg_config_u.cfg_o2ibs_net_status.degrade_intfs);
 
-		data->ioc_nid    = nid;
-		data->ioc_u32[0] = all;
-		data->ioc_u32[1] = active;
-		data->ioc_u32[2] = degrade;
 		rc = 0;
 		break;
 	}
 	case IOC_LIBCFS_ADD_O2IBS: {
 		kib_net_t  *net = (kib_net_t *)ni->ni_data;
+		config = arg;
 
 		if (kiblnd_data.kib_shutdown) {
 			rc = -ENETDOWN;
 			break;
 		}
 
-		rc = kiblnd_add_o2ibs(data->ioc_nid, data->ioc_u32[0],
-				data->ioc_plen1, data->ioc_pbuf1);
+		rc = kiblnd_add_o2ibs
+		  (config->cfg_nid,
+		   config->cfg_config_u.cfg_o2ibs.o2ib_count,
+		   config->cfg_config_u.cfg_o2ibs.o2ib_count *
+			sizeof(__u32),
+		   config->cfg_config_u.cfg_o2ibs.o2ib_ipaddrs);
 
 		if (!list_empty(&net->ibn_routes))
-			kiblnd_update_routes(ni, data->ioc_nid);
+			kiblnd_update_routes(ni, config->cfg_nid);
 		break;
 	}
 	case IOC_LIBCFS_GET_O2IBS: {
-		rc = kiblnd_get_o2ibs(data->ioc_net, &(data->ioc_nid),
-				      data->ioc_count, &(data->ioc_u32[0]),
-				      data->ioc_pbuf1);
+		config = arg;
+
+		rc = kiblnd_get_o2ibs
+			(config->cfg_net, &config->cfg_nid,
+			 config->cfg_count,
+			 &config->cfg_config_u.cfg_o2ibs.o2ib_count,
+			 config->cfg_config_u.cfg_o2ibs.o2ib_ipaddrs);
 		break;
 	}
 	case IOC_LIBCFS_CHECK_O2IBS: {
-		rc = kiblnd_chk_o2ibs(ni);
+		config = arg;
+		rc = kiblnd_chk_o2ibs(ni, config->cfg_config_u.cfg_o2ibs_chk.
+				      chk_msg, LNET_MAX_STR_LEN,
+				      &config->cfg_config_u.cfg_o2ibs_chk.rc);
 		break;
 	}
 
