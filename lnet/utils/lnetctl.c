@@ -50,6 +50,10 @@ static int jt_show_peer_credits(int argc, char **argv);
 static int jt_set_tiny(int argc, char **argv);
 static int jt_set_small(int argc, char **argv);
 static int jt_set_large(int argc, char **argv);
+static int jt_add_o2ibs(int argc, char **argv);
+static int jt_show_o2ibs(int argc, char **argv);
+static int jt_check_o2ibs(int argc, char **argv);
+static int jt_show_net_status(int argc, char **argv);
 
 command_t lnet_cmds[] = {
 	{"configure", jt_config_lnet, 0, "configure lnet\n"
@@ -120,6 +124,23 @@ command_t set_cmds[] = {
 	 "\t0 - disable routing\n"
 	 "\t1 - enable routing\n"},
 	{ 0, 0, 0, NULL }
+};
+
+command_t o2ib_cmds[] = {
+	{"add", jt_add_o2ibs, 0, "add o2ibs\n"
+	 "\t--nid: nid to add ip addresses to\n"
+	 "\t--ips: list of ip addresss to add\n"},
+	{"show", jt_show_o2ibs, 0, "show existing o2ibs\n"
+	 "\t--net: net to show ip addresses for\n"},
+	{"check", jt_check_o2ibs, 0, "check configuration sanity\n"
+	 "\t--net: net to check"},
+	{0, 0, 0, NULL}
+};
+
+command_t net_status_cmds[] = {
+	{"show", jt_show_net_status, 0, "get net status\n"
+	 "\t--net: net to check"},
+	{0, 0, 0, NULL}
 };
 
 static inline void print_help(const command_t cmds[], const char *cmd_type,
@@ -496,6 +517,180 @@ static int jt_add_net(int argc, char **argv)
 	return rc;
 }
 
+static int jt_add_o2ibs(int argc, char **argv)
+{
+	char *nid = NULL, *ips = NULL;
+	struct cYAML *err_rc = NULL;
+	int rc, opt, i;
+	int ip_cnt = 0;
+	__u32 ip_addrs[LNET_MAX_INTERFACES];
+
+	const char *const short_options = "n:i:h";
+	const struct option long_options[] = {
+		{ "nid", 1, NULL, 'n' },
+		{ "ips", 1, NULL, 'i' },
+		{ "help", 0, NULL, 'h' },
+		{ NULL, 0, NULL, 0 },
+	};
+
+	while ((opt = getopt_long(argc, argv, short_options,
+				   long_options, NULL)) != -1) {
+		switch (opt) {
+		case 'n':
+			nid = optarg;
+			break;
+		case 'i':
+			ips = optarg;
+			break;
+		case 'h':
+			print_help(o2ib_cmds, "o2ibs", "add");
+			return 0;
+		default:
+			return 0;
+		}
+	}
+
+	if (ips != NULL) {
+		if (libcfs_ip_str2addr(ips, strlen(ips),
+				       &ip_addrs[ip_cnt]) == 1)
+			ip_cnt++;
+		for (i = optind; i < argc; i++) {
+			if (libcfs_ip_str2addr(argv[i], strlen(ips),
+					       &ip_addrs[ip_cnt]) == 1) {
+				ip_cnt++;
+				if (ip_cnt >= LNET_MAX_INTERFACES)
+					break;
+			}
+		}
+	}
+
+	rc = lustre_lnet_add_o2ibs(nid, ip_addrs, ip_cnt, -1, &err_rc);
+
+	if (rc != LUSTRE_CFG_RC_NO_ERR)
+		cYAML_print_tree2file(stderr, err_rc);
+
+	cYAML_free_tree(err_rc);
+
+	return rc;
+}
+
+static int jt_show_o2ibs(int argc, char **argv)
+{
+	char *net = NULL;
+	struct cYAML *err_rc = NULL, *show_rc = NULL;
+	int rc, opt;
+
+	const char *const short_options = "n:h";
+	const struct option long_options[] = {
+		{ "net", 1, NULL, 'n' },
+		{ "help", 0, NULL, 'h' },
+		{ NULL, 0, NULL, 0 },
+	};
+
+	while ((opt = getopt_long(argc, argv, short_options,
+				   long_options, NULL)) != -1) {
+		switch (opt) {
+		case 'n':
+			net = optarg;
+			break;
+		case 'h':
+			print_help(o2ib_cmds, "o2ibs", "show");
+			return 0;
+		default:
+			return 0;
+		}
+	}
+
+	rc = lustre_lnet_show_o2ibs(net, -1, &show_rc, &err_rc);
+
+	if (rc != LUSTRE_CFG_RC_NO_ERR)
+		cYAML_print_tree2file(stderr, err_rc);
+	else if (show_rc)
+		cYAML_print_tree(show_rc);
+
+	cYAML_free_tree(err_rc);
+	cYAML_free_tree(show_rc);
+
+	return rc;
+}
+
+static int jt_check_o2ibs(int argc, char **argv)
+{
+	char *net = NULL;
+	struct cYAML *err_rc = NULL;
+	int rc, opt;
+
+	const char *const short_options = "n:h";
+	const struct option long_options[] = {
+		{ "net", 1, NULL, 'n' },
+		{ "help", 0, NULL, 'h' },
+		{ NULL, 0, NULL, 0 },
+	};
+
+	while ((opt = getopt_long(argc, argv, short_options,
+				   long_options, NULL)) != -1) {
+		switch (opt) {
+		case 'n':
+			net = optarg;
+			break;
+		case 'h':
+			print_help(o2ib_cmds, "o2ibs", "check");
+			return 0;
+		default:
+			return 0;
+		}
+	}
+
+	rc = lustre_lnet_check_target(net, -1, &err_rc);
+
+	if (rc != LUSTRE_CFG_RC_NO_ERR)
+		cYAML_print_tree2file(stderr, err_rc);
+
+	cYAML_free_tree(err_rc);
+
+	return rc;
+}
+
+static int jt_show_net_status(int argc, char **argv)
+{
+	char *net = NULL;
+	struct cYAML *err_rc = NULL, *show_rc = NULL;
+	int rc, opt;
+
+	const char *const short_options = "n:h";
+	const struct option long_options[] = {
+		{ "net", 1, NULL, 'n' },
+		{ "help", 0, NULL, 'h' },
+		{ NULL, 0, NULL, 0 },
+	};
+
+	while ((opt = getopt_long(argc, argv, short_options,
+				   long_options, NULL)) != -1) {
+		switch (opt) {
+		case 'n':
+			net = optarg;
+			break;
+		case 'h':
+			print_help(net_status_cmds, "net_status", "show");
+			return 0;
+		default:
+			return 0;
+		}
+	}
+
+	rc = lustre_lnet_show_net_status(net, -1, &show_rc, &err_rc);
+
+	if (rc != LUSTRE_CFG_RC_NO_ERR)
+		cYAML_print_tree2file(stderr, err_rc);
+	else if (show_rc)
+		cYAML_print_tree(show_rc);
+
+	cYAML_free_tree(err_rc);
+	cYAML_free_tree(show_rc);
+
+	return rc;
+}
+
 static int jt_del_route(int argc, char **argv)
 {
 	char *network = NULL, *gateway = NULL;
@@ -821,6 +1016,30 @@ static inline int jt_peer_credits(int argc, char **argv)
 	return Parser_execarg(argc - 1, &argv[1], credits_cmds);
 }
 
+static inline int jt_o2ibs(int argc, char **argv)
+{
+	if (argc < 2)
+		return CMD_HELP;
+
+	if (argc == 2 &&
+	    handle_help(o2ib_cmds, "o2ibs", NULL, argc, argv) == 0)
+		return 0;
+
+	return Parser_execarg(argc - 1, &argv[1], o2ib_cmds);
+}
+
+static inline int jt_net_status(int argc, char **argv)
+{
+	if (argc < 2)
+		return CMD_HELP;
+
+	if (argc == 2 &&
+	    handle_help(net_status_cmds, "net_status", NULL, argc, argv) == 0)
+		return 0;
+
+	return Parser_execarg(argc - 1, &argv[1], net_status_cmds);
+}
+
 static inline int jt_set(int argc, char **argv)
 {
 	if (argc < 2)
@@ -977,6 +1196,8 @@ command_t list[] = {
 	{"export", jt_export, 0, "export {--help} FILE.yaml"},
 	{"stats", jt_stats, 0, "stats {show | help}"},
 	{"peer_credits", jt_peer_credits, 0, "peer_credits {show | help}"},
+	{"o2ibs", jt_o2ibs, 0, "o2ibs {add | show | check | help}"},
+	{"net_status", jt_net_status, 0, "net_status {show | help}"},
 	{"help", Parser_help, 0, "help"},
 	{"exit", Parser_quit, 0, "quit"},
 	{"quit", Parser_quit, 0, "quit"},
