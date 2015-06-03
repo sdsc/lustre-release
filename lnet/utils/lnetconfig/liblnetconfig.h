@@ -215,6 +215,52 @@ int lustre_lnet_show_stats(int seq_no, struct cYAML **show_rc,
 			   struct cYAML **err_rc);
 
 /*
+ * lustre_lnet_add_o2ibs
+ *   Adds a set of remote o2ib ip target
+ *
+ *     tgt_nid - remote NID to add ip address target to.
+ *     ip_addrs - an array of target ip addresses
+ *     seq_no - sequence number of the command
+ *     err_rc - YAML strucutre of the resultant return code.
+ */
+int lustre_lnet_add_o2ibs(char *tgt_nid, __u32 *ip_addrs, int ip_cnt,
+			  int seq_no, struct cYAML **err_rc);
+
+/*
+ * lustre_lnet_del_ip_target
+ *   deletes a set of remote o2ib ip target
+ *
+ *     nid - remote NID to delete ip address target from
+ *     ip_addrs - list of target ip addresses.  If NULL all are deleted
+ *     seq_no - sequence number of the command
+ *     show_rc - YAML structure of the showed info
+ *     err_rc - YAML strucutre of the resultant return code.
+int lustre_lnet_del_ip_target(char *nid, char **ip_addrs, int ip_cnt,
+			      int seq_no, struct cYAML **err_rc);
+ */
+
+/*
+ * lustre_lnet_show_o2ibs
+ *   shows all targets and filter on nid
+ *
+ *     nid - remote NID to filter on.  If NULL then show all
+ *     seq_no - sequence number of the command
+ *     err_rc - YAML strucutre of the resultant return code.
+ */
+int lustre_lnet_show_o2ibs(char *nid, int seq_no, struct cYAML **show_rc,
+			   struct cYAML **err_rc);
+
+/*
+ * lustre_lnet_check_target
+ *   check for local inconsistency between target an configured devices.
+ *
+ *     net - local net with configured devices.
+ *     seq_no - sequence number of the command
+ *     err_rc - YAML strucutre of the resultant return code.
+ */
+int lustre_lnet_check_target(char *net, int seq_no, struct cYAML **err_rc);
+
+/*
  * lustre_yaml_config
  *   Parses the provided YAML file and then calls the specific APIs
  *   to configure the entities identified in the file
