@@ -2836,7 +2836,7 @@ nrs_write_read() {
 }
 
 test_77a() { #LU-3266
-	do_facet $SINGLEMDS lctl set_param ost.OSS.*.nrs_policies="fifo"
+	do_facet $SINGLEMDS lctl set_param mds.MDS.*.nrs_policies="fifo"
 	nrs_write_read
 
 	return 0
@@ -2845,13 +2845,13 @@ run_test 77a "check FIFO NRS policy"
 
 
 test_77b() { #LU-3266
-	do_facet $SINGLEMDS lctl set_param ost.OSS.*.nrs_policies="crrn"
-	do_facet $SINGLEMDS lctl set_param ost.OSS.*.nrs_crrn_quantum=1
+	do_facet $SINGLEMDS lctl set_param mds.MDS.*.nrs_policies="crrn"
+	do_facet $SINGLEMDS lctl set_param mds.MDS.*.nrs_crrn_quantum=1
 
 	echo "policy: crr-n, crrn_quantum 1"
 	nrs_write_read
 
-	do_facet $SINGLEMDS lctl set_param ost.OSS.*.nrs_crrn_quantum=64
+	do_facet $SINGLEMDS lctl set_param mds.MDS.*.nrs_crrn_quantum=64
 
 	echo "policy: crr-n, crrn_quantum 64"
 	nrs_write_read
