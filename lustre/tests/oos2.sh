@@ -66,8 +66,14 @@ if ! oos_full; then
 	SUCCESS=0
 fi
 
-RECORDSOUT=$((`grep "records out" $LOG | cut -d+ -f 1` + \
-              `grep "records out" $LOG2 | cut -d+ -f 1`))
+echo "LOG:$LOG LOG2:$LOG2"
+RECORDSOUT1=$(`grep "records out" $LOG  | cut -d+ -f 1`)
+RECORDSOUT2=$(`grep "records out" $LOG2 | cut -d+ -f 1`)
+[ -z $RECORDSOUT1 ] && RECORDSOUT1=0
+[ -z $RECORDSOUT2 ] && RECORDSOUT2=0
+
+RECORDSOUT=$((RECORDSOUT1 + RECORDSOUT2))
+echo $RECORDSOUT
 
 FILESIZE=$((`ls -l $OOS | awk '{print $5}'` + `ls -l $OOS2 | awk '{print $5}'`))
 if [ "$RECORDSOUT" -ne $(($FILESIZE / 1024)) ]; then

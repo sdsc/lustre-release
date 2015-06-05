@@ -1409,6 +1409,32 @@ static int osc_reserve_grant(struct client_obd *cli, unsigned int bytes)
 	return rc;
 }
 
+static inline
+int __osc_dry_test_grant(struct client_obd *cli, unsigned int bytes)
+{
+	int rc = -EDQUOT;
+	if (cli->cl_avail_grant >= bytes)
+		rc = 0;
+	return rc;
+}
+
+int osc_dry_test_grant(struct client_obd *cli, unsigned int npages)
+{
+	int rc = 0;
+	const size_t chunk_mask = (1 << cli->cl_chunkbits) - 1;
+	size_t bytes = npages << PAGE_CACHE_SHIFT;
+
+	ENTRY;
+	if (bytes & chunk_mask)
+		bytes += (1 << cli->cl_chunkbits);
+
+	spin_lock(&cli->cl_loi_list_lock);
+	rc = __osc_dry_test_grant(cli, bytes);
+	spin_unlock(&cli->cl_loi_list_lock);
+
+	RETURN(rc);
+}
+
 static void __osc_unreserve_grant(struct client_obd *cli,
 				  unsigned int reserved, unsigned int unused)
 {
@@ -2309,7 +2335,12 @@ int osc_queue_async_io(const struct lu_env *env, struct cl_io *io,
 	}
 
 	/* check if the file's owner/group is over quota */
-	if (!(cmd & OBD_BRW_NOQUOTA)) {
+	/* Having quota checked flag means that this I/O has passed
+	 * quota limit check once and now it's being handled by iosvc
+	 * thread ... the thread cannot return -EDQUOT to the original
+	 * write syscall, so that we have no choice but to go on */
+	if (!(cmd & OBD_BRW_NOQUOTA) &&
+	    (!io->ci_iosvc_quota_checked)) {
 		struct cl_object *obj;
 		struct cl_attr   *attr;
 		unsigned int qid[MAXQUOTAS];
