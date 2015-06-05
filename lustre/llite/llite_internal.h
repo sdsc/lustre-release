@@ -969,8 +969,12 @@ struct vvp_io_args {
         union {
                 struct {
                         struct kiocb      *via_iocb;
+#ifdef HAVE_FILE_ITER
+			struct iov_iter   *via_iter;
+#else /* HAVE_FILE_ITER */
                         struct iovec      *via_iov;
                         unsigned long      via_nrsegs;
+#endif /* !HAVE_FILE_ITER */
                 } normal;
                 struct {
                         struct pipe_inode_info  *via_pipe;
