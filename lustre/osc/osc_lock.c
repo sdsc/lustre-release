@@ -615,7 +615,10 @@ static int osc_ldlm_glimpse_ast(struct ldlm_lock *dlmlock, void *data)
                         result = req_capsule_server_pack(cap);
                         if (result == 0) {
                                 lvb = req_capsule_server_get(cap, &RMF_DLM_LVB);
-                                result = cl_object_glimpse(env, obj, lvb);
+				do {
+					result = cl_object_glimpse(env, obj,
+								   lvb);
+				} while (result == -EAGAIN);
                         }
 			if (!exp_connect_lvb_type(req->rq_export))
 				req_capsule_shrink(&req->rq_pill,

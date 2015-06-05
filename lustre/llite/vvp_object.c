@@ -178,7 +178,18 @@ static int vvp_object_glimpse(const struct lu_env *env,
 {
 	struct inode *inode = vvp_object_inode(obj);
 
+	int rc = 0;
 	ENTRY;
+
+	rc = iosvc_sync_io(ll_i2info(inode));
+	if (rc > 0)
+		/* write ops remain in iosvc, we should wait for these
+		 * completion and retry all glimpse from the beginning */
+		return -EAGAIN;
+	else if (rc < 0)
+		/* -ENOMEM case */
+		return rc;
+
 	lvb->lvb_mtime = LTIME_S(inode->i_mtime);
 	lvb->lvb_atime = LTIME_S(inode->i_atime);
 	lvb->lvb_ctime = LTIME_S(inode->i_ctime);
@@ -191,7 +202,7 @@ static int vvp_object_glimpse(const struct lu_env *env,
 	if (lvb->lvb_size > 0 && lvb->lvb_blocks == 0)
 		lvb->lvb_blocks = dirty_cnt(inode);
 
-	RETURN(0);
+	RETURN(rc);
 }
 
 static const struct cl_object_operations vvp_ops = {

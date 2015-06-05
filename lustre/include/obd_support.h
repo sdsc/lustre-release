@@ -465,6 +465,12 @@ int obd_alloc_fail(const void *ptr, const char *name, const char *type,
 
 #define OBD_FAIL_GENERAL_ALLOC           0xC00
 
+#define OBD_FAIL_IOSVC                   0xE00
+#define OBD_FAIL_IOSVC_PAUSE1            0xE01
+#define OBD_FAIL_IOSVC_PAUSE2            0xE02
+#define OBD_FAIL_IOSVC_PAUSE3            0xE03
+#define OBD_FAIL_IOSVC_PAUSE4            0xE04
+
 #define OBD_FAIL_SEQ                     0x1000
 #define OBD_FAIL_SEQ_QUERY_NET           0x1001
 #define OBD_FAIL_SEQ_EXHAUST		 0x1002

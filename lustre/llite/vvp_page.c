@@ -243,6 +243,8 @@ static void vvp_vmpage_error(struct inode *inode, struct page *vmpage, int ioret
 		else
 			set_bit(AS_EIO, &inode->i_mapping->flags);
 
+		iosvc_set_rc(ll_i2info(inode), ioret);
+
 		if ((ioret == -ESHUTDOWN || ioret == -EINTR) &&
 		     obj->vob_discard_page_warned == 0) {
 			obj->vob_discard_page_warned = 1;
