@@ -117,6 +117,10 @@ static int __init init_lustre_lite(void)
 	CDEBUG(D_INFO, "Lustre client module (%p).\n",
 	       &lustre_super_operations);
 
+	rc = iosvc_setup_service();
+	if (rc < 0)
+		return rc;
+
 	ll_inode_cachep = kmem_cache_create("lustre_inode_cache",
 					    sizeof(struct ll_inode_info),
 					    0, SLAB_HWCACHE_ALIGN, NULL);
@@ -227,6 +231,7 @@ static void __exit exit_lustre_lite(void)
 
 	lprocfs_remove(&proc_lustre_fs_root);
 
+	iosvc_cleanup_service();
 	ll_xattr_fini();
 	cl_env_put(cl_inode_fini_env, &cl_inode_fini_refcheck);
 	vvp_global_fini();
