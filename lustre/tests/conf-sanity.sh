@@ -5391,6 +5391,46 @@ test_84() {
 }
 run_test 84 "check recovery_hard_time"
 
+test_85() {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+
+	load_modules
+	start_mds || error "MDS start fail"
+	start_ost || error "OST start fail"
+	mount_client $MOUNT || error "mount_client $MOUNT failed"
+
+	# Some cross-MDT operations to create update log
+	mkdir -p $DIR/$tdir
+	for n in $(seq $MDSCOUNT); do
+		echo "creating $nfiles files on mds$n"
+		$LFS mkdir -i $((n - 1)) $DIR/$tdir/mds$n ||
+			error "Failed to create remote directory mds$n"
+		cp $LUSTRE/tests/*.sh $DIR/$tdir/mds$n ||
+			error "Failed to copy files to mds$n"
+		mkdir -p $DIR/$tdir/mds$n/d_$tfile ||
+			error "mkdir failed on mds$n"
+		createmany -m $DIR/$tdir/mds$n/d_$tfile/f 2 > \
+			/dev/null || error "create failed on mds$n"
+		if [[ $nfiles -gt 0 ]]; then
+			createmany -m $DIR/$tdir/mds$n/$tfile $nfiles > \
+				/dev/null || error "createmany failed on mds$n"
+		fi
+	done
+	stop_mds || error "MDS stop fail"
+	start_mds || error "MDS start fail"
+	stop_mds || error "MDS stop fail"
+	start_mds || error "MDS start fail"
+	stop_mds || error "MDS stop fail"
+	start_mds || error "MDS start fail"
+	stop_mds || error "MDS stop fail"
+	start_mds || error "MDS start fail"
+
+	umount_client $MOUNT
+	stop_ost
+	stop_mds
+}
+run_test 85 "mulitple MDS mount/umount"
+
 if ! combined_mgs_mds ; then
 	stop mgs
 fi
