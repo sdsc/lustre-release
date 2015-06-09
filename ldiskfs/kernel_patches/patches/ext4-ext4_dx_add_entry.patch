@@ -1,0 +1,20 @@
+Index: linux-stage/fs/ext4/namei.c
+===================================================================
+--- linux-stage.orig/fs/ext4/namei.c	2015-06-08 17:04:13.000000000 -0700
++++ linux-stage/fs/ext4/namei.c	2015-06-08 17:10:24.000000000 -0700
+@@ -1557,7 +1557,14 @@ static int ext4_dx_add_entry(handle_t *h
+ 
+ 		if (levels && (dx_get_count(frames->entries) ==
+ 			       dx_get_limit(frames->entries))) {
+-			ext4_warning(sb, "Directory index full!");
++			static unsigned long next;
++
++			if (time_after(jiffies, next)) {
++				ext4_warning(sb, "%s: Directory %s/%s (ino: %lu) "
++					     "index full, reach max htree level"
++					     " :%d", current->comm, dentry->d_parent->d_name.name, dentry->d_name.name, dir->i_ino, levels);
++				next = jiffies + 600 * HZ;
++			}
+ 			err = -ENOSPC;
+ 			goto cleanup;
+ 		}
