@@ -63,6 +63,9 @@ static void nodemap_destroy(struct lu_nodemap *nodemap)
 {
 	ENTRY;
 
+	if (nodemap->nm_pde_data)
+		lprocfs_nodemap_remove(nodemap->nm_pde_data);
+
 	nodemap_lock_active_ranges();
 	nm_member_reclassify_nodemap(nodemap);
 	nodemap_unlock_active_ranges();
@@ -825,24 +828,6 @@ struct lu_nodemap *nodemap_create(const char *name,
 		nodemap->nm_squash_gid = default_nodemap->nm_squash_gid;
 	}
 
-	/* if this nodemap already exists in the active hash, then we
-	 * don't need to create a new proc entry. proc entries are only removed
-	 * if nodemap_del is called.
-	 * active_config locked by caller.
-	 */
-	if (active_config != config && active_config != NULL) {
-		struct lu_nodemap *tmp = NULL;
-
-		tmp = cfs_hash_lookup(active_config->nmc_nodemap_hash, name);
-		if (tmp != NULL) {
-			nodemap->nm_pde_data = tmp->nm_pde_data;
-			nodemap_putref(tmp);
-		}
-	}
-
-	if (nodemap->nm_pde_data == NULL)
-		lprocfs_nodemap_register(name, is_default, nodemap);
-
 	return nodemap;
 
 out:
@@ -996,6 +981,8 @@ int nodemap_add(const char *nodemap_name)
 		rc = PTR_ERR(nodemap);
 	} else {
 		rc = nodemap_idx_nodemap_add(nodemap);
+		lprocfs_nodemap_register(nodemap, 0);
+
 		mutex_unlock(&active_config_lock);
 		nodemap_putref(nodemap);
 	}
@@ -1046,6 +1033,7 @@ int nodemap_del(const char *nodemap_name)
 	 * before nodemap_destroy is run.
 	 */
 	lprocfs_nodemap_remove(nodemap->nm_pde_data);
+	nodemap->nm_pde_data = NULL;
 	mutex_unlock(&active_config_lock);
 
 	nodemap_putref(nodemap);
@@ -1149,6 +1137,7 @@ out:
 	}
 	return config;
 }
+EXPORT_SYMBOL(nodemap_config_alloc);
 
 void nodemap_config_dealloc(struct nodemap_config *config)
 {
@@ -1158,10 +1147,55 @@ void nodemap_config_dealloc(struct nodemap_config *config)
 		OBD_FREE_PTR(config);
 	}
 }
+EXPORT_SYMBOL(nodemap_config_dealloc);
+
+static int nm_hash_list_cb(struct cfs_hash *hs, struct cfs_hash_bd *bd,
+			   struct hlist_node *hnode,
+			   void *nodemap_list_head)
+{
+	struct lu_nodemap *nodemap;
+
+	nodemap = hlist_entry(hnode, struct lu_nodemap, nm_hash);
+	list_add(&nodemap->nm_list, (struct list_head *)nodemap_list_head);
+	return 0;
+}
 
 void nodemap_config_set_active(struct nodemap_config *config)
 {
-	struct nodemap_config *old_config = active_config;
+	struct nodemap_config	*old_config = active_config;
+	struct lu_nodemap	*nodemap;
+	struct lu_nodemap	*tmp;
+
+	struct list_head	 nodemap_list_head =
+			LIST_HEAD_INIT(nodemap_list_head);
+
+	ENTRY;
+
+	if (active_config == config) {
+		CWARN("attempting to activate already active config\n");
+		return;
+	}
+
+	/* move proc entries from already existing nms, create for new nms */
+	cfs_hash_for_each_safe(config->nmc_nodemap_hash,
+			       nm_hash_list_cb, &nodemap_list_head);
+	list_for_each_entry_safe(nodemap, tmp, &nodemap_list_head, nm_list) {
+		struct lu_nodemap *old_nm = NULL;
+
+		if (active_config != NULL)
+			old_nm = cfs_hash_lookup(
+					active_config->nmc_nodemap_hash,
+					nodemap->nm_name);
+		if (old_nm != NULL) {
+			nodemap->nm_pde_data = old_nm->nm_pde_data;
+			old_nm->nm_pde_data = NULL;
+			nodemap_putref(old_nm);
+		} else {
+			bool is_def = (nodemap == config->nmc_default_nodemap);
+
+			lprocfs_nodemap_register(nodemap, is_def);
+		}
+	}
 
 	/* if new config is inactive, deactivate live config before switching */
 	if (!config->nmc_nodemap_active)
@@ -1175,7 +1209,10 @@ void nodemap_config_set_active(struct nodemap_config *config)
 		nodemap_config_dealloc(old_config);
 	else
 		mutex_unlock(&active_config_lock);
+
+	EXIT;
 }
+EXPORT_SYMBOL(nodemap_config_set_active);
 
 /**
  * Cleanup nodemap module on exit
@@ -1221,17 +1258,6 @@ out:
 	return rc;
 }
 
-static int nm_member_revoke_all_cb(struct cfs_hash *hs, struct cfs_hash_bd *bd,
-				   struct hlist_node *hnode,
-				   void *nodemap_list_head)
-{
-	struct lu_nodemap *nodemap;
-
-	nodemap = hlist_entry(hnode, struct lu_nodemap, nm_hash);
-	list_add(&nodemap->nm_list, (struct list_head *)nodemap_list_head);
-	return 0;
-}
-
 /**
  * Revoke locks for all nodemaps.
  */
@@ -1239,13 +1265,11 @@ void nm_member_revoke_all()
 {
 	struct lu_nodemap *nodemap;
 	struct lu_nodemap *tmp;
-
-	struct list_head	 nodemap_list_head =
-			LIST_HEAD_INIT(nodemap_list_head);
+	struct list_head nodemap_list_head = LIST_HEAD_INIT(nodemap_list_head);
 
 	mutex_lock(&active_config_lock);
 	cfs_hash_for_each_safe(active_config->nmc_nodemap_hash,
-			       nm_member_revoke_all_cb, &nodemap_list_head);
+			       nm_hash_list_cb, &nodemap_list_head);
 
 	list_for_each_entry_safe(nodemap, tmp, &nodemap_list_head, nm_list) {
 		/* revoke locks sleeps, so can't call in cfs hash cb */

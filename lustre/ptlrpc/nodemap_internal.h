@@ -141,7 +141,6 @@ enum nodemap_idx_type {
 
 struct nodemap_config *nodemap_config_alloc(void);
 void nodemap_config_dealloc(struct nodemap_config *config);
-void nodemap_config_set_active(struct nodemap_config *config);
 struct lu_nodemap *nodemap_create(const char *name,
 				  struct nodemap_config *config,
 				  bool is_default);
@@ -150,8 +149,8 @@ int nodemap_lookup(const char *name, struct lu_nodemap **nodemap);
 
 int nodemap_procfs_init(void);
 void nodemap_procfs_exit(void);
-int lprocfs_nodemap_register(const char *name, bool is_default_nodemap,
-			     struct lu_nodemap *nodemap);
+int lprocfs_nodemap_register(struct lu_nodemap *nodemap,
+			     bool is_default_nodemap);
 void lprocfs_nodemap_remove(struct nodemap_pde *nodemap_pde);
 struct lu_nid_range *nodemap_range_find(lnet_nid_t start_nid,
 					lnet_nid_t end_nid);

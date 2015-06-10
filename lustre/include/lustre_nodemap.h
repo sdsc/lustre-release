@@ -134,4 +134,12 @@ int nodemap_test_nid(lnet_nid_t nid, char __user *user_buf, __u32 user_buf_len);
 int nodemap_test_id(lnet_nid_t nid, int idtype, __u32 client_id);
 struct nm_config_file *nm_config_file_register(struct dt_object *obj);
 void nm_config_file_deregister(struct nm_config_file *ncf);
+struct nodemap_config *nodemap_config_alloc(void);
+void nodemap_config_dealloc(struct nodemap_config *config);
+void nodemap_config_set_active(struct nodemap_config *config);
+int nodemap_process_idx_page(struct nodemap_config *config, union lu_page *lip,
+			     struct lu_nodemap **recent_nodemap);
+int nodemap_index_read(struct nm_config_file *ncf,
+		       struct idx_info *ii,
+		       const struct lu_rdpg *rdpg);
 #endif	/* _LUSTRE_NODEMAP_H */

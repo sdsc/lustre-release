@@ -1163,13 +1163,11 @@ void lprocfs_nodemap_remove(struct nodemap_pde *nm_pde)
 /**
  * Register the proc directory for a nodemap
  *
- * \param	name		name of nodemap
+ * \param	nodemap		nodemap to make the proc dir for
  * \param	is_default:	1 if default nodemap
  * \retval	0		success
  */
-int lprocfs_nodemap_register(const char *name,
-			     bool is_default,
-			     struct lu_nodemap *nodemap)
+int lprocfs_nodemap_register(struct lu_nodemap *nodemap, bool is_default)
 {
 	struct nodemap_pde	*nm_entry;
 	int			 rc = 0;
@@ -1178,11 +1176,13 @@ int lprocfs_nodemap_register(const char *name,
 	if (nm_entry == NULL)
 		GOTO(out, rc = -ENOMEM);
 
-	nm_entry->npe_proc_entry = proc_mkdir(name, proc_lustre_nodemap_root);
+	nm_entry->npe_proc_entry = proc_mkdir(nodemap->nm_name,
+					      proc_lustre_nodemap_root);
 	if (IS_ERR(nm_entry->npe_proc_entry))
 		GOTO(out, rc = PTR_ERR(nm_entry->npe_proc_entry));
 
-	snprintf(nm_entry->npe_name, sizeof(nm_entry->npe_name), "%s", name);
+	snprintf(nm_entry->npe_name, sizeof(nm_entry->npe_name), "%s",
+		 nodemap->nm_name);
 
 	/* Use the nodemap name as stored on the PDE as the private data. This
 	 * is so a nodemap struct can be replaced without updating the proc
@@ -1204,7 +1204,8 @@ int lprocfs_nodemap_register(const char *name,
 
 out:
 	if (rc != 0) {
-		CERROR("cannot create 'nodemap/%s': rc = %d\n", name, rc);
+		CERROR("cannot create 'nodemap/%s': rc = %d\n",
+		       nodemap->nm_name, rc);
 		if (nm_entry) {
 			OBD_FREE_PTR(nm_entry);
 			nm_entry = NULL;
