@@ -1148,6 +1148,7 @@ struct nodemap_config *nodemap_config_alloc(void)
 	mutex_lock(&active_config_lock);
 	return config;
 }
+EXPORT_SYMBOL(nodemap_config_alloc);
 
 void nodemap_config_dealloc(struct nodemap_config *config)
 {
@@ -1157,6 +1158,7 @@ void nodemap_config_dealloc(struct nodemap_config *config)
 		OBD_FREE_PTR(config);
 	}
 }
+EXPORT_SYMBOL(nodemap_config_dealloc);
 
 static int nm_hash_list_cb(struct cfs_hash *hs, struct cfs_hash_bd *bd,
 			   struct hlist_node *hnode,
@@ -1214,13 +1216,16 @@ void nodemap_config_set_active(struct nodemap_config *config)
 		nodemap_active = true;
 
 	/* nodemap_dealloc_config will unlock config lock */
-	if (old_config != NULL)
+	if (old_config != NULL) {
 		nodemap_config_dealloc(old_config);
-	else
+	} else {
 		mutex_unlock(&active_config_lock);
+		nm_member_revoke_all();
+	}
 
 	EXIT;
 }
+EXPORT_SYMBOL(nodemap_config_set_active);
 
 /**
  * Cleanup nodemap module on exit

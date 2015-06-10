@@ -459,14 +459,17 @@ int nodemap_idx_nodemap_activate(const bool value)
  * \param	key		key of the record that was loaded
  * \param	rec		record that was loaded
  * \param	recent_nodemap	last referenced nodemap
+ *
+ * \retval	type		the type of record processed
+ * \retval
  */
-static int nodemap_process_keyrec(struct nodemap_config *config,
-				  struct nodemap_key *key,
-				  union nodemap_rec *rec,
-				  struct lu_nodemap **recent_nodemap)
+static enum nm_idx_type nodemap_process_keyrec(struct nodemap_config *config,
+					       struct nodemap_key *key,
+					       union nodemap_rec *rec,
+					       struct lu_nodemap **recent_nm)
 {
 	struct lu_nodemap	*nodemap = NULL;
-	int			 type;
+	enum nm_idx_type	 type;
 	__u32			 nodemap_id;
 	lnet_nid_t		 nid[2];
 	__u32			 map[2];
@@ -481,10 +484,12 @@ static int nodemap_process_keyrec(struct nodemap_config *config,
 			type == NODEMAP_GIDMAP_IDX) {
 		struct lu_nodemap *tmp = NULL;
 
-		nodemap = *recent_nodemap;
+		nodemap = *recent_nm;
 
-		if (nodemap == NULL)
+		if (nodemap == NULL) {
+			CWARN("can't find nodemap for range/idmap, exiting\n");
 			GOTO(out, rc = -EINVAL);
+		}
 
 		if (nodemap->nm_id != nodemap_id) {
 			list_for_each_entry(tmp, &nodemap->nm_list, nm_list) {
@@ -499,8 +504,8 @@ static int nodemap_process_keyrec(struct nodemap_config *config,
 		}
 
 		/* update most recently used nodemap if necessay */
-		if (nodemap != *recent_nodemap)
-			*recent_nodemap = nodemap;
+		if (nodemap != *recent_nm)
+			*recent_nm = nodemap;
 	}
 
 	switch (type) {
@@ -532,6 +537,8 @@ static int nodemap_process_keyrec(struct nodemap_config *config,
 				config->nmc_nodemap_highest_id = nodemap_id;
 
 		} else if (nodemap->nm_id != nodemap_id) {
+			CWARN("nodemap %s exists with id %d, loading id %d\n",
+				nodemap->nm_name, nodemap->nm_id, nodemap_id);
 			GOTO(out, rc = -EINVAL);
 		}
 
@@ -544,12 +551,12 @@ static int nodemap_process_keyrec(struct nodemap_config *config,
 		nodemap->nmf_trust_client_ids =
 				rec->ncr.ncr_flags & (1 << NM_FL_TRUST);
 
-		if (*recent_nodemap == NULL) {
-			*recent_nodemap = nodemap;
+		if (*recent_nm == NULL) {
+			*recent_nm = nodemap;
 			INIT_LIST_HEAD(&nodemap->nm_list);
 		} else {
 			list_add(&nodemap->nm_list,
-				 &(*recent_nodemap)->nm_list);
+				 &(*recent_nm)->nm_list);
 		}
 		nodemap_putref(nodemap);
 		break;
@@ -756,3 +763,63 @@ void nm_config_file_deregister(struct nm_config_file *ncf)
 	EXIT;
 }
 EXPORT_SYMBOL(nm_config_file_deregister);
+
+int nodemap_process_idx_pages(struct nodemap_config *config, union lu_page *lip,
+			      struct lu_nodemap **recent_nodemap)
+{
+	struct nodemap_key	*key;
+	union nodemap_rec	*rec;
+	char			*entry;
+	int			 j;
+	int			 k;
+	int			 rc = 0;
+	int			 size = dt_nodemap_features.dif_keysize_max +
+					dt_nodemap_features.dif_recsize_max;
+
+	for (j = 0; j < LU_PAGE_COUNT; j++) {
+		if (lip->lp_idx.lip_magic != LIP_MAGIC)
+			return -EINVAL;
+
+		/* get and process keys and records from page */
+		for (k = 0; k < lip->lp_idx.lip_nr; k++) {
+			entry = lip->lp_idx.lip_entries + k * size;
+			key = (struct nodemap_key *)entry;
+
+			entry += dt_nodemap_features.dif_keysize_max;
+			rec = (union nodemap_rec *)entry;
+
+			rc = nodemap_process_keyrec(config, key, rec,
+						    recent_nodemap);
+			if (rc < 0)
+				return rc;
+		}
+		lip++;
+	}
+	return 0;
+}
+EXPORT_SYMBOL(nodemap_process_idx_pages);
+
+int nodemap_index_read(struct nm_config_file *ncf,
+		       struct idx_info *ii,
+		       const struct lu_rdpg *rdpg)
+{
+	struct dt_object	*nodemap_idx = ncf->ncf_obj;
+	struct lu_env		 env;
+	int			 rc = 0;
+
+	rc = lu_env_init(&env, LCT_MG_THREAD);
+	if (rc != 0)
+		return rc;
+
+	ii->ii_keysize = dt_nodemap_features.dif_keysize_max;
+	ii->ii_recsize = dt_nodemap_features.dif_recsize_max;
+
+	dt_read_lock(&env, nodemap_idx, 0);
+	rc = dt_index_walk(&env, nodemap_idx, rdpg, NULL, ii);
+	CDEBUG(D_INFO, "walked index, hashend %llx\n", ii->ii_hash_end);
+
+	dt_read_unlock(&env, nodemap_idx);
+	lu_env_fini(&env);
+	return rc;
+}
+EXPORT_SYMBOL(nodemap_index_read);
