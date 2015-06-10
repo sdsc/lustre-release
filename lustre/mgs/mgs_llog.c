@@ -4231,3 +4231,99 @@ out_label:
 	OBD_FREE(label, label_sz);
         return rc;
 }
+
+/**
+ * Returns the current nodemap configuration to MGC by walking the nodemap
+ * config index and storing it in the response buffer.
+ *
+ * \param	req		incoming MGS_CONFIG_READ request
+ * \retval	0		success
+ * \retval	-EINVAL		malformed request
+ * \retval	-ENOTCONN	client evicted/reconnected already
+ * \retval	-ETIMEDOUT	client timeout or network error
+ * \retval	-ENOMEM
+ */
+int mgs_get_nodemap_config(struct ptlrpc_request *req)
+{
+	struct mgs_config_body	*body;
+	struct mgs_device	*mgs = exp2mgs_dev(req->rq_export);
+	struct mgs_config_res	*res;
+	struct lu_rdpg		 rdpg;
+	struct idx_info		 nodemap_ii;
+	struct ptlrpc_bulk_desc *desc;
+	struct l_wait_info	 lwi;
+	int			 i;
+	int			 page_count;
+	int			 bytes = 0;
+	int			 rc = 0;
+
+	body = req_capsule_client_get(&req->rq_pill, &RMF_MGS_CONFIG_BODY);
+	if (body == NULL)
+		RETURN(-EINVAL);
+
+	if (body->mcb_type != CONFIG_T_NODEMAP)
+		RETURN(-EINVAL);
+
+	rdpg.rp_count = (body->mcb_units << body->mcb_bits);
+	rdpg.rp_npages = (rdpg.rp_count + PAGE_CACHE_SIZE - 1) >>
+		PAGE_CACHE_SHIFT;
+	if (rdpg.rp_npages > PTLRPC_MAX_BRW_PAGES)
+		RETURN(-EINVAL);
+
+	CDEBUG(D_MGS, "reading nodemap log, name '%s', size = %u\n",
+	       body->mcb_name, rdpg.rp_count);
+
+	/* allocate pages to store the containers */
+	OBD_ALLOC(rdpg.rp_pages, sizeof(*rdpg.rp_pages) * rdpg.rp_npages);
+	if (rdpg.rp_pages == NULL)
+		RETURN(-ENOMEM);
+	for (i = 0; i < rdpg.rp_npages; i++) {
+		rdpg.rp_pages[i] = alloc_page(GFP_IOFS);
+		if (rdpg.rp_pages[i] == NULL)
+			GOTO(out, rc = -ENOMEM);
+	}
+
+	rdpg.rp_hash = body->mcb_offset;
+	nodemap_ii.ii_magic = IDX_INFO_MAGIC;
+	nodemap_ii.ii_flags = II_FL_NOHASH;
+
+	bytes = nodemap_index_read(mgs->mgs_obd->u.obt.obt_nodemap_config_file,
+				   &nodemap_ii, &rdpg);
+	if (bytes < 0)
+		GOTO(out, rc = bytes);
+
+	res = req_capsule_server_get(&req->rq_pill, &RMF_MGS_CONFIG_RES);
+	if (res == NULL)
+		GOTO(out, rc = -EINVAL);
+	res->mcr_offset = nodemap_ii.ii_hash_end;
+	res->mcr_size = bytes;
+
+	page_count = (bytes + PAGE_CACHE_SIZE - 1) >> PAGE_CACHE_SHIFT;
+	LASSERT(page_count <= rdpg.rp_count);
+	desc = ptlrpc_prep_bulk_exp(req, page_count, 1,
+				    PTLRPC_BULK_PUT_SOURCE |
+					PTLRPC_BULK_BUF_KIOV,
+				    MGS_BULK_PORTAL,
+				    &ptlrpc_bulk_kiov_pin_ops);
+	if (desc == NULL)
+		GOTO(out, rc = -ENOMEM);
+
+	for (i = 0; i < page_count && bytes > 0; i++) {
+		ptlrpc_prep_bulk_page_pin(desc, rdpg.rp_pages[i], 0,
+					  min_t(int, bytes, PAGE_CACHE_SIZE));
+		bytes -= PAGE_CACHE_SIZE;
+	}
+
+	rc = target_bulk_io(req->rq_export, desc, &lwi);
+	ptlrpc_free_bulk(desc);
+
+out:
+	if (rdpg.rp_pages != NULL) {
+		for (i = 0; i < rdpg.rp_npages; i++)
+			if (rdpg.rp_pages[i] != NULL)
+				__free_page(rdpg.rp_pages[i]);
+		OBD_FREE(rdpg.rp_pages,
+			 rdpg.rp_npages * sizeof(rdpg.rp_pages[0]));
+	}
+	return rc;
+}
