@@ -1149,6 +1149,7 @@ out:
 	}
 	return config;
 }
+EXPORT_SYMBOL(nodemap_config_alloc);
 
 void nodemap_config_dealloc(struct nodemap_config *config)
 {
@@ -1158,6 +1159,7 @@ void nodemap_config_dealloc(struct nodemap_config *config)
 		OBD_FREE_PTR(config);
 	}
 }
+EXPORT_SYMBOL(nodemap_config_dealloc);
 
 void nodemap_config_set_active(struct nodemap_config *config)
 {

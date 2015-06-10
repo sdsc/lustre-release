@@ -414,5 +414,6 @@ static inline struct mgs_direntry *mgs_direntry_alloc(int len)
 /* mgs_llog.c */
 int class_dentry_readdir(const struct lu_env *env, struct mgs_device *mgs,
 			 struct list_head *list);
+int mgs_get_nodemap_config(struct ptlrpc_request *req);
 
 #endif /* _MGS_INTERNAL_H */
