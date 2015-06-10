@@ -65,7 +65,7 @@ static struct llog_handle *llog_alloc_handle(void)
 		return NULL;
 
 	init_rwsem(&loghandle->lgh_lock);
-	init_rwsem(&loghandle->lgh_hdr_lock);
+	mutex_init(&loghandle->lgh_hdr_mutex);
 	INIT_LIST_HEAD(&loghandle->u.phd.phd_entry);
 	atomic_set(&loghandle->lgh_refcount, 1);
 
@@ -120,9 +120,9 @@ int llog_cancel_rec(const struct lu_env *env, struct llog_handle *loghandle,
                 RETURN(-EINVAL);
         }
 
-	down_write(&loghandle->lgh_hdr_lock);
+	mutex_lock(&loghandle->lgh_hdr_mutex);
 	if (!ext2_clear_bit(index, LLOG_HDR_BITMAP(llh))) {
-		up_write(&loghandle->lgh_hdr_lock);
+		mutex_unlock(&loghandle->lgh_hdr_mutex);
 		CDEBUG(D_RPCTRACE, "Catalog index %u already clear?\n", index);
 		RETURN(-ENOENT);
 	}
@@ -132,7 +132,7 @@ int llog_cancel_rec(const struct lu_env *env, struct llog_handle *loghandle,
 	if ((llh->llh_flags & LLOG_F_ZAP_WHEN_EMPTY) &&
 	    (llh->llh_count == 1) &&
 	    (loghandle->lgh_last_idx == LLOG_HDR_BITMAP_SIZE(llh) - 1)) {
-		up_write(&loghandle->lgh_hdr_lock);
+		mutex_unlock(&loghandle->lgh_hdr_mutex);
 		rc = llog_destroy(env, loghandle);
 		if (rc < 0) {
 			CERROR("%s: can't destroy empty llog #"DOSTID
@@ -144,9 +144,9 @@ int llog_cancel_rec(const struct lu_env *env, struct llog_handle *loghandle,
 		}
 		RETURN(LLOG_DEL_PLAIN);
 	}
-	up_write(&loghandle->lgh_hdr_lock);
 
 	rc = llog_write(env, loghandle, &llh->llh_hdr, LLOG_HEADER_IDX);
+	mutex_unlock(&loghandle->lgh_hdr_mutex);
 	if (rc < 0) {
 		CERROR("%s: fail to write header for llog #"DOSTID
 		       "#%08x: rc = %d\n",
@@ -157,10 +157,10 @@ int llog_cancel_rec(const struct lu_env *env, struct llog_handle *loghandle,
 	}
 	RETURN(0);
 out_err:
-	down_write(&loghandle->lgh_hdr_lock);
+	mutex_lock(&loghandle->lgh_hdr_mutex);
 	ext2_set_bit(index, LLOG_HDR_BITMAP(llh));
 	llh->llh_count++;
-	up_write(&loghandle->lgh_hdr_lock);
+	mutex_unlock(&loghandle->lgh_hdr_mutex);
 	return rc;
 }
 
