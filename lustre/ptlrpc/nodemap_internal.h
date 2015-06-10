@@ -128,7 +128,7 @@ struct nodemap_key {
 #define nm_idx_get_type(id) (id >> 28)
 #define nm_idx_set_type(id, t) (((id) & 0x0FFFFFFF) | (t << 28))
 
-enum nodemap_idx_type {
+enum nm_idx_type {
 	NODEMAP_EMPTY_IDX = 0,		/* index created with blank record */
 	NODEMAP_CLUSTER_IDX = 1,	/* a nodemap cluster of nodes */
 	NODEMAP_RANGE_IDX = 2,		/* nid range assigned to a nm cluster */
@@ -139,7 +139,6 @@ enum nodemap_idx_type {
 
 struct nodemap_config *nodemap_config_alloc(void);
 void nodemap_config_dealloc(struct nodemap_config *config);
-void nodemap_config_set_active(struct nodemap_config *config);
 struct lu_nodemap *nodemap_create(const char *name,
 				  struct nodemap_config *config,
 				  bool is_default);
