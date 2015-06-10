@@ -958,18 +958,6 @@ test_15() {
 }
 run_test 15 "test id mapping"
 
-# Until nodemaps are distributed by MGS, they need to be distributed manually
-# This function and all calls to it should be removed once the MGS distributes
-# nodemaps to the MDS and OSS nodes directly.
-do_servers_not_mgs() {
-	local mgs_ip=$(host_nids_address $mgs_HOST $NETTYPE)
-	for node in $(all_server_nodes); do
-		local node_ip=$(host_nids_address $node $NETTYPE)
-		[ $node_ip == $mgs_ip ] && continue
-		do_node $node_ip $*
-	done
-}
-
 create_fops_nodemaps() {
 	local i=0
 	local client
@@ -979,29 +967,38 @@ create_fops_nodemaps() {
 		do_facet mgs $LCTL nodemap_add c${i} || return 1
 		do_facet mgs $LCTL nodemap_add_range 	\
 			--name c${i} --range $client_nid || return 1
-		do_servers_not_mgs $LCTL set_param nodemap.add_nodemap=c${i} ||
-			return 1
-		do_servers_not_mgs "$LCTL set_param \
-			nodemap.add_nodemap_range='c${i} $client_nid'" ||
-			return 1
 		for map in ${FOPS_IDMAPS[i]}; do
 			do_facet mgs $LCTL nodemap_add_idmap --name c${i} \
 				--idtype uid --idmap ${map} || return 1
-			do_servers_not_mgs "$LCTL set_param \
-				nodemap.add_nodemap_idmap='c$i uid ${map}'" ||
-				return 1
 			do_facet mgs $LCTL nodemap_add_idmap --name c${i} \
 				--idtype gid --idmap ${map} || return 1
-			do_servers_not_mgs "$LCTL set_param \
-				nodemap.add_nodemap_idmap='c$i gid ${map}'" ||
-				return 1
 		done
-		out1=$(do_facet mgs $LCTL get_param nodemap.c${i}.idmap)
-		out2=$(do_facet ost0 $LCTL get_param nodemap.c${i}.idmap)
-		[ "$out1" != "$out2" ] && error "mgs and oss maps mismatch"
+
+		wait_nm_sync c$i idmap
+
 		i=$((i + 1))
 	done
 	return 0
+}
+
+wait_nm_sync() {
+	local client=$1
+	local key=$2
+	local found
+	local out1=$(do_facet mgs $LCTL get_param nodemap.${client}.${key})
+	local out2
+
+	# wait up to 20 seconds for ost to sync with mds
+	for x in $(seq 1 20); do
+		found=1
+		sleep 1
+		out2=$(do_facet ost0 $LCTL get_param \
+			nodemap.${client}.${key} 2>/dev/null)
+		[ "$out1" != "$out2" ] || break
+		found=0
+	done
+	[ $found == "0" ] && error "mgs and oss ${key} mismatch, $x attempts"
+	[ $found == "1" ] && echo "sync'd mgs and oss after $x attempts"
 }
 
 delete_fops_nodemaps() {
@@ -1009,8 +1006,6 @@ delete_fops_nodemaps() {
 	local client
 	for client in $clients; do
 		do_facet mgs $LCTL nodemap_del c${i} || return 1
-		do_servers_not_mgs $LCTL set_param nodemap.remove_nodemap=c$i ||
-			return 1
 		i=$((i + 1))
 	done
 	return 0
@@ -1037,8 +1032,6 @@ fops_test_setup() {
 
 	do_facet mgs $LCTL nodemap_modify --name c0 --property admin --value 1
 	do_facet mgs $LCTL nodemap_modify --name c0 --property trusted --value 1
-	do_servers_not_mgs $LCTL set_param nodemap.c0.admin_nodemap=1
-	do_servers_not_mgs $LCTL set_param nodemap.c0.trusted_nodemap=1
 
 	do_node ${clients_arr[0]} rm -rf $DIR/$tdir
 	nm_test_mkdir
@@ -1048,12 +1041,13 @@ fops_test_setup() {
 		--property admin --value $admin
 	do_facet mgs $LCTL nodemap_modify --name c0 \
 		--property trusted --value $trust
-	do_servers_not_mgs $LCTL set_param nodemap.c0.admin_nodemap=$admin
-	do_servers_not_mgs $LCTL set_param nodemap.c0.trusted_nodemap=$trust
 
 	# flush MDT locks to make sure they are reacquired before test
 	do_node ${clients_arr[0]} lctl set_param \
 		ldlm.namespaces.$FSNAME-MDT*.lru_size=clear
+
+	wait_nm_sync c0 admin_nodemap
+	wait_nm_sync c0 trusted_nodemap
 }
 
 do_create_delete() {
@@ -1089,6 +1083,7 @@ do_fops_quota_test() {
 	local qused_low=$((qused_orig - quota_fuzz))
 	local testfile=$DIR/$tdir/$tfile
 	chmod 777 $DIR/$tdir
+
 	$run_u dd if=/dev/zero of=$testfile bs=1M count=1 >& /dev/null
 	sync; sync_all_data || true
 
@@ -1217,16 +1212,12 @@ test_fops() {
 						--name c$cli_i \
 						--property admin \
 						--value 1
-					do_servers_not_mgs $LCTL set_param \
-						nodemap.c$cli_i.admin_nodemap=1
 					do_node $client chmod $mode $DIR/$tdir \
 						|| error unable to chmod $key
 					do_facet mgs $LCTL nodemap_modify \
 						--name c$cli_i \
 						--property admin \
 						--value $admin
-					do_servers_not_mgs $LCTL set_param \
-					    nodemap.c$cli_i.admin_nodemap=$admin
 
 					do_create_delete "$run_u" "$key"
 				done
@@ -1265,18 +1256,14 @@ nodemap_test_setup() {
 
 	if [ "$active_nodemap" == "0" ]; then
 		do_facet mgs $LCTL set_param nodemap.active=0
-		do_servers_not_mgs $LCTL set_param nodemap.active=0
 		return
 	fi
 
 	do_facet mgs $LCTL nodemap_activate 1
-	do_servers_not_mgs $LCTL set_param nodemap.active=1
 	do_facet mgs $LCTL nodemap_modify --name default \
 		--property admin --value 1
 	do_facet mgs $LCTL nodemap_modify --name default \
 		--property trusted --value 1
-	do_servers_not_mgs $LCTL set_param nodemap.default.admin_nodemap=1
-	do_servers_not_mgs $LCTL set_param nodemap.default.trusted_nodemap=1
 }
 
 nodemap_test_cleanup() {
@@ -1295,14 +1282,12 @@ nodemap_clients_admin_trusted() {
 	for client in $clients; do
 		do_facet mgs $LCTL nodemap_modify --name c0 \
 			--property admin --value $admin
-		do_servers_not_mgs $LCTL set_param \
-			nodemap.c${i}.admin_nodemap=$admin
 		do_facet mgs $LCTL nodemap_modify --name c0 \
 			--property trusted --value $tr
-		do_servers_not_mgs $LCTL set_param \
-			nodemap.c${i}.trusted_nodemap=$tr
 		i=$((i + 1))
 	done
+	wait_nm_sync c$((i - 1)) admin_nodemap
+	wait_nm_sync c$((i - 1)) trusted_nodemap
 }
 
 test_16() {
@@ -1371,10 +1356,6 @@ test_21() {
 			--property admin --value 0
 		do_facet mgs $LCTL nodemap_modify --name c${i} \
 			--property trusted --value $x
-		do_servers_not_mgs $LCTL set_param \
-			nodemap.c${i}.admin_nodemap=0
-		do_servers_not_mgs $LCTL set_param \
-			nodemap.c${i}.trusted_nodemap=$x
 		x=0
 		i=$((i + 1))
 	done
@@ -1395,10 +1376,6 @@ test_22() {
 			--property admin --value 1
 		do_facet mgs $LCTL nodemap_modify --name c${i} \
 			--property trusted --value $x
-		do_servers_not_mgs $LCTL set_param \
-			nodemap.c${i}.admin_nodemap=1
-		do_servers_not_mgs $LCTL set_param \
-			nodemap.c${i}.trusted_nodemap=$x
 		x=0
 		i=$((i + 1))
 	done
@@ -1415,8 +1392,6 @@ nodemap_acl_test_setup() {
 
 	do_facet mgs $LCTL nodemap_modify --name c0 --property admin --value 1
 	do_facet mgs $LCTL nodemap_modify --name c0 --property trusted --value 1
-	do_servers_not_mgs $LCTL set_param nodemap.c0.admin_nodemap=1
-	do_servers_not_mgs $LCTL set_param nodemap.c0.trusted_nodemap=1
 
 	do_node ${clients_arr[0]} rm -rf $DIR/$tdir
 	nm_test_mkdir
@@ -1427,8 +1402,6 @@ nodemap_acl_test_setup() {
 		--property admin --value $admin
 	do_facet mgs $LCTL nodemap_modify --name c0 \
 		--property trusted --value $trust
-	do_servers_not_mgs $LCTL set_param nodemap.c0.admin_nodemap=$admin
-	do_servers_not_mgs $LCTL set_param nodemap.c0.trusted_nodemap=$trust
 
 }
 
@@ -1483,13 +1456,9 @@ test_23() {
 
 	do_facet mgs $LCTL nodemap_modify --name c0 --property admin --value 1
 	do_facet mgs $LCTL nodemap_modify --name c0 --property trusted --value 1
-	do_servers_not_mgs $LCTL set_param nodemap.c0.admin_nodemap=1
-	do_servers_not_mgs $LCTL set_param nodemap.c0.trusted_nodemap=1
 
 	do_facet mgs $LCTL nodemap_modify --name c1 --property admin --value 0
 	do_facet mgs $LCTL nodemap_modify --name c1 --property trusted --value 0
-	do_servers_not_mgs $LCTL set_param nodemap.c1.admin_nodemap=0
-	do_servers_not_mgs $LCTL set_param nodemap.c1.trusted_nodemap=0
 
 	# setfacl on trusted cluster to unmapped user, verify it's not seen
 	nodemap_acl_test $unmapped_fs ${clients_arr[0]} ${clients_arr[1]} ||
@@ -1510,8 +1479,6 @@ test_23() {
 	# 2 mapped clusters
 	do_facet mgs $LCTL nodemap_modify --name c0 --property admin --value 0
 	do_facet mgs $LCTL nodemap_modify --name c0 --property trusted --value 0
-	do_servers_not_mgs $LCTL set_param nodemap.c0.admin_nodemap=0
-	do_servers_not_mgs $LCTL set_param nodemap.c0.trusted_nodemap=0
 
 	# setfacl to mapped user on c1, also mapped to c0, verify it's seen
 	nodemap_acl_test $mapped_c1 ${clients_arr[1]} ${clients_arr[0]} &&
