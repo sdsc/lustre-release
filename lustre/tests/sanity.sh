@@ -5886,9 +5886,9 @@ test_77i() { # bug 13805
 	lctl set_param fail_loc=0x40b
 	remount_client $MOUNT
 	lctl set_param fail_loc=0
-	for VALUE in `lctl get_param osc.*osc-[^mM]*.checksum_type`; do
-		PARAM=`echo ${VALUE[0]} | cut -d "=" -f1`
-		algo=`lctl get_param -n $PARAM | sed 's/.*\[\(.*\)\].*/\1/g'`
+	for PARAM in `lctl list_param osc.*osc-[^mM]*.checksum_type`; do
+		aglo=`lctl get_param $PARAM | \
+		      awk '{ gsub(":","",$2); if ($8 == "yes") print $2; }'`
 		[ "$algo" = "adler" ] || error "algo set to $algo instead of adler"
 	done
 	remount_client $MOUNT
@@ -5903,9 +5903,9 @@ test_77j() { # bug 13805
 	remount_client $MOUNT
 	lctl set_param fail_loc=0
 	sleep 2 # wait async osc connect to finish
-	for VALUE in `lctl get_param osc.*osc-[^mM]*.checksum_type`; do
-                PARAM=`echo ${VALUE[0]} | cut -d "=" -f1`
-		algo=`lctl get_param -n $PARAM | sed 's/.*\[\(.*\)\].*/\1/g'`
+	for PARAM in `lctl list_param osc.*osc-[^mM]*.checksum_type`; do
+		aglo=`lctl get_param $PARAM | \
+		      awk '{ gsub(":","",$2); if ($8 == "yes") print $2; }'`
 		[ "$algo" = "adler" ] || error "algo set to $algo instead of adler"
 	done
 	remount_client $MOUNT
