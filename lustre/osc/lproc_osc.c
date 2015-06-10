@@ -376,15 +376,16 @@ static int osc_checksum_type_seq_show(struct seq_file *m, void *v)
         if (obd == NULL)
                 return 0;
 
+	seq_printf(m, "checksum_stats:\n");
 	for (i = 0; i < ARRAY_SIZE(cksum_name); i++) {
 		if (((1 << i) & obd->u.cli.cl_supp_cksum_types) == 0)
 			continue;
-		if (obd->u.cli.cl_cksum_type == (1 << i))
-			seq_printf(m, "[%s] ", cksum_name[i]);
-		else
-			seq_printf(m, "%s ", cksum_name[i]);
+
+		seq_printf(m, "- %s: { speed: %d MB/s, active: %s }\n",
+			cksum_name[i],
+			cfs_crypto_hash_speed(i),
+			obd->u.cli.cl_cksum_type == (1 << i) ? "yes" : "no");
 	}
-	seq_printf(m, "\n");
 	return 0;
 }
 
