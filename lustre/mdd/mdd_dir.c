@@ -150,6 +150,9 @@ static inline int mdd_parent_fid(const struct lu_env *env,
 
 	ENTRY;
 
+	if (!lu_object_exists(&obj->mod_obj.mo_lu))
+		RETURN(-ENOENT);
+
 	LASSERT(S_ISDIR(mdd_object_type(obj)));
 
 	buf = lu_buf_check_and_alloc(buf, PATH_MAX);
