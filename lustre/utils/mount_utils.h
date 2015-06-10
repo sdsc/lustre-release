@@ -48,6 +48,7 @@
 #define _SPL_ZFS_H
 #define _SPL_SIGNAL_H
 #endif
+#include <libcfs/util/list.h>
 #include <lustre_disk.h>
 #include <lustre_param.h>
 

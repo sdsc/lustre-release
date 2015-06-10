@@ -38,7 +38,6 @@
 #define __LIBCFS_LIBCFS_H__
 
 #include <libcfs/types.h>
-#include <libcfs/list.h>
 
 #ifdef __KERNEL__
 # include <libcfs/linux/libcfs.h>

@@ -49,11 +49,10 @@
 #include <linux/module.h>
 #include <linux/init.h>
 
+#include <libcfs/linux/linux-list.h>
 #include <obd_class.h>
 #include <lustre_debug.h>
 #include <lustre/lustre_idl.h>
-
-#include <libcfs/list.h>
 #include <lustre_capa.h>
 
 #define NR_CAPAHASH 32

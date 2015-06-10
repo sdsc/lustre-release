@@ -164,26 +164,9 @@ AC_ARG_WITH([o2ib],
 	[], [with_o2ib="yes"])
 
 case $with_o2ib in
-	yes)    AS_IF([which ofed_info 2>/dev/null], [
-			O2IBPATHS=$(ofed_info | egrep -w 'compat-rdma-devel|kernel-ib-devel|ofa_kernel-devel' | xargs rpm -ql | grep '/openib$')
-			AS_IF([test -z "$O2IBPATHS"], [
-				AC_MSG_ERROR([
-You seem to have an OFED installed but have not installed it's devel package.
-If you still want to build Lustre for your OFED I/B stack, you need to install its devel headers RPM.
-Instead, if you want to build Lustre for your kernel's built-in I/B stack rather than your installed OFED stack, either remove the OFED package(s) or use --with-o2ib=no.
-					     ])
-			])
-			AS_IF([test $(echo $O2IBPATHS | wc -w) -ge 2], [
-				AC_MSG_ERROR([
-It appears that you have multiple OFED versions installed.
-If you still want to build Lustre for your OFED I/B stack, you need to install a single version with its devel headers RPM.
-Instead, if you want to build Lustre for your kernel's built-in I/B stack rather than your installed OFED stack, either remove the OFED package(s) or use --with-o2ib=no.
-					     ])
-			])
-			OFED="yes"
-		], [
-			O2IBPATHS="$LINUX $LINUX/drivers/infiniband"
-		])
+	yes)
+		OFED="yes"
+		O2IBPATHS="$LINUX $LINUX/drivers/infiniband"
 		ENABLEO2IB="yes"
 		;;
 	no)     ENABLEO2IB="no"

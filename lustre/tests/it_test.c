@@ -42,6 +42,7 @@
 #include <stdlib.h>
 #include <time.h>
 #include <sys/time.h>
+#include <libcfs/util/list.h>
 
 #define EXPORT_SYMBOL(s)
 
