@@ -90,7 +90,7 @@ struct lu_nodemap {
 	struct hlist_node	 nm_hash;
 
 	/* used when unloading nodemaps */
-	struct list_head         nm_list;
+	struct list_head	 nm_list;
 };
 
 void nodemap_activate(const bool value);
