@@ -2258,6 +2258,10 @@ out:
 	case LL_IOC_GETPARENT:
 		RETURN(ll_getparent(file, (struct getparent __user *)arg));
 
+	case LL_IOC_LOCK_AHEAD:
+		RETURN(ll_lock_ahead(file,
+				     (struct llapi_lock_ahead __user *)arg));
+
 	case OBD_IOC_FID2PATH:
 		RETURN(ll_fid2path(inode, (void __user *)arg));
 	case LL_IOC_DATA_VERSION: {
