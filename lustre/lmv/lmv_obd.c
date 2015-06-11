@@ -422,6 +422,7 @@ static void lmv_del_target(struct lmv_obd *lmv, int index)
 static int lmv_add_target(struct obd_device *obd, struct obd_uuid *uuidp,
 			   __u32 index, int gen)
 {
+	struct obd_device *mdc_obd;
         struct lmv_obd      *lmv = &obd->u.lmv;
         struct lmv_tgt_desc *tgt;
 	int		     orig_tgt_count = 0;
@@ -430,21 +431,17 @@ static int lmv_add_target(struct obd_device *obd, struct obd_uuid *uuidp,
 
 	CDEBUG(D_CONFIG, "Target uuid: %s. index %d\n", uuidp->uuid, index);
 
-	mutex_lock(&lmv->lmv_init_mutex);
 
-	if (lmv->desc.ld_tgt_count == 0) {
-		struct obd_device *mdc_obd;
-
-		mdc_obd = class_find_client_obd(uuidp, LUSTRE_MDC_NAME,
-						&obd->obd_uuid);
-		if (!mdc_obd) {
-			mutex_unlock(&lmv->lmv_init_mutex);
-			CERROR("%s: Target %s not attached: rc = %d\n",
-			       obd->obd_name, uuidp->uuid, -EINVAL);
-			RETURN(-EINVAL);
-		}
+	mdc_obd = class_find_client_obd(uuidp, LUSTRE_MDC_NAME,
+					&obd->obd_uuid);
+	if (!mdc_obd) {
+		mutex_unlock(&lmv->lmv_init_mutex);
+		CERROR("%s: Target %s not attached: rc = %d\n",
+		       obd->obd_name, uuidp->uuid, -EINVAL);
+		RETURN(-EINVAL);
 	}
 
+	mutex_lock(&lmv->lmv_init_mutex);
 	if ((index < lmv->tgts_size) && (lmv->tgts[index] != NULL)) {
 		tgt = lmv->tgts[index];
 		CERROR("%s: UUID %s already assigned at LOV target index %d:"
@@ -500,6 +497,7 @@ static int lmv_add_target(struct obd_device *obd, struct obd_uuid *uuidp,
 		orig_tgt_count = lmv->desc.ld_tgt_count;
 		lmv->desc.ld_tgt_count = index + 1;
 	}
+	mutex_unlock(&lmv->lmv_init_mutex);
 
 	if (lmv->connected) {
 		rc = lmv_connect_mdc(obd, tgt);
@@ -516,7 +514,6 @@ static int lmv_add_target(struct obd_device *obd, struct obd_uuid *uuidp,
 		}
 	}
 
-	mutex_unlock(&lmv->lmv_init_mutex);
 	RETURN(rc);
 }
 

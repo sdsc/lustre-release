@@ -3548,6 +3548,24 @@ writeconf_all () {
 	return $rc
 }
 
+start_mdt() {
+	local num=$1
+	local DEVNAME=$(mdsdevname $num)
+
+	start mds$num $DEVNAME $MDS_MOUNT_OPTS
+
+	# We started mds, now we should set failover variables properly.
+	# Set mds${num}failover_HOST if it is not set (the default failnode).
+	local varname=mds${num}failover_HOST
+	if [ -z "${!varname}" ]; then
+		eval mds${num}failover_HOST=$(facet_host mds$num)
+	fi
+
+	if [ $IDENTITY_UPCALL != "default" ]; then
+		switch_identity $num $IDENTITY_UPCALL
+	fi
+}
+
 setupall() {
     nfs_client_mode && return
 
@@ -3564,21 +3582,8 @@ setupall() {
 			start mgs $(mgsdevname) $MGS_MOUNT_OPTS
         fi
 
-        for num in `seq $MDSCOUNT`; do
-            DEVNAME=$(mdsdevname $num)
-            start mds$num $DEVNAME $MDS_MOUNT_OPTS
+	start_mdt 1
 
-            # We started mds, now we should set failover variables properly.
-            # Set mds${num}failover_HOST if it is not set (the default failnode).
-            local varname=mds${num}failover_HOST
-            if [ -z "${!varname}" ]; then
-                eval mds${num}failover_HOST=$(facet_host mds$num)
-            fi
-
-            if [ $IDENTITY_UPCALL != "default" ]; then
-                switch_identity $num $IDENTITY_UPCALL
-            fi
-        done
         for num in `seq $OSTCOUNT`; do
             DEVNAME=$(ostdevname $num)
             start ost$num $DEVNAME $OST_MOUNT_OPTS
@@ -3610,6 +3615,11 @@ setupall() {
         mount_client $MOUNT2
         [ -n "$CLIENTS" ] && zconf_mount_clients $CLIENTS $MOUNT2
     fi
+
+	
+	for num in $(seq 2 $MDSCOUNT); do
+		start_mdt $num
+	done
 
     init_param_vars
 

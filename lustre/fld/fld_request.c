@@ -164,15 +164,8 @@ int fld_client_add_target(struct lu_client_fld *fld,
         LASSERT(name != NULL);
         LASSERT(tar->ft_srv != NULL || tar->ft_exp != NULL);
 
-        if (fld->lcf_flags != LUSTRE_FLD_INIT) {
-                CERROR("%s: Attempt to add target %s (idx "LPU64") "
-                       "on fly - skip it\n", fld->lcf_name, name,
-                       tar->ft_idx);
-                RETURN(0);
-        } else {
-                CDEBUG(D_INFO, "%s: Adding target %s (idx "
-                       LPU64")\n", fld->lcf_name, name, tar->ft_idx);
-        }
+	CDEBUG(D_INFO, "%s: Adding target %s (idx "
+	       LPU64")\n", fld->lcf_name, name, tar->ft_idx);
 
         OBD_ALLOC_PTR(target);
         if (target == NULL)
@@ -307,7 +300,6 @@ int fld_client_init(struct lu_client_fld *fld,
         fld->lcf_count = 0;
 	spin_lock_init(&fld->lcf_lock);
         fld->lcf_hash = &fld_hash[hash];
-        fld->lcf_flags = LUSTRE_FLD_INIT;
 	INIT_LIST_HEAD(&fld->lcf_targets);
 
         cache_size = FLD_CLIENT_CACHE_SIZE /
@@ -473,8 +465,6 @@ int fld_client_lookup(struct lu_client_fld *fld, u64 seq, u32 *mds,
 	struct lu_fld_target *origin;
 	int rc;
 	ENTRY;
-
-        fld->lcf_flags |= LUSTRE_FLD_RUN;
 
         rc = fld_cache_lookup(fld->lcf_cache, seq, &res);
         if (rc == 0) {

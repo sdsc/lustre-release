@@ -81,7 +81,7 @@ struct fld_cache *fld_cache_init(const char *name,
         /* Init fld cache info. */
         memset(&cache->fci_stat, 0, sizeof(cache->fci_stat));
 
-        CDEBUG(D_INFO, "%s: FLD cache - Size: %d, Threshold: %d\n",
+        CDEBUG(D_ERROR, "%s: FLD cache - Size: %d, Threshold: %d\n",
                cache->fci_name, cache_size, cache_threshold);
 
         RETURN(cache);
