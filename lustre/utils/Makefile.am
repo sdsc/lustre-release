@@ -33,7 +33,8 @@ endif # TESTS
 
 if SERVER
 sbin_PROGRAMS += mkfs.lustre tunefs.lustre llverdev lr_reader \
-	ll_recover_lost_found_objs ll_decode_filter_fid llog_reader
+	ll_recover_lost_found_objs ll_decode_filter_fid llog_reader \
+	llog_catfix
 endif
 if LIBPTHREAD
 sbin_PROGRAMS += lhsmtool_posix
@@ -116,6 +117,10 @@ req_layout_SOURCES = req-layout.c
 llog_reader_SOURCES = llog_reader.c
 llog_reader_LDADD := $(LIBPTLCTL) liblustreapi.a
 llog_reader_DEPENDENCIES := $(LIBPTLCTL) liblustreapi.a
+
+llog_catfix_SOURCES = llog_catfix.c
+llog_catfix_LDADD := $(LIBPTLCTL) liblustreapi.a
+llog_catfix_DEPENDENCIES := $(LIBPTLCTL) liblustreapi.a
 
 lr_reader_SOURCES = lr_reader.c
 
