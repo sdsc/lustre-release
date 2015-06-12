@@ -287,12 +287,24 @@ struct llog_operations {
 	int (*lop_add)(const struct lu_env *env, struct llog_handle *lgh,
 		       struct llog_rec_hdr *rec, struct llog_cookie *cookie,
 		       struct thandle *th);
+
+
+	/* Cancel record in llog. */
+	int (*lop_declare_cancel_rec)(const struct lu_env *env,
+				     struct llog_handle *lgh,
+				     struct llog_rec_hdr *rec,
+				     int idx, struct thandle *th);
+	int (*lop_cancel_rec)(const struct lu_env *env,
+			     struct llog_handle *loghandle,
+			     struct llog_rec_hdr *rec,
+			     struct llog_cookie *cookie,
+			     int idx, struct thandle *th);
 };
 
 /* In-memory descriptor for a log object or log catalog */
 struct llog_handle {
 	struct rw_semaphore	 lgh_lock;
-	struct rw_semaphore	 lgh_hdr_lock; /* protect lgh_hdr data */
+	struct mutex		 lgh_hdr_mutex; /* protect lgh_hdr data */
 	struct llog_logid	 lgh_id; /* id of this log */
 	struct llog_log_hdr	*lgh_hdr;
 	size_t			lgh_hdr_size;
