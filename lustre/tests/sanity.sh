@@ -12737,6 +12737,28 @@ test_240() {
 }
 run_test 240 "race between ldlm enqueue and the connection RPC (no ASSERT)"
 
+test_252() {
+	local file=$DIR/$tfile
+	local sz_MB=2
+
+	$SETSTRIPE -c 2 -S 1048576 $file || error "setstripe failed"
+
+	dd if=/dev/zero of=$file bs=1M count=$sz_MB || error "dd failed"
+	cancel_lru_locks osc
+
+	$LCTL mark "Read 2nd stripe"
+#define OBD_FAIL_OSC_BRW_READ_BULK       0x401
+	$LCTL set_param fail_loc=0x80000401
+
+	$MULTIOP $file oz1048576r4096c
+	$LCTL mark "Read 1st+2nd stripe"
+	$MULTIOP $file oz1044480r8192c
+
+	rm -f $file
+	wait_delete_completed
+}
+run_test 252 "Read 2 pages from differnt stripes"
+
 cleanup_test_300() {
 	trap 0
 	umask $SAVE_UMASK
