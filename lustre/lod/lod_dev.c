@@ -382,6 +382,7 @@ static int lod_sub_recovery_thread(void *arg)
 	ctxt = llog_get_context(dt->dd_lu_dev.ld_obd, LLOG_UPDATELOG_ORIG_CTXT);
 	LASSERT(ctxt != NULL);
 	LASSERT(ctxt->loc_handle != NULL);
+	LASSERT(ctxt->loc_handle->lgh_hdr != NULL);
 
 	rc = llog_cat_process(&env, ctxt->loc_handle,
 			      lod_process_recovery_updates, lrd, 0, 0);
@@ -631,6 +632,50 @@ free_lrd:
 }
 
 /**
+ * Stop sub recovery thread
+ *
+ * Stop sub recovery thread on all subs.
+ *
+ * \param[in] env	execution environment
+ * \param[in] lod	lod device to do update recovery
+ */
+static void lod_sub_stop_recovery_threads(const struct lu_env *env,
+					  struct lod_device *lod)
+{
+	struct lod_tgt_descs *ltd = &lod->lod_mdt_descs;
+	struct ptlrpc_thread	*thread;
+	unsigned int i;
+
+	/* Stop the update log commit cancel threads and finish master
+	 * llog ctxt */
+	thread = &lod->lod_child_recovery_thread;
+	/* Stop recovery thread first */
+	if (thread != NULL && thread->t_flags & SVC_RUNNING) {
+		thread->t_flags = SVC_STOPPING;
+		wake_up(&thread->t_ctl_waitq);
+		wait_event(thread->t_ctl_waitq, thread->t_flags & SVC_STOPPED);
+	}
+
+	lod_getref(ltd);
+	cfs_foreach_bit(ltd->ltd_tgt_bitmap, i) {
+		struct lod_tgt_desc	*tgt;
+
+		tgt = LTD_TGT(ltd, i);
+		thread = tgt->ltd_recovery_thread;
+		if (thread != NULL && thread->t_flags & SVC_RUNNING) {
+			thread->t_flags = SVC_STOPPING;
+			wake_up(&thread->t_ctl_waitq);
+			wait_event(thread->t_ctl_waitq,
+				   thread->t_flags & SVC_STOPPED);
+			OBD_FREE_PTR(tgt->ltd_recovery_thread);
+			tgt->ltd_recovery_thread = NULL;
+		}
+	}
+
+	lod_putref(lod, ltd);
+}
+
+/**
  * finish all sub llog
  *
  * cleanup all of sub llog ctxt on the LOD.
@@ -653,12 +698,8 @@ static void lod_sub_fini_all_llogs(const struct lu_env *env,
 		struct lod_tgt_desc	*tgt;
 
 		tgt = LTD_TGT(ltd, i);
-		if (tgt->ltd_recovery_thread != NULL) {
-			lod_sub_fini_llog(env, tgt->ltd_tgt,
-					  tgt->ltd_recovery_thread);
-			OBD_FREE_PTR(tgt->ltd_recovery_thread);
-			tgt->ltd_recovery_thread = NULL;
-		}
+		lod_sub_fini_llog(env, tgt->ltd_tgt,
+				  tgt->ltd_recovery_thread);
 	}
 
 	lod_putref(lod, ltd);
@@ -843,6 +884,7 @@ static int lod_process_config(const struct lu_env *env,
 			CDEBUG(D_HA, "%s: can't process %u: %d\n",
 			       lod2obd(lod)->obd_name, lcfg->lcfg_command, rc);
 
+		lod_sub_stop_recovery_threads(env, lod);
 		lod_fini_distribute_txn(env, lod);
 		lod_sub_fini_all_llogs(env, lod);
 		break;
@@ -1101,6 +1143,42 @@ static int lod_trans_cb_add(struct thandle *th,
 }
 
 /**
+ * add noop update to the update records
+ *
+ * Add noop updates to the update records, which is only used in
+ * test right now.
+ *
+ * \param[in] env	execution environment
+ * \param[in] dt	dt device of lod
+ * \param[in] th	thandle
+ * \param[in] count	the count of update records to be added.
+ *
+ * \retval		0 if adding succeeds.
+ * \retval		negative errno if adding fails.
+ */
+static int lod_add_noop_records(const struct lu_env *env,
+				struct dt_device *dt, struct thandle *th,
+				int count)
+{
+	struct top_thandle *top_th;
+	struct lu_fid *fid = &lod_env_info(env)->lti_fid;
+	int i;
+	int rc = 0;
+
+	top_th = container_of(th, struct top_thandle, tt_super);
+	if (top_th->tt_multiple_thandle == NULL)
+		return 0;
+
+	fid_zero(fid);
+	for (i = 0; i < count; i++) {
+		rc = update_record_pack(noop, th, fid);
+		if (rc < 0)
+			return rc;
+	}
+	return rc;
+}
+
+/**
  * Implementation of dt_device_operations::dt_trans_stop() for LOD
  *
  * Stops the set of local transactions using the targets involved
@@ -1111,6 +1189,13 @@ static int lod_trans_cb_add(struct thandle *th,
 static int lod_trans_stop(const struct lu_env *env, struct dt_device *dt,
 			  struct thandle *th)
 {
+	if (OBD_FAIL_CHECK(OBD_FAIL_SPLIT_UPDATE_REC)) {
+		int rc;
+
+		rc = lod_add_noop_records(env, dt, th, 5000);
+		if (rc < 0)
+			RETURN(rc);
+	}
 	return top_trans_stop(env, dt2lod_dev(dt)->lod_child, th);
 }
 

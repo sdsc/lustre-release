@@ -58,7 +58,7 @@ init_test_env $@
 . ${CONFIG:=$LUSTRE/tests/cfg/${NAME}.sh}
 init_logging
 
-[ "$SLOW" = "no" ] && EXCEPT_SLOW="24o 24D 27m 64b 68 71 77f 78 115 124b 230d"
+[ "$SLOW" = "no" ] && EXCEPT_SLOW="24o 24D 27m 64b 68 71 77f 78 115 124b"
 
 if [ $(facet_fstype $SINGLEMDS) = "zfs" ]; then
 	# bug number for skipped test: LU-4536 LU-1957 LU-2805
@@ -13395,6 +13395,55 @@ test_300i() {
 	return 0
 }
 run_test 300i "client handle unknown hash type striped directory"
+
+test_300j() {
+	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+	local stripe_count
+	local file
+
+	mkdir $DIR/$tdir
+
+	#set the stripe to be unknown hash type
+	#define OBD_FAIL_SPLIT_UPDATE_REC	0x1702
+	$LCTL set_param fail_loc=0x1702
+	$LFS setdirstripe -i 0 -c$MDSCOUNT -t all_char $DIR/$tdir/striped_dir ||
+		error "set striped dir error"
+
+	createmany -o $DIR/$tdir/striped_dir/f- 10 ||
+		error "create files under striped dir failed"
+
+	$LCTL set_param fail_loc=0
+
+	rm -rf $DIR/$tdir || error "unlink striped dir fails"
+
+	return 0
+}
+run_test 300j "test large update record"
+
+test_300k() {
+	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+	local stripe_count
+	local file
+
+	mkdir $DIR/$tdir
+
+	#set the stripe to be unknown hash type
+	#define OBD_FAIL_LARGE_STRIPE	0x1703
+	$LCTL set_param fail_loc=0x1703
+	$LFS setdirstripe -i 0 -c512 $DIR/$tdir/striped_dir ||
+		error "set striped dir error"
+	$LCTL set_param fail_loc=0
+
+	$LFS getdirstripe $DIR/$tdir/striped_dir ||
+		error "getstripeddir fails"
+	rm -rf $DIR/$tdir/striped_dir ||
+		error "unlink striped dir fails"
+
+	return 0
+}
+run_test 300k "test large striped directory"
 
 prepare_remote_file() {
 	mkdir $DIR/$tdir/src_dir ||
