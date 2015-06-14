@@ -4225,9 +4225,9 @@ static void mdt_fini(const struct lu_env *env, struct mdt_device *m)
 	stop.ls_flags = 0;
 	next->md_ops->mdo_iocontrol(env, next, OBD_IOC_STOP_LFSCK, 0, &stop);
 
+	mdt_stack_pre_fini(env, m, md2lu_dev(m->mdt_child));
 	target_recovery_fini(obd);
 	ping_evictor_stop();
-	mdt_stack_pre_fini(env, m, md2lu_dev(m->mdt_child));
 
 	if (m->mdt_opts.mo_coordinator)
 		mdt_hsm_cdt_stop(m);
@@ -5031,11 +5031,6 @@ static int mdt_obd_connect(const struct lu_env *env,
 
 			mdt_export_stats_init(obd, lexp, localdata);
 		}
-
-		/* For phase I, sync for cross-ref operation. */
-		spin_lock(&lexp->exp_lock);
-		lexp->exp_keep_sync = 1;
-		spin_unlock(&lexp->exp_lock);
 	}
 out:
 	if (rc != 0) {
