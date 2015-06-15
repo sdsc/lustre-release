@@ -471,9 +471,9 @@ int osd_fid_lookup(const struct lu_env *env, struct osd_device *dev,
 
 	if (unlikely(fid_is_acct(fid))) {
 		if (fid_oid(fid) == ACCT_USER_OID)
-			*oid = dev->od_iusr_oid;
+			*oid = DMU_USERUSED_OBJECT;
 		else
-			*oid = dev->od_igrp_oid;
+			*oid = DMU_GROUPUSED_OBJECT;
 	} else if (unlikely(fid_is_fs_root(fid))) {
 		*oid = dev->od_root;
 	} else {
@@ -649,7 +649,7 @@ static void osd_ost_seq_fini(const struct lu_env *env, struct osd_device *osd)
 static int
 osd_oi_init_compat(const struct lu_env *env, struct osd_device *o)
 {
-	uint64_t	 odb, sdb;
+	uint64_t	 sdb;
 	int		 rc;
 	ENTRY;
 
@@ -660,21 +660,6 @@ osd_oi_init_compat(const struct lu_env *env, struct osd_device *o)
 	o->od_O_id = sdb;
 
 	osd_ost_seq_init(env, o);
-	/* Create on-disk indexes to maintain per-UID/GID inode usage.
-	 * Those new indexes are created in the top-level ZAP outside the
-	 * namespace in order not to confuse ZPL which might interpret those
-	 * indexes as directories and assume the values are object IDs */
-	rc = osd_oi_find_or_create(env, o, MASTER_NODE_OBJ,
-			oid2name(ACCT_USER_OID), &odb);
-	if (rc)
-		RETURN(rc);
-	o->od_iusr_oid = odb;
-
-	rc = osd_oi_find_or_create(env, o, MASTER_NODE_OBJ,
-			oid2name(ACCT_GROUP_OID), &odb);
-	if (rc)
-		RETURN(rc);
-	o->od_igrp_oid = odb;
 
 	RETURN(rc);
 }

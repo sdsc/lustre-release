@@ -273,10 +273,6 @@ struct osd_device {
 	int			 od_connects;
 	struct lu_site		 od_site;
 
-	/* object IDs of the inode accounting indexes */
-	uint64_t		 od_iusr_oid;
-	uint64_t		 od_igrp_oid;
-
 	/* quota slave instance */
 	struct qsd_instance	*od_quota_slave;
 
@@ -577,6 +573,12 @@ osd_zio_buf_free(void *buf, size_t size)
 #else
 #define	osd_zio_buf_alloc(size)		zio_buf_alloc(size)
 #define	osd_zio_buf_free(buf, size)	zio_buf_free(buf, size)
+#endif
+
+#ifdef HAVE_USER_DNODE_ACCOUNTING
+#define osd_dnode_acct_enabled(os)	dmu_objset_userdnused_enabled(os)
+#else
+#define osd_dnode_acct_enabled(os)	0
 #endif
 
 #endif /* _OSD_INTERNAL_H */

@@ -426,6 +426,15 @@ your distribution.
 			AC_DEFINE(HAVE_SPA_MAXBLOCKSIZE, 1,
 				[Have spa_maxblocksize in ZFS])
 		])
+		LB_CHECK_COMPILE([if zfs has dnode accounting supported],
+		dmu_objset_userdnused_enabled, [
+			#include <sys/dmu_objset.h>
+		],[
+			dmu_objset_userdnused_enabled(NULL);
+		],[
+			AC_DEFINE(HAVE_USER_DNODE_ACCOUNTING, 1,
+				[Have dnode accounting in ZFS])
+		])
 	])
 
 	AM_CONDITIONAL(ZFS_ENABLED, [test "x$enable_zfs" = xyes])
