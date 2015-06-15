@@ -995,9 +995,21 @@ static int osd_mount(const struct lu_env *env,
 	if (rc)
 		GOTO(err, rc);
 
-	/* Use our own ZAP for inode accounting by default, this can be changed
-	 * via procfs to estimate the inode usage from the block usage */
-	o->od_quota_iused_est = 0;
+	/* If the underlying objset doesn't support dnode accounting, it'll
+	 * estimate the inode accounting. */
+	o->od_quota_iused_est = 1;
+#ifdef HAVE_USER_DNODE_ACCOUNTING
+	if (dmu_objset_userdnused_enabled(o->od_os)) {
+		uint64_t version;
+
+		rc = zfs_get_zplprop(o->od_os, ZFS_PROP_VERSION, &version);
+		if (rc < 0)
+			GOTO(err, rc);
+
+		if (version >= ZPL_VERSION_USERDNSPACE)
+			o->od_quota_iused_est = 0;
+	}
+#endif
 
 	rc = osd_procfs_init(o, o->od_svname);
 	if (rc)
