@@ -45,6 +45,7 @@
 #include <obd_class.h>
 #include <lprocfs_status.h>
 #include <lustre/lustre_idl.h>
+#include <sys/dmu_objset.h>
 
 #include "osd_internal.h"
 
@@ -245,7 +246,7 @@ lprocfs_osd_force_sync_seq_write(struct file *file, const char __user *buffer,
 }
 LPROC_SEQ_FOPS_WO_TYPE(zfs, osd_force_sync);
 
-static int zfs_osd_iused_est_seq_show(struct seq_file *m, void *data)
+static int zfs_osd_dnused_acct_seq_show(struct seq_file *m, void *data)
 {
 	struct osd_device *osd = osd_dt_dev((struct dt_device *)m->private);
 	LASSERT(osd != NULL);
@@ -254,8 +255,8 @@ static int zfs_osd_iused_est_seq_show(struct seq_file *m, void *data)
 }
 
 static ssize_t
-zfs_osd_iused_est_seq_write(struct file *file, const char __user *buffer,
-			     size_t count, loff_t *off)
+zfs_osd_dnused_acct_seq_write(struct file *file, const char __user *buffer,
+			      size_t count, loff_t *off)
 {
 	struct seq_file	  *m = file->private_data;
 	struct dt_device  *dt = m->private;
@@ -268,11 +269,14 @@ zfs_osd_iused_est_seq_write(struct file *file, const char __user *buffer,
 	if (rc)
 		return rc;
 
-	osd->od_quota_iused_est = !!val;
+#ifdef HAVE_USER_DNODE_ACCOUNTING
+	if (dmu_objset_userdnused_enabled(osd->od_os))
+		dmu_objset_userdnspace_upgrade(osd->od_os);
+#endif
 
 	return count;
 }
-LPROC_SEQ_FOPS(zfs_osd_iused_est);
+LPROC_SEQ_FOPS(zfs_osd_dnused_acct);
 
 LPROC_SEQ_FOPS_RO_TYPE(zfs, dt_blksize);
 LPROC_SEQ_FOPS_RO_TYPE(zfs, dt_kbytestotal);
@@ -300,8 +304,8 @@ struct lprocfs_vars lprocfs_osd_obd_vars[] = {
 	  .fops	=	&zfs_osd_mntdev_fops		},
 	{ .name	=	"force_sync",
 	  .fops	=	&zfs_osd_force_sync_fops	},
-	{ .name	=	"quota_iused_estimate",
-	  .fops	=	&zfs_osd_iused_est_fops		},
+	{ .name	=	"quota_native_dnused_acct",
+	  .fops	=	&zfs_osd_dnused_acct_fops	},
 	{ 0 }
 };
 
