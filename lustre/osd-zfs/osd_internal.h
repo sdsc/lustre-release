@@ -273,10 +273,6 @@ struct osd_device {
 	int			 od_connects;
 	struct lu_site		 od_site;
 
-	/* object IDs of the inode accounting indexes */
-	uint64_t		 od_iusr_oid;
-	uint64_t		 od_igrp_oid;
-
 	/* quota slave instance */
 	struct qsd_instance	*od_quota_slave;
 
