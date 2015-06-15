@@ -971,9 +971,9 @@ static int osd_mount(const struct lu_env *env,
 	if (rc)
 		GOTO(err, rc);
 
-	/* Use our own ZAP for inode accounting by default, this can be changed
-	 * via procfs to estimate the inode usage from the block usage */
-	o->od_quota_iused_est = 0;
+	/* If the underlying objset doesn't support dnode accounting, it'll
+	 * estimate the inode accounting */
+	o->od_quota_iused_est = !dmu_objset_userdnspace_present(o->od_os);
 
 	rc = osd_procfs_init(o, o->od_svname);
 	if (rc)
