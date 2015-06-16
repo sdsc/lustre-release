@@ -27,7 +27,15 @@ AS_IF([test x$RHEL_KERNEL = xyes], [
 		3|4) LDISKFS_SERIES="3.0-sles11sp3.series"
 			;;
 		esac
-	])],[LDISKFS_SERIES="3.12-sles12.series"],[LDISKFS_SERIES="3.12-sles12.series"])
+	])],[LDISKFS_SERIES="3.12-sles12.series"],[
+		PLEV=$(grep PATCHLEVEL /etc/SuSE-release | sed -e 's/.*= *//')
+		case $PLEV in
+		1) LDISKFS_SERIES="3.12-sles12sp1.series"
+			;;
+		*) LDISKFS_SERIES="3.12-sles12.series"
+			;;
+		esac
+	])
 ])
 AS_IF([test -z "$LDISKFS_SERIES"],
 	[AC_MSG_WARN([Unknown kernel version $LDISKFS_VERSIONRELEASE])])
