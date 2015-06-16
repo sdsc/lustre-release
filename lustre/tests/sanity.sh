@@ -13008,6 +13008,13 @@ test_251() {
 }
 run_test 251 "Handling short read and write correctly"
 
+test_252()
+{
+	test_mkdir -p $DIR/$tdir
+	lock_ahead_test -d $DIR/$tdir || error "A lock ahead test failed"
+}
+run_test 252 "various lock ahead tests"
+
 cleanup_test_300() {
 	trap 0
 	umask $SAVE_UMASK

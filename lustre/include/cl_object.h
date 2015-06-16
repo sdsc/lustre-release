@@ -1651,37 +1651,42 @@ enum cl_enq_flags {
          * protected by this lock, without sending them to the server.
          */
         CEF_DISCARD_DATA = 0x00000004,
-        /**
-         * tell the sub layers that it must be a `real' lock. This is used for
-         * mmapped-buffer locks and glimpse locks that must be never converted
-         * into lockless mode.
-         *
-         * \see vvp_mmap_locks(), cl_glimpse_lock().
-         */
+	/**
+	 * tell the sub layers that it must be a `real' lock. This is used for
+	 * mmapped-buffer locks, glimpse locks, and lock ahead locks that must
+	 * never be converted into lockless mode.
+	 *
+	 * \see vvp_mmap_locks(), cl_glimpse_lock, cl_lock_ahead().
+	 */
         CEF_MUST         = 0x00000008,
         /**
          * tell the sub layers that never request a `real' lock. This flag is
          * not used currently.
-         *
-         * cl_io::ci_lockreq and CEF_{MUST,NEVER} flags specify lockless
+	 *
+	 * cl_io::ci_lockreq and CEF_{MUST,NEVER} flags specify lockless
          * conversion policy: ci_lockreq describes generic information of lock
          * requirement for this IO, especially for locks which belong to the
          * object doing IO; however, lock itself may have precise requirements
          * that are described by the enqueue flags.
          */
         CEF_NEVER        = 0x00000010,
-        /**
-         * for async glimpse lock.
-         */
-        CEF_AGL          = 0x00000020,
+	/**
+	 * tell the sub layers this is a speculative lock request
+	 * used for asynchronous glimpse locks and lock ahead
+	 */
+	CEF_SPECULATIVE          = 0x00000020,
 	/**
 	 * enqueue a lock to test DLM lock existence.
 	 */
 	CEF_PEEK	= 0x00000040,
 	/**
+	 * tell the DLM layer to lock only the requested range
+	 */
+	CEF_REQ_ONLY	= 0x00000080,
+	/**
 	 * mask of enq_flags.
 	 */
-	CEF_MASK         = 0x0000007f,
+	CEF_MASK         = 0x000000ff,
 };
 
 /**
@@ -1841,6 +1846,8 @@ struct cl_io {
         struct cl_2queue     ci_queue;
         size_t               ci_nob;
         int                  ci_result;
+	/* Tell sublayers not to expand LDLM locks requested for this IO */
+	bool                 ci_req_only;
 	unsigned int         ci_continue:1,
 	/**
 	 * This io has held grouplock, to inform sublayers that
