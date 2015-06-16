@@ -5161,7 +5161,12 @@ struct osd_filldir_cbs {
  * \retval 0 on success
  * \retval 1 on buffer full
  */
+#if HAVE_FILLDIR_USE_CTX
+static int osd_ldiskfs_filldir(struct dir_context  *buf,
+			       const char *name, int namelen,
+#else
 static int osd_ldiskfs_filldir(void *buf, const char *name, int namelen,
+#endif
                                loff_t offset, __u64 ino,
                                unsigned d_type)
 {
