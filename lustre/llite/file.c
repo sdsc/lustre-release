@@ -1777,6 +1777,7 @@ int ll_fid2path(struct inode *inode, void __user *arg)
 	__u32			 pathlen;
 	struct getinfo_fid2path	*gfout;
 	size_t			 outsize;
+	struct lu_fid		*fid;
 	int			 rc;
 
 	ENTRY;
@@ -1799,6 +1800,14 @@ int ll_fid2path(struct inode *inode, void __user *arg)
 
 	if (copy_from_user(gfout, arg, sizeof(*gfout)))
 		GOTO(gf_free, rc = -EFAULT);
+
+	/* Sanity check FID here so lower layers don't assert on a bad FID */
+	fid = &gfout->gf_fid;
+	if (!((fid_seq_in_fldb(fid_seq(fid)) ||
+	      fid_seq_is_local_file(fid_seq(fid))) && fid_is_sane(fid))) {
+		CDEBUG(D_VFSTRACE, DFID" is insane!\n", PFID(fid));	
+		GOTO(gf_free, rc = -EINVAL);
+	}
 
 	/* Call mdc_iocontrol */
 	rc = obd_iocontrol(OBD_IOC_FID2PATH, exp, outsize, gfout, NULL);
