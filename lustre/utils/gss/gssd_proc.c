@@ -340,9 +340,9 @@ update_client_list(void)
 /* Context creation response. */
 struct lustre_gss_init_res {
         gss_buffer_desc gr_ctx;         /* context handle */
-        u_int           gr_major;       /* major status */
-        u_int           gr_minor;       /* minor status */
-        u_int           gr_win;         /* sequence window */
+        unsigned int    gr_major;       /* major status */
+        unsigned int    gr_minor;       /* minor status */
+        unsigned int    gr_win;         /* sequence window */
         gss_buffer_desc gr_token;       /* token */
 };
 
@@ -354,7 +354,7 @@ struct lustre_gss_data {
         gss_name_t      lgd_name;       /* service name */
 
         gss_OID         lgd_mech;       /* mech OID */
-        u_int           lgd_req_flags;  /* request flags */
+        unsigned int    lgd_req_flags;  /* request flags */
         gss_cred_id_t   lgd_cred;       /* credential */
         gss_ctx_id_t    lgd_ctx;        /* session context */
         gss_buffer_desc lgd_rmt_ctx;    /* remote handle of context */

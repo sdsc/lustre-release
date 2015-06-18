@@ -74,7 +74,7 @@ struct lgss_nego_data {
 
         gss_OID         lnd_mech;               /* mech OID */
         gss_name_t      lnd_svc_name;           /* service name */
-        u_int           lnd_req_flags;          /* request flags */
+        unsigned int    lnd_req_flags;          /* request flags */
         gss_cred_id_t   lnd_cred;               /* credential */
         gss_ctx_id_t    lnd_ctx;                /* session context */
         gss_buffer_desc lnd_rmt_ctx;            /* remote handle of context */
@@ -89,9 +89,9 @@ struct lgss_nego_data {
  */
 struct lgss_init_res {
         gss_buffer_desc gr_ctx;         /* context handle */
-        u_int           gr_major;       /* major status */
-        u_int           gr_minor;       /* minor status */
-        u_int           gr_win;         /* sequence window */
+        unsigned int    gr_major;       /* major status */
+        unsigned int    gr_minor;       /* minor status */
+        unsigned int    gr_win;         /* sequence window */
         gss_buffer_desc gr_token;       /* token */
 };
 
