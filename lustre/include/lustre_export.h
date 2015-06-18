@@ -414,6 +414,11 @@ static inline __u64 exp_connect_ibits(struct obd_export *exp)
 	return ocd->ocd_ibits_known;
 }
 
+static inline int exp_connect_obdopack(struct obd_export *exp)
+{
+	return !!(exp_connect_flags(exp) & OBD_CONNECT_OBDOPACK);
+}
+
 extern struct obd_export *class_conn2export(struct lustre_handle *conn);
 extern struct obd_device *class_conn2obd(struct lustre_handle *conn);
 

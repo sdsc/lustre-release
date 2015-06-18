@@ -1423,6 +1423,7 @@ static int osp_obd_connect(const struct lu_env *env, struct obd_export **exp,
 	LASSERT(data->ocd_connect_flags & OBD_CONNECT_INDEX);
 	ocd = &imp->imp_connect_data;
 	*ocd = *data;
+	ocd->ocd_connect_flags |= OBD_CONNECT_OBDOPACK;
 
 	imp->imp_connect_flags_orig = ocd->ocd_connect_flags;
 	imp->imp_connect_flags2_orig = ocd->ocd_connect_flags2;

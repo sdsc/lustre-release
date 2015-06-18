@@ -116,16 +116,23 @@ static int out_create(struct tgt_session_info *tsi)
 	ENTRY;
 
 	wobdo = object_update_param_get(update, 0, &size);
-	if (IS_ERR(wobdo) || size != sizeof(*wobdo)) {
+	if (IS_ERR(wobdo)) {
 		CERROR("%s: obdo is NULL, invalid RPC: rc = %ld\n",
 		       tgt_name(tsi->tsi_tgt), PTR_ERR(wobdo));
 		RETURN(PTR_ERR(wobdo));
 	}
+	if (size == sizeof(*wobdo)) {
+		if (ptlrpc_req_need_swab(tsi->tsi_pill->rc_req))
+			lustre_swab_obdo(wobdo);
+		lustre_get_wire_obdo(NULL, lobdo, wobdo);
+		la_from_obdo(attr, lobdo, lobdo->o_valid);
+	} else {
+		rc = out_unpack_lu_attr(attr, (void *)wobdo, size,
+				ptlrpc_req_need_swab(tsi->tsi_pill->rc_req));
+		if (unlikely(rc < 0))
+			RETURN(rc);
+	}
 
-	if (ptlrpc_req_need_swab(tsi->tsi_pill->rc_req))
-		lustre_swab_obdo(wobdo);
-	lustre_get_wire_obdo(NULL, lobdo, wobdo);
-	la_from_obdo(attr, lobdo, lobdo->o_valid);
 
 	dof->dof_type = dt_mode_to_dft(attr->la_mode);
 	if (update->ou_params_count > 1) {
@@ -169,7 +176,7 @@ static int out_attr_set(struct tgt_session_info *tsi)
 	ENTRY;
 
 	wobdo = object_update_param_get(update, 0, &size);
-	if (IS_ERR(wobdo) || size != sizeof(*wobdo)) {
+	if (IS_ERR(wobdo)) {
 		CERROR("%s: empty obdo in the update: rc = %ld\n",
 		       tgt_name(tsi->tsi_tgt), PTR_ERR(wobdo));
 		RETURN(PTR_ERR(wobdo));
@@ -178,10 +185,17 @@ static int out_attr_set(struct tgt_session_info *tsi)
 	attr->la_valid = 0;
 	attr->la_valid = 0;
 
-	if (ptlrpc_req_need_swab(tsi->tsi_pill->rc_req))
-		lustre_swab_obdo(wobdo);
-	lustre_get_wire_obdo(NULL, lobdo, wobdo);
-	la_from_obdo(attr, lobdo, lobdo->o_valid);
+	if (size == sizeof(*wobdo)) {
+		if (ptlrpc_req_need_swab(tsi->tsi_pill->rc_req))
+			lustre_swab_obdo(wobdo);
+		lustre_get_wire_obdo(NULL, lobdo, wobdo);
+		la_from_obdo(attr, lobdo, lobdo->o_valid);
+	} else {
+		rc = out_unpack_lu_attr(attr, (void *)wobdo, size,
+				ptlrpc_req_need_swab(tsi->tsi_pill->rc_req));
+		if (unlikely(rc < 0))
+			RETURN(rc);
+	}
 
 	rc = out_tx_attr_set(tsi->tsi_env, obj, attr, &tti->tti_tea,
 			     tti->tti_tea.ta_handle,
@@ -200,7 +214,7 @@ static int out_attr_get(struct tgt_session_info *tsi)
 	struct lu_attr		*la = &tti->tti_attr;
 	struct dt_object        *obj = tti->tti_u.update.tti_dt_object;
 	int			idx = tti->tti_u.update.tti_update_reply_index;
-	int			rc;
+	int			rc, size = 0;
 
 	ENTRY;
 
@@ -222,9 +236,14 @@ static int out_attr_get(struct tgt_session_info *tsi)
 	if (rc)
 		GOTO(out_unlock, rc);
 
-	obdo->o_valid = 0;
-	obdo_from_la(obdo, la, la->la_valid);
-	lustre_set_wire_obdo(NULL, obdo, obdo);
+	if (exp_connect_obdopack(tsi->tsi_exp)) {
+		size = out_pack_lu_attr(la, (char *)obdo, sizeof(*obdo));
+	} else {
+		obdo->o_valid = 0;
+		obdo_from_la(obdo, la, la->la_valid);
+		lustre_set_wire_obdo(NULL, obdo, obdo);
+		size = sizeof(*obdo);
+	}
 
 out_unlock:
 	dt_read_unlock(env, obj);
@@ -234,7 +253,7 @@ out_unlock:
 	       0, rc);
 
 	object_update_result_insert(tti->tti_u.update.tti_update_reply, obdo,
-				    sizeof(*obdo), idx, rc);
+				    size, idx, rc);
 
 	RETURN(rc);
 }
@@ -250,6 +269,7 @@ static int out_xattr_get(struct tgt_session_info *tsi)
 	char			   *name;
 	struct object_update_result *update_result;
 	int			idx = tti->tti_u.update.tti_update_reply_index;
+	size_t			   size;
 	int			   rc;
 
 	ENTRY;
@@ -260,11 +280,18 @@ static int out_xattr_get(struct tgt_session_info *tsi)
 		RETURN(-ENOENT);
 	}
 
-	name = object_update_param_get(update, 0, NULL);
+	name = object_update_param_get(update, 0, &size);
 	if (IS_ERR(name)) {
 		CERROR("%s: empty name for xattr get: rc = %ld\n",
 		       tgt_name(tsi->tsi_tgt), PTR_ERR(name));
 		RETURN(PTR_ERR(name));
+	}
+
+	/* encode frequently used names */
+	if (size == 1) {
+		name = out_lookup_frequent_xattr_by_type(name[0]);
+		if (unlikely(name == NULL))
+			RETURN(-EPROTO);
 	}
 
 	update_result = object_update_result_get(reply, 0, NULL);
@@ -363,11 +390,17 @@ static int out_xattr_set(struct tgt_session_info *tsi)
 	int			 rc;
 	ENTRY;
 
-	name = object_update_param_get(update, 0, NULL);
+	name = object_update_param_get(update, 0, &size);
 	if (IS_ERR(name)) {
 		CERROR("%s: empty name for xattr set: rc = %ld\n",
 		       tgt_name(tsi->tsi_tgt), PTR_ERR(name));
 		RETURN(PTR_ERR(name));
+	}
+	/* encode frequently used names */
+	if (size == 1) {
+		name = out_lookup_frequent_xattr_by_type(name[0]);
+		if (unlikely(name == NULL))
+			RETURN(err_serious(-EPROTO));
 	}
 
 	/* If buffer == NULL (-ENODATA), then it might mean delete xattr */

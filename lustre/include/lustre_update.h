@@ -463,6 +463,13 @@ int out_xattr_get_pack(const struct lu_env *env,
 int out_read_pack(const struct lu_env *env, struct object_update *update,
 		  size_t *max_update_length, const struct lu_fid *fid,
 		  size_t size, loff_t pos);
+int out_punch_pack(const struct lu_env *env, struct object_update *update,
+		   size_t max_update_size, const struct lu_fid *fid,
+		   loff_t start, loff_t end);
+int out_unpack_lu_attr(struct lu_attr *attr, char *ptr, int size, int needswab);
+char *out_lookup_frequent_xattr_by_type(const int type);
+int out_lookup_frequent_xattr_by_name(const char *name);
+int out_pack_lu_attr(const struct lu_attr *attr, char *ptr, int size);
 
 const char *update_op_str(__u16 opcode);
 
