@@ -608,11 +608,19 @@ int osp_object_update_request_create(struct osp_update_request *our,
 		max_update_length = ours->ours_req_size -		\
 			    object_update_request_size(ours->ours_req);	\
 									\
-		object_update = update_buffer_get_update(ours->ours_req,\
+		/* ensure we've got enough space for a header at least	\
+		 * this is needed to move flags (e.g. COMPAT) */	\
+		if (sizeof(struct object_update) > max_update_length) {	\
+			ret = -E2BIG;					\
+		} else {						\
+			object_update = update_buffer_get_update(	\
+					 ours->ours_req,		\
 					 ours->ours_req->ourq_count);	\
-		ret = out_##name##_pack(env, object_update,		\
-					&max_update_length,		\
-				       __VA_ARGS__);			\
+			object_update->ou_flags |= update->our_flags; 	\
+			ret = out_##name##_pack(env, object_update,	\
+						&max_update_length,	\
+						__VA_ARGS__);		\
+		}							\
 		if (ret == -E2BIG) {					\
 			int rc1;					\
 			/* Create new object update request */		\
@@ -626,11 +634,8 @@ int osp_object_update_request_create(struct osp_update_request *our,
 			}						\
 			continue;					\
 		} else {						\
-			if (ret == 0) {					\
+			if (ret == 0)					\
 				ours->ours_req->ourq_count++;		\
-				object_update->ou_flags |=		\
-						     update->our_flags; \
-			}						\
 			break;						\
 		}							\
 	}								\
