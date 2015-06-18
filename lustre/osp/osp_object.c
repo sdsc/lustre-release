@@ -359,6 +359,7 @@ static int osp_get_attr_from_reply(const struct lu_env *env,
 {
 	struct osp_thread_info	*osi	= osp_env_info(env);
 	struct lu_buf		*rbuf	= &osi->osi_lb2;
+	struct lu_attr		*la = &osi->osi_attr;
 	struct obdo		*lobdo	= &osi->osi_obdo;
 	struct obdo		*wobdo;
 	int			rc;
@@ -367,19 +368,29 @@ static int osp_get_attr_from_reply(const struct lu_env *env,
 	if (rc < 0)
 		return rc;
 
-	wobdo = rbuf->lb_buf;
-	if (rbuf->lb_len != sizeof(*wobdo))
-		return -EPROTO;
-
-	LASSERT(req != NULL);
-	if (ptlrpc_req_need_swab(req))
-		lustre_swab_obdo(wobdo);
-
-	lustre_get_wire_obdo(NULL, lobdo, wobdo);
-	spin_lock(&obj->opo_lock);
-	la_from_obdo(&obj->opo_attr, lobdo, lobdo->o_valid);
 	if (attr != NULL)
-		*attr = obj->opo_attr;
+		la = attr;
+	memset(la, 0, sizeof(*la));
+
+	wobdo = rbuf->lb_buf;
+	if (osp_connect_obdopack(lu2osp_dev(obj->opo_obj.do_lu.lo_dev))) {
+		rc = out_unpack_lu_attr(la, (char *)wobdo, rbuf->lb_len,
+					ptlrpc_req_need_swab(req));
+		if (rc < 0)
+			return rc;
+	} else {
+		if (rbuf->lb_len != sizeof(*wobdo))
+			return -EPROTO;
+		LASSERT(req != NULL);
+		if (ptlrpc_req_need_swab(req))
+			lustre_swab_obdo(wobdo);
+
+		lustre_get_wire_obdo(NULL, lobdo, wobdo);
+		la_from_obdo(la, lobdo, lobdo->o_valid);
+	}
+
+	spin_lock(&obj->opo_lock);
+	obj->opo_attr = *la;
 	spin_unlock(&obj->opo_lock);
 
 	return 0;

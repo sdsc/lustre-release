@@ -198,6 +198,8 @@ struct osp_update_request *osp_update_request_create(struct dt_device *dt)
 	INIT_LIST_HEAD(&our->our_list);
 	INIT_LIST_HEAD(&our->our_invalidate_cb_list);
 	spin_lock_init(&our->our_list_lock);
+	if (osp_connect_obdopack(dt2osp_dev(dt)))
+		our->our_flags |= UPDATE_FL_COMPACT;
 
 	rc = osp_object_update_request_create(our, OUT_UPDATE_INIT_BUFFER_SIZE);
 	if (rc != 0) {

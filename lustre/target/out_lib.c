@@ -170,6 +170,144 @@ int out_update_pack(const struct lu_env *env, struct object_update *update,
 }
 EXPORT_SYMBOL(out_update_pack);
 
+static int out_calc_attr_size(const struct lu_attr *attr)
+{
+	int size = sizeof(__u32) + sizeof(__u64); /* magic + la_valid */
+
+	LASSERT(attr->la_valid != 0);
+	if (attr->la_valid & LA_ATIME)
+		size += sizeof(attr->la_atime);
+	if (attr->la_valid & LA_MTIME)
+		size += sizeof(attr->la_mtime);
+	if (attr->la_valid & LA_CTIME)
+		size += sizeof(attr->la_ctime);
+	if (attr->la_valid & LA_SIZE)
+		size += sizeof(attr->la_size);
+	if (attr->la_valid & (LA_MODE | LA_TYPE))
+		size += sizeof(attr->la_mode);
+	if (attr->la_valid & LA_UID)
+		size += sizeof(attr->la_uid);
+	if (attr->la_valid & LA_GID)
+		size += sizeof(attr->la_gid);
+	if (attr->la_valid & LA_BLOCKS)
+		size += sizeof(attr->la_blocks);
+	if (attr->la_valid & LA_FLAGS)
+		size += sizeof(attr->la_flags);
+	if (attr->la_valid & LA_NLINK)
+		size += sizeof(attr->la_nlink);
+	if (attr->la_valid & LA_RDEV)
+		size += sizeof(attr->la_rdev);
+	if (attr->la_valid & LA_BLKSIZE)
+		size += sizeof(attr->la_blksize);
+
+	return size;
+}
+
+#define CHECK_AND_MOVE(ATTRIBUTE, FIELD)			\
+do {								\
+	/* just a sanity check */				\
+	LASSERT(ATTRIBUTE > curpos || curpos == 0);		\
+	curpos = ATTRIBUTE;					\
+	if (attr->la_valid & ATTRIBUTE) {			\
+		LASSERT(ptr + sizeof(attr->FIELD) <= end);	\
+		memcpy(ptr, &attr->FIELD, sizeof(attr->FIELD));	\
+		ptr += sizeof(attr->FIELD);			\
+	}							\
+} while (0)
+
+int out_pack_lu_attr(const struct lu_attr *attr, char *ptr, int size)
+{
+	__u64 curpos = 0;
+	char *end = ptr + size;
+	char *start = ptr;
+
+	*((__u32 *)ptr) = UPDATE_VARSIZE_ATTR_MAGIC;
+	ptr += sizeof(__u32);
+	LASSERT(attr->la_valid != 0);
+	memcpy(ptr, &attr->la_valid, sizeof(attr->la_valid));
+	ptr += sizeof(attr->la_valid);
+	CHECK_AND_MOVE(LA_ATIME, la_atime);
+	CHECK_AND_MOVE(LA_MTIME, la_mtime);
+	CHECK_AND_MOVE(LA_CTIME, la_ctime);
+	CHECK_AND_MOVE(LA_SIZE, la_size);
+	CHECK_AND_MOVE((LA_MODE | LA_TYPE), la_mode);
+	CHECK_AND_MOVE(LA_UID, la_uid);
+	CHECK_AND_MOVE(LA_GID, la_gid);
+	CHECK_AND_MOVE(LA_BLOCKS, la_blocks);
+	CHECK_AND_MOVE(LA_FLAGS, la_flags);
+	CHECK_AND_MOVE(LA_NLINK, la_nlink);
+	CHECK_AND_MOVE(LA_RDEV, la_rdev);
+	CHECK_AND_MOVE(LA_BLKSIZE, la_blksize);
+
+	return (int)(ptr - start);
+}
+#undef CHECK_AND_MOVE
+
+#define CHECK_AND_MOVE(ATTRIBUTE, FIELD) \
+do {								\
+	/* just a sanity check */				\
+	LASSERT(ATTRIBUTE > curpos || curpos == 0);		\
+	curpos = ATTRIBUTE;					\
+	if (attr->la_valid & ATTRIBUTE) {			\
+		if (ptr >= end)					\
+			return -EINVAL;				\
+		memcpy(&attr->FIELD, ptr, sizeof(attr->FIELD));	\
+		ptr += sizeof(attr->FIELD);			\
+	}							\
+} while (0)
+int out_unpack_lu_attr(struct lu_attr *attr, char *ptr, int size, int needswab)
+{
+	__u32	magic;
+	char *end = ptr + size;
+	__u64 curpos = 0;
+
+	memcpy(&magic, ptr, sizeof(__u32));
+	ptr += sizeof(__u32);
+	if (needswab)
+		__swab32s(&magic);
+	if (unlikely(magic != UPDATE_VARSIZE_ATTR_MAGIC))
+		return -EPROTO;
+
+	memset(attr, 0, sizeof(*attr));
+	memcpy(&attr->la_valid, ptr, sizeof(attr->la_valid));
+	if (unlikely(attr->la_valid == 0))
+		return -EPROTO;
+	if (needswab)
+		__swab64s(&attr->la_valid);
+	ptr += sizeof(attr->la_valid);
+
+	CHECK_AND_MOVE(LA_ATIME, la_atime);
+	CHECK_AND_MOVE(LA_MTIME, la_mtime);
+	CHECK_AND_MOVE(LA_CTIME, la_ctime);
+	CHECK_AND_MOVE(LA_SIZE, la_size);
+	CHECK_AND_MOVE((LA_MODE | LA_TYPE), la_mode);
+	CHECK_AND_MOVE(LA_UID, la_uid);
+	CHECK_AND_MOVE(LA_GID, la_gid);
+	CHECK_AND_MOVE(LA_BLOCKS, la_blocks);
+	CHECK_AND_MOVE(LA_FLAGS, la_flags);
+	CHECK_AND_MOVE(LA_NLINK, la_nlink);
+	CHECK_AND_MOVE(LA_RDEV, la_rdev);
+	CHECK_AND_MOVE(LA_BLKSIZE, la_blksize);
+
+	if (needswab != 0) {
+		__swab64s(&attr->la_mtime);
+		__swab64s(&attr->la_atime);
+		__swab64s(&attr->la_ctime);
+		__swab64s(&attr->la_size);
+		__swab64s(&attr->la_blocks);
+		__swab32s(&attr->la_mode);
+		__swab32s(&attr->la_uid);
+		__swab32s(&attr->la_gid);
+		__swab32s(&attr->la_flags);
+		__swab32s(&attr->la_nlink);
+		__swab32s(&attr->la_rdev);
+	}
+
+	return 0;
+}
+EXPORT_SYMBOL(out_unpack_lu_attr);
+#undef CHECK_AND_MOVE
+
 /**
  * Pack various updates into the update_buffer.
  *
@@ -190,8 +328,8 @@ int out_create_pack(const struct lu_env *env, struct object_update *update,
 		    const struct lu_attr *attr, struct dt_allocation_hint *hint,
 		    struct dt_object_format *dof)
 {
-	struct obdo		*obdo;
-	__u16			sizes[2] = {sizeof(*obdo), 0};
+	struct obdo             *obdo;
+	__u16                   sizes[2] = {sizeof(*obdo), 0};
 	int			buf_count = 1;
 	const struct lu_fid	*parent_fid = NULL;
 	int			rc;
@@ -203,6 +341,9 @@ int out_create_pack(const struct lu_env *env, struct object_update *update,
 		buf_count++;
 	}
 
+	if (update->ou_flags & UPDATE_FL_COMPACT)
+		sizes[0] = out_calc_attr_size(attr);
+
 	rc = out_update_header_pack(env, update, max_update_size, OUT_CREATE,
 				    fid, buf_count, sizes, 0);
 	if (rc != 0)
@@ -212,9 +353,13 @@ int out_create_pack(const struct lu_env *env, struct object_update *update,
 	if (IS_ERR(obdo))
 		RETURN(PTR_ERR(obdo));
 
-	obdo->o_valid = 0;
-	obdo_from_la(obdo, attr, attr->la_valid);
-	lustre_set_wire_obdo(NULL, obdo, obdo);
+	if (update->ou_flags & UPDATE_FL_COMPACT) {
+		out_pack_lu_attr(attr, (char *)obdo, sizes[0]);
+	} else {
+		obdo->o_valid = 0;
+		obdo_from_la(obdo, attr, attr->la_valid);
+		lustre_set_wire_obdo(NULL, obdo, obdo);
+	}
 
 	if (parent_fid != NULL) {
 		struct lu_fid *tmp;
@@ -255,6 +400,9 @@ int out_attr_set_pack(const struct lu_env *env, struct object_update *update,
 	int			rc;
 	ENTRY;
 
+	if (update->ou_flags & UPDATE_FL_COMPACT)
+		size = out_calc_attr_size(attr);
+
 	rc = out_update_header_pack(env, update, max_update_size,
 				    OUT_ATTR_SET, fid, 1, &size, 0);
 	if (rc != 0)
@@ -264,13 +412,56 @@ int out_attr_set_pack(const struct lu_env *env, struct object_update *update,
 	if (IS_ERR(obdo))
 		RETURN(PTR_ERR(obdo));
 
-	obdo->o_valid = 0;
-	obdo_from_la(obdo, attr, attr->la_valid);
-	lustre_set_wire_obdo(NULL, obdo, obdo);
+	if (update->ou_flags & UPDATE_FL_COMPACT) {
+		out_pack_lu_attr(attr, (char *)obdo, size);
+	} else {
+		obdo->o_valid = 0;
+		obdo_from_la(obdo, attr, attr->la_valid);
+		lustre_set_wire_obdo(NULL, obdo, obdo);
+	}
 
 	RETURN(0);
 }
 EXPORT_SYMBOL(out_attr_set_pack);
+
+/* the table is listing frequently used EA names
+ * it's used to map such a name to a 8bit value - an index in the table */
+char *out_frequent_xattrs[] = {
+	NULL,
+	XATTR_NAME_LOV,
+	XATTR_NAME_LMA,
+	XATTR_NAME_LMV,
+	XATTR_NAME_DEFAULT_LMV,
+	XATTR_NAME_LINK,
+	XATTR_NAME_FID,
+	XATTR_NAME_VERSION,
+	XATTR_NAME_HSM,
+	XATTR_NAME_ACL_ACCESS,
+	XATTR_NAME_ACL_DEFAULT,
+};
+EXPORT_SYMBOL(out_frequent_xattrs);
+
+char *out_lookup_frequent_xattr_by_type(const int type)
+{
+	if (unlikely(type >= ARRAY_SIZE(out_frequent_xattrs)))
+		return NULL;
+	if (unlikely(type == 0))
+		return NULL;
+	return out_frequent_xattrs[type];
+}
+EXPORT_SYMBOL(out_lookup_frequent_xattr_by_type);
+
+int out_lookup_frequent_xattr_by_name(const char *name)
+{
+	int i;
+
+	for (i = 1; i < ARRAY_SIZE(out_frequent_xattrs); i++) {
+		if (strcmp(name, out_frequent_xattrs[i]) == 0)
+			return i;
+	}
+	return 0;
+}
+EXPORT_SYMBOL(out_lookup_frequent_xattr_by_name);
 
 int out_xattr_set_pack(const struct lu_env *env, struct object_update *update,
 		       size_t *max_update_size, const struct lu_fid *fid,
@@ -279,6 +470,17 @@ int out_xattr_set_pack(const struct lu_env *env, struct object_update *update,
 	__u16	sizes[3] = {strlen(name) + 1, buf->lb_len, sizeof(flag)};
 	const void *bufs[3] = {(char *)name, (char *)buf->lb_buf,
 			       (char *)&flag};
+	unsigned char type;
+
+	if (update->ou_flags & UPDATE_FL_COMPACT) {
+		/* optmize few the most frequent cases */
+		int i = out_lookup_frequent_xattr_by_name(name);
+		if (i > 0) {
+			type = i;
+			sizes[0] = 1;
+			bufs[0] = &type;
+		}
+	}
 
 	return out_update_pack(env, update, max_update_size, OUT_XATTR_SET,
 			       fid, ARRAY_SIZE(sizes), sizes, bufs, 0);
@@ -396,13 +598,29 @@ int out_xattr_get_pack(const struct lu_env *env, struct object_update *update,
 		       size_t *max_update_size, const struct lu_fid *fid,
 		       const char *name, const int bufsize)
 {
+	const void *bufs[1] = { NULL };
+	unsigned char type;
 	__u16 size;
 
 	LASSERT(name != NULL);
-	size = strlen(name) + 1;
+
+	if (update->ou_flags & UPDATE_FL_COMPACT) {
+		/* optmize few the most frequent cases */
+		int i = out_lookup_frequent_xattr_by_name(name);
+		if (i > 0) {
+			type = i;
+			size = 1;
+			bufs[0] = &type;
+		}
+	}
+
+	if (bufs[0] == NULL) {
+		size = strlen(name) + 1;
+		bufs[0] = name;
+	}
 
 	return out_update_pack(env, update, max_update_size, OUT_XATTR_GET,
-			       fid, 1, &size, (const void **)&name, bufsize);
+			       fid, 1, &size, bufs, bufsize);
 }
 EXPORT_SYMBOL(out_xattr_get_pack);
 
