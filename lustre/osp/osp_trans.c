@@ -170,6 +170,14 @@ osp_current_object_update_request(struct osp_update_request *our)
 			  ours_list);
 }
 
+static inline int osp_is_obdopack_supported(struct osp_device *osp)
+{
+	struct obd_connect_data *ocd;
+
+	ocd = &osp->opd_obd->u.cli.cl_import->imp_connect_data;
+	return !!(ocd->ocd_connect_flags & OBD_CONNECT_OBDOPACK);
+}
+
 /**
  * Allocate and initialize osp_update_request
  *
@@ -193,6 +201,8 @@ struct osp_update_request *osp_update_request_create(struct dt_device *dt)
 	INIT_LIST_HEAD(&our->our_req_list);
 	INIT_LIST_HEAD(&our->our_cb_items);
 	INIT_LIST_HEAD(&our->our_list);
+	if (osp_is_obdopack_supported(dt2osp_dev(dt)))
+		our->our_flags |= UPDATE_FL_COMPACT;
 
 	osp_object_update_request_create(our, OUT_UPDATE_INIT_BUFFER_SIZE);
 	return our;
