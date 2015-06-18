@@ -597,22 +597,30 @@ int osp_object_update_request_create(struct osp_update_request *our,
 
 #define osp_update_rpc_pack(env, name, our, op, ...)			\
 ({									\
-	struct object_update	*object_update;				\
+	struct object_update	*upd;					\
 	size_t			max_update_length;			\
 	struct osp_update_request_sub *ours;				\
-	int ret;							\
+	int ret, count;							\
 									\
 	while (1) {							\
 		ours = osp_current_object_update_request(our);		\
 		LASSERT(ours != NULL);					\
+		count = ours->ours_req->ourq_count;			\
 		max_update_length = ours->ours_req_size -		\
 			    object_update_request_size(ours->ours_req);	\
 									\
-		object_update = update_buffer_get_update(ours->ours_req,\
-					 ours->ours_req->ourq_count);	\
-		ret = out_##name##_pack(env, object_update,		\
-					&max_update_length,		\
-				       __VA_ARGS__);			\
+		/* ensure we've got enough space for a header at least	\
+		 * this is needed to move flags (e.g. COMPAT) */	\
+		if (sizeof(struct object_update) > max_update_length) {	\
+			ret = -E2BIG;					\
+		} else {						\
+			upd = update_buffer_get_update(ours->ours_req,	\
+						       count);		\
+			upd->ou_flags |= update->our_flags;		\
+			ret = out_##name##_pack(env, upd,		\
+						&max_update_length,	\
+						__VA_ARGS__);		\
+		}							\
 		if (ret == -E2BIG) {					\
 			int rc1;					\
 			/* Create new object update request */		\
@@ -626,16 +634,21 @@ int osp_object_update_request_create(struct osp_update_request *our,
 			}						\
 			continue;					\
 		} else {						\
-			if (ret == 0) {					\
+			if (ret == 0)					\
 				ours->ours_req->ourq_count++;		\
-				object_update->ou_flags |=		\
-						     update->our_flags; \
-			}						\
 			break;						\
 		}							\
 	}								\
 	ret;								\
 })
+
+static inline int osp_connect_obdopack(struct osp_device *osp)
+{
+	struct obd_connect_data *ocd;
+
+	ocd = &osp->opd_obd->u.cli.cl_import->imp_connect_data;
+	return !!(ocd->ocd_connect_flags & OBD_CONNECT_OBDOPACK);
+}
 
 static inline bool osp_send_update_thread_running(struct osp_device *osp)
 {
