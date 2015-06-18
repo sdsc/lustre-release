@@ -65,7 +65,7 @@ Index: linux-3.10.0-123.13.2.el7.x86_64/fs/ext4/inode.c
  {
  	handle_t *handle;
  	int err;
-+	int extra_credits = 3;
++	int extra_credits = 4;
 +	struct ext4_xattr_ino_array *lea_ino_array = NULL;
  
  	trace_ext4_evict_inode(inode);
@@ -851,10 +851,10 @@ Index: linux-3.10.0-123.13.2.el7.x86_64/fs/ext4/xattr.c
 +		int idx = 0;
 +
 +		for (; idx < (*lea_ino_array)->xia_count; ++idx) {
-+			if (!ext4_handle_has_enough_credits(handle, 3)) {
-+				error = ext4_journal_extend(handle, 3);
++			if (!ext4_handle_has_enough_credits(handle, 4)) {
++				error = ext4_journal_extend(handle, 4);
 +				if (error > 0)
-+					error = ext4_journal_restart(handle, 3);
++					error = ext4_journal_restart(handle, 4);
 +				if (error != 0) {
 +					ext4_warning(inode->i_sb,
 +						"couldn't extend journal "
