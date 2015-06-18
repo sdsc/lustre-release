@@ -998,8 +998,11 @@ build_lustre() {
         osd_ldiskfs="yes"
     fi
 
+	if [ -n "${CONFIGURE_FLAGS}" ]; then
+		RPMBUILD_DEFS="$RPMBUILD_DEFS \
+			--define \"configure_args ${CONFIGURE_FLAGS}\""
+	fi
     RPMBUILD_DEFS="$RPMBUILD_DEFS ${FIND_REQUIRES:+--define \"__find_requires $FIND_REQUIRES\"}"
-    RPMBUILD_DEFS="$RPMBUILD_DEFS --define \"configure_args ${CONFIGURE_FLAGS}\""
     RPMBUILD_DEFS="$RPMBUILD_DEFS --define \"kdir $linux\""
     RPMBUILD_DEFS="$RPMBUILD_DEFS ${linuxobj:+--define \"kobjdir $linuxobj\"}"
     RPMBUILD_DEFS="$RPMBUILD_DEFS --define \"_tmppath $TMPDIR\""
