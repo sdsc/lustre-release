@@ -1,0 +1,18 @@
+%defattr(-,root,root)
+%{?rootdir}/lib/modules/%2-%1/%{kmoddir}/*
+%if %{with ldiskfs}
+%exclude %{?rootdir}/lib/modules/%2-%1/%{kmoddir}/kernel/fs/lustre/osd_ldiskfs.
+ko
+%endif
+%if %{with zfs}
+%exclude %{?rootdir}/lib/modules/%2-%1/%{kmoddir}/kernel/fs/lustre/osd_zfs.ko
+%endif
+%if %{with lustre_tests}
+%exclude %{?rootdir}/lib/modules/%{kversion}/%{kmoddir}/kernel/fs/@PACKAGE@/llog_test.ko
+%endif
+%if %{defined rpm_post_base}
+%attr(0555, root, root) %{rpm_post_base}-modules.sh
+%endif
+%doc COPYING
+%doc ChangeLog-lustre
+%doc ChangeLog-lnet
