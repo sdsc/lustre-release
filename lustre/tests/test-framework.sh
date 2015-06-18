@@ -2237,7 +2237,19 @@ wait_recovery_complete () {
 		local param="*.${!var_svc}.recovery_status"
 
 		local host=$(facet_active_host $facet)
+
+		echo wait $host recovery to complete: $param $(date) $MAX
 		do_rpc_nodes "$host" _wait_recovery_complete $param $MAX
+		if [[ $? != 0 && $facet == mds1 ]]; then
+			echo wait failed with $? $(date)
+
+			echo wait $host: $param $(date) $MAX
+			param="*.${FSNAME}-MDT0000.recovery_status"
+			do_rpc_nodes "$host" _wait_recovery_complete $param $MAX
+			echo wait $host: completed $? $(date)
+		else
+			echo wait completed $? $(date)
+		fi
 	done
 }
 
