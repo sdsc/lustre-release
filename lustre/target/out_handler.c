@@ -90,6 +90,35 @@ static inline int out_check_resent(const struct lu_env *env,
 	return 0;
 }
 
+#define CHECK_AND_MOVE(ATTRIBUTE, FIELD)			\
+	do {								\
+		if (attr->la_valid & ATTRIBUTE) {			\
+			memcpy(&attr->FIELD, ptr, sizeof(attr->FIELD));	\
+			ptr += sizeof(attr->FIELD);			\
+		}							\
+	} while (0)
+static void out_unpack_lu_attr(struct lu_attr *attr, void *ptr)
+{
+	/* XXX: makes sense to add a magic? */
+	memset(attr, 0, sizeof(*attr));
+	memcpy(&attr->la_valid, ptr, sizeof(attr->la_valid));
+	ptr += sizeof(attr->la_valid);
+
+	CHECK_AND_MOVE(LA_SIZE, la_size);
+	CHECK_AND_MOVE(LA_MTIME, la_mtime);
+	CHECK_AND_MOVE(LA_ATIME, la_atime);
+	CHECK_AND_MOVE(LA_CTIME, la_ctime);
+	CHECK_AND_MOVE(LA_BLOCKS, la_blocks);
+	CHECK_AND_MOVE((LA_MODE | LA_TYPE), la_mode);
+	CHECK_AND_MOVE(LA_UID, la_uid);
+	CHECK_AND_MOVE(LA_GID, la_gid);
+	CHECK_AND_MOVE(LA_FLAGS, la_flags);
+	CHECK_AND_MOVE(LA_NLINK, la_nlink);
+	CHECK_AND_MOVE(LA_BLKSIZE, la_blksize);
+	CHECK_AND_MOVE(LA_RDEV, la_rdev);
+}
+#undef CHECK_AND_MOVE
+
 static int out_create(struct tgt_session_info *tsi)
 {
 	struct tgt_thread_info	*tti = tgt_th_info(tsi->tsi_env);
@@ -106,16 +135,21 @@ static int out_create(struct tgt_session_info *tsi)
 	ENTRY;
 
 	wobdo = object_update_param_get(update, 0, &size);
-	if (wobdo == NULL || IS_ERR(wobdo) || size != sizeof(*wobdo)) {
+	if (wobdo == NULL || IS_ERR(wobdo)) {
 		CERROR("%s: obdo is NULL, invalid RPC: rc = %d\n",
 		       tgt_name(tsi->tsi_tgt), -EPROTO);
 		RETURN(err_serious(-EPROTO));
 	}
+	if (size == sizeof(*wobdo)) {
+		if (ptlrpc_req_need_swab(tsi->tsi_pill->rc_req))
+			lustre_swab_obdo(wobdo);
+		lustre_get_wire_obdo(NULL, lobdo, wobdo);
+		la_from_obdo(attr, lobdo, lobdo->o_valid);
+	} else {
+		/* XXX: swabbing? */
+		out_unpack_lu_attr(attr, (void*)wobdo);
+	}
 
-	if (ptlrpc_req_need_swab(tsi->tsi_pill->rc_req))
-		lustre_swab_obdo(wobdo);
-	lustre_get_wire_obdo(NULL, lobdo, wobdo);
-	la_from_obdo(attr, lobdo, lobdo->o_valid);
 
 	dof->dof_type = dt_mode_to_dft(attr->la_mode);
 	if (update->ou_params_count > 1) {
@@ -159,7 +193,7 @@ static int out_attr_set(struct tgt_session_info *tsi)
 	ENTRY;
 
 	wobdo = object_update_param_get(update, 0, &size);
-	if (wobdo == NULL || IS_ERR(wobdo) || size != sizeof(*wobdo)) {
+	if (wobdo == NULL || IS_ERR(wobdo)) {
 		CERROR("%s: empty obdo in the update: rc = %d\n",
 		       tgt_name(tsi->tsi_tgt), -EPROTO);
 		RETURN(err_serious(-EPROTO));
@@ -168,10 +202,15 @@ static int out_attr_set(struct tgt_session_info *tsi)
 	attr->la_valid = 0;
 	attr->la_valid = 0;
 
-	if (ptlrpc_req_need_swab(tsi->tsi_pill->rc_req))
-		lustre_swab_obdo(wobdo);
-	lustre_get_wire_obdo(NULL, lobdo, wobdo);
-	la_from_obdo(attr, lobdo, lobdo->o_valid);
+	if (size == sizeof(*wobdo)) {
+		if (ptlrpc_req_need_swab(tsi->tsi_pill->rc_req))
+			lustre_swab_obdo(wobdo);
+		lustre_get_wire_obdo(NULL, lobdo, wobdo);
+		la_from_obdo(attr, lobdo, lobdo->o_valid);
+	} else {
+		/* XXX: swabbing? */
+		out_unpack_lu_attr(attr, (void*)wobdo);
+	}
 
 	rc = out_tx_attr_set(tsi->tsi_env, obj, attr, &tti->tti_tea,
 			     tti->tti_tea.ta_handle,
@@ -355,6 +394,17 @@ static int out_xattr_set(struct tgt_session_info *tsi)
 		CERROR("%s: empty name for xattr set: rc = %d\n",
 		       tgt_name(tsi->tsi_tgt), -EPROTO);
 		RETURN(err_serious(-EPROTO));
+	}
+	/* encode frequently used names */
+	if (size == 1) {
+		if ((unsigned char)name[0] == 1)
+			name = XATTR_NAME_LOV;
+		else if ((unsigned char)name[0] == 2)
+			name = XATTR_NAME_LINK;
+		else if ((unsigned char)name[0] == 3)
+			name = XATTR_NAME_VERSION;
+		else
+			RETURN(err_serious(-EPROTO));
 	}
 
 	buf = object_update_param_get(update, 1, &buf_len);
