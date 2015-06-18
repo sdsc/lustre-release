@@ -1313,6 +1313,7 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb);
 				OBD_CONNECT_OPEN_BY_FID | \
 				OBD_CONNECT_DIR_STRIPE | \
 				OBD_CONNECT_BULK_MBITS | \
+				OBD_CONNECT_OBDOPACK | \
 				OBD_CONNECT_MULTIMODRPCS)
 
 #define OST_CONNECT_SUPPORTED  (OBD_CONNECT_SRVLOCK | OBD_CONNECT_GRANT | \
@@ -1332,6 +1333,7 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb);
 				OBD_CONNECT_LIGHTWEIGHT | OBD_CONNECT_LVB_TYPE|\
 				OBD_CONNECT_LAYOUTLOCK | OBD_CONNECT_FID | \
 				OBD_CONNECT_PINGLESS | OBD_CONNECT_LFSCK | \
+				OBD_CONNECT_OBDOPACK | \
 				OBD_CONNECT_BULK_MBITS)
 #define ECHO_CONNECT_SUPPORTED (0)
 #define MGS_CONNECT_SUPPORTED  (OBD_CONNECT_VERSION | OBD_CONNECT_AT | \
@@ -3939,7 +3941,8 @@ enum update_flag {
 	UPDATE_FL_OST		= 0x00000001,	/* op from OST (not MDT) */
 	UPDATE_FL_SYNC		= 0x00000002,	/* commit before replying */
 	UPDATE_FL_COMMITTED	= 0x00000004,	/* op committed globally */
-	UPDATE_FL_NOLOG		= 0x00000008	/* for idempotent updates */
+	UPDATE_FL_NOLOG		= 0x00000008,	/* for idempotent updates */
+	UPDATE_FL_COMPACT	= 0x00000010	/* space optimizations */
 };
 
 struct object_update_param {
@@ -4063,6 +4066,8 @@ struct object_update_reply {
 	__u16	ourp_padding;
 	__u16	ourp_lens[0];
 };
+
+#define UPDATE_VARSIZE_ATTR_MAGIC	0xd700cc40
 
 void lustre_swab_object_update_result(struct object_update_result *our);
 void lustre_swab_object_update_reply(struct object_update_reply *our);
