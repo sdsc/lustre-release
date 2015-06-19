@@ -133,8 +133,8 @@ fi
 
 PDSH=${PDSH:-no_dsh}
 FAILURE_MODE=${FAILURE_MODE:-SOFT} # or HARD
-POWER_DOWN=${POWER_DOWN:-"powerman --off"}
-POWER_UP=${POWER_UP:-"powerman --on"}
+POWER_DOWN=${POWER_DOWN:-"pm -h powerman --off"}
+POWER_UP=${POWER_UP:-"pm -h powerman --on"}
 SLOW=${SLOW:-no}
 FAIL_ON_ERROR=${FAIL_ON_ERROR:-true}
 
