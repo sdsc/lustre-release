@@ -1366,7 +1366,8 @@ int osp_precreate_reserve(const struct lu_env *env, struct osp_device *d)
 		lwi = LWI_TIMEOUT(expire - cfs_time_current(),
 				osp_precreate_timeout_condition, d);
 		if (cfs_time_aftereq(cfs_time_current(), expire)) {
-			rc = -ETIMEDOUT;
+			/* don't wait anymore, let's client to retry */
+			rc = -EINPROGRESS;
 			break;
 		}
 
