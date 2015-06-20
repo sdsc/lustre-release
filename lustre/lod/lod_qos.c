@@ -941,6 +941,7 @@ static int lod_alloc_rr(const struct lu_env *env, struct lod_object *lo,
 	__u32		   stripe_cnt = lo->ldo_stripenr;
 	__u32		   stripe_cnt_min = min_stripe_count(stripe_cnt, flags);
 	__u32		   ost_idx;
+	int		   precreate_inprogress = 0;
 	ENTRY;
 
 	if (lo->ldo_pool)
@@ -1012,6 +1013,9 @@ repeat_find:
 		rc = lod_check_and_reserve_ost(env, m, sfs, ost_idx, speed,
 					       &stripe_idx, stripe, th);
 		spin_lock(&lqr->lqr_alloc);
+
+		if (rc == -EINPROGRESS)
+			precreate_inprogress = 1;
 	}
 	if ((speed < 2) && (stripe_idx < stripe_cnt_min)) {
 		/* Try again, allowing slower OSCs */
@@ -1029,7 +1033,10 @@ repeat_find:
 		rc = 0;
 	} else {
 		/* nobody provided us with a single object */
-		rc = -ENOSPC;
+		if (precreate_inprogress == 1)
+			rc = -EINPROGRESS;
+		else
+			rc = -ENOSPC;
 	}
 
 out:
@@ -1180,6 +1187,7 @@ static int lod_alloc_specific(const struct lu_env *env, struct lod_object *lo,
 	int		   speed = 0;
 	struct pool_desc  *pool = NULL;
 	struct ost_pool   *osts;
+	int		   precreate_inprogress = 0;
 	ENTRY;
 
 	rc = lod_qos_ost_in_use_clear(env, lo->ldo_stripenr);
@@ -1254,6 +1262,9 @@ repeat_find:
 
 		o = lod_qos_declare_object_on(env, m, ost_idx, th);
 		if (IS_ERR(o)) {
+			if (PTR_ERR(o) == -EINPROGRESS)
+				precreate_inprogress = 1;
+
 			CDEBUG(D_OTHER, "can't declare new object on #%u: %d\n",
 			       ost_idx, (int) PTR_ERR(o));
 			continue;
@@ -1273,6 +1284,7 @@ repeat_find:
 	if (speed < 2) {
 		/* Try again, allowing slower OSCs */
 		speed++;
+		precreate_inprogress = 0;
 		goto repeat_find;
 	}
 
@@ -1283,7 +1295,10 @@ repeat_find:
 	CERROR("can't lstripe objid "DFID": have %d want %u\n",
 	       PFID(lu_object_fid(lod2lu_obj(lo))), stripe_num,
 	       lo->ldo_stripenr);
-	rc = stripe_num == 0 ? -ENOSPC : -EFBIG;
+	if (precreate_inprogress == 1)
+		rc = -EINPROGRESS;
+	else
+		rc = stripe_num == 0 ? -ENOSPC : -EFBIG;
 out:
 	if (pool != NULL) {
 		up_read(&pool_tgt_rw_sem(pool));
@@ -1373,6 +1388,7 @@ static int lod_alloc_qos(const struct lu_env *env, struct lod_object *lo,
 	__u32		     stripe_cnt_min;
 	struct pool_desc    *pool = NULL;
 	struct ost_pool    *osts;
+	int		    precreate_inprogress = 0;
 	ENTRY;
 
 	stripe_cnt_min = min_stripe_count(stripe_cnt, flags);
@@ -1457,6 +1473,7 @@ static int lod_alloc_qos(const struct lu_env *env, struct lod_object *lo,
 	while (nfound < stripe_cnt) {
 		__u64 rand, cur_weight;
 
+		precreate_inprogress = 0;
 		cur_weight = 0;
 		rc = -ENOSPC;
 
@@ -1518,6 +1535,9 @@ static int lod_alloc_qos(const struct lu_env *env, struct lod_object *lo,
 
 			o = lod_qos_declare_object_on(env, m, idx, th);
 			if (IS_ERR(o)) {
+				if (PTR_ERR(o) == -EINPROGRESS)
+					precreate_inprogress = 1;
+
 				QOS_DEBUG("can't declare object on #%u: %d\n",
 					  idx, (int) PTR_ERR(o));
 				continue;
@@ -1553,7 +1573,10 @@ static int lod_alloc_qos(const struct lu_env *env, struct lod_object *lo,
 		m->lod_qos.lq_dirty = 1;
 		m->lod_qos.lq_same_space = 0;
 
-		rc = -EAGAIN;
+		if (precreate_inprogress == 1)
+			rc = -EINPROGRESS;
+		else
+			rc = -EAGAIN;
 	}
 
 out:
