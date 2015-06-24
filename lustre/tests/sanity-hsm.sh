@@ -3861,6 +3861,62 @@ test_113d() {
 }
 run_test 113d "HSM migrate test with -o, stripe size of 64KiB"
 
+test_114() {
+	# TODO: will need to update version code here
+	[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.6.91) ] &&
+		skip "HSM migrate is not supported" && return
+
+	# test needs a running copytool
+	copytool_setup
+
+	# Create the file
+	mkdir -p $DIR/$tdir
+	local file=$DIR/$tdir/migr_1_ost
+	dd bs=5K count=1 if=/dev/urandom of=$file >/dev/null 2>&1 ||
+		error "write data into $file failed"
+	local olddata_version=$($LFS data_version $file)
+
+	# These commands should fail
+	$LFS migrate -H --data="qwert" $file |&
+		grep "error: migrate: data field is not JSON" ||
+		error "migration 1 should have failed"
+
+	$LFS migrate -H --data="{qwert}" $file |&
+		grep "error: migrate: data field is not JSON" ||
+		error "migration 2 should have failed"
+
+	$LFS migrate -H --data="{\"key\":1" $file |&
+		grep "error: migrate: data field is not JSON" ||
+		error "migration 3 should have failed"
+
+	$LFS migrate -H --data="{\"mdt_index\":-1}" $file |&
+		grep "error: migrate: data field .* is reserved" ||
+		error "migration 4 should have failed"
+
+	$LFS migrate -H --data="{\"lsp\":-1}" $file |&
+		grep "error: migrate: data field .* is reserved" ||
+		error "migration 5 should have failed"
+
+	# Migrate it
+	cmd="$LFS migrate -H --data={\\\"key\\\":\\\"value\\\"} $file"
+	echo $cmd
+	eval $cmd || error "$cmd failed"
+
+	# Wait 20s for the migration to happen
+	local LIM=$((`date +%s`+20))
+	local newdata_version
+	while :
+	do
+		[ `date +%s` -ge $LIM ] && error "Migration timed out"
+		newdata_version=$($LFS data_version $file)
+		[[ $newdata_version -ne $olddata_version ]] && break
+		sleep .5
+	done
+
+	copytool_cleanup
+}
+run_test 114 "HSM migrate with --data checks"
+
 test_200() {
 	# test needs a running copytool
 	copytool_setup
