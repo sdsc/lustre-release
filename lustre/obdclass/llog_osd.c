@@ -634,16 +634,21 @@ out:
 static inline void llog_skip_over(struct llog_log_hdr *llh, __u64 *off,
 				  int curr, int goal, __u32 chunk_size)
 {
+	__u64 new_off;
+
 	if (goal > curr) {
 		if (llh->llh_size == 0) {
 			/* variable size records */
-			*off = (*off + (goal - curr - 1) * LLOG_MIN_REC_SIZE);
+			new_off = (*off + (goal - curr - 1) * LLOG_MIN_REC_SIZE);
 		} else {
-			*off = chunk_size + (goal - 1) * llh->llh_size;
+			new_off = chunk_size + (goal - 1) * llh->llh_size;
 		}
 	}
 	/* always align with lower chunk boundary*/
-	*off &= ~(chunk_size - 1);
+	new_off &= ~(chunk_size - 1);
+	CDEBUG(D_OTHER, "new offset "LPU64", cur_offset "LPU64", llh_size: %u\n",
+	       new_off, *off, llh->llh_size);
+	LASSERT(new_off >= *off);
 }
 
 /**
