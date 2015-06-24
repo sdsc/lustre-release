@@ -631,19 +631,24 @@ out:
  * actual records are larger than minimum size) we just skip
  * some more records.
  */
-static inline void llog_skip_over(struct llog_log_hdr *llh, __u64 *off,
+static inline void llog_skip_over(struct llog_log_hdr *llh, __u64 *cur_off,
 				  int curr, int goal, __u32 chunk_size)
 {
+	__u64 off;
+
 	if (goal > curr) {
 		if (llh->llh_size == 0) {
 			/* variable size records */
-			*off = (*off + (goal - curr - 1) * LLOG_MIN_REC_SIZE);
+			off = *cur_off + (goal - curr - 1) * LLOG_MIN_REC_SIZE;
 		} else {
-			*off = chunk_size + (goal - 1) * llh->llh_size;
+			off = chunk_size + (goal - 1) * llh->llh_size;
 		}
 	}
 	/* always align with lower chunk boundary*/
-	*off &= ~(chunk_size - 1);
+	off &= ~(chunk_size - 1);
+	CDEBUG(D_OTHER, "offset "LPU64", cur_offset "LPU64", llh_size: %u\n",
+	       off, *cur_off, llh->llh_size);
+	LASSERT(off >= *cur_off);
 }
 
 /**
