@@ -76,6 +76,8 @@
 #include <lustre_ver.h>
 #include <lustre_param.h>
 
+#include "ccan/json/json.h"
+
 /* all functions */
 static int lfs_setstripe(int argc, char **argv);
 static int lfs_find(int argc, char **argv);
@@ -151,6 +153,7 @@ static int lfs_mv(int argc, char **argv);
 	"                 [--block|-b]\n"				\
 	"                 [--non-block|-n]\n"				\
 	"                 [--hsm|-H [--archive|-a NUM]]\n"		\
+	"                 [--data DATA]\n"				\
 	"                 <filename>\n"					\
 	SSM_HELP_COMMON							\
 	"\n"								\
@@ -158,7 +161,8 @@ static int lfs_mv(int argc, char **argv);
 	"\tnon-block:    Abort migrations if concurrent access is detected\n" \
 	"\thsm:          Use the HSM copytool for the data migration\n"	\
 	"\tarchive:      HSM archive to use for the data migration,\n"	\
-	"\t              only valid with --hsm\n"
+	"\t              only valid with --hsm\n"			\
+	"\tdata:         extra data to pass to the HSM copytool\n"
 
 static const char	*progname;
 static bool		 file_lease_supported = true;
@@ -789,7 +793,7 @@ free:
 
 /* Build a JSON string for file migration */
 static int migrate_opt_to_json(const struct llapi_stripe_param *param,
-			       int mdt_index,
+			       int mdt_index, const char *json_data,
 			       char *str, size_t str_size)
 {
 	char *p;
@@ -840,7 +844,21 @@ static int migrate_opt_to_json(const struct llapi_stripe_param *param,
 		p += rc;
 	}
 
-	rc = snprintf(p, str_size, "},\"mdt_index\": %d}", mdt_index);
+	rc = snprintf(p, str_size, "},\"mdt_index\":%d", mdt_index);
+	if (rc >= str_size)
+		return -E2BIG;
+	str_size -= rc;
+	p += rc;
+
+	if (json_data) {
+		/* Merge the json data into the string. Simply replace
+		 * the leading { with a comma. We can do that since
+		 * the string has already been validated. */
+		rc = snprintf(p, str_size, ",%s", &json_data[1]);
+	} else {
+		rc = snprintf(p, str_size, "}");
+	}
+
 	if (rc >= str_size)
 		return -E2BIG;
 
@@ -862,7 +880,7 @@ static int lfs_hsm_prepare_file(const char *file, struct lu_fid *fid,
 static int lfs_hsm_migrate(char *filename, uint64_t migration_flags,
 			   int mdt_index,
 			   struct llapi_stripe_param *param,
-			   int archive_id)
+			   int archive_id, const char *json_data)
 {
 	int rc;
 	char str[2000];
@@ -871,7 +889,7 @@ static int lfs_hsm_migrate(char *filename, uint64_t migration_flags,
 	struct hsm_user_request	*hur;
 	dev_t last_dev = 0;
 
-	rc = migrate_opt_to_json(param, mdt_index, str, sizeof(str));
+	rc = migrate_opt_to_json(param, mdt_index, json_data, str, sizeof(str));
 	if (rc < 0) {
 		fprintf(stderr, "Cannot create the migrate request: %s\n",
 			strerror(-rc));
@@ -1041,6 +1059,7 @@ static int lfs_setstripe(int argc, char **argv)
 	int				 nr_osts = 0;
 	int				 archive_id = 0;
 	const int			 mdt_index = -1;
+	char				*opaque = NULL;
 
 	struct option		 long_opts[] = {
 		/* valid only in migrate mode */
@@ -1048,6 +1067,7 @@ static int lfs_setstripe(int argc, char **argv)
 		/* --block is only valid in migrate mode */
 		{"block",	 no_argument,	    0, 'b'},
 		{"hsm",		 no_argument,	    0, 'H'},
+		{"data",         required_argument, 0, 'D'},
 
 #if LUSTRE_VERSION_CODE < OBD_OCD_VERSION(2, 9, 53, 0)
 		/* This formerly implied "stripe-count", but was explicitly
@@ -1130,6 +1150,10 @@ static int lfs_setstripe(int argc, char **argv)
 					", use '--stripe-count' instead\n");
 #endif
 			stripe_count_arg = optarg;
+			break;
+		case 'D':
+			/* data field. Make sure it looks like JSON */
+			opaque = optarg;
 			break;
 		case 'd':
 			/* delete the default striping pattern */
@@ -1264,6 +1288,58 @@ static int lfs_setstripe(int argc, char **argv)
 		return CMD_HELP;
 	}
 
+	if (opaque) {
+		JsonNode *jroot;
+		size_t json_data_len = strlen(opaque);
+
+		/* The data field is for the HSM copytool
+		 * only. Otherwise it doesn't make sense. */
+		if (!hsm_migrate_mode) {
+			fprintf(stderr,
+				"error: %s: --data is valid only with HSM migrate\n",
+				argv[0]);
+			return CMD_HELP;
+		}
+
+		/* We only want JSON delimited with {}, not []. */
+		if (json_data_len < 2 ||
+		    opaque[0] != '{' ||
+		    opaque[json_data_len-1] != '}') {
+			fprintf(stderr,
+				"error: %s: data field is not JSON: '%s'\n",
+				argv[0], opaque);
+			return CMD_HELP;
+		}
+
+		/* Ensure it's really json and that members don't
+		 * collide with reserved keywords. */
+		jroot = json_decode(opaque);
+		if (jroot == NULL) {
+			fprintf(stderr,
+				"error: %s: data field is not JSON: '%s'\n",
+				argv[0], opaque);
+			return CMD_HELP;
+		}
+
+		if (json_find_member(jroot, "lsp")) {
+			fprintf(stderr,
+				"error: %s: data field 'lsp' is reserved\n",
+				argv[0]);
+			json_delete(jroot);
+			return CMD_HELP;
+		}
+
+		if (json_find_member(jroot, "mdt_index")) {
+			fprintf(stderr,
+				"error: %s: data field 'mdt_index' is reserved\n",
+				argv[0]);
+			json_delete(jroot);
+			return CMD_HELP;
+		}
+
+		json_delete(jroot);
+	}
+
 	/* get the stripe size */
 	if (stripe_size_arg != NULL) {
 		result = llapi_parse_size(stripe_size_arg, &st_size,
@@ -1346,7 +1422,7 @@ static int lfs_setstripe(int argc, char **argv)
 		} else if (hsm_migrate_mode) {
 			result = lfs_hsm_migrate(fname, migration_flags,
 						 mdt_index, param,
-						 archive_id);
+						 archive_id, opaque);
 		} else {
 			result = lfs_migrate(fname, migration_flags, param);
 		}
