@@ -932,32 +932,17 @@ osd_unlinked_drain(const struct lu_env *env, struct osd_device *osd)
 	zap_cursor_fini(&zc);
 }
 
-static int osd_mount(const struct lu_env *env,
-		     struct osd_device *o, struct lustre_cfg *cfg)
+int osd_mount(const struct lu_env *env, struct osd_device *o)
 {
-	char			*mntdev = lustre_cfg_string(cfg, 1);
-	char			*svname = lustre_cfg_string(cfg, 4);
 	dmu_buf_t		*rootdb;
-	const char		*opts;
 	int			 rc;
 	ENTRY;
 
 	if (o->od_os != NULL)
 		RETURN(0);
 
-	if (mntdev == NULL || svname == NULL)
+	if (o->od_mntdev == NULL || o->od_svname == NULL)
 		RETURN(-EINVAL);
-
-	rc = strlcpy(o->od_mntdev, mntdev, sizeof(o->od_mntdev));
-	if (rc >= sizeof(o->od_mntdev))
-		RETURN(-E2BIG);
-
-	rc = strlcpy(o->od_svname, svname, sizeof(o->od_svname));
-	if (rc >= sizeof(o->od_svname))
-		RETURN(-E2BIG);
-
-	if (server_name_is_ost(o->od_svname))
-		o->od_is_ost = 1;
 
 	rc = osd_objset_open(o);
 	if (rc)
@@ -982,41 +967,6 @@ static int osd_mount(const struct lu_env *env,
 	if (rc)
 		GOTO(err, rc);
 
-	rc = lu_site_init(&o->od_site, osd2lu_dev(o));
-	if (rc)
-		GOTO(err, rc);
-	o->od_site.ls_bottom_dev = osd2lu_dev(o);
-
-	rc = lu_site_init_finish(&o->od_site);
-	if (rc)
-		GOTO(err, rc);
-
-	rc = osd_convert_root_to_new_seq(env, o);
-	if (rc)
-		GOTO(err, rc);
-
-	/* Use our own ZAP for inode accounting by default, this can be changed
-	 * via procfs to estimate the inode usage from the block usage */
-	o->od_quota_iused_est = 0;
-
-	rc = osd_procfs_init(o, o->od_svname);
-	if (rc)
-		GOTO(err, rc);
-
-	/* initialize quota slave instance */
-	o->od_quota_slave = qsd_init(env, o->od_svname, &o->od_dt_dev,
-				     o->od_proc_entry);
-	if (IS_ERR(o->od_quota_slave)) {
-		rc = PTR_ERR(o->od_quota_slave);
-		o->od_quota_slave = NULL;
-		GOTO(err, rc);
-	}
-
-	/* parse mount option "noacl", and enable ACL by default */
-	opts = lustre_cfg_string(cfg, 3);
-	if (opts == NULL || strstr(opts, "noacl") == NULL)
-		o->od_posix_acl = 1;
-
 	osd_unlinked_drain(env, o);
 err:
 	if (rc) {
@@ -1027,7 +977,7 @@ err:
 	RETURN(rc);
 }
 
-static void osd_umount(const struct lu_env *env, struct osd_device *o)
+void osd_umount(const struct lu_env *env, struct osd_device *o)
 {
 	ENTRY;
 
@@ -1041,9 +991,15 @@ static void osd_umount(const struct lu_env *env, struct osd_device *o)
 		CERROR("%s: lost %d pinned dbuf(s)\n", o->od_svname,
 		       atomic_read(&o->od_zerocopy_pin));
 
+	osd_oi_fini(env, o);
+
 	if (o->od_os != NULL) {
 		/* force a txg sync to get all commit callbacks */
 		txg_wait_synced(dmu_objset_pool(o->od_os), 0ULL);
+
+		txg_wait_callbacks(spa_get_dsl(dmu_objset_spa(o->od_os)));
+
+		osd_objset_unregister_callbacks(o);
 
 		/* close the object set */
 		dmu_objset_disown(o->od_os, o);
@@ -1058,6 +1014,9 @@ static int osd_device_init0(const struct lu_env *env,
 			    struct osd_device *o,
 			    struct lustre_cfg *cfg)
 {
+	char			*mntdev = lustre_cfg_string(cfg, 1);
+	char			*svname = lustre_cfg_string(cfg, 4);
+	const char		*opts;
 	struct lu_device	*l = osd2lu_dev(o);
 	int			 rc;
 
@@ -1068,6 +1027,41 @@ static int osd_device_init0(const struct lu_env *env,
 
 	l->ld_ops = &osd_lu_ops;
 	o->od_dt_dev.dd_ops = &osd_dt_ops;
+
+	rc = strlcpy(o->od_mntdev, mntdev, sizeof(o->od_mntdev));
+	if (rc >= sizeof(o->od_mntdev))
+		RETURN(-E2BIG);
+
+	rc = strlcpy(o->od_svname, svname, sizeof(o->od_svname));
+	if (rc >= sizeof(o->od_svname))
+		RETURN(-E2BIG);
+
+	if (server_name_is_ost(o->od_svname))
+		o->od_is_ost = 1;
+
+	/* Use our own ZAP for inode accounting by default, this can be changed
+	 * via procfs to estimate the inode usage from the block usage */
+	o->od_quota_iused_est = 0;
+
+	/* parse mount option "noacl", and enable ACL by default */
+	opts = lustre_cfg_string(cfg, 3);
+	if (opts == NULL || strstr(opts, "noacl") == NULL)
+		o->od_posix_acl = 1;
+
+	rc = lu_site_init(&o->od_site, osd2lu_dev(o));
+	if (rc)
+		GOTO(out, rc);
+	o->od_site.ls_bottom_dev = osd2lu_dev(o);
+
+	rc = lu_site_init_finish(&o->od_site);
+	if (rc)
+		GOTO(out, rc);
+
+	rc = osd_procfs_init(o, o->od_svname);
+	if (rc)
+		GOTO(out, rc);
+
+	o->arc_prune_cb = arc_add_prune_callback(arc_prune_func, o);
 
 out:
 	RETURN(rc);
@@ -1080,7 +1074,7 @@ static struct lu_device *osd_device_alloc(const struct lu_env *env,
 					  struct lu_device_type *type,
 					  struct lustre_cfg *cfg)
 {
-	struct osd_device *dev;
+	struct osd_device *dev = NULL;
 	int		   rc;
 
 	OBD_ALLOC_PTR(dev);
@@ -1088,17 +1082,33 @@ static struct lu_device *osd_device_alloc(const struct lu_env *env,
 		return ERR_PTR(-ENOMEM);
 
 	rc = dt_device_init(&dev->od_dt_dev, type);
-	if (rc == 0) {
-		rc = osd_device_init0(env, dev, cfg);
-		if (rc == 0) {
-			rc = osd_mount(env, dev, cfg);
-			if (rc)
-				osd_device_fini(env, osd2lu_dev(dev));
-		}
-		if (rc)
-			dt_device_fini(&dev->od_dt_dev);
+	if (rc < 0)
+		GOTO(out, rc);
+
+	rc = osd_device_init0(env, dev, cfg);
+	if (rc < 0)
+		GOTO(out_dt, rc);
+
+	rc = osd_mount(env, dev);
+	if (rc < 0)
+		GOTO(out_fini, rc);
+
+	/* initialize quota slave instance */
+	dev->od_quota_slave = qsd_init(env, dev->od_svname, &dev->od_dt_dev,
+				       dev->od_proc_entry);
+	if (IS_ERR(dev->od_quota_slave)) {
+		rc = PTR_ERR(dev->od_quota_slave);
+		dev->od_quota_slave = NULL;
+		GOTO(out_fini, rc);
 	}
 
+	if (rc < 0) {
+out_fini:
+		osd_device_fini(env, osd2lu_dev(dev));
+out_dt:
+		dt_device_fini(&dev->od_dt_dev);
+	}
+out:
 	if (unlikely(rc != 0))
 		OBD_FREE_PTR(dev);
 
@@ -1112,13 +1122,6 @@ static struct lu_device *osd_device_free(const struct lu_env *env,
 	ENTRY;
 
 	/* XXX: make osd top device in order to release reference */
-	d->ld_site->ls_top_dev = d;
-	lu_site_purge(env, d->ld_site, -1);
-	if (!cfs_hash_is_empty(d->ld_site->ls_obj_hash)) {
-		LIBCFS_DEBUG_MSG_DATA_DECL(msgdata, D_ERROR, NULL);
-		lu_site_print(env, d->ld_site, &msgdata, lu_cdebug_printer);
-	}
-	lu_site_fini(&o->od_site);
 	dt_device_fini(&o->od_dt_dev);
 	OBD_FREE_PTR(o);
 
@@ -1132,15 +1135,7 @@ static struct lu_device *osd_device_fini(const struct lu_env *env,
 	int		   rc;
 	ENTRY;
 
-
 	osd_shutdown(env, o);
-	osd_oi_fini(env, o);
-
-	if (o->od_os) {
-		osd_objset_unregister_callbacks(o);
-		osd_sync(env, lu2dt_dev(d));
-		txg_wait_callbacks(spa_get_dsl(dmu_objset_spa(o->od_os)));
-	}
 
 	rc = osd_procfs_fini(o);
 	if (rc) {
@@ -1150,6 +1145,14 @@ static struct lu_device *osd_device_fini(const struct lu_env *env,
 
 	if (o->od_os)
 		osd_umount(env, o);
+
+	d->ld_site->ls_top_dev = d;
+	lu_site_purge(env, d->ld_site, -1);
+	if (!cfs_hash_is_empty(d->ld_site->ls_obj_hash)) {
+		LIBCFS_DEBUG_MSG_DATA_DECL(msgdata, D_ERROR, NULL);
+		lu_site_print(env, d->ld_site, &msgdata, lu_cdebug_printer);
+	}
+	lu_site_fini(&o->od_site);
 
 	RETURN(NULL);
 }
@@ -1173,7 +1176,7 @@ static int osd_process_config(const struct lu_env *env,
 
 	switch(cfg->lcfg_command) {
 	case LCFG_SETUP:
-		rc = osd_mount(env, o, cfg);
+		rc = osd_mount(env, o);
 		break;
 	case LCFG_CLEANUP:
 		rc = osd_shutdown(env, o);
