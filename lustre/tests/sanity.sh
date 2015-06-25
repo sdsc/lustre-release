@@ -7838,6 +7838,25 @@ test_118m() # LU-3066
 }
 run_test 118m "fdatasync dir ========="
 
+test_118n() # LU-4388
+{
+	local sample_b4
+	local sample_after
+
+	sample_b4=$($LCTL get_param osc.*.stats |
+		awk '/ost_sync/ {cnt += $2} END {print cnt}')
+	dd if=/dev/zero of=$DIR/$tfile conv=fsync bs=1K count=4
+	sample_after=$($LCTL get_param osc.*.stats |
+		awk '/ost_sync/ {cnt += $2} END {print cnt}')
+	echo "OST_SYNC sample before:$sample_b4, after:$sample_after"
+	if [ ! $sample_after -gt $sample_b4 ]; then
+		error "OST_SYNC does not issued on fsync:" \
+		      "before:$sample_b4, after:$sample_after"
+	fi
+	rm -f $DIR/$tfile
+}
+run_test 118n "OST_SYNC issued on fsync ============="
+
 [ "$SLOW" = "no" ] && [ -n "$OLD_RESENDCOUNT" ] && set_resend_count $OLD_RESENDCOUNT
 
 test_119a() # bug 11737
