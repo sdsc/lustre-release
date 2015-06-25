@@ -3741,10 +3741,7 @@ static int cb_quotachown(char *path, DIR *parent, DIR **dirp, void *data,
 
 	st = &param->fp_lmd->lmd_st;
 
-        /* libc chown() will do extra check, and if the real owner is
-         * the same as the ones to set, it won't fall into kernel, so
-         * invoke syscall directly. */
-        rc = syscall(SYS_chown, path, -1, -1);
+        rc = chown(path, -1, -1);
         if (rc)
                 llapi_error(LLAPI_MSG_ERROR, errno,
                             "error: chown %s", path);
