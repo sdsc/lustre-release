@@ -2471,20 +2471,15 @@ extern void lustre_swab_mdt_rec_setattr (struct mdt_rec_setattr *sa);
 			      MDS_OPEN_BY_FID | MDS_OPEN_LEASE |	\
 			      MDS_OPEN_RELEASE)
 
-/* permission for create non-directory file */
-#define MAY_CREATE      (1 << 7)
-/* permission for create directory file */
-#define MAY_LINK        (1 << 8)
-/* permission for delete from the directory */
-#define MAY_UNLINK      (1 << 9)
-/* source's permission for rename */
-#define MAY_RENAME_SRC  (1 << 10)
-/* target's permission for rename */
-#define MAY_RENAME_TAR  (1 << 11)
-/* part (parent's) VTX permission check */
-#define MAY_VTX_PART    (1 << 12)
-/* full VTX permission check */
-#define MAY_VTX_FULL    (1 << 13)
+/*
+#define UNUSED_MAY_CREATE      (1 << 7) create non-directory file
+#define UNUSED_MAY_LINK        (1 << 8) create directory file
+#define UNUSED_MAY_UNLINK      (1 << 9) delete from the directory
+#define UNUSED_MAY_RENAME_SRC  (1 << 10) source's rename
+#define UNUSED_MAY_RENAME_TAR  (1 << 11) target's rename
+#define UNUSED_MAY_VTX_PART    (1 << 12) part (parent's) VTX check
+#define UNUSED_MAY_VTX_FULL    (1 << 13) full VTX check*/
+
 /* lfs rgetfacl permission check */
 #define MAY_RGETFACL    (1 << 14)
 
