@@ -1344,15 +1344,6 @@ static int after_reply(struct ptlrpc_request *req)
 		spin_unlock(&req->rq_lock);
 		req->rq_nr_resend++;
 
-		/* allocate new xid to avoid reply reconstruction */
-		if (!req->rq_bulk) {
-			/* new xid is already allocated for bulk in
-			 * ptlrpc_check_set() */
-			req->rq_xid = ptlrpc_next_xid();
-			DEBUG_REQ(D_RPCTRACE, req, "Allocating new xid for "
-				  "resend on EINPROGRESS");
-		}
-
 		/* Readjust the timeout for current conditions */
 		ptlrpc_at_set_req_timeout(req);
 		/* delay resend to give a chance to the server to get ready.
@@ -1786,18 +1777,8 @@ int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set)
 					req->rq_resend = 1;
 					spin_unlock(&req->rq_lock);
                                         if (req->rq_bulk) {
-                                                __u64 old_xid;
-
                                                 if (!ptlrpc_unregister_bulk(req, 1))
                                                         continue;
-
-                                                /* ensure previous bulk fails */
-                                                old_xid = req->rq_xid;
-                                                req->rq_xid = ptlrpc_next_xid();
-                                                CDEBUG(D_HA, "resend bulk "
-                                                       "old x"LPU64
-                                                       " new x"LPU64"\n",
-                                                       old_xid, req->rq_xid);
                                         }
                                 }
                                 /*
@@ -2663,14 +2644,7 @@ void ptlrpc_resend_req(struct ptlrpc_request *req)
         req->rq_resend = 1;
         req->rq_net_err = 0;
         req->rq_timedout = 0;
-        if (req->rq_bulk) {
-                __u64 old_xid = req->rq_xid;
 
-                /* ensure previous bulk fails */
-                req->rq_xid = ptlrpc_next_xid();
-                CDEBUG(D_HA, "resend bulk old x"LPU64" new x"LPU64"\n",
-                       old_xid, req->rq_xid);
-        }
         ptlrpc_client_wake_req(req);
 	spin_unlock(&req->rq_lock);
 }
@@ -3069,6 +3043,28 @@ __u64 ptlrpc_next_xid(void)
 	spin_unlock(&ptlrpc_last_xid_lock);
 
 	return next;
+}
+
+/**
+ * generate a new matchbits for request to ensure previous bulk fails and
+ * avoid problems with lost replies and therefore several transfers landing
+ * into the same buffer from different sending attempts.
+ */
+void ptlrpc_update_bulk_mbits(struct ptlrpc_request *req)
+{
+	struct ptlrpc_bulk_desc *bd = req->rq_bulk;
+	__u64			 old_mbits = req->rq_mbits;
+
+	LASSERT(bd != NULL);
+
+	if ((bd->bd_import->imp_connect_data.ocd_connect_flags &
+	     OBD_CONNECT_BULK_MBITS) != 0)
+		req->rq_mbits = ptlrpc_next_xid();
+	else /* old version transfers rq_xid to peer as matchbits */
+		req->rq_mbits = req->rq_xid = ptlrpc_next_xid();
+
+	CDEBUG(D_HA, "resend bulk old x"LPU64" new x"LPU64"\n",
+	       old_mbits, req->rq_mbits);
 }
 
 /**
