@@ -355,6 +355,7 @@ check_ptlrpc_body(void)
 	CHECK_MEMBER(ptlrpc_body, pb_slv);
 	CHECK_CVALUE(PTLRPC_NUM_VERSIONS);
 	CHECK_MEMBER(ptlrpc_body, pb_pre_versions);
+	CHECK_MEMBER(ptlrpc_body, pb_mbits);
 	CHECK_MEMBER(ptlrpc_body, pb_padding);
 	CHECK_CVALUE(LUSTRE_JOBID_SIZE);
 	CHECK_MEMBER(ptlrpc_body, pb_jobid);
@@ -378,6 +379,7 @@ check_ptlrpc_body(void)
 	CHECK_MEMBER_SAME(ptlrpc_body_v3, ptlrpc_body_v2, pb_limit);
 	CHECK_MEMBER_SAME(ptlrpc_body_v3, ptlrpc_body_v2, pb_slv);
 	CHECK_MEMBER_SAME(ptlrpc_body_v3, ptlrpc_body_v2, pb_pre_versions);
+	CHECK_MEMBER_SAME(ptlrpc_body_v3, ptlrpc_body_v2, pb_mbits);
 	CHECK_MEMBER_SAME(ptlrpc_body_v3, ptlrpc_body_v2, pb_padding);
 
 	CHECK_VALUE(MSG_PTLRPC_BODY_OFF);
