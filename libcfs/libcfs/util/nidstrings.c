@@ -486,7 +486,7 @@ libcfs_namenum2netstrfns(const char *name)
 
 	for (i = 0; i < libcfs_nnetstrfns; i++) {
 		nf = &libcfs_netstrfns[i];
-		if (nf->nf_type >= 0 &&
+		if (nf->nf_type != -1 &&
 		    !strncmp(name, nf->nf_name, strlen(nf->nf_name)))
 			return nf;
 	}
@@ -499,7 +499,7 @@ libcfs_name2netstrfns(const char *name)
 	int    i;
 
 	for (i = 0; i < libcfs_nnetstrfns; i++)
-		if (libcfs_netstrfns[i].nf_type >= 0 &&
+		if (libcfs_netstrfns[i].nf_type != -1 &&
 		    !strcmp(libcfs_netstrfns[i].nf_name, name))
 			return &libcfs_netstrfns[i];
 
@@ -607,7 +607,7 @@ libcfs_str2net_internal(const char *str, __u32 *net)
 
 	for (i = 0; i < libcfs_nnetstrfns; i++) {
 		nf = &libcfs_netstrfns[i];
-		if (nf->nf_type >= 0 &&
+		if (nf->nf_type != -1 &&
 		    !strncmp(str, nf->nf_name, strlen(nf->nf_name)))
 			break;
 	}
