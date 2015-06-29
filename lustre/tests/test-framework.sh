@@ -921,6 +921,35 @@ ostdevlabel() {
 	echo -n $label
 }
 
+devicelabel_wait_registered() {
+	local facet=$1
+	local dev=$2
+
+	for wait_time in {0,1,3,5,10}; do
+
+		if [ $wait_time -gt 0 ]; then
+			echo "${dev} not yet registered to MGS,"\
+				"waiting ${wait_time} seconds."
+			sleep $wait_time
+		fi
+
+		local label=$(devicelabel $facet $dev)
+
+		# Check to make sure the device is registered to MGS
+		if [[ $label =~ [f|F]{4}$ ]] ||
+		   [[ $label =~ :[a-zA-Z]{3}[0-9]{4}$ ]]; then
+			# device is not registered to MGS yet
+			unset label
+		else
+			break
+		fi
+	done
+
+	[ -z "$label" ] && echo no label for ${dev} && exit 1
+
+	echo -n $label
+}
+
 #
 # Get the device of a facet.
 #
@@ -1240,23 +1269,25 @@ mount_facet() {
 		                   ${!dev} $mntpt"
 		RC=${PIPESTATUS[0]}
 	fi
+
 	if [ $RC -ne 0 ]; then
 		echo "Start of ${!dev} on ${facet} failed ${RC}"
-    else
-        set_default_debug_facet $facet
+	else
+		set_default_debug_facet $facet
 
-	if [[ $facet == mds* ]]; then
-		do_facet $facet \
+		if [[ $facet == mds* ]]; then
+			do_facet $facet \
 			lctl set_param -n mdt.${FSNAME}*.enable_remote_dir=1 \
 				2>/dev/null
+		fi
+
+		label=$(devicelabel_wait_registered ${facet} ${!dev})
+
+		eval export ${facet}_svc=${label}
+		echo Started ${label}
 	fi
 
-		label=$(devicelabel ${facet} ${!dev})
-        [ -z "$label" ] && echo no label for ${!dev} && exit 1
-        eval export ${facet}_svc=${label}
-        echo Started ${label}
-    fi
-    return $RC
+	return $RC
 }
 
 # start facet device options
