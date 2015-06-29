@@ -203,8 +203,12 @@ int ptlrpc_resend(struct obd_import *imp)
 		LASSERTF((long)req > PAGE_CACHE_SIZE && req != LP_POISON,
                          "req %p bad\n", req);
                 LASSERTF(req->rq_type != LI_POISON, "req %p freed\n", req);
-                if (!ptlrpc_no_resend(req))
-                        ptlrpc_resend_req(req);
+
+		/* If the request is allowed to be sent during replay,and it
+		 * is not timeout yet, then it does not need to be resent. */
+		if (!ptlrpc_no_resend(req) &&
+		    !(req->rq_allow_replay && !req->rq_timedout))
+			ptlrpc_resend_req(req);
         }
 	spin_unlock(&imp->imp_lock);
 
