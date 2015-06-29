@@ -49,6 +49,10 @@ enum {
 	MXLND		= 12,
 	GNILND		= 13,
 	GNIIPLND	= 14,
+        /* This last value is intended as last entry marker
+	 * in arrays indexed with lnd type
+	 */
+	INVALIDLND      = INT_MAX,
 };
 
 struct list_head;

@@ -1021,7 +1021,7 @@ static struct netstrfns libcfs_netstrfns[] = {
 	  .nf_is_contiguous	= cfs_ip_is_contiguous,
 	  .nf_min_max		= cfs_ip_min_max },
 	 /* placeholder for net0 alias.  It MUST BE THE LAST ENTRY */
-	{ .nf_type		= -1},
+	{ .nf_type		= INVALIDLND },
 };
 
 static const size_t libcfs_nnetstrfns = ARRAY_SIZE(libcfs_netstrfns);
@@ -1046,7 +1046,7 @@ libcfs_namenum2netstrfns(const char *name)
 
 	for (i = 0; i < libcfs_nnetstrfns; i++) {
 		nf = &libcfs_netstrfns[i];
-		if (nf->nf_type >= 0 &&
+		if (nf->nf_type != INVALIDLND &&
 		    !strncmp(name, nf->nf_name, strlen(nf->nf_name)))
 			return nf;
 	}
@@ -1059,7 +1059,7 @@ libcfs_name2netstrfns(const char *name)
 	int    i;
 
 	for (i = 0; i < libcfs_nnetstrfns; i++)
-		if (libcfs_netstrfns[i].nf_type >= 0 &&
+		if (libcfs_netstrfns[i].nf_type != INVALIDLND &&
 		    !strcmp(libcfs_netstrfns[i].nf_name, name))
 			return &libcfs_netstrfns[i];
 
@@ -1173,7 +1173,7 @@ libcfs_str2net_internal(const char *str, __u32 *net)
 
 	for (i = 0; i < libcfs_nnetstrfns; i++) {
 		nf = &libcfs_netstrfns[i];
-		if (nf->nf_type >= 0 &&
+		if (nf->nf_type != INVALIDLND &&
 		    !strncmp(str, nf->nf_name, strlen(nf->nf_name)))
 			break;
 	}
