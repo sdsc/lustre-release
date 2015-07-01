@@ -621,6 +621,10 @@ static struct lu_object *htable_lookup(struct lu_site *s,
 		lprocfs_counter_incr(s->ls_stats, LU_SS_CACHE_DEATH_RACE);
 	}
 
+	CERROR("get loh_ref %p "DFID" %d\n", &h->loh_reference, PFID(&h->loh_fid), atomic_read(&h->loh_ref));
+
+	//libcfs_debug_dumpstack(NULL);
+        //libcfs_debug_dumplog();
 	return ERR_PTR(-EAGAIN);
 }
 

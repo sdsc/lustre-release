@@ -1417,6 +1417,7 @@ static int target_exp_enqueue_req_replay(struct ptlrpc_request *req)
         __u64                  transno = lustre_msg_get_transno(req->rq_reqmsg);
         struct obd_export     *exp = req->rq_export;
         struct ptlrpc_request *reqiter;
+	struct ptlrpc_request *dup_req;
         int                    dup = 0;
 
         LASSERT(exp);
@@ -1425,6 +1426,7 @@ static int target_exp_enqueue_req_replay(struct ptlrpc_request *req)
 	list_for_each_entry(reqiter, &exp->exp_req_replay_queue,
                                 rq_replay_list) {
                 if (lustre_msg_get_transno(reqiter->rq_reqmsg) == transno) {
+			dup_req = reqiter;
                         dup = 1;
                         break;
                 }
@@ -1436,6 +1438,15 @@ static int target_exp_enqueue_req_replay(struct ptlrpc_request *req)
                      (MSG_RESENT | MSG_REPLAY)) != (MSG_RESENT | MSG_REPLAY))
                         CERROR("invalid flags %x of resent replay\n",
                                lustre_msg_get_flags(req->rq_reqmsg));
+
+		if (lustre_msg_get_flags(req->rq_reqmsg) & MSG_REPLAY) {
+			__u32 new_conn =lustre_msg_get_conn_cnt(req->rq_reqmsg);
+
+			if (new_conn >
+			    lustre_msg_get_conn_cnt(dup_req->rq_reqmsg))
+				lustre_msg_set_conn_cnt(dup_req->rq_reqmsg,
+							new_conn);
+		}
         } else {
 		list_add_tail(&req->rq_replay_list,
                                   &exp->exp_req_replay_queue);
@@ -2979,6 +2990,14 @@ static inline const char *bulk2type(struct ptlrpc_request *req)
 	return "UNKNOWN";
 }
 
+static inline bool req_stale_conn_cnt(struct obd_export *exp,
+				      struct ptlrpc_request *req)
+{
+	if (exp->exp_conn_cnt > lustre_msg_get_conn_cnt(req->rq_reqmsg))
+		return true;
+	return false;
+}
+
 int target_bulk_io(struct obd_export *exp, struct ptlrpc_bulk_desc *desc,
                    struct l_wait_info *lwi)
 {
@@ -2999,8 +3018,9 @@ int target_bulk_io(struct obd_export *exp, struct ptlrpc_bulk_desc *desc,
 	}
 
 	/* Check if client was evicted or reconnected already. */
-	if (exp->exp_failed ||
-	    exp->exp_conn_cnt > lustre_msg_get_conn_cnt(req->rq_reqmsg)) {
+	/* Updates between MDT are transferred by bulk RPC, and these
+	 * bulk replay req connect count might < exp_conn_cnt */
+	if (exp->exp_failed || req_stale_conn_cnt(exp, req)) {
 		rc = -ENOTCONN;
 	} else {
 		if (req->rq_bulk_read)
@@ -3040,12 +3060,12 @@ int target_bulk_io(struct obd_export *exp, struct ptlrpc_bulk_desc *desc,
 
 		*lwi = LWI_TIMEOUT_INTERVAL(timeout, cfs_time_seconds(1),
 					    target_bulk_timeout, desc);
+		/* Updates between MDT are transferred by bulk RPC, and those
+		 * replay bulk RPC might still use old connect count */
 		rc = l_wait_event(desc->bd_waitq,
 				  !ptlrpc_server_bulk_active(desc) ||
 				  exp->exp_failed ||
-				  exp->exp_conn_cnt >
-				  lustre_msg_get_conn_cnt(req->rq_reqmsg),
-				  lwi);
+				  req_stale_conn_cnt(exp, req), lwi);
 		LASSERT(rc == 0 || rc == -ETIMEDOUT);
 		/* Wait again if we changed rq_deadline. */
 		rq_deadline = ACCESS_ONCE(req->rq_deadline);
@@ -3065,8 +3085,7 @@ int target_bulk_io(struct obd_export *exp, struct ptlrpc_bulk_desc *desc,
 			  bulk2type(req));
 		rc = -ENOTCONN;
 		ptlrpc_abort_bulk(desc);
-	} else if (exp->exp_conn_cnt >
-		   lustre_msg_get_conn_cnt(req->rq_reqmsg)) {
+	} else if (req_stale_conn_cnt(exp, req)) {
 		DEBUG_REQ(D_ERROR, req, "Reconnect on bulk %s",
 			  bulk2type(req));
 		/* We don't reply anyway. */

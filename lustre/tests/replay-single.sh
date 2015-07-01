@@ -2099,6 +2099,71 @@ test_70b () {
 	wait $pid || error "rundbench load on $clients failed!"
 }
 run_test 70b "dbench ${MDSCOUNT}mdts recovery; $CLIENTCOUNT clients"
+
+cleanup_70c() {
+	trap 0
+	kill -9 $tar_70c_pid
+}
+test_70c () {
+	local clients=${CLIENTS:-$HOSTNAME}
+	local rc=0
+
+	zconf_mount_clients $clients $MOUNT
+
+	local duration=300
+	[ "$SLOW" = "no" ] && duration=120
+	# set duration to 900 because it takes some time to boot node
+	[ "$FAILURE_MODE" = HARD ] && duration=900
+
+	local elapsed
+	local start_ts=$(date +%s)
+
+	trap cleanup_70c EXIT
+	(
+		while true; do
+			test_mkdir -p -c$MDSCOUNT $DIR/$tdir || break
+			if [ $MDSCOUNT -ge 2 ]; then
+				$LFS setdirstripe -D -c$MDSCOUNT $DIR/$tdir ||
+				error "set default dirstripe failed"
+			fi
+			cd $DIR/$tdir || break
+			tar cf - /etc | tar xf - || error "tar failed"
+			cd $DIR || break
+			rm -rf $DIR/$tdir || break
+		done
+	)&
+	tar_70c_pid=$!
+	echo "Started tar $tar_70c_pid"
+
+	elapsed=$(($(date +%s) - start_ts))
+	local num_failovers=0
+	local fail_index=1
+	while [ $elapsed -lt $duration ]; do
+		ps auxwww | grep -v grep | grep -q $tar_70c_pid ||
+			error "tar $tar_70c_pid stopped"
+		sleep 1
+		replay_barrier mds$fail_index
+		sleep 1 # give clients a time to do operations
+		# Increment the number of failovers
+		num_failovers=$((num_failovers+1))
+		log "$TESTNAME fail mds$fail_index $num_failovers times"
+		fail mds$fail_index
+		elapsed=$(($(date +%s) - start_ts))
+		if [ $fail_index -ge $MDSCOUNT ]; then
+			fail_index=1
+		else
+			fail_index=$((fail_index+1))
+		fi
+	done
+
+	ps auxwww | grep -v grep | grep -q $tar_70c_pid ||
+		error "tar $tar_70c_pid stopped"
+
+	cleanup_70c
+	true
+}
+run_test 70c "tar ${MDSCOUNT}mdts recovery"
+
 # end multi-client tests
 
 test_73a() {
@@ -3750,6 +3815,56 @@ test_115() {
 	done
 }
 run_test 115 "failover for create/unlink striped directory"
+
+test_116a() {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+	[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.7.55) ] &&
+		skip "Do not support large update log before 2.7.55" &&
+		return 0
+	([ $FAILURE_MODE == "HARD" ] &&
+		[ "$(facet_host mds1)" == "$(facet_host mds2)" ]) &&
+		skip "MDTs needs to be on diff hosts for HARD fail mode" &&
+		return 0
+	local fail_index=0
+
+	mkdir -p $DIR/$tdir
+	replay_barrier mds1
+
+	# OBD_FAIL_SPLIT_UPDATE_REC       0x1702
+	do_facet mds1 "lctl set_param fail_loc=0x80001702"
+	$LFS setdirstripe -c$MDSCOUNT $DIR/$tdir/striped_dir
+
+	fail mds1
+	$CHECKSTAT -t dir $DIR/$tdir/striped_dir ||
+		error "stried_dir does not exists"
+}
+run_test 116a "large update log master MDT recovery"
+
+test_116b() {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+	[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.7.55) ] &&
+		skip "Do not support large update log before 2.7.55" &&
+		return 0
+
+	([ $FAILURE_MODE == "HARD" ] &&
+		[ "$(facet_host mds1)" == "$(facet_host mds2)" ]) &&
+		skip "MDTs needs to be on diff hosts for HARD fail mode" &&
+		return 0
+	local fail_index=0
+
+	mkdir -p $DIR/$tdir
+	replay_barrier mds2
+
+	# OBD_FAIL_SPLIT_UPDATE_REC       0x1702
+	do_facet mds2 "lctl set_param fail_loc=0x80001702"
+	$LFS setdirstripe -c$MDSCOUNT $DIR/$tdir/striped_dir
+
+	fail mds2
+	$CHECKSTAT -t dir $DIR/$tdir/striped_dir ||
+		error "stried_dir does not exists"
+}
+run_test 116b "large update log slave MDT recovery"
+
 
 complete $SECONDS
 check_and_cleanup_lustre
