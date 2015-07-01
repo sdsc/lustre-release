@@ -1353,6 +1353,7 @@ static int mdt_getattr_name_lock(struct mdt_thread_info *info,
 
 		*child_fid = reqbody->mbo_fid2;
 
+		child_bits &= ~MDS_INODELOCK_LOOKUP;
 		if (unlikely(!fid_is_sane(child_fid)))
 			RETURN(err_serious(-EINVAL));
 
@@ -4232,9 +4233,9 @@ static void mdt_fini(const struct lu_env *env, struct mdt_device *m)
 	stop.ls_flags = 0;
 	next->md_ops->mdo_iocontrol(env, next, OBD_IOC_STOP_LFSCK, 0, &stop);
 
+	mdt_stack_pre_fini(env, m, md2lu_dev(m->mdt_child));
 	target_recovery_fini(obd);
 	ping_evictor_stop();
-	mdt_stack_pre_fini(env, m, md2lu_dev(m->mdt_child));
 
 	if (m->mdt_opts.mo_coordinator)
 		mdt_hsm_cdt_stop(m);

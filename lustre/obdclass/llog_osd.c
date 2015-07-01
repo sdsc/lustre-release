@@ -189,7 +189,6 @@ static int llog_osd_read_header(const struct lu_env *env,
 	struct llog_thread_info	*lgi;
 	enum llog_flag		 flags;
 	int			 rc;
-	__u32			max_size = handle->lgh_hdr_size;
 
 	ENTRY;
 
@@ -213,16 +212,21 @@ static int llog_osd_read_header(const struct lu_env *env,
 
 	lgi->lgi_off = 0;
 	lgi->lgi_buf.lb_buf = handle->lgh_hdr;
-	lgi->lgi_buf.lb_len = max_size;
-	rc = dt_record_read(env, o, &lgi->lgi_buf, &lgi->lgi_off);
-	if (rc) {
-		CERROR("%s: error reading log header from "DFID": rc = %d\n",
+	lgi->lgi_buf.lb_len = handle->lgh_hdr_size;
+	rc = dt_read(env, o, &lgi->lgi_buf, &lgi->lgi_off);
+	llh_hdr = &handle->lgh_hdr->llh_hdr;
+	if (rc < sizeof(*llh_hdr) || rc < llh_hdr->lrh_len) {
+		CERROR("%s: error reading "DFID" log header size %d: rc = %d\n",
 		       o->do_lu.lo_dev->ld_obd->obd_name,
-		       PFID(lu_object_fid(&o->do_lu)), rc);
+		       PFID(lu_object_fid(&o->do_lu)), rc < 0 ? 0 : rc,
+		       -EFAULT);
+
+		if (rc >= 0)
+			rc = -EFAULT;
+
 		RETURN(rc);
 	}
 
-	llh_hdr = &handle->lgh_hdr->llh_hdr;
 	if (LLOG_REC_HDR_NEEDS_SWABBING(llh_hdr))
 		lustre_swab_llog_hdr(handle->lgh_hdr);
 
@@ -234,7 +238,7 @@ static int llog_osd_read_header(const struct lu_env *env,
 		       llh_hdr->lrh_type, LLOG_HDR_MAGIC);
 		RETURN(-EIO);
 	} else if (llh_hdr->lrh_len < LLOG_MIN_CHUNK_SIZE ||
-		   llh_hdr->lrh_len > max_size) {
+		   llh_hdr->lrh_len > handle->lgh_hdr_size) {
 		CERROR("%s: incorrectly sized log %s "DFID" header: "
 		       "%#x (expected at least %#x)\n"
 		       "you may need to re-run lconf --write_conf.\n",
@@ -242,6 +246,17 @@ static int llog_osd_read_header(const struct lu_env *env,
 		       handle->lgh_name ? handle->lgh_name : "",
 		       PFID(lu_object_fid(&o->do_lu)),
 		       llh_hdr->lrh_len, LLOG_MIN_CHUNK_SIZE);
+		RETURN(-EIO);
+	} else if (LLOG_HDR_TAIL(handle->lgh_hdr)->lrt_index >
+		   LLOG_HDR_BITMAP_SIZE(handle->lgh_hdr) ||
+		   LLOG_HDR_TAIL(handle->lgh_hdr)->lrt_len !=
+			llh_hdr->lrh_len) {
+		CERROR("%s: incorrectly sized log %s "DFID" tailer: "
+		       "%#x : rc = %d\n",
+		       o->do_lu.lo_dev->ld_obd->obd_name,
+		       handle->lgh_name ? handle->lgh_name : "",
+		       PFID(lu_object_fid(&o->do_lu)),
+		       LLOG_HDR_TAIL(handle->lgh_hdr)->lrt_len, -EIO);
 		RETURN(-EIO);
 	}
 
@@ -276,6 +291,7 @@ static int llog_osd_declare_write_rec(const struct lu_env *env,
 				      int idx, struct thandle *th)
 {
 	struct llog_thread_info	*lgi = llog_info(env);
+	__u32			chunk_size;
 	struct dt_object	*o;
 	int			 rc;
 
@@ -290,7 +306,8 @@ static int llog_osd_declare_write_rec(const struct lu_env *env,
 	o = loghandle->lgh_obj;
 	LASSERT(o);
 
-	lgi->lgi_buf.lb_len = sizeof(struct llog_log_hdr);
+	chunk_size = loghandle->lgh_ctxt->loc_chunk_size;
+	lgi->lgi_buf.lb_len = chunk_size;
 	lgi->lgi_buf.lb_buf = NULL;
 	/* each time we update header */
 	rc = dt_declare_record_write(env, o, &lgi->lgi_buf, 0,
@@ -302,7 +319,7 @@ static int llog_osd_declare_write_rec(const struct lu_env *env,
 	 * the pad record can be inserted so take into account double
 	 * record size
 	 */
-	lgi->lgi_buf.lb_len = rec->lrh_len * 2;
+	lgi->lgi_buf.lb_len = chunk_size * 2;
 	lgi->lgi_buf.lb_buf = NULL;
 	/* XXX: implement declared window or multi-chunks approach */
 	rc = dt_declare_record_write(env, o, &lgi->lgi_buf, -1, th);
@@ -506,26 +523,16 @@ static int llog_osd_write_rec(const struct lu_env *env,
 	lrt->lrt_len = rec->lrh_len;
 	lrt->lrt_index = rec->lrh_index;
 
-	/* the lgh_hdr_lock protects llog header data from concurrent
+	/* the lgh_hdr_mutex protects llog header data from concurrent
 	 * update/cancel, the llh_count and llh_bitmap are protected */
-	down_write(&loghandle->lgh_hdr_lock);
+	mutex_lock(&loghandle->lgh_hdr_mutex);
 	if (ext2_set_bit(index, LLOG_HDR_BITMAP(llh))) {
 		CERROR("%s: index %u already set in log bitmap\n",
 		       o->do_lu.lo_dev->ld_obd->obd_name, index);
-		up_write(&loghandle->lgh_hdr_lock);
+		mutex_unlock(&loghandle->lgh_hdr_mutex);
 		LBUG(); /* should never happen */
 	}
 	llh->llh_count++;
-
-	/* XXX It is a bit tricky here, if the log object is local,
-	 * we do not need lock during write here, because if there is
-	 * race, the transaction(jbd2, what about ZFS?) will make sure the
-	 * conflicts will all committed in the same transaction group.
-	 * But for remote object, we need lock the whole process, so to
-	 * set the version of the remote transaction to make sure they
-	 * are being sent in order. (see osp_md_write()) */
-	if (!dt_object_remote(o))
-		up_write(&loghandle->lgh_hdr_lock);
 
 	if (lgi->lgi_attr.la_size == 0) {
 		lgi->lgi_off = 0;
@@ -533,8 +540,10 @@ static int llog_osd_write_rec(const struct lu_env *env,
 		lgi->lgi_buf.lb_buf = &llh->llh_hdr;
 		rc = dt_record_write(env, o, &lgi->lgi_buf, &lgi->lgi_off, th);
 		if (rc != 0)
-			GOTO(out_remote_unlock, rc);
+			GOTO(out_unlock, rc);
 	} else {
+		__u32	*bitmap = LLOG_HDR_BITMAP(llh);
+
 		/* Note: If this is not initialization (size == 0), then do not
 		 * write the whole header (8k bytes), only update header/tail
 		 * and bits needs to be updated. Because this update might be
@@ -548,29 +557,28 @@ static int llog_osd_write_rec(const struct lu_env *env,
 		lgi->lgi_buf.lb_buf = &llh->llh_count;
 		rc = dt_record_write(env, o, &lgi->lgi_buf, &lgi->lgi_off, th);
 		if (rc != 0)
-			GOTO(out_remote_unlock, rc);
+			GOTO(out_unlock, rc);
 
-		lgi->lgi_off = offsetof(typeof(*llh),
-			llh_bitmap[index / (sizeof(*llh->llh_bitmap) * 8)]);
-		lgi->lgi_buf.lb_len = sizeof(*llh->llh_bitmap);
-		lgi->lgi_buf.lb_buf =
-			&llh->llh_bitmap[index/(sizeof(*llh->llh_bitmap)*8)];
+		lgi->lgi_off = llh->llh_bitmap_offset +
+			      (index / (sizeof(*bitmap) * 8)) * sizeof(*bitmap);
+		lgi->lgi_buf.lb_len = sizeof(*bitmap);
+		lgi->lgi_buf.lb_buf = &bitmap[index/(sizeof(*bitmap)*8)];
 		rc = dt_record_write(env, o, &lgi->lgi_buf, &lgi->lgi_off, th);
 		if (rc != 0)
-			GOTO(out_remote_unlock, rc);
+			GOTO(out_unlock, rc);
 
-		lgi->lgi_off = offsetof(typeof(*llh), llh_tail);
+		lgi->lgi_off =  (unsigned long)LLOG_HDR_TAIL(llh) -
+				(unsigned long)llh;
 		lgi->lgi_buf.lb_len = sizeof(llh->llh_tail);
-		lgi->lgi_buf.lb_buf = &llh->llh_tail;
+		lgi->lgi_buf.lb_buf = LLOG_HDR_TAIL(llh);
 		rc = dt_record_write(env, o, &lgi->lgi_buf, &lgi->lgi_off, th);
 		if (rc != 0)
-			GOTO(out_remote_unlock, rc);
+			GOTO(out_unlock, rc);
 	}
 
-out_remote_unlock:
+out_unlock:
 	/* unlock here for remote object */
-	if (dt_object_remote(o))
-		up_write(&loghandle->lgh_hdr_lock);
+	mutex_unlock(&loghandle->lgh_hdr_mutex);
 	if (rc)
 		GOTO(out, rc);
 
@@ -586,8 +594,9 @@ out_remote_unlock:
 	if (rc < 0)
 		GOTO(out, rc);
 
-	CDEBUG(D_OTHER, "added record "DOSTID": idx: %u, %u\n",
-	       POSTID(&loghandle->lgh_id.lgl_oi), index, rec->lrh_len);
+	CDEBUG(D_OTHER, "added record "DOSTID": idx: %u, %u off"LPU64"\n",
+	       POSTID(&loghandle->lgh_id.lgl_oi), index, rec->lrh_len,
+	       lgi->lgi_off);
 	if (reccookie != NULL) {
 		reccookie->lgc_lgl = loghandle->lgh_id;
 		reccookie->lgc_index = index;
@@ -603,10 +612,10 @@ out_remote_unlock:
 	RETURN(rc);
 out:
 	/* cleanup llog for error case */
-	down_write(&loghandle->lgh_hdr_lock);
+	mutex_lock(&loghandle->lgh_hdr_mutex);
 	ext2_clear_bit(index, LLOG_HDR_BITMAP(llh));
 	llh->llh_count--;
-	up_write(&loghandle->lgh_hdr_lock);
+	mutex_unlock(&loghandle->lgh_hdr_mutex);
 
 	/* restore llog last_idx */
 	loghandle->lgh_last_idx--;
@@ -1078,6 +1087,7 @@ after_open:
 
 	fid_to_logid(&lgi->lgi_fid, &handle->lgh_id);
 	handle->lgh_obj = o;
+	set_bit(LU_OBJECT_LLOG_OBJECT, &o->do_lu.lo_header->loh_flags);
 	handle->private_data = los;
 	LASSERT(handle->lgh_ctxt);
 
