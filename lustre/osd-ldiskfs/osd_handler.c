@@ -681,6 +681,10 @@ static void osd_object_free(const struct lu_env *env, struct lu_object *l)
 
         LINVRNT(osd_invariant(obj));
 
+	{
+		if (lu_object_is_dying(l->lo_header))
+			lu_dir_ref_del(l, "osd_delete", l);
+	}
         dt_object_fini(&obj->oo_dt);
         if (obj->oo_hl_head != NULL)
                 ldiskfs_htree_lock_head_free(obj->oo_hl_head);
@@ -833,9 +837,18 @@ static void osd_trans_commit_cb(struct super_block *sb,
 	/* call per-transaction callbacks if any */
 	list_for_each_entry_safe(dcb, tmp, &oh->ot_commit_dcb_list,
 				 dcb_linkage) {
+		LASSERT((unsigned long)dcb != 0x5a5a5a5a5a5a5a5a);
 		LASSERTF(dcb->dcb_magic == TRANS_COMMIT_CB_MAGIC,
 			 "commit callback entry: magic=%x name='%s'\n",
 			 dcb->dcb_magic, dcb->dcb_name);
+		{
+			struct list_head *delete = &dcb->dcb_linkage;
+
+			LASSERT((unsigned long)delete->next != 0x5a5a5a5a5a5a5a5a);
+			LASSERT((unsigned long)delete->prev != 0x5a5a5a5a5a5a5a5a);
+			LASSERT((unsigned long)delete->next->prev != 0x5a5a5a5a5a5a5a5a);
+			LASSERT((unsigned long)delete->prev->next != 0x5a5a5a5a5a5a5a5a);
+		}
 		list_del_init(&dcb->dcb_linkage);
 		dcb->dcb_func(NULL, th, dcb, error);
 	}
@@ -2342,6 +2355,8 @@ static int osd_object_destroy(const struct lu_env *env,
 
         /* not needed in the cache anymore */
         set_bit(LU_OBJECT_HEARD_BANSHEE, &dt->do_lu.lo_header->loh_flags);
+	if (S_ISDIR(inode->i_mode))
+		lu_dir_ref_add(&dt->do_lu, "osd_delete", &dt->do_lu);
 
         RETURN(0);
 }

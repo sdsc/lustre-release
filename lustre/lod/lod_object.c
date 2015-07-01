@@ -571,11 +571,12 @@ again:
 
 	next = lo->ldo_stripe[it->lit_stripe_index];
 	LASSERT(next != NULL);
-	LASSERT(next->do_index_ops != NULL);
 
 	rc = next->do_ops->do_index_try(env, next, &dt_directory_features);
 	if (rc != 0)
 		RETURN(rc);
+
+	LASSERT(next->do_index_ops != NULL);
 
 	it_next = next->do_index_ops->dio_it.init(env, next, it->lit_attr);
 	if (!IS_ERR(it_next)) {
@@ -1610,6 +1611,8 @@ int lod_parse_dir_striping(const struct lu_env *env, struct lod_object *lo,
 		if (IS_ERR(dto))
 			GOTO(out, rc = PTR_ERR(dto));
 
+		lu_dir_ref_add(&dto->do_lu, "lod_stripe1", &lo->ldo_obj.do_lu);
+		set_bit(LU_OBJECT_SUB_STRIPED, &dto->do_lu.lo_header->loh_flags);
 		stripe[i] = dto;
 	}
 out:
@@ -1787,6 +1790,7 @@ static int lod_prep_md_striped_create(const struct lu_env *env,
 	struct dt_object	**stripe;
 	__u32			stripe_count;
 	int			*idx_array;
+	__u32			master_index;
 	int			rc = 0;
 	__u32			i;
 	__u32			j;
@@ -1799,7 +1803,8 @@ static int lod_prep_md_striped_create(const struct lu_env *env,
 	stripe_count = le32_to_cpu(lum->lum_stripe_count);
 
 	/* shrink the stripe_count to the avaible MDT count */
-	if (stripe_count > lod->lod_remote_mdt_count + 1)
+	if (stripe_count > lod->lod_remote_mdt_count + 1 &&
+	    !OBD_FAIL_CHECK(OBD_FAIL_LARGE_STRIPE))
 		stripe_count = lod->lod_remote_mdt_count + 1;
 
 	OBD_ALLOC(stripe, sizeof(stripe[0]) * stripe_count);
@@ -1810,6 +1815,9 @@ static int lod_prep_md_striped_create(const struct lu_env *env,
 	if (idx_array == NULL)
 		GOTO(out_free, rc = -ENOMEM);
 
+	/* Start index will be the master MDT */
+	master_index = lu_site2seq(lod2lu_dev(lod)->ld_site)->ss_node_id;
+	idx_array[0] = master_index;
 	for (i = 0; i < stripe_count; i++) {
 		struct lod_tgt_desc	*tgt = NULL;
 		struct dt_object	*dto;
@@ -1818,44 +1826,42 @@ static int lod_prep_md_striped_create(const struct lu_env *env,
 		struct lu_object_conf	conf = { 0 };
 		struct dt_device	*tgt_dt = NULL;
 
-		if (i == 0) {
-			/* Right now, master stripe and master object are
-			 * on the same MDT */
-			idx = lu_site2seq(lod2lu_dev(lod)->ld_site)->ss_node_id;
-			rc = obd_fid_alloc(env, lod->lod_child_exp, &fid,
-					   NULL);
-			if (rc < 0)
-				GOTO(out_put, rc);
-			tgt_dt = lod->lod_child;
-			goto next;
-		}
-
-		idx = (idx_array[i - 1] + 1) % (lod->lod_remote_mdt_count + 1);
-
+		/* Try to find next avaible target */
+		idx = idx_array[i];
 		for (j = 0; j < lod->lod_remote_mdt_count;
 		     j++, idx = (idx + 1) % (lod->lod_remote_mdt_count + 1)) {
 			bool already_allocated = false;
 			__u32 k;
 
-			CDEBUG(D_INFO, "try idx %d, mdt cnt %u,"
-			       " allocated %u, last allocated %d\n", idx,
-			       lod->lod_remote_mdt_count, i, idx_array[i - 1]);
+			CDEBUG(D_INFO, "try idx %d, mdt cnt %u, allocated %u\n",
+			       idx, lod->lod_remote_mdt_count + 1, i);
+			if (idx == master_index) {
+				/* Allocate the FID locally */
+				rc = obd_fid_alloc(env, lod->lod_child_exp,
+						   &fid, NULL);
+				if (rc < 0)
+					GOTO(out_put, rc);
+				tgt_dt = lod->lod_child;
+				break;
+			}
 
 			/* Find next available target */
 			if (!cfs_bitmap_check(ltd->ltd_tgt_bitmap, idx))
 				continue;
 
-			/* check whether the idx already exists
-			 * in current allocated array */
-			for (k = 0; k < i; k++) {
-				if (idx_array[k] == idx) {
-					already_allocated = true;
-					break;
+			if (likely(!OBD_FAIL_CHECK(OBD_FAIL_LARGE_STRIPE))) {
+				/* check whether the idx already exists
+				 * in current allocated array */
+				for (k = 0; k < i; k++) {
+					if (idx_array[k] == idx) {
+						already_allocated = true;
+						break;
+					}
 				}
-			}
 
-			if (already_allocated)
-				continue;
+				if (already_allocated)
+					continue;
+			}
 
 			/* check the status of the OSP */
 			tgt = LTD_TGT(ltd, idx);
@@ -1886,11 +1892,13 @@ static int lod_prep_md_striped_create(const struct lu_env *env,
 			break;
 		}
 
-		CDEBUG(D_INFO, "idx %d, mdt cnt %u,"
-		       " allocated %u, last allocated %d\n", idx,
-		       lod->lod_remote_mdt_count, i, idx_array[i - 1]);
-
-next:
+		CDEBUG(D_INFO, "Get idx %d, for stripe %d "DFID"\n",
+		       idx, i, PFID(&fid));
+		idx_array[i] = idx;
+		/* Set the start index for next stripe allocation */
+		if (i < stripe_count)
+			idx_array[i + 1] = (idx + 1) %
+					   (lod->lod_remote_mdt_count + 1);
 		/* tgt_dt and fid must be ready after search avaible OSP
 		 * in the above loop */
 		LASSERT(tgt_dt != NULL);
@@ -1901,8 +1909,10 @@ next:
 				   &conf);
 		if (IS_ERR(dto))
 			GOTO(out_put, rc = PTR_ERR(dto));
+
+		lu_dir_ref_add(&dto->do_lu, "lod_stripe2", &dt->do_lu);
+		set_bit(LU_OBJECT_SUB_STRIPED, &dto->do_lu.lo_header->loh_flags);
 		stripe[i] = dto;
-		idx_array[i] = idx;
 	}
 
 	lo->ldo_dir_striped = 1;
@@ -1916,12 +1926,15 @@ next:
 	rc = lod_dir_declare_create_stripes(env, dt, attr, dof, th);
 	if (rc != 0)
 		GOTO(out_put, rc);
-
 out_put:
 	if (rc < 0) {
-		for (i = 0; i < stripe_count; i++)
-			if (stripe[i] != NULL)
+		for (i = 0; i < stripe_count; i++) {
+			if (stripe[i] != NULL) {
+				lu_dir_ref_del(&stripe[i]->do_lu,
+					       "lod_stripe", &dt->do_lu);
 				lu_object_put(env, &stripe[i]->do_lu);
+			}
+		}
 		OBD_FREE(stripe, sizeof(stripe[0]) * stripe_count);
 		lo->ldo_stripenr = 0;
 		lo->ldo_stripes_allocated = 0;
@@ -2044,11 +2057,91 @@ static int lod_dir_declare_xattr_set(const struct lu_env *env,
 		RETURN(0);
 
 	for (i = 0; i < lo->ldo_stripenr; i++) {
-		LASSERT(lo->ldo_stripe[i]);
+		if (lo->ldo_stripe[i] == NULL)
+			continue;
 
 		rc = lod_sub_object_declare_xattr_set(env, lo->ldo_stripe[i],
 						buf, name, fl, th);
 		if (rc != 0)
+			break;
+	}
+
+	RETURN(rc);
+}
+
+/**
+ * Reset parent FID on OST object
+ *
+ * Replace parent FID with @dt object FID, which is only called during migration
+ * to reset the parent FID after the MDT object is migrated to the new MDT, i.e.
+ * the FID is changed.
+ *
+ * \param[in] env execution environment
+ * \param[in] dt dt_object whose stripes's parent FID will be reset
+ * \parem[in] th thandle
+ * \param[in] declare if it is declare
+ *
+ * \retval	0 if reset succeeds
+ * \retval	negative errno if reset fais
+ */
+static int lod_object_replace_parent_fid(const struct lu_env *env,
+					 struct dt_object *dt,
+					 struct thandle *th, bool declare)
+{
+	struct lod_object *lo = lod_dt_obj(dt);
+	struct lod_thread_info	*info = lod_env_info(env);
+	struct lu_buf *buf = &info->lti_buf;
+	struct filter_fid *ff;
+	int i, rc;
+	ENTRY;
+
+	if (info->lti_ea_store_size < sizeof(*ff)) {
+		rc = lod_ea_store_resize(info, sizeof(*ff));
+		if (rc != 0)
+			RETURN(rc);
+	}
+
+	buf->lb_buf = info->lti_ea_store;
+	buf->lb_len = info->lti_ea_store_size;
+
+	LASSERT(S_ISREG(dt->do_lu.lo_header->loh_attr));
+
+	/* set xattr to each stripes, if needed */
+	rc = lod_load_striping(env, lo);
+	if (rc != 0)
+		RETURN(rc);
+
+	if (lo->ldo_stripenr == 0)
+		RETURN(0);
+
+	for (i = 0; i < lo->ldo_stripenr; i++) {
+		if (lo->ldo_stripe[i] == NULL)
+			continue;
+
+		rc = dt_xattr_get(env, lo->ldo_stripe[i], buf,
+				  XATTR_NAME_FID);
+		if (rc < 0) {
+			rc = 0;
+			continue;
+		}
+
+		ff = buf->lb_buf;
+		fid_le_to_cpu(&ff->ff_parent, &ff->ff_parent);
+		ff->ff_parent.f_seq = lu_object_fid(&dt->do_lu)->f_seq;
+		ff->ff_parent.f_oid = lu_object_fid(&dt->do_lu)->f_oid;
+		fid_cpu_to_le(&ff->ff_parent, &ff->ff_parent);
+
+		if (declare) {
+			rc = lod_sub_object_declare_xattr_set(env,
+						lo->ldo_stripe[i], buf,
+						XATTR_NAME_FID,
+						LU_XATTR_REPLACE, th);
+		} else {
+			rc = lod_sub_object_xattr_set(env, lo->ldo_stripe[i],
+						      buf, XATTR_NAME_FID,
+						      LU_XATTR_REPLACE, th);
+		}
+		if (rc < 0)
 			break;
 	}
 
@@ -2101,6 +2194,8 @@ static int lod_declare_xattr_set(const struct lu_env *env,
 		rc = lod_declare_striped_object(env, dt, attr, buf, th);
 	} else if (S_ISDIR(mode)) {
 		rc = lod_dir_declare_xattr_set(env, dt, buf, name, fl, th);
+	} else if (strcmp(name, XATTR_NAME_FID) == 0) {
+		rc = lod_object_replace_parent_fid(env, dt, th, true);
 	} else {
 		rc = lod_sub_object_declare_xattr_set(env, next, buf, name,
 						      fl, th);
@@ -2164,7 +2259,8 @@ static int lod_xattr_set_internal(const struct lu_env *env,
 		RETURN(0);
 
 	for (i = 0; i < lo->ldo_stripenr; i++) {
-		LASSERT(lo->ldo_stripe[i]);
+		if (lo->ldo_stripe[i] == NULL)
+			continue;
 
 		rc = lod_sub_object_xattr_set(env, lo->ldo_stripe[i], buf, name,
 					      fl, th);
@@ -2753,6 +2849,10 @@ static int lod_xattr_set(const struct lu_env *env,
 			rc = lod_striping_create(env, dt, NULL, NULL, th);
 		}
 		RETURN(rc);
+	} else if (strcmp(name, XATTR_NAME_FID) == 0) {
+		rc = lod_object_replace_parent_fid(env, dt, th, false);
+
+		RETURN(rc);
 	}
 
 	/* then all other xattr */
@@ -2793,7 +2893,8 @@ static int lod_declare_xattr_del(const struct lu_env *env,
 		RETURN(0);
 
 	for (i = 0; i < lo->ldo_stripenr; i++) {
-		LASSERT(lo->ldo_stripe[i]);
+		if (lo->ldo_stripe[i] == NULL)
+			continue;
 		rc = lod_sub_object_declare_xattr_del(env, lo->ldo_stripe[i],
 						      name, th);
 		if (rc != 0)
@@ -2831,8 +2932,8 @@ static int lod_xattr_del(const struct lu_env *env, struct dt_object *dt,
 		RETURN(0);
 
 	for (i = 0; i < lo->ldo_stripenr; i++) {
-		LASSERT(lo->ldo_stripe[i]);
-
+		if (lo->ldo_stripe[i] == NULL)
+			continue;
 		rc = lod_sub_object_xattr_del(env, lo->ldo_stripe[i], name, th);
 		if (rc != 0)
 			break;
@@ -3700,8 +3801,14 @@ static int lod_object_destroy(const struct lu_env *env,
 			}
 
 			rc = lod_sub_object_destroy(env, lo->ldo_stripe[i], th);
-			if (rc != 0)
+			if (rc != 0) {
 				break;
+			} else {
+				if (S_ISDIR(lo->ldo_obj.do_lu.lo_header->loh_attr))
+					lu_dir_ref_del(&lo->ldo_stripe[i]->do_lu, "lod_stripe", &lo->ldo_obj.do_lu);
+				lu_object_put(env, &lo->ldo_stripe[i]->do_lu);
+				lo->ldo_stripe[i] = NULL;
+			}
 		}
 	}
 
@@ -3899,14 +4006,35 @@ static int lod_object_lock(const struct lu_env *env,
 		struct lustre_handle	lockh;
 		struct ldlm_res_id	*res_id;
 
+		if (lo->ldo_stripe[i] == NULL)
+			continue;
 		res_id = &lod_env_info(env)->lti_res_id;
 		fid_build_reg_res_name(lu_object_fid(&lo->ldo_stripe[i]->do_lu),
 				       res_id);
 		einfo->ei_res_id = res_id;
 
-		LASSERT(lo->ldo_stripe[i]);
-		rc = dt_object_lock(env, lo->ldo_stripe[i], &lockh, einfo,
-				    policy);
+		LASSERT(lo->ldo_stripe[i] != NULL);
+		if (likely(dt_object_remote(lo->ldo_stripe[i]))) {
+			rc = dt_object_lock(env, lo->ldo_stripe[i], &lockh,
+					    einfo, policy);
+		} else {
+			struct ldlm_namespace *ns = einfo->ei_namespace;
+			ldlm_blocking_callback blocking = einfo->ei_cb_local_bl;
+			ldlm_completion_callback completion = einfo->ei_cb_cp;
+			__u64	dlmflags = LDLM_FL_ATOMIC_CB;
+
+			/* This only happens if there are mulitple stripes
+			 * on the master MDT, i.e. except stripe0, there are
+			 * other stripes on the Master MDT as well, Only
+			 * happens in the test case right now. */
+			LASSERT(ns != NULL);
+			rc = ldlm_cli_enqueue_local(ns, res_id, LDLM_IBITS,
+						    policy, einfo->ei_mode,
+						    &dlmflags, blocking,
+						    completion, NULL,
+						    NULL, 0, LVB_T_NONE,
+						    NULL, &lockh);
+		}
 		if (rc != 0)
 			GOTO(out, rc);
 		slave_locks->lsl_handle[i] = lockh;
@@ -4124,8 +4252,11 @@ void lod_object_free_striping(const struct lu_env *env, struct lod_object *lo)
 		LASSERT(lo->ldo_stripes_allocated > 0);
 
 		for (i = 0; i < lo->ldo_stripenr; i++) {
-			if (lo->ldo_stripe[i])
+			if (lo->ldo_stripe[i]) {
+				if (S_ISDIR(lo->ldo_obj.do_lu.lo_header->loh_attr))
+					lu_dir_ref_del(&lo->ldo_stripe[i]->do_lu, "lod_stripe", &lo->ldo_obj.do_lu);
 				lu_object_put(env, &lo->ldo_stripe[i]->do_lu);
+			}
 		}
 
 		i = sizeof(struct dt_object *) * lo->ldo_stripes_allocated;

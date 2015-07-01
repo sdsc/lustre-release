@@ -495,6 +495,11 @@ enum lu_object_header_flags {
 	 * Mark this object has already been taken out of cache.
 	 */
 	LU_OBJECT_UNHASHED = 1,
+	/* Mark this object is top object of some sub stripes.
+	 * (for striped dir). */
+//	LU_OBJECT_MASTER_STRIPED = 2,
+	LU_OBJECT_SUB_STRIPED=3,
+	LU_OBJECT_LLOG_OBJECT=4,
 };
 
 enum lu_object_header_attr {
@@ -860,6 +865,34 @@ static inline __u32 lu_object_attr(const struct lu_object *o)
 {
 	LASSERT(lu_object_exists(o) != 0);
         return o->lo_header->loh_attr;
+}
+
+static inline void lu_dir_ref_add(struct lu_object *o,
+				     const char *scope,
+				     const void *source)
+{
+	lu_ref_debug_add(&o->lo_header->loh_reference, scope, source);
+}
+
+static inline void lu_dir_ref_add_at(struct lu_object *o,
+					struct lu_ref_link *link,
+					const char *scope,
+					const void *source)
+{
+	lu_ref_debug_add_at(&o->lo_header->loh_reference, link, scope, source);
+}
+
+static inline void lu_dir_ref_del(struct lu_object *o,
+                                     const char *scope, const void *source)
+{
+        lu_ref_debug_del(&o->lo_header->loh_reference, scope, source);
+}
+
+static inline void lu_dir_ref_del_at(struct lu_object *o,
+                                        struct lu_ref_link *link,
+                                        const char *scope, const void *source)
+{
+        lu_ref_debug_del_at(&o->lo_header->loh_reference, link, scope, source);
 }
 
 static inline void lu_object_ref_add(struct lu_object *o,
