@@ -703,9 +703,15 @@ int ptl_send_rpc(struct ptlrpc_request *request, int noreply)
 				imp->imp_msghdr_flags);
 
 	if (request->rq_nr_resend != 0) {
+		__u64 min_xid;
 		/* resend for EINPROGRESS, allocate new xid to avoid reply
 		 * reconstruction */
-		request->rq_xid = ptlrpc_next_xid();
+		spin_lock(&imp->imp_lock);
+		ptlrpc_assign_next_xid_nolock(request);
+		min_xid = ptlrpc_lowest_unreplied_xid(imp);
+		spin_unlock(&imp->imp_lock);
+
+		lustre_msg_set_last_xid(request->rq_reqmsg, min_xid);
 		DEBUG_REQ(D_RPCTRACE, request, "Allocating new xid for "
 			  "resend on EINPROGRESS");
 	}
