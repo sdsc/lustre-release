@@ -702,14 +702,6 @@ int ptl_send_rpc(struct ptlrpc_request *request, int noreply)
 	lustre_msghdr_set_flags(request->rq_reqmsg,
 				imp->imp_msghdr_flags);
 
-	if (request->rq_nr_resend != 0) {
-		/* resend for EINPROGRESS, allocate new xid to avoid reply
-		 * reconstruction */
-		request->rq_xid = ptlrpc_next_xid();
-		DEBUG_REQ(D_RPCTRACE, request, "Allocating new xid for "
-			  "resend on EINPROGRESS");
-	}
-
 	if (request->rq_bulk != NULL) {
 		ptlrpc_set_bulk_mbits(request);
 		lustre_msg_set_mbits(request->rq_reqmsg, request->rq_mbits);

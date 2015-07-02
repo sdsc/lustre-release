@@ -650,6 +650,40 @@ static void __ptlrpc_free_req_to_pool(struct ptlrpc_request *request)
 	spin_unlock(&pool->prp_lock);
 }
 
+static inline void ptlrpc_add_unreplied(struct ptlrpc_request *req)
+{
+	struct obd_import	*imp = req->rq_import;
+	struct list_head	*tmp;
+	struct ptlrpc_request	*iter;
+
+	assert_spin_locked(&imp->imp_lock);
+	LASSERT(list_empty(&req->rq_unreplied_list));
+
+	/* unreplied list is sorted by xid in ascending order */
+	list_for_each_prev(tmp, &imp->imp_unreplied_list) {
+		iter = list_entry(tmp, struct ptlrpc_request,
+				  rq_unreplied_list);
+
+		LASSERT(req->rq_xid != iter->rq_xid);
+		if (req->rq_xid < iter->rq_xid)
+			continue;
+		list_add(&req->rq_unreplied_list, &iter->rq_unreplied_list);
+		return;
+	}
+	list_add(&req->rq_unreplied_list, &imp->imp_unreplied_list);
+}
+
+static inline void ptlrpc_assign_next_xid(struct ptlrpc_request *req,
+					  bool locked)
+{
+	if (!locked)
+		spin_lock(&req->rq_import->imp_lock);
+	req->rq_xid = ptlrpc_next_xid();
+	ptlrpc_add_unreplied(req);
+	if (!locked)
+		spin_unlock(&req->rq_import->imp_lock);
+}
+
 static int __ptlrpc_request_bufs_pack(struct ptlrpc_request *request,
                                       __u32 version, int opcode,
                                       int count, __u32 *lengths, char **bufs,
@@ -695,6 +729,7 @@ static int __ptlrpc_request_bufs_pack(struct ptlrpc_request *request,
 
         ptlrpc_at_set_req_timeout(request);
 
+	ptlrpc_assign_next_xid(request, false);
 	lustre_msg_set_opc(request->rq_reqmsg, opcode);
 
 	RETURN(0);
@@ -1268,6 +1303,20 @@ static void ptlrpc_save_versions(struct ptlrpc_request *req)
         EXIT;
 }
 
+static inline __u64 ptlrpc_lowest_unreplied_xid(struct obd_import *imp)
+{
+	struct ptlrpc_request *req;
+
+	assert_spin_locked(&imp->imp_lock);
+	if (list_empty(&imp->imp_unreplied_list))
+		return 0;
+
+	req = list_entry(imp->imp_unreplied_list.next, struct ptlrpc_request,
+			 rq_unreplied_list);
+	LASSERTF(req->rq_xid >= 1, "XID:"LPU64"\n", req->rq_xid);
+	return req->rq_xid - 1;
+}
+
 /**
  * Callback function called when client receives RPC reply for \a req.
  * Returns 0 on success or error code.
@@ -1336,6 +1385,7 @@ static int after_reply(struct ptlrpc_request *req)
 	if (lustre_msg_get_status(req->rq_repmsg) == -EINPROGRESS &&
 	    ptlrpc_no_resend(req) == 0 && !req->rq_no_retry_einprogress) {
 		time_t	now = cfs_time_current_sec();
+		__u64	min_xid;
 
 		DEBUG_REQ(D_RPCTRACE, req, "Resending request on EINPROGRESS");
 		spin_lock(&req->rq_lock);
@@ -1354,6 +1404,14 @@ static int after_reply(struct ptlrpc_request *req)
 		else
 			req->rq_sent = now + req->rq_nr_resend;
 
+		/* Allocate new xid to avoid reply reconstruction */
+		spin_lock(&imp->imp_lock);
+		list_del_init(&req->rq_unreplied_list);
+		ptlrpc_assign_next_xid(req, true);
+		min_xid = ptlrpc_lowest_unreplied_xid(imp);
+		spin_unlock(&imp->imp_lock);
+
+		lustre_msg_set_last_xid(req->rq_reqmsg, min_xid);
 		RETURN(0);
 	}
 
@@ -1470,8 +1528,7 @@ static int after_reply(struct ptlrpc_request *req)
 static int ptlrpc_send_new_req(struct ptlrpc_request *req)
 {
         struct obd_import     *imp = req->rq_import;
-	struct list_head      *tmp;
-	__u64		       min_xid = ~0ULL;
+	__u64		       min_xid;
         int rc;
         ENTRY;
 
@@ -1485,15 +1542,11 @@ static int ptlrpc_send_new_req(struct ptlrpc_request *req)
 
 	spin_lock(&imp->imp_lock);
 
-	/* the very first time we assign XID. it's important to assign XID
-	 * and put it on the list atomically, so that the lowest assigned
-	 * XID is always known. this is vital for multislot last_rcvd */
-	if (req->rq_send_state == LUSTRE_IMP_REPLAY) {
-		LASSERT(req->rq_xid != 0);
-	} else {
-		LASSERT(req->rq_xid == 0);
-		req->rq_xid = ptlrpc_next_xid();
-	}
+	LASSERT(req->rq_xid != 0);
+	if (req->rq_send_state == LUSTRE_IMP_REPLAY)
+		ptlrpc_add_unreplied(req);
+	else
+		LASSERT(!list_empty(&req->rq_unreplied_list));
 
 	if (!req->rq_generation_set)
 		req->rq_import_generation = imp->imp_generation;
@@ -1526,22 +1579,10 @@ static int ptlrpc_send_new_req(struct ptlrpc_request *req)
 	atomic_inc(&req->rq_import->imp_inflight);
 
 	/* find the lowest unreplied XID */
-	list_for_each(tmp, &imp->imp_delayed_list) {
-		struct ptlrpc_request *r;
-		r = list_entry(tmp, struct ptlrpc_request, rq_list);
-		if (r->rq_xid < min_xid)
-			min_xid = r->rq_xid;
-	}
-	list_for_each(tmp, &imp->imp_sending_list) {
-		struct ptlrpc_request *r;
-		r = list_entry(tmp, struct ptlrpc_request, rq_list);
-		if (r->rq_xid < min_xid)
-			min_xid = r->rq_xid;
-	}
+	min_xid = ptlrpc_lowest_unreplied_xid(imp);
 	spin_unlock(&imp->imp_lock);
 
-	if (likely(min_xid != ~0ULL))
-		lustre_msg_set_last_xid(req->rq_reqmsg, min_xid - 1);
+	lustre_msg_set_last_xid(req->rq_reqmsg, min_xid);
 
 	lustre_msg_set_status(req->rq_reqmsg, current_pid());
 
@@ -2348,6 +2389,7 @@ static void __ptlrpc_free_req(struct ptlrpc_request *request, int locked)
 		if (!locked)
 			spin_lock(&request->rq_import->imp_lock);
 		list_del_init(&request->rq_replay_list);
+		list_del_init(&request->rq_unreplied_list);
 		if (!locked)
 			spin_unlock(&request->rq_import->imp_lock);
         }
@@ -2716,6 +2758,8 @@ void ptlrpc_retain_replayable_request(struct ptlrpc_request *req,
                 DEBUG_REQ(D_EMERG, req, "saving request with zero transno");
                 LBUG();
         }
+
+	list_del_init(&req->rq_unreplied_list);
 
         /* clear this for new requests that were resent as well
            as resent replayed requests. */

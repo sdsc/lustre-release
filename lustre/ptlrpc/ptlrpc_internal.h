@@ -373,6 +373,7 @@ static inline void ptlrpc_cli_req_init(struct ptlrpc_request *req)
 
 	INIT_LIST_HEAD(&cr->cr_set_chain);
 	INIT_LIST_HEAD(&cr->cr_ctx_chain);
+	INIT_LIST_HEAD(&cr->cr_unreplied_list);
 	init_waitqueue_head(&cr->cr_reply_waitq);
 	init_waitqueue_head(&cr->cr_set_waitq);
 }
