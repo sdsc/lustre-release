@@ -703,9 +703,15 @@ int ptl_send_rpc(struct ptlrpc_request *request, int noreply)
 				imp->imp_msghdr_flags);
 
 	if (request->rq_nr_resend != 0) {
+		__u64 min_xid = 0;
 		/* resend for EINPROGRESS, allocate new xid to avoid reply
 		 * reconstruction */
-		request->rq_xid = ptlrpc_next_xid();
+		spin_lock(&imp->imp_lock);
+		ptlrpc_assign_next_xid_nolock(request);
+		min_xid = ptlrpc_known_replied_xid(imp);
+		spin_unlock(&imp->imp_lock);
+
+		lustre_msg_set_last_xid(request->rq_reqmsg, min_xid);
 		DEBUG_REQ(D_RPCTRACE, request, "Allocating new xid for "
 			  "resend on EINPROGRESS");
 	}
@@ -714,6 +720,11 @@ int ptl_send_rpc(struct ptlrpc_request *request, int noreply)
 		ptlrpc_set_bulk_mbits(request);
 		lustre_msg_set_mbits(request->rq_reqmsg, request->rq_mbits);
 	}
+
+	LASSERTF(request->rq_xid > imp->imp_known_replied_xid,
+		 "XID: "LPU64", REPLIED: "LPU64"\n", request->rq_xid,
+		 imp->imp_known_replied_xid);
+	LASSERT(!list_empty(&request->rq_unreplied_list));
 
 	/** For enabled AT all request should have AT_SUPPORT in the
 	 * FULL import state when OBD_CONNECT_AT is set */
