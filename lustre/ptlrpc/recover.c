@@ -155,13 +155,19 @@ int ptlrpc_replay_next(struct obd_import *imp, int *inflight)
 
 	/* If need to resend the last sent transno (because a reconnect
 	 * has occurred), then stop on the matching req and send it again.
-	 * If, however, the last sent transno has been committed then we 
+	 * If, however, the last sent transno has been committed then we
 	 * continue replay from the next request. */
 	if (req != NULL && imp->imp_resend_replay)
 		lustre_msg_add_flags(req->rq_reqmsg, MSG_RESENT);
 
 	spin_lock(&imp->imp_lock);
 	imp->imp_resend_replay = 0;
+	/* If the replay request timedout, client will reconnect then
+	 * resend the replay, so we need to track the unreplied xid of
+	 * replay requests.
+	 * The request should have been added back in unreplied list by
+	 * ptlrpc_prepare_replay(). */
+	LASSERT(!list_empty(&req->rq_unreplied_list));
 	spin_unlock(&imp->imp_lock);
 
         if (req != NULL) {
