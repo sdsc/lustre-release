@@ -609,8 +609,9 @@ int tgt_request_handle(struct ptlrpc_request *req)
 	struct lu_target	*tgt;
 	int			 request_fail_id = 0;
 	__u32			 opc = lustre_msg_get_opc(msg);
+	__u64			 last_xid;
+	struct obd_device	*obd;
 	int			 rc;
-
 	ENTRY;
 
 	/* Refill the context, to make sure all thread keys are allocated */
@@ -667,23 +668,30 @@ int tgt_request_handle(struct ptlrpc_request *req)
 		GOTO(out, rc);
 	}
 
+	/* Skip last_xid processing for the recovery thread, otherwise, the
+	 * last_xid on same request could be processed twice: first time when
+	 * processing the incoming request, second time when the request is
+	 * being processed by recovery thread. */
+	obd = class_exp2obd(req->rq_export);
+	if (obd->obd_recovery_data.trd_processing_task == current_pid())
+		goto last_xid_done;
+
 	/* check request's xid is consistent with export's last_xid */
-	if (req->rq_export != NULL) {
-		__u64 last_xid = lustre_msg_get_last_xid(req->rq_reqmsg);
-		if (last_xid != 0)
-			req->rq_export->exp_last_xid = last_xid;
-		if (req->rq_xid == 0 ||
-		    req->rq_xid <= req->rq_export->exp_last_xid) {
-			DEBUG_REQ(D_ERROR, req,
-				  "Unexpected xid %llx vs. last_xid %llx\n",
-				  req->rq_xid, req->rq_export->exp_last_xid);
+	last_xid = lustre_msg_get_last_xid(req->rq_reqmsg);
+	if (last_xid > req->rq_export->exp_last_xid)
+		req->rq_export->exp_last_xid = last_xid;
+
+	if (req->rq_xid == 0 ||
+	    (req->rq_xid <= req->rq_export->exp_last_xid)) {
+		DEBUG_REQ(D_ERROR, req, "Unexpected xid %llx vs. "
+			  "last_xid %llx\n", req->rq_xid,
+			  req->rq_export->exp_last_xid);
 #if LUSTRE_VERSION_CODE < OBD_OCD_VERSION(2, 7, 93, 0)
-			LBUG();
+		LBUG();
 #endif
-			req->rq_status = -EPROTO;
-			rc = ptlrpc_error(req);
-			GOTO(out, rc);
-		}
+		req->rq_status = -EPROTO;
+		rc = ptlrpc_error(req);
+		GOTO(out, rc);
 	}
 
 	request_fail_id = tgt->lut_request_fail_id;
@@ -699,6 +707,7 @@ int tgt_request_handle(struct ptlrpc_request *req)
 				       lustre_msg_get_tag(req->rq_reqmsg));
 	}
 
+last_xid_done:
 	h = tgt_handler_find_check(req);
 	if (IS_ERR(h)) {
 		req->rq_status = PTR_ERR(h);
