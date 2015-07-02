@@ -196,6 +196,9 @@ struct obd_import {
 	struct list_head	*imp_replay_cursor;
 	/** @} */
 
+	/** List of not replied requests */
+	struct list_head	imp_unreplied_list;
+
 	/** obd device for this import */
 	struct obd_device	*imp_obd;
 
