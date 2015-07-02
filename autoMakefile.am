@@ -219,7 +219,21 @@ if ZFS_ENABLED
 	fi
 endif # ZFS_ENABLED
 
-module-symvers: module-symvers-zfs
+module-symvers-ofed:
+if BUILD_O2IBLND
+	@if [ -n "@O2IB_SYMVERFILE@" && -f "@O2IB_SYMVERFILE@" ]; then \
+		if test -f @SYMVERFILE@; then \
+			egrep -v $(echo $(awk '{ print $2 }' @O2IB_SYMVERFILE@) | tr ' ' '|') @SYMVERFILE@ > @SYMVERFILE@.old; \
+		else \
+		    touch @SYMVERFILE@.old; \
+		fi; \
+		cat @SYMVERFILE@.old @O2IB_SYMVERFILE@ > @SYMVERFILE@; \
+		rm @SYMVERFILE@.old; \
+		cat "@O2IB_SYMVERFILE@" >>@SYMVERFILE@; \
+	fi
+endif # BUILD_O2IBLND
+
+module-symvers: module-symvers-ofed module-symvers-zfs
 
 CSTK=/tmp/checkstack
 CSTKO=/tmp/checkstack.orig
