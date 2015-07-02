@@ -1405,6 +1405,8 @@ static int ofd_setattr_hdl(struct tgt_session_info *tsi)
 
 	la_from_obdo(&fti->fti_attr, &body->oa, body->oa.o_valid);
 	fti->fti_attr.la_valid &= ~LA_TYPE;
+	if (body->oa.o_ioepoch != 0)
+		fti->fti_xid = body->oa.o_ioepoch;
 
 	if (body->oa.o_valid & OBD_MD_FLFID) {
 		ff = &fti->fti_mds_fid;
@@ -2058,6 +2060,8 @@ static int ofd_punch_hdl(struct tgt_session_info *tsi)
 		     OBD_MD_FLMTIME | OBD_MD_FLATIME | OBD_MD_FLCTIME);
 	info->fti_attr.la_size = start;
 	info->fti_attr.la_valid |= LA_SIZE;
+	if (oa->o_ioepoch != 0)
+		info->fti_xid = oa->o_ioepoch;
 
 	if (oa->o_valid & OBD_MD_FLFID) {
 		ff = &info->fti_mds_fid;
