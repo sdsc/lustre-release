@@ -307,14 +307,8 @@ directory which is likely in ${O2IBPATH%-*}
 			done
 			if test -n "$O2IB_SYMVER"; then
 				AC_MSG_NOTICE([adding $O2IBPATH/$O2IB_SYMVER to $PWD/$SYMVERFILE])
-				# strip out the existing symbols versions first
-				if test -f $PWD/$SYMVERFILE; then
-				egrep -v $(echo $(awk '{ print $2 }' $O2IBPATH/$O2IB_SYMVER) | tr ' ' '|') $PWD/$SYMVERFILE > $PWD/$SYMVERFILE.old
-				else
-					touch $PWD/$SYMVERFILE.old
-				fi
-				cat $PWD/$SYMVERFILE.old $O2IBPATH/$O2IB_SYMVER > $PWD/$SYMVERFILE
-				rm $PWD/$SYMVERFILE.old
+				O2IB_SYMVERFILE=$O2IBPATH/$O2IB_SYMVER
+				AC_SUBST(O2IB_SYMVERFILE)
 			else
 				AC_MSG_ERROR([an external source tree was, either specified or detected, for o2iblnd however I could not find a $O2IBPATH/Module.symvers there])
 			fi
