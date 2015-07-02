@@ -162,6 +162,17 @@ int ptlrpc_replay_next(struct obd_import *imp, int *inflight)
 
 	spin_lock(&imp->imp_lock);
 	imp->imp_resend_replay = 0;
+	/* If the replay request timedout, client will reconnect then
+	 * resend the replay, so we need to track the unreplied xid of
+	 * replay requests.
+	 * The request might already be in the unreplied list if it's
+	 * the resend request after reconnect. */
+	if (req != NULL && list_empty(&req->rq_unreplied_list))
+		ptlrpc_add_unreplied(req);
+	/* Clear the imp_known_replied_xid, since the XID of replay request
+	 * could be lower than the known_replied_xid carried by the connect
+	 * or the previous replay request. */
+	imp->imp_known_replied_xid = 0;
 	spin_unlock(&imp->imp_lock);
 
         if (req != NULL) {
