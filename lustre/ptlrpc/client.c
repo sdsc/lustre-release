@@ -3072,6 +3072,7 @@ __u64 ptlrpc_next_xid(void)
 
 	return next;
 }
+EXPORT_SYMBOL(ptlrpc_next_xid);
 
 /**
  * If request has a new allocated XID (new request or EINPROGRESS resend),

@@ -169,6 +169,7 @@ static int osc_setattr(const struct lu_env *env, struct obd_export *exp,
 		RETURN(rc);
 	}
 
+	oa->o_ioepoch = ptlrpc_next_xid();
 	osc_pack_req_body(req, oa);
 
 	ptlrpc_request_set_replen(req);
@@ -231,6 +232,7 @@ int osc_setattr_async(struct obd_export *exp, struct obdo *oa,
 		RETURN(rc);
 	}
 
+	oa->o_ioepoch = ptlrpc_next_xid();
 	osc_pack_req_body(req, oa);
 
 	ptlrpc_request_set_replen(req);
@@ -334,6 +336,7 @@ int osc_punch_base(struct obd_export *exp, struct obdo *oa,
 	body = req_capsule_client_get(&req->rq_pill, &RMF_OST_BODY);
 	LASSERT(body);
 	lustre_set_wire_obdo(&req->rq_import->imp_connect_data, &body->oa, oa);
+	body->oa.o_ioepoch = ptlrpc_next_xid();
 
 	ptlrpc_request_set_replen(req);
 
@@ -1736,12 +1739,13 @@ int osc_build_rpc(const struct lu_env *env, struct client_obd *cli,
 	if (mem_tight != 0)
 		req->rq_memalloc = 1;
 
-	/* Need to update the timestamps after the request is built in case
+	/* Need to update the timestamps after setting ioepoch in case
 	 * we race with setattr (locally or in queue at OST).  If OST gets
 	 * later setattr before earlier BRW (as determined by the request xid),
 	 * the OST will not use BRW timestamps.  Sadly, there is no obvious
 	 * way to do this in a single call.  bug 10150 */
 	body = req_capsule_client_get(&req->rq_pill, &RMF_OST_BODY);
+	body->oa.o_ioepoch = ptlrpc_next_xid();
 	crattr->cra_oa = &body->oa;
 	cl_req_attr_set(env, clerq, crattr,
 			OBD_MD_FLMTIME|OBD_MD_FLCTIME|OBD_MD_FLATIME);
