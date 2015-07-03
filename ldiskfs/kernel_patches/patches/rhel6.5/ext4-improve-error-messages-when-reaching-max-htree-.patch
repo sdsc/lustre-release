@@ -1,0 +1,138 @@
+diff --git a/fs/ext4/namei.c b/fs/ext4/namei.c
+index e0b4fab..e8afdbc 100644
+--- a/fs/ext4/namei.c
++++ b/fs/ext4/namei.c
+@@ -2042,13 +2042,58 @@ int ext4_add_entry(handle_t *handle, struct dentry *dentry,
+ }
+ EXPORT_SYMBOL(ext4_add_entry);
+ 
++
++/*
++ * Todo, we might need to take care of renaming, caller should
++ * be responsible to free memory.
++ */
++static int build_path_from_dentry(struct dentry *dentry, char **names)
++{
++	int n = 0, i;
++	char *wnames;
++	struct dentry *ds;
++	char *ptr;
++	int total_len = 0;
++	struct dentry **d_array;
++
++	for (ds = dentry; !IS_ROOT(ds); ds = ds->d_parent)
++		n++;
++
++	d_array = kmalloc(sizeof(struct dentry *) * n, GFP_NOFS);
++	if (!d_array)
++		return -ENOMEM;
++
++	wnames = kzalloc(4096, GFP_NOFS);
++	if (!wnames) {
++		kfree(d_array);
++		return -ENOMEM;
++	}
++	
++	ptr = wnames;
++	for (ds = dentry, i = (n - 1); i >= 0; i--, ds = ds->d_parent)
++		d_array[i] = ds;
++
++	for (i = 0; i < n; i++) {
++		total_len += d_array[i]->d_name.len + 1;
++		if (total_len >= 4095)
++			break;
++		strncpy(ptr, d_array[i]->d_name.name, d_array[i]->d_name.len);
++		ptr += d_array[i]->d_name.len;
++		*ptr = '/';
++		ptr++;
++	}
++	kfree(d_array);
++	*names = wnames;
++	return 0;
++}
++
+ /*
+  * Returns 0 for success, or a negative error value
+  */
+ static int ext4_dx_add_entry(handle_t *handle, struct dentry *dentry,
+ 			     struct inode *inode, struct htree_lock *lck)
+ {
+-	struct dx_frame frames[EXT4_HTREE_LEVEL], *frame;
++	struct dx_frame frames[EXT4_HTREE_LEVEL], *frame, *frame1;
+ 	struct dx_entry *entries, *at;
+ 	struct dx_hash_info hinfo;
+ 	struct buffer_head *bh;
+@@ -2057,6 +2102,8 @@ static int ext4_dx_add_entry(handle_t *handle, struct dentry *dentry,
+ 	struct ext4_dir_entry_2 *de;
+ 	int restart;
+ 	int err;
++	u64 size;
++	u64 max_dir_size = EXT4_BLOCK_SIZE(sb);
+ 
+ again:
+ 	restart = 0;
+@@ -2077,6 +2124,39 @@ again:
+ 	/* Block full, should compress but for now just split */
+ 	dxtrace(printk(KERN_DEBUG "using %u of %u node entries\n",
+ 		       dx_get_count(entries), dx_get_limit(entries)));
++
++	if (frame - frames + 1 < ext4_dir_htree_level(sb))
++		goto skip;
++	frame1 = frame;
++	if (EXT4_SB(dir->i_sb)->s_max_dir_size)
++		max_dir_size = EXT4_SB(dir->i_sb)->s_max_dir_size;
++	else
++		while (frame1 >= frames) {
++			max_dir_size *= dx_get_limit(frame1->entries);
++			if (frame1 == frames)
++				break;
++			frame1--; 
++		}
++	/*
++ 	 * With hash tree growing, it is easy to hit ENOSPC,
++ 	 * but it is hard to predict when it will happen.
++ 	 * let's give user warning when reaching half of limit.
++ 	 */
++	size = max_dir_size / 2;
++	if (dir->i_size >= size &&
++	    !((dir->i_size - size) % (max_dir_size / 20))) {
++		char *names;
++
++		err = build_path_from_dentry(dentry->d_parent, &names);
++		if (err < 0)
++			goto cleanup;
++		ext4_warning(sb, "Directory (ino: %lu, name: %s path: %s) used: %llu, limit: %llu, now it will be easier to reach limit",
++				dir->i_ino, dentry->d_parent->d_name.name, names,
++				(unsigned long long)dir->i_size, max_dir_size);
++		kfree(names);
++	}
++
++skip:
+ 	/* Need to split index? */
+ 	if (dx_get_count(entries) == dx_get_limit(entries)) {
+ 		ext4_lblk_t newblock;
+@@ -2104,11 +2184,17 @@ again:
+ 			restart = 1;
+ 		}
+ 		if (add_level && levels == ext4_dir_htree_level(sb)) {
+-			ext4_warning(sb, "Directory (ino: %lu) index full, "
+-					 "reach max htree level :%d",
+-					 dir->i_ino, levels);
++			char *names;
++
++			err = build_path_from_dentry(dentry->d_parent, &names);
++			if (err < 0)
++				goto cleanup;
++			ext4_warning(sb, "Directory (ino: %lu, name: %s path: %s) index full, reach max htree level: %d",
++					 dir->i_ino, dentry->d_parent->d_name.name, names, levels);
++			kfree(names);
++
+ 			if (ext4_dir_htree_level(sb) < EXT4_HTREE_LEVEL) {
+-				ext4_warning(sb, "Large directory feature is"
++				ext4_warning(sb, "Large directory feature is "
+ 						 "not enabled on this "
+ 						 "filesystem");
+ 			}
+-- 
+1.7.1
+
