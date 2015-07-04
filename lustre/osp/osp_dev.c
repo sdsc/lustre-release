@@ -1780,6 +1780,9 @@ static void osp_key_exit(const struct lu_context *ctx,
 	struct osp_thread_info *info = data;
 
 	info->osi_attr.la_valid = 0;
+	if (info->osi_cancel_buffer != NULL)
+		OBD_FREE(info->osi_cancel_buffer,
+			 sizeof(struct llog_cookie) * CANCEL_BUFFER_SIZE);
 }
 
 struct lu_context_key osp_thread_key = {
