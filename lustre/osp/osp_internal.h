@@ -303,6 +303,8 @@ extern const struct dt_device_operations osp_dt_ops;
 extern struct dt_object_operations osp_md_obj_ops;
 extern struct dt_body_operations osp_md_body_ops;
 
+#define CANCEL_BUFFER_SIZE	128
+
 struct osp_thread_info {
 	struct lu_buf		 osi_lb;
 	struct lu_buf		 osi_lb2;
@@ -323,6 +325,9 @@ struct osp_thread_info {
 	struct lu_seq_range	 osi_seq;
 	struct ldlm_res_id	 osi_resid;
 	struct obdo		 osi_obdo;
+	struct llog_cookie	*osi_cancel_buffer;
+	int			 osi_nr2cancel;
+	struct llog_handle	*osi_cathandle;
 };
 
 /* Iterator for OSP */

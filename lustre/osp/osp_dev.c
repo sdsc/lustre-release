@@ -1822,8 +1822,26 @@ static int osp_fid_alloc(const struct lu_env *env, struct obd_export *exp,
 	RETURN(seq_client_alloc_fid(env, seq, fid));
 }
 
-/* context key constructor/destructor: mdt_key_init, mdt_key_fini */
-LU_KEY_INIT_FINI(osp, struct osp_thread_info);
+static void *osp_key_init(const struct lu_context *ctx,
+			  struct lu_context_key *key)
+{
+	struct osp_thread_info *info;
+	OBD_ALLOC_PTR(info);
+	if (info == NULL)
+		return ERR_PTR(-ENOMEM);
+	return info;
+}
+
+static void osp_key_fini(const struct lu_context *ctx,
+			 struct lu_context_key *key, void* data)
+{
+	struct osp_thread_info *info = data;
+	if (info->osi_cancel_buffer != NULL)
+		OBD_FREE(info->osi_cancel_buffer,
+			 sizeof(struct llog_cookie) * CANCEL_BUFFER_SIZE);
+	OBD_FREE_PTR(info);
+}
+
 static void osp_key_exit(const struct lu_context *ctx,
 			 struct lu_context_key *key, void *data)
 {
