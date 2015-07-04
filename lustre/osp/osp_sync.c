@@ -830,6 +830,37 @@ static int osp_sync_new_unlink64_job(struct osp_device *d,
 	RETURN(0);
 }
 
+int osp_collect_and_cancel_cookies(const struct lu_env *env,
+					  struct llog_handle *cathandle,
+					  struct llog_cookie *cookie)
+{
+	struct osp_thread_info	*osi = osp_env_info(env);
+	int rc = 0;
+
+	if (osi->osi_cancel_buffer == NULL)
+		OBD_ALLOC_LARGE(osi->osi_cancel_buffer,
+				sizeof(*cookie) * CANCEL_BUFFER_SIZE);
+	if (osi->osi_cancel_buffer == NULL) {
+		rc = llog_cat_cancel_records(env, osi->osi_cathandle,
+					     1, cookie);
+		return rc;
+	}
+
+	LASSERT(osi->osi_cathandle == NULL || osi->osi_cathandle == cathandle);
+	osi->osi_cathandle = cathandle;
+
+	osi->osi_cancel_buffer[osi->osi_nr2cancel++] = *cookie;
+
+	if (osi->osi_nr2cancel == CANCEL_BUFFER_SIZE) {
+		rc = llog_cat_cancel_records(env, osi->osi_cathandle,
+				osi->osi_nr2cancel,
+				osi->osi_cancel_buffer);
+		osi->osi_nr2cancel = 0;
+	}
+
+	return rc;
+}
+
 /**
  * Process llog records.
  *
@@ -873,8 +904,8 @@ static void osp_sync_process_record(const struct lu_env *env,
 		}
 
 		/* cancel any generation record */
-		rc = llog_cat_cancel_records(env, cathandle, 1, &cookie);
-
+		rc = osp_collect_and_cancel_cookies(env, cathandle,
+						    &cookie);
 		RETURN_EXIT;
 	}
 
@@ -1024,8 +1055,8 @@ static void osp_sync_process_committed(const struct lu_env *env,
 		/* import can be closing, thus all commit cb's are
 		 * called we can check committness directly */
 		if (req->rq_import_generation == imp->imp_generation) {
-			rc = llog_cat_cancel_records(env, llh, 1,
-						     &body->oa.o_lcookie);
+			rc = osp_collect_and_cancel_cookies(env, llh,
+							&body->oa.o_lcookie);
 			if (rc)
 				CERROR("%s: can't cancel record: %d\n",
 				       obd->obd_name, rc);
@@ -1152,7 +1183,7 @@ static int osp_sync_thread(void *_arg)
 
 	ENTRY;
 
-	rc = lu_env_init(&env, LCT_LOCAL);
+	rc = lu_env_init(&env, LCT_LOCAL | LCT_MD_THREAD);
 	if (rc) {
 		CERROR("%s: can't initialize env: rc = %d\n",
 		       obd->obd_name, rc);
