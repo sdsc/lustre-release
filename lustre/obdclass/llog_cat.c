@@ -596,6 +596,37 @@ out_trans:
 }
 EXPORT_SYMBOL(llog_cat_add);
 
+static int llog_cat_cancel_records_in_log(const struct lu_env *env,
+					  struct llog_handle *cathandle,
+					  struct llog_cookie *cookies,
+					  int count)
+{
+	struct llog_handle	*loghandle;
+	int			 rc, lrc, index;
+
+	rc = llog_cat_id2handle(env, cathandle, &loghandle, &cookies->lgc_lgl);
+	if (rc) {
+		CERROR("%s: cannot find handle for llog "DOSTID": %d\n",
+				cathandle->lgh_ctxt->loc_obd->obd_name,
+				POSTID(&cookies->lgc_lgl.lgl_oi), rc);
+		return rc;
+	}
+
+	lrc = llog_cancel_recs(env, loghandle, cookies, count);
+	if (lrc == LLOG_DEL_PLAIN) { /* log has been destroyed */
+		index = loghandle->u.phd.phd_cookie.lgc_index;
+		rc = llog_cat_cleanup(env, cathandle, loghandle,
+				index);
+	} else if (lrc == -ENOENT) {
+		/* ENOENT shouldn't rewrite any error */
+	} else if (lrc < 0) {
+		rc = lrc;
+	}
+	llog_handle_put(loghandle);
+
+	return rc;
+}
+
 /* For each cookie in the cookie array, we clear the log in-use bit and either:
  * - the log is empty, so mark it free in the catalog header and delete it
  * - the log is not empty, just write out the log header
@@ -609,38 +640,46 @@ int llog_cat_cancel_records(const struct lu_env *env,
 			    struct llog_handle *cathandle, int count,
 			    struct llog_cookie *cookies)
 {
-	int i, index, rc = 0, failed = 0;
+	int i, rc = 0, lrc, failed = 0, nr = 0, total = 0;
+	struct llog_logid firstid;
+	struct llog_cookie *first = NULL;
 
 	ENTRY;
 
 	for (i = 0; i < count; i++, cookies++) {
-		struct llog_handle	*loghandle;
 		struct llog_logid	*lgl = &cookies->lgc_lgl;
-		int			 lrc;
 
-		rc = llog_cat_id2handle(env, cathandle, &loghandle, lgl);
-		if (rc) {
-			CERROR("%s: cannot find handle for llog "DOSTID": %d\n",
-			       cathandle->lgh_ctxt->loc_obd->obd_name,
-			       POSTID(&lgl->lgl_oi), rc);
-			failed++;
+		if (first == NULL) {
+			/* start of the sequence */
+			firstid = *lgl;
+			first = cookies;
+			nr = 1;
 			continue;
 		}
 
-		lrc = llog_cancel_rec(env, loghandle, cookies->lgc_index);
-		if (lrc == LLOG_DEL_PLAIN) { /* log has been destroyed */
-			index = loghandle->u.phd.phd_cookie.lgc_index;
-			rc = llog_cat_cleanup(env, cathandle, loghandle,
-					      index);
-		} else if (lrc == -ENOENT) {
-			if (rc == 0) /* ENOENT shouldn't rewrite any error */
-				rc = lrc;
-		} else if (lrc < 0) {
-			failed++;
-			rc = lrc;
+		if (memcmp(&firstid, lgl, sizeof(*lgl)) == 0) {
+			/* same llog id, take more */
+			nr++;
+			continue;
 		}
-		llog_handle_put(loghandle);
+
+		total += nr;
+		lrc = llog_cat_cancel_records_in_log(env, cathandle, first, nr);
+		if (rc == 0)
+			rc = lrc;
+
+		firstid = *lgl;
+		first = cookies;
+		nr = 1;
 	}
+	if (nr > 0) {
+		total += nr;
+		lrc = llog_cat_cancel_records_in_log(env, cathandle, first, nr);
+		if (rc == 0)
+			rc = lrc;
+	}
+	LASSERT(total == count || rc != 0);
+
 	if (rc)
 		CERROR("%s: fail to cancel %d of %d llog-records: rc = %d\n",
 		       cathandle->lgh_ctxt->loc_obd->obd_name, failed, count,

@@ -291,6 +291,97 @@ out_trans:
 	RETURN(rc);
 }
 
+int llog_cancel_recs(const struct lu_env *env, struct llog_handle *loghandle,
+		     struct llog_cookie *cookies, int count)
+{
+	struct llog_log_hdr *llh = loghandle->lgh_hdr;
+	struct dt_device *dt;
+	struct thandle *th;
+	int i, index, rc = 0, rc1;
+	ENTRY;
+
+	CDEBUG(D_RPCTRACE, "Canceling %d in log "DOSTID"\n",
+	       count, POSTID(&loghandle->lgh_id.lgl_oi));
+
+	dt = lu2dt_dev(loghandle->lgh_obj->do_lu.lo_dev);
+
+	th = dt_trans_create(env, dt);
+	if (IS_ERR(th))
+		RETURN(PTR_ERR(th));
+
+	rc = llog_declare_write_rec(env, loghandle, &llh->llh_hdr, 0, th);
+	if (rc < 0)
+		GOTO(out_trans, rc);
+
+	if ((llh->llh_flags & LLOG_F_ZAP_WHEN_EMPTY))
+		rc = llog_declare_destroy(env, loghandle, th);
+
+	th->th_wait_submit = 1;
+	rc = dt_trans_start_local(env, dt, th);
+	if (rc < 0)
+		GOTO(out_trans, rc);
+
+	down_write(&loghandle->lgh_lock);
+
+	for (i = 0; i < count; i++) {
+		LASSERT(memcmp(&cookies[i].lgc_lgl, &cookies[0].lgc_lgl,
+			sizeof(cookies[i].lgc_lgl)) == 0);
+		index = cookies[i].lgc_index;
+
+		if (index == 0) {
+			CERROR("Can't cancel index 0 which is header\n");
+			GOTO(out_unlock, rc = -EINVAL);
+		}
+
+		/* multiple cancels for a same record are OK */
+		if (ext2_clear_bit(index, llh->llh_bitmap)) {
+			if (llh->llh_count == 1) {
+				CDEBUG(D_RPCTRACE, "invalid counter: %d\n",
+				       llh->llh_count);
+				GOTO(out_unlock, rc = -EINVAL);
+			}
+			llh->llh_count--;
+		}
+	}
+
+	LASSERTF(i == count, "%s: too many cancels to #"DOSTID"\n",
+		 loghandle->lgh_ctxt->loc_obd->obd_name,
+		 POSTID(&loghandle->lgh_id.lgl_oi));
+
+	if ((llh->llh_flags & LLOG_F_ZAP_WHEN_EMPTY) &&
+	    (llh->llh_count == 1) &&
+	    (loghandle->lgh_last_idx == LLOG_HDR_BITMAP_SIZE(llh) - 1)) {
+		up_write(&loghandle->lgh_lock);
+		rc = llog_trans_destroy(env, loghandle, th);
+		if (rc < 0) {
+			CERROR("%s: can't destroy empty llog #"DOSTID
+			       "#%08x: rc = %d\n",
+			       loghandle->lgh_ctxt->loc_obd->obd_name,
+			       POSTID(&loghandle->lgh_id.lgl_oi),
+			       loghandle->lgh_id.lgl_ogen, rc);
+			GOTO(out_trans, rc);
+		}
+		GOTO(out_trans, rc = LLOG_DEL_PLAIN);
+	}
+
+	rc = llog_write_rec(env, loghandle, &llh->llh_hdr, NULL,
+			    LLOG_HEADER_IDX, th);
+	if (rc < 0)
+		CERROR("%s: fail to write header for llog #"DOSTID
+		       "#%08x: rc = %d\n",
+		       loghandle->lgh_ctxt->loc_obd->obd_name,
+		       POSTID(&loghandle->lgh_id.lgl_oi),
+		       loghandle->lgh_id.lgl_ogen, rc);
+
+out_unlock:
+	up_write(&loghandle->lgh_lock);
+out_trans:
+	rc1 = dt_trans_stop(env, dt, th);
+	if (rc == 0)
+		rc = rc1;
+	RETURN(rc);
+}
+
 static int llog_read_header(const struct lu_env *env,
 			    struct llog_handle *handle,
 			    struct obd_uuid *uuid)
