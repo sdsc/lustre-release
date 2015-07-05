@@ -654,7 +654,7 @@ ptlrpc_service_part_init(struct ptlrpc_service *svc,
 	cfs_timer_init(&svcpt->scp_at_timer, ptlrpc_at_timer, svcpt);
 	/* At SOW, service time should be quick; 10s seems generous. If client
 	 * timeout is less than this, we'll be sending an early reply. */
-	at_init(&svcpt->scp_at_estimate, 10, 0);
+	at_reinit(&svcpt->scp_at_estimate, 10, 0);
 
 	/* assign this before call ptlrpc_grow_req_bufs */
 	svcpt->scp_service = svc;
