@@ -37,7 +37,7 @@
  *
  * Author: PJ Kirner <pjkirner@clusterfs.com>
  */
- 
+
 #include <net-snmp/net-snmp-config.h>
 #include <net-snmp/net-snmp-includes.h>
 #include <net-snmp/agent/net-snmp-agent-includes.h>
@@ -45,9 +45,11 @@
 #include <pthread.h>
 #include "lustre-snmp.h"
 
+#include <libcfs/util/param.h>
+
 #define LNET_CHECK_INTERVAL 500
 
-/* 
+/*
  * clusterFileSystems_variables_oid:
  *   this is the top level oid that we want to register under.  This
  *   is essentially a prefix, with the suffix appearing in the
@@ -58,10 +60,10 @@
 oid clusterFileSystems_variables_oid[] = { 1,3,6,1,4,1,13140 };
 
 
-/* 
+/*
  * variable7 clusterFileSystems_variables:
- *   this variable defines function callbacks and type return information 
- *   for the clusterFileSystems mib section 
+ *   this variable defines function callbacks and type return information
+ *   for the clusterFileSystems mib section
  */
 
 
@@ -184,7 +186,7 @@ struct variable7 clusterFileSystems_variables[] = {
  * Output:  None
  *
  ****************************************************************************/
- 
+
 void init_lustresnmp(void) {
 
 	/* register ourselves with the agent to handle our mib tree */
@@ -225,52 +227,67 @@ void deinit_lustresnmp(void) {
  *
  ****************************************************************************/
 unsigned char *
-var_clusterFileSystems(struct variable *vp, 
-                oid     *name, 
-                size_t  *length, 
-                int     exact, 
-                size_t  *var_len, 
+var_clusterFileSystems(struct variable *vp,
+		oid     *name,
+		size_t  *length,
+		int     exact,
+		size_t  *var_len,
                 WriteMethod **write_method)
 {
+	/* variables we may use later */
+	static long long_ret;
+	static u_long ulong_ret;
+	static unsigned char string[SPRINT_MAX_LEN];
+	glob_t path;
+	uint32_t num;
+	char *dir_list;
 
+	if (header_generic(vp,name,length,exact,var_len,write_method) ==
+	    MATCH_FAILED)
+		return NULL;
 
-  /* variables we may use later */
-  static long long_ret;
-  static u_long ulong_ret;
-  static unsigned char string[SPRINT_MAX_LEN];
-  char file_path[MAX_PATH_SIZE];
-  uint32_t num;
-  char *dir_list;
-
-  if (header_generic(vp,name,length,exact,var_len,write_method)
-                                  == MATCH_FAILED )
-    return NULL;
-
-
-  /* 
+  /*
    * this is where we do the value assignments for the mib results.
    */
   switch(vp->magic) {
 
     case SYSVERSION:
-        sprintf(file_path, "%s%s", LUSTRE_PATH,"version");
-        if( SUCCESS != read_string(file_path, (char *)string,sizeof(string)))
+	if (cfs_get_param_path(&path, "version") < 0)
+		return NULL;
+
+	if( SUCCESS != read_string(path.gl_pathv[0], (char *)string,
+				   sizeof(string))) {
+	    cfs_free_param_path(&path);
             return NULL;
+	}
+	cfs_free_param_path(&path);
         *var_len = strlen((char *)string);
         return (unsigned char *) string;
 
     case SYSKERNELVERSION:
-        sprintf(file_path, "%s%s", LUSTRE_PATH,"kernel_version");
-        if( SUCCESS != read_string(file_path, (char *)string,sizeof(string)))
+	if (cfs_get_param_path(&path, "kernel_version") < 0)
+		return NULL;
+
+	if( SUCCESS != read_string(path.gl_pathv[0], (char *)string,
+				   sizeof(string))) {
+	    cfs_free_param_path(&path);
             return NULL;
+	}
+	cfs_free_param_path(&path);
         *var_len = strlen((char *)string);
         return (unsigned char *) string;
 
     case SYSHEALTHCHECK:
-        sprintf(file_path, "%s%s", LUSTRE_PATH,FILENAME_SYSHEALTHCHECK);
-        if( SUCCESS != read_string(file_path, (char *)string,sizeof(string)))
+	if (cfs_get_param_path(&path, "health_check") < 0)
+		return NULL;
+
+	if( SUCCESS != read_string(path.gl_pathv[0], (char *)string,
+				   sizeof(string))) {
+	    cfs_free_param_path(&path);
             return NULL;
-        *var_len = strlen((char*)string);
+	}
+	cfs_free_param_path(&path);
+	*var_len = strlen((char *)string);
         return (unsigned char *) string;
 
     case SYSSTATUS:
@@ -279,59 +296,101 @@ var_clusterFileSystems(struct variable *vp,
         if (long_ret != ERROR)
           return (unsigned char *) &long_ret;
         return NULL;
-                      
+
     case OSDNUMBER:
-        if( 0 == (dir_list = get_file_list(OSD_PATH, DIR_TYPE, &num)))
-            return NULL;
-        DEBUGMSGTL(("lsnmpd","num(%s)=%d\n",OSD_PATH,num));  
+	if (cfs_get_param_path(&path, "obdfilter/") < 0)
+		return NULL;
+
+	dir_list = get_file_list(path.gl_pathv[0], DIR_TYPE, &num);
+	cfs_free_param_path(&path);
+	if (dir_list == NULL)
+		return NULL;
+
+	DEBUGMSGTL(("lsnmpd", "num(%s)=%d\n", path.gl_pathv[0], num));
         ulong_ret =  num;
         free(dir_list);
         return (unsigned char *) &ulong_ret;
 
     case OSCNUMBER:
-        if( 0 == (dir_list = get_file_list(OSC_PATH, DIR_TYPE, &num)))
-            return NULL;
-        DEBUGMSGTL(("lsnmpd","num(%s)=%d\n",OSC_PATH,num));  
+	if (cfs_get_param_path(&path, "osc/") < 0)
+		return NULL;
+
+	dir_list = get_file_list(path.gl_pathv[0], DIR_TYPE, &num);
+	cfs_free_param_path(&path);
+	if (dir_list == NULL)
+		return NULL;
+
+	DEBUGMSGTL(("lsnmpd", "num(%s)=%d\n", path.gl_pathv[0], num));
         ulong_ret =  num;
         free(dir_list);
         return (unsigned char *) &ulong_ret;
 
     case MDDNUMBER:
-        if( 0 == (dir_list = get_file_list(MDS_PATH, DIR_TYPE, &num)))
-            return NULL;
-        DEBUGMSGTL(("lsnmpd","num(%s)=%d\n",MDS_PATH,num));  
+	if (cfs_get_param_path(&path, "mds/") < 0)
+		return NULL;
+
+	dir_list = get_file_list(path.gl_pathv[0], DIR_TYPE, &num);
+	cfs_free_param_path(&path);
+	if (dir_list == NULL)
+		return NULL;
+
+	DEBUGMSGTL(("lsnmpd", "num(%s)=%d\n", path.gl_pathv[0], num));
         ulong_ret =  num;
         free(dir_list);
         return (unsigned char *) &ulong_ret;
 
     case MDCNUMBER:
-        if( 0 == (dir_list = get_file_list(MDC_PATH, DIR_TYPE, &num)))
-            return NULL;
-        DEBUGMSGTL(("lsnmpd","num(%s)=%d\n",MDC_PATH,num));  
+	if (cfs_get_param_path(&path, "mdc/") < 0)
+		return NULL;
+
+	dir_list = get_file_list(path.gl_pathv[0], DIR_TYPE, &num);
+	cfs_free_param_path(&path);
+	if (dir_list == NULL)
+		return NULL;
+
+	DEBUGMSGTL(("lsnmpd", "num(%s)=%d\n", path.gl_pathv[0], num));
         ulong_ret =  num;
         free(dir_list);
         return (unsigned char *) &ulong_ret;
 
     case CLIMOUNTNUMBER:
-        if( 0 == (dir_list = get_file_list(CLIENT_PATH, DIR_TYPE, &num)))
-            return NULL;
-        DEBUGMSGTL(("lsnmpd","num(%s)=%d\n",CLIENT_PATH,num));  
+	if (cfs_get_param_path(&path, "llite/") < 0)
+		return NULL;
+
+	dir_list = get_file_list(path.gl_pathv[0], DIR_TYPE, &num);
+	cfs_free_param_path(&path);
+	if (dir_list == NULL)
+		return NULL;
+
+	DEBUGMSGTL(("lsnmpd", "num(%s)=%d\n", path.gl_pathv[0], num));
         ulong_ret =  num;
         free(dir_list);
         return (unsigned char *) &ulong_ret;
 
     case LOVNUMBER:
-        if( 0 == (dir_list = get_file_list(LOV_PATH, DIR_TYPE, &num)))
-            return NULL;
-        DEBUGMSGTL(("lsnmpd","num(%s)=%d\n",LOV_PATH,num));  
+	if (cfs_get_param_path(&path, "lov/") < 0)
+		return NULL;
+
+	dir_list = get_file_list(path.gl_pathv[0], DIR_TYPE, &num);
+	cfs_free_param_path(&path);
+	if (dir_list == NULL)
+		return NULL;
+
+	DEBUGMSGTL(("lsnmpd", "num(%s)=%d\n", path.gl_pathv[0], num));
         ulong_ret =  num;
         free(dir_list);
         return (unsigned char *) &ulong_ret;
 
     case LDLMNUMBER:
-        if( 0 == (dir_list = get_file_list(LDLM_PATH, DIR_TYPE, &num)))
-            return NULL;
-        DEBUGMSGTL(("lsnmpd","num(%s)=%d\n",LDLM_PATH,num));  
+	if (cfs_get_param_path(&path, "ldlm/namespaces/") < 0)
+		return NULL;
+
+	dir_list = get_file_list(path.gl_pathv[0], DIR_TYPE, &num);
+	cfs_free_param_path(&path);
+	if (dir_list == NULL)
+		return NULL;
+
+	DEBUGMSGTL(("lsnmpd", "num(%s)=%d\n", path.gl_pathv[0], num));
         ulong_ret =  num;
         free(dir_list);
         return (unsigned char *) &ulong_ret;
@@ -343,7 +402,7 @@ var_clusterFileSystems(struct variable *vp,
 }
 
 struct oid_table osd_table[] =
-{ 
+{
     { OSDUUID,FILENAME_UUID,oid_table_string_handler},
     { OSDCOMMONNAME,0,oid_table_obj_name_handler},
     { OSDCAPACITY,FILENAME_KBYTES_TOTAL, oid_table_c64_kb_handler},
@@ -366,12 +425,20 @@ var_osdTable(struct variable *vp,
     	    size_t  *var_len,
     	    WriteMethod **write_method)
 {
-    return var_genericTable(vp,name,length,exact,var_len,write_method,
-        OSD_PATH,osd_table);
+	unsigned char *table;
+	glob_t path;
+
+	if (cfs_get_param_path(&path, "lustre/obdfilter/"))
+		return NULL;
+
+	table = var_genericTable(vp,name,length,exact,var_len,write_method,
+				 path.gl_pathv[0], osd_table);
+	cfs_free_param_path(&path);
+	return table;
 }
 
 struct oid_table osc_table[] =
-{ 
+{
     { OSCUUID,FILENAME_UUID,oid_table_string_handler},
     { OSCCOMMONNAME,0,oid_table_obj_name_handler},
     { OSCOSTSERVERUUID,"ost_server_uuid",oid_table_string_handler},
@@ -394,12 +461,20 @@ var_oscTable(struct variable *vp,
     	    size_t  *var_len,
     	    WriteMethod **write_method)
 {
-    return var_genericTable(vp,name,length,exact,var_len,write_method,
-        OSC_PATH,osc_table);
+	unsigned char *table;
+	glob_t path;
+
+	if (cfs_get_param_path(&path, "lustre/osc/"))
+		return NULL;
+
+	table = var_genericTable(vp,name,length,exact,var_len,write_method,
+				 path.gl_pathv[0], osd_table);
+	cfs_free_param_path(&path);
+	return table;
 }
 
 struct oid_table mds_table[] =
-{ 
+{
     { MDDUUID,FILENAME_UUID,oid_table_string_handler},
     { MDDCOMMONNAME,0,oid_table_obj_name_handler},
     { MDDCAPACITY,FILENAME_KBYTES_TOTAL, oid_table_c64_kb_handler},
@@ -421,12 +496,20 @@ var_mdsTable(struct variable *vp,
     	    size_t  *var_len,
     	    WriteMethod **write_method)
 {
-    return var_genericTable(vp,name,length,exact,var_len,write_method,
-        MDS_PATH,mds_table);
+	unsigned char *table;
+	glob_t path;
+
+	if (cfs_get_param_path(&path, "lustre/mds/"))
+		return NULL;
+
+	table = var_genericTable(vp,name,length,exact,var_len,write_method,
+				 path.gl_pathv[0], osd_table);
+	cfs_free_param_path(&path);
+	return table;
 }
 
 struct oid_table mdc_table[] =
-{ 
+{
     { MDCUUID,FILENAME_UUID,oid_table_string_handler},
     { MDCCOMMONNAME,0,oid_table_obj_name_handler},
     { MDCMDSSERVERUUID,"mds_server_uuid",oid_table_string_handler},
@@ -450,13 +533,20 @@ var_mdcTable(struct variable *vp,
     	    size_t  *var_len,
     	    WriteMethod **write_method)
 {
-    return var_genericTable(vp,name,length,exact,var_len,write_method,
-        MDC_PATH,mdc_table);
+	unsigned char *table;
+	glob_t path;
+
+	if (cfs_get_param_path(&path, "lustre/mdc/"))
+		return NULL;
+
+	table = var_genericTable(vp,name,length,exact,var_len,write_method,
+				 path.gl_pathv[0], osd_table);
+	cfs_free_param_path(&path);
+	return table;
 }
 
-
 struct oid_table cli_table[] =
-{ 
+{
     { CLIUUID,FILENAME_UUID,oid_table_string_handler},
     { CLICOMMONNAME,0,oid_table_obj_name_handler},
     { CLIMDCUUID,"mdc/" FILENAME_UUID,oid_table_string_handler},
@@ -479,13 +569,20 @@ var_cliTable(struct variable *vp,
     	    size_t  *var_len,
     	    WriteMethod **write_method)
 {
-    return var_genericTable(vp,name,length,exact,var_len,write_method,
-        CLIENT_PATH,cli_table);
+	unsigned char *table;
+	glob_t path;
+
+	if (cfs_get_param_path(&path, "lustre/llite/"))
+		return NULL;
+
+	table = var_genericTable(vp,name,length,exact,var_len,write_method,
+				 path.gl_pathv[0], osd_table);
+	cfs_free_param_path(&path);
+	return table;
 }
 
-
 struct oid_table lov_table[] =
-{ 
+{
     { LOVUUID,FILENAME_UUID,oid_table_string_handler},
     { LOVCOMMONNAME,0,oid_table_obj_name_handler},
     { LOVNUMOBD,"numobd", oid_table_ulong_handler},
@@ -514,12 +611,20 @@ var_lovTable(struct variable *vp,
     	    size_t  *var_len,
     	    WriteMethod **write_method)
 {
-    return var_genericTable(vp,name,length,exact,var_len,write_method,
-        LOV_PATH,lov_table);
+	unsigned char *table;
+	glob_t path;
+
+	if (cfs_get_param_path(&path, "lustre/lov/"))
+		return NULL;
+
+	table = var_genericTable(vp,name,length,exact,var_len,write_method,
+				 path.gl_pathv[0], osd_table);
+	cfs_free_param_path(&path);
+	return table;
 }
 
 struct oid_table ldlm_table[] =
-{ 
+{
     { LDLMNAMESPACE,0,oid_table_obj_name_handler},
     { LDLMLOCKCOUNT,"lock_count", oid_table_ulong_handler},
     { LDLMUNUSEDLOCKCOUNT,"lock_unused_count", oid_table_ulong_handler},
@@ -540,8 +645,16 @@ var_ldlmTable(struct variable *vp,
     	    size_t  *var_len,
     	    WriteMethod **write_method)
 {
-    return var_genericTable(vp,name,length,exact,var_len,write_method,
-        LDLM_PATH,ldlm_table);
+	unsigned char *table;
+	glob_t path;
+
+	if (cfs_get_param_path(&path, "lustre/ldlm/namespaces"))
+		return NULL;
+
+	table = var_genericTable(vp,name,length,exact,var_len,write_method,
+				 path.gl_pathv[0], osd_table);
+	cfs_free_param_path(&path);
+	return table;
 }
 
 /*****************************************************************************
@@ -565,16 +678,20 @@ var_lnetInformation(struct variable *vp,
         static unsigned int       c32;
         struct timeval            current_tv;
         unsigned long             current;
-        char                      file_path[MAX_PATH_SIZE];
+	glob_t			  file_path;
 
         /* Update at most every LNET_STATS_INTERVAL milliseconds */
         gettimeofday(&current_tv, NULL);
         current = current_tv.tv_sec * 1000000 + current_tv.tv_usec;
         if (current >= next_update) {
-                sprintf(file_path, "%s%s", LNET_PATH, "stats");
-                if (read_string(file_path, (char *) string, sizeof(string))
-                    != SUCCESS)
+		if (cfs_get_param_path(&file_path, "lnet/stats"))
+			return NULL;
+		if (read_string(file_path.gl_pathv[0], (char *) string,
+				sizeof(string)) != SUCCESS) {
+			cfs_free_param_path(&file_path);
                         return NULL;
+		}
+		cfs_free_param_path(&file_path);
 
                 sscanf((char *) string,
                        "%u %u %u %u %u %u %u %llu %llu %llu %llu",

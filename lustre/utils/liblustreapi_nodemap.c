@@ -28,14 +28,13 @@
 #include <stdio.h>
 #include <string.h>
 #include <libcfs/libcfs.h>
-#include <lustre/lustreapi.h>
-#include "lustreapi_internal.h"
+#include <libcfs/util/param.h>
 
 int llapi_nodemap_exists(const char *nodemap)
 {
-	char mapname[PATH_MAX + 1];
+	glob_t param;
+	int rc;
 
-	snprintf(mapname, sizeof(mapname), "nodemap/%s", nodemap);
-
-	return get_param(mapname, NULL, 0);
+	rc = cfs_get_param_path(&param, "lustre/nodemap/%s", nodemap);
+	return (rc == 0 ? 1 : 0);
 }

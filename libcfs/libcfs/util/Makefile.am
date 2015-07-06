@@ -1,1 +1,1 @@
-EXTRA_DIST = parser.c l_ioctl.c nidstrings.c string.c
+EXTRA_DIST = parser.c l_ioctl.c param.c nidstrings.c string.c
