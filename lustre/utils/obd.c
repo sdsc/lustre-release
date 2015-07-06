@@ -53,7 +53,6 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <getopt.h>
-#include <glob.h>
 #include <signal.h>
 #include <stdarg.h>
 #include <stdbool.h>
@@ -66,6 +65,7 @@
 #include "obdctl.h"
 #include <libcfs/libcfs.h>
 #include <libcfs/util/ioctl.h>
+#include <libcfs/util/param.h>
 #include <libcfs/util/parser.h>
 
 #include <lnet/nidstr.h>
@@ -78,7 +78,6 @@
 #include <lustre/lustreapi.h>
 
 #define MAX_STRING_SIZE 128
-#define DEVICES_LIST "/proc/fs/lustre/devices"
 
 #if HAVE_LIBPTHREAD
 #include <sys/ipc.h>
@@ -946,15 +945,18 @@ static void print_obd_line(char *s)
         char buf[MAX_STRING_SIZE];
         char obd_name[MAX_OBD_NAME];
         FILE *fp = NULL;
+	glob_t path;
         char *ptr;
 
 	snprintf(buf, sizeof(buf), " %%*d %%*s osc %%%zus %%*s %%*d ",
 		 sizeof(obd_name) - 1);
 	if (sscanf(s, buf, obd_name) == 0)
                 goto try_mdc;
-        snprintf(buf, sizeof(buf),
-                 "/proc/fs/lustre/osc/%s/ost_conn_uuid", obd_name);
-        if ((fp = fopen(buf, "r")) == NULL)
+	if (cfs_get_param_path(&path, "lustre/osc/%s/ost_conn_uuid",
+			       obd_name))
+		goto try_mdc;
+
+        if ((fp = fopen(path.gl_pathv[0], "r")) == NULL)
                 goto try_mdc;
         goto got_one;
 
@@ -963,9 +965,10 @@ try_mdc:
 		 sizeof(obd_name) - 1);
 	if (sscanf(s, buf, obd_name) == 0)
                 goto fail;
-        snprintf(buf, sizeof(buf),
-                 "/proc/fs/lustre/mdc/%s/mds_conn_uuid", obd_name);
-        if ((fp = fopen(buf, "r")) == NULL)
+	if (cfs_get_param_path(&path, "lustre/mdc/%s/mds_conn_uuid",
+			       obd_name))
+		goto fail;
+        if ((fp = fopen(path.gl_pathv[0], "r")) == NULL)
                 goto fail;
 
 got_one:
@@ -975,6 +978,7 @@ got_one:
                 fclose(fp);
                 return;
         }
+	cfs_free_param_path(&path);
         fclose(fp);
 
         /* trim trailing newlines */
@@ -987,6 +991,7 @@ got_one:
         return;
 
 fail:
+	cfs_free_param_path(&path);
         printf("%s", s);
         return;
 }
@@ -1031,10 +1036,11 @@ int jt_obd_list_ioctl(int argc, char **argv)
 
 int jt_obd_list(int argc, char **argv)
 {
-        int rc;
-        char buf[MAX_STRING_SIZE];
-        FILE *fp = NULL;
         int print_obd = 0;
+	FILE *fp = NULL;
+	glob_t path;
+	char *buf;
+	int rc;
 
         if (argc > 2)
                 return CMD_HELP;
@@ -1045,10 +1051,16 @@ int jt_obd_list(int argc, char **argv)
                         return CMD_HELP;
         }
 
-        fp = fopen(DEVICES_LIST, "r");
+	rc = cfs_get_param_path(&path, "lustre/devices");
+	if (rc != 0)
+		return rc;
+
+	buf = path.gl_pathv[0];
+	fp = fopen(buf, "r");
         if (fp == NULL) {
-                fprintf(stderr, "error: %s: %s opening "DEVICES_LIST"\n",
-                        jt_cmdname(argv[0]), strerror(rc =  errno));
+		fprintf(stderr, "error: %s: %s opening %s\n",
+			jt_cmdname(argv[0]), strerror(rc =  errno), buf);
+		cfs_free_param_path(&path);
                 return jt_obd_list_ioctl(argc, argv);
         }
 
@@ -1058,6 +1070,7 @@ int jt_obd_list(int argc, char **argv)
                 else
                         printf("%s", buf);
 
+	cfs_free_param_path(&path);
         fclose(fp);
         return 0;
 }

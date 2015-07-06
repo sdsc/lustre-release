@@ -43,11 +43,12 @@
 #include <getopt.h>
 #include <stdio.h>
 #include <unistd.h>
-#include <glob.h>
 #include <signal.h>
 #include <string.h>
 #include <stdlib.h>
 #include <errno.h>
+
+#include <libcfs/util/param.h>
 
 #define TRACK_BY_GID 0
 #define TRACK_BY_PPID 1
@@ -64,7 +65,7 @@
 /* Length of llstat command with all its switches and command line options */
 #define LEN_LLSTAT (25 + LEN_STATS)
 
-/* strlen of each lustre client entry in /proc/fs/lustre/llite/ */
+/* strlen of each lustre client entry in /{proc,sys}/fs/lustre/llite/ */
 #define LEN_CLIENT 1024
 
 /* size of output of llstat command we read at a time */
@@ -79,15 +80,15 @@ void print_usage()
         printf("Usage:\n\n");
         printf("ltrack_stats runs command given and does one of the "
                 "following:\n"
-                "\t1. Writes its pid to "
-                "/proc/fs/lustre/llite/.../stats_track_pid\n"
+                "\t1. Writes its pid using the command"
+		" lctl set_param llite.*.stats_track_pid={pid}\n"
                 " to collects stats for that process.\n"
-                "\t2. Writes its ppid to "
-                "/proc/fs/lustre/llite/.../stats_track_ppid\n"
-                " to collect stats of that process and all its children \n"
-                "\t3. Sets gid of process to some random gid (444) and also\n"
-                " writes that to/proc/fs/lustre/llite/.../stats_track_gid to"
-                " collect stats \nof all processes in that group\n\n"
+                "\t2. Writes its ppid using the command"
+		" lctl set_param llite.*.stats_track_ppid={ppid}\n"
+		" to collect stats of that process and all its children\n"
+		"\t3. Sets gid of process to some random gid (444) and also\n"
+		" writes using the command lctl set_param llite.*.stats_track_gid={gid}"
+		" to collect stats\nof all processes in that group\n\n"
                 " It also uses llstat to generate output with interval of 1 "
                 " second and duration\n of run of command for plot-llstat to "
                 "generate a graph\n\n");
@@ -124,8 +125,8 @@ void write_track_xid(int type, unsigned short id, char* stats_path)
         FILE *fp;
 
         /* for loop is used if we have more than one lustre clients on same
-         * machine. glob() return /proc entry for each lustre client */
-
+         * machine. cfs_get_param_paths() returns entry for each lustre
+         * client */
         switch(type) {
                 case TRACK_BY_GID:
                         strcat(stats_path, "/stats_track_gid");
@@ -318,28 +319,21 @@ pid_t fork_actual_command(int type, unsigned short id, char* stats_path,
 
 char* get_path_stats(int with_llstat, char* stats_path)
 {
-        glob_t stats_glob_buffer;
+        glob_t stats_params;
         int choice;
         char error = 0;
         int i;
 
-        /* No slots reserved in gl_pathv. Store the found path at 0 location */
-        stats_glob_buffer.gl_offs = 0;
-
-        /* doing glob() for attaching llstat to monitor each vfs_ops_stat for
-         * mulitiple lustre clients */
-        if (glob("/proc/fs/lustre/llite/*", GLOB_DOOFFS, NULL,
-                 &stats_glob_buffer) != 0) {
-                fprintf(stderr,"Error: Couldn't find /proc entry for "
-                        "lustre\n");
+	if (cfs_get_param_path(&stats_params, "lustre/llite/*") != 0) {
+		fprintf(stderr, "Error: Couldn't find llite stat entries\n");
                 exit(1);
         }
 
-        /* If multiple client entries found in /proc/fs/lustre/llite user will
-         * be prompted with choice of all */
-        if (stats_glob_buffer.gl_pathc > 1 && with_llstat) {
-                check_llstat(); 
-                printf("Multiple lustre clients found, continuing... \n");
+	/* If multiple client entries found and
+	 * user will be prompted with choice of all */
+        if (stats_params.gl_pathc > 1 && with_llstat) {
+                check_llstat();
+		printf("Multiple lustre clients found, continuing...\n");
                 do {
                         /* If flow is here again it means there was an error
                          * and notifying that to user */
@@ -356,9 +350,9 @@ char* get_path_stats(int with_llstat, char* stats_path)
                         /* Simple menu based interface to avoid possible
                          * spelling mistakes */
                         printf("\t\tMenu.\n");
-                        for (i = 0; i < stats_glob_buffer.gl_pathc; i++)
-                                printf("\t\t%d. %s\n", i+1, 
-                                       stats_glob_buffer.gl_pathv[i]);
+                        for (i = 0; i < stats_params.gl_pathc; i++)
+                                printf("\t\t%d. %s\n", i+1,
+                                       stats_params.gl_pathv[i]);
 
                         printf("\nEnter the lustre client number you want to "
                                "use:");
@@ -367,15 +361,15 @@ char* get_path_stats(int with_llstat, char* stats_path)
                                 exit(-1);
                         }
                         error++;
-                } while (choice > stats_glob_buffer.gl_pathc || choice < 1);
-                strcpy(stats_path, stats_glob_buffer.gl_pathv[choice - 1]);
+                } while (choice > stats_params.gl_pathc || choice < 1);
+                strcpy(stats_path, stats_params.gl_pathv[choice - 1]);
         } else {
                 /*if only one client then simply copying the path from glob */
-                strcpy(stats_path, stats_glob_buffer.gl_pathv[0]);
+                strcpy(stats_path, stats_params.gl_pathv[0]);
         }
         /* this frees dynamically allocated space by glob() for storing found
          * paths */
-        globfree(&stats_glob_buffer);
+        cfs_free_param_path(&stats_params);
 
         return stats_path;
 }

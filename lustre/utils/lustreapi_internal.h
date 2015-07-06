@@ -45,8 +45,22 @@
 int get_root_path(int want, char *fsname, int *outfd, char *path, int index);
 int root_ioctl(const char *mdtname, int opc, void *data, int *mdtidxp,
 	       int want_error);
-int get_param(const char *param_path, char *result,
-	      unsigned int result_size);
+
+enum tgt_type {
+	LOV_TYPE = 1,
+	LMV_TYPE
+};
+
+/* Lustre parameter helpers */
+int find_target_obdpath(char *path, char *tgt, enum tgt_type type);
+int poolpath(char *fsname, char *pathname, char *pool_pathname);
+int get_param_value(const char *fsname, const char *file_path,
+		    const char *obd_type, const char *param_name,
+		    char *value, size_t val_len);
+int get_param_cli(const char *type, const char *inst, const char *param,
+		  char *buf, size_t buf_size);
+int clilovpath(const char *fsname, const char *const pathname,
+	       char *clilovpath);
 
 #define LLAPI_LAYOUT_MAGIC 0x11AD1107 /* LLAPILOT */
 
