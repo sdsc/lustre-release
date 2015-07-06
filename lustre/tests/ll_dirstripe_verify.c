@@ -51,6 +51,7 @@
 #include <errno.h>
 #include <dirent.h>
 
+#include <libcfs/util/param.h>
 #include <lustre/lustreapi.h>
 
 #define MAX_LOV_UUID_COUNT      1000
@@ -97,33 +98,40 @@ int read_proc_entry(char *proc_path, char *buf, int len)
 }
 
 int compare(struct lov_user_md *lum_dir, struct lov_user_md *lum_file1,
-            struct lov_user_md *lum_file2)
+	    struct lov_user_md *lum_file2)
 {
-        int stripe_count = 0, min_stripe_count = 0, def_stripe_count = 1;
-        int stripe_size = 0;
-        int stripe_offset = -1;
-        int ost_count;
-        char buf[128];
-        char lov_path[PATH_MAX];
-        char tmp_path[PATH_MAX];
-        int i;
-        FILE *fp;
+	int stripe_count = 0, min_stripe_count = 0, def_stripe_count = 1;
+	int stripe_size = 0;
+	int stripe_offset = -1;
+	int ost_count;
+	char buf[128];
+	char lov_path[PATH_MAX];
+	char tmp_path[PATH_MAX];
+	char cmd[PATH_MAX];
+	glob_t path;
+	FILE *fp;
+	int i;
 
-	fp = popen("\\ls -d  /proc/fs/lustre/lov/*clilov* | head -1", "r");
+	if (cfs_get_param_path(&path, "lustre/lov/*clilov*") != 0)
+		return 1;
+
+	fp = fopen(path.gl_pathv[0], "r");
 	if (fp == NULL) {
 		llapi_error(LLAPI_MSG_ERROR, -errno,
 			    "open(lustre/lov/*clilov*) failed");
+		cfs_free_param_path(&path);
 		return 2;
         }
+	cfs_free_param_path(&path);
 
 	if (fscanf(fp, "%s", lov_path) < 1) {
 		llapi_error(LLAPI_MSG_ERROR, -EINVAL,
 			    "read(lustre/lov/*clilov*) failed");
-		pclose(fp);
+		fclose(fp);
 		return 3;
 	}
 
-        pclose(fp);
+        fclose(fp);
 
         snprintf(tmp_path, sizeof(tmp_path) - 1, "%s/stripecount",
                  lov_path);
