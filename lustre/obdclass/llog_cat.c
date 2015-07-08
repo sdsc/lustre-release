@@ -76,7 +76,7 @@ static int llog_cat_new_log(const struct lu_env *env,
 		/* If llog object is remote and creation is failed, lgh_hdr
 		 * might be left over here, free it first */
 		LASSERT(!llog_exist(loghandle));
-		OBD_FREE_PTR(loghandle->lgh_hdr);
+		OBD_FREE(loghandle->lgh_hdr, loghandle->lgh_hdr_size);
 		loghandle->lgh_hdr = NULL;
 	}
 
@@ -116,7 +116,7 @@ static int llog_cat_new_log(const struct lu_env *env,
 	loghandle->lgh_hdr->llh_cat_idx = rec->lid_hdr.lrh_index;
 	RETURN(0);
 out_destroy:
-	llog_destroy(env, loghandle);
+	llog_destroy(env, loghandle, NULL);
 	RETURN(rc);
 }
 
@@ -212,7 +212,7 @@ int llog_cat_close(const struct lu_env *env, struct llog_handle *cathandle)
 		if (loghandle->lgh_obj != NULL && llh != NULL &&
 		    (llh->llh_flags & LLOG_F_ZAP_WHEN_EMPTY) &&
 		    (llh->llh_count == 1)) {
-			rc = llog_destroy(env, loghandle);
+			rc = llog_destroy(env, loghandle, NULL);
 			if (rc)
 				CERROR("%s: failure destroying log during "
 				       "cleanup: rc = %d\n",
@@ -563,7 +563,7 @@ static int llog_cat_process_cb(const struct lu_env *env,
 	if ((hdr->llh_flags & LLOG_F_ZAP_WHEN_EMPTY) &&
 	    hdr->llh_count == 1 && cat_llh->lgh_obj != NULL &&
 	    llh != cat_llh->u.chd.chd_current_log) {
-		rc = llog_destroy(env, llh);
+		rc = llog_destroy(env, llh, NULL);
 		if (rc)
 			CERROR("%s: fail to destroy empty log: rc = %d\n",
 			       llh->lgh_ctxt->loc_obd->obd_name, rc);
@@ -688,7 +688,7 @@ static int llog_cat_reverse_process_cb(const struct lu_env *env,
 	if ((hdr->llh_flags & LLOG_F_ZAP_WHEN_EMPTY) &&
 	    hdr->llh_count == 1 &&
 	    llh != cat_llh->u.chd.chd_current_log) {
-		rc = llog_destroy(env, llh);
+		rc = llog_destroy(env, llh, NULL);
 		if (rc)
 			CERROR("%s: fail to destroy empty log: rc = %d\n",
 			       llh->lgh_ctxt->loc_obd->obd_name, rc);

@@ -12625,6 +12625,12 @@ test_230c() {
 	local t=$(ls $migrate_dir | wc -l)
 	$LFS mv --mdt-index $MDTIDX $migrate_dir &&
 		error "migrate should fail after 5 entries"
+
+	mkdir $migrate_dir/dir &&
+		error "mkdir succeeds under migrating directory"
+	touch $migrate_dir/file &&
+		error "touch file succeeds under migrating directory"
+
 	local u=$(ls $migrate_dir | wc -l)
 	[ "$u" == "$t" ] || error "$u != $t during migration"
 
