@@ -125,6 +125,19 @@ static int dtrq_insert(struct target_distribute_txn_data *tdtd,
 	if (list_empty(&new->dtrq_list))
 		list_add(&new->dtrq_list, &tdtd->tdtd_replay_list);
 
+	{
+		__u64 master_transno = 0;
+
+		/* debug purpose for validating the sorted list */
+		list_for_each_entry(iter, &tdtd->tdtd_replay_list, dtrq_list) {
+			if (master_transno >
+			    iter->dtrq_lur->lur_update_rec.ur_master_transno)
+				return -EINVAL;
+			else
+				master_transno =
+				iter->dtrq_lur->lur_update_rec.ur_master_transno;
+		}
+	}
 	return 0;
 }
 
@@ -367,7 +380,7 @@ insert_update_records_to_replay_list(struct target_distribute_txn_data *tdtd,
 	CDEBUG(D_HA, "%s: insert record batchid = "LPU64" transno = "LPU64
 	       " mdt_index %u\n", tdtd->tdtd_lut->lut_obd->obd_name,
 	       record->ur_batchid, record->ur_master_transno, mdt_index);
-
+again:
 	/* First try to build the replay update request with the records */
 	spin_lock(&tdtd->tdtd_replay_list_lock);
 	dtrq = dtrq_lookup(tdtd, record->ur_batchid);
@@ -391,7 +404,11 @@ insert_update_records_to_replay_list(struct target_distribute_txn_data *tdtd,
 		if (rc == -EEXIST) {
 			/* Some one else already add the record */
 			dtrq_destroy(dtrq);
-			rc = 0;
+			goto again;
+		}
+		if (rc == -EINVAL) {
+			dtrq_list_dump(tdtd, D_ERROR);
+			LBUG();
 		}
 	} else {
 		struct update_records *dtrq_rec;
@@ -409,8 +426,14 @@ insert_update_records_to_replay_list(struct target_distribute_txn_data *tdtd,
 			list_del_init(&dtrq->dtrq_list);
 			rc = dtrq_insert(tdtd, dtrq);
 			spin_unlock(&tdtd->tdtd_replay_list_lock);
-			if (rc < 0)
-				return rc;
+			if (rc < 0) {
+				if (rc == -EINVAL) {
+					dtrq_list_dump(tdtd, D_ERROR);
+					LBUG();
+				} else {
+					return rc;
+				}
+			}
 		}
 
 		/* This is a partial update records, let's try to append
@@ -1221,6 +1244,9 @@ int distribute_txn_replay_handle(struct lu_env *env,
 		LASSERT(tmt->tmt_committed == 0);
 		sub_dt = lu2dt_dev(dt_obj->do_lu.lo_dev);
 		st = lookup_sub_thandle(tmt, sub_dt);
+		if (tmt->tmt_master_sub_dt == sub_dt)
+			dtrq->dtrq_local_update_executed = 1;
+
 		LASSERT(st != NULL);
 		LASSERT(st->st_sub_th != NULL);
 		rc = ta->ta_args[i]->exec_fn(env, st->st_sub_th,

@@ -162,7 +162,7 @@ failover_pair() {
     # Client loads are allowed to die while in recovery, so we just
     # restart them.
     log "==== Checking the clients loads AFTER failovers -- ERRORS_OK=$ERRORS_OK"
-    restart_client_loads $NODES_TO_USE $ERRORS_OK || exit $?
+	restart_client_loads $NODES_TO_USE $NODES_TO_USE $ERRORS_OK || exit $?
     log "Done checking / re-starting client loads. PASS"
     return 0
 }
