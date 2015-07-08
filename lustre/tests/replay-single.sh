@@ -2099,6 +2099,212 @@ test_70b () {
 	wait $pid || error "rundbench load on $clients failed!"
 }
 run_test 70b "dbench ${MDSCOUNT}mdts recovery; $CLIENTCOUNT clients"
+
+random_fail_mdt() {
+	local max_index=$1
+	local duration=$2
+	local monitor_pid=$3
+	local elapsed
+	local start_ts=$(date +%s)
+	local num_failovers=0
+	local fail_index=2
+
+	elapsed=$(($(date +%s) - start_ts))
+	while [ $elapsed -lt $duration ]; do
+		#fail_index=$((RANDOM%max_index+1))
+		kill -0 $monitor_pid ||
+			error "$monitor_pid stopped"
+		sleep 120 
+		replay_barrier mds$fail_index
+		sleep 10 
+		# Increment the number of failovers
+		num_failovers=$((num_failovers+1))
+		log "$TESTNAME fail mds$fail_index $num_failovers times"
+		fail mds$fail_index
+		elapsed=$(($(date +%s) - start_ts))
+	done
+}
+
+cleanup_70c() {
+	trap 0
+	kill -9 $tar_70c_pid
+}
+test_70c () {
+	local clients=${CLIENTS:-$HOSTNAME}
+	local rc=0
+
+	zconf_mount_clients $clients $MOUNT
+
+	local duration=300
+	[ "$SLOW" = "no" ] && duration=180
+	# set duration to 900 because it takes some time to boot node
+	[ "$FAILURE_MODE" = HARD ] && duration=600
+
+	local elapsed
+	local start_ts=$(date +%s)
+
+	trap cleanup_70c EXIT
+	(
+		while true; do
+			test_mkdir -p -c$MDSCOUNT $DIR/$tdir || break
+			if [ $MDSCOUNT -ge 2 ]; then
+				$LFS setdirstripe -D -c$MDSCOUNT $DIR/$tdir ||
+				error "set default dirstripe failed"
+			fi
+			cd $DIR/$tdir || break
+			tar cf - /etc | tar xf - || error "tar failed"
+			cd $DIR || break
+			rm -rf $DIR/$tdir || break
+		done
+	)&
+	tar_70c_pid=$!
+	echo "Started tar $tar_70c_pid"
+
+	random_fail_mdt $MDSCOUNT $duration $tar_70c_pid
+	kill -0 $tar_70c_pid || error "tar $tar_70c_pid stopped"
+
+	cleanup_70c
+	true
+}
+run_test 70c "tar ${MDSCOUNT}mdts recovery"
+
+cleanup_70d() {
+	trap 0
+	kill -9 $mkdir_70d_pid
+}
+
+test_70d () {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+	local clients=${CLIENTS:-$HOSTNAME}
+	local rc=0
+
+	zconf_mount_clients $clients $MOUNT
+
+	local duration=300
+	[ "$SLOW" = "no" ] && duration=1800
+	# set duration to 900 because it takes some time to boot node
+	[ "$FAILURE_MODE" = HARD ] && duration=900
+
+	mkdir -p $DIR/$tdir
+
+	local elapsed
+	local start_ts=$(date +%s)
+
+	trap cleanup_70d EXIT
+	(
+		while true; do
+			$LFS mkdir -i0 -c2 $DIR/$tdir/test || {
+				echo "mkdir fails"
+				break
+			}
+			$LFS mkdir -i1 -c2 $DIR/$tdir/test1 || {
+				echo "mkdir fails"
+				break
+			}
+
+			touch $DIR/$tdir/test/a || {
+				echo "touch fails"
+				break;
+			}
+			mkdir $DIR/$tdir/test/b || {
+				echo "mkdir fails"
+				break;
+			}
+			rm -rf $DIR/$tdir/test || {
+				echo "rmdir fails"
+				break
+			}
+
+			touch $DIR/$tdir/test1/a || {
+				echo "touch fails"
+				break;
+			}
+			mkdir $DIR/$tdir/test1/b || {
+				echo "mkdir fails"
+				break;
+			}
+
+			rm -rf $DIR/$tdir/test1 || {
+				echo "rmdir fails"
+				break
+			}
+		done
+	)&
+	mkdir_70d_pid=$!
+	echo "Started  $mkdir_70d_pid"
+
+	random_fail_mdt $MDSCOUNT $duration $mkdir_70d_pid
+	kill -0 $mkdir_70d_pid || error "mkdir/rmdir $mkdir_70d_pid stopped"
+
+	cleanup_70d
+	true
+}
+run_test 70d "mkdir/rmdir striped dir ${MDSCOUNT}mdts recovery"
+
+cleanup_70e() {
+	trap 0
+	kill -9 $rename_70e_pid
+}
+
+test_70e () {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+	local clients=${CLIENTS:-$HOSTNAME}
+	local rc=0
+
+	echo ha > /proc/sys/lnet/debug
+	zconf_mount_clients $clients $MOUNT
+
+	local duration=300
+	[ "$SLOW" = "no" ] && duration=180
+	# set duration to 900 because it takes some time to boot node
+	[ "$FAILURE_MODE" = HARD ] && duration=900
+
+	mkdir -p $DIR/$tdir
+	$LFS mkdir -i0 $DIR/$tdir/test_0
+	$LFS mkdir -i0 $DIR/$tdir/test_1
+	touch $DIR/$tdir/test_0/a
+	touch $DIR/$tdir/test_1/b
+	trap cleanup_70e EXIT
+	(
+		while true; do
+			mrename $DIR/$tdir/test_0/a $DIR/$tdir/test_1/b >
+						/dev/null || {
+				echo "a->b fails" 
+				break;
+			}
+		
+			checkstat $DIR/$tdir/test_0/a && {
+				echo "a still exists"
+				break
+			}
+	
+			checkstat $DIR/$tdir/test_1/b || {
+				echo "b still  exists"
+				break
+			}
+	
+			touch $DIR/$tdir/test_0/a || {
+				echo "touch a fails"
+				break
+			}
+			mrename $DIR/$tdir/test_1/b $DIR/$tdir/test_0/a >
+						/dev/null || {
+				echo "a->a fails" 
+				break;
+			}
+		done
+	)&
+	rename_70e_pid=$!
+	echo "Started  $rename_70e_pid"
+
+	random_fail_mdt 2 $duration $rename_70e_pid
+	kill -0 $rename_70e_pid || error "rename $rename_70e_pid stopped"
+
+	cleanup_70e
+	true
+}
+run_test 70e "rename cross-MDT with random fails"
+
 # end multi-client tests
 
 test_73a() {
