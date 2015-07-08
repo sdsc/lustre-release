@@ -2277,8 +2277,11 @@ static int osd_object_create(const struct lu_env *env, struct dt_object *dt,
 		RETURN(-EPERM);
 
 	result = __osd_object_create(info, obj, attr, hint, dof, th);
-	if (result == 0)
+	if (result == 0) {
+		if (obj->oo_dt.do_body_ops == &osd_body_ops_new)
+			obj->oo_dt.do_body_ops = &osd_body_ops;
 		result = __osd_oi_insert(env, obj, fid, th);
+	}
 
 	LASSERT(ergo(result == 0,
 		dt_object_exists(dt) && !dt_object_remote(dt)));
