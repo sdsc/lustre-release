@@ -256,7 +256,7 @@ static int llog_remove_log(const struct lu_env *env, struct llog_handle *cat,
 		RETURN(-ENOENT);
 	}
 
-	rc = llog_destroy(env, log);
+	rc = llog_destroy(env, log, NULL);
 	if (rc) {
 		CDEBUG(D_IOCTL, "cannot destroy log\n");
 		GOTO(out, rc);
@@ -391,7 +391,7 @@ int llog_ioctl(const struct lu_env *env, struct llog_ctxt *ctxt, int cmd,
 		struct llog_logid plain;
 
 		if (handle->lgh_hdr->llh_flags & LLOG_F_IS_PLAIN) {
-			rc = llog_destroy(env, handle);
+			rc = llog_destroy(env, handle, NULL);
 			GOTO(out_close, rc);
 		} else if (!(handle->lgh_hdr->llh_flags & LLOG_F_IS_CAT)) {
 			GOTO(out_close, rc = -EINVAL);
