@@ -571,11 +571,12 @@ again:
 
 	next = lo->ldo_stripe[it->lit_stripe_index];
 	LASSERT(next != NULL);
-	LASSERT(next->do_index_ops != NULL);
 
 	rc = next->do_ops->do_index_try(env, next, &dt_directory_features);
 	if (rc != 0)
 		RETURN(rc);
+
+	LASSERT(next->do_index_ops != NULL);
 
 	it_next = next->do_index_ops->dio_it.init(env, next, it->lit_attr);
 	if (!IS_ERR(it_next)) {
@@ -1893,7 +1894,7 @@ static int lod_prep_md_striped_create(const struct lu_env *env,
 		       idx, i, PFID(&fid));
 		idx_array[i] = idx;
 		/* Set the start index for next stripe allocation */
-		if (i < stripe_count)
+		if (i < stripe_count - 1)
 			idx_array[i + 1] = (idx + 1) %
 					   (lod->lod_remote_mdt_count + 1);
 		/* tgt_dt and fid must be ready after search avaible OSP
@@ -2060,6 +2061,85 @@ static int lod_dir_declare_xattr_set(const struct lu_env *env,
 }
 
 /**
+ * Reset parent FID on OST object
+ *
+ * Replace parent FID with @dt object FID, which is only called during migration
+ * to reset the parent FID after the MDT object is migrated to the new MDT, i.e.
+ * the FID is changed.
+ *
+ * \param[in] env execution environment
+ * \param[in] dt dt_object whose stripes's parent FID will be reset
+ * \parem[in] th thandle
+ * \param[in] declare if it is declare
+ *
+ * \retval	0 if reset succeeds
+ * \retval	negative errno if reset fais
+ */
+static int lod_object_replace_parent_fid(const struct lu_env *env,
+					 struct dt_object *dt,
+					 struct thandle *th, bool declare)
+{
+	struct lod_object *lo = lod_dt_obj(dt);
+	struct lod_thread_info	*info = lod_env_info(env);
+	struct lu_buf *buf = &info->lti_buf;
+	struct filter_fid *ff;
+	int i, rc;
+	ENTRY;
+
+	LASSERT(S_ISREG(dt->do_lu.lo_header->loh_attr));
+
+	/* set xattr to each stripes, if needed */
+	rc = lod_load_striping(env, lo);
+	if (rc != 0)
+		RETURN(rc);
+
+	if (lo->ldo_stripenr == 0)
+		RETURN(0);
+
+	if (info->lti_ea_store_size < sizeof(*ff)) {
+		rc = lod_ea_store_resize(info, sizeof(*ff));
+		if (rc != 0)
+			RETURN(rc);
+	}
+
+	buf->lb_buf = info->lti_ea_store;
+	buf->lb_len = info->lti_ea_store_size;
+
+	for (i = 0; i < lo->ldo_stripenr; i++) {
+		if (lo->ldo_stripe[i] == NULL)
+			continue;
+
+		rc = dt_xattr_get(env, lo->ldo_stripe[i], buf,
+				  XATTR_NAME_FID);
+		if (rc < 0) {
+			rc = 0;
+			continue;
+		}
+
+		ff = buf->lb_buf;
+		fid_le_to_cpu(&ff->ff_parent, &ff->ff_parent);
+		ff->ff_parent.f_seq = lu_object_fid(&dt->do_lu)->f_seq;
+		ff->ff_parent.f_oid = lu_object_fid(&dt->do_lu)->f_oid;
+		fid_cpu_to_le(&ff->ff_parent, &ff->ff_parent);
+
+		if (declare) {
+			rc = lod_sub_object_declare_xattr_set(env,
+						lo->ldo_stripe[i], buf,
+						XATTR_NAME_FID,
+						LU_XATTR_REPLACE, th);
+		} else {
+			rc = lod_sub_object_xattr_set(env, lo->ldo_stripe[i],
+						      buf, XATTR_NAME_FID,
+						      LU_XATTR_REPLACE, th);
+		}
+		if (rc < 0)
+			break;
+	}
+
+	RETURN(rc);
+}
+
+/**
  * Implementation of dt_object_operations::do_declare_xattr_set.
  *
  * \see dt_object_operations::do_declare_xattr_set() in the API description
@@ -2105,6 +2185,8 @@ static int lod_declare_xattr_set(const struct lu_env *env,
 		rc = lod_declare_striped_object(env, dt, attr, buf, th);
 	} else if (S_ISDIR(mode)) {
 		rc = lod_dir_declare_xattr_set(env, dt, buf, name, fl, th);
+	} else if (strcmp(name, XATTR_NAME_FID) == 0) {
+		rc = lod_object_replace_parent_fid(env, dt, th, true);
 	} else {
 		rc = lod_sub_object_declare_xattr_set(env, next, buf, name,
 						      fl, th);
@@ -2757,6 +2839,10 @@ static int lod_xattr_set(const struct lu_env *env,
 			rc = lod_striping_create(env, dt, NULL, NULL, th);
 		}
 		RETURN(rc);
+	} else if (strcmp(name, XATTR_NAME_FID) == 0) {
+		rc = lod_object_replace_parent_fid(env, dt, th, false);
+
+		RETURN(rc);
 	}
 
 	/* then all other xattr */
@@ -2797,7 +2883,8 @@ static int lod_declare_xattr_del(const struct lu_env *env,
 		RETURN(0);
 
 	for (i = 0; i < lo->ldo_stripenr; i++) {
-		LASSERT(lo->ldo_stripe[i]);
+		if (lo->ldo_stripe[i] == NULL)
+			continue;
 		rc = lod_sub_object_declare_xattr_del(env, lo->ldo_stripe[i],
 						      name, th);
 		if (rc != 0)
@@ -2835,8 +2922,8 @@ static int lod_xattr_del(const struct lu_env *env, struct dt_object *dt,
 		RETURN(0);
 
 	for (i = 0; i < lo->ldo_stripenr; i++) {
-		LASSERT(lo->ldo_stripe[i]);
-
+		if (lo->ldo_stripe[i] == NULL)
+			continue;
 		rc = lod_sub_object_xattr_del(env, lo->ldo_stripe[i], name, th);
 		if (rc != 0)
 			break;
@@ -3704,8 +3791,12 @@ static int lod_object_destroy(const struct lu_env *env,
 			}
 
 			rc = lod_sub_object_destroy(env, lo->ldo_stripe[i], th);
-			if (rc != 0)
+			if (rc != 0) {
 				break;
+			} else {
+				lu_object_put(env, &lo->ldo_stripe[i]->do_lu);
+				lo->ldo_stripe[i] = NULL;
+			}
 		}
 	}
 

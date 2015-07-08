@@ -15,9 +15,11 @@ rm -f $LOG $DEBUGLOG
 exec 2>$DEBUGLOG
 set -x
 
+LUSTRE=${LUSTRE:-$(cd $(dirname $0)/..; echo $PWD)}
+. $LUSTRE/tests/test-framework.sh
 . $(dirname $0)/functions.sh
 
-assert_env MOUNT END_RUN_FILE LOAD_PID_FILE
+assert_env MOUNT END_RUN_FILE LOAD_PID_FILE LFS CLIENT_COUNT MDSCOUNT
 
 trap signaled TERM
 
@@ -31,7 +33,13 @@ CONTINUE=true
 while [ ! -e "$END_RUN_FILE" ] && $CONTINUE; do
 	echoerr "$(date +'%F %H:%M:%S'): dbench run starting"
 
-	mkdir -p $TESTDIR
+ 	MDT_IDX=$((RANDOM % MDSCOUNT))
+ 	test_mkdir -i $MDT_IDX -c$MDSCOUNT $TESTDIR || {
+  		echoerr "create $TESTDIR fails"
+  		echo $(hostname) >> $END_RUN_FILE
+  		break
+  	}
+ 	$LFS setdirstripe -D -c$MDSCOUNT $TESTDIR
 
 	sync
 	rundbench -D $TESTDIR 2 1>$LOG &
