@@ -122,10 +122,9 @@ static int sub_declare_updates_write(const struct lu_env *env,
 	 * for example if the the OSP is used to connect to OST */
 	ctxt = llog_get_context(dt->dd_lu_dev.ld_obd,
 				LLOG_UPDATELOG_ORIG_CTXT);
-	LASSERT(ctxt != NULL);
 
 	/* Not ready to record updates yet. */
-	if (ctxt->loc_handle == NULL)
+	if (ctxt == NULL || ctxt->loc_handle == NULL)
 		GOTO(out_put, rc = 0);
 
 	rc = llog_declare_add(env, ctxt->loc_handle,
@@ -184,11 +183,12 @@ static int sub_updates_write(const struct lu_env *env,
 
 	ctxt = llog_get_context(dt->dd_lu_dev.ld_obd,
 				LLOG_UPDATELOG_ORIG_CTXT);
-	LASSERT(ctxt != NULL);
 
-	/* Not ready to record updates yet, usually happens
-	 * in error handler path */
-	if (ctxt->loc_handle == NULL)
+	/* If ctxt == NULL, then it means updates on OST (only happens
+	 * during migration), and we do not track those updates for now */
+	/* If ctxt->loc_handle == NULL, then it does not need to record
+	 * update, usually happens in error handler path */
+	if (ctxt == NULL || ctxt->loc_handle == NULL)
 		GOTO(llog_put, rc = 0);
 
 	/* Since the cross-MDT updates will includes both local
@@ -412,6 +412,7 @@ static void top_trans_committed_cb(struct top_multiple_thandle *tmt)
 	top_multiple_thandle_dump(tmt, D_HA);
 	tmt->tmt_committed = 1;
 	lut = dt2lu_dev(tmt->tmt_master_sub_dt)->ld_site->ls_tgt;
+
 	if (distribute_txn_commit_thread_running(lut))
 		wake_up(&lut->lut_tdtd->tdtd_commit_thread_waitq);
 	RETURN_EXIT;
@@ -467,7 +468,9 @@ static void sub_trans_commit_cb(struct lu_env *env,
 	bool			all_committed = true;
 	ENTRY;
 
+	LASSERT(tmt->tmt_magic == TOP_THANDLE_MAGIC);
 	/* Check if all sub thandles are committed */
+	spin_lock(&tmt->tmt_lock);
 	list_for_each_entry(st, &tmt->tmt_sub_thandle_list, st_sub_list) {
 		if (st->st_sub_th == sub_th) {
 			st->st_committed = 1;
@@ -476,6 +479,7 @@ static void sub_trans_commit_cb(struct lu_env *env,
 		if (!st->st_committed)
 			all_committed = false;
 	}
+	spin_unlock(&tmt->tmt_lock);
 
 	if (tmt->tmt_result == 0)
 		tmt->tmt_result = err;
@@ -516,6 +520,7 @@ static void sub_trans_stop_cb(struct lu_env *env,
 	struct top_multiple_thandle	*tmt = cb->dcb_data;
 	ENTRY;
 
+	LASSERT(tmt->tmt_magic == TOP_THANDLE_MAGIC);
 	list_for_each_entry(st, &tmt->tmt_sub_thandle_list, st_sub_list) {
 		if (st->st_stopped)
 			continue;
@@ -662,6 +667,7 @@ static void distribute_txn_assign_batchid(struct top_multiple_thandle *new)
 	spin_lock(&tdtd->tdtd_batchid_lock);
 	new->tmt_batchid = tdtd->tdtd_batchid++;
 	list_add_tail(&new->tmt_commit_list, &tdtd->tdtd_list);
+	tdtd->tdtd_list_count++;
 	spin_unlock(&tdtd->tdtd_batchid_lock);
 	top_multiple_thandle_get(new);
 	top_multiple_thandle_dump(new, D_INFO);
@@ -690,11 +696,16 @@ void distribute_txn_insert_by_batchid(struct top_multiple_thandle *new)
 			list_add(&new->tmt_commit_list, &tmt->tmt_commit_list);
 			break;
 		}
+		if (new->tmt_batchid == tmt->tmt_batchid) {
+			spin_unlock(&tdtd->tdtd_batchid_lock);
+			LBUG();
+		}
 	}
 	if (list_empty(&new->tmt_commit_list)) {
 		at_head = true;
 		list_add(&new->tmt_commit_list, &tdtd->tdtd_list);
 	}
+	tdtd->tdtd_list_count++;
 	spin_unlock(&tdtd->tdtd_batchid_lock);
 	top_multiple_thandle_get(new);
 	top_multiple_thandle_dump(new, D_INFO);
@@ -981,11 +992,14 @@ stop_master_trans:
 			struct llog_update_record *lur;
 
 			lur = tur->tur_update_records;
-			if (lur->lur_update_rec.ur_master_transno == 0)
+			if (lur->lur_update_rec.ur_master_transno == 0) {
 				/* Update master transno after master stop
 				 * callback */
 				lur->lur_update_rec.ur_master_transno =
 						tgt_th_info(env)->tti_transno;
+				tmt->tmt_master_transno = tgt_th_info(env)->tti_transno;
+				LASSERT(tmt->tmt_master_transno > 0);
+			}
 		}
 	}
 
@@ -1072,7 +1086,7 @@ int top_trans_create_tmt(const struct lu_env *env,
 	INIT_LIST_HEAD(&tmt->tmt_sub_thandle_list);
 	INIT_LIST_HEAD(&tmt->tmt_commit_list);
 	atomic_set(&tmt->tmt_refcount, 1);
-
+	spin_lock_init(&tmt->tmt_lock);
 	init_waitqueue_head(&tmt->tmt_stop_waitq);
 	top_th->tt_multiple_thandle = tmt;
 
@@ -1228,7 +1242,8 @@ static int distribute_txn_cancel_records(const struct lu_env *env,
 
 		obd = st->st_dt->dd_lu_dev.ld_obd;
 		ctxt = llog_get_context(obd, LLOG_UPDATELOG_ORIG_CTXT);
-		LASSERT(ctxt);
+		if (ctxt == NULL)
+			continue;
 		list_for_each_entry(stc, &st->st_cookie_list, stc_list) {
 			cookie = &stc->stc_cookie;
 			if (fid_is_zero(&cookie->lgc_lgl.lgl_oi.oi_fid))
@@ -1520,6 +1535,7 @@ static int distribute_txn_commit_thread(void *_arg)
 			 * batchid < committed_batchid. */
 			if (tmt->tmt_batchid <= tdtd->tdtd_committed_batchid) {
 				list_move_tail(&tmt->tmt_commit_list, &list);
+				tdtd->tdtd_list_count--;
 			} else if (!tdtd->tdtd_lut->lut_obd->obd_recovering) {
 				LASSERTF(tmt->tmt_batchid >= batchid,
 					 "tmt %p tmt_batchid: "LPU64", batchid "
@@ -1546,7 +1562,9 @@ static int distribute_txn_commit_thread(void *_arg)
 				 */
 				if (tmt->tmt_result <= 0)
 					batchid = tmt->tmt_batchid;
+
 				list_move_tail(&tmt->tmt_commit_list, &list);
+				tdtd->tdtd_list_count--;
 			}
 		}
 		spin_unlock(&tdtd->tdtd_batchid_lock);
@@ -1554,12 +1572,31 @@ static int distribute_txn_commit_thread(void *_arg)
 		CDEBUG(D_HA, "%s: batchid: "LPU64" committed batchid "
 		       LPU64"\n", tdtd->tdtd_lut->lut_obd->obd_name, batchid,
 		       tdtd->tdtd_committed_batchid);
+		{
+			if (tdtd->tdtd_list_count > 500) {
+				struct top_multiple_thandle *tmt = NULL;
+
+				LCONSOLE_WARN("%s: batchid: "LPU64" committed batchid "
+				       LPU64" batchid "LPU64" \n", tdtd->tdtd_lut->lut_obd->obd_name,
+				       batchid, tdtd->tdtd_committed_batchid, tdtd->tdtd_batchid);
+					
+				spin_lock(&tdtd->tdtd_batchid_lock);
+				if (!list_empty(&tdtd->tdtd_list)) {
+					tmt = list_entry(tdtd->tdtd_list.next,
+							 struct top_multiple_thandle, tmt_commit_list);
+					top_multiple_thandle_dump(tmt, D_ERROR);
+				}
+				spin_unlock(&tdtd->tdtd_batchid_lock);
+			}
+		}
+
+
 		/* update globally committed on a storage */
 		if (batchid > tdtd->tdtd_committed_batchid) {
-			distribute_txn_commit_batchid_update(&env, tdtd,
-							     batchid);
+			rc = distribute_txn_commit_batchid_update(&env, tdtd,
+								  batchid);
 			spin_lock(&tdtd->tdtd_batchid_lock);
-			if (batchid > tdtd->tdtd_batchid) {
+			if (rc == 0 && batchid >= tdtd->tdtd_batchid) {
 				/* This might happen during recovery,
 				 * batchid is initialized as last transno,
 				 * and the batchid in the update records
@@ -1570,7 +1607,8 @@ static int distribute_txn_commit_thread(void *_arg)
 				       " to "LPU64"\n",
 				       tdtd->tdtd_lut->lut_obd->obd_name,
 				       tdtd->tdtd_batchid, batchid);
-				tdtd->tdtd_batchid = batchid;
+				tdtd->tdtd_batchid = batchid + 1;
+				batchid = 0;
 			}
 			spin_unlock(&tdtd->tdtd_batchid_lock);
 		}
@@ -1580,6 +1618,7 @@ static int distribute_txn_commit_thread(void *_arg)
 		list_for_each_entry_safe(tmt, tmp, &list, tmt_commit_list) {
 			if (tmt->tmt_batchid > committed)
 				break;
+
 			list_del_init(&tmt->tmt_commit_list);
 			if (tmt->tmt_result <= 0)
 				distribute_txn_cancel_records(&env, tmt);
@@ -1637,8 +1676,13 @@ int distribute_txn_init(const struct lu_env *env,
 	int			rc;
 	ENTRY;
 
-	spin_lock_init(&tdtd->tdtd_batchid_lock);
 	INIT_LIST_HEAD(&tdtd->tdtd_list);
+	INIT_LIST_HEAD(&tdtd->tdtd_replay_finish_list);
+	INIT_LIST_HEAD(&tdtd->tdtd_replay_list);
+	spin_lock_init(&tdtd->tdtd_batchid_lock);
+	spin_lock_init(&tdtd->tdtd_replay_list_lock);
+	tdtd->tdtd_replay_handler = distribute_txn_replay_handle;
+	tdtd->tdtd_replay_ready = 0;
 
 	tdtd->tdtd_batchid = lut->lut_last_transno + 1;
 
