@@ -391,6 +391,9 @@ insert_update_records_to_replay_list(struct target_distribute_txn_data *tdtd,
 		if (rc == -EEXIST) {
 			/* Some one else already add the record */
 			dtrq_destroy(dtrq);
+			spin_lock(&tdtd->tdtd_replay_list_lock);
+			dtrq = dtrq_lookup(tdtd, record->ur_batchid);
+			spin_unlock(&tdtd->tdtd_replay_list_lock);
 			rc = 0;
 		}
 	} else {
