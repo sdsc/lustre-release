@@ -15,9 +15,11 @@ rm -f $LOG $DEBUGLOG
 exec 2>$DEBUGLOG
 set -x
 
+LUSTRE=${LUSTRE:-$(cd $(dirname $0)/..; echo $PWD)}
+. $LUSTRE/tests/test-framework.sh
 . $(dirname $0)/functions.sh
-
-assert_env MOUNT END_RUN_FILE LOAD_PID_FILE LFS CLIENT_COUNT
+  
+assert_env MOUNT END_RUN_FILE LOAD_PID_FILE LFS CLIENT_COUNT MDSCOUNT
 
 trap signaled TERM
 
@@ -34,7 +36,14 @@ do_tar() {
 CONTINUE=true
 while [ ! -e "$END_RUN_FILE" ] && $CONTINUE; do
 	echoerr "$(date +'%F %H:%M:%S'): tar run starting"
-	mkdir -p $TESTDIR
+ 	MDT_IDX=$((RANDOM % MDSCOUNT))
+	test_mkdir -i $MDT_IDX -c$MDSCOUNT $TESTDIR || {
+  		echoerr "create $TESTDIR fails"
+  		echo $(hostname) >> $END_RUN_FILE
+  		break
+  	}
+	$LFS setdirstripe -D -c$MDSCOUNT $TESTDIR
+
 	USAGE=$(du -s /etc | awk '{print $1}')
 	FREE_SPACE=$($LFS df $TESTDIR | awk '/filesystem summary:/ {print $5}')
 	AVAIL=$((FREE_SPACE * 9 / 10 / CLIENT_COUNT))
