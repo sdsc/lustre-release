@@ -295,6 +295,7 @@ struct top_multiple_thandle {
 	int			tmt_result;
 	__u32			tmt_magic;
 	size_t			tmt_record_size;
+	__u64			tmt_master_transno;
 	__u32			tmt_committed:1;
 };
 
