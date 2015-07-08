@@ -100,8 +100,9 @@ static int mdt_version_check(struct ptlrpc_request *req,
 		spin_unlock(&req->rq_export->exp_lock);
 		RETURN(-EOVERFLOW);
 	} else if (pre_ver[idx] != version) {
-		CDEBUG(D_INODE, "Version mismatch "LPX64" != "LPX64"\n",
+		CERROR("Version mismatch "LPX64" != "LPX64"\n",
 		       pre_ver[idx], version);
+		libcfs_debug_dumplog();
 		spin_lock(&req->rq_export->exp_lock);
 		req->rq_export->exp_vbr_failed = 1;
 		spin_unlock(&req->rq_export->exp_lock);
