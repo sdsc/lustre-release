@@ -122,10 +122,9 @@ static int sub_declare_updates_write(const struct lu_env *env,
 	 * for example if the the OSP is used to connect to OST */
 	ctxt = llog_get_context(dt->dd_lu_dev.ld_obd,
 				LLOG_UPDATELOG_ORIG_CTXT);
-	LASSERT(ctxt != NULL);
 
 	/* Not ready to record updates yet. */
-	if (ctxt->loc_handle == NULL)
+	if (ctxt == NULL || ctxt->loc_handle == NULL)
 		GOTO(out_put, rc = 0);
 
 	rc = llog_declare_add(env, ctxt->loc_handle,
@@ -184,11 +183,12 @@ static int sub_updates_write(const struct lu_env *env,
 
 	ctxt = llog_get_context(dt->dd_lu_dev.ld_obd,
 				LLOG_UPDATELOG_ORIG_CTXT);
-	LASSERT(ctxt != NULL);
 
-	/* Not ready to record updates yet, usually happens
-	 * in error handler path */
-	if (ctxt->loc_handle == NULL)
+	/* If ctxt == NULL, then it means updates on OST (only happens
+	 * during migration), and we do not track those updates for now */
+	/* If ctxt->loc_handle == NULL, then it does not need to record
+	 * update, usually happens in error handler path */
+	if (ctxt == NULL || ctxt->loc_handle == NULL)
 		GOTO(llog_put, rc = 0);
 
 	/* Since the cross-MDT updates will includes both local
@@ -412,6 +412,13 @@ static void top_trans_committed_cb(struct top_multiple_thandle *tmt)
 	top_multiple_thandle_dump(tmt, D_HA);
 	tmt->tmt_committed = 1;
 	lut = dt2lu_dev(tmt->tmt_master_sub_dt)->ld_site->ls_tgt;
+
+	LASSERTF(tmt->tmt_master_transno <=
+		 lut->lut_obd->obd_last_committed,
+		" %s tmt master "LPU64" last_committed "LPU64"\n",
+		 lut->lut_obd->obd_name, tmt->tmt_master_transno,
+		 lut->lut_obd->obd_last_committed);
+
 	if (distribute_txn_commit_thread_running(lut))
 		wake_up(&lut->lut_tdtd->tdtd_commit_thread_waitq);
 	RETURN_EXIT;
@@ -467,6 +474,7 @@ static void sub_trans_commit_cb(struct lu_env *env,
 	bool			all_committed = true;
 	ENTRY;
 
+	LASSERT(tmt->tmt_magic == TOP_THANDLE_MAGIC);
 	/* Check if all sub thandles are committed */
 	list_for_each_entry(st, &tmt->tmt_sub_thandle_list, st_sub_list) {
 		if (st->st_sub_th == sub_th) {
@@ -516,6 +524,7 @@ static void sub_trans_stop_cb(struct lu_env *env,
 	struct top_multiple_thandle	*tmt = cb->dcb_data;
 	ENTRY;
 
+	LASSERT(tmt->tmt_magic == TOP_THANDLE_MAGIC);
 	list_for_each_entry(st, &tmt->tmt_sub_thandle_list, st_sub_list) {
 		if (st->st_stopped)
 			continue;
@@ -981,11 +990,14 @@ stop_master_trans:
 			struct llog_update_record *lur;
 
 			lur = tur->tur_update_records;
-			if (lur->lur_update_rec.ur_master_transno == 0)
+			if (lur->lur_update_rec.ur_master_transno == 0) {
 				/* Update master transno after master stop
 				 * callback */
 				lur->lur_update_rec.ur_master_transno =
 						tgt_th_info(env)->tti_transno;
+				tmt->tmt_master_transno = tgt_th_info(env)->tti_transno;
+				LASSERT(tmt->tmt_master_transno > 0);
+			}
 		}
 	}
 
@@ -1228,7 +1240,8 @@ static int distribute_txn_cancel_records(const struct lu_env *env,
 
 		obd = st->st_dt->dd_lu_dev.ld_obd;
 		ctxt = llog_get_context(obd, LLOG_UPDATELOG_ORIG_CTXT);
-		LASSERT(ctxt);
+		if (ctxt == NULL)
+			continue;
 		list_for_each_entry(stc, &st->st_cookie_list, stc_list) {
 			cookie = &stc->stc_cookie;
 			if (fid_is_zero(&cookie->lgc_lgl.lgl_oi.oi_fid))
@@ -1519,6 +1532,13 @@ static int distribute_txn_commit_thread(void *_arg)
 			 * the recoverying is done, unless the update records
 			 * batchid < committed_batchid. */
 			if (tmt->tmt_batchid <= tdtd->tdtd_committed_batchid) {
+				LASSERTF(tmt->tmt_master_transno <=
+					tdtd->tdtd_lut->lut_obd->obd_last_committed,
+					" %s tmt master "LPU64" last_committed "LPU64"\n",
+					tdtd->tdtd_lut->lut_obd->obd_name,
+					tmt->tmt_master_transno,
+					tdtd->tdtd_lut->lut_obd->obd_last_committed);
+
 				list_move_tail(&tmt->tmt_commit_list, &list);
 			} else if (!tdtd->tdtd_lut->lut_obd->obd_recovering) {
 				LASSERTF(tmt->tmt_batchid >= batchid,
@@ -1544,8 +1564,16 @@ static int distribute_txn_commit_thread(void *_arg)
 				 * node, but we need release this tmt before
 				 * that, which usuually happens during umount.
 				 */
-				if (tmt->tmt_result <= 0)
+				if (tmt->tmt_result <= 0) {
+					LASSERTF(tmt->tmt_master_transno <=
+						tdtd->tdtd_lut->lut_obd->obd_last_committed,
+						" %s tmt master "LPU64" last_committed "LPU64"\n",
+						tdtd->tdtd_lut->lut_obd->obd_name,
+						tmt->tmt_master_transno,
+						tdtd->tdtd_lut->lut_obd->obd_last_committed);
+
 					batchid = tmt->tmt_batchid;
+				}
 				list_move_tail(&tmt->tmt_commit_list, &list);
 			}
 		}
@@ -1570,7 +1598,7 @@ static int distribute_txn_commit_thread(void *_arg)
 				       " to "LPU64"\n",
 				       tdtd->tdtd_lut->lut_obd->obd_name,
 				       tdtd->tdtd_batchid, batchid);
-				tdtd->tdtd_batchid = batchid;
+				tdtd->tdtd_batchid = batchid + 1;
 			}
 			spin_unlock(&tdtd->tdtd_batchid_lock);
 		}
@@ -1580,6 +1608,13 @@ static int distribute_txn_commit_thread(void *_arg)
 		list_for_each_entry_safe(tmt, tmp, &list, tmt_commit_list) {
 			if (tmt->tmt_batchid > committed)
 				break;
+
+			LASSERTF(tmt->tmt_master_transno <=
+				tdtd->tdtd_lut->lut_obd->obd_last_committed,
+			        " %s tmt master "LPU64" last_committed "LPU64"\n",
+				tdtd->tdtd_lut->lut_obd->obd_name,
+				tmt->tmt_master_transno,
+				tdtd->tdtd_lut->lut_obd->obd_last_committed);
 			list_del_init(&tmt->tmt_commit_list);
 			if (tmt->tmt_result <= 0)
 				distribute_txn_cancel_records(&env, tmt);
