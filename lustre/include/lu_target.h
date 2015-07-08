@@ -54,10 +54,13 @@ struct distribute_txn_replay_req {
 	/* linked to the distribute transaction replay
 	 * list (tdtd_replay_list) */
 	struct list_head	dtrq_list;
+	__u64			dtrq_master_transno;
+	__u64			dtrq_batchid;
 
 	/* all of sub updates are linked here */
 	struct list_head	dtrq_sub_list;
 	spinlock_t		dtrq_sub_list_lock;
+	int			dtrq_update_count;
 };
 
 /* Each one represents a sub replay item under a distribute
@@ -91,11 +94,15 @@ struct target_distribute_txn_data {
 
 	/* List for distribute transaction */
 	struct list_head	tdtd_list;
+	__u64			tdtd_list_count;
 
 	/* Threads to manage distribute transaction */
 	wait_queue_head_t	tdtd_commit_thread_waitq;
 	atomic_t		tdtd_refcount;
 
+	/* debug purpose */
+	__u64			tdtd_update_count;
+	__u64			tdtd_execute_count;
 	/* recovery update */
 	distribute_txn_replay_handler_t	tdtd_replay_handler;
 	struct list_head		tdtd_replay_list;
@@ -214,6 +221,11 @@ struct tgt_session_info {
 	bool			 tsi_preprocessed;
 	/* request JobID */
 	char                    *tsi_jobid;
+
+	/* update replay */
+	__u64			tsi_xid;
+	__u32			tsi_result;
+	__u32			tsi_client_gen;
 };
 
 static inline struct tgt_session_info *tgt_ses_info(const struct lu_env *env)
@@ -435,6 +447,11 @@ int tgt_truncate_last_rcvd(const struct lu_env *env, struct lu_target *tg,
 			   loff_t off);
 int tgt_reply_data_init(const struct lu_env *env, struct lu_target *tgt);
 bool tgt_lookup_reply(struct ptlrpc_request *req, struct tg_reply_data *trd);
+int tgt_add_reply_data(const struct lu_env *env, struct lu_target *tgt,
+		       struct tg_export_data *ted, struct tg_reply_data *trd,
+		       struct thandle *th, bool update_lrd_file);
+struct tg_reply_data *tgt_lookup_reply_by_xid(struct tg_export_data *ted,
+					       __u64 xid);
 
 /* target/update_trans.c */
 int distribute_txn_init(const struct lu_env *env,
