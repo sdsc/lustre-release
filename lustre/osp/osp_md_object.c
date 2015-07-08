@@ -192,6 +192,17 @@ int osp_md_object_create(const struct lu_env *env, struct dt_object *dt,
 	if (rc < 0)
 		GOTO(out, rc);
 
+	if (S_ISREG(attr->la_mode)) {
+		struct osp_thandle *oth = thandle_to_osp_thandle(th);
+
+		/* when it creates a remote regular file, usually it is
+		 * creating remote llog file, to make sure this creation 
+		 * happens before following write, then we assign
+		 * the rpc version for this sub thandle here. */
+		rc = osp_check_and_set_rpc_version(oth);
+		if (rc < 0)
+			RETURN(rc);
+	}
 	dt->do_lu.lo_header->loh_attr |= LOHA_EXISTS | (attr->la_mode & S_IFMT);
 	dt2osp_obj(dt)->opo_non_exist = 0;
 
