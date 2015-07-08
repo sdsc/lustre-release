@@ -285,6 +285,7 @@ struct top_multiple_thandle {
 	atomic_t		tmt_refcount;
 	/* Other sub transactions will be listed here. */
 	struct list_head	tmt_sub_thandle_list;
+	spinlock_t		tmt_lock;
 
 	struct list_head	tmt_commit_list;
 	/* All of update records will packed here */
@@ -295,6 +296,7 @@ struct top_multiple_thandle {
 	int			tmt_result;
 	__u32			tmt_magic;
 	size_t			tmt_record_size;
+	__u64			tmt_master_transno;
 	__u32			tmt_committed:1;
 };
 
@@ -440,6 +442,8 @@ int out_read_pack(const struct lu_env *env, struct object_update *update,
 		  size_t size, loff_t pos);
 
 const char *update_op_str(__u16 opcode);
+void object_update_request_dump(const struct object_update_request *ourq,
+				unsigned int mask);
 
 /* target/update_trans.c */
 struct thandle *thandle_get_sub_by_dt(const struct lu_env *env,

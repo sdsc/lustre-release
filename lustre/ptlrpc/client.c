@@ -2086,9 +2086,9 @@ int ptlrpc_expired_set(void *data)
 			list_entry(tmp, struct ptlrpc_request,
 				   rq_set_chain);
 
-                /* don't expire request waiting for context */
-                if (req->rq_wait_ctx)
-                        continue;
+		/* don't expire request waiting for context */
+		if (req->rq_wait_ctx || req->rq_no_timeout)
+			continue;
 
                 /* Request in-flight? */
                 if (!((req->rq_phase == RQ_PHASE_RPC &&
@@ -2810,10 +2810,12 @@ static int ptlrpc_replay_interpret(const struct lu_env *env,
 	ENTRY;
 	atomic_dec(&imp->imp_replay_inflight);
 
-        if (!ptlrpc_client_replied(req)) {
-                CERROR("request replay timed out, restarting recovery\n");
-                GOTO(out, rc = -ETIMEDOUT);
-        }
+	if (!ptlrpc_client_replied(req) ||
+	    (req->rq_bulk != NULL &&
+	     lustre_msg_get_status(req->rq_repmsg) == -ETIMEDOUT)) {
+		CERROR("request replay timed out, restarting recovery\n");
+		GOTO(out, rc = -ETIMEDOUT);
+	}
 
         if (lustre_msg_get_type(req->rq_repmsg) == PTL_RPC_MSG_ERR &&
             (lustre_msg_get_status(req->rq_repmsg) == -ENOTCONN ||
