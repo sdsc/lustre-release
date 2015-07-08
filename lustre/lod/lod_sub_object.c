@@ -95,7 +95,9 @@ struct thandle *lod_sub_get_thandle(const struct lu_env *env,
 	if (rc < 0)
 		RETURN(ERR_PTR(rc));
 
-	if (type == LU_SEQ_RANGE_OST)
+	/* th_complex means we need track all of updates for this
+	 * transaction, include changes on OST */
+	if (type == LU_SEQ_RANGE_OST && !th->th_complex)
 		RETURN(tth->tt_master_sub_thandle);
 
 	sub_th = thandle_get_sub(env, th, sub_obj);
@@ -983,7 +985,6 @@ int lod_sub_prep_llog(const struct lu_env *env, struct lod_device *lod,
 	}
 
 	LASSERT(lgh != NULL);
-	ctxt->loc_handle = lgh;
 
 	rc = llog_cat_init_and_process(env, lgh);
 	if (rc != 0)
@@ -995,14 +996,13 @@ int lod_sub_prep_llog(const struct lu_env *env, struct lod_device *lod,
 			GOTO(out_close, rc);
 	}
 
+	ctxt->loc_handle = lgh;
 	CDEBUG(D_INFO, "%s: Init llog for %d - catid "DOSTID":%x\n",
 	       obd->obd_name, index, POSTID(&cid->lci_logid.lgl_oi),
 	       cid->lci_logid.lgl_ogen);
 out_close:
-	if (rc != 0) {
+	if (rc != 0)
 		llog_cat_close(env, ctxt->loc_handle);
-		ctxt->loc_handle = NULL;
-	}
 
 out_put:
 	llog_ctxt_put(ctxt);

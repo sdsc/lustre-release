@@ -1200,3 +1200,30 @@ int out_destroy_add_exec(const struct lu_env *env, struct dt_object *dt_obj,
 	arg->index = index;
 	return 0;
 }
+
+void object_update_request_dump(const struct object_update_request *ourq,
+				unsigned int mask)
+{
+	unsigned int i;
+	size_t total_size = 0;
+
+	for (i = 0; i < ourq->ourq_count; i++) {
+		struct object_update	*update;
+		size_t			size = 0;
+
+		update = object_update_request_get(ourq, i, &size);
+		LASSERT(update != NULL);
+		CDEBUG(mask, "i = %u fid = "DFID" op = %s master = %u"
+		       "params = %d batchid = "LPU64" size = %zu\n",
+		       i, PFID(&update->ou_fid),
+		       update_op_str(update->ou_type),
+		       update->ou_master_index, update->ou_params_count,
+		       update->ou_batchid, size);
+
+		total_size += size;
+	}
+
+	CDEBUG(mask, "updates = %p magic = %x count = %d size = %zu\n", ourq,
+	       ourq->ourq_magic, ourq->ourq_count, total_size);
+}
+EXPORT_SYMBOL(object_update_request_dump);
