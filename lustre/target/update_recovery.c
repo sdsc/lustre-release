@@ -367,7 +367,7 @@ insert_update_records_to_replay_list(struct target_distribute_txn_data *tdtd,
 	CDEBUG(D_HA, "%s: insert record batchid = "LPU64" transno = "LPU64
 	       " mdt_index %u\n", tdtd->tdtd_lut->lut_obd->obd_name,
 	       record->ur_batchid, record->ur_master_transno, mdt_index);
-
+again:
 	/* First try to build the replay update request with the records */
 	spin_lock(&tdtd->tdtd_replay_list_lock);
 	dtrq = dtrq_lookup(tdtd, record->ur_batchid);
@@ -391,7 +391,7 @@ insert_update_records_to_replay_list(struct target_distribute_txn_data *tdtd,
 		if (rc == -EEXIST) {
 			/* Some one else already add the record */
 			dtrq_destroy(dtrq);
-			rc = 0;
+			goto again;
 		}
 	} else {
 		struct update_records *dtrq_rec;
@@ -1221,6 +1221,9 @@ int distribute_txn_replay_handle(struct lu_env *env,
 		LASSERT(tmt->tmt_committed == 0);
 		sub_dt = lu2dt_dev(dt_obj->do_lu.lo_dev);
 		st = lookup_sub_thandle(tmt, sub_dt);
+		if (tmt->tmt_master_sub_dt == sub_dt)
+			dtrq->dtrq_local_update_executed = 1;
+
 		LASSERT(st != NULL);
 		LASSERT(st->st_sub_th != NULL);
 		rc = ta->ta_args[i]->exec_fn(env, st->st_sub_th,
