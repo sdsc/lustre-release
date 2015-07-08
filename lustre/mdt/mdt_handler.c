@@ -2528,7 +2528,7 @@ void mdt_save_lock(struct mdt_thread_info *info, struct lustre_handle *h,
 			/* there is no request if mdt_object_unlock() is called
 			 * from mdt_export_cleanup()->mdt_add_dirty_flag() */
 			if (likely(req != NULL)) {
-				CDEBUG(D_HA, "request = %p reply state = %p"
+				CDEBUG(D_INFO, "request = %p reply state = %p"
 				       " transno = "LPD64"\n", req,
 				       req->rq_reply_state, req->rq_transno);
 				if (mdt_cos_is_enabled(mdt)) {
@@ -2541,7 +2541,7 @@ void mdt_save_lock(struct mdt_thread_info *info, struct lustre_handle *h,
 				ldlm_lock_decref(h, mode);
 			}
                         if (mdt_is_lock_sync(lock)) {
-                                CDEBUG(D_HA, "found sync-lock,"
+                                CDEBUG(D_INFO, "found sync-lock,"
                                        " async commit started\n");
                                 mdt_device_commit_async(info->mti_env,
                                                         mdt);

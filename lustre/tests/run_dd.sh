@@ -15,9 +15,10 @@ rm -f $LOG $DEBUGLOG
 exec 2>$DEBUGLOG
 set -x
 
-. $(dirname $0)/functions.sh
+LUSTRE=${LUSTRE:-$(cd $(dirname $0)/..; echo $PWD)}
+. $LUSTRE/tests/test-framework.sh
 
-assert_env MOUNT END_RUN_FILE LOAD_PID_FILE LFS CLIENT_COUNT
+assert_env MOUNT END_RUN_FILE LOAD_PID_FILE LFS CLIENT_COUNT MDSCOUNT NODENUM
 
 trap signaled TERM
 
@@ -25,11 +26,14 @@ trap signaled TERM
 echo $$ >$LOAD_PID_FILE
 
 TESTDIR=$MOUNT/d0.dd-$(hostname)
+rm -rf $TESTDIR
 
 CONTINUE=true
 while [ ! -e "$END_RUN_FILE" ] && $CONTINUE; do
 	echoerr "$(date +'%F %H:%M:%S'): dd run starting"
-	mkdir -p $TESTDIR
+	MDT_IDX=$((NODENUM % MDSCOUNT))
+	test_mkdir -i $MDT_IDX -c$MDSCOUNT $TESTDIR
+	$LFS setdirstripe -D -c$MDSCOUNT $TESTDIR
 	$LFS setstripe -c -1 $TESTDIR
 	cd $TESTDIR
 	sync

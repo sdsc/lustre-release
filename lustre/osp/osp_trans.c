@@ -868,6 +868,7 @@ static void osp_request_commit_cb(struct ptlrpc_request *req)
 	osp_trans_commit_cb(oth, result);
 	req->rq_committed = 1;
 	osp_thandle_put(oth);
+	req->rq_cb_data = NULL;
 	EXIT;
 }
 
@@ -985,9 +986,11 @@ static int osp_send_update_req(const struct lu_env *env,
 		if (top_device->ld_obd->obd_recovering)
 			req->rq_allow_replay = 1;
 
-		osp_get_rpc_lock(osp);
+		if (osp->opd_connect_mdt)
+			osp_get_rpc_lock(osp);
 		rc = ptlrpc_queue_wait(req);
-		osp_put_rpc_lock(osp);
+		if (osp->opd_connect_mdt)
+			osp_put_rpc_lock(osp);
 		if ((rc == -ENOMEM && req->rq_set == NULL) ||
 		    (req->rq_transno == 0 && !req->rq_committed)) {
 			if (args->oaua_update != NULL) {
@@ -1322,6 +1325,7 @@ int osp_trans_stop(const struct lu_env *env, struct dt_device *dt,
 	}
 
 	if (!osp->opd_connect_mdt) {
+		osp_trans_callback(env, oth, th->th_result);
 		rc = osp_send_update_req(env, osp, oth->ot_our);
 		GOTO(out, rc);
 	}
