@@ -122,10 +122,9 @@ static int sub_declare_updates_write(const struct lu_env *env,
 	 * for example if the the OSP is used to connect to OST */
 	ctxt = llog_get_context(dt->dd_lu_dev.ld_obd,
 				LLOG_UPDATELOG_ORIG_CTXT);
-	LASSERT(ctxt != NULL);
 
 	/* Not ready to record updates yet. */
-	if (ctxt->loc_handle == NULL)
+	if (ctxt == NULL || ctxt->loc_handle == NULL)
 		GOTO(out_put, rc = 0);
 
 	rc = llog_declare_add(env, ctxt->loc_handle,
@@ -184,11 +183,12 @@ static int sub_updates_write(const struct lu_env *env,
 
 	ctxt = llog_get_context(dt->dd_lu_dev.ld_obd,
 				LLOG_UPDATELOG_ORIG_CTXT);
-	LASSERT(ctxt != NULL);
 
-	/* Not ready to record updates yet, usually happens
-	 * in error handler path */
-	if (ctxt->loc_handle == NULL)
+	/* If ctxt == NULL, then it means updates on OST (only happens
+	 * during migration), and we do not track those updates for now */
+	/* If ctxt->loc_handle == NULL, then it does not need to record
+	 * update, usually happens in error handler path */
+	if (ctxt == NULL || ctxt->loc_handle == NULL)
 		GOTO(llog_put, rc = 0);
 
 	/* Since the cross-MDT updates will includes both local
@@ -467,6 +467,7 @@ static void sub_trans_commit_cb(struct lu_env *env,
 	bool			all_committed = true;
 	ENTRY;
 
+	LASSERT(tmt->tmt_magic == TOP_THANDLE_MAGIC);
 	/* Check if all sub thandles are committed */
 	list_for_each_entry(st, &tmt->tmt_sub_thandle_list, st_sub_list) {
 		if (st->st_sub_th == sub_th) {
@@ -516,6 +517,7 @@ static void sub_trans_stop_cb(struct lu_env *env,
 	struct top_multiple_thandle	*tmt = cb->dcb_data;
 	ENTRY;
 
+	LASSERT(tmt->tmt_magic == TOP_THANDLE_MAGIC);
 	list_for_each_entry(st, &tmt->tmt_sub_thandle_list, st_sub_list) {
 		if (st->st_stopped)
 			continue;
@@ -1228,7 +1230,8 @@ static int distribute_txn_cancel_records(const struct lu_env *env,
 
 		obd = st->st_dt->dd_lu_dev.ld_obd;
 		ctxt = llog_get_context(obd, LLOG_UPDATELOG_ORIG_CTXT);
-		LASSERT(ctxt);
+		if (ctxt == NULL)
+			continue;
 		list_for_each_entry(stc, &st->st_cookie_list, stc_list) {
 			cookie = &stc->stc_cookie;
 			if (fid_is_zero(&cookie->lgc_lgl.lgl_oi.oi_fid))

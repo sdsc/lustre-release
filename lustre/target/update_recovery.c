@@ -69,12 +69,14 @@ dtrq_lookup(struct target_distribute_txn_data *tdtd, __u64 batchid)
 	struct distribute_txn_replay_req	*tmp;
 	struct distribute_txn_replay_req	*dtrq = NULL;
 
+	spin_lock(&tdtd->tdtd_replay_list_lock);
 	list_for_each_entry(tmp, &tdtd->tdtd_replay_list, dtrq_list) {
 		if (tmp->dtrq_lur->lur_update_rec.ur_batchid == batchid) {
 			dtrq = tmp;
 			break;
 		}
 	}
+	spin_unlock(&tdtd->tdtd_replay_list_lock);
 	return dtrq;
 }
 
@@ -97,6 +99,7 @@ static int dtrq_insert(struct target_distribute_txn_data *tdtd,
 {
 	struct distribute_txn_replay_req *iter;
 
+	spin_lock(&tdtd->tdtd_replay_list_lock);
 	list_for_each_entry_reverse(iter, &tdtd->tdtd_replay_list, dtrq_list) {
 		if (iter->dtrq_lur->lur_update_rec.ur_master_transno >
 		    new->dtrq_lur->lur_update_rec.ur_master_transno)
@@ -107,8 +110,10 @@ static int dtrq_insert(struct target_distribute_txn_data *tdtd,
 		if (iter->dtrq_lur->lur_update_rec.ur_master_transno ==
 		    new->dtrq_lur->lur_update_rec.ur_master_transno &&
 		    iter->dtrq_lur->lur_update_rec.ur_batchid ==
-		    new->dtrq_lur->lur_update_rec.ur_batchid)
+		    new->dtrq_lur->lur_update_rec.ur_batchid) {
+			spin_unlock(&tdtd->tdtd_replay_list_lock);
 			return -EEXIST;
+		}
 
 		/* If there are mulitple replay req with same transno, then
 		 * sort them with batchid */
@@ -125,6 +130,21 @@ static int dtrq_insert(struct target_distribute_txn_data *tdtd,
 	if (list_empty(&new->dtrq_list))
 		list_add(&new->dtrq_list, &tdtd->tdtd_replay_list);
 
+	{
+		__u64 master_transno = 0;
+
+		/* debug purpose for validating the sorted list */
+		list_for_each_entry(iter, &tdtd->tdtd_replay_list, dtrq_list) {
+			if (master_transno >
+			    iter->dtrq_lur->lur_update_rec.ur_master_transno)
+				return -EINVAL;
+			else
+				master_transno =
+				iter->dtrq_lur->lur_update_rec.ur_master_transno;
+		}
+	}
+
+	spin_unlock(&tdtd->tdtd_replay_list_lock);
 	return 0;
 }
 
@@ -367,11 +387,9 @@ insert_update_records_to_replay_list(struct target_distribute_txn_data *tdtd,
 	CDEBUG(D_HA, "%s: insert record batchid = "LPU64" transno = "LPU64
 	       " mdt_index %u\n", tdtd->tdtd_lut->lut_obd->obd_name,
 	       record->ur_batchid, record->ur_master_transno, mdt_index);
-
+again:
 	/* First try to build the replay update request with the records */
-	spin_lock(&tdtd->tdtd_replay_list_lock);
 	dtrq = dtrq_lookup(tdtd, record->ur_batchid);
-	spin_unlock(&tdtd->tdtd_replay_list_lock);
 	if (dtrq == NULL) {
 		/* If the transno in the update record is 0, it means the
 		 * update are from master MDT, and we will use the master
@@ -385,13 +403,16 @@ insert_update_records_to_replay_list(struct target_distribute_txn_data *tdtd,
 		if (record->ur_master_transno == 0)
 			dtrq->dtrq_lur->lur_update_rec.ur_master_transno =
 				tdtd->tdtd_lut->lut_last_transno;
-		spin_lock(&tdtd->tdtd_replay_list_lock);
 		rc = dtrq_insert(tdtd, dtrq);
-		spin_unlock(&tdtd->tdtd_replay_list_lock);
 		if (rc == -EEXIST) {
 			/* Some one else already add the record */
 			dtrq_destroy(dtrq);
 			rc = 0;
+			goto again;
+		}
+		if (rc == -EINVAL) {
+			dtrq_list_dump(tdtd, D_ERROR);
+			LBUG();
 		}
 	} else {
 		struct update_records *dtrq_rec;
@@ -404,13 +425,21 @@ insert_update_records_to_replay_list(struct target_distribute_txn_data *tdtd,
 		dtrq_rec = &dtrq->dtrq_lur->lur_update_rec;
 		if (record->ur_master_transno != 0 &&
 		    dtrq_rec->ur_master_transno != record->ur_master_transno) {
-			dtrq_rec->ur_master_transno = record->ur_master_transno;
 			spin_lock(&tdtd->tdtd_replay_list_lock);
 			list_del_init(&dtrq->dtrq_list);
-			rc = dtrq_insert(tdtd, dtrq);
 			spin_unlock(&tdtd->tdtd_replay_list_lock);
-			if (rc < 0)
-				return rc;
+			dtrq_rec->ur_master_transno = record->ur_master_transno;
+			rc = dtrq_insert(tdtd, dtrq);
+			if (rc < 0) {
+				if (rc == -EINVAL) {
+					dtrq_list_dump(tdtd, D_ERROR);
+					LBUG();
+				} else if (rc == -EEXIST) {
+					rc = 0;
+				} else {
+					return rc;
+				}
+			}
 		}
 
 		/* This is a partial update records, let's try to append
@@ -971,6 +1000,84 @@ static int update_recovery_xattr_del(const struct lu_env *env,
 }
 
 /**
+ * Update last reply data of the update
+ *
+ * Because update recovery might update the last_rcvd by updates, i.e.
+ * it will not update the last_rcvd information in memory, so we need
+ * refresh these information in memory after update recovery.
+ *
+ * \param[in] env	execution environment.
+ * \param[in] tdtd	distribute data structure of the recovering tgt.
+ * \param[in] ta_arg	the tx arg structure to hold the update for updating
+ *                      reply data.
+ * \param[in] th	thandle for updating reply data.
+ */
+static int update_recovery_update_lrd(struct lu_env *env,
+				      struct target_distribute_txn_data *tdtd,
+				      struct thandle *th,
+				      struct tx_arg *ta_arg)
+{
+	struct lu_target	*lut = tdtd->tdtd_lut;
+	struct obd_export	*export;
+	struct tg_export_data	*ted;
+	struct lsd_reply_data	*lrd = NULL;
+	struct cfs_hash		*hash = NULL;
+	struct tg_reply_data	*trd;
+	size_t			size;
+	int			rc;
+	ENTRY;
+
+	size = ta_arg->u.write.buf.lb_len;
+	lrd = ta_arg->u.write.buf.lb_buf;
+	if (size != sizeof(*lrd) || lrd == NULL)
+		RETURN(0);
+
+	lrd->lrd_transno	 = le64_to_cpu(lrd->lrd_transno);
+	lrd->lrd_xid		 = le64_to_cpu(lrd->lrd_xid);
+	lrd->lrd_data		 = le64_to_cpu(lrd->lrd_data);
+	lrd->lrd_result		 = le32_to_cpu(lrd->lrd_result);
+	lrd->lrd_client_gen	 = le32_to_cpu(lrd->lrd_client_gen);
+
+	hash = cfs_hash_getref(lut->lut_obd->obd_gen_hash);
+	if (hash == NULL)
+		RETURN(0);
+
+	export = cfs_hash_lookup(hash, &lrd->lrd_client_gen);
+	if (export == NULL) {
+		cfs_hash_putref(hash);
+		RETURN(0);
+	}
+
+	ted = &export->exp_target_data;
+	trd = tgt_lookup_reply_by_xid(ted, lrd->lrd_xid);
+	if (trd != NULL)
+		GOTO(out_put, rc = 0);
+
+	OBD_ALLOC_PTR(trd);
+	if (trd == NULL)
+		GOTO(out_put, rc = -ENOMEM);
+
+	trd->trd_reply = *lrd;
+	rc = tgt_add_reply_data(env, lut, ted, trd, NULL, false);
+	if (rc != 0) {
+		OBD_FREE_PTR(trd);
+		GOTO(out_put, rc);
+	}
+
+	th->th_sync |= !!tgt_last_commit_cb_add(th, lut, export,
+					tgt_th_info(env)->tti_transno);
+
+	CDEBUG(D_HA, "update add reply %p: xid %llu, transno %llu, "
+	       "tag %hu, client gen %u: rc = %d\n", trd, lrd->lrd_xid,
+	       lrd->lrd_transno, trd->trd_tag, lrd->lrd_client_gen, rc);
+
+out_put:
+	class_export_put(export);
+	cfs_hash_putref(hash);
+	RETURN(rc);
+}
+
+/**
  * Execute updates in the update replay records
  *
  * Declare distribute txn replay by update records and add the updates
@@ -1183,19 +1290,32 @@ int distribute_txn_replay_handle(struct lu_env *env,
 	tmt->tmt_batchid = records->ur_batchid;
 	tgt_th_info(env)->tti_transno = records->ur_master_transno;
 
-	if (tmt->tmt_batchid <= tdtd->tdtd_committed_batchid)
+	if (tmt->tmt_batchid <= tdtd->tdtd_committed_batchid) {
 		tmt->tmt_committed = 1;
+		spin_lock(&tdtd->tdtd_lut->lut_translock);
+		if (records->ur_master_transno > 
+			tdtd->tdtd_lut->lut_obd->obd_last_committed)
+			tdtd->tdtd_lut->lut_obd->obd_last_committed =
+				records->ur_master_transno; 
+		spin_unlock(&tdtd->tdtd_lut->lut_translock);
+	}
 
 	rc = update_recovery_exec(env, tdtd, dtrq, ta);
 	if (rc < 0)
 		GOTO(stop_trans, rc);
 
-	/* If no updates are needed to be replayed, then
-	 * mark this records as committed, so commit thread
-	 * distribute_txn_commit_thread() will delete the
-	 * record */
-	if (ta->ta_argno == 0)
+	/* If no updates are needed to be replayed, then mark this records as
+	 * committed, so commit thread distribute_txn_commit_thread() will
+	 * delete the record */
+	if (ta->ta_argno == 0) {
 		tmt->tmt_committed = 1;
+		spin_lock(&tdtd->tdtd_lut->lut_translock);
+		if (records->ur_master_transno > 
+			tdtd->tdtd_lut->lut_obd->obd_last_committed)
+			tdtd->tdtd_lut->lut_obd->obd_last_committed =
+				records->ur_master_transno; 
+		spin_unlock(&tdtd->tdtd_lut->lut_translock);
+	}
 
 	tur = &update_env_info(env)->uti_tur;
 	tur->tur_update_records = dtrq->dtrq_lur;
@@ -1221,10 +1341,19 @@ int distribute_txn_replay_handle(struct lu_env *env,
 		LASSERT(tmt->tmt_committed == 0);
 		sub_dt = lu2dt_dev(dt_obj->do_lu.lo_dev);
 		st = lookup_sub_thandle(tmt, sub_dt);
+
 		LASSERT(st != NULL);
 		LASSERT(st->st_sub_th != NULL);
 		rc = ta->ta_args[i]->exec_fn(env, st->st_sub_th,
 					     ta->ta_args[i]);
+
+		/* If the update is to update the reply data, then
+		 * we need update those last rcvd structure in memory
+		 * as well */
+		if (rc == 0 && dt_obj == tdtd->tdtd_lut->lut_reply_data)
+			rc = update_recovery_update_lrd(env, tdtd,
+							st->st_sub_th, ta_arg);
+
 		if (unlikely(rc < 0)) {
 			CDEBUG(D_HA, "error during execution of #%u from"
 			       " %s:%d: rc = %d\n", i, ta->ta_args[i]->file,
