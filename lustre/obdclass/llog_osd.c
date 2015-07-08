@@ -204,7 +204,7 @@ static int llog_osd_read_header(const struct lu_env *env,
 	LASSERT(lgi->lgi_attr.la_valid & LA_SIZE);
 
 	if (lgi->lgi_attr.la_size == 0) {
-		CDEBUG(D_HA, "not reading header from 0-byte log\n");
+		CDEBUG(D_HA, ""DFID" not reading header from 0-byte log\n", PFID(lu_object_fid(&o->do_lu)));
 		RETURN(LLOG_EEMPTY);
 	}
 
@@ -1265,6 +1265,7 @@ static int llog_osd_declare_create(const struct lu_env *env,
 		lgi->lgi_attr.la_mode = S_IFREG | S_IRUGO | S_IWUSR;
 		lgi->lgi_dof.dof_type = dt_mode_to_dft(S_IFREG);
 
+		th->th_sync = 1;
 		rc = dt_declare_create(env, o, &lgi->lgi_attr, NULL,
 				       &lgi->lgi_dof, th);
 		if (rc < 0)
@@ -1346,6 +1347,7 @@ static int llog_osd_create(const struct lu_env *env, struct llog_handle *res,
 		lgi->lgi_attr.la_mode = S_IFREG | S_IRUGO | S_IWUSR;
 		lgi->lgi_dof.dof_type = dt_mode_to_dft(S_IFREG);
 
+		LASSERT(th->th_sync == 1);
 		dt_write_lock(env, o, 0);
 		rc = dt_create(env, o, &lgi->lgi_attr, NULL,
 			       &lgi->lgi_dof, th);
@@ -1894,6 +1896,9 @@ int llog_osd_put_cat_list(const struct lu_env *env, struct dt_device *d,
 	if (IS_ERR(th))
 		GOTO(out, rc = PTR_ERR(th));
 
+	if (fid_is_update_log(fid))
+		th->th_sync = 1;
+
 	lgi->lgi_buf.lb_len = size;
 	lgi->lgi_buf.lb_buf = idarray;
 	rc = dt_declare_record_write(env, o, &lgi->lgi_buf, lgi->lgi_off, th);
@@ -1903,6 +1908,7 @@ int llog_osd_put_cat_list(const struct lu_env *env, struct dt_device *d,
 	rc = dt_trans_start_local(env, d, th);
 	if (rc)
 		GOTO(out_trans, rc);
+
 
 	th->th_wait_submit = 1;
 
