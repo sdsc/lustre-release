@@ -975,6 +975,7 @@ int out_handle(struct tgt_session_info *tsi)
 
 		our = update_bufs[i];
 		update_count = our->ourq_count;
+		object_update_request_dump(our, D_HA);
 		for (j = 0; j < update_count; j++) {
 			update = object_update_request_get(our, j, NULL);
 			if (update == NULL)
