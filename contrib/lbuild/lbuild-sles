@@ -129,7 +129,11 @@ find_linux_release() {
 
 kernel_srpm_location() {
 
+    local REPO="Updates"
     local PLEV=$(sed -n -e 's/^PATCHLEVEL = //p' /etc/SuSE-release)
-    echo "https://nu.novell.com/repo/\$RCE/SLES11-SP${PLEV}-Updates/sle-11-$(resolve_arch $TARGET_ARCH)/rpm/src/"
+    if [ "SP${PLEV}" = "SP4" ]; then
+	REPO="Pool"
+    fi
+    echo "https://nu.novell.com/repo/\$RCE/SLES11-SP${PLEV}-${REPO}/sle-11-$(resolve_arch $TARGET_ARCH)/rpm/src/"
 
 }
