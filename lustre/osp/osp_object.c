@@ -1476,7 +1476,7 @@ static int osp_object_create(const struct lu_env *env, struct dt_object *dt,
 			d->opd_gap_count = 0;
 			spin_unlock(&d->opd_pre_lock);
 
-			CDEBUG(D_HA, "Writing gap "DFID"+%d in llog\n",
+			CDEBUG(D_INODE, "Writing gap "DFID"+%d in llog\n",
 			       PFID(&d->opd_gap_start_fid), count);
 			/* real gap handling is disabled intil ORI-692 will be
 			 * fixed, now we only report gaps */
@@ -1493,7 +1493,7 @@ static int osp_object_create(const struct lu_env *env, struct dt_object *dt,
 	rc = dt_record_write(env, d->opd_last_used_oid_file, &osi->osi_lb,
 			     &osi->osi_off, local_th);
 
-	CDEBUG(D_HA, "%s: Wrote last used FID: "DFID", index %d: %d\n",
+	CDEBUG(D_INFO, "%s: Wrote last used FID: "DFID", index %d: %d\n",
 	       d->opd_obd->obd_name, PFID(fid), d->opd_index, rc);
 
 	RETURN(rc);
