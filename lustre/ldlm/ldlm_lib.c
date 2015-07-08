@@ -1502,6 +1502,12 @@ static void target_finish_recovery(struct lu_target *lut)
 	}
 	spin_unlock(&obd->obd_recovery_task_lock);
 
+	if (lut->lut_tdtd != NULL)
+		LCONSOLE_WARN("%s update count is %d execute_count %d\n",
+			      obd->obd_name,
+			      (int)lut->lut_tdtd->tdtd_update_count,
+			      (int)lut->lut_tdtd->tdtd_execute_count);
+
 	if (lut->lut_tdtd != NULL &&
 	    !list_empty(&lut->lut_tdtd->tdtd_replay_list))
 		dtrq_list_dump(lut->lut_tdtd, D_ERROR);
@@ -1572,7 +1578,6 @@ void target_cleanup_recovery(struct obd_device *obd)
 {
         struct ptlrpc_request *req, *n;
 	struct list_head clean_list;
-        ENTRY;
 
 	INIT_LIST_HEAD(&clean_list);
 	spin_lock(&obd->obd_dev_lock);
@@ -2046,6 +2051,17 @@ static int check_for_recovery_ready(struct lu_target *lut)
 					      true);
 			return 0;
 		} else {
+			struct target_distribute_txn_data *tdtd = lut->lut_tdtd;
+			struct distribute_txn_replay_req *dtrq;
+			int	count = 0;
+
+			spin_lock(&tdtd->tdtd_replay_list_lock);
+			list_for_each_entry(dtrq, &tdtd->tdtd_replay_list, dtrq_list)
+				count++;
+			spin_unlock(&tdtd->tdtd_replay_list_lock);
+
+			tdtd->tdtd_update_count = count;
+
 			dtrq_list_dump(lut->lut_tdtd, D_HA);
 		}
 	}
@@ -2136,100 +2152,6 @@ static void drop_duplicate_replay_req(struct lu_env *env,
 	obd->obd_replayed_requests++;
 }
 
-/**
- * Update last_rcvd of the update
- *
- * Because update recovery might update the last_rcvd by updates, i.e.
- * it will not update the last_rcvd information in memory, so we need
- * refresh these information in memory after update recovery.
- *
- * \param[in] obd	obd_device under recoverying.
- * \param[in] dtrq	the update replay requests being replayed.
- */
-static void target_update_lcd(struct lu_env *env, struct lu_target *lut,
-			      struct distribute_txn_replay_req *dtrq)
-{
-	struct obd_device	*obd = lut->lut_obd;
-	struct obd_export	*export;
-	struct tg_export_data	*ted;
-	struct distribute_txn_replay_req_sub	*dtrqs;
-	struct seq_server_site *site;
-	struct update_records	*ur;
-	const struct lu_fid	*fid;
-	struct update_ops	*ops;
-	struct update_params	*params;
-	struct update_op	*op;
-	__u32			mdt_index;
-	unsigned int		i;
-	struct lsd_client_data	*lcd = NULL;
-
-	/* if Updates has been executed(committed) on the recovery target,
-	 * i.e. the updates is not being executed on the target, so we do
-	 * not need update it in memory */
-	site = lu_site2seq(obd->obd_lu_dev->ld_site);
-	mdt_index = site->ss_node_id;
-	dtrqs = dtrq_sub_lookup(dtrq, mdt_index);
-	if (dtrqs != NULL)
-		return;
-
-	if (dtrq->dtrq_lur == NULL)
-		return;
-
-	/* Find the update last_rcvd record */
-	fid = lu_object_fid(&lut->lut_last_rcvd->do_lu);
-	ur = &dtrq->dtrq_lur->lur_update_rec;
-	ops = &ur->ur_ops;
-	params = update_records_get_params(ur);
-	for (i = 0, op = &ops->uops_op[0]; i < ur->ur_update_count;
-	     i++, op = update_op_next_op(op)) {
-		__u64 pos;
-		__u16 size;
-		void *buf;
-
-		if (!lu_fid_eq(&op->uop_fid, fid))
-			continue;
-
-		if (op->uop_type != OUT_WRITE)
-			continue;
-
-		buf = update_params_get_param_buf(params, op->uop_params_off[1],
-						  ur->ur_param_count, NULL);
-		if (buf == NULL)
-			continue;
-
-		pos = le64_to_cpu(*(__u64 *)buf);
-		if (pos == 0)
-			continue;
-
-		buf = update_params_get_param_buf(params, op->uop_params_off[0],
-						  ur->ur_param_count, &size);
-		if (buf == NULL)
-			continue;
-
-		if (size != sizeof(*lcd))
-			continue;
-		lcd = buf;
-	}
-
-	if (lcd == NULL || lcd->lcd_uuid[0] == '\0')
-		return;
-
-	/* locate the export then update the exp_target_data if needed */
-	export = cfs_hash_lookup(obd->obd_uuid_hash, lcd->lcd_uuid);
-	if (export == NULL)
-		return;
-
-	ted = &export->exp_target_data;
-	if (lcd->lcd_last_xid > ted->ted_lcd->lcd_last_xid) {
-		CDEBUG(D_HA, "%s update xid from "LPU64" to "LPU64"\n",
-		       lut->lut_obd->obd_name, ted->ted_lcd->lcd_last_xid,
-		       lcd->lcd_last_xid);
-		ted->ted_lcd->lcd_last_xid = lcd->lcd_last_xid;
-		ted->ted_lcd->lcd_last_result = lcd->lcd_last_result;
-	}
-	class_export_put(export);
-}
-
 static void replay_request_or_update(struct lu_env *env,
 				     struct lu_target *lut,
 				     struct target_recovery_data *trd,
@@ -2316,7 +2238,6 @@ static void replay_request_or_update(struct lu_env *env,
 			if (transno > obd->obd_next_recovery_transno)
 				obd->obd_next_recovery_transno = transno;
 			spin_unlock(&obd->obd_recovery_task_lock);
-			target_update_lcd(env, lut, dtrq);
 			dtrq_destroy(dtrq);
 		} else {
 			spin_unlock(&obd->obd_recovery_task_lock);
