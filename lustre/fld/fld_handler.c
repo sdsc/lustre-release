@@ -147,7 +147,7 @@ int fld_update_from_controller(const struct lu_env *env,
 		RETURN(rc);
 
 	/* No need update fldb for MDT0 */
-	if (index == 0)
+	if (index == 0 && strstr(fld->lsf_name, "MDT") != NULL)
 		RETURN(0);
 
 	info = lu_context_key_get(&env->le_ctx, &fld_thread_key);
@@ -155,7 +155,10 @@ int fld_update_from_controller(const struct lu_env *env,
 	range = &info->fti_lrange;
 	memset(range, 0, sizeof(*range));
 	range->lsr_index = index;
-	fld_range_set_mdt(range);
+	if (strstr(fld->lsf_name, "MDT") != NULL)
+		fld_range_set_mdt(range);
+	else
+		fld_range_set_ost(range);
 
 	do {
 		rc = fld_client_rpc(fld->lsf_control_exp, range, FLD_READ,
@@ -172,9 +175,6 @@ int fld_update_from_controller(const struct lu_env *env,
 		range_array_le_to_cpu(lsra, lsra);
 		for (i = 0; i < lsra->lsra_count; i++) {
 			int rc1;
-
-			if (lsra->lsra_lsr[i].lsr_flags != LU_SEQ_RANGE_MDT)
-				GOTO(out, rc = -EINVAL);
 
 			if (lsra->lsra_lsr[i].lsr_index != index)
 				GOTO(out, rc = -EINVAL);
