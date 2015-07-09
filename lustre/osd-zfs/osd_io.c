@@ -266,6 +266,10 @@ static int osd_bufs_put(const struct lu_env *env, struct dt_object *dt,
 	LASSERT(obj->oo_db);
 
 	for (i = 0; i < npages; i++) {
+		if (lnb[i].lnb_data2 != NULL) {
+			osd_unlock_range(obj, lnb[i].lnb_data2);
+			lnb[i].lnb_data2 = NULL;
+		}
 		if (lnb[i].lnb_page == NULL)
 			continue;
 		if (lnb[i].lnb_page->mapping == (void *)obj) {
@@ -375,6 +379,7 @@ static int osd_bufs_get_read(const struct lu_env *env, struct osd_object *obj,
 				 * reference to dbuf to be released once */
 				lnb->lnb_data = dbf;
 				dbf = NULL;
+				lnb->lnb_data2 = NULL;
 
 				tocpy -= thispage;
 				len -= thispage;
@@ -449,6 +454,7 @@ static int osd_bufs_get_write(const struct lu_env *env, struct osd_object *obj,
 					lnb[i].lnb_data = abuf;
 				else
 					lnb[i].lnb_data = NULL;
+				lnb[i].lnb_data2 = NULL;
 
 				/* this one is not supposed to fail */
 				lnb[i].lnb_page = kmem_to_page(abuf->b_data +
@@ -480,6 +486,7 @@ static int osd_bufs_get_write(const struct lu_env *env, struct osd_object *obj,
 				lnb[i].lnb_len = plen;
 				lnb[i].lnb_rc = 0;
 				lnb[i].lnb_data = NULL;
+				lnb[i].lnb_data2 = NULL;
 
 				lnb[i].lnb_page = alloc_page(OSD_GFP_IO);
 				if (unlikely(lnb[i].lnb_page == NULL))
@@ -580,6 +587,7 @@ static int osd_declare_write_commit(const struct lu_env *env,
 	long long	    space = 0;
 	struct page	   *last_page = NULL;
 	unsigned long	    discont_pages = 0;
+	struct osd_range_lock *rl;
 	ENTRY;
 
 	LASSERT(dt_object_exists(dt));
@@ -625,6 +633,14 @@ static int osd_declare_write_commit(const struct lu_env *env,
 			continue;
 		}
 
+		if (lnb[i-1].lnb_data2 == NULL) {
+			/* it's OK to declare same write few times */
+			rl = osd_lock_range(obj, offset, size, 1);
+			if (IS_ERR(rl))
+				RETURN(PTR_ERR(rl));
+			lnb[i-1].lnb_data2 = rl;
+		}
+
 		dmu_tx_hold_write(oh->ot_tx, obj->oo_db->db_object,
 				  offset, size);
 		/* Estimating space to be consumed by a write is rather
@@ -640,6 +656,14 @@ static int osd_declare_write_commit(const struct lu_env *env,
 	}
 
 	if (size) {
+		if (lnb[i-1].lnb_data2 == NULL) {
+			/* it's OK to declare same write few times */
+			rl = osd_lock_range(obj, offset, size, 1);
+			if (IS_ERR(rl))
+				RETURN(PTR_ERR(rl));
+			lnb[i-1].lnb_data2 = rl;
+		}
+
 		dmu_tx_hold_write(oh->ot_tx, obj->oo_db->db_object,
 				  offset, size);
 		space += osd_roundup2blocksz(size, offset, blksz);
@@ -862,6 +886,13 @@ static int osd_punch(const struct lu_env *env, struct dt_object *dt,
 
 	rc = __osd_object_punch(osd->od_os, obj->oo_db, oh->ot_tx,
 				obj->oo_attr.la_size, start, len);
+
+	/* currently support 1 punch in tx at most */
+	LASSERT(oh->ot_rl != NULL);
+	osd_unlock_range(obj, oh->ot_rl);
+	oh->ot_rl = NULL;
+	oh->ot_rl_obj = NULL;
+
 	/* set new size */
 	if (len == DMU_OBJECT_END) {
 		write_lock(&obj->oo_attr_lock);
@@ -901,6 +932,17 @@ static int osd_declare_punch(const struct lu_env *env, struct dt_object *dt,
 	/* ... and we'll modify size attribute */
 	dmu_tx_hold_sa(oh->ot_tx, obj->oo_sa_hdl, 0);
 
+	/* no support for many punches in a single transaction yet */
+	/* we need to lock the range against potential writes from ZIL */
+	LASSERT(oh->ot_rl == NULL);
+	oh->ot_rl = osd_lock_range(obj, start, end - start, 1);
+	if (IS_ERR(oh->ot_rl)) {
+		int rc = PTR_ERR(oh->ot_rl);
+		oh->ot_rl = NULL;
+		RETURN(rc);
+	}
+	oh->ot_rl_obj = obj;
+
 	RETURN(osd_declare_quota(env, osd, obj->oo_attr.la_uid,
 				 obj->oo_attr.la_gid, 0, oh, true, NULL,
 				 false));
@@ -920,3 +962,140 @@ struct dt_body_operations osd_body_ops = {
 	.dbo_declare_punch		= osd_declare_punch,
 	.dbo_punch			= osd_punch,
 };
+
+struct osd_range_lock {
+	struct list_head	orl_list;
+	loff_t			orl_start;
+	loff_t			orl_end;
+	wait_queue_head_t	orl_wait;
+	struct osd_object      *orl_obj; /* for checks only */
+	int			orl_rw:1,
+				orl_granted:1;
+};
+
+void osd_range_head_alloc(struct osd_object *o)
+{
+	struct osd_range_head	*h;
+
+	if (o->oo_range_head != NULL)
+		return;
+
+	OBD_ALLOC_PTR(h);
+	if (unlikely(h == NULL))
+		return;
+	spin_lock_init(&h->ord_range_lock);
+	INIT_LIST_HEAD(&h->ord_range_granted_list);
+	INIT_LIST_HEAD(&h->ord_range_waiting_list);
+
+	write_lock(&o->oo_attr_lock);
+	if (o->oo_range_head == NULL) {
+		o->oo_range_head = h;
+		init_waitqueue_head(&o->oo_bitlock_wait);
+	} else {
+		OBD_FREE_PTR(h);
+	}
+	write_unlock(&o->oo_attr_lock);
+}
+
+static int osd_range_is_compatible(struct list_head *list,
+		struct osd_range_lock *l)
+{
+	struct osd_range_lock *t;
+
+	list_for_each_entry(t, list, orl_list) {
+		if (l->orl_start > t->orl_end || l->orl_end < t->orl_start) {
+			/* no overlap */
+			continue;
+		}
+		if (t->orl_rw == 0 && l->orl_rw == 0) {
+			/* both locks are read locks */
+			continue;
+		}
+
+		/* incompatible */
+		return 0;
+	}
+
+	return 1;
+}
+
+struct osd_range_lock *osd_lock_range(struct osd_object *o, loff_t offset,
+		size_t size, int rw)
+{
+	struct osd_range_lock	*l;
+	struct osd_range_head	*h;
+	int			 compat;
+
+	osd_range_head_alloc(o);
+	h = o->oo_range_head;
+	if (unlikely(h == NULL))
+		RETURN(ERR_PTR(-ENOMEM));
+
+	OBD_ALLOC_PTR(l);
+	if (unlikely(l == NULL))
+		RETURN(ERR_PTR(-ENOMEM));
+
+	if (unlikely(size == 0))
+		size = 1;
+
+	l->orl_start = offset;
+	l->orl_end = offset + size - 1;
+	l->orl_rw = rw;
+	init_waitqueue_head(&l->orl_wait);
+	l->orl_obj = o;
+
+	spin_lock(&h->ord_range_lock);
+
+	compat = osd_range_is_compatible(&h->ord_range_granted_list, l);
+	compat += osd_range_is_compatible(&h->ord_range_waiting_list, l);
+
+	if (compat == 2) {
+		list_add(&l->orl_list, &h->ord_range_granted_list);
+		l->orl_granted = 1;
+		h->ord_nr++;
+		if (h->ord_nr > h->ord_max)
+			h->ord_max = h->ord_nr;
+		spin_unlock(&h->ord_range_lock);
+	} else {
+		list_add_tail(&l->orl_list, &h->ord_range_waiting_list);
+		spin_unlock(&h->ord_range_lock);
+
+		/* XXX: need a memory barrier? */
+		wait_event(l->orl_wait, l->orl_granted != 0);
+	}
+
+	return l;
+}
+
+void osd_unlock_range(struct osd_object *o, struct osd_range_lock *l)
+{
+	struct osd_range_lock	*t, *tmp;
+	struct osd_range_head	*h;
+	int compat;
+
+	LASSERT(!IS_ERR(l));
+	LASSERT(l->orl_obj == o);
+	LASSERT(!list_empty(&l->orl_list));
+	LASSERT(l->orl_granted != 0);
+
+	h = o->oo_range_head;
+	LASSERT(h != NULL);
+
+	spin_lock(&h->ord_range_lock);
+	list_del(&l->orl_list);
+	h->ord_nr--;
+	/* our released lock can affect this waiting lock, let's try it */
+	list_for_each_entry_safe(t, tmp, &h->ord_range_waiting_list, orl_list) {
+		compat = osd_range_is_compatible(&h->ord_range_granted_list, t);
+		if (compat != 0) {
+			list_del(&t->orl_list);
+			list_add(&t->orl_list, &h->ord_range_granted_list);
+			t->orl_granted = 1;
+			wake_up(&t->orl_wait);
+		} else
+			break;
+	}
+	spin_unlock(&h->ord_range_lock);
+
+	OBD_FREE_PTR(l);
+}
