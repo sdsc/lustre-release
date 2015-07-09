@@ -432,6 +432,7 @@ struct niobuf_local {
 	int		lnb_rc;
 	struct page	*lnb_page;
 	void		*lnb_data;
+	void		*lnb_data2;
 };
 
 #define LUSTRE_FLD_NAME         "fld"

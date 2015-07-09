@@ -211,6 +211,8 @@ struct osd_thandle {
 	struct lquota_trans	 ot_quota_trans;
 	__u32			 ot_write_commit:1,
 				 ot_assigned:1;
+	struct osd_range_lock	*ot_rl;
+	struct osd_object	*ot_rl_obj;
 };
 
 #define OSD_OI_NAME_SIZE        16
@@ -305,6 +307,16 @@ enum osd_destroy_type {
 	OSD_DESTROY_ASYNC = 2,
 };
 
+struct osd_range_head {
+	spinlock_t	 ord_range_lock;
+	struct list_head ord_range_granted_list;
+	struct list_head ord_range_waiting_list;
+	int		 ord_nr;	/* # of active locks */
+	int		 ord_max;	/* max. # of locks */
+};
+
+struct osd_range_lock;
+
 struct osd_object {
 	struct dt_object	 oo_dt;
 	/*
@@ -336,6 +348,10 @@ struct osd_object {
 	unsigned char		 oo_keysize;
 	unsigned char		 oo_recsize;
 	unsigned char		 oo_recusize;	/* unit size */
+
+	/* used for ZIL when it's a regular object */
+	wait_queue_head_t        oo_bitlock_wait;
+	struct osd_range_head	*oo_range_head;
 };
 
 int osd_statfs(const struct lu_env *, struct dt_device *, struct obd_statfs *);
@@ -527,6 +543,11 @@ osd_xattr_set_internal(const struct lu_env *env, struct osd_object *obj,
 
 	return rc;
 }
+
+/* osd_io.c */
+struct osd_range_lock *osd_lock_range(struct osd_object *o, loff_t offset,
+		size_t size, int rw);
+void osd_unlock_range(struct osd_object *o, struct osd_range_lock *l);
 
 static inline uint64_t attrs_fs2zfs(const uint32_t flags)
 {
