@@ -430,6 +430,9 @@ static void osd_object_free(const struct lu_env *env, struct lu_object *l)
 
 	LASSERT(osd_invariant(obj));
 
+	if (obj->oo_range_head != NULL)
+		OBD_FREE_PTR(obj->oo_range_head);
+
 	dt_object_fini(&obj->oo_dt);
 	OBD_SLAB_FREE_PTR(obj, osd_object_kmem);
 }

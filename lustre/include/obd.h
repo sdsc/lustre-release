@@ -407,6 +407,7 @@ struct niobuf_local {
 	__u32		lnb_flags;
 	struct page	*lnb_page;
 	void		*lnb_data;
+	void		*lnb_data2;
 	int		lnb_rc;
 };
 
