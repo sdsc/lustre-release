@@ -286,6 +286,12 @@ static int osd_trans_stop(const struct lu_env *env, struct dt_device *dt,
 	INIT_LIST_HEAD(&unlinked);
 	list_splice_init(&oh->ot_unlinked_list, &unlinked);
 
+	if (unlikely(oh->ot_rl != NULL)) {
+		/* punch was declared, but not executed for a reason.
+		 * release the lock taken to protect punch vs. ZIL */
+		osd_unlock_range(oh->ot_rl_obj, oh->ot_rl);
+	}
+
 	if (oh->ot_assigned == 0) {
 		LASSERT(oh->ot_tx);
 		dmu_tx_abort(oh->ot_tx);
