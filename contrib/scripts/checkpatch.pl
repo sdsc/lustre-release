@@ -1741,6 +1741,17 @@ sub process {
 			$in_commit_log = 1;
 		}
 
+# Check commit summary for a valid project (LU).
+# Using line 7 seems to DTRT.
+		if ($in_header_lines &&
+		    $rawline =~ /^Subject:\s+\[PATCH\]\s+(.*)/) {
+
+			if ($1 !~ /^LU-[\d]+/) {
+				ERROR("SUMMARY",
+				      "commit message summary must begin with an LU issue id\n" . $here . "FILE: /COMMIT_MSG:7:\n");
+			}
+		}
+
 # Still not yet in a patch, check for any UTF-8
 		if ($in_commit_log && $realfile =~ /^$/ &&
 		    $rawline =~ /$NON_ASCII_UTF8/) {
