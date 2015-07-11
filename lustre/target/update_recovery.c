@@ -1221,6 +1221,9 @@ int distribute_txn_replay_handle(struct lu_env *env,
 		LASSERT(tmt->tmt_committed == 0);
 		sub_dt = lu2dt_dev(dt_obj->do_lu.lo_dev);
 		st = lookup_sub_thandle(tmt, sub_dt);
+		if (tmt->tmt_master_sub_dt == sub_dt)
+			dtrq->dtrq_local_update_executed = 1;
+
 		LASSERT(st != NULL);
 		LASSERT(st->st_sub_th != NULL);
 		rc = ta->ta_args[i]->exec_fn(env, st->st_sub_th,
