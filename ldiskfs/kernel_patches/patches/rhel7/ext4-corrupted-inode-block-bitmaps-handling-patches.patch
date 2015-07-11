@@ -1,13 +1,3 @@
-Since we could skip corrupt block groups, this patch
-use ext4_warning() intead of ext4_error() to make FS not
-emount RO in default, also fix a leftover from upstream
-commit 163a203ddb36c36d4a1c942
----
- fs/ext4/balloc.c  |  6 +++---
- fs/ext4/ialloc.c  |  8 ++++----
- fs/ext4/mballoc.c | 13 ++++++++++---
- 3 files changed, 17 insertions(+), 10 deletions(-)
-
 diff --git a/fs/ext4/balloc.c b/fs/ext4/balloc.c
 index e069155..8ecf06e 100644
 --- a/fs/ext4/balloc.c
@@ -73,7 +63,7 @@ index fc65310..4936bff 100644
  			int count;
  			count = ext4_free_inodes_count(sb, gdp);
 diff --git a/fs/ext4/mballoc.c b/fs/ext4/mballoc.c
-index d2b07bd..695ccd3 100644
+index d2b07bd..f2ae94c 100644
 --- a/fs/ext4/mballoc.c
 +++ b/fs/ext4/mballoc.c
 @@ -752,11 +752,18 @@ int ext4_mb_generate_buddy(struct super_block *sb,
@@ -98,6 +88,93 @@ index d2b07bd..695ccd3 100644
  	}
  	mb_set_largest_free_order(sb, grp);
  
--- 
-1.8.3.1
-
+@@ -3585,6 +3592,7 @@ int ext4_mb_check_ondisk_bitmap(struct super_block *sb, void *bitmap,
+ {
+ 	unsigned short max = EXT4_BLOCKS_PER_GROUP(sb);
+ 	unsigned short i, first, free = 0;
++	struct ext4_group_info *grp = ext4_get_group_info(sb, group);
+ 
+ 	i = mb_find_next_zero_bit(bitmap, max, 0);
+ 
+@@ -3599,9 +3607,10 @@ int ext4_mb_check_ondisk_bitmap(struct super_block *sb, void *bitmap,
+ 	}
+ 
+ 	if (free != ext4_free_group_clusters(sb, gdp)) {
+-		ext4_error(sb, "on-disk bitmap for group %d"
++		ext4_warning(sb, "on-disk bitmap for group %d"
+ 			"corrupted: %u blocks free in bitmap, %u - in gd\n",
+ 			group, free, ext4_free_group_clusters(sb, gdp));
++		set_bit(EXT4_GROUP_INFO_BBITMAP_CORRUPT_BIT, &grp->bb_state);
+ 		return -EIO;
+ 	}
+ 	return 0;
+@@ -3962,7 +3971,7 @@ ext4_mb_release_inode_pa(struct ext4_buddy *e4b, struct buffer_head *bitmap_bh,
+ 	/* "free < pa->pa_free" means we maybe double alloc the same blocks,
+ 	 * otherwise maybe leave some free blocks unavailable, no need to BUG.*/
+ 	if ((free > pa->pa_free && !pa->pa_error) || (free < pa->pa_free)) {
+-		ext4_error(sb, "pa free mismatch: [pa %p] "
++		ext4_warning(sb, "pa free mismatch: [pa %p] "
+ 				"[phy %lu] [logic %lu] [len %u] [free %u] "
+ 				"[error %u] [inode %lu] [freed %u]", pa,
+ 				(unsigned long)pa->pa_pstart,
+@@ -4031,14 +4040,12 @@ ext4_mb_discard_group_preallocations(struct super_block *sb,
+ 		return 0;
+ 
+ 	bitmap_bh = ext4_read_block_bitmap(sb, group);
+-	if (bitmap_bh == NULL) {
+-		ext4_error(sb, "Error reading block bitmap for %u", group);
++	if (bitmap_bh == NULL)
+ 		return 0;
+-	}
+ 
+ 	err = ext4_mb_load_buddy(sb, group, &e4b);
+ 	if (err) {
+-		ext4_error(sb, "Error loading buddy information for %u", group);
++		ext4_warning(sb, "Error loading buddy information for %u", group);
+ 		put_bh(bitmap_bh);
+ 		return 0;
+ 	}
+@@ -4199,15 +4206,13 @@ repeat:
+ 
+ 		err = ext4_mb_load_buddy(sb, group, &e4b);
+ 		if (err) {
+-			ext4_error(sb, "Error loading buddy information for %u",
++			ext4_warning(sb, "Error loading buddy information for %u",
+ 					group);
+ 			return;
+ 		}
+ 
+ 		bitmap_bh = ext4_read_block_bitmap(sb, group);
+ 		if (bitmap_bh == NULL) {
+-			ext4_error(sb, "Error reading block bitmap for %u",
+-					group);
+ 			ext4_mb_unload_buddy(&e4b);
+ 			continue;
+ 		}
+@@ -4468,7 +4473,7 @@ ext4_mb_discard_lg_preallocations(struct super_block *sb,
+ 
+ 		group = ext4_get_group_number(sb, pa->pa_pstart);
+ 		if (ext4_mb_load_buddy(sb, group, &e4b)) {
+-			ext4_error(sb, "Error loading buddy information for %u",
++			ext4_warning(sb, "Error loading buddy information for %u",
+ 					group);
+ 			continue;
+ 		}
+@@ -4742,7 +4747,7 @@ errout:
+ 			 * been updated or not when fail case. So can
+ 			 * not revert pa_free back, just mark pa_error*/
+ 			pa->pa_error++;
+-			ext4_error(sb,
++			ext4_warning(sb,
+ 				"Updating bitmap error: [err %d] "
+ 				"[pa %p] [phy %lu] [logic %lu] "
+ 				"[len %u] [free %u] [error %u] "
+@@ -5330,7 +5335,7 @@ ext4_trim_all_free(struct super_block *sb, ext4_group_t group,
+ 
+ 	ret = ext4_mb_load_buddy(sb, group, &e4b);
+ 	if (ret) {
+-		ext4_error(sb, "Error in loading buddy "
++		ext4_warning(sb, "Error in loading buddy "
+ 				"information for %u", group);
+ 		return ret;
+ 	}
