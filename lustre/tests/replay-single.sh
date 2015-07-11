@@ -2101,6 +2101,69 @@ test_70b () {
 run_test 70b "dbench ${MDSCOUNT}mdts recovery; $CLIENTCOUNT clients"
 # end multi-client tests
 
+cleanup_70c() {
+	trap 0
+	kill -9 $mkdir_70c_pid
+}
+
+test_70c () {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+	local clients=${CLIENTS:-$HOSTNAME}
+	local rc=0
+
+	zconf_mount_clients $clients $MOUNT
+
+	local duration=300
+	[ "$SLOW" = "no" ] && duration=180
+	# set duration to 900 because it takes some time to boot node
+	[ "$FAILURE_MODE" = HARD ] && duration=900
+
+	local elapsed
+	local start_ts=$(date +%s)
+
+	trap cleanup_70c EXIT
+	(
+		while true; do
+			test_mkdir -p -c$MDSCOUNT $DIR/$tdir > /dev/null || {
+				echo "create striped directory failed"
+				break
+			}
+			rm -rf $DIR/$tdir || {
+				echo "unlink striped directory failed"
+				break
+			}
+		done
+	)&
+	mkdir_70c_pid=$!
+	echo "Started  $mkdir_70c_pid"
+
+	elapsed=$(($(date +%s) - start_ts))
+	local num_failovers=0
+	local fail_index=1
+	while [ $elapsed -lt $duration ]; do
+		kill -0 $mkdir_70c_pid ||
+			error "tar $mkdir_70c_pid stopped"
+		sleep 5
+		replay_barrier mds$fail_index
+		# Increment the number of failovers
+		num_failovers=$((num_failovers+1))
+		log "$TESTNAME fail mds$fail_index $num_failovers times"
+		fail mds$fail_index
+		elapsed=$(($(date +%s) - start_ts))
+		if [ $fail_index -ge $MDSCOUNT ]; then
+			fail_index=1
+		else
+			fail_index=$((fail_index + 1))
+		fi
+	done
+
+	kill -0 $mkdir_70c_pid || error "mkdir/rmdir $mkdir_70c_pid stopped"
+
+	cleanup_70c
+	true
+}
+run_test 70c "mkdir/rmdir striped dir ${MDSCOUNT}mdts recovery"
+
 test_73a() {
 	multiop_bg_pause $DIR/$tfile O_tSc ||
 		error "multiop_bg_pause $DIR/$tfile failed"
