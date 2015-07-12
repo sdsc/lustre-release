@@ -69,12 +69,14 @@ dtrq_lookup(struct target_distribute_txn_data *tdtd, __u64 batchid)
 	struct distribute_txn_replay_req	*tmp;
 	struct distribute_txn_replay_req	*dtrq = NULL;
 
+	spin_lock(&tdtd->tdtd_replay_list_lock);
 	list_for_each_entry(tmp, &tdtd->tdtd_replay_list, dtrq_list) {
 		if (tmp->dtrq_lur->lur_update_rec.ur_batchid == batchid) {
 			dtrq = tmp;
 			break;
 		}
 	}
+	spin_unlock(&tdtd->tdtd_replay_list_lock);
 	return dtrq;
 }
 
@@ -97,6 +99,7 @@ static int dtrq_insert(struct target_distribute_txn_data *tdtd,
 {
 	struct distribute_txn_replay_req *iter;
 
+	spin_lock(&tdtd->tdtd_replay_list_lock);
 	list_for_each_entry_reverse(iter, &tdtd->tdtd_replay_list, dtrq_list) {
 		if (iter->dtrq_lur->lur_update_rec.ur_master_transno >
 		    new->dtrq_lur->lur_update_rec.ur_master_transno)
@@ -107,8 +110,10 @@ static int dtrq_insert(struct target_distribute_txn_data *tdtd,
 		if (iter->dtrq_lur->lur_update_rec.ur_master_transno ==
 		    new->dtrq_lur->lur_update_rec.ur_master_transno &&
 		    iter->dtrq_lur->lur_update_rec.ur_batchid ==
-		    new->dtrq_lur->lur_update_rec.ur_batchid)
+		    new->dtrq_lur->lur_update_rec.ur_batchid) {
+			spin_unlock(&tdtd->tdtd_replay_list_lock);
 			return -EEXIST;
+		}
 
 		/* If there are mulitple replay req with same transno, then
 		 * sort them with batchid */
@@ -124,6 +129,8 @@ static int dtrq_insert(struct target_distribute_txn_data *tdtd,
 
 	if (list_empty(&new->dtrq_list))
 		list_add(&new->dtrq_list, &tdtd->tdtd_replay_list);
+
+	spin_unlock(&tdtd->tdtd_replay_list_lock);
 
 	return 0;
 }
@@ -369,9 +376,7 @@ insert_update_records_to_replay_list(struct target_distribute_txn_data *tdtd,
 	       record->ur_batchid, record->ur_master_transno, mdt_index);
 
 	/* First try to build the replay update request with the records */
-	spin_lock(&tdtd->tdtd_replay_list_lock);
 	dtrq = dtrq_lookup(tdtd, record->ur_batchid);
-	spin_unlock(&tdtd->tdtd_replay_list_lock);
 	if (dtrq == NULL) {
 		/* If the transno in the update record is 0, it means the
 		 * update are from master MDT, and we will use the master
@@ -385,9 +390,7 @@ insert_update_records_to_replay_list(struct target_distribute_txn_data *tdtd,
 		if (record->ur_master_transno == 0)
 			dtrq->dtrq_lur->lur_update_rec.ur_master_transno =
 				tdtd->tdtd_lut->lut_last_transno;
-		spin_lock(&tdtd->tdtd_replay_list_lock);
 		rc = dtrq_insert(tdtd, dtrq);
-		spin_unlock(&tdtd->tdtd_replay_list_lock);
 		if (rc == -EEXIST) {
 			/* Some one else already add the record */
 			dtrq_destroy(dtrq);
@@ -404,11 +407,12 @@ insert_update_records_to_replay_list(struct target_distribute_txn_data *tdtd,
 		dtrq_rec = &dtrq->dtrq_lur->lur_update_rec;
 		if (record->ur_master_transno != 0 &&
 		    dtrq_rec->ur_master_transno != record->ur_master_transno) {
-			dtrq_rec->ur_master_transno = record->ur_master_transno;
 			spin_lock(&tdtd->tdtd_replay_list_lock);
 			list_del_init(&dtrq->dtrq_list);
-			rc = dtrq_insert(tdtd, dtrq);
 			spin_unlock(&tdtd->tdtd_replay_list_lock);
+			dtrq_rec->ur_master_transno = record->ur_master_transno;
+
+			rc = dtrq_insert(tdtd, dtrq);
 			if (rc < 0)
 				return rc;
 		}
