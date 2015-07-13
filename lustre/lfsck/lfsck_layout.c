@@ -327,7 +327,7 @@ static void lfsck_layout_assistant_sync_failures(const struct lu_env *env,
 
 	down_read(&ltds->ltd_rw_sem);
 	cfs_foreach_bit(lad->lad_bitmap, idx) {
-		ltd = LTD_TGT(ltds, idx);
+		ltd = lfsck_ltd2tgt(ltds, idx);
 		LASSERT(ltd != NULL);
 
 		laia->laia_ltd = ltd;
@@ -1430,14 +1430,16 @@ static int lfsck_layout_trans_stop(const struct lu_env *env,
 {
 	int rc;
 
+	/* XXX: If there is something worng or it needs to repair nothing,
+	 *	then notify the lower to stop the modification. Currently,
+	 *	we use th_result for such purpose, that may be replaced by
+	 *	some rollback mechanism in the future. */
 	handle->th_result = result;
 	rc = dt_trans_stop(env, dev, handle);
-	if (rc > 0)
-		rc = 0;
-	else if (rc == 0)
-		rc = 1;
+	if (result != 0)
+		return result > 0 ? 0 : result;
 
-	return rc;
+	return rc == 0 ? 1 : rc;
 }
 
 /**
@@ -1754,7 +1756,7 @@ static int lfsck_layout_recreate_parent(const struct lu_env *env,
 	struct lfsck_thread_info	*info	= lfsck_env_info(env);
 	struct dt_insert_rec		*dtrec	= &info->lti_dt_rec;
 	char				*name	= info->lti_key;
-	struct lu_attr			*la	= &info->lti_la;
+	struct lu_attr			*la	= &info->lti_la2;
 	struct dt_object_format 	*dof	= &info->lti_dof;
 	struct lfsck_instance		*lfsck	= com->lc_lfsck;
 	struct lu_fid			*pfid	= &rec->lor_fid;
@@ -2756,14 +2758,16 @@ unlock1:
 	lfsck_ibits_unlock(&lh, LCK_EX);
 
 log:
-	CDEBUG(D_LFSCK, "%s: layout LFSCK assistant found dangling "
-	       "reference for: parent "DFID", child "DFID", OST-index %u, "
-	       "stripe-index %u, owner %u/%u. %s: rc = %d\n",
-	       lfsck_lfsck2name(com->lc_lfsck), PFID(lfsck_dto2fid(parent)),
-	       PFID(lfsck_dto2fid(child)), llr->llr_ost_idx,
-	       llr->llr_lov_idx, pla->la_uid, pla->la_gid,
-	       create ? "Create the lost OST-object as required" :
-			"Keep the MDT-object there by default", rc);
+	if (rc != 0)
+		CDEBUG(D_LFSCK, "%s: layout LFSCK assistant found "
+		       "dangling reference for: parent "DFID", child "DFID
+		       ", OST-index %u, stripe-index %u, owner %u/%u. %s: "
+		       "rc = %d\n", lfsck_lfsck2name(com->lc_lfsck),
+		       PFID(lfsck_dto2fid(parent)), PFID(lfsck_dto2fid(child)),
+		       llr->llr_ost_idx, llr->llr_lov_idx,
+		       pla->la_uid, pla->la_gid,
+		       create ? "Create the lost OST-object as required" :
+				"Keep the MDT-object there by default", rc);
 
 	return rc;
 }
@@ -2851,12 +2855,16 @@ unlock1:
 	lfsck_ibits_unlock(&lh, LCK_EX);
 
 log:
-	CDEBUG(D_LFSCK, "%s: layout LFSCK assistant repaired unmatched "
-	       "MDT-OST pair for: parent "DFID", child "DFID", OST-index %u, "
-	       "stripe-index %u, owner %u/%u: rc = %d\n",
-	       lfsck_lfsck2name(com->lc_lfsck), PFID(lfsck_dto2fid(parent)),
-	       PFID(lfsck_dto2fid(child)), llr->llr_ost_idx, llr->llr_lov_idx,
-	       pla->la_uid, pla->la_gid, rc);
+	if (rc != 0)
+		CDEBUG(D_LFSCK, "%s: layout LFSCK assistant repaired "
+		       "unmatched MDT-OST pair for: parent "DFID
+		       ", child "DFID", OST-index %u, stripe-index %u, "
+		       "owner %u/%u: rc = %d\n",
+		       lfsck_lfsck2name(com->lc_lfsck),
+		       PFID(lfsck_dto2fid(parent)),
+		       PFID(lfsck_dto2fid(child)),
+		       llr->llr_ost_idx, llr->llr_lov_idx,
+		       pla->la_uid, pla->la_gid, rc);
 
 	return rc;
 }
@@ -3030,10 +3038,12 @@ log:
 	if (child != NULL)
 		lfsck_object_put(env, child);
 
-	CDEBUG(D_LFSCK, "%s: layout LFSCK assistant repaired multiple "
-	       "references for: parent "DFID", OST-index %u, stripe-index %u, "
-	       "owner %u/%u: rc = %d\n", lfsck_lfsck2name(lfsck), PFID(pfid),
-	       llr->llr_ost_idx, llr->llr_lov_idx, la->la_uid, la->la_gid, rc);
+	if (rc != 0)
+		CDEBUG(D_LFSCK, "%s: layout LFSCK assistant repaired "
+		       "multiple references for: parent "DFID", OST-index %u, "
+		       "stripe-index %u, owner %u/%u: rc = %d\n",
+		       lfsck_lfsck2name(lfsck), PFID(pfid), llr->llr_ost_idx,
+		       llr->llr_lov_idx, la->la_uid, la->la_gid, rc);
 
 	return rc;
 }
@@ -3046,23 +3056,24 @@ static int lfsck_layout_repair_owner(const struct lu_env *env,
 				     struct lfsck_component *com,
 				     struct dt_object *parent,
 				     struct lfsck_layout_req *llr,
-				     struct lu_attr *pla)
+				     struct lu_attr *pla,
+				     const struct lu_attr *cla)
 {
 	struct lfsck_thread_info	*info	= lfsck_env_info(env);
-	struct lu_attr			*tla	= &info->lti_la3;
+	struct lu_attr			*tla	= &info->lti_la2;
 	struct dt_object		*child  = llr->llr_child;
 	struct dt_device		*dev	= lfsck_obj2dev(child);
 	struct thandle			*handle;
 	int				 rc;
 	ENTRY;
 
+	tla->la_uid = pla->la_uid;
+	tla->la_gid = pla->la_gid;
+	tla->la_valid = LA_UID | LA_GID;
 	handle = dt_trans_create(env, dev);
 	if (IS_ERR(handle))
 		GOTO(log, rc = PTR_ERR(handle));
 
-	tla->la_uid = pla->la_uid;
-	tla->la_gid = pla->la_gid;
-	tla->la_valid = LA_UID | LA_GID;
 	rc = dt_declare_attr_set(env, child, tla, handle);
 	if (rc != 0)
 		GOTO(stop, rc);
@@ -3077,17 +3088,16 @@ static int lfsck_layout_repair_owner(const struct lu_env *env,
 		GOTO(unlock, rc = 1);
 
 	/* Get the latest parent's owner. */
-	rc = dt_attr_get(env, parent, tla, BYPASS_CAPA);
+	rc = dt_attr_get(env, parent, pla, BYPASS_CAPA);
 	if (rc != 0)
 		GOTO(unlock, rc);
 
 	/* Some others chown/chgrp during the LFSCK, needs to do nothing. */
 	if (unlikely(tla->la_uid != pla->la_uid ||
 		     tla->la_gid != pla->la_gid))
-		GOTO(unlock, rc = 1);
-
-	tla->la_valid = LA_UID | LA_GID;
-	rc = dt_attr_set(env, child, tla, handle, BYPASS_CAPA);
+		rc = 1;
+	else
+		rc = dt_attr_set(env, child, tla, handle, BYPASS_CAPA);
 
 	GOTO(unlock, rc);
 
@@ -3098,12 +3108,15 @@ stop:
 	rc = lfsck_layout_trans_stop(env, dev, handle, rc);
 
 log:
-	CDEBUG(D_LFSCK, "%s: layout LFSCK assistant repaired inconsistent "
-	       "file owner for: parent "DFID", child "DFID", OST-index %u, "
-	       "stripe-index %u, owner %u/%u: rc = %d\n",
-	       lfsck_lfsck2name(com->lc_lfsck), PFID(lfsck_dto2fid(parent)),
-	       PFID(lfsck_dto2fid(child)), llr->llr_ost_idx, llr->llr_lov_idx,
-	       pla->la_uid, pla->la_gid, rc);
+	if (rc != 0)
+		CDEBUG(D_LFSCK, "%s: layout LFSCK assistant repaired "
+		       "inconsistent file owner for: parent "DFID", child "DFID
+		       ", OST-index %u, stripe-index %u, old owner %u/%u, "
+		       "new owner %u/%u: rc = %d\n",
+		       lfsck_lfsck2name(com->lc_lfsck),
+		       PFID(lfsck_dto2fid(parent)), PFID(lfsck_dto2fid(child)),
+		       llr->llr_ost_idx, llr->llr_lov_idx,
+		       cla->la_uid, cla->la_gid, tla->la_uid, tla->la_gid, rc);
 
 	return rc;
 }
@@ -3132,24 +3145,11 @@ static int lfsck_layout_check_parent(const struct lu_env *env,
 	__u16				 count;
 	ENTRY;
 
-	if (fid_is_zero(pfid)) {
-		/* client never wrote. */
-		if (cla->la_size == 0 && cla->la_blocks == 0) {
-			if (unlikely(cla->la_uid != pla->la_uid ||
-				     cla->la_gid != pla->la_gid))
-				RETURN (LLIT_INCONSISTENT_OWNER);
-
-			RETURN(0);
-		}
-
-		RETURN(LLIT_UNMATCHED_PAIR);
-	}
-
 	if (unlikely(!fid_is_sane(pfid)))
 		RETURN(LLIT_UNMATCHED_PAIR);
 
 	if (lu_fid_eq(pfid, lu_object_fid(&parent->do_lu))) {
-		if (llr->llr_lov_idx == idx)
+		if (likely(llr->llr_lov_idx == idx))
 			RETURN(0);
 
 		RETURN(LLIT_UNMATCHED_PAIR);
@@ -3159,11 +3159,8 @@ static int lfsck_layout_check_parent(const struct lu_env *env,
 	if (IS_ERR(tobj))
 		RETURN(PTR_ERR(tobj));
 
-	if (dt_object_exists(tobj) == 0 ||
-	    lfsck_is_dead_obj(tobj))
-		GOTO(out, rc = LLIT_UNMATCHED_PAIR);
-
-	if (!S_ISREG(lfsck_object_type(tobj)))
+	if (dt_object_exists(tobj) == 0 || lfsck_is_dead_obj(tobj) ||
+	    !S_ISREG(lfsck_object_type(tobj)))
 		GOTO(out, rc = LLIT_UNMATCHED_PAIR);
 
 	/* Load the tobj's layout EA, in spite of it is a local MDT-object or
@@ -3314,7 +3311,7 @@ static int lfsck_layout_assistant_handler_p1(const struct lu_env *env,
 
 	lfsck_buf_init(&buf, pea, sizeof(struct filter_fid_old));
 	rc = dt_xattr_get(env, child, &buf, XATTR_NAME_FID, BYPASS_CAPA);
-	if (unlikely(rc >= 0 && rc != sizeof(struct filter_fid_old) &&
+	if (unlikely(rc > 0 && rc != sizeof(struct filter_fid_old) &&
 		     rc != sizeof(struct filter_fid))) {
 		type = LLIT_UNMATCHED_PAIR;
 		goto repair;
@@ -3323,17 +3320,15 @@ static int lfsck_layout_assistant_handler_p1(const struct lu_env *env,
 	if (rc < 0 && rc != -ENODATA)
 		GOTO(out, rc);
 
-	if (rc == -ENODATA) {
-		fid_zero(pfid);
-	} else {
-		fid_le_to_cpu(pfid, &pea->ff_parent);
-		/* Currently, the filter_fid::ff_parent::f_ver is not the
-		 * real parent MDT-object's FID::f_ver, instead it is the
-		 * OST-object index in its parent MDT-object's layout EA. */
-		idx = pfid->f_stripe_idx;
-		pfid->f_ver = 0;
-	}
+	if (rc == 0 || rc == -ENODATA)
+		GOTO(check_owner, rc = 0);
 
+	fid_le_to_cpu(pfid, &pea->ff_parent);
+	/* Currently, the filter_fid::ff_parent::f_ver is not the
+	 * real parent MDT-object's FID::f_ver, instead it is the
+	 * OST-object index in its parent MDT-object's layout EA. */
+	idx = pfid->f_stripe_idx;
+	pfid->f_ver = 0;
 	rc = lfsck_layout_check_parent(env, com, parent, pfid,
 				       lu_object_fid(&child->do_lu),
 				       pla, cla, llr, &buf, idx);
@@ -3345,6 +3340,7 @@ static int lfsck_layout_assistant_handler_p1(const struct lu_env *env,
 	if (rc < 0)
 		GOTO(out, rc);
 
+check_owner:
 	if (unlikely(cla->la_uid != pla->la_uid ||
 		     cla->la_gid != pla->la_gid)) {
 		type = LLIT_INCONSISTENT_OWNER;
@@ -3372,7 +3368,7 @@ repair:
 							     llr, pla, &buf);
 		break;
 	case LLIT_INCONSISTENT_OWNER:
-		rc = lfsck_layout_repair_owner(env, com, parent, llr, pla);
+		rc = lfsck_layout_repair_owner(env, com, parent, llr, pla, cla);
 		break;
 	default:
 		rc = 0;
@@ -5224,7 +5220,7 @@ static int lfsck_layout_master_in_notify(const struct lu_env *env,
 	else
 		ltds = &lfsck->li_mdt_descs;
 	spin_lock(&ltds->ltd_lock);
-	ltd = LTD_TGT(ltds, lr->lr_index);
+	ltd = lfsck_ltd2tgt(ltds, lr->lr_index);
 	if (ltd == NULL) {
 		spin_unlock(&ltds->ltd_lock);
 
