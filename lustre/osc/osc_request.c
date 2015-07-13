@@ -49,8 +49,17 @@
 #include <lustre_param.h>
 #include <lustre_fid.h>
 #include <obd_class.h>
+#include <obd.h>
+#include <lustre_net.h>
 #include "osc_internal.h"
 #include "osc_cl_internal.h"
+
+atomic_t osc_pool_req_count;
+u64 osc_reqpool_maxreqcount;
+struct ptlrpc_request_pool *osc_rq_pool;
+
+/* max memory used for request pool, unit is MB */
+static uint osc_reqpool_mem_max;
 
 struct osc_brw_async_args {
 	struct obdo		 *aa_oa;
@@ -1000,15 +1009,15 @@ osc_brw_prep_request(int cmd, struct client_obd *cli, struct obdo *oa,
         if (OBD_FAIL_CHECK(OBD_FAIL_OSC_BRW_PREP_REQ2))
                 RETURN(-EINVAL); /* Fatal */
 
-        if ((cmd & OBD_BRW_WRITE) != 0) {
-                opc = OST_WRITE;
-                req = ptlrpc_request_alloc_pool(cli->cl_import,
-                                                cli->cl_import->imp_rq_pool,
-                                                &RQF_OST_BRW_WRITE);
-        } else {
-                opc = OST_READ;
-                req = ptlrpc_request_alloc(cli->cl_import, &RQF_OST_BRW_READ);
-        }
+	if ((cmd & OBD_BRW_WRITE) != 0) {
+		opc = OST_WRITE;
+		req = ptlrpc_request_alloc_pool(cli->cl_import,
+						osc_rq_pool,
+						&RQF_OST_BRW_WRITE);
+	} else {
+		opc = OST_READ;
+		req = ptlrpc_request_alloc(cli->cl_import, &RQF_OST_BRW_READ);
+	}
         if (req == NULL)
                 RETURN(-ENOMEM);
 
@@ -2627,6 +2636,9 @@ int osc_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 	struct obd_type	  *type;
 	void		  *handler;
 	int		   rc;
+	int		   adding;
+	int		   added;
+	int		   req_count;
 	ENTRY;
 
 	rc = ptlrpcd_addref();
@@ -2683,15 +2695,20 @@ int osc_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 		ptlrpc_lprocfs_register_obd(obd);
 	}
 
-	/* We need to allocate a few requests more, because
-	 * brw_interpret tries to create new requests before freeing
-	 * previous ones, Ideally we want to have 2x max_rpcs_in_flight
-	 * reserved, but I'm afraid that might be too much wasted RAM
-	 * in fact, so 2 is just my guess and still should work. */
-	cli->cl_import->imp_rq_pool =
-		ptlrpc_init_rq_pool(cli->cl_max_rpcs_in_flight + 2,
-				    OST_MAXREQSIZE,
-				    ptlrpc_add_rqs_to_pool);
+	/*
+	 * We try to control the total number of requests with a upper limit
+	 * osc_reqpool_maxreqcount. There might be some race which will cause
+	 * over-limit allocation, but it is fine.
+	 */
+	req_count = atomic_read(&osc_pool_req_count);
+	if (req_count < osc_reqpool_maxreqcount) {
+		adding = cli->cl_max_rpcs_in_flight + 2;
+		if (req_count + adding > osc_reqpool_maxreqcount)
+			adding = osc_reqpool_maxreqcount - req_count;
+
+		added = ptlrpc_add_rqs_to_pool(osc_rq_pool, adding);
+		atomic_add(added, &osc_pool_req_count);
+	}
 
 	INIT_LIST_HEAD(&cli->cl_grant_shrink_list);
 	ns_register_cancel(obd->obd_namespace, osc_cancel_weight);
@@ -2778,12 +2795,12 @@ int osc_cleanup(struct obd_device *obd)
 	}
 
         /* free memory of osc quota cache */
-        osc_quota_cleanup(obd);
+	osc_quota_cleanup(obd);
 
-        rc = client_obd_cleanup(obd);
+	rc = client_obd_cleanup(obd);
 
-        ptlrpcd_decref();
-        RETURN(rc);
+	ptlrpcd_decref();
+	RETURN(rc);
 }
 
 int osc_process_config_base(struct obd_device *obd, struct lustre_cfg *lcfg)
@@ -2824,7 +2841,9 @@ static int __init osc_init(void)
 {
 	bool enable_proc = true;
 	struct obd_type *type;
-	int rc;
+	u64 size;
+	int rc, reqsize;
+
 	ENTRY;
 
         /* print an address of _any_ initialized kernel symbol from this
@@ -2846,6 +2865,26 @@ static int __init osc_init(void)
                 lu_kmem_fini(osc_caches);
                 RETURN(rc);
         }
+	size = 1 << 20;
+	if (osc_reqpool_mem_max != 0)
+		size = osc_reqpool_mem_max << 20;
+
+	reqsize = 1;
+	while (reqsize < OST_IO_MAXREQSIZE)
+		reqsize = reqsize << 1;
+
+	/*
+	 * We don't enlarge the request count in OSC pool according to
+	 * cl_max_rpcs_in_flight. The request count can never be enough as
+	 * long as the OSC number keeps on growing. And there isn't much solid
+	 * evidence showing that a relatively small request pool will cause
+	 * performance degression.
+	 */
+	osc_reqpool_maxreqcount = size / reqsize;
+
+	atomic_set(&osc_pool_req_count, 0);
+	osc_rq_pool = ptlrpc_init_rq_pool(0, OST_IO_MAXREQSIZE,
+					  ptlrpc_add_rqs_to_pool);
 
 	RETURN(rc);
 }
@@ -2854,7 +2893,12 @@ static void /*__exit*/ osc_exit(void)
 {
 	class_unregister_type(LUSTRE_OSC_NAME);
 	lu_kmem_fini(osc_caches);
+
+	if (unlikely(osc_rq_pool == NULL))
+		ptlrpc_free_rq_pool(osc_rq_pool);
 }
+
+module_param(osc_reqpool_mem_max, uint, 0444);
 
 MODULE_AUTHOR("Sun Microsystems, Inc. <http://www.lustre.org/>");
 MODULE_DESCRIPTION("Lustre Object Storage Client (OSC)");
