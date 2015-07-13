@@ -334,6 +334,7 @@ static void waiting_locks_callback(unsigned long unused)
                         LDLM_LOCK_RELEASE(lock);
                         continue;
                 }
+
                 ldlm_lock_to_ns(lock)->ns_timeouts++;
                 LDLM_ERROR(lock, "lock callback timer expired after %lds: "
                            "evicting client at %s ",
@@ -443,6 +444,12 @@ static int ldlm_add_waiting_lock(struct ldlm_lock *lock)
 	/* NB: must be called with hold of lock_res_and_lock() */
 	LASSERT(ldlm_is_res_locked(lock));
 	LASSERT(!ldlm_is_cancel_on_block(lock));
+
+	/* Do not put cross-MDT lock in the waiting list, since we
+	 * will not evict it due to timeout for now */
+	if (lock->l_export != NULL &&
+	    (exp_connect_flags(lock->l_export) & OBD_CONNECT_MDS_MDS))
+		return 0;
 
 	spin_lock_bh(&waiting_locks_spinlock);
 	if (ldlm_is_cancel(lock)) {
@@ -556,6 +563,12 @@ int ldlm_refresh_waiting_lock(struct ldlm_lock *lock, int timeout)
 	if (lock->l_export == NULL) {
 		/* We don't have a "waiting locks list" on clients. */
 		LDLM_DEBUG(lock, "client lock: no-op");
+		return 0;
+	}
+
+	if (exp_connect_flags(lock->l_export) & OBD_CONNECT_MDS_MDS) {
+		/* We don't have a "waiting locks list" on OSP. */
+		LDLM_DEBUG(lock, "MDS-MDS lock: no-op");
 		return 0;
 	}
 
@@ -853,7 +866,10 @@ int ldlm_server_blocking_ast(struct ldlm_lock *lock,
         if (req == NULL)
                 RETURN(-ENOMEM);
 
-        CLASSERT(sizeof(*ca) <= sizeof(req->rq_async_args));
+	if (exp_connect_flags(lock->l_export) & OBD_CONNECT_MDS_MDS)
+		req->rq_no_timeout = 1;
+
+	CLASSERT(sizeof(*ca) <= sizeof(req->rq_async_args));
         ca = ptlrpc_req_async_args(req);
         ca->ca_set_arg = arg;
         ca->ca_lock = lock;
