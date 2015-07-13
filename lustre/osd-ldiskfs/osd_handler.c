@@ -2484,14 +2484,25 @@ static int osd_add_dot_dotdot_internal(struct osd_thread_info *info,
 {
 	struct ldiskfs_dentry_param *dot_ldp;
 	struct ldiskfs_dentry_param *dot_dot_ldp;
+	int rc;
 
 	dot_dot_ldp = (struct ldiskfs_dentry_param *)info->oti_ldp2;
 	osd_get_ldiskfs_dirent_param(dot_dot_ldp, dot_dot_fid);
 
 	dot_ldp = (struct ldiskfs_dentry_param *)info->oti_ldp;
 	dot_ldp->edp_magic = 0;
-	return ldiskfs_add_dot_dotdot(oth->ot_handle, parent_dir,
-					dir, dot_ldp, dot_dot_ldp);
+
+	rc = ldiskfs_add_dot_dotdot(oth->ot_handle, parent_dir,
+				    dir, dot_ldp, dot_dot_ldp);
+
+	/* ldiskfs_init_new_dir() doesn't call ldiskfs_mark_inode_dirty()
+	 * this seem as an optimization as usually it's called
+	 * later to refresh mtime of the parent. Lustre does not
+	 * update mtime in few cases (e.g. PENDING, .lustre)
+	 * we still need to transfer i_size/etc to the buffer cache */
+	ldiskfs_mark_inode_dirty(oth->ot_handle, dir);
+
+	return rc;
 }
 
 /**
@@ -3825,13 +3836,6 @@ static int osd_add_dot_dotdot(struct osd_thread_info *info,
 		if (result == 0)
 			dir->oo_compat_dotdot_created = 1;
 	}
-
-	/* ldiskfs_init_new_dir() doesn't call ldiskfs_mark_inode_dirty()
-	 * this seem as an optimization as usually it's called
-	 * later to refresh mtime of the parent. Lustre does not
-	 * update mtime in few cases (e.g. PENDING, .lustre)
-	 * we still need to transfer i_size/etc to the buffer cache */
-	ldiskfs_mark_inode_dirty(oth->ot_handle, dir->oo_inode);
 
 	return result;
 }
