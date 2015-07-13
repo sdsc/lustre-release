@@ -619,7 +619,7 @@ static int ldiskfs_ext_new_extent_cb(struct inode *inode,
 {
 	struct bpointers *bp = cbdata;
 	struct ldiskfs_extent nex;
-	unsigned long pblock;
+	unsigned long pblock = 0;
 	unsigned long tgen;
 	int err, i;
 	unsigned long count;
@@ -748,7 +748,7 @@ map:
 #ifdef LDISKFS_EXT_CACHE_EXTENT /* until kernel 2.6.37 */
 			if (cex->ec_type != LDISKFS_EXT_CACHE_EXTENT) {
 #else
-			if ((cex->ec_len == 0) || (cex->ec_start == 0)) {
+			if (pblock != 0) {
 #endif
 				/* unmap any possible underlying metadata from
 				 * the block device mapping.  bug 6998. */
