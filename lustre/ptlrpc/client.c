@@ -2088,9 +2088,9 @@ int ptlrpc_expired_set(void *data)
 			list_entry(tmp, struct ptlrpc_request,
 				   rq_set_chain);
 
-                /* don't expire request waiting for context */
-                if (req->rq_wait_ctx)
-                        continue;
+		/* don't expire request waiting for context */
+		if (req->rq_wait_ctx || req->rq_no_timeout)
+			continue;
 
                 /* Request in-flight? */
                 if (!((req->rq_phase == RQ_PHASE_RPC &&
