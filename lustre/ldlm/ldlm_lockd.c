@@ -334,6 +334,23 @@ static void waiting_locks_callback(unsigned long unused)
                         LDLM_LOCK_RELEASE(lock);
                         continue;
                 }
+
+		if (exp_connect_flags(lock->l_export) & OBD_CONNECT_MDS_MDS) {
+			LDLM_DEBUG(lock, "not expiring from other MDT %s\n",
+				   libcfs_nid2str(
+				   lock->l_export->exp_connection->c_peer.nid));
+			if (lock->l_pending_chain.next == &waiting_locks_list) {
+				/* break, if there are no more locks */
+				break;
+			} else {
+				/* move it to the tail and continue */
+				list_del(&lock->l_pending_chain);
+				list_add_tail(&lock->l_pending_chain,
+					      &waiting_locks_list);
+				continue;
+			}
+		}
+
                 ldlm_lock_to_ns(lock)->ns_timeouts++;
                 LDLM_ERROR(lock, "lock callback timer expired after %lds: "
                            "evicting client at %s ",
@@ -836,7 +853,10 @@ int ldlm_server_blocking_ast(struct ldlm_lock *lock,
         if (req == NULL)
                 RETURN(-ENOMEM);
 
-        CLASSERT(sizeof(*ca) <= sizeof(req->rq_async_args));
+	if (exp_connect_flags(lock->l_export) & OBD_CONNECT_MDS_MDS)
+		req->rq_no_timeout = 1;
+
+	CLASSERT(sizeof(*ca) <= sizeof(req->rq_async_args));
         ca = ptlrpc_req_async_args(req);
         ca->ca_set_arg = arg;
         ca->ca_lock = lock;
