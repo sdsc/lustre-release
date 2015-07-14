@@ -5182,7 +5182,21 @@ again:
 
 	rc = osd_get_lma(info, inode, &info->oti_obj_dentry, lma);
 	if (rc == 0) {
-		LASSERT(!(lma->lma_compat & LMAC_NOT_IN_OI));
+		if (unlikely(lma->lma_compat & LMAC_NOT_IN_OI)) {
+			struct lu_fid *tfid = &lma->lma_self_fid;
+
+			/* It must be REMOTE_PARENT_DIR and as the
+			 * dotdot entry of remote directory */
+			LASSERTF(dot_dotdot == 2, "Ivalid name entry %.*s\n",
+				 ent->oied_namelen, ent->oied_name);
+			LASSERTF(fid_seq(tfid) == FID_SEQ_LOCAL_FILE,
+				 "Invalid FID seq "DFID"\n", PFID(tfid));
+			LASSERTF(fid_oid(tfid) == REMOTE_PARENT_DIR_OID,
+				 "Invalid FID seq "DFID"\n", PFID(tfid));
+
+			*attr |= LUDA_IGNORE;
+			GOTO(out_journal, rc = 0);
+		}
 
 		if (fid_is_sane(fid)) {
 			/* FID-in-dirent is valid. */
