@@ -218,8 +218,6 @@ static int vvp_page_prep_write(const struct lu_env *env,
 	LASSERT(PageLocked(vmpage));
 	LASSERT(!PageDirty(vmpage));
 
-	set_page_writeback(vmpage);
-
 	return 0;
 }
 
@@ -289,19 +287,21 @@ static void vvp_page_completion_write(const struct lu_env *env,
 	struct page     *vmpage = vpg->vpg_page;
 	ENTRY;
 
-	LASSERT(ergo(pg->cp_sync_io != NULL, PageLocked(vmpage)));
-	LASSERT(PageWriteback(vmpage));
-
 	CL_PAGE_HEADER(D_PAGE, env, pg, "completing WRITE with %d\n", ioret);
 
-	/*
-	 * Only mark the page error only when it's an async write because
-	 * applications won't wait for IO to finish.
-	 */
-	if (pg->cp_sync_io == NULL)
+	if (pg->cp_sync_io != NULL) {
+		LASSERT(PageLocked(vmpage));
+		LASSERT(!PageWriteback(vmpage));
+	} else {
+		LASSERT(PageWriteback(vmpage));
+		/*
+		 * Only mark the page error only when it's an async write
+		 * because applications won't wait for IO to finish.
+		 */
 		vvp_vmpage_error(vvp_object_inode(pg->cp_obj), vmpage, ioret);
 
-	end_page_writeback(vmpage);
+		end_page_writeback(vmpage);
+	}
 	EXIT;
 }
 
