@@ -35,6 +35,7 @@
 #ifndef _LUSTREAPI_INTERNAL_H_
 #define _LUSTREAPI_INTERNAL_H_
 
+#include <glob.h>
 #include <uapi_kernelcomm.h>
 
 #define WANT_PATH   0x1
@@ -45,8 +46,27 @@
 int get_root_path(int want, char *fsname, int *outfd, char *path, int index);
 int root_ioctl(const char *mdtname, int opc, void *data, int *mdtidxp,
 	       int want_error);
-int get_param(const char *param_path, char *result,
-	      unsigned int result_size);
+
+enum tgt_type {
+	LOV_TYPE = 1,
+	LMV_TYPE
+};
+
+/* Lustre parameter helpers */
+enum param_filter {
+	FILTER_BY_EXACT,
+	FILTER_BY_FS_NAME,
+	FILTER_BY_PATH
+};
+
+int find_target_obdpath(char *path, char *tgt, enum tgt_type type);
+int poolpath(char *fsname, char *pathname, char *pool_pathname);
+int get_lustre_param_path(glob_t *param, const char *obd_type,
+			  const char *filter, enum param_filter type,
+			  const char *param_name);
+int get_param_value(const char *obd_type, const char *filter,
+		    enum param_filter type, const char *param_name,
+		    char *value, size_t val_len);
 
 #define LLAPI_LAYOUT_MAGIC 0x11AD1107 /* LLAPILOT */
 

@@ -48,6 +48,7 @@
 #include <libgen.h>
 #include <syslog.h>
 
+#include <libcfs/util/param.h>
 #include <libcfs/util/string.h>
 #include <lnet/nidstr.h>
 #include <lustre/lustre_user.h>
@@ -77,7 +78,7 @@ static void usage(void)
         fprintf(stderr,
                 "\nusage: %s {mdtname} {uid}\n"
                 "Normally invoked as an upcall from Lustre, set via:\n"
-                "/proc/fs/lustre/mdt/${mdtname}/identity_upcall\n",
+		"lctl set_param mdt.${mdtname}.identity_upcall={path to upcall}\n",
                 progname);
 }
 
@@ -420,7 +421,7 @@ int main(int argc, char **argv)
 {
         char *end;
         struct identity_downcall_data *data = NULL;
-        char procname[1024];
+	glob_t path;
         unsigned long uid;
         int fd, rc = -EINVAL, size, maxgroups;
 
@@ -472,14 +473,18 @@ downcall:
                 goto out;
         }
 
-        snprintf(procname, sizeof(procname),
-                 "/proc/fs/lustre/mdt/%s/identity_info", argv[1]);
-        fd = open(procname, O_WRONLY);
-        if (fd < 0) {
-                errlog("can't open file %s: %s\n", procname, strerror(errno));
-                rc = -1;
-                goto out;
-        }
+	rc = cfs_get_param_path(&path, "mdt/%s/identity_info", argv[1]);
+	if (rc != 0)
+		goto out;
+
+	fd = open(path.gl_pathv[0], O_WRONLY);
+	if (fd < 0) {
+		errlog("can't open file %s: %s\n", path.gl_pathv[0],
+		       strerror(errno));
+		rc = -errno;
+		goto out;
+	}
+	cfs_free_param_data(&path);
 
         rc = write(fd, data, size);
         close(fd);

@@ -82,11 +82,13 @@ llverfs_LDADD := $(EXT2FSLIB) $(E2PLIB)
 llverdev_LDADD := $(EXT2FSLIB) $(BLKIDLIB)
 
 L_STRING := $(top_builddir)/libcfs/libcfs/util/string.c
+L_PARAM := $(top_builddir)/libcfs/libcfs/util/param.c
 liblustreapitmp_a_SOURCES = liblustreapi.c liblustreapi_hsm.c \
 			    liblustreapi_nodemap.c lustreapi_internal.h \
 			    liblustreapi_json.c liblustreapi_layout.c \
 			    liblustreapi_lease.c liblustreapi_util.c \
-			    liblustreapi_kernelconn.c $(L_STRING)
+			    liblustreapi_kernelconn.c liblustreapi_param.c \
+			    $(L_STRING) $(L_PARAM)
 
 if UTILS
 # build static and shared lib lustreapi
@@ -161,6 +163,8 @@ l_getidentity_LDADD := $(LIBPTLCTL)
 l_getidentity_DEPENDENCIES := $(LIBPTLCTL)
 
 ltrack_stats_SOURCES = ltrack_stats.c
+ltrack_stats_LDADD := $(LIBPTLCTL)
+ltrack_stats_DEPENDENCIES := $(LIBPTLCTL)
 
 lhsmtool_posix_SOURCES = lhsmtool_posix.c
 lhsmtool_posix_LDADD := liblustreapi.a $(LIBPTLCTL) $(PTHREAD_LIBS)
