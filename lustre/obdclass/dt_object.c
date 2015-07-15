@@ -564,7 +564,14 @@ const struct dt_index_features dt_directory_features;
 EXPORT_SYMBOL(dt_directory_features);
 
 /* scrub iterator */
-const struct dt_index_features dt_otable_features;
+const struct dt_index_features dt_otable_features = {
+	.dif_flags		= 0,
+	.dif_keysize_min	= sizeof(__u64),
+	.dif_keysize_max	= sizeof(__u64),
+	.dif_recsize_min	= sizeof(struct lu_fid),
+	.dif_recsize_max	= sizeof(struct lu_fid),
+	.dif_ptrsize		= 4
+};
 EXPORT_SYMBOL(dt_otable_features);
 
 /* lfsck */
