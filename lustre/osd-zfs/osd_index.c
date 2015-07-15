@@ -1613,7 +1613,9 @@ const struct dt_index_operations osd_zfs_otable_ops = {
 int osd_index_try(const struct lu_env *env, struct dt_object *dt,
 		const struct dt_index_features *feat)
 {
+	const struct lu_fid *fid = lu_object_fid(&dt->do_lu);
 	struct osd_object *obj = osd_dt_obj(dt);
+	int rc;
 	ENTRY;
 
 	/*
@@ -1623,20 +1625,42 @@ int osd_index_try(const struct lu_env *env, struct dt_object *dt,
 	if (feat->dif_flags & DT_IND_RANGE)
 		RETURN(-ERANGE);
 
-	if (unlikely(feat == &dt_otable_features)) {
-		dt->do_index_ops = &osd_zfs_otable_ops;
-		RETURN(0);
+	if (unlikely(fid_is_otable_it(fid))) {
+		LASSERT(feat == &dt_directory_features);
+		rc = 0;
+		if (feat->dif_keysize_min != sizeof(__u64))
+			rc = -EINVAL;
+		if (feat->dif_keysize_max != sizeof(__u64))
+			rc = -EINVAL;
+		if (feat->dif_recsize_min != sizeof(struct lu_fid))
+			rc = -EINVAL;
+		if (feat->dif_recsize_max != sizeof(struct lu_fid))
+			rc = -EINVAL;
+		if (rc == 0)
+			dt->do_index_ops = &osd_zfs_otable_ops;
+		RETURN(rc);
 	}
 
 	LASSERT(!dt_object_exists(dt) || obj->oo_db != NULL);
-	if (likely(feat == &dt_directory_features)) {
+	if (likely(S_ISDIR(dt->do_lu.lo_header->loh_attr))) {
 		if (!dt_object_exists(dt) || osd_object_is_zap(obj->oo_db))
 			dt->do_index_ops = &osd_dir_ops;
 		else
 			RETURN(-ENOTDIR);
-	} else if (unlikely(feat == &dt_acct_features)) {
+	} else if (unlikely(fid_is_acct(fid))) {
 		LASSERT(fid_is_acct(lu_object_fid(&dt->do_lu)));
-		dt->do_index_ops = &osd_acct_index_ops;
+		rc = 0;
+		if (feat->dif_keysize_min != sizeof(__u64))
+			rc = -EINVAL;
+		if (feat->dif_keysize_max != sizeof(__u64))
+			rc = -EINVAL;
+		if (feat->dif_recsize_min != sizeof(struct lquota_acct_rec))
+			rc = -EINVAL;
+		if (feat->dif_recsize_max != sizeof(struct lquota_acct_rec))
+			rc = -EINVAL;
+		if (rc == 0)
+			dt->do_index_ops = &osd_acct_index_ops;
+		RETURN(rc);
 	} else if (dt->do_index_ops == NULL) {
 		/* For index file, we don't support variable key & record sizes
 		 * and the key has to be unique */

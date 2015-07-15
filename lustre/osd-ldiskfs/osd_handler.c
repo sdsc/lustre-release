@@ -2412,6 +2412,11 @@ static int osd_declare_object_create(const struct lu_env *env,
 	if (rc != 0)
 		RETURN(rc);
 
+	/* so we're informed on object's in other methods,
+	 * like osd_index_try() */
+	LASSERT(attr->la_valid & (LA_TYPE | LA_MODE));
+	dt->do_lu.lo_header->loh_attr |= attr->la_mode & S_IFMT;
+
 	RETURN(rc);
 }
 
@@ -3291,13 +3296,11 @@ static int osd_iam_index_probe(const struct lu_env *env, struct osd_object *o,
 {
         struct iam_descr *descr;
 
-        if (osd_object_is_root(o))
-                return feat == &dt_directory_features;
-
         LASSERT(o->oo_dir != NULL);
 
         descr = o->oo_dir->od_container.ic_descr;
         if (feat == &dt_directory_features) {
+		LBUG();
                 if (descr->id_rec_size == sizeof(struct osd_fid_pack))
                         return 1;
                 else
@@ -3343,6 +3346,7 @@ static int osd_iam_container_init(const struct lu_env *env,
 static int osd_index_try(const struct lu_env *env, struct dt_object *dt,
                          const struct dt_index_features *feat)
 {
+	const struct lu_fid	*fid = lu_object_fid(&dt->do_lu);
 	int			 result;
 	int			 skip_iam = 0;
 	struct osd_object	*obj = osd_dt_obj(dt);
@@ -3350,21 +3354,43 @@ static int osd_index_try(const struct lu_env *env, struct dt_object *dt,
         LINVRNT(osd_invariant(obj));
 
         if (osd_object_is_root(obj)) {
+		LASSERT(feat == &dt_directory_features);
                 dt->do_index_ops = &osd_index_ea_ops;
-                result = 0;
-	} else if (feat == &dt_directory_features) {
-                dt->do_index_ops = &osd_index_ea_ops;
-		if (obj->oo_inode != NULL && S_ISDIR(obj->oo_inode->i_mode))
-                        result = 0;
-                else
-                        result = -ENOTDIR;
-		skip_iam = 1;
-	} else if (unlikely(feat == &dt_otable_features)) {
-		dt->do_index_ops = &osd_otable_ops;
-		return 0;
-	} else if (unlikely(feat == &dt_acct_features)) {
-		dt->do_index_ops = &osd_acct_index_ops;
 		result = 0;
+		skip_iam = 1;
+	} else if (unlikely(fid_is_otable_it(fid))) {
+		result = 0;
+		if (feat->dif_keysize_min != sizeof(__u64))
+			result = -EINVAL;
+		if (feat->dif_keysize_max != sizeof(__u64))
+			result = -EINVAL;
+		if (feat->dif_recsize_min != sizeof(struct lu_fid))
+			result = -EINVAL;
+		if (feat->dif_recsize_max != sizeof(struct lu_fid))
+			result = -EINVAL;
+		if (result == 0)
+			dt->do_index_ops = &osd_otable_ops;
+		return result;
+	} else if (unlikely(fid_is_acct(fid))) {
+		result = 0;
+		if (feat->dif_keysize_min != sizeof(__u64))
+			result = -EINVAL;
+		if (feat->dif_keysize_max != sizeof(__u64))
+			result = -EINVAL;
+		if (feat->dif_recsize_min != sizeof(struct lquota_acct_rec))
+			result = -EINVAL;
+		if (feat->dif_recsize_max != sizeof(struct lquota_acct_rec))
+			result = -EINVAL;
+		if (result == 0)
+			dt->do_index_ops = &osd_acct_index_ops;
+		skip_iam = 1;
+	} else if (S_ISDIR(dt->do_lu.lo_header->loh_attr)) {
+		LASSERT(feat == &dt_directory_features);
+		dt->do_index_ops = &osd_index_ea_ops;
+		if (obj->oo_inode != NULL && S_ISDIR(obj->oo_inode->i_mode))
+			result = 0;
+		else
+			result = -ENOTDIR;
 		skip_iam = 1;
         } else if (!osd_has_index(obj)) {
                 struct osd_directory *dir;
@@ -3408,9 +3434,18 @@ static int osd_index_try(const struct lu_env *env, struct dt_object *dt,
         }
         LINVRNT(osd_invariant(obj));
 
-	if (result == 0 && feat == &dt_quota_glb_features &&
-	    fid_seq(lu_object_fid(&dt->do_lu)) == FID_SEQ_QUOTA_GLB)
-		result = osd_quota_migration(env, dt);
+	if (result == 0 && fid_seq(fid) == FID_SEQ_QUOTA_GLB) {
+		if (feat->dif_keysize_min != sizeof(__u64))
+			result = -EINVAL;
+		if (feat->dif_keysize_max != sizeof(__u64))
+			result = -EINVAL;
+		if (feat->dif_recsize_min != sizeof(struct lquota_glb_rec))
+			result = -EINVAL;
+		if (feat->dif_recsize_max != sizeof(struct lquota_glb_rec))
+			result = -EINVAL;
+		if (result == 0)
+			result = osd_quota_migration(env, dt);
+	}
 
         return result;
 }
