@@ -1052,7 +1052,6 @@ static int osd_declare_object_create(const struct lu_env *env,
 
 	switch (dof->dof_type) {
 		case DFT_DIR:
-			dt->do_index_ops = &osd_dir_ops;
 		case DFT_INDEX:
 			/* for zap create */
 			dmu_tx_hold_zap(oh->ot_tx, DMU_NEW_OBJECT, 1, NULL);
@@ -1087,6 +1086,12 @@ static int osd_declare_object_create(const struct lu_env *env,
 
 	rc = osd_declare_quota(env, osd, attr->la_uid, attr->la_gid, 1, oh,
 			       false, NULL, false);
+
+	/* so we're informed on object's in other methods,
+	 * like osd_index_try() */
+	LASSERT(attr->la_valid & (LA_TYPE | LA_MODE));
+	dt->do_lu.lo_header->loh_attr |= attr->la_mode & S_IFMT;
+
 	RETURN(rc);
 }
 
