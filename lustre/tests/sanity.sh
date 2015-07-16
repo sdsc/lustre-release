@@ -7292,6 +7292,8 @@ free_min_max () {
 
 test_116a() { # was previously test_116()
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
+
 	[[ $OSTCOUNT -lt 2 ]] && skip_env "$OSTCOUNT < 2 OSTs" && return
 
 	echo -n "Free space priority "
@@ -7411,6 +7413,8 @@ run_test 116a "stripe QOS: free space balance ==================="
 
 test_116b() { # LU-2093
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
+
 #define OBD_FAIL_MDS_OSC_CREATE_FAIL     0x147
 	local old_rr=$(do_facet $SINGLEMDS lctl get_param -n \
 		       lo*.$FSNAME-MDT0000-mdtlov.qos_threshold_rr | head -1)
@@ -10380,6 +10384,8 @@ test_160b() { # LU-3587
 run_test 160b "Verify that very long rename doesn't crash in changelog"
 
 test_160c() {
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
+
 	local rc=0
 	local server_version=$(lustre_version_code $SINGLEMDS)
 
@@ -11482,6 +11488,9 @@ jobstats_set() {
 test_205() { # Job stats
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
 	remote_mgs_nodsh && skip "remote MGS with nodsh" && return
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
+	remote_ost_nodsh && skip "remote OST with nodsh" && return
+
 	[ -z "$(lctl get_param -n mdc.*.connect_flags | grep jobstats)" ] &&
 		skip "Server doesn't support jobstats" && return 0
 	[[ $JOBID_VAR = disable ]] && skip "jobstats is disabled" && return
@@ -11604,9 +11613,9 @@ test_208() {
 	# for now as only exclusive open is supported. After generic lease
 	# is done, this test suite should be revised. - Jinshan
 
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
 	[[ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.4.52) ]] ||
 		{ skip "Need MDS version at least 2.4.52"; return 0; }
-	remote_mds_nodsh && skip "remote MDS with nodsh" && return
 
 	echo "==== test 1: verify get lease work"
 	$MULTIOP $DIR/$tfile oO_CREAT:O_RDWR:eRE+eU || error "get lease error"
@@ -11934,6 +11943,8 @@ run_test 219 "LU-394: Write partial won't cause uncontiguous pages vec at LND"
 test_220() { #LU-325
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
 	remote_ost_nodsh && skip "remote OST with nodsh" && return
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
+	remote_mgs_nodsh && skip "remote MGS with nodsh" && return
 	local OSTIDX=0
 
 	test_mkdir -p $DIR/$tdir
@@ -12104,6 +12115,7 @@ run_test 224c "Don't hang if one of md lost during large bulk RPC"
 MDSSURVEY=${MDSSURVEY:-$(which mds-survey 2>/dev/null || true)}
 test_225a () {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
 	if [ -z ${MDSSURVEY} ]; then
 	      skip_env "mds-survey not found" && return
 	fi
@@ -12133,7 +12145,7 @@ run_test 225a "Metadata survey sanity with zero-stripe"
 
 test_225b () {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
-
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
 	if [ -z ${MDSSURVEY} ]; then
 	      skip_env "mds-survey not found" && return
 	fi
@@ -12604,6 +12616,7 @@ run_test 230b "migrate directory"
 
 test_230c() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
 	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
 	local MDTIDX=1
 	local mdt_index
