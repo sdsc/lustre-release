@@ -450,9 +450,6 @@ AC_DEFUN([LB_CONFIG_FILES], [
 		AC_PACKAGE_TARNAME[.spec]
 		AC_PACKAGE_TARNAME[-dkms.spec]
 		lustre/scripts/dkms.mkconf
-		contrib/Makefile
-		contrib/lbuild/Makefile
-		contrib/scripts/Makefile
 		ldiskfs/Makefile
 		ldiskfs/autoMakefile
 		lustre-iokit/Makefile
