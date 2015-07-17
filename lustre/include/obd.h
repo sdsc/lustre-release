@@ -254,6 +254,7 @@ struct client_obd {
 	struct list_head	 cl_lru_list; /* lru page list */
 	spinlock_t		 cl_lru_list_lock; /* page list protector */
 	atomic_t		 cl_lru_shrinkers;
+	struct list_head	cl_shrink_list; /* link to osc_shrinker_list */
 
 	/* number of in flight destroy rpcs is limited to max_rpcs_in_flight */
 	atomic_t		 cl_destroy_in_flight;
