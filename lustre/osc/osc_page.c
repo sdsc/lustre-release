@@ -501,11 +501,17 @@ static int osc_cache_too_much(struct client_obd *cli)
 	unsigned long budget;
 
 	LASSERT(cache != NULL);
-	budget = cache->ccc_lru_max / (atomic_read(&cache->ccc_users) - 2);
+	if (cfs_time_after(cfs_time_current(),
+			   cfs_time_add(cache->ccc_shrink_time,
+					LRU_MAX_RESTORE_SEC)) ||
+	    atomic_long_read(&cache->ccc_lru_left) == cache->ccc_lru_soft_max)
+		cache->ccc_lru_soft_max = cache->ccc_lru_max;
+
+	budget = cache->ccc_lru_soft_max / (atomic_read(&cache->ccc_users) - 2);
 
 	/* if it's going to run out LRU slots, we should free some, but not
 	 * too much to maintain faireness among OSCs. */
-	if (atomic_long_read(cli->cl_lru_left) < cache->ccc_lru_max >> 4) {
+	if (atomic_long_read(cli->cl_lru_left) < cache->ccc_lru_soft_max >> 4) {
 		if (pages >= budget)
 			return lru_shrink_max;
 		else if (pages >= budget / 2)
@@ -1040,7 +1046,7 @@ bool osc_over_unstable_soft_limit(struct client_obd *cli)
 	 * Please notice that the OST won't take immediate response for the
 	 * SOFT_SYNC request so active OSCs will have more chance to carry
 	 * the flag, this is reasonable. */
-	return unstable_nr > cli->cl_cache->ccc_lru_max >> 2 &&
+	return unstable_nr > cli->cl_cache->ccc_lru_soft_max >> 2 &&
 	       osc_unstable_count > cli->cl_max_pages_per_rpc *
 				    cli->cl_max_rpcs_in_flight;
 }

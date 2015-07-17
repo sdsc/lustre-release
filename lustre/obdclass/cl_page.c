@@ -1105,29 +1105,114 @@ void cl_page_slice_add(struct cl_page *page, struct cl_page_slice *slice,
 }
 EXPORT_SYMBOL(cl_page_slice_add);
 
+
+/* XXX cl_cache global list */
+static struct list_head cl_cache_shrinker_list =
+					LIST_HEAD_INIT(cl_cache_shrinker_list);
+static DEFINE_SPINLOCK(shrinker_list_lock);
+
+static unsigned long cl_cache_shrink_count(struct shrinker *sk,
+					   struct shrink_control *sc)
+{
+	/**
+	 * this shrinker just shrink ccc_lru_soft_max w/o shrink the LRU
+	 * pages for real, so just return SHRINK_STOP.
+	 */
+	return SHRINK_STOP;
+}
+
+static unsigned long cl_cache_shrink_scan(struct shrinker *sk,
+					  struct shrink_control *sc)
+{
+	struct cl_client_cache	*ccc;
+	unsigned long		reduce = sc->nr_to_scan;
+
+	if (reduce == 0 || !(sc->gfp_mask & __GFP_FS))
+		return SHRINK_STOP;
+
+	if (!memory_pressure_get())
+		return SHRINK_STOP;
+
+	if (!spin_trylock(&shrinker_list_lock))
+		return SHRINK_STOP;
+
+
+	list_for_each_entry(ccc, &cl_cache_shrinker_list, ccc_shrinker_list) {
+		if (sk != NULL && ccc->ccc_shrinker != sk)
+			continue;
+
+		ccc->ccc_shrink_time = cfs_time_current();
+
+		reduce = min_t(unsigned long, reduce,
+			       ccc->ccc_lru_soft_max - PTLRPC_MAX_BRW_PAGES);
+		if (atomic_long_read(&ccc->ccc_lru_left) > reduce) {
+			ccc->ccc_lru_soft_max -= reduce;
+			atomic_long_sub(reduce, &ccc->ccc_lru_left);
+		} else {
+			ccc->ccc_lru_soft_max -=
+					atomic_long_read(&ccc->ccc_lru_left);
+			atomic_long_set(&ccc->ccc_lru_left, 0);
+		}
+
+		if (sk != NULL)
+			break;
+	}
+	spin_unlock(&shrinker_list_lock);
+
+	return reduce;
+}
+
+#ifndef HAVE_SHRINKER_COUNT
+static int cl_cache_max_shrink(SHRINKER_ARGS(sc, nr_to_scan, gfp_mask))
+{
+	int rc;
+	struct shrink_control scv = {
+		.nr_to_scan = shrink_param(sc, nr_to_scan),
+		.gfp_mask   = shrink_param(sc, gfp_mask)
+	};
+#if !defined(HAVE_SHRINKER_WANT_SHRINK_PTR) && !defined(HAVE_SHRINK_CONTROL)
+	struct shrinker *shrinker = NULL;
+#endif
+
+	rc = cl_cache_shrink_scan(shrinker, &scv);
+	if (rc == SHRINK_STOP)
+		return rc;
+
+	return cl_cache_shrink_count(shrinker, &scv);
+}
+#endif
+
 /**
  * Allocate and initialize cl_cache, called by ll_init_sbi().
  */
 struct cl_client_cache *cl_cache_init(unsigned long lru_page_max)
 {
 	struct cl_client_cache	*cache = NULL;
-
+	DEF_SHRINKER_VAR(pg_shvar, cl_cache_max_shrink,
+			 cl_cache_shrink_count, cl_cache_shrink_scan);
 	ENTRY;
+
 	OBD_ALLOC(cache, sizeof(*cache));
 	if (cache == NULL)
 		RETURN(NULL);
 
 	/* Initialize cache data */
 	atomic_set(&cache->ccc_users, 1);
-	cache->ccc_lru_max = lru_page_max;
+	cache->ccc_lru_max = cache->ccc_lru_soft_max = lru_page_max;
 	atomic_long_set(&cache->ccc_lru_left, lru_page_max);
 	spin_lock_init(&cache->ccc_lru_lock);
 	INIT_LIST_HEAD(&cache->ccc_lru);
+	INIT_LIST_HEAD(&cache->ccc_shrinker_list);
 
 	/* turn unstable check off by default as it impacts performance */
 	cache->ccc_unstable_check = 0;
 	atomic_long_set(&cache->ccc_unstable_nr, 0);
 	init_waitqueue_head(&cache->ccc_unstable_waitq);
+
+	cache->ccc_shrinker = set_shrinker(DEFAULT_SEEKS, &pg_shvar);
+	spin_lock(&shrinker_list_lock);
+	list_add_tail(&cache->ccc_shrinker_list, &cl_cache_shrinker_list);
+	spin_unlock(&shrinker_list_lock);
 
 	RETURN(cache);
 }
@@ -1149,7 +1234,12 @@ EXPORT_SYMBOL(cl_cache_incref);
  */
 void cl_cache_decref(struct cl_client_cache *cache)
 {
-	if (atomic_dec_and_test(&cache->ccc_users))
+	if (atomic_dec_and_test(&cache->ccc_users)) {
+		spin_lock(&shrinker_list_lock);
+		list_del(&cache->ccc_shrinker_list);
+		spin_unlock(&shrinker_list_lock);
+		remove_shrinker(cache->ccc_shrinker);
 		OBD_FREE(cache, sizeof(*cache));
+	}
 }
 EXPORT_SYMBOL(cl_cache_decref);
