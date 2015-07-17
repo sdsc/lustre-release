@@ -748,9 +748,9 @@ int ldiskfs_make_lustre(struct mkfs_opts *mop)
 				if (mop->mo_stripe_count > 72)
 					inode_size = 512; /* bz 7241 */
 				/* see also "-i" below for EA blocks */
-				else if (mop->mo_stripe_count > 32)
+				else if (mop->mo_stripe_count > 30)
 					inode_size = 2048;
-				else if (mop->mo_stripe_count > 10)
+				else if (mop->mo_stripe_count > 8)
 					inode_size = 1024;
 				else
 					inode_size = 512;
