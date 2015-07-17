@@ -1026,11 +1026,14 @@ static int mdd_xattr_set(const struct lu_env *env, struct md_object *obj,
 		 * ACL. */
 		acl = posix_acl_from_xattr(&init_user_ns, buf->lb_buf,
 					   buf->lb_len);
-		if (acl == NULL) {
-			rc = mdd_xattr_del(env, obj, name);
-			RETURN(rc);
-		}
-		posix_acl_release(acl);
+		if (!IS_ERR(acl)) {
+			if (acl == NULL) {
+				rc = mdd_xattr_del(env, obj, name);
+				RETURN(rc);
+			}
+			posix_acl_release(acl);
+		} else
+			RETURN(PTR_ERR(acl));
 	}
 
 	if (!strcmp(name, XATTR_NAME_ACL_ACCESS)) {
