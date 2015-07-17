@@ -1045,4 +1045,62 @@ bool osc_over_unstable_soft_limit(struct client_obd *cli)
 				    cli->cl_max_rpcs_in_flight;
 }
 
+unsigned long osc_cache_shrink_count(struct shrinker *sk,
+				     struct shrink_control *sc)
+{
+	struct client_obd	*cli;
+	unsigned long		cached = 0;
+
+	spin_lock(&osc_shrink_lock);
+	list_for_each_entry(cli, &osc_shrink_list, cl_shrink_list)
+		cached += atomic_long_read(&cli->cl_lru_in_list);
+	spin_unlock(&osc_shrink_lock);
+
+	return (cached / 100) * sysctl_vfs_cache_pressure;
+}
+
+unsigned long osc_cache_shrink_scan(struct shrinker *sk,
+				    struct shrink_control *sc)
+{
+	struct client_obd	*cli;
+	struct client_obd	*stop_anchor = NULL;
+	struct cl_env_nest	nest;
+	struct lu_env		*env;
+	long			shrank = 0;
+	int			rc;
+
+	env = cl_env_nested_get(&nest);
+	if (IS_ERR(env))
+		return SHRINK_STOP;
+
+	spin_lock(&osc_shrink_lock);
+	while (!list_empty(&osc_shrink_list)) {
+		cli = list_entry(osc_shrink_list.next, struct client_obd,
+				 cl_shrink_list);
+
+		if (stop_anchor == NULL)
+			stop_anchor = cli;
+		else if (cli == stop_anchor)
+			break;
+
+		list_move_tail(&cli->cl_shrink_list, &osc_shrink_list);
+		spin_unlock(&osc_shrink_lock);
+
+		rc = osc_lru_shrink(env, cli, sc->nr_to_scan - shrank, true);
+		if (rc > 0)
+			shrank += rc;
+
+		if (shrank >= sc->nr_to_scan)
+			goto out;
+
+		spin_lock(&osc_shrink_lock);
+	}
+	spin_unlock(&osc_shrink_lock);
+
+out:
+	cl_env_nested_put(&nest, env);
+
+	return shrank;
+}
+
 /** @} osc */

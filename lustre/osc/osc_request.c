@@ -2702,6 +2702,11 @@ int osc_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 
 	INIT_LIST_HEAD(&cli->cl_grant_shrink_list);
 	ns_register_cancel(obd->obd_namespace, osc_cancel_weight);
+
+	spin_lock(&osc_shrink_lock);
+	list_add_tail(&cli->cl_shrink_list, &osc_shrink_list);
+	spin_unlock(&osc_shrink_lock);
+
 	RETURN(0);
 
 out_ptlrpcd_work:
@@ -2773,6 +2778,10 @@ int osc_cleanup(struct obd_device *obd)
 
 	ENTRY;
 
+	spin_lock(&osc_shrink_lock);
+	list_del(&cli->cl_shrink_list);
+	spin_unlock(&osc_shrink_lock);
+
 	/* lru cleanup */
 	if (cli->cl_cache != NULL) {
 		LASSERT(atomic_read(&cli->cl_cache->ccc_users) > 0);
@@ -2827,6 +2836,27 @@ static struct obd_ops osc_obd_ops = {
         .o_quotactl             = osc_quotactl,
 };
 
+static struct shrinker *osc_cache_shrinker;
+struct list_head osc_shrink_list = LIST_HEAD_INIT(osc_shrink_list);
+DEFINE_SPINLOCK(osc_shrink_lock);
+
+#ifndef HAVE_SHRINKER_COUNT
+static int osc_cache_shrink(SHRINKER_ARGS(sc, nr_to_scan, gfp_mask))
+{
+	struct shrink_control scv = {
+		.nr_to_scan = shrink_param(sc, nr_to_scan),
+		.gfp_mask   = shrink_param(sc, gfp_mask)
+	};
+#if !defined(HAVE_SHRINKER_WANT_SHRINK_PTR) && !defined(HAVE_SHRINK_CONTROL)
+	struct shrinker *shrinker = NULL;
+#endif
+
+	(void)osc_cache_shrink_scan(shrinker, &scv);
+
+	return osc_cache_shrink_count(shrinker, &scv);
+}
+#endif
+
 static int __init osc_init(void)
 {
 	bool enable_proc = true;
@@ -2834,15 +2864,16 @@ static int __init osc_init(void)
 	unsigned int reqpool_size;
 	unsigned int reqsize;
 	int rc;
-
+	DEF_SHRINKER_VAR(osc_shvar, osc_cache_shrink,
+			 osc_cache_shrink_count, osc_cache_shrink_scan);
 	ENTRY;
 
-        /* print an address of _any_ initialized kernel symbol from this
-         * module, to allow debugging with gdb that doesn't support data
-         * symbols from modules.*/
-        CDEBUG(D_INFO, "Lustre OSC module (%p).\n", &osc_caches);
+	/* print an address of _any_ initialized kernel symbol from this
+	 * module, to allow debugging with gdb that doesn't support data
+	 * symbols from modules.*/
+	CDEBUG(D_INFO, "Lustre OSC module (%p).\n", &osc_caches);
 
-        rc = lu_kmem_init(osc_caches);
+	rc = lu_kmem_init(osc_caches);
 	if (rc)
 		RETURN(rc);
 
@@ -2854,6 +2885,8 @@ static int __init osc_init(void)
 				 LUSTRE_OSC_NAME, &osc_device_type);
 	if (rc)
 		GOTO(out_kmem, rc);
+
+	osc_cache_shrinker = set_shrinker(DEFAULT_SEEKS, &osc_shvar);
 
 	/* This is obviously too much memory, only prevent overflow here */
 	if (osc_reqpool_mem_max >= 1 << 12 || osc_reqpool_mem_max == 0)
@@ -2890,6 +2923,10 @@ out:
 
 static void /*__exit*/ osc_exit(void)
 {
+	if (osc_cache_shrinker != NULL) {
+		remove_shrinker(osc_cache_shrinker);
+		osc_cache_shrinker = NULL;
+	}
 	class_unregister_type(LUSTRE_OSC_NAME);
 	lu_kmem_fini(osc_caches);
 	ptlrpc_free_rq_pool(osc_rq_pool);
