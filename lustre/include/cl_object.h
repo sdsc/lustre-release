@@ -2353,6 +2353,7 @@ void cl_lock_descr_print(const struct lu_env *env, void *cookie,
 			 const struct cl_lock_descr *descr);
 /* @} helper */
 
+#define LRU_MAX_RESTORE_SEC 600
 /**
  * Data structure managing a client's cached pages. A count of
  * "unstable" pages is maintained, and an LRU of clean pages is
@@ -2382,6 +2383,10 @@ struct cl_client_cache {
 	 */
 	unsigned long		ccc_lru_max;
 	/**
+	 * Max # of LRU entries, but will adjust by shrinker
+	 */
+	unsigned long		ccc_lru_soft_max;
+	/**
 	 * Lock to protect ccc_lru list
 	 */
 	spinlock_t		ccc_lru_lock;
@@ -2398,6 +2403,18 @@ struct cl_client_cache {
 	 * Used at umounting time and signaled on BRW commit
 	 */
 	wait_queue_head_t	ccc_unstable_waitq;
+	/**
+	 * Cache shrinker to set ccc_lru_max to reduce LRU numbers.
+	 */
+	struct shrinker		*ccc_shrinker;
+	/**
+	 * List of cache shrinkers.
+	 */
+	struct list_head	ccc_shrinker_list;
+	/**
+	 * time of the cache shrinker called.
+	 */
+	cfs_time_t		ccc_shrink_time;
 };
 /**
  * cl_cache functions
@@ -2405,6 +2422,10 @@ struct cl_client_cache {
 struct cl_client_cache *cl_cache_init(unsigned long lru_page_max);
 void cl_cache_incref(struct cl_client_cache *cache);
 void cl_cache_decref(struct cl_client_cache *cache);
+static inline struct cl_client_cache *s2ccc(const struct list_head *s)
+{
+        return container_of0(s, struct cl_client_cache, ccc_shrinker_list);
+}
 
 /** @} cl_page */
 
