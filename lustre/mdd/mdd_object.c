@@ -1030,7 +1030,8 @@ static int mdd_xattr_set(const struct lu_env *env, struct md_object *obj,
 			rc = mdd_xattr_del(env, obj, name);
 			RETURN(rc);
 		}
-		posix_acl_release(acl);
+		if (!IS_ERR(acl))
+			posix_acl_release(acl);
 	}
 
 	if (!strcmp(name, XATTR_NAME_ACL_ACCESS)) {
