@@ -228,4 +228,13 @@ struct ldlm_lock *osc_dlmlock_at_pgoff(const struct lu_env *env,
 				       enum osc_dap_flags flags);
 void osc_pack_req_body(struct ptlrpc_request *req, struct obdo *oa);
 
+/** osc shrink list to link all osc client obd */
+extern struct list_head osc_shrink_list;
+/** spin lock to protect osc_shrink_list */
+extern spinlock_t osc_shrink_lock;
+extern unsigned long osc_cache_shrink_count(struct shrinker *sk,
+					    struct shrink_control *sc);
+extern unsigned long osc_cache_shrink_scan(struct shrinker *sk,
+					   struct shrink_control *sc);
+
 #endif /* OSC_INTERNAL_H */
