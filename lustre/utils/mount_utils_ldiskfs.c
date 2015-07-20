@@ -740,17 +740,29 @@ int ldiskfs_make_lustre(struct mkfs_opts *mop)
 			}
 		}
 
-		/* Inode size (for extended attributes).  The LOV EA size is
-		 * 32 (EA hdr) + 32 (lov_mds_md) + stripes * 24 (lov_ost_data),
-		 * and we want some margin above that for ACLs, other EAs... */
+		/* Inode size includes:
+		 *   ldiskfs inode size: 156
+		 *   extended attributes size, including:
+		 *	LOV EA size: 32(EA hdr) + 32(lov_mds_md) +
+		 *		     stripes * 24(lov_ost_data)
+		 *	LMA size: 24(lustre_mdt_attrs)
+		 *	link EA size (MDT): 24(link_ea_header) + (filename) +
+		 *			    18(link_ea_entry)
+		 *	ext4_xattr_entry size for each EA: 32
+		 *	and some margin above that for ACLs, other EAs...
+		 *
+		 * So the calculation looks like
+		 * 156 + 32 + 32 + 24N + 24 + 24 + 18 + 32*3 + others <= 512*2^m
+		 * {m=0,1,2,3}
+		 */
 		if (strstr(mop->mo_mkfsopts, "-I") == NULL) {
 			if (IS_MDT(&mop->mo_ldd)) {
-				if (mop->mo_stripe_count > 72)
+				if (mop->mo_stripe_count > 68)
 					inode_size = 512; /* bz 7241 */
 				/* see also "-i" below for EA blocks */
-				else if (mop->mo_stripe_count > 32)
+				else if (mop->mo_stripe_count > 25)
 					inode_size = 2048;
-				else if (mop->mo_stripe_count > 10)
+				else if (mop->mo_stripe_count > 4)
 					inode_size = 1024;
 				else
 					inode_size = 512;
