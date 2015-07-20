@@ -540,6 +540,11 @@ void dtrq_list_destroy(struct target_distribute_txn_data *tdtd)
 		list_del_init(&dtrq->dtrq_list);
 		dtrq_destroy(dtrq);
 	}
+	list_for_each_entry_safe(dtrq, tmp, &tdtd->tdtd_replay_finish_list,
+				 dtrq_list) {
+		list_del_init(&dtrq->dtrq_list);
+		dtrq_destroy(dtrq);
+	}
 	spin_unlock(&tdtd->tdtd_replay_list_lock);
 }
 EXPORT_SYMBOL(dtrq_list_destroy);
@@ -597,6 +602,41 @@ __u64 distribute_txn_get_next_transno(struct target_distribute_txn_data *tdtd)
 	return transno;
 }
 EXPORT_SYMBOL(distribute_txn_get_next_transno);
+
+struct distribute_txn_replay_req *
+distribute_txn_lookup_finish_list(struct target_distribute_txn_data *tdtd,
+				  __u64 transno)
+{
+	struct distribute_txn_replay_req *dtrq = NULL;
+	struct distribute_txn_replay_req *iter;
+
+	spin_lock(&tdtd->tdtd_replay_list_lock);
+	list_for_each_entry(iter, &tdtd->tdtd_replay_finish_list, dtrq_list) {
+		if (iter->dtrq_master_transno == transno) {
+			dtrq = iter;
+			break;
+		}
+	}
+	spin_unlock(&tdtd->tdtd_replay_list_lock);
+	return dtrq;
+}
+
+bool is_req_replayed_by_update(struct ptlrpc_request *req)
+{
+	struct lu_target *tgt = class_exp2tgt(req->rq_export);
+	struct distribute_txn_replay_req *dtrq;
+
+	if (tgt->lut_tdtd == NULL)
+		return false;
+
+	dtrq = distribute_txn_lookup_finish_list(tgt->lut_tdtd,
+				lustre_msg_get_transno(req->rq_reqmsg));
+	if (dtrq == NULL)
+		return false;
+
+	return true;
+}
+EXPORT_SYMBOL(is_req_replayed_by_update);
 
 /**
  * Check if the update of one object is committed
