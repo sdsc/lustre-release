@@ -173,6 +173,21 @@ int llog_pack_buffer(int fd, struct llog_log_hdr **llog,
                 goto clear_file_buf;
         }
 
+	/* check valid record count */
+	if ((*llog)->llh_count == 0) {
+		rc = -EINVAL;
+		llapi_error(LLAPI_MSG_ERROR, rc,
+			    "Wrong header with 0 record count.");
+		goto clear_file_buf;
+	}
+
+	/* only header present */
+	if ((*llog)->llh_count == 1) {
+		*recs_number = 0;
+		*recs = NULL;
+		goto clear_file_buf;
+	}
+
         /* the llog header not countable here.*/
         recs_num = le32_to_cpu((*llog)->llh_count)-1;
 
