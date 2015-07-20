@@ -922,6 +922,7 @@ static struct lu_device *echo_device_alloc(const struct lu_env *env,
                 /* For MD echo client, it will use the site in MDS stack */
                 ed->ed_site_myself.cs_lu = *ls;
                 ed->ed_site = &ed->ed_site_myself;
+		mutex_init(&ed->ed_site_myself.cs_lu.ls_purge_mutex);
                 ed->ed_cl.cd_lu_dev.ld_site = &ed->ed_site_myself.cs_lu;
 		rc = echo_fid_init(ed, obd->obd_name, lu_site2seq(ls));
 		if (rc) {
