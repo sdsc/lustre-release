@@ -781,7 +781,7 @@ static int out_tx_end(const struct lu_env *env, struct thandle_exec_args *ta,
 		      int declare_ret)
 {
 	struct tgt_session_info	*tsi = tgt_ses_info(env);
-	int			i;
+	unsigned int		i;
 	int			rc;
 	int			rc1;
 	ENTRY;
