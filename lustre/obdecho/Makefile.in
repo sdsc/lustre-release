@@ -1,8 +1,11 @@
 MODULES := obdecho
+@SERVER_TRUE@MODULES += osdbench
 obdecho-objs := echo_client.o
 @SERVER_TRUE@obdecho-objs += echo.o
 
 EXTRA_DIST = $(obdecho-objs:%.o=%.c) echo_internal.h
+EXTRA_DIST += $(osdbench-objs:%.o=%.c)
+
 @SERVER_FALSE@EXTRA_DIST += echo.c
 
 @INCLUDE_RULES@
