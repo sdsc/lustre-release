@@ -610,6 +610,7 @@ int tgt_request_handle(struct ptlrpc_request *req)
 	int			 request_fail_id = 0;
 	__u32			 opc = lustre_msg_get_opc(msg);
 	int			 rc;
+	__u64			 last_xid;
 
 	ENTRY;
 
@@ -668,22 +669,20 @@ int tgt_request_handle(struct ptlrpc_request *req)
 	}
 
 	/* check request's xid is consistent with export's last_xid */
-	if (req->rq_export != NULL) {
-		__u64 last_xid = lustre_msg_get_last_xid(req->rq_reqmsg);
-		if (last_xid != 0)
-			req->rq_export->exp_last_xid = last_xid;
-		if (req->rq_xid == 0 ||
-		    req->rq_xid <= req->rq_export->exp_last_xid) {
-			DEBUG_REQ(D_ERROR, req,
-				  "Unexpected xid %llx vs. last_xid %llx\n",
-				  req->rq_xid, req->rq_export->exp_last_xid);
+	last_xid = lustre_msg_get_last_xid(req->rq_reqmsg);
+	if (last_xid > req->rq_export->exp_last_xid)
+		req->rq_export->exp_last_xid = last_xid;
+	if (req->rq_xid == 0 ||
+	    req->rq_xid <= req->rq_export->exp_last_xid) {
+		DEBUG_REQ(D_ERROR, req,
+			  "Unexpected xid %llx vs. last_xid %llx\n",
+			  req->rq_xid, req->rq_export->exp_last_xid);
 #if LUSTRE_VERSION_CODE < OBD_OCD_VERSION(2, 7, 93, 0)
-			LBUG();
+		LBUG();
 #endif
-			req->rq_status = -EPROTO;
-			rc = ptlrpc_error(req);
-			GOTO(out, rc);
-		}
+		req->rq_status = -EPROTO;
+		rc = ptlrpc_error(req);
+		GOTO(out, rc);
 	}
 
 	request_fail_id = tgt->lut_request_fail_id;
