@@ -1,4 +1,5 @@
 MODULES := obdecho
+@SERVER_TUE@MODULES += osdbench
 obdecho-objs := echo_client.o
 @SERVER_TRUE@obdecho-objs += echo.o
 

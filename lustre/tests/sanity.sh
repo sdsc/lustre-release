@@ -10943,6 +10943,51 @@ test_180c() { # LU-2598
 }
 run_test 180c "test huge bulk I/O size on obdfilter, don't LASSERT"
 
+test_180d() {
+#	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+#	remote_ost_nodsh && skip "remote OST with nodsh" && return
+	local rc=0
+	local rmmod_remote=0
+	local num=10
+
+	do_facet ost1 "lsmod | grep -q osdbench || "                      \
+		      "{ insmod ${LUSTRE}/obdecho/osdbench.ko || "        \
+		      "modprobe osdbench; }" && rmmod_remote=1
+	zpool destroy lustre-mdt10
+	add mds$num $(mkfs_opts mds$num $(mdsdevname ${num})) \
+		--reformat $(mdsdevname $num) $TMP/osdbench.img \
+		${quiet:+>/dev/null} || exit 10
+	zpool list -H lustre-mdt10
+	zpool import -d /tmp lustre-mdt10
+	echo "== setup $TMP/osdbench.img 0 noacl $(mdsdevname $num)"
+
+	$LCTL <<-EOF
+		attach osd-zfs obe-osd obe_osd_UUID
+		cfg_device obe-osd
+		setup $(mdsdevname $num) 0 noacl lustre-MDT0009
+	EOF
+
+	$LCTL <<-EOF
+		attach osdbench obe obe_UUID
+		cfg_device obe
+		setup obe-osd
+	EOF
+
+	$LCTL <<-EOF
+		device obe
+		cleanup
+		detach
+	EOF
+	# OSD shutdowns automatically when the last user (osdbench) disconnects
+	sleep 1
+
+	#target=$(do_facet ost1 $LCTL dl | awk '/obdfilter/ {print $4;exit}')
+	#[[ -n $target ]] && { obdecho_test $target ost1 || rc=1; }
+	[ $rmmod_remote -eq 1 ] && do_facet ost1 "rmmod osdbench"
+	return $rc
+}
+run_test 180d "test osdbench"
+
 test_181() { # bug 22177
 	test_mkdir -p $DIR/$tdir || error "creating dir $DIR/$tdir"
 	# create enough files to index the directory
