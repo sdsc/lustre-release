@@ -39,6 +39,7 @@
 #include <sys/wait.h>
 #include <sys/time.h>
 #include <sys/mman.h>
+#include <limits.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -46,6 +47,8 @@
 #include <getopt.h>
 #include <string.h>
 #include <errno.h>
+
+#include <libcfs/util/param.h>
 
 char *dir = NULL, *dir2 = NULL;
 long page_size;
@@ -439,10 +442,11 @@ out_close:
 
 static int cancel_lru_locks(char *prefix)
 {
-        char cmd[256], line[1024];
-        FILE *file;
-        pid_t child;
-        int len = 1024, rc = 0;
+	char cmd[256], line[1024];
+	int len = 1024, rc = 0;
+	glob_t path;
+	pid_t child;
+	FILE *file;
 
         child = fork();
         if (child < 0)
@@ -455,18 +459,21 @@ static int cancel_lru_locks(char *prefix)
                 return rc;
         }
 
-        if (prefix)
-                sprintf(cmd,
-                        "ls /proc/fs/lustre/ldlm/namespaces/*-%s-*/lru_size",
-                        prefix);
-        else
-                sprintf(cmd, "ls /proc/fs/lustre/ldlm/namespaces/*/lru_size");
+	if (prefix != NULL)
+		rc = cfs_get_param_path(&path,
+					"ldlm/namespaces/*-%s-*/lru_size",
+					prefix);
+	else
+		rc = cfs_get_param_path(&path,
+					"ldlm/namespaces/*/lru_size");
+	if (rc != 0)
+		return -EINVAL;
 
-        file = popen(cmd, "r");
-        if (file == NULL) {
-                perror("popen()");
-                return -errno;
-        }
+	file = fopen(path.gl_pathv[0], "r");
+	if (file == NULL) {
+		perror("fopen()");
+		return -errno;
+	}
 
         while (fgets(line, len, file)) {
                 FILE *f;
