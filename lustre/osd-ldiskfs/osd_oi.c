@@ -549,6 +549,7 @@ int fid_is_on_ost(struct osd_thread_info *info, struct osd_device *osd,
 		  const struct lu_fid *fid, enum oi_check_flags flags)
 {
 	struct lu_seq_range	*range = &info->oti_seq_range;
+	struct seq_server_site	*ss = osd_seq_site(osd);
 	int			rc;
 	ENTRY;
 
@@ -565,6 +566,11 @@ int fid_is_on_ost(struct osd_thread_info *info, struct osd_device *osd,
 
 	if (!(flags & OI_CHECK_FLD))
 		RETURN(0);
+
+	if (ss == NULL) {
+		/* no full stack, probably osdbench */
+		RETURN(!!osd->od_is_ost);
+	}
 
 	if (osd_seq_site(osd)->ss_server_fld == NULL)
 		RETURN(0);

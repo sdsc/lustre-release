@@ -236,10 +236,10 @@ static int mtab_is_proc(const char *mtab)
 	if (readlink(mtab, path, sizeof(path)) < 0)
 		return 0;
 
-	if (strncmp(path, PROC_DIR, strlen(PROC_DIR)))
-		return 0;
+	if (strstr(path, PROC_DIR))
+		return 1;
 
-	return 1;
+	return 0;
 }
 
 #ifdef HAVE_LIBMOUNT
