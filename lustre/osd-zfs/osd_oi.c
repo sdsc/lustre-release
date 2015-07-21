@@ -238,6 +238,7 @@ int fid_is_on_ost(const struct lu_env *env, struct osd_device *osd,
 		  const struct lu_fid *fid)
 {
 	struct lu_seq_range	*range = &osd_oti_get(env)->oti_seq_range;
+	struct seq_server_site	*ss = osd_seq_site(osd);
 	int			rc;
 	ENTRY;
 
@@ -246,6 +247,9 @@ int fid_is_on_ost(const struct lu_env *env, struct osd_device *osd,
 
 	if (unlikely(fid_is_local_file(fid) || fid_is_llog(fid)) ||
 		     fid_is_name_llog(fid) || fid_is_quota(fid))
+		RETURN(0);
+
+	if (ss == NULL)
 		RETURN(0);
 
 	rc = osd_fld_lookup(env, osd, fid_seq(fid), range);

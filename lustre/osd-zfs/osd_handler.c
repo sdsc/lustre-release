@@ -805,6 +805,7 @@ static int osd_objset_open(struct osd_device *o)
 
 	rc = -dmu_objset_own(o->od_mntdev, DMU_OST_ZFS, B_FALSE, o, &o->od_os);
 	if (rc) {
+		CERROR("can't open objectset %s: rc = %d\n", o->od_mntdev, rc);
 		o->od_os = NULL;
 		goto out;
 	}
@@ -1016,7 +1017,8 @@ static int osd_mount(const struct lu_env *env,
 	osd_unlinked_drain(env, o);
 err:
 	if (rc) {
-		dmu_objset_disown(o->od_os, o);
+		if (o->od_os != NULL)
+			dmu_objset_disown(o->od_os, o);
 		o->od_os = NULL;
 	}
 
