@@ -57,6 +57,11 @@
 #include <linux/fs.h>
 /* XATTR_{REPLACE,CREATE} */
 #include <linux/xattr.h>
+#include <linux/version.h>
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 0, 0)
+/* lock_kernel() */
+#include <linux/smp_lock.h>
+#endif
 
 #include <ldiskfs/ldiskfs.h>
 #include <ldiskfs/xattr.h>
@@ -5778,7 +5783,13 @@ static int osd_mount(const struct lu_env *env,
 		GOTO(out, rc = -ENODEV);
 	}
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 0, 0)
+	lock_kernel();
+#endif
 	o->od_mnt = vfs_kern_mount(type, s_flags, dev, options);
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 0, 0)
+	unlock_kernel();
+#endif
 	module_put(type->owner);
 
 	if (IS_ERR(o->od_mnt)) {
