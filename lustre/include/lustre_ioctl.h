@@ -397,6 +397,8 @@ obd_ioctl_unpack(struct obd_ioctl_data *data, char *pbuf, int max_len)
 #define OBD_IOC_ECHO_ALLOC_SEQ	_IOWR('f', 222, struct obd_ioctl_data)
 #define OBD_IOC_START_LFSCK	_IOWR('f', 230, OBD_IOC_DATA_TYPE)
 #define OBD_IOC_STOP_LFSCK	_IOW ('f', 231, OBD_IOC_DATA_TYPE)
+#define OBD_IOC_OBE_EXEC	_IOWR('f', 232, OBD_IOC_DATA_TYPE)
+#define OBD_IOC_OBE_PURGE	_IOWR('f', 233, OBD_IOC_DATA_TYPE)
 /*	lustre/lustre_user.h	240-249 */
 /*	LIBCFS_IOC_DEBUG_MASK	250 */
 
