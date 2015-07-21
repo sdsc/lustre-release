@@ -1440,8 +1440,10 @@ static int osd_object_create(const struct lu_env *env, struct dt_object *dt,
 	 * in regular cases acquisition should be cheap */
 	down(&obj->oo_guard);
 
+	if (unlikely(dt_object_exists(dt)))
+		GOTO(out, rc = -EEXIST);
+
 	LASSERT(osd_invariant(obj));
-	LASSERT(!dt_object_exists(dt));
 	LASSERT(dof != NULL);
 
 	LASSERT(th != NULL);
