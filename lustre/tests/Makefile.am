@@ -1,5 +1,9 @@
 LIBCFS = $(top_builddir)/libcfs/libcfs/libcfs.a
+LIBPTLCTL := $(top_builddir)/lnet/utils/libptlctl.a \
+	     $(top_builddir)/libcfs/libcfs/libcfsutil.a \
+	     $(top_builddir)/libcfs/libcfs/libcfs.a
 LIBLUSTREAPI = $(top_builddir)/lustre/utils/liblustreapi.a
+LIBOBE = $(top_builddir)/lustre/utils/libobe.a
 
 # Lustre test Makefile
 AM_CFLAGS := -fPIC -D_GNU_SOURCE \
@@ -74,7 +78,7 @@ noinst_PROGRAMS += write_time_limit rwv lgetxattr_size_check checkfiemap
 noinst_PROGRAMS += listxattr_size_check check_fhandle_syscalls badarea_io
 noinst_PROGRAMS += llapi_layout_test orphan_linkea_check llapi_hsm_test
 noinst_PROGRAMS += group_lock_test llapi_fid_test sendfile_grouplock mmap_cat
-noinst_PROGRAMS += swap_lock_test
+noinst_PROGRAMS += swap_lock_test osdapi
 
 bin_PROGRAMS = mcreate munlink
 testdir = $(libdir)/lustre/tests
@@ -96,6 +100,7 @@ sendfile_grouplock_LDADD=$(LIBLUSTREAPI)
 swap_lock_test_LDADD=$(LIBLUSTREAPI)
 it_test_LDADD=$(LIBCFS)
 rwv_LDADD=$(LIBCFS)
+osdapi_LDADD=$(LIBOBE) $(LIBLUSTREAPI) $(LIBPTLCTL) $(LIBREADLINE) $(PTHREAD_LIBS)
 
 ll_dirstripe_verify_SOURCES = ll_dirstripe_verify.c
 ll_dirstripe_verify_LDADD = $(LIBLUSTREAPI) $(LIBCFS) $(PTHREAD_LIBS)
