@@ -24,7 +24,7 @@ if UTILS
 rootsbin_PROGRAMS = mount.lustre
 bin_SCRIPTS   = llstat llobdstat plot-llstat
 bin_PROGRAMS  = lfs
-sbin_PROGRAMS = lctl l_getidentity llverfs lustre_rsync ltrack_stats
+sbin_PROGRAMS = lctl l_getidentity llverfs lustre_rsync ltrack_stats osdbench
 
 if TESTS
 bin_PROGRAMS  += req_layout
@@ -58,6 +58,10 @@ lfs_DEPENDENCIES := $(LIBPTLCTL) liblustreapi.a
 lustre_rsync_SOURCES = lustre_rsync.c obd.c lustre_cfg.c lustre_rsync.h
 lustre_rsync_LDADD :=  liblustreapi.a $(LIBPTLCTL) $(LIBREADLINE) $(PTHREAD_LIBS)
 lustre_rsync_DEPENDENCIES := $(LIBPTLCTL) liblustreapi.a
+
+osdbench_SOURCES = osdbench.c obd.c lustre_cfg.c obelib.c obelib.h
+osdbench_LDADD :=  liblustreapi.a $(LIBPTLCTL) $(LIBREADLINE) $(PTHREAD_LIBS)
+osdbench_DEPENDENCIES := $(LIBPTLCTL) liblustreapi.a
 
 ll_recover_lost_found_objs_SOURCES = ll_recover_lost_found_objs.c
 ll_recover_lost_found_objs_LDADD := $(LIBPTLCTL)
