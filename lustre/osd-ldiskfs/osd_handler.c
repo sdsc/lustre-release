@@ -57,6 +57,8 @@
 #include <linux/fs.h>
 /* XATTR_{REPLACE,CREATE} */
 #include <linux/xattr.h>
+/* lock_kernel() */
+#include <linux/smp_lock.h>
 
 #include <ldiskfs/ldiskfs.h>
 #include <ldiskfs/xattr.h>
@@ -5778,7 +5780,9 @@ static int osd_mount(const struct lu_env *env,
 		GOTO(out, rc = -ENODEV);
 	}
 
+	lock_kernel();
 	o->od_mnt = vfs_kern_mount(type, s_flags, dev, options);
+	unlock_kernel();
 	module_put(type->owner);
 
 	if (IS_ERR(o->od_mnt)) {
