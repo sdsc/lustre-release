@@ -742,6 +742,8 @@ int ldiskfs_make_lustre(struct mkfs_opts *mop)
 			journal_mb = device_kb * 4 / (1024 * 100);
 			if (journal_mb > max_mb)
 				journal_mb = max_mb;
+			if (IS_MDT(&mop->mo_ldd))
+				journal_mb = 1024;
 
 			if (journal_mb) {
 				sprintf(buf, " -J size=%ld", journal_mb);

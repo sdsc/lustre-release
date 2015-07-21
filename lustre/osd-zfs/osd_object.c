@@ -1522,6 +1522,9 @@ static int osd_object_create(const struct lu_env *env, struct dt_object *dt,
 	if (unlikely(dt_object_exists(dt)))
 		GOTO(out, rc = -EEXIST);
 
+	if (unlikely(dt_object_exists(dt)))
+		GOTO(out, rc = -EEXIST);
+
 	LASSERT(osd_invariant(obj));
 	LASSERT(dof != NULL);
 
