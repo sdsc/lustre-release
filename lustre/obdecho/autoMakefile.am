@@ -39,7 +39,7 @@
 if MODULES
 
 if LINUX
-modulefs_DATA = obdecho$(KMODEXT)
+modulefs_DATA = obdecho$(KMODEXT) osdgate$(KMODEXT)
 endif # LINUX
 
 endif # MODULES
