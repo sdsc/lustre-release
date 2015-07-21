@@ -1149,8 +1149,11 @@ struct thandle *thandle_get_sub_by_dt(const struct lu_env *env,
 			top_th->tt_master_sub_thandle->th_dev;
 		st = create_sub_thandle_with_thandle(top_th,
 				top_th->tt_master_sub_thandle);
-		if (IS_ERR(st))
-			GOTO(stop_trans, rc = PTR_ERR(st));
+		if (IS_ERR(st)) {
+			rc = PTR_ERR(st);
+			st = NULL;
+			GOTO(stop_trans, rc);
+		}
 	}
 
 	/* create and init sub th to the top trans list */
