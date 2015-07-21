@@ -40,6 +40,11 @@ if MODULES
 
 if LINUX
 modulefs_DATA = obdecho$(KMODEXT)
+
+if SERVER
+modulefs_DATA += osdbench$(KMODEXT)
+endif # SERVER
+
 endif # LINUX
 
 endif # MODULES
