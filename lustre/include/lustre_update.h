@@ -227,6 +227,7 @@ object_update_result_insert(struct object_update_reply *reply,
 	LASSERT(update_result != NULL);
 
 	update_result->our_rc = ptlrpc_status_hton(rc);
+	update_result->our_datalen = 0;
 	if (data != NULL && data_len > 0) {
 		LASSERT(data != NULL);
 		ptr = (char *)update_result +
