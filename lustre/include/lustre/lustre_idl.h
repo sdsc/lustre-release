@@ -4021,6 +4021,8 @@ enum update_type {
 	OUT_PUNCH		= 14,
 	OUT_READ		= 15,
 	OUT_NOOP		= 16,
+	OUT_INDEX_BIN_INSERT	= 17,
+	OUT_INDEX_BIN_DELETE	= 18,
 	OUT_LAST
 };
 
