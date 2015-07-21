@@ -39,7 +39,7 @@
 if MODULES
 
 if LINUX
-modulefs_DATA = obdecho$(KMODEXT)
+modulefs_DATA = obdecho$(KMODEXT) osdbench$(KMODEXT)
 endif # LINUX
 
 endif # MODULES
