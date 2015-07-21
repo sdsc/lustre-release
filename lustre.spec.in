@@ -480,6 +480,7 @@ find $RPM_BUILD_ROOT%{?rootdir}/lib/modules/%{kversion}/%{kmoddir} \
 %{?rootdir}/sbin/mount.lustre
 %{_libdir}/libptlctl.a
 %{_libdir}/libcfsutil.a
+%{_libdir}/libobe.a
 %{_libdir}/liblustreapi.a
 %{_libdir}/liblustreapi.so
 %if %{with manpages}
