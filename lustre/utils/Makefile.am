@@ -26,7 +26,7 @@ rootsbin_PROGRAMS = mount.lustre
 bin_SCRIPTS   = llstat llobdstat plot-llstat
 bin_PROGRAMS  = lfs
 sbin_SCRIPTS  = ldlm_debug_upcall
-sbin_PROGRAMS = lctl l_getidentity llverfs lustre_rsync
+sbin_PROGRAMS = lctl l_getidentity llverfs lustre_rsync osdbench
 
 if TESTS
 bin_PROGRAMS  += req_layout
@@ -42,11 +42,11 @@ sbin_PROGRAMS += lhsmtool_posix
 endif
 
 pkglib_LTLIBRARIES =
-lib_LIBRARIES = liblustreapi.a
+lib_LIBRARIES = liblustreapi.a libobe.a
 if LDISKFS_ENABLED
 lib_LIBRARIES += libiam.a
 endif
-noinst_LIBRARIES = liblustreapitmp.a
+noinst_LIBRARIES = liblustreapitmp.a libobetmp.a
 endif # UTILS
 
 lctl_SOURCES = lustre_lfsck.c obd.c lustre_cfg.c lctl.c obdctl.h
@@ -60,6 +60,10 @@ lfs_DEPENDENCIES := $(LIBPTLCTL) liblustreapi.a
 lustre_rsync_SOURCES = lustre_rsync.c obd.c lustre_cfg.c lustre_rsync.h
 lustre_rsync_LDADD :=  liblustreapi.a $(LIBPTLCTL) $(LIBREADLINE) $(PTHREAD_LIBS)
 lustre_rsync_DEPENDENCIES := $(LIBPTLCTL) liblustreapi.a
+
+osdbench_SOURCES = osdbench.c obd.c lustre_cfg.c libobe.h
+osdbench_LDADD :=  liblustreapi.a libobe.a $(LIBPTLCTL) $(LIBREADLINE) $(PTHREAD_LIBS)
+osdbench_DEPENDENCIES := $(LIBPTLCTL) liblustreapi.a libobe.a
 
 if EXT2FS_DEVEL
 EXT2FSLIB = -lext2fs
@@ -86,12 +90,20 @@ liblustreapitmp_a_SOURCES = liblustreapi.c liblustreapi_hsm.c \
 			    liblustreapi_kernelconn.c liblustreapi_param.c \
 			    $(top_builddir)/libcfs/libcfs/util/string.c \
 			    $(top_builddir)/libcfs/libcfs/util/param.c
+
+libobetmp_a_SOURCES = obd.c lustre_cfg.c libobe.c
+
 if UTILS
 # build static and shared lib lustreapi
 liblustreapi.a : liblustreapitmp.a
 	rm -f liblustreapi.a liblustreapi.so
 	$(CC) $(LDFLAGS) -shared -o liblustreapi.so `$(AR) -t liblustreapitmp.a`
 	mv liblustreapitmp.a liblustreapi.a
+
+libobe.a : libobetmp.a
+	rm -f libobe.a libobe.so
+	$(CC) $(LDFLAGS) -shared -o libobe.so `$(AR) -t libobetmp.a`
+	mv libobetmp.a libobe.a
 
 install-exec-hook: liblustreapi.so
 	@$(NORMAL_INSTALL)
