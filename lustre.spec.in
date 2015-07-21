@@ -421,6 +421,7 @@ echo '%{_sbindir}/wiretest' >>lustre-tests.files
 /sbin/mount.lustre
 %{_libdir}/libptlctl.a
 %{_libdir}/libcfsutil.a
+%{_libdir}/libobe.a
 %{_libdir}/liblustreapi.a
 %{_libdir}/liblustreapi.so
 %if %{with manpages}
