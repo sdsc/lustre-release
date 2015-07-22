@@ -295,16 +295,20 @@ static struct inode *osd_iget_check(struct osd_thread_info *info,
 				    struct osd_device *dev,
 				    const struct lu_fid *fid,
 				    struct osd_inode_id *id,
-				    bool in_oi)
+				    bool cached)
 {
 	struct inode	*inode;
 	int		 rc	= 0;
 	ENTRY;
 
+	/* The cached OI mapping is trustable. If we cannot locate the inode
+	 * via the cached OI mapping, then return the failure to the caller
+	 * directly without further OI checking. */
+
 	inode = ldiskfs_iget(osd_sb(dev), id->oii_ino);
 	if (IS_ERR(inode)) {
 		rc = PTR_ERR(inode);
-		if (!in_oi || (rc != -ENOENT && rc != -ESTALE)) {
+		if (cached || (rc != -ENOENT && rc != -ESTALE)) {
 			CDEBUG(D_INODE, "no inode: ino = %u, rc = %d\n",
 			       id->oii_ino, rc);
 
@@ -316,7 +320,7 @@ static struct inode *osd_iget_check(struct osd_thread_info *info,
 
 	if (is_bad_inode(inode)) {
 		rc = -ENOENT;
-		if (!in_oi) {
+		if (cached) {
 			CDEBUG(D_INODE, "bad inode: ino = %u\n", id->oii_ino);
 
 			GOTO(put, rc);
@@ -328,7 +332,7 @@ static struct inode *osd_iget_check(struct osd_thread_info *info,
 	if (id->oii_gen != OSD_OII_NOGEN &&
 	    inode->i_generation != id->oii_gen) {
 		rc = -ESTALE;
-		if (!in_oi) {
+		if (cached) {
 			CDEBUG(D_INODE, "unmatched inode: ino = %u, "
 			       "oii_gen = %u, i_generation = %u\n",
 			       id->oii_ino, id->oii_gen, inode->i_generation);
@@ -341,7 +345,7 @@ static struct inode *osd_iget_check(struct osd_thread_info *info,
 
 	if (inode->i_nlink == 0) {
 		rc = -ENOENT;
-		if (!in_oi) {
+		if (cached) {
 			CDEBUG(D_INODE, "stale inode: ino = %u\n", id->oii_ino);
 
 			GOTO(put, rc);
@@ -355,7 +359,7 @@ check_oi:
 		LASSERTF(rc == -ESTALE || rc == -ENOENT, "rc = %d\n", rc);
 
 		rc = osd_oi_lookup(info, dev, fid, id, OI_CHECK_FLD);
-		/* XXX: There are three possible cases:
+		/* XXX: There are four possible cases:
 		 *	1. rc = 0.
 		 *	   Backup/restore caused the OI invalid.
 		 *	2. rc = 0.
@@ -374,6 +378,8 @@ check_oi:
 		if (rc == 0) {
 			if (!IS_ERR(inode) && inode->i_generation != 0 &&
 			    inode->i_generation == id->oii_gen)
+				/* id->oii_gen != OSD_OII_NOGEN for
+				 * @cached == false case. */
 				rc = -ENOENT;
 			else
 				rc = -EREMCHG;
@@ -438,6 +444,7 @@ static int osd_check_lma(const struct lu_env *env, struct osd_object *obj)
 	struct lustre_mdt_attrs	*lma	= &info->oti_mdt_attrs;
 	struct inode		*inode	= obj->oo_inode;
 	struct dentry		*dentry = &info->oti_obj_dentry;
+	const struct lu_fid	*rfid	= lu_object_fid(&obj->oo_dt.do_lu);
 	struct lu_fid		*fid	= NULL;
 	int			 rc;
 	ENTRY;
@@ -445,16 +452,13 @@ static int osd_check_lma(const struct lu_env *env, struct osd_object *obj)
 	CLASSERT(LMA_OLD_SIZE >= sizeof(*lma));
 	rc = __osd_xattr_get(inode, dentry, XATTR_NAME_LMA,
 			     info->oti_mdt_attrs_old, LMA_OLD_SIZE);
-	if (rc == -ENODATA && !fid_is_igif(lu_object_fid(&obj->oo_dt.do_lu)) &&
+	if (rc == -ENODATA && !fid_is_igif(rfid) &&
 	    osd_obj2dev(obj)->od_check_ff) {
 		fid = &lma->lma_self_fid;
 		rc = osd_get_idif(info, inode, dentry, fid);
 		if (rc > 0)
 			RETURN(0);
 	}
-
-	if (unlikely(rc == -ENODATA))
-		RETURN(0);
 
 	if (rc < 0)
 		RETURN(rc);
@@ -468,20 +472,18 @@ static int osd_check_lma(const struct lu_env *env, struct osd_object *obj)
 			      "fid = "DFID", ino = %lu\n",
 			      osd_obj2dev(obj)->od_svname,
 			      lma->lma_incompat & ~LMA_INCOMPAT_SUPP,
-			      PFID(lu_object_fid(&obj->oo_dt.do_lu)),
-			      inode->i_ino);
+			      PFID(rfid), inode->i_ino);
 			rc = -EOPNOTSUPP;
-		} else if (!(lma->lma_compat & LMAC_NOT_IN_OI)) {
+		} else {
 			fid = &lma->lma_self_fid;
 		}
 	}
 
 	if (fid != NULL &&
-	    unlikely(!lu_fid_eq(lu_object_fid(&obj->oo_dt.do_lu), fid))) {
+	    unlikely(!lu_fid_eq(rfid, fid))) {
 		CDEBUG(D_INODE, "%s: FID "DFID" != self_fid "DFID"\n",
 		       osd_obj2dev(obj)->od_svname,
-		       PFID(lu_object_fid(&obj->oo_dt.do_lu)),
-		       PFID(&lma->lma_self_fid));
+		       PFID(rfid), PFID(fid));
 		rc = -EREMCHG;
 	}
 
@@ -502,7 +504,7 @@ static int osd_fid_lookup(const struct lu_env *env, struct osd_object *obj,
 	struct scrub_file      *sf;
 	int			result;
 	int			saved  = 0;
-	bool			in_oi  = false;
+	bool			cached  = true;
 	bool			triggered = false;
 	ENTRY;
 
@@ -543,6 +545,7 @@ static int osd_fid_lookup(const struct lu_env *env, struct osd_object *obj,
 			goto iget;
 	}
 
+	cached = false;
 	/* Search order: 3. OI files. */
 	result = osd_oi_lookup(info, dev, fid, id, OI_CHECK_FLD);
 	if (result == -ENOENT) {
@@ -558,23 +561,16 @@ static int osd_fid_lookup(const struct lu_env *env, struct osd_object *obj,
 	if (result != 0)
 		GOTO(out, result);
 
-	in_oi = true;
-
 iget:
-	inode = osd_iget_check(info, dev, fid, id, in_oi);
+	inode = osd_iget_check(info, dev, fid, id, cached);
 	if (IS_ERR(inode)) {
 		result = PTR_ERR(inode);
-		if (result == -ENOENT || result == -ESTALE) {
-			if (!in_oi)
-				fid_zero(&oic->oic_fid);
-
+		if (result == -ENOENT || result == -ESTALE)
 			GOTO(out, result = -ENOENT);
-		} else if (result == -EREMCHG) {
+
+		if (result == -EREMCHG) {
 
 trigger:
-			if (!in_oi)
-				fid_zero(&oic->oic_fid);
-
 			if (unlikely(triggered))
 				GOTO(out, result = saved);
 
@@ -611,7 +607,7 @@ trigger:
 			result = osd_lookup_in_remote_parent(info, dev,
 							     fid, id);
 			if (result == 0) {
-				in_oi = false;
+				cached = true;
 				goto iget;
 			}
 
@@ -626,16 +622,29 @@ trigger:
 
 	result = osd_check_lma(env, obj);
 	if (result != 0) {
-		iput(inode);
-		obj->oo_inode = NULL;
-		if (result == -EREMCHG) {
-			if (!in_oi) {
+		if (result == -ENODATA) {
+			if (cached) {
 				result = osd_oi_lookup(info, dev, fid, id,
 						       OI_CHECK_FLD);
 				if (result != 0) {
-					fid_zero(&oic->oic_fid);
+					iput(inode);
+					obj->oo_inode = NULL;
+
 					GOTO(out, result);
 				}
+			}
+
+			goto found;
+		}
+
+		iput(inode);
+		obj->oo_inode = NULL;
+		if (result == -EREMCHG) {
+			if (cached) {
+				result = osd_oi_lookup(info, dev, fid, id,
+						       OI_CHECK_FLD);
+				if (result != 0)
+					GOTO(out, result);
 			}
 
 			goto trigger;
@@ -644,6 +653,7 @@ trigger:
 		GOTO(out, result);
 	}
 
+found:
 	obj->oo_compat_dot_created = 1;
 	obj->oo_compat_dotdot_created = 1;
 
@@ -660,6 +670,9 @@ trigger:
 	GOTO(out, result = 0);
 
 out:
+	if (result != 0 && cached)
+		fid_zero(&oic->oic_fid);
+
 	LINVRNT(osd_invariant(obj));
 	return result;
 }
