@@ -5407,6 +5407,69 @@ test_85() {
 }
 run_test 85 "osd_ost init: fail ea_fid_set"
 
+test_86() { #LU-6544
+	[[ $(lustre_version_code $SINGLEMDS1) -ge $(version_code 2.7.56) ]] ||
+		{ skip "Need MDS version at least 2.7.56" && return 0; }
+	if [ $(facet_fstype $SINGLEMDS) != ldiskfs ]; then
+		skip "Only applicable to ldiskfs-based MDTs"
+		return
+	fi
+
+	local mdsdev=$(mdsdevname 1)
+	local mdsvdev=$(mdsvdevname 1)
+	local file=$DIR/$tfile
+	local mntpt=$(facet_mntpt $SINGLEMDS)
+	local opts=""
+	local ext_xattr_blk=0
+	local inode_size=${1:512}
+	local left_size=0
+	local value
+
+	reformat
+	load_modules
+
+	add mds1 $(mkfs_opts mds1 ${mdsdev}) --stripe-count-hint=$OSTCOUNT \
+		--reformat $mdsdev $mdsvdev || exit 10
+	start_mdt 1 || error "start mdt1 failed"
+	for i in $(seq $OSTCOUNT); do
+		start ost$i $(ostdevname $i) $OST_MOUNT_OPTS ||
+			error "start ost$i failed"
+	done
+	mount_client $MOUNT || error "mount client $MOUNT failed"
+	check_mount || error "check client $MOUNT failed"
+
+	$SETSTRIPE -c -1 $file || error "$SETSTRIPE -c -1 $file failed"
+	$GETSTRIPE $file
+
+	#Please see LU-6544 for reference
+	if [ $OSTCOUNT -gt 68 ]; then
+		inode_size=512
+	elif [ $OSTCOUNT -gt 26 ]; then
+		inode_size=2048
+	elif [ $OSTCOUNT -gt 5 ]; then
+		inode_size=1024
+	fi
+	left_size=$(expr $inode_size - \
+		156 - 32 - 32 - $OSTCOUNT \* 24 - 24 - 32 - 24 - 18 - 32)
+	value=$(generate_string $left_size)
+	setfattr -n "trusted.test" -v $value $file
+
+	umount $MOUNT || error "umount $MOUNT failed"
+	stop_mdt 1 || error "stop mdt1 failed"
+	mount_ldiskfs $SINGLEMDS || error "mount -t ldiskfs $SINGLEMDS failed"
+	log "mount -t ldiskfs $opts $mdsdev $mntpt"
+
+	ext_xattr_blk=$(do_facet $SINGLEMDS ls -s $mntpt/ROOT/$tfile |
+			awk '{ print $1 }')
+	[[ $ext_xattr_blk -eq 0 ]] &&
+		error "inode should leave fewer than $left_size bytes."
+	log "Fewer than $left_size bytes left in inode."
+
+	stopall
+}
+run_test 86 "check if MDT inode size is proper to hold EAs with N stripes"
+
+
 if ! combined_mgs_mds ; then
 	stop mgs
 fi
