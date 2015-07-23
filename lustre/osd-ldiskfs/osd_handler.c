@@ -2234,8 +2234,10 @@ static int osd_declare_object_create(const struct lu_env *env,
 	oh = container_of0(handle, struct osd_thandle, ot_super);
 	LASSERT(oh->ot_handle == NULL);
 
+	/* EA object consumes more credits than regular object: osd_mk_index
+	 * vs. osd_mkreg */
 	osd_trans_declare_op(env, oh, OSD_OT_CREATE,
-			     osd_dto_credits_noquota[DTO_OBJECT_CREATE]);
+			     2 * osd_dto_credits_noquota[DTO_OBJECT_CREATE]);
 	/* Reuse idle OI block may cause additional one OI block
 	 * to be changed. */
 	osd_trans_declare_op(env, oh, OSD_OT_INSERT,
