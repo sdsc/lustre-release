@@ -1149,11 +1149,19 @@ lnet_compare_routes(lnet_route_t *r1, lnet_route_t *r2)
 	if (r1->lr_priority > r2->lr_priority)
 		return -1;
 
-	if (r1->lr_hops < r2->lr_hops)
-		return 1;
+	/* only do hop comparison if hops for both routes is set,
+	 * otherwise skip the check. The assumption here is that hops will
+	 * be set in all routes. If user is only setting the value in
+	 * _some_ places, then they are relying on an unadvertised and
+	 * unreliable default value, which is bad practice. */
+	if (r1->lr_hops != UINT_MAX &&
+	    r2->lr_hops != UINT_MAX) {
+		if (r1->lr_hops < r2->lr_hops)
+			return 1;
 
-	if (r1->lr_hops > r2->lr_hops)
-		return -1;
+		if (r1->lr_hops > r2->lr_hops)
+			return -1;
+	}
 
 	if (p1->lp_txqnob < p2->lp_txqnob)
 		return 1;
@@ -2515,14 +2523,14 @@ LNetDist(lnet_nid_t dstnid, lnet_nid_t *srcnidp, __u32 *orderp)
 					shortest = route;
 			}
 
-                        LASSERT (shortest != NULL);
-                        hops = shortest->lr_hops;
-                        if (srcnidp != NULL)
-                                *srcnidp = shortest->lr_gateway->lp_ni->ni_nid;
-                        if (orderp != NULL)
-                                *orderp = order;
+			LASSERT(shortest != NULL);
+			hops = shortest->lr_hops;
+			if (srcnidp != NULL)
+				*srcnidp = shortest->lr_gateway->lp_ni->ni_nid;
+			if (orderp != NULL)
+				*orderp = order;
 			lnet_net_unlock(cpt);
-			return hops + 1;
+			return hops == UINT_MAX ? hops : hops + 1;
 		}
 		order++;
 	}
