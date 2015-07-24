@@ -293,7 +293,7 @@ lnet_add_route_to_rnet(lnet_remotenet_t *rnet, lnet_route_t *route)
 }
 
 int
-lnet_add_route(__u32 net, unsigned int hops, lnet_nid_t gateway,
+lnet_add_route(__u32 net, __u32 hops, lnet_nid_t gateway,
 	       unsigned int priority)
 {
 	struct list_head	*e;
@@ -312,7 +312,7 @@ lnet_add_route(__u32 net, unsigned int hops, lnet_nid_t gateway,
 	    net == LNET_NIDNET(LNET_NID_ANY) ||
 	    LNET_NETTYP(net) == LOLND ||
 	    LNET_NIDNET(gateway) == net ||
-	    hops < 1 || hops > 255)
+	    (hops != UINT_MAX && (hops < 1 || hops > 255)))
 		return -EINVAL;
 
 	if (lnet_islocalnet(net))	/* it's a local network */
