@@ -143,10 +143,7 @@ int lustre_lnet_config_route(char *nw, char *gw, int hops, int prio,
 		goto out;
 	}
 
-	if (hops == -1) {
-		/* -1 indicates to use the default hop value */
-		hops = 1;
-	} else if (hops < 1 || hops > 255) {
+	if ((hops < 1 || hops > 255) && hops != -1) {
 		snprintf(err_str,
 			sizeof(err_str),
 			"\"invalid hop count %d, must be between 0 and 256\"",

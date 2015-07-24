@@ -1052,7 +1052,7 @@ jt_ptl_add_route (int argc, char **argv)
 {
 	struct lnet_ioctl_config_data data;
 	lnet_nid_t               gateway_nid;
-	unsigned int             hops = 1;
+	__s32			 hops = -1;
 	unsigned int		 priority = 0;
 	char                    *end;
 	int                      rc;
@@ -1073,8 +1073,9 @@ jt_ptl_add_route (int argc, char **argv)
 	}
 
 	if (argc > 2) {
-		hops = strtoul(argv[2], &end, 0);
-		if (hops == 0 || hops >= 256 || (end != NULL && *end != 0)) {
+		hops = strtol(argv[2], &end, 0);
+		if (hops < -1 || hops == 0 || hops >= 256 ||
+		    (end != NULL && *end != 0)) {
 			fprintf(stderr, "Can't parse hopcount \"%s\"\n",
 				argv[2]);
 			return -1;

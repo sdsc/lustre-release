@@ -222,13 +222,13 @@ proc_lnet_routes(struct ctl_table *table, int write, void __user *buffer,
 
                 if (route != NULL) {
 			__u32        net	= rnet->lrn_net;
-			unsigned int hops	= route->lr_hops;
+			__s32 hops		= route->lr_hops;
 			unsigned int priority	= route->lr_priority;
 			lnet_nid_t   nid	= route->lr_gateway->lp_nid;
 			int          alive	= lnet_is_route_alive(route);
 
 			s += snprintf(s, tmpstr + tmpsiz - s,
-				      "%-8s %4u %8u %7s %s\n",
+				      "%-8s %4d %8u %7s %s\n",
 				      libcfs_net2str(net), hops,
 				      priority,
 				      alive ? "up" : "down",

@@ -67,7 +67,7 @@ struct lnet_ioctl_config_data {
 
 	union {
 		struct {
-			__u32 rtr_hop;
+			__s32 rtr_hop;
 			__u32 rtr_priority;
 			__u32 rtr_flags;
 		} cfg_route;

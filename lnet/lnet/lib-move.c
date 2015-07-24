@@ -1140,6 +1140,8 @@ lnet_compare_routes(lnet_route_t *r1, lnet_route_t *r2)
 {
 	lnet_peer_t *p1 = r1->lr_gateway;
 	lnet_peer_t *p2 = r2->lr_gateway;
+	int r1_hops = (r1->lr_hops == -1) ? 1 : r1->lr_hops;
+	int r2_hops = (r2->lr_hops == -1) ? 1 : r2->lr_hops;
 
 	if (r1->lr_priority < r2->lr_priority)
 		return 1;
@@ -1147,10 +1149,10 @@ lnet_compare_routes(lnet_route_t *r1, lnet_route_t *r2)
 	if (r1->lr_priority > r2->lr_priority)
 		return -1;
 
-	if (r1->lr_hops < r2->lr_hops)
+	if (r1_hops < r2_hops)
 		return 1;
 
-	if (r1->lr_hops > r2->lr_hops)
+	if (r1_hops > r2_hops)
 		return -1;
 
 	if (p1->lp_txqnob < p2->lp_txqnob)
@@ -2508,17 +2510,22 @@ LNetDist(lnet_nid_t dstnid, lnet_nid_t *srcnidp, __u32 *orderp)
 
 			list_for_each_entry(route, &rnet->lrn_routes,
 					    lr_list) {
+				int shortest_hops = (shortest->lr_hops == -1) ?
+							1 : shortest->lr_hops;
+				int route_hops = (route->lr_hops == -1) ? 1 :
+							route->lr_hops;
 				if (shortest == NULL ||
-				    route->lr_hops < shortest->lr_hops)
+				    route_hops < shortest_hops)
 					shortest = route;
 			}
 
-                        LASSERT (shortest != NULL);
-                        hops = shortest->lr_hops;
-                        if (srcnidp != NULL)
-                                *srcnidp = shortest->lr_gateway->lp_ni->ni_nid;
-                        if (orderp != NULL)
-                                *orderp = order;
+			LASSERT (shortest != NULL);
+			hops = (shortest->lr_hops == -1) ? 1 :
+					shortest->lr_hops;
+			if (srcnidp != NULL)
+				*srcnidp = shortest->lr_gateway->lp_ni->ni_nid;
+			if (orderp != NULL)
+				*orderp = order;
 			lnet_net_unlock(cpt);
 			return hops + 1;
 		}
