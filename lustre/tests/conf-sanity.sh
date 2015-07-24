@@ -5441,6 +5441,76 @@ test_86() {
 }
 run_test 86 "Replacing mkfs.lustre -G option"
 
+test_87() { #LU-6544
+	[[ $(lustre_version_code $SINGLEMDS1) -ge $(version_code 2.7.56) ]] ||
+		{ skip "Need MDS version at least 2.7.56" && return; }
+	[[ $(facet_fstype $SINGLEMDS) != ldiskfs ]] &&
+		{ skip "Only applicable to ldiskfs-based MDTs" && return; }
+	[[ $OSTCOUNT -gt 69 ]] &&
+		{ skip "Ignore wide striping situation" && return; }
+
+	local mdsdev=$(mdsdevname 1)
+	local mdsvdev=$(mdsvdevname 1)
+	local file=$DIR/$tfile
+	local mntpt=$(facet_mntpt $SINGLEMDS)
+	local ext_xattr_blk=0
+	local inode_size=${1:-512}
+	local left_size=0
+	local value
+
+	#Please see LU-6544 for MDT inode size calculation
+	if [ $OSTCOUNT -gt 26 ]; then
+		inode_size=2048
+	elif [ $OSTCOUNT -gt 5 ]; then
+		inode_size=1024
+	fi
+	left_size=$(expr $inode_size - \
+		156 - \
+		32 - 32 - $OSTCOUNT \* 24 - \
+		24 - 16 - 11 - \
+		24 - 18 - $(expr length $tfile) - 16 - 12)
+	if [ $left_size -le 0 ]; then
+		echo "No space($left_size) is expected in inode."
+		echo "Try 1-byte xattr instead to verify this."
+		left_size=1
+	fi
+	value=$(generate_string $left_size)
+
+	reformat
+	load_modules
+
+	add mds1 $(mkfs_opts mds1 ${mdsdev}) --stripe-count-hint=$OSTCOUNT \
+		--reformat $mdsdev $mdsvdev || error "add mds1 failed"
+	start_mdt 1 || error "start mdt1 failed"
+	for i in $(seq $OSTCOUNT); do
+		start ost$i $(ostdevname $i) $OST_MOUNT_OPTS ||
+			error "start ost$i failed"
+	done
+	mount_client $MOUNT || error "mount client $MOUNT failed"
+	check_mount || error "check client $MOUNT failed"
+
+	#set xattr
+	$SETSTRIPE -c -1 $file || error "$SETSTRIPE -c -1 $file failed"
+	$GETSTRIPE $file || error "$GETSTRIPE $file failed"
+	setfattr -n "trusted.test" -v $value $file
+
+	#Verify if inode has some space left
+	umount $MOUNT || error "umount $MOUNT failed"
+	stop_mdt 1 || error "stop mdt1 failed"
+	mount_ldiskfs $SINGLEMDS || error "mount -t ldiskfs $SINGLEMDS failed"
+	echo "mount -t ldiskfs $mdsdev $mntpt"
+
+	ext_xattr_blk=$(do_facet $SINGLEMDS ls -s $mntpt/ROOT/$tfile |
+			awk '{ print $1 }')
+	[[ $ext_xattr_blk -eq 0 ]] &&
+		error "There should be less than $left_size-byte space left."
+	echo "Less than $left_size-byte space left in inode."
+
+	stopall
+}
+run_test 87 "check if MDT inode can hold EAs with N stripes properly"
+
+
 if ! combined_mgs_mds ; then
 	stop mgs
 fi
