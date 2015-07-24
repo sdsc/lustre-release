@@ -293,7 +293,7 @@ lnet_add_route_to_rnet(lnet_remotenet_t *rnet, lnet_route_t *route)
 }
 
 int
-lnet_add_route(__u32 net, unsigned int hops, lnet_nid_t gateway,
+lnet_add_route(__u32 net, __u32 hops, lnet_nid_t gateway,
 	       unsigned int priority)
 {
 	struct list_head	*e;
@@ -312,7 +312,7 @@ lnet_add_route(__u32 net, unsigned int hops, lnet_nid_t gateway,
 	    net == LNET_NIDNET(LNET_NID_ANY) ||
 	    LNET_NETTYP(net) == LOLND ||
 	    LNET_NIDNET(gateway) == net ||
-	    hops < 1 || hops > 255)
+	    (hops != LNET_UNDEFINED_HOPS && (hops < 1 || hops > 255)))
 		return -EINVAL;
 
 	if (lnet_islocalnet(net))	/* it's a local network */
@@ -322,7 +322,7 @@ lnet_add_route(__u32 net, unsigned int hops, lnet_nid_t gateway,
 	LIBCFS_ALLOC(route, sizeof(*route));
 	LIBCFS_ALLOC(rnet, sizeof(*rnet));
 	if (route == NULL || rnet == NULL) {
-		CERROR("Out of memory creating route %s %d %s\n",
+		CERROR("Out of memory creating route %s %u %s\n",
 		       libcfs_net2str(net), hops, libcfs_nid2str(gateway));
 		if (route != NULL)
 			LIBCFS_FREE(route, sizeof(*route));
@@ -348,7 +348,7 @@ lnet_add_route(__u32 net, unsigned int hops, lnet_nid_t gateway,
 
 		if (rc == -EHOSTUNREACH) /* gateway is not on a local net. */
 			return rc;	 /* ignore the route entry */
-		CERROR("Error %d creating route %s %d %s\n", rc,
+		CERROR("Error %d creating route %s %u %s\n", rc,
 			libcfs_net2str(net), hops,
 			libcfs_nid2str(gateway));
 		return rc;
