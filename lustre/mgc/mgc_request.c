@@ -2059,18 +2059,22 @@ static int mgc_process_config(struct obd_device *obd, size_t len, void *buf)
                 cld->cld_cfg.cfg_flags |= CFG_F_COMPAT146;
 
                 rc = mgc_process_log(obd, cld);
-                if (rc == 0 && cld->cld_recover != NULL) {
-                        if (OCD_HAS_FLAG(&obd->u.cli.cl_import->
-                                         imp_connect_data, IMP_RECOV)) {
-                                rc = mgc_process_log(obd, cld->cld_recover);
-                        } else {
-                                struct config_llog_data *cir = cld->cld_recover;
-                                cld->cld_recover = NULL;
-                                config_log_put(cir);
-                        }
-                        if (rc)
-                                CERROR("Cannot process recover llog %d\n", rc);
-                }
+		if (rc == 0 && cld->cld_recover != NULL) {
+			if (OCD_HAS_FLAG(&obd->u.cli.cl_import->
+					 imp_connect_data, IMP_RECOV)) {
+				rc = mgc_process_log(obd, cld->cld_recover);
+			} else {
+				struct config_llog_data *cir = cld->cld_recover;
+				cld->cld_recover = NULL;
+				config_log_put(cir);
+			}
+			if (rc != 0) {
+				CWARN("%s: cannot process recover llog:"
+				      " rc = %d not fatal.\n", obd->obd_name,
+				      rc);
+				rc = 0;
+			}
+		}
 
 		if (rc == 0 && cld->cld_params != NULL) {
 			rc = mgc_process_log(obd, cld->cld_params);
