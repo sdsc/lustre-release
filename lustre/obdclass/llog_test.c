@@ -202,7 +202,7 @@ static int llog_test_2(const struct lu_env *env, struct obd_device *obd,
 	}
 
 	CWARN("2b: destroy this log\n");
-	rc = llog_destroy(env, loghandle);
+	rc = llog_destroy(env, loghandle, NULL);
 	if (rc)
 		CERROR("2d: destroy log failed\n");
 out_close:
@@ -777,7 +777,7 @@ static int llog_test_7_sub(const struct lu_env *env, struct llog_ctxt *ctxt)
 	rc = verify_handle("7_sub", llh, 1);
 out_close:
 	if (rc)
-		llog_destroy(env, llh);
+		llog_destroy(env, llh, NULL);
 	llog_close(env, llh);
 	RETURN(rc);
 }
@@ -1123,7 +1123,7 @@ static int llog_run_tests(const struct lu_env *env, struct obd_device *obd)
 		GOTO(cleanup, rc);
 
 cleanup:
-	err = llog_destroy(env, llh);
+	err = llog_destroy(env, llh, NULL);
 	if (err)
 		CERROR("cleanup: llog_destroy failed: %d\n", err);
 	llog_close(env, llh);
