@@ -985,12 +985,12 @@ static int lfsck_create_lpf(const struct lu_env *env,
 	LASSERT(parent != NULL);
 	LASSERT(lfsck->li_lpf_obj == NULL);
 
+	snprintf(name, 8, "MDT%04x", node);
 	rc = lfsck_lock(env, lfsck, parent, name, llh,
 			MDS_INODELOCK_UPDATE, LCK_PW);
 	if (rc != 0)
 		RETURN(rc);
 
-	snprintf(name, 8, "MDT%04x", node);
 	if (fid_is_zero(&bk->lb_lpf_fid)) {
 		/* There is corner case that: in former LFSCK scanning we have
 		 * created the .lustre/lost+found/MDTxxxx but failed to update
