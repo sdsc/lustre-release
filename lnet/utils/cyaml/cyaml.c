@@ -49,7 +49,8 @@
 
 #define INDENT		4
 #define EXTRA_IND	2
-
+#define FATAL_ERROR_YAML  "error:\n" \
+			 "\tfatal: out of memory\n"
 /*
  * cYAML_print_info
  *   This structure contains print information
@@ -1088,8 +1089,10 @@ void cYAML_build_error(int rc, int seq_no, char *cmd,
 	return;
 
 failed:
+	/* Only reason we get here is if we run out of memory */
 	cYAML_free_tree(r);
 	r = NULL;
+	fprintf(stderr, "%s", FATAL_ERROR_YAML);
 }
 
 struct cYAML *cYAML_build_tree(char *yaml_file,
