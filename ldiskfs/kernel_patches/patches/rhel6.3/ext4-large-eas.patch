@@ -732,7 +732,7 @@ Index: linux-stage/fs/ext4/xattr.c
  	if (!EXT4_I(inode)->i_file_acl)
  		goto cleanup;
  	bh = sb_bread(inode->i_sb, EXT4_I(inode)->i_file_acl);
-@@ -1384,11 +1764,88 @@ ext4_xattr_delete_inode(handle_t *handle
+@@ -1384,11 +1764,85 @@ ext4_xattr_delete_inode(handle_t *handle
  			   inode->i_ino, EXT4_I(inode)->i_file_acl);
  		goto cleanup;
  	}
@@ -769,7 +769,6 @@ Index: linux-stage/fs/ext4/xattr.c
 +			if (error)
 +				continue;
 +			ext4_orphan_add(handle, ea_inode);
-+			/* the inode's i_count will be released by caller */
 +		}
 +	}
 +
@@ -813,8 +812,6 @@ Index: linux-stage/fs/ext4/xattr.c
 +		if (err)
 +			continue;
 +		ea_inode->i_nlink = 0;
-+		iput(ea_inode);
-+		/* for inode's i_count get from ext4_xattr_delete_inode */
 +		iput(ea_inode);
 +	}
 +	kfree(lea_ino_array);
