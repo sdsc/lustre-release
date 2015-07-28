@@ -53,6 +53,8 @@
 #define DEL_CMD			"del"
 #define SHOW_CMD		"show"
 
+int g_errno;
+
 int lustre_lnet_config_lib_init(void)
 {
 	return register_ioc_dev(LNET_DEV_ID, LNET_DEV_PATH,
@@ -78,13 +80,14 @@ int lustre_lnet_config_ni_system(bool up, bool load_ni_from_mod,
 	opc = up ? IOC_LIBCFS_CONFIGURE : IOC_LIBCFS_UNCONFIGURE;
 
 	rc = l_ioctl(LNET_DEV_ID, opc, &data);
+	g_errno = errno;
 
 	if (rc != 0) {
 		snprintf(err_str,
 			sizeof(err_str),
 			"\"LNet %s error: %s\"", (up) ? "configure" :
-			"unconfigure", strerror(errno));
-		rc = -errno;
+			"unconfigure", strerror(g_errno));
+		rc = -g_errno;
 	}
 
 	cYAML_build_error(rc, seq_no, (up) ? CONFIG_CMD : UNCONFIG_CMD,
@@ -173,11 +176,12 @@ int lustre_lnet_config_route(char *nw, char *gw, int hops, int prio,
 	data.cfg_nid = gateway_nid;
 
 	rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_ADD_ROUTE, &data);
+	g_errno = errno;
 	if (rc != 0) {
 		snprintf(err_str,
 			 sizeof(err_str),
-			 "\"cannot add route: %s\"", strerror(errno));
-		rc = -errno;
+			 "\"cannot add route: %s\"", strerror(g_errno));
+		rc = -g_errno;
 		goto out;
 	}
 
@@ -242,11 +246,12 @@ int lustre_lnet_del_route(char *nw, char *gw,
 	data.cfg_nid = gateway_nid;
 
 	rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_DEL_ROUTE, &data);
+	g_errno = errno;
 	if (rc != 0) {
 		snprintf(err_str,
 			 sizeof(err_str),
-			 "\"cannot delete route: %s\"", strerror(errno));
-		rc = -errno;
+			 "\"cannot delete route: %s\"", strerror(g_errno));
+		rc = -g_errno;
 		goto out;
 	}
 
@@ -335,6 +340,7 @@ int lustre_lnet_show_route(char *nw, char *gw, int hops, int prio, int detail,
 		data.cfg_count = i;
 
 		rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_GET_ROUTE, &data);
+		g_errno = errno;
 		if (rc != 0)
 			break;
 
@@ -398,12 +404,12 @@ int lustre_lnet_show_route(char *nw, char *gw, int hops, int prio, int detail,
 	if (show_rc == NULL)
 		cYAML_print_tree(root);
 
-	if (errno != ENOENT) {
+	if (g_errno != ENOENT) {
 		snprintf(err_str,
 			 sizeof(err_str),
 			 "\"cannot get routes: %s\"",
-			 strerror(errno));
-		rc = -errno;
+			 strerror(g_errno));
+		rc = -g_errno;
 		goto out;
 	} else
 		rc = LUSTRE_CFG_RC_NO_ERR;
@@ -493,11 +499,12 @@ int lustre_lnet_config_net(char *net, char *intf, char *ip2net,
 	data.cfg_config_u.cfg_net.net_max_tx_credits = credits;
 
 	num_of_nets = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_ADD_NET, &data);
+	g_errno = errno;
 	if (num_of_nets < 0) {
 		snprintf(err_str,
 			 sizeof(err_str),
-			 "\"cannot add network: %s\"", strerror(errno));
-		rc = -errno;
+			 "\"cannot add network: %s\"", strerror(g_errno));
+		rc = -g_errno;
 	}
 
 out:
@@ -537,11 +544,12 @@ int lustre_lnet_del_net(char *nw, int seq_no, struct cYAML **err_rc)
 	data.cfg_net = net;
 
 	rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_DEL_NET, &data);
+	g_errno = errno;
 	if (rc != 0) {
 		snprintf(err_str,
 			 sizeof(err_str),
-			 "\"cannot delete network: %s\"", strerror(errno));
-		rc = -errno;
+			 "\"cannot delete network: %s\"", strerror(g_errno));
+		rc = -g_errno;
 		goto out;
 	}
 
@@ -610,6 +618,7 @@ int lustre_lnet_show_net(char *nw, int detail, int seq_no,
 		data->cfg_count = i;
 
 		rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_GET_NET, data);
+		g_errno = errno;
 		if (rc != 0)
 			break;
 
@@ -722,12 +731,12 @@ int lustre_lnet_show_net(char *nw, int detail, int seq_no,
 	if (show_rc == NULL)
 		cYAML_print_tree(root);
 
-	if (errno != ENOENT) {
+	if (g_errno != ENOENT) {
 		snprintf(err_str,
 			 sizeof(err_str),
 			 "\"cannot get networks: %s\"",
-			 strerror(errno));
-		rc = -errno;
+			 strerror(g_errno));
+		rc = -g_errno;
 		goto out;
 	} else
 		rc = LUSTRE_CFG_RC_NO_ERR;
@@ -774,12 +783,13 @@ int lustre_lnet_enable_routing(int enable, int seq_no, struct cYAML **err_rc)
 	data.cfg_config_u.cfg_buffers.buf_enable = (enable) ? 1 : 0;
 
 	rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_CONFIG_RTR, &data);
+	g_errno = errno;
 	if (rc != 0) {
 		snprintf(err_str,
 			 sizeof(err_str),
 			 "\"cannot %s routing %s\"",
-			 (enable) ? "enable" : "disable", strerror(errno));
-		rc = -errno;
+			 (enable) ? "enable" : "disable", strerror(g_errno));
+		rc = -g_errno;
 		goto out;
 	}
 
@@ -815,11 +825,12 @@ int lustre_lnet_config_buffers(int tiny, int small, int large, int seq_no,
 	data.cfg_config_u.cfg_buffers.buf_large = large;
 
 	rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_ADD_BUF, &data);
+	g_errno = errno;
 	if (rc != 0) {
 		snprintf(err_str,
 			 sizeof(err_str),
-			 "\"cannot configure buffers: %s\"", strerror(errno));
-		rc = -errno;
+			 "\"cannot configure buffers: %s\"", strerror(g_errno));
+		rc = -g_errno;
 		goto out;
 	}
 
@@ -868,6 +879,7 @@ int lustre_lnet_show_routing(int seq_no, struct cYAML **show_rc,
 		data->cfg_count = i;
 
 		rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_GET_BUF, data);
+		g_errno = errno;
 		if (rc != 0)
 			break;
 
@@ -924,12 +936,12 @@ int lustre_lnet_show_routing(int seq_no, struct cYAML **show_rc,
 	if (show_rc == NULL)
 		cYAML_print_tree(root);
 
-	if (errno != ENOENT) {
+	if (g_errno != ENOENT) {
 		snprintf(err_str,
 			 sizeof(err_str),
 			 "\"cannot get routing information: %s\"",
-			 strerror(errno));
-		rc = -errno;
+			 strerror(g_errno));
+		rc = -g_errno;
 		goto out;
 	} else
 		rc = LUSTRE_CFG_RC_NO_ERR;
@@ -996,6 +1008,7 @@ int lustre_lnet_show_peer_credits(int seq_no, struct cYAML **show_rc,
 			peer_info.pr_lnd_u.pr_peer_credits.cr_ncpt = j;
 			rc = l_ioctl(LNET_DEV_ID,
 				     IOC_LIBCFS_GET_PEER_INFO, &peer_info);
+			g_errno = errno;
 			if (rc != 0)
 				break;
 
@@ -1066,12 +1079,12 @@ int lustre_lnet_show_peer_credits(int seq_no, struct cYAML **show_rc,
 				goto out;
 		}
 
-		if (errno != ENOENT) {
+		if (g_errno != ENOENT) {
 			snprintf(err_str,
 				sizeof(err_str),
 				"\"cannot get peer information: %s\"",
-				strerror(errno));
-			rc = -errno;
+				strerror(g_errno));
+			rc = -g_errno;
 			goto out;
 		}
 
@@ -1129,12 +1142,13 @@ int lustre_lnet_show_stats(int seq_no, struct cYAML **show_rc,
 	LIBCFS_IOC_INIT_V2(data, st_hdr);
 
 	rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_GET_LNET_STATS, &data);
+	g_errno = errno;
 	if (rc != 0) {
 		snprintf(err_str,
 			 sizeof(err_str),
 			 "\"cannot get lnet statistics: %s\"",
-			 strerror(errno));
-		rc = -errno;
+			 strerror(g_errno));
+		rc = -g_errno;
 		goto out;
 	}
 
