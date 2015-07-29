@@ -2099,6 +2099,70 @@ test_70b () {
 	wait $pid || error "rundbench load on $clients failed!"
 }
 run_test 70b "dbench ${MDSCOUNT}mdts recovery; $CLIENTCOUNT clients"
+
+cleanup_70c() {
+	trap 0
+	kill -9 $tar_70c_pid
+}
+test_70c () {
+	local clients=${CLIENTS:-$HOSTNAME}
+	local rc=0
+
+	zconf_mount_clients $clients $MOUNT
+
+	local duration=300
+	[ "$SLOW" = "no" ] && duration=120
+	# set duration to 900 because it takes some time to boot node
+	[ "$FAILURE_MODE" = HARD ] && duration=900
+
+	local elapsed
+	local start_ts=$(date +%s)
+
+	trap cleanup_70c EXIT
+	(
+		while true; do
+			test_mkdir -p -c$MDSCOUNT $DIR/$tdir || break
+			if [ $MDSCOUNT -ge 2 ]; then
+				$LFS setdirstripe -D -c$MDSCOUNT $DIR/$tdir ||
+				error "set default dirstripe failed"
+			fi
+			cd $DIR/$tdir || break
+			tar cf - /etc | tar xf - || error "tar failed"
+			cd $DIR || break
+			rm -rf $DIR/$tdir || break
+		done
+	)&
+	tar_70c_pid=$!
+	echo "Started tar $tar_70c_pid"
+
+	elapsed=$(($(date +%s) - start_ts))
+	local num_failovers=0
+	local fail_index=1
+	while [ $elapsed -lt $duration ]; do
+		kill -0 $tar_70c_pid ||
+			error "tar $tar_70c_pid stopped"
+		sleep 1
+		replay_barrier mds$fail_index
+		sleep 1 # give clients a time to do operations
+		# Increment the number of failovers
+		num_failovers=$((num_failovers+1))
+		log "$TESTNAME fail mds$fail_index $num_failovers times"
+		fail mds$fail_index
+		elapsed=$(($(date +%s) - start_ts))
+		if [ $fail_index -ge $MDSCOUNT ]; then
+			fail_index=1
+		else
+			fail_index=$((fail_index + 1))
+		fi
+	done
+
+	kill -0 $tar_70c_pid || error "tar $tar_70c_pid stopped"
+
+	cleanup_70c
+	true
+}
+run_test 70c "tar ${MDSCOUNT}mdts recovery"
+
 # end multi-client tests
 
 test_73a() {
