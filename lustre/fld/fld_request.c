@@ -399,6 +399,14 @@ again:
 
 		req_capsule_set_size(&req->rq_pill, &RMF_GENERIC_DATA,
 				     RCL_SERVER, PAGE_CACHE_SIZE);
+
+		/* This might happen before the import state becomes to FULL,
+		 * let's set allow_replay for this request to avoid deadlock
+		 * see LU-6273 */
+		req->rq_allow_replay = 1;
+		/* This will always use LWP connection, let's send the req
+		 * with no_delay flags, see above */
+		req->rq_no_delay = 1;
 		break;
 	default:
 		rc = -EINVAL;
