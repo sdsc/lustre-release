@@ -97,6 +97,18 @@ libcfs_lo_str2addr(const char *str, int nob, __u32 *addr)
 static void
 libcfs_ip_addr2str(__u32 addr, char *str, size_t size)
 {
+#ifdef HAVE_GETHOSTBYNAME
+	struct hostent *he;
+	__u32 net_ip;
+
+	net_ip = htonl(addr);
+	he = gethostbyaddr(&net_ip, sizeof(net_ip), AF_INET);
+	if (he != NULL) {
+		strncpy(str, he->h_name, size - 1);
+		str[size - 1] = '\0';
+		return;
+	}
+#endif
 	snprintf(str, size, "%u.%u.%u.%u",
 		 (addr >> 24) & 0xff, (addr >> 16) & 0xff,
 		 (addr >> 8) & 0xff, addr & 0xff);
