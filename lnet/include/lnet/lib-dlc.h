@@ -27,6 +27,7 @@
 #ifndef LNET_DLC_H
 #define LNET_DLC_H
 
+#include <libcfs/libcfs_crypto.h>
 #include <libcfs/libcfs_ioctl.h>
 #include <lnet/types.h>
 
