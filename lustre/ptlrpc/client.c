@@ -1533,19 +1533,26 @@ static int ptlrpc_send_new_req(struct ptlrpc_request *req)
 	list_add_tail(&req->rq_list, &imp->imp_sending_list);
 	atomic_inc(&req->rq_import->imp_inflight);
 
-	/* find the lowest unreplied XID */
-	list_for_each(tmp, &imp->imp_delayed_list) {
-		struct ptlrpc_request *r;
-		r = list_entry(tmp, struct ptlrpc_request, rq_list);
-		if (r->rq_xid < min_xid)
-			min_xid = r->rq_xid;
+	/* Do not pack min xid for CONNECT request, because all of unreplied
+	 * requests may not in the delayed and sending list at the moment */
+	if (lustre_msg_get_opc(req->rq_reqmsg) != MDS_CONNECT &&
+	    lustre_msg_get_opc(req->rq_reqmsg) != OST_CONNECT &&
+	    lustre_msg_get_opc(req->rq_reqmsg) != MGS_CONNECT) {
+		/* find the lowest unreplied XID */
+		list_for_each(tmp, &imp->imp_delayed_list) {
+			struct ptlrpc_request *r;
+			r = list_entry(tmp, struct ptlrpc_request, rq_list);
+			if (r->rq_xid < min_xid)
+				min_xid = r->rq_xid;
+		}
+		list_for_each(tmp, &imp->imp_sending_list) {
+			struct ptlrpc_request *r;
+			r = list_entry(tmp, struct ptlrpc_request, rq_list);
+			if (r->rq_xid < min_xid)
+				min_xid = r->rq_xid;
+		}
 	}
-	list_for_each(tmp, &imp->imp_sending_list) {
-		struct ptlrpc_request *r;
-		r = list_entry(tmp, struct ptlrpc_request, rq_list);
-		if (r->rq_xid < min_xid)
-			min_xid = r->rq_xid;
-	}
+
 	spin_unlock(&imp->imp_lock);
 
 	if (likely(min_xid != ~0ULL))
