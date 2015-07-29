@@ -382,14 +382,6 @@ again:
 		op = req_capsule_client_get(&req->rq_pill, &RMF_FLD_OPC);
 		*op = FLD_LOOKUP;
 
-		/* For MDS_MDS seq lookup, it will always use LWP connection,
-		 * but LWP will be evicted after restart, so cause the error.
-		 * so we will set no_delay for seq lookup request, once the
-		 * request fails because of the eviction. always retry here */
-		if (imp->imp_connect_flags_orig & OBD_CONNECT_MDS_MDS) {
-			req->rq_allow_replay = 1;
-			req->rq_no_delay = 1;
-		}
 		break;
 	case FLD_READ:
 		req = ptlrpc_request_alloc_pack(imp, &RQF_FLD_READ,
@@ -407,6 +399,9 @@ again:
 
 	if (rc != 0)
 		RETURN(rc);
+
+	if (imp->imp_connect_flags_orig & OBD_CONNECT_MDS_MDS)
+		req->rq_allow_replay = 1;
 
 	prange = req_capsule_client_get(&req->rq_pill, &RMF_FLD_MDFLD);
 	*prange = *range;
