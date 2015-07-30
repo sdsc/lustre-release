@@ -1720,6 +1720,23 @@ file_function_iter, [
 ]) # LC_HAVE_FILE_OPERATIONS_READ_WRITE_ITER
 
 #
+# LC_KEY_MATCH
+#
+# 3.17 replaces key_type::match with match_preparse
+#
+AC_DEFUN([LC_KEY_MATCH], [
+LB_CHECK_COMPILE([if struct key_type match field exist],
+key_match, [
+	#include <linux/key_type.h>
+],[
+	((struct key_type *)0)->match(NULL, NULL);
+],[
+	AC_DEFINE(HAVE_KEY_MATCH, 1,
+		[key_type.match function exist])
+])
+]) # LC_KEY_MATCH
+
+#
 # LC_NFS_FILLDIR_USE_CTX
 #
 # 3.18 kernel moved from void cookie to struct dir_context
@@ -1938,6 +1955,9 @@ AC_DEFUN([LC_PROG_LINUX], [
 	LC_DIRECTIO_USE_ITER
 	LC_HAVE_IOV_ITER_INIT_DIRECTION
 	LC_HAVE_FILE_OPERATIONS_READ_WRITE_ITER
+
+	# 3.17
+	LC_KEY_MATCH
 
 	# 3.18
 	LC_NFS_FILLDIR_USE_CTX
