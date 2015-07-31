@@ -195,12 +195,21 @@ int llog_pack_buffer(int fd, struct llog_log_hdr **llog,
 		    file_buf + file_size) {
 			rc = -EINVAL;
 			llapi_error(LLAPI_MSG_ERROR, rc,
-				    "The log is corrupt (too big at %d)", i);
+				    "The log is corrupted (too big at %d)", i);
 			goto clear_recs_buf;
 		}
 
 		cur_rec = (struct llog_rec_hdr *)ptr;
 		idx = le32_to_cpu(cur_rec->lrh_index);
+		if (idx > recs_num) {
+			rc = -EINVAL;
+			llapi_error(LLAPI_MSG_ERROR, rc,
+				    "The log is corrupted: "
+				    "record index %d exceeds record count %d",
+				    idx, recs_num);
+			goto clear_recs_buf;
+		}
+
 		recs_pr[i] = cur_rec;
 
 		if (ext2_test_bit(idx, LLOG_HDR_BITMAP(*llog))) {
@@ -216,8 +225,11 @@ int llog_pack_buffer(int fd, struct llog_log_hdr **llog,
 
                 ptr += le32_to_cpu(cur_rec->lrh_len);
                 if ((ptr - file_buf) > file_size) {
-                        printf("The log is corrupt (too big at %d)\n", i);
                         rc = -EINVAL;
+			llapi_error(LLAPI_MSG_ERROR, rc,
+				    "The log is corrupted: "
+				    "offset %tu is beyond the file size (%zu)",
+				    ptr - file_buf, file_size);
                         goto clear_recs_buf;
                 }
                 i++;
