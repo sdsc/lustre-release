@@ -4685,6 +4685,8 @@ static int mdt_prepare(const struct lu_env *env,
 	struct mdt_device *mdt = mdt_dev(cdev);
 	struct lu_device *next = &mdt->mdt_child->md_lu_dev;
 	struct obd_device *obd = cdev->ld_obd;
+	int mdt_count = 0;
+	int mdt_count_len = sizeof(mdt_count);
 	int rc;
 
 	ENTRY;
@@ -4723,6 +4725,13 @@ static int mdt_prepare(const struct lu_env *env,
 	spin_lock(&obd->obd_dev_lock);
 	obd->obd_no_conn = 0;
 	spin_unlock(&obd->obd_dev_lock);
+
+	rc = obd_get_info(env, mdt->mdt_child_exp, sizeof(KEY_MDT_COUNT),
+			  KEY_MDT_COUNT, &mdt_count_len, &mdt_count);
+	if (rc)
+		RETURN(rc);
+	if (mdt_count > 1)
+		mdt->mdt_opts.mo_cos = 1;
 
 	if (obd->obd_recovering == 0)
 		mdt_postrecov(env, mdt);
