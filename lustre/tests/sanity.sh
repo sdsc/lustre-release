@@ -9442,12 +9442,12 @@ test_134b() {
 	if ! ps -p $create_pid  > /dev/null 2>&1; then
 		do_facet mds1 $LCTL set_param fail_loc=0
 		do_facet mds1 $LCTL set_param fail_val=0
-		do_facet mds1 $LCTL set_param ldlm.watermark_mb_low=$low_wm
+		do_facet mds1 $LCTL set_param ldlm.watermark_mb_low=${low_wm}m
 		error "createmany finished incorrectly!"
 	fi
 	do_facet mds1 $LCTL set_param fail_loc=0
 	do_facet mds1 $LCTL set_param fail_val=0
-	do_facet mds1 $LCTL set_param ldlm.watermark_mb_low=$low_wm
+	do_facet mds1 $LCTL set_param ldlm.watermark_mb_low=${low_wm}m
 	wait $create_pid || return 1
 
 	unlinkmany $DIR/$tdir/f $nr
