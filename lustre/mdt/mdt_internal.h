@@ -983,6 +983,7 @@ extern struct ldlm_valblock_ops mdt_lvbo;
 
 void mdt_enable_cos(struct mdt_device *, int);
 int mdt_cos_is_enabled(struct mdt_device *);
+bool mdt_check_set_cos(const struct lu_env *env, struct mdt_device *mdt);
 
 /* lprocfs stuff */
 enum {

@@ -2539,7 +2539,7 @@ static void mdt_save_lock(struct mdt_thread_info *info, struct lustre_handle *h,
 				CDEBUG(D_HA, "request = %p reply state = %p"
 				       " transno = "LPD64"\n", req,
 				       req->rq_reply_state, req->rq_transno);
-				if (mdt_cos_is_enabled(mdt)) {
+				if (mdt_check_set_cos(info->mti_env, mdt)) {
 					no_ack = 1;
 					ldlm_lock_downgrade(lock, LCK_COS);
 					mode = LCK_COS;
@@ -4701,6 +4701,8 @@ static int mdt_prepare(const struct lu_env *env,
 	struct mdt_device *mdt = mdt_dev(cdev);
 	struct lu_device *next = &mdt->mdt_child->md_lu_dev;
 	struct obd_device *obd = cdev->ld_obd;
+	int mdt_count = 0;
+	int mdt_count_len = sizeof(mdt_count);
 	int rc;
 
 	ENTRY;
@@ -4739,6 +4741,13 @@ static int mdt_prepare(const struct lu_env *env,
 	spin_lock(&obd->obd_dev_lock);
 	obd->obd_no_conn = 0;
 	spin_unlock(&obd->obd_dev_lock);
+
+	rc = obd_get_info(env, mdt->mdt_child_exp, sizeof(KEY_MDT_COUNT),
+			  KEY_MDT_COUNT, &mdt_count_len, &mdt_count);
+	if (rc)
+		RETURN(rc);
+	if (mdt_count > 1)
+		mdt->mdt_opts.mo_cos = 1;
 
 	if (obd->obd_recovering == 0)
 		mdt_postrecov(env, mdt);
@@ -5817,6 +5826,32 @@ void mdt_enable_cos(struct mdt_device *mdt, int val)
 int mdt_cos_is_enabled(struct mdt_device *mdt)
 {
         return mdt->mdt_opts.mo_cos != 0;
+}
+
+/**
+ * Check COS (Commit On Sharing) status, if it's enabled, return true, else
+ * get MDT count, if it's more than 1, enable COS, and return true.
+ */
+bool mdt_check_set_cos(const struct lu_env *env, struct mdt_device *mdt)
+{
+	int mdt_count = 0;
+	int mdt_count_len = sizeof(mdt_count);
+	int rc;
+
+	if (mdt->mdt_opts.mo_cos != 0)
+		return true;
+
+	rc = obd_get_info(env, mdt->mdt_child_exp, sizeof(KEY_MDT_COUNT),
+			  KEY_MDT_COUNT, &mdt_count_len, &mdt_count);
+	if (rc < 0)
+		return false;
+
+	if (mdt_count > 1) {
+		mdt->mdt_opts.mo_cos = 1;
+		return true;
+	}
+
+	return false;
 }
 
 static struct lu_device_type_operations mdt_device_type_ops = {
