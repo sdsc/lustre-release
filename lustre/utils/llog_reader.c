@@ -201,6 +201,13 @@ int llog_pack_buffer(int fd, struct llog_log_hdr **llog,
 
 		cur_rec = (struct llog_rec_hdr *)ptr;
 		idx = le32_to_cpu(cur_rec->lrh_index);
+		if (idx > recs_num) {
+			printf("The log is corrupted (index too big at %d)\n",
+			       idx);
+			rc = -EINVAL;
+			goto clear_recs_buf;
+		}
+
 		recs_pr[i] = cur_rec;
 
 		if (ext2_test_bit(idx, LLOG_HDR_BITMAP(*llog))) {
