@@ -974,6 +974,8 @@ again:
 
         ll_update_times(request, dir);
 
+	CFS_FAIL_TIMEOUT(OBD_FAIL_LLITE_NEWNODE_PAUSE, cfs_fail_val);
+
 	err = ll_prep_inode(&inode, request, dchild->d_sb, NULL);
 	if (err)
 		GOTO(err_exit, err);
@@ -1039,6 +1041,8 @@ static int ll_create_nd(struct inode *dir, struct dentry *dentry,
 {
 	int rc;
 
+	CFS_FAIL_TIMEOUT(OBD_FAIL_LLITE_CREATE_ND_PAUSE, cfs_fail_val);
+
 	CDEBUG(D_VFSTRACE, "VFS Op:name=%.*s, dir="DFID"(%p), "
 			   "flags=%u, excl=%d\n", dentry->d_name.len,
 	       dentry->d_name.name, PFID(ll_inode2fid(dir)),
@@ -1060,6 +1064,8 @@ static int ll_create_nd(struct inode *dir, struct dentry *dentry,
 	struct ll_dentry_data *lld = ll_d2d(dentry);
 	struct lookup_intent *it = NULL;
         int rc;
+
+	CFS_FAIL_TIMEOUT(OBD_FAIL_LLITE_CREATE_ND_PAUSE, cfs_fail_val);
 
 	if (lld != NULL)
 		it = lld->lld_it;
