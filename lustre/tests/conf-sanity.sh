@@ -5292,8 +5292,9 @@ test_82a() { # LU-4665
 	local i
 	local index
 	local ost_indices
+	local LOV_V1_INSANE_STRIPE_COUNT=65532
 	for i in $(seq $OSTCOUNT); do
-		index=$((RANDOM * 2))
+		index=$(((RANDOM * 2) % LOV_V1_INSANE_STRIPE_COUNT))
 		ost_indices+=" $index"
 	done
 	ost_indices=$(comma_list $ost_indices)
@@ -5399,8 +5400,9 @@ test_82b() { # LU-4665
 	local i
 	local index
 	local ost_indices
+	local LOV_V1_INSANE_STRIPE_COUNT=65532
 	for i in $(seq $OSTCOUNT); do
-		index=$((RANDOM * 2))
+		index=$(((RANDOM * 2) % LOV_V1_INSANE_STRIPE_COUNT))
 		ost_indices+=" $index"
 	done
 	ost_indices=$(comma_list $ost_indices)
