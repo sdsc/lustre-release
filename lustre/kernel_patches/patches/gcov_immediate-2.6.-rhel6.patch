@@ -1,0 +1,13 @@
+Index: linux-2.6.32-431.29.2.el6.x86_64/arch/x86/include/asm/cpufeature.h
+===================================================================
+--- linux-2.6.32-431.29.2.el6.x86_64.orig/arch/x86/include/asm/cpufeature.h
++++ linux-2.6.32-431.29.2.el6.x86_64/arch/x86/include/asm/cpufeature.h
+@@ -396,7 +396,7 @@ static __always_inline __pure bool __sta
+ 			     "3: movb $1,%0\n"
+ 			     "4:\n"
+ 			     ".previous\n"
+-			     : "=qm" (flag) : "i" (bit));
++			     : "=qm" (flag) : "r" (bit));
+ 		return flag;
+ #endif
+ }
