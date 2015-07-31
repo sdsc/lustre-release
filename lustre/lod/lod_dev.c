@@ -1759,6 +1759,13 @@ static int lod_obd_get_info(const struct lu_env *env, struct obd_export *exp,
 		lod_putref(d, &d->lod_mdt_descs);
 
 		RETURN(rc);
+	} else if (KEY_IS(KEY_MDT_COUNT)) {
+		struct lod_device *lod = lu2lod_dev(exp->exp_obd->obd_lu_dev);
+
+		if (*vallen != sizeof(int))
+			RETURN(-EINVAL);
+		*(__u32 *)val = lod->lod_remote_mdt_count + 1;
+		RETURN(0);
 	}
 
 	RETURN(rc);
