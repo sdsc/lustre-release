@@ -3244,7 +3244,7 @@ facet_mntpt () {
 mount_ldiskfs() {
 	local facet=$1
 	local dev=$(facet_device $facet)
-	local mnt=$(facet_mntpt $facet)
+	local mnt=${2:-$(facet_mntpt $facet)}
 	local opts
 
 	if ! do_facet $facet test -b $dev; then
@@ -3256,7 +3256,7 @@ mount_ldiskfs() {
 unmount_ldiskfs() {
 	local facet=$1
 	local dev=$(facet_device $facet)
-	local mnt=$(facet_mntpt $facet)
+	local mnt=${2:-$(facet_mntpt $facet)}
 
 	do_facet $facet $UMOUNT $mnt
 }
@@ -3268,7 +3268,7 @@ var_name() {
 mount_zfs() {
 	local facet=$1
 	local ds=$(facet_device $facet)
-	local mnt=$(facet_mntpt $facet)
+	local mnt=${2:-$(facet_mntpt $facet)}
 	local canmnt
 	local mntpt
 
@@ -3291,7 +3291,7 @@ mount_zfs() {
 unmount_zfs() {
 	local facet=$1
 	local ds=$(facet_device $facet)
-	local mnt=$(facet_mntpt $facet)
+	local mnt=${2:-$(facet_mntpt $facet)}
 	local var_mntpt=mz_$(var_name ${facet}_$ds)_mountpoint
 	local var_canmnt=mz_$(var_name ${facet}_$ds)_canmount
 	local mntpt=${!var_mntpt}
@@ -3307,16 +3307,18 @@ unmount_zfs() {
 
 mount_fstype() {
 	local facet=$1
+	local mnt=$2
 	local fstype=$(facet_fstype $facet)
 
-	mount_$fstype $facet
+	mount_$fstype $facet $mnt
 }
 
 unmount_fstype() {
 	local facet=$1
+	local mnt=$2
 	local fstype=$(facet_fstype $facet)
 
-	unmount_$fstype $facet
+	unmount_$fstype $facet $mnt
 }
 
 ########
