@@ -4604,6 +4604,39 @@ test_70d() {
 }
 run_test 70d "stop MDT1, mkdir succeed, create remote dir fail"
 
+test_70e() {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+
+	cleanup || error "cleanup failed with $?"
+
+	local mdsdev=$(mdsdevname 1)
+	local ostdev=$(ostdevname 1)
+	local opts_mds="$(mkfs_opts mds1 $mdsdev) --reformat $mdsdev $mdsdev"
+	local opts_ost="$(mkfs_opts ost1 $ostdev) --reformat $ostdev $ostdev"
+
+	add mds1 $opts_mds || error "add mds1 failed"
+	start_mdt 1 || error "start mdt1 failed"
+	add ost1 $opts_ost || error "add ost1 failed"
+	start_ost || error "start ost failed"
+	mount_client $MOUNT > /dev/null || error "mount client $MOUNT failed"
+
+	mdsdev=$(mdsdevname 2)
+	opts_mds="$(mkfs_opts mds2 $mdsdev) --reformat $mdsdev $mdsdev"
+	add mds2 $opts_mds || error "add mds2 failed"
+	start_mdt 2 || error "start mdt2 fail"
+
+	mkdir $DIR/$tdir
+
+	for i in $(seq 2); do
+		[ $($LCTL get_param -n mdt.*MDT000$i.commit_on_sharing) -eq 1 ]\
+			|| "COS not enabled"
+	done
+
+	rm -rf $DIR/$tdir || error "delete dir fail"
+	cleanup || error "cleanup failed with $?"
+}
+run_test 70e "Commit-On-Sharing will be enabled by default on DNE"
+
 test_71a() {
 	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
 	if combined_mgs_mds; then
