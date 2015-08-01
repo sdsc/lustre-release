@@ -1497,9 +1497,11 @@ static inline int osd_calc_bkmap_credits(struct super_block *sb,
 	} else if (pos + size <= (LDISKFS_NDIR_BLOCKS + 1024) * bs) {
 		/* single indirect */
 		credits = blocks * 3;
-		/* probably indirect block has been allocated already */
-		if (!inode || LDISKFS_I(inode)->i_data[LDISKFS_IND_BLOCK])
+		if (inode == NULL ||
+		    LDISKFS_I(inode)->i_data[LDISKFS_IND_BLOCK] == 0)
 			credits += 3;
+		else
+			credits += 1;
 	}
 
 	return credits;
