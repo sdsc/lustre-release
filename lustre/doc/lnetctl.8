@@ -79,6 +79,13 @@ CPU partitions 0 and 1, you would specify this parameter as \-\-cpt [0,
 1]
 .
 .br
+\-\-checksum: The algorithm used to create a check sum value for a data packet.
+Setting this to algorithm than the default null will generated a check sum value
+will be transmitted with the packet that once on arrival will then be used to
+ensure data corruption has not happened. Only enable this if you have hardware
+accelerated check summing.
+.
+.br
 
 .
 .TP
