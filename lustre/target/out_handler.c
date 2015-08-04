@@ -598,14 +598,17 @@ static int out_read(struct tgt_session_info *tsi)
 	struct object_update	*update = tti->tti_u.update.tti_update;
 	struct dt_object	*obj = tti->tti_u.update.tti_dt_object;
 	struct object_update_reply *reply = tti->tti_u.update.tti_update_reply;
-	int		index = tti->tti_u.update.tti_update_reply_index;
+	int index = tti->tti_u.update.tti_update_reply_index;
+	struct lu_rdbuf	*rdbuf = &tti->tti_u.rdbuf.tti_rdbuf;
 	struct object_update_result *update_result;
-	struct lu_buf		*lbuf = &tti->tti_buf;
 	struct out_read_reply	*orr;
 	void			*tmp;
 	size_t			size;
+	size_t			total_size = 0;
 	__u64			pos;
-	int			 rc;
+	unsigned int		i;
+	unsigned int		nbufs;
+	int			rc = 0;
 	ENTRY;
 
 	update_result = object_update_result_get(reply, index, NULL);
@@ -631,32 +634,64 @@ static int out_read(struct tgt_session_info *tsi)
 	}
 	pos = le64_to_cpu(*(__u64 *)(tmp));
 
-	/* Check if the read buffer can hold the read_size */
-	if (size > OUT_UPDATE_REPLY_SIZE -
-		   cfs_size_round(offsetof(struct object_update_reply,
-					   ourp_lens[1])) -
-		   cfs_size_round(sizeof(*update_result)) -
-		   cfs_size_round(sizeof(*orr))) {
-		CERROR("%s: get %zu the biggest read size is %d: rc = %d\n",
-		       tgt_name(tsi->tsi_tgt), size, OUT_UPDATE_REPLY_SIZE,
-		       -EPROTO);
-		GOTO(out, rc = err_serious(-EPROTO));
-	}
-
 	/* Put the offset into the begining of the buffer in reply */
 	orr = (struct out_read_reply *)update_result->our_data;
 
-	lbuf->lb_buf = orr->orr_data;
-	lbuf->lb_len = size;
+	nbufs = (size + OUT_BULK_BUFFER_SIZE - 1) / OUT_BULK_BUFFER_SIZE;
+	OBD_ALLOC(rdbuf->rb_bufs, nbufs * sizeof(rdbuf->rb_bufs[0]));
+	if (rdbuf->rb_bufs == NULL)
+		GOTO(out, rc = -ENOMEM);
 
-	dt_read_lock(env, obj, MOR_TGT_CHILD);
-	rc = dt_read(env, obj, lbuf, &pos);
-	dt_read_unlock(env, obj);
-	orr->orr_size = rc < 0 ? 0 : rc;
+	rdbuf->rb_nbufs = 0;
+	total_size = 0;
+	for (i = 0; i < nbufs; i++) {
+		__u32 read_size;
+
+		OBD_ALLOC_PTR(rdbuf->rb_bufs[i]);
+		if (rdbuf->rb_bufs[i] == NULL)
+			GOTO(out_free, rc = -ENOMEM);
+
+		read_size = size > OUT_BULK_BUFFER_SIZE ?
+			    OUT_BULK_BUFFER_SIZE : size;
+		OBD_ALLOC(rdbuf->rb_bufs[i]->lb_buf, read_size);
+		if (rdbuf->rb_bufs[i] == NULL)
+			GOTO(out_free, rc = -ENOMEM);
+
+		rdbuf->rb_bufs[i]->lb_len = read_size;
+		dt_read_lock(env, obj, MOR_TGT_CHILD);
+		rc = dt_read(env, obj, rdbuf->rb_bufs[i], &pos);
+		dt_read_unlock(env, obj);
+
+		total_size += rc < 0 ? 0 : rc;
+		if (rc <= 0)
+			break;
+
+		rdbuf->rb_nbufs++;
+		size -= OUT_BULK_BUFFER_SIZE;
+		if (size <= 0)
+			break;
+	}
+
+	rdbuf->rb_bytes = total_size;
+	/* send pages to client */
+	rc = tgt_send_buffer(tsi, rdbuf);
+	if (rc < 0)
+		GOTO(out_free, rc);
+
+	orr->orr_size = total_size;
 	orr->orr_offset = pos;
 
 	orr_cpu_to_le(orr, orr);
 	update_result->our_datalen += orr->orr_size;
+out_free:
+	for (i = 0; i < nbufs; i++) {
+		if (rdbuf->rb_bufs[i] != NULL) {
+			OBD_FREE(rdbuf->rb_bufs[i]->lb_buf,
+				 rdbuf->rb_bufs[i]->lb_len);
+			OBD_FREE_PTR(rdbuf->rb_bufs[i]);
+		}
+	}
+	OBD_FREE(rdbuf->rb_bufs, nbufs * sizeof(rdbuf->rb_bufs[0]));
 out:
 	/* Insert read buffer */
 	update_result->our_rc = ptlrpc_status_hton(rc);
@@ -863,10 +898,10 @@ int out_handle(struct tgt_session_info *tsi)
 	struct req_capsule		*pill = tsi->tsi_pill;
 	struct dt_device		*dt = tsi->tsi_tgt->lut_bottom;
 	struct out_update_header	*ouh;
-	struct out_update_buffer	*oub;
+	struct out_update_buffer	*oub = NULL;
 	struct object_update		*update;
 	struct object_update_reply	*reply;
-	struct ptlrpc_bulk_desc		*desc;
+	struct ptlrpc_bulk_desc		*desc = NULL;
 	struct l_wait_info		lwi;
 	void				**update_bufs;
 	int				current_batchid = -1;
@@ -875,10 +910,18 @@ int out_handle(struct tgt_session_info *tsi)
 	unsigned int			reply_index = 0;
 	int				rc = 0;
 	int				rc1 = 0;
-
+	int				ouh_size;
 	ENTRY;
 
 	req_capsule_set(pill, &RQF_OUT_UPDATE);
+	ouh_size = req_capsule_get_size(pill, &RMF_OUT_UPDATE_HEADER,
+					RCL_CLIENT);
+	if (ouh_size <= 0) {
+		CERROR("%s: ouh size is 0: rc = %d\n", tgt_name(tsi->tsi_tgt),
+		       -EPROTO);
+		RETURN(err_serious(-EPROTO));
+	}
+
 	ouh = req_capsule_client_get(pill, &RMF_OUT_UPDATE_HEADER);
 	if (ouh == NULL) {
 		CERROR("%s: No buf!: rc = %d\n", tgt_name(tsi->tsi_tgt),
@@ -913,34 +956,46 @@ int out_handle(struct tgt_session_info *tsi)
 	if (update_bufs == NULL)
 		RETURN(-ENOMEM);
 
-	oub = req_capsule_client_get(pill, &RMF_OUT_UPDATE_BUF);
-	desc = ptlrpc_prep_bulk_exp(pill->rc_req, update_buf_count,
-				    PTLRPC_BULK_OPS_COUNT,
-				    PTLRPC_BULK_GET_SINK |
-				    PTLRPC_BULK_BUF_KVEC,
-				    MDS_BULK_PORTAL, &ptlrpc_bulk_kvec_ops);
-	if (desc == NULL)
-		GOTO(out_free, rc = -ENOMEM);
+	if (ouh->ouh_inline_length > 0) {
+		update_bufs[0] = ouh->ouh_inline_data;
+	} else {
+		struct out_update_buffer *tmp;
 
-	/* NB Having prepped, we must commit... */
-	for (i = 0; i < update_buf_count; i++, oub++) {
-		OBD_ALLOC(update_bufs[i], oub->oub_size);
-		if (update_bufs[i] == NULL)
+		oub = req_capsule_client_get(pill, &RMF_OUT_UPDATE_BUF);
+		if (oub == NULL) {
+			CERROR("%s: oub == NULL: rc = %d\n",
+			       tgt_name(tsi->tsi_tgt), -EPROTO);
+			GOTO(out_free, rc = -EPROTO);
+		}
+
+		desc = ptlrpc_prep_bulk_exp(pill->rc_req, update_buf_count,
+					    PTLRPC_BULK_OPS_COUNT,
+					    PTLRPC_BULK_GET_SINK |
+					    PTLRPC_BULK_BUF_KVEC,
+					    MDS_BULK_PORTAL,
+					    &ptlrpc_bulk_kvec_ops);
+		if (desc == NULL)
 			GOTO(out_free, rc = -ENOMEM);
 
-		desc->bd_frag_ops->add_iov_frag(desc, update_bufs[i],
-						oub->oub_size);
+		tmp = oub;
+		for (i = 0; i < update_buf_count; i++, tmp++) {
+			OBD_ALLOC(update_bufs[i], tmp->oub_size);
+			if (update_bufs[i] == NULL)
+				GOTO(out_free, rc = -ENOMEM);
+
+			desc->bd_frag_ops->add_iov_frag(desc, update_bufs[i],
+							tmp->oub_size);
+		}
+
+		pill->rc_req->rq_bulk_write = 1;
+		rc = sptlrpc_svc_prep_bulk(pill->rc_req, desc);
+		if (rc != 0)
+			GOTO(out_free, rc);
+
+		rc = target_bulk_io(pill->rc_req->rq_export, desc, &lwi);
+		if (rc < 0)
+			GOTO(out_free, rc);
 	}
-
-	pill->rc_req->rq_bulk_write = 1;
-	rc = sptlrpc_svc_prep_bulk(pill->rc_req, desc);
-	if (rc != 0)
-		GOTO(out_free, rc);
-
-	rc = target_bulk_io(pill->rc_req->rq_export, desc, &lwi);
-	if (rc < 0)
-		GOTO(out_free, rc);
-
 	/* Prepare the update reply buffer */
 	reply = req_capsule_server_get(pill, &RMF_OUT_UPDATE_REPLY);
 	if (reply == NULL)
@@ -1078,14 +1133,16 @@ out:
 	}
 
 out_free:
-	oub = req_capsule_client_get(pill, &RMF_OUT_UPDATE_BUF);
 	if (update_bufs != NULL) {
-		for (i = 0; i < update_buf_count; i++, oub++) {
-			if (update_bufs[i] != NULL)
-				OBD_FREE(update_bufs[i], oub->oub_size);
+		if (oub != NULL) {
+			for (i = 0; i < update_buf_count; i++, oub++) {
+				if (update_bufs[i] != NULL)
+					OBD_FREE(update_bufs[i], oub->oub_size);
+			}
 		}
-		OBD_FREE(update_bufs, sizeof(update_bufs[0]) *
-					update_buf_count);
+
+		OBD_FREE(update_bufs,
+			 sizeof(update_bufs[0]) * update_buf_count);
 	}
 
 	if (desc != NULL)
