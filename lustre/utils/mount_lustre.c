@@ -163,39 +163,43 @@ struct opt_map {
 static const struct opt_map opt_map[] = {
   /*"optname", inv,ms_mask */
   /* These flags are parsed by mount, not lustre */
-  { "defaults", 0, 0         },      /* default options */
-  { "remount",  0, MS_REMOUNT},      /* remount with different options */
-  { "rw",       1, MS_RDONLY },      /* read-write */
-  { "ro",       0, MS_RDONLY },      /* read-only */
-  { "exec",     1, MS_NOEXEC },      /* permit execution of binaries */
-  { "noexec",   0, MS_NOEXEC },      /* don't execute binaries */
-  { "suid",     1, MS_NOSUID },      /* honor suid executables */
-  { "nosuid",   0, MS_NOSUID },      /* don't honor suid executables */
-  { "dev",      1, MS_NODEV  },      /* interpret device files  */
-  { "nodev",    0, MS_NODEV  },      /* don't interpret devices */
-  { "sync",     0, MS_SYNCHRONOUS},  /* synchronous I/O */
-  { "async",    1, MS_SYNCHRONOUS},  /* asynchronous I/O */
-  { "atime",    1, MS_NOATIME  },    /* set file access time on read */
-  { "noatime",  0, MS_NOATIME  },    /* do not set file access time on read */
+  { "defaults",    0, 0              }, /* default options */
+  { "remount",     0, MS_REMOUNT     }, /* remount with different options */
+  { "rw",          1, MS_RDONLY      }, /* read-write */
+  { "ro",          0, MS_RDONLY      }, /* read-only */
+  { "exec",        1, MS_NOEXEC      }, /* permit execution of binaries */
+  { "noexec",      0, MS_NOEXEC      }, /* don't execute binaries */
+  { "suid",        1, MS_NOSUID      }, /* honor suid executables */
+  { "nosuid",      0, MS_NOSUID      }, /* don't honor suid executables */
+  { "dev",         1, MS_NODEV       }, /* interpret device files  */
+  { "nodev",       0, MS_NODEV       }, /* don't interpret devices */
+  { "sync",        0, MS_SYNCHRONOUS }, /* synchronous I/O */
+  { "async",       1, MS_SYNCHRONOUS }, /* asynchronous I/O */
+  { "atime",       1, MS_NOATIME     }, /* set file access time on read */
+  { "noatime",     0, MS_NOATIME     }, /* don't set file access time on read */
 #ifdef MS_NODIRATIME
-  { "diratime", 1, MS_NODIRATIME },  /* set file access time on read */
-  { "nodiratime",0,MS_NODIRATIME },  /* do not set file access time on read */
+  { "diratime",    1, MS_NODIRATIME  }, /* set dir access time on read */
+  { "nodiratime",  0, MS_NODIRATIME  }, /* don't set dir access time on read */
 #endif
 #ifdef MS_RELATIME
-  { "relatime", 0, MS_RELATIME },  /* set file access time on read */
-  { "norelatime",1,MS_RELATIME },  /* do not set file access time on read */
+  { "relatime",    0, MS_RELATIME    }, /* set file access time on read */
+  { "norelatime",  1, MS_RELATIME    }, /* don't set file access time on read */
 #endif
 #ifdef MS_STRICTATIME
-  { "strictatime",0,MS_STRICTATIME },  /* update access time strictly */
+  { "strictatime", 0, MS_STRICTATIME }, /* update access time strictly */
 #endif
-  { "auto",     0, 0         },      /* Can be mounted using -a */
-  { "noauto",   0, 0         },      /* Can only be mounted explicitly */
-  { "nousers",  1, 0         },      /* Forbid ordinary user to mount */
-  { "nouser",   1, 0         },      /* Forbid ordinary user to mount */
-  { "noowner",  1, 0         },      /* Device owner has no special privs */
-  { "_netdev",  0, 0         },      /* Device accessible only via network */
-  { "loop",     0, 0         },
-  { NULL,       0, 0         }
+  { "auto",        0, 0              }, /* Can be mounted using -a */
+  { "noauto",      0, 0              }, /* Can only be mounted explicitly */
+  { "nousers",     1, 0              }, /* Forbid ordinary user to mount */
+  { "nouser",      1, 0              }, /* Forbid ordinary user to mount */
+  { "noowner",     1, 0              }, /* Device owner has no special privs */
+  { "_netdev",     0, 0              }, /* Device accessible only via network */
+  { "loop",        0, 0              },
+  { "context",     0, 0              }, /* Override security context */
+  { "fscontext",   0, 0              }, /* Filesystem security context */
+  { "defcontext",  0, 0              }, /* Default security context */
+  { "rootcontext", 0, 0              }, /* Root inode security context */
+  { NULL,          0, 0              }
 };
 /****************************************************************************/
 
@@ -266,6 +270,14 @@ int parse_options(struct mount_opts *mop, char *orig_options, int *flagp)
 			/* XXX special check for 'force' option */
 			++mop->mo_force;
 			printf("force: %d\n", mop->mo_force);
+		} else if (strncmp(opt, "context=", 8) == 0) {
+			append_option(options, opt);
+		} else if (strncmp(opt, "fscontext=", 10) == 0) {
+			append_option(options, opt);
+		} else if (strncmp(opt, "defcontext=", 11) == 0) {
+			append_option(options, opt);
+		} else if (strncmp(opt, "rootcontext=", 12) == 0) {
+			append_option(options, opt);
 		} else if (parse_one_option(opt, flagp) == 0) {
 			/* pass this on as an option */
 			append_option(options, opt);
