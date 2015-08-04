@@ -57,6 +57,10 @@
 #include <linux/fs.h>
 /* XATTR_{REPLACE,CREATE} */
 #include <linux/xattr.h>
+#ifdef HAVE_KERNEL_LOCKED
+/* lock_kernel() */
+#include <linux/smp_lock.h>
+#endif
 
 #include <ldiskfs/ldiskfs.h>
 #include <ldiskfs/xattr.h>
@@ -6238,7 +6242,13 @@ static int osd_mount(const struct lu_env *env,
 		GOTO(out, rc = -ENODEV);
 	}
 
+#ifdef HAVE_KERNEL_LOCKED
+	lock_kernel();
+#endif
 	o->od_mnt = vfs_kern_mount(type, s_flags, dev, options);
+#ifdef HAVE_KERNEL_LOCKED
+	unlock_kernel();
+#endif
 	module_put(type->owner);
 
 	if (IS_ERR(o->od_mnt)) {
