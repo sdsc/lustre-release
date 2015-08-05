@@ -3914,6 +3914,41 @@ test_57b() {
 }
 run_test 57b "initial registration from servicenode should not fail"
 
+test_57c() {
+	load_modules_local
+	local NID=$(do_facet ost1 "$LCTL get_param nis" | tail -1 |
+		  awk '{print $1}')
+	echo "************* NID = $NID"
+	writeconf_or_reformat
+
+	local old=$(do_facet ost1 "$TUNEFS `ostdevname 1`" | grep mgsnode |
+		  tail -1 | awk -F "mgsnode=" '{print $2}' | awk '{print $1}')
+	echo "************* old = $old"
+
+	# append mgsnode
+	do_facet ost1 "$TUNEFS --mgsnode=$NID `ostdevname 1`" ||
+		error "tunefs failed"
+	local append=$(do_facet ost1 "$TUNEFS `ostdevname 1`" | grep mgsnode |
+		  tail -1 | awk -F "mgsnode=" '{print $2}' | awk '{print $1}')
+	echo "************* append = $append"
+	if [ $append != "$old:$NID" ]; then
+		error "Append mgsnode \"$old\"->\"$append\""
+	fi
+
+	#replace mgsnode
+	do_facet ost1 \
+		"$TUNEFS --replace-mgsnode --mgsnode=$NID `ostdevname 1`" ||
+		error "tunefs failed"
+	local replace=$(do_facet ost1 "$TUNEFS `ostdevname 1`" | grep mgsnode |
+		  tail -1 | awk -F "mgsnode=" '{print $2}' | awk '{print $1}')
+	echo "************* replace = $replace"
+	if [ $replace != $NID ]; then
+		error "Replace mgsnode \"$old\"->\"$replace\""
+	fi
+	reformat
+}
+run_test 57c "test tunefs.lustre --replace-mgsnode"
+
 count_osts() {
         do_facet mgs $LCTL get_param mgs.MGS.live.$FSNAME | grep OST | wc -l
 }
