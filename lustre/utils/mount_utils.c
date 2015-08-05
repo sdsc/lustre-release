@@ -122,7 +122,9 @@ int add_param(char *buf, char *key, char *val)
 		return 1;
 	}
 
-	sprintf(buf + start, " %s%s", key ? key : "", val);
+	snprintf(buf + start, end - start, "%s%s%s",
+		 (start == 0 || *(buf + start - 1)) == ' ' ? "" : " ",
+		 key ? key : "", val);
 	return 0;
 }
 
@@ -146,6 +148,36 @@ int get_param(char *buf, char *key, char **val)
 	}
 
 	return ENOENT;
+}
+
+void erase_param(char *buf, char *key)
+{
+	char *ptr = NULL;
+	int i, wipe_len;
+
+	if (key == NULL || key[0] == '\0')
+		return;
+
+	/* key doesn't exist */
+	ptr = strstr(buf, key);
+	if (ptr == NULL)
+		return;
+
+	/* get old key=val string length */
+	for (i = 0; ptr[i] != '\0'; ++i) {
+		if (ptr[i] == ' ') {
+			++i;
+			break;
+		}
+	}
+	wipe_len = i;
+
+	/* erase old key=val string */
+	for (i = 0; ptr[i + wipe_len] != '\0'; ++i)
+		ptr[i] = ptr[i + wipe_len];
+	ptr[i] = '\0';
+
+	return;
 }
 
 int append_param(char *buf, char *key, char *val, char sep)
