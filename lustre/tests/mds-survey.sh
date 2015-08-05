@@ -101,7 +101,9 @@ test_2() {
     if [ $ost_count -eq 0 ]; then
         skip_env "Need to mount OST to test" && return
     fi
-    mds_survey_run "mdd" "1"
+    for i in `seq 100`; do
+	    mds_survey_run "mdd" "1"
+    done
 }
 run_test 2 "Metadata survey with stripe_count = 1"
 
