@@ -2152,6 +2152,7 @@ static int iam_add_rec(handle_t *handle, struct iam_iterator *it,
                 do_corr(schedule());
                 if (!iam_leaf_can_add(leaf, k, r)) {
                         struct dynlock_handle *lh = NULL;
+			int count = 0;
 
                         do {
                                 assert_corr(lh == NULL);
@@ -2170,6 +2171,8 @@ static int iam_add_rec(handle_t *handle, struct iam_iterator *it,
                                         else if (err == 0)
                                                 err = -EEXIST;
                                 }
+				count++;
+				LASSERTF(count < 30, "err %d\n", err);
                         } while (err > 0);
                         assert_inv(iam_path_check(path));
                         if (err == 0) {
