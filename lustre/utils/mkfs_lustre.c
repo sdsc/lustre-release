@@ -436,9 +436,18 @@ int parse_opts(int argc, char *const argv[], struct mkfs_opts *mop,
                         break;
                 }
                 case 'm': {
-                        char *nids = convert_hostnames(optarg);
-                        if (!nids)
-                                return 1;
+			static bool first_mgsnode = true;
+			char *nids = convert_hostnames(optarg);
+			if (!nids)
+				return 1;
+
+			if (first_mgsnode) {
+				/* need to wipe out all old mgsnode param */
+				erase_param(mop->mo_ldd.ldd_params,
+					    PARAM_MGSNODE);
+				first_mgsnode = false;
+			}
+
 			rc = append_param(mop->mo_ldd.ldd_params,
 					  PARAM_MGSNODE, nids, ':');
                         free(nids);
