@@ -4988,7 +4988,7 @@ log:
 	       "name %s. %s: rc = %d\n", lfsck_lfsck2name(lfsck),
 	       PFID(lfsck_dto2fid(parent)), PFID(lfsck_dto2fid(child)),
 	       type, cname->ln_name,
-	       create ? "Create the lost OST-object as required" :
+	       create ? "Create the lost MDT-object as required" :
 			"Keep the MDT-object there by default", rc);
 
 	if (rc <= 0) {
@@ -5049,11 +5049,14 @@ static int lfsck_namespace_assistant_handler_p1(const struct lu_env *env,
 	}
 
 	if (unlikely(fid_is_zero(&lnr->lnr_fid))) {
-		if (strcmp(lnr->lnr_name, dotdot) != 0)
+		if (strcmp(lnr->lnr_name, dotdot) != 0) {
 			LBUG();
-		else
+		} else {
+			LASSERT(lnr->lnr_attr & LUDA_UNKNOWN);
+
 			rc = lfsck_namespace_trace_update(env, com, pfid,
 						LNTF_CHECK_PARENT, true);
+		}
 
 		GOTO(out, rc);
 	}
