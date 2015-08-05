@@ -1051,6 +1051,7 @@ static inline void iam_unlock_bh(struct buffer_head *bh)
 #ifdef CONFIG_SMP
         smp_mb__before_clear_bit();
         clear_bit(BH_DXLock, &bh->b_state);
+	smp_mb__after_clear_bit();
 #endif
 }
 
