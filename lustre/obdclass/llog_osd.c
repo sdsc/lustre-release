@@ -422,11 +422,31 @@ static int llog_osd_write_rec(const struct lu_env *env,
 
 		if (idx == LLOG_HEADER_IDX) {
 			/* llog header update */
-			lgi->lgi_off = 0;
-			lgi->lgi_buf.lb_len = reclen;
-			lgi->lgi_buf.lb_buf = rec;
+			__u32	*bitmap = LLOG_HDR_BITMAP(llh);
+
+			/* Note: only update header and bits needs to be
+			 * updated, otherwise the whole header(8k/32kB)
+			 * might needs to be packed into the Cross-MDT RPC. */
+			LASSERT(reccookie != NULL);
+			index = reccookie->lgc_index;
+
+			lgi->lgi_off = offsetof(typeof(*llh), llh_count);
+			lgi->lgi_buf.lb_len = sizeof(llh->llh_count);
+			lgi->lgi_buf.lb_buf = &llh->llh_count;
 			rc = dt_record_write(env, o, &lgi->lgi_buf,
 					     &lgi->lgi_off, th);
+			if (rc != 0)
+				RETURN(rc);
+
+			lgi->lgi_off = llh->llh_bitmap_offset +
+				      (index / (sizeof(*bitmap) * 8)) *
+							sizeof(*bitmap);
+			lgi->lgi_buf.lb_len = sizeof(*bitmap);
+			lgi->lgi_buf.lb_buf =
+					&bitmap[index/(sizeof(*bitmap)*8)];
+			rc = dt_record_write(env, o, &lgi->lgi_buf,
+					     &lgi->lgi_off, th);
+
 			RETURN(rc);
 		} else if (loghandle->lgh_cur_idx > 0) {
 			/**
