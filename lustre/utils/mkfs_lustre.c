@@ -138,6 +138,7 @@ void usage(FILE *out)
 		"\t\t\trequired for all targets other than MGS\n"
 		"\t\t--mgsnode=<nid>[,<...>]: NID(s) of remote MGS\n"
 		"\t\t\trequired for all targets other than MGS\n"
+		"\t\t--erase-mgsnode: wipe existing MGS node\n"
 		"\t\t--mountfsoptions=<opts>: permanent Lustre mount options\n"
 		"\t\t--backfs-mount-opts=<opts>: backing fs mount options\n"
 		"\t\t--failnode=<nid>[,<...>]: NID(s) of backup failover node\n"
@@ -309,6 +310,7 @@ int parse_opts(int argc, char *const argv[], struct mkfs_opts *mop,
 		{ "replace",		no_argument,		NULL, 'R' },
 #else
 		{ "erase-params",	no_argument,		NULL, 'e' },
+		{ "erase-mgsnode",	no_argument,		NULL, 'E' },
 		{ "quota",		no_argument,		NULL, 'Q' },
 		{ "writeconf",		no_argument,		NULL, 'w' },
 #endif
@@ -539,6 +541,10 @@ int parse_opts(int argc, char *const argv[], struct mkfs_opts *mop,
 			ldd->ldd_params[0] = '\0';
 			/* Must update the mgs logs */
 			ldd->ldd_flags |= LDD_F_UPDATE;
+			break;
+		case 'E':
+			/* need to wipe out all old mgsnode param */
+			erase_param(mop->mo_ldd.ldd_params, PARAM_MGSNODE);
 			break;
 		case 'Q':
 			mop->mo_flags |= MO_QUOTA;
