@@ -137,6 +137,7 @@ void usage(FILE *out)
 		"\t\t\trequired for all targets other than MGS\n"
 		"\t\t--mgsnode=<nid>[,<...>]: NID(s) of remote MGS\n"
 		"\t\t\trequired for all targets other than MGS\n"
+		"\t\t--replace-mgsnode: wipe existing remote MGS node\n"
 		"\t\t--mountfsoptions=<opts>: permanent mount options\n"
 		"\t\t--failnode=<nid>[,<...>]: NID(s) of backup failover node\n"
 		"\t\t\tmutually exclusive with --servicenode\n"
@@ -276,6 +277,7 @@ static char *convert_hostnames(char *s1)
 int parse_opts(int argc, char *const argv[], struct mkfs_opts *mop,
                char **mountopts)
 {
+	static int repl_mgsnid;
 	static struct option long_opt[] = {
 		{ "backfstype",		required_argument,	NULL, 'b' },
 		{ "stripe-count-hint",	required_argument,	NULL, 'c' },
@@ -292,6 +294,7 @@ int parse_opts(int argc, char *const argv[], struct mkfs_opts *mop,
 		{ "mkfsoptions",	required_argument,	NULL, 'k' },
 		{ "mgsnode",		required_argument,	NULL, 'm' },
 		{ "mgsnid",		required_argument,	NULL, 'm' },
+		{ "replace-mgsnode",	no_argument,	&repl_mgsnid, 1},
 		{ "mdt",		no_argument,		NULL, 'M' },
 		{ "fsname",		required_argument,	NULL, 'L' },
 		{ "noformat",		no_argument,		NULL, 'n' },
@@ -322,6 +325,15 @@ int parse_opts(int argc, char *const argv[], struct mkfs_opts *mop,
         while ((opt = getopt_long(argc, argv, optstring, long_opt, &longidx)) !=
                EOF) {
                 switch (opt) {
+		case 0: {
+			if (strncmp(long_opt[longidx].name, "replace-mgsnode",
+				    15) == 0) {
+				/* need to wipe out all old mgsnode param */
+				erase_param(mop->mo_ldd.ldd_params,
+					    PARAM_MGSNODE);
+			}
+			break;
+		}
                 case 'b': {
                         int i = 0;
                         while (i < LDD_MT_LAST) {
@@ -438,9 +450,10 @@ int parse_opts(int argc, char *const argv[], struct mkfs_opts *mop,
                         break;
                 }
                 case 'm': {
-                        char *nids = convert_hostnames(optarg);
-                        if (!nids)
-                                return 1;
+			char *nids = convert_hostnames(optarg);
+			if (!nids)
+				return 1;
+
 			rc = append_param(mop->mo_ldd.ldd_params,
 					  PARAM_MGSNODE, nids, ':');
                         free(nids);
