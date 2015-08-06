@@ -591,6 +591,10 @@ static struct ptlrpc_request *osp_sync_new_job(struct osp_device *d,
 	/* Prepare the request */
 	imp = d->opd_obd->u.cli.cl_import;
 	LASSERT(imp);
+
+	if (OBD_FAIL_CHECK(OBD_FAIL_OSP_CHECK_ENOMEM))
+		RETURN(ERR_PTR(-ENOMEM));
+
 	req = ptlrpc_request_alloc(imp, format);
 	if (req == NULL)
 		RETURN(ERR_PTR(-ENOMEM));
@@ -633,6 +637,7 @@ static struct ptlrpc_request *osp_sync_new_job(struct osp_device *d,
  * \param[in] h		llog record
  *
  * \retval 0		on success
+ * \retval EINVAL	on invalid record
  * \retval negative	negated errno on error
  */
 static int osp_sync_new_setattr_job(struct osp_device *d,
@@ -646,6 +651,8 @@ static int osp_sync_new_setattr_job(struct osp_device *d,
 	ENTRY;
 	LASSERT(h->lrh_type == MDS_SETATTR64_REC);
 
+	if (OBD_FAIL_CHECK(OBD_FAIL_OSP_CHECK_INVALID_REC))
+		RETURN(EINVAL);
 	/* lsr_valid can only be 0 or have OBD_MD_{FLUID,FLGID} set,
 	 * so no bits other than these should be set. */
 	if ((rec->lsr_valid & ~(OBD_MD_FLUID | OBD_MD_FLGID)) != 0) {
@@ -653,7 +660,7 @@ static int osp_sync_new_setattr_job(struct osp_device *d,
 		       d->opd_obd->obd_name, rec->lsr_valid);
 		/* return 0 so that sync thread can continue processing
 		 * other records. */
-		RETURN(0);
+		RETURN(EINVAL);
 	}
 
 	req = osp_sync_new_job(d, llh, h, OST_SETATTR, &RQF_OST_SETATTR);
@@ -674,7 +681,7 @@ static int osp_sync_new_setattr_job(struct osp_device *d,
 		body->oa.o_valid |= rec->lsr_valid;
 
 	osp_sync_send_new_rpc(d, req);
-	RETURN(1);
+	RETURN(0);
 }
 
 /**
@@ -717,7 +724,7 @@ static int osp_sync_new_unlink_job(struct osp_device *d,
 		body->oa.o_valid |= OBD_MD_FLOBJCOUNT;
 
 	osp_sync_send_new_rpc(d, req);
-	RETURN(1);
+	RETURN(0);
 }
 
 /**
@@ -766,7 +773,7 @@ static int osp_sync_new_unlink64_job(const struct lu_env *env,
 	body->oa.o_valid = OBD_MD_FLGROUP | OBD_MD_FLID |
 			   OBD_MD_FLOBJCOUNT;
 	osp_sync_send_new_rpc(d, req);
-	RETURN(1);
+	RETURN(0);
 }
 
 /**
@@ -796,6 +803,8 @@ static int osp_sync_process_record(const struct lu_env *env,
 	struct llog_cookie	 cookie;
 	int			 rc = 0;
 
+	ENTRY;
+
 	cookie.lgc_lgl = llh->lgh_id;
 	cookie.lgc_subsys = LLOG_MDS_OST_ORIG_CTXT;
 	cookie.lgc_index = rec->lrh_index;
@@ -815,7 +824,7 @@ static int osp_sync_process_record(const struct lu_env *env,
 		rc = llog_cat_cancel_records(env, llh->u.phd.phd_cat_handle,
 					     1, &cookie);
 
-		return rc;
+		RETURN(rc);
 	}
 
 	/*
@@ -847,8 +856,9 @@ static int osp_sync_process_record(const struct lu_env *env,
 		/* we should continue processing */
 	}
 
-	/* rc > 0 means sync RPC being added to the queue */
-	if (likely(rc > 0)) {
+	/* (rc > 0) means the record may be successful or invalid,
+	 * being added to the queue */
+	if (likely(rc == 0) || rc == EINVAL) {
 		spin_lock(&d->opd_syn_lock);
 		if (d->opd_syn_prev_done) {
 			LASSERT(d->opd_syn_changes > 0);
@@ -868,17 +878,32 @@ static int osp_sync_process_record(const struct lu_env *env,
 		       d->opd_obd->obd_name, d->opd_syn_rpc_in_flight,
 		       d->opd_syn_rpc_in_progress);
 		spin_unlock(&d->opd_syn_lock);
-		rc = 0;
-	} else {
+	}
+	/* (rc != 0) means the record may be failed or invalid */
+	if (rc != 0) {
 		spin_lock(&d->opd_syn_lock);
 		d->opd_syn_rpc_in_flight--;
 		d->opd_syn_rpc_in_progress--;
 		spin_unlock(&d->opd_syn_lock);
+		/* Delete the invalid record */
+		if (rc == EINVAL) {
+			struct obd_device	*obd = d->opd_obd;
+
+			rc = llog_cat_cancel_records(env,
+						llh->u.phd.phd_cat_handle,
+						1, &cookie);
+			if (rc)
+				CERROR("%s: can't delete invalid record: %d\n",
+				       obd->obd_name, rc);
+			/* return 0 so that sync thread can continue
+			 * processin other records. */
+			rc = 0;
+		}
 	}
 
 	CDEBUG(D_HA, "found record %x, %d, idx %u, id %u: %d\n",
 	       rec->lrh_type, rec->lrh_len, rec->lrh_index, rec->lrh_id, rc);
-	return rc;
+	RETURN(rc);
 }
 
 /**
