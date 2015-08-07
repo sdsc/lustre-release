@@ -311,27 +311,6 @@ int libcfs_debug_cleanup(void);
 /* !__KERNEL__ */
 #endif
 
-struct cfs_cpt_table;
-
-/*
- * allocate per-cpu-partition data, returned value is an array of pointers,
- * variable can be indexed by CPU ID.
- *	cptable != NULL: size of array is number of CPU partitions
- *	cptable == NULL: size of array is number of HW cores
- */
-void *cfs_percpt_alloc(struct cfs_cpt_table *cptab, unsigned int size);
-/*
- * destory per-cpu-partition variable
- */
-void  cfs_percpt_free(void *vars);
-int   cfs_percpt_number(void *vars);
-void *cfs_percpt_current(void *vars);
-void *cfs_percpt_index(void *vars, int idx);
-
-#define cfs_percpt_for_each(var, i, vars)		\
-	for (i = 0; i < cfs_percpt_number(vars) &&	\
-		    ((var) = (vars)[i]) != NULL; i++)
-
 /*
  * allocate a variable array, returned value is an array of pointers.
  * Caller can specify length of array by count.
@@ -481,12 +460,6 @@ void cfs_percpt_lock_free(struct cfs_percpt_lock *pcl);
 void cfs_percpt_lock(struct cfs_percpt_lock *pcl, int index);
 /* unlock private lock \a index of \a pcl */
 void cfs_percpt_unlock(struct cfs_percpt_lock *pcl, int index);
-/* create percpt (atomic) refcount based on @cptab */
-atomic_t **cfs_percpt_atomic_alloc(struct cfs_cpt_table *cptab, int val);
-/* destroy percpt refcount */
-void cfs_percpt_atomic_free(atomic_t **refs);
-/* return sum of all percpu refs */
-int cfs_percpt_atomic_summary(atomic_t **refs);
 #endif /* __KERNEL__ */
 
 /** Compile-time assertion.

@@ -208,6 +208,25 @@ int cfs_cpt_spread_node(struct cfs_cpt_table *cptab, int cpt);
  */
 int cfs_cpu_ht_nsiblings(int cpu);
 
+/*
+ * allocate per-cpu-partition data, returned value is an array of pointers,
+ * variable can be indexed by CPU ID.
+ *      cptable != NULL: size of array is number of CPU partitions
+ *      cptable == NULL: size of array is number of HW cores
+ */
+void *cfs_percpt_alloc(struct cfs_cpt_table *cptab, unsigned int size);
+/*
+ * destory per-cpu-partition variable
+ */
+void  cfs_percpt_free(void *vars);
+int   cfs_percpt_number(void *vars);
+void *cfs_percpt_current(void *vars);
+void *cfs_percpt_index(void *vars, int idx);
+
+#define cfs_percpt_for_each(var, i, vars)		\
+	for (i = 0; i < cfs_percpt_number(vars) &&	\
+		((var) = (vars)[i]) != NULL; i++)
+
 /**
  * allocate \a nr_bytes of physical memory from a contiguous region with the
  * properties of \a flags which are bound to the partition id \a cpt. This
