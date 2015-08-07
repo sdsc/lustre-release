@@ -339,7 +339,12 @@ create_nodemaps() {
 			nodemap.${HOSTNAME_CHECKSUM}_${i}.id)
 		## This needs to return zero if the following statement is 1
 		rc=$(echo $out | grep -c ${HOSTNAME_CHECKSUM}_${i})
-		[[ $rc == 0 ]] && return 1
+		[[ $rc == 0 ]] && {
+			echo "output=($out)==$HOSTNAME_CHECKSUM_$i"
+			sleep 1
+			do_facet mgs $LCTL get_param nodemap.${HOSTNAME_CHECKSUM}_${i}.id)
+			return 1
+		}
 	done
 	return 0
 }
