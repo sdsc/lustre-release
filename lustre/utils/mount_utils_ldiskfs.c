@@ -261,8 +261,7 @@ int ldiskfs_write_ldd(struct mkfs_opts *mop)
 	if (mop->mo_flags & MO_IS_LOOP)
 		dev = mop->mo_loopdev;
 
-	ret = mount(dev, mntpt, MT_STR(&mop->mo_ldd), 0,
-		    mop->mo_ldd.ldd_mount_opts);
+	ret = mount(dev, mntpt, MT_STR(&mop->mo_ldd), 0, "errors=remount-ro");
 	if (ret) {
 		fprintf(stderr, "%s: Unable to mount %s: %s\n",
 			progname, dev, strerror(errno));
