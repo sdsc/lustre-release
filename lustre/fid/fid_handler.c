@@ -97,7 +97,7 @@ static inline void range_alloc(struct lu_seq_range *to,
                                struct lu_seq_range *from,
                                __u64 width)
 {
-        width = min(range_space(from), width);
+        width = min(lu_seq_range_space(from), width);
         to->lsr_start = from->lsr_start;
         to->lsr_end = from->lsr_start + width;
         from->lsr_start += width;
@@ -118,9 +118,9 @@ static int __seq_server_alloc_super(struct lu_server_seq *seq,
 	int rc;
 	ENTRY;
 
-	LASSERT(range_is_sane(space));
+	LASSERT(lu_seq_range_is_sane(space));
 
-	if (range_is_exhausted(space)) {
+	if (lu_seq_range_is_exhausted(space)) {
 		CERROR("%s: Sequences space is exhausted\n",
 		       seq->lss_name);
 		RETURN(-ENOSPC);
@@ -223,13 +223,13 @@ static int range_alloc_set(const struct lu_env *env,
         struct lu_seq_range *hiset = &seq->lss_hiwater_set;
         int rc = 0;
 
-        if (range_is_zero(loset))
+        if (lu_seq_range_is_zero(loset))
                 __seq_set_init(env, seq);
 
         if (OBD_FAIL_CHECK(OBD_FAIL_SEQ_ALLOC)) /* exhaust set */
                 loset->lsr_start = loset->lsr_end;
 
-        if (range_is_exhausted(loset)) {
+        if (lu_seq_range_is_exhausted(loset)) {
                 /* reached high water mark. */
 		struct lu_device *dev = seq->lss_site->ss_lu->ls_top_dev;
                 int obd_num_clients = dev->ld_obd->obd_num_exports;
@@ -238,7 +238,7 @@ static int range_alloc_set(const struct lu_env *env,
                 /* calculate new seq width based on number of clients */
                 set_sz = max(seq->lss_set_width,
                              obd_num_clients * seq->lss_width);
-                set_sz = min(range_space(space), set_sz);
+                set_sz = min(lu_seq_range_space(space), set_sz);
 
                 /* Switch to hiwater range now */
                 *loset = *hiset;
@@ -249,7 +249,8 @@ static int range_alloc_set(const struct lu_env *env,
                 rc = seq_store_update(env, seq, NULL, seq->lss_need_sync);
         }
 
-        LASSERTF(!range_is_exhausted(loset) || range_is_sane(loset),
+        LASSERTF(!lu_seq_range_is_exhausted(loset) || 
+		 lu_seq_range_is_sane(loset),
                  DRANGE"\n", PRANGE(loset));
 
         if (rc == 0)
@@ -280,7 +281,7 @@ int seq_server_check_and_alloc_super(const struct lu_env *env,
 	ENTRY;
 
 	/* Check if available space ends and allocate new super seq */
-	if (range_is_exhausted(space)) {
+	if (lu_seq_range_is_exhausted(space)) {
 		if (!seq->lss_cli) {
 			CERROR("%s: No sequence controller is attached.\n",
 			       seq->lss_name);
@@ -296,7 +297,7 @@ int seq_server_check_and_alloc_super(const struct lu_env *env,
 
 		/* Saving new range to allocation space. */
 		*space = seq->lss_cli->lcs_space;
-		LASSERT(range_is_sane(space));
+		LASSERT(lu_seq_range_is_sane(space));
 		if (seq->lss_cli->lcs_srv == NULL) {
 			struct lu_server_fld *fld;
 
@@ -308,7 +309,7 @@ int seq_server_check_and_alloc_super(const struct lu_env *env,
 		}
 	}
 
-	if (range_is_zero(&seq->lss_lowater_set))
+	if (lu_seq_range_is_zero(&seq->lss_lowater_set))
 		__seq_set_init(env, seq);
 
 	RETURN(rc);
@@ -324,7 +325,7 @@ static int __seq_server_alloc_meta(struct lu_server_seq *seq,
 
 	ENTRY;
 
-	LASSERT(range_is_sane(space));
+	LASSERT(lu_seq_range_is_sane(space));
 
 	rc = seq_server_check_and_alloc_super(env, seq);
 	if (rc < 0) {
@@ -526,10 +527,10 @@ int seq_server_init(const struct lu_env *env,
 	seq->lss_cli = NULL;
 	seq->lss_type = type;
 	seq->lss_site = ss;
-	range_init(&seq->lss_space);
+	lu_seq_range_init(&seq->lss_space);
 
-        range_init(&seq->lss_lowater_set);
-        range_init(&seq->lss_hiwater_set);
+        lu_seq_range_init(&seq->lss_lowater_set);
+        lu_seq_range_init(&seq->lss_hiwater_set);
         seq->lss_set_width = LUSTRE_SEQ_BATCH_WIDTH;
 
 	mutex_init(&seq->lss_mutex);
@@ -569,10 +570,10 @@ int seq_server_init(const struct lu_env *env,
         }
 
         if (is_srv) {
-                LASSERT(range_is_sane(&seq->lss_space));
+                LASSERT(lu_seq_range_is_sane(&seq->lss_space));
         } else {
-                LASSERT(!range_is_zero(&seq->lss_space) &&
-                        range_is_sane(&seq->lss_space));
+                LASSERT(!lu_seq_range_is_zero(&seq->lss_space) &&
+                        lu_seq_range_is_sane(&seq->lss_space));
         }
 
         rc  = seq_server_proc_init(seq);

@@ -145,7 +145,7 @@ restart_fixup:
                 c_range = &f_curr->fce_range;
                 n_range = &f_next->fce_range;
 
-                LASSERT(range_is_sane(c_range));
+                LASSERT(lu_seq_range_is_sane(c_range));
                 if (&f_next->fce_list == head)
                         break;
 
@@ -369,7 +369,7 @@ struct fld_cache_entry
 {
 	struct fld_cache_entry *f_new;
 
-	LASSERT(range_is_sane(range));
+	LASSERT(lu_seq_range_is_sane(range));
 
 	OBD_ALLOC_PTR(f_new);
 	if (!f_new)
@@ -545,7 +545,7 @@ int fld_cache_lookup(struct fld_cache *cache,
 		}
 
 		prev = flde;
-                if (range_within(&flde->fce_range, seq)) {
+                if (lu_seq_range_within(&flde->fce_range, seq)) {
                         *range = flde->fce_range;
 
                         cache->fci_stat.fst_cache++;
