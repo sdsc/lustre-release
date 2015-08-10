@@ -752,7 +752,7 @@ static int osp_statfs(const struct lu_env *env, struct dt_device *dev,
 	       LPU64" files, "LPU64" free files\n", d->opd_obd->obd_name,
 	       sfs->os_blocks, sfs->os_bfree, sfs->os_bavail,
 	       sfs->os_files, sfs->os_ffree);
-	RETURN(0);
+	RETURN(d->opd_pre_status);
 }
 
 static int osp_sync_timeout(void *data)
