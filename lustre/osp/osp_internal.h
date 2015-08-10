@@ -245,6 +245,13 @@ struct osp_device {
 	struct list_head		 opd_async_updates;
 	struct rw_semaphore		 opd_async_updates_rwsem;
 	atomic_t			 opd_async_updates_count;
+
+	/**
+	 * Limit the object allocation using ENOSPC for opd_pre_status
+	 * in MB. _h high watermark, _n normal watermark
+	 */
+	int				opd_reserved_size_h;
+	int				opd_reserved_size_n;
 };
 
 #define opd_pre_lock			opd_pre->osp_pre_lock
