@@ -102,6 +102,8 @@ enum obd_statfs_state {
         OS_STATE_RDONLY_1       = 0x00000004, /**< obsolete 1.6, was EROFS=30 */
         OS_STATE_RDONLY_2       = 0x00000008, /**< obsolete 1.6, was EROFS=30 */
         OS_STATE_RDONLY_3       = 0x00000010, /**< obsolete 1.6, was EROFS=30 */
+	OS_STATE_ENOSPC		= 0x00000020, /**< not enough free space */
+	OS_STATE_ENOINO		= 0x00000040, /**< not enough inodes */
 };
 
 struct obd_statfs {
