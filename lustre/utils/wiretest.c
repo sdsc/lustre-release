@@ -38,6 +38,7 @@
 #include <lustre/lustre_idl.h>
 #include <lustre/lustre_lfsck_user.h>
 #include <lustre_disk.h>
+#include <lustre/seq_range.h>
 
 #undef LASSERT
 #undef LASSERTF
