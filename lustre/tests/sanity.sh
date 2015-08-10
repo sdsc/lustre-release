@@ -13480,6 +13480,144 @@ test_252() {
 }
 run_test 252 "check lr_reader tool"
 
+test_253_spend_po() {
+	local serv=$1
+	local mdtosc_proc=$2
+	local last_id
+	local next_id
+	local max_age
+
+	#Waiting statfs update at mds
+	max_age=$(do_facet $serv lctl get_param -n osp.$mdtosc_proc.maxage)
+
+	sleep $((max_age*3/2))
+
+	last_id=$(do_facet $serv lctl get_param -n \
+			  osp.$mdtosc_proc.prealloc_last_id)
+	next_id=$(do_facet $serv lctl get_param -n \
+			  osp.$mdtosc_proc.prealloc_next_id)
+
+	if [ $next_id -gt $last_id ]; then
+		return
+	fi
+
+	echo "Spend $((last_id-next_id)) prealloc objects last_id $last_id..."
+	#Spend all prealloc objects
+	for i in $(seq 0 $((last_id-next_id))); do
+		dd if=/dev/zero of=$DIR/$tdir/r_$last_id.$i bs=1K count=1 \
+			2>/dev/null || break;
+	done
+}
+
+test_253_fill_ost() {
+	local size_1
+	local hwm=$3
+	local free_10
+
+	blocks=$($LFS df $MOUNT | grep $1 | awk '{ print $4 }')
+	size_1=$((blocks/1024-hwm))
+	free_10=$((blocks/10240))
+	if (( free_10 > size_1 )); then
+		size_1=$free_10
+	else
+		size_1=$((size_1+size_1/10))
+	fi
+	if [[ $hwm < $((blocks/1024)) ]]; then
+		dd if=/dev/zero of=$DIR/$tdir/1 bs=1M count=$size_1 \
+			 oflag=append conv=notrunc
+
+		test_253_spend_po $SINGLEMDS $2
+
+		blocks=$($LFS df $MOUNT | grep $1 | awk '{ print $4 }')
+		echo "OST still has $((blocks/1024)) mbytes free"
+	fi
+}
+
+test_253() {
+	local ostidx=0
+	local rc=0
+
+	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
+	remote_mgs_nodsh && skip "remote MGS with nodsh" && return
+
+	rm -rf $DIR/$tdir
+	wait_mds_ost_sync
+	wait_delete_completed
+	mkdir $DIR/$tdir
+	local ost_name=$($LFS osts | grep ${ostidx}": " | \
+		awk '{print $2}' | sed -e 's/_UUID$//')
+
+	# on the mdt's osc
+	local mdtosc_proc1=$(get_mdtosc_proc_path $SINGLEMDS $ost_name)
+	local last_wm_h=$(do_facet $SINGLEMDS lctl get_param -n \
+			osp.$mdtosc_proc1.rsrvd_size_hwm_mb)
+	local last_wm_n=$(do_facet $SINGLEMDS lctl get_param -n \
+			osp.$mdtosc_proc1.rsrvd_size_nwm_mb)
+	echo "prev high watermark $last_wm_h, prev normal watermark $last_wm_n"
+
+	do_facet mgs $LCTL pool_new $FSNAME.$TESTNAME || return 1
+	do_facet mgs $LCTL pool_add $FSNAME.$TESTNAME $ost_name || return 2
+
+	# Wait for client to see a OST at pool
+	wait_update $HOSTNAME "lctl get_param -n
+			lov.$FSNAME-*.pools.$TESTNAME | sort -u |
+			grep $ost_name" "$ost_name""_UUID" $((TIMEOUT/2)) ||
+			return 2
+	$SETSTRIPE $DIR/$tdir -i $ostidx -c 1 -p $FSNAME.$TESTNAME || return 3
+
+	dd if=/dev/zero of=$DIR/$tdir/0 bs=1M count=10
+	local blocks=$($LFS df $MOUNT | grep $ost_name | awk '{ print $4 }')
+	echo "OST still has $((blocks/1024)) mbytes free"
+
+	local new_hwm=$((blocks/1024-10))
+	do_facet $SINGLEMDS lctl set_param \
+			osp.$mdtosc_proc1.rsrvd_size_nwm_mb $((new_hwm+5))
+	do_facet $SINGLEMDS lctl set_param \
+			osp.$mdtosc_proc1.rsrvd_size_hwm_mb $new_hwm
+
+	test_253_fill_ost $ost_name $mdtosc_proc1 $new_hwm
+
+	#First enospc could execute orphan deletion so repeat.
+	test_253_fill_ost $ost_name $mdtosc_proc1 $new_hwm
+
+	local oa_status=$(do_facet $SINGLEMDS lctl get_param -n \
+			osp.$mdtosc_proc1.prealloc_status)
+	echo "prealloc_status $oa_status"
+	#Check preallocate objects again
+	test_253_spend_po $SINGLEMDS $mdtosc_proc1
+
+	dd if=/dev/zero of=$DIR/$tdir/2 bs=1M count=1 &&
+		error "File creation should fail"
+	#object allocation was stopped, but we still able to append files
+	dd if=/dev/zero of=$DIR/$tdir/1 bs=1M seek=6 count=5 oflag=append ||
+		error "Append failed"
+	rm -rf $DIR/$tdir/1 $DIR/$tdir/0 $DIR/$tdir/r*
+	sleep $TIMEOUT
+	for i in $(seq 10 12); do
+		dd if=/dev/zero of=$DIR/$tdir/$i bs=1M count=1 2>/dev/null ||
+			error "File creation failed after rm";
+	done
+
+	oa_status=$(do_facet $SINGLEMDS lctl get_param -n \
+			osp.$mdtosc_proc1.prealloc_status)
+	echo "prealloc_status $oa_status"
+
+	if [ x$oa_status != "x0" ]; then
+		error "Object allocation still disable after rm"
+	fi
+	do_facet $SINGLEMDS lctl set_param \
+			osp.$mdtosc_proc1.rsrvd_size_hwm_mb $last_wm_h
+	do_facet $SINGLEMDS lctl set_param \
+			osp.$mdtosc_proc1.rsrvd_size_nwm_mb $last_wm_n
+
+
+	do_facet mgs $LCTL pool_remove $FSNAME.$TESTNAME $ost_name || return 4
+	do_facet mgs $LCTL pool_destroy $FSNAME.$TESTNAME || return 5
+
+	return 0
+}
+run_test 253 "Check object allocation limit"
 
 cleanup_test_300() {
 	trap 0
