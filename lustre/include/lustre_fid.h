@@ -154,6 +154,7 @@
 
 #include <libcfs/libcfs.h>
 #include <lustre/lustre_idl.h>
+#include <lustre/seq_range.h>
 
 struct lu_env;
 struct lu_site;
