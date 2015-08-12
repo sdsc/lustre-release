@@ -1020,7 +1020,7 @@ int iam_lvar_create(struct inode *obj,
 #define dxtrace(command) 
 #endif
 
-#define BH_DXLock        25
+#define BH_DXLock        (BH_BITMAP_UPTODATE + 1)
 #define DX_DEBUG (0)
 #if DX_DEBUG
 static struct iam_lock_stats {
@@ -1036,6 +1036,7 @@ static struct iam_lock_stats {
 
 static inline void iam_lock_bh(struct buffer_head volatile *bh)
 {
+	LASSERT(BH_DXLock <= sizeof(bh->b_state));
         DX_DEVAL(iam_lock_stats.dls_bh_lock++);
 #ifdef CONFIG_SMP
 	while (test_and_set_bit(BH_DXLock, &bh->b_state)) {
