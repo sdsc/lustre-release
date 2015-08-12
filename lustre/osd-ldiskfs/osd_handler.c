@@ -6201,6 +6201,7 @@ static int __init osd_mod_init(void)
 {
 	int rc;
 
+	LASSERT(BH_DXLock < sizeof(((struct buffer_head *)0)->b_state));
 #if !defined(CONFIG_DEBUG_MUTEXES) && !defined(CONFIG_DEBUG_SPINLOCK)
 	/* please, try to keep osd_thread_info smaller than a page */
 	CLASSERT(sizeof(struct osd_thread_info) <= PAGE_SIZE);
