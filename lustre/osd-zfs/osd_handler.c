@@ -1364,6 +1364,7 @@ int __init osd_init(void)
 {
 	int rc;
 
+	LASSERT(BH_DXLock < BITS_PER_LONG);
 	rc = osd_options_init();
 	if (rc)
 		return rc;
