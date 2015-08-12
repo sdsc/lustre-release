@@ -56,6 +56,7 @@ init_test_env $@
 # STORED_MDSSIZE is used in test_18
 STORED_MDSSIZE=$MDSSIZE
 STORED_OSTSIZE=$OSTSIZE
+echo "Original OSTSIZE = $OSTSIZE"
 MDSSIZE=200000
 OSTSIZE=200000
 
@@ -4272,18 +4273,28 @@ test_69() {
 	# use OST0000 since it probably has the most creations
 	local OSTNAME=$(ostname_from_index 0)
 	local mdtosc_proc1=$(get_mdtosc_proc_path mds1 $OSTNAME)
+	local last_id=$(do_facet mds1 $LCTL get_param -n \
+			osc.$mdtosc_proc1.prealloc_last_id)
 
 	# Want to have OST LAST_ID over 1.5 * OST_MAX_PRECREATE to
-	# verify that the LAST_ID recovery is working properly.  If
+	# verify that the LAST_ID recovery is working properly. If
 	# not, then the OST will refuse to allow the MDS connect
 	# because the LAST_ID value is too different from the MDS
 	#define OST_MAX_PRECREATE=20000
-	local num_create=$((20000 * 3))
+	local num_create=$(( (20000 * 3) / 2 + 1 - $last_id))
+
+	# Let's make sure we have enough inodes available on OST0 to
+	# create $num_create files
+	local ifree=$($LFS df -i | awk '/OST0000/ { print $4 }')
+	log "On OST0, $ifree inodes available. Want $num_create."
+	[[ $ifree -ge $num_create ]] ||
+		skip_env "Need $num_create inodes. $ifree available" && return
 
 	mkdir $DIR/$tdir || error "mkdir $DIR/$tdir failed"
 	$SETSTRIPE -i 0 $DIR/$tdir || error "$SETSTRIPE -i 0 $DIR/$tdir failed"
 	createmany -o $DIR/$tdir/$tfile- $num_create ||
 		error "createmany: failed to create $num_create files: $?"
+
 	# delete all of the files with objects on OST0 so the
 	# filesystem is not inconsistent later on
 	$LFS find $MOUNT --ost 0 | xargs rm
