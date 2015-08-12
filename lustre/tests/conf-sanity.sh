@@ -87,7 +87,7 @@ init_logging
 require_dsh_mds || exit 0
 require_dsh_ost || exit 0
 #
-[ "$SLOW" = "no" ] && EXCEPT_SLOW="30a 31 45 69"
+[ "$SLOW" = "no" ] && EXCEPT_SLOW="30a 31 45"
 
 assert_DIR
 
@@ -4278,15 +4278,32 @@ test_69() {
 	# not, then the OST will refuse to allow the MDS connect
 	# because the LAST_ID value is too different from the MDS
 	#define OST_MAX_PRECREATE=20000
-	local num_create=$((20000 * 3))
+	local num_create=$((20000 * 2))
+
+	# Let's see how much space we have on the fs before we create files
+	$LFS df
+	$LFS df -i
 
 	mkdir $DIR/$tdir || error "mkdir $DIR/$tdir failed"
 	$SETSTRIPE -i 0 $DIR/$tdir || error "$SETSTRIPE -i 0 $DIR/$tdir failed"
 	createmany -o $DIR/$tdir/$tfile- $num_create ||
-		error "createmany: failed to create $num_create files: $?"
+	{
+		# If we fail, let's see how much space on fs we have
+		$LFS df;
+		$LFS df -i;
+		error "createmany: failed to create $num_create files: $?";
+	}
+
+	# Before we delete, let's see how much space we have on the fs
+	$LFS df
+	$LFS df -i
+
 	# delete all of the files with objects on OST0 so the
 	# filesystem is not inconsistent later on
 	$LFS find $MOUNT --ost 0 | xargs rm
+
+	# Let's make sure we really deleted the files
+	$LFS df
 
 	umount_client $MOUNT || error "umount client failed"
 	stop_ost || error "OST0 stop failure"
