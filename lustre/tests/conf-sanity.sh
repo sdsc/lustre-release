@@ -56,6 +56,7 @@ init_test_env $@
 # STORED_MDSSIZE is used in test_18
 STORED_MDSSIZE=$MDSSIZE
 STORED_OSTSIZE=$OSTSIZE
+echo "Original OSTSIZE = $OSTSIZE"
 MDSSIZE=200000
 OSTSIZE=200000
 
@@ -87,7 +88,7 @@ init_logging
 require_dsh_mds || exit 0
 require_dsh_ost || exit 0
 #
-[ "$SLOW" = "no" ] && EXCEPT_SLOW="30a 31 45 69"
+[ "$SLOW" = "no" ] && EXCEPT_SLOW="30a 31 45"
 
 assert_DIR
 
@@ -4280,13 +4281,40 @@ test_69() {
 	#define OST_MAX_PRECREATE=20000
 	local num_create=$((20000 * 3))
 
+	local last_id=$(do_facet mds1 $LCTL get_param -n \
+			osc.$mdtosc_proc1.prealloc_last_id)
+	echo "MDS Last ID = $last_id"
+
+	# Let's see how much space we have on the fs before we create files
+	$LFS df
+	$LFS df -i
+
 	mkdir $DIR/$tdir || error "mkdir $DIR/$tdir failed"
 	$SETSTRIPE -i 0 $DIR/$tdir || error "$SETSTRIPE -i 0 $DIR/$tdir failed"
 	createmany -o $DIR/$tdir/$tfile- $num_create ||
-		error "createmany: failed to create $num_create files: $?"
+	{
+		# If we fail, let's see how much space on fs we have
+	local last_id=$(do_facet mds1 $LCTL get_param -n \
+			osc.$mdtosc_proc1.prealloc_last_id);
+	echo "MDS Last ID (on fail) = $last_id";
+		$LFS df;
+		$LFS df -i;
+		error "createmany: failed to create $num_create files: $?";
+	}
+
+	# Before we delete, let's see how much space we have on the fs
+	local last_id=$(do_facet mds1 $LCTL get_param -n \
+			osc.$mdtosc_proc1.prealloc_last_id);
+	echo "MDS Last ID (on succeed) = $last_id"
+	$LFS df
+	$LFS df -i
+
 	# delete all of the files with objects on OST0 so the
 	# filesystem is not inconsistent later on
 	$LFS find $MOUNT --ost 0 | xargs rm
+
+	# Let's make sure we really deleted the files
+	$LFS df
 
 	umount_client $MOUNT || error "umount client failed"
 	stop_ost || error "OST0 stop failure"
