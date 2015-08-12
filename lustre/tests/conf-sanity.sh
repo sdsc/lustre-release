@@ -4,8 +4,8 @@ set -e
 
 ONLY=${ONLY:-"$*"}
 
-# bug number for skipped test:     LU-7005
-ALWAYS_EXCEPT="$CONF_SANITY_EXCEPT 50i"
+# bug number for skipped test:
+ALWAYS_EXCEPT="$CONF_SANITY_EXCEPT"
 # UPDATE THE COMMENT ABOVE WITH BUG NUMBERS WHEN CHANGING ALWAYS_EXCEPT!
 
 is_sles11()						# LU-2181
@@ -3408,6 +3408,7 @@ test_50i() {
 		"$TEST" "${FSNAME}-MDT0001.mdc.active" 1 ||
 		error "Unable to activate MDT2"
 
+	wait_clients_import_state ${CLIENTS:-$HOSTNAME} mds2 FULL
 	$LFS mkdir -i1 $DIR/$tdir/2 || error "mkdir $DIR/$tdir/2 failed"
 	# create some file
 	createmany -o $DIR/$tdir/2/$tfile-%d 1 || error "create files failed"
