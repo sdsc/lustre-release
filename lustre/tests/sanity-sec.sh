@@ -970,10 +970,10 @@ create_fops_nodemaps() {
 }
 
 wait_nm_sync() {
-	local client=$1
+	local nodemap_name=$1
 	local key=$2
-	local proc_param="${client}.${key}"
-	[ "$client" == "active" ] && proc_param="active"
+	local proc_param="${nodemap_name}.${key}"
+	[ "$nodemap_name" == "active" ] && proc_param="active"
 
 	local is_active=$(do_facet mgs $LCTL get_param -n nodemap.active)
 	(( is_active == 0 )) && [ "$proc_param" != "active" ] && return
@@ -1003,9 +1003,9 @@ wait_nm_sync() {
 	if ! $is_sync; then
 		echo MGS
 		echo $out1
-		echo OTHER
+		echo OTHER - IP: $node_ip
 		echo $out2
-		error "mgs and $client ${key} mismatch, $i attempts"
+		error "mgs and $nodemap_name ${key} mismatch, $i attempts"
 	fi
 	echo "waited $((i - 1)) seconds for sync"
 }
@@ -1601,19 +1601,13 @@ run_test 25 "test save and reload nodemap config"
 test_26() {
 	nodemap_version_check || return 0
 
-	local large_i=13000
+	local large_i=32000
 
-	for ((i = 0; i < large_i; i++)); do
-		((i % 1000 == 0)) && echo $i
-		do_facet mgs $LCTL nodemap_add c$i ||
-			error "cannot add nodemap $i to config"
-	done
+	do_facet mgs "seq -f 'c%g' $large_i | xargs -n1 $LCTL nodemap_add"
+	wait_nm_sync c$large_i admin_nodemap
 
-	for ((i = 0; i < large_i; i++)); do
-		((i % 1000 == 0)) && echo $i
-		do_facet mgs $LCTL nodemap_del c$i ||
-			error "cannot delete nodemap $i from config"
-	done
+	do_facet mgs "seq -f 'c%g' $large_i | xargs -n1 $LCTL nodemap_del"
+	wait_nm_sync c$large_i admin_nodemap
 }
 run_test 26 "test transferring very large nodemap"
 
