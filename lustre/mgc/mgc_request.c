@@ -1629,9 +1629,9 @@ static int mgc_process_recover_nodemap_log(struct obd_device *obd,
 			GOTO(out, rc = -ENOMEM);
 	}
 
+again:
 #ifdef HAVE_SERVER_SUPPORT
-	if (cld_is_nodemap(cld)) {
-		/* acquires active config lock */
+	if (cld_is_nodemap(cld) && offset == 0) {
 		new_config = nodemap_config_alloc();
 		if (IS_ERR(new_config)) {
 			rc = PTR_ERR(new_config);
@@ -1640,7 +1640,6 @@ static int mgc_process_recover_nodemap_log(struct obd_device *obd,
 		}
 	}
 #endif
-again:
 	LASSERT(cld_is_recover(cld) || cld_is_nodemap(cld));
 	LASSERT(mutex_is_locked(&cld->cld_lock));
 	req = ptlrpc_request_alloc(class_exp2cliimp(cld->cld_mgcexp),
@@ -1712,6 +1711,20 @@ again:
 		GOTO(out, rc = -EINVAL);
 
 	if (ealen == 0) { /* no logs transferred */
+#ifdef HAVE_SERVER_SUPPORT
+		if (cld_is_nodemap(cld) && offset == 0) { /* config changed */
+			nodemap_config_dealloc(new_config);
+			new_config = NULL;
+
+			CDEBUG(D_INFO, "nodemap config changed in transit, requeuing\n");
+
+			/* this will reattempt the transfer in do_requeue */
+			cld->cld_lostlock = 1;
+			config_log_get(cld);
+			eof = true;
+			GOTO(out, rc = 0);
+		}
+#endif
 		if (!eof)
 			rc = -EINVAL;
 		GOTO(out, rc);
