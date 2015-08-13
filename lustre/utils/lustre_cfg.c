@@ -1079,7 +1079,7 @@ int jt_nodemap_info(int argc, char **argv)
 		snprintf(pattern, sizeof(pattern), "nodemap/%s/*", argv[1]);
 		rc = getparam_display(&popt, pattern);
 		if (rc == -ESRCH)
-			fprintf(stderr, "error: nodemap_info: cannot find"
+			fprintf(stderr, "error: nodemap_info: cannot find "
 					"nodemap %s\n", argv[1]);
 	}
 	return rc;
