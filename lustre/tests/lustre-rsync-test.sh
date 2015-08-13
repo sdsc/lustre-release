@@ -49,7 +49,7 @@ export LRSYNC="$LRSYNC -v -c no -d 2"
 DBENCH_TIME=${DBENCH_TIME:-60}  # No of seconds to run dbench
 TGT=$TMP/target
 TGT2=$TMP/target2
-MDT0=$($LCTL get_param -n mdc.*.mds_server_uuid |
+MDT0=$(do_facet $SINGLEMDS $LCTL get_param -n mdd.$FSNAME-*.mds_server_uuid |
 	awk '{ gsub(/_UUID/,""); print $1 }' | head -n1)
 
 init_changelog() {
