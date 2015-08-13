@@ -2768,6 +2768,7 @@ int lprocfs_wr_nosquash_nids(const char __user *buffer, unsigned long count,
 	char *kernbuf = NULL;
 	char *errmsg;
 	cfs_list_t tmp;
+	int len = count;
 	ENTRY;
 
 	if (count > 4096) {
@@ -2787,9 +2788,10 @@ int lprocfs_wr_nosquash_nids(const char __user *buffer, unsigned long count,
 	kernbuf[count] = '\0';
 
 	if (count > 0 && kernbuf[count - 1] == '\n')
-		kernbuf[count - 1] = '\0';
+		len = count - 1;
 
-	if (strcmp(kernbuf, "NONE") == 0 || strcmp(kernbuf, "clear") == 0) {
+	if ((len == 4 && strncmp(kernbuf, "NONE", len) == 0) ||
+	    (len == 5 && strncmp(kernbuf, "clear", len) == 0)) {
 		/* empty string is special case */
 		down_write(&squash->rsi_sem);
 		if (!cfs_list_empty(&squash->rsi_nosquash_nids))
