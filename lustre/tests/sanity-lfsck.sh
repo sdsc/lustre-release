@@ -479,6 +479,11 @@ test_4()
 	stop $SINGLEMDS > /dev/null || error "(0.2) Fail to stop MDS!"
 
 	mds_backup_restore $SINGLEMDS || error "(1) Fail to backup/restore!"
+
+if [ $(facet_fstype $SINGLEMDS) == ldiskfs ]; then
+	do_facet $SINGLEMDS "$DEBUGFS -c -R stats"
+fi
+
 	echo "start $SINGLEMDS with disabling OI scrub"
 	start $SINGLEMDS $MDT_DEVNAME $MOUNT_OPTS_NOSCRUB > /dev/null ||
 		error "(2) Fail to start MDS!"
