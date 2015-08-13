@@ -5022,6 +5022,8 @@ osd_dirent_reinsert(const struct lu_env *env, handle_t *jh,
 					  LDISKFS_FEATURE_INCOMPAT_DIRDATA))
 		RETURN(0);
 
+	LASSERT(ldiskfs_has_inline_data(inode) == 0);
+
 	/* There is enough space to hold the FID-in-dirent. */
 	if (osd_dirent_has_space(de->rec_len, ent->oied_namelen,
 				 dir->i_sb->s_blocksize)) {
