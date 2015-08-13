@@ -226,92 +226,95 @@ void health_poll_worker(unsigned int registration_number, void *clientarg)
  * Input:  'None
  * Output: void
  *****************************************************************************/
- 
- void health_entry_parser(void)
+void health_entry_parser(void)
 {
-    FILE    *fptr = NULL;
-    char string[MAX_LINE_SIZE];
-    int b_seen_portals_catastrophe = 0;
-    const char *filename =  g_health_check_test_file == 0 ? 
-            LUSTRE_PATH FILENAME_SYSHEALTHCHECK : 
-            g_health_check_test_file;
-    
-    /*DEBUGMSGTL(("lsnmpd","health_entry_parser(%s)\n",filename));*/
+	FILE *fptr = NULL;
+	char string[MAX_LINE_SIZE];
+	int b_seen_portals_catastrophe = 0;
+	char *filename;
+	glob_t path;
 
-    /* Open the file.  Use the test file env variable if
-       there is one */    
-    fptr = fopen(filename,"r");
-        
-    /* If the path is not found do nothing */
-    if( NULL == fptr)
-        return;
-       
-    while( NULL != fgets(string, sizeof(string), fptr)){
-        
-        /*DEBUGMSGTL(("lsnmpd","health_entry_parser() looking at = \'%s\'\n",string));*/
-       
-        /*
-         * First handle the portals catastrophe 
-         * Look for the string "LBUG"
-         */
-        if(0 == strncmp(string,"LBUG",4)){
-            /*
-             * If we haven't sent the catastrophe message yet
-             * send it now.  And keep track that we've sent it
-             */
-            if(!g_sent_portals_catastrophe){
-                send_portals_catastrophe_trap("LBUG");
-                g_sent_portals_catastrophe = 1;
-            }
-            b_seen_portals_catastrophe = 1;
-        }
-            
-        /*
-         * Now handle any of the OBD object failures
-         * look for "device <OBDNAME> reported unhealthy"
-         */
-        else if(0 == strncmp(string,"device ",7)){
-            char *obd_name = string+7;
-            char *space_after_obd_name;
-            
-            /*
-             * Now find the space after the obd name
-             * Again if there is no space we're in trouble
-             */
-            space_after_obd_name = strchr(obd_name,' ');
-            if(space_after_obd_name == 0)
-                break;
+	if (cfs_get_param_path(&path, "lustre/health_check") != 0)
+		return;
 
-            /*
-             * Null terminate the obd_name
-             */
-            *space_after_obd_name = 0;
-            
-            DEBUGMSGTL(("lsnmpd","Looking at obd=%s\n",obd_name));
+	filename = g_health_check_test_file == 0 ? path.gl_pathv[0]
+						 : g_health_check_test_file;
+	cfs_free_param_data(&path);
 
-            /*
-             * If we haven't sent a trap for this one
-             * then send it now
-             */
-            if(is_obd_newly_unhealthy(obd_name))
-                send_obd_unhealthy_trap(obd_name,"unhealthy");
-        }
-    }        
-    
-    /* If we don't find it reset the catastrope flag*/            
-    if(!b_seen_portals_catastrophe && g_sent_portals_catastrophe)
-    {
-        DEBUGMSGTL(("lsnmpd","LBUG has been cleared\n"));
-        g_sent_portals_catastrophe = 0;
-    }
-                
-    /*
-     *  Any <OBDNAMES> that weren't queried above are now unhealthy. 
-     * Scan through and cleanup the newly healthy obds
-     */
-    obd_unhealthy_scan();
-    
-    fclose(fptr);
+	/*DEBUGMSGTL(("lsnmpd","health_entry_parser(%s)\n",filename));*/
+
+	/* Open the file. Use the test file env variable if there is one */
+	fptr = fopen(filename, "r");
+
+	/* If the path is not found do nothing */
+	if (NULL == fptr)
+		return;
+
+	while (NULL != fgets(string, sizeof(string), fptr)) {
+
+		/* DEBUGMSGTL(("lsnmpd","health_entry_parser() looking at = "
+			       "\'%s\'\n",string));*/
+		/*
+		 * First handle the portals catastrophe
+		 * Look for the string "LBUG"
+		 */
+		if (0 == strncmp(string, "LBUG", 4)) {
+			/*
+			 * If we haven't sent the catastrophe message yet
+			 * send it now.  And keep track that we've sent it
+			 */
+			if (!g_sent_portals_catastrophe) {
+				send_portals_catastrophe_trap("LBUG");
+				g_sent_portals_catastrophe = 1;
+			}
+			b_seen_portals_catastrophe = 1;
+		}
+
+		/*
+		 * Now handle any of the OBD object failures
+		 * look for "device <OBDNAME> reported unhealthy"
+		 */
+		else if (0 == strncmp(string, "device ", 7)) {
+			char *obd_name = string + 7;
+			char *space_after_obd_name;
+
+			/*
+			 * Now find the space after the obd name
+			 * Again if there is no space we're in trouble
+			 */
+			space_after_obd_name = strchr(obd_name, ' ');
+			if (space_after_obd_name == 0)
+				break;
+
+			/*
+			 * Null terminate the obd_name
+			 */
+			*space_after_obd_name = 0;
+
+			DEBUGMSGTL(("lsnmpd", "Looking at obd=%s\n", obd_name));
+
+			/*
+			 * If we haven't sent a trap for this one
+			 * then send it now
+			 */
+			if (is_obd_newly_unhealthy(obd_name))
+				send_obd_unhealthy_trap(obd_name, "unhealthy");
+		}
+	}
+
+	/* If we don't find it reset the catastrope flag*/
+	if (!b_seen_portals_catastrophe && g_sent_portals_catastrophe) {
+		DEBUGMSGTL(("lsnmpd", "LBUG has been cleared\n"));
+		g_sent_portals_catastrophe = 0;
+	}
+
+	/*
+	 *  Any <OBDNAMES> that weren't queried above are now unhealthy.
+	 * Scan through and cleanup the newly healthy obds
+	 */
+	obd_unhealthy_scan();
+
+	fclose(fptr);
 }
 
 /*****************************************************************************
@@ -535,18 +538,17 @@ void obd_unhealthy_scan(void)
             else
                 prev->next = walker;
 
-            /*And free the pointer. */
-            free(temp);
-            /*walker and prev are correctly setup so we can go around the loop again.*/
-        }
+	    /* And free the pointer. */
+	    free(temp);
+	    /* walker and prev are correctly setup so we can go around
+	     * the loop again. */
+	} else {
+		/* Mark all other entries as NOT seen for next pass through*/
 
-        /*Mark all other entries as NOT seen for next pass through*/
-        else 
-        {
-            walker->seen = 0;
-            /*Go onto the next entry*/
-            prev = walker;
-            walker = walker->next;
-        }
+		walker->seen = 0;
+		/* Go onto the next entry*/
+		prev = walker;
+		walker = walker->next;
+	}
     }
 }
