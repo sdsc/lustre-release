@@ -14,6 +14,7 @@ export GSS_KRB5=false
 export GSS_PIPEFS=false
 export IDENTITY_UPCALL=default
 export QUOTA_AUTO=1
+export E2FSCK_ON_MDS0=false
 # specify environment variable containing batch job name for server statistics
 export JOBID_VAR=${JOBID_VAR:-"procname_uid"}  # or "existing" or "disable"
 
@@ -2464,6 +2465,10 @@ facet_failover() {
 		echo "Failing ${affecteds[index]} on $host"
 		shutdown_facet $facet
 	done
+
+	[ "$E2FSCK_ON_MDS0" = "true" ] &&
+	[ $(facet_fstype $SINGLEMDS) = "ldiskfs" ] &&
+		run_e2fsck $(facet_active_host $SINGLEMDS) $(mdsdevname 1) "-n"
 
 	for ((index=0; index<$total; index++)); do
 		facet=$(echo ${affecteds[index]} | tr -s " " | cut -d"," -f 1)

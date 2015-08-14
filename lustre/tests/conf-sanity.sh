@@ -5568,7 +5568,9 @@ test_84() {
 	#define OBD_FAIL_TGT_REPLAY_DELAY  0x709 | FAIL_SKIP
 	do_facet $SINGLEMDS "lctl set_param fail_loc=0x20000709 fail_val=5"
 
+	E2FSCK_ON_MDS0=true
 	facet_failover $SINGLEMDS || error "failover: $?"
+	E2FSCK_ON_MDS0=false
 	client_up
 
 	echo "recovery status"
