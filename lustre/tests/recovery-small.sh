@@ -1272,15 +1272,12 @@ err17935 () {
 }
 
 test_60() {
-	MDT0=$($LCTL get_param -n mdc.*.mds_server_uuid |
-		awk '{ gsub(/_UUID/,""); print $1 }' | head -n1)
-
 	NUM_FILES=15000
 	mkdir -p $DIR/$tdir
 
 	# Register (and start) changelog
-	USER=$(do_facet $SINGLEMDS lctl --device $MDT0 changelog_register -n)
-	echo "Registered as $MDT0 changelog user $USER"
+	USER=$(do_facet $SINGLEMDS lctl --device $FSNAME-MDT0000 changelog_register -n)
+	echo "Registered as $FSNAME-MDT0000 changelog user $USER"
 
 	# Generate a large number of changelog entries
 	createmany -o $DIR/$tdir/$tfile $NUM_FILES
@@ -1300,13 +1297,13 @@ test_60() {
 
 	# Check if all the create/unlink events were recorded
 	# in the changelog
-	$LFS changelog $MDT0 >> $DIR/$tdir/changelog
+	$LFS changelog $FSNAME-MDT0000 >> $DIR/$tdir/changelog
 	local cl_count=$(grep UNLNK $DIR/$tdir/changelog | wc -l)
-	echo "$cl_count unlinks in $MDT0 changelog"
+	echo "$cl_count unlinks in $FSNAME-MDT0000 changelog"
 
-	do_facet $SINGLEMDS lctl --device $MDT0 changelog_deregister $USER
+	do_facet $SINGLEMDS lctl --device $FSNAME-MDT0000 changelog_deregister $USER
 	USERS=$(( $(do_facet $SINGLEMDS lctl get_param -n \
-	    mdd.$MDT0.changelog_users | wc -l) - 2 ))
+	    mdd.$FSNAME-MDT0000.changelog_users | wc -l) - 2 ))
 	if [ $USERS -eq 0 ]; then
 	    [ $cl_count -eq $NUM_FILES ] || \
 		err17935 "Recorded ${cl_count} unlinks out of $NUM_FILES"
