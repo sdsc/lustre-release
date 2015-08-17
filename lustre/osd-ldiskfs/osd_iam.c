@@ -174,7 +174,7 @@ iam_load_idle_blocks(struct iam_container *c, iam_ptr_t blk)
 	struct inode *inode = c->ic_object;
 	struct iam_idle_head *head;
 	struct buffer_head *bh;
-	int err;
+	int err = 0;
 
 	LASSERT(mutex_is_locked(&c->ic_idle_mutex));
 

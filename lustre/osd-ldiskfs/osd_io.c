@@ -1377,7 +1377,7 @@ int osd_ldiskfs_read(struct inode *inode, void *buf, int size, loff_t *offs)
         int blocksize;
         int csize;
         int boffs;
-        int err;
+	int err = 0;
 
         /* prevent reading after eof */
 	spin_lock(&inode->i_lock);
