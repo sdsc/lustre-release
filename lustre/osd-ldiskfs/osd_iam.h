@@ -299,7 +299,7 @@ struct iam_operations {
         int (*id_node_init)(struct iam_container *c,
                             struct buffer_head *bh, int root);
         int (*id_node_read)(struct iam_container *c, iam_ptr_t ptr,
-                            handle_t *h, struct buffer_head **bh);
+                            struct buffer_head **bh);
         /*
          * Key comparison functions. Returns -1, 0, +1.
          */
@@ -1005,8 +1005,6 @@ void iam_container_read_unlock(struct iam_container *c);
 int iam_index_next(struct iam_container *c, struct iam_path *p);
 int iam_read_leaf(struct iam_path *p);
 
-int iam_node_read(struct iam_container *c, iam_ptr_t ptr,
-                  handle_t *handle, struct buffer_head **bh);
 int iam_lvar_create(struct inode *obj,
                     int keysize, int ptrsize, int recsize, handle_t *handle);
 
@@ -1072,9 +1070,8 @@ struct iam_container *iam_leaf_container(const struct iam_leaf *leaf);
 struct iam_descr *iam_leaf_descr(const struct iam_leaf *leaf);
 struct iam_leaf_operations *iam_leaf_ops(const struct iam_leaf *leaf);
 
-
 int iam_node_read(struct iam_container *c, iam_ptr_t ptr,
-                  handle_t *h, struct buffer_head **bh);
+                  struct buffer_head **bh);
 
 /*
  * Container format.

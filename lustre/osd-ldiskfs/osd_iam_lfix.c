@@ -684,7 +684,7 @@ static int iam_lfix_guess(struct iam_container *c)
 
         assert_corr(c->ic_object != NULL);
 
-        result = iam_node_read(c, iam_lfix_root_ptr(c), NULL, &bh);
+        result = iam_node_read(c, iam_lfix_root_ptr(c), &bh);
         if (result == 0) {
                 root = (void *)bh->b_data;
                 if (le64_to_cpu(root->ilr_magic) == IAM_LFIX_ROOT_MAGIC) {

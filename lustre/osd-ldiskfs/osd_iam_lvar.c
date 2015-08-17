@@ -1056,7 +1056,7 @@ static int lvar_guess(struct iam_container *c)
 
         assert_corr(c->ic_object != NULL);
 
-        result = iam_node_read(c, lvar_root_ptr(c), NULL, &bh);
+        result = iam_node_read(c, lvar_root_ptr(c), &bh);
         if (result == 0) {
                 root = (void *)bh->b_data;
 		if (le32_to_cpu(root->vr_magic) == IAM_LVAR_ROOT_MAGIC) {

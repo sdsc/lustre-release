@@ -181,8 +181,8 @@ iam_load_idle_blocks(struct iam_container *c, iam_ptr_t blk)
 	if (blk == 0)
 		return NULL;
 
-	bh = ldiskfs_bread(NULL, inode, blk, 0, &err);
-	if (bh == NULL) {
+	err = osd_bread(NULL, inode, blk, &bh);
+	if (err != 0) {
 		CERROR("%.16s: cannot load idle blocks, blk = %u, err = %d\n",
 		       LDISKFS_SB(inode->i_sb)->s_es->s_volume_name, blk, err);
 		c->ic_idle_failed = 1;
@@ -356,10 +356,8 @@ void iam_ipd_free(struct iam_path_descr *ipd)
 }
 
 int iam_node_read(struct iam_container *c, iam_ptr_t ptr,
-                  handle_t *h, struct buffer_head **bh)
+                  struct buffer_head **bh)
 {
-        int result = 0;
-
         /* NB: it can be called by iam_lfix_guess() which is still at
          * very early stage, c->ic_root_bh and c->ic_descr->id_ops
          * haven't been intialized yet.
@@ -372,10 +370,7 @@ int iam_node_read(struct iam_container *c, iam_ptr_t ptr,
                 return 0;
         }
 
-        *bh = ldiskfs_bread(h, c->ic_object, (int)ptr, 0, &result);
-        if (*bh == NULL)
-                result = -EIO;
-        return result;
+        return osd_bread(NULL, c->ic_object, (int)ptr, bh);
 }
 
 /*
@@ -473,7 +468,7 @@ static int iam_leaf_load(struct iam_path *path)
 		       path->ip_frames[0].bh, path->ip_frames[1].bh,
 		       path->ip_frames[2].bh);
 	}
-	err = descr->id_ops->id_node_read(c, block, NULL, &bh);
+	err = descr->id_ops->id_node_read(c, block, &bh);
 	if (err == 0) {
 		leaf->il_bh = bh;
 		leaf->il_curidx = block;
@@ -900,7 +895,7 @@ static int iam_lookup_try(struct iam_path *path)
         ptr = param->id_ops->id_root_ptr(c);
         for (frame = path->ip_frames, i = 0; i <= path->ip_indirect;
              ++frame, ++i) {
-                err = param->id_ops->id_node_read(c, (iam_ptr_t)ptr, NULL,
+                err = param->id_ops->id_node_read(c, (iam_ptr_t)ptr,
                                                   &frame->bh);
                 do_corr(schedule());
 
@@ -1360,7 +1355,7 @@ static int iam_htree_advance(struct inode *dir, __u32 hash,
                 idx = p->leaf = dx_get_block(path, p->at);
                 iam_unlock_bh(p->bh);
                 err = iam_path_descr(path)->id_ops->
-                        id_node_read(path->ip_container, idx, NULL, &bh);
+                        id_node_read(path->ip_container, idx, &bh);
                 if (err != 0)
                         return err; /* Failure */
                 ++p;

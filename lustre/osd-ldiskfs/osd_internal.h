@@ -1157,6 +1157,19 @@ static inline unsigned long osd_remote_parent_ino(struct osd_device *dev)
 	return dev->od_mdt_map->omm_remote_parent->d_inode->i_ino;
 }
 
+/* ldiskfs_bread returns err = 0 & bh == NULL as a error */
+static inline int osd_bread(handle_t *handle, struct inode *inode,
+			    unsigned long blk, struct buffer_head **bh)
+{
+        int err = 0;
+
+	LASSERT(bh != NULL);
+        *bh = ldiskfs_bread(handle, inode, blk, handle ? 1 : 0, &err);
+        if (*bh == NULL)
+                err = err ? err : -EIO;
+        return err;
+}
+
 void ldiskfs_inc_count(handle_t *handle, struct inode *inode);
 void ldiskfs_dec_count(handle_t *handle, struct inode *inode);
 
