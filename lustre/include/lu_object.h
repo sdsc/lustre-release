@@ -428,6 +428,8 @@ struct lu_attr {
         __u32          la_blksize;
         /** real device */
         __u32          la_rdev;
+	/** pool id */
+	__u32	       la_pool_id;
         /**
          * valid bits
          *
@@ -453,6 +455,7 @@ enum la_valid {
         LA_BLKSIZE = 1 << 12,
         LA_KILL_SUID = 1 << 13,
         LA_KILL_SGID = 1 << 14,
+	LA_POOLID = 1 << 15,
 };
 
 /**
