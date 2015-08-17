@@ -2634,6 +2634,11 @@ static int osd_attr_set(const struct lu_env *env,
 	if (rc != 0)
 		GOTO(out, rc);
 
+#ifdef	HAVE_PROJECT_QUOTA
+	if(attr->la_pool_id && attr->la_valid & LA_POOLID)
+		rc = __ldiskfs_ioctl_setproject(inode, attr->la_pool_id);
+#endif
+
 	ll_dirty_inode(inode, I_DIRTY_DATASYNC);
 
 	if (!(attr->la_valid & LA_FLAGS))
@@ -2964,6 +2969,11 @@ static int __osd_object_create(struct osd_thread_info *info,
 		osd_object_init0(obj);
 	}
 
+#ifdef	HAVE_PROJECT_QUOTA
+	if(!result && attr->la_pool_id && attr->la_valid & LA_POOLID)
+		result = __ldiskfs_ioctl_setproject(obj->oo_inode,
+						attr->la_pool_id);
+#endif
 	/* restore previous umask value */
 	current->fs->umask = umask;
 

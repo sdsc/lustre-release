@@ -3294,9 +3294,9 @@ static int lod_declare_object_create(const struct lu_env *env,
 				     struct dt_object_format *dof,
 				     struct thandle *th)
 {
-	struct dt_object   *next = dt_object_child(dt);
-	struct lod_object  *lo = lod_dt_obj(dt);
-	int		    rc;
+	struct dt_object       *next = dt_object_child(dt);
+	struct lod_object      *lo = lod_dt_obj(dt);
+	int			rc;
 	ENTRY;
 
 	LASSERT(dof);
@@ -3446,6 +3446,9 @@ static int lod_object_create(const struct lu_env *env, struct dt_object *dt,
 	struct lod_object  *lo = lod_dt_obj(dt);
 	int		    rc;
 	ENTRY;
+
+	attr->la_pool_id = lo->ldo_pool_id;
+	attr->la_valid |= LA_POOLID;
 
 	/* create local object */
 	rc = lod_sub_object_create(env, dt_object_child(dt), attr, hint, dof,

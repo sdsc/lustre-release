@@ -263,6 +263,7 @@ struct lod_object {
 			__u32			     ldo_stripe_size;
 			__u16			     ldo_stripe_offset;
 			char			    *ldo_pool;
+			__u32			     ldo_pool_id;
 		};
 		/* directory stripe */
 		struct {
@@ -283,24 +284,6 @@ struct lod_object {
 	struct dt_object			   **ldo_stripe;
 };
 
-static inline int lod_object_set_pool(struct lod_object *lo, const char *pool)
-{
-	int len;
-
-	if (lo->ldo_pool != NULL) {
-		len = strlen(lo->ldo_pool) + 1;
-		OBD_FREE(lo->ldo_pool, len);
-		lo->ldo_pool = NULL;
-	}
-	if (pool != NULL) {
-		len = strlen(pool) + 1;
-		OBD_ALLOC(lo->ldo_pool, len);
-		if (lo->ldo_pool == NULL)
-			return -ENOMEM;
-		strlcpy(lo->ldo_pool, pool, len);
-	}
-	return 0;
-}
 
 struct lod_it {
 	struct dt_object	*lit_obj; /* object from the layer below */
@@ -466,6 +449,42 @@ lod_get_default_lmv_ea(const struct lu_env *env, struct lod_object *lo)
 	return lod_get_ea(env, lo, XATTR_NAME_DEFAULT_LMV);
 }
 
+struct pool_desc *lod_find_pool(struct lod_device *lod, char *poolname);
+void lod_pool_putref(struct pool_desc *pool);
+static inline int lod_object_set_pool(struct lod_object *lo, const char *pool)
+{
+	int len;
+	struct pool_desc *pool_desc;
+	__u32 pool_id;
+	struct lod_device *m = lu2lod_dev(lo->ldo_obj.do_lu.lo_dev);
+
+	if (lo->ldo_pool != NULL) {
+		len = strlen(lo->ldo_pool) + 1;
+		OBD_FREE(lo->ldo_pool, len);
+		lo->ldo_pool = NULL;
+		lo->ldo_pool_id = 0;
+	}
+	if (pool != NULL) {
+		/* This will change the inherit sytax of pool */
+		pool_desc = lod_find_pool(m, (char *)pool);
+		if (pool_desc == NULL) {
+			CDEBUG(D_INFO, "failed to find pool %s\n",
+			       pool);
+			return -ENOENT;
+		}
+		pool_id = pool_desc->pool_id;
+		lod_pool_putref(pool_desc);
+		len = strlen(pool) + 1;
+		OBD_ALLOC(lo->ldo_pool, len);
+		if (lo->ldo_pool == NULL)
+			return -ENOMEM;
+		strlcpy(lo->ldo_pool, pool, len);
+		lo->ldo_pool_id = pool_id;
+	}
+	LASSERT(equi(lo->ldo_pool_id, lo->ldo_pool));
+	return 0;
+}
+
 void lod_fix_desc(struct lov_desc *desc);
 void lod_fix_desc_qos_maxage(__u32 *val);
 void lod_fix_desc_pattern(__u32 *val);
@@ -488,8 +507,6 @@ int lod_ea_store_resize(struct lod_thread_info *info, size_t size);
 int lod_ost_pool_add(struct ost_pool *op, __u32 idx, unsigned int min_count);
 int lod_ost_pool_remove(struct ost_pool *op, __u32 idx);
 int lod_ost_pool_extend(struct ost_pool *op, unsigned int min_count);
-struct pool_desc *lod_find_pool(struct lod_device *lod, char *poolname);
-void lod_pool_putref(struct pool_desc *pool);
 int lod_ost_pool_free(struct ost_pool *op);
 int lod_pool_del(struct obd_device *obd, char *poolname);
 int lod_ost_pool_init(struct ost_pool *op, unsigned int count);
