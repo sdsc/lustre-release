@@ -1172,12 +1172,17 @@ static int lod_attr_set(const struct lu_env *env,
 	struct dt_object	*next = dt_object_child(dt);
 	struct lod_object	*lo = lod_dt_obj(dt);
 	int			rc, i;
+	struct lu_attr	   copy_attr;
 	ENTRY;
+
+	copy_attr = *attr;
+	copy_attr.la_pool_id = lo->ldo_pool_id;
+	copy_attr.la_valid |= LA_POOLID;
 
 	/*
 	 * apply changes to the local object
 	 */
-	rc = lod_sub_object_attr_set(env, next, attr, th);
+	rc = lod_sub_object_attr_set(env, next, &copy_attr, th);
 	if (rc)
 		RETURN(rc);
 
@@ -1194,6 +1199,7 @@ static int lod_attr_set(const struct lu_env *env,
 			RETURN(rc);
 	}
 
+	LASSERT(equi(lo->ldo_pool_id, lo->ldo_pool));
 	if (lo->ldo_stripenr == 0)
 		RETURN(0);
 
@@ -1209,7 +1215,7 @@ static int lod_attr_set(const struct lu_env *env,
 		    (dt_object_exists(lo->ldo_stripe[i]) == 0))
 			continue;
 
-		rc = lod_sub_object_attr_set(env, lo->ldo_stripe[i], attr, th);
+		rc = lod_sub_object_attr_set(env, lo->ldo_stripe[i], &copy_attr, th);
 		if (rc != 0)
 			break;
 	}

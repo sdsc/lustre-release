@@ -144,6 +144,10 @@ void la_from_obdo(struct lu_attr *dst, const struct obdo *obdo, u64 valid)
 		dst->la_flags = obdo->o_flags;
 		newvalid |= LA_FLAGS;
 	}
+	if (valid & OBD_MD_FLPOOLID) {
+		dst->la_pool_id = obdo->o_pool_id;
+		newvalid |= LA_POOLID;
+	}
 	dst->la_valid = newvalid;
 }
 EXPORT_SYMBOL(la_from_obdo);
