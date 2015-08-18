@@ -1681,7 +1681,7 @@ lov_mds_md_max_stripe_count(size_t buf_size, __u32 lmm_magic)
 #define OBD_MD_FLFLAGS     (0x00000800ULL) /* flags word */
 #define OBD_MD_FLNLINK     (0x00002000ULL) /* link count */
 #define OBD_MD_FLGENER     (0x00004000ULL) /* generation number */
-/*#define OBD_MD_FLINLINE    (0x00008000ULL)  inline data. used until 1.6.5 */
+#define OBD_MD_FLPOOLID    (0x00008000ULL) /* pool ID */
 #define OBD_MD_FLRDEV      (0x00010000ULL) /* device number */
 #define OBD_MD_FLEASIZE    (0x00020000ULL) /* extended attribute data */
 #define OBD_MD_LINKNAME    (0x00040000ULL) /* symbolic link target */
@@ -3098,6 +3098,9 @@ struct llog_unlink64_rec {
 	struct llog_rec_tail    lur_tail;
 } __attribute__((packed));
 
+/*
+ * todo consider old format here.
+ */
 struct llog_setattr64_rec {
 	struct llog_rec_hdr	lsr_hdr;
 	struct ost_id		lsr_oi;
@@ -3107,6 +3110,8 @@ struct llog_setattr64_rec {
 	__u32			lsr_gid_h;
 	__u64			lsr_valid;
 	struct llog_rec_tail    lsr_tail;
+	__u32			lsr_pool_id;
+	__u32			lsr_padding;
 } __attribute__((packed));
 
 struct llog_size_change_rec {
@@ -3344,7 +3349,8 @@ struct obdo {
 						 * each stripe.
 						 * brw: grant space consumed on
 						 * the client for the write */
-	__u64			o_padding_4;
+	__u32			o_pool_id;
+	__u32			o_padding_4;
 	__u64			o_padding_5;
 	__u64			o_padding_6;
 };

@@ -251,7 +251,9 @@ int lov_pool_new(struct obd_device *obd, char *poolname, __u32 pool_id);
 int lov_pool_del(struct obd_device *obd, char *poolname);
 int lov_pool_add(struct obd_device *obd, char *poolname, char *ostname);
 int lov_pool_remove(struct obd_device *obd, char *poolname, char *ostname);
+void lov_pool_putref(struct pool_desc *pool);
 void lov_dump_pool(int level, struct pool_desc *pool);
+struct pool_desc *lov_find_pool(struct lov_obd *lov, char *poolname);
 
 static inline struct lov_stripe_md *lsm_addref(struct lov_stripe_md *lsm)
 {

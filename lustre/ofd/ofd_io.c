@@ -816,7 +816,6 @@ ofd_write_attr_set(const struct lu_env *env, struct ofd_device *ofd,
 	struct thandle		*th;
 	struct dt_object	*dt_obj;
 	int			 ff_needed = 0;
-
 	ENTRY;
 
 	LASSERT(la);
@@ -824,7 +823,7 @@ ofd_write_attr_set(const struct lu_env *env, struct ofd_device *ofd,
 	dt_obj = ofd_object_child(ofd_obj);
 	LASSERT(dt_obj != NULL);
 
-	la->la_valid &= LA_UID | LA_GID;
+	la->la_valid &= LA_UID | LA_GID | LA_POOLID;
 
 	rc = ofd_attr_handle_ugid(env, ofd_obj, la, 0 /* !is_setattr */);
 	if (rc != 0)
@@ -885,6 +884,8 @@ ofd_write_attr_set(const struct lu_env *env, struct ofd_device *ofd,
 		if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_NOPFID))
 			GOTO(out_tx, rc);
 
+		info->fti_buf.lb_buf = ff;
+		info->fti_buf.lb_len = sizeof(*ff);
 		rc = dt_xattr_set(env, dt_obj, &info->fti_buf, XATTR_NAME_FID,
 				  0, th);
 		if (rc == 0) {
@@ -1206,7 +1207,7 @@ int ofd_commitrw(const struct lu_env *env, int cmd, struct obd_export *exp,
 		 * to be changed to ofd_fmd_get() to create the fmd if it
 		 * doesn't already exist so we can store the reservation handle
 		 * there. */
-		valid = OBD_MD_FLUID | OBD_MD_FLGID;
+		valid = OBD_MD_FLUID | OBD_MD_FLGID | OBD_MD_FLPOOLID;
 		fmd = ofd_fmd_find(exp, fid);
 		if (!fmd || fmd->fmd_mactime_xid < info->fti_xid)
 			valid |= OBD_MD_FLATIME | OBD_MD_FLMTIME |

@@ -406,11 +406,13 @@ static int osp_sync_add_rec(const struct lu_env *env, struct osp_device *d,
 		osi->osi_hdr.lrh_type = MDS_SETATTR64_REC;
 		osi->osi_setattr.lsr_oi  = osi->osi_oi;
 		LASSERT(attr);
+		LASSERT(attr->la_valid & LA_POOLID);
 		osi->osi_setattr.lsr_uid = attr->la_uid;
 		osi->osi_setattr.lsr_gid = attr->la_gid;
 		osi->osi_setattr.lsr_valid =
 			((attr->la_valid & LA_UID) ? OBD_MD_FLUID : 0) |
 			((attr->la_valid & LA_GID) ? OBD_MD_FLGID : 0);
+		osi->osi_setattr.lsr_pool_id = attr->la_pool_id;
 		break;
 	default:
 		LBUG();
@@ -743,10 +745,11 @@ static int osp_sync_new_setattr_job(struct osp_device *d,
 	body->oa.o_uid = rec->lsr_uid;
 	body->oa.o_gid = rec->lsr_gid;
 	body->oa.o_valid = OBD_MD_FLGROUP | OBD_MD_FLID;
+	body->oa.o_pool_id = rec->lsr_pool_id;
 	/* old setattr record (prior 2.6.0) doesn't have 'valid' stored,
 	 * we assume that both UID and GID are valid in that case. */
 	if (rec->lsr_valid == 0)
-		body->oa.o_valid |= (OBD_MD_FLUID | OBD_MD_FLGID);
+		body->oa.o_valid |= OBD_MD_FLUID | OBD_MD_FLGID | OBD_MD_FLPOOLID;
 	else
 		body->oa.o_valid |= rec->lsr_valid;
 

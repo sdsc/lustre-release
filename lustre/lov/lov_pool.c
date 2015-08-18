@@ -54,7 +54,7 @@ static void lov_pool_getref(struct pool_desc *pool)
 	atomic_inc(&pool->pool_refcount);
 }
 
-static void lov_pool_putref(struct pool_desc *pool)
+void lov_pool_putref(struct pool_desc *pool)
 {
 	CDEBUG(D_INFO, "pool %p\n", pool);
 	if (atomic_dec_and_test(&pool->pool_refcount)) {
@@ -620,3 +620,25 @@ out:
         lov_pool_putref(pool);
         return rc;
 }
+
+struct pool_desc *lov_find_pool(struct lov_obd *lov, char *poolname)
+{
+	struct pool_desc *pool;
+
+	pool = NULL;
+	if (poolname[0] != '\0') {
+		pool = cfs_hash_lookup(lov->lov_pools_hash_body, poolname);
+		if (pool == NULL)
+			CWARN("Request for an unknown pool ("LOV_POOLNAMEF")\n",
+			      poolname);
+		if ((pool != NULL) && (pool_tgt_count(pool) == 0)) {
+			CWARN("Request for an empty pool ("LOV_POOLNAMEF")\n",
+			      poolname);
+			/* pool is ignored, so we remove ref on it */
+			lov_pool_putref(pool);
+			pool = NULL;
+		}
+	}
+	return pool;
+}
+

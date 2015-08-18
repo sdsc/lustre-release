@@ -614,6 +614,7 @@ check_obdo(void)
 	CHECK_MEMBER(obdo, o_uid_h);
 	CHECK_MEMBER(obdo, o_gid_h);
 	CHECK_MEMBER(obdo, o_data_version);
+	CHECK_MEMBER(obdo, o_pool_id);
 	CHECK_MEMBER(obdo, o_padding_4);
 	CHECK_MEMBER(obdo, o_padding_5);
 	CHECK_MEMBER(obdo, o_padding_6);
@@ -1573,6 +1574,7 @@ check_llog_setattr64_rec(void)
 	CHECK_MEMBER(llog_setattr64_rec, lsr_gid);
 	CHECK_MEMBER(llog_setattr64_rec, lsr_gid_h);
 	CHECK_MEMBER(llog_setattr64_rec, lsr_valid);
+	CHECK_MEMBER(llog_setattr64_rec, lsr_pool_id);
 	CHECK_MEMBER(llog_setattr64_rec, lsr_tail);
 }
 
