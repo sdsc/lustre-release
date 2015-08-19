@@ -8,4 +8,5 @@ ext4-projid-ignore-maxquotas.patch
 ext4-projid-feature-support.patch
 ext4-projid-quotas.patch
 ext4-projid-xfs-ioctls.patch
+ext4-export-__ext4_ioctl_setproject-for-lustre.patch
 
