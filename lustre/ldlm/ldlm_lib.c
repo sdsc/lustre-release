@@ -928,7 +928,7 @@ int target_handle_connect(struct ptlrpc_request *req)
         int rc = 0;
         char *target_start;
         int target_len;
-	bool	 mds_conn = false, lw_client = false;
+	bool	 mds_conn = false, lw_client = false, initial_conn = false;
 	bool	 mds_mds_conn = false;
 	bool	 new_mds_mds_conn = false;
 	bool	 target_referenced = false;
@@ -1060,6 +1060,7 @@ int target_handle_connect(struct ptlrpc_request *req)
 	lw_client = (data->ocd_connect_flags & OBD_CONNECT_LIGHTWEIGHT) != 0;
 
 	if (lustre_msg_get_op_flags(req->rq_reqmsg) & MSG_CONNECT_INITIAL) {
+		initial_conn = true;
 		mds_conn = (data->ocd_connect_flags & OBD_CONNECT_MDS) != 0;
 		mds_mds_conn = (data->ocd_connect_flags &
 				OBD_CONNECT_MDS_MDS) != 0;
@@ -1117,7 +1118,8 @@ int target_handle_connect(struct ptlrpc_request *req)
 		class_export_put(export);
 		export = NULL;
 		rc = -EALREADY;
-	} else if ((mds_conn || lw_client) && export->exp_connection != NULL) {
+	} else if ((mds_conn || (lw_client && initial_conn)) &&
+		   export->exp_connection != NULL) {
 		spin_unlock(&export->exp_lock);
 		if (req->rq_peer.nid != export->exp_connection->c_peer.nid)
 			/* MDS or LWP reconnected after failover. */
@@ -1132,14 +1134,12 @@ int target_handle_connect(struct ptlrpc_request *req)
 				"%s, removing former export from same NID\n",
 				target->obd_name, mds_conn ? "MDS" : "LWP",
 				libcfs_nid2str(req->rq_peer.nid));
-                class_fail_export(export);
-                class_export_put(export);
-                export = NULL;
-                rc = 0;
-        } else if (export->exp_connection != NULL &&
-                   req->rq_peer.nid != export->exp_connection->c_peer.nid &&
-                   (lustre_msg_get_op_flags(req->rq_reqmsg) &
-                    MSG_CONNECT_INITIAL)) {
+		class_fail_export(export);
+		class_export_put(export);
+		export = NULL;
+		rc = 0;
+	} else if (export->exp_connection != NULL && initial_conn &&
+		   req->rq_peer.nid != export->exp_connection->c_peer.nid) {
 		spin_unlock(&export->exp_lock);
 		/* In MDS failover we have static UUID but NID can change. */
                 LCONSOLE_WARN("%s: Client %s seen on new nid %s when "
