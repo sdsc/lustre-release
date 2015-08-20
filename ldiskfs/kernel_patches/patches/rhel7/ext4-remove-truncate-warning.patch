@@ -19,6 +19,23 @@ Index: linux-3.10.0-229.1.2.fc21.x86_64/fs/ext4/namei.c
 ===================================================================
 --- linux-3.10.0-229.1.2.fc21.x86_64.orig/fs/ext4/namei.c
 +++ linux-3.10.0-229.1.2.fc21.x86_64/fs/ext4/namei.c
+@@ -1244,6 +1244,7 @@ static int ext4_htree_next_block(struct
+  * directory block.  It returns the number directory entries loaded
+  * into the tree.  If there is an error it is returned in err.
+  */
++#include <linux/sysrq.h>
+ static int htree_dirblock_to_tree(struct file *dir_file,
+ 				  struct inode *dir, ext4_lblk_t block,
+ 				  struct dx_hash_info *hinfo,
+@@ -1269,6 +1270,8 @@ static int htree_dirblock_to_tree(struct
+ 				(block<<EXT4_BLOCK_SIZE_BITS(dir->i_sb))
+ 					 + ((char *)de - bh->b_data))) {
+ 			/* silently ignore the rest of the block */
++printk(KERN_EMERG"dir-name=%s\n", dir_file->f_path.dentry->d_name.name);
++			handle_sysrq('t');
+ 			break;
+ 		}
+ 		ext4fs_dirhash(de->name, de->name_len, hinfo);
 @@ -3163,8 +3163,6 @@ int ext4_orphan_add(handle_t *handle, st
  	if (!sbi->s_journal || is_bad_inode(inode))
  		return 0;
