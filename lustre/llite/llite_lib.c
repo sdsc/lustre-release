@@ -1288,6 +1288,44 @@ static inline int lli_lsm_md_eq(const struct lmv_stripe_md *lsm_md1,
 		      lsm_md2->lsm_md_pool_name) == 0;
 }
 
+static int ll_merge_dir_attr(struct inode *inode, struct lustre_md *md)
+{
+	struct lmv_stripe_md *lsm = md->lmv;
+	struct cl_attr	*attr;
+	int rc;
+	ENTRY;
+
+	LASSERT(S_ISDIR(inode->i_mode));
+	if (lsm == NULL)
+		RETURN(rc);
+
+	OBD_ALLOC_PTR(attr);
+	if (attr == NULL)
+		RETURN(-ENOMEM);
+
+	/* validate the lsm */
+	rc = md_merge_attr(ll_i2mdexp(inode), lsm, attr, ll_md_blocking_ast);
+	if (rc != 0) {
+		OBD_FREE_PTR(attr);
+		RETURN(rc);
+	}
+
+	if (md->body->mbo_valid & OBD_MD_FLNLINK)
+		md->body->mbo_nlink = attr->cat_nlink;
+	if (md->body->mbo_valid & OBD_MD_FLSIZE)
+		md->body->mbo_size = attr->cat_size;
+	if (md->body->mbo_valid & OBD_MD_FLATIME)
+		md->body->mbo_atime = attr->cat_atime;
+	if (md->body->mbo_valid & OBD_MD_FLCTIME)
+		md->body->mbo_ctime = attr->cat_ctime;
+	if (md->body->mbo_valid & OBD_MD_FLMTIME)
+		md->body->mbo_mtime = attr->cat_mtime;
+
+	OBD_FREE_PTR(attr);
+
+	RETURN(rc);
+}
+
 static int ll_update_lsm_md(struct inode *inode, struct lustre_md *md)
 {
 	struct ll_inode_info *lli = ll_i2info(inode);
@@ -1321,41 +1359,39 @@ static int ll_update_lsm_md(struct inode *inode, struct lustre_md *md)
 
 	/* set the directory layout */
 	if (lli->lli_lsm_md == NULL) {
-		struct cl_attr	*attr;
-
 		rc = ll_init_lsm_md(inode, md);
 		if (rc != 0)
 			RETURN(rc);
 
-		lli->lli_lsm_md = lsm;
-
-		OBD_ALLOC_PTR(attr);
-		if (attr == NULL)
-			RETURN(-ENOMEM);
-
-		/* validate the lsm */
-		rc = md_merge_attr(ll_i2mdexp(inode), lsm, attr,
-				   ll_md_blocking_ast);
-		if (rc != 0) {
-			OBD_FREE_PTR(attr);
-			RETURN(rc);
+		/* Do not merge attr for striped dir if the inode state is NEW,
+		 * otherwise it will cause the dead lock,
+		 *
+		 * 1. Client1 send chmod req to the MDT0, then on MDT0, it
+		 * enqueues master and all of its slaves lock, (mdt_attr_set()
+		 * ->mdt_lock_slaves()), after gets master and stripe0 lock,
+		 *  it will send the enqueue request(for stripe1) to MDT1, then
+		 *  MDT1 finds the lock has been granted to client2. Then MDT1
+		 *  sends blocking ast to client2.
+		 *
+		 * 2. At the same time, client2 tries to unlink the striped
+		 * dir (rm -rf striped_dir), and during lookup, it will hold
+		 * the master inode of the striped directory, whose inode state
+		 * is NEW, then tries to revalidate all of its slaves,
+		 * (ll_prep_inode()->ll_iget()->ll_read_inode2()->
+		 * ll_update_inode().). And it will be blocked on the server
+		 * side because of 1.
+		 *
+		 * 3.Then the client get the blocking_ast request, cancel the
+		 * lock, but being blocked in ll_md_blocking_ast(), because
+		 * the inode has been hold by thread B, see ll_md_blocking_ast()
+		 * ->ilookup5()). */
+		if (!(inode->i_state & I_NEW)) {
+			rc = ll_merge_dir_attr(inode, md);
+			if (rc != 0)
+				RETURN(rc);
 		}
-
-		if (md->body->mbo_valid & OBD_MD_FLNLINK)
-			md->body->mbo_nlink = attr->cat_nlink;
-		if (md->body->mbo_valid & OBD_MD_FLSIZE)
-			md->body->mbo_size = attr->cat_size;
-		if (md->body->mbo_valid & OBD_MD_FLATIME)
-			md->body->mbo_atime = attr->cat_atime;
-		if (md->body->mbo_valid & OBD_MD_FLCTIME)
-			md->body->mbo_ctime = attr->cat_ctime;
-		if (md->body->mbo_valid & OBD_MD_FLMTIME)
-			md->body->mbo_mtime = attr->cat_mtime;
-
-		OBD_FREE_PTR(attr);
-
-
-			/* set lsm_md to NULL, so the following free lustre_md
+		lli->lli_lsm_md = lsm;
+		/* set lsm_md to NULL, so the following free lustre_md
 		 * will not free this lsm */
 		md->lmv = NULL;
 		CDEBUG(D_INODE, "Set lsm %p magic %x to "DFID"\n", lsm,
