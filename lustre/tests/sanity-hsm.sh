@@ -2082,6 +2082,39 @@ test_24d() {
 }
 run_test 24d "check that read-only mounts are respected"
 
+test_24e() {
+	local file=$DIR/$tdir/$tfile
+	local fid
+	local sum0
+	local sum1
+	# LU-6214
+
+	# Test needs a running copytool.
+	copytool_setup
+	mkdir -p $DIR/$tdir
+	cd $DIR/$tdir
+
+	echo XXXXXXXXXXX > $tfile
+	sum0=$(md5sum $tfile)
+	echo $sum0
+
+	$LFS hsm_archive $tfile
+	$LFS hsm_release $tfile
+	sync
+	sleep 5
+
+	tar --xattr -cvf $tfile.tar $tfile
+	rm -f $tfile
+	sync
+	tar --xattr -xvf $tfile.tar  || error "Can not recover the tar contents"
+	sum1=$(md5sum $tfile)
+
+	[ "$sum0" == "$sum1" ] ||
+		error "md5sum mismatch for '$file'"
+
+	copytool_cleanup
+}
+run_test 24e "root can archive, release, and restore tar files"
 test_25a() {
 	# test needs a running copytool
 	copytool_setup
