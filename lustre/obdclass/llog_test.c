@@ -745,6 +745,23 @@ static int llog_cancel_rec_cb(const struct lu_env *env,
 	RETURN(0);
 }
 
+static struct llog_handle *cur_lgh;
+
+static int test_5_cancel_cb(const struct lu_env *env,
+			    struct llog_handle *lgh,
+			    struct llog_rec_hdr *rec, void *data)
+{
+	LASSERT(lgh->lgh_hdr->llh_flags & LLOG_F_IS_PLAIN);
+	if (cur_lgh == NULL) {
+		cur_lgh = lgh;
+	} else if (cur_lgh != lgh) { /* stop on the next llog */
+		cur_lgh = lgh;
+		RETURN(LLOG_PROC_BREAK);
+	}
+	RETURN(LLOG_DEL_RECORD);
+}
+
+
 /* Test log and catalogue processing */
 static int llog_test_5(const struct lu_env *env, struct obd_device *obd)
 {
@@ -753,6 +770,7 @@ static int llog_test_5(const struct lu_env *env, struct obd_device *obd)
 	int			 rc, rc2;
 	struct llog_mini_rec	 lmr;
 	struct llog_ctxt	*ctxt;
+	unsigned		 cat_idx;
 
 	ENTRY;
 
@@ -840,11 +858,75 @@ static int llog_test_5(const struct lu_env *env, struct obd_device *obd)
 		GOTO(out, rc = -EINVAL);
 	}
 
+	/* At this point we have llog catalog with two plain llogs,
+	 * one at index 2 with 5 records and another at index 3 with 1 record.
+	 */
+	CWARN("5g: test llh_cat_idx validity\n");
+
+	cat_idx = llh->lgh_hdr->llh_cat_idx;
+	/* cancel all records in the first plain llog */
+	rc = llog_cat_process(env, llh, test_5_cancel_cb, "foobar", 0, 0);
+	if (rc < 0) {
+		CERROR("5g: process with test_5_cb failed: %d\n", rc);
+		GOTO(out, rc);
+	}
+
+	/* the first plain llog will be deleted incrementing llh_cat_idx
+	 * only upon the next processing or llog close. Process the next
+	 * plain llog cancelling all records and check that llh_cat_idx
+	 * was incremented along with previous plain llog deletion. */
+	rc = llog_cat_process(env, llh, test_5_cancel_cb, "foobar", 0, 0);
+	if (rc < 0) {
+		CERROR("5g: process with test_5_cb failed: %d\n", rc);
+		GOTO(out, rc);
+	}
+
+	cat_idx++;
+	if (cat_idx != llh->lgh_hdr->llh_cat_idx) {
+		CERROR("5g: llh_cat_idx is %u, but expected %u\n",
+		       llh->lgh_hdr->llh_cat_idx, cat_idx);
+	}
+
+	/* there is no more plain llogs, but llh_cat_idx is not bumped yet
+	 * because the last plain llog is not closed yet and new records
+	 * may be added to it. It should be cleaned up after llog re-opening.
+	 */
+	if (cat_idx != llh->lgh_hdr->llh_cat_idx) {
+		CERROR("5g: llh_cat_idx is %u, but expected %u\n",
+		       llh->lgh_hdr->llh_cat_idx, cat_idx);
+		GOTO(out, rc = -EFAULT);
+	}
+	llog_cat_close(env, llh);
+
+	CWARN("5h: re-open catalog and check its values\n");
+	rc = llog_open(env, ctxt, &llh, &cat_logid, NULL, LLOG_OPEN_EXISTS);
+	if (rc) {
+		CERROR("5h: llog_create with logid failed: %d\n", rc);
+		GOTO(out_put, rc);
+	}
+
+	rc = llog_init_handle(env, llh, LLOG_F_IS_CAT, &uuid);
+	if (rc) {
+		CERROR("5h: can't init llog handle: %d\n", rc);
+		GOTO(out, rc);
+	}
+
+	cat_idx++;
+	if (cat_idx != llh->lgh_hdr->llh_cat_idx) {
+		CERROR("5g: llh_cat_idx is %u, but was %u\n",
+		       llh->lgh_hdr->llh_cat_idx, cat_idx);
+		GOTO(out, rc = -EFAULT);
+	} else if (cat_idx != llh->lgh_last_idx) {
+		CERROR("5g: llh_cat_idx %u != last_idx %u\n",
+		       llh->lgh_hdr->llh_cat_idx, llh->lgh_last_idx);
+		GOTO(out, rc = -EFAULT);
+	}
+
+	CWARN("5h: close re-opened catalog\n");
 out:
-	CWARN("5g: close re-opened catalog\n");
 	rc2 = llog_cat_close(env, llh);
 	if (rc2) {
-		CERROR("5g: close log %s failed: %d\n", name, rc2);
+		CERROR("5h: close log %s failed: %d\n", name, rc2);
 		if (rc == 0)
 			rc = rc2;
 	}
