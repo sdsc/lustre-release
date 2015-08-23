@@ -2082,6 +2082,33 @@ test_24d() {
 }
 run_test 24d "check that read-only mounts are respected"
 
+test_24e() {
+
+	# test needs a running copytool
+	copytool_setup
+
+	mkdir -p $DIR/$tdir/d1
+	local f=$DIR/$tdir/$tfile
+	local fid=$(copy_file /etc/hosts $f)
+	sum0=$(md5sum $f)
+	echo $sum0
+	$LFS hsm_archive -a $HSM_ARCHIVE_NUMBER $f ||
+		error "hsm_archive failed"
+	wait_request_state $fid ARCHIVE SUCCEED
+	$LFS hsm_release $f
+	cd $DIR/$tdir/
+	tar --xattrs -cvf $tfile.tar $tfile
+	rm -f $tfile
+	sync
+	tar --xattrs -xvf $tfile.tar  || error "Can not recover the tar contents"
+	sum1=$(md5sum $f)
+	echo "Sum0 = $sum0, sum1 = $sum1"
+	[ "$sum0" == "$sum1" ] || error "md5sum mismatch for '$tfile'"
+
+	copytool_cleanup
+}
+run_test 24e "root can archive, release, and restore tar files"
+
 test_25a() {
 	# test needs a running copytool
 	copytool_setup
