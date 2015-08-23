@@ -131,7 +131,8 @@ int ll_setxattr_common(struct inode *inode, const char *name,
 		return -EPERM;
 
         /* b10667: ignore lustre special xattr for now */
-        if ((xattr_type == XATTR_TRUSTED_T && strcmp(name, "trusted.lov") == 0) ||
+        if ((xattr_type == XATTR_TRUSTED_T && strcmp(name, XATTR_NAME_HSM) == 0) ||
+	    (xattr_type == XATTR_TRUSTED_T && strcmp(name, "trusted.lov") == 0) ||
             (xattr_type == XATTR_LUSTRE_T && strcmp(name, "lustre.lov") == 0))
                 RETURN(0);
 
@@ -211,6 +212,33 @@ int ll_setxattr_common(struct inode *inode, const char *name,
         ptlrpc_req_finished(req);
         RETURN(0);
 }
+static
+int get_hsm_state(struct inode *inode)
+{
+       struct md_op_data       *op_data;
+       struct hsm_user_state   *hus;
+       int                      rc;
+       __u32                   hus_states = 0;
+
+       OBD_ALLOC_PTR(hus);
+       if (hus == NULL)
+               RETURN(-ENOMEM);
+
+       op_data = ll_prep_md_op_data(NULL, inode, NULL, NULL, 0, 0,
+                       LUSTRE_OPC_ANY, hus);
+       if (IS_ERR(op_data)) {
+               OBD_FREE_PTR(hus);
+               RETURN(PTR_ERR(op_data));
+       }
+
+       rc = obd_iocontrol(LL_IOC_HSM_STATE_GET, ll_i2mdexp(inode), sizeof(*op_data),
+                       op_data, NULL);
+       hus_states = hus->hus_states;
+       ll_finish_md_op_data(op_data);
+       /* */
+       OBD_FREE_PTR(hus);
+       return hus_states;
+}
 
 int ll_setxattr(struct dentry *dentry, const char *name,
                 const void *value, size_t size, int flags)
@@ -239,6 +267,18 @@ int ll_setxattr(struct dentry *dentry, const char *name,
                  * allowed to pick the starting OST index.   b=17846 */
                 if (lump != NULL && lump->lmm_stripe_offset == 0)
                         lump->lmm_stripe_offset = -1;
+               /* LU-6214 Avoid anyone directly settting the RELEASED flagg.*/
+               if((lump != NULL) &&
+                  (lump->lmm_pattern & LOV_PATTERN_F_RELEASED)) {
+                       __u32 state = get_hsm_state(inode);
+                       if(!(state & HS_ARCHIVED)) {
+                               CDEBUG(D_VFSTRACE, 
+				"hus_states state = %x, pattern = %x resetting it to %x\n",
+                                state, lump->lmm_pattern, 
+				(lump->lmm_pattern ^ LOV_PATTERN_F_RELEASED));
+                               lump->lmm_pattern ^= LOV_PATTERN_F_RELEASED;
+                       }
+               }
 
 		if (lump != NULL && S_ISREG(inode->i_mode)) {
 			struct file	f;
