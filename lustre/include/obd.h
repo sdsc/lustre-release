@@ -726,13 +726,6 @@ struct obd_device {
 	int		       obd_conn_inprogress;
 };
 
-enum obd_cleanup_stage {
-/* Special case hack for MDS LOVs */
-        OBD_CLEANUP_EARLY,
-/* can be directly mapped to .ldto_device_fini() */
-        OBD_CLEANUP_EXPORTS,
-};
-
 /* get/set_info keys */
 #define KEY_ASYNC               "async"
 #define KEY_CHANGELOG_CLEAR     "changelog_clear"
@@ -894,8 +887,7 @@ struct obd_ops {
 				__u32 vallen, void *val,
 				struct ptlrpc_request_set *set);
         int (*o_setup) (struct obd_device *dev, struct lustre_cfg *cfg);
-        int (*o_precleanup)(struct obd_device *dev,
-                            enum obd_cleanup_stage cleanup_stage);
+        int (*o_precleanup)(struct obd_device *dev);
         int (*o_cleanup)(struct obd_device *dev);
 	int (*o_process_config)(struct obd_device *dev, size_t len, void *data);
         int (*o_postrecov)(struct obd_device *dev);
