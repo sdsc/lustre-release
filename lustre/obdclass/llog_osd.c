@@ -445,8 +445,9 @@ static int llog_osd_write_rec(const struct lu_env *env,
 			       "len:%u offset %llu\n",
 			       POSTID(&loghandle->lgh_id.lgl_oi), idx,
 			       rec->lrh_len, (long long)lgi->lgi_off);
-		} else if (llh->llh_size > 0) {
-			if (llh->llh_size != rec->lrh_len) {
+		} else if (llh->llh_flags & LLOG_F_IS_FIXSIZE) {
+			if (llh->llh_size == 0 ||
+			    llh->llh_size != rec->lrh_len) {
 				CERROR("%s: wrong record size, llh_size is %u"
 				       " but record size is %u\n",
 				       o->do_lu.lo_dev->ld_obd->obd_name,
@@ -531,6 +532,16 @@ static int llog_osd_write_rec(const struct lu_env *env,
 	}
 	llh->llh_count++;
 
+	if (llh->llh_flags & LLOG_F_IS_FIXSIZE) {
+		LASSERT(llh->llh_size == reclen);
+	} else {
+		/* Update the mini size llog record */
+		if (llh->llh_size == 0)
+			llh->llh_size = reclen;
+		else if (reclen < llh->llh_size)
+			llh->llh_size = reclen;
+	}
+
 	if (lgi->lgi_attr.la_size == 0) {
 		lgi->lgi_off = 0;
 		lgi->lgi_buf.lb_len = llh->llh_hdr.lrh_len;
@@ -549,9 +560,9 @@ static int llog_osd_write_rec(const struct lu_env *env,
 		 * the RPC (1MB limit), if we write 8K for each operation, which
 		 * will cost a lot space, and keep us adding more updates to one
 		 * update log.*/
-		lgi->lgi_off = offsetof(typeof(*llh), llh_count);
-		lgi->lgi_buf.lb_len = sizeof(llh->llh_count);
-		lgi->lgi_buf.lb_buf = &llh->llh_count;
+		lgi->lgi_off = 0;
+		lgi->lgi_buf.lb_len = llh->llh_bitmap_offset;
+		lgi->lgi_buf.lb_buf = &llh->llh_hdr;
 		rc = dt_record_write(env, o, &lgi->lgi_buf, &lgi->lgi_off, th);
 		if (rc != 0)
 			GOTO(out_unlock, rc);
@@ -627,16 +638,31 @@ out:
  * that we are not far enough along the log (because the
  * actual records are larger than minimum size) we just skip
  * some more records.
+ *
+ * Note: in llog_process_thread, it will use bitmap offset as
+ * the index to locate the record, which also includs some pad
+ * records, whose record size is very small, and it also does not
+ * consider pad record when recording minimum record size (otherwise
+ * min_record size might be too small), so in some rare cases,
+ * it might skip too much record for @goal, see llog_osd_next_block().
  */
 static inline void llog_skip_over(struct llog_log_hdr *llh, __u64 *off,
 				  int curr, int goal, __u32 chunk_size)
 {
+	/* Goal should not bigger than the record count */
+	if (goal > llh->llh_count)
+		goal = llh->llh_count - 1;
+
 	if (goal > curr) {
-		if (llh->llh_size == 0) {
-			/* variable size records */
-			*off = *off + (goal - curr - 1) * LLOG_MIN_REC_SIZE;
-		} else {
+		if (llh->llh_flags & LLOG_F_IS_FIXSIZE) {
 			*off = chunk_size + (goal - 1) * llh->llh_size;
+		} else {
+			__u64 min_rec_size = LLOG_MIN_REC_SIZE;
+
+			if (llh->llh_size > 0)
+				min_rec_size = llh->llh_size;
+
+			*off = *off + (goal - curr - 1) * min_rec_size;
 		}
 	}
 	/* always align with lower chunk boundary*/
@@ -697,6 +723,9 @@ static int llog_osd_next_block(const struct lu_env *env,
 	struct dt_device	*dt;
 	int			 rc;
 	__u32			chunk_size;
+	int orig_idx = *cur_idx;
+	__u64 orig_offset = *cur_offset;
+	bool			skip = true;
 
 	ENTRY;
 
@@ -727,8 +756,9 @@ static int llog_osd_next_block(const struct lu_env *env,
 		struct llog_rec_hdr	*rec, *last_rec;
 		struct llog_rec_tail	*tail;
 
-		llog_skip_over(loghandle->lgh_hdr, cur_offset, *cur_idx,
-			       next_idx, chunk_size);
+		if (skip)
+			llog_skip_over(loghandle->lgh_hdr, cur_offset, *cur_idx,
+				       next_idx, chunk_size);
 
 		/* read up to next llog chunk_size block */
 		lgi->lgi_buf.lb_len = chunk_size -
@@ -794,6 +824,20 @@ static int llog_osd_next_block(const struct lu_env *env,
 		/* sanity check that the start of the new buffer is no farther
 		 * than the record that we wanted.  This shouldn't happen. */
 		if (rec->lrh_index > next_idx) {
+			/* Note: because there are some pad records in the
+			 * llog, so llog_skip_over() might skip too much
+			 * records, let's disable skip and go back with
+			 * the orignal index and try again.*/
+			if (skip && next_idx > orig_idx) {
+				CDEBUG(D_HA, "%s: might skip too far %u >"
+				       " %u\n",
+				       o->do_lu.lo_dev->ld_obd->obd_name,
+				       rec->lrh_index, next_idx);
+				skip = false;
+				*cur_offset = orig_offset;
+				*cur_idx = orig_idx;
+				continue;
+			}
 			CERROR("%s: missed desired record? %u > %u\n",
 			       o->do_lu.lo_dev->ld_obd->obd_name,
 			       rec->lrh_index, next_idx);
