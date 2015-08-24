@@ -2551,6 +2551,9 @@ static int ldlm_bl_thread_start(struct ldlm_bl_pool *blp)
 		       cfs_atomic_read(&blp->blp_num_threads), PTR_ERR(task));
 		return PTR_ERR(task);
 	}
+
+	cfs_block_allsigs();
+
 	wait_for_completion(&bltd.bltd_comp);
 
 	return 0;
