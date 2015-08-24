@@ -3416,6 +3416,7 @@ enum llog_flag {
 	LLOG_F_IS_CAT		= 0x2,
 	LLOG_F_IS_PLAIN		= 0x4,
 	LLOG_F_EXT_JOBID	= 0x8,
+	LLOG_F_IS_FIXSIZE	= 0x10,
 
 	LLOG_F_EXT_MASK = LLOG_F_EXT_JOBID,
 };

@@ -345,6 +345,7 @@ static int llog_test_3(const struct lu_env *env, struct obd_device *obd,
 
 	hdr->lrh_len = sizeof(struct llog_gen_rec);
 	hdr->lrh_type = LLOG_GEN_REC;
+	llh->lgh_hdr->llh_flags |= LLOG_F_IS_FIXSIZE;
 	llh->lgh_hdr->llh_size = sizeof(struct llog_gen_rec);
 
 	/* Fill the llog with 64-bytes records, use 1023 records,
