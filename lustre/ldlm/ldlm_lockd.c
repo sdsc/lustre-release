@@ -2580,6 +2580,8 @@ static int ldlm_bl_thread_main(void *arg)
                 /* cannot use bltd after this, it is only on caller's stack */
         }
 
+	cfs_block_allsigs();
+
         while (1) {
                 struct l_wait_info lwi = { 0 };
                 struct ldlm_bl_work_item *blwi = NULL;
