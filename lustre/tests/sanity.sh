@@ -58,7 +58,7 @@ init_test_env $@
 . ${CONFIG:=$LUSTRE/tests/cfg/${NAME}.sh}
 init_logging
 
-[ "$SLOW" = "no" ] && EXCEPT_SLOW="24o 24D 27m 64b 68 71 77f 78 115 124b"
+[ "$SLOW" = "no" ] && EXCEPT_SLOW="24o 24D 27m 64b 68 71 77f 78 115 124b 300o"
 
 if [ $(facet_fstype $SINGLEMDS) = "zfs" ]; then
 	# bug number for skipped test: LU-4536 LU-1957 LU-2805
@@ -13907,6 +13907,42 @@ test_300n() {
 	cleanup_300n
 }
 run_test 300n "non-root user to create dir under striped dir with default EA"
+
+test_300o() {
+	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+	local numfree1
+	local numfree2
+
+	mkdir -p $DIR/$tdir
+
+	numfree1=$(lctl get_param -n mdc.*MDT0000*.filesfree)
+	numfree2=$(lctl get_param -n mdc.*MDT0001*.filesfree)
+	if [ $numfree1 -lt 66000 -o $numfree2 -lt 66000 ]; then
+		skip "not enough free inodes $numfree1 $numfree2"
+		return
+	fi
+
+	numfree1=$(lctl get_param -n mdc.*MDT0000-mdc-*.kbytesfree)
+	numfree2=$(lctl get_param -n mdc.*MDT0001-mdc-*.kbytesfree)
+	if [ $numfree1 -lt 300000 -o $numfree2 -lt 300000 ]; then
+		skip "not enough free space $numfree1 $numfree2"
+		return
+	fi
+
+	$LFS setdirstripe -c2 $DIR/$tdir/striped_dir ||
+		error "setdirstripe fails"
+
+	createmany -d $DIR/$tdir/striped_dir/d 131000 ||
+		error "create dirs fails"
+
+	$LCTL set_param ldlm.namespaces.*mdc-*.lru_size=0
+	ls $DIR/$tdir/striped_dir > /dev/null ||
+		error "ls striped dir fails"
+	unlinkmany -d $DIR/$tdir/striped_dir/d 131000 ||
+		error "unlink big striped dir fails"
+}
+run_test 300o "unlink big sub stripe(> 65000 subdirs)"
 
 prepare_remote_file() {
 	mkdir $DIR/$tdir/src_dir ||
