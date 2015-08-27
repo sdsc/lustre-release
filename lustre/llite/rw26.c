@@ -230,7 +230,13 @@ static void ll_free_user_pages(struct page **pages, int npages, int do_dirty)
                 page_cache_release(pages[i]);
         }
 
-        OBD_FREE_LARGE(pages, npages * sizeof(*pages));
+#if defined(HAVE_DIRECTIO_ITER) || defined(HAVE_IOV_ITER_RW)
+	/* Allocated with iov_iter_get_pages_alloc */
+	kvfree(pages);
+#else
+	/* Allocated with ll_get_user_pages */
+	OBD_FREE_LARGE(pages, npages * sizeof(*pages));
+#endif
 }
 
 ssize_t ll_direct_rw_pages(const struct lu_env *env, struct cl_io *io,
