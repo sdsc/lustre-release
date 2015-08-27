@@ -1212,7 +1212,7 @@ set_params:
 
 		/* Don't increase IO request size limit past 32MB.  It is about
 		 * 2x PTLRPC_MAX_BRW_SIZE, but that isn't in a public header. */
-		if (newval > 32 * 1024) {
+		if (newval > 32 * 1024 - 1) {
 			newval = 32 * 1024;
 			snprintf(buf, sizeof(buf), "%llu", newval);
 		}
