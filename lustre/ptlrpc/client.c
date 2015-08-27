@@ -1659,7 +1659,6 @@ int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set)
 		struct obd_import *imp = req->rq_import;
 		int unregistered = 0;
 		int async = 1;
-		int rc = 0;
 
 		if (req->rq_phase == RQ_PHASE_COMPLETE) {
 			list_move_tail(&req->rq_set_chain, &comp_reqs);
@@ -1855,10 +1854,6 @@ int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set)
 					    !ptlrpc_unregister_bulk(req, 1))
 						continue;
                                 }
-                                /*
-                                 * rq_wait_ctx is only touched by ptlrpcd,
-                                 * so no lock is needed here.
-                                 */
                                 status = sptlrpc_req_refresh_ctx(req, -1);
                                 if (status) {
                                         if (req->rq_err) {
@@ -1872,34 +1867,21 @@ int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set)
 						req->rq_wait_ctx = 1;
 						spin_unlock(&req->rq_lock);
 					}
-
-					continue;
 				} else {
 					spin_lock(&req->rq_lock);
 					req->rq_wait_ctx = 0;
 					spin_unlock(&req->rq_lock);
-				}
 
-				rc = ptl_send_rpc(req, 0);
-				if (rc == -ENOMEM) {
 					spin_lock(&imp->imp_lock);
 					if (!list_empty(&req->rq_list))
 						list_del_init(&req->rq_list);
 					spin_unlock(&imp->imp_lock);
 					ptlrpc_rqphase_move(req, RQ_PHASE_NEW);
-					continue;
-				}
-				if (rc) {
-					DEBUG_REQ(D_HA, req,
-						  "send failed: rc = %d", rc);
+
+					/* need to reset the timeout */
 					force_timer_recalc = 1;
-					spin_lock(&req->rq_lock);
-					req->rq_net_err = 1;
-					spin_unlock(&req->rq_lock);
-					continue;
 				}
-				/* need to reset the timeout */
-				force_timer_recalc = 1;
+				continue;
 			}
 
 			spin_lock(&req->rq_lock);
