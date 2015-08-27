@@ -13683,6 +13683,39 @@ test_300l() {
 }
 run_test 300l "non-root user to create dir under striped dir with stale layout"
 
+test_300m() {
+	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	[ $MDSCOUNT -ge 2 ] && skip "Only for single MDT" && return
+
+	mkdir -p $DIR/$tdir/striped_dir
+	$LFS setdirstripe -D -c 1 $DIR/$tdir/striped_dir ||
+		error "set default stripes dir error"
+
+	mkdir $DIR/$tdir/striped_dir/a || error "mkdir a fails"
+
+	stripe_count=$($LFS getdirstripe -c $DIR/$tdir/striped_dir/a)
+	[ $stripe_count -eq 0 ] ||
+			error "expect 0 get $stripe_count for a"
+
+	$LFS setdirstripe -D -c 2 $DIR/$tdir/striped_dir ||
+		error "set default stripes dir error"
+
+	mkdir $DIR/$tdir/striped_dir/b || error "mkdir b fails"
+
+	stripe_count=$($LFS getdirstripe -c $DIR/$tdir/striped_dir/b)
+	[ $stripe_count -eq 0 ] ||
+			error "expect 0 get $stripe_count for b"
+
+	$LFS setdirstripe -D -c1 -i2 $DIR/$tdir/striped_dir ||
+		error "set default stripes dir error"
+
+	mkdir $DIR/$tdir/striped_dir/c &&
+		error "default stripe_index is invalid, mkdir c should fails"
+
+	rm -rf $DIR/$tdir || error "rmdir fails"
+}
+run_test 300m "setstriped directory on single MDT FS"
+
 prepare_remote_file() {
 	mkdir $DIR/$tdir/src_dir ||
 		error "create remote source failed"
