@@ -1500,8 +1500,8 @@ static int ptlrpc_send_new_req(struct ptlrpc_request *req)
 	if (req->rq_send_state == LUSTRE_IMP_REPLAY) {
 		LASSERT(req->rq_xid != 0);
 	} else {
-		LASSERT(req->rq_xid == 0);
-		req->rq_xid = ptlrpc_next_xid();
+		if (req->rq_xid == 0)
+			req->rq_xid = ptlrpc_next_xid();
 	}
 
 	if (!req->rq_generation_set)
@@ -1644,7 +1644,6 @@ int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set)
 				   rq_set_chain);
 		struct obd_import *imp = req->rq_import;
 		int unregistered = 0;
-		int rc = 0;
 
 		/* This schedule point is mainly for the ptlrpcd caller of this
 		 * function.  Most ptlrpc sets are not long-lived and unbounded
@@ -1828,10 +1827,6 @@ int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set)
 					    !ptlrpc_unregister_bulk(req, 1))
 						continue;
                                 }
-                                /*
-                                 * rq_wait_ctx is only touched by ptlrpcd,
-                                 * so no lock is needed here.
-                                 */
                                 status = sptlrpc_req_refresh_ctx(req, -1);
                                 if (status) {
                                         if (req->rq_err) {
@@ -1845,34 +1840,21 @@ int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set)
 						req->rq_wait_ctx = 1;
 						spin_unlock(&req->rq_lock);
 					}
-
-					continue;
 				} else {
 					spin_lock(&req->rq_lock);
 					req->rq_wait_ctx = 0;
 					spin_unlock(&req->rq_lock);
-				}
 
-				rc = ptl_send_rpc(req, 0);
-				if (rc == -ENOMEM) {
 					spin_lock(&imp->imp_lock);
 					if (!list_empty(&req->rq_list))
 						list_del_init(&req->rq_list);
 					spin_unlock(&imp->imp_lock);
 					ptlrpc_rqphase_move(req, RQ_PHASE_NEW);
-					continue;
-				}
-				if (rc) {
-					DEBUG_REQ(D_HA, req,
-						  "send failed: rc = %d", rc);
+
+					/* need to reset the timeout */
 					force_timer_recalc = 1;
-					spin_lock(&req->rq_lock);
-					req->rq_net_err = 1;
-					spin_unlock(&req->rq_lock);
-					continue;
 				}
-				/* need to reset the timeout */
-				force_timer_recalc = 1;
+				continue;
 			}
 
 			spin_lock(&req->rq_lock);
