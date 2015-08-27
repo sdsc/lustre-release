@@ -13732,6 +13732,16 @@ test_310c() {
 }
 run_test 310c "open-unlink remote file with multiple links"
 
+test_311() {
+	local index
+
+	do_facet ost1 "lctl set_param -n osp.*OST0000*.max_create_count 0"
+	$LFS setstripe -i 0 $DIR/$tfile || error "setstripe failed"
+	index=$($LFS getstripe -i $DIR/$tfile)
+	[ $index -eq 1 ] || error "stripe index $index is not 1"
+}
+run_test 311 "disable OSP precreate"
+
 test_400a() { # LU-1606, was conf-sanity test_74
 	local extra_flags=''
 	local out=$TMP/$tfile
