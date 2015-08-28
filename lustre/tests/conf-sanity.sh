@@ -5867,6 +5867,86 @@ test_90d() {
 }
 run_test 90d "check one close RPC is allowed above max_mod_rpcs_in_flight"
 
+generate_ldev_conf() {
+	# generate an ldev.conf file
+	local ldevconfpath=$1
+	touch $ldevconfpath
+	printf "%s\t-\t%s-MGS0000\t%s\n" \
+		$mgs_HOST \
+		$FSNAME \
+		$(mgsdevname) >> $ldevconfpath
+
+	local mdsfo_host=$mdsfailover_HOST;
+	if [ -z "$mdsfo_host" ]; then
+		mdsfo_host="-"
+	fi
+
+	for num in $(seq $MDSCOUNT); do
+		printf "%s\t%s\t%s-MDT%04d\t%s\n" \
+			$mds_HOST \
+			$mdsfo_host \
+			$FSNAME \
+			$num \
+			$(mdsdevname $num) >> $ldevconfpath
+	done
+
+	local ostfo_host=$ostfailover_HOST;
+	if [ -z "$ostfo_host" ]; then
+		ostfo_host="-"
+	fi
+
+	for num in $(seq $OSTCOUNT); do
+		printf "%s\t%s\t%s-OST%04d\t%s\n" \
+			$ost_HOST \
+			$ostfo_host \
+			$FSNAME \
+			$num \
+			$(ostdevname $num) >> $ldevconfpath
+	done
+}
+
+generate_nids() {
+	# generate a nids file (mapping between hostname to nid)
+	# looks like we only have the MGS nid available to us
+	# so just echo that to a file
+	local nidspath=$1
+	touch $nidspath
+	echo -e "${mgs_HOST}\t${MGSNID}" >> $nidspath
+}
+
+test_91() {
+	local LDEVCONFPATH=$TMP/ldev.conf
+	local NIDSPATH=$TMP/nids
+
+	generate_ldev_conf $LDEVCONFPATH
+	generate_nids $NIDSPATH
+
+	# echo the mgs nid and compare it to environment variable MGSNID
+	local LDEV=$LUSTRE/scripts/ldev
+	local output
+	output=$(perl $LDEV -c $LDEVCONFPATH -n $NIDSPATH echo %m)
+
+	# ldev failed, error
+	if [ $? -ne 0 ]; then
+		rm $LDEVCONFPATH
+		rm $NIDSPATH
+		error "ldev failed to execute!"
+	fi
+ 
+	# need to process multiple lines because of combined MGS and MDS
+	echo -e $output | awk '{ print $2 }' | while read -r line ; do
+		if [ "$line" != "$MGSNID" ]; then
+			rm $LDEVCONFPATH
+			rm $NIDSPATH
+			error "ldev failed mgs nid $line, expected $MGSNID"
+		fi
+	done
+
+	rm $LDEVCONFPATH
+	rm $NIDSPATH
+}
+run_test 91 "ldev returns mgs nid correctly in command substitution"
+
 if ! combined_mgs_mds ; then
 	stop mgs
 fi
