@@ -1780,6 +1780,105 @@ test_16() {
 }
 run_test 16 "Test CT bandwith control option"
 
+test_17a() {
+	# test needs a running copytool
+	copytool_setup
+
+	mkdir -p $DIR/$tdir
+	local f=$DIR/$tdir/$tfile
+	local fid=$(copy_file /etc/hosts $f)
+
+	replay_barrier $SINGLEMDS
+	$LFS hsm_archive $f || error "archive of $f failed"
+	fail $SINGLEMDS
+	wait_request_state $fid ARCHIVE SUCCEED
+
+	$LFS hsm_release $f || error "release of $f failed"
+
+	replay_barrier $SINGLEMDS
+	$LFS hsm_restore $f || error "restore of $f failed"
+	fail $SINGLEMDS
+	wait_request_state $fid RESTORE SUCCEED
+
+	echo -n "Verifying file state: "
+	check_hsm_flags $f "0x00000009"
+
+	diff -q /etc/hosts $f
+
+	[[ $? -eq 0 ]] || error "Restored file differs"
+
+	copytool_cleanup
+}
+run_test 17a "Test HSM archive/restore requests replay"
+
+test_17b() {
+	file_count=51 # Max number of files constrained by LNET message size
+	mkdir $DIR/$tdir || error "mkdir $DIR/$tdir failed"
+	local f=$DIR/$tdir/$tfile
+	local FILELIST=/tmp/filelist.txt
+	local i=""
+
+	rm -f $FILELIST
+	for i in $(seq 1 $file_count); do
+		fid=$(copy_file /etc/hosts $f.$i)
+		echo $f.$i >> $FILELIST
+	done
+	# force copytool to use a local/temp archive dir to ensure best
+	# performance vs remote/NFS mounts used in auto-tests
+	if do_facet $SINGLEAGT "df --local $HSM_ARCHIVE" >/dev/null 2>&1 ; then
+		copytool_setup
+	else
+		local dai=$(get_hsm_param default_archive_id)
+		copytool_setup $SINGLEAGT $MOUNT $dai $TMP/$tdir
+	fi
+	# to be sure wait_all_done will not be mislead by previous tests
+	cdt_purge
+	wait_for_grace_delay
+
+	replay_barrier $SINGLEMDS
+	$LFS hsm_archive --filelist $FILELIST ||
+		error "cannot archive a file list"
+	fail $SINGLEMDS
+	wait_all_done 100
+
+	$LFS hsm_release --filelist $FILELIST ||
+		error "cannot release a file list"
+
+	replay_barrier $SINGLEMDS
+	$LFS hsm_restore --filelist $FILELIST ||
+		error "cannot restore a file list"
+	fail $SINGLEMDS
+	wait_all_done 100
+
+	for i in $(seq 1 $file_count); do
+		check_hsm_flags $f.$i "0x00000009"
+		diff -q /etc/hosts $f.$i
+		[[ $? -eq 0 ]] ||
+			error "Restored file differs"
+	done
+
+	copytool_cleanup
+}
+run_test 17b "Test HSM Archive/restore file list replay"
+
+test_17c() {
+	# test needs a running copytool
+	copytool_setup
+
+	mkdir -p $DIR/$tdir
+	local f=$DIR/$tdir/$tfile
+	local fid=$(copy_file /etc/hosts $f)
+
+	replay_barrier $SINGLEMDS
+	$LFS hsm_set --noarchive $f
+	fail $SINGLEMDS
+
+	$LFS hsm_archive $f && error "MDS_HSM_STATE_SET RPC not replayed"
+
+	copytool_cleanup
+}
+run_test 17c "Test MDS_HSM_STATE_SET RPC replay"
+
 test_20() {
 	mkdir -p $DIR/$tdir
 

@@ -1776,8 +1776,12 @@ int tgt_txn_stop_cb(const struct lu_env *env, struct thandle *th,
 
 	if (tti->tti_has_trans && !echo_client) {
 		if (tti->tti_mult_trans == 0) {
-			CDEBUG(D_HA, "More than one transaction "LPU64"\n",
-			       tti->tti_transno);
+			struct ptlrpc_request *req = tgt_ses_req(tsi);
+
+			CDEBUG(D_WARNING, "More than one transaction "LPU64
+					  " for request opc %u\n",
+			       tti->tti_transno,
+			       lustre_msg_get_opc(req->rq_reqmsg));
 			RETURN(0);
 		}
 		/* we need another transno to be assigned */
