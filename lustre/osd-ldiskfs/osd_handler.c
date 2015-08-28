@@ -230,10 +230,11 @@ int osd_get_lma(struct osd_thread_info *info, struct inode *inode,
 }
 
 /*
- * retrieve object from backend ext fs.
+ * retrieve object from backend ext fs, but ignore nlink
  **/
-struct inode *osd_iget(struct osd_thread_info *info, struct osd_device *dev,
-		       struct osd_inode_id *id)
+static struct inode *osd_iget_ignore_nlink(struct osd_thread_info *info,
+					   struct osd_device *dev,
+					   struct osd_inode_id *id)
 {
 	struct inode *inode = NULL;
 
@@ -246,12 +247,6 @@ struct inode *osd_iget(struct osd_thread_info *info, struct osd_device *dev,
 		CDEBUG(D_INODE, "unmatched inode: ino = %u, oii_gen = %u, "
 		       "i_generation = %u\n",
 		       id->oii_ino, id->oii_gen, inode->i_generation);
-		iput(inode);
-		inode = ERR_PTR(-ESTALE);
-	} else if (inode->i_nlink == 0) {
-		/* due to parallel readdir and unlink,
-		* we can have dead inode here. */
-		CDEBUG(D_INODE, "stale inode: ino = %u\n", id->oii_ino);
 		iput(inode);
 		inode = ERR_PTR(-ESTALE);
 	} else if (is_bad_inode(inode)) {
@@ -271,6 +266,29 @@ struct inode *osd_iget(struct osd_thread_info *info, struct osd_device *dev,
 		if (!(inode->i_flags & S_NOCMTIME))
 			inode->i_flags |= S_NOCMTIME;
 	}
+	return inode;
+}
+
+/*
+ * retrieve object from backend ext fs.
+ **/
+struct inode *osd_iget(struct osd_thread_info *info, struct osd_device *dev,
+		       struct osd_inode_id *id)
+{
+	struct inode *inode = NULL;
+
+	inode = osd_iget_ignore_nlink(info, dev, id);
+	if (IS_ERR(inode))
+		return inode;
+
+	if (inode->i_nlink == 0) {
+		/* due to parallel readdir and unlink,
+		* we can have dead inode here. */
+		CDEBUG(D_INODE, "stale inode: ino = %u\n", id->oii_ino);
+		iput(inode);
+		inode = ERR_PTR(-ESTALE);
+	}
+
 	return inode;
 }
 
@@ -4160,65 +4178,6 @@ out:
 }
 
 /**
- * Find the osd object for given fid.
- *
- * \param fid need to find the osd object having this fid
- *
- * \retval osd_object on success
- * \retval        -ve on error
- */
-static struct osd_object *osd_object_find(const struct lu_env *env,
-					  struct dt_object *dt,
-					  const struct lu_fid *fid)
-{
-        struct lu_device  *ludev = dt->do_lu.lo_dev;
-        struct osd_object *child = NULL;
-        struct lu_object  *luch;
-        struct lu_object  *lo;
-
-	/*
-	 * at this point topdev might not exist yet
-	 * (i.e. MGS is preparing profiles). so we can
-	 * not rely on topdev and instead lookup with
-	 * our device passed as topdev. this can't work
-	 * if the object isn't cached yet (as osd doesn't
-	 * allocate lu_header). IOW, the object must be
-	 * in the cache, otherwise lu_object_alloc() crashes
-	 * -bzzz
-	 */
-	luch = lu_object_find_at(env, ludev->ld_site->ls_top_dev == NULL ?
-				 ludev : ludev->ld_site->ls_top_dev,
-				 fid, NULL);
-	if (!IS_ERR(luch)) {
-		if (lu_object_exists(luch)) {
-			lo = lu_object_locate(luch->lo_header, ludev->ld_type);
-			if (lo != NULL)
-				child = osd_obj(lo);
-			else
-				LU_OBJECT_DEBUG(D_ERROR, env, luch,
-						"lu_object can't be located"
-						DFID"\n", PFID(fid));
-
-                        if (child == NULL) {
-                                lu_object_put(env, luch);
-                                CERROR("Unable to get osd_object\n");
-                                child = ERR_PTR(-ENOENT);
-                        }
-                } else {
-                        LU_OBJECT_DEBUG(D_ERROR, env, luch,
-                                        "lu_object does not exists "DFID"\n",
-                                        PFID(fid));
-			lu_object_put(env, luch);
-                        child = ERR_PTR(-ENOENT);
-                }
-	} else {
-		child = ERR_CAST(luch);
-	}
-
-	return child;
-}
-
-/**
  * Put the osd object once done with it.
  *
  * \param obj osd object that needs to be put
@@ -4301,7 +4260,6 @@ static int osd_index_ea_insert(const struct lu_env *env, struct dt_object *dt,
 	struct osd_thread_info	*oti   = osd_oti_get(env);
 	struct osd_inode_id	*id    = &oti->oti_id;
 	struct inode		*child_inode = NULL;
-	struct osd_object	*child = NULL;
 	int			rc;
 	ENTRY;
 
@@ -4349,15 +4307,15 @@ static int osd_index_ea_insert(const struct lu_env *env, struct dt_object *dt,
 		}
 	} else {
 		/* Insert local entry */
-		child = osd_object_find(env, dt, fid);
-		if (IS_ERR(child)) {
-			CERROR("%s: Can not find object "DFID"%u:%u: rc = %d\n",
-			       osd_name(osd), PFID(fid),
-			       id->oii_ino, id->oii_gen,
-			       (int)PTR_ERR(child));
-			RETURN(PTR_ERR(child));
+		rc = osd_oi_lookup(oti, osd, fid, id, 0);
+		if (rc != 0)
+			RETURN(rc);
+
+		child_inode = osd_iget_ignore_nlink(oti, osd, id);
+		if (IS_ERR(child_inode)) {
+			rc = PTR_ERR(child_inode);
+			RETURN(rc);
 		}
-		child_inode = igrab(child->oo_inode);
 	}
 
 	rc = osd_ea_add_rec(env, obj, child_inode, name, fid, th);
@@ -4366,8 +4324,6 @@ static int osd_index_ea_insert(const struct lu_env *env, struct dt_object *dt,
 	       obj->oo_inode->i_ino, name, child_inode->i_ino, rc);
 
 	iput(child_inode);
-	if (child != NULL)
-		osd_object_put(env, child);
 	LASSERT(osd_invariant(obj));
 	osd_trans_exec_check(env, th, OSD_OT_INSERT);
 	RETURN(rc);
