@@ -50,23 +50,14 @@
  * to 0, the feature is disabled.
  */
 
-/*
- * FIXME:
- *
- * In current implementation, server identifies which locks should be
- * revoked by choosing locks from namespace/resource in a roundrobin
- * manner, which isn't optimal. The ideal way should be server notifies
- * clients to cancel locks voluntarily, because only client knows exactly
- * when the lock is last used.
- *
- * However how to notify client immediately is a problem, one idea
- * is to leverage the glimplse callbacks on some artificial global
- * lock (like quota global lock does), but that requires protocol
- * changes, let's fix it in future long-term solution.
- */
-
+/* Lock count is stored in watermark_low & watermark_high */
 __u64 ldlm_watermark_low;
 __u64 ldlm_watermark_high;
+
+/* Represents watermark_low & watermark_high in MB, used for proc
+ * interface. */
+__u64 ldlm_reclaim_threshold;
+__u64 ldlm_lock_limit;
 
 #ifdef HAVE_SERVER_SUPPORT
 
@@ -322,14 +313,23 @@ static inline __u64 ldlm_ratio2locknr(int ratio)
 	return locknr;
 }
 
+static inline __u64 ldlm_locknr2mb(__u64 locknr)
+{
+	return (locknr * sizeof(struct ldlm_lock)) >> 20;
+}
+
 #define LDLM_WM_RATIO_LOW_DEFAULT	20
 #define LDLM_WM_RATIO_HIGH_DEFAULT	30
 
 int ldlm_reclaim_setup(void)
 {
 	atomic_set(&ldlm_nr_reclaimer, 0);
+
 	ldlm_watermark_low = ldlm_ratio2locknr(LDLM_WM_RATIO_LOW_DEFAULT);
+	ldlm_reclaim_threshold = ldlm_locknr2mb(ldlm_watermark_low);
 	ldlm_watermark_high = ldlm_ratio2locknr(LDLM_WM_RATIO_HIGH_DEFAULT);
+	ldlm_lock_limit = ldlm_locknr2mb(ldlm_watermark_high);
+
 	ldlm_last_reclaim_age = LDLM_RECLAIM_AGE_MAX;
 	ldlm_last_reclaim_time = cfs_time_current();
 

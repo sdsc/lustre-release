@@ -84,13 +84,9 @@ LPROC_SEQ_FOPS_WO_TYPE(ldlm, dump_ns);
 LPROC_SEQ_FOPS_RW_TYPE(ldlm_rw, uint);
 LPROC_SEQ_FOPS_RO_TYPE(ldlm, uint);
 
-/* Lock count is stored in the watermark, and it's display as number of MB
- * memory consumed by the locks */
 static int seq_watermark_show(struct seq_file *m, void *data)
 {
-	__u64 locknr = *(__u64 *)m->private;
-	return seq_printf(m, LPU64"\n",
-			  (locknr * sizeof(struct ldlm_lock)) >> 20);
+	return seq_printf(m, LPU64"\n", *(__u64 *)m->private);
 }
 
 static ssize_t seq_watermark_write(struct file *file,
@@ -109,13 +105,32 @@ static ssize_t seq_watermark_write(struct file *file,
 		CERROR("Watermark should be greater than 1MB.\n");
 		return -EINVAL;
 	}
+	watermark >>= 20;
 
-	do_div(watermark, sizeof(struct ldlm_lock));
-	*data = watermark;
+	if (data == &ldlm_reclaim_threshold) {
+		if (ldlm_lock_limit != 0 && watermark > ldlm_lock_limit)
+			watermark = ldlm_lock_limit;
+		*data = watermark;
+		if (watermark != 0) {
+			watermark <<= 20;
+			do_div(watermark, sizeof(struct ldlm_lock));
+		}
+		ldlm_watermark_low = watermark;
+	} else if (data == &ldlm_lock_limit) {
+		if (ldlm_reclaim_threshold != 0 &&
+		    watermark < ldlm_reclaim_threshold)
+			watermark = ldlm_reclaim_threshold;
+		*data = watermark;
+		if (watermark != 0) {
+			watermark <<= 20;
+			do_div(watermark, sizeof(struct ldlm_lock));
+		}
+		ldlm_watermark_high = watermark;
+	} else {
+		/* impossible */
+		LBUG();
+	}
 
-	if (ldlm_watermark_low != 0 && ldlm_watermark_high != 0 &&
-	    ldlm_watermark_low > ldlm_watermark_high)
-		ldlm_watermark_low = ldlm_watermark_high;
 	return count;
 }
 
@@ -146,12 +161,12 @@ int ldlm_proc_setup(void)
 		{ .name	=	"cancel_unused_locks_before_replay",
 		  .fops	=	&ldlm_rw_uint_fops,
 		  .data	=	&ldlm_cancel_unused_locks_before_replay },
-		{ .name =	"watermark_mb_low",
+		{ .name =	"reclaim_threshold_mb",
 		  .fops =	&ldlm_watermark_fops,
-		  .data =	&ldlm_watermark_low },
-		{ .name =	"watermark_mb_high",
+		  .data =	&ldlm_reclaim_threshold },
+		{ .name =	"lock_limit_mb",
 		  .fops =	&ldlm_watermark_fops,
-		  .data =	&ldlm_watermark_high },
+		  .data =	&ldlm_lock_limit },
 		{ NULL }};
 	ENTRY;
 	LASSERT(ldlm_ns_proc_dir == NULL);

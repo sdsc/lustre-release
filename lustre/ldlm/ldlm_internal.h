@@ -346,6 +346,8 @@ void ldlm_flock_policy_local_to_wire(const ldlm_policy_data_t *lpolicy,
 /* ldlm_reclaim.c */
 extern __u64 ldlm_watermark_low;
 extern __u64 ldlm_watermark_high;
+extern __u64 ldlm_reclaim_threshold;
+extern __u64 ldlm_lock_limit;
 int ldlm_reclaim_setup(void);
 void ldlm_reclaim_cleanup(void);
 void ldlm_reclaim_add(struct ldlm_lock *lock);
