@@ -1,4 +1,5 @@
 TBD Intel Corporation
+       * test DNE on ZFS.
        * version 2.8.0
        * See https://wiki.hpdd.intel.com/display/PUB/Lustre+Support+Matrix
          for currently supported client and server kernel versions.
