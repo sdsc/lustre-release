@@ -2957,7 +2957,7 @@ static void /*__exit*/ obdecho_exit(void)
 # endif
 }
 
-MODULE_AUTHOR("Sun Microsystems, Inc. <http://www.lustre.org/>");
+MODULE_AUTHOR("Intel Corporation. <https://wiki.hpdd.intel.com/>");
 MODULE_DESCRIPTION("Lustre Testing Echo OBD driver");
 MODULE_VERSION(LUSTRE_VERSION_STRING);
 MODULE_LICENSE("GPL");

@@ -210,7 +210,7 @@ lnet_module_exit(void)
 	lnet_fini();
 }
 
-MODULE_AUTHOR("Peter J. Braam <braam@clusterfs.com>");
+MODULE_AUTHOR("Intel Corporation. <https://wiki.hpdd.intel.com/>");
 MODULE_DESCRIPTION("LNet v3.1");
 MODULE_VERSION("1.0.0");
 MODULE_LICENSE("GPL");
