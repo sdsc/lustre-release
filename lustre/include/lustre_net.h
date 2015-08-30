@@ -986,7 +986,9 @@ struct ptlrpc_request {
 		 * status */
 		rq_allow_replay:1,
 		/* bulk request, sent to server, but uncommitted */
-		rq_unstable:1;
+		rq_unstable:1,
+		/* the request should not be timeout */
+		rq_no_timeout:1;
 	/** @} */
 
 	/** server-side flags @{ */
