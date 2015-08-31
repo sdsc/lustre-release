@@ -403,7 +403,7 @@ static void exit_libcfs_module(void)
 		       rc);
 }
 
-MODULE_AUTHOR("Peter J. Braam <braam@clusterfs.com>");
+MODULE_AUTHOR("Intel Corporation. <http://www.lustre.org/>");
 MODULE_DESCRIPTION("Libcfs v3.1");
 MODULE_VERSION("1.0.0");
 MODULE_LICENSE("GPL");

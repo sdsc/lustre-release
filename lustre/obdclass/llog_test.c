@@ -1459,7 +1459,7 @@ static void __exit llog_test_exit(void)
 	class_unregister_type("llog_test");
 }
 
-MODULE_AUTHOR("Sun Microsystems, Inc. <http://www.lustre.org/>");
+MODULE_AUTHOR("Intel Corporation. <http://www.lustre.org/>");
 MODULE_DESCRIPTION("llog test module");
 MODULE_LICENSE("GPL");
 
