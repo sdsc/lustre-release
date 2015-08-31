@@ -510,9 +510,9 @@ lnet_copy_iov2kiov(unsigned int nkiov, lnet_kiov_t *kiov, unsigned int kiovoffse
 EXPORT_SYMBOL(lnet_copy_iov2kiov);
 
 int
-lnet_extract_kiov(int dst_niov, lnet_kiov_t *dst,
-		  int src_niov, lnet_kiov_t *src,
-		  unsigned int offset, unsigned int len)
+lnet_extract_kiov (int dst_niov, lnet_kiov_t *dst,
+		   int src_niov, lnet_kiov_t *src,
+		   unsigned int offset, unsigned int len, int *zc_prohibited)
 {
         /* Initialise 'dst' to the subset of 'src' starting at 'offset',
          * for exactly 'len' bytes, and return the number of entries.
@@ -542,12 +542,21 @@ lnet_extract_kiov(int dst_niov, lnet_kiov_t *dst,
 
 		if (len <= frag_len) {
 			dst->kiov_len = len;
-			LASSERT (dst->kiov_offset + dst->kiov_len <= PAGE_CACHE_SIZE);
+
+			/* If the kiov is bigger than page size, we have to
+			 * avoid zero-copy because zero copy uses tcp_sendpage
+			 * which will crash if the kiov is bigger than page
+			 * size. */
+			if (zc_prohibited &&
+			    dst->kiov_offset + dst->kiov_len > PAGE_CACHE_SIZE)
+				*zc_prohibited = 1;
 			return niov;
 		}
 
 		dst->kiov_len = frag_len;
-		LASSERT (dst->kiov_offset + dst->kiov_len <= PAGE_CACHE_SIZE);
+		if (zc_prohibited &&
+		    dst->kiov_offset + dst->kiov_len > PAGE_CACHE_SIZE)
+			*zc_prohibited = 1;
 
                 len -= frag_len;
                 dst++;
@@ -949,8 +958,8 @@ lnet_post_routed_recv_locked (lnet_msg_t *msg, int do_recv)
 	rb = list_entry(rbp->rbp_bufs.next, lnet_rtrbuf_t, rb_list);
 	list_del(&rb->rb_list);
 
-        msg->msg_niov = rbp->rbp_npages;
-        msg->msg_kiov = &rb->rb_kiov[0];
+	msg->msg_niov = rb->rb_niov;
+	msg->msg_kiov = &rb->rb_kiov[0];
 
         if (do_recv) {
 		int cpt = msg->msg_rx_cpt;
