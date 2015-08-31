@@ -386,7 +386,7 @@ kiblnd_handle_rx (kib_rx_t *rx)
 
         case IBLND_MSG_PUT_REQ:
                 post_credit = IBLND_POSTRX_DONT_POST;
-                rc = lnet_parse(ni, &msg->ibm_u.putreq.ibprm_hdr,
+		rc = lnet_parse(ni, &msg->ibm_u.putreq.ibprm_hdr,
                                 msg->ibm_srcnid, rx, 1);
                 if (rc < 0)                     /* repost on error */
                         post_credit = IBLND_POSTRX_PEER_CREDIT;
@@ -448,7 +448,7 @@ kiblnd_handle_rx (kib_rx_t *rx)
 
         case IBLND_MSG_GET_REQ:
                 post_credit = IBLND_POSTRX_DONT_POST;
-                rc = lnet_parse(ni, &msg->ibm_u.get.ibgm_hdr,
+		rc = lnet_parse(ni, &msg->ibm_u.get.ibgm_hdr,
                                 msg->ibm_srcnid, rx, 1);
                 if (rc < 0)                     /* repost on error */
                         post_credit = IBLND_POSTRX_PEER_CREDIT;

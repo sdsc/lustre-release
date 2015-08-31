@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
  *
- * Copyright (c) 2011, 2013, Intel Corporation.
+ * Copyright (c) 2011, 2013, 2016 Intel Corporation.
  *
  *   This file is part of Lustre, https://wiki.hpdd.intel.com/
  *
@@ -585,25 +585,27 @@ static int __proc_lnet_buffers(void *data, int write,
 
         s = tmpstr; /* points to current position in tmpstr[] */
 
-        s += snprintf(s, tmpstr + tmpsiz - s,
-                      "%5s %5s %7s %7s\n",
-                      "pages", "count", "credits", "min");
+	s += snprintf(s, tmpstr + tmpsiz - s,
+		      "%5s %5s %7s %7s %5s\n",
+		      "pages", "count", "credits", "min", "RDMA");
         LASSERT (tmpstr + tmpsiz - s > 0);
 
 	if (the_lnet.ln_rtrpools == NULL)
 		goto out; /* I'm not a router */
 
-	for (idx = 0; idx < LNET_NRBPOOLS; idx++) {
+	for (idx = 0; idx < LNET_NRBEXTENDEDPOOLS; idx++) {
 		lnet_rtrbufpool_t *rbp;
 
 		lnet_net_lock(LNET_LOCK_EX);
 		cfs_percpt_for_each(rbp, i, the_lnet.ln_rtrpools) {
 			s += snprintf(s, tmpstr + tmpsiz - s,
-				      "%5d %5d %7d %7d\n",
+				      "%5d %5d %7d %7d %s\n",
 				      rbp[idx].rbp_npages,
 				      rbp[idx].rbp_nbuffers,
 				      rbp[idx].rbp_credits,
-				      rbp[idx].rbp_mincredits);
+				      rbp[idx].rbp_mincredits,
+				      (idx == LNET_LARGE_RDMA_BUF_IDX) ?
+					  "  yes" : "  no");
 			LASSERT(tmpstr + tmpsiz - s > 0);
 		}
 		lnet_net_unlock(LNET_LOCK_EX);

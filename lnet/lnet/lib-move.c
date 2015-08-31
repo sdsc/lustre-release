@@ -27,7 +27,7 @@
  * Copyright (c) 2003, 2010, Oracle and/or its affiliates. All rights reserved.
  * Use is subject to license terms.
  *
- * Copyright (c) 2012, 2015, Intel Corporation.
+ * Copyright (c) 2012, 2015, 2016 Intel Corporation.
  */
 /*
  * This file is part of Lustre, http://www.lustre.org/
@@ -888,6 +888,15 @@ lnet_msg2bufpool(lnet_msg_t *msg)
 		LASSERT(rbp < &the_lnet.ln_rtrpools[cpt][LNET_NRBPOOLS]);
 	}
 
+	/* If the pool chosen is LARGE and we are using RDMA, change to use
+	 * the RDMA LARGE buffer pool. However, this cannot be done if there
+	 * are no buffers allocated in that pool.
+	 */
+	if (msg->msg_rdma_req &&
+	    rbp == &the_lnet.ln_rtrpools[cpt][LNET_LARGE_BUF_IDX] &&
+	    the_lnet.ln_rtrpools[cpt][LNET_LARGE_RDMA_BUF_IDX].rbp_nbuffers > 0)
+		rbp = &the_lnet.ln_rtrpools[cpt][LNET_LARGE_RDMA_BUF_IDX];
+
 	return rbp;
 }
 
@@ -951,8 +960,8 @@ lnet_post_routed_recv_locked (lnet_msg_t *msg, int do_recv)
 	rb = list_entry(rbp->rbp_bufs.next, lnet_rtrbuf_t, rb_list);
 	list_del(&rb->rb_list);
 
-        msg->msg_niov = rbp->rbp_npages;
-        msg->msg_kiov = &rb->rb_kiov[0];
+	msg->msg_niov = rb->rb_niov;
+	msg->msg_kiov = &rb->rb_kiov[0];
 
         if (do_recv) {
 		int cpt = msg->msg_rx_cpt;
@@ -1718,7 +1727,7 @@ lnet_parse_local(lnet_ni_t *ni, lnet_msg_t *msg)
 		rc = lnet_parse_put(ni, msg);
 		break;
 	case LNET_MSG_GET:
-		rc = lnet_parse_get(ni, msg, msg->msg_rdma_get);
+		rc = lnet_parse_get(ni, msg, msg->msg_rdma_req);
 		break;
 	case LNET_MSG_REPLY:
 		rc = lnet_parse_reply(ni, msg);
@@ -1963,7 +1972,7 @@ lnet_parse(lnet_ni_t *ni, lnet_hdr_t *hdr, lnet_nid_t from_nid,
 	msg->msg_type = type;
 	msg->msg_private = private;
 	msg->msg_receiving = 1;
-	msg->msg_rdma_get = rdma_req;
+	msg->msg_rdma_req = rdma_req;
 	msg->msg_len = msg->msg_wanted = payload_length;
 	msg->msg_offset = 0;
 	msg->msg_hdr = *hdr;
