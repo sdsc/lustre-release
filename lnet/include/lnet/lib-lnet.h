@@ -643,8 +643,9 @@ int lnet_extract_iov(int dst_niov, struct kvec *dst,
 
 unsigned int lnet_kiov_nob (unsigned int niov, lnet_kiov_t *iov);
 int lnet_extract_kiov(int dst_niov, lnet_kiov_t *dst,
-		     int src_niov, lnet_kiov_t *src,
-		     unsigned int offset, unsigned int len);
+		      int src_niov, lnet_kiov_t *src,
+		      unsigned int offset, unsigned int len,
+		      int *zc_prohibited);
 
 void lnet_copy_iov2iov(unsigned int ndiov, struct kvec *diov,
 		       unsigned int doffset,
