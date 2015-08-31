@@ -27,7 +27,7 @@
  * Copyright (c) 2003, 2010, Oracle and/or its affiliates. All rights reserved.
  * Use is subject to license terms.
  *
- * Copyright (c) 2012, 2015, Intel Corporation.
+ * Copyright (c) 2012, 2015, 2016 Intel Corporation.
  */
 /*
  * This file is part of Lustre, http://www.lustre.org/
@@ -102,7 +102,7 @@ typedef struct lnet_msg {
         unsigned int          msg_rtrcredit:1;    /* taken a globel router credit */
         unsigned int          msg_peerrtrcredit:1; /* taken a peer router credit */
         unsigned int          msg_onactivelist:1; /* on the activelist */
-	unsigned int	      msg_rdma_get:1;
+	unsigned int	      msg_rdma_req:1;
 
         struct lnet_peer     *msg_txpeer;         /* peer I'm sending to */
         struct lnet_peer     *msg_rxpeer;         /* peer I received from */
@@ -447,6 +447,7 @@ typedef struct {
 typedef struct {
 	struct list_head	 rb_list;	/* chain on rbp_bufs */
 	lnet_rtrbufpool_t	*rb_pool;	/* owning pool */
+	unsigned int		 rb_niov;	/* number of rb_kiov's */
 	lnet_kiov_t		 rb_kiov[0];	/* the buffer space */
 } lnet_rtrbuf_t;
 

@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
  *
- * Copyright (c) 2011, 2015, Intel Corporation.
+ * Copyright (c) 2011, 2015, 2016 Intel Corporation.
  *
  *   This file is part of Lustre, https://wiki.hpdd.intel.com/
  *
@@ -32,6 +32,8 @@
 #define LNET_NRB_LARGE		(LNET_NRB_LARGE_MIN * 4)
 #define LNET_NRB_LARGE_PAGES	((LNET_MTU + PAGE_SIZE - 1) >> \
 				  PAGE_SHIFT)
+#define LNET_NRB_LARGE_RDMA_MIN	0	/* min value for each CPT */
+#define LNET_NRB_LARGE_RDMA	0
 
 static char *forwarding = "";
 module_param(forwarding, charp, 0444);
@@ -46,6 +48,9 @@ MODULE_PARM_DESC(small_router_buffers, "# of small (1 page) messages to buffer i
 static int large_router_buffers;
 module_param(large_router_buffers, int, 0444);
 MODULE_PARM_DESC(large_router_buffers, "# of large messages to buffer in the router");
+static int large_rdma_router_buffers;
+module_param(large_rdma_router_buffers, uint, 0444);
+MODULE_PARM_DESC(large_rdma_router_buffers, "# of large RDMA messages to buffer in the router");
 static int peer_buffer_credits;
 module_param(peer_buffer_credits, int, 0444);
 MODULE_PARM_DESC(peer_buffer_credits, "# router buffer credits per peer");
@@ -1298,46 +1303,77 @@ rescan:
 void
 lnet_destroy_rtrbuf(lnet_rtrbuf_t *rb, int npages)
 {
-        int sz = offsetof(lnet_rtrbuf_t, rb_kiov[npages]);
+	int sz = offsetof(lnet_rtrbuf_t, rb_kiov[npages]);
+	int i;
 
-        while (--npages >= 0)
-		__free_page(rb->rb_kiov[npages].kiov_page);
+	for (i = 0; i < rb->rb_niov; i++) {
+		int order;
+
+		order = fls(rb->rb_kiov[i].kiov_len / PAGE_SIZE);
+		__free_pages(rb->rb_kiov[i].kiov_page, order);
+	}
 
         LIBCFS_FREE(rb, sz);
 }
 
 static lnet_rtrbuf_t *
-lnet_new_rtrbuf(lnet_rtrbufpool_t *rbp, int cpt)
+lnet_new_rtrbuf(lnet_rtrbufpool_t *rbp, int cpt, unsigned int oversize_kiov)
 {
-	int            npages = rbp->rbp_npages;
-	int            sz = offsetof(lnet_rtrbuf_t, rb_kiov[npages]);
-	struct page   *page;
+	int	       npages = rbp->rbp_npages;
+	int	       sz = offsetof(lnet_rtrbuf_t, rb_kiov[npages]);
 	lnet_rtrbuf_t *rb;
-	int            i;
+	int	       failed = 0;
 
 	LIBCFS_CPT_ALLOC(rb, lnet_cpt_table(), cpt, sz);
 	if (rb == NULL)
 		return NULL;
 
-	rb->rb_pool = rbp;
+	if (oversize_kiov) {
+		int	i = 0;
+		int	order = fls(npages);
 
-	for (i = 0; i < npages; i++) {
-		page = cfs_page_cpt_alloc(lnet_cpt_table(), cpt,
-					  GFP_KERNEL | __GFP_ZERO);
-                if (page == NULL) {
-                        while (--i >= 0)
-				__free_page(rb->rb_kiov[i].kiov_page);
+		/* Caller wants us to try and allocate the entire buffer in
+		 * one kiov.
+		 */
+		while (i < npages) {
+			rb->rb_kiov[rb->rb_niov].kiov_page =
+				alloc_pages(GFP_KERNEL | __GFP_ZERO |
+				__GFP_NOWARN | __GFP_NORETRY, order);
+			if (rb->rb_kiov[rb->rb_niov].kiov_page == NULL) {
+				if (order == 0) {
+					failed = 1;
+					break;
+				}
+				order--;
+			} else {
+				rb->rb_kiov[rb->rb_niov].kiov_len =
+					(1 << order) * PAGE_SIZE;
+				rb->rb_kiov[rb->rb_niov].kiov_offset = 0;
+				i += (1 << order);
+				rb->rb_niov++;
+			}
+		}
+	} else {
+		while (rb->rb_niov < npages) {
+			rb->rb_kiov[rb->rb_niov].kiov_page =
+				cfs_page_cpt_alloc(lnet_cpt_table(), cpt,
+						   __GFP_ZERO | GFP_KERNEL);
+			if (rb->rb_kiov[rb->rb_niov].kiov_page == NULL) {
+				failed = 1;
+				break;
+			}
+			rb->rb_kiov[rb->rb_niov].kiov_len = PAGE_SIZE;
+			rb->rb_kiov[rb->rb_niov].kiov_offset = 0;
+			rb->rb_niov++;
+		}
+	}
 
-                        LIBCFS_FREE(rb, sz);
-                        return NULL;
-                }
-
-		rb->rb_kiov[i].kiov_len = PAGE_SIZE;
-                rb->rb_kiov[i].kiov_offset = 0;
-                rb->rb_kiov[i].kiov_page = page;
-        }
-
-        return rb;
+	if (failed) {
+		lnet_destroy_rtrbuf(rb, npages);
+		rb = NULL;
+	} else
+		rb->rb_pool = rbp;
+	return rb;
 }
 
 static void
@@ -1369,7 +1405,8 @@ lnet_rtrpool_free_bufs(lnet_rtrbufpool_t *rbp, int cpt)
 }
 
 static int
-lnet_rtrpool_adjust_bufs(lnet_rtrbufpool_t *rbp, int nbufs, int cpt)
+lnet_rtrpool_adjust_bufs(lnet_rtrbufpool_t *rbp, int nbufs, int cpt,
+			 unsigned int oversize_kiov)
 {
 	struct list_head rb_list;
 	lnet_rtrbuf_t	*rb;
@@ -1405,7 +1442,7 @@ lnet_rtrpool_adjust_bufs(lnet_rtrbufpool_t *rbp, int nbufs, int cpt)
 	 * allocated successfully then join this list to the rbp buffer
 	 * list.  If not then free all allocated buffers. */
 	while (num_rb-- > 0) {
-		rb = lnet_new_rtrbuf(rbp, cpt);
+		rb = lnet_new_rtrbuf(rbp, cpt, oversize_kiov);
 		if (rb == NULL) {
 			CERROR("Failed to allocate %d route bufs of %d pages\n",
 			       nbufs, npages);
@@ -1471,6 +1508,7 @@ lnet_rtrpools_free(int keep_pools)
 		lnet_rtrpool_free_bufs(&rtrp[LNET_TINY_BUF_IDX], i);
 		lnet_rtrpool_free_bufs(&rtrp[LNET_SMALL_BUF_IDX], i);
 		lnet_rtrpool_free_bufs(&rtrp[LNET_LARGE_BUF_IDX], i);
+		lnet_rtrpool_free_bufs(&rtrp[LNET_LARGE_RDMA_BUF_IDX], i);
 	}
 
 	if (!keep_pools) {
@@ -1536,6 +1574,18 @@ lnet_nrb_large_calculate(void)
 	return max(nrbs, LNET_NRB_LARGE_MIN);
 }
 
+static int
+lnet_nrb_large_rdma_calculate(void)
+{
+	int	nrbs = LNET_NRB_LARGE_RDMA;
+
+	if (large_rdma_router_buffers > 0)
+		nrbs = large_rdma_router_buffers;
+
+	nrbs /= LNET_CPT_NUMBER;
+	return max(nrbs, LNET_NRB_LARGE_RDMA_MIN);
+}
+
 int
 lnet_rtrpools_alloc(int im_a_router)
 {
@@ -1543,6 +1593,7 @@ lnet_rtrpools_alloc(int im_a_router)
 	int	nrb_tiny;
 	int	nrb_small;
 	int	nrb_large;
+	int	nrb_large_rdma;
 	int	rc;
 	int	i;
 
@@ -1573,8 +1624,12 @@ lnet_rtrpools_alloc(int im_a_router)
 	if (nrb_large < 0)
 		return -EINVAL;
 
+	nrb_large_rdma = lnet_nrb_large_rdma_calculate();
+	if (nrb_large_rdma < 0)
+		return -EINVAL;
+
 	the_lnet.ln_rtrpools = cfs_percpt_alloc(lnet_cpt_table(),
-						LNET_NRBPOOLS *
+						LNET_NRBEXTENDEDPOOLS *
 						sizeof(lnet_rtrbufpool_t));
 	if (the_lnet.ln_rtrpools == NULL) {
 		LCONSOLE_ERROR_MSG(0x10c,
@@ -1583,23 +1638,33 @@ lnet_rtrpools_alloc(int im_a_router)
 	}
 
 	cfs_percpt_for_each(rtrp, i, the_lnet.ln_rtrpools) {
+		/* Allocate large RDMA buffers first to improve our chances of
+		 * getting continous sets of pages.
+		 */
+		lnet_rtrpool_init(&rtrp[LNET_LARGE_RDMA_BUF_IDX],
+				  LNET_NRB_LARGE_PAGES);
+		rc = lnet_rtrpool_adjust_bufs(&rtrp[LNET_LARGE_RDMA_BUF_IDX],
+					      nrb_large_rdma, i, 1);
+		if (rc != 0)
+			goto failed;
+
 		lnet_rtrpool_init(&rtrp[LNET_TINY_BUF_IDX], 0);
 		rc = lnet_rtrpool_adjust_bufs(&rtrp[LNET_TINY_BUF_IDX],
-					      nrb_tiny, i);
+					      nrb_tiny, i, 0);
 		if (rc != 0)
 			goto failed;
 
 		lnet_rtrpool_init(&rtrp[LNET_SMALL_BUF_IDX],
 				  LNET_NRB_SMALL_PAGES);
 		rc = lnet_rtrpool_adjust_bufs(&rtrp[LNET_SMALL_BUF_IDX],
-					      nrb_small, i);
+					      nrb_small, i, 0);
 		if (rc != 0)
 			goto failed;
 
 		lnet_rtrpool_init(&rtrp[LNET_LARGE_BUF_IDX],
 				  LNET_NRB_LARGE_PAGES);
 		rc = lnet_rtrpool_adjust_bufs(&rtrp[LNET_LARGE_BUF_IDX],
-					      nrb_large, i);
+					      nrb_large, i, 0);
 		if (rc != 0)
 			goto failed;
 	}
@@ -1629,7 +1694,7 @@ lnet_rtrpools_adjust_helper(int tiny, int small, int large)
 		nrb = lnet_nrb_tiny_calculate();
 		cfs_percpt_for_each(rtrp, i, the_lnet.ln_rtrpools) {
 			rc = lnet_rtrpool_adjust_bufs(&rtrp[LNET_TINY_BUF_IDX],
-						      nrb, i);
+						      nrb, i, 0);
 			if (rc != 0)
 				return rc;
 		}
@@ -1639,7 +1704,7 @@ lnet_rtrpools_adjust_helper(int tiny, int small, int large)
 		nrb = lnet_nrb_small_calculate();
 		cfs_percpt_for_each(rtrp, i, the_lnet.ln_rtrpools) {
 			rc = lnet_rtrpool_adjust_bufs(&rtrp[LNET_SMALL_BUF_IDX],
-						      nrb, i);
+						      nrb, i, 0);
 			if (rc != 0)
 				return rc;
 		}
@@ -1649,7 +1714,7 @@ lnet_rtrpools_adjust_helper(int tiny, int small, int large)
 		nrb = lnet_nrb_large_calculate();
 		cfs_percpt_for_each(rtrp, i, the_lnet.ln_rtrpools) {
 			rc = lnet_rtrpool_adjust_bufs(&rtrp[LNET_LARGE_BUF_IDX],
-						      nrb, i);
+						      nrb, i, 0);
 			if (rc != 0)
 				return rc;
 		}

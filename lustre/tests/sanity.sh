@@ -12378,8 +12378,8 @@ test_215() { # for bugs 18102, 21079, 21517
 	# lnet.buffers  should look like this:
 	# pages count credits min
 	# where pages >=0, count >=0, credits and min are numeric (0 or >0 or <0)
-	L1="^pages +count +credits +min$"
-	BR="^ +$N +$N +$I +$I$"
+	L1="^pages +count +credits +min +RDMA$"
+	BR="^ +$N +$N +$I +$I +(yes|no)$"
 	create_lnet_proc_files "buffers"
 	check_lnet_proc_entry "buffers.sys" "lnet.buffers" "$BR" "$L1"
 	remove_lnet_proc_files "buffers"

@@ -980,13 +980,13 @@ ksocknal_send(lnet_ni_t *ni, void *private, lnet_msg_t *lntmsg)
                 tx->tx_niov = 1;
                 tx->tx_iov = &tx->tx_frags.paged.iov;
                 tx->tx_kiov = tx->tx_frags.paged.kiov;
-                tx->tx_nkiov = lnet_extract_kiov(payload_niov, tx->tx_kiov,
-                                                 payload_niov, payload_kiov,
+		tx->tx_nkiov = lnet_extract_kiov(payload_niov, tx->tx_kiov,
+						 payload_niov, payload_kiov,
                                                  payload_offset, payload_nob);
 
                 if (payload_nob >= *ksocknal_tunables.ksnd_zc_min_payload)
-                        tx->tx_zc_capable = 1;
-        }
+			tx->tx_zc_capable = 1;
+	}
 
         socklnd_init_msg(&tx->tx_msg, KSOCK_MSG_LNET);
 
@@ -1339,7 +1339,7 @@ ksocknal_recv (lnet_ni_t *ni, void *private, lnet_msg_t *msg, int delayed,
                 conn->ksnc_rx_iov  = NULL;
                 conn->ksnc_rx_kiov = conn->ksnc_rx_iov_space.kiov;
                 conn->ksnc_rx_nkiov =
-                        lnet_extract_kiov(LNET_MAX_IOV, conn->ksnc_rx_kiov,
+			lnet_extract_kiov(LNET_MAX_IOV, conn->ksnc_rx_kiov,
                                           niov, kiov, offset, mlen);
         }
 
