@@ -176,7 +176,7 @@ int lustre_lnet_enable_routing(int enable, int seq_no,
  *   seq_no - sequence number of the request
  *   err_rc - [OUT] struct cYAML tree describing the error. Freed by caller
  */
-int lustre_lnet_config_buffers(int tiny, int small, int large,
+int lustre_lnet_config_buffers(int tiny, int small, int large, int large_rdma,
 			       int seq_no, struct cYAML **err_rc);
 
 /*
