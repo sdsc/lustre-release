@@ -20,7 +20,7 @@
  *
  */
 /*
- * Copyright (c) 2014, Intel Corporation.
+ * Copyright (c) 2014, 2016 Intel Corporation.
  */
 /*
  * Author: Amir Shehata <amir.shehata@intel.com>
@@ -46,9 +46,10 @@ struct lnet_ioctl_net_config {
 #define LNET_TINY_BUF_IDX	0
 #define LNET_SMALL_BUF_IDX	1
 #define LNET_LARGE_BUF_IDX	2
+#define LNET_LARGE_RDMA_BUF_IDX	3
 
 /* # different router buffer pools */
-#define LNET_NRBPOOLS		(LNET_LARGE_BUF_IDX + 1)
+#define LNET_NRBPOOLS		(LNET_LARGE_RDMA_BUF_IDX + 1)
 
 struct lnet_ioctl_pool_cfg {
 	struct {
@@ -88,6 +89,7 @@ struct lnet_ioctl_config_data {
 			__s32 buf_tiny;
 			__s32 buf_small;
 			__s32 buf_large;
+			__s32 buf_large_rdma;
 		} cfg_buffers;
 	} cfg_config_u;
 

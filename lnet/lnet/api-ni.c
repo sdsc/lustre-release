@@ -27,7 +27,7 @@
  * Copyright (c) 2003, 2010, Oracle and/or its affiliates. All rights reserved.
  * Use is subject to license terms.
  *
- * Copyright (c) 2011, 2015, Intel Corporation.
+ * Copyright (c) 2011, 2015, 2016 Intel Corporation.
  */
 /*
  * This file is part of Lustre, http://www.lustre.org/
@@ -1992,7 +1992,9 @@ LNetCtl(unsigned int cmd, void *arg)
 					  config->cfg_config_u.cfg_buffers.
 						buf_small,
 					  config->cfg_config_u.cfg_buffers.
-						buf_large);
+						buf_large,
+					  config->cfg_config_u.cfg_buffers.
+						buf_large_rdma);
 		LNET_MUTEX_UNLOCK(&the_lnet.ln_api_mutex);
 		return rc;
 
