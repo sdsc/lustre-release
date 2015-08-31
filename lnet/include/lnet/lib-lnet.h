@@ -27,7 +27,7 @@
  * Copyright (c) 2003, 2010, Oracle and/or its affiliates. All rights reserved.
  * Use is subject to license terms.
  *
- * Copyright (c) 2012, 2015, Intel Corporation.
+ * Copyright (c) 2012, 2015, 2016 Intel Corporation.
  */
 /*
  * This file is part of Lustre, http://www.lustre.org/
@@ -501,7 +501,7 @@ void lnet_proc_init(void);
 void lnet_proc_fini(void);
 int  lnet_rtrpools_alloc(int im_a_router);
 void lnet_destroy_rtrbuf(lnet_rtrbuf_t *rb, int npages);
-int  lnet_rtrpools_adjust(int tiny, int small, int large);
+int  lnet_rtrpools_adjust(int tiny, int small, int large, int large_rdma);
 int lnet_rtrpools_enable(void);
 void lnet_rtrpools_disable(void);
 void lnet_rtrpools_free(int keep_pools);
@@ -643,7 +643,7 @@ int lnet_extract_iov(int dst_niov, struct kvec *dst,
 
 unsigned int lnet_kiov_nob (unsigned int niov, lnet_kiov_t *iov);
 int lnet_extract_kiov(int dst_niov, lnet_kiov_t *dst,
-		     int src_niov, lnet_kiov_t *src,
+		      int src_niov, lnet_kiov_t *src,
 		     unsigned int offset, unsigned int len);
 
 void lnet_copy_iov2iov(unsigned int ndiov, struct kvec *diov,

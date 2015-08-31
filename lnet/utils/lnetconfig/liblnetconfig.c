@@ -18,7 +18,7 @@
  *
  * LGPL HEADER END
  *
- * Copyright (c) 2014, 2015, Intel Corporation.
+ * Copyright (c) 2014, 2015, 2016 Intel Corporation.
  *
  * Author:
  *   Amir Shehata <amir.shehata@intel.com>
@@ -795,8 +795,8 @@ out:
 	return rc;
 }
 
-int lustre_lnet_config_buffers(int tiny, int small, int large, int seq_no,
-			       struct cYAML **err_rc)
+int lustre_lnet_config_buffers(int tiny, int small, int large, int large_rdma,
+			       int seq_no, struct cYAML **err_rc)
 {
 	struct lnet_ioctl_config_data data;
 	int rc = LUSTRE_CFG_RC_NO_ERR;
@@ -805,10 +805,10 @@ int lustre_lnet_config_buffers(int tiny, int small, int large, int seq_no,
 	snprintf(err_str, sizeof(err_str), "\"success\"");
 
 	/* -1 indicates to ignore changes to this field */
-	if (tiny < -1 || small < -1 || large < -1) {
+	if (tiny < -1 || small < -1 || large < -1 || large_rdma < -1) {
 		snprintf(err_str,
 			 sizeof(err_str),
-			 "\"tiny, small and large must be >= 0\"");
+			 "\"tiny, small, large and large_rdma must be >= 0\"");
 		rc = LUSTRE_CFG_RC_OUT_OF_RANGE_PARAM;
 		goto out;
 	}
@@ -817,6 +817,7 @@ int lustre_lnet_config_buffers(int tiny, int small, int large, int seq_no,
 	data.cfg_config_u.cfg_buffers.buf_tiny = tiny;
 	data.cfg_config_u.cfg_buffers.buf_small = small;
 	data.cfg_config_u.cfg_buffers.buf_large = large;
+	data.cfg_config_u.cfg_buffers.buf_large_rdma = large_rdma;
 
 	rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_ADD_BUF, &data);
 	if (rc != 0) {
@@ -841,7 +842,7 @@ int lustre_lnet_show_routing(int seq_no, struct cYAML **show_rc,
 	int rc = LUSTRE_CFG_RC_OUT_OF_MEM;
 	int l_errno = 0;
 	char *buf;
-	char *pools[LNET_NRBPOOLS] = {"tiny", "small", "large"};
+	char *pools[LNET_NRBPOOLS] = {"tiny", "small", "large", "large_rdma"};
 	int buf_count[LNET_NRBPOOLS] = {0};
 	struct cYAML *root = NULL, *pools_node = NULL,
 		     *type_node = NULL, *item = NULL, *cpt = NULL,
@@ -1318,16 +1319,19 @@ static int handle_yaml_config_buffers(struct cYAML *tree,
 				      struct cYAML **err_rc)
 {
 	int rc;
-	struct cYAML *tiny, *small, *large, *seq_no;
+	struct cYAML *tiny, *small, *large, *large_rdma, *seq_no;
 
 	tiny = cYAML_get_object_item(tree, "tiny");
 	small = cYAML_get_object_item(tree, "small");
 	large = cYAML_get_object_item(tree, "large");
+	large_rdma = cYAML_get_object_item(tree, "large_rdma");
 	seq_no = cYAML_get_object_item(tree, "seq_no");
 
 	rc = lustre_lnet_config_buffers((tiny) ? tiny->cy_valueint : -1,
 					(small) ? small->cy_valueint : -1,
 					(large) ? large->cy_valueint : -1,
+					(large_rdma) ? large_rdma->cy_valueint
+					   : -1,
 					(seq_no) ? seq_no->cy_valueint : -1,
 					err_rc);
 
