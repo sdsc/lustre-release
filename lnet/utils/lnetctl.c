@@ -18,7 +18,7 @@
  *
  * LGPL HEADER END
  *
- * Copyright (c) 2014, Intel Corporation.
+ * Copyright (c) 2014, 2016 Intel Corporation.
  *
  * Author:
  *   Amir Shehata <amir.shehata@intel.com>
@@ -50,6 +50,7 @@ static int jt_show_peer_credits(int argc, char **argv);
 static int jt_set_tiny(int argc, char **argv);
 static int jt_set_small(int argc, char **argv);
 static int jt_set_large(int argc, char **argv);
+static int jt_set_rdma_large(int argc, char **argv);
 
 command_t lnet_cmds[] = {
 	{"configure", jt_config_lnet, 0, "configure lnet\n"
@@ -116,6 +117,9 @@ command_t set_cmds[] = {
 	 "\tVALUE must be greater than 0\n"},
 	{"large_buffers", jt_set_large, 0, "set large routing buffers\n"
 	 "\tVALUE must be greater than 0\n"},
+	{"large_rdma_buffers", jt_set_rdma_large, 0,
+	 "set large RDMA routing buffers\n"
+	 "\tVALUE must be 0 or greater\n"},
 	{"routing", jt_set_routing, 0, "enable/disable routing\n"
 	 "\t0 - disable routing\n"
 	 "\t1 - enable routing\n"},
@@ -201,7 +205,7 @@ static int jt_set_tiny(int argc, char **argv)
 		return -1;
 	}
 
-	rc = lustre_lnet_config_buffers(value, -1, -1, -1, &err_rc);
+	rc = lustre_lnet_config_buffers(value, -1, -1, -1, -1, &err_rc);
 	if (rc != LUSTRE_CFG_RC_NO_ERR)
 		cYAML_print_tree2file(stderr, err_rc);
 
@@ -228,7 +232,7 @@ static int jt_set_small(int argc, char **argv)
 		return -1;
 	}
 
-	rc = lustre_lnet_config_buffers(-1, value, -1, -1, &err_rc);
+	rc = lustre_lnet_config_buffers(-1, value, -1, -1, -1, &err_rc);
 	if (rc != LUSTRE_CFG_RC_NO_ERR)
 		cYAML_print_tree2file(stderr, err_rc);
 
@@ -255,7 +259,35 @@ static int jt_set_large(int argc, char **argv)
 		return -1;
 	}
 
-	rc = lustre_lnet_config_buffers(-1, -1, value, -1, &err_rc);
+	rc = lustre_lnet_config_buffers(-1, -1, value, -1, -1, &err_rc);
+	if (rc != LUSTRE_CFG_RC_NO_ERR)
+		cYAML_print_tree2file(stderr, err_rc);
+
+	cYAML_free_tree(err_rc);
+
+	return rc;
+}
+
+static int jt_set_rdma_large(int argc, char **argv)
+{
+	long int value;
+	int rc;
+	struct cYAML *err_rc = NULL;
+
+	if (handle_help(set_cmds, "set", "large_rdma_buffers", argc, argv) == 0)
+		return 0;
+
+	rc = parse_long(argv[1], &value);
+	if (rc != 0) {
+		cYAML_build_error(-1, -1, "parser", "set",
+				  "cannot parse large_rdma_buffers value",
+				  &err_rc);
+		cYAML_print_tree2file(stderr, err_rc);
+		cYAML_free_tree(err_rc);
+		return -1;
+	}
+
+	rc = lustre_lnet_config_buffers(-1, -1, -1, value, -1, &err_rc);
 	if (rc != LUSTRE_CFG_RC_NO_ERR)
 		cYAML_print_tree2file(stderr, err_rc);
 
@@ -971,7 +1003,7 @@ command_t list[] = {
 	{"net", jt_net, 0, "net {add | del | show | help}"},
 	{"routing", jt_routing, 0, "routing {show | help}"},
 	{"set", jt_set, 0, "set {tiny_buffers | small_buffers | large_buffers"
-			   " | routing}"},
+			   " | large_rdma_buffers | routing}"},
 	{"import", jt_import, 0, "import {--add | --del | --show | "
 				 "--help} FILE.yaml"},
 	{"export", jt_export, 0, "export {--help} FILE.yaml"},
