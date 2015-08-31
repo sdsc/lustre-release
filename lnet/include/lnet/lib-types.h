@@ -444,6 +444,7 @@ typedef struct {
 typedef struct {
 	struct list_head	 rb_list;	/* chain on rbp_bufs */
 	lnet_rtrbufpool_t	*rb_pool;	/* owning pool */
+	unsigned int		 rb_niov;	/* number of rb_kiov's */
 	lnet_kiov_t		 rb_kiov[0];	/* the buffer space */
 } lnet_rtrbuf_t;
 
