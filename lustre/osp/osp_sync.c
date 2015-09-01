@@ -435,7 +435,7 @@ static void osp_sync_request_commit_cb(struct ptlrpc_request *req)
 	ptlrpc_request_addref(req);
 
 	spin_lock(&d->opd_syn_lock);
-	list_add(&jra->jra_link, &d->opd_syn_committed_there);
+	list_add_tail(&jra->jra_link, &d->opd_syn_committed_there);
 	spin_unlock(&d->opd_syn_lock);
 
 	/* XXX: some batching wouldn't hurt */
@@ -890,9 +890,12 @@ static int osp_sync_process_record(const struct lu_env *env,
  *
  * \param[in] env	LU environment provided by the caller
  * \param[in] d		OSP device
+ * \param[in] release	1 - release all the requests,
+ *			0 - do not release uncommitted requests
  */
 static void osp_sync_process_committed(const struct lu_env *env,
-				       struct osp_device *d)
+				       struct osp_device *d,
+				       int release)
 {
 	struct obd_device	*obd = d->opd_obd;
 	struct obd_import	*imp = obd->u.cli.cl_import;
@@ -937,7 +940,6 @@ static void osp_sync_process_committed(const struct lu_env *env,
 	spin_unlock(&d->opd_syn_lock);
 
 	while (!list_empty(&list)) {
-		struct llog_cookie *lcookie = NULL;
 		struct osp_job_req_args	*jra;
 
 		jra = list_entry(list.next, struct osp_job_req_args, jra_link);
@@ -949,20 +951,30 @@ static void osp_sync_process_committed(const struct lu_env *env,
 		body = req_capsule_client_get(&req->rq_pill,
 					      &RMF_OST_BODY);
 		LASSERT(body);
-		lcookie = &body->oa.o_lcookie;
 		/* import can be closing, thus all commit cb's are
 		 * called we can check committness directly */
 		if (req->rq_transno <= imp->imp_peer_committed_transno) {
-			rc = llog_cat_cancel_records(env, llh, 1, lcookie);
+			rc = llog_cat_cancel_records(env, llh, 1,
+						     &body->oa.o_lcookie);
 			if (rc)
 				CERROR("%s: can't cancel record: %d\n",
 				       obd->obd_name, rc);
-		} else {
+			ptlrpc_req_finished(req);
+			done++;
+		} else if (release == 0) {
+			/* sometimes commit_cb is called, but
+			 * imp_peer_committed_transno doesn't reflect
+			 * actual state, so we put the request on hold
+			 * waiting for updated imp_peer_committed_transno */
 			DEBUG_REQ(D_HA, req, "not committed");
+			spin_lock(&d->opd_syn_lock);
+			list_add_tail(&jra->jra_link, &d->opd_syn_committed_there);
+			spin_unlock(&d->opd_syn_lock);
+		} else {
+			/* release immediately - the device is stopping */
+			ptlrpc_req_finished(req);
+			done++;
 		}
-
-		ptlrpc_req_finished(req);
-		done++;
 	}
 
 	llog_ctxt_put(ctxt);
@@ -1018,7 +1030,7 @@ static int osp_sync_process_queues(const struct lu_env *env,
 		}
 
 		/* process requests committed by OST */
-		osp_sync_process_committed(env, d);
+		osp_sync_process_committed(env, d, 0);
 
 		/* if we there are changes to be processed and we have
 		 * resources for this ... do now */
@@ -1141,7 +1153,7 @@ static int osp_sync_thread(void *_arg)
 	/* wait till all the requests are completed */
 	count = 0;
 	while (d->opd_syn_rpc_in_progress > 0) {
-		osp_sync_process_committed(&env, d);
+		osp_sync_process_committed(&env, d, 1);
 
 		lwi = LWI_TIMEOUT(cfs_time_seconds(5), NULL, NULL);
 		rc = l_wait_event(d->opd_syn_waitq,
