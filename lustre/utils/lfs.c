@@ -621,8 +621,10 @@ static int lfs_migrate(char *name, __u64 migration_flags,
 {
 	int			 fd = -1;
 	int			 fdv = -1;
+	int                      random_value;
 	char			 volatile_file[PATH_MAX +
-						LUSTRE_VOLATILE_HDR_LEN + 4];
+					       LUSTRE_VOLATILE_HDR_LEN +
+					       2 * sizeof(random_value) + 4];
 	char			 parent[PATH_MAX];
 	char			*ptr;
 	int			 rc;
@@ -697,18 +699,22 @@ static int lfs_migrate(char *name, __u64 migration_flags,
 			*ptr = '\0';
 	}
 
-	rc = snprintf(volatile_file, sizeof(volatile_file), "%s/%s::", parent,
-		      LUSTRE_VOLATILE_HDR);
-	if (rc >= sizeof(volatile_file)) {
-		rc = -E2BIG;
-		goto error;
-	}
+	do {
+		random_value = random();
+		rc = snprintf(volatile_file, sizeof(volatile_file),
+			      "%s/%s::%.4X",
+			      parent, LUSTRE_VOLATILE_HDR, random_value);
+		if (rc >= sizeof(volatile_file)) {
+			rc = -E2BIG;
+			goto error;
+		}
 
-	/* create, open a volatile file, use caching (ie no directio) */
-	/* exclusive create is not needed because volatile files cannot
-	 * conflict on name by construction */
-	fdv = llapi_file_open_param(volatile_file, O_CREAT | O_WRONLY, 0644,
-				    param);
+		/* create, open a volatile file, use caching (ie no directio) */
+		fdv = llapi_file_open_param(volatile_file,
+				O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW,
+					    S_IRUSR | S_IWUSR, param);
+	} while (fdv == -EEXIST);
+
 	if (fdv < 0) {
 		rc = fdv;
 		fprintf(stderr, "%s: %s: cannot create volatile file in"

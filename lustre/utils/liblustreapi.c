@@ -4628,26 +4628,30 @@ int llapi_create_volatile_idx(char *directory, int idx, int open_flags)
 {
 	char	file_path[PATH_MAX];
 	char	filename[PATH_MAX];
+	int     saved_errno = errno;
 	int	fd;
 	int	rnumber;
 	int	rc;
 
-	rnumber = random();
-	if (idx == -1)
-		snprintf(filename, sizeof(filename),
-			 LUSTRE_VOLATILE_HDR"::%.4X", rnumber);
-	else
-		snprintf(filename, sizeof(filename),
-			 LUSTRE_VOLATILE_HDR":%.4X:%.4X", idx, rnumber);
+	do {
+		rnumber = random();
+		if (idx == -1)
+			snprintf(filename, sizeof(filename),
+				 LUSTRE_VOLATILE_HDR"::%.4X", rnumber);
+		else
+			snprintf(filename, sizeof(filename),
+				 LUSTRE_VOLATILE_HDR":%.4X:%.4X", idx, rnumber);
 
-	rc = snprintf(file_path, sizeof(file_path),
-		      "%s/%s", directory, filename);
-	if (rc >= sizeof(file_path))
-		return -E2BIG;
+		rc = snprintf(file_path, sizeof(file_path),
+			      "%s/%s", directory, filename);
+		if (rc >= sizeof(file_path))
+			return -E2BIG;
 
-	fd = open(file_path,
-		  O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW | open_flags,
-		  S_IRUSR | S_IWUSR);
+		fd = open(file_path,
+			  O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW | open_flags,
+			  S_IRUSR | S_IWUSR);
+	} while (fd < 0 && errno == EEXIST);
+
 	if (fd < 0) {
 		llapi_error(LLAPI_MSG_ERROR, errno,
 			    "Cannot create volatile file '%s' in '%s'",
@@ -4659,6 +4663,8 @@ int llapi_create_volatile_idx(char *directory, int idx, int open_flags)
 	 * magic volatile filename wasn't handled as intended.  The effect
 	 * is the same. */
 	unlink(file_path);
+
+	errno = saved_errno;
 
 	return fd;
 }
