@@ -707,8 +707,9 @@ static int lfs_migrate(char *name, __u64 migration_flags,
 	/* create, open a volatile file, use caching (ie no directio) */
 	/* exclusive create is not needed because volatile files cannot
 	 * conflict on name by construction */
-	fdv = llapi_file_open_param(volatile_file, O_CREAT | O_WRONLY, 0644,
-				    param);
+	fdv = llapi_file_open_param(volatile_file,
+				    O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW,
+				    S_IRUSR | S_IWUSR, param);
 	if (fdv < 0) {
 		rc = fdv;
 		fprintf(stderr, "%s: %s: cannot create volatile file in"
