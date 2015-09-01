@@ -405,7 +405,8 @@ static int ptlrpcd(void *arg)
         int rc, exit = 0;
         ENTRY;
 
-	unshare_fs_struct();
+	cfs_daemonize_ctxt(pc->pc_name);
+
 #if defined(CONFIG_SMP)
 	if (test_bit(LIOD_BIND, &pc->pc_flags)) {
 		int index = pc->pc_index;
@@ -708,17 +709,17 @@ int ptlrpcd_start(int index, int max, const char *name, struct ptlrpcd_ctl *pc)
 		GOTO(out_set, rc);
 
 	{
-		struct task_struct *task;
 		if (index >= 0) {
 			rc = ptlrpcd_bind(index, max);
 			if (rc < 0)
 				GOTO(out_env, rc);
 		}
 
-		task = kthread_run(ptlrpcd, pc, pc->pc_name);
-		if (IS_ERR(task))
-			GOTO(out_env, rc = PTR_ERR(task));
+		rc = cfs_create_thread(ptlrpcd, pc, 0);
+		if (rc < 0)
+			GOTO(out, rc);
 
+		rc = 0;
 		wait_for_completion(&pc->pc_starting);
 	}
 	RETURN(0);

@@ -99,6 +99,24 @@ void cfs_enter_debugger(void)
 #endif
 }
 
+void cfs_daemonize(char *str) {
+	struct task_struct *task = current;
+	unsigned long flags;
+
+	daemonize(str);
+	spin_lock_irqsave(&task->sighand->siglock, flags);
+	sigfillset(&current->blocked);
+	recalc_sigpending();
+	spin_unlock_irqrestore(&task->sighand->siglock, flags);
+}
+
+int cfs_daemonize_ctxt(char *str) {
+
+	cfs_daemonize(str);
+	unshare_fs_struct();
+	return 0;
+}
+
 sigset_t
 cfs_block_allsigs(void)
 {
@@ -179,9 +197,25 @@ libcfs_arch_cleanup(void)
         return;
 }
 
+int cfs_create_thread(int (*fn)(void *),
+                      void *arg, unsigned long flags)
+{
+        void *orig_info = current->journal_info;
+        int rc;
+
+        current->journal_info = NULL;
+        rc = kernel_thread(fn, arg, flags);
+        current->journal_info = orig_info;
+
+        return rc;
+}
+EXPORT_SYMBOL(cfs_create_thread);
+
 EXPORT_SYMBOL(libcfs_arch_init);
 EXPORT_SYMBOL(libcfs_arch_cleanup);
 EXPORT_SYMBOL(cfs_enter_debugger);
+EXPORT_SYMBOL(cfs_daemonize);
+EXPORT_SYMBOL(cfs_daemonize_ctxt);
 EXPORT_SYMBOL(cfs_block_allsigs);
 EXPORT_SYMBOL(cfs_block_sigs);
 EXPORT_SYMBOL(cfs_block_sigsinv);

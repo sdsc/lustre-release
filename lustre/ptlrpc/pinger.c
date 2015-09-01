@@ -243,6 +243,8 @@ static int ptlrpc_pinger_main(void *arg)
 	struct ptlrpc_thread *thread = (struct ptlrpc_thread *)arg;
 	ENTRY;
 
+	cfs_daemonize(thread->t_name);
+
 	/* Record that the thread is running */
 	thread_set_flags(thread, SVC_RUNNING);
 	wake_up(&thread->t_ctl_waitq);
@@ -318,7 +320,6 @@ static struct ptlrpc_thread pinger_thread;
 int ptlrpc_start_pinger(void)
 {
 	struct l_wait_info lwi = { 0 };
-	struct task_struct *task;
 	int rc;
 #ifndef ENABLE_PINGER
 	return 0;
@@ -334,11 +335,10 @@ int ptlrpc_start_pinger(void)
 	strcpy(pinger_thread.t_name, "ll_ping");
 
 	/* CLONE_VM and CLONE_FILES just avoid a needless copy, because we
-	 * just drop the VM and FILES in kthread_run() right away. */
-	task = kthread_run(ptlrpc_pinger_main, &pinger_thread,
-			   pinger_thread.t_name);
-	if (IS_ERR(task)) {
-		rc = PTR_ERR(task);
+	 * just drop the VM and FILES in cfs_daemonize_ctxt() right away. */
+	rc = cfs_create_thread(ptlrpc_pinger_main,
+			&pinger_thread, CFS_DAEMON_FLAGS);
+	if (rc < 0) {
 		CERROR("cannot start pinger thread: rc = %d\n", rc);
 		RETURN(rc);
 	}
@@ -607,7 +607,7 @@ static int ping_evictor_main(void *arg)
         time_t expire_time;
         ENTRY;
 
-	unshare_fs_struct();
+        cfs_daemonize_ctxt("ll_evictor");
 
         CDEBUG(D_HA, "Starting Ping Evictor\n");
         pet_state = PET_READY;
@@ -682,18 +682,17 @@ static int ping_evictor_main(void *arg)
 
 void ping_evictor_start(void)
 {
-	struct task_struct *task;
+	int rc;
 
 	if (++pet_refcount > 1)
 		return;
 
 	init_waitqueue_head(&pet_waitq);
 
-	task = kthread_run(ping_evictor_main, NULL, "ll_evictor");
-	if (IS_ERR(task)) {
+	rc = cfs_create_thread(ping_evictor_main, NULL, CFS_DAEMON_FLAGS);
+	if (rc < 0) {
 		pet_refcount--;
-		CERROR("Cannot start ping evictor thread: %ld\n",
-			PTR_ERR(task));
+		CERROR("Cannot start ping evictor thread: %d\n", rc);
 	}
 }
 EXPORT_SYMBOL(ping_evictor_start);

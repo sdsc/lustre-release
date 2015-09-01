@@ -111,6 +111,13 @@ typedef struct proc_dir_entry           cfs_proc_dir_entry_t;
 
 #define CFS_DECL_WAITQ(wq)		DECLARE_WAIT_QUEUE_HEAD(wq)
 
+/* Kernel thread */
+typedef int (*cfs_thread_t)(void *);
+
+#define CFS_DAEMON_FLAGS (CLONE_VM | CLONE_FILES)
+extern int cfs_create_thread(int (*fn)(void *), void *arg, unsigned long flags);
+
+
 #define LIBCFS_WQITQ_MACROS           1
 #define init_waitqueue_entry_current(w)          init_waitqueue_entry(w, current)
 #define waitq_wait(w, s)          schedule()

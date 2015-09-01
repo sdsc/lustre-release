@@ -137,4 +137,7 @@ typedef long long_ptr_t;
 /* check if task is running in compat mode.*/
 int current_is_32bit(void);
 
+void cfs_daemonize(char *str);
+int cfs_daemonize_ctxt(char *str);
+
 #endif /* _LINUX_LIBCFS_H */

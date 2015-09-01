@@ -1361,6 +1361,7 @@ static int ldlm_pools_thread_main(void *arg)
 	int s_time, c_time;
 	ENTRY;
 
+	cfs_daemonize("ldlm_poold");
 	thread_set_flags(thread, SVC_RUNNING);
 	wake_up(&thread->t_ctl_waitq);
 
@@ -1405,7 +1406,7 @@ static int ldlm_pools_thread_main(void *arg)
 static int ldlm_pools_thread_start(void)
 {
 	struct l_wait_info lwi = { 0 };
-	struct task_struct *task;
+	int rc;
 	ENTRY;
 
 	if (ldlm_pools_thread != NULL)
@@ -1418,16 +1419,20 @@ static int ldlm_pools_thread_start(void)
 	init_completion(&ldlm_pools_comp);
 	init_waitqueue_head(&ldlm_pools_thread->t_ctl_waitq);
 
-	task = kthread_run(ldlm_pools_thread_main, ldlm_pools_thread,
-			   "ldlm_poold");
-	if (IS_ERR(task)) {
-		CERROR("Can't start pool thread, error %ld\n", PTR_ERR(task));
+	/*
+	 * CLONE_VM and CLONE_FILES just avoid a needless copy, because we
+	 * just drop the VM and FILES in cfs_daemonize() right away.
+	 */
+	rc = cfs_create_thread(ldlm_pools_thread_main, ldlm_pools_thread,
+			       CFS_DAEMON_FLAGS);
+	if (rc < 0) {
+		CERROR("Can't start pool thread, error %d\n", rc);
 		OBD_FREE(ldlm_pools_thread, sizeof(*ldlm_pools_thread));
 		ldlm_pools_thread = NULL;
-		RETURN(PTR_ERR(task));
+		RETURN(rc);
 	}
 	l_wait_event(ldlm_pools_thread->t_ctl_waitq,
-		     thread_is_running(ldlm_pools_thread), &lwi);
+			thread_is_running(ldlm_pools_thread), &lwi);
 	RETURN(0);
 }
 
