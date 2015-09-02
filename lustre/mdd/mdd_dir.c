@@ -3186,7 +3186,7 @@ static int mdd_update_linkea_internal(const struct lu_env *env,
 			if (rc != 0)
 				GOTO(next_put, rc);
 
-			mdd_write_lock(env, mdd_tobj, MOR_SRC_CHILD);
+			mdd_write_lock(env, mdd_tobj, MOR_TGT_CHILD);
 			rc = mdo_ref_add(env, mdd_tobj, handle);
 			mdd_write_unlock(env, mdd_tobj);
 			if (rc)
@@ -3899,6 +3899,12 @@ static int mdd_migrate_update_name(const struct lu_env *env,
 				       handle, lname, ldata);
 		if (rc != 0)
 			GOTO(stop_trans, rc);
+
+		/*  linkea update might decrease the source object
+		 *  nlink, let's get the attr again after ref_del */
+		rc = mdd_la_get(env, mdd_sobj, so_attr);
+		if (rc != 0)
+			GOTO(out_unlock, rc);
 	}
 
 	if (S_ISREG(so_attr->la_mode)) {
@@ -3964,6 +3970,24 @@ stop_trans:
 	RETURN(rc);
 }
 
+static int mdd_fld_lookup(const struct lu_env *env, struct mdd_device *mdd,
+			  const struct lu_fid *fid, __u64 *target_seq)
+{
+	struct lu_seq_range *range = &mdd_env_info(env)->mti_range;
+	struct seq_server_site *ss;
+	int rc;
+
+	ss = mdd->mdd_md_dev.md_lu_dev.ld_site->ld_seq_site;
+
+	range->lsr_flags = LU_SEQ_RANGE_MDT;
+	rc = fld_server_lookup(env, ss->ss_server_fld, fid->f_seq, range);
+	if (rc != 0)
+		return rc;
+
+	*target_seq = range->lsr_index;
+
+	return 0;
+}
 /**
  * Check whether we should migrate the file/dir
  * return val
@@ -3976,15 +4000,17 @@ static int mdd_migrate_sanity_check(const struct lu_env *env,
 				    struct mdd_object *pobj,
 				    const struct lu_attr *pattr,
 				    struct mdd_object *sobj,
+				    struct mdd_object *tobj,
 				    struct lu_attr *sattr)
 {
 	struct mdd_thread_info  *info = mdd_env_info(env);
 	struct linkea_data	*ldata = &info->mti_link_data;
+	struct mdd_device	*mdd = mdo2mdd(&pobj->mod_obj);
 	int			mgr_easize;
 	struct lu_buf		*mgr_buf;
 	int			count;
 	int			rc;
-
+	__u64 target_seq;
 	ENTRY;
 
 	mgr_easize = lmv_mds_md_size(2, LMV_MAGIC_V1);
@@ -4033,39 +4059,36 @@ static int mdd_migrate_sanity_check(const struct lu_env *env,
 		RETURN(rc);
 	}
 
+	rc = mdd_fld_lookup(env, mdd, mdd_object_fid(tobj), &target_seq);
+	if (rc != 0)
+		RETURN(rc);
+
 	/* If there are still links locally, then the file will not be
 	 * migrated. */
 	LASSERT(ldata->ld_leh != NULL);
 	ldata->ld_lee = (struct link_ea_entry *)(ldata->ld_leh + 1);
 	for (count = 0; count < ldata->ld_leh->leh_reccount; count++) {
-		struct mdd_device	*mdd = mdo2mdd(&sobj->mod_obj);
-		struct mdd_object	*lpobj;
 		struct lu_name		lname;
 		struct lu_fid		fid;
+		__u64			pseq;
 
 		linkea_entry_unpack(ldata->ld_lee, &ldata->ld_reclen,
 				    &lname, &fid);
 		ldata->ld_lee = (struct link_ea_entry *)((char *)ldata->ld_lee +
 							 ldata->ld_reclen);
-		lpobj = mdd_object_find(env, mdd, &fid);
-		if (IS_ERR(lpobj)) {
-			CWARN("%s: cannot find obj "DFID": rc = %ld\n",
-			      mdd2obd_dev(mdd)->obd_name, PFID(&fid),
-			      PTR_ERR(lpobj));
-			continue;
-		}
 
-		if (!mdd_object_exists(lpobj) || mdd_object_remote(lpobj)) {
-			CDEBUG(D_INFO, DFID"%.*s: is on remote MDT.\n",
-			       PFID(&fid), lname.ln_namelen, lname.ln_name);
-			mdd_object_put(env, lpobj);
+		rc = mdd_fld_lookup(env, mdd, &fid, &pseq);
+		if (rc != 0)
+			RETURN(rc);
+
+		/* Only migrate the object if all of its parents are already
+		 * on the target MDT */
+		if (pseq == target_seq)
 			continue;
-		}
 
 		CDEBUG(D_INFO, DFID"still has local entry %.*s "DFID"\n",
 		       PFID(mdd_object_fid(sobj)), lname.ln_namelen,
 		       lname.ln_name, PFID(&fid));
-		mdd_object_put(env, lpobj);
 		rc = 1;
 		break;
 	}
@@ -4107,7 +4130,9 @@ static int mdd_migrate(const struct lu_env *env, struct md_object *pobj,
 	if (rc != 0)
 		GOTO(put, rc);
 
-	rc = mdd_migrate_sanity_check(env, mdd_pobj, pattr, mdd_sobj, so_attr);
+	mdd_tobj = md2mdd_obj(tobj);
+	rc = mdd_migrate_sanity_check(env, mdd_pobj, pattr, mdd_sobj, mdd_tobj,
+				      so_attr);
 	if (rc != 0) {
 		if (rc > 0)
 			rc = 0;
@@ -4136,7 +4161,6 @@ static int mdd_migrate(const struct lu_env *env, struct md_object *pobj,
 
 	/* step 1: Check whether the orphan object has been created, and create
 	 * orphan object on the remote MDT if needed */
-	mdd_tobj = md2mdd_obj(tobj);
 	if (!mdd_object_exists(mdd_tobj)) {
 		rc = mdd_migrate_create(env, mdd_pobj, mdd_sobj, mdd_tobj,
 					lname, so_attr);
