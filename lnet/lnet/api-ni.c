@@ -1224,7 +1224,8 @@ lnet_shutdown_lndni(struct lnet_ni *ni)
 
 static int
 lnet_startup_lndni(struct lnet_ni *ni, __s32 peer_timeout,
-		   __s32 peer_cr, __s32 peer_buf_cr, __s32 credits)
+		   __s32 peer_cr, __s32 peer_buf_cr, __s32 credits,
+		   __s32 map_on_demand, __s32 concurrent_sends)
 {
 	int			rc = -EINVAL;
 	__u32			lnd_type;
@@ -1289,6 +1290,8 @@ lnet_startup_lndni(struct lnet_ni *ni, __s32 peer_timeout,
 	lnet_net_unlock(LNET_LOCK_EX);
 
 	ni->ni_lnd = lnd;
+	ni->ni_lnd_tunables.lnd_map_on_demand = map_on_demand;
+	ni->ni_lnd_tunables.lnd_concurrent_sends = concurrent_sends;
 
 	rc = (lnd->lnd_startup)(ni);
 
@@ -1379,7 +1382,7 @@ lnet_startup_lndnis(struct list_head *nilist)
 	while (!list_empty(nilist)) {
 		ni = list_entry(nilist->next, lnet_ni_t, ni_list);
 		list_del(&ni->ni_list);
-		rc = lnet_startup_lndni(ni, -1, -1, -1, -1);
+		rc = lnet_startup_lndni(ni, -1, -1, -1, -1, -1, -1);
 
 		if (rc < 0)
 			goto failed;
@@ -1734,7 +1737,7 @@ lnet_get_net_config(int idx, __u32 *cpt_count, __u64 *nid, int *peer_timeout,
 int
 lnet_dyn_add_ni(lnet_pid_t requested_pid, char *nets,
 		__s32 peer_timeout, __s32 peer_cr, __s32 peer_buf_cr,
-		__s32 credits)
+		__s32 credits, __s32 map_on_demand, __s32 concurrent_sends)
 {
 	lnet_ping_info_t	*pinfo;
 	lnet_handle_md_t	md_handle;
@@ -1779,7 +1782,8 @@ lnet_dyn_add_ni(lnet_pid_t requested_pid, char *nets,
 	list_del_init(&ni->ni_list);
 
 	rc = lnet_startup_lndni(ni, peer_timeout, peer_cr,
-				peer_buf_cr, credits);
+				peer_buf_cr, credits, map_on_demand,
+				concurrent_sends);
 	if (rc != 0)
 		goto failed1;
 

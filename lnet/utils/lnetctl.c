@@ -85,6 +85,8 @@ command_t net_cmds[] = {
 	 "\t--peer-credits: define the max number of inflight messages\n"
 	 "\t--peer-buffer-credits: the number of buffer credits per peer\n"
 	 "\t--credits: Network Interface credits\n"
+	 "\t--map_on_demand: turns on FMR and determines RDMA fragments\n"
+	 "\t--concurrent_sends: determines number of inflight messages\n"
 	 "\t--cpt: CPU Partitions configured net uses (e.g. [0,1]\n"},
 	{"del", jt_del_net, 0, "delete a network\n"
 	 "\t--net: net name (e.g. tcp0)\n"},
@@ -412,7 +414,8 @@ static int jt_add_route(int argc, char **argv)
 static int jt_add_net(int argc, char **argv)
 {
 	char *network = NULL, *intf = NULL, *ip2net = NULL, *cpt = NULL;
-	long int pto = -1, pc = -1, pbc = -1, cre = -1;
+	long int pto = -1, pc = -1, pbc = -1, cre = -1, map_on_demand = -1,
+	     concurrent_sends = -1;
 	struct cYAML *err_rc = NULL;
 	int rc, opt;
 
@@ -425,6 +428,8 @@ static int jt_add_net(int argc, char **argv)
 		{ "peer-credits", 1, NULL, 'c' },
 		{ "peer-buffer-credits", 1, NULL, 'b' },
 		{ "credits", 1, NULL, 'r' },
+		{ "map_on_demand", 1, NULL, 'm' },
+		{ "concurrent_sends", 1, NULL, 'x'},
 		{ "cpt", 1, NULL, 's' },
 		{ "help", 0, NULL, 'h' },
 		{ NULL, 0, NULL, 0 },
@@ -477,6 +482,22 @@ static int jt_add_net(int argc, char **argv)
 		case 's':
 			cpt = optarg;
 			break;
+		case 'm':
+			rc = parse_long(optarg, &map_on_demand);
+			if (rc != 0) {
+				/* ignore option */
+				map_on_demand = -1;
+				continue;
+			}
+			break;
+		case 'x':
+			rc = parse_long(optarg, &concurrent_sends);
+			if (rc != 0) {
+				/* ignore option */
+				concurrent_sends = -1;
+				continue;
+			}
+			break;
 		case 'h':
 			print_help(net_cmds, "net", "add");
 			return 0;
@@ -486,7 +507,8 @@ static int jt_add_net(int argc, char **argv)
 	}
 
 	rc = lustre_lnet_config_net(network, intf, ip2net, pto, pc, pbc,
-				    cre, cpt, -1, &err_rc);
+				    cre, cpt, map_on_demand, concurrent_sends,
+				    -1, &err_rc);
 
 	if (rc != LUSTRE_CFG_RC_NO_ERR)
 		cYAML_print_tree2file(stderr, err_rc);

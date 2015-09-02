@@ -144,32 +144,12 @@ extern kib_tunables_t  kiblnd_tunables;
 #define kiblnd_rdma_create_id(cb, dev, ps, qpt) rdma_create_id(cb, dev, ps)
 #endif
 
-static inline int
-kiblnd_concurrent_sends_v1(void)
-{
-        if (*kiblnd_tunables.kib_concurrent_sends > IBLND_MSG_QUEUE_SIZE_V1 * 2)
-                return IBLND_MSG_QUEUE_SIZE_V1 * 2;
-
-        if (*kiblnd_tunables.kib_concurrent_sends < IBLND_MSG_QUEUE_SIZE_V1 / 2)
-                return IBLND_MSG_QUEUE_SIZE_V1 / 2;
-
-        return *kiblnd_tunables.kib_concurrent_sends;
-}
-
-#define IBLND_CONCURRENT_SENDS(v)  ((v) == IBLND_MSG_VERSION_1 ? \
-                                     kiblnd_concurrent_sends_v1() : \
-                                     *kiblnd_tunables.kib_concurrent_sends)
 /* 2 OOB shall suffice for 1 keepalive and 1 returning credits */
 #define IBLND_OOB_CAPABLE(v)       ((v) != IBLND_MSG_VERSION_1)
 #define IBLND_OOB_MSGS(v)           (IBLND_OOB_CAPABLE(v) ? 2 : 0)
 
 #define IBLND_MSG_SIZE              (4<<10)                 /* max size of queued messages (inc hdr) */
 #define IBLND_MAX_RDMA_FRAGS         LNET_MAX_IOV           /* max # of fragments supported */
-#define IBLND_CFG_RDMA_FRAGS       (*kiblnd_tunables.kib_map_on_demand != 0 ? \
-                                    *kiblnd_tunables.kib_map_on_demand :      \
-                                     IBLND_MAX_RDMA_FRAGS)  /* max # of fragments configured by user */
-#define IBLND_RDMA_FRAGS(v)        ((v) == IBLND_MSG_VERSION_1 ? \
-                                     IBLND_MAX_RDMA_FRAGS : IBLND_CFG_RDMA_FRAGS)
 
 /************************/
 /* derived constants... */
@@ -189,7 +169,8 @@ kiblnd_concurrent_sends_v1(void)
 /* WRs and CQEs (per connection) */
 #define IBLND_RECV_WRS(c)            IBLND_RX_MSGS(c)
 #define IBLND_SEND_WRS(c)	\
-	((c->ibc_max_frags + 1) * IBLND_CONCURRENT_SENDS(c->ibc_version))
+	((c->ibc_max_frags + 1) * kiblnd_concurrent_sends(c->ibc_version, \
+							  c->ibc_peer->ibp_ni))
 #define IBLND_CQ_ENTRIES(c)         (IBLND_RECV_WRS(c) + IBLND_SEND_WRS(c))
 
 struct kib_hca_dev;
@@ -740,6 +721,44 @@ extern kib_data_t      kiblnd_data;
 
 extern void kiblnd_hdev_destroy(kib_hca_dev_t *hdev);
 
+static inline int
+kiblnd_concurrent_sends_v1(int concurrent_sends)
+{
+	if (concurrent_sends > IBLND_MSG_QUEUE_SIZE_V1 * 2)
+		return IBLND_MSG_QUEUE_SIZE_V1 * 2;
+
+	if (concurrent_sends < IBLND_MSG_QUEUE_SIZE_V1 / 2)
+		return IBLND_MSG_QUEUE_SIZE_V1 / 2;
+
+	return concurrent_sends;
+}
+
+/* max # of fragments configured by user */
+static inline int
+kiblnd_cfg_rdma_frags(struct lnet_ni *ni)
+{
+	int mod = ni->ni_lnd_tunables.lnd_map_on_demand;
+	return mod != 0 ? mod : IBLND_MAX_RDMA_FRAGS;
+}
+
+static inline int
+kiblnd_rdma_frags(int version, struct lnet_ni *ni)
+{
+	return version == IBLND_MSG_VERSION_1 ?
+	  IBLND_MAX_RDMA_FRAGS :
+	  kiblnd_cfg_rdma_frags(ni);
+}
+
+static inline int
+kiblnd_concurrent_sends(int version, struct lnet_ni *ni)
+{
+	int concurrent_sends = ni->ni_lnd_tunables.lnd_concurrent_sends;
+	return version == IBLND_MSG_VERSION_1 ?
+	  kiblnd_concurrent_sends_v1(concurrent_sends) :
+	  concurrent_sends;
+}
+
+
 static inline void
 kiblnd_hdev_addref_locked(kib_hca_dev_t *hdev)
 {
@@ -1057,9 +1076,8 @@ static inline unsigned int kiblnd_sg_dma_len(struct ib_device *dev,
 #define KIBLND_CONN_PARAM(e)            ((e)->param.conn.private_data)
 #define KIBLND_CONN_PARAM_LEN(e)        ((e)->param.conn.private_data_len)
 
-struct ib_mr *kiblnd_find_rd_dma_mr(kib_hca_dev_t *hdev,
-				    kib_rdma_desc_t *rd,
-				    int negotiated_nfrags);
+struct ib_mr *kiblnd_find_rd_dma_mr(kib_hca_dev_t *hdev, kib_rdma_desc_t *rd,
+				    struct lnet_ni *ni, int negotiated_nfrags);
 void kiblnd_map_rx_descs(kib_conn_t *conn);
 void kiblnd_unmap_rx_descs(kib_conn_t *conn);
 void kiblnd_pool_free_node(kib_pool_t *pool, struct list_head *node);
@@ -1069,6 +1087,7 @@ int  kiblnd_fmr_pool_map(kib_fmr_poolset_t *fps, __u64 *pages,
                          int npages, __u64 iov, kib_fmr_t *fmr);
 void kiblnd_fmr_pool_unmap(kib_fmr_t *fmr, int status);
 
+void kiblnd_dyn_tunables_init(int *map_on_demand, int *concurrent_sends);
 int  kiblnd_tunables_init(void);
 void kiblnd_tunables_fini(void);
 
