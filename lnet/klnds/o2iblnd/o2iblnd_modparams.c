@@ -391,59 +391,81 @@ kiblnd_sysctl_fini (void)
 
 #endif
 
+void kiblnd_dyn_tunables_init(int *map_on_demand, int *concurrent_sends)
+{
+	if (*map_on_demand < 0 ||
+	    *map_on_demand > IBLND_MAX_RDMA_FRAGS)
+		/* disable map-on-demand */
+		*map_on_demand = 0;
+
+	if (*map_on_demand == 1)
+		/* don't make sense to create map if only one fragment */
+		*map_on_demand = 2; 
+
+	if (*concurrent_sends == 0) {
+		if (*map_on_demand > 0 &&
+		    *map_on_demand <=
+		    IBLND_MAX_RDMA_FRAGS / 8)
+			*concurrent_sends =
+			  (*kiblnd_tunables.kib_peertxcredits) * 2;
+		else
+			*concurrent_sends =
+			  (*kiblnd_tunables.kib_peertxcredits);
+	}
+
+	if (*concurrent_sends >
+	    *kiblnd_tunables.kib_peertxcredits * 2)
+		*concurrent_sends =
+		  *kiblnd_tunables.kib_peertxcredits * 2;
+
+	if (*concurrent_sends <
+	    *kiblnd_tunables.kib_peertxcredits / 2)
+		*concurrent_sends =
+		  *kiblnd_tunables.kib_peertxcredits / 2;
+
+	if (*concurrent_sends <
+	    *kiblnd_tunables.kib_peertxcredits) {
+		CWARN("Concurrent sends %d is lower than message "
+		      "queue size: %d, performance may drop slightly.\n",
+		      *concurrent_sends,
+		      *kiblnd_tunables.kib_peertxcredits);
+	}
+}
+
 int
 kiblnd_tunables_init (void)
 {
-        if (kiblnd_translate_mtu(*kiblnd_tunables.kib_ib_mtu) < 0) {
-                CERROR("Invalid ib_mtu %d, expected 256/512/1024/2048/4096\n",
-                       *kiblnd_tunables.kib_ib_mtu);
-                return -EINVAL;
-        }
+	if (kiblnd_translate_mtu(*kiblnd_tunables.kib_ib_mtu) < 0) {
+		CERROR("Invalid ib_mtu %d, expected 256/512/1024/2048/4096\n",
+		       *kiblnd_tunables.kib_ib_mtu);
+		return -EINVAL;
+	}
 
-        if (*kiblnd_tunables.kib_peertxcredits < IBLND_CREDITS_DEFAULT)
-                *kiblnd_tunables.kib_peertxcredits = IBLND_CREDITS_DEFAULT;
+	if (*kiblnd_tunables.kib_peertxcredits < IBLND_CREDITS_DEFAULT)
+		*kiblnd_tunables.kib_peertxcredits = IBLND_CREDITS_DEFAULT;
 
-        if (*kiblnd_tunables.kib_peertxcredits > IBLND_CREDITS_MAX)
-                *kiblnd_tunables.kib_peertxcredits = IBLND_CREDITS_MAX;
+	if (*kiblnd_tunables.kib_peertxcredits > IBLND_CREDITS_MAX)
+		*kiblnd_tunables.kib_peertxcredits = IBLND_CREDITS_MAX;
 
-        if (*kiblnd_tunables.kib_peertxcredits > *kiblnd_tunables.kib_credits)
-                *kiblnd_tunables.kib_peertxcredits = *kiblnd_tunables.kib_credits;
+	if (*kiblnd_tunables.kib_peertxcredits > *kiblnd_tunables.kib_credits)
+		*kiblnd_tunables.kib_peertxcredits = *kiblnd_tunables.kib_credits;
 
-        if (*kiblnd_tunables.kib_peercredits_hiw < *kiblnd_tunables.kib_peertxcredits / 2)
-                *kiblnd_tunables.kib_peercredits_hiw = *kiblnd_tunables.kib_peertxcredits / 2;
+	if (*kiblnd_tunables.kib_peercredits_hiw <
+	    *kiblnd_tunables.kib_peertxcredits / 2)
+		*kiblnd_tunables.kib_peercredits_hiw =
+		  *kiblnd_tunables.kib_peertxcredits / 2;
 
-        if (*kiblnd_tunables.kib_peercredits_hiw >= *kiblnd_tunables.kib_peertxcredits)
-                *kiblnd_tunables.kib_peercredits_hiw = *kiblnd_tunables.kib_peertxcredits - 1;
+	if (*kiblnd_tunables.kib_peercredits_hiw >=
+	    *kiblnd_tunables.kib_peertxcredits)
+		*kiblnd_tunables.kib_peercredits_hiw =
+		  *kiblnd_tunables.kib_peertxcredits - 1;
 
-        if (*kiblnd_tunables.kib_map_on_demand < 0 ||
-            *kiblnd_tunables.kib_map_on_demand > IBLND_MAX_RDMA_FRAGS)
-                *kiblnd_tunables.kib_map_on_demand = 0; /* disable map-on-demand */
 
-        if (*kiblnd_tunables.kib_map_on_demand == 1)
-                *kiblnd_tunables.kib_map_on_demand = 2; /* don't make sense to create map if only one fragment */
+	kiblnd_dyn_tunables_init(kiblnd_tunables.kib_map_on_demand,
+				 kiblnd_tunables.kib_concurrent_sends);
 
-        if (*kiblnd_tunables.kib_concurrent_sends == 0) {
-                if (*kiblnd_tunables.kib_map_on_demand > 0 &&
-                    *kiblnd_tunables.kib_map_on_demand <= IBLND_MAX_RDMA_FRAGS / 8)
-                        *kiblnd_tunables.kib_concurrent_sends = (*kiblnd_tunables.kib_peertxcredits) * 2;
-                else
-                        *kiblnd_tunables.kib_concurrent_sends = (*kiblnd_tunables.kib_peertxcredits);
-        }
-
-        if (*kiblnd_tunables.kib_concurrent_sends > *kiblnd_tunables.kib_peertxcredits * 2)
-                *kiblnd_tunables.kib_concurrent_sends = *kiblnd_tunables.kib_peertxcredits * 2;
-
-        if (*kiblnd_tunables.kib_concurrent_sends < *kiblnd_tunables.kib_peertxcredits / 2)
-                *kiblnd_tunables.kib_concurrent_sends = *kiblnd_tunables.kib_peertxcredits / 2;
-
-        if (*kiblnd_tunables.kib_concurrent_sends < *kiblnd_tunables.kib_peertxcredits) {
-                CWARN("Concurrent sends %d is lower than message queue size: %d, "
-                      "performance may drop slightly.\n",
-                      *kiblnd_tunables.kib_concurrent_sends, *kiblnd_tunables.kib_peertxcredits);
-        }
-
-        kiblnd_sysctl_init();
-        return 0;
+	kiblnd_sysctl_init();
+	return 0;
 }
 
 void

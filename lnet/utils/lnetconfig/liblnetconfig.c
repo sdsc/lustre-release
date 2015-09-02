@@ -442,7 +442,8 @@ out:
 
 int lustre_lnet_config_net(char *net, char *intf, char *ip2net,
 			   int peer_to, int peer_cr, int peer_buf_cr,
-			   int credits, char *smp, int seq_no,
+			   int credits, char *smp, int map_on_demand,
+			   int concurrent_sends, int seq_no,
 			   struct cYAML **err_rc)
 {
 	struct lnet_ioctl_config_data data;
@@ -493,6 +494,8 @@ int lustre_lnet_config_net(char *net, char *intf, char *ip2net,
 	data.cfg_config_u.cfg_net.net_peer_tx_credits = peer_cr;
 	data.cfg_config_u.cfg_net.net_peer_rtr_credits = peer_buf_cr;
 	data.cfg_config_u.cfg_net.net_max_tx_credits = credits;
+	data.cfg_config_u.cfg_net.net_map_on_demand = map_on_demand;
+	data.cfg_config_u.cfg_net.net_concurrent_sends = concurrent_sends;
 
 	rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_ADD_NET, &data);
 	if (rc < 0) {
@@ -1250,7 +1253,8 @@ static int handle_yaml_config_net(struct cYAML *tree, struct cYAML **show_rc,
 {
 	struct cYAML *net, *intf, *tunables, *seq_no,
 	      *peer_to = NULL, *peer_buf_cr = NULL, *peer_cr = NULL,
-	      *credits = NULL, *ip2net = NULL, *smp = NULL, *child;
+	      *credits = NULL, *ip2net = NULL, *smp = NULL, *child = NULL,
+	      *map_on_demand = NULL, *concurrent_sends = NULL;
 	char devs[LNET_MAX_STR_LEN];
 	char *loc = devs;
 	int size = LNET_MAX_STR_LEN;
@@ -1284,6 +1288,10 @@ static int handle_yaml_config_net(struct cYAML *tree, struct cYAML **show_rc,
 		peer_buf_cr = cYAML_get_object_item(tunables,
 						    "peer_buffer_credits");
 		credits = cYAML_get_object_item(tunables, "credits");
+		map_on_demand = cYAML_get_object_item(tunables,
+						      "map_on_demand");
+		concurrent_sends = cYAML_get_object_item(tunables,
+							 "concurrent_sends");
 		smp = cYAML_get_object_item(tunables, "CPT");
 	}
 	seq_no = cYAML_get_object_item(tree, "seq_no");
@@ -1297,6 +1305,10 @@ static int handle_yaml_config_net(struct cYAML *tree, struct cYAML **show_rc,
 					peer_buf_cr->cy_valueint : -1,
 				      (credits) ? credits->cy_valueint : -1,
 				      (smp) ? smp->cy_valuestring : NULL,
+				      (map_on_demand) ?
+					map_on_demand->cy_valueint : -1,
+				      (concurrent_sends) ?
+					concurrent_sends->cy_valueint : -1,
 				      (seq_no) ? seq_no->cy_valueint : -1,
 				      err_rc);
 }

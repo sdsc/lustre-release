@@ -760,7 +760,7 @@ kiblnd_create_conn(kib_peer_t *peer, struct rdma_cm_id *cmid,
 	conn->ibc_cmid = cmid;
 	
 	if (cp == NULL) {
-		conn->ibc_max_frags = IBLND_CFG_RDMA_FRAGS;
+		conn->ibc_max_frags = kiblnd_cfg_rdma_frags(peer->ibp_ni);
 		conn->ibc_queue_depth = *kiblnd_tunables.kib_peertxcredits;
 	} else {
 		conn->ibc_max_frags = cp->ibcp_max_frags;
@@ -1424,19 +1424,19 @@ kiblnd_find_dma_mr(kib_hca_dev_t *hdev, __u64 addr, __u64 size)
 
 struct ib_mr *
 kiblnd_find_rd_dma_mr(kib_hca_dev_t *hdev, kib_rdma_desc_t *rd,
-		      int negotiated_nfrags)
+		      struct lnet_ni *ni, int negotiated_nfrags)
 {
         struct ib_mr	*prev_mr;
         struct ib_mr	*mr;
         int		i;
+	int		mod = ni->ni_lnd_tunables.lnd_map_on_demand;
 	__u16		nfrags = (negotiated_nfrags != -1) ?
-	  negotiated_nfrags : *kiblnd_tunables.kib_map_on_demand;
+	  negotiated_nfrags : mod;
 
         LASSERT (hdev->ibh_mrs[0] != NULL);
 
 	/* looking for pre-mapping MR unless mapping on demand */
-        if (*kiblnd_tunables.kib_map_on_demand > 0 &&
-	    nfrags <= rd->rd_nfrags)
+	if (mod > 0 && nfrags <= rd->rd_nfrags)
 		return NULL;
 
         if (hdev->ibh_nmrs == 1)
@@ -2105,7 +2105,8 @@ kiblnd_net_fini_pools(kib_net_t *net)
 }
 
 static int
-kiblnd_net_init_pools(kib_net_t *net, __u32 *cpts, int ncpts)
+kiblnd_net_init_pools(kib_net_t *net, __u32 *cpts, int ncpts,
+		      int map_on_demand)
 {
 	unsigned long	flags;
 	int		cpt;
@@ -2113,7 +2114,7 @@ kiblnd_net_init_pools(kib_net_t *net, __u32 *cpts, int ncpts)
 	int		i;
 
 	read_lock_irqsave(&kiblnd_data.kib_global_lock, flags);
-	if (*kiblnd_tunables.kib_map_on_demand == 0 &&
+	if (map_on_demand == 0 &&
 	    net->ibn_dev->ibd_hdev->ibh_nmrs == 1) {
 		read_unlock_irqrestore(&kiblnd_data.kib_global_lock,
 					   flags);
@@ -2936,6 +2937,16 @@ kiblnd_startup (lnet_ni_t *ni)
 	do_gettimeofday(&tv);
 	net->ibn_incarnation = (((__u64)tv.tv_sec) * 1000000) + tv.tv_usec;
 
+	/* deal with lnd tunables being passed from LNet. */
+	if (ni->ni_lnd_tunables.lnd_map_on_demand == -1)
+		ni->ni_lnd_tunables.lnd_map_on_demand =
+			*kiblnd_tunables.kib_map_on_demand;
+	if (ni->ni_lnd_tunables.lnd_concurrent_sends == -1)
+		ni->ni_lnd_tunables.lnd_concurrent_sends =
+			*kiblnd_tunables.kib_concurrent_sends;
+	kiblnd_dyn_tunables_init(&ni->ni_lnd_tunables.lnd_map_on_demand,
+				 &ni->ni_lnd_tunables.lnd_concurrent_sends);
+
         ni->ni_peertimeout    = *kiblnd_tunables.kib_peertimeout;
         ni->ni_maxtxcredits   = *kiblnd_tunables.kib_credits;
         ni->ni_peertxcredits  = *kiblnd_tunables.kib_peertxcredits;
@@ -2978,7 +2989,8 @@ kiblnd_startup (lnet_ni_t *ni)
 	if (rc != 0)
 		goto failed;
 
-	rc = kiblnd_net_init_pools(net, ni->ni_cpts, ni->ni_ncpts);
+	rc = kiblnd_net_init_pools(net, ni->ni_cpts, ni->ni_ncpts,
+				   ni->ni_lnd_tunables.lnd_map_on_demand);
         if (rc != 0) {
                 CERROR("Failed to initialize NI pools: %d\n", rc);
                 goto failed;

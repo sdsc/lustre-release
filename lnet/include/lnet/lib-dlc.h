@@ -77,8 +77,10 @@ struct lnet_ioctl_config_data {
 			__s32 net_peer_tx_credits;
 			__s32 net_peer_rtr_credits;
 			__s32 net_max_tx_credits;
+			__s32 net_map_on_demand;
+			__s32 net_concurrent_sends;
 			__u32 net_cksum_algo;
-			__u32 net_pad;
+			__u32 pad;
 		} cfg_net;
 		struct {
 			__u32 buf_enable;
