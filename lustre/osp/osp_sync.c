@@ -958,6 +958,7 @@ static void osp_sync_process_committed(const struct lu_env *env,
 				CERROR("%s: can't cancel record: %d\n",
 				       obd->obd_name, rc);
 		} else {
+			LASSERT(req->rq_import_generation != imp->imp_generation);
 			DEBUG_REQ(D_HA, req, "not committed");
 		}
 
