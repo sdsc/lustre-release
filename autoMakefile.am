@@ -176,7 +176,7 @@ debs:
 	export MA_DIR=$$(pwd)/usr_share_modass && \
 	KVERS=$${KVERS:-$(LINUXRELEASE)} && \
 	[ "x@ENABLEO2IB@" != "x" ] && \
-	export IB_OPTIONS="--with-o2ib=@O2IBPATHS@" && \
+	export IB_OPTIONS="--with-o2ib=@O2IBPATH@" && \
 	export KSRC_TREE=$(LINUX) && \
 	KSRC=$${KSRC:-$(LINUX_OBJ)} && \
 	m-a build $${KSRC:+-k $$KSRC} $${KVERS:+-l $$KVERS} -i -u $$(pwd) lustre && \
