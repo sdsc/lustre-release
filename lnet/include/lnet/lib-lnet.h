@@ -508,7 +508,8 @@ void lnet_rtrpools_free(int keep_pools);
 lnet_remotenet_t *lnet_find_net_locked (__u32 net);
 int lnet_dyn_add_ni(lnet_pid_t requested_pid, char *nets,
 		    __s32 peer_timeout, __s32 peer_cr, __s32 peer_buf_cr,
-		    __s32 credits);
+		    __s32 credits, __s32 map_on_demand,
+		    __s32 concurrent_sends);
 int lnet_dyn_del_ni(__u32 net);
 int lnet_clear_lazy_portal(struct lnet_ni *ni, int portal, char *reason);
 

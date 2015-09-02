@@ -119,12 +119,15 @@ int lustre_lnet_show_route(char *nw, char *gw,
  *       - the above are LND tunable parameters and are optional
  *   credits - network interface credits
  *   smp - cpu affinity
+ *   map_on_demand - turn on/off FMR and set value of RDMA fragments
+ *   concurrent_sends - value of LND concurrent_sends
  *   seq_no - sequence number of the request
  *   err_rc - [OUT] struct cYAML tree describing the error. Freed by caller
  */
 int lustre_lnet_config_net(char *net, char *intf, char *ip2net,
 			   int peer_to, int peer_cr, int peer_buf_cr,
-			   int credits, char *smp, int seq_no,
+			   int credits, char *smp, int map_on_demand,
+			   int concurrent_sends, int seq_no,
 			   struct cYAML **err_rc);
 
 /*

@@ -267,6 +267,11 @@ struct lnet_tx_queue {
 	struct list_head	tq_delayed;	/* delayed TXs */
 };
 
+struct lnet_lnd_tunables {
+	int	lnd_map_on_demand;
+	int	lnd_concurrent_sends;
+};
+
 typedef struct lnet_ni {
 	spinlock_t		ni_lock;
 	struct list_head	ni_list;	/* chain on ln_nis */
@@ -287,6 +292,8 @@ typedef struct lnet_ni {
 	int			**ni_refs;	/* percpt reference count */
 	long			ni_last_alive;	/* when I was last alive */
 	lnet_ni_status_t	*ni_status;	/* my health status */
+	/* per NI LND tunables */
+	struct lnet_lnd_tunables ni_lnd_tunables;
 	/* equivalent interfaces to use */
 	char			*ni_interfaces[LNET_MAX_INTERFACES];
 } lnet_ni_t;
