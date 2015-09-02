@@ -3078,21 +3078,16 @@ static int mdd_update_linkea_internal(const struct lu_env *env,
 				      struct mdd_object *mdd_sobj,
 				      struct mdd_object *mdd_tobj,
 				      const struct lu_name *child_name,
+				      struct linkea_data *ldata,
 				      struct thandle *handle,
 				      int declare)
 {
 	struct mdd_thread_info  *info = mdd_env_info(env);
-	struct linkea_data	*ldata = &info->mti_link_data;
 	int			count;
 	int			rc = 0;
 	ENTRY;
 
-	rc = mdd_links_read(env, mdd_sobj, ldata);
-	if (rc != 0) {
-		if (rc == -ENOENT || rc == -ENODATA)
-			rc = 0;
-		RETURN(rc);
-	}
+	LASSERT(ldata->ld_buf != NULL);
 
 	/* If it is mulitple links file, we need update the name entry for
 	 * all parent */
@@ -3159,6 +3154,18 @@ static int mdd_update_linkea_internal(const struct lu_env *env,
 			if (rc)
 				GOTO(next_put, rc);
 		} else {
+			/* Let's check if this linkEA still valid, before
+			 * it might be packed into the RPC buffer. */
+			rc = mdd_lookup(env, &pobj->mod_obj, &lname,
+					&info->mti_fid, NULL);
+			if (rc < 0 &&
+			    !lu_fid_eq(&info->mti_fid,
+					mdd_object_fid(mdd_sobj))) {
+				/* skip invalid linkea entry */
+				rc = 0;
+				continue;
+			}
+
 			rc = __mdd_index_delete(env, pobj, lname.ln_name,
 						0, handle);
 			if (rc)
@@ -3697,10 +3704,11 @@ static int mdd_declare_update_linkea(const struct lu_env *env,
 				     struct mdd_object *mdd_sobj,
 				     struct mdd_object *mdd_tobj,
 				     struct thandle *handle,
-				     const struct lu_name *child_name)
+				     const struct lu_name *child_name,
+				     struct linkea_data *ldata)
 {
 	return mdd_update_linkea_internal(env, mdd_pobj, mdd_sobj, mdd_tobj,
-					  child_name, handle, 1);
+					  child_name, ldata, handle, 1);
 }
 
 static int mdd_update_linkea(const struct lu_env *env,
@@ -3708,10 +3716,11 @@ static int mdd_update_linkea(const struct lu_env *env,
 			     struct mdd_object *mdd_sobj,
 			     struct mdd_object *mdd_tobj,
 			     struct thandle *handle,
-			     const struct lu_name *child_name)
+			     const struct lu_name *child_name,
+			     struct linkea_data *ldata)
 {
 	return mdd_update_linkea_internal(env, mdd_pobj, mdd_sobj, mdd_tobj,
-					  child_name, handle, 0);
+					  child_name, ldata, handle, 0);
 }
 
 static int mdd_declare_migrate_update_name(const struct lu_env *env,
@@ -3721,6 +3730,7 @@ static int mdd_declare_migrate_update_name(const struct lu_env *env,
 					   const struct lu_name *lname,
 					   struct lu_attr *la,
 					   struct lu_attr *parent_la,
+					   struct linkea_data *ldata,
 					   struct thandle *handle)
 {
 	struct lu_attr	*la_flag = MDD_ENV_VAR(env, tattr);
@@ -3738,10 +3748,12 @@ static int mdd_declare_migrate_update_name(const struct lu_env *env,
 	if (rc != 0)
 		return rc;
 
-	rc = mdd_declare_update_linkea(env, mdd_pobj, mdd_sobj,
-				       mdd_tobj, handle, lname);
-	if (rc != 0)
-		return rc;
+	if (ldata->ld_buf != NULL) {
+		rc = mdd_declare_update_linkea(env, mdd_pobj, mdd_sobj,
+					       mdd_tobj, handle, lname, ldata);
+		if (rc != 0)
+			return rc;
+	}
 
 	if (S_ISREG(mdd_object_type(mdd_sobj))) {
 		rc = mdo_declare_xattr_del(env, mdd_sobj, XATTR_NAME_LOV,
@@ -3816,6 +3828,7 @@ static int mdd_migrate_update_name(const struct lu_env *env,
 	struct lu_attr		*so_attr = MDD_ENV_VAR(env, cattr);
 	struct lu_attr		*la_flag = MDD_ENV_VAR(env, tattr);
 	struct mdd_device	*mdd = mdo2mdd(&mdd_sobj->mod_obj);
+	struct linkea_data	*ldata = &mdd_env_info(env)->mti_link_data;
 	struct thandle		*handle;
 	int			is_dir = S_ISDIR(mdd_object_type(mdd_sobj));
 	const char		*name = lname->ln_name;
@@ -3831,12 +3844,17 @@ static int mdd_migrate_update_name(const struct lu_env *env,
 	if (rc != 0)
 		RETURN(rc);
 
+	rc = mdd_links_read(env, mdd_sobj, ldata);
+	if (rc != 0 && rc != -ENOENT && rc != -ENODATA)
+		RETURN(rc);
+
 	handle = mdd_trans_create(env, mdd);
 	if (IS_ERR(handle))
 		RETURN(PTR_ERR(handle));
 
 	rc = mdd_declare_migrate_update_name(env, mdd_pobj, mdd_sobj, mdd_tobj,
-					     lname, so_attr, p_la, handle);
+					     lname, so_attr, p_la, ldata,
+					     handle);
 	if (rc != 0) {
 		/* If the migration can not be fit in one transaction, just
 		 * leave it in the original MDT */
@@ -3867,10 +3885,12 @@ static int mdd_migrate_update_name(const struct lu_env *env,
 	if (rc != 0)
 		GOTO(stop_trans, rc);
 
-	rc = mdd_update_linkea(env, mdd_pobj, mdd_sobj, mdd_tobj,
-			       handle, lname);
-	if (rc != 0)
-		GOTO(stop_trans, rc);
+	if (ldata->ld_buf != NULL) {
+		rc = mdd_update_linkea(env, mdd_pobj, mdd_sobj, mdd_tobj,
+				       handle, lname, ldata);
+		if (rc != 0)
+			GOTO(stop_trans, rc);
+	}
 
 	if (S_ISREG(so_attr->la_mode)) {
 		if (so_attr->la_nlink == 1) {
