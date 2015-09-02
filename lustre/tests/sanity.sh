@@ -6200,7 +6200,7 @@ test_99b() {
 	# some versions of cvs import exit(1) when asked to import links or
 	# files they can't read.  ignore those files.
 	TOIGNORE=$(find . -type l -printf '-I %f\n' -o \
-			! -perm +4 -printf '-I %f\n')
+			! -perm /4 -printf '-I %f\n')
 	$RUNAS cvs -d $DIR/d99cvsroot import -m "nomesg" $TOIGNORE \
 		d99reposname vtag rtag
 }
@@ -13074,7 +13074,8 @@ test_231a()
 
 	local nrpcs=$($LCTL get_param osc.*.stats |awk '/ost_write/ {print $2}')
 	if [ x$nrpcs != "x1" ]; then
-		error "found $nrpc ost_write RPCs, not 1 as expected"
+		$LCTL get_param osc.*.stats
+		error "found $nrpcs ost_write RPCs, not 1 as expected"
 	fi
 
 	# Drop the OSC cache, otherwise we will read from it
@@ -13089,7 +13090,8 @@ test_231a()
 
 	nrpcs=$($LCTL get_param osc.*.stats | awk '/ost_read/ { print $2 }')
 	if [ x$nrpcs != "x1" ]; then
-		error "found $nrpc ost_read RPCs, not 1 as expected"
+		$LCTL get_param osc.*.stats
+		error "found $nrpcs ost_read RPCs, not 1 as expected"
 	fi
 }
 run_test 231a "checking that reading/writing of BRW RPC size results in one RPC"
