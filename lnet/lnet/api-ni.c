@@ -1224,7 +1224,8 @@ lnet_shutdown_lndni(struct lnet_ni *ni)
 
 static int
 lnet_startup_lndni(struct lnet_ni *ni, __s32 peer_timeout,
-		   __s32 peer_cr, __s32 peer_buf_cr, __s32 credits)
+		   __s32 peer_cr, __s32 peer_buf_cr, __s32 credits,
+		   struct lnet_lnd_tunables *lnd_tunables)
 {
 	int			rc = -EINVAL;
 	__u32			lnd_type;
@@ -1289,6 +1290,17 @@ lnet_startup_lndni(struct lnet_ni *ni, __s32 peer_timeout,
 	lnet_net_unlock(LNET_LOCK_EX);
 
 	ni->ni_lnd = lnd;
+
+	if (lnd_tunables != NULL) {
+		LIBCFS_ALLOC(ni->ni_lnd_tunables,
+			     sizeof(*ni->ni_lnd_tunables));
+		if (ni->ni_lnd_tunables == NULL) {
+			rc = -ENOMEM;
+			goto failed0;
+		}
+		memcpy(ni->ni_lnd_tunables, lnd_tunables,
+		       sizeof(*ni->ni_lnd_tunables));
+	}
 
 	rc = (lnd->lnd_startup)(ni);
 
@@ -1379,7 +1391,7 @@ lnet_startup_lndnis(struct list_head *nilist)
 	while (!list_empty(nilist)) {
 		ni = list_entry(nilist->next, lnet_ni_t, ni_list);
 		list_del(&ni->ni_list);
-		rc = lnet_startup_lndni(ni, -1, -1, -1, -1);
+		rc = lnet_startup_lndni(ni, -1, -1, -1, -1, NULL);
 
 		if (rc < 0)
 			goto failed;
@@ -1699,6 +1711,10 @@ lnet_fill_ni_info(struct lnet_ni *ni, __u32 *cpt_count, __u64 *nid,
 		net_config->ni_cpts[i] = ni->ni_cpts[i];
 
 	*cpt_count = ni->ni_ncpts;
+
+	if (ni->ni_lnd_tunables != NULL)
+		memcpy(&net_config->lnd_tunables, ni->ni_lnd_tunables,
+		       sizeof(net_config->lnd_tunables));
 }
 
 int
@@ -1734,7 +1750,7 @@ lnet_get_net_config(int idx, __u32 *cpt_count, __u64 *nid, int *peer_timeout,
 int
 lnet_dyn_add_ni(lnet_pid_t requested_pid, char *nets,
 		__s32 peer_timeout, __s32 peer_cr, __s32 peer_buf_cr,
-		__s32 credits)
+		__s32 credits, struct lnet_lnd_tunables *lnd_tunables)
 {
 	lnet_ping_info_t	*pinfo;
 	lnet_handle_md_t	md_handle;
@@ -1779,7 +1795,7 @@ lnet_dyn_add_ni(lnet_pid_t requested_pid, char *nets,
 	list_del_init(&ni->ni_list);
 
 	rc = lnet_startup_lndni(ni, peer_timeout, peer_cr,
-				peer_buf_cr, credits);
+				peer_buf_cr, credits, lnd_tunables);
 	if (rc != 0)
 		goto failed1;
 
