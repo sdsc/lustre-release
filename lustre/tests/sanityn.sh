@@ -69,29 +69,22 @@ build_test_filter
 mkdir -p $MOUNT2
 mount_client $MOUNT2
 
-test_1a() {
-	touch $DIR1/f1
-	[ -f $DIR2/f1 ] || error
-}
-run_test 1a "check create on 2 mtpt's =========================="
+test_1() {
+	touch $DIR1/$tfile
+	[ -f $DIR2/$tfile ] || error "Check create"
+	chmod 777 $DIR2/$tfile
+	$CHECKSTAT -t file -p 0777 $DIR1/$tfile ||
+		error "Check attribute update for 0777"
 
-test_1b() {
-	chmod 777 $DIR2/f1
-	$CHECKSTAT -t file -p 0777 $DIR1/f1 || error
-	chmod a-x $DIR2/f1
-}
-run_test 1b "check attribute updates on 2 mtpt's ==============="
+	chmod a-x $DIR2/$tfile
+	$CHECKSTAT -t file -p 0666 $DIR1/$tfile ||
+		error "Check attribute update for 0666"
 
-test_1c() {
-	$CHECKSTAT -t file -p 0666 $DIR1/f1 || error
+	rm $DIR2/$tfile
+	$CHECKSTAT -a $DIR1/$tfile ||
+		error "Check unlink - removes file on other mountpoint"
 }
-run_test 1c "check after remount attribute updates on 2 mtpt's ="
-
-test_1d() {
-	rm $DIR2/f1
-	$CHECKSTAT -a $DIR1/f1 || error
-}
-run_test 1d "unlink on one mountpoint removes file on other ===="
+run_test 1 "Check attribute updates"
 
 test_2a() {
 	touch $DIR1/f2a
