@@ -5698,6 +5698,7 @@ check_max_mod_rpcs_in_flight() {
 	for i in $(seq $((mmr - 1))); do
 		chmod 0600 $dir/file-$i &
 	done
+	sleep 1
 
 	# send one additional modify RPC
 	do_facet $facet "$LCTL set_param fail_loc=0"
@@ -5722,6 +5723,7 @@ check_max_mod_rpcs_in_flight() {
 	for i in $(seq $mmr); do
 		chmod 0666 $dir/file-$i &
 	done
+	sleep 1
 
 	# send one additional modify RPC
 	do_facet $facet "$LCTL set_param fail_loc=0"
@@ -5731,7 +5733,7 @@ check_max_mod_rpcs_in_flight() {
 
 	# check this additional modify RPC blocked getting a modify RPC slot
 	checkstat -vp 0644 $dir/file-$((mmr + 1)) ||
-		error "Unexpectedly send $mmr modify RPCs in parallel"
+		error "Unexpectedly send $(($mmr + 1)) modify RPCs in parallel"
 	wait
 }
 
