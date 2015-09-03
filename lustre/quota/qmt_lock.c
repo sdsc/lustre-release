@@ -125,7 +125,7 @@ int qmt_intent_policy(const struct lu_env *env, struct lu_device *ld,
 		break;
 
 	default:
-		CERROR("%s: invalid intent opcode: "LPU64"\n", qmt->qmt_svname,
+		CERROR("%s: invalid intent opcode: 0x%08x\n", qmt->qmt_svname,
 		       it->opc);
 		GOTO(out, rc = err_serious(-EINVAL));
 	}
