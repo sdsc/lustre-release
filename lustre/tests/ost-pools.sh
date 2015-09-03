@@ -29,7 +29,7 @@ init_logging
 
 check_and_setup_lustre
 
-[ "$SLOW" = "no" ] && EXCEPT_SLOW="5b 18 22 23b 25"
+[ "$SLOW" = "no" ] && EXCEPT_SLOW=""
 
 DIR=${DIR:-$MOUNT}
 assert_DIR
