@@ -559,9 +559,7 @@ test_17m() {
 	local WDIR=$DIR/${tdir}m
 	local mds_index
 	local devname
-	local cmd
 	local i
-	local rc=0
 
 	remote_mds_nodsh && skip "remote MDS with nodsh" && return
 	[ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.2.0) ] &&
@@ -594,19 +592,16 @@ test_17m() {
 	echo "recreate the 512 symlink files with a shorter string"
 	for ((i = 0; i < 512; ++i)); do
 		# rewrite the symlink file with a shorter string
-		ln -sf ${long_sym} $WDIR/long-$i
-		ln -sf ${short_sym} $WDIR/short-$i
+		ln -sf ${long_sym} $WDIR/long-$i || error "long_sym failed"
+		ln -sf ${short_sym} $WDIR/short-$i || error "short_sym failed"
 	done
 
-	mds_index=$($LFS getstripe -M $WDIR)
-	mds_index=$((mds_index+1))
-	devname=$(mdsdevname $mds_index)
-	cmd="$E2FSCK -fnvd $devname"
+	mds_index=$(($($LFS getstripe -M $WDIR) + 1))
 
-	echo "stop and checking mds${mds_index}: $cmd"
+	echo "stop and checking mds${mds_index}:"
 	# e2fsck should not return error
 	stop mds${mds_index}
-	do_facet mds${mds_index} $cmd || rc=$?
+	run_e2fsck $(facet_active_host mds${mds_index}) $(mdsdevname $mds_index)
 
 	start mds${mds_index} $devname $MDS_MOUNT_OPTS || error "start failed"
 	df $MOUNT > /dev/null 2>&1
@@ -624,19 +619,15 @@ check_fs_consistency_17n() {
 
 	# create/unlink in 17n only change 2 MDTs(MDT1/MDT2),
 	# so it only check MDT1/MDT2 instead of all of MDTs.
-	for mdt_index in $(seq 1 2); do
-		devname=$(mdsdevname $mdt_index)
-		cmd="$E2FSCK -fnvd $devname"
-
-		echo "stop and checking mds${mdt_index}: $cmd"
+	for mdt_index in 1 2; do
 		# e2fsck should not return error
 		stop mds${mdt_index}
-		do_facet mds${mdt_index} $cmd || rc=$?
+		run_e2fsck $(facet_active_host mds${mdt_index}) \
+			$(mdsdevname $mds_index) || rc=$((rc + $?))
 
 		start mds${mdt_index} $devname $MDS_MOUNT_OPTS ||
 			error "mount mds${mdt_index} failed"
 		df $MOUNT > /dev/null 2>&1
-		[ $rc -ne 0 ] && break
 	done
 	return $rc
 }
