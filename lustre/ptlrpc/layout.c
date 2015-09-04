@@ -52,12 +52,16 @@
 
 #include <linux/module.h>
 
+/* lustre_swab_mdt_body */
+#include <lustre/llog_swab.h>
+#include <lustre/lustre_idl.h>
+#include <lustre/lustre_swab.h>
+
 /* LUSTRE_VERSION_CODE */
 #include <lustre_ver.h>
 
 #include <obd_support.h>
-/* lustre_swab_mdt_body */
-#include <lustre/lustre_idl.h>
+
 /* obd2cli_tgt() (required by DEBUG_REQ()) */
 #include <obd.h>
 #include <lustre_debug.h>

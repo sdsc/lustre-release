@@ -37,6 +37,9 @@
 #define DEBUG_SUBSYSTEM S_MDC
 
 #include <linux/module.h>
+
+#include <lustre/lustre_swab.h>
+
 #include <obd.h>
 #include <obd_class.h>
 #include <lustre_dlm.h>
@@ -45,6 +48,7 @@
 #include <lustre_mdc.h>
 #include <lustre_net.h>
 #include <lustre_req_layout.h>
+
 #include "mdc_internal.h"
 
 struct mdc_getattr_args {
