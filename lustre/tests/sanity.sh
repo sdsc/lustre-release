@@ -13727,6 +13727,65 @@ test_300l() {
 }
 run_test 300l "non-root user to create dir under striped dir with stale layout"
 
+cleanup_300m() {
+	trap 0
+	for num in $(seq $MDSCOUNT); do
+		do_facet mds$num $LCTL set_param -n \
+				mdt.*.enable_remote_dir_gid=0
+	done
+}
+
+test_300m() {
+	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+	local stripe_index
+
+	trap cleanup_300m EXIT
+	mkdir -p $DIR/$tdir
+	chmod 777 $DIR/$tdir
+	$RUNAS $LFS setdirstripe -i0 -c$MDSCOUNT \
+				$DIR/$tdir/striped_dir > /dev/null 2>&1 &&
+		error "create striped dir succeeds with gid=0"
+
+	for num in $(seq $MDSCOUNT); do
+		do_facet mds$num $LCTL set_param -n \
+				mdt.*.enable_remote_dir_gid=-1
+	done
+
+	$RUNAS $LFS setdirstripe -i0 -c$MDSCOUNT $DIR/$tdir/striped_dir ||
+		error "create striped dir fails with gid=-1"
+
+	for num in $(seq $MDSCOUNT); do
+		do_facet mds$num $LCTL set_param -n \
+					mdt.*.enable_remote_dir_gid=0
+	done
+
+	$RUNAS $LFS setdirstripe -i 1 -c$MDSCOUNT -D \
+				$DIR/$tdir/striped_dir > /dev/null 2>&1 &&
+		error "set default striped dir succeeds with gid=0"
+
+	for num in $(seq $MDSCOUNT); do
+		do_facet mds$num $LCTL set_param -n \
+					mdt.*.enable_remote_dir_gid=-1
+	done
+
+	$RUNAS $LFS setdirstripe -i 1 -c$MDSCOUNT -D $DIR/$tdir/striped_dir ||
+		error "set default striped dir fails with gid=-1"
+
+	for num in $(seq $MDSCOUNT); do
+		do_facet mds$num $LCTL set_param -n \
+					mdt.*.enable_remote_dir_gid=0
+	done
+
+	$RUNAS mkdir $DIR/$tdir/striped_dir/test_dir ||
+					error "create test_dir fails"
+	$RUNAS mkdir $DIR/$tdir/striped_dir/test_dir1 ||
+					error "create test_dir1 fails"
+	$RUNAS mkdir $DIR/$tdir/striped_dir/test_dir2 ||
+					error "create test_dir2 fails"
+}
+run_test 300m "non-root user to create dir under striped dir with default EA"
+
 prepare_remote_file() {
 	mkdir $DIR/$tdir/src_dir ||
 		error "create remote source failed"
