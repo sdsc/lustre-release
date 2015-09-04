@@ -42,7 +42,11 @@
 #define DEBUG_SUBSYSTEM S_LDLM
 
 #include <libcfs/libcfs.h>
+
+#include <lustre/lustre_swab.h>
+
 #include <obd_class.h>
+
 #include "ldlm_internal.h"
 
 /* lock types */

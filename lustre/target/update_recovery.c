@@ -43,6 +43,8 @@
  */
 #define DEBUG_SUBSYSTEM S_CLASS
 
+#include <lustre/lustre_swab.h>
+
 #include <lu_target.h>
 #include <md_object.h>
 #include <lustre_update.h>

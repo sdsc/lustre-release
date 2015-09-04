@@ -31,6 +31,9 @@
 
 #define DEBUG_SUBSYSTEM S_CLASS
 
+#include <lustre/llog_swab.h>
+#include <lustre/lustre_swab.h>
+
 #include <obd_class.h>
 #include <md_object.h>
 #include "tgt_internal.h"

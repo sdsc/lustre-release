@@ -44,10 +44,12 @@
 
 #define DEBUG_SUBSYSTEM S_LOG
 
+#include <lustre/llog_swab.h>
+
+#include <dt_object.h>
+#include <lustre_fid.h>
 #include <obd.h>
 #include <obd_class.h>
-#include <lustre_fid.h>
-#include <dt_object.h>
 
 #include "llog_internal.h"
 #include "local_storage.h"

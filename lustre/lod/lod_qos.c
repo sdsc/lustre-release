@@ -39,8 +39,12 @@
 
 #include <asm/div64.h>
 #include <libcfs/libcfs.h>
-#include <obd_class.h>
+
 #include <lustre/lustre_idl.h>
+#include <lustre/lustre_swab.h>
+
+#include <obd_class.h>
+
 #include "lod_internal.h"
 
 /*
