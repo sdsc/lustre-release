@@ -52,6 +52,7 @@
 #include <lustre_lmv.h>
 #include <md_object.h>
 #include <lustre_linkea.h>
+#include <lustre/pack_generic.h>
 
 #include "lod_internal.h"
 

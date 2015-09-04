@@ -32,6 +32,7 @@
 
 #include <linux/kthread.h>
 #include "qsd_internal.h"
+#include <lustre/pack_generic.h>
 
 /*
  * Completion function invoked when the global quota lock enqueue has completed

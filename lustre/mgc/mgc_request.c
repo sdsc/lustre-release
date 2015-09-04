@@ -49,6 +49,7 @@
 #include <lustre_log.h>
 #include <lustre_disk.h>
 #include <dt_object.h>
+#include <lustre/pack_generic.h>
 
 #include "mgc_internal.h"
 

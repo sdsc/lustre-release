@@ -49,6 +49,7 @@
 #include <obd.h>
 #include <obd_class.h>
 #include "tgt_internal.h"
+#include <lustre/pack_generic.h>
 
 /**
  * Lookup distribute_txn_replay req

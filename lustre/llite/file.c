@@ -51,7 +51,7 @@
 #endif
 #include <lustre/ll_fiemap.h>
 #include <lustre_ioctl.h>
-
+#include <lustre/pack_generic.h>
 #include "cl_object.h"
 
 #include "llite_internal.h"

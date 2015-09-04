@@ -45,6 +45,8 @@
 #include <lustre_mdc.h>
 #include <lustre_net.h>
 #include <lustre_req_layout.h>
+#include <lustre/pack_generic.h>
+
 #include "mdc_internal.h"
 
 struct mdc_getattr_args {

@@ -41,6 +41,8 @@
 #include <libcfs/libcfs.h>
 #include <obd_class.h>
 #include <lustre/lustre_idl.h>
+#include <lustre/pack_generic.h>
+
 #include "lod_internal.h"
 
 /*

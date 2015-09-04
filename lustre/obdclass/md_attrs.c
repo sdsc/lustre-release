@@ -28,6 +28,8 @@
  */
 
 #include <lustre/lustre_idl.h>
+#include <lustre/pack_generic.h>
+#include <lustre/llog_swab.h>
 #include <obd.h>
 #include <md_object.h>
 

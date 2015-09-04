@@ -45,6 +45,7 @@
 
 #define DEBUG_SUBSYSTEM S_FILTER
 
+#include <lustre/pack_generic.h>
 #include "ofd_internal.h"
 
 /**

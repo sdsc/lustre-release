@@ -57,6 +57,8 @@
 #include <lustre_log.h>
 #include <lustre_kernelcomm.h>
 #include <cl_object.h>
+#include <lustre/pack_generic.h>
+#include <lustre/llog_swab.h>
 
 #include "mdc_internal.h"
 

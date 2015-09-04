@@ -54,6 +54,7 @@
  */
 #include <obd_support.h>
 #include <lustre_ioctl.h>
+#include <lustre/pack_generic.h>
 /* struct ptlrpc_request */
 #include <lustre_net.h>
 /* struct obd_export */
