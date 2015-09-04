@@ -27,7 +27,10 @@
  * Author: Johann Lombardi <johann.lombardi@intel.com>
  */
 
+#include <lustre/llog_swab.h>
 #include <lustre/lustre_idl.h>
+#include <lustre/lustre_swab.h>
+
 #include <obd.h>
 #include <md_object.h>
 

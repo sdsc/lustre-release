@@ -51,6 +51,7 @@
 
 #include "llog_internal.h"
 #include "local_storage.h"
+#include <lustre/llog_swab.h>
 
 /**
  * Implementation of the llog_operations::lop_declare_create
