@@ -54,6 +54,7 @@
 #define DEBUG_SUBSYSTEM S_MDS
 
 #include <lustre_log.h>
+#include <lustre/llog_swab.h>
 #include "osp_internal.h"
 
 #define OUT_UPDATE_BUFFER_SIZE_ADD	4096

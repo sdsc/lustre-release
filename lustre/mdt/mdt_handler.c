@@ -49,27 +49,30 @@
 #define DEBUG_SUBSYSTEM S_MDS
 
 #include <linux/module.h>
-/*
- * struct OBD_{ALLOC,FREE}*()
- */
-#include <obd_support.h>
-#include <lustre_ioctl.h>
-/* struct ptlrpc_request */
-#include <lustre_net.h>
-/* struct obd_export */
-#include <lustre_export.h>
-/* struct obd_device */
-#include <obd.h>
+
+#include <lustre/lustre_swab.h>
+
 /* lu2dt_dev() */
 #include <dt_object.h>
-#include <lustre_mds.h>
-#include <lustre_log.h>
-#include "mdt_internal.h"
 #include <lustre_acl.h>
+/* struct obd_export */
+#include <lustre_export.h>
+/* struct OBD_{ALLOC,FREE}*() */
+#include <lustre_ioctl.h>
+#include <lustre_lfsck.h>
+#include <lustre_log.h>
+/* struct ptlrpc_request */
+#include <lustre_net.h>
+#include <lustre_nodemap.h>
+#include <lustre_mds.h>
 #include <lustre_param.h>
 #include <lustre_quota.h>
-#include <lustre_lfsck.h>
-#include <lustre_nodemap.h>
+/* struct obd_device */
+#include <obd.h>
+#include <obd_support.h>
+
+#include "mdt_internal.h"
+
 
 static unsigned int max_mod_rpcs_per_client = 8;
 CFS_MODULE_PARM(max_mod_rpcs_per_client, "i", uint, 0644,

@@ -43,6 +43,9 @@
 
 #include <linux/module.h>
 #include <linux/kthread.h>
+
+#include <lustre/lustre_swab.h>
+
 #include <obd_class.h>
 #include <lustre_dlm.h>
 #include <lprocfs_status.h>

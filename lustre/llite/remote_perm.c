@@ -51,6 +51,8 @@
 # include <linux/uidgid.h>
 #endif
 
+#include <lustre/lustre_swab.h>
+
 #include <lustre_ha.h>
 #include <lustre_dlm.h>
 #include <lprocfs_status.h>

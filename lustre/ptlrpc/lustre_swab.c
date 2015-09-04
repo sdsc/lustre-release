@@ -33,7 +33,7 @@
  * This file is part of Lustre, http://www.lustre.org/
  * Lustre is a trademark of Sun Microsystems, Inc.
  *
- * lustre/ptlrpc/pack_generic.c
+ * lustre/ptlrpc/lustre_swab.c
  *
  * (Un)packing of OST requests
  *
@@ -46,11 +46,14 @@
 
 #include <libcfs/libcfs.h>
 
-#include <obd_support.h>
-#include <obd_class.h>
 #include <lustre_net.h>
+#include <obd_class.h>
 #include <obd_cksum.h>
+#include <obd_support.h>
+
 #include <lustre/ll_fiemap.h>
+#include <lustre/llog_swab.h>
+#include <lustre/lustre_swab.h>
 
 #include "ptlrpc_internal.h"
 
