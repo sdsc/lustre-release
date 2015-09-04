@@ -36,6 +36,8 @@
 
 #define DEBUG_SUBSYSTEM S_MDS
 
+#include <lustre/lustre_swab.h>
+
 #include <obd_class.h>
 #include <lustre_lfsck.h>
 #include <lustre_lmv.h>

@@ -46,6 +46,7 @@
 #include <lustre_log.h>
 #include <lprocfs_status.h>
 #include <lustre_param.h>
+#include <lustre/llog_swab.h>
 
 #include "llog_internal.h"
 
