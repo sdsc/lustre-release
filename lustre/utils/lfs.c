@@ -745,6 +745,7 @@ static int lfs_migrate(char *name, __u64 migration_flags,
 		}
 	}
 
+retry_blocking:
 	if (migration_flags & MIGRATION_BLOCKS || !file_lease_supported) {
 		/* Blocking mode, forced if servers do not support file lease */
 		rc = migrate_block(fd, fdv, &st, buf_size, name);
@@ -754,6 +755,16 @@ static int lfs_migrate(char *name, __u64 migration_flags,
 			have_lease_rdlck = false;
 			fdv = -1; /* The volatile file is closed as we put the
 				   * lease in non-blocking mode. */
+		} else if (rc == -EBUSY) {
+			/* Exclusive open is supported by server but close/swap
+			 * is not. Retry in blocking mode. */
+			fprintf(stderr,
+				"%s: %s: server does not support non-blocking"
+				" migrations. Retrying in blocking mode\n",
+				progname, name);
+			file_lease_supported = false;
+			have_lease_rdlck = false;
+			goto retry_blocking;
 		}
 	}
 
