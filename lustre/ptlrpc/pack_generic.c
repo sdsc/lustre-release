@@ -50,7 +50,10 @@
 #include <obd_class.h>
 #include <lustre_net.h>
 #include <obd_cksum.h>
+
 #include <lustre/ll_fiemap.h>
+#include <lustre/llog_swab.h>
+#include <lustre/lustre_swab.h>
 
 #include "ptlrpc_internal.h"
 
