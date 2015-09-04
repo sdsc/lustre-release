@@ -387,9 +387,13 @@ static void exit_libcfs_module(void)
 	cfs_crypto_unregister();
 	cfs_wi_shutdown();
 
+#ifdef HAVE_MISC_DEREGISTER_RETURN_INT
 	rc = misc_deregister(&libcfs_dev);
 	if (rc)
 		CERROR("misc_deregister error %d\n", rc);
+#else
+	misc_deregister(&libcfs_dev);
+#endif /* HAVE_MISC_DEREGISTER_RETURN_INT */
 
 	cfs_cpu_fini();
 

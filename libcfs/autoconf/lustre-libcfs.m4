@@ -318,6 +318,24 @@ topology_sibling_cpumask, [
 ]) # LIBCFS_HAVE_TOPOLOGY_SIBLING_CPUMASK
 
 #
+# For kernel version 4.2 misc_deregister() no longer
+# returns an int
+#
+AC_DEFUN([LIBCFS_HAVE_MISC_DEREGISTER_RETURN_INT],[
+LB_CHECK_COMPILE([does function 'misc_deregister' return an int],
+misc_deregister, [
+	#include <linux/miscdevice.h>
+],[
+	int rc;
+
+	rc = misc_deregister(NULL);
+],[
+	AC_DEFINE(HAVE_MISC_DEREGISTER_RETURN_INT, 1,
+		[misc_deregister returns an int])
+])
+]) # LIBCFS_HAVE_MISC_DEREGISTER_RETURN_INT
+
+#
 # LIBCFS_PROG_LINUX
 #
 # LibCFS linux kernel checks
@@ -356,6 +374,7 @@ LIBCFS_SHRINKER_COUNT
 LIBCFS_HLIST_ADD_AFTER
 # 4.2
 LIBCFS_HAVE_TOPOLOGY_SIBLING_CPUMASK
+LIBCFS_HAVE_MISC_DEREGISTER_RETURN_INT
 ]) # LIBCFS_PROG_LINUX
 
 #
