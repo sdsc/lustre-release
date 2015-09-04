@@ -51,7 +51,8 @@
 #include <lustre_net.h>
 #include <obd_cksum.h>
 #include <lustre/ll_fiemap.h>
-
+#include <lustre/pack_generic.h>
+#include <lustre/llog_swab.h>
 #include "ptlrpc_internal.h"
 
 static inline __u32 lustre_msg_hdr_size_v2(__u32 count)

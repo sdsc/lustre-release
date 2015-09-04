@@ -51,7 +51,7 @@
 #include <obd_class.h>
 #include <lustre_log.h>
 #include "llog_internal.h"
-
+#include <lustre/llog_swab.h>
 /*
  * Allocate a new log or catalog handle
  * Used inside llog_open().

@@ -35,6 +35,7 @@
 #include <obd_class.h>
 
 #include "qmt_internal.h"
+#include <lustre/pack_generic.h>
 
 /* intent policy function called from mdt_intent_opc() when the intent is of
  * quota type */

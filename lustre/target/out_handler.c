@@ -35,6 +35,8 @@
 #include <md_object.h>
 #include "tgt_internal.h"
 #include <lustre_update.h>
+#include <lustre/pack_generic.h>
+#include <lustre/llog_swab.h>
 
 static void out_reconstruct(const struct lu_env *env, struct dt_device *dt,
 			    struct dt_object *obj,

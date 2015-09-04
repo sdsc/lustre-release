@@ -58,6 +58,8 @@
 #include <obd_support.h>
 /* lustre_swab_mdt_body */
 #include <lustre/lustre_idl.h>
+#include <lustre/pack_generic.h>
+#include <lustre/llog_swab.h>
 /* obd2cli_tgt() (required by DEBUG_REQ()) */
 #include <obd.h>
 #include <lustre_debug.h>

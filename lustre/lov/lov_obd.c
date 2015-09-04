@@ -49,6 +49,7 @@
 #include <lustre_lib.h>
 #include <lustre_net.h>
 #include <lustre/lustre_idl.h>
+#include <lustre/pack_generic.h>
 #include <lustre_dlm.h>
 #include <lustre_mds.h>
 #include <obd_class.h>

@@ -47,6 +47,7 @@
 #include <obd_class.h>
 #include <obd_support.h>
 #include <lustre/lustre_user.h>
+#include <lustre/pack_generic.h>
 
 #include "lov_internal.h"
 #include "lov_cl_internal.h"

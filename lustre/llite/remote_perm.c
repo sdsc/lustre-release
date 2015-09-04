@@ -56,6 +56,7 @@
 #include <lprocfs_status.h>
 #include <lustre_disk.h>
 #include <lustre_param.h>
+#include <lustre/pack_generic.h>
 #include "llite_internal.h"
 
 struct kmem_cache *ll_remote_perm_cachep;

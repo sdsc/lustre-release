@@ -61,6 +61,7 @@
 #ifdef HAVE_SELINUX_IS_ENABLED
 #include <linux/selinux.h>
 #endif
+#include <lustre/llog_swab.h>
 
 /*********** mount lookup *********/
 

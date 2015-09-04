@@ -43,6 +43,8 @@
 
 #include <libcfs/libcfs.h>
 #include <obd_class.h>
+#include <lustre/pack_generic.h>
+#include <lustre/llog_swab.h>
 #include "ldlm_internal.h"
 
 /* lock types */
