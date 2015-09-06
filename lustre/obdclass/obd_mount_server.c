@@ -46,6 +46,7 @@
 #define PRINT_CMD CDEBUG
 #define PRINT_MASK (D_SUPER | D_CONFIG)
 
+#include <linux/kthread.h>
 #include <linux/statfs.h>
 #include <obd.h>
 #include <obd_class.h>
@@ -386,23 +387,42 @@ static struct list_head lwp_register_list =
 	LIST_HEAD_INIT(lwp_register_list);
 static DEFINE_MUTEX(lwp_register_list_lock);
 
+int lwp_register_callback_thread(void *callback_data)
+{
+	struct lwp_register_item *lri = callback_data;
+	struct l_wait_info lwi = { 0 };
+
+	lri->lri_thread.t_flags = SVC_RUNNING;
+	wake_up(&lri->lri_thread.t_ctl_waitq);
+	l_wait_event(lri->lri_waitq,
+		     *lri->lri_exp != NULL ||
+		     !thread_is_running(&lri->lri_thread), &lwi);
+
+	if (thread_is_running(&lri->lri_thread) &&
+	    lri->lri_cb_func != NULL)
+		lri->lri_cb_func(lri->lri_cb_data);
+
+	lri->lri_thread.t_flags = SVC_STOPPED;
+	wake_up(&lri->lri_thread.t_ctl_waitq);
+
+	return 0;
+}
+
 int lustre_register_lwp_item(const char *lwpname, struct obd_export **exp,
 			     register_lwp_cb cb_func, void *cb_data)
 {
 	struct obd_device	 *lwp;
 	struct lwp_register_item *lri;
+	struct l_wait_info lwi = { 0 };
+	struct task_struct *task;
+	int rc = 0;
 	ENTRY;
 
 	LASSERTF(strlen(lwpname) < MTI_NAME_MAXLEN, "lwpname is too long %s\n",
 		 lwpname);
 	LASSERT(exp != NULL && *exp == NULL);
 
-	OBD_ALLOC_PTR(lri);
-	if (lri == NULL)
-		RETURN(-ENOMEM);
-
 	mutex_lock(&lwp_register_list_lock);
-
 	lwp = class_name2obd(lwpname);
 	if (lwp != NULL && lwp->obd_set_up == 1) {
 		struct obd_uuid *uuid;
@@ -410,13 +430,23 @@ int lustre_register_lwp_item(const char *lwpname, struct obd_export **exp,
 		OBD_ALLOC_PTR(uuid);
 		if (uuid == NULL) {
 			mutex_unlock(&lwp_register_list_lock);
-			OBD_FREE_PTR(lri);
 			RETURN(-ENOMEM);
 		}
 		memcpy(uuid->uuid, lwpname, strlen(lwpname));
 		*exp = cfs_hash_lookup(lwp->obd_uuid_hash, uuid);
 		OBD_FREE_PTR(uuid);
 	}
+
+	if (*exp != NULL && cb_func != NULL) {
+		cb_func(cb_data);
+		mutex_unlock(&lwp_register_list_lock);
+		class_export_put(*exp);
+		RETURN(0);
+	}
+
+	OBD_ALLOC_PTR(lri);
+	if (lri == NULL)
+		RETURN(-ENOMEM);
 
 	memcpy(lri->lri_name, lwpname, strlen(lwpname));
 	lri->lri_exp = exp;
@@ -425,10 +455,24 @@ int lustre_register_lwp_item(const char *lwpname, struct obd_export **exp,
 	INIT_LIST_HEAD(&lri->lri_list);
 	list_add(&lri->lri_list, &lwp_register_list);
 
-	if (*exp != NULL && cb_func != NULL)
-		cb_func(cb_data);
+	/* start thread for register callback */
+	init_waitqueue_head(&lri->lri_thread.t_ctl_waitq);
+	init_waitqueue_head(&lri->lri_waitq);
+	task = kthread_run(lwp_register_callback_thread, lri, "cb_%s",
+			   lwpname);
+	if (IS_ERR(task)) {
+		mutex_unlock(&lwp_register_list_lock);
+		rc = PTR_ERR(task);
+		OBD_FREE_PTR(lri);
+		RETURN(rc);
+	}
+
+	l_wait_event(lri->lri_thread.t_ctl_waitq,
+		     thread_is_running(&lri->lri_thread) ||
+		     thread_is_stopped(&lri->lri_thread), &lwi);
 
 	mutex_unlock(&lwp_register_list_lock);
+
 	RETURN(0);
 }
 EXPORT_SYMBOL(lustre_register_lwp_item);
@@ -440,8 +484,17 @@ void lustre_deregister_lwp_item(struct obd_export **exp)
 	mutex_lock(&lwp_register_list_lock);
 	list_for_each_entry_safe(lri, tmp, &lwp_register_list, lri_list) {
 		if (exp == lri->lri_exp) {
-			if (*exp)
-				class_export_put(*exp);
+			/* Stop callback thread */
+			if (thread_is_running(&lri->lri_thread)) {
+				lri->lri_thread.t_flags = SVC_STOPPING;
+				wake_up(&lri->lri_waitq);
+				wait_event(lri->lri_thread.t_ctl_waitq,
+					 lri->lri_thread.t_flags & SVC_STOPPED);
+			}
+
+			LASSERT(*exp != NULL);
+			class_export_put(*exp);
+
 			list_del(&lri->lri_list);
 			OBD_FREE_PTR(lri);
 			break;
@@ -501,11 +554,9 @@ static void lustre_notify_lwp_list(struct obd_export *exp)
 	list_for_each_entry_safe(lri, tmp, &lwp_register_list, lri_list) {
 		if (strcmp(exp->exp_obd->obd_name, lri->lri_name))
 			continue;
-		if (*lri->lri_exp != NULL)
-			continue;
+		LASSERT(*lri->lri_exp == NULL);
 		*lri->lri_exp = class_export_get(exp);
-		if (lri->lri_cb_func != NULL)
-			lri->lri_cb_func(lri->lri_cb_data);
+		wake_up(&lri->lri_waitq);
 	}
 	mutex_unlock(&lwp_register_list_lock);
 }

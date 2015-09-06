@@ -1681,6 +1681,8 @@ typedef int (*register_lwp_cb)(void *data);
 
 struct lwp_register_item {
 	struct obd_export **lri_exp;
+	wait_queue_head_t lri_waitq;
+	struct ptlrpc_thread lri_thread;
 	register_lwp_cb	    lri_cb_func;
 	void		   *lri_cb_data;
 	struct list_head	    lri_list;
