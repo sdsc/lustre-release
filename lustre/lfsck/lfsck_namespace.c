@@ -2047,9 +2047,6 @@ int lfsck_namespace_repair_dirent(const struct lu_env *env,
 	int				 rc	= 0;
 	ENTRY;
 
-	if (unlikely(!dt_try_as_dir(env, parent)))
-		GOTO(log, rc = -ENOTDIR);
-
 	if (!update || strcmp(name, name2) == 0)
 		rc = lfsck_lock(env, lfsck, parent, name, llh,
 				MDS_INODELOCK_UPDATE, LCK_PW);
@@ -2064,6 +2061,11 @@ int lfsck_namespace_repair_dirent(const struct lu_env *env,
 		GOTO(unlock1, rc = PTR_ERR(th));
 
 	dto = dt_object_locate(parent, th->th_dev);
+	LASSERT(dto != NULL);
+
+	if (unlikely(!dt_try_as_dir(env, dto)))
+		GOTO(stop, rc = -ENOTDIR);
+
 	rc = dt_declare_delete(env, dto, (const struct dt_key *)name, th);
 	if (rc != 0)
 		GOTO(stop, rc);
