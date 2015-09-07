@@ -1304,10 +1304,10 @@ rescan:
 void
 lnet_destroy_rtrbuf(lnet_rtrbuf_t *rb, int npages)
 {
-        int sz = offsetof(lnet_rtrbuf_t, rb_kiov[1]);
-        int order = fls(npages);
+	int sz = offsetof(lnet_rtrbuf_t, rb_kiov[1]);
+	int order = fls(npages);
 
-        __free_pages(rb->rb_kiov[0].kiov_page, order);
+	__free_pages(rb->rb_kiov[0].kiov_page, order);
 
         LIBCFS_FREE(rb, sz);
 }
