@@ -3676,7 +3676,8 @@ active_err:
 		GOTO(end, rc);
 	}
 
-        LCONSOLE_WARN("Ignoring unrecognized param '%s'\n", ptr);
+	LCONSOLE_WARN("Unrecognized param '%s' mounting of target will fail " \
+		      "with 'Function not implemented'\n", ptr);
         rc2 = -ENOSYS;
 
 end:
