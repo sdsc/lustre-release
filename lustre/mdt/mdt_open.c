@@ -1610,14 +1610,15 @@ static int mdt_hsm_release(struct mdt_thread_info *info, struct mdt_object *o,
 			   struct md_attr *ma)
 {
 	struct mdt_lock_handle *lh = &info->mti_lh[MDT_LH_LAYOUT];
-	struct close_data      *data;
-	struct ldlm_lock       *lease;
-	struct mdt_object      *orphan;
-	struct md_attr         *orp_ma;
-	struct lu_buf          *buf;
+	struct close_data	*data;
+	struct ldlm_lock	*lease;
+	struct mdt_object	*orphan;
+	struct md_attr		*orp_ma;
+	struct lu_buf		*buf;
+	struct mdt_body		*repbody;
 	bool			lease_broken;
-	int                     rc;
-	int                     rc2;
+	int			rc;
+	int			rc2;
 	ENTRY;
 
 	if (exp_connect_flags(info->mti_exp) & OBD_CONNECT_RDONLY)
@@ -1663,8 +1664,12 @@ static int mdt_hsm_release(struct mdt_thread_info *info, struct mdt_object *o,
 	if (rc != 0)
 		GOTO(out_unlock, rc);
 
-	if (!mdt_hsm_release_allow(ma))
+	repbody = req_capsule_server_get(info->mti_pill, &RMF_MDT_BODY);
+	LASSERT(repbody != NULL);
+	if (!mdt_hsm_release_allow(ma)) {
+		repbody->mbo_valid |= OBD_MD_FLDIRTY;
 		GOTO(out_unlock, rc = -EPERM);
+	}
 
 	/* already released? */
 	if (ma->ma_hsm.mh_flags & HS_RELEASED)
@@ -1773,10 +1778,6 @@ out_unlock:
 
 	/* already released */
 	if (rc == 0) {
-		struct mdt_body *repbody;
-
-		repbody = req_capsule_server_get(info->mti_pill, &RMF_MDT_BODY);
-		LASSERT(repbody != NULL);
 		repbody->mbo_valid |= OBD_MD_CLOSE_INTENT_EXECED;
 	}
 

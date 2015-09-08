@@ -189,12 +189,17 @@ static int ll_close_inode_openhandle(struct obd_export *md_exp,
 		struct mdt_body *body;
 
 		body = req_capsule_server_get(&req->rq_pill, &RMF_MDT_BODY);
-		if (!(body->mbo_valid & OBD_MD_CLOSE_INTENT_EXECED))
-			rc = -EBUSY;
+		if (!(body->mbo_valid & OBD_MD_CLOSE_INTENT_EXECED)) {
+			/* check for dirty flag */
+			if (!(body->mbo_valid & OBD_MD_FLDIRTY))
+				rc = -EBUSY;
+			else
+				rc = -EPERM;
+		}
 	}
 
 	ll_finish_md_op_data(op_data);
-	EXIT;
+/*	EXIT;*/
 out:
 
 	md_clear_open_replay_data(md_exp, och);
@@ -1608,9 +1613,9 @@ static int ll_lov_setstripe(struct inode *inode, struct file *file,
 			    unsigned long arg)
 {
 	struct lov_user_md __user *lum = (struct lov_user_md __user *)arg;
-	struct lov_user_md	  *klum;
-	int			   lum_size, rc;
-	__u64			   flags = FMODE_WRITE;
+	struct lov_user_md *klum;
+	int lum_size, rc;
+	__u64 flags = FMODE_WRITE;
 	ENTRY;
 
 	rc = ll_copy_user_md(lum, &klum);

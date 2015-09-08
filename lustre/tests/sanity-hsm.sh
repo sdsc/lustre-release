@@ -1670,6 +1670,41 @@ test_20() {
 }
 run_test 20 "Release is not permitted"
 
+test_20a() {
+	# test needs a running copytool
+	copytool_setup
+	mkdir -p $DIR/$tdir
+
+	local f=$DIR/$tdir/$tfile
+	local fid=$(make_small $f)
+
+	echo 1. Archive the file
+	$LFS hsm_archive $f || error "Could not archive the file"
+	wait_request_state $fid ARCHIVE SUCCEED
+
+	echo 2. Make it dirty
+	dd if=/dev/urandom of=$f bs=2M count=1 || error "Cannot dirty file"
+	echo 3. Now try to release it; it should fail
+	$LFS hsm_release $f && echo "Release should not succeed"
+
+	echo 4. Clear the dirty flag
+	$LFS hsm_clear --dirty $f || error "could not remove flag"
+	wait_request_state $fid ARCHIVE SUCCEED
+
+	echo 5. Now try to release it; it should fail
+	$LFS hsm_release $f && echo "Release should not succeed"
+
+	echo 6. Fresh archive and it should succeed
+	dd if=/dev/urandom of=$f bs=3M count=1 || error "Cannot dirty file"
+	$LFS hsm_archive $f || error "Could not archive the file"
+	wait_request_state $fid ARCHIVE SUCCEED
+	echo 7. Fresh archive and it should succeed
+	$LFS hsm_release $f || error "Release failed"
+
+	copytool_cleanup
+}
+run_test 20a "Release a previous dirty file not permitted"
+
 test_21() {
 	# test needs a running copytool
 	copytool_setup
