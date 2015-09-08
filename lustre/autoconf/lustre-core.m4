@@ -1890,6 +1890,23 @@ new_cancel_dirty_page, [
 ]) # LC_NEW_CANCEL_DIRTY_PAGE
 
 #
+# LC_BIO_ENDIO_USES_ONE_ARG
+#
+# 4.2 kernel bio_endio now only takes one argument
+#
+AC_DEFUN([LC_BIO_ENDIO_USES_ONE_ARG], [
+LB_CHECK_COMPILE([if 'bio_endio' with one argument exist],
+bio_endio, [
+	#include <linux/bio.h>
+],[
+	bio_endio(NULL);
+],[
+	AC_DEFINE(HAVE_BIO_ENDIO_USES_ONE_ARG, 1,
+		[bio_endio takes only one argument])
+])
+]) # LC_BIO_ENDIO_USES_ONE_ARG
+
+#
 # LC_PROG_LINUX
 #
 # Lustre linux kernel checks
@@ -2046,6 +2063,7 @@ AC_DEFUN([LC_PROG_LINUX], [
 
 	# 4.2
 	LC_NEW_CANCEL_DIRTY_PAGE
+	LC_BIO_ENDIO_USES_ONE_ARG
 
 	#
 	AS_IF([test "x$enable_server" != xno], [
