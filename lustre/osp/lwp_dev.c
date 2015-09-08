@@ -509,10 +509,15 @@ static int lwp_obd_disconnect(struct obd_export *exp)
 static int lwp_import_event(struct obd_device *obd, struct obd_import *imp,
 			    enum obd_import_event event)
 {
+	struct lwp_device *lwp = lu2lwp_dev(obd->obd_lu_dev);
+
 	switch (event) {
 	case IMP_EVENT_DISCON:
 	case IMP_EVENT_INACTIVE:
+		break;
 	case IMP_EVENT_ACTIVE:
+		LASSERT(lwp->lpd_exp != NULL);
+		lustre_notify_lwp_list(lwp->lpd_exp);
 		break;
 	case IMP_EVENT_INVALIDATE:
 		if (obd->obd_namespace == NULL)
