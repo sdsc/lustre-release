@@ -556,15 +556,13 @@ static int lustre_lwp_connect(struct obd_device *lwp)
 	rc = obd_connect(&env, &exp, lwp, uuid, data, NULL);
 	if (rc != 0) {
 		CERROR("%s: connect failed: rc = %d\n", lwp->obd_name, rc);
-	} else {
-		if (unlikely(lwp->obd_lwp_export != NULL))
-			class_export_put(lwp->obd_lwp_export);
-		lwp->obd_lwp_export = class_export_get(exp);
-		lustre_notify_lwp_list(exp);
 	}
 
-	GOTO(out, rc);
+	if (unlikely(lwp->obd_lwp_export != NULL))
+		class_export_put(lwp->obd_lwp_export);
+	lwp->obd_lwp_export = class_export_get(exp);
 
+	EXIT;
 out:
 	if (data != NULL)
 		OBD_FREE_PTR(data);
@@ -969,6 +967,7 @@ static int lustre_start_lwp(struct super_block *sb)
 	struct config_llog_instance *cfg = NULL;
 	char			    *logname;
 	int			     rc;
+	struct obd_device	    *lwp;
 	ENTRY;
 
 	if (unlikely(lsi->lsi_lwp_started))
@@ -995,6 +994,12 @@ static int lustre_start_lwp(struct super_block *sb)
 	rc = lustre_process_log(sb, logname, cfg);
 	/* need to remove config llog from mgc */
 	lsi->lsi_lwp_started = 1;
+
+	/* notify registered OBDs that LWP is ready */
+	spin_lock(&lsi->lsi_lwp_lock);
+	list_for_each_entry(lwp, &lsi->lsi_lwp_list, obd_lwp_list)
+		lustre_notify_lwp_list(lwp->obd_lwp_export);
+	spin_unlock(&lsi->lsi_lwp_lock);
 
 	GOTO(out, rc);
 
