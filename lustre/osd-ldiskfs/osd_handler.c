@@ -5401,10 +5401,12 @@ again:
 
 			if (jh == NULL) {
 				brelse(bh);
-				if (hlock != NULL)
+				if (hlock != NULL) {
 					ldiskfs_htree_unlock(hlock);
-				else
+					hlock = NULL;
+				} else {
 					up_read(&obj->oo_ext_idx_sem);
+				}
 				dev->od_dirent_journal = 1;
 
 				goto again;
@@ -5435,10 +5437,12 @@ again:
 
 			if (jh == NULL) {
 				brelse(bh);
-				if (hlock != NULL)
+				if (hlock != NULL) {
 					ldiskfs_htree_unlock(hlock);
-				else
+					hlock = NULL;
+				} else {
 					up_read(&obj->oo_ext_idx_sem);
+				}
 				dev->od_dirent_journal = 1;
 
 				goto again;
@@ -5475,10 +5479,12 @@ again:
 
 		if (jh == NULL) {
 			brelse(bh);
-			if (hlock != NULL)
+			if (hlock != NULL) {
 				ldiskfs_htree_unlock(hlock);
-			else
+				hlock = NULL;
+			} else {
 				up_read(&obj->oo_ext_idx_sem);
+			}
 			dev->od_dirent_journal = 1;
 
 			goto again;
