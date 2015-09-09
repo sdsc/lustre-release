@@ -1131,12 +1131,6 @@ static int osp_sync_thread(void *_arg)
 		 d->opd_syn_changes, d->opd_syn_rpc_in_progress,
 		 d->opd_syn_rpc_in_flight, rc);
 
-	/* we don't expect llog_process_thread() to exit till umount */
-	LASSERTF(thread->t_flags != SVC_RUNNING,
-		 "%lu changes, %u in progress, %u in flight\n",
-		 d->opd_syn_changes, d->opd_syn_rpc_in_progress,
-		 d->opd_syn_rpc_in_flight);
-
 	/* wait till all the requests are completed */
 	count = 0;
 	while (d->opd_syn_rpc_in_progress > 0) {
