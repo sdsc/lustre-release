@@ -2583,7 +2583,8 @@ void mdt_object_unlock(struct mdt_thread_info *info, struct mdt_object *o,
         mdt_save_lock(info, &lh->mlh_reg_lh, lh->mlh_reg_mode, decref);
 
 	if (lustre_handle_is_used(&lh->mlh_rreg_lh))
-		ldlm_lock_decref(&lh->mlh_rreg_lh, lh->mlh_rreg_mode);
+		ldlm_lock_decref_and_cancel(&lh->mlh_rreg_lh,
+					    lh->mlh_rreg_mode);
 
         EXIT;
 }
