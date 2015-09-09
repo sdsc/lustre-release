@@ -161,4 +161,7 @@ static inline int nodemap_process_idx_pages(struct nodemap_config *config,
 
 int nodemap_get_config_req(struct obd_device *mgs_obd,
 			   struct ptlrpc_request *req);
+int nodemap_fs_init(const struct lu_env *env, struct dt_device *dev,
+		    struct obd_device *obd, struct local_oid_storage *los);
+void nodemap_fs_fini(const struct lu_env *env, struct obd_device *obd);
 #endif	/* _LUSTRE_NODEMAP_H */
