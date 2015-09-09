@@ -134,6 +134,7 @@ static inline __u32 nm_idx_set_type(unsigned int id, enum nodemap_idx_type t)
 
 struct nodemap_config *nodemap_config_alloc(void);
 void nodemap_config_dealloc(struct nodemap_config *config);
+void nodemap_config_set_active(struct nodemap_config *config);
 struct lu_nodemap *nodemap_create(const char *name,
 				  struct nodemap_config *config,
 				  bool is_default);
@@ -192,6 +193,9 @@ int nodemap_add_range_helper(struct nodemap_config *config,
 struct rb_node *nm_rb_next_postorder(const struct rb_node *node);
 struct rb_node *nm_rb_first_postorder(const struct rb_root *root);
 void nodemap_putref(struct lu_nodemap *nodemap);
+int nm_hash_list_cb(struct cfs_hash *hs, struct cfs_hash_bd *bd,
+		    struct hlist_node *hnode,
+		    void *nodemap_list_head);
 
 #define nm_rbtree_postorder_for_each_entry_safe(pos, n,			\
 						root, field)		\
