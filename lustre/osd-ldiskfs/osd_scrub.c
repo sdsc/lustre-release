@@ -98,7 +98,7 @@ static int osd_scrub_refresh_mapping(struct osd_thread_info *info,
 				     const struct lu_fid *fid,
 				     const struct osd_inode_id *id,
 				     int ops, bool force,
-				     enum oi_check_flags flags)
+				     enum oi_check_flags flags, bool *exist)
 {
 	handle_t *th;
 	int	  rc;
@@ -128,7 +128,7 @@ static int osd_scrub_refresh_mapping(struct osd_thread_info *info,
 		}
 		break;
 	case DTO_INDEX_INSERT:
-		rc = osd_oi_insert(info, dev, fid, id, th, flags);
+		rc = osd_oi_insert(info, dev, fid, id, th, flags, exist);
 		if (unlikely(rc == -EEXIST)) {
 			rc = 1;
 			/* XXX: There are trouble things when adding OI
@@ -470,6 +470,7 @@ osd_scrub_check_update(struct osd_thread_info *info, struct osd_device *dev,
 	int			      idx;
 	int			      rc;
 	bool			      converted = false;
+	bool			      exist	= false;
 	ENTRY;
 
 	down_write(&scrub->os_rwsem);
@@ -559,9 +560,6 @@ iget:
 		case SCRUB_NEXT_OSTOBJ_OLD:
 			break;
 		default:
-			sf->sf_flags |= SF_RECREATED;
-			if (unlikely(!ldiskfs_test_bit(idx, sf->sf_oi_bitmap)))
-				ldiskfs_set_bit(idx, sf->sf_oi_bitmap);
 			break;
 		}
 	} else if (osd_id_eq(lid, lid2)) {
@@ -592,12 +590,19 @@ iget:
 
 	rc = osd_scrub_refresh_mapping(info, dev, fid, lid, ops, false,
 			(val == SCRUB_NEXT_OSTOBJ ||
-			 val == SCRUB_NEXT_OSTOBJ_OLD) ? OI_KNOWN_ON_OST : 0);
+			 val == SCRUB_NEXT_OSTOBJ_OLD) ? OI_KNOWN_ON_OST : 0,
+			&exist);
 	if (rc == 0) {
 		if (scrub->os_in_prior)
 			sf->sf_items_updated_prior++;
 		else
 			sf->sf_items_updated++;
+
+		if (ops == DTO_INDEX_INSERT && val == 0 && !exist) {
+			sf->sf_flags |= SF_RECREATED;
+			if (unlikely(!ldiskfs_test_bit(idx, sf->sf_oi_bitmap)))
+				ldiskfs_set_bit(idx, sf->sf_oi_bitmap);
+		}
 	}
 
 	GOTO(out, rc);
@@ -621,7 +626,7 @@ out:
 				DTO_INDEX_DELETE, false,
 				(val == SCRUB_NEXT_OSTOBJ ||
 				 val == SCRUB_NEXT_OSTOBJ_OLD) ?
-				OI_KNOWN_ON_OST : 0);
+				OI_KNOWN_ON_OST : 0, NULL);
 	up_write(&scrub->os_rwsem);
 
 	if (inode != NULL && !IS_ERR(inode))
@@ -1822,7 +1827,7 @@ osd_ios_scan_one(struct osd_thread_info *info, struct osd_device *dev,
 			RETURN(rc);
 
 		rc = osd_scrub_refresh_mapping(info, dev, &tfid, id,
-					       DTO_INDEX_INSERT, true, 0);
+					       DTO_INDEX_INSERT, true, 0, NULL);
 		if (rc > 0)
 			rc = 0;
 
@@ -1842,7 +1847,7 @@ osd_ios_scan_one(struct osd_thread_info *info, struct osd_device *dev,
 	}
 
 	rc = osd_scrub_refresh_mapping(info, dev, &tfid, id,
-				       DTO_INDEX_UPDATE, true, 0);
+				       DTO_INDEX_UPDATE, true, 0, NULL);
 	if (rc > 0)
 		rc = 0;
 
@@ -2276,7 +2281,7 @@ static int osd_initial_OI_scrub(struct osd_thread_info *info,
 		else if (PTR_ERR(child) == -ENOENT)
 			osd_scrub_refresh_mapping(info, dev, &map->olm_fid,
 						  NULL, DTO_INDEX_DELETE,
-						  true, 0);
+						  true, 0, NULL);
 		map++;
 	}
 
