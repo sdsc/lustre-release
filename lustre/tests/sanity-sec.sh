@@ -1609,13 +1609,13 @@ test_26() {
 
 	local large_i=32000
 
-	for ((i = 0; i < large_i; i++)); do
+	for ((i = 0; i <= large_i; i++)); do
 		((i % 1000 == 0)) && echo $i
 		do_facet mgs $LCTL nodemap_add c$i
 	done
 	wait_nm_sync c$large_i admin_nodemap
 
-	for ((i = 0; i < large_i; i++)); do
+	for ((i = 0; i <= large_i; i++)); do
 		((i % 1000 == 0)) && echo $i
 		do_facet mgs $LCTL nodemap_del c$i
 	done

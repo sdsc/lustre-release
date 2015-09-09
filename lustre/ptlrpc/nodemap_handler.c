@@ -1178,9 +1178,9 @@ void nodemap_config_dealloc(struct nodemap_config *config)
 }
 EXPORT_SYMBOL(nodemap_config_dealloc);
 
-static int nm_hash_list_cb(struct cfs_hash *hs, struct cfs_hash_bd *bd,
-			   struct hlist_node *hnode,
-			   void *nodemap_list_head)
+int nm_hash_list_cb(struct cfs_hash *hs, struct cfs_hash_bd *bd,
+		    struct hlist_node *hnode,
+		    void *nodemap_list_head)
 {
 	struct lu_nodemap *nodemap;
 
