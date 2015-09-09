@@ -255,6 +255,7 @@ struct lu_nodemap *nodemap_classify_nid(lnet_nid_t nid)
 	else
 		nodemap = active_config->nmc_default_nodemap;
 
+	LASSERT(nodemap != NULL);
 	nodemap_getref(nodemap);
 
 	return nodemap;
@@ -352,6 +353,7 @@ int nodemap_add_member(lnet_nid_t nid, struct obd_export *exp)
 {
 	struct lu_nodemap	*nodemap;
 	int rc;
+	ENTRY;
 
 	mutex_lock(&active_config_lock);
 	down_read(&active_config->nmc_range_tree_lock);
@@ -364,7 +366,7 @@ int nodemap_add_member(lnet_nid_t nid, struct obd_export *exp)
 
 	nodemap_putref(nodemap);
 
-	return rc;
+	RETURN(rc);
 }
 EXPORT_SYMBOL(nodemap_add_member);
 
@@ -1178,9 +1180,9 @@ void nodemap_config_dealloc(struct nodemap_config *config)
 }
 EXPORT_SYMBOL(nodemap_config_dealloc);
 
-static int nm_hash_list_cb(struct cfs_hash *hs, struct cfs_hash_bd *bd,
-			   struct hlist_node *hnode,
-			   void *nodemap_list_head)
+int nm_hash_list_cb(struct cfs_hash *hs, struct cfs_hash_bd *bd,
+		    struct hlist_node *hnode,
+		    void *nodemap_list_head)
 {
 	struct lu_nodemap *nodemap;
 
@@ -1199,6 +1201,7 @@ void nodemap_config_set_active(struct nodemap_config *config)
 	ENTRY;
 
 	LASSERT(active_config != config);
+	LASSERT(config->nmc_default_nodemap != NULL);
 
 	mutex_lock(&active_config_lock);
 

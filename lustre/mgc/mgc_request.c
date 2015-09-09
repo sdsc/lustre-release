@@ -358,6 +358,7 @@ static int config_log_add(struct obd_device *obd, char *logname,
 
 	nodemap_cld = config_log_find(LUSTRE_NODEMAP_NAME, NULL);
 	if (!nodemap_cld && IS_SERVER(lsi) && !IS_MGS(lsi)) {
+		CDEBUG(D_MGC, "adding nodemap config log\n");
 		nodemap_cld = do_config_log_add(obd, LUSTRE_NODEMAP_NAME,
 						CONFIG_T_NODEMAP, NULL, NULL);
 		if (IS_ERR(nodemap_cld)) {
