@@ -683,4 +683,3 @@ void ofd_fs_cleanup(const struct lu_env *env, struct ofd_device *ofd)
 
 	EXIT;
 }
-
