@@ -135,7 +135,10 @@ test_iozone() {
     FAIL_ON_ERROR=false check_runas_id_ret $myUID $myGID $myRUNAS || \
         { myRUNAS="" && myUID=$UID && myGID=`id -g $USER`; }
     chown $myUID:$myGID $IOZDIR
+    sysctl lnet.debug=-1
     $myRUNAS iozone $IOZONE_OPTS -s $SIZE -f $IOZFILE 2>&1 | tee $IOZLOG
+    ls -salR /mnt/lustre
+    lctl dk > /tmp/dk
     tail -1 $IOZLOG | grep -q complete || \
 	{ error "iozone (1) failed" && return 1; }
     rm -f $IOZLOG
