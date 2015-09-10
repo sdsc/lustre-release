@@ -188,7 +188,6 @@ static int expired_lock_main(void *arg)
 
 			/* from waiting_locks_callback, but not in timer */
 			libcfs_debug_dumplog();
-			libcfs_run_lbug_upcall(&msgdata);
 
 			spin_lock_bh(&waiting_locks_spinlock);
 			expired_lock_thread.elt_dump = 0;
