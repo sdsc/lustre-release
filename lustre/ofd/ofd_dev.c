@@ -178,6 +178,9 @@ static int ofd_stack_init(const struct lu_env *env,
 		RETURN(-ENODEV);
 	}
 
+	if (s2lsi(lmi->lmi_sb)->lsi_lmd->lmd_flags & LMD_FLG_SKIP_LFSCK)
+		m->ofd_skip_lfsck = 1;
+
 	/* find bottom osd */
 	OBD_ALLOC(osdname, MTI_NAME_MAXLEN);
 	if (osdname == NULL)
