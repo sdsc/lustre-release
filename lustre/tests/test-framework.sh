@@ -50,6 +50,14 @@ fi
 [ -z "$MODPROBECONF" -a -f /etc/modprobe.conf ] &&
     MODPROBECONF=/etc/modprobe.conf
 
+validate_parameters() {
+	for i in DIR DIR1 DIR2 MOUNT MOUNT1 MOUNT2
+	do
+		local path=${!i}
+		eval export $i=$(echo $path | sed -E 's/\/+$//g')
+	done
+}
+
 assert_DIR () {
     local failed=""
     [[ $DIR/ = $MOUNT/* ]] || \
@@ -3929,6 +3937,7 @@ is_empty_fs() {
 }
 
 check_and_setup_lustre() {
+	validate_parameters
     nfs_client_mode && return
 	cifs_client_mode && return
 
