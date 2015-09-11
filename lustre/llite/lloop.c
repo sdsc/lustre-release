@@ -573,6 +573,7 @@ static int loop_set_fd(struct lloop_device *lo, struct file *unused,
         bd_set_size(bdev, size << 9);
 
 	set_blocksize(bdev, lo->lo_blocksize);
+	blk_queue_logical_block_size(lo->lo_queue, lo->lo_blocksize);
 
 	kthread_run(loop_thread, lo, "lloop%d", lo->lo_number);
 	down(&lo->lo_sem);
