@@ -4147,8 +4147,9 @@ int filter_destroy(struct obd_export *exp, struct obdo *oa,
 
                         olg = filter_find_olg(obd, oa->o_seq);
                         if (!olg) {
-                               CERROR(" %s: can not find olg of group %d\n",
-                                      obd->obd_name, (int)oa->o_seq);
+				CERROR("%s: can not find olg of group %d "
+				       "for objid "LPU64"\n", obd->obd_name,
+				      (int)oa->o_seq, oa->o_id);
                                GOTO(cleanup, rc = PTR_ERR(olg));
                         }
                         fcc = &oa->o_lcookie;

@@ -129,7 +129,9 @@ void filter_cancel_cookies_cb(struct obd_device *obd, __u64 transno,
 
         olg = filter_find_olg(obd, cookie->lgc_lgl.lgl_oseq);
         if (!olg) {
-                CDEBUG(D_HA, "unknown group "LPU64"!\n", cookie->lgc_lgl.lgl_oseq);
+                CERROR("%s: unknown group "LPU64" for objid "LPU64"!\n",
+		       obd->obd_name, cookie->lgc_lgl.lgl_oseq,
+		       cookie->lgc_lgl.lgl_oid);
                 GOTO(out, rc = 0);
         }
 
