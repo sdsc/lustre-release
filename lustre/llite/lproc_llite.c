@@ -248,6 +248,8 @@ static int ll_site_stats_seq_show(struct seq_file *m, void *v)
 }
 LPROC_SEQ_FOPS_RO(ll_site_stats);
 
+#define LL_PAGES_PER_MB (1 << (20 - PAGE_CACHE_SHIFT))
+
 static int ll_max_readahead_mb_seq_show(struct seq_file *m, void *v)
 {
 	struct super_block *sb = m->private;
@@ -299,6 +301,51 @@ ll_max_readahead_mb_seq_write(struct file *file, const char __user *buffer,
 	return count;
 }
 LPROC_SEQ_FOPS(ll_max_readahead_mb);
+
+static int ll_readahead_step_mb_seq_show(struct seq_file *m, void *v)
+{
+	struct super_block *sb = m->private;
+	struct ll_sb_info *sbi = ll_s2sbi(sb);
+	long pages_number;
+
+	spin_lock(&sbi->ll_lock);
+	pages_number = sbi->ll_ra_info.ra_increase_step;
+	spin_unlock(&sbi->ll_lock);
+
+	return lprocfs_seq_read_frac_helper(m, pages_number, LL_PAGES_PER_MB);
+}
+
+static ssize_t
+ll_readahead_step_mb_seq_write(struct file *file, const char *buffer,
+			      size_t count, loff_t *off)
+{
+	struct seq_file *m = file->private_data;
+	struct ll_sb_info *sbi = ll_s2sbi((struct super_block *)m->private);
+	__u64 val;
+	long pages_number;
+	int rc;
+
+	rc = lprocfs_write_frac_u64_helper(buffer, count, &val,
+					   LL_PAGES_PER_MB);
+	if (rc)
+		return rc;
+
+	if (val > LONG_MAX)
+		return -ERANGE;
+	pages_number = (long)val;
+
+	if (pages_number > (PTLRPC_MAX_BRW_SIZE >> PAGE_CACHE_SHIFT) ||
+	    pages_number & (pages_number - 1)) {
+		CERROR("can't set file readahead step %lu\n", pages_number);
+		return -ERANGE;
+	}
+
+	spin_lock(&sbi->ll_lock);
+	sbi->ll_ra_info.ra_increase_step = pages_number;
+	spin_unlock(&sbi->ll_lock);
+	return count;
+}
+LPROC_SEQ_FOPS(ll_readahead_step_mb);
 
 static int ll_max_readahead_per_file_mb_seq_show(struct seq_file *m, void *v)
 {
@@ -992,6 +1039,8 @@ struct lprocfs_vars lprocfs_llite_obd_vars[] = {
 	  .fops	=	&ll_client_type_fops			},
 	{ .name	=	"max_read_ahead_mb",
 	  .fops	=	&ll_max_readahead_mb_fops		},
+	{ .name	=	"read_ahead_step",
+	  .fops	=	&ll_readahead_step_mb_fops		},
 	{ .name	=	"max_read_ahead_per_file_mb",
 	  .fops	=	&ll_max_readahead_per_file_mb_fops	},
 	{ .name	=	"max_read_ahead_whole_mb",
