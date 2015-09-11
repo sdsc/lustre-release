@@ -40,6 +40,17 @@
 
 #ifdef HAVE_COMPAT_RDMA
 #include <linux/compat-2.6.h>
+
+/* Newer OFED defines AC_PACKAGE_NAME which conflicts with
+ * lustre's AC_PACKAGE_NAME results. So undefine the OFED
+ * values */
+#undef PACKAGE
+#undef PACKAGE_BUGREPORT
+#undef PACKAGE_NAME
+#undef PACKAGE_STRING
+#undef PACKAGE_TARNAME
+#undef PACKAGE_VERSION
+
 #endif
 
 #include <linux/version.h>
