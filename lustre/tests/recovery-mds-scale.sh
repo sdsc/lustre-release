@@ -131,6 +131,8 @@ failover_target() {
     local it_time_start
     local start_ts=$(date +%s)
     local current_ts=$start_ts
+	local other_servers
+	local server
 
     while [ $ELAPSED -lt $DURATION -a ! -e $END_RUN_FILE ]; do
         # In order to perform the
@@ -141,6 +143,15 @@ failover_target() {
 
         serverfacet=$(get_random_entry $servers)
         var=${serverfacet}_numfailovers
+	other_server=""
+	local servers_list=${servers//,/ }
+
+	for server in $servers_list; do
+		if [ "$server" = "$serverfacet" ]; then
+			continue;
+		fi
+		other_servers="$other_servers $server"
+	done
 
         # Check that our client loads are still running. If any have died,
         # that means they have died outside of recovery, which is unacceptable.
@@ -159,6 +170,12 @@ failover_target() {
             echo "Clients import not FULL, please consider to increase \
 SERVER_FAILOVER_PERIOD=$SERVER_FAILOVER_PERIOD!"
         fi
+
+	log "Checking $other_servers are in FULL state before next failover..."
+	if ! wait_mds_import_state $servers $serverfacet FULL; then
+	    echo "mds import not FULL, please consider to increase \
+SERVER_FAILOVER_PERIOD=$SERVER_FAILOVER_PERIOD!"
+	fi
 
         log "Starting failover on $serverfacet"
         facet_failover "$serverfacet" || exit 1
