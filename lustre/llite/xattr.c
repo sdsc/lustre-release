@@ -105,6 +105,8 @@ int xattr_type_filter(struct ll_sb_info *sbi, int xattr_type)
 /* xattr related to IMA(Integrity Measurement Architecture) */
 #ifndef XATTR_NAME_IMA
 #define XATTR_NAME_IMA		"security.ima"
+#endif
+#ifndef XATTR_NAME_EVM
 #define XATTR_NAME_EVM		"security.evm"
 #endif
 
