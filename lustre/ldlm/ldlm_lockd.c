@@ -312,7 +312,9 @@ static void waiting_locks_callback(unsigned long unused)
 
                 /* Check if we need to prolong timeout */
                 if (!OBD_FAIL_CHECK(OBD_FAIL_PTLRPC_HPREQ_TIMEOUT) &&
-                    ldlm_lock_busy(lock)) {
+                    (ldlm_lock_busy(lock) ||
+		     (exp_connect_flags(lock->l_export) &
+		      OBD_CONNECT_MDS_MDS))) {
                         int cont = 1;
 
                         if (lock->l_pending_chain.next == &waiting_locks_list)
@@ -334,6 +336,7 @@ static void waiting_locks_callback(unsigned long unused)
                         LDLM_LOCK_RELEASE(lock);
                         continue;
                 }
+
                 ldlm_lock_to_ns(lock)->ns_timeouts++;
                 LDLM_ERROR(lock, "lock callback timer expired after %lds: "
                            "evicting client at %s ",
@@ -853,7 +856,10 @@ int ldlm_server_blocking_ast(struct ldlm_lock *lock,
         if (req == NULL)
                 RETURN(-ENOMEM);
 
-        CLASSERT(sizeof(*ca) <= sizeof(req->rq_async_args));
+	if (exp_connect_flags(lock->l_export) & OBD_CONNECT_MDS_MDS)
+		req->rq_no_timeout = 1;
+
+	CLASSERT(sizeof(*ca) <= sizeof(req->rq_async_args));
         ca = ptlrpc_req_async_args(req);
         ca->ca_set_arg = arg;
         ca->ca_lock = lock;
