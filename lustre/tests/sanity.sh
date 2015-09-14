@@ -13228,6 +13228,8 @@ test_253() {
 	remote_mds_nodsh && skip "remote MDS with nodsh" && return
 	remote_mgs_nodsh && skip "remote MGS with nodsh" && return
 
+	do_facet $SINGLEMDS "sysctl -w lnet.debug=-1;
+	sysctl -w lnet.subsystem_debug=+rpc+osd+osc+fid;lctl set_param debug_mb=256"
 	rm -rf $DIR/$tdir
 	mkdir $DIR/$tdir
 	local ost_name=$($LFS osts | grep ${ostidx}": " | \
