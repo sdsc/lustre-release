@@ -13251,6 +13251,8 @@ test_253() {
 	remote_mds_nodsh && skip "remote MDS with nodsh" && return
 	remote_mgs_nodsh && skip "remote MGS with nodsh" && return
 
+	do_facet $SINGLEMDS "sysctl -w lnet.debug=-1;
+	sysctl -w lnet.subsystem_debug=+rpc+osd+osc+fid;lctl set_param debug_mb=256"
 	rm -rf $DIR/$tdir
 	mkdir $DIR/$tdir
 	local ost_name=$($LFS osts | grep ${ostidx}": " | \
@@ -13295,8 +13297,21 @@ test_253() {
 	#Check preallocate objects again
 	test_253_spend_po $SINGLEMDS $mdtosc_proc1
 
-	dd if=/dev/zero of=$DIR/$tdir/2 bs=1M count=1 &&
+	dd if=/dev/zero of=$DIR/$tdir/2 bs=1M count=1
+	rc=$?
+	if [ $rc -eq 0 ]; then
+		$GETSTRIPE  $DIR/$tdir/2 -v
+		local last_id
+		local next_id
+
+		last_id=$(do_facet $SINGLEMDS lctl get_param -n \
+			  osp.$mdtosc_proc.prealloc_last_id)
+		next_id=$(do_facet $SINGLEMDS lctl get_param -n \
+			  osp.$mdtosc_proc.prealloc_next_id)
+
+		echo "last_id $last_id, next_id $next_id"
 		error "File creation should fail"
+	fi
 	#object allocation was stopped, but we still able to append files
 	dd if=/dev/zero of=$DIR/$tdir/1 bs=1M seek=6 count=5 oflag=append ||
 		error "Append failed"
