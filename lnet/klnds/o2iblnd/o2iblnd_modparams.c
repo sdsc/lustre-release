@@ -170,7 +170,6 @@ kib_tunables_t kiblnd_tunables = {
         .kib_fmr_pool_size          = &fmr_pool_size,
         .kib_fmr_flush_trigger      = &fmr_flush_trigger,
         .kib_fmr_cache              = &fmr_cache,
-        .kib_pmr_pool_size          = &pmr_pool_size,
         .kib_require_priv_port      = &require_privileged_port,
 	.kib_use_priv_port	    = &use_privileged_port,
 	.kib_nscheds		    = &nscheds
@@ -329,14 +328,6 @@ static struct ctl_table kiblnd_ctl_table[] = {
 		INIT_CTL_NAME
 		.procname	= "fmr_cache",
 		.data		= &fmr_cache,
-		.maxlen		= sizeof(int),
-		.mode		= 0444,
-		.proc_handler	= &proc_dointvec
-	},
-	{
-		INIT_CTL_NAME
-		.procname	= "pmr_pool_size",
-		.data		= &pmr_pool_size,
 		.maxlen		= sizeof(int),
 		.mode		= 0444,
 		.proc_handler	= &proc_dointvec
