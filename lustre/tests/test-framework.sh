@@ -1174,6 +1174,14 @@ set_default_debug_facet () {
     set_default_debug_nodes $node
 }
 
+set_hostid () {
+    local hostid=${1:-$(hostid)}
+
+    if [ ! -s /etc/hostid ]; then
+	printf echo -n $hostid | sed 's/\(..\)\(..\)\(..\)\(..\)/\\x\4\\x\3\\x\2\\x\1/' > /etc/hostid
+    fi
+}
+
 # Facet functions
 mount_facets () {
 	local facets=${1:-$(get_facets)}

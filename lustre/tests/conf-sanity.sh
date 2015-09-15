@@ -51,6 +51,9 @@ export MULTIOP=${MULTIOP:-multiop}
 init_test_env $@
 . ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}
 
+# Set hostid for ZFS/SPL MMP
+do_rpc_nodes $(comma_list $(remote_nodes_list)) set_hostid
+
 # use small MDS + OST size to speed formatting time
 # do not use too small MDSSIZE/OSTSIZE, which affect the default jouranl size
 # STORED_MDSSIZE is used in test_18
