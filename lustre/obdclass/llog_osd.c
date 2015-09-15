@@ -378,6 +378,9 @@ static int llog_osd_write_rec(const struct lu_env *env,
 	CDEBUG(D_OTHER, "new record %x to "DFID"\n",
 	       rec->lrh_type, PFID(lu_object_fid(&o->do_lu)));
 
+	if (!dt_object_exists(o) || lu_object_is_dying(o->do_lu.lo_header))
+		RETURN(-ENOENT);
+
 	/* record length should not bigger than  */
 	if (reclen > loghandle->lgh_hdr->llh_hdr.lrh_len)
 		RETURN(-E2BIG);
