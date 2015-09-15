@@ -43,6 +43,7 @@
 #include <lnet/lib-lnet.h>
 #include <linux/nsproxy.h>
 #include <net/net_namespace.h>
+#include <lustre_lib.h>
 
 static int local_nid_dist_zero = 1;
 module_param(local_nid_dist_zero, int, 0444);
@@ -2242,8 +2243,12 @@ LNetPut(lnet_nid_t self, lnet_handle_md_t mdh, lnet_ack_req_t ack,
 	lnet_res_unlock(cpt);
 
 	lnet_build_msg_event(msg, LNET_EVENT_SEND);
+	if (OBD_FAIL_CHECK_ORSET(OBD_FAIL_PTLRPC_OST_BULK_CB2,
+				 CFS_FAIL_ONCE))
+		rc = -EIO;
+	else
+		rc = lnet_send(self, msg, LNET_NID_ANY);
 
-	rc = lnet_send(self, msg, LNET_NID_ANY);
 	if (rc != 0) {
 		CNETERR("Error sending PUT to %s: %d\n",
 			libcfs_id2str(target), rc);
