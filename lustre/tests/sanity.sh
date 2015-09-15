@@ -5278,6 +5278,14 @@ test_60d() {
 }
 run_test 60d "test printk console message masking"
 
+test_60e() {
+	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	touch $DIR/$tfile
+#define OBD_FAIL_MDS_LLOG_CREATE_FAILED2  0x15b
+	do_facet mds1 lctl set_param fail_loc=0x15b
+}
+run_test 60e "unlink file when mds full (failed write)"
+
 test_61() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
 	f="$DIR/f61"
