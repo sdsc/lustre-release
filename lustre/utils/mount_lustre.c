@@ -331,6 +331,7 @@ static int clear_update_ondisk(char *source, struct lustre_disk_data *ldd)
 	memset(&mkop, 0, sizeof(mkop));
 	mkop.mo_ldd = *ldd;
 	mkop.mo_ldd.ldd_flags &= ~LDD_F_UPDATE;
+	mkop.mo_flags = MO_NOMMP_CHECK; /* Ignore MMP failures at this point */
 	if (strlen(source) > sizeof(mkop.mo_device)-1) {
 		fatal();
 		fprintf(stderr, "Device name too long: %s\n", source);
