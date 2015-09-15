@@ -166,6 +166,8 @@ void usage(FILE *out)
 		"\t\t--comment=<user comment>: arbitrary string (%d bytes)\n"
 		"\t\t--dryrun: report what we would do; don't write to disk\n"
 		"\t\t--verbose: e.g. show mkfs progress\n"
+		"\t\t--force-nohostid: Ignore hostid requirement for ZFS "
+			"import\n"
 		"\t\t-V|--version: output build version of the utility and\n"
 		"\t\t\texit\n"
 		"\t\t--quiet\n",
@@ -310,6 +312,7 @@ int parse_opts(int argc, char *const argv[], struct mkfs_opts *mop,
 		{ "replace",		no_argument,		NULL, 'R' },
 		{ "servicenode",	required_argument,	NULL, 's' },
 		{ "network",		required_argument,	NULL, 't' },
+		{ "force-nohostid",	no_argument,		NULL, 'U' },
 		{ "verbose",		no_argument,		NULL, 'v' },
 		{ "version",		no_argument,		NULL, 'V' },
 		{ "writeconf",		no_argument,		NULL, 'w' },
@@ -521,6 +524,9 @@ int parse_opts(int argc, char *const argv[], struct mkfs_opts *mop,
                         strscpy(mop->mo_ldd.ldd_userdata, optarg,
                                 sizeof(mop->mo_ldd.ldd_userdata));
                         break;
+		case 'U':
+			mop->mo_flags |= MO_NOHOSTID_CHECK;
+			break;
 		case 'v':
 			verbose++;
 			break;
