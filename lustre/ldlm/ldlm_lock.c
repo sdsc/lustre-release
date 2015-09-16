@@ -2169,6 +2169,19 @@ restart:
 }
 EXPORT_SYMBOL(ldlm_reprocess_all);
 
+static bool is_bl_done(struct ldlm_lock *lock)
+{
+	bool bl_done = true;
+
+	if (!ldlm_is_bl_done(lock)) {
+		lock_res_and_lock(lock);
+		bl_done = ldlm_is_bl_done(lock);
+		unlock_res_and_lock(lock);
+	}
+
+	return bl_done;
+}
+
 /**
  * Helper function to call blocking AST for LDLM lock \a lock in a
  * "cancelling" mode.
@@ -2186,8 +2199,19 @@ void ldlm_cancel_callback(struct ldlm_lock *lock)
                 } else {
                         LDLM_DEBUG(lock, "no blocking ast");
                 }
-        }
-	ldlm_set_bl_done(lock);
+
+		/* only canceller can set bl_done bit */
+		ldlm_set_bl_done(lock);
+		wake_up_all(&lock->l_waitq);
+        } else if (!ldlm_is_bl_done(lock)) {
+		struct l_wait_info lwi = { 0 };
+
+		/* The lock is guaranteed to have been canceled once
+		 * returning from this function. */
+		unlock_res_and_lock(lock);
+		l_wait_event(lock->l_waitq, is_bl_done(lock), &lwi);
+		lock_res_and_lock(lock);
+	}
 }
 
 /**
