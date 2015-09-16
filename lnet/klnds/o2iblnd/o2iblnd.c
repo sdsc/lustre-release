@@ -1855,6 +1855,9 @@ kiblnd_pool_alloc_node(kib_poolset_t *ps)
 	struct list_head	*node;
 	kib_pool_t		*pool;
 	int			rc;
+	unsigned int		interval = 1;
+	cfs_time_t		time_before;
+	unsigned int		trips = 0;
 
 again:
 	spin_lock(&ps->ps_lock);
@@ -1879,10 +1882,16 @@ again:
 	if (ps->ps_increasing) {
 		/* another thread is allocating a new pool */
 		spin_unlock(&ps->ps_lock);
+		trips++;
                 CDEBUG(D_NET, "Another thread is allocating new "
-                       "%s pool, waiting for her to complete\n",
-                       ps->ps_name);
-		schedule();
+		       "%s pool, waiting %d HZs for her to complete."
+		       "trips = %d\n",
+		       ps->ps_name, interval, trips);
+
+		schedule_timeout(interval);
+		if (interval < cfs_time_seconds(1))
+			interval *= 2;
+
                 goto again;
         }
 
@@ -1896,8 +1905,10 @@ again:
 	spin_unlock(&ps->ps_lock);
 
 	CDEBUG(D_NET, "%s pool exhausted, allocate new pool\n", ps->ps_name);
-
+	time_before = cfs_time_current();
 	rc = ps->ps_pool_create(ps, ps->ps_pool_size, &pool);
+	CDEBUG(D_NET, "ps_pool_create took %lu HZ to complete",
+	       cfs_time_current() - time_before);
 
 	spin_lock(&ps->ps_lock);
 	ps->ps_increasing = 0;
