@@ -2186,8 +2186,11 @@ void ldlm_cancel_callback(struct ldlm_lock *lock)
                 } else {
                         LDLM_DEBUG(lock, "no blocking ast");
                 }
+
+		/* only canceller can set bl_done bit */
+		ldlm_set_bl_done(lock);
+		wake_up_all(&lock->l_waitq);
         }
-	ldlm_set_bl_done(lock);
 }
 
 /**

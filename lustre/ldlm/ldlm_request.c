@@ -1100,6 +1100,19 @@ int ldlm_cli_convert(struct lustre_handle *lockh, int new_mode, __u32 *flags)
         return rc;
 }
 
+static bool is_bl_done(struct ldlm_lock *lock)
+{
+	bool bl_done = true;
+
+	if (!ldlm_is_bl_done(lock)) {
+		lock_res_and_lock(lock);
+		bl_done = ldlm_is_bl_done(lock);
+		unlock_res_and_lock(lock);
+	}
+
+	return bl_done;
+}
+
 /**
  * Cancel locks locally.
  * Returns:
@@ -1114,6 +1127,7 @@ static __u64 ldlm_cli_cancel_local(struct ldlm_lock *lock)
 
         if (lock->l_conn_export) {
                 bool local_only;
+		struct l_wait_info lwi = { 0 };
 
                 LDLM_DEBUG(lock, "client-side cancel");
                 /* Set this flag to prevent others from getting new references*/
@@ -1125,6 +1139,11 @@ static __u64 ldlm_cli_cancel_local(struct ldlm_lock *lock)
 		rc = (ldlm_is_bl_ast(lock)) ?
 			LDLM_FL_BL_AST : LDLM_FL_CANCELING;
 		unlock_res_and_lock(lock);
+
+		/* In case the lock is canceled by bl_thread, it needs to
+		 * make sure that the lock cancellation is complete before
+		 * clearing lock state in ldlm_lock_cancel(). */
+		l_wait_event(lock->l_waitq, is_bl_done(lock), &lwi);
 
                 if (local_only) {
                         CDEBUG(D_DLMTRACE, "not sending request (at caller's "

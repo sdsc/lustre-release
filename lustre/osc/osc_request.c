@@ -2492,6 +2492,11 @@ static int osc_ldlm_resource_invalidate(struct cfs_hash *hs,
 			cl_object_get(osc2cl(osc));
 		}
 		lock->l_ast_data = NULL;
+
+		/* clear LDLM_FL_CLEANED flag to make sure it will be canceled
+		 * by the 2nd round of ldlm_namespace_clean() call in
+		 * osc_import_event(). */
+		ldlm_clear_cleaned(lock);
 	}
 	unlock_res(res);
 
