@@ -1848,6 +1848,7 @@ kiblnd_pool_alloc_node(kib_poolset_t *ps)
         cfs_list_t            *node;
         kib_pool_t            *pool;
         int                    rc;
+	unsigned int	       interval = 1;
 
  again:
 	spin_lock(&ps->ps_lock);
@@ -1873,9 +1874,13 @@ kiblnd_pool_alloc_node(kib_poolset_t *ps)
 		/* another thread is allocating a new pool */
 		spin_unlock(&ps->ps_lock);
                 CDEBUG(D_NET, "Another thread is allocating new "
-                       "%s pool, waiting for her to complete\n",
-                       ps->ps_name);
-		schedule();
+		       "%s pool, waiting %d HZs for her to complete\n",
+		       ps->ps_name, interval);
+
+		schedule_timeout(interval);
+		if (interval < cfs_time_seconds(1))
+			interval *= 2;
+
                 goto again;
         }
 
