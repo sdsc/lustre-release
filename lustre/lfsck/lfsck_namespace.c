@@ -1163,7 +1163,7 @@ static int lfsck_namespace_insert_normal(const struct lu_env *env,
 	if (lfsck->li_bookmark_ram.lb_param & LPF_DRYRUN)
 		GOTO(log, rc = 1);
 
-	rc = lfsck_lock(env, lfsck, parent, name, llh,
+	rc = lfsck_lock(env, lfsck, pobj, name, llh,
 			MDS_INODELOCK_UPDATE, LCK_PW);
 	if (rc != 0)
 		GOTO(log, rc);
@@ -1289,6 +1289,7 @@ static int lfsck_namespace_create_orphan_dir(const struct lu_env *env,
 	int				 namelen;
 	int				 idx	= 0;
 	int				 rc	= 0;
+	int				 rc1	= 0;
 	ENTRY;
 
 	LASSERT(!dt_object_exists(orphan));
@@ -1494,7 +1495,9 @@ unlock2:
 	dt_write_unlock(env, orphan);
 
 stop:
-	dt_trans_stop(env, dev, th);
+	rc1 = dt_trans_stop(env, dev, th);
+	if (rc1 != 0 && rc > 0)
+		rc = rc1;
 
 unlock1:
 	lfsck_unlock(llh);
