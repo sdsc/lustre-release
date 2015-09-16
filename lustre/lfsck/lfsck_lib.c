@@ -3109,6 +3109,29 @@ int lfsck_stop(const struct lu_env *env, struct dt_device *key,
 	}
 
 	thread_set_flags(thread, SVC_STOPPING);
+
+	if (lfsck->li_master) {
+		struct lfsck_component *com;
+
+		list_for_each_entry(com, &lfsck->li_list_scan, lc_link) {
+			struct lfsck_assistant_data *lad = com->lc_data;
+
+			spin_lock(&lad->lad_lock);
+			if (lad->lad_task != NULL)
+				send_sig(SIGINT, lad->lad_task, 0);
+			spin_unlock(&lad->lad_lock);
+		}
+
+		list_for_each_entry(com, &lfsck->li_list_double_scan, lc_link) {
+			struct lfsck_assistant_data *lad = com->lc_data;
+
+			spin_lock(&lad->lad_lock);
+			if (lad->lad_task != NULL)
+				send_sig(SIGINT, lad->lad_task, 0);
+			spin_unlock(&lad->lad_lock);
+		}
+	}
+
 	spin_unlock(&lfsck->li_lock);
 
 	wake_up_all(&thread->t_ctl_waitq);

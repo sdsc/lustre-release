@@ -4679,13 +4679,13 @@ static int lfsck_layout_slave_post(const struct lu_env *env,
 	int			 rc;
 	bool			 done  = false;
 
+	down_write(&com->lc_sem);
 	rc = lfsck_layout_lastid_store(env, com);
 	if (rc != 0)
 		result = rc;
 
 	LASSERT(lfsck->li_out_notify != NULL);
 
-	down_write(&com->lc_sem);
 	spin_lock(&lfsck->li_lock);
 	if (!init)
 		lo->ll_pos_last_checkpoint =
@@ -5148,12 +5148,14 @@ static void lfsck_layout_slave_quit(const struct lu_env *env,
 
 	LASSERT(llsd != NULL);
 
+	down_write(&com->lc_sem);
 	list_for_each_entry_safe(lls, next, &llsd->llsd_seq_list,
 				 lls_list) {
 		list_del_init(&lls->lls_list);
 		lfsck_object_put(env, lls->lls_lastid_obj);
 		OBD_FREE_PTR(lls);
 	}
+	up_write(&com->lc_sem);
 
 	spin_lock(&llsd->llsd_lock);
 	while (!list_empty(&llsd->llsd_master_list)) {
