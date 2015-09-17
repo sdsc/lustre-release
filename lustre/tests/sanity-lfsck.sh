@@ -469,6 +469,27 @@ test_3()
 }
 run_test 3 "LFSCK can verify multiple-linked objects"
 
+#htree_dirblock_to_tree:939: inode #25137: block 8434: comm lfsck: bad entry in directory:
+# rec_len is smaller than minimal - offset=0(0), inode=3925999616, rec_len=1, name_len=0
+test_4_debug()
+{
+	local repaired=$1
+	local msg
+	local inode
+	msg=$(do_facet $SINGLEMDS dmesg | grep "bad entry in dir")
+	echo $msg
+	if [ -n "$msg" ]; then
+		inode=$(echo $msg | sed 's/.*htree_dirblock.*inode.#\([0-9]*\).*/\1/g')
+		echo "corrupted inode: $inode"
+		do_facet $SINGLEMDS "debugfs -c -R stats $MDT_DEVNAME"
+		do_facet $SINGLEMDS "debugfs -c -R \\\"ncheck $inode\\\" $MDT_DEVNAME"
+		do_facet $SINGLEMDS "debugfs -c -R \\\"stat <$inode>\\\" $MDT_DEVNAME"
+		do_facet $SINGLEMDS "debugfs -c -R \\\"htree <$inode>\\\" $MDT_DEVNAME"
+		do_facet $SINGLEMDS e2fsck -fvn $MDT_DEVNAME
+	fi
+	error "(9) Fail to re-generate FID-in-dirent: $repaired"
+}
+
 test_4()
 {
 	[ $(facet_fstype $SINGLEMDS) != ldiskfs ] &&
@@ -515,7 +536,7 @@ test_4()
 		repaired=$($SHOW_NAMESPACE |
 			 awk '/^updated_phase1/ { print $2 }')
 
-	[ $repaired -ge 9 ] ||
+	[ $repaired -ge 9 ] || test_4_debug
 		error "(9) Fail to re-generate FID-in-dirent: $repaired"
 
 	mount_client $MOUNT || error "(10) Fail to start client!"
