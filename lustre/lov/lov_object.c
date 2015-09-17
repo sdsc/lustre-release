@@ -1540,6 +1540,7 @@ static const struct cl_object_operations lov_ops = {
 	.coo_maxbytes     = lov_object_maxbytes,
 	.coo_find_cbdata  = lov_object_find_cbdata,
 	.coo_fiemap       = lov_object_fiemap,
+	.coo_ra_size      = lov_object_ra_size
 };
 
 static const struct lu_object_operations lov_lu_obj_ops = {
@@ -1632,5 +1633,37 @@ int lov_read_and_clear_async_rc(struct cl_object *clob)
 	RETURN(rc);
 }
 EXPORT_SYMBOL(lov_read_and_clear_async_rc);
+
+loff_t lov_object_ra_size(struct cl_object *clob) {
+	struct lov_obd		*lov = lu2lov_dev(clob->co_lu.lo_dev)->ld_lov;
+	struct lov_stripe_md	*lsm;
+	u32			rw_size = 0;
+	int			i, rc;
+
+	lsm = lov_lsm_addref(cl2lov(clob));
+	if (lsm == NULL)
+		return 0;
+
+	for (i = 0; i < lsm->lsm_stripe_count; i++) {
+		u32 osc_rw_size, vallen = sizeof(u32);
+		struct lov_tgt_desc	*tgt;
+
+		tgt = lov->lov_tgts[lsm->lsm_oinfo[i]->loi_ost_idx];
+
+		/* OST is disconnected or inactive */
+		if (!tgt || !tgt->ltd_exp || !tgt->ltd_active)
+			continue;
+
+		rc = obd_get_info(NULL, tgt->ltd_exp, sizeof(KEY_RW_SIZE),
+				  KEY_RW_SIZE, &vallen, &osc_rw_size);
+
+		if (rc == 0 && (rw_size == 0 || osc_rw_size < rw_size))
+			rw_size = osc_rw_size;
+	}
+
+	lov_lsm_put(lsm);
+
+	return rw_size;
+}
 
 /** @} lov */

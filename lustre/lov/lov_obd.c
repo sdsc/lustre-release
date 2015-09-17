@@ -57,7 +57,7 @@
 #include <cl_object.h>
 #include <lustre_fid.h>
 
-#include "lov_internal.h"
+#include "lov_cl_internal.h"
 
 /* Keep a refcount of lov->tgt usage to prevent racing with addition/deletion.
    Any function that expects lov_tgts to remain stationary must take a ref. */
