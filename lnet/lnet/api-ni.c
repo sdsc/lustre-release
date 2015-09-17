@@ -1591,9 +1591,19 @@ LNetCtl(unsigned int cmd, void *arg)
 
         switch (cmd) {
         case IOC_LIBCFS_GET_NI:
+	{
+		lnet_ni_t  *ni;
+		int cpt;
+
                 rc = LNetGetId(data->ioc_count, &id);
                 data->ioc_nid = id.nid;
+		cpt = lnet_net_lock_current();
+		ni = lnet_nid2ni_locked(id.nid, cpt);
+		if (ni != NULL)
+			CDEBUG(D_NET, "ni->ni_ncpts = %d\n", ni->ni_ncpts);
+		lnet_net_unlock(cpt);
                 return rc;
+	}
 
         case IOC_LIBCFS_FAIL_NID:
                 return lnet_fail_nid(data->ioc_nid, data->ioc_count);

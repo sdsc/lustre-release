@@ -282,6 +282,7 @@ typedef struct kib_poolset
         int                     ps_increasing;          /* is allocating new pool */
         int                     ps_pool_size;           /* new pool size */
 	int			ps_cpt;			/* CPT id */
+	int			ps_npools;		/* number of pools */
 
         kib_ps_pool_create_t    ps_pool_create;         /* create a new pool */
         kib_ps_pool_destroy_t   ps_pool_destroy;        /* destroy a pool */

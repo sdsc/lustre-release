@@ -1732,6 +1732,7 @@ kiblnd_destroy_pool_list(cfs_list_t *head)
                 cfs_list_del(&pool->po_list);
 
                 LASSERT (pool->po_owner != NULL);
+		pool->po_owner->ps_npools--;
                 pool->po_owner->ps_pool_destroy(pool);
         }
 }
@@ -1793,8 +1794,10 @@ kiblnd_init_poolset(kib_poolset_t *ps, int cpt,
         CFS_INIT_LIST_HEAD(&ps->ps_failed_pool_list);
 
         rc = ps->ps_pool_create(ps, size, &pool);
-        if (rc == 0)
+        if (rc == 0) {
                 cfs_list_add(&pool->po_list, &ps->ps_pool_list);
+		ps->ps_npools++;
+	}
         else
                 CERROR("Failed to create the first pool for %s\n", ps->ps_name);
 
@@ -1845,9 +1848,12 @@ kiblnd_pool_free_node(kib_pool_t *pool, cfs_list_t *node)
 cfs_list_t *
 kiblnd_pool_alloc_node(kib_poolset_t *ps)
 {
-        cfs_list_t            *node;
-        kib_pool_t            *pool;
-        int                    rc;
+        cfs_list_t		*node;
+        kib_pool_t		*pool;
+        int			rc;
+	int			interval = 1;
+	cfs_time_t		time_before;
+	int			trips = 0;
 
  again:
 	spin_lock(&ps->ps_lock);
@@ -1872,10 +1878,16 @@ kiblnd_pool_alloc_node(kib_poolset_t *ps)
 	if (ps->ps_increasing) {
 		/* another thread is allocating a new pool */
 		spin_unlock(&ps->ps_lock);
+		trips++;
                 CDEBUG(D_NET, "Another thread is allocating new "
-                       "%s pool, waiting for her to complete\n",
-                       ps->ps_name);
-		schedule();
+		       "%s pool, waiting %d HZs for her to complete."
+		       "trips = %d\n",
+		       ps->ps_name, interval, trips);
+
+		schedule_timeout(interval);
+		if (interval < cfs_time_seconds(1))
+			interval *= 2;
+
                 goto again;
         }
 
@@ -1889,13 +1901,19 @@ kiblnd_pool_alloc_node(kib_poolset_t *ps)
 	spin_unlock(&ps->ps_lock);
 
 	CDEBUG(D_NET, "%s pool exhausted, allocate new pool\n", ps->ps_name);
-
+	time_before = cfs_time_current();
 	rc = ps->ps_pool_create(ps, ps->ps_pool_size, &pool);
+	CDEBUG(D_NET, "ps_pool_create took %lu HZ to complete",
+	       cfs_time_current() - time_before);
 
 	spin_lock(&ps->ps_lock);
         ps->ps_increasing = 0;
         if (rc == 0) {
                 cfs_list_add_tail(&pool->po_list, &ps->ps_pool_list);
+		ps->ps_npools++;
+		CDEBUG(D_NET, "ps->ps_cpt = %d, ps->ps_pool_size = %d,"
+		       " ps->ps_npools = %d\n", ps->ps_cpt, ps->ps_pool_size,
+		       ps->ps_npools);
         } else {
                 ps->ps_next_retry = cfs_time_shift(IBLND_POOL_RETRY);
                 CERROR("Can't allocate new %s pool because out of memory\n",
@@ -2343,6 +2361,8 @@ kiblnd_net_init_pools(kib_net_t *net, __u32 *cpts, int ncpts)
 		rc = -ENOMEM;
 		goto failed;
 	}
+
+	CDEBUG(D_NET, "Number of CPTs = %d\n", ncpts);
 
 	for (i = 0; i < ncpts; i++) {
 		cpt = (cpts == NULL) ? i : cpts[i];
