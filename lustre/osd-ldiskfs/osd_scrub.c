@@ -497,6 +497,9 @@ osd_scrub_check_update(struct osd_thread_info *info, struct osd_device *dev,
 			GOTO(out, rc);
 		}
 
+		if (unlikely(LDISKFS_I(inode)->i_flags & LDISKFS_EA_INODE_FL))
+			GOTO(out, rc = 0);
+
 		sf->sf_flags |= SF_UPGRADE;
 		sf->sf_internal_flags &= ~SIF_NO_HANDLE_OLD_FID;
 		dev->od_check_ff = 1;
@@ -536,6 +539,10 @@ iget:
 					rc = 0;
 				GOTO(out, rc);
 			}
+
+			if (unlikely(LDISKFS_I(inode)->i_flags &
+				     LDISKFS_EA_INODE_FL))
+				GOTO(out, rc = 0);
 		}
 
 		if (!scrub->os_partial_scan)
@@ -956,6 +963,9 @@ static int osd_iit_iget(struct osd_thread_info *info, struct osd_device *dev,
 		       pos, rc);
 		RETURN(rc);
 	}
+
+	if (LDISKFS_I(inode)->i_flags & LDISKFS_EA_INODE_FL)
+		GOTO(put, rc = SCRUB_NEXT_CONTINUE);
 
 	if (scrub &&
 	    ldiskfs_test_inode_state(inode, LDISKFS_STATE_LUSTRE_NOSCRUB)) {

@@ -563,6 +563,11 @@ static int osd_obj_update_entry(struct osd_thread_info *info,
 		GOTO(out, rc);
 	}
 
+	if (unlikely(LDISKFS_I(inode)->i_flags & LDISKFS_EA_INODE_FL)) {
+		iput(inode);
+		goto update;
+	}
+
 	rc = osd_get_lma(info, inode, dentry, lma);
 	if (rc == -ENODATA) {
 		rc = osd_get_idif(info, inode, dentry, oi_fid);

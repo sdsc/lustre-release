@@ -658,6 +658,11 @@ int osd_oi_insert(struct osd_thread_info *info, struct osd_device *osd,
 			return rc;
 		}
 
+		if (unlikely(LDISKFS_I(inode)->i_flags & LDISKFS_EA_INODE_FL)) {
+			iput(inode);
+			goto update;
+		}
+
 		rc = osd_get_lma(info, inode, &info->oti_obj_dentry, lma);
 		iput(inode);
 		if (rc == -ENODATA)
