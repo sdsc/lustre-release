@@ -799,16 +799,15 @@ check_and_start_recovery_timer(struct obd_device *obd,
 
 int target_handle_connect(struct ptlrpc_request *req)
 {
-	struct obd_device *target = NULL, *targref = NULL;
+	struct obd_device *target = NULL;
         struct obd_export *export = NULL;
         struct obd_import *revimp;
 	struct obd_import *tmp_imp = NULL;
         struct lustre_handle conn;
         struct lustre_handle *tmp;
-        struct obd_uuid tgtuuid;
         struct obd_uuid cluuid;
         struct obd_uuid remote_uuid;
-        char *str;
+	char *tgt_uuid_str;
         int rc = 0;
         char *target_start;
         int target_len;
@@ -822,23 +821,17 @@ int target_handle_connect(struct ptlrpc_request *req)
 
         OBD_RACE(OBD_FAIL_TGT_CONN_RACE);
 
-        str = req_capsule_client_get(&req->rq_pill, &RMF_TGTUUID);
-        if (str == NULL) {
+	tgt_uuid_str = req_capsule_client_get(&req->rq_pill, &RMF_TGTUUID);
+	if (tgt_uuid_str == NULL) {
                 DEBUG_REQ(D_ERROR, req, "bad target UUID for connect");
                 GOTO(out, rc = -EINVAL);
         }
 
-        obd_str2uuid(&tgtuuid, str);
-        target = class_uuid2obd(&tgtuuid);
-        if (!target)
-                target = class_name2obd(str);
-
+	target = class_str2obd(tgt_uuid_str);
 	if (!target) {
-		deuuidify(str, NULL, &target_start, &target_len);
+		deuuidify(tgt_uuid_str, NULL, &target_start, &target_len);
 		LCONSOLE_ERROR_MSG(0x137, "%s: not available for connect "
-				   "from %s (no target). If you are running "
-				   "an HA pair check that the target is "
-				   "mounted on the other server.\n", str,
+				   "from %s (no target)\n", tgt_uuid_str,
 				   libcfs_nid2str(req->rq_peer.nid));
 		GOTO(out, rc = -ENODEV);
 	}
@@ -847,7 +840,7 @@ int target_handle_connect(struct ptlrpc_request *req)
 	if (target->obd_stopping || !target->obd_set_up) {
 		spin_unlock(&target->obd_dev_lock);
 
-		deuuidify(str, NULL, &target_start, &target_len);
+		deuuidify(tgt_uuid_str, NULL, &target_start, &target_len);
 		LCONSOLE_INFO("%.*s: Not available for connect from %s (%s)\n",
 			      target_len, target_start,
 			      libcfs_nid2str(req->rq_peer.nid),
@@ -865,21 +858,16 @@ int target_handle_connect(struct ptlrpc_request *req)
 		GOTO(out, rc = -EAGAIN);
 	}
 
-	/* Make sure the target isn't cleaned up while we're here. Yes,
-	 * there's still a race between the above check and our incref here.
-	 * Really, class_uuid2obd should take the ref. */
-	targref = class_incref(target, __FUNCTION__, current);
-
 	target->obd_conn_inprogress++;
 	spin_unlock(&target->obd_dev_lock);
 
-        str = req_capsule_client_get(&req->rq_pill, &RMF_CLUUID);
-        if (str == NULL) {
+	tgt_uuid_str = req_capsule_client_get(&req->rq_pill, &RMF_CLUUID);
+	if (tgt_uuid_str == NULL) {
                 DEBUG_REQ(D_ERROR, req, "bad client UUID for connect");
                 GOTO(out, rc = -EINVAL);
         }
 
-        obd_str2uuid(&cluuid, str);
+	obd_str2uuid(&cluuid, tgt_uuid_str);
 
 	/* XXX Extract a nettype and format accordingly. */
 	switch (sizeof(lnet_nid_t)) {
@@ -987,7 +975,8 @@ int target_handle_connect(struct ptlrpc_request *req)
 					LUSTRE_MINOR, LUSTRE_PATCH, LUSTRE_FIX,
 					major, minor, patch,
 					OBD_OCD_VERSION_FIX(data->ocd_version),
-					libcfs_nid2str(req->rq_peer.nid), str);
+					libcfs_nid2str(req->rq_peer.nid),
+					tgt_uuid_str);
 
 				GOTO(out, rc = -EPROTO);
 			}
@@ -1338,12 +1327,12 @@ out:
 
 		class_export_put(export);
 	}
-	if (targref) {
+	if (target != NULL) {
 		spin_lock(&target->obd_dev_lock);
 		target->obd_conn_inprogress--;
 		spin_unlock(&target->obd_dev_lock);
 
-		class_decref(targref, __func__, current);
+		class_decref(target, "find", current);
 	}
 	if (rc)
 		req->rq_status = rc;
