@@ -186,12 +186,23 @@ EXPORT_SYMBOL(ldlm_lock_get);
  */
 void ldlm_lock_put(struct ldlm_lock *lock)
 {
+	int locked = 0;
+
         ENTRY;
 
         LASSERT(lock->l_resource != LP_POISON);
 	LASSERT(atomic_read(&lock->l_refc) > 0);
+
+	if (!spin_is_locked(&lock->l_lock)) {
+		spin_lock(&lock->l_lock);
+		locked = 1;
+	}
+
 	if (atomic_dec_and_test(&lock->l_refc)) {
                 struct ldlm_resource *res;
+
+		if (locked)
+			spin_unlock(&lock->l_lock);
 
                 LDLM_DEBUG(lock,
                            "final lock_put on destroyed lock, freeing it.");
@@ -218,7 +229,13 @@ void ldlm_lock_put(struct ldlm_lock *lock)
                 ldlm_interval_free(ldlm_interval_detach(lock));
                 lu_ref_fini(&lock->l_reference);
 		OBD_FREE_RCU(lock, sizeof(*lock), &lock->l_handle);
-        }
+	} else {
+		if (atomic_read(&lock->l_refc) == 1 &&
+		    !(lock->l_readers || lock->l_writers))
+			wake_up(&lock->l_waitq);
+		if (locked)
+			spin_unlock(&lock->l_lock);
+	}
 
         EXIT;
 }

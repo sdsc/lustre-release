@@ -322,6 +322,19 @@ static inline int is_granted_or_cancelled(struct ldlm_lock *lock)
         return ret;
 }
 
+static inline int lock_not_in_use(struct ldlm_lock *lock)
+{
+	int ret = 0;
+
+	lock_res_and_lock(lock);
+	if (!lock->l_readers && !lock->l_writers &&
+	    atomic_read(&lock->l_refc) == 1)
+		ret = 1;
+	unlock_res_and_lock(lock);
+
+	return ret;
+}
+
 typedef void (*ldlm_policy_wire_to_local_t)(const union ldlm_wire_policy_data *,
 					    union ldlm_policy_data *);
 typedef void (*ldlm_policy_local_to_wire_t)(const union ldlm_policy_data *,
