@@ -2254,11 +2254,13 @@ int ptlrpc_set_wait(struct ptlrpc_request_set *set)
                 CDEBUG(D_RPCTRACE, "set %p going to sleep for %d seconds\n",
                        set, timeout);
 
-		if (timeout == 0 && !signal_pending(current))
+		if ((timeout == 0 && !signal_pending(current)) ||
+		    set->set_allow_intr)
                         /*
                          * No requests are in-flight (ether timed out
                          * or delayed), so we can allow interrupts.
-                         * We still want to block for a limited time,
+                         * Or it is required to allow interrupts.
+			 * We still want to block for a limited time,
                          * so we allow interrupts during the timeout.
                          */
 			lwi = LWI_TIMEOUT_INTR_ALL(cfs_time_seconds(1),
@@ -2806,6 +2808,9 @@ int ptlrpc_queue_wait(struct ptlrpc_request *req)
 		CERROR("cannot allocate ptlrpc set: rc = %d\n", -ENOMEM);
 		RETURN(-ENOMEM);
 	}
+
+	if (req->rq_allow_intr)
+		set->set_allow_intr = 1;
 
 	/* for distributed debugging */
 	lustre_msg_set_status(req->rq_reqmsg, current_pid());

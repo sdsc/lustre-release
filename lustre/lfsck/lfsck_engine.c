@@ -1574,6 +1574,7 @@ int lfsck_assistant_engine(void *args)
 	}
 
 	spin_lock(&lad->lad_lock);
+	lad->lad_task = current;
 	thread_set_flags(athread, SVC_RUNNING);
 	spin_unlock(&lad->lad_lock);
 	wake_up_all(&mthread->t_ctl_waitq);
@@ -1817,6 +1818,7 @@ fini:
 	lad->lad_assistant_status = (rc1 != 0 ? rc1 : rc);
 	thread_set_flags(athread, SVC_STOPPED);
 	wake_up_all(&mthread->t_ctl_waitq);
+	lad->lad_task = NULL;
 	spin_unlock(&lad->lad_lock);
 
 	CDEBUG(D_LFSCK, "%s: %s LFSCK assistant thread exit: rc = %d\n",
