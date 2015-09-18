@@ -202,8 +202,9 @@ int ldlm_process_inodebits_lock(struct ldlm_lock *lock, __u64 *flags,
                 if (!rc)
                         RETURN(LDLM_ITER_STOP);
 
-                ldlm_resource_unlink_lock(lock);
-                ldlm_grant_lock(lock, work_list);
+		ldlm_resource_unlink_lock(lock);
+		if (!ldlm_is_intent_only(lock))
+			ldlm_grant_lock(lock, work_list);
 
 		*err = ELDLM_OK;
                 RETURN(LDLM_ITER_CONTINUE);
