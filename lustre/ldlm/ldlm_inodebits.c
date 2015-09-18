@@ -202,8 +202,17 @@ int ldlm_process_inodebits_lock(struct ldlm_lock *lock, __u64 *flags,
                 if (!rc)
                         RETURN(LDLM_ITER_STOP);
 
-                ldlm_resource_unlink_lock(lock);
-                ldlm_grant_lock(lock, work_list);
+		ldlm_resource_unlink_lock(lock);
+		if (ldlm_is_intent_only(lock) ||
+		    (*flags & LDLM_FL_INTENT_ONLY)) {
+			LDLM_ERROR(lock, "intent lock request (flag "LPX64") "
+				   "should not grant lock, if this message "
+				   "is shown, LU-7173 case is confirmed, and "
+				   "this error message can be deleted in a new "
+				   "patch.\n", *flags);
+		} else {
+			ldlm_grant_lock(lock, work_list);
+		}
 
 		*err = ELDLM_OK;
                 RETURN(LDLM_ITER_CONTINUE);
