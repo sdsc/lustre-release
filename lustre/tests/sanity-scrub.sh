@@ -30,6 +30,9 @@ SAVED_OSTCOUNT=${OSTCOUNT}
 MDSSIZE=200000
 OSTSIZE=100000
 # no need too much OSTs, to reduce the format/start/stop overhead
+lctl get_param -n lov.*.numobd
+lctl dl
+echo $OSTCOUNT
 stopall
 [ $OSTCOUNT -gt 4 ] && OSTCOUNT=4
 
