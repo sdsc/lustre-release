@@ -1254,32 +1254,10 @@ ldlm_processing_policy ldlm_get_processing_policy(struct ldlm_resource *res);
 void ldlm_register_intent(struct ldlm_namespace *ns, ldlm_res_policy arg);
 void ldlm_lock2handle(const struct ldlm_lock *lock,
                       struct lustre_handle *lockh);
-struct ldlm_lock *__ldlm_handle2lock(const struct lustre_handle *, __u64 flags);
+struct ldlm_lock *ldlm_handle2lock(const struct lustre_handle *);
 void ldlm_cancel_callback(struct ldlm_lock *);
 int ldlm_lock_remove_from_lru(struct ldlm_lock *);
 int ldlm_lock_set_data(struct lustre_handle *, void *);
-
-/**
- * Obtain a lock reference by its handle.
- */
-static inline struct ldlm_lock *ldlm_handle2lock(const struct lustre_handle *h)
-{
-        return __ldlm_handle2lock(h, 0);
-}
-
-#define LDLM_LOCK_REF_DEL(lock) \
-	lu_ref_del(&lock->l_reference, "handle", current)
-
-static inline struct ldlm_lock *
-ldlm_handle2lock_long(const struct lustre_handle *h, __u64 flags)
-{
-        struct ldlm_lock *lock;
-
-        lock = __ldlm_handle2lock(h, flags);
-        if (lock != NULL)
-                LDLM_LOCK_REF_DEL(lock);
-        return lock;
-}
 
 /**
  * Update Lock Value Block Operations (LVBO) on a resource taking into account
@@ -1318,17 +1296,7 @@ void ldlm_dump_export_locks(struct obd_export *exp);
  */
 #define LDLM_LOCK_PUT(lock)                     \
 do {                                            \
-        LDLM_LOCK_REF_DEL(lock);                \
-        /*LDLM_DEBUG((lock), "put");*/          \
-        ldlm_lock_put(lock);                    \
-} while (0)
-
-/**
- * Release a lock reference obtained by some other means (see
- * LDLM_LOCK_PUT()).
- */
-#define LDLM_LOCK_RELEASE(lock)                 \
-do {                                            \
+	lu_ref_del(&(lock)->l_reference, "handle", current);	\
         /*LDLM_DEBUG((lock), "put");*/          \
         ldlm_lock_put(lock);                    \
 } while (0)
@@ -1336,6 +1304,7 @@ do {                                            \
 #define LDLM_LOCK_GET(lock)                     \
 ({                                              \
         ldlm_lock_get(lock);                    \
+	lu_ref_add_atomic(&(lock)->l_reference, "handle", current);	\
         /*LDLM_DEBUG((lock), "get");*/          \
         lock;                                   \
 })
@@ -1348,7 +1317,7 @@ do {                                            \
 		if (c-- == 0)					\
 			break;					\
 		list_del_init(&_lock->member);			\
-		LDLM_LOCK_RELEASE(_lock);			\
+		LDLM_LOCK_PUT(_lock);				\
 	}							\
 	LASSERT(c <= 0);					\
 })

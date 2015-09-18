@@ -640,22 +640,22 @@ destroylock:
 static void discard_bl_list(struct list_head *bl_list)
 {
 	struct list_head *tmp, *pos;
-        ENTRY;
+	ENTRY;
 
 	list_for_each_safe(pos, tmp, bl_list) {
-                struct ldlm_lock *lock =
+		struct ldlm_lock *lock =
 			list_entry(pos, struct ldlm_lock, l_bl_ast);
 
 		list_del_init(&lock->l_bl_ast);
 		LASSERT(ldlm_is_ast_sent(lock));
 		ldlm_clear_ast_sent(lock);
-                LASSERT(lock->l_bl_ast_run == 0);
-                LASSERT(lock->l_blocking_lock);
-                LDLM_LOCK_RELEASE(lock->l_blocking_lock);
-                lock->l_blocking_lock = NULL;
-                LDLM_LOCK_RELEASE(lock);
-        }
-        EXIT;
+		LASSERT(lock->l_bl_ast_run == 0);
+		LASSERT(lock->l_blocking_lock);
+		LDLM_LOCK_PUT(lock->l_blocking_lock);
+		lock->l_blocking_lock = NULL;
+		LDLM_LOCK_PUT(lock);
+	}
+	EXIT;
 }
 
 /**

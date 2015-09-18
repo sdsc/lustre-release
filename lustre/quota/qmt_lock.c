@@ -519,7 +519,7 @@ static int qmt_glimpse_lock(const struct lu_env *env, struct qmt_device *qmt,
 		CERROR("%s: failed to notify %s of new quota settings\n",
 		       qmt->qmt_svname,
 		       obd_uuid2str(&work->gl_lock->l_export->exp_client_uuid));
-		LDLM_LOCK_RELEASE(work->gl_lock);
+		LDLM_LOCK_PUT(work->gl_lock);
 		OBD_FREE_PTR(work);
 	}
 

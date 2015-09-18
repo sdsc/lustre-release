@@ -243,7 +243,7 @@ static void osc_lock_granted(const struct lu_env *env, struct osc_lock *oscl,
 {
 	struct ldlm_lock *dlmlock;
 
-	dlmlock = ldlm_handle2lock_long(lockh, 0);
+	dlmlock = ldlm_handle2lock(lockh);
 	LASSERT(dlmlock != NULL);
 
 	/* lock reference taken by ldlm_handle2lock_long() is
@@ -1034,7 +1034,7 @@ static void osc_lock_detach(const struct lu_env *env, struct osc_lock *olck)
 	/* release a reference taken in osc_lock_upcall(). */
 	LASSERT(olck->ols_has_ref);
 	lu_ref_del(&dlmlock->l_reference, "osc_lock", olck);
-	LDLM_LOCK_RELEASE(dlmlock);
+	LDLM_LOCK_PUT(dlmlock);
 	olck->ols_has_ref = 0;
 
 	EXIT;

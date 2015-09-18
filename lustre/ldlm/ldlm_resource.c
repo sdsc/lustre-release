@@ -840,8 +840,8 @@ static void cleanup_resource(struct ldlm_resource *res, struct list_head *q,
                         if (lock->l_completion_ast)
 				lock->l_completion_ast(lock,
 						       LDLM_FL_FAILED, NULL);
-                        LDLM_LOCK_RELEASE(lock);
-                        continue;
+			LDLM_LOCK_PUT(lock);
+			continue;
                 }
 
                 if (client) {
@@ -857,8 +857,8 @@ static void cleanup_resource(struct ldlm_resource *res, struct list_head *q,
                         LDLM_DEBUG(lock, "Freeing a lock still held by a "
                                    "client node");
 			ldlm_lock_cancel(lock);
-                }
-                LDLM_LOCK_RELEASE(lock);
+		}
+		LDLM_LOCK_PUT(lock);
         } while (1);
 }
 
