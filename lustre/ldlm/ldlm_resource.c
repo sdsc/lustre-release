@@ -840,7 +840,7 @@ static void cleanup_resource(struct ldlm_resource *res, struct list_head *q,
                         if (lock->l_completion_ast)
 				lock->l_completion_ast(lock,
 						       LDLM_FL_FAILED, NULL);
-                        LDLM_LOCK_RELEASE(lock);
+                        LDLM_LOCK_PUT(lock);
                         continue;
                 }
 
@@ -858,7 +858,7 @@ static void cleanup_resource(struct ldlm_resource *res, struct list_head *q,
                                    "client node");
 			ldlm_lock_cancel(lock);
                 }
-                LDLM_LOCK_RELEASE(lock);
+                LDLM_LOCK_PUT(lock);
         } while (1);
 }
 

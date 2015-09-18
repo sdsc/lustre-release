@@ -554,7 +554,7 @@ reprocess:
 
                 /* insert new2 at lock */
                 ldlm_resource_add_lock(res, ownlocks, new2);
-                LDLM_LOCK_RELEASE(new2);
+                LDLM_LOCK_PUT(new2);
                 break;
         }
 
@@ -912,7 +912,7 @@ ldlm_export_flock_put(struct cfs_hash *hs, struct hlist_node *hnode)
 	struct ldlm_flock *flock;
 
 	lock = hlist_entry(hnode, struct ldlm_lock, l_exp_flock_hash);
-	LDLM_LOCK_RELEASE(lock);
+	LDLM_LOCK_PUT(lock);
 
 	flock = &lock->l_policy_data.l_flock;
 	LASSERT(flock->blocking_export != NULL);

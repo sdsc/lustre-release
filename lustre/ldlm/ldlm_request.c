@@ -487,7 +487,7 @@ int ldlm_cli_enqueue_local(struct ldlm_namespace *ns,
         LDLM_DEBUG(lock, "client-side local enqueue handler, new lock created");
         EXIT;
  out:
-        LDLM_LOCK_RELEASE(lock);
+        LDLM_LOCK_PUT(lock);
  out_nolock:
         return err;
 }
@@ -714,7 +714,7 @@ cleanup:
                 failed_lock_cleanup(ns, lock, mode);
         /* Put lock 2 times, the second reference is held by ldlm_cli_enqueue */
         LDLM_LOCK_PUT(lock);
-        LDLM_LOCK_RELEASE(lock);
+        LDLM_LOCK_PUT(lock);
         return rc;
 }
 EXPORT_SYMBOL(ldlm_cli_enqueue_fini);
@@ -893,7 +893,7 @@ int ldlm_cli_enqueue(struct obd_export *exp, struct ptlrpc_request **reqp,
         /* If we're replaying this lock, just check some invariants.
          * If we're creating a new lock, get everything all setup nice. */
         if (is_replay) {
-                lock = ldlm_handle2lock_long(lockh, 0);
+                lock = ldlm_handle2lock(lockh);
                 LASSERT(lock != NULL);
                 LDLM_DEBUG(lock, "client-side enqueue START");
                 LASSERT(exp == lock->l_conn_export);
@@ -940,7 +940,7 @@ int ldlm_cli_enqueue(struct obd_export *exp, struct ptlrpc_request **reqp,
                                                 LDLM_ENQUEUE);
                 if (req == NULL) {
                         failed_lock_cleanup(ns, lock, einfo->ei_mode);
-                        LDLM_LOCK_RELEASE(lock);
+                        LDLM_LOCK_PUT(lock);
                         RETURN(-ENOMEM);
                 }
                 req_passed_in = 0;
@@ -988,7 +988,7 @@ int ldlm_cli_enqueue(struct obd_export *exp, struct ptlrpc_request **reqp,
         /* If ldlm_cli_enqueue_fini did not find the lock, we need to free
          * one reference that we took */
         if (err == -ENOLCK)
-                LDLM_LOCK_RELEASE(lock);
+                LDLM_LOCK_PUT(lock);
         else
                 rc = err;
 
@@ -1342,7 +1342,7 @@ int ldlm_cli_cancel(struct lustre_handle *lockh,
 	struct list_head cancels = LIST_HEAD_INIT(cancels);
 	ENTRY;
 
-	lock = ldlm_handle2lock_long(lockh, 0);
+	lock = ldlm_handle2lock(lockh);
 	if (lock == NULL) {
 		LDLM_DEBUG_NOLOCK("lock is already being destroyed");
 		RETURN(0);
@@ -1352,7 +1352,7 @@ int ldlm_cli_cancel(struct lustre_handle *lockh,
 	/* Lock is being canceled and the caller doesn't want to wait */
 	if (ldlm_is_canceling(lock) && (cancel_flags & LCF_ASYNC)) {
 		unlock_res_and_lock(lock);
-		LDLM_LOCK_RELEASE(lock);
+		LDLM_LOCK_PUT(lock);
 		RETURN(0);
 	}
 
@@ -1361,7 +1361,7 @@ int ldlm_cli_cancel(struct lustre_handle *lockh,
 
 	rc = ldlm_cli_cancel_local(lock);
 	if (rc == LDLM_FL_LOCAL_ONLY || cancel_flags & LCF_LOCAL) {
-		LDLM_LOCK_RELEASE(lock);
+		LDLM_LOCK_PUT(lock);
 		RETURN(0);
 	}
 	/* Even if the lock is marked as LDLM_FL_BL_AST, this is a LDLM_CANCEL
@@ -1425,7 +1425,7 @@ int ldlm_cli_cancel_list_local(struct list_head *cancels, int count,
 		if (rc == LDLM_FL_LOCAL_ONLY) {
 			/* CANCEL RPC should not be sent to server. */
 			list_del_init(&lock->l_bl_ast);
-                        LDLM_LOCK_RELEASE(lock);
+                        LDLM_LOCK_PUT(lock);
                         count--;
                 }
         }
@@ -1731,14 +1731,14 @@ static int ldlm_prepare_lru_list(struct ldlm_namespace *ns,
 		if (result == LDLM_POLICY_KEEP_LOCK) {
 			lu_ref_del(&lock->l_reference,
 				   __FUNCTION__, current);
-			LDLM_LOCK_RELEASE(lock);
+			LDLM_LOCK_PUT(lock);
 			spin_lock(&ns->ns_lock);
 			break;
 		}
 		if (result == LDLM_POLICY_SKIP_LOCK) {
 			lu_ref_del(&lock->l_reference,
 				   __func__, current);
-			LDLM_LOCK_RELEASE(lock);
+			LDLM_LOCK_PUT(lock);
 			spin_lock(&ns->ns_lock);
 			continue;
 		}
@@ -1755,7 +1755,7 @@ static int ldlm_prepare_lru_list(struct ldlm_namespace *ns,
 			 * pages could be put under it. */
 			unlock_res_and_lock(lock);
 			lu_ref_del(&lock->l_reference, __FUNCTION__, current);
-			LDLM_LOCK_RELEASE(lock);
+			LDLM_LOCK_PUT(lock);
 			spin_lock(&ns->ns_lock);
 			continue;
 		}
@@ -2349,11 +2349,11 @@ int ldlm_replay_locks(struct obd_import *imp)
 	list_for_each_entry_safe(lock, next, &list, l_pending_chain) {
 		list_del_init(&lock->l_pending_chain);
 		if (rc) {
-			LDLM_LOCK_RELEASE(lock);
+			LDLM_LOCK_PUT(lock);
 			continue; /* or try to do the rest? */
 		}
 		rc = replay_one_lock(imp, lock);
-		LDLM_LOCK_RELEASE(lock);
+		LDLM_LOCK_PUT(lock);
 	}
 
 	atomic_dec(&imp->imp_replay_inflight);
