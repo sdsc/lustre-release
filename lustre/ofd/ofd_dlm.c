@@ -92,7 +92,7 @@ static enum interval_iter ofd_intent_cb(struct interval_node *n, void *args)
 			*v = LDLM_LOCK_GET(lck);
 		} else if ((*v)->l_policy_data.l_extent.start <
 			   lck->l_policy_data.l_extent.start) {
-			LDLM_LOCK_RELEASE(*v);
+			LDLM_LOCK_PUT(*v);
 			*v = LDLM_LOCK_GET(lck);
 		}
 
@@ -292,14 +292,14 @@ int ofd_intent_policy(struct ldlm_namespace *ns, struct ldlm_lock **lockp,
 	rc = ldlm_glimpse_locks(res, &gl_list); /* this will update the LVB */
 
 	if (!list_empty(&gl_list))
-		LDLM_LOCK_RELEASE(l);
+		LDLM_LOCK_PUT(l);
 
 	lock_res(res);
 	*reply_lvb = *res_lvb;
 	unlock_res(res);
 
 out:
-	LDLM_LOCK_RELEASE(l);
+	LDLM_LOCK_PUT(l);
 
 	RETURN(ELDLM_LOCK_ABORTED);
 }

@@ -2936,7 +2936,7 @@ mdt_intent_lock_replace(struct mdt_thread_info *info,
 	struct ldlm_lock       *new_lock;
 
 	/* If possible resent found a lock, @lh is set to its handle */
-	new_lock = ldlm_handle2lock_long(&lh->mlh_reg_lh, 0);
+	new_lock = ldlm_handle2lock(&lh->mlh_reg_lh);
 
         if (new_lock == NULL && (flags & LDLM_FL_INTENT_ONLY)) {
                 lh->mlh_reg_lh.cookie = 0;
@@ -2969,7 +2969,7 @@ mdt_intent_lock_replace(struct mdt_thread_info *info,
                 LASSERT(lustre_msg_get_flags(req->rq_reqmsg) &
                         MSG_RESENT);
 
-		LDLM_LOCK_RELEASE(new_lock);
+		LDLM_LOCK_PUT(new_lock);
                 lh->mlh_reg_lh.cookie = 0;
                 RETURN(ELDLM_LOCK_REPLACED);
         }
@@ -3003,10 +3003,10 @@ mdt_intent_lock_replace(struct mdt_thread_info *info,
                      &new_lock->l_remote_handle,
                      &new_lock->l_exp_hash);
 
-        LDLM_LOCK_RELEASE(new_lock);
-        lh->mlh_reg_lh.cookie = 0;
+	LDLM_LOCK_PUT(new_lock);
+	lh->mlh_reg_lh.cookie = 0;
 
-        RETURN(ELDLM_LOCK_REPLACED);
+	RETURN(ELDLM_LOCK_REPLACED);
 }
 
 static void mdt_intent_fixup_resent(struct mdt_thread_info *info,

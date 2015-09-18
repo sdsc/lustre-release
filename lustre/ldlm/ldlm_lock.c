@@ -407,10 +407,10 @@ void ldlm_lock_destroy(struct ldlm_lock *lock)
 
         /* drop reference from hashtable only for first destroy */
         if (first) {
-                lu_ref_del(&lock->l_reference, "hash", lock);
-                LDLM_LOCK_RELEASE(lock);
-        }
-        EXIT;
+		lu_ref_del(&lock->l_reference, "hash", lock);
+		LDLM_LOCK_PUT(lock);
+	}
+	EXIT;
 }
 
 /**
@@ -423,10 +423,10 @@ void ldlm_lock_destroy_nolock(struct ldlm_lock *lock)
         first = ldlm_lock_destroy_internal(lock);
         /* drop reference from hashtable only for first destroy */
         if (first) {
-                lu_ref_del(&lock->l_reference, "hash", lock);
-                LDLM_LOCK_RELEASE(lock);
-        }
-        EXIT;
+		lu_ref_del(&lock->l_reference, "hash", lock);
+		LDLM_LOCK_PUT(lock);
+	}
+	EXIT;
 }
 
 /* this is called by portals_handle2object with the handle lock taken */
@@ -584,12 +584,8 @@ EXPORT_SYMBOL(ldlm_lock2handle);
 
 /**
  * Obtain a lock reference by handle.
- *
- * if \a flags: atomically get the lock and set the flags.
- *              Return NULL if flag already set
  */
-struct ldlm_lock *__ldlm_handle2lock(const struct lustre_handle *handle,
-				     __u64 flags)
+struct ldlm_lock *ldlm_handle2lock(const struct lustre_handle *handle)
 {
 	struct ldlm_lock *lock;
 	ENTRY;
@@ -600,40 +596,15 @@ struct ldlm_lock *__ldlm_handle2lock(const struct lustre_handle *handle,
 	if (lock == NULL)
 		RETURN(NULL);
 
-	/* It's unlikely but possible that someone marked the lock as
-	 * destroyed after we did handle2object on it */
-	if ((flags == 0) && !ldlm_is_destroyed(lock)) {
-		lu_ref_add(&lock->l_reference, "handle", current);
-		RETURN(lock);
-	}
-
-	lock_res_and_lock(lock);
-
-	LASSERT(lock->l_resource != NULL);
-
-	lu_ref_add_atomic(&lock->l_reference, "handle", current);
+	lu_ref_add(&lock->l_reference, "handle", current);
 	if (unlikely(ldlm_is_destroyed(lock))) {
-		unlock_res_and_lock(lock);
-		CDEBUG(D_INFO, "lock already destroyed: lock %p\n", lock);
 		LDLM_LOCK_PUT(lock);
 		RETURN(NULL);
 	}
 
-	/* If we're setting flags, make sure none of them are already set. */
-	if (flags != 0) {
-		if ((lock->l_flags & flags) != 0) {
-			unlock_res_and_lock(lock);
-			LDLM_LOCK_PUT(lock);
-			RETURN(NULL);
-		}
-
-		lock->l_flags |= flags;
-	}
-
-	unlock_res_and_lock(lock);
 	RETURN(lock);
 }
-EXPORT_SYMBOL(__ldlm_handle2lock);
+EXPORT_SYMBOL(ldlm_handle2lock);
 /** @} ldlm_handles */
 
 /**
@@ -810,7 +781,7 @@ void ldlm_lock_decref_internal_nolock(struct ldlm_lock *lock,
         }
 
         lu_ref_del(&lock->l_reference, "user", lock);
-        LDLM_LOCK_RELEASE(lock);    /* matches the LDLM_LOCK_GET() in addref */
+	LDLM_LOCK_PUT(lock);    /* matches the LDLM_LOCK_GET() in addref */
 }
 
 /**
@@ -900,10 +871,10 @@ void ldlm_lock_decref_internal(struct ldlm_lock *lock, enum ldlm_mode mode)
  */
 void ldlm_lock_decref(struct lustre_handle *lockh, enum ldlm_mode mode)
 {
-        struct ldlm_lock *lock = __ldlm_handle2lock(lockh, 0);
-        LASSERTF(lock != NULL, "Non-existing lock: "LPX64"\n", lockh->cookie);
-        ldlm_lock_decref_internal(lock, mode);
-        LDLM_LOCK_PUT(lock);
+	struct ldlm_lock *lock = ldlm_handle2lock(lockh);
+	LASSERTF(lock != NULL, "Non-existing lock: "LPX64"\n", lockh->cookie);
+	ldlm_lock_decref_internal(lock, mode);
+	LDLM_LOCK_PUT(lock);
 }
 EXPORT_SYMBOL(ldlm_lock_decref);
 
@@ -916,17 +887,17 @@ EXPORT_SYMBOL(ldlm_lock_decref);
 void ldlm_lock_decref_and_cancel(struct lustre_handle *lockh,
 				 enum ldlm_mode mode)
 {
-        struct ldlm_lock *lock = __ldlm_handle2lock(lockh, 0);
-        ENTRY;
+	struct ldlm_lock *lock = ldlm_handle2lock(lockh);
+	ENTRY;
 
-        LASSERT(lock != NULL);
+	LASSERT(lock != NULL);
 
-        LDLM_DEBUG(lock, "ldlm_lock_decref(%s)", ldlm_lockname[mode]);
-        lock_res_and_lock(lock);
+	LDLM_DEBUG(lock, "ldlm_lock_decref(%s)", ldlm_lockname[mode]);
+	lock_res_and_lock(lock);
 	ldlm_set_cbpending(lock);
-        unlock_res_and_lock(lock);
-        ldlm_lock_decref_internal(lock, mode);
-        LDLM_LOCK_PUT(lock);
+	unlock_res_and_lock(lock);
+	ldlm_lock_decref_internal(lock, mode);
+	LDLM_LOCK_PUT(lock);
 }
 EXPORT_SYMBOL(ldlm_lock_decref_and_cancel);
 
@@ -1438,7 +1409,7 @@ enum ldlm_mode ldlm_lock_match(struct ldlm_namespace *ns, __u64 flags,
                                                                  NULL);
                                 if (err) {
                                         if (flags & LDLM_FL_TEST_LOCK)
-                                                LDLM_LOCK_RELEASE(lock);
+						LDLM_LOCK_PUT(lock);
                                         else
                                                 ldlm_lock_decref_internal(lock,
                                                                           mode);
@@ -1455,8 +1426,8 @@ enum ldlm_mode ldlm_lock_match(struct ldlm_namespace *ns, __u64 flags,
 				     lock->l_flags & wait_flags,
 				     &lwi);
 			if (!ldlm_is_lvb_ready(lock)) {
-                                if (flags & LDLM_FL_TEST_LOCK)
-                                        LDLM_LOCK_RELEASE(lock);
+				if (flags & LDLM_FL_TEST_LOCK)
+					LDLM_LOCK_PUT(lock);
                                 else
                                         ldlm_lock_decref_internal(lock, mode);
                                 rc = 0;
@@ -1481,7 +1452,7 @@ enum ldlm_mode ldlm_lock_match(struct ldlm_namespace *ns, __u64 flags,
                 }
 
                 if (flags & LDLM_FL_TEST_LOCK)
-                        LDLM_LOCK_RELEASE(lock);
+			LDLM_LOCK_PUT(lock);
 
         } else if (!(flags & LDLM_FL_TEST_LOCK)) {/*less verbose for test-only*/
                 LDLM_DEBUG_NOLOCK("not matched ns %p type %u mode %u res "
@@ -1689,7 +1660,7 @@ struct ldlm_lock *ldlm_lock_create(struct ldlm_namespace *ns,
 
 out:
 	ldlm_lock_destroy(lock);
-	LDLM_LOCK_RELEASE(lock);
+	LDLM_LOCK_PUT(lock);
 	RETURN(ERR_PTR(rc));
 }
 
@@ -1729,7 +1700,7 @@ enum ldlm_error ldlm_lock_enqueue(struct ldlm_namespace *ns,
                          * work here is done. */
                         if (lock != *lockp) {
                                 ldlm_lock_destroy(lock);
-                                LDLM_LOCK_RELEASE(lock);
+				LDLM_LOCK_PUT(lock);
                         }
                         *flags |= LDLM_FL_LOCK_CHANGED;
                         RETURN(0);
@@ -1909,9 +1880,9 @@ ldlm_work_bl_ast_lock(struct ptlrpc_request_set *rqset, void *opaq)
 	ldlm_lock2desc(lock->l_blocking_lock, &d);
 
 	rc = lock->l_blocking_ast(lock, &d, (void *)arg, LDLM_CB_BLOCKING);
-	LDLM_LOCK_RELEASE(lock->l_blocking_lock);
+	LDLM_LOCK_PUT(lock->l_blocking_lock);
 	lock->l_blocking_lock = NULL;
-	LDLM_LOCK_RELEASE(lock);
+	LDLM_LOCK_PUT(lock);
 
 	RETURN(rc);
 }
@@ -1956,7 +1927,7 @@ ldlm_work_cp_ast_lock(struct ptlrpc_request_set *rqset, void *opaq)
 
 	if (completion_callback != NULL)
 		rc = completion_callback(lock, 0, (void *)arg);
-	LDLM_LOCK_RELEASE(lock);
+	LDLM_LOCK_PUT(lock);
 
 	RETURN(rc);
 }
@@ -1985,7 +1956,7 @@ ldlm_work_revoke_ast_lock(struct ptlrpc_request_set *rqset, void *opaq)
 	desc.l_granted_mode = 0;
 
 	rc = lock->l_blocking_ast(lock, &desc, (void*)arg, LDLM_CB_BLOCKING);
-	LDLM_LOCK_RELEASE(lock);
+	LDLM_LOCK_PUT(lock);
 
 	RETURN(rc);
 }
@@ -2017,7 +1988,7 @@ int ldlm_work_gl_ast_lock(struct ptlrpc_request_set *rqset, void *opaq)
 	if (lock->l_glimpse_ast(lock, (void*)arg) == 0)
 		rc = 1;
 
-	LDLM_LOCK_RELEASE(lock);
+	LDLM_LOCK_PUT(lock);
 
 	if ((gl_work->gl_flags & LDLM_GL_WORK_NOFREE) == 0)
 		OBD_FREE_PTR(gl_work);
@@ -2332,7 +2303,7 @@ ldlm_cancel_locks_for_export_cb(struct cfs_hash *hs, struct cfs_hash_bd *bd,
 
 	LDLM_LOCK_GET(lock);
 	ldlm_cancel_lock_for_export(exp, lock, ecl);
-	LDLM_LOCK_RELEASE(lock);
+	LDLM_LOCK_PUT(lock);
 
 	return 0;
 }
@@ -2367,7 +2338,7 @@ int ldlm_export_cancel_blocked_locks(struct obd_export *exp)
 			break;
 
 		ldlm_cancel_lock_for_export(exp, lock, &ecl);
-		LDLM_LOCK_RELEASE(lock);
+		LDLM_LOCK_PUT(lock);
 	}
 
 	CDEBUG(D_DLMTRACE, "Export %p, canceled %d locks, "
