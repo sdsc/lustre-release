@@ -501,7 +501,7 @@ test_idmap() {
 	local rc=0
 
 	## nodemap deactivated
-	if ! do_facet mgs lctl nodemap_activate 0; then
+	if ! do_facet mgs $LCTL nodemap_activate 0; then
 		return 1
 	fi
 	for ((id = 500; id < NODEMAP_MAX_ID; id++)); do
@@ -519,7 +519,7 @@ test_idmap() {
 	done
 
 	## nodemap activated
-	if ! do_facet mgs lctl nodemap_activate 1; then
+	if ! do_facet mgs $LCTL nodemap_activate 1; then
 		return 2
 	fi
 
@@ -1037,7 +1037,7 @@ fops_test_setup() {
 	do_servers_not_mgs $LCTL set_param nodemap.c0.trusted_nodemap=$trust
 
 	# flush MDT locks to make sure they are reacquired before test
-	do_node ${clients_arr[0]} lctl set_param \
+	do_node ${clients_arr[0]} $LCTL set_param \
 		ldlm.namespaces.$FSNAME-MDT*.lru_size=clear
 }
 
@@ -1527,11 +1527,46 @@ test_24() {
 }
 run_test 24 "check nodemap proc files for LBUGs and Oopses"
 
+test_25() {
+	nodemap_version_check || return 0
+	nodemap_test_setup
+
+	trap nodemap_test_cleanup EXIT
+	local tmpfile=$(mktemp)
+	do_facet mgs $LCTL nodemap_info > $tmpfile
+	cleanup_and_setup_lustre
+	diff -q <(do_facet mgs $LCTL nodemap_info) $tmpfile >& /dev/null ||
+		error "nodemap_info diff after remount"
+
+	nodemap_test_cleanup
+	rm -f $tmpfile
+}
+run_test 25 "test save and reload nodemap config"
+
+test_26() {
+	nodemap_version_check || return 0
+
+	local large_i=25000
+
+	for i in $(seq 1 $large_i); do
+		((i % 1000 == 0)) && echo $i
+		do_facet mgs $LCTL nodemap_add c$i ||
+			error "cannot add nodemap $i to config"
+	done
+
+	for i in $(seq 1 $large_i); do
+		((i % 1000 == 0)) && echo $i
+		do_facet mgs $LCTL nodemap_del c$i ||
+			error "cannot delete nodemap $i from config"
+	done
+}
+run_test 26 "test transferring very large nodemap"
+
 log "cleanup: ======================================================"
 
 sec_unsetup() {
 	## nodemap deactivated
-	do_facet mgs lctl nodemap_activate 0
+	do_facet mgs $LCTL nodemap_activate 0
 
 	for num in $(seq $MDSCOUNT); do
 		if [ "${identity_old[$num]}" = 1 ]; then
