@@ -56,10 +56,7 @@
 #endif /* HAVE_SERVER_SUPPORT */
 #include <lustre_ioctl.h>
 #include "llog_internal.h"
-
-struct obd_device *obd_devs[MAX_OBD_DEVICES];
-struct list_head obd_types;
-DEFINE_RWLOCK(obd_dev_lock);
+#include "obdclass_internal.h"
 
 #ifdef CONFIG_PROC_FS
 static __u64 obd_max_alloc;
@@ -333,7 +330,11 @@ int class_handle_ioctl(unsigned int cmd, unsigned long arg)
                         GOTO(out, err = -EINVAL);
                 }
 
-                obd = class_num2obd(index);
+		read_lock(&obd_dev_lock);
+		obd = class_num2obd(index);
+		if (obd != NULL)
+			class_incref(obd, __func__, current);
+		read_unlock(&obd_dev_lock);
                 if (!obd)
                         GOTO(out, err = -ENOENT);
 
@@ -362,9 +363,17 @@ int class_handle_ioctl(unsigned int cmd, unsigned long arg)
                         GOTO(out, err = -EINVAL);
                 if (strnlen(data->ioc_inlbuf4, MAX_OBD_NAME) >= MAX_OBD_NAME)
                         GOTO(out, err = -EINVAL);
-                obd = class_name2obd(data->ioc_inlbuf4);
-        } else if (data->ioc_dev < class_devno_max()) {
-                obd = class_num2obd(data->ioc_dev);
+		read_lock(&obd_dev_lock);
+		obd = class_name2obd(data->ioc_inlbuf4);
+		if (obd)
+			class_incref(obd, __func__, current);
+		read_unlock(&obd_dev_lock);
+	} else if (data->ioc_dev < class_devno_max()) {
+		read_lock(&obd_dev_lock);
+		obd = class_num2obd(data->ioc_dev);
+		if (obd)
+			class_incref(obd, __func__, current);
+		read_unlock(&obd_dev_lock);
         } else {
                 CERROR("OBD ioctl: No device\n");
                 GOTO(out, err = -EINVAL);
@@ -406,9 +415,11 @@ int class_handle_ioctl(unsigned int cmd, unsigned long arg)
         }
 
  out:
-        if (buf)
-                obd_ioctl_freedata(buf, len);
-        RETURN(err);
+	if (obd)
+		class_decref(obd, __func__, current);
+	if (buf)
+		obd_ioctl_freedata(buf, len);
+	RETURN(err);
 } /* class_handle_ioctl */
 
 #define OBD_INIT_CHECK
@@ -486,7 +497,7 @@ static int obd_init_checks(void)
 
 static int __init init_obdclass(void)
 {
-	int i, err;
+	int err;
 
 	spin_lock_init(&obd_stale_export_lock);
 	INIT_LIST_HEAD(&obd_stale_exports);
@@ -494,7 +505,6 @@ static int __init init_obdclass(void)
 
 	LCONSOLE_INFO("Lustre: Build Version: "BUILD_VERSION"\n");
 
-	spin_lock_init(&obd_types_lock);
 	obd_zombie_impexp_init();
 #ifdef CONFIG_PROC_FS
 	obd_memory = lprocfs_alloc_stats(OBD_STATS_NUM,
@@ -518,17 +528,11 @@ static int __init init_obdclass(void)
 	if (err)
 		return err;
 
-	INIT_LIST_HEAD(&obd_types);
-
 	err = misc_register(&obd_psdev);
 	if (err) {
 		CERROR("cannot register %d err %d\n", OBD_DEV_MINOR, err);
 		return err;
 	}
-
-	/* This struct is already zeroed for us (static global) */
-	for (i = 0; i < class_devno_max(); i++)
-		obd_devs[i] = NULL;
 
 	/* Default the dirty page cache cap to 1/2 of system memory.
 	 * For clients with less memory, a larger fraction is needed
