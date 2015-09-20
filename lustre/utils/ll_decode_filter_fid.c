@@ -75,11 +75,11 @@ int main(int argc, char *argv[])
 			struct filter_fid_old *ffo = (void *)buf;
 
 			/* old filter_fid */
-			printf("%s: objid="LPU64" seq="LPU64" parent="DFID
+			printf("%s: objid=%llu seq=%llu parent="DFID
 			       " stripe=%u\n", argv[i],
-			       le64_to_cpu(ffo->ff_objid),
-			       le64_to_cpu(ffo->ff_seq),
-			       le64_to_cpu(ffo->ff_parent.f_seq),
+			       (unsigned long long) le64_to_cpu(ffo->ff_objid),
+			       (unsigned long long) le64_to_cpu(ffo->ff_seq),
+			       (unsigned long long) le64_to_cpu(ffo->ff_parent.f_seq),
 			       le32_to_cpu(ffo->ff_parent.f_oid), 0 /* ver */,
 			       /* this is stripe_nr actually */
 			       le32_to_cpu(ffo->ff_parent.f_stripe_idx));

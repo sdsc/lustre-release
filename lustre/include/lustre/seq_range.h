@@ -188,7 +188,7 @@ void lustre_swab_lu_seq_range(struct lu_seq_range *range);
 /**
  * printf string and argument list for sequence range
  */
-#define DRANGE "[%#16.16"LPF64"x-%#16.16"LPF64"x):%x:%s"
+#define DRANGE "[%#16.16llx-%#16.16llx]:%x:%s"
 
 #define PRANGE(range)		\
 	(range)->lsr_start,	\

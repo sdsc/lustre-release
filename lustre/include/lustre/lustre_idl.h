@@ -610,14 +610,14 @@ static inline void ostid_set_id(struct ost_id *oi, __u64 oid)
 {
 	if (fid_seq_is_mdt0(oi->oi.oi_seq)) {
 		if (oid >= IDIF_MAX_OID) {
-			CERROR("Bad "LPU64" to set "DOSTID"\n",
+			CERROR("Bad %llu to set "DOSTID"\n",
 				oid, POSTID(oi));
 			return;
 		}
 		oi->oi.oi_id = oid;
 	} else if (fid_is_idif(&oi->oi_fid)) {
 		if (oid >= IDIF_MAX_OID) {
-			CERROR("Bad "LPU64" to set "DOSTID"\n",
+			CERROR("Bad %llu to set "DOSTID"\n",
 				oid, POSTID(oi));
 			return;
 		}
@@ -627,7 +627,7 @@ static inline void ostid_set_id(struct ost_id *oi, __u64 oid)
 		oi->oi_fid.f_ver = oid >> 48;
 	} else {
 		if (oid > OBIF_MAX_OID) {
-			CERROR("Bad "LPU64" to set "DOSTID"\n",
+			CERROR("Bad %llu to set "DOSTID"\n",
 				oid, POSTID(oi));
 			return;
 		}
@@ -644,7 +644,7 @@ static inline int fid_set_id(struct lu_fid *fid, __u64 oid)
 
 	if (fid_is_idif(fid)) {
 		if (oid >= IDIF_MAX_OID) {
-			CERROR("Bad "LPU64" to set "DFID"\n",
+			CERROR("Bad %llu to set "DFID"\n",
 				oid, PFID(fid));
 			return -EBADF;
 		}
@@ -653,7 +653,7 @@ static inline int fid_set_id(struct lu_fid *fid, __u64 oid)
 		fid->f_ver = oid >> 48;
 	} else {
 		if (oid > OBIF_MAX_OID) {
-			CERROR("Bad "LPU64" to set "DFID"\n",
+			CERROR("Bad %llu to set "DFID"\n",
 				oid, PFID(fid));
 			return -EBADF;
 		}
@@ -2798,7 +2798,7 @@ struct ldlm_res_id {
         __u64 name[RES_NAME_SIZE];
 };
 
-#define DLDLMRES	"["LPX64":"LPX64":"LPX64"]."LPX64i
+#define DLDLMRES	"[%#llx:%#llx:%#llx].%#llxi"
 #define PLDLMRES(res)	(res)->lr_name.name[0], (res)->lr_name.name[1], \
 			(res)->lr_name.name[2], (res)->lr_name.name[3]
 
