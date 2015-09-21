@@ -105,6 +105,11 @@ static inline bool uid_valid(kuid_t uid)
 	return uid != (typeof(uid))INVALID_UID;
 }
 
+static inline bool gid_eq(kgid_t left, kgid_t right)
+{
+	return __kgid_val(left) == __kgid_val(right);
+}
+
 static inline bool gid_valid(kgid_t gid)
 {
 	return gid != (typeof(gid))INVALID_GID;
