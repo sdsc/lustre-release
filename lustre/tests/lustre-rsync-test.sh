@@ -49,14 +49,13 @@ export LRSYNC="$LRSYNC -v -c no -d 2"
 DBENCH_TIME=${DBENCH_TIME:-60}  # No of seconds to run dbench
 TGT=$TMP/target
 TGT2=$TMP/target2
-MDT0=$($LCTL get_param -n mdc.*.mds_server_uuid |
-	awk '{ gsub(/_UUID/,""); print $1 }' | head -n1)
 
 init_changelog() {
-    CL_USER=$(do_facet $SINGLEMDS lctl --device $MDT0 changelog_register -n)
-    echo $MDT0: Registered changelog user $CL_USER
-    CL_USERS=$(( $(do_facet $SINGLEMDS lctl get_param -n \
-	mdd.$MDT0.changelog_users | wc -l) - 2 ))
+    CL_USER=$(do_facet $SINGLEMDS lctl --device $FSNAME-MDT0000 \
+			  changelog_register -n)
+    echo $FSNAME-MDT0000: Registered changelog user $CL_USER
+    CL_USERS=$(($(do_facet $SINGLEMDS lctl get_param -n \
+				mdd.$FSNAME-MDT0000.changelog_users | wc -l) - 2 ))
     [ $CL_USERS -ne 1 ] && \
 	echo "Other changelog users present ($CL_USERS)"
 }
@@ -81,8 +80,9 @@ cleanup_src_tgt() {
 }
 
 fini_changelog() {
-    $LFS changelog_clear $MDT0 $CL_USER 0
-    do_facet $SINGLEMDS lctl --device $MDT0 changelog_deregister $CL_USER
+    $LFS changelog_clear $FSNAME-MDT0000 $CL_USER 0
+    do_facet $SINGLEMDS lctl --device $FSNAME-MDT0000 \
+						changelog_deregister $CL_USER
 }
 
 # Check whether the filesystem supports xattr or not.
@@ -115,7 +115,7 @@ check_diff() {
 		diff -rq -x "dev1" $1 $2
 		local RC=$?
 		if [ $RC -ne 0 ]; then
-			$LFS changelog $MDT0 > $changelog_file
+			$LFS changelog $FSNAME-MDT0000 > $changelog_file
 			error "Failure in replication; differences found."
 		fi
 	fi
@@ -159,8 +159,8 @@ test_1() {
 	# Replicate
 	local LRSYNC_LOG=$(generate_logname "lrsync_log")
 	echo "Replication #1"
-	$LRSYNC -s $DIR -t $TGT -t $TGT2 -m $MDT0 -u $CL_USER -l $LREPL_LOG \
-		-D $LRSYNC_LOG
+	$LRSYNC -s $DIR -t $TGT -t $TGT2 -m $FSNAME-MDT0000 -u $CL_USER \
+		-l $LREPL_LOG -D $LRSYNC_LOG
 
     # Set attributes
     chmod 000 $DIR/$tdir/d2/file3
@@ -232,7 +232,7 @@ test_1a() { # LU-5005
 	# Replicate
 	local LRSYNC_LOG=$(generate_logname "lrsync_log")
 	echo "Replication"
-	$LRSYNC -s $DIR -t $TGT -m $MDT0 -u $CL_USER -l $LREPL_LOG \
+	$LRSYNC -s $DIR -t $TGT -m $FSNAME-MDT0000 -u $CL_USER -l $LREPL_LOG \
 		-D $LRSYNC_LOG
 
 	# Verify
@@ -260,8 +260,8 @@ test_2a() {
 
 	local LRSYNC_LOG=$(generate_logname "lrsync_log")
 	# Replicate the changes to $TGT
-	$LRSYNC -s $DIR -t $TGT -t $TGT2 -m $MDT0 -u $CL_USER -l $LREPL_LOG \
-		-D $LRSYNC_LOG
+	$LRSYNC -s $DIR -t $TGT -t $TGT2 -m $FSNAME-MDT0000 -u $CL_USER \
+		-l $LREPL_LOG -D $LRSYNC_LOG
 
 	# Use diff to compare the source and the destination
 	check_diff $DIR/$tdir $TGT/$tdir
@@ -293,8 +293,8 @@ test_2b() {
 
 	local LRSYNC_LOG=$(generate_logname "lrsync_log")
 	echo Starting replication
-	$LRSYNC -s $DIR -t $TGT -t $TGT2 -m $MDT0 -u $CL_USER -l $LREPL_LOG \
-		-D $LRSYNC_LOG
+	$LRSYNC -s $DIR -t $TGT -t $TGT2 -m $FSNAME-MDT0000 -u $CL_USER \
+		-l $LREPL_LOG -D $LRSYNC_LOG
 	check_diff $DIR/$tdir $TGT/$tdir
 
     echo Resuming dbench
@@ -369,8 +369,8 @@ test_3a() {
 
 	local LRSYNC_LOG=$(generate_logname "lrsync_log")
 	# Replicate the changes to $TGT
-	$LRSYNC -s $DIR -t $TGT -t $TGT2 -m $MDT0 -u $CL_USER -l $LREPL_LOG \
-		-D $LRSYNC_LOG
+	$LRSYNC -s $DIR -t $TGT -t $TGT2 -m $FSNAME-MDT0000 -u $CL_USER \
+		-l $LREPL_LOG -D $LRSYNC_LOG
 	check_diff $DIR/$tdir $TGT/$tdir
 	check_diff $DIR/$tdir $TGT2/$tdir
 
@@ -393,8 +393,8 @@ test_3b() {
 
 	local LRSYNC_LOG=$(generate_logname "lrsync_log")
 	# Replicate the changes to $TGT
-	$LRSYNC -s $DIR -t $TGT -t $TGT2 -m $MDT0 -u $CL_USER -l $LREPL_LOG \
-		-D $LRSYNC_LOG
+	$LRSYNC -s $DIR -t $TGT -t $TGT2 -m $FSNAME-MDT0000 -u $CL_USER \
+		-l $LREPL_LOG -D $LRSYNC_LOG
 
 	check_diff $DIR/$tdir $TGT/$tdir
 	check_diff $DIR/$tdir $TGT2/$tdir
@@ -416,8 +416,8 @@ test_3c() {
 
 	local LRSYNC_LOG=$(generate_logname "lrsync_log")
 	# Replicate the changes to $TGT
-	$LRSYNC -s $DIR -t $TGT -t $TGT2 -m $MDT0  -u $CL_USER -l $LREPL_LOG \
-		-D $LRSYNC_LOG
+	$LRSYNC -s $DIR -t $TGT -t $TGT2 -m $FSNAME-MDT0000  -u $CL_USER \
+		-l $LREPL_LOG -D $LRSYNC_LOG
 	check_diff $DIR/$tdir $TGT/$tdir
 	check_diff $DIR/$tdir $TGT2/$tdir
 
@@ -446,8 +446,8 @@ test_4() {
 
 	local LRSYNC_LOG=$(generate_logname "lrsync_log")
 	# Replicate the changes to $TGT
-	$LRSYNC -s $DIR -t $TGT -t $TGT2 -m $MDT0  -u $CL_USER -l $LREPL_LOG \
-		-D $LRSYNC_LOG
+	$LRSYNC -s $DIR -t $TGT -t $TGT2 -m $FSNAME-MDT0000  -u $CL_USER \
+		-l $LREPL_LOG -D $LRSYNC_LOG
 	check_diff $DIR/$tdir $TGT/$tdir
 	check_diff $DIR/$tdir $TGT2/$tdir
 
@@ -488,8 +488,8 @@ test_5a() {
 
 	# Replicate the changes to $TGT
 	local LRSYNC_LOG=$(generate_logname "lrsync_log")
-	$LRSYNC -s $DIR -t $TGT -t $TGT2 -m $MDT0 -u $CL_USER -l $LREPL_LOG \
-		-D $LRSYNC_LOG &
+	$LRSYNC -s $DIR -t $TGT -t $TGT2 -m $FSNAME-MDT0000 -u $CL_USER \
+		-l $LREPL_LOG -D $LRSYNC_LOG &
 	local child_pid=$!
 	sleep 30
 	$KILL -SIGHUP $child_pid
@@ -515,8 +515,8 @@ test_5b() {
 
 	# Replicate the changes to $TGT
 	local LRSYNC_LOG=$(generate_logname "lrsync_log")
-	$LRSYNC -s $DIR -t $TGT -t $TGT2 -m $MDT0 -u $CL_USER -l $LREPL_LOG \
-		-D $LRSYNC_LOG &
+	$LRSYNC -s $DIR -t $TGT -t $TGT2 -m $FSNAME-MDT0000 -u $CL_USER \
+		-l $LREPL_LOG -D $LRSYNC_LOG &
 	local child_pid=$!
 	sleep 30
 	$KILL -SIGKILL $child_pid
@@ -548,8 +548,8 @@ test_6() {
 
 	local LRSYNC_LOG=$(generate_logname "lrsync_log")
 	# Replicate the changes to $TGT
-	$LRSYNC -s $DIR -t $TGT -t $TGT2 -m $MDT0 -u $CL_USER -l $LREPL_LOG \
-		-D $LRSYNC_LOG
+	$LRSYNC -s $DIR -t $TGT -t $TGT2 -m $FSNAME-MDT0000 -u $CL_USER \
+		-l $LREPL_LOG -D $LRSYNC_LOG
 	check_diff $DIR/$tdir $TGT/$tdir
 	check_diff $DIR/$tdir $TGT2/$tdir
 
@@ -581,8 +581,8 @@ test_7() {
 	# replicate the replication steps.  It seems ok :)
 
 	local LRSYNC_LOG=$(generate_logname "lrsync_log")
-	$LRSYNC -s $DIR -t $DIR/tgt -m $MDT0 -u $CL_USER -l $LREPL_LOG \
-		-D $LRSYNC_LOG
+	$LRSYNC -s $DIR -t $DIR/tgt -m $FSNAME-MDT0000 -u $CL_USER \
+		-l $LREPL_LOG -D $LRSYNC_LOG
 	check_diff ${DIR}/$tdir $DIR/tgt/$tdir
 
 	local i=0
@@ -621,8 +621,8 @@ test_8() {
     done
 
 	local LRSYNC_LOG=$(generate_logname "lrsync_log")
-	$LRSYNC -s $DIR -t $TGT -m $MDT0 -u $CL_USER -l $LREPL_LOG \
-		-D $LRSYNC_LOG
+	$LRSYNC -s $DIR -t $TGT -m $FSNAME-MDT0000 -u $CL_USER \
+		-l $LREPL_LOG -D $LRSYNC_LOG
 
 	check_diff ${DIR}/$tdir $TGT/$tdir
 
@@ -640,15 +640,15 @@ test_9() {
     touch $DIR/$tdir/foo/a1
 
 	local LRSYNC_LOG=$(generate_logname "lrsync_log")
-	$LRSYNC -s $DIR -t $TGT -m $MDT0 -u $CL_USER -l $LREPL_LOG \
-		-D $LRSYNC_LOG
+	$LRSYNC -s $DIR -t $TGT -m $FSNAME-MDT0000 -u $CL_USER \
+		-l $LREPL_LOG -D $LRSYNC_LOG
 
 	check_diff ${DIR}/$tdir $TGT/$tdir
 
 	rm -rf $DIR/$tdir/foo
 
-	$LRSYNC -s $DIR -t $TGT -m $MDT0 -u $CL_USER -l $LREPL_LOG \
-		-D $LRSYNC_LOG
+	$LRSYNC -s $DIR -t $TGT -m $FSNAME-MDT0000 -u $CL_USER \
+		-l $LREPL_LOG -D $LRSYNC_LOG
 
 	check_diff ${DIR}/$tdir $TGT/$tdir
 
