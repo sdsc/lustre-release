@@ -3612,19 +3612,6 @@ test_52() {
 	do_node $ost1node 'mv '$objects' '${ost1mnt}'/lost+found'
 	[ $? -eq 0 ] || { error "Unable to move objects"; return 14; }
 
-	# recover objects dry-run
-	if [ $(lustre_version_code ost1) -ge $(version_code 2.5.56) ]; then
-		echo "ll_recover_lost_found_objs dry_run"
-		do_node $ost1node \
-			"ll_recover_lost_found_objs -n -d $ost1mnt/O" ||
-			error "ll_recover_lost_found_objs failed"
-	fi
-
-	# recover objects
-	echo "ll_recover_lost_found_objs fix run"
-	do_node $ost1node "ll_recover_lost_found_objs -d $ost1mnt/lost+found" ||
-		 error "ll_recover_lost_found_objs failed"
-
 	# compare restored objects against saved ones
 	diff_files_xattrs $ost1node $ost1tmp/objects $ost1tmp/object_xattrs $objects
 	[ $? -eq 0 ] || error "Unable to diff objects"
