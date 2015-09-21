@@ -1746,7 +1746,19 @@ osd_ios_lookup_one_len(const char *name, struct dentry *parent, int namelen)
 	struct dentry *dentry;
 
 	dentry = ll_lookup_one_len(name, parent, namelen);
-	if (!IS_ERR(dentry) && dentry->d_inode == NULL) {
+	if (IS_ERR(dentry)) {
+		int rc = PTR_ERR(dentry);
+
+		if (rc != -ENOENT)
+			CERROR("Fail to find %.*s in %.*s (%lu/%u): rc = %d\n",
+			       namelen, name, parent->d_name.len,
+			       parent->d_name.name, parent->d_inode->i_ino,
+			       parent->d_inode->i_generation, rc);
+
+		return dentry;
+	}
+
+	if (dentry->d_inode == NULL) {
 		dput(dentry);
 		return ERR_PTR(-ENOENT);
 	}
@@ -2426,6 +2438,15 @@ static void osd_scrub_stop(struct osd_device *dev)
 
 /* OI scrub setup/cleanup */
 
+#define DUUID "[%03o %03o %03o %03o %03o %03o %03o %03o "	\
+	      "%03o %03o %03o %03o %03o %03o %03o %03o]"
+
+#define PUUID(uuid)						\
+	uuid[15], uuid[14], uuid[13], uuid[12],			\
+	uuid[11], uuid[10], uuid[9], uuid[8],			\
+	uuid[7], uuid[6], uuid[5], uuid[4],			\
+	uuid[3], uuid[2], uuid[1], uuid[0]
+
 static const char osd_scrub_name[] = "OI_scrub";
 
 int osd_scrub_setup(const struct lu_env *env, struct osd_device *dev)
@@ -2499,6 +2520,10 @@ int osd_scrub_setup(const struct lu_env *env, struct osd_device *dev)
 		GOTO(cleanup_inode, rc);
 	} else {
 		if (memcmp(sf->sf_uuid, es->s_uuid, 16) != 0) {
+			CERROR("%.16s: UUID has been changed from "
+			       DUUID" to "DUUID"\n",
+			       LDISKFS_SB(sb)->s_es->s_volume_name,
+			       PUUID(sf->sf_uuid), PUUID(es->s_uuid));
 			osd_scrub_file_reset(scrub, es->s_uuid,SF_INCONSISTENT);
 			dirty = 1;
 		} else if (sf->sf_status == SS_SCANNING) {
