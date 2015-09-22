@@ -74,6 +74,8 @@
 #include <lustre_ioctl.h>
 #include <lustre_ver.h>
 
+#include "../obdclass_internal.h"
+
 int proc_version;
 
 /* buffer MUST be at least the size of obd_ioctl_hdr */

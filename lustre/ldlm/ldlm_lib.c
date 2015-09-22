@@ -925,7 +925,6 @@ int target_handle_connect(struct ptlrpc_request *req)
 	 * reconnect case */
 	struct lustre_handle conn;
 	struct lustre_handle *tmp;
-        struct obd_uuid tgtuuid;
         struct obd_uuid cluuid;
         char *str;
         int rc = 0;
@@ -948,17 +947,11 @@ int target_handle_connect(struct ptlrpc_request *req)
                 GOTO(out, rc = -EINVAL);
         }
 
-        obd_str2uuid(&tgtuuid, str);
-        target = class_uuid2obd(&tgtuuid);
-        if (!target)
-                target = class_name2obd(str);
-
+	target = class_str2obd(str);
 	if (!target) {
 		deuuidify(str, NULL, &target_start, &target_len);
 		LCONSOLE_ERROR_MSG(0x137, "%s: not available for connect "
-				   "from %s (no target). If you are running "
-				   "an HA pair check that the target is "
-				   "mounted on the other server.\n", str,
+				   "from %s (no target)\n", str,
 				   libcfs_nid2str(req->rq_peer.nid));
 		GOTO(out, rc = -ENODEV);
 	}
@@ -1404,7 +1397,7 @@ out:
 		target->obd_conn_inprogress--;
 		spin_unlock(&target->obd_dev_lock);
 
-		class_decref(target, __func__, current);
+		class_decref(target, "find", current);
 	}
 	req->rq_status = rc;
 	RETURN(rc);
