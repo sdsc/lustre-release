@@ -113,8 +113,6 @@ static inline bool gid_valid(kgid_t gid)
 
 #endif
 
-int cfs_get_environ(const char *key, char *value, int *val_len);
-
 typedef __u32 cfs_cap_t;
 
 #define CFS_CAP_CHOWN                   0
