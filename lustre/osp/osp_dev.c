@@ -1043,6 +1043,7 @@ static int osp_import_event(struct obd_device *obd, struct obd_import *imp,
 		break;
 	case IMP_EVENT_INACTIVE:
 		d->opd_imp_active = 0;
+		d->opd_imp_connected = 0;
 		if (d->opd_connect_mdt)
 			break;
 		osp_pre_update_status(d, -ENODEV);
