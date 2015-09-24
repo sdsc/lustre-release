@@ -735,6 +735,7 @@ enum changelog_rec_type {
 	CL_MTIME    = 17, /* Precedence: setattr > mtime > ctime > atime */
 	CL_CTIME    = 18,
 	CL_ATIME    = 19,
+	CL_MIGRATE  = 20,
 	CL_LAST
 };
 
