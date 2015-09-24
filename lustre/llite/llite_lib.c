@@ -1549,11 +1549,7 @@ int ll_setattr_raw(struct dentry *dentry, struct iattr *attr, bool hsm_import)
 		 * excessive to send mtime/atime updates to OSTs when not
 		 * setting times to past, but it is necessary due to possible
 		 * time de-synchronization between MDT inode and OST objects */
-		if (attr->ia_valid & ATTR_SIZE)
-			down_write(&lli->lli_trunc_sem);
 		rc = ll_setattr_ost(inode, attr);
-		if (attr->ia_valid & ATTR_SIZE)
-			up_write(&lli->lli_trunc_sem);
 	}
 	EXIT;
 out:
