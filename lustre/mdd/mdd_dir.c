@@ -3723,6 +3723,7 @@ static int mdd_declare_migrate_update_name(const struct lu_env *env,
 					   struct lu_attr *parent_la,
 					   struct thandle *handle)
 {
+	struct mdd_device *mdd = mdo2mdd(&mdd_sobj->mod_obj);
 	struct lu_attr	*la_flag = MDD_ENV_VAR(env, tattr);
 	int		rc;
 
@@ -3801,6 +3802,10 @@ static int mdd_declare_migrate_update_name(const struct lu_env *env,
 		return rc;
 
 	rc = mdo_declare_attr_set(env, mdd_pobj, parent_la, handle);
+	if (rc != 0)
+		return rc;
+
+	rc = mdd_declare_changelog_store(env, mdd, lname, NULL, handle);
 
 	return rc;
 }
@@ -3925,6 +3930,10 @@ static int mdd_migrate_update_name(const struct lu_env *env,
 	rc = mdd_attr_set_internal(env, mdd_pobj, p_la, handle, 0);
 	if (rc != 0)
 		GOTO(out_unlock, rc);
+
+	rc = mdd_changelog_ns_store(env, mdd, CL_MIGRATE, 0, mdd_tobj,
+			       mdo2fid(mdd_pobj), mdo2fid(mdd_sobj), NULL,
+			       lname, NULL, handle);
 
 out_unlock:
 	mdd_write_unlock(env, mdd_sobj);
