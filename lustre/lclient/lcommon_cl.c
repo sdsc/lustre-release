@@ -788,12 +788,6 @@ int ccc_io_one_lock(const struct lu_env *env, struct cl_io *io,
                                      cl_index(obj, start), cl_index(obj, end));
 }
 
-void ccc_io_end(const struct lu_env *env, const struct cl_io_slice *ios)
-{
-        CLOBINVRNT(env, ios->cis_io->ci_obj,
-                   ccc_object_invariant(ios->cis_io->ci_obj));
-}
-
 void ccc_io_advance(const struct lu_env *env,
                     const struct cl_io_slice *ios,
                     size_t nob)

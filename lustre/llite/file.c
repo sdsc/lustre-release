@@ -1149,15 +1149,14 @@ restart:
                         cio->cui_nrsegs = args->u.normal.via_nrsegs;
                         cio->cui_tot_nrsegs = cio->cui_nrsegs;
                         cio->cui_iocb = args->u.normal.via_iocb;
-                        if ((iot == CIT_WRITE) &&
-                            !(cio->cui_fd->fd_flags & LL_FILE_GROUP_LOCKED)) {
+			if ((iot == CIT_WRITE) &&
+			    !(cio->cui_fd->fd_flags & LL_FILE_GROUP_LOCKED)) {
 				if (mutex_lock_interruptible(&lli->
 							lli_write_mutex))
 					GOTO(out, result = -ERESTARTSYS);
 				write_mutex_locked = 1;
 			}
-			down_read(&lli->lli_trunc_sem);
-                        break;
+			break;
                 case IO_SENDFILE:
                         vio->u.sendfile.cui_actor = args->u.sendfile.via_actor;
                         vio->u.sendfile.cui_target = args->u.sendfile.via_target;
@@ -1171,8 +1170,6 @@ restart:
                         LBUG();
                 }
                 result = cl_io_loop(env, io);
-		if (args->via_io_subtype == IO_NORMAL)
-			up_read(&lli->lli_trunc_sem);
 		if (write_mutex_locked)
 			mutex_unlock(&lli->lli_write_mutex);
         } else {
