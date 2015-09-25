@@ -765,8 +765,23 @@ static inline void i_gid_write(struct inode *inode, gid_t gid)
 #ifdef LDISKFS_HT_MISC
 # define osd_journal_start_sb(sb, type, nblock) \
 		ldiskfs_journal_start_sb(sb, type, nblock)
-# define osd_ldiskfs_append(handle, inode, nblock, err) \
-		ldiskfs_append(handle, inode, nblock)
+
+static inline struct buffer_head *
+osd_ldiskfs_append(handle_t *handle, struct inode *inode,
+		   ldiskfs_lblk_t *nblock, int *err)
+{
+	struct buffer_head *__bh;
+
+	__bh = ldiskfs_append(handle, inode, nblock);
+	if (IS_ERR(__bh)) {
+		if (err != NULL)
+			*err = PTR_ERR(__bh);
+		__bh = NULL;
+	}
+
+	return __bh;
+}
+
 # define osd_ldiskfs_find_entry(dir, name, de, inlined, lock) \
 		__ldiskfs_find_entry(dir, name, de, inlined, lock)
 # define osd_journal_start(inode, type, nblocks) \
