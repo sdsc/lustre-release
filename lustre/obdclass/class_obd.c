@@ -113,6 +113,8 @@ struct lprocfs_stats *obd_memory = NULL;
 EXPORT_SYMBOL(obd_memory);
 #endif
 
+char obd_jobid_node[LUSTRE_JOBID_SIZE + 1];
+
 /* Get jobid of current process by reading the environment variable
  * stored in between the "env_start" & "env_end" of task struct.
  *
@@ -143,6 +145,15 @@ int lustre_get_jobid(char *jobid)
 			 from_kuid(&init_user_ns, current_fsuid()));
 		RETURN(0);
 	}
+
+	/* Whole node dedicated to single job */
+	if (strcmp(obd_jobid_var, JOBSTATS_NODELOCAL) == 0) {
+		strcpy(jobid, obd_jobid_node);
+		RETURN(0);
+	}
+
+	CWARN("Obtaining jobstats from ENV has an enormous performance impact."
+	      "Please use lctl set_param -P $FSNAME.jobid_nodelocal.\n");
 
 	rc = cfs_get_environ(obd_jobid_var, jobid, &jobid_len);
 	if (rc) {
