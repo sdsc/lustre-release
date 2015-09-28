@@ -1585,6 +1585,12 @@ int ptlrpc_disconnect_import(struct obd_import *imp, int noclose)
 		RETURN(rc);
 	}
 
+	/* probably the import has been disconnected already being idle */
+	spin_lock(&imp->imp_lock);
+	if (imp->imp_state == LUSTRE_IMP_IDLE)
+		GOTO(out, rc);
+	spin_unlock(&imp->imp_lock);
+
         if (ptlrpc_import_in_recovery(imp)) {
                 struct l_wait_info lwi;
                 cfs_duration_t timeout;
@@ -1648,6 +1654,80 @@ out:
 	RETURN(rc);
 }
 EXPORT_SYMBOL(ptlrpc_disconnect_import);
+
+static int ptlrpc_disconnect_idle_interpret(const struct lu_env *env,
+					    struct ptlrpc_request *req,
+					    void *data, int rc)
+{
+	struct obd_import *imp = req->rq_import;
+
+	LASSERT(imp->imp_state == LUSTRE_IMP_CONNECTING);
+	spin_lock(&imp->imp_lock);
+	IMPORT_SET_STATE_NOLOCK(imp, LUSTRE_IMP_IDLE);
+	memset(&imp->imp_remote_handle, 0, sizeof(imp->imp_remote_handle));
+	spin_unlock(&imp->imp_lock);
+
+	return 0;
+}
+
+int ptlrpc_disconnect_and_idle_import(struct obd_import *imp)
+{
+	struct ptlrpc_request *req;
+	int rq_opc, rc = 0;
+	ENTRY;
+
+	if (imp->imp_obd->obd_force)
+		RETURN(0);
+
+	switch (imp->imp_connect_op) {
+	case OST_CONNECT:
+		rq_opc = OST_DISCONNECT;
+		break;
+	case MDS_CONNECT:
+		rq_opc = MDS_DISCONNECT;
+		break;
+	case MGS_CONNECT:
+		rq_opc = MGS_DISCONNECT;
+		break;
+	default:
+		rc = -EINVAL;
+		CERROR("%s: don't know how to disconnect from %s "
+		       "(connect_op %d): rc = %d\n",
+		       imp->imp_obd->obd_name, obd2cli_tgt(imp->imp_obd),
+		       imp->imp_connect_op, rc);
+		RETURN(rc);
+	}
+
+	if (ptlrpc_import_in_recovery(imp))
+		RETURN(0);
+
+	if (imp->imp_state != LUSTRE_IMP_FULL)
+		RETURN(0);
+
+	req = ptlrpc_request_alloc_pack(imp, &RQF_MDS_DISCONNECT,
+					LUSTRE_OBD_VERSION, rq_opc);
+	if (req) {
+		/* We are disconnecting, do not retry a failed DISCONNECT rpc if
+		 * it fails.  We can get through the above with a down server
+		 * if the client doesn't know the server is gone yet. */
+		req->rq_no_resend = 1;
+
+		/* We want client umounts to happen quickly, no matter the
+		   server state... */
+		req->rq_timeout = min_t(int, req->rq_timeout,
+					INITIAL_CONNECT_TIMEOUT);
+		printk("DISCONNECT %s\n", imp->imp_obd->obd_name);
+
+		IMPORT_SET_STATE(imp, LUSTRE_IMP_CONNECTING);
+		req->rq_send_state =  LUSTRE_IMP_CONNECTING;
+		ptlrpc_request_set_replen(req);
+		req->rq_interpret_reply = ptlrpc_disconnect_idle_interpret;
+		ptlrpcd_add_req(req);
+	}
+
+	RETURN(0);
+}
+EXPORT_SYMBOL(ptlrpc_disconnect_and_idle_import);
 
 void ptlrpc_cleanup_imp(struct obd_import *imp)
 {

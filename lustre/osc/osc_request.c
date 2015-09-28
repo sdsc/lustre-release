@@ -64,6 +64,9 @@ struct ptlrpc_request_pool *osc_rq_pool;
 static unsigned int osc_reqpool_mem_max = 5;
 module_param(osc_reqpool_mem_max, uint, 0444);
 
+static int osc_idle_connections = 1;
+module_param(osc_idle_connections, uint, 0644);
+
 struct osc_brw_async_args {
 	struct obdo		 *aa_oa;
 	int			  aa_requested_nob;
@@ -2828,6 +2831,8 @@ int osc_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 	spin_lock(&osc_shrink_lock);
 	list_add_tail(&cli->cl_shrink_list, &osc_shrink_list);
 	spin_unlock(&osc_shrink_lock);
+	if (osc_idle_connections != 0)
+		cli->cl_import->imp_idle_supported = 1;
 
 	RETURN(0);
 

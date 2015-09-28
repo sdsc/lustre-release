@@ -603,6 +603,41 @@ static int osc_unstable_stats_seq_show(struct seq_file *m, void *v)
 }
 LPROC_SEQ_FOPS_RO(osc_unstable_stats);
 
+static int osc_idle_support_seq_show(struct seq_file *m, void *v)
+{
+	struct obd_device *obd = m->private;
+	struct client_obd *cli = &obd->u.cli;
+
+	return seq_printf(m, "%u\n", cli->cl_import->imp_idle_supported);
+}
+
+static ssize_t osc_idle_support_seq_write(struct file *f,
+					  const char __user *buffer,
+					  size_t count, loff_t *off)
+{
+	struct obd_device *dev = ((struct seq_file *)f->private_data)->private;
+	struct client_obd *cli = &dev->u.cli;
+	struct ptlrpc_request *req;
+	int		   val, rc;
+
+	rc = lprocfs_write_helper(buffer, count, &val);
+	if (rc)
+		return rc;
+	if (val < 0 || val > 1)
+		return -ERANGE;
+
+	cli->cl_import->imp_idle_supported = val;
+
+	/* to initiate the connection if it's in IDLE state */
+	req = ptlrpc_request_alloc(cli->cl_import, &RQF_OST_STATFS);
+	if (req != NULL)
+		ptlrpc_req_finished(req);
+
+	return count;
+}
+LPROC_SEQ_FOPS(osc_idle_support);
+
+
 LPROC_SEQ_FOPS_RO_TYPE(osc, uuid);
 LPROC_SEQ_FOPS_RO_TYPE(osc, connect_flags);
 LPROC_SEQ_FOPS_RO_TYPE(osc, blksize);
@@ -687,6 +722,8 @@ struct lprocfs_vars lprocfs_osc_obd_vars[] = {
 	  .fops	=	&osc_pinger_recov_fops		},
 	{ .name	=	"unstable_stats",
 	  .fops	=	&osc_unstable_stats_fops	},
+	{ .name	=	"idle_support",
+	  .fops	=	&osc_idle_support_fops		},
 	{ NULL }
 };
 

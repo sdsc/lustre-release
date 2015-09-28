@@ -105,6 +105,7 @@ enum lustre_imp_state {
         LUSTRE_IMP_RECOVER    = 8,
         LUSTRE_IMP_FULL       = 9,
         LUSTRE_IMP_EVICTED    = 10,
+	LUSTRE_IMP_IDLE	      = 11,
 };
 
 /** Returns test string representation of numeric import state \a state */
@@ -113,10 +114,10 @@ static inline char * ptlrpc_import_state_name(enum lustre_imp_state state)
         static char* import_state_names[] = {
                 "<UNKNOWN>", "CLOSED",  "NEW", "DISCONN",
                 "CONNECTING", "REPLAY", "REPLAY_LOCKS", "REPLAY_WAIT",
-                "RECOVER", "FULL", "EVICTED",
+		"RECOVER", "FULL", "EVICTED", "IDLE",
         };
 
-        LASSERT (state <= LUSTRE_IMP_EVICTED);
+	LASSERT(state <= LUSTRE_IMP_IDLE);
         return import_state_names[state];
 }
 
@@ -308,6 +309,7 @@ struct obd_import {
 				  /* import must be reconnected instead of
 				   * chouse new connection */
 				  imp_force_reconnect:1,
+				  imp_idle_supported:1,
 				  /* import has tried to connect with server */
 				  imp_connect_tried:1,
 				  /* connected but not FULL yet */
