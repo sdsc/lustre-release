@@ -302,6 +302,9 @@ init_gss
 
 reformat_and_config
 
+# disable idle connections
+echo 0 > /sys/module/osc/parameters/osc_idle_connections
+
 test_0() {
 	setup
 	check_mount || error "check_mount failed"
@@ -855,6 +858,8 @@ test_22() {
 		sleep $((TIMEOUT + TIMEOUT + TIMEOUT))
 	fi
 	mount_client $MOUNT || error "mount_client $MOUNT failed"
+	# to activate connections (idle by default)
+	df $MOUNT
 	wait_osc_import_state mds ost FULL
 	wait_osc_import_state client ost FULL
 	check_mount || error "check_mount failed"
