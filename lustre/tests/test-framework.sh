@@ -553,7 +553,7 @@ load_modules_local() {
     load_module fid/fid
     load_module lmv/lmv
     load_module mdc/mdc
-    load_module osc/osc
+    load_module osc/osc $OSCOPTS
     load_module lov/lov
     load_module mgc/mgc
     load_module obdecho/obdecho
