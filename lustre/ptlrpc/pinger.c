@@ -95,10 +95,26 @@ int ptlrpc_obd_ping(struct obd_device *obd)
 }
 EXPORT_SYMBOL(ptlrpc_obd_ping);
 
+static int ptlrpc_check_import_is_idling(struct obd_import *imp)
+{
+	struct ldlm_namespace *ns = imp->imp_obd->obd_namespace;
+	if (!imp->imp_idle_supported)
+		return 0;
+	/* XXX: explain magic 4 here or have a different counter for RPCs? */
+	if (atomic_read(&imp->imp_refcount) > 4)
+		return 0;
+	if (ns && atomic_read(&ns->ns_bref) > 0)
+		return 0;
+	return 1;
+}
+
 static int ptlrpc_ping(struct obd_import *imp)
 {
 	struct ptlrpc_request	*req;
 	ENTRY;
+
+	if (ptlrpc_check_import_is_idling(imp))
+		RETURN(ptlrpc_disconnect_and_idle_import(imp));
 
 	req = ptlrpc_prep_ping(imp);
 	if (req == NULL) {
