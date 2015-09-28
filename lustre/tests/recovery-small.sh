@@ -30,6 +30,9 @@ build_test_filter
 SETUP=${SETUP:-""}
 CLEANUP=${CLEANUP:-""}
 
+# disable idle connections
+OSCOPTS="osc_idle_connections=0"
+
 check_and_setup_lustre
 
 assert_DIR
