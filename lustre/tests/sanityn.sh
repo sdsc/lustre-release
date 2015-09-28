@@ -1026,6 +1026,8 @@ test_34() { #16129
                         fi
                 fi
         done
+	# activate idling connections
+	df $DIR1
 	cleanup_34
 }
 run_test 34 "no lock timeout under IO"

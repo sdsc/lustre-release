@@ -30,7 +30,12 @@ build_test_filter
 SETUP=${SETUP:-""}
 CLEANUP=${CLEANUP:-""}
 
+# disable idle connections
+OSCOPTS="osc_idle_connections=0"
 check_and_setup_lustre
+
+# disable idle connections
+echo 0 > /sys/module/osc/parameters/osc_idle_connections
 
 assert_DIR
 rm -rf $DIR/d[0-9]* $DIR/f.${TESTSUITE}*

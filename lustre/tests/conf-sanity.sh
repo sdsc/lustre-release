@@ -67,6 +67,9 @@ MDSDEV1_2=$fs2mds_DEV
 OSTDEV1_2=$fs2ost_DEV
 OSTDEV2_2=$fs3ost_DEV
 
+# disable idle connections
+OSCOPTS="osc_idle_connections=0"
+
 if ! combined_mgs_mds; then
     # bug number for skipped test:    23954
     ALWAYS_EXCEPT="$ALWAYS_EXCEPT       24b"
@@ -301,6 +304,9 @@ init_gss
 #create single point mountpoint
 
 reformat_and_config
+
+# disable idle connections
+echo 0 > /sys/module/osc/parameters/osc_idle_connections
 
 test_0() {
 	setup
@@ -855,6 +861,8 @@ test_22() {
 		sleep $((TIMEOUT + TIMEOUT + TIMEOUT))
 	fi
 	mount_client $MOUNT || error "mount_client $MOUNT failed"
+	# to activate connections (idle by default)
+	df $MOUNT
 	wait_osc_import_state mds ost FULL
 	wait_osc_import_state client ost FULL
 	check_mount || error "check_mount failed"
