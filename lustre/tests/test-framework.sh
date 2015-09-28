@@ -6154,6 +6154,9 @@ wait_clients_import_state () {
 		local params=$(expand_list $params $proc_path)
 	done
 
+	if [ "$expected" == "FULL" ]; then
+		disable_idle_connections "$list"
+	fi
 	if ! do_rpc_nodes "$list" wait_import_state_mount $expected $params;
 	then
 		error "import is not in ${expected} state"
@@ -7494,4 +7497,14 @@ killall_process () {
 	local rc=0
 
 	do_nodes $clients "killall $signal $name"
+}
+
+function disable_idle_connections() {
+	local clients=$1
+	do_rpc_nodes "$clients" "$LCTL set_param osc.*.idle_support 0"
+}
+
+function enable_idle_connections() {
+	local clients=$1
+	do_rpc_nodes "$clients" "$LCTL set_param osc.*.idle_support 1"
 }
