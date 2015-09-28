@@ -977,6 +977,7 @@ cleanup_34() {
 	trap 0
 	do_nodes $(comma_list $(osts_nodes)) \
 		"lctl set_param -n fail_loc=0 2>/dev/null || true"
+	df $DIR1 # activate connections
 	for i in $(seq $OSTCOUNT); do
 		wait_osc_import_state client ost$i FULL
 	done
@@ -1026,6 +1027,8 @@ test_34() { #16129
                         fi
                 fi
         done
+	# activate idling connections
+	df $DIR1
 	cleanup_34
 }
 run_test 34 "no lock timeout under IO"
