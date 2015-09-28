@@ -858,6 +858,7 @@ test_22() {
 		sleep $((TIMEOUT + TIMEOUT + TIMEOUT))
 	fi
 	mount_client $MOUNT || error "mount_client $MOUNT failed"
+	df $MOUNT # to activate connections (idle by default)
 	wait_osc_import_state mds ost FULL
 	wait_osc_import_state client ost FULL
 	check_mount || error "check_mount failed"

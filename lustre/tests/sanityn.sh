@@ -1026,7 +1026,8 @@ test_34() { #16129
                         fi
                 fi
         done
-	cleanup_34
+	# XXX: connections can be idling
+	# cleanup_34
 }
 run_test 34 "no lock timeout under IO"
 
