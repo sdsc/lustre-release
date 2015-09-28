@@ -2691,6 +2691,8 @@ int osc_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 
 	INIT_LIST_HEAD(&cli->cl_grant_shrink_list);
 	ns_register_cancel(obd->obd_namespace, osc_cancel_weight);
+	cli->cl_import->imp_idle_supported = 1;
+
 	RETURN(0);
 
 out_ptlrpcd_work:
