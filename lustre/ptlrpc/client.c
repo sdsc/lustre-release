@@ -866,10 +866,29 @@ ptlrpc_request_alloc_internal(struct obd_import *imp,
                               const struct req_format *format)
 {
         struct ptlrpc_request *request;
+	int connect = 0;
 
-        request = __ptlrpc_request_alloc(imp, pool);
-        if (request == NULL)
-                return NULL;
+	if (unlikely(imp->imp_state == LUSTRE_IMP_IDLE)) {
+		int rc;
+		printk("CONNECT %s at new req\n", imp->imp_obd->obd_name);
+		spin_lock(&imp->imp_lock);
+		if (imp->imp_state == LUSTRE_IMP_IDLE) {
+			imp->imp_generation++;
+			imp->imp_state =  LUSTRE_IMP_NEW;
+			connect = 1;
+		}
+		spin_unlock(&imp->imp_lock);
+		if (connect) {
+			rc = ptlrpc_connect_import(imp);
+			if (rc < 0)
+				return NULL;
+			ptlrpc_pinger_add_import(imp);
+		}
+	}
+
+	request = __ptlrpc_request_alloc(imp, pool);
+	if (request == NULL)
+		return NULL;
 
         req_capsule_init(&request->rq_pill, request, RCL_CLIENT);
         req_capsule_set(&request->rq_pill, format);
@@ -1081,6 +1100,7 @@ int ptlrpc_set_add_cb(struct ptlrpc_request_set *set,
 void ptlrpc_set_add_req(struct ptlrpc_request_set *set,
                         struct ptlrpc_request *req)
 {
+	LASSERT(req->rq_import->imp_state != LUSTRE_IMP_IDLE);
 	LASSERT(list_empty(&req->rq_set_chain));
 
 	if (req->rq_allow_intr)

@@ -6050,6 +6050,7 @@ test_77i() { # bug 13805
 	#define OBD_FAIL_OSC_CONNECT_CKSUM       0x40b
 	lctl set_param fail_loc=0x40b
 	remount_client $MOUNT
+	df $MOUNT # to activate connections (idle by default)
 	lctl set_param fail_loc=0
 	for VALUE in `lctl get_param osc.*osc-[^mM]*.checksum_type`; do
 		PARAM=`echo ${VALUE[0]} | cut -d "=" -f1`
@@ -6066,6 +6067,7 @@ test_77j() { # bug 13805
 	#define OBD_FAIL_OSC_CKSUM_ADLER_ONLY    0x40c
 	lctl set_param fail_loc=0x40c
 	remount_client $MOUNT
+	df $MOUNT # to activate connections (idle by default)
 	lctl set_param fail_loc=0
 	sleep 2 # wait async osc connect to finish
 	for VALUE in `lctl get_param osc.*osc-[^mM]*.checksum_type`; do
