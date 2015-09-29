@@ -1795,6 +1795,7 @@ t32_test() {
 			error_noexit "Mkfs new MDT failed"
 			return 1
 		}
+		[ $(facet_fstype mds1) == zfs ] && import_zpool fs2mds
 
 		$r $TUNEFS --dryrun $fs2mdsdev || {
 			error_noexit "tunefs.lustre before mounting the MDT"
