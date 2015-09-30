@@ -677,6 +677,7 @@ helper_test_7a()
 
 test_7a()
 {
+	set -vx
 	[ $OSTCOUNT -lt 2 ] && skip "needs >= 2 OSTs" && return
 
 	mkdir -p $DIR/$tdir
@@ -688,6 +689,7 @@ test_7a()
 		echo set poolname to $POOLNAME
 		helper_test_7a $POOLNAME
 	done
+	set +vx
 }
 run_test 7a "create various pool name"
 
