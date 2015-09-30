@@ -139,8 +139,8 @@ static int mdd_init0(const struct lu_env *env, struct mdd_device *mdd,
 		RETURN(rc);
 
 	mdd->mdd_atime_diff = MAX_ATIME_DIFF;
-        /* sync permission changes */
-        mdd->mdd_sync_permission = 1;
+	/* sync permission changes */
+	mdd->mdd_sync_permission = 0;
 
 	dt_conf_get(env, mdd->mdd_child, &mdd->mdd_dt_conf);
 
@@ -151,7 +151,7 @@ static int mdd_init0(const struct lu_env *env, struct mdd_device *mdd,
 	if (rc < 0)
 		obd_disconnect(mdd->mdd_child_exp);
 
-        RETURN(rc);
+	RETURN(rc);
 }
 
 static struct lu_device *mdd_device_fini(const struct lu_env *env,
