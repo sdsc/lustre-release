@@ -615,6 +615,11 @@ static int osd_dir_insert(const struct lu_env *env, struct dt_object *dt,
 		LASSERT(child->oo_db);
 		if (name[0] == '.') {
 			if (name[1] == 0) {
+				if (parent->oo_attr.la_nlink != 2)
+					/* To guarantee that the ref_add() is
+					 * called before dot/dotdot inserted. */
+					GOTO(out, rc = -EINVAL);
+
 				/* do not store ".", instead generate it
 				 * during iteration */
 				GOTO(out, rc = 0);

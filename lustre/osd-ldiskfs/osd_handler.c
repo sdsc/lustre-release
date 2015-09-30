@@ -4008,9 +4008,14 @@ static int osd_add_dot_dotdot(struct osd_thread_info *info,
                         result = -EEXIST;
                 } else {
                         LASSERT(inode == parent_dir);
-                        dir->oo_compat_dot_created = 1;
-                        result = 0;
-                }
+
+			if (inode->i_nlink != 2)
+				/* To guarantee that the ref_add() is
+				 * called before dot/dotdot inserted. */
+				result = -EINVAL;
+			else
+				dir->oo_compat_dot_created = 1;
+		}
 	} else if (strcmp(name, dotdot) == 0) {
 		if (!dir->oo_compat_dot_created)
 			return -EINVAL;

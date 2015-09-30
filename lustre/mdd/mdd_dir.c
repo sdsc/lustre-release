@@ -1874,12 +1874,12 @@ static int mdd_declare_object_initialize(const struct lu_env *env,
 	if (rc != 0 || !S_ISDIR(attr->la_mode))
 		RETURN(rc);
 
-	rc = mdo_declare_index_insert(env, child, mdo2fid(child), S_IFDIR,
-				      dot, handle);
+	rc = mdo_declare_ref_add(env, child, handle);
 	if (rc != 0)
 		RETURN(rc);
 
-	rc = mdo_declare_ref_add(env, child, handle);
+	rc = mdo_declare_index_insert(env, child, mdo2fid(child), S_IFDIR,
+				      dot, handle);
 	if (rc != 0)
 		RETURN(rc);
 
@@ -1899,9 +1899,12 @@ static int mdd_object_initialize(const struct lu_env *env,
 	ENTRY;
 
 	if (S_ISDIR(attr->la_mode)) {
-                /* Add "." and ".." for newly created dir */
-                mdo_ref_add(env, child, handle);
-                rc = __mdd_index_insert_only(env, child, mdo2fid(child),
+		rc = mdo_ref_add(env, child, handle);
+		if (rc != 0)
+			RETURN(rc);
+
+		/* Add "." and ".." for newly created dir */
+		rc = __mdd_index_insert_only(env, child, mdo2fid(child),
 					     S_IFDIR, dot, handle);
 		if (rc == 0)
 			rc = __mdd_index_insert_only(env, child, pfid, S_IFDIR,
