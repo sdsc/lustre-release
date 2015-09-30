@@ -1096,6 +1096,7 @@ retry:
 	rc = dt_attr_get(env, o, la);
 
 out_stop:
+
 	/* Force commit to make the just-deleted blocks
 	 * reusable. LU-456 */
 	if (rc == -ENOSPC)
