@@ -853,7 +853,21 @@ static int llog_osd_next_block(const struct lu_env *env,
 
 		if (LLOG_REC_HDR_NEEDS_SWABBING(last_rec))
 			lustre_swab_llog_rec(last_rec);
-		LASSERT(last_rec->lrh_index == tail->lrt_index);
+
+		if (last_rec->lrh_index != tail->lrt_index) {
+			CERROR("%s: invalid llog head/tail at log id "
+			       DOSTID"/%u offset "LPU64" last_rec %u/%u/%u/%u"
+			       "tail %u/%u\n",
+			       o->do_lu.lo_dev->ld_obd->obd_name,
+			       POSTID(&loghandle->lgh_id.lgl_oi),
+			       loghandle->lgh_id.lgl_ogen, *cur_offset,
+			       last_rec->lrh_len, last_rec->lrh_index,
+			       last_rec->lrh_type, last_rec->lrh_id,
+			       tail->lrt_len, tail->lrt_index);
+			/* XXXX for debugging purpose */
+			LBUG();
+			GOTO(out, rc = -EINVAL);
+		}
 
 		*cur_idx = tail->lrt_index;
 
