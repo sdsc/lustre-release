@@ -181,17 +181,17 @@ static ssize_t
 ofd_precreate_batch_seq_write(struct file *file, const char __user *buffer,
 			      size_t count, loff_t *off)
 {
-	struct seq_file	  *m = file->private_data;
+	struct seq_file *m = file->private_data;
 	struct obd_device *obd = m->private;
 	struct ofd_device *ofd = ofd_dev(obd->obd_lu_dev);
-	int val;
+	__s64 val;
 	int rc;
 
-	rc = lprocfs_write_helper(buffer, count, &val);
+	rc = lprocfs_str_to_s64(buffer, count, &val);
 	if (rc)
 		return rc;
 
-	if (val < 1)
+	if (val < 1 || val > INT_MAX)
 		return -EINVAL;
 
 	spin_lock(&ofd->ofd_batch_lock);
@@ -276,13 +276,13 @@ static ssize_t
 ofd_fmd_max_num_seq_write(struct file *file, const char __user *buffer,
 			  size_t count, loff_t *off)
 {
-	struct seq_file		*m = file->private_data;
-	struct obd_device	*obd = m->private;
-	struct ofd_device	*ofd = ofd_dev(obd->obd_lu_dev);
-	int			 val;
-	int			 rc;
+	struct seq_file *m = file->private_data;
+	struct obd_device *obd = m->private;
+	struct ofd_device *ofd = ofd_dev(obd->obd_lu_dev);
+	__s64 val;
+	int rc;
 
-	rc = lprocfs_write_helper(buffer, count, &val);
+	rc = lprocfs_str_to_s64(buffer, count, &val);
 	if (rc)
 		return rc;
 
@@ -336,10 +336,10 @@ ofd_fmd_max_age_seq_write(struct file *file, const char __user *buffer,
 	struct seq_file		*m = file->private_data;
 	struct obd_device	*obd = m->private;
 	struct ofd_device	*ofd = ofd_dev(obd->obd_lu_dev);
-	int			 val;
+	__s64			 val;
 	int			 rc;
 
-	rc = lprocfs_write_helper(buffer, count, &val);
+	rc = lprocfs_str_to_s64(buffer, count, &val);
 	if (rc)
 		return rc;
 
@@ -395,12 +395,13 @@ static ssize_t
 ofd_degraded_seq_write(struct file *file, const char __user *buffer,
 		       size_t count, loff_t *off)
 {
-	struct seq_file		*m = file->private_data;
-	struct obd_device	*obd = m->private;
-	struct ofd_device	*ofd = ofd_dev(obd->obd_lu_dev);
-	int			 val, rc;
+	struct seq_file *m = file->private_data;
+	struct obd_device *obd = m->private;
+	struct ofd_device *ofd = ofd_dev(obd->obd_lu_dev);
+	int rc;
+	__s64 val;
 
-	rc = lprocfs_write_helper(buffer, count, &val);
+	rc = lprocfs_str_to_s64(buffer, count, &val);
 	if (rc)
 		return rc;
 
@@ -475,13 +476,13 @@ static ssize_t
 ofd_syncjournal_seq_write(struct file *file, const char __user *buffer,
 			  size_t count, loff_t *off)
 {
-	struct seq_file		*m = file->private_data;
-	struct obd_device	*obd = m->private;
-	struct ofd_device	*ofd = ofd_dev(obd->obd_lu_dev);
-	int			 val;
-	int			 rc;
+	struct seq_file	*m = file->private_data;
+	struct obd_device *obd = m->private;
+	struct ofd_device *ofd = ofd_dev(obd->obd_lu_dev);
+	__s64 val;
+	int rc;
 
-	rc = lprocfs_write_helper(buffer, count, &val);
+	rc = lprocfs_str_to_s64(buffer, count, &val);
 	if (rc)
 		return rc;
 
@@ -546,12 +547,12 @@ static ssize_t
 ofd_sync_lock_cancel_seq_write(struct file *file, const char __user *buffer,
 			       size_t count, loff_t *off)
 {
-	struct seq_file		*m = file->private_data;
-	struct obd_device	*obd = m->private;
-	struct lu_target	*tgt = obd->u.obt.obt_lut;
-	char			 kernbuf[SYNC_STATES_MAXLEN];
-	int			 val = -1;
-	int			 i;
+	struct seq_file *m = file->private_data;
+	struct obd_device *obd = m->private;
+	struct lu_target *tgt = obd->u.obt.obt_lut;
+	char kernbuf[SYNC_STATES_MAXLEN];
+	__s64 val = -1;
+	int i;
 
 	if (count == 0 || count >= sizeof(kernbuf))
 		return -EINVAL;
@@ -572,11 +573,7 @@ ofd_sync_lock_cancel_seq_write(struct file *file, const char __user *buffer,
 
 	/* Legacy numeric codes */
 	if (val == -1) {
-		int rc;
-
-		/* Safe to use userspace buffer as lprocfs_write_helper will
-		 * use copy from user for parsing */
-		rc = lprocfs_write_helper(buffer, count, &val);
+		int rc = lprocfs_str_to_s64(buffer, count, &val);
 		if (rc)
 			return rc;
 	}
@@ -635,13 +632,13 @@ ofd_grant_compat_disable_seq_write(struct file *file,
 				   const char __user *buffer,
 				   size_t count, loff_t *off)
 {
-	struct seq_file		*m = file->private_data;
-	struct obd_device	*obd = m->private;
-	struct ofd_device	*ofd = ofd_dev(obd->obd_lu_dev);
-	int			 val;
-	int			 rc;
+	struct seq_file *m = file->private_data;
+	struct obd_device *obd = m->private;
+	struct ofd_device *ofd = ofd_dev(obd->obd_lu_dev);
+	__s64 val;
+	int rc;
 
-	rc = lprocfs_write_helper(buffer, count, &val);
+	rc = lprocfs_str_to_s64(buffer, count, &val);
 	if (rc)
 		return rc;
 
@@ -741,15 +738,18 @@ static ssize_t
 ofd_lfsck_speed_limit_seq_write(struct file *file, const char __user *buffer,
 				size_t count, loff_t *off)
 {
-	struct seq_file		*m = file->private_data;
-	struct obd_device	*obd = m->private;
-	struct ofd_device	*ofd = ofd_dev(obd->obd_lu_dev);
-	__u32			 val;
-	int			 rc;
+	struct seq_file *m = file->private_data;
+	struct obd_device *obd = m->private;
+	struct ofd_device *ofd = ofd_dev(obd->obd_lu_dev);
+	__s64 val;
+	int rc;
 
-	rc = lprocfs_write_helper(buffer, count, &val);
+	rc = lprocfs_str_to_s64(buffer, count, &val);
 	if (rc != 0)
 		return rc;
+
+	if (val < 0)
+		return -ERANGE;
 
 	rc = lfsck_set_speed(ofd->ofd_osd, val);
 
@@ -816,13 +816,13 @@ static ssize_t
 ofd_lfsck_verify_pfid_seq_write(struct file *file, const char __user *buffer,
 				size_t count, loff_t *off)
 {
-	struct seq_file		*m = file->private_data;
-	struct obd_device	*obd = m->private;
-	struct ofd_device	*ofd = ofd_dev(obd->obd_lu_dev);
-	__u32			 val;
-	int			 rc;
+	struct seq_file *m = file->private_data;
+	struct obd_device *obd = m->private;
+	struct ofd_device *ofd = ofd_dev(obd->obd_lu_dev);
+	__s64 val;
+	int rc;
 
-	rc = lprocfs_write_helper(buffer, count, &val);
+	rc = lprocfs_str_to_s64(buffer, count, &val);
 	if (rc != 0)
 		return rc;
 
