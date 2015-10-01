@@ -227,13 +227,17 @@ mdt_identity_expire_seq_write(struct file *file, const char __user *buffer,
 	struct seq_file	  *m = file->private_data;
 	struct obd_device *obd = m->private;
 	struct mdt_device *mdt = mdt_dev(obd->obd_lu_dev);
-	int rc, val;
+	int rc;
+	__s64 val;
 
-	rc = lprocfs_write_helper(buffer, count, &val);
+	rc = lprocfs_str_to_s64(buffer, count, &val);
 	if (rc)
 		return rc;
+	if (val < 0 || val > INT_MAX)
+		return -ERANGE;
 
 	mdt->mdt_identity_cache->uc_entry_expire = val;
+
 	return count;
 }
 LPROC_SEQ_FOPS(mdt_identity_expire);
@@ -254,13 +258,17 @@ mdt_identity_acquire_expire_seq_write(struct file *file,
 	struct seq_file	  *m = file->private_data;
 	struct obd_device *obd = m->private;
 	struct mdt_device *mdt = mdt_dev(obd->obd_lu_dev);
-	int rc, val;
+	int rc;
+	__s64 val;
 
-	rc = lprocfs_write_helper(buffer, count, &val);
+	rc = lprocfs_str_to_s64(buffer, count, &val);
 	if (rc)
 		return rc;
+	if (val < 0 || val > INT_MAX)
+		return -ERANGE;
 
 	mdt->mdt_identity_cache->uc_acquire_expire = val;
+
 	return count;
 }
 LPROC_SEQ_FOPS(mdt_identity_acquire_expire);
@@ -330,11 +338,14 @@ lprocfs_identity_flush_seq_write(struct file *file, const char __user *buffer,
 	struct seq_file   *m = file->private_data;
 	struct obd_device *obd = m->private;
 	struct mdt_device *mdt = mdt_dev(obd->obd_lu_dev);
-	int rc, uid;
+	int rc;
+	__s64 uid;
 
-	rc = lprocfs_write_helper(buffer, count, &uid);
+	rc = lprocfs_str_to_s64(buffer, count, &uid);
 	if (rc)
 		return rc;
+	if (uid < INT_MIN || uid > INT_MAX)
+		return -ERANGE;
 
 	mdt_flush_identity(mdt->mdt_identity_cache, uid);
 	return count;
@@ -474,22 +485,24 @@ mdt_sec_level_seq_write(struct file *file, const char __user *buffer,
 	struct seq_file	  *m = file->private_data;
 	struct obd_device *obd = m->private;
 	struct mdt_device *mdt = mdt_dev(obd->obd_lu_dev);
-	int val, rc;
+	int rc;
+	__s64 val;
 
-        rc = lprocfs_write_helper(buffer, count, &val);
-        if (rc)
-                return rc;
+	rc = lprocfs_str_to_s64(buffer, count, &val);
+	if (rc)
+		return rc;
 
-        if (val > LUSTRE_SEC_ALL || val < LUSTRE_SEC_NONE)
-                return -EINVAL;
+	if (val > LUSTRE_SEC_ALL || val < LUSTRE_SEC_NONE)
+		return -EINVAL;
 
-        if (val == LUSTRE_SEC_SPECIFY) {
-                CWARN("security level %d will be supported in future.\n",
-                      LUSTRE_SEC_SPECIFY);
-                return -EINVAL;
-        }
+	if (val == LUSTRE_SEC_SPECIFY) {
+		CWARN("security level %d will be supported in future.\n",
+		      LUSTRE_SEC_SPECIFY);
+		return -EINVAL;
+	}
 
 	mdt->mdt_lut.lut_sec_level = val;
+
 	return count;
 }
 LPROC_SEQ_FOPS(mdt_sec_level);
@@ -509,11 +522,15 @@ mdt_cos_seq_write(struct file *file, const char __user *buffer,
 	struct seq_file   *m = file->private_data;
 	struct obd_device *obd = m->private;
 	struct mdt_device *mdt = mdt_dev(obd->obd_lu_dev);
-	int val, rc;
+	int rc;
+	__s64 val;
 
-	rc = lprocfs_write_helper(buffer, count, &val);
+	rc = lprocfs_str_to_s64(buffer, count, &val);
 	if (rc)
 		return rc;
+	if (val < INT_MIN || val > INT_MAX)
+		return -ERANGE;
+
 	mdt_enable_cos(mdt, val);
 	return count;
 }
@@ -592,14 +609,14 @@ mdt_enable_remote_dir_seq_write(struct file *file, const char __user *buffer,
 	struct seq_file   *m = file->private_data;
 	struct obd_device *obd = m->private;
 	struct mdt_device *mdt = mdt_dev(obd->obd_lu_dev);
-	__u32 val;
+	__s64 val;
 	int rc;
 
-	rc = lprocfs_write_helper(buffer, count, &val);
+	rc = lprocfs_str_to_s64(buffer, count, &val);
 	if (rc)
 		return rc;
 
-	if (val > 1)
+	if (val > 1 || val < 0)
 		return -ERANGE;
 
 	mdt->mdt_enable_remote_dir = val;
@@ -624,10 +641,10 @@ mdt_enable_remote_dir_gid_seq_write(struct file *file,
 	struct seq_file   *m = file->private_data;
 	struct obd_device *obd = m->private;
 	struct mdt_device *mdt = mdt_dev(obd->obd_lu_dev);
-	__u32 val;
+	__s64 val;
 	int rc;
 
-	rc = lprocfs_write_helper(buffer, count, &val);
+	rc = lprocfs_str_to_s64(buffer, count, &val);
 	if (rc)
 		return rc;
 
