@@ -2082,6 +2082,34 @@ test_110j () {
 }
 run_test 110j "drop update reply during cross-MDT ln"
 
+test_110k () {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+	local remote_dir=$DIR/$tdir/remote_dir
+	local local_dir=$DIR/$tdir/local_dir
+	local rc=0
+
+	mkdir -p $DIR/$tdir
+	$LFS mkdir -i 1 $remote_dir
+
+	drop_server_bl_callback_once mds2 "mkdir $local_dir" ||
+		error "mkdir $local_dir failed"
+}
+run_test 110k "drop blocking ast req for remote MDT will not cause eviction"
+
+test_110l () {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+	local remote_dir=$DIR/$tdir/remote_dir
+	local local_dir=$DIR/$tdir/local_dir
+	local rc=0
+
+	mkdir -p $DIR/$tdir
+	$LFS mkdir -i 1 $remote_dir
+
+	drop_server_cancel_once mds2 "mkdir $local_dir" ||
+		error "mkdir $local_dir failed"
+}
+run_test 110l "drop lock cancel for remote MDT will not cause eviction"
+
 # LU-2844 mdt prepare fail should not cause umount oops
 test_111 ()
 {

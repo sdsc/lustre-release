@@ -4592,6 +4592,30 @@ drop_ldlm_cancel() {
 	return $RC
 }
 
+drop_server_cancel_once() {
+	local server_facet=$1
+	local rc=0
+	shift
+
+#define OBD_FAIL_LDLM_CANCEL_NET			0x304
+	do_facet $server_facet lctl set_param fail_loc=0x80000304
+	do_facet client "$@" || rc=$?
+	do_facet $server_facet lctl set_param fail_loc=0
+	return $rc
+}
+
+drop_server_bl_callback_once() {
+	local server_facet=$1
+	local rc=0
+	shift
+
+#define OBD_FAIL_LDLM_BL_CALLBACK_NET			0x305
+	do_facet $server_facet lctl set_param fail_loc=0x80000305
+	do_facet client "$@" || rc=$?
+	do_facet $server_facet lctl set_param fail_loc=0
+	return $rc
+}
+
 drop_bl_callback_once() {
 	local rc=0
 	do_facet client lctl set_param ldlm.namespaces.*.early_lock_cancel=0
