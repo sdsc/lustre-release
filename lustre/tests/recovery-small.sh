@@ -155,7 +155,7 @@ test_10a() {
 
 	do_facet client "stat $DIR > /dev/null"  ||
 		error "failed to stat $DIR: $?"
-	drop_bl_callback "chmod 0777 $DIR" ||
+	drop_bl_callback client "chmod 0777 $DIR" ||
 		error "failed to chmod $DIR: $?"
 
 	# let the client reconnect
@@ -179,7 +179,7 @@ test_10b() {
 		skip "Need MDS version at least 2.6.53" && return
 	do_facet client "stat $DIR > /dev/null"  ||
 		error "failed to stat $DIR: $?"
-	drop_bl_callback_once "chmod 0777 $DIR" ||
+	drop_bl_callback_once client "chmod 0777 $DIR" ||
 		error "failed to chmod $DIR: $?"
 
 	# let the client reconnect
@@ -218,7 +218,7 @@ test_10c() {
 	conn_uuid=$($LCTL get_param -n mdc.${mdccli}.mds_conn_uuid)
 	mdcpath="mdc.${mdccli}.import=connection=${conn_uuid}"
 
-	drop_bl_callback_once "chmod 0777 ${workdir}" &
+	drop_bl_callback_once client "chmod 0777 ${workdir}" &
 	pid=$!
 
 	# let chmod blocked
@@ -263,7 +263,7 @@ test_10d() {
 
 	stat $DIR2/$tfile >& /dev/null
 	$LCTL set_param fail_err=71
-	drop_bl_callback "echo -n \\\", world\\\" >> $DIR2/$tfile"
+	drop_bl_callback client "echo -n \\\", world\\\" >> $DIR2/$tfile"
 
 	client_reconnect
 
@@ -296,7 +296,7 @@ test_11(){
 
 	do_facet client $MULTIOP $DIR/$tfile or  ||
 		{ error "multiop read failed: $?"; return 3; }
-	drop_bl_callback_once $MULTIOP $DIR/$tfile Ow ||
+	drop_bl_callback_once client "$MULTIOP $DIR/$tfile" Ow ||
 		echo "evicted as expected"
 
 	do_facet client munlink $DIR/$tfile ||
@@ -1031,7 +1031,7 @@ run_test 27 "fail LOV while using OSC's"
 
 test_28() {      # bug 6086 - error adding new clients
 	do_facet client mcreate $DIR/$tfile       || return 1
-	drop_bl_callback_once "chmod 0777 $DIR/$tfile" ||
+	drop_bl_callback_once client "chmod 0777 $DIR/$tfile" ||
 		echo "evicted as expected"
 	#define OBD_FAIL_MDS_CLIENT_ADD 0x12f
 	do_facet $SINGLEMDS "lctl set_param fail_loc=0x8000012f"
@@ -1284,7 +1284,7 @@ test_58() { # bug 11546
         pid=$!
         sleep 1
         lctl set_param fail_loc=0
-        drop_bl_callback_once rm -f $DIR/$tfile
+	drop_bl_callback_once client "rm -f $DIR/$tfile"
         wait $pid
         # the first 'df' could tigger the eviction caused by
         # 'drop_bl_callback_once', and it's normal case.
@@ -2081,6 +2081,34 @@ test_110j () {
 				error "remote not present after ln"
 }
 run_test 110j "drop update reply during cross-MDT ln"
+
+test_110k () {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+	local remote_dir=$DIR/$tdir/remote_dir
+	local local_dir=$DIR/$tdir/local_dir
+	local rc=0
+
+	mkdir -p $DIR/$tdir
+	$LFS mkdir -i 1 $remote_dir
+
+	drop_bl_callback_once mds2 "mkdir $local_dir" ||
+		error "mkdir $local_dir failed"
+}
+run_test 110k "drop blocking ast req for remote MDT will not cause eviction"
+
+test_110l () {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+	local remote_dir=$DIR/$tdir/remote_dir
+	local local_dir=$DIR/$tdir/local_dir
+	local rc=0
+
+	mkdir -p $DIR/$tdir
+	$LFS mkdir -i 1 $remote_dir
+
+	drop_server_cancel_once mds2 "mkdir $local_dir" ||
+		error "mkdir $local_dir failed"
+}
+run_test 110l "drop lock cancel for remote MDT will not cause eviction"
 
 # LU-2844 mdt prepare fail should not cause umount oops
 test_111 ()
