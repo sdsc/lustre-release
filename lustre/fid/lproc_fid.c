@@ -170,20 +170,26 @@ lprocfs_server_fid_width_seq_write(struct file *file, const char __user *buffer,
 					size_t count, loff_t *off)
 {
 	struct lu_server_seq *seq = ((struct seq_file *)file->private_data)->private;
-	int rc, val;
+	int rc;
+	__s64 val;
 	ENTRY;
 
 	LASSERT(seq != NULL);
 
 	mutex_lock(&seq->lss_mutex);
 
-	rc = lprocfs_write_helper(buffer, count, &val);
-	if (rc != 0) {
+	rc = lprocfs_str_to_s64(buffer, count, &val);
+	if (rc) {
 		CERROR("%s: invalid width.\n", seq->lss_name);
 		GOTO(out_unlock, count = rc);
 	}
 
-	seq->lss_width = val;
+	if (val < 0 || val > ULLONG_MAX) {
+		CERROR("%s: invalid width.\n", seq->lss_name);
+		GOTO(out_unlock, count = -ERANGE);
+	}
+
+	seq->lss_width = (__u64)val;
 
 	CDEBUG(D_INFO, "%s: Width: "LPU64"\n",
 	       seq->lss_name, seq->lss_width);
@@ -552,14 +558,15 @@ lprocfs_client_fid_width_seq_write(struct file *file, const char __user *buffer,
 {
 	struct lu_client_seq *seq = ((struct seq_file *)file->private_data)->private;
 	__u64  max;
-	int rc, val;
+	int rc;
+	__s64 val;
 	ENTRY;
 
 	LASSERT(seq != NULL);
 
 	mutex_lock(&seq->lcs_mutex);
 
-	rc = lprocfs_write_helper(buffer, count, &val);
+	rc = lprocfs_str_to_s64(buffer, count, &val);
 	if (rc) {
 		mutex_unlock(&seq->lcs_mutex);
 		RETURN(rc);
@@ -571,11 +578,15 @@ lprocfs_client_fid_width_seq_write(struct file *file, const char __user *buffer,
 		max = LUSTRE_METADATA_SEQ_MAX_WIDTH;
 
 	if (val <= max && val > 0) {
-		seq->lcs_width = val;
+		seq->lcs_width = (__u64)val;
 
 		CDEBUG(D_INFO, "%s: Sequence size: "LPU64"\n",
 		       seq->lcs_name, seq->lcs_width);
+	} else {
+		mutex_unlock(&seq->lcs_mutex);
+		RETURN(-ERANGE);
 	}
+
 	mutex_unlock(&seq->lcs_mutex);
 
 	RETURN(count);

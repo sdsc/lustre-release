@@ -218,9 +218,10 @@ static ssize_t ll_xattr_cache_seq_write(struct file *file,
 {
 	struct seq_file *m = file->private_data;
 	struct ll_sb_info *sbi = ll_s2sbi((struct super_block *)m->private);
-	int val, rc;
+	__s64 val;
+	int rc;
 
-	rc = lprocfs_write_helper(buffer, count, &val);
+	rc = lprocfs_str_to_s64(buffer, count, &val);
 	if (rc)
 		return rc;
 
@@ -230,7 +231,7 @@ static ssize_t ll_xattr_cache_seq_write(struct file *file,
 	if (val == 1 && !(sbi->ll_flags & LL_SBI_XATTR_CACHE))
 		return -ENOTSUPP;
 
-	sbi->ll_xattr_cache_enabled = val;
+	sbi->ll_xattr_cache_enabled = (unsigned int)val;
 
 	return count;
 }
@@ -270,20 +271,20 @@ ll_max_readahead_mb_seq_write(struct file *file, const char __user *buffer,
 	struct seq_file *m = file->private_data;
 	struct super_block *sb = m->private;
 	struct ll_sb_info *sbi = ll_s2sbi(sb);
-	__u64 val;
-	long pages_number;
+	__s64 val;
+	unsigned long pages_number;
 	int pages_shift;
 	int rc;
 
 	pages_shift = 20 - PAGE_CACHE_SHIFT;
-	rc = lprocfs_write_frac_u64_helper(buffer, count, &val,
+	rc = lprocfs_str_to_s64_mult(buffer, count, &val,
 					   1 << pages_shift);
 	if (rc)
 		return rc;
-
-	if (val > LONG_MAX)
+	if (val > ULONG_MAX || val < 0)
 		return -ERANGE;
-	pages_number = (long)val;
+
+	pages_number = (unsigned long)val;
 
 	if (pages_number < 0 || pages_number > totalram_pages / 2) {
 		/* 1/2 of RAM */
@@ -323,16 +324,21 @@ ll_max_readahead_per_file_mb_seq_write(struct file *file,
 	struct seq_file *m = file->private_data;
 	struct super_block *sb = m->private;
 	struct ll_sb_info *sbi = ll_s2sbi(sb);
-	int pages_shift, rc, pages_number;
+	int pages_shift, rc;
+	__s64 val;
+	unsigned long pages_number;
 
 	pages_shift = 20 - PAGE_CACHE_SHIFT;
-	rc = lprocfs_write_frac_helper(buffer, count, &pages_number,
-				       1 << pages_shift);
+	rc = lprocfs_str_to_s64_mult(buffer, count, &val, 1 << pages_shift);
 	if (rc)
 		return rc;
+	if (val < 0 || val > ULONG_MAX)
+		return -ERANGE;
 
-	if (pages_number < 0 || pages_number > sbi->ll_ra_info.ra_max_pages) {
-		CERROR("%s: can't set max_readahead_per_file_mb=%u > "
+	pages_number = (unsigned long)val;
+
+	if (pages_number > sbi->ll_ra_info.ra_max_pages) {
+		CERROR("%s: can't set max_readahead_per_file_mb=%lu > "
 		       "max_read_ahead_mb=%lu\n", ll_get_fsname(sb, NULL, 0),
 		       pages_number >> pages_shift,
 		       sbi->ll_ra_info.ra_max_pages >> pages_shift);
@@ -369,19 +375,23 @@ ll_max_read_ahead_whole_mb_seq_write(struct file *file,
 	struct seq_file *m = file->private_data;
 	struct super_block *sb = m->private;
 	struct ll_sb_info *sbi = ll_s2sbi(sb);
-	int pages_shift, rc, pages_number;
+	int pages_shift, rc;
+	unsigned long pages_number;
+	__s64 val;
 
 	pages_shift = 20 - PAGE_CACHE_SHIFT;
-	rc = lprocfs_write_frac_helper(buffer, count, &pages_number,
-				       1 << pages_shift);
+	rc = lprocfs_str_to_s64_mult(buffer, count, &val, 1 << pages_shift);
 	if (rc)
 		return rc;
+	if (val < 0 || val > ULONG_MAX)
+		return -ERANGE;
+
+	pages_number = (unsigned long)val;
 
 	/* Cap this at the current max readahead window size, the readahead
 	 * algorithm does this anyway so it's pointless to set it larger. */
-	if (pages_number < 0 ||
-	    pages_number > sbi->ll_ra_info.ra_max_pages_per_file) {
-		CERROR("%s: can't set max_read_ahead_whole_mb=%u > "
+	if (pages_number > sbi->ll_ra_info.ra_max_pages_per_file) {
+		CERROR("%s: can't set max_read_ahead_whole_mb=%lu > "
 		       "max_read_ahead_per_file_mb=%lu\n",
 		       ll_get_fsname(sb, NULL, 0),
 		       pages_number >> pages_shift,
@@ -429,7 +439,7 @@ ll_max_cached_mb_seq_write(struct file *file, const char __user *buffer,
 	struct ll_sb_info *sbi = ll_s2sbi(sb);
 	struct cl_client_cache *cache = sbi->ll_cache;
 	struct lu_env *env;
-	__u64 val;
+	__s64 val;
 	long diff = 0;
 	long nrpages = 0;
 	long pages_number;
@@ -449,11 +459,11 @@ ll_max_cached_mb_seq_write(struct file *file, const char __user *buffer,
 	mult = 1 << (20 - PAGE_CACHE_SHIFT);
 	buffer += lprocfs_find_named_value(kernbuf, "max_cached_mb:", &count) -
 		  kernbuf;
-	rc = lprocfs_write_frac_u64_helper(buffer, count, &val, mult);
+	rc = lprocfs_str_to_s64_mult(buffer, count, &val, mult);
 	if (rc)
 		RETURN(rc);
 
-	if (val > LONG_MAX)
+	if (val > LONG_MAX || val < LONG_MIN)
 		return -ERANGE;
 	pages_number = (long)val;
 
@@ -547,13 +557,14 @@ static ssize_t ll_checksum_seq_write(struct file *file,
 {
 	struct seq_file *m = file->private_data;
 	struct ll_sb_info *sbi = ll_s2sbi((struct super_block *)m->private);
-        int val, rc;
+        int rc;
+	__s64 val;
 
         if (!sbi->ll_dt_exp)
                 /* Not set up yet */
                 return -EAGAIN;
 
-        rc = lprocfs_write_helper(buffer, count, &val);
+        rc = lprocfs_str_to_s64(buffer, count, &val);
         if (rc)
                 return rc;
         if (val)
@@ -588,12 +599,16 @@ static int ll_wr_track_id(const char __user *buffer, unsigned long count,
 			  void *data, enum stats_track_type type)
 {
 	struct super_block *sb = data;
-        int rc, pid;
+        int rc;
+	__s64 pid;
 
-        rc = lprocfs_write_helper(buffer, count, &pid);
+        rc = lprocfs_str_to_s64(buffer, count, &pid);
         if (rc)
                 return rc;
-        ll_s2sbi(sb)->ll_stats_track_id = pid;
+	if (pid > INT_MAX || pid < INT_MIN)
+		return -ERANGE;
+
+        ll_s2sbi(sb)->ll_stats_track_id = (int)pid;
         if (pid == 0)
                 ll_s2sbi(sb)->ll_stats_track_type = STATS_TRACK_ALL;
         else
@@ -658,17 +673,21 @@ static ssize_t ll_statahead_max_seq_write(struct file *file,
 {
 	struct seq_file *m = file->private_data;
 	struct ll_sb_info *sbi = ll_s2sbi((struct super_block *)m->private);
-	int val, rc;
+	int rc;
+	__s64 val;
 
-        rc = lprocfs_write_helper(buffer, count, &val);
+        rc = lprocfs_str_to_s64(buffer, count, &val);
         if (rc)
                 return rc;
 
+	if (val < 0 || val > ULONG_MAX)
+		return -ERANGE;
+
         if (val >= 0 && val <= LL_SA_RPC_MAX)
-                sbi->ll_sa_max = val;
+                sbi->ll_sa_max = (unsigned long)val;
         else
-                CERROR("Bad statahead_max value %d. Valid values are in the "
-                       "range [0, %d]\n", val, LL_SA_RPC_MAX);
+                CERROR("Bad statahead_max value %lu. Valid values are in the "
+                       "range [0, %d]\n", (unsigned long)val, LL_SA_RPC_MAX);
 
         return count;
 }
@@ -689,9 +708,10 @@ static ssize_t ll_statahead_agl_seq_write(struct file *file,
 {
 	struct seq_file *m = file->private_data;
 	struct ll_sb_info *sbi = ll_s2sbi((struct super_block *)m->private);
-	int val, rc;
+	int rc;
+	__s64 val;
 
-        rc = lprocfs_write_helper(buffer, count, &val);
+        rc = lprocfs_str_to_s64(buffer, count, &val);
         if (rc)
                 return rc;
 
@@ -734,9 +754,10 @@ static ssize_t ll_lazystatfs_seq_write(struct file *file,
 {
 	struct seq_file *m = file->private_data;
 	struct ll_sb_info *sbi = ll_s2sbi((struct super_block *)m->private);
-	int val, rc;
+	int rc;
+	__s64 val;
 
-        rc = lprocfs_write_helper(buffer, count, &val);
+        rc = lprocfs_str_to_s64(buffer, count, &val);
         if (rc)
                 return rc;
 
@@ -812,15 +833,17 @@ static ssize_t ll_default_easize_seq_write(struct file *file,
 	struct seq_file		*seq = file->private_data;
 	struct super_block	*sb = (struct super_block *)seq->private;
 	struct ll_sb_info	*sbi = ll_s2sbi(sb);
-	int			 val;
+	__s64			 val;
 	int			 rc;
 
 	if (count == 0)
 		return 0;
 
-	rc = lprocfs_write_helper(buffer, count, &val);
+	rc = lprocfs_str_to_s64(buffer, count, &val);
 	if (rc < 0)
 		return rc;
+	if (val < INT_MIN || val > INT_MAX)
+		return -ERANGE;
 
 	rc = ll_set_default_mdsize(sbi, val);
 	if (rc)
@@ -878,7 +901,8 @@ static ssize_t ll_unstable_stats_seq_write(struct file *file,
 	struct seq_file *seq = file->private_data;
 	struct ll_sb_info *sbi = ll_s2sbi((struct super_block *)seq->private);
 	char kernbuf[128];
-	int val, rc;
+	int rc;
+	__s64 val;
 
 	if (count == 0)
 		return 0;
@@ -891,7 +915,7 @@ static ssize_t ll_unstable_stats_seq_write(struct file *file,
 
 	buffer += lprocfs_find_named_value(kernbuf, "unstable_check:", &count) -
 		  kernbuf;
-	rc = lprocfs_write_helper(buffer, count, &val);
+	rc = lprocfs_str_to_s64(buffer, count, &val);
 	if (rc < 0)
 		return rc;
 
@@ -1365,12 +1389,13 @@ static ssize_t ll_rw_extents_stats_pp_seq_write(struct file *file,
 	struct ll_sb_info *sbi = seq->private;
 	struct ll_rw_extents_info *io_extents = &sbi->ll_rw_extents_info;
 	int i;
-	int value = 1, rc = 0;
+	__s64 value = 1;
+	int rc = 0;
 
 	if (len == 0)
 		return -EINVAL;
 
-	rc = lprocfs_write_helper(buf, len, &value);
+	rc = lprocfs_str_to_s64(buf, len, &value);
 	if (rc < 0 && len < 16) {
 		char kernbuf[16];
 
@@ -1439,12 +1464,13 @@ static ssize_t ll_rw_extents_stats_seq_write(struct file *file,
 	struct ll_sb_info *sbi = seq->private;
 	struct ll_rw_extents_info *io_extents = &sbi->ll_rw_extents_info;
 	int i;
-	int value = 1, rc = 0;
+	__s64 value = 1;
+	int rc = 0;
 
 	if (len == 0)
 		return -EINVAL;
 
-	rc = lprocfs_write_helper(buf, len, &value);
+	rc = lprocfs_str_to_s64(buf, len, &value);
 	if (rc < 0 && len < 16) {
 		char kernbuf[16];
 
@@ -1644,12 +1670,13 @@ static ssize_t ll_rw_offset_stats_seq_write(struct file *file,
 	struct ll_sb_info *sbi = seq->private;
 	struct ll_rw_process_info *process_info = sbi->ll_rw_process_info;
 	struct ll_rw_process_info *offset_info = sbi->ll_rw_offset_info;
-	int value = 1, rc = 0;
+	__s64 value = 1;
+	int rc = 0;
 
 	if (len == 0)
 		return -EINVAL;
 
-	rc = lprocfs_write_helper(buf, len, &value);
+	rc = lprocfs_str_to_s64(buf, len, &value);
 
 	if (rc < 0 && len < 16) {
 		char kernbuf[16];

@@ -76,9 +76,10 @@ osp_active_seq_write(struct file *file, const char *buffer,
 {
 	struct seq_file   *m = file->private_data;
 	struct obd_device *dev = m->private;
-	int		   val, rc;
+	int		   rc;
+	__s64		   val;
 
-	rc = lprocfs_write_helper(buffer, count, &val);
+	rc = lprocfs_str_to_s64(buffer, count, &val);
 	if (rc)
 		return rc;
 	if (val < 0 || val > 1)
@@ -87,10 +88,10 @@ osp_active_seq_write(struct file *file, const char *buffer,
 	LPROCFS_CLIMP_CHECK(dev);
 	/* opposite senses */
 	if (dev->u.cli.cl_import->imp_deactive == val)
-		rc = ptlrpc_set_import_active(dev->u.cli.cl_import, val);
+		rc = ptlrpc_set_import_active(dev->u.cli.cl_import, (int)val);
 	else
 		CDEBUG(D_CONFIG, "activate %d: ignoring repeat request\n",
-		       val);
+		       (int)val);
 
 	LPROCFS_CLIMP_EXIT(dev);
 	return count;
@@ -222,19 +223,20 @@ osp_max_rpcs_in_flight_seq_write(struct file *file, const char *buffer,
 	struct seq_file		*m = file->private_data;
 	struct obd_device	*dev = m->private;
 	struct osp_device	*osp = lu2osp_dev(dev->obd_lu_dev);
-	int			 val, rc;
+	int			 rc;
+	__s64			 val;
 
 	if (osp == NULL)
 		return -EINVAL;
 
-	rc = lprocfs_write_helper(buffer, count, &val);
+	rc = lprocfs_str_to_s64(buffer, count, &val);
 	if (rc)
 		return rc;
 
-	if (val < 1)
+	if (val < 1 || val > INT_MAX)
 		return -ERANGE;
 
-	osp->opd_syn_max_rpc_in_flight = val;
+	osp->opd_syn_max_rpc_in_flight = (int)val;
 	return count;
 }
 LPROC_SEQ_FOPS(osp_max_rpcs_in_flight);
@@ -275,19 +277,20 @@ osp_max_rpcs_in_prog_seq_write(struct file *file, const char *buffer,
 	struct seq_file		*m = file->private_data;
 	struct obd_device	*dev = m->private;
 	struct osp_device	*osp = lu2osp_dev(dev->obd_lu_dev);
-	int			 val, rc;
+	int			 rc;
+	__s64			 val;
 
 	if (osp == NULL)
 		return -EINVAL;
 
-	rc = lprocfs_write_helper(buffer, count, &val);
+	rc = lprocfs_str_to_s64(buffer, count, &val);
 	if (rc)
 		return rc;
 
-	if (val < 1)
+	if (val < 1 || val > INT_MAX)
 		return -ERANGE;
 
-	osp->opd_syn_max_rpc_in_progress = val;
+	osp->opd_syn_max_rpc_in_progress = (int)val;
 
 	return count;
 }
@@ -329,12 +332,13 @@ osp_create_count_seq_write(struct file *file, const char *buffer,
 	struct seq_file		*m = file->private_data;
 	struct obd_device	*obd = m->private;
 	struct osp_device	*osp = lu2osp_dev(obd->obd_lu_dev);
-	int			 val, rc, i;
+	int			 rc, i;
+	__s64			 val;
 
 	if (osp == NULL || osp->opd_pre == NULL)
 		return 0;
 
-	rc = lprocfs_write_helper(buffer, count, &val);
+	rc = lprocfs_str_to_s64(buffer, count, &val);
 	if (rc)
 		return rc;
 
@@ -397,24 +401,25 @@ osp_max_create_count_seq_write(struct file *file, const char *buffer,
 	struct seq_file		*m = file->private_data;
 	struct obd_device	*obd = m->private;
 	struct osp_device	*osp = lu2osp_dev(obd->obd_lu_dev);
-	int			 val, rc;
+	int			 rc;
+	__s64			 val;
 
 	if (osp == NULL || osp->opd_pre == NULL)
 		return 0;
 
-	rc = lprocfs_write_helper(buffer, count, &val);
+	rc = lprocfs_str_to_s64(buffer, count, &val);
 	if (rc)
 		return rc;
 
-	if (val < 0)
+	if (val < 0 || val > INT_MAX)
 		return -ERANGE;
 	if (val > OST_MAX_PRECREATE)
 		return -ERANGE;
 
 	if (osp->opd_pre_grow_count > val)
-		osp->opd_pre_grow_count = val;
+		osp->opd_pre_grow_count = (int)val;
 
-	osp->opd_pre_max_grow_count = val;
+	osp->opd_pre_max_grow_count = (int)val;
 
 	return count;
 }
@@ -557,19 +562,20 @@ osp_maxage_seq_write(struct file *file, const char *buffer,
 	struct seq_file		*m = file->private_data;
 	struct obd_device	*dev = m->private;
 	struct osp_device	*osp = lu2osp_dev(dev->obd_lu_dev);
-	int			 val, rc;
+	int			 rc;
+	__s64			 val;
 
 	if (osp == NULL)
 		return -EINVAL;
 
-	rc = lprocfs_write_helper(buffer, count, &val);
+	rc = lprocfs_str_to_s64(buffer, count, &val);
 	if (rc)
 		return rc;
 
-	if (val < 1)
+	if (val < 1 || val > INT_MAX)
 		return -ERANGE;
 
-	osp->opd_statfs_maxage = val;
+	osp->opd_statfs_maxage = (int)val;
 
 	return count;
 }
@@ -679,15 +685,18 @@ osp_lfsck_max_rpcs_in_flight_seq_write(struct file *file,
 {
 	struct seq_file	  *m = file->private_data;
 	struct obd_device *dev = m->private;
-	int val;
+	__s64 val;
 	int rc;
 
-	rc = lprocfs_write_helper(buffer, count, &val);
-	if (rc == 0)
-		rc = obd_set_max_rpcs_in_flight(&dev->u.cli, val);
+	rc = lprocfs_str_to_s64(buffer, count, &val);
+	if (rc == 0) {
+		if(val < 0 || val > ULONG_MAX)
+			return -ERANGE;
 
-	if (rc != 0)
+		rc = obd_set_max_rpcs_in_flight(&dev->u.cli, val);
+	} else {
 		count = rc;
+	}
 
 	return count;
 }

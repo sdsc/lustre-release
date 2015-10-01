@@ -294,14 +294,14 @@ ptlrpc_lprocfs_req_history_max_seq_write(struct file *file,
 	struct seq_file		*m = file->private_data;
 	struct ptlrpc_service	*svc = m->private;
 	int			bufpages;
-	int			val;
+	__s64			val;
 	int			rc;
 
-	rc = lprocfs_write_helper(buffer, count, &val);
+	rc = lprocfs_str_to_s64(buffer, count, &val);
         if (rc < 0)
                 return rc;
 
-        if (val < 0)
+        if (val < 0 || val > INT_MAX)
                 return -ERANGE;
 
         /* This sanity check is more of an insanity check; we can still
@@ -317,7 +317,7 @@ ptlrpc_lprocfs_req_history_max_seq_write(struct file *file,
 	if (val == 0)
 		svc->srv_hist_nrqbds_cpt_max = 0;
 	else
-		svc->srv_hist_nrqbds_cpt_max = max(1, (val / svc->srv_ncpts));
+		svc->srv_hist_nrqbds_cpt_max = max(1, ((int)val / svc->srv_ncpts));
 
 	spin_unlock(&svc->srv_lock);
 
@@ -341,8 +341,8 @@ ptlrpc_lprocfs_threads_min_seq_write(struct file *file,
 {
 	struct seq_file		*m = file->private_data;
 	struct ptlrpc_service	*svc = m->private;
-	int	val;
-	int	rc = lprocfs_write_helper(buffer, count, &val);
+	__s64	val;
+	int	rc = lprocfs_str_to_s64(buffer, count, &val);
 
 	if (rc < 0)
 		return rc;
@@ -356,7 +356,7 @@ ptlrpc_lprocfs_threads_min_seq_write(struct file *file,
 		return -ERANGE;
 	}
 
-	svc->srv_nthrs_cpt_init = val / svc->srv_ncpts;
+	svc->srv_nthrs_cpt_init = (int)val / svc->srv_ncpts;
 
 	spin_unlock(&svc->srv_lock);
 
@@ -395,8 +395,8 @@ ptlrpc_lprocfs_threads_max_seq_write(struct file *file,
 {
 	struct seq_file		*m = file->private_data;
 	struct ptlrpc_service	*svc = m->private;
-	int	val;
-	int	rc = lprocfs_write_helper(buffer, count, &val);
+	__s64	val;
+	int	rc = lprocfs_str_to_s64(buffer, count, &val);
 
 	if (rc < 0)
 		return rc;
@@ -410,7 +410,7 @@ ptlrpc_lprocfs_threads_max_seq_write(struct file *file,
 		return -ERANGE;
 	}
 
-	svc->srv_nthrs_cpt_limit = val / svc->srv_ncpts;
+	svc->srv_nthrs_cpt_limit = (int)val / svc->srv_ncpts;
 
 	spin_unlock(&svc->srv_lock);
 
@@ -1057,17 +1057,17 @@ ptlrpc_lprocfs_hp_ratio_seq_write(struct file *file, const char __user *buffer,
 	struct seq_file		*m = file->private_data;
 	struct ptlrpc_service	*svc = m->private;
 	int	rc;
-	int	val;
+	__s64	val;
 
-	rc = lprocfs_write_helper(buffer, count, &val);
+	rc = lprocfs_str_to_s64(buffer, count, &val);
 	if (rc < 0)
 		return rc;
 
-	if (val < 0)
+	if (val < 0 || val > INT_MAX)
 		return -ERANGE;
 
 	spin_lock(&svc->srv_lock);
-	svc->srv_hpreq_ratio = val;
+	svc->srv_hpreq_ratio = (int)val;
 	spin_unlock(&svc->srv_lock);
 
 	return count;
@@ -1313,9 +1313,10 @@ lprocfs_pinger_recov_seq_write(struct file *file, const char *buffer,
 	struct obd_device *obd	= m->private;
 	struct client_obd *cli	= &obd->u.cli;
 	struct obd_import *imp	= cli->cl_import;
-	int rc, val;
+	int rc;
+	__s64 val;
 
-	rc = lprocfs_write_helper(buffer, count, &val);
+	rc = lprocfs_str_to_s64(buffer, count, &val);
 	if (rc < 0)
 		return rc;
 

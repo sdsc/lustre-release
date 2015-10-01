@@ -320,9 +320,10 @@ ssize_t lprocfs_uint_seq_write(struct file *file, const char __user *buffer,
 			       size_t count, loff_t *off)
 {
 	int *data = ((struct seq_file *)file->private_data)->private;
-	int val = 0, rc;
+	int rc;
+	__s64 val = 0;
 
-	rc = lprocfs_write_helper(buffer, count, &val);
+	rc = lprocfs_str_to_s64(buffer, count, &val);
 	if (rc < 0)
 		return rc;
 
@@ -350,17 +351,17 @@ lprocfs_atomic_seq_write(struct file *file, const char __user *buffer,
 			size_t count, loff_t *off)
 {
 	atomic_t *atm = ((struct seq_file *)file->private_data)->private;
-	int val = 0;
+	__s64 val = 0;
 	int rc;
 
-	rc = lprocfs_write_helper(buffer, count, &val);
+	rc = lprocfs_str_to_s64(buffer, count, &val);
 	if (rc < 0)
 		return rc;
 
-	if (val <= 0)
+	if (val <= 0 || val > INT_MAX)
 		return -ERANGE;
 
-	atomic_set(atm, val);
+	atomic_set(atm, (int)val);
 	return count;
 }
 EXPORT_SYMBOL(lprocfs_atomic_seq_write);
@@ -1507,56 +1508,6 @@ __s64 lprocfs_read_helper(struct lprocfs_counter *lc,
 }
 EXPORT_SYMBOL(lprocfs_read_helper);
 
-int lprocfs_write_helper(const char __user *buffer, unsigned long count,
-                         int *val)
-{
-        return lprocfs_write_frac_helper(buffer, count, val, 1);
-}
-EXPORT_SYMBOL(lprocfs_write_helper);
-
-int lprocfs_write_frac_helper(const char __user *buffer, unsigned long count,
-                              int *val, int mult)
-{
-        char kernbuf[20], *end, *pbuf;
-
-        if (count > (sizeof(kernbuf) - 1))
-                return -EINVAL;
-
-	if (copy_from_user(kernbuf, buffer, count))
-                return -EFAULT;
-
-        kernbuf[count] = '\0';
-        pbuf = kernbuf;
-        if (*pbuf == '-') {
-                mult = -mult;
-                pbuf++;
-        }
-
-        *val = (int)simple_strtoul(pbuf, &end, 10) * mult;
-        if (pbuf == end)
-                return -EINVAL;
-
-        if (end != NULL && *end == '.') {
-                int temp_val, pow = 1;
-                int i;
-
-                pbuf = end + 1;
-                if (strlen(pbuf) > 5)
-                        pbuf[5] = '\0'; /*only allow 5bits fractional*/
-
-                temp_val = (int)simple_strtoul(pbuf, &end, 10) * mult;
-
-                if (pbuf < end) {
-                        for (i = 0; i < (end - pbuf); i++)
-                                pow *= 10;
-
-                        *val += temp_val / pow;
-                }
-        }
-        return 0;
-}
-EXPORT_SYMBOL(lprocfs_write_frac_helper);
-
 int lprocfs_read_frac_helper(char *buffer, unsigned long count, long val,
                              int mult)
 {
@@ -1636,77 +1587,260 @@ int lprocfs_seq_read_frac_helper(struct seq_file *m, long val, int mult)
 }
 EXPORT_SYMBOL(lprocfs_seq_read_frac_helper);
 
-int lprocfs_write_u64_helper(const char __user *buffer, unsigned long count,
-			     __u64 *val)
+int lprocfs_parseull(const char *buffer, __u64 *val, char **end)
 {
-        return lprocfs_write_frac_u64_helper(buffer, count, val, 1);
-}
-EXPORT_SYMBOL(lprocfs_write_u64_helper);
+	__u64 prev = 0;	/* the value prior to adding another digits place */
+	__u64 result = 0;  /* the final result */
+	char *pbuf = (char *)buffer;
 
-int lprocfs_write_frac_u64_helper(const char __user *buffer,
-				  unsigned long count,
-				  __u64 *val, int mult)
+	while (isdigit(*pbuf)) {
+		prev = result;
+		result = result * 10 + (*pbuf - '0');
+
+		/* if new result is less than prev, we wrapped */
+		if (result < prev)
+			return -ERANGE;
+
+		pbuf++;
+	}
+
+	if (end != NULL)
+		*end = (char *)pbuf;
+
+	/* we didn't parse anything, so not a valid number */
+	if (pbuf == buffer)
+		return -EINVAL;
+
+	*val = result;
+	return 0;
+}
+
+int lprocfs_get_mult(char unit, __u64 *mult)
 {
-        char kernbuf[22], *end, *pbuf;
-        __u64 whole, frac = 0, units;
-        unsigned frac_d = 1;
+	__u64 units = 1;
+
+	switch (unit) {
+	/* peta, tera, giga, mega, and kilo */
+	case 'p': 
+	case 'P': 
+		units <<= 10;
+	case 't': 
+	case 'T': 
+		units <<= 10;
+	case 'g': 
+	case 'G': 
+		units <<= 10;
+	case 'm': 
+	case 'M': 
+		units <<= 10;
+	case 'k': 
+	case 'K': 
+		units <<= 10;
+		break;
+	/* some tests expect % to be accepted, treat
+ 	 * it like a unit.
+ 	 */ 
+	case '%':
+		units = 1;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	*mult = units;
+	return 0;
+}
+
+int lprocfs_preprocess_numeric_str(char *buffer, __u64 *mult, 
+					__u64 def_mult, bool allow_units)
+{
+	bool hit_decimal = false;
+	bool hit_unit = false;
+	int rc = 0;
+	*mult = def_mult;
+
+	while(*buffer) {
+		/* if we see any other chars after our unit, this is a
+		   malformed string */
+		if (hit_unit)
+			return -EINVAL;
+
+		/* ensure we only hit one decimal */
+		if (*buffer == '.') {
+			if (hit_decimal)
+				return -EINVAL;
+
+			hit_decimal = true;
+		} else if (!isdigit(*buffer)) {
+		/* if we allow units, attempt to get the multiplier */
+			if (allow_units) {
+				hit_unit = true;
+				rc = lprocfs_get_mult(*buffer, mult);
+				if (rc)
+					return rc;
+			} else {
+				/* we don't allow units, bad string */
+				return -EINVAL;
+			}
+		}
+
+		buffer++;
+	}
+
+	return 0;
+}
+
+int lprocfs_str_to_u64_parse(char *buffer, unsigned long count, 
+				__u64 *val, __u64 def_mult, bool allow_units)
+{
+	__u64 whole = 0, frac = 0;
+	unsigned int frac_d = 1;
+	__u64 wrap_indicator = ULLONG_MAX;
+	int rc = 0;
+	char *pbuf = buffer, *end = pbuf;
+	__u64 mult;
+
+	rc = lprocfs_preprocess_numeric_str(buffer, &mult,
+						def_mult, allow_units);
+	if (rc)
+		return rc;
+
+	if (mult == 0) {
+		*val = 0;
+		return 0;
+	}
+
+	/* the multiplier limits how large the value represented by
+ 	 * the string can be 
+ 	 */
+	wrap_indicator /=  mult;
+
+	/* allow strings such as .5 or .4G */
+	if (*pbuf != '.') {
+		rc = lprocfs_parseull(pbuf, &whole, &end);
+		if (rc)
+			return rc;
+
+		if (whole > wrap_indicator)
+			return -ERANGE;
+
+		whole *= mult;
+	}
+
+	/* parse the fractional portion of our string */
+	if (end != NULL && *end == '.') {
+		int i;
+		pbuf = end + 1;
+
+		if (strlen(pbuf) > 10)
+			pbuf[10] = '\0';
+
+		rc = lprocfs_parseull(pbuf, &frac, &end);
+		if (rc) 
+			return rc;
+
+		for (i = 0; i < (end - pbuf); i++)
+			frac_d *= 10;
+
+		/* in this case, the fractional portion is too large 
+		   to perform our calculation */
+		if (frac > wrap_indicator)
+			return -ERANGE;
+
+		frac *= mult;
+		do_div(frac, frac_d);
+	}
+
+	/* check that the sum of whole and fraction fits in u64 */
+	if (whole > (ULLONG_MAX - frac))
+		return -ERANGE;
+	
+	*val = whole + frac;
+	return 0;
+}
+
+int lprocfs_str_to_s64_internal(const char __user *buffer, unsigned long count,
+			__s64 *val, __u64 def_mult, bool allow_units)
+{
+	char kernbuf[20];
+	__u64 tempVal;
+	unsigned int offset = 0;
+	int signed sign = 1;
+	__u64 max = LLONG_MAX;
+	int rc = 0;
 
         if (count > (sizeof(kernbuf) - 1))
                 return -EINVAL;
 
-	if (copy_from_user(kernbuf, buffer, count))
+        if (copy_from_user(kernbuf, buffer, count))
                 return -EFAULT;
 
         kernbuf[count] = '\0';
-        pbuf = kernbuf;
-        if (*pbuf == '-') {
-                mult = -mult;
-                pbuf++;
-        }
 
-        whole = simple_strtoull(pbuf, &end, 10);
-        if (pbuf == end)
-                return -EINVAL;
-
-        if (end != NULL && *end == '.') {
-                int i;
-                pbuf = end + 1;
-
-                /* need to limit frac_d to a __u32 */
-                if (strlen(pbuf) > 10)
-                        pbuf[10] = '\0';
-
-                frac = simple_strtoull(pbuf, &end, 10);
-                /* count decimal places */
-                for (i = 0; i < (end - pbuf); i++)
-                        frac_d *= 10;
-        }
-
-        units = 1;
-	if (end != NULL) {
-		switch (*end) {
-		case 'p': case 'P':
-			units <<= 10;
-		case 't': case 'T':
-			units <<= 10;
-		case 'g': case 'G':
-			units <<= 10;
-		case 'm': case 'M':
-			units <<= 10;
-		case 'k': case 'K':
-			units <<= 10;
-		}
+	/* keep track of our sign */
+	if (*kernbuf == '-') {
+		sign = -1;
+		offset++;
+		max++;
 	}
-        /* Specified units override the multiplier */
-	if (units > 1)
-                mult = mult < 0 ? -units : units;
 
-        frac *= mult;
-        do_div(frac, frac_d);
-        *val = whole * mult + frac;
-        return 0;
+	rc = lprocfs_str_to_u64_parse(kernbuf + offset, count - offset,
+					&tempVal, def_mult, allow_units);
+	if (rc)
+		return rc;
+
+	/* check for overflow/underflow */
+	if (max < tempVal) {
+		return -ERANGE;
+	}
+	
+	*val = (__s64)tempVal * sign;
+	return 0;
 }
-EXPORT_SYMBOL(lprocfs_write_frac_u64_helper);
+
+/* This function converts a string consisting of only digits and a decimal (the
+ * fractional portion will be truncated). If a non-numeric string is provided,
+ * this function will return -EINVAL. If the string represents a value greater
+ * than LLONG_MAX or less than LLONG_MIN, -ERANGE will be returned. Otherwise,
+ * the value represented by the string will be stored in the location pointed
+ * to by val.
+ */ 
+int lprocfs_str_to_s64(const char __user *buffer, unsigned long count,
+			__s64 *val)
+{
+	return lprocfs_str_to_s64_internal(buffer, count, val, 1, false);
+}
+EXPORT_SYMBOL(lprocfs_str_to_s64);
+
+/* This function converts a string consisting of only digits and a decimal
+ * and applies the specified multipler to the value represented by the 
+ * string. If a non-numeric string is provided, this function will return 
+ * -EINVAL. If the final value incorporating the multiplier is greater than
+ * LLONG_MAX or less than LLONG_MIN, -ERANGE will be returned. Otherwise, the
+ * final resulting value will be stored in the location pointed to by val.
+ */ 
+int lprocfs_str_to_s64_mult(const char __user *buffer, unsigned long count,
+			__s64 *val, __u64 mult)
+{
+	return lprocfs_str_to_s64_internal(buffer, count, val, mult, false);
+}
+EXPORT_SYMBOL(lprocfs_str_to_s64_mult);
+
+/* This function converts a string consisting of only digits, a decimal,
+ * and an optional unit at the end of the string. The specified multipler 
+ * is applied to the value represented by the string only if the string
+ * does not end with a unit. If a string is determined to be malformed,
+ * -EINVAL is returned. If the final value incorporating the unit or multiplier
+ * is greater than LLONG_MAX or less than LLONG_MIN, -ERANGE will be returned.
+ * Otherwise, the final resulting value will be stored in the location 
+ * pointed to by val.
+ */ 
+int lprocfs_str_with_units_to_s64(const char __user *buffer,
+				unsigned long count, __s64 *val, __u64 mult)
+{
+	return lprocfs_str_to_s64_internal(buffer, count, val, mult, true);
+}
+EXPORT_SYMBOL(lprocfs_str_with_units_to_s64);
 
 static char *lprocfs_strnstr(const char *s1, const char *s2, size_t len)
 {
