@@ -2797,6 +2797,37 @@ static int osc_process_config(struct obd_device *obd, size_t len, void *buf)
         return osc_process_config_base(obd, buf);
 }
 
+/**
+ * Implementation of obd_ops::o_get_info() for OSC
+ *
+ * Currently, there is only one supported key: KEY_RA_SIZE.
+ *
+ * \param[in]  env		LU environment provided by the caller
+ * \param[in]  exp		export of the caller
+ * \param[in]  keylen		len of the key
+ * \param[in]  key		the key
+ * \param[in,out] vallen	len of the value
+ * \param[out] val		the value
+ *
+ * \retval			0 if a connection was seen
+ * \retval			-EINVAL if not supported key is requested
+ **/
+static int osc_get_info(const struct lu_env *env, struct obd_export *exp,
+			__u32 keylen, void *key, __u32 *vallen, void *val)
+{
+	int rc = -EINVAL;
+	ENTRY;
+
+	if (KEY_IS(KEY_RA_SIZE)) {
+		LASSERT(*vallen == sizeof(u32));
+
+		*(u32 *)val = exp->exp_obd->u.cli.cl_max_pages_per_rpc;
+		rc = 0;
+	}
+
+	RETURN(rc);
+}
+
 static struct obd_ops osc_obd_ops = {
         .o_owner                = THIS_MODULE,
         .o_setup                = osc_setup,
@@ -2814,6 +2845,7 @@ static struct obd_ops osc_obd_ops = {
         .o_getattr              = osc_getattr,
         .o_setattr              = osc_setattr,
         .o_iocontrol            = osc_iocontrol,
+	.o_get_info		= osc_get_info,
         .o_set_info_async       = osc_set_info_async,
         .o_import_event         = osc_import_event,
         .o_process_config       = osc_process_config,
