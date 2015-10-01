@@ -641,10 +641,11 @@ lprocfs_ir_factor_seq_write(struct file *file, const char __user *buffer,
 {
 	struct seq_file *m = file->private_data;
 	struct obd_device *obd = m->private;
-	int val, rc;
+	int rc;
+	__s64 val;
 
 	LASSERT(obd != NULL);
-	rc = lprocfs_write_helper(buffer, count, &val);
+	rc = lprocfs_str_to_s64(buffer, count, &val);
 	if (rc)
 		return rc;
 
@@ -672,12 +673,15 @@ lprocfs_recovery_time_soft_seq_write(struct file *file,
 {
 	struct seq_file *m = file->private_data;
 	struct obd_device *obd = m->private;
-	int val, rc;
+	int rc;
+	__s64 val;
 
 	LASSERT(obd != NULL);
-	rc = lprocfs_write_helper(buffer, count, &val);
+	rc = lprocfs_str_to_s64(buffer, count, &val);
 	if (rc)
 		return rc;
+	if (val < 0 || val > INT_MAX)
+		return -ERANGE;
 
 	obd->obd_recovery_timeout = val;
 	return count;
@@ -700,12 +704,15 @@ lprocfs_recovery_time_hard_seq_write(struct file *file,
 {
 	struct seq_file *m = file->private_data;
 	struct obd_device *obd = m->private;
-	int val, rc;
+	int rc;
+	__s64 val;
 
 	LASSERT(obd != NULL);
-	rc = lprocfs_write_helper(buffer, count, &val);
+	rc = lprocfs_str_to_s64(buffer, count, &val);
 	if (rc)
 		return rc;
+	if (val < 0 || val > INT_MAX)
+		return -ERANGE;
 
 	obd->obd_recovery_time_hard = val;
 	return count;
