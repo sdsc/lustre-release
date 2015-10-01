@@ -731,6 +731,8 @@ static inline struct lov_layout_raid0 *lov_r0(struct lov_object *lov)
 int lov_getstripe(struct lov_object *obj, struct lov_stripe_md *lsm,
 		  struct lov_user_md __user *lump);
 
+loff_t lov_object_ra_size(struct cl_object *clob);
+
 /** @} lov */
 
 #endif
