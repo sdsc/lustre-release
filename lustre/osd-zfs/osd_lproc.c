@@ -260,11 +260,12 @@ zfs_osd_iused_est_seq_write(struct file *file, const char __user *buffer,
 	struct seq_file	  *m = file->private_data;
 	struct dt_device  *dt = m->private;
 	struct osd_device *osd = osd_dt_dev(dt);
-	int                rc, val;
+	int                rc;
+	__s64		   val;
 
 	LASSERT(osd != NULL);
 
-	rc = lprocfs_write_helper(buffer, count, &val);
+	rc = lprocfs_str_to_s64(buffer, count, &val);
 	if (rc)
 		return rc;
 
