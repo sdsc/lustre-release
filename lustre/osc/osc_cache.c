@@ -1316,16 +1316,16 @@ static int osc_completion(const struct lu_env *env, struct osc_async_page *oap,
 
 #define OSC_DUMP_GRANT(lvl, cli, fmt, args...) do {			      \
 	struct client_obd *__tmp = (cli);				      \
-	CDEBUG(lvl, "%s: grant { dirty: %ld/%ld dirty_pages: %d/%d "	      \
+	CDEBUG(lvl, "%s: grant { dirty: %ld/%ld dirty_pages: %ld/%ld "	      \
 	       "dropped: %ld avail: %ld, reserved: %ld, flight: %d } "	      \
-	       "lru {in list: %d, left: %d, waiters: %d }" fmt,		      \
+	       "lru {in list: %ld, left: %ld, waiters: %d }" fmt,	      \
 	       __tmp->cl_import->imp_obd->obd_name,			      \
 	       __tmp->cl_dirty_pages, __tmp->cl_dirty_max_pages,	      \
-	       cfs_atomic_read(&obd_dirty_pages), obd_max_dirty_pages,	      \
+	       cfs_atomic_long_read(&obd_dirty_pages), obd_max_dirty_pages,   \
 	       __tmp->cl_lost_grant, __tmp->cl_avail_grant,		      \
 	       __tmp->cl_reserved_grant, __tmp->cl_w_in_flight,		      \
-	       cfs_atomic_read(&__tmp->cl_lru_in_list),			      \
-	       cfs_atomic_read(&__tmp->cl_lru_busy),			      \
+	       cfs_atomic_long_read(&__tmp->cl_lru_in_list),		      \
+	       cfs_atomic_long_read(&__tmp->cl_lru_busy),		      \
 	       cfs_atomic_read(&__tmp->cl_lru_shrinkers), ##args);	      \
 } while (0)
 
@@ -1335,7 +1335,7 @@ static void osc_consume_write_grant(struct client_obd *cli,
 {
 	LASSERT(spin_is_locked(&cli->cl_loi_list_lock.lock));
 	LASSERT(!(pga->flag & OBD_BRW_FROM_GRANT));
-	cfs_atomic_inc(&obd_dirty_pages);
+	cfs_atomic_long_inc(&obd_dirty_pages);
 	cli->cl_dirty_pages++;
 	pga->flag |= OBD_BRW_FROM_GRANT;
 	CDEBUG(D_CACHE, "using %lu grant credits for brw %p page %p\n",
@@ -1357,11 +1357,11 @@ static void osc_release_write_grant(struct client_obd *cli,
 	}
 
 	pga->flag &= ~OBD_BRW_FROM_GRANT;
-	cfs_atomic_dec(&obd_dirty_pages);
+	cfs_atomic_long_dec(&obd_dirty_pages);
 	cli->cl_dirty_pages--;
 	if (pga->flag & OBD_BRW_NOCACHE) {
 		pga->flag &= ~OBD_BRW_NOCACHE;
-		cfs_atomic_dec(&obd_dirty_transit_pages);
+		cfs_atomic_long_dec(&obd_dirty_transit_pages);
 		cli->cl_dirty_transit--;
 	}
 	EXIT;
@@ -1430,7 +1430,7 @@ static void osc_free_grant(struct client_obd *cli, unsigned int nr_pages,
 	int grant = (1 << cli->cl_chunkbits) + cli->cl_extent_tax;
 
 	client_obd_list_lock(&cli->cl_loi_list_lock);
-	cfs_atomic_sub(nr_pages, &obd_dirty_pages);
+	cfs_atomic_long_sub(nr_pages, &obd_dirty_pages);
 	cli->cl_dirty_pages -= nr_pages;
 	cli->cl_lost_grant += lost_grant;
 	if (cli->cl_avail_grant < grant && cli->cl_lost_grant >= grant) {
@@ -1474,11 +1474,11 @@ static int osc_enter_cache_try(struct client_obd *cli,
 		return 0;
 
 	if (cli->cl_dirty_pages < cli->cl_dirty_max_pages &&
-	    cfs_atomic_read(&obd_dirty_pages) + 1 <= obd_max_dirty_pages) {
+	    cfs_atomic_long_read(&obd_dirty_pages) + 1 <= obd_max_dirty_pages) {
 		osc_consume_write_grant(cli, &oap->oap_brw_page);
 		if (transient) {
 			cli->cl_dirty_transit++;
-			cfs_atomic_inc(&obd_dirty_transit_pages);
+			cfs_atomic_long_inc(&obd_dirty_transit_pages);
 			oap->oap_brw_flags |= OBD_BRW_NOCACHE;
 		}
 		rc = 1;
@@ -1607,10 +1607,11 @@ void osc_wake_cache_waiters(struct client_obd *cli)
 		ocw->ocw_rc = -EDQUOT;
 		/* we can't dirty more */
 		if ((cli->cl_dirty_pages >= cli->cl_dirty_max_pages) ||
-		    (cfs_atomic_read(&obd_dirty_pages) + 1 >
+		    (cfs_atomic_long_read(&obd_dirty_pages) + 1 >
 		     obd_max_dirty_pages)) {
 			CDEBUG(D_CACHE, "no dirty room: dirty: %ld "
-			       "osc max %ld, sys max %d\n", cli->cl_dirty_pages,
+			       "osc max %ld, sys max %ld\n",
+			       cli->cl_dirty_pages,
 			       cli->cl_dirty_max_pages, obd_max_dirty_pages);
 			goto wakeup;
 		}

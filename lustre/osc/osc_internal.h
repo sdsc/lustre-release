@@ -129,7 +129,7 @@ int osc_sync_base(struct obd_export *exp, struct obd_info *oinfo,
 int osc_process_config_base(struct obd_device *obd, struct lustre_cfg *cfg);
 int osc_build_rpc(const struct lu_env *env, struct client_obd *cli,
 		  cfs_list_t *ext_list, int cmd, pdl_policy_t p);
-int osc_lru_shrink(struct client_obd *cli, int target);
+long osc_lru_shrink(struct client_obd *cli, long target);
 
 extern spinlock_t osc_ast_guard;
 unsigned long osc_ldlm_weigh_ast(struct ldlm_lock *dlmlock);

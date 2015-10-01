@@ -116,6 +116,34 @@ typedef atomic_t cfs_atomic_t;
 #define cfs_atomic_cmpxchg(atom, old, nv)    atomic_cmpxchg(atom, old, nv)
 #define CFS_ATOMIC_INIT(i)                   ATOMIC_INIT(i)
 
+typedef atomic_long_t cfs_atomic_long_t;
+
+#define cfs_atomic_long_read(atom)                atomic_long_read(atom)
+#define cfs_atomic_long_inc(atom)                 atomic_long_inc(atom)
+#define cfs_atomic_long_inc_and_test(atom)        atomic_long_inc_and_test(atom)
+#define cfs_atomic_long_inc_return(atom)          atomic_long_inc_return(atom)
+#define cfs_atomic_long_inc_not_zero(atom)        atomic_long_inc_not_zero(atom)
+#define cfs_atomic_long_add_unless(atom, a, u) \
+		atomic_long_add_unless(atom, a, u)
+#define cfs_atomic_long_dec(atom)                 atomic_long_dec(atom)
+#define cfs_atomic_long_dec_and_test(atom)        atomic_long_dec_and_test(atom)
+#define cfs_atomic_long_dec_and_lock(atom, lock) \
+		atomic_long_dec_and_lock(atom, lock)
+#define cfs_atomic_long_dec_return(atom)          atomic_long_dec_return(atom)
+#define cfs_atomic_long_set(atom, value)          atomic_long_set(atom, value)
+#define cfs_atomic_long_add(value, atom)          atomic_long_add(value, atom)
+#define cfs_atomic_long_add_return(value, atom) \
+		atomic_long_add_return(value, atom)
+#define cfs_atomic_long_sub(value, atom)          atomic_long_sub(value, atom)
+#define cfs_atomic_long_sub_and_test(value, atom) \
+		atomic_long_sub_and_test(value, atom)
+#define cfs_atomic_long_sub_return(value, atom) \
+		atomic_long_sub_return(value, atom)
+#define cfs_atomic_long_cmpxchg(atom, old, nv) \
+		atomic_long_cmpxchg(atom, old, nv)
+#define CFS_ATOMIC_LONG_INIT(i)                   ATOMIC_LONG_INIT(i)
+
+
 /*
  * Some (nomina odiosa sunt) platforms define NULL as naked 0. This confuses
  * Lustre RETURN(NULL) macro.

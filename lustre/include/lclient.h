@@ -440,7 +440,7 @@ struct cl_client_cache {
 	cfs_atomic_t	ccc_users;    /* # of users (OSCs) of this data */
 	cfs_list_t	ccc_lru;      /* LRU list of cached clean pages */
 	spinlock_t	ccc_lru_lock; /* lock for list */
-	cfs_atomic_t	ccc_lru_left; /* # of LRU entries available */
+	cfs_atomic_long_t ccc_lru_left; /* # of LRU entries available */
 	unsigned long	ccc_lru_max;  /* Max # of LRU entries possible */
 	unsigned int	ccc_lru_shrinkers; /* # of threads reclaiming */
 };

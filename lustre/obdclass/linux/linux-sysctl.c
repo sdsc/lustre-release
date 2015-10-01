@@ -231,7 +231,7 @@ int LL_PROC_PROTO(proc_max_dirty_pages_in_mb)
 		/* Don't allow them to let dirty pages exceed 90% of system
 		 * memory and set a hard minimum of 4MB. */
 		if (obd_max_dirty_pages > ((totalram_pages / 10) * 9)) {
-			CERROR("Refusing to set max dirty pages to %u, which "
+			CERROR("Refusing to set max dirty pages to %lu, which "
 			       "is more than 90%% of available RAM; setting "
 			       "to %lu\n", obd_max_dirty_pages,
 			       ((totalram_pages / 10) * 9));
@@ -399,14 +399,14 @@ static struct ctl_table obd_table[] = {
                 .proc_handler = &proc_alloc_fail_rate
         },
 #endif
-        {
-                INIT_CTL_NAME(OBD_MAX_DIRTY_PAGES)
-                .procname = "max_dirty_mb",
-                .data     = &obd_max_dirty_pages,
-                .maxlen   = sizeof(int),
-                .mode     = 0644,
-                .proc_handler = &proc_max_dirty_pages_in_mb
-        },
+	{
+		INIT_CTL_NAME(OBD_MAX_DIRTY_PAGES)
+		.procname = "max_dirty_mb",
+		.data     = &obd_max_dirty_pages,
+		.maxlen   = sizeof(unsigned long),
+		.mode     = 0644,
+		.proc_handler = &proc_max_dirty_pages_in_mb
+	},
 	{
 		INIT_CTL_NAME(OBD_BULK_TIMEOUT)
 		.procname	= "bulk_timeout",

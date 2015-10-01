@@ -839,15 +839,15 @@ static void osc_announce_cached(struct client_obd *cli, struct obdo *oa,
 		       cli->cl_dirty_pages, cli->cl_dirty_transit,
 		       cli->cl_dirty_max_pages);
 		oa->o_undirty = 0;
-	} else if (unlikely(cfs_atomic_read(&obd_dirty_pages) -
-			    cfs_atomic_read(&obd_dirty_transit_pages) >
-			    (long)(obd_max_dirty_pages + 1))) {
+	} else if (unlikely(cfs_atomic_long_read(&obd_dirty_pages) -
+			    cfs_atomic_long_read(&obd_dirty_transit_pages) >
+			    obd_max_dirty_pages + 1)) {
 		/* The cfs_atomic_read() allowing the cfs_atomic_inc() are
 		 * not covered by a lock thus they may safely race and trip
 		 * this CERROR() unless we add in a small fudge factor (+1). */
-		CERROR("dirty %d - %d > system dirty_max %d\n",
-		       cfs_atomic_read(&obd_dirty_pages),
-		       cfs_atomic_read(&obd_dirty_transit_pages),
+		CERROR("dirty %ld - %ld > system dirty_max %ld\n",
+		       cfs_atomic_long_read(&obd_dirty_pages),
+		       cfs_atomic_long_read(&obd_dirty_transit_pages),
 		       obd_max_dirty_pages);
 		oa->o_undirty = 0;
 	} else if (unlikely(cli->cl_dirty_max_pages - cli->cl_dirty_pages >
@@ -3211,11 +3211,11 @@ static int osc_set_info_async(const struct lu_env *env, struct obd_export *exp,
 
 	if (KEY_IS(KEY_CACHE_LRU_SHRINK)) {
 		struct client_obd *cli = &obd->u.cli;
-		int nr = cfs_atomic_read(&cli->cl_lru_in_list) >> 1;
-		int target = *(int *)val;
+		long nr = cfs_atomic_long_read(&cli->cl_lru_in_list) >> 1;
+		long target = *(long *)val;
 
 		nr = osc_lru_shrink(cli, min(nr, target));
-		*(int *)val -= nr;
+		*(long *)val -= nr;
 		RETURN(0);
 	}
 
