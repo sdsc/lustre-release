@@ -176,8 +176,26 @@ static int llog_cat_new_log(const struct lu_env *env,
 
 	loghandle->lgh_hdr->llh_cat_idx = rec->lid_hdr.lrh_index;
 out:
-	if (handle != NULL)
-		dt_trans_stop(env, dt, handle);
+	if (handle != NULL) {
+		int rc1;
+
+		rc1 = dt_trans_stop(env, dt, handle);
+		if (rc1 != 0) {
+			/* cleanup llog for error case */
+			mutex_lock(&cathandle->lgh_hdr_mutex);
+			ext2_clear_bit(rec->lid_hdr.lrh_index,
+				       LLOG_HDR_BITMAP(cathandle->lgh_hdr));
+			cathandle->lgh_hdr->llh_count--;
+			mutex_unlock(&cathandle->lgh_hdr_mutex);
+
+			cathandle->lgh_last_idx--;
+			LLOG_HDR_TAIL(cathandle->lgh_hdr)->lrt_index =
+						cathandle->lgh_last_idx;
+			/* restore llog last_idx */
+			if (rc == 0)
+				rc = rc1;
+		}
+	}
 
 	RETURN(0);
 
@@ -382,6 +400,31 @@ next:
 	RETURN(loghandle);
 }
 
+int llog_cat_update_header(const struct lu_env *env,
+			   struct llog_handle *cathandle)
+{
+	struct llog_handle	*loghandle;
+	int rc;
+	ENTRY;
+
+	list_for_each_entry(loghandle, &cathandle->u.chd.chd_head,
+			    u.phd.phd_entry) {
+		if (!llog_exist(loghandle))
+			continue;
+
+		rc = llog_read_header(env, loghandle, NULL);
+		if (rc != 0)
+			GOTO(out_unlock, rc);
+	}
+
+	rc = llog_read_header(env, cathandle, NULL);
+	if (rc != 0)
+		GOTO(out_unlock, rc);
+out_unlock:
+	RETURN(rc);
+}
+EXPORT_SYMBOL(llog_cat_update_header);
+
 /* Add a single record to the recovery log(s) using a catalog
  * Returns as llog_write_record
  *
@@ -486,11 +529,19 @@ int llog_cat_declare_add_rec(const struct lu_env *env,
 
 	if (!llog_exist(cathandle->u.chd.chd_current_log)) {
 		if (dt_object_remote(cathandle->lgh_obj)) {
+
+			loghandle = cathandle->u.chd.chd_current_log;
 			/* If it is remote cat-llog here, let's create the
 			 * remote llog object synchronously, so other threads
 			 * can use it correctly. */
-			rc = llog_cat_new_log(env, cathandle,
-					cathandle->u.chd.chd_current_log, NULL);
+			down_write_nested(&loghandle->lgh_lock, LLOGH_LOG);
+			if (!llog_exist(loghandle))
+				rc = llog_cat_new_log(env, cathandle, loghandle,
+						      NULL);
+			up_write(&loghandle->lgh_lock);
+			if (rc < 0)
+				GOTO(out, rc);
+
 		} else {
 			rc = llog_declare_create(env,
 					cathandle->u.chd.chd_current_log, th);
@@ -513,8 +564,13 @@ int llog_cat_declare_add_rec(const struct lu_env *env,
 				/* If it is remote cat-llog here, let's create
 				 * the remote remote llog object synchronously,
 				 * so other threads can use it correctly. */
-				rc = llog_cat_new_log(env, cathandle, next,
-						      NULL);
+				down_write_nested(&next->lgh_lock, LLOGH_LOG);
+				if (!llog_exist(next))
+					rc = llog_cat_new_log(env, cathandle,
+							      next, NULL);
+				up_write(&next->lgh_lock);
+				if (rc < 0)
+					GOTO(out, rc);
 			} else {
 				rc = llog_declare_create(env, next, th);
 				llog_declare_write_rec(env, cathandle,

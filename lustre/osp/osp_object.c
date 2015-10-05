@@ -476,6 +476,8 @@ static int osp_attr_get_interpterer(const struct lu_env *env,
 		spin_lock(&obj->opo_lock);
 		attr->la_valid = 0;
 		spin_unlock(&obj->opo_lock);
+		CDEBUG(D_HA, "invalid "DFID" attr rc = %d\n",
+		       PFID(lu_object_fid(&obj->opo_obj.do_lu)), rc);
 	}
 
 	return 0;
