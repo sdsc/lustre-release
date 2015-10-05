@@ -96,6 +96,8 @@ static int osp_object_create_interpreter(const struct lu_env *env,
 		spin_lock(&obj->opo_lock);
 		obj->opo_ooa->ooa_attr.la_valid = 0;
 		spin_unlock(&obj->opo_lock);
+		CDEBUG(D_HA, "invalid "DFID" attr rc = %d\n",
+		       PFID(lu_object_fid(&obj->opo_obj.do_lu)), rc);
 	}
 
 	return 0;
@@ -1057,6 +1059,12 @@ static ssize_t osp_md_declare_write(const struct lu_env *env,
 				    const struct lu_buf *buf,
 				    loff_t pos, struct thandle *th)
 {
+	struct osp_device *osp = lu2osp_dev(dt->do_lu.lo_dev);
+
+	if (osp->opd_update != NULL &&
+	    osp->opd_update->ou_invalid_header)
+		return -EIO;
+
 	return osp_trans_update_request_create(th);
 }
 
@@ -1089,13 +1097,17 @@ static ssize_t osp_md_write(const struct lu_env *env, struct dt_object *dt,
 	update = thandle_to_osp_update_request(th);
 	LASSERT(update != NULL);
 
+	CDEBUG(D_INFO, "write "DFID" offset = "LPU64" length = %zu\n",
+	       PFID(lu_object_fid(&dt->do_lu)), *pos, buf->lb_len);
+
 	rc = osp_update_rpc_pack(env, write, update, OUT_WRITE,
 				 lu_object_fid(&dt->do_lu), buf, *pos);
 	if (rc < 0)
 		RETURN(rc);
 
-	CDEBUG(D_INFO, "write "DFID" offset = "LPU64" length = %zu\n",
-	       PFID(lu_object_fid(&dt->do_lu)), *pos, buf->lb_len);
+	rc = osp_check_and_set_rpc_version(oth);
+	if (rc < 0)
+		RETURN(rc);
 
 	/* XXX: how about the write error happened later? */
 	*pos += buf->lb_len;
@@ -1104,10 +1116,6 @@ static ssize_t osp_md_write(const struct lu_env *env, struct dt_object *dt,
 	    obj->opo_ooa->ooa_attr.la_valid & LA_SIZE &&
 	    obj->opo_ooa->ooa_attr.la_size < *pos)
 		obj->opo_ooa->ooa_attr.la_size = *pos;
-
-	rc = osp_check_and_set_rpc_version(oth);
-	if (rc < 0)
-		RETURN(rc);
 
 	RETURN(buf->lb_len);
 }

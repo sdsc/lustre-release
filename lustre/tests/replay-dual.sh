@@ -927,13 +927,45 @@ cleanup_26() {
 	killall -9 dbench
 }
 
+random_double_fail_mdt() {
+	local max_index=$1
+	local duration=$2
+	local monitor_pid=$3
+	local elapsed
+	local start_ts=$(date +%s)
+	local num_failovers=0
+	local fail_index
+	local second_index
+
+	elapsed=$(($(date +%s) - start_ts))
+	while [ $elapsed -lt $duration ]; do
+		fail_index=$((RANDOM%max_index + 1))
+		if [ $fail_index -eq $max_index ]; then
+			second_index=1
+		else
+			second_index=$((fail_index + 1))
+		fi
+		kill -0 $monitor_pid 
+		sleep 120
+		replay_barrier mds$fail_index
+		replay_barrier mds$second_index
+		sleep 10
+		# Increment the number of failovers
+		num_failovers=$((num_failovers+1))
+		log "fail mds$fail_index mds$second_index $num_failovers times"
+		fail mds${fail_index}
+		fail mds${second_index}
+		elapsed=$(($(date +%s) - start_ts))
+	done
+}
+
 test_26() {
 	local clients=${CLIENTS:-$HOSTNAME}
 
 	zconf_mount_clients $clients $MOUNT
 
 	local duration=600
-	[ "$SLOW" = "no" ] && duration=200
+	[ "$SLOW" = "no" ] && duration=3600
 	# set duration to 900 because it takes some time to boot node
 	[ "$FAILURE_MODE" = HARD ] && duration=900
 
@@ -942,58 +974,39 @@ test_26() {
 
 	trap cleanup_26	EXIT
 	(
-		local tar_dir=$DIR/$tdir/run_tar
 		while true; do
-			test_mkdir -p -c$MDSCOUNT $tar_dir || break
+			local tar_dir=$DIR/$tdir/run_tar_$RANDOM
+			test_mkdir -p -c$MDSCOUNT $tar_dir || continue 
 			if [ $MDSCOUNT -ge 2 ]; then
-				$LFS setdirstripe -D -c$MDSCOUNT $tar_dir ||
-					error "set default dirstripe failed"
+				$LFS setdirstripe -D -c$MDSCOUNT $tar_dir || continue
 			fi
-			cd $tar_dir || break
-			tar cf - /etc | tar xf - || error "tar failed"
-			cd $DIR/$tdir || break
-			rm -rf $tar_dir || break
+			cd $tar_dir || continue
+			tar cf - /etc | tar xf - || continue 
+			cd $DIR/$tdir || continue 
+			rm -rf $tar_dir || continue
 		done
 	)&
 	tar_26_pid=$!
 	echo "Started tar $tar_26_pid"
 
 	(
-		local dbench_dir=$DIR2/$tdir/run_dbench
 		while true; do
-			test_mkdir -p -c$MDSCOUNT $dbench_dir || break
+			local dbench_dir=$DIR2/$tdir/run_dbench_$RANDOM
+			test_mkdir -p -c$MDSCOUNT $dbench_dir || continue
 			if [ $MDSCOUNT -ge 2 ]; then
-				$LFS setdirstripe -D -c$MDSCOUNT $dbench_dir ||
-					error "set default dirstripe failed"
+				$LFS setdirstripe -D -c$MDSCOUNT $dbench_dir || continue
 			fi
-			cd $dbench_dir || break
-			rundbench 1 -D $dbench_dir -t 100 > /dev/null 2&>1 ||
-									break
-			cd $DIR/$tdir || break
-			rm -rf $dbench_dir || break
+			cd $dbench_dir || continue
+			rundbench 2 -D $dbench_dir -t 100 > /dev/null 2&>1 ||
+									continue	
+			cd $DIR/$tdir || continue 
+			rm -rf $dbench_dir || continue 
 		done
 	)&
 	dbench_26_pid=$!
 	echo "Started dbench $dbench_26_pid"
 
-	local num_failovers=0
-	local fail_index=1
-	while [ $((SECONDS - start_ts)) -lt $duration ]; do
-		kill -0 $tar_26_pid || error "tar $tar_26_pid missing"
-		kill -0 $dbench_26_pid || error "dbench $dbench_26_pid missing"
-		sleep 2
-		replay_barrier mds$fail_index
-		sleep 2 # give clients a time to do operations
-		# Increment the number of failovers
-		num_failovers=$((num_failovers + 1))
-		log "$TESTNAME fail mds$fail_index $num_failovers times"
-		fail mds$fail_index
-		if [ $fail_index -ge $MDSCOUNT ]; then
-			fail_index=1
-		else
-			fail_index=$((fail_index + 1))
-		fi
-	done
+	random_double_fail_mdt 4 $duration $tar_26_pid
 	# stop the client loads
 	kill -0 $tar_26_pid || error "tar $tar_26_pid stopped"
 	kill -0 $dbench_26_pid || error "dbench $dbench_26_pid stopped"

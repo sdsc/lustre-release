@@ -288,6 +288,7 @@ static int osd_trans_stop(const struct lu_env *env, struct dt_device *dt,
 
 	if (oh->ot_assigned == 0) {
 		LASSERT(oh->ot_tx);
+		osd_trans_stop_cb(oh, th->th_result);
 		dmu_tx_abort(oh->ot_tx);
 		osd_object_sa_dirty_rele(oh);
 		osd_unlinked_list_emptify(osd, &unlinked, false);
