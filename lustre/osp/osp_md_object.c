@@ -1057,7 +1057,33 @@ static ssize_t osp_md_declare_write(const struct lu_env *env,
 				    const struct lu_buf *buf,
 				    loff_t pos, struct thandle *th)
 {
+	struct osp_device *osp = lu2osp_dev(dt->do_lu.lo_dev);
+
+	if (osp->opd_update != NULL &&
+	    osp->opd_update->ou_invalid_header)
+		return -EIO;
+
 	return osp_trans_update_request_create(th);
+}
+
+static int osp_object_write_interpreter(const struct lu_env *env,
+					struct object_update_reply *reply,
+					struct ptlrpc_request *req,
+					struct osp_object *obj,
+					void *data, int index, int rc)
+{
+	/* Invalid the opo cache for the object after the object
+	 * is being created, so attr_get will try to get attr
+	 * from the remote object. XXX this can be improved when
+	 * we have object lock/cache invalidate mechanism in OSP
+	 * layer */
+	if (obj->opo_ooa != NULL) {
+		spin_lock(&obj->opo_lock);
+		obj->opo_ooa->ooa_attr.la_valid = 0;
+		spin_unlock(&obj->opo_lock);
+	}
+
+	return 0;
 }
 
 /**
@@ -1089,13 +1115,18 @@ static ssize_t osp_md_write(const struct lu_env *env, struct dt_object *dt,
 	update = thandle_to_osp_update_request(th);
 	LASSERT(update != NULL);
 
+	CDEBUG(D_INFO, "write "DFID" offset = "LPU64" length = %zu\n",
+	       PFID(lu_object_fid(&dt->do_lu)), *pos, buf->lb_len);
+
 	rc = osp_update_rpc_pack(env, write, update, OUT_WRITE,
 				 lu_object_fid(&dt->do_lu), buf, *pos);
 	if (rc < 0)
 		RETURN(rc);
 
-	CDEBUG(D_INFO, "write "DFID" offset = "LPU64" length = %zu\n",
-	       PFID(lu_object_fid(&dt->do_lu)), *pos, buf->lb_len);
+	rc = osp_insert_update_callback(env, update, dt2osp_obj(dt), NULL,
+					osp_object_write_interpreter);
+	if (rc < 0)
+		RETURN(rc);
 
 	/* XXX: how about the write error happened later? */
 	*pos += buf->lb_len;
