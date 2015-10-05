@@ -258,7 +258,7 @@ int llog_pack_buffer(int fd, struct llog_log_hdr **llog,
 	ptr = file_buf + le32_to_cpu((*llog)->llh_hdr.lrh_len);
 	i = 0;
 
-	while (i < recs_num) {
+	while (ptr < (file_buf + file_size)) {
 		struct llog_rec_hdr *cur_rec;
 		int idx;
 
@@ -273,8 +273,14 @@ int llog_pack_buffer(int fd, struct llog_log_hdr **llog,
 		cur_rec = (struct llog_rec_hdr *)ptr;
 		idx = le32_to_cpu(cur_rec->lrh_index);
 		recs_pr[i] = cur_rec;
-
-		if (ext2_test_bit(idx, LLOG_HDR_BITMAP(*llog))) {
+		if (cur_rec->lrh_len == 0 ||
+		    cur_rec->lrh_len > (*llog)->llh_hdr.lrh_len) {
+			cur_rec->lrh_len = (*llog)->llh_hdr.lrh_len -
+				((unsigned long)ptr - (unsigned long)file_buf) %
+				(*llog)->llh_hdr.lrh_len;
+			printf("skip %u to next chunk.\n", cur_rec->lrh_len);
+			i--;
+		} else if (ext2_test_bit(idx, LLOG_HDR_BITMAP(*llog))) {
 			printf("rec #%d type=%x len=%u\n", idx,
 			       cur_rec->lrh_type, cur_rec->lrh_len);
 		} else {
