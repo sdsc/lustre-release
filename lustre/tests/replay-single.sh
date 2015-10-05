@@ -2305,6 +2305,84 @@ test_70e () {
 }
 run_test 70e "rename cross-MDT with random fails"
 
+cleanup_71a() {
+	trap 0
+	kill -9 $mkdir_71a_pid
+}
+
+random_double_fail_mdt() {
+	local max_index=$1
+	local duration=$2
+	local monitor_pid=$3
+	local elapsed
+	local start_ts=$(date +%s)
+	local num_failovers=0
+	local fail_index
+	local second_index
+
+	elapsed=$(($(date +%s) - start_ts))
+	while [ $elapsed -lt $duration ]; do
+		fail_index=$((RANDOM%max_index + 1))
+		if [ $fail_index -eq $max_index ]; then
+			second_index=1
+		else
+			second_index=$((fail_index + 1))
+		fi
+		kill -0 $monitor_pid ||
+			error "$monitor_pid stopped"
+		sleep 60
+		replay_barrier mds$fail_index
+		replay_barrier mds$second_index
+		sleep 10
+		# Increment the number of failovers
+		num_failovers=$((num_failovers+1))
+		log "fail mds$fail_index mds$second_index $num_failovers times"
+		if [ $second_index -eq 1 ]; then
+			fail mds${second_index},mds${fail_index}
+		else
+			fail mds${fail_index},mds${second_index}
+		fi
+		elapsed=$(($(date +%s) - start_ts))
+	done
+}
+
+test_71a () {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+	local clients=${CLIENTS:-$HOSTNAME}
+	local rc=0
+
+	zconf_mount_clients $clients $MOUNT
+
+	local duration=900
+	[ "$SLOW" = "no" ] && duration=900
+	# set duration to 900 because it takes some time to boot node
+	[ "$FAILURE_MODE" = HARD ] && duration=900
+
+	mkdir -p $DIR/$tdir
+
+	local elapsed
+	local start_ts=$(date +%s)
+
+	trap cleanup_71a EXIT
+	(
+		while true; do
+			$LFS mkdir -i0 -c2 $DIR/$tdir/test
+			$LFS mkdir -i0 -D -c2 $DIR/$tdir/test
+			mkdir $DIR/$tdir/test/a
+			mkdir $DIR/$tdir/test/b
+			rm -rf $DIR/$tdir/test
+		done
+	)&
+	mkdir_71a_pid=$!
+	echo "Started  $mkdir_71a_pid"
+
+	random_double_fail_mdt 2 $duration $mkdir_71a_pid
+	kill -0 $mkdir_71a_pid || error "mkdir/rmdir $mkdir_71a_pid stopped"
+
+	cleanup_71a
+	true
+}
+run_test 71a "mkdir/rmdir striped dir with 2 mdts recovery"
 
 test_73a() {
 	multiop_bg_pause $DIR/$tfile O_tSc ||
@@ -4223,6 +4301,46 @@ test_116b() {
 }
 run_test 116b "large update log slave MDT recovery"
 
+test_117() {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+	[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.7.55) ] &&
+		skip "Do not support large update log before 2.7.55" &&
+		return 0
+
+	([ $FAILURE_MODE == "HARD" ] &&
+		[ "$(facet_host mds1)" == "$(facet_host mds2)" ]) &&
+		skip "MDTs needs to be on diff hosts for HARD fail mode" &&
+		return 0
+	local fail_index=0
+
+	mkdir -p $DIR/$tdir
+
+	$LFS setdirstripe -c2 $DIR/$tdir/striped_dir ||
+		error "setdirstripe fails"
+	$LFS setdirstripe -c2 $DIR/$tdir/striped_dir1 ||
+		error "setdirstripe fails 1"
+	rm -rf $DIR/$tdir/striped_dir* || error "rmdir fails"
+
+	# OBD_FAIL_INVALIDATE_UPDATE       0x1705
+	do_facet mds1 "lctl set_param fail_loc=0x1705"
+	$LFS setdirstripe -c2 $DIR/$tdir/striped_dir
+	$LFS setdirstripe -c2 $DIR/$tdir/striped_dir1
+	do_facet mds1 "lctl set_param fail_loc=0x0"
+
+	replay_barrier mds1
+	$LFS setdirstripe -c2 $DIR/$tdir/striped_dir ||
+		error "setdirstripe fails"
+	$LFS setdirstripe -c2 $DIR/$tdir/striped_dir1 ||
+		error "setdirstripe fails 1"
+	fail mds1
+
+	$CHECKSTAT -t dir $DIR/$tdir/striped_dir ||
+		error "stried_dir exists"
+
+	$CHECKSTAT -t dir $DIR/$tdir/striped_dir1 ||
+		error "stried_dir1 exists"
+}
+run_test 117 "invalidate osp update"
 
 complete $SECONDS
 check_and_cleanup_lustre

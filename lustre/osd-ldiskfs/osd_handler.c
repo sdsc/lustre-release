@@ -3581,7 +3581,8 @@ static int osd_index_declare_ea_delete(const struct lu_env *env,
 			     osd_dto_credits_noquota[DTO_OBJECT_DELETE]);
 
 	inode = osd_dt_obj(dt)->oo_inode;
-	LASSERT(inode);
+	if (inode == NULL)
+		RETURN(-ENOENT);
 
 	rc = osd_declare_inode_qid(env, i_uid_read(inode), i_gid_read(inode),
 				   0, oh, osd_dt_obj(dt), true, NULL, false);
