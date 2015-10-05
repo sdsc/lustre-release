@@ -1551,6 +1551,22 @@ out:
 	return rc;
 }
 
+static void osp_invalidate_request(struct osp_device *osp, int rc)
+{
+	struct osp_updates	*ou = osp->opd_update;
+	struct osp_update_request *our;
+
+	if (ou == NULL)
+		return;
+
+	spin_lock(&ou->ou_lock);
+	list_for_each_entry(our, &ou->ou_list, our_list)
+		/* Find next osp_update_request in the list */
+		our->our_th->ot_super.th_result = rc;
+	ou->ou_invalid_header = 1;
+	spin_unlock(&ou->ou_lock);
+}
+
 /**
  * Implementation of obd_ops::o_import_event
  *
@@ -1603,8 +1619,12 @@ static int osp_import_event(struct obd_device *obd, struct obd_import *imp,
 			d->opd_new_connection = 1;
 		d->opd_imp_connected = 1;
 		d->opd_imp_seen_connected = 1;
-		if (d->opd_connect_mdt)
+		if (d->opd_connect_mdt) {
+			if (d->opd_update != NULL &&
+			    d->opd_update->ou_invalid_header)
+				wake_up(&d->opd_update->ou_waitq);
 			break;
+		}
 
 		if (d->opd_pre != NULL)
 			wake_up(&d->opd_pre_waitq);
@@ -1616,6 +1636,8 @@ static int osp_import_event(struct obd_device *obd, struct obd_import *imp,
 		if (obd->obd_namespace == NULL)
 			break;
 		ldlm_namespace_cleanup(obd->obd_namespace, LDLM_FL_LOCAL_ONLY);
+		if (d->opd_connect_mdt)
+			osp_invalidate_request(d, -EIO);
 		break;
 	case IMP_EVENT_OCD:
 	case IMP_EVENT_DEACTIVATE:

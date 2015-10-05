@@ -1057,6 +1057,12 @@ static ssize_t osp_md_declare_write(const struct lu_env *env,
 				    const struct lu_buf *buf,
 				    loff_t pos, struct thandle *th)
 {
+	struct osp_device *osp = lu2osp_dev(dt->do_lu.lo_dev);
+
+	if (osp->opd_update != NULL &&
+	    osp->opd_update->ou_invalid_header)
+		return -EIO;
+
 	return osp_trans_update_request_create(th);
 }
 
