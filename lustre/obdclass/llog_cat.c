@@ -342,6 +342,43 @@ static struct llog_handle *llog_cat_current_log(struct llog_handle *cathandle,
 	RETURN(loghandle);
 }
 
+int llog_cat_update_header(const struct lu_env *env,
+			   struct llog_handle *cathandle)
+{
+	int rc;
+
+	down_write(&cathandle->lgh_lock);
+	if (cathandle->u.chd.chd_current_log != NULL) {
+		/* declare new plain llog */
+		if (cathandle->u.chd.chd_current_log != NULL) {
+			rc = llog_read_header(env,
+					cathandle->u.chd.chd_current_log,
+					NULL);
+			if (rc != 0)
+				GOTO(out_unlock, rc);
+		}
+	}
+
+	if (cathandle->u.chd.chd_next_log != NULL) {
+		if (cathandle->u.chd.chd_next_log != NULL) {
+			rc = llog_read_header(env,
+					cathandle->u.chd.chd_next_log,
+					NULL);
+			if (rc != 0)
+				GOTO(out_unlock, rc);
+		}
+	}
+
+	rc = llog_read_header(env, cathandle, NULL);
+	if (rc != 0)
+		GOTO(out_unlock, rc);
+
+out_unlock:
+	up_write(&cathandle->lgh_lock);
+	return rc;
+}
+EXPORT_SYMBOL(llog_cat_update_header);
+
 /* Add a single record to the recovery log(s) using a catalog
  * Returns as llog_write_record
  *
