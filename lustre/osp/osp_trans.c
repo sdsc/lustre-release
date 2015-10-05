@@ -67,6 +67,7 @@
 #define DEBUG_SUBSYSTEM S_MDS
 
 #include <lustre_net.h>
+#include <lustre_log.h>
 #include "osp_internal.h"
 
 /**
@@ -1212,6 +1213,35 @@ static void osp_update_rpc_version(struct osp_updates *ou,
 	spin_unlock(&ou->ou_lock);
 }
 
+static int osp_update_llog_header(const struct lu_env *env,
+				  struct osp_device *osp)
+{
+	struct llog_ctxt	*ctxt;
+	struct dt_device	*dt = &osp->opd_dt_dev;
+	int rc;
+
+	/* If ctxt is NULL, it means not need to write update,
+	 * for example if the the OSP is used to connect to OST */
+	ctxt = llog_get_context(dt->dd_lu_dev.ld_obd,
+				LLOG_UPDATELOG_ORIG_CTXT);
+	/* Not ready to record updates yet. */
+	if (ctxt == NULL || ctxt->loc_handle == NULL) {
+		llog_ctxt_put(ctxt);
+		return 0;
+	}
+
+	rc = llog_read_header(env, ctxt->loc_handle, NULL);
+	llog_ctxt_put(ctxt);
+	if (rc != 0)
+		return rc;
+
+	spin_lock(&osp->opd_update->ou_lock);
+	osp->opd_update->ou_invalid_header = 0;
+	spin_unlock(&osp->opd_update->ou_lock);
+
+	return rc;
+}
+
 /**
  * Sending update thread
  *
@@ -1250,8 +1280,8 @@ int osp_send_update_thread(void *arg)
 		our = NULL;
 		l_wait_event(ou->ou_waitq,
 			     !osp_send_update_thread_running(osp) ||
-			     osp_get_next_request(ou, &our),
-			     &lwi);
+			     osp_get_next_request(ou, &our) ||
+			     ou->ou_invalid_header, &lwi);
 
 		if (!osp_send_update_thread_running(osp)) {
 			if (our != NULL && our->our_th != NULL) {
@@ -1259,6 +1289,15 @@ int osp_send_update_thread(void *arg)
 				osp_thandle_put(our->our_th);
 			}
 			break;
+		}
+
+		if (ou->ou_invalid_header) {
+			rc = osp_update_llog_header(&env, osp);
+			if (rc != 0 && our != NULL && our->our_th != NULL &&
+			    our->our_th->ot_super.th_result == 0)
+				our->our_th->ot_super.th_result = rc;
+			if (our == NULL)
+				continue;
 		}
 
 		if (our->our_req_sent == 0) {
