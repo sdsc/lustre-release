@@ -5289,7 +5289,7 @@ test_82a() { # LU-4665
 
 	trap "restore_ostindex" EXIT
 	echo -e "\nFormat $OSTCOUNT OSTs with sparse indices $ost_indices"
-	OST_INDEX_LIST=[$ost_indices] formatall
+	OST_INDEX_LIST="[$ost_indices]" formatall
 
 	# Setup Lustre filesystem.
 	start_mgsmds || error "start_mgsmds failed"
@@ -5396,7 +5396,7 @@ test_82b() { # LU-4665
 
 	trap "restore_ostindex" EXIT
 	echo -e "\nFormat $OSTCOUNT OSTs with sparse indices $ost_indices"
-	OST_INDEX_LIST=[$ost_indices] formatall
+	OST_INDEX_LIST="[$ost_indices]" formatall
 
 	# Setup Lustre filesystem.
 	start_mgsmds || error "start_mgsmds failed"
