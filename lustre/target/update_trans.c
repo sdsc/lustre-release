@@ -380,6 +380,15 @@ static int prepare_writing_updates(const struct lu_env *env,
 	lur->lur_hdr.lrh_len = llog_update_record_size(lur);
 	lur->lur_hdr.lrh_type = UPDATE_REC;
 
+	{
+		struct dt_device *dt = tmt->tmt_master_sub_dt;
+
+		/* debugging purpose */
+		if (dt != NULL)
+			lur->lur_hdr.lrh_id =
+				lu_site2seq(dt->dd_lu_dev.ld_site)->ss_node_id;
+	}
+
 	/* Dump updates for debugging purpose */
 	update_records_dump(&lur->lur_update_rec, D_INFO, true);
 
@@ -661,6 +670,7 @@ static void distribute_txn_assign_batchid(struct top_multiple_thandle *new)
 {
 	struct target_distribute_txn_data *tdtd;
 	struct dt_device *dt = new->tmt_master_sub_dt;
+	struct sub_thandle *st;
 
 	LASSERT(dt != NULL);
 	tdtd = dt2lu_dev(dt)->ld_site->ls_tgt->lut_tdtd;
@@ -668,6 +678,10 @@ static void distribute_txn_assign_batchid(struct top_multiple_thandle *new)
 	new->tmt_batchid = tdtd->tdtd_batchid++;
 	list_add_tail(&new->tmt_commit_list, &tdtd->tdtd_list);
 	spin_unlock(&tdtd->tdtd_batchid_lock);
+	list_for_each_entry(st, &new->tmt_sub_thandle_list, st_sub_list) {
+		if (st->st_sub_th != NULL)
+			sub_thandle_register_commit_cb(st, new);
+	}
 	top_multiple_thandle_get(new);
 	top_multiple_thandle_dump(new, D_INFO);
 }
@@ -684,6 +698,7 @@ void distribute_txn_insert_by_batchid(struct top_multiple_thandle *new)
 	struct dt_device *dt = new->tmt_master_sub_dt;
 	struct top_multiple_thandle *tmt;
 	struct target_distribute_txn_data *tdtd;
+	struct sub_thandle *st;
 	bool	at_head = false;
 
 	LASSERT(dt != NULL);
@@ -701,6 +716,12 @@ void distribute_txn_insert_by_batchid(struct top_multiple_thandle *new)
 		list_add(&new->tmt_commit_list, &tdtd->tdtd_list);
 	}
 	spin_unlock(&tdtd->tdtd_batchid_lock);
+
+	list_for_each_entry(st, &new->tmt_sub_thandle_list, st_sub_list) {
+		if (st->st_sub_th != NULL)
+			sub_thandle_register_commit_cb(st, new);
+	}
+
 	top_multiple_thandle_get(new);
 	top_multiple_thandle_dump(new, D_INFO);
 	if (new->tmt_committed && at_head)
@@ -800,9 +821,6 @@ int top_trans_start(const struct lu_env *env, struct dt_device *master_dev,
 				    st->st_sub_th);
 		if (rc != 0)
 			GOTO(out, rc);
-
-		sub_thandle_register_stop_cb(st, tmt);
-		sub_thandle_register_commit_cb(st, tmt);
 	}
 out:
 	th->th_result = rc;
@@ -993,6 +1011,7 @@ stop_master_trans:
 			master_st->st_sub_th->th_sync = th->th_sync;
 		master_st->st_sub_th->th_tags = th->th_tags;
 		master_st->st_sub_th->th_result = th->th_result;
+		sub_thandle_register_stop_cb(master_st, tmt);
 		rc = dt_trans_stop(env, master_st->st_dt, master_st->st_sub_th);
 		if (rc < 0) {
 			th->th_result = rc;
@@ -1050,6 +1069,7 @@ stop_other_trans:
 			st->st_sub_th->th_local = th->th_local;
 		st->st_sub_th->th_tags = th->th_tags;
 		st->st_sub_th->th_result = th->th_result;
+		sub_thandle_register_stop_cb(st, tmt);
 		rc = dt_trans_stop(env, st->st_sub_th->th_dev,
 				   st->st_sub_th);
 		if (unlikely(rc < 0 && th->th_result == 0))

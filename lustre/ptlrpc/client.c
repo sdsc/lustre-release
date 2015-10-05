@@ -2897,6 +2897,28 @@ static int ptlrpc_replay_interpret(const struct lu_env *env,
                 DEBUG_REQ(D_ERROR, req, "status %d, old was %d",
                           lustre_msg_get_status(req->rq_repmsg),
                           aa->praa_old_status);
+		if (imp->imp_connect_flags_orig & OBD_CONNECT_MDS_MDS) {
+			struct ptlrpc_request *free_req;
+			struct ptlrpc_request *tmp;
+
+			spin_lock(&imp->imp_lock);
+			list_for_each_entry_safe(free_req, tmp,
+						 &imp->imp_replay_list,
+						 rq_replay_list) {
+				ptlrpc_free_request(free_req);
+			}
+
+			list_for_each_entry_safe(free_req, tmp,
+						 &imp->imp_committed_list,
+						 rq_replay_list) {
+				ptlrpc_free_request(free_req);
+			}
+			list_for_each_entry_safe(free_req, tmp,
+						 &imp->imp_delayed_list, rq_list) {
+				ptlrpc_free_request(free_req);
+			}
+			spin_unlock(&imp->imp_lock);
+		}
         } else {
                 /* Put it back for re-replay. */
                 lustre_msg_set_status(req->rq_repmsg, aa->praa_old_status);
