@@ -118,7 +118,8 @@ struct osp_update_request {
 	struct osp_thandle		*our_th;
 	/* linked to the list(ou_list) in osp_updates */
 	struct list_head		our_list;
-	__u32				our_req_sent:1;
+	__u32				our_req_sent:1,
+					our_req_ready:1;
 };
 
 struct osp_updates {
@@ -128,6 +129,7 @@ struct osp_updates {
 	/* wait for next updates */
 	__u64			ou_rpc_version;
 	__u64			ou_version;
+	unsigned int		ou_invalid_header:1;
 };
 
 struct osp_device {
@@ -708,6 +710,7 @@ struct thandle *osp_get_storage_thandle(const struct lu_env *env,
 					struct osp_device *osp);
 void osp_trans_callback(const struct lu_env *env,
 			struct osp_thandle *oth, int rc);
+void osp_invalidate_request(struct osp_device *osp);
 /* osp_object.c */
 int osp_attr_get(const struct lu_env *env, struct dt_object *dt,
 		 struct lu_attr *attr);
