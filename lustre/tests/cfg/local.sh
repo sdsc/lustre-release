@@ -13,7 +13,7 @@ TMP=${TMP:-/tmp}
 DAEMONSIZE=${DAEMONSIZE:-500}
 MDSCOUNT=${MDSCOUNT:-1}
 MDSDEVBASE=${MDSDEVBASE:-$TMP/${FSNAME}-mdt}
-MDSSIZE=${MDSSIZE:-200000}
+MDSSIZE=${MDSSIZE:-2000000}
 #
 # Format options of facets can be specified with these variables:
 #
@@ -89,8 +89,9 @@ STRIPE_BYTES=${STRIPE_BYTES:-1048576}
 STRIPES_PER_OBJ=${STRIPES_PER_OBJ:-0}
 SINGLEMDS=${SINGLEMDS:-"mds1"}
 TIMEOUT=${TIMEOUT:-20}
-PTLDEBUG=${PTLDEBUG:-"vfstrace rpctrace dlmtrace neterror ha config \
-		      ioctl super lfsck"}
+#PTLDEBUG=${PTLDEBUG:-"vfstrace rpctrace dlmtrace neterror ha config \
+#		      ioctl super lfsck"}
+PTLDEBUG=${PTLDEBUG:-"neterror ha config ioctl super lfsck"}
 SUBSYSTEM=${SUBSYSTEM:-"all -lnet -lnd -pinger"}
 
 # promise 2MB for every cpu
