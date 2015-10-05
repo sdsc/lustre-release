@@ -668,11 +668,45 @@ static int out_tx_write_exec(const struct lu_env *env, struct thandle *th,
 	if (OBD_FAIL_CHECK(OBD_FAIL_OUT_ENOSPC)) {
 		rc = -ENOSPC;
 	} else {
+		struct llog_update_record *lur;
+
+		/* valid the record */
+		if (arg->u.write.buf.lb_len >= LLOG_MIN_REC_SIZE && arg->u.write.pos > (32768 + LLOG_MIN_REC_SIZE)) {
+			lur = (struct llog_update_record *)arg->u.write.buf.lb_buf;
+
+			if (lur->lur_hdr.lrh_type == UPDATE_REC || lur->lur_hdr.lrh_type == LLOG_PAD_MAGIC) {
+				struct llog_rec_tail *tail;
+				char tail_buf[16];
+				struct lu_buf tail_lbuf;
+				__u64 tail_pos;
+
+				tail_lbuf.lb_buf = tail_buf;
+				tail_lbuf.lb_len = sizeof(*tail);
+				tail_pos = arg->u.write.pos - sizeof(*tail);
+				rc = dt_record_read(env, dt_obj, &tail_lbuf, &tail_pos);
+				if (rc < 0) {
+					CERROR("read record "DFID" tail_pos %llu rc %d index %d\n",
+						PFID(lu_object_fid(&dt_obj->do_lu)), tail_pos, rc, lur->lur_hdr.lrh_index);
+					LBUG();
+				} else {
+					tail = tail_lbuf.lb_buf;
+					if (tail->lrt_index != lur->lur_hdr.lrh_index - 1) {
+						CERROR("%s validate "DFID" pos %llu index %d tail index %d %x\n",
+						        dt_obd_name(th->th_dev),
+							PFID(lu_object_fid(&dt_obj->do_lu)),
+							arg->u.write.pos, lur->lur_hdr.lrh_index, tail->lrt_index, lur->lur_hdr.lrh_type);
+						LBUG();
+					}
+				}
+				CDEBUG(D_HA, "write record "DFID" pos %llu index %u mdt_index %u\n",
+				       PFID(lu_object_fid(&dt_obj->do_lu)), arg->u.write.pos, lur->lur_hdr.lrh_index, lur->lur_hdr.lrh_id);
+			}
+		}
+
 		dt_write_lock(env, dt_obj, MOR_TGT_CHILD);
 		rc = dt_record_write(env, dt_obj, &arg->u.write.buf,
 				     &arg->u.write.pos, th);
 		dt_write_unlock(env, dt_obj);
-
 		if (rc == 0)
 			rc = arg->u.write.buf.lb_len;
 	}
