@@ -221,7 +221,7 @@ static int llog_osd_read_header(const struct lu_env *env,
 	LASSERT(lgi->lgi_attr.la_valid & LA_SIZE);
 
 	if (lgi->lgi_attr.la_size == 0) {
-		CDEBUG(D_HA, "not reading header from 0-byte log\n");
+		CDEBUG(D_HA, ""DFID" not reading header from 0-byte log\n", PFID(lu_object_fid(&o->do_lu)));
 		RETURN(LLOG_EEMPTY);
 	}
 
@@ -280,6 +280,7 @@ static int llog_osd_read_header(const struct lu_env *env,
 	handle->lgh_hdr->llh_flags |= (flags & LLOG_F_EXT_MASK);
 	handle->lgh_last_idx = LLOG_HDR_TAIL(handle->lgh_hdr)->lrt_index;
 
+	CDEBUG(D_HA, "%s "DFID" restart from last idx %d\n",  o->do_lu.lo_dev->ld_obd->obd_name, PFID(lu_object_fid(&o->do_lu)), handle->lgh_last_idx);
 	RETURN(0);
 }
 
@@ -381,7 +382,7 @@ static int llog_osd_write_rec(const struct lu_env *env,
 	struct dt_object	*o;
 	__u32			chunk_size;
 	size_t			 left;
-
+	__u32			orig_index;
 	ENTRY;
 
 	LASSERT(env);
@@ -550,6 +551,7 @@ static int llog_osd_write_rec(const struct lu_env *env,
 		RETURN(-ENOSPC);
 
 	LASSERT(lgi->lgi_attr.la_valid & LA_SIZE);
+	orig_index = loghandle->lgh_last_idx;
 	lgi->lgi_off = lgi->lgi_attr.la_size;
 	left = chunk_size - (lgi->lgi_off & (chunk_size - 1));
 	/* NOTE: padding is a record, but no bit is set */
@@ -593,8 +595,8 @@ static int llog_osd_write_rec(const struct lu_env *env,
 	 * update/cancel, the llh_count and llh_bitmap are protected */
 	mutex_lock(&loghandle->lgh_hdr_mutex);
 	if (ext2_set_bit(index, LLOG_HDR_BITMAP(llh))) {
-		CERROR("%s: index %u already set in log bitmap\n",
-		       o->do_lu.lo_dev->ld_obd->obd_name, index);
+		CERROR("%s: "DFID"index %u already set in log bitmap\n",
+		       o->do_lu.lo_dev->ld_obd->obd_name, PFID(lu_object_fid(&o->do_lu)), index);
 		mutex_unlock(&loghandle->lgh_hdr_mutex);
 		LBUG(); /* should never happen */
 	}
@@ -676,8 +678,8 @@ out_unlock:
 	if (rc < 0)
 		GOTO(out, rc);
 
-	CDEBUG(D_OTHER, "added record "DOSTID": idx: %u, %u off"LPU64"\n",
-	       POSTID(&loghandle->lgh_id.lgl_oi), index, rec->lrh_len,
+	CDEBUG(D_HA, "added record "DFID": idx: %u, %u off"LPU64"\n",
+	       PFID(lu_object_fid(&o->do_lu)), index, rec->lrh_len,
 	       lgi->lgi_off);
 	if (reccookie != NULL) {
 		reccookie->lgc_lgl = loghandle->lgh_id;
@@ -700,11 +702,16 @@ out:
 	mutex_unlock(&loghandle->lgh_hdr_mutex);
 
 	/* restore llog last_idx */
-	if (--loghandle->lgh_last_idx == 0 &&
+	if (dt_object_remote(o)) {
+		loghandle->lgh_last_idx = orig_index; 
+	} else if (--loghandle->lgh_last_idx == 0 &&
 	    (llh->llh_flags & LLOG_F_IS_CAT) && llh->llh_cat_idx != 0) {
 		/* catalog had just wrap-around case */
 		loghandle->lgh_last_idx = LLOG_HDR_BITMAP_SIZE(llh) - 1;
 	}
+
+	CERROR("%s: rollbak to %u\n", o->do_lu.lo_dev->ld_obd->obd_name,
+	       loghandle->lgh_last_idx);
 	LLOG_HDR_TAIL(llh)->lrt_index = loghandle->lgh_last_idx;
 
 	RETURN(rc);
