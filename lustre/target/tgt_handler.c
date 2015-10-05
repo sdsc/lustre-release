@@ -619,22 +619,6 @@ static int process_req_last_xid(struct ptlrpc_request *req)
 		DEBUG_REQ(D_ERROR, req, "Unexpected xid %llx vs. "
 			  "last_xid %llx\n", req->rq_xid,
 			  req->rq_export->exp_last_xid);
-#if LUSTRE_VERSION_CODE < OBD_OCD_VERSION(2, 7, 93, 0)
-		/* This LBUG() can be triggered in following case:
-		 *
-		 * - Client send a no_resend RPC, like statfs;
-		 * - The RPC timedout (or some other error) on client,
-		 *   then it's removed from the unreplied list;
-		 * - Client send some other request to bump the
-		 *   exp_last_xid on server;
-		 * - The former RPC got chance to be processed;
-		 * - LBUG();
-		 *
-		 * Let's keep this for debug purpose for now, and it
-		 * should be removed when release.
-		 */
-		LBUG();
-#endif
 		req->rq_status = -EPROTO;
 		RETURN(ptlrpc_error(req));
 	}
