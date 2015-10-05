@@ -67,6 +67,7 @@
 #define DEBUG_SUBSYSTEM S_MDS
 
 #include <lustre_net.h>
+#include <lustre_log.h>
 #include "osp_internal.h"
 
 /**
@@ -315,7 +316,7 @@ int osp_prep_update_req(const struct lu_env *env, struct obd_import *imp,
 	ENTRY;
 
 	list_for_each_entry(ours, &our->our_req_list, ours_list) {
-		object_update_request_dump(ours->ours_req, D_INFO);
+		object_update_request_dump(ours->ours_req, D_HA);
 		buf_count++;
 	}
 	LASSERT(buf_count > 0);
@@ -560,10 +561,20 @@ static int osp_update_interpret(const struct lu_env *env,
 			else
 				rc1 = result->our_rc;
 		} else {
-			rc1 = rc;
-			if (unlikely(rc1 == 0))
-				rc1 = -EINVAL;
+			if (unlikely(rc1 == 0)) {
+				if (rc == 0)
+					rc1 = -EINVAL;
+				else
+					rc1 = rc;
+			}
 		}
+
+		if (rc1 == 0 && rc < 0)
+			rc1 = rc;
+
+		if (rc1 < 0)
+			CERROR("rc1 %d index %d count %d\n",
+			       rc1, index, count);
 
 		if (ouc->ouc_interpreter != NULL)
 			ouc->ouc_interpreter(env, reply, req, ouc->ouc_obj,
@@ -572,6 +583,9 @@ static int osp_update_interpret(const struct lu_env *env,
 		osp_update_callback_fini(env, ouc);
 		index++;
 	}
+
+	if (rc == 0 && rc1 < 0)
+		rc = rc1;
 
 	if (oaua->oaua_count != NULL && atomic_dec_and_test(oaua->oaua_count))
 		wake_up_all(oaua->oaua_waitq);
@@ -585,7 +599,7 @@ static int osp_update_interpret(const struct lu_env *env,
 		osp_update_request_destroy(our);
 	}
 
-	RETURN(0);
+	RETURN(rc);
 }
 
 /**
@@ -948,7 +962,7 @@ void osp_trans_callback(const struct lu_env *env,
 {
 	struct osp_update_callback *ouc;
 	struct osp_update_callback *next;
-
+	ENTRY;
 	if (oth->ot_our != NULL) {
 		list_for_each_entry_safe(ouc, next,
 					 &oth->ot_our->our_cb_items, ouc_list) {
@@ -962,6 +976,7 @@ void osp_trans_callback(const struct lu_env *env,
 	}
 	osp_trans_stop_cb(oth, rc);
 	osp_trans_commit_cb(oth, rc);
+	EXIT;
 }
 
 /**
@@ -1146,9 +1161,14 @@ int osp_check_and_set_rpc_version(struct osp_thandle *oth)
 		return 0;
 
 	spin_lock(&ou->ou_lock);
+	if (ou->ou_invalid_header) {
+		spin_unlock(&ou->ou_lock);
+		return -EIO;
+	}
 	oth->ot_version = ou->ou_version++;
 	spin_unlock(&ou->ou_lock);
 
+	LASSERT(oth->ot_super.th_wait_submit == 1);
 	CDEBUG(D_INFO, "%s: version "LPU64" oth:version %p:"LPU64"\n",
 	       osp->opd_obd->obd_name, ou->ou_version, oth, oth->ot_version);
 
@@ -1178,8 +1198,8 @@ osp_get_next_request(struct osp_updates *ou, struct osp_update_request **ourp)
 	spin_lock(&ou->ou_lock);
 	list_for_each_entry_safe(our, tmp, &ou->ou_list, our_list) {
 		LASSERT(our->our_th != NULL);
-		CDEBUG(D_INFO, "our %p version "LPU64" rpc_version "LPU64"\n",
-		       our, our->our_th->ot_version, ou->ou_rpc_version);
+		CDEBUG(D_HA, "ou %p version "LPU64" rpc_version "LPU64"\n",
+		       ou, our->our_th->ot_version, ou->ou_rpc_version);
 		if (our->our_th->ot_version == 0) {
 			list_del_init(&our->our_list);
 			*ourp = our;
@@ -1200,8 +1220,8 @@ osp_get_next_request(struct osp_updates *ou, struct osp_update_request **ourp)
 	return got_req;
 }
 
-static void osp_update_rpc_version(struct osp_updates *ou,
-				   struct osp_thandle *oth)
+void osp_update_rpc_version(struct osp_updates *ou,
+			    struct osp_thandle *oth)
 {
 	if (oth->ot_version == 0)
 		return;
@@ -1209,6 +1229,60 @@ static void osp_update_rpc_version(struct osp_updates *ou,
 	LASSERT(oth->ot_version == ou->ou_rpc_version);
 	spin_lock(&ou->ou_lock);
 	ou->ou_rpc_version++;
+	spin_unlock(&ou->ou_lock);
+}
+
+static int osp_update_llog_header(const struct lu_env *env,
+				  struct osp_device *osp)
+{
+	struct llog_ctxt	*ctxt;
+	struct dt_device	*dt = &osp->opd_dt_dev;
+	int rc;
+
+	/* If ctxt is NULL, it means not need to write update,
+	 * for example if the the OSP is used to connect to OST */
+	ctxt = llog_get_context(dt->dd_lu_dev.ld_obd,
+				LLOG_UPDATELOG_ORIG_CTXT);
+	/* Not ready to record updates yet. */
+	if (ctxt == NULL || ctxt->loc_handle == NULL) {
+		llog_ctxt_put(ctxt);
+		return 0;
+	}
+
+	down_write(&ctxt->loc_handle->lgh_lock);
+	rc = llog_cat_update_header(env, ctxt->loc_handle);
+	llog_ctxt_put(ctxt);
+	if (rc != 0) {
+		up_write(&ctxt->loc_handle->lgh_lock);
+		return rc;
+	}
+
+	spin_lock(&osp->opd_update->ou_lock);
+	osp->opd_update->ou_invalid_header = 0;
+	osp->opd_update->ou_refresh_version = osp->opd_update->ou_version;
+	spin_unlock(&osp->opd_update->ou_lock);
+
+	up_write(&ctxt->loc_handle->lgh_lock);
+	CDEBUG(D_HA, "%srestart version from "LPU64"\n",
+	       osp->opd_obd->obd_name, osp->opd_update->ou_refresh_version); 
+	return rc;
+}
+
+void osp_invalidate_request(struct osp_device *osp)
+{
+	struct osp_updates *ou = osp->opd_update;
+	struct osp_update_request *our;
+
+	if (ou == NULL)
+		return;
+
+	spin_lock(&ou->ou_lock);
+	list_for_each_entry(our, &ou->ou_list, our_list) {
+		if (our->our_th->ot_super.th_result == 0)
+			our->our_th->ot_super.th_result = -EIO;
+		CDEBUG(D_HA, "%s invalid our %p\n", osp->opd_obd->obd_name, our);
+	}
+	ou->ou_invalid_header = 1;
 	spin_unlock(&ou->ou_lock);
 }
 
@@ -1250,8 +1324,8 @@ int osp_send_update_thread(void *arg)
 		our = NULL;
 		l_wait_event(ou->ou_waitq,
 			     !osp_send_update_thread_running(osp) ||
-			     osp_get_next_request(ou, &our),
-			     &lwi);
+			     osp_get_next_request(ou, &our) ||
+			     ou->ou_invalid_header, &lwi);
 
 		if (!osp_send_update_thread_running(osp)) {
 			if (our != NULL && our->our_th != NULL) {
@@ -1261,13 +1335,35 @@ int osp_send_update_thread(void *arg)
 			break;
 		}
 
+		if (ou->ou_invalid_header) {
+			rc = osp_update_llog_header(&env, osp);
+			if (rc != 0 && our != NULL && our->our_th != NULL &&
+			    our->our_th->ot_super.th_result == 0)
+				our->our_th->ot_super.th_result = rc;
+			if (our == NULL)
+				continue;
+		}
+
 		if (our->our_req_sent == 0) {
 			if (our->our_th != NULL &&
-			    our->our_th->ot_super.th_result != 0)
+			    our->our_th->ot_super.th_result != 0) {
 				osp_trans_callback(&env, our->our_th,
 					our->our_th->ot_super.th_result);
-			else
-				rc = osp_send_update_req(&env, osp, our);
+			} else {
+				if (OBD_FAIL_CHECK(
+					OBD_FAIL_INVALIDATE_UPDATE) ||
+				    our->our_th->ot_version <
+						ou->ou_refresh_version) {
+					rc = -EIO;
+					osp_trans_callback(&env, our->our_th,
+							   rc);
+				} else {
+					rc = osp_send_update_req(&env, osp,
+								 our);
+				}
+				if (rc != 0)
+					osp_invalidate_request(osp);
+			}
 		}
 
 		if (our->our_th != NULL) {
@@ -1301,7 +1397,7 @@ static void osp_trans_trigger(const struct lu_env *env,
 			     struct osp_thandle *oth)
 {
 
-	CDEBUG(D_INFO, "%s: add oth %p with version "LPU64"\n",
+	CDEBUG(D_HA, "%s: add oth %p with version "LPU64"\n",
 	       osp->opd_obd->obd_name, oth, oth->ot_version);
 
 	LASSERT(oth->ot_magic == OSP_THANDLE_MAGIC);
@@ -1397,7 +1493,7 @@ int osp_trans_stop(const struct lu_env *env, struct dt_device *dt,
 		GOTO(out, rc = -EIO);
 	}
 
-	if (th->th_sync) {
+	if (th->th_sync && oth->ot_version == 0) {
 		/* if th_sync is set, then it needs to be sent
 		 * right away. Note: even thought the RPC has been
 		 * sent, it still needs to be added to the sending
