@@ -677,6 +677,103 @@ mdt_enable_remote_dir_gid_seq_write(struct file *file,
 }
 LPROC_SEQ_FOPS(mdt_enable_remote_dir_gid);
 
+static int lprocfs_distribute_txn_seq_show(struct seq_file *m, void *data)
+{
+	struct obd_device *obd = m->private;
+	struct target_distribute_txn_data *tdtd = NULL;
+	ENTRY;
+
+	if (obd->obd_lu_dev->ld_site != NULL &&
+	    obd->obd_lu_dev->ld_site->ls_tgt != NULL &&
+	    obd->obd_lu_dev->ld_site->ls_tgt->lut_tdtd != NULL)
+		tdtd = obd->obd_lu_dev->ld_site->ls_tgt->lut_tdtd;
+
+	return seq_printf(m, "%llu ing %llu ed %llu\n",
+			  tdtd ? tdtd->tdtd_list_count : -1,
+			  tdtd ? tdtd->tdtd_committing_batchid : -1,
+			  tdtd ? tdtd->tdtd_committed_batchid : -1);
+}
+LPROC_SEQ_FOPS_RO_TYPE(mdt, distribute_txn);
+
+static void top_multiple_thandle_dump(struct top_multiple_thandle *tmt,
+				      __u32 mask)
+{
+	struct sub_thandle	*st;
+
+	LASSERT(tmt->tmt_magic == TOP_THANDLE_MAGIC);
+	CDEBUG(mask, "%s tmt %p refcount %d committed %d result %d"
+	       "batchid "LPU64"\n",
+	       tmt->tmt_master_sub_dt ?
+	       tmt->tmt_master_sub_dt->dd_lu_dev.ld_obd->obd_name :
+	       "NULL",
+	       tmt, atomic_read(&tmt->tmt_refcount), tmt->tmt_committed,
+	       tmt->tmt_result, tmt->tmt_batchid);
+
+	list_for_each_entry(st, &tmt->tmt_sub_thandle_list, st_sub_list) {
+		struct sub_thandle_cookie *stc;
+
+		CDEBUG(mask, "st %p obd %s committed %d sub_th %p\n",
+		       st, st->st_dt->dd_lu_dev.ld_obd->obd_name,
+		       st->st_committed, st->st_sub_th);
+
+		list_for_each_entry(stc, &st->st_cookie_list, stc_list) {
+			CDEBUG(mask, " cookie "DOSTID": %u\n",
+			       POSTID(&stc->stc_cookie.lgc_lgl.lgl_oi),
+			       stc->stc_cookie.lgc_index);
+		}
+	}
+}
+
+static int lprocfs_distribute_txn_first_seq_show(struct seq_file *m, void *data)
+{
+	struct obd_device *obd = m->private;
+	struct target_distribute_txn_data *tdtd = NULL;
+	ENTRY;
+
+	if (obd->obd_lu_dev->ld_site != NULL &&
+	    obd->obd_lu_dev->ld_site->ls_tgt != NULL &&
+	    obd->obd_lu_dev->ld_site->ls_tgt->lut_tdtd != NULL)
+		tdtd = obd->obd_lu_dev->ld_site->ls_tgt->lut_tdtd;
+
+	if (tdtd != NULL) {
+		struct top_multiple_thandle *tmt;
+		list_for_each_entry(tmt, &tdtd->tdtd_list, tmt_commit_list) {
+			top_multiple_thandle_dump(tmt, D_ERROR);
+			break;
+		}
+	}
+	return seq_printf(m, "%llu ing %llu ed %llu\n",
+			  tdtd ? tdtd->tdtd_list_count : -1,
+			  tdtd ? tdtd->tdtd_committing_batchid : -1,
+			  tdtd ? tdtd->tdtd_committed_batchid : -1);
+}
+LPROC_SEQ_FOPS_RO_TYPE(mdt, distribute_txn_first);
+
+static int lprocfs_distribute_txn_all_seq_show(struct seq_file *m, void *data)
+{
+	struct obd_device *obd = m->private;
+	struct target_distribute_txn_data *tdtd = NULL;
+	ENTRY;
+
+	if (obd->obd_lu_dev->ld_site != NULL &&
+	    obd->obd_lu_dev->ld_site->ls_tgt != NULL &&
+	    obd->obd_lu_dev->ld_site->ls_tgt->lut_tdtd != NULL)
+		tdtd = obd->obd_lu_dev->ld_site->ls_tgt->lut_tdtd;
+
+	if (tdtd != NULL) {
+		struct top_multiple_thandle *tmt;
+		list_for_each_entry(tmt, &tdtd->tdtd_list, tmt_commit_list) {
+			top_multiple_thandle_dump(tmt, D_ERROR);
+		}
+	}
+
+	return seq_printf(m, "%llu ing %llu ed %llu\n",
+			  tdtd ? tdtd->tdtd_list_count : -1,
+			  tdtd ? tdtd->tdtd_committing_batchid : -1,
+			  tdtd ? tdtd->tdtd_committed_batchid : -1);
+}
+LPROC_SEQ_FOPS_RO_TYPE(mdt, distribute_txn_all);
+
 LPROC_SEQ_FOPS_RO_TYPE(mdt, uuid);
 LPROC_SEQ_FOPS_RO_TYPE(mdt, recovery_status);
 LPROC_SEQ_FOPS_RO_TYPE(mdt, num_exports);
@@ -733,6 +830,12 @@ static struct lprocfs_vars lprocfs_mdt_obd_vars[] = {
 	  .fops =	&mdt_enable_remote_dir_gid_fops		},
 	{ .name =	"hsm_control",
 	  .fops =	&mdt_hsm_cdt_control_fops		},
+	{ .name =	"distribute_txn_all",
+	  .fops =	&mdt_distribute_txn_all_fops	},
+	{ .name =	"distribute_txn_first",
+	  .fops =	&mdt_distribute_txn_first_fops	},
+	{ .name =	"distribute_txn_list",
+	  .fops =	&mdt_distribute_txn_fops		},
 	{ NULL }
 };
 

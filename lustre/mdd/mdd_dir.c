@@ -137,7 +137,7 @@ int mdd_lookup(const struct lu_env *env,
  * \retval		0 if getting the parent FID succeeds.
  * \retval		negative errno if getting the parent FID fails.
  **/
-static inline int mdd_parent_fid(const struct lu_env *env,
+static int mdd_parent_fid(const struct lu_env *env,
 				 struct mdd_object *obj,
 				 const struct lu_attr *attr,
 				 struct lu_fid *fid)
@@ -231,6 +231,10 @@ static int mdd_is_parent(const struct lu_env *env,
 		parent = mdd_object_find(env, mdd, pfid);
 		if (IS_ERR(parent))
 			GOTO(out, rc = PTR_ERR(parent));
+
+		if (!mdd_object_exists(parent))
+			GOTO(out, rc = -EINVAL);
+
 		p1 = parent;
         }
         EXIT;
