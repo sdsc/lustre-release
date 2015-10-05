@@ -380,6 +380,15 @@ static int prepare_writing_updates(const struct lu_env *env,
 	lur->lur_hdr.lrh_len = llog_update_record_size(lur);
 	lur->lur_hdr.lrh_type = UPDATE_REC;
 
+	{
+		struct dt_device *dt = tmt->tmt_master_sub_dt;
+
+		/* debugging purpose */
+		if (dt != NULL)
+			lur->lur_hdr.lrh_id =
+				lu_site2seq(dt->dd_lu_dev.ld_site)->ss_node_id;
+	}
+
 	/* Dump updates for debugging purpose */
 	update_records_dump(&lur->lur_update_rec, D_INFO, true);
 
