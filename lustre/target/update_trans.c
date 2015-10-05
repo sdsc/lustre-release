@@ -380,6 +380,15 @@ static int prepare_writing_updates(const struct lu_env *env,
 	lur->lur_hdr.lrh_len = llog_update_record_size(lur);
 	lur->lur_hdr.lrh_type = UPDATE_REC;
 
+	{
+		struct dt_device *dt = tmt->tmt_master_sub_dt;
+
+		/* debugging purpose */
+		if (dt != NULL)
+			lur->lur_hdr.lrh_id =
+				lu_site2seq(dt->dd_lu_dev.ld_site)->ss_node_id;
+	}
+
 	/* Dump updates for debugging purpose */
 	update_records_dump(&lur->lur_update_rec, D_INFO, true);
 
@@ -412,7 +421,7 @@ static void top_trans_committed_cb(struct top_multiple_thandle *tmt)
 
 	LASSERT(atomic_read(&tmt->tmt_refcount) > 0);
 
-	top_multiple_thandle_dump(tmt, D_HA);
+	top_multiple_thandle_dump(tmt, D_INFO);
 	tmt->tmt_committed = 1;
 	lut = dt2lu_dev(tmt->tmt_master_sub_dt)->ld_site->ls_tgt;
 	if (distribute_txn_commit_thread_running(lut))
@@ -450,25 +459,11 @@ struct sub_thandle *create_sub_thandle(struct top_multiple_thandle *tmt,
 	return st;
 }
 
-/**
- * sub thandle commit callback
- *
- * Mark the sub thandle to be committed and if all sub thandle are committed
- * notify the top thandle.
- *
- * \param[in] env	execution environment
- * \param[in] sub_th	sub thandle being committed
- * \param[in] cb	commit callback
- * \param[in] err	trans result
- */
-static void sub_trans_commit_cb(struct lu_env *env,
-				struct thandle *sub_th,
-				struct dt_txn_commit_cb *cb, int err)
+static void sub_trans_commit_cb_internal(struct top_multiple_thandle *tmt,
+					 struct thandle *sub_th, int err)
 {
 	struct sub_thandle	*st;
-	struct top_multiple_thandle *tmt = cb->dcb_data;
 	bool			all_committed = true;
-	ENTRY;
 
 	/* Check if all sub thandles are committed */
 	spin_lock(&tmt->tmt_sub_lock);
@@ -488,9 +483,29 @@ static void sub_trans_commit_cb(struct lu_env *env,
 	if (all_committed)
 		top_trans_committed_cb(tmt);
 
-	top_multiple_thandle_dump(tmt, D_INFO);
 	top_multiple_thandle_put(tmt);
+	top_multiple_thandle_dump(tmt, D_INFO);
 	RETURN_EXIT;
+}
+
+/**
+ * sub thandle commit callback
+ *
+ * Mark the sub thandle to be committed and if all sub thandle are committed
+ * notify the top thandle.
+ *
+ * \param[in] env	execution environment
+ * \param[in] sub_th	sub thandle being committed
+ * \param[in] cb	commit callback
+ * \param[in] err	trans result
+ */
+static void sub_trans_commit_cb(struct lu_env *env,
+				struct thandle *sub_th,
+				struct dt_txn_commit_cb *cb, int err)
+{
+	struct top_multiple_thandle *tmt = cb->dcb_data;
+
+	sub_trans_commit_cb_internal(tmt, sub_th, err);
 }
 
 static void sub_thandle_register_commit_cb(struct sub_thandle *st,
@@ -661,13 +676,19 @@ static void distribute_txn_assign_batchid(struct top_multiple_thandle *new)
 {
 	struct target_distribute_txn_data *tdtd;
 	struct dt_device *dt = new->tmt_master_sub_dt;
+	struct sub_thandle *st;
 
 	LASSERT(dt != NULL);
 	tdtd = dt2lu_dev(dt)->ld_site->ls_tgt->lut_tdtd;
 	spin_lock(&tdtd->tdtd_batchid_lock);
 	new->tmt_batchid = tdtd->tdtd_batchid++;
 	list_add_tail(&new->tmt_commit_list, &tdtd->tdtd_list);
+	tdtd->tdtd_list_count++;
 	spin_unlock(&tdtd->tdtd_batchid_lock);
+	list_for_each_entry(st, &new->tmt_sub_thandle_list, st_sub_list) {
+		LASSERT(st->st_sub_th != NULL);
+		sub_thandle_register_commit_cb(st, new);
+	}
 	top_multiple_thandle_get(new);
 	top_multiple_thandle_dump(new, D_INFO);
 }
@@ -684,6 +705,7 @@ void distribute_txn_insert_by_batchid(struct top_multiple_thandle *new)
 	struct dt_device *dt = new->tmt_master_sub_dt;
 	struct top_multiple_thandle *tmt;
 	struct target_distribute_txn_data *tdtd;
+	struct sub_thandle *st;
 	bool	at_head = false;
 
 	LASSERT(dt != NULL);
@@ -700,7 +722,14 @@ void distribute_txn_insert_by_batchid(struct top_multiple_thandle *new)
 		at_head = true;
 		list_add(&new->tmt_commit_list, &tdtd->tdtd_list);
 	}
+	tdtd->tdtd_list_count++;
 	spin_unlock(&tdtd->tdtd_batchid_lock);
+
+	list_for_each_entry(st, &new->tmt_sub_thandle_list, st_sub_list) {
+		if (st->st_sub_th != NULL)
+			sub_thandle_register_commit_cb(st, new);
+	}
+
 	top_multiple_thandle_get(new);
 	top_multiple_thandle_dump(new, D_INFO);
 	if (new->tmt_committed && at_head)
@@ -800,9 +829,7 @@ int top_trans_start(const struct lu_env *env, struct dt_device *master_dev,
 				    st->st_sub_th);
 		if (rc != 0)
 			GOTO(out, rc);
-
-		sub_thandle_register_stop_cb(st, tmt);
-		sub_thandle_register_commit_cb(st, tmt);
+		st->st_started = 1;
 	}
 out:
 	th->th_result = rc;
@@ -961,6 +988,7 @@ int top_trans_stop(const struct lu_env *env, struct dt_device *master_dev,
 			CERROR("%s: cannot prepare updates: rc = %d\n",
 			       master_dev->dd_lu_dev.ld_obd->obd_name, rc);
 			th->th_result = rc;
+			write_updates = false;
 			GOTO(stop_master_trans, rc);
 		}
 
@@ -979,6 +1007,7 @@ int top_trans_stop(const struct lu_env *env, struct dt_device *master_dev,
 			CERROR("%s: write updates failed: rc = %d\n",
 			       master_dev->dd_lu_dev.ld_obd->obd_name, rc);
 			th->th_result = rc;
+			write_updates = false;
 			GOTO(stop_master_trans, rc);
 		}
 	}
@@ -993,7 +1022,14 @@ stop_master_trans:
 			master_st->st_sub_th->th_sync = th->th_sync;
 		master_st->st_sub_th->th_tags = th->th_tags;
 		master_st->st_sub_th->th_result = th->th_result;
+		sub_thandle_register_stop_cb(master_st, tmt);
 		rc = dt_trans_stop(env, master_st->st_dt, master_st->st_sub_th);
+		/* If it does not write_updates, then we call submit callback
+		 * here, otherwise callback is done through
+		 * osd(osp)_trans_commit_cb() */
+		if (!master_st->st_started && !list_empty(&tmt->tmt_commit_list))
+			sub_trans_commit_cb_internal(tmt,
+						master_st->st_sub_th, rc);
 		if (rc < 0) {
 			th->th_result = rc;
 			GOTO(stop_other_trans, rc);
@@ -1050,6 +1086,7 @@ stop_other_trans:
 			st->st_sub_th->th_local = th->th_local;
 		st->st_sub_th->th_tags = th->th_tags;
 		st->st_sub_th->th_result = th->th_result;
+		sub_thandle_register_stop_cb(st, tmt);
 		rc = dt_trans_stop(env, st->st_sub_th->th_dev,
 				   st->st_sub_th);
 		if (unlikely(rc < 0 && th->th_result == 0))
@@ -1423,6 +1460,8 @@ distribute_txn_commit_batchid_update(const struct lu_env *env,
 	CDEBUG(D_INFO, "%s: update batchid "LPU64": rc = %d\n",
 	       tdtd->tdtd_lut->lut_obd->obd_name, batchid, rc);
 
+	if (batchid > tdtd->tdtd_committing_batchid)
+		tdtd->tdtd_committing_batchid = batchid;
 stop:
 	dt_trans_stop(env, tdtd->tdtd_lut->lut_bottom, th);
 	if (rc < 0)
@@ -1547,7 +1586,6 @@ static int distribute_txn_commit_thread(void *_arg)
 					 tmt_commit_list) {
 			if (tmt->tmt_committed == 0)
 				break;
-
 			/* Note: right now, replay is based on master MDT
 			 * transno, but cancellation is based on batchid.
 			 * so we do not try to cancel the update log until
@@ -1555,6 +1593,7 @@ static int distribute_txn_commit_thread(void *_arg)
 			 * batchid < committed_batchid. */
 			if (tmt->tmt_batchid <= tdtd->tdtd_committed_batchid) {
 				list_move_tail(&tmt->tmt_commit_list, &list);
+				tdtd->tdtd_list_count--;
 			} else if (!tdtd->tdtd_lut->lut_obd->obd_recovering) {
 				LASSERTF(tmt->tmt_batchid >= batchid,
 					 "tmt %p tmt_batchid: "LPU64", batchid "
@@ -1582,6 +1621,7 @@ static int distribute_txn_commit_thread(void *_arg)
 				if (tmt->tmt_result <= 0)
 					batchid = tmt->tmt_batchid;
 				list_move_tail(&tmt->tmt_commit_list, &list);
+				tdtd->tdtd_list_count--;
 			}
 		}
 		spin_unlock(&tdtd->tdtd_batchid_lock);

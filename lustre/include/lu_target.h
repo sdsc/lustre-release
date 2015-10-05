@@ -97,6 +97,9 @@ struct target_distribute_txn_data {
 
 	/* List for distribute transaction */
 	struct list_head	tdtd_list;
+	__u64			tdtd_list_count;
+	__u64			tdtd_committing_batchid;
+
 
 	/* Threads to manage distribute transaction */
 	wait_queue_head_t	tdtd_commit_thread_waitq;
