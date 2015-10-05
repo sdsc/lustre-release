@@ -380,6 +380,15 @@ static int prepare_writing_updates(const struct lu_env *env,
 	lur->lur_hdr.lrh_len = llog_update_record_size(lur);
 	lur->lur_hdr.lrh_type = UPDATE_REC;
 
+	{
+		struct dt_device *dt = tmt->tmt_master_sub_dt;
+
+		/* debugging purpose */
+		if (dt != NULL)
+			lur->lur_hdr.lrh_id =
+				lu_site2seq(dt->dd_lu_dev.ld_site)->ss_node_id;
+	}
+
 	/* Dump updates for debugging purpose */
 	update_records_dump(&lur->lur_update_rec, D_INFO, true);
 
@@ -773,6 +782,11 @@ int top_trans_start(const struct lu_env *env, struct dt_device *master_dev,
 	ENTRY;
 
 	if (tmt == NULL) {
+		if (th->th_sync)
+			top_th->tt_master_sub_thandle->th_sync = th->th_sync;
+		if (th->th_local)
+			top_th->tt_master_sub_thandle->th_local = th->th_local;
+		top_th->tt_master_sub_thandle->th_tags = th->th_tags;
 		rc = dt_trans_start(env, top_th->tt_master_sub_thandle->th_dev,
 				    top_th->tt_master_sub_thandle);
 		RETURN(rc);
@@ -788,7 +802,8 @@ int top_trans_start(const struct lu_env *env, struct dt_device *master_dev,
 			continue;
 		if (th->th_sync)
 			st->st_sub_th->th_sync = th->th_sync;
-		st->st_sub_th->th_local = th->th_local;
+		if (th->th_local)
+			st->st_sub_th->th_local = th->th_local;
 		st->st_sub_th->th_tags = th->th_tags;
 		rc = dt_trans_start(env, st->st_sub_th->th_dev,
 				    st->st_sub_th);
@@ -922,6 +937,12 @@ int top_trans_stop(const struct lu_env *env, struct dt_device *master_dev,
 
 	if (likely(top_th->tt_multiple_thandle == NULL)) {
 		LASSERT(master_dev != NULL);
+
+		if (th->th_sync)
+			top_th->tt_master_sub_thandle->th_sync = th->th_sync;
+		if (th->th_local)
+			top_th->tt_master_sub_thandle->th_local = th->th_local;
+		top_th->tt_master_sub_thandle->th_tags = th->th_tags;
 		rc = dt_trans_stop(env, master_dev,
 				   top_th->tt_master_sub_thandle);
 		OBD_FREE_PTR(top_th);
@@ -975,7 +996,8 @@ stop_master_trans:
 	/* Step 2: Stop the transaction on the master MDT, and fill the
 	 * master transno in the update logs to other MDT. */
 	if (master_st != NULL && master_st->st_sub_th != NULL) {
-		master_st->st_sub_th->th_local = th->th_local;
+		if (th->th_local)
+			master_st->st_sub_th->th_local = th->th_local;
 		if (th->th_sync)
 			master_st->st_sub_th->th_sync = th->th_sync;
 		master_st->st_sub_th->th_tags = th->th_tags;
@@ -1033,7 +1055,8 @@ stop_other_trans:
 
 		if (th->th_sync)
 			st->st_sub_th->th_sync = th->th_sync;
-		st->st_sub_th->th_local = th->th_local;
+		if (th->th_local)
+			st->st_sub_th->th_local = th->th_local;
 		st->st_sub_th->th_tags = th->th_tags;
 		st->st_sub_th->th_result = th->th_result;
 		rc = dt_trans_stop(env, st->st_sub_th->th_dev,
