@@ -128,6 +128,8 @@ struct osp_updates {
 	/* wait for next updates */
 	__u64			ou_rpc_version;
 	__u64			ou_version;
+	__u64			ou_refresh_version;
+	unsigned int		ou_invalid_header:1;
 };
 
 struct osp_device {
@@ -685,6 +687,8 @@ int osp_send_update_thread(void *arg);
 int osp_check_and_set_rpc_version(struct osp_thandle *oth);
 
 void osp_thandle_destroy(struct osp_thandle *oth);
+void osp_update_rpc_version(struct osp_updates *ou,
+			    struct osp_thandle *oth);
 static inline void osp_thandle_get(struct osp_thandle *oth)
 {
 	atomic_inc(&oth->ot_refcount);
