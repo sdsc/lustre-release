@@ -102,6 +102,7 @@ EXTRA_DIST = @PACKAGE_TARNAME@.spec	\
 	undef.h				\
 	LUSTRE-VERSION-GEN		\
 	LUSTRE-VERSION-FILE
+EXTRA_DIST += rpm
 
 rpm-local:
 	@(if test -z "$(RPMBUILD)"; then \
@@ -167,6 +168,7 @@ srpm: @PACKAGE_TARNAME@.spec dist Makefile
 	rpmbuilddir=`mktemp -t -d rpmbuild-@PACKAGE@-$$USER-XXXXXXXX`; \
 	$(MAKE) $(AM_MAKEFLAGS) \
 		rpmbuilddir="$$rpmbuilddir" rpm-local || exit 1; \
+	cp $(top_srcdir)/rpm/*.files $(top_srcdir); \
 	$(RPMBUILD) \
 		--define "_tmppath $$rpmbuilddir/TMP" \
 		--define "_topdir $$rpmbuilddir" \
