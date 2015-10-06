@@ -1,0 +1,6 @@
+%defattr(-,root,root)
+%{?rootdir}/lib/modules/%{kversion}/%{modules_fs_path}/ldiskfs.ko
+%{?rootdir}/lib/modules/%{kversion}/%{modules_fs_path}/osd_ldiskfs.ko
+%if %{defined rpm_post_base}
+%attr(0555, root, root) %{rpm_post_base}-osd-ldiskfs.sh
+%endif
