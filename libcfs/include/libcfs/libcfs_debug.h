@@ -42,6 +42,10 @@
 #ifndef __LIBCFS_DEBUG_H__
 #define __LIBCFS_DEBUG_H__
 
+#ifndef __KERNEL__
+#include <sys/param.h>
+#endif
+
 /*
  *  Debugging
  */

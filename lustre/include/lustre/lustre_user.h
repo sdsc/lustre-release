@@ -1021,6 +1021,8 @@ enum changelog_message_type {
 
 /********* Misc **********/
 
+#define LUSTRE_NODEMAP_NAME_LENGTH 16
+
 struct ioc_data_version {
         __u64 idv_version;
         __u64 idv_flags;     /* See LL_DV_xxx */
