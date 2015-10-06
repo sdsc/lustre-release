@@ -1,0 +1,16 @@
+%defattr(-,root,root)
+%if %{with servers}
+/lib/modules/%2-%1/%{kmoddir}/*
+%if %{with ldiskfs}
+%exclude /lib/modules/%2-%1/%{kmoddir}/kernel/fs/lustre/osd_ldiskfs.ko
+%endif
+%if %{with zfs}
+%exclude /lib/modules/%2-%1/%{kmoddir}/kernel/fs/lustre/osd_zfs.ko
+%endif
+%endif # with servers
+%if %{with lustre_tests}
+%exclude /lib/modules/%{kversion}/%{kmoddir}/kernel/fs/lustre/llog_test.ko
+%endif
+%doc COPYING
+%doc ChangeLog-lustre
+%doc ChangeLog-lnet
