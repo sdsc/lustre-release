@@ -1,0 +1,54 @@
+From 784667510a1b0c6cda0c7b279e9030fbca1867d0 Mon Sep 17 00:00:00 2001
+From: Di Wang <di.wang@intel.com>
+Date: Wed, 30 Sep 2015 21:32:49 -0700
+Subject: [PATCH] LU-6852 ldlm: Do not evict MDS-MDS connection
+
+Do not put the MDT-MDT lock in the waiting lock list, so
+it will evict MDTs due to the lock timeout between MDTs,
+which can help the updates replay being finished finally,
+so the DNE filesystem will be in consistent state after
+recovery.
+
+If for some reasons, the filesystem will hang there because
+of these two changes, then the administrator should step in
+and inactivate the MDT manually and run lfsck.
+
+Signed-off-by: wang di <di.wang@intel.com>
+Change-Id: I83e7f8f55ee15730ed2d9826d08a398ddd72792a
+---
+ lustre/ldlm/ldlm_lockd.c | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+
+diff --git a/lustre/ldlm/ldlm_lockd.c b/lustre/ldlm/ldlm_lockd.c
+index 34c210b..760feb5 100644
+--- a/lustre/ldlm/ldlm_lockd.c
++++ b/lustre/ldlm/ldlm_lockd.c
+@@ -444,6 +444,12 @@ static int ldlm_add_waiting_lock(struct ldlm_lock *lock)
+	LASSERT(ldlm_is_res_locked(lock));
+	LASSERT(!ldlm_is_cancel_on_block(lock));
+
++	/* Do not put cross-MDT lock in the waiting list, since we
++	 * will not evict it due to timeout for now */
++	if (lock->l_export != NULL &&
++	    (exp_connect_flags(lock->l_export) & OBD_CONNECT_MDS_MDS))
++		return 0;
++
+	spin_lock_bh(&waiting_locks_spinlock);
+	if (ldlm_is_cancel(lock)) {
+		spin_unlock_bh(&waiting_locks_spinlock);
+@@ -559,6 +565,12 @@ int ldlm_refresh_waiting_lock(struct ldlm_lock *lock, int timeout)
+		return 0;
+	}
+
++	if (exp_connect_flags(lock->l_export) & OBD_CONNECT_MDS_MDS) {
++		/* We don't have a "waiting locks list" on OSP. */
++		LDLM_DEBUG(lock, "MDS-MDS lock: no-op");
++		return 0;
++	}
++
+	spin_lock_bh(&waiting_locks_spinlock);
+
+	if (list_empty(&lock->l_pending_chain)) {
+--
+1.8.4
+
