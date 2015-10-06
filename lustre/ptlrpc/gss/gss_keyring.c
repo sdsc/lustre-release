@@ -689,7 +689,8 @@ struct ptlrpc_cli_ctx * gss_sec_lookup_ctx_kr(struct ptlrpc_sec *sec,
         char                     desc[24];
         char                    *coinfo;
         int                      coinfo_size;
-        char                    *co_flags = "";
+	const char		*sec_part_flags = "";
+	char			 svc_flag = '\0';
         ENTRY;
 
         LASSERT(imp != NULL);
@@ -722,23 +723,40 @@ struct ptlrpc_cli_ctx * gss_sec_lookup_ctx_kr(struct ptlrpc_sec *sec,
                 /* update reverse handle for root user */
                 sec2gsec(sec)->gs_rvs_hdl = gss_get_next_ctx_index();
 
-                switch (sec->ps_part) {
-                case LUSTRE_SP_MDT:
-                        co_flags = "m";
-                        break;
-                case LUSTRE_SP_OST:
-                        co_flags = "o";
-                        break;
-                case LUSTRE_SP_MGC:
-                        co_flags = "rmo";
-                        break;
-                case LUSTRE_SP_CLI:
-                        co_flags = "r";
-                        break;
-                case LUSTRE_SP_MGS:
-                default:
-                        LBUG();
+		switch (sec->ps_part) {
+		case LUSTRE_SP_MDT:
+			sec_part_flags = "m";
+			break;
+		case LUSTRE_SP_OST:
+			sec_part_flags = "o";
+			break;
+		case LUSTRE_SP_MGC:
+			sec_part_flags = "rmo";
+			break;
+		case LUSTRE_SP_CLI:
+			sec_part_flags = "r";
+			break;
+		case LUSTRE_SP_MGS:
+		default:
+			LBUG();
                 }
+
+		switch (SPTLRPC_FLVR_SVC(sec->ps_flvr.sf_rpc)) {
+		case SPTLRPC_SVC_NULL:
+			svc_flag = 'n';
+			break;
+		case SPTLRPC_SVC_AUTH:
+			svc_flag = 'a';
+			break;
+		case SPTLRPC_SVC_INTG:
+			svc_flag = 'i';
+			break;
+		case SPTLRPC_SVC_PRIV:
+			svc_flag = 'p';
+			break;
+		default:
+			LBUG();
+		}
         }
 
         /* in case of setuid, key will be constructed as owner of fsuid/fsgid,
@@ -764,18 +782,18 @@ struct ptlrpc_cli_ctx * gss_sec_lookup_ctx_kr(struct ptlrpc_sec *sec,
 
         construct_key_desc(desc, sizeof(desc), sec, vcred->vc_uid);
 
-        /* callout info format:
-         * secid:mech:uid:gid:flags:svc_type:peer_nid:target_uuid
-         */
+	/* callout info format:
+	 * secid:mech:uid:gid:sec_flags:svc_flag:svc_type:peer_nid:target_uuid
+	 */
         coinfo_size = sizeof(struct obd_uuid) + MAX_OBD_NAME + 64;
         OBD_ALLOC(coinfo, coinfo_size);
         if (coinfo == NULL)
                 goto out;
 
-	snprintf(coinfo, coinfo_size, "%d:%s:%u:%u:%s:%d:"LPX64":%s:"LPX64,
+	snprintf(coinfo, coinfo_size, "%d:%s:%u:%u:%s:%c:%d:"LPX64":%s:"LPX64,
 		 sec->ps_id, sec2gsec(sec)->gs_mech->gm_name,
 		 vcred->vc_uid, vcred->vc_gid,
-		 co_flags, import_to_gss_svc(imp),
+		 sec_part_flags, svc_flag, import_to_gss_svc(imp),
 		 imp->imp_connection->c_peer.nid, imp->imp_obd->obd_name,
 		 imp->imp_connection->c_self);
 
@@ -1034,7 +1052,7 @@ int gss_sec_display_kr(struct ptlrpc_sec *sec, struct seq_file *seq)
                         snprintf(mech, sizeof(mech), "N/A");
                 mech[sizeof(mech) - 1] = '\0';
 
-		seq_printf(seq, "%p: uid %u, ref %d, expire %ld(%+ld), fl %s, "
+		seq_printf(seq, "%p: uid %u, ref %d, expire %lu(%+ld), fl %s, "
 			   "seq %d, win %u, key %08x(ref %d), "
 			   "hdl "LPX64":"LPX64", mech: %s\n",
 			   ctx, ctx->cc_vcred.vc_uid,
@@ -1351,19 +1369,19 @@ int gss_kt_update(struct key *key, const void *data, size_t datalen)
                 rc = buffer_extract_bytes(&data, &datalen32, &nego_rpc_err,
                                           sizeof(nego_rpc_err));
                 if (rc) {
-                        CERROR("failed to extrace rpc rc\n");
-                        goto out;
-                }
+			CERROR("cannot extract RPC: rc = %d\n", rc);
+			goto out;
+		}
 
-                rc = buffer_extract_bytes(&data, &datalen32, &nego_gss_err,
-                                          sizeof(nego_gss_err));
-                if (rc) {
-                        CERROR("failed to extrace gss rc\n");
-                        goto out;
-                }
+		rc = buffer_extract_bytes(&data, &datalen32, &nego_gss_err,
+					  sizeof(nego_gss_err));
+		if (rc) {
+			CERROR("failed to extract gss rc = %d\n", rc);
+			goto out;
+		}
 
-                CERROR("negotiation: rpc err %d, gss err %x\n",
-                       nego_rpc_err, nego_gss_err);
+		CERROR("negotiation: rpc err %d, gss err %x\n",
+		       nego_rpc_err, nego_gss_err);
 
                 rc = nego_rpc_err ? nego_rpc_err : -EACCES;
         } else {
