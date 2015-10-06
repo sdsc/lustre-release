@@ -214,9 +214,12 @@ static int osc_object_prune(const struct lu_env *env, struct cl_object *obj)
 	struct osc_object       *osc = cl2osc(obj);
 	struct ldlm_res_id      *resname = &osc_env_info(env)->oti_resname;
 
-	LASSERTF(osc->oo_npages == 0,
-		 DFID "still have %lu pages, obj: %p, osc: %p\n",
-		 PFID(lu_object_fid(&obj->co_lu)), osc->oo_npages, obj, osc);
+	/* At this time, all locks must have been cancelled but there may
+	 * exist freeing pages in object's page radix tree. This race won't
+	 * cause any problems.
+	 *
+	 * LASSERT(osc->oo_npages == 0);
+	 */
 
 	/* DLM locks don't hold a reference of osc_object so we have to
 	 * clear it before the object is being destroyed. */
