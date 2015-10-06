@@ -27,8 +27,9 @@
 #ifndef _LUSTRE_NODEMAP_H
 #define _LUSTRE_NODEMAP_H
 
+#include <lustre/lustre_user.h>
+
 #define LUSTRE_NODEMAP_NAME "nodemap"
-#define LUSTRE_NODEMAP_NAME_LENGTH 16
 
 #define LUSTRE_NODEMAP_DEFAULT_ID 0
 
