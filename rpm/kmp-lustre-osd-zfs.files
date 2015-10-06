@@ -1,0 +1,2 @@
+%defattr(-,root,root)
+/lib/modules/%2-%1/%{kmoddir}/kernel/fs/lustre/osd_zfs.ko

@@ -774,6 +774,9 @@ build_lustre() {
 
     pushd lustre >/dev/null
 
+    # copy into place the support Source files for the main lustre.spec file
+    cp rpm/* .
+
     if ! build_lustre_dkms; then
         popd >/dev/null # pushd lustre
         return 255
