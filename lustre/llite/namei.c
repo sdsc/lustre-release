@@ -128,6 +128,12 @@ struct inode *ll_iget(struct super_block *sb, ino_t hash,
 			rc = cl_file_inode_init(inode, md);
 
 		if (rc != 0) {
+			/* Let's clear directory lsm here, otherwise
+			 * make_bad_inode() will reset the inode mode
+			 * to regular, then ll_clear_inode will not
+			 * be able to clear lsm_md */
+			if (S_ISDIR(inode->i_mode))
+				ll_dir_clear_lsm_md(inode);
 			make_bad_inode(inode);
 			unlock_new_inode(inode);
 			iput(inode);
