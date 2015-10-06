@@ -1,0 +1,1 @@
+%{?rootdir}/lib/modules/%{kversion}/%{modules_fs_path}/llog_test.ko
