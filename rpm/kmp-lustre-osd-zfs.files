@@ -1,0 +1,6 @@
+%defattr(-,root,root)
+/lib/modules/%{kversion}/%{modules_fs_path}/osd_zfs.ko
+%if %{defined rpm_post_base}
+%attr(0555, root, root) %{rpm_post_base}-osd-zfs.sh
+%endif
+
