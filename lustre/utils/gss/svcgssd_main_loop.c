@@ -48,6 +48,8 @@
 #include "svcgssd.h"
 #include "err_util.h"
 
+#define GSS_RPC_FILE "/proc/net/rpc/auth.sptlrpc.init/channel"
+
 /*
  * nfs4 in-kernel cache implementation make upcall failed directly
  * if there's no listener detected. so here we should keep the init
@@ -65,20 +67,18 @@ svcgssd_run()
 	struct pollfd		pollfd;
 	struct timespec		halfsec = { .tv_sec = 0, .tv_nsec = 500000000 };
 
-#define NULLRPC_FILE "/proc/net/rpc/auth.sptlrpc.init/channel"
-
 	while (1) {
 		int save_err;
 
 		while (f == NULL) {
-			f = fopen(NULLRPC_FILE, "rw");
+			f = fopen(GSS_RPC_FILE, "rw");
 			if (f == NULL) {
 				printerr(4, "failed to open %s: %s\n",
-					 NULLRPC_FILE, strerror(errno));
+					 GSS_RPC_FILE, strerror(errno));
 				nanosleep(&halfsec, NULL);
 			} else {
 				printerr(1, "successfully open %s\n",
-					 NULLRPC_FILE);
+					 GSS_RPC_FILE);
 				break;
 			}
 		}
@@ -95,7 +95,7 @@ svcgssd_run()
 			fclose(f);
 			f = NULL;
 		} else if (ret == 0) {
-			printerr(3, "poll timeout\n");
+			printerr(4, "poll timeout\n");
 		} else {
 			if (ret != 1) {
 				printerr(0, "bug: unexpected poll return %d\n",
@@ -103,7 +103,7 @@ svcgssd_run()
 				exit(1);
 			}
 			if (pollfd.revents & POLLIN) {
-				if (handle_nullreq(f) < 0) {
+				if (handle_req(f) < 0) {
 					fclose(f);
 					f = NULL;
 				}

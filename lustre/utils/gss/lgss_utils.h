@@ -43,6 +43,8 @@
 #include <stdint.h>
 #include <gssapi/gssapi.h>
 
+#include "lsupport.h"
+
 #define LGSS_SVC_MGS_STR        "lustre_mgs"
 #define LGSS_SVC_MDS_STR        "lustre_mds"
 #define LGSS_SVC_OSS_STR        "lustre_oss"
@@ -62,8 +64,8 @@ extern const char *lgss_svc_str[LGSS_SVC_MAX];
  ****************************************/
 
 typedef enum {
-        LGSS_MUTEX_KRB5         = 0,
-        LGSS_MUTEX_MAX
+	LGSS_MUTEX_KRB5 = 0,
+	LGSS_MUTEX_MAX
 } lgss_mutex_id_t;
 
 int lgss_mutex_lock(lgss_mutex_id_t mid);
@@ -137,10 +139,8 @@ do {                                                                    \
 
 extern gss_OID_desc krb5oid;
 extern gss_OID_desc spkm3oid;
-
-typedef enum {
-        LGSS_MECH_KRB5  = 0,
-} lgss_mech_t;
+extern gss_OID_desc nulloid;
+extern gss_OID_desc skoid;
 
 /****************************************
  * client credentials                   *
@@ -149,14 +149,17 @@ typedef enum {
 struct lgss_cred;
 
 struct lgss_mech_type {
-        char               *lmt_name;
-        lgss_mech_t         lmt_mech_n;
+	char               *lmt_name;
+	lgss_mech_t         lmt_mech_n;
 
-        int                (*lmt_init)(void);
-        void               (*lmt_fini)(void);
-        int                (*lmt_prepare_cred)(struct lgss_cred *cred);
-        void               (*lmt_release_cred)(struct lgss_cred *cred);
-        int                (*lmt_using_cred)(struct lgss_cred *cred);
+	int                (*lmt_init)(void);
+	void               (*lmt_fini)(void);
+	int                (*lmt_prepare_cred)(struct lgss_cred *cred);
+	void               (*lmt_release_cred)(struct lgss_cred *cred);
+	int                (*lmt_using_cred)(struct lgss_cred *cred);
+	int                (*lmt_validate_cred)(struct lgss_cred *cred,
+						gss_buffer_desc *token,
+						gss_buffer_desc *ctx_token);
 };
 
 enum {
@@ -173,9 +176,12 @@ struct lgss_cred {
 	uint64_t                lc_self_nid;
 	uint64_t                lc_tgt_nid;
 	uint32_t                lc_tgt_svc;
+	char                    lc_svc_type;
+	char                   *lc_tgt_uuid;
 
 	struct lgss_mech_type  *lc_mech;
 	void                   *lc_mech_cred;
+	gss_buffer_desc         lc_mech_token;
 };
 
 struct lgss_mech_type *lgss_name2mech(const char *mech_name);
@@ -187,12 +193,10 @@ void lgss_destroy_cred(struct lgss_cred *cred);
 int lgss_prepare_cred(struct lgss_cred *cred);
 void lgss_release_cred(struct lgss_cred *cred);
 int lgss_using_cred(struct lgss_cred *cred);
+int lgss_validate_cred(struct lgss_cred *cred, gss_buffer_desc *token,
+		       gss_buffer_desc *ctx_token);
 
 int lgss_get_service_str(char **string, uint32_t lsvc, uint64_t tgt_nid);
-
-
-extern gss_OID_desc krb5oid;
-extern gss_OID_desc spkm3oid;
 
 static inline
 int gss_OID_equal(gss_OID_desc *oid1, gss_OID_desc *oid2)

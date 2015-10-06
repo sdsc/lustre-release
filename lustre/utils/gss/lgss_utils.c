@@ -224,11 +224,10 @@ int lgss_mutex_unlock(lgss_mutex_id_t mid)
  ****************************************/
 
 /* from kerberos source, gssapi_krb5.c */
-gss_OID_desc krb5oid =
-        {9, "\052\206\110\206\367\022\001\002\002"};
-
-gss_OID_desc spkm3oid =
-        {7, "\053\006\001\005\005\001\003"};
+gss_OID_desc krb5oid = {9, "\052\206\110\206\367\022\001\002\002" };
+gss_OID_desc spkm3oid = {7, "\053\006\001\005\005\001\003"};
+gss_OID_desc nulloid = {12, "\053\006\001\004\001\311\146\215\126\001\000\000"};
+gss_OID_desc skoid = {12, "\053\006\001\004\001\311\146\215\126\001\000\001"};
 
 /****************************************
  * log facilities                       *
@@ -410,6 +409,22 @@ int lgss_using_cred(struct lgss_cred *cred)
         if (mech->lmt_using_cred)
                 return mech->lmt_using_cred(cred);
         return 0;
+}
+
+int lgss_validate_cred(struct lgss_cred *cred, gss_buffer_desc *token,
+		       gss_buffer_desc *ctx_token)
+{
+	struct lgss_mech_type *mech = cred->lc_mech;
+
+	lassert(mech);
+
+	logmsg(LL_TRACE, "validate %s cred %p with token %p\n", mech->lmt_name,
+	       cred, token);
+
+	if (mech->lmt_validate_cred)
+		return mech->lmt_validate_cred(cred, token, ctx_token);
+
+	return 0;
 }
 
 /****************************************
