@@ -941,6 +941,8 @@ build_lustre() {
     local linuxobj="$2"
 
     cp "$LUSTRE" SOURCES
+    # copy into place the support Source files for the main lustre.spec file
+    cp rpm/*.files SOURCES
 
     pushd lustre >/dev/null
 
