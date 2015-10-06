@@ -213,8 +213,13 @@ static int osc_object_prune(const struct lu_env *env, struct cl_object *obj)
 {
 	struct osc_object       *osc = cl2osc(obj);
 	struct ldlm_res_id      *resname = &osc_env_info(env)->oti_resname;
+	unsigned long		npages;
 
-	LASSERTF(osc->oo_npages == 0,
+	spin_lock(&osc->oo_tree_lock);
+	npages = osc->oo_npages;
+	spin_unlock(&osc->oo_tree_lock);
+
+	LASSERTF(npages == 0,
 		 DFID "still have %lu pages, obj: %p, osc: %p\n",
 		 PFID(lu_object_fid(&obj->co_lu)), osc->oo_npages, obj, osc);
 
