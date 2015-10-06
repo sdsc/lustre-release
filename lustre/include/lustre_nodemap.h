@@ -28,6 +28,7 @@
 #define _LUSTRE_NODEMAP_H
 
 #include <lustre/lustre_idl.h>
+#include <lustre/lustre_user.h>
 
 #define LUSTRE_NODEMAP_NAME "nodemap"
 
