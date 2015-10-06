@@ -1,0 +1,2 @@
+%defattr(-,root,root)
+/lib/modules/%{kversion}/%{modules_fs_path}/osd_zfs.ko

@@ -1,0 +1,3 @@
+%defattr(-,root,root)
+/lib/modules/%{kversion}/%{modules_fs_path}/ldiskfs.ko
+/lib/modules/%{kversion}/%{modules_fs_path}/osd_ldiskfs.ko
