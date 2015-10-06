@@ -773,6 +773,9 @@ int top_trans_start(const struct lu_env *env, struct dt_device *master_dev,
 	ENTRY;
 
 	if (tmt == NULL) {
+		top_th->tt_master_sub_thandle->th_sync = th->th_sync;
+		top_th->tt_master_sub_thandle->th_local = th->th_local;
+		top_th->tt_master_sub_thandle->th_tags = th->th_tags;
 		rc = dt_trans_start(env, top_th->tt_master_sub_thandle->th_dev,
 				    top_th->tt_master_sub_thandle);
 		RETURN(rc);
@@ -922,6 +925,11 @@ int top_trans_stop(const struct lu_env *env, struct dt_device *master_dev,
 
 	if (likely(top_th->tt_multiple_thandle == NULL)) {
 		LASSERT(master_dev != NULL);
+
+		top_th->tt_master_sub_thandle->th_local = th->th_local;
+		top_th->tt_master_sub_thandle->th_sync = th->th_sync;
+		top_th->tt_master_sub_thandle->th_tags = th->th_tags;
+		top_th->tt_master_sub_thandle->th_result = th->th_result;
 		rc = dt_trans_stop(env, master_dev,
 				   top_th->tt_master_sub_thandle);
 		OBD_FREE_PTR(top_th);
