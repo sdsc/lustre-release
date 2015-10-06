@@ -835,12 +835,19 @@ build_lustre() {
     RPMBUILD_DEFS="$RPMBUILD_DEFS --define \"_tmppath $TMPDIR\""
     RPMBUILD_DEFS="$RPMBUILD_DEFS --define \"_topdir $TOPDIR\""
 
+    # copy into place the support Source files for the main lustre.spec file
+    cp rpm/*.files .
     eval $RPMBUILD $targets $rpmbuildopt "$LUSTRE" $RPMBUILD_DEFS \
         ${osd_zfs:+--with zfs} \
         ${osd_ldiskfs:+--with ldiskfs} 2>&1 || \
         fatal 1 "Error building rpms for $BUILD_ARCHS."
 
     if $DO_SRC; then
+	echo "===== Begin DO_SRC ====="
+	pwd
+	ls -l
+	# copy into place the support Source files for the main lustre.spec file
+	cp rpm/*.files $TOPDIR/SOURCES
         if ! eval $RPMBUILD -ts "$LUSTRE" $RPMBUILD_DEFS 2>&1; then
             popd >/dev/null
             return 255
