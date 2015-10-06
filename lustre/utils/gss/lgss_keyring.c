@@ -313,7 +313,7 @@ static int lgssc_negotiation(struct lgss_nego_data *lnd)
  */
 static int lgssc_init_nego_data(struct lgss_nego_data *lnd,
                                 struct keyring_upcall_param *kup,
-                                lgss_mech_t mech)
+				enum lgss_mech mech)
 {
         gss_buffer_desc         sname;
         OM_uint32               maj_stat, min_stat;
