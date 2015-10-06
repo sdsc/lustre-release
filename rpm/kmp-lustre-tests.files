@@ -1,0 +1,1 @@
+/lib/modules/%{kversion}/%{kmoddir}/kernel/fs/lustre/llog_test.ko
