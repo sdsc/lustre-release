@@ -3032,6 +3032,15 @@ test_58() {
 }
 run_test 58 "Truncate a released file will trigger restore"
 
+test_59() {
+	mcreate $DIR/$tfile
+	truncate $DIR/$tfile 42
+	$LFS hsm_archive $DIR/$tfile
+	sleep 5
+	$LFS hsm_release $DIR/$tfile
+}
+run_test 59 "Release stripeless file with non-zero size"
+
 test_60() {
 	# This test validates the fix for LU-4512. Ensure that the -u
 	# option changes the progress reporting interval from the
