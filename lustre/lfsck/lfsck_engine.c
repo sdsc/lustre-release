@@ -1023,6 +1023,16 @@ int lfsck_master_engine(void *args)
 	int			  rc;
 	ENTRY;
 
+	/* trigger low layer OI scrub before verifying .lustre/lost+found */
+	oit_di = oit_iops->init(env, oit_obj, lfsck->li_args_oit);
+	if (IS_ERR(oit_di)) {
+		rc = PTR_ERR(oit_di);
+		CDEBUG(D_LFSCK, "%s: master engine fail to init iteration: "
+		       "rc = %d\n", lfsck_lfsck2name(lfsck), rc);
+
+		GOTO(fini_args, rc);
+	}
+
 	if (lfsck->li_master &&
 	    (!list_empty(&lfsck->li_list_scan) ||
 	     !list_empty(&lfsck->li_list_double_scan))) {
@@ -1036,15 +1046,6 @@ int lfsck_master_engine(void *args)
 			CDEBUG(D_LFSCK, "%s: master engine fail to verify the "
 			       ".lustre/lost+found/, go ahead: rc = %d\n",
 			       lfsck_lfsck2name(lfsck), rc);
-	}
-
-	oit_di = oit_iops->init(env, oit_obj, lfsck->li_args_oit);
-	if (IS_ERR(oit_di)) {
-		rc = PTR_ERR(oit_di);
-		CDEBUG(D_LFSCK, "%s: master engine fail to init iteration: "
-		       "rc = %d\n", lfsck_lfsck2name(lfsck), rc);
-
-		GOTO(fini_args, rc);
 	}
 
 	spin_lock(&lfsck->li_lock);
