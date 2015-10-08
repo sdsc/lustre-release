@@ -4294,6 +4294,17 @@ test_116b() {
 }
 run_test 116b "large update log slave MDT recovery"
 
+test_117() {
+	mkdir -p $DIR/$tdir
+	createmany -o $DIR/$tdir/f- 30000
+	#define OBD_FAIL_OUT_FAIL_BATCH		0x1705
+	do_facet ost1 "lctl set_param fail_loc=0x80001705"
+	do_facet ost1 "$LCTL set_param fail_val=3"
+	unlinkmany $DIR/$tdir/f- 30000
+	sync
+	sleep 6
+}
+run_test 117 "batched orphans"
 
 complete $SECONDS
 check_and_cleanup_lustre
