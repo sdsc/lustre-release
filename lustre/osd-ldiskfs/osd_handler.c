@@ -2741,6 +2741,12 @@ static int osd_object_destroy(const struct lu_env *env,
 		clear_nlink(inode);
 		spin_unlock(&obj->oo_guard);
 		ll_dirty_inode(inode, I_DIRTY_DATASYNC);
+	} else {
+		/* XXX: should we check this is OST FID? */
+		spin_lock(&obj->oo_guard);
+		clear_nlink(inode);
+		spin_unlock(&obj->oo_guard);
+		ll_dirty_inode(inode, I_DIRTY_DATASYNC);
 	}
 
 	osd_trans_exec_op(env, th, OSD_OT_DESTROY);
