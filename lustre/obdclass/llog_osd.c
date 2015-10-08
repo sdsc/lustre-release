@@ -364,6 +364,7 @@ static int llog_osd_write_rec(const struct lu_env *env,
 	struct dt_object	*o;
 	__u32			chunk_size;
 	size_t			 left;
+	loff_t			max_offset;
 
 	ENTRY;
 
@@ -522,13 +523,13 @@ static int llog_osd_write_rec(const struct lu_env *env,
 	 * boundary, write in a fake (but referenced) entry to pad the chunk.
 	 */
 	LASSERT(lgi->lgi_attr.la_valid & LA_SIZE);
-	lgi->lgi_off = lgi->lgi_attr.la_size;
-	left = chunk_size - (lgi->lgi_off & (chunk_size - 1));
+	max_offset = lgi->lgi_attr.la_size;
+	left = chunk_size - (max_offset & (chunk_size - 1));
 	/* NOTE: padding is a record, but no bit is set */
 	if (left != 0 && left != reclen &&
 	    left < (reclen + LLOG_MIN_REC_SIZE)) {
 		index = loghandle->lgh_last_idx + 1;
-		rc = llog_osd_pad(env, o, &lgi->lgi_off, left, index, th);
+		rc = llog_osd_pad(env, o, &max_offset, left, index, th);
 		if (rc)
 			RETURN(rc);
 		loghandle->lgh_last_idx++; /* for pad rec */
@@ -581,10 +582,9 @@ static int llog_osd_write_rec(const struct lu_env *env,
 	}
 
 	if (lgi->lgi_attr.la_size == 0) {
-		lgi->lgi_off = 0;
 		lgi->lgi_buf.lb_len = llh->llh_hdr.lrh_len;
 		lgi->lgi_buf.lb_buf = &llh->llh_hdr;
-		rc = dt_record_write(env, o, &lgi->lgi_buf, &lgi->lgi_off, th);
+		rc = dt_record_write(env, o, &lgi->lgi_buf, &max_offset, th);
 		if (rc != 0)
 			GOTO(out_unlock, rc);
 	} else {
@@ -638,8 +638,13 @@ out_unlock:
 			GOTO(out, rc);
 
 		LASSERT(lgi->lgi_attr.la_valid & LA_SIZE);
-		lgi->lgi_off = max_t(__u64, lgi->lgi_attr.la_size,
-				     lgi->lgi_off);
+		if (lgi->lgi_attr.la_size < max_offset) {
+			CWARN("Llog size is out if sync: "LPU64"/"LPU64"\n",
+			      lgi->lgi_attr.la_size, max_offset);
+			lgi->lgi_off = max_offset;
+		} else {
+			lgi->lgi_off = lgi->lgi_attr.la_size;
+		}
 	}
 
 	lgi->lgi_buf.lb_len = reclen;
@@ -870,7 +875,19 @@ static int llog_osd_next_block(const struct lu_env *env,
 
 		if (LLOG_REC_HDR_NEEDS_SWABBING(last_rec))
 			lustre_swab_llog_rec(last_rec);
-		LASSERT(last_rec->lrh_index == tail->lrt_index);
+
+		if (last_rec->lrh_index != tail->lrt_index ||
+		    last_rec->lrh_index == 0) {
+			CERROR("%s: invalid llog last rec index %u/%u "
+			       "log id "DOSTID"/%u, offset "LPU64", len %d"
+			       ", force is %s\n",
+			       o->do_lu.lo_dev->ld_obd->obd_name,
+			       last_rec->lrh_index, tail->lrt_index,
+			       POSTID(&loghandle->lgh_id.lgl_oi),
+			       loghandle->lgh_id.lgl_ogen, *cur_offset, rc,
+			       force_mini_rec ? "on" : "off");
+			GOTO(out, rc = -EINVAL);
+		}
 
 		*cur_idx = tail->lrt_index;
 
