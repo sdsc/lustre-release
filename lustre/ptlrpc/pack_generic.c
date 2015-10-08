@@ -2579,7 +2579,7 @@ void lustre_swab_out_update_header(struct out_update_header *ouh)
 	__swab32s(&ouh->ouh_magic);
 	__swab32s(&ouh->ouh_count);
 	__swab32s(&ouh->ouh_inline_length);
-	__swab32s(&ouh->ouh_padding);
+	__swab32s(&ouh->ouh_reply_buf);
 }
 EXPORT_SYMBOL(lustre_swab_out_update_header);
 

@@ -143,6 +143,7 @@ int osp_object_update_request_create(struct osp_update_request *our,
 	ours->ours_req_size = size;
 	INIT_LIST_HEAD(&ours->ours_list);
 	list_add_tail(&ours->ours_list, &our->our_req_list);
+	our->our_req_nr++;
 
 	return 0;
 }
@@ -257,12 +258,17 @@ object_update_request_dump(const struct object_update_request *ourq,
  */
 int osp_prep_inline_update_req(const struct lu_env *env,
 			       struct ptlrpc_request *req,
-			       struct osp_update_request_sub *ours)
+			       struct osp_update_request *our)
 {
+	struct osp_update_request_sub *ours;
 	struct out_update_header *ouh;
-	__u32 update_req_size = object_update_request_size(ours->ours_req);
-	int rc;
+	struct object_update_reply	*reply;
+	__u32 update_req_size;
+	int rc, reply_size;
 
+	ours = list_entry(our->our_req_list.next,
+			  struct osp_update_request_sub, ours_list);
+	update_req_size = object_update_request_size(ours->ours_req);
 	req_capsule_set_size(&req->rq_pill, &RMF_OUT_UPDATE_HEADER, RCL_CLIENT,
 			     update_req_size + sizeof(*ouh));
 
@@ -277,8 +283,15 @@ int osp_prep_inline_update_req(const struct lu_env *env,
 
 	memcpy(ouh->ouh_inline_data, ours->ours_req, update_req_size);
 
+	LASSERT(our->our_update_nr > 0);
+	reply_size = (sizeof(*reply) +
+		(sizeof(reply->ourp_lens[0]) +
+		sizeof(struct object_update_result)) * our->our_update_nr +
+		OUT_UPDATE_REPLY_SIZE - 1) & ~(OUT_UPDATE_REPLY_SIZE-1);
+	ouh->ouh_reply_buf = reply_size;
+
 	req_capsule_set_size(&req->rq_pill, &RMF_OUT_UPDATE_REPLY,
-			     RCL_SERVER, OUT_UPDATE_REPLY_SIZE);
+			     RCL_SERVER, reply_size);
 
 	ptlrpc_request_set_replen(req);
 	req->rq_request_portal = OUT_PORTAL;
@@ -311,7 +324,10 @@ int osp_prep_update_req(const struct lu_env *env, struct obd_import *imp,
 	struct out_update_header	*ouh;
 	struct out_update_buffer	*oub;
 	__u32				buf_count = 0;
+	int				reply_size;
+	struct object_update_reply	*reply;
 	int				rc;
+	int				total = 0;
 	ENTRY;
 
 	list_for_each_entry(ours, &our->our_req_list, ours_list) {
@@ -332,7 +348,7 @@ int osp_prep_update_req(const struct lu_env *env, struct obd_import *imp,
 		if (object_update_request_size(ours->ours_req) +
 		    sizeof(struct out_update_header) <
 				OUT_UPDATE_MAX_INLINE_SIZE) {
-			rc = osp_prep_inline_update_req(env, req, ours);
+			rc = osp_prep_inline_update_req(env, req, our);
 			if (rc == 0)
 				*reqp = req;
 			GOTO(out_req, rc);
@@ -368,12 +384,22 @@ int osp_prep_update_req(const struct lu_env *env, struct obd_import *imp,
 		GOTO(out_req, rc = -ENOMEM);
 
 	/* NB req now owns desc and will free it when it gets freed */
-	list_for_each_entry(ours, &our->our_req_list, ours_list)
+	list_for_each_entry(ours, &our->our_req_list, ours_list) {
 		desc->bd_frag_ops->add_iov_frag(desc, ours->ours_req,
 						ours->ours_req_size);
+		total += ours->ours_req_size;
+	}
+	CDEBUG(D_OTHER, "total %d in %u\n", total, our->our_update_nr);
+
+	LASSERT(our->our_update_nr > 0);
+	reply_size = (sizeof(*reply) +
+		(sizeof(reply->ourp_lens[0]) +
+		sizeof(struct object_update_result)) * our->our_update_nr +
+		OUT_UPDATE_REPLY_SIZE - 1) & ~(OUT_UPDATE_REPLY_SIZE-1);
+	ouh->ouh_reply_buf = reply_size;
 
 	req_capsule_set_size(&req->rq_pill, &RMF_OUT_UPDATE_REPLY,
-			     RCL_SERVER, OUT_UPDATE_REPLY_SIZE);
+			     RCL_SERVER, reply_size);
 
 	ptlrpc_request_set_replen(req);
 	req->rq_request_portal = OUT_PORTAL;
