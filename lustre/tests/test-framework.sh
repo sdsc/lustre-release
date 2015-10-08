@@ -3338,7 +3338,7 @@ cleanupall() {
     stopall $*
     cleanup_echo_devs
 
-    unload_modules
+    unload_modules || return 1
     cleanup_gss
 }
 
