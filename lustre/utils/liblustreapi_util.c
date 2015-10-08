@@ -41,7 +41,7 @@
  * This can be used by external programs to ensure if the initialization
  * mechanism has actually worked.
  */
-bool liblustreapi_initialized;
+bool llapi_liblustreapi_initialized;
 
 
 /*
@@ -75,5 +75,5 @@ static __attribute__ ((constructor)) void liblustreapi_init(void)
 	}
 
 	srandom(seed);
-	liblustreapi_initialized = true;
+	llapi_liblustreapi_initialized = true;
 }

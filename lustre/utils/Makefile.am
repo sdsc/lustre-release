@@ -88,7 +88,7 @@ liblustreapi_la_SOURCES = liblustreapi.c liblustreapi_hsm.c \
 			  liblustreapi_json.c liblustreapi_layout.c \
 			  liblustreapi_lease.c liblustreapi_util.c \
 			  liblustreapi_kernelconn.c $(L_STRING)
-liblustreapi_la_LDFLAGS = -version-info 1:0:0
+liblustreapi_la_LDFLAGS = -version-info 1:0:0 -Wl,--version-script=liblustreapi.map
 endif # UTILS
 
 if LDISKFS_ENABLED
@@ -157,7 +157,7 @@ wiretest_SOURCES = wiretest.c
 
 endif # UTILS
 
-EXTRA_DIST = llstat llobdstat plot-llstat ldlm_debug_upcall
+EXTRA_DIST = llstat llobdstat plot-llstat ldlm_debug_upcall liblustreapi.map
 
 # NOTE: this should only be run on i386.
 newwiretest: wirehdr.c wirecheck
