@@ -873,7 +873,7 @@ static int osp_sync(const struct lu_env *env, struct dt_device *dev)
 out:
 	/* resume normal processing (barrier=0) */
 	atomic_dec(&d->opd_syn_barrier);
-	__osp_sync_check_for_work(d);
+	wake_up(&d->opd_syn_waitq);
 
 	CDEBUG(D_CACHE, "%s: done in %lu: rc = %d\n", d->opd_obd->obd_name,
 	       cfs_time_current() - start, rc);
@@ -1614,7 +1614,7 @@ static int osp_import_event(struct obd_device *obd, struct obd_import *imp,
 		if (d->opd_pre != NULL)
 			wake_up(&d->opd_pre_waitq);
 
-		__osp_sync_check_for_work(d);
+		wake_up(&d->opd_syn_waitq);
 		CDEBUG(D_HA, "got connected\n");
 		break;
 	case IMP_EVENT_INVALIDATE:
