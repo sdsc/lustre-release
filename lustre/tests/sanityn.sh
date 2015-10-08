@@ -2789,7 +2789,8 @@ test_76() { #LU-946
 	echo
 
 	local get_open_fids="$LCTL get_param -n mdt.*.exports.'$nid'.open_files"
-	local fid_list=($(do_nodes $(comma_list $(mdts_nodes)) $get_open_fids))
+	readarray fid_list <<< "$(do_nodes $(comma_list $(mdts_nodes)) \
+				$get_open_fids)"
 
 	# Possible errors in openfiles FID list.
 	# 1. Missing FIDs. Check 1
