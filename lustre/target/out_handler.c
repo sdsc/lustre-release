@@ -1129,12 +1129,22 @@ int out_handle(struct tgt_session_info *tsi)
 				}
 			}
 
+
+			if (OBD_FAIL_CHECK_VALUE(OBD_FAIL_OUT_FAIL_BATCH,
+				tti->tti_u.update.tti_update_reply_index))
+				GOTO(next, rc = -ENOENT);
+
 			rc = h->th_act(tsi);
 next:
-			reply_index++;
 			lu_object_put(env, &dt_obj->do_lu);
-			if (rc < 0)
-				GOTO(out, rc);
+			if (rc < 0) {
+				object_update_result_insert(reply, NULL, 0,
+							    reply_index, rc);
+				rc = 0;
+				if (!(update->ou_flags & UPDATE_FL_CONTINUE))
+					GOTO(out, rc);
+			}
+			reply_index++;
 		}
 	}
 out:
