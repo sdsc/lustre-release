@@ -3910,7 +3910,8 @@ enum update_flag {
 	UPDATE_FL_OST		= 0x00000001,	/* op from OST (not MDT) */
 	UPDATE_FL_SYNC		= 0x00000002,	/* commit before replying */
 	UPDATE_FL_COMMITTED	= 0x00000004,	/* op committed globally */
-	UPDATE_FL_NOLOG		= 0x00000008	/* for idempotent updates */
+	UPDATE_FL_NOLOG		= 0x00000008,	/* for idempotent updates */
+	UPDATE_FL_CONTINUE	= 0x00000010	/* continue on error */
 };
 
 struct object_update_param {
@@ -3956,7 +3957,7 @@ struct out_update_header {
 	__u32		ouh_magic;
 	__u32		ouh_count;
 	__u32		ouh_inline_length;
-	__u32		ouh_padding;
+	__u32		ouh_reply_buf;
 	__u32		ouh_inline_data[0];
 };
 
