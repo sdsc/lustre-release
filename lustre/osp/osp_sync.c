@@ -90,17 +90,29 @@ static void osp_sync_remove_from_tracker(struct osp_device *d);
  * should it be ~ number of changes fitting bulk? */
 
 #define OSP_SYN_THRESHOLD	10
-#define OSP_MAX_IN_FLIGHT	8
+/* set MAX_IN_FLIGHT to 1 until we have a mechanism to serialize
+ * changes to same object, otherwise few RPCs can race and
+ * result in a wrong state. e.g. chown */
+#define OSP_MAX_IN_FLIGHT	1
 #define OSP_MAX_IN_PROGRESS	4096
 
-#define OSP_JOB_MAGIC		0x26112005
+struct osp_cookies_batch {
+	struct list_head	ocb_list;
+	int			ocb_nr;
+	struct llog_cookie	ocb_cookies[0];
+};
+#define COOKIES_IN_BATCH	\
+	((PAGE_SIZE-offsetof(struct osp_cookies_batch, ocb_cookies)) / \
+	 sizeof(struct llog_cookie))
 
-struct osp_job_req_args {
-	/** bytes reserved for ptlrpc_replay_req() */
-	struct ptlrpc_replay_async_args	jra_raa;
-	struct list_head		jra_committed_link;
-	struct list_head		jra_inflight_link;
-	__u32				jra_magic;
+struct osp_sync_batch {
+	struct list_head		 osb_list;
+	struct osp_update_request	*osb_batch;
+	struct ptlrpc_request		*osb_req;
+	struct osp_device		*osb_dev;
+	struct list_head		 osb_cookies_list;
+	struct osp_cookies_batch	*osb_cookies_cur;
+	int				 osb_committed:1;
 };
 
 static inline int osp_sync_running(struct osp_device *d)
@@ -136,61 +148,6 @@ static inline int osp_sync_has_new_job(struct osp_device *d)
 		|| (d->opd_syn_prev_done == 0);
 }
 
-static inline int osp_sync_inflight_conflict(struct osp_device *d,
-					     struct llog_rec_hdr *h)
-{
-	struct osp_job_req_args	*jra;
-	struct ost_id		 ostid;
-	int			 conflict = 0;
-
-	if (h == NULL || h->lrh_type == LLOG_GEN_REC ||
-	    list_empty(&d->opd_syn_inflight_list))
-		return conflict;
-
-	memset(&ostid, 0, sizeof(ostid));
-	switch (h->lrh_type) {
-	case MDS_UNLINK_REC:
-		ostid_set_seq(&ostid, ((struct llog_unlink_rec *)h)->lur_oseq);
-		ostid_set_id(&ostid, ((struct llog_unlink_rec *)h)->lur_oid);
-		break;
-	case MDS_UNLINK64_REC:
-		fid_to_ostid(&((struct llog_unlink64_rec *)h)->lur_fid, &ostid);
-		break;
-	case MDS_SETATTR64_REC:
-		ostid = ((struct llog_setattr64_rec *)h)->lsr_oi;
-		break;
-	default:
-		LBUG();
-	}
-
-	spin_lock(&d->opd_syn_lock);
-	list_for_each_entry(jra, &d->opd_syn_inflight_list, jra_inflight_link) {
-		struct ptlrpc_request	*req;
-		struct ost_body		*body;
-
-		LASSERT(jra->jra_magic == OSP_JOB_MAGIC);
-
-		req = container_of((void *)jra, struct ptlrpc_request,
-				   rq_async_args);
-		body = req_capsule_client_get(&req->rq_pill,
-					      &RMF_OST_BODY);
-		LASSERT(body);
-
-		if (memcmp(&ostid, &body->oa.o_oi, sizeof(ostid)) == 0) {
-			conflict = 1;
-			break;
-		}
-	}
-	spin_unlock(&d->opd_syn_lock);
-
-	return conflict;
-}
-
-static inline int osp_sync_low_in_progress(struct osp_device *d)
-{
-	return d->opd_syn_rpc_in_progress < d->opd_syn_max_rpc_in_progress;
-}
-
 /**
  * Check for room in the network pipe to OST
  *
@@ -215,8 +172,8 @@ static inline int osp_sync_low_in_flight(struct osp_device *d)
 static inline int osp_sync_has_work(struct osp_device *d)
 {
 	/* has new/old changes and low in-progress? */
-	if (osp_sync_has_new_job(d) && osp_sync_low_in_progress(d) &&
-	    osp_sync_low_in_flight(d) && d->opd_imp_connected)
+	if (osp_sync_has_new_job(d) && osp_sync_low_in_flight(d) &&
+	    d->opd_imp_connected)
 		return 1;
 
 	/* has remotely committed? */
@@ -224,18 +181,6 @@ static inline int osp_sync_has_work(struct osp_device *d)
 		return 1;
 
 	return 0;
-}
-
-#define osp_sync_check_for_work(d)                      \
-{                                                       \
-	if (osp_sync_has_work(d)) {                     \
-		wake_up(&d->opd_syn_waitq);    \
-	}                                               \
-}
-
-void __osp_sync_check_for_work(struct osp_device *d)
-{
-	osp_sync_check_for_work(d);
 }
 
 /**
@@ -255,13 +200,7 @@ void __osp_sync_check_for_work(struct osp_device *d)
 static inline int osp_sync_can_process_new(struct osp_device *d,
 					   struct llog_rec_hdr *rec)
 {
-	LASSERT(d);
-
 	if (unlikely(atomic_read(&d->opd_syn_barrier) > 0))
-		return 0;
-	if (unlikely(osp_sync_inflight_conflict(d, rec)))
-		return 0;
-	if (!osp_sync_low_in_progress(d))
 		return 0;
 	if (!osp_sync_low_in_flight(d))
 		return 0;
@@ -467,33 +406,6 @@ int osp_sync_gap(const struct lu_env *env, struct osp_device *d,
  *
  * \param[in] req	request
  */
-static void osp_sync_request_commit_cb(struct ptlrpc_request *req)
-{
-	struct osp_device *d = req->rq_cb_data;
-	struct osp_job_req_args *jra;
-
-	CDEBUG(D_HA, "commit req %p, transno "LPU64"\n", req, req->rq_transno);
-
-	if (unlikely(req->rq_transno == 0))
-		return;
-
-	/* do not do any opd_dyn_rpc_* accounting here
-	 * it's done in osp_sync_interpret sooner or later */
-	LASSERT(d);
-
-	jra = ptlrpc_req_async_args(req);
-	LASSERT(jra->jra_magic == OSP_JOB_MAGIC);
-	LASSERT(list_empty(&jra->jra_committed_link));
-
-	ptlrpc_request_addref(req);
-
-	spin_lock(&d->opd_syn_lock);
-	list_add(&jra->jra_committed_link, &d->opd_syn_committed_there);
-	spin_unlock(&d->opd_syn_lock);
-
-	/* XXX: some batching wouldn't hurt */
-	wake_up(&d->opd_syn_waitq);
-}
 
 /**
  * RPC interpretation callback.
@@ -512,84 +424,6 @@ static void osp_sync_request_commit_cb(struct ptlrpc_request *req)
  *
  * \retval 0		always
  */
-static int osp_sync_interpret(const struct lu_env *env,
-			      struct ptlrpc_request *req, void *aa, int rc)
-{
-	struct osp_device *d = req->rq_cb_data;
-	struct osp_job_req_args *jra = aa;
-
-	if (jra->jra_magic != OSP_JOB_MAGIC) {
-		DEBUG_REQ(D_ERROR, req, "bad magic %u\n", jra->jra_magic);
-		LBUG();
-	}
-	LASSERT(d);
-
-	CDEBUG(D_HA, "reply req %p/%d, rc %d, transno %u\n", req,
-	       atomic_read(&req->rq_refcount),
-	       rc, (unsigned) req->rq_transno);
-	LASSERT(rc || req->rq_transno);
-
-	if (rc == -ENOENT) {
-		/*
-		 * we tried to destroy object or update attributes,
-		 * but object doesn't exist anymore - cancell llog record
-		 */
-		LASSERT(req->rq_transno == 0);
-		LASSERT(list_empty(&jra->jra_committed_link));
-
-		ptlrpc_request_addref(req);
-
-		spin_lock(&d->opd_syn_lock);
-		list_add(&jra->jra_committed_link, &d->opd_syn_committed_there);
-		spin_unlock(&d->opd_syn_lock);
-
-		wake_up(&d->opd_syn_waitq);
-	} else if (rc) {
-		struct obd_import *imp = req->rq_import;
-		/*
-		 * error happened, we'll try to repeat on next boot ?
-		 */
-		LASSERTF(req->rq_transno == 0 ||
-			 req->rq_import_generation < imp->imp_generation,
-			 "transno "LPU64", rc %d, gen: req %d, imp %d\n",
-			 req->rq_transno, rc, req->rq_import_generation,
-			 imp->imp_generation);
-		if (req->rq_transno == 0) {
-			/* this is the last time we see the request
-			 * if transno is not zero, then commit cb
-			 * will be called at some point */
-			LASSERT(d->opd_syn_rpc_in_progress > 0);
-			spin_lock(&d->opd_syn_lock);
-			d->opd_syn_rpc_in_progress--;
-			spin_unlock(&d->opd_syn_lock);
-		}
-
-		wake_up(&d->opd_syn_waitq);
-	} else if (d->opd_pre != NULL &&
-		   unlikely(d->opd_pre_status == -ENOSPC)) {
-		/*
-		 * if current status is -ENOSPC (lack of free space on OST)
-		 * then we should poll OST immediately once object destroy
-		 * is replied
-		 */
-		osp_statfs_need_now(d);
-	}
-
-	LASSERT(d->opd_syn_rpc_in_flight > 0);
-	spin_lock(&d->opd_syn_lock);
-	d->opd_syn_rpc_in_flight--;
-	list_del_init(&jra->jra_inflight_link);
-	spin_unlock(&d->opd_syn_lock);
-	if (unlikely(atomic_read(&d->opd_syn_barrier) > 0))
-		wake_up(&d->opd_syn_barrier_waitq);
-	CDEBUG(D_OTHER, "%s: %d in flight, %d in progress\n",
-	       d->opd_obd->obd_name, d->opd_syn_rpc_in_flight,
-	       d->opd_syn_rpc_in_progress);
-
-	osp_sync_check_for_work(d);
-
-	return 0;
-}
 
 /*
  ** Add request to ptlrpc queue.
@@ -599,22 +433,6 @@ static int osp_sync_interpret(const struct lu_env *env,
  * \param[in] d		OSP device
  * \param[in] req	request
  */
-static void osp_sync_send_new_rpc(struct osp_device *d,
-				  struct ptlrpc_request *req)
-{
-	struct osp_job_req_args *jra;
-
-	LASSERT(d->opd_syn_rpc_in_flight <= d->opd_syn_max_rpc_in_flight);
-
-	jra = ptlrpc_req_async_args(req);
-	jra->jra_magic = OSP_JOB_MAGIC;
-	INIT_LIST_HEAD(&jra->jra_committed_link);
-	spin_lock(&d->opd_syn_lock);
-	list_add_tail(&jra->jra_inflight_link, &d->opd_syn_inflight_list);
-	spin_unlock(&d->opd_syn_lock);
-
-	ptlrpcd_add_req(req);
-}
 
 
 /**
@@ -634,54 +452,6 @@ static void osp_sync_send_new_rpc(struct osp_device *d,
  * \retval pointer		new request on success
  * \retval ERR_PTR(errno)	on error
  */
-static struct ptlrpc_request *osp_sync_new_job(struct osp_device *d,
-					       struct llog_handle *llh,
-					       struct llog_rec_hdr *h,
-					       ost_cmd_t op,
-					       const struct req_format *format)
-{
-	struct ptlrpc_request	*req;
-	struct ost_body		*body;
-	struct obd_import	*imp;
-	int			 rc;
-
-	/* Prepare the request */
-	imp = d->opd_obd->u.cli.cl_import;
-	LASSERT(imp);
-
-	if (OBD_FAIL_CHECK(OBD_FAIL_OSP_CHECK_ENOMEM))
-		RETURN(ERR_PTR(-ENOMEM));
-
-	req = ptlrpc_request_alloc(imp, format);
-	if (req == NULL)
-		RETURN(ERR_PTR(-ENOMEM));
-
-	rc = ptlrpc_request_pack(req, LUSTRE_OST_VERSION, op);
-	if (rc) {
-		ptlrpc_req_finished(req);
-		return ERR_PTR(rc);
-	}
-
-	/*
-	 * this is a trick: to save on memory allocations we put cookie
-	 * into the request, but don't set corresponded flag in o_valid
-	 * so that OST doesn't interpret this cookie. once the request
-	 * is committed on OST we take cookie from the request and cancel
-	 */
-	body = req_capsule_client_get(&req->rq_pill, &RMF_OST_BODY);
-	LASSERT(body);
-	body->oa.o_lcookie.lgc_lgl = llh->lgh_id;
-	body->oa.o_lcookie.lgc_subsys = LLOG_MDS_OST_ORIG_CTXT;
-	body->oa.o_lcookie.lgc_index = h->lrh_index;
-
-	req->rq_interpret_reply = osp_sync_interpret;
-	req->rq_commit_cb = osp_sync_request_commit_cb;
-	req->rq_cb_data = d;
-
-	ptlrpc_request_set_replen(req);
-
-	return req;
-}
 
 /**
  * Generate a request for setattr change.
@@ -697,47 +467,35 @@ static struct ptlrpc_request *osp_sync_new_job(struct osp_device *d,
  * \retval 1		on invalid record
  * \retval negative	negated errno on error
  */
-static int osp_sync_new_setattr_job(struct osp_device *d,
-				    struct llog_handle *llh,
+static int osp_sync_new_setattr_job(const struct lu_env *env,
+				    struct osp_sync_batch *b,
 				    struct llog_rec_hdr *h)
 {
-	struct llog_setattr64_rec	*rec = (struct llog_setattr64_rec *)h;
-	struct ptlrpc_request		*req;
-	struct ost_body			*body;
-
+	struct llog_setattr64_rec *rec = (struct llog_setattr64_rec *)h;
+	struct lu_attr *attr = &osp_env_info(env)->osi_attr;
+	struct lu_fid fid;
+	int rc;
 	ENTRY;
+
 	LASSERT(h->lrh_type == MDS_SETATTR64_REC);
 
 	if (OBD_FAIL_CHECK(OBD_FAIL_OSP_CHECK_INVALID_REC))
 		RETURN(1);
-	/* lsr_valid can only be 0 or have OBD_MD_{FLUID,FLGID} set,
-	 * so no bits other than these should be set. */
-	if ((rec->lsr_valid & ~(OBD_MD_FLUID | OBD_MD_FLGID)) != 0) {
-		CERROR("%s: invalid setattr record, lsr_valid:"LPU64"\n",
-		       d->opd_obd->obd_name, rec->lsr_valid);
-		/* return 1 on invalid record */
-		RETURN(1);
-	}
 
-	req = osp_sync_new_job(d, llh, h, OST_SETATTR, &RQF_OST_SETATTR);
-	if (IS_ERR(req))
-		RETURN(PTR_ERR(req));
-
-	body = req_capsule_client_get(&req->rq_pill, &RMF_OST_BODY);
-	LASSERT(body);
-	body->oa.o_oi = rec->lsr_oi;
-	body->oa.o_uid = rec->lsr_uid;
-	body->oa.o_gid = rec->lsr_gid;
-	body->oa.o_valid = OBD_MD_FLGROUP | OBD_MD_FLID;
+	attr->la_valid = 0;
 	/* old setattr record (prior 2.6.0) doesn't have 'valid' stored,
 	 * we assume that both UID and GID are valid in that case. */
 	if (rec->lsr_valid == 0)
-		body->oa.o_valid |= (OBD_MD_FLUID | OBD_MD_FLGID);
-	else
-		body->oa.o_valid |= rec->lsr_valid;
+		attr->la_valid |= LA_UID | LA_GID;
+	if (rec->lsr_valid & OBD_MD_FLUID)
+		attr->la_valid = LA_UID;
+	if (rec->lsr_valid & OBD_MD_FLGID)
+		attr->la_valid = LA_GID;
+	ostid_to_fid(&fid, &rec->lsr_oi, b->osb_dev->opd_index);
+	rc = osp_update_rpc_pack(env, attr_set, b->osb_batch,
+				 OUT_ATTR_SET, &fid, attr);
 
-	osp_sync_send_new_rpc(d, req);
-	RETURN(0);
+	RETURN(rc);
 }
 
 /**
@@ -755,32 +513,27 @@ static int osp_sync_new_setattr_job(struct osp_device *d,
  * \retval 0		on success
  * \retval negative	negated errno on error
  */
-static int osp_sync_new_unlink_job(struct osp_device *d,
-				   struct llog_handle *llh,
+static int osp_sync_new_unlink_job(const struct lu_env *env,
+				   struct osp_sync_batch *b,
 				   struct llog_rec_hdr *h)
 {
 	struct llog_unlink_rec	*rec = (struct llog_unlink_rec *)h;
-	struct ptlrpc_request	*req;
-	struct ost_body		*body;
-
+	struct lu_fid		 fid;
+	int			 rc;
 	ENTRY;
+
 	LASSERT(h->lrh_type == MDS_UNLINK_REC);
+	LASSERTF(rec->lur_count == 1 || rec->lur_count == 0,
+		 "lur_count = %d\n", rec->lur_count);
 
-	req = osp_sync_new_job(d, llh, h, OST_DESTROY, &RQF_OST_DESTROY);
-	if (IS_ERR(req))
-		RETURN(PTR_ERR(req));
+	fid.f_seq = rec->lur_oseq;
+	fid.f_oid = rec->lur_oid;
+	fid.f_ver = 0;
 
-	body = req_capsule_client_get(&req->rq_pill, &RMF_OST_BODY);
-	LASSERT(body);
-	ostid_set_seq(&body->oa.o_oi, rec->lur_oseq);
-	ostid_set_id(&body->oa.o_oi, rec->lur_oid);
-	body->oa.o_misc = rec->lur_count;
-	body->oa.o_valid = OBD_MD_FLGROUP | OBD_MD_FLID;
-	if (rec->lur_count)
-		body->oa.o_valid |= OBD_MD_FLOBJCOUNT;
+	rc = osp_update_rpc_pack(env, object_destroy, b->osb_batch,
+				 OUT_DESTROY, &fid);
 
-	osp_sync_send_new_rpc(d, req);
-	RETURN(0);
+	RETURN(rc);
 }
 
 /**
@@ -801,33 +554,242 @@ static int osp_sync_new_unlink_job(struct osp_device *d,
  * \retval 0		on success
  * \retval negative	negated errno on error
  */
-static int osp_sync_new_unlink64_job(struct osp_device *d,
-				     struct llog_handle *llh,
+static int osp_sync_new_unlink64_job(const struct lu_env *env,
+				     struct osp_sync_batch *b,
 				     struct llog_rec_hdr *h)
 {
 	struct llog_unlink64_rec	*rec = (struct llog_unlink64_rec *)h;
-	struct ptlrpc_request		*req = NULL;
-	struct ost_body			*body;
 	int				 rc;
-
 	ENTRY;
-	LASSERT(h->lrh_type == MDS_UNLINK64_REC);
-	req = osp_sync_new_job(d, llh, h, OST_DESTROY,
-			       &RQF_OST_DESTROY);
-	if (IS_ERR(req))
-		RETURN(PTR_ERR(req));
 
-	body = req_capsule_client_get(&req->rq_pill, &RMF_OST_BODY);
-	if (body == NULL)
-		RETURN(-EFAULT);
-	rc = fid_to_ostid(&rec->lur_fid, &body->oa.o_oi);
-	if (rc < 0)
-		RETURN(rc);
-	body->oa.o_misc = rec->lur_count;
-	body->oa.o_valid = OBD_MD_FLGROUP | OBD_MD_FLID |
-			   OBD_MD_FLOBJCOUNT;
-	osp_sync_send_new_rpc(d, req);
-	RETURN(0);
+	LASSERT(h->lrh_type == MDS_UNLINK64_REC);
+	LASSERTF(rec->lur_count == 1 || rec->lur_count == 0,
+		 "lur_count = %d\n", rec->lur_count);
+
+	rc = osp_update_rpc_pack(env, object_destroy, b->osb_batch,
+				 OUT_DESTROY, &rec->lur_fid);
+
+	RETURN(rc);
+}
+
+struct osp_sync_batch *osp_get_batch(struct osp_device *d,
+				     const struct lu_fid *fid)
+{
+	struct osp_sync_batch *b;
+	struct osp_cookies_batch *c;
+
+	/* XXX: fid should be used to essentially serialize
+	 *	updates to specific fid */
+
+	b = d->opd_syn_batch;
+	if (b == NULL) {
+		if (OBD_FAIL_CHECK(OBD_FAIL_OSP_CHECK_ENOMEM))
+			RETURN(ERR_PTR(-ENOMEM));
+		OBD_ALLOC_PTR(b);
+		if (unlikely(b == NULL))
+			RETURN(ERR_PTR(-ENOMEM));
+		INIT_LIST_HEAD(&b->osb_list);
+		INIT_LIST_HEAD(&b->osb_cookies_list);
+		b->osb_dev = d;
+
+		b->osb_batch = osp_update_request_create(&d->opd_dt_dev);
+		if (IS_ERR(b->osb_batch)) {
+			OBD_FREE_PTR(b);
+			RETURN(ERR_PTR(-ENOMEM));
+		}
+		b->osb_batch->our_flags = UPDATE_FL_CONTINUE;
+		d->opd_syn_batch = b;
+	}
+
+	LASSERT(b);
+
+	c = b->osb_cookies_cur;
+	if (c == NULL || c->ocb_nr >= COOKIES_IN_BATCH) {
+		OBD_ALLOC(c, PAGE_SIZE);
+		if (unlikely(c == NULL))
+			RETURN(ERR_PTR(-ENOMEM));
+		list_add_tail(&c->ocb_list, &b->osb_cookies_list);
+		b->osb_cookies_cur = c;
+	}
+
+	return b;
+}
+
+static void osp_sync_free_batch(struct osp_sync_batch *b)
+{
+	struct osp_cookies_batch *c, *tmp;
+	struct osp_device *d = b->osb_dev;
+
+	LASSERT(list_empty(&b->osb_list));
+
+	if (b->osb_req)
+		ptlrpc_req_finished(b->osb_req);
+
+	list_for_each_entry_safe(c, tmp, &b->osb_cookies_list, ocb_list) {
+		list_del(&c->ocb_list);
+		OBD_FREE(c, PAGE_SIZE);
+	}
+
+	LASSERT(b->osb_batch);
+	if (b->osb_batch->our_update_nr > 0) {
+		LASSERT(d->opd_syn_rpc_in_progress > 0);
+		spin_lock(&d->opd_syn_lock);
+		d->opd_syn_rpc_in_progress--;
+		spin_unlock(&d->opd_syn_lock);
+	}
+
+	osp_update_request_destroy(b->osb_batch);
+
+	OBD_FREE_PTR(b);
+}
+
+static void osp_batch_add_cookie(struct osp_sync_batch *b,
+				struct llog_cookie *cookie)
+{
+	struct osp_cookies_batch *c;
+
+	LASSERT(b);
+
+	c = b->osb_cookies_cur;
+	LASSERT(c);
+	LASSERT(c->ocb_nr < COOKIES_IN_BATCH);
+	c->ocb_cookies[c->ocb_nr++] = *cookie;
+}
+
+static struct llog_cookie *
+osp_sync_find_cookie(struct osp_sync_batch *b, int nr)
+{
+	struct osp_cookies_batch *c;
+
+	int i = nr % COOKIES_IN_BATCH;
+	int j = nr / COOKIES_IN_BATCH;
+
+	list_for_each_entry(c, &b->osb_cookies_list, ocb_list) {
+		if (j == 0)
+			break;
+		j--;
+	}
+	LASSERT(j == 0);
+	LASSERT(c->ocb_cookies[i].lgc_index != 0);
+	return c->ocb_cookies + i;
+}
+
+int osp_sync_update_interpret(const struct lu_env *env,
+			      struct ptlrpc_request *req, void *arg, int rc)
+{
+	struct osp_sync_batch *b = req->rq_cb_data;
+	struct osp_device *d = b->osb_dev;
+	struct obd_import *imp = req->rq_import;
+
+	if (rc == 0) {
+		ptlrpc_request_addref(req);
+		b->osb_req = req;
+		LASSERT(req->rq_status == 0);
+
+		if (req->rq_transno == 0) {
+			/* no changes on the target (everything was done
+			 * already?) - just cancel all the cookies */
+			b->osb_committed = 1;
+			spin_lock(&d->opd_syn_lock);
+			LASSERT(list_empty(&b->osb_list));
+			list_add(&b->osb_list, &d->opd_syn_committed_there);
+			spin_unlock(&d->opd_syn_lock);
+		} else {
+			/* wait for commit */
+		}
+
+	} else {
+		LASSERTF(req->rq_transno == 0 ||
+			 req->rq_import_generation < imp->imp_generation,
+			 "transno "LPU64", rc %d, gen: req %d, imp %d\n",
+			 req->rq_transno, rc, req->rq_import_generation,
+			 imp->imp_generation);
+
+		printk("ERROR %d\n", rc);
+
+		if (req->rq_transno == 0) {
+			/* this is the last time we see the request
+			 * if transno is not zero, then commit cb
+			 * will be called at some point */
+		} else {
+			/* XXX: when can this happen? */
+			LBUG();
+		}
+
+		osp_sync_free_batch(b);
+	}
+
+	LASSERT(d->opd_syn_rpc_in_flight > 0);
+	spin_lock(&d->opd_syn_lock);
+	d->opd_syn_rpc_in_flight--;
+	spin_unlock(&d->opd_syn_lock);
+
+	wake_up(&d->opd_syn_waitq);
+
+	return 0;
+}
+
+static void osp_sync_commit_cb(struct ptlrpc_request *req)
+{
+	struct osp_sync_batch *b = req->rq_cb_data;
+	struct osp_device *d = b->osb_dev;
+	struct object_update_reply *reply;
+
+	LASSERT(req->rq_repmsg != NULL);
+
+	reply = req_capsule_server_sized_get(&req->rq_pill,
+			&RMF_OUT_UPDATE_REPLY,
+			OUT_UPDATE_REPLY_SIZE);
+	LASSERT(reply != NULL);
+	LASSERT(reply->ourp_magic == UPDATE_REPLY_MAGIC);
+
+	CDEBUG(D_OTHER, "committed %p (%d from %d)\n", b,
+	       reply->ourp_count, d->opd_syn_rpc_in_progress);
+
+	/* only add if not being processed */
+	if (req->rq_transno != 0) {
+		b->osb_committed = 1;
+		spin_lock(&d->opd_syn_lock);
+		if (list_empty(&b->osb_list))
+			list_add(&b->osb_list, &d->opd_syn_committed_there);
+		spin_unlock(&d->opd_syn_lock);
+
+		wake_up(&d->opd_syn_waitq);
+	}
+}
+
+static int osp_sync_send_update(const struct lu_env *env,
+				struct osp_device *osp,
+				struct osp_sync_batch *b)
+{
+	struct ptlrpc_request	*req;
+	int	rc = 0;
+	ENTRY;
+
+	CDEBUG(D_OTHER, "sending %p / %d at %lu \n", b,
+	       b->osb_batch->our_update_nr, jiffies);
+
+	/* XXX: make sure updates against the same FID get into
+	 *	the same stream - so they don't race and get to
+	 *	the target in the original order */
+	rc = osp_prep_update_req(env, osp->opd_obd->u.cli.cl_import,
+				 b->osb_batch, &req);
+	LASSERT(rc == 0);
+
+	req->rq_cb_data = b;
+	req->rq_interpret_reply = osp_sync_update_interpret;
+	req->rq_commit_cb = osp_sync_commit_cb;
+
+	/* notice we increment counters before sending RPC,
+	 * to be consistent in RPC interpret callback which
+	 * may happen very quickly */
+	spin_lock(&osp->opd_syn_lock);
+	osp->opd_syn_rpc_in_flight++;
+	spin_unlock(&osp->opd_syn_lock);
+
+	ptlrpcd_add_req(req);
+
+	RETURN(rc);
 }
 
 /**
@@ -853,6 +815,7 @@ static void osp_sync_process_record(const struct lu_env *env,
 {
 	struct llog_handle	*cathandle = llh->u.phd.phd_cat_handle;
 	struct llog_cookie	 cookie;
+	struct osp_sync_batch	*b;
 	int			 rc = 0;
 
 	ENTRY;
@@ -878,37 +841,49 @@ static void osp_sync_process_record(const struct lu_env *env,
 		RETURN_EXIT;
 	}
 
+	b = osp_get_batch(d, NULL);
+	if (IS_ERR(b))
+		GOTO(out, rc = PTR_ERR(b));
+
+	LASSERT(b->osb_batch);
+	b->osb_batch->our_batchid++;
+	cookie.lgc_padding = b->osb_batch->our_batchid; /* for debugging */
+
 	/*
 	 * now we prepare and fill requests to OST, put them on the queue
 	 * and fire after next commit callback
 	 */
-
-	/* notice we increment counters before sending RPC, to be consistent
-	 * in RPC interpret callback which may happen very quickly */
-	spin_lock(&d->opd_syn_lock);
-	d->opd_syn_rpc_in_flight++;
-	d->opd_syn_rpc_in_progress++;
-	spin_unlock(&d->opd_syn_lock);
-
 	switch (rec->lrh_type) {
 	/* case MDS_UNLINK_REC is kept for compatibility */
 	case MDS_UNLINK_REC:
-		rc = osp_sync_new_unlink_job(d, llh, rec);
+		rc = osp_sync_new_unlink_job(env, b, rec);
 		break;
 	case MDS_UNLINK64_REC:
-		rc = osp_sync_new_unlink64_job(d, llh, rec);
+		rc = osp_sync_new_unlink64_job(env, b, rec);
 		break;
 	case MDS_SETATTR64_REC:
-		rc = osp_sync_new_setattr_job(d, llh, rec);
+		rc = osp_sync_new_setattr_job(env, b, rec);
 		break;
 	default:
-		CERROR("%s: unknown record type: %x\n", d->opd_obd->obd_name,
-		       rec->lrh_type);
+		CERROR("%s: unknown record type: %x\n",
+		       d->opd_obd->obd_name, rec->lrh_type);
 		/* treat "unknown record type" as "invalid" */
 		rc = 1;
 		break;
 	}
+	/* currently OUT doesn't support such a big reqs
+	 * that's because of very limited 4K reply buffer */
+	LASSERT(rc != -E2BIG);
+	if (rc == 0) {
+		if (b->osb_batch->our_update_nr == 1) {
+			spin_lock(&d->opd_syn_lock);
+			d->opd_syn_rpc_in_progress++;
+			spin_unlock(&d->opd_syn_lock);
+		}
+		osp_batch_add_cookie(b, &cookie);
+	}
 
+out:
 	spin_lock(&d->opd_syn_lock);
 
 	/* For all kinds of records, not matter successful or not,
@@ -925,10 +900,6 @@ static void osp_sync_process_record(const struct lu_env *env,
 			wake_up(&d->opd_syn_barrier_waitq);
 		}
 		d->opd_syn_changes--;
-	}
-	if (rc != 0) {
-		d->opd_syn_rpc_in_flight--;
-		d->opd_syn_rpc_in_progress--;
 	}
 	CDEBUG(D_OTHER, "%s: %d in flight, %d in progress\n",
 	       d->opd_obd->obd_name, d->opd_syn_rpc_in_flight,
@@ -953,6 +924,55 @@ static void osp_sync_process_record(const struct lu_env *env,
 	RETURN_EXIT;
 }
 
+static void osp_sync_cancel_records(const struct lu_env *env,
+				    struct llog_handle *llh,
+				    struct osp_sync_batch *b)
+{
+	struct osp_device *d = b->osb_dev;
+	struct ptlrpc_request *req = b->osb_req;
+	struct object_update_reply *reply;
+	int i, rc;
+
+	CDEBUG(D_OTHER, "cancelling %p\n", b);
+
+	LASSERT(req);
+	LASSERT(req->rq_repmsg != NULL);
+
+	reply = req_capsule_server_sized_get(&req->rq_pill,
+					     &RMF_OUT_UPDATE_REPLY,
+					     OUT_UPDATE_REPLY_SIZE);
+	LASSERT(reply != NULL);
+	LASSERT(reply->ourp_magic == UPDATE_REPLY_MAGIC);
+
+	for (i = 0; i < reply->ourp_count; i++) {
+		struct object_update_result *result;
+		struct llog_cookie *cookie;
+
+		result = object_update_result_get(reply, i, NULL);
+		LASSERT(result != NULL);
+		rc = ptlrpc_status_ntoh(result->our_rc);
+
+		cookie = osp_sync_find_cookie(b, i);
+		LASSERT(cookie != NULL);
+
+		/* XXX: for debugging - padding must match batchid */
+		LASSERT(cookie->lgc_padding == i + 1);
+
+		if (rc == 0 || rc == -ENOENT) {
+			/* this update can be cancelled: successfully
+			 * executed or the object was found */
+			rc = llog_cat_cancel_records(env, llh, 1, cookie);
+			if (rc)
+				CERROR("%s: can't cancel record: %d\n",
+				       d->opd_obd->obd_name, rc);
+		} else {
+			/* try next time */
+			printk("SKIP %d: %d\n", i, rc);
+		}
+	}
+	/* XXX: what if not all updates are replied? */
+}
+
 /**
  * Cancel llog records for the committed changes.
  *
@@ -967,13 +987,9 @@ static void osp_sync_process_committed(const struct lu_env *env,
 				       struct osp_device *d)
 {
 	struct obd_device	*obd = d->opd_obd;
-	struct obd_import	*imp = obd->u.cli.cl_import;
-	struct ost_body		*body;
-	struct ptlrpc_request	*req;
 	struct llog_ctxt	*ctxt;
 	struct llog_handle	*llh;
 	struct list_head	 list;
-	int			 rc, done = 0;
 
 	ENTRY;
 
@@ -1009,45 +1025,21 @@ static void osp_sync_process_committed(const struct lu_env *env,
 	spin_unlock(&d->opd_syn_lock);
 
 	while (!list_empty(&list)) {
-		struct osp_job_req_args	*jra;
+		struct osp_sync_batch *b;
 
-		jra = list_entry(list.next, struct osp_job_req_args,
-				 jra_committed_link);
-		LASSERT(jra->jra_magic == OSP_JOB_MAGIC);
-		list_del_init(&jra->jra_committed_link);
+		b = list_entry(list.next, struct osp_sync_batch,
+				 osb_list);
+		list_del_init(&b->osb_list);
 
-		req = container_of((void *)jra, struct ptlrpc_request,
-				   rq_async_args);
-		body = req_capsule_client_get(&req->rq_pill,
-					      &RMF_OST_BODY);
-		LASSERT(body);
 		/* import can be closing, thus all commit cb's are
 		 * called we can check committness directly */
-		if (req->rq_import_generation == imp->imp_generation) {
-			rc = llog_cat_cancel_records(env, llh, 1,
-						     &body->oa.o_lcookie);
-			if (rc)
-				CERROR("%s: can't cancel record: %d\n",
-				       obd->obd_name, rc);
-		} else {
-			DEBUG_REQ(D_OTHER, req, "imp_committed = "LPU64,
-				  imp->imp_peer_committed_transno);
-		}
-		ptlrpc_req_finished(req);
-		done++;
+		if (b->osb_committed)
+			osp_sync_cancel_records(env, llh, b);
+
+		osp_sync_free_batch(b);
 	}
 
 	llog_ctxt_put(ctxt);
-
-	LASSERT(d->opd_syn_rpc_in_progress >= done);
-	spin_lock(&d->opd_syn_lock);
-	d->opd_syn_rpc_in_progress -= done;
-	spin_unlock(&d->opd_syn_lock);
-	CDEBUG(D_OTHER, "%s: %d in flight, %d in progress\n",
-	       d->opd_obd->obd_name, d->opd_syn_rpc_in_flight,
-	       d->opd_syn_rpc_in_progress);
-
-	osp_sync_check_for_work(d);
 
 	/* wake up the thread if requested to stop:
 	 * it might be waiting for in-progress to complete */
@@ -1055,6 +1047,43 @@ static void osp_sync_process_committed(const struct lu_env *env,
 		wake_up(&d->opd_syn_waitq);
 
 	EXIT;
+}
+
+static int inline osp_sync_ready_to_send(struct osp_device *d,
+					 __u32 id)
+{
+	struct osp_sync_batch *b = d->opd_syn_batch;
+	int inbatch;
+
+	if (b == NULL)
+		return 0;
+
+	if (!osp_sync_low_in_flight(d))
+		return 0;
+
+	inbatch = b->osb_batch->our_update_nr;
+	if (inbatch == 0)
+		return 0;
+
+	/* big enough */
+	/* XXX: make it a tunable */
+	if (inbatch >= 512)
+		return 1;
+
+	/* keep processing old records to send big batches */
+	if (d->opd_syn_prev_done == 0)
+		return 0;
+
+	/* send if no more pending changes */
+	if (d->opd_syn_changes == 0)
+		return 1;
+
+	/* the last committed, we'll be waiting for local commit
+	 * so just send what we've got so far */
+	if (id >= d->opd_syn_last_committed_id)
+		return 1;
+
+	return 0;
 }
 
 /**
@@ -1079,6 +1108,8 @@ static int osp_sync_process_queues(const struct lu_env *env,
 				   void *data)
 {
 	struct osp_device	*d = data;
+	__u32 id = rec->lrh_id;
+	int rc;
 
 	do {
 		struct l_wait_info lwi = { 0 };
@@ -1088,7 +1119,6 @@ static int osp_sync_process_queues(const struct lu_env *env,
 			return LLOG_PROC_BREAK;
 		}
 
-		/* process requests committed by OST */
 		osp_sync_process_committed(env, d);
 
 		/* if we there are changes to be processed and we have
@@ -1110,6 +1140,14 @@ static int osp_sync_process_queues(const struct lu_env *env,
 
 		if (d->opd_syn_last_processed_id == d->opd_syn_last_used_id)
 			osp_sync_remove_from_tracker(d);
+
+		/* send if it's low in flight and we're about to wait
+		 * for a new commit to happen */
+		if (osp_sync_ready_to_send(d, id)) {
+			rc = osp_sync_send_update(env, d, d->opd_syn_batch);
+			LASSERT(rc == 0);
+			d->opd_syn_batch = NULL;
+		}
 
 		l_wait_event(d->opd_syn_waitq,
 			     !osp_sync_running(d) ||
@@ -1152,12 +1190,13 @@ static int osp_sync_thread(void *_arg)
 
 	ENTRY;
 
-	rc = lu_env_init(&env, LCT_LOCAL);
+	rc = lu_env_init(&env, LCT_LOCAL | LCT_DT_THREAD | LCT_MD_THREAD);
 	if (rc) {
 		CERROR("%s: can't initialize env: rc = %d\n",
 		       obd->obd_name, rc);
 		RETURN(rc);
 	}
+	lu_env_refill(&env);
 
 	spin_lock(&d->opd_syn_lock);
 	thread->t_flags = SVC_RUNNING;
@@ -1188,6 +1227,9 @@ static int osp_sync_thread(void *_arg)
 		 "%lu changes, %u in progress, %u in flight\n",
 		 d->opd_syn_changes, d->opd_syn_rpc_in_progress,
 		 d->opd_syn_rpc_in_flight);
+
+	if (d->opd_syn_batch)
+		osp_sync_free_batch(d->opd_syn_batch);
 
 	/* wait till all the requests are completed */
 	count = 0;
@@ -1404,7 +1446,6 @@ int osp_sync_init(const struct lu_env *env, struct osp_device *d)
 	 * Start synchronization thread
 	 */
 	d->opd_syn_max_rpc_in_flight = OSP_MAX_IN_FLIGHT;
-	d->opd_syn_max_rpc_in_progress = OSP_MAX_IN_PROGRESS;
 	spin_lock_init(&d->opd_syn_lock);
 	init_waitqueue_head(&d->opd_syn_waitq);
 	init_waitqueue_head(&d->opd_syn_barrier_waitq);
