@@ -294,6 +294,9 @@ copytool_cleanup() {
 	done
 	if do_nodesv $agents "pgrep -x $HSMTOOL_BASE"; then
 		error "Copytool failed to stop in ${TIMEOUT}s ..."
+		# try to dump Copytool's stack
+		do_nodesv $agents "echo 1 >/proc/sys/kernel/sysrq ; " \
+			"echo t >/proc/sysrq-trigger"
 	else
 		echo "Copytool has stopped in " \
 		     "$((TIMEOUT - (end_wait - SECONDS)))s."
