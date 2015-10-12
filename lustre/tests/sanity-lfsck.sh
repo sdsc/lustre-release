@@ -3012,6 +3012,10 @@ test_23a() {
 run_test 23a "LFSCK can repair dangling name entry (1)"
 
 test_23b() {
+	local server_version=$(lustre_build_version $SINGLEMDS)
+	[ $(lustre_version_code $SINGLEMDS) -le $(version_code 2.7.0) ] &&
+	skip "No support for Dangling name entry on $server_version MDS" \
+	&& return
 	echo "#####"
 	echo "The objectA has multiple hard links, one of them corresponding"
 	echo "to the name entry_B. But there is something wrong for the name"
