@@ -1833,7 +1833,6 @@ static void osc_ap_completion(const struct lu_env *env, struct client_obd *cli,
 	if (rc)
 		CERROR("completion on oap %p obj %p returns %d.\n",
 		       oap, osc, rc);
-
 	EXIT;
 }
 
@@ -2511,6 +2510,7 @@ int osc_flush_async_page(const struct lu_env *env, struct cl_io *io,
 
 	spin_lock(&oap->oap_lock);
 	oap->oap_async_flags |= ASYNC_READY|ASYNC_URGENT;
+	oap->oap_brw_flags |= OBD_BRW_SOFT_SYNC;
 	spin_unlock(&oap->oap_lock);
 
 	if (memory_pressure_get())

@@ -854,56 +854,6 @@ static int ll_sbi_flags_seq_show(struct seq_file *m, void *v)
 }
 LPROC_SEQ_FOPS_RO(ll_sbi_flags);
 
-static int ll_unstable_stats_seq_show(struct seq_file *m, void *v)
-{
-	struct super_block	*sb    = m->private;
-	struct ll_sb_info	*sbi   = ll_s2sbi(sb);
-	struct cl_client_cache	*cache = sbi->ll_cache;
-	long pages;
-	int mb;
-
-	pages = atomic_long_read(&cache->ccc_unstable_nr);
-	mb    = (pages * PAGE_CACHE_SIZE) >> 20;
-
-	return seq_printf(m, "unstable_check:     %8d\n"
-			     "unstable_pages: %12ld\n"
-			     "unstable_mb:        %8d\n",
-			  cache->ccc_unstable_check, pages, mb);
-}
-
-static ssize_t ll_unstable_stats_seq_write(struct file *file,
-					   const char __user *buffer,
-					   size_t count, loff_t *unused)
-{
-	struct seq_file *seq = file->private_data;
-	struct ll_sb_info *sbi = ll_s2sbi((struct super_block *)seq->private);
-	char kernbuf[128];
-	int val, rc;
-
-	if (count == 0)
-		return 0;
-	if (count >= sizeof(kernbuf))
-		return -EINVAL;
-
-	if (copy_from_user(kernbuf, buffer, count))
-		return -EFAULT;
-	kernbuf[count] = 0;
-
-	buffer += lprocfs_find_named_value(kernbuf, "unstable_check:", &count) -
-		  kernbuf;
-	rc = lprocfs_write_helper(buffer, count, &val);
-	if (rc < 0)
-		return rc;
-
-	/* borrow lru lock to set the value */
-	spin_lock(&sbi->ll_cache->ccc_lru_lock);
-	sbi->ll_cache->ccc_unstable_check = !!val;
-	spin_unlock(&sbi->ll_cache->ccc_lru_lock);
-
-	return count;
-}
-LPROC_SEQ_FOPS(ll_unstable_stats);
-
 static int ll_root_squash_seq_show(struct seq_file *m, void *v)
 {
 	struct super_block *sb = m->private;
@@ -1022,8 +972,6 @@ struct lprocfs_vars lprocfs_llite_obd_vars[] = {
 	  .fops	=	&ll_sbi_flags_fops			},
 	{ .name	=	"xattr_cache",
 	  .fops	=	&ll_xattr_cache_fops			},
-	{ .name	=	"unstable_stats",
-	  .fops	=	&ll_unstable_stats_fops			},
 	{ .name	=	"root_squash",
 	  .fops	=	&ll_root_squash_fops			},
 	{ .name	=	"nosquash_nids",

@@ -62,6 +62,10 @@ struct ptlrpc_request_pool *osc_rq_pool;
 static unsigned int osc_reqpool_mem_max = 5;
 module_param(osc_reqpool_mem_max, uint, 0444);
 
+static struct lu_env *osc_emerg_env;
+static int osc_emerg_env_refcheck;
+static DEFINE_MUTEX(osc_emerg_env_guard);
+
 struct osc_brw_async_args {
 	struct obdo		 *aa_oa;
 	int			  aa_requested_nob;
@@ -100,10 +104,6 @@ struct osc_enqueue_args {
 	struct lustre_handle	oa_lockh;
 	unsigned int		oa_agl:1;
 };
-
-static void osc_release_ppga(struct brw_page **ppga, size_t count);
-static int brw_interpret(const struct lu_env *env, struct ptlrpc_request *req,
-			 void *data, int rc);
 
 void osc_pack_req_body(struct ptlrpc_request *req, struct obdo *oa)
 {
@@ -1484,10 +1484,130 @@ static void sort_brw_pages(struct brw_page **array, int num)
         } while (stride > 1);
 }
 
-static void osc_release_ppga(struct brw_page **ppga, size_t count)
+static void osc_release_ppga(struct brw_page **pga, size_t count)
 {
-        LASSERT(ppga != NULL);
-        OBD_FREE(ppga, sizeof(*ppga) * count);
+	if (pga != NULL)
+		OBD_FREE(pga, sizeof(*pga) * count);
+}
+
+/**
+ * Performs "unstable" page accounting. This function balances the
+ * increment operations performed in osc_inc_unstable_pages. It is
+ * registered as the RPC request callback, and is executed when the
+ * bulk RPC is committed on the server. Thus at this point, the pages
+ * involved in the bulk transfer are no longer considered unstable.
+ *
+ * If this function is called, the request should have been committed
+ * or req:rq_unstable must have been set; it implies that the unstable
+ * statistic have been added.
+ */
+static void osc_dec_unstable_pages(struct ptlrpc_request *req)
+{
+	struct lu_env		*env;
+	int			refcheck;
+	struct client_obd       *cli        = &req->rq_import->imp_obd->u.cli;
+	struct brw_page		**pga       = req->rq_cb_data;
+	int			 page_count = req->rq_bulk->bd_iov_count;
+	int			 i;
+
+	LASSERT(page_count >= 0);
+	LASSERT(pga != NULL);
+	LASSERT(req->rq_bulk != NULL);
+
+	ptlrpc_free_bulk(req->rq_bulk);
+	req->rq_bulk = NULL;
+
+	env = cl_env_get(&refcheck);
+	if (IS_ERR(env)) {
+		mutex_lock(&osc_emerg_env_guard);
+		env = osc_emerg_env;
+	}
+
+	for (i = 0; i < page_count; i++) {
+		struct cl_page *page = oap2cl_page(brw_page2oap(pga[i]));
+
+		LASSERT(page->cp_type == CPT_CACHEABLE);
+		LASSERT(atomic_read(&page->cp_ref) > 0);
+		LASSERT(atomic_read(&page->cp_pinned) > 0);
+		if (atomic_dec_and_test(&page->cp_pinned)) {
+			cl_page_transfer_done(page);
+
+			lu_ref_del(&page->cp_reference, "pinned", page);
+			cl_page_put(env, page);
+		}
+	}
+
+	osc_release_ppga(pga, page_count);
+	atomic_long_sub(page_count, &cli->cl_unstable_count);
+
+	if (env != osc_emerg_env)
+		cl_env_put(env, &refcheck);
+	else
+		mutex_unlock(&osc_emerg_env_guard);
+}
+
+/**
+ * "unstable" page accounting. See: osc_dec_unstable_pages.
+ */
+static void osc_inc_unstable_pages(struct ptlrpc_request *req)
+{
+	struct osc_brw_async_args *aa = ptlrpc_req_async_args(req);
+	struct client_obd         *cli = &req->rq_import->imp_obd->u.cli;
+	long                       page_count = req->rq_bulk->bd_iov_count;
+	struct brw_page          **pga;
+	int                        i;
+
+	spin_lock(&req->rq_lock);
+	if (unlikely(req->rq_committed)) {
+		spin_unlock(&req->rq_lock);
+		return;
+	}
+
+	/* When the code path comes here, the pages must be cacheable because
+	 * direct I/O pages must have been committed at the time of brw reply.
+	 * Borrow brw_page array for page transfer accounting, which will be
+	 * released in osc_dec_unstable_pages() */
+	req->rq_cb_data = pga = aa->aa_ppga;
+	aa->aa_ppga = NULL;
+
+	for (i = 0; i < page_count; i++) {
+		struct cl_page *page = oap2cl_page(brw_page2oap(pga[i]));
+
+		LASSERT(page->cp_type == CPT_CACHEABLE);
+		LASSERT(atomic_read(&page->cp_ref) > 0);
+		if (atomic_inc_return(&page->cp_pinned) == 1) {
+			lu_ref_add_atomic(&page->cp_reference, "pinned", page);
+			cl_page_get(page);
+		}
+	}
+
+	atomic_long_add(page_count, &cli->cl_unstable_count);
+
+	req->rq_unstable = 1;
+	spin_unlock(&req->rq_lock);
+}
+
+/**
+ * Check if it piggybacks SOFT_SYNC flag to OST from this OSC.
+ * This function will be called by every BRW RPC so it's critical
+ * to make this function fast.
+ */
+static bool osc_over_unstable_soft_limit(struct client_obd *cli)
+{
+	long osc_unstable_count;
+
+	osc_unstable_count = atomic_long_read(&cli->cl_unstable_count);
+
+	CDEBUG(D_CACHE, "%s: cli: %p unstable pages: %lu\n",
+	       cli_name(cli), cli, osc_unstable_count);
+
+	/* If there are one full RPC window of unstable pages, it's a good
+	 * chance to piggyback a SOFT_SYNC flag.
+	 * Please notice that the OST won't take immediate response for the
+	 * SOFT_SYNC request so active OSCs will have more chance to carry
+	 * the flag, this is reasonable. */
+	return osc_unstable_count > cli->cl_max_pages_per_rpc *
+				    cli->cl_max_rpcs_in_flight;
 }
 
 static int brw_interpret(const struct lu_env *env,
@@ -1579,8 +1699,12 @@ static int brw_interpret(const struct lu_env *env,
 	}
 	OBDO_FREE(aa->aa_oa);
 
+	ptlrpc_lprocfs_brw(req, req->rq_bulk->bd_nob_transferred);
+
 	if (lustre_msg_get_opc(req->rq_reqmsg) == OST_WRITE && rc == 0)
 		osc_inc_unstable_pages(req);
+
+	osc_release_ppga(aa->aa_ppga, aa->aa_page_count);
 
 	list_for_each_entry_safe(ext, tmp, &aa->aa_exts, oe_link) {
 		list_del_init(&ext->oe_link);
@@ -1588,9 +1712,6 @@ static int brw_interpret(const struct lu_env *env,
 	}
 	LASSERT(list_empty(&aa->aa_exts));
 	LASSERT(list_empty(&aa->aa_oaps));
-
-	osc_release_ppga(aa->aa_ppga, aa->aa_page_count);
-	ptlrpc_lprocfs_brw(req, req->rq_bulk->bd_nob_transferred);
 
 	spin_lock(&cli->cl_loi_list_lock);
 	/* We need to decrement before osc_ap_completion->osc_wake_cache_waiters
@@ -1614,13 +1735,13 @@ static void brw_commit(struct ptlrpc_request *req)
 	 * osc_dec_unstable_pages is still called. Otherwise unstable
 	 * pages may be leaked. */
 	spin_lock(&req->rq_lock);
+	req->rq_committed = 1;
 	if (likely(req->rq_unstable)) {
 		req->rq_unstable = 0;
 		spin_unlock(&req->rq_lock);
 
 		osc_dec_unstable_pages(req);
 	} else {
-		req->rq_committed = 1;
 		spin_unlock(&req->rq_lock);
 	}
 }
@@ -2866,9 +2987,14 @@ static int __init osc_init(void)
 
 	osc_cache_shrinker = set_shrinker(DEFAULT_SEEKS, &osc_shvar);
 
+	osc_emerg_env = cl_env_alloc(&osc_emerg_env_refcheck,
+				     LCT_REMEMBER | LCT_NOREF);
+	if (IS_ERR(osc_emerg_env))
+		GOTO(out_type, rc = PTR_ERR(osc_emerg_env));
+
 	/* This is obviously too much memory, only prevent overflow here */
 	if (osc_reqpool_mem_max >= 1 << 12 || osc_reqpool_mem_max == 0)
-		GOTO(out_type, rc = -EINVAL);
+		GOTO(out_env, rc = -EINVAL);
 
 	reqpool_size = osc_reqpool_mem_max << 20;
 
@@ -2887,15 +3013,17 @@ static int __init osc_init(void)
 	atomic_set(&osc_pool_req_count, 0);
 	osc_rq_pool = ptlrpc_init_rq_pool(0, OST_IO_MAXREQSIZE,
 					  ptlrpc_add_rqs_to_pool);
+	if (osc_rq_pool == NULL)
+		GOTO(out_env, rc = -ENOMEM);
 
-	if (osc_rq_pool != NULL)
-		GOTO(out, rc);
-	rc = -ENOMEM;
+	RETURN(0);
+
+out_env:
+	cl_env_put(osc_emerg_env, &osc_emerg_env_refcheck);
 out_type:
 	class_unregister_type(LUSTRE_OSC_NAME);
 out_kmem:
 	lu_kmem_fini(osc_caches);
-out:
 	RETURN(rc);
 }
 
@@ -2904,6 +3032,7 @@ static void __exit osc_exit(void)
 	remove_shrinker(osc_cache_shrinker);
 	class_unregister_type(LUSTRE_OSC_NAME);
 	lu_kmem_fini(osc_caches);
+	cl_env_put(osc_emerg_env, &osc_emerg_env_refcheck);
 	ptlrpc_free_rq_pool(osc_rq_pool);
 }
 

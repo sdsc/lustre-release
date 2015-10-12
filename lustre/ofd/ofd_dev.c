@@ -2064,6 +2064,12 @@ static int ofd_punch_hdl(struct tgt_session_info *tsi)
 	if (IS_ERR(fo))
 		GOTO(out, rc = PTR_ERR(fo));
 
+	/* Commit pending transactions beyond the truncate offset so that
+	 * bulk transfer pinned pages on the client side can be released
+	 * sooner. */
+	(void)tgt_sync(tsi->tsi_env, tsi->tsi_tgt,
+		       ofd_object_child(fo), start, end);
+
 	la_from_obdo(&info->fti_attr, oa,
 		     OBD_MD_FLMTIME | OBD_MD_FLATIME | OBD_MD_FLCTIME);
 	info->fti_attr.la_size = start;

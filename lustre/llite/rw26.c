@@ -132,6 +132,8 @@ static int ll_releasepage(struct page *vmpage, RELEASEPAGE_ARG_TYPE gfp_mask)
 	struct cl_object	*obj;
 	struct cl_page		*page;
 	struct address_space	*mapping;
+	bool can_block = gfp_mask & __GFP_WAIT;
+	int refcheck;
 	int result = 0;
 
 	LASSERT(PageLocked(vmpage));
@@ -146,17 +148,36 @@ static int ll_releasepage(struct page *vmpage, RELEASEPAGE_ARG_TYPE gfp_mask)
 	if (obj == NULL)
 		return 1;
 
-	/* 1 for caller, 1 for cl_page and 1 for page cache */
-	if (page_count(vmpage) > 3)
-		return 0;
-
 	page = cl_vmpage_page(vmpage, obj);
 	if (page == NULL)
 		return 1;
 
 	cookie = cl_env_reenter();
-	env = cl_env_percpu_get();
+	if (can_block && atomic_read(&page->cp_pinned) > 0) {
+		env = cl_env_get(&refcheck);
+		if (IS_ERR(env)) {
+			env = cl_env_percpu_get();
+			can_block = false;
+		}
+	} else {
+		env = cl_env_percpu_get();
+		can_block = false;
+	}
 	LASSERT(!IS_ERR(env));
+
+	CL_PAGE_DEBUG(D_INODE, env, page, "page count = %d, pinned = %d\n",
+		      page_count(vmpage), atomic_read(&page->cp_pinned));
+
+	if (can_block && atomic_read(&page->cp_pinned) > 0) {
+		loff_t offset = cl_offset(obj, vmpage->index);
+		int rc;
+
+		rc = cl_sync_file_range(mapping->host, offset,
+					offset + PAGE_CACHE_SIZE - 1,
+					CL_FSYNC_ALL, 1);
+		if (rc == 0)
+			(void)cl_page_transfer_wait(page);
+	}
 
 	if (!cl_page_in_use(page)) {
 		result = 1;
@@ -179,7 +200,10 @@ static int ll_releasepage(struct page *vmpage, RELEASEPAGE_ARG_TYPE gfp_mask)
 	LASSERT(cl_object_refc(obj) > 1);
 	cl_page_put(env, page);
 
-	cl_env_percpu_put(env);
+	if (can_block)
+		cl_env_put(env, &refcheck);
+	else
+		cl_env_percpu_put(env);
 	cl_env_reexit(cookie);
 	return result;
 }

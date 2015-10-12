@@ -182,6 +182,7 @@ struct cl_page *cl_page_alloc(const struct lu_env *env,
 	if (page != NULL) {
 		int result = 0;
 		atomic_set(&page->cp_ref, 1);
+		atomic_set(&page->cp_pinned, 0);
 		page->cp_obj = o;
 		cl_object_get(o);
 		lu_object_ref_add_at(&o->co_lu, &page->cp_obj_ref, "cl_page",
@@ -1012,10 +1013,9 @@ void cl_page_header_print(const struct lu_env *env, void *cookie,
                           lu_printer_t printer, const struct cl_page *pg)
 {
 	(*printer)(env, cookie,
-		   "page@%p[%d %p %d %d %d %p]\n",
-		   pg, atomic_read(&pg->cp_ref), pg->cp_obj,
-		   pg->cp_state, pg->cp_error, pg->cp_type,
-		   pg->cp_owner);
+		   "page@%p[%d %d %p %d %d %p]\n",
+		   pg, atomic_read(&pg->cp_ref), atomic_read(&pg->cp_pinned),
+		   pg->cp_obj, pg->cp_state, pg->cp_type, pg->cp_owner);
 }
 EXPORT_SYMBOL(cl_page_header_print);
 
@@ -1091,6 +1091,26 @@ void cl_page_slice_add(struct cl_page *page, struct cl_page_slice *slice,
 }
 EXPORT_SYMBOL(cl_page_slice_add);
 
+static DECLARE_WAIT_QUEUE_HEAD(transfer_waitq);
+
+int cl_page_transfer_wait(struct cl_page *page)
+{
+	struct l_wait_info lwi = LWI_INTR(LWI_ON_SIGNAL_NOOP, NULL);
+	int rc;
+
+	rc = l_wait_event(transfer_waitq, atomic_read(&page->cp_pinned) == 0,
+			  &lwi);
+	return rc;
+
+}
+EXPORT_SYMBOL(cl_page_transfer_wait);
+
+void cl_page_transfer_done(struct cl_page *page)
+{
+	wake_up(&transfer_waitq);
+}
+EXPORT_SYMBOL(cl_page_transfer_done);
+
 /**
  * Allocate and initialize cl_cache, called by ll_init_sbi().
  */
@@ -1109,11 +1129,6 @@ struct cl_client_cache *cl_cache_init(unsigned long lru_page_max)
 	atomic_long_set(&cache->ccc_lru_left, lru_page_max);
 	spin_lock_init(&cache->ccc_lru_lock);
 	INIT_LIST_HEAD(&cache->ccc_lru);
-
-	/* turn unstable check off by default as it impacts performance */
-	cache->ccc_unstable_check = 0;
-	atomic_long_set(&cache->ccc_unstable_nr, 0);
-	init_waitqueue_head(&cache->ccc_unstable_waitq);
 
 	RETURN(cache);
 }

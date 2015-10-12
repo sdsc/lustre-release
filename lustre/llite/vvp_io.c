@@ -699,6 +699,12 @@ static int vvp_do_vmtruncate(struct inode *inode, size_t size)
 	}
 	i_size_write(inode, size);
 
+	/* At this point, pages beyond the truncate offset will soon be
+	 * taken out of page cache. If there still exist pinned pages for
+	 * bulk transfer, they will become ghost page as they can't be
+	 * freed by OSC LRU or vm page scan. OST should invoke tgt_sync() in
+	 * the truncate path(see ofd_punch_hdl()) to commit transactions so
+	 * that the pinned pages can be released sooner. */
 	ll_truncate_pagecache(inode, size);
 	ll_inode_size_unlock(inode);
 	return result;

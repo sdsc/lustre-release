@@ -720,8 +720,8 @@ enum cl_page_type {
 struct cl_page {
 	/** Reference counter. */
 	atomic_t		 cp_ref;
-	/** Transfer error. */
-	int                      cp_error;
+	/** Transfer count - if this page is pinned for bulk transfer. */
+	atomic_t		 cp_pinned;
 	/** An object this page is a part of. Immutable after creation. */
 	struct cl_object	*cp_obj;
 	/** vmpage */
@@ -2090,7 +2090,6 @@ void            cl_page_header_print(const struct lu_env *env, void *cookie,
                                      lu_printer_t printer,
                                      const struct cl_page *pg);
 struct cl_page *cl_vmpage_page      (struct page *vmpage, struct cl_object *obj);
-struct cl_page *cl_page_top         (struct cl_page *page);
 
 const struct cl_page_slice *cl_page_at(const struct cl_page *page,
                                        const struct lu_device_type *dtype);
@@ -2136,6 +2135,8 @@ void cl_page_clip       (const struct lu_env *env, struct cl_page *pg,
 int  cl_page_cancel     (const struct lu_env *env, struct cl_page *page);
 int  cl_page_flush      (const struct lu_env *env, struct cl_io *io,
 			 struct cl_page *pg);
+int cl_page_transfer_wait(struct cl_page *page);
+void cl_page_transfer_done(struct cl_page *page);
 
 /** @} transfer */
 
@@ -2195,19 +2196,6 @@ struct cl_client_cache {
 	 * Lock to protect ccc_lru list
 	 */
 	spinlock_t		ccc_lru_lock;
-	/**
-	 * Set if unstable check is enabled
-	 */
-	unsigned int		ccc_unstable_check:1;
-	/**
-	 * # of unstable pages for this mount point
-	 */
-	atomic_long_t		ccc_unstable_nr;
-	/**
-	 * Waitq for awaiting unstable pages to reach zero.
-	 * Used at umounting time and signaled on BRW commit
-	 */
-	wait_queue_head_t	ccc_unstable_waitq;
 };
 /**
  * cl_cache functions
@@ -2357,8 +2345,6 @@ void cl_page_list_splice (struct cl_page_list *list,
 void cl_page_list_del    (const struct lu_env *env,
                           struct cl_page_list *plist, struct cl_page *page);
 void cl_page_list_disown (const struct lu_env *env,
-                          struct cl_io *io, struct cl_page_list *plist);
-int  cl_page_list_own    (const struct lu_env *env,
                           struct cl_io *io, struct cl_page_list *plist);
 void cl_page_list_assume (const struct lu_env *env,
                           struct cl_io *io, struct cl_page_list *plist);
