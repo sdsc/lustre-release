@@ -3675,8 +3675,7 @@ test_52() {
 		loop="-o loop"
 	fi
 	do_node $ost1node mount -t $(facet_fstype ost1) $loop $ost1_dev \
-		$ost1mnt ||
-		error "Unable to mount ost1 as ldiskfs"
+		$ost1mnt || error "Unable to mount ost1 as ldiskfs"
 
 	# backup objects
 	echo backup objects to $ost1tmp/objects
@@ -3690,28 +3689,20 @@ test_52() {
 	do_node $ost1node 'mv '$objects' '${ost1mnt}'/lost+found'
 	[ $? -eq 0 ] || { error "Unable to move objects"; return 14; }
 
-	# recover objects dry-run
-	if [ $(lustre_version_code ost1) -ge $(version_code 2.5.56) ]; then
-		echo "ll_recover_lost_found_objs dry_run"
-		do_node $ost1node \
-			"ll_recover_lost_found_objs -n -d $ost1mnt/O" ||
-			error "ll_recover_lost_found_objs failed"
-	fi
-
-	# recover objects
-	echo "ll_recover_lost_found_objs fix run"
-	do_node $ost1node "ll_recover_lost_found_objs -d $ost1mnt/lost+found" ||
-		 error "ll_recover_lost_found_objs failed"
-
-	# compare restored objects against saved ones
-	diff_files_xattrs $ost1node $ost1tmp/objects $ost1tmp/object_xattrs $objects
-	[ $? -eq 0 ] || error "Unable to diff objects"
-
 	do_node $ost1node "umount $ost1mnt" ||
 		error "Unable to umount ost1 as ldiskfs"
 
 	start_ost || error "Unable to start OST1"
 	mount_client $MOUNT || error "Unable to mount client"
+
+	# Wait for LFSCK to finish
+	for n in $(seq $MDSCOUNT); do
+		wait_update_facet mds${n} "$LCTL get_param -n \
+			mdd.$(facet_svc mds${n}).lfsck_namespace |
+			awk '/^status/ { print \\\$2 }'" "completed" $WTIME || {
+			error "LFSCK failed to recover objects"
+		}
+	done
 
 	# compare files
 	diff_files_xattrs $(hostname) $TMP/files $TMP/file_xattrs $files ||
