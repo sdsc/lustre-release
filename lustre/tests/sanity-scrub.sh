@@ -39,15 +39,34 @@ MOUNT_2=""
 formatall
 setupall
 
+scrub_exit()
+{
+	MDSSIZE=${SAVED_MDSSIZE}
+	OSTSIZE=${SAVED_OSTSIZE}
+	OSTCOUNT=${SAVED_OSTCOUNT}
+
+	formatall
+
+	exit 0
+}
+
+if ! check_versions; then
+	skip "It is NOT necessary to test scrub under interoperation mode"
+	scrub_exit
+fi
+
 [ $(facet_fstype $SINGLEMDS) != "ldiskfs" ] &&
 	skip "test OI scrub only for ldiskfs" && check_and_cleanup_lustre &&
-	exit 0
+	scrub_exit
+
 [ $(facet_fstype ost1) != "ldiskfs" ] &&
 	skip "test OI scrub only for ldiskfs" && check_and_cleanup_lustre &&
-	exit 0
+	scrub_exit
+
 [[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.2.90) ]] &&
 	skip "Need MDS version at least 2.2.90" && check_and_cleanup_lustre &&
-	exit 0
+	scrub_exit
+
 
 [[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.3.90) ]] &&
 	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 1a"

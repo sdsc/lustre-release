@@ -38,9 +38,25 @@ OSTSIZE=100000
 formatall
 setupall
 
+lfsck_exit()
+{
+	MDSSIZE=${SAVED_MDSSIZE}
+	OSTSIZE=${SAVED_OSTSIZE}
+	OSTCOUNT=${SAVED_OSTCOUNT}
+
+	formatall
+
+	exit 0
+}
+
+if ! check_versions; then
+	skip "It is NOT necessary to test lfsck under interoperation mode"
+	lfsck_exit
+fi
+
 [[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.3.60) ]] &&
 	skip "Need MDS version at least 2.3.60" && check_and_cleanup_lustre &&
-	exit 0
+	lfsck_exit
 
 [[ $(lustre_version_code $SINGLEMDS) -le $(version_code 2.4.90) ]] &&
 	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 2c"
