@@ -395,6 +395,9 @@ static int osd_object_init(const struct lu_env *env, struct lu_object *l,
 		RETURN(0);
 	}
 
+	if (conf && conf->loc_flags & LOC_F_NEW)
+		RETURN(0);
+
 	rc = osd_fid_lookup(env, osd, lu_object_fid(l), &oid);
 	if (rc == 0) {
 		LASSERT(obj->oo_db == NULL);
@@ -1035,6 +1038,11 @@ static int osd_declare_object_create(const struct lu_env *env,
 
 	LASSERT(dof);
 
+	down(&obj->oo_guard);
+
+	if (unlikely(lu_object_exists(&dt->do_lu)))
+		GOTO(out, rc = -EEXIST);
+
 	switch (dof->dof_type) {
 		case DFT_REGULAR:
 		case DFT_SYM:
@@ -1072,6 +1080,9 @@ static int osd_declare_object_create(const struct lu_env *env,
 	/* and we'll add it to some mapping */
 	zapid = osd_get_name_n_idx(env, osd, fid, buf);
 	dmu_tx_hold_bonus(oh->ot_tx, zapid);
+	/* XXX: with name specified it will be doing full lookup
+	 *	probably this is too expensive. instead we should
+	 *	be prefetching ZAP */
 	dmu_tx_hold_zap(oh->ot_tx, zapid, TRUE, buf);
 
 	/* we will also update inode accounting ZAPs */
@@ -1087,6 +1098,8 @@ static int osd_declare_object_create(const struct lu_env *env,
 
 	rc = osd_declare_quota(env, osd, attr->la_uid, attr->la_gid, 1, oh,
 			       false, NULL, false);
+out:
+	up(&obj->oo_guard);
 	RETURN(rc);
 }
 
@@ -1420,8 +1433,10 @@ static int osd_object_create(const struct lu_env *env, struct dt_object *dt,
 	 * in regular cases acquisition should be cheap */
 	down(&obj->oo_guard);
 
+	if (unlikely(dt_object_exists(dt)))
+		GOTO(out, rc = -EEXIST);
+
 	LASSERT(osd_invariant(obj));
-	LASSERT(!dt_object_exists(dt));
 	LASSERT(dof != NULL);
 
 	LASSERT(th != NULL);
@@ -1451,6 +1466,20 @@ static int osd_object_create(const struct lu_env *env, struct dt_object *dt,
 	zapid = osd_get_name_n_idx(env, osd, fid, buf);
 
 	rc = -zap_add(osd->od_os, zapid, buf, 8, 1, zde, oh->ot_tx);
+	if (unlikely(rc == -EEXIST)) {
+		/* another thread may have a reference to the
+		 * object, so it's better to initialize it
+		 * and let others to use the object as it
+		 * was successfully created */
+		rc = -dmu_object_free(osd->od_os, db->db_object, oh->ot_tx);
+		if (rc < 0)
+			GOTO(out, -EEXIST);
+		rc = osd_object_init(env, &dt->do_lu, NULL);
+		if (rc < 0)
+			set_bit(LU_OBJECT_HEARD_BANSHEE,
+				&dt->do_lu.lo_header->loh_flags);
+		GOTO(out, rc = -EEXIST);
+	}
 	if (rc)
 		GOTO(out, rc);
 
