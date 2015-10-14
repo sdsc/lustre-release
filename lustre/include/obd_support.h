@@ -614,6 +614,9 @@ extern char obd_jobid_var[];
 #define OBD_FAIL_OSP_CHECK_INVALID_REC		0x2100
 #define OBD_FAIL_OSP_CHECK_ENOMEM		0x2101
 
+#define OBD_FAIL_OFD_PRECREATE_EXIST		0x2201
+
+
 /* Assign references to moved code to reduce code changes */
 #define OBD_FAIL_PRECHECK(id)                   CFS_FAIL_PRECHECK(id)
 #define OBD_FAIL_CHECK(id)                      CFS_FAIL_CHECK(id)
