@@ -2881,7 +2881,7 @@ int osc_cleanup(struct obd_device *obd)
 	ENTRY;
 
 	spin_lock(&osc_shrink_lock);
-	list_del(&cli->cl_shrink_list);
+	list_del_init(&cli->cl_shrink_list);
 	spin_unlock(&osc_shrink_lock);
 
 	/* lru cleanup */

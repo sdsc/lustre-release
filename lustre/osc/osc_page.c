@@ -1001,7 +1001,6 @@ bool osc_over_unstable_soft_limit(struct client_obd *cli)
  * Return how many LRU pages in the cache of all OSC devices
  *
  * \retval	return # of cached LRU pages times reclaimation tendency
- * \retval	SHRINK_STOP if it cannot do any scanning in this time
  */
 unsigned long osc_cache_shrink_count(struct shrinker *sk,
 				     struct shrink_control *sc)
@@ -1014,7 +1013,7 @@ unsigned long osc_cache_shrink_count(struct shrinker *sk,
 		cached += atomic_long_read(&cli->cl_lru_in_list);
 	spin_unlock(&osc_shrink_lock);
 
-	return (cached  * sysctl_vfs_cache_pressure) / 100;
+	return (cached * sysctl_vfs_cache_pressure) / 100;
 }
 
 /**
@@ -1055,10 +1054,17 @@ unsigned long osc_cache_shrink_scan(struct shrinker *sk,
 		cli = list_entry(osc_shrink_list.next, struct client_obd,
 				 cl_shrink_list);
 
-		if (stop_anchor == NULL)
-			stop_anchor = cli;
-		else if (cli == stop_anchor)
+		if (cli == stop_anchor) {
 			break;
+		} else if (stop_anchor == NULL) {
+			stop_anchor = cli;
+		} else if (list_empty(&stop_anchor->cl_shrink_list)) {
+			/*
+			 * stop_anchor could be removed from the list,
+			 * set up a new anchor.
+			 */
+			stop_anchor = cli;
+		}
 
 		list_move_tail(&cli->cl_shrink_list, &osc_shrink_list);
 		spin_unlock(&osc_shrink_lock);
