@@ -2069,6 +2069,16 @@ test_27E() {
 }
 run_test 27E "check that default extended attribute size properly increases"
 
+test_27F() {
+	mkdir $DIR/$tdir
+	exhaust_all_precreations
+	#define OBD_FAIL_OFD_PRECREATE_EXIST		0x2201
+	do_facet ost1 lctl set_param fail_loc=0x2201
+	createmany -o $DIR/$tdir/$tfile- 3000
+	rm -rf $DIR/$tdir
+}
+run_test 27F "LOC_F_NEW against existing object"
+
 # createtest also checks that device nodes are created and
 # then visible correctly (#2091)
 test_28() { # bug 2091
