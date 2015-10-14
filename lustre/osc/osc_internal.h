@@ -238,6 +238,7 @@ int osc_object_invalidate(const struct lu_env *env, struct osc_object *osc);
 
 /** osc shrink list to link all osc client obd */
 extern struct list_head osc_shrink_list;
+extern unsigned int osc_shrink_number;
 /** spin lock to protect osc_shrink_list */
 extern spinlock_t osc_shrink_lock;
 extern unsigned long osc_cache_shrink_count(struct shrinker *sk,
