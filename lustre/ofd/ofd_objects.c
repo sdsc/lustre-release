@@ -117,6 +117,25 @@ struct ofd_object *ofd_object_find(const struct lu_env *env,
 	RETURN(fo);
 }
 
+struct ofd_object *ofd_object_new(const struct lu_env *env,
+				   struct ofd_device *ofd,
+				   const struct lu_fid *fid)
+{
+	struct lu_object_conf conf = { LOC_F_NEW };
+	struct ofd_object *fo;
+	struct lu_object  *o;
+
+	ENTRY;
+
+	o = lu_object_find(env, &ofd->ofd_dt_dev.dd_lu_dev, fid, &conf);
+	if (likely(!IS_ERR(o)))
+		fo = ofd_obj(o);
+	else
+		fo = ERR_CAST(o); /* return error */
+
+	RETURN(fo);
+}
+
 /**
  * Get FID of parent MDT object.
  *
@@ -260,7 +279,7 @@ int ofd_precreate_objects(const struct lu_env *env, struct ofd_device *ofd,
 			break;
 		}
 
-		fo = ofd_object_find(env, ofd, fid);
+		fo = ofd_object_new(env, ofd, fid);
 		if (IS_ERR(fo)) {
 			if (i == 0)
 				GOTO(out, rc = PTR_ERR(fo));
@@ -291,19 +310,15 @@ int ofd_precreate_objects(const struct lu_env *env, struct ofd_device *ofd,
 		fo = batch[i];
 		LASSERT(fo);
 
-		if (unlikely(ofd_object_exists(fo))) {
-			/* object may exist being re-created by write replay */
-			CDEBUG(D_INODE, "object "LPX64"/"LPX64" exists: "
-			       DFID"\n", ostid_seq(&oseq->os_oi), id,
-			       PFID(lu_object_fid(&fo->ofo_obj.do_lu)));
-			continue;
-		}
-
 		next = ofd_object_child(fo);
 		LASSERT(next != NULL);
 
 		rc = dt_declare_create(env, next, &info->fti_attr, NULL,
 				       &info->fti_dof, th);
+		if (unlikely(rc == -EEXIST)) {
+			/* object may exist being re-created by write replay */
+			continue;
+		}
 		if (rc < 0) {
 			if (i == 0)
 				GOTO(trans_stop, rc);
@@ -364,6 +379,8 @@ int ofd_precreate_objects(const struct lu_env *env, struct ofd_device *ofd,
 
 			rc = dt_create(env, next, &info->fti_attr, NULL,
 				       &info->fti_dof, th);
+			if (unlikely(rc == -EEXIST))
+				rc = 0;
 			if (rc < 0) {
 				if (i == 0)
 					GOTO(trans_stop, rc);
@@ -371,7 +388,6 @@ int ofd_precreate_objects(const struct lu_env *env, struct ofd_device *ofd,
 				rc = 0;
 				break;
 			}
-			LASSERT(ofd_object_exists(fo));
 		}
 		ofd_seq_last_oid_set(oseq, id + i);
 	}

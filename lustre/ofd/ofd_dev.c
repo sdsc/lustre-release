@@ -1750,6 +1750,16 @@ static int ofd_create_hdl(struct tgt_session_info *tsi)
 				break;
 			}
 
+			if (OBD_FAIL_CHECK(OBD_FAIL_OFD_PRECREATE_EXIST)) {
+				/* drop all the cached objects, then
+				 * start precreation from already created
+				 * object to hit EEXIST */
+				lu_site_purge(tsi->tsi_env,
+					      ofd->ofd_dt_dev.dd_lu_dev.ld_site,
+					      ~0);
+				next_id--;
+				count++;
+			}
 			rc = ofd_precreate_objects(tsi->tsi_env, ofd, next_id,
 						   oseq, count, sync_trans);
 			if (rc > 0) {

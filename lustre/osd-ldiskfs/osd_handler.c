@@ -2840,6 +2840,9 @@ static int osd_declare_object_create(const struct lu_env *env,
 
 	LASSERT(handle != NULL);
 
+	if (unlikely(dt_object_exists(dt)))
+		RETURN(-EEXIST);
+
 	oh = container_of0(handle, struct osd_thandle, ot_super);
 	LASSERT(oh->ot_handle == NULL);
 
@@ -2881,7 +2884,7 @@ static int osd_object_create(const struct lu_env *env, struct dt_object *dt,
 	int result;
 	ENTRY;
 
-	if (dt_object_exists(dt))
+	if (unlikely(dt_object_exists(dt)))
 		return -EEXIST;
 
 	LINVRNT(osd_invariant(obj));
@@ -3336,8 +3339,27 @@ static int osd_object_ea_create(const struct lu_env *env, struct dt_object *dt,
 			obj->oo_dt.do_body_ops = &osd_body_ops;
 	}
 
-	if (result == 0)
+	if (result == 0) {
 		result = __osd_oi_insert(env, obj, fid, th);
+		if (unlikely(result == -EEXIST)) {
+			/* destroy the inode */
+			spin_lock(&obj->oo_guard);
+			clear_nlink(obj->oo_inode);
+			spin_unlock(&obj->oo_guard);
+			ll_dirty_inode(obj->oo_inode, I_DIRTY_DATASYNC);
+			iput(obj->oo_inode);
+			obj->oo_inode = NULL;
+
+			/* initialize the object with actual OI */
+			result = osd_object_init(env, &dt->do_lu, NULL);
+			if (result < 0) {
+				CERROR("can't initialize object\n");
+				set_bit(LU_OBJECT_HEARD_BANSHEE,
+					&dt->do_lu.lo_header->loh_flags);
+			}
+			result = -EEXIST;
+		}
+	}
 
 	/* a small optimization - dt_insert() isn't usually applied
 	 * to OST objects, so we don't need to cache OI mapping for
