@@ -291,9 +291,8 @@ out_trans:
 	RETURN(rc);
 }
 
-static int llog_read_header(const struct lu_env *env,
-			    struct llog_handle *handle,
-			    struct obd_uuid *uuid)
+int llog_read_header(const struct lu_env *env, struct llog_handle *handle,
+		     struct obd_uuid *uuid)
 {
 	struct llog_operations *lop;
 	int rc;
@@ -329,6 +328,7 @@ static int llog_read_header(const struct lu_env *env,
 	}
 	return rc;
 }
+EXPORT_SYMBOL(llog_read_header);
 
 int llog_init_handle(const struct lu_env *env, struct llog_handle *handle,
 		     int flags, struct obd_uuid *uuid)

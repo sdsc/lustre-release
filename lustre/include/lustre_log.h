@@ -104,6 +104,8 @@ int llog_is_empty(const struct lu_env *env, struct llog_ctxt *ctxt,
 int llog_backup(const struct lu_env *env, struct obd_device *obd,
 		struct llog_ctxt *ctxt, struct llog_ctxt *bak_ctxt,
 		char *name, char *backup);
+int llog_read_header(const struct lu_env *env, struct llog_handle *handle,
+		     struct obd_uuid *uuid);
 
 /* llog_process flags */
 #define LLOG_FLAG_NODEAMON 0x0001
