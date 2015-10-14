@@ -2813,6 +2813,7 @@ int osc_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 
 	spin_lock(&osc_shrink_lock);
 	list_add_tail(&cli->cl_shrink_list, &osc_shrink_list);
+	osc_shrink_number++;
 	spin_unlock(&osc_shrink_lock);
 
 	RETURN(0);
@@ -2872,7 +2873,8 @@ int osc_cleanup(struct obd_device *obd)
 	ENTRY;
 
 	spin_lock(&osc_shrink_lock);
-	list_del(&cli->cl_shrink_list);
+	list_del_init(&cli->cl_shrink_list);
+	osc_shrink_number--;
 	spin_unlock(&osc_shrink_lock);
 
 	/* lru cleanup */
@@ -2931,6 +2933,7 @@ static struct obd_ops osc_obd_ops = {
 
 static struct shrinker *osc_cache_shrinker;
 struct list_head osc_shrink_list = LIST_HEAD_INIT(osc_shrink_list);
+int osc_shrink_number;
 DEFINE_SPINLOCK(osc_shrink_lock);
 
 #ifndef HAVE_SHRINKER_COUNT
