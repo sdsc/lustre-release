@@ -128,6 +128,7 @@ struct osp_updates {
 	/* wait for next updates */
 	__u64			ou_rpc_version;
 	__u64			ou_version;
+	unsigned int		ou_invalid_header:1;
 };
 
 struct osp_device {
