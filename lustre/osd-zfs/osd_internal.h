@@ -480,6 +480,8 @@ uint64_t osd_zap_cursor_serialize(zap_cursor_t *zc);
 /* osd_xattr.c */
 int __osd_xattr_load(struct osd_device *osd, uint64_t dnode,
 		     nvlist_t **sa_xattr);
+int __osd_xattr_get(const struct lu_env *env, struct osd_object *obj,
+		    struct lu_buf *buf, const char *name, int *sizep);
 int __osd_xattr_get_large(const struct lu_env *env, struct osd_device *osd,
 			  uint64_t xattr, struct lu_buf *buf,
 			  const char *name, int *sizep);
