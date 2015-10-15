@@ -1411,39 +1411,6 @@ run_test 61 "Verify to not reuse orphan objects - bug 17025"
 #}
 #run_test 62 "Verify connection flags race - bug LU-1716"
 
-test_66()
-{
-	[[ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.7.51) ]] ||
-		{ skip "Need MDS version at least 2.7.51"; return 0; }
-
-	local list=$(comma_list $(osts_nodes))
-
-	# modify dir so that next revalidate would not obtain UPDATE lock
-	touch $DIR
-
-	# drop 1 reply with UPDATE lock
-	mcreate $DIR/$tfile || error "mcreate failed: $?"
-	drop_ldlm_reply_once "stat $DIR/$tfile" &
-	sleep 2
-
-	# make the re-sent lock to sleep
-#define OBD_FAIL_MDS_RESEND              0x136
-	do_nodes $list $LCTL set_param fail_loc=0x80000136
-
-	#initiate the re-connect & re-send
-	local mdccli=$($LCTL dl | awk '/-mdc-/ {print $4;}')
-	local conn_uuid=$($LCTL get_param -n mdc.${mdccli}.mds_conn_uuid)
-	$LCTL set_param "mdc.${mdccli}.import=connection=${conn_uuid}"
-	sleep 2
-
-	#initiate the client eviction while enqueue re-send is in progress
-	mds_evict_client
-
-	client_reconnect
-	wait
-}
-run_test 66 "lock enqueue re-send vs client eviction"
-
 test_65() {
 	mount_client $DIR2
 
@@ -1476,6 +1443,68 @@ test_65() {
 	umount_client $DIR2
 }
 run_test 65 "lock enqueue for destroyed export"
+
+test_66_drop_reply()
+{
+	# modify dir so that next revalidate would not obtain UPDATE lock
+	touch $DIR
+
+	# drop 1 reply with UPDATE lock
+	mcreate $DIR/$tfile || error "mcreate failed: $?"
+	drop_ldlm_reply_once "stat $DIR/$tfile" &
+	sleep 2
+}
+
+test_66_reconnect_and_evict()
+{
+	local mdccli
+	local conn_uuid
+
+	#initiate the re-connect & re-send
+	mdccli=$($LCTL dl | awk '/-mdc-/ {print $4;}')
+	conn_uuid=$($LCTL get_param -n mdc.${mdccli}.mds_conn_uuid)
+	$LCTL set_param "mdc.${mdccli}.import=connection=${conn_uuid}"
+	sleep 2
+
+	#initiate the client eviction while enqueue re-send is in progress
+	mds_evict_client
+
+	client_reconnect
+
+	echo sleeping for $((2*TIMEOUT))
+	sleep $((2 * TIMEOUT))
+}
+
+test_66a()
+{
+	[[ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.7.51) ]] ||
+		{ skip "Need MDS version at least 2.7.51"; return 0; }
+
+	local list=$(comma_list $(mdts_nodes))
+
+	test_66_drop_reply
+
+	# make the re-sent lock to sleep
+#define OBD_FAIL_MDS_RESEND              0x136
+	do_nodes $list $LCTL set_param fail_loc=0x80000136
+
+	test_66_reconnect_and_evict
+}
+run_test 66a "lock enqueue re-send vs client eviction"
+
+test_66b()
+{
+	local list=$(comma_list $(mdts_nodes))
+
+	test_66_drop_reply
+
+	# make the re-sent lock to sleep
+#define OBD_FAIL_MDS_RESEND2             0x15d
+	do_nodes $list $LCTL set_param fail_loc=0x8000015d
+
+	test_66_reconnect_and_evict
+}
+run_test 66b "lock enqueue re-send vs client eviction"
 
 check_cli_ir_state()
 {
