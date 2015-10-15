@@ -406,10 +406,18 @@ int parse_opts(int argc, char *const argv[], struct mkfs_opts *mop,
                 case 'h':
                         usage(stdout);
                         return 1;
-                case 'i':
+                case 'i': {
+			char *endptr = NULL;
 			index_option = true;
 			/* LU-2374: check whether it is OST/MDT later */
-			mop->mo_ldd.ldd_svindex = atol(optarg);
+			mop->mo_ldd.ldd_svindex = strtoul(optarg, &endptr, 0);
+			if (*endptr != '\0') {
+				fprintf(stderr, "%s: wrong index %s. "
+					"Target index must be decimal or " \
+					"hexadecimal.\n",
+					progname, optarg);
+				return 1;
+			}
 			if (mop->mo_ldd.ldd_svindex >= INDEX_UNASSIGNED) {
 				fprintf(stderr, "%s: wrong index %u. "
 					"Target index must be less than %u.\n",
@@ -419,6 +427,7 @@ int parse_opts(int argc, char *const argv[], struct mkfs_opts *mop,
 			}
 			mop->mo_ldd.ldd_flags &= ~LDD_F_NEED_INDEX;
                         break;
+		}
                 case 'k':
                         strscpy(mop->mo_mkfsopts, optarg,
                                 sizeof(mop->mo_mkfsopts));
