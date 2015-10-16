@@ -581,10 +581,9 @@ static int mdt_finish_open(struct mdt_thread_info *info,
         } else if (flags & MDS_OPEN_DIRECTORY)
                 RETURN(-ENOTDIR);
 
-        if (OBD_FAIL_CHECK_RESET(OBD_FAIL_MDS_OPEN_CREATE,
-                                 OBD_FAIL_LDLM_REPLY | OBD_FAIL_ONCE)) {
-                RETURN(-EAGAIN);
-        }
+	if (OBD_FAIL_CHECK_RESET(OBD_FAIL_MDS_OPEN_CREATE,
+				 OBD_FAIL_MDS_LDLM_REPLY_NET | OBD_FAIL_ONCE))
+		RETURN(-EAGAIN);
 
 	mfd = NULL;
 	if (lustre_msg_get_flags(req->rq_reqmsg) & MSG_RESENT) {
