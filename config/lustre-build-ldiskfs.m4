@@ -28,8 +28,14 @@ AS_IF([test x$RHEL_KERNEL = xyes], [
 		esac
 	])],[LDISKFS_SERIES="3.12-sles12.series"],[LDISKFS_SERIES="3.12-sles12.series"])
 ])
-AS_IF([test -z "$LDISKFS_SERIES"],
-	[AC_MSG_WARN([Unknown kernel version $LDISKFS_VERSIONRELEASE])])
+AS_IF([test -z "$LDISKFS_SERIES"], [
+        TMPVER=$(echo $LINUXRELEASE | sed 's/-.*$//')
+        AS_VERSION_COMPARE("$TMPVER","3.18.20",
+		[AC_MSG_WARN([Unknown kernel version $LDISKFS_VERSIONRELEASE])],
+	        [LDISKFS_SERIES="3.18-lts.series"],
+		[AC_MSG_WARN([Unknown kernel version $LDISKFS_VERSIONRELEASE])
+	])
+])
 AC_MSG_RESULT([$LDISKFS_SERIES])
 AC_SUBST(LDISKFS_SERIES)
 ]) # LDISKFS_LINUX_SERIES
