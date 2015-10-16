@@ -1261,8 +1261,12 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb);
 #define OBD_CONNECT_MULTIMODRPCS 0x200000000000000ULL /* support multiple modify
 							 RPCs in parallel */
 #define OBD_CONNECT_DIR_STRIPE	 0x400000000000000ULL /* striped DNE dir */
+#define OBD_CONNECT_SUBTREE	 0x800000000000000ULL /* fileset mount */
+#define OBD_CONNECT_LOCK_AHEAD	 0x1000000000000000ULL /* lock ahead */
 /** bulk matchbits is sent within ptlrpc_body */
 #define OBD_CONNECT_BULK_MBITS	 0x2000000000000000ULL
+#define OBD_CONNECT_OBDOPACK	 0x4000000000000000ULL /* compact OUT obdo */
+#define OBD_CONNECT_FLAGS2	 0x8000000000000000ULL /* second flags word */
 /* XXX README XXX:
  * Please DO NOT add flag values here before first ensuring that this same
  * flag value is not in use on some other branch.  Please clear any such
@@ -1367,7 +1371,7 @@ struct obd_connect_data {
 	__u16 ocd_maxmodrpcs;    /* Maximum modify RPCs in parallel */
 	__u16 padding0;          /* added 2.1.0. also fix lustre_swab_connect */
 	__u32 padding1;          /* added 2.1.0. also fix lustre_swab_connect */
-        __u64 padding2;          /* added 2.1.0. also fix lustre_swab_connect */
+	__u64 ocd_connect_flags2;
         __u64 padding3;          /* added 2.1.0. also fix lustre_swab_connect */
         __u64 padding4;          /* added 2.1.0. also fix lustre_swab_connect */
         __u64 padding5;          /* added 2.1.0. also fix lustre_swab_connect */
