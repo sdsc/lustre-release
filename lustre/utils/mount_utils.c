@@ -588,7 +588,6 @@ int osd_write_ldd(struct mkfs_opts *mop)
 
 	if (backfs_mount_type_okay(ldd->ldd_mount_type))
 		ret = backfs_ops[ldd->ldd_mount_type]->write_ldd(mop);
-
 	else
 		ret = EINVAL;
 
@@ -602,7 +601,6 @@ int osd_read_ldd(char *dev, struct lustre_disk_data *ldd)
 
 	if (backfs_mount_type_okay(ldd->ldd_mount_type))
 		ret = backfs_ops[ldd->ldd_mount_type]->read_ldd(dev, ldd);
-
 	else
 		ret = EINVAL;
 
@@ -636,7 +634,6 @@ int osd_make_lustre(struct mkfs_opts *mop)
 
 	if (backfs_mount_type_okay(ldd->ldd_mount_type))
 		ret = backfs_ops[ldd->ldd_mount_type]->make_lustre(mop);
-
 	else
 		ret = EINVAL;
 
@@ -654,7 +651,6 @@ int osd_prepare_lustre(struct mkfs_opts *mop,
 		ret = backfs_ops[ldd->ldd_mount_type]->prepare_lustre(mop,
 			default_mountopts, default_len,
 			always_mountopts, always_len);
-
 	else
 		ret = EINVAL;
 
@@ -668,7 +664,6 @@ int osd_tune_lustre(char *dev, struct mount_opts *mop)
 
 	if (backfs_mount_type_okay(ldd->ldd_mount_type))
 		ret = backfs_ops[ldd->ldd_mount_type]->tune_lustre(dev, mop);
-
 	else
 		ret = EINVAL;
 
@@ -682,7 +677,6 @@ int osd_label_lustre(struct mount_opts *mop)
 
 	if (backfs_mount_type_okay(ldd->ldd_mount_type))
 		ret = backfs_ops[ldd->ldd_mount_type]->label_lustre(mop);
-
 	else
 		ret = EINVAL;
 
@@ -697,7 +691,6 @@ int osd_enable_quota(struct mkfs_opts *mop)
 
 	if (backfs_mount_type_okay(ldd->ldd_mount_type))
 		ret = backfs_ops[ldd->ldd_mount_type]->enable_quota(mop);
-
 	else
 		ret = EINVAL;
 
