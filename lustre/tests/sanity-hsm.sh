@@ -285,8 +285,7 @@ copytool_cleanup() {
 
 	while (( SECONDS < end_wait )); do
 		sleep 2
-		do_nodesv $agents "pgrep -x $HSMTOOL_BASE"
-		if [ $? -ne 0 ]; then
+		if ! do_nodesv $agents "pgrep -x $HSMTOOL_BASE"; then
 			echo "Copytool is stopped on $agents"
 			break
 		fi
