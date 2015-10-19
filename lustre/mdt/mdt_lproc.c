@@ -418,47 +418,6 @@ static int mdt_site_stats_seq_show(struct seq_file *m, void *data)
 }
 LPROC_SEQ_FOPS_RO(mdt_site_stats);
 
-#define BUFLEN (UUID_MAX + 4)
-
-static ssize_t
-lprocfs_mds_evict_client_seq_write(struct file *file,
-				   const char __user *buffer,
-				   size_t count, loff_t *off)
-{
-	char *kbuf;
-	char *tmpbuf;
-
-        OBD_ALLOC(kbuf, BUFLEN);
-        if (kbuf == NULL)
-                return -ENOMEM;
-
-        /*
-         * OBD_ALLOC() will zero kbuf, but we only copy BUFLEN - 1
-         * bytes into kbuf, to ensure that the string is NUL-terminated.
-         * UUID_MAX should include a trailing NUL already.
-         */
-	if (copy_from_user(kbuf, buffer,
-			   min_t(unsigned long, BUFLEN - 1, count))) {
-                count = -EFAULT;
-                goto out;
-        }
-        tmpbuf = cfs_firststr(kbuf, min_t(unsigned long, BUFLEN - 1, count));
-
-        if (strncmp(tmpbuf, "nid:", 4) != 0) {
-		count = lprocfs_evict_client_seq_write(file, buffer, count,
-						       off);
-                goto out;
-        }
-
-        CERROR("NOT implement evict client by nid %s\n", tmpbuf);
-
-out:
-        OBD_FREE(kbuf, BUFLEN);
-        return count;
-}
-
-#undef BUFLEN
-
 static int mdt_sec_level_seq_show(struct seq_file *m, void *data)
 {
 	struct obd_device *obd = m->private;
@@ -641,7 +600,7 @@ LPROC_SEQ_FOPS_RO_TYPE(mdt, recovery_status);
 LPROC_SEQ_FOPS_RO_TYPE(mdt, num_exports);
 LPROC_SEQ_FOPS_RO_TYPE(mdt, target_instance);
 LPROC_SEQ_FOPS_RO_TYPE(mdt, hash);
-LPROC_SEQ_FOPS_WO_TYPE(mdt, mds_evict_client);
+LPROC_SEQ_FOPS_WO_TYPE(mdt, evict_client);
 LPROC_SEQ_FOPS_RW_TYPE(mdt, job_interval);
 LPROC_SEQ_FOPS_RW_TYPE(mdt, ir_factor);
 LPROC_SEQ_FOPS_RW_TYPE(mdt, nid_stats_clear);
@@ -667,7 +626,7 @@ static struct lprocfs_vars lprocfs_mdt_obd_vars[] = {
 	{ .name =	"site_stats",
 	  .fops =	&mdt_site_stats_fops			},
 	{ .name =	"evict_client",
-	  .fops =	&mdt_mds_evict_client_fops		},
+	  .fops =	&mdt_evict_client_fops		},
 	{ .name =	"hash_stats",
 	  .fops =	&mdt_hash_fops				},
 	{ .name =	"sec_level",
