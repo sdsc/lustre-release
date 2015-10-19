@@ -41,7 +41,7 @@ pios_CHUNKSIZE=${pios_CHUNKSIZE:-1M}
 pios_REGIONSIZE=${pios_REGIONSIZE:-8M}
 pios_OFFSET=${pios_OFFSET:-16M}
 
-[ "$SLOW" = "no" ] && EXCEPT_SLOW="iozone"
+[ "$SLOW" = "no" ] && EXCEPT_SLOW=""
 
 build_test_filter
 check_and_setup_lustre
