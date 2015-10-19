@@ -37,11 +37,12 @@
 #ifndef __LIBCFS_LIBCFS_H__
 #define __LIBCFS_LIBCFS_H__
 
-#include <libcfs/types.h>
 #include <libcfs/list.h>
 
 #ifdef __KERNEL__
 # include <libcfs/linux/libcfs.h>
+# include <libcfs/types.h>
+# include "curproc.h"
 #else /* !__KERNEL__ */
 # include <assert.h>
 # include <ctype.h>
@@ -152,6 +153,7 @@ void lc_watchdog_delete(struct lc_watchdog *lcw);
 #define LNET_ACCEPTOR_MIN_RESERVED_PORT    512
 #define LNET_ACCEPTOR_MAX_RESERVED_PORT    1023
 
+#ifdef __KERNEL__
 /*
  * libcfs pseudo device operations
  *
@@ -177,6 +179,7 @@ struct cfs_psdev_ops {
 	int (*p_write)(struct cfs_psdev_file *, char *, unsigned long);
 	int (*p_ioctl)(struct cfs_psdev_file *, unsigned long, void __user *);
 };
+#endif /* __KERNEL__ */
 
 /*
  * Drop into debugger, if possible. Implementation is provided by platform.

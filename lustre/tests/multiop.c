@@ -649,7 +649,7 @@ int main(int argc, char **argv)
 					" %d\n", rc);
 				exit(-rc);
 			}
-			printf("dataversion is "LPU64"\n", dv);
+			printf("dataversion is %llu\n", dv);
 			break;
                 case 'y':
                         if (fsync(fd) == -1) {

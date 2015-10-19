@@ -822,7 +822,7 @@ retry_open:
 			errmsg = strerror(errno);
 
 		llapi_err_noerrno(LLAPI_MSG_ERROR,
-				  "error on ioctl "LPX64" for '%s' (%d): %s",
+				  "error on ioctl %#llx for '%s' (%d): %s",
 				  (__u64)LL_IOC_LOV_SETSTRIPE, name, fd,
 				  errmsg);
 
@@ -1038,7 +1038,7 @@ int llapi_direntry_remove(char *dname)
 	if (ioctl(fd, LL_IOC_REMOVE_ENTRY, filename)) {
 		char *errmsg = strerror(errno);
 		llapi_err_noerrno(LLAPI_MSG_ERROR,
-				  "error on ioctl "LPX64" for '%s' (%d): %s",
+				  "error on ioctl %#llx for '%s' (%d): %s",
 				  (__u64)LL_IOC_LMV_SETSTRIPE, filename,
 				  fd, errmsg);
 	}
@@ -2405,9 +2405,9 @@ static void lov_dump_user_lmm_header(struct lov_user_md *lum, char *path,
 	if ((verbose & VERBOSE_DETAIL) && !is_dir) {
 		llapi_printf(LLAPI_MSG_NORMAL, "lmm_magic:          0x%08X\n",
 			     lum->lmm_magic);
-		llapi_printf(LLAPI_MSG_NORMAL, "lmm_seq:            "LPX64"\n",
+		llapi_printf(LLAPI_MSG_NORMAL, "lmm_seq:            %#llx\n",
 			     lmm_oi_seq(&lum->lmm_oi));
-		llapi_printf(LLAPI_MSG_NORMAL, "lmm_object_id:      "LPX64"\n",
+		llapi_printf(LLAPI_MSG_NORMAL, "lmm_object_id:      %#llx\n",
 			     lmm_oi_id(&lum->lmm_oi));
 	}
 

@@ -50,7 +50,6 @@
 #include <sys/stat.h>
 #include <linux/types.h>
 
-#include <libcfs/types.h>
 #include <libcfs/byteorder.h>
 
 #define READ  1
@@ -79,24 +78,24 @@ int block_debug_check(char *who, void *addr, int size, __u64 off, __u64 id)
         ne_off = le64_to_cpu(off);
         id = le64_to_cpu(id);
         if (memcmp(addr, (char *)&ne_off, LPDS)) {
-		fprintf(stderr, "%s: for offset "LPU64" off: "LPX64" != "LPX64"\n",
+		fprintf(stderr, "%s: for offset %llu off: %#llx != %#llx\n",
                        who, off, *(__u64 *)addr, ne_off);
                 err = -EINVAL;
         }
         if (memcmp(addr + LPDS, (char *)&id, LPDS)) {
-		fprintf(stderr, "%s: for offset "LPU64" id: "LPX64" != "LPX64"\n",
+		fprintf(stderr, "%s: for offset %llu id: %#llx != %#llx\n",
                        who, off, *(__u64 *)(addr + LPDS), id);
                 err = -EINVAL;
         }
 
         addr += size - LPDS - LPDS;
         if (memcmp(addr, (char *)&ne_off, LPDS)) {
-		fprintf(stderr, "%s: for offset "LPU64" end off: "LPX64" != "LPX64"\n",
+		fprintf(stderr, "%s: for offset %llu end off: %#llx != %#llx\n",
                        who, off, *(__u64 *)addr, ne_off);
                 err = -EINVAL;
         }
         if (memcmp(addr + LPDS, (char *)&id, LPDS)) {
-		fprintf(stderr, "%s: for offset "LPU64" end id: "LPX64" != "LPX64"\n",
+		fprintf(stderr, "%s: for offset %llu end id: %#llx != %#llx\n",
                        who, off, *(__u64 *)(addr + LPDS), id);
                 err = -EINVAL;
         }
@@ -188,7 +187,7 @@ int main(int argc, char **argv)
                 objid = 3;
         }
 
-        printf("%s: %s on %s(objid "LPX64") for %llux%ld pages \n",
+	printf("%s: %s on %s(objid %#llx) for %llux%ld pages \n",
                argv[0],
 #ifdef O_DIRECT
                flags & O_DIRECT ? "directio" : "i/o",

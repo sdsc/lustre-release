@@ -41,6 +41,7 @@
  * Author: Robert Read <rread@clusterfs.com>
  */
 
+#include <stdbool.h>
 #include <stdlib.h>
 #include <sys/ioctl.h>
 #include <sys/stat.h>
