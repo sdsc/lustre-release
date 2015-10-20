@@ -3706,7 +3706,7 @@ test_29c() {
 	local foofid=$($LFS path2fid $DIR/$tdir/d0/foo)
 	$LFS fid2path $DIR $foofid
 	local count2=$($LFS fid2path $DIR $foofid | wc -l)
-	[ $count2 -eq 2 ] || "(6) Fail to inject error: $count2"
+	[ $count2 -eq 2 ] || error "(6) Fail to inject error: $count2"
 
 	echo "Trigger namespace LFSCK to repair the nlink count"
 	$START_NAMESPACE -r -A ||
@@ -3805,7 +3805,7 @@ test_30() {
 
 	mount_client $MOUNT || error "(17) Fail to start client!"
 
-	stat $DIR/$tdir/foo/f0 || "(18) f0 is not recovered"
+	stat $DIR/$tdir/foo/f0 || error "(18) f0 is not recovered"
 
 	ls -ail $MOUNT/.lustre/lost+found/
 
