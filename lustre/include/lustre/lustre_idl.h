@@ -3954,7 +3954,9 @@ struct object_update {
 	__u16		ou_params_count;	/* update parameters count */
 	__u32		ou_master_index;	/* master MDT/OST index */
 	__u32		ou_flags;		/* enum update_flag */
-	__u32		ou_padding1;		/* padding 1 */
+	__u16		ou_result_size;		/* how many recs can return */
+						/* rec is 8byte */
+	__u16		ou_padding1;		/* padding 1 */
 	__u64		ou_batchid;		/* op transno on master */
 	struct lu_fid	ou_fid;			/* object to be updated */
 	struct object_update_param ou_params[0]; /* update params */
@@ -3978,7 +3980,7 @@ struct out_update_header {
 	__u32		ouh_magic;
 	__u32		ouh_count;
 	__u32		ouh_inline_length;
-	__u32		ouh_padding;
+	__u32		ouh_reply_size;
 	__u32		ouh_inline_data[0];
 };
 
