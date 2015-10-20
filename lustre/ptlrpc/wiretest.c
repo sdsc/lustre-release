@@ -4663,10 +4663,10 @@ void lustre_assert_wire_constants(void)
 		 (long long)(int)offsetof(struct out_update_header, ouh_inline_length));
 	LASSERTF((int)sizeof(((struct out_update_header *)0)->ouh_inline_length) == 4, "found %lld\n",
 		 (long long)(int)sizeof(((struct out_update_header *)0)->ouh_inline_length));
-	LASSERTF((int)offsetof(struct out_update_header, ouh_padding) == 12, "found %lld\n",
-		 (long long)(int)offsetof(struct out_update_header, ouh_padding));
-	LASSERTF((int)sizeof(((struct out_update_header *)0)->ouh_padding) == 4, "found %lld\n",
-		 (long long)(int)sizeof(((struct out_update_header *)0)->ouh_padding));
+	LASSERTF((int)offsetof(struct out_update_header, ouh_reply_buf) == 12, "found %lld\n",
+		 (long long)(int)offsetof(struct out_update_header, ouh_reply_buf));
+	LASSERTF((int)sizeof(((struct out_update_header *)0)->ouh_reply_buf) == 4, "found %lld\n",
+		 (long long)(int)sizeof(((struct out_update_header *)0)->ouh_reply_buf));
 	LASSERTF((int)offsetof(struct out_update_header, ouh_inline_data) == 16, "found %lld\n",
 		 (long long)(int)offsetof(struct out_update_header, ouh_inline_data));
 	LASSERTF((int)sizeof(((struct out_update_header *)0)->ouh_inline_data) == 0, "found %lld\n",

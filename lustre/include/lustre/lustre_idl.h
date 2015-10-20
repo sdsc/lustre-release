@@ -3978,7 +3978,7 @@ struct out_update_header {
 	__u32		ouh_magic;
 	__u32		ouh_count;
 	__u32		ouh_inline_length;
-	__u32		ouh_padding;
+	__u32		ouh_reply_buf;
 	__u32		ouh_inline_data[0];
 };
 

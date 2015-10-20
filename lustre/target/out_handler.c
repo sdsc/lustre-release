@@ -933,7 +933,7 @@ int out_handle(struct tgt_session_info *tsi)
 		RETURN(err_serious(-EPROTO));
 
 	req_capsule_set_size(pill, &RMF_OUT_UPDATE_REPLY, RCL_SERVER,
-			     OUT_UPDATE_REPLY_SIZE);
+			     ouh->ouh_reply_buf);
 	rc = req_capsule_server_pack(pill);
 	if (rc != 0) {
 		CERROR("%s: Can't pack response: rc = %d\n",
@@ -1013,6 +1013,18 @@ int out_handle(struct tgt_session_info *tsi)
   		update_count = our->ourq_count;
 		reply->ourp_count += update_count;
  	}
+	req_capsule_set_size(pill, &RMF_OUT_UPDATE_REPLY, RCL_SERVER,
+			     OUT_UPDATE_REPLY_SIZE);
+	ouh_size = req_capsule_get_size(pill, &RMF_OUT_UPDATE_REPLY,
+					RCL_SERVER);
+	i = sizeof(*reply) +
+		(sizeof(reply->ourp_lens[0]) +
+		sizeof(struct object_update_result)) * reply->ourp_count;
+	if (unlikely(i > ouh_size)) {
+		CERROR("%s: too small reply buf %u for %u, need %u at least\n",
+		       tgt_name(tsi->tsi_tgt), ouh_size, reply->ourp_count, i);
+		GOTO(out_free, rc = -EPROTO);
+	}
  
 	/* Walk through updates in the request to execute them */
 	for (i = 0; i < update_buf_count; i++) {
