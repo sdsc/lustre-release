@@ -219,6 +219,10 @@ out_unlock:
 	       tgt_name(tsi->tsi_tgt), tti->tti_u.update.tti_update_reply,
 	       0, rc);
 
+	/* XXX: replace with error handling */
+	LASSERT((int)tti->tti_u.update.tti_update->ou_result_size << 3 >=
+		sizeof(*obdo));
+
 	object_update_result_insert(tti->tti_u.update.tti_update_reply, obdo,
 				    sizeof(*obdo), idx, rc);
 
@@ -261,9 +265,7 @@ static int out_xattr_get(struct tgt_session_info *tsi)
 	}
 
 	lbuf->lb_buf = update_result->our_data;
-	lbuf->lb_len = OUT_UPDATE_REPLY_SIZE -
-		       cfs_size_round((unsigned long)update_result->our_data -
-				      (unsigned long)update_result);
+	lbuf->lb_len = (int)tti->tti_u.update.tti_update->ou_result_size << 3;
 	dt_read_lock(env, obj, MOR_TGT_CHILD);
 	rc = dt_xattr_get(env, obj, lbuf, name);
 	dt_read_unlock(env, obj);
@@ -328,6 +330,10 @@ out_unlock:
 	CDEBUG(D_INFO, "%s: insert lookup reply %p index %d: rc = %d\n",
 	       tgt_name(tsi->tsi_tgt), tti->tti_u.update.tti_update_reply,
 	       0, rc);
+
+	/* XXX: replace with error handling */
+	LASSERT((int)tti->tti_u.update.tti_update->ou_result_size << 3 >=
+		sizeof(tti->tti_fid1));
 
 	object_update_result_insert(tti->tti_u.update.tti_update_reply,
 			    &tti->tti_fid1, sizeof(tti->tti_fid1),
@@ -932,8 +938,9 @@ int out_handle(struct tgt_session_info *tsi)
 	if (update_buf_count == 0)
 		RETURN(err_serious(-EPROTO));
 
+	/* XXX: go through the updates, calculate required reply size, check */
 	req_capsule_set_size(pill, &RMF_OUT_UPDATE_REPLY, RCL_SERVER,
-			     OUT_UPDATE_REPLY_SIZE);
+			     ouh->ouh_reply_size);
 	rc = req_capsule_server_pack(pill);
 	if (rc != 0) {
 		CERROR("%s: Can't pack response: rc = %d\n",
@@ -1013,6 +1020,16 @@ int out_handle(struct tgt_session_info *tsi)
   		update_count = our->ourq_count;
 		reply->ourp_count += update_count;
  	}
+	ouh_size = req_capsule_get_size(pill, &RMF_OUT_UPDATE_REPLY,
+					RCL_SERVER);
+	i = sizeof(*reply) +
+		(sizeof(reply->ourp_lens[0]) +
+		sizeof(struct object_update_result)) * reply->ourp_count;
+	if (unlikely(i > ouh_size)) {
+		CERROR("%s: too small reply buf %u for %u, need %u at least\n",
+		       tgt_name(tsi->tsi_tgt), ouh_size, reply->ourp_count, i);
+		GOTO(out_free, rc = -EPROTO);
+	}
  
 	/* Walk through updates in the request to execute them */
 	for (i = 0; i < update_buf_count; i++) {
