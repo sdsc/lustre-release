@@ -4582,9 +4582,13 @@ void lustre_assert_wire_constants(void)
 		 (long long)(int)offsetof(struct object_update, ou_flags));
 	LASSERTF((int)sizeof(((struct object_update *)0)->ou_flags) == 4, "found %lld\n",
 		 (long long)(int)sizeof(((struct object_update *)0)->ou_flags));
-	LASSERTF((int)offsetof(struct object_update, ou_padding1) == 12, "found %lld\n",
+	LASSERTF((int)offsetof(struct object_update, ou_result_size) == 12, "found %lld\n",
 		 (long long)(int)offsetof(struct object_update, ou_padding1));
-	LASSERTF((int)sizeof(((struct object_update *)0)->ou_padding1) == 4, "found %lld\n",
+	LASSERTF((int)sizeof(((struct object_update *)0)->ou_result_size) == 2, "found %lld\n",
+		 (long long)(int)sizeof(((struct object_update *)0)->ou_padding1));
+	LASSERTF((int)offsetof(struct object_update, ou_padding1) == 14, "found %lld\n",
+		 (long long)(int)offsetof(struct object_update, ou_padding1));
+	LASSERTF((int)sizeof(((struct object_update *)0)->ou_padding1) == 2, "found %lld\n",
 		 (long long)(int)sizeof(((struct object_update *)0)->ou_padding1));
 	LASSERTF((int)offsetof(struct object_update, ou_batchid) == 16, "found %lld\n",
 		 (long long)(int)offsetof(struct object_update, ou_batchid));
@@ -4674,10 +4678,10 @@ void lustre_assert_wire_constants(void)
 		 (long long)(int)offsetof(struct out_update_header, ouh_inline_length));
 	LASSERTF((int)sizeof(((struct out_update_header *)0)->ouh_inline_length) == 4, "found %lld\n",
 		 (long long)(int)sizeof(((struct out_update_header *)0)->ouh_inline_length));
-	LASSERTF((int)offsetof(struct out_update_header, ouh_padding) == 12, "found %lld\n",
-		 (long long)(int)offsetof(struct out_update_header, ouh_padding));
-	LASSERTF((int)sizeof(((struct out_update_header *)0)->ouh_padding) == 4, "found %lld\n",
-		 (long long)(int)sizeof(((struct out_update_header *)0)->ouh_padding));
+	LASSERTF((int)offsetof(struct out_update_header, ouh_reply_size) == 12, "found %lld\n",
+		 (long long)(int)offsetof(struct out_update_header, ouh_reply_size));
+	LASSERTF((int)sizeof(((struct out_update_header *)0)->ouh_reply_size) == 4, "found %lld\n",
+		 (long long)(int)sizeof(((struct out_update_header *)0)->ouh_reply_size));
 	LASSERTF((int)offsetof(struct out_update_header, ouh_inline_data) == 16, "found %lld\n",
 		 (long long)(int)offsetof(struct out_update_header, ouh_inline_data));
 	LASSERTF((int)sizeof(((struct out_update_header *)0)->ouh_inline_data) == 0, "found %lld\n",

@@ -143,6 +143,7 @@ int osp_object_update_request_create(struct osp_update_request *our,
 	ours->ours_req_size = size;
 	INIT_LIST_HEAD(&ours->ours_list);
 	list_add_tail(&ours->ours_list, &our->our_req_list);
+	our->our_req_nr++;
 
 	return 0;
 }
@@ -257,12 +258,17 @@ object_update_request_dump(const struct object_update_request *ourq,
  */
 int osp_prep_inline_update_req(const struct lu_env *env,
 			       struct ptlrpc_request *req,
-			       struct osp_update_request_sub *ours)
+			       struct osp_update_request *our,
+			       int repsize)
 {
+	struct osp_update_request_sub *ours;
 	struct out_update_header *ouh;
-	__u32 update_req_size = object_update_request_size(ours->ours_req);
+	__u32 update_req_size;
 	int rc;
 
+	ours = list_entry(our->our_req_list.next,
+			  struct osp_update_request_sub, ours_list);
+	update_req_size = object_update_request_size(ours->ours_req);
 	req_capsule_set_size(&req->rq_pill, &RMF_OUT_UPDATE_HEADER, RCL_CLIENT,
 			     update_req_size + sizeof(*ouh));
 
@@ -274,11 +280,12 @@ int osp_prep_inline_update_req(const struct lu_env *env,
 	ouh->ouh_magic = OUT_UPDATE_HEADER_MAGIC;
 	ouh->ouh_count = 1;
 	ouh->ouh_inline_length = update_req_size;
+	ouh->ouh_reply_size = repsize;
 
 	memcpy(ouh->ouh_inline_data, ours->ours_req, update_req_size);
 
 	req_capsule_set_size(&req->rq_pill, &RMF_OUT_UPDATE_REPLY,
-			     RCL_SERVER, OUT_UPDATE_REPLY_SIZE);
+			     RCL_SERVER, repsize);
 
 	ptlrpc_request_set_replen(req);
 	req->rq_request_portal = OUT_PORTAL;
@@ -308,16 +315,40 @@ int osp_prep_update_req(const struct lu_env *env, struct obd_import *imp,
 	struct ptlrpc_request		*req;
 	struct ptlrpc_bulk_desc		*desc;
 	struct osp_update_request_sub	*ours;
+	const struct object_update_request *ourq;
 	struct out_update_header	*ouh;
 	struct out_update_buffer	*oub;
 	__u32				buf_count = 0;
-	int				rc;
+	int				repsize = 0;
+	struct object_update_reply	*reply;
+	int				rc, i;
+	int				total = 0;
 	ENTRY;
 
 	list_for_each_entry(ours, &our->our_req_list, ours_list) {
 		object_update_request_dump(ours->ours_req, D_INFO);
+
+		ourq = ours->ours_req;
+		for (i = 0; i < ourq->ourq_count; i++) {
+			struct object_update	*update;
+			size_t			size = 0;
+
+
+			/* XXX: it's very inefficient to lookup update
+			 *	this way, iterating from the beginning
+			 *	each time */
+			update = object_update_request_get(ourq, i, &size);
+			LASSERT(update != NULL);
+
+			repsize += sizeof(reply->ourp_lens[0]);
+			repsize += update->ou_result_size << 3;
+		}
+
 		buf_count++;
 	}
+	repsize += sizeof(*reply);
+	repsize = (repsize + OUT_UPDATE_REPLY_SIZE - 1) &
+			~(OUT_UPDATE_REPLY_SIZE - 1);
 	LASSERT(buf_count > 0);
 
 	req = ptlrpc_request_alloc(imp, &RQF_OUT_UPDATE);
@@ -332,7 +363,7 @@ int osp_prep_update_req(const struct lu_env *env, struct obd_import *imp,
 		if (object_update_request_size(ours->ours_req) +
 		    sizeof(struct out_update_header) <
 				OUT_UPDATE_MAX_INLINE_SIZE) {
-			rc = osp_prep_inline_update_req(env, req, ours);
+			rc = osp_prep_inline_update_req(env, req, our, repsize);
 			if (rc == 0)
 				*reqp = req;
 			GOTO(out_req, rc);
@@ -353,6 +384,7 @@ int osp_prep_update_req(const struct lu_env *env, struct obd_import *imp,
 	ouh->ouh_magic = OUT_UPDATE_HEADER_MAGIC;
 	ouh->ouh_count = buf_count;
 	ouh->ouh_inline_length = 0;
+	ouh->ouh_reply_size = repsize;
 	oub = req_capsule_client_get(&req->rq_pill, &RMF_OUT_UPDATE_BUF);
 	list_for_each_entry(ours, &our->our_req_list, ours_list) {
 		oub->oub_size = ours->ours_req_size;
@@ -368,12 +400,15 @@ int osp_prep_update_req(const struct lu_env *env, struct obd_import *imp,
 		GOTO(out_req, rc = -ENOMEM);
 
 	/* NB req now owns desc and will free it when it gets freed */
-	list_for_each_entry(ours, &our->our_req_list, ours_list)
+	list_for_each_entry(ours, &our->our_req_list, ours_list) {
 		desc->bd_frag_ops->add_iov_frag(desc, ours->ours_req,
 						ours->ours_req_size);
+		total += ours->ours_req_size;
+	}
+	CDEBUG(D_OTHER, "total %d in %u\n", total, our->our_update_nr);
 
 	req_capsule_set_size(&req->rq_pill, &RMF_OUT_UPDATE_REPLY,
-			     RCL_SERVER, OUT_UPDATE_REPLY_SIZE);
+			     RCL_SERVER, repsize);
 
 	ptlrpc_request_set_replen(req);
 	req->rq_request_portal = OUT_PORTAL;
@@ -722,7 +757,8 @@ int osp_insert_update_callback(const struct lu_env *env,
  */
 int osp_insert_async_request(const struct lu_env *env, enum update_type op,
 			     struct osp_object *obj, int count,
-			     __u16 *lens, const void **bufs, void *data,
+			     __u16 *lens, const void **bufs,
+			     void *data, __u32 data_size,
 			     osp_update_interpreter_t interpreter)
 {
 	struct osp_device		*osp;
@@ -748,7 +784,8 @@ again:
 
 	object_update = update_buffer_get_update(ureq, ureq->ourq_count);
 	rc = out_update_pack(env, object_update, &max_update_size, op,
-			     lu_object_fid(osp2lu_obj(obj)), count, lens, bufs);
+			     lu_object_fid(osp2lu_obj(obj)), count, lens, bufs,
+			     data_size);
 	/* The queue is full. */
 	if (rc == -E2BIG) {
 		osp->opd_async_requests = NULL;
@@ -769,6 +806,7 @@ again:
 			RETURN(rc);
 
 		ureq->ourq_count++;
+		our->our_update_nr++;
 	}
 
 	rc = osp_insert_update_callback(env, our, obj, data, interpreter);
