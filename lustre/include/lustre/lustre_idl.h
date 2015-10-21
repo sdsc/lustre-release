@@ -3496,7 +3496,7 @@ void lustre_swab_lfsck_request(struct lfsck_request *lr);
 struct lfsck_reply {
 	__u32		lr_status;
 	__u32		lr_padding_1;
-	__u64		lr_padding_2;
+	__u64		lr_repaired;
 };
 
 void lustre_swab_lfsck_reply(struct lfsck_reply *lr);
@@ -3525,6 +3525,7 @@ enum lfsck_event_flags {
 	LEF_SET_LMV_HASH	= 0x00000004,
 	LEF_SET_LMV_ALL		= 0x00000008,
 	LEF_RECHECK_NAME_HASH	= 0x00000010,
+	LEF_QUERY_ALL		= 0x00000020,
 };
 
 static inline void lustre_set_wire_obdo(const struct obd_connect_data *ocd,

@@ -1339,6 +1339,13 @@ static int ofd_iocontrol(unsigned int cmd, struct obd_export *exp, int len,
 		rc = lfsck_stop(&env, ofd->ofd_osd, &stop);
 		break;
 	}
+	case OBD_IOC_STAT_LFSCK: {
+		struct obd_ioctl_data *data = karg;
+
+		rc = lfsck_stat(&env, ofd->ofd_osd,
+				(struct lfsck_stat *)data->ioc_inlbuf1);
+		break;
+	}
 	case OBD_IOC_GET_OBJ_VERSION:
 		rc = ofd_ioc_get_obj_version(&env, ofd, karg);
 		break;

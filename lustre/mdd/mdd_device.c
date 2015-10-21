@@ -1479,7 +1479,12 @@ static int mdd_iocontrol(const struct lu_env *env, struct md_device *m,
 				(struct lfsck_stop *)karg);
 		RETURN(rc);
 	}
-        }
+	case OBD_IOC_STAT_LFSCK: {
+		rc = lfsck_stat(env, mdd->mdd_bottom,
+				(struct lfsck_stat *)karg);
+		RETURN(rc);
+	}
+	}
 
         /* Below ioctls use obd_ioctl_data */
         if (len != sizeof(*data)) {

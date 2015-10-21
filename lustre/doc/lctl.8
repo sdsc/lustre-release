@@ -448,7 +448,23 @@ The MDT or OST device to stop LFSCK/scrub on.
 Stop LFSCK on all devices.
 .TP
   -h, --help
-Show this help.
+Show the help.
+.TP
+.B lfsck_stat \fR<-M | --device MDT_device> [-h | --help]
+    \fR[-t | --type lfsck_type[,lfsck_type...]]
+.br
+Stat LFSCK on the specified MDT or OST device.
+.TP
+  -M, --device <MDT_device>
+The MDT device to stat LFSCK on.
+.TP
+  -t, --type <lfsck_type[,lfsck_type...]>
+The type of LFSCK type(s) to check. If no type is given, the default is to
+check all types of LFSCK status. Valid types are a comma-separated list of
+one or more of: namespace, layout, all
+.TP
+  -h, --help
+Show the help.
 .SS Debug
 .TP 
 .BI debug_daemon 

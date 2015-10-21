@@ -66,7 +66,14 @@ static struct option long_opt_stop[] = {
 	{"device",      required_argument, 0, 'M'},
 	{"all", 	no_argument,       0, 'A'},
 	{"help",	no_argument,       0, 'h'},
-	{0,		0,		   0,   0}
+	{0,		0,		   0,  0 }
+};
+
+static struct option long_opt_stat[] = {
+	{"device",      required_argument, 0, 'M'},
+	{"type",	required_argument, 0, 't'},
+	{"help",	no_argument,       0, 'h'},
+	{0,		0,		   0,  0 }
 };
 
 struct lfsck_type_name {
@@ -94,6 +101,18 @@ static enum lfsck_type lfsck_name2type(const char *name)
 	return -1;
 }
 
+static const char *lfsck_type2name(__u16 type)
+{
+	int i;
+
+	for (i = 0; lfsck_types_names[i].ltn_name != NULL; i++) {
+		if (type == lfsck_types_names[i].ltn_type)
+			return lfsck_types_names[i].ltn_name;
+	}
+
+	return NULL;
+}
+
 static void usage_start(void)
 {
 	fprintf(stderr, "start LFSCK\n"
@@ -114,7 +133,7 @@ static void usage_start(void)
 		"-C: create the lost MDT-object for dangling name entry "
 		    "(default 'off', or 'on')\n"
 		"-e: error handle mode (default 'continue', or 'abort')\n"
-		"-h: this help message\n"
+		"-h: help message\n"
 		"-n: check with no modification (default 'off', or 'on')\n"
 		"-o: repair orphan OST-objects\n"
 		"-r: reset scanning to the start of the device\n"
@@ -134,7 +153,19 @@ static void usage_stop(void)
 		"options:\n"
 		"-M: device to stop LFSCK/scrub on\n"
 		"-A: stop LFSCK on all MDT devices\n"
-		"-h: this help message\n");
+		"-h: help message\n");
+}
+
+static void usage_stat(void)
+{
+	fprintf(stderr, "stat LFSCK\n"
+		"usage:\n"
+		"lfsck_stat <-M | --device MDT_device> [-h | --help]\n"
+		"           [-t | --type check_type[,check_type...]]\n"
+		"options:\n"
+		"-M: device to stat LFSCK on\n"
+		"-t: LFSCK type(s) to be stated (default is all)\n"
+		"-h: help message\n");
 }
 
 static int lfsck_pack_dev(struct obd_ioctl_data *data, char *device, char *arg)
@@ -310,7 +341,7 @@ bad_type:
 	data.ioc_inllen1 = sizeof(start);
 	memset(buf, 0, sizeof(rawbuf));
 	rc = obd_ioctl_pack(&data, &buf, sizeof(rawbuf));
-	if (rc) {
+	if (rc != 0) {
 		fprintf(stderr, "Fail to pack ioctl data: rc = %d.\n", rc);
 		return rc;
 	}
@@ -388,7 +419,7 @@ int jt_lfsck_stop(int argc, char **argv)
 	data.ioc_inllen1 = sizeof(stop);
 	memset(buf, 0, sizeof(rawbuf));
 	rc = obd_ioctl_pack(&data, &buf, sizeof(rawbuf));
-	if (rc) {
+	if (rc != 0) {
 		fprintf(stderr, "Fail to pack ioctl data: rc = %d.\n", rc);
 		return rc;
 	}
@@ -400,5 +431,113 @@ int jt_lfsck_stop(int argc, char **argv)
 	}
 
 	printf("Stopped LFSCK on the device %s.\n", device);
+	return 0;
+}
+
+int jt_lfsck_stat(int argc, char **argv)
+{
+	struct obd_ioctl_data data;
+	char rawbuf[MAX_IOC_BUFLEN], *buf = rawbuf;
+	char device[MAX_OBD_NAME];
+	struct lfsck_stat stat;
+	char *optstring = "hM:t:";
+	int opt, index, rc, i;
+	enum lfsck_type type;
+
+	memset(&data, 0, sizeof(data));
+	memset(&stat, 0, sizeof(stat));
+	memset(device, 0, MAX_OBD_NAME);
+	stat.ls_types = LFSCK_TYPES_ALL;
+
+	/* Reset the 'optind' for the case of getopt_long() called multiple
+	 * times under the same lctl. */
+	optind = 0;
+	while ((opt = getopt_long(argc, argv, optstring, long_opt_stat,
+				  &index)) != EOF) {
+		switch (opt) {
+		case 'h':
+			usage_stat();
+			return 0;
+		case 'M':
+			rc = lfsck_pack_dev(&data, device, optarg);
+			if (rc != 0)
+				return rc;
+			break;
+		case 't': {
+			char *typename;
+
+			if (stat.ls_types == LFSCK_TYPES_ALL)
+				stat.ls_types = 0;
+			while ((typename = strsep(&optarg, ",")) != NULL) {
+				type = lfsck_name2type(typename);
+				if (type == -1)
+					goto bad_type;
+				stat.ls_types |= type;
+			}
+			break;
+
+bad_type:
+			fprintf(stderr, "invalid LFSCK type -t '%s'. "
+				"valid types are:\n", typename);
+			for (i = 0; lfsck_types_names[i].ltn_name != NULL; i++)
+				fprintf(stderr, "%s%s", i != 0 ? "," : "",
+					lfsck_types_names[i].ltn_name);
+			fprintf(stderr, "\n");
+			return -EINVAL;
+		}
+		default:
+			fprintf(stderr, "Invalid option, '-h' for help.\n");
+			usage_stat();
+			return -EINVAL;
+		}
+	}
+
+	if (data.ioc_inlbuf4 == NULL) {
+		if (lcfg_get_devname() != NULL) {
+			rc = lfsck_pack_dev(&data, device, lcfg_get_devname());
+			if (rc != 0)
+				return rc;
+		} else {
+			fprintf(stderr,
+				"Must specify device to stat LFSCK.\n");
+			return -EINVAL;
+		}
+	}
+
+	data.ioc_inlbuf1 = (char *)&stat;
+	data.ioc_inllen1 = sizeof(stat);
+	memset(buf, 0, sizeof(rawbuf));
+	rc = obd_ioctl_pack(&data, &buf, sizeof(rawbuf));
+	if (rc != 0) {
+		fprintf(stderr, "Fail to pack ioctl data: rc = %d.\n", rc);
+		return rc;
+	}
+
+	rc = l_ioctl(OBD_DEV_ID, OBD_IOC_STAT_LFSCK, buf);
+	if (rc < 0) {
+		perror("Fail to stat LFSCK");
+		return rc;
+	}
+
+	obd_ioctl_unpack(&data, buf, sizeof(rawbuf));
+	for (i = 0, type = 1 << i; i < LFSCK_TYPE_BITS; i++, type = 1 << i) {
+		const char *name;
+		int j;
+
+		if (!(stat.ls_types & type))
+			continue;
+
+		name = lfsck_type2name(type);
+		for (j = 0; j <= LS_MAX; j++)
+			printf("%s_mdts_%s: %d\n", name,
+			       lfsck_status2name(j), stat.ls_mdts_count[i][j]);
+
+		for (j = 0; j <= LS_MAX; j++)
+			printf("%s_osts_%s: %d\n", name,
+			       lfsck_status2name(j), stat.ls_osts_count[i][j]);
+
+		printf("%s_repaired: %llu\n", name, stat.ls_repaired[i]);
+	}
+
 	return 0;
 }
