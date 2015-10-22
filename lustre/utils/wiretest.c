@@ -35,8 +35,10 @@
  */
 
 #include <errno.h>
+#include <limits.h>
 #include <stdio.h>
 #include <string.h>
+#include <linux/types.h>
 
 #include <lustre/lustre_idl.h>
 #include <lustre/lustre_lfsck_user.h>

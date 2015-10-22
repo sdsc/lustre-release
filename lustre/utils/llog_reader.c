@@ -41,6 +41,8 @@
  */
 
 #include <errno.h>
+#include <limits.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/types.h>
@@ -67,8 +69,8 @@ static inline int ext2_test_bit(int nr, const void *addr)
 	return (tmp[nr >> 3] >> (nr & 7)) & 1;
 #else
 	const unsigned long *tmp = addr;
-	return ((1UL << (nr & (BITS_PER_LONG - 1))) &
-		((tmp)[nr / BITS_PER_LONG])) != 0;
+	return ((1UL << (nr & (__WORDSIZE - 1))) &
+		((tmp)[nr / __WORDSIZE])) != 0;
 #endif
 }
 
@@ -145,11 +147,11 @@ static void print_log_path(struct llog_logid_rec *lid, int is_ext)
 
 	if (is_ext)
 		snprintf(object_path, sizeof(object_path),
-			 "O/"LPU64"/d%u/%u", fid_from_logid.f_seq,
+			 "O/%llu/d%u/%u", fid_from_logid.f_seq,
 			 fid_from_logid.f_oid % 32, fid_from_logid.f_oid);
 	else
 		snprintf(object_path, sizeof(object_path),
-			 "oi."LPU64"/"DFID_NOBRACE,
+			 "oi.%llu/"DFID_NOBRACE,
 			 fid_from_logid.f_seq & (OSD_OI_FID_NR - 1) ,
 			 PFID(&fid_from_logid));
 
@@ -346,7 +348,7 @@ static void print_1_cfg(struct lustre_cfg *lcfg)
         int i;
 
         if (lcfg->lcfg_nid)
-                printf("nid=%s("LPX64")  ", libcfs_nid2str(lcfg->lcfg_nid),
+		printf("nid=%s(%#llx)  ", libcfs_nid2str(lcfg->lcfg_nid),
                        lcfg->lcfg_nid);
         if (lcfg->lcfg_nal)
                 printf("nal=%d ", lcfg->lcfg_nal);
@@ -369,8 +371,8 @@ static void print_setup_cfg(struct lustre_cfg *lcfg)
                 desc = (struct lov_desc*)(lustre_cfg_string(lcfg, 1));
                 printf("\t\tuuid=%s  ", (char*)desc->ld_uuid.uuid);
                 printf("stripe:cnt=%u ", desc->ld_default_stripe_count);
-                printf("size="LPU64" ", desc->ld_default_stripe_size);
-                printf("offset="LPU64" ", desc->ld_default_stripe_offset);
+		printf("size=%llu ", desc->ld_default_stripe_size);
+		printf("offset=%llu ", desc->ld_default_stripe_offset);
                 printf("pattern=%#x", desc->ld_pattern);
         } else {
                 printf("setup     ");
@@ -576,10 +578,10 @@ static void print_hsm_action(struct llog_agent_req_rec *larr)
 
 	sz = larr->arr_hai.hai_len - sizeof(larr->arr_hai);
 	printf("lrh=[type=%X len=%d idx=%d] fid="DFID
-	       " compound/cookie="LPX64"/"LPX64
-	       " status=%s action=%s archive#=%d flags="LPX64
-	       " create="LPU64" change="LPU64
-	       " extent="LPX64"-"LPX64" gid="LPX64" datalen=%d"
+	       " compound/cookie=%#llx/%#llx"
+	       " status=%s action=%s archive#=%d flags=%#llx"
+	       " create=%llu change=%llu"
+	       " extent=%#llx-%#llx gid=%#llx datalen=%d"
 	       " data=[%s]\n",
 	       larr->arr_hdr.lrh_type,
 	       larr->arr_hdr.lrh_len, larr->arr_hdr.lrh_index,

@@ -2920,7 +2920,7 @@ static void print_quota_title(char *name, struct if_quotactl *qctl,
 static void kbytes2str(__u64 num, char *buf, bool h)
 {
 	if (!h) {
-		sprintf(buf, LPU64, num);
+		sprintf(buf, "%llu", num);
 	} else {
 		if (num >> 30)
 			sprintf(buf, "%5.4gT", (double)num / (1 << 30));
@@ -2929,7 +2929,7 @@ static void kbytes2str(__u64 num, char *buf, bool h)
 		else if (num >> 10)
 			sprintf(buf, "%5.4gM", (double)num / (1 << 10));
 		else
-			sprintf(buf, LPU64"%s", num, "k");
+			sprintf(buf, "%llu%s", num, "k");
 	}
 }
 
@@ -3004,16 +3004,16 @@ static void print_quota(char *mnt, struct if_quotactl *qctl, int type,
 			diff2str(dqb->dqb_itime, timebuf, now);
 
 		sprintf(numbuf[0], (dqb->dqb_valid & QIF_INODES) ?
-			LPU64 : "["LPU64"]", dqb->dqb_curinodes);
+			"%llu" : "[%llu]", dqb->dqb_curinodes);
 
 		if (type == QC_GENERAL)
 			sprintf(numbuf[1], (dqb->dqb_valid & QIF_ILIMITS) ?
-				LPU64 : "["LPU64"]", dqb->dqb_isoftlimit);
+				"%llu" : "[%llu]", dqb->dqb_isoftlimit);
 		else
 			sprintf(numbuf[1], "%s", "-");
 
 		sprintf(numbuf[2], (dqb->dqb_valid & QIF_ILIMITS) ?
-			LPU64 : "["LPU64"]", dqb->dqb_ihardlimit);
+			"%llu" : "[%llu]", dqb->dqb_ihardlimit);
 
 		if (type != QC_OSTIDX)
 			printf(" %7s%c %6s %7s %7s",
@@ -3224,7 +3224,7 @@ ug_output:
 		rc3 = print_obd_quota(mnt, &qctl, 0, human_readable,
 				      &total_balloc);
 		kbytes2str(total_balloc, strbuf, human_readable);
-		printf("Total allocated inode limit: "LPU64", total "
+		printf("Total allocated inode limit: %llu, total "
 		       "allocated block limit: %s\n", total_ialloc, strbuf);
 	}
 
@@ -3405,7 +3405,7 @@ static int lfs_changelog(int argc, char **argv)
 
 		secs = rec->cr_time >> 30;
 		gmtime_r(&secs, &ts);
-		printf(LPU64" %02d%-5s %02d:%02d:%02d.%06d %04d.%02d.%02d "
+		printf("%llu %02d%-5s %02d:%02d:%02d.%06d %04d.%02d.%02d "
 		       "0x%x t="DFID, rec->cr_index, rec->cr_type,
 		       changelog_type2str(rec->cr_type),
 		       ts.tm_hour, ts.tm_min, ts.tm_sec,
@@ -3670,7 +3670,7 @@ static int lfs_data_version(int argc, char **argv)
 	if (rc < 0)
 		err(errno, "cannot get version for %s", path);
 	else
-		printf(LPU64 "\n", data_version);
+		printf("%llu\n", data_version);
 
 	close(fd);
 	return rc;

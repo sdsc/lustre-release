@@ -45,6 +45,7 @@
 #include "mount_utils.h"
 #include <getopt.h>
 #include <mntent.h>
+#include <stdbool.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <unistd.h>
