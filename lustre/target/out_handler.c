@@ -31,6 +31,7 @@
 
 #define DEBUG_SUBSYSTEM S_CLASS
 
+#include <lustre/lustre_obdo.h>
 #include <llog_swab.h>
 #include <lustre_swab.h>
 #include <lustre_update.h>
