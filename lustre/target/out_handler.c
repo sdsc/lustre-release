@@ -31,10 +31,13 @@
 
 #define DEBUG_SUBSYSTEM S_CLASS
 
-#include <obd_class.h>
-#include <md_object.h>
-#include "tgt_internal.h"
+#include <lustre/lustre_obdo.h>
+
 #include <lustre_update.h>
+#include <md_object.h>
+#include <obd_class.h>
+
+#include "tgt_internal.h"
 
 static void out_reconstruct(const struct lu_env *env, struct dt_device *dt,
 			    struct dt_object *obj,
