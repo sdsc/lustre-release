@@ -50,16 +50,14 @@
 #include <sys/stat.h>
 #include <linux/types.h>
 
-#include <libcfs/byteorder.h>
-
 #define READ  1
 #define WRITE 2
 
 #define LPDS sizeof(__u64)
 int block_debug_setup(void *addr, int len, __u64 off, __u64 id)
 {
-        off = cpu_to_le64(off);
-        id = cpu_to_le64(id);
+	off = htole64(off);
+	id = htole64(id);
         memcpy(addr, (char *)&off, LPDS);
         memcpy(addr + LPDS, (char *)&id, LPDS);
 
@@ -75,8 +73,8 @@ int block_debug_check(char *who, void *addr, int size, __u64 off, __u64 id)
         __u64 ne_off;
         int err = 0;
 
-        ne_off = le64_to_cpu(off);
-        id = le64_to_cpu(id);
+	ne_off = le64toh(off);
+	id = le64toh(id);
         if (memcmp(addr, (char *)&ne_off, LPDS)) {
 		fprintf(stderr, "%s: for offset %llu off: %#llx != %#llx\n",
                        who, off, *(__u64 *)addr, ne_off);
