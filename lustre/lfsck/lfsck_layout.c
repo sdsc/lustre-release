@@ -4871,7 +4871,7 @@ static int lfsck_layout_dump(const struct lu_env *env,
 			do_div(speed1, lo->ll_run_time_phase1);
 		if (rtime != 0)
 			do_div(speed2, rtime);
-		rc = seq_printf(m, "checked_phase1: "LPU64"\n"
+		seq_printf(m, "checked_phase1: "LPU64"\n"
 				"checked_phase2: "LPU64"\n"
 				"run_time_phase1: %u seconds\n"
 				"run_time_phase2: %u seconds\n"

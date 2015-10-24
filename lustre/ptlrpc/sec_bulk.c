@@ -138,11 +138,9 @@ static struct shrinker *pools_shrinker;
  */
 int sptlrpc_proc_enc_pool_seq_show(struct seq_file *m, void *v)
 {
-        int     rc;
-
 	spin_lock(&page_pools.epp_lock);
 
-	rc = seq_printf(m,
+	seq_printf(m,
                       "physical pages:          %lu\n"
                       "pages per pool:          %lu\n"
                       "max pages:               %lu\n"
@@ -186,7 +184,7 @@ int sptlrpc_proc_enc_pool_seq_show(struct seq_file *m, void *v)
 		     );
 
 	spin_unlock(&page_pools.epp_lock);
-	return rc;
+	return 0;
 }
 
 static void enc_pools_release_free_pages(long npages)
