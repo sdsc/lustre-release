@@ -144,7 +144,8 @@ static int llog_osd_pad(const struct lu_env *env, struct dt_object *o,
 
 	LASSERT(th);
 	LASSERT(off);
-	LASSERT(len >= LLOG_MIN_REC_SIZE && (len & 0x7) == 0);
+	LASSERTF(len >= LLOG_MIN_REC_SIZE && (len & 0x7) == 0,
+		 "Non-aligned pad len %i\n", len);
 
 	OBD_ALLOC(rec, len);
 	if (rec == NULL)
@@ -642,6 +643,7 @@ out_unlock:
 				     lgi->lgi_off);
 	}
 
+	LASSERTF((reclen & 0x7) == 0, "Non-aligned record len %i\n", reclen);
 	lgi->lgi_buf.lb_len = reclen;
 	lgi->lgi_buf.lb_buf = rec;
 	rc = dt_record_write(env, o, &lgi->lgi_buf, &lgi->lgi_off, th);
