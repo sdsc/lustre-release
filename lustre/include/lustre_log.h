@@ -104,6 +104,8 @@ int llog_is_empty(const struct lu_env *env, struct llog_ctxt *ctxt,
 int llog_backup(const struct lu_env *env, struct obd_device *obd,
 		struct llog_ctxt *ctxt, struct llog_ctxt *bak_ctxt,
 		char *name, char *backup);
+int llog_read_header(const struct lu_env *env, struct llog_handle *handle,
+		     struct obd_uuid *uuid);
 
 /* llog_process flags */
 #define LLOG_FLAG_NODEAMON 0x0001
@@ -160,6 +162,8 @@ int llog_cat_reverse_process(const struct lu_env *env,
 			     void *data);
 int llog_cat_init_and_process(const struct lu_env *env,
 			      struct llog_handle *llh);
+int llog_cat_update_header(const struct lu_env *env,
+			   struct llog_handle *cathandle);
 
 /* llog_obd.c */
 int llog_setup(const struct lu_env *env, struct obd_device *obd,
@@ -271,6 +275,8 @@ struct llog_handle {
 	int			 lgh_last_idx;
 	int			 lgh_cur_idx; /* used during llog_process */
 	__u64			 lgh_cur_offset; /* used during llog_process */
+	/* used during llog_osd_write_rec */
+	__u64			 lgh_write_offset;
 	struct llog_ctxt	*lgh_ctxt;
 	union {
 		struct plain_handle_data	 phd;

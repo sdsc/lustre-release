@@ -4294,6 +4294,40 @@ test_116b() {
 }
 run_test 116b "large update log slave MDT recovery"
 
+test_117() {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+	[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.7.55) ] &&
+		skip "Do not support large update log before 2.7.55" &&
+		return 0
+
+	([ $FAILURE_MODE == "HARD" ] &&
+		[ "$(facet_host mds1)" == "$(facet_host mds2)" ]) &&
+		skip "MDTs needs to be on diff hosts for HARD fail mode" &&
+		return 0
+	local fail_index=0
+
+	mkdir -p $DIR/$tdir
+
+	$LFS setdirstripe -c2 $DIR/$tdir/striped_dir ||
+		error "setdirstripe fails"
+	$LFS setdirstripe -c2 $DIR/$tdir/striped_dir1 ||
+		error "setdirstripe fails 1"
+	rm -rf $DIR/$tdir/striped_dir* || error "rmdir fails"
+
+	# OBD_FAIL_INVALIDATE_UPDATE       0x1705
+	do_facet mds1 "lctl set_param fail_loc=0x1705"
+	$LFS setdirstripe -c2 $DIR/$tdir/striped_dir
+	$LFS setdirstripe -c2 $DIR/$tdir/striped_dir1
+	do_facet mds1 "lctl set_param fail_loc=0x0"
+
+	replay_barrier mds1
+	$LFS setdirstripe -c2 $DIR/$tdir/striped_dir
+	$LFS setdirstripe -c2 $DIR/$tdir/striped_dir1
+	fail mds1
+
+	true
+}
+run_test 117 "invalidate osp update will not cause update log corruption"
 
 complete $SECONDS
 check_and_cleanup_lustre
