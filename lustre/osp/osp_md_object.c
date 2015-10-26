@@ -1057,7 +1057,47 @@ static ssize_t osp_md_declare_write(const struct lu_env *env,
 				    const struct lu_buf *buf,
 				    loff_t pos, struct thandle *th)
 {
+	struct osp_device *osp = lu2osp_dev(dt->do_lu.lo_dev);
+	struct osp_object *obj = dt2osp_obj(dt);
+	int rc;
+
+	if (osp->opd_update != NULL &&
+	    osp->opd_update->ou_invalid_header)
+		return -EIO;
+
+	if (obj->opo_ooa == NULL) {
+		rc = osp_oac_init(obj);
+		if (rc != 0)
+			return rc;
+	}
+
+	if (obj->opo_ooa != NULL &&
+	    !(obj->opo_ooa->ooa_attr.la_valid & LA_SIZE)) {
+		/* Note: the object may not being created yet,
+		 * see mdd_migrate_create(), let's ignore that case */
+		rc = osp_attr_get(env, dt, &obj->opo_ooa->ooa_attr);
+		if (rc < 0 && rc != -ENOENT)
+			return rc;
+	}
+
 	return osp_trans_update_request_create(th);
+}
+
+static int osp_object_write_interpreter(const struct lu_env *env,
+					struct object_update_reply *reply,
+					struct ptlrpc_request *req,
+					struct osp_object *obj,
+					void *data, int index, int rc)
+{
+	/* Invalid the opo cache for the object if writing fails, so
+	 * the following append write will update the file size. */
+	if (rc < 0 && obj->opo_ooa != NULL) {
+		spin_lock(&obj->opo_lock);
+		obj->opo_ooa->ooa_attr.la_valid = 0;
+		spin_unlock(&obj->opo_lock);
+	}
+
+	return 0;
 }
 
 /**
@@ -1086,16 +1126,33 @@ static ssize_t osp_md_write(const struct lu_env *env, struct dt_object *dt,
 	ssize_t			  rc;
 	ENTRY;
 
+	/* If there are no object attributes(size) cached, i.e.
+	 * write offset can not be updated in this case, let's
+	 * return -ESTALE for now, which mostly because some one
+	 * else change the object between declare and write */
+	if (obj->opo_ooa == NULL ||
+	    !(obj->opo_ooa->ooa_attr.la_valid & LA_SIZE))
+		RETURN(-ESTALE);
+
 	update = thandle_to_osp_update_request(th);
 	LASSERT(update != NULL);
+
+	CDEBUG(D_INFO, "write "DFID" offset = "LPU64" length = %zu\n",
+	       PFID(lu_object_fid(&dt->do_lu)), *pos, buf->lb_len);
 
 	rc = osp_update_rpc_pack(env, write, update, OUT_WRITE,
 				 lu_object_fid(&dt->do_lu), buf, *pos);
 	if (rc < 0)
 		RETURN(rc);
 
-	CDEBUG(D_INFO, "write "DFID" offset = "LPU64" length = %zu\n",
-	       PFID(lu_object_fid(&dt->do_lu)), *pos, buf->lb_len);
+	rc = osp_insert_update_callback(env, update, dt2osp_obj(dt), NULL,
+					osp_object_write_interpreter);
+	if (rc < 0)
+		RETURN(rc);
+
+	rc = osp_check_and_set_rpc_version(oth);
+	if (rc < 0)
+		RETURN(rc);
 
 	/* XXX: how about the write error happened later? */
 	*pos += buf->lb_len;
@@ -1104,10 +1161,6 @@ static ssize_t osp_md_write(const struct lu_env *env, struct dt_object *dt,
 	    obj->opo_ooa->ooa_attr.la_valid & LA_SIZE &&
 	    obj->opo_ooa->ooa_attr.la_size < *pos)
 		obj->opo_ooa->ooa_attr.la_size = *pos;
-
-	rc = osp_check_and_set_rpc_version(oth);
-	if (rc < 0)
-		RETURN(rc);
 
 	RETURN(buf->lb_len);
 }

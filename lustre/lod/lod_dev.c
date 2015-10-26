@@ -374,11 +374,11 @@ static int lod_sub_recovery_thread(void *arg)
 	else
 		dt = lrd->lrd_ltd->ltd_tgt;
 
-again:
 	rc = lod_sub_prep_llog(&env, lod, dt, lrd->lrd_idx);
 	if (rc != 0)
 		GOTO(out, rc);
 
+again:
 	/* Process the recovery record */
 	ctxt = llog_get_context(dt->dd_lu_dev.ld_obd, LLOG_UPDATELOG_ORIG_CTXT);
 	LASSERT(ctxt != NULL);
@@ -394,7 +394,8 @@ again:
 		top_device = lod->lod_dt_dev.dd_lu_dev.ld_site->ls_top_dev;
 		/* Because the remote target might failover at the same time,
 		 * let's retry here */
-		if (rc == -ETIMEDOUT && dt != lod->lod_child &&
+		if ((rc == -ETIMEDOUT || rc == -EAGAIN) &&
+		     dt != lod->lod_child &&
 		    !top_device->ld_obd->obd_force_abort_recovery)
 			goto again;
 
