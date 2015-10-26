@@ -423,6 +423,7 @@ struct ofd_seq *ofd_seq_load(const struct lu_env *env, struct ofd_device *ofd,
 			GOTO(cleanup, rc);
 		}
 		ofd_seq_last_oid_set(oseq, le64_to_cpu(lastid));
+		oseq->os_object_sync_pending = 1;
 	} else {
 		CERROR("%s: corrupted size "LPU64" LAST_ID of seq "LPX64"\n",
 			ofd_name(ofd), (__u64)info->fti_attr.la_size, seq);
