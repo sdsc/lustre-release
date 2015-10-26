@@ -14171,6 +14171,8 @@ test_300p() {
 			error "create striped directory should fail"
 
 	[ -e $DIR/$tdir/bad_striped_dir ] && error "striped dir exists"
+
+	$LFS setdirstripe -c2 $DIR/$tdir/bad_striped_dir
 	true
 }
 run_test 300p "create striped directory without space"
