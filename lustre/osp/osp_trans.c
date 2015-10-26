@@ -67,6 +67,7 @@
 #define DEBUG_SUBSYSTEM S_MDS
 
 #include <lustre_net.h>
+#include <lustre_log.h>
 #include "osp_internal.h"
 
 /**
@@ -574,12 +575,12 @@ static int osp_update_interpret(const struct lu_env *env,
 		reply = req_capsule_server_sized_get(&req->rq_pill,
 						     &RMF_OUT_UPDATE_REPLY,
 						     OUT_UPDATE_REPLY_SIZE);
-		if (reply == NULL || reply->ourp_magic != UPDATE_REPLY_MAGIC)
-			rc1 = -EPROTO;
-		else
+		if (reply == NULL || reply->ourp_magic != UPDATE_REPLY_MAGIC) {
+			if (rc == 0)
+				rc = -EPROTO;
+		} else {
 			count = reply->ourp_count;
-	} else {
-		rc1 = rc;
+		}
 	}
 
 	list_for_each_entry_safe(ouc, next, &our->our_cb_items, ouc_list) {
@@ -588,18 +589,21 @@ static int osp_update_interpret(const struct lu_env *env,
 		/* The peer may only have handled some requests (indicated
 		 * by the 'count') in the packaged OUT RPC, we can only get
 		 * results for the handled part. */
-		if (index < count && reply->ourp_lens[index] > 0) {
+		if (index < count && reply->ourp_lens[index] > 0 && rc >= 0) {
 			struct object_update_result *result;
 
 			result = object_update_result_get(reply, index, NULL);
 			if (result == NULL)
-				rc1 = -EPROTO;
+				rc1 = rc = -EPROTO;
 			else
-				rc1 = result->our_rc;
-		} else {
-			rc1 = rc;
-			if (unlikely(rc1 == 0))
+				rc1 = rc = result->our_rc;
+		} else if (rc1 >= 0) {
+			/* The peer did not handle these request, let's return
+			 * -EINVAL to update interpret for now */
+			if (rc >= 0)
 				rc1 = -EINVAL;
+			else
+				rc1 = rc;
 		}
 
 		if (ouc->ouc_interpreter != NULL)
@@ -622,7 +626,7 @@ static int osp_update_interpret(const struct lu_env *env,
 		osp_update_request_destroy(our);
 	}
 
-	RETURN(0);
+	RETURN(rc);
 }
 
 /**
@@ -1034,7 +1038,6 @@ static int osp_send_update_req(const struct lu_env *env,
 	ENTRY;
 
 	LASSERT(oth != NULL);
-	LASSERT(our->our_req_sent == 0);
 	rc = osp_prep_update_req(env, osp->opd_obd->u.cli.cl_import,
 				 our, &req);
 	if (rc != 0) {
@@ -1188,9 +1191,18 @@ int osp_check_and_set_rpc_version(struct osp_thandle *oth)
 		return 0;
 
 	spin_lock(&ou->ou_lock);
+	if (ou->ou_invalid_header) {
+		spin_unlock(&ou->ou_lock);
+		return -EIO;
+	}
 	oth->ot_version = ou->ou_version++;
+	osp_thandle_get(oth);
+	list_add_tail(&oth->ot_our->our_list,
+		      &osp->opd_update->ou_list);
 	spin_unlock(&ou->ou_lock);
 
+	oth->ot_our->our_req_ready = 0;
+	LASSERT(oth->ot_super.th_wait_submit == 1);
 	CDEBUG(D_INFO, "%s: version "LPU64" oth:version %p:"LPU64"\n",
 	       osp->opd_obd->obd_name, ou->ou_version, oth, oth->ot_version);
 
@@ -1217,20 +1229,18 @@ osp_get_next_request(struct osp_updates *ou, struct osp_update_request **ourp)
 	struct osp_update_request *tmp;
 	bool			got_req = false;
 
+	if (ou->ou_invalid_header)
+		return false;
+
 	spin_lock(&ou->ou_lock);
 	list_for_each_entry_safe(our, tmp, &ou->ou_list, our_list) {
 		LASSERT(our->our_th != NULL);
-		CDEBUG(D_INFO, "our %p version "LPU64" rpc_version "LPU64"\n",
-		       our, our->our_th->ot_version, ou->ou_rpc_version);
-		if (our->our_th->ot_version == 0) {
-			list_del_init(&our->our_list);
-			*ourp = our;
-			got_req = true;
-			break;
-		}
-
+		CDEBUG(D_HA, "ou %p version "LPU64" rpc_version "LPU64"\n",
+		       ou, our->our_th->ot_version, ou->ou_rpc_version);
+		LASSERT(our->our_th->ot_version != 0);
 		/* Find next osp_update_request in the list */
-		if (our->our_th->ot_version == ou->ou_rpc_version) {
+		if (our->our_th->ot_version == ou->ou_rpc_version &&
+		    our->our_req_ready) {
 			list_del_init(&our->our_list);
 			*ourp = our;
 			got_req = true;
@@ -1242,16 +1252,140 @@ osp_get_next_request(struct osp_updates *ou, struct osp_update_request **ourp)
 	return got_req;
 }
 
-static void osp_update_rpc_version(struct osp_updates *ou,
-				   struct osp_thandle *oth)
+static bool
+osp_need_update_llog_header(struct osp_updates *ou, bool *try_update)
 {
-	if (oth->ot_version == 0)
+	*try_update = false;
+	spin_lock(&ou->ou_lock);
+	if (ou->ou_invalid_header && ou->ou_try_update_header) {
+		*try_update = true;
+		ou->ou_try_update_header = 0;
+	}
+	spin_unlock(&ou->ou_lock);
+
+	return *try_update;
+}
+
+/**
+ * Update llog updater
+ *
+ * Update catlog and plain log header, so the update llog header
+ * (index, size etc) will be revalidated, which usually happens
+ * after OSP finds its update llog cache is probably stale,
+ * then it will first invalidate all of the update requests
+ * in the sending list, then revalidate the update llog header,
+ * then accepting new request.(see osp_send_update_thread())
+ *
+ * \param[in] env	execution environment
+ * \param[in] osp	OSP device whose update llog header will be
+ *                      refreshed.
+ * \retval		0 if update succeeds.
+ * \retval		negative error if update fails.
+ **/
+static int osp_update_llog_header(const struct lu_env *env,
+				  struct osp_device *osp)
+{
+	struct llog_ctxt *ctxt;
+	struct dt_device *dt = &osp->opd_dt_dev;
+	struct llog_handle *loghandle;
+	int rc;
+
+	ctxt = llog_get_context(dt->dd_lu_dev.ld_obd,
+				LLOG_UPDATELOG_ORIG_CTXT);
+	if (ctxt == NULL || ctxt->loc_handle == NULL) {
+		llog_ctxt_put(ctxt);
+		return -EIO;
+	}
+
+	down_write(&ctxt->loc_handle->lgh_lock);
+	/* Invalidate the object size cache, so llog_read_header will
+	 * read size from the remote target, instead of using cache
+	 * size. */
+	list_for_each_entry(loghandle, &ctxt->loc_handle->u.chd.chd_head,
+		   u.phd.phd_entry) {
+		struct osp_object *obj;
+
+		if (!llog_exist(loghandle))
+			continue;
+
+		obj = dt2osp_obj(loghandle->lgh_obj);
+		if (obj->opo_ooa != NULL) {
+			spin_lock(&obj->opo_lock);
+			obj->opo_ooa->ooa_attr.la_valid = 0;
+			spin_unlock(&obj->opo_lock);
+		}
+	}
+
+	rc = llog_cat_update_header(env, ctxt->loc_handle);
+	if (rc != 0)
+		GOTO(out, rc);
+
+	spin_lock(&osp->opd_update->ou_lock);
+	osp->opd_update->ou_invalid_header = 0;
+	spin_unlock(&osp->opd_update->ou_lock);
+out:
+	up_write(&ctxt->loc_handle->lgh_lock);
+	llog_ctxt_put(ctxt);
+	return rc;
+}
+
+/**
+ * Invalidate update request
+ *
+ * Invalidate update request in the OSP sending list, so all of
+ * requests in the sending list will return error, which happens
+ * when it finds one update (with writing llog) requests fails or
+ * the OSP is evicted by remote target. see osp_send_update_thread().
+ *
+ * \param[in] osp	OSP device whose update requests will be
+ *                      invalidated.
+ **/
+void osp_invalidate_request(struct osp_device *osp)
+{
+	struct lu_env env;
+	struct osp_updates *ou = osp->opd_update;
+	struct osp_update_request *our;
+	struct osp_update_request *tmp;
+	struct list_head list;
+	int			rc;
+	ENTRY;
+
+	if (ou == NULL)
 		return;
 
-	LASSERT(oth->ot_version == ou->ou_rpc_version);
+	rc = lu_env_init(&env, osp->opd_dt_dev.dd_lu_dev.ld_type->ldt_ctx_tags);
+	if (rc < 0) {
+		CERROR("%s: init env error: rc = %d\n", osp->opd_obd->obd_name,
+		       rc);
+		return;
+	}
+
+	INIT_LIST_HEAD(&list);
+
 	spin_lock(&ou->ou_lock);
-	ou->ou_rpc_version++;
+	/* invalidate all of request in the sending list */
+	list_for_each_entry_safe(our, tmp, &ou->ou_list, our_list) {
+		list_move(&our->our_list, &list);
+		if (our->our_th->ot_version >= ou->ou_rpc_version)
+			ou->ou_rpc_version = our->our_th->ot_version + 1;
+		CDEBUG(D_HA, "%s invalid our %p\n", osp->opd_obd->obd_name,
+		       our);
+	}
+	ou->ou_invalid_header = 1;
 	spin_unlock(&ou->ou_lock);
+
+	/* invalidate all of request in the sending list */
+	list_for_each_entry_safe(our, tmp, &list, our_list) {
+		list_del_init(&our->our_list);
+		LASSERT(our->our_th != NULL);
+		if (our->our_th->ot_super.th_result == 0)
+			our->our_th->ot_super.th_result = -EIO;
+
+		osp_trans_callback(&env, our->our_th,
+				   our->our_th->ot_super.th_result);
+		osp_thandle_put(our->our_th);
+	}
+	lu_env_fini(&env);
 }
 
 /**
@@ -1289,35 +1423,57 @@ int osp_send_update_thread(void *arg)
 	thread->t_flags = SVC_RUNNING;
 	wake_up(&thread->t_ctl_waitq);
 	while (1) {
+		bool try_update = false;
+
 		our = NULL;
 		l_wait_event(ou->ou_waitq,
 			     !osp_send_update_thread_running(osp) ||
-			     osp_get_next_request(ou, &our),
-			     &lwi);
+			     osp_need_update_llog_header(ou, &try_update) ||
+			     osp_get_next_request(ou, &our), &lwi);
 
 		if (!osp_send_update_thread_running(osp)) {
-			if (our != NULL && our->our_th != NULL) {
+			if (our != NULL) {
 				osp_trans_callback(&env, our->our_th, -EINTR);
 				osp_thandle_put(our->our_th);
 			}
 			break;
 		}
 
-		if (our->our_req_sent == 0) {
-			if (our->our_th != NULL &&
-			    our->our_th->ot_super.th_result != 0)
-				osp_trans_callback(&env, our->our_th,
-					our->our_th->ot_super.th_result);
-			else
-				rc = osp_send_update_req(&env, osp, our);
+		if (try_update) {
+			osp_update_llog_header(&env, osp);
+			continue;
 		}
 
-		if (our->our_th != NULL) {
-			/* Update the rpc version */
-			osp_update_rpc_version(ou, our->our_th);
-			/* Balanced for thandle_get in osp_trans_trigger() */
-			osp_thandle_put(our->our_th);
+		LASSERT(our->our_th != NULL);
+		if (our->our_th->ot_super.th_result != 0) {
+			osp_trans_callback(&env, our->our_th,
+				our->our_th->ot_super.th_result);
+			rc = our->our_th->ot_super.th_result;
+		} else {
+			if (OBD_FAIL_CHECK(
+				OBD_FAIL_INVALIDATE_UPDATE)) {
+				rc = -EIO;
+				osp_trans_callback(&env, our->our_th, rc);
+			} else {
+				rc = osp_send_update_req(&env, osp, our);
+			}
 		}
+
+		/* Update the rpc version */
+		spin_lock(&ou->ou_lock);
+		if (our->our_th->ot_version == ou->ou_rpc_version)
+			ou->ou_rpc_version++;
+		spin_unlock(&ou->ou_lock);
+
+		/* If one update request fails, let's fail all of the requests
+		 * in the sending list, because the request in the sending
+		 * list are dependent on either other, continue sending these
+		 * request might cause llog or filesystem corruption */
+		if (rc != 0)
+			osp_invalidate_request(osp);
+
+		/* Balanced for thandle_get in osp_check_and_set_rpc_version */
+		osp_thandle_put(our->our_th);
 	}
 
 	thread->t_flags = SVC_STOPPED;
@@ -1325,36 +1481,6 @@ int osp_send_update_thread(void *arg)
 	wake_up(&thread->t_ctl_waitq);
 
 	RETURN(0);
-}
-
-/**
- * Trigger the request for remote updates.
- *
- * Add the request to the sending list, and wake up osp update
- * sending thread.
- *
- * \param[in] env		pointer to the thread context
- * \param[in] osp		pointer to the OSP device
- * \param[in] oth		pointer to the transaction handler
- *
- */
-static void osp_trans_trigger(const struct lu_env *env,
-			     struct osp_device *osp,
-			     struct osp_thandle *oth)
-{
-
-	CDEBUG(D_INFO, "%s: add oth %p with version "LPU64"\n",
-	       osp->opd_obd->obd_name, oth, oth->ot_version);
-
-	LASSERT(oth->ot_magic == OSP_THANDLE_MAGIC);
-	osp_thandle_get(oth);
-	LASSERT(oth->ot_our != NULL);
-	spin_lock(&osp->opd_update->ou_lock);
-	list_add_tail(&oth->ot_our->our_list,
-		      &osp->opd_update->ou_list);
-	spin_unlock(&osp->opd_update->ou_lock);
-
-	wake_up(&osp->opd_update->ou_waitq);
 }
 
 /**
@@ -1391,7 +1517,7 @@ int osp_trans_start(const struct lu_env *env, struct dt_device *dt,
  * to stop the transaction.
  *
  * If the transaction is a remote transaction, related remote
- * updates will be triggered here via osp_trans_trigger().
+ * updates will be triggered at the end of this function.
  *
  * For synchronous mode update or any failed update, the request
  * will be destroyed explicitly when the osp_trans_stop().
@@ -1439,17 +1565,16 @@ int osp_trans_stop(const struct lu_env *env, struct dt_device *dt,
 		GOTO(out, rc = -EIO);
 	}
 
-	if (th->th_sync) {
-		/* if th_sync is set, then it needs to be sent
-		 * right away. Note: even thought the RPC has been
-		 * sent, it still needs to be added to the sending
-		 * list (see osp_trans_trigger()), so ou_rpc_version
-		 * can be updated correctly. */
-		rc = osp_send_update_req(env, osp, our);
-		our->our_req_sent = 1;
-	}
+	CDEBUG(D_HA, "%s: add oth %p with version "LPU64"\n",
+	       osp->opd_obd->obd_name, oth, oth->ot_version);
 
-	osp_trans_trigger(env, osp, oth);
+	if (oth->ot_version == 0) {
+		rc = osp_send_update_req(env, osp, our);
+	} else {
+		LASSERT(!list_empty(&oth->ot_our->our_list));
+		oth->ot_our->our_req_ready = 1;
+		wake_up(&osp->opd_update->ou_waitq);
+	}
 out:
 	osp_thandle_put(oth);
 
