@@ -98,6 +98,7 @@ struct target_distribute_txn_data {
 	/* List for distribute transaction */
 	struct list_head	tdtd_list;
 
+
 	/* Threads to manage distribute transaction */
 	wait_queue_head_t	tdtd_commit_thread_waitq;
 	atomic_t		tdtd_refcount;
