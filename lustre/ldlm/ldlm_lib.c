@@ -908,7 +908,7 @@ static int rev_import_reconnect(struct obd_export *exp,
 
 int target_handle_connect(struct ptlrpc_request *req)
 {
-	struct obd_device *target = NULL;
+	struct obd_device *target = NULL, *targref = NULL;
 	struct obd_export *export = NULL;
 	/* connect handle - filled from target_handle_reconnect in
 	 * reconnect case */
@@ -952,11 +952,6 @@ int target_handle_connect(struct ptlrpc_request *req)
 	}
 
 	spin_lock(&target->obd_dev_lock);
-	/* Make sure the target isn't cleaned up while we're here. Yes,
-	 * there's still a race between the above check and our incref here.
-	 * Really, class_uuid2obd should take the ref. */
-	class_incref(target, __func__, current);
-
 	if (target->obd_stopping || !target->obd_set_up) {
 		spin_unlock(&target->obd_dev_lock);
 
@@ -977,6 +972,11 @@ int target_handle_connect(struct ptlrpc_request *req)
 			       libcfs_nid2str(req->rq_peer.nid));
 		GOTO(out, rc = -EAGAIN);
 	}
+
+	/* Make sure the target isn't cleaned up while we're here. Yes,
+	 * there's still a race between the above check and our incref here.
+	 * Really, class_uuid2obd should take the ref. */
+	targref = class_incref(target, __func__, current);
 
 	target->obd_conn_inprogress++;
 	spin_unlock(&target->obd_dev_lock);
@@ -1386,7 +1386,7 @@ out:
 
 		class_export_put(export);
 	}
-	if (target != NULL) {
+	if (targref != NULL) {
 		spin_lock(&target->obd_dev_lock);
 		target->obd_conn_inprogress--;
 		spin_unlock(&target->obd_dev_lock);
