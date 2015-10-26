@@ -408,7 +408,16 @@ again:
 
 		CERROR("%s getting update log failed: rc = %d\n",
 		       dt->dd_lu_dev.ld_obd->obd_name, rc);
+
 		llog_ctxt_put(ctxt);
+
+		spin_lock(&top_device->ld_obd->obd_dev_lock);
+		if (!top_device->ld_obd->obd_force_abort_recovery &&
+		    !top_device->ld_obd->obd_stopping)
+			top_device->ld_obd->obd_force_abort_recovery = 1;
+
+		spin_unlock(&top_device->ld_obd->obd_dev_lock);
+
 		GOTO(out, rc);
 	}
 	llog_ctxt_put(ctxt);
