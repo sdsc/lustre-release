@@ -67,6 +67,7 @@
 #define DEBUG_SUBSYSTEM S_MDS
 
 #include <lustre_net.h>
+#include <lustre_log.h>
 #include "osp_internal.h"
 
 /**
@@ -948,7 +949,7 @@ void osp_trans_callback(const struct lu_env *env,
 {
 	struct osp_update_callback *ouc;
 	struct osp_update_callback *next;
-
+	ENTRY;
 	if (oth->ot_our != NULL) {
 		list_for_each_entry_safe(ouc, next,
 					 &oth->ot_our->our_cb_items, ouc_list) {
@@ -962,6 +963,7 @@ void osp_trans_callback(const struct lu_env *env,
 	}
 	osp_trans_stop_cb(oth, rc);
 	osp_trans_commit_cb(oth, rc);
+	EXIT;
 }
 
 /**
@@ -1146,6 +1148,10 @@ int osp_check_and_set_rpc_version(struct osp_thandle *oth)
 		return 0;
 
 	spin_lock(&ou->ou_lock);
+	if (ou->ou_invalid_header) {
+		spin_unlock(&ou->ou_lock);
+		return -EIO;
+	}
 	oth->ot_version = ou->ou_version++;
 	spin_unlock(&ou->ou_lock);
 
@@ -1200,8 +1206,8 @@ osp_get_next_request(struct osp_updates *ou, struct osp_update_request **ourp)
 	return got_req;
 }
 
-static void osp_update_rpc_version(struct osp_updates *ou,
-				   struct osp_thandle *oth)
+void osp_update_rpc_version(struct osp_updates *ou,
+			    struct osp_thandle *oth)
 {
 	if (oth->ot_version == 0)
 		return;
@@ -1209,6 +1215,86 @@ static void osp_update_rpc_version(struct osp_updates *ou,
 	LASSERT(oth->ot_version == ou->ou_rpc_version);
 	spin_lock(&ou->ou_lock);
 	ou->ou_rpc_version++;
+	spin_unlock(&ou->ou_lock);
+}
+
+/**
+ * Update llog header
+ *
+ * Once update llog header is stale, it needs to update
+ * headers for this catlog from remote target, otherwise
+ * it might cause llog corruption.
+ *
+ * \param[in] env	execution environment
+ * \param[osp] osp	OSP device whose update log needs
+ *                      to be updated.
+ *
+ * \return	0 if updating succeeds.
+ * \return	error no if updating fails.
+ */
+static int osp_update_llog_header(const struct lu_env *env,
+				  struct osp_device *osp)
+{
+	struct llog_ctxt	*ctxt;
+	struct dt_device	*dt = &osp->opd_dt_dev;
+	int rc;
+
+	/* If ctxt is NULL, it means not need to write update,
+	 * for example if the the OSP is used to connect to OST */
+	ctxt = llog_get_context(dt->dd_lu_dev.ld_obd,
+				LLOG_UPDATELOG_ORIG_CTXT);
+	/* Not ready to record updates yet. */
+	if (ctxt == NULL || ctxt->loc_handle == NULL) {
+		llog_ctxt_put(ctxt);
+		return 0;
+	}
+
+	/* Note: we need lock the whole process of updating to
+	 * avoid the race between update llog_header and write
+	 * update llog record see llog_osd_write_rec() */
+	down_write(&ctxt->loc_handle->lgh_lock);
+	rc = llog_cat_update_header(env, ctxt->loc_handle);
+	if (rc != 0) {
+		up_write(&ctxt->loc_handle->lgh_lock);
+		llog_ctxt_put(ctxt);
+		return rc;
+	}
+
+	spin_lock(&osp->opd_update->ou_lock);
+	osp->opd_update->ou_invalid_header = 0;
+	osp->opd_update->ou_sync_version = osp->opd_update->ou_version;
+	spin_unlock(&osp->opd_update->ou_lock);
+
+	up_write(&ctxt->loc_handle->lgh_lock);
+	llog_ctxt_put(ctxt);
+
+	return rc;
+}
+
+/**
+ * Invalidate update request
+ *
+ * Once update requests are failed for some reason, let's
+ * invalidate all of requests in the queue, because the
+ * llog header or llog file size might be stale.
+ *
+ * \param[in] osp	osp device whose update requests
+ *                      will be invalidated.
+ */
+void osp_invalidate_request(struct osp_device *osp)
+{
+	struct osp_updates *ou = osp->opd_update;
+	struct osp_update_request *our;
+
+	if (ou == NULL)
+		return;
+
+	spin_lock(&ou->ou_lock);
+	list_for_each_entry(our, &ou->ou_list, our_list) {
+		if (our->our_th->ot_super.th_result == 0)
+			our->our_th->ot_super.th_result = -EIO;
+	}
+	ou->ou_invalid_header = 1;
 	spin_unlock(&ou->ou_lock);
 }
 
@@ -1250,8 +1336,8 @@ int osp_send_update_thread(void *arg)
 		our = NULL;
 		l_wait_event(ou->ou_waitq,
 			     !osp_send_update_thread_running(osp) ||
-			     osp_get_next_request(ou, &our),
-			     &lwi);
+			     osp_get_next_request(ou, &our) ||
+			     ou->ou_invalid_header, &lwi);
 
 		if (!osp_send_update_thread_running(osp)) {
 			if (our != NULL && our->our_th != NULL) {
@@ -1261,21 +1347,44 @@ int osp_send_update_thread(void *arg)
 			break;
 		}
 
-		if (our->our_req_sent == 0) {
-			if (our->our_th != NULL &&
-			    our->our_th->ot_super.th_result != 0)
-				osp_trans_callback(&env, our->our_th,
-					our->our_th->ot_super.th_result);
-			else
-				rc = osp_send_update_req(&env, osp, our);
+		if (ou->ou_invalid_header) {
+			/* Update llog header is stale, let's update the
+			 * update llog header first */
+			rc = osp_update_llog_header(&env, osp);
+			if (rc != 0 && our != NULL && our->our_th != NULL &&
+			    our->our_th->ot_super.th_result == 0)
+				our->our_th->ot_super.th_result = rc;
+			if (our == NULL)
+				continue;
 		}
 
-		if (our->our_th != NULL) {
-			/* Update the rpc version */
-			osp_update_rpc_version(ou, our->our_th);
-			/* Balanced for thandle_get in osp_trans_trigger() */
-			osp_thandle_put(our->our_th);
+		LASSERT(our->our_th != NULL);
+		if (our->our_req_sent == 0) {
+			if (our->our_th->ot_super.th_result != 0) {
+				osp_trans_callback(&env, our->our_th,
+					our->our_th->ot_super.th_result);
+			} else {
+				if (OBD_FAIL_CHECK(
+					OBD_FAIL_INVALIDATE_UPDATE) ||
+				    (our->our_th->ot_version != 0 &&
+				     our->our_th->ot_version <
+						ou->ou_sync_version)) {
+					rc = -EIO;
+					osp_trans_callback(&env, our->our_th,
+							   rc);
+				} else {
+					rc = osp_send_update_req(&env, osp,
+								 our);
+				}
+				if (rc != 0)
+					osp_invalidate_request(osp);
+			}
 		}
+
+		/* Update the rpc version */
+		osp_update_rpc_version(ou, our->our_th);
+		/* Balanced for thandle_get in osp_trans_trigger() */
+		osp_thandle_put(our->our_th);
 	}
 
 	thread->t_flags = SVC_STOPPED;
@@ -1397,7 +1506,7 @@ int osp_trans_stop(const struct lu_env *env, struct dt_device *dt,
 		GOTO(out, rc = -EIO);
 	}
 
-	if (th->th_sync) {
+	if (th->th_sync && oth->ot_version == 0) {
 		/* if th_sync is set, then it needs to be sent
 		 * right away. Note: even thought the RPC has been
 		 * sent, it still needs to be added to the sending
