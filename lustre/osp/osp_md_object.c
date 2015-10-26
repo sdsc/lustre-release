@@ -1089,13 +1089,17 @@ static ssize_t osp_md_write(const struct lu_env *env, struct dt_object *dt,
 	update = thandle_to_osp_update_request(th);
 	LASSERT(update != NULL);
 
+	CDEBUG(D_INFO, "write "DFID" offset = "LPU64" length = %zu\n",
+	       PFID(lu_object_fid(&dt->do_lu)), *pos, buf->lb_len);
+
 	rc = osp_update_rpc_pack(env, write, update, OUT_WRITE,
 				 lu_object_fid(&dt->do_lu), buf, *pos);
 	if (rc < 0)
 		RETURN(rc);
 
-	CDEBUG(D_INFO, "write "DFID" offset = "LPU64" length = %zu\n",
-	       PFID(lu_object_fid(&dt->do_lu)), *pos, buf->lb_len);
+	rc = osp_check_and_set_rpc_version(oth);
+	if (rc < 0)
+		RETURN(rc);
 
 	/* XXX: how about the write error happened later? */
 	*pos += buf->lb_len;
@@ -1104,10 +1108,6 @@ static ssize_t osp_md_write(const struct lu_env *env, struct dt_object *dt,
 	    obj->opo_ooa->ooa_attr.la_valid & LA_SIZE &&
 	    obj->opo_ooa->ooa_attr.la_size < *pos)
 		obj->opo_ooa->ooa_attr.la_size = *pos;
-
-	rc = osp_check_and_set_rpc_version(oth);
-	if (rc < 0)
-		RETURN(rc);
 
 	RETURN(buf->lb_len);
 }
@@ -1146,6 +1146,9 @@ static ssize_t osp_md_read(const struct lu_env *env, struct dt_object *dt,
 		GOTO(out, rc);
 	}
 
+	CDEBUG(D_INFO, "%s "DFID" read offset %llu size %zu\n",
+	       dt_dev->dd_lu_dev.ld_obd->obd_name,
+	       PFID(lu_object_fid(&dt->do_lu)), *pos, rbuf->lb_len);
 	rc = osp_prep_update_req(env, osp->opd_obd->u.cli.cl_import, update,
 				 &req);
 	if (rc != 0)

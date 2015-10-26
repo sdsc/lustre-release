@@ -118,10 +118,15 @@ struct osp_update_request {
 
 	/* points to thandle if this update request belongs to one */
 	struct osp_thandle		*our_th;
+
+	__u64				our_version;
+	/* protect our_list and flag */
+	spinlock_t			our_list_lock;
 	/* linked to the list(ou_list) in osp_updates */
 	struct list_head		our_list;
 	__u32				our_batchid;
-	__u32				our_req_sent:1;
+	__u32				our_req_sent:1,
+					our_req_ready:1;
 };
 
 struct osp_updates {
@@ -353,7 +358,6 @@ struct osp_thandle {
 	struct list_head	 ot_stop_dcb_list;
 	struct osp_update_request *ot_our;
 	atomic_t		 ot_refcount;
-	__u64			 ot_version;
 };
 
 static inline struct osp_thandle *
@@ -714,6 +718,7 @@ struct thandle *osp_get_storage_thandle(const struct lu_env *env,
 					struct osp_device *osp);
 void osp_trans_callback(const struct lu_env *env,
 			struct osp_thandle *oth, int rc);
+void osp_invalidate_request(struct osp_device *osp);
 /* osp_object.c */
 int osp_attr_get(const struct lu_env *env, struct dt_object *dt,
 		 struct lu_attr *attr);

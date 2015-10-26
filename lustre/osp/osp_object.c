@@ -553,7 +553,8 @@ int osp_attr_get(const struct lu_env *env, struct dt_object *dt,
 
 	if (obj->opo_ooa != NULL) {
 		spin_lock(&obj->opo_lock);
-		if (obj->opo_ooa->ooa_attr.la_valid != 0) {
+		if (obj->opo_ooa->ooa_attr.la_valid != 0 &&
+		    !dev->dd_need_sync) {
 			*attr = obj->opo_ooa->ooa_attr;
 			spin_unlock(&obj->opo_lock);
 
