@@ -179,7 +179,7 @@ out:
 	if (handle != NULL)
 		dt_trans_stop(env, dt, handle);
 
-	RETURN(0);
+	RETURN(rc);
 
 out_destroy:
 	/* to signal llog_cat_close() it shouldn't try to destroy the llog,
@@ -382,6 +382,29 @@ next:
 	RETURN(loghandle);
 }
 
+int llog_cat_update_header(const struct lu_env *env,
+			   struct llog_handle *cathandle)
+{
+	struct llog_handle	*loghandle;
+	int rc;
+	ENTRY;
+
+	list_for_each_entry(loghandle, &cathandle->u.chd.chd_head,
+			    u.phd.phd_entry) {
+		if (!llog_exist(loghandle))
+			continue;
+
+		rc = llog_read_header(env, loghandle, NULL);
+		if (rc != 0)
+			GOTO(out, rc);
+	}
+
+	rc = llog_read_header(env, cathandle, NULL);
+out:
+	RETURN(rc);
+}
+EXPORT_SYMBOL(llog_cat_update_header);
+
 /* Add a single record to the recovery log(s) using a catalog
  * Returns as llog_write_record
  *
@@ -515,11 +538,31 @@ int llog_cat_declare_add_rec(const struct lu_env *env,
 					       &lirec->lid_hdr, -1, th);
 		}
 	}
+
+again:
 	/* declare records in the llogs */
 	rc = llog_declare_write_rec(env, cathandle->u.chd.chd_current_log,
 				    rec, -1, th);
-	if (rc)
+	if (rc == -ESTALE) {
+		struct dt_device *dt;
+		/* refresh llog */
+		down_write(&cathandle->lgh_lock);
+		rc = llog_cat_update_header(env, cathandle);
+		if (rc != 0) {
+			up_write(&loghandle->lgh_lock);
+			RETURN(rc);
+		}
+
+		dt = lu2dt_dev(cathandle->lgh_obj->do_lu.lo_dev);
+		/* Increase the sync version here, so OSP will
+		 * be able to add the request to the sending list
+		 * see osp_check_and_set_rpc_version() */
+		dt->dd_sync_version++;
+		up_write(&cathandle->lgh_lock);
+		goto again;
+	} else if (rc != 0) {
 		GOTO(out, rc);
+	}
 
 	next = cathandle->u.chd.chd_next_log;
 	if (next) {
