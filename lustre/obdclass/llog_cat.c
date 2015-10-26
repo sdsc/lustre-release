@@ -176,10 +176,28 @@ static int llog_cat_new_log(const struct lu_env *env,
 
 	loghandle->lgh_hdr->llh_cat_idx = rec->lid_hdr.lrh_index;
 out:
-	if (handle != NULL)
-		dt_trans_stop(env, dt, handle);
+	if (handle != NULL) {
+		int rc1;
 
-	RETURN(0);
+		rc1 = dt_trans_stop(env, dt, handle);
+		if (rc1 != 0) {
+			/* cleanup llog for error case */
+			mutex_lock(&cathandle->lgh_hdr_mutex);
+			ext2_clear_bit(rec->lid_hdr.lrh_index,
+				       LLOG_HDR_BITMAP(cathandle->lgh_hdr));
+			cathandle->lgh_hdr->llh_count--;
+			mutex_unlock(&cathandle->lgh_hdr_mutex);
+
+			cathandle->lgh_last_idx--;
+			LLOG_HDR_TAIL(cathandle->lgh_hdr)->lrt_index =
+						cathandle->lgh_last_idx;
+			/* restore llog last_idx */
+			if (rc == 0)
+				rc = rc1;
+		}
+	}
+
+	RETURN(rc);
 
 out_destroy:
 	/* to signal llog_cat_close() it shouldn't try to destroy the llog,
@@ -190,7 +208,7 @@ out_destroy:
 	 * can skip it and ask for another onet */
 	loghandle->lgh_last_idx = LLOG_HDR_BITMAP_SIZE(llh) + 1;
 	llog_trans_destroy(env, loghandle, th);
-	RETURN(rc);
+	GOTO(out, rc);
 }
 
 /* Open an existent log handle and add it to the open list.
@@ -381,6 +399,44 @@ next:
 	LASSERT(loghandle);
 	RETURN(loghandle);
 }
+
+/**
+ * Update the llog header
+ *
+ * Update the llog headers for all of plain logs of the catlog, which
+ * is usually used by remote update logs. Once remote operation failed,
+ * it needs to update the llog header, otherwise the inconsistency
+ * between remote llog header and local llog header can cause the
+ * llog corruption, see osp_send_update_thread().
+ *
+ * \param[in] env		execute environment
+ * \param[in] cathandele	cat llog handle
+ *
+ * \return		0 if updating succeds.
+ * \return		errno if updating fails.
+ */
+int llog_cat_update_header(const struct lu_env *env,
+			   struct llog_handle *cathandle)
+{
+	struct llog_handle	*loghandle;
+	int rc;
+
+	/* Assume the caller already locked the cathandle */
+	list_for_each_entry(loghandle, &cathandle->u.chd.chd_head,
+			    u.phd.phd_entry) {
+		if (!llog_exist(loghandle))
+			continue;
+
+		rc = llog_read_header(env, loghandle, NULL);
+		if (rc != 0)
+			GOTO(out, rc);
+	}
+
+	rc = llog_read_header(env, cathandle, NULL);
+out:
+	RETURN(rc);
+}
+EXPORT_SYMBOL(llog_cat_update_header);
 
 /* Add a single record to the recovery log(s) using a catalog
  * Returns as llog_write_record
