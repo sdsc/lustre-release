@@ -381,7 +381,7 @@ static int llog_osd_write_rec(const struct lu_env *env,
 	struct dt_object	*o;
 	__u32			chunk_size;
 	size_t			 left;
-
+	__u32			orig_index;
 	ENTRY;
 
 	LASSERT(env);
@@ -550,6 +550,7 @@ static int llog_osd_write_rec(const struct lu_env *env,
 		RETURN(-ENOSPC);
 
 	LASSERT(lgi->lgi_attr.la_valid & LA_SIZE);
+	orig_index = loghandle->lgh_last_idx;
 	lgi->lgi_off = lgi->lgi_attr.la_size;
 	left = chunk_size - (lgi->lgi_off & (chunk_size - 1));
 	/* NOTE: padding is a record, but no bit is set */
@@ -699,12 +700,18 @@ out:
 	llh->llh_count--;
 	mutex_unlock(&loghandle->lgh_hdr_mutex);
 
-	/* restore llog last_idx */
-	if (--loghandle->lgh_last_idx == 0 &&
-	    (llh->llh_flags & LLOG_F_IS_CAT) && llh->llh_cat_idx != 0) {
+	if (dt_object_remote(o)) {
+		/* for remote llog, the llog object is being updated
+		 * until trans stop, so let's revert it to the original
+		 * index */
+		loghandle->lgh_last_idx = orig_index;
+	} else if (--loghandle->lgh_last_idx == 0 &&
+		   llh->llh_flags & LLOG_F_IS_CAT &&
+		   llh->llh_cat_idx != 0) {
 		/* catalog had just wrap-around case */
 		loghandle->lgh_last_idx = LLOG_HDR_BITMAP_SIZE(llh) - 1;
 	}
+
 	LLOG_HDR_TAIL(llh)->lrt_index = loghandle->lgh_last_idx;
 
 	RETURN(rc);
