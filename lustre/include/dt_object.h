@@ -1706,6 +1706,7 @@ struct dt_device {
          */
 	struct list_head		   dd_txn_callbacks;
 	unsigned int			   dd_record_fid_accessed:1;
+	__u32 dd_sync_version;
 };
 
 int  dt_device_init(struct dt_device *dev, struct lu_device_type *t);

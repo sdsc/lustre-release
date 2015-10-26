@@ -102,8 +102,13 @@ struct osp_update_request_sub {
 };
 
 /**
- * Tracking the updates being executed on this dt_device.
+ * Tracking update requests for each osp_thandle.
  */
+struct osp_update_object_list {
+	struct osp_object *ouol_obj;
+	struct list_head ouol_list;
+};
+
 struct osp_update_request {
 	int				our_flags;
 	/* update request result */
@@ -118,10 +123,27 @@ struct osp_update_request {
 
 	/* points to thandle if this update request belongs to one */
 	struct osp_thandle		*our_th;
+
+	/* Track object associated with the thandle, and this object
+	 * will be invalidated during eviction or cleanup. Right now
+	 * it only track llog object, and usually it only need track
+	 * one object, let's put it in our_track_obj. If it needs to
+	 * track other objects, it will be listed to our_track_obj_list. */
+	struct osp_object		*our_track_obj;
+	struct list_head		our_track_obj_list;
+
+	__u64				our_version;
+	/* protect our_list and flag */
+	spinlock_t			our_list_lock;
 	/* linked to the list(ou_list) in osp_updates */
 	struct list_head		our_list;
 	__u32				our_batchid;
-	__u32				our_req_sent:1;
+	__u32				our_req_sent:1,
+					our_req_ready:1;
+
+	/* The current request sync version, used to check if llog
+	 * header is stale */
+	__u32				our_sync_version;
 };
 
 struct osp_updates {
@@ -131,6 +153,12 @@ struct osp_updates {
 	/* wait for next updates */
 	__u64			ou_rpc_version;
 	__u64			ou_version;
+
+	/* OSP current sync version, the request with less sync version
+	 * will not be added to the sending list, which is used to check
+	 * if current update llog is stale.
+	 * see osp_check_and_set_rpc_version() */
+	__u32			ou_sync_version;
 };
 
 struct osp_device {
@@ -353,7 +381,6 @@ struct osp_thandle {
 	struct list_head	 ot_stop_dcb_list;
 	struct osp_update_request *ot_our;
 	atomic_t		 ot_refcount;
-	__u64			 ot_version;
 };
 
 static inline struct osp_thandle *
@@ -714,6 +741,8 @@ struct thandle *osp_get_storage_thandle(const struct lu_env *env,
 					struct osp_device *osp);
 void osp_trans_callback(const struct lu_env *env,
 			struct osp_thandle *oth, int rc);
+void osp_invalidate_request(struct osp_device *osp);
+int osp_thandle_add_object(struct osp_thandle *oth, struct osp_object *obj);
 /* osp_object.c */
 int osp_attr_get(const struct lu_env *env, struct dt_object *dt,
 		 struct lu_attr *attr);
