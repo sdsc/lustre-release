@@ -1604,8 +1604,12 @@ static int osp_import_event(struct obd_device *obd, struct obd_import *imp,
 			d->opd_new_connection = 1;
 		d->opd_imp_connected = 1;
 		d->opd_imp_seen_connected = 1;
-		if (d->opd_connect_mdt)
+		if (d->opd_connect_mdt) {
+			if (d->opd_update != NULL &&
+			    d->opd_update->ou_invalid_header)
+				wake_up(&d->opd_update->ou_waitq);
 			break;
+		}
 
 		if (d->opd_pre != NULL)
 			wake_up(&d->opd_pre_waitq);
@@ -1614,6 +1618,9 @@ static int osp_import_event(struct obd_device *obd, struct obd_import *imp,
 		CDEBUG(D_HA, "got connected\n");
 		break;
 	case IMP_EVENT_INVALIDATE:
+		if (d->opd_connect_mdt)
+			osp_invalidate_request(d);
+
 		if (obd->obd_namespace == NULL)
 			break;
 		ldlm_namespace_cleanup(obd->obd_namespace, LDLM_FL_LOCAL_ONLY);
