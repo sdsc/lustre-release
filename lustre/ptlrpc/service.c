@@ -1660,7 +1660,7 @@ static int ptlrpc_server_request_add(struct ptlrpc_service_part *svcpt,
 			RETURN(rc);
 		}
 
-		if (hp || req->rq_ops != NULL)
+		if (hp)
 			list_add(&req->rq_exp_list, &exp->exp_hp_rpcs);
 		else
 			list_add(&req->rq_exp_list, &exp->exp_reg_rpcs);
