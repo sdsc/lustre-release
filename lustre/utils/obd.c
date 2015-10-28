@@ -825,21 +825,21 @@ int jt_opt_threads(int argc, char **argv)
 
 int jt_opt_net(int argc, char **argv)
 {
-        char *arg2[3];
-        int rc;
+	char *arg2[3];
+	int rc;
 
-        if (argc < 3)
-                return CMD_HELP;
+	if (argc < 3)
+		return CMD_HELP;
 
-        arg2[0] = argv[0];
-        arg2[1] = argv[1];
-        arg2[2] = NULL;
-        rc = jt_ptl_network (2, arg2);
+	arg2[0] = argv[0];
+	arg2[1] = argv[1];
+	arg2[2] = NULL;
+	rc = jt_ptl_network(2, arg2);
 
-        if (!rc)
-                rc = Parser_execarg(argc - 2, argv + 2, cmdlist);
+	if (!rc)
+		rc = Parser_execarg(argc - 2, argv + 2, cmdlist);
 
-        return rc;
+	return rc;
 }
 
 int jt_obd_no_transno(int argc, char **argv)

@@ -79,6 +79,7 @@ int Parser_help(int, char **);		/* Detailed help routine */
 void Parser_ignore_errors(int ignore);	/* Set the ignore errors flag */
 void Parser_printhelp(char *);		/* Detailed help routine */
 void Parser_exit(int, char **);		/* Shuts down command parser */
+int Parser_interactive(void);		/* if running in interactive mode */
 int Parser_execarg(int argc, char **argv, command_t cmds[]);
 int execute_line(char * line);
 

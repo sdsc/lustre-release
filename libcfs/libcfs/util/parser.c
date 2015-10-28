@@ -107,6 +107,12 @@ void Parser_ignore_errors(int ignore)
         ignore_errors = ignore;
 }
 
+static int interactive;
+int Parser_interactive(void)
+{
+	return interactive;
+}
+
 int Parser_execarg(int argc, char **argv, command_t cmds[])
 {
         command_t *cmd;
@@ -308,7 +314,7 @@ static void noop_void_fn(void) { }
  * forgot to install readline-dev. :) */
 static int init_input(void)
 {
-	int interactive = isatty(fileno(stdin));
+	interactive = isatty(fileno(stdin));
 
 #ifdef HAVE_LIBREADLINE
 	using_history();
@@ -381,16 +387,16 @@ outfree:
 /* this is the command execution machine */
 int Parser_commands(void)
 {
-        char *line, *s;
-        int rc = 0, save_error = 0;
-        int interactive;
+	char *line, *s;
+	int rc = 0, save_error = 0;
 
-        interactive = init_input();
+	init_input();
 
-        while(!done) {
-                line = readline(interactive ? parser_prompt : NULL);
+	while (!done) {
+		line = readline(interactive ? parser_prompt : NULL);
 
-                if (!line) break;
+		if (!line)
+			break;
 
                 s = skipwhitespace(line);
 
