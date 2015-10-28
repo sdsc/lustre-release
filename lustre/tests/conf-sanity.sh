@@ -1761,6 +1761,13 @@ t32_test() {
 
 	t32_wait_til_devices_gone $node
 
+	if [ $fstype == "ldiskfs" ]; then
+		run_e2fsck $node $mdt_dev "-n" || {
+			error_noexit "e2fsck on $mdt_dev failed"
+			return 1
+		}
+	fi
+
 	$r $MOUNT_CMD -o $mopts $mdt_dev $tmp/mnt/mdt || {
 		$r losetup -a
 		error_noexit "Mounting the MDT"
@@ -1769,6 +1776,13 @@ t32_test() {
 	shall_cleanup_mdt=true
 
 	if $r test -f $mdt2_dev; then
+		if [ $fstype == "ldiskfs" ]; then
+			run_e2fsck $node $mdt2_dev "-n" || {
+				error_noexit "e2fsck on $mdt2_dev failed"
+				return 1
+			}
+		fi
+
 		mopts=mgsnode=$nid,$mopts
 		$r $MOUNT_CMD -o $mopts $mdt2_dev $tmp/mnt/mdt1 || {
 			$r losetup -a
@@ -1800,6 +1814,13 @@ t32_test() {
 			error_noexit "tunefs.lustre before mounting the MDT"
 			return 1
 		}
+
+		if [ $fstype == "ldiskfs" ]; then
+			run_e2fsck $node $fs2mdsdev "-n" || {
+				error_noexit "e2fsck on $fs2mdsdev failed"
+				return 1
+			}
+		fi
 
 		echo "mount new MDT....$fs2mdsdev"
 		$r $MOUNT_CMD -o $mopts $fs2mdsdev $tmp/mnt/mdt1 || {
@@ -1842,6 +1863,14 @@ t32_test() {
 			mopts="loop,$mopts"
 		fi
 	fi
+
+	if [ $fstype == "ldiskfs" ]; then
+		run_e2fsck $node $ost_dev "-n" || {
+			error_noexit "e2fsck on $ost_dev failed"
+			return 1
+		}
+	fi
+
 	$r $MOUNT_CMD -o $mopts $ost_dev $tmp/mnt/ost || {
 		error_noexit "Mounting the OST"
 		return 1
@@ -2126,6 +2155,40 @@ t32_test() {
 			error_noexit "Verifying \"max_rpcs_in_flight\""
 			return 1
 		}
+
+# LU-7212 Run LFSCK on the upgraded file system
+		if [ $fstype == "ldiskfs" ]; then
+			$r $LCTL set_param printk=+lfsck
+
+			$r $LCTL lfsck_start -A -M $fsname-MDT0000 || {
+				error_noexit "LFSCK failed to start"
+				return 1
+			}
+
+			wait_update_facet $SINGLEMDS "$LCTL get_param -n \
+				mdd.$fsname-MDT0000.lfsck_namespace |
+				awk '/^status/ { print \\\$2 }'" \
+				"completed" 60 || {
+				error_noexit "LFSCK namespace not 'completed'"
+				return 1
+			}
+
+			wait_update_facet $SINGLEMDS "$LCTL get_param -n \
+				mdd.$fsname-MDT0000.lfsck_layout |
+				awk '/^status/ { print \\\$2 }'" \
+				"completed" 60 || {
+				error_noexit "LFSCK layout not 'completed'"
+				return 1
+			}
+
+# Any repairs done by LFSCK signifies a problem with the upgraded file system
+			local fail_cnt=$($r $LCTL get_param -n \
+					 mdd.$fsname-MDT00*.lfsck_* |
+					 awk '/repaired/ { print $2 }' |
+					 calc_sum)
+
+			$r $LCTL set_param printk=-lfsck
+		fi
 
 		umount $tmp/mnt/lustre || {
 			error_noexit "Unmounting the client"
