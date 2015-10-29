@@ -2215,17 +2215,18 @@ int mdt_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
 
         if (flag == LDLM_CB_CANCELING)
                 RETURN(0);
+
         lock_res_and_lock(lock);
         if (lock->l_blocking_ast != mdt_blocking_ast) {
                 unlock_res_and_lock(lock);
                 RETURN(0);
         }
-        if (mdt_cos_is_enabled(mdt) &&
-            lock->l_req_mode & (LCK_PW | LCK_EX) &&
-            lock->l_blocking_lock != NULL &&
-            lock->l_client_cookie != lock->l_blocking_lock->l_client_cookie) {
-                mdt_set_lock_sync(lock);
-        }
+	if ((mdt_cos_is_enabled(mdt) || mdt_soc_is_enabled(mdt)) &&
+	    lock->l_req_mode & (LCK_PW | LCK_EX) &&
+	    lock->l_blocking_lock != NULL &&
+	    lock->l_client_cookie != lock->l_blocking_lock->l_client_cookie) {
+		mdt_set_lock_sync(lock);
+	}
         rc = ldlm_blocking_ast_nocheck(lock);
 
         /* There is no lock conflict if l_blocking_lock == NULL,
@@ -2362,6 +2363,25 @@ int mdt_remote_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
 	RETURN(rc);
 }
 
+bool mdt_compatible_ast(struct ldlm_lock *lock, enum ldlm_mode req_mode,
+			__u64 dlmflags)
+{
+	struct obd_device *obd = ldlm_lock_to_ns(lock)->ns_obd;
+	struct mdt_device *mdt = mdt_dev(obd->obd_lu_dev);
+	int rc;
+	ENTRY;
+
+	LDLM_DEBUG(lock, "dlmflags "LPX64, dlmflags);
+
+	/* ignore existed COS lock if MDT COS is not enabled and request lock
+	 * doesn't check COS compatibility */
+	if (!mdt_cos_is_enabled(mdt) && mdt_soc_is_enabled(mdt) &&
+	    lock->l_req_mode == LCK_COS && !(dlmflags & LDLM_FL_COS_INCOMPAT))
+		RETURN(true);
+	rc = lockmode_compat(lock->l_req_mode, req_mode);
+	RETURN(rc);
+}
+
 int mdt_check_resent_lock(struct mdt_thread_info *info,
 			  struct mdt_object *mo,
 			  struct mdt_lock_handle *lhc)
@@ -2432,19 +2452,45 @@ int mdt_remote_object_lock(struct mdt_thread_info *mti, struct mdt_object *o,
 static int mdt_object_local_lock(struct mdt_thread_info *info,
 				 struct mdt_object *o,
 				 struct mdt_lock_handle *lh, __u64 ibits,
-				 bool nonblock)
+				 __u64 dlmflags, bool nonblock)
 {
 	struct ldlm_namespace *ns = info->mti_mdt->mdt_namespace;
 	union ldlm_policy_data *policy = &info->mti_policy;
 	struct ldlm_res_id *res_id = &info->mti_res_id;
-	__u64 dlmflags;
+	unsigned int locked = 0;
 	int rc;
 	ENTRY;
 
-        LASSERT(!lustre_handle_is_used(&lh->mlh_reg_lh));
-        LASSERT(!lustre_handle_is_used(&lh->mlh_pdo_lh));
-        LASSERT(lh->mlh_reg_mode != LCK_MINMODE);
-        LASSERT(lh->mlh_type != MDT_NUL_LOCK);
+	if (lustre_handle_is_used(&lh->mlh_pdo_lh)) {
+		LASSERT(lustre_handle_is_used(&lh->mlh_reg_lh));
+		if (lh->mlh_pdo_mode == LCK_CW || lh->mlh_pdo_mode == LCK_EX) {
+			mdt_fid_unlock(&lh->mlh_pdo_lh, lh->mlh_pdo_mode);
+			lh->mlh_pdo_mode = LCK_MINMODE;
+			dlmflags |= LDLM_FL_COS_INCOMPAT;
+		} else {
+			locked++;
+		}
+	}
+
+	if (lustre_handle_is_used(&lh->mlh_reg_lh)) {
+		if (lh->mlh_reg_mode == LCK_PW || lh->mlh_reg_mode == LCK_EX) {
+			mdt_fid_unlock(&lh->mlh_reg_lh, lh->mlh_reg_mode);
+			dlmflags |= LDLM_FL_COS_INCOMPAT;
+		} else {
+			locked++;
+		}
+	}
+
+	LASSERT(!lustre_handle_is_used(&lh->mlh_reg_lh));
+	LASSERT(!lustre_handle_is_used(&lh->mlh_pdo_lh));
+	LASSERT(lh->mlh_reg_mode != LCK_MINMODE);
+	LASSERT(lh->mlh_type != MDT_NUL_LOCK);
+
+	if (locked > 0)
+		RETURN(0);
+
+	if (mdt_modify_remote_is_set(info))
+		dlmflags |= LDLM_FL_COS_INCOMPAT;
 
 	/* Only enqueue LOOKUP lock for remote object */
 	if (mdt_object_remote(o))
@@ -2465,7 +2511,7 @@ static int mdt_object_local_lock(struct mdt_thread_info *info,
         memset(policy, 0, sizeof(*policy));
         fid_build_reg_res_name(mdt_object_fid(o), res_id);
 
-	dlmflags = LDLM_FL_ATOMIC_CB;
+	dlmflags |= LDLM_FL_ATOMIC_CB;
 	if (nonblock)
 		dlmflags |= LDLM_FL_BLOCK_NOWAIT;
 
@@ -2522,15 +2568,15 @@ out_unlock:
 
 static int
 mdt_object_lock_internal(struct mdt_thread_info *info, struct mdt_object *o,
-			 struct mdt_lock_handle *lh, __u64 ibits,
-			 bool nonblock)
+			 struct mdt_lock_handle *lh, __u64 ibits, bool nonblock)
 {
 	struct mdt_lock_handle *local_lh = NULL;
+	__u64 dlmflags = 0;
 	int rc;
 	ENTRY;
 
 	if (!mdt_object_remote(o))
-		return mdt_object_local_lock(info, o, lh, ibits, nonblock);
+		return mdt_object_local_lock(info, o, lh, ibits, 0, nonblock);
 
 	/* XXX do not support PERM/LAYOUT/XATTR lock for remote object yet */
 	ibits &= ~(MDS_INODELOCK_PERM | MDS_INODELOCK_LAYOUT |
@@ -2538,14 +2584,23 @@ mdt_object_lock_internal(struct mdt_thread_info *info, struct mdt_object *o,
 
 	/* Only enqueue LOOKUP lock for remote object */
 	if (ibits & MDS_INODELOCK_LOOKUP) {
+		if (lh->mlh_reg_mode == LCK_EX || lh->mlh_reg_mode == LCK_PW)
+			dlmflags |= LDLM_FL_COS_INCOMPAT;
+
+		if (lustre_handle_is_used(&lh->mlh_reg_lh))
+			RETURN(0);
+
 		rc = mdt_object_local_lock(info, o, lh,
-					   MDS_INODELOCK_LOOKUP,
+					   MDS_INODELOCK_LOOKUP, dlmflags,
 					   nonblock);
 		if (rc != ELDLM_OK)
 			RETURN(rc);
 
 		local_lh = lh;
 	}
+
+	if (lustre_handle_is_used(&lh->mlh_rreg_lh))
+		RETURN(0);
 
 	if (ibits & MDS_INODELOCK_UPDATE) {
 		/* Sigh, PDO needs to enqueue 2 locks right now, but
@@ -2569,6 +2624,9 @@ mdt_object_lock_internal(struct mdt_thread_info *info, struct mdt_object *o,
 			if (local_lh != NULL)
 				mdt_object_unlock(info, o, local_lh, rc);
 			RETURN(rc);
+		} else if (lh->mlh_rreg_mode == LCK_EX ||
+			   lh->mlh_rreg_mode == LCK_PW) {
+			mdt_modify_remote_set(info);
 		}
 	}
 
@@ -2592,11 +2650,6 @@ int mdt_object_lock_try(struct mdt_thread_info *info, struct mdt_object *o,
 		*lh = tmp;
 
 	return rc == 0;
-}
-
-static inline bool mdt_soc_is_enabled(struct mdt_device *mdt)
-{
-	return mdt->mdt_lut.lut_sync_lock_cancel == BLOCKING_SYNC_ON_CANCEL;
 }
 
 static inline void mdt_enable_soc(const struct lu_env *env,
@@ -2658,7 +2711,10 @@ static void mdt_save_lock(struct mdt_thread_info *info, struct lustre_handle *h,
 			struct mdt_device *mdt = info->mti_mdt;
 			struct ldlm_lock *lock = ldlm_handle2lock(h);
 			struct ptlrpc_request *req = mdt_info_req(info);
-			int no_ack = 0;
+			int cos;
+
+			cos = (mdt_cos_is_enabled(mdt) ||
+			       mdt_soc_is_enabled(mdt));
 
 			LASSERTF(lock != NULL, "no lock for cookie "LPX64"\n",
 				 h->cookie);
@@ -2674,15 +2730,14 @@ static void mdt_save_lock(struct mdt_thread_info *info, struct lustre_handle *h,
 				CDEBUG(D_HA, "request = %p reply state = %p"
 				       " transno = "LPD64"\n", req,
 				       req->rq_reply_state, req->rq_transno);
-				if (mdt_cos_is_enabled(mdt)) {
-					no_ack = 1;
+				if (cos) {
 					ldlm_lock_downgrade(lock, LCK_COS);
 					mode = LCK_COS;
 				}
-				ptlrpc_save_lock(req, NULL, h, mode, no_ack,
+				ptlrpc_save_lock(req, NULL, h, mode, cos,
 						 false);
 			} else {
-				ldlm_lock_decref(h, mode);
+				mdt_fid_unlock(h, mode);
 			}
                         if (mdt_is_lock_sync(lock)) {
                                 CDEBUG(D_HA, "found sync-lock,"
@@ -2931,6 +2986,8 @@ void mdt_thread_info_init(struct ptlrpc_request *req,
         info->mti_dlm_req = NULL;
         info->mti_has_trans = 0;
         info->mti_cross_ref = 0;
+	info->mti_modify_remote_pre = 0;
+	info->mti_modify_remote_post = 0;
         info->mti_opdata = 0;
 	info->mti_big_lmm_used = 0;
 

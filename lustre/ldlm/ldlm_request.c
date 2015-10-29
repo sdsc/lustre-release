@@ -424,6 +424,7 @@ int ldlm_cli_enqueue_local(struct ldlm_namespace *ns,
 			   ldlm_blocking_callback blocking,
 			   ldlm_completion_callback completion,
 			   ldlm_glimpse_callback glimpse,
+			   ldlm_compatible_callback compatible,
 			   void *data, __u32 lvb_len, enum lvb_type lvb_type,
 			   const __u64 *client_cookie,
 			   struct lustre_handle *lockh)
@@ -433,6 +434,7 @@ int ldlm_cli_enqueue_local(struct ldlm_namespace *ns,
         const struct ldlm_callback_suite cbs = { .lcs_completion = completion,
                                                  .lcs_blocking   = blocking,
                                                  .lcs_glimpse    = glimpse,
+						 .lcs_compatible = compatible,
         };
         ENTRY;
 

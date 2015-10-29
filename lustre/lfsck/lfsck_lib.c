@@ -393,7 +393,7 @@ static int __lfsck_ibits_lock(const struct lu_env *env,
 					    LDLM_IBITS, policy, mode,
 					    &flags, ldlm_blocking_ast,
 					    ldlm_completion_ast, NULL, NULL,
-					    0, LVB_T_NONE, NULL, lh);
+					    NULL, 0, LVB_T_NONE, NULL, lh);
 	}
 
 	if (rc == ELDLM_OK) {
