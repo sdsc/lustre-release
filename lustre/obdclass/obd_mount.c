@@ -1039,6 +1039,97 @@ static int lmd_parse_mgs(struct lustre_mount_data *lmd, char **ptr)
 	return 0;
 }
 
+/**
+ * Find the first comma delimiter from the specified \a buf and make \a *endh
+ * point to the string starting with the comma. The commas in expression list
+ * [...] will be skipped.
+ *
+ * \param[in] buf	a comma-separated string
+ * \param[in] endh	a pointer to a pointer that will point to the string
+ *			starting with the comma
+ *
+ * \retval 0		if comma delimiter is found
+ * \retval 1		if comma delimiter is not found
+ */
+static int lmd_find_comma(char *buf, char **endh)
+{
+	char *endp = NULL;
+	char *left = NULL;
+	char *right = NULL;
+
+	if (buf == NULL)
+		return 1;
+
+	endp = strchr(buf, ',');
+	if (endp == NULL)
+		return 1;
+
+	left = strchr(buf, '[');
+	right = strchr(buf, ']');
+	if (left != NULL) {
+		if (right == NULL || right < left)
+			return 1;
+
+		if (left < endp) {
+			while (endp < right) {
+				endp = strchr(endp + 1, ',');
+				if (endp == NULL)
+					return 1;
+			}
+		}
+	}
+
+	if (endh != NULL)
+		*endh = endp;
+	return 0;
+}
+
+/**
+ * Find the first valid string delimited by comma from the specified \a buf
+ # and parse it to see whether it's a valid nid list. If yes, \a *endh will
+ * point to the next string starting with the comma.
+ *
+ * \param[in] buf	a comma-separated string
+ * \param[in] endh	a pointer to a pointer that will point to the string
+ *			starting with the comma
+ *
+ * \retval 0		if the string is a valid nid list
+ * \retval 1		if the string is not a valid nid list
+ */
+static int lmd_parse_nidlist(char *buf, char **endh)
+{
+	struct list_head nidlist;
+	char		*endp = NULL;
+	char		 tmp;
+	int		 rc = 0;
+
+	if (buf == NULL)
+		return 1;
+	while (*buf == ',' || *buf == ':')
+		buf++;
+	if (*buf == ' ' || *buf == '/' || *buf == '\0')
+		return 1;
+
+	endp = strchr(buf, ',');
+	if (endp == NULL || lmd_find_comma(buf, &endp) != 0)
+		endp = buf + strlen(buf);
+
+	tmp = *endp;
+	*endp = '\0';
+
+	INIT_LIST_HEAD(&nidlist);
+	if (cfs_parse_nidlist(buf, strlen(buf),	&nidlist) <= 0)
+		rc = 1;
+	cfs_free_nidlist(&nidlist);
+
+	*endp = tmp;
+	if (rc != 0)
+		return rc;
+	if (endh != NULL)
+		*endh = endp;
+	return 0;
+}
+
 /** Parse mount line options
  * e.g. mount -v -t lustre -o abort_recov uml1:uml2:/lustre-client /mnt/lustre
  * dev is passed as device=uml1:/lustre by mount.lustre
@@ -1155,16 +1246,15 @@ static int lmd_parse(char *options, struct lustre_mount_data *lmd)
 			clear++;
 		} else if (strncmp(s1, "param=", 6) == 0) {
 			size_t length, params_length;
-			char *tail = strchr(s1 + 6, ',');
-			if (tail == NULL) {
+			char  *tail = strchr(s1 + 6, ',');
+			if (tail == NULL ||
+			    lmd_find_comma(s1 + 6, &tail) != 0) {
 				length = strlen(s1);
 			} else {
-				lnet_nid_t nid;
-				char      *param_str = tail + 1;
-				int        supplementary = 1;
-
-				while (class_parse_nid_quiet(param_str, &nid,
-							     &param_str) == 0) {
+				char *param_str = tail + 1;
+				int   supplementary = 1;
+				while (lmd_parse_nidlist(param_str,
+							 &param_str) == 0) {
 					supplementary = 0;
 				}
 				length = param_str - s1 - supplementary;
