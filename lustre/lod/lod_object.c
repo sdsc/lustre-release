@@ -4033,7 +4033,9 @@ static int lod_object_lock(const struct lu_env *env,
 			struct ldlm_namespace *ns = einfo->ei_namespace;
 			ldlm_blocking_callback blocking = einfo->ei_cb_local_bl;
 			ldlm_completion_callback completion = einfo->ei_cb_cp;
-			__u64	dlmflags = LDLM_FL_ATOMIC_CB;
+			ldlm_compatible_callback compatible = einfo->ei_cb_cb;
+			__u64 dlmflags = LDLM_FL_ATOMIC_CB |
+					 LDLM_FL_COS_INCOMPAT;
 
 			/* This only happens if there are mulitple stripes
 			 * on the master MDT, i.e. except stripe0, there are
@@ -4044,8 +4046,8 @@ static int lod_object_lock(const struct lu_env *env,
 						    policy, einfo->ei_mode,
 						    &dlmflags, blocking,
 						    completion, NULL,
-						    NULL, 0, LVB_T_NONE,
-						    NULL, &lockh);
+						    compatible, NULL, 0,
+						    LVB_T_NONE, NULL, &lockh);
 		}
 		if (rc != 0)
 			GOTO(out, rc);

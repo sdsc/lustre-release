@@ -182,7 +182,7 @@ ptlrpc_grow_req_bufs(struct ptlrpc_service_part *svcpt, int post)
  */
 void
 ptlrpc_save_lock(struct ptlrpc_request *req,
-                 struct lustre_handle *lock, int mode, int no_ack)
+                 struct lustre_handle *lock, int mode, bool no_ack)
 {
         struct ptlrpc_reply_state *rs = req->rq_reply_state;
         int                        idx;
@@ -197,7 +197,7 @@ ptlrpc_save_lock(struct ptlrpc_request *req,
                 rs->rs_locks[idx] = *lock;
                 rs->rs_modes[idx] = mode;
                 rs->rs_difficult = 1;
-                rs->rs_no_ack = !!no_ack;
+                rs->rs_no_ack = no_ack;
         }
 }
 EXPORT_SYMBOL(ptlrpc_save_lock);

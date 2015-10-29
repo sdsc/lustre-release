@@ -77,13 +77,14 @@
  */
 static int
 ldlm_inodebits_compat_queue(struct list_head *queue, struct ldlm_lock *req,
-			    struct list_head *work_list)
+			    __u64 dlmflags, struct list_head *work_list)
 {
 	struct list_head *tmp;
 	struct ldlm_lock *lock;
 	enum ldlm_mode req_mode = req->l_req_mode;
 	__u64 req_bits = req->l_policy_data.l_inodebits.bits;
 	int compat = 1;
+	bool mode_compat;
 	ENTRY;
 
 	/* There is no sense in lock with no bits set, I think.
@@ -108,7 +109,12 @@ ldlm_inodebits_compat_queue(struct list_head *queue, struct ldlm_lock *req,
                                             l_sl_mode)->l_res_link;
 
                 /* locks are compatible, bits don't matter */
-                if (lockmode_compat(lock->l_req_mode, req_mode)) {
+                if (lock->l_compatible_ast != NULL)
+			mode_compat = lock->l_compatible_ast(lock, req_mode,
+							     dlmflags);
+		else
+			mode_compat = lockmode_compat(lock->l_req_mode, req_mode);
+		if (mode_compat) {
                         /* jump to last lock in mode group */
                         tmp = mode_tail;
                         continue;
@@ -195,10 +201,12 @@ int ldlm_process_inodebits_lock(struct ldlm_lock *lock, __u64 *flags,
 		if (*flags & LDLM_FL_BLOCK_NOWAIT)
 			*err = ELDLM_LOCK_WOULDBLOCK;
 
-                rc = ldlm_inodebits_compat_queue(&res->lr_granted, lock, NULL);
+                rc = ldlm_inodebits_compat_queue(&res->lr_granted, lock, *flags,
+						 NULL);
                 if (!rc)
                         RETURN(LDLM_ITER_STOP);
-                rc = ldlm_inodebits_compat_queue(&res->lr_waiting, lock, NULL);
+                rc = ldlm_inodebits_compat_queue(&res->lr_waiting, lock, *flags,
+						 NULL);
                 if (!rc)
                         RETURN(LDLM_ITER_STOP);
 
@@ -210,8 +218,10 @@ int ldlm_process_inodebits_lock(struct ldlm_lock *lock, __u64 *flags,
         }
 
  restart:
-        rc = ldlm_inodebits_compat_queue(&res->lr_granted, lock, &rpc_list);
-        rc += ldlm_inodebits_compat_queue(&res->lr_waiting, lock, &rpc_list);
+        rc = ldlm_inodebits_compat_queue(&res->lr_granted, lock, *flags,
+					 &rpc_list);
+        rc += ldlm_inodebits_compat_queue(&res->lr_waiting, lock, *flags,
+					  &rpc_list);
 
         if (rc != 2) {
                 /* If either of the compat_queue()s returned 0, then we

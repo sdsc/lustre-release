@@ -1659,7 +1659,7 @@ int tgt_extent_lock(struct ldlm_namespace *ns, struct ldlm_res_id *res_id,
 	rc = ldlm_cli_enqueue_local(ns, res_id, LDLM_EXTENT, &policy, mode,
 				    flags, ldlm_blocking_ast,
 				    ldlm_completion_ast, ldlm_glimpse_ast,
-				    NULL, 0, LVB_T_NONE, NULL, lh);
+				    NULL, NULL, 0, LVB_T_NONE, NULL, lh);
 	RETURN(rc == ELDLM_OK ? 0 : -EIO);
 }
 EXPORT_SYMBOL(tgt_extent_lock);

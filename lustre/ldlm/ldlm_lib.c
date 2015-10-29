@@ -2872,6 +2872,7 @@ enum ldlm_mode lck_compat_array[] = {
 	[LCK_GROUP] = LCK_COMPAT_GROUP,
 	[LCK_COS]   = LCK_COMPAT_COS,
 };
+EXPORT_SYMBOL(lck_compat_array);
 
 /**
  * Rather arbitrary mapping from LDLM error codes to errno values. This should

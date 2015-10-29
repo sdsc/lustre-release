@@ -1998,7 +1998,7 @@ static int lfsck_layout_slave_conditional_destroy(const struct lu_env *env,
 	ost_fid_build_resid(fid, resid);
 	rc = ldlm_cli_enqueue_local(lfsck->li_namespace, resid, LDLM_EXTENT,
 				    policy, LCK_EX, &flags, ldlm_blocking_ast,
-				    ldlm_completion_ast, NULL, NULL, 0,
+				    ldlm_completion_ast, NULL, NULL, NULL, 0,
 				    LVB_T_NONE, NULL, &lh);
 	if (rc != ELDLM_OK)
 		GOTO(put, rc = -EIO);

@@ -351,7 +351,9 @@ struct mdt_thread_info {
         const struct ldlm_request *mti_dlm_req;
 
         __u32                      mti_has_trans:1, /* has txn already? */
-                                   mti_cross_ref:1;
+                                   mti_cross_ref:1,
+				   mti_modify_remote_pre:1,
+				   mti_modify_remote_post:1;
 
         /* opdata for mdt_reint_open(), has the same as
          * ldlm_reply:lock_policy_res1.  mdt_update_last_rcvd() stores this
@@ -938,6 +940,8 @@ static inline int is_identity_get_disabled(struct upcall_cache *cache)
 }
 
 int mdt_blocking_ast(struct ldlm_lock*, struct ldlm_lock_desc*, void*, int);
+bool mdt_compatible_ast(struct ldlm_lock *lock, enum ldlm_mode req_mode,
+			__u64 dlmflags);
 
 /* Issues dlm lock on passed @ns, @f stores it lock handle into @lh. */
 static inline int mdt_fid_lock(struct ldlm_namespace *ns,
@@ -951,16 +955,60 @@ static inline int mdt_fid_lock(struct ldlm_namespace *ns,
 	LASSERT(ns != NULL);
 	LASSERT(lh != NULL);
 
-	rc = ldlm_cli_enqueue_local(ns, res_id, LDLM_IBITS, policy,
-				    mode, &flags, mdt_blocking_ast,
-				    ldlm_completion_ast, NULL, NULL, 0,
-				    LVB_T_NONE, client_cookie, lh);
+	rc = ldlm_cli_enqueue_local(ns, res_id, LDLM_IBITS, policy, mode,
+				    &flags, mdt_blocking_ast,
+				    ldlm_completion_ast, NULL,
+				    mdt_compatible_ast, NULL, 0, LVB_T_NONE,
+				    client_cookie, lh);
 	return rc == ELDLM_OK ? 0 : -EIO;
 }
 
 static inline void mdt_fid_unlock(struct lustre_handle *lh, enum ldlm_mode mode)
 {
 	ldlm_lock_decref(lh, mode);
+	lh->cookie = 0ull;
+}
+
+static inline bool mdt_soc_is_enabled(struct mdt_device *mdt)
+{
+	return mdt->mdt_lut.lut_sync_lock_cancel == BLOCKING_SYNC_ON_CANCEL;
+}
+
+static inline void mdt_modify_remote_set(struct mdt_thread_info *info)
+{
+	struct mdt_device *mdt = info->mti_mdt;
+
+	if (mdt_soc_is_enabled(mdt)) {
+		info->mti_modify_remote_pre = info->mti_modify_remote_post;
+		info->mti_modify_remote_post = 1;
+	}
+}
+
+static inline bool mdt_modify_remote_check(struct mdt_thread_info *info)
+{
+	struct mdt_device *mdt = info->mti_mdt;
+	bool modified = false;
+
+	if (mdt_soc_is_enabled(mdt)) {
+		modified = (info->mti_modify_remote_pre !=
+			    info->mti_modify_remote_post);
+
+		info->mti_modify_remote_pre = info->mti_modify_remote_post;
+	}
+	return modified;
+}
+
+static inline void mdt_modify_remote_enforce(struct mdt_thread_info *info)
+{
+	struct mdt_device *mdt = info->mti_mdt;
+
+	if (mdt_soc_is_enabled(mdt))
+		info->mti_modify_remote_pre = info->mti_modify_remote_post = 1;
+}
+
+static inline bool mdt_modify_remote_is_set(struct mdt_thread_info *info)
+{
+	return info->mti_modify_remote_post;
 }
 
 extern mdl_mode_t mdt_mdl_lock_modes[];
