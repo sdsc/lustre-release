@@ -1720,11 +1720,8 @@ int lfsck_bits_dump(struct seq_file *m, int bits, const char *names[],
 	int flag;
 	int i;
 	bool newline = (bits != 0 ? false : true);
-	int rc;
 
-	rc = seq_printf(m, "%s:%c", prefix, bits != 0 ? ' ' : '\n');
-	if (rc < 0)
-		return rc;
+	seq_printf(m, "%s:%c", prefix, bits != 0 ? ' ' : '\n');
 
 	for (i = 0, flag = 1; bits != 0; i++, flag = 1 << i) {
 		if (flag & bits) {
@@ -1733,54 +1730,48 @@ int lfsck_bits_dump(struct seq_file *m, int bits, const char *names[],
 				if (bits == 0)
 					newline = true;
 
-				rc = seq_printf(m, "%s%c", names[i],
-						newline ? '\n' : ',');
-				if (rc < 0)
-					return rc;
+				seq_printf(m, "%s%c", names[i],
+					   newline ? '\n' : ',');
 			}
 		}
 	}
 
 	if (!newline)
-		rc = seq_printf(m, "\n");
+		seq_printf(m, "\n");
 
-	return rc;
+	return 0;
 }
 
 int lfsck_time_dump(struct seq_file *m, __u64 time, const char *name)
 {
-	int rc;
-
 	if (time == 0) {
-		rc = seq_printf(m, "%s_time: N/A\n", name);
-		if (rc == 0)
-			rc = seq_printf(m, "time_since_%s: N/A\n", name);
-
-		return rc;
+		seq_printf(m, "%s_time: N/A\n", name);
+		seq_printf(m, "time_since_%s: N/A\n", name);
+		return 0;
 	}
 
-	rc = seq_printf(m, "%s_time: "LPU64"\n", name, time);
-	if (rc == 0)
-		rc = seq_printf(m, "time_since_%s: "LPU64" seconds\n",
-				name, cfs_time_current_sec() - time);
-
-	return rc;
+	seq_printf(m, "%s_time: "LPU64"\n", name, time);
+	seq_printf(m, "time_since_%s: "LPU64" seconds\n",
+		   name, cfs_time_current_sec() - time);
+	return 0;
 }
 
 int lfsck_pos_dump(struct seq_file *m, struct lfsck_position *pos,
 		   const char *prefix)
 {
 	if (fid_is_zero(&pos->lp_dir_parent)) {
-		if (pos->lp_oit_cookie == 0)
-			return seq_printf(m, "%s: N/A, N/A, N/A\n", prefix);
-
-		return seq_printf(m, "%s: "LPU64", N/A, N/A\n",
-				  prefix, pos->lp_oit_cookie);
+		if (pos->lp_oit_cookie == 0) {
+			seq_printf(m, "%s: N/A, N/A, N/A\n", prefix);
+			return 0;
+		}
+		seq_printf(m, "%s: "LPU64", N/A, N/A\n",
+			   prefix, pos->lp_oit_cookie);
 	}
 
-	return seq_printf(m, "%s: "LPU64", "DFID", "LPX64"\n",
-			  prefix, pos->lp_oit_cookie,
-			  PFID(&pos->lp_dir_parent), pos->lp_dir_cookie);
+	seq_printf(m, "%s: "LPU64", "DFID", "LPX64"\n",
+		   prefix, pos->lp_oit_cookie,
+		   PFID(&pos->lp_dir_parent), pos->lp_dir_cookie);
+	return 0;
 }
 
 void lfsck_pos_fill(const struct lu_env *env, struct lfsck_instance *lfsck,

@@ -2223,7 +2223,7 @@ int lu_site_stats_seq_print(const struct lu_site *s, struct seq_file *m)
 	memset(&stats, 0, sizeof(stats));
 	lu_site_stats_get(s->ls_obj_hash, &stats, 1);
 
-	return seq_printf(m, "%d/%d %d/%d %d %d %d %d %d %d %d %d\n",
+	seq_printf(m, "%d/%d %d/%d %d %d %d %d %d %d %d %d\n",
 			  stats.lss_busy,
 			  stats.lss_total,
 			  stats.lss_populated,
@@ -2236,6 +2236,7 @@ int lu_site_stats_seq_print(const struct lu_site *s, struct seq_file *m)
 			  ls_stats_read(s->ls_stats, LU_SS_CACHE_DEATH_RACE),
 			  ls_stats_read(s->ls_stats, LU_SS_LRU_PURGED),
 			  ls_stats_read(s->ls_stats, LU_SS_LRU_LEN));
+	return 0;
 }
 EXPORT_SYMBOL(lu_site_stats_seq_print);
 
