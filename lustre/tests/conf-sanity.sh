@@ -5745,6 +5745,51 @@ test_87() { #LU-6544
 }
 run_test 87 "check if MDT inode can hold EAs with N stripes properly"
 
+test_88() { # LU-7131
+	local key=failover.node
+	local val1=192.0.2.254@tcp0 # Reserved IPs, see RFC 5735
+	local val2=192.0.2.255@tcp0
+	local mdsdev=$(mdsdevname 1)
+	local params
+
+	stopall
+
+	do_facet mds "$TUNEFS --erase-params $mdsdev >/dev/null" ||
+		error "tunefs failed"
+
+	# Check that parameters are added correctly
+	do_facet mds "$TUNEFS --param $key=$val1 $mdsdev >/dev/null" ||
+		error "tunefs failed"
+	params=$(do_facet mds $TUNEFS --print $mdsdev) || error "tunefs failed"
+	params=${params##*Parameters:}
+	params=${params%%exiting*}
+	[ $(echo $params | tr ' ' '\n' | grep -c $key=$val1) = "1" ] ||
+		error "on-disk parameter not added correctly via tunefs"
+
+	# Check that parameters replace existing instances when added
+	do_facet mds "$TUNEFS --param $key=$val2 $mdsdev >/dev/null" ||
+		error "tunefs failed"
+	params=$(do_facet mds $TUNEFS --print $mdsdev) || error "tunefs failed"
+	params=${params##*Parameters:}
+	params=${params%%exiting*}
+	[ $(echo $params | tr ' ' '\n' | grep -c $key=) = "1" ] ||
+		error "on-disk parameter not replaced via tunefs"
+	[ $(echo $params | tr ' ' '\n' | grep -c $key=$val2) = "1" ] ||
+		error "on-disk parameter not replaced correctly via tunefs"
+
+	# Check that a parameter is erased properly
+	do_facet mds "$TUNEFS --erase-param $key $mdsdev >/dev/null" ||
+		error "tunefs failed"
+	params=$(do_facet mds $TUNEFS --print $mdsdev) || error "tunefs failed"
+	params=${params##*Parameters:}
+	params=${params%%exiting*}
+	[ $(echo $params | tr ' ' '\n' | grep -c $key=) = "0" ] ||
+		error "on-disk parameter not erased correctly via tunefs"
+
+	reformat
+}
+run_test 88 "check tunefs correctly handles parameter addition and removal"
+
 # $1 test directory
 # $2 (optional) value of max_mod_rpcs_in_flight to set
 check_max_mod_rpcs_in_flight() {
