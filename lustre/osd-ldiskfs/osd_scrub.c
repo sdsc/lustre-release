@@ -2941,50 +2941,38 @@ static const char *scrub_param_names[] = {
 	NULL
 };
 
-static int scrub_bits_dump(struct seq_file *m, int bits, const char *names[],
-			   const char *prefix)
+static void scrub_bits_dump(struct seq_file *m, int bits, const char *names[],
+			    const char *prefix)
 {
 	int flag;
-	int rc;
 	int i;
 
-	rc = seq_printf(m, "%s:%c", prefix, bits != 0 ? ' ' : '\n');
-	if (rc < 0)
-		return rc;
+	seq_printf(m, "%s:%c", prefix, bits != 0 ? ' ' : '\n');
 
 	for (i = 0, flag = 1; bits != 0; i++, flag = 1 << i) {
 		if (flag & bits) {
 			bits &= ~flag;
-			rc = seq_printf(m, "%s%c", names[i],
-					bits != 0 ? ',' : '\n');
-			if (rc < 0)
-				return rc;
+			seq_printf(m, "%s%c", names[i],
+				   bits != 0 ? ',' : '\n');
 		}
 	}
-	return 0;
 }
 
-static int scrub_time_dump(struct seq_file *m, __u64 time, const char *prefix)
+static void scrub_time_dump(struct seq_file *m, __u64 time, const char *prefix)
 {
-	int rc;
-
 	if (time != 0)
-		rc = seq_printf(m, "%s: "LPU64" seconds\n", prefix,
+		seq_printf(m, "%s: "LPU64" seconds\n", prefix,
 			      cfs_time_current_sec() - time);
 	else
-		rc = seq_printf(m, "%s: N/A\n", prefix);
-	return rc;
+		seq_printf(m, "%s: N/A\n", prefix);
 }
 
-static int scrub_pos_dump(struct seq_file *m, __u64 pos, const char *prefix)
+static void scrub_pos_dump(struct seq_file *m, __u64 pos, const char *prefix)
 {
-	int rc;
-
 	if (pos != 0)
-		rc = seq_printf(m, "%s: "LPU64"\n", prefix, pos);
+		seq_printf(m, "%s: "LPU64"\n", prefix, pos);
 	else
-		rc = seq_printf(m, "%s: N/A\n", prefix);
-	return rc;
+		seq_printf(m, "%s: N/A\n", prefix);
 }
 
 int osd_scrub_dump(struct seq_file *m, struct osd_device *dev)
@@ -2993,60 +2981,39 @@ int osd_scrub_dump(struct seq_file *m, struct osd_device *dev)
 	struct scrub_file *sf      = &scrub->os_file;
 	__u64		   checked;
 	__u64		   speed;
-	int		   rc;
 
 	down_read(&scrub->os_rwsem);
-	rc = seq_printf(m, "name: OI_scrub\n"
+	seq_printf(m, "name: OI_scrub\n"
 			"magic: 0x%x\n"
 			"oi_files: %d\n"
 			"status: %s\n",
 			sf->sf_magic, (int)sf->sf_oi_count,
 			scrub_status_names[sf->sf_status]);
-	if (rc < 0)
-		goto out;
 
-	rc = scrub_bits_dump(m, sf->sf_flags, scrub_flags_names,
-			     "flags");
-	if (rc < 0)
-		goto out;
+	scrub_bits_dump(m, sf->sf_flags, scrub_flags_names, "flags");
 
-	rc = scrub_bits_dump(m, sf->sf_param, scrub_param_names,
-			     "param");
-	if (rc < 0)
-		goto out;
+	scrub_bits_dump(m, sf->sf_param, scrub_param_names, "param");
 
-	rc = scrub_time_dump(m, sf->sf_time_last_complete,
-			     "time_since_last_completed");
-	if (rc < 0)
-		goto out;
+	scrub_time_dump(m, sf->sf_time_last_complete,
+			"time_since_last_completed");
 
-	rc = scrub_time_dump(m, sf->sf_time_latest_start,
-			     "time_since_latest_start");
-	if (rc < 0)
-		goto out;
+	scrub_time_dump(m, sf->sf_time_latest_start,
+			"time_since_latest_start");
 
-	rc = scrub_time_dump(m, sf->sf_time_last_checkpoint,
-			     "time_since_last_checkpoint");
-	if (rc < 0)
-		goto out;
+	scrub_time_dump(m, sf->sf_time_last_checkpoint,
+			"time_since_last_checkpoint");
 
-	rc = scrub_pos_dump(m, sf->sf_pos_latest_start,
-			    "latest_start_position");
-	if (rc < 0)
-		goto out;
+	scrub_pos_dump(m, sf->sf_pos_latest_start,
+			"latest_start_position");
 
-	rc = scrub_pos_dump(m, sf->sf_pos_last_checkpoint,
-			    "last_checkpoint_position");
-	if (rc < 0)
-		goto out;
+	scrub_pos_dump(m, sf->sf_pos_last_checkpoint,
+			"last_checkpoint_position");
 
-	rc = scrub_pos_dump(m, sf->sf_pos_first_inconsistent,
-			    "first_failure_position");
-	if (rc < 0)
-		goto out;
+	scrub_pos_dump(m, sf->sf_pos_first_inconsistent,
+			"first_failure_position");
 
 	checked = sf->sf_items_checked + scrub->os_new_checked;
-	rc = seq_printf(m, "checked: "LPU64"\n"
+	seq_printf(m, "checked: "LPU64"\n"
 		      "updated: "LPU64"\n"
 		      "failed: "LPU64"\n"
 		      "prior_updated: "LPU64"\n"
@@ -3056,8 +3023,6 @@ int osd_scrub_dump(struct seq_file *m, struct osd_device *dev)
 		      checked, sf->sf_items_updated, sf->sf_items_failed,
 		      sf->sf_items_updated_prior, sf->sf_items_noscrub,
 		      sf->sf_items_igif, sf->sf_success_count);
-	if (rc < 0)
-		goto out;
 
 	speed = checked;
 	if (thread_is_running(&scrub->os_thread)) {
@@ -3072,7 +3037,7 @@ int osd_scrub_dump(struct seq_file *m, struct osd_device *dev)
 			do_div(new_checked, duration);
 		if (rtime != 0)
 			do_div(speed, rtime);
-		rc = seq_printf(m, "run_time: %u seconds\n"
+		seq_printf(m, "run_time: %u seconds\n"
 			      "average_speed: "LPU64" objects/sec\n"
 			      "real-time_speed: "LPU64" objects/sec\n"
 			      "current_position: %u\n"
@@ -3085,7 +3050,7 @@ int osd_scrub_dump(struct seq_file *m, struct osd_device *dev)
 	} else {
 		if (sf->sf_run_time != 0)
 			do_div(speed, sf->sf_run_time);
-		rc = seq_printf(m, "run_time: %u seconds\n"
+		seq_printf(m, "run_time: %u seconds\n"
 			      "average_speed: "LPU64" objects/sec\n"
 			      "real-time_speed: N/A\n"
 			      "current_position: N/A\n"
@@ -3096,7 +3061,6 @@ int osd_scrub_dump(struct seq_file *m, struct osd_device *dev)
 			      scrub->os_lf_repaired, scrub->os_lf_failed);
 	}
 
-out:
 	up_read(&scrub->os_rwsem);
-	return (rc < 0 ? -ENOSPC : 0);
+	return 0;
 }
