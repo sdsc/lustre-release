@@ -1278,6 +1278,7 @@ static int mdt_lock_objects_in_linkea(struct mdt_thread_info *info,
 		RETURN(rc);
 	}
 
+again:
 	LASSERT(ldata.ld_leh != NULL);
 	ldata.ld_lee = (struct link_ea_entry *)(ldata.ld_leh + 1);
 	for (count = 0; count < ldata.ld_leh->leh_reccount; count++) {
@@ -1333,11 +1334,21 @@ static int mdt_lock_objects_in_linkea(struct mdt_thread_info *info,
 		rc = mdt_object_lock_try(info, mdt_pobj, &mll->mll_lh,
 					 MDS_INODELOCK_UPDATE);
 		if (rc == 0) {
-			CDEBUG(D_ERROR, "%s: cannot lock "DFID": rc =%d\n",
-			       mdt_obd_name(mdt), PFID(&fid), rc);
-			mdt_object_put(info->mti_env, mdt_pobj);
+			/* If it is busy, let's try to revoke the lock,
+			 * then retry */
+			CDEBUG(D_INFO, "%s: busy lock on "DFID".\n",
+			       mdt_obd_name(mdt), PFID(&fid));
+			mdt_unlock_list(info, lock_list, rc);
+
+			rc = mdt_object_lock(info, mdt_pobj, &mll->mll_lh,
+					     MDS_INODELOCK_UPDATE);
+			if (rc != 0) {
+				OBD_FREE_PTR(mll);
+				GOTO(out, rc);
+			}
+			mdt_object_unlock_put(info, mdt_pobj, &mll->mll_lh, rc);
 			OBD_FREE_PTR(mll);
-			GOTO(out, rc = -EBUSY);
+			goto again;
 		}
 		rc = 0;
 		INIT_LIST_HEAD(&mll->mll_list);
@@ -1346,7 +1357,6 @@ static int mdt_lock_objects_in_linkea(struct mdt_thread_info *info,
 next:
 		ldata.ld_lee = (struct link_ea_entry *)((char *)ldata.ld_lee +
 							 ldata.ld_reclen);
-
 	}
 out:
 	if (rc != 0)
