@@ -91,13 +91,6 @@ AS_IF([git branch >/dev/null 2>&1], [
 	lb_cv_buildid=$(sed -ne '/^BUILDID =/s/.*= *//p' META)
 ])
 ])
-AS_IF([test -z "$lb_cv_buildid"], [
-	AC_MSG_WARN([
-
-FIXME: I don't know how to deal with source trees outside of git that
-don't have a META file. Not setting a buildid.
-])
-])
 BUILDID=$lb_cv_buildid
 AC_SUBST(BUILDID)
 ]) # LB_BUILDID
