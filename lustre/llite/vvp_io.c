@@ -567,7 +567,10 @@ static void vvp_io_update_iov(const struct lu_env *env,
 		}
 	}
 
-	vio->vui_iter->nr_segs = i + 1;
+	if (i < vio->vui_tot_nrsegs)
+		vio->vui_iter->nr_segs = i + 1;
+	else
+		vio->vui_iter->nr_segs = i;
 	LASSERTF(vio->vui_tot_nrsegs >= vio->vui_iter->nr_segs,
 		 "tot_nrsegs: %lu, nrsegs: %lu\n",
 		 vio->vui_tot_nrsegs, vio->vui_iter->nr_segs);
