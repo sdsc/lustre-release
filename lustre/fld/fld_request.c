@@ -425,7 +425,8 @@ again:
 	}
 
 	if (rc != 0) {
-		if (imp->imp_state != LUSTRE_IMP_CLOSED && !imp->imp_deactive) {
+		if (imp->imp_state != LUSTRE_IMP_CLOSED && !imp->imp_deactive &&
+		    !list_empty(&imp->imp_obd->obd_lwp_list)) {
 			/* Since LWP is not replayable, so it will keep
 			 * trying unless umount happens, otherwise it would
 			 * cause unecessary failure of the application. */
