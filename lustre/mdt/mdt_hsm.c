@@ -180,7 +180,9 @@ int mdt_hsm_ct_unregister(struct tgt_session_info *tsi)
 		GOTO(out, rc = -EPERM);
 
 	/* XXX: directly include this function here? */
-	rc = mdt_hsm_agent_unregister(info, &tsi->tsi_exp->exp_client_uuid);
+	/* 3rd arg = 0, client is not evicted
+	 * 4th arg = 1, call hsm_cancel_all_actions() */
+	rc = mdt_hsm_agent_unregister(info, &tsi->tsi_exp->exp_client_uuid, 0, 1);
 out:
 	mdt_thread_info_fini(info);
 	RETURN(rc);
@@ -556,6 +558,9 @@ int mdt_hsm_request(struct tgt_session_info *tsi)
 		hai->hai_gid = 0;
 		hai->hai_fid = hui[i].hui_fid;
 		hai->hai_extent = hui[i].hui_extent;
+		/* hai_in_progress = 1 indicates hsm action is started
+		 * and made 0 once the action completes */
+		hai->hai_in_progress = 1;
 		memcpy(hai->hai_data, data, hr->hr_data_len);
 		hai->hai_len = sizeof(*hai) + hr->hr_data_len;
 	}

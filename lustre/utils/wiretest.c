@@ -4265,7 +4265,7 @@ void lustre_assert_wire_constants(void)
 		 (long long)LAYOUT_INTENT_RESTORE);
 
 	/* Checks for struct hsm_action_item */
-	LASSERTF((int)sizeof(struct hsm_action_item) == 72, "found %lld\n",
+	LASSERTF((int)sizeof(struct hsm_action_item) == 76, "found %lld\n",
 		 (long long)(int)sizeof(struct hsm_action_item));
 	LASSERTF((int)offsetof(struct hsm_action_item, hai_len) == 0, "found %lld\n",
 		 (long long)(int)offsetof(struct hsm_action_item, hai_len));
@@ -4295,7 +4295,7 @@ void lustre_assert_wire_constants(void)
 		 (long long)(int)offsetof(struct hsm_action_item, hai_gid));
 	LASSERTF((int)sizeof(((struct hsm_action_item *)0)->hai_gid) == 8, "found %lld\n",
 		 (long long)(int)sizeof(((struct hsm_action_item *)0)->hai_gid));
-	LASSERTF((int)offsetof(struct hsm_action_item, hai_data) == 72, "found %lld\n",
+	LASSERTF((int)offsetof(struct hsm_action_item, hai_data) == 76, "found %lld\n",
 		 (long long)(int)offsetof(struct hsm_action_item, hai_data));
 	LASSERTF((int)sizeof(((struct hsm_action_item *)0)->hai_data) == 0, "found %lld\n",
 		 (long long)(int)sizeof(((struct hsm_action_item *)0)->hai_data));
@@ -4382,7 +4382,7 @@ void lustre_assert_wire_constants(void)
 		 (long long)(int)sizeof(((struct hsm_copy *)0)->padding));
 	LASSERTF((int)offsetof(struct hsm_copy, hc_hai) == 16, "found %lld\n",
 		 (long long)(int)offsetof(struct hsm_copy, hc_hai));
-	LASSERTF((int)sizeof(((struct hsm_copy *)0)->hc_hai) == 72, "found %lld\n",
+	LASSERTF((int)sizeof(((struct hsm_copy *)0)->hc_hai) == 76, "found %lld\n",
 		 (long long)(int)sizeof(((struct hsm_copy *)0)->hc_hai));
 
 	/* Checks for struct hsm_progress_kernel */
