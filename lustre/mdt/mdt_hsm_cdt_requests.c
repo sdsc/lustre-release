@@ -254,6 +254,7 @@ struct cdt_agent_req *mdt_cdt_alloc_request(__u64 compound_id, __u32 archive_id,
 	car->car_req_start = cfs_time_current_sec();
 	car->car_req_update = car->car_req_start;
 	car->car_uuid = *uuid;
+	init_waitqueue_head(&car->car_waitq);
 	OBD_ALLOC(car->car_hai, hai->hai_len);
 	if (car->car_hai == NULL) {
 		OBD_SLAB_FREE_PTR(car, mdt_hsm_car_kmem);

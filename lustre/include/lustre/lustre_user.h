@@ -1242,6 +1242,7 @@ struct hsm_action_item {
 	struct hsm_extent hai_extent;  /* byte range to operate on */
 	__u64      hai_cookie;  /* action cookie from coordinator */
 	__u64      hai_gid;     /* grouplock id */
+	__u32      hai_in_progress; /* indicates action is in progress */
 	char       hai_data[0]; /* variable length */
 } __attribute__((packed));
 
