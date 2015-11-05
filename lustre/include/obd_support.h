@@ -671,7 +671,7 @@ static inline void obd_memory_sub(long size)
         obd_memory_sub(size);                                           \
         CDEBUG(D_MALLOC, name " '" #ptr "': %d at %p.\n",               \
                (int)(size), ptr);                                       \
-        POISON(ptr, 0x5a, size)
+        POISON(ptr, 0x5b, size)
 
 #else /* !OBD_DEBUG_MEMUSAGE */
 
