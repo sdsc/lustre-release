@@ -46,6 +46,7 @@
 #define PRINT_CMD CDEBUG
 #define PRINT_MASK (D_SUPER | D_CONFIG)
 
+#include <linux/selinux.h>
 #include <linux/statfs.h>
 #include <obd.h>
 #include <obd_class.h>
@@ -57,9 +58,6 @@
 #include <lustre_param.h>
 #ifdef HAVE_KERNEL_LOCKED
 #include <linux/smp_lock.h>
-#endif
-#ifdef HAVE_SELINUX_IS_ENABLED
-#include <linux/selinux.h>
 #endif
 
 /*********** mount lookup *********/
