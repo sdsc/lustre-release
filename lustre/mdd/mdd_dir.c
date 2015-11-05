@@ -4095,8 +4095,6 @@ static int mdd_migrate(const struct lu_env *env, struct md_object *pobj,
 		if (unlikely(OBD_FAIL_CHECK_RESET(OBD_FAIL_MIGRATE_NET_REP,
 						  OBD_FAIL_MDS_REINT_NET_REP)))
 			GOTO(put, rc = 0);
-	} else {
-		OBD_FAIL_TIMEOUT(OBD_FAIL_MIGRATE_DELAY, cfs_fail_val);
 	}
 
 	/* step 4: update name entry to the new object */
