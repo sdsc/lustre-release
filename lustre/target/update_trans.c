@@ -801,7 +801,6 @@ int top_trans_start(const struct lu_env *env, struct dt_device *master_dev,
 		if (rc != 0)
 			GOTO(out, rc);
 
-		sub_thandle_register_stop_cb(st, tmt);
 		sub_thandle_register_commit_cb(st, tmt);
 	}
 out:
@@ -1117,6 +1116,7 @@ create_sub_thandle_with_thandle(struct top_thandle *top_th,
 	st->st_sub_th = sub_th;
 
 	sub_th->th_top = &top_th->tt_super;
+	sub_thandle_register_stop_cb(st, top_th->tt_multiple_thandle);
 	return st;
 }
 
