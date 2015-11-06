@@ -99,20 +99,15 @@ lnet_dyn_configure(struct libcfs_ioctl_hdr *hdr)
 {
 	struct lnet_ioctl_config_data *conf =
 	  (struct lnet_ioctl_config_data *)hdr;
+	struct lnet_lnd_tunables *lnd = NULL;
 	int			      rc;
+
+	if (conf->cfg_config_u.cfg_net.net_tunable_size > 0)
+		lnd = (struct lnet_lnd_tunables *)conf->cfg_bulk;
 
 	LNET_MUTEX_LOCK(&lnet_config_mutex);
 	if (the_lnet.ln_niinit_self)
-		rc = lnet_dyn_add_ni(LNET_PID_LUSTRE,
-				     conf->cfg_config_u.cfg_net.net_intf,
-				     conf->cfg_config_u.cfg_net.
-					net_peer_timeout,
-				     conf->cfg_config_u.cfg_net.
-					net_peer_tx_credits,
-				     conf->cfg_config_u.cfg_net.
-					net_peer_rtr_credits,
-				     conf->cfg_config_u.cfg_net.
-					net_max_tx_credits);
+		rc = lnet_dyn_add_ni(LNET_PID_LUSTRE, conf, lnd);
 	else
 		rc = -EINVAL;
 	LNET_MUTEX_UNLOCK(&lnet_config_mutex);

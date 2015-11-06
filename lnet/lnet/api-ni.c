@@ -1223,8 +1223,8 @@ lnet_shutdown_lndni(struct lnet_ni *ni)
 }
 
 static int
-lnet_startup_lndni(struct lnet_ni *ni, __s32 peer_timeout,
-		   __s32 peer_cr, __s32 peer_buf_cr, __s32 credits)
+lnet_startup_lndni(struct lnet_ni *ni, struct lnet_ioctl_config_data *conf,
+		   struct lnet_lnd_tunables *lnd_tunables)
 {
 	int			rc = -EINVAL;
 	__u32			lnd_type;
@@ -1290,6 +1290,17 @@ lnet_startup_lndni(struct lnet_ni *ni, __s32 peer_timeout,
 
 	ni->ni_lnd = lnd;
 
+	if (lnd_tunables != NULL) {
+		LIBCFS_ALLOC(ni->ni_lnd_tunables,
+			     sizeof(*ni->ni_lnd_tunables));
+		if (ni->ni_lnd_tunables == NULL) {
+			rc = -ENOMEM;
+			goto failed0;
+		}
+		memcpy(ni->ni_lnd_tunables, lnd_tunables,
+		       sizeof(*ni->ni_lnd_tunables));
+	}
+
 	rc = (lnd->lnd_startup)(ni);
 
 	LNET_MUTEX_UNLOCK(&the_lnet.ln_lnd_mutex);
@@ -1305,20 +1316,29 @@ lnet_startup_lndni(struct lnet_ni *ni, __s32 peer_timeout,
 
 	/* If given some LND tunable parameters, parse those now to
 	 * override the values in the NI structure. */
-	if (peer_buf_cr >= 0)
-		ni->ni_peerrtrcredits = peer_buf_cr;
-	if (peer_timeout >= 0)
-		ni->ni_peertimeout = peer_timeout;
+	if (conf && conf->cfg_config_u.cfg_net.net_peer_rtr_credits >= 0) {
+		ni->ni_peerrtrcredits =
+			conf->cfg_config_u.cfg_net.net_peer_rtr_credits;
+	}
+	if (conf && conf->cfg_config_u.cfg_net.net_peer_timeout >= 0) {
+		ni->ni_peertimeout =
+			conf->cfg_config_u.cfg_net.net_peer_timeout;
+	}
+
 	/*
 	 * TODO
 	 * Note: For now, don't allow the user to change
 	 * peertxcredits as this number is used in the
 	 * IB LND to control queue depth.
-	 * if (peer_cr != -1)
-	 *	ni->ni_peertxcredits = peer_cr;
+	 *
+	 * if (conf && conf->cfg_config_u.cfg_net.net_peer_tx_credits != -1)
+	 *	ni->ni_peertxcredits =
+	 *		conf->cfg_config_u.cfg_net.net_peer_tx_credits;
 	 */
-	if (credits >= 0)
-		ni->ni_maxtxcredits = credits;
+	if (conf && conf->cfg_config_u.cfg_net.net_max_tx_credits >= 0) {
+		ni->ni_maxtxcredits =
+			conf->cfg_config_u.cfg_net.net_max_tx_credits;
+	}
 
 	LASSERT(ni->ni_peertimeout <= 0 || lnd->lnd_query != NULL);
 
@@ -1379,7 +1399,7 @@ lnet_startup_lndnis(struct list_head *nilist)
 	while (!list_empty(nilist)) {
 		ni = list_entry(nilist->next, lnet_ni_t, ni_list);
 		list_del(&ni->ni_list);
-		rc = lnet_startup_lndni(ni, -1, -1, -1, -1);
+		rc = lnet_startup_lndni(ni, NULL, NULL);
 
 		if (rc < 0)
 			goto failed;
@@ -1732,10 +1752,10 @@ lnet_get_net_config(int idx, __u32 *cpt_count, __u64 *nid, int *peer_timeout,
 }
 
 int
-lnet_dyn_add_ni(lnet_pid_t requested_pid, char *nets,
-		__s32 peer_timeout, __s32 peer_cr, __s32 peer_buf_cr,
-		__s32 credits)
+lnet_dyn_add_ni(lnet_pid_t requested_pid, struct lnet_ioctl_config_data *conf,
+		struct lnet_lnd_tunables *lnd_tunables)
 {
+	char			*nets = conf->cfg_config_u.cfg_net.net_intf;
 	lnet_ping_info_t	*pinfo;
 	lnet_handle_md_t	md_handle;
 	struct lnet_ni		*ni;
@@ -1778,8 +1798,7 @@ lnet_dyn_add_ni(lnet_pid_t requested_pid, char *nets,
 
 	list_del_init(&ni->ni_list);
 
-	rc = lnet_startup_lndni(ni, peer_timeout, peer_cr,
-				peer_buf_cr, credits);
+	rc = lnet_startup_lndni(ni, conf, lnd_tunables);
 	if (rc != 0)
 		goto failed1;
 

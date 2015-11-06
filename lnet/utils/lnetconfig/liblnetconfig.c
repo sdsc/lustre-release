@@ -33,17 +33,19 @@
  *  calls the APIs mentioned in 1
  */
 
+#include <dirent.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <limits.h>
 #include <netdb.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <unistd.h>
 #include <libcfs/util/ioctl.h>
 #include <lnet/lnetctl.h>
 #include <lnet/socklnd.h>
-#include <lnet/lnet.h>
 #include "liblnetconfig.h"
 #include "cyaml.h"
 
@@ -442,10 +444,14 @@ out:
 
 int lustre_lnet_config_net(char *net, char *intf, char *ip2net,
 			   int peer_to, int peer_cr, int peer_buf_cr,
-			   int credits, char *smp, int seq_no,
+			   int credits, char *smp,
+			   struct lnet_lnd_tunables *lnd_tunables,
+			   int seq_no,
 			   struct cYAML **err_rc)
 {
-	struct lnet_ioctl_config_data data;
+	char *bulk;
+	struct lnet_ioctl_config_data *data;
+	struct lnet_lnd_tunables *lnd = NULL;
 	char buf[LNET_MAX_STR_LEN];
 	int rc = LUSTRE_CFG_RC_NO_ERR;
 	char err_str[LNET_MAX_STR_LEN];
@@ -481,20 +487,42 @@ int lustre_lnet_config_net(char *net, char *intf, char *ip2net,
 		goto out;
 	}
 
+	if (lnd_tunables != NULL) {
+		bulk = calloc(1, sizeof(*data) + sizeof(*lnd));
+		if (bulk == NULL)
+			goto out;
+
+		data = (struct lnet_ioctl_config_data *)bulk;
+		lnd = (struct lnet_lnd_tunables *)data->cfg_bulk;
+		lnd->version = 0;
+	} else {
+		bulk = calloc(1, sizeof(*data));
+		if (bulk == NULL)
+			goto out;
+
+		data = (struct lnet_ioctl_config_data *)bulk;
+	}
+
 	if (ip2net == NULL)
 		snprintf(buf, sizeof(buf) - 1, "%s(%s)%s",
 			net, intf,
 			(smp) ? smp : "");
 
-	LIBCFS_IOC_INIT_V2(data, cfg_hdr);
-	strncpy(data.cfg_config_u.cfg_net.net_intf,
-		(ip2net != NULL) ? ip2net : buf, sizeof(buf));
-	data.cfg_config_u.cfg_net.net_peer_timeout = peer_to;
-	data.cfg_config_u.cfg_net.net_peer_tx_credits = peer_cr;
-	data.cfg_config_u.cfg_net.net_peer_rtr_credits = peer_buf_cr;
-	data.cfg_config_u.cfg_net.net_max_tx_credits = credits;
+	LIBCFS_IOC_INIT_V2(*data, cfg_hdr);
+	if (lnd_tunables != NULL) {
+		data->cfg_config_u.cfg_net.net_tunable_size = sizeof(*lnd);
+		data->cfg_hdr.ioc_len = sizeof(*data) + sizeof(*lnd);
+		memcpy(lnd, lnd_tunables, sizeof(*lnd));
+	}
 
-	rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_ADD_NET, &data);
+	strncpy(data->cfg_config_u.cfg_net.net_intf,
+		(ip2net != NULL) ? ip2net : buf, sizeof(buf));
+	data->cfg_config_u.cfg_net.net_peer_timeout = peer_to;
+	data->cfg_config_u.cfg_net.net_peer_tx_credits = peer_cr;
+	data->cfg_config_u.cfg_net.net_peer_rtr_credits = peer_buf_cr;
+	data->cfg_config_u.cfg_net.net_max_tx_credits = credits;
+
+	rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_ADD_NET, data);
 	if (rc < 0) {
 		rc = -errno;
 		snprintf(err_str,
@@ -561,7 +589,7 @@ int lustre_lnet_show_net(char *nw, int detail, int seq_no,
 	__u32 net = LNET_NIDNET(LNET_NID_ANY);
 	int rc = LUSTRE_CFG_RC_OUT_OF_MEM, i, j;
 	int l_errno = 0;
-	struct cYAML *root = NULL, *tunables = NULL,
+	struct cYAML *root = NULL, *tunables = NULL, *lndparams = NULL,
 		*net_node = NULL, *interfaces = NULL,
 		*item = NULL, *first_seq = NULL;
 	int str_buf_len = LNET_MAX_SHOW_NUM_CPT * 2;
@@ -675,33 +703,95 @@ int lustre_lnet_show_net(char *nw, int detail, int seq_no,
 		}
 
 		if (detail) {
-			char *limit;
+			__u32 net = LNET_NETTYP(LNET_NIDNET(data->cfg_nid));
+			char path[PATH_MAX], buf[PATH_MAX], *limit, *tmp;
+			char *sysfs = "/sys/module", *lnd;
+			struct cYAML *opt;
+			FILE *fp;
+			DIR *d;
 
 			tunables = cYAML_create_object(item, "tunables");
 			if (tunables == NULL)
 				goto out;
 
-			if (cYAML_create_number(tunables, "peer_timeout",
-						data->cfg_config_u.cfg_net.
-						 net_peer_timeout) == NULL)
+			switch (net) {
+			case LOLND:
+				if (cYAML_create_string(tunables, "peer_timeout",
+							"0") == NULL)
+					goto out;
+
+				if (cYAML_create_string(tunables, "peer_credits",
+							"0") == NULL)
+					goto out;
+
+				if (cYAML_create_string(tunables, "peer_buffer_credits",
+							"0") == NULL)
+					goto out;
+
+				if (cYAML_create_string(tunables, "credits", "0") == NULL)
+					goto out;
+
+				goto cpt_handling;
+
+			case O2IBLND:
+				lnd = "ko2iblnd";
+				break;
+			case SOCKLND:
+				lnd = "socklnd";
+				break;
+			case GNIIPLND:
+			case GNILND:
+				lnd = "gnilnd";
+				break;
+			default:
+				goto out;
+			}
+
+			lndparams = cYAML_create_object(item, "LND tunables");
+			if (lndparams == NULL)
 				goto out;
 
-			if (cYAML_create_number(tunables, "peer_credits",
-						data->cfg_config_u.cfg_net.
-						  net_peer_tx_credits) == NULL)
-				goto out;
+			snprintf(path, sizeof(path), "%s/%s/parameters", sysfs, lnd);
+			d = opendir(path);
+			if (d) {
+				struct dirent *dir;
 
-			if (cYAML_create_number(tunables,
-						"peer_buffer_credits",
-						data->cfg_config_u.cfg_net.
-						  net_peer_rtr_credits) == NULL)
-				goto out;
+				while ((dir = readdir(d)) != NULL) {
 
-			if (cYAML_create_number(tunables, "credits",
-						data->cfg_config_u.cfg_net.
-						  net_max_tx_credits) == NULL)
-				goto out;
+					if (!strcmp(dir->d_name, ".") ||
+					    !strcmp(dir->d_name, ".."))
+						continue;
 
+					if (!strcmp(dir->d_name, "peer_timeout") ||
+					    !strcmp(dir->d_name, "peer_credits") ||
+					    !strcmp(dir->d_name, "peer_buffer_credits") ||
+					    !strcmp(dir->d_name, "credits"))
+						opt = tunables;
+					else
+						opt = lndparams;
+
+					snprintf(path, sizeof(path),
+						 "%s/%s/parameters/%s",
+						 sysfs, lnd, dir->d_name);
+
+					fp = fopen(path, "r");
+					if (fp < 0) {
+						closedir(d);
+						goto out;
+					}
+					if (!fgets(buf, sizeof(buf), fp)) {
+						closedir(d);
+						goto out;
+					}
+					tmp = index(buf, '\n');
+					*tmp = '\0';
+					if (cYAML_create_string(opt, dir->d_name,
+								buf) == NULL)
+						goto out;
+				}
+				closedir(d);
+			}
+cpt_handling:
 			/* out put the CPTs in the format: "[x,x,x,...]" */
 			limit = str_buf + str_buf_len - 3;
 			pos += snprintf(pos, limit - pos, "\"[");
@@ -1248,14 +1338,16 @@ static int handle_yaml_config_route(struct cYAML *tree, struct cYAML **show_rc,
 static int handle_yaml_config_net(struct cYAML *tree, struct cYAML **show_rc,
 				  struct cYAML **err_rc)
 {
-	struct cYAML *net, *intf, *tunables, *seq_no,
+	struct cYAML *net, *intf, *tunables, *lnd_params, *seq_no,
 	      *peer_to = NULL, *peer_buf_cr = NULL, *peer_cr = NULL,
-	      *credits = NULL, *ip2net = NULL, *smp = NULL, *child;
+	      *credits = NULL, *ip2net = NULL, *smp = NULL, *child = NULL,
+	      *map_on_demand = NULL, *concurrent_sends = NULL;
 	char devs[LNET_MAX_STR_LEN];
 	char *loc = devs;
 	int size = LNET_MAX_STR_LEN;
 	int num;
 	bool intf_found = false;
+	struct lnet_lnd_tunables lnd_tunables, *lnd_tunables_p = NULL;
 
 	ip2net = cYAML_get_object_item(tree, "ip2net");
 	net = cYAML_get_object_item(tree, "net");
@@ -1284,10 +1376,40 @@ static int handle_yaml_config_net(struct cYAML *tree, struct cYAML **show_rc,
 		peer_buf_cr = cYAML_get_object_item(tunables,
 						    "peer_buffer_credits");
 		credits = cYAML_get_object_item(tunables, "credits");
+		map_on_demand = cYAML_get_object_item(tunables,
+						      "map_on_demand");
+		concurrent_sends = cYAML_get_object_item(tunables,
+							 "concurrent_sends");
 		smp = cYAML_get_object_item(tunables, "CPT");
 	}
+
+	lnd_params = cYAML_get_object_item(tree, "LND tunables");
+	if (lnd_params != NULL) {
+		map_on_demand = cYAML_get_object_item(lnd_params,
+						      "map_on_demand");
+		concurrent_sends = cYAML_get_object_item(lnd_params,
+							 "concurrent_sends");
+	}
+
 	seq_no = cYAML_get_object_item(tree, "seq_no");
 
+	if (map_on_demand || concurrent_sends)
+		goto o2iblnd_tunables;
+	else
+		goto configure_net;
+
+o2iblnd_tunables:
+	lnd_tunables.lnd_tunables_u.lnd_o2iblnd.lnd_map_on_demand =
+	  (map_on_demand) ? map_on_demand->cy_valueint : -1;
+
+	lnd_tunables.lnd_tunables_u.lnd_o2iblnd.lnd_concurrent_sends =
+	  (concurrent_sends) ? concurrent_sends->cy_valueint : -1;
+
+	lnd_tunables_p = &lnd_tunables;
+
+	goto configure_net;
+
+configure_net:
 	return lustre_lnet_config_net((net) ? net->cy_valuestring : NULL,
 				      (intf_found) ? devs : NULL,
 				      (ip2net) ? ip2net->cy_valuestring : NULL,
@@ -1297,6 +1419,7 @@ static int handle_yaml_config_net(struct cYAML *tree, struct cYAML **show_rc,
 					peer_buf_cr->cy_valueint : -1,
 				      (credits) ? credits->cy_valueint : -1,
 				      (smp) ? smp->cy_valuestring : NULL,
+				      lnd_tunables_p,
 				      (seq_no) ? seq_no->cy_valueint : -1,
 				      err_rc);
 }
