@@ -1896,6 +1896,8 @@ int tgt_brw_read(struct tgt_session_info *tsi)
 			break;
 		}
 	}
+	if (rc == 0 && OBD_FAIL_CHECK(OBD_FAIL_OST_READ_4095) && nob != 4095)
+		rc = -E2BIG;
 
 	if (body->oa.o_valid & OBD_MD_FLCKSUM) {
 		cksum_type_t cksum_type =

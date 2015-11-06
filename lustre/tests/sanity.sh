@@ -13398,6 +13398,18 @@ test_245() {
 }
 run_test 245 "check mdc connection flag/data: multiple modify RPCs"
 
+test_246() { # LU-7371
+	do_facet ost1 $LCTL set_param fail_loc=0x234
+	$LFS setstripe $DIR/$tfile -i 0 -c 1
+	dd if=/dev/zero of=$DIR/$tfile bs=4095 count=1 > /dev/null 2>&1
+	remount_client $MOUNT
+	dd if=$DIR/$tfile of=/dev/null bs=1048576 > /dev/null 2>&1
+	RET=$?
+	[ $RET -eq 0 ] || error "Read failed"
+	do_facet ost1 $LCTL set_param fail_loc=0
+}
+run_test 246 "Read file of size 4095 should return right length"
+
 test_250() {
 	[ "$(facet_fstype ost$(($($GETSTRIPE -i $DIR/$tfile) + 1)))" = "zfs" ] \
 	 && skip "no 16TB file size limit on ZFS" && return
