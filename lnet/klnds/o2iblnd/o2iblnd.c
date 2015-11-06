@@ -317,7 +317,8 @@ kiblnd_unpack_msg(kib_msg_t *msg, int nob)
 }
 
 int
-kiblnd_create_peer(lnet_ni_t *ni, kib_peer_t **peerp, lnet_nid_t nid)
+kiblnd_create_peer(lnet_ni_t *ni, kib_peer_t **peerp, lnet_nid_t nid,
+		   kib_connparams_t *cp)
 {
 	kib_peer_t	*peer;
 	kib_net_t	*net = ni->ni_data;
@@ -338,6 +339,14 @@ kiblnd_create_peer(lnet_ni_t *ni, kib_peer_t **peerp, lnet_nid_t nid)
 	peer->ibp_error = 0;
 	peer->ibp_last_alive = 0;
 	atomic_set(&peer->ibp_refcount, 1);	/* 1 ref for caller */
+
+	if (cp == NULL) {
+		peer->ibp_max_frags = IBLND_CFG_RDMA_FRAGS;
+		peer->ibp_queue_depth = *kiblnd_tunables.kib_peertxcredits;
+	} else {
+		peer->ibp_max_frags = cp->ibcp_max_frags;
+		peer->ibp_queue_depth = cp->ibcp_queue_depth;
+	}
 
 	INIT_LIST_HEAD(&peer->ibp_list);	/* not in the peer table yet */
 	INIT_LIST_HEAD(&peer->ibp_conns);
@@ -704,7 +713,7 @@ kiblnd_get_completion_vector(kib_conn_t *conn, int cpt)
 
 kib_conn_t *
 kiblnd_create_conn(kib_peer_t *peer, struct rdma_cm_id *cmid,
-		   int state, int version, kib_connparams_t *cp)
+		   int state, int version)
 {
 	/* CAVEAT EMPTOR:
 	 * If the new conn is created successfully it takes over the caller's
@@ -758,14 +767,6 @@ kiblnd_create_conn(kib_peer_t *peer, struct rdma_cm_id *cmid,
 	conn->ibc_peer = peer;			/* I take the caller's ref */
 	cmid->context = conn;			/* for future CM callbacks */
 	conn->ibc_cmid = cmid;
-
-	if (cp == NULL) {
-		conn->ibc_max_frags = IBLND_CFG_RDMA_FRAGS;
-		conn->ibc_queue_depth = *kiblnd_tunables.kib_peertxcredits;
-	} else {
-		conn->ibc_max_frags = cp->ibcp_max_frags;
-		conn->ibc_queue_depth = cp->ibcp_queue_depth;
-	}
 
 	INIT_LIST_HEAD(&conn->ibc_early_rxs);
 	INIT_LIST_HEAD(&conn->ibc_tx_noops);
