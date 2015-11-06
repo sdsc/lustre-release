@@ -434,7 +434,7 @@ out:
 static int ll_och_fill(struct obd_export *md_exp, struct lookup_intent *it,
 		       struct obd_client_handle *och)
 {
-	struct ptlrpc_request *req = it->it_data;
+	struct ptlrpc_request *req = it->it_request;
 	struct mdt_body *body;
 
 	body = req_capsule_server_get(&req->rq_pill, &RMF_MDT_BODY);
@@ -664,7 +664,7 @@ out_openerr:
         }
 
 	if (it && it_disposition(it, DISP_ENQ_OPEN_REF)) {
-		ptlrpc_req_finished(it->it_data);
+		ptlrpc_req_finished(it->it_request);
 		it_clear_disposition(it, DISP_ENQ_OPEN_REF);
 	}
 
@@ -1746,7 +1746,7 @@ int ll_release_openhandle(struct dentry *dentry, struct lookup_intent *it)
 out:
 	/* this one is in place of ll_file_open */
 	if (it_disposition(it, DISP_ENQ_OPEN_REF)) {
-		ptlrpc_req_finished(it->it_data);
+		ptlrpc_req_finished(it->it_request);
 		it_clear_disposition(it, DISP_ENQ_OPEN_REF);
 	}
 	RETURN(rc);
@@ -4119,9 +4119,9 @@ again:
 			  PFID(&lli->lli_fid), inode);
 
 	rc = md_enqueue(sbi->ll_md_exp, &einfo, NULL, &it, op_data, &lockh, 0);
-	if (it.it_data != NULL)
-		ptlrpc_req_finished(it.it_data);
-	it.it_data = NULL;
+	if (it.it_request != NULL)
+		ptlrpc_req_finished(it.it_request);
+	it.it_request = NULL;
 
 	ll_finish_md_op_data(op_data);
 
