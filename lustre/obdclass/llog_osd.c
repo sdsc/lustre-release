@@ -308,8 +308,9 @@ static int llog_osd_declare_write_rec(const struct lu_env *env,
 				      int idx, struct thandle *th)
 {
 	struct llog_thread_info	*lgi = llog_info(env);
-	__u32			chunk_size;
 	struct dt_object	*o;
+	loff_t                   off = (loff_t)-1;
+	__u32                    chunk_size;
 	int			 rc;
 
 	ENTRY;
@@ -329,7 +330,7 @@ static int llog_osd_declare_write_rec(const struct lu_env *env,
 	/* each time we update header */
 	rc = dt_declare_record_write(env, o, &lgi->lgi_buf, 0,
 				     th);
-	if (rc || idx == 0) /* if error or just header */
+	if (rc || idx == LLOG_HEADER_IDX) /* if error or just header */
 		RETURN(rc);
 
 	/**
@@ -338,8 +339,12 @@ static int llog_osd_declare_write_rec(const struct lu_env *env,
 	 */
 	lgi->lgi_buf.lb_len = chunk_size * 2;
 	lgi->lgi_buf.lb_buf = NULL;
+	if (idx != LLOG_NEXT_IDX) {
+		LASSERT(loghandle->lgh_cur_idx == idx);
+		off = loghandle->lgh_cur_offset;
+	}
 	/* XXX: implement declared window or multi-chunks approach */
-	rc = dt_declare_record_write(env, o, &lgi->lgi_buf, -1, th);
+	rc = dt_declare_record_write(env, o, &lgi->lgi_buf, off, th);
 
 	RETURN(rc);
 }

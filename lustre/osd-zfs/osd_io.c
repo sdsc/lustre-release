@@ -159,6 +159,7 @@ static ssize_t osd_declare_write(const struct lu_env *env, struct dt_object *dt,
 	struct osd_device  *osd = osd_obj2dev(obj);
 	struct osd_thandle *oh;
 	uint64_t            oid;
+	size_t              len = 0;
 	ENTRY;
 
 	oh = container_of0(th, struct osd_thandle, ot_super);
@@ -184,10 +185,11 @@ static ssize_t osd_declare_write(const struct lu_env *env, struct dt_object *dt,
 	/* XXX: we still miss for append declaration support in ZFS
 	 *	-1 means append which is used by llog mostly, llog
 	 *	can grow upto LLOG_MIN_CHUNK_SIZE*8 records */
-	if (pos == -1)
-		pos = max_t(loff_t, 256 * 8 * LLOG_MIN_CHUNK_SIZE,
-			    obj->oo_attr.la_size + (2 << 20));
-	dmu_tx_hold_write(oh->ot_tx, oid, pos, buf->lb_len);
+	if (pos == -1) {
+		pos = obj->oo_attr.la_size;
+		len = max_t(size_t, 256 * 8 * LLOG_MIN_CHUNK_SIZE, 2 << 20);
+	}
+	dmu_tx_hold_write(oh->ot_tx, oid, pos, max(buf->lb_len, len));
 
 	/* dt_declare_write() is usually called for system objects, such
 	 * as llog or last_rcvd files. We needn't enforce quota on those
