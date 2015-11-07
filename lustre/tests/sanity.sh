@@ -9403,8 +9403,8 @@ run_test 133e "Verifying OST {read,write}_bytes nid stats ================="
 test_133f() {
 	local proc_dirs
 
-	local dirs="/proc/fs/lustre/ /proc/sys/lnet/ /proc/sys/lustre/ \
-/sys/fs/lustre/ /sys/fs/lnet/"
+	local dirs="/proc/fs/lustre/ /proc/sys/lnet/ /proc/sys/lustre/ " \
+		   "/sys/fs/lustre/ /sys/fs/lnet/ /sys/kernel/debug/lustre/"
 	local dir
 	for dir in $dirs; do
 		if [ -d $dir ]; then
@@ -9442,8 +9442,8 @@ run_test 133f "Check for LBUGs/Oopses/unreadable files in /proc"
 test_133g() {
 	local proc_dirs
 
-	local dirs="/proc/fs/lustre/ /proc/sys/lnet/ /proc/sys/lustre/ \
-/sys/fs/lustre/ /sys/fs/lnet/"
+	local dirs="/proc/fs/lustre/ /proc/sys/lnet/ /proc/sys/lustre/ " \
+		   "/sys/fs/lustre/ /sys/fs/lnet/ /sys/kernel/debug/lustre/"
 	local dir
 	for dir in $dirs; do
 		if [ -d $dir ]; then
@@ -9453,7 +9453,7 @@ test_133g() {
 
 	local facet
 
-	# Second verifying readability.
+	# Second verifying writability.
 	find $proc_dirs \
 		-type f \
 		-not -name force_lbug \
