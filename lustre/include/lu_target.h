@@ -224,6 +224,7 @@ struct tgt_session_info {
 	__u64			tsi_xid;
 	__u32			tsi_result;
 	__u32			tsi_client_gen;
+	int			tsi_index; /* index of reply data */
 };
 
 static inline struct tgt_session_info *tgt_ses_info(const struct lu_env *env)
