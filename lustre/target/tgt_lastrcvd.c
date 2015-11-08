@@ -369,6 +369,13 @@ static inline struct lu_buf *tti_buf_lcd(struct tgt_thread_info *tti)
 	return &tti->tti_buf;
 }
 
+static inline struct lu_buf *tti_buf_lrd(struct tgt_thread_info *tti)
+{
+	tti->tti_buf.lb_buf = &tti->tti_lrd;
+	tti->tti_buf.lb_len = sizeof(tti->tti_lrd);
+	return &tti->tti_buf;
+}
+
 /**
  * Allocate in-memory data for client slot related to export.
  */
@@ -1071,7 +1078,6 @@ int tgt_add_reply_data(const struct lu_env *env, struct lu_target *tgt,
 		       struct thandle *th, bool update_lrd_file)
 {
 	struct lsd_reply_data	*lrd;
-	int	i;
 
 	lrd = &trd->trd_reply;
 	/* update export last transno */
@@ -1080,21 +1086,13 @@ int tgt_add_reply_data(const struct lu_env *env, struct lu_target *tgt,
 		ted->ted_lcd->lcd_last_transno = lrd->lrd_transno;
 	mutex_unlock(&ted->ted_lcd_lock);
 
-	/* find a empty slot */
-	i = tgt_find_free_reply_slot(tgt);
-	if (unlikely(i < 0)) {
-		CERROR("%s: couldn't find a slot for reply data: "
-		       "rc = %d\n", tgt_name(tgt), i);
-		RETURN(i);
-	}
-	trd->trd_index = i;
-
 	if (update_lrd_file) {
 		loff_t	off;
 		int	rc;
 
 		/* write reply data to disk */
-		off = sizeof(struct lsd_reply_header) + sizeof(*lrd) * i;
+		off = sizeof(struct lsd_reply_header) +
+				sizeof(*lrd) * trd->trd_index;
 		rc = tgt_reply_data_write(env, tgt, lrd, off, th);
 		if (unlikely(rc != 0)) {
 			CERROR("%s: can't update %s file: rc = %d\n",
@@ -1113,7 +1111,7 @@ int tgt_add_reply_data(const struct lu_env *env, struct lu_target *tgt,
 	CDEBUG(D_TRACE, "add reply %p: xid %llu, transno %llu, "
 	       "tag %hu, client gen %u, slot idx %d\n",
 	       trd, lrd->lrd_xid, lrd->lrd_transno,
-	       trd->trd_tag, lrd->lrd_client_gen, i);
+	       trd->trd_tag, lrd->lrd_client_gen, trd->trd_index);
 	RETURN(0);
 }
 EXPORT_SYMBOL(tgt_add_reply_data);
@@ -1243,6 +1241,8 @@ static int tgt_last_rcvd_update(const struct lu_env *env, struct lu_target *tgt,
 			trd->trd_pre_versions[2] = pre_versions[2];
 			trd->trd_pre_versions[3] = pre_versions[3];
 		}
+
+		trd->trd_index = tsi->tsi_index;
 
 		rc = tgt_add_reply_data(env, tgt, ted, trd, th, write_update);
 		if (rc < 0)
@@ -1726,6 +1726,24 @@ int tgt_txn_start_cb(const struct lu_env *env, struct thandle *th,
 	    !lu_object_remote(&tsi->tsi_vbr_obj->do_lu)) {
 		dto = dt_object_locate(tsi->tsi_vbr_obj, th->th_dev);
 		rc = dt_declare_version_set(env, dto, th);
+	}
+
+	if (tgt_is_multimodrpcs_client(tsi->tsi_exp)) {
+		loff_t off;
+
+		rc = tgt_find_free_reply_slot(tgt);
+		if (rc < 0)
+			return rc;
+
+		tsi->tsi_index = rc;
+		dto = dt_object_locate(tgt->lut_reply_data, th->th_dev);
+
+		off = sizeof(struct lsd_reply_header) +
+				sizeof(struct lsd_reply_data) * rc;
+		tti_buf_lrd(tti);
+		rc = dt_declare_record_write(env, dto, &tti->tti_buf, off, th);
+		if (rc)
+			return rc;
 	}
 
 	return rc;
