@@ -174,6 +174,92 @@ static int osd_root_get(const struct lu_env *env,
         return 0;
 }
 
+static struct osd_idmap_cache *
+osd_idc_find(const struct lu_env *env, struct osd_device *osd,
+	     const struct lu_fid *fid)
+{
+	struct osd_thread_info	*oti   = osd_oti_get(env);
+	struct osd_idmap_cache	*idc    = oti->oti_ins_cache;
+	int i;
+	for (i = 0; i < OSD_INS_CACHE_SIZE; i++) {
+		if (!lu_fid_eq(&idc[i].oic_fid, fid))
+			continue;
+		if (idc[i].oic_dev != osd)
+			continue;
+		return idc + i;
+	}
+	return NULL;
+}
+static struct osd_idmap_cache *
+osd_idc_add(const struct lu_env *env, struct osd_device *osd,
+	    const struct lu_fid *fid)
+{
+	struct osd_thread_info	*oti   = osd_oti_get(env);
+	struct osd_idmap_cache	*idc    = oti->oti_ins_cache;
+	int i;
+	for (i = 0; i < OSD_INS_CACHE_SIZE; i++) {
+		if (idc[i].oic_dev == NULL) {
+			idc[i].oic_fid = *fid;
+			idc[i].oic_dev = osd;
+			idc[i].oic_lid.oii_ino = 0;
+			idc[i].oic_lid.oii_gen = 0;
+			idc[i].oic_new = 0;
+			idc[i].oic_remote = 0;
+			return idc + i;
+		}
+	}
+	/* XXX: no more slots, make dynamic cache */
+	LBUG();
+	return NULL;
+}
+
+static struct osd_idmap_cache *
+osd_idc_find_or_create(const struct lu_env *env,
+		       struct osd_device *osd,
+		       const struct lu_fid *fid)
+{
+	struct osd_idmap_cache *idc;
+
+	idc = osd_idc_find(env, osd, fid);
+	if (idc == NULL)
+		idc = osd_idc_add(env, osd, fid);
+	return idc;
+}
+
+static struct osd_idmap_cache *
+osd_idc_find_or_init(const struct lu_env *env, struct osd_device *osd,
+		     const struct lu_fid *fid)
+{
+	struct osd_idmap_cache *idc;
+	int rc;
+
+	idc = osd_idc_find(env, osd, fid);
+	if (!IS_ERR(idc) && idc != NULL)
+		return idc;
+	if (idc == NULL)
+		idc = osd_idc_add(env, osd, fid);
+	if (IS_ERR(idc))
+		return idc;
+
+	/* new mapping, initialize it */
+	rc = osd_remote_fid(env, osd, fid);
+	if (unlikely(rc < 0))
+		RETURN(ERR_PTR(rc));
+	if (rc > 0) {
+		idc->oic_remote = 1;
+	} else if (idc->oic_new == 0) {
+		/* lookup the object in OI */
+		/* XXX: probably cheaper to lookup in LU first? */
+		rc = osd_oi_lookup(osd_oti_get(env), osd, fid,
+				   &idc->oic_lid, 0);
+		if (unlikely(rc < 0)) {
+			CERROR("can't lookup: rc = %d\n", rc);
+			RETURN(ERR_PTR(rc));
+		}
+	}
+	RETURN(idc);
+}
+
 /*
  * OSD object methods.
  */
@@ -1205,16 +1291,20 @@ static void osd_trans_stop_cb(struct osd_thandle *oth, int result)
 static int osd_trans_stop(const struct lu_env *env, struct dt_device *dt,
 			  struct thandle *th)
 {
-	int                     rc = 0, remove_agents = 0;
+	int                     i, rc = 0, remove_agents = 0;
 	struct osd_thandle     *oh;
 	struct osd_thread_info *oti = osd_oti_get(env);
 	struct osd_iobuf       *iobuf = &oti->oti_iobuf;
 	struct osd_device      *osd = osd_dt_dev(th->th_dev);
 	struct qsd_instance    *qsd = osd->od_quota_slave;
 	struct lquota_trans    *qtrans;
+	struct osd_idmap_cache *idc    = oti->oti_ins_cache;
 	ENTRY;
 
 	oh = container_of0(th, struct osd_thandle, ot_super);
+
+	for (i = 0; i < OSD_INS_CACHE_SIZE; i++)
+		idc[i].oic_dev = NULL;
 
 	remove_agents = oh->ot_remove_agents;
 
@@ -2384,6 +2474,7 @@ static int osd_declare_object_create(const struct lu_env *env,
 				     struct dt_object_format *dof,
 				     struct thandle *handle)
 {
+	struct osd_idmap_cache	*idc;
 	struct osd_thandle	*oh;
 	int			 rc;
 	ENTRY;
@@ -2412,6 +2503,15 @@ static int osd_declare_object_create(const struct lu_env *env,
 				   osd_dt_obj(dt), false, NULL, false);
 	if (rc != 0)
 		RETURN(rc);
+
+	idc = osd_idc_find_or_create(env, osd_obj2dev(osd_dt_obj(dt)),
+				     lu_object_fid(&dt->do_lu));
+	if (!IS_ERR(idc)) {
+		idc->oic_lid.oii_ino = 0;
+		idc->oic_lid.oii_gen = 0;
+		idc->oic_remote = 0;
+		idc->oic_new = 1;
+	}
 
 	RETURN(rc);
 }
@@ -2816,7 +2916,7 @@ static int osd_object_ea_create(const struct lu_env *env, struct dt_object *dt,
 	const struct lu_fid	*fid	= lu_object_fid(&dt->do_lu);
 	struct osd_object	*obj	= osd_dt_obj(dt);
 	struct osd_thread_info	*info	= osd_oti_get(env);
-	int			 result;
+	int			 result, on_ost = 0;
 
 	ENTRY;
 
@@ -2842,13 +2942,15 @@ static int osd_object_ea_create(const struct lu_env *env, struct dt_object *dt,
 
 			fid_to_ostid(fid, oi);
 			ostid_to_fid(tfid, oi, 0);
+			on_ost = 1;
 			result = osd_ea_fid_set(info, obj->oo_inode, tfid,
 						LMAC_FID_ON_OST, 0);
 		} else {
+			on_ost = fid_is_on_ost(info, osd_obj2dev(obj),
+					       fid, OI_CHECK_FLD);
 			result = osd_ea_fid_set(info, obj->oo_inode, fid,
-				fid_is_on_ost(info, osd_obj2dev(obj),
-					      fid, OI_CHECK_FLD) ?
-				LMAC_FID_ON_OST : 0, 0);
+						on_ost ? LMAC_FID_ON_OST : 0,
+						0);
 		}
 		if (obj->oo_dt.do_body_ops == &osd_body_ops_new)
 			obj->oo_dt.do_body_ops = &osd_body_ops;
@@ -2856,6 +2958,20 @@ static int osd_object_ea_create(const struct lu_env *env, struct dt_object *dt,
 
 	if (result == 0)
 		result = __osd_oi_insert(env, obj, fid, th);
+
+	if (result == 0 && on_ost == 0) {
+		/* cache for subsequent directory insert */
+		struct osd_device *osd = osd_dev(dt->do_lu.lo_dev);
+		struct osd_idmap_cache *idc;
+
+		idc = osd_idc_find_or_create(env, osd, fid);
+		if (!IS_ERR(idc)) {
+			idc->oic_lid.oii_ino = obj->oo_inode->i_ino;
+			idc->oic_lid.oii_gen = obj->oo_inode->i_generation;
+			idc->oic_remote = 0;
+			idc->oic_new = 1;
+		}
+	}
 
 	LASSERT(ergo(result == 0,
 		     dt_object_exists(dt) && !dt_object_remote(dt)));
@@ -3375,7 +3491,7 @@ static int osd_index_try(const struct lu_env *env, struct dt_object *dt,
                 result = 0;
 	} else if (feat == &dt_directory_features) {
                 dt->do_index_ops = &osd_index_ea_ops;
-		if (obj->oo_inode != NULL && S_ISDIR(obj->oo_inode->i_mode))
+		if (obj->oo_inode == NULL || S_ISDIR(obj->oo_inode->i_mode))
                         result = 0;
                 else
                         result = -ENOTDIR;
@@ -4007,7 +4123,7 @@ static int osd_add_dot_dotdot(struct osd_thread_info *info,
                 if (dir->oo_compat_dot_created) {
                         result = -EEXIST;
                 } else {
-                        LASSERT(inode == parent_dir);
+			LASSERT(inode->i_ino == parent_dir->i_ino);
                         dir->oo_compat_dot_created = 1;
                         result = 0;
                 }
@@ -4374,65 +4490,6 @@ out:
 }
 
 /**
- * Find the osd object for given fid.
- *
- * \param fid need to find the osd object having this fid
- *
- * \retval osd_object on success
- * \retval        -ve on error
- */
-static struct osd_object *osd_object_find(const struct lu_env *env,
-					  struct dt_object *dt,
-					  const struct lu_fid *fid)
-{
-        struct lu_device  *ludev = dt->do_lu.lo_dev;
-        struct osd_object *child = NULL;
-        struct lu_object  *luch;
-        struct lu_object  *lo;
-
-	/*
-	 * at this point topdev might not exist yet
-	 * (i.e. MGS is preparing profiles). so we can
-	 * not rely on topdev and instead lookup with
-	 * our device passed as topdev. this can't work
-	 * if the object isn't cached yet (as osd doesn't
-	 * allocate lu_header). IOW, the object must be
-	 * in the cache, otherwise lu_object_alloc() crashes
-	 * -bzzz
-	 */
-	luch = lu_object_find_at(env, ludev->ld_site->ls_top_dev == NULL ?
-				 ludev : ludev->ld_site->ls_top_dev,
-				 fid, NULL);
-	if (!IS_ERR(luch)) {
-		if (lu_object_exists(luch)) {
-			lo = lu_object_locate(luch->lo_header, ludev->ld_type);
-			if (lo != NULL)
-				child = osd_obj(lo);
-			else
-				LU_OBJECT_DEBUG(D_ERROR, env, luch,
-						"lu_object can't be located"
-						DFID"\n", PFID(fid));
-
-                        if (child == NULL) {
-                                lu_object_put(env, luch);
-                                CERROR("Unable to get osd_object\n");
-                                child = ERR_PTR(-ENOENT);
-                        }
-                } else {
-                        LU_OBJECT_DEBUG(D_ERROR, env, luch,
-                                        "lu_object does not exists "DFID"\n",
-                                        PFID(fid));
-			lu_object_put(env, luch);
-                        child = ERR_PTR(-ENOENT);
-                }
-	} else {
-		child = ERR_CAST(luch);
-	}
-
-	return child;
-}
-
-/**
  * Put the osd object once done with it.
  *
  * \param obj osd object that needs to be put
@@ -4451,28 +4508,33 @@ static int osd_index_declare_ea_insert(const struct lu_env *env,
 {
 	struct osd_thandle	*oh;
 	struct osd_device	*osd   = osd_dev(dt->do_lu.lo_dev);
-	struct lu_fid		*fid = (struct lu_fid *)rec;
+	struct dt_insert_rec	*rec1	= (struct dt_insert_rec *)rec;
+	const struct lu_fid	*fid	= rec1->rec_fid;
 	int			 credits, rc = 0;
+	struct osd_idmap_cache	*idc;
 	ENTRY;
 
 	LASSERT(!dt_object_remote(dt));
 	LASSERT(handle != NULL);
+	LASSERT(fid != NULL);
 
 	oh = container_of0(handle, struct osd_thandle, ot_super);
 	LASSERT(oh->ot_handle == NULL);
 
 	credits = osd_dto_credits_noquota[DTO_INDEX_INSERT];
-	if (fid != NULL) {
-		rc = osd_remote_fid(env, osd, fid);
-		if (unlikely(rc < 0))
-			RETURN(rc);
-		if (rc > 0) {
-			/* a reference to remote inode is represented by an
-			 * agent inode which we have to create */
-			credits += osd_dto_credits_noquota[DTO_OBJECT_CREATE];
-			credits += osd_dto_credits_noquota[DTO_INDEX_INSERT];
-		}
-		rc = 0;
+
+	/* we can't call iget() while a transactions is running
+	 * (this can lead to a deadlock), but we need to know
+	 * inum and object type. so we find this information at
+	 * declaration and cache in per-thread info */
+	idc = osd_idc_find_or_init(env, osd, fid);
+	if (IS_ERR(idc))
+		RETURN(PTR_ERR(idc));
+	if (idc->oic_remote) {
+		/* a reference to remote inode is represented by an
+		 * agent inode which we have to create */
+		credits += osd_dto_credits_noquota[DTO_OBJECT_CREATE];
+		credits += osd_dto_credits_noquota[DTO_INDEX_INSERT];
 	}
 
 	osd_trans_declare_op(env, oh, OSD_OT_INSERT, credits);
@@ -4513,9 +4575,8 @@ static int osd_index_ea_insert(const struct lu_env *env, struct dt_object *dt,
 	const struct lu_fid	*fid	= rec1->rec_fid;
 	const char		*name = (const char *)key;
 	struct osd_thread_info	*oti   = osd_oti_get(env);
-	struct osd_inode_id	*id    = &oti->oti_id;
 	struct inode		*child_inode = NULL;
-	struct osd_object	*child = NULL;
+	struct osd_idmap_cache	*idc;
 	int			rc;
 	ENTRY;
 
@@ -4530,14 +4591,10 @@ static int osd_index_ea_insert(const struct lu_env *env, struct dt_object *dt,
 
 	LASSERTF(fid_is_sane(fid), "fid"DFID" is insane!\n", PFID(fid));
 
-	rc = osd_remote_fid(env, osd, fid);
-	if (rc < 0) {
-		CERROR("%s: Can not find object "DFID" rc %d\n",
-		       osd_name(osd), PFID(fid), rc);
-		RETURN(rc);
-	}
+	idc = osd_idc_find(env, osd, fid);
+	LASSERTF(idc != NULL, "FID "DFID" name %s\n", PFID(fid), name);
 
-	if (rc == 1) {
+	if (idc->oic_remote) {
 		/* Insert remote entry */
 		if (strcmp(name, dotdot) == 0 && strlen(name) == 2) {
 			struct osd_mdobj_map	*omm = osd->od_mdt_map;
@@ -4563,15 +4620,19 @@ static int osd_index_ea_insert(const struct lu_env *env, struct dt_object *dt,
 		}
 	} else {
 		/* Insert local entry */
-		child = osd_object_find(env, dt, fid);
-		if (IS_ERR(child)) {
-			CERROR("%s: Can not find object "DFID"%u:%u: rc = %d\n",
-			       osd_name(osd), PFID(fid),
-			       id->oii_ino, id->oii_gen,
-			       (int)PTR_ERR(child));
-			RETURN(PTR_ERR(child));
+		/* XXX: allocate ldiskfs_inode_info instead */
+		child_inode = oti->oti_inode;
+		if (unlikely(child_inode == NULL)) {
+			OBD_ALLOC_PTR(child_inode);
+			if (child_inode == NULL)
+				RETURN(-ENOMEM);
+			oti->oti_inode = child_inode;
 		}
-		child_inode = igrab(child->oo_inode);
+		child_inode->i_sb = osd_sb(osd);
+		child_inode->i_ino = idc->oic_lid.oii_ino;
+		LASSERTF(child_inode->i_ino != 0, "%s -> "DFID"\n",
+			 name, PFID(fid));
+		child_inode->i_mode = rec1->rec_type & S_IFMT;
 	}
 
 	rc = osd_ea_add_rec(env, obj, child_inode, name, fid, th);
@@ -4579,9 +4640,8 @@ static int osd_index_ea_insert(const struct lu_env *env, struct dt_object *dt,
 	CDEBUG(D_INODE, "parent %lu insert %s:%lu rc = %d\n",
 	       obj->oo_inode->i_ino, name, child_inode->i_ino, rc);
 
-	iput(child_inode);
-	if (child != NULL)
-		osd_object_put(env, child);
+	if (child_inode && child_inode != oti->oti_inode)
+		iput(child_inode);
 	LASSERT(osd_invariant(obj));
 	osd_trans_exec_check(env, th, OSD_OT_INSERT);
 	RETURN(rc);
@@ -5814,10 +5874,14 @@ static void osd_key_exit(const struct lu_context *ctx,
                          struct lu_context_key *key, void *data)
 {
         struct osd_thread_info *info = data;
+	struct osd_idmap_cache	*idc = info->oti_ins_cache;
+	int i;
 
         LASSERT(info->oti_r_locks == 0);
         LASSERT(info->oti_w_locks == 0);
         LASSERT(info->oti_txns    == 0);
+	for (i = 0; i < OSD_INS_CACHE_SIZE; i++)
+		idc[i].oic_dev = NULL;
 }
 
 /* type constructor/destructor: osd_type_init, osd_type_fini */

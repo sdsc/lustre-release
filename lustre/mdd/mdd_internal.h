@@ -590,7 +590,7 @@ int mdo_declare_index_insert(const struct lu_env *env, struct mdd_object *obj,
 	  * This remote check should be removed when mdd_object_exists check is
 	  * removed.
 	  */
-	if (mdd_object_exists(obj) || mdd_object_remote(obj)) {
+	if (1 || mdd_object_exists(obj) || mdd_object_remote(obj)) {
 		rc = -ENOTDIR;
 		if (dt_try_as_dir(env, next)) {
 			struct dt_insert_rec *rec =
