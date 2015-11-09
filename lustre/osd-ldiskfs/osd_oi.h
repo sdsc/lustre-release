@@ -83,10 +83,13 @@ struct osd_inode_id {
 	__u32 oii_gen; /* inode generation */
 };
 
+/* OI cache entry */
 struct osd_idmap_cache {
 	struct lu_fid		oic_fid;
 	struct osd_inode_id	oic_lid;
 	struct osd_device	*oic_dev;
+	__u16			oic_remote:1,	/* FID isn't local */
+				oic_new:1;	/* obj. doesn't exist yet */
 };
 
 static inline void osd_id_pack(struct osd_inode_id *tgt,
