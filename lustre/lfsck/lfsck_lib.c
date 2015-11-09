@@ -684,6 +684,23 @@ static int lfsck_create_lpf_local(const struct lu_env *env,
 	if (rc != 0)
 		GOTO(stop, rc);
 
+	if (unlikely(!dt_try_as_dir(env, child)))
+		GOTO(unlock, rc = -ENOTDIR);
+
+	rec->rec_type = S_IFDIR;
+	rec->rec_fid = cfid;
+	rc = dt_declare_insert(env, child, (const struct dt_rec *)rec,
+			       (const struct dt_key *)dot, th);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	rec->rec_type = S_IFDIR;
+	rec->rec_fid = &LU_LPF_FID;
+	rc = dt_declare_insert(env, child, (const struct dt_rec *)rec,
+			       (const struct dt_key *)dotdot, th);
+	if (rc != 0)
+		GOTO(stop, rc);
+
 	/* 5a. increase parent nlink */
 	rc = dt_declare_ref_add(env, parent, th);
 	if (rc != 0)
@@ -704,9 +721,6 @@ static int lfsck_create_lpf_local(const struct lu_env *env,
 	rc = dt_create(env, child, la, NULL, dof, th);
 	if (rc != 0)
 		GOTO(unlock, rc);
-
-	if (unlikely(!dt_try_as_dir(env, child)))
-		GOTO(unlock, rc = -ENOTDIR);
 
 	/* 1b.2. insert dot into child dir */
 	rec->rec_fid = cfid;
