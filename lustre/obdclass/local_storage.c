@@ -349,11 +349,14 @@ static struct dt_object *__local_file_create(const struct lu_env *env,
 		if (!dt_try_as_dir(env, dto))
 			GOTO(trans_stop, rc = -ENOTDIR);
 
+		rec->rec_type = S_IFDIR;
+		rec->rec_fid = fid;
 		rc = dt_declare_insert(env, dto, (const struct dt_rec *)rec,
 				(const struct dt_key *)".", th);
 		if (rc != 0)
 			GOTO(trans_stop, rc);
 
+		rec->rec_fid = lu_object_fid(&parent->do_lu);
 		rc = dt_declare_insert(env, dto, (const struct dt_rec *)rec,
 				(const struct dt_key *)"..", th);
 		if (rc != 0)
