@@ -581,6 +581,8 @@ typedef struct kib_rx                           /* receive message */
 #define IBLND_POSTRX_NO_CREDIT    1             /* post: no credits */
 #define IBLND_POSTRX_PEER_CREDIT  2             /* post: give peer back 1 credit */
 #define IBLND_POSTRX_RSRVD_CREDIT 3             /* post: give myself back 1 reserved credit */
+/* peer is not in the ln_permitted_nids list */
+#define IBLND_REJECT_NO_PERMISSION   8
 
 typedef struct kib_tx                           /* transmit message */
 {

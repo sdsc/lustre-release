@@ -592,13 +592,10 @@ static int mdt_nosquash_nids_seq_show(struct seq_file *m, void *data)
 	int len = 0, rc;
 
 	down_read(&squash->rsi_sem);
-	if (!list_empty(&squash->rsi_nosquash_nids)) {
-		len = cfs_print_nidlist(m->buf + m->count, m->size - m->count,
-					&squash->rsi_nosquash_nids);
-		m->count += len;
-		rc = seq_printf(m, "\n");
-	} else
-		rc = seq_printf(m, "NONE\n");
+	len = cfs_print_nidlist(m->buf + m->count, m->size - m->count,
+				&squash->rsi_nosquash_nids);
+	m->count += len;
+	rc = seq_printf(m, "\n");
 	up_read(&squash->rsi_sem);
 
 	return rc;

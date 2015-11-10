@@ -145,6 +145,11 @@ lnet_connect_console_error (int rc, lnet_nid_t peer_nid,
                                    "%d\n", libcfs_nid2str(peer_nid),
 				   &peer_ip, peer_port);
                 break;
+	case -EPERM:
+		CDEBUG_AUDIT(D_WARNING, "Denying ksocknal connection to "
+			     "unauthorized NID: %s\n",
+			     libcfs_nid2str(peer_nid));
+		break;
         default:
                 LCONSOLE_ERROR_MSG(0x11e, "Unexpected error %d connecting to %s"
 				   " at host %pI4h on port %d\n", rc,
@@ -166,6 +171,9 @@ lnet_connect(struct socket **sockp, lnet_nid_t peer_nid,
         int                     fatal;
 
         CLASSERT (sizeof(cr) <= 16);            /* not too big to be on the stack */
+
+	if (!lnet_permitted_nid(peer_nid))
+		GOTO(failed, rc = -EPERM);
 
         for (port = LNET_ACCEPTOR_MAX_RESERVED_PORT;
              port >= LNET_ACCEPTOR_MIN_RESERVED_PORT;
@@ -230,6 +238,7 @@ lnet_accept(struct socket *sock, __u32 magic)
         int                     rc;
         int                     flip;
         lnet_ni_t              *ni;
+	lnet_nid_t		nid;
         char                   *str;
 
         LASSERT (sizeof(cr) <= 16);             /* not too big for the stack */
@@ -337,8 +346,20 @@ lnet_accept(struct socket *sock, __u32 magic)
                 return -EPERM;
         }
 
-	CDEBUG(D_NET, "Accept %s from %pI4h\n",
-	       libcfs_nid2str(cr.acr_nid), &peer_ip);
+	/* This isn't the ideal place to check permissions but we need
+	 * information from the wire before we can make the determination about
+	 * the NI and NID.  netfilter/iptables can always be used if the desire
+	 * is to prevent the connection in the first place */
+	nid = LNET_MKNID(LNET_NIDNET(ni->ni_nid), peer_ip);
+	if (!lnet_permitted_nid(nid)) {
+		lnet_ni_decref(ni);
+		CDEBUG_AUDIT(D_WARNING, "Dropping connection from unauthorized "
+		"NID: %s\n", libcfs_nid2str(nid));
+		return -EPERM;
+	}
+
+	CDEBUG_AUDIT(D_NET, "Accept %s from %pI4h\n",
+		     libcfs_nid2str(cr.acr_nid), &peer_ip);
 
         rc = ni->ni_lnd->lnd_accept(ni, sock);
 

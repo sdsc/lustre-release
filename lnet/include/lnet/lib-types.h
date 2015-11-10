@@ -250,6 +250,9 @@ typedef struct lnet_lnd
         /* query of peer aliveness */
         void (*lnd_query)(struct lnet_ni *ni, lnet_nid_t peer, cfs_time_t *when);
 
+	/* allow lnet to drop peers in the underlying LND */
+	int (*lnd_drop)(struct lnet_ni *ni, lnet_nid_t peer);
+
         /* accept a new connection */
 	int (*lnd_accept)(struct lnet_ni *ni, struct socket *sock);
 } lnd_t;
@@ -620,6 +623,8 @@ typedef struct
 	lnet_handle_md_t		ln_ping_target_md;
 	lnet_handle_eq_t		ln_ping_target_eq;
 	lnet_ping_info_t		*ln_ping_info;
+
+	struct list_head		ln_permitted_nids;
 
 	/* router checker startup/shutdown state */
 	int				ln_rc_state;

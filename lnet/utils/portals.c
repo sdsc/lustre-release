@@ -1247,6 +1247,60 @@ jt_ptl_print_routes (int argc, char **argv)
 	return 0;
 }
 
+int
+jt_ptl_set_permitted_nids(int argc, char **argv)
+{
+	struct libcfs_ioctl_data data;
+	int rc;
+
+	if (argc != 2) {
+		fprintf(stderr,  "Error, expected a single argument\n");
+		fprintf(stderr, "usage: %s <nid list>\n", argv[0]);
+		return  -1;
+	}
+
+	LIBCFS_IOC_INIT(data);
+	data.ioc_plen1 = strlen(argv[1]);
+	data.ioc_pbuf1 = argv[1];
+
+	rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_SET_PERMITTED_NIDS, &data);
+	if (rc != 0) {
+		fprintf(stderr, "Failed to set permitted NIDs: %s\n",
+			strerror(errno));
+		return -1;
+	}
+
+	return 0;
+}
+
+int
+jt_ptl_get_permitted_nids(int argc, char **argv)
+{
+	struct libcfs_ioctl_data data;
+	char buffer[4096];
+	int rc;
+
+	if (argc > 1) {
+		fprintf(stderr, "usage: %s\n", argv[0]);
+		return  -1;
+	}
+
+	LIBCFS_IOC_INIT(data);
+	data.ioc_plen1 = sizeof(buffer);
+	data.ioc_pbuf1 = buffer;
+
+	rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_GET_PERMITTED_NIDS, &data);
+	if (rc != 0) {
+		fprintf(stderr, "Failed to get permitted NIDs: %s\n",
+			strerror(errno));
+		return -1;
+	}
+
+	printf("%s\n", buffer);
+
+	return 0;
+}
+
 static int
 fault_attr_nid_parse(char *str, lnet_nid_t *nid_p)
 {

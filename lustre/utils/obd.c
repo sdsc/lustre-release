@@ -3543,7 +3543,7 @@ int jt_nodemap_add_range(int argc, char **argv)
 	}
 
 	if (cfs_parse_nidlist(nodemap_range, strlen(nodemap_range),
-			      &nidlist) <= 0) {
+			      &nidlist, false) <= 0) {
 		fprintf(stderr, "error: %s: can't parse nid range: %s\n",
 			jt_cmdname(argv[0]), nodemap_range);
 		return -1;
@@ -3632,7 +3632,7 @@ int jt_nodemap_del_range(int argc, char **argv)
 	}
 
 	if (cfs_parse_nidlist(nodemap_range, strlen(nodemap_range),
-			      &nidlist) <= 0) {
+			      &nidlist, false) <= 0) {
 		fprintf(stderr, "error: %s: can't parse nid range: %s\n",
 			jt_cmdname(argv[0]), nodemap_range);
 		return -1;

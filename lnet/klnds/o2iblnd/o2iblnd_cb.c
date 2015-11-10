@@ -2279,6 +2279,14 @@ kiblnd_passive_connect(struct rdma_cm_id *cmid, void *priv, int priv_nob)
         }
 
         nid = reqmsg->ibm_srcnid;
+
+	if (!lnet_permitted_nid(nid)) {
+		rej.ibr_why = IBLND_REJECT_NO_PERMISSION;
+		CDEBUG_AUDIT(D_WARNING, "Rejecting connection from "
+			     "unauthorized NID: %s\n", libcfs_nid2str(nid));
+		goto failed;
+	}
+
         ni  = lnet_net2ni(LNET_NIDNET(reqmsg->ibm_dstnid));
 
         if (ni != NULL) {
@@ -2603,6 +2611,10 @@ kiblnd_check_reconnect(kib_conn_t *conn, int version,
         case IBLND_REJECT_CONN_UNCOMPAT:
                 reason = "version negotiation";
                 break;
+
+	case IBLND_REJECT_NO_PERMISSION:
+		reason = "permission denied";
+		break;
         }
 
 	conn->ibc_reconnect = 1;
@@ -2726,6 +2738,11 @@ kiblnd_rejected (kib_conn_t *conn, int reason, void *priv, int priv_nob)
                                 CERROR("%s rejected: o2iblnd no resources\n",
                                        libcfs_nid2str(peer->ibp_nid));
                                 break;
+
+			case IBLND_REJECT_NO_PERMISSION:
+				CERROR("%s rejected: permission denied\n",
+				       libcfs_nid2str(peer->ibp_nid));
+				break;
 
                         case IBLND_REJECT_FATAL:
                                 CERROR("%s rejected: o2iblnd fatal error\n",
@@ -2862,6 +2879,15 @@ kiblnd_active_connect (struct rdma_cm_id *cmid)
         __u64                    incarnation;
         unsigned long            flags;
         int                      rc;
+
+	if (!lnet_permitted_nid(peer->ibp_nid)) {
+		CDEBUG_AUDIT(D_WARNING, "Denying ko2iblnd connection to "
+			     "unauthorized NID: " "%s\n",
+			     libcfs_nid2str(peer->ibp_nid));
+		kiblnd_peer_connect_failed(peer, 1, -EPERM);
+		kiblnd_peer_decref(peer); /* lose cmid's ref */
+		return -EPERM;
+	}
 
 	read_lock_irqsave(&kiblnd_data.kib_global_lock, flags);
 

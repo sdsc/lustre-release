@@ -899,6 +899,12 @@ kiblnd_create_conn(kib_peer_t *peer, struct rdma_cm_id *cmid,
 
         /* 1 more conn */
 	atomic_inc(&net->ibn_nconns);
+
+	CDEBUG_AUDIT(D_NET, "New conn %s incarnation:"LPD64" type:%s "
+		     "version:%d\n", libcfs_nid2str(peer->ibp_nid),
+		     peer->ibp_incarnation,
+		     state == IBLND_CONN_ACTIVE_CONNECT ? "active" : "passive",
+		     version);
         return conn;
 
  failed_2:
@@ -2923,6 +2929,7 @@ static lnd_t the_o2iblnd = {
 	.lnd_query	= kiblnd_query,
 	.lnd_send	= kiblnd_send,
 	.lnd_recv	= kiblnd_recv,
+	.lnd_drop	= kiblnd_del_peer,
 };
 
 static void __exit ko2iblnd_exit(void)

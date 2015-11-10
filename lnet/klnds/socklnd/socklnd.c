@@ -624,6 +624,17 @@ ksocknal_del_peer (lnet_ni_t *ni, lnet_process_id_t id, __u32 ip)
 	return rc;
 }
 
+static int
+ksocknal_del_peer_and_routes(lnet_ni_t *ni, lnet_nid_t peer)
+{
+	lnet_process_id_t id;
+
+	id.pid = LNET_PID_ANY;
+	id.nid = peer;
+
+	return ksocknal_del_peer(ni, id, 0);
+}
+
 static ksock_conn_t *
 ksocknal_get_conn_by_idx (lnet_ni_t *ni, int index)
 {
@@ -1296,13 +1307,12 @@ ksocknal_create_conn(lnet_ni_t *ni, ksock_route_t *route,
          *    (b) normal I/O on the conn is blocked until I setup and call the
          *        socket callbacks.
          */
-
-	CDEBUG(D_NET, "New conn %s p %d.x %pI4h -> %pI4h/%d"
-	       " incarnation:%lld sched[%d:%d]\n",
-	       libcfs_id2str(peerid), conn->ksnc_proto->pro_version,
-	       &conn->ksnc_myipaddr, &conn->ksnc_ipaddr,
-	       conn->ksnc_port, incarnation, cpt,
-	       (int)(sched - &sched->kss_info->ksi_scheds[0]));
+	CDEBUG_AUDIT(D_NET, "New conn %s p %d.x %pI4h -> %pI4h/%d"
+		     " incarnation:%lld sched[%d:%d]\n",
+		     libcfs_id2str(peerid), conn->ksnc_proto->pro_version,
+		     &conn->ksnc_myipaddr, &conn->ksnc_ipaddr,
+		     conn->ksnc_port, incarnation, cpt,
+		     (int)(sched - &sched->kss_info->ksi_scheds[0]));
 
         if (active) {
                 /* additional routes after interface exchange? */
@@ -2880,15 +2890,16 @@ static int __init ksocklnd_init(void)
 	CLASSERT(SOCKLND_CONN_ACK == SOCKLND_CONN_BULK_IN);
 
 	/* initialize the_ksocklnd */
-	the_ksocklnd.lnd_type     = SOCKLND;
-	the_ksocklnd.lnd_startup  = ksocknal_startup;
-	the_ksocklnd.lnd_shutdown = ksocknal_shutdown;
-	the_ksocklnd.lnd_ctl      = ksocknal_ctl;
-	the_ksocklnd.lnd_send     = ksocknal_send;
-	the_ksocklnd.lnd_recv     = ksocknal_recv;
-	the_ksocklnd.lnd_notify   = ksocknal_notify;
-	the_ksocklnd.lnd_query    = ksocknal_query;
-	the_ksocklnd.lnd_accept   = ksocknal_accept;
+	the_ksocklnd.lnd_type		= SOCKLND;
+	the_ksocklnd.lnd_startup	= ksocknal_startup;
+	the_ksocklnd.lnd_shutdown	= ksocknal_shutdown;
+	the_ksocklnd.lnd_ctl		= ksocknal_ctl;
+	the_ksocklnd.lnd_send		= ksocknal_send;
+	the_ksocklnd.lnd_recv		= ksocknal_recv;
+	the_ksocklnd.lnd_notify		= ksocknal_notify;
+	the_ksocklnd.lnd_query		= ksocknal_query;
+	the_ksocklnd.lnd_accept		= ksocknal_accept;
+	the_ksocklnd.lnd_drop		= ksocknal_del_peer_and_routes;
 
 	rc = ksocknal_tunables_init();
 	if (rc != 0)

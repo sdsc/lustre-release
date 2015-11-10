@@ -49,6 +49,7 @@
 #include <lnet/api.h>
 #include <lnet/lnet.h>
 #include <lnet/lib-types.h>
+#include <lnet/nidstr.h>
 
 extern lnet_t  the_lnet;                        /* THE network */
 
@@ -456,6 +457,8 @@ extern int lnet_cpt_of_nid(lnet_nid_t nid);
 extern lnet_ni_t *lnet_nid2ni_locked(lnet_nid_t nid, int cpt);
 extern lnet_ni_t *lnet_net2ni_locked(__u32 net, int cpt);
 extern lnet_ni_t *lnet_net2ni(__u32 net);
+extern bool lnet_permitted_nid_locked(lnet_nid_t nid);
+extern bool lnet_permitted_nid(lnet_nid_t nid);
 
 int lnet_lib_init(void);
 void lnet_lib_exit(void);
@@ -527,6 +530,7 @@ void lnet_eq_enqueue_event(lnet_eq_t *eq, lnet_event_t *ev);
 void lnet_prep_send(lnet_msg_t *msg, int type, lnet_process_id_t target,
                     unsigned int offset, unsigned int len);
 int lnet_send(lnet_nid_t nid, lnet_msg_t *msg, lnet_nid_t rtr_nid);
+int lnet_drop(lnet_peer_t *peer);
 void lnet_return_tx_credits_locked(lnet_msg_t *msg);
 void lnet_return_rx_credits_locked(lnet_msg_t *msg);
 void lnet_schedule_blocked_locked(lnet_rtrbufpool_t *rbp);
@@ -758,6 +762,7 @@ void lnet_peer_tables_cleanup(lnet_ni_t *ni);
 void lnet_peer_tables_destroy(void);
 int lnet_peer_tables_create(void);
 void lnet_debug_peer(lnet_nid_t nid);
+void lnet_peer_tables_permission_cleanup(void);
 int lnet_get_peer_info(__u32 peer_index, __u64 *nid,
 		       char alivness[LNET_MAX_STR_LEN],
 		       __u32 *cpt_iter, __u32 *refcount,
@@ -772,5 +777,4 @@ lnet_peer_set_alive(lnet_peer_t *lp)
 	if (!lp->lp_alive)
 		lnet_notify_locked(lp, 0, 1, lp->lp_last_alive);
 }
-
 #endif

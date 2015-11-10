@@ -214,6 +214,94 @@ lnet_peer_tables_cleanup(lnet_ni_t *ni)
 }
 
 void
+lnet_peer_tables_permission_cleanup(void)
+{
+	struct lnet_peer_table	*ptable;
+	lnet_peer_t		*lp;
+	lnet_peer_t		*lp_tmp;
+	int			i;
+	int			j;
+	int			rc;
+	LIST_HEAD(tmplist);
+
+	/* Cleanup routers first so the ref counts drop for peers */
+	cfs_percpt_for_each(ptable, i, the_lnet.ln_peer_tables) {
+		lnet_net_lock(i);
+		for (j = 0; j < LNET_PEER_HASH_SIZE; j++) {
+			list_for_each_entry_safe(lp, lp_tmp,
+						 &ptable->pt_hash[j],
+						 lp_hashlist) {
+				if (lp->lp_rtr_refcount == 0 ||
+				    lnet_permitted_nid_locked(lp->lp_nid))
+					continue;
+
+				lnet_net_unlock(i);
+				lnet_del_route(LNET_NIDNET(LNET_NID_ANY),
+					       lp->lp_nid);
+				lnet_net_lock(i);
+			}
+		}
+
+		lnet_net_unlock(i);
+	}
+
+	/* Gather up all of the peers that must be purged in the drop list */
+	cfs_percpt_for_each(ptable, i, the_lnet.ln_peer_tables) {
+		lnet_net_lock(i);
+		for (j = 0; j < LNET_PEER_HASH_SIZE; j++) {
+			struct list_head *peers = &ptable->pt_hash[j];
+
+			list_for_each_entry_safe(lp, lp_tmp, peers,
+						     lp_hashlist) {
+				if (lnet_permitted_nid_locked(lp->lp_nid))
+					continue;
+
+				list_move(&lp->lp_hashlist, &tmplist);
+			}
+		}
+		lnet_net_unlock(i);
+	}
+
+
+	/* Drop each connection for the LND and remove the hash list ref.
+	 * Peers are moved to deathrow as the ref counts drop */
+	while (!list_empty(&tmplist)) {
+		lp = list_entry(tmplist.next, lnet_peer_t, lp_hashlist);
+		rc = lnet_drop(lp);
+		if (rc)
+			CDEBUG_AUDIT(D_NET, "Failed to drop LND connection to "
+				     "NID: %s rc = %d\n",
+				     libcfs_nid2str(lp->lp_nid), rc);
+		else
+			CDEBUG_AUDIT(D_WARNING, "Dropped LND connection to "
+				     "NID: %s due to permissions\n",
+				     libcfs_nid2str(lp->lp_nid));
+
+		lnet_net_lock(lp->lp_cpt);
+		list_del_init(&lp->lp_hashlist);
+		ptable = the_lnet.ln_peer_tables[lp->lp_cpt];
+		ptable->pt_zombies++;
+		lnet_peer_decref_locked(lp);
+		lnet_net_unlock(lp->lp_cpt);
+	}
+
+	/* Cleanup all entries on deathrow. */
+	cfs_percpt_for_each(ptable, i, the_lnet.ln_peer_tables) {
+		lnet_net_lock(i);
+		lnet_peer_table_deathrow_wait_locked(ptable, i);
+		list_splice_init(&ptable->pt_deathrow, &tmplist);
+		lnet_net_unlock(i);
+	}
+
+	while (!list_empty(&tmplist)) {
+		lp = list_entry(tmplist.next, lnet_peer_t, lp_hashlist);
+		list_del(&lp->lp_hashlist);
+		LIBCFS_FREE(lp, sizeof(*lp));
+	}
+}
+EXPORT_SYMBOL(lnet_peer_tables_permission_cleanup);
+
+void
 lnet_destroy_peer_locked(lnet_peer_t *lp)
 {
 	struct lnet_peer_table *ptable;
@@ -278,6 +366,12 @@ lnet_nid2peer_locked(lnet_peer_t **lpp, lnet_nid_t nid, int cpt)
 		return 0;
 	}
 
+	if (!lnet_permitted_nid_locked(nid)) {
+		CDEBUG_AUDIT(D_WARNING, "Denying LNet peer creation for NID: "
+			     "%s\n", libcfs_nid2str(nid));
+		return -EPERM;
+	}
+
 	if (!list_empty(&ptable->pt_deathrow)) {
 		lp = list_entry(ptable->pt_deathrow.next,
 				lnet_peer_t, lp_hashlist);
@@ -322,6 +416,14 @@ lnet_nid2peer_locked(lnet_peer_t **lpp, lnet_nid_t nid, int cpt)
 	lp->lp_rtr_refcount = 0;
 
 	lnet_net_lock(cpt);
+
+	/* recheck permissions in case they changed while allocating */
+	if (!lnet_permitted_nid_locked(nid)) {
+		CDEBUG_AUDIT(D_WARNING, "Denying LNet peer creation for NID: "
+			     "%s\n", libcfs_nid2str(nid));
+		rc = -EPERM;
+		goto out;
+	}
 
 	if (the_lnet.ln_shutdown) {
 		rc = -ESHUTDOWN;

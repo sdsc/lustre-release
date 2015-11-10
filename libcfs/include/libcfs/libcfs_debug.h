@@ -42,6 +42,11 @@
 #ifndef __LIBCFS_DEBUG_H__
 #define __LIBCFS_DEBUG_H__
 
+# if defined(LUSTRE_AUDITING_ENABLED) && defined(__KERNEL__)
+#include <linux/audit.h>
+#endif
+
+
 /*
  *  Debugging
  */
@@ -378,5 +383,21 @@ extern int cfs_trace_copyout_string(char __user *usr_buffer, int usr_buffer_nob,
 				    const char *knl_buffer, char *append);
 
 #define LIBCFS_DEBUG_FILE_PATH_DEFAULT "/tmp/lustre-log"
+
+/* Auditing related debug messages */
+#if defined(LUSTRE_AUDITING_ENABLED) && defined(__KERNEL__)
+#define CDEBUG_AUDIT(mask, format, ...)				\
+do {								\
+	audit_log(current->audit_context, GFP_NOWAIT,		\
+		  AUDIT_KERNEL_OTHER, "%s():" format,		\
+		  __func__,	## __VA_ARGS__);		\
+	CDEBUG(mask, format, ## __VA_ARGS__);			\
+} while (0)
+#else /* LUSTRE_AUDITING_ENABLED */
+#define CDEBUG_AUDIT(mask, format, ...)					\
+do {								\
+	CDEBUG(mask, format, ## __VA_ARGS__);			\
+} while (0)
+#endif /* LUSTRE_AUDITING_ENABLED */
 
 #endif	/* __LIBCFS_DEBUG_H__ */

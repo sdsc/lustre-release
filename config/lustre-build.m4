@@ -620,6 +620,25 @@ AC_SUBST(RPMBUILD_BINARY_ARGS)
 ]) # LB_CONFIG_RPMBUILD_OPTIONS
 
 #
+# LB_CONFIG_AUDITING
+#
+AC_DEFUN([LB_CONFIG_AUDITING],
+[
+AC_ARG_ENABLE([auditing],
+	AC_HELP_STRING([--enable-auditing],
+			[Enable Lustre auditing support]),
+	[AS_IF([test x$enable_auditing != xyes -a x$enable_auditing != xno],
+		[AC_MSG_ERROR([auditing valid options are "yes" or "no"])])
+	],
+)
+AC_MSG_CHECKING([whether to build Lustre auditing support])
+AC_MSG_RESULT([$enable_auditing])
+AS_IF([test x$enable_auditing = xyes],
+	[AC_DEFINE(LUSTRE_AUDITING_ENABLED, 1, [support auditing])]
+)
+])
+
+#
 # LB_CONFIGURE
 #
 # main configure steps
@@ -652,6 +671,7 @@ LB_CONFIG_TESTS
 LC_CONFIG_CLIENT
 LB_CONFIG_MPITESTS
 LB_CONFIG_SERVERS
+LB_CONFIG_AUDITING
 
 # Tests depends from utils (multiop from liblustreapi)
 AS_IF([test "x$enable_utils" = xno], [enable_tests="no"])

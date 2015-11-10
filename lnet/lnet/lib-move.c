@@ -1405,6 +1405,15 @@ lnet_send(lnet_nid_t src_nid, lnet_msg_t *msg, lnet_nid_t rtr_nid)
 	return 0; /* rc == LNET_CREDIT_OK or LNET_CREDIT_WAIT */
 }
 
+int
+lnet_drop(lnet_peer_t *peer)
+{
+	if (!peer->lp_ni->ni_lnd->lnd_drop)
+		return -EOPNOTSUPP;
+
+	return  (peer->lp_ni->ni_lnd->lnd_drop)(peer->lp_ni, peer->lp_nid);
+}
+
 void
 lnet_drop_message(lnet_ni_t *ni, int cpt, void *private, unsigned int nob)
 {

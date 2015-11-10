@@ -475,6 +475,12 @@ command_t cmdlist[] = {
 	{"set_route", jt_ptl_notify_router, 0,
 	 "enable/disable routes via gateway in the LNet routing table\n"
 	 "usage: set_route <gateway> <up/down> [<time>]"},
+	{"set_permitted_nids", jt_ptl_set_permitted_nids, 0,
+	 "Set the permitted NIDs for LNet connections\n"
+	 "usage: set_permitted_nids <nid list>"},
+	{"get_permitted_nids", jt_ptl_get_permitted_nids, 0,
+	 "Get the permitted NIDs for LNet connections\n"
+	 "usage: get_permitted_nids"},
 
 	{ 0, 0, 0, NULL }
 };

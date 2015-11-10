@@ -123,9 +123,10 @@ struct nidrange {
 	 */
 	struct list_head nr_addrranges;
 	/**
-	 * Flag indicating that *@<net> is found.
+	 * Flags for nid ranges
 	 */
-	int nr_all;
+	unsigned int nr_any_nid:1,	/* LNET_NID_ANY */
+		     nr_all_addr:1;	/* *@<net> */
 	/**
 	 * Pointer to corresponding element of libcfs_netstrfns.
 	 */
@@ -150,6 +151,19 @@ struct addrrange {
 	struct list_head ar_numaddr_ranges;
 };
 
+struct nidrange *nidrange_alloc_init(struct list_head *nidlist)
+{
+	struct nidrange *nr;
+
+	LIBCFS_ALLOC(nr, sizeof(struct nidrange));
+	if (nr == NULL)
+		return NULL;
+	list_add_tail(&nr->nr_link, nidlist);
+	INIT_LIST_HEAD(&nr->nr_addrranges);
+
+	return nr;
+}
+
 /**
  * Parses \<addrrange\> token on the syntax.
  *
@@ -164,8 +178,9 @@ parse_addrange(const struct cfs_lstr *src, struct nidrange *nidrange)
 {
 	struct addrrange *addrrange;
 
+	LASSERT(nidrange->nr_any_nid == 0);
 	if (src->ls_len == 1 && src->ls_str[0] == '*') {
-		nidrange->nr_all = 1;
+		nidrange->nr_all_addr = 1;
 		return 0;
 	}
 
@@ -226,13 +241,11 @@ add_nidrange(const struct cfs_lstr *src,
 		return nr;
 	}
 
-	LIBCFS_ALLOC(nr, sizeof(struct nidrange));
-	if (nr == NULL)
+
+	nr = nidrange_alloc_init(nidlist);
+	if (!nr)
 		return NULL;
-	list_add_tail(&nr->nr_link, nidlist);
-	INIT_LIST_HEAD(&nr->nr_addrranges);
 	nr->nr_netstrfns = nf;
-	nr->nr_all = 0;
 	nr->nr_netnum = netnum;
 
 	return nr;
@@ -253,6 +266,7 @@ parse_nidrange(struct cfs_lstr *src, struct list_head *nidlist)
 	struct nidrange *nr;
 
 	tmp = *src;
+
 	if (cfs_gettok(src, '@', &addrrange) == 0)
 		goto failed;
 
@@ -322,23 +336,41 @@ EXPORT_SYMBOL(cfs_free_nidlist);
  * Parses with rigorous syntax and overflow checking \a str into
  * \<nidrange\> [ ' ' \<nidrange\> ], compiles \a str into set of
  * structures and links that structure to \a nidlist. The resulting
- * list can be used to match a NID againts set of NIDS defined by \a
- * str.
+ * list can be used to match a NID against a set of NIDS defined by \a
+ * str.  The \a allow_all should be set to true if the ALL keyword
+ * is allowed which allows any NID.
  * \see cfs_match_nid
  *
  * \retval 1 on success
  * \retval 0 otherwise
  */
 int
-cfs_parse_nidlist(char *str, int len, struct list_head *nidlist)
+cfs_parse_nidlist(char *str, int len, struct list_head *nidlist, bool allow_all)
 {
 	struct cfs_lstr src;
 	struct cfs_lstr res;
+	struct nidrange *nr;
 	int rc;
 
 	src.ls_str = str;
 	src.ls_len = len;
 	INIT_LIST_HEAD(nidlist);
+
+	/* clearing the list */
+	if ((src.ls_len == 4 && strncmp(src.ls_str, "NONE", src.ls_len) == 0) ||
+	    (src.ls_len == 5 && strncmp(src.ls_str, "clear", src.ls_len) == 0))
+		return 1;
+
+	/* special case for any nid */
+	if (allow_all && src.ls_len == 3 &&
+	    strncmp(src.ls_str, "ALL", 3) == 0) {
+		nr = nidrange_alloc_init(nidlist);
+		if (!nr)
+			return 0;
+		nr->nr_any_nid = 1;
+		return 1;
+	}
+
 	while (src.ls_str) {
 		rc = cfs_gettok(&src, ' ', &res);
 		if (rc == 0) {
@@ -369,11 +401,13 @@ int cfs_match_nid(lnet_nid_t nid, struct list_head *nidlist)
 	struct addrrange *ar;
 
 	list_for_each_entry(nr, nidlist, nr_link) {
+		if (nr->nr_any_nid)
+			return 1;
 		if (nr->nr_netstrfns->nf_type != LNET_NETTYP(LNET_NIDNET(nid)))
 			continue;
 		if (nr->nr_netnum != LNET_NETNUM(LNET_NIDNET(nid)))
 			continue;
-		if (nr->nr_all)
+		if (nr->nr_all_addr)
 			return 1;
 		list_for_each_entry(ar, &nr->nr_addrranges, ar_link)
 			if (nr->nr_netstrfns->nf_match_addr(LNET_NIDADDR(nid),
@@ -440,11 +474,19 @@ int cfs_print_nidlist(char *buffer, int count, struct list_head *nidlist)
 	if (count <= 0)
 		return 0;
 
+	if (list_empty(nidlist)) {
+		i = scnprintf(buffer, count, "NONE");
+		RETURN(i);
+	}
+
 	list_for_each_entry(nr, nidlist, nr_link) {
 		if (i != 0)
 			i += scnprintf(buffer + i, count - i, " ");
 
-		if (nr->nr_all != 0) {
+		if (nr->nr_any_nid) {
+			i += scnprintf(buffer + i, count - i,
+				       "ALL");
+		} else if (nr->nr_all_addr != 0) {
 			LASSERT(list_empty(&nr->nr_addrranges));
 			i += scnprintf(buffer + i, count - i, "*");
 			i += cfs_print_network(buffer + i, count - i, nr);

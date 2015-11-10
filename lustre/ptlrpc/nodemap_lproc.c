@@ -695,7 +695,7 @@ static int parse_nids(char *rangestr, lnet_nid_t nids[2])
 	INIT_LIST_HEAD(&nidlist);
 
 	if (cfs_parse_nidlist(rangestr, strlen(rangestr),
-	    &nidlist) <= 0)
+	    &nidlist, false) <= 0)
 		return -EINVAL;
 
 	if (!cfs_nidrange_is_contiguous(&nidlist))

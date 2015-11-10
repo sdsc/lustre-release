@@ -51,6 +51,10 @@ static char *networks = "";
 CFS_MODULE_PARM(networks, "s", charp, 0444,
                 "local networks");
 
+static char *permitted_nids = "ALL";
+CFS_MODULE_PARM(permitted_nids, "s", charp, 0444,
+		"Permitted NID list (default: ALL)");
+
 static char *routes = "";
 CFS_MODULE_PARM(routes, "s", charp, 0444,
                 "routes to non-local networks");
@@ -540,6 +544,33 @@ lnet_res_lh_initialize(struct lnet_res_container *rec, lnet_libhandle_t *lh)
 	list_add(&lh->lh_hash_chain, &rec->rec_lh_hash[hash]);
 }
 
+char *lnet_module_permitted_nids(void)
+{
+#ifdef __KERNEL__
+	return permitted_nids;
+#else
+	char *permitted_nids = getenv("LNET_PERMITTED_NIDS");
+	return permitted_nids;
+#endif
+}
+
+
+int lnet_init_permitted_nids(void)
+{
+	char *permitted = lnet_module_permitted_nids();
+	int rc;
+
+	rc = cfs_parse_nidlist(permitted, strlen(permitted),
+			       &the_lnet.ln_permitted_nids, true);
+	if (rc != 1) {
+		CERROR("Failed to parse permitted_nids: %s\n", permitted);
+		return -1;
+	}
+	CDEBUG_AUDIT(D_CONSOLE, "Permitted NIDs set to: %s\n", permitted);
+
+	return 0;
+}
+
 static int lnet_unprepare(void);
 
 static int
@@ -568,6 +599,10 @@ lnet_prepare(lnet_pid_t requested_pid)
 	INIT_LIST_HEAD(&the_lnet.ln_routers);
 	INIT_LIST_HEAD(&the_lnet.ln_drop_rules);
 	INIT_LIST_HEAD(&the_lnet.ln_delay_rules);
+
+	rc = lnet_init_permitted_nids();
+	if (rc != 0)
+		goto failed;
 
 	rc = lnet_create_remote_nets_table();
 	if (rc != 0)
@@ -641,6 +676,8 @@ lnet_unprepare (void)
 	LASSERT(list_empty(&the_lnet.ln_nis_cpt));
 	LASSERT(list_empty(&the_lnet.ln_nis_zombie));
 
+	cfs_free_nidlist(&the_lnet.ln_permitted_nids);
+
 	lnet_portals_destroy();
 
 	if (the_lnet.ln_md_containers != NULL) {
@@ -700,6 +737,24 @@ lnet_net2ni(__u32 net)
 	return ni;
 }
 EXPORT_SYMBOL(lnet_net2ni);
+
+bool lnet_permitted_nid_locked(lnet_nid_t nid)
+{
+	return cfs_match_nid(nid, &the_lnet.ln_permitted_nids);
+}
+
+bool lnet_permitted_nid(lnet_nid_t nid)
+{
+	int rc;
+
+	lnet_net_lock(0);
+	rc = lnet_permitted_nid_locked(nid);
+	lnet_net_unlock(0);
+
+	return rc;
+}
+EXPORT_SYMBOL(lnet_permitted_nid);
+
 
 static unsigned int
 lnet_nid_cpt_hash(lnet_nid_t nid, unsigned int number)
@@ -1394,6 +1449,77 @@ failed:
 	return rc;
 }
 
+static int lnet_set_permitted_nids(char __user *userdata, int count)
+{
+	struct list_head newlist;
+	struct list_head oldlist;
+	char *nidlist;
+	int rc;
+
+	INIT_LIST_HEAD(&newlist);
+	INIT_LIST_HEAD(&oldlist);
+
+	if (count == 0)
+		return -EINVAL;
+
+	LIBCFS_ALLOC(nidlist, count + 1);
+	if (!nidlist)
+		return -ENOMEM;
+
+	rc = copy_from_user(nidlist, userdata, count);
+	if (rc)
+		GOTO(out, rc = -EFAULT);
+
+	nidlist[count] = '\0';
+	if (nidlist[count - 1] == '\n')
+		nidlist[count - 1] = '\0';
+
+	rc = cfs_parse_nidlist(nidlist, count, &newlist, true);
+	if (rc != 1)
+		GOTO(out, rc = -EINVAL);
+
+	/* replace list */
+	lnet_net_lock(LNET_LOCK_EX);
+	list_splice_init(&the_lnet.ln_permitted_nids, &oldlist);
+	list_splice(&newlist, &the_lnet.ln_permitted_nids);
+	lnet_net_unlock(LNET_LOCK_EX);
+	cfs_free_nidlist(&oldlist);
+
+	CDEBUG_AUDIT(D_CONSOLE, "Permitted NIDs set to: %s\n", nidlist);
+
+	lnet_peer_tables_permission_cleanup();
+	rc = 0;
+
+out:
+	LIBCFS_FREE(nidlist, count + 1);
+
+	return rc;
+}
+
+static int lnet_get_permitted_nids(char __user *userbuf, __u32 *count)
+{
+	char *nidlist;
+	int cpt;
+	int rc;
+
+	LIBCFS_ALLOC(nidlist, *count);
+	if (!nidlist)
+		return -ENOMEM;
+
+	cpt = lnet_net_lock_current();
+	rc = cfs_print_nidlist(nidlist, *count, &the_lnet.ln_permitted_nids);
+	lnet_net_unlock(cpt);
+	rc = copy_to_user(userbuf, nidlist, rc);
+	if (rc)
+		GOTO(out, rc = -EFAULT);
+
+	rc = 0;
+out:
+	LIBCFS_FREE(nidlist, *count);
+
+	return rc;
+}
+
 /**
  * Initialize LNet library.
  *
@@ -2034,6 +2160,14 @@ LNetCtl(unsigned int cmd, void *arg)
 				   cfs_time_seconds(cfs_time_current_sec() -
 						    (time_t)data->ioc_u64[0]));
 
+	case IOC_LIBCFS_SET_PERMITTED_NIDS:
+		return lnet_set_permitted_nids(data->ioc_pbuf1,
+					       data->ioc_plen1);
+
+	case IOC_LIBCFS_GET_PERMITTED_NIDS:
+		return lnet_get_permitted_nids(data->ioc_pbuf1,
+					       &data->ioc_plen1);
+
 	case IOC_LIBCFS_LNET_DIST:
 		rc = LNetDist(data->ioc_nid, &data->ioc_nid, &data->ioc_u32[1]);
 		if (rc < 0 && rc != -EHOSTUNREACH)
@@ -2321,3 +2455,4 @@ lnet_ping(lnet_process_id_t id, int timeout_ms, lnet_process_id_t __user *ids,
 	LIBCFS_FREE(info, infosz);
 	return rc;
 }
+

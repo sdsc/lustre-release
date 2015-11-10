@@ -1023,7 +1023,7 @@ static int nrs_tbf_nid_rule_init(struct ptlrpc_nrs_policy *policy,
 	if (!list_empty(&start->tc_nids)) {
 		if (cfs_parse_nidlist(rule->tr_nids_str,
 				      strlen(rule->tr_nids_str),
-				      &rule->tr_nids) <= 0) {
+				      &rule->tr_nids, true) <= 0) {
 			CERROR("nids {%s} illegal\n",
 			       rule->tr_nids_str);
 			OBD_FREE(rule->tr_nids_str,
@@ -1076,7 +1076,7 @@ static int nrs_tbf_nid_parse(struct nrs_tbf_cmd *cmd, const char *id)
 	/* parse NID list */
 	if (cfs_parse_nidlist(cmd->tc_nids_str,
 			      strlen(cmd->tc_nids_str),
-			      &cmd->tc_nids) <= 0) {
+			      &cmd->tc_nids, true) <= 0) {
 		nrs_tbf_nid_cmd_fini(cmd);
 		return -EINVAL;
 	}

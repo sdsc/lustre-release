@@ -1951,25 +1951,16 @@ int lprocfs_wr_nosquash_nids(const char __user *buffer, unsigned long count,
 	if (count > 0 && kernbuf[count - 1] == '\n')
 		len = count - 1;
 
-	if ((len == 4 && strncmp(kernbuf, "NONE", len) == 0) ||
-	    (len == 5 && strncmp(kernbuf, "clear", len) == 0)) {
-		/* empty string is special case */
-		down_write(&squash->rsi_sem);
-		if (!list_empty(&squash->rsi_nosquash_nids))
-			cfs_free_nidlist(&squash->rsi_nosquash_nids);
-		up_write(&squash->rsi_sem);
-		LCONSOLE_INFO("%s: nosquash_nids is cleared\n", name);
-		OBD_FREE(kernbuf, count + 1);
-		RETURN(count);
-	}
-
-	INIT_LIST_HEAD(&tmp);
-	if (cfs_parse_nidlist(kernbuf, count, &tmp) <= 0) {
+	if (cfs_parse_nidlist(kernbuf, count, &tmp, true) <= 0) {
 		errmsg = "can't parse";
 		GOTO(failed, rc = -EINVAL);
 	}
-	LCONSOLE_INFO("%s: nosquash_nids set to %s\n",
-		      name, kernbuf);
+
+	if (list_empty(&tmp))
+		LCONSOLE_INFO("%s: nosquash_nids is cleared\n", name);
+	else
+		LCONSOLE_INFO("%s: nosquash_nids set to %s\n", name, kernbuf);
+
 	OBD_FREE(kernbuf, count + 1);
 	kernbuf = NULL;
 
