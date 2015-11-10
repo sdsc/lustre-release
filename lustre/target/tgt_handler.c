@@ -1078,7 +1078,7 @@ int tgt_send_buffer(struct tgt_session_info *tsi, struct lu_rdbuf *rdbuf)
 	struct ptlrpc_request	*req = tgt_ses_req(tsi);
 	struct obd_export	*exp = req->rq_export;
 	struct ptlrpc_bulk_desc	*desc;
-	struct l_wait_info	*lwi = &tti->tti_u.rdbuf.tti_wait_info;
+	struct l_wait_info	*lwi = &tti->tti_u.update.tti_wait_info;
 	int			 i;
 	int			 rc;
 

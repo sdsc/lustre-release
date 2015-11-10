@@ -599,7 +599,7 @@ static int out_read(struct tgt_session_info *tsi)
 	struct dt_object	*obj = tti->tti_u.update.tti_dt_object;
 	struct object_update_reply *reply = tti->tti_u.update.tti_update_reply;
 	int index = tti->tti_u.update.tti_update_reply_index;
-	struct lu_rdbuf	*rdbuf = &tti->tti_u.rdbuf.tti_rdbuf;
+	struct lu_rdbuf	*rdbuf = &tti->tti_u.update.tti_rdbuf;
 	struct object_update_result *update_result;
 	struct out_read_reply	*orr;
 	void *tmp;
