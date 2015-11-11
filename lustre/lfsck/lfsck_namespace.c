@@ -4249,7 +4249,6 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 	struct lfsck_instance	*lfsck = com->lc_lfsck;
 	struct lfsck_bookmark	*bk    = &lfsck->li_bookmark_ram;
 	struct lfsck_namespace	*ns    = com->lc_file_ram;
-	int			 rc;
 
 	down_read(&com->lc_sem);
 	seq_printf(m, "name: lfsck_namespace\n"
@@ -4260,43 +4259,23 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 		   bk->lb_version,
 		   lfsck_status2names(ns->ln_status));
 
-	rc = lfsck_bits_dump(m, ns->ln_flags, lfsck_flags_names, "flags");
-	if (rc < 0)
-		goto out;
+	lfsck_bits_dump(m, ns->ln_flags, lfsck_flags_names, "flags");
 
-	rc = lfsck_bits_dump(m, bk->lb_param, lfsck_param_names, "param");
-	if (rc < 0)
-		goto out;
+	lfsck_bits_dump(m, bk->lb_param, lfsck_param_names, "param");
 
-	rc = lfsck_time_dump(m, ns->ln_time_last_complete,
-			     "last_completed");
-	if (rc < 0)
-		goto out;
+	lfsck_time_dump(m, ns->ln_time_last_complete, "last_completed");
 
-	rc = lfsck_time_dump(m, ns->ln_time_latest_start,
-			     "latest_start");
-	if (rc < 0)
-		goto out;
+	lfsck_time_dump(m, ns->ln_time_latest_start, "latest_start");
 
-	rc = lfsck_time_dump(m, ns->ln_time_last_checkpoint,
-			     "last_checkpoint");
-	if (rc < 0)
-		goto out;
+	lfsck_time_dump(m, ns->ln_time_last_checkpoint, "last_checkpoint");
 
-	rc = lfsck_pos_dump(m, &ns->ln_pos_latest_start,
-			    "latest_start_position");
-	if (rc < 0)
-		goto out;
+	lfsck_pos_dump(m, &ns->ln_pos_latest_start, "latest_start_position");
 
-	rc = lfsck_pos_dump(m, &ns->ln_pos_last_checkpoint,
-			    "last_checkpoint_position");
-	if (rc < 0)
-		goto out;
+	lfsck_pos_dump(m, &ns->ln_pos_last_checkpoint,
+		       "last_checkpoint_position");
 
-	rc = lfsck_pos_dump(m, &ns->ln_pos_first_inconsistent,
-			    "first_failure_position");
-	if (rc < 0)
-		goto out;
+	lfsck_pos_dump(m, &ns->ln_pos_first_inconsistent,
+		       "first_failure_position");
 
 	if (ns->ln_status == LS_SCANNING_PHASE1) {
 		struct lfsck_position pos;
@@ -4431,7 +4410,7 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 			      speed2,
 			      speed0);
 	}
-out:
+
 	up_read(&com->lc_sem);
 	return 0;
 }
