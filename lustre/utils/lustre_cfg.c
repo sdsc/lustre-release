@@ -897,6 +897,7 @@ static int getparam_cmdline(int argc, char **argv, struct param_opts *popt)
 	popt->po_only_path = 0;
 	popt->po_show_type = 0;
 	popt->po_recursive = 0;
+	popt->po_only_dir = 0;
 
 	while ((ch = getopt(argc, argv, "nNF")) != -1) {
 		switch (ch) {
