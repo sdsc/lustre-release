@@ -892,9 +892,6 @@ static int getparam_cmdline(int argc, char **argv, struct param_opts *popt)
 	int ch;
 
 	popt->po_show_path = 1;
-	popt->po_only_path = 0;
-	popt->po_show_type = 0;
-	popt->po_recursive = 0;
 
 	while ((ch = getopt(argc, argv, "nNF")) != -1) {
 		switch (ch) {
@@ -1007,7 +1004,7 @@ static int getparam_display(struct param_opts *popt, char *pattern)
 int jt_lcfg_getparam(int argc, char **argv)
 {
 	int rc = 0, i;
-	struct param_opts popt;
+	struct param_opts popt = { 0 };
 	char pattern[PATH_MAX];
 	char *path;
 
