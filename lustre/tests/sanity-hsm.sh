@@ -24,6 +24,7 @@ init_logging
 
 MULTIOP=${MULTIOP:-multiop}
 OPENFILE=${OPENFILE:-openfile}
+MMAP_CAT=${MMAP_CAT:-mmap_cat}
 MOUNT_2=${MOUNT_2:-"yes"}
 FAIL_ON_ERROR=false
 
@@ -823,6 +824,20 @@ test_1() {
 
 }
 run_test 1 "lfs hsm flags root/non-root access"
+
+test_1a() {
+	mkdir -p $DIR/$tdir
+	copy2archive /etc/hosts $tdir/$tfile
+	local f=$DIR/$tdir/$tfile
+
+	rm -f $f
+	import_file $tdir/$tfile $f
+	echo -n "Verifying released state: "
+	check_hsm_flags $f "0x0000000d"
+
+	$MMAP_CAT $f > /dev/null
+}
+run_test 1a "mmap & cat a HSM released file"
 
 test_2() {
 	mkdir -p $DIR/$tdir
