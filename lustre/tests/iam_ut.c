@@ -44,14 +44,11 @@
 #include <stdio.h>
 #include <fcntl.h>
 #include <string.h>
+#include <endian.h>
 #include <errno.h>
 #include <assert.h>
 
 #include <sys/types.h>
-
-#ifdef HAVE_ENDIAN_H
-#include <endian.h>
-#endif
 
 enum {
         /*

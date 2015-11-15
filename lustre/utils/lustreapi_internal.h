@@ -35,7 +35,21 @@
 #ifndef _LUSTREAPI_INTERNAL_H_
 #define _LUSTREAPI_INTERNAL_H_
 
+#include <endian.h>
 #include <uapi_kernelcomm.h>
+
+#define __swab16s(x)				\
+	do {					\
+		*(x) = __bswap_16(*(x));	\
+	} while (0)
+#define __swab32s(x)				\
+	do {					\
+		*(x) = __bswap_32(*(x));	\
+	} while (0)
+#define __swab64s(x)				\
+	do {					\
+		*(x) = __bswap_64(*(x));	\
+	} while (0)
 
 #define WANT_PATH   0x1
 #define WANT_FSNAME 0x2

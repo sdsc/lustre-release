@@ -47,9 +47,7 @@
 #include <string.h>
 #include <sys/types.h>
 #include <sys/stat.h>
-#ifdef HAVE_ENDIAN_H
-# include <endian.h>
-#endif
+#include <endian.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/vfs.h>
@@ -249,7 +247,7 @@ int llog_pack_buffer(int fd, struct llog_log_hdr **llog,
 	}
 
 	/* the llog header not countable here.*/
-	recs_num = le32_to_cpu((*llog)->llh_count) - 1;
+	recs_num = le32toh((*llog)->llh_count) - 1;
 
 	recs_buf = malloc(recs_num * sizeof(struct llog_rec_hdr *));
 	if (recs_buf == NULL) {
@@ -259,7 +257,7 @@ int llog_pack_buffer(int fd, struct llog_log_hdr **llog,
 	}
 	recs_pr = (struct llog_rec_hdr **)recs_buf;
 
-	ptr = file_buf + le32_to_cpu((*llog)->llh_hdr.lrh_len);
+	ptr = file_buf + le32toh((*llog)->llh_hdr.lrh_len);
 	i = 0;
 
 	while (ptr < (file_buf + file_size)) {
@@ -276,7 +274,7 @@ int llog_pack_buffer(int fd, struct llog_log_hdr **llog,
 		}
 
 		cur_rec = (struct llog_rec_hdr *)ptr;
-		idx = le32_to_cpu(cur_rec->lrh_index);
+		idx = le32toh(cur_rec->lrh_index);
 		recs_pr[i] = cur_rec;
 		offset = (unsigned long)ptr - (unsigned long)file_buf;
 		if (cur_rec->lrh_len == 0 ||
@@ -296,7 +294,7 @@ int llog_pack_buffer(int fd, struct llog_log_hdr **llog,
 			i--;
 		}
 
-		ptr += le32_to_cpu(cur_rec->lrh_len);
+		ptr += le32toh(cur_rec->lrh_len);
 		if ((ptr - file_buf) > file_size) {
 			printf("The log is corrupt (too big at %d)\n", i);
 			rc = -EINVAL;
@@ -334,15 +332,15 @@ void print_llog_header(struct llog_log_hdr *llog_buf)
         time_t t;
 
         printf("Header size : %u\n",
-               le32_to_cpu(llog_buf->llh_hdr.lrh_len));
+	       le32toh(llog_buf->llh_hdr.lrh_len));
 
-        t = le64_to_cpu(llog_buf->llh_timestamp);
+	t = le64toh(llog_buf->llh_timestamp);
         printf("Time : %s", ctime(&t));
 
         printf("Number of records: %u\n",
-               le32_to_cpu(llog_buf->llh_count)-1);
+	       le32toh(llog_buf->llh_count)-1);
 
-        printf("Target uuid : %s \n",
+	printf("Target uuid : %s\n",
                (char *)(&llog_buf->llh_tgtuuid));
 
         /* Add the other info you want to view here */
@@ -392,7 +390,7 @@ static void print_setup_cfg(struct lustre_cfg *lcfg)
 
 void print_lustre_cfg(struct lustre_cfg *lcfg, int *skip)
 {
-        enum lcfg_command_type cmd = le32_to_cpu(lcfg->lcfg_command);
+	enum lcfg_command_type cmd = le32toh(lcfg->lcfg_command);
 
         if (*skip > 0)
                 printf("SKIP ");
@@ -609,10 +607,10 @@ static void print_hsm_action(struct llog_agent_req_rec *larr)
 void print_changelog_rec(struct llog_changelog_rec *rec)
 {
 	printf("changelog record id:0x%x cr_flags:0x%x cr_type:%s(0x%x)\n",
-	       le32_to_cpu(rec->cr_hdr.lrh_id),
-	       le32_to_cpu(rec->cr.cr_flags),
-	       changelog_type2str(le32_to_cpu(rec->cr.cr_type)),
-	       le32_to_cpu(rec->cr.cr_type));
+	       le32toh(rec->cr_hdr.lrh_id),
+	       le32toh(rec->cr.cr_flags),
+	       changelog_type2str(le32toh(rec->cr.cr_type)),
+	       le32toh(rec->cr.cr_type));
 }
 
 static void print_records(struct llog_rec_hdr **recs,
@@ -622,10 +620,10 @@ static void print_records(struct llog_rec_hdr **recs,
 	int i, skip = 0;
 
 	for (i = 0; i < rec_number; i++) {
-		printf("#%.2d (%.3d)", le32_to_cpu(recs[i]->lrh_index),
-		       le32_to_cpu(recs[i]->lrh_len));
+		printf("#%.2d (%.3d)", le32toh(recs[i]->lrh_index),
+		       le32toh(recs[i]->lrh_len));
 
-		lopt = le32_to_cpu(recs[i]->lrh_type);
+		lopt = le32toh(recs[i]->lrh_type);
 
 		if (recs[i]->lrh_id == CANCELLED)
 			printf("NOT SET ");
@@ -652,7 +650,7 @@ static void print_records(struct llog_rec_hdr **recs,
 			break;
 		case CHANGELOG_USER_REC:
 			printf("changelog_user record id:0x%x\n",
-			       le32_to_cpu(recs[i]->lrh_id));
+			       le32toh(recs[i]->lrh_id));
 			break;
 		default:
 			printf("unknown type %x\n", lopt);

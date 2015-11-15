@@ -338,9 +338,9 @@ static bool llapi_layout_lum_truncated(struct lov_user_md *lum, size_t lum_size)
 	if (lum_size < lov_user_md_size(0, LOV_MAGIC_V1))
 		return false;
 
-	if (lum->lmm_magic == __swab32(LOV_MAGIC_V1) ||
-	    lum->lmm_magic == __swab32(LOV_MAGIC_V3))
-		magic = __swab32(lum->lmm_magic);
+	if (lum->lmm_magic == __bswap_32(LOV_MAGIC_V1) ||
+	    lum->lmm_magic == __bswap_32(LOV_MAGIC_V3))
+		magic = __bswap_32(lum->lmm_magic);
 	else
 		magic = lum->lmm_magic;
 
@@ -364,9 +364,9 @@ static int llapi_layout_objects_in_lum(struct lov_user_md *lum, size_t lum_size)
 	if (lum_size < lov_user_md_size(0, LOV_MAGIC_V1))
 		return 0;
 
-	if (lum->lmm_magic == __swab32(LOV_MAGIC_V1) ||
-	    lum->lmm_magic == __swab32(LOV_MAGIC_V3))
-		magic = __swab32(lum->lmm_magic);
+	if (lum->lmm_magic == __bswap_32(LOV_MAGIC_V1) ||
+	    lum->lmm_magic == __bswap_32(LOV_MAGIC_V3))
+		magic = __bswap_32(lum->lmm_magic);
 	else
 		magic = lum->lmm_magic;
 
@@ -428,11 +428,11 @@ struct llapi_layout *llapi_layout_get_by_fd(int fd, uint32_t flags)
 
 	object_count = llapi_layout_objects_in_lum(lum, bytes_read);
 
-	need_swab = lum->lmm_magic == __swab32(LOV_MAGIC_V1) ||
-		    lum->lmm_magic == __swab32(LOV_MAGIC_V3);
+	need_swab = lum->lmm_magic == __bswap_32(LOV_MAGIC_V1) ||
+		    lum->lmm_magic == __bswap_32(LOV_MAGIC_V3);
 
 	if (need_swab)
-		lum_stripe_count = __swab16(lum->lmm_stripe_count);
+		lum_stripe_count = __bswap_16(lum->lmm_stripe_count);
 	else
 		lum_stripe_count = lum->lmm_stripe_count;
 
