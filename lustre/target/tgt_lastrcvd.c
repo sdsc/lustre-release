@@ -1938,6 +1938,11 @@ struct tg_reply_data *tgt_lookup_reply_by_xid(struct tg_export_data *ted,
 			break;
 		}
 	}
+
+	if (unlikely(found == NULL && ted->ted_reply_last != NULL &&
+		     ted->ted_reply_last->trd_reply.lrd_xid == xid))
+		found = ted->ted_reply_last;
+
 	mutex_unlock(&ted->ted_lcd_lock);
 	return found;
 }
