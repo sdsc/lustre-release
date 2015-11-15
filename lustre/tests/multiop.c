@@ -41,6 +41,7 @@
 #include <fcntl.h>
 #include <string.h>
 #include <errno.h>
+#include <limits.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
@@ -649,7 +650,7 @@ int main(int argc, char **argv)
 					" %d\n", rc);
 				exit(-rc);
 			}
-			printf("dataversion is "LPU64"\n", dv);
+			printf("dataversion is %llu\n", dv);
 			break;
                 case 'y':
                         if (fsync(fd) == -1) {

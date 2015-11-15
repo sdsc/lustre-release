@@ -213,7 +213,7 @@ struct obd_group_info *find_or_create_grp(struct list_head *list, __u64 seq,
 		return NULL;
 
 	sprintf(seq_name, (fid_seq_is_rsvd(seq) ||
-			   fid_seq_is_mdt0(seq)) ? LPU64 : LPX64i,
+			   fid_seq_is_mdt0(seq)) ? "%llu" : "%llx",
 			   fid_seq_is_idif(seq) ? 0 : seq);
 
 	/* Check whether the obj dir has been created */
@@ -360,7 +360,7 @@ static int traverse_lost_found(char *src_dir, const char *mount_path)
 		}
 
 		sprintf(seq_name, (fid_seq_is_rsvd(ff_seq) ||
-				   fid_seq_is_mdt0(ff_seq)) ? LPU64 : LPX64i,
+				   fid_seq_is_mdt0(ff_seq)) ? "%llu" : "%llx",
 			fid_seq_is_idif(ff_seq) ? 0 : ff_seq);
 
 		/* LAST_ID uses OID = 0.  It will be regenerated later. */
@@ -373,7 +373,7 @@ static int traverse_lost_found(char *src_dir, const char *mount_path)
 		sprintf(obj_name, (fid_seq_is_rsvd(ff_seq) ||
 				   fid_seq_is_mdt0(ff_seq) ||
 				   fid_seq_is_idif(ff_seq)) ?
-				   LPU64 : LPX64i, ff_objid);
+				   "%llu" : "%llx", ff_objid);
 
 		grp_info = find_or_create_grp(&grp_info_list, ff_seq,
 					      mount_path);
@@ -383,7 +383,7 @@ static int traverse_lost_found(char *src_dir, const char *mount_path)
 		}
 
 		/* Might need to create the parent directory for this object */
-		if (ll_sprintf(dest_path, PATH_MAX, "%s/O/%s/d"LPU64,
+		if (ll_sprintf(dest_path, PATH_MAX, "%s/O/%s/d""%llu",
 				mount_path, seq_name, ff_objid % 32)) {
 			closedir(dir_ptr);
 			return 1;
@@ -399,15 +399,15 @@ static int traverse_lost_found(char *src_dir, const char *mount_path)
 		if (ff_objid > grp_info->grp_last_id) {
 			fprintf(stderr, "error: file skipped because object ID "
 				"greater than LAST_ID\nFilename: %s\n"
-				"Group: "LPU64"\nObjectid: "LPU64"\n"
-				"LAST_ID: "LPU64, file_path, ff_seq, ff_objid,
+				"Group: ""%llu""\nObjectid: %llu\n"
+				"LAST_ID: ""%llu", file_path, ff_seq, ff_objid,
 				grp_info->grp_last_id);
 			continue;
 		}
 
 		/* move file from lost+found to proper object directory */
 		if (ll_sprintf(dest_path, PATH_MAX,
-				"%s/O/%s/d"LPU64"/%s", mount_path,
+				"%s/O/%s/d""%llu""/%s", mount_path,
 				seq_name, ff_objid % 32, obj_name)) {
 			closedir(dir_ptr);
 			return 1;
@@ -481,7 +481,7 @@ static int check_last_id(const char *mount_path)
         for (group = 0; group < MAX_GROUPS; group++) {
                 max_objid = 0;
 
-                if (ll_sprintf(dirname, PATH_MAX, "%s/O/"LPU64,
+		if (ll_sprintf(dirname, PATH_MAX, "%s/O/""%llu",
                                mount_path, group))
                         return 1;
                 if (ll_sprintf(lastid_path, PATH_MAX, "%s/LAST_ID", dirname))
@@ -539,7 +539,7 @@ static int check_last_id(const char *mount_path)
 
 		if (dry_run) {
 			fprintf(stderr, "dry_run: not updating '%s' to "
-				LPU64"\n", lastid_path, max_objid);
+				"%llu\n", lastid_path, max_objid);
 			return 0;
 		}
 		fd = open(lastid_path, O_RDWR | O_CREAT, 0700);

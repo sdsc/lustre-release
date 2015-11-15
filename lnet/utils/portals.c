@@ -635,8 +635,7 @@ jt_ptl_print_peers (int argc, char **argv)
 			else
 				state = data.ioc_flags & 0xffff ? "C" : "U";
 
-			printf ("%-20s (%d) %s [%d] "LPU64" "
-				"sq %d/%d tx %d/%d/%d\n",
+			printf("%-20s (%d) %s [%d] %llu sq %d/%d tx %d/%d/%d\n",
 				libcfs_nid2str(data.ioc_nid), /* peer nid */
 				data.ioc_net, /* gemini device id */
 				state, /* peer is Connecting, Up, or Down */
@@ -1619,9 +1618,9 @@ fault_simul_rule_list(__u32 opc, char *name, int argc, char **argv)
 		libcfs_ioctl_unpack(&data, ioc_buf);
 
 		if (opc == LNET_CTL_DROP_LIST) {
-			printf("%s->%s (1/%d | %d) ptl "LPX64", msg %x, "
-			       LPU64"/"LPU64", PUT "LPU64", ACK "LPU64", GET "
-			       LPU64", REP "LPU64"\n",
+			printf("%s->%s (1/%d | %d) ptl %#llx, msg %x, "
+			       "%llu/%llu, PUT %llu, ACK %llu, GET "
+			       "%llu, REP %llu\n",
 			       libcfs_nid2str(attr.fa_src),
 			       libcfs_nid2str(attr.fa_dst),
 			       attr.u.drop.da_rate, attr.u.drop.da_interval,
@@ -1631,9 +1630,9 @@ fault_simul_rule_list(__u32 opc, char *name, int argc, char **argv)
 			       stat.fs_get, stat.fs_reply);
 
 		} else if (opc == LNET_CTL_DELAY_LIST) {
-			printf("%s->%s (1/%d | %d, latency %d) ptl "LPX64
-			       ", msg %x, "LPU64"/"LPU64", PUT "LPU64
-			       ", ACK "LPU64", GET "LPU64", REP "LPU64"\n",
+			printf("%s->%s (1/%d | %d, latency %d) ptl %#llx"
+			       ", msg %x, %llu/%llu, PUT %llu"
+			       ", ACK %llu, GET %llu, REP %llu\n",
 			       libcfs_nid2str(attr.fa_src),
 			       libcfs_nid2str(attr.fa_dst),
 			       attr.u.delay.la_rate, attr.u.delay.la_interval,

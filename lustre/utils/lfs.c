@@ -2917,19 +2917,19 @@ static void print_quota_title(char *name, struct if_quotactl *qctl,
 	       "files", "quota", "limit", "grace");
 }
 
-static void kbytes2str(__u64 num, char *buf, bool h)
+static void kbytes2str(__u64 num, char *buf, size_t len, bool h)
 {
 	if (!h) {
-		sprintf(buf, LPU64, num);
+		snprintf(buf, len, "%llu", num);
 	} else {
 		if (num >> 30)
-			sprintf(buf, "%5.4gT", (double)num / (1 << 30));
+			snprintf(buf, len, "%5.4gT", (double)num / (1 << 30));
 		else if (num >> 20)
-			sprintf(buf, "%5.4gG", (double)num / (1 << 20));
+			snprintf(buf, len, "%5.4gG", (double)num / (1 << 20));
 		else if (num >> 10)
-			sprintf(buf, "%5.4gM", (double)num / (1 << 10));
+			snprintf(buf, len, "%5.4gM", (double)num / (1 << 10));
 		else
-			sprintf(buf, LPU64"%s", num, "k");
+			snprintf(buf, len, "%llu%s", num, "k");
 	}
 }
 
@@ -2978,21 +2978,24 @@ static void print_quota(char *mnt, struct if_quotactl *qctl, int type,
 		if (bover)
 			diff2str(dqb->dqb_btime, timebuf, now);
 
-		kbytes2str(lustre_stoqb(dqb->dqb_curspace), strbuf, h);
+		kbytes2str(lustre_stoqb(dqb->dqb_curspace), strbuf,
+			   sizeof(strbuf), h);
 		if (rc == -EREMOTEIO)
 			sprintf(numbuf[0], "%s*", strbuf);
 		else
 			sprintf(numbuf[0], (dqb->dqb_valid & QIF_SPACE) ?
 				"%s" : "[%s]", strbuf);
 
-		kbytes2str(dqb->dqb_bsoftlimit, strbuf, h);
+		kbytes2str(dqb->dqb_bsoftlimit, strbuf,
+			   sizeof(strbuf), h);
 		if (type == QC_GENERAL)
 			sprintf(numbuf[1], (dqb->dqb_valid & QIF_BLIMITS) ?
 				"%s" : "[%s]", strbuf);
 		else
 			sprintf(numbuf[1], "%s", "-");
 
-		kbytes2str(dqb->dqb_bhardlimit, strbuf, h);
+		kbytes2str(dqb->dqb_bhardlimit, strbuf,
+			   sizeof(strbuf), h);
 		sprintf(numbuf[2], (dqb->dqb_valid & QIF_BLIMITS) ?
 			"%s" : "[%s]", strbuf);
 
@@ -3004,16 +3007,16 @@ static void print_quota(char *mnt, struct if_quotactl *qctl, int type,
 			diff2str(dqb->dqb_itime, timebuf, now);
 
 		sprintf(numbuf[0], (dqb->dqb_valid & QIF_INODES) ?
-			LPU64 : "["LPU64"]", dqb->dqb_curinodes);
+			"%llu" : "[%llu]", dqb->dqb_curinodes);
 
 		if (type == QC_GENERAL)
 			sprintf(numbuf[1], (dqb->dqb_valid & QIF_ILIMITS) ?
-				LPU64 : "["LPU64"]", dqb->dqb_isoftlimit);
+				"%llu" : "[%llu]", dqb->dqb_isoftlimit);
 		else
 			sprintf(numbuf[1], "%s", "-");
 
 		sprintf(numbuf[2], (dqb->dqb_valid & QIF_ILIMITS) ?
-			LPU64 : "["LPU64"]", dqb->dqb_ihardlimit);
+			"%llu" : "[%llu]", dqb->dqb_ihardlimit);
 
 		if (type != QC_OSTIDX)
 			printf(" %7s%c %6s %7s %7s",
@@ -3223,8 +3226,9 @@ ug_output:
 				      &total_ialloc);
 		rc3 = print_obd_quota(mnt, &qctl, 0, human_readable,
 				      &total_balloc);
-		kbytes2str(total_balloc, strbuf, human_readable);
-		printf("Total allocated inode limit: "LPU64", total "
+		kbytes2str(total_balloc, strbuf, sizeof(strbuf),
+			   human_readable);
+		printf("Total allocated inode limit: %llu, total "
 		       "allocated block limit: %s\n", total_ialloc, strbuf);
 	}
 
@@ -3405,7 +3409,7 @@ static int lfs_changelog(int argc, char **argv)
 
 		secs = rec->cr_time >> 30;
 		gmtime_r(&secs, &ts);
-		printf(LPU64" %02d%-5s %02d:%02d:%02d.%06d %04d.%02d.%02d "
+		printf("%llu %02d%-5s %02d:%02d:%02d.%06d %04d.%02d.%02d "
 		       "0x%x t="DFID, rec->cr_index, rec->cr_type,
 		       changelog_type2str(rec->cr_type),
 		       ts.tm_hour, ts.tm_min, ts.tm_sec,
@@ -3670,7 +3674,7 @@ static int lfs_data_version(int argc, char **argv)
 	if (rc < 0)
 		err(errno, "cannot get version for %s", path);
 	else
-		printf(LPU64 "\n", data_version);
+		printf("%llu\n", data_version);
 
 	close(fd);
 	return rc;
