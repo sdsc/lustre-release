@@ -685,20 +685,20 @@ static int lprocfs_pool_state_seq_show(struct seq_file *m, void *unused)
 	spin_unlock(&pl->pl_lock);
 
 	seq_printf(m, "LDLM pool state (%s):\n"
-		      "  SLV: "LPU64"\n"
-		      "  CLV: "LPU64"\n"
-		      "  LVF: %d\n",
-		      pl->pl_name, slv, clv, lvf);
+		   "  SLV: "LPU64"\n"
+		   "  CLV: "LPU64"\n"
+		   "  LVF: %d\n",
+		   pl->pl_name, slv, clv, lvf);
 
 	if (ns_is_server(ldlm_pl2ns(pl))) {
-		seq_printf(m, "  GSP: %d%%\n"
-			      "  GP:  %d\n",
-			      grant_step, grant_plan);
+		seq_printf(m, "  GSP: %d%%\n", grant_step);
+		seq_printf(m, "  GP:  %d\n", grant_plan);
 	}
-	seq_printf(m, "  GR:  %d\n" "  CR:  %d\n" "  GS:  %d\n"
-		      "  G:   %d\n" "  L:   %d\n",
-		      grant_rate, cancel_rate, grant_speed,
-		      granted, limit);
+	seq_printf(m, "  GR:  %d\n", grant_rate);
+	seq_printf(m, "  CR:  %d\n", cancel_rate);
+	seq_printf(m, "  GS:  %d\n", grant_speed);
+	seq_printf(m, "  G:   %d\n", granted);
+	seq_printf(m, "  L:   %d\n", limit);
 	return 0;
 }
 LPROC_SEQ_FOPS_RO(lprocfs_pool_state);
