@@ -47,6 +47,7 @@ struct nrs_tbf_jobid {
 	struct list_head tj_linkage;
 };
 
+#define NRS_TBF_KEY_LEN	64
 struct nrs_tbf_client {
 	/** Resource object for policy instance. */
 	struct ptlrpc_nrs_resource	 tc_res;
@@ -56,6 +57,8 @@ struct nrs_tbf_client {
 	lnet_nid_t			 tc_nid;
 	/** Jobid of the client. */
 	char				 tc_jobid[LUSTRE_JOBID_SIZE];
+	/** Hash key of the client. */
+	char				 tc_key[NRS_TBF_KEY_LEN];
 	/** Reference number of the client. */
 	atomic_t			 tc_ref;
 	/** Likage to rule. */
@@ -109,6 +112,10 @@ struct nrs_tbf_rule {
 	struct list_head		 tr_jobids;
 	/** Jobid list string of the rule.*/
 	char				*tr_jobids_str;
+	/** Condition list of the rule.*/
+	struct list_head		tr_conds;
+	/** Generic condition string of the rule. */
+	char				*tr_conds_str;
 	/** RPC/s limit. */
 	__u64				 tr_rpc_rate;
 	/** Time to wait for next token. */
@@ -145,10 +152,11 @@ struct nrs_tbf_ops {
 
 #define NRS_TBF_TYPE_JOBID	"jobid"
 #define NRS_TBF_TYPE_NID	"nid"
+#define NRS_TBF_TYPE_GENERIC	"generic"
 #define NRS_TBF_TYPE_MAX_LEN	20
 #define NRS_TBF_FLAG_JOBID	0x0000001
 #define NRS_TBF_FLAG_NID	0x0000002
-
+#define NRS_TBF_FLAG_GENERIC	0x0000004
 struct nrs_tbf_bucket {
 	/**
 	 * LRU list, updated on each access to client. Protected by
@@ -233,8 +241,34 @@ struct nrs_tbf_cmd {
 	char			*tc_nids_str;
 	struct list_head	 tc_jobids;
 	char			*tc_jobids_str;
+	struct list_head	 tc_conds;
+	char			*tc_conds_str;
 	__u32			 tc_valid_types;
 	__u32			 tc_rule_flags;
+};
+
+enum nrs_tbf_field {
+	NRS_TBF_FIELD_NID,
+	NRS_TBF_FIELD_JOBID,
+	NRS_TBF_FIELD_MAX
+};
+
+struct nrs_tbf_expression {
+	enum nrs_tbf_field	 te_field;
+	struct list_head	 te_cond;
+	struct list_head	 te_linkage;
+	char			*te_str;
+};
+
+struct nrs_tbf_conjunction {
+	/**
+	 * link to disjunction.
+	 */
+	struct list_head tc_linkage;
+	/**
+	 * list of logical conjunction
+	 */
+	struct list_head tc_expressions;
 };
 
 struct nrs_tbf_req {
