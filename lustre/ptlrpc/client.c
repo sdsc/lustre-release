@@ -1661,6 +1661,9 @@ int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set)
 		 */
 		cond_resched();
 
+		if (req->rq_interpreted)
+			continue;
+
 		/* If the caller requires to allow to be interpreted by force
 		 * and it has really been interpreted, then move the request
 		 * to RQ_PHASE_INTERPRET phase in spite of what the current
