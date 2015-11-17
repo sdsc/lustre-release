@@ -287,7 +287,21 @@ static int osd_trans_stop(const struct lu_env *env, struct dt_device *dt,
 	list_splice_init(&oh->ot_unlinked_list, &unlinked);
 
 	if (oh->ot_assigned == 0) {
+		struct dt_txn_commit_cb *dcb, *tmp;
 		LASSERT(oh->ot_tx);
+
+		osd_trans_stop_cb(oh, th->th_result);
+		/* If commit callbacks already registered,
+		 * let's call commit callback as well. */
+		list_for_each_entry_safe(dcb, tmp, &oh->ot_dcb_list,
+					 dcb_linkage) {
+			LASSERTF(dcb->dcb_magic == TRANS_COMMIT_CB_MAGIC,
+				 "commit callback entry: magic=%x name='%s'\n",
+				 dcb->dcb_magic, dcb->dcb_name);
+			list_del_init(&dcb->dcb_linkage);
+			dcb->dcb_func(NULL, th, dcb, th->th_result);
+		}
+
 		dmu_tx_abort(oh->ot_tx);
 		osd_object_sa_dirty_rele(oh);
 		osd_unlinked_list_emptify(osd, &unlinked, false);

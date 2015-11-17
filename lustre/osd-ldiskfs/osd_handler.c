@@ -1250,7 +1250,20 @@ static int osd_trans_stop(const struct lu_env *env, struct dt_device *dt,
 			CERROR("%s: failed to stop transaction: rc = %d\n",
 			       osd_name(osd), rc);
 	} else {
+		struct dt_txn_commit_cb *dcb, *tmp;
+
 		osd_trans_stop_cb(oh, th->th_result);
+		/* If commit callbacks already registered,
+		 * let's call commit callback as well. */
+		list_for_each_entry_safe(dcb, tmp, &oh->ot_commit_dcb_list,
+					 dcb_linkage) {
+			LASSERTF(dcb->dcb_magic == TRANS_COMMIT_CB_MAGIC,
+				 "commit callback entry: magic=%x name='%s'\n",
+				 dcb->dcb_magic, dcb->dcb_name);
+			list_del_init(&dcb->dcb_linkage);
+			dcb->dcb_func(NULL, th, dcb, th->th_result);
+		}
+
 		OBD_FREE_PTR(oh);
 	}
 
