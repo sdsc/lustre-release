@@ -786,6 +786,8 @@ nrs_tbf_jobid_startup(struct ptlrpc_nrs_policy *policy,
 	start.tc_name = NRS_TBF_DEFAULT_RULE;
 	INIT_LIST_HEAD(&start.u.tc_start.ts_jobids);
 	rc = nrs_tbf_rule_start(policy, head, &start);
+	if (rc)
+		cfs_hash_putref(head->th_cli_hash);
 
 	return rc;
 }
@@ -1115,6 +1117,8 @@ nrs_tbf_nid_startup(struct ptlrpc_nrs_policy *policy,
 	start.tc_name = NRS_TBF_DEFAULT_RULE;
 	INIT_LIST_HEAD(&start.u.tc_start.ts_nids);
 	rc = nrs_tbf_rule_start(policy, head, &start);
+	if (rc)
+		cfs_hash_putref(head->th_cli_hash);
 
 	return rc;
 }
