@@ -819,15 +819,9 @@ static int listparam_display(struct param_opts *popt, char *pattern)
 	int rc;
 	int i;
 
-	rc = lprocfs_param_pattern(pattern, filename, sizeof(filename));
-	if (rc < 0)
-		return rc;
-
-	rc = glob(filename,
-		  GLOB_BRACE |
-			(popt->po_recursive ? GLOB_MARK : 0) |
-			/* GLOB_ONLYDIR doesn't guarantee, only a hint */
-			(popt->po_only_dir ? GLOB_ONLYDIR : 0),
+	rc = glob(pattern, /* GLOB_ONLYDIR doesn't guarantee, only a hint */
+		  GLOB_BRACE | (popt->po_recursive ? GLOB_MARK : 0) |
+		  (popt->po_only_dir ? GLOB_ONLYDIR : 0),
 		  NULL, &glob_info);
 	if (rc) {
 		fprintf(stderr, "error: list_param: %s: %s\n",
@@ -866,7 +860,8 @@ int jt_lcfg_listparam(int argc, char **argv)
 {
 	int rc = 0, i;
 	struct param_opts popt;
-	char *pattern;
+	char pattern[PATH_MAX];
+	char *path;
 
 	rc = listparam_cmdline(argc, argv, &popt);
 	if (rc == argc && popt.po_recursive) {
@@ -877,9 +872,12 @@ int jt_lcfg_listparam(int argc, char **argv)
 	}
 
 	for (i = rc; i < argc; i++) {
-		pattern = argv[i];
+		path = argv[i];
+		clean_path(path);
 
-		clean_path(pattern);
+		rc = lprocfs_param_pattern(path, pattern, sizeof(pattern));
+		if (rc < 0)
+			return rc;
 
 		rc = listparam_display(&popt, pattern);
 		if (rc < 0)
