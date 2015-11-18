@@ -2181,8 +2181,10 @@ static void ptlrpc_interrupted_set(void *data)
 			list_entry(tmp, struct ptlrpc_request, rq_set_chain);
 
 		if (req->rq_phase != RQ_PHASE_RPC &&
-		    req->rq_phase != RQ_PHASE_UNREGISTERING &&
-		    !req->rq_allow_intr)
+		    req->rq_phase != RQ_PHASE_UNREGISTERING)
+			continue;
+
+		if (req->rq_intr)
 			continue;
 
 		ptlrpc_mark_interrupted(req);
@@ -2274,17 +2276,12 @@ int ptlrpc_set_wait(struct ptlrpc_request_set *set)
                 CDEBUG(D_RPCTRACE, "set %p going to sleep for %d seconds\n",
                        set, timeout);
 
-		if (timeout == 0 && !signal_pending(current))
-                        /*
-                         * No requests are in-flight (ether timed out
-                         * or delayed), so we can allow interrupts.
-                         * We still want to block for a limited time,
-                         * so we allow interrupts during the timeout.
-                         */
-			lwi = LWI_TIMEOUT_INTR_ALL(cfs_time_seconds(1),
-                                                   ptlrpc_expired_set,
-                                                   ptlrpc_interrupted_set, set);
-		else if (set->set_allow_intr)
+		if ((timeout == 0 && !signal_pending(current)) ||
+		    set->set_allow_intr)
+			/* No requests are in-flight (ether timed out
+			 * or delayed), so we can allow interrupts.
+			 * We still want to block for a limited time,
+			 * so we allow interrupts during the timeout. */
 			lwi = LWI_TIMEOUT_INTR_ALL(
 					cfs_time_seconds(timeout ? timeout : 1),
 					ptlrpc_expired_set,
