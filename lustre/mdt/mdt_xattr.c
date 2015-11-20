@@ -466,13 +466,19 @@ int mdt_reint_setxattr(struct mdt_thread_info *info,
 	else
 		lockpart |= MDS_INODELOCK_XATTR;
 
-        lh = &info->mti_lh[MDT_LH_PARENT];
-        /* ACLs were sent to clients under LCK_CR locks, so taking LCK_EX
-         * to cancel them. */
-        mdt_lock_reg_init(lh, LCK_EX);
-        obj = mdt_object_find_lock(info, rr->rr_fid1, lh, lockpart);
+	lh = &info->mti_lh[MDT_LH_PARENT];
+	/* ACLs were sent to clients under LCK_CR locks, so taking LCK_EX
+	 * to cancel them. */
+	obj = mdt_object_find(info->mti_env, info->mti_mdt, rr->rr_fid1);
 	if (IS_ERR(obj))
 		GOTO(out, rc = PTR_ERR(obj));
+
+	mdt_lock_reg_init(lh, LCK_EX);
+	rc = mdt_reint_object_lock(info, obj, lh, lockpart, false);
+	if (rc != 0) {
+		mdt_object_put(info->mti_env, obj);
+		GOTO(out, rc);
+	}
 
 	tgt_vbr_obj_set(env, mdt_obj2dt(obj));
 	rc = mdt_version_get_check_save(info, obj, 0);

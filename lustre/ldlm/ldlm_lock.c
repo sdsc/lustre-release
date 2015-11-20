@@ -1118,15 +1118,18 @@ void ldlm_grant_lock(struct ldlm_lock *lock, struct list_head *work_list)
 	    ldlm_is_flock_deadlock(lock))
 		RETURN_EXIT;
 
-        if (res->lr_type == LDLM_PLAIN || res->lr_type == LDLM_IBITS)
-                ldlm_grant_lock_with_skiplist(lock);
-        else if (res->lr_type == LDLM_EXTENT)
-                ldlm_extent_add_lock(res, lock);
-        else
-                ldlm_resource_add_lock(res, &res->lr_granted, lock);
+	if (res->lr_type == LDLM_PLAIN || res->lr_type == LDLM_IBITS) {
+		ldlm_grant_lock_with_skiplist(lock);
+		/* if this is COS lock, now it can be reused */
+		ldlm_clear_cos_incompat(lock);
+	} else if (res->lr_type == LDLM_EXTENT) {
+		ldlm_extent_add_lock(res, lock);
+	} else {
+		ldlm_resource_add_lock(res, &res->lr_granted, lock);
+	}
 
-        ldlm_pool_add(&ldlm_res_to_ns(res)->ns_pool, lock);
-        EXIT;
+	ldlm_pool_add(&ldlm_res_to_ns(res)->ns_pool, lock);
+	EXIT;
 }
 
 /**
@@ -1137,6 +1140,7 @@ struct lock_match_data {
 	struct ldlm_lock	*lmd_lock;
 	enum ldlm_mode		*lmd_mode;
 	union ldlm_policy_data	*lmd_policy;
+	__u64			*lmd_client_cookie;
 	__u64			 lmd_flags;
 	int			 lmd_unref;
 };
@@ -1196,6 +1200,13 @@ static int lock_matches(struct ldlm_lock *lock, struct lock_match_data *data)
 		     data->lmd_policy->l_inodebits.bits) !=
 		    data->lmd_policy->l_inodebits.bits)
 			return INTERVAL_ITER_CONT;
+		if (data->lmd_client_cookie != NULL &&
+		    *data->lmd_client_cookie != lock->l_client_cookie)
+			return INTERVAL_ITER_CONT;
+		/* COS lock shouldn't be reused concurrently */
+		if (data->lmd_flags & LDLM_FL_COS_INCOMPAT &&
+		    ldlm_is_cos_incompat(lock))
+			return INTERVAL_ITER_CONT;
 		break;
 	default:
 		;
@@ -1214,6 +1225,8 @@ static int lock_matches(struct ldlm_lock *lock, struct lock_match_data *data)
 		ldlm_lock_touch_in_lru(lock);
 	} else {
 		ldlm_lock_addref_internal_nolock(lock, match);
+		if (data->lmd_flags & LDLM_FL_COS_INCOMPAT)
+			ldlm_set_cos_incompat(lock);
 	}
 
 	*data->lmd_mode = match;
@@ -1369,6 +1382,7 @@ enum ldlm_mode ldlm_lock_match(struct ldlm_namespace *ns, __u64 flags,
 			       enum ldlm_type type,
 			       union ldlm_policy_data *policy,
 			       enum ldlm_mode mode,
+			       const __u64 *client_cookie,
 			       struct lustre_handle *lockh, int unref)
 {
 	struct lock_match_data data = {
@@ -1376,6 +1390,7 @@ enum ldlm_mode ldlm_lock_match(struct ldlm_namespace *ns, __u64 flags,
 		.lmd_lock	= NULL,
 		.lmd_mode	= &mode,
 		.lmd_policy	= policy,
+		.lmd_client_cookie = (__u64 *)client_cookie,
 		.lmd_flags	= flags,
 		.lmd_unref	= unref,
 	};
@@ -2469,7 +2484,8 @@ struct ldlm_resource *ldlm_lock_convert(struct ldlm_lock *lock,
 	if (node == NULL)  /* Actually, this causes EDEADLOCK to be returned */
 		RETURN(NULL);
 
-	LASSERTF((new_mode == LCK_PW && lock->l_granted_mode == LCK_PR),
+	LASSERTF(((new_mode == LCK_PW && lock->l_granted_mode == LCK_PR) ||
+		  (new_mode == LCK_EX && lock->l_granted_mode == LCK_COS)),
 		 "new_mode %u, granted %u\n", new_mode, lock->l_granted_mode);
 
 	lock_res_and_lock(lock);
@@ -2533,21 +2549,23 @@ struct ldlm_resource *ldlm_lock_convert(struct ldlm_lock *lock,
 		__u64 pflags = 0;
 		ldlm_processing_policy policy;
 
-                policy = ldlm_processing_policy_table[res->lr_type];
-                rc = policy(lock, &pflags, 0, &err, &rpc_list);
-                if (rc == LDLM_ITER_STOP) {
-                        lock->l_req_mode = old_mode;
-                        if (res->lr_type == LDLM_EXTENT)
-                                ldlm_extent_add_lock(res, lock);
-                        else
-                                ldlm_granted_list_add_lock(lock, &prev);
+		policy = ldlm_processing_policy_table[res->lr_type];
+		rc = policy(lock, &pflags, 0, &err, &rpc_list);
+		if (rc == LDLM_ITER_STOP) {
+			lock->l_req_mode = old_mode;
+			if (res->lr_type == LDLM_EXTENT)
+				ldlm_extent_add_lock(res, lock);
+			else
+			ldlm_granted_list_add_lock(lock, &prev);
+			/* pool deleted above, add back */
+			ldlm_pool_add(&ns->ns_pool, lock);
 
-                        res = NULL;
-                } else {
-                        *flags |= LDLM_FL_BLOCK_GRANTED;
-                        granted = 1;
-                }
-        }
+			res = NULL;
+		} else {
+			*flags |= LDLM_FL_BLOCK_GRANTED;
+			granted = 1;
+		}
+	}
 #else
         } else {
                 CERROR("This is client-side-only module, cannot handle "
@@ -2563,6 +2581,7 @@ struct ldlm_resource *ldlm_lock_convert(struct ldlm_lock *lock,
                 OBD_SLAB_FREE(node, ldlm_interval_slab, sizeof(*node));
         RETURN(res);
 }
+EXPORT_SYMBOL(ldlm_lock_convert);
 
 /**
  * Print lock with lock handle \a lockh description into debug log.
