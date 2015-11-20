@@ -459,7 +459,8 @@ static int mdt_md_create(struct mdt_thread_info *info)
 
 	lh = &info->mti_lh[MDT_LH_PARENT];
 	mdt_lock_pdo_init(lh, LCK_PW, &rr->rr_name);
-	rc = mdt_object_lock(info, parent, lh, MDS_INODELOCK_UPDATE);
+	rc = mdt_reint_object_lock(info, parent, lh, MDS_INODELOCK_UPDATE,
+				   mdt_object_remote(parent));
 	if (rc)
 		GOTO(put_parent, rc);
 
@@ -1229,7 +1230,6 @@ static int mdt_pdir_hash_lock(struct mdt_thread_info *info,
 			      bool cos_incompat)
 {
 	struct ldlm_res_id *res = &info->mti_res_id;
-	struct ldlm_namespace *ns = info->mti_mdt->mdt_namespace;
 	union ldlm_policy_data *policy = &info->mti_policy;
 	__u64 dlmflags = LDLM_FL_LOCAL_ONLY | LDLM_FL_ATOMIC_CB;
 	int rc;
@@ -1239,19 +1239,21 @@ static int mdt_pdir_hash_lock(struct mdt_thread_info *info,
 	 * directory which is taking modification.
 	 */
 	LASSERT(lh->mlh_pdo_hash != 0);
+	LASSERT(lh->mlh_reg_mode == LCK_PW || lh->mlh_reg_mode == LCK_EX);
 	fid_build_pdo_res_name(mdt_object_fid(obj), lh->mlh_pdo_hash, res);
 	memset(policy, 0, sizeof(*policy));
 	policy->l_inodebits.bits = ibits;
-	if (cos_incompat &&
-	    (lh->mlh_reg_mode == LCK_PW || lh->mlh_reg_mode == LCK_EX))
+	if (cos_incompat)
 		dlmflags |= LDLM_FL_COS_INCOMPAT;
+
 	/*
 	 * Use LDLM_FL_LOCAL_ONLY for this lock. We do not know yet if it is
 	 * going to be sent to client. If it is - mdt_intent_policy() path will
 	 * fix it up and turn FL_LOCAL flag off.
 	 */
-	rc = mdt_fid_lock(ns, &lh->mlh_reg_lh, lh->mlh_reg_mode, policy,
-			  res, dlmflags, &info->mti_exp->exp_handle.h_cookie);
+	rc = mdt_fid_lock(info, &lh->mlh_reg_lh, lh->mlh_reg_mode, policy,
+			  res, dlmflags, &info->mti_exp->exp_handle.h_cookie,
+			  !cos_incompat);
 	return rc;
 }
 

@@ -2326,6 +2326,58 @@ int mdt_check_resent_lock(struct mdt_thread_info *info,
 	return 1;
 }
 
+/* Issues dlm lock on passed @ns, @f stores it lock handle into @lh. */
+int mdt_fid_lock(struct mdt_thread_info *info, struct lustre_handle *lh,
+		 enum ldlm_mode mode, union ldlm_policy_data *policy,
+		 const struct ldlm_res_id *res_id, __u64 flags,
+		 const __u64 *client_cookie, bool cos_match)
+{
+	struct mdt_device *mdt = info->mti_mdt;
+	struct ldlm_namespace *ns = mdt->mdt_namespace;
+	int rc;
+
+	LASSERT(ns != NULL);
+	LASSERT(lh != NULL);
+
+	if (mdt_cos_is_enabled(mdt) && client_cookie == NULL)
+		cos_match = false;
+
+	if (cos_match) {
+		enum ldlm_mode match;
+
+		LASSERT(mdt_cos_is_enabled(mdt) || mdt_soc_is_enabled(mdt));
+		LASSERT(mode == LCK_EX || mode == LCK_PW);
+		LASSERT(!(flags & LDLM_FL_COS_INCOMPAT));
+
+		match = ldlm_lock_match(ns,
+					LDLM_FL_BLOCK_GRANTED |
+					LDLM_FL_LOCAL_ONLY, res_id, LDLM_IBITS,
+					policy, LCK_COS,
+					mdt_cos_is_enabled(mdt) ?
+						client_cookie : NULL,
+					lh, 0);
+		if (match > 0) {
+			struct ldlm_lock *lock = ldlm_handle2lock(lh);
+			struct ldlm_resource *res;
+			__u32 cflags = 0;
+
+			LASSERT(lock != NULL);
+			res = ldlm_lock_convert(lock, LCK_EX, &cflags);
+			LDLM_LOCK_PUT(lock);
+			if (res != NULL)
+				return 0;
+			ldlm_lock_decref(lh, mode);
+			lh->cookie = 0ull;
+		}
+	}
+
+	rc = ldlm_cli_enqueue_local(ns, res_id, LDLM_IBITS, policy,
+				    mode, &flags, mdt_blocking_ast,
+				    ldlm_completion_ast, NULL, NULL, 0,
+				    LVB_T_NONE, client_cookie, lh);
+	return rc == ELDLM_OK ? 0 : -EIO;
+}
+
 int mdt_remote_object_lock(struct mdt_thread_info *mti, struct mdt_object *o,
 			   const struct lu_fid *fid, struct lustre_handle *lh,
 			   enum ldlm_mode mode, __u64 ibits, bool nonblock)
@@ -2361,9 +2413,9 @@ int mdt_remote_object_lock(struct mdt_thread_info *mti, struct mdt_object *o,
 static int mdt_object_local_lock(struct mdt_thread_info *info,
 				 struct mdt_object *o,
 				 struct mdt_lock_handle *lh, __u64 ibits,
-				 bool nonblock, bool cos_incompat)
+				 bool nonblock, bool cos_match,
+				 bool cos_incompat)
 {
-	struct ldlm_namespace *ns = info->mti_mdt->mdt_namespace;
 	union ldlm_policy_data *policy = &info->mti_policy;
 	struct ldlm_res_id *res_id = &info->mti_res_id;
 	__u64 dlmflags = 0;
@@ -2418,10 +2470,12 @@ static int mdt_object_local_lock(struct mdt_thread_info *info,
                          * want it slowed down due to possible cancels.
                          */
                         policy->l_inodebits.bits = MDS_INODELOCK_UPDATE;
-			rc = mdt_fid_lock(ns, &lh->mlh_pdo_lh, lh->mlh_pdo_mode,
-					  policy, res_id, dlmflags,
+			rc = mdt_fid_lock(info, &lh->mlh_pdo_lh,
+					  lh->mlh_pdo_mode, policy, res_id,
+					  dlmflags,
 					  info->mti_exp == NULL ? NULL :
-					  &info->mti_exp->exp_handle.h_cookie);
+					  &info->mti_exp->exp_handle.h_cookie,
+					  false);
 			if (unlikely(rc != 0))
 				GOTO(out_unlock, rc);
                 }
@@ -2440,10 +2494,10 @@ static int mdt_object_local_lock(struct mdt_thread_info *info,
          * going to be sent to client. If it is - mdt_intent_policy() path will
          * fix it up and turn FL_LOCAL flag off.
          */
-	rc = mdt_fid_lock(ns, &lh->mlh_reg_lh, lh->mlh_reg_mode, policy,
+	rc = mdt_fid_lock(info, &lh->mlh_reg_lh, lh->mlh_reg_mode, policy,
 			  res_id, LDLM_FL_LOCAL_ONLY | dlmflags,
 			  info->mti_exp == NULL ? NULL :
-			  &info->mti_exp->exp_handle.h_cookie);
+			  &info->mti_exp->exp_handle.h_cookie, cos_match);
 out_unlock:
 	if (rc != 0)
 		mdt_object_unlock(info, o, lh, 1);
@@ -2458,7 +2512,7 @@ out_unlock:
 static int
 mdt_object_lock_internal(struct mdt_thread_info *info, struct mdt_object *o,
 			 struct mdt_lock_handle *lh, __u64 ibits, bool nonblock,
-			 bool cos_incompat)
+			 bool cos_match, bool cos_incompat)
 {
 	struct mdt_lock_handle *local_lh = NULL;
 	int rc;
@@ -2466,7 +2520,7 @@ mdt_object_lock_internal(struct mdt_thread_info *info, struct mdt_object *o,
 
 	if (!mdt_object_remote(o)) {
 		rc = mdt_object_local_lock(info, o, lh, ibits, nonblock,
-					   cos_incompat);
+					   cos_match, cos_incompat);
 		RETURN(rc);
 	}
 
@@ -2477,7 +2531,7 @@ mdt_object_lock_internal(struct mdt_thread_info *info, struct mdt_object *o,
 	/* Only enqueue LOOKUP lock for remote object */
 	if (ibits & MDS_INODELOCK_LOOKUP) {
 		rc = mdt_object_local_lock(info, o, lh, MDS_INODELOCK_LOOKUP,
-					   nonblock, cos_incompat);
+					   nonblock, cos_match, cos_incompat);
 		if (rc != ELDLM_OK)
 			RETURN(rc);
 
@@ -2499,8 +2553,7 @@ mdt_object_lock_internal(struct mdt_thread_info *info, struct mdt_object *o,
 			lh->mlh_type = MDT_REG_LOCK;
 		}
 		rc = mdt_remote_object_lock(info, o, mdt_object_fid(o),
-					    &lh->mlh_rreg_lh,
-					    lh->mlh_rreg_mode,
+					    &lh->mlh_rreg_lh, lh->mlh_rreg_mode,
 					    MDS_INODELOCK_UPDATE, nonblock);
 		if (rc != ELDLM_OK) {
 			if (local_lh != NULL)
@@ -2515,15 +2568,20 @@ mdt_object_lock_internal(struct mdt_thread_info *info, struct mdt_object *o,
 int mdt_object_lock(struct mdt_thread_info *info, struct mdt_object *o,
 		    struct mdt_lock_handle *lh, __u64 ibits)
 {
-	return mdt_object_lock_internal(info, o, lh, ibits, false, false);
+	return mdt_object_lock_internal(info, o, lh, ibits, false, false,
+					false);
 }
 
 int mdt_reint_object_lock(struct mdt_thread_info *info, struct mdt_object *o,
 			  struct mdt_lock_handle *lh, __u64 ibits,
 			  bool cos_incompat)
 {
+	bool cos_match = (!cos_incompat &&
+			  (mdt_cos_is_enabled(info->mti_mdt) ||
+			   mdt_soc_is_enabled(info->mti_mdt)));
+
 	LASSERT(lh->mlh_reg_mode == LCK_PW || lh->mlh_reg_mode == LCK_EX);
-	return mdt_object_lock_internal(info, o, lh, ibits, false,
+	return mdt_object_lock_internal(info, o, lh, ibits, false, cos_match,
 					cos_incompat);
 }
 
@@ -2533,7 +2591,8 @@ int mdt_object_lock_try(struct mdt_thread_info *info, struct mdt_object *o,
 	struct mdt_lock_handle tmp = *lh;
 	int rc;
 
-	rc = mdt_object_lock_internal(info, o, &tmp, ibits, true, false);
+	rc = mdt_object_lock_internal(info, o, &tmp, ibits, true, false,
+				      false);
 	if (rc == 0)
 		*lh = tmp;
 
@@ -2545,10 +2604,14 @@ int mdt_reint_object_lock_try(struct mdt_thread_info *info,
 			      __u64 ibits, bool cos_incompat)
 {
 	struct mdt_lock_handle tmp = *lh;
+	bool cos_match = (!cos_incompat &&
+			  (mdt_cos_is_enabled(info->mti_mdt) ||
+			   mdt_soc_is_enabled(info->mti_mdt)));
 	int rc;
 
 	LASSERT(lh->mlh_reg_mode == LCK_PW || lh->mlh_reg_mode == LCK_EX);
-	rc = mdt_object_lock_internal(info, o, &tmp, ibits, true, cos_incompat);
+	rc = mdt_object_lock_internal(info, o, &tmp, ibits, true, cos_match,
+				      cos_incompat);
 	if (rc == 0)
 		*lh = tmp;
 
@@ -2574,18 +2637,34 @@ static void mdt_save_lock(struct mdt_thread_info *info, struct lustre_handle *h,
 	ENTRY;
 
 	if (lustre_handle_is_used(h)) {
+		struct mdt_device *mdt = info->mti_mdt;
+		struct ldlm_lock *lock;
+
+		if (decref && (mode == LCK_EX || mode == LCK_PW)) {
+			lock = ldlm_handle2lock(h);
+			if (lock->l_writers > 1) {
+				/* we reused COS lock, and upon failure we need
+				 * to downgrade it to LCK_COS, otherwise
+				 * Commit-on-Sharing won't work */
+				LASSERT(lock->l_granted_mode == LCK_EX);
+				ldlm_lock_downgrade(lock, LCK_COS);
+				mdt_fid_unlock(h, mode);
+				goto commit_async;
+			}
+			LDLM_LOCK_PUT(lock);
+		}
+
 		if (decref || !info->mti_has_trans ||
 		    !(mode & (LCK_PW | LCK_EX))) {
 			mdt_fid_unlock(h, mode);
 		} else {
-			struct mdt_device *mdt = info->mti_mdt;
-			struct ldlm_lock *lock = ldlm_handle2lock(h);
 			struct ptlrpc_request *req = mdt_info_req(info);
 			int cos;
 
 			cos = (mdt_cos_is_enabled(mdt) ||
 			       mdt_soc_is_enabled(mdt));
 
+			lock = ldlm_handle2lock(h);
 			LASSERTF(lock != NULL, "no lock for cookie "LPX64"\n",
 				 h->cookie);
 
@@ -2603,6 +2682,7 @@ static void mdt_save_lock(struct mdt_thread_info *info, struct lustre_handle *h,
 			} else {
 				mdt_fid_unlock(h, mode);
 			}
+commit_async:
                         if (mdt_is_lock_sync(lock)) {
                                 CDEBUG(D_HA, "found sync-lock,"
                                        " async commit started\n");
