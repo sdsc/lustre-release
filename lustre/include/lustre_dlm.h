@@ -1374,9 +1374,10 @@ void ldlm_lock_fail_match(struct ldlm_lock *lock);
 void ldlm_lock_allow_match(struct ldlm_lock *lock);
 void ldlm_lock_allow_match_locked(struct ldlm_lock *lock);
 enum ldlm_mode ldlm_lock_match(struct ldlm_namespace *ns, __u64 flags,
-			       const struct ldlm_res_id *, enum ldlm_type type,
-			       union ldlm_policy_data *, enum ldlm_mode mode,
-			       struct lustre_handle *, int unref);
+				const struct ldlm_res_id *, enum ldlm_type type,
+				union ldlm_policy_data *, enum ldlm_mode mode,
+				const __u64 *, struct lustre_handle *,
+				int unref);
 enum ldlm_mode ldlm_revalidate_lock_handle(struct lustre_handle *lockh,
 					   __u64 *bits);
 struct ldlm_resource *ldlm_lock_convert(struct ldlm_lock *lock,
