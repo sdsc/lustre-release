@@ -1653,6 +1653,11 @@ int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set)
 		int unregistered = 0;
 		int rc = 0;
 
+		if (req->rq_phase == RQ_PHASE_COMPLETE) {
+			list_move_tail(&req->rq_set_chain, &comp_reqs);
+			continue;
+		}
+
 		/* This schedule point is mainly for the ptlrpcd caller of this
 		 * function.  Most ptlrpc sets are not long-lived and unbounded
 		 * in length, but at the least the set used by the ptlrpcd is.
@@ -1672,13 +1677,11 @@ int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set)
 			GOTO(interpret, req->rq_status);
 		}
 
-                if (req->rq_phase == RQ_PHASE_NEW &&
-                    ptlrpc_send_new_req(req)) {
-                        force_timer_recalc = 1;
-                }
+		if (req->rq_phase == RQ_PHASE_NEW && ptlrpc_send_new_req(req))
+			force_timer_recalc = 1;
 
-                /* delayed send - skip */
-                if (req->rq_phase == RQ_PHASE_NEW && req->rq_sent)
+		/* delayed send - skip */
+		if (req->rq_phase == RQ_PHASE_NEW && req->rq_sent)
 			continue;
 
 		/* delayed resend - skip */
@@ -1686,11 +1689,10 @@ int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set)
 		    req->rq_sent > cfs_time_current_sec())
 			continue;
 
-                if (!(req->rq_phase == RQ_PHASE_RPC ||
-                      req->rq_phase == RQ_PHASE_BULK ||
-                      req->rq_phase == RQ_PHASE_INTERPRET ||
-                      req->rq_phase == RQ_PHASE_UNREGISTERING ||
-                      req->rq_phase == RQ_PHASE_COMPLETE)) {
+		if (!(req->rq_phase == RQ_PHASE_RPC ||
+		      req->rq_phase == RQ_PHASE_BULK ||
+		      req->rq_phase == RQ_PHASE_INTERPRET ||
+		      req->rq_phase == RQ_PHASE_UNREGISTERING)) {
                         DEBUG_REQ(D_ERROR, req, "bad phase %x", req->rq_phase);
                         LBUG();
                 }
@@ -1729,11 +1731,6 @@ int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set)
                          */
                         ptlrpc_rqphase_move(req, req->rq_next_phase);
                 }
-
-                if (req->rq_phase == RQ_PHASE_COMPLETE) {
-			list_move_tail(&req->rq_set_chain, &comp_reqs);
-                        continue;
-		}
 
                 if (req->rq_phase == RQ_PHASE_INTERPRET)
                         GOTO(interpret, req->rq_status);
@@ -2185,6 +2182,9 @@ static void ptlrpc_interrupted_set(void *data)
 		    !req->rq_allow_intr)
 			continue;
 
+		if (req->rq_intr)
+			continue;
+
 		ptlrpc_mark_interrupted(req);
 	}
 }
@@ -2274,17 +2274,12 @@ int ptlrpc_set_wait(struct ptlrpc_request_set *set)
                 CDEBUG(D_RPCTRACE, "set %p going to sleep for %d seconds\n",
                        set, timeout);
 
-		if (timeout == 0 && !signal_pending(current))
-                        /*
-                         * No requests are in-flight (ether timed out
-                         * or delayed), so we can allow interrupts.
-                         * We still want to block for a limited time,
-                         * so we allow interrupts during the timeout.
-                         */
-			lwi = LWI_TIMEOUT_INTR_ALL(cfs_time_seconds(1),
-                                                   ptlrpc_expired_set,
-                                                   ptlrpc_interrupted_set, set);
-		else if (set->set_allow_intr)
+		if ((timeout == 0 && !signal_pending(current)) ||
+		    set->set_allow_intr)
+			/* No requests are in-flight (ether timed out
+			 * or delayed), so we can allow interrupts.
+			 * We still want to block for a limited time,
+			 * so we allow interrupts during the timeout. */
 			lwi = LWI_TIMEOUT_INTR_ALL(
 					cfs_time_seconds(timeout ? timeout : 1),
 					ptlrpc_expired_set,
