@@ -950,24 +950,10 @@ static inline int is_identity_get_disabled(struct upcall_cache *cache)
 
 int mdt_blocking_ast(struct ldlm_lock*, struct ldlm_lock_desc*, void*, int);
 
-/* Issues dlm lock on passed @ns, @f stores it lock handle into @lh. */
-static inline int mdt_fid_lock(struct ldlm_namespace *ns,
-			       struct lustre_handle *lh, enum ldlm_mode mode,
-			       union ldlm_policy_data *policy,
-			       const struct ldlm_res_id *res_id,
-			       __u64 flags, const __u64 *client_cookie)
-{
-	int rc;
-
-	LASSERT(ns != NULL);
-	LASSERT(lh != NULL);
-
-	rc = ldlm_cli_enqueue_local(ns, res_id, LDLM_IBITS, policy,
-				    mode, &flags, mdt_blocking_ast,
-				    ldlm_completion_ast, NULL, NULL, 0,
-				    LVB_T_NONE, client_cookie, lh);
-	return rc == ELDLM_OK ? 0 : -EIO;
-}
+int mdt_fid_lock(struct mdt_thread_info *info, struct lustre_handle *lh,
+		 enum ldlm_mode mode, union ldlm_policy_data *policy,
+		 const struct ldlm_res_id *res_id, __u64 flags,
+		 const __u64 *client_cookie, bool cos_match);
 
 static inline void mdt_fid_unlock(struct lustre_handle *lh, enum ldlm_mode mode)
 {

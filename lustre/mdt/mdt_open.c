@@ -1283,7 +1283,12 @@ again:
 	if (IS_ERR(parent))
 		GOTO(out, result = PTR_ERR(parent));
 
-	result = mdt_object_lock(info, parent, lh, MDS_INODELOCK_UPDATE);
+	if (create_flags & MDS_OPEN_CREAT)
+		result = mdt_reint_object_lock(info, parent, lh,
+						MDS_INODELOCK_UPDATE, false);
+	else
+		result = mdt_object_lock(info, parent, lh,
+					 MDS_INODELOCK_UPDATE);
 	if (result != 0) {
 		mdt_object_put(info->mti_env, parent);
 		GOTO(out, result);
