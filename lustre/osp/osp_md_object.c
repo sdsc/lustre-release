@@ -896,7 +896,7 @@ static int osp_md_object_lock(const struct lu_env *env,
 	mode = ldlm_lock_match(osp->opd_obd->obd_namespace,
 			       LDLM_FL_BLOCK_GRANTED, res_id,
 			       einfo->ei_type, policy,
-			       einfo->ei_mode, lh, 0);
+			       einfo->ei_mode, NULL, lh, 0);
 	if (mode > 0)
 		return ELDLM_OK;
 
