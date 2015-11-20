@@ -1980,7 +1980,7 @@ int osc_enqueue_base(struct obd_export *exp, struct ldlm_res_id *res_id,
         if (einfo->ei_mode == LCK_PR)
                 mode |= LCK_PW;
         mode = ldlm_lock_match(obd->obd_namespace, *flags | match_lvb, res_id,
-			       einfo->ei_type, policy, mode, &lockh, 0);
+			       einfo->ei_type, policy, mode, NULL, &lockh, 0);
 	if (mode) {
 		struct ldlm_lock *matched;
 
@@ -2104,8 +2104,8 @@ int osc_match_base(struct obd_export *exp, struct ldlm_res_id *res_id,
         rc = mode;
         if (mode == LCK_PR)
                 rc |= LCK_PW;
-        rc = ldlm_lock_match(obd->obd_namespace, lflags,
-                             res_id, type, policy, rc, lockh, unref);
+	rc = ldlm_lock_match(obd->obd_namespace, lflags, res_id, type, policy,
+			     rc, NULL, lockh, unref);
         if (rc) {
                 if (data != NULL) {
                         if (!osc_set_data_with_check(lockh, data)) {

@@ -1235,7 +1235,7 @@ struct ldlm_lock *osc_dlmlock_at_pgoff(const struct lu_env *env,
 again:
 	mode = ldlm_lock_match(osc_export(obj)->exp_obd->obd_namespace,
 			       flags, resname, LDLM_EXTENT, policy,
-			       LCK_PR | LCK_PW | LCK_GROUP, &lockh,
+			       LCK_PR | LCK_PW | LCK_GROUP, NULL, &lockh,
 			       dap_flags & OSC_DAP_FL_CANCELING);
 	if (mode != 0) {
 		lock = ldlm_handle2lock(&lockh);
