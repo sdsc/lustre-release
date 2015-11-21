@@ -2100,6 +2100,11 @@ static int lfsck_layout_conflict_create(const struct lu_env *env,
 	if (rc != 0)
 		GOTO(out, rc);
 
+	while (CFS_FAIL_TIMEOUT(OBD_FAIL_LFSCK_DELAY3, cfs_fail_val)) {
+		if (unlikely(!thread_is_running(&com->lc_lfsck->li_thread)))
+			GOTO(out, rc = 0);
+	}
+
 	rc = lfsck_layout_master_conditional_destroy(env, com, cfid2, ost_idx2);
 
 	/* If the conflict OST-obejct is not created for fixing dangling
