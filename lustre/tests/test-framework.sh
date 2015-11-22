@@ -3290,7 +3290,7 @@ stopall() {
 }
 
 cleanup_echo_devs () {
-    local devs=$($LCTL dl | grep echo | awk '{print $4}')
+    local devs=$($LCTL dl | grep "echo\|_osc" | awk '{print $4}')
 
     for dev in $devs; do
         $LCTL --device $dev cleanup
