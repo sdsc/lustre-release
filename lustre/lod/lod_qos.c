@@ -205,7 +205,9 @@ static int lod_statfs_and_check(const struct lu_env *env, struct lod_device *d,
 		rc = -EROFS;
 
 	/* check whether device has changed state (active, inactive) */
-	if (rc != 0 && ost->ltd_active) {
+	/* LU-7309: osp_precreate_reserve will process "-ENOTCONN" case,
+	 * which is returned by osp_statfs if its import is not in FULL state */
+	if (rc != 0 && rc != -ENOTCONN && ost->ltd_active) {
 		/* turned inactive? */
 		spin_lock(&d->lod_desc_lock);
 		if (ost->ltd_active) {
