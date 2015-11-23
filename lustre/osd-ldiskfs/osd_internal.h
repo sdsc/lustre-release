@@ -485,7 +485,8 @@ struct osd_it_quota {
 
 struct osd_iobuf {
 	wait_queue_head_t  dr_wait;
-	atomic_t       dr_numreqs;  /* number of reqs being processed */
+	atomic_t	   dr_numreqs;  /* number of reqs being processed */
+	spinlock_t	   dr_lock;
 	int                dr_max_pages;
 	int                dr_npages;
 	int                dr_error;
@@ -502,6 +503,18 @@ struct osd_iobuf {
 	struct osd_device *dr_dev;
 	unsigned int	   dr_init_at;	/* the line iobuf was initialized */
 };
+
+static inline int osd_iobuf_io_completed(struct osd_iobuf *iobuf)
+{
+	int io_completed = 0;
+
+	spin_lock(&iobuf->dr_lock);
+	if (atomic_read(&iobuf->dr_numreqs) == 0)
+		io_completed = 1;
+	spin_unlock(&iobuf->dr_lock);
+
+	return io_completed;
+}
 
 #define OSD_INS_CACHE_SIZE	8
 

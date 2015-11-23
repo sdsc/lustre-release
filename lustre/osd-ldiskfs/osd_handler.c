@@ -1466,7 +1466,8 @@ static int osd_trans_stop(const struct lu_env *env, struct dt_device *dt,
 	 * completed otherwise iobuf may be corrupted by different request
 	 */
 	wait_event(iobuf->dr_wait,
-		       atomic_read(&iobuf->dr_numreqs) == 0);
+		   osd_iobuf_io_completed(iobuf));
+
 	osd_fini_iobuf(osd, iobuf);
 	if (!rc)
 		rc = iobuf->dr_error;
