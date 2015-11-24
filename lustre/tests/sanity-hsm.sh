@@ -691,7 +691,7 @@ make_custom_file_for_progress() {
 	[[ $blksz -gt 0 ]] || error "Invalid stripe size"
 
 	cleanup_large_files
-	check_enough_free_space $fsize $blksz
+	check_enough_free_space $fsize $blksz || return $?
 	[ $? != 0 ] && return $?
 	dd if=/dev/zero of=$file2 count=$fsize bs=$blksz conv=fsync ||
 		file_creation_failure dd $file2 $?
