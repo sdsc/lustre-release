@@ -1639,6 +1639,7 @@ int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set)
 	struct list_head *tmp, *next;
 	struct list_head  comp_reqs;
 	int force_timer_recalc = 0;
+	int async;
 	ENTRY;
 
 	if (atomic_read(&set->set_remaining) == 0)
@@ -1652,6 +1653,11 @@ int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set)
 		struct obd_import *imp = req->rq_import;
 		int unregistered = 0;
 		int rc = 0;
+
+		if (req->rq_phase == RQ_PHASE_COMPLETE) {
+			list_move_tail(&req->rq_set_chain, &comp_reqs);
+			continue;
+		}
 
 		/* This schedule point is mainly for the ptlrpcd caller of this
 		 * function.  Most ptlrpc sets are not long-lived and unbounded
@@ -1669,16 +1675,20 @@ int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set)
 			req->rq_status = -EINTR;
 			ptlrpc_rqphase_move(req, RQ_PHASE_INTERPRET);
 
+			/* Since it is interpreted and we have to wait for
+			 * the reply to be unlinked, then use sync mode. */
+			async = 0;
+
 			GOTO(interpret, req->rq_status);
+		} else {
+			async = 1;
 		}
 
-                if (req->rq_phase == RQ_PHASE_NEW &&
-                    ptlrpc_send_new_req(req)) {
-                        force_timer_recalc = 1;
-                }
+		if (req->rq_phase == RQ_PHASE_NEW && ptlrpc_send_new_req(req))
+			force_timer_recalc = 1;
 
-                /* delayed send - skip */
-                if (req->rq_phase == RQ_PHASE_NEW && req->rq_sent)
+		/* delayed send - skip */
+		if (req->rq_phase == RQ_PHASE_NEW && req->rq_sent)
 			continue;
 
 		/* delayed resend - skip */
@@ -1686,11 +1696,10 @@ int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set)
 		    req->rq_sent > cfs_time_current_sec())
 			continue;
 
-                if (!(req->rq_phase == RQ_PHASE_RPC ||
-                      req->rq_phase == RQ_PHASE_BULK ||
-                      req->rq_phase == RQ_PHASE_INTERPRET ||
-                      req->rq_phase == RQ_PHASE_UNREGISTERING ||
-                      req->rq_phase == RQ_PHASE_COMPLETE)) {
+		if (!(req->rq_phase == RQ_PHASE_RPC ||
+		      req->rq_phase == RQ_PHASE_BULK ||
+		      req->rq_phase == RQ_PHASE_INTERPRET ||
+		      req->rq_phase == RQ_PHASE_UNREGISTERING)) {
                         DEBUG_REQ(D_ERROR, req, "bad phase %x", req->rq_phase);
                         LBUG();
                 }
@@ -1729,11 +1738,6 @@ int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set)
                          */
                         ptlrpc_rqphase_move(req, req->rq_next_phase);
                 }
-
-                if (req->rq_phase == RQ_PHASE_COMPLETE) {
-			list_move_tail(&req->rq_set_chain, &comp_reqs);
-                        continue;
-		}
 
                 if (req->rq_phase == RQ_PHASE_INTERPRET)
                         GOTO(interpret, req->rq_status);
@@ -1951,27 +1955,28 @@ int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set)
 			req->rq_status = -EIO;
 		}
 
-                ptlrpc_rqphase_move(req, RQ_PHASE_INTERPRET);
+		ptlrpc_rqphase_move(req, RQ_PHASE_INTERPRET);
 
-        interpret:
-                LASSERT(req->rq_phase == RQ_PHASE_INTERPRET);
+	interpret:
+		LASSERT(req->rq_phase == RQ_PHASE_INTERPRET);
 
-                /* This moves to "unregistering" phase we need to wait for
-                 * reply unlink. */
-                if (!unregistered && !ptlrpc_unregister_reply(req, 1)) {
-                        /* start async bulk unlink too */
-                        ptlrpc_unregister_bulk(req, 1);
-                        continue;
-                }
+		/* This moves to "unregistering" phase we need to wait for
+		 * reply unlink. */
+		if (!unregistered && !ptlrpc_unregister_reply(req, async)) {
+			async = 1;
+			/* start async bulk unlink too */
+			ptlrpc_unregister_bulk(req, 1);
+			continue;
+		}
 
-                if (!ptlrpc_unregister_bulk(req, 1))
-                        continue;
+		if (!ptlrpc_unregister_bulk(req, async))
+			continue;
 
-                /* When calling interpret receiving already should be
-                 * finished. */
-                LASSERT(!req->rq_receiving_reply);
+		/* When calling interpret receiving already should be
+		 * finished. */
+		LASSERT(!req->rq_receiving_reply);
 
-                ptlrpc_req_interpret(env, req, req->rq_status);
+		ptlrpc_req_interpret(env, req, req->rq_status);
 
 		if (ptlrpcd_check_work(req)) {
 			atomic_dec(&set->set_remaining);
@@ -2180,6 +2185,9 @@ static void ptlrpc_interrupted_set(void *data)
 		struct ptlrpc_request *req =
 			list_entry(tmp, struct ptlrpc_request, rq_set_chain);
 
+		if (req->rq_intr)
+			continue;
+
 		if (req->rq_phase != RQ_PHASE_RPC &&
 		    req->rq_phase != RQ_PHASE_UNREGISTERING &&
 		    !req->rq_allow_intr)
@@ -2274,17 +2282,12 @@ int ptlrpc_set_wait(struct ptlrpc_request_set *set)
                 CDEBUG(D_RPCTRACE, "set %p going to sleep for %d seconds\n",
                        set, timeout);
 
-		if (timeout == 0 && !signal_pending(current))
-                        /*
-                         * No requests are in-flight (ether timed out
-                         * or delayed), so we can allow interrupts.
-                         * We still want to block for a limited time,
-                         * so we allow interrupts during the timeout.
-                         */
-			lwi = LWI_TIMEOUT_INTR_ALL(cfs_time_seconds(1),
-                                                   ptlrpc_expired_set,
-                                                   ptlrpc_interrupted_set, set);
-		else if (set->set_allow_intr)
+		if ((timeout == 0 && !signal_pending(current)) ||
+		    set->set_allow_intr)
+			/* No requests are in-flight (ether timed out
+			 * or delayed), so we can allow interrupts.
+			 * We still want to block for a limited time,
+			 * so we allow interrupts during the timeout. */
 			lwi = LWI_TIMEOUT_INTR_ALL(
 					cfs_time_seconds(timeout ? timeout : 1),
 					ptlrpc_expired_set,
