@@ -73,6 +73,7 @@ static int __osd_init_iobuf(struct osd_device *d, struct osd_iobuf *iobuf,
 
 	init_waitqueue_head(&iobuf->dr_wait);
 	atomic_set(&iobuf->dr_numreqs, 0);
+	atomic_set(&iobuf->dr_refs, 1);
 	iobuf->dr_npages = 0;
 	iobuf->dr_error = 0;
 	iobuf->dr_dev = d;
@@ -206,6 +207,8 @@ static void dio_complete_routine(struct bio *bio, int error)
 	}
 	if (atomic_dec_and_test(&iobuf->dr_numreqs))
 		wake_up(&iobuf->dr_wait);
+
+	OSD_IOBUF_PUT(iobuf);
 
 	/* Completed bios used to be chained off iobuf->dr_bios and freed in
 	 * filter_clear_dreq().  It was then possible to exhaust the biovec-256
@@ -352,6 +355,8 @@ static int osd_do_bio(struct osd_device *osd, struct inode *inode,
 			bio_set_sector(bio, sector);
 			bio->bi_rw = (iobuf->dr_rw == 0) ? READ : WRITE;
 			bio->bi_end_io = dio_complete_routine;
+
+			OSD_IOBUF_GET(iobuf);
 			bio->bi_private = iobuf;
 
 			rc = bio_add_page(bio, page,
@@ -963,7 +968,7 @@ static int osd_write_prep(const struct lu_env *env, struct dt_object *dt,
                           struct niobuf_local *lnb, int npages)
 {
         struct osd_thread_info *oti   = osd_oti_get(env);
-        struct osd_iobuf       *iobuf = &oti->oti_iobuf;
+        struct osd_iobuf       *iobuf = oti->oti_iobuf;
         struct inode           *inode = osd_dt_obj(dt)->oo_inode;
         struct osd_device      *osd   = osd_obj2dev(osd_dt_obj(dt));
         struct timeval          start;
@@ -1210,7 +1215,7 @@ static int osd_write_commit(const struct lu_env *env, struct dt_object *dt,
                             struct thandle *thandle)
 {
         struct osd_thread_info *oti = osd_oti_get(env);
-        struct osd_iobuf *iobuf = &oti->oti_iobuf;
+        struct osd_iobuf *iobuf = oti->oti_iobuf;
         struct inode *inode = osd_dt_obj(dt)->oo_inode;
         struct osd_device  *osd = osd_obj2dev(osd_dt_obj(dt));
         loff_t isize;
@@ -1308,7 +1313,7 @@ static int osd_read_prep(const struct lu_env *env, struct dt_object *dt,
                          struct niobuf_local *lnb, int npages)
 {
         struct osd_thread_info *oti = osd_oti_get(env);
-        struct osd_iobuf *iobuf = &oti->oti_iobuf;
+        struct osd_iobuf *iobuf = oti->oti_iobuf;
         struct inode *inode = osd_dt_obj(dt)->oo_inode;
         struct osd_device *osd = osd_obj2dev(osd_dt_obj(dt));
         struct timeval start, end;
