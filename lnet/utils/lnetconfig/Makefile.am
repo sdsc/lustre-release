@@ -37,7 +37,7 @@ noinst_LIBRARIES = liblnetconfigtmp.a
 
 CYAML := $(top_builddir)/lnet/utils/cyaml/cyaml.c \
 	 $(top_builddir)/lnet/utils/cyaml/cyaml.h
-liblnetconfigtmp_a_SOURCES := liblnetconfig.c liblnetconfig.h $(CYAML)
+liblnetconfigtmp_a_SOURCES := liblnetconfig.c liblnetconfig_ib.c liblnetconfig.h liblnd.h $(CYAML)
 
 # build static and share lib lnet config library
 liblnetconfig.a : liblnetconfigtmp.a
