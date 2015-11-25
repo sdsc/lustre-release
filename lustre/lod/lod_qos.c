@@ -210,6 +210,9 @@ static int lod_statfs_and_check(const struct lu_env *env, struct lod_device *d,
 		spin_lock(&d->lod_desc_lock);
 		if (ost->ltd_active) {
 			ost->ltd_active = 0;
+			if (rc == -ENOTCONN)
+				ost->ltd_connecting = 1;
+
 			LASSERT(d->lod_desc.ld_active_tgt_count > 0);
 			d->lod_desc.ld_active_tgt_count--;
 			d->lod_qos.lq_dirty = 1;
@@ -226,6 +229,7 @@ static int lod_statfs_and_check(const struct lu_env *env, struct lod_device *d,
 		spin_lock(&d->lod_desc_lock);
 		if (ost->ltd_active == 0) {
 			ost->ltd_active = 1;
+			ost->ltd_connecting = 0;
 			d->lod_desc.ld_active_tgt_count++;
 			d->lod_qos.lq_dirty = 1;
 			d->lod_qos.lq_rr.lqr_dirty = 1;
@@ -937,6 +941,7 @@ static int lod_alloc_rr(const struct lu_env *env, struct lod_object *lo,
 	int		   rc;
 	__u32		   ost_start_idx_temp;
 	int		   speed = 0;
+	int		   ost_connecting = 0;
 	__u32		   stripe_idx = 0;
 	__u32		   stripe_cnt = lo->ldo_stripenr;
 	__u32		   stripe_cnt_min = min_stripe_count(stripe_cnt, flags);
@@ -1011,12 +1016,17 @@ repeat_find:
 		spin_unlock(&lqr->lqr_alloc);
 		rc = lod_check_and_reserve_ost(env, m, sfs, ost_idx, speed,
 					       &stripe_idx, stripe, th);
+		if (rc == -ENOTCONN)
+			ost_connecting = 1;
+
 		spin_lock(&lqr->lqr_alloc);
 	}
 	if ((speed < 2) && (stripe_idx < stripe_cnt_min)) {
 		/* Try again, allowing slower OSCs */
 		speed++;
 		lqr->lqr_start_idx = ost_start_idx_temp;
+
+		ost_connecting = 0;
 		goto repeat_find;
 	}
 
@@ -1029,7 +1039,10 @@ repeat_find:
 		rc = 0;
 	} else {
 		/* nobody provided us with a single object */
-		rc = -ENOSPC;
+		if (ost_connecting)
+			rc = -EINPROGRESS;
+		else
+			rc = -ENOSPC;
 	}
 
 out:
