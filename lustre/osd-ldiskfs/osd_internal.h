@@ -485,7 +485,8 @@ struct osd_it_quota {
 
 struct osd_iobuf {
 	wait_queue_head_t  dr_wait;
-	atomic_t       dr_numreqs;  /* number of reqs being processed */
+	atomic_t	   dr_numreqs;  /* number of reqs being processed */
+	struct kref	   dr_refs;
 	int                dr_max_pages;
 	int                dr_npages;
 	int                dr_error;
@@ -502,6 +503,8 @@ struct osd_iobuf {
 	struct osd_device *dr_dev;
 	unsigned int	   dr_init_at;	/* the line iobuf was initialized */
 };
+
+void osd_iobuf_release(struct kref *kref);
 
 #define OSD_INS_CACHE_SIZE	8
 
@@ -589,7 +592,7 @@ struct osd_thread_info {
 		struct filter_fid	oti_ff_new;
 	};
 	/** 0-copy IO */
-	struct osd_iobuf       oti_iobuf;
+	struct osd_iobuf      *oti_iobuf;
 	/* used to access objects in /O */
 	struct inode          *oti_inode;
 #define OSD_FID_REC_SZ 32

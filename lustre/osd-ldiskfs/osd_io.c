@@ -207,6 +207,8 @@ static void dio_complete_routine(struct bio *bio, int error)
 	if (atomic_dec_and_test(&iobuf->dr_numreqs))
 		wake_up(&iobuf->dr_wait);
 
+	kref_put(&iobuf->dr_refs, osd_iobuf_release);
+
 	/* Completed bios used to be chained off iobuf->dr_bios and freed in
 	 * filter_clear_dreq().  It was then possible to exhaust the biovec-256
 	 * mempool when serious on-disk fragmentation was encountered,
@@ -352,6 +354,8 @@ static int osd_do_bio(struct osd_device *osd, struct inode *inode,
 			bio_set_sector(bio, sector);
 			bio->bi_rw = (iobuf->dr_rw == 0) ? READ : WRITE;
 			bio->bi_end_io = dio_complete_routine;
+
+			kref_get(&iobuf->dr_refs);
 			bio->bi_private = iobuf;
 
 			rc = bio_add_page(bio, page,
@@ -962,18 +966,18 @@ cleanup:
 static int osd_write_prep(const struct lu_env *env, struct dt_object *dt,
                           struct niobuf_local *lnb, int npages)
 {
-        struct osd_thread_info *oti   = osd_oti_get(env);
-        struct osd_iobuf       *iobuf = &oti->oti_iobuf;
-        struct inode           *inode = osd_dt_obj(dt)->oo_inode;
-        struct osd_device      *osd   = osd_obj2dev(osd_dt_obj(dt));
-        struct timeval          start;
-        struct timeval          end;
-        unsigned long           timediff;
-        ssize_t                 isize;
-        __s64                   maxidx;
-        int                     rc = 0;
-        int                     i;
-        int                     cache = 0;
+	struct osd_thread_info *oti   = osd_oti_get(env);
+	struct osd_iobuf       *iobuf = oti->oti_iobuf;
+	struct inode           *inode = osd_dt_obj(dt)->oo_inode;
+	struct osd_device      *osd   = osd_obj2dev(osd_dt_obj(dt));
+	struct timeval          start;
+	struct timeval          end;
+	unsigned long           timediff;
+	ssize_t                 isize;
+	__s64                   maxidx;
+	int                     rc = 0;
+	int                     i;
+	int                     cache = 0;
 
         LASSERT(inode);
 
@@ -1209,12 +1213,12 @@ static int osd_write_commit(const struct lu_env *env, struct dt_object *dt,
                             struct niobuf_local *lnb, int npages,
                             struct thandle *thandle)
 {
-        struct osd_thread_info *oti = osd_oti_get(env);
-        struct osd_iobuf *iobuf = &oti->oti_iobuf;
-        struct inode *inode = osd_dt_obj(dt)->oo_inode;
-        struct osd_device  *osd = osd_obj2dev(osd_dt_obj(dt));
-        loff_t isize;
-        int rc = 0, i;
+	struct osd_thread_info *oti = osd_oti_get(env);
+	struct osd_iobuf *iobuf = oti->oti_iobuf;
+	struct inode *inode = osd_dt_obj(dt)->oo_inode;
+	struct osd_device  *osd = osd_obj2dev(osd_dt_obj(dt));
+	loff_t isize;
+	int rc = 0, i;
 	struct osd_fextent extent = { 0 };
 
         LASSERT(inode);
@@ -1307,12 +1311,12 @@ static int osd_write_commit(const struct lu_env *env, struct dt_object *dt,
 static int osd_read_prep(const struct lu_env *env, struct dt_object *dt,
                          struct niobuf_local *lnb, int npages)
 {
-        struct osd_thread_info *oti = osd_oti_get(env);
-        struct osd_iobuf *iobuf = &oti->oti_iobuf;
-        struct inode *inode = osd_dt_obj(dt)->oo_inode;
-        struct osd_device *osd = osd_obj2dev(osd_dt_obj(dt));
-        struct timeval start, end;
-        unsigned long timediff;
+	struct osd_thread_info *oti = osd_oti_get(env);
+	struct osd_iobuf *iobuf = oti->oti_iobuf;
+	struct inode *inode = osd_dt_obj(dt)->oo_inode;
+	struct osd_device *osd = osd_obj2dev(osd_dt_obj(dt));
+	struct timeval start, end;
+	unsigned long timediff;
 	int rc = 0, i, cache = 0, cache_hits = 0, cache_misses = 0;
 	loff_t isize;
 

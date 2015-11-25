@@ -1202,7 +1202,7 @@ static struct thandle *osd_trans_create(const struct lu_env *env,
 					struct dt_device *d)
 {
 	struct osd_thread_info	*oti = osd_oti_get(env);
-	struct osd_iobuf	*iobuf = &oti->oti_iobuf;
+	struct osd_iobuf	*iobuf = oti->oti_iobuf;
 	struct osd_thandle	*oh;
 	struct thandle		*th;
 	ENTRY;
@@ -1404,7 +1404,7 @@ static int osd_trans_stop(const struct lu_env *env, struct dt_device *dt,
 	int                     rc = 0, remove_agents = 0;
 	struct osd_thandle     *oh;
 	struct osd_thread_info *oti = osd_oti_get(env);
-	struct osd_iobuf       *iobuf = &oti->oti_iobuf;
+	struct osd_iobuf       *iobuf = oti->oti_iobuf;
 	struct osd_device      *osd = osd_dt_dev(th->th_dev);
 	struct qsd_instance    *qsd = osd->od_quota_slave;
 	struct lquota_trans    *qtrans;
@@ -5998,19 +5998,36 @@ static void *osd_key_init(const struct lu_context *ctx,
         if (info->oti_it_ea_buf == NULL)
                 goto out_free_info;
 
-        info->oti_env = container_of(ctx, struct lu_env, le_ctx);
+	OBD_ALLOC_PTR(info->oti_iobuf);
+	if (info->oti_iobuf == NULL)
+		goto out_free_ea;
 
-        info->oti_hlock = ldiskfs_htree_lock_alloc();
-        if (info->oti_hlock == NULL)
-                goto out_free_ea;
+	kref_init(&info->oti_iobuf->dr_refs);
 
-        return info;
+	info->oti_env = container_of(ctx, struct lu_env, le_ctx);
 
+	info->oti_hlock = ldiskfs_htree_lock_alloc();
+	if (info->oti_hlock == NULL)
+		goto out_free_iobuf;
+
+	return info;
+
+ out_free_iobuf:
+	OBD_FREE_PTR(info->oti_iobuf);
  out_free_ea:
-        OBD_FREE(info->oti_it_ea_buf, OSD_IT_EA_BUFSIZE);
+	OBD_FREE(info->oti_it_ea_buf, OSD_IT_EA_BUFSIZE);
  out_free_info:
-        OBD_FREE_PTR(info);
-        return ERR_PTR(-ENOMEM);
+	OBD_FREE_PTR(info);
+	return ERR_PTR(-ENOMEM);
+}
+
+void osd_iobuf_release(struct kref *kref)
+{
+	struct osd_iobuf *buf = container_of(kref, struct osd_iobuf, dr_refs);
+
+	lu_buf_free(&buf->dr_pg_buf);
+	lu_buf_free(&buf->dr_bl_buf);
+	OBD_FREE_PTR(buf);
 }
 
 static void osd_key_fini(const struct lu_context *ctx,
@@ -6025,8 +6042,6 @@ static void osd_key_fini(const struct lu_context *ctx,
 	if (info->oti_hlock != NULL)
 		ldiskfs_htree_lock_free(info->oti_hlock);
 	OBD_FREE(info->oti_it_ea_buf, OSD_IT_EA_BUFSIZE);
-	lu_buf_free(&info->oti_iobuf.dr_pg_buf);
-	lu_buf_free(&info->oti_iobuf.dr_bl_buf);
 	lu_buf_free(&info->oti_big_buf);
 	if (idc != NULL) {
 		LASSERT(info->oti_ins_cache_size > 0);
@@ -6034,6 +6049,8 @@ static void osd_key_fini(const struct lu_context *ctx,
 		info->oti_ins_cache = NULL;
 		info->oti_ins_cache_size = 0;
 	}
+
+	kref_put(&info->oti_iobuf->dr_refs, osd_iobuf_release);
 	OBD_FREE_PTR(info);
 }
 
