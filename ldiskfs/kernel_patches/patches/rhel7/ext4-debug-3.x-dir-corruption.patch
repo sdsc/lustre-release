@@ -1,0 +1,37 @@
+Index: linux-stage/fs/ext4/dir.c
+===================================================================
+--- linux-stage.orig/fs/ext4/dir.c
++++ linux-stage/fs/ext4/dir.c
+@@ -100,6 +100,32 @@ int __ext4_check_dir_entry(const char *f
+ 				offset, le32_to_cpu(de->inode),
+ 				rlen, de->name_len);
+ 
++	if (unlikely(le32_to_cpu(de->inode) == EXT4_XATTR_MAGIC)) {
++		struct ext4_iloc iloc;
++		int rc;
++
++		rc = ext4_get_inode_loc(dir, &iloc);
++		printk(KERN_EMERG
++		       "It is suspected that the dir (ino %u, bh %p, off %lu) "
++		       "block %llu (bh %p, buf %p, size %d, de %p) overwrote "
++		       "xattr entry (block %llu). System inline data %s, dir "
++		       "inline data %s, dir block checksum %s.\n",
++		       (__u32)dir->i_ino, rc == 0 ? iloc.bh->b_data : NULL,
++		       rc == 0 ? iloc.offset : -1, (__u64)bh->b_blocknr,
++		       bh->b_data, buf, size, de, EXT4_I(dir)->i_file_acl,
++		       EXT4_HAS_INCOMPAT_FEATURE(dir->i_sb,
++			EXT4_FEATURE_INCOMPAT_INLINE_DATA) ?
++			"enable" : "disable",
++		       ext4_test_inode_flag(dir, EXT4_INODE_INLINE_DATA) ?
++			"on" : "off",
++		       ext4_has_metadata_csum(dir->i_sb) ? "on" : "off");
++		if (rc == 0)
++			brelse(iloc.bh);
++
++		/* To avoid miss the curruption, stop here. */
++		BUG();
++	}
++
+ 	return 1;
+ }
+ 

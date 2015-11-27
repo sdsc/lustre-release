@@ -202,6 +202,12 @@ test_1a() {
 	ls $DIR/$tdir/ > /dev/null || error "(7) no FID-in-dirent."
 
 	do_facet $SINGLEMDS $LCTL set_param fail_loc=0
+
+	stop $SINGLEMDS > /dev/null || error "(8) Fail to stop MDS!"
+	run_e2fsck $(facet_active_host $SINGLEMDS) $(mdsdevname 1) "-n" ||
+		error "(9) Running e2fsck"
+	start $SINGLEMDS $MDT_DEVNAME $MOUNT_OPTS_NOSCRUB > /dev/null ||
+		error "(10) Fail to start MDS!"
 }
 run_test 1a "LFSCK can find out and repair crashed FID-in-dirent"
 
@@ -246,6 +252,12 @@ test_1b()
 	stat $DIR/$tdir/dummy > /dev/null || error "(7) no FID-in-LMA."
 
 	do_facet $SINGLEMDS $LCTL set_param fail_loc=0
+
+	stop $SINGLEMDS > /dev/null || error "(8) Fail to stop MDS!"
+	run_e2fsck $(facet_active_host $SINGLEMDS) $(mdsdevname 1) "-n" ||
+		error "(9) Running e2fsck"
+	start $SINGLEMDS $MDT_DEVNAME $MOUNT_OPTS_NOSCRUB > /dev/null ||
+		error "(10) Fail to start MDS!"
 }
 run_test 1b "LFSCK can find out and repair the missing FID-in-LMA"
 
@@ -285,6 +297,12 @@ test_2a() {
 	local dummyname=$($LFS fid2path $DIR $dummyfid)
 	[ "$dummyname" == "$DIR/$tdir/dummy" ] ||
 		error "(8) Fail to repair linkEA: $dummyfid $dummyname"
+
+	stop $SINGLEMDS > /dev/null || error "(9) Fail to stop MDS!"
+	run_e2fsck $(facet_active_host $SINGLEMDS) $(mdsdevname 1) "-n" ||
+		error "(10) Running e2fsck"
+	start $SINGLEMDS $MDT_DEVNAME $MOUNT_OPTS_NOSCRUB > /dev/null ||
+		error "(11) Fail to start MDS!"
 }
 run_test 2a "LFSCK can find out and repair crashed linkEA entry"
 
@@ -320,6 +338,12 @@ test_2b()
 	local dummyname=$($LFS fid2path $DIR $dummyfid)
 	[ "$dummyname" == "$DIR/$tdir/dummy" ] ||
 		error "(8) Fail to repair linkEA: $dummyfid $dummyname"
+
+	stop $SINGLEMDS > /dev/null || error "(9) Fail to stop MDS!"
+	run_e2fsck $(facet_active_host $SINGLEMDS) $(mdsdevname 1) "-n" ||
+		error "(10) Running e2fsck"
+	start $SINGLEMDS $MDT_DEVNAME $MOUNT_OPTS_NOSCRUB > /dev/null ||
+		error "(11) Fail to start MDS!"
 }
 run_test 2b "LFSCK can find out and remove invalid linkEA entry"
 
@@ -355,6 +379,12 @@ test_2c()
 	local dummyname=$($LFS fid2path $DIR $dummyfid)
 	[ "$dummyname" == "$DIR/$tdir/dummy" ] ||
 		error "(8) Fail to repair linkEA: $dummyfid $dummyname"
+
+	stop $SINGLEMDS > /dev/null || error "(9) Fail to stop MDS!"
+	run_e2fsck $(facet_active_host $SINGLEMDS) $(mdsdevname 1) "-n" ||
+		error "(10) Running e2fsck"
+	start $SINGLEMDS $MDT_DEVNAME $MOUNT_OPTS_NOSCRUB > /dev/null ||
+		error "(11) Fail to start MDS!"
 }
 run_test 2c "LFSCK can find out and remove repeated linkEA entry"
 
@@ -390,6 +420,12 @@ test_2d()
 	local dummyname=$($LFS fid2path $DIR $dummyfid)
 	[ "$dummyname" == "$DIR/$tdir/dummy" ] ||
 		error "(8) Fail to repair linkEA: $dummyfid $dummyname"
+
+	stop $SINGLEMDS > /dev/null || error "(9) Fail to stop MDS!"
+	run_e2fsck $(facet_active_host $SINGLEMDS) $(mdsdevname 1) "-n" ||
+		error "(10) Running e2fsck"
+	start $SINGLEMDS $MDT_DEVNAME $MOUNT_OPTS_NOSCRUB > /dev/null ||
+		error "(11) Fail to start MDS!"
 }
 run_test 2d "LFSCK can recover the missing linkEA entry"
 
@@ -424,6 +460,12 @@ test_2e()
 	local name=$($LFS fid2path $DIR $fid)
 	[ "$name" == "$DIR/$tdir/d0/d1" ] ||
 		error "(6) Fail to repair linkEA: $fid $name"
+
+	stop $SINGLEMDS > /dev/null || error "(9) Fail to stop MDS!"
+	run_e2fsck $(facet_active_host $SINGLEMDS) $(mdsdevname 1) "-n" ||
+		error "(10) Running e2fsck"
+	start $SINGLEMDS $MDT_DEVNAME $MOUNT_OPTS_NOSCRUB > /dev/null ||
+		error "(11) Fail to start MDS!"
 }
 run_test 2e "namespace LFSCK can verify remote object linkEA"
 
@@ -466,8 +508,36 @@ test_3()
 			 awk '/^multiple_linked_repaired/ { print $2 }')
 	[ $repaired -ge 2 ] ||
 		error "(12) Fail to repair multiple-linked object: $repaired"
+
+	stop $SINGLEMDS > /dev/null || error "(13) Fail to stop MDS!"
+	run_e2fsck $(facet_active_host $SINGLEMDS) $(mdsdevname 1) "-n" ||
+		error "(14) Running e2fsck"
+	start $SINGLEMDS $MDT_DEVNAME $MOUNT_OPTS_NOSCRUB > /dev/null ||
+		error "(15) Fail to start MDS!"
 }
 run_test 3 "LFSCK can verify multiple-linked objects"
+
+test_4_list()
+{
+	local facet=$1
+	local devname=$(mdsdevname $(facet_number $facet))
+	local mntpt=$(facet_mntpt brpt)
+	local rcmd="do_facet $facet"
+	local opts=${MDS_MOUNT_OPTS}
+
+	if ! ${rcmd} test -b ${devname}; then
+		opts=$(csa_add "$opts" -o loop)
+	fi
+
+	${rcmd} mkdir -p $mntpt
+	${rcmd} mount -t ldiskfs $opts $devname $mntpt ||
+		error "Fail to mount $facet as ldiskfs"
+
+	${rcmd} ls -ailR $mntpt ||
+		error "Fail to list the files"
+
+	${rcmd} umount -d $mntpt
+}
 
 test_4()
 {
@@ -479,6 +549,7 @@ test_4()
 	stop $SINGLEMDS > /dev/null || error "(0.2) Fail to stop MDS!"
 
 	mds_backup_restore $SINGLEMDS || error "(1) Fail to backup/restore!"
+	test_4_list $SINGLEMDS
 	echo "start $SINGLEMDS with disabling OI scrub"
 	start $SINGLEMDS $MDT_DEVNAME $MOUNT_OPTS_NOSCRUB > /dev/null ||
 		error "(2) Fail to start MDS!"
