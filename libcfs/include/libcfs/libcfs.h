@@ -120,12 +120,6 @@ struct cfs_psdev_ops {
 #endif /* __KERNEL__ */
 
 /*
- * Drop into debugger, if possible. Implementation is provided by platform.
- */
-
-void cfs_enter_debugger(void);
-
-/*
  * Defined by platform
  */
 int unshare_fs_struct(void);
