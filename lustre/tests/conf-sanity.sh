@@ -2763,6 +2763,11 @@ test_41c() {
 
 	cleanup
 	# MDT concurrent start
+	load_modules
+	do_facet $SINGLEMDS "lsmod | grep -q lustre" ||
+		error "MDS does not have lustre module loaded"
+	do_facet $SINGLEMDS "lsmod | grep -q libcfs" ||
+		error "libcfs module not loaded"
 	#define OBD_FAIL_TGT_DELAY_CONNECT 0x703
 	do_facet $SINGLEMDS "$LCTL set_param fail_loc=0x703"
 	start mds1 $(mdsdevname 1) $MDS_MOUNT_OPTS &
