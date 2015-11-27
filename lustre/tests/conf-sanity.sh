@@ -5582,6 +5582,9 @@ test_84() {
 
 	mount_client $MOUNT1 || error "mount failed"
 	mount_client $MOUNT2 || error "mount failed"
+	# make sure new superblock labels are sync'd before disabling writes
+	sync_all_data
+	sleep 5
 
 	replay_barrier $SINGLEMDS
 	createmany -o $DIR1/$tfile-%d 1000
