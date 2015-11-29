@@ -5702,6 +5702,8 @@ test_84() {
 	local completed_clients
 	local correct_clients
 	local wrap_up=5
+	local fstype=$(facet_fstype $facet)
+	local devicelabel
 
 	echo "start mds service on $(facet_active_host $facet)"
 	start_mds \
@@ -5718,6 +5720,20 @@ test_84() {
 	# make sure new superblock labels are sync'd before disabling writes
 	sync_all_data
 	sleep 5
+
+	case $fstype in
+	ldiskfs)
+		devicelabel=$(do_facet $SINGLEMDS "$E2LABEL $dev");;
+	zfs)
+		devicelabel=$(do_facet $SINGLEMDS "$ZFS get -H -o value \
+							lustre:svname $dev");;
+	*)
+		error "unknown fstype!";;
+	esac
+
+	if [[ $devicelabel =~ (:[a-zA-Z]{3}[0-9]{4}) ]]; then
+		error "$dev failed to initialize!"
+	fi
 
 	replay_barrier $SINGLEMDS
 	createmany -o $DIR1/$tfile-%d 1000
