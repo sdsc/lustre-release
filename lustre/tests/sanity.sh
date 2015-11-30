@@ -111,7 +111,11 @@ assert_DIR
 
 MDT0=$($LCTL get_param -n mdc.*.mds_server_uuid |
 	awk '{ gsub(/_UUID/,""); print $1 }' | head -n1)
-LOVNAME=$($LCTL get_param -n llite.*.lov.common_name | tail -n 1)
+LOVNAME=$($LCTL get_param -n llite.$FSNAME-*.lov.common_name | tail -n 1)
+if [ -z "$LOVNAME" ] ; then
+	LOVNAME=$(readlink /sys/fs/lustre/llite/*/lov)
+	LOVNAME=$(basename $LOVNAME)
+fi
 OSTCOUNT=$($LCTL get_param -n lov.$LOVNAME.numobd)
 STRIPECOUNT=$($LCTL get_param -n lov.$LOVNAME.stripecount)
 STRIPESIZE=$($LCTL get_param -n lov.$LOVNAME.stripesize)
