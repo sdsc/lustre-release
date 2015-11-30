@@ -71,25 +71,48 @@ lfs \- Lustre utility to create a file with specific striping pattern, find the 
              \fB<filesystem>\fR
 .br
 .B lfs setquota -t <-u|-g>
-             \fB[--block-grace <block-grace>]
-             \fB[--inode-grace <inode-grace>]
+             \fB[--block-grace <block-grace>]\fR
+             \fB[--inode-grace <inode-grace>]\fR
              \fB<filesystem>\fR
 .br
 .B lfs setquota -t <-u|-g>
-             \fB[-b <block-grace>] [-i <inode-grace>]
+             \fB[-b <block-grace>] [-i <inode-grace>]\fR
              \fB<filesystem>\fR
 .br
 .br
-.B lfs swap_layouts <filename1> <filename2>
+.B lfs swap_layouts 
+.IR filename1
+.IR filename2
 .br
 .B lfs data_version [-n] \fB<filename>\fR
+.br
+.B lfs mkdir 
+.IR directory
+.br
+.B lfs migrate     
+[\fB-b | --block\fR]
+[\fB-n | --non-block\fR]
+[\fB-M <mdt_index>\fR]
+.IR directory
+.br
+.B lfs migrate [\fB-c | --stripe-count <stripe_count>\fR]
+               [\fB-i | --stripe-index <start_ost_idx>\fR]
+               [\fB-S | --stripe-size <stripe_size>\fR]
+               [\fB-p | --pool <pool_name>\fR]
+               [\fB-o | --ost-list <ost_indices>\fR]
+               [\fB-b | --block\fR]
+               [\fB-n | --non-block\fR]
+.IR file|directory
 .br
 .B lfs --version
 .br
 .B lfs help
 .SH DESCRIPTION
 .B lfs
-can be used to create a new file with a specific striping pattern, determine the default striping pattern, gather the extended attributes (object numbers and location) for a specific file. It can be invoked interactively without any arguments or in a non-interactive mode with one of the arguements supported. 
+can be used to create a new file with a specific striping pattern, determine
+the default striping pattern, gather the extended attributes (object numbers
+and location) for a specific file. It can be invoked interactively without any
+arguments or in a non-interactive mode with one of the arguments supported. 
 .SH OPTIONS
 The various options supported by lfs are listed and explained below:
 .TP
@@ -301,24 +324,51 @@ Even without -n, race conditions are possible and data version should be
 checked before and after an operation to be confident the data did not change
 during it.
 .TP
-.B mkdir <--index|-i mdt_index> <dir>
-Allocate a new directory on a specified MDT.  
-
-The "lfs mkdir" command is only executable by root unless
-"mdt.*.enable_remote_dir_gid" is set via "lctl set_param" to be either a
-non-zero GID to limit it to a single group (e.g. "operator" or "admin"),
-or "-1" to allow any group to create remote directories.
-
-The root of the file system is on MDT0000, and directories and files inherit the
-MDT of their parent directory unless a different MDT is specified with this
-command.
-
-By default, only directories on MDT0000 can contain directories that are not on
-the same MDT.  However, if "mdt.*.enable_remote_dir" is set non-zero on an MDT
-then it will allow creating remote directories that have parents other than
-MDT0000. This is restricted to avoid creating directory trees that have
-intermediate path components on a series different MDTs and become unavailable
-if any of the intermediate MDTs are offline.
+.B mkdir
+lfs mkdir is documented in the man page: lfs-mkdir(1). NOTE:
+.B lfs setdirstripe
+is an alias of the command
+.B lfs mkdir
+.TP
+.B mv
+lfs mv is deprecated, use lfs 
+.B migrate 
+instead.
+.TP
+.B migrate   [--block|-b] [--non-block|-n] -m \fImdt_idx directory\fR
+.br
+Move the file metadata from one MDT to MDT with index \fBmdt_idx\fR. Migration
+of striped directories is not supported. Only the root user can migrate
+directories. Metadata migration of files does not succeed if the file is part
+of the HSM system or the file is open. In the event that one or more files in a
+directory being migrated has been involved in HSM activity, the file will be
+skipped. Files that are open when a migration takes place will also be skipped.
+.br
+By default, access to file within the directory \fBblock\fR awaiting completion
+of the migration. Alternatively \fBnon-block\fR can be specified that will
+abort the migration if a concurrent access is detected.
+.TP
+.B migrate [--stripe-count|-c <stripe_count>]
+                 [--stripe-index|-i <start_ost_idx>]
+                 [--stripe-size|-S <stripe_size>]
+                 [--pool|-p <pool_name>]
+                 [--ost-list|-o <ost_indices>]
+                 [--block|-b]
+                 [--non-block|-n]
+                 \fIfile|directory\fR
+.br
+Migrate can also be used for OST objects. In this mode, the command has
+identical options to 
+.B setstripe
+. The difference between migrate and setstripe is that migrate will re-layout
+the OST objects in the file or directory with the specified options applied. 
+By contrast, properties set with setstripe apply only to files that are created
+in future.
+.br
+NOTE: lfs migrate has a complementary script 
+.B lfs_migrate
+which is used to migrate a file between OSTs, typically for rebalancing.
+lfs_migrate has a separate man page.
 .TP
 .B --version
 Output the build version of the lfs utility. Use "lctl lustre_build_version" to get the version of the Lustre kernel modules
@@ -396,5 +446,6 @@ The lfs command is part of the Lustre filesystem.
 .BR lfs-setdirstripe (1),
 .BR lfs-getdirstripe (1),
 .BR lfs-mkdir (1),
+.BR lfs_migrate (1),
 .BR lctl (8),
 .BR lustre (7)
