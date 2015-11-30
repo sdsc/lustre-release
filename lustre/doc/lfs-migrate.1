@@ -1,0 +1,69 @@
+.TH LFS-MIGRATE 1 2015-12-07 "Lustre" "Lustre Utilities"
+.SH NAME
+lfs migrate \- migrate files or directories between MDTs or OSTs.
+.SH SYNOPSIS
+.B lfs migrate
+\fI-m mdt_idx\fR [-v|--verbose] \fI<DIR>\fR
+.br
+.B lfs migrate
+[\fIOPTION\fR]... \fI<FILE | DIR>\fR...
+.br
+.SH DESCRIPTION
+Migrate MDT inodes or OST objects between MDTs and OSTs respectively. For the
+case of MDT inode migration:
+.TP
+.B migrate -m|--mdt-index \fI<mdt_idx> <directory>\fR
+.br
+Move the file metadata from one MDT to MDT with index \fBmdt_idx\fR.
+Migration of striped directories is not supported. Only the root
+user can migrate directories. Metadata migration of files does not succeed
+if the file is part of the HSM system or the file is open. In the event that
+one or more files in a directory being migrated has been involved in HSM
+activity, the file will be skipped. Files that are open when migration
+takes place will also be skipped. Access to files within the directory is
+blocked until migration is complete.
+.TP
+\fIWARNING\fR
+A migrated file or directory will have a new inode number and FID.  As
+a consequence, migrated files are \fBincompatible with HSM\fR files and may
+confuse backup tools.
+.TP
+For the case of OST object migration:
+.TP
+.B migrate [--stripe-count|-c <stripe_count>]
+                 [--stripe-index|-i <start_ost_idx>]
+                 [--stripe-size|-S <stripe_size>]
+                 [--pool|-p <pool_name>]
+                 [--ost-list|-o <ost_indices>]
+                 [--block|-b]
+                 [--non-block|-n]
+                 \fIfile|directory\fR
+.br
+Migrate can also be used for OST objects. In this mode, the command has
+identical options to
+.B setstripe
+. The difference between migrate and setstripe is that \fImigrate\fR will
+re-layout the data in existing files using the new layout parameter by
+copying the data from the existing OST(s) to the new OST(s). In contrast,
+\fIsetstripe\fR is used for creating new files with the specified layout.
+For more information, see setstripe in lfs(1).
+.br
+NOTE: lfs migrate has a complementary script
+.B lfs_migrate
+which is used to provide extra functionality when migrating file data
+between OSTs and has a separate man page.
+.TP
+.SH EXAMPLES
+.TP
+.B $ lfs migrate -m 0 ./testremote
+Move the inodes contained in ./testremote from their current MDT to the
+MDT with index 0.
+.SH AUTHOR
+The lfs command is part of the Lustre filesystem.
+.SH SEE ALSO
+.BR lfs (1),
+.BR lfs-setdirstripe (1),
+.BR lfs-getdirstripe (1),
+.BR lfs-mkdir (1),
+.BR lfs_migrate (1),
+.BR lctl (8),

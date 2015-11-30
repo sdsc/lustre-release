@@ -71,25 +71,41 @@ lfs \- Lustre utility to create a file with specific striping pattern, find the 
              \fB<filesystem>\fR
 .br
 .B lfs setquota -t <-u|-g>
-             \fB[--block-grace <block-grace>]
-             \fB[--inode-grace <inode-grace>]
+             \fB[--block-grace <block-grace>]\fR
+             \fB[--inode-grace <inode-grace>]\fR
              \fB<filesystem>\fR
 .br
 .B lfs setquota -t <-u|-g>
-             \fB[-b <block-grace>] [-i <inode-grace>]
+             \fB[-b <block-grace>] [-i <inode-grace>]\fR
              \fB<filesystem>\fR
 .br
-.br
-.B lfs swap_layouts <filename1> <filename2>
-.br
 .B lfs data_version [-n] \fB<filename>\fR
+.br
+.B lfs mkdir
+.IR directory
+.br
+.B lfs migrate
+\fB-m <mdt_index>\fR
+.IR directory
+.br
+.B lfs migrate [\fB-c | --stripe-count <stripe_count>\fR]
+               [\fB-i | --stripe-index <start_ost_idx>\fR]
+               [\fB-S | --stripe-size <stripe_size>\fR]
+               [\fB-p | --pool <pool_name>\fR]
+               [\fB-o | --ost-list <ost_indices>\fR]
+               [\fB-b | --block\fR]
+               [\fB-n | --non-block\fR]
+.IR file|directory
 .br
 .B lfs --version
 .br
 .B lfs help
 .SH DESCRIPTION
 .B lfs
-can be used to create a new file with a specific striping pattern, determine the default striping pattern, gather the extended attributes (object numbers and location) for a specific file. It can be invoked interactively without any arguments or in a non-interactive mode with one of the arguements supported. 
+can be used to create a new file with a specific striping pattern, determine
+the default striping pattern, gather the extended attributes (object numbers
+and location) for a specific file. It can be invoked interactively without any
+arguments or in a non-interactive mode with one of the arguments supported.
 .SH OPTIONS
 The various options supported by lfs are listed and explained below:
 .TP
@@ -301,32 +317,27 @@ Even without -n, race conditions are possible and data version should be
 checked before and after an operation to be confident the data did not change
 during it.
 .TP
-.B mkdir <--index|-i mdt_index> <dir>
-Allocate a new directory on a specified MDT.  
-
-The "lfs mkdir" command is only executable by root unless
-"mdt.*.enable_remote_dir_gid" is set via "lctl set_param" to be either a
-non-zero GID to limit it to a single group (e.g. "operator" or "admin"),
-or "-1" to allow any group to create remote directories.
-
-The root of the file system is on MDT0000, and directories and files inherit the
-MDT of their parent directory unless a different MDT is specified with this
-command.
-
-By default, only directories on MDT0000 can contain directories that are not on
-the same MDT.  However, if "mdt.*.enable_remote_dir" is set non-zero on an MDT
-then it will allow creating remote directories that have parents other than
-MDT0000. This is restricted to avoid creating directory trees that have
-intermediate path components on a series different MDTs and become unavailable
-if any of the intermediate MDTs are offline.
+.B mkdir
+lfs mkdir is documented in the man page: lfs-mkdir(1). NOTE:
+.B lfs setdirstripe
+is an alias of the command
+.B lfs mkdir
+.TP
+.B mv
+lfs mv is deprecated, use lfs
+.B migrate
+instead.
+.TP
+.B migrate 
+See lfs-migrate (1)
 .TP
 .B --version
 Output the build version of the lfs utility. Use "lctl lustre_build_version" to get the version of the Lustre kernel modules
 .TP
-.B help 
+.B help
 Provides brief help on the various arguments
 .TP
-.B exit/quit 
+.B exit/quit
 Quit the interactive lfs session
 .SH EXAMPLES
 .TP
@@ -396,5 +407,6 @@ The lfs command is part of the Lustre filesystem.
 .BR lfs-setdirstripe (1),
 .BR lfs-getdirstripe (1),
 .BR lfs-mkdir (1),
+.BR lfs_migrate (1),
 .BR lctl (8),
 .BR lustre (7)
