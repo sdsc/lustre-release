@@ -13480,6 +13480,33 @@ test_252() {
 }
 run_test 252 "check lr_reader tool"
 
+test_253() {
+	lfs setstripe -c 1 -i 0 $DIR/$tfile
+	dd if=/dev/zero of=$DIR/$tfile bs=1048576 count=100 || error \
+		"dd to $DIR/$tfile failed"
+
+	lfs ladvise -a willread -s 2 -e 1 $DIR/$tfile && error \
+		"Wrong range should be detected"
+
+	lfs ladvise -a willread $DIR/$tfile || error \
+		"Ladvise failed with no range argument"
+
+	lfs ladvise -a willread -s 0 $DIR/$tfile || error \
+		"Ladvise failed with no end argument"
+
+	echo "Read without willread hint:"
+	cancel_lru_locks osc
+	do_facet ost1 echo 3 > /proc/sys/vm/drop_caches
+	dd if=$DIR/$tfile of=/dev/null bs=4096
+
+	echo "Read with willread hint:"
+	cancel_lru_locks osc
+	do_facet ost1 echo 3 > /proc/sys/vm/drop_caches
+	lfs ladvise -a willread $DIR/$tfile || error \
+		"Ladvise failed"
+	dd if=$DIR/$tfile of=/dev/null bs=4096
+}
+run_test 253 "check \"lfs ladvise -a willread\""
 
 cleanup_test_300() {
 	trap 0
