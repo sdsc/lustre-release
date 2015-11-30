@@ -2103,6 +2103,54 @@ out:
 	return rc;
 }
 
+static int ofd_ladvise_prefetch(const struct lu_env *env,
+				struct ofd_object *fo,
+				__u64 start, __u64 end)
+{
+	pgoff_t			 start_index, end_index, pages;
+	struct niobuf_remote	 rnb;
+	unsigned long		 nr_local;
+	struct niobuf_local	*lnb;
+	int rc = 0;
+
+	if (end <= start)
+		RETURN(-EINVAL);
+
+	OBD_ALLOC_LARGE(lnb, sizeof(*lnb) * PTLRPC_MAX_BRW_PAGES);
+	if (lnb == NULL)
+		RETURN(-ENOMEM);
+
+	ofd_read_lock(env, fo);
+	if (!ofd_object_exists(fo))
+		GOTO(unlock, rc = -ENOENT);
+
+	/* We need page aligned offset and length */
+	start_index = start >> PAGE_CACHE_SHIFT;
+	end_index = end >> PAGE_CACHE_SHIFT;
+	pages = end_index - start_index + 1;
+	while (pages > 0) {
+		nr_local = pages <= PTLRPC_MAX_BRW_PAGES ? pages :
+			PTLRPC_MAX_BRW_PAGES;
+		rnb.rnb_offset = start_index << PAGE_CACHE_SHIFT;
+		rnb.rnb_len = nr_local << PAGE_CACHE_SHIFT;
+		rc = dt_bufs_get(env, ofd_object_child(fo), &rnb, lnb, 0);
+		if (unlikely(rc < 0))
+			break;
+		nr_local = rc;
+		rc = dt_read_prep(env, ofd_object_child(fo), lnb, nr_local);
+		dt_bufs_put(env, ofd_object_child(fo), lnb, nr_local);
+		if (unlikely(rc))
+			break;
+		start_index += nr_local;
+		pages -= nr_local;
+	}
+
+unlock:
+	ofd_read_unlock(env, fo);
+	OBD_FREE(lnb, sizeof(*lnb) * PTLRPC_MAX_BRW_PAGES);
+	RETURN(rc);
+}
+
 /**
  * OFD request handler for OST_LADVISE RPC.
  *
@@ -2126,6 +2174,9 @@ static int ofd_ladvise_hdl(struct tgt_session_info *tsi)
 	struct lu_ladvise	*ladvise;
 	int			 num_advise;
 	struct ladvise_hdr	*ladvise_hdr;
+	struct obd_ioobj	 ioo;
+	struct lustre_handle	 lockh = { 0 };
+	__u64			 flags = 0;
 	int			 i;
 	ENTRY;
 
@@ -2180,6 +2231,23 @@ static int ofd_ladvise_hdl(struct tgt_session_info *tsi)
 		switch (ladvise->lla_advice) {
 		default:
 			rc = -ENOTSUPP;
+			break;
+		case LU_LADVISE_WILLREAD:
+			ioo.ioo_oid = body->oa.o_oi;
+			ioo.ioo_bufcnt = 1;
+			rc = tgt_extent_lock(exp->exp_obd->obd_namespace,
+					     &tsi->tsi_resid,
+					     ladvise->lla_start,
+					     ladvise->lla_end - 1,
+					     &lockh, LCK_PR, &flags);
+			if (rc != 0)
+				break;
+
+			req->rq_status = ofd_ladvise_prefetch(env,
+				fo,
+				ladvise->lla_start,
+				ladvise->lla_end);
+			tgt_extent_unlock(&lockh, LCK_PR);
 			break;
 		}
 		if (rc != 0)
