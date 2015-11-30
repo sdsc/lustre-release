@@ -145,16 +145,6 @@ static int lfs_mv(int argc, char **argv);
 	"                 <directory|filename>\n"		\
 	SSM_HELP_COMMON
 
-#define MIGRATE_USAGE							\
-	SSM_CMD_COMMON("migrate  ")					\
-	"                 [--block|-b]\n"				\
-	"                 [--non-block|-n]\n"				\
-	"                 <filename>\n"					\
-	SSM_HELP_COMMON							\
-	"\n"								\
-	"\tblock:        Block file access during data migration (default)\n" \
-	"\tnon-block:    Abort migrations if concurrent access is detected\n" \
-
 static const char	*progname;
 static bool		 file_lease_supported = true;
 
@@ -356,17 +346,32 @@ command_t cmdlist[] = {
 	{"swap_layouts", lfs_swap_layouts, 0, "Swap layouts between 2 files.\n"
 	 "usage: swap_layouts <path1> <path2>"},
 	{"migrate", lfs_setstripe, 0,
-	 "migrate file/directory between MDTs, or migrate file from one OST "
+	 "migrate a directory between MDTs.\n"
+	 "usage: migrate --mdt-index <mdt_idx> [--verbose|-v] "
+	 "<directory>\n"
+	 "\tmdt_idx:      index of the destination MDT\n"},
+	{"migrate", lfs_setstripe, 0,
+	 "migrate file objects from one OST "
 	 "layout\nto another (may be not safe with concurent writes).\n"
-	 "usage: migrate   [--mdt-index|-m <mdt_idx>] <directory|filename>]\n"
-	 "\tmdt_idx:      MDT index to migrate to\n"
-	 " or\n"
-	 MIGRATE_USAGE},
+	 "usage: migrate "
+	 "[--stripe-count|-c] <stripe_count>\n"
+	 "[--stripe-index|-i] <start_ost_index>\n"
+	 "[--stripe-size|-S] <stripe_size>\n"
+	 "[--pool|-p] <pool_name>\n"
+	 "[--ost-list|-o] <ost_indices>\n"
+	 "[--block|-b]\n"
+	 "[--non-block|-n]\n"
+	 "<file|directory>\n"
+	 "\tstripe_count:     number of OSTs to stripe a file over\n"
+	 "\tstripe_ost_index: index of the first OST to stripe a file over\n"
+	 "\tstripe_size:      number of bytes to store before moving to the next OST\n"
+	 "\tpool_name:        name of the predefined pool of OSTs\n"
+	 "\tost_indices:      OSTs to stripe over, in order\n"
+	 "\tblock:            wait for the operation to return before continuing\n"
+	 "\tnon-block:        do not wait for the operation to return.\n"},
 	{"mv", lfs_mv, 0,
-	 "To move directories between MDTs. This command is deprecated, "
-	 "use \"migrate\" instead.\n"
-	 "usage: mv <directory|filename> [--mdt-index|-M] <mdt_index> "
-	 "[--verbose|-v]\n"},
+	 "Move directories between MDTs. This command is deprecated, "
+	 "use \"migrate\" instead.\n"},
 	{"help", Parser_help, 0, "help"},
 	{"exit", Parser_quit, 0, "quit"},
 	{"quit", Parser_quit, 0, "quit"},
@@ -941,6 +946,8 @@ static int lfs_setstripe(int argc, char **argv)
 #endif
 		{"stripe-size",  required_argument, 0, 'S'},
 		{"stripe_size",  required_argument, 0, 'S'},
+		/* --verbose is only valid in migrate mode */
+		{"verbose",	 no_argument,	    0, 'v'},
 		{0, 0, 0, 0}
 	};
 
@@ -951,7 +958,7 @@ static int lfs_setstripe(int argc, char **argv)
 	if (strcmp(argv[0], "migrate") == 0)
 		migrate_mode = true;
 
-	while ((c = getopt_long(argc, argv, "bc:di:m:no:p:s:S:",
+	while ((c = getopt_long(argc, argv, "bc:di:m:no:p:s:S:v",
 				long_opts, NULL)) >= 0) {
 		switch (c) {
 		case 0:
@@ -1027,6 +1034,14 @@ static int lfs_setstripe(int argc, char **argv)
 			break;
 		case 'p':
 			pool_name_arg = optarg;
+			break;
+		case 'v':
+			if (!migrate_mode) {
+				fprintf(stderr, "--verbose is valid only for"
+						" migrate mode\n");
+				return CMD_HELP;
+			}
+			migrate_mdt_param.fp_verbose = VERBOSE_DETAIL;
 			break;
 		default:
 			return CMD_HELP;
@@ -2917,22 +2932,29 @@ static void print_quota_title(char *name, struct if_quotactl *qctl,
 	       "files", "quota", "limit", "grace");
 }
 
-static void kbytes2str(__u64 num, char *buf, bool h)
+static void kbytes2str(__u64 num, char *buf, int buflen, bool h)
 {
 	if (!h) {
-		sprintf(buf, LPU64, num);
+		snprintf(buf, buflen, LPU64, num);
 	} else {
-		if (num >> 30)
-			sprintf(buf, "%5.4gT", (double)num / (1 << 30));
+		if (num >> 40)
+			snprintf(buf, buflen, "%5.4gP",
+				 (double)num / ((__u64)1 << 40));
+		else if (num >> 30)
+			snprintf(buf, buflen, "%5.4gT",
+				 (double)num / (1 << 30));
 		else if (num >> 20)
-			sprintf(buf, "%5.4gG", (double)num / (1 << 20));
+			snprintf(buf, buflen, "%5.4gG",
+				 (double)num / (1 << 20));
 		else if (num >> 10)
-			sprintf(buf, "%5.4gM", (double)num / (1 << 10));
+			snprintf(buf, buflen, "%5.4gM",
+				 (double)num / (1 << 10));
 		else
-			sprintf(buf, LPU64"%s", num, "k");
+			snprintf(buf, buflen, LPU64"%s", num, "k");
 	}
 }
 
+#define STRBUF_LEN	32
 static void print_quota(char *mnt, struct if_quotactl *qctl, int type,
 			int rc, bool h)
 {
@@ -2943,9 +2965,9 @@ static void print_quota(char *mnt, struct if_quotactl *qctl, int type,
         if (qctl->qc_cmd == LUSTRE_Q_GETQUOTA || qctl->qc_cmd == Q_GETOQUOTA) {
 		int bover = 0, iover = 0;
 		struct obd_dqblk *dqb = &qctl->qc_dqblk;
-		char numbuf[3][32];
+		char numbuf[3][STRBUF_LEN];
 		char timebuf[40];
-		char strbuf[32];
+		char strbuf[STRBUF_LEN];
 
                 if (dqb->dqb_bhardlimit &&
 		    lustre_stoqb(dqb->dqb_curspace) >= dqb->dqb_bhardlimit) {
@@ -2978,21 +3000,22 @@ static void print_quota(char *mnt, struct if_quotactl *qctl, int type,
 		if (bover)
 			diff2str(dqb->dqb_btime, timebuf, now);
 
-		kbytes2str(lustre_stoqb(dqb->dqb_curspace), strbuf, h);
+		kbytes2str(lustre_stoqb(dqb->dqb_curspace),
+			   strbuf, sizeof(strbuf), h);
 		if (rc == -EREMOTEIO)
 			sprintf(numbuf[0], "%s*", strbuf);
 		else
 			sprintf(numbuf[0], (dqb->dqb_valid & QIF_SPACE) ?
 				"%s" : "[%s]", strbuf);
 
-		kbytes2str(dqb->dqb_bsoftlimit, strbuf, h);
+		kbytes2str(dqb->dqb_bsoftlimit, strbuf, sizeof(strbuf), h);
 		if (type == QC_GENERAL)
 			sprintf(numbuf[1], (dqb->dqb_valid & QIF_BLIMITS) ?
 				"%s" : "[%s]", strbuf);
 		else
 			sprintf(numbuf[1], "%s", "-");
 
-		kbytes2str(dqb->dqb_bhardlimit, strbuf, h);
+		kbytes2str(dqb->dqb_bhardlimit, strbuf, sizeof(strbuf), h);
 		sprintf(numbuf[2], (dqb->dqb_valid & QIF_BLIMITS) ?
 			"%s" : "[%s]", strbuf);
 
@@ -3217,13 +3240,14 @@ ug_output:
 
 	if (qctl.qc_valid == QC_GENERAL && qctl.qc_cmd != LUSTRE_Q_GETINFO &&
 	    verbose) {
-		char strbuf[32];
+		char strbuf[STRBUF_LEN];
 
 		rc2 = print_obd_quota(mnt, &qctl, 1, human_readable,
 				      &total_ialloc);
 		rc3 = print_obd_quota(mnt, &qctl, 0, human_readable,
 				      &total_balloc);
-		kbytes2str(total_balloc, strbuf, human_readable);
+		kbytes2str(total_balloc, strbuf, sizeof(strbuf),
+			   human_readable);
 		printf("Total allocated inode limit: "LPU64", total "
 		       "allocated block limit: %s\n", total_ialloc, strbuf);
 	}
