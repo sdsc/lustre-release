@@ -149,11 +149,13 @@ static int lfs_mv(int argc, char **argv);
 	SSM_CMD_COMMON("migrate  ")					\
 	"                 [--block|-b]\n"				\
 	"                 [--non-block|-n]\n"				\
+	"                 [--mdt-index|-m <mdt_idx>]\n"			\
 	"                 <filename>\n"					\
 	SSM_HELP_COMMON							\
 	"\n"								\
 	"\tblock:        Block file access during data migration (default)\n" \
 	"\tnon-block:    Abort migrations if concurrent access is detected\n" \
+	"\tmdt_idx:      The index of the destination MDT.\n" \
 
 static const char	*progname;
 static bool		 file_lease_supported = true;
@@ -358,15 +360,13 @@ command_t cmdlist[] = {
 	{"migrate", lfs_setstripe, 0,
 	 "migrate file/directory between MDTs, or migrate file from one OST "
 	 "layout\nto another (may be not safe with concurent writes).\n"
-	 "usage: migrate   [--mdt-index|-m <mdt_idx>] <directory|filename>]\n"
-	 "\tmdt_idx:      MDT index to migrate to\n"
+	 "usage: migrate   -m|--mdt-index <mdt_idx> <directory>\n"
+	 "\tmdt_idx:      index of the destination MDT\n"
 	 " or\n"
 	 MIGRATE_USAGE},
 	{"mv", lfs_mv, 0,
-	 "To move directories between MDTs. This command is deprecated, "
-	 "use \"migrate\" instead.\n"
-	 "usage: mv <directory|filename> [--mdt-index|-M] <mdt_index> "
-	 "[--verbose|-v]\n"},
+	 "Move directories between MDTs. This command is deprecated, "
+	 "use \"migrate\" instead.\n"},
 	{"help", Parser_help, 0, "help"},
 	{"exit", Parser_quit, 0, "quit"},
 	{"quit", Parser_quit, 0, "quit"},
