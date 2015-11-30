@@ -91,6 +91,7 @@
 #ifndef _LUSTRE_IDL_H_
 #define _LUSTRE_IDL_H_
 
+#include <linux/types.h>
 #include <libcfs/libcfs.h> /* for LPUX64, etc */
 #include <lnet/types.h>
 #include <lustre/lustre_user.h> /* Defn's shared with user-space. */

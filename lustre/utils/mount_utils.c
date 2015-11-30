@@ -767,7 +767,7 @@ __u64 get_device_size(char* device)
 		return 0;
 	}
 
-	vprint("device size = "LPU64"MB\n", size >> 20);
+	vprint("device size = %lluMB\n", size >> 20);
 	/* return value in KB */
 	return size >> 10;
 }
@@ -784,8 +784,8 @@ int file_create(char *path, __u64 size)
 	 */
 	size_max = (off_t)1 << (_FILE_OFFSET_BITS - 1 - 10);
 	if (size >= size_max) {
-		fprintf(stderr, "%s: "LPU64" KB: Backing store size must be "
-			"smaller than "LPU64" KB\n", progname, size, size_max);
+		fprintf(stderr, "%s: %llu KB: Backing store size must be "
+			"smaller than %llu KB\n", progname, size, size_max);
 		return EFBIG;
 	}
 
