@@ -507,6 +507,7 @@ struct osd_iobuf {
 
 struct osd_thread_info {
 	const struct lu_env   *oti_env;
+	struct rcu_head	       oti_rcu;
 	/**
 	 * used for index operations.
 	 */
