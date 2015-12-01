@@ -27,6 +27,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <libcfs/util/ioctl.h>
 #include <libcfs/util/parser.h>
 #include <lnet/lnetctl.h>
 #include "cyaml/cyaml.h"
@@ -85,6 +86,8 @@ command_t net_cmds[] = {
 	 "\t--peer-credits: define the max number of inflight messages\n"
 	 "\t--peer-buffer-credits: the number of buffer credits per peer\n"
 	 "\t--credits: Network Interface credits\n"
+	 "\t--map-on-demand: turns on FMR and determines RDMA fragments\n"
+	 "\t--concurrent-sends: determines number of inflight messages\n"
 	 "\t--cpt: CPU Partitions configured net uses (e.g. [0,1]\n"},
 	{"del", jt_del_net, 0, "delete a network\n"
 	 "\t--net: net name (e.g. tcp0)\n"},
@@ -143,10 +146,13 @@ static inline void print_help(const command_t cmds[], const char *cmd_type,
 static int parse_long(const char *number, long int *value)
 {
 	char *end;
+	long int local_value;
 
-	*value = strtol(number,  &end, 0);
+	local_value = strtol(number, &end, 0);
 	if (end != NULL && *end != 0)
 		return -1;
+
+	*value = local_value;
 
 	return 0;
 }
@@ -413,10 +419,11 @@ static int jt_add_net(int argc, char **argv)
 {
 	char *network = NULL, *intf = NULL, *ip2net = NULL, *cpt = NULL;
 	long int pto = -1, pc = -1, pbc = -1, cre = -1;
+	struct lnet_lnd_tunables lnd_tunables, *lnd_tunables_p = NULL;
 	struct cYAML *err_rc = NULL;
 	int rc, opt;
 
-	const char *const short_options = "n:i:p:t:c:b:r:s:h";
+	const char *const short_options = "n:i:p:t:c:b:r:m:x:s:h";
 	const struct option long_options[] = {
 		{ "net", 1, NULL, 'n' },
 		{ "if", 1, NULL, 'i' },
@@ -425,10 +432,14 @@ static int jt_add_net(int argc, char **argv)
 		{ "peer-credits", 1, NULL, 'c' },
 		{ "peer-buffer-credits", 1, NULL, 'b' },
 		{ "credits", 1, NULL, 'r' },
+		{ "map-on-demand", 1, NULL, 'm' },
+		{ "concurrent-sends", 1, NULL, 'x'},
 		{ "cpt", 1, NULL, 's' },
 		{ "help", 0, NULL, 'h' },
 		{ NULL, 0, NULL, 0 },
 	};
+
+	memset(&lnd_tunables, 0, sizeof(*lnd_tunables_p));
 
 	while ((opt = getopt_long(argc, argv, short_options,
 				   long_options, NULL)) != -1) {
@@ -477,6 +488,26 @@ static int jt_add_net(int argc, char **argv)
 		case 's':
 			cpt = optarg;
 			break;
+		case 'm':
+			rc = parse_long(optarg,
+					(long int *)&lnd_tunables.lnd_tunables_u.
+					  lnd_o2iblnd.lnd_map_on_demand);
+			if (rc != 0)
+				/* ignore option */
+				continue;
+
+			lnd_tunables_p = &lnd_tunables;
+			break;
+		case 'x':
+			rc = parse_long(optarg,
+					(long int *)&lnd_tunables.lnd_tunables_u.
+					  lnd_o2iblnd.lnd_concurrent_sends);
+			if (rc != 0)
+				/* ignore option */
+				continue;
+
+			lnd_tunables_p = &lnd_tunables;
+			break;
 		case 'h':
 			print_help(net_cmds, "net", "add");
 			return 0;
@@ -486,7 +517,7 @@ static int jt_add_net(int argc, char **argv)
 	}
 
 	rc = lustre_lnet_config_net(network, intf, ip2net, pto, pc, pbc,
-				    cre, cpt, -1, &err_rc);
+				    cre, cpt, lnd_tunables_p, -1, &err_rc);
 
 	if (rc != LUSTRE_CFG_RC_NO_ERR)
 		cYAML_print_tree2file(stderr, err_rc);

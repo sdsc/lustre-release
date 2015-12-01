@@ -27,6 +27,8 @@
 #ifndef LIB_LNET_CONFIG_API_H
 #define LIB_LNET_CONFIG_API_H
 
+#include <lnet/lnet.h>
+
 #define LUSTRE_CFG_RC_NO_ERR			 0
 #define LUSTRE_CFG_RC_BAD_PARAM			-1
 #define LUSTRE_CFG_RC_MISSING_PARAM		-2
@@ -119,12 +121,15 @@ int lustre_lnet_show_route(char *nw, char *gw,
  *       - the above are LND tunable parameters and are optional
  *   credits - network interface credits
  *   smp - cpu affinity
+ *   lnd_tunables - lnet specific tunable parameters
  *   seq_no - sequence number of the request
  *   err_rc - [OUT] struct cYAML tree describing the error. Freed by caller
  */
 int lustre_lnet_config_net(char *net, char *intf, char *ip2net,
 			   int peer_to, int peer_cr, int peer_buf_cr,
-			   int credits, char *smp, int seq_no,
+			   int credits, char *smp,
+			   struct lnet_lnd_tunables *lnd_tunables,
+			   int seq_no,
 			   struct cYAML **err_rc);
 
 /*
