@@ -358,7 +358,8 @@ command_t cmdlist[] = {
 	{"migrate", lfs_setstripe, 0,
 	 "migrate file/directory between MDTs, or migrate file from one OST "
 	 "layout\nto another (may be not safe with concurent writes).\n"
-	 "usage: migrate   [--mdt-index|-m <mdt_idx>] <directory|filename>]\n"
+	 "usage: migrate   [--mdt-index|-m <mdt_idx>] [--verbose|-v] "
+	 "<directory|filename>\n"
 	 "\tmdt_idx:      MDT index to migrate to\n"
 	 " or\n"
 	 MIGRATE_USAGE},
@@ -928,6 +929,8 @@ static int lfs_setstripe(int argc, char **argv)
 		{"stripe_index", required_argument, 0, 'i'},
 		{"mdt-index",	 required_argument, 0, 'm'},
 		{"mdt_index",	 required_argument, 0, 'm'},
+		/* --verbose is only valid in migrate mode */
+		{"verbose",	 no_argument,	    0, 'v'},
 		/* --non-block is only valid in migrate mode */
 		{"non-block",	 no_argument,	    0, 'n'},
 		{"ost-list",     required_argument, 0, 'o'},
@@ -951,7 +954,7 @@ static int lfs_setstripe(int argc, char **argv)
 	if (strcmp(argv[0], "migrate") == 0)
 		migrate_mode = true;
 
-	while ((c = getopt_long(argc, argv, "bc:di:m:no:p:s:S:",
+	while ((c = getopt_long(argc, argv, "bc:di:m:vno:p:s:S:",
 				long_opts, NULL)) >= 0) {
 		switch (c) {
 		case 0:
@@ -1006,6 +1009,14 @@ static int lfs_setstripe(int argc, char **argv)
 				return CMD_HELP;
 			}
 			mdt_idx_arg = optarg;
+			break;
+		case 'v':
+			if (!migrate_mode) {
+				fprintf(stderr, "--verbose is valid only for"
+						" migrate mode\n");
+				return CMD_HELP;
+			}
+			migrate_mdt_param.fp_verbose = VERBOSE_DETAIL;
 			break;
 		case 'n':
 			if (!migrate_mode) {
