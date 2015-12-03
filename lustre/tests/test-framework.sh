@@ -4885,7 +4885,6 @@ skip() {
 	if [[ -n "$ALWAYS_SKIPPED" ]]; then
 		skip_logged $TESTNAME "$@"
 	else
-		mkdir -p $LOGDIR
 		echo "$@" > $LOGDIR/skip
 	fi
 
