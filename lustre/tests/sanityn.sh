@@ -48,7 +48,12 @@ TRACE=${TRACE:-""}
 
 check_and_setup_lustre
 
-LOVNAME=$($LCTL get_param -n llite.*.lov.common_name | tail -n 1)
+# common_name doesn't exist for upstream client
+LOVNAME=$($LCTL get_param -n llite.$FSNAME-*.lov.common_name | tail -n 1)
+if [ -z "$LOVNAME" ] ; then
+	LOVNAME=$(readlink /sys/fs/lustre/llite/*/lov)
+	LOVNAME=$(basename $LOVNAME)
+fi
 OSTCOUNT=$($LCTL get_param -n lov.$LOVNAME.numobd)
 
 assert_DIR
