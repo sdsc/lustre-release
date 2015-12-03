@@ -749,6 +749,8 @@ static int mdc_close(struct obd_export *exp, struct md_op_data *op_data,
 	}
 
 	*request = NULL;
+	if (OBD_FAIL_CHECK(OBD_FAIL_MDC_CLOSE))
+		RETURN(-ENOMEM);
 	req = ptlrpc_request_alloc(class_exp2cliimp(exp), req_fmt);
         if (req == NULL)
                 RETURN(-ENOMEM);
