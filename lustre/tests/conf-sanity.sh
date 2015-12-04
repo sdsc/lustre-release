@@ -1349,6 +1349,7 @@ test_32newtarball() {
 	local dst=.
 	local src=/etc/rc.d
 	local tmp=$TMP/t32_image_create
+	local server_version=$(lustre_version_code $SINGLEMDS)
 
 	if [ $FSNAME != t32fs -o \( -z "$MDSDEV" -a -z "$MDSDEV1" \) -o	\
 	     $OSTCOUNT -ne 1 -o	-z "$OSTDEV1" ]; then
@@ -1376,7 +1377,7 @@ test_32newtarball() {
 
 	setupall
 
-	[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.3.50) ] &&
+	[[ $server_version -ge $(version_code 2.3.50) ]] ||
 		$LFS quotacheck -ug /mnt/$FSNAME
 	$LFS setquota -u $T32_QID -b 0 -B $T32_BLIMIT -i 0 -I $T32_ILIMIT \
 		/mnt/$FSNAME
@@ -1395,7 +1396,7 @@ test_32newtarball() {
 	$LCTL get_param -n version | head -n 1 |
 		sed -e 's/^lustre: *//' >$tmp/img/commit
 
-	[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.3.50) ] &&
+	[[ $server_version -ge $(version_code 2.3.50) ]] ||
 		$LFS quotaon -ug /mnt/$FSNAME
 	$LFS quota -u $T32_QID -v /mnt/$FSNAME
 	$LFS quota -v -u $T32_QID /mnt/$FSNAME |
@@ -1407,9 +1408,15 @@ test_32newtarball() {
 		{ if (NF == 1) { getline } else { num++ } ; print $num;} }' \
 		| tr -d "*" > $tmp/img/ispace
 
-	if [ $MDSCOUNT -ge 2 ]; then
+	if [[ $MDSCOUNT -ge 2 ]]; then
 		$LFS mkdir -i 1 /mnt/$FSNAME/remote_dir
 		tar cf - -C $tmp/src . | tar xf - -C /mnt/$FSNAME/remote_dir
+
+		if [[ $server_version -ge $(version_code 2.7.0) ]]; then
+			$LFS mkdir -i 1 -c 2 /mnt/$FSNAME/striped_dir_old
+			tar cf - -C $tmp/src . |
+				tar xf - -C /mnt/$FSNAME/striped_dir_old
+		fi
 	fi
 
 	stopall
@@ -1428,6 +1435,9 @@ test_32newtarball() {
 	mv ${MDSDEV1:-$MDSDEV} $tmp/img
 	for num in $(seq 2 $MDSCOUNT); do
 		local devname=$(mdsdevname $num)
+		local facet=mds$num
+		[[ $(facet_fstype $facet) != zfs ]] ||
+			devname=$(mdsvdevname $num)
 		mv $devname $tmp/img
 	done
 	mv $OSTDEV1 $tmp/img
@@ -1473,7 +1483,8 @@ t32_check() {
 
 t32_test_cleanup() {
 	local tmp=$TMP/t32
-	local fstype=$(facet_fstype $SINGLEMDS)
+	local facet=$SINGLEMDS
+	local fstype=$(facet_fstype $facet)
 	local rc=$?
 
 	if $shall_cleanup_lustre; then
@@ -1491,9 +1502,15 @@ t32_test_cleanup() {
 
 	$r rm -rf $tmp
 	rm -rf $tmp
-	if [ $fstype == "zfs" ]; then
-		$r $ZPOOL destroy t32fs-mdt1 || rc=$?
-		$r $ZPOOL destroy t32fs-ost1 || rc=$?
+	if [[ $fstype == zfs ]]; then
+		local poolname
+		local poolname_list="t32fs-mdt1 t32fs-ost1"
+
+		! $mdt2_is_available || poolname_list+=" t32fs-mdt2"
+
+		for poolname in $poolname_list; do
+			destroy_zpool $facet $poolname
+		done
 	fi
 	return $rc
 }
@@ -1640,6 +1657,7 @@ t32_test() {
 	local shall_cleanup_mdt1=false
 	local shall_cleanup_ost=false
 	local shall_cleanup_lustre=false
+	local mdt2_is_available=false
 	local node=$(facet_active_host $SINGLEMDS)
 	local r="do_node $node"
 	local node2=$(facet_active_host mds2)
@@ -1691,12 +1709,23 @@ t32_test() {
 		$(lustre_version_code ost1) -lt $(version_code 2.5.0) ] &&
 			ff_convert="no"
 
-	if [ $fstype == "zfs" ]; then
+	! $r test -f $mdt2_dev || mdt2_is_available=true
+
+	if [[ $fstype == zfs ]]; then
 		# import pool first
-		$r $ZPOOL import -f -d $tmp t32fs-mdt1
-		$r $ZPOOL import -f -d $tmp t32fs-ost1
+		local poolname
+		local poolname_list="t32fs-mdt1 t32fs-ost1"
+
+		! $mdt2_is_available || poolname_list+=" t32fs-mdt2"
+
+		for poolname in $poolname_list; do
+			$r "$ZPOOL list -H $poolname >/dev/null 2>&1 ||
+				$ZPOOL import -f -d $tmp $poolname"
+		done
+
 		mdt_dev=t32fs-mdt1/mdt1
 		ost_dev=t32fs-ost1/ost1
+		! $mdt2_is_available || mdt2_dev=t32fs-mdt2/mdt2
 		wait_update_facet $SINGLEMDS "$ZPOOL list |
 			awk '/^t32fs-mdt1/ { print \\\$1 }'" "t32fs-mdt1" || {
 				error_noexit "import zfs pool failed"
@@ -1712,7 +1741,7 @@ t32_test() {
 		return 1
 	}
 
-	if $r test -f $mdt2_dev; then
+	if $mdt2_is_available; then
 		$r $TUNEFS --dryrun $mdt2_dev || {
 			$r losetup -a
 			error_noexit "tunefs.lustre before mounting the MDT"
@@ -1729,7 +1758,7 @@ t32_test() {
 				error_noexit "Enable mdt quota feature"
 				return 1
 			}
-			if $r test -f $mdt2_dev; then
+			if $mdt2_is_available; then
 				$r $TUNEFS --quota $mdt2_dev || {
 					$r losetup -a
 					error_noexit "Enable mdt quota feature"
@@ -1771,7 +1800,7 @@ t32_test() {
 	}
 	shall_cleanup_mdt=true
 
-	if $r test -f $mdt2_dev; then
+	if $mdt2_is_available; then
 		mopts=mgsnode=$nid,$mopts
 		$r $MOUNT_CMD -o $mopts $mdt2_dev $tmp/mnt/mdt1 || {
 			$r losetup -a
@@ -1798,6 +1827,8 @@ t32_test() {
 			error_noexit "Mkfs new MDT failed"
 			return 1
 		}
+
+		[[ $(facet_fstype mds1) != zfs ]] || import_zpool fs2mds
 
 		$r $TUNEFS --dryrun $fs2mdsdev || {
 			error_noexit "tunefs.lustre before mounting the MDT"
@@ -1945,7 +1976,7 @@ t32_test() {
 
 		if [ "$dne_upgrade" != "no" ]; then
 			$LFS mkdir -i 1 -c2 $tmp/mnt/lustre/striped_dir || {
-				error_noexit "set remote dir failed"
+				error_noexit "set striped dir failed"
 				return 1
 			}
 
@@ -1953,9 +1984,10 @@ t32_test() {
 
 			pushd $tmp/mnt/lustre
 			tar -cf - . --exclude=./striped_dir \
+				    --exclude=./striped_dir_old \
 				    --exclude=./remote_dir |
 				tar -xvf - -C striped_dir 1>/dev/null || {
-				error_noexit "cp to remote dir failed"
+				error_noexit "cp to striped dir failed"
 				return 1
 			}
 			popd
@@ -1963,20 +1995,40 @@ t32_test() {
 
 		# If it is upgrade from DNE (2.5), then rename the remote dir,
 		# which is created in 2.5 to striped dir.
-		if $r test -f $mdt2_dev; then
+		if $mdt2_is_available; then
 			stripe_index=$(LFS getdirstripe -i	\
 				       $tmp/mnt/lustre/remote_dir)
 			[ $stripe_index -eq 1 ] || {
-				error_noexit "get index $striped_index failed"
+				error_noexit "get index $striped_index" \
+					     "from remote dir failed"
 				return 1
 			}
 			mv $tmp/mnt/lustre/remote_dir	\
 				$tmp/mnt/lustre/striped_dir/ || {
-				error_noexit "mv failed"
+				error_noexit "mv remote dir failed"
 				return 1
 			}
 		fi
 
+		# If it is upgraded from DNE (2.7), then move the striped dir
+		# which was created in 2.7 to the new striped dir.
+		if $mdt2_is_available &&
+			[[ -d $tmp/mnt/lustre/striped_dir_old ]]; then
+			stripe_index=$(LFS getdirstripe -i	\
+				       $tmp/mnt/lustre/striped_dir_old)
+			[[ $stripe_index -eq 2 ]] || {
+				error_noexit "get index $striped_index" \
+					     "from striped dir failed"
+				return 1
+			}
+			mv $tmp/mnt/lustre/striped_dir_old	\
+				$tmp/mnt/lustre/striped_dir/ || {
+				error_noexit "mv striped dir failed"
+				return 1
+			}
+		fi
+
+		sync_all_data
 		dd if=/dev/zero of=$tmp/mnt/lustre/tmp_file bs=10k count=10 || {
 			error_noexit "dd failed"
 			return 1
@@ -1996,8 +2048,8 @@ t32_test() {
 				pushd $tmp/mnt/lustre
 			fi
 
-			find ! -path "*remote_dir*" ! -name .lustre -type f \
-					-exec sha1sum {} \; |
+			find ! -path "*remote_dir*" ! -path "*striped_dir*" \
+				! -name .lustre -type f -exec sha1sum {} \; |
 				sort -k 2 >$tmp/sha1sums || {
 				popd
 				error_noexit "sha1sum"
@@ -2009,22 +2061,33 @@ t32_test() {
 				return 1
 			fi
 
-			# if upgrade from DNE (2.5), then check remote directory
-			if $r test -f $mdt2_dev; then
-				pushd $tmp/mnt/lustre/striped_dir/remote_dir
-				find ! -name .lustre -type f	\
-							-exec sha1sum {} \; |
-					sort -k 2 >$tmp/sha1sums || {
+			# if upgrade from DNE(2.5), then check remote directory
+			# if upgrade from DNE(2.7), then check striped directory
+			if $mdt2_is_available; then
+				local new_dir="$tmp/mnt/lustre/striped_dir"
+				local striped_dir_old="$new_dir/striped_dir_old"
+
+				local dir_list="$new_dir/remote_dir"
+				[[ ! -d $triped_dir_old ]] ||
+					dir_list+=" $striped_dir_old"
+
+				for dir in $dir_list; do
+					pushd $dir
+					find ! -name .lustre -type f	\
+						-exec sha1sum {} \; |
+						sort -k 2 >$tmp/sha1sums || {
+							popd
+							error_noexit "sha1sum"
+							return 1
+						}
 					popd
-					error_noexit "sha1sum"
-					return 1
-				}
-				popd
-				if ! diff -ub $tmp/sha1sums.orig \
-					      $tmp/sha1sums; then
-					error_noexit "sha1sum dne failed"
-					return 1
-				fi
+					if ! diff -ub $tmp/sha1sums.orig \
+						$tmp/sha1sums; then
+						error_noexit "sha1sum $dir" \
+							     "failed"
+						return 1
+					fi
+				done
 			fi
 		else
 			echo "sha1sum verification skipped"
@@ -2136,7 +2199,7 @@ t32_test() {
 		}
 		shall_cleanup_lustre=false
 	else
-		if [ "$dne_upgrade" != "no" ]; then
+		if [[ "$dne_upgrade" != "no" ]] || $mdt2_is_available; then
 			$r $UMOUNT $tmp/mnt/mdt1 || {
 				error_noexit "Unmounting the MDT2"
 				return 1
@@ -2160,6 +2223,12 @@ t32_test() {
 			error_noexit "Reloading modules"
 			return 1
 		}
+
+		if [[ $fstype == zfs ]]; then
+			local poolname=t32fs-mdt1
+			$r "$ZPOOL list -H $poolname >/dev/null 2>&1 ||
+				$ZPOOL import -f -d $tmp $poolname"
+		fi
 
 		# mount a second time to make sure we didnt leave upgrade flag on
 		$r $TUNEFS --dryrun $mdt_dev || {
