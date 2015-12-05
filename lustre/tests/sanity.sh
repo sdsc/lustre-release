@@ -9392,8 +9392,8 @@ run_test 133e "Verifying OST {read,write}_bytes nid stats ================="
 test_133f() {
 	local proc_dirs
 
-	local dirs="/proc/fs/lustre/ /proc/sys/lnet/ /proc/sys/lustre/ \
-/sys/fs/lustre/ /sys/fs/lnet/"
+	local dirs="/proc/fs/lustre/ /proc/sys/lnet/ /proc/sys/lustre/ " \
+		   "/sys/fs/lustre/ /sys/fs/lnet/ /sys/kernel/debug/lustre/"
 	local dir
 	for dir in $dirs; do
 		if [ -d $dir ]; then
@@ -9431,8 +9431,8 @@ run_test 133f "Check for LBUGs/Oopses/unreadable files in /proc"
 test_133g() {
 	local proc_dirs
 
-	local dirs="/proc/fs/lustre/ /proc/sys/lnet/ /proc/sys/lustre/ \
-/sys/fs/lustre/ /sys/fs/lnet/"
+	local dirs="/proc/fs/lustre/ /proc/sys/lnet/ /proc/sys/lustre/ " \
+		   "/sys/fs/lustre/ /sys/fs/lnet/ /sys/kernel/debug/lustre/"
 	local dir
 	for dir in $dirs; do
 		if [ -d $dir ]; then
@@ -9442,7 +9442,7 @@ test_133g() {
 
 	local facet
 
-	# Second verifying readability.
+	# Second verifying writability.
 	find $proc_dirs \
 		-type f \
 		-not -name force_lbug \
@@ -13314,7 +13314,7 @@ run_test 240 "race between ldlm enqueue and the connection RPC (no ASSERT)"
 test_241_bio() {
 	for LOOP in $(seq $1); do
 		dd if=$DIR/$tfile of=/dev/null bs=40960 count=1 2>/dev/null
-		cancel_lru_locks osc
+		cancel_lru_locks osc || true
 	done
 }
 
@@ -14243,15 +14243,19 @@ run_test 400b "packaged headers can be compiled"
 test_401() { #LU-7437
 	local params
 	local procs
+	local dirs
 
 	#count the number of parameters by "list_param -R"
 	params=$($LCTL list_param -R '*' 2>/dev/null | wc -l)
+
 	#count the number of parameters by listing proc files
-	ls -lRL /proc/{fs,sys}/{lnet,lustre} 2>/dev/null |
-		grep -v "^t" | grep -v "^d" > $TMP/$tfile
-	#Since there is no /proc/fs/lnet, we need to remove other
-	#3 directories, /proc/{fs,sys}/lustre and /proc/sys/lnet.
-	procs=$(($(sed /^$/d $TMP/$tfile | wc -l)-3))
+	ls -lRL /proc/{fs,sys}/{lnet,lustre} /sys/fs/lustre \
+		/sys/kernel/debug/lustre 2>/dev/null |
+		egrep -v "^t|^d" > $TMP/$tfile
+	#Remove these existent head directories
+	dirs=$(ls -d /proc/{fs,sys}/{lnet,lustre} /sys/fs/lustre \
+		/sys/kernel/debug/lustre 2>/dev/null| wc -l)
+	procs=$(($(sed /^$/d $TMP/$tfile | wc -l) - $dirs))
 
 	[ $params -eq $procs ] ||
 		error "found $params parameters vs. $procs proc files"
