@@ -115,7 +115,7 @@ AC_ARG_WITH([kmp-moddir],
 AC_MSG_RESULT($KMP_MODDIR)
 AC_SUBST(KMP_MODDIR)
 
-moduledir='$(CROSS_PATH)/lib/modules/$(LINUXRELEASE)/$(KMP_MODDIR)/kernel'
+moduledir='/lib/modules/$(LINUXRELEASE)/$(KMP_MODDIR)/kernel'
 AC_SUBST(moduledir)
 
 modulefsdir='$(moduledir)/fs/$(PACKAGE)'
@@ -165,7 +165,6 @@ AS_IF([test "x$cross_compiling" = xyes],
 AS_IF([test "$lb_cv_cross" = x86_64-k1om-linux -o \
 	    "$lb_cv_cross" = k1om-mpss-linux], [
 	CROSS_VARS="ARCH=k1om CROSS_COMPILE=${lb_cv_cross}-"
-	CROSS_PATH="${CROSS_PATH:=/opt/lustre/$VERSION/$lb_cv_cross}"
 	CCAS=$CC
 	# need to produce special section for debuginfo extraction
 	LDFLAGS="$LDFLAGS -Wl,--build-id"
@@ -180,7 +179,6 @@ AS_IF([test "$lb_cv_cross" = x86_64-k1om-linux -o \
 	])
 ])
 AC_SUBST(CROSS_VARS)
-AC_SUBST(CROSS_PATH)
 ])
 
 #

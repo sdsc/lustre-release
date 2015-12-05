@@ -100,7 +100,6 @@ dist-hook: undef.h
 EXTRA_DIST = @PACKAGE_TARNAME@.spec	\
 	build/Makefile 			\
 	build/Rules.in			\
-	build/gen_filelist.sh		\
 	config.h.in			\
 	undef.h
 
