@@ -878,11 +878,5 @@ int jt_dbg_panic(int argc, char **argv)
 		return -1;
 	}
 
-	rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_PANIC, buf);
-	if (rc) {
-		fprintf(stderr, "IOC_LIBCFS_PANIC failed: %s\n",
-			strerror(errno));
-		return -1;
-	}
 	return 0;
 }
