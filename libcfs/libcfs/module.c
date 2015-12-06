@@ -248,10 +248,6 @@ static int libcfs_ioctl(struct cfs_psdev_file *pfile,
 	case IOC_LIBCFS_CLEAR_DEBUG:
 		libcfs_debug_clear_buffer();
 		break;
-	/*
-	 * case IOC_LIBCFS_PANIC:
-	 * Handled in arch/cfs_module.c
-	 */
 	case IOC_LIBCFS_MARK_DEBUG:
 		if (data == NULL ||
 		    data->ioc_inlbuf1 == NULL ||
@@ -259,20 +255,6 @@ static int libcfs_ioctl(struct cfs_psdev_file *pfile,
 			GOTO(out, err = -EINVAL);
 
 		libcfs_debug_mark_buffer(data->ioc_inlbuf1);
-		break;
-
-	case IOC_LIBCFS_MEMHOG:
-		if (data == NULL)
-			GOTO(out, err = -EINVAL);
-
-		if (pfile->private_data == NULL)
-			GOTO(out, err = -EINVAL);
-
-		kportal_memhog_free(pfile->private_data);
-		err = kportal_memhog_alloc(pfile->private_data,
-					   data->ioc_count, data->ioc_flags);
-		if (err != 0)
-			kportal_memhog_free(pfile->private_data);
 		break;
 
 	default: {
