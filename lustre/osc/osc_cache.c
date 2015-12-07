@@ -129,7 +129,7 @@ static const char *oes_strings[] = {
 	if (lvl == D_ERROR && __ext->oe_dlmlock != NULL)		      \
 		LDLM_ERROR(__ext->oe_dlmlock, "extent: %p\n", __ext);	      \
 	else								      \
-		LDLM_DEBUG(__ext->oe_dlmlock, "extent: %p\n", __ext);	      \
+		LDLM_DEBUG(__ext->oe_dlmlock, "extent: %p", __ext);	      \
 } while (0)
 
 #undef EASSERTF
