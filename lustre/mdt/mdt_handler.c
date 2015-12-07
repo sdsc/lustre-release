@@ -2267,7 +2267,7 @@ int mdt_remote_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
 		}
 		break;
 	case LDLM_CB_CANCELING:
-		LDLM_DEBUG(lock, "Revoke remote lock\n");
+		LDLM_DEBUG(lock, "Revoke remote lock");
 		break;
 	default:
 		LBUG();
@@ -2290,7 +2290,7 @@ int mdt_check_resent_lock(struct mdt_thread_info *info,
 			/* Lock is pinned by ldlm_handle_enqueue0() as it is
 			 * a resend case, however, it could be already destroyed
 			 * due to client eviction or a raced cancel RPC. */
-			LDLM_DEBUG_NOLOCK("Invalid lock handle "LPX64"\n",
+			LDLM_DEBUG_NOLOCK("Invalid lock handle "LPX64,
 					  lhc->mlh_reg_lh.cookie);
 			RETURN(-ESTALE);
 		}
