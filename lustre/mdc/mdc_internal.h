@@ -96,6 +96,8 @@ int mdc_resource_get_unused(struct obd_export *exp, const struct lu_fid *fid,
 /* mdc/mdc_request.c */
 int mdc_fid_alloc(const struct lu_env *env, struct obd_export *exp,
 		  struct lu_fid *fid, struct md_op_data *op_data);
+int mdc_setup(struct obd_device *obd, struct lustre_cfg *cfg);
+int mdc_process_config(struct obd_device *obd, size_t len, void *buf);
 
 struct obd_client_handle;
 
@@ -158,5 +160,8 @@ static inline unsigned long hash_x_index(__u64 hash, int hash64)
 	/* save hash 0 with hash 1 */
 	return ~0UL - (hash + !hash);
 }
+
+/* mdc_dev.c */
+extern struct lu_device_type mdc_device_type;
 
 #endif
