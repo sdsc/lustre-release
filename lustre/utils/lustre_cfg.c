@@ -819,8 +819,8 @@ static int listparam_display(struct param_opts *popt, char *pattern)
 	int i;
 
 	rc = glob(pattern, /* GLOB_ONLYDIR doesn't guarantee, only a hint */
-		  GLOB_BRACE | (popt->po_recursive ? GLOB_MARK : 0) |
-		  (popt->po_only_dir ? GLOB_ONLYDIR : 0),
+		  GLOB_BRACE | (popt->po_only_dir ? GLOB_ONLYDIR : 0) |
+			       (popt->po_recursive ? GLOB_MARK : 0),
 		  NULL, &glob_info);
 	if (rc) {
 		fprintf(stderr, "error: list_param: %s: %s\n",
@@ -843,12 +843,12 @@ static int listparam_display(struct param_opts *popt, char *pattern)
 			last = 0;
 		strlcpy(pathname, glob_info.gl_pathv[i], len);
 		valuename = display_name(pathname, len, popt);
-		if (valuename)
-			printf("%s\n", valuename);
 		if (last) {
 			strlcpy(pathname, glob_info.gl_pathv[i], len);
 			strlcat(pathname, "/*", len);
 			listparam_display(popt, pathname);
+		} else if (valuename) {
+			printf("%s\n", valuename);
 		}
 	}
 
@@ -896,16 +896,19 @@ static int getparam_cmdline(int argc, char **argv, struct param_opts *popt)
 	popt->po_show_type = 0;
 	popt->po_recursive = 0;
 
-	while ((ch = getopt(argc, argv, "nNF")) != -1) {
+	while ((ch = getopt(argc, argv, "FnNR")) != -1) {
 		switch (ch) {
-		case 'N':
-			popt->po_only_path = 1;
+		case 'F':
+			popt->po_show_type = 1;
 			break;
 		case 'n':
 			popt->po_show_path = 0;
 			break;
-		case 'F':
-			popt->po_show_type = 1;
+		case 'N':
+			popt->po_only_path = 1;
+			break;
+		case 'R':
+			popt->po_recursive = 1;
 			break;
 		default:
 			return -1;
@@ -924,7 +927,8 @@ static int getparam_display(struct param_opts *popt, char *pattern)
 	int fd;
 	int i;
 
-	rc = glob(pattern, GLOB_BRACE, NULL, &glob_info);
+	rc = glob(pattern, GLOB_BRACE | (popt->po_recursive ? GLOB_MARK : 0),
+		  NULL, &glob_info);
 	if (rc) {
 		fprintf(stderr, "error: get_param: %s: %s\n",
 			pattern, globerrstr(rc));
@@ -937,11 +941,26 @@ static int getparam_display(struct param_opts *popt, char *pattern)
 
 	for (i = 0; i  < glob_info.gl_pathc; i++) {
 		char pathname[PATH_MAX + 1];    /* extra 1 byte for file type */
+		int len = sizeof(pathname), last;
 		char *valuename = NULL;
 
 		memset(buf, 0, page_size);
-		/* As listparam_display is used to show param name (with type),
-		 * here "if (only_path)" is ignored.*/
+		/* Trailing '/' will indicate recursion into directory */
+		last = strlen(glob_info.gl_pathv[i]) - 1;
+
+		/* Remove trailing '/' or it will be converted to '.' */
+		if (last > 0 && glob_info.gl_pathv[i][last] == '/')
+			glob_info.gl_pathv[i][last] = '\0';
+		else
+			last = 0;
+
+		if (last) {
+			strlcpy(pathname, glob_info.gl_pathv[i], len);
+			strlcat(pathname, "/*", len);
+			getparam_display(popt, pathname);
+			continue;
+		}
+
 		if (popt->po_show_path) {
 			if (strlen(glob_info.gl_pathv[i]) >
 			    sizeof(pathname) - 1) {
@@ -1012,8 +1031,12 @@ int jt_lcfg_getparam(int argc, char **argv)
 	char *path;
 
 	rc = getparam_cmdline(argc, argv, &popt);
-	if (rc < 0 || rc >= argc)
+	if (rc == argc && popt.po_recursive) {
+		rc--;           /* we know at least "-R" is a parameter */
+		argv[rc] = "*";
+	} else if (rc < 0 || rc >= argc) {
 		return CMD_HELP;
+	}
 
 	for (i = rc, rc = 0; i < argc; i++) {
 		int rc2;
