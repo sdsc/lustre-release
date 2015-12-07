@@ -148,11 +148,31 @@ search_copytools() {
 	do_nodesv $agents "pgrep -x $HSMTOOL_BASE"
 }
 
-search_and_kill_copytool() {
+kill_copytools() {
 	local agents=${1:-$(facet_active_host $SINGLEAGT)}
 
 	echo "Killing existing copytools on $agents"
 	do_nodesv $agents "killall -q $HSMTOOL_BASE" || true
+}
+
+wait_copytools() {
+	local wait_timeout=200
+	local wait_start=$SECONDS
+	local wait_end=$((wait_start + wait_timeout))
+
+	while ((SECONDS < wait_end)); do
+		sleep 2
+		if !search_copytools; then
+		    echo "Copytool stopped in $((SECONDS - wait_start))s"
+		    return 0
+		fi
+
+		echo "Copytool still running on $agents"
+	done
+
+	echo "Copytool failed to stop in ${wait_timeout}s"
+
+	return 1
 }
 
 copytool_monitor_setup() {
@@ -279,25 +299,9 @@ copytool_cleanup() {
 	local oldstate
 	local mdt_hsmctrl
 	local hsm_root=$(copytool_device $facet)
-	local end_wait=$(( SECONDS + TIMEOUT ))
 
-	do_nodesv $agents "pkill -INT -x $HSMTOOL_BASE" || return 0
-
-	while (( SECONDS < end_wait )); do
-		sleep 2
-		do_nodesv $agents "pgrep -x $HSMTOOL_BASE"
-		if [ $? -ne 0 ]; then
-			echo "Copytool is stopped on $agents"
-			break
-		fi
-		echo "Copytool still running on $agents"
-	done
-	if do_nodesv $agents "pgrep -x $HSMTOOL_BASE"; then
-		error "Copytool failed to stop in ${TIMEOUT}s ..."
-	else
-		echo "Copytool has stopped in " \
-		     "$((TIMEOUT - (end_wait - SECONDS)))s."
-	fi
+	kill_copytools
+	wait_copytools || error "Copytools failed to stop"
 
 	# clean all CDTs orphans requests from previous tests
 	# that would otherwise need to timeout to clear.
@@ -771,7 +775,7 @@ get_mdt_devices
 init_agt_vars
 
 # cleanup from previous bad setup
-search_and_kill_copytool
+kill_copytools
 
 # for recovery tests, coordinator needs to be started at mount
 # so force it
@@ -1454,9 +1458,8 @@ test_12q() {
 	$LFS hsm_release $f || error "could not release file"
 	check_hsm_flags $f "0x0000000d"
 
-	search_and_kill_copytool
-	sleep 5
-	search_copytools && error "Copytool should have stopped"
+	kill_copytools
+	wait_copytools || error "Copytool should have stopped"
 
 	cat $f > /dev/null &
 
