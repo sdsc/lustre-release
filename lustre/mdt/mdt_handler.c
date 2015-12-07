@@ -598,17 +598,21 @@ void mdt_pack_attr2body(struct mdt_thread_info *info, struct mdt_body *b,
 		/* if no object is allocated on osts, the size on mds is valid.
 		 * b=22272 */
 		b->mbo_valid |= OBD_MD_FLSIZE | OBD_MD_FLBLOCKS;
-	} else if ((ma->ma_valid & MA_LOV) && ma->ma_lmm != NULL &&
-		   ma->ma_lmm->lmm_pattern & LOV_PATTERN_F_RELEASED) {
-		/* A released file stores its size on MDS. */
-		/* But return 1 block for released file, unless tools like tar
-		 * will consider it fully sparse. (LU-3864)
-		 */
-		if (unlikely(b->mbo_size == 0))
-			b->mbo_blocks = 0;
-		else
-			b->mbo_blocks = 1;
-		b->mbo_valid |= OBD_MD_FLSIZE | OBD_MD_FLBLOCKS;
+	} else if ((ma->ma_valid & MA_LOV) && ma->ma_lmm != NULL) {
+		if (ma->ma_lmm->lmm_pattern & LOV_PATTERN_F_RELEASED) {
+			/* A released file stores its size on MDS. */
+			/* But return 1 block for released file, unless tools
+			 * like tar will consider it fully sparse. (LU-3864)
+			 */
+			if (unlikely(b->mbo_size == 0))
+				b->mbo_blocks = 0;
+			else
+				b->mbo_blocks = 1;
+			b->mbo_valid |= OBD_MD_FLSIZE | OBD_MD_FLBLOCKS;
+		} else if (lov_pattern(ma->ma_lmm->lmm_pattern) ==
+			   LOV_PATTERN_MDT) {
+			b->mbo_valid |= OBD_MD_FLSIZE | OBD_MD_FLBLOCKS;
+		}
 	}
 
 	if (fid != NULL && (b->mbo_valid & OBD_MD_FLSIZE))
@@ -4394,6 +4398,16 @@ static int mdt_tgt_getxattr(struct tgt_session_info *tsi)
 	return rc;
 }
 
+static int mdt_ost_sync(struct tgt_session_info *tsi)
+{
+	return 0;
+}
+
+#define OBD_FAIL_OST_READ_NET	OBD_FAIL_OST_BRW_NET
+#define OBD_FAIL_OST_WRITE_NET	OBD_FAIL_OST_BRW_NET
+#define OST_BRW_READ	OST_READ
+#define OST_BRW_WRITE	OST_WRITE
+
 static struct tgt_handler mdt_tgt_handlers[] = {
 TGT_RPC_HANDLER(MDS_FIRST_OPC,
 		0,			MDS_CONNECT,	mdt_tgt_connect,
@@ -4432,6 +4446,14 @@ TGT_MDT_HDL(HABEO_CORPUS| HABEO_REFERO, MDS_HSM_REQUEST,
 TGT_MDT_HDL(HABEO_CLAVIS | HABEO_CORPUS | HABEO_REFERO | MUTABOR,
 	    MDS_SWAP_LAYOUTS,
 	    mdt_swap_layouts),
+};
+
+static struct tgt_handler mdt_io_ops[] = {
+TGT_OST_HDL(HABEO_CORPUS| HABEO_REFERO,	OST_BRW_READ,	tgt_brw_read),
+TGT_OST_HDL(HABEO_CORPUS| MUTABOR,	OST_BRW_WRITE,	tgt_brw_write),
+TGT_OST_HDL(HABEO_CORPUS| HABEO_REFERO | MUTABOR,
+					OST_PUNCH,	mdt_punch_hdl),
+TGT_OST_HDL(HABEO_CORPUS| HABEO_REFERO,	OST_SYNC,	mdt_ost_sync),
 };
 
 static struct tgt_handler mdt_sec_ctx_ops[] = {
@@ -4495,7 +4517,11 @@ static struct tgt_opc_slice mdt_common_slice[] = {
 		.tos_opc_end	= LFSCK_LAST_OPC,
 		.tos_hs		= tgt_lfsck_handlers
 	},
-
+	{
+		.tos_opc_start	= OST_FIRST_OPC,
+		.tos_opc_end	= OST_LAST_OPC,
+		.tos_hs		= mdt_io_ops
+	},
 	{
 		.tos_hs		= NULL
 	}
@@ -5082,9 +5108,10 @@ static int mdt_obd_set_info_async(const struct lu_env *env,
  * \retval -EPROTO \a data unexpectedly has zero obd_connect_data::ocd_brw_size
  * \retval -EBADE  client and server feature requirements are incompatible
  */
-static int mdt_connect_internal(struct obd_export *exp,
+static int mdt_connect_internal(const struct lu_env *env,
+				struct obd_export *exp,
 				struct mdt_device *mdt,
-				struct obd_connect_data *data)
+				struct obd_connect_data *data, bool reconnect)
 {
 	LASSERT(data != NULL);
 
@@ -5127,6 +5154,10 @@ static int mdt_connect_internal(struct obd_export *exp,
 			return -EPROTO;
 		}
 	}
+
+	if (data->ocd_connect_flags & OBD_CONNECT_GRANT)
+		data->ocd_grant = mdt_grant_connect(env, exp, data->ocd_grant,
+						    !reconnect);
 
 	/* NB: Disregard the rule against updating
 	 * exp_connect_data.ocd_connect_flags in this case, since
@@ -5374,7 +5405,7 @@ static int mdt_obd_connect(const struct lu_env *env,
 	if (rc != 0 && rc != -EEXIST)
 		GOTO(out, rc);
 
-	rc = mdt_connect_internal(lexp, mdt, data);
+	rc = mdt_connect_internal(env, lexp, mdt, data, false);
 	if (rc == 0) {
 		struct lsd_client_data *lcd = lexp->exp_target_data.ted_lcd;
 
@@ -5420,7 +5451,8 @@ static int mdt_obd_reconnect(const struct lu_env *env,
 	if (rc != 0 && rc != -EEXIST)
 		RETURN(rc);
 
-	rc = mdt_connect_internal(exp, mdt_dev(obd->obd_lu_dev), data);
+	rc = mdt_connect_internal(env, exp, mdt_dev(obd->obd_lu_dev), data,
+				  true);
 	if (rc == 0)
 		mdt_export_stats_init(obd, exp, localdata);
 	else
@@ -6064,6 +6096,9 @@ static struct obd_ops mdt_obd_device_ops = {
         .o_destroy_export = mdt_destroy_export,
         .o_iocontrol      = mdt_iocontrol,
         .o_postrecov      = mdt_obd_postrecov,
+	/* Data-on-MDT IO methods */
+	.o_preprw	  = mdt_obd_preprw,
+	.o_commitrw	  = mdt_obd_commitrw,
 };
 
 static struct lu_device* mdt_device_fini(const struct lu_env *env,
