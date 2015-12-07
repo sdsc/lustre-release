@@ -688,7 +688,14 @@ static void mdc_free_open(struct md_open_data *mod)
 	    imp_connect_disp_stripe(mod->mod_open_req->rq_import))
 		committed = 1;
 
-	LASSERT(mod->mod_open_req->rq_replay == 0);
+	/**
+	 * No reason to asssert here if the open request has
+	 * rq_replay == 1. It means that mdc_close failed, and
+	 * close request wasn`t sent. It is not fatal to client.
+	 * The worst thing is eviction if the client gets open lock
+	 **/
+	if (mod->mod_open_req->rq_replay != 0)
+		CWARN("Close open request with rq_replay == 1\n");
 
 	DEBUG_REQ(D_RPCTRACE, mod->mod_open_req, "free open request\n");
 
