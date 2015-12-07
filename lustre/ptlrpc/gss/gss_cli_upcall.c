@@ -344,10 +344,10 @@ int gss_do_ctx_init_rpc(__user char *buffer, unsigned long count)
                  *
                  * FIXME maybe some other error code shouldn't be treated
                  * as timeout. */
-                param.status = rc;
-                if (rc != -EACCES)
-                        param.status = -ETIMEDOUT;
-                goto out_copy;
+		param.status = rc;
+		if (rc != -EACCES && rc != -ENOTSUPP)
+			param.status = -ETIMEDOUT;
+		goto out_copy;
         }
 
         LASSERT(req->rq_repdata);

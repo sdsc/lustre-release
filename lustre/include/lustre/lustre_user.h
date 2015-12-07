@@ -1395,6 +1395,20 @@ struct llapi_json_item_list {
 	struct llapi_json_item	*ljil_items;
 };
 
+/* Shared key */
+enum sk_crypt_alg {
+	SK_CRYPT_AES_CTR	= 0,
+	SK_CRYPT_MAX		= 1,
+};
+
+enum sk_hmac_alg {
+	SK_HMAC_MD5	= 0,
+	SK_HMAC_SHA1	= 1,
+	SK_HMAC_SHA256	= 2,
+	SK_HMAC_SHA512	= 3,
+	SK_HMAC_MAX	= 4,
+};
+
 /** @} lustreuser */
 
 #endif /* _LUSTRE_USER_H */
