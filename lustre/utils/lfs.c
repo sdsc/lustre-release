@@ -127,7 +127,7 @@ static int lfs_ladvise(int argc, char **argv);
 	"usage: "cmd" [--stripe-count|-c <stripe_count>]\n"		\
 	"                 [--stripe-index|-i <start_ost_idx>]\n"	\
 	"                 [--stripe-size|-S <stripe_size>]\n"		\
-	"                 [--stripe-pattern|-P <pattern>]\n		\
+	"                 [--stripe-pattern|-P <pattern>]\n"		\
 	"                 [--pool|-p <pool_name>]\n"			\
 	"                 [--ost-list|-o <ost_indices>]\n"
 

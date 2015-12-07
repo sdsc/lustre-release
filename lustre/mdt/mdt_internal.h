@@ -1060,4 +1060,20 @@ static inline char *mdt_req_get_jobid(struct ptlrpc_request *req)
 	return jobid;
 }
 
+/* MDT IO */
+int mdt_obd_preprw(const struct lu_env *env, int cmd, struct obd_export *exp,
+		   struct obdo *oa, int objcount, struct obd_ioobj *obj,
+		   struct niobuf_remote *rnb, int *nr_local,
+		   struct niobuf_local *lnb);
+
+int mdt_obd_commitrw(const struct lu_env *env, int cmd, struct obd_export *exp,
+		     struct obdo *oa, int objcount, struct obd_ioobj *obj,
+		     struct niobuf_remote *rnb, int npages,
+		     struct niobuf_local *lnb, int old_rc);
+int mdt_punch_hdl(struct tgt_session_info *tsi);
+
+/* grants */
+long mdt_grant_connect(const struct lu_env *env, struct obd_export *exp,
+		       u64 want, bool conservative);
+
 #endif /* _MDT_INTERNAL_H */
