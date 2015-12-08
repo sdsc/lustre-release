@@ -10402,11 +10402,21 @@ test_156() {
 run_test 156 "Verification of tunables"
 
 #Changelogs
+error_and_deregister () {
+	echo "Deregistering changelog client $USER"
+	$(do_facet $SINGLEMDS $LCTL --device $MDT0 changelog_deregister $USER)
+	error $*
+}
+
 err17935 () {
 	if [[ $MDSCOUNT -gt 1 ]]; then
 		error_ignore bz17935 $*
 	else
-		error $*
+		if ! [[ -z $USER ]]; then
+			error_and_deregister $*
+		else
+			error $*
+		fi
 	fi
 }
 
@@ -10507,8 +10517,9 @@ test_160a() {
 	local MDT_DEV=$(mdsdevname ${SINGLEMDS//mds/})
 	CUR_REC1=$($GET_CL_USERS | head -n1 | cut -f3 -d' ')
 	$LFS changelog_clear $MDT0 $USER 0
-	stop $SINGLEMDS || error "Fail to stop MDT."
-	start $SINGLEMDS $MDT_DEV $MDS_MOUNT_OPTS || error "Fail to start MDT."
+	stop $SINGLEMDS || error_and_deregister "Fail to stop MDT."
+	start $SINGLEMDS $MDT_DEV $MDS_MOUNT_OPTS ||
+		 error_and_deregister "Fail to start MDT."
 	CUR_REC2=$($GET_CL_USERS | head -n1 | cut -f3 -d' ')
 	echo "verifying index survives MDT restart: $CUR_REC1 == $CUR_REC2"
 	[ $CUR_REC1 == $CUR_REC2 ] ||
@@ -10550,7 +10561,7 @@ test_160b() { # LU-3587
 
 	cd $DIR
 	echo "creating very long named file"
-	touch $LONGNAME1 || error "create of $LONGNAME1 failed"
+	touch $LONGNAME1 || error_and_deregister "create of $LONGNAME1 failed"
 	echo "moving very long named file"
 	mv $LONGNAME1 $LONGNAME2
 
