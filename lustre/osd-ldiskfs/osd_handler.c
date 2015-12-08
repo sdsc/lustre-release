@@ -6079,10 +6079,10 @@ static void *osd_key_init(const struct lu_context *ctx,
         return ERR_PTR(-ENOMEM);
 }
 
-static void osd_key_fini(const struct lu_context *ctx,
-                         struct lu_context_key *key, void* data)
+static void release_osd_thread_info(struct rcu_head *head)
 {
-	struct osd_thread_info *info = data;
+	struct osd_thread_info *info = container_of(head,
+					struct osd_thread_info, oti_rcu);
 	struct ldiskfs_inode_info *lli = LDISKFS_I(info->oti_inode);
 	struct osd_idmap_cache	*idc = info->oti_ins_cache;
 
@@ -6101,6 +6101,14 @@ static void osd_key_fini(const struct lu_context *ctx,
 		info->oti_ins_cache_size = 0;
 	}
 	OBD_FREE_PTR(info);
+}
+
+static void osd_key_fini(const struct lu_context *ctx,
+			 struct lu_context_key *key, void *data)
+{
+	struct osd_thread_info *info = data;
+
+	call_rcu(&info->oti_rcu, release_osd_thread_info);
 }
 
 static void osd_key_exit(const struct lu_context *ctx,

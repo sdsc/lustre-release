@@ -204,8 +204,13 @@ static void dio_complete_routine(struct bio *bio, int error)
 		iobuf->dr_elapsed = jiffies - iobuf->dr_start_time;
 		iobuf->dr_elapsed_valid = 1;
 	}
+
+	rcu_read_lock();
+
 	if (atomic_dec_and_test(&iobuf->dr_numreqs))
 		wake_up(&iobuf->dr_wait);
+
+	rcu_read_unlock();
 
 	/* Completed bios used to be chained off iobuf->dr_bios and freed in
 	 * filter_clear_dreq().  It was then possible to exhaust the biovec-256
