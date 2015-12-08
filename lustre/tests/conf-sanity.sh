@@ -1495,6 +1495,7 @@ t32_test_cleanup() {
 		$r $ZPOOL destroy t32fs-mdt1 || rc=$?
 		$r $ZPOOL destroy t32fs-ost1 || rc=$?
 	fi
+	combined_mgs_mds || start_mgs || rc=$?
 	return $rc
 }
 
@@ -1663,6 +1664,7 @@ t32_test() {
 	local stripe_index
 	local dir
 
+	combined_mgs_mds || stop_mgs || error "Unable to stop MGS"
 	trap 'trap - RETURN; t32_test_cleanup' RETURN
 
 	load_modules
