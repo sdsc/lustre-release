@@ -4088,6 +4088,14 @@ check_and_setup_lustre() {
 				2>/dev/null
 	done
 
+	# common_name doesn't exist for upstream client
+	export LOVNAME=$($LCTL get_param -n llite.$FSNAME-*.lov.common_name |
+			 tail -n 1)
+	if [ -z "$LOVNAME" ] ; then
+		LOVNAME=$(readlink /sys/fs/lustre/llite/*/lov)
+		export LOVNAME=$(basename $LOVNAME)
+	fi
+
 	if [ "$ONLY" == "setup" ]; then
 		exit 0
 	fi
