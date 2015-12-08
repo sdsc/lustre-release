@@ -10402,6 +10402,12 @@ test_156() {
 run_test 156 "Verification of tunables"
 
 #Changelogs
+cleanup_changelog () {
+	trap 0
+	echo "Deregistering changelog client $CL_USER"
+	do_facet $SINGLEMDS $LCTL --device $MDT0 changelog_deregister $CL_USER
+}
+
 err17935 () {
 	if [[ $MDSCOUNT -gt 1 ]]; then
 		error_ignore bz17935 $*
@@ -10442,10 +10448,12 @@ test_160a() {
 
 	local CL_USERS="mdd.$MDT0.changelog_users"
 	local GET_CL_USERS="do_facet $SINGLEMDS $LCTL get_param -n $CL_USERS"
-	USER=$(do_facet $SINGLEMDS $LCTL --device $MDT0 changelog_register -n)
-	echo "Registered as changelog user $USER"
-	$GET_CL_USERS | grep -q $USER ||
-		error "User $USER not found in changelog_users"
+	CL_USER=$(do_facet $SINGLEMDS $LCTL --device $MDT0 \
+		changelog_register -n)
+	echo "Registered as changelog user $CL_USER"
+	trap cleanup_changelog EXIT
+	$GET_CL_USERS | grep -q $CL_USER ||
+		error "User $CL_USER not found in changelog_users"
 
 	# change something
 	test_mkdir -p $DIR/$tdir/pics/2008/zachy
@@ -10489,9 +10497,9 @@ test_160a() {
 	[ "$fidc" == "$fidf" ] ||
 		err17935 "pfid in changelog $fidc != dir fid $fidf"
 
-	USER_REC1=$($GET_CL_USERS | awk "\$1 == \"$USER\" {print \$2}")
-	$LFS changelog_clear $MDT0 $USER $(($USER_REC1 + 5))
-	USER_REC2=$($GET_CL_USERS | awk "\$1 == \"$USER\" {print \$2}")
+	USER_REC1=$($GET_CL_USERS | awk "\$1 == \"$CL_USER\" {print \$2}")
+	$LFS changelog_clear $MDT0 $CL_USER $(($USER_REC1 + 5))
+	USER_REC2=$($GET_CL_USERS | awk "\$1 == \"$CL_USER\" {print \$2}")
 	echo "verifying user clear: $(( $USER_REC1 + 5 )) == $USER_REC2"
 	[ $USER_REC2 == $(($USER_REC1 + 5)) ] ||
 		err17935 "user index expected $(($USER_REC1 + 5)) is $USER_REC2"
@@ -10506,7 +10514,7 @@ test_160a() {
 	# LU-3446 changelog index reset on MDT restart
 	local MDT_DEV=$(mdsdevname ${SINGLEMDS//mds/})
 	CUR_REC1=$($GET_CL_USERS | head -n1 | cut -f3 -d' ')
-	$LFS changelog_clear $MDT0 $USER 0
+	$LFS changelog_clear $MDT0 $CL_USER 0
 	stop $SINGLEMDS || error "Fail to stop MDT."
 	start $SINGLEMDS $MDT_DEV $MDS_MOUNT_OPTS || error "Fail to start MDT."
 	CUR_REC2=$($GET_CL_USERS | head -n1 | cut -f3 -d' ')
@@ -10515,19 +10523,19 @@ test_160a() {
 		err17935 "current index should be $CUR_REC1 is $CUR_REC2"
 
 	echo "verifying user deregister"
-	do_facet $SINGLEMDS $LCTL --device $MDT0 changelog_deregister $USER
-	$GET_CL_USERS | grep -q $USER &&
-		error "User $USER still in changelog_users"
+	cleanup_changelog
+	$GET_CL_USERS | grep -q $CL_USER &&
+		error "User $CL_USER still in changelog_users"
 
 	USERS=$(( $($GET_CL_USERS | wc -l) - 2 ))
-	if [ $USERS -eq 0 ]; then
+	if [ $CL_USER -eq 0 ]; then
 		LAST_REC1=$($GET_CL_USERS | head -n1 | cut -f3 -d' ')
 		touch $DIR/$tdir/chloe
 		LAST_REC2=$($GET_CL_USERS | head -n1 | cut -f3 -d' ')
 		echo "verify changelogs are off: $LAST_REC1 == $LAST_REC2"
 		[ $LAST_REC1 == $LAST_REC2 ] || error "changelogs not off"
 	else
-		echo "$USERS other changelog users; can't verify off"
+		echo "$CL_USER other changelog users; can't verify off"
 	fi
 }
 run_test 160a "changelog sanity"
@@ -10540,10 +10548,12 @@ test_160b() { # LU-3587
 
 	local CL_USERS="mdd.$MDT0.changelog_users"
 	local GET_CL_USERS="do_facet $SINGLEMDS $LCTL get_param -n $CL_USERS"
-	USER=$(do_facet $SINGLEMDS $LCTL --device $MDT0 changelog_register -n)
-	echo "Registered as changelog user $USER"
-	$GET_CL_USERS | grep -q $USER ||
-		error "User $USER not found in changelog_users"
+	CL_USER=$(do_facet $SINGLEMDS $LCTL --device $MDT0 \
+		changelog_register -n)
+	echo "Registered as changelog user $CL_USER"
+	trap cleanup_changelog EXIT
+	$GET_CL_USERS | grep -q $CL_USER ||
+		error "User $CL_USER not found in changelog_users"
 
 	local LONGNAME1=$(str_repeat a 255)
 	local LONGNAME2=$(str_repeat b 255)
@@ -10555,11 +10565,8 @@ test_160b() { # LU-3587
 	mv $LONGNAME1 $LONGNAME2
 
 	$LFS changelog $MDT0 | grep RENME
-
-	echo "deregistering $USER"
-	do_facet $SINGLEMDS $LCTL --device $MDT0 changelog_deregister $USER
-
 	rm -f $LONGNAME2
+	cleanup_changelog
 }
 run_test 160b "Verify that very long rename doesn't crash in changelog"
 
@@ -10576,8 +10583,9 @@ test_160c() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
 
 	# Registration step
-	local USER=$(do_facet $SINGLEMDS $LCTL --device $MDT0 \
+	CL_USER=$(do_facet $SINGLEMDS $LCTL --device $MDT0 \
 		changelog_register -n)
+	trap cleanup_changelog EXIT
 
 	rm -rf $DIR/$tdir
 	mkdir -p $DIR/$tdir
@@ -10589,11 +10597,10 @@ test_160c() {
 	$LFS changelog $MDT0
 	TRUNCS=$($LFS changelog $MDT0 | tail -5 | grep -c "TRUNC")
 	[ $TRUNCS -eq 1 ] || err17935 "TRUNC changelog mask count $TRUNCS != 1"
-	$LFS changelog_clear $MDT0 $USER 0
+	$LFS changelog_clear $MDT0 $CL_USER 0
 
 	# Deregistration step
-	echo "deregistering $USER"
-	do_facet $SINGLEMDS $LCTL --device $MDT0 changelog_deregister $USER
+	cleanup_changelog
 }
 run_test 160c "verify that changelog log catch the truncate event"
 
@@ -10609,21 +10616,22 @@ test_160d() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
 
 	# Registration step
-	local USER=$(do_facet mds1 $LCTL --device $MDT0 \
+	CL_USER=$(do_facet mds1 $LCTL --device $MDT0 \
 		changelog_register -n)
 
+	trap cleanup_changelog EXIT
 	mkdir -p $DIR/$tdir/migrate_dir
-	$LFS changelog_clear $MDT0 $USER 0
+	$LFS changelog_clear $MDT0 $CL_USER 0
 
 	$LFS migrate -m 1 $DIR/$tdir/migrate_dir || error "migrate fails"
 	$LFS changelog $MDT0
 	MIGRATES=$($LFS changelog $MDT0 | tail -5 | grep -c "MIGRT")
-	$LFS changelog_clear $MDT0 $USER 0
+	$LFS changelog_clear $MDT0 $CL_USER 0
 	[ $MIGRATES -eq 1 ] ||
 		error "MIGRATE changelog mask count $MIGRATES != 1"
 
 	# Deregistration step
-	do_facet mds1 $LCTL --device $MDT0 changelog_deregister $USER
+	cleanup_changelog
 }
 run_test 160d "verify that changelog log catch the migrate event"
 
@@ -10731,8 +10739,10 @@ test_161c() {
 
 	# define CLF_RENAME_LAST 0x0001
 	# rename overwrite a target having nlink = 1 (changelog flag 0x1)
-	local USER=$(do_facet $SINGLEMDS $LCTL --device $MDT0 \
+	CL_USER=$(do_facet $SINGLEMDS $LCTL --device $MDT0 \
 		changelog_register -n)
+
+	trap cleanup_changelog EXIT
 	rm -rf $DIR/$tdir
 	mkdir -p $DIR/$tdir
 	touch $DIR/$tdir/foo_161c
@@ -10741,10 +10751,8 @@ test_161c() {
 	$LFS changelog $MDT0 | grep RENME
 	local flags=$($LFS changelog $MDT0 | grep RENME | tail -1 | \
 		cut -f5 -d' ')
-	$LFS changelog_clear $MDT0 $USER 0
+	$LFS changelog_clear $MDT0 $CL_USER 0
 	if [ x$flags != "x0x1" ]; then
-		do_facet $SINGLEMDS $LCTL --device $MDT0 changelog_deregister \
-			$USER
 		error "flag $flags is not 0x1"
 	fi
 	echo "rename overwrite a target having nlink = 1," \
@@ -10757,10 +10765,8 @@ test_161c() {
 	mv -f $DIR/$tdir/foo_161c $DIR/$tdir/bar_161c
 	$LFS changelog $MDT0 | grep RENME
 	flags=$($LFS changelog $MDT0 | grep RENME | tail -1 | cut -f5 -d' ')
-	$LFS changelog_clear $MDT0 $USER 0
+	$LFS changelog_clear $MDT0 $CL_USER 0
 	if [ x$flags != "x0x0" ]; then
-		do_facet $SINGLEMDS $LCTL --device $MDT0 changelog_deregister \
-			$USER
 		error "flag $flags is not 0x0"
 	fi
 	echo "rename overwrite a target having nlink > 1," \
@@ -10771,10 +10777,8 @@ test_161c() {
 	mv -f $DIR/$tdir/foo_161c $DIR/$tdir/foo2_161c
 	$LFS changelog $MDT0 | grep RENME
 	flags=$($LFS changelog $MDT0 | grep RENME | tail -1 | cut -f5 -d' ')
-	$LFS changelog_clear $MDT0 $USER 0
+	$LFS changelog_clear $MDT0 $CL_USER 0
 	if [ x$flags != "x0x0" ]; then
-		do_facet $SINGLEMDS $LCTL --device $MDT0 changelog_deregister \
-			$USER
 		error "flag $flags is not 0x0"
 	fi
 	echo "rename doesn't overwrite a target," \
@@ -10785,10 +10789,8 @@ test_161c() {
 	rm -f $DIR/$tdir/foo2_161c
 	$LFS changelog $MDT0 | grep UNLNK
 	flags=$($LFS changelog $MDT0 | grep UNLNK | tail -1 | cut -f5 -d' ')
-	$LFS changelog_clear $MDT0 $USER 0
+	$LFS changelog_clear $MDT0 $CL_USER 0
 	if [ x$flags != "x0x1" ]; then
-		do_facet $SINGLEMDS $LCTL --device $MDT0 changelog_deregister \
-			$USER
 		error "flag $flags is not 0x1"
 	fi
 	echo "unlink a file having nlink = 1," \
@@ -10799,15 +10801,13 @@ test_161c() {
 	rm -f $DIR/$tdir/foobar_161c
 	$LFS changelog $MDT0 | grep UNLNK
 	flags=$($LFS changelog $MDT0 | grep UNLNK | tail -1 | cut -f5 -d' ')
-	$LFS changelog_clear $MDT0 $USER 0
+	$LFS changelog_clear $MDT0 $CL_USER 0
 	if [ x$flags != "x0x0" ]; then
-		do_facet $SINGLEMDS $LCTL --device $MDT0 changelog_deregister \
-			$USER
 		error "flag $flags is not 0x0"
 	fi
 	echo "unlink a file having nlink > 1," \
 		"changelog record has flags of $flags"
-	do_facet $SINGLEMDS $LCTL --device $MDT0 changelog_deregister $USER
+	cleanup_changelog
 }
 run_test 161c "check CL_RENME[UNLINK] changelog record flags"
 
@@ -11723,10 +11723,11 @@ jobstats_set() {
 }
 
 cleanup_205() {
+	trap 0
 	do_facet $SINGLEMDS \
 		$LCTL set_param mdt.*.job_cleanup_interval=$OLD_INTERVAL
 	[ $OLD_JOBENV != $JOBENV ] && jobstats_set $OLD_JOBENV
-	do_facet $SINGLEMDS lctl --device $MDT0 changelog_deregister $CL_USER
+	cleanup_changelog
 }
 
 test_205() { # Job stats
