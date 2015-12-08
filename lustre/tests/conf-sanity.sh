@@ -250,6 +250,7 @@ unload_modules_conf () {
 cleanup_nocli() {
 	stop_ost || return 202
 	stop_mds || return 201
+	stop_mgs || return 204
 	unload_modules_conf || return 203
 }
 
