@@ -2401,14 +2401,6 @@ static int mdc_set_info_async(const struct lu_env *env,
                                        keylen, key, vallen, val, set);
                 RETURN(rc);
         }
-        if (KEY_IS(KEY_SPTLRPC_CONF)) {
-                sptlrpc_conf_client_adapt(exp->exp_obd);
-                RETURN(0);
-        }
-        if (KEY_IS(KEY_FLUSH_CTX)) {
-                sptlrpc_import_flush_my_ctx(imp);
-                RETURN(0);
-        }
         if (KEY_IS(KEY_CHANGELOG_CLEAR)) {
                 rc = do_set_info_async(imp, MDS_SET_INFO, LUSTRE_MDS_VERSION,
                                        keylen, key, vallen, val, set);
@@ -2426,8 +2418,8 @@ static int mdc_set_info_async(const struct lu_env *env,
 		RETURN(0);
 	}
 
-	CERROR("Unknown key %s\n", (char *)key);
-	RETURN(-EINVAL);
+	rc = osc_set_info_async(env, exp, keylen, key, vallen, val, set);
+	RETURN(rc);
 }
 
 static int mdc_get_info(const struct lu_env *env, struct obd_export *exp,
@@ -2503,25 +2495,51 @@ static int mdc_fsync(struct obd_export *exp, const struct lu_fid *fid,
         RETURN(rc);
 }
 
+static int mdc_ldlm_resource_invalidate(struct cfs_hash *hs,
+					struct cfs_hash_bd *bd,
+					struct hlist_node *hnode, void *arg)
+{
+	struct lu_env *env = arg;
+	struct ldlm_resource *res = cfs_hash_object(hs, hnode);
+	struct ldlm_lock *lock;
+	struct osc_object *osc = NULL;
+
+	ENTRY;
+
+	lock_res(res);
+	list_for_each_entry(lock, &res->lr_granted, l_res_link) {
+		if (lock->l_ast_data != NULL && osc == NULL) {
+			osc = lock->l_ast_data;
+			cl_object_get(osc2cl(osc));
+		}
+		lock->l_ast_data = NULL;
+	}
+	unlock_res(res);
+
+	if (osc != NULL) {
+		osc_object_invalidate(env, osc);
+		cl_object_put(env, osc2cl(osc));
+	}
+
+	RETURN(0);
+}
+
 static int mdc_import_event(struct obd_device *obd, struct obd_import *imp,
 			    enum obd_import_event event)
 {
+	struct client_obd *cli = &obd->u.cli;
 	int rc = 0;
 
 	LASSERT(imp->imp_obd == obd);
 
 	switch (event) {
-	case IMP_EVENT_DISCON: {
-		struct client_obd *cli = &obd->u.cli;
-
+	case IMP_EVENT_DISCON:
 		spin_lock(&cli->cl_loi_list_lock);
 		cli->cl_avail_grant = 0;
 		cli->cl_lost_grant = 0;
 		spin_unlock(&cli->cl_loi_list_lock);
 		break;
-	}
-	case IMP_EVENT_INACTIVE: {
-		struct client_obd *cli = &obd->u.cli;
+	case IMP_EVENT_INACTIVE:
 		/*
 		 * Flush current sequence to make client obtain new one
 		 * from server in case of disconnect/reconnect.
@@ -2531,12 +2549,28 @@ static int mdc_import_event(struct obd_device *obd, struct obd_import *imp,
 
 		rc = obd_notify_observer(obd, obd, OBD_NOTIFY_INACTIVE, NULL);
 		break;
-	}
 	case IMP_EVENT_INVALIDATE: {
 		struct ldlm_namespace *ns = obd->obd_namespace;
+		struct lu_env *env;
+		__u16 refcheck;
 
 		ldlm_namespace_cleanup(ns, LDLM_FL_LOCAL_ONLY);
 
+		env = cl_env_get(&refcheck);
+		if (!IS_ERR(env)) {
+			/* Reset grants. All pages go to failing rpcs due to
+			 * the invalid import.
+			 */
+			osc_io_unplug(env, cli, NULL);
+
+			cfs_hash_for_each_nolock(ns->ns_rs_hash,
+						 mdc_ldlm_resource_invalidate,
+						 env, 0);
+			cl_env_put(env, &refcheck);
+			ldlm_namespace_cleanup(ns, LDLM_FL_LOCAL_ONLY);
+		} else {
+			rc = PTR_ERR(env);
+		}
 		break;
 	}
 	case IMP_EVENT_ACTIVE:
@@ -2549,7 +2583,7 @@ static int mdc_import_event(struct obd_device *obd, struct obd_import *imp,
 		struct obd_connect_data *ocd = &imp->imp_connect_data;
 
 		if (ocd->ocd_connect_flags & OBD_CONNECT_GRANT)
-			osc_init_grant(&obd->u.cli, ocd);
+			osc_init_grant(cli, ocd);
 
 		rc = obd_notify_observer(obd, obd, OBD_NOTIFY_OCD, NULL);
 		break;
@@ -2645,16 +2679,14 @@ static void mdc_llog_finish(struct obd_device *obd)
 
 int mdc_setup(struct obd_device *obd, struct lustre_cfg *cfg)
 {
-	int				rc;
+	int rc;
+
 	ENTRY;
 
-	rc = ptlrpcd_addref();
+	rc = osc_setup_common(obd, cfg);
 	if (rc < 0)
 		RETURN(rc);
 
-        rc = client_obd_setup(obd, cfg);
-        if (rc)
-		GOTO(err_ptlrpcd_decref, rc);
 #ifdef CONFIG_PROC_FS
 	obd->obd_vars = lprocfs_mdc_obd_vars;
 	lprocfs_obd_setup(obd);
@@ -2668,17 +2700,17 @@ int mdc_setup(struct obd_device *obd, struct lustre_cfg *cfg)
 	obd->obd_namespace->ns_lvbo = &inode_lvbo;
 
 	rc = mdc_llog_init(obd);
-        if (rc) {
-                mdc_cleanup(obd);
-                CERROR("failed to setup llogging subsystems\n");
-		RETURN(rc);
-        }
+	if (rc != 0)
+		GOTO(err_out, rc);
 
-        RETURN(rc);
+	RETURN(rc);
+err_out:
+	ptlrpc_lprocfs_unregister_obd(obd);
+	lprocfs_obd_cleanup(obd);
+	lprocfs_free_md_stats(obd);
 
-err_ptlrpcd_decref:
-        ptlrpcd_decref();
-        RETURN(rc);
+	osc_cleanup_common(obd);
+	return rc;
 }
 
 /* Initialize the default and maximum LOV EA sizes.  This allows
@@ -2709,6 +2741,8 @@ static int mdc_precleanup(struct obd_device *obd)
 {
 	ENTRY;
 
+	osc_precleanup_common(obd);
+
 	/* Failsafe, ok if racy */
 	if (obd->obd_type->typ_refcnt <= 1)
 		libcfs_kkuc_group_rem(0, KUC_GRP_HSM);
@@ -2723,9 +2757,7 @@ static int mdc_precleanup(struct obd_device *obd)
 
 static int mdc_cleanup(struct obd_device *obd)
 {
-        ptlrpcd_decref();
-
-        return client_obd_cleanup(obd);
+	return osc_cleanup_common(obd);
 }
 
 int mdc_process_config(struct obd_device *obd, size_t len, void *buf)
