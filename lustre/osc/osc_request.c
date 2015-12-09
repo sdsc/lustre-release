@@ -93,18 +93,6 @@ struct osc_ladvise_args {
 	void			*la_cookie;
 };
 
-struct osc_enqueue_args {
-	struct obd_export	*oa_exp;
-	enum ldlm_type		oa_type;
-	enum ldlm_mode		oa_mode;
-	__u64			*oa_flags;
-	osc_enqueue_upcall_f	oa_upcall;
-	void			*oa_cookie;
-	struct ost_lvb		*oa_lvb;
-	struct lustre_handle	oa_lockh;
-	unsigned int		oa_agl:1;
-};
-
 static void osc_release_ppga(struct brw_page **ppga, size_t count);
 static int brw_interpret(const struct lu_env *env, struct ptlrpc_request *req,
 			 void *data, int rc);
@@ -1950,10 +1938,9 @@ static int osc_set_lock_data(struct ldlm_lock *lock, void *data)
 	return set;
 }
 
-static int osc_enqueue_fini(struct ptlrpc_request *req,
-			    osc_enqueue_upcall_f upcall, void *cookie,
-			    struct lustre_handle *lockh, enum ldlm_mode mode,
-			    __u64 *flags, int agl, int errcode)
+int osc_enqueue_fini(struct ptlrpc_request *req, osc_enqueue_upcall_f upcall,
+		     void *cookie, struct lustre_handle *lockh,
+		     enum ldlm_mode mode, __u64 *flags, int agl, int errcode)
 {
 	bool intent = *flags & LDLM_FL_HAS_INTENT;
 	int rc;
@@ -1985,12 +1972,12 @@ static int osc_enqueue_fini(struct ptlrpc_request *req,
 	if (errcode == ELDLM_OK && lustre_handle_is_used(lockh))
 		ldlm_lock_decref(lockh, mode);
 
-        RETURN(rc);
+	RETURN(rc);
 }
+EXPORT_SYMBOL(osc_enqueue_fini);
 
-static int osc_enqueue_interpret(const struct lu_env *env,
-				 struct ptlrpc_request *req,
-				 struct osc_enqueue_args *aa, int rc)
+int osc_enqueue_interpret(const struct lu_env *env, struct ptlrpc_request *req,
+			  struct osc_enqueue_args *aa, int rc)
 {
 	struct ldlm_lock *lock;
 	struct lustre_handle *lockh = &aa->oa_lockh;
@@ -2034,12 +2021,13 @@ static int osc_enqueue_interpret(const struct lu_env *env,
 	rc = osc_enqueue_fini(req, aa->oa_upcall, aa->oa_cookie, lockh, mode,
 			      aa->oa_flags, aa->oa_agl, rc);
 
-        OBD_FAIL_TIMEOUT(OBD_FAIL_OSC_CP_CANCEL_RACE, 10);
+	OBD_FAIL_TIMEOUT(OBD_FAIL_OSC_CP_CANCEL_RACE, 10);
 
 	ldlm_lock_decref(lockh, mode);
 	LDLM_LOCK_PUT(lock);
 	RETURN(rc);
 }
+EXPORT_SYMBOL(osc_enqueue_interpret);
 
 struct ptlrpc_request_set *PTLRPCD_SET = (void *)1;
 
