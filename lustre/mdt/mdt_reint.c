@@ -802,12 +802,27 @@ static int mdt_reint_setattr(struct mdt_thread_info *info,
 
 	mdt_pack_attr2body(info, repbody, &ma->ma_attr, mdt_object_fid(mo));
 
-        EXIT;
+	EXIT;
 out_put:
-        mdt_object_put(info->mti_env, mo);
+	mdt_object_put(info->mti_env, mo);
 out:
-        if (rc == 0)
+	if (rc == 0) {
+		struct ldlm_resource *res;
+
 		mdt_counter_incr(req, LPROC_MDT_SETATTR);
+		/* we do not call this before to avoid lu_object_find() in
+		 *  ->lvbo_update() holding another reference on the object.
+		 * otherwise concurrent destroy can make the object unavailable
+		 * for 2nd lu_object_find() waiting for the first reference
+		 * to go... deadlock! */
+		fid_build_reg_res_name(rr->rr_fid1, &info->mti_res_id);
+		res = ldlm_resource_get(info->mti_mdt->mdt_namespace, NULL,
+					&info->mti_res_id, LDLM_IBITS, 0);
+		if (!IS_ERR(res)) {
+			ldlm_res_lvbo_update(res, NULL, 0);
+			ldlm_resource_putref(res);
+		}
+	}
 
         mdt_client_compatibility(info);
         rc2 = mdt_fix_reply(info);
@@ -878,8 +893,10 @@ static int mdt_reint_unlink(struct mdt_thread_info *info,
 	struct mdt_object *s0_obj = NULL;
 	__u64 lock_ibits;
 	bool cos_incompat = false;
+	bool destroy = false;
 	int no_name = 0;
 	int rc;
+
 	ENTRY;
 
 	DEBUG_REQ(D_INODE, req, "unlink "DFID"/"DNAME"", PFID(rr->rr_fid1),
@@ -1051,9 +1068,14 @@ relock:
 			mdt_object_child(mc), &rr->rr_name, ma, no_name);
 
 	mutex_unlock(&mc->mot_lov_mutex);
+	if (rc != 0)
+		GOTO(unlock_child, rc);
 
-	if (rc == 0 && !lu_object_is_dying(&mc->mot_header))
+	if (!lu_object_is_dying(&mc->mot_header))
 		rc = mdt_attr_get_complex(info, mc, ma);
+	else
+		destroy = true;
+
 	if (rc == 0)
 		mdt_handle_last_unlink(info, mc, ma);
 
@@ -1084,6 +1106,9 @@ unlock_child:
 	mdt_object_unlock(info, mc, child_lh, rc);
 put_child:
 	mdt_object_put(info->mti_env, mc);
+	/* for Data-on-MDT files we have to discard data on clients */
+	if (destroy)
+		mdt_dom_discard_data(info, child_fid);
 unlock_parent:
 	mdt_object_unlock(info, mp, parent_lh, rc);
 put_parent:
