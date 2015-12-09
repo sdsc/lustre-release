@@ -198,6 +198,10 @@ int llapi_parse_size(const char *optarg, unsigned long long *size,
         *size = strtoull(optarg, &end, 0);
 
         if (*end != '\0') {
+		double frac;
+
+		frac = strtod(optarg, &end);
+
                 if ((*end == 'b') && *(end + 1) == '\0' &&
                     (*size & (~0ULL << (64 - 9))) == 0 &&
                     !bytes_spec) {
@@ -233,8 +237,13 @@ int llapi_parse_size(const char *optarg, unsigned long long *size,
                 } else {
                         return -1;
                 }
+		if (frac != (double)*size) {
+			*size_units >>= 10;
+			*size = frac * 1024;
+		}
         }
         *size *= *size_units;
+
         return 0;
 }
 
