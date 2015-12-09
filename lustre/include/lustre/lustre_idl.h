@@ -2105,8 +2105,9 @@ typedef enum {
  * will grant LOOKUP_LOCK. */
 #define MDS_INODELOCK_PERM   0x000010
 #define MDS_INODELOCK_XATTR  0x000020	/* extended attributes */
+#define MDS_INODELOCK_DOM    0x000040	/* for files with data on MDT */
 
-#define MDS_INODELOCK_MAXSHIFT 5
+#define MDS_INODELOCK_MAXSHIFT 6
 /* This FULL lock is useful to take on unlink sort of operations */
 #define MDS_INODELOCK_FULL ((1<<(MDS_INODELOCK_MAXSHIFT+1))-1)
 
