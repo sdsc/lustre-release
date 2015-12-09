@@ -438,6 +438,21 @@ int mdt_obd_commitrw(const struct lu_env *env, int cmd, struct obd_export *exp,
 				       OBD_MD_FLGRPQUOTA;
 		}
 	} else if (cmd == OBD_BRW_READ) {
+		struct ldlm_namespace *ns = mdt->mdt_namespace;
+
+		/* If oa != NULL then mdt_preprw_read updated the inode
+		 * atime and we should update the lvb so that other glimpses
+		 * will also get the updated value. bug 5972 */
+		if (oa && ns && ns->ns_lvbo && ns->ns_lvbo->lvbo_update) {
+			struct ldlm_resource *rs = NULL;
+
+			rs = ldlm_resource_get(ns, NULL, &tsi->tsi_resid,
+					       LDLM_IBITS, 0);
+			if (!IS_ERR(rs)) {
+				ldlm_res_lvbo_update(rs, NULL, 1);
+				ldlm_resource_putref(rs);
+			}
+		}
 		rc = mdt_commitrw_read(env, mdt, &tsi->tsi_fid, objcount,
 				       npages, lnb);
 		if (old_rc)
@@ -552,8 +567,8 @@ int mdt_punch_hdl(struct tgt_session_info *tsi)
 		  oa->o_flags & OBD_FL_SRVLOCK;
 
 	if (srvlock) {
-		rc = tgt_extent_lock(ns, &tsi->tsi_resid, start, end, &lh,
-				     LCK_PW, &flags);
+		rc = tgt_mdt_extent_lock(ns, &tsi->tsi_resid, start, end, &lh,
+					 LCK_PW, &flags);
 		if (rc != 0)
 			RETURN(rc);
 	}
@@ -586,6 +601,265 @@ out_put:
 out:
 	if (srvlock)
 		tgt_extent_unlock(&lh, LCK_PW);
+	if (rc == 0) {
+		struct ldlm_resource *res;
+
+		/* we do not call this before to avoid lu_object_find() in
+		 *  ->lvbo_update() holding another reference on the object.
+		 * otherwise concurrent destroy can make the object unavailable
+		 * for 2nd lu_object_find() waiting for the first reference
+		 * to go... deadlock! */
+		res = ldlm_resource_get(ns, NULL, &tsi->tsi_resid,
+					LDLM_IBITS, 0);
+		if (!IS_ERR(res)) {
+			ldlm_res_lvbo_update(res, NULL, 0);
+			ldlm_resource_putref(res);
+		}
+	}
 	return rc;
+}
+
+/**
+ * MDT glimpse for Data-on-MDT
+ *
+ * If there is write lock on client then function issues glimpse_ast to get
+ * an actual size from that client.
+ *
+ */
+int mdt_do_glimpse(const struct lu_env *env, struct ldlm_namespace *ns,
+		   struct ldlm_resource *res)
+{
+	union ldlm_policy_data policy;
+	struct lustre_handle lockh;
+	enum ldlm_mode mode;
+	struct ldlm_lock *lock;
+	struct ldlm_glimpse_work gl_work;
+	struct list_head gl_list;
+	int rc;
+
+	ENTRY;
+
+	policy.l_inodebits.bits = MDS_INODELOCK_DOM;
+	mode = ldlm_lock_match(ns, LDLM_FL_BLOCK_GRANTED, &res->lr_name,
+			       LDLM_IBITS, &policy, LCK_PW | LCK_EX,
+			       &lockh, 0);
+
+	/* There is no other PW lock on this object; finished. */
+	if (mode == 0)
+		RETURN(0);
+
+	lock = ldlm_handle2lock(&lockh);
+	/*
+	 * This check is for lock taken in mdt_reint_unlink() that does
+	 * not have l_glimpse_ast set. So the logic is: if there is a lock
+	 * with no l_glimpse_ast set, this object is being destroyed already.
+	 * Hence, if you are grabbing DLM locks on the server, always set
+	 * non-NULL glimpse_ast (e.g., ldlm_request.c::ldlm_glimpse_ast()).
+	 */
+	if (lock->l_glimpse_ast == NULL)
+		GOTO(out, rc = -ENOENT);
+
+	/* Populate the gl_work structure.
+	 * Grab additional reference on the lock which will be released in
+	 * ldlm_work_gl_ast_lock() */
+	gl_work.gl_lock = LDLM_LOCK_GET(lock);
+	/* The glimpse callback is sent to one single extent lock. As a result,
+	 * the gl_work list is just composed of one element */
+	INIT_LIST_HEAD(&gl_list);
+	list_add_tail(&gl_work.gl_list, &gl_list);
+	/* There is actually no need for a glimpse descriptor when glimpsing
+	 * extent locks */
+	gl_work.gl_desc = NULL;
+	/* the ldlm_glimpse_work structure is allocated on the stack */
+	gl_work.gl_flags = LDLM_GL_WORK_NOFREE;
+
+	ldlm_glimpse_locks(res, &gl_list); /* this will update the LVB */
+
+	if (!list_empty(&gl_list))
+		LDLM_LOCK_RELEASE(lock);
+	rc = 0;
+	EXIT;
+out:
+	ldlm_lock_decref(&lockh, mode);
+	LDLM_LOCK_PUT(lock);
+	return rc;
+}
+
+/**
+ * MDT glimpse for Data-on-MDT
+ *
+ * This function is called when MDT get attributes for the DoM object.
+ * If there is write lock on client then function issues glimpse_ast to get
+ * an actual size from that client.
+ */
+int mdt_dom_object_size(const struct lu_env *env, struct mdt_device *mdt,
+		        const struct lu_fid *fid, struct mdt_body *mb,
+			bool dom_lock)
+{
+	struct ldlm_res_id resid;
+	struct ldlm_resource *res;
+	struct ost_lvb *res_lvb;
+	int rc = 0;
+
+	ENTRY;
+
+	fid_build_reg_res_name(fid, &resid);
+	res = ldlm_resource_get(mdt->mdt_namespace, NULL, &resid,
+				LDLM_IBITS, 1);
+	if (IS_ERR(res) || res->lr_lvb_data == NULL)
+		RETURN(-ENOENT);
+
+	res_lvb = res->lr_lvb_data;
+
+	/* if there is no DOM bit in the lock then glimpse is needed
+	 * to return valid size */
+	if (!dom_lock) {
+		rc = mdt_do_glimpse(env, mdt->mdt_namespace, res);
+		if (rc < 0)
+			GOTO(out, rc);
+	}
+
+	/* LVB can be without valid data in case of DOM */
+	if (OST_LVB_IS_ERR(res_lvb->lvb_blocks))
+		ldlm_res_lvbo_update(res, NULL, 0);
+
+	lock_res(res);
+	mb->mbo_size = res_lvb->lvb_size;
+	mb->mbo_blocks = res_lvb->lvb_blocks;
+	mb->mbo_valid |= OBD_MD_FLSIZE | OBD_MD_FLBLOCKS;
+	unlock_res(res);
+
+out:
+	ldlm_resource_putref(res);
+	RETURN(rc);
+}
+
+/**
+ * MDT DoM lock intent policy (glimpse)
+ *
+ * Intent policy is called when lock has an intent, for DoM file that
+ * means glimpse lock and policy fills Lock Value Block (LVB).
+ *
+ * If already granted lock is found it will be placed in \a lockp and
+ * returned back to caller function.
+ *
+ * \param[in] tsi	 session info
+ * \param[in,out] lockp	 pointer to the lock
+ * \param[in] flags	 LDLM flags
+ *
+ * \retval		ELDLM_LOCK_REPLACED if already granted lock was found
+ *			and placed in \a lockp
+ * \retval		ELDLM_LOCK_ABORTED in other cases except error
+ * \retval		negative value on error
+ */
+int mdt_glimpse_enqueue(struct tgt_session_info *tsi, struct ldlm_namespace *ns,
+			struct ldlm_lock **lockp, __u64 flags)
+{
+	struct ldlm_lock	*lock = *lockp;
+	struct ldlm_resource	*res = lock->l_resource;
+	ldlm_processing_policy	 policy;
+	struct ost_lvb		*res_lvb, *reply_lvb;
+	struct ldlm_reply	*rep;
+	int rc;
+
+	ENTRY;
+
+	policy = ldlm_get_processing_policy(res);
+	LASSERT(policy != NULL);
+
+	lock->l_lvb_type = LVB_T_OST;
+	req_capsule_set_size(tsi->tsi_pill, &RMF_DLM_LVB, RCL_SERVER,
+			     sizeof(*reply_lvb));
+	rc = req_capsule_server_pack(tsi->tsi_pill);
+	if (rc)
+		RETURN(err_serious(rc));
+
+	rep = req_capsule_server_get(tsi->tsi_pill, &RMF_DLM_REP);
+	if (rep == NULL)
+		RETURN(-EPROTO);
+
+	reply_lvb = req_capsule_server_get(tsi->tsi_pill, &RMF_DLM_LVB);
+	if (reply_lvb == NULL)
+		RETURN(-EPROTO);
+
+	/* Call the extent policy function to see if our request can be
+	 * granted, or is blocked.
+	 * If the OST lock has LDLM_FL_HAS_INTENT set, it means a glimpse
+	 * lock, and should not be granted if the lock will be blocked.
+	 */
+
+	lock_res(res);
+	/* Check if this is a resend case (MSG_RESENT is set on RPC) and a
+	 * lock was found by ldlm_handle_enqueue(); if so no need to grant
+	 * it again. */
+	if (flags & LDLM_FL_RESENT) {
+		rc = LDLM_ITER_CONTINUE;
+	} else {
+		__u64 tmpflags = 0;
+		enum ldlm_error err;
+
+		rc = policy(lock, &tmpflags, 0, &err, NULL);
+		check_res_locked(res);
+	}
+	unlock_res(res);
+
+	/* The lock met with no resistance; we're finished. */
+	if (rc == LDLM_ITER_CONTINUE) {
+		RETURN(ELDLM_LOCK_REPLACED);
+	} else if (flags & LDLM_FL_BLOCK_NOWAIT) {
+		/* LDLM_FL_BLOCK_NOWAIT means it is for AGL. Do not send glimpse
+		 * callback for glimpse size. The real size user will trigger
+		 * the glimpse callback when necessary. */
+		RETURN(ELDLM_LOCK_ABORTED);
+	}
+
+	/* Do not grant any lock, but instead send GL callbacks.  The extent
+	 * policy nicely created a list of all PW locks for us.  We will choose
+	 * the highest of those which are larger than the size in the LVB, if
+	 * any, and perform a glimpse callback. */
+	rc = mdt_do_glimpse(tsi->tsi_env, ns, res);
+	if (rc == -ENOENT) {
+		/* We are racing with unlink(); just return -ENOENT */
+		rep->lock_policy_res1 = ptlrpc_status_hton(-ENOENT);
+	}
+
+	res_lvb = res->lr_lvb_data;
+	LASSERT(res_lvb != NULL);
+
+	/* LVB can be without valid data in case of DOM */
+	if (OST_LVB_IS_ERR(res_lvb->lvb_blocks))
+		ldlm_res_lvbo_update(res, NULL, 0);
+
+	lock_res(res);
+	*reply_lvb = *res_lvb;
+	unlock_res(res);
+
+	RETURN(ELDLM_LOCK_ABORTED);
+}
+
+int mdt_dom_discard_data(struct mdt_thread_info *info,
+			 const struct lu_fid *fid)
+{
+	struct mdt_device *mdt = info->mti_mdt;
+	union ldlm_policy_data *policy = &info->mti_policy;
+	struct ldlm_res_id *res_id = &info->mti_res_id;
+	struct lustre_handle dom_lh;
+	__u64 flags = LDLM_FL_AST_DISCARD_DATA;
+	__u64 rc = 0;
+
+	policy->l_inodebits.bits = MDS_INODELOCK_DOM;
+	fid_build_reg_res_name(fid, res_id);
+
+	/* Tell the clients that the object is gone now and that they should
+	 * throw away any cached pages. */
+	rc = ldlm_cli_enqueue_local(mdt->mdt_namespace, res_id, LDLM_IBITS,
+				    policy, LCK_PW, &flags, ldlm_blocking_ast,
+				    ldlm_completion_ast, NULL, NULL, 0,
+				    LVB_T_NONE, NULL, &dom_lh);
+
+	/* We only care about the side-effects, just drop the lock. */
+	if (rc == ELDLM_OK)
+		ldlm_lock_decref(&dom_lh, LCK_PW);
+	return 0;
 }
 

@@ -609,9 +609,6 @@ void mdt_pack_attr2body(struct mdt_thread_info *info, struct mdt_body *b,
 			else
 				b->mbo_blocks = 1;
 			b->mbo_valid |= OBD_MD_FLSIZE | OBD_MD_FLBLOCKS;
-		} else if (lov_pattern(ma->ma_lmm->lmm_pattern) ==
-			   LOV_PATTERN_MDT) {
-			b->mbo_valid |= OBD_MD_FLSIZE | OBD_MD_FLBLOCKS;
 		}
 	}
 
@@ -3682,6 +3679,7 @@ static int mdt_intent_policy(struct ldlm_namespace *ns,
 	struct ptlrpc_request	*req  =  req_cookie;
 	struct ldlm_intent	*it;
 	struct req_capsule	*pill;
+	const struct ldlm_lock_desc *ldesc;
 	int rc;
 
 	ENTRY;
@@ -3691,11 +3689,12 @@ static int mdt_intent_policy(struct ldlm_namespace *ns,
 	tsi = tgt_ses_info(req->rq_svc_thread->t_env);
 
 	info = tsi2mdt_info(tsi);
-        LASSERT(info != NULL);
-        pill = info->mti_pill;
-        LASSERT(pill->rc_req == req);
+	LASSERT(info != NULL);
+	pill = info->mti_pill;
+	LASSERT(pill->rc_req == req);
+	ldesc = &info->mti_dlm_req->lock_desc;
 
-        if (req->rq_reqmsg->lm_bufcount > DLM_INTENT_IT_OFF) {
+	if (req->rq_reqmsg->lm_bufcount > DLM_INTENT_IT_OFF) {
 		req_capsule_extend(pill, &RQF_LDLM_INTENT_BASIC);
                 it = req_capsule_client_get(pill, &RMF_LDLM_INTENT);
                 if (it != NULL) {
@@ -3708,20 +3707,24 @@ static int mdt_intent_policy(struct ldlm_namespace *ns,
                          * ibits corrupted somewhere in mdt_intent_opc().
                          * The case for client miss to set ibits has been
                          * processed by others. */
-                        LASSERT(ergo(info->mti_dlm_req->lock_desc.l_resource.\
-                                        lr_type == LDLM_IBITS,
-                                     info->mti_dlm_req->lock_desc.\
-                                        l_policy_data.l_inodebits.bits != 0));
-                } else
-                        rc = err_serious(-EFAULT);
-        } else {
-                /* No intent was provided */
-                LASSERT(pill->rc_fmt == &RQF_LDLM_ENQUEUE);
-		req_capsule_set_size(pill, &RMF_DLM_LVB, RCL_SERVER, 0);
-                rc = req_capsule_server_pack(pill);
-                if (rc)
-                        rc = err_serious(rc);
-        }
+			LASSERT(ergo(ldesc->l_resource.lr_type == LDLM_IBITS,
+				ldesc->l_policy_data.l_inodebits.bits != 0));
+		} else {
+			rc = err_serious(-EFAULT);
+		}
+	} else {
+		/* No intent was provided */
+		LASSERT(pill->rc_fmt == &RQF_LDLM_ENQUEUE);
+		if ((ldesc->l_resource.lr_type == LDLM_IBITS) &&
+		    (ldesc->l_policy_data.l_inodebits.bits & MDS_INODELOCK_DOM)) {
+			rc = mdt_glimpse_enqueue(tsi, ns, lockp, flags);
+		} else {
+			req_capsule_set_size(pill, &RMF_DLM_LVB, RCL_SERVER, 0);
+			rc = req_capsule_server_pack(pill);
+			if (rc)
+				rc = err_serious(rc);
+		}
+	}
 	mdt_thread_info_fini(info);
 	RETURN(rc);
 }
