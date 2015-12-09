@@ -1351,7 +1351,6 @@ int ldlm_handle_enqueue0(struct ldlm_namespace *ns,
 		lock->l_req_extent = lock->l_policy_data.l_extent;
 
 existing_lock:
-
         if (flags & LDLM_FL_HAS_INTENT) {
                 /* In this case, the reply buffer is allocated deep in
                  * local_lock_enqueue by the policy function. */
@@ -1678,7 +1677,8 @@ int ldlm_request_cancel(struct ptlrpc_request *req,
                         if (res != NULL) {
                                 ldlm_resource_getref(res);
                                 LDLM_RESOURCE_ADDREF(res);
-                                ldlm_res_lvbo_update(res, NULL, 1);
+				if (!ldlm_is_discard_data(lock))
+					ldlm_res_lvbo_update(res, NULL, 1);
                         }
                         pres = res;
                 }
