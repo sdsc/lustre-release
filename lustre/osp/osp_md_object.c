@@ -1135,7 +1135,7 @@ static ssize_t osp_md_read(const struct lu_env *env, struct dt_object *dt,
 	 * update_remote list of the thandle.  */
 	update = osp_update_request_create(dt_dev);
 	if (IS_ERR(update))
-		GOTO(out, rc = PTR_ERR(update));
+		RETURN(PTR_ERR(update));
 
 	rc = osp_update_rpc_pack(env, read, update, OUT_READ,
 				 lu_object_fid(&dt->do_lu),
