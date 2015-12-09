@@ -285,8 +285,7 @@ copytool_cleanup() {
 
 	while (( SECONDS < end_wait )); do
 		sleep 2
-		do_nodesv $agt_hosts "pgrep -x $HSMTOOL_BASE"
-		if [ $? -ne 0 ]; then
+		if ! do_nodesv $agt_hosts "pgrep -x $HSMTOOL_BASE"; then
 			echo "copytool is stopped on $agt_hosts"
 			break
 		fi
