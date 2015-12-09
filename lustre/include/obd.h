@@ -304,6 +304,10 @@ struct client_obd {
 	unsigned long		*cl_mod_tag_bitmap;
 	struct obd_histogram	 cl_mod_rpcs_hist;
 
+	/* in-flight control list and total RPCs counter */
+	struct list_head	 cl_flight_waiters;
+	__u32			 cl_rpcs_in_flight;
+
         /* mgc datastruct */
 	struct mutex		  cl_mgc_mutex;
 	struct local_oid_storage *cl_mgc_los;
