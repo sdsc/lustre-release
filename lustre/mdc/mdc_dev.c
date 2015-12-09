@@ -255,11 +255,22 @@ static void mdc_req_attr_set(const struct lu_env *env, struct cl_object *obj,
 		attr->cra_oa->o_valid |= OBD_MD_FLID;
 }
 
+static int mdc_attr_get(const struct lu_env *env, struct cl_object *obj,
+			struct cl_attr *attr)
+{
+	struct lov_oinfo *oinfo = cl2osc(obj)->oo_oinfo;
+
+	if (OST_LVB_IS_ERR(oinfo->loi_lvb.lvb_blocks))
+		return OST_LVB_GET_ERR(oinfo->loi_lvb.lvb_blocks);
+
+	return osc_attr_get(env, obj, attr);
+}
+
 static const struct cl_object_operations mdc_ops = {
 	.coo_page_init = osc_page_init,
 	.coo_lock_init = mdc_lock_init,
 	.coo_io_init = mdc_io_init,
-	.coo_attr_get = osc_attr_get,
+	.coo_attr_get = mdc_attr_get,
 	.coo_attr_update = osc_attr_update,
 	.coo_glimpse = osc_object_glimpse,
 	.coo_req_attr_set = mdc_req_attr_set,
