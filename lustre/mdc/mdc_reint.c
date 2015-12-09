@@ -276,9 +276,11 @@ int mdc_unlink(struct obd_export *exp, struct md_op_data *op_data,
 						MDS_INODELOCK_UPDATE);
 	if ((op_data->op_flags & MF_MDC_CANCEL_FID3) &&
 	    (fid_is_sane(&op_data->op_fid3)))
+		/* don't cancel DoM lock which may cause data flush */
 		count += mdc_resource_get_unused(exp, &op_data->op_fid3,
 						 &cancels, LCK_EX,
-						 MDS_INODELOCK_FULL);
+						 MDS_INODELOCK_FULL &
+						 ~(MDS_INODELOCK_DOM));
         req = ptlrpc_request_alloc(class_exp2cliimp(exp),
                                    &RQF_MDS_REINT_UNLINK);
         if (req == NULL) {
