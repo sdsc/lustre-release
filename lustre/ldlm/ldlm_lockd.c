@@ -1346,7 +1346,6 @@ int ldlm_handle_enqueue0(struct ldlm_namespace *ns,
 		lock->l_req_extent = lock->l_policy_data.l_extent;
 
 existing_lock:
-
         if (flags & LDLM_FL_HAS_INTENT) {
                 /* In this case, the reply buffer is allocated deep in
                  * local_lock_enqueue by the policy function. */
