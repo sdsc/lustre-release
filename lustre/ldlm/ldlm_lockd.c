@@ -975,7 +975,7 @@ int ldlm_server_completion_ast(struct ldlm_lock *lock, __u64 flags, void *data)
 	 * it may deadlock for LU-2187, or client may not have enough space
 	 * for large layout. The layout will be returned to client with an
 	 * extra RPC to fetch xattr.lov */
-	if (ldlm_has_layout(lock))
+	if (ldlm_has_layout(lock) && !ldlm_has_dom(lock))
 		lvb_len = 0;
 
 	req_capsule_set_size(&req->rq_pill, &RMF_DLM_LVB, RCL_CLIENT, lvb_len);

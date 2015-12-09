@@ -1031,7 +1031,7 @@ int ll_merge_attr(const struct lu_env *env, struct inode *inode)
 	cl_object_attr_unlock(obj);
 
 	if (rc != 0)
-		GOTO(out_size_unlock, rc);
+		GOTO(out_size_unlock, rc = (rc == -ENODATA ? 0 : rc));
 
 	if (atime < attr->cat_atime)
 		atime = attr->cat_atime;
