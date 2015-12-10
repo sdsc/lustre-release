@@ -51,6 +51,7 @@
 #include <keyutils.h>
 #include <gssapi/gssapi.h>
 
+#include <libcfs/util/param.h>
 #include <libcfs/util/string.h>
 #include "lsupport.h"
 #include "lgss_utils.h"
@@ -117,8 +118,6 @@ struct keyring_upcall_param {
  * child process: gss negotiation       *
  ****************************************/
 
-#define INIT_CHANNEL    "/proc/fs/lustre/sptlrpc/gss/init_channel"
-
 int do_nego_rpc(struct lgss_nego_data *lnd,
                 gss_buffer_desc *gss_token,
                 struct lgss_init_res *gr)
@@ -128,6 +127,8 @@ int do_nego_rpc(struct lgss_nego_data *lnd,
         int                       fd, ret, res;
         char                      outbuf[8192];
         unsigned int             *p;
+	glob_t path;
+	int rc;
 
         logmsg(LL_TRACE, "start negotiation rpc\n");
 
@@ -149,12 +150,17 @@ int do_nego_rpc(struct lgss_nego_data *lnd,
         param.reply_buf_size = sizeof(outbuf);
         param.reply_buf = outbuf;
 
-        logmsg(LL_TRACE, "to open " INIT_CHANNEL "\n");
+	rc = cfs_get_param_paths(&path, "sptlrpc/gss/init_channel");
+	if (rc != 0)
+		return rc;
 
-        fd = open(INIT_CHANNEL, O_WRONLY);
+	logmsg(LL_TRACE, "to open %s\n", path.gl_pathv[0]);
+
+	fd = open(path.gl_pathv[0], O_WRONLY);
         if (fd < 0) {
-                logmsg(LL_ERR, "can't open " INIT_CHANNEL "\n");
-                return -EACCES;
+		logmsg(LL_ERR, "can't open %s\n", path.gl_pathv[0]);
+		rc = -EACCES;
+		goto free_params;
         }
 
         logmsg(LL_TRACE, "to down-write\n");
@@ -162,8 +168,8 @@ int do_nego_rpc(struct lgss_nego_data *lnd,
         ret = write(fd, &param, sizeof(param));
         if (ret != sizeof(param)) {
 		logmsg(LL_ERR, "lustre ioctl err: %s\n", strerror(errno));
-                close(fd);
-                return -EACCES;
+		rc = -EACCES;
+		goto free_params;
         }
         close(fd);
 
@@ -177,9 +183,10 @@ int do_nego_rpc(struct lgss_nego_data *lnd,
                  * returning -ERESTART
                  */
                 if (param.status == -ETIMEDOUT)
-                        return -ERESTART;
+			rc = -ERESTART;
                 else
-                        return param.status;
+			rc = param.status;
+		goto free_params;
         }
 
         p = (unsigned int *)outbuf;
@@ -200,7 +207,10 @@ int do_nego_rpc(struct lgss_nego_data *lnd,
 
 	logmsg(LL_DEBUG, "do_nego_rpc: receive handle len %zu, token len %zu, "
 	       "res %d\n", gr->gr_ctx.length, gr->gr_token.length, res);
-	return 0;
+	rc = 0;
+free_params:
+	cfs_free_param_data(&paths);
+	return rc;
 }
 
 /*
@@ -605,16 +615,20 @@ static int parse_callout_info(const char *coinfo,
 	return 0;
 }
 
-#define LOG_LEVEL_PATH  "/proc/fs/lustre/sptlrpc/gss/lgss_keyring/debug_level"
-
 static void set_log_level()
 {
         FILE         *file;
         unsigned int  level;
+	glob_t path;
 
-        file = fopen(LOG_LEVEL_PATH, "r");
-        if (file == NULL)
-                return;
+	if (cfs_get_param_paths(&path,
+			       "sptlrpc/gss/lgss_keyring/debug_level") != 0)
+		return;
+	file = fopen(path.gl_pathv[0], "r");
+	if (file == NULL) {
+		cfs_free_param_data(&path);
+		return;
+	}
 
         if (fscanf(file, "%u", &level) != 1)
                 goto out;
@@ -624,6 +638,7 @@ static void set_log_level()
 
         lgss_set_loglevel(level);
 out:
+	cfs_free_param_data(&path);
         fclose(file);
 }
 
