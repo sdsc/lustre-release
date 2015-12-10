@@ -111,7 +111,6 @@ assert_DIR
 
 MDT0=$($LCTL get_param -n mdc.*.mds_server_uuid |
 	awk '{ gsub(/_UUID/,""); print $1 }' | head -n1)
-LOVNAME=$($LCTL get_param -n llite.*.lov.common_name | tail -n 1)
 OSTCOUNT=$($LCTL get_param -n lov.$LOVNAME.numobd)
 STRIPECOUNT=$($LCTL get_param -n lov.$LOVNAME.stripecount)
 STRIPESIZE=$($LCTL get_param -n lov.$LOVNAME.stripesize)
