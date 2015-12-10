@@ -64,6 +64,8 @@
 # include <netdb.h>
 #endif
 
+#include <libcfs/util/param.h>
+
 #include "gssd.h"
 #include "err_util.h"
 #include "gss_util.h"
@@ -631,13 +633,13 @@ int do_negotiation(struct lustre_gss_data *lgd,
 		   struct lustre_gss_init_res *gr,
 		   int timeout)
 {
-	char *file = "/proc/fs/lustre/sptlrpc/gss/init_channel";
 	struct lgssd_ioctl_param param;
 	struct passwd *pw;
 	int fd, ret;
 	char outbuf[8192];
 	unsigned int *p;
-	int res;
+	int res, rc;
+	glob_t path;
 
 	pw = getpwuid(lgd->lgd_uid);
 	if (!pw) {
@@ -656,18 +658,22 @@ int do_negotiation(struct lustre_gss_data *lgd,
 	param.reply_buf_size = sizeof(outbuf);
 	param.reply_buf = outbuf;
 
-	fd = open(file, O_RDWR);
-	if (fd < 0) {
-		printerr(0, "can't open file %s\n", file);
+	if (cfs_get_param_paths(&path, "sptlrpc/gss/init_channel") != 0)
 		return -1;
+
+	fd = open(path.gl_pathv[0], O_RDWR);
+	if (fd < 0) {
+		printerr(0, "can't open file %s\n", path.gl_pathv[0]);
+		rc = -1;
+		goto free_params;
 	}
 
 	ret = write(fd, &param, sizeof(param));
 
 	if (ret != sizeof(param)) {
 		printerr(0, "lustre ioctl err: %d\n", strerror(errno));
-		close(fd);
-		return -1;
+		rc = -1;
+		goto release_fd;
 	}
 	if (param.status) {
 		close(fd);
@@ -684,7 +690,8 @@ int do_negotiation(struct lustre_gss_data *lgd,
 			lgd->lgd_rpc_err = param.status;
 			lgd->lgd_gss_err = 0;
 		}
-		return -1;
+		rc = -1;
+		goto release_fd;
 	}
 	p = (unsigned int *)outbuf;
 	res = *p++;
@@ -704,8 +711,12 @@ int do_negotiation(struct lustre_gss_data *lgd,
 
 	printerr(2, "do_negotiation: receive handle len %d, token len %d\n",
 		 gr->gr_ctx.length, gr->gr_token.length);
+	rc = 0;
+release_fd:
 	close(fd);
-	return 0;
+free_params:
+	cfs_free_param_data(&paths);
+	return rc;
 }
 
 static
