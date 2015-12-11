@@ -1429,8 +1429,50 @@ void ldlm_namespace_put(struct ldlm_namespace *ns);
 int ldlm_proc_setup(void);
 #ifdef CONFIG_PROC_FS
 void ldlm_proc_cleanup(void);
+
+static inline void ldlm_svc_get_eopc(const struct ldlm_request *dlm_req,
+				     struct lprocfs_stats *srv_stats)
+{
+	int lock_type = 0, op = 0;
+
+	lock_type = dlm_req->lock_desc.l_resource.lr_type;
+
+	switch (lock_type) {
+	case LDLM_PLAIN:
+		op = PTLRPC_LAST_CNTR + LDLM_PLAIN_ENQUEUE;
+		break;
+	case LDLM_EXTENT:
+		if (dlm_req->lock_flags & LDLM_FL_HAS_INTENT)
+			op = PTLRPC_LAST_CNTR + LDLM_GLIMPSE_ENQUEUE;
+		else
+			op = PTLRPC_LAST_CNTR + LDLM_EXTENT_ENQUEUE;
+		break;
+	case LDLM_FLOCK:
+		op = PTLRPC_LAST_CNTR + LDLM_FLOCK_ENQUEUE;
+		break;
+	case LDLM_IBITS:
+		/* Data-on-MDT glimpse is DOM lock with intent */
+		if ((dlm_req->lock_desc.l_policy_data.l_inodebits.bits &
+		     MDS_INODELOCK_DOM) &&
+		    (dlm_req->lock_flags & LDLM_FL_HAS_INTENT))
+			op = PTLRPC_LAST_CNTR + LDLM_GLIMPSE_ENQUEUE;
+		else
+			op = PTLRPC_LAST_CNTR + LDLM_IBITS_ENQUEUE;
+		break;
+	default:
+		op = 0;
+		break;
+	}
+
+	if (op != 0)
+		lprocfs_counter_incr(srv_stats, op);
+
+	return;
+}
 #else
 static inline void ldlm_proc_cleanup(void) {}
+static inline void ldlm_svc_get_eopc(const struct ldlm_request *dlm_req,
+				     struct lprocfs_stats *srv_stats) {}
 #endif
 
 /* resource.c - internal */
