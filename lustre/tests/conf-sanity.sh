@@ -1495,6 +1495,7 @@ t32_test_cleanup() {
 		$r $ZPOOL destroy t32fs-mdt1 || rc=$?
 		$r $ZPOOL destroy t32fs-ost1 || rc=$?
 	fi
+	combined_mgs_mds || start_mgs || rc=$?
 	return $rc
 }
 
@@ -1642,7 +1643,6 @@ t32_test() {
 	local shall_cleanup_lustre=false
 	local node=$(facet_active_host $SINGLEMDS)
 	local r="do_node $node"
-	local node2=$(facet_active_host mds2)
 	local tmp=$TMP/t32
 	local img_commit
 	local img_kernel
@@ -1663,6 +1663,7 @@ t32_test() {
 	local stripe_index
 	local dir
 
+	combined_mgs_mds || stop_mgs || error "Unable to stop MGS"
 	trap 'trap - RETURN; t32_test_cleanup' RETURN
 
 	load_modules
@@ -1793,7 +1794,7 @@ t32_test() {
 			mkfsoptions="--mkfsoptions=\\\"-J size=8\\\""
 		fi
 
-		add fs2mds $(mkfs_opts mds2 $fs2mdsdev $fsname) --reformat \
+		add $SINGLEMDS $(mkfs_opts mds2 $fs2mdsdev $fsname) --reformat \
 			   $mkfsoptions $fs2mdsdev $fs2mdsvdev > /dev/null || {
 			error_noexit "Mkfs new MDT failed"
 			return 1
@@ -2693,6 +2694,8 @@ test_41a() { #bug 14134
 		return
 	fi
 
+	! combined_mgs_mds && skip "needs combined mgs device" && return 0
+
 	local MDSDEV=$(mdsdevname ${SINGLEMDS//mds/})
 
 	start_mdt 1 -o nosvc -n
@@ -2884,7 +2887,7 @@ test_43() {
 
 	setup
 	chmod ugo+x $DIR || error "chmod 0 failed"
-	set_conf_param_and_check mds					\
+	set_conf_param_and_check mds1					\
 		"$LCTL get_param -n mdt.$FSNAME-MDT0000.root_squash"	\
 		"$FSNAME.mdt.root_squash"				\
 		"0:0"
@@ -2892,7 +2895,7 @@ test_43() {
 		"$LCTL get_param -n llite.${FSNAME}*.root_squash"	\
 		"0:0" ||
 		error "check llite root_squash failed!"
-	set_conf_param_and_check mds					\
+	set_conf_param_and_check mds1					\
 		"$LCTL get_param -n mdt.$FSNAME-MDT0000.nosquash_nids"	\
 		"$FSNAME.mdt.nosquash_nids"				\
 		"NONE"
@@ -2924,7 +2927,7 @@ test_43() {
 	#   set root squash UID:GID to RUNAS_ID
 	#   root should be able to access only files owned by RUNAS_ID
 	#
-	set_conf_param_and_check mds					\
+	set_conf_param_and_check mds1					\
 		"$LCTL get_param -n mdt.$FSNAME-MDT0000.root_squash"	\
 		"$FSNAME.mdt.root_squash"				\
 		"$RUNAS_ID:$RUNAS_ID"
@@ -2994,7 +2997,7 @@ test_43() {
 	local NIDLIST=$($LCTL list_nids all | tr '\n' ' ')
 	NIDLIST="2@gni $NIDLIST 192.168.0.[2,10]@tcp"
 	NIDLIST=$(echo $NIDLIST | tr -s ' ' ' ')
-	set_conf_param_and_check mds					\
+	set_conf_param_and_check mds1					\
 		"$LCTL get_param -n mdt.$FSNAME-MDT0000.nosquash_nids"	\
 		"$FSNAME-MDTall.mdt.nosquash_nids"			\
 		"$NIDLIST"

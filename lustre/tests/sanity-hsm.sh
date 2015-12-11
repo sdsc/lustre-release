@@ -2510,11 +2510,11 @@ restore_and_check_size() {
 		else
 			echo "size seen is right: $n == $s"
 		fi
-		st=$(get_hsm_flags $f)
 		sleep 10
+		st=$(get_hsm_flags $f)
 		cpt=$((cpt + 1))
 	done
-	if [[ $cpt -lt 10 ]]; then
+	if [[ "$st" = "0x00000009" ]]; then
 		echo " "done
 	else
 		echo " restore is too long"
