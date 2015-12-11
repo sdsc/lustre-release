@@ -1699,6 +1699,7 @@ static int lfs_getstripe_internal(int argc, char **argv,
 		{"stripe_count",	no_argument,		0, 'c'},
 		{"directory",		no_argument,		0, 'd'},
 		{"default",		no_argument,		0, 'D'},
+		{"fid",			no_argument,		0, 'F'},
 		{"generation",		no_argument,		0, 'g'},
 #if LUSTRE_VERSION_CODE < OBD_OCD_VERSION(2, 9, 53, 0)
 		/* This formerly implied "stripe-index", but was explicitly
@@ -1737,7 +1738,7 @@ static int lfs_getstripe_internal(int argc, char **argv,
 	int c, rc;
 
 	param->fp_max_depth = 1;
-	while ((c = getopt_long(argc, argv, "cdDghiLMoO:pqrRsSv",
+	while ((c = getopt_long(argc, argv, "cdDFghiLMoO:pqrRsSv",
 				long_opts, NULL)) != -1) {
 		switch (c) {
 		case 'O':
@@ -1757,6 +1758,10 @@ static int lfs_getstripe_internal(int argc, char **argv,
 			break;
 		case 'D':
 			param->fp_get_default_lmv = 1;
+			break;
+		case 'F':
+			if (!(param->fp_verbose & VERBOSE_DETAIL))
+				param->fp_verbose |= VERBOSE_DFID;
 			break;
 		case 'r':
 			param->fp_recursive = 1;

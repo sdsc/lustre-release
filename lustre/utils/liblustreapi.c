@@ -2402,6 +2402,17 @@ static void lov_dump_user_lmm_header(struct lov_user_md *lum, char *path,
         if (depth && path && ((verbose != VERBOSE_OBJID) || !is_dir))
                 llapi_printf(LLAPI_MSG_NORMAL, "%s\n", path);
 
+	if ((verbose & VERBOSE_DFID) && !is_dir) {
+		llapi_printf(LLAPI_MSG_NORMAL, "lmm_fid:            "DFID"\n",
+				lmm_oi_seq(&lum->lmm_oi) == 0 ?
+				lmm_oi_id(&lum->lmm_oi) :
+				lmm_oi_seq(&lum->lmm_oi),
+				lmm_oi_seq(&lum->lmm_oi) == 0 ?
+				0 : (__u32)lmm_oi_id(&lum->lmm_oi),
+				(__u32)(lmm_oi_id(&lum->lmm_oi) >> 32));
+	}
+
+
 	if ((verbose & VERBOSE_DETAIL) && !is_dir) {
 		llapi_printf(LLAPI_MSG_NORMAL, "lmm_magic:          0x%08X\n",
 			     lum->lmm_magic);
@@ -2409,6 +2420,34 @@ static void lov_dump_user_lmm_header(struct lov_user_md *lum, char *path,
 			     lmm_oi_seq(&lum->lmm_oi));
 		llapi_printf(LLAPI_MSG_NORMAL, "lmm_object_id:      "LPX64"\n",
 			     lmm_oi_id(&lum->lmm_oi));
+		/* This needs a bit of hand-holding since old 1.x lmm_oi
+		 * have { oi.oi_id = mds_inum, oi.oi_seq = 0 } and 2.x lmm_oi
+		 * have { oi.oi_id = mds_oid, oi.oi_seq = mds_seq } instead of
+		 * a real FID.  Ideally the 2.x code would have stored this
+		 * like a FID with { oi_id = mds_seq, oi_seq = mds_oid } so the
+		 * ostid union lu_fid { f_seq = mds_seq, f_oid = mds_oid }
+		 * worked properly (especially since IGIF FIDs use mds_inum as
+		 * the FID SEQ), but unfortunately that didn't happen.
+		 *
+		 * Print it to look like an IGIF FID, even though the fields
+		 * are reversed on disk, so that it makes sense to userspace.
+		 *
+		 * Don't use ostid_id() and ostid_seq(), since they assume the
+		 * oi_fid fields are in the right order.  This is why there are
+		 * separate lmm_oi_seq() and lmm_oi_id() routines for this.
+		 *
+		 * With LFSCK 2.6 and later it will repair the old 1.x lmm_oi
+		 * to match 2.x { oi_id = mds_oid, oi_seq = mds_seq } so this
+		 * workaround can eventually be removed.
+		 *
+		 * For newer layout types hopefully this will be a real FID. */
+		llapi_printf(LLAPI_MSG_NORMAL, "lmm_fid:            "DFID"\n",
+			     lmm_oi_seq(&lum->lmm_oi) == 0 ?
+				lmm_oi_id(&lum->lmm_oi) :
+				lmm_oi_seq(&lum->lmm_oi),
+			     lmm_oi_seq(&lum->lmm_oi) == 0 ?
+				0 : (__u32)lmm_oi_id(&lum->lmm_oi),
+			     (__u32)(lmm_oi_id(&lum->lmm_oi) >> 32));
 	}
 
         if (verbose & VERBOSE_COUNT) {
@@ -4371,9 +4410,10 @@ int llapi_changelog_clear(const char *mdtname, const char *idstr,
 int llapi_fid2path(const char *device, const char *fidstr, char *buf,
 		   int buflen, long long *recno, int *linkno)
 {
-	struct lu_fid fid;
-	struct getinfo_fid2path *gf;
-	int rc;
+	const char *fidstr_orig = fidstr;
+        struct lu_fid fid;
+        struct getinfo_fid2path *gf;
+        int rc;
 
 	while (*fidstr == '[')
 		fidstr++;
@@ -4381,9 +4421,8 @@ int llapi_fid2path(const char *device, const char *fidstr, char *buf,
 	sscanf(fidstr, SFID, RFID(&fid));
 	if (!fid_is_sane(&fid)) {
 		llapi_err_noerrno(LLAPI_MSG_ERROR,
-				  "bad FID format [%s], should be [seq:oid:ver]"
-				  " (e.g. "DFID")\n", fidstr,
-				  (unsigned long long)FID_SEQ_NORMAL, 2, 0);
+				 "bad FID format '%s', should be like "DFID"\n",
+				 fidstr_orig, (__u64)0x200000400ULL, 2, 0);
 		return -EINVAL;
 	}
 
@@ -4397,10 +4436,7 @@ int llapi_fid2path(const char *device, const char *fidstr, char *buf,
 
 	/* Take path or fsname */
 	rc = root_ioctl(device, OBD_IOC_FID2PATH, gf, NULL, 0);
-	if (rc) {
-		if (rc != -ENOENT)
-			llapi_error(LLAPI_MSG_ERROR, rc, "ioctl err %d", rc);
-	} else {
+	if (rc == 0) {
 		memcpy(buf, gf->gf_path, gf->gf_pathlen);
 		if (buf[0] == '\0') { /* ROOT path */
 			buf[0] = '/';
