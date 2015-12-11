@@ -1389,6 +1389,7 @@ kiblnd_send (lnet_ni_t *ni, void *private, lnet_msg_t *lntmsg)
         unsigned int      payload_offset = lntmsg->msg_offset;
         unsigned int      payload_nob = lntmsg->msg_len;
         kib_msg_t        *ibmsg;
+	kib_rdma_desc_t	 *rd;
         kib_tx_t         *tx;
         int               nob;
         int               rc;
@@ -1432,16 +1433,15 @@ kiblnd_send (lnet_ni_t *ni, void *private, lnet_msg_t *lntmsg)
                 }
 
                 ibmsg = tx->tx_msg;
+		rd = &ibmsg->ibm_u.get.ibgm_rd;
 
                 if ((lntmsg->msg_md->md_options & LNET_MD_KIOV) == 0)
-                        rc = kiblnd_setup_rd_iov(ni, tx,
-                                                 &ibmsg->ibm_u.get.ibgm_rd,
+			rc = kiblnd_setup_rd_iov(ni, tx, rd,
                                                  lntmsg->msg_md->md_niov,
                                                  lntmsg->msg_md->md_iov.iov,
                                                  0, lntmsg->msg_md->md_length);
                 else
-                        rc = kiblnd_setup_rd_kiov(ni, tx,
-                                                  &ibmsg->ibm_u.get.ibgm_rd,
+			rc = kiblnd_setup_rd_kiov(ni, tx, rd,
                                                   lntmsg->msg_md->md_niov,
                                                   lntmsg->msg_md->md_iov.kiov,
                                                   0, lntmsg->msg_md->md_length);
@@ -1452,7 +1452,7 @@ kiblnd_send (lnet_ni_t *ni, void *private, lnet_msg_t *lntmsg)
                         return -EIO;
                 }
 
-                nob = offsetof(kib_get_msg_t, ibgm_rd.rd_frags[tx->tx_nfrags]);
+		nob = offsetof(kib_get_msg_t, ibgm_rd.rd_frags[rd->rd_nfrags]);
                 ibmsg->ibm_u.get.ibgm_cookie = tx->tx_cookie;
                 ibmsg->ibm_u.get.ibgm_hdr = *hdr;
 
@@ -1621,6 +1621,7 @@ kiblnd_recv (lnet_ni_t *ni, void *private, lnet_msg_t *lntmsg, int delayed,
         int          nob;
         int          post_credit = IBLND_POSTRX_PEER_CREDIT;
         int          rc = 0;
+	kib_rdma_desc_t *rd;
 
         LASSERT (mlen <= rlen);
         LASSERT (!in_interrupt());
@@ -1672,13 +1673,12 @@ kiblnd_recv (lnet_ni_t *ni, void *private, lnet_msg_t *lntmsg, int delayed,
                 }
 
                 txmsg = tx->tx_msg;
+		rd = &txmsg->ibm_u.putack.ibpam_rd;
                 if (kiov == NULL)
-                        rc = kiblnd_setup_rd_iov(ni, tx,
-                                                 &txmsg->ibm_u.putack.ibpam_rd,
+                        rc = kiblnd_setup_rd_iov(ni, tx, rd,
                                                  niov, iov, offset, mlen);
                 else
-                        rc = kiblnd_setup_rd_kiov(ni, tx,
-                                                  &txmsg->ibm_u.putack.ibpam_rd,
+                        rc = kiblnd_setup_rd_kiov(ni, tx, rd,
                                                   niov, kiov, offset, mlen);
                 if (rc != 0) {
                         CERROR("Can't setup PUT sink for %s: %d\n",
@@ -1690,7 +1690,7 @@ kiblnd_recv (lnet_ni_t *ni, void *private, lnet_msg_t *lntmsg, int delayed,
                         break;
                 }
 
-                nob = offsetof(kib_putack_msg_t, ibpam_rd.rd_frags[tx->tx_nfrags]);
+                nob = offsetof(kib_putack_msg_t, ibpam_rd.rd_frags[rd->rd_nfrags]);
                 txmsg->ibm_u.putack.ibpam_src_cookie = rxmsg->ibm_u.putreq.ibprm_cookie;
                 txmsg->ibm_u.putack.ibpam_dst_cookie = tx->tx_cookie;
 
