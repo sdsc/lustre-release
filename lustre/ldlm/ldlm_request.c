@@ -993,7 +993,11 @@ int ldlm_cli_enqueue(struct obd_export *exp, struct ptlrpc_request **reqp,
 		req_capsule_set_size(&req->rq_pill, &RMF_DLM_LVB, RCL_SERVER,
 				     lvb_len);
 		ptlrpc_request_set_replen(req);
-        }
+	}
+
+	/* extended LDLM opcodes in client stats */
+	if (exp->exp_obd->obd_svc_stats != NULL)
+		ldlm_svc_get_eopc(body, exp->exp_obd->obd_svc_stats);
 
         if (async) {
                 LASSERT(reqp != NULL);
