@@ -978,6 +978,10 @@ int ldlm_cli_enqueue(struct obd_export *exp, struct ptlrpc_request **reqp,
 	body->lock_flags = ldlm_flags_to_wire(*flags);
 	body->lock_handle[0] = *lockh;
 
+	/* extended LDLM opcodes in client stats */
+	if (exp->exp_obd->obd_svc_stats != NULL)
+		ldlm_svc_get_eopc(body, exp->exp_obd->obd_svc_stats);
+
 	if (async) {
 		LASSERT(reqp != NULL);
 		RETURN(0);

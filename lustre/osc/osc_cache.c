@@ -1699,6 +1699,7 @@ wakeup:
 
 	EXIT;
 }
+EXPORT_SYMBOL(osc_wake_cache_waiters);
 
 static int osc_max_rpc_in_flight(struct client_obd *cli, struct osc_object *osc)
 {
@@ -2524,6 +2525,7 @@ int osc_queue_async_io(const struct lu_env *env, struct cl_io *io,
 		list_add_tail(&oap->oap_pending_item, &ext->oe_pages);
 		osc_object_unlock(osc);
 	}
+
 	RETURN(rc);
 }
 
