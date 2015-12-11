@@ -985,6 +985,10 @@ int ldlm_cli_enqueue(struct obd_export *exp, struct ptlrpc_request **reqp,
 
 	LDLM_DEBUG(lock, "sending request");
 
+	/* extended LDLM opcodes in client stats */
+	if (exp->exp_obd->obd_svc_stats != NULL)
+		ldlm_svc_get_eopc(body, exp->exp_obd->obd_svc_stats);
+
 	rc = ptlrpc_queue_wait(req);
 
 	err = ldlm_cli_enqueue_fini(exp, req, einfo->ei_type, policy ? 1 : 0,
