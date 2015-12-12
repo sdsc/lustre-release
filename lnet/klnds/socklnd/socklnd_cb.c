@@ -2177,6 +2177,7 @@ ksocknal_connd (void *arg)
 
 			ksocknal_create_conn(cr->ksncr_ni, NULL,
 					     cr->ksncr_sock, SOCKLND_CONN_NONE);
+			printk(KERN_ERR "Decref from ksocknal_connd\n");
 			lnet_ni_decref(cr->ksncr_ni);
 			LIBCFS_FREE(cr, sizeof(*cr));
 
