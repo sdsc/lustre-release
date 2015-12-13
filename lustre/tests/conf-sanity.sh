@@ -152,12 +152,14 @@ stop_mdt() {
 start_mds() {
 	local num
 
+	load_modules
 	for num in $(seq $MDSCOUNT); do
 		start_mdt $num $@ || return 94
 	done
 }
 
 start_mgsmds() {
+	load_modules
 	if ! combined_mgs_mds ; then
 		start_mgs
 	fi
@@ -179,6 +181,7 @@ stop_mgs() {
 
 start_ost() {
 	echo "start ost1 service on `facet_active_host ost1`"
+	load_modules
 	start ost1 $(ostdevname 1) $OST_MOUNT_OPTS $@ || return 95
 }
 
@@ -953,6 +956,7 @@ test_24a() {
 	# test 8-char fsname as well
 	local FSNAME2=test1234
 
+	load_modules
 	add fs2mds $(mkfs_opts mds1 ${fs2mdsdev} ) --nomgs --mgsnode=$MGSNID \
 		--fsname=${FSNAME2} --reformat $fs2mdsdev $fs2mdsvdev || exit 10
 
@@ -1005,6 +1009,7 @@ test_24b() {
 	local fs2mdsdev=$(mdsdevname 1_2)
 	local fs2mdsvdev=$(mdsvdevname 1_2)
 
+	load_modules
 	add fs2mds $(mkfs_opts mds1 ${fs2mdsdev} ) --mgs --fsname=${FSNAME}2 \
 		--reformat $fs2mdsdev $fs2mdsvdev || exit 10
 	setup
@@ -2261,6 +2266,7 @@ test_33a() { # bug 12333, was test_33
 		mkfsoptions="--mkfsoptions=\\\"-J size=8\\\"" # See bug 17931.
 	fi
 
+	load_modules
 	add fs2mds $(mkfs_opts mds1 ${fs2mdsdev}) --mgs --fsname=${FSNAME2} \
 		--reformat $mkfsoptions $fs2mdsdev $fs2mdsvdev || exit 10
 	add fs2ost $(mkfs_opts ost1 ${fs2ostdev}) --mgsnode=$MGSNID \
@@ -2494,6 +2500,7 @@ test_36() { # 12743
 	local fs2ostvdev=$(ostvdevname 1_2)
 	local fs3ostvdev=$(ostvdevname 2_2)
 
+	load_modules
 	add fs2mds $(mkfs_opts mds1 ${fs2mdsdev}) --mgs --fsname=${FSNAME2} \
 		--reformat $fs2mdsdev $fs2mdsvdev || exit 10
 	# XXX after we support non 4K disk blocksize in ldiskfs, specify a
@@ -2564,6 +2571,7 @@ test_37() {
 		return
 	fi
 
+	load_modules
 	echo "MDS :     $mdsdev"
 	echo "SYMLINK : $mdsdev_sym"
 	do_facet $SINGLEMDS rm -f $mdsdev_sym
@@ -2695,6 +2703,7 @@ test_41a() { #bug 14134
 
 	local MDSDEV=$(mdsdevname ${SINGLEMDS//mds/})
 
+	load_modules
 	start_mdt 1 -o nosvc -n
 	if [ $MDSCOUNT -ge 2 ]; then
 		for num in $(seq 2 $MDSCOUNT); do
@@ -2762,6 +2771,7 @@ test_41c() {
 		{ skip "Need MDS version 2.5.4+ or 2.5.26+ or 2.6.52+"; return; }
 
 	cleanup
+	load_modules
 	# MDT concurrent start
 	#define OBD_FAIL_TGT_MOUNT_RACE 0x716
 	do_facet $SINGLEMDS "$LCTL set_param fail_loc=0x716"
@@ -3507,6 +3517,7 @@ test_50h() {
 	[ "$OSTCOUNT" -lt "2" ] && skip_env "$OSTCOUNT < 2, skipping" && return
 
 	[ $(facet_fstype ost1) == zfs ] && import_zpool ost1
+	load_modules
 	do_facet ost1 "$TUNEFS --param osc.active=0 `ostdevname 1`" ||
 		error "tunefs OST1 failed"
 	start_mds  || error "Unable to start MDT"
@@ -3956,6 +3967,7 @@ test_56() {
 
 	MDSJOURNALSIZE=16
 
+	load_modules
 	for num in $(seq 1 $MDSCOUNT); do
 		reformat_mdt $num
 	done
