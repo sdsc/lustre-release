@@ -1134,7 +1134,8 @@ static int osp_precreate_thread(void *_arg)
 			continue;
 		}
 
-		osp_statfs_update(d);
+		if (osp_statfs_update(d))
+			break;
 
 		/*
 		 * Clean up orphans or recreate missing objects.
@@ -1161,7 +1162,8 @@ static int osp_precreate_thread(void *_arg)
 				break;
 
 			if (osp_statfs_need_update(d))
-				osp_statfs_update(d);
+				if (osp_statfs_update(d))
+					break;
 
 			/* To avoid handling different seq in precreate/orphan
 			 * cleanup, it will hold precreate until current seq is
