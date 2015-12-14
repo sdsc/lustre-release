@@ -60,7 +60,7 @@ struct sk_ctx {
 };
 
 static struct sk_crypt_type sk_crypt_types[] = {
-	[SK_CRYPT_AES_CTR] = {
+	[SK_CRYPT_AES256_CTR] = {
 		.sct_name = "ctr(aes)",
 		.sct_bytes = 32,
 	},
