@@ -97,6 +97,9 @@ struct mount_opts {
 	char	*mo_usource;		/* user-specified mount device */
 	char	*mo_source;		/* our mount device name */
 	char	 mo_target[PATH_MAX];	/* mount directory */
+#ifdef HAVE_GSS
+	char	 mo_skpath[PATH_MAX];	/* shared key file/directory */
+#endif
 	int	 mo_nomtab;
 	int	 mo_fake;
 	int	 mo_force;
@@ -172,5 +175,5 @@ struct module_backfs_ops {
 
 struct module_backfs_ops *load_backfs_module(enum ldd_mount_type mount_type);
 void unload_backfs_ops(struct module_backfs_ops *ops);
-
+int load_shared_keys(struct mount_opts *mop);
 #endif
