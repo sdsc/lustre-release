@@ -105,6 +105,10 @@ void usage(FILE *out)
 		"\t\tskip_lfsck: NOT auto resume the paused/crashed LFSCK\n"
 		"\t\texclude=<ostname>[:<ostname>] : colon-separated list of "
 		"inactive OSTs (e.g. lustre-OST0001)\n"
+#ifdef HAVE_GSS
+		"\t\tskpath=<file|directory>: Path to a file or directory of"
+		"key configuration files to load into the kernel keyring\n"
+#endif
 		"\t\tretry=<num>: number of times mount is retried by client\n"
 		"\t\tmd_stripe_cache_size=<num>: set the raid stripe cache "
 		"size for the underlying raid if present\n");
@@ -268,6 +272,15 @@ int parse_options(struct mount_opts *mop, char *orig_options, int *flagp)
 			/* XXX special check for 'force' option */
 			++mop->mo_force;
 			printf("force: %d\n", mop->mo_force);
+#ifdef HAVE_GSS
+		} else if (val && strncmp(opt, "skpath=", 7) == 0) {
+			if (strlen(val) + 1 >= sizeof(mop->mo_skpath)) {
+				fprintf(stderr, "shared key path too long\n");
+				free(options);
+				return -1;
+			}
+			strncpy(mop->mo_skpath, val + 1, strlen(val + 1));
+#endif
 		} else if (parse_one_option(opt, flagp) == 0) {
 			/* pass this on as an option */
 			append_option(options, opt);
@@ -619,6 +632,7 @@ int main(int argc, char *const argv[])
 	struct mount_opts mop;
 	char *options;
 	int i, rc, flags;
+	bool client;
 
 	progname = strrchr(argv[0], '/');
 	progname = progname ? progname + 1 : argv[0];
@@ -677,7 +691,12 @@ int main(int argc, char *const argv[])
 		return rc;
 	}
 
-	if (strstr(mop.mo_usource, ":/") == NULL) {
+	if (strstr(mop.mo_usource, ":/"))
+		client = true;
+	else
+		client = false;
+
+	if (!client) {
 		rc = osd_init();
 		if (rc)
 			return rc;
@@ -696,13 +715,23 @@ int main(int argc, char *const argv[])
 		printf("mounting device %s at %s, flags=%#x options=%s\n",
 		       mop.mo_source, mop.mo_target, flags, options);
 
-	if (strstr(mop.mo_usource, ":/") == NULL &&
-	    osd_tune_lustre(mop.mo_source, &mop)) {
+	if (!client && osd_tune_lustre(mop.mo_source, &mop)) {
 		if (verbose)
 			fprintf(stderr, "%s: unable to set tunables for %s"
 					" (may cause reduced IO performance)\n",
 					argv[0], mop.mo_source);
 	}
+
+	rc = 0;
+#ifdef HAVE_GSS
+	if (mop.mo_skpath[0] != '\0') {
+		/* Treat shared key failures as fatal */
+		if (load_shared_keys(&mop)) {
+			fprintf(stderr, "Error loading shared keys\n");
+			return -ENOKEY;
+		}
+	}
+#endif
 
 	if (!mop.mo_fake) {
 		/* flags and target get to lustre_get_sb(), but not
@@ -815,7 +844,7 @@ int main(int argc, char *const argv[])
 	/* mo_usource should be freed, but we can rely on the kernel */
 	free(mop.mo_source);
 
-	if (strstr(mop.mo_usource, ":/") == NULL)
+	if (!client)
 		osd_fini();
 
 	return rc;
