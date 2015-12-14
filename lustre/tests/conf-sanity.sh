@@ -1530,6 +1530,7 @@ t32_test_cleanup() {
 			destroy_zpool $facet $poolname
 		done
 	fi
+	combined_mgs_mds || start_mgs || rc=$?
 	return $rc
 }
 
@@ -1678,7 +1679,6 @@ t32_test() {
 	local mdt2_is_available=false
 	local node=$(facet_active_host $SINGLEMDS)
 	local r="do_node $node"
-	local node2=$(facet_active_host mds2)
 	local tmp=$TMP/t32
 	local img_commit
 	local img_kernel
@@ -1702,6 +1702,7 @@ t32_test() {
 	local stripe_count
 	local dir
 
+	combined_mgs_mds || stop_mgs || error "Unable to stop MGS"
 	trap 'trap - RETURN; t32_test_cleanup' RETURN
 
 	load_modules
@@ -1851,7 +1852,7 @@ t32_test() {
 			mkfsoptions="--mkfsoptions=\\\"-J size=8\\\""
 		fi
 
-		add fs2mds $(mkfs_opts mds2 $fs2mdsdev $fsname) --reformat \
+		add $SINGLEMDS $(mkfs_opts mds2 $fs2mdsdev $fsname) --reformat \
 			   $mkfsoptions $fs2mdsdev $fs2mdsvdev > /dev/null || {
 			error_noexit "Mkfs new MDT failed"
 			return 1
@@ -2808,6 +2809,8 @@ test_41a() { #bug 14134
 		return
 	fi
 
+	! combined_mgs_mds && skip "Need combined mgs device" && return 0
+
 	local MDSDEV=$(mdsdevname ${SINGLEMDS//mds/})
 
 	start_mdt 1 -o nosvc -n
@@ -2878,6 +2881,7 @@ test_41c() {
 	cleanup
 	# MDT concurrent start
 	#define OBD_FAIL_TGT_MOUNT_RACE 0x716
+	load_modules
 	do_facet $SINGLEMDS "$LCTL set_param fail_loc=0x716"
 	start mds1 $(mdsdevname 1) $MDS_MOUNT_OPTS &
 	local pid=$!
@@ -2997,7 +3001,7 @@ test_43a() {
 
 	setup
 	chmod ugo+x $DIR || error "chmod 0 failed"
-	set_conf_param_and_check mds					\
+	set_conf_param_and_check mds1					\
 		"$LCTL get_param -n mdt.$FSNAME-MDT0000.root_squash"	\
 		"$FSNAME.mdt.root_squash"				\
 		"0:0"
@@ -3005,7 +3009,7 @@ test_43a() {
 		"$LCTL get_param -n llite.${FSNAME}*.root_squash"	\
 		"0:0" ||
 		error "check llite root_squash failed!"
-	set_conf_param_and_check mds					\
+	set_conf_param_and_check mds1					\
 		"$LCTL get_param -n mdt.$FSNAME-MDT0000.nosquash_nids"	\
 		"$FSNAME.mdt.nosquash_nids"				\
 		"NONE"
@@ -3037,7 +3041,7 @@ test_43a() {
 	#   set root squash UID:GID to RUNAS_ID
 	#   root should be able to access only files owned by RUNAS_ID
 	#
-	set_conf_param_and_check mds					\
+	set_conf_param_and_check mds1					\
 		"$LCTL get_param -n mdt.$FSNAME-MDT0000.root_squash"	\
 		"$FSNAME.mdt.root_squash"				\
 		"$RUNAS_ID:$RUNAS_ID"
@@ -3107,7 +3111,7 @@ test_43a() {
 	local NIDLIST=$($LCTL list_nids all | tr '\n' ' ')
 	NIDLIST="2@gni $NIDLIST 192.168.0.[2,10]@tcp"
 	NIDLIST=$(echo $NIDLIST | tr -s ' ' ' ')
-	set_conf_param_and_check mds					\
+	set_conf_param_and_check mds1					\
 		"$LCTL get_param -n mdt.$FSNAME-MDT0000.nosquash_nids"	\
 		"$FSNAME-MDTall.mdt.nosquash_nids"			\
 		"$NIDLIST"
@@ -4034,10 +4038,9 @@ test_55() {
 	local mdsdev=$(mdsdevname 1)
 	local mdsvdev=$(mdsvdevname 1)
 
+	stopall
 	for i in 1023 2048
 	do
-		add mds1 $(mkfs_opts mds1 ${mdsdev}) --reformat $mdsdev \
-			$mdsvdev || exit 10
 		add ost1 $(mkfs_opts ost1 $(ostdevname 1)) --index=$i \
 			--reformat $(ostdevname 1) $(ostvdevname 1)
 		setup_noconfig
@@ -4052,10 +4055,9 @@ test_55() {
 		else
 			echo ok, lov_objid size is correct: $LOV_OBJID_SIZE
 		fi
-		stopall
+		reformat
 	done
 
-	reformat
 }
 run_test 55 "check lov_objid size"
 
@@ -4152,7 +4154,7 @@ test_58() { # bug 22658
 	unmount_fstype $SINGLEMDS
 	# restart MDS with missing llog files
 	start_mds || error "unable to start MDS"
-	do_facet mds "$LCTL set_param fail_loc=0"
+	do_facet $SINGLEMDS "$LCTL set_param fail_loc=0"
 	reformat
 }
 run_test 58 "missing llog files must not prevent MDT from mounting"
@@ -4315,7 +4317,7 @@ test_62() {
 		{ skip "Need MDS version at least 2.2.51"; return 0; }
 
 	echo "disable journal for mds"
-	do_facet mds $TUNE2FS -O ^has_journal $mdsdev || error "tune2fs failed"
+	do_facet mds1 $TUNE2FS -O ^has_journal $mdsdev || error "tune2fs failed"
 	start_mds && error "MDT start should fail"
 	echo "disable journal for ost"
 	do_facet ost1 $TUNE2FS -O ^has_journal $ostdev || error "tune2fs failed"
@@ -4539,6 +4541,9 @@ test_68() {
 
 	umount_client $MOUNT || error "umount client failed"
 
+	if ! combined_mgs_mds ; then
+		start_mgs || error "start mgs failed"
+	fi
 	start_mdt 1 || error "MDT start failed"
 	start_ost || error "Unable to start OST1"
 
@@ -4917,6 +4922,13 @@ test_72() { #LU-2634
 
 	#tune MDT with "-O extents"
 
+	if ! combined_mgs_mds; then
+		stop_mgs || error "stop mgs failed"
+		add mgs $(mkfs_opts mgs $(mgsdevname)) --reformat \
+		$(mgsdevname) $(mgsvdevname) ${quiet:+>/dev/null} ||
+		error "add mgs failed"
+	fi
+
 	for num in $(seq $MDSCOUNT); do
 		add mds${num} $(mkfs_opts mds$num $(mdsdevname $num)) \
 			--reformat $(mdsdevname $num) $(mdsvdevname $num) ||
@@ -4988,6 +5000,10 @@ test_75() { # LU-2374
 
 	add mds1 $opts_mds || error "add mds1 failed for new params"
 	add ost1 $opts_ost || error "add ost1 failed for new params"
+	if ! combined_mgs_mds; then
+		stop_mgs || error "stop mgs failed"
+	fi
+	reformat
 	return 0
 }
 run_test 75 "The order of --index should be irrelevant"
@@ -4995,6 +5011,9 @@ run_test 75 "The order of --index should be irrelevant"
 test_76a() {
 	[[ $(lustre_version_code mgs) -ge $(version_code 2.4.52) ]] ||
 		{ skip "Need MDS version at least 2.4.52" && return 0; }
+	if ! combined_mgs_mds ; then
+		start_mgs || error "start mgs failed"
+	fi
 	setup
 	local MDMB_PARAM="osc.*.max_dirty_mb"
 	echo "Change MGS params"
