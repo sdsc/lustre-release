@@ -6265,6 +6265,37 @@ test_91() {
 }
 run_test 91 "evict-by-nid support"
 
+test_92() {
+	start_mds || error "MDS start failed"
+	start_ost || error "unable to start OST"
+	mount_client $MOUNT || error "client start failed"
+	check_mount || error "check_mount failed"
+
+	# Desired output
+	# MGS:
+	#     0@lo
+	# lustre-MDT0000:
+	#     0@lo
+	# lustre-OST0000:
+	#     0@lo
+	local RESULT=`lshowmount -v`
+
+	echo ${RESULT} | awk 'BEGIN {NR % 2 == 0; rc=1} /0@lo/ {rc=0}
+	END {exit rc}' || error "lshowmount have no output 0@lo"
+
+	echo ${RESULT} | awk 'BEGIN {NR == 0; rc=1} /MGS:/ {rc=0}
+	END {exit rc}' || error "lshowmount have no output MGS:"
+
+	echo ${RESULT} | awk 'BEGIN {NR == 2; rc=1} /lustre-MDT0000:/ {rc=0}
+	END {exit rc}' || error "lshowmount have no output lustre-MDT0000:"
+
+	echo ${RESULT} | awk 'BEGIN {NR == 4; rc=1} /lustre-OST0000:/ {rc=0}
+	END {exit rc}' || error "lshowmount have no output lustre-OST0000:"
+
+	cleanup || error "cleanup failed with $?"
+}
+run_test 92 "check lshowmount lists MGS, MDT, OST and 0@lo"
+
 if ! combined_mgs_mds ; then
 	stop mgs
 fi
