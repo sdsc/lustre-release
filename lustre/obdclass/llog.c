@@ -201,6 +201,8 @@ int llog_cancel_rec(const struct lu_env *env, struct llog_handle *loghandle,
 	struct llog_log_hdr	*llh = loghandle->lgh_hdr;
 	struct thandle		*th;
 	int			 rc;
+	int rc1;
+	bool subtract_count = false;
 
 	ENTRY;
 
@@ -244,10 +246,11 @@ int llog_cancel_rec(const struct lu_env *env, struct llog_handle *loghandle,
 	/* update header */
 	rc = llog_write_rec(env, loghandle, &llh->llh_hdr, NULL,
 			    LLOG_HEADER_IDX, th);
-	if (rc == 0)
-		loghandle->lgh_hdr->llh_count--;
-	else
-		ext2_set_bit(index, LLOG_HDR_BITMAP(llh));
+	if (rc != 0)
+		GOTO(out_unlock, rc);
+
+	loghandle->lgh_hdr->llh_count--;
+	subtract_count = true;
 
 	if ((llh->llh_flags & LLOG_F_ZAP_WHEN_EMPTY) &&
 	    (llh->llh_count == 1) &&
@@ -272,7 +275,15 @@ out_unlock:
 	mutex_unlock(&loghandle->lgh_hdr_mutex);
 	up_write(&loghandle->lgh_lock);
 out_trans:
-	dt_trans_stop(env, dt, th);
+	rc1 = dt_trans_stop(env, dt, th);
+	if (rc == 0)
+		rc = rc1;
+	if (rc < 0 && subtract_count) {
+		mutex_lock(&loghandle->lgh_hdr_mutex);
+		loghandle->lgh_hdr->llh_count++;
+		ext2_set_bit(index, LLOG_HDR_BITMAP(llh));
+		mutex_unlock(&loghandle->lgh_hdr_mutex);
+	}
 	RETURN(rc);
 }
 
