@@ -13624,6 +13624,116 @@ test_256() {
 }
 run_test 256 "Check llog delete for empty and not full state"
 
+test_254() {
+	local size_mb=100
+	local size=$((size_mb * 1048576))
+	lfs setstripe -c -1 -i 0 $DIR/$tfile
+	dd if=/dev/zero of=$DIR/$tfile bs=1048576 count=$size_mb ||
+		error "dd to $DIR/$tfile failed"
+
+	lfs ladvise -a willread $DIR/$tfile ||
+		error "Ladvise failed with no range argument"
+
+	lfs ladvise -a willread -s 0 $DIR/$tfile ||
+		error "Ladvise failed with no -l or -e argument"
+
+	lfs ladvise -a willread -e 1 $DIR/$tfile ||
+		error "Ladvise failed with only -e argument"
+
+	lfs ladvise -a willread -l 1 $DIR/$tfile ||
+		error "Ladvise failed with only -l argument"
+
+	lfs ladvise -a willread -s 2 -e 1 $DIR/$tfile &&
+		error "End offset should not be smaller than start offset"
+
+	lfs ladvise -a willread -s 2 -e 2 $DIR/$tfile &&
+		error "End offset should not be equal to start offset"
+
+	lfs ladvise -a willread -s $size -l 1 $DIR/$tfile ||
+		error "Ladvise failed with overflowing -s argument"
+
+	lfs ladvise -a willread -s 1 -e $((size + 1)) $DIR/$tfile ||
+		error "Ladvise failed with overflowing -e argument"
+
+	lfs ladvise -a willread -s 1 -l $size $DIR/$tfile ||
+		error "Ladvise failed with overflowing -l argument"
+
+	lfs ladvise -a willread -l 1 -e 2 $DIR/$tfile &&
+		error "Ladvise succeeded with conflicting -l and -e arguments"
+
+	echo "Synchronous ladvise should wait"
+	local delay=4
+#define OBD_FAIL_OST_LADVISE_PAUSE	 0x236
+	do_nodes $(osts_nodes) $LCTL set_param fail_val=$delay fail_loc=0x236
+
+	local start_ts=$SECONDS
+	lfs ladvise -a willread $DIR/$tfile ||
+		error "Ladvise failed with no range argument"
+	local end_ts=$SECONDS
+	local inteval_ts=$((end_ts - start_ts))
+
+	if [ $inteval_ts -lt $(($delay - 1)) ]; then
+		error "Synchronous advice didn't wait reply"
+	fi
+
+	echo "Asynchronous ladvise shouldn't wait"
+	local start_ts=$SECONDS
+	lfs ladvise -a willread -b $DIR/$tfile ||
+		error "Ladvise failed with no range argument"
+	local end_ts=$SECONDS
+	local inteval_ts=$((end_ts - start_ts))
+
+	if [ $inteval_ts -gt $(($delay / 2)) ]; then
+		error "Asynchronous advice blocked"
+	fi
+
+	do_nodes $(osts_nodes) $LCTL set_param fail_loc=0
+
+	echo "Reading without willread hint"
+	cancel_lru_locks osc
+	do_nodes $(osts_nodes) "echo 3 > /proc/sys/vm/drop_caches"
+	local speed_origin=$($READS -f $DIR/$tfile -s $size -b 4096 -n \
+		$((size / 4096)) -t 60 |
+		sed -e '/^$/d' -e 's#.*s, ##' -e 's#MB/s##')
+
+	echo "Reading again without willread hint"
+	cancel_lru_locks osc
+	local speed_cache=$($READS -f $DIR/$tfile -s $size -b 4096 -n \
+		$((size / 4096)) -t 60 |
+		sed -e '/^$/d' -e 's#.*s, ##' -e 's#MB/s##')
+	local cache_speedup=$(echo "scale=2; \
+		($speed_cache-$speed_origin)/$speed_origin*100" | bc)
+	cache_speedup=$(echo ${cache_speedup%.*})
+
+	echo "Reading with willread hint"
+	cancel_lru_locks osc
+	do_nodes $(osts_nodes) "echo 3 > /proc/sys/vm/drop_caches"
+	lfs ladvise -a willread $DIR/$tfile ||
+		error "Ladvise failed"
+	local speed_ladvise=$($READS -f $DIR/$tfile -s $size -b 4096 -n \
+		$((size / 4096)) -t 60 |
+		sed -e '/^$/d' -e 's#.*s, ##' -e 's#MB/s##')
+	local ladvise_speedup=$(echo "scale=2; \
+		($speed_ladvise-$speed_origin)/$speed_origin*100" | bc)
+	ladvise_speedup=$(echo ${ladvise_speedup%.*})
+
+	if [ $cache_speedup -lt 20 ]; then
+		echo "Speedup with cache is less than 20% ($cache_speedup%),"\
+			"skipping check of speedup with willread: $ladvise_speedup%"
+		return 0
+	fi
+
+	local lowest_speedup=$((cache_speedup / 2))
+	[ $ladvise_speedup -gt $lowest_speedup ] ||
+		error "Speedup with willread is less than $lowest_speedup,"\
+			"got $ladvise_speedup% ($speed_origin vs. $speed_ladvise)"
+	echo "Speedup with willread: $ladvise_speedup%"\
+		"($speed_origin vs. $speed_ladvise)"
+	echo "Speedup with cache: $cache_speedup%"\
+		"($speed_origin vs. $speed_cache)"
+}
+run_test 254 "check 'lfs ladvise -a willread'"
+
 cleanup_test_300() {
 	trap 0
 	umask $SAVE_UMASK
