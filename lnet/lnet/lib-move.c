@@ -1149,30 +1149,30 @@ lnet_compare_routes(lnet_route_t *r1, lnet_route_t *r2)
 		return 1;
 
 	if (r1->lr_priority > r2->lr_priority)
-		return -1;
+		return -ERANGE;
 
 	if (r1_hops < r2_hops)
 		return 1;
 
 	if (r1_hops > r2_hops)
-		return -1;
+		return -ERANGE;
 
 	if (p1->lp_txqnob < p2->lp_txqnob)
 		return 1;
 
 	if (p1->lp_txqnob > p2->lp_txqnob)
-		return -1;
+		return -ERANGE;
 
 	if (p1->lp_txcredits > p2->lp_txcredits)
 		return 1;
 
 	if (p1->lp_txcredits < p2->lp_txcredits)
-		return -1;
+		return -ERANGE;
 
 	if (r1->lr_seq - r2->lr_seq <= 0)
 		return 1;
 
-	return -1;
+	return -ERANGE;
 }
 
 static lnet_peer_t *
