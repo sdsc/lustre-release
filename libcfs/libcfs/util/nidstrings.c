@@ -855,7 +855,7 @@ add_nidrange(const struct cfs_lstr *src,
  * \retval 0 otherwise
  */
 static int
-parse_nidrange(struct cfs_lstr *src, struct list_head *nidlist)
+parse_nidrange(struct cfs_lstr *src, struct list_head *nidlist, int quiet)
 {
 	struct cfs_lstr addrrange;
 	struct cfs_lstr net;
@@ -878,8 +878,9 @@ parse_nidrange(struct cfs_lstr *src, struct list_head *nidlist)
 
 	return 1;
  failed:
-	fprintf(stderr, "can't parse nidrange: \"%.*s\"\n",
-		tmp.ls_len, tmp.ls_str);
+	if (!quiet)
+		fprintf(stderr, "can't parse nidrange: \"%.*s\"\n",
+			tmp.ls_len, tmp.ls_str);
 	return 0;
 }
 
@@ -940,8 +941,8 @@ cfs_free_nidlist(struct list_head *list)
  * \retval 1 on success
  * \retval 0 otherwise
  */
-int
-cfs_parse_nidlist(char *str, int len, struct list_head *nidlist)
+static int
+cfs_parse_nidrange(char *str, int len, struct list_head *nidlist, int quiet)
 {
 	struct cfs_lstr src;
 	struct cfs_lstr res;
@@ -956,13 +957,25 @@ cfs_parse_nidlist(char *str, int len, struct list_head *nidlist)
 			cfs_free_nidlist(nidlist);
 			return 0;
 		}
-		rc = parse_nidrange(&res, nidlist);
+		rc = parse_nidrange(&res, nidlist, quiet);
 		if (rc == 0) {
 			cfs_free_nidlist(nidlist);
 			return 0;
 		}
 	}
 	return 1;
+}
+
+int
+cfs_parse_nidlist(char *str, int len, struct list_head *nidlist)
+{
+	return cfs_parse_nidrange(str, len, nidlist, 0);
+}
+
+int
+cfs_parse_nidlist_quiet(char *str, int len, struct list_head *nidlist)
+{
+	return cfs_parse_nidrange(str, len, nidlist, 1);
 }
 
 /**

@@ -1110,7 +1110,7 @@ static int lmd_parse_nidlist(char *buf, char **endh)
 	*endp = '\0';
 
 	INIT_LIST_HEAD(&nidlist);
-	if (cfs_parse_nidlist(buf, strlen(buf), &nidlist) <= 0)
+	if (cfs_parse_nidlist_quiet(buf, strlen(buf), &nidlist) <= 0)
 		rc = 1;
 	cfs_free_nidlist(&nidlist);
 
