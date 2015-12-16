@@ -983,14 +983,16 @@ kiblnd_destroy_conn (kib_conn_t *conn)
 		rdma_destroy_id(cmid);
 		atomic_dec(&net->ibn_nconns);
 		if (conn->ibc_conn_race) {
+			rwlock_t *glock = &kiblnd_data.kib_global_lock;
+			unsigned long flags;
+
+			write_lock_irqsave(glock, flags);
 			if (peer->ibp_accepting == 0 &&
 			    !list_empty(&peer->ibp_tx_queue)) {
+				write_unlock_irqrestore(glock, flags);
 				kiblnd_connect_peer(peer);
 			} else  {
-				rwlock_t *glock = &kiblnd_data.kib_global_lock;
-				unsigned long flags;
 
-				write_lock_irqsave(glock, flags);
 				peer->ibp_connecting--;
 				write_unlock_irqrestore(glock, flags);
 			}
