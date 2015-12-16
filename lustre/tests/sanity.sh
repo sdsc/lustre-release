@@ -13622,6 +13622,93 @@ test_253() {
 }
 run_test 253 "Check object allocation limit"
 
+test_254() {
+	local size_mb=100
+	local size=$((size_mb * 1048576))
+	lfs setstripe -c 1 -i 0 $DIR/$tfile
+	dd if=/dev/zero of=$DIR/$tfile bs=1048576 count=$size_mb ||
+		error "dd to $DIR/$tfile failed"
+
+	lfs ladvise -a willread $DIR/$tfile ||
+		error "Ladvise failed with no range argument"
+
+	lfs ladvise -a willread -s 0 $DIR/$tfile ||
+		error "Ladvise failed with no -l or -e argument"
+
+	lfs ladvise -a willread -e 1 $DIR/$tfile ||
+		error "Ladvise failed with only -e argument"
+
+	lfs ladvise -a willread -l 1 $DIR/$tfile ||
+		error "Ladvise failed with only -l argument"
+
+	lfs ladvise -a willread -s 2 -e 1 $DIR/$tfile &&
+		error "End offset should not be larger than start offset"
+
+	lfs ladvise -a willread -s 2 -e 2 $DIR/$tfile &&
+		error "End offset should not be equal to start offset"
+
+	lfs ladvise -a willread -s 1 -e $((size + 1)) $DIR/$tfile ||
+		error "Ladvise failed with overflowing -e argument"
+
+	lfs ladvise -a willread -s 1 -l $size $DIR/$tfile ||
+		error "Ladvise failed with overflowing -l argument"
+
+	lfs ladvise -a willread -l 1 -e 2 $DIR/$tfile &&
+		error "Ladvise succeeded with conflicting -l and -e arguments"
+
+	echo "Synchronous ladvise should wait"
+	local delay=4
+#define OBD_FAIL_OST_LADVISE_PAUSE	 0x236
+	do_facet ost1 $LCTL set_param fail_val=$delay fail_loc=0x236
+
+	local start_ts=$SECONDS
+	lfs ladvise -a willread $DIR/$tfile ||
+		error "Ladvise failed with no range argument"
+	local end_ts=$SECONDS
+	local inteval_ts=$((end_ts - start_ts))
+
+	if [ $inteval_ts -lt $(($delay - 1)) ]; then
+		error "Synchronous advice didn't wait reply"
+	fi
+
+	echo "Asynchronous ladvise shouldn't wait"
+	local start_ts=$SECONDS
+	lfs ladvise -a willread -b $DIR/$tfile ||
+		error "Ladvise failed with no range argument"
+	local end_ts=$SECONDS
+	local inteval_ts=$((end_ts - start_ts))
+
+	if [ $inteval_ts -gt $(($delay / 2)) ]; then
+		error "Asynchronous advice blocked"
+	fi
+
+	do_facet ost1 $LCTL set_param fail_loc=0
+
+	echo "Reading without willread hint"
+	cancel_lru_locks osc
+	do_facet ost1 echo 3 > /proc/sys/vm/drop_caches
+	local speed_origin=$($READS -f $DIR/$tfile -s $size -b 4096 -n \
+		$((size / 4096)) -t 60 | grep MB | awk '{print $2}' | \
+		awk -F MB/s '{print $1}')
+
+	echo "Reading with willread hint"
+	cancel_lru_locks osc
+	do_facet ost1 echo 3 > /proc/sys/vm/drop_caches
+	lfs ladvise -a willread $DIR/$tfile ||
+		error "Ladvise failed"
+	local speed_speedup=$($READS -f $DIR/$tfile -s $size -b 4096 -n \
+		$((size / 4096)) -t 60 | grep MB | awk '{print $2}' | \
+		awk -F MB/s '{print $1}')
+
+	local speedup=$(echo "scale=2; \
+		($speed_speedup-$speed_origin)/$speed_origin*100" | bc)
+	speedup=$(echo ${speedup%.*})
+	[ $speedup -gt 10 ] || error "Speedup is less than 10%, got $speedup%"\
+		"($speed_origin V.S. $speed_speedup)"
+	echo "Speedup with willread: $speedup%"
+}
+run_test 254 "check \"lfs ladvise -a willread\""
+
 cleanup_test_300() {
 	trap 0
 	umask $SAVE_UMASK
