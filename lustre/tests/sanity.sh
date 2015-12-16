@@ -13622,6 +13622,63 @@ test_253() {
 }
 run_test 253 "Check object allocation limit"
 
+test_254() {
+	lfs setstripe -c 1 -i 0 $DIR/$tfile
+	dd if=/dev/zero of=$DIR/$tfile bs=1048576 count=100 || error \
+		"dd to $DIR/$tfile failed"
+
+	lfs ladvise -a willread -s 2 -e 1 $DIR/$tfile && error \
+		"Wrong range should be detected"
+
+	lfs ladvise -a willread $DIR/$tfile || error \
+		"Ladvise failed with no range argument"
+
+	lfs ladvise -a willread -s 0 $DIR/$tfile || error \
+		"Ladvise failed with no end argument"
+
+	echo "Synchronous ladvise should wait"
+	local delay=4
+	do_facet ost1 lctl set_param fail_val=$delay
+#define OBD_FAIL_OST_LADVISE_PAUSE	 0x236
+	do_facet ost1 $LCTL set_param fail_loc=0x236
+
+	local start_ts=$(date +%s)
+	lfs ladvise -a willread $DIR/$tfile || error \
+		"Ladvise failed with no range argument"
+	local end_ts=$(date +%s)
+	local inteval_ts=$(($end_ts - $start_ts))
+
+	if [ $inteval_ts -lt $(($delay / 2)) ]; then
+		error "Synchronous advice didn't wait reply"
+	fi
+
+	echo "Asynchronous ladvise shouldn't wait"
+	local start_ts=$(date +%s)
+	lfs ladvise -a willread -b $DIR/$tfile || error \
+		"Ladvise failed with no range argument"
+	local end_ts=$(date +%s)
+	local inteval_ts=$(($end_ts - $start_ts))
+
+	if [ $inteval_ts -gt $(($delay / 2)) ]; then
+		error "Asynchronous advice blocked"
+	fi
+
+	do_facet ost1 $LCTL set_param fail_loc=0
+
+	echo "Read without willread hint:"
+	cancel_lru_locks osc
+	do_facet ost1 echo 3 > /proc/sys/vm/drop_caches
+	dd if=$DIR/$tfile of=/dev/null bs=4096
+
+	echo "Read with willread hint:"
+	cancel_lru_locks osc
+	do_facet ost1 echo 3 > /proc/sys/vm/drop_caches
+	lfs ladvise -a willread $DIR/$tfile || error \
+		"Ladvise failed"
+	dd if=$DIR/$tfile of=/dev/null bs=4096
+}
+run_test 254 "check \"lfs ladvise -a willread\""
+
 cleanup_test_300() {
 	trap 0
 	umask $SAVE_UMASK
