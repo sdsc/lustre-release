@@ -5500,34 +5500,70 @@ test_65k() { # bug11679
 	[[ $OSTCOUNT -lt 2 ]] && skip_env "too few OSTs" && return
 	remote_mds_nodsh && skip "remote MDS with nodsh" && return
 
-    echo "Check OST status: "
-    local MDS_OSCS=`do_facet $SINGLEMDS lctl dl |
-              awk '/[oO][sS][cC].*md[ts]/ { print $4 }'`
+	local disable_precreate=true
+	[ $(lustre_version_code $SINGLEMDS) -le $(version_code 2.7.57) ] &&
+		disable_precreate=false
 
-    for OSC in $MDS_OSCS; do
-        echo $OSC "is activate"
-        do_facet $SINGLEMDS lctl --device %$OSC activate
-    done
+	echo "Check OST status: "
+	local MDS_OSCS=$(do_facet $SINGLEMDS lctl dl |
+		awk '/[oO][sS][cC].*md[ts]/ { print $4 }')
 
-    mkdir -p $DIR/$tdir
-    for INACTIVE_OSC in $MDS_OSCS; do
-        echo "Deactivate: " $INACTIVE_OSC
-        do_facet $SINGLEMDS lctl --device %$INACTIVE_OSC deactivate
-        for STRIPE_OSC in $MDS_OSCS; do
-            OST=`osc_to_ost $STRIPE_OSC`
-            IDX=`do_facet $SINGLEMDS lctl get_param -n lov.*md*.target_obd |
-                 awk -F: /$OST/'{ print $1 }' | head -n 1`
+	for OSC in $MDS_OSCS; do
+		echo $OSC "is active"
+		do_facet $SINGLEMDS lctl --device %$OSC activate
+	done
 
-            [ -f $DIR/$tdir/$IDX ] && continue
-            echo "$SETSTRIPE -i $IDX -c 1 $DIR/$tdir/$IDX"
-            $SETSTRIPE -i $IDX -c 1 $DIR/$tdir/$IDX
-            RC=$?
-            [ $RC -ne 0 ] && error "setstripe should have succeeded"
-        done
-        rm -f $DIR/$tdir/*
-        echo $INACTIVE_OSC "is Activate."
-        do_facet $SINGLEMDS lctl --device  %$INACTIVE_OSC activate
-    done
+	mkdir -p $DIR/$tdir
+	for INACTIVE_OSC in $MDS_OSCS; do
+		local ost=$(osc_to_ost $INACTIVE_OSC)
+		local ostnum=$(do_facet $SINGLEMDS lctl get_param -n \
+			       lov.*md*.target_obd |
+			       awk -F: /$ost/'{ print $1 }' | head -n 1)
+
+		$SETSTRIPE -i $ostnum -c 1 $DIR/$tdir
+		createmany -m $DIR/$tdir/$tfile 1000
+
+		echo "Deactivate: " $INACTIVE_OSC
+		do_facet $SINGLEMDS lctl --device %$INACTIVE_OSC deactivate
+
+		local count=$(do_facet $SINGLEMDS "lctl get_param -n \
+			      osp.$ost*MDT0000.create_count")
+		local max_count=$(do_facet $SINGLEMDS "lctl get_param -n \
+				  osp.$ost*MDT0000.max_create_count")
+		$disable_precreate &&
+			do_facet $SINGLEMDS "lctl set_param -n \
+				osp.$ost*MDT0000.max_create_count=0"
+
+		for idx in $(seq 0 $((OSTCOUNT - 1))); do
+			[ -f $DIR/$tdir/$idx ] && continue
+			echo "$SETSTRIPE -i $idx -c 1 $DIR/$tdir/$idx"
+			$SETSTRIPE -i $idx -c 1 $DIR/$tdir/$idx
+			RC=$?
+			[ $RC -ne 0 ] && error "setstripe should have succeeded"
+		done
+		unlinkmany $DIR/$tdir/$tfile 1000
+
+		do_facet $SINGLEMDS "lctl set_param -n \
+			osp.$ost*MDT0000.max_create_count=$max_count"
+		do_facet $SINGLEMDS "lctl set_param -n \
+			osp.$ost*MDT0000.create_count=$count"
+
+		local new_iused
+		for i in $(seq 120); do
+			new_iused=$($LFS df -i | grep OST0000 | awk '{ print $3 }')
+			[ $new_iused -lt $((old_iused - 900)) ] && break
+			sleep 1
+		done
+
+		echo "waited $i sec, old Iused $old_iused, new Iused $new_iused"
+		[ $new_iused -lt $((old_iused - 900)) ] ||
+			error "objs not destroyed after unlink"
+
+		do_facet $SINGLEMDS lctl --device  %$INACTIVE_OSC activate
+		echo $INACTIVE_OSC "is Activate"
+
+		wait_osc_import_state mds ost$ostnum FULL
+	done
 }
 run_test 65k "validate manual striping works properly with deactivated OSCs"
 
