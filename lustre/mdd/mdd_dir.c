@@ -1163,10 +1163,14 @@ struct lu_buf *mdd_links_get(const struct lu_env *env,
 int mdd_links_write(const struct lu_env *env, struct mdd_object *mdd_obj,
 		    struct linkea_data *ldata, struct thandle *handle)
 {
-	const struct lu_buf *buf = mdd_buf_get_const(env, ldata->ld_buf->lb_buf,
-						     ldata->ld_leh->leh_len);
+	const struct lu_buf *buf;
 	int		    rc;
 
+	LASSERT(ldata != NULL);
+	LASSERT(ldata->ld_buf != NULL);
+	LASSERT(ldata->ld_leh != NULL);
+	buf = mdd_buf_get_const(env, ldata->ld_buf->lb_buf,
+						     ldata->ld_leh->leh_len);
 	if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_NO_LINKEA))
 		return 0;
 
@@ -1203,6 +1207,7 @@ int mdd_declare_links_add(const struct lu_env *env, struct mdd_object *mdd_obj,
 	void	*linkea;
 
 	if (ldata != NULL && ldata->ld_leh != NULL) {
+		LASSERT(ldata->ld_buf != NULL);
 		ea_len = ldata->ld_leh->leh_len;
 		linkea = ldata->ld_buf->lb_buf;
 	} else {
