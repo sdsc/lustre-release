@@ -3006,8 +3006,14 @@ int ll_migrate(struct inode *parent, struct file *file, int mdtidx,
 	qstr.len = namelen;
 	dchild = d_lookup(file->f_path.dentry, &qstr);
 	if (dchild != NULL) {
+		if (unlikely(d_mountpoint(dchild))) {
+			dput(dchild);
+			GOTO(out_free, rc = -EBUSY);
+		}
+
 		if (dchild->d_inode != NULL)
 			child_inode = igrab(dchild->d_inode);
+
 		dput(dchild);
 	}
 
@@ -3021,23 +3027,26 @@ int ll_migrate(struct inode *parent, struct file *file, int mdtidx,
 	if (child_inode == NULL)
 		GOTO(out_free, rc = -EINVAL);
 
+	if (child_inode == parent->i_sb->s_root->d_inode)
+		GOTO(out_put, rc = -EPERM);
+
 	mutex_lock(&child_inode->i_mutex);
 	op_data->op_fid3 = *ll_inode2fid(child_inode);
 	if (!fid_is_sane(&op_data->op_fid3)) {
 		CERROR("%s: migrate %s , but fid "DFID" is insane\n",
 		       ll_get_fsname(parent->i_sb, NULL, 0), name,
 		       PFID(&op_data->op_fid3));
-		GOTO(out_free, rc = -EINVAL);
+		GOTO(out_unlock, rc = -EINVAL);
 	}
 
 	rc = ll_get_mdt_idx_by_fid(ll_i2sbi(parent), &op_data->op_fid3);
 	if (rc < 0)
-		GOTO(out_free, rc);
+		GOTO(out_unlock, rc);
 
 	if (rc == mdtidx) {
 		CDEBUG(D_INFO, "%s:"DFID" is already on MDT%d.\n", name,
 		       PFID(&op_data->op_fid3), mdtidx);
-		GOTO(out_free, rc = 0);
+		GOTO(out_unlock, rc = 0);
 	}
 again:
 	if (S_ISREG(child_inode->i_mode)) {
@@ -3045,13 +3054,13 @@ again:
 		if (IS_ERR(och)) {
 			rc = PTR_ERR(och);
 			och = NULL;
-			GOTO(out_free, rc);
+			GOTO(out_unlock, rc);
 		}
 
 		rc = ll_data_version(child_inode, &data_version,
 				     LL_DV_WR_FLUSH);
 		if (rc != 0)
-			GOTO(out_free, rc);
+			GOTO(out_close, rc);
 
 		op_data->op_handle = och->och_fh;
 		op_data->op_data = och->och_mod;
@@ -3071,11 +3080,11 @@ again:
 		body = req_capsule_server_get(&request->rq_pill, &RMF_MDT_BODY);
 		if (body == NULL) {
 			ptlrpc_req_finished(request);
-			GOTO(out_free, rc = -EPROTO);
+			GOTO(out_close, rc = -EPROTO);
 		}
 
 		/* If the server does release layout lock, then we cleanup
-		 * the client och here, otherwise release it in out_free: */
+		 * the client och here, otherwise release it in out_close: */
 		if (och != NULL &&
 		    body->mbo_valid & OBD_MD_CLOSE_INTENT_EXECED) {
 			obd_mod_put(och->och_mod);
@@ -3093,15 +3102,16 @@ again:
 		request = NULL;
 		goto again;
 	}
-out_free:
-	if (child_inode != NULL) {
-		if (och != NULL) /* close the file */
-			ll_lease_close(och, child_inode, NULL);
+out_close:
+	if (och != NULL) /* close the file */
+		ll_lease_close(och, child_inode, NULL);
+	if (rc == 0)
 		clear_nlink(child_inode);
-		mutex_unlock(&child_inode->i_mutex);
-		iput(child_inode);
-	}
-
+out_unlock:
+	mutex_unlock(&child_inode->i_mutex);
+out_put:
+	iput(child_inode);
+out_free:
 	ll_finish_md_op_data(op_data);
 	RETURN(rc);
 }
