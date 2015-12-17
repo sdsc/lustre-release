@@ -5145,6 +5145,9 @@ test_60a() {
 		do_facet mgs "! ls run-llog.sh &> /dev/null" &&
 			skip_env "missing subtest run-llog.sh" && return
 
+	do_facet mgs "! rmmod --help 2>&1 | grep -q wait" &&	/* LU-7573 */
+			skip_env "missing rmmod -w option" && return
+
 	log "$TEST60_HEAD - from kernel mode"
 	do_facet mgs "$LCTL set_param debug=warning; $LCTL dk > /dev/null"
 	do_facet mgs sh run-llog.sh
