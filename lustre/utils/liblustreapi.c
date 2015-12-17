@@ -4108,17 +4108,20 @@ int llapi_fid2path(const char *device, const char *fidstr, char *buf,
 {
 	struct lu_fid fid;
 	struct getinfo_fid2path *gf;
+	char fidstring[64];
 	int rc;
+	struct lu_fid example_fid = {(unsigned long long)FID_SEQ_NORMAL, 2, 0};
 
 	while (*fidstr == '[')
 		fidstr++;
 
-	sscanf(fidstr, SFID, RFID(&fid));
+	fid = str_to_fid(fidstr);
 	if (!fid_is_sane(&fid)) {
 		llapi_err_noerrno(LLAPI_MSG_ERROR,
-				  "bad FID format [%s], should be [seq:oid:ver]"
-				  " (e.g. "DFID")\n", fidstr,
-				  (unsigned long long)FID_SEQ_NORMAL, 2, 0);
+				  "bad FID format [%s], should be "
+				  "[seq:oid:ver] (e.g. %s)\n", fidstr,
+				  fid_to_str(&example_fid, fidstring,
+					     sizeof(fidstring)));
 		return -EINVAL;
 	}
 

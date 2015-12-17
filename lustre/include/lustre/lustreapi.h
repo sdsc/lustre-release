@@ -669,6 +669,52 @@ int llapi_layout_file_open(const char *path, int open_flags, mode_t mode,
 int llapi_layout_file_create(const char *path, int open_flags, int mode,
 			     const struct llapi_layout *layout);
 
+/******************** FID Conversions ********************/
+
+/**
+ * Turn a string into a FID
+ *
+ * returns an empty FID if the string is improperly formatted
+ */
+static inline struct lu_fid str_to_fid(const char *fidstr)
+{
+	struct lu_fid fid;
+	int ret;
+	ret = sscanf(fidstr, SFID, RFID(&fid));
+	if (ret != 3)
+		memset(&fid, 0, sizeof(struct lu_fid));
+
+	return fid;
+}
+
+/**
+ * Convert a FID to a string
+ *
+ * String will look like: [12345:6789:ABCD]
+ * Returns the string (helpful in print statements)
+ */
+
+static inline char *fid_to_str(const struct lu_fid *fid, char *fidstr,
+			       int len)
+{
+	snprintf(fidstr, len, DFID, PFID(fid));
+	return fidstr;
+}
+
+/**
+ * Convert a FID to a string, with no braces
+ *
+ * String will look like: 12345:6789:ABCD
+ * Returns the string (helpful in print statements)
+ */
+
+static inline char *fid_to_str_nobrace(const struct lu_fid *fid, char *fidstr,
+				       int len)
+{
+	snprintf(fidstr, len, DFID_NOBRACE, PFID(fid));
+	return fidstr;
+}
+
 /** @} llapi */
 
 #endif
