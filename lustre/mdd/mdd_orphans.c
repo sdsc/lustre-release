@@ -378,38 +378,42 @@ stop:
  * \retval -ve error
  */
 static int orph_key_test_and_del(const struct lu_env *env,
-                                 struct mdd_device *mdd,
-                                 struct lu_fid *lf,
-                                 struct dt_key *key)
+				 struct mdd_device *mdd,
+				 struct lu_fid *lf,
+				 struct dt_key *key)
 {
-        struct mdd_object *mdo;
-        int rc;
+	struct mdd_object *mdo;
+	int rc;
+	char fidstr[64];
 
-        mdo = mdd_object_find(env, mdd, lf);
+	mdo = mdd_object_find(env, mdd, lf);
 
-        if (IS_ERR(mdo))
-                return PTR_ERR(mdo);
+	if (IS_ERR(mdo))
+		return PTR_ERR(mdo);
 
-        rc = -EBUSY;
-        if (mdo->mod_count == 0) {
-                CDEBUG(D_HA, "Found orphan "DFID", delete it\n", PFID(lf));
-                rc = orphan_object_destroy(env, mdo, key);
-                if (rc) /* so replay-single.sh test_37 works */
-                        CERROR("%s: error unlinking orphan "DFID" from "
-                               "PENDING: rc = %d\n",
-			       mdd2obd_dev(mdd)->obd_name, PFID(lf), rc);
-        } else {
-                mdd_write_lock(env, mdo, MOR_TGT_CHILD);
-                if (likely(mdo->mod_count > 0)) {
-                        CDEBUG(D_HA, "Found orphan "DFID" count %d, skip it\n",
-                               PFID(lf), mdo->mod_count);
-                        mdo->mod_flags |= ORPHAN_OBJ;
-                }
-                mdd_write_unlock(env, mdo);
-        }
+	rc = -EBUSY;
+	if (mdo->mod_count == 0) {
+		CDEBUG(D_HA, "Found orphan %s, delete it\n",
+		       fid_to_str(lf, fidstr, sizeof(fidstr)));
+		rc = orphan_object_destroy(env, mdo, key);
+		if (rc) /* so replay-single.sh test_37 works */
+			CERROR("%s: error unlinking orphan %s from "
+			       "PENDING: rc = %d\n",
+			       mdd2obd_dev(mdd)->obd_name,
+			       fid_to_str(lf, fidstr, sizeof(fidstr)), rc);
+	} else {
+		mdd_write_lock(env, mdo, MOR_TGT_CHILD);
+		if (likely(mdo->mod_count > 0)) {
+			CDEBUG(D_HA, "Found orphan %s count %d, skip it\n",
+			       fid_to_str(lf, fidstr, sizeof(fidstr)),
+			       mdo->mod_count);
+			mdo->mod_flags |= ORPHAN_OBJ;
+		}
+		mdd_write_unlock(env, mdo);
+	}
 
-        mdd_object_put(env, mdo);
-        return rc;
+	mdd_object_put(env, mdo);
+	return rc;
 }
 
 /**
@@ -475,8 +479,10 @@ static int orph_index_iterate(const struct lu_env *env,
 
 		fid_le_to_cpu(&fid, &ent->lde_fid);
 		if (!fid_is_sane(&fid)) {
-			CERROR("%s: bad FID "DFID" cleaning PENDING\n",
-			       mdd2obd_dev(mdd)->obd_name, PFID(&fid));
+			char fidstr[64];
+			CERROR("%s: bad FID %s cleaning PENDING\n",
+			       mdd2obd_dev(mdd)->obd_name,
+			       fid_to_str(&fid, fidstr, sizeof(fidstr)));
 			goto next;
 		}
 

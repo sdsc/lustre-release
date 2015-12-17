@@ -553,6 +553,31 @@ static inline void obd_uuid2fsname(char *buf, char *uuid, int buflen)
 #define SFID "0x%llx:0x%x:0x%x"
 #define RFID(fid) &((fid)->f_seq), &((fid)->f_oid), &((fid)->f_ver)
 
+static inline struct lu_fid str_to_fid(const char *fidstr)
+{
+	struct lu_fid fid;
+	int ret;
+	ret = sscanf(fidstr, SFID, RFID(&fid));
+	if (ret != 3)
+		memset(&fid, 0, sizeof(struct lu_fid));
+
+	return fid;
+}
+
+static inline char *fid_to_str(const struct lu_fid *fid, char *fidstr,
+			       int len)
+{
+	snprintf(fidstr, len, DFID, PFID(fid));
+	return fidstr;
+}
+
+static inline char *fid_to_str_nobrace(const struct lu_fid *fid, char *fidstr,
+				       int len)
+{
+	snprintf(fidstr, len, DFID_NOBRACE, PFID(fid));
+	return fidstr;
+}
+
 /********* Quotas **********/
 
 #define LUSTRE_QUOTABLOCK_BITS 10
