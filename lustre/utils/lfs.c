@@ -3413,6 +3413,7 @@ static int lfs_changelog(int argc, char **argv)
         while ((rc = llapi_changelog_recv(changelog_priv, &rec)) == 0) {
                 time_t secs;
                 struct tm ts;
+		char fidstr[64];
 
                 if (endrec && rec->cr_index > endrec) {
                         llapi_changelog_free(&rec);
@@ -3426,12 +3427,13 @@ static int lfs_changelog(int argc, char **argv)
 		secs = rec->cr_time >> 30;
 		gmtime_r(&secs, &ts);
 		printf(LPU64" %02d%-5s %02d:%02d:%02d.%06d %04d.%02d.%02d "
-		       "0x%x t="DFID, rec->cr_index, rec->cr_type,
+		       "0x%x t=%s", rec->cr_index, rec->cr_type,
 		       changelog_type2str(rec->cr_type),
 		       ts.tm_hour, ts.tm_min, ts.tm_sec,
 		       (int)(rec->cr_time & ((1<<30) - 1)),
 		       ts.tm_year + 1900, ts.tm_mon + 1, ts.tm_mday,
-		       rec->cr_flags & CLF_FLAGMASK, PFID(&rec->cr_tfid));
+		       rec->cr_flags & CLF_FLAGMASK,
+		       fid_to_str(&rec->cr_tfid, fidstr, sizeof(fidstr)));
 
 		if (rec->cr_flags & CLF_JOBID) {
 			struct changelog_ext_jobid *jid =
@@ -3442,19 +3444,25 @@ static int lfs_changelog(int argc, char **argv)
 		}
 
 		if (rec->cr_namelen)
-			printf(" p="DFID" %.*s", PFID(&rec->cr_pfid),
+			printf(" p=%s %.*s",
+			       fid_to_str(&rec->cr_pfid, fidstr,
+					  sizeof(fidstr)),
 			       rec->cr_namelen, changelog_rec_name(rec));
 
 		if (rec->cr_flags & CLF_RENAME) {
 			struct changelog_ext_rename *rnm =
 				changelog_rec_rename(rec);
 
-			if (!fid_is_zero(&rnm->cr_sfid))
-				printf(" s="DFID" sp="DFID" %.*s",
-				       PFID(&rnm->cr_sfid),
-				       PFID(&rnm->cr_spfid),
+			if (!fid_is_zero(&rnm->cr_sfid)) {
+				char fidstr2[64];
+				printf(" s=%s sp=%s %.*s",
+				       fid_to_str(&rnm->cr_sfid,
+						  fidstr, sizeof(fidstr)),
+				       fid_to_str(&rnm->cr_spfid,
+						  fidstr2, sizeof(fidstr2)),
 				       (int)changelog_rec_snamelen(rec),
 				       changelog_rec_sname(rec));
+			}
 		}
 		printf("\n");
 
@@ -3610,12 +3618,16 @@ static int lfs_path2fid(int argc, char **argv)
 	rc = 0;
 	for (path = argv + optind; *path != NULL; path++) {
 		int err = 0;
+		char fidstr[64];
 		if (!show_parents) {
 			err = llapi_path2fid(*path, &fid);
-			if (!err)
-				printf("%s%s"DFID"\n",
-				       *sep != '\0' ? *path : "", sep,
-				       PFID(&fid));
+			if (!err) {
+				printf("%s%s%s\n",
+				       *sep != '\0' ? *path : "",
+				       sep,
+				       fid_to_str(&fid, fidstr,
+						  sizeof(fidstr)));
+			}
 		} else {
 			char		name[NAME_MAX + 1];
 			unsigned int	linkno = 0;
@@ -3625,8 +3637,10 @@ static int lfs_path2fid(int argc, char **argv)
 				if (*sep != '\0' && linkno == 0)
 					printf("%s%s", *path, sep);
 
-				printf("%s"DFID"/%s", linkno != 0 ? "\t" : "",
-				       PFID(&fid), name);
+				printf("%s%s/%s",
+				       linkno != 0 ? "\t" : "",
+				       fid_to_str(&fid, fidstr, sizeof(fidstr)),
+				       name);
 				linkno++;
 			}
 
