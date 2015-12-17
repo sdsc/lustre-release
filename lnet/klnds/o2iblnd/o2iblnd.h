@@ -641,6 +641,8 @@ typedef struct kib_conn
 	struct list_head	ibc_sched_list;
 	/* version of connection */
 	__u16			ibc_version;
+	/** need to reconnect */
+	__u16			ibc_reconnect:1;
 	/* which instance of the peer */
 	__u64			ibc_incarnation;
 	/* # users */
@@ -664,13 +666,11 @@ typedef struct kib_conn
 	/* connections max frags */
 	__u16			ibc_max_frags;
 	/* receive buffers owned */
-	unsigned short		ibc_nrx;
-	/** rejected by connection race */
-	unsigned short		ibc_conn_race:1;
+	unsigned int		ibc_nrx:16;
 	/* scheduled for attention */
-	unsigned short		ibc_scheduled:1;
+	unsigned int		ibc_scheduled:1;
 	/* CQ callback fired */
-	unsigned short		ibc_ready:1;
+	unsigned int		ibc_ready:1;
 	/* time of last send */
 	unsigned long		ibc_last_send;
 	/** link chain for kiblnd_check_conns only */
@@ -1093,6 +1093,7 @@ int  kiblnd_dev_failover(kib_dev_t *dev);
 int  kiblnd_create_peer(lnet_ni_t *ni, kib_peer_t **peerp, lnet_nid_t nid);
 void kiblnd_destroy_peer (kib_peer_t *peer);
 void kiblnd_connect_peer(kib_peer_t *peer);
+void kiblnd_reconnect_peer(kib_peer_t *peer);
 void kiblnd_destroy_dev (kib_dev_t *dev);
 void kiblnd_unlink_peer_locked (kib_peer_t *peer);
 kib_peer_t *kiblnd_find_peer_locked (lnet_nid_t nid);
