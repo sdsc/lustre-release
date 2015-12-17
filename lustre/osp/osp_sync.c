@@ -1532,9 +1532,11 @@ static int osp_sync_id_traction_init(struct osp_device *d)
 	mutex_lock(&osp_id_tracker_sem);
 	list_for_each_entry(tr, &osp_id_tracker_list, otr_list) {
 		if (tr->otr_dev == d->opd_storage) {
+			spin_lock(&tr->otr_lock);
 			LASSERT(atomic_read(&tr->otr_refcount));
 			atomic_inc(&tr->otr_refcount);
 			d->opd_syn_tracker = tr;
+			spin_unlock(&tr->otr_lock);
 			found = tr;
 			break;
 		}
@@ -1544,7 +1546,6 @@ static int osp_sync_id_traction_init(struct osp_device *d)
 		rc = -ENOMEM;
 		OBD_ALLOC_PTR(tr);
 		if (tr) {
-			d->opd_syn_tracker = tr;
 			spin_lock_init(&tr->otr_lock);
 			tr->otr_dev = d->opd_storage;
 			tr->otr_next_id = 1;
@@ -1556,7 +1557,10 @@ static int osp_sync_id_traction_init(struct osp_device *d)
 						osp_sync_tracker_commit_cb;
 			tr->otr_tx_cb.dtc_cookie = tr;
 			tr->otr_tx_cb.dtc_tag = LCT_MD_THREAD;
+			d->opd_syn_tracker = tr;
+			spin_lock(&tr->otr_lock);
 			dt_txn_callback_add(d->opd_storage, &tr->otr_tx_cb);
+			spin_unlock(&tr->otr_lock);
 			rc = 0;
 		}
 	}
@@ -1588,16 +1592,21 @@ static void osp_sync_id_traction_fini(struct osp_device *d)
 
 	osp_sync_remove_from_tracker(d);
 
-	mutex_lock(&osp_id_tracker_sem);
+	spin_lock(&tr->otr_lock);
 	if (atomic_dec_and_test(&tr->otr_refcount)) {
 		dt_txn_callback_del(d->opd_storage, &tr->otr_tx_cb);
 		LASSERT(list_empty(&tr->otr_wakeup_list));
+		spin_unlock(&tr->otr_lock);
+
+		mutex_lock(&osp_id_tracker_sem);
 		list_del(&tr->otr_list);
+		mutex_unlock(&osp_id_tracker_sem);
+
 		OBD_FREE_PTR(tr);
 		d->opd_syn_tracker = NULL;
+		RETURN_EXIT;
 	}
-	mutex_unlock(&osp_id_tracker_sem);
-
+	spin_unlock(&tr->otr_lock);
 	EXIT;
 }
 
@@ -1659,10 +1668,12 @@ static void osp_sync_remove_from_tracker(struct osp_device *d)
 	tr = d->opd_syn_tracker;
 	LASSERT(tr);
 
-	if (list_empty(&d->opd_syn_ontrack))
-		return;
-
 	spin_lock(&tr->otr_lock);
+	if (list_empty(&d->opd_syn_ontrack)) {
+		spin_unlock(&tr->otr_lock);
+		return;
+	}
+
 	list_del_init(&d->opd_syn_ontrack);
 	spin_unlock(&tr->otr_lock);
 }
