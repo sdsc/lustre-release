@@ -111,11 +111,11 @@ assert_DIR
 
 MDT0=$($LCTL get_param -n mdc.*.mds_server_uuid |
 	awk '{ gsub(/_UUID/,""); print $1 }' | head -n1)
-LOVNAME=$($LCTL get_param -n llite.*.lov.common_name | tail -n 1)
-OSTCOUNT=$($LCTL get_param -n lov.$LOVNAME.numobd)
+OSTCOUNT=$($LFS osts $MOUNT | grep OST | wc -l)
+LOVNAME=$($LFS getname $MOUNT | awk '{ print $1 }' |
+	  sed "s/$FSNAME--/$FSNAME-clilov-/g")
 STRIPECOUNT=$($LCTL get_param -n lov.$LOVNAME.stripecount)
 STRIPESIZE=$($LCTL get_param -n lov.$LOVNAME.stripesize)
-ORIGFREE=$($LCTL get_param -n lov.$LOVNAME.kbytesavail)
 MAXFREE=${MAXFREE:-$((200000 * $OSTCOUNT))}
 
 [ -f $DIR/d52a/foo ] && chattr -a $DIR/d52a/foo
@@ -1442,6 +1442,8 @@ run_test 27l "check setstripe permissions (should return error)"
 test_27m() {
 	[[ $OSTCOUNT -lt 2 ]] && skip_env "$OSTCOUNT < 2 OSTs -- skipping" &&
 		return
+
+	ORIGFREE=$($LCTL get_param -n lov.$LOVNAME.kbytesavail)
 	if [[ $ORIGFREE -gt $MAXFREE ]]; then
 		skip "$ORIGFREE > $MAXFREE skipping out-of-space test on OST0"
 		return

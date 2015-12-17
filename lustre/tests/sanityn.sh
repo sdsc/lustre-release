@@ -48,8 +48,7 @@ TRACE=${TRACE:-""}
 
 check_and_setup_lustre
 
-LOVNAME=$($LCTL get_param -n llite.*.lov.common_name | tail -n 1)
-OSTCOUNT=$($LCTL get_param -n lov.$LOVNAME.numobd)
+OSTCOUNT=$($LFS osts $MOUNT | grep OST | wc -l)
 
 assert_DIR
 rm -rf $DIR1/[df][0-9]* $DIR1/lnk $DIR/[df].${TESTSUITE}*

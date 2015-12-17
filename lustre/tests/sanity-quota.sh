@@ -74,8 +74,7 @@ export QUOTA_AUTO=0
 
 check_and_setup_lustre
 
-LOVNAME=$(lctl get_param -n llite.*.lov.common_name | tail -n 1)
-OSTCOUNT=$(lctl get_param -n lov.$LOVNAME.numobd)
+OSTCOUNT=$($LFS osts $MOUNT | grep OST | wc -l)
 
 SHOW_QUOTA_USER="$LFS quota -v -u $TSTUSR $DIR"
 SHOW_QUOTA_USERID="$LFS quota -v -u $TSTID $DIR"
