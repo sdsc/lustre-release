@@ -60,8 +60,8 @@
  * between getting its string and using it.
  */
 
-static char      libcfs_nidstrings[LNET_NIDSTR_COUNT][LNET_NIDSTR_SIZE];
-static int       libcfs_nidstring_idx;
+static char	 libcfs_nidstrings[LNET_NIDSTR_COUNT][LNET_NIDSTR_SIZE];
+static int	 libcfs_nidstring_idx;
 
 static DEFINE_SPINLOCK(libcfs_nidstring_lock);
 
@@ -70,7 +70,7 @@ static struct netstrfns *libcfs_namenum2netstrfns(const char *name);
 char *
 libcfs_next_nidstring(void)
 {
-	char          *str;
+	char	      *str;
 	unsigned long  flags;
 
 	spin_lock_irqsave(&libcfs_nidstring_lock, flags);
@@ -88,22 +88,22 @@ EXPORT_SYMBOL(libcfs_next_nidstring);
  * Nid range list syntax.
  * \verbatim
  *
- * <nidlist>         :== <nidrange> [ ' ' <nidrange> ]
- * <nidrange>        :== <addrrange> '@' <net>
- * <addrrange>       :== '*' |
- *                       <ipaddr_range> |
+ * <nidlist>	     :== <nidrange> [ ' ' <nidrange> ]
+ * <nidrange>	     :== <addrrange> '@' <net>
+ * <addrrange>	     :== '*' |
+ *			 <ipaddr_range> |
  *			 <cfs_expr_list>
  * <ipaddr_range>    :== <cfs_expr_list>.<cfs_expr_list>.<cfs_expr_list>.
  *			 <cfs_expr_list>
  * <cfs_expr_list>   :== <number> |
- *                       <expr_list>
- * <expr_list>       :== '[' <range_expr> [ ',' <range_expr>] ']'
+ *			 <expr_list>
+ * <expr_list>	     :== '[' <range_expr> [ ',' <range_expr>] ']'
  * <range_expr>      :== <number> |
- *                       <number> '-' <number> |
- *                       <number> '-' <number> '/' <number>
- * <net>             :== <netname> | <netname><number>
- * <netname>         :== "lo" | "tcp" | "o2ib" | "cib" | "openib" | "iib" |
- *                       "vib" | "ra" | "elan" | "mx" | "ptl"
+ *			 <number> '-' <number> |
+ *			 <number> '-' <number> '/' <number>
+ * <net>	     :== <netname> | <netname><number>
+ * <netname>	     :== "lo" | "tcp" | "o2ib" | "cib" | "openib" | "iib" |
+ *			 "vib" | "ra" | "elan" | "mx" | "ptl"
  * \endverbatim
  */
 
@@ -210,9 +210,11 @@ add_nidrange(const struct cfs_lstr *src,
 		/* network name only, e.g. "elan" or "tcp" */
 		netnum = 0;
 	else {
-		/* e.g. "elan25" or "tcp23", refuse to parse if
+		/*
+		 * e.g. "elan25" or "tcp23", refuse to parse if
 		 * network name is not appended with decimal or
-		 * hexadecimal number */
+		 * hexadecimal number
+		 */
 		if (!cfs_str2num_check(src->ls_str + strlen(nf->nf_name),
 				       endlen, &netnum, 0, MAX_NUMERIC_VALUE))
 			return NULL;
@@ -592,7 +594,7 @@ static bool cfs_num_is_contiguous(struct list_head *nidlist)
 					   &current_end_nid);
 			if (last_end_nid != 0 &&
 			    (current_start_nid - last_end_nid != 1))
-					return false;
+				return false;
 			last_end_nid = current_end_nid;
 			list_for_each_entry(el, &ar->ar_numaddr_ranges,
 					    el_link) {
@@ -642,10 +644,9 @@ static bool cfs_ip_is_contiguous(struct list_head *nidlist)
 					  &current_end_nid);
 			if (last_end_nid != 0 &&
 			    (current_start_nid - last_end_nid != 1))
-					return false;
+				return false;
 			last_end_nid = current_end_nid;
-			list_for_each_entry(el,
-					    &ar->ar_numaddr_ranges,
+			list_for_each_entry(el, &ar->ar_numaddr_ranges,
 					    el_link) {
 				expr_count = 0;
 				list_for_each_entry(re, &el->el_exprs,
@@ -785,12 +786,14 @@ libcfs_ip_addr2str(__u32 addr, char *str, size_t size)
 		 (addr >> 8) & 0xff, addr & 0xff);
 }
 
-/* CAVEAT EMPTOR XscanfX
+/*
+ * CAVEAT EMPTOR XscanfX
  * I use "%n" at the end of a sscanf format to detect trailing junk.  However
  * sscanf may return immediately if it sees the terminating '0' in a string, so
  * I initialise the %n variable to the expected length.  If sscanf sets it;
  * fine, if it doesn't, then the scan ended at the end of the string, which is
- * fine too :) */
+ * fine too :)
+ */
 static int
 libcfs_ip_str2addr(const char *str, int nob, __u32 *addr)
 {
@@ -808,6 +811,7 @@ libcfs_ip_str2addr(const char *str, int nob, __u32 *addr)
 		*addr = ((a<<24)|(b<<16)|(c<<8)|d);
 		return 1;
 	}
+
 	return 0;
 }
 
@@ -887,11 +891,6 @@ cfs_ip_addr_match(__u32 addr, struct list_head *list)
 	return i == 4;
 }
 
-/**
- * Print the network part of the nidrange \a nr into the specified \a buffer.
- *
- * \retval number of characters written
- */
 static void
 libcfs_decnum_addr2str(__u32 addr, char *str, size_t size)
 {
@@ -901,7 +900,7 @@ libcfs_decnum_addr2str(__u32 addr, char *str, size_t size)
 static int
 libcfs_num_str2addr(const char *str, int nob, __u32 *addr)
 {
-	int     n;
+	int	n;
 
 	n = nob;
 	if (sscanf(str, "0x%x%n", addr, &n) >= 1 && n == nob)
@@ -1040,7 +1039,7 @@ static struct netstrfns *
 libcfs_namenum2netstrfns(const char *name)
 {
 	struct netstrfns *nf;
-	int               i;
+	int		  i;
 
 	for (i = 0; i < libcfs_nnetstrfns; i++) {
 		nf = &libcfs_netstrfns[i];
@@ -1162,10 +1161,10 @@ EXPORT_SYMBOL(libcfs_nid2str_r);
 static struct netstrfns *
 libcfs_str2net_internal(const char *str, __u32 *net)
 {
-	struct netstrfns *nf = NULL;
-	int		  nob;
-	unsigned int	  netnum;
-	int		  i;
+	struct netstrfns *uninitialized_var(nf);
+	int nob;
+	unsigned int netnum;
+	int i;
 
 	for (i = 0; i < libcfs_nnetstrfns; i++) {
 		nf = &libcfs_netstrfns[i];
@@ -1210,10 +1209,10 @@ EXPORT_SYMBOL(libcfs_str2net);
 lnet_nid_t
 libcfs_str2nid(const char *str)
 {
-	const char       *sep = strchr(str, '@');
+	const char	 *sep = strchr(str, '@');
 	struct netstrfns *nf;
-	__u32             net;
-	__u32             addr;
+	__u32		  net;
+	__u32		  addr;
 
 	if (sep != NULL) {
 		nf = libcfs_str2net_internal(sep + 1, &net);

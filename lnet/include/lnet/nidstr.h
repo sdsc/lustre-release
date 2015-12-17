@@ -33,8 +33,10 @@
  *  Lustre Network Driver types.
  */
 enum {
-	/* Only add to these values (i.e. don't ever change or redefine them):
-	 * network addresses depend on them... */
+	/*
+	 * Only add to these values (i.e. don't ever change or redefine them):
+	 * network addresses depend on them...
+	 */
 	QSWLND		= 1,
 	SOCKLND		= 2,
 	GMLND		= 3,
@@ -54,7 +56,7 @@ enum {
 struct list_head;
 
 #define LNET_NIDSTR_COUNT  1024    /* # of nidstrings */
-#define LNET_NIDSTR_SIZE   32      /* size of each one (see below for usage) */
+#define LNET_NIDSTR_SIZE   32	   /* size of each one (see below for usage) */
 
 /* support decl needed by both kernel and user space */
 char *libcfs_next_nidstring(void);
