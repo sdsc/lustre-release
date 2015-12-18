@@ -55,12 +55,12 @@ lstcon_rpc_done(srpc_client_rpc_t *rpc)
 {
 	lstcon_rpc_t *crpc = (lstcon_rpc_t *)rpc->crpc_priv;
 
-	LASSERT(crpc != NULL && rpc == crpc->crp_rpc);
+	LASSERT(crpc && rpc == crpc->crp_rpc);
 	LASSERT(crpc->crp_posted && !crpc->crp_finished);
 
 	spin_lock(&rpc->crpc_lock);
 
-	if (crpc->crp_trans == NULL) {
+	if (!crpc->crp_trans) {
 		/* Orphan RPC is not in any transaction,
 		 * I'm just a poor body and nobody loves me */
 		spin_unlock(&rpc->crpc_lock);
@@ -95,7 +95,7 @@ lstcon_rpc_init(lstcon_node_t *nd, int service, unsigned feats,
 	crpc->crp_rpc = sfw_create_rpc(nd->nd_id, service,
 				       feats, bulk_npg, bulk_len,
 				       lstcon_rpc_done, (void *)crpc);
-	if (crpc->crp_rpc == NULL)
+	if (!crpc->crp_rpc)
 		return -ENOMEM;
 
 	crpc->crp_trans	   = NULL;
@@ -130,9 +130,9 @@ lstcon_rpc_prep(lstcon_node_t *nd, int service, unsigned feats,
 
 	spin_unlock(&console_session.ses_rpc_lock);
 
-	if (crpc == NULL) {
+	if (!crpc) {
 		LIBCFS_ALLOC(crpc, sizeof(*crpc));
-		if (crpc == NULL)
+		if (!crpc)
 			return -ENOMEM;
 	}
 
@@ -156,7 +156,7 @@ lstcon_rpc_put(lstcon_rpc_t *crpc)
 	LASSERT(list_empty(&crpc->crp_link));
 
 	for (i = 0; i < bulk->bk_niov; i++) {
-		if (bulk->bk_iovs[i].kiov_page == NULL)
+		if (!bulk->bk_iovs[i].kiov_page)
 			continue;
 
 		__free_page(bulk->bk_iovs[i].kiov_page);
@@ -1199,7 +1199,7 @@ lstcon_rpc_pinger(void *arg)
 
 	trans = console_session.ses_ping;
 
-	LASSERT(trans != NULL);
+	LASSERT(trans);
 
 	list_for_each_entry(ndl, &console_session.ses_ndl_list, ndl_link) {
 		nd = ndl->ndl_node;
@@ -1224,7 +1224,7 @@ lstcon_rpc_pinger(void *arg)
 
                 crpc = &nd->nd_ping;
 
-		if (crpc->crp_rpc != NULL) {
+		if (crpc->crp_rpc) {
 			LASSERT(crpc->crp_trans == trans);
 			LASSERT(!list_empty(&crpc->crp_link));
 
