@@ -876,6 +876,9 @@ static int nrs_orr_res_get(struct ptlrpc_nrs_policy *policy,
 	if (orro == NULL)
 		RETURN(-ENOMEM);
 
+	LASSERTF(hlist_unhashed(&orro->od_hnode), "hnode = %p\n",
+		 &orro->od_hnode);
+
 	orro->oo_key = key;
 	orro->oo_ref = 1;
 
