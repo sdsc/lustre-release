@@ -828,7 +828,7 @@ int ofd_fid_init(const struct lu_env *env, struct ofd_device *ofd)
 	if (ss->ss_server_seq == NULL)
 		GOTO(out_free, rc = -ENOMEM);
 
-	OBD_ALLOC(name, strlen(obd_name) + 10);
+	OBD_ALLOC(name, sizeof(obd_name) * 2 + 10);
 	if (!name) {
 		OBD_FREE_PTR(ss->ss_server_seq);
 		ss->ss_server_seq = NULL;
@@ -847,15 +847,13 @@ int ofd_fid_init(const struct lu_env *env, struct ofd_device *ofd)
 	if (ss->ss_client_seq == NULL)
 		GOTO(out_free, rc = -ENOMEM);
 
-	snprintf(name, strlen(obd_name) + 6, "%p-super", obd_name);
+	snprintf(name, sizeof(obd_name) * 2 + 6, "%p-super", obd_name);
 	rc = seq_client_init(ss->ss_client_seq, NULL, LUSTRE_SEQ_DATA,
 			     name, NULL);
 	if (rc) {
 		CERROR("%s : seq client init error %d\n", obd_name, rc);
 		GOTO(out_free, rc);
 	}
-	OBD_FREE(name, strlen(obd_name) + 10);
-	name = NULL;
 
 	rc = seq_server_set_cli(env, ss->ss_server_seq, ss->ss_client_seq);
 
@@ -872,12 +870,9 @@ out_free:
 			OBD_FREE_PTR(ss->ss_client_seq);
 			ss->ss_client_seq = NULL;
 		}
-
-		if (name) {
-			OBD_FREE(name, strlen(obd_name) + 10);
-			name = NULL;
-		}
 	}
+	if (name)
+		OBD_FREE(name, sizeof(obd_name) * 2 + 10);
 
 	return rc;
 }
