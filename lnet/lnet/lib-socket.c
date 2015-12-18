@@ -66,10 +66,10 @@ kernel_sock_unlocked_ioctl(struct file *filp, int cmd, unsigned long arg)
 static int
 lnet_sock_ioctl(int cmd, unsigned long arg)
 {
-	struct file    *sock_filp;
-	struct socket  *sock;
-	int		fd = -1;
-	int		rc;
+	struct file *sock_filp;
+	struct socket *sock;
+	int fd = -1;
+	int rc;
 
 	rc = sock_create(PF_INET, SOCK_STREAM, 0, &sock);
 	if (rc != 0) {
@@ -147,7 +147,6 @@ lnet_ipif_query(char *name, int *up, __u32 *ip, __u32 *mask)
 
 	ifr.ifr_addr.sa_family = AF_INET;
 	rc = lnet_sock_ioctl(SIOCGIFADDR, (unsigned long)&ifr);
-
 	if (rc != 0) {
 		CERROR("Can't get IP address for interface %s\n", name);
 		return rc;
@@ -208,8 +207,8 @@ lnet_ipif_enumerate(char ***namesp)
 		if (nalloc * sizeof(*ifr) > PAGE_CACHE_SIZE) {
 			toobig = 1;
 			nalloc = PAGE_CACHE_SIZE/sizeof(*ifr);
-			CWARN("Too many interfaces: only enumerating "
-			      "first %d\n", nalloc);
+			CWARN("Too many interfaces: only enumerating first %d\n",
+			      nalloc);
 		}
 
 		LIBCFS_ALLOC(ifr, nalloc * sizeof(*ifr));
@@ -292,9 +291,10 @@ lnet_sock_write(struct socket *sock, void *buffer, int nob, int timeout)
 	struct timeval	tv;
 
 	LASSERT(nob > 0);
-	/* Caller may pass a zero timeout if she thinks the socket buffer is
-	 * empty enough to take the whole message immediately */
-
+	/*
+	 * Caller may pass a zero timeout if she thinks the socket buffer is
+	 * empty enough to take the whole message immediately
+	 */
 	for (;;) {
 		struct kvec  iov = {
 			.iov_base = buffer,
@@ -318,8 +318,7 @@ lnet_sock_write(struct socket *sock, void *buffer, int nob, int timeout)
 			rc = kernel_setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO,
 					       (char *)&tv, sizeof(tv));
 			if (rc != 0) {
-				CERROR("Can't set socket send timeout "
-				       "%ld.%06d: %d\n",
+				CERROR("Can't set socket send timeout %ld.%06d: %d\n",
 				       (long)tv.tv_sec, (int)tv.tv_usec, rc);
 				return rc;
 			}
@@ -409,8 +408,8 @@ lnet_sock_read(struct socket *sock, void *buffer, int nob, int timeout)
 EXPORT_SYMBOL(lnet_sock_read);
 
 static int
-lnet_sock_create(struct socket **sockp, int *fatal,
-		 __u32 local_ip, int local_port)
+lnet_sock_create(struct socket **sockp, int *fatal, __u32 local_ip,
+		 int local_port)
 {
 	struct sockaddr_in  locaddr;
 	struct socket	   *sock;
@@ -534,8 +533,8 @@ lnet_sock_getbuf(struct socket *sock, int *txbufsize, int *rxbufsize)
 EXPORT_SYMBOL(lnet_sock_getbuf);
 
 int
-lnet_sock_listen(struct socket **sockp,
-		   __u32 local_ip, int local_port, int backlog)
+lnet_sock_listen(struct socket **sockp, __u32 local_ip, int local_port,
+		 int backlog)
 {
 	int	 fatal;
 	int	 rc;
@@ -571,8 +570,10 @@ lnet_sock_accept(struct socket **newsockp, struct socket *sock)
 	struct socket *newsock;
 	int	       rc;
 
-	/* XXX this should add a ref to sock->ops->owner, if
-	 * TCP could be a module */
+	/*
+	 * XXX this should add a ref to sock->ops->owner, if
+	 * TCP could be a module
+	 */
 	rc = sock_create_lite(PF_PACKET, sock->type, IPPROTO_TCP, &newsock);
 	if (rc) {
 		CERROR("Can't allocate socket\n");
@@ -604,9 +605,8 @@ failed:
 }
 
 int
-lnet_sock_connect(struct socket **sockp, int *fatal,
-		  __u32 local_ip, int local_port,
-		  __u32 peer_ip, int peer_port)
+lnet_sock_connect(struct socket **sockp, int *fatal, __u32 local_ip,
+		  int local_port, __u32 peer_ip, int peer_port)
 {
 	struct sockaddr_in  srvaddr;
 	int		    rc;
@@ -625,10 +625,12 @@ lnet_sock_connect(struct socket **sockp, int *fatal,
 	if (rc == 0)
 		return 0;
 
-	/* EADDRNOTAVAIL probably means we're already connected to the same
+	/*
+	 * EADDRNOTAVAIL probably means we're already connected to the same
 	 * peer/port on the same local port on a differently typed
 	 * connection.	Let our caller retry with a different local
-	 * port... */
+	 * port...
+	 */
 	*fatal = !(rc == -EADDRNOTAVAIL);
 
 	CDEBUG_LIMIT(*fatal ? D_NETERROR : D_NET,
