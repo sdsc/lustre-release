@@ -752,7 +752,16 @@ do {									      \
 		OBD_CPT_VMALLOC(ptr, cptab, cpt, size);			      \
 } while (0)
 
-#define OBD_FREE_LARGE(ptr, size) OBD_FREE(ptr, size)
+#define OBD_FREE_LARGE(ptr, size)					      \
+do {									      \
+	if (is_vmalloc_addr(ptr)) {                                           \
+		OBD_FREE_PRE(ptr, size, "vfreed");			      \
+		vfree(ptr);		                                      \
+		POISON_PTR(ptr);                                              \
+	} else {                                                              \
+		OBD_FREE(ptr, size);					      \
+	}                                                                     \
+} while (0)
 
 #ifdef CONFIG_DEBUG_SLAB
 #define POISON(ptr, c, s) do {} while (0)
@@ -771,13 +780,8 @@ do {									      \
 
 #define OBD_FREE(ptr, size)                                                   \
 do {                                                                          \
-	if (is_vmalloc_addr(ptr)) {                                           \
-		OBD_FREE_PRE(ptr, size, "vfreed");			      \
-		vfree(ptr);		                                      \
-	} else {                                                              \
-		OBD_FREE_PRE(ptr, size, "kfreed");                            \
-		kfree(ptr);                                                   \
-	}                                                                     \
+	OBD_FREE_PRE(ptr, size, "kfreed"); 	                              \
+	kfree(ptr);                 	                                      \
 	POISON_PTR(ptr);                                                      \
 } while(0)
 
