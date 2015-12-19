@@ -83,9 +83,9 @@ static void top_multiple_thandle_dump(struct top_multiple_thandle *tmt,
 	list_for_each_entry(st, &tmt->tmt_sub_thandle_list, st_sub_list) {
 		struct sub_thandle_cookie *stc;
 
-		CDEBUG(mask, "st %p obd %s committed %d sub_th %p\n",
+		CDEBUG(mask, "st %p obd %s committed %d stopped %d sub_th %p\n",
 		       st, st->st_dt->dd_lu_dev.ld_obd->obd_name,
-		       st->st_committed, st->st_sub_th);
+		       st->st_committed, st->st_stopped, st->st_sub_th);
 
 		list_for_each_entry(stc, &st->st_cookie_list, stc_list) {
 			CDEBUG(mask, " cookie "DOSTID": %u\n",
@@ -128,6 +128,17 @@ static int sub_declare_updates_write(const struct lu_env *env,
 		llog_ctxt_put(ctxt);
 		return 0;
 	}
+
+	down_write(&dt->dd_sema);
+	if (dt->dd_need_sync) {
+		rc = llog_cat_update_header(env, ctxt->loc_handle);
+		if (rc != 0) {
+			up_write(&dt->dd_sema);
+			GOTO(out_put, rc);
+		}
+		dt->dd_need_sync = 0;
+	}
+	up_write(&dt->dd_sema);
 
 	rc = llog_declare_add(env, ctxt->loc_handle,
 			      &record->lur_hdr, sub_th);

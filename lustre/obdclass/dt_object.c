@@ -157,6 +157,7 @@ EXPORT_SYMBOL(dt_txn_hook_commit);
 int dt_device_init(struct dt_device *dev, struct lu_device_type *t)
 {
 	INIT_LIST_HEAD(&dev->dd_txn_callbacks);
+	init_rwsem(&dev->dd_sema);
 	return lu_device_init(&dev->dd_lu_dev, t);
 }
 EXPORT_SYMBOL(dt_device_init);

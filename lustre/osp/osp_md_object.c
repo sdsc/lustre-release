@@ -885,6 +885,7 @@ static int osp_md_object_lock(const struct lu_env *env,
 	struct ldlm_res_id	*res_id;
 	struct dt_device	*dt_dev = lu2dt_dev(dt->do_lu.lo_dev);
 	struct osp_device	*osp = dt2osp_dev(dt_dev);
+	struct lu_device	*top_device;
 	struct ptlrpc_request	*req;
 	int			rc = 0;
 	__u64			flags = 0;
@@ -906,6 +907,15 @@ static int osp_md_object_lock(const struct lu_env *env,
 	req = ldlm_enqueue_pack(osp->opd_exp, 0);
 	if (IS_ERR(req))
 		RETURN(PTR_ERR(req));
+
+	/* During recovery, it needs to let OSP send enqueue
+	 * without checking recoverying status, in case the
+	 * other target is being recovered at the same time,
+	 * and if we wait here for the import to be recovered,
+	 * it might cause deadlock */
+	top_device = dt_dev->dd_lu_dev.ld_site->ls_top_dev;
+	if (top_device->ld_obd->obd_recovering)
+		req->rq_allow_replay = 1;
 
 	rc = ldlm_cli_enqueue(osp->opd_exp, &req, einfo, res_id,
 			      (const union ldlm_policy_data *)policy,
@@ -1089,13 +1099,17 @@ static ssize_t osp_md_write(const struct lu_env *env, struct dt_object *dt,
 	update = thandle_to_osp_update_request(th);
 	LASSERT(update != NULL);
 
+	CDEBUG(D_INFO, "write "DFID" offset = "LPU64" length = %zu\n",
+	       PFID(lu_object_fid(&dt->do_lu)), *pos, buf->lb_len);
+
 	rc = osp_update_rpc_pack(env, write, update, OUT_WRITE,
 				 lu_object_fid(&dt->do_lu), buf, *pos);
 	if (rc < 0)
 		RETURN(rc);
 
-	CDEBUG(D_INFO, "write "DFID" offset = "LPU64" length = %zu\n",
-	       PFID(lu_object_fid(&dt->do_lu)), *pos, buf->lb_len);
+	rc = osp_check_and_set_rpc_version(oth);
+	if (rc < 0)
+		RETURN(rc);
 
 	/* XXX: how about the write error happened later? */
 	*pos += buf->lb_len;
@@ -1104,10 +1118,6 @@ static ssize_t osp_md_write(const struct lu_env *env, struct dt_object *dt,
 	    obj->opo_ooa->ooa_attr.la_valid & LA_SIZE &&
 	    obj->opo_ooa->ooa_attr.la_size < *pos)
 		obj->opo_ooa->ooa_attr.la_size = *pos;
-
-	rc = osp_check_and_set_rpc_version(oth);
-	if (rc < 0)
-		RETURN(rc);
 
 	RETURN(buf->lb_len);
 }
@@ -1146,6 +1156,9 @@ static ssize_t osp_md_read(const struct lu_env *env, struct dt_object *dt,
 		GOTO(out, rc);
 	}
 
+	CDEBUG(D_INFO, "%s "DFID" read offset %llu size %zu\n",
+	       dt_dev->dd_lu_dev.ld_obd->obd_name,
+	       PFID(lu_object_fid(&dt->do_lu)), *pos, rbuf->lb_len);
 	rc = osp_prep_update_req(env, osp->opd_obd->u.cli.cl_import, update,
 				 &req);
 	if (rc != 0)
