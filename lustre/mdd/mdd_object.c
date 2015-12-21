@@ -71,6 +71,26 @@ int mdd_la_get(const struct lu_env *env, struct mdd_object *obj,
                 return -ENOENT;
         }
 
+	/* Check the ORPHAN status of the object, because orphan flag has
+	 * been marked to local object in mdd_mark_dead_object(), let's
+	 * only check it for remote directory for now */
+	if (S_ISDIR(mdd_object_type(obj)) && mdd_object_remote(obj) &&
+	    !mdd_is_dead_obj(obj)) {
+		struct lustre_mdt_attrs *lma;
+		struct lu_buf *lbuf;
+		struct mdd_thread_info *info = mdd_env_info(env);
+		int rc;
+
+		lbuf = mdd_buf_get(env, info->mti_xattr_buf,
+				   sizeof(info->mti_xattr_buf));
+		rc = mdo_xattr_get(env, obj, lbuf, XATTR_NAME_LMA);
+		if (rc > 0) {
+			lma = lbuf->lb_buf;
+			lma->lma_incompat = le32_to_cpu(lma->lma_incompat);
+			if (lma->lma_incompat & LMAI_DEAD)
+				obj->mod_flags |= DEAD_OBJ;
+		}
+	}
 	return mdo_attr_get(env, obj, la);
 }
 

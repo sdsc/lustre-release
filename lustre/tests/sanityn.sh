@@ -3435,6 +3435,19 @@ test_91() {
 }
 run_test 91 "chmod and unlink striped directory"
 
+test_92() {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+
+	mkdir $DIR1/$tdir || error "mkdir $tdir fails"
+	exec 7<$DIR1/$tdir || error "exec 7>$tdir fails"
+	cd $DIR1/$tdir || error "cd $DIR1/$tdir fails"
+	rmdir ../$tdir || error "rmdir ../$tdir fails"
+	$LFS setdirstripe -i1 $DIR2/$tdir/remote_dir &&
+		error "create remote dir succeeds"
+	exec 7>&- || error "close dir fails"
+}
+run_test 92 "create remote directory under orphan directory"
+
 log "cleanup: ======================================================"
 
 [ "$(mount | grep $MOUNT2)" ] && umount $MOUNT2

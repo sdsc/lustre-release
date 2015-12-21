@@ -1087,9 +1087,11 @@ static int lod_mark_dead_object(const struct lu_env *env,
 				struct thandle *th,
 				bool declare)
 {
+	struct dt_object  *next = dt_object_child(dt);
 	struct lod_object	*lo = lod_dt_obj(dt);
 	struct lmv_mds_md_v1	*lmv;
 	__u32			dead_hash_type;
+	struct lu_buf buf;
 	int			rc;
 	int			i;
 
@@ -1102,8 +1104,32 @@ static int lod_mark_dead_object(const struct lu_env *env,
 	if (rc != 0)
 		RETURN(rc);
 
-	if (lo->ldo_stripenr == 0)
-		RETURN(0);
+	if (lo->ldo_stripenr == 0) {
+		struct lustre_mdt_attrs *lma;
+
+		rc = lod_get_ea(env, lo, XATTR_NAME_LMA);
+		if (rc <= 0)
+			RETURN(rc);
+
+		lma = lod_env_info(env)->lti_ea_store;
+		lma->lma_incompat = le32_to_cpu(lma->lma_incompat);
+		lma->lma_incompat |= LMAI_DEAD;
+		lma->lma_incompat = cpu_to_le32(lma->lma_incompat);
+
+		buf.lb_buf = lma;
+		buf.lb_len = sizeof(*lma);
+		if (declare) {
+			rc = lod_sub_object_declare_xattr_set(env,
+						next, &buf,
+						XATTR_NAME_LMA,
+						LU_XATTR_REPLACE, th);
+		} else {
+			rc = lod_sub_object_xattr_set(env, next,
+						      &buf, XATTR_NAME_LMA,
+						      LU_XATTR_REPLACE, th);
+		}
+		RETURN(rc);
+	}
 
 	rc = lod_get_lmv_ea(env, lo);
 	if (rc <= 0)
@@ -1114,8 +1140,6 @@ static int lod_mark_dead_object(const struct lu_env *env,
 	dead_hash_type = le32_to_cpu(lmv->lmv_hash_type) | LMV_HASH_FLAG_DEAD;
 	lmv->lmv_hash_type = cpu_to_le32(dead_hash_type);
 	for (i = 0; i < lo->ldo_stripenr; i++) {
-		struct lu_buf buf;
-
 		lmv->lmv_master_mdt_index = i;
 		buf.lb_buf = lmv;
 		buf.lb_len = sizeof(*lmv);

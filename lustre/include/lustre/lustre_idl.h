@@ -213,6 +213,7 @@ enum lma_incompat {
 	LMAI_REMOTE_PARENT	= 0x00000004, /* the parent of the object
 						 is on the remote MDT */
 	LMAI_STRIPED		= 0x00000008, /* striped directory inode */
+	LMAI_DEAD		= 0x00000010, /* inode is dead */
 };
 #define LMA_INCOMPAT_SUPP	(LMAI_AGENT | LMAI_REMOTE_PARENT | LMAI_STRIPED)
 
