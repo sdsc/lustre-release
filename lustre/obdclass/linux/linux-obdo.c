@@ -93,6 +93,7 @@ void obdo_from_la(struct obdo *dst, const struct lu_attr *la, u64 valid)
         }
 	if (valid & LA_FLAGS) {
 		dst->o_flags = la->la_flags;
+		dst->o_extra_flags = la->la_extra_flags;
 		newvalid |= OBD_MD_FLFLAGS;
 	}
 	dst->o_valid |= newvalid;
@@ -146,6 +147,7 @@ void la_from_obdo(struct lu_attr *dst, const struct obdo *obdo, u64 valid)
         }
 	if (valid & OBD_MD_FLFLAGS) {
 		dst->la_flags = obdo->o_flags;
+		dst->la_extra_flags = obdo->o_extra_flags;
 		newvalid |= LA_FLAGS;
 	}
 	dst->la_valid = newvalid;

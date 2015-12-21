@@ -1855,10 +1855,33 @@ static struct timespec *osd_inode_time(const struct lu_env *env,
 	return t;
 }
 
+static __u32 osd_inode_lma_flags_to_extra_flags(__u32 lma_flags)
+{
+	__u32 flags = 0;
+
+	if (lma_flags & LMAI_DEAD)
+		flags |= LUSTRE_DEAD_FL;
+
+	return flags;
+}
+
+static __u32 osd_inode_extra_flags_to_lma_flags(__u32 la_flags)
+{
+	__u32 flags = 0;
+
+	if (la_flags & LUSTRE_DEAD_FL)
+		flags |= LMAI_DEAD;
+
+	return flags;
+}
 
 static void osd_inode_getattr(const struct lu_env *env,
 			      struct inode *inode, struct lu_attr *attr)
 {
+	struct osd_thread_info *info = osd_oti_get(env);
+	struct lustre_mdt_attrs	*lma = &info->oti_mdt_attrs;
+	int rc;
+
 	attr->la_valid	|= LA_ATIME | LA_MTIME | LA_CTIME | LA_MODE |
 			   LA_SIZE | LA_BLOCKS | LA_UID | LA_GID |
 			   LA_FLAGS | LA_NLINK | LA_RDEV | LA_BLKSIZE |
@@ -1877,6 +1900,12 @@ static void osd_inode_getattr(const struct lu_env *env,
 	attr->la_rdev	 = inode->i_rdev;
 	attr->la_blksize = 1 << inode->i_blkbits;
 	attr->la_blkbits = inode->i_blkbits;
+
+	attr->la_extra_flags = 0;
+	rc = osd_get_lma(info, inode, &info->oti_obj_dentry, lma);
+	if (rc == 0)
+		attr->la_extra_flags =
+			osd_inode_lma_flags_to_extra_flags(lma->lma_incompat);
 }
 
 static int osd_attr_get(const struct lu_env *env,
@@ -1924,6 +1953,9 @@ static int osd_declare_attr_set(const struct lu_env *env,
 
 	osd_trans_declare_op(env, oh, OSD_OT_ATTR_SET,
 			     osd_dto_credits_noquota[DTO_ATTR_SET_BASE]);
+
+	osd_trans_declare_op(env, oh, OSD_OT_XATTR_SET,
+			     osd_dto_credits_noquota[DTO_XATTR_SET]);
 
 	if (attr == NULL || obj->oo_inode == NULL)
 		RETURN(rc);
@@ -2170,8 +2202,30 @@ static int osd_attr_set(const struct lu_env *env,
 	rc = osd_inode_setattr(env, inode, attr);
 	spin_unlock(&obj->oo_guard);
 
-        if (!rc)
+	if (rc == 0) {
 		ll_dirty_inode(inode, I_DIRTY_DATASYNC);
+		if (attr->la_valid & LA_FLAGS && attr->la_extra_flags != 0) {
+			struct osd_thread_info *info = osd_oti_get(env);
+			struct lustre_mdt_attrs *lma = &info->oti_mdt_attrs;
+			__u32 lma_flags;
+			int rc1;
+
+			rc1 = osd_get_lma(info, inode, &info->oti_obj_dentry,
+					 lma);
+			if (rc1 == 0) {
+				lma_flags = osd_inode_extra_flags_to_lma_flags(
+							attr->la_extra_flags);
+				lma->lma_incompat |= lma_flags;
+				lustre_lma_swab(lma);
+				rc1 = __osd_xattr_set(info, inode,
+						     XATTR_NAME_LMA,
+						     lma, sizeof(*lma),
+						     XATTR_REPLACE);
+				osd_trans_exec_check(env, handle,
+						     OSD_OT_XATTR_SET);
+			}
+		}
+	}
 
 	osd_trans_exec_check(env, handle, OSD_OT_ATTR_SET);
 
