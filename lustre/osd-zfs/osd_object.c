@@ -180,6 +180,26 @@ osd_object_sa_bulk_update(struct osd_object *obj, sa_bulk_attr_t *attrs,
 	return rc;
 }
 
+static __u32 osd_lma_flags_to_extra_flags(__u32 lma_flags)
+{
+	__u32 flags = 0;
+
+	if (lma_flags & LMAI_DEAD)
+		flags |= LUSTRE_LMA_DEAD_FL;
+
+	return flags;
+}
+
+static __u32 osd_extra_flags_to_lma_flags(__u32 la_flags)
+{
+	__u32 flags = 0;
+
+	if (la_flags & LUSTRE_LMA_DEAD_FL)
+		flags |= LMAI_DEAD;
+
+	return flags;
+}
+
 /*
  * Retrieve the attributes of a DMU object
  */
@@ -230,6 +250,28 @@ int __osd_object_attr_get(const struct lu_env *env, struct osd_device *o,
 	la->la_nlink = osa->nlink;
 	la->la_flags = attrs_zfs2fs(osa->flags);
 	la->la_size = osa->size;
+
+	/* Try to get extra flag from LMA. Right now, only LMAI_DEAD
+	 * flags is stroed in LMA, and it is only for orphan directory*/
+	la->la_extra_flags = 0;
+	if (S_ISDIR(la->la_mode) && dt_object_exists(&obj->oo_dt)) {
+		struct osd_thread_info *info = osd_oti_get(env);
+		struct lustre_mdt_attrs *lma;
+		struct lu_buf		buf;
+
+		lma = (struct lustre_mdt_attrs *)info->oti_buf;
+		buf.lb_buf = lma;
+		buf.lb_len = sizeof(info->oti_buf);
+		rc = osd_xattr_get(env, &obj->oo_dt, &buf, XATTR_NAME_LMA);
+		if (rc > 0) {
+			rc = 0;
+			lma->lma_incompat = le32_to_cpu(lma->lma_incompat);
+			la->la_extra_flags =
+				osd_lma_flags_to_extra_flags(lma->lma_incompat);
+		} else if (rc == -ENODATA) {
+			rc = 0;
+		}
+	}
 
 	if (S_ISCHR(la->la_mode) || S_ISBLK(la->la_mode)) {
 		rc = -sa_lookup(sa_hdl, SA_ZPL_RDEV(o), &osa->rdev, 8);
@@ -837,6 +879,9 @@ static int osd_declare_attr_set(const struct lu_env *env,
 	sa_object_size(obj->oo_sa_hdl, &blksize, &bspace);
 	bspace = toqb(bspace * blksize);
 
+	__osd_xattr_declare_set(env, obj, sizeof(struct lustre_mdt_attrs),
+				XATTR_NAME_LMA, oh);
+
 	if (attr && attr->la_valid & LA_UID) {
 		/* account for user inode tracking ZAP update */
 		dmu_tx_hold_bonus(oh->ot_tx, osd->od_iusr_oid);
@@ -881,10 +926,11 @@ static int osd_declare_attr_set(const struct lu_env *env,
 static int osd_attr_set(const struct lu_env *env, struct dt_object *dt,
 			const struct lu_attr *la, struct thandle *handle)
 {
+	struct osd_thread_info	*info = osd_oti_get(env);
 	struct osd_object	*obj = osd_dt_obj(dt);
 	struct osd_device	*osd = osd_obj2dev(obj);
 	struct osd_thandle	*oh;
-	struct osa_attr		*osa = &osd_oti_get(env)->oti_osa;
+	struct osa_attr		*osa = &info->oti_osa;
 	sa_bulk_attr_t		*bulk;
 	__u64			 valid = la->la_valid;
 	int			 cnt;
@@ -907,6 +953,37 @@ static int osd_attr_set(const struct lu_env *env, struct dt_object *dt,
 
 	if (valid == 0)
 		RETURN(0);
+
+	if (valid & LA_FLAGS && la->la_extra_flags != 0) {
+		struct lustre_mdt_attrs *lma;
+		struct lu_buf buf;
+
+		CLASSERT(sizeof(info->oti_buf) >= sizeof(*lma));
+		lma = (struct lustre_mdt_attrs *)&info->oti_buf;
+		buf.lb_buf = lma;
+		buf.lb_len = sizeof(info->oti_buf);
+		rc = osd_xattr_get(env, &obj->oo_dt, &buf, XATTR_NAME_LMA);
+		if (rc > 0) {
+			lma->lma_incompat = le32_to_cpu(lma->lma_incompat);
+			lma->lma_incompat |=
+				osd_extra_flags_to_lma_flags(
+						la->la_extra_flags);
+			lma->lma_incompat = cpu_to_le32(lma->lma_incompat);
+			buf.lb_buf = lma;
+			buf.lb_len = sizeof(*lma);
+			rc = osd_xattr_set_internal(env, obj, &buf,
+						    XATTR_NAME_LMA,
+						    LU_XATTR_REPLACE, oh);
+			if (rc == 0)
+				obj->oo_attr.la_extra_flags =
+							la->la_extra_flags;
+		}
+		if (rc < 0) {
+			CERROR("%s failed to get LMA: rc = %d\n",
+			       osd->od_svname, rc);
+			RETURN(rc);
+		}
+	}
 
 	OBD_ALLOC(bulk, sizeof(sa_bulk_attr_t) * 10);
 	if (bulk == NULL)

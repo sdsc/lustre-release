@@ -1427,7 +1427,7 @@ static int mdd_mark_dead_object(const struct lu_env *env,
 		return 0;
 
 	attr->la_valid = LA_FLAGS;
-	attr->la_flags = LUSTRE_SLAVE_DEAD_FL;
+	attr->la_extra_flags = LUSTRE_LMA_DEAD_FL;
 
 	if (declare)
 		rc = mdo_declare_attr_set(env, obj, attr, handle);

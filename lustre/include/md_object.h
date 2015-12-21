@@ -295,6 +295,9 @@ struct md_object {
  * stored in slave LMV EA (see lod_mark_dead_object), which is only
  * temporary, and will be removed later when we have proper way to mark
  * the dead object. */
+/* Since lustre 2.8, DEAD flag will be stored in LMA, so this flag
+ * will be obsolete. Keep this flag just in case LFSCK still find
+ * such flags in old FS XXX */
 #define LUSTRE_SLAVE_DEAD_FL		0x80000000
 
 static inline struct md_device *lu2md_dev(const struct lu_device *d)
