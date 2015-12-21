@@ -431,6 +431,7 @@ struct lu_attr {
         __u32          la_blksize;
         /** real device */
         __u32          la_rdev;
+
         /**
          * valid bits
          *

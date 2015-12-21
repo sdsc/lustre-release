@@ -128,7 +128,8 @@ struct osd_object {
 	/** protects inode attributes. */
 	spinlock_t		oo_guard;
 
-	__u32			oo_destroyed:1;
+	__u32			oo_destroyed:1,
+				oo_orphan:1;
         /**
          * Following two members are used to indicate the presence of dot and
          * dotdot in the given directory. This is required for interop mode
