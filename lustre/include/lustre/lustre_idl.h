@@ -213,8 +213,11 @@ enum lma_incompat {
 	LMAI_REMOTE_PARENT	= 0x00000004, /* the parent of the object
 						 is on the remote MDT */
 	LMAI_STRIPED		= 0x00000008, /* striped directory inode */
+	LMAI_DEAD		= 0x00000010, /* inode is dead */
+	LMAI_ORPHAN		= 0x00000020, /* inode is orphan */
 };
-#define LMA_INCOMPAT_SUPP	(LMAI_AGENT | LMAI_REMOTE_PARENT | LMAI_STRIPED)
+#define LMA_INCOMPAT_SUPP	(LMAI_AGENT | LMAI_REMOTE_PARENT | \
+				 LMAI_STRIPED | LMAI_DEAD)
 
 extern void lustre_lma_swab(struct lustre_mdt_attrs *lma);
 extern void lustre_lma_init(struct lustre_mdt_attrs *lma,
@@ -2164,6 +2167,11 @@ enum {
 #define LUSTRE_DIRECTIO_FL	0x00100000 /* Use direct i/o */
 #define LUSTRE_INLINE_DATA_FL	0x10000000 /* Inode has inline data. */
 
+
+/* These flags are stored in LMA for lustre specific purpose */
+#define LUSTRE_LMA_DEAD_FL         0x00000001 /* the inode has been deleted */
+#define LUSTRE_LMA_ORPHAN_FL         0x00000002 /* the inode become orphan */
+
 #ifdef __KERNEL__
 /* Convert wire LUSTRE_*_FL to corresponding client local VFS S_* values
  * for the client inode i_flags.  The LUSTRE_*_FL are the Lustre wire
@@ -3471,6 +3479,7 @@ struct obdo {
 #define o_dropped o_misc
 #define o_cksum   o_nlink
 #define o_grant_used o_data_version
+#define o_extra_flags o_misc
 
 struct lfsck_request {
 	__u32		lr_event;

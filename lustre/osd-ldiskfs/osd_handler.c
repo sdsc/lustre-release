@@ -1855,6 +1855,29 @@ static struct timespec *osd_inode_time(const struct lu_env *env,
 	return t;
 }
 
+static __u32 osd_inode_lma_incompat_to_extra_flags(__u32 lma_incompat)
+{
+	__u32 flags = 0;
+
+	if (lma_incompat & LMAI_DEAD)
+		flags |= LUSTRE_LMA_DEAD_FL;
+
+	if (lma_incompat & LMAI_ORPHAN)
+		flags |= LUSTRE_LMA_ORPHAN_FL;
+
+	return flags;
+}
+
+static void osd_inode_pack_extra_flags(struct lustre_mdt_attrs *lma,
+				    __u32 la_extra_flags)
+{
+	/* pack extra flags to lma_incompat */
+	if (la_extra_flags & LUSTRE_LMA_DEAD_FL)
+		lma->lma_incompat |= LMAI_DEAD;
+
+	if (la_extra_flags & LUSTRE_LMA_ORPHAN_FL)
+		lma->lma_incompat |= LMAI_ORPHAN;
+}
 
 static void osd_inode_getattr(const struct lu_env *env,
 			      struct inode *inode, struct lu_attr *attr)
@@ -1883,7 +1906,10 @@ static int osd_attr_get(const struct lu_env *env,
 			struct dt_object *dt,
 			struct lu_attr *attr)
 {
+	struct osd_thread_info *info = osd_oti_get(env);
+	struct lustre_mdt_attrs	*lma = &info->oti_mdt_attrs;
 	struct osd_object *obj = osd_dt_obj(dt);
+	int rc;
 
 	if (!dt_object_exists(dt))
 		return -ENOENT;
@@ -1894,6 +1920,15 @@ static int osd_attr_get(const struct lu_env *env,
 	spin_lock(&obj->oo_guard);
 	osd_inode_getattr(env, obj->oo_inode, attr);
 	spin_unlock(&obj->oo_guard);
+
+	/* retrieve extra flags from LMA */
+	attr->la_extra_flags = 0;
+	rc = osd_get_lma(info, obj->oo_inode, &info->oti_obj_dentry, lma);
+	if (rc == 0)
+		attr->la_extra_flags =
+			osd_inode_lma_incompat_to_extra_flags(
+				lma->lma_incompat);
+
 	return 0;
 }
 
@@ -1924,6 +1959,9 @@ static int osd_declare_attr_set(const struct lu_env *env,
 
 	osd_trans_declare_op(env, oh, OSD_OT_ATTR_SET,
 			     osd_dto_credits_noquota[DTO_ATTR_SET_BASE]);
+
+	osd_trans_declare_op(env, oh, OSD_OT_XATTR_SET,
+			     osd_dto_credits_noquota[DTO_XATTR_SET]);
 
 	if (attr == NULL || obj->oo_inode == NULL)
 		RETURN(rc);
@@ -2170,8 +2208,28 @@ static int osd_attr_set(const struct lu_env *env,
 	rc = osd_inode_setattr(env, inode, attr);
 	spin_unlock(&obj->oo_guard);
 
-        if (!rc)
+	if (rc == 0) {
 		ll_dirty_inode(inode, I_DIRTY_DATASYNC);
+		if (attr->la_valid & LA_FLAGS && attr->la_extra_flags != 0) {
+			struct osd_thread_info *info = osd_oti_get(env);
+			struct lustre_mdt_attrs *lma = &info->oti_mdt_attrs;
+			int rc1;
+
+			rc1 = osd_get_lma(info, inode, &info->oti_obj_dentry,
+					  lma);
+			if (rc1 == 0) {
+				osd_inode_pack_extra_flags(lma,
+							attr->la_extra_flags);
+				lustre_lma_swab(lma);
+				rc1 = __osd_xattr_set(info, inode,
+						     XATTR_NAME_LMA,
+						     lma, sizeof(*lma),
+						     XATTR_REPLACE);
+				osd_trans_exec_check(env, handle,
+						     OSD_OT_XATTR_SET);
+			}
+		}
+	}
 
 	osd_trans_exec_check(env, handle, OSD_OT_ATTR_SET);
 
