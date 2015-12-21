@@ -50,7 +50,7 @@ lnet_configure(void *arg)
 	/* 'arg' only there so I can be passed to cfs_create_thread() */
 	int    rc = 0;
 
-	LNET_MUTEX_LOCK(&lnet_config_mutex);
+	mutex_lock(&lnet_config_mutex);
 
 	if (!the_lnet.ln_niinit_self) {
 		rc = try_module_get(THIS_MODULE);
@@ -68,16 +68,16 @@ lnet_configure(void *arg)
 	}
 
 out:
-	LNET_MUTEX_UNLOCK(&lnet_config_mutex);
+	mutex_unlock(&lnet_config_mutex);
 	return rc;
 }
 
 static int
-lnet_unconfigure (void)
+lnet_unconfigure(void)
 {
 	int   refcount;
 
-	LNET_MUTEX_LOCK(&lnet_config_mutex);
+	mutex_lock(&lnet_config_mutex);
 
 	if (the_lnet.ln_niinit_self) {
 		the_lnet.ln_niinit_self = 0;
@@ -85,12 +85,11 @@ lnet_unconfigure (void)
 		module_put(THIS_MODULE);
 	}
 
-	LNET_MUTEX_LOCK(&the_lnet.ln_api_mutex);
+	mutex_lock(&the_lnet.ln_api_mutex);
 	refcount = the_lnet.ln_refcount;
-	LNET_MUTEX_UNLOCK(&the_lnet.ln_api_mutex);
+	mutex_unlock(&the_lnet.ln_api_mutex);
 
-	LNET_MUTEX_UNLOCK(&lnet_config_mutex);
-
+	mutex_unlock(&lnet_config_mutex);
 	return (refcount == 0) ? 0 : -EBUSY;
 }
 
@@ -101,21 +100,17 @@ lnet_dyn_configure(struct libcfs_ioctl_hdr *hdr)
 	  (struct lnet_ioctl_config_data *)hdr;
 	int			      rc;
 
-	LNET_MUTEX_LOCK(&lnet_config_mutex);
+	mutex_lock(&lnet_config_mutex);
 	if (the_lnet.ln_niinit_self)
 		rc = lnet_dyn_add_ni(LNET_PID_LUSTRE,
 				     conf->cfg_config_u.cfg_net.net_intf,
-				     conf->cfg_config_u.cfg_net.
-					net_peer_timeout,
-				     conf->cfg_config_u.cfg_net.
-					net_peer_tx_credits,
-				     conf->cfg_config_u.cfg_net.
-					net_peer_rtr_credits,
-				     conf->cfg_config_u.cfg_net.
-					net_max_tx_credits);
+				     conf->cfg_config_u.cfg_net.net_peer_timeout,
+				     conf->cfg_config_u.cfg_net.net_peer_tx_credits,
+				     conf->cfg_config_u.cfg_net.net_peer_rtr_credits,
+				     conf->cfg_config_u.cfg_net.net_max_tx_credits);
 	else
 		rc = -EINVAL;
-	LNET_MUTEX_UNLOCK(&lnet_config_mutex);
+	mutex_unlock(&lnet_config_mutex);
 	return rc;
 }
 
@@ -126,12 +121,12 @@ lnet_dyn_unconfigure(struct libcfs_ioctl_hdr *hdr)
 	  (struct lnet_ioctl_config_data *) hdr;
 	int			      rc;
 
-	LNET_MUTEX_LOCK(&lnet_config_mutex);
+	mutex_lock(&lnet_config_mutex);
 	if (the_lnet.ln_niinit_self)
 		rc = lnet_dyn_del_ni(conf->cfg_net);
 	else
 		rc = -EINVAL;
-	LNET_MUTEX_UNLOCK(&lnet_config_mutex);
+	mutex_unlock(&lnet_config_mutex);
 
 	return rc;
 }
@@ -159,9 +154,11 @@ lnet_ioctl(unsigned int cmd, struct libcfs_ioctl_hdr *hdr)
 		return lnet_dyn_unconfigure(hdr);
 
 	default:
-		/* Passing LNET_PID_ANY only gives me a ref if the net is up
+		/*
+		 * Passing LNET_PID_ANY only gives me a ref if the net is up
 		 * already; I'll need it to ensure the net can't go down while
-		 * I'm called into it */
+		 * I'm called into it
+		 */
 		rc = LNetNIInit(LNET_PID_ANY);
 		if (rc >= 0) {
 			rc = LNetCtl(cmd, hdr);
@@ -190,8 +187,10 @@ static int __init lnet_init(void)
 	LASSERT(rc == 0);
 
 	if (config_on_load) {
-		/* Have to schedule a separate thread to avoid deadlocking
-		 * in modload */
+		/*
+		 * Have to schedule a separate thread to avoid deadlocking
+		 * in modload
+		 */
 		(void)kthread_run(lnet_configure, NULL, "lnet_initd");
 	}
 
