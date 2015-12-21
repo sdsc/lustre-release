@@ -466,6 +466,9 @@ static int ll_dir_setdirstripe(struct inode *parent, struct lmv_user_md *lump,
 	    !(exp_connect_flags(sbi->ll_md_exp) & OBD_CONNECT_DIR_STRIPE))
 		RETURN(-EINVAL);
 
+	if (IS_DEADDIR(parent))
+		RETURN(-ENOENT);
+
 	if (lump->lum_magic != cpu_to_le32(LMV_USER_MAGIC))
 		lustre_swab_lmv_user_md(lump);
 

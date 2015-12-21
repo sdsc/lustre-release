@@ -1415,19 +1415,21 @@ out_pending:
 
 static int mdd_mark_dead_object(const struct lu_env *env,
 				struct mdd_object *obj, struct thandle *handle,
-				bool declare)
+				bool declare, __u32 flags)
 {
 	struct lu_attr *attr = MDD_ENV_VAR(env, la_for_start);
 	int rc;
 
+	/* ORPHAN_OBJ is set in orph_index_insert() */
 	if (!declare)
 		obj->mod_flags |= DEAD_OBJ;
 
 	if (!S_ISDIR(mdd_object_type(obj)))
 		return 0;
 
+	/* la_extra_flags will be stored in LMA in osd_attr_set() */
 	attr->la_valid = LA_FLAGS;
-	attr->la_flags = LUSTRE_SLAVE_DEAD_FL;
+	attr->la_extra_flags = flags;
 
 	if (declare)
 		rc = mdo_declare_attr_set(env, obj, attr, handle);
@@ -1443,7 +1445,10 @@ static int mdd_declare_finish_unlink(const struct lu_env *env,
 {
 	int	rc;
 
-	rc = mdd_mark_dead_object(env, obj, handle, true);
+	/* Sigh, we do not know if the unlink object will become orphan in
+	 * declare phase, but unfortunately the flags here does not matter
+	 * in current declare implementation */
+	rc = mdd_mark_dead_object(env, obj, handle, true, LUSTRE_LMA_DEAD_FL);
 	if (rc != 0)
 		return rc;
 
@@ -1466,19 +1471,21 @@ int mdd_finish_unlink(const struct lu_env *env,
 		      struct thandle *th)
 {
 	int rc = 0;
-        int is_dir = S_ISDIR(ma->ma_attr.la_mode);
-        ENTRY;
+	int is_dir = S_ISDIR(ma->ma_attr.la_mode);
+	ENTRY;
 
-        LASSERT(mdd_write_locked(env, obj) != 0);
+	LASSERT(mdd_write_locked(env, obj) != 0);
 
 	if (ma->ma_attr.la_nlink == 0 || is_dir) {
-		rc = mdd_mark_dead_object(env, obj, th, false);
-		if (rc != 0)
-			RETURN(rc);
+		/* add new orphan and the object
+		 * will be deleted during mdd_close() */
+		if (obj->mod_count) {
+			rc = mdd_mark_dead_object(env, obj, th, false,
+						  LUSTRE_LMA_DEAD_FL |
+						  LUSTRE_LMA_ORPHAN_FL);
+			if (rc != 0)
+				RETURN(rc);
 
-                /* add new orphan and the object
-                 * will be deleted during mdd_close() */
-                if (obj->mod_count) {
                         rc = __mdd_orphan_add(env, obj, th);
                         if (rc == 0)
                                 CDEBUG(D_HA, "Object "DFID" is inserted into "
@@ -1492,6 +1499,11 @@ int mdd_finish_unlink(const struct lu_env *env,
                                         PFID(mdd_object_fid(obj)),
                                         obj->mod_count);
                 } else {
+			rc = mdd_mark_dead_object(env, obj, th,
+						  false, LUSTRE_LMA_DEAD_FL);
+			if (rc != 0)
+				RETURN(rc);
+
 			rc = mdo_destroy(env, obj, th);
                 }
 	} else if (!is_dir) {
