@@ -1075,6 +1075,13 @@ struct ptlrpc_request {
 	struct lustre_msg		*rq_reqbuf;  /**< req wrapper, vmalloc*/
 	char				*rq_repbuf;  /**< rep buffer, vmalloc */
 	struct lustre_msg		*rq_repdata; /**< rep wrapper msg */
+
+	/* rep buffer and msg saved to avoid modification during replay */
+	struct lustre_msg		*rq_saved_repmsg;
+	char				*rq_saved_repbuf;
+	struct lustre_msg		*rq_saved_repdata;
+	int				rq_saved_repbuf_len;
+
 	/** only in priv mode */
 	struct lustre_msg		*rq_clrbuf;
         int                      rq_reqbuf_len;  /* req wrapper buf len */

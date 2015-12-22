@@ -2016,7 +2016,11 @@ static void *__req_capsule_get(struct req_capsule *pill,
         }
         value = getter(msg, offset, len);
 
-        if (value == NULL) {
+        if (value == NULL && loc == RCL_SERVER &&
+	    pill->rc_req->rq_saved_repmsg != NULL)
+		value = getter(pill->rc_req->rq_saved_repmsg, offset, len);
+
+	if (value == NULL) {
                 DEBUG_REQ(D_ERROR, pill->rc_req,
 			  "Wrong buffer for field `%s' (%u of %u) "
 			  "in format `%s': %u vs. %u (%s)\n",
