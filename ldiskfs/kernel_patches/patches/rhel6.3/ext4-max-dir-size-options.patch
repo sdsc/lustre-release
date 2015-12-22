@@ -2,7 +2,7 @@ diff -urpN linux-stage.orig/fs/ext4/super.c linux-stage/fs/ext4/super.c
 --- linux-stage.orig/fs/ext4/super.c	2013-05-13 10:29:34.125478791 -0400
 +++ linux-stage/fs/ext4/super.c	2013-05-13 10:31:59.800359005 -0400
 @@ -1264,8 +1264,8 @@ enum {
- 	Opt_mballoc, Opt_bigendian_extents, Opt_force_over_128tb,
+ 	Opt_mballoc, Opt_bigendian_extents, Opt_force_over_256tb,
  	Opt_extents, Opt_noextents,
  	Opt_no_mbcache,
 -	Opt_discard, Opt_nodiscard,
