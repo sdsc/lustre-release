@@ -485,8 +485,8 @@ int tgt_client_data_write(const struct lu_env *env, struct lu_target *tgt,
 /**
  * Update client data in last_rcvd
  */
-static int tgt_client_data_update(const struct lu_env *env,
-				  struct obd_export *exp)
+static struct thandle * tgt_client_data_update_start(const struct lu_env *env,
+						     struct obd_export *exp)
 {
 	struct tg_export_data	*ted = &exp->exp_target_data;
 	struct lu_target	*tgt = class_exp2tgt(exp);
@@ -499,12 +499,12 @@ static int tgt_client_data_update(const struct lu_env *env,
 	if (unlikely(tgt == NULL)) {
 		CDEBUG(D_ERROR, "%s: No target for connected export\n",
 			  class_exp2obd(exp)->obd_name);
-		RETURN(-EINVAL);
+		RETURN(ERR_PTR(-EINVAL));
 	}
 
 	th = dt_trans_create(env, tgt->lut_bottom);
 	if (IS_ERR(th))
-		RETURN(PTR_ERR(th));
+		RETURN(th);
 
 	tti_buf_lcd(tti);
 	rc = dt_declare_record_write(env, tgt->lut_last_rcvd,
@@ -533,15 +533,39 @@ static int tgt_client_data_update(const struct lu_env *env,
 	}
 
 	tti->tti_off = ted->ted_lr_off;
-	rc = tgt_client_data_write(env, tgt, ted->ted_lcd, &tti->tti_off, th);
-	EXIT;
+
+	RETURN(th);
 out:
 	dt_trans_stop(env, tgt->lut_bottom, th);
 	CDEBUG(D_INFO, "%s: update last_rcvd client data for UUID = %s, "
 	       "last_transno = "LPU64": rc = %d\n", tgt->lut_obd->obd_name,
 	       tgt->lut_lsd.lsd_uuid, tgt->lut_lsd.lsd_last_transno, rc);
 
-	return rc;
+	return ERR_PTR(rc);
+}
+
+static int tgt_client_data_update(const struct lu_env *env,
+				  struct obd_export *exp)
+{
+	struct tg_export_data	*ted = &exp->exp_target_data;
+	struct lu_target	*tgt = class_exp2tgt(exp);
+	struct tgt_thread_info	*tti = tgt_th_info(env);
+	struct thandle		*th;
+	int			 rc = 0;
+
+	ENTRY;
+
+	th = tgt_client_data_update_start(env, exp);
+	if (IS_ERR(th))
+		RETURN(PTR_ERR(th));
+
+	rc = tgt_client_data_write(env, tgt, ted->ted_lcd, &tti->tti_off, th);
+	dt_trans_stop(env, tgt->lut_bottom, th);
+	CDEBUG(D_INFO, "%s: update last_rcvd client data for UUID = %s, "
+	       "last_transno = "LPU64": rc = %d\n", tgt->lut_obd->obd_name,
+	       tgt->lut_lsd.lsd_uuid, tgt->lut_lsd.lsd_last_transno, rc);
+
+	RETURN(rc);
 }
 
 int tgt_server_data_read(const struct lu_env *env, struct lu_target *tgt)
@@ -1014,6 +1038,8 @@ int tgt_client_del(const struct lu_env *env, struct obd_export *exp)
 {
 	struct tg_export_data	*ted = &exp->exp_target_data;
 	struct lu_target	*tgt = class_exp2tgt(exp);
+	struct tgt_thread_info	*tti = tgt_th_info(env);
+	struct thandle		*th;
 	int			 rc;
 
 	ENTRY;
@@ -1058,11 +1084,17 @@ int tgt_client_del(const struct lu_env *env, struct obd_export *exp)
 		       ted->ted_lcd->lcd_uuid, rc);
 		RETURN(rc);
 	}
+	CFS_FAIL_TIMEOUT(OBD_FAIL_TGT_CLIENT_DEL, 5);
+
+	th = tgt_client_data_update_start(env, exp);
+	if (IS_ERR(th))
+		RETURN(PTR_ERR(th));
 
 	mutex_lock(&ted->ted_lcd_lock);
 	memset(ted->ted_lcd->lcd_uuid, 0, sizeof ted->ted_lcd->lcd_uuid);
-	rc = tgt_client_data_update(env, exp);
+	rc = tgt_client_data_write(env, tgt, ted->ted_lcd, &tti->tti_off, th);
 	mutex_unlock(&ted->ted_lcd_lock);
+	dt_trans_stop(env, tgt->lut_bottom, th);
 
 	CDEBUG(rc == 0 ? D_INFO : D_ERROR,
 	       "%s: zeroing out client %s at idx %u (%llu), rc %d\n",
