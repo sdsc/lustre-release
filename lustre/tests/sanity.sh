@@ -13560,6 +13560,30 @@ test_252() {
 }
 run_test 252 "check lr_reader tool"
 
+test_255() {
+	local file=$DIR/$tfile
+
+	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	remote_ost_nodsh && skip "remote OST with nodsh" && return
+
+	$SETSTRIPE -c 1 -i 0 $file || error "setstripe failed"
+	$SETSTRIPE -c 1 -i 0 "$file"_2 || error "setstripe failed"
+	dd if=/dev/zero of="$file"_2 bs=1k count=1
+#define OBD_FAIL_TGT_CLIENT_DEL       0x718
+	do_facet ost1 $LCTL set_param fail_loc=0x00000718
+
+	dd if=/dev/zero of=$file bs=1k count=1 conv=fsync &
+	sleep 1
+	stop ost1 -f &
+	pid=$!
+	sleep 2
+	cancel_lru_locks osc &
+	wait $pid
+	start ost1 $(ostdevname 1) $OST_MOUNT_OPTS
+	wait
+}
+run_test 255 "umount vs tgt_last_rcvd_update race"
+
 test_256() {
 	local cl_user
 	local cat_sl
