@@ -57,7 +57,7 @@ brw_client_fini (sfw_test_instance_t *tsi)
 
 	list_for_each_entry(tsu, &tsi->tsi_units, tsu_list) {
 		bulk = tsu->tsu_private;
-		if (bulk == NULL)
+		if (!bulk)
 			continue;
 
 		srpc_free_bulk(bulk);
@@ -76,7 +76,7 @@ brw_client_init (sfw_test_instance_t *tsi)
 	srpc_bulk_t	 *bulk;
 	sfw_test_unit_t	 *tsu;
 
-	LASSERT(sn != NULL);
+	LASSERT(sn);
 	LASSERT(tsi->tsi_is_client);
 
 	if ((sn->sn_features & LST_FEAT_BULK_LEN) == 0) {
@@ -115,7 +115,7 @@ brw_client_init (sfw_test_instance_t *tsi)
 	list_for_each_entry(tsu, &tsi->tsi_units, tsu_list) {
 		bulk = srpc_alloc_bulk(lnet_cpt_of_nid(tsu->tsu_dest.nid),
 				       npg, len, opc == LST_BRW_READ);
-		if (bulk == NULL) {
+		if (!bulk) {
 			brw_client_fini(tsi);
 			return -ENOMEM;
 		}
@@ -258,8 +258,8 @@ brw_client_prep_rpc (sfw_test_unit_t *tsu,
 	int		     opc;
 	int		     rc;
 
-	LASSERT(sn != NULL);
-	LASSERT(bulk != NULL);
+	LASSERT(sn);
+	LASSERT(bulk);
 
 	if ((sn->sn_features & LST_FEAT_BULK_LEN) == 0) {
 		test_bulk_req_t *breq = &tsi->tsi_u.bulk_v0;
@@ -311,7 +311,7 @@ brw_client_done_rpc(sfw_test_unit_t *tsu, srpc_client_rpc_t *rpc)
 	srpc_brw_reply_t    *reply = &msg->msg_body.brw_reply;
 	srpc_brw_reqst_t    *reqst = &rpc->crpc_reqstmsg.msg_body.brw_reqst;
 
-	LASSERT(sn != NULL);
+	LASSERT(sn);
 
 	if (rpc->crpc_status != 0) {
 		CERROR("BRW RPC to %s failed with %d\n",
@@ -354,7 +354,7 @@ brw_server_rpc_done(srpc_server_rpc_t *rpc)
 {
 	srpc_bulk_t *blk = rpc->srpc_bulk;
 
-	if (blk == NULL)
+	if (!blk)
 		return;
 
 	if (rpc->srpc_status != 0)
