@@ -47,6 +47,9 @@
 #define MAX_DQ_TIME  604800     /* (7*24*60*60) 1 week */
 #endif
 
+#define DEFAULT_QUOTA_UID              (1ULL << 31)
+#define DEFAULT_QUOTA_GID              ((1ULL << 31) + 1)
+
 struct lquota_id_info;
 struct lquota_trans;
 

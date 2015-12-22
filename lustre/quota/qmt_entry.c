@@ -46,6 +46,60 @@ static void qmt_lqe_init(struct lquota_entry *lqe, void *arg)
 	init_rwsem(&lqe->lqe_sem);
 }
 
+static struct lquota_entry *qmt_lqe_locate(const struct lu_env *env,
+				struct qmt_pool_info *pool, u8 qtype,
+				struct lquota_site *site, union lquota_id *qid,
+				int *is_new)
+{
+	struct lquota_entry	*lqe, *new = NULL;
+	struct qmt_thread_info	*qti = qmt_info(env);
+	int			 rc = 0;
+	ENTRY;
+
+	lqe = cfs_hash_lookup(site->lqs_hash, (void *)&qid->qid_uid);
+	if (lqe != NULL) {
+		LASSERT(lqe->lqe_uptodate);
+		RETURN(lqe);
+	}
+
+	OBD_SLAB_ALLOC_PTR_GFP(new, lqe_kmem, GFP_NOFS);
+	if (new == NULL) {
+		CERROR("Fail to allocate lqe for id:"LPU64", "
+			"hash:%s\n", qid->qid_uid, site->lqs_hash->hs_name);
+		RETURN(ERR_PTR(-ENOMEM));
+	}
+
+	atomic_set(&new->lqe_ref, 1); /* hold 1 for caller */
+	new->lqe_id     = *qid;
+	new->lqe_site   = site;
+	INIT_LIST_HEAD(&new->lqe_link);
+
+	/* quota settings need to be updated from disk, that's why
+	 * lqe->lqe_uptodate isn't set yet */
+	new->lqe_uptodate = false;
+
+	/* perform qmt/qsd specific initialization */
+	//lqe_init(new);
+
+	/* read quota settings from disk and mark lqe as up-to-date */
+	rc = lquota_disk_read(env, pool->qpi_glb_obj[qtype],
+			      qid, (struct dt_rec *)&qti->qti_glb_rec);
+	if (rc)
+		GOTO(out, lqe = ERR_PTR(rc));
+
+	/* add new entry to hash */
+	lqe = cfs_hash_findadd_unique(site->lqs_hash, &new->lqe_id.qid_uid,
+				      &new->lqe_hash);
+	if (lqe == new) {
+		new = NULL;
+		*is_new = 1;
+	}
+out:
+	if (new)
+		lqe_putref(new);
+	RETURN(lqe);
+}
+
 /*
  * Update a lquota entry. This is done by reading quota settings from the global
  * index. The lquota entry must be write locked.
@@ -60,18 +114,47 @@ static int qmt_lqe_read(const struct lu_env *env, struct lquota_entry *lqe,
 	struct qmt_thread_info	*qti = qmt_info(env);
 	struct qmt_pool_info	*pool = (struct qmt_pool_info *)arg;
 	int			 rc;
+	struct lquota_entry	*lqe1 = NULL;
+	union lquota_id qid1;
+	int is_new = 0;
+	u8 qtype = lqe->lqe_site->lqs_qtype;
 	ENTRY;
 
 	LASSERT(lqe_is_master(lqe));
 
 	/* read record from disk */
-	rc = lquota_disk_read(env, pool->qpi_glb_obj[lqe->lqe_site->lqs_qtype],
+	rc = lquota_disk_read(env, pool->qpi_glb_obj[qtype],
 			      &lqe->lqe_id, (struct dt_rec *)&qti->qti_glb_rec);
 
 	switch (rc) {
 	case -ENOENT:
-		/* no such entry, assume quota isn't enforced for this user */
-		lqe->lqe_enforced = false;
+		/* default quota is not set */
+		if (pool->default_quota_setting[qtype] == 1)
+			break;
+		/* skip ourself to avoid deadlock */
+		if (lqe->lqe_id.qid_uid == DEFAULT_QUOTA_UID ||
+		    lqe->lqe_id.qid_uid == DEFAULT_QUOTA_GID)
+			break;
+		if (!lqe->lqe_site->lqs_qtype)
+			qid1.qid_uid = DEFAULT_QUOTA_UID;
+		else
+			qid1.qid_uid = DEFAULT_QUOTA_GID;
+
+		lqe1 = qmt_lqe_locate(env, pool, qtype,
+				      lqe->lqe_site, &qid1, &is_new);
+		if (IS_ERR(lqe1)) {
+			pool->default_quota_setting[qtype] = 1;
+			rc = PTR_ERR(lqe1);
+		} else {
+			rc = 0;
+			lqe->lqe_granted   = lqe1->lqe_granted;
+			lqe->lqe_hardlimit = lqe1->lqe_hardlimit;
+			lqe->lqe_softlimit = lqe1->lqe_softlimit;
+			lqe->lqe_gracetime = lqe1->lqe_gracetime;
+			pool->default_quota_setting[qtype] = 2;
+		}
+		if (!is_new)
+			lqe_putref(lqe1);
 		break;
 	case 0:
 		/* copy quota settings from on-disk record */
@@ -79,18 +162,21 @@ static int qmt_lqe_read(const struct lu_env *env, struct lquota_entry *lqe,
 		lqe->lqe_hardlimit = qti->qti_glb_rec.qbr_hardlimit;
 		lqe->lqe_softlimit = qti->qti_glb_rec.qbr_softlimit;
 		lqe->lqe_gracetime = qti->qti_glb_rec.qbr_time;
-
-		if (lqe->lqe_hardlimit == 0 && lqe->lqe_softlimit == 0)
-			/* {hard,soft}limit=0 means no quota enforced */
-			lqe->lqe_enforced = false;
-		else
-			lqe->lqe_enforced  = true;
-
 		break;
 	default:
 		LQUOTA_ERROR(lqe, "failed to read quota entry from disk, rc:%d",
 			     rc);
 		RETURN(rc);
+	}
+	if (rc) {
+		/* no such entry, assume quota isn't enforced for this user */
+		lqe->lqe_enforced = false;
+	} else {
+		if (lqe->lqe_hardlimit == 0 && lqe->lqe_softlimit == 0)
+			/* {hard,soft}limit=0 means no quota enforced */
+			lqe->lqe_enforced = false;
+		else
+			lqe->lqe_enforced  = true;
 	}
 
 	LQUOTA_DEBUG(lqe, "read");

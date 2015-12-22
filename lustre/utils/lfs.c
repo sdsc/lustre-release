@@ -1260,6 +1260,8 @@ static int set_time(time_t *time, time_t *set, char *str)
 
 #define USER 0
 #define GROUP 1
+#define DEFAULT_QUOTA_UID              (1ULL << 31)
+#define DEFAULT_QUOTA_GID              ((1ULL << 31) + 1)
 
 static int name2id(unsigned int *id, char *name, int type)
 {
@@ -2717,6 +2719,8 @@ int lfs_setquota(int argc, char **argv)
                 {"inode-softlimit", required_argument, 0, 'i'},
                 {"inode-hardlimit", required_argument, 0, 'I'},
                 {"user",            required_argument, 0, 'u'},
+                {"default-userquota", no_argument, 0, 'd'},
+                {"default-groupquota", no_argument, 0, 'D'},
                 {0, 0, 0, 0}
         };
         unsigned limit_mask = 0;
@@ -2731,7 +2735,7 @@ int lfs_setquota(int argc, char **argv)
                                  * so it can be used as a marker that qc_type
                                  * isn't reinitialized from command line */
 
-        while ((c = getopt_long(argc, argv, "b:B:g:i:I:u:", long_opts, NULL)) != -1) {
+        while ((c = getopt_long(argc, argv, "b:B:g:i:I:u:dD", long_opts, NULL)) != -1) {
                 switch (c) {
                 case 'u':
                 case 'g':
@@ -2794,6 +2798,14 @@ int lfs_setquota(int argc, char **argv)
 					"please see the help of setquota or "
 					"Lustre manual for details.\n");
                         break;
+		case 'd':
+			qctl.qc_type = USRQUOTA;
+			qctl.qc_id =  DEFAULT_QUOTA_UID;
+			break;
+		case 'D':
+			qctl.qc_type = GRPQUOTA;
+			qctl.qc_id =  DEFAULT_QUOTA_GID;
+			break;
                 default: /* getopt prints error message for us when opterr != 0 */
                         return CMD_HELP;
                 }
@@ -3124,8 +3136,9 @@ static int lfs_quota(int argc, char **argv)
 	__u32 valid = QC_GENERAL, idx = 0;
 	__u64 total_ialloc = 0, total_balloc = 0;
 	bool human_readable = false;
+	int default_quota = 0;
 
-	while ((c = getopt(argc, argv, "gi:I:o:qtuvh")) != -1) {
+	while ((c = getopt(argc, argv, "gi:I:o:qtuvhdD")) != -1) {
                 switch (c) {
                 case 'u':
                         if (qctl.qc_type != UGQUOTA) {
@@ -3165,12 +3178,26 @@ static int lfs_quota(int argc, char **argv)
 		case 'h':
 			human_readable = true;
 			break;
+		case 'd':
+                        qctl.qc_type = USRQUOTA;
+                        qctl.qc_id = DEFAULT_QUOTA_UID;
+			name="default user quota";
+			default_quota++;
+			break;
+		case 'D':
+                        qctl.qc_type = GRPQUOTA;
+                        qctl.qc_id = DEFAULT_QUOTA_GID;
+			name="default group quota";
+			default_quota++;
+			break;
                 default:
                         fprintf(stderr, "error: %s: option '-%c' "
                                         "unrecognized\n", argv[0], c);
                         return CMD_HELP;
                 }
         }
+	if (default_quota)
+		goto skip;
 
         /* current uid/gid info for "lfs quota /path/to/lustre/mount" */
         if (qctl.qc_cmd == LUSTRE_Q_GETQUOTA && qctl.qc_type == UGQUOTA &&
@@ -3214,7 +3241,7 @@ ug_output:
                 fprintf(stderr, "error: missing quota info argument(s)\n");
                 return CMD_HELP;
         }
-
+skip:
         mnt = argv[optind];
 
         rc1 = llapi_quotactl(mnt, &qctl);

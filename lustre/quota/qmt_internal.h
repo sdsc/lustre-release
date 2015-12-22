@@ -139,6 +139,9 @@ struct qmt_pool_info {
 	/* Global quota parameters which apply to all quota type */
 	/* the least value of qunit */
 	unsigned long		 qpi_least_qunit;
+
+	/* indicate whether default quota is setting */
+	char			default_quota_setting[MAXQUOTAS];
 };
 
 /*

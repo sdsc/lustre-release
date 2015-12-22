@@ -102,6 +102,8 @@ static int qmt_set(const struct lu_env *env, struct qmt_device *qmt,
 	__u64			 ver, now;
 	bool			 dirtied = false;
 	int			 rc = 0;
+	struct qmt_pool_info    *pool = NULL;
+
 	ENTRY;
 
 	/* look-up quota entry associated with this ID */
@@ -174,6 +176,12 @@ static int qmt_set(const struct lu_env *env, struct qmt_device *qmt,
 
 		/* clear/set edquot flag as needed */
 		qmt_adjust_edquot(lqe, now);
+	
+		if (id->qid_uid == DEFAULT_QUOTA_UID || id->qid_uid == DEFAULT_QUOTA_GID) {
+			pool = lqe2qpi(lqe);
+			if (pool)
+				pool->default_quota_setting[qtype] = 2;
+		}
 	}
 	EXIT;
 out:
