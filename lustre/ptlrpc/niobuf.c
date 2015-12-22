@@ -763,26 +763,39 @@ int ptl_send_rpc(struct ptlrpc_request *request, int noreply)
                         GOTO(out, rc);
         }
 
-        if (!noreply) {
-                LASSERT (request->rq_replen != 0);
-                if (request->rq_repbuf == NULL) {
-                        LASSERT(request->rq_repdata == NULL);
-                        LASSERT(request->rq_repmsg == NULL);
-                        rc = sptlrpc_cli_alloc_repbuf(request,
-                                                      request->rq_replen);
-                        if (rc) {
-                                /* this prevents us from looping in
-                                 * ptlrpc_queue_wait */
+	if (!noreply) {
+		LASSERT (request->rq_replen != 0);
+
+		if ((lustre_msg_get_flags(request->rq_reqmsg) & MSG_REPLAY) &&
+		    request->rq_saved_repmsg == NULL) {
+			request->rq_saved_repbuf = request->rq_repbuf;
+			request->rq_saved_repbuf_len = request->rq_repbuf_len;
+			request->rq_saved_repdata = request->rq_repdata;
+			request->rq_saved_repmsg = request->rq_repmsg;
+
+			request->rq_repbuf = NULL;
+			request->rq_repdata = NULL;
+			request->rq_repmsg = NULL;
+		}
+
+		if (request->rq_repbuf == NULL) {
+			LASSERT(request->rq_repdata == NULL);
+			LASSERT(request->rq_repmsg == NULL);
+			rc = sptlrpc_cli_alloc_repbuf(request,
+						      request->rq_replen);
+			if (rc) {
+				/* this prevents us from looping in
+				 * ptlrpc_queue_wait */
 				spin_lock(&request->rq_lock);
 				request->rq_err = 1;
 				spin_unlock(&request->rq_lock);
-                                request->rq_status = rc;
-                                GOTO(cleanup_bulk, rc);
-                        }
-                } else {
-                        request->rq_repdata = NULL;
-                        request->rq_repmsg = NULL;
-                }
+				request->rq_status = rc;
+				GOTO(cleanup_bulk, rc);
+			}
+		} else {
+			request->rq_repdata = NULL;
+			request->rq_repmsg = NULL;
+		}
 
                 rc = LNetMEAttach(request->rq_reply_portal,/*XXX FIXME bug 249*/
                                   connection->c_peer, request->rq_xid, 0,

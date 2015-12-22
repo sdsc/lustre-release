@@ -2416,8 +2416,16 @@ static void __ptlrpc_free_req(struct ptlrpc_request *request, int locked)
 		LBUG();
 	}
 
-        if (request->rq_repbuf != NULL)
-                sptlrpc_cli_free_repbuf(request);
+	if (request->rq_repbuf != NULL)
+		sptlrpc_cli_free_repbuf(request);
+
+	if (request->rq_saved_repbuf != NULL) {
+		request->rq_repbuf = request->rq_saved_repbuf;
+		request->rq_repbuf_len = request->rq_saved_repbuf_len;
+		request->rq_saved_repbuf = NULL;
+
+		sptlrpc_cli_free_repbuf(request);
+	}
 
         if (request->rq_import != NULL) {
                 class_import_put(request->rq_import);
