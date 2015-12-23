@@ -146,6 +146,59 @@ unregister_ioc_dev(int dev_id)
 	ioc_dev_list[dev_id].dev_fd = -1;
 }
 
+static inline int libcfs_ioctl_packlen(struct libcfs_ioctl_data *data)
+{
+	int len = sizeof(*data);
+
+	len += (data->ioc_inllen1 + 7) & ~7;
+	len += (data->ioc_inllen2 + 7) & ~7;
+	return len;
+}
+
+static inline bool libcfs_ioctl_is_invalid(struct libcfs_ioctl_data *data)
+{
+	if (data->ioc_hdr.ioc_len > (1<<30))
+		return true;
+
+	if (data->ioc_inllen1 > (1<<30))
+		return true;
+
+	if (data->ioc_inllen2 > (1<<30))
+		return true;
+
+	if (data->ioc_inlbuf1 && data->ioc_inllen1 == 0)
+		return true;
+
+	if (data->ioc_inlbuf2 && data->ioc_inllen2 == 0)
+		return true;
+
+	if (data->ioc_pbuf1 && data->ioc_plen1 == 0)
+		return true;
+
+	if (data->ioc_pbuf2 && data->ioc_plen2 == 0)
+		return true;
+
+	if (data->ioc_plen1 && data->ioc_pbuf1 == NULL)
+		return true;
+
+	if (data->ioc_plen2 && data->ioc_pbuf2 == NULL)
+		return true;
+
+	if ((__u32)libcfs_ioctl_packlen(data) != data->ioc_hdr.ioc_len)
+		return true;
+
+	if (data->ioc_inllen1 &&
+	    data->ioc_bulk[data->ioc_inllen1 - 1] != '\0')
+		return true;
+
+	if (data->ioc_inllen2 &&
+	    data->ioc_bulk[((data->ioc_inllen1 + 7) & ~7) +
+			     data->ioc_inllen2 - 1] != '\0')
+		return true;
+
+	return false;
+}
+
 int libcfs_ioctl_pack(struct libcfs_ioctl_data *data, char **pbuf,
                                     int max)
 {

@@ -56,6 +56,7 @@ endif # BUILD_DLC
 routerstat_SOURCES = routerstat.c
 
 lst_SOURCES = lst.c
+lst_CPPFLAGS = -I$(top_builddir)/lustre
 lst_LDADD = -lptlctl $(LIBCFSUTIL) $(LIBCFS) $(LIBREADLINE) $(LIBEFENCE)
 lst_DEPENDENCIES = libptlctl.a
 
