@@ -6589,6 +6589,35 @@ test_101f() {
 }
 run_test 101f "check read-ahead for max_read_ahead_whole_mb"
 
+test_101g() {
+	local rpcs
+	local p="$TMP/$TESTSUITE-$TESTNAME.parameters"
+
+	save_lustre_params client "osc.*.max_pages_per_rpc" > $p
+
+	$LFS setstripe -c 1 $DIR/$tfile
+	$LCTL set_param -n osc.*.max_pages_per_rpc 1024
+	$LCTL set_param -n osc.*.rpc_stats 0
+
+	# 100 MiB should be enough for the test
+	dd if=/dev/zero of=$DIR/$tfile bs=4M count=25
+	cancel_lru_locks osc
+	dd of=/dev/zero if=$DIR/$tfile bs=4M count=25
+
+	# calculate 4 MiB RPCs
+	rpcs=$(lctl get_param 'osc.*.rpc_stats' |
+		 sed -n '/pages per rpc/,/^$/p'   |
+		 awk 'BEGIN { sum = 0 }; /1024:/ { sum += $2 };
+		      END { print sum }')
+	echo $rpcs RPCs
+	[ "$rpcs" -eq 25 ] || error "not all RPCs are 4 MiB BRW rpcs"
+	rm -f $DIR/$tfile
+
+	restore_lustre_params < $p
+	rm -f $p
+}
+run_test 101g "4 MiB bulk readahead"
+
 setup_test102() {
 	test_mkdir -p $DIR/$tdir
 	chown $RUNAS_ID $DIR/$tdir
