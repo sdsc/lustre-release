@@ -13507,6 +13507,12 @@ test_252() {
 }
 run_test 252 "check lr_reader tool"
 
+test_253()
+{
+	test_mkdir -p $DIR/$tdir
+	lock_ahead_test -d $DIR/$tdir || error "A lock ahead test failed"
+}
+run_test 253 "various lock ahead tests"
 
 cleanup_test_300() {
 	trap 0
