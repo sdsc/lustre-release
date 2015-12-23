@@ -109,10 +109,10 @@ do {							\
 #define IOC_LIBCFS_TYPE				      ('e')
 #define IOC_LIBCFS_MIN_NR			      30
 /* libcfs ioctls */
-#define IOC_LIBCFS_PANIC                   _IOWR('e', 30, IOCTL_LIBCFS_TYPE)
+/* ioctl 30 IOC_LIBCFS_PANIC is reserved */
 #define IOC_LIBCFS_CLEAR_DEBUG             _IOWR('e', 31, IOCTL_LIBCFS_TYPE)
 #define IOC_LIBCFS_MARK_DEBUG              _IOWR('e', 32, IOCTL_LIBCFS_TYPE)
-#define IOC_LIBCFS_MEMHOG                  _IOWR('e', 36, IOCTL_LIBCFS_TYPE)
+/* ioctl 36 IOC_LIBCFS_MEMHOG is reserved */
 /* lnet ioctls */
 #define IOC_LIBCFS_GET_NI		   _IOWR('e', 50, IOCTL_LIBCFS_TYPE)
 #define IOC_LIBCFS_FAIL_NID		   _IOWR('e', 51, IOCTL_LIBCFS_TYPE)
