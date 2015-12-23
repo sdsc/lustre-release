@@ -441,6 +441,14 @@ static void osc_req_attr_set(const struct lu_env *env, struct cl_object *obj,
 	}
 }
 
+static loff_t osc_ra_size(struct cl_object *clob)
+{
+	struct osc_object *osc = cl2osc(clob);
+	struct client_obd *cli = osc_cli(osc);
+
+	return cli->cl_max_pages_per_rpc;
+}
+
 static const struct cl_object_operations osc_ops = {
 	.coo_page_init    = osc_page_init,
 	.coo_lock_init    = osc_lock_init,
@@ -451,7 +459,8 @@ static const struct cl_object_operations osc_ops = {
 	.coo_prune        = osc_object_prune,
 	.coo_find_cbdata  = osc_object_find_cbdata,
 	.coo_fiemap       = osc_object_fiemap,
-	.coo_req_attr_set = osc_req_attr_set
+	.coo_req_attr_set = osc_req_attr_set,
+	.coo_ra_size      = osc_ra_size
 };
 
 static const struct lu_object_operations osc_lu_obj_ops = {
