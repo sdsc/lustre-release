@@ -223,6 +223,8 @@ static int nrs_crrn_start(struct ptlrpc_nrs_policy *policy, char *arg)
 	RETURN(rc);
 
 failed:
+	if (net->cn_cli_hash != NULL)
+		cfs_hash_putref(net->cn_cli_hash);
 	if (net->cn_binheap != NULL)
 		cfs_binheap_destroy(net->cn_binheap);
 

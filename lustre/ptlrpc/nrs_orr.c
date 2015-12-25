@@ -693,7 +693,9 @@ static int nrs_orr_start(struct ptlrpc_nrs_policy *policy, char *arg)
 	RETURN(rc);
 
 failed:
-	if (orrd->od_cache)
+	if (orrd->od_obj_hash != NULL)
+		cfs_hash_putref(orrd->od_obj_hash);
+	if (orrd->od_cache != NULL)
 		kmem_cache_destroy(orrd->od_cache);
 	if (orrd->od_binheap != NULL)
 		cfs_binheap_destroy(orrd->od_binheap);
