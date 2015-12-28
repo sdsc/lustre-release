@@ -425,7 +425,7 @@ struct dentry *ll_splice_alias(struct inode *inode, struct dentry *de)
 	struct dentry *new;
 	int rc;
 
-	if (inode) {
+	if (inode && S_ISDIR(inode->i_mode)) {
 		new = ll_find_alias(inode, de);
 		if (new) {
 			rc = ll_d_init(new);
