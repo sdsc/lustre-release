@@ -43,11 +43,12 @@
 #include <getopt.h>
 #include <stdio.h>
 #include <unistd.h>
-#include <glob.h>
 #include <signal.h>
 #include <string.h>
 #include <stdlib.h>
 #include <errno.h>
+
+#include <libcfs/util/param.h>
 
 #define TRACK_BY_GID 0
 #define TRACK_BY_PPID 1
@@ -64,7 +65,7 @@
 /* Length of llstat command with all its switches and command line options */
 #define LEN_LLSTAT (25 + LEN_STATS)
 
-/* strlen of each lustre client entry in /proc/fs/lustre/llite/ */
+/* strlen of each lustre client entry in /{proc,sys}/fs/lustre/llite/ */
 #define LEN_CLIENT 1024
 
 /* size of output of llstat command we read at a time */
@@ -76,88 +77,88 @@
 /* print usage */
 void print_usage()
 {
-        printf("Usage:\n\n");
-        printf("ltrack_stats runs command given and does one of the "
-                "following:\n"
-                "\t1. Writes its pid to "
-                "/proc/fs/lustre/llite/.../stats_track_pid\n"
-                " to collects stats for that process.\n"
-                "\t2. Writes its ppid to "
-                "/proc/fs/lustre/llite/.../stats_track_ppid\n"
-                " to collect stats of that process and all its children \n"
-                "\t3. Sets gid of process to some random gid (444) and also\n"
-                " writes that to/proc/fs/lustre/llite/.../stats_track_gid to"
-                " collect stats \nof all processes in that group\n\n"
-                " It also uses llstat to generate output with interval of 1 "
-                " second and duration\n of run of command for plot-llstat to "
-                "generate a graph\n\n");
-        printf("ltrack_stats [-l filename] [-g <gid> | -a | -i | -c | -h ]\n"
-               "\t<command with arguments ...>\n\n");
-        printf("-l: outputs the llstat.pl's output to given <filename>"
-               "with interval of 1 second \nbetween each output and flag for"
-               "graphable output. If -l flag is not given llstat \nwont be"
-               "executed\n\n");
+	printf("Usage:\n\n");
+	printf("ltrack_stats runs command given and does one of the "
+		"following:\n"
+		"\t1. Writes its pid to llite.*.stats_track_pid\n"
+		" to collects stats for that process.\n"
+		"\t2. Writes its ppid to llite.*.stats_track_ppid={ppid}\n"
+		" to collect stats of that process and all its children\n"
+		"\t3. Sets gid of process to some random gid (444) and also\n"
+		" writes using the command lctl set_param llite.*.stats_track_gid={gid}"
+		" to collect stats\nof all processes in that group\n\n"
+		" It also uses llstat to generate output with interval of 1"
+		" second and duration\nof run of command for plot-llstat to"
+		" generate a graph\n\n");
+	printf("ltrack_stats [-l filename] [-g <gid> | -a | -i | -c | -h ]\n"
+		"\t<command with arguments ...>\n\n");
+	printf("-l: outputs the llstat.pl's output to given <filename>"
+		"with interval of 1 second\nbetween each output and flag for"
+		"graphable output. If -l flag is not given llstat\nwont be"
+		"executed\n\n");
 
-        printf("-g: for displaying VFS operation statistics collected"
-               "for all processes having \ngroup id as given <gid> \n\n");
+	printf("-g: for displaying VFS operation statistics collected"
+	       "for all processes having\ngroup id as given <gid>\n\n");
 
-        printf("-a: for displaying VFS operations statistics collected"
-               "for all processes\n\n");
+	printf("-a: for displaying VFS operations statistics collected"
+	       "for all processes\n\n");
 
-        printf("-i: for displaying VFS operation statistics collected"
-               "for only given <command's> \nPID.\n\n");
+	printf("-i: for displaying VFS operation statistics collected"
+	       "for only given <command's>\nPID.\n\n");
 
-        printf("-c: for displaying VFS operation statistics collected"
-               " for all processes whose \nparents' PID is same as pid of "
-               "<command> to be executed\n\n");
+	printf("-c: for displaying VFS operation statistics collected"
+	       " for all processes whose\nparents' PID is same as pid of "
+	       "<command> to be executed\n\n");
 
-        printf("-h: for showing this help\n");
+	printf("-h: for showing this help\n");
 }
 
 /* - type: to which file data should be written to track VFS operations
- * statistics
+ *	   statistics
  * - id: we either need to write gid which is given on command line or pid
- * to collect statistics of that process or its children. */
-
-void write_track_xid(int type, unsigned short id, char* stats_path)
+ *       to collect statistics of that process or its children.
+ * - stats_path: path to where the all the stats parameter files exist at
+ * - len: size of stats_path buffer
+ */
+void write_track_xid(int type, unsigned short id, char *stats_path, size_t len)
 {
-        FILE *fp;
+	FILE *fp;
 
-        /* for loop is used if we have more than one lustre clients on same
-         * machine. glob() return /proc entry for each lustre client */
+	/* for loop is used if we have more than one lustre client on the same
+	 * machine. cfs_get_param_paths() returns one entry for each lustre
+	 * client */
+	switch (type) {
+	case TRACK_BY_GID:
+		strncat(stats_path, "/stats_track_gid", len);
+		break;
+	case TRACK_BY_PPID:
+		strncat(stats_path, "/stats_track_ppid", len);
+		break;
+	case TRACK_BY_PID:
+		strncat(stats_path, "/stats_track_pid", len);
+		break;
+	}
 
-        switch(type) {
-                case TRACK_BY_GID:
-                        strcat(stats_path, "/stats_track_gid");
-                        break;
-                case TRACK_BY_PPID:
-                        strcat(stats_path, "/stats_track_ppid");
-                        break;
-                case TRACK_BY_PID:
-                        strcat(stats_path, "/stats_track_pid");
-                        break;
-        }
-
-        fp = fopen(stats_path, "w+");
-        if (!fp) {
-                fprintf(stderr, "Error: Couldn't open /proc entry file: %s\n",
-                        stats_path);
-                exit(1);
-        }
-        if (fprintf(fp, "%d", id) < 0) {
-                fprintf(stderr, "Error: Couldn't write id to tracking /proc"
-                        "entry file: %s\n", stats_path);
-                exit(1);
-        }
-        if (fclose(fp)) {
-                fprintf(stderr, "Error: Couldn't close tracking /proc entry"
-                        " file: %s\n", stats_path);
-                exit(1);
-        }
+	fp = fopen(stats_path, "w+");
+	if (!fp) {
+		fprintf(stderr, "Error: Couldn't write parameter: %s\n",
+			stats_path);
+		exit(1);
+	}
+	if (fprintf(fp, "%d", id) < 0) {
+		fprintf(stderr, "Error: Couldn't write id for tracking "
+			"parameter: %s\n", stats_path);
+		exit(1);
+	}
+	if (fclose(fp)) {
+		fprintf(stderr, "Error: Couldn't close tracking "
+			"parameter: %s\n", stats_path);
+		exit(1);
+	}
 }
 
 /* Get extra command lines concatenated to "command Function getopt scans
- *  one switch and its optional argument. So if command line is 
+ *  one switch and its optional argument. So if command line is
  * "-g 1234 make bzImage" 1234 is optarg and "make bzImage" will be collected
  *  with following function to exec it. */
 char* get_command_from_argv(int optind, int argc, char** argv,char* optarg,
@@ -275,10 +276,10 @@ pid_t fork_llstat_command(char* llstat_file,char* stats_path)
         return pid_llstat_command;
 }
 
-pid_t fork_actual_command(int type, unsigned short id, char* stats_path,
-                          char* command)
+pid_t fork_actual_command(int type, unsigned short id, char *stats_path,
+			  size_t stats_path_len, const char *command)
 {
-        pid_t pid;
+	pid_t pid;
 
         /* starting ltrack_stats functionality here */
         if ((pid = fork()) < 0)
@@ -301,14 +302,14 @@ pid_t fork_actual_command(int type, unsigned short id, char* stats_path,
                                 pid = getpid();
                                 break;
 
-                        /* 0 has to be written to vfs_track_pid to collect 
+			/* 0 has to be written to vfs_track_pid to collect
                          * statistics of all processes */
                         case TRACK_FOR_ALL:
                                 pid = 0;
                                 type = TRACK_BY_PID;
                                 break;
                 }
-                write_track_xid(type, pid, stats_path);
+		write_track_xid(type, pid, stats_path, stats_path_len);
                 execl("/bin/sh", "sh", "-c", command, (char *)0);
                 exit(0);
         } /* child ends */
@@ -316,68 +317,63 @@ pid_t fork_actual_command(int type, unsigned short id, char* stats_path,
         return(pid);
 }
 
-char* get_path_stats(int with_llstat, char* stats_path)
+char *
+get_path_stats(int with_llstat, char *stats_path, size_t path_len)
 {
-        glob_t stats_glob_buffer;
-        int choice;
-        char error = 0;
-        int i;
+	glob_t stats_params;
+	char error = 0;
+	int choice, i;
 
-        /* No slots reserved in gl_pathv. Store the found path at 0 location */
-        stats_glob_buffer.gl_offs = 0;
+	if (cfs_get_param_paths(&stats_params, "llite/*") != 0) {
+		fprintf(stderr, "Error: Couldn't find llite stat entries\n");
+		exit(1);
+	}
 
-        /* doing glob() for attaching llstat to monitor each vfs_ops_stat for
-         * mulitiple lustre clients */
-        if (glob("/proc/fs/lustre/llite/*", GLOB_DOOFFS, NULL,
-                 &stats_glob_buffer) != 0) {
-                fprintf(stderr,"Error: Couldn't find /proc entry for "
-                        "lustre\n");
-                exit(1);
-        }
+	/* If multiple client entries found and
+	 * user will be prompted with choice of all */
+	if (stats_params.gl_pathc > 1 && with_llstat) {
+		check_llstat();
+		printf("Multiple lustre clients found, continuing...\n");
+		do {
+			/* If flow is here again it means there was an error
+			 * and notifying that to user */
+			if (error) {
+				int ret = system("clear");
 
-        /* If multiple client entries found in /proc/fs/lustre/llite user will
-         * be prompted with choice of all */
-        if (stats_glob_buffer.gl_pathc > 1 && with_llstat) {
-                check_llstat(); 
-                printf("Multiple lustre clients found, continuing... \n");
-                do {
-                        /* If flow is here again it means there was an error
-                         * and notifying that to user */
-                        if (error) {
-                                int ret;
-                                if ((ret = system("clear")) != 0) {
-                                        ret = WEXITSTATUS(ret);
-                                        printf("error excuting clear command: %d\n", ret);
-                                        exit(ret);
-                                }
-                                fprintf(stderr, "Error: Please give correct "
-                                        "choice.\n");
-                        }
-                        /* Simple menu based interface to avoid possible
-                         * spelling mistakes */
-                        printf("\t\tMenu.\n");
-                        for (i = 0; i < stats_glob_buffer.gl_pathc; i++)
-                                printf("\t\t%d. %s\n", i+1, 
-                                       stats_glob_buffer.gl_pathv[i]);
+				if (ret != 0) {
+					ret = WEXITSTATUS(ret);
+					printf("error executing clear command: "
+					       "%d\n", ret);
+					exit(ret);
+				}
+				fprintf(stderr, "Error: Please give correct "
+					"choice.\n");
+			}
+			/* Simple menu based interface to avoid possible
+			 * spelling mistakes */
+			printf("\t\tMenu.\n");
+			for (i = 0; i < stats_params.gl_pathc; i++)
+				printf("\t\t%d. %s\n", i+1,
+				       stats_params.gl_pathv[i]);
 
-                        printf("\nEnter the lustre client number you want to "
-                               "use:");
-                        if (scanf(" %d", &choice) == EOF && ferror(stdin)) {
-                                perror("reading from stdin");
-                                exit(-1);
-                        }
-                        error++;
-                } while (choice > stats_glob_buffer.gl_pathc || choice < 1);
-                strcpy(stats_path, stats_glob_buffer.gl_pathv[choice - 1]);
-        } else {
-                /*if only one client then simply copying the path from glob */
-                strcpy(stats_path, stats_glob_buffer.gl_pathv[0]);
-        }
-        /* this frees dynamically allocated space by glob() for storing found
-         * paths */
-        globfree(&stats_glob_buffer);
+			printf("\nEnter the lustre client number you want to "
+			       "use:");
+			if (scanf(" %d", &choice) == EOF && ferror(stdin)) {
+				perror("reading from stdin");
+				exit(-1);
+			}
+			error++;
+		} while (choice > stats_params.gl_pathc || choice < 1);
 
-        return stats_path;
+		strncpy(stats_path, stats_params.gl_pathv[choice - 1],
+			path_len);
+	} else {
+		/* if only one client then simply copying the path from glob */
+		strncpy(stats_path, stats_params.gl_pathv[0], path_len);
+	}
+	cfs_free_param_data(&stats_params);
+
+	return stats_path;
 }
 
 /* Writes the id (gid/ pid/ ppid) value in appropriate tracking proc entry file
@@ -396,17 +392,17 @@ void fork_command(int type, unsigned short id, char* command, char* llstat_file)
         if (strlen(llstat_file) == 0)
                 with_llstat = 0;
 
-        get_path_stats(with_llstat, stats_path);
-        strcpy(stats_path_temp, stats_path);
+	get_path_stats(with_llstat, stats_path, sizeof(stats_path));
+	strncpy(stats_path_temp, stats_path, sizeof(stats_path));
 
-        /* llstat process attached to monitor given command */
-        if (with_llstat)
-                pid_llstat_command = fork_llstat_command(llstat_file,
-                                                         stats_path_temp);
+	/* llstat process attached to monitor given command */
+	if (with_llstat)
+		pid_llstat_command = fork_llstat_command(llstat_file,
+							 stats_path_temp);
 
-        /* forking a process which will exec command given */
-        pid_actual_command = fork_actual_command(type, id, stats_path,
-                                                 command);
+	/* forking a process which will exec command given */
+	pid_actual_command = fork_actual_command(type, id, stats_path,
+						 sizeof(stats_path), command);
 
         if (waitpid(pid_actual_command, NULL, 0) != pid_actual_command)
                 fprintf(stderr, "Error: waitpid error\n");
