@@ -56,7 +56,7 @@ SOCKETCLIENT=${SOCKETCLIENT:-socketclient}
 MEMHOG=${MEMHOG:-memhog}
 DIRECTIO=${DIRECTIO:-directio}
 ACCEPTOR_PORT=${ACCEPTOR_PORT:-988}
-STRIPES_PER_OBJ=-1
+STRIPES_PER_OBJ=0
 CHECK_GRANT=${CHECK_GRANT:-"yes"}
 GRANT_CHECK_LIST=${GRANT_CHECK_LIST:-""}
 export PARALLEL=${PARALLEL:-"no"}
@@ -14712,6 +14712,52 @@ test_404() { # LU-6601
 	done
 }
 run_test 404 "validate manual {de}activated works properly for OSPs"
+
+test_405() { # LU-6952
+	local mds_mountopts=$MDS_MOUNT_OPTS
+	local ost_mountopts=$OST_MOUNT_OPTS
+	local newuser="Sanity403"
+	#MDT_MOUNT_FS_OPT=${MDS_MOUNT_FS_OPT:-"acl,user_xattr"}
+	#remount the MDT
+	stopall
+	formatall
+	if [ -z "$MDS_MOUNT_OPTS" ]; then
+		MDS_MOUNT_OPTS="-o noacl"
+	else
+		MDS_MOUNT_OPTS="${MDS_MOUNT_OPTS},noacl"
+	fi
+
+	if [ -z "$OST_MOUNT_OPTS" ]; then
+		OST_MOUNT_OPTS="-o noacl"
+	else
+		OST_MOUNT_OPTS="${OST_MOUNT_OPTS},noacl"
+	fi
+
+	for num in $(seq $MDSCOUNT); do
+		start mds$num $(mdsdevname $num) $MDS_MOUNT_OPTS ||
+			error "Failed to start mds"
+	done
+
+	for num in $(seq $OSTCOUNT); do
+		start ost$num $(ostdevname $num) $OST_MOUNT_OPTS ||
+			error "Failed to start OST"
+	done
+
+	mount_client $MOUNT
+	useradd $newuser
+	setfacl -m d:$newuser:rwx $MOUNT &&
+		error "ACL is applied when FS is mounted with noacl."
+	userdel -r $newuser
+
+	MDS_MOUNT_OPTS=$mds_mountopts
+	OST_MOUNT_OPTS=$ost_mountopts
+	MDT_MOUNT_FS_OPT=""
+
+	stopall
+	formatall
+	setupall
+}
+run_test 405 "Make sure user defined options are reflected in mount"
 
 #
 # tests that do cleanup/setup should be run at the end
