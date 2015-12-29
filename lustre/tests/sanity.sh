@@ -111,11 +111,6 @@ assert_DIR
 
 MDT0=$($LCTL get_param -n mdc.*.mds_server_uuid |
 	awk '{ gsub(/_UUID/,""); print $1 }' | head -n1)
-LOVNAME=$($LCTL get_param -n llite.*.lov.common_name | tail -n 1)
-OSTCOUNT=$($LCTL get_param -n lov.$LOVNAME.numobd)
-STRIPECOUNT=$($LCTL get_param -n lov.$LOVNAME.stripecount)
-STRIPESIZE=$($LCTL get_param -n lov.$LOVNAME.stripesize)
-ORIGFREE=$($LCTL get_param -n lov.$LOVNAME.kbytesavail)
 MAXFREE=${MAXFREE:-$((200000 * $OSTCOUNT))}
 
 [ -f $DIR/d52a/foo ] && chattr -a $DIR/d52a/foo
@@ -1431,6 +1426,9 @@ run_test 27l "check setstripe permissions (should return error)"
 test_27m() {
 	[[ $OSTCOUNT -lt 2 ]] && skip_env "$OSTCOUNT < 2 OSTs -- skipping" &&
 		return
+
+	ORIGFREE=$($LCTL get_param -n lov.$FSNAME-clilov-*.kbytesavail |
+		   head -n1)
 	if [[ $ORIGFREE -gt $MAXFREE ]]; then
 		skip "$ORIGFREE > $MAXFREE skipping out-of-space test on OST0"
 		return
@@ -4847,7 +4845,9 @@ test_56w() {
     local file_size=$((stripe_size * OSTCOUNT))
     local file_num=$((NUMDIRS * NUMFILES + NUMFILES))
     local required_space=$((file_num * file_size))
-    local free_space=$($LCTL get_param -n lov.$LOVNAME.kbytesavail)
+
+    local free_space=$($LCTL get_param -n lov.$FSNAME-clilov-*.kbytesavail |
+			head -n1)
     [[ $free_space -le $((required_space / 1024)) ]] &&
         skip_env "need at least $required_space bytes free space," \
                  "have $free_space kbytes" && return
@@ -5370,6 +5370,8 @@ run_test 65a "directory with no stripe info ===================="
 test_65b() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
 	test_mkdir -p $DIR/$tdir
+	local STRIPESIZE=$($GETSTRIPE -S $DIR/$tdir)
+
 	$SETSTRIPE -S $((STRIPESIZE * 2)) -i 0 -c 1 $DIR/$tdir ||
 						error "setstripe"
 	touch $DIR/$tdir/f2
@@ -5381,6 +5383,8 @@ test_65c() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
 	if [[ $OSTCOUNT -gt 1 ]]; then
 		test_mkdir -p $DIR/$tdir
+		local STRIPESIZE=$($GETSTRIPE -S $DIR/$tdir)
+
 		$SETSTRIPE -S $(($STRIPESIZE * 4)) -i 1 \
 			-c $(($OSTCOUNT - 1)) $DIR/$tdir || error "setstripe"
 		touch $DIR/$tdir/f3
@@ -5392,6 +5396,9 @@ run_test 65c "directory setstripe -S $((STRIPESIZE*4)) -i 1 -c $((OSTCOUNT-1))"
 test_65d() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
 	test_mkdir -p $DIR/$tdir
+	local STRIPECOUNT=$($GETSTRIPE -c $DIR/$tdir)
+	local STRIPESIZE=$($GETSTRIPE -S $DIR/$tdir)
+
 	if [[ $STRIPECOUNT -le 0 ]]; then
 		sc=1
 	elif [[ $STRIPECOUNT -gt 2000 ]]; then
@@ -5429,6 +5436,8 @@ run_test 65f "dir setstripe permission (should return error) ==="
 test_65g() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
         test_mkdir -p $DIR/$tdir
+	local STRIPESIZE=$($GETSTRIPE -S $DIR/$tdir)
+
         $SETSTRIPE -S $((STRIPESIZE * 2)) -i 0 -c 1 $DIR/$tdir ||
 							error "setstripe"
         $SETSTRIPE -d $DIR/$tdir || error "setstripe"
@@ -5440,6 +5449,8 @@ run_test 65g "directory setstripe -d ==========================="
 test_65h() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
         test_mkdir -p $DIR/$tdir
+	local STRIPESIZE=$($GETSTRIPE -S $DIR/$tdir)
+
         $SETSTRIPE -S $((STRIPESIZE * 2)) -i 0 -c 1 $DIR/$tdir ||
 							error "setstripe"
         test_mkdir -p $DIR/$tdir/dd1
