@@ -2256,6 +2256,9 @@ T130_PID=0
 test_130_base() {
 	test_mkdir -p $DIR/$tdir
 
+	# Prevent layout intent RPCs from asynchronous writeback.
+	sync
+
 	# get only LOOKUP lock on $tdir
 	cancel_lru_locks mdc
 	ls $DIR/$tdir/$tfile 2>/dev/null
