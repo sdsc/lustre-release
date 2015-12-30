@@ -56,7 +56,7 @@ ksocknal_next_tx_carrier(ksock_conn_t *conn)
 
         /* Called holding BH lock: conn->ksnc_scheduler->kss_lock */
 	LASSERT(!list_empty(&conn->ksnc_tx_queue));
-	LASSERT(tx != NULL);
+	LASSERT(tx);
 
         /* Next TX that can carry ZC-ACK or LNet message */
         if (tx->tx_list.next == &conn->ksnc_tx_queue) {
@@ -369,10 +369,10 @@ ksocknal_handle_zcreq(ksock_conn_t *c, __u64 cookie, int remote)
 	read_lock(&ksocknal_data.ksnd_global_lock);
 
 	conn = ksocknal_find_conn_locked(peer, NULL, !!remote);
-	if (conn != NULL) {
+	if (conn) {
 		ksock_sched_t *sched = conn->ksnc_scheduler;
 
-		LASSERT(conn->ksnc_proto->pro_queue_tx_zcack != NULL);
+		LASSERT(conn->ksnc_proto->pro_queue_tx_zcack);
 
 		spin_lock_bh(&sched->kss_lock);
 
