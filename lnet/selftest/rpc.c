@@ -130,7 +130,7 @@ srpc_alloc_bulk(int cpt, unsigned bulk_npg, unsigned bulk_len, int sink)
 
 	LIBCFS_CPT_ALLOC(bk, lnet_cpt_table(), cpt,
 			 offsetof(srpc_bulk_t, bk_iovs[bulk_npg]));
-	if (bk == NULL) {
+	if (!bk) {
 		CERROR("Can't allocate descriptor for %d pages\n", bulk_npg);
 		return NULL;
 	}
@@ -197,7 +197,7 @@ srpc_service_fini(struct srpc_service *svc)
 	struct list_head		*q;
 	int			i;
 
-	if (svc->sv_cpt_data == NULL)
+	if (!svc->sv_cpt_data)
 		return;
 
 	cfs_percpt_for_each(scd, i, svc->sv_cpt_data) {
@@ -257,7 +257,7 @@ srpc_service_init(struct srpc_service *svc)
 
 	svc->sv_cpt_data = cfs_percpt_alloc(lnet_cpt_table(),
 					    sizeof(struct srpc_service_cd));
-	if (svc->sv_cpt_data == NULL)
+	if (!svc->sv_cpt_data)
 		return -ENOMEM;
 
 	svc->sv_ncpts = srpc_serv_is_framework(svc) ?
@@ -292,7 +292,7 @@ srpc_service_init(struct srpc_service *svc)
 		for (j = 0; j < nrpcs; j++) {
 			LIBCFS_CPT_ALLOC(rpc, lnet_cpt_table(),
 					 i, sizeof(*rpc));
-			if (rpc == NULL) {
+			if (!rpc) {
 				srpc_service_fini(svc);
 				return -ENOMEM;
 			}
@@ -317,7 +317,7 @@ srpc_add_service(struct srpc_service *sv)
 
 	LASSERT(srpc_data.rpc_state == SRPC_STATE_RUNNING);
 
-	if (srpc_data.rpc_services[id] != NULL) {
+	if (srpc_data.rpc_services[id]) {
 		spin_unlock(&srpc_data.rpc_glock);
 		goto failed;
 	}
@@ -534,7 +534,7 @@ srpc_add_buffer(struct swi_workitem *wi)
 		spin_unlock(&scd->scd_lock);
 
 		LIBCFS_ALLOC(buf, sizeof(*buf));
-		if (buf == NULL) {
+		if (!buf) {
 			CERROR("Failed to add new buf to service: %s\n",
 			       scd->scd_svc->sv_name);
 			spin_lock(&scd->scd_lock);
@@ -914,13 +914,13 @@ srpc_server_rpc_done(srpc_server_rpc_t *rpc, int status)
 		spin_unlock(&srpc_data.rpc_glock);
 	}
 
-	if (rpc->srpc_done != NULL)
+	if (rpc->srpc_done)
 		(*rpc->srpc_done) (rpc);
-	LASSERT(rpc->srpc_bulk == NULL);
+	LASSERT(!rpc->srpc_bulk);
 
 	spin_lock(&scd->scd_lock);
 
-	if (rpc->srpc_reqstbuf != NULL) {
+	if (rpc->srpc_reqstbuf) {
 		/* NB might drop sv_lock in srpc_service_recycle_buffer, but
 		 * sv won't go away for scd_rpc_active must not be empty */
 		srpc_service_recycle_buffer(scd, rpc->srpc_reqstbuf);
@@ -1362,7 +1362,7 @@ srpc_send_reply(struct srpc_server_rpc *rpc)
 	__u64			rpyid;
 	int			rc;
 
-	LASSERT(buffer != NULL);
+	LASSERT(buffer);
 	rpyid = buffer->buf_msg.msg_body.reqst.rpyid;
 
 	spin_lock(&scd->scd_lock);

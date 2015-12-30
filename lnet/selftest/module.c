@@ -116,7 +116,7 @@ lnet_selftest_init(void)
 
 	nscheds = cfs_cpt_number(lnet_cpt_table());
 	LIBCFS_ALLOC(lst_sched_test, sizeof(lst_sched_test[0]) * nscheds);
-	if (lst_sched_test == NULL)
+	if (!lst_sched_test)
 		goto error;
 
 	lst_init_step = LST_INIT_WI_TEST;
