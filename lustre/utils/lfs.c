@@ -892,7 +892,7 @@ static int lfs_setstripe(int argc, char **argv)
 	unsigned long long		 st_size;
 	int				 st_offset, st_count;
 	char				*end;
-	int				 c;
+	int				 c, len;
 	int				 delete = 0;
 	char				*stripe_size_arg = NULL;
 	char				*stripe_off_arg = NULL;
