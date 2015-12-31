@@ -1,0 +1,391 @@
+From 625c806c2cee027745f5840126a5b64024694dca Mon Sep 17 00:00:00 2001
+From: Li Xi <pkuelelixi@gmail.com>
+Date: Thu, 19 Mar 2015 04:04:53 +0900
+Subject: [PATCH] vfs: Add general support to enforce project quota limits
+
+This patch adds support for a new quota type PRJQUOTA for project quota
+enforcement. Also a new method get_projid() is added into dquot_operations
+structure.
+
+Signed-off-by: Li Xi <lixi@ddn.com>
+Signed-off-by: Dmitry Monakhov <dmonakhov@openvz.org>
+Reviewed-by: Jan Kara <jack@suse.cz>
+Signed-off-by: Jan Kara <jack@suse.cz>
+---
+ fs/quota/dquot.c         |   62 +++++++++++++++++++++++++++++++--------------
+ fs/quota/quotaio_v2.h    |    6 +++-
+ fs/xfs/xfs_fs.h          |   43 +++++++++++--------------------
+ include/linux/fs.h       |   32 +++++++++++++++++++++++
+ include/linux/quota.h    |   13 ++++-----
+ include/linux/quotaops.h |   10 +++++--
+ 6 files changed, 107 insertions(+), 59 deletions(-)
+
+diff --git a/fs/quota/dquot.c b/fs/quota/dquot.c
+index 2772dcf..16e4fc3 100644
+--- a/fs/quota/dquot.c
++++ b/fs/quota/dquot.c
+@@ -1022,6 +1022,8 @@ static int need_print_warning(struct dquot *dquot)
+ 			return current_fsuid() == dquot->dq_id;
+ 		case GRPQUOTA:
+ 			return in_group_p(dquot->dq_id);
++		case PRJQUOTA:
++			return 1;
+ 	}
+ 	return 0;
+ }
+@@ -1234,6 +1236,8 @@ int dquot_initialize(struct inode *inode, int type)
+ 	struct dquot *got[MAXQUOTAS] = { NULL, NULL };
+ 	struct super_block *sb = inode->i_sb;
+ 	qsize_t rsv;
++	u32 projid;
++	int rc;
+ 
+ 	/* First test before acquiring mutex - solves deadlocks when we
+          * re-enter the quota code and are already holding the mutex */
+@@ -1253,6 +1257,9 @@ int dquot_initialize(struct inode *inode, int type)
+ 			continue;
+ 		init_needed = 1;
+ 
++		if (!sb_has_quota_active(sb, cnt))
++			continue;
++
+ 		switch (cnt) {
+ 		case USRQUOTA:
+ 			id = inode->i_uid;
+@@ -1260,6 +1267,13 @@ int dquot_initialize(struct inode *inode, int type)
+ 		case GRPQUOTA:
+ 			id = inode->i_gid;
+ 			break;
++		case PRJQUOTA:
++			if (!inode->i_sb->dq_op->get_projid)
++				continue;
++			rc = inode->i_sb->dq_op->get_projid(inode, &projid);
++			if (rc)
++				continue;
++			id = projid;
+ 		}
+ 		got[cnt] = dqget(sb, id, cnt);
+ 	}
+@@ -1739,15 +1753,12 @@ EXPORT_SYMBOL(dquot_free_inode);
+  * This operation can block, but only after everything is updated
+  * A transaction must be started when entering this function.
+  */
+-int dquot_transfer(struct inode *inode, struct iattr *iattr)
++int __dquot_transfer(struct inode *inode, struct dquot **transfer_to)
+ {
+ 	qsize_t space, cur_space;
+ 	qsize_t rsv_space = 0;
+-	struct dquot *transfer_from[MAXQUOTAS];
+-	struct dquot *transfer_to[MAXQUOTAS];
++	struct dquot *transfer_from[MAXQUOTAS] = {};
+ 	int cnt, ret = QUOTA_OK;
+-	int chuid = iattr->ia_valid & ATTR_UID && inode->i_uid != iattr->ia_uid,
+-	    chgid = iattr->ia_valid & ATTR_GID && inode->i_gid != iattr->ia_gid;
+ 	char warntype_to[MAXQUOTAS];
+ 	char warntype_from_inodes[MAXQUOTAS], warntype_from_space[MAXQUOTAS];
+ 
+@@ -1758,20 +1769,13 @@ int dquot_transfer(struct inode *inode, struct iattr *iattr)
+ 	/* Initialize the arrays */
+ 	for (cnt = 0; cnt < MAXQUOTAS; cnt++) {
+ 		transfer_from[cnt] = NULL;
+-		transfer_to[cnt] = NULL;
+ 		warntype_to[cnt] = QUOTA_NL_NOWARN;
+ 	}
+-	if (chuid)
+-		transfer_to[USRQUOTA] = dqget(inode->i_sb, iattr->ia_uid,
+-					      USRQUOTA);
+-	if (chgid)
+-		transfer_to[GRPQUOTA] = dqget(inode->i_sb, iattr->ia_gid,
+-					      GRPQUOTA);
+ 
+ 	spin_lock(&inode->i_lock);
+ 	if (IS_NOQUOTA(inode)) {	/* File without quota accounting? */
+ 		spin_unlock(&inode->i_lock);
+-		goto put_all;
++		return 0;
+ 	}
+ 	spin_lock(&dq_data_lock);
+ 	cur_space = __inode_get_bytes(inode);
+@@ -1833,11 +1837,8 @@ warn_put_all:
+ 	flush_warnings(transfer_to, warntype_to);
+ 	flush_warnings(transfer_from, warntype_from_inodes);
+ 	flush_warnings(transfer_from, warntype_from_space);
+-put_all:
+-	for (cnt = 0; cnt < MAXQUOTAS; cnt++) {
+-		dqput(transfer_from[cnt]);
+-		dqput(transfer_to[cnt]);
+-	}
++	for (cnt = 0; cnt < MAXQUOTAS; cnt++)
++		 dqput(transfer_from[cnt]);
+ 	return ret;
+ over_quota:
+ 	spin_unlock(&dq_data_lock);
+@@ -1848,6 +1849,28 @@ over_quota:
+ 	ret = NO_QUOTA;
+ 	goto warn_put_all;
+ }
++EXPORT_SYMBOL(__dquot_transfer);
++
++int dquot_transfer(struct inode *inode, struct iattr *iattr)
++{
++	struct dquot *transfer_to[MAXQUOTAS] = {NULL, NULL, NULL};
++	int ret;
++	int cnt;
++
++	if (IS_NOQUOTA(inode))
++		return 0;
++
++	if (iattr->ia_valid & ATTR_UID && inode->i_uid != iattr->ia_uid)
++		transfer_to[USRQUOTA] = dqget(inode->i_sb,
++					      iattr->ia_uid, USRQUOTA);
++	if (iattr->ia_valid & ATTR_GID && inode->i_gid != iattr->ia_gid)
++		transfer_to[GRPQUOTA] = dqget(inode->i_sb,
++					      iattr->ia_gid, GRPQUOTA);
++	ret = __dquot_transfer(inode, transfer_to);
++	for (cnt = 0; cnt < MAXQUOTAS; cnt++)
++		dqput(transfer_to[cnt]);
++	return ret;
++}
+ EXPORT_SYMBOL(dquot_transfer);
+ 
+ /* Wrapper for transferring ownership of an inode */
+@@ -2065,7 +2088,8 @@ static int vfs_load_quota_inode(struct inode *inode, int type, int format_id,
+ 		error = -EROFS;
+ 		goto out_fmt;
+ 	}
+-	if (!sb->s_op->quota_write || !sb->s_op->quota_read) {
++	if (!sb->s_op->quota_write || !sb->s_op->quota_read ||
++	    (type == PRJQUOTA && sb->dq_op->get_projid == NULL)) {
+ 		error = -EINVAL;
+ 		goto out_fmt;
+ 	}
+diff --git a/fs/quota/quotaio_v2.h b/fs/quota/quotaio_v2.h
+index f1966b4..4e95430 100644
+--- a/fs/quota/quotaio_v2.h
++++ b/fs/quota/quotaio_v2.h
+@@ -13,12 +13,14 @@
+  */
+ #define V2_INITQMAGICS {\
+ 	0xd9c01f11,	/* USRQUOTA */\
+-	0xd9c01927	/* GRPQUOTA */\
++	0xd9c01927,	/* GRPQUOTA */\
++	0xd9c03f14,	/* PRJQUOTA */\
+ }
+ 
+ #define V2_INITQVERSIONS {\
+ 	1,		/* USRQUOTA */\
+-	1		/* GRPQUOTA */\
++	1,		/* GRPQUOTA */\
++	1,		/* PRJQUOTA */\
+ }
+ 
+ /* First generic header */
+diff --git a/fs/xfs/xfs_fs.h b/fs/xfs/xfs_fs.h
+index 7ce5b2f..c11d370 100644
+--- a/fs/xfs/xfs_fs.h
++++ b/fs/xfs/xfs_fs.h
+@@ -36,38 +36,25 @@ struct dioattr {
+ #endif
+ 
+ /*
+- * Structure for XFS_IOC_FSGETXATTR[A] and XFS_IOC_FSSETXATTR.
+- */
+-#ifndef HAVE_FSXATTR
+-struct fsxattr {
+-	__u32		fsx_xflags;	/* xflags field value (get/set) */
+-	__u32		fsx_extsize;	/* extsize field value (get/set)*/
+-	__u32		fsx_nextents;	/* nextents field value (get)	*/
+-	__u32		fsx_projid;	/* project identifier (get/set) */
+-	unsigned char	fsx_pad[12];
+-};
+-#endif
+-
+-/*
+  * Flags for the bs_xflags/fsx_xflags field
+  * There should be a one-to-one correspondence between these flags and the
+  * XFS_DIFLAG_s.
+  */
+-#define XFS_XFLAG_REALTIME	0x00000001	/* data in realtime volume */
+-#define XFS_XFLAG_PREALLOC	0x00000002	/* preallocated file extents */
+-#define XFS_XFLAG_IMMUTABLE	0x00000008	/* file cannot be modified */
+-#define XFS_XFLAG_APPEND	0x00000010	/* all writes append */
+-#define XFS_XFLAG_SYNC		0x00000020	/* all writes synchronous */
+-#define XFS_XFLAG_NOATIME	0x00000040	/* do not update access time */
+-#define XFS_XFLAG_NODUMP	0x00000080	/* do not include in backups */
+-#define XFS_XFLAG_RTINHERIT	0x00000100	/* create with rt bit set */
+-#define XFS_XFLAG_PROJINHERIT	0x00000200	/* create with parents projid */
+-#define XFS_XFLAG_NOSYMLINKS	0x00000400	/* disallow symlink creation */
+-#define XFS_XFLAG_EXTSIZE	0x00000800	/* extent size allocator hint */
+-#define XFS_XFLAG_EXTSZINHERIT	0x00001000	/* inherit inode extent size */
+-#define XFS_XFLAG_NODEFRAG	0x00002000  	/* do not defragment */
+-#define XFS_XFLAG_FILESTREAM	0x00004000	/* use filestream allocator */
+-#define XFS_XFLAG_HASATTR	0x80000000	/* no DIFLAG for this	*/
++#define XFS_XFLAG_REALTIME	FS_XFLAG_REALTIME	/* data in realtime volume */
++#define XFS_XFLAG_PREALLOC	FS_XFLAG_PREALLOC	/* preallocated file extents */
++#define XFS_XFLAG_IMMUTABLE	FS_XFLAG_IMMUTABLE	/* file cannot be modified */
++#define XFS_XFLAG_APPEND	FS_XFLAG_APPEND		/* all writes append */
++#define XFS_XFLAG_SYNC		FS_XFLAG_SYNC		/* all writes synchronous */
++#define XFS_XFLAG_NOATIME	FS_XFLAG_NOATIME	/* do not update access time */
++#define XFS_XFLAG_NODUMP	FS_XFLAG_NODUMP		/* do not include in backups */
++#define XFS_XFLAG_RTINHERIT	FS_XFLAG_RTINHERIT	/* create with rt bit set */
++#define XFS_XFLAG_PROJINHERIT	FS_XFLAG_PROJINHERIT	/* create with parents projid */
++#define XFS_XFLAG_NOSYMLINKS	FS_XFLAG_NOSYMLINKS	/* disallow symlink creation */
++#define XFS_XFLAG_EXTSIZE	FS_XFLAG_EXTSIZE	/* extent size allocator hint */
++#define XFS_XFLAG_EXTSZINHERIT	FS_XFLAG_EXTSZINHERIT	/* inherit inode extent size */
++#define XFS_XFLAG_NODEFRAG	FS_XFLAG_NODEFRAG	/* do not defragment */
++#define XFS_XFLAG_FILESTREAM	FS_XFLAG_FILESTREAM	/* use filestream allocator */
++#define XFS_XFLAG_HASATTR	FS_XFLAG_HASATTR	/* no DIFLAG for this	*/
+ 
+ /*
+  * Structure for XFS_IOC_GETBMAP.
+diff --git a/include/linux/fs.h b/include/linux/fs.h
+index 22200d4..f3a0b5b 100644
+--- a/include/linux/fs.h
++++ b/include/linux/fs.h
+@@ -360,6 +360,8 @@ struct inodes_stat_t {
+ #define	FS_IOC_GETVERSION		_IOR('v', 1, long)
+ #define	FS_IOC_SETVERSION		_IOW('v', 2, long)
+ #define FS_IOC_FIEMAP			_IOWR('f', 11, struct fiemap)
++#define FS_IOC_FSGETXATTR		_IOR('X', 31, struct fsxattr)
++#define FS_IOC_FSSETXATTR		_IOW('X', 32, struct fsxattr)
+ #define FS_IOC32_GETFLAGS		_IOR('f', 1, int)
+ #define FS_IOC32_SETFLAGS		_IOW('f', 2, int)
+ #define FS_IOC32_GETVERSION		_IOR('v', 1, int)
+@@ -392,11 +394,41 @@ struct inodes_stat_t {
+ #define FS_EXTENT_FL			0x00080000 /* Extents */
+ #define FS_DIRECTIO_FL			0x00100000 /* Use direct i/o */
+ #define FS_NOCOW_FL			0x00800000 /* Do not cow file */
++#define FS_PROJINHERIT_FL		0x20000000 /* Create with parents projid */
+ #define FS_RESERVED_FL			0x80000000 /* reserved for ext2 lib */
+ 
+ #define FS_FL_USER_VISIBLE		0x0003DFFF /* User visible flags */
+ #define FS_FL_USER_MODIFIABLE		0x000380FF /* User modifiable flags */
+ 
++/*
++ * Structure for FS_IOC_FSGETXATTR and FS_IOC_FSSETXATTR.
++ */
++struct fsxattr {
++	__u32		fsx_xflags;	/* xflags field value (get/set) */
++	__u32		fsx_extsize;	/* extsize field value (get/set)*/
++	__u32		fsx_nextents;	/* nextents field value (get)	*/
++	__u32		fsx_projid;	/* project identifier (get/set) */
++	unsigned char	fsx_pad[12];
++};
++
++/*
++ * Flags for the fsx_xflags field
++ */
++#define FS_XFLAG_REALTIME	0x00000001	/* data in realtime volume */
++#define FS_XFLAG_PREALLOC	0x00000002	/* preallocated file extents */
++#define FS_XFLAG_IMMUTABLE	0x00000008	/* file cannot be modified */
++#define FS_XFLAG_APPEND		0x00000010	/* all writes append */
++#define FS_XFLAG_SYNC		0x00000020	/* all writes synchronous */
++#define FS_XFLAG_NOATIME	0x00000040	/* do not update access time */
++#define FS_XFLAG_NODUMP		0x00000080	/* do not include in backups */
++#define FS_XFLAG_RTINHERIT	0x00000100	/* create with rt bit set */
++#define FS_XFLAG_PROJINHERIT	0x00000200	/* create with parents projid */
++#define FS_XFLAG_NOSYMLINKS	0x00000400	/* disallow symlink creation */
++#define FS_XFLAG_EXTSIZE	0x00000800	/* extent size allocator hint */
++#define FS_XFLAG_EXTSZINHERIT	0x00001000	/* inherit inode extent size */
++#define FS_XFLAG_NODEFRAG	0x00002000  	/* do not defragment */
++#define FS_XFLAG_FILESTREAM	0x00004000	/* use filestream allocator */
++#define FS_XFLAG_HASATTR	0x80000000	/* no DIFLAG for this */
+ 
+ #define SYNC_FILE_RANGE_WAIT_BEFORE	1
+ #define SYNC_FILE_RANGE_WRITE		2
+diff --git a/include/linux/quota.h b/include/linux/quota.h
+index c40c540..79f6117 100644
+--- a/include/linux/quota.h
++++ b/include/linux/quota.h
+@@ -38,9 +38,10 @@
+ 
+ #define __DQUOT_VERSION__	"dquot_6.5.2"
+ 
+-#define MAXQUOTAS 2
++#define MAXQUOTAS 3
+ #define USRQUOTA  0		/* element used for user quotas */
+ #define GRPQUOTA  1		/* element used for group quotas */
++#define PRJQUOTA  2		/* element used for project quotas */
+ 
+ /*
+  * Definitions for the default names of the quotas files.
+@@ -48,6 +49,7 @@
+ #define INITQFNAMES { \
+ 	"user",    /* USRQUOTA */ \
+ 	"group",   /* GRPQUOTA */ \
++	"project", /* PRJQUOTA */ \
+ 	"undefined", \
+ };
+ 
+@@ -318,6 +320,7 @@ struct dquot_operations {
+ 	/* get reserved quota for delayed alloc, value returned is managed by
+ 	 * quota code only */
+ 	qsize_t *(*get_reserved_space) (struct inode *);
++	int (*get_projid) (struct inode *, u32 *);/* Get project ID */
+ };
+ 
+ /* Operations handling requests from userspace */
+@@ -367,16 +370,12 @@ enum {
+ 
+ static inline unsigned int dquot_state_flag(unsigned int flags, int type)
+ {
+-	if (type == USRQUOTA)
+-		return flags;
+-	return flags << _DQUOT_STATE_FLAGS;
++	return flags << _DQUOT_STATE_FLAGS * type;
+ }
+ 
+ static inline unsigned int dquot_generic_flag(unsigned int flags, int type)
+ {
+-	if (type == USRQUOTA)
+-		return flags;
+-	return flags >> _DQUOT_STATE_FLAGS;
++	return (flags >> _DQUOT_STATE_FLAGS * type) & DQUOT_STATE_FLAGS;
+ }
+ 
+ #ifdef CONFIG_QUOTA_NETLINK_INTERFACE
+diff --git a/include/linux/quotaops.h b/include/linux/quotaops.h
+index c6ebecf..9b490f0 100644
+--- a/include/linux/quotaops.h
++++ b/include/linux/quotaops.h
+@@ -54,6 +54,7 @@ void dquot_release_reserved_space(struct inode *inode, qsize_t number);
+ int dquot_free_space(struct inode *inode, qsize_t number);
+ int dquot_free_inode(const struct inode *inode, qsize_t number);
+ 
++int __dquot_transfer(struct inode *inode, struct dquot **transfer_to);
+ int dquot_transfer(struct inode *inode, struct iattr *iattr);
+ int dquot_commit(struct dquot *dquot);
+ int dquot_acquire(struct dquot *dquot);
+@@ -111,7 +112,8 @@ static inline int sb_has_quota_suspended(struct super_block *sb, int type)
+ static inline int sb_any_quota_suspended(struct super_block *sb)
+ {
+ 	return sb_has_quota_suspended(sb, USRQUOTA) ||
+-		sb_has_quota_suspended(sb, GRPQUOTA);
++		sb_has_quota_suspended(sb, GRPQUOTA) ||
++		sb_has_quota_suspended(sb, PRJQUOTA);
+ }
+ 
+ /* Does kernel know about any quota information for given sb + type? */
+@@ -124,7 +126,8 @@ static inline int sb_has_quota_loaded(struct super_block *sb, int type)
+ static inline int sb_any_quota_loaded(struct super_block *sb)
+ {
+ 	return sb_has_quota_loaded(sb, USRQUOTA) ||
+-		sb_has_quota_loaded(sb, GRPQUOTA);
++		sb_has_quota_loaded(sb, GRPQUOTA) ||
++		sb_has_quota_loaded(sb, PRJQUOTA);
+ }
+ 
+ static inline int sb_has_quota_active(struct super_block *sb, int type)
+@@ -136,7 +139,8 @@ static inline int sb_has_quota_active(struct super_block *sb, int type)
+ static inline int sb_any_quota_active(struct super_block *sb)
+ {
+ 	return sb_has_quota_active(sb, USRQUOTA) ||
+-	       sb_has_quota_active(sb, GRPQUOTA);
++	       sb_has_quota_active(sb, GRPQUOTA) ||
++	       sb_has_quota_active(sb, PRJQUOTA);
+ }
+ 
+ /*
+-- 
+1.7.1
+

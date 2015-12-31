@@ -1,0 +1,219 @@
+From 4d7ce9fa5001f52251c5114d85fbe43c21fa84e0 Mon Sep 17 00:00:00 2001
+From: Wang Shilong <wshilong@ddn.com>
+Date: Thu, 31 Dec 2015 21:41:09 +0800
+Subject: [PATCH] ext4-adds-project-quota-support.patch
+
+---
+ fs/ext4/ext4.h  |    6 ++-
+ fs/ext4/super.c |  117 ++++++++++++++++++++++++++++++++++++++++--------------
+ 2 files changed, 90 insertions(+), 33 deletions(-)
+
+diff --git a/fs/ext4/ext4.h b/fs/ext4/ext4.h
+index cf9ab2e..88dbec1 100644
+--- a/fs/ext4/ext4.h
++++ b/fs/ext4/ext4.h
+@@ -556,7 +556,7 @@ struct ext4_new_group_data {
+ #define EXT4_IOC32_SETVERSION_OLD	FS_IOC32_SETVERSION
+ 
+ /* Number of quota types we support */
+-#define EXT4_MAXQUOTAS 2
++#define EXT4_MAXQUOTAS 3
+ 
+ /*
+  *  Mount options
+@@ -1071,7 +1071,9 @@ struct ext4_super_block {
+ 	__u8	s_mount_opts[64];
+ 	__le32	s_usr_quota_inum;	/* inode for tracking user quota */
+ 	__le32	s_grp_quota_inum;	/* inode for tracking group quota */
+-	__le32	s_reserved[110];        /* Padding to the end of the block */
++	__le32  s_padding[3];
++	__le32	s_prj_quota_inum;	/* inode for tracking project quota */
++	__le32	s_reserved[106];        /* Padding to the end of the block */
+ };
+ 
+ #ifdef __KERNEL__
+diff --git a/fs/ext4/super.c b/fs/ext4/super.c
+index 160f4ff..26ac7ea 100644
+--- a/fs/ext4/super.c
++++ b/fs/ext4/super.c
+@@ -1145,8 +1145,8 @@ static int bdev_try_to_free_page(struct super_block *sb, struct page *page,
+ }
+ 
+ #ifdef CONFIG_QUOTA
+-#define QTYPE2NAME(t) ((t) == USRQUOTA ? "user" : "group")
+-#define QTYPE2MOPT(on, t) ((t) == USRQUOTA?((on)##USRJQUOTA):((on)##GRPJQUOTA))
++static char *quotatypes[] = INITQFNAMES;
++#define QTYPE2NAME(t) (quotatypes[t])
+ 
+ static int ext4_write_dquot(struct dquot *dquot);
+ static int ext4_acquire_dquot(struct dquot *dquot);
+@@ -3508,6 +3508,7 @@ static int ext4_fill_super(struct super_block *sb, void *data, int silent)
+ 
+ 		sbi->s_qf_inums[USRQUOTA] = es->s_usr_quota_inum;
+ 		sbi->s_qf_inums[GRPQUOTA] = es->s_grp_quota_inum;
++		sbi->s_qf_inums[PRJQUOTA] = es->s_prj_quota_inum;
+ 	}
+ #endif
+ 	INIT_LIST_HEAD(&sbi->s_orphan); /* unlinked but open files */
+@@ -4142,6 +4143,7 @@ static int ext4_commit_super(struct super_block *sb, int sync)
+ 	if (EXT4_HAS_RO_COMPAT_FEATURE(sb, EXT4_FEATURE_RO_COMPAT_QUOTA)) {
+ 		es->s_usr_quota_inum = EXT4_SB(sb)->s_qf_inums[USRQUOTA];
+ 		es->s_grp_quota_inum = EXT4_SB(sb)->s_qf_inums[GRPQUOTA];
++		es->s_prj_quota_inum = EXT4_SB(sb)->s_qf_inums[PRJQUOTA];
+ 	}
+ #endif
+ 	sb->s_dirt = 0;
+@@ -4525,6 +4527,44 @@ restore_opts:
+ 	return err;
+ }
+ 
++static int ext4_statfs_project(struct super_block *sb,
++			       u32 projid, struct kstatfs *buf)
++{
++	struct dquot *dquot;
++	u64 limit;
++	u64 curblock;
++
++	dquot = dqget(sb, projid, PRJQUOTA);
++	if (!dquot)
++		return -ESRCH;
++	spin_lock(&dq_data_lock);
++
++	limit = dquot->dq_dqb.dqb_bsoftlimit ?
++		dquot->dq_dqb.dqb_bsoftlimit :
++		dquot->dq_dqb.dqb_bhardlimit;
++	if (limit && buf->f_blocks * buf->f_bsize > limit) {
++		curblock = dquot->dq_dqb.dqb_curspace / buf->f_bsize;
++		buf->f_blocks = limit / buf->f_bsize;
++		buf->f_bfree = buf->f_bavail =
++			(buf->f_blocks > curblock) ?
++			 (buf->f_blocks - curblock) : 0;
++	}
++
++	limit = dquot->dq_dqb.dqb_isoftlimit ?
++		dquot->dq_dqb.dqb_isoftlimit :
++		dquot->dq_dqb.dqb_ihardlimit;
++	if (limit && buf->f_files > limit) {
++		buf->f_files = limit;
++		buf->f_ffree =
++			(buf->f_files > dquot->dq_dqb.dqb_curinodes) ?
++			 (buf->f_files - dquot->dq_dqb.dqb_curinodes) : 0;
++	}
++
++	spin_unlock(&dq_data_lock);
++	dqput(dquot);
++	return 0;
++}
++
+ static int ext4_statfs(struct dentry *dentry, struct kstatfs *buf)
+ {
+ 	struct super_block *sb = dentry->d_sb;
+@@ -4591,6 +4631,9 @@ static int ext4_statfs(struct dentry *dentry, struct kstatfs *buf)
+ 	buf->f_fsid.val[0] = fsid & 0xFFFFFFFFUL;
+ 	buf->f_fsid.val[1] = (fsid >> 32) & 0xFFFFFFFFUL;
+ 
++	if (ext4_test_inode_flag(dentry->d_inode, EXT4_INODE_PROJINHERIT) &&
++	    sb_has_quota_limits_enabled(sb, PRJQUOTA))
++		ext4_statfs_project(sb, EXT4_I(dentry->d_inode)->i_projid, buf);
+ 	return 0;
+ }
+ 
+@@ -4842,22 +4885,33 @@ static int ext4_acct_on(struct super_block *sb)
+ {
+ 	struct inode *qf_inode[EXT4_MAXQUOTAS];
+ 	int           rc;
++	int i;
++	bool skip_project = false;
+ 
+-	if (!EXT4_HAS_RO_COMPAT_FEATURE(sb, EXT4_FEATURE_RO_COMPAT_QUOTA) ||
+-	    !EXT4_SB(sb)->s_qf_inums[USRQUOTA] ||
+-	    !EXT4_SB(sb)->s_qf_inums[GRPQUOTA])
+-		return -EINVAL;
++	/* project quota is disabled in default */
++	if (!EXT4_HAS_RO_COMPAT_FEATURE(sb, EXT4_FEATURE_RO_COMPAT_PROJECT))
++		skip_project = true;
+ 
+-	qf_inode[USRQUOTA] = ext4_iget(sb, EXT4_SB(sb)->s_qf_inums[USRQUOTA]);
+-	if (IS_ERR(qf_inode[USRQUOTA])) {
+-		EXT4_SB(sb)->s_qf_inums[USRQUOTA] = 0;
+-		return PTR_ERR(qf_inode[USRQUOTA]);
++	if (EXT4_HAS_RO_COMPAT_FEATURE(sb, EXT4_FEATURE_RO_COMPAT_QUOTA)) {
++		for (i = 0; i < EXT4_MAXQUOTAS; i++) {
++			qf_inode[i] = NULL;
++			if (i == PRJQUOTA && skip_project)
++				continue;
++			if (!EXT4_SB(sb)->s_qf_inums[i])
++				return -EINVAL;
++		}
+ 	}
+-	qf_inode[GRPQUOTA] = ext4_iget(sb, EXT4_SB(sb)->s_qf_inums[GRPQUOTA]);
+-	if (IS_ERR(qf_inode[GRPQUOTA])) {
+-		iput(qf_inode[USRQUOTA]);
+-		EXT4_SB(sb)->s_qf_inums[GRPQUOTA] = 0;
+-		return PTR_ERR(qf_inode[GRPQUOTA]);
++
++	for (i = 0; i < EXT4_MAXQUOTAS; i++) {
++		if (i == PRJQUOTA && skip_project)
++			continue;
++		qf_inode[i] = ext4_iget(sb, EXT4_SB(sb)->s_qf_inums[i]);
++		if (IS_ERR(qf_inode[i])) {
++			EXT4_SB(sb)->s_qf_inums[i] = 0;
++			rc = PTR_ERR(qf_inode[i]);
++			qf_inode[i] = NULL;
++			goto error_out;
++		}
+ 	}
+ 
+ 	/*
+@@ -4872,24 +4926,21 @@ static int ext4_acct_on(struct super_block *sb)
+ 		jbd2_journal_lock_updates(EXT4_SB(sb)->s_journal);
+ 		rc = jbd2_journal_flush(EXT4_SB(sb)->s_journal);
+ 		jbd2_journal_unlock_updates(EXT4_SB(sb)->s_journal);
+-		if (rc) {
+-			iput(qf_inode[USRQUOTA]);
+-			iput(qf_inode[GRPQUOTA]);
+-			return rc;
+-		}
++		if (rc)
++			goto error_out;
+ 	}
+-
+ 	/* only enable quota accounting by default */
+-	rc = vfs_quota_enable(qf_inode[USRQUOTA], USRQUOTA, QFMT_VFS_V1,
+-		              DQUOT_USAGE_ENABLED);
+-	iput(qf_inode[USRQUOTA]);
+-	if (rc) {
+-		iput(qf_inode[GRPQUOTA]);
+-		return rc;
+-	}
+-	rc = vfs_quota_enable(qf_inode[GRPQUOTA], GRPQUOTA, QFMT_VFS_V1,
+-			      DQUOT_USAGE_ENABLED);
+-	iput(qf_inode[GRPQUOTA]);
++	for (i = 0; i < EXT4_MAXQUOTAS; i++) {
++		if (i == PRJQUOTA && skip_project)
++			continue;
++		rc = vfs_quota_enable(qf_inode[i], i, QFMT_VFS_V1,
++		              	      DQUOT_USAGE_ENABLED);
++		if (rc)
++			break;
++	}
++error_out:
++	for (i = 0; i < EXT4_MAXQUOTAS; i++)
++		iput(qf_inode[i]);
+ 	return rc;
+ }
+ 
+@@ -4924,6 +4975,10 @@ static int ext4_acct_off(struct super_block *sb)
+ out:
+ 	for (type = 0; type < EXT4_MAXQUOTAS; type++) {
+ 		int ret;
++
++		if (!EXT4_HAS_RO_COMPAT_FEATURE(sb,
++			EXT4_FEATURE_RO_COMPAT_PROJECT) && type == PRJQUOTA)
++			continue;
+ 		ret = vfs_quota_disable(sb, type,
+ 				    DQUOT_USAGE_ENABLED | DQUOT_LIMITS_ENABLED);
+ 		if (!rc && ret)
+-- 
+1.7.1
+
