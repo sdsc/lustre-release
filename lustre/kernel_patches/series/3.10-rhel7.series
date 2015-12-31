@@ -3,4 +3,9 @@ dev_read_only-3.7.patch
 blkdev_tunables-3.7.patch
 jbd2-fix-j_list_lock-unlock-3.10-rhel7.patch
 ext4-fix-deadlock-setattr.patch
+vfs-project-quotas-rhel7.patch
+ext4-projid-ignore-maxquotas.patch
+ext4-projid-feature-support.patch
+ext4-projid-quotas.patch
+ext4-projid-xfs-ioctls.patch
 
