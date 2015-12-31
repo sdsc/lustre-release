@@ -1,0 +1,28 @@
+diff --git a/fs/ext4/inode.c b/fs/ext4/inode.c
+index 4716287..0d4ba33 100644
+--- a/fs/ext4/inode.c
++++ b/fs/ext4/inode.c
+@@ -4875,12 +4875,12 @@ int ext4_mark_inode_dirty(handle_t *handle, struct inode *inode)
+ 		 */
+ 		if ((jbd2_journal_extend(handle,
+ 			     EXT4_DATA_TRANS_BLOCKS(inode->i_sb))) == 0) {
++			/* prevent deadlock */
++			ext4_set_inode_state(inode, EXT4_STATE_NO_EXPAND);
+ 			ret = ext4_expand_extra_isize(inode,
+ 						      sbi->s_want_extra_isize,
+ 						      iloc, handle);
+ 			if (ret) {
+-				ext4_set_inode_state(inode,
+-						     EXT4_STATE_NO_EXPAND);
+ 				if (mnt_count !=
+ 					le16_to_cpu(sbi->s_es->s_mnt_count)) {
+ 					ext4_warning(inode->i_sb,
+@@ -4890,6 +4890,8 @@ int ext4_mark_inode_dirty(handle_t *handle, struct inode *inode)
+ 					mnt_count =
+ 					  le16_to_cpu(sbi->s_es->s_mnt_count);
+ 				}
++			} else {
++				ext4_clear_inode_state(inode, EXT4_STATE_NO_EXPAND);
+ 			}
+ 		}
+ 	}
