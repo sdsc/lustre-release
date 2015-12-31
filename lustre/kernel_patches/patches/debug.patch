@@ -1,0 +1,13 @@
+diff --git a/fs/ext4/ext4_jbd2.h b/fs/ext4/ext4_jbd2.h
+index 9c5b49f..2f6d557 100644
+--- a/fs/ext4/ext4_jbd2.h
++++ b/fs/ext4/ext4_jbd2.h
+@@ -50,7 +50,7 @@
+  * counting that again for the quota updates. */
+ 
+ #define EXT4_DATA_TRANS_BLOCKS(sb)	(EXT4_SINGLEDATA_TRANS_BLOCKS(sb) + \
+-					 EXT4_XATTR_TRANS_BLOCKS - 2 + \
++					 EXT4_XATTR_TRANS_BLOCKS - 1 + \
+ 					 EXT4_MAXQUOTAS_TRANS_BLOCKS(sb))
+ 
+ /*
