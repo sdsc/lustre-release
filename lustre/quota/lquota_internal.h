@@ -42,6 +42,9 @@
  * 2(0x) + 8(f_oid) + 1(-) + 40(UUID_MAX) which means 51 chars + '\0' */
 #define LQUOTA_NAME_MAX 52
 
+#undef MAXQUOTAS
+#define MAXQUOTAS 2
+
 /* reserved OID in FID_SEQ_QUOTA for local objects */
 enum lquota_local_oid {
 	LQUOTA_USR_OID		= 1UL, /* slave index copy for user quota */
