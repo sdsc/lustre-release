@@ -1,0 +1,175 @@
+From 7abe60e0e46237124d35d68563124c0a08cf7a03 Mon Sep 17 00:00:00 2001
+From: Jan Kara <jack@suse.cz>
+Date: Thu, 11 Sep 2014 11:15:15 -0400
+Subject: [PATCH] ext4: don't use MAXQUOTAS value
+
+MAXQUOTAS value defines maximum number of quota types VFS supports.
+This isn't necessarily the number of types ext4 supports. Although
+ext4 will support project quotas, use ext4 private definition for
+consistency with other filesystems.
+
+Signed-off-by: Jan Kara <jack@suse.cz>
+Signed-off-by: Theodore Ts'o <tytso@mit.edu>
+---
+ fs/ext4/ext4.h      |    8 +++++---
+ fs/ext4/ext4_jbd2.h |    6 +++---
+ fs/ext4/super.c     |   22 +++++++++++-----------
+ 3 files changed, 19 insertions(+), 17 deletions(-)
+
+diff --git a/fs/ext4/ext4.h b/fs/ext4/ext4.h
+index 938487a..6abd98d 100644
+--- a/fs/ext4/ext4.h
++++ b/fs/ext4/ext4.h
+@@ -553,6 +553,8 @@ struct ext4_new_group_data {
+ #define EXT4_IOC32_GETVERSION_OLD	FS_IOC32_GETVERSION
+ #define EXT4_IOC32_SETVERSION_OLD	FS_IOC32_SETVERSION
+ 
++/* Number of quota types we support */
++#define EXT4_MAXQUOTAS 2
+ 
+ /*
+  *  Mount options
+@@ -565,7 +567,7 @@ struct ext4_mount_options {
+ 	u32 s_min_batch_time, s_max_batch_time;
+ #ifdef CONFIG_QUOTA
+ 	int s_jquota_fmt;
+-	char *s_qf_names[MAXQUOTAS];
++	char *s_qf_names[EXT4_MAXQUOTAS];
+ #endif
+ };
+ 
+@@ -1138,9 +1140,9 @@ struct ext4_sb_info {
+ 	wait_queue_head_t ro_wait_queue;	/* For people waiting for the fs to go read-only */
+ #endif
+ #ifdef CONFIG_QUOTA
+-	char *s_qf_names[MAXQUOTAS];		/* Names of quota files with journalled quota */
++	char *s_qf_names[EXT4_MAXQUOTAS];		/* Names of quota files with journalled quota */
+ 	int s_jquota_fmt;			/* Format of quota to use */
+-	unsigned long s_qf_inums[MAXQUOTAS];    /* Quota file inodes */
++	unsigned long s_qf_inums[EXT4_MAXQUOTAS];    /* Quota file inodes */
+ #endif
+ 	unsigned int s_want_extra_isize; /* New inodes should reserve # bytes */
+ 	struct rb_root system_blks;
+diff --git a/fs/ext4/ext4_jbd2.h b/fs/ext4/ext4_jbd2.h
+index 682becf..2fec536 100644
+--- a/fs/ext4/ext4_jbd2.h
++++ b/fs/ext4/ext4_jbd2.h
+@@ -106,9 +106,9 @@
+ #define EXT4_QUOTA_INIT_BLOCKS(sb) 0
+ #define EXT4_QUOTA_DEL_BLOCKS(sb) 0
+ #endif
+-#define EXT4_MAXQUOTAS_TRANS_BLOCKS(sb) (MAXQUOTAS*EXT4_QUOTA_TRANS_BLOCKS(sb))
+-#define EXT4_MAXQUOTAS_INIT_BLOCKS(sb) (MAXQUOTAS*EXT4_QUOTA_INIT_BLOCKS(sb))
+-#define EXT4_MAXQUOTAS_DEL_BLOCKS(sb) (MAXQUOTAS*EXT4_QUOTA_DEL_BLOCKS(sb))
++#define EXT4_MAXQUOTAS_TRANS_BLOCKS(sb) (EXT4_MAXQUOTAS*EXT4_QUOTA_TRANS_BLOCKS(sb))
++#define EXT4_MAXQUOTAS_INIT_BLOCKS(sb) (EXT4_MAXQUOTAS*EXT4_QUOTA_INIT_BLOCKS(sb))
++#define EXT4_MAXQUOTAS_DEL_BLOCKS(sb) (EXT4_MAXQUOTAS*EXT4_QUOTA_DEL_BLOCKS(sb))
+ 
+ /**
+  *   struct ext4_journal_cb_entry - Base structure for callback information.
+diff --git a/fs/ext4/super.c b/fs/ext4/super.c
+index f02a632..e77132a 100644
+--- a/fs/ext4/super.c
++++ b/fs/ext4/super.c
+@@ -771,7 +771,7 @@ static void ext4_put_super(struct super_block *sb)
+ 	percpu_counter_destroy(&sbi->s_dirtyblocks_counter);
+ 	brelse(sbi->s_sbh);
+ #ifdef CONFIG_QUOTA
+-	for (i = 0; i < MAXQUOTAS; i++)
++	for (i = 0; i < EXT4_MAXQUOTAS; i++)
+ 		kfree(sbi->s_qf_names[i]);
+ #endif
+ 
+@@ -2207,7 +2207,7 @@ static void ext4_orphan_cleanup(struct super_block *sb,
+ 				 "tracking for quota: error %d", ret);
+ 	} else {
+ 		/* Turn on quotas so that they are updated correctly */
+-		for (i = 0; i < MAXQUOTAS; i++) {
++		for (i = 0; i < EXT4_MAXQUOTAS; i++) {
+ 			if (EXT4_SB(sb)->s_qf_names[i]) {
+ 				int ret = ext4_quota_on_mount(sb, i);
+ 				if (ret < 0)
+@@ -2262,7 +2262,7 @@ static void ext4_orphan_cleanup(struct super_block *sb,
+ 		ext4_acct_off(sb);
+ 	} else {
+ 		/* Turn quotas off */
+-		for (i = 0; i < MAXQUOTAS; i++) {
++		for (i = 0; i < EXT4_MAXQUOTAS; i++) {
+ 			if (sb_dqopt(sb)->files[i])
+ 				vfs_quota_off(sb, i, 0);
+ 		}
+@@ -3828,7 +3828,7 @@ failed_mount:
+ 		remove_proc_entry(sb->s_id, ext4_proc_root);
+ 	}
+ #ifdef CONFIG_QUOTA
+-	for (i = 0; i < MAXQUOTAS; i++)
++	for (i = 0; i < EXT4_MAXQUOTAS; i++)
+ 		kfree(sbi->s_qf_names[i]);
+ #endif
+ 	ext4_blkdev_remove(sbi);
+@@ -4352,7 +4352,7 @@ static int ext4_remount(struct super_block *sb, int *flags, char *data)
+ 	old_opts.s_max_batch_time = sbi->s_max_batch_time;
+ #ifdef CONFIG_QUOTA
+ 	old_opts.s_jquota_fmt = sbi->s_jquota_fmt;
+-	for (i = 0; i < MAXQUOTAS; i++)
++	for (i = 0; i < EXT4_MAXQUOTAS; i++)
+ 		old_opts.s_qf_names[i] = sbi->s_qf_names[i];
+ #endif
+ 	if (sbi->s_journal && sbi->s_journal->j_task->io_context)
+@@ -4491,7 +4491,7 @@ static int ext4_remount(struct super_block *sb, int *flags, char *data)
+ 
+ #ifdef CONFIG_QUOTA
+ 	/* Release old quota file names */
+-	for (i = 0; i < MAXQUOTAS; i++)
++	for (i = 0; i < EXT4_MAXQUOTAS; i++)
+ 		if (old_opts.s_qf_names[i] &&
+ 		    old_opts.s_qf_names[i] != sbi->s_qf_names[i])
+ 			kfree(old_opts.s_qf_names[i]);
+@@ -4512,7 +4512,7 @@ restore_opts:
+ 	sbi->s_max_batch_time = old_opts.s_max_batch_time;
+ #ifdef CONFIG_QUOTA
+ 	sbi->s_jquota_fmt = old_opts.s_jquota_fmt;
+-	for (i = 0; i < MAXQUOTAS; i++) {
++	for (i = 0; i < EXT4_MAXQUOTAS; i++) {
+ 		if (sbi->s_qf_names[i] &&
+ 		    old_opts.s_qf_names[i] != sbi->s_qf_names[i])
+ 			kfree(sbi->s_qf_names[i]);
+@@ -4794,7 +4794,7 @@ static int ext4_quota_off(struct super_block *sb, int type, int remount)
+ 		up_read(&sb->s_umount);
+ 	}
+ 
+-	for (cnt = 0; cnt < MAXQUOTAS; cnt++) {
++	for (cnt = 0; cnt < EXT4_MAXQUOTAS; cnt++) {
+ 		struct inode      *inode;
+ 		handle_t          *handle;
+ 
+@@ -4839,7 +4839,7 @@ static int ext4_quota_off(struct super_block *sb, int type, int remount)
+  */
+ static int ext4_acct_on(struct super_block *sb)
+ {
+-	struct inode *qf_inode[MAXQUOTAS];
++	struct inode *qf_inode[EXT4_MAXQUOTAS];
+ 	int           rc;
+ 
+ 	if (!EXT4_HAS_RO_COMPAT_FEATURE(sb, EXT4_FEATURE_RO_COMPAT_QUOTA) ||
+@@ -4903,7 +4903,7 @@ static int ext4_acct_off(struct super_block *sb)
+ 	if (!EXT4_HAS_RO_COMPAT_FEATURE(sb, EXT4_FEATURE_RO_COMPAT_QUOTA))
+ 		return -EINVAL;
+ 
+-	for (type = 0; type < MAXQUOTAS; type++) {
++	for (type = 0; type < EXT4_MAXQUOTAS; type++) {
+ 		struct inode *inode = sb_dqopt(sb)->files[type];
+ 		handle_t     *handle;
+ 
+@@ -4921,7 +4921,7 @@ static int ext4_acct_off(struct super_block *sb)
+ 	}
+ 
+ out:
+-	for (type = 0; type < MAXQUOTAS; type++) {
++	for (type = 0; type < EXT4_MAXQUOTAS; type++) {
+ 		int ret;
+ 		ret = vfs_quota_disable(sb, type,
+ 				    DQUOT_USAGE_ENABLED | DQUOT_LIMITS_ENABLED);
+-- 
+1.7.1
+
