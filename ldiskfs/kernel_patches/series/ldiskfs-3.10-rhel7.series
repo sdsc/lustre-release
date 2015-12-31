@@ -19,3 +19,7 @@ rhel7/ext4-remove-truncate-warning.patch
 rhel7/ext4-corrupted-inode-block-bitmaps-handling-patches.patch
 rhel7/ext4-give-warning-with-dir-htree-growing.patch
 rhel7/ext4-mmp-brelse.patch
+rhel7/ext4-don-t-use-MAXQUOTAS-value.patch
+rhel7/ext4-Adds-project-ID-support-for-ext4.patch
+rhel7/ext4-Adds-project-quota-support-for-ext4.patch
+rhel7/ext4-adds-FS_IOC_FSSETXATTR-FS_IOC_FSGETXATTR-interf.patch
