@@ -1,0 +1,13 @@
+diff --git a/fs/ext4/ext4_jbd2.h b/fs/ext4/ext4_jbd2.h
+index 9c5b49f..75b0172 100644
+--- a/fs/ext4/ext4_jbd2.h
++++ b/fs/ext4/ext4_jbd2.h
+@@ -76,7 +76,7 @@
+  * one block, plus two quota updates.  Quota allocations are not
+  * needed. */
+ 
+-#define EXT4_RESERVE_TRANS_BLOCKS	12U
++#define EXT4_RESERVE_TRANS_BLOCKS	13U
+ 
+ #define EXT4_INDEX_EXTRA_TRANS_BLOCKS	8
+ 
