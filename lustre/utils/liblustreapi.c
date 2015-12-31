@@ -3378,6 +3378,11 @@ out:
 
 int llapi_migrate_mdt(char *path, struct find_param *param)
 {
+	/* LU-7576 - trim trailing '/' chars */
+	int len = strlen(path);
+	while (--len > 0 && path[len] == '/')
+		path[len] = '\0';
+
 	return param_callback(path, cb_migrate_mdt_init, cb_common_fini, param);
 }
 
