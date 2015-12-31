@@ -1,0 +1,127 @@
+From 88136c1d72f4d8f1929356a2fde420956becdbab Mon Sep 17 00:00:00 2001
+From: Wang Shilong <wshilong@ddn.com>
+Date: Thu, 31 Dec 2015 19:07:05 +0800
+Subject: [PATCH 3/5] ext4-adds-project-quota-support.patch
+
+---
+ fs/ext4/ext4.h  |    6 ++++--
+ fs/ext4/super.c |   51 +++++++++++++++++++++++++++++++++++++++++++++++----
+ 2 files changed, 51 insertions(+), 6 deletions(-)
+
+diff --git a/fs/ext4/ext4.h b/fs/ext4/ext4.h
+index 910944a..85726d8 100644
+--- a/fs/ext4/ext4.h
++++ b/fs/ext4/ext4.h
+@@ -585,7 +585,7 @@ struct ext4_new_group_data {
+ #endif
+ 
+ /* Number of quota types we support */
+-#define EXT4_MAXQUOTAS 2
++#define EXT4_MAXQUOTAS 3
+ 
+ /* Max physical block we can address w/o extents */
+ #define EXT4_MAX_BLOCK_FILE_PHYS	0xFFFFFFFF
+@@ -1096,7 +1096,9 @@ struct ext4_super_block {
+ 	__le32	s_usr_quota_inum;	/* inode for tracking user quota */
+ 	__le32	s_grp_quota_inum;	/* inode for tracking group quota */
+ 	__le32	s_overhead_clusters;	/* overhead blocks/clusters in fs */
+-	__le32  s_reserved[109];        /* Padding to the end of the block */
++	__le32  s_padding[2];
++	__le32	s_prj_quota_inum;	/* inode for tracking project quota */
++	__le32  s_reserved[106];        /* Padding to the end of the block */
+ };
+ 
+ #define EXT4_S_ERR_LEN (EXT4_S_ERR_END - EXT4_S_ERR_START)
+diff --git a/fs/ext4/super.c b/fs/ext4/super.c
+index e709307..769a271 100644
+--- a/fs/ext4/super.c
++++ b/fs/ext4/super.c
+@@ -1271,8 +1271,8 @@ static int bdev_try_to_free_page(struct super_block *sb, struct page *page,
+ }
+ 
+ #ifdef CONFIG_QUOTA
+-#define QTYPE2NAME(t) ((t) == USRQUOTA ? "user" : "group")
+-#define QTYPE2MOPT(on, t) ((t) == USRQUOTA?((on)##USRJQUOTA):((on)##GRPJQUOTA))
++static char *quotatypes[] = INITQFNAMES;
++#define QTYPE2NAME(t) (quotatypes[t])
+ 
+ static int ext4_write_dquot(struct dquot *dquot);
+ static int ext4_acquire_dquot(struct dquot *dquot);
+@@ -4687,6 +4687,44 @@ restore_opts:
+ 	return err;
+ }
+ 
++static int ext4_statfs_project(struct super_block *sb,
++			       u32 projid, struct kstatfs *buf)
++{
++	struct dquot *dquot;
++	u64 limit;
++	u64 curblock;
++
++	dquot = dqget(sb, projid, PRJQUOTA);
++	if (!dquot)
++		return -ESRCH;
++	spin_lock(&dq_data_lock);
++
++	limit = dquot->dq_dqb.dqb_bsoftlimit ?
++		dquot->dq_dqb.dqb_bsoftlimit :
++		dquot->dq_dqb.dqb_bhardlimit;
++	if (limit && buf->f_blocks * buf->f_bsize > limit) {
++		curblock = dquot->dq_dqb.dqb_curspace / buf->f_bsize;
++		buf->f_blocks = limit / buf->f_bsize;
++		buf->f_bfree = buf->f_bavail =
++			(buf->f_blocks > curblock) ?
++			 (buf->f_blocks - curblock) : 0;
++	}
++
++	limit = dquot->dq_dqb.dqb_isoftlimit ?
++		dquot->dq_dqb.dqb_isoftlimit :
++		dquot->dq_dqb.dqb_ihardlimit;
++	if (limit && buf->f_files > limit) {
++		buf->f_files = limit;
++		buf->f_ffree =
++			(buf->f_files > dquot->dq_dqb.dqb_curinodes) ?
++			 (buf->f_files - dquot->dq_dqb.dqb_curinodes) : 0;
++	}
++
++	spin_unlock(&dq_data_lock);
++	dqput(dquot);
++	return 0;
++}
++
+ static int ext4_statfs(struct dentry *dentry, struct kstatfs *buf)
+ {
+ 	struct super_block *sb = dentry->d_sb;
+@@ -4750,6 +4788,9 @@ static int ext4_statfs(struct dentry *dentry, struct kstatfs *buf)
+ 	buf->f_fsid.val[0] = fsid & 0xFFFFFFFFUL;
+ 	buf->f_fsid.val[1] = (fsid >> 32) & 0xFFFFFFFFUL;
+ 
++	if (ext4_test_inode_flag(dentry->d_inode, EXT4_INODE_PROJINHERIT) &&
++	    sb_has_quota_limits_enabled(sb, PRJQUOTA))
++		ext4_statfs_project(sb, EXT4_I(dentry->d_inode)->i_projid, buf);
+ 	return 0;
+ }
+ 
+@@ -4911,7 +4952,8 @@ static int ext4_quota_enable(struct super_block *sb, int type, int format_id,
+ 	struct inode *qf_inode;
+ 	unsigned long qf_inums[EXT4_MAXQUOTAS] = {
+ 		le32_to_cpu(EXT4_SB(sb)->s_es->s_usr_quota_inum),
+-		le32_to_cpu(EXT4_SB(sb)->s_es->s_grp_quota_inum)
++		le32_to_cpu(EXT4_SB(sb)->s_es->s_grp_quota_inum),
++		le32_to_cpu(EXT4_SB(sb)->s_es->s_prj_quota_inum)
+ 	};
+ 
+ 	BUG_ON(!EXT4_HAS_RO_COMPAT_FEATURE(sb, EXT4_FEATURE_RO_COMPAT_QUOTA));
+@@ -4937,7 +4979,8 @@ static int ext4_enable_quotas(struct super_block *sb)
+ 	int type, err = 0;
+ 	unsigned long qf_inums[EXT4_MAXQUOTAS] = {
+ 		le32_to_cpu(EXT4_SB(sb)->s_es->s_usr_quota_inum),
+-		le32_to_cpu(EXT4_SB(sb)->s_es->s_grp_quota_inum)
++		le32_to_cpu(EXT4_SB(sb)->s_es->s_grp_quota_inum),
++		le32_to_cpu(EXT4_SB(sb)->s_es->s_prj_quota_inum)
+ 	};
+ 
+ 	sb_dqopt(sb)->flags |= DQUOT_QUOTA_SYS_FILE;
+-- 
+1.7.1
+

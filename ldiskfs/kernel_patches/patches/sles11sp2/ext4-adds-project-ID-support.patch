@@ -1,0 +1,250 @@
+From 3fe8c2c61e9169ab6131c73402dd41faa3efa5e9 Mon Sep 17 00:00:00 2001
+From: Wang Shilong <wshilong@ddn.com>
+Date: Sat, 4 Apr 2015 00:14:09 +0800
+Subject: [PATCH 2/5] ext4: adds project ID support
+
+This patch adds a new internal field of ext4 inode to save project
+identifier. Also a new flag EXT4_INODE_PROJINHERIT is added for
+inheriting project ID from parent directory.
+
+Signed-off-by: Li Xi <lixi@ddn.com>
+Signed-off-by: Wang Shilong <wshilong@ddn.com>
+Reviewed-by: Jan Kara <jack@suse.cz>
+---
+ fs/ext4/ext4.h   |   20 ++++++++++++++++----
+ fs/ext4/ialloc.c |    5 +++++
+ fs/ext4/inode.c  |   27 +++++++++++++++++++++++++++
+ fs/ext4/namei.c  |   10 ++++++++++
+ fs/ext4/super.c  |    1 +
+ 5 files changed, 59 insertions(+), 4 deletions(-)
+
+diff --git a/fs/ext4/ext4.h b/fs/ext4/ext4.h
+index 5339366..910944a 100644
+--- a/fs/ext4/ext4.h
++++ b/fs/ext4/ext4.h
+@@ -364,16 +364,17 @@ struct flex_groups {
+ #define EXT4_EXTENTS_FL			0x00080000 /* Inode uses extents */
+ #define EXT4_EA_INODE_FL	        0x00200000 /* Inode used for large EA */
+ #define EXT4_EOFBLOCKS_FL		0x00400000 /* Blocks allocated beyond EOF */
++#define EXT4_PROJINHERIT_FL		0x20000000 /* Create with parents projid */
+ #define EXT4_RESERVED_FL		0x80000000 /* reserved for ext4 lib */
+ 
+-#define EXT4_FL_USER_VISIBLE		0x004BDFFF /* User visible flags */
+-#define EXT4_FL_USER_MODIFIABLE		0x004B80FF /* User modifiable flags */
++#define EXT4_FL_USER_VISIBLE		0x304BDFFF /* User visible flags */
++#define EXT4_FL_USER_MODIFIABLE		0x204380FF /* User modifiable flags */
+ 
+ /* Flags that should be inherited by new inodes from their parent. */
+ #define EXT4_FL_INHERITED (EXT4_SECRM_FL | EXT4_UNRM_FL | EXT4_COMPR_FL |\
+ 			   EXT4_SYNC_FL | EXT4_NODUMP_FL | EXT4_NOATIME_FL |\
+ 			   EXT4_NOCOMPR_FL | EXT4_JOURNAL_DATA_FL |\
+-			   EXT4_NOTAIL_FL | EXT4_DIRSYNC_FL)
++			   EXT4_NOTAIL_FL | EXT4_DIRSYNC_FL | EXT4_PROJINHERIT_FL)
+ 
+ /* Flags that are appropriate for regular files (all but dir-specific ones). */
+ #define EXT4_REG_FLMASK (~(EXT4_DIRSYNC_FL | EXT4_TOPDIR_FL))
+@@ -420,6 +421,7 @@ enum {
+ 	EXT4_INODE_EXTENTS	= 19,	/* Inode uses extents */
+ 	EXT4_INODE_EA_INODE	= 21,	/* Inode used for large EA */
+ 	EXT4_INODE_EOFBLOCKS	= 22,	/* Blocks allocated beyond EOF */
++	EXT4_INODE_PROJINHERIT	= 29,	/* Create with parents projid */
+ 	EXT4_INODE_RESERVED	= 31,	/* reserved for ext4 lib */
+ };
+ 
+@@ -648,6 +650,7 @@ struct ext4_inode {
+ 	__le32  i_crtime;       /* File Creation time */
+ 	__le32  i_crtime_extra; /* extra FileCreationtime (nsec << 2 | epoch) */
+ 	__le32  i_version_hi;	/* high 32 bits for 64-bit version */
++	__le32  i_projid;	/* Project ID */
+ };
+ 
+ struct move_extent {
+@@ -888,6 +891,7 @@ struct ext4_inode_info {
+ 	tid_t i_datasync_tid;
+ 
+ 	__u64 i_fs_version;
++	u32 i_projid;
+ };
+ 
+ #define HAVE_DISK_INODE_VERSION
+@@ -1406,6 +1410,7 @@ static inline void ext4_clear_state_flags(struct ext4_inode_info *ei)
+ #define EXT4_FEATURE_INCOMPAT_FLEX_BG		0x0200
+ #define EXT4_FEATURE_INCOMPAT_EA_INODE		0x0400 /* EA in inode */
+ #define EXT4_FEATURE_INCOMPAT_DIRDATA		0x1000 /* data in dirent */
++#define EXT4_FEATURE_RO_COMPAT_PROJECT		0x2000
+ #define EXT4_FEATURE_INCOMPAT_LARGEDIR		0x4000
+ 
+ #define EXT2_FEATURE_COMPAT_SUPP	EXT4_FEATURE_COMPAT_EXT_ATTR
+@@ -1442,7 +1447,8 @@ static inline void ext4_clear_state_flags(struct ext4_inode_info *ei)
+ 					 EXT4_FEATURE_RO_COMPAT_EXTRA_ISIZE | \
+ 					 EXT4_FEATURE_RO_COMPAT_BTREE_DIR |\
+ 					 EXT4_FEATURE_RO_COMPAT_HUGE_FILE |\
+-					 EXT4_FEATURE_RO_COMPAT_QUOTA)
++					 EXT4_FEATURE_RO_COMPAT_QUOTA |\
++					 EXT4_FEATURE_RO_COMPAT_PROJECT)
+ 
+ /*
+  * Default values for user and/or group using reserved blocks
+@@ -1450,6 +1456,11 @@ static inline void ext4_clear_state_flags(struct ext4_inode_info *ei)
+ #define	EXT4_DEF_RESUID		0
+ #define	EXT4_DEF_RESGID		0
+ 
++/*
++ * Default project ID
++ */
++#define	EXT4_DEF_PROJID		0
++
+ #define EXT4_DEF_INODE_READAHEAD_BLKS	32
+ 
+ /*
+@@ -2015,6 +2026,7 @@ extern int ext4_block_truncate_page(handle_t *handle,
+ extern int ext4_block_zero_page_range(handle_t *handle,
+ 		struct address_space *mapping, loff_t from, loff_t length);
+ extern int ext4_page_mkwrite(struct vm_area_struct *vma, struct vm_fault *vmf);
++extern int ext4_get_projid(struct inode *inode, u32 *projid);
+ extern qsize_t *ext4_get_reserved_space(struct inode *inode);
+ extern void ext4_da_update_reserve_space(struct inode *inode,
+ 					int used, int quota_claim);
+diff --git a/fs/ext4/ialloc.c b/fs/ext4/ialloc.c
+index 6082e54..d88cea8 100644
+--- a/fs/ext4/ialloc.c
++++ b/fs/ext4/ialloc.c
+@@ -1014,6 +1014,11 @@ got:
+ 	} else
+ 		inode_init_owner(inode, dir, mode);
+ 
++	if (EXT4_HAS_RO_COMPAT_FEATURE(sb, EXT4_FEATURE_RO_COMPAT_PROJECT) &&
++	    ext4_test_inode_flag(dir, EXT4_INODE_PROJINHERIT))
++		ei->i_projid = EXT4_I(dir)->i_projid;
++	else
++		ei->i_projid = EXT4_DEF_PROJID;
+ 	inode->i_ino = ino + group * EXT4_INODES_PER_GROUP(sb);
+ 	/* This is the optimal IO size (for stat), not the fs block size */
+ 	inode->i_blocks = 0;
+diff --git a/fs/ext4/inode.c b/fs/ext4/inode.c
+index 5c64b29..24afa00 100644
+--- a/fs/ext4/inode.c
++++ b/fs/ext4/inode.c
+@@ -4948,6 +4948,14 @@ static blkcnt_t ext4_inode_blocks(struct ext4_inode *raw_inode,
+ 	}
+ }
+ 
++int ext4_get_projid(struct inode *inode, u32 *projid)
++{
++	if (!EXT4_HAS_RO_COMPAT_FEATURE(inode->i_sb, EXT4_FEATURE_RO_COMPAT_PROJECT))
++		return -EOPNOTSUPP;
++	*projid = EXT4_I(inode)->i_projid;
++	return 0;
++}
++
+ struct inode *ext4_iget(struct super_block *sb, unsigned long ino)
+ {
+ 	struct ext4_iloc iloc;
+@@ -4957,6 +4965,7 @@ struct inode *ext4_iget(struct super_block *sb, unsigned long ino)
+ 	journal_t *journal = EXT4_SB(sb)->s_journal;
+ 	long ret;
+ 	int block;
++	u32 i_projid;
+ 
+ 	inode = iget_locked(sb, ino);
+ 	if (!inode)
+@@ -4974,10 +4983,18 @@ struct inode *ext4_iget(struct super_block *sb, unsigned long ino)
+ 	inode->i_mode = le16_to_cpu(raw_inode->i_mode);
+ 	inode->i_uid = (uid_t)le16_to_cpu(raw_inode->i_uid_low);
+ 	inode->i_gid = (gid_t)le16_to_cpu(raw_inode->i_gid_low);
++	if (EXT4_HAS_RO_COMPAT_FEATURE(sb, EXT4_FEATURE_RO_COMPAT_PROJECT) &&
++	    EXT4_INODE_SIZE(sb) > EXT4_GOOD_OLD_INODE_SIZE &&
++	    EXT4_FITS_IN_INODE(raw_inode, ei, i_projid))
++		i_projid = le32_to_cpu(raw_inode->i_projid);
++	else
++		i_projid = EXT4_DEF_PROJID;
++
+ 	if (!(test_opt(inode->i_sb, NO_UID32))) {
+ 		inode->i_uid |= le16_to_cpu(raw_inode->i_uid_high) << 16;
+ 		inode->i_gid |= le16_to_cpu(raw_inode->i_gid_high) << 16;
+ 	}
++	ei->i_projid = i_projid;
+ 	inode->i_nlink = le16_to_cpu(raw_inode->i_links_count);
+ 
+ 	ext4_clear_state_flags(ei);	/* Only relevant on 32-bit archs */
+@@ -5199,6 +5216,7 @@ static int ext4_do_update_inode(handle_t *handle,
+ 	struct buffer_head *bh = iloc->bh;
+ 	int err = 0, rc, block;
+ 	int need_datasync = 0;
++	u32 i_projid;
+ 
+ 	/* For fields not not tracking in the in-memory inode,
+ 	 * initialise them to zero for new inodes. */
+@@ -5207,6 +5225,7 @@ static int ext4_do_update_inode(handle_t *handle,
+ 
+ 	ext4_get_inode_flags(ei);
+ 	raw_inode->i_mode = cpu_to_le16(inode->i_mode);
++	i_projid = ei->i_projid;
+ 	if (!(test_opt(inode->i_sb, NO_UID32))) {
+ 		raw_inode->i_uid_low = cpu_to_le16(low_16_bits(inode->i_uid));
+ 		raw_inode->i_gid_low = cpu_to_le16(low_16_bits(inode->i_gid));
+@@ -5231,6 +5250,7 @@ static int ext4_do_update_inode(handle_t *handle,
+ 		raw_inode->i_uid_high = 0;
+ 		raw_inode->i_gid_high = 0;
+ 	}
++
+ 	raw_inode->i_links_count = cpu_to_le16(inode->i_nlink);
+ 
+ 	EXT4_INODE_SET_XTIME(i_ctime, inode, raw_inode);
+@@ -5296,6 +5316,13 @@ static int ext4_do_update_inode(handle_t *handle,
+ 							      >> 32);
+ 		raw_inode->i_extra_isize = cpu_to_le16(ei->i_extra_isize);
+ 	}
++	BUG_ON(!EXT4_HAS_RO_COMPAT_FEATURE(inode->i_sb,
++			EXT4_FEATURE_RO_COMPAT_PROJECT) &&
++	       i_projid != EXT4_DEF_PROJID);
++
++	if (EXT4_INODE_SIZE(inode->i_sb) > EXT4_GOOD_OLD_INODE_SIZE &&
++	    EXT4_FITS_IN_INODE(raw_inode, ei, i_projid))
++		raw_inode->i_projid = cpu_to_le32(i_projid);
+ 
+ 	BUFFER_TRACE(bh, "call ext4_handle_dirty_metadata");
+ 	rc = ext4_handle_dirty_metadata(handle, NULL, bh);
+diff --git a/fs/ext4/namei.c b/fs/ext4/namei.c
+index 2659bb5..10e95bc 100644
+--- a/fs/ext4/namei.c
++++ b/fs/ext4/namei.c
+@@ -3033,6 +3033,11 @@ static int ext4_link(struct dentry *old_dentry,
+ 	if (inode->i_nlink >= EXT4_LINK_MAX)
+ 		return -EMLINK;
+ 
++	if ((ext4_test_inode_flag(dir, EXT4_INODE_PROJINHERIT)) &&
++	    (EXT4_I(dir)->i_projid !=
++			EXT4_I(old_dentry->d_inode)->i_projid))
++		return -EXDEV;
++
+ 	dquot_initialize(dir);
+ 
+ retry:
+@@ -3081,6 +3086,11 @@ static int ext4_rename(struct inode *old_dir, struct dentry *old_dentry,
+ 	dquot_initialize(old_dir);
+ 	dquot_initialize(new_dir);
+ 
++	if ((ext4_test_inode_flag(new_dir, EXT4_INODE_PROJINHERIT)) &&
++	    (EXT4_I(new_dir)->i_projid !=
++			EXT4_I(old_dentry->d_inode)->i_projid))
++		return -EXDEV;
++
+ 	old_bh = new_bh = dir_bh = NULL;
+ 
+ 	/* Initialize quotas before so that eventual writes go
+diff --git a/fs/ext4/super.c b/fs/ext4/super.c
+index ae13955..e709307 100644
+--- a/fs/ext4/super.c
++++ b/fs/ext4/super.c
+@@ -1303,6 +1303,7 @@ static const struct dquot_operations ext4_quota_operations = {
+ 	.write_info	= ext4_write_info,
+ 	.alloc_dquot	= dquot_alloc,
+ 	.destroy_dquot	= dquot_destroy,
++	.get_projid	= ext4_get_projid,
+ };
+ 
+ static const struct quotactl_ops ext4_qctl_operations = {
+-- 
+1.7.1
+
