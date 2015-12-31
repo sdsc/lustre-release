@@ -892,7 +892,7 @@ static int lfs_setstripe(int argc, char **argv)
 	unsigned long long		 st_size;
 	int				 st_offset, st_count;
 	char				*end;
-	int				 c;
+	int				 c, len;
 	int				 delete = 0;
 	char				*stripe_size_arg = NULL;
 	char				*stripe_off_arg = NULL;
@@ -1006,6 +1006,10 @@ static int lfs_setstripe(int argc, char **argv)
 				return CMD_HELP;
 			}
 			mdt_idx_arg = optarg;
+			/* LU-7576 - trim trailing '/' chars */
+			len = strlen(mdt_idx_arg);
+			while (--len > 0 && mdt_idx_arg[len] == '/')
+				mdt_idx_arg[len] = '\0';
 			break;
 		case 'n':
 			if (!migrate_mode) {
