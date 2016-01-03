@@ -737,7 +737,7 @@ lstcon_group_list(int index, int len, char __user *name_up)
 	lstcon_group_t *grp;
 
 	LASSERT(index >= 0);
-	LASSERT(name_up != NULL);
+	LASSERT(name_up);
 
 	list_for_each_entry(grp, &console_session.ses_grp_list, grp_link) {
 		if (index-- == 0) {
@@ -758,8 +758,8 @@ lstcon_nodes_getent(struct list_head *head, int *index_p,
         int               count = 0;
         int               index = 0;
 
-	LASSERT(index_p != NULL && count_p != NULL);
-	LASSERT(dents_up != NULL);
+	LASSERT(index_p && count_p);
+	LASSERT(dents_up);
 	LASSERT(*index_p >= 0);
 	LASSERT(*count_p > 0);
 
@@ -924,7 +924,7 @@ lstcon_batch_list(int index, int len, char __user *name_up)
 {
 	lstcon_batch_t *bat;
 
-	LASSERT(name_up != NULL);
+	LASSERT(name_up);
 	LASSERT(index >= 0);
 
 	list_for_each_entry(bat, &console_session.ses_bat_list, bat_link) {
@@ -1165,10 +1165,10 @@ lstcon_testrpc_condition(int transop, lstcon_node_t *nd, void *arg)
 	struct list_head *head;
 
 	test = (lstcon_test_t *)arg;
-	LASSERT(test != NULL);
+	LASSERT(test);
 
 	batch = test->tes_batch;
-	LASSERT(batch != NULL);
+	LASSERT(batch);
 
         if (test->tes_oneside &&
             transop == LST_TRANS_TSBSRVADD)
@@ -1349,7 +1349,7 @@ lstcon_test_add(char *batch_name, int type, int loop,
 	test->tes_dst_grp	= dst_grp;
 	INIT_LIST_HEAD(&test->tes_trans_list);
 
-	if (param != NULL) {
+	if (param) {
 		test->tes_paramlen = paramlen;
 		memcpy(&test->tes_param[0], param, paramlen);
 	}
@@ -2050,7 +2050,7 @@ lstcon_console_init(void)
 
 	LIBCFS_ALLOC(console_session.ses_ndl_hash,
 		     sizeof(struct list_head) * LST_GLOBAL_HASHSIZE);
-	if (console_session.ses_ndl_hash == NULL)
+	if (!console_session.ses_ndl_hash)
 		return -ENOMEM;
 
 	for (i = 0; i < LST_GLOBAL_HASHSIZE; i++)
