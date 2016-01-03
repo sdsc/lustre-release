@@ -1114,7 +1114,9 @@ static int lov_iocontrol(unsigned int cmd, struct obd_export *exp, int len,
 				       sizeof(struct obd_uuid))))
 			RETURN(-EFAULT);
 
-		flags = uarg ? *(__u32 __user *)uarg : 0;
+		memcpy(&flags, data->ioc_inlbuf1, sizeof(__u32));
+		flags = flags & LL_STATFS_NODELAY ? OBD_STATFS_NODELAY : 0;
+
                 /* got statfs data */
                 rc = obd_statfs(NULL, lov->lov_tgts[index]->ltd_exp, &stat_buf,
                                 cfs_time_shift_64(-OBD_STATFS_CACHE_SECONDS),
