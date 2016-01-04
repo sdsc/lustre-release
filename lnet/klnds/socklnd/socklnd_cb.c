@@ -95,7 +95,7 @@ ksocknal_free_tx (ksock_tx_t *tx)
 {
 	atomic_dec(&ksocknal_data.ksnd_nactive_txs);
 
-	if (tx->tx_lnetmsg == NULL && tx->tx_desc_size == KSOCK_NOOP_TX_SIZE) {
+	if (!tx->tx_lnetmsg && tx->tx_desc_size == KSOCK_NOOP_TX_SIZE) {
 		/* it's a noop tx */
 		spin_lock(&ksocknal_data.ksnd_tx_lock);
 
@@ -944,10 +944,10 @@ ksocknal_send(lnet_ni_t *ni, void *private, lnet_msg_t *lntmsg)
 	LASSERT (payload_nob == 0 || payload_niov > 0);
 	LASSERT (payload_niov <= LNET_MAX_IOV);
 	/* payload is either all vaddrs or all pages */
-	LASSERT (!(payload_kiov != NULL && payload_iov != NULL));
+	LASSERT (!(payload_kiov && payload_iov));
 	LASSERT (!in_interrupt ());
 
-	if (payload_iov != NULL)
+	if (payload_iov)
 		desc_size = offsetof(ksock_tx_t,
 				     tx_frags.virt.iov[1 + payload_niov]);
 	else
@@ -2397,7 +2397,7 @@ __must_hold(&ksocknal_data.ksnd_global_lock)
 
 	/* cookie = 1 is reserved for keepalive PING */
 	tx = ksocknal_alloc_tx_noop(1, 1);
-	if (tx == NULL) {
+	if (!tx) {
 		read_lock(&ksocknal_data.ksnd_global_lock);
 		return -ENOMEM;
 	}
