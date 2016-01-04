@@ -76,7 +76,7 @@ stt_add_timer(stt_timer_t *timer)
 
 	LASSERT(stt_data.stt_nthreads > 0);
 	LASSERT(!stt_data.stt_shuttingdown);
-	LASSERT(timer->stt_func != NULL);
+	LASSERT(timer->stt_func);
 	LASSERT(list_empty(&timer->stt_list));
 	LASSERT(cfs_time_after(timer->stt_expires, cfs_time_current_sec()));
 
