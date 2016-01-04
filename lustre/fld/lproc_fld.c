@@ -88,13 +88,20 @@ fld_proc_hash_seq_write(struct file *file, const char __user *buffer,
 			size_t count, loff_t *off)
 {
 	struct lu_client_fld *fld = ((struct seq_file *)file->private_data)->private;
-        struct lu_fld_hash *hash = NULL;
-        int i;
+	struct lu_fld_hash *hash = NULL;
+	int i, rc = 0;
+	char *kernbuf;
 	ENTRY;
 
-        LASSERT(fld != NULL);
+	LASSERT(fld != NULL);
 
-        for (i = 0; fld_hash[i].fh_name != NULL; i++) {
+	OBD_ALLOC(kernbuf, count);
+	if (kernbuf == NULL)
+		GOTO(out, rc = -ENOMEM);
+	if (copy_from_user(kernbuf, buffer, count))
+		GOTO(out_free, rc = -EFAULT);
+
+	for (i = 0; fld_hash[i].fh_name != NULL; i++) {
                 if (count != strlen(fld_hash[i].fh_name))
                         continue;
 
@@ -113,7 +120,10 @@ fld_proc_hash_seq_write(struct file *file, const char __user *buffer,
 		       fld->lcf_name, hash->fh_name);
 	}
 
-	RETURN(count);
+out_free:
+	OBD_FREE(kernbuf, count);
+out:
+	RETURN(rc < 0 ? rc : count);
 }
 
 static ssize_t
