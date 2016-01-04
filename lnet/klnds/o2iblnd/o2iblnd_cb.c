@@ -87,7 +87,7 @@ kiblnd_tx_done (lnet_ni_t *ni, kib_tx_t *tx)
 
 	/* delay finalize until my descs have been freed */
 	for (i = 0; i < 2; i++) {
-		if (lntmsg[i] == NULL)
+		if (!lntmsg[i])
 			continue;
 
 		lnet_finalize(ni, lntmsg[i], rc);
@@ -258,7 +258,7 @@ kiblnd_handle_completion(kib_conn_t *conn, int txtype, int status, __u64 cookie)
 	spin_lock(&conn->ibc_lock);
 
 	tx = kiblnd_find_waiting_tx_locked(conn, txtype, cookie);
-	if (tx == NULL) {
+	if (!tx) {
 		spin_unlock(&conn->ibc_lock);
 
                 CWARN("Unmatched completion type %x cookie "LPX64" from %s\n",
@@ -573,8 +573,8 @@ kiblnd_fmr_map_tx(kib_net_t *net, kib_tx_t *tx, kib_rdma_desc_t *rd, int nob)
 	int			rc;
 	int			i;
 
-	LASSERT(tx->tx_pool != NULL);
-	LASSERT(tx->tx_pool->tpo_pool.po_owner != NULL);
+	LASSERT(tx->tx_pool);
+	LASSERT(tx->tx_pool->tpo_pool.po_owner);
 
 	hdev  = tx->tx_pool->tpo_hdev;
 
@@ -611,7 +611,7 @@ kiblnd_unmap_tx(lnet_ni_t *ni, kib_tx_t *tx)
 {
 	kib_net_t  *net = ni->ni_data;
 
-	LASSERT(net != NULL);
+	LASSERT(net);
 
 	if (net->ibn_fmr_ps != NULL && tx->fmr.fmr_pfmr != NULL) {
 		kiblnd_fmr_pool_unmap(&tx->fmr, tx->tx_status);
@@ -1370,7 +1370,7 @@ kiblnd_launch_tx (lnet_ni_t *ni, kib_tx_t *tx, lnet_nid_t nid)
 	rc = kiblnd_create_peer(ni, &peer, nid);
 	if (rc != 0) {
 		CERROR("Can't create peer %s\n", libcfs_nid2str(nid));
-		if (tx != NULL) {
+		if (tx) {
 			tx->tx_status = -EHOSTUNREACH;
 			tx->tx_waiting = 0;
 			kiblnd_tx_done(ni, tx);
@@ -1475,7 +1475,7 @@ kiblnd_send (lnet_ni_t *ni, void *private, lnet_msg_t *lntmsg)
                         break;                  /* send IMMEDIATE */
 
 		tx = kiblnd_get_idle_tx(ni, target.nid);
-		if (tx == NULL) {
+		if (!tx) {
 			CERROR("Can't allocate txd for GET to %s\n",
 			       libcfs_nid2str(target.nid));
 			return -ENOMEM;
@@ -1723,7 +1723,7 @@ kiblnd_recv(lnet_ni_t *ni, void *private, lnet_msg_t *lntmsg, int delayed,
 
 		txmsg = tx->tx_msg;
 		rd = &txmsg->ibm_u.putack.ibpam_rd;
-		if (kiov == NULL)
+		if (!kiov)
 			rc = kiblnd_setup_rd_iov(ni, tx, rd,
 						 niov, iov, offset, mlen);
 		else
