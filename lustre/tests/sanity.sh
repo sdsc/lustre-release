@@ -13056,6 +13056,20 @@ test_230g() {
 }
 run_test 230g "migrate dir to non-exist MDT"
 
+test_230h() {
+	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+
+	mkdir -p $DIR/$tdir/migrate_dir
+
+	$LFS migrate -m 1 $DIR/$tdir/migrate_dir/ ||
+		error "migration fails with a tailing slash"
+
+	$LFS migrate -m 0 $DIR/$tdir/migrate_dir// ||
+		error "migration fails with tailing slashes"
+}
+run_test 230h "lfs migrate -m tolerates trailing slashes"
+
 test_231a()
 {
 	# For simplicity this test assumes that max_pages_per_rpc

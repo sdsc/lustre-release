@@ -1598,21 +1598,21 @@ static int cb_common_fini(char *path, DIR *parent, DIR **dirp, void *data,
 }
 
 /* set errno upon failure */
-static DIR *opendir_parent(char *path)
+static DIR *opendir_parent(const char *path)
 {
-        DIR *parent;
-        char *fname;
-        char c;
+	char *path_copy;
+	char *parent_path;
+	DIR *parent;
 
-        fname = strrchr(path, '/');
-        if (fname == NULL)
-                return opendir(".");
+	path_copy = strdup(path);
+	if (path_copy == NULL)
+		return NULL;
 
-        c = fname[1];
-        fname[1] = '\0';
-        parent = opendir(path);
-        fname[1] = c;
-        return parent;
+	parent_path = dirname(path_copy);
+	parent = opendir(parent_path);
+	free(path_copy);
+
+	return parent;
 }
 
 static int cb_get_dirstripe(char *path, DIR *d, struct find_param *param)
