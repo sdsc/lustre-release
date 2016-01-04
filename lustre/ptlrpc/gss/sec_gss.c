@@ -1121,7 +1121,8 @@ int gss_sec_create_common(struct gss_sec *gsec,
 	atomic_set(&sec->ps_nctx, 0);
 	sec->ps_id = sptlrpc_get_next_secid();
 	sec->ps_flvr = *sf;
-	sec->ps_import = class_import_get(imp);
+	/* No refcount needed or it will never be able to clean up. LU-7030 */
+	sec->ps_import = imp;
 	spin_lock_init(&sec->ps_lock);
 	INIT_LIST_HEAD(&sec->ps_gc_list);
 
@@ -1147,7 +1148,6 @@ void gss_sec_destroy_common(struct gss_sec *gsec)
 	struct ptlrpc_sec	*sec = &gsec->gs_base;
 	ENTRY;
 
-	LASSERT(sec->ps_import);
 	LASSERT(atomic_read(&sec->ps_refcount) == 0);
 	LASSERT(atomic_read(&sec->ps_nctx) == 0);
 
@@ -1155,8 +1155,6 @@ void gss_sec_destroy_common(struct gss_sec *gsec)
 		lgss_mech_put(gsec->gs_mech);
 		gsec->gs_mech = NULL;
 	}
-
-	class_import_put(sec->ps_import);
 
 	if (SPTLRPC_FLVR_BULK_SVC(sec->ps_flvr.sf_rpc) == SPTLRPC_BULK_SVC_PRIV)
 		sptlrpc_enc_pool_del_user();

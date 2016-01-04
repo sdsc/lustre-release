@@ -2506,13 +2506,13 @@ EXPORT_SYMBOL(sptlrpc_unpack_user_desc);
  * misc helpers                         *
  ****************************************/
 
-const char * sec2target_str(struct ptlrpc_sec *sec)
+const char *sec2target_str(struct ptlrpc_sec *sec)
 {
-        if (!sec || !sec->ps_import || !sec->ps_import->imp_obd)
-                return "*";
-        if (sec_is_reverse(sec))
-                return "c";
-        return obd_uuid2str(&sec->ps_import->imp_obd->u.cli.cl_target_uuid);
+	if (!sec || !sec->ps_import || !sec->ps_import->imp_obd)
+		return "*";
+	if (sec_is_reverse(sec))
+		return "c";
+	return obd_uuid2str(&sec->ps_import->imp_obd->u.cli.cl_target_uuid);
 }
 EXPORT_SYMBOL(sec2target_str);
 

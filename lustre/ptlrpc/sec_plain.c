@@ -426,12 +426,9 @@ void plain_destroy_sec(struct ptlrpc_sec *sec)
 	ENTRY;
 
 	LASSERT(sec->ps_policy == &plain_policy);
-	LASSERT(sec->ps_import);
 	LASSERT(atomic_read(&sec->ps_refcount) == 0);
 	LASSERT(atomic_read(&sec->ps_nctx) == 0);
 	LASSERT(plsec->pls_ctx == NULL);
-
-	class_import_put(sec->ps_import);
 
 	OBD_FREE_PTR(plsec);
 	EXIT;
@@ -470,7 +467,8 @@ struct ptlrpc_sec *plain_create_sec(struct obd_import *imp,
 	atomic_set(&sec->ps_refcount, 0);
 	atomic_set(&sec->ps_nctx, 0);
 	sec->ps_id = sptlrpc_get_next_secid();
-	sec->ps_import = class_import_get(imp);
+	/* No refcount needed or it will never be able to clean up. LU-7030 */
+	sec->ps_import = imp;
 	sec->ps_flvr = *sf;
 	spin_lock_init(&sec->ps_lock);
 	INIT_LIST_HEAD(&sec->ps_gc_list);
