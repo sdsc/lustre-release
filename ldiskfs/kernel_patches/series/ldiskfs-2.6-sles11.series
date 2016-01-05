@@ -9,7 +9,7 @@ rhel6.3/ext4-use-vzalloc-in-ext4_fill_flex_info.patch
 rhel6.3/ext4-introduce-ext4_kvmalloc-ext4_kzalloc-and-ext4_kvfree.patch
 rhel6.3/ext4-add-missing-kfree-on-error-return-path-in-add_new_gdb.patch
 rhel6.3/ext4-use-ext4_kvzalloc-ext4_kvmalloc-for-s_group_desc-and-s_group_info.patch
-rhel6.3/ext4-mmp.patch
+rhel6.3/ext4-mmp-brelse.patch
 rhel6.3/ext4-lookup-dotdot.patch
 rhel6.3/ext4-print-inum-in-htree-warning.patch
 rhel6.3/ext4-prealloc.patch
