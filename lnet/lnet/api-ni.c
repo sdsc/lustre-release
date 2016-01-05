@@ -63,6 +63,8 @@ static int use_tcp_bonding = false;
 CFS_MODULE_PARM(use_tcp_bonding, "i", int, 0444,
 		"Set to 1 to use socklnd bonding. 0 to use Multi-Rail");
 
+static __u32 lnet_dlc_seq_no = 0;
+
 static int lnet_ping(lnet_process_id_t id, int timeout_ms,
 		     lnet_process_id_t __user *ids, int n_ids);
 
@@ -2169,6 +2171,18 @@ out:
 	LNET_MUTEX_UNLOCK(&the_lnet.ln_api_mutex);
 
 	return rc;
+}
+
+void lnet_incr_dlc_seq(void)
+{
+	lnet_net_lock(LNET_LOCK_EX);
+	lnet_dlc_seq_no++;
+	lnet_net_unlock(LNET_LOCK_EX);
+}
+
+__u32 lnet_get_dlc_seq_locked(void)
+{
+	return lnet_dlc_seq_no;
 }
 
 /**
