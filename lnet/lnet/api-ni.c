@@ -63,6 +63,15 @@ static int use_tcp_bonding = false;
 CFS_MODULE_PARM(use_tcp_bonding, "i", int, 0444,
 		"Set to 1 to use socklnd bonding. 0 to use Multi-Rail");
 
+/*
+ * This sequence number keeps track of how many times DLC was used to
+ * update the configuration. It is incremented on any DLC update and
+ * checked when sending a message to determine if there is a need to
+ * re-run the selection algorithm to handle configuration change.
+ * Look at lnet_select_pathway() for more details on its usage.
+ */
+static atomic_t lnet_dlc_seq_no = ATOMIC_INIT(0);
+
 static int lnet_ping(lnet_process_id_t id, int timeout_ms,
 		     lnet_process_id_t __user *ids, int n_ids);
 
@@ -2169,6 +2178,16 @@ out:
 	LNET_MUTEX_UNLOCK(&the_lnet.ln_api_mutex);
 
 	return rc;
+}
+
+void lnet_incr_dlc_seq(void)
+{
+	atomic_inc(&lnet_dlc_seq_no);
+}
+
+__u32 lnet_get_dlc_seq_locked(void)
+{
+	return atomic_read(&lnet_dlc_seq_no);
 }
 
 /**
