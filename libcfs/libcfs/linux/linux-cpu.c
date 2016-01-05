@@ -63,7 +63,7 @@ CFS_MODULE_PARM(cpu_npartitions, "i", int, 0444, "# of CPU partitions");
  *
  * NB: If user specified cpu_pattern, cpu_npartitions will be ignored
  */
-static char	*cpu_pattern = "";
+static char	*cpu_pattern = "N";
 CFS_MODULE_PARM(cpu_pattern, "s", charp, 0444, "CPU partitions pattern");
 
 struct cfs_cpt_data {
