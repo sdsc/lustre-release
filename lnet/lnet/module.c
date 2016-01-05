@@ -141,6 +141,8 @@ lnet_ioctl(unsigned int cmd, struct libcfs_ioctl_hdr *hdr)
 {
 	int   rc;
 
+	lnet_incr_dlc_seq();
+
 	switch (cmd) {
 	case IOC_LIBCFS_CONFIGURE: {
 		struct libcfs_ioctl_data *data =
