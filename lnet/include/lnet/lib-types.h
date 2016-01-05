@@ -388,6 +388,9 @@ typedef struct lnet_ni {
 	/* NI FSM */
 	enum lnet_ni_state	ni_state;
 
+	/* sequence number used to round robin over nis within a net */
+	__u32			ni_seq;
+
 	/* equivalent interfaces to use
 	 * TODO: Will leave this as an array for now because it's possible
 	 * we'll leave bonding in socklnd as is */
@@ -428,7 +431,6 @@ typedef struct {
 struct lnet_peer_ni {
 	/* cahian on peer_net */
 	struct list_head	lpni_on_peer_net_list;
-
 	/* chain on peer hash */
 	struct list_head	lpni_hashlist;
 	/* messages blocking for tx credits */
@@ -481,10 +483,20 @@ struct lnet_peer_ni {
 	int			lpni_cpt;
 	/* # refs from lnet_route_t::lr_gateway */
 	int			lpni_rtr_refcount;
+	/* sequence number used to round robin over peer nis within a net */
+	__u32			lpni_seq;
+	/* health flag */
+	bool			lpni_healthy;
 	/* returned RC ping features */
 	unsigned int		lpni_ping_feats;
-	struct list_head	lpni_routes;	/* routers on this peer */
-	lnet_rc_data_t		*lpni_rcd;	/* router checker state */
+	/* routes on this peer */
+	struct list_head	lpni_routes;
+	/* array of preferred local nids */
+	lnet_nid_t		*lpni_pref_nids;
+	/* number of preferred NIDs in lnpi_pref_nids */
+	__u32			lpni_pref_nnids;
+	/* router checker state */
+	lnet_rc_data_t		*lpni_rcd;
 };
 
 struct lnet_peer {
@@ -496,6 +508,9 @@ struct lnet_peer {
 
 	/* primary NID of the peer */
 	lnet_nid_t		lp_primary_nid;
+
+	/* peer is Multi-Rail enabled peer */
+	bool			lp_multi_rail;
 };
 
 struct lnet_peer_net {
@@ -510,6 +525,9 @@ struct lnet_peer_net {
 
 	/* Net ID */
 	__u32			lpn_net_id;
+
+	/* health flag */
+	bool			lpn_healthy;
 };
 
 /* peer hash size */
