@@ -107,7 +107,7 @@ int ldlm_expired_completion_wait(void *data)
                 if (cfs_time_after(cfs_time_current(), next_dump)) {
                         last_dump = next_dump;
                         next_dump = cfs_time_shift(300);
-                        ldlm_namespace_dump(D_DLMTRACE,
+                        ldlm_namespace_dump(D_ERROR,
                                             ldlm_lock_to_ns(lock));
                         if (last_dump == 0)
                                 libcfs_debug_dumplog();
@@ -124,7 +124,7 @@ int ldlm_expired_completion_wait(void *data)
                   cfs_time_sub(cfs_time_current_sec(), lock->l_last_activity),
                   obd2cli_tgt(obd), imp->imp_connection->c_remote_uuid.uuid);
 
-        RETURN(0);
+	RETURN(-ETIMEDOUT);
 }
 
 /**

@@ -1398,6 +1398,11 @@ static struct lu_device *mgs_device_fini(const struct lu_env *env,
 	ptlrpc_unregister_service(mgs->mgs_service);
 	mutex_unlock(&mgs->mgs_health_mutex);
 
+	/* LU-7372: obd_stopping has been set so lock cancellation won't invoke
+	 * ldlm_reprocess_all(). If there is a mgs_revoke_lock() pending,
+	 * calling ldlm_reprocess_all_ns() wil make it move forward */
+	ldlm_reprocess_all_ns(obd->obd_namespace);
+
 	mgs_params_fsdb_cleanup(env, mgs);
 	mgs_cleanup_fsdb_list(mgs);
 
