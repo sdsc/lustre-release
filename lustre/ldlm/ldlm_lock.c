@@ -2315,8 +2315,7 @@ static void ldlm_cancel_lock_for_export(struct obd_export *exp,
 
 	ldlm_res_lvbo_update(res, NULL, 1);
 	ldlm_lock_cancel(lock);
-	if (!exp->exp_obd->obd_stopping)
-		ldlm_reprocess_all(res);
+	ldlm_reprocess_all(res);
 	ldlm_resource_putref(res);
 
 	ecl->ecl_loop++;

@@ -124,7 +124,7 @@ int ldlm_expired_completion_wait(void *data)
                   cfs_time_sub(cfs_time_current_sec(), lock->l_last_activity),
                   obd2cli_tgt(obd), imp->imp_connection->c_remote_uuid.uuid);
 
-        RETURN(0);
+	RETURN(-ETIMEDOUT);
 }
 
 /**
