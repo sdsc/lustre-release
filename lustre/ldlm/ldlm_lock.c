@@ -2135,6 +2135,7 @@ void ldlm_reprocess_all_ns(struct ldlm_namespace *ns)
 	}
 	EXIT;
 }
+EXPORT_SYMBOL(ldlm_reprocess_all_ns);
 
 /**
  * Try to grant all waiting locks on a resource.
