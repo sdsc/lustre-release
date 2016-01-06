@@ -472,6 +472,9 @@ lnet_ptl_match_delay(struct lnet_portal *ptl,
 	 * don't expect it can happen a lot */
 	LASSERT(lnet_ptl_is_wildcard(ptl));
 
+	lnet_res_lock(cpt);
+	lnet_ptl_lock(ptl);
+
 	for (i = 0; i < LNET_CPT_NUMBER; i++) {
 		struct lnet_match_table *mtable;
 		int			cpt;
@@ -480,9 +483,6 @@ lnet_ptl_match_delay(struct lnet_portal *ptl,
 		mtable = ptl->ptl_mtables[cpt];
 		if (i != 0 && i != LNET_CPT_NUMBER - 1 && !mtable->mt_enabled)
 			continue;
-
-		lnet_res_lock(cpt);
-		lnet_ptl_lock(ptl);
 
 		if (i == 0) { /* the first try, attach on stealing list */
 			list_add_tail(&msg->msg_list,
@@ -524,12 +524,12 @@ lnet_ptl_match_delay(struct lnet_portal *ptl,
 			}
 		}
 
-		lnet_ptl_unlock(ptl);
-		lnet_res_unlock(cpt);
-
 		if ((rc & LNET_MATCHMD_FINISH) != 0 || msg->msg_rx_delayed)
 			break;
 	}
+
+	lnet_ptl_unlock(ptl);
+	lnet_res_unlock(cpt);
 
 	return rc;
 }
