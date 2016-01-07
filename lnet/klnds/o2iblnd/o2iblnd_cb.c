@@ -1300,6 +1300,42 @@ kiblnd_connect_peer (kib_peer_t *peer)
 }
 
 void
+kiblnd_reconnect_peer(kib_peer_t *peer)
+{
+	rwlock_t	 *glock = &kiblnd_data.kib_global_lock;
+	struct list_head  txs;
+	unsigned long	  flags;
+
+	LASSERT(peer->ibp_connecting == 1);
+
+	INIT_LIST_HEAD(&txs);
+
+	write_lock_irqsave(glock, flags);
+	if (peer->ibp_accepting) /* peer is connecting to me */
+		goto no_reconnect;
+
+	if (!list_empty(&peer->ibp_conns)) { /* already has connection */
+		LASSERT(list_empty(&peer->ibp_tx_queue));
+		goto no_reconnect;
+	}
+
+	if (!kiblnd_peer_active(peer)) { /* unlinked peer */
+		list_splice_init(&peer->ibp_tx_queue, &txs);
+		goto no_reconnect;
+	}
+
+	write_unlock_irqrestore(glock, flags);
+	kiblnd_connect_peer(peer);
+	return;
+
+ no_reconnect:
+	peer->ibp_connecting--;
+	write_unlock_irqrestore(glock, flags);
+
+	kiblnd_txlist_done(peer->ibp_ni, &txs, -ECONNABORTED);
+}
+
+void
 kiblnd_launch_tx (lnet_ni_t *ni, kib_tx_t *tx, lnet_nid_t nid)
 {
         kib_peer_t        *peer;
@@ -2454,18 +2490,22 @@ kiblnd_passive_connect(struct rdma_cm_id *cmid, void *priv, int priv_nob)
 }
 
 static void
-kiblnd_reconnect (kib_conn_t *conn, int version,
-                  __u64 incarnation, int why, kib_connparams_t *cp)
+kiblnd_check_reconnect(kib_conn_t *conn, int version,
+		       __u64 incarnation, int why, kib_connparams_t *cp)
 {
+	rwlock_t	*glock = &kiblnd_data.kib_global_lock;
 	kib_peer_t	*peer = conn->ibc_peer;
 	char		*reason;
-	int		 retry_now = 0;
+	char		*opstr;
+	int		 peer_max_frags = -1;
+	int		 peer_queue_dep = -1;
+	int		 max_msg_size = IBLND_MSG_SIZE;
 	unsigned long	 flags;
 
         LASSERT (conn->ibc_state == IBLND_CONN_ACTIVE_CONNECT);
         LASSERT (peer->ibp_connecting > 0);     /* 'conn' at least */
 
-	write_lock_irqsave(&kiblnd_data.kib_global_lock, flags);
+	write_lock_irqsave(glock, flags);
 
         /* retry connection if it's still needed and no other connection
          * attempts (active or passive) are in progress
@@ -2476,24 +2516,25 @@ kiblnd_reconnect (kib_conn_t *conn, int version,
              peer->ibp_version != version) &&
             peer->ibp_connecting == 1 &&
             peer->ibp_accepting == 0) {
-		if (why == IBLND_REJECT_CONN_RACE) {
-			/* don't reconnect immediately, intensive reconnecting
-			 * may consume a lot of memory. kiblnd_destroy_conn
-			 * will reconnect after releasing all resources of
-			 * this connection */
-			conn->ibc_conn_race = 1;
-		} else {
-			retry_now = 1;
-		}
-		peer->ibp_connecting++;
-		peer->ibp_version     = version;
-		peer->ibp_incarnation = incarnation;
-        }
+		/*
+		 * don't reconnect immediately, intensive reconnecting
+		 * may generate a long list of zombies on kib_connd_zombies.
+		 * kiblnd_destroy_conn will reconnect after releasing all
+		 * resources of this connection
+		 */
+		conn->ibc_reconnect = 1;
+	} else {
+		write_unlock_irqrestore(glock, flags);
+		return;
+	}
 
-	write_unlock_irqrestore(&kiblnd_data.kib_global_lock, flags);
+	if (cp) {
+		max_msg_size	= cp->ibcp_max_msg_size;
+		peer_max_frags	= cp->ibcp_max_frags;
+		peer_queue_dep	= cp->ibcp_queue_depth;
+	}
 
-	if (!retry_now)
-                return;
+	opstr = "don't reconnect";
 
         switch (why) {
         default:
@@ -2501,17 +2542,22 @@ kiblnd_reconnect (kib_conn_t *conn, int version,
                 break;
 
 	case IBLND_REJECT_RDMA_FRAGS:
-		if (!cp)
-			goto failed;
+		if (!cp) {
+			reason = "can't negotiate max frags";
+			conn->ibc_reconnect = 0;
+			goto unlock;
+		}
 
 		if (conn->ibc_max_frags <= cp->ibcp_max_frags) {
-			CNETERR("Unsupported max frags, peer supports %d\n",
-				cp->ibcp_max_frags);
-			goto failed;
-		} else if (*kiblnd_tunables.kib_map_on_demand == 0) {
-			CNETERR("map_on_demand must be enabled to support "
-				"map_on_demand peers\n");
-			goto failed;
+			reason = "unsupported max frags";
+			conn->ibc_reconnect = 0;
+			goto unlock;
+		}
+
+		if (!*kiblnd_tunables.kib_map_on_demand) {
+			reason = "map_on_demand must be enabled to support map_on_demand peers";
+			conn->ibc_reconnect = 0;
+			goto unlock;
 		}
 
 		peer->ibp_max_frags = cp->ibcp_max_frags;
@@ -2519,13 +2565,16 @@ kiblnd_reconnect (kib_conn_t *conn, int version,
 		break;
 
 	case IBLND_REJECT_MSG_QUEUE_SIZE:
-		if (!cp)
-			goto failed;
+		if (!cp) {
+			reason = "can't negotiate queue depth";
+			conn->ibc_reconnect = 0;
+			goto unlock;
+		}
 
 		if (conn->ibc_queue_depth <= cp->ibcp_queue_depth) {
-			CNETERR("Unsupported queue depth, peer supports %d\n",
-				cp->ibcp_queue_depth);
-			goto failed;
+			reason = "unsupported queue depth";
+			conn->ibc_reconnect = 0;
+			goto unlock;
 		}
 
 		peer->ibp_queue_depth = cp->ibcp_queue_depth;
@@ -2541,22 +2590,23 @@ kiblnd_reconnect (kib_conn_t *conn, int version,
                 break;
         }
 
-	CNETERR("%s: retrying (%s), %x, %x, "
-		"queue_depth: %d, max_frags: %d, msg_size: %d\n",
-		libcfs_nid2str(peer->ibp_nid),
-		reason, IBLND_MSG_VERSION, version,
-		conn->ibc_queue_depth, conn->ibc_max_frags,
-		cp != NULL ? cp->ibcp_max_msg_size : IBLND_MSG_SIZE);
+	peer->ibp_version     = version;
+	peer->ibp_incarnation = incarnation;
+	peer->ibp_connecting++;
+	opstr = "reconnect";
+unlock:
+	write_unlock_irqrestore(glock, flags);
 
-        kiblnd_connect_peer(peer);
-	return;
+	CNETERR("%s: %s (%s), %x, %x, msg_size: %d, queue_depth: %d/%d, max_frags: %d/%d\n",
+		libcfs_nid2str(peer->ibp_nid), opstr, reason,
+		IBLND_MSG_VERSION, version, max_msg_size,
+		conn->ibc_queue_depth, peer_queue_dep,
+		conn->ibc_max_frags, peer_max_frags);
 
- failed:
-	write_lock_irqsave(&kiblnd_data.kib_global_lock, flags);
-	peer->ibp_connecting--;
-	write_unlock_irqrestore(&kiblnd_data.kib_global_lock, flags);
-
-	return;
+	/*
+	 * if conn::ibc_reconnect is TRUE, connd will reconnect to the peer
+	 * while destroying the zombie
+	 */
 }
 
 static void
@@ -2569,8 +2619,8 @@ kiblnd_rejected (kib_conn_t *conn, int reason, void *priv, int priv_nob)
 
 	switch (reason) {
 	case IB_CM_REJ_STALE_CONN:
-		kiblnd_reconnect(conn, IBLND_MSG_VERSION, 0,
-				 IBLND_REJECT_CONN_STALE, NULL);
+		kiblnd_check_reconnect(conn, IBLND_MSG_VERSION, 0,
+				       IBLND_REJECT_CONN_STALE, NULL);
 		break;
 
         case IB_CM_REJ_INVALID_SERVICE_ID:
@@ -2652,8 +2702,9 @@ kiblnd_rejected (kib_conn_t *conn, int reason, void *priv, int priv_nob)
                         case IBLND_REJECT_CONN_UNCOMPAT:
 			case IBLND_REJECT_MSG_QUEUE_SIZE:
 			case IBLND_REJECT_RDMA_FRAGS:
-                                kiblnd_reconnect(conn, rej->ibr_version,
-                                                 incarnation, rej->ibr_why, cp);
+				kiblnd_check_reconnect(conn, rej->ibr_version,
+						       incarnation,
+						       rej->ibr_why, cp);
                                 break;
 
                         case IBLND_REJECT_NO_RESOURCES:
