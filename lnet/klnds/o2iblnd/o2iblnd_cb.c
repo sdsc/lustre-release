@@ -628,8 +628,8 @@ kiblnd_unmap_tx(lnet_ni_t *ni, kib_tx_t *tx)
 static int
 kiblnd_map_tx(lnet_ni_t *ni, kib_tx_t *tx, kib_rdma_desc_t *rd, int nfrags)
 {
-	kib_hca_dev_t *hdev  = tx->tx_pool->tpo_hdev;
 	kib_net_t     *net   = ni->ni_data;
+	kib_hca_dev_t *hdev  = net->ibn_dev->ibd_hdev;
 	struct ib_mr  *mr    = NULL;
 	__u32	       nob;
 	int	       i;
@@ -650,7 +650,7 @@ kiblnd_map_tx(lnet_ni_t *ni, kib_tx_t *tx, kib_rdma_desc_t *rd, int nfrags)
                 nob += rd->rd_frags[i].rf_nob;
         }
 
-	mr = kiblnd_find_rd_dma_mr(hdev, rd,
+	mr = kiblnd_find_rd_dma_mr(ni, rd,
 				   (tx->tx_conn != NULL) ?
 				   tx->tx_conn->ibc_max_frags : -1);
 	if (mr != NULL) {
@@ -765,6 +765,7 @@ __must_hold(&conn->ibc_lock)
 {
         kib_msg_t         *msg = tx->tx_msg;
         kib_peer_t        *peer = conn->ibc_peer;
+	struct lnet_ni    *ni = peer->ibp_ni;
         int                ver = conn->ibc_version;
         int                rc;
         int                done;
@@ -781,7 +782,8 @@ __must_hold(&conn->ibc_lock)
 	LASSERT(conn->ibc_credits >= 0);
 	LASSERT(conn->ibc_credits <= conn->ibc_queue_depth);
 
-        if (conn->ibc_nsends_posted == IBLND_CONCURRENT_SENDS(ver)) {
+	if (conn->ibc_nsends_posted ==
+	    kiblnd_concurrent_sends(ver, ni)) {
                 /* tx completions outstanding... */
                 CDEBUG(D_NET, "%s: posted enough\n",
                        libcfs_nid2str(peer->ibp_nid));
@@ -908,7 +910,8 @@ kiblnd_check_sends (kib_conn_t *conn)
 
 	spin_lock(&conn->ibc_lock);
 
-        LASSERT (conn->ibc_nsends_posted <= IBLND_CONCURRENT_SENDS(ver));
+	LASSERT(conn->ibc_nsends_posted <=
+		kiblnd_concurrent_sends(ver, ni));
         LASSERT (!IBLND_OOB_CAPABLE(ver) ||
                  conn->ibc_noops_posted <= IBLND_OOB_MSGS(ver));
         LASSERT (conn->ibc_reserved_credits >= 0);
@@ -2299,12 +2302,12 @@ kiblnd_passive_connect(struct rdma_cm_id *cmid, void *priv, int priv_nob)
         }
 
 	if (reqmsg->ibm_u.connparams.ibcp_queue_depth >
-	    IBLND_MSG_QUEUE_SIZE(version)) {
+	    kiblnd_msg_queue_size(version, ni)) {
 		CERROR("Can't accept conn from %s, queue depth too large: "
 		       " %d (<=%d wanted)\n",
 		       libcfs_nid2str(nid),
 		       reqmsg->ibm_u.connparams.ibcp_queue_depth,
-		       IBLND_MSG_QUEUE_SIZE(version));
+		       kiblnd_msg_queue_size(version, ni));
 
 		if (version == IBLND_MSG_VERSION)
 			rej.ibr_why = IBLND_REJECT_MSG_QUEUE_SIZE;
@@ -2313,27 +2316,28 @@ kiblnd_passive_connect(struct rdma_cm_id *cmid, void *priv, int priv_nob)
 	}
 
 	if (reqmsg->ibm_u.connparams.ibcp_max_frags >
-	    IBLND_RDMA_FRAGS(version)) {
+	    kiblnd_rdma_frags(version, ni)) {
 		CWARN("Can't accept conn from %s (version %x): "
 		      "max_frags %d too large (%d wanted)\n",
-		       libcfs_nid2str(nid), version,
-		       reqmsg->ibm_u.connparams.ibcp_max_frags,
-		       IBLND_RDMA_FRAGS(version));
+		      libcfs_nid2str(nid), version,
+		      reqmsg->ibm_u.connparams.ibcp_max_frags,
+		      kiblnd_rdma_frags(version, ni));
 
 		if (version >= IBLND_MSG_VERSION)
 			rej.ibr_why = IBLND_REJECT_RDMA_FRAGS;
 
 		goto failed;
 	} else if (reqmsg->ibm_u.connparams.ibcp_max_frags <
-		   IBLND_RDMA_FRAGS(version) && net->ibn_fmr_ps == NULL) {
+		   kiblnd_rdma_frags(version, ni) &&
+		   net->ibn_fmr_ps == NULL) {
 		CWARN("Can't accept conn from %s (version %x): "
 		      "max_frags %d incompatible without FMR pool "
 		      "(%d wanted)\n",
 		      libcfs_nid2str(nid), version,
 		      reqmsg->ibm_u.connparams.ibcp_max_frags,
-		      IBLND_RDMA_FRAGS(version));
+		      kiblnd_rdma_frags(version, ni));
 
-		if (version >= IBLND_MSG_VERSION)
+		if (version == IBLND_MSG_VERSION)
 			rej.ibr_why = IBLND_REJECT_RDMA_FRAGS;
 
 		goto failed;
@@ -2481,12 +2485,12 @@ kiblnd_passive_connect(struct rdma_cm_id *cmid, void *priv, int priv_nob)
         if (ni != NULL)
                 lnet_ni_decref(ni);
 
-        rej.ibr_version = version;
-        rej.ibr_cp.ibcp_queue_depth = IBLND_MSG_QUEUE_SIZE(version);
-        rej.ibr_cp.ibcp_max_frags   = IBLND_RDMA_FRAGS(version);
-        kiblnd_reject(cmid, &rej);
+	rej.ibr_version = version;
+	rej.ibr_cp.ibcp_queue_depth = kiblnd_msg_queue_size(version, ni);
+	rej.ibr_cp.ibcp_max_frags   = kiblnd_rdma_frags(version, ni);
+	kiblnd_reject(cmid, &rej);
 
-        return -ECONNREFUSED;
+	return -ECONNREFUSED;
 }
 
 static void
@@ -2541,7 +2545,9 @@ kiblnd_check_reconnect(kib_conn_t *conn, int version,
                 reason = "Unknown";
                 break;
 
-	case IBLND_REJECT_RDMA_FRAGS:
+	case IBLND_REJECT_RDMA_FRAGS: {
+		struct lnet_lnd_tunables *tunables;
+
 		if (!cp) {
 			reason = "can't negotiate max frags";
 			conn->ibc_reconnect = 0;
@@ -2554,7 +2560,8 @@ kiblnd_check_reconnect(kib_conn_t *conn, int version,
 			goto unlock;
 		}
 
-		if (!*kiblnd_tunables.kib_map_on_demand) {
+		tunables = peer->ibp_ni->ni_lnd_tunables;
+		if (!tunables->lnd_tunables_u.lnd_o2iblnd.lnd_map_on_demand) {
 			reason = "map_on_demand must be enabled to support map_on_demand peers";
 			conn->ibc_reconnect = 0;
 			goto unlock;
@@ -2563,7 +2570,7 @@ kiblnd_check_reconnect(kib_conn_t *conn, int version,
 		peer->ibp_max_frags = cp->ibcp_max_frags;
 		reason = "rdma fragments";
 		break;
-
+	}
 	case IBLND_REJECT_MSG_QUEUE_SIZE:
 		if (!cp) {
 			reason = "can't negotiate queue depth";
