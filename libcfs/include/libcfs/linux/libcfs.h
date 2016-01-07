@@ -129,7 +129,4 @@ static inline int kstrtoul(const char *s, unsigned int base, unsigned long *res)
 #define current_pid()             (current->pid)
 #define current_comm()            (current->comm)
 
-/* check if task is running in compat mode.*/
-int current_is_32bit(void);
-
 #endif /* _LINUX_LIBCFS_H */
