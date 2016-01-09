@@ -1995,7 +1995,7 @@ cleanup_check() {
 	VAR=$(lctl get_param -n catastrophe 2>&1)
 	if [ $? = 0 ] ; then
 		if [ $VAR != 0 ]; then
-			error "LBUG/LASSERT detected"
+			error "LBUG/LASSERT detected $VAR"
 		fi
 	fi
 	BUSY=$(dmesg | grep -i destruct || true)
