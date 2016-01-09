@@ -14156,6 +14156,26 @@ test_300p() {
 }
 run_test 300p "create striped directory without space"
 
+cleanup_300q() {
+	trap 0
+	exec {free_fd}>&- || error "close dir fails"
+}
+test_300q() {
+	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+
+	cd $DIR
+	$LFS mkdir -c $MDSCOUNT $tdir || error "create $tdir fails"
+	exec {free_fd}<$tdir || error "open $tdir fails"
+	trap cleanup_300q EXIT
+	cd $tdir || error "cd $tdir fails"
+	rmdir  ../$tdir || error "rmdir $tdir fails"
+	mkdir local_dir && error "create dir succeeds"
+	$LFS setdirstripe -i1 remote_dir && error "create remote dir succeeds"
+	return 0
+}
+run_test 300q "create remote directory under orphan directory"
+
 prepare_remote_file() {
 	mkdir $DIR/$tdir/src_dir ||
 		error "create remote source failed"
