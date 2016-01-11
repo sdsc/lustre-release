@@ -2142,6 +2142,9 @@ test_70c () {
 	local elapsed
 	local start_ts=$(date +%s)
 
+	mkdir -p /$tdir.1 || error "mkdir failed"
+	cd /$tdir.1
+	for i in `seq 50`; do touch file$i; done || error "file creation failed"
 	trap cleanup_70c EXIT
 	(
 		while true; do
@@ -2151,7 +2154,8 @@ test_70c () {
 				error "set default dirstripe failed"
 			fi
 			cd $DIR/$tdir || break
-			tar cf - /etc | tar xf - || error "tar failed"
+			tar cf $tdir.1.tar /$tdir.1 2&>1 /dev/null
+			tar xf $tdir.1.tar
 			cd $DIR || break
 			rm -rf $DIR/$tdir || break
 		done
@@ -2162,6 +2166,7 @@ test_70c () {
 	random_fail_mdt $MDSCOUNT $duration $tar_70c_pid
 	kill -0 $tar_70c_pid || error "tar $tar_70c_pid stopped"
 
+	rm -rf /$tdir.1 || error "rm failed"
 	cleanup_70c
 	true
 }
