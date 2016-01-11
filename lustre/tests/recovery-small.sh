@@ -1894,11 +1894,6 @@ test_110a () {
 	local num
 
 	#prepare for 110 test, which need set striped dir on remote MDT.
-	for num in $(seq $MDSCOUNT); do
-		do_facet mds$num \
-			lctl set_param -n mdt.${FSNAME}*.enable_remote_dir=1 \
-				2>/dev/null
-	done
 
 	mkdir -p $DIR/$tdir
 	drop_request "$LFS mkdir -i $MDTIDX -c2 $remote_dir" ||
