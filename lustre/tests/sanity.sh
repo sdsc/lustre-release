@@ -2757,7 +2757,6 @@ run_test 33e "mkdir and striped directory should have same mode"
 
 cleanup_33f() {
 	trap 0
-	do_facet $SINGLEMDS $LCTL set_param mdt.*.enable_remote_dir_gid=0
 }
 
 test_33f() {
@@ -2765,7 +2764,6 @@ test_33f() {
 
 	mkdir $DIR/$tdir
 	chmod go+rwx $DIR/$tdir
-	do_facet $SINGLEMDS $LCTL set_param mdt.*.enable_remote_dir_gid=-1
 	trap cleanup_33f EXIT
 
 	$RUNAS lfs mkdir -c$MDSCOUNT $DIR/$tdir/striped_dir ||
@@ -14061,7 +14059,6 @@ cleanup_300n() {
 	local list=$(comma_list $(mdts_nodes))
 
 	trap 0
-	do_nodes $list $LCTL set_param -n mdt.*.enable_remote_dir_gid=0
 }
 
 test_300n() {
@@ -14079,22 +14076,18 @@ test_300n() {
 				$DIR/$tdir/striped_dir > /dev/null 2>&1 &&
 		error "create striped dir succeeds with gid=0"
 
-	do_nodes $list $LCTL set_param -n mdt.*.enable_remote_dir_gid=-1
 	$RUNAS $LFS setdirstripe -i0 -c$MDSCOUNT $DIR/$tdir/striped_dir ||
 		error "create striped dir fails with gid=-1"
 
-	do_nodes $list $LCTL set_param -n mdt.*.enable_remote_dir_gid=0
 	$RUNAS $LFS setdirstripe -i 1 -c$MDSCOUNT -D \
 				$DIR/$tdir/striped_dir > /dev/null 2>&1 &&
 		error "set default striped dir succeeds with gid=0"
 
 
-	do_nodes $list $LCTL set_param -n mdt.*.enable_remote_dir_gid=-1
 	$RUNAS $LFS setdirstripe -i 1 -c$MDSCOUNT -D $DIR/$tdir/striped_dir ||
 		error "set default striped dir fails with gid=-1"
 
 
-	do_nodes $list $LCTL set_param -n mdt.*.enable_remote_dir_gid=0
 	$RUNAS mkdir $DIR/$tdir/striped_dir/test_dir ||
 					error "create test_dir fails"
 	$RUNAS mkdir $DIR/$tdir/striped_dir/test_dir1 ||

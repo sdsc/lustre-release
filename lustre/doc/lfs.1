@@ -304,21 +304,14 @@ during it.
 .B mkdir <--index|-i mdt_index> <dir>
 Allocate a new directory on a specified MDT.  
 
-The "lfs mkdir" command is only executable by root unless
-"mdt.*.enable_remote_dir_gid" is set via "lctl set_param" to be either a
-non-zero GID to limit it to a single group (e.g. "operator" or "admin"),
-or "-1" to allow any group to create remote directories.
+The "lfs mkdir" command is only executable by root.
 
 The root of the file system is on MDT0000, and directories and files inherit the
 MDT of their parent directory unless a different MDT is specified with this
 command.
 
 By default, only directories on MDT0000 can contain directories that are not on
-the same MDT.  However, if "mdt.*.enable_remote_dir" is set non-zero on an MDT
-then it will allow creating remote directories that have parents other than
-MDT0000. This is restricted to avoid creating directory trees that have
-intermediate path components on a series different MDTs and become unavailable
-if any of the intermediate MDTs are offline.
+the same MDT.
 .TP
 .B --version
 Output the build version of the lfs utility. Use "lctl lustre_build_version" to get the version of the Lustre kernel modules

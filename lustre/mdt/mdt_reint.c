@@ -240,8 +240,6 @@ static inline int mdt_remote_permission_check(struct mdt_thread_info *info)
  * Only sysadmin can create remote directory / striped directory,
  * migrate directory and set default stripedEA on directory, unless
  *
- * lctl set_param mdt.*.enable_remote_dir_gid=allow_gid.
- *
  * param[in] info: mdt_thread_info.
  *
  * retval	= 0 remote operation is allowed.
