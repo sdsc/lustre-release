@@ -11965,6 +11965,10 @@ run_test 230a "Create remote directory and files under the remote directory"
 test_230b() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
 	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+	local server_version=$(get_lustre_version $SINGLEMDS)
+	[[ $(version_code $server_version) -gt $(version_code 2.5.1) ]] &&
+		skip "enable_remote_dir support in /proc is not present on" \
+		" $server_version MDS " && return
 	local MDTIDX=1
 	local remote_dir=$DIR/$tdir/remote_dir
 	local rc=0
