@@ -1010,26 +1010,6 @@ static int lmv_iocontrol(unsigned int cmd, struct obd_export *exp,
                 OBD_FREE_PTR(oqctl);
                 break;
         }
-        case OBD_IOC_CHANGELOG_SEND:
-        case OBD_IOC_CHANGELOG_CLEAR: {
-                struct ioc_changelog *icc = karg;
-
-                if (icc->icc_mdtindex >= count)
-                        RETURN(-ENODEV);
-
-		tgt = lmv->tgts[icc->icc_mdtindex];
-		if (tgt == NULL || tgt->ltd_exp == NULL || !tgt->ltd_active)
-			RETURN(-ENODEV);
-		rc = obd_iocontrol(cmd, tgt->ltd_exp, sizeof(*icc), icc, NULL);
-		break;
-	}
-	case LL_IOC_GET_CONNECT_FLAGS: {
-		tgt = lmv->tgts[0];
-		if (tgt == NULL || tgt->ltd_exp == NULL)
-			RETURN(-ENODATA);
-		rc = obd_iocontrol(cmd, tgt->ltd_exp, len, karg, uarg);
-		break;
-	}
 	case LL_IOC_FID2MDTIDX: {
 		struct lu_fid *fid = karg;
 		int		mdt_index;

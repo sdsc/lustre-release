@@ -53,6 +53,7 @@
 #include <sys/ioctl.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <linux/falloc.h>
 #include <errno.h>
 #include <dirent.h>
 #include <stdarg.h>
@@ -78,6 +79,10 @@
 #include <lustre/lustreapi.h>
 #include <lustre_ioctl.h>
 #include "lustreapi_internal.h"
+
+#ifndef PROC_MOUNTS
+# define PROC_MOUNTS "/proc/mounts"
+#endif
 
 static int llapi_msg_level = LLAPI_MSG_MAX;
 
@@ -3908,32 +3913,40 @@ int root_ioctl(const char *mdtname, int opc, void *data, int *mdtidxp,
 
 /****** Changelog API ********/
 
-static int changelog_ioctl(const char *mdtname, int opc, int id,
-                           long long recno, int flags)
+static int chlg_dev_path(char *path, size_t path_len, const char *device)
 {
-        struct ioc_changelog data;
-        int *idx;
-
-        data.icc_id = id;
-        data.icc_recno = recno;
-        data.icc_flags = flags;
-        idx = (int *)(&data.icc_mdtindex);
-
-        return root_ioctl(mdtname, opc, &data, idx, WANT_ERROR);
+	snprintf(path, path_len, "/dev/changelog-%s", device);
+	path[path_len - 1] = '\0';
+	return 0;
 }
 
 #define CHANGELOG_PRIV_MAGIC 0xCA8E1080
+#define CHANGELOG_BUFFER_SZ  4096
+
+/**
+ * Record state for efficient changelog consumption.
+ * Read chunks of CHANGELOG_BUFFER_SZ bytes.
+ */
 struct changelog_private {
-	int				magic;
-	enum changelog_send_flag	flags;
-	struct lustre_kernelcomm	kuc;
+	/* Ensure that the structure is valid and initialized */
+	int				 clp_magic;
+	/* File descriptor on the changelog character device */
+	int				 clp_fd;
+	/* Changelog delivery mode */
+	enum changelog_send_flag	 clp_send_flags;
+	/* Available bytes in buffer */
+	size_t				 clp_buf_len;
+	/* Current position in buffer */
+	char				*clp_buf_pos;
+	/* Read buffer with records read from system */
+	char				 clp_buf[0];
 };
 
 /** Start reading from a changelog
- * @param priv Opaque private control structure
- * @param flags Start flags (e.g. CHANGELOG_FLAG_BLOCK)
- * @param device Report changes recorded on this MDT
- * @param startrec Report changes beginning with this record number
+ * @param priv      Opaque private control structure
+ * @param flags     Start flags (e.g. CHANGELOG_FLAG_BLOCK)
+ * @param device    Report changes recorded on this MDT
+ * @param startrec  Report changes beginning with this record number
  * (just call llapi_changelog_fini when done; don't need an endrec)
  */
 int llapi_changelog_start(void **priv, enum changelog_send_flag flags,
@@ -3941,20 +3954,38 @@ int llapi_changelog_start(void **priv, enum changelog_send_flag flags,
 {
 	struct changelog_private	*cp;
 	static bool			 warned;
+	char				 cdev_path[PATH_MAX];
 	int				 rc;
 
+	rc = chlg_dev_path(cdev_path, sizeof(cdev_path), device);
+	if (rc != 0)
+		return rc;
+
 	/* Set up the receiver control struct */
-	cp = calloc(1, sizeof(*cp));
+	cp = calloc(1, sizeof(*cp) + CHANGELOG_BUFFER_SZ);
 	if (cp == NULL)
 		return -ENOMEM;
 
-	cp->magic = CHANGELOG_PRIV_MAGIC;
-	cp->flags = flags;
+	cp->clp_magic = CHANGELOG_PRIV_MAGIC;
+	cp->clp_send_flags = flags;
+
+	cp->clp_buf_len = 0;
+	cp->clp_buf_pos = cp->clp_buf;
 
 	/* Set up the receiver */
-	rc = libcfs_ukuc_start(&cp->kuc, 0 /* no group registration */, 0);
-	if (rc < 0)
+	cp->clp_fd = open(cdev_path, O_RDONLY);
+	if (cp->clp_fd < 0) {
+		rc = -errno;
 		goto out_free;
+	}
+
+	if (startrec != 0) {
+		rc = lseek(cp->clp_fd, startrec, SEEK_SET);
+		if (rc < 0) {
+			rc = -errno;
+			goto out_free;
+		}
+	}
 
 	*priv = cp;
 
@@ -3966,21 +3997,11 @@ int llapi_changelog_start(void **priv, enum changelog_send_flag flags,
 		warned = true;
 	}
 
-	/* Tell the kernel to start sending */
-	rc = changelog_ioctl(device, OBD_IOC_CHANGELOG_SEND, cp->kuc.lk_wfd,
-			     startrec, flags);
-	/* Only the kernel reference keeps the write side open */
-	close(cp->kuc.lk_wfd);
-	cp->kuc.lk_wfd = LK_NOFD;
-	if (rc < 0) {
-		/* frees and clears priv */
-		llapi_changelog_fini(priv);
-		return rc;
-	}
-
 	return 0;
 
 out_free:
+	if (!(cp->clp_fd >= 0))
+		close(cp->clp_fd);
 	free(cp);
 	return rc;
 }
@@ -3988,15 +4009,32 @@ out_free:
 /** Finish reading from a changelog */
 int llapi_changelog_fini(void **priv)
 {
-        struct changelog_private *cp = (struct changelog_private *)*priv;
+        struct changelog_private *cp = *priv;
 
-        if (!cp || (cp->magic != CHANGELOG_PRIV_MAGIC))
+        if (!cp || (cp->clp_magic != CHANGELOG_PRIV_MAGIC))
                 return -EINVAL;
 
-        libcfs_ukuc_stop(&cp->kuc);
+	close(cp->clp_fd);
         free(cp);
         *priv = NULL;
         return 0;
+}
+
+static ssize_t chlg_read_bulk(struct changelog_private *cp)
+{
+	ssize_t	rd_bytes;
+
+	if (!cp || cp->clp_magic != CHANGELOG_PRIV_MAGIC)
+		return -EINVAL;
+
+	rd_bytes = read(cp->clp_fd, cp->clp_buf, CHANGELOG_BUFFER_SZ);
+	if (rd_bytes < 0)
+		return -errno;
+
+	cp->clp_buf_pos = cp->clp_buf;
+	cp->clp_buf_len = rd_bytes;
+
+	return rd_bytes;
 }
 
 /**
@@ -4018,81 +4056,88 @@ int llapi_changelog_fini(void **priv)
 #define DEFAULT_RECORD_FMT	(CLF_VERSION | CLF_RENAME)
 int llapi_changelog_recv(void *priv, struct changelog_rec **rech)
 {
-	struct changelog_private	*cp = (struct changelog_private *)priv;
-	struct kuc_hdr			*kuch;
+	struct changelog_private	*cp = priv;
 	enum changelog_rec_flags	 rec_fmt = DEFAULT_RECORD_FMT;
+	struct changelog_rec		*tmp;
 	int				 rc = 0;
 
-	if (!cp || (cp->magic != CHANGELOG_PRIV_MAGIC))
+	if (!cp || (cp->clp_magic != CHANGELOG_PRIV_MAGIC))
 		return -EINVAL;
+
 	if (rech == NULL)
 		return -EINVAL;
-	kuch = malloc(KUC_CHANGELOG_MSG_MAXSIZE);
-	if (kuch == NULL)
+
+	*rech = malloc(CR_MAXSIZE);
+	if (*rech == NULL)
 		return -ENOMEM;
 
-	if (cp->flags & CHANGELOG_FLAG_JOBID)
+	if (cp->clp_send_flags & CHANGELOG_FLAG_JOBID)
 		rec_fmt |= CLF_JOBID;
 
 repeat:
-	rc = libcfs_ukuc_msg_get(&cp->kuc, (char *)kuch,
-				 KUC_CHANGELOG_MSG_MAXSIZE,
-				 KUC_TRANSPORT_CHANGELOG);
-	if (rc < 0)
-		goto out_free;
+	if (cp->clp_buf + cp->clp_buf_len <= cp->clp_buf_pos) {
+		ssize_t refresh;
 
-        if ((kuch->kuc_transport != KUC_TRANSPORT_CHANGELOG) ||
-            ((kuch->kuc_msgtype != CL_RECORD) &&
-             (kuch->kuc_msgtype != CL_EOF))) {
-                llapi_err_noerrno(LLAPI_MSG_ERROR,
-                                  "Unknown changelog message type %d:%d\n",
-                                  kuch->kuc_transport, kuch->kuc_msgtype);
-                rc = -EPROTO;
-                goto out_free;
-        }
+		refresh = chlg_read_bulk(cp);
+		if (refresh == 0) {
+			/* EOF */
+			if (cp->clp_send_flags & CHANGELOG_FLAG_FOLLOW)
+				goto repeat;
+			rc = 1;
+			goto out_free;
+		} else if (refresh < 0) {
+			rc = refresh;
+			goto out_free;
+		}
+	}
 
-        if (kuch->kuc_msgtype == CL_EOF) {
-                if (cp->flags & CHANGELOG_FLAG_FOLLOW) {
-                        /* Ignore EOFs */
-                        goto repeat;
-                } else {
-                        rc = 1;
-                        goto out_free;
-                }
-        }
+	/* TODO check changelog_rec_size */
+	tmp = (struct changelog_rec *)cp->clp_buf_pos;
 
-	/* Our message is a changelog_rec.  Use pointer math to skip
-	 * kuch_hdr and point directly to the message payload. */
-	*rech = (struct changelog_rec *)(kuch + 1);
+	memcpy(*rech, cp->clp_buf_pos,
+	       changelog_rec_size(tmp) + tmp->cr_namelen);
+
+	cp->clp_buf_pos += changelog_rec_size(tmp) + tmp->cr_namelen;
 	changelog_remap_rec(*rech, rec_fmt);
 
-        return 0;
+	return 0;
 
 out_free:
-        *rech = NULL;
-        free(kuch);
-        return rc;
+	free(*rech);
+	*rech = NULL;
+	return rc;
 }
 
 /** Release the changelog record when done with it. */
 int llapi_changelog_free(struct changelog_rec **rech)
 {
-        if (*rech) {
-                /* We allocated memory starting at the kuc_hdr, but passed
-                 * the consumer a pointer to the payload.
-                 * Use pointer math to get back to the header.
-                 */
-                struct kuc_hdr *kuch = (struct kuc_hdr *)*rech - 1;
-                free(kuch);
-        }
-        *rech = NULL;
-        return 0;
+	free(*rech);
+	*rech = NULL;
+	return 0;
+}
+
+static int llapi_changelog_clear_cmd(char *cmd, size_t *cmd_len,
+				     const char *idstr, long long endrec)
+{
+	size_t	written;
+
+	written = snprintf(cmd, *cmd_len, "clear:%s:%lld", idstr, endrec);
+	if (written >= *cmd_len)
+		return -EINVAL;
+
+	cmd[*cmd_len- 1] = '\0'; /* ensure NULL-termination */
+	*cmd_len = written + 1;  /* include NULL byte in the count */
+	return 0;
 }
 
 int llapi_changelog_clear(const char *mdtname, const char *idstr,
                           long long endrec)
 {
-	long id;
+	char	dev_path[PATH_MAX];
+	char	cmd[64];
+	size_t	cmd_len = sizeof(cmd);
+	int	fd;
+	int	rc;
 
         if (endrec < 0) {
                 llapi_err_noerrno(LLAPI_MSG_ERROR,
@@ -4100,17 +4145,32 @@ int llapi_changelog_clear(const char *mdtname, const char *idstr,
                 return -EINVAL;
         }
 
-        id = strtol(idstr + strlen(CHANGELOG_USER_PREFIX), NULL, 10);
-        if ((id == 0) || (strncmp(idstr, CHANGELOG_USER_PREFIX,
-                                  strlen(CHANGELOG_USER_PREFIX)) != 0)) {
-                llapi_err_noerrno(LLAPI_MSG_ERROR,
-                                  "expecting id of the form '"
-                                  CHANGELOG_USER_PREFIX
-                                  "<num>'; got '%s'\n", idstr);
-                return -EINVAL;
-        }
+	chlg_dev_path(dev_path, sizeof(dev_path), mdtname);
 
-        return changelog_ioctl(mdtname, OBD_IOC_CHANGELOG_CLEAR, id, endrec, 0);
+	rc = llapi_changelog_clear_cmd(cmd, &cmd_len, idstr, endrec);
+	if (rc < 0)
+		return rc;
+
+	fd = open(dev_path, O_WRONLY);
+	if (fd < 0) {
+		rc = -errno;
+		llapi_error(LLAPI_MSG_ERROR, rc, "cannot open %s", dev_path);
+		return rc;
+	}
+
+	rc = write(fd, cmd, cmd_len);
+	if (rc < 0) {
+		rc = -errno;
+		llapi_error(LLAPI_MSG_ERROR, rc, "cannot purge records for %s",
+			    idstr);
+		goto out_close;
+	}
+
+	rc = 0;
+
+out_close:
+	close(fd);
+	return rc;
 }
 
 int llapi_fid2path(const char *device, const char *fidstr, char *buf,
