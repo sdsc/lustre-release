@@ -2024,7 +2024,7 @@ t32_test() {
 				pushd $tmp/mnt/lustre
 			fi
 			$r cat $list_file | sort -k 6 >$tmp/list.orig
-			ls -Rni --time-style=+%s | sort -k 6 >$tmp/list || {
+			ls -Rni --time-style=+%s | sort -k 6 >$tmp/list | sed 's/\. / /' || {
 				error_noexit "ls"
 				return 1
 			}
