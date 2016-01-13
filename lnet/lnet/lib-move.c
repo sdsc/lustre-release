@@ -1596,6 +1596,14 @@ send:
 	msg->msg_hdr.dest_nid = cpu_to_le64(msg->msg_txpeer->lpni_nid);
 
 	/*
+	 * Always set the target.nid to the best peer picked. Either the
+	 * nid will be one of the preconfigured NIDs, or the same NID as
+	 * what was originaly set in the target or it will be the NID of
+	 * a router if this message should be routed
+	 */
+	msg->msg_target.nid = msg->msg_txpeer->lpni_nid;
+
+	/*
 	 * lnet_msg_commit assigns the correct cpt to the message, which
 	 * is used to decrement the correct refcount on the ni when it's
 	 * time to return the credits
@@ -1612,7 +1620,6 @@ send:
 
 	if (routing) {
 		msg->msg_target_is_router = 1;
-		msg->msg_target.nid = msg->msg_txpeer->lpni_nid;
 		msg->msg_target.pid = LNET_PID_LUSTRE;
 	}
 

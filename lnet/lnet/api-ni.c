@@ -2336,13 +2336,33 @@ LNetCtl(unsigned int cmd, void *arg)
 		return lnet_get_rtr_pool_cfg(config->cfg_count, pool_cfg);
 	}
 
+	case IOC_LIBCFS_ADD_PEER_NI: {
+		struct lnet_ioctl_peer_cfg *cfg = arg;
+
+		if (cfg->prcfg_hdr.ioc_len < sizeof(*cfg))
+			return -EINVAL;
+
+		return lnet_add_peer_ni_to_peer(cfg->prcfg_key_nid,
+						cfg->prcfg_cfg_nid);
+	}
+
+	case IOC_LIBCFS_DEL_PEER_NI: {
+		struct lnet_ioctl_peer_cfg *cfg = arg;
+
+		if (cfg->prcfg_hdr.ioc_len < sizeof(*cfg))
+			return -EINVAL;
+
+		return lnet_del_peer_ni_from_peer(cfg->prcfg_key_nid,
+						  cfg->prcfg_cfg_nid);
+	}
+
 	case IOC_LIBCFS_GET_PEER_INFO: {
 		struct lnet_ioctl_peer *peer_info = arg;
 
 		if (peer_info->pr_hdr.ioc_len < sizeof(*peer_info))
 			return -EINVAL;
 
-		return lnet_get_peer_info(
+		return lnet_get_peer_ni_info(
 		   peer_info->pr_count,
 		   &peer_info->pr_nid,
 		   peer_info->pr_lnd_u.pr_peer_credits.cr_aliveness,
@@ -2353,6 +2373,20 @@ LNetCtl(unsigned int cmd, void *arg)
 		   &peer_info->pr_lnd_u.pr_peer_credits.cr_peer_rtr_credits,
 		   &peer_info->pr_lnd_u.pr_peer_credits.cr_peer_min_rtr_credits,
 		   &peer_info->pr_lnd_u.pr_peer_credits.cr_peer_tx_qnob);
+	}
+
+	case IOC_LIBCFS_GET_PEER_NI: {
+		struct lnet_ioctl_peer_cfg *cfg = arg;
+		struct lnet_peer_ni_credit_info *lpni_cri;
+		size_t total = sizeof(*cfg) + sizeof(*lpni_cri);
+
+		if (cfg->prcfg_hdr.ioc_len < total)
+			return -EINVAL;
+
+		lpni_cri = (struct lnet_peer_ni_credit_info*) cfg->prcfg_bulk;
+
+		return lnet_get_peer_info(cfg->prcfg_idx, &cfg->prcfg_key_nid,
+					  &cfg->prcfg_cfg_nid, lpni_cri);
 	}
 
 	case IOC_LIBCFS_NOTIFY_ROUTER:
