@@ -36,8 +36,8 @@ esac
 [ "$SLOW" = "no" ] && EXCEPT_SLOW="44b"
 
 [ $(facet_fstype $SINGLEMDS) = "zfs" ] &&
-# bug number for skipped test:        LU-1867	LU-3127
-	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 89	73b"
+# bug number for skipped test:        LU-1867/LU-5761
+	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 89"
 
 build_test_filter
 

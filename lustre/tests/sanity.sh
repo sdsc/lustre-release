@@ -8,13 +8,13 @@
 set -e
 
 ONLY=${ONLY:-"$*"}
-# bug number for skipped test: 13297 2108 9789 3637 9789 3561 5188
-ALWAYS_EXCEPT="                42a  42b  42c  42d  45   68b   $SANITY_EXCEPT"
+# bug number for skipped test: bz9789/LU-6493
+ALWAYS_EXCEPT="$SANITY_EXCEPT  42b"
 # UPDATE THE COMMENT ABOVE WITH BUG NUMBERS WHEN CHANGING ALWAYS_EXCEPT!
 
 # with LOD/OSP landing
-# bug number for skipped tests: LU-2036 LU-8139
-ALWAYS_EXCEPT="                 76	101g	$ALWAYS_EXCEPT"
+# bug number for skipped tests: LU-2036/LU-2857
+ALWAYS_EXCEPT="$ALWAYS_EXCEPT   76"
 
 is_sles11()						# LU-4341
 {
@@ -79,8 +79,6 @@ init_logging
 [ "$SLOW" = "no" ] && EXCEPT_SLOW="24D 27m 64b 68 71 115 300o"
 
 if [ $(facet_fstype $SINGLEMDS) = "zfs" ]; then
-	# bug number for skipped test: LU-4536 LU-1957 LU-2805
-	ALWAYS_EXCEPT="$ALWAYS_EXCEPT  65ic    180     184c"
 	#                                               4   13    (min)"
 	[ "$SLOW" = "no" ] && EXCEPT_SLOW="$EXCEPT_SLOW 51b 51ba"
 fi
