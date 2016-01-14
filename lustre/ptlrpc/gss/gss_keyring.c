@@ -801,20 +801,21 @@ struct ptlrpc_cli_ctx * gss_sec_lookup_ctx_kr(struct ptlrpc_sec *sec,
 
         construct_key_desc(desc, sizeof(desc), sec, vcred->vc_uid);
 
-        /* callout info format:
-         * secid:mech:uid:gid:flags:svc_type:peer_nid:target_uuid
-         */
-        coinfo_size = sizeof(struct obd_uuid) + MAX_OBD_NAME + 64;
-        OBD_ALLOC(coinfo, coinfo_size);
-        if (coinfo == NULL)
-                goto out;
+	/* callout info format:
+	 * secid:mech:uid:gid:flags:svc_type:peer_nid:target_uuid:self_nid:pid
+	 */
+	coinfo_size = sizeof(struct obd_uuid) + MAX_OBD_NAME + 64;
+	OBD_ALLOC(coinfo, coinfo_size);
+	if (coinfo == NULL)
+		goto out;
 
-	snprintf(coinfo, coinfo_size, "%d:%s:%u:%u:%s:%d:"LPX64":%s:"LPX64,
+	snprintf(coinfo, coinfo_size, "%d:%s:%u:%u:%s:%d:"LPX64":%s:"LPX64":%d",
 		 sec->ps_id, sec2gsec(sec)->gs_mech->gm_name,
 		 vcred->vc_uid, vcred->vc_gid,
 		 co_flags, import_to_gss_svc(imp),
 		 imp->imp_connection->c_peer.nid, imp->imp_obd->obd_name,
-		 imp->imp_connection->c_self);
+		 imp->imp_connection->c_self,
+		 co_flags[0] == 0 ? current_pid() : imp->imp_sec_refpid);
 
         CDEBUG(D_SEC, "requesting key for %s\n", desc);
 
