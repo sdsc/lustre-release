@@ -414,4 +414,10 @@ static inline void truncate_inode_pages_final(struct address_space *map)
 #define bio_for_each_segment_all(bv, bio, it) bio_for_each_segment(bv, bio, it)
 #endif
 
+#ifdef HAVE_PID_NS_FOR_CHILDREN
+# define ll_task_pid_ns(task)	((task)->nsproxy->pid_ns_for_children)
+#else
+# define ll_task_pid_ns(task)	((task)->nsproxy->pid_ns)
+#endif
+
 #endif /* _LUSTRE_COMPAT_H */
