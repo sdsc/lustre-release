@@ -5679,6 +5679,7 @@ test_69() {
 
 	do_facet ost1 lctl set_param fail_loc=0
 	rm -f $f
+	return 5
 }
 run_test 69 "verify oa2dentry return -ENOENT doesn't LBUG ======"
 

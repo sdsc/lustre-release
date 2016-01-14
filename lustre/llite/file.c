@@ -1320,6 +1320,7 @@ static ssize_t ll_file_read(struct file *file, char __user *buf, size_t count,
 #elif defined(HAVE_KI_NBYTES)
 	kiocb->ki_nbytes = count;
 #endif
+	CERROR("LU7603: file(%p)iocb flags=%lx\n", file, (long)kiocb->ki_ctx);
 
 	result = ll_file_aio_read(kiocb, &iov, 1, kiocb->ki_pos);
 	*ppos = kiocb->ki_pos;
