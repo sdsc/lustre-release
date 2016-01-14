@@ -783,6 +783,18 @@ dirty_inode_super_operation_flag, [
 ]) # LC_DIRTY_INODE_WITH_FLAG
 
 #
+# LC_SETNS
+#
+# 3.0 introduced setns
+#
+AC_DEFUN([LC_SETNS], [
+AC_CHECK_HEADERS([sched.h], [], [],
+		 [#define _GNU_SOURCE
+		 ])
+AC_CHECK_FUNCS([setns])
+]) # LC_SETNS
+
+#
 # LC_GENERIC_PERMISSION
 #
 # 2.6.38 generic_permission taken 4 parameters.
@@ -1519,6 +1531,24 @@ d_count, [
 ]) # LC_HAVE_DCOUNT
 
 #
+# LC_PID_NS_FOR_CHILDREN
+#
+# 3.11 replaces pid_ns by pid_ns_for_children in struct nsproxy
+#
+AC_DEFUN([LC_PID_NS_FOR_CHILDREN], [
+LB_CHECK_COMPILE([if 'struct nsproxy' has 'pid_ns_for_children'],
+pid_ns_for_children, [
+	#include <linux/nsproxy.h>
+],[
+	struct nsproxy ns;
+	ns.pid_ns_for_children = NULL;
+],[
+	AC_DEFINE(HAVE_PID_NS_FOR_CHILDREN, 1,
+		  ['struct nsproxy' has 'pid_ns_for_children'])
+])
+]) # LC_PID_NS_FOR_CHILDREN
+
+#
 # LC_OLDSIZE_TRUNCATE_PAGECACHE
 #
 # 3.12 truncate_pagecache without oldsize parameter
@@ -2241,6 +2271,7 @@ AC_DEFUN([LC_PROG_LINUX], [
 
 	# 3.0
 	LC_DIRTY_INODE_WITH_FLAG
+	LC_SETNS
 
 	# 3.1
 	LC_LM_XXX_LOCK_MANAGER_OPS
@@ -2302,6 +2333,7 @@ AC_DEFUN([LC_PROG_LINUX], [
 	LC_HAVE_DCOUNT
 	LC_HAVE_DENTRY_D_U_D_ALIAS
 	LC_HAVE_DENTRY_D_CHILD
+	LC_PID_NS_FOR_CHILDREN
 
 	# 3.12
 	LC_OLDSIZE_TRUNCATE_PAGECACHE
