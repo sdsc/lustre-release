@@ -10809,6 +10809,9 @@ test_160a() {
 
 	MIN_REC=$($GET_CL_USERS |
 		awk 'min == "" || $2 < min {min = $2}; END {print min}')
+	echo "--------------------"
+	$LFS changelog $MDT0
+	echo "--------------------"
 	FIRST_REC=$($LFS changelog $MDT0 | head -n1 | awk '{print $1}')
 	echo "verifying min purge: $(( $MIN_REC + 1 )) == $FIRST_REC"
 	[ $FIRST_REC == $(($MIN_REC + 1)) ] ||
