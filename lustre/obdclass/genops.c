@@ -41,6 +41,8 @@
 
 #define DEBUG_SUBSYSTEM S_CLASS
 
+#include <linux/nsproxy.h>
+#include <linux/pid_namespace.h>
 #include <linux/kthread.h>
 #include <obd_class.h>
 #include <lprocfs_status.h>
@@ -1049,6 +1051,7 @@ static void init_imp_at(struct imp_at *at) {
 struct obd_import *class_new_import(struct obd_device *obd)
 {
 	struct obd_import *imp;
+	struct nsproxy *current_ns = current->nsproxy;
 
 	OBD_ALLOC(imp, sizeof(*imp));
 	if (imp == NULL)
@@ -1069,6 +1072,11 @@ struct obd_import *class_new_import(struct obd_device *obd)
 	imp->imp_obd = class_incref(obd, "import", imp);
 	mutex_init(&imp->imp_sec_mutex);
 	init_waitqueue_head(&imp->imp_recovery_waitq);
+
+	if (current_ns->pid_ns->child_reaper)
+		imp->imp_sec_refpid = current_ns->pid_ns->child_reaper->pid;
+	else
+		imp->imp_sec_refpid = 1;
 
 	atomic_set(&imp->imp_refcount, 2);
 	atomic_set(&imp->imp_unregistering, 0);

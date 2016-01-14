@@ -178,6 +178,24 @@ shrink_control, [
 ]) # LC_SHRINK_CONTROL
 
 #
+# LC_SETNS
+#
+# 3.0 introduced setns
+#
+AC_DEFUN([LC_SETNS], [
+LB_CHECK_COMPILE([if 'setns' is present],
+setns, [
+	#define _GNU_SOURCE
+	#include <sched.h>
+],[
+	int ret = setns(0, 0);
+],[
+	AC_DEFINE(HAVE_SETNS, 1,
+		[setns is present])
+])
+]) # LC_SETNS
+
+#
 # LIBCFS_PROCESS_NAMESPACE
 #
 # 3.5 introduced process namespace
@@ -339,6 +357,7 @@ LIBCFS_DUMP_TRACE_ADDRESS
 # 2.6.40 fc15
 LC_SHRINK_CONTROL
 # 3.0
+LC_SETNS
 LIBCFS_STACKTRACE_WARNING
 # 3.5
 LIBCFS_PROCESS_NAMESPACE
