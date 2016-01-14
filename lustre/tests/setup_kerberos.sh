@@ -1,5 +1,5 @@
 #!/bin/bash
-# -*- mode: Bash; tab-width: 4; indent-tabs-mode: t; -*-
+# -*- mode: Bash; tab-width: 8; indent-tabs-mode: t; -*-
 # vim:shiftwidth=4:softtabstop=4:tabstop=4:
 
 #
@@ -8,27 +8,28 @@
 # Notes:
 #  * Only one KDC involved, no slave KDC.
 #  * Only one Kerberos realm involved, no multiple Kerberos realms.
+#  * Only one MDS involved, no DNE.
 #
 ###############################################################################
+LUSTRE=${LUSTRE:-$(cd $(dirname $0)/..; echo $PWD)}
+. $LUSTRE/tests/test-framework.sh
+init_test_env
+. ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}
+
 
 # usage
 my_usage() {
-    cat <<EOF
-Usage: $(basename $0) <KDC_distro> <KDC_node> <MGS_node> <MDS_node>[:MDS_node:...]
-                      <OSS_node>[:OSS_node:...] <CLIENT_node>[:CLIENT_node:...]
+	cat <<EOF
+Usage: $(basename $0) <KDC_distro> <KDC_node>
 
     This script is used to setup the Kerberos environment on Lustre cluster.
 
-    KDC_distro      distribution on the KDC node (rhel5 or sles10)
+    KDC_distro      distribution on the KDC node (rhel or sles)
     KDC_node        KDC node name
-    MGS_node        Lustre MGS node name
-    MDS_node        Lustre MDS node name
-    OSS_node        Lustre OSS node name
-    CLIENT_node     Lustre client node name
 
-    e.g.: $(basename $0) rhel5 scsi2 scsi2 sata2 sata3 client5
-    e.g.: $(basename $0) sles10 scsi2 scsi2 scsi2 sata3:sata5 client2:client3
-    e.g.: $(basename $0) rhel5 scsi2 scsi2 scsi2 scsi2 scsi2
+    e.g.: $(basename $0) rhel scsi2
+    e.g.: $(basename $0) sles scsi2
+    e.g.: $(basename $0) rhel scsi2
 
     Notes:
     1) The script will destroy all the old Kerberos settings by default. If you
@@ -50,24 +51,19 @@ EOF
 # ************************ Parameters and Variables ************************ #
 MY_KDC_DISTRO=$1
 MY_KDCNODE=$2
-MY_MGSNODE=$3
-MY_MDSNODES=$4
-MY_OSSNODES=$5
-MY_CLIENTNODES=$6
+MY_MGSNODE=${MY_MGSNODE:-$mgs_HOST}
+MY_MDSNODES=${MY_MDSNODES:-$(mdts_nodes)}
+MY_OSSNODES=${MY_OSSNODES:-$(osts_nodes)}
+MY_CLIENTNODES=${CLIENTS:-$(hostname)}
 
 # translate to lower case letters
 MY_KDC_DISTRO=$(echo $MY_KDC_DISTRO | tr '[A-Z]' '[a-z]')
 
 if [ -z "$MY_KDC_DISTRO" -o -z "$MY_KDCNODE" -o -z "$MY_MDSNODES" -o \
-    -z "$MY_OSSNODES" -o -z "$MY_CLIENTNODES" -o -z "$MY_MGSNODE" ]; then
-    my_usage
-    exit 1
+	-z "$MY_OSSNODES" -o -z "$MY_CLIENTNODES" -o -z "$MY_MGSNODE" ]; then
+	my_usage
+	exit 1
 fi
-
-LUSTRE=${LUSTRE:-$(cd $(dirname $0)/..; echo $PWD)}
-. $LUSTRE/tests/test-framework.sh
-init_test_env
-. ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}
 
 SCP=${SCP:-"scp -q"}
 ACCEPTOR_PORT=${ACCEPTOR_PORT:-988}
@@ -97,7 +93,7 @@ KRB5_TICKET_LIFETIME=${KRB5_TICKET_LIFETIME:-"24h"}
 
 # configuration files for libgssapi and keyutils
 GSSAPI_MECH_CONF=${GSSAPI_MECH_CONF:-"/etc/gssapi_mech.conf"}
-REQUEST_KEY_CONF=${REQUEST_KEY_CONF:-"/etc/request-key.conf"}
+REQUEST_KEY_CONF=${REQUEST_KEY_CONF:-"/etc/request-key.d/lgssc.conf"}
 
 # create configuration files for remote ACL testing
 CFG_IDMAP=${CFG_IDMAP:-true}
@@ -109,69 +105,71 @@ PERM_CONF=$LUSTRE_CONF_DIR/perm.conf
 KRB5_REALM=${KRB5_REALM:-"CO.CFS"}
 KRB5_DOMAIN=$(echo $KRB5_REALM | tr '[A-Z]' '[a-z]')
 
-MY_MDSNODES=${MY_MDSNODES//:/ }
-MY_OSSNODES=${MY_OSSNODES//:/ }
-MY_CLIENTNODES=${MY_CLIENTNODES//:/ }
+MY_MDSNODES=${MY_MDSNODES//,/ }
+MY_OSSNODES=${MY_OSSNODES//,/ }
+MY_CLIENTNODES=${MY_CLIENTNODES//,/ }
 
 # set vars according to the KDC distribution
 KRB5PKG_SVR="krb5-server"
 KRB5PKG_DEV="krb5-devel"
 case $MY_KDC_DISTRO in
-    rhel5)
-        KRB5PKG_CLI="krb5-workstation"
-        KRB5PKG_LIB="krb5-libs"
-        KDC_CONF_DIR="/var/kerberos/krb5kdc"
-        ;;
-    sles10)
-        KRB5PKG_CLI="krb5-client"
-        KRB5PKG_LIB="krb5"
-        KDC_CONF_DIR="/var/lib/kerberos/krb5kdc"
-        ;;
-    *)
-        echo "Unsupported KDC distro: $MY_KDC_DISTRO!"
-        exit 1
+	rhel)
+		KRB5PKG_CLI="krb5-workstation"
+		KRB5PKG_LIB="krb5-libs"
+		KDC_CONF_DIR="/var/kerberos/krb5kdc"
+		;;
+	sles)
+		KRB5PKG_CLI="krb5-client"
+		KRB5PKG_LIB="krb5"
+		KDC_CONF_DIR="/var/lib/kerberos/krb5kdc"
+		;;
+	*)
+		echo "Unsupported KDC distro: $MY_KDC_DISTRO!"
+		exit 1
 esac
 KDC_CONF="$KDC_CONF_DIR/kdc.conf"
 KDC_ACL="$KDC_CONF_DIR/kadm5.acl"
 
 # ******************************** Functions ******************************** #
 is_part_of() {
-    local name="$1"
-    shift
-    local list="$@"
+	local name="$1"
+	shift
+	local list="$@"
 
-    if [ -z "$name" -o -z "$list" ]; then
-        false
-        return
-    fi
+	if [ -z "$name" -o -z "$list" ]; then
+		false
+		return
+	fi
 
-    if [[ " $list " == *\ $name\ * ]]; then
-        true
-    else
-        false
-    fi
+	if [[ " $list " == *\ $name\ * ]]; then
+		true
+	else
+		false
+	fi
 
-    return
+	return
 }
 
 my_do_node() {
-    local node=$1
-    shift
-    local nodename=${node%.$KRB5_DOMAIN}
-    do_node $node "PATH=\$PATH:/usr/kerberos/sbin:/usr/kerberos/bin:\
+	local node=$1
+	shift
+#    local nodename=${node%.$KRB5_DOMAIN}
+# Strip away every from the first "." onward
+	local nodename=${node%%.*}
+	do_node $node "PATH=\$PATH:/usr/kerberos/sbin:/usr/kerberos/bin:\
 /usr/lib/mit/sbin:/usr/lib/mit/bin $@" | sed "s/^${nodename}: //"
-    return ${PIPESTATUS[0]}
+	return ${PIPESTATUS[0]}
 }
 
 do_node_mute() {
-    local output
-    output=$(my_do_node "$@" 2>&1)
-    return ${PIPESTATUS[0]}
+	local output
+	output=$(my_do_node "$@" 2>&1)
+	return ${PIPESTATUS[0]}
 }
 
 do_kdc() {
-    my_do_node $MY_KDCNODE "$@"
-    return ${PIPESTATUS[0]}
+	my_do_node $MY_KDCNODE "$@"
+	return ${PIPESTATUS[0]}
 }
 
 do_kdc_mute() {
@@ -265,7 +263,7 @@ check_rsh() {
 
     echo "+++ Checking remote shell"
 
-    for node in $MY_KDCNODE $MY_MGSNODE $MY_OSSNODES $MY_MDSNODES $MY_CLIENTNODES
+    for node in $MY_MGSNODE $MY_OSSNODES $MY_MDSNODES $MY_CLIENTNODES $MY_KDCNODE 
     do
         is_part_of $node $checked && continue
 
@@ -295,7 +293,7 @@ check_entropy() {
             echo -e "\nWarning: The entropy on the KDC node is only $avail, \
 which is not enough for kdb5_util to create Kerberos database! \
 Let's use /dev/urandom!"
-            do_kdc "rm -f /dev/random.bak && mv /dev/random{,.bak} && \
+		do_kdc "rm -f /dev/random.bak && mv /dev/random{,.bak} && \
 mknod /dev/random c 1 9"
             return ${PIPESTATUS[0]}
         fi
@@ -401,6 +399,8 @@ get_krb5pkgname() {
     fi
 }
 
+# Check Kerberos package on the KDC
+
 check_kdc() {
     local pkg
     local rc
@@ -410,6 +410,7 @@ check_kdc() {
     echo -n "Checking $MY_KDCNODE..."
     pkg=$(get_pkgname $MY_KDCNODE $KRB5PKG_SVR)
     rc=${PIPESTATUS[0]}
+	echo "krb5 package on $MY_KDCNODE is $KRB5PKG_SVR"
     if [ $rc -ne 0 ]; then
         echo -e "\nCan not find $KRB5PKG_SVR package on $MY_KDCNODE: $pkg"
         return $rc
@@ -471,17 +472,49 @@ check_libgssapi() {
     done
 }
 
+check_libgssglue() {
+    local checked=""
+    local node
+    local pkg
+    local rc
+
+    echo -n "+++ Checking libgssglue installation "
+
+    LIBGSSAPI=$(get_pkgname $MY_KDCNODE libgssglue)
+    rc=${PIPESTATUS[0]}
+	echo "package $LIBGSSAPI ..."
+    if [ $rc -ne 0 ]; then
+        echo "Can not find libgssglue package on $MY_KDCNODE: $LIBGSSAPI"
+        return $rc
+    fi
+
+    for node in $MY_MGSNODE $MY_OSSNODES $MY_MDSNODES $MY_CLIENTNODES; do
+        is_part_of $node $checked && continue
+
+        echo -n "Checking $node..."
+        pkg=$(get_pkgname $node libgssglue)
+        rc=${PIPESTATUS[0]}
+        if [ $rc -ne 0 ]; then
+            echo -e "\nCan not find libgssglue package on $node: $pkg"
+            return $rc
+        fi
+        echo "OK!"
+        checked="$checked $node"
+    done
+}
+
 #
 # check and update the /etc/gssapi_mech.conf file on each node
 # We only support MIT Kerberos 5 GSS-API mechanism.
 #
+# XXX Don't know if this is needed
 cfg_libgssapi() {
     local checked=""
     local node
     local pkg
     local rc
     local krb5pkg_lib
-    local krb5_lib 
+    local krb5_lib
 
     echo "+++ Updating $GSSAPI_MECH_CONF"
 
@@ -492,6 +525,7 @@ cfg_libgssapi() {
         krb5pkg_lib=$(get_krb5pkgname $node lib)
         pkg=$(get_pkgname $node $krb5pkg_lib)
         rc=${PIPESTATUS[0]}
+echo "$node looking for krb5pkg_lib = $krb5pkg_lib pkg = $pkg"
         if [ $rc -ne 0 ]; then
             echo -e "\nCan not find $krb5pkg_lib package on $node: $pkg"
             return $rc
@@ -511,29 +545,30 @@ cfg_libgssapi() {
 }
 
 #
-# check and update the /etc/request-key.conf file on each MDS and client node
+# check and update the /etc/request-key.d/lgssc.conf file on each MDS,
+# OSS and client node
 #
 cfg_keyutils() {
-    local checked=""
-    local node
-    local lgss_keyring
+	local checked=""
+	local node
+	local lgss_keyring
 
-    echo "+++ Updating $REQUEST_KEY_CONF"
+	echo "+++ Updating $REQUEST_KEY_CONF"
 
-    for node in $MY_OSSNODES $MY_MDSNODES $MY_CLIENTNODES; do
-        is_part_of $node $checked && continue
-        lgss_keyring=$(my_do_node $node "which lgss_keyring") || \
-            return ${PIPESTATUS[0]}
+	for node in $MY_OSSNODES $MY_MDSNODES $MY_CLIENTNODES; do
+		is_part_of $node $checked && continue
+		lgss_keyring=$(my_do_node $node "which lgss_keyring") ||
+			return ${PIPESTATUS[0]}
 
-        if ! do_node_mute $node \
-"grep -q \\\"^create.*$lgss_keyring\\\" $REQUEST_KEY_CONF"; then
-            do_node_mute $node \
-"echo 'create lgssc * * $lgss_keyring %o %k %t %d %c %u %g %T %P %S' \
+	if ! do_node_mute $node \
+	"grep -q \\\"^create.*$lgss_keyring\\\" $REQUEST_KEY_CONF"; then
+		do_node_mute $node \
+	"echo create lgssc \* \* $lgss_keyring %o %k %t %d %c %u %g %T %P %S \
 >> $REQUEST_KEY_CONF"
-        fi
-        checked="$checked $node"
-    done
-    echo "OK!"
+	fi
+	checked="$checked $node"
+	done
+	echo "OK!"
 }
 
 add_svc_princ() {
@@ -588,7 +623,7 @@ add_test_princ_id() {
 }
 
 #
-# create principals for the client, MDS, OSS, runas users and add them to 
+# create principals for the client, MDS, OSS, runas users and add them to
 # the Kerberos database
 #
 cfg_kdc_princs() {
@@ -618,6 +653,8 @@ cfg_kdc_princs() {
     add_user_princ bin || return ${PIPESTATUS[0]}
     add_user_princ daemon || return ${PIPESTATUS[0]}
     add_user_princ games || return ${PIPESTATUS[0]}
+    add_user_princ root || return ${PIPESTATUS[0]}
+    add_user_princ root/admin || return ${PIPESTATUS[0]}
 
     if $CFG_RUNAS; then
         for uid in $LOCAL_UIDS; do
@@ -627,7 +664,7 @@ cfg_kdc_princs() {
 }
 
 #
-# create and install the KDC configuration file kdc.conf on the KDC, which 
+# create and install the KDC configuration file kdc.conf on the KDC, which
 # will destroy the old KDC setting
 #
 cfg_kdc() {
@@ -638,7 +675,7 @@ cfg_kdc() {
     echo "+++ Configuring KDC on $MY_KDCNODE"
     echo "Warning: old KDC setting on $MY_KDCNODE will be destroied!!!"
 
-    echo -n "Checking the existence of KDC config dir..."
+    echo -n "Checking the existence of KDC config dir $KDC_CONF_DIR ..."
     do_kdc_mute "[ -d $KDC_CONF_DIR ]"
     if [ ${PIPESTATUS[0]} -ne 0 ]; then
         echo -e "\nUnrecognized krb5 distribution!"
@@ -669,13 +706,14 @@ cfg_kdc() {
 EOF
 
     # install kdc.conf remotely
-    echo -n "Installing kdc.conf on $MY_KDCNODE..."
+    echo -n "Installing kdc.conf on $MY_KDCNODE at $KDC_CONF ..."
     $SCP $tmpcfg root@$MY_KDCNODE:$KDC_CONF || return ${PIPESTATUS[0]}
     echo "OK!"
 
     # initialize KDC database
     echo -n "Creating Kerberos database on $MY_KDCNODE..."
-    do_kdc_mute "kdb5_util create -r $KRB5_REALM -s -P 111111"
+#    do_kdc_mute "kdb5_util create -r $KRB5_REALM -s -P 111111"
+    do_kdc_mute "kdb5_util create -r $KRB5_REALM -s -P lustre"
     local rc=${PIPESTATUS[0]}
     if [ $rc -ne 0 ]; then
         echo "Failed!"
@@ -689,7 +727,7 @@ EOF
 */admin@$KRB5_REALM   *
 root@$KRB5_REALM      *
 EOF
-    echo -n "Installing kadm5.acl on $MY_KDCNODE..."
+    echo -n "Installing kadm5.acl on $MY_KDCNODE at $KDC_ACL..."
     $SCP $tmpacl root@$MY_KDCNODE:$KDC_ACL || return ${PIPESTATUS[0]}
     echo "OK!"
     rm -rf $tmpdir || true
@@ -747,7 +785,7 @@ EOF
     do
         is_part_of $node $checked && continue
 
-        echo -n "Installing krb5.conf on $node..."
+        echo -n "Installing krb5.conf on $node at $KRB5_CONF ..."
         $SCP $tmpcfg root@$node:$KRB5_CONF || return ${PIPESTATUS[0]}
         echo "OK!"
 
@@ -828,7 +866,7 @@ cfg_keytab() {
         fi
         echo "OK!"
 
-        echo -n "Installing krb5.keytab on $node..."
+        echo -n "Installing krb5.keytab file $KRB5_KEYTAB on $node..."
         $SCP root@$MY_KDCNODE:$tmptab $tmptab || return ${PIPESTATUS[0]}
         $SCP $tmptab root@$node:$KRB5_KEYTAB || return ${PIPESTATUS[0]}
         echo "OK!"
@@ -871,7 +909,7 @@ cfg_keytab() {
                 return ${PIPESTATUS[0]}
             echo "OK!"
 
-            echo -n "Installing krb5.keytab on $node..."
+            echo -n "Installing krb5.keytab file $KRB5_KEYTAB on $node..."
             $SCP root@$MY_KDCNODE:$tmptab $tmptab || return ${PIPESTATUS[0]}
             $SCP $tmptab root@$node:$KRB5_KEYTAB || return ${PIPESTATUS[0]}
             echo "OK!"
@@ -1006,6 +1044,7 @@ exit ${PIPESTATUS[0]})
 #
 # create and install idmap.conf on the MDS
 #
+# Is idamp.conf still used?
 cfg_idmap_conf() {
     local tmpcfg="$TMP/idmap.conf"
     local fqdn 
@@ -1035,6 +1074,7 @@ cfg_idmap_conf() {
 bin@$KRB5_REALM * 1
 daemon@$KRB5_REALM * 2
 games@$KRB5_REALM * 12
+root@$KRB5_REALM * 14
 EOF
 
     for node in $MY_MDSNODES; do
@@ -1047,6 +1087,7 @@ EOF
     done
 
     for node in $MY_MDSNODES; do
+		echo "Installing $IDMAP_CONF on $node ..."
         my_do_node $node "mkdir -p $LUSTRE_CONF_DIR" || return ${PIPESTATUS[0]}
         $SCP $tmpcfg root@$node:$IDMAP_CONF || return ${PIPESTATUS[0]}
     done
@@ -1057,6 +1098,7 @@ EOF
 #
 # create and install perm.conf on the MDS for remote ACL testing
 #
+# Still needed?
 cfg_perm_conf() {
     local tmpcfg="$TMP/perm.conf"
     local uid
@@ -1087,15 +1129,16 @@ check_rsh || exit ${PIPESTATUS[0]}
 check_entropy || exit ${PIPESTATUS[0]}
 
 if $CFG_RUNAS; then
-    check_users || exit ${PIPESTATUS[0]}
+	check_users || exit ${PIPESTATUS[0]}
 elif $CFG_IDMAP; then
-    echo "Remote ACL operations need local and remote users!"
-    exit 1
+	echo "Remote ACL operations need local and remote users!"
+	exit 1
 fi
 
 check_kdc || exit ${PIPESTATUS[0]}
 check_krb5 || exit ${PIPESTATUS[0]}
-check_libgssapi || exit ${PIPESTATUS[0]}
+#check_libgssapi || exit ${PIPESTATUS[0]}
+check_libgssglue || exit ${PIPESTATUS[0]}
 
 echo "===================================================================="
 echo " Configure Kerberos testing environment for Lustre"
@@ -1117,16 +1160,16 @@ cfg_libgssapi || exit ${PIPESTATUS[0]}
 cfg_keyutils || exit ${PIPESTATUS[0]}
 
 if $RESET_KDC; then
-    cfg_krb5_conf || exit ${PIPESTATUS[0]}
-    cfg_kdc || exit ${PIPESTATUS[0]}
+	cfg_krb5_conf || exit ${PIPESTATUS[0]}
+	cfg_kdc || exit ${PIPESTATUS[0]}
 fi
 
 cfg_kdc_princs || exit ${PIPESTATUS[0]}
 cfg_keytab || exit ${PIPESTATUS[0]}
 
 if $CFG_IDMAP; then
-    cfg_idmap_conf || exit ${PIPESTATUS[0]}
-    cfg_perm_conf || exit ${PIPESTATUS[0]}
+	cfg_idmap_conf || exit ${PIPESTATUS[0]}
+	cfg_perm_conf || exit ${PIPESTATUS[0]}
 fi
 
 echo "Complete successfully!"
