@@ -40,6 +40,9 @@
  * Author: Eric Mei <ericm@clusterfs.com>
  */
 
+#include <sched.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -112,6 +115,7 @@ struct keyring_upcall_param {
 	unsigned int    kup_is_root:1,
 		        kup_is_mdt:1,
 		        kup_is_ost:1;
+	uint32_t        kup_pid;
 };
 
 /****************************************
@@ -553,11 +557,12 @@ out_cred:
  *  [6]: target_nid     (uint64)
  *  [7]: target_uuid    (string)
  *  [8]: self_nid        (uint64)
+ *  [9]: pid            (uint)
  */
 static int parse_callout_info(const char *coinfo,
                               struct keyring_upcall_param *uparam)
 {
-	const int       nargs = 9;
+	const int       nargs = 10;
 	char            buf[1024];
 	char           *string = buf;
 	int             length, i;
@@ -584,9 +589,9 @@ static int parse_callout_info(const char *coinfo,
         }
         data[i] = string;
 
-	logmsg(LL_TRACE, "components: %s,%s,%s,%s,%s,%s,%s,%s,%s\n",
+	logmsg(LL_TRACE, "components: %s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n",
 	       data[0], data[1], data[2], data[3], data[4], data[5],
-	       data[6], data[7], data[8]);
+	       data[6], data[7], data[8], data[9]);
 
 	uparam->kup_secid = strtol(data[0], NULL, 0);
 	strlcpy(uparam->kup_mech, data[1], sizeof(uparam->kup_mech));
@@ -602,15 +607,16 @@ static int parse_callout_info(const char *coinfo,
 	uparam->kup_nid = strtoll(data[6], NULL, 0);
 	strlcpy(uparam->kup_tgt, data[7], sizeof(uparam->kup_tgt));
 	uparam->kup_selfnid = strtoll(data[8], NULL, 0);
+	uparam->kup_pid = strtol(data[9], NULL, 0);
 
 	logmsg(LL_DEBUG, "parse call out info: secid %d, mech %s, ugid %u:%u, "
 	       "is_root %d, is_mdt %d, is_ost %d, svc %d, nid 0x%"PRIx64", "
-	       "tgt %s, self nid 0x%"PRIx64"\n",
+	       "tgt %s, self nid 0x%"PRIx64", pid %d\n",
 	       uparam->kup_secid, uparam->kup_mech,
 	       uparam->kup_uid, uparam->kup_gid,
 	       uparam->kup_is_root, uparam->kup_is_mdt, uparam->kup_is_ost,
 	       uparam->kup_svc, uparam->kup_nid, uparam->kup_tgt,
-	       uparam->kup_selfnid);
+	       uparam->kup_selfnid, uparam->kup_pid);
 	return 0;
 }
 
@@ -654,6 +660,10 @@ int main(int argc, char *argv[])
         pid_t                           child;
         struct lgss_mech_type          *mech;
         struct lgss_cred               *cred;
+#ifdef HAVE_SETNS
+	char				path[PATH_MAX];
+	struct stat parent_ns = { .st_ino = 0 }, caller_ns = { .st_ino = 0 };
+#endif
 
         set_log_level();
 
@@ -745,11 +755,43 @@ int main(int argc, char *argv[])
 	cred->lc_tgt_svc = uparam.kup_svc;
 	cred->lc_self_nid = uparam.kup_selfnid;
 
-        if (lgss_prepare_cred(cred)) {
-                logmsg(LL_ERR, "key %08x: failed to prepare credentials "
-                       "for user %d\n", keyid, uparam.kup_uid);
-                return 1;
-        }
+#ifdef HAVE_SETNS
+	/* Is caller in different namespace? */
+	snprintf(path, sizeof(path), "/proc/%d/ns/mnt", getpid());
+	if (stat(path, &parent_ns))
+		logmsg(LL_ERR, "cannot stat %s: %s\n", path, strerror(errno));
+	snprintf(path, sizeof(path), "/proc/%d/ns/mnt", uparam.kup_pid);
+	if (stat(path, &caller_ns))
+		logmsg(LL_ERR, "cannot stat %s: %s\n", path, strerror(errno));
+	if (caller_ns.st_ino != parent_ns.st_ino) {
+		/*
+		 * do credentials preparation in caller's namespace
+		 */
+		int fd;
+
+		errno = 0;
+		fd = open(path, O_RDONLY);
+		if (fd != -1) {
+			setns(fd, 0);
+			close(fd);
+		}
+		if (errno) {
+			logmsg(LL_ERR, "failed to attach to pid %d namespace: "
+			       "%s\n", uparam.kup_pid, strerror(errno));
+			return 1;
+		}
+		logmsg(LL_TRACE, "working in namespace of pid %d\n",
+		       uparam.kup_pid);
+	} else {
+		logmsg(LL_TRACE, "caller's namespace is the same\n");
+	}
+#endif /* HAVE_SETNS */
+
+	if (lgss_prepare_cred(cred)) {
+		logmsg(LL_ERR, "key %08x: failed to prepare credentials "
+		       "for user %d\n", keyid, uparam.kup_uid);
+		return 1;
+	}
 
         /* pre initialize the key. note the keyring linked to is actually of the
          * original requesting process, not _this_ upcall process. if it's for
