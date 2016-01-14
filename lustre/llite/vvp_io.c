@@ -828,6 +828,18 @@ static int vvp_io_read_start(const struct lu_env *env,
 
 	/* BUG: 5972 */
 	file_accessed(file);
+	{
+	size_t c; unsigned long ns = vio->vui_iter->nr_segs; int rv, rs;
+        CERROR("LU7603: file: %s, type: %d, flags=%ld, ns=%ld\n",
+                file->f_path.dentry->d_name.name, vio->vui_io_subtype,
+                (long)vio->vui_iocb->ki_ctx, ns);
+	rv = generic_segment_checks(vio->vui_iter->iov, &ns, &c, VERIFY_WRITE);
+	rs = filemap_write_and_wait_range(file->f_mapping, pos,
+                                        pos + iov_length(vio->vui_iter->iov, ns) - 1);
+        CERROR("LU7603: scnt=%ld, nr_segs=%ld, rv=%d, rs = %d\n",
+                c, ns, rv, rs);
+	}
+
 	switch (vio->vui_io_subtype) {
 	case IO_NORMAL:
 		LASSERT(vio->vui_iocb->ki_pos == pos);
