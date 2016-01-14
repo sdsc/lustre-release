@@ -178,6 +178,24 @@ shrink_control, [
 ]) # LC_SHRINK_CONTROL
 
 #
+# LC_SETNS
+#
+# 3.0 introduced setns
+#
+AC_DEFUN([LC_SETNS], [
+LB_CHECK_COMPILE([if 'setns' is present],
+setns, [
+	#define _GNU_SOURCE
+	#include <sched.h>
+],[
+	int ret = setns(0, 0);
+],[
+	AC_DEFINE(HAVE_SETNS, 1,
+		[setns is present])
+])
+]) # LC_SETNS
+
+#
 # LIBCFS_PROCESS_NAMESPACE
 #
 # 3.5 introduced process namespace
@@ -268,6 +286,24 @@ No crc32c pclmulqdq crypto api found, enable internal pclmulqdq based crc32c
 ]) # LIBCFS_ENABLE_CRC32C_ACCEL
 
 #
+# LC_PID_NS_FOR_CHILDREN
+#
+# 3.11 replaces pid_ns by pid_ns_for_children in struct nsproxy
+#
+AC_DEFUN([LC_PID_NS_FOR_CHILDREN], [
+LB_CHECK_COMPILE([if 'struct nsproxy' has 'pid_ns_for_children'],
+pid_ns_for_children, [
+	#include <linux/nsproxy.h>
+],[
+	struct nsproxy ns;
+	ns.pid_ns_for_children = NULL;
+],[
+	AC_DEFINE(HAVE_PID_NS_FOR_CHILDREN, 1,
+		['struct nsproxy' has 'pid_ns_for_children'])
+])
+]) # LC_PID_NS_FOR_CHILDREN
+
+#
 # FC19 3.12 kernel struct shrinker change
 #
 AC_DEFUN([LIBCFS_SHRINKER_COUNT],[
@@ -339,6 +375,7 @@ LIBCFS_DUMP_TRACE_ADDRESS
 # 2.6.40 fc15
 LC_SHRINK_CONTROL
 # 3.0
+LC_SETNS
 LIBCFS_STACKTRACE_WARNING
 # 3.5
 LIBCFS_PROCESS_NAMESPACE
@@ -350,6 +387,8 @@ LIBCFS_HAVE_CRC32
 LIBCFS_ENABLE_CRC32_ACCEL
 # 3.10
 LIBCFS_ENABLE_CRC32C_ACCEL
+# 3.11
+LC_PID_NS_FOR_CHILDREN
 # 3.12
 LIBCFS_SHRINKER_COUNT
 # 3.17
