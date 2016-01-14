@@ -47,6 +47,7 @@
 
 #define DEBUG_SUBSYSTEM S_LOG
 
+#include <linux/pid_namespace.h>
 #include <linux/kthread.h>
 #include <llog_swab.h>
 #include <lustre_log.h>
@@ -617,6 +618,15 @@ static int llog_process_thread_daemonize(void *arg)
 	struct llog_process_info	*lpi = arg;
 	struct lu_env			 env;
 	int				 rc;
+	struct nsproxy			*ns = current->nsproxy;
+
+	if (ns != lpi->lpi_reftask->nsproxy) {
+		get_nsproxy(lpi->lpi_reftask->nsproxy);
+		rcu_assign_pointer(current->nsproxy, lpi->lpi_reftask->nsproxy);
+		task_pid(current)->numbers[task_pid(current)->level].ns =
+			task_active_pid_ns(lpi->lpi_reftask);
+		atomic_dec(&ns->count);
+	}
 
 	unshare_fs_struct();
 
@@ -643,15 +653,16 @@ int llog_process_or_fork(const struct lu_env *env,
 
         ENTRY;
 
-        OBD_ALLOC_PTR(lpi);
-        if (lpi == NULL) {
-                CERROR("cannot alloc pointer\n");
-                RETURN(-ENOMEM);
-        }
-        lpi->lpi_loghandle = loghandle;
-        lpi->lpi_cb        = cb;
-        lpi->lpi_cbdata    = data;
-        lpi->lpi_catdata   = catdata;
+	OBD_ALLOC_PTR(lpi);
+	if (lpi == NULL) {
+		CERROR("cannot alloc pointer\n");
+		RETURN(-ENOMEM);
+	}
+	lpi->lpi_loghandle = loghandle;
+	lpi->lpi_cb        = cb;
+	lpi->lpi_cbdata    = data;
+	lpi->lpi_catdata   = catdata;
+	lpi->lpi_reftask   = current;
 
 	if (fork) {
 		struct task_struct *task;
