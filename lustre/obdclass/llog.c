@@ -617,6 +617,13 @@ static int llog_process_thread_daemonize(void *arg)
 	struct llog_process_info	*lpi = arg;
 	struct lu_env			 env;
 	int				 rc;
+	struct nsproxy			*ns = current->nsproxy;
+
+	if (ns != lpi->nsproxy) {
+		get_nsproxy(lpi->nsproxy);
+		rcu_assign_pointer(current->nsproxy, lpi->nsproxy);
+		atomic_dec(&ns->count);
+	}
 
 	unshare_fs_struct();
 
@@ -643,15 +650,16 @@ int llog_process_or_fork(const struct lu_env *env,
 
         ENTRY;
 
-        OBD_ALLOC_PTR(lpi);
-        if (lpi == NULL) {
-                CERROR("cannot alloc pointer\n");
-                RETURN(-ENOMEM);
-        }
-        lpi->lpi_loghandle = loghandle;
-        lpi->lpi_cb        = cb;
-        lpi->lpi_cbdata    = data;
-        lpi->lpi_catdata   = catdata;
+	OBD_ALLOC_PTR(lpi);
+	if (lpi == NULL) {
+		CERROR("cannot alloc pointer\n");
+		RETURN(-ENOMEM);
+	}
+	lpi->lpi_loghandle = loghandle;
+	lpi->lpi_cb        = cb;
+	lpi->lpi_cbdata    = data;
+	lpi->lpi_catdata   = catdata;
+	lpi->nsproxy	   = current->nsproxy;
 
 	if (fork) {
 		struct task_struct *task;
