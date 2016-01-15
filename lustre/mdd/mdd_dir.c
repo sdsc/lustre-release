@@ -1736,9 +1736,10 @@ static int mdd_unlink(const struct lu_env *env, struct md_object *pobj,
 		rc = mdd_la_get(env, mdd_cobj, cattr);
 
 	/* if object is removed then we can't get its attrs, use last get */
-	if (cattr->la_nlink == 0) {
+	if (cattr->la_nlink == 0 || rc == -ENOENT) {
 		ma->ma_attr = *cattr;
 		ma->ma_valid |= MA_INODE;
+		rc = 0;
 	}
 	EXIT;
 cleanup:
@@ -2955,7 +2956,7 @@ static int mdd_rename(const struct lu_env *env,
 
 		/* fetch updated nlink */
 		rc = mdd_la_get(env, mdd_tobj, tattr);
-		if (rc != 0) {
+		if (rc != 0 && rc != -ENOENT) {
 			CERROR("%s: Failed to get nlink for tobj "
 				DFID": rc = %d\n",
 				mdd2obd_dev(mdd)->obd_name,
