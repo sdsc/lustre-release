@@ -1934,6 +1934,8 @@ static int osd_attr_get(const struct lu_env *env,
 
 	if (!dt_object_exists(dt))
 		return -ENOENT;
+	if (obj->oo_destroyed)
+		return -ENOENT;
 
 	LASSERT(!dt_object_remote(dt));
 	LINVRNT(osd_invariant(obj));
