@@ -1838,8 +1838,6 @@ t32_test() {
 		}
 
 		echo "mount new MDT....$mdt2_dev"
-		$r $LCTL set_param -n mdt.${fsname}*.enable_remote_dir=1 ||
-			error_noexit "enable remote dir create failed"
 
 		shall_cleanup_mdt1=true
 	elif [ "$dne_upgrade" != "no" ]; then
@@ -1869,9 +1867,6 @@ t32_test() {
 			error_noexit "mount mdt1 failed"
 			return 1
 		}
-
-		$r $LCTL set_param -n mdt.${fsname}*.enable_remote_dir=1 ||
-			error_noexit "enable remote dir create failed"
 
 		shall_cleanup_mdt1=true
 	fi
@@ -2186,8 +2181,6 @@ t32_test() {
 		# migrate files/dirs to remote MDT, then move them back
 		if [ $(lustre_version_code mds1) -ge $(version_code 2.7.50) -a \
 		     $dne_upgrade != "no" ]; then
-			$r $LCTL set_param -n	\
-				mdt.${fsname}*.enable_remote_dir=1 2>/dev/null
 
 			echo "test migration"
 			pushd $tmp/mnt/lustre
