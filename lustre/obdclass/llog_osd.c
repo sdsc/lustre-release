@@ -552,6 +552,19 @@ static int llog_osd_write_rec(const struct lu_env *env,
 
 	LASSERT(lgi->lgi_attr.la_valid & LA_SIZE);
 	lgi->lgi_off = lgi->lgi_attr.la_size;
+
+	if ((llh->llh_flags & LLOG_F_IS_PLAIN) &&
+	    lgi->lgi_off >= loghandle->lgh_max_size) {
+		CDEBUG(D_OTHER, "%s: %u > %u at %u "DOSTID"\n",
+		       o->do_lu.lo_dev->ld_obd->obd_name,
+		       (unsigned)lgi->lgi_off,
+		       loghandle->lgh_max_size,
+		       (int)loghandle->lgh_last_idx,
+		       POSTID(&loghandle->lgh_id.lgl_oi));
+		loghandle->lgh_last_idx = LLOG_HDR_BITMAP_SIZE(llh) - 1;
+		RETURN(-ENOSPC);
+	}
+
 	left = chunk_size - (lgi->lgi_off & (chunk_size - 1));
 	/* NOTE: padding is a record, but no bit is set */
 	if (left != 0 && left != reclen &&
@@ -1229,6 +1242,27 @@ static int llog_osd_open(const struct lu_env *env, struct llog_handle *handle,
 		GOTO(out_name, rc = PTR_ERR(o));
 
 after_open:
+	/* limit max size of llog so that space can be
+	 * released sooner, especially on small filesystems */
+	/* 2MB for the cases when free space hasn't been learned yet */
+	handle->lgh_max_size = 2 << 20;
+	rc = dt_statfs(env, dt, &lgi->lgi_statfs);
+	if (rc == 0 && lgi->lgi_statfs.os_bfree > 0) {
+		__u64 freespace;
+		freespace = lgi->lgi_statfs.os_bfree *
+			    lgi->lgi_statfs.os_bsize;
+		freespace = freespace >> 7;
+		if (freespace < handle->lgh_max_size)
+			handle->lgh_max_size = freespace;
+		/* shouldn't be > 32MB in any case?
+		 * it's 64K records of 512 bytes each */
+		if (freespace > (32 << 20))
+			handle->lgh_max_size = 32 << 20;
+		CDEBUG(D_OTHER, "maxsize %u on %s\n",
+		       handle->lgh_max_size,
+		       ctxt->loc_exp->exp_obd->obd_name);
+	}
+
 	/* No new llog is expected but doesn't exist */
 	if (open_param != LLOG_OPEN_NEW && !dt_object_exists(o))
 		GOTO(out_put, rc = -ENOENT);
