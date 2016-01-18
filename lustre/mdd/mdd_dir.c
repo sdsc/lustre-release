@@ -4030,19 +4030,17 @@ static int mdd_migrate_update_name(const struct lu_env *env,
 
 	mdd_write_lock(env, mdd_sobj, MOR_TGT_CHILD);
 
-	/* Increase mod_count to add the source object to the orphan list,
-	 * so if other clients still send RPC to the old object, then these
-	 * objects can help the request to find the new object, see
-	 * mdt_reint_open() */
-	mdd_sobj->mod_count++;
-	rc = mdd_finish_unlink(env, mdd_sobj, ma, mdd_pobj, lname, handle);
-	mdd_sobj->mod_count--;
-	if (rc != 0)
-		GOTO(out_unlock, rc);
-
 	mdo_ref_del(env, mdd_sobj, handle);
 	if (is_dir)
 		mdo_ref_del(env, mdd_sobj, handle);
+
+	rc = mdd_mark_dead_object(env, mdd_sobj, handle, false);
+	if (rc != 0)
+		GOTO(out_unlock, rc);
+
+	rc = __mdd_orphan_add(env, mdd_sobj, handle);
+	if (rc != 0)
+		GOTO(out_unlock, rc);
 
 	/* Get the attr again after ref_del */
 	rc = mdd_la_get(env, mdd_sobj, so_attr);
