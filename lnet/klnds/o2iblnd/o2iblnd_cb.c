@@ -2408,13 +2408,14 @@ kiblnd_passive_connect(struct rdma_cm_id *cmid, void *priv, int priv_nob)
 
                 /* tie-break connection race in favour of the higher NID */
                 if (peer2->ibp_connecting != 0 &&
-                    nid < ni->ni_nid) {
+		    nid < ni->ni_nid && peer2->ibp_races < 2) {
 			write_unlock_irqrestore(g_lock, flags);
 
                         CWARN("Conn race %s\n", libcfs_nid2str(peer2->ibp_nid));
 
                         kiblnd_peer_decref(peer);
                         rej.ibr_why = IBLND_REJECT_CONN_RACE;
+			peer2->ibp_races++;
                         goto failed;
                 }
 		/*
@@ -2422,6 +2423,7 @@ kiblnd_passive_connect(struct rdma_cm_id *cmid, void *priv, int priv_nob)
 		 * reconnection.
 		 */
 		peer2->ibp_reconnecting = 0;
+		peer2->ibp_races = 0;
                 peer2->ibp_accepting++;
                 kiblnd_peer_addref(peer2);
 
