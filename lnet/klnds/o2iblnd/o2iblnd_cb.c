@@ -40,6 +40,8 @@
 
 #include "o2iblnd.h"
 
+#define MAX_CONN_RACES_BEFORE_ABORT 20
+
 static void kiblnd_peer_alive(kib_peer_t *peer);
 static void kiblnd_peer_connect_failed(kib_peer_t *peer, int active, int error);
 static void kiblnd_check_sends(kib_conn_t *conn);
@@ -2415,7 +2417,9 @@ kiblnd_passive_connect(struct rdma_cm_id *cmid, void *priv, int priv_nob)
 
                 /* tie-break connection race in favour of the higher NID */
                 if (peer2->ibp_connecting != 0 &&
-                    nid < ni->ni_nid) {
+		    nid < ni->ni_nid && peer2->ibp_races <
+		    MAX_CONN_RACES_BEFORE_ABORT) {
+			peer2->ibp_races++;
 			write_unlock_irqrestore(g_lock, flags);
 
                         CWARN("Conn race %s\n", libcfs_nid2str(peer2->ibp_nid));
@@ -2429,6 +2433,7 @@ kiblnd_passive_connect(struct rdma_cm_id *cmid, void *priv, int priv_nob)
 		 * reconnection.
 		 */
 		peer2->ibp_reconnecting = 0;
+		peer2->ibp_races = 0;
                 peer2->ibp_accepting++;
                 kiblnd_peer_addref(peer2);
 
