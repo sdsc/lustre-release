@@ -412,7 +412,7 @@ static int osd_object_init(const struct lu_env *env, struct lu_object *l,
 		rc = osd_check_lma(env, obj);
 		if (rc != 0)
 			GOTO(out, rc);
-	} else if (rc == -ENOENT) {
+	} else if (rc == -ENOENT || rc == -EEXIST) {
 		rc = 0;
 	}
 	LASSERT(osd_invariant(obj));
