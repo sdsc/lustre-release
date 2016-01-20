@@ -481,7 +481,7 @@ struct obd_export *lustre_find_lwp_by_index(const char *dev, __u32 idx)
 	list_for_each_entry(lwp, &lsi->lsi_lwp_list, obd_lwp_list) {
 		char *ptr = strstr(lwp->obd_name, lwp_name);
 
-		if (ptr != NULL && lwp->obd_lwp_export != NULL) {
+		if (ptr != NULL) {
 			exp = class_export_get(lwp->obd_lwp_export);
 			break;
 		}
