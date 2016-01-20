@@ -734,19 +734,23 @@ static struct lu_object *lu_object_find_try(const struct lu_env *env,
 
         s  = dev->ld_site;
         hs = s->ls_obj_hash;
-        cfs_hash_bd_get_and_lock(hs, (void *)f, &bd, 1);
-        o = htable_lookup(s, &bd, f, waiter, &version);
-        cfs_hash_bd_unlock(hs, &bd, 1);
-	if (!IS_ERR(o) || PTR_ERR(o) != -ENOENT)
-                return o;
 
-        /*
-         * Allocate new object. This may result in rather complicated
-         * operations, including fld queries, inode loading, etc.
-         */
-        o = lu_object_alloc(env, dev, f, conf);
+	do {
+		cfs_hash_bd_get_and_lock(hs, (void *)f, &bd, 1);
+		o = htable_lookup(s, &bd, f, waiter, &version);
+		cfs_hash_bd_unlock(hs, &bd, 1);
+		if (!IS_ERR(o) || PTR_ERR(o) != -ENOENT)
+			return o;
+
+		/*
+		 * Allocate new object. This may result in rather complicated
+		 * operations, including fld queries, inode loading, etc.
+		 */
+		o = lu_object_alloc(env, dev, f, conf);
+	} while (IS_ERR(o) && PTR_ERR(o) == -EEXIST);
+
         if (unlikely(IS_ERR(o)))
-                return o;
+		return o;
 
         LASSERT(lu_fid_eq(lu_object_fid(o), f));
 
@@ -760,7 +764,7 @@ static struct lu_object *lu_object_find_try(const struct lu_env *env,
 		lu_object_limit(env, dev);
 
                 return o;
-        }
+	}
 
         lprocfs_counter_incr(s->ls_stats, LU_SS_CACHE_RACE);
         cfs_hash_bd_unlock(hs, &bd, 1);
