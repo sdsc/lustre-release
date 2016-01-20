@@ -605,7 +605,6 @@ struct ptlrpc_request_set {
 	set_producer_func	set_producer;
 	/** opaq argument passed to the producer callback */
 	void			*set_producer_arg;
-	unsigned int		 set_allow_intr:1;
 };
 
 /**
@@ -991,8 +990,7 @@ struct ptlrpc_request {
 		 * status */
 		rq_allow_replay:1,
 		/* bulk request, sent to server, but uncommitted */
-		rq_unstable:1,
-		rq_allow_intr:1;
+		rq_unstable:1;
 	/** @} */
 
 	/** server-side flags @{ */
