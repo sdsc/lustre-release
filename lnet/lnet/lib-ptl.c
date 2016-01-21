@@ -449,8 +449,10 @@ lnet_ptl_match_early(struct lnet_portal *ptl, struct lnet_msg *msg)
 			msg->msg_rx_delayed = 1;
 			list_add_tail(&msg->msg_list,
 				      &ptl->ptl_msg_delayed);
+			rc = LNET_MATCHMD_DELAYED;
+		} else {
+			rc = LNET_MATCHMD_NONE;
 		}
-		rc = LNET_MATCHMD_NONE;
 	} else {
 		rc = LNET_MATCHMD_DROP;
 	}
@@ -518,7 +520,7 @@ lnet_ptl_match_delay(struct lnet_portal *ptl,
 				msg->msg_rx_delayed = 1;
 				list_add_tail(&msg->msg_list,
 					      &ptl->ptl_msg_delayed);
-				rc = LNET_MATCHMD_NONE;
+				rc = LNET_MATCHMD_DELAYED;
 			} else {
 				rc = LNET_MATCHMD_DROP;
 			}
@@ -527,7 +529,7 @@ lnet_ptl_match_delay(struct lnet_portal *ptl,
 		lnet_ptl_unlock(ptl);
 		lnet_res_unlock(cpt);
 
-		if ((rc & LNET_MATCHMD_FINISH) != 0 || msg->msg_rx_delayed)
+		if ((rc & LNET_MATCHMD_FINISH) != 0)
 			break;
 	}
 
@@ -586,6 +588,7 @@ lnet_ptl_match_md(struct lnet_match_info *info, struct lnet_msg *msg)
 
 		msg->msg_rx_delayed = 1;
 		list_add_tail(&msg->msg_list, &ptl->ptl_msg_delayed);
+		rc = LNET_MATCHMD_DELAYED;
 
 		lnet_ptl_unlock(ptl);
 		lnet_res_unlock(mtable->mt_cpt);
@@ -595,7 +598,7 @@ lnet_ptl_match_md(struct lnet_match_info *info, struct lnet_msg *msg)
 		rc = lnet_ptl_match_delay(ptl, info, msg);
 	}
 
-	if (msg->msg_rx_delayed) {
+	if (rc & LNET_MATCHMD_DELAYED) {
 		CDEBUG(D_NET,
 		       "Delaying %s from %s ptl %d MB "LPX64" off %d len %d\n",
 		       info->mi_opc == LNET_MD_OP_PUT ? "PUT" : "GET",

@@ -456,10 +456,13 @@ enum {
 	LNET_MATCHMD_OK		= (1 << 1),
 	/* Must be discarded */
 	LNET_MATCHMD_DROP	= (1 << 2),
+	/* Have been delayed */
+	LNET_MATCHMD_DELAYED	= (1 << 3),
 	/* match and buffer is exhausted */
-	LNET_MATCHMD_EXHAUSTED  = (1 << 3),
-	/* match or drop */
-	LNET_MATCHMD_FINISH     = (LNET_MATCHMD_OK | LNET_MATCHMD_DROP),
+	LNET_MATCHMD_EXHAUSTED  = (1 << 4),
+	/* match, drop or delayed */
+	LNET_MATCHMD_FINISH     = (LNET_MATCHMD_OK | LNET_MATCHMD_DROP |
+				   LNET_MATCHMD_DELAYED),
 };
 
 /* Options for lnet_portal_t::ptl_options */

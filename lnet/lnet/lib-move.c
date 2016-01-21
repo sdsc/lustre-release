@@ -1469,6 +1469,9 @@ lnet_parse_put(lnet_ni_t *ni, lnet_msg_t *msg)
 		lnet_recv_put(ni, msg);
                 return 0;
 
+        case LNET_MATCHMD_DELAYED:
+		return 0;
+
         case LNET_MATCHMD_NONE:
 		if (ready_delay)
 			/* no eager_recv or has already called it, should
