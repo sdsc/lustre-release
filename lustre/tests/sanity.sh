@@ -9425,7 +9425,7 @@ run_test 133e "Verifying OST {read,write}_bytes nid stats ================="
 
 proc_dirs=""
 for dir in /proc/fs/lustre/ /proc/sys/lnet/ /proc/sys/lustre/ \
-	   /sys/fs/lustre/ /sys/fs/lnet/ /sys/kernel/debug/lustre/; do
+	   /sys/fs/lustre/ /sys/kernel/debug/lnet/ /sys/kernel/debug/lustre/; do
 	[[ -d $dir ]] && proc_dirs+=" $dir"
 done
 
@@ -9436,7 +9436,7 @@ test_133f() {
 	find $proc_dirs -exec cat '{}' \; &> /dev/null
 
 	# Second verifying readability.
-	$LCTL get_param -R &> /dev/null || error "proc file read failed"
+	$LCTL get_param -R '*' &> /dev/null || error "proc file read failed"
 
 	# eventually, this can also be replaced with "lctl get_param -R",
 	# but not until that option is always available on the server

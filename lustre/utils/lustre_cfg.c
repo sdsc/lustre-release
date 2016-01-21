@@ -48,9 +48,9 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include <ctype.h>
-#include <glob.h>
 
 #include <libcfs/util/string.h>
+#include <libcfs/util/param.h>
 #include <libcfs/util/parser.h>
 #include <lnet/nidstr.h>
 #include <lustre_cfg.h>
@@ -62,7 +62,6 @@
 #include <sys/time.h>
 #include <errno.h>
 #include <string.h>
-
 
 #include "obdctl.h"
 #include <lnet/lnetctl.h>
@@ -661,54 +660,67 @@ int jt_lcfg_mgsparam(int argc, char **argv)
         return rc;
 }
 
-/* Display the path in the same format as sysctl
- * For eg. obdfilter.lustre-OST0000.stats */
+/**
+ * Display a parameter path in the same format as sysctl.
+ * E.g. obdfilter.lustre-OST0000.stats
+ *
+ * \param[in] filename	file name of the parameter
+ * \param[in] st	parameter file stats
+ * \param[in] popt	set/get param options
+ *
+ * \retval allocated pointer containing modified filename
+ */
 static char *
-display_name(char *filename, size_t filename_size, struct param_opts *popt)
+display_name(const char *filename, struct stat *st, struct param_opts *popt)
 {
-	struct stat st;
-	char *tmp;
+	size_t suffix_len = 0;
 	char *suffix = NULL;
+	char *paramname;
+	char *tmp;
 
-	if (popt->po_show_type || popt->po_only_dir) {
-		if (lstat(filename, &st) == -1)
+	if (popt->po_show_type) {
+		if (S_ISDIR(st->st_mode))
+			suffix = "/";
+		else if (S_ISLNK(st->st_mode))
+			suffix = "@";
+		else if (st->st_mode & S_IWUSR)
+			suffix = "=";
+
+		if (suffix != NULL)
+			suffix_len = strlen(suffix);
+	} else if (popt->po_only_dir) {
+		if (!S_ISDIR(st->st_mode))
 			return NULL;
-
-		if (popt->po_show_type) {
-			if (S_ISDIR(st.st_mode))
-				suffix = "/";
-			else if (S_ISLNK(st.st_mode))
-				suffix = "@";
-			else if (st.st_mode & S_IWUSR)
-				suffix = "=";
-		} else if (popt->po_only_dir) {
-			if (!S_ISDIR(st.st_mode))
-				return NULL;
-		}
 	}
 
-	filename += strlen("/proc/");
-	if (strncmp(filename, "fs/", strlen("fs/")) == 0)
-		filename += strlen("fs/");
-	else
-		filename += strlen("sys/");
+	/* Take the original filename string and chop off the glob addition */
+	tmp = strstr(filename, "/lustre/");
+	if (tmp == NULL) {
+		tmp = strstr(filename, "/lnet/");
+		if (tmp != NULL)
+			tmp += strlen("/lnet/");
+	} else
+		tmp += strlen("/lustre/");
 
-	if (strncmp(filename, "lustre/", strlen("lustre/")) == 0)
-		filename += strlen("lustre/");
-	else if (strncmp(filename, "lnet/", strlen("lnet/")) == 0)
-		filename += strlen("lnet/");
+	/* Allocate return string */
+	paramname = strdup(tmp);
+	if (paramname == NULL)
+		return NULL;
 
 	/* replace '/' with '.' to match conf_param and sysctl */
-	tmp = filename;
-	while ((tmp = strchr(tmp, '/')) != NULL)
+	for (tmp = strchr(paramname, '/'); tmp != NULL; tmp = strchr(tmp, '/'))
 		*tmp = '.';
 
-	/* Append the indicator to entries.  We know there is enough space
-	 * for the suffix, since the path prefix was deleted. */
-	if (popt->po_show_type && suffix != NULL)
-		strncat(filename, suffix, filename_size);
+	/* Append the indicator to entries if needed. */
+	if (popt->po_show_type && suffix != NULL) {
+		suffix_len += strlen(paramname) + 1;
 
-	return filename;
+		paramname = realloc(paramname, suffix_len);
+		if (paramname != NULL)
+			strncat(paramname, suffix, suffix_len);
+	}
+
+	return paramname;
 }
 
 /* Find a character in a length limited string */
@@ -726,22 +738,24 @@ static char *strnchr(const char *p, char c, size_t n)
        return (0);
 }
 
-static char *globerrstr(int glob_rc)
-{
-        switch(glob_rc) {
-        case GLOB_NOSPACE:
-                return "Out of memory";
-        case GLOB_ABORTED:
-                return "Read error";
-        case GLOB_NOMATCH:
-                return "Found no match";
-        }
-        return "Unknown error";
-}
-
-static void clean_path(char *path)
+static void clean_path(struct param_opts *popt, char *path)
 {
         char *tmp;
+
+	/* If path contains a suffix we need to remove it */
+	if (popt->po_show_type) {
+		size_t path_end = strlen(path) - 1;
+
+		tmp = path + path_end;
+		switch (*tmp) {
+		case '@':
+		case '=':
+		case '/':
+			*tmp = '\0';
+		default:
+			break;
+		}
+	}
 
         /* If the input is in form Eg. obdfilter.*.stats */
         if (strchr(path, '.')) {
@@ -766,20 +780,261 @@ static void clean_path(char *path)
         }
 }
 
-/* Take a parameter name and turn it into a pathname glob.
- * Disallow relative pathnames to avoid potential problems. */
-static int lprocfs_param_pattern(const char *pattern, char *buf, size_t bufsize)
-{
-	int rc;
+/**
+ * The application lctl can perform three operations for lustre
+ * tunables. This enum defines those three operations which are
+ *
+ * 1) LIST_PARAM	- list available tunables
+ * 2) GET_PARAM		- report the current setting of a tunable
+ * 3) SET_PARAM		- set the tunable to a new value
+ */
+enum parameter_operation {
+	LIST_PARAM,
+	GET_PARAM,
+	SET_PARAM,
+};
 
-	rc = snprintf(buf, bufsize, "/proc/{fs,sys}/{lnet,lustre}/%s", pattern);
-	if (rc < 0) {
+/**
+ * Read the value of parameter
+ *
+ * \param[in]		path		full path to the parameter
+ * \param[in,out]	paramname	lctl parameter format of the
+ *					parameter path
+ * \param[in]		popt		set/get param options
+ *
+ * \retval 0 on success.
+ * \retval -errno on error.
+ */
+static int
+read_param(const char *path, char *paramname, struct param_opts *popt)
+{
+	bool display_path = popt->po_show_path;
+	long page_size = sysconf(_SC_PAGESIZE);
+	int rc = 0;
+	char *buf;
+	int fd;
+
+	/* Read the contents of file to stdout */
+	fd = open(path, O_RDONLY);
+	if (fd < 0) {
 		rc = -errno;
-	} else if (rc >= bufsize) {
-		fprintf(stderr, "error: parameter '%s' too long\n", pattern);
-		rc = -E2BIG;
+		fprintf(stderr,
+			"error: get_param: opening('%s') failed: %s\n",
+			path, strerror(errno));
+		return rc;
 	}
 
+	buf = calloc(1, page_size);
+	if (buf == NULL) {
+		close(fd);
+		return -ENOMEM;
+	}
+
+	while (1) {
+		ssize_t count = read(fd, buf, page_size);
+
+		if (count == 0)
+			break;
+		if (count < 0) {
+			rc = -errno;
+			if (errno != EIO) {
+				fprintf(stderr, "error: get_param: "
+					"read('%s') failed: %s\n",
+					paramname, strerror(errno));
+			}
+			break;
+		}
+
+		/* Print the output in the format path=value if the value does
+		 * not contain a new line character and the output can fit in
+		 * a single line, else print value on new line */
+		if (display_path) {
+			bool longbuf;
+
+			longbuf = strnchr(buf, count - 1, '\n') != NULL ||
+					  count + strlen(paramname) >= 80;
+			printf("%s=%s", paramname, longbuf ? "\n" : buf);
+
+			/* Make sure it doesn't print again while looping */
+			display_path = false;
+
+			if (!longbuf)
+				continue;
+		}
+
+		if (fwrite(buf, 1, count, stdout) != count) {
+			rc = -errno;
+			fprintf(stderr, "error: get_param: "
+				"write to stdout failed: %s\n",
+				strerror(errno));
+			break;
+		}
+	}
+	close(fd);
+	free(buf);
+
+	return rc;
+}
+
+/**
+ * Set a parameter to a specified value
+ *
+ * \param[in] path		full path to the parameter
+ * \param[in] paramname		lctl parameter format of the parameter path
+ * \param[in] popt		set/get param options
+ * \param[in] value		value to set the parameter to
+ *
+ * \retval number of bytes written on success.
+ * \retval -errno on error.
+ */
+static int
+write_param(const char *path, const char *paramname, struct param_opts *popt,
+	    const char *value)
+{
+	int fd, rc = 0;
+	ssize_t count;
+
+	/* Write the new value to the file */
+	fd = open(path, O_WRONLY);
+	if (fd < 0) {
+		rc = -errno;
+		fprintf(stderr, "error: set_param: opening %s: %s\n",
+			path, strerror(errno));
+		return rc;
+	}
+
+	count = write(fd, value, strlen(value));
+	if (count < 0) {
+		rc = -errno;
+		if (errno != EIO) {
+			fprintf(stderr, "error: set_param: setting "
+				"%s=%s: %s\n", path, value,
+				strerror(errno));
+		}
+	} else if (count < strlen(value)) { /* Truncate case */
+		rc = -EINVAL;
+		fprintf(stderr, "error: set_param: setting "
+			"%s=%s: wrote only %zd\n", path, value, count);
+	} else if (popt->po_show_path) {
+		printf("%s=%s\n", paramname, value);
+	}
+	close(fd);
+	return rc;
+}
+
+/**
+ * Perform a read, write or just a listing of a parameter
+ *
+ * \param[in] popt		list,set,get parameter options
+ * \param[in] pattern		search filter for the path of the parameter
+ * \param[in] value		value to set the parameter if write operation
+ * \param[in] mode		what operation to perform with the parameter
+ *
+ * \retval number of bytes written on success.
+ * \retval -errno on error.
+ */
+static int
+param_display(struct param_opts *popt, char *pattern, char *value,
+	      enum parameter_operation mode)
+{
+	int dir_count = 0;
+	char **dir_cache;
+	glob_t paths;
+	int rc, i;
+
+	rc = cfs_get_param_paths(&paths, "%s", pattern);
+	if (rc != 0) {
+		rc = -errno;
+		if (!popt->po_recursive) {
+			fprintf(stderr, "error: '%s': %s\n",
+				pattern, strerror(errno));
+		}
+		return rc;
+	}
+
+	dir_cache = calloc(paths.gl_pathc, sizeof(char *));
+	if (dir_cache == NULL) {
+		rc = -ENOMEM;
+		goto out_param;
+	}
+
+	for (i = 0; i  < paths.gl_pathc; i++) {
+		char *paramname = NULL, *tmp;
+		char pathname[PATH_MAX];
+		struct stat st;
+
+		if (stat(paths.gl_pathv[i], &st) == -1) {
+			rc = -errno;
+			break;
+		}
+
+		paramname = display_name(paths.gl_pathv[i], &st, popt);
+		if (paramname == NULL) {
+			rc = -ENOMEM;
+			break;
+		}
+
+		if (S_ISDIR(st.st_mode)) {
+			int j;
+
+			for (j = 0; j < dir_count; j++) {
+				if (!strcmp(dir_cache[j], paramname))
+					break;
+			}
+			if (dir_count != j)
+				continue;
+			dir_cache[dir_count++] = strdup(paramname);
+		}
+
+		switch (mode) {
+		case GET_PARAM:
+			/* Read the contents of file to stdout */
+			if (S_ISREG(st.st_mode))
+				read_param(paths.gl_pathv[i], paramname, popt);
+			break;
+		case SET_PARAM:
+			if (S_ISREG(st.st_mode)) {
+				rc = write_param(paths.gl_pathv[i], paramname,
+						 popt, value);
+			}
+			break;
+		case LIST_PARAM:
+		default:
+			if (popt->po_show_path)
+				printf("%s\n", paramname);
+			break;
+		}
+
+		if (!S_ISDIR(st.st_mode) || !popt->po_recursive) {
+			if (paramname != NULL) {
+				free(paramname);
+				paramname = NULL;
+			}
+			continue;
+		}
+
+		/* This section handles recursive listings */
+		clean_path(popt, paramname);
+		tmp = strstr(paths.gl_pathv[i], paramname);
+
+		rc = snprintf(pathname, sizeof(pathname), "%s/*", tmp);
+		if (rc < 0) {
+			break;
+		} else if (rc >= sizeof(pathname)) {
+			rc = -EINVAL;
+			break;
+		}
+
+		rc = param_display(popt, pathname, value, mode);
+		if (rc != 0 && rc != -ENOENT)
+			break;
+	}
+
+	for (i = 0; i < dir_count; i++)
+		free(dir_cache[i]);
+	free(dir_cache);
+out_param:
+	cfs_free_param_data(&paths);
 	return rc;
 }
 
@@ -809,75 +1064,22 @@ static int listparam_cmdline(int argc, char **argv, struct param_opts *popt)
 	return optind;
 }
 
-static int listparam_display(struct param_opts *popt, char *pattern)
-{
-	glob_t glob_info;
-	int rc;
-	int i;
-
-	rc = glob(pattern, /* GLOB_ONLYDIR doesn't guarantee, only a hint */
-		  GLOB_BRACE | (popt->po_only_dir ? GLOB_ONLYDIR : 0) |
-			       (popt->po_recursive ? GLOB_MARK : 0),
-		  NULL, &glob_info);
-	if (rc) {
-		fprintf(stderr, "error: list_param: %s: %s\n",
-			pattern, globerrstr(rc));
-		return -ESRCH;
-	}
-
-	for (i = 0; i  < glob_info.gl_pathc; i++) {
-		char pathname[PATH_MAX + 1];    /* extra 1 byte for file type */
-		int len = sizeof(pathname), last;
-		char *paramname = NULL;
-
-		/* Trailing '/' will indicate recursion into directory */
-		last = strlen(glob_info.gl_pathv[i]) - 1;
-
-		/* Remove trailing '/' or it will be converted to '.' */
-		if (last > 0 && glob_info.gl_pathv[i][last] == '/')
-			glob_info.gl_pathv[i][last] = '\0';
-		else
-			last = 0;
-		strlcpy(pathname, glob_info.gl_pathv[i], len);
-		paramname = display_name(pathname, len, popt);
-		if (paramname)
-			printf("%s\n", paramname);
-		if (last) {
-			strlcpy(pathname, glob_info.gl_pathv[i], len);
-			strlcat(pathname, "/*", len);
-			listparam_display(popt, pathname);
-		}
-	}
-
-	globfree(&glob_info);
-	return rc;
-}
-
 int jt_lcfg_listparam(int argc, char **argv)
 {
-	int rc = 0, i;
+	int rc = 0, index, i;
 	struct param_opts popt;
-	char pattern[PATH_MAX];
 	char *path;
 
 	memset(&popt, 0, sizeof(popt));
-	rc = listparam_cmdline(argc, argv, &popt);
-	if (rc == argc && popt.po_recursive) {
-		rc--;           /* we know at least "-R" is a parameter */
-		argv[rc] = "*";
-	} else if (rc < 0 || rc >= argc) {
+	index = listparam_cmdline(argc, argv, &popt);
+	if (index < 0 || index >= argc)
 		return CMD_HELP;
-	}
 
-	for (i = rc; i < argc; i++) {
+	for (i = index; i < argc; i++) {
 		path = argv[i];
-		clean_path(path);
+		clean_path(&popt, path);
 
-		rc = lprocfs_param_pattern(path, pattern, sizeof(pattern));
-		if (rc < 0)
-			return rc;
-
-		rc = listparam_display(&popt, pattern);
+		rc = param_display(&popt, path, NULL, LIST_PARAM);
 		if (rc < 0)
 			return rc;
 	}
@@ -913,143 +1115,25 @@ static int getparam_cmdline(int argc, char **argv, struct param_opts *popt)
 	return optind;
 }
 
-static int getparam_display(struct param_opts *popt, char *pattern)
-{
-	long page_size = sysconf(_SC_PAGESIZE);
-	glob_t glob_info;
-	char *buf;
-	int rc;
-	int fd;
-	int i;
-
-	rc = glob(pattern, GLOB_BRACE | (popt->po_recursive ? GLOB_MARK : 0),
-		  NULL, &glob_info);
-	if (rc) {
-		fprintf(stderr, "error: get_param: %s: %s\n",
-			pattern, globerrstr(rc));
-		return -ESRCH;
-	}
-
-	buf = malloc(page_size);
-	if (buf == NULL)
-		return -ENOMEM;
-
-	for (i = 0; i  < glob_info.gl_pathc; i++) {
-		char pathname[PATH_MAX + 1];    /* extra 1 byte for file type */
-		int len = sizeof(pathname), last;
-		char *paramname = NULL;
-
-		memset(buf, 0, page_size);
-		/* Trailing '/' will indicate recursion into directory */
-		last = strlen(glob_info.gl_pathv[i]) - 1;
-
-		/* Remove trailing '/' or it will be converted to '.' */
-		if (last > 0 && glob_info.gl_pathv[i][last] == '/')
-			glob_info.gl_pathv[i][last] = '\0';
-		else
-			last = 0;
-
-		if (last) {
-			strlcpy(pathname, glob_info.gl_pathv[i], len);
-			strlcat(pathname, "/*", len);
-			getparam_display(popt, pathname);
-			continue;
-		}
-
-		if (popt->po_show_path) {
-			if (strlen(glob_info.gl_pathv[i]) >
-			    sizeof(pathname) - 1) {
-				free(buf);
-				return -E2BIG;
-			}
-			strncpy(pathname, glob_info.gl_pathv[i],
-				sizeof(pathname));
-			paramname = display_name(pathname, sizeof(pathname),
-						 popt);
-		}
-
-                /* Write the contents of file to stdout */
-                fd = open(glob_info.gl_pathv[i], O_RDONLY);
-                if (fd < 0) {
-                        fprintf(stderr,
-                                "error: get_param: opening('%s') failed: %s\n",
-                                glob_info.gl_pathv[i], strerror(errno));
-                        continue;
-                }
-
-		do {
-			rc = read(fd, buf, page_size);
-			if (rc == 0)
-				break;
-			if (rc < 0) {
-				fprintf(stderr, "error: get_param: "
-					"read('%s') failed: %s\n",
-					glob_info.gl_pathv[i], strerror(errno));
-				break;
-			}
-			/* Print the output in the format path=value if the
-			 * value contains no new line character or can be
-			 * occupied in a line, else print value on new line */
-			if (paramname && popt->po_show_path) {
-				int longbuf;
-
-				longbuf = strnchr(buf, rc - 1, '\n') != NULL ||
-					rc + strlen(paramname) >= 80;
-				printf("%s=%s", paramname,
-				       longbuf ? "\n" : buf);
-				paramname = NULL;
-                                if (!longbuf)
-                                        continue;
-                                fflush(stdout);
-                        }
-                        rc = write(fileno(stdout), buf, rc);
-                        if (rc < 0) {
-                                fprintf(stderr, "error: get_param: "
-                                        "write to stdout failed: %s\n",
-                                        strerror(errno));
-                                break;
-                        }
-                } while (1);
-                close(fd);
-        }
-
-        globfree(&glob_info);
-        free(buf);
-        return rc;
-}
-
 int jt_lcfg_getparam(int argc, char **argv)
 {
-	int rc = 0, i;
+	int rc = 0, index, i;
 	struct param_opts popt;
-	char pattern[PATH_MAX];
 	char *path;
 
 	memset(&popt, 0, sizeof(popt));
-	rc = getparam_cmdline(argc, argv, &popt);
-	if (rc == argc && popt.po_recursive) {
-		rc--;           /* we know at least "-R" is a parameter */
-		argv[rc] = "*";
-	} else if (rc < 0 || rc >= argc) {
+	index = getparam_cmdline(argc, argv, &popt);
+	if (index < 0 || index >= argc)
 		return CMD_HELP;
-	}
 
-	for (i = rc, rc = 0; i < argc; i++) {
-		int rc2;
-
+	for (i = index; i < argc; i++) {
 		path = argv[i];
-		clean_path(path);
+		clean_path(&popt, path);
 
-		rc2 = lprocfs_param_pattern(path, pattern, sizeof(pattern));
-		if (rc2 < 0)
-			return rc2;
-
-		if (popt.po_only_path)
-			rc2 = listparam_display(&popt, pattern);
-		else
-			rc2 = getparam_display(&popt, pattern);
-		if (rc2 < 0 && rc == 0)
-			rc = rc2;
+		rc = param_display(&popt, path, NULL,
+				   popt.po_only_path ? LIST_PARAM : GET_PARAM);
+		if (rc < 0)
+			break;
 	}
 
 	return rc;
@@ -1084,21 +1168,20 @@ int jt_nodemap_info(int argc, char **argv)
 	if (argc == 1 || strcmp("list", argv[1]) == 0) {
 		popt.po_only_path = 1;
 		popt.po_only_dir = 1;
-		rc = listparam_display(&popt, "nodemap/*");
+		rc = param_display(&popt, "nodemap/*", NULL, LIST_PARAM);
 	} else if (strcmp("all", argv[1]) == 0) {
-		rc = getparam_display(&popt, "nodemap/*/*");
+		rc = param_display(&popt, "nodemap/*/*", NULL, LIST_PARAM);
 	} else {
 		char	pattern[PATH_MAX];
 
 		snprintf(pattern, sizeof(pattern), "nodemap/%s/*", argv[1]);
-		rc = getparam_display(&popt, pattern);
+		rc = param_display(&popt, pattern, NULL, LIST_PARAM);
 		if (rc == -ESRCH)
 			fprintf(stderr, "error: nodemap_info: cannot find"
 					"nodemap %s\n", argv[1]);
 	}
 	return rc;
 }
-
 
 static int setparam_cmdline(int argc, char **argv, struct param_opts *popt)
 {
@@ -1129,70 +1212,15 @@ static int setparam_cmdline(int argc, char **argv, struct param_opts *popt)
         return optind;
 }
 
-static int setparam_display(struct param_opts *popt, char *pattern, char *value)
-{
-	glob_t glob_info;
-	int rc;
-	int fd;
-	int i;
-
-	rc = glob(pattern, GLOB_BRACE, NULL, &glob_info);
-	if (rc) {
-		fprintf(stderr, "error: set_param: %s: %s\n",
-			pattern, globerrstr(rc));
-		return -ESRCH;
-	}
-	for (i = 0; i  < glob_info.gl_pathc; i++) {
-		char pathname[PATH_MAX + 1];    /* extra 1 byte for file type */
-		char *paramname = NULL;
-
-		if (popt->po_show_path) {
-			if (strlen(glob_info.gl_pathv[i]) >
-			    sizeof(pathname) - 1)
-				return -E2BIG;
-			strncpy(pathname, glob_info.gl_pathv[i],
-				sizeof(pathname));
-			paramname = display_name(pathname, sizeof(pathname),
-						 popt);
-			if (paramname)
-				printf("%s=%s\n", paramname, value);
-		}
-		/* Write the new value to the file */
-		fd = open(glob_info.gl_pathv[i], O_WRONLY);
-		if (fd >= 0) {
-			int rc2;
-
-			rc2 = write(fd, value, strlen(value));
-			if (rc2 < 0) {
-				if (rc == 0)
-					rc = -errno;
-				fprintf(stderr, "error: set_param: setting "
-					"%s=%s: %s\n", glob_info.gl_pathv[i],
-					value, strerror(errno));
-			}
-			close(fd);
-		} else {
-			if (rc == 0)
-				rc = -errno;
-			fprintf(stderr, "error: set_param: opening %s: %s\n",
-				strerror(errno), glob_info.gl_pathv[i]);
-		}
-	}
-
-	globfree(&glob_info);
-	return rc;
-}
-
 int jt_lcfg_setparam(int argc, char **argv)
 {
-	int rc = 0, i;
+	int rc = 0, index, i;
 	struct param_opts popt;
-	char pattern[PATH_MAX];
 	char *path = NULL, *value = NULL;
 
 	memset(&popt, 0, sizeof(popt));
-	rc = setparam_cmdline(argc, argv, &popt);
-	if (rc < 0 || rc >= argc)
+	index = setparam_cmdline(argc, argv, &popt);
+	if (index < 0 || index >= argc)
 		return CMD_HELP;
 
 	if (popt.po_params2)
@@ -1200,9 +1228,7 @@ int jt_lcfg_setparam(int argc, char **argv)
 		 * set with old conf_param interface */
 		return jt_lcfg_mgsparam2(argc, argv, &popt);
 
-	for (i = rc, rc = 0; i < argc; i++) {
-		int rc2;
-
+	for (i = index; i < argc; i++) {
 		value = strchr(argv[i], '=');
 		if (value != NULL) {
 			/* format: set_param a=b */
@@ -1221,20 +1247,15 @@ int jt_lcfg_setparam(int argc, char **argv)
 			}
 		}
 
-		clean_path(path);
-		rc2 = lprocfs_param_pattern(path, pattern, sizeof(pattern));
-		if (rc2 < 0)
-			return rc2;
+		clean_path(&popt, path);
 
-		rc2 = setparam_display(&popt, pattern, value);
+		rc = param_display(&popt, path, value, SET_PARAM);
 		path = NULL;
 		value = NULL;
-		if (rc2 < 0 && rc == 0)
-			rc = rc2;
 	}
 	if (path != NULL && (value == NULL || *value == '\0'))
 		fprintf(stderr, "error: %s: setting %s=: %s\n",
-			jt_cmdname(argv[0]), pattern, strerror(rc = EINVAL));
+			jt_cmdname(argv[0]), path, strerror(rc = EINVAL));
 
 	return rc;
 }
