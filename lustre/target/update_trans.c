@@ -83,9 +83,9 @@ static void top_multiple_thandle_dump(struct top_multiple_thandle *tmt,
 	list_for_each_entry(st, &tmt->tmt_sub_thandle_list, st_sub_list) {
 		struct sub_thandle_cookie *stc;
 
-		CDEBUG(mask, "st %p obd %s committed %d sub_th %p\n",
+		CDEBUG(mask, "st %p obd %s committed %d stopped %d sub_th %p\n",
 		       st, st->st_dt->dd_lu_dev.ld_obd->obd_name,
-		       st->st_committed, st->st_sub_th);
+		       st->st_committed, st->st_stopped, st->st_sub_th);
 
 		list_for_each_entry(stc, &st->st_cookie_list, stc_list) {
 			CDEBUG(mask, " cookie "DOSTID": %u\n",
@@ -1700,7 +1700,9 @@ int distribute_txn_init(const struct lu_env *env,
 
 	init_waitqueue_head(&lut->lut_tdtd_commit_thread.t_ctl_waitq);
 	init_waitqueue_head(&tdtd->tdtd_commit_thread_waitq);
+	init_waitqueue_head(&tdtd->tdtd_recovery_threads_waitq);
 	atomic_set(&tdtd->tdtd_refcount, 0);
+	atomic_set(&tdtd->tdtd_recovery_threads_count, 0);
 
 	tdtd->tdtd_lut = lut;
 	rc = distribute_txn_commit_batchid_init(env, tdtd);

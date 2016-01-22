@@ -904,6 +904,8 @@ static int osp_md_object_lock(const struct lu_env *env,
 
 	if (einfo->ei_nonblock)
 		flags |= LDLM_FL_BLOCK_NOWAIT;
+	if (einfo->ei_mode & (LCK_EX | LCK_PW))
+		flags |= LDLM_FL_COS_INCOMPAT;
 
 	req = ldlm_enqueue_pack(osp->opd_exp, 0);
 	if (IS_ERR(req))
@@ -923,13 +925,6 @@ static int osp_md_object_lock(const struct lu_env *env,
 			      &flags, NULL, 0, LVB_T_NONE, lh, 0);
 
 	ptlrpc_req_finished(req);
-	if (rc == ELDLM_OK) {
-		struct ldlm_lock *lock;
-
-		lock = __ldlm_handle2lock(lh, 0);
-		ldlm_set_cbpending(lock);
-		LDLM_LOCK_PUT(lock);
-	}
 
 	return rc == ELDLM_OK ? 0 : -EIO;
 }
@@ -1068,7 +1063,20 @@ static ssize_t osp_md_declare_write(const struct lu_env *env,
 				    const struct lu_buf *buf,
 				    loff_t pos, struct thandle *th)
 {
-	return osp_trans_update_request_create(th);
+	struct osp_device *osp = dt2osp_dev(th->th_dev);
+	int rc;
+
+	rc = osp_trans_update_request_create(th);
+	if (rc != 0)
+		return rc;
+
+	if (osp->opd_update == NULL)
+		return 0;
+
+	if (dt2osp_obj(dt)->opo_stale)
+		return -ESTALE;
+
+	return 0;
 }
 
 /**
@@ -1100,13 +1108,22 @@ static ssize_t osp_md_write(const struct lu_env *env, struct dt_object *dt,
 	update = thandle_to_osp_update_request(th);
 	LASSERT(update != NULL);
 
+	CDEBUG(D_INFO, "write "DFID" offset = "LPU64" length = %zu\n",
+	       PFID(lu_object_fid(&dt->do_lu)), *pos, buf->lb_len);
+
 	rc = osp_update_rpc_pack(env, write, update, OUT_WRITE,
 				 lu_object_fid(&dt->do_lu), buf, *pos);
 	if (rc < 0)
 		RETURN(rc);
 
-	CDEBUG(D_INFO, "write "DFID" offset = "LPU64" length = %zu\n",
-	       PFID(lu_object_fid(&dt->do_lu)), *pos, buf->lb_len);
+	/* Do not add the request to the sending list(by version), if
+	 * it only send one write request in the middle of transaction,
+	 * see llog_cat_new_log() */
+	if (!(th->th_local && th->th_sync)) {
+		rc = osp_check_and_set_rpc_version(oth, obj);
+		if (rc < 0)
+			RETURN(rc);
+	}
 
 	/* XXX: how about the write error happened later? */
 	*pos += buf->lb_len;
@@ -1115,10 +1132,6 @@ static ssize_t osp_md_write(const struct lu_env *env, struct dt_object *dt,
 	    obj->opo_ooa->ooa_attr.la_valid & LA_SIZE &&
 	    obj->opo_ooa->ooa_attr.la_size < *pos)
 		obj->opo_ooa->ooa_attr.la_size = *pos;
-
-	rc = osp_check_and_set_rpc_version(oth);
-	if (rc < 0)
-		RETURN(rc);
 
 	RETURN(buf->lb_len);
 }
@@ -1157,6 +1170,9 @@ static ssize_t osp_md_read(const struct lu_env *env, struct dt_object *dt,
 		GOTO(out_update, rc);
 	}
 
+	CDEBUG(D_INFO, "%s "DFID" read offset %llu size %zu\n",
+	       dt_dev->dd_lu_dev.ld_obd->obd_name,
+	       PFID(lu_object_fid(&dt->do_lu)), *pos, rbuf->lb_len);
 	rc = osp_prep_update_req(env, osp->opd_obd->u.cli.cl_import, update,
 				 &req);
 	if (rc != 0)

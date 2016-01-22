@@ -105,27 +105,29 @@ static int llog_cat_new_log(const struct lu_env *env,
 		loghandle->lgh_hdr = NULL;
 	}
 
-	if (th == NULL) {
-		dt = lu2dt_dev(cathandle->lgh_obj->do_lu.lo_dev);
+	/* Note: if th == NULL, which usually happens for remote llog object,
+	 * llog_create will create the object synchronously in a separate
+	 * transaction to avoid recovery trouble */
+	rc = llog_create(env, loghandle, th);
+	if (rc == -EEXIST) {
+		/* if llog is already created, no need to initialize it */
+		GOTO(out, rc = 0);
+	} else if (rc != 0) {
+		CERROR("%s: can't create new plain llog in catalog: rc = %d\n",
+		       loghandle->lgh_ctxt->loc_obd->obd_name, rc);
+		GOTO(out, rc);
+	}
 
+	if (th == NULL) {
+		/* Start the transaction to append the llog to the catlog */
+		dt = lu2dt_dev(cathandle->lgh_obj->do_lu.lo_dev);
 		handle = dt_trans_create(env, dt);
 		if (IS_ERR(handle))
 			RETURN(PTR_ERR(handle));
-
-		/* Create update llog object synchronously, which
-		 * happens during inialization process see
-		 * lod_sub_prep_llog(), to make sure the update
-		 * llog object is created before corss-MDT writing
-		 * updates into the llog object */
 		if (cathandle->lgh_ctxt->loc_flags & LLOG_CTXT_FLAG_NORMAL_FID)
 			handle->th_sync = 1;
 
 		handle->th_wait_submit = 1;
-
-		rc = llog_declare_create(env, loghandle, handle);
-		if (rc != 0)
-			GOTO(out, rc);
-
 		rec->lid_hdr.lrh_len = sizeof(*rec);
 		rec->lid_hdr.lrh_type = LLOG_LOGID_MAGIC;
 		rec->lid_id = loghandle->lgh_id;
@@ -139,16 +141,6 @@ static int llog_cat_new_log(const struct lu_env *env,
 			GOTO(out, rc);
 
 		th = handle;
-	}
-
-	rc = llog_create(env, loghandle, th);
-	/* if llog is already created, no need to initialize it */
-	if (rc == -EEXIST) {
-		GOTO(out, rc = 0);
-	} else if (rc != 0) {
-		CERROR("%s: can't create new plain llog in catalog: rc = %d\n",
-		       loghandle->lgh_ctxt->loc_obd->obd_name, rc);
-		GOTO(out, rc);
 	}
 
 	rc = llog_init_handle(env, loghandle,
@@ -175,11 +167,30 @@ static int llog_cat_new_log(const struct lu_env *env,
 	       POSTID(&cathandle->lgh_id.lgl_oi));
 
 	loghandle->lgh_hdr->llh_cat_idx = rec->lid_hdr.lrh_index;
-out:
-	if (handle != NULL)
-		dt_trans_stop(env, dt, handle);
 
-	RETURN(0);
+	/* limit max size of plain llog so that space can be
+	 * released sooner, especially on small filesystems */
+	/* 2MB for the cases when free space hasn't been learned yet */
+	loghandle->lgh_max_size = 2 << 20;
+	dt = lu2dt_dev(cathandle->lgh_obj->do_lu.lo_dev);
+	rc = dt_statfs(env, dt, &lgi->lgi_statfs);
+	if (rc == 0 && lgi->lgi_statfs.os_bfree > 0) {
+		__u64 freespace = (lgi->lgi_statfs.os_bfree *
+				  lgi->lgi_statfs.os_bsize) >> 6;
+		if (freespace < loghandle->lgh_max_size)
+			loghandle->lgh_max_size = freespace;
+		/* shouldn't be > 128MB in any case?
+		 * it's 256K records of 512 bytes each */
+		if (freespace > (128 << 20))
+			loghandle->lgh_max_size = 128 << 20;
+	}
+
+out:
+	if (handle != NULL) {
+		handle->th_result = rc >= 0 ? 0 : rc;
+		dt_trans_stop(env, dt, handle);
+	}
+	RETURN(rc);
 
 out_destroy:
 	/* to signal llog_cat_close() it shouldn't try to destroy the llog,
@@ -382,6 +393,40 @@ next:
 	RETURN(loghandle);
 }
 
+static int llog_cat_update_header(const struct lu_env *env,
+			   struct llog_handle *cathandle)
+{
+	struct llog_handle *loghandle;
+	int rc;
+	ENTRY;
+
+	/* refresh llog */
+	down_write(&cathandle->lgh_lock);
+	if (!cathandle->lgh_stale) {
+		up_write(&cathandle->lgh_lock);
+		RETURN(0);
+	}
+	list_for_each_entry(loghandle, &cathandle->u.chd.chd_head,
+			    u.phd.phd_entry) {
+		if (!llog_exist(loghandle))
+			continue;
+
+		rc = llog_read_header(env, loghandle, NULL);
+		if (rc != 0) {
+			up_write(&cathandle->lgh_lock);
+			GOTO(out, rc);
+		}
+	}
+	rc = llog_read_header(env, cathandle, NULL);
+	if (rc == 0)
+		cathandle->lgh_stale = 0;
+	up_write(&cathandle->lgh_lock);
+	if (rc != 0)
+		GOTO(out, rc);
+out:
+	RETURN(rc);
+}
+
 /* Add a single record to the recovery log(s) using a catalog
  * Returns as llog_write_record
  *
@@ -495,17 +540,31 @@ int llog_cat_declare_add_rec(const struct lu_env *env,
 			 * on the success of this transaction. So let's
 			 * create the llog object synchronously here to
 			 * remove the dependency. */
+create_again:
 			down_read_nested(&cathandle->lgh_lock, LLOGH_CAT);
 			loghandle = cathandle->u.chd.chd_current_log;
 			down_write_nested(&loghandle->lgh_lock, LLOGH_LOG);
-			if (!llog_exist(loghandle))
+			if (cathandle->lgh_stale) {
+				up_write(&loghandle->lgh_lock);
+				up_read(&cathandle->lgh_lock);
+				GOTO(out, rc = -EIO);
+			}
+			if (!llog_exist(loghandle)) {
 				rc = llog_cat_new_log(env, cathandle, loghandle,
 						      NULL);
+				if (rc == -ESTALE)
+					cathandle->lgh_stale = 1;
+			}
 			up_write(&loghandle->lgh_lock);
 			up_read(&cathandle->lgh_lock);
-			if (rc < 0)
+			if (rc == -ESTALE) {
+				rc = llog_cat_update_header(env, cathandle);
+				if (rc != 0)
+					GOTO(out, rc);
+				goto create_again;
+			} else if (rc < 0) {
 				GOTO(out, rc);
-
+			}
 		} else {
 			rc = llog_declare_create(env,
 					cathandle->u.chd.chd_current_log, th);
@@ -515,11 +574,27 @@ int llog_cat_declare_add_rec(const struct lu_env *env,
 					       &lirec->lid_hdr, -1, th);
 		}
 	}
+
+write_again:
 	/* declare records in the llogs */
 	rc = llog_declare_write_rec(env, cathandle->u.chd.chd_current_log,
 				    rec, -1, th);
-	if (rc)
+	if (rc == -ESTALE) {
+		down_write(&cathandle->lgh_lock);
+		if (cathandle->lgh_stale) {
+			up_write(&cathandle->lgh_lock);
+			GOTO(out, rc = -EIO);
+		}
+
+		cathandle->lgh_stale = 1;
+		up_write(&cathandle->lgh_lock);
+		rc = llog_cat_update_header(env, cathandle);
+		if (rc != 0)
+			GOTO(out, rc);
+		goto write_again;
+	} else if (rc < 0) {
 		GOTO(out, rc);
+	}
 
 	next = cathandle->u.chd.chd_next_log;
 	if (next) {
