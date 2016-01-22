@@ -1286,10 +1286,11 @@ void _debug_req(struct ptlrpc_request *req,
 do {                                                                          \
         CFS_CHECK_STACK(msgdata, mask, cdls);                                 \
                                                                               \
-        if (((mask) & D_CANTMASK) != 0 ||                                     \
-            ((libcfs_debug & (mask)) != 0 &&                                  \
-             (libcfs_subsystem_debug & DEBUG_SUBSYSTEM) != 0))                \
-                _debug_req((req), msgdata, fmt, ##a);                         \
+	if ((((mask) & D_CANTMASK) != 0 ||				      \
+	    ((libcfs_debug & (mask)) != 0 &&                                  \
+	     (libcfs_subsystem_debug & DEBUG_SUBSYSTEM) != 0)) &&	      \
+	    libcfs_func_pattern_match((msgdata)->msg_fn))		      \
+		_debug_req((req), msgdata, fmt, ##a);                         \
 } while(0)
 
 /**

@@ -76,7 +76,30 @@ void cfs_trace_stop_thread(void);
 int cfs_tracefile_init(int max_pages);
 void cfs_tracefile_exit(void);
 
+/* func filter items */
+enum MATCH_TYPE {
+	MATCH_FRONT = 0,
+	MATCH_MIDDLE,
+	MATCH_FULL,
+	MATCH_END,
+	MATCH_MAX = 10
+};
 
+struct func_pattern {
+	char patt[128];
+	unsigned int len;
+	enum MATCH_TYPE type;
+	struct list_head node;
+};
+extern rwlock_t func_filter_lock;
+extern atomic_t func_filter_enabled;
+extern struct list_head func_filter_patts;
+
+struct func_desc {
+	char			func_name[128];
+	atomic_t		func_refcount;
+	struct hlist_node	func_hash;
+};
 
 int cfs_trace_copyin_string(char *knl_buffer, int knl_buffer_nob,
 			    const char __user *usr_buffer, int usr_buffer_nob);

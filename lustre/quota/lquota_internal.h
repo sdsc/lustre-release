@@ -328,9 +328,10 @@ struct lquota_thread_info *lquota_info(const struct lu_env *env)
 #define lquota_lqe_debug(msgdata, mask, cdls, lqe, fmt, a...) do {      \
 	CFS_CHECK_STACK(msgdata, mask, cdls);                           \
                                                                         \
-	if (((mask) & D_CANTMASK) != 0 ||                               \
+	if ((((mask) & D_CANTMASK) != 0 ||                               \
 	    ((libcfs_debug & (mask)) != 0 &&                            \
-	     (libcfs_subsystem_debug & DEBUG_SUBSYSTEM) != 0))          \
+	     (libcfs_subsystem_debug & DEBUG_SUBSYSTEM) != 0)) &&	\
+	    libcfs_func_pattern_match((msgdata)->msg_fn))		\
 		lquota_lqe_debug0(lqe, msgdata, fmt, ##a);              \
 } while(0)
 

@@ -376,6 +376,100 @@ proc_cpt_table(struct ctl_table *table, int write, void __user *buffer,
 				     __proc_cpt_table);
 }
 
+static int __proc_func_filter(void *data, int write,
+			    loff_t pos, void __user *buffer, int nob)
+{
+	const int	tmpstrlen = 512;
+	char		*tmpstr;
+	int		rc;
+	int		len = 0;
+
+	rc = cfs_trace_allocate_string_buffer(&tmpstr, tmpstrlen);
+	if (rc < 0)
+		return rc;
+
+	if (!write) {
+		struct func_pattern *patt;
+
+		if (!atomic_read(&func_filter_enabled)) {
+			strncpy(tmpstr, "None", 4);
+			len = 4;
+			goto skip;
+		}
+
+		read_lock(&func_filter_lock);
+		if (list_empty(&func_filter_patts)) {
+			strncpy(tmpstr, "None", 4);
+			len = 4;
+			read_unlock(&func_filter_lock);
+			CWARN("func filter is enabled,"
+			      "but pattern list is empty!!!\n");
+			goto skip;
+		}
+
+		list_for_each_entry(patt, &func_filter_patts, node) {
+			char *token = patt->patt;
+
+			if (len >= tmpstrlen)
+				break;
+			tmpstr[len] = ' ';
+			len++;
+
+			if (patt->type == MATCH_FRONT) {
+				if (len >= tmpstrlen)
+					break;
+				tmpstr[len] = '^';
+				len++;
+			}
+
+			while (*token != 0) {
+				if (len >= tmpstrlen)
+					goto skip;
+				tmpstr[len] = *token;
+				len++;
+				token++;
+			}
+
+			if (patt->type == MATCH_END) {
+				if (len >= tmpstrlen)
+					break;
+				tmpstr[len] = '$';
+				len++;
+			}
+		}
+		read_unlock(&func_filter_lock);
+skip:
+		/* terminate 'tmpstr' */
+		if (len < tmpstrlen)
+			tmpstr[len] = 0;
+		else
+			tmpstr[tmpstrlen - 1] = 0;
+
+		if (pos >= len)
+			rc = 0;
+		else
+			rc = cfs_trace_copyout_string(buffer, nob,
+						      tmpstr + pos, "\n");
+	} else {
+		rc = cfs_trace_copyin_string(tmpstr, tmpstrlen, buffer, nob);
+		if (rc < 0)
+			goto out;
+
+		rc = libcfs_func_filter_set(tmpstr);
+	}
+out:
+	cfs_trace_free_string_buffer(tmpstr, tmpstrlen);
+	return rc;
+}
+
+static int
+proc_func_filter(struct ctl_table *table, int write, void __user *buffer,
+	       size_t *lenp, loff_t *ppos)
+{
+	return lprocfs_call_handler(table->data, write, ppos, buffer, lenp,
+				    __proc_func_filter);
+}
+
 static struct ctl_table lnet_table[] = {
 	/*
 	 * NB No .strategy entries have been provided since sysctl(8) prefers
@@ -553,6 +647,13 @@ static struct ctl_table lnet_table[] = {
 		.maxlen		= sizeof(cfs_fail_err),
 		.mode		= 0644,
 		.proc_handler	= &proc_dointvec,
+	},
+	{
+		INIT_CTL_NAME
+		.procname	= "func_filter",
+		.maxlen		= 128,
+		.mode		= 0644,
+		.proc_handler	= &proc_func_filter,
 	},
 	{ 0 }
 };

@@ -1130,10 +1130,11 @@ extern const char *ldlm_it2str(enum ldlm_intent_flags it);
 #define ldlm_lock_debug(msgdata, mask, cdls, lock, fmt, a...) do {      \
         CFS_CHECK_STACK(msgdata, mask, cdls);                           \
                                                                         \
-        if (((mask) & D_CANTMASK) != 0 ||                               \
-            ((libcfs_debug & (mask)) != 0 &&                            \
-             (libcfs_subsystem_debug & DEBUG_SUBSYSTEM) != 0))          \
-                _ldlm_lock_debug(lock, msgdata, fmt, ##a);              \
+	if ((((mask) & D_CANTMASK) != 0 ||				\
+	    ((libcfs_debug & (mask)) != 0 &&				\
+	    (libcfs_subsystem_debug & DEBUG_SUBSYSTEM) != 0)) &&	\
+	    libcfs_func_pattern_match((msgdata)->msg_fn))		\
+		_ldlm_lock_debug(lock, msgdata, fmt, ##a);		\
 } while(0)
 
 void _ldlm_lock_debug(struct ldlm_lock *lock,

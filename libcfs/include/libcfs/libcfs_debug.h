@@ -83,6 +83,8 @@ struct ptldebug_header {
 } __attribute__((packed));
 
 
+int libcfs_func_pattern_match(const char *func_name);
+int libcfs_func_filter_set(const char *str);
 #define PH_FLAG_FIRST_RECORD 1
 
 /* Debugging subsystems (32 bits, non-overlapping) */
@@ -214,11 +216,10 @@ do {                                                        \
 /**
  * Filters out logging messages based on mask and subsystem.
  */
-static inline int cfs_cdebug_show(unsigned int mask, unsigned int subsystem)
-{
-        return mask & D_CANTMASK ||
-                ((libcfs_debug & mask) && (libcfs_subsystem_debug & subsystem));
-}
+#define cfs_cdebug_show(mask, subsystem)				\
+	(((mask) & D_CANTMASK ||					\
+	 ((libcfs_debug & (mask)) && (libcfs_subsystem_debug & (subsystem))))\
+	 && libcfs_func_pattern_match(__func__))			\
 
 #  define __CDEBUG(cdls, mask, format, ...)				\
 do {                                                                    \
@@ -242,20 +243,14 @@ do {                                            \
 } while (0)
 
 # else /* !CDEBUG_ENABLED */
-static inline int cfs_cdebug_show(unsigned int mask, unsigned int subsystem)
-{
-        return 0;
-}
+#  define cfs_cdebug_show(mask, subsystem) (0)
 #  define CDEBUG(mask, format, ...) (void)(0)
 #  define CDEBUG_LIMIT(mask, format, ...) (void)(0)
 #  warning "CDEBUG IS DISABLED. THIS SHOULD NEVER BE DONE FOR PRODUCTION!"
 # endif /* CDEBUG_ENABLED */
 
 #else /* !__KERNEL__ */
-static inline int cfs_cdebug_show(unsigned int mask, unsigned int subsystem)
-{
-        return 0;
-}
+# define cfs_cdebug_show(mask, subsystem) (0)
 # define CDEBUG(mask, format, ...)					\
 do {                                                                    \
         if (((mask) & D_CANTMASK) != 0)                                 \
