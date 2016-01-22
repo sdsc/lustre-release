@@ -291,12 +291,12 @@ out_trans:
 	RETURN(rc);
 }
 
-static int llog_read_header(const struct lu_env *env,
-			    struct llog_handle *handle,
-			    struct obd_uuid *uuid)
+int llog_read_header(const struct lu_env *env, struct llog_handle *handle,
+		     const struct obd_uuid *uuid)
 {
 	struct llog_operations *lop;
 	int rc;
+	ENTRY;
 
 	rc = llog_handle2ops(handle, &lop);
 	if (rc)
@@ -311,6 +311,7 @@ static int llog_read_header(const struct lu_env *env,
 
 		/* lrh_len should be initialized in llog_init_handle */
 		handle->lgh_last_idx = 0; /* header is record with index 0 */
+		handle->lgh_write_offset = 0;
 		llh->llh_count = 1;         /* for the header record */
 		llh->llh_hdr.lrh_type = LLOG_HDR_MAGIC;
 		LASSERT(handle->lgh_ctxt->loc_chunk_size >=
@@ -322,13 +323,19 @@ static int llog_read_header(const struct lu_env *env,
 			memcpy(&llh->llh_tgtuuid, uuid,
 			       sizeof(llh->llh_tgtuuid));
 		llh->llh_bitmap_offset = offsetof(typeof(*llh), llh_bitmap);
+		/* Since update llog header might also call this function,
+		 * let's reset the bitmap to 0 here */
+		memset(LLOG_HDR_BITMAP(llh), 0, llh->llh_hdr.lrh_len -
+						llh->llh_bitmap_offset -
+						sizeof(llh->llh_tail));
 		ext2_set_bit(0, LLOG_HDR_BITMAP(llh));
 		LLOG_HDR_TAIL(llh)->lrt_len = llh->llh_hdr.lrh_len;
 		LLOG_HDR_TAIL(llh)->lrt_index = llh->llh_hdr.lrh_index;
 		rc = 0;
 	}
-	return rc;
+	RETURN(rc);
 }
+EXPORT_SYMBOL(llog_read_header);
 
 int llog_init_handle(const struct lu_env *env, struct llog_handle *handle,
 		     int flags, struct obd_uuid *uuid)
@@ -503,7 +510,18 @@ repeat:
 				 * while llog_processing, check this is not
 				 * the case and re-read the current chunk
 				 * otherwise. */
+				int records;
 				if (index > loghandle->lgh_last_idx)
+					GOTO(out, rc = 0);
+				/* <2 records means no more records
+				 * if the last record we processed was
+				 * the final one, then the underlying
+				 * object might have been destroyed yet.
+				 * we better don't access that.. */
+				mutex_lock(&loghandle->lgh_hdr_mutex);
+				records = loghandle->lgh_hdr->llh_count;
+				mutex_unlock(&loghandle->lgh_hdr_mutex);
+				if (records <= 1)
 					GOTO(out, rc = 0);
 				CDEBUG(D_OTHER, "Re-read last llog buffer for "
 				       "new records, index %u, last %u\n",
@@ -571,17 +589,30 @@ out:
 		cd->lpcd_last_idx = last_called_index;
 
 	if (unlikely(rc == -EIO && loghandle->lgh_obj != NULL)) {
-		/* something bad happened to the processing of a local
-		 * llog file, probably I/O error or the log got corrupted..
-		 * to be able to finally release the log we discard any
-		 * remaining bits in the header */
-		CERROR("Local llog found corrupted\n");
-		while (index <= last_index) {
-			if (ext2_test_bit(index, LLOG_HDR_BITMAP(llh)) != 0)
-				llog_cancel_rec(lpi->lpi_env, loghandle, index);
-			index++;
+		if (dt_object_remote(loghandle->lgh_obj)) {
+			/* If it is remote object, then -EIO might means
+			 * disconnection or eviction, let's return -EAGAIN,
+			 * so for update recovery log processing, it will
+			 * retry until the umount or abort recovery, see
+			 * lod_sub_recovery_thread() */
+			CERROR("%s retry remote llog process\n",
+			       loghandle->lgh_ctxt->loc_obd->obd_name);
+			rc = -EAGAIN;
+		} else {
+			/* something bad happened to the processing of a local
+			 * llog file, probably I/O error or the log got
+			 * corrupted to be able to finally release the log we
+			 * discard any remaining bits in the header */
+			CERROR("Local llog found corrupted\n");
+			while (index <= last_index) {
+				if (ext2_test_bit(index,
+						  LLOG_HDR_BITMAP(llh)) != 0)
+					llog_cancel_rec(lpi->lpi_env, loghandle,
+							index);
+				index++;
+			}
+			rc = 0;
 		}
-		rc = 0;
 	}
 
 	OBD_FREE_LARGE(buf, chunk_size);
@@ -815,6 +846,8 @@ int llog_create(const struct lu_env *env, struct llog_handle *handle,
 		struct thandle *th)
 {
 	struct llog_operations	*lop;
+	struct thandle		*local_th = NULL;
+	struct dt_device	*dt;
 	int			 raised, rc;
 
 	ENTRY;
@@ -825,12 +858,43 @@ int llog_create(const struct lu_env *env, struct llog_handle *handle,
 	if (lop->lop_create == NULL)
 		RETURN(-EOPNOTSUPP);
 
+	if (th == NULL) {
+		dt = lu2dt_dev(handle->lgh_obj->do_lu.lo_dev);
+		local_th = dt_trans_create(env, dt);
+		if (IS_ERR(local_th))
+			RETURN(PTR_ERR(local_th));
+
+		/* Create update llog object synchronously, which
+		 * happens during inialization process see
+		 * lod_sub_prep_llog(), to make sure the update
+		 * llog object is created before corss-MDT writing
+		 * updates into the llog object */
+		if (handle->lgh_ctxt->loc_flags & LLOG_CTXT_FLAG_NORMAL_FID)
+			local_th->th_sync = 1;
+
+		local_th->th_wait_submit = 1;
+		rc = llog_declare_create(env, handle, local_th);
+		if (rc != 0)
+			GOTO(out_trans, rc);
+
+		rc = dt_trans_start_local(env, dt, local_th);
+		if (rc != 0)
+			GOTO(out_trans, rc);
+
+		th = local_th;
+	}
+
 	raised = cfs_cap_raised(CFS_CAP_SYS_RESOURCE);
 	if (!raised)
 		cfs_cap_raise(CFS_CAP_SYS_RESOURCE);
 	rc = lop->lop_create(env, handle, th);
 	if (!raised)
 		cfs_cap_lower(CFS_CAP_SYS_RESOURCE);
+
+out_trans:
+	if (local_th != NULL)
+		dt_trans_stop(env, dt, local_th);
+
 	RETURN(rc);
 }
 
