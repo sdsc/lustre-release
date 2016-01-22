@@ -762,9 +762,6 @@ load_target() {
         # kernel.  don't make it look like one
         if $PATCHLESS || [ -n "$SERIES" ]; then
             EXTRA_VERSION=$(echo $EXTRA_VERSION | sed -e "s/\(.*_lustre\)\..*/\1/")
-            if ! $PATCHLESS && [ -n "$BUILDID" ]; then
-                EXTRA_VERSION="${EXTRA_VERSION}.${BUILDID}"
-            fi
         fi
     fi
     # EXTRA_VERSION=${EXTRA_VERSION//-/_}
@@ -2127,10 +2124,6 @@ check_options
 
 unpack_lustre
 
-# XXX - should we _always_ get the buildid from the META file?  what are the
-# other (i.e. non-lustre-tarball use cases of lbuild)?
-BUILDID=$(sed -n -e 's/^BUILDID = //p' lustre/META)
-
 load_target
 
 if [ -n "$OFED_VERSION" -a "$OFED_VERSION" != "inkernel" ]; then
@@ -2187,7 +2180,7 @@ if [ -n "$MPSS_VERSION" ]; then
         LINUX="$TOPDIR/mpss/card/kernel"
         RPMBUILD_DEFS="$RPMBUILD_DEFS --define \"cross_requires intel-mic-gpl = $MPSS_VER\""
     fi
-    LUSTRE_VERSION=$(sed -n -e 's/^VERSION = //p' lustre/META)
+    LUSTRE_VERSION=$(sed -n -e 's/^LUSTRE_VERSION = //p' LUSTRE-VERSION-FILE)
     CONFIGURE_FLAGS="$CONFIGURE_FLAGS $MPSS_OFED --host=$CC_TARGET_ARCH --build=x86_64-pc-linux"
     RPMBUILD_DEFS="$RPMBUILD_DEFS --define \"post_script build/gen_filelist.sh\""
     RPMBUILD_DEFS="$RPMBUILD_DEFS --define \"make_args ARCH=k1om CROSS_COMPILE=${CC_TARGET_ARCH}-\""
