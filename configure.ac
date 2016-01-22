@@ -3,7 +3,8 @@ AC_INIT([Lustre], [LUSTRE_VERSION], [https://jira.hpdd.intel.com/], [lustre])
 sinclude(lustre/autoconf/lustre-version.ac)
 
 AC_CONFIG_AUX_DIR([config])
-AC_CONFIG_MACRO_DIR([config])
+dnl # The following line needs to be all on one line
+AC_CONFIG_MACRO_DIRS([config libcfs/autoconf lnet/autoconf lustre/autoconf snmp/autoconf])
 
 LB_CHECK_VERSION
 
