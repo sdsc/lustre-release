@@ -109,6 +109,10 @@ struct target_distribute_txn_data {
 	spinlock_t			tdtd_replay_list_lock;
 	/* last replay update transno */
 	__u32				tdtd_replay_ready:1;
+
+	/* Manage the llog recovery threads */
+	atomic_t		tdtd_recovery_threads_count;
+	wait_queue_head_t	tdtd_recovery_threads_waitq;
 };
 
 struct lu_target {
@@ -155,6 +159,8 @@ struct lu_target {
 	struct dt_object	*lut_reply_data;
 	/** Bitmap of used slots in the reply data file */
 	unsigned long		**lut_reply_bitmap;
+	/** target sync count, used for debug & test */
+	atomic_t		 lut_sync_count;
 };
 
 /* number of slots in reply bitmap */
@@ -421,6 +427,8 @@ int tgt_hpreq_handler(struct ptlrpc_request *req);
 
 /* target/tgt_main.c */
 void tgt_boot_epoch_update(struct lu_target *lut);
+void tgt_save_slc_lock(struct ldlm_lock *lock, __u64 transno);
+void tgt_discard_slc_lock(struct ldlm_lock *lock);
 int tgt_last_commit_cb_add(struct thandle *th, struct lu_target *lut,
 			   struct obd_export *exp, __u64 transno);
 int tgt_new_client_cb_add(struct thandle *th, struct obd_export *exp);

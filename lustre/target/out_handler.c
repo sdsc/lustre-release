@@ -841,7 +841,7 @@ static int out_tx_end(const struct lu_env *env, struct thandle_exec_args *ta,
 		rc = ta->ta_args[i]->exec_fn(env, ta->ta_handle,
 					     ta->ta_args[i]);
 		if (unlikely(rc != 0)) {
-			CDEBUG(D_INFO, "error during execution of #%u from"
+			CERROR("error during execution of #%u from"
 			       " %s:%d: rc = %d\n", i, ta->ta_args[i]->file,
 			       ta->ta_args[i]->line, rc);
 			while (--i >= 0) {
@@ -855,6 +855,7 @@ static int out_tx_end(const struct lu_env *env, struct thandle_exec_args *ta,
 					       ta->ta_args[i]->file,
 					       ta->ta_args[i]->line, -ENOTSUPP);
 			}
+			libcfs_debug_dumplog();
 			break;
 		}
 		CDEBUG(D_INFO, "%s: executed %u/%u: rc = %d\n",
@@ -946,7 +947,7 @@ int out_handle(struct tgt_session_info *tsi)
 
 		oub = req_capsule_client_get(pill, &RMF_OUT_UPDATE_BUF);
 		if (oub == NULL)
-			GOTO(out_free, rc = -EPROTO);
+			GOTO(out_free, rc = err_serious(-EPROTO));
 
 		desc = ptlrpc_prep_bulk_exp(pill->rc_req, update_buf_count,
 					    PTLRPC_BULK_OPS_COUNT,
@@ -960,7 +961,7 @@ int out_handle(struct tgt_session_info *tsi)
 		tmp = oub;
 		for (i = 0; i < update_buf_count; i++, tmp++) {
 			if (tmp->oub_size >= OUT_MAXREQSIZE)
-				GOTO(out_free, rc = -EPROTO);
+				GOTO(out_free, rc = err_serious(-EPROTO));
 
 			OBD_ALLOC(update_bufs[i], tmp->oub_size);
 			if (update_bufs[i] == NULL)
@@ -973,11 +974,11 @@ int out_handle(struct tgt_session_info *tsi)
 		pill->rc_req->rq_bulk_write = 1;
 		rc = sptlrpc_svc_prep_bulk(pill->rc_req, desc);
 		if (rc != 0)
-			GOTO(out_free, rc);
+			GOTO(out_free, err_serious(rc));
 
 		rc = target_bulk_io(pill->rc_req->rq_export, desc, &lwi);
 		if (rc < 0)
-			GOTO(out_free, rc);
+			GOTO(out_free, err_serious(rc));
 	}
 	/* validate the request and calculate the total update count and
 	 * set it to reply */

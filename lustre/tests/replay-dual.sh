@@ -927,6 +927,38 @@ cleanup_26() {
 	killall -9 dbench
 }
 
+random_double_fail_mdt() {
+	local max_index=$1
+	local duration=$2
+	local monitor_pid=$3
+	local elapsed
+	local start_ts=$(date +%s)
+	local num_failovers=0
+	local fail_index
+	local second_index
+
+	elapsed=$(($(date +%s) - start_ts))
+	while [ $elapsed -lt $duration ]; do
+		fail_index=$((RANDOM%max_index + 1))
+		if [ $fail_index -eq $max_index ]; then
+			second_index=1
+		else
+			second_index=$((fail_index + 1))
+		fi
+		kill -0 $monitor_pid ||
+			error "$monitor_pid stopped"
+		sleep 120
+		replay_barrier mds$fail_index
+		replay_barrier mds$second_index
+		sleep 10
+		# Increment the number of failovers
+		num_failovers=$((num_failovers+1))
+		log "fail mds$fail_index mds$second_index $num_failovers times"
+		fail mds${fail_index},mds${second_index}
+		elapsed=$(($(date +%s) - start_ts))
+	done
+}
+
 test_26() {
 	local clients=${CLIENTS:-$HOSTNAME}
 
@@ -977,22 +1009,26 @@ test_26() {
 	echo "Started dbench $dbench_26_pid"
 
 	local num_failovers=0
-	local fail_index=1
+	local fail_index
+	local second_index
 	while [ $((SECONDS - start_ts)) -lt $duration ]; do
 		kill -0 $tar_26_pid || error "tar $tar_26_pid missing"
 		kill -0 $dbench_26_pid || error "dbench $dbench_26_pid missing"
-		sleep 2
-		replay_barrier mds$fail_index
-		sleep 2 # give clients a time to do operations
-		# Increment the number of failovers
-		num_failovers=$((num_failovers + 1))
-		log "$TESTNAME fail mds$fail_index $num_failovers times"
-		fail mds$fail_index
-		if [ $fail_index -ge $MDSCOUNT ]; then
-			fail_index=1
+		fail_index=$((RANDOM%$MDSCOUNT + 1))
+		if [ $fail_index -eq $MDSCOUNT ]; then
+			second_index=1
 		else
-			fail_index=$((fail_index + 1))
+			second_index=$((fail_index + 1))
 		fi
+		sleep 120
+		replay_barrier mds$fail_index
+	#	replay_barrier mds$second_index
+		sleep 10
+
+		num_failovers=$((num_failovers + 1))
+		log "$TESTNAME fail mds$fail_index mds$second_index $num_failovers times"
+	#	fail mds${fail_index},mds${second_index}
+		fail mds${fail_index}
 	done
 	# stop the client loads
 	kill -0 $tar_26_pid || error "tar $tar_26_pid stopped"
