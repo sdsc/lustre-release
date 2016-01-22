@@ -1,11 +1,8 @@
 AC_PREREQ([2.57])
-AC_INIT([Lustre], [LUSTRE_VERSION], [https://jira.hpdd.intel.com/], [lustre])
-sinclude(lustre/autoconf/lustre-version.ac)
+AC_INIT([Lustre], m4_esyscmd_s([./LUSTRE-VERSION-GEN]), [https://jira.hpdd.intel.com/], [lustre])
 
 AC_CONFIG_AUX_DIR([config])
 AC_CONFIG_MACRO_DIR([config])
-
-LB_CHECK_VERSION
 
 LC_CONFIG_SRCDIR
 
@@ -22,4 +19,5 @@ AM_PROG_AS
 AC_PATH_PROG(RPMBUILD, rpmbuild)
 AC_CHECK_TOOLS(AR, ar)
 
+LUSTRE_VERSION_VARIABLES
 LB_CONFIGURE
