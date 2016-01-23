@@ -230,7 +230,7 @@ static void __exit lustre_exit(void)
 
 MODULE_AUTHOR("OpenSFS, Inc. <http://www.lustre.org/>");
 MODULE_DESCRIPTION("Lustre Client File System");
-MODULE_VERSION(LUSTRE_VERSION_STRING);
+MODULE_VERSION(VERSION);
 MODULE_LICENSE("GPL");
 
 module_init(lustre_init);

@@ -1616,7 +1616,7 @@ static void __exit mdd_exit(void)
 
 MODULE_AUTHOR("OpenSFS, Inc. <http://www.lustre.org/>");
 MODULE_DESCRIPTION("Lustre Meta-data Device Driver ("LUSTRE_MDD_NAME")");
-MODULE_VERSION(LUSTRE_VERSION_STRING);
+MODULE_VERSION(VERSION);
 MODULE_LICENSE("GPL");
 
 module_init(mdd_init);

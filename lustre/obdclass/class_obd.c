@@ -260,13 +260,13 @@ int class_handle_ioctl(unsigned int cmd, unsigned long arg)
                         GOTO(out, err = -EINVAL);
                 }
 
-                if (strlen(PACKAGE_VERSION) + 1 > data->ioc_inllen1) {
+                if (strlen(VERSION) + 1 > data->ioc_inllen1) {
                         CERROR("ioctl buffer too small to hold version\n");
                         GOTO(out, err = -EINVAL);
                 }
 
-                memcpy(data->ioc_bulk, PACKAGE_VERSION,
-                       strlen(PACKAGE_VERSION) + 1);
+                memcpy(data->ioc_bulk, VERSION,
+                       strlen(VERSION) + 1);
 
 		err = obd_ioctl_popdata((void __user *)arg, data, len);
                 if (err)
@@ -499,7 +499,7 @@ static int __init obdclass_init(void)
 	INIT_LIST_HEAD(&obd_stale_exports);
 	atomic_set(&obd_stale_export_num, 0);
 
-	LCONSOLE_INFO("Lustre: Build Version: "PACKAGE_VERSION"\n");
+	LCONSOLE_INFO("Lustre: Build Version: "VERSION"\n");
 
 	spin_lock_init(&obd_types_lock);
 	obd_zombie_impexp_init();
@@ -647,7 +647,7 @@ static void __exit obdclass_exit(void)
 
 MODULE_AUTHOR("OpenSFS, Inc. <http://www.lustre.org/>");
 MODULE_DESCRIPTION("Lustre Class Driver");
-MODULE_VERSION(LUSTRE_VERSION_STRING);
+MODULE_VERSION(VERSION);
 MODULE_LICENSE("GPL");
 
 module_init(obdclass_init);

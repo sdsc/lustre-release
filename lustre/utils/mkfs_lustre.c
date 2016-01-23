@@ -527,7 +527,7 @@ int parse_opts(int argc, char *const argv[], struct mkfs_opts *mop,
 		case 'V':
 			++version;
 			fprintf(stdout, "%s %s\n", progname,
-				LUSTRE_VERSION_STRING);
+				VERSION);
 			return 0;
 		case 'w':
 			mop->mo_ldd.ldd_flags |= LDD_F_WRITECONF;

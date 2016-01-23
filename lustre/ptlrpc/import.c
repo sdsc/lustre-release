@@ -841,7 +841,7 @@ static int ptlrpc_connect_set_flags(struct obd_import *imp,
 			      OBD_OCD_VERSION_PATCH(ocd->ocd_version),
 			      OBD_OCD_VERSION_FIX(ocd->ocd_version),
 			      ocd->ocd_version > LUSTRE_VERSION_CODE ?
-			      newer : older, LUSTRE_VERSION_STRING);
+			      newer : older, VERSION);
 		warned = true;
 	}
 
@@ -1301,7 +1301,7 @@ out:
                                         OBD_OCD_VERSION_MINOR(ocd->ocd_version),
                                         OBD_OCD_VERSION_PATCH(ocd->ocd_version),
                                         OBD_OCD_VERSION_FIX(ocd->ocd_version),
-                                        LUSTRE_VERSION_STRING);
+                                        VERSION);
                                 ptlrpc_deactivate_import(imp);
                                 IMPORT_SET_STATE(imp, LUSTRE_IMP_CLOSED);
                         }

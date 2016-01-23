@@ -16,11 +16,14 @@ LUSTRE-VERISON-GEN is called when the autotools are initialized,
 either when autogen.sh is run or when autoreconf runs.  The stdout
 of the script is used as the version option of AC_INIT in configure.ac.
 This ensures that the AC_PACKAGE_VERSION m4 macro, the PACKAGE_VERSION
-output variable, and the PACKAGE_VERSION preprocessor symbol are all
+output variable, and the PACKAGE_VERSION preprocessor macro are all
 correctly set to the current version.  Likewise AC_PACKAGE_STRING and
-PACKAGE_STRING will contain the current version.
+PACKAGE_STRING will contain the current version.  AM_INIT_AUTOMAKE in
+turn ensures that the PACKAGE and VERSION automake variables and
+preprocessor macros are definied.  For both, the preprocessor macros
+are defined in config.h.
 
-If the lustre tree is in a git working directory, LUSTRE-VERSION-GEN 
+If the lustre tree is in a git working directory, LUSTRE-VERSION-GEN
 uses "git --describe" to generate the version number.  If the tree is
 not in a git working directory but a LUSTRE-VERSION-FILE file exists
 (such as in the tarball created by "make dist"), the script falls back
