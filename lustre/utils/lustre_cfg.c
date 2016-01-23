@@ -59,7 +59,6 @@
 #include <lustre_cfg.h>
 #include <lustre_ioctl.h>
 #include <lustre/lustre_idl.h>
-#include <lustre/lustre_build_version.h>
 
 #include <sys/un.h>
 #include <time.h>
