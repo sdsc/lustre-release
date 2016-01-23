@@ -3411,7 +3411,7 @@ static void __exit lmv_exit(void)
 
 MODULE_AUTHOR("OpenSFS, Inc. <http://www.lustre.org/>");
 MODULE_DESCRIPTION("Lustre Logical Metadata Volume");
-MODULE_VERSION(LUSTRE_VERSION_STRING);
+MODULE_VERSION(PACKAGE_VERSION);
 MODULE_LICENSE("GPL");
 
 module_init(lmv_init);

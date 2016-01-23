@@ -1144,7 +1144,7 @@ static int lmd_parse(char *options, struct lustre_mount_data *lmd)
         if ((raw->lmd_magic & 0xffffff00) == (LMD_MAGIC & 0xffffff00)) {
                 LCONSOLE_ERROR_MSG(0x163, "You're using an old version of "
                                    "/sbin/mount.lustre.  Please install "
-                                   "version %s\n", LUSTRE_VERSION_STRING);
+                                   "version %s\n", PACKAGE_VERSION);
                 RETURN(-EINVAL);
         }
         lmd->lmd_magic = LMD_MAGIC;
