@@ -555,7 +555,7 @@ static int parse_opts(int argc, char *const argv[], struct mount_opts *mop)
 		case 'V':
 			++version;
 			fprintf(stdout, "%s %s\n", progname,
-				LUSTRE_VERSION_STRING);
+				PACKAGE_VERSION);
 			return 0;
 		default:
 			fprintf(stderr, "%s: unknown option '%c'\n",

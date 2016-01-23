@@ -786,6 +786,6 @@ int Parser_quit(int argc, char **argv)
 int Parser_version(int argc, char **argv)
 {
 	fprintf(stdout, "%s %s\n", program_invocation_short_name,
-		LUSTRE_VERSION_STRING);
+		PACKAGE_VERSION);
 	return 0;
 }

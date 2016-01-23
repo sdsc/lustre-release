@@ -647,7 +647,7 @@ static void __exit obdclass_exit(void)
 
 MODULE_AUTHOR("OpenSFS, Inc. <http://www.lustre.org/>");
 MODULE_DESCRIPTION("Lustre Class Driver");
-MODULE_VERSION(LUSTRE_VERSION_STRING);
+MODULE_VERSION(PACKAGE_VERSION);
 MODULE_LICENSE("GPL");
 
 module_init(obdclass_init);

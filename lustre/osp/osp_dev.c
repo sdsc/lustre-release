@@ -1961,7 +1961,7 @@ static void __exit osp_exit(void)
 
 MODULE_AUTHOR("OpenSFS, Inc. <http://www.lustre.org/>");
 MODULE_DESCRIPTION("Lustre OSD Storage Proxy ("LUSTRE_OSP_NAME")");
-MODULE_VERSION(LUSTRE_VERSION_STRING);
+MODULE_VERSION(PACKAGE_VERSION);
 MODULE_LICENSE("GPL");
 
 module_init(osp_init);

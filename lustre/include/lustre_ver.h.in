@@ -8,7 +8,6 @@
 #define LUSTRE_MINOR @AC_LUSTRE_MINOR@
 #define LUSTRE_PATCH @AC_LUSTRE_PATCH@
 #define LUSTRE_FIX @AC_LUSTRE_FIX@
-#define LUSTRE_VERSION_STRING "@PACKAGE_VERSION@"
 
 #define OBD_OCD_VERSION(major, minor, patch, fix)			\
 	(((major) << 24) + ((minor) << 16) + ((patch) << 8) + (fix))

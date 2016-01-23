@@ -1968,7 +1968,7 @@ static void __exit lod_exit(void)
 
 MODULE_AUTHOR("OpenSFS, Inc. <http://www.lustre.org/>");
 MODULE_DESCRIPTION("Lustre Logical Object Device ("LUSTRE_LOD_NAME")");
-MODULE_VERSION(LUSTRE_VERSION_STRING);
+MODULE_VERSION(PACKAGE_VERSION);
 MODULE_LICENSE("GPL");
 
 module_init(lod_init);
