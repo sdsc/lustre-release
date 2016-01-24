@@ -1,5 +1,13 @@
 #!/bin/sh
 
+X=`ps auxwww | grep -E 'hudson[0-9]+\.sh' | sed 's/.*\/tmp\///'`
+echo /tmp/$X
+echo "==== HUDSON START ===="
+cat /tmp/$X
+echo "==== HUDSON END ===="
+
+exit 1
+
 # NOTE: Please avoid bashisms (bash specific syntax) in this script
 
 set -e
