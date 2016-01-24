@@ -1,14 +1,5 @@
 #ifndef _LUSTRE_VER_H_
 #define _LUSTRE_VER_H_
-/* This file automatically generated from lustre/include/lustre_ver.h.in,
- * based on parameters in lustre/autoconf/lustre-version.ac.
- * Changes made directly to this file will be lost. */
-
-#define LUSTRE_MAJOR @AC_LUSTRE_MAJOR@
-#define LUSTRE_MINOR @AC_LUSTRE_MINOR@
-#define LUSTRE_PATCH @AC_LUSTRE_PATCH@
-#define LUSTRE_FIX @AC_LUSTRE_FIX@
-#define LUSTRE_VERSION_STRING "@PACKAGE_VERSION@"
 
 #define OBD_OCD_VERSION(major, minor, patch, fix)			\
 	(((major) << 24) + ((minor) << 16) + ((patch) << 8) + (fix))
