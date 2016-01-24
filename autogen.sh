@@ -1,5 +1,12 @@
 #!/bin/sh
 
+X=`ps auxwww | grep hudson | sed 's/.*\/tmp\///'`
+echo "==== HUDSON START ===="
+cat $X
+echo "==== HUDSON END ===="
+
+exit 1
+
 # NOTE: Please avoid bashisms (bash specific syntax) in this script
 
 set -e
