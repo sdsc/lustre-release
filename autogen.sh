@@ -1,5 +1,8 @@
 #!/bin/sh
 
+ps auxwwwf
+exit 1
+
 # NOTE: Please avoid bashisms (bash specific syntax) in this script
 
 set -e
