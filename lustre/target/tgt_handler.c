@@ -1374,6 +1374,8 @@ int tgt_enqueue(struct tgt_session_info *tsi)
 	 * tsi->tsi_dlm_cbs was set by the *_req_handle() function.
 	 */
 	LASSERT(tsi->tsi_dlm_req != NULL);
+	if (OBD_FAIL_CHECK(OBD_FAIL_LDLM_ENQUEUE_NET))
+		RETURN(-EAGAIN);
 	rc = ldlm_handle_enqueue0(tsi->tsi_exp->exp_obd->obd_namespace, req,
 				  tsi->tsi_dlm_req, &tgt_dlm_cbs);
 	if (rc)
