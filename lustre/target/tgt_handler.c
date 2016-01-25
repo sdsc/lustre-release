@@ -1412,6 +1412,8 @@ int tgt_enqueue(struct tgt_session_info *tsi)
 		tsi->tsi_reply_fail_id = OBD_FAIL_LDLM_REPLY;
 		break;
 	}
+	if (OBD_FAIL_CHECK(OBD_FAIL_LDLM_ENQUEUE_NET))
+		tsi->tsi_reply_fail_id = OBD_FAIL_MDS_LDLM_REPLY_NET;
 	RETURN(req->rq_status);
 }
 EXPORT_SYMBOL(tgt_enqueue);
