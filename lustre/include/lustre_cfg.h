@@ -100,6 +100,7 @@ enum lcfg_command_type {
 					      * cleanup cleanup */
 	LCFG_SET_PARAM		= 0x00ce032, /**< use set_param syntax to set
 					      *a proc parameters */
+	LCFG_PARAMS_START	= 0x00cf033, /**< process params log */
 	LCFG_NODEMAP_ADD        = 0x00ce040, /**< create a cluster */
 	LCFG_NODEMAP_DEL        = 0x00ce041, /**< destroy a cluster */
 	LCFG_NODEMAP_ADD_RANGE  = 0x00ce042, /**< add a nid range */
