@@ -2344,6 +2344,31 @@ test_130c() {
 }
 run_test 130c "layout intent resend on a stale inode"
 
+test_131() {
+	remote_ost_nodsh && skip "remote OST with nodsh" && return 0
+
+	rm -f $DIR/$tfile
+	# get a lock on client so that export would reach the stale list
+	$SETSTRIPE -i 0 $DIR/$tfile || error "setstripe failed"
+	dd if=/dev/zero of=$DIR/$tfile count=1 || error "dd failed"
+
+	# another IO under the same lock
+	#define OBD_FAIL_OSC_DELAY_IO            0x414
+	$LCTL set_param fail_loc=0x80000414
+	dd if=/dev/zero of=$DIR/$tfile count=1 conv=notrunc oflag=dsync &
+	local pid=$!
+	sleep 1
+
+	#define OBD_FAIL_LDLM_BL_EVICT           0x31e
+	set_nodes_failloc "$(osts_nodes)" 0x8000031e
+	ost_evict_client
+	client_reconnect
+
+	wait $pid && error "dd succeeded"
+	return 0
+}
+run_test 131 "IO vs evict results to IO under staled lock"
+
 complete $SECONDS
 check_and_cleanup_lustre
 exit_status
