@@ -3432,6 +3432,28 @@ test_91() {
 }
 run_test 91 "chmod and unlink striped directory"
 
+test_79() {
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
+	test_mkdir -p $DIR/$tdir
+
+	setfattr -n trusted.name1 -v value1 $DIR/$tdir ||
+		error "setfattr -n trusted.name1=value1 $DIR/$tdir failed"
+
+#define OBD_FAIL_MDS_INTENT_DELAY		0x160
+	local mdtidx=$($LFS getstripe -M $DIR/$tdir)
+	local facet=mds$((mdtidx + 1))
+	stat $DIR/$tdir
+	set_nodes_failloc $(facet_active_host $facet) 0x80000160
+	getfattr -n trusted.name1 $DIR/$tdir 2> /dev/null  &
+	local pid=$!
+	sleep 2
+
+	rm -rf $DIR2/$tdir
+	wait $pid
+	return 0
+}
+run_test 79 "xattr: intent error"
+
 log "cleanup: ======================================================"
 
 [ "$(mount | grep $MOUNT2)" ] && umount $MOUNT2
