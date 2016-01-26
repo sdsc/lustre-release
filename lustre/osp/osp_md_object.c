@@ -1121,9 +1121,14 @@ static ssize_t osp_md_write(const struct lu_env *env, struct dt_object *dt,
 	if (rc < 0)
 		RETURN(rc);
 
-	rc = osp_check_and_set_rpc_version(oth, obj);
-	if (rc < 0)
-		RETURN(rc);
+	/* Do not add the request to the sending list(by version), if
+	 * it the write request is transistent and urgent
+	 * (th_local ==1 && th_sync == 1), see llog_cat_new_log() */
+	if (!(th->th_local && th->th_sync)) {
+		rc = osp_check_and_set_rpc_version(oth, obj);
+		if (rc < 0)
+			RETURN(rc);
+	}
 
 	/* XXX: how about the write error happened later? */
 	*pos += buf->lb_len;
