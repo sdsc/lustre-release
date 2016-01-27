@@ -835,6 +835,8 @@ int llog_create(const struct lu_env *env, struct llog_handle *handle,
 		struct thandle *th)
 {
 	struct llog_operations	*lop;
+	struct thandle		*local_th = NULL;
+	struct dt_device	*dt = NULL;
 	int			 raised, rc;
 
 	ENTRY;
@@ -845,12 +847,43 @@ int llog_create(const struct lu_env *env, struct llog_handle *handle,
 	if (lop->lop_create == NULL)
 		RETURN(-EOPNOTSUPP);
 
+	if (th == NULL) {
+		dt = lu2dt_dev(handle->lgh_obj->do_lu.lo_dev);
+		local_th = dt_trans_create(env, dt);
+		if (IS_ERR(local_th))
+			RETURN(PTR_ERR(local_th));
+
+		/* Create update llog object synchronously, which
+		 * happens during inialization process see
+		 * lod_sub_prep_llog(), to make sure the update
+		 * llog object is created before corss-MDT writing
+		 * updates into the llog object */
+		if (handle->lgh_ctxt->loc_flags & LLOG_CTXT_FLAG_NORMAL_FID)
+			local_th->th_sync = 1;
+
+		local_th->th_wait_submit = 1;
+		rc = llog_declare_create(env, handle, local_th);
+		if (rc != 0)
+			GOTO(out_trans, rc);
+
+		rc = dt_trans_start_local(env, dt, local_th);
+		if (rc != 0)
+			GOTO(out_trans, rc);
+
+		th = local_th;
+	}
+
 	raised = cfs_cap_raised(CFS_CAP_SYS_RESOURCE);
 	if (!raised)
 		cfs_cap_raise(CFS_CAP_SYS_RESOURCE);
 	rc = lop->lop_create(env, handle, th);
 	if (!raised)
 		cfs_cap_lower(CFS_CAP_SYS_RESOURCE);
+
+out_trans:
+	if (local_th != NULL)
+		dt_trans_stop(env, dt, local_th);
+
 	RETURN(rc);
 }
 

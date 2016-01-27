@@ -1065,78 +1065,6 @@ static int lod_attr_get(const struct lu_env *env,
 }
 
 /**
- * Mark all of the striped directory sub-stripes dead.
- *
- * When a striped object is a subject to removal, we have
- * to mark all the stripes to prevent further access to
- * them (e.g. create a new file in those). So we mark
- * all the stripes with LMV_HASH_FLAG_DEAD. The function
- * can be used to declare the changes and to apply them.
- * If the object isn't striped, then just return success.
- *
- * \param[in] env	execution environment
- * \param[in] dt	the striped object
- * \param[in] handle	transaction handle
- * \param[in] declare	whether to declare the change or apply
- *
- * \retval		0 on success
- * \retval		negative if failed
- **/
-static int lod_mark_dead_object(const struct lu_env *env,
-				struct dt_object *dt,
-				struct thandle *th,
-				bool declare)
-{
-	struct lod_object	*lo = lod_dt_obj(dt);
-	struct lmv_mds_md_v1	*lmv;
-	__u32			dead_hash_type;
-	int			rc;
-	int			i;
-
-	ENTRY;
-
-	if (!S_ISDIR(dt->do_lu.lo_header->loh_attr))
-		RETURN(0);
-
-	rc = lod_load_striping_locked(env, lo);
-	if (rc != 0)
-		RETURN(rc);
-
-	if (lo->ldo_stripenr == 0)
-		RETURN(0);
-
-	rc = lod_get_lmv_ea(env, lo);
-	if (rc <= 0)
-		RETURN(rc);
-
-	lmv = lod_env_info(env)->lti_ea_store;
-	lmv->lmv_magic = cpu_to_le32(LMV_MAGIC_STRIPE);
-	dead_hash_type = le32_to_cpu(lmv->lmv_hash_type) | LMV_HASH_FLAG_DEAD;
-	lmv->lmv_hash_type = cpu_to_le32(dead_hash_type);
-	for (i = 0; i < lo->ldo_stripenr; i++) {
-		struct lu_buf buf;
-
-		lmv->lmv_master_mdt_index = i;
-		buf.lb_buf = lmv;
-		buf.lb_len = sizeof(*lmv);
-		if (declare) {
-			rc = lod_sub_object_declare_xattr_set(env,
-						lo->ldo_stripe[i], &buf,
-						XATTR_NAME_LMV,
-						LU_XATTR_REPLACE, th);
-		} else {
-			rc = lod_sub_object_xattr_set(env, lo->ldo_stripe[i],
-						      &buf, XATTR_NAME_LMV,
-						      LU_XATTR_REPLACE, th);
-		}
-		if (rc != 0)
-			break;
-	}
-
-	RETURN(rc);
-}
-
-/**
  * Implementation of dt_object_operations::do_declare_attr_set.
  *
  * If the object is striped, then apply the changes to all the stripes.
@@ -1153,13 +1081,6 @@ static int lod_declare_attr_set(const struct lu_env *env,
 	struct lod_object *lo = lod_dt_obj(dt);
 	int                rc, i;
 	ENTRY;
-
-	/* Set dead object on all other stripes */
-	if (attr->la_valid & LA_FLAGS && !(attr->la_valid & ~LA_FLAGS) &&
-	    attr->la_flags & LUSTRE_SLAVE_DEAD_FL) {
-		rc = lod_mark_dead_object(env, dt, th, true);
-		RETURN(rc);
-	}
 
 	/*
 	 * declare setattr on the local object
@@ -1252,13 +1173,6 @@ static int lod_attr_set(const struct lu_env *env,
 	struct lod_object	*lo = lod_dt_obj(dt);
 	int			rc, i;
 	ENTRY;
-
-	/* Set dead object on all other stripes */
-	if (attr->la_valid & LA_FLAGS && !(attr->la_valid & ~LA_FLAGS) &&
-	    attr->la_flags & LUSTRE_SLAVE_DEAD_FL) {
-		rc = lod_mark_dead_object(env, dt, th, false);
-		RETURN(rc);
-	}
 
 	/*
 	 * apply changes to the local object
@@ -3890,11 +3804,6 @@ static int lod_object_sync(const struct lu_env *env, struct dt_object *dt,
 	return dt_object_sync(env, dt_object_child(dt), start, end);
 }
 
-struct lod_slave_locks	{
-	int			lsl_lock_count;
-	struct lustre_handle	lsl_handle[0];
-};
-
 /**
  * Release LDLM locks on the stripes of a striped directory.
  *
@@ -3914,7 +3823,7 @@ static int lod_object_unlock_internal(const struct lu_env *env,
 				      struct ldlm_enqueue_info *einfo,
 				      union ldlm_policy_data *policy)
 {
-	struct lod_slave_locks  *slave_locks = einfo->ei_cbdata;
+	struct lustre_handle_array *slave_locks = einfo->ei_cbdata;
 	int			rc = 0;
 	int			i;
 	ENTRY;
@@ -3922,9 +3831,9 @@ static int lod_object_unlock_internal(const struct lu_env *env,
 	if (slave_locks == NULL)
 		RETURN(0);
 
-	for (i = 1; i < slave_locks->lsl_lock_count; i++) {
-		if (lustre_handle_is_used(&slave_locks->lsl_handle[i]))
-			ldlm_lock_decref(&slave_locks->lsl_handle[i],
+	for (i = 1; i < slave_locks->count; i++) {
+		if (lustre_handle_is_used(&slave_locks->handles[i]))
+			ldlm_lock_decref(&slave_locks->handles[i],
 					 einfo->ei_mode);
 	}
 
@@ -3943,32 +3852,31 @@ static int lod_object_unlock(const struct lu_env *env, struct dt_object *dt,
 			     struct ldlm_enqueue_info *einfo,
 			     union ldlm_policy_data *policy)
 {
-	struct lod_object	*lo = lod_dt_obj(dt);
-	struct lod_slave_locks  *slave_locks = einfo->ei_cbdata;
-	int			slave_locks_size;
-	int			rc;
+	struct lod_object *lo = lod_dt_obj(dt);
+	struct lustre_handle_array *slave_locks = einfo->ei_cbdata;
+	int slave_locks_size;
+	int i;
 	ENTRY;
 
 	if (slave_locks == NULL)
 		RETURN(0);
 
-	if (!S_ISDIR(dt->do_lu.lo_header->loh_attr))
-		RETURN(-ENOTDIR);
-
+	LASSERT(S_ISDIR(dt->do_lu.lo_header->loh_attr));
+	LASSERT(lo->ldo_stripenr > 1);
 	/* Note: for remote lock for single stripe dir, MDT will cancel
 	 * the lock by lockh directly */
-	if (lo->ldo_stripenr <= 1 && dt_object_remote(dt_object_child(dt)))
-		RETURN(0);
+	LASSERT(!dt_object_remote(dt_object_child(dt)));
 
-	/* Only cancel slave lock for striped dir */
-	rc = lod_object_unlock_internal(env, dt, einfo, policy);
+	/* locks were unlocked in MDT layer */
+	for (i = 1; i < slave_locks->count; i++)
+		LASSERT(!lustre_handle_is_used(&slave_locks->handles[i]));
 
-	slave_locks_size = sizeof(*slave_locks) + slave_locks->lsl_lock_count *
-			   sizeof(slave_locks->lsl_handle[0]);
+	slave_locks_size = sizeof(*slave_locks) + slave_locks->count *
+			   sizeof(slave_locks->handles[0]);
 	OBD_FREE(slave_locks, slave_locks_size);
 	einfo->ei_cbdata = NULL;
 
-	RETURN(rc);
+	RETURN(0);
 }
 
 /**
@@ -3989,7 +3897,7 @@ static int lod_object_lock(const struct lu_env *env,
 	int			rc = 0;
 	int			i;
 	int			slave_locks_size;
-	struct lod_slave_locks	*slave_locks = NULL;
+	struct lustre_handle_array *slave_locks = NULL;
 	ENTRY;
 
 	/* remote object lock */
@@ -4011,12 +3919,12 @@ static int lod_object_lock(const struct lu_env *env,
 		RETURN(0);
 
 	slave_locks_size = sizeof(*slave_locks) + lo->ldo_stripenr *
-			   sizeof(slave_locks->lsl_handle[0]);
+			   sizeof(slave_locks->handles[0]);
 	/* Freed in lod_object_unlock */
 	OBD_ALLOC(slave_locks, slave_locks_size);
 	if (slave_locks == NULL)
 		RETURN(-ENOMEM);
-	slave_locks->lsl_lock_count = lo->ldo_stripenr;
+	slave_locks->count = lo->ldo_stripenr;
 
 	/* striped directory lock */
 	for (i = 1; i < lo->ldo_stripenr; i++) {
@@ -4038,6 +3946,10 @@ static int lod_object_lock(const struct lu_env *env,
 			ldlm_completion_callback completion = einfo->ei_cb_cp;
 			__u64	dlmflags = LDLM_FL_ATOMIC_CB;
 
+			if (einfo->ei_mode == LCK_PW ||
+			    einfo->ei_mode == LCK_EX)
+				dlmflags |= LDLM_FL_COS_INCOMPAT;
+
 			/* This only happens if there are mulitple stripes
 			 * on the master MDT, i.e. except stripe0, there are
 			 * other stripes on the Master MDT as well, Only
@@ -4052,7 +3964,7 @@ static int lod_object_lock(const struct lu_env *env,
 		}
 		if (rc != 0)
 			GOTO(out, rc);
-		slave_locks->lsl_handle[i] = lockh;
+		slave_locks->handles[i] = lockh;
 	}
 
 	einfo->ei_cbdata = slave_locks;

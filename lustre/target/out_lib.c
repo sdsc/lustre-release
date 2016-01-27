@@ -1009,7 +1009,7 @@ static int out_obj_index_insert(const struct lu_env *env,
 {
 	int rc;
 
-	CDEBUG(D_INFO, "%s: index insert "DFID" name: %s fid "DFID", type %u\n",
+	CDEBUG(D_HA, "%s: index insert "DFID" name: %s fid "DFID", type %u\n",
 	       dt_obd_name(th->th_dev), PFID(lu_object_fid(&dt_obj->do_lu)),
 	       (char *)key, PFID(((struct dt_insert_rec *)rec)->rec_fid),
 	       ((struct dt_insert_rec *)rec)->rec_type);
@@ -1031,7 +1031,7 @@ static int out_obj_index_delete(const struct lu_env *env,
 {
 	int rc;
 
-	CDEBUG(D_INFO, "%s: index delete "DFID" name: %s\n",
+	CDEBUG(D_HA, "%s: index delete "DFID" name: %s\n",
 	       dt_obd_name(th->th_dev), PFID(lu_object_fid(&dt_obj->do_lu)),
 	       (char *)key);
 

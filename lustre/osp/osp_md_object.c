@@ -904,6 +904,8 @@ static int osp_md_object_lock(const struct lu_env *env,
 
 	if (einfo->ei_nonblock)
 		flags |= LDLM_FL_BLOCK_NOWAIT;
+	if (einfo->ei_mode & (LCK_EX | LCK_PW))
+		flags |= LDLM_FL_COS_INCOMPAT;
 
 	req = ldlm_enqueue_pack(osp->opd_exp, 0);
 	if (IS_ERR(req))
@@ -923,13 +925,6 @@ static int osp_md_object_lock(const struct lu_env *env,
 			      &flags, NULL, 0, LVB_T_NONE, lh, 0);
 
 	ptlrpc_req_finished(req);
-	if (rc == ELDLM_OK) {
-		struct ldlm_lock *lock;
-
-		lock = __ldlm_handle2lock(lh, 0);
-		ldlm_set_cbpending(lock);
-		LDLM_LOCK_PUT(lock);
-	}
 
 	return rc == ELDLM_OK ? 0 : -EIO;
 }
@@ -1121,9 +1116,14 @@ static ssize_t osp_md_write(const struct lu_env *env, struct dt_object *dt,
 	if (rc < 0)
 		RETURN(rc);
 
-	rc = osp_check_and_set_rpc_version(oth, obj);
-	if (rc < 0)
-		RETURN(rc);
+	/* Do not add the request to the sending list(by version), if
+	 * it the write request is transistent and urgent
+	 * (th_local ==1 && th_sync == 1), see llog_cat_new_log() */
+	if (!(th->th_local && th->th_sync)) {
+		rc = osp_check_and_set_rpc_version(oth, obj);
+		if (rc < 0)
+			RETURN(rc);
+	}
 
 	/* XXX: how about the write error happened later? */
 	*pos += buf->lb_len;
