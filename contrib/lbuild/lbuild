@@ -1813,6 +1813,13 @@ g/\(\/usr\/src\/kernels\/\)/s//$tmp\/reused\1/g
 wq
 EOF
 
+    echo "========= find-requires ========="
+    cat find-requires
+    echo "========= find-requires ========="
+    cat find-requires.ksyms
+    echo "========= find-requires ========="
+    cat symset-table
+
     build_ofed "${LINUXOBJ:-$LINUX}" "$OFED_VERSION" ||
         fatal 1 "error building OFED"
 
