@@ -88,20 +88,34 @@ liblustreapitmp_a_SOURCES = liblustreapi.c liblustreapi_hsm.c \
 			    $(top_builddir)/libcfs/libcfs/util/param.c \
 			    liblustreapi_ladvise.c
 if UTILS
+LIB_TARGETS = liblustreapi.so
+if LDISKFS_ENABLED
+LIB_TARGETS += mount_osd_ldiskfs.so
+endif
+if ZFS_ENABLED
+LIB_TARGETS += mount_osd_zfs.so
+endif
+
 # build static and shared lib lustreapi
 liblustreapi.a : liblustreapitmp.a
 	rm -f liblustreapi.a liblustreapi.so
 	$(CC) $(LDFLAGS) -shared -o liblustreapi.so `$(AR) -t liblustreapitmp.a`
 	mv liblustreapitmp.a liblustreapi.a
 
-install-exec-hook: liblustreapi.so
+install-exec-hook:
 	@$(NORMAL_INSTALL)
 	$(mkinstalldirs) $(DESTDIR)$(libdir)
-	@list=$< ; for p in $$list; do \
+	$(mkinstalldirs) $(DESTDIR)$(libdir)/lustre
+	for p in $(LIB_TARGETS); do \
 	  if test -f $$p; then \
 	    f="`echo $$p | sed -e 's|^.*/||'`"; \
-	    echo " $(INSTALL_DATA) $$p $(DESTDIR)$(libdir)/$$f"; \
-	    $(INSTALL_DATA) $$p $(DESTDIR)$(libdir)/$$f; \
+	    if `echo -n $$p | grep -q mount`; then \
+		echo " $(INSTALL_DATA) $$p $(DESTDIR)$(libdir)/lustre/$$f"; \
+		$(INSTALL_DATA) $$p $(DESTDIR)$(libdir)/lustre/$$f; \
+	    else \
+		echo " $(INSTALL_DATA) $$p $(DESTDIR)$(libdir)/$$f"; \
+		$(INSTALL_DATA) $$p $(DESTDIR)$(libdir)/$$f; \
+	    fi; \
 	  else :; fi; \
 	done
 endif # UTILS
@@ -121,20 +135,29 @@ lr_reader_SOURCES = lr_reader.c
 if UTILS
 
 if ZFS_ENABLED
-pkglib_LTLIBRARIES += mount_osd_zfs.la
+lib_LIBRARIES += libmount_utils_zfs.a
+noinst_LIBRARIES += libmount_osd_zfs.a
 
-mount_osd_zfs_la_SOURCES = mount_utils_zfs.c
-mount_osd_zfs_la_CPPFLAGS := -DHAVE_IOCTL_IN_UNISTD_H $(ZFS_LIBZFS_INCLUDE)
-mount_osd_zfs_la_LDFLAGS  := -pthread $(ZFS_LIBZFS_LDFLAGS)
-mount_osd_zfs_la_LDFLAGS  += -shared -export-dynamic -module -avoid-version
+libmount_osd_zfs_a_SOURCES = libmount_utils_zfs.c
+libmount_osd_zfs_a_CPPFLAGS := -DHAVE_IOCTL_IN_UNISTD_H $(ZFS_LIBZFS_INCLUDE)
+
+libmount_utils_zfs.a : libmount_osd_zfs.a
+	$(CC) $(LDFLAGS) $(MNTMODLDFLAGS) -shared -export-dynamic -pthread \
+			 $(ZFS_LIBZFS_LDFLAGS) -o mount_osd_zfs.so \
+			 `$(AR) -t libmount_osd_zfs.a`
 endif # ZFS_ENABLED
 
 if LDISKFS_ENABLED
-pkglib_LTLIBRARIES += mount_osd_ldiskfs.la
+lib_LIBRARIES += libmount_utils_ldiskfs.a
+noinst_LIBRARIES += libmount_osd_ldiskfs.a
 
-mount_osd_ldiskfs_la_SOURCES = mount_utils_ldiskfs.c
-mount_osd_ldiskfs_la_LDFLAGS  := -shared -export-dynamic -module -avoid-version
-mount_osd_ldiskfs_la_LIBADD   := $(SELINUX)
+libmount_osd_ldiskfs_a_SOURCES = libmount_utils_ldiskfs.c
+libmount_osd_ldiskfs_a_CPPFLAGS := $(SELINUX)
+
+libmount_utils_ldiskfs.a : libmount_osd_ldiskfs.a
+	$(CC) $(LDFLAGS) $(MNTMODLDFLAGS) -shared -export-dynamic \
+			 $(SELINUX) -o mount_osd_ldiskfs.so \
+			 `$(AR) -t libmount_osd_ldiskfs.a`
 endif # LDISKFS_ENABLED
 
 mount_lustre_SOURCES = mount_lustre.c mount_utils.c mount_utils.h
