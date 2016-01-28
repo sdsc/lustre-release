@@ -8725,7 +8725,7 @@ test_129() {
 	has_warning=0
 
 	rm -rf $DIR/$tdir
-	test_mkdir -p $DIR/$tdir
+	mkdir -p $DIR/$tdir
 
 	# block size of mds1
 	local MDT_DEV=$(mdsdevname ${SINGLEMDS//mds/})
@@ -8734,9 +8734,6 @@ test_129() {
 	set_dir_limits $MAX $MAX
 	local I=$(stat -c%s "$DIR/$tdir")
 	local J=0
-	local STRIPE_COUNT=1
-	[[ $MDSCOUNT -ge 2 ]] && STRIPE_COUNT=$($LFS getdirstripe -c $DIR/$tdir)
-	MAX=$((MAX*STRIPE_COUNT))
 	while [[ $I -le $MAX ]]; do
 		$MULTIOP $DIR/$tdir/$J Oc
 		rc=$?
@@ -8749,9 +8746,13 @@ test_129() {
 		#and EFBIG for previous versions
 		if [ $rc -eq $EFBIG -o $rc -eq $ENOSPC ]; then
 			set_dir_limits 0 0
+			echo "creating $DIR/$tdir/$J hit return code $rc"
 			echo "return code $rc received as expected"
-			multiop $DIR/$tdir/$J Oc ||
-				error_exit "multiop failed w/o dir size limit"
+
+			for i in $(seq 10); do
+				multiop $DIR/$tdir/$J_$i Oc || error_exit \
+					"multiop failed w/o dir size limit"
+			done
 
 			check_mds_dmesg '"has reached"' ||
 				error_exit "has reached message should be output"
