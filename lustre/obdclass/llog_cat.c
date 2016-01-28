@@ -105,27 +105,29 @@ static int llog_cat_new_log(const struct lu_env *env,
 		loghandle->lgh_hdr = NULL;
 	}
 
-	if (th == NULL) {
-		dt = lu2dt_dev(cathandle->lgh_obj->do_lu.lo_dev);
+	/* Note: if th == NULL, which usually happens for remote llog object,
+	 * llog_create will create the object synchronously in a separate
+	 * transaction to avoid recovery trouble */
+	rc = llog_create(env, loghandle, th);
+	if (rc == -EEXIST) {
+		/* if llog is already created, no need to initialize it */
+		GOTO(out, rc = 0);
+	} else if (rc != 0) {
+		CERROR("%s: can't create new plain llog in catalog: rc = %d\n",
+		       loghandle->lgh_ctxt->loc_obd->obd_name, rc);
+		GOTO(out, rc);
+	}
 
+	if (th == NULL) {
+		/* Start the transaction to append the llog to the catlog */
+		dt = lu2dt_dev(cathandle->lgh_obj->do_lu.lo_dev);
 		handle = dt_trans_create(env, dt);
 		if (IS_ERR(handle))
 			RETURN(PTR_ERR(handle));
-
-		/* Create update llog object synchronously, which
-		 * happens during inialization process see
-		 * lod_sub_prep_llog(), to make sure the update
-		 * llog object is created before corss-MDT writing
-		 * updates into the llog object */
 		if (cathandle->lgh_ctxt->loc_flags & LLOG_CTXT_FLAG_NORMAL_FID)
 			handle->th_sync = 1;
 
 		handle->th_wait_submit = 1;
-
-		rc = llog_declare_create(env, loghandle, handle);
-		if (rc != 0)
-			GOTO(out, rc);
-
 		rec->lid_hdr.lrh_len = sizeof(*rec);
 		rec->lid_hdr.lrh_type = LLOG_LOGID_MAGIC;
 		rec->lid_id = loghandle->lgh_id;
@@ -139,16 +141,6 @@ static int llog_cat_new_log(const struct lu_env *env,
 			GOTO(out, rc);
 
 		th = handle;
-	}
-
-	rc = llog_create(env, loghandle, th);
-	/* if llog is already created, no need to initialize it */
-	if (rc == -EEXIST) {
-		GOTO(out, rc = 0);
-	} else if (rc != 0) {
-		CERROR("%s: can't create new plain llog in catalog: rc = %d\n",
-		       loghandle->lgh_ctxt->loc_obd->obd_name, rc);
-		GOTO(out, rc);
 	}
 
 	rc = llog_init_handle(env, loghandle,
