@@ -889,7 +889,7 @@ static int osp_md_object_lock(const struct lu_env *env,
 	struct lu_device	*top_device;
 	struct ptlrpc_request	*req;
 	int			rc = 0;
-	__u64			flags = 0;
+	__u64			flags = LDLM_FL_EXCL;
 	enum ldlm_mode		mode;
 
 	res_id = einfo->ei_res_id;
