@@ -318,20 +318,24 @@ struct osd_object {
 	sa_handle_t		*oo_sa_hdl;
 	nvlist_t		*oo_sa_xattr;
 	struct list_head	 oo_sa_linkage;
-	struct list_head	 oo_unlinked_linkage;
-
 	struct rw_semaphore	 oo_sem;
+
+	/* protected by oo_sem */
+	struct list_head	 oo_unlinked_linkage;
 
 	/* cached attributes */
 	rwlock_t		 oo_attr_lock;
 	struct lu_attr		 oo_attr;
 
 	/* protects extended attributes and oo_unlinked_linkage */
-	struct semaphore	 oo_guard;
+	struct rw_semaphore	 oo_guard;
 	uint64_t		 oo_xattr;
 	enum osd_destroy_type	 oo_destroy;
 
 	__u32			 oo_destroyed:1;
+
+	/* the i_flags in LMA */
+	__u32			 oo_lma_flags;
 	/* record size for index file */
 	unsigned char		 oo_keysize;
 	unsigned char		 oo_recsize;
@@ -517,6 +521,10 @@ osd_xattr_set_internal(const struct lu_env *env, struct osd_object *obj,
 {
 	int rc;
 
+	if (unlikely(!dt_object_exists(&obj->oo_dt) || obj->oo_destroyed))
+		return -ENOENT;
+
+	LASSERT(obj->oo_db);
 	if (osd_obj2dev(obj)->od_xattr_in_sa) {
 		rc = __osd_sa_xattr_set(env, obj, buf, name, fl, oh);
 		if (rc == -EFBIG)
@@ -530,16 +538,16 @@ osd_xattr_set_internal(const struct lu_env *env, struct osd_object *obj,
 
 static inline uint64_t attrs_fs2zfs(const uint32_t flags)
 {
-	return (((flags & FS_APPEND_FL)		? ZFS_APPENDONLY	: 0) |
-		((flags & FS_NODUMP_FL)		? ZFS_NODUMP		: 0) |
-		((flags & FS_IMMUTABLE_FL)	? ZFS_IMMUTABLE		: 0));
+	return (flags & LUSTRE_APPEND_FL	? ZFS_APPENDONLY	: 0) |
+		(flags & LUSTRE_NODUMP_FL	? ZFS_NODUMP		: 0) |
+		(flags & LUSTRE_IMMUTABLE_FL	? ZFS_IMMUTABLE		: 0);
 }
 
 static inline uint32_t attrs_zfs2fs(const uint64_t flags)
 {
-	return (((flags & ZFS_APPENDONLY)	? FS_APPEND_FL		: 0) |
-		((flags & ZFS_NODUMP)		? FS_NODUMP_FL		: 0) |
-		((flags & ZFS_IMMUTABLE)	? FS_IMMUTABLE_FL	: 0));
+	return (flags & ZFS_APPENDONLY	? LUSTRE_APPEND_FL	: 0) |
+		(flags & ZFS_NODUMP	? LUSTRE_NODUMP_FL	: 0) |
+		(flags & ZFS_IMMUTABLE	? LUSTRE_IMMUTABLE_FL	: 0);
 }
 
 #endif
