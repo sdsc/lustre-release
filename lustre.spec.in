@@ -12,6 +12,13 @@
 %bcond_without manpages
 %bcond_without shared
 %bcond_without static
+%bcond_with initramfs
+
+%if %{with initramfs}
+    %define initramfs_option %{nil}
+%else
+    %define initramfs_option --no-initramfs
+%endif
 
 %if %{without servers}
     # --without servers overrides --with {ldiskfs|zfs}
@@ -618,12 +625,12 @@ MODULES_RPM_NAME=$(rpm -q %{name}-modules | grep "%{version}-%{release}")
 # Suse
 if [ -x /usr/lib/module-init-tools/weak-modules ]; then
     rpm -ql $MODULES_RPM_NAME | grep '\.ko$' |
-        /usr/lib/module-init-tools/weak-modules --add-modules
+        /usr/lib/module-init-tools/weak-modules %{initramfs_option} --add-modules
 fi
 # RedHat
 if [ -x /sbin/weak-modules ]; then
     rpm -ql $MODULES_RPM_NAME | grep '\.ko$' |
-        /sbin/weak-modules --add-modules
+        /sbin/weak-modules %{initramfs_option} --add-modules
 fi
 
 # If the kernel was built to reject unsupported modules (e.g. not a Lustre
@@ -660,12 +667,12 @@ OSD_LDISKFS_RPM_NAME=$(rpm -q %{name}-osd-ldiskfs | grep "%{version}-%{release}"
 # Suse
 if [ -x /usr/lib/module-init-tools/weak-modules ]; then
     rpm -ql $OSD_LDISKFS_RPM_NAME | grep '\.ko$' |
-        /usr/lib/module-init-tools/weak-modules --add-modules
+        /usr/lib/module-init-tools/weak-modules %{initramfs_option} --add-modules
 fi
 # RedHat
 if [ -x /sbin/weak-modules ]; then
     rpm -ql $OSD_LDISKFS_RPM_NAME | grep '\.ko$' |
-        /sbin/weak-modules --add-modules
+        /sbin/weak-modules %{initramfs_option} --add-modules
 fi
 
 # If the kernel was built to reject unsupported modules (e.g. not a Lustre
@@ -709,12 +716,12 @@ OSD_ZFS_RPM_NAME=$(rpm -q %{name}-osd-zfs | grep "%{version}-%{release}")
 # Suse
 if [ -x /usr/lib/module-init-tools/weak-modules ]; then
     rpm -ql $OSD_ZFS_RPM_NAME | grep '\.ko$' |
-        /usr/lib/module-init-tools/weak-modules --add-modules
+        /usr/lib/module-init-tools/weak-modules %{initramfs_option} --add-modules
 fi
 # RedHat
 if [ -x /sbin/weak-modules ]; then
     rpm -ql $OSD_ZFS_RPM_NAME | grep '\.ko$' |
-        /sbin/weak-modules --add-modules
+        /sbin/weak-modules %{initramfs_option} --add-modules
 fi
 
 # If the kernel was built to reject unsupported modules (e.g. not a Lustre
@@ -798,12 +805,12 @@ fi
 # Suse
 if [ -x /usr/lib/module-init-tools/weak-modules ]; then
     cat /var/run/%{name}-modules |
-        /usr/lib/module-init-tools/weak-modules --remove-modules
+        /usr/lib/module-init-tools/weak-modules %{initramfs_option} --remove-modules
 fi
 # RedHat
 if [ -x /sbin/weak-modules ]; then
     cat /var/run/%{name}-modules |
-        /sbin/weak-modules --remove-modules
+        /sbin/weak-modules %{initramfs_option} --remove-modules
 fi
 rm /var/run/%{name}-modules
 
@@ -819,12 +826,12 @@ fi
 # Suse
 if [ -x /usr/lib/module-init-tools/weak-modules ]; then
     cat /var/run/%{name}-osd-ldiskfs |
-        /usr/lib/module-init-tools/weak-modules --remove-modules
+        /usr/lib/module-init-tools/weak-modules %{initramfs_option} --remove-modules
 fi
 # RedHat
 if [ -x /sbin/weak-modules ]; then
     cat /var/run/%{name}-osd-ldiskfs |
-        /sbin/weak-modules --remove-modules
+        /sbin/weak-modules %{initramfs_option} --remove-modules
 fi
 rm /var/run/%{name}-osd-ldiskfs
 %endif
@@ -841,12 +848,12 @@ fi
 # Suse
 if [ -x /usr/lib/module-init-tools/weak-modules ]; then
     cat /var/run/%{name}-osd-zfs |
-        /usr/lib/module-init-tools/weak-modules --remove-modules
+        /usr/lib/module-init-tools/weak-modules %{initramfs_option} --remove-modules
 fi
 # RedHat
 if [ -x /sbin/weak-modules ]; then
     cat /var/run/%{name}-osd-zfs |
-        /sbin/weak-modules --remove-modules
+        /sbin/weak-modules %{initramfs_option} --remove-modules
 fi
 rm /var/run/%{name}-osd-zfs
 %endif

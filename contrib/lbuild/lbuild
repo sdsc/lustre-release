@@ -67,6 +67,7 @@ USE_BUILD_CACHE=true
 # what does this do exactly?  does it imply no kernel build?
 NORPM=false
 IOKITRPM=true
+INITRAMFS=false
 OSDLDISKFSRPM=true
 OSDZFSRPM=false
 SMPTYPES="smp bigsmp default ''"
@@ -180,6 +181,10 @@ Usage: ${0##*/} [OPTION]... [-- <lustre configure options>]
 
   --noiokit
     Do not build lustre-iokit RPM. Now true by default
+
+  --initramfs
+    Do not add --no-initramfs option to weak-modules command in RPM
+    scripts.
 
   --publish
     Unused.
@@ -986,6 +991,10 @@ build_lustre() {
 
     if ! $IOKITRPM; then
         RPMBUILD_DEFS="$RPMBUILD_DEFS --without lustre_iokit"
+    fi
+
+    if $INITRAMFS; then
+        RPMBUILD_DEFS="$RPMBUILD_DEFS --with initramfs"
     fi
 
     local osd_zfs=""
@@ -1970,7 +1979,7 @@ set -E
 
 [ -r ~/.lbuildrc ] && . ~/.lbuildrc
 
-options=$(getopt -o D:h -l kerneltree:,distro:,kernelrpm:,reusebuild:,patchless,ccache,norpm,external-patches:,timestamp:,extraversion:,kerneldir:,linux:,lustre:,nodownload,nosrc,noiokit,ofed-version:,mpss-version:,publish,disable-zfs,release,set-value:,src,stage:,target:,target-archs:,with-linux:,xen -- "$@")
+options=$(getopt -o D:h -l kerneltree:,distro:,kernelrpm:,reusebuild:,patchless,ccache,norpm,external-patches:,timestamp:,extraversion:,kerneldir:,linux:,lustre:,nodownload,nosrc,noiokit,initramfs,ofed-version:,mpss-version:,publish,disable-zfs,release,set-value:,src,stage:,target:,target-archs:,with-linux:,xen -- "$@")
 
 if [ $? != 0 ]; then
     usage 1
@@ -2034,6 +2043,10 @@ while [ "$1" ]; do
             ;;
         --noiokit)
             IOKITRPM=false
+            shift
+            ;;
+        --initramfs)
+            INITRAMFS=true
             shift
             ;;
         --patchless)

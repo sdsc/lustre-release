@@ -512,6 +512,26 @@ AS_IF([test x$enable_server = xyes],
 ]) # LB_CONFIG_SERVERS
 
 #
+# LB_CONFIG_INITRAMFS
+#
+# Generating initramfs slows down RPM installation and installation. Adding
+# --no-initramfs option to weak-modules command in RPM scripts could speedup
+# the process.
+#
+AC_DEFUN([LB_CONFIG_INITRAMFS],
+[AC_ARG_ENABLE([initramfs],
+	AC_HELP_STRING([--enable-initramfs],
+		[remove --no-initramfs option of weak-modules command]),
+	[
+		enable_initramfs='yes'
+	],[
+		enable_initramfs='no'
+	])
+AC_MSG_CHECKING([whether to remove --no-initramfs option of weak-modules command])
+AC_MSG_RESULT([$enable_initramfs])
+])
+
+#
 # LB_CONFIG_RPMBUILD_OPTIONS
 #
 # The purpose of this function is to assemble command line options
@@ -544,6 +564,7 @@ for arg; do
 		--enable-iokit | --disable-iokit ) ;;
 		--enable-dlc | --disable-dlc ) ;;
 		--enable-manpages | --disable-manpages ) ;;
+		--enable-initramfs | --disable-initramfs ) ;;
 		* ) CONFIGURE_ARGS="$CONFIGURE_ARGS '$arg'" ;;
 	esac
 done
@@ -601,6 +622,9 @@ fi
 if test x$enable_iokit != xyes ; then
 	RPMBINARGS="$RPMBINARGS --without lustre_iokit"
 fi
+if test x$enable_initramfs = xyes ; then
+	RPMBINARGS="$RPMBINARGS --with initramfs"
+fi
 if test x$USE_DLC = xyes ; then
 	RPMBINARGS="$RPMBINARGS --with lnet_dlc"
 fi
@@ -652,6 +676,7 @@ LB_CONFIG_TESTS
 LC_CONFIG_CLIENT
 LB_CONFIG_MPITESTS
 LB_CONFIG_SERVERS
+LB_CONFIG_INITRAMFS
 
 # Tests depends from utils (multiop from liblustreapi)
 AS_IF([test "x$enable_utils" = xno], [enable_tests="no"])
