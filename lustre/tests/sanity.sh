@@ -8725,7 +8725,7 @@ test_129() {
 	has_warning=0
 
 	rm -rf $DIR/$tdir
-	test_mkdir -p $DIR/$tdir
+	mkdir -p $DIR/$tdir
 
 	# block size of mds1
 	local MDT_DEV=$(mdsdevname ${SINGLEMDS//mds/})
@@ -8734,9 +8734,6 @@ test_129() {
 	set_dir_limits $MAX $MAX
 	local I=$(stat -c%s "$DIR/$tdir")
 	local J=0
-	local STRIPE_COUNT=1
-	[[ $MDSCOUNT -ge 2 ]] && STRIPE_COUNT=$($LFS getdirstripe -c $DIR/$tdir)
-	MAX=$((MAX*STRIPE_COUNT))
 	while [[ $I -le $MAX ]]; do
 		$MULTIOP $DIR/$tdir/$J Oc
 		rc=$?
