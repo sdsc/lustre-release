@@ -29,6 +29,7 @@
 #ifndef LNET_DLC_H
 #define LNET_DLC_H
 
+#include <libcfs/libcfs.h>
 #include <libcfs/libcfs_ioctl.h>
 #include <lnet/types.h>
 
@@ -49,6 +50,10 @@ struct lnet_ioctl_net_config {
 
 /* # different router buffer pools */
 #define LNET_NRBPOOLS		(LNET_LARGE_BUF_IDX + 1)
+
+enum lnet_dbg_task {
+	LNET_DBG_INCR_DLC_SEQ = 0
+};
 
 struct lnet_ioctl_pool_cfg {
 	struct {
@@ -94,6 +99,64 @@ struct lnet_ioctl_config_data {
 	char cfg_bulk[0];
 };
 
+/*
+ * To allow for future enhancements to extend the tunables
+ * add a hdr to this structure, so that the version can be set
+ * and checked for backwards compatibility. Newer versions of LNet
+ * can still work with older versions of lnetctl. The restriction is
+ * that the structure can be added to and not removed from in order
+ * to not invalidate older lnetctl utilities. Moreover, the order of
+ * fields must remain the same, and new fields appended to the structure
+ *
+ * That said all existing LND tunables will be added in this structure
+ * to avoid future changes.
+ */
+struct lnet_ioctl_config_lnd_cmn_tunables {
+	__s32 lct_peer_timeout;
+	__s32 lct_peer_tx_credits;
+	__s32 lct_peer_rtr_credits;
+	__s32 lct_max_tx_credits;
+};
+
+struct lnet_ioctl_config_o2iblnd_tunables {
+	/* TODO: ...List of all IB tunables... */
+};
+
+struct lnet_ioctl_config_socklnd_tunables {
+	/* TODO: ...List of all socklnd tunables... */
+};
+
+struct lnet_ioctl_config_lnd_tunables {
+	struct lnet_ioctl_config_lnd_cmn_tunables lt_cmn;
+	union {
+		struct lnet_ioctl_config_o2iblnd_tunables o2ib;
+		struct lnet_ioctl_config_socklnd_tunables sock;
+	} lt_tun_u;
+};
+
+/*
+ * lnet_ioctl_config_ni
+ *  This structure describes an NI configuration. There are multiple components
+ *  when configuring an NI: Net, Interfaces, CPT list and LND tunables
+ *  A network is passed as a string to the DLC and translated using
+ *  libcfs_str2net()
+ *  An interface is the name of the system configured interface
+ *  (ex eth0, ib1)
+ *  CPT is the list of CPTS LND tunables are passed in the lic_bulk area
+ */
+struct lnet_ioctl_config_ni {
+	struct libcfs_ioctl_hdr lic_cfg_hdr;
+	lnet_nid_t		lic_nid;
+	char 			lic_ni_intf[LNET_MAX_INTERFACES][LNET_MAX_STR_LEN];
+	char			lic_legacy_ip2nets[LNET_MAX_STR_LEN];
+	__u32 			lic_cpts[LNET_MAX_SHOW_NUM_CPT];
+	__u32			lic_ncpts;
+	__u32			lic_status;
+	__u32			lic_tcp_bonding;
+	__u32			lic_idx;
+	char 			lic_bulk[0];
+};
+
 struct lnet_peer_ni_credit_info {
 	char cr_aliveness[LNET_MAX_STR_LEN];
 	__u32 cr_refcount;
@@ -116,6 +179,24 @@ struct lnet_ioctl_peer {
 	} pr_lnd_u;
 };
 
+struct lnet_dbg_task_info {
+	/*
+	 * TODO: a union can be added if the task requires more
+	 * information from user space to be carried out in kernel space.
+	 */
+};
+
+/*
+ * This structure is intended to allow execution of debugging tasks. This
+ * is not intended to be backwards compatible. Extra tasks can be added in
+ * the future
+ */
+struct lnet_ioctl_dbg {
+	struct libcfs_ioctl_hdr dbg_hdr;
+	enum lnet_dbg_task dbg_task;
+	char dbg_bulk[0];
+};
+
 struct lnet_ioctl_peer_cfg {
 	struct libcfs_ioctl_hdr prcfg_hdr;
 	lnet_nid_t prcfg_key_nid;
@@ -127,6 +208,18 @@ struct lnet_ioctl_peer_cfg {
 struct lnet_ioctl_lnet_stats {
 	struct libcfs_ioctl_hdr st_hdr;
 	struct lnet_counters st_cntrs;
+};
+
+struct lnet_dlc_network_descr {
+	struct list_head network_on_rule;
+	__u32 nw_id;
+	struct list_head nw_intflist;
+};
+
+struct lnet_dlc_intf_descr {
+	struct list_head intf_on_network;
+	char intf_name[LNET_MAX_STR_LEN];
+	struct cfs_expr_list *cpt_expr;
 };
 
 #endif /* LNET_DLC_H */
