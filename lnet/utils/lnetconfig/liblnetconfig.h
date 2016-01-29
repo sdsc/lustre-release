@@ -33,6 +33,12 @@
 #define LUSTRE_CFG_RC_OUT_OF_RANGE_PARAM	-3
 #define LUSTRE_CFG_RC_OUT_OF_MEM		-4
 #define LUSTRE_CFG_RC_GENERIC_ERR		-5
+#define LUSTRE_CFG_RC_NO_MATCH			-6
+#define LUSTRE_CFG_RC_MATCH			-7
+
+#include <lnet/lnet.h>
+#include <libcfs/libcfs_string.h>
+#include <lnet/lib-dlc.h>
 
 /* forward declaration of the cYAML structure. */
 struct cYAML;
@@ -106,37 +112,35 @@ int lustre_lnet_show_route(char *nw, char *gw,
 			   struct cYAML **err_rc);
 
 /*
- * lustre_lnet_config_net
- *   Send down an IOCTL to configure a network.
+ * lustre_lnet_config_ni
+ *   Send down an IOCTL to configure a network interface. It implicitly
+ *   creates a network if one doesn't exist..
  *
- *   net - the network name
- *   intf - the interface of the network of the form net_name(intf)
+ *   nw_descr - network and interface descriptor
+ *   global_cpts - globally defined CPTs
  *   ip2net - this parameter allows configuring multiple networks.
  *	it takes precedence over the net and intf parameters
- *   peer_to - peer timeout
- *   peer_cr - peer credit
- *   peer_buf_cr - peer buffer credits
- *       - the above are LND tunable parameters and are optional
- *   credits - network interface credits
- *   smp - cpu affinity
+ *   tunables - LND tunables
  *   seq_no - sequence number of the request
  *   err_rc - [OUT] struct cYAML tree describing the error. Freed by caller
  */
-int lustre_lnet_config_net(char *net, char *intf, char *ip2net,
-			   int peer_to, int peer_cr, int peer_buf_cr,
-			   int credits, char *smp, int seq_no,
-			   struct cYAML **err_rc);
+int lustre_lnet_config_ni(struct lnet_dlc_network_descr *nw_descr,
+			  struct cfs_expr_list *global_cpts,
+			  char *ip2net,
+			  struct lnet_ioctl_config_lnd_tunables *tunables,
+			  int seq_no, struct cYAML **err_rc);
 
 /*
- * lustre_lnet_del_net
- *   Send down an IOCTL to delete a network.
+ * lustre_lnet_del_ni
+ *   Send down an IOCTL to delete a network interface. It implicitly
+ *   deletes a network if it becomes empty of nis
  *
- *   nw - network to delete.
+ *   nw  - network and interface list
  *   seq_no - sequence number of the request
  *   err_rc - [OUT] struct cYAML tree describing the error. Freed by caller
  */
-int lustre_lnet_del_net(char *nw, int seq_no,
-			struct cYAML **err_rc);
+int lustre_lnet_del_ni(struct lnet_dlc_network_descr *nw,
+		       int seq_no, struct cYAML **err_rc);
 
 /*
  * lustre_lnet_show_net
@@ -284,5 +288,14 @@ int lustre_yaml_del(char *f, struct cYAML **err_rc);
  */
 int lustre_yaml_show(char *f, struct cYAML **show_rc,
 		     struct cYAML **err_rc);
+
+/*
+ * lustre_lnet_add_intf_descr
+ *	prase an interface entry and populate appropriate structures
+ *		list - list to add the itnerface descriptor to.
+ *		intf - interface entry
+ *		len - length of interface entry
+ */
+int lustre_lnet_add_intf_descr(struct list_head *list, char *intf, int len);
 
 #endif /* LIB_LNET_CONFIG_API_H */
