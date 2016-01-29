@@ -1005,6 +1005,9 @@ build_lustre() {
     RPMBUILD_DEFS="$RPMBUILD_DEFS --define \"_tmppath $TMPDIR\""
     RPMBUILD_DEFS="$RPMBUILD_DEFS --define \"_topdir $TOPDIR\""
 
+    # copy into place the support Source files for the main lustre.spec file
+    cp rpm/*.files $TOPDIR/../
+
     eval $RPMBUILD $targets $rpmbuildopt "$LUSTRE" $RPMBUILD_DEFS \
         ${osd_zfs:+--with zfs} \
         ${osd_ldiskfs:+--with ldiskfs} 2>&1 || \
@@ -1798,6 +1801,7 @@ EOF
 set -x
 .
 g/\/.*\/\(symset-table\)/s//$tmp\/\1/g
+g/\(\/usr\/src\/kernels\/\)/s//$tmp\/reused\1/g
 wq
 EOF
     ed symset-table <<EOF
