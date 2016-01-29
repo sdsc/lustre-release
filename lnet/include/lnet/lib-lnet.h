@@ -439,6 +439,9 @@ lnet_net_alloc(__u32 net_type, struct list_head *netlist);
 struct lnet_ni *
 lnet_ni_alloc(struct lnet_net *net, struct cfs_expr_list *el,
 	      char *iface);
+struct lnet_ni *
+lnet_ni_alloc_w_cpt_array(struct lnet_net *net, __u32 *cpts, __u32 ncpts,
+			  char *iface);
 
 static inline int
 lnet_nid2peerhash(lnet_nid_t nid)
@@ -519,10 +522,10 @@ int lnet_rtrpools_enable(void);
 void lnet_rtrpools_disable(void);
 void lnet_rtrpools_free(int keep_pools);
 lnet_remotenet_t *lnet_find_rnet_locked(__u32 net);
-int lnet_dyn_add_ni(lnet_pid_t requested_pid, char *nets,
-		    __s32 peer_timeout, __s32 peer_cr, __s32 peer_buf_cr,
-		    __s32 credits);
-int lnet_dyn_del_ni(__u32 net);
+int lnet_dyn_add_net(struct lnet_ioctl_config_data *conf);
+int lnet_dyn_del_net(__u32 net);
+int lnet_dyn_add_ni(struct lnet_ioctl_config_ni *conf);
+int lnet_dyn_del_ni(struct lnet_ioctl_config_ni *conf);
 int lnet_clear_lazy_portal(struct lnet_ni *ni, int portal, char *reason);
 struct lnet_net *lnet_get_net_locked(__u32 net_id);
 
