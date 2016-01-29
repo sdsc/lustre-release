@@ -50,6 +50,28 @@ lnet_peer_remove_from_remote_list(struct lnet_peer_ni *lpni)
 	}
 }
 
+void
+lnet_peer_net_added(struct lnet_net *net)
+{
+	struct lnet_peer_ni *lpni, *tmp;
+
+	list_for_each_entry_safe(lpni, tmp, &the_lnet.ln_remote_peer_ni_list,
+				 lpni_on_remote_peer_ni_list) {
+
+		if (LNET_NIDNET(lpni->lpni_nid) == net->net_id) {
+			lpni->lpni_net = net;
+			lpni->lpni_txcredits =
+			lpni->lpni_mintxcredits =
+				lpni->lpni_net->net_peertxcredits;
+			lpni->lpni_rtrcredits =
+			lpni->lpni_minrtrcredits =
+				lnet_peer_buffer_credits(lpni->lpni_net);
+
+			lnet_peer_remove_from_remote_list(lpni);
+		}
+	}
+}
+
 static void
 lnet_peer_tables_destroy(void)
 {
