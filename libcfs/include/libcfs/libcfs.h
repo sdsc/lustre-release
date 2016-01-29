@@ -41,6 +41,7 @@
 
 #ifndef __KERNEL__
 # include <libcfs/user-time.h>
+# include <linux/limits.h>
 # else /* __KERNEL__ */
 # include <libcfs/linux/libcfs.h>
 # include <libcfs/types.h>
