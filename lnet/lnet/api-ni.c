@@ -920,6 +920,18 @@ lnet_get_net_ni_count_locked(struct lnet_net *net)
 }
 
 static inline int
+lnet_get_net_ni_count_pre(struct lnet_net *net)
+{
+	struct lnet_ni	*ni;
+	int		count = 0;
+
+	list_for_each_entry(ni, &net->net_ni_added, ni_netlist)
+		count++;
+
+	return count;
+}
+
+static inline int
 lnet_get_ni_count(void)
 {
 	struct lnet_ni	*ni;
@@ -1868,31 +1880,30 @@ EXPORT_SYMBOL(LNetNIFini);
  * \param[out] peer_tx_crdits	NI peer transmit credits
  * \param[out] peer_rtr_credits NI peer router credits
  * \param[out] max_tx_credits	NI max transmit credit
- * \param[out] net_config	Network configuration
+ * \param[out] ni_interfaces	Array of interfaces for an NI.
+ * \param[out] ni_cpts		NI cpts
+ * \param[out] ni_status	NI status
+ * \param[out] tcp_bonding	TCP bonding/Multi-Rail flag
  */
 static void
 lnet_fill_ni_info(struct lnet_ni *ni, __u32 *cpt_count, __u64 *nid,
 		  int *peer_timeout, int *peer_tx_credits,
 		  int *peer_rtr_credits, int *max_tx_credits,
-		  struct lnet_ioctl_net_config *net_config)
+		  char ni_interfaces[LNET_MAX_INTERFACES][LNET_MAX_STR_LEN],
+		  __u32 *ni_cpts, __u32 *ni_status,
+		  __u32 *tcp_bonding)
 {
 	int i;
 
 	if (ni == NULL)
 		return;
 
-	if (net_config == NULL)
-		return;
-
-	CLASSERT(ARRAY_SIZE(ni->ni_interfaces) ==
-		 ARRAY_SIZE(net_config->ni_interfaces));
-
 	if (ni->ni_interfaces[0] != NULL) {
 		for (i = 0; i < ARRAY_SIZE(ni->ni_interfaces); i++) {
 			if (ni->ni_interfaces[i] != NULL) {
-				strncpy(net_config->ni_interfaces[i],
+				strncpy(ni_interfaces[i],
 					ni->ni_interfaces[i],
-					sizeof(net_config->ni_interfaces[i]));
+					sizeof(ni_interfaces[i]));
 			}
 		}
 	}
@@ -1903,13 +1914,14 @@ lnet_fill_ni_info(struct lnet_ni *ni, __u32 *cpt_count, __u64 *nid,
 	*peer_rtr_credits = ni->ni_net->net_peerrtrcredits;
 	*max_tx_credits = ni->ni_net->net_maxtxcredits;
 
-	net_config->ni_status = ni->ni_status->ns_status;
+	*ni_status = ni->ni_status->ns_status;
+	*tcp_bonding = use_tcp_bonding;
 
 	for (i = 0;
 	     ni->ni_cpts != NULL && i < ni->ni_ncpts &&
 	     i < LNET_MAX_SHOW_NUM_CPT;
 	     i++)
-		net_config->ni_cpts[i] = ni->ni_cpts[i];
+		ni_cpts[i] = ni->ni_cpts[i];
 
 	*cpt_count = ni->ni_ncpts;
 }
@@ -1983,6 +1995,7 @@ lnet_get_net_config(int idx, __u32 *cpt_count, __u64 *nid, int *peer_timeout,
 	struct lnet_ni		*ni;
 	int			cpt;
 	int			rc = -ENOENT;
+	__u32			tcp_bonding;
 
 	cpt = lnet_net_lock_current();
 
@@ -1993,7 +2006,9 @@ lnet_get_net_config(int idx, __u32 *cpt_count, __u64 *nid, int *peer_timeout,
 		lnet_ni_lock(ni);
 		lnet_fill_ni_info(ni, cpt_count, nid, peer_timeout,
 				peer_tx_credits, peer_rtr_credits,
-				max_tx_credits, net_config);
+				max_tx_credits, net_config->ni_interfaces,
+				net_config->ni_cpts, &net_config->ni_status,
+				&tcp_bonding);
 		lnet_ni_unlock(ni);
 	}
 
@@ -2002,19 +2017,313 @@ lnet_get_net_config(int idx, __u32 *cpt_count, __u64 *nid, int *peer_timeout,
 }
 
 int
-lnet_dyn_add_ni(lnet_pid_t requested_pid, char *nets,
-		__s32 peer_timeout, __s32 peer_cr, __s32 peer_buf_cr,
-		__s32 credits)
+lnet_get_ni_config(struct lnet_ioctl_config_ni *cfg_ni,
+		   struct lnet_ioctl_config_lnd_tunables *tun)
 {
+	struct lnet_ni		*ni;
+	int			cpt;
+	int			rc = -ENOENT;
+
+	if (cfg_ni == NULL || tun == NULL)
+		return -EINVAL;
+
+	cpt = lnet_net_lock_current();
+
+	ni = lnet_get_ni_idx_locked(cfg_ni->lic_idx);
+
+	if (ni != NULL) {
+		rc = 0;
+		lnet_ni_lock(ni);
+		lnet_fill_ni_info(ni, &cfg_ni->lic_ncpts,
+				  &cfg_ni->lic_nid,
+				  &tun->lt_cmn.lct_peer_timeout,
+				  &tun->lt_cmn.lct_peer_tx_credits,
+				  &tun->lt_cmn.lct_peer_rtr_credits,
+				  &tun->lt_cmn.lct_max_tx_credits,
+				  cfg_ni->lic_ni_intf,
+				  cfg_ni->lic_cpts, &cfg_ni->lic_status,
+				  &cfg_ni->lic_tcp_bonding);
+
+		/* TODO: FUTURE - fill specific LND tunables */
+		lnet_ni_unlock(ni);
+	}
+
+	lnet_net_unlock(cpt);
+	return rc;
+}
+
+static int lnet_add_net_common(struct lnet_net *net,
+			       struct lnet_ioctl_config_lnd_tunables *tun)
+{
+	struct lnet_net		*netl = NULL;
+	__u32			net_id;
 	lnet_ping_info_t	*pinfo;
 	lnet_handle_md_t	md_handle;
-	struct lnet_net		*net;
-	struct list_head	net_head;
 	int			rc;
 	lnet_remotenet_t	*rnet;
 	int			net_ni_count;
 	int			num_acceptor_nets;
-	__u32			net_type;
+
+	lnet_net_lock(LNET_LOCK_EX);
+	rnet = lnet_find_rnet_locked(net->net_id);
+	lnet_net_unlock(LNET_LOCK_EX);
+	/* make sure that the net added doesn't invalidate the current
+	 * configuration LNet is keeping */
+	if (rnet != NULL) {
+		CERROR("Adding net %s will invalidate routing configuration\n",
+		       libcfs_net2str(net->net_id));
+		return -EUSERS;
+	}
+
+	/*
+	 * make sure you calculate the correct number of slots in the ping
+	 * info. Since the ping info is a flattened list of all the NIs,
+	 * we should allocate enough slots to accomodate the number of NIs
+	 * which will be added.
+	 *
+	 * since ni hasn't been configured yet, use
+	 * lnet_get_net_ni_count_pre() which checks the net_ni_added list
+	 */
+	net_ni_count = lnet_get_net_ni_count_pre(net);
+
+	CERROR("net_ni_count = %d, lnet_get_ni_count = %d\n",
+	       net_ni_count, lnet_get_ni_count());
+
+	rc = lnet_ping_info_setup(&pinfo, &md_handle,
+				  net_ni_count + lnet_get_ni_count(),
+				  false);
+	if (rc != 0)
+		return rc;
+
+	list_del_init(&net->net_list);
+
+	if (tun != NULL) {
+		net->net_peer_timeout = tun->lt_cmn.lct_peer_timeout;
+		net->net_maxtxcredits = tun->lt_cmn.lct_peer_tx_credits;
+		net->net_peerrtrcredits = tun->lt_cmn.lct_peer_rtr_credits;
+		net->net_peertxcredits = tun->lt_cmn.lct_max_tx_credits;
+	} else {
+		net->net_peer_timeout = -1;
+		net->net_maxtxcredits = -1;
+		net->net_peerrtrcredits = -1;
+		net->net_peertxcredits = -1;
+	}
+
+	/*
+	 * before starting this network get a count of the current TCP
+	 * networks which require the acceptor thread running. If that
+	 * count is == 0 before we start up this network, then we'd want to
+	 * start up the acceptor thread after starting up this network
+	 */
+	num_acceptor_nets = lnet_count_acceptor_nets();
+
+	net_id = net->net_id;
+
+	rc = lnet_startup_lndnet(net);
+	if (rc < 0)
+		goto failed;
+
+	lnet_net_lock(LNET_LOCK_EX);
+	netl = lnet_get_net_locked(net_id);
+	lnet_net_unlock(LNET_LOCK_EX);
+
+	LASSERT(netl != NULL);
+
+	/*
+	 * Start the acceptor thread if this is the first network
+	 * being added that requires the thread.
+	 */
+	if (netl->net_lnd->lnd_accept != NULL &&
+	    num_acceptor_nets == 0)
+	{
+		rc = lnet_acceptor_start();
+		if (rc < 0) {
+			/* shutdown the net that we just started */
+			CERROR("Failed to start up acceptor thread\n");
+			lnet_shutdown_lndnet(net);
+			goto failed;
+		}
+	}
+
+	lnet_ping_target_update(pinfo, md_handle);
+
+	return 0;
+
+failed:
+	lnet_ping_md_unlink(pinfo, &md_handle);
+	lnet_ping_info_free(pinfo);
+	return rc;
+}
+
+int lnet_dyn_add_ni(struct lnet_ioctl_config_ni *conf)
+{
+	struct lnet_net *net;
+	struct lnet_ni *ni;
+	struct lnet_ioctl_config_lnd_tunables *tun = NULL;
+	int rc, ni_count;
+	__u32 net_id;
+	char *nets;
+	struct list_head net_head;
+
+	INIT_LIST_HEAD(&net_head);
+
+	/* get the tunables if they are available */
+	if (conf->lic_cfg_hdr.ioc_len >=
+	    sizeof(*conf) + sizeof(*tun))
+		tun = (struct lnet_ioctl_config_lnd_tunables *)
+			conf->lic_bulk;
+
+	/* handle legacy ip2nets from DLC */
+	if (conf->lic_legacy_ip2nets[0] != '\0') {
+		rc = lnet_parse_ip2nets(&nets, conf->lic_legacy_ip2nets);
+		if (rc < 0)
+			return rc;
+		rc = lnet_parse_networks(&net_head, lnet_get_networks(),
+					 use_tcp_bonding);
+		if (rc < 0)
+			return rc;
+
+		LNET_MUTEX_LOCK(&the_lnet.ln_api_mutex);
+		ni_count = lnet_startup_lndnets(&net_head);
+		if (ni_count < 0)
+			rc = ni_count;
+		LNET_MUTEX_UNLOCK(&the_lnet.ln_api_mutex);
+
+		goto out;
+	}
+
+
+	net_id = LNET_NIDNET(conf->lic_nid);
+
+	net = lnet_net_alloc(net_id, NULL);
+	if (net == NULL)
+		return -ENOMEM;
+
+	ni = lnet_ni_alloc_w_cpt_array(net, conf->lic_cpts, conf->lic_ncpts,
+				       conf->lic_ni_intf[0]);
+	if (ni == NULL)
+		return -ENOMEM;
+
+	LNET_MUTEX_LOCK(&the_lnet.ln_api_mutex);
+
+	rc = lnet_add_net_common(net, tun);
+
+	LNET_MUTEX_UNLOCK(&the_lnet.ln_api_mutex);
+
+out:
+	while (!list_empty(&net_head)) {
+		net = list_entry(net_head.next, struct lnet_net, net_list);
+		list_del_init(&net->net_list);
+		lnet_net_free(net);
+	}
+	return rc;
+}
+
+int lnet_dyn_del_ni(struct lnet_ioctl_config_ni *conf)
+{
+	struct lnet_net	 *net;
+	struct lnet_ni *ni;
+	__u32 net_id = LNET_NIDNET(conf->lic_nid);
+	lnet_ping_info_t *pinfo;
+	lnet_handle_md_t  md_handle;
+	int		  rc;
+	int		  net_count;
+	__u32		  addr;
+
+	/* don't allow userspace to shutdown the LOLND */
+	if (LNET_NETTYP(net_id) == LOLND)
+		return -EINVAL;
+
+	LNET_MUTEX_LOCK(&the_lnet.ln_api_mutex);
+
+	lnet_net_lock(0);
+
+	net = lnet_get_net_locked(net_id);
+	if (net == NULL) {
+		CERROR("net %s not found\n",
+		       libcfs_net2str(net_id));
+		rc = -ENOENT;
+		goto net_unlock;
+	}
+
+	addr = LNET_NIDADDR(conf->lic_nid);
+	if (addr == 0) {
+		/* remove the entire net */
+		net_count = lnet_get_net_ni_count_locked(net);
+
+		lnet_net_unlock(0);
+
+		/* create and link a new ping info, before removing the old one */
+		rc = lnet_ping_info_setup(&pinfo, &md_handle,
+					lnet_get_ni_count() - net_count,
+					false);
+		if (rc != 0)
+			goto out;
+
+		lnet_shutdown_lndnet(net);
+
+		if (lnet_count_acceptor_nets() == 0)
+			lnet_acceptor_stop();
+
+		lnet_ping_target_update(pinfo, md_handle);
+
+		goto out;
+	}
+
+	ni = lnet_nid2ni_locked(conf->lic_nid, 0);
+	if (ni == NULL) {
+		CERROR("nid %s not found \n",
+		       libcfs_nid2str(conf->lic_nid));
+		rc = -ENOENT;
+		goto net_unlock;
+	}
+	lnet_ni_decref_locked(ni, 0);
+
+	net_count = lnet_get_net_ni_count_locked(net);
+
+	lnet_net_unlock(0);
+
+	/* create and link a new ping info, before removing the old one */
+	rc = lnet_ping_info_setup(&pinfo, &md_handle,
+				  lnet_get_ni_count() - 1, false);
+	if (rc != 0)
+		goto out;
+
+	lnet_shutdown_lndni(ni);
+
+	if (lnet_count_acceptor_nets() == 0)
+		lnet_acceptor_stop();
+
+	lnet_ping_target_update(pinfo, md_handle);
+
+	/* check if the net is empty and remove it if it is */
+	if (net_count == 1)
+		lnet_shutdown_lndnet(net);
+
+	goto out;
+
+net_unlock:
+	lnet_net_unlock(0);
+out:
+	LNET_MUTEX_UNLOCK(&the_lnet.ln_api_mutex);
+
+	return rc;
+}
+
+/* 
+ * lnet_dyn_add_net and lnet_dyn_del_net are now deprecated.
+ * They are only expected to be called for unique networks only.
+ * That can be as a result of older DLC library
+ * calls. Multi-Rail DLC and beyond shall no longer call these APIs.
+ */
+int
+lnet_dyn_add_net(struct lnet_ioctl_config_data *conf)
+{
+	struct lnet_net		*net;
+	struct list_head	net_head;
+	int			rc;
+	struct lnet_ioctl_config_lnd_tunables tun;
+	char *nets = conf->cfg_config_u.cfg_net.net_intf;
 
 	INIT_LIST_HEAD(&net_head);
 
@@ -2027,96 +2336,29 @@ lnet_dyn_add_ni(lnet_pid_t requested_pid, char *nets,
 
 	if (rc > 1) {
 		rc = -EINVAL; /* only add one network per call */
-		goto failed0;
+		goto failed;
 	}
 
 	net = list_entry(net_head.next, struct lnet_net, net_list);
 
-	lnet_net_lock(LNET_LOCK_EX);
-	rnet = lnet_find_rnet_locked(net->net_id);
-	lnet_net_unlock(LNET_LOCK_EX);
-	/* make sure that the net added doesn't invalidate the current
-	 * configuration LNet is keeping */
-	if (rnet != NULL) {
-		CERROR("Adding net %s will invalidate routing configuration\n",
-		       nets);
-		rc = -EUSERS;
-		goto failed0;
-	}
+	LASSERT(lnet_net_unique(net->net_id, &the_lnet.ln_nets, NULL));
 
-	/*
-	 * make sure you calculate the correct number of slots in the ping
-	 * info. Since the ping info is a flattened list of all the NIs,
-	 * we should allocate enough slots to accomodate the number of NIs
-	 * which will be added.
-	 *
-	 * We can use lnet_get_net_ni_count_locked() since the net is not
-	 * on a public list yet, so locking is not a problem
-	 */
-	net_ni_count = lnet_get_net_ni_count_locked(net);
+	tun.lt_cmn.lct_peer_timeout =
+	  conf->cfg_config_u.cfg_net.net_peer_timeout;
+	tun.lt_cmn.lct_peer_tx_credits =
+	  conf->cfg_config_u.cfg_net.net_peer_tx_credits;
+	tun.lt_cmn.lct_peer_rtr_credits =
+	  conf->cfg_config_u.cfg_net.net_peer_rtr_credits;
+	tun.lt_cmn.lct_max_tx_credits =
+	  conf->cfg_config_u.cfg_net.net_max_tx_credits;
 
-	rc = lnet_ping_info_setup(&pinfo, &md_handle,
-				  net_ni_count + lnet_get_ni_count(),
-				  false);
+	rc = lnet_add_net_common(net, &tun);
 	if (rc != 0)
-		goto failed0;
-
-	list_del_init(&net->net_list);
-
-	net->net_peer_timeout = peer_timeout;
-	net->net_maxtxcredits = credits;
-	net->net_peerrtrcredits = peer_buf_cr;
-	net->net_peertxcredits = peer_cr;
-
-	/*
-	 * before starting this network get a count of the current TCP
-	 * networks which require the acceptor thread running. If that
-	 * count is == 0 before we start up this network, then we'd want to
-	 * start up the acceptor thread after starting up this network
-	 */
-	num_acceptor_nets = lnet_count_acceptor_nets();
-
-	/*
-	 * lnd_startup_lndnet() can deallocate 'net' even if it it returns
-	 * success, because we endded up adding interfaces to an existing
-	 * network. So grab the net_type now
-	 */
-	net_type = LNET_NETTYP(net->net_id);
-
-	rc = lnet_startup_lndnet(net);
-	if (rc < 0)
-		goto failed1;
-
-	/*
-	 * Start the acceptor thread if this is the first network
-	 * being added that requires the thread.
-	 */
-	if (net_type == SOCKLND && num_acceptor_nets == 0)
-	{
-		rc = lnet_acceptor_start();
-		if (rc < 0) {
-			/* shutdown the net that we just started */
-			CERROR("Failed to start up acceptor thread\n");
-			/*
-			 * Note that if we needed to start the acceptor
-			 * thread, then 'net' must have been the first TCP
-			 * network, therefore was unique, and therefore
-			 * wasn't deallocated by lnet_startup_lndnet()
-			 */
-			lnet_shutdown_lndnet(net);
-			goto failed1;
-		}
-	}
-
-	lnet_ping_target_update(pinfo, md_handle);
-	LNET_MUTEX_UNLOCK(&the_lnet.ln_api_mutex);
+		goto failed;
 
 	return 0;
 
-failed1:
-	lnet_ping_md_unlink(pinfo, &md_handle);
-	lnet_ping_info_free(pinfo);
-failed0:
+failed:
 	LNET_MUTEX_UNLOCK(&the_lnet.ln_api_mutex);
 	while (!list_empty(&net_head)) {
 		net = list_entry(net_head.next, struct lnet_net, net_list);
@@ -2127,7 +2369,7 @@ failed0:
 }
 
 int
-lnet_dyn_del_ni(__u32 net_id)
+lnet_dyn_del_net(__u32 net_id)
 {
 	struct lnet_net	 *net;
 	lnet_ping_info_t *pinfo;
@@ -2254,6 +2496,22 @@ LNetCtl(unsigned int cmd, void *arg)
 				      &config->cfg_config_u.cfg_route.rtr_flags,
 				      &config->cfg_config_u.cfg_route.
 					rtr_priority);
+
+	case IOC_LIBCFS_GET_LOCAL_NI: {
+		struct lnet_ioctl_config_ni *cfg_ni;
+		struct lnet_ioctl_config_lnd_tunables *tun = NULL;
+
+		cfg_ni = arg;
+		/* get the tunables if they are available */
+		if (cfg_ni->lic_cfg_hdr.ioc_len !=
+		    sizeof(*cfg_ni) + sizeof(*tun))
+			return -EINVAL;
+
+		tun = (struct lnet_ioctl_config_lnd_tunables *)
+				cfg_ni->lic_bulk;
+
+		return lnet_get_ni_config(cfg_ni, tun);
+	}
 
 	case IOC_LIBCFS_GET_NET: {
 		struct lnet_ioctl_net_config *net_config;
