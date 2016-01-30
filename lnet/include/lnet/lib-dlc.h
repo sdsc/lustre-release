@@ -37,10 +37,28 @@
 #define LNET_MAX_SHOW_NUM_CPT	128
 #define LNET_UNDEFINED_HOPS	((__u32) -1)
 
+struct lnet_o2iblnd_tunables {
+	__u32 lnd_version;
+	__u32 lnd_peercredits_hiw;
+	__u32 lnd_map_on_demand;
+	__u32 lnd_concurrent_sends;
+	__u32 lnd_fmr_pool_size;
+	__u32 lnd_fmr_flush_trigger;
+	__u32 lnd_fmr_cache;
+	__u32 pad;
+};
+
+struct lnet_lnd_tunables {
+	union {
+		struct lnet_o2iblnd_tunables lnd_o2iblnd;
+	} lnd_tunables_u;
+};
+
 struct lnet_ioctl_net_config {
 	char ni_interfaces[LNET_MAX_INTERFACES][LNET_MAX_STR_LEN];
 	__u32 ni_status;
 	__u32 ni_cpts[LNET_MAX_SHOW_NUM_CPT];
+	char cfg_bulk[0];
 };
 
 #define LNET_TINY_BUF_IDX	0
@@ -81,7 +99,7 @@ struct lnet_ioctl_config_data {
 			__s32 net_peer_rtr_credits;
 			__s32 net_max_tx_credits;
 			__u32 net_cksum_algo;
-			__u32 net_pad;
+			__u32 net_interface_count;
 		} cfg_net;
 		struct {
 			__u32 buf_enable;
