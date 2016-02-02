@@ -109,8 +109,12 @@ static void append_context_for_mount(char *mntpt, struct mkfs_opts *mop)
 	}
 
 	if (fcontext != NULL) {
-		strcat(mop->mo_ldd.ldd_mount_opts, ",context=");
-		strcat(mop->mo_ldd.ldd_mount_opts, fcontext);
+		strscat(mop->mo_ldd.ldd_mount_opts, ",context=\"",
+			sizeof(mop->mo_ldd.ldd_mount_opts));
+		strscat(mop->mo_ldd.ldd_mount_opts, fcontext,
+			sizeof(mop->mo_ldd.ldd_mount_opts));
+		strscat(mop->mo_ldd.ldd_mount_opts, "\"",
+			sizeof(mop->mo_ldd.ldd_mount_opts));
 		freecon(fcontext);
 	}
 }
