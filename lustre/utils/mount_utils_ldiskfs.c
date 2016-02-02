@@ -97,22 +97,35 @@ extern char *progname;
  * Concatenate context of the temporary mount point iff selinux is enabled
  */
 #ifdef HAVE_SELINUX
-static void append_context_for_mount(char *mntpt, struct mkfs_opts *mop)
+static int append_context_for_mount(char *mntpt, struct mkfs_opts *mop)
 {
 	security_context_t fcontext;
+	int ret = 0;
 
 	if (getfilecon(mntpt, &fcontext) < 0) {
 		/* Continuing with default behaviour */
 		fprintf(stderr, "%s: Get file context failed : %s\n",
 			progname, strerror(errno));
-		return;
+		return ret;
 	}
 
 	if (fcontext != NULL) {
-		strcat(mop->mo_ldd.ldd_mount_opts, ",context=");
-		strcat(mop->mo_ldd.ldd_mount_opts, fcontext);
+		size_t len = strlen(mop->mo_ldd.ldd_mount_opts);
+
+		if ( len < sizeof(mop->mo_ldd.ldd_mount_opts) )
+			len = snprintf(mop->mo_ldd.ldd_mount_opts + len,
+				sizeof(mop->mo_ldd.ldd_mount_opts),
+				",context=\"%s\"", fcontext);
+
+		if ( len >= sizeof(mop->mo_ldd.ldd_mount_opts) ) {
+			ret = EOVERFLOW;
+			fprintf(stderr, "%s: Cannot append context for mount: %s\n",
+				progname, strerror(ret));
+		}
+
 		freecon(fcontext);
 	}
+	return ret;
 }
 #endif
 
@@ -254,7 +267,9 @@ int ldiskfs_write_ldd(struct mkfs_opts *mop)
 	 */
 	#ifdef HAVE_SELINUX
 	if (is_selinux_enabled() > 0)
-		append_context_for_mount(mntpt, mop);
+		ret = append_context_for_mount(mntpt, mop);
+	if (ret)
+		goto out_rmdir;
 	#endif
 
 	dev = mop->mo_device;
