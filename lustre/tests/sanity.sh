@@ -8,8 +8,8 @@
 set -e
 
 ONLY=${ONLY:-"$*"}
-# bug number for skipped test: 13297 2108 9789 3637 9789 3561 12622 5188
-ALWAYS_EXCEPT="                42a  42b  42c  42d  45   51d   68b   $SANITY_EXCEPT"
+# bug number for skipped test: 13297 2108 9789 3637 9789 3561 5188
+ALWAYS_EXCEPT="                42a  42b  42c  42d  45   68b   $SANITY_EXCEPT"
 # UPDATE THE COMMENT ABOVE WITH BUG NUMBERS WHEN CHANGING ALWAYS_EXCEPT!
 
 # with LOD/OSP landing
@@ -4115,11 +4115,11 @@ test_51d() {
 		skip_env "skipping test with few OSTs" && return
 	test_mkdir -p $DIR/$tdir
 	createmany -o $DIR/$tdir/t- 1000
-	$GETSTRIPE $DIR/$tdir > $TMP/files
+	$GETSTRIPE $DIR/$tdir > $TMP/$tfile
 	for N in $(seq 0 $((OSTCOUNT - 1))); do
 		OBJS[$N]=$(awk -vobjs=0 '($1 == '$N') { objs += 1 } \
-			END { printf("%0.0f", objs) }' $TMP/files)
-		OBJS0[$N]=$(grep -A 1 idx $TMP/files | awk -vobjs=0 \
+			END { printf("%0.0f", objs) }' $TMP/$tfile)
+		OBJS0[$N]=$(grep -A 1 idx $TMP/$tfile | awk -vobjs=0 \
 			'($1 == '$N') { objs += 1 } \
 			END { printf("%0.0f", objs) }')
 		log "OST$N has ${OBJS[$N]} objects, ${OBJS0[$N]} are index 0"
@@ -4143,8 +4143,9 @@ test_51d() {
 			      " (${OBJS0[$N]} < ${OBJS0[$NLAST]}"
 		NLAST=$N
 	done
+	rm $TMP/$tfile
 }
-run_test 51d "check object distribution ===================="
+run_test 51d "check object distribution"
 
 test_51e() {
 	if [ "$(facet_fstype $SINGLEMDS)" != ldiskfs ]; then
@@ -4178,7 +4179,7 @@ test_52a() {
 	lsattr $DIR/$tdir/foo | egrep -q "^-+a[-e]+ $DIR/$tdir/foo" ||
 						     error "lsattr"
 	chattr -a $DIR/$tdir/foo || error "chattr -a failed"
-        cp -r $DIR/$tdir /tmp/
+	cp -r $DIR/$tdir $TMP/
 	rm -fr $DIR/$tdir || error "cleanup rm failed"
 }
 run_test 52a "append-only flag test (should return errors) ====="
