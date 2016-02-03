@@ -784,22 +784,25 @@ static int ct_copy_xattr(const char *src, const char *dst, int src_fd,
 static int ct_path_lustre(char *buf, int sz, const char *mnt,
 			  const lustre_fid *fid)
 {
-	return snprintf(buf, sz, "%s/%s/fid/"DFID_NOBRACE, mnt,
-			dot_lustre_name, PFID(fid));
+	char fidstr[64];
+	return snprintf(buf, sz, "%s/%s/fid/%s", mnt,
+			dot_lustre_name, fid_to_str(fid, fidstr,
+						    sizeof(fidstr)));
 }
 
 static int ct_path_archive(char *buf, int sz, const char *archive_dir,
 			   const lustre_fid *fid)
 {
-	return snprintf(buf, sz, "%s/%04x/%04x/%04x/%04x/%04x/%04x/"
-			DFID_NOBRACE, archive_dir,
+	char fidstr[64];
+	return snprintf(buf, sz, "%s/%04x/%04x/%04x/%04x/%04x/%04x/%s",
+			archive_dir,
 			(fid)->f_oid       & 0xFFFF,
 			(fid)->f_oid >> 16 & 0xFFFF,
 			(unsigned int)((fid)->f_seq       & 0xFFFF),
 			(unsigned int)((fid)->f_seq >> 16 & 0xFFFF),
 			(unsigned int)((fid)->f_seq >> 32 & 0xFFFF),
 			(unsigned int)((fid)->f_seq >> 48 & 0xFFFF),
-			PFID(fid));
+			fid_to_str_nobrace(fid, fidstr, sizeof(fidstr)));
 }
 
 static bool ct_is_retryable(int err)
@@ -1474,10 +1477,9 @@ static int ct_import_recurse(const char *relpath)
 	if (relpath == NULL)
 		return -EINVAL;
 
-	/* Is relpath a FID? In which case SFID should expand to three
-	 * elements. */
-	rc = sscanf(relpath, SFID, RFID(&import_fid));
-	if (rc == 3)
+	/* Is relpath a FID? */
+	rc = str_to_fid(relpath, &import_fid);
+	if ((rc == 0) && fid_is_sane(&import_fid))
 		return ct_import_fid(&import_fid);
 
 	srcpath = path_concat(opt.o_hsm_root, relpath);
@@ -1632,6 +1634,8 @@ static int ct_rebind_list(const char *list)
 	while ((r = getline(&line, &line_size, filp)) != -1) {
 		lustre_fid	old_fid;
 		lustre_fid	new_fid;
+		char            *old_fid_str;
+		char            *new_fid_str;
 
 		/* Ignore empty and commented out ('#...') lines. */
 		if (should_ignore_line(line))
@@ -1639,9 +1643,14 @@ static int ct_rebind_list(const char *list)
 
 		nl++;
 
-		rc = sscanf(line, SFID" "SFID, RFID(&old_fid), RFID(&new_fid));
-		if (rc != 6 || !fid_is_file(&old_fid) ||
-		    !fid_is_file(&new_fid)) {
+		/* read "FID FID" */
+		old_fid_str = line;
+		new_fid_str = strchr(line, ' ');
+		new_fid_str++;
+
+		str_to_fid(old_fid_str, &old_fid);
+		str_to_fid(new_fid_str, &new_fid);
+		if (!fid_is_file(&old_fid) || !fid_is_file(&new_fid)) {
 			CT_ERROR(EINVAL,
 				 "'%s' FID expected near '%s', line %u",
 				 list, line, nl);
@@ -1674,15 +1683,15 @@ static int ct_rebind(void)
 		lustre_fid	old_fid;
 		lustre_fid	new_fid;
 
-		if (sscanf(opt.o_src, SFID, RFID(&old_fid)) != 3 ||
-		    !fid_is_file(&old_fid)) {
+		rc = str_to_fid(opt.o_src, &old_fid);
+		if ((rc != 0) || (!fid_is_file(&old_fid))) {
 			rc = -EINVAL;
 			CT_ERROR(rc, "'%s' invalid FID format", opt.o_src);
 			return rc;
 		}
 
-		if (sscanf(opt.o_dst, SFID, RFID(&new_fid)) != 3 ||
-		    !fid_is_file(&new_fid)) {
+		rc = str_to_fid(opt.o_dst, &new_fid);
+		if ((rc != 0) || (!fid_is_file(&new_fid))) {
 			rc = -EINVAL;
 			CT_ERROR(rc, "'%s' invalid FID format", opt.o_dst);
 			return rc;

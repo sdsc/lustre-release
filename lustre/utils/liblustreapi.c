@@ -4108,17 +4108,20 @@ int llapi_fid2path(const char *device, const char *fidstr, char *buf,
 {
 	struct lu_fid fid;
 	struct getinfo_fid2path *gf;
+	char fidstring[64];
 	int rc;
+	struct lu_fid example_fid = {(unsigned long long)FID_SEQ_NORMAL, 2, 0};
 
 	while (*fidstr == '[')
 		fidstr++;
 
-	sscanf(fidstr, SFID, RFID(&fid));
-	if (!fid_is_sane(&fid)) {
+	rc = str_to_fid(fidstr, &fid);
+	if ((rc != 0) || (!fid_is_sane(&fid))) {
 		llapi_err_noerrno(LLAPI_MSG_ERROR,
-				  "bad FID format [%s], should be [seq:oid:ver]"
-				  " (e.g. "DFID")\n", fidstr,
-				  (unsigned long long)FID_SEQ_NORMAL, 2, 0);
+				  "bad FID format [%s], should be "
+				  "[seq:oid:ver] (e.g. %s)\n", fidstr,
+				  fid_to_str(&example_fid, fidstring,
+					     sizeof(fidstring)));
 		return -EINVAL;
 	}
 
@@ -4596,4 +4599,61 @@ int llapi_group_unlock(int fd, int gid)
 		llapi_error(LLAPI_MSG_ERROR, rc, "cannot put group lock");
 	}
 	return rc;
+}
+
+/**
+ * Turn a string into a FID
+ *
+ * returns an empty FID if the string is improperly formatted
+ */
+int str_to_fid(const char *fidstr, struct lu_fid *fid)
+{
+	int ret;
+
+	if (fid == NULL)
+		goto nofid;
+
+	if ((fidstr == NULL) ||
+	    (strlen(fidstr) < 10) ||
+	    (strlen(fidstr) > FID_NOBRACE_LEN))
+		goto err;
+
+	ret = sscanf(fidstr, SFID, RFID(fid));
+	if (ret == 3)
+		return 0;
+err:
+	memset(fid, 0, sizeof(struct lu_fid));
+nofid:
+	return -1;
+}
+
+/**
+ * Convert a FID to a string
+ *
+ * String will look like: [12345:6789:ABCD]
+ * Returns the string (helpful in print statements)
+ */
+char *fid_to_str(const struct lu_fid *fid, char *fidstr, int len)
+{
+	if ((fid == NULL) || (fidstr == NULL) || (len < FID_LEN + 1))
+		return NULL;
+
+	snprintf(fidstr, len, DFID, PFID(fid));
+	return fidstr;
+}
+
+/**
+ * Convert a FID to a string, with no braces
+ *
+ * String will look like: 12345:6789:ABCD
+ * Returns the string (helpful in print statements)
+ */
+char *fid_to_str_nobrace(const struct lu_fid *fid, char *fidstr,
+				int len)
+{
+	if ((fid == NULL) || (fidstr == NULL) || (len < FID_NOBRACE_LEN + 1))
+		return NULL;
+
+	snprintf(fidstr, len, DFID_NOBRACE, PFID(fid));
+	return fidstr;
 }
