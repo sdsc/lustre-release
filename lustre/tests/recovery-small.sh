@@ -1889,6 +1889,10 @@ run_test 108 "client eviction don't crash"
 
 test_110a () {
 	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+	[[ $(lustre_version_code $SINGLEMDS) -gt $(version_code 2.7.51) ]] &&
+		skip "enable_remote_dir support in /proc is not present on" \
+		" $server_version MDS " && return
+
 	local remote_dir=$DIR/$tdir/remote_dir
 	local MDTIDX=1
 	local num
@@ -1897,7 +1901,7 @@ test_110a () {
 	for num in $(seq $MDSCOUNT); do
 		do_facet mds$num \
 			lctl set_param -n mdt.${FSNAME}*.enable_remote_dir=1 \
-				2>/dev/null
+			2>/dev/null
 	done
 
 	mkdir -p $DIR/$tdir
