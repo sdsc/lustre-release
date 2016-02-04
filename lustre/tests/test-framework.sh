@@ -4561,10 +4561,33 @@ set_nodes_failloc () {
 	do_nodes $(comma_list $1)  lctl set_param fail_val=0 fail_loc=$2
 }
 
+# Print the sum of the numbers which are listed one per line on stdin
+calc_total() {
+	awk 'BEGIN{total=0}; {total+=$1}; END{print total}'
+}
+
+# Print the total of the lock_unused_count across all namespaces containing the
+# given wildcard. If the namespace wildcard is omitted, all namespaces will be
+# matched.
+# Usage: total_unused_locks [namespace_wildcard]
+total_unused_locks() {
+	$LCTL get_param -n "ldlm.namespaces.*$1*.lock_unused_count" | calc_total
+}
+
+# Print the total of the lock_count across all namespaces containing the given
+# wildcard. If the namespace wilcard is omitted, all namespaces will be matched.
+# Usage: total_used_locks [namespace_wildcard]
+total_used_locks() {
+	$LCTL get_param -n "ldlm.namespaces.*$1*.lock_count" | calc_total
+}
+
+# Cancel lru locks across all namespaces containing the given wildcard. If the
+# wilcard is omitted, lru locks will be canceled across all namespaces.
+# Usage: cancel_lru_locks [namespace_wildcard]
 cancel_lru_locks() {
 	#$LCTL mark "cancel_lru_locks $1 start"
-	$LCTL set_param -n ldlm.namespaces.*$1*.lru_size=clear
-	$LCTL get_param ldlm.namespaces.*$1*.lock_unused_count | grep -v '=0'
+	$LCTL "set_param -p -n ldlm.namespaces.*$1*.lru_size=clear"
+	$LCTL "get_param ldlm.namespaces.*$1*.lock_unused_count" | grep -v '=0'
 	#$LCTL mark "cancel_lru_locks $1 stop"
 }
 
