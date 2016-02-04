@@ -618,36 +618,6 @@ mdt_nosquash_nids_seq_write(struct file *file, const char __user *buffer,
 }
 LPROC_SEQ_FOPS(mdt_nosquash_nids);
 
-static int mdt_enable_remote_dir_seq_show(struct seq_file *m, void *data)
-{
-	struct obd_device *obd = m->private;
-	struct mdt_device *mdt = mdt_dev(obd->obd_lu_dev);
-
-	return seq_printf(m, "%u\n", mdt->mdt_enable_remote_dir);
-}
-
-static ssize_t
-mdt_enable_remote_dir_seq_write(struct file *file, const char __user *buffer,
-				size_t count, loff_t *off)
-{
-	struct seq_file   *m = file->private_data;
-	struct obd_device *obd = m->private;
-	struct mdt_device *mdt = mdt_dev(obd->obd_lu_dev);
-	__u32 val;
-	int rc;
-
-	rc = lprocfs_write_helper(buffer, count, &val);
-	if (rc)
-		return rc;
-
-	if (val > 1)
-		return -ERANGE;
-
-	mdt->mdt_enable_remote_dir = val;
-	return count;
-}
-LPROC_SEQ_FOPS(mdt_enable_remote_dir);
-
 static int mdt_enable_remote_dir_gid_seq_show(struct seq_file *m, void *data)
 {
 	struct obd_device *obd = m->private;
@@ -824,8 +794,6 @@ static struct lprocfs_vars lprocfs_mdt_obd_vars[] = {
 	  .fops =	&mdt_ir_factor_fops			},
 	{ .name =	"job_cleanup_interval",
 	  .fops =	&mdt_job_interval_fops			},
-	{ .name =	"enable_remote_dir",
-	  .fops =	&mdt_enable_remote_dir_fops		},
 	{ .name =	"enable_remote_dir_gid",
 	  .fops =	&mdt_enable_remote_dir_gid_fops		},
 	{ .name =	"hsm_control",
