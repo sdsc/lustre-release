@@ -2081,43 +2081,25 @@ test_29() {
 	log 'first d29'
 	ls -l $DIR/d29
 
-	declare -i LOCKCOUNTORIG=0
-	for lock_count in $(lctl get_param -n ldlm.namespaces.*mdc*.lock_count); do
-		let LOCKCOUNTORIG=$LOCKCOUNTORIG+$lock_count
-	done
-	[ $LOCKCOUNTORIG -eq 0 ] && echo "No mdc lock count" && return 1
+	local locks_orig=$(total_used_locks mdc)
+	[ $locks_orig -eq 0 ] && error "No mdc lock count"
 
-	declare -i LOCKUNUSEDCOUNTORIG=0
-	for unused_count in $(lctl get_param -n ldlm.namespaces.*mdc*.lock_unused_count); do
-		let LOCKUNUSEDCOUNTORIG=$LOCKUNUSEDCOUNTORIG+$unused_count
-	done
+	local locks_unused_orig=$(total_unused_locks mdc)
 
 	log 'second d29'
 	ls -l $DIR/d29
 	log 'done'
 
-	declare -i LOCKCOUNTCURRENT=0
-	for lock_count in $(lctl get_param -n ldlm.namespaces.*mdc*.lock_count); do
-		let LOCKCOUNTCURRENT=$LOCKCOUNTCURRENT+$lock_count
-	done
+	local locks_current=$(total_used_locks mdc)
 
-	declare -i LOCKUNUSEDCOUNTCURRENT=0
-	for unused_count in $(lctl get_param -n ldlm.namespaces.*mdc*.lock_unused_count); do
-		let LOCKUNUSEDCOUNTCURRENT=$LOCKUNUSEDCOUNTCURRENT+$unused_count
-	done
+	local locks_unused_current=$(total_unused_locks mdc)
 
-	if [[ $LOCKCOUNTCURRENT -gt $LOCKCOUNTORIG ]]; then
+	if [[ $locks_current -gt $locks_orig ]]; then
 		$LCTL set_param -n ldlm.dump_namespaces ""
-		error "CURRENT: $LOCKCOUNTCURRENT > $LOCKCOUNTORIG"
-		$LCTL dk | sort -k4 -t: > $TMP/test_29.dk
-		log "dumped log to $TMP/test_29.dk (bug 5793)"
-		return 2
+		error "CURRENT: $locks_current > $locks_orig"
 	fi
-	if [[ $LOCKUNUSEDCOUNTCURRENT -gt $LOCKUNUSEDCOUNTORIG ]]; then
-		error "UNUSED: $LOCKUNUSEDCOUNTCURRENT > $LOCKUNUSEDCOUNTORIG"
-		$LCTL dk | sort -k4 -t: > $TMP/test_29.dk
-		log "dumped log to $TMP/test_29.dk (bug 5793)"
-		return 3
+	if [[ $locks_unused_current -gt $locks_unused_orig ]]; then
+		error "UNUSED: $locks_unused_current > $locks_unused_orig"
 	fi
 }
 run_test 29 "IT_GETATTR regression  ============================"
@@ -6376,10 +6358,6 @@ cleanup_test101bc() {
 	set_osd_param $list '' writethrough_cache_enable 1
 }
 
-calc_total() {
-	awk 'BEGIN{total=0}; {total+=$1}; END{print total}'
-}
-
 ra_check_101() {
 	local READ_SIZE=$1
 	local STRIPE_SIZE=$2
@@ -8572,6 +8550,29 @@ test_124c() {
 	unlinkmany $DIR/$tdir/f $nr
 }
 run_test 124c "LRUR cancel very aged locks"
+
+test_124d() {
+	mkdir -p $DIR/$tdir || error "failed to create $DIR/$tdir"
+	createmany -o $DIR/$tdir/f- 1000
+
+	local unused_locks_before=$(total_unused_locks "{osc,mdc}")
+	[[ $unused_locks_before -gt 0 ]] ||
+		skip "no unused locks present after creating files"
+	log "unused locks before clear: $unused_locks_before"
+
+	# Clear caches across all namespaces in parallel
+	cancel_lru_locks
+
+	local unused_locks_after=$(total_unused_locks "{osc,mdc}")
+
+	if [[ "$PARALLEL" == "no" && $unused_locks_after -ne 0 ]]; then
+		error "$unused_locks_after unused locks remain after clear"
+	fi
+
+	unlinkmany $DIR/$tdir/f- 1000
+	rmdir $DIR/$tdir
+}
+run_test 124d "parallel set_param to clear lustre caches"
 
 test_125() { # 13358
 	[ -z "$(lctl get_param -n llite.*.client_type | grep local)" ] && skip "must run as local client" && return
