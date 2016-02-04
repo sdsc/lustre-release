@@ -184,11 +184,20 @@ command_t cmdlist[] = {
 	 "  -R  Get parameters recursively from the specified entry.\n"},
 	{"set_param", jt_lcfg_setparam, 0, "set the Lustre or LNET parameter\n"
 	 "usage: set_param [-n] [-P] [-d]"
-	 "<param_path1=value1 param_path2=value2 ...>\n"
+#ifdef HAVE_LIBPTHREAD
+	 " [-p]"
+#endif
+	 " <param_path1=value1 param_path2=value2 ...>\n"
 	 "Set the value of the Lustre or LNET parameter at the specified path.\n"
 	 "  -n  Disable printing of the key name when printing values.\n"
 	 "  -P  Set the parameter permanently, filesystem-wide.\n"
-	 "  -d  Remove the permanent setting (only with -P option).\n"},
+	 "  -d  Remove the permanent setting (only with -P option).\n"
+#ifdef HAVE_LIBPTHREAD
+	 "  -p  If setting multiple parameters at once, spawn threads and\n"
+	 "      set all parameters in parallel. Without this option, the\n"
+	 "      parameters will be set serially.\n"
+#endif
+	},
 	{"list_param", jt_lcfg_listparam, 0,
 	 "list the Lustre or LNET parameter name\n"
 	 "usage: list_param [-F|-R|-D] <param_path1 param_path2 ...>\n"

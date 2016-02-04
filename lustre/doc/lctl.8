@@ -191,7 +191,7 @@ Print all of the parameter names below the specified name.
 .br
 lctl "get_param -NF" is equivalent to "list_param -F".
 .TP
-.BI set_param " [-n] [-P] [-d] <parameter=value ...>"
+.BI set_param " [-n] [-P] [-d] [-p] <parameter=value ...>"
 Set the value of Lustre or LNET parameter.
 .br
 .B -n
@@ -203,6 +203,12 @@ This parameters are only visible to 2.5.0 and later clients, older clients will 
 .br
 .B -d
 Remove the permanent setting (only with -P option)
+.br
+.B -p
+If setting multiple parameters at once, spawn threads and set all parameters in
+parallel. Without this option, the parameters will be set serially. If this
+option is supplied and lctl was compiled without pthread support, a warning
+message will be printed, and the set_param will proceed serially.
 .br
 .B Examples:
 .br
@@ -222,6 +228,9 @@ Remove the permanent setting (only with -P option)
 .br
 .B
 # lctl set_param -P osc.*.max_dirty_mb=32
+.br
+.B
+# lctl set_param -p ldlm.namespaces.*osc*.lru_size=clear
 .br
 .TP
 .BI conf_param " [-d] <device|fsname>.<parameter>=<value>"

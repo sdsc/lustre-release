@@ -51,6 +51,9 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include <ctype.h>
+#if HAVE_LIBPTHREAD
+#include <pthread.h>
+#endif
 
 #include <libcfs/util/string.h>
 #include <libcfs/util/param.h>
@@ -526,6 +529,7 @@ struct param_opts {
 	unsigned int po_params2:1;
 	unsigned int po_delete:1;
 	unsigned int po_only_dir:1;
+	unsigned int po_parallel:1;
 };
 
 /* Param set to single log file, used by all clients and servers.
@@ -703,8 +707,9 @@ display_name(const char *filename, struct stat *st, struct param_opts *popt)
 		tmp = strstr(filename, "/lnet/");
 		if (tmp != NULL)
 			tmp += strlen("/lnet/");
-	} else
+	} else {
 		tmp += strlen("/lustre/");
+	}
 
 	/* Allocate return string */
 	param_name = strdup(tmp);
@@ -995,25 +1000,349 @@ write_param(const char *path, const char *param_name, struct param_opts *popt,
 	return rc;
 }
 
+#if HAVE_LIBPTHREAD
+#define LCTL_THREADS_PER_CPU 8
+
+/* A work item for parallel set_param */
+struct sp_work_item {
+	/* The full path to the parameter file */
+	char *spwi_path;
+
+	/* The parameter name as returned by display_name */
+	char *spwi_param_name;
+
+	/* The value to which the parameter is to be set */
+	char *spwi_value;
+};
+
+/* A work queue struct for parallel set_param */
+struct sp_workq {
+	/* The parameter options passed to set_param */
+	struct param_opts *spwq_popt;
+
+	/* The number of valid items in spwq_items */
+	int spwq_len;
+
+	/* The size of the spwq_items list */
+	int spwq_size;
+
+	/* The current index into the spwq_items list */
+	int spwq_cur_index;
+
+	/* Array of work items. */
+	struct sp_work_item *spwq_items;
+
+	/* A mutex to control access to the work queue */
+	pthread_mutex_t spwq_mutex;
+};
+
+/**
+ * Initialize the given set_param work queue.
+ *
+ * \param[out] wq  the work queue to initialize
+ * \param[in] popt the options passed to set_param
+ *
+ * \retval 0 if successful
+ * \retval -errno if unsuccessful
+ */
+static int spwq_init(struct sp_workq *wq, struct param_opts *popt)
+{
+	wq->spwq_popt = popt;
+	wq->spwq_len = 0;
+	wq->spwq_size = 0;
+	wq->spwq_cur_index = 0;
+	wq->spwq_items = NULL;
+
+	/* pthread_mutex_init returns 0 for success, or errno for failure */
+	return -pthread_mutex_init(&wq->spwq_mutex, NULL);
+}
+
+/**
+ * Destroy and free space used by a set_param work queue.
+ *
+ * \param[in] wq the work queue to destroy
+ *
+ * \retval 0 if successful
+ * \retval -errno if unsuccessful
+ */
+static int spwq_destroy(struct sp_workq *wq)
+{
+	if (wq == NULL)
+		return 0;
+
+	if (wq->spwq_items != NULL) {
+		int i;
+		for (i = 0; i < wq->spwq_len; i++) {
+			free(wq->spwq_items[i].spwi_path);
+			free(wq->spwq_items[i].spwi_param_name);
+			/* wq->spwq_items[i].spwi_value was not malloc'd */
+		}
+		free(wq->spwq_items);
+		wq->spwq_items = NULL;
+	}
+
+	wq->spwq_len = 0;
+	wq->spwq_size = 0;
+	wq->spwq_cur_index = 0;
+	/* spwq_popt was not malloc'd either */
+	wq->spwq_popt = NULL;
+
+	/* pthread_mutex_destroy returns 0 for success, or errno for failure */
+	return -pthread_mutex_destroy(&wq->spwq_mutex);
+}
+
+/**
+ * Expand the size of a work queue to fit the requested number of items.
+ *
+ * \param[in,out] wq    the work queue to expand
+ * \param[in] num_items the number of items to make room for in \a wq
+ *
+ * \retval 0 if successful
+ * \retval -errno if unsuccessful
+ */
+static int spwq_expand(struct sp_workq *wq, size_t num_items)
+{
+	int space;
+	int new_size;
+	struct sp_work_item *tmp;
+
+	if (wq == NULL)
+		return -EINVAL;
+
+	space = wq->spwq_size - wq->spwq_len;
+
+	/* First check if there's already enough room. */
+	if (space >= num_items)
+		return 0;
+
+	new_size = wq->spwq_len + num_items;
+
+	/* When spwq_items is NULL, realloc behaves like malloc */
+	tmp = realloc(wq->spwq_items, new_size * sizeof(struct sp_work_item));
+
+	if (tmp == NULL)
+		return -ENOMEM;
+
+	wq->spwq_items = tmp;
+	wq->spwq_size = new_size;
+	return 0;
+}
+
+/**
+ * Add an item to a set_param work queue. Not thread-safe.
+ *
+ * \param[in,out] wq     the work queue to which the item should be added
+ * \param[in] path       the full path to the parameter file (will be copied)
+ * \param[in] param_name the name of the parameter (will be copied)
+ * \param[in] value      the value for the parameter (will not be copied)
+ *
+ * \retval 0 if successful
+ * \retval -errno if unsuccessful
+ */
+static int spwq_add_item(struct sp_workq *wq, char *path,
+			 char *param_name, char *value)
+{
+	int rc;
+	char *path_copy;
+	char *param_name_copy;
+
+	if (wq == NULL || path == NULL || param_name == NULL || value == NULL)
+		return -EINVAL;
+
+	/* Hopefully the caller has expanded the work queue before calling this
+	 * function, but make sure there's room just in case. */
+	rc = spwq_expand(wq, 1);
+
+	if (rc < 0)
+		return rc;
+
+	path_copy = strdup(path);
+	if (path_copy == NULL)
+		return -ENOMEM;
+
+	param_name_copy = strdup(param_name);
+	if (param_name_copy == NULL) {
+		free(path_copy);
+		return -ENOMEM;
+	}
+
+	wq->spwq_items[wq->spwq_len].spwi_param_name = param_name_copy;
+	wq->spwq_items[wq->spwq_len].spwi_path = path_copy;
+	wq->spwq_items[wq->spwq_len].spwi_value = value;
+
+	wq->spwq_len++;
+
+	return 0;
+}
+
+/**
+ * Gets the next item from the set_param \a wq in a thread-safe manner.
+ *
+ * \param[in] wq  the workq from which to obtain the next item
+ * \param[out] wi the next work item in \a wa, will be set to NULL if \wq empty
+ *
+ * \retval 0 if successful (empty work queue is considered successful)
+ * \retval -errno if unsuccessful
+ */
+static int spwq_next_item(struct sp_workq *wq, struct sp_work_item **wi)
+{
+	int rc_lock;
+	int rc_unlock;
+
+	if (wq == NULL || wi == NULL)
+		return -EINVAL;
+
+	*wi = NULL;
+
+	rc_lock = pthread_mutex_lock(&wq->spwq_mutex);
+	if (rc_lock == 0 && wq->spwq_cur_index < wq->spwq_len)
+		*wi = &wq->spwq_items[wq->spwq_cur_index++];
+
+	rc_unlock = pthread_mutex_unlock(&wq->spwq_mutex);
+	/* Ignore failures due to not owning the mutex */
+	if (rc_unlock == EPERM)
+		rc_unlock = 0;
+
+	return rc_lock != 0 ? -rc_lock : -rc_unlock;
+}
+
+/**
+ * A set_param worker thread which sets params from the workq.
+ *
+ * \param[in] arg a pointer to a struct sp_workq
+ *
+ * \retval 0 if successful
+ * \retval -errno if unsuccessful
+ */
+static void *sp_thread(void *arg)
+{
+	long int rc = 0;
+	int rc2 = 0;
+	struct sp_workq *wq = (struct sp_workq *)arg;
+	struct param_opts *popt = wq->spwq_popt;
+	struct sp_work_item *witem;
+
+	rc = spwq_next_item(wq, &witem);
+	if (rc < 0)
+		return (void *)rc;
+
+	while (witem != NULL) {
+		char *path = witem->spwi_path;
+		char *param_name = witem->spwi_param_name;
+		char *value = witem->spwi_value;
+		rc2 = write_param(path, param_name, popt, value);
+		if (rc2 < 0)
+			rc = rc2;
+		rc2 = spwq_next_item(wq, &witem);
+		if (rc2 < 0)
+			rc = rc2;
+	}
+
+	return (void *)rc;
+}
+
+/**
+ * Spawn threads and set parameters in a work queue in parallel.
+ *
+ * \param[in] wq the work queue containing parameters to set
+ *
+ * \retval 0 if successful
+ * \retval -errno if unsuccessful
+ */
+static int sp_run_threads(struct sp_workq *wq)
+{
+	int rc = 0;
+	int join_rc;
+	void *res;
+	int i;
+	int j;
+	int num_threads;
+	pthread_t *sp_threads;
+
+	if (wq == NULL)
+		return -EINVAL;
+
+	if (wq->spwq_len == 0)
+		return 0;
+
+	num_threads = LCTL_THREADS_PER_CPU * sysconf(_SC_NPROCESSORS_ONLN);
+	if (num_threads > wq->spwq_len)
+		num_threads = wq->spwq_len;
+
+	sp_threads = malloc(sizeof(pthread_t) * num_threads);
+	if (sp_threads == NULL)
+		return -ENOMEM;
+
+	for (i = 0; i < num_threads; i++) {
+		rc = pthread_create(&sp_threads[i], NULL,
+				    &sp_thread, (void *)wq);
+		if (rc != 0) {
+			fprintf(stderr, "error: set_param: spawning "
+					"thread %d/%d failed: rc=%d.\n",
+				i + 1, num_threads, rc);
+			break;
+		}
+	}
+
+	for (j = 0; j < i; j++) {
+		join_rc = pthread_join(sp_threads[j], &res);
+		if (join_rc != 0) {
+			fprintf(stderr, "error: set_param: joining "
+					"thread %d/%d failed: rc=%d.\n",
+				j + 1, i, join_rc);
+			/* thread creation errors take priority */
+			if (rc == 0)
+				rc = join_rc;
+		}
+		if (res != 0) {
+			/* this error takes priority over create/join errors */
+			rc = (long int)res;
+			fprintf(stderr, "error: set_param: "
+					"thread %d/%d failed: rc=%d.\n",
+				j + 1, i, rc);
+		}
+	}
+
+	free(sp_threads);
+	return rc;
+}
+
+#endif /* HAVE_LIBPTHREAD */
+
 /**
  * Perform a read, write or just a listing of a parameter
  *
  * \param[in] popt		list,set,get parameter options
  * \param[in] pattern		search filter for the path of the parameter
  * \param[in] value		value to set the parameter if write operation
- * \param[in] mode		what operation to perform with the parameter
+ * \param[in] oper		what operation to perform with the parameter
  *
  * \retval number of bytes written on success.
  * \retval -errno on error.
  */
+#if HAVE_LIBPTHREAD
+#define do_param_op(popt, pattern, value, oper, wq) \
+	_do_param_op(popt, pattern, value, oper, wq)
 static int
-param_display(struct param_opts *popt, char *pattern, char *value,
-	      enum parameter_operation mode)
+_do_param_op(struct param_opts *popt, char *pattern, char *value,
+	     enum parameter_operation oper, struct sp_workq *wq)
+#else
+#define do_param_op(popt, pattern, value, oper, wq) \
+	_do_param_op(popt, pattern, value, oper)
+static int
+_do_param_op(struct param_opts *popt, char *pattern, char *value,
+	     enum parameter_operation oper)
+#endif
 {
 	int dir_count = 0;
 	char **dir_cache;
 	glob_t paths;
 	int rc, i;
+
+#ifdef HAVE_LIBPTHREAD
+	if (wq == NULL && popt->po_parallel)
+		return -EINVAL;
+#endif
 
 	rc = cfs_get_param_paths(&paths, "%s", pattern);
 	if (rc != 0) {
@@ -1025,13 +1354,22 @@ param_display(struct param_opts *popt, char *pattern, char *value,
 		return rc;
 	}
 
+#if HAVE_LIBPTHREAD
+	if (popt->po_parallel) {
+		/* Allocate space for the glob paths in advance. */
+		rc = spwq_expand(wq, paths.gl_pathc);
+		if (rc < 0)
+			goto out_param;
+	}
+#endif
+
 	dir_cache = calloc(paths.gl_pathc, sizeof(char *));
 	if (dir_cache == NULL) {
 		rc = -ENOMEM;
 		goto out_param;
 	}
 
-	for (i = 0; i  < paths.gl_pathc; i++) {
+	for (i = 0; i < paths.gl_pathc; i++) {
 		char *param_name = NULL, *tmp;
 		char pathname[PATH_MAX];
 		struct stat st;
@@ -1076,17 +1414,21 @@ param_display(struct param_opts *popt, char *pattern, char *value,
 			dir_cache[dir_count++] = strdup(param_name);
 		}
 
-		switch (mode) {
+		switch (oper) {
 		case GET_PARAM:
 			/* Read the contents of file to stdout */
 			if (S_ISREG(st.st_mode))
 				read_param(paths.gl_pathv[i], param_name, popt);
 			break;
 		case SET_PARAM:
-			if (S_ISREG(st.st_mode)) {
+			if (S_ISREG(st.st_mode) && !popt->po_parallel)
 				rc = write_param(paths.gl_pathv[i], param_name,
 						 popt, value);
-			}
+#if HAVE_LIBPTHREAD
+			else if (S_ISREG(st.st_mode) && popt->po_parallel)
+				rc = spwq_add_item(wq, paths.gl_pathv[i],
+						   param_name, value);
+#endif
 			break;
 		case LIST_PARAM:
 		default:
@@ -1114,7 +1456,7 @@ param_display(struct param_opts *popt, char *pattern, char *value,
 		/* Use param_name to grab subdirectory tree from full path */
 		tmp = strstr(paths.gl_pathv[i], param_name);
 
-		/* cleanup paramname now that we are done with it */
+		/* cleanup param_name now that we are done with it */
 		free(param_name);
 		param_name = NULL;
 
@@ -1132,7 +1474,11 @@ param_display(struct param_opts *popt, char *pattern, char *value,
 			break;
 		}
 
-		rc = param_display(popt, pathname, value, mode);
+		/* The C preprocessor will replace this with
+		 * _do_param_op(popt, pathname, value, oper) if we don't
+		 * HAVE_LIBPTHREAD, so it's okay to use wq. */
+		rc = do_param_op(popt, pathname, value, oper, wq);
+
 		if (rc != 0 && rc != -ENOENT)
 			break;
 	}
@@ -1189,7 +1535,7 @@ int jt_lcfg_listparam(int argc, char **argv)
 		if (rc < 0)
 			break;
 
-		rc = param_display(&popt, path, NULL, LIST_PARAM);
+		rc = do_param_op(&popt, path, NULL, LIST_PARAM, NULL);
 		if (rc < 0)
 			break;
 	}
@@ -1243,8 +1589,9 @@ int jt_lcfg_getparam(int argc, char **argv)
 		if (rc < 0)
 			break;
 
-		rc = param_display(&popt, path, NULL,
-				   popt.po_only_path ? LIST_PARAM : GET_PARAM);
+		rc = do_param_op(&popt, path, NULL,
+				 popt.po_only_path ? LIST_PARAM : GET_PARAM,
+				 NULL);
 		if (rc < 0)
 			break;
 	}
@@ -1281,14 +1628,14 @@ int jt_nodemap_info(int argc, char **argv)
 	if (argc == 1 || strcmp("list", argv[1]) == 0) {
 		popt.po_only_path = 1;
 		popt.po_only_dir = 1;
-		rc = param_display(&popt, "nodemap/*", NULL, LIST_PARAM);
+		rc = do_param_op(&popt, "nodemap/*", NULL, LIST_PARAM, NULL);
 	} else if (strcmp("all", argv[1]) == 0) {
-		rc = param_display(&popt, "nodemap/*/*", NULL, LIST_PARAM);
+		rc = do_param_op(&popt, "nodemap/*/*", NULL, LIST_PARAM, NULL);
 	} else {
 		char	pattern[PATH_MAX];
 
 		snprintf(pattern, sizeof(pattern), "nodemap/%s/*", argv[1]);
-		rc = param_display(&popt, pattern, NULL, LIST_PARAM);
+		rc = do_param_op(&popt, pattern, NULL, LIST_PARAM, NULL);
 		if (rc == -ESRCH)
 			fprintf(stderr, "error: nodemap_info: cannot find"
 					"nodemap %s\n", argv[1]);
@@ -1296,6 +1643,15 @@ int jt_nodemap_info(int argc, char **argv)
 	return rc;
 }
 
+/**
+ * Parses the command-line options to set_param.
+ *
+ * \param[in] argc   count of arguments given to set_param
+ * \param[in] argv   array of arguments given to set_param
+ * \param[out] popt  where set_param options will be saved
+ *
+ * \retval index in argv of the first non-option argv element (optind value)
+ */
 static int setparam_cmdline(int argc, char **argv, struct param_opts *popt)
 {
         int ch;
@@ -1306,8 +1662,9 @@ static int setparam_cmdline(int argc, char **argv, struct param_opts *popt)
         popt->po_recursive = 0;
 	popt->po_params2 = 0;
 	popt->po_delete = 0;
+	popt->po_parallel = 0;
 
-	while ((ch = getopt(argc, argv, "nPd")) != -1) {
+	while ((ch = getopt(argc, argv, "nPdp")) != -1) {
                 switch (ch) {
                 case 'n':
                         popt->po_show_path = 0;
@@ -1318,6 +1675,14 @@ static int setparam_cmdline(int argc, char **argv, struct param_opts *popt)
 		case 'd':
 			popt->po_delete = 1;
 			break;
+		case 'p':
+#if HAVE_LIBPTHREAD
+			popt->po_parallel = 1;
+#else
+			fprintf(stderr, "warning: set_param: no pthread "
+					"support, proceeding serially.\n");
+#endif
+			break;
                 default:
                         return -1;
                 }
@@ -1325,11 +1690,64 @@ static int setparam_cmdline(int argc, char **argv, struct param_opts *popt)
         return optind;
 }
 
+/**
+ * Parse the arguments to set_param and return the first parameter and value
+ * pair and the number of arguments consumed.
+ *
+ * \param[in] argc   number of arguments remaining in argv
+ * \param[in] argv   list of param-value arguments to set_param (this function
+ *                   will modify the strings by overwriting '=' with '\0')
+ * \param[out] param the parameter name
+ * \param[out] value the parameter value
+ *
+ * \retval the number of args consumed from argv (1 for "param=value" format, 2
+ *         for "param value" format)
+ * \retval -errno if unsuccessful
+ */
+static int sp_parse_param_value(int argc, char **argv,
+				char **param, char **value) {
+	char *tmp;
+
+	if (argc < 1 || argv == NULL || param == NULL || value == NULL)
+		return -EINVAL;
+
+	*param = argv[0];
+	tmp = strchr(*param, '=');
+	if (tmp != NULL) {
+		/* format: set_param a=b */
+		*tmp = '\0';
+		tmp++;
+		if (*tmp == '\0')
+			return -EINVAL;
+		*value = tmp;
+		return 1;
+	}
+	/* format: set_param a b */
+	if (argc < 2)
+		return -EINVAL;
+	*value = argv[1];
+
+	return 2;
+}
+
+/**
+ * Main set_param function.
+ *
+ * \param[in] argc  count of arguments given to set_param
+ * \param[in] argv  array of arguments given to set_param
+ *
+ * \retval 0 if successful
+ * \retval -errno if unsuccessful
+ */
 int jt_lcfg_setparam(int argc, char **argv)
 {
-	int rc = 0, index, i;
+	int rc = 0;
+	int index;
 	struct param_opts popt;
-	char *path = NULL, *value = NULL;
+#if HAVE_LIBPTHREAD
+	struct sp_workq wq;
+	int rc2 = 0;
+#endif
 
 	memset(&popt, 0, sizeof(popt));
 	index = setparam_cmdline(argc, argv, &popt);
@@ -1341,36 +1759,71 @@ int jt_lcfg_setparam(int argc, char **argv)
 		 * set with old conf_param interface */
 		return jt_lcfg_mgsparam2(argc, argv, &popt);
 
-	for (i = index; i < argc; i++) {
-		value = strchr(argv[i], '=');
-		if (value != NULL) {
-			/* format: set_param a=b */
-			*value = '\0';
-			value++;
-			path = argv[i];
-			if (*value == '\0')
-				break;
-		} else {
-			/* format: set_param a b */
-			if (path == NULL) {
-				path = argv[i];
-				continue;
-			} else {
-				value = argv[i];
-			}
+#if HAVE_LIBPTHREAD
+	if (popt.po_parallel) {
+		rc = spwq_init(&wq, &popt);
+		if (rc < 0) {
+			fprintf(stderr, "error: %s: "
+					"failed to init work queue: %s",
+				jt_cmdname(argv[0]), strerror(-rc));
+			return rc;
 		}
+	}
+#endif
+
+	while (index < argc) {
+		char *path = NULL;
+		char *value = NULL;
+
+		rc = sp_parse_param_value(argc - index, argv + index,
+					  &path, &value);
+		if (rc < 0) {
+			fprintf(stderr, "error: %s: setting %s=: %s\n",
+				jt_cmdname(argv[0]), path, strerror(-rc));
+			break;
+		}
+		/* Increment index by the number or arguments consumed. */
+		index += rc;
 
 		rc = clean_path(&popt, path);
 		if (rc < 0)
 			break;
 
-		rc = param_display(&popt, path, value, SET_PARAM);
-		path = NULL;
-		value = NULL;
+#if HAVE_LIBPTHREAD
+		rc = do_param_op(&popt, path, value, SET_PARAM,
+				 popt.po_parallel ? &wq : NULL);
+#else
+		rc = do_param_op(&popt, path, value, SET_PARAM, NULL);
+#endif
+
+		if (rc < 0) {
+			fprintf(stderr, "error: %s: setting '%s'='%s': %s\n",
+				jt_cmdname(argv[0]), path, value,
+				strerror(-rc));
+		}
 	}
-	if (path != NULL && (value == NULL || *value == '\0'))
-		fprintf(stderr, "error: %s: setting %s=: %s\n",
-			jt_cmdname(argv[0]), path, strerror(rc = EINVAL));
+
+#if HAVE_LIBPTHREAD
+	if (popt.po_parallel) {
+		/* Spawn threads to set the parameters which made it into the
+		 * work queue to emulate serial set_param behavior when errors
+		 * are encountered above. */
+		rc2 = sp_run_threads(&wq);
+		if (rc2 < 0) {
+			fprintf(stderr, "error: %s: failed to run threads: %s",
+				jt_cmdname(argv[0]), strerror(-rc2));
+			if (rc == 0)
+				rc = rc2;
+		}
+		rc2 = spwq_destroy(&wq);
+		if (rc2 < 0) {
+			fprintf(stderr, "error: %s: failed workq cleanup: %s",
+				jt_cmdname(argv[0]), strerror(-rc2));
+			if (rc == 0)
+				rc = rc2;
+		}
+	}
+#endif
 
 	return rc;
 }
