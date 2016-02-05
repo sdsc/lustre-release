@@ -752,6 +752,86 @@ out:
 EXPORT_SYMBOL(nodemap_del_range);
 
 /**
+ * set fileset on nodemap
+ * \param	name		nodemap to set fileset on
+ * \param	fileset		string containing fileset
+ * \retval	0 on success
+ *
+ * set a fileset on the named nodemap
+ */
+static int nodemap_set_fileset_helper(struct nodemap_config *config,
+				      struct lu_nodemap *nodemap,
+				      const char *fileset)
+{
+	int rc = 0;
+
+	if (fileset == NULL || fileset[0] != '/')
+		rc = -EINVAL;
+	else if (strlcpy(nodemap->nm_fileset, fileset,
+			 sizeof(nodemap->nm_fileset)) >=
+		 sizeof(nodemap->nm_fileset))
+		rc = -ENAMETOOLONG;
+
+	return rc;
+}
+
+int nodemap_set_fileset(const char *name, const char *fileset)
+{
+	struct lu_nodemap	*nodemap = NULL;
+	int			 rc = 0;
+
+	mutex_lock(&active_config_lock);
+	nodemap = nodemap_lookup(name);
+	if (IS_ERR(nodemap)) {
+		mutex_unlock(&active_config_lock);
+		GOTO(out, rc = PTR_ERR(nodemap));
+	}
+
+	if (is_default_nodemap(nodemap))
+		rc = -EINVAL;
+	else
+		rc = nodemap_set_fileset_helper(active_config, nodemap,
+						fileset);
+	mutex_unlock(&active_config_lock);
+
+	nodemap_putref(nodemap);
+out:
+	return rc;
+}
+EXPORT_SYMBOL(nodemap_set_fileset);
+
+/**
+ * clear fileset of nodemap
+ * \param	name		nodemap to clear fileset of
+ * \retval	0 on success
+ *
+ * clear the fileset of the named nodemap
+ */
+int nodemap_clear_fileset(const char *name)
+{
+	struct lu_nodemap	*nodemap = NULL;
+	int			 rc = 0;
+
+	mutex_lock(&active_config_lock);
+	nodemap = nodemap_lookup(name);
+	if (IS_ERR(nodemap)) {
+		mutex_unlock(&active_config_lock);
+		GOTO(out, rc = PTR_ERR(nodemap));
+	}
+
+	if (is_default_nodemap(nodemap))
+		rc = -EINVAL;
+	else
+		nodemap->nm_fileset[0] = 0;
+	mutex_unlock(&active_config_lock);
+
+	nodemap_putref(nodemap);
+out:
+	return rc;
+}
+EXPORT_SYMBOL(nodemap_clear_fileset);
+
+/**
  * Nodemap constructor
  *
  * Creates an lu_nodemap structure and assigns sane default
@@ -844,6 +924,7 @@ struct lu_nodemap *nodemap_create(const char *name,
 
 		nodemap->nm_squash_uid = default_nodemap->nm_squash_uid;
 		nodemap->nm_squash_gid = default_nodemap->nm_squash_gid;
+		nodemap->nm_fileset[0] = 0;
 	}
 
 	return nodemap;
