@@ -174,6 +174,34 @@ static int nodemap_ranges_open(struct inode *inode, struct file *file)
 }
 
 /**
+ * Reads and prints the fileset for the given nodemap.
+ *
+ * \param	m		seq file in proc fs
+ * \param	data		unused
+ * \retval	0		success
+ */
+static int nodemap_fileset_seq_show(struct seq_file *m, void *data)
+{
+	struct lu_nodemap *nodemap;
+	int rc;
+
+	mutex_lock(&active_config_lock);
+	nodemap = nodemap_lookup(m->private);
+	mutex_unlock(&active_config_lock);
+	if (IS_ERR(nodemap)) {
+		rc = PTR_ERR(nodemap);
+		CERROR("cannot find nodemap '%s': rc = %d\n",
+			(char *)m->private, rc);
+		return rc;
+	}
+
+	rc = seq_printf(m, "%s\n", nodemap->nm_fileset);
+	nodemap_putref(nodemap);
+	return rc;
+}
+LPROC_SEQ_FOPS_RO(nodemap_fileset);
+
+/**
  * Reads and prints the exports attached to the given nodemap.
  *
  * \param	m		seq file in proc fs, stores nodemap
@@ -834,6 +862,60 @@ out:
 LPROC_SEQ_FOPS_WO_TYPE(nodemap, del_nodemap_range);
 
 /**
+ * Set a fileset on a nodemap.
+ *
+ * \param[in] file      proc file
+ * \param[in] buffer    string, "<nodemap name> <fileset>"
+ * \param[in] count     \a buffer length
+ * \param[in] off       unused
+ * \retval              \a count on success
+ * \retval              negative number on error
+ */
+static ssize_t
+lprocfs_set_nodemap_fileset_seq_write(struct file *file,
+				      const char __user *buffer,
+				      size_t count, loff_t *off)
+{
+	char			name_fileset[LUSTRE_NODEMAP_NAME_LENGTH +
+					   NAME_MAX + 2];
+	char			*cpybuf = NULL;
+	char			*name;
+	char			*fileset;
+	int			rc;
+
+	if (count == 0)
+		return 0;
+
+	if (count >= sizeof(name_fileset))
+		GOTO(out, rc = -EINVAL);
+
+	if (copy_from_user(name_fileset, buffer, count))
+		GOTO(out, rc = -EFAULT);
+
+	name_fileset[count] = '\0';
+
+	cpybuf = name_fileset;
+	name = strsep(&cpybuf, " ");
+	if (name == NULL)
+		GOTO(out, rc = -EINVAL);
+
+	fileset = strsep(&cpybuf, " \n");
+	if (fileset == NULL)
+		GOTO(out, rc = -EINVAL);
+
+	rc = nodemap_set_fileset(name, fileset);
+	if (rc != 0)
+		GOTO(out, rc = -EINVAL);
+
+	if (rc == 0)
+		rc = count;
+
+out:
+	return rc;
+}
+LPROC_SEQ_FOPS_WO_TYPE(nodemap, set_nodemap_fileset);
+
+/**
  * Add an idmap to nodemap.
  *
  * \param[in] file      proc file
@@ -995,6 +1077,10 @@ static struct lprocfs_vars lprocfs_nm_module_vars[] = {
 		.fops		= &nodemap_del_nodemap_range_fops,
 	},
 	{
+		.name		= "set_nodemap_fileset",
+		.fops		= &nodemap_set_nodemap_fileset_fops,
+	},
+	{
 		.name		= "add_nodemap_idmap",
 		.fops		= &nodemap_add_nodemap_idmap_fops,
 	},
@@ -1065,6 +1151,10 @@ static struct lprocfs_vars lprocfs_nodemap_vars[] = {
 	{
 		.name		= "ranges",
 		.fops		= &nodemap_ranges_fops,
+	},
+	{
+		.name		= "fileset",
+		.fops		= &nodemap_fileset_fops,
 	},
 	{
 		.name		= "exports",
