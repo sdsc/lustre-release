@@ -348,8 +348,10 @@ static int mdt_get_root(struct tgt_session_info *tsi)
 	struct mdt_thread_info	*info = tsi2mdt_info(tsi);
 	struct mdt_device	*mdt = info->mti_mdt;
 	struct mdt_body		*repbody;
-	char			*fileset;
+	char			*fileset = NULL;
 	int			 rc;
+	struct obd_export	*exp = info->mti_exp;
+	struct lu_nodemap       *nodemap = exp->exp_target_data.ted_nodemap;
 
 	ENTRY;
 
@@ -365,7 +367,18 @@ static int mdt_get_root(struct tgt_session_info *tsi)
 		fileset = req_capsule_client_get(info->mti_pill, &RMF_NAME);
 		if (fileset == NULL)
 			GOTO(out, rc = err_serious(-EFAULT));
+	}
 
+	if (nodemap && nodemap->nm_fileset[0]) {
+		if (fileset && strcmp(fileset, nodemap->nm_fileset) != 0) {
+			/* requested fileset must match one in nodemap */
+			GOTO(out, rc = err_serious(-ENOENT));
+		}
+		/* enforce fileset even if not request by client */
+		fileset = nodemap->nm_fileset;
+	}
+
+	if (fileset) {
 		rc = mdt_lookup_fileset(info, fileset, &repbody->mbo_fid1);
 		if (rc < 0)
 			GOTO(out, rc = err_serious(rc));
