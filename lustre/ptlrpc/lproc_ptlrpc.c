@@ -957,24 +957,28 @@ static int ptlrpc_lprocfs_svc_req_history_show(struct seq_file *s, void *iter)
 	rc = ptlrpc_lprocfs_svc_req_history_seek(svcpt, srhi, srhi->srhi_seq);
 
 	if (rc == 0) {
+		time_t arrival, sent, deadline;
 		char nidstr[LNET_NIDSTR_SIZE];
 
 		req = srhi->srhi_req;
 
 		libcfs_nid2str_r(req->rq_self, nidstr, sizeof(nidstr));
+		arrival = req->rq_arrival_time.tv_sec * USEC_PER_SEC +
+			  req->rq_arrival_time.tv_usec;
+		sent = req->rq_sent * USEC_PER_SEC;
+		deadline = req->rq_deadline * USEC_PER_SEC;
+
 		/* Print common req fields.
 		 * CAVEAT EMPTOR: we're racing with the service handler
 		 * here.  The request could contain any old crap, so you
 		 * must be just as careful as the service's request
 		 * parser. Currently I only print stuff here I know is OK
 		 * to look at coz it was set up in request_in_callback()!!! */
-		seq_printf(s, LPD64":%s:%s:x"LPU64":%d:%s:%ld:%lds(%+lds) ",
+		seq_printf(s, LPD64":%s:%s:x"LPU64":%d:%s:%ld:%ldus(%+ldus) ",
 			   req->rq_history_seq, nidstr,
 			   libcfs_id2str(req->rq_peer), req->rq_xid,
 			   req->rq_reqlen, ptlrpc_rqphase2str(req),
-			   req->rq_arrival_time.tv_sec,
-			   req->rq_sent - req->rq_arrival_time.tv_sec,
-			   req->rq_sent - req->rq_deadline);
+			   arrival, sent - arrival, sent - deadline);
 		if (svc->srv_ops.so_req_printer == NULL)
 			seq_printf(s, "\n");
 		else
