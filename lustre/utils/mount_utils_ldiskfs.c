@@ -94,12 +94,13 @@ extern char *progname;
 #define EXT3_DIRENT_SIZE                DUMMY_FILE_NAME_LEN
 
 /*
- * Concatenate context of the temporary mount point iff selinux is enabled
+ * Concatenate context of the temporary mount point if selinux is enabled
  */
 #ifdef HAVE_SELINUX
 static void append_context_for_mount(char *mntpt, struct mkfs_opts *mop)
 {
 	security_context_t fcontext;
+	char *already_present;
 
 	if (getfilecon(mntpt, &fcontext) < 0) {
 		/* Continuing with default behaviour */
@@ -108,11 +109,13 @@ static void append_context_for_mount(char *mntpt, struct mkfs_opts *mop)
 		return;
 	}
 
-	if (fcontext != NULL) {
+	already_present = strstr(mop->mo_ldd.ldd_mount_opts, "context=");
+	if (fcontext != NULL && already_present == NULL) {
 		strcat(mop->mo_ldd.ldd_mount_opts, ",context=");
 		strcat(mop->mo_ldd.ldd_mount_opts, fcontext);
-		freecon(fcontext);
 	}
+	if (fcontext != NULL)
+		freecon(fcontext);
 }
 #endif
 
