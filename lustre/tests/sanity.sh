@@ -13600,6 +13600,7 @@ test_256() {
 
 	#after mount new plainllog is used
 	touch $DIR/$tdir/{11..19}
+	do_facet mds1 sync
 	cat_sl=$(do_facet mds1 \
 	"$DEBUGFS -R \\\"dump changelog_catalog cat.dmp\\\" $mdt_dev; \
 	 llog_reader cat.dmp | grep \\\"type=1064553b\\\" | wc -l")
@@ -13611,6 +13612,7 @@ test_256() {
 
 	$LFS changelog_clear $MDT0 $cl_user 0
 
+	do_facet mds1 sync
 	cat_sl=$(do_facet mds1 \
 	"$DEBUGFS -R \\\"dump changelog_catalog cat.dmp\\\" $mdt_dev; \
 	 llog_reader cat.dmp | grep \\\"type=1064553b\\\" | wc -l")
