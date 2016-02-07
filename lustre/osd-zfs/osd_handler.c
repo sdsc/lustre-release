@@ -186,6 +186,26 @@ static int osd_trans_cb_add(struct thandle *th, struct dt_txn_commit_cb *dcb)
 	return 0;
 }
 
+static int osd_dmu_tx_assign(const struct lu_env *env,
+			     struct osd_thandle *oh)
+{
+#define MAXTRY	10
+	int limit = MAXTRY;
+	int rc;
+
+	do {
+		rc = limit == MAXTRY ? TXG_NOWAIT : TXG_WAITED;
+		rc = dmu_tx_assign(oh->ot_tx, rc);
+		if (rc == 0)
+			return 0;
+		CDEBUG(D_OTHER, "waiting on %llu\n",
+		       oh->ot_tx->tx_lasttried_txg);
+		dmu_tx_wait(oh->ot_tx);
+	} while (--limit > 0);
+
+	return -ENOSPC;
+}
+
 /*
  * Concurrency: shouldn't matter.
  */
@@ -209,7 +229,7 @@ static int osd_trans_start(const struct lu_env *env, struct dt_device *d,
 		 * -ENOSPC when assigning txg */
 		RETURN(-ENOSPC);
 
-	rc = -dmu_tx_assign(oh->ot_tx, TXG_WAIT);
+	rc = osd_dmu_tx_assign(env, oh);
 	if (unlikely(rc != 0)) {
 		struct osd_device *osd = osd_dt_dev(d);
 		/* dmu will call commit callback with error code during abort */
@@ -294,6 +314,7 @@ static int osd_trans_stop(const struct lu_env *env, struct dt_device *dt,
 		/* there won't be any commit, release reserved quota space now,
 		 * if any */
 		qsd_op_end(env, osd->od_quota_slave, &oh->ot_quota_trans);
+		osd_trans_stop_cb(oh, th->th_result);
 		OBD_FREE_PTR(oh);
 		RETURN(0);
 	}
