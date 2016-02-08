@@ -58,45 +58,44 @@ lnet_selftest_exit(void)
 {
 	int	i;
 
-        switch (lst_init_step) {
-                case LST_INIT_CONSOLE:
-                        lstcon_console_fini();
-                case LST_INIT_FW:
-                        sfw_shutdown();
-                case LST_INIT_RPC:
-                        srpc_shutdown();
-		case LST_INIT_WI_TEST:
-			for (i = 0;
-			     i < cfs_cpt_number(lnet_cpt_table()); i++) {
-				if (lst_sched_test[i] == NULL)
-					continue;
-				cfs_wi_sched_destroy(lst_sched_test[i]);
-			}
-			LIBCFS_FREE(lst_sched_test,
-				    sizeof(lst_sched_test[0]) *
-				    cfs_cpt_number(lnet_cpt_table()));
-			lst_sched_test = NULL;
+	switch (lst_init_step) {
+	case LST_INIT_CONSOLE:
+		lstcon_console_fini();
+	case LST_INIT_FW:
+		sfw_shutdown();
+	case LST_INIT_RPC:
+		srpc_shutdown();
+	case LST_INIT_WI_TEST:
+		for (i = 0;
+		     i < cfs_cpt_number(lnet_cpt_table()); i++) {
+			if (lst_sched_test[i] == NULL)
+				continue;
+			cfs_wi_sched_destroy(lst_sched_test[i]);
+		}
+		LIBCFS_FREE(lst_sched_test,
+			    sizeof(lst_sched_test[0]) *
+			    cfs_cpt_number(lnet_cpt_table()));
+		lst_sched_test = NULL;
 
-		case LST_INIT_WI_SERIAL:
-			cfs_wi_sched_destroy(lst_sched_serial);
-			lst_sched_serial = NULL;
-                case LST_INIT_NONE:
-                        break;
-                default:
-                        LBUG();
-        }
-        return;
+	case LST_INIT_WI_SERIAL:
+		cfs_wi_sched_destroy(lst_sched_serial);
+		lst_sched_serial = NULL;
+	case LST_INIT_NONE:
+		break;
+	default:
+		LBUG();
+	}
 }
 
 void
 lnet_selftest_structure_assertion(void)
 {
-        CLASSERT(sizeof(srpc_msg_t) == 160);
-        CLASSERT(sizeof(srpc_test_reqst_t) == 70);
-        CLASSERT(offsetof(srpc_msg_t, msg_body.tes_reqst.tsr_concur) == 72);
-        CLASSERT(offsetof(srpc_msg_t, msg_body.tes_reqst.tsr_ndest) == 78);
-        CLASSERT(sizeof(srpc_stat_reply_t) == 136);
-        CLASSERT(sizeof(srpc_stat_reqst_t) == 28);
+	CLASSERT(sizeof(srpc_msg_t) == 160);
+	CLASSERT(sizeof(srpc_test_reqst_t) == 70);
+	CLASSERT(offsetof(srpc_msg_t, msg_body.tes_reqst.tsr_concur) == 72);
+	CLASSERT(offsetof(srpc_msg_t, msg_body.tes_reqst.tsr_ndest) == 78);
+	CLASSERT(sizeof(srpc_stat_reply_t) == 136);
+	CLASSERT(sizeof(srpc_stat_reqst_t) == 28);
 }
 
 static int __init
@@ -128,31 +127,30 @@ lnet_selftest_init(void)
 		rc = cfs_wi_sched_create("lst_t", lnet_cpt_table(), i,
 					 nthrs, &lst_sched_test[i]);
 		if (rc != 0) {
-			CERROR("Failed to create CPT affinity WI scheduler "
-			       "%d for LST\n", i);
+			CERROR("Failed to create CPT affinity WI scheduler %d for LST\n", i);
 			goto error;
 		}
 	}
 
-        rc = srpc_startup();
-        if (rc != 0) {
-                CERROR("LST can't startup rpc\n");
-                goto error;
-        }
-        lst_init_step = LST_INIT_RPC;
+	rc = srpc_startup();
+	if (rc != 0) {
+		CERROR("LST can't startup rpc\n");
+		goto error;
+	}
+	lst_init_step = LST_INIT_RPC;
 
-        rc = sfw_startup();
-        if (rc != 0) {
-                CERROR("LST can't startup framework\n");
-                goto error;
-        }
-        lst_init_step = LST_INIT_FW;
+	rc = sfw_startup();
+	if (rc != 0) {
+		CERROR("LST can't startup framework\n");
+		goto error;
+	}
+	lst_init_step = LST_INIT_FW;
 
-        rc = lstcon_console_init();
-        if (rc != 0) {
-                CERROR("LST can't startup console\n");
-                goto error;
-        }
+	rc = lstcon_console_init();
+	if (rc != 0) {
+		CERROR("LST can't startup console\n");
+		goto error;
+	}
 	lst_init_step = LST_INIT_CONSOLE;
 	return 0;
 error:
