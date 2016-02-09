@@ -60,7 +60,7 @@
  * \param handle On successful return, this location will hold a handle for
  * the newly created EQ.
  *
- * \retval 0       On success.
+ * \retval 0	   On success.
  * \retval -EINVAL If an parameter is not valid.
  * \retval -ENOMEM If memory for the EQ can't be allocated.
  *
@@ -68,27 +68,26 @@
  */
 int
 LNetEQAlloc(unsigned int count, lnet_eq_handler_t callback,
-            lnet_handle_eq_t *handle)
+	    lnet_handle_eq_t *handle)
 {
-        lnet_eq_t     *eq;
+	lnet_eq_t *eq;
 
-        LASSERT (the_lnet.ln_refcount > 0);
+	LASSERT(the_lnet.ln_refcount > 0);
 
-        /* We need count to be a power of 2 so that when eq_{enq,deq}_seq
-         * overflow, they don't skip entries, so the queue has the same
-         * apparent capacity at all times */
-
+	/*
+	 * We need count to be a power of 2 so that when eq_{enq,deq}_seq
+	 * overflow, they don't skip entries, so the queue has the same
+	 * apparent capacity at all times
+	 */
 	count = roundup_pow_of_two(count);
 
-	if (callback != LNET_EQ_HANDLER_NONE && count != 0) {
-		CWARN("EQ callback is guaranteed to get every event, "
-		      "do you still want to set eqcount %d for polling "
-		      "event which will have locking overhead? "
-		      "Please contact with developer to confirm\n", count);
-	}
+	if (callback != LNET_EQ_HANDLER_NONE && count != 0)
+		CWARN("EQ callback is guaranteed to get every event, do you still want to set eqcount %d for polling event which will have locking overhead? Please contact with developer to confirm\n", count);
 
-	/* count can be 0 if only need callback, we can eliminate
-	 * overhead of enqueue event */
+	/*
+	 * count can be 0 if only need callback, we can eliminate
+	 * overhead of enqueue event
+	 */
 	if (count == 0 && callback == LNET_EQ_HANDLER_NONE)
 		return -EINVAL;
 
@@ -100,14 +99,16 @@ LNetEQAlloc(unsigned int count, lnet_eq_handler_t callback,
 		LIBCFS_ALLOC(eq->eq_events, count * sizeof(lnet_event_t));
 		if (eq->eq_events == NULL)
 			goto failed;
-		/* NB allocator has set all event sequence numbers to 0,
-		 * so all them should be earlier than eq_deq_seq */
+		/*
+		 * NB allocator has set all event sequence numbers to 0,
+		 * so all them should be earlier than eq_deq_seq
+		 */
 	}
 
-        eq->eq_deq_seq = 1;
-        eq->eq_enq_seq = 1;
-        eq->eq_size = count;
-        eq->eq_callback = callback;
+	eq->eq_deq_seq = 1;
+	eq->eq_enq_seq = 1;
+	eq->eq_size = count;
+	eq->eq_callback = callback;
 
 	eq->eq_refs = cfs_percpt_alloc(lnet_cpt_table(),
 				       sizeof(*eq->eq_refs[0]));
@@ -116,8 +117,10 @@ LNetEQAlloc(unsigned int count, lnet_eq_handler_t callback,
 
 	/* MUST hold both exclusive lnet_res_lock */
 	lnet_res_lock(LNET_LOCK_EX);
-	/* NB: hold lnet_eq_wait_lock for EQ link/unlink, so we can do
-	 * both EQ lookup and poll event with only lnet_eq_wait_lock */
+	/*
+	 * NB: hold lnet_eq_wait_lock for EQ link/unlink, so we can do
+	 * both EQ lookup and poll event with only lnet_eq_wait_lock
+	 */
 	lnet_eq_wait_lock();
 
 	lnet_res_lh_initialize(&the_lnet.ln_eq_container, &eq->eq_lh);
@@ -154,19 +157,21 @@ EXPORT_SYMBOL(LNetEQAlloc);
 int
 LNetEQFree(lnet_handle_eq_t eqh)
 {
-	struct lnet_eq	*eq;
-	lnet_event_t	*events = NULL;
-	int		**refs = NULL;
-	int		*ref;
-	int		rc = 0;
-	int		size = 0;
-	int		i;
+	struct lnet_eq *eq;
+	lnet_event_t *events = NULL;
+	int **refs = NULL;
+	int *ref;
+	int rc = 0;
+	int size = 0;
+	int i;
 
 	LASSERT(the_lnet.ln_refcount > 0);
 
 	lnet_res_lock(LNET_LOCK_EX);
-	/* NB: hold lnet_eq_wait_lock for EQ link/unlink, so we can do
-	 * both EQ lookup and poll event with only lnet_eq_wait_lock */
+	/*
+	 * NB: hold lnet_eq_wait_lock for EQ link/unlink, so we can do
+	 * both EQ lookup and poll event with only lnet_eq_wait_lock
+	 */
 	lnet_eq_wait_lock();
 
 	eq = lnet_handle2eq(&eqh);
@@ -187,9 +192,9 @@ LNetEQFree(lnet_handle_eq_t eqh)
 	}
 
 	/* stash for free after lock dropped */
-	events	= eq->eq_events;
-	size	= eq->eq_size;
-	refs	= eq->eq_refs;
+	events = eq->eq_events;
+	size = eq->eq_size;
+	refs = eq->eq_refs;
 
 	lnet_res_lh_invalidate(&eq->eq_lh);
 	list_del(&eq->eq_list);
@@ -239,9 +244,9 @@ lnet_eq_enqueue_event(lnet_eq_t *eq, lnet_event_t *ev)
 static int
 lnet_eq_dequeue_event(lnet_eq_t *eq, lnet_event_t *ev)
 {
-	int		new_index = eq->eq_deq_seq & (eq->eq_size - 1);
-	lnet_event_t	*new_event = &eq->eq_events[new_index];
-	int		rc;
+	int new_index = eq->eq_deq_seq & (eq->eq_size - 1);
+	lnet_event_t *new_event = &eq->eq_events[new_index];
+	int rc;
 	ENTRY;
 
 	/* must called with lnet_eq_wait_lock hold */
@@ -254,19 +259,21 @@ lnet_eq_dequeue_event(lnet_eq_t *eq, lnet_event_t *ev)
 	CDEBUG(D_INFO, "event: %p, sequence: %lu, eq->size: %u\n",
 	       new_event, eq->eq_deq_seq, eq->eq_size);
 
-        /* ...but did it overwrite an event we've not seen yet? */
-        if (eq->eq_deq_seq == new_event->sequence) {
-                rc = 1;
-        } else {
-                /* don't complain with CERROR: some EQs are sized small
-                 * anyway; if it's important, the caller should complain */
-                CDEBUG(D_NET, "Event Queue Overflow: eq seq %lu ev seq %lu\n",
-                       eq->eq_deq_seq, new_event->sequence);
-                rc = -EOVERFLOW;
-        }
+	/* ...but did it overwrite an event we've not seen yet? */
+	if (eq->eq_deq_seq == new_event->sequence) {
+		rc = 1;
+	} else {
+		/*
+		 * don't complain with CERROR: some EQs are sized small
+		 * anyway; if it's important, the caller should complain
+		 */
+		CDEBUG(D_NET, "Event Queue Overflow: eq seq %lu ev seq %lu\n",
+		       eq->eq_deq_seq, new_event->sequence);
+		rc = -EOVERFLOW;
+	}
 
-        eq->eq_deq_seq = new_event->sequence + 1;
-        RETURN(rc);
+	eq->eq_deq_seq = new_event->sequence + 1;
+	RETURN(rc);
 }
 
 /**
@@ -278,20 +285,19 @@ lnet_eq_dequeue_event(lnet_eq_t *eq, lnet_event_t *ev)
  * \param event On successful return (1 or -EOVERFLOW), this location will
  * hold the next event in the EQ.
  *
- * \retval 0          No pending event in the EQ.
- * \retval 1          Indicates success.
+ * \retval 0	      No pending event in the EQ.
+ * \retval 1	      Indicates success.
  * \retval -ENOENT    If \a eventq does not point to a valid EQ.
  * \retval -EOVERFLOW Indicates success (i.e., an event is returned) and that
  * at least one event between this event and the last event obtained from the
  * EQ has been dropped due to limited space in the EQ.
  */
 int
-LNetEQGet (lnet_handle_eq_t eventq, lnet_event_t *event)
+LNetEQGet(lnet_handle_eq_t eventq, lnet_event_t *event)
 {
-        int which;
+	int which;
 
-        return LNetEQPoll(&eventq, 1, 0,
-                         event, &which);
+	return LNetEQPoll(&eventq, 1, 0, event, &which);
 }
 EXPORT_SYMBOL(LNetEQGet);
 
@@ -305,19 +311,19 @@ EXPORT_SYMBOL(LNetEQGet);
  * \param event On successful return (1 or -EOVERFLOW), this location will
  * hold the next event in the EQ.
  *
- * \retval 1          Indicates success.
+ * \retval 1	      Indicates success.
  * \retval -ENOENT    If \a eventq does not point to a valid EQ.
  * \retval -EOVERFLOW Indicates success (i.e., an event is returned) and that
  * at least one event between this event and the last event obtained from the
  * EQ has been dropped due to limited space in the EQ.
  */
 int
-LNetEQWait (lnet_handle_eq_t eventq, lnet_event_t *event)
+LNetEQWait(lnet_handle_eq_t eventq, lnet_event_t *event)
 {
-        int which;
+	int which;
 
-        return LNetEQPoll(&eventq, 1, LNET_TIME_FOREVER,
-                         event, &which);
+	return LNetEQPoll(&eventq, 1, LNET_TIME_FOREVER,
+			  event, &which);
 }
 EXPORT_SYMBOL(LNetEQWait);
 
@@ -325,10 +331,10 @@ static int
 lnet_eq_wait_locked(int *timeout_ms)
 __must_hold(&the_lnet.ln_eq_wait_lock)
 {
-	int		tms = *timeout_ms;
-	int		wait;
-	wait_queue_t	wl;
-	cfs_time_t      now;
+	int tms = *timeout_ms;
+	int wait;
+	wait_queue_t wl;
+	cfs_time_t now;
 
 	if (tms == 0)
 		return -ENXIO; /* don't want to wait and no new event */
@@ -380,8 +386,8 @@ __must_hold(&the_lnet.ln_eq_wait_lock)
  * hold the next event in the EQs, and \a which will contain the index of the
  * EQ from which the event was taken.
  *
- * \retval 0          No pending event in the EQs after timeout.
- * \retval 1          Indicates success.
+ * \retval 0	      No pending event in the EQs after timeout.
+ * \retval 1	      Indicates success.
  * \retval -EOVERFLOW Indicates success (i.e., an event is returned) and that
  * at least one event between this event and the last event obtained from the
  * EQ indicated by \a which has been dropped due to limited space in the EQ.
@@ -391,15 +397,15 @@ int
 LNetEQPoll(lnet_handle_eq_t *eventqs, int neq, int timeout_ms,
 	   lnet_event_t *event, int *which)
 {
-	int	wait = 1;
-	int	rc;
-	int	i;
-        ENTRY;
+	int wait = 1;
+	int rc;
+	int i;
+	ENTRY;
 
-        LASSERT (the_lnet.ln_refcount > 0);
+	LASSERT(the_lnet.ln_refcount > 0);
 
-        if (neq < 1)
-                RETURN(-ENOENT);
+	if (neq < 1)
+		RETURN(-ENOENT);
 
 	lnet_eq_wait_lock();
 
@@ -428,7 +434,7 @@ LNetEQPoll(lnet_handle_eq_t *eventqs, int neq, int timeout_ms,
 		 * -1 : did nothing and it's sure no new event
 		 *  1 : sleep inside and wait until new event
 		 *  0 : don't want to wait anymore, but might have new event
-		 *      so need to call dequeue again
+		 *	so need to call dequeue again
 		 */
 		wait = lnet_eq_wait_locked(&timeout_ms);
 		if (wait < 0) /* no new event */
