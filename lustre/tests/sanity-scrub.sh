@@ -25,6 +25,10 @@ load_modules
 if ! check_versions; then
 	skip "It is NOT necessary to test scrub under interoperation mode"
 	exit 0
+else
+	echo "client: $(lustre_build_version client)"
+	echo "mds1: $(lustre_build_version mds1)"
+	echo "ost1: $(lustre_build_version ost1)"
 fi
 
 [ $(facet_fstype $SINGLEMDS) != "ldiskfs" ] &&
