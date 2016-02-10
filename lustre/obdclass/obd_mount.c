@@ -662,6 +662,7 @@ int lustre_put_lsi(struct super_block *sb)
 	}
 	RETURN(0);
 }
+EXPORT_SYMBOL(lustre_put_lsi);
 
 /*** SERVER NAME ***
  * <FSNAME><SEPARATOR><TYPE><INDEX>

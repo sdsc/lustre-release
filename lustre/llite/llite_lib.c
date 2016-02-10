@@ -990,8 +990,10 @@ int ll_fill_super(struct super_block *sb, struct vfsmount *mnt)
         CDEBUG(D_VFSTRACE, "VFS Op: sb %p\n", sb);
 
         OBD_ALLOC_PTR(cfg);
-        if (cfg == NULL)
+        if (cfg == NULL) {
+		lustre_put_lsi(sb);
                 RETURN(-ENOMEM);
+	}
 
 	try_module_get(THIS_MODULE);
 
@@ -1000,6 +1002,7 @@ int ll_fill_super(struct super_block *sb, struct vfsmount *mnt)
 	if (!sbi) {
 		module_put(THIS_MODULE);
 		OBD_FREE_PTR(cfg);
+		lustre_put_lsi(sb);
 		RETURN(-ENOMEM);
 	}
 
