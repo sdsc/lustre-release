@@ -51,7 +51,7 @@ lnet_peer_tables_create(void)
 
 	the_lnet.ln_peer_tables = cfs_percpt_alloc(lnet_cpt_table(),
 						   sizeof(*ptable));
-	if (the_lnet.ln_peer_tables == NULL) {
+	if (!the_lnet.ln_peer_tables) {
 		CERROR("Failed to allocate cpu-partition peer tables\n");
 		return -ENOMEM;
 	}
@@ -61,7 +61,7 @@ lnet_peer_tables_create(void)
 
 		LIBCFS_CPT_ALLOC(hash, lnet_cpt_table(), i,
 				 LNET_PEER_HASH_SIZE * sizeof(*hash));
-		if (hash == NULL) {
+		if (!hash) {
 			CERROR("Failed to create peer hash table\n");
 			lnet_peer_tables_destroy();
 			return -ENOMEM;
@@ -83,12 +83,12 @@ lnet_peer_tables_destroy(void)
 	int i;
 	int j;
 
-	if (the_lnet.ln_peer_tables == NULL)
+	if (!the_lnet.ln_peer_tables)
 		return;
 
 	cfs_percpt_for_each(ptable, i, the_lnet.ln_peer_tables) {
 		hash = ptable->pt_hash;
-		if (hash == NULL) /* not initialized */
+		if (!hash) /* not initialized */
 			break;
 
 		LASSERT(list_empty(&ptable->pt_deathrow));
@@ -114,7 +114,7 @@ lnet_peer_table_cleanup_locked(lnet_ni_t *ni, struct lnet_peer_table *ptable)
 	for (i = 0; i < LNET_PEER_HASH_SIZE; i++) {
 		list_for_each_entry_safe(lp, tmp, &ptable->pt_hash[i],
 					 lp_hashlist) {
-			if (ni != NULL && ni != lp->lp_ni)
+			if (ni && ni != lp->lp_ni)
 				continue;
 			list_del_init(&lp->lp_hashlist);
 			/* Lose hash table's ref */
@@ -130,7 +130,7 @@ lnet_peer_table_deathrow_wait_locked(struct lnet_peer_table *ptable,
 {
 	int i;
 
-	for (i = 3; ptable->pt_zombies != 0; i++) {
+	for (i = 3; ptable->pt_zombies; i++) {
 		lnet_net_unlock(cpt_locked);
 
 		if (IS_PO2(i)) {
@@ -159,7 +159,7 @@ lnet_peer_table_del_rtrs_locked(lnet_ni_t *ni, struct lnet_peer_table *ptable,
 			if (ni != lp->lp_ni)
 				continue;
 
-			if (lp->lp_rtr_refcount == 0)
+			if (!lp->lp_rtr_refcount)
 				continue;
 
 			lp_nid = lp->lp_nid;
@@ -181,7 +181,7 @@ lnet_peer_tables_cleanup(lnet_ni_t *ni)
 
 	INIT_LIST_HEAD(&deathrow);
 
-	LASSERT(the_lnet.ln_shutdown || ni != NULL);
+	LASSERT(the_lnet.ln_shutdown || ni);
 	/*
 	 * If just deleting the peers for a NI, get rid of any routes these
 	 * peers are gateways for.
@@ -222,11 +222,11 @@ lnet_destroy_peer_locked(lnet_peer_t *lp)
 {
 	struct lnet_peer_table *ptable;
 
-	LASSERT(lp->lp_refcount == 0);
-	LASSERT(lp->lp_rtr_refcount == 0);
+	LASSERT(!lp->lp_refcount);
+	LASSERT(!lp->lp_rtr_refcount);
 	LASSERT(list_empty(&lp->lp_txq));
 	LASSERT(list_empty(&lp->lp_hashlist));
-	LASSERT(lp->lp_txqnob == 0);
+	LASSERT(!lp->lp_txqnob);
 
 	ptable = the_lnet.ln_peer_tables[lp->lp_cpt];
 	LASSERT(ptable->pt_number > 0);
@@ -277,7 +277,7 @@ lnet_nid2peer_locked(lnet_peer_t **lpp, lnet_nid_t nid, int cpt)
 
 	ptable = the_lnet.ln_peer_tables[cpt2];
 	lp = lnet_find_peer_locked(ptable, nid);
-	if (lp != NULL) {
+	if (lp) {
 		*lpp = lp;
 		return 0;
 	}
@@ -295,12 +295,12 @@ lnet_nid2peer_locked(lnet_peer_t **lpp, lnet_nid_t nid, int cpt)
 	ptable->pt_number++;
 	lnet_net_unlock(cpt);
 
-	if (lp != NULL)
+	if (lp)
 		memset(lp, 0, sizeof(*lp));
 	else
 		LIBCFS_CPT_ALLOC(lp, lnet_cpt_table(), cpt2, sizeof(*lp));
 
-	if (lp == NULL) {
+	if (!lp) {
 		rc = -ENOMEM;
 		lnet_net_lock(cpt);
 		goto out;
@@ -333,13 +333,13 @@ lnet_nid2peer_locked(lnet_peer_t **lpp, lnet_nid_t nid, int cpt)
 	}
 
 	lp2 = lnet_find_peer_locked(ptable, nid);
-	if (lp2 != NULL) {
+	if (lp2) {
 		*lpp = lp2;
 		goto out;
 	}
 
 	lp->lp_ni = lnet_net2ni_locked(LNET_NIDNET(nid), cpt2);
-	if (lp->lp_ni == NULL) {
+	if (!lp->lp_ni) {
 		rc = -EHOSTUNREACH;
 		goto out;
 	}
@@ -356,7 +356,7 @@ lnet_nid2peer_locked(lnet_peer_t **lpp, lnet_nid_t nid, int cpt)
 
 	return 0;
 out:
-	if (lp != NULL)
+	if (lp)
 		list_add(&lp->lp_hashlist, &ptable->pt_deathrow);
 	ptable->pt_number--;
 	return rc;
@@ -374,7 +374,7 @@ lnet_debug_peer(lnet_nid_t nid)
 	lnet_net_lock(cpt);
 
 	rc = lnet_nid2peer_locked(&lp, nid, cpt);
-	if (rc != 0) {
+	if (rc) {
 		lnet_net_unlock(cpt);
 		CDEBUG(D_WARNING, "No peer %s\n", libcfs_nid2str(nid));
 		return;
@@ -420,7 +420,7 @@ lnet_get_peer_info(__u32 peer_index, __u64 *nid,
 	/* get the current table */
 	peer_table = the_lnet.ln_peer_tables[*cpt_iter];
 	/* if the ptable is NULL then there are no more cpts to examine */
-	if (peer_table == NULL)
+	if (!peer_table)
 		return -ENOENT;
 
 	lnet_net_lock(*cpt_iter);

@@ -92,7 +92,7 @@ lnet_fault_attr_match(struct lnet_fault_attr *attr, lnet_nid_t src,
 	 * NB: ACK and REPLY have no portal, but they should have been
 	 * rejected by message mask
 	 */
-	if (attr->fa_ptl_mask != 0 && /* has portal filter */
+	if (attr->fa_ptl_mask && /* has portal filter */
 	    !(attr->fa_ptl_mask & (1ULL << portal)))
 		return false;
 
@@ -159,7 +159,7 @@ lnet_drop_rule_add(struct lnet_fault_attr *attr)
 		RETURN(-EINVAL);
 	}
 
-	if (lnet_fault_attr_validate(attr) != 0)
+	if (lnet_fault_attr_validate(attr))
 		RETURN(-EINVAL);
 
 	CFS_ALLOC_PTR(rule);
@@ -169,7 +169,7 @@ lnet_drop_rule_add(struct lnet_fault_attr *attr)
 	spin_lock_init(&rule->dr_lock);
 
 	rule->dr_attr = *attr;
-	if (attr->u.drop.da_interval != 0) {
+	if (attr->u.drop.da_interval) {
 		rule->dr_time_base = cfs_time_shift(attr->u.drop.da_interval);
 		rule->dr_drop_time = cfs_time_shift(cfs_rand() %
 						    attr->u.drop.da_interval);
@@ -207,10 +207,10 @@ lnet_drop_rule_del(lnet_nid_t src, lnet_nid_t dst)
 
 	lnet_net_lock(LNET_LOCK_EX);
 	list_for_each_entry_safe(rule, tmp, &the_lnet.ln_drop_rules, dr_link) {
-		if (rule->dr_attr.fa_src != src && src != 0)
+		if (rule->dr_attr.fa_src != src && src)
 			continue;
 
-		if (rule->dr_attr.fa_dst != dst && dst != 0)
+		if (rule->dr_attr.fa_dst != dst && dst)
 			continue;
 
 		list_move(&rule->dr_link, &zombies);
@@ -280,7 +280,7 @@ lnet_drop_rule_reset(void)
 		spin_lock(&rule->dr_lock);
 
 		memset(&rule->dr_stat, 0, sizeof(rule->dr_stat));
-		if (attr->u.drop.da_rate != 0) {
+		if (attr->u.drop.da_rate) {
 			rule->dr_drop_at = cfs_rand() % attr->u.drop.da_rate;
 		} else {
 			rule->dr_drop_time = cfs_time_shift(cfs_rand() %
@@ -311,7 +311,7 @@ drop_rule_match(struct lnet_drop_rule *rule, lnet_nid_t src,
 
 	/* match this rule, check drop rate now */
 	spin_lock(&rule->dr_lock);
-	if (rule->dr_drop_time != 0) { /* time based drop */
+	if (rule->dr_drop_time) { /* time based drop */
 		cfs_time_t now = cfs_time_current();
 
 		rule->dr_stat.fs_count++;
@@ -481,7 +481,7 @@ delay_rule_match(struct lnet_delay_rule *rule, lnet_nid_t src,
 
 	/* match this rule, check delay rate now */
 	spin_lock(&rule->dl_lock);
-	if (rule->dl_delay_time != 0) { /* time based delay */
+	if (rule->dl_delay_time) { /* time based delay */
 		cfs_time_t now = cfs_time_current();
 
 		rule->dl_stat.fs_count++;
@@ -617,7 +617,7 @@ delayed_msg_process(struct list_head *msg_list, bool drop)
 		int		rc;
 
 		msg = list_entry(msg_list->next, struct lnet_msg, msg_list);
-		LASSERT(msg->msg_rxpeer != NULL);
+		LASSERT(msg->msg_rxpeer);
 
 		ni = msg->msg_rxpeer->lp_ni;
 		cpt = msg->msg_rx_cpt;
@@ -628,7 +628,7 @@ delayed_msg_process(struct list_head *msg_list, bool drop)
 
 		} else if (!msg->msg_routing) {
 			rc = lnet_parse_local(ni, msg);
-			if (rc == 0)
+			if (!rc)
 				continue;
 
 		} else {
@@ -746,7 +746,7 @@ lnet_delay_rule_add(struct lnet_fault_attr *attr)
 		RETURN(-EINVAL);
 	}
 
-	if (lnet_fault_attr_validate(attr) != 0)
+	if (lnet_fault_attr_validate(attr))
 		RETURN(-EINVAL);
 
 	CFS_ALLOC_PTR(rule);
@@ -781,7 +781,7 @@ lnet_delay_rule_add(struct lnet_fault_attr *attr)
 	INIT_LIST_HEAD(&rule->dl_sched_link);
 
 	rule->dl_attr = *attr;
-	if (attr->u.delay.la_interval != 0) {
+	if (attr->u.delay.la_interval) {
 		rule->dl_time_base = cfs_time_shift(attr->u.delay.la_interval);
 		rule->dl_delay_time = cfs_time_shift(cfs_rand() %
 						     attr->u.delay.la_interval);
@@ -839,10 +839,10 @@ lnet_delay_rule_del(lnet_nid_t src, lnet_nid_t dst, bool shutdown)
 	lnet_net_lock(LNET_LOCK_EX);
 
 	list_for_each_entry_safe(rule, tmp, &the_lnet.ln_delay_rules, dl_link) {
-		if (rule->dl_attr.fa_src != src && src != 0)
+		if (rule->dl_attr.fa_src != src && src)
 			continue;
 
-		if (rule->dl_attr.fa_dst != dst && dst != 0)
+		if (rule->dl_attr.fa_dst != dst && dst)
 			continue;
 
 		CDEBUG(D_NET, "Remove delay rule: src %s->dst: %s (1/%d, %d)\n",
@@ -932,7 +932,7 @@ lnet_delay_rule_reset(void)
 		spin_lock(&rule->dl_lock);
 
 		memset(&rule->dl_stat, 0, sizeof(rule->dl_stat));
-		if (attr->u.delay.la_rate != 0) {
+		if (attr->u.delay.la_rate) {
 			rule->dl_delay_at = cfs_rand() % attr->u.delay.la_rate;
 		} else {
 			rule->dl_delay_time = cfs_time_shift(cfs_rand() %

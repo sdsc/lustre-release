@@ -175,7 +175,7 @@ lnet_msg_decommit_tx(lnet_msg_t *msg, int status)
 	lnet_event_t *ev = &msg->msg_ev;
 
 	LASSERT(msg->msg_tx_committed);
-	if (status != 0)
+	if (status)
 		goto out;
 
 	counters = the_lnet.ln_counters[msg->msg_tx_cpt];
@@ -183,7 +183,7 @@ lnet_msg_decommit_tx(lnet_msg_t *msg, int status)
 	default: /* routed message */
 		LASSERT(msg->msg_routing);
 		LASSERT(msg->msg_rx_committed);
-		LASSERT(ev->type == 0);
+		LASSERT(!ev->type);
 
 		counters->route_length += msg->msg_len;
 		counters->route_count++;
@@ -229,13 +229,13 @@ lnet_msg_decommit_rx(lnet_msg_t *msg, int status)
 	LASSERT(!msg->msg_tx_committed); /* decommitted or never committed */
 	LASSERT(msg->msg_rx_committed);
 
-	if (status != 0)
+	if (status)
 		goto out;
 
 	counters = the_lnet.ln_counters[msg->msg_rx_cpt];
 	switch (ev->type) {
 	default:
-		LASSERT(ev->type == 0);
+		LASSERT(!ev->type);
 		LASSERT(msg->msg_routing);
 		goto out;
 
@@ -353,7 +353,7 @@ lnet_msg_detach_md(lnet_msg_t *msg, int status)
 	LASSERT(md->md_refcount >= 0);
 
 	unlink = lnet_md_unlinkable(md);
-	if (md->md_eq != NULL) {
+	if (md->md_eq) {
 		msg->msg_ev.status   = status;
 		msg->msg_ev.unlinked = unlink;
 		lnet_eq_enqueue_event(md->md_eq, &msg->msg_ev);
@@ -374,7 +374,7 @@ lnet_complete_msg_locked(lnet_msg_t *msg, int cpt)
 
 	LASSERT(msg->msg_onactivelist);
 
-	if (status == 0 && msg->msg_ack) {
+	if (!status && msg->msg_ack) {
 		/* Only send an ACK if the PUT completed successfully */
 
 		lnet_msg_decommit(msg, cpt, 0);
@@ -413,7 +413,7 @@ lnet_complete_msg_locked(lnet_msg_t *msg, int cpt)
 		 */
 		return rc;
 
-	} else if (status == 0 &&	/* OK so far */
+	} else if (!status &&	/* OK so far */
 		   (msg->msg_routing && !msg->msg_sending)) {
 		/* not forwarded */
 		LASSERT(!msg->msg_receiving);	/* called back recv already */
@@ -454,7 +454,7 @@ lnet_finalize(lnet_ni_t *ni, lnet_msg_t *msg, int status)
 
 	LASSERT(!in_interrupt());
 
-	if (msg == NULL)
+	if (!msg)
 		return;
 #if 0
 	CDEBUG(D_WARNING, "%s msg->%s Flags:%s%s%s%s%s%s%s%s%s%s%s txp %s rxp %s\n",
@@ -470,12 +470,12 @@ lnet_finalize(lnet_ni_t *ni, lnet_msg_t *msg, int status)
 	       msg->msg_rtrcredit ? "F" : "",
 	       msg->msg_peerrtrcredit ? "f" : "",
 	       msg->msg_onactivelist ? "!" : "",
-	       msg->msg_txpeer == NULL ? "<none>" : libcfs_nid2str(msg->msg_txpeer->lp_nid),
-	       msg->msg_rxpeer == NULL ? "<none>" : libcfs_nid2str(msg->msg_rxpeer->lp_nid));
+	       !msg->msg_txpeer ? "<none>" : libcfs_nid2str(msg->msg_txpeer->lp_nid),
+	       !msg->msg_rxpeer ? "<none>" : libcfs_nid2str(msg->msg_rxpeer->lp_nid));
 #endif
 	msg->msg_ev.status = status;
 
-	if (msg->msg_md != NULL) {
+	if (msg->msg_md) {
 		cpt = lnet_cpt_of_cookie(msg->msg_md->md_lh.lh_cookie);
 
 		lnet_res_lock(cpt);
@@ -512,7 +512,7 @@ lnet_finalize(lnet_ni_t *ni, lnet_msg_t *msg, int status)
 		if (container->msc_finalizers[i] == current)
 			break;
 
-		if (my_slot < 0 && container->msc_finalizers[i] == NULL)
+		if (my_slot < 0 && !container->msc_finalizers[i])
 			my_slot = i;
 	}
 
@@ -534,7 +534,7 @@ lnet_finalize(lnet_ni_t *ni, lnet_msg_t *msg, int status)
 		 * anything, so my finalizing friends can chomp along too
 		 */
 		rc = lnet_complete_msg_locked(msg, cpt);
-		if (rc != 0)
+		if (rc)
 			break;
 	}
 
@@ -547,7 +547,7 @@ lnet_finalize(lnet_ni_t *ni, lnet_msg_t *msg, int status)
 	container->msc_finalizers[my_slot] = NULL;
 	lnet_net_unlock(cpt);
 
-	if (rc != 0)
+	if (rc)
 		goto again;
 }
 EXPORT_SYMBOL(lnet_finalize);
@@ -557,7 +557,7 @@ lnet_msg_container_cleanup(struct lnet_msg_container *container)
 {
 	int count = 0;
 
-	if (container->msc_init == 0)
+	if (!container->msc_init)
 		return;
 
 	while (!list_empty(&container->msc_active)) {
@@ -574,7 +574,7 @@ lnet_msg_container_cleanup(struct lnet_msg_container *container)
 	if (count > 0)
 		CERROR("%d active msg on exit\n", count);
 
-	if (container->msc_finalizers != NULL) {
+	if (container->msc_finalizers) {
 		LIBCFS_FREE(container->msc_finalizers,
 			    container->msc_nfinalizers *
 			    sizeof(*container->msc_finalizers));
@@ -598,7 +598,7 @@ lnet_msg_container_setup(struct lnet_msg_container *container, int cpt)
 			 container->msc_nfinalizers *
 			 sizeof(*container->msc_finalizers));
 
-	if (container->msc_finalizers == NULL) {
+	if (!container->msc_finalizers) {
 		CERROR("Failed to allocate message finalizers\n");
 		lnet_msg_container_cleanup(container);
 		return -ENOMEM;
@@ -613,7 +613,7 @@ lnet_msg_containers_destroy(void)
 	struct lnet_msg_container *container;
 	int i;
 
-	if (the_lnet.ln_msg_containers == NULL)
+	if (!the_lnet.ln_msg_containers)
 		return;
 
 	cfs_percpt_for_each(container, i, the_lnet.ln_msg_containers)
@@ -633,14 +633,14 @@ lnet_msg_containers_create(void)
 	the_lnet.ln_msg_containers = cfs_percpt_alloc(lnet_cpt_table(),
 						      sizeof(*container));
 
-	if (the_lnet.ln_msg_containers == NULL) {
+	if (!the_lnet.ln_msg_containers) {
 		CERROR("Failed to allocate cpu-partition data for network\n");
 		return -ENOMEM;
 	}
 
 	cfs_percpt_for_each(container, i, the_lnet.ln_msg_containers) {
 		rc = lnet_msg_container_setup(container, i);
-		if (rc != 0) {
+		if (rc) {
 			lnet_msg_containers_destroy();
 			return rc;
 		}

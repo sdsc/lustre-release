@@ -56,7 +56,6 @@
 #define MADE_WITHOUT_COMPROMISE
 #endif
 
-
 #define SWI_STATE_NEWBORN		   0
 #define SWI_STATE_REPLY_SUBMITTED	   1
 #define SWI_STATE_REPLY_SENT		   2
@@ -256,9 +255,9 @@ do {									\
 		srpc_destroy_client_rpc(rpc);				\
 } while (0)
 
-#define srpc_event_pending(rpc)   ((rpc)->crpc_bulkev.ev_fired == 0 ||	\
-				   (rpc)->crpc_reqstev.ev_fired == 0 || \
-				   (rpc)->crpc_replyev.ev_fired == 0)
+#define srpc_event_pending(rpc)   (!(rpc)->crpc_bulkev.ev_fired ||	\
+				   !(rpc)->crpc_reqstev.ev_fired ||	\
+				   !(rpc)->crpc_replyev.ev_fired)
 
 /* CPU partition data of srpc service */
 struct srpc_service_cd {
@@ -319,8 +318,8 @@ typedef struct srpc_service {
 	 * - sv_handler: process incoming RPC request
 	 * - sv_bulk_ready: notify bulk data
 	 */
-	int (*sv_handler) (srpc_server_rpc_t *);
-	int (*sv_bulk_ready) (srpc_server_rpc_t *, int);
+	int (*sv_handler)(srpc_server_rpc_t *);
+	int (*sv_bulk_ready)(srpc_server_rpc_t *, int);
 } srpc_service_t;
 
 typedef struct {
@@ -503,11 +502,11 @@ void srpc_shutdown(void);
 static inline void
 srpc_destroy_client_rpc(srpc_client_rpc_t *rpc)
 {
-	LASSERT(rpc != NULL);
+	LASSERT(rpc);
 	LASSERT(!srpc_event_pending(rpc));
-	LASSERT(atomic_read(&rpc->crpc_refcount) == 0);
+	LASSERT(!atomic_read(&rpc->crpc_refcount));
 
-	if (rpc->crpc_fini == NULL)
+	if (!rpc->crpc_fini)
 		LIBCFS_FREE(rpc, srpc_client_rpc_size(rpc));
 	else
 		(*rpc->crpc_fini)(rpc);
@@ -595,7 +594,7 @@ srpc_wait_service_shutdown(srpc_service_t *sv)
 
 	LASSERT(sv->sv_shuttingdown);
 
-	while (srpc_finish_service(sv) == 0) {
+	while (!srpc_finish_service(sv)) {
 		i++;
 		CDEBUG(((i & -i) == i) ? D_WARNING : D_NET,
 		       "Waiting for %s service to shutdown...\n",
@@ -606,7 +605,6 @@ srpc_wait_service_shutdown(srpc_service_t *sv)
 }
 
 extern sfw_test_client_ops_t brw_test_client;
-
 void brw_init_test_client(void);
 
 extern srpc_service_t brw_test_service;

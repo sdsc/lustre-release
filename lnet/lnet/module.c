@@ -90,7 +90,7 @@ lnet_unconfigure(void)
 	mutex_unlock(&the_lnet.ln_api_mutex);
 
 	mutex_unlock(&lnet_config_mutex);
-	return (refcount == 0) ? 0 : -EBUSY;
+	return !refcount ? 0 : -EBUSY;
 }
 
 static int
@@ -178,13 +178,13 @@ static int __init lnet_init(void)
 	mutex_init(&lnet_config_mutex);
 
 	rc = lnet_lib_init();
-	if (rc != 0) {
+	if (rc) {
 		CERROR("lnet_lib_init: error %d\n", rc);
 		RETURN(rc);
 	}
 
 	rc = libcfs_register_ioctl(&lnet_ioctl_handler);
-	LASSERT(rc == 0);
+	LASSERT(!rc);
 
 	if (config_on_load) {
 		/*
@@ -202,7 +202,7 @@ static void __exit lnet_exit(void)
 	int rc;
 
 	rc = libcfs_deregister_ioctl(&lnet_ioctl_handler);
-	LASSERT(rc == 0);
+	LASSERT(!rc);
 
 	lnet_lib_exit();
 }

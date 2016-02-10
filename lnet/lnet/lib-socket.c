@@ -72,7 +72,7 @@ lnet_sock_ioctl(int cmd, unsigned long arg)
 	int rc;
 
 	rc = sock_create(PF_INET, SOCK_STREAM, 0, &sock);
-	if (rc != 0) {
+	if (rc) {
 		CERROR("Can't create socket: %d\n", rc);
 		return rc;
 	}
@@ -128,12 +128,12 @@ lnet_ipif_query(char *name, int *up, __u32 *ip, __u32 *mask)
 	strncpy(ifr.ifr_name, name, sizeof(ifr.ifr_name));
 
 	rc = lnet_sock_ioctl(SIOCGIFFLAGS, (unsigned long)&ifr);
-	if (rc != 0) {
+	if (rc) {
 		CERROR("Can't get flags for interface %s\n", name);
 		return rc;
 	}
 
-	if ((ifr.ifr_flags & IFF_UP) == 0) {
+	if (!(ifr.ifr_flags & IFF_UP)) {
 		CDEBUG(D_NET, "Interface %s down\n", name);
 		*up = 0;
 		*ip = *mask = 0;
@@ -147,7 +147,7 @@ lnet_ipif_query(char *name, int *up, __u32 *ip, __u32 *mask)
 
 	ifr.ifr_addr.sa_family = AF_INET;
 	rc = lnet_sock_ioctl(SIOCGIFADDR, (unsigned long)&ifr);
-	if (rc != 0) {
+	if (rc) {
 		CERROR("Can't get IP address for interface %s\n", name);
 		return rc;
 	}
@@ -161,7 +161,7 @@ lnet_ipif_query(char *name, int *up, __u32 *ip, __u32 *mask)
 
 	ifr.ifr_addr.sa_family = AF_INET;
 	rc = lnet_sock_ioctl(SIOCGIFNETMASK, (unsigned long)&ifr);
-	if (rc != 0) {
+	if (rc) {
 		CERROR("Can't get netmask for interface %s\n", name);
 		return rc;
 	}
@@ -180,7 +180,7 @@ lnet_ipif_free_enumeration(char **names, int n)
 
 	LASSERT(n > 0);
 
-	for (i = 0; i < n && names[i] != NULL; i++)
+	for (i = 0; i < n && names[i]; i++)
 		LIBCFS_FREE(names[i], IFNAMSIZ);
 
 	LIBCFS_FREE(names, n * sizeof(*names));
@@ -212,7 +212,7 @@ lnet_ipif_enumerate(char ***namesp)
 		}
 
 		LIBCFS_ALLOC(ifr, nalloc * sizeof(*ifr));
-		if (ifr == NULL) {
+		if (!ifr) {
 			CERROR("ENOMEM enumerating up to %d interfaces\n",
 			       nalloc);
 			rc = -ENOMEM;
@@ -228,7 +228,7 @@ lnet_ipif_enumerate(char ***namesp)
 			goto out1;
 		}
 
-		LASSERT(rc == 0);
+		LASSERT(!rc);
 
 		nfound = ifc.ifc_len / sizeof(*ifr);
 		LASSERT(nfound <= nalloc);
@@ -240,11 +240,11 @@ lnet_ipif_enumerate(char ***namesp)
 		nalloc *= 2;
 	}
 
-	if (nfound == 0)
+	if (!nfound)
 		goto out1;
 
 	LIBCFS_ALLOC(names, nfound * sizeof(*names));
-	if (names == NULL) {
+	if (!names) {
 		rc = -ENOMEM;
 		goto out1;
 	}
@@ -260,7 +260,7 @@ lnet_ipif_enumerate(char ***namesp)
 		}
 
 		LIBCFS_ALLOC(names[i], IFNAMSIZ);
-		if (names[i] == NULL) {
+		if (!names[i]) {
 			rc = -ENOMEM;
 			goto out2;
 		}
@@ -301,10 +301,10 @@ lnet_sock_write(struct socket *sock, void *buffer, int nob, int timeout)
 			.iov_len  = nob
 		};
 		struct msghdr msg = {
-			.msg_flags	= (timeout == 0) ? MSG_DONTWAIT : 0
+			.msg_flags = !timeout ? MSG_DONTWAIT : 0
 		};
 
-		if (timeout != 0) {
+		if (timeout) {
 			/* Set send timeout to remaining time */
 			tv = (struct timeval) {
 				.tv_sec = jiffies_left /
@@ -317,7 +317,7 @@ lnet_sock_write(struct socket *sock, void *buffer, int nob, int timeout)
 
 			rc = kernel_setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO,
 					       (char *)&tv, sizeof(tv));
-			if (rc != 0) {
+			if (rc) {
 				CERROR("Can't set socket send timeout %ld.%06d: %d\n",
 				       (long)tv.tv_sec, (int)tv.tv_usec, rc);
 				return rc;
@@ -334,7 +334,7 @@ lnet_sock_write(struct socket *sock, void *buffer, int nob, int timeout)
 		if (rc < 0)
 			return rc;
 
-		if (rc == 0) {
+		if (!rc) {
 			CERROR("Unexpected zero rc\n");
 			return -ECONNABORTED;
 		}
@@ -379,7 +379,7 @@ lnet_sock_read(struct socket *sock, void *buffer, int nob, int timeout)
 		};
 		rc = kernel_setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO,
 				       (char *)&tv, sizeof(tv));
-		if (rc != 0) {
+		if (rc) {
 			CERROR("Can't set socket recv timeout %ld.%06d: %d\n",
 			       (long)tv.tv_sec, (int)tv.tv_usec, rc);
 			return rc;
@@ -392,13 +392,13 @@ lnet_sock_read(struct socket *sock, void *buffer, int nob, int timeout)
 		if (rc < 0)
 			return rc;
 
-		if (rc == 0)
+		if (!rc)
 			return -ECONNRESET;
 
 		buffer = ((char *)buffer) + rc;
 		nob -= rc;
 
-		if (nob == 0)
+		if (!nob)
 			return 0;
 
 		if (jiffies_left <= 0)
@@ -421,7 +421,7 @@ lnet_sock_create(struct socket **sockp, int *fatal, __u32 local_ip,
 
 	rc = sock_create(PF_INET, SOCK_STREAM, 0, &sock);
 	*sockp = sock;
-	if (rc != 0) {
+	if (rc) {
 		CERROR("Can't create socket: %d\n", rc);
 		return rc;
 	}
@@ -429,16 +429,16 @@ lnet_sock_create(struct socket **sockp, int *fatal, __u32 local_ip,
 	option = 1;
 	rc = kernel_setsockopt(sock, SOL_SOCKET, SO_REUSEADDR,
 			       (char *)&option, sizeof(option));
-	if (rc != 0) {
+	if (rc) {
 		CERROR("Can't set SO_REUSEADDR for socket: %d\n", rc);
 		goto failed;
 	}
 
-	if (local_ip != 0 || local_port != 0) {
+	if (local_ip || local_port) {
 		memset(&locaddr, 0, sizeof(locaddr));
 		locaddr.sin_family = AF_INET;
 		locaddr.sin_port = htons(local_port);
-		locaddr.sin_addr.s_addr = (local_ip == 0) ?
+		locaddr.sin_addr.s_addr = !local_ip ?
 					  INADDR_ANY : htonl(local_ip);
 
 		rc = kernel_bind(sock, (struct sockaddr *)&locaddr,
@@ -448,7 +448,7 @@ lnet_sock_create(struct socket **sockp, int *fatal, __u32 local_ip,
 			*fatal = 0;
 			goto failed;
 		}
-		if (rc != 0) {
+		if (rc) {
 			CERROR("Error trying to bind to port %d: %d\n",
 			       local_port, rc);
 			goto failed;
@@ -467,22 +467,22 @@ lnet_sock_setbuf(struct socket *sock, int txbufsize, int rxbufsize)
 	int option;
 	int rc;
 
-	if (txbufsize != 0) {
+	if (txbufsize) {
 		option = txbufsize;
 		rc = kernel_setsockopt(sock, SOL_SOCKET, SO_SNDBUF,
 				       (char *)&option, sizeof(option));
-		if (rc != 0) {
+		if (rc) {
 			CERROR("Can't set send buffer %d: %d\n",
 			       option, rc);
 			return rc;
 		}
 	}
 
-	if (rxbufsize != 0) {
+	if (rxbufsize) {
 		option = rxbufsize;
 		rc = kernel_setsockopt(sock, SOL_SOCKET, SO_RCVBUF,
 				       (char *)&option, sizeof(option));
-		if (rc != 0) {
+		if (rc) {
 			CERROR("Can't set receive buffer %d: %d\n",
 			       option, rc);
 			return rc;
@@ -503,16 +503,16 @@ lnet_sock_getaddr(struct socket *sock, bool remote, __u32 *ip, int *port)
 		rc = kernel_getpeername(sock, (struct sockaddr *)&sin, &len);
 	else
 		rc = kernel_getsockname(sock, (struct sockaddr *)&sin, &len);
-	if (rc != 0) {
+	if (rc) {
 		CERROR("Error %d getting sock %s IP/port\n",
 		       rc, remote ? "peer" : "local");
 		return rc;
 	}
 
-	if (ip != NULL)
+	if (ip)
 		*ip = ntohl(sin.sin_addr.s_addr);
 
-	if (port != NULL)
+	if (port)
 		*port = ntohs(sin.sin_port);
 
 	return 0;
@@ -522,10 +522,10 @@ EXPORT_SYMBOL(lnet_sock_getaddr);
 int
 lnet_sock_getbuf(struct socket *sock, int *txbufsize, int *rxbufsize)
 {
-	if (txbufsize != NULL)
+	if (txbufsize)
 		*txbufsize = sock->sk->sk_sndbuf;
 
-	if (rxbufsize != NULL)
+	if (rxbufsize)
 		*rxbufsize = sock->sk->sk_rcvbuf;
 
 	return 0;
@@ -540,7 +540,7 @@ lnet_sock_listen(struct socket **sockp, __u32 local_ip, int local_port,
 	int rc;
 
 	rc = lnet_sock_create(sockp, &fatal, local_ip, local_port);
-	if (rc != 0) {
+	if (rc) {
 		if (!fatal)
 			CERROR("Can't create socket: port %d already in use\n",
 			       local_port);
@@ -548,7 +548,7 @@ lnet_sock_listen(struct socket **sockp, __u32 local_ip, int local_port,
 	}
 
 	rc = kernel_listen(*sockp, backlog);
-	if (rc == 0)
+	if (!rc)
 		return 0;
 
 	CERROR("Can't set listen backlog %d: %d\n", backlog, rc);
@@ -593,7 +593,7 @@ lnet_sock_accept(struct socket **newsockp, struct socket *sock)
 		rc = sock->ops->accept(sock, newsock, O_NONBLOCK);
 	}
 
-	if (rc != 0)
+	if (rc)
 		goto failed;
 
 	*newsockp = newsock;
@@ -612,7 +612,7 @@ lnet_sock_connect(struct socket **sockp, int *fatal, __u32 local_ip,
 	int rc;
 
 	rc = lnet_sock_create(sockp, fatal, local_ip, local_port);
-	if (rc != 0)
+	if (rc)
 		return rc;
 
 	memset(&srvaddr, 0, sizeof(srvaddr));
@@ -622,7 +622,7 @@ lnet_sock_connect(struct socket **sockp, int *fatal, __u32 local_ip,
 
 	rc = kernel_connect(*sockp, (struct sockaddr *)&srvaddr,
 			    sizeof(srvaddr), 0);
-	if (rc == 0)
+	if (!rc)
 		return 0;
 
 	/*

@@ -60,7 +60,7 @@ ping_client_init(sfw_test_instance_t *tsi)
 	sfw_session_t *sn = tsi->tsi_batch->bat_session;
 
 	LASSERT(tsi->tsi_is_client);
-	LASSERT(sn != NULL && (sn->sn_features & ~LST_FEATS_MASK) == 0);
+	LASSERT(sn && !(sn->sn_features & ~LST_FEATS_MASK));
 
 	spin_lock_init(&lst_ping_data.pnd_lock);
 	lst_ping_data.pnd_counter = 0;
@@ -74,7 +74,7 @@ ping_client_fini(sfw_test_instance_t *tsi)
 	sfw_session_t *sn = tsi->tsi_batch->bat_session;
 	int errors;
 
-	LASSERT(sn != NULL);
+	LASSERT(sn);
 	LASSERT(tsi->tsi_is_client);
 
 	errors = atomic_read(&sn->sn_ping_errors);
@@ -94,11 +94,11 @@ ping_client_prep_rpc(sfw_test_unit_t *tsu, lnet_process_id_t dest,
 	struct timeval tv;
 	int rc;
 
-	LASSERT(sn != NULL);
-	LASSERT((sn->sn_features & ~LST_FEATS_MASK) == 0);
+	LASSERT(sn);
+	LASSERT(!(sn->sn_features & ~LST_FEATS_MASK));
 
 	rc = sfw_create_test_rpc(tsu, dest, sn->sn_features, 0, 0, rpc);
-	if (rc != 0)
+	if (rc)
 		return rc;
 
 	req = &(*rpc)->crpc_reqstmsg.msg_body.ping_reqst;
@@ -125,9 +125,9 @@ ping_client_done_rpc(sfw_test_unit_t *tsu, srpc_client_rpc_t *rpc)
 	srpc_ping_reply_t *reply = &rpc->crpc_replymsg.msg_body.ping_reply;
 	struct timeval tv;
 
-	LASSERT(sn != NULL);
+	LASSERT(sn);
 
-	if (rpc->crpc_status != 0) {
+	if (rpc->crpc_status) {
 		if (!tsi->tsi_stopping) /* rpc could have been aborted */
 			atomic_inc(&sn->sn_ping_errors);
 		CERROR("Unable to ping %s (%d): %d\n",
@@ -196,7 +196,7 @@ ping_server_handle(struct srpc_server_rpc *rpc)
 	rep->pnr_seq   = req->pnr_seq;
 	rep->pnr_magic = LST_PING_TEST_MAGIC;
 
-	if ((reqstmsg->msg_ses_feats & ~LST_FEATS_MASK) != 0) {
+	if (reqstmsg->msg_ses_feats & ~LST_FEATS_MASK) {
 		replymsg->msg_ses_feats = LST_FEATS_MASK;
 		rep->pnr_status = EPROTO;
 		return 0;

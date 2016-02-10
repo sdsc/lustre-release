@@ -170,7 +170,7 @@ parse_addrange(const struct cfs_lstr *src, struct nidrange *nidrange)
 	}
 
 	LIBCFS_ALLOC(addrrange, sizeof(struct addrrange));
-	if (addrrange == NULL)
+	if (!addrrange)
 		return -ENOMEM;
 	list_add_tail(&addrrange->ar_link, &nidrange->nr_addrranges);
 	INIT_LIST_HEAD(&addrrange->ar_numaddr_ranges);
@@ -203,10 +203,10 @@ add_nidrange(const struct cfs_lstr *src,
 		return NULL;
 
 	nf = libcfs_namenum2netstrfns(src->ls_str);
-	if (nf == NULL)
+	if (!nf)
 		return NULL;
 	endlen = src->ls_len - strlen(nf->nf_name);
-	if (endlen == 0)
+	if (!endlen)
 		/* network name only, e.g. "elan" or "tcp" */
 		netnum = 0;
 	else {
@@ -229,7 +229,7 @@ add_nidrange(const struct cfs_lstr *src,
 	}
 
 	LIBCFS_ALLOC(nr, sizeof(struct nidrange));
-	if (nr == NULL)
+	if (!nr)
 		return NULL;
 	list_add_tail(&nr->nr_link, nidlist);
 	INIT_LIST_HEAD(&nr->nr_addrranges);
@@ -255,17 +255,17 @@ parse_nidrange(struct cfs_lstr *src, struct list_head *nidlist)
 	struct nidrange *nr;
 
 	tmp = *src;
-	if (cfs_gettok(src, '@', &addrrange) == 0)
+	if (!cfs_gettok(src, '@', &addrrange))
 		goto failed;
 
-	if (cfs_gettok(src, '@', &net) == 0 || src->ls_str != NULL)
+	if (!cfs_gettok(src, '@', &net) || src->ls_str)
 		goto failed;
 
 	nr = add_nidrange(&net, nidlist);
-	if (nr == NULL)
+	if (!nr)
 		goto failed;
 
-	if (parse_addrange(&addrrange, nr) != 0)
+	if (parse_addrange(&addrrange, nr))
 		goto failed;
 
 	return 1;
@@ -343,12 +343,12 @@ cfs_parse_nidlist(char *str, int len, struct list_head *nidlist)
 	INIT_LIST_HEAD(nidlist);
 	while (src.ls_str) {
 		rc = cfs_gettok(&src, ' ', &res);
-		if (rc == 0) {
+		if (!rc) {
 			cfs_free_nidlist(nidlist);
 			return 0;
 		}
 		rc = parse_nidrange(&res, nidlist);
-		if (rc == 0) {
+		if (!rc) {
 			cfs_free_nidlist(nidlist);
 			return 0;
 		}
@@ -396,7 +396,7 @@ cfs_print_network(char *buffer, int count, struct nidrange *nr)
 {
 	struct netstrfns *nf = nr->nr_netstrfns;
 
-	if (nr->nr_netnum == 0)
+	if (!nr->nr_netnum)
 		return scnprintf(buffer, count, "@%s", nf->nf_name);
 	else
 		return scnprintf(buffer, count, "@%s%u",
@@ -418,7 +418,7 @@ cfs_print_addrranges(char *buffer, int count, struct list_head *addrranges,
 	struct netstrfns *nf = nr->nr_netstrfns;
 
 	list_for_each_entry(ar, addrranges, ar_link) {
-		if (i != 0)
+		if (i)
 			i += scnprintf(buffer + i, count - i, " ");
 		i += nf->nf_print_addrlist(buffer + i, count - i,
 					   &ar->ar_numaddr_ranges);
@@ -443,10 +443,10 @@ int cfs_print_nidlist(char *buffer, int count, struct list_head *nidlist)
 		return 0;
 
 	list_for_each_entry(nr, nidlist, nr_link) {
-		if (i != 0)
+		if (i)
 			i += scnprintf(buffer + i, count - i, " ");
 
-		if (nr->nr_all != 0) {
+		if (nr->nr_all) {
 			LASSERT(list_empty(&nr->nr_addrranges));
 			i += scnprintf(buffer + i, count - i, "*");
 			i += cfs_print_network(buffer + i, count - i, nr);
@@ -488,13 +488,13 @@ static void cfs_ip_ar_min_max(struct addrrange *ar, __u32 *min_nid,
 	tmp_ip_addr = ((min_ip[0] << 24) | (min_ip[1] << 16) |
 		       (min_ip[2] << 8) | min_ip[3]);
 
-	if (min_nid != NULL)
+	if (min_nid)
 		*min_nid = tmp_ip_addr;
 
 	tmp_ip_addr = ((max_ip[0] << 24) | (max_ip[1] << 16) |
 		       (max_ip[2] << 8) | max_ip[3]);
 
-	if (max_nid != NULL)
+	if (max_nid)
 		*max_nid = tmp_ip_addr;
 }
 
@@ -516,16 +516,16 @@ static void cfs_num_ar_min_max(struct addrrange *ar, __u32 *min_nid,
 
 	list_for_each_entry(el, &ar->ar_numaddr_ranges, el_link) {
 		list_for_each_entry(re, &el->el_exprs, re_link) {
-			if (re->re_lo < min_addr || min_addr == 0)
+			if (re->re_lo < min_addr || !min_addr)
 				min_addr = re->re_lo;
 			if (re->re_hi > max_addr)
 				max_addr = re->re_hi;
 		}
 	}
 
-	if (min_nid != NULL)
+	if (min_nid)
 		*min_nid = min_addr;
-	if (max_nid != NULL)
+	if (max_nid)
 		*max_nid = max_addr;
 }
 
@@ -547,17 +547,17 @@ bool cfs_nidrange_is_contiguous(struct list_head *nidlist)
 
 	list_for_each_entry(nr, nidlist, nr_link) {
 		nf = nr->nr_netstrfns;
-		if (lndname == NULL)
+		if (!lndname)
 			lndname = nf->nf_name;
 		if (netnum == -1)
 			netnum = nr->nr_netnum;
 
-		if (strcmp(lndname, nf->nf_name) != 0 ||
+		if (strcmp(lndname, nf->nf_name) ||
 		    netnum != nr->nr_netnum)
 			return false;
 	}
 
-	if (nf == NULL)
+	if (!nf)
 		return false;
 
 	if (!nf->nf_is_contiguous(nidlist))
@@ -591,7 +591,7 @@ static bool cfs_num_is_contiguous(struct list_head *nidlist)
 		list_for_each_entry(ar, &nr->nr_addrranges, ar_link) {
 			cfs_num_ar_min_max(ar, &current_start_nid,
 					   &current_end_nid);
-			if (last_end_nid != 0 &&
+			if (last_end_nid &&
 			    (current_start_nid - last_end_nid != 1))
 				return false;
 			last_end_nid = current_end_nid;
@@ -601,7 +601,7 @@ static bool cfs_num_is_contiguous(struct list_head *nidlist)
 						    re_link) {
 					if (re->re_stride > 1)
 						return false;
-					else if (last_hi != 0 &&
+					else if (last_hi &&
 						 re->re_hi - last_hi != 1)
 						return false;
 					last_hi = re->re_hi;
@@ -641,7 +641,7 @@ static bool cfs_ip_is_contiguous(struct list_head *nidlist)
 			last_diff = 0;
 			cfs_ip_ar_min_max(ar, &current_start_nid,
 					  &current_end_nid);
-			if (last_end_nid != 0 &&
+			if (last_end_nid &&
 			    (current_start_nid - last_end_nid != 1))
 				return false;
 			last_end_nid = current_end_nid;
@@ -725,7 +725,7 @@ static void cfs_num_min_max(struct list_head *nidlist, __u32 *min_nid,
 		list_for_each_entry(ar, &nr->nr_addrranges, ar_link) {
 			cfs_num_ar_min_max(ar, &tmp_min_addr,
 					   &tmp_max_addr);
-			if (tmp_min_addr < min_addr || min_addr == 0)
+			if (tmp_min_addr < min_addr || !min_addr)
 				min_addr = tmp_min_addr;
 			if (tmp_max_addr > max_addr)
 				max_addr = tmp_min_addr;
@@ -757,16 +757,16 @@ static void cfs_ip_min_max(struct list_head *nidlist, __u32 *min_nid,
 		list_for_each_entry(ar, &nr->nr_addrranges, ar_link) {
 			cfs_ip_ar_min_max(ar, &tmp_min_ip_addr,
 					  &tmp_max_ip_addr);
-			if (tmp_min_ip_addr < min_ip_addr || min_ip_addr == 0)
+			if (tmp_min_ip_addr < min_ip_addr || !min_ip_addr)
 				min_ip_addr = tmp_min_ip_addr;
 			if (tmp_max_ip_addr > max_ip_addr)
 				max_ip_addr = tmp_max_ip_addr;
 		}
 	}
 
-	if (min_nid != NULL)
+	if (min_nid)
 		*min_nid = min_ip_addr;
-	if (max_nid != NULL)
+	if (max_nid)
 		*max_nid = max_ip_addr;
 }
 
@@ -805,8 +805,8 @@ libcfs_ip_str2addr(const char *str, int nob, __u32 *addr)
 	/* numeric IP? */
 	if (sscanf(str, "%u.%u.%u.%u%n", &a, &b, &c, &d, &n) >= 4 &&
 	    n == nob &&
-	    (a & ~0xff) == 0 && (b & ~0xff) == 0 &&
-	    (c & ~0xff) == 0 && (d & ~0xff) == 0) {
+	    !(a & ~0xff) && !(b & ~0xff) &&
+	    !(c & ~0xff) && !(d & ~0xff)) {
 		*addr = ((a<<24)|(b<<16)|(c<<8)|d);
 		return 1;
 	}
@@ -827,7 +827,7 @@ cfs_ip_addr_parse(char *str, int len, struct list_head *list)
 	src.ls_len = len;
 	i = 0;
 
-	while (src.ls_str != NULL) {
+	while (src.ls_str) {
 		struct cfs_lstr res;
 
 		if (!cfs_gettok(&src, '.', &res)) {
@@ -836,7 +836,7 @@ cfs_ip_addr_parse(char *str, int len, struct list_head *list)
 		}
 
 		rc = cfs_expr_list_parse(res.ls_str, res.ls_len, 0, 255, &el);
-		if (rc != 0)
+		if (rc)
 			goto out;
 
 		list_add_tail(&el->el_link, list);
@@ -861,7 +861,7 @@ libcfs_ip_addr_range_print(char *buffer, int count, struct list_head *list)
 
 	list_for_each_entry(el, list, el_link) {
 		LASSERT(j++ < 4);
-		if (i != 0)
+		if (i)
 			i += scnprintf(buffer + i, count - i, ".");
 		i += cfs_expr_list_print(buffer + i, count - i, el);
 	}
@@ -931,7 +931,7 @@ libcfs_num_parse(char *str, int len, struct list_head *list)
 	int	rc;
 
 	rc = cfs_expr_list_parse(str, len, 0, MAX_NUMERIC_VALUE, &el);
-	if (rc == 0)
+	if (!rc)
 		list_add_tail(&el->el_link, list);
 
 	return rc;
@@ -1063,7 +1063,7 @@ libcfs_name2netstrfns(const char *name)
 int
 libcfs_isknown_lnd(__u32 lnd)
 {
-	return libcfs_lnd2netstrfns(lnd) != NULL;
+	return libcfs_lnd2netstrfns(lnd) ? 1 : 0;
 }
 EXPORT_SYMBOL(libcfs_isknown_lnd);
 
@@ -1072,7 +1072,7 @@ libcfs_lnd2modname(__u32 lnd)
 {
 	struct netstrfns *nf = libcfs_lnd2netstrfns(lnd);
 
-	return (nf == NULL) ? NULL : nf->nf_modname;
+	return nf ? nf->nf_modname : NULL;
 }
 EXPORT_SYMBOL(libcfs_lnd2modname);
 
@@ -1081,7 +1081,7 @@ libcfs_str2lnd(const char *str)
 {
 	struct netstrfns *nf = libcfs_name2netstrfns(str);
 
-	if (nf != NULL)
+	if (nf)
 		return nf->nf_type;
 
 	return -ENXIO;
@@ -1094,7 +1094,7 @@ libcfs_lnd2str_r(__u32 lnd, char *buf, size_t buf_size)
 	struct netstrfns *nf;
 
 	nf = libcfs_lnd2netstrfns(lnd);
-	if (nf == NULL)
+	if (!nf)
 		snprintf(buf, buf_size, "?%u?", lnd);
 	else
 		snprintf(buf, buf_size, "%s", nf->nf_name);
@@ -1111,9 +1111,9 @@ libcfs_net2str_r(__u32 net, char *buf, size_t buf_size)
 	struct netstrfns *nf;
 
 	nf = libcfs_lnd2netstrfns(lnd);
-	if (nf == NULL)
+	if (!nf)
 		snprintf(buf, buf_size, "<%u:%u>", lnd, nnum);
-	else if (nnum == 0)
+	else if (!nnum)
 		snprintf(buf, buf_size, "%s", nf->nf_name);
 	else
 		snprintf(buf, buf_size, "%s%u", nf->nf_name, nnum);
@@ -1138,14 +1138,14 @@ libcfs_nid2str_r(lnet_nid_t nid, char *buf, size_t buf_size)
 	}
 
 	nf = libcfs_lnd2netstrfns(lnd);
-	if (nf == NULL) {
+	if (!nf) {
 		snprintf(buf, buf_size, "%x@<%u:%u>", addr, lnd, nnum);
 	} else {
 		size_t addr_len;
 
 		nf->nf_addr2str(addr, buf, buf_size);
 		addr_len = strlen(buf);
-		if (nnum == 0)
+		if (!nnum)
 			snprintf(buf + addr_len, buf_size - addr_len, "@%s",
 				 nf->nf_name);
 		else
@@ -1198,7 +1198,7 @@ libcfs_str2net(const char *str)
 {
 	__u32  net;
 
-	if (libcfs_str2net_internal(str, &net) != NULL)
+	if (libcfs_str2net_internal(str, &net))
 		return net;
 
 	return LNET_NIDNET(LNET_NID_ANY);
@@ -1213,15 +1213,15 @@ libcfs_str2nid(const char *str)
 	__u32 net;
 	__u32 addr;
 
-	if (sep != NULL) {
+	if (sep) {
 		nf = libcfs_str2net_internal(sep + 1, &net);
-		if (nf == NULL)
+		if (!nf)
 			return LNET_NID_ANY;
 	} else {
 		sep = str + strlen(str);
 		net = LNET_MKNET(SOCKLND, 0);
 		nf = libcfs_lnd2netstrfns(SOCKLND);
-		LASSERT(nf != NULL);
+		LASSERT(nf);
 	}
 
 	if (!nf->nf_str2addr(str, (int)(sep - str), &addr))
@@ -1243,8 +1243,8 @@ libcfs_id2str(lnet_process_id_t id)
 	}
 
 	snprintf(str, LNET_NIDSTR_SIZE, "%s%u-%s",
-		 ((id.pid & LNET_PID_USERFLAG) != 0) ? "U" : "",
-		 (id.pid & ~LNET_PID_USERFLAG), libcfs_nid2str(id.nid));
+		 id.pid & LNET_PID_USERFLAG ? "U" : "",
+		 id.pid & ~LNET_PID_USERFLAG, libcfs_nid2str(id.nid));
 	return str;
 }
 EXPORT_SYMBOL(libcfs_id2str);
