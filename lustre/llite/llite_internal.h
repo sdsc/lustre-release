@@ -314,9 +314,11 @@ int ll_xattr_cache_get(struct inode *inode,
 			size_t size,
 			__u64 valid);
 
-int ll_init_security(struct dentry *dentry,
-			    struct inode *inode,
-			    struct inode *dir);
+int ll_dentry_init_security(struct dentry *dentry, int mode, struct qstr *name,
+			    const char **secctx_name, void **secctx,
+			    __u32 *secctx_size);
+int ll_inode_init_security(struct dentry *dentry, struct inode *inode,
+			   struct inode *dir);
 
 /*
  * Locking to guarantee consistency of non-atomic updates to long long i_size,
@@ -447,6 +449,7 @@ enum stats_track_type {
 #define LL_SBI_ALWAYS_PING   0x200000 /* always ping even if server
 				       * suppress_pings */
 #define LL_SBI_FAST_READ     0x400000 /* fast read support */
+#define LL_SBI_FILE_SECCTX   0x800000 /* set file security context at create */
 
 #define LL_SBI_FLAGS { 	\
 	"nolck",	\
@@ -472,6 +475,7 @@ enum stats_track_type {
 	"norootsquash",	\
 	"always_ping",	\
 	"fast_read",	\
+	"file_secctx",	\
 }
 
 #define RCE_HASHES      32
