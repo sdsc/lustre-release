@@ -1483,6 +1483,7 @@ static int mgs_obd_connect(const struct lu_env *env, struct obd_export **exp,
 
 	if (data != NULL) {
 		data->ocd_connect_flags &= MGS_CONNECT_SUPPORTED;
+		data->ocd_connect_flags2 &= MGS_CONNECT_SUPPORTED2;
 		data->ocd_version = LUSTRE_VERSION_CODE;
 		lexp->exp_connect_data = *data;
 	}
@@ -1511,6 +1512,7 @@ static int mgs_obd_reconnect(const struct lu_env *env, struct obd_export *exp,
 
 	if (data != NULL) {
 		data->ocd_connect_flags &= MGS_CONNECT_SUPPORTED;
+		data->ocd_connect_flags2 &= MGS_CONNECT_SUPPORTED2;
 		data->ocd_version = LUSTRE_VERSION_CODE;
 		exp->exp_connect_data = *data;
 	}
