@@ -2027,6 +2027,7 @@ static int mdd_declare_object_create(const struct lu_env *env,
 				     struct lu_buf *acl_buf,
 				     struct dt_allocation_hint *hint)
 {
+	const struct lu_buf *buf;
 	int rc;
 
 	rc = mdd_declare_object_create_internal(env, p, c, attr, handle, spec,
@@ -2062,8 +2063,6 @@ static int mdd_declare_object_create(const struct lu_env *env,
 	/* replay case, create LOV EA from client data */
 	if (spec->no_create ||
 	    (spec->sp_cr_flags & MDS_OPEN_HAS_EA && S_ISREG(attr->la_mode))) {
-		const struct lu_buf *buf;
-
 		buf = mdd_buf_get_const(env, spec->u.sp_ea.eadata,
 					spec->u.sp_ea.eadatalen);
 		rc = mdo_declare_xattr_set(env, c, buf, XATTR_NAME_LOV, 0,
@@ -2083,6 +2082,16 @@ static int mdd_declare_object_create(const struct lu_env *env,
                 if (rc)
                         GOTO(out, rc);
         }
+
+	if (spec->sp_cr_file_secctx_name != NULL) {
+		buf = mdd_buf_get_const(env, spec->sp_cr_file_secctx,
+					spec->sp_cr_file_secctx_size);
+		rc = mdo_declare_xattr_set(env, c, buf,
+					   spec->sp_cr_file_secctx_name, 0,
+					   handle);
+		if (rc < 0)
+			GOTO(out, rc);
+	}
 out:
 	return rc;
 }
@@ -2193,6 +2202,7 @@ static int mdd_object_create(const struct lu_env *env, struct mdd_object *pobj,
 			     struct dt_allocation_hint *hint,
 			     struct thandle *handle)
 {
+	const struct lu_buf    *buf;
 	int			rc;
 
 	mdd_write_lock(env, son, MOR_TGT_CHILD);
@@ -2228,8 +2238,6 @@ static int mdd_object_create(const struct lu_env *env, struct mdd_object *pobj,
 	if (spec->no_create ||
 	    (S_ISREG(attr->la_mode) && spec->sp_cr_flags & MDS_OPEN_HAS_EA) ||
 	    S_ISDIR(attr->la_mode)) {
-		const struct lu_buf *buf;
-
 		buf = mdd_buf_get_const(env, spec->u.sp_ea.eadata,
 					spec->u.sp_ea.eadatalen);
 		rc = mdo_xattr_set(env, son, buf,
@@ -2277,6 +2285,15 @@ static int mdd_object_create(const struct lu_env *env, struct mdd_object *pobj,
 			rc = 0;
 		else
 			GOTO(err_initlized, rc = -EFAULT);
+	}
+
+	if (spec->sp_cr_file_secctx_name != NULL) {
+		buf = mdd_buf_get_const(env, spec->sp_cr_file_secctx,
+					spec->sp_cr_file_secctx_size);
+		rc = mdo_xattr_set(env, son, buf, spec->sp_cr_file_secctx_name,
+				   0, handle);
+		if (rc < 0)
+			GOTO(err_initlized, rc);
 	}
 
 err_initlized:
