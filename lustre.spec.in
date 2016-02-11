@@ -165,7 +165,15 @@ Userspace tools and files for the Lustre file system.
 %kernel_module_package -n %{name} -f %SOURCE1 default
 
 %if %{with ldiskfs}
-%kernel_module_package -n %{name}-osd-ldiskfs -f %SOURCE2 default
+%define kpreamble %{_sourcedir}/kmp-preamble-ldiskfs
+%(/bin/echo -e "\
+Requires:       ldiskfsprogs >= 1.42.7.wc1\n\
+Requires:       %{name}-osd-ldiskfs-mount = %{version}\n\
+Provides:       %{name}-osd = %{version}\n\
+Obsoletes:      %{name}-ldiskfs\n\
+Conflicts:      %{name}-dkms\n\n" > %{kpreamble})
+
+%kernel_module_package -n %{name}-osd-ldiskfs -p %{kpreamble} -f %SOURCE2 default
 %if %{with lustre_utils}
 %package osd-ldiskfs-mount
 Summary: osd-ldiskfs-mount contains mount's ldiskfs specific dso.
@@ -179,7 +187,13 @@ LDISKFS hooks for mount/mkfs into a dynamic library.
 %endif	# with ldiskfs
 
 %if %{with zfs}
-%kernel_module_package -n %{name}-osd-zfs -f %SOURCE3 default
+%define kpreamble %{_sourcedir}/kmp-preamble-zfs
+%(/bin/echo -e "\
+Requires:       zfs-kmod\n\
+Requires:       %{name}-osd-zfs-mount = %{version}\n\
+Provides:       %{name}-osd = %{version}\n\n" > %{kpreamble})
+
+%kernel_module_package -n %{name}-osd-zfs -p %{kpreamble} -f %SOURCE3 default
 %if %{with lustre_utils}
 %package osd-zfs-mount
 Summary: osd-zfs-mount contains mount's zfs specific dso.
