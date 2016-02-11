@@ -1,0 +1,4 @@
+Requires:       ldiskfsprogs >= 1.42.7.wc1
+Requires:       %{name}-osd-ldiskfs-mount = %{version}
+Provides:       %{name}-osd = %{version}
+Obsoletes:      %{name}-ldiskfs
