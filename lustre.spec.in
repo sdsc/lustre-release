@@ -124,6 +124,7 @@ Source1: kmp-lustre.files
 Source2: kmp-lustre-osd-ldiskfs.files
 Source3: kmp-lustre-osd-zfs.files
 Source4: kmp-lustre-tests.files
+Source5: kmp-preamble-ldiskfs
 URL: https://wiki.hpdd.intel.com/
 BuildRoot: %{_tmppath}/lustre-%{version}-root
 Obsoletes: lustre-lite, lustre-lite-utils, lustre-ldap nfs-utils-lustre
@@ -165,7 +166,7 @@ Userspace tools and files for the Lustre file system.
 %kernel_module_package -n %{name} -f %SOURCE1 default
 
 %if %{with ldiskfs}
-%kernel_module_package -n %{name}-osd-ldiskfs -f %SOURCE2 default
+%kernel_module_package -n %{name}-osd-ldiskfs -p %SOURCE5 -f %SOURCE2 default
 %if %{with lustre_utils}
 %package osd-ldiskfs-mount
 Summary: osd-ldiskfs-mount contains mount's ldiskfs specific dso.
