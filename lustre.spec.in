@@ -165,7 +165,13 @@ Userspace tools and files for the Lustre file system.
 %kernel_module_package -n %{name} -f %SOURCE1 default
 
 %if %{with ldiskfs}
-%kernel_module_package -n %{name}-osd-ldiskfs -f %SOURCE2 default
+%define kpreamble %{_sourcedir}/kmp-preamble-ldiskfs
+%(/bin/echo -e "\
+Requires:       %{requires_kmod_name} = %{requires_kmod_version}\n\
+Provides:       %{name}-osd = %{version}\n\
+Conflicts:      %{name}-dkms\n\n" > %{kpreamble})
+
+%kernel_module_package -n %{name}-osd-ldiskfs -p %{kpreamble} -f %SOURCE2 default
 %if %{with lustre_utils}
 %package osd-ldiskfs-mount
 Summary: osd-ldiskfs-mount contains mount's ldiskfs specific dso.
