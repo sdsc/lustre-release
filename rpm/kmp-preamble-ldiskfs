@@ -1,0 +1,2 @@
+Provides:     %{name}-osd = %{version}
+Conflicts:    ${name}-dkms

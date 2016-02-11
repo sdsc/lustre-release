@@ -124,6 +124,7 @@ Source1: kmp-lustre.files
 Source2: kmp-lustre-osd-ldiskfs.files
 Source3: kmp-lustre-osd-zfs.files
 Source4: kmp-lustre-tests.files
+Source5: kmp-preamble-ldiskfs
 URL: https://wiki.hpdd.intel.com/
 BuildRoot: %{_tmppath}/lustre-%{version}-root
 Obsoletes: lustre-lite, lustre-lite-utils, lustre-ldap nfs-utils-lustre
