@@ -211,7 +211,10 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
 				  OBD_CONNECT_OPEN_BY_FID |
 				  OBD_CONNECT_DIR_STRIPE |
 				  OBD_CONNECT_BULK_MBITS |
-				  OBD_CONNECT_SUBTREE;
+				  OBD_CONNECT_SUBTREE |
+				  OBD_CONNECT_FLAGS2;
+
+	data->ocd_connect_flags2 = 0;
 
 #ifdef HAVE_LRU_RESIZE_SUPPORT
         if (sbi->ll_flags & LL_SBI_LRU_RESIZE)
@@ -297,7 +300,7 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
 
 		OBD_ALLOC_WAIT(buf, PAGE_CACHE_SIZE);
 		obd_connect_flags2str(buf, PAGE_CACHE_SIZE,
-				      valid ^ CLIENT_CONNECT_MDT_REQD, ",");
+				      valid ^ CLIENT_CONNECT_MDT_REQD, 0, ",");
 		LCONSOLE_ERROR_MSG(0x170, "Server %s does not support "
 				   "feature(s) needed for correct operation "
 				   "of this client (%s). Please upgrade "
@@ -403,6 +406,8 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
 
 	if (!OBD_FAIL_CHECK(OBD_FAIL_OSC_CONNECT_GRANT_PARAM))
 		data->ocd_connect_flags |= OBD_CONNECT_GRANT_PARAM;
+
+	data->ocd_connect_flags2 = 0;
 
         if (!OBD_FAIL_CHECK(OBD_FAIL_OSC_CONNECT_CKSUM)) {
                 /* OBD_CONNECT_CKSUM should always be set, even if checksums are
