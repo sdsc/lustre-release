@@ -1,0 +1,23 @@
+From ae1e18e30cc32180474c61b5b907b34ef3460698 Mon Sep 17 00:00:00 2001
+From: Alex Zhuravlev <alexey.zhuravlev@intel.com>
+Date: Mon, 15 Feb 2016 16:12:19 +0300
+Subject: [PATCH] make GPL to enable CONFIG_LOCK_STAT
+
+Signed-off-by: Alex Zhuravlev <alexey.zhuravlev@intel.com>
+---
+ META | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/META b/META
+index cd8712b..18e93c2 100644
+--- a/META
++++ b/META
+@@ -4,4 +4,4 @@ Branch:       1.0
+ Release:      1
+ Release-Tags: relext
+-License:      CDDL
++License:      GPLS
+ Author:       OpenZFS on Linux
+-- 
+2.3.2 (Apple Git-55)
+
