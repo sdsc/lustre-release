@@ -3168,7 +3168,7 @@ test_23c() {
 		error "(7) Fail to start LFSCK for namespace"
 
 	wait_update_facet client "stat $DIR/$tdir/d0/foo |
-		awk '/Size/ { print \\\$2 }'" "0" 32 || {
+		awk '/Size/ { print \\\$2 }'" "0" 64 4 || {
 		stat $DIR/$tdir/guard
 		$SHOW_NAMESPACE
 		error "(8) unexpected size"
