@@ -2033,7 +2033,7 @@ wait_update () {
 	local RESULT
 	local PREV_RESULT
 	local WAIT=0
-	local sleep=1
+	local sleep=${5:-1}
 	local print=10
 
 	PREV_RESULT=$(do_node $node "$TEST")
