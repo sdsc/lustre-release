@@ -1485,6 +1485,9 @@ int mdd_finish_unlink(const struct lu_env *env,
 			 * mdd_la_get() may propagate ORPHAN_OBJ
 			 * causing the asserition */
 			rc = mdd_mark_orphan_object(env, obj, th, false);
+			if (rc != 0)
+				CERROR("add orphan object failed"DFID" rc = %d\n",
+				       PFID(mdd_object_fid(obj)), rc);
 		} else {
 			rc = mdo_destroy(env, obj, th);
 		}

@@ -3196,8 +3196,20 @@ static int osd_object_ref_add(const struct lu_env *env,
 	struct osd_thandle *oh;
 	int		    rc = 0;
 
-	if (!dt_object_exists(dt))
+	if (!dt_object_exists(dt) || obj->oo_destroyed)
 		return -ENOENT;
+
+	{
+		/* check if the object has become orphan */
+		struct osd_thread_info *info     = osd_oti_get(env);
+		struct lustre_mdt_attrs *lma = &info->oti_mdt_attrs;
+		int			 ret;
+
+		ret = osd_get_lma(info, inode, &info->oti_obj_dentry, lma);
+		if (ret == 0)
+			LASSERTF(!(lma->lma_incompat & LMAI_ORPHAN), DFID" %u\n",
+				PFID(lu_object_fid(&dt->do_lu)), lma->lma_incompat);
+	}
 
 	LINVRNT(osd_invariant(obj));
 	LASSERT(!dt_object_remote(dt));
