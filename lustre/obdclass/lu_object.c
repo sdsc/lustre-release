@@ -1239,6 +1239,22 @@ void lu_device_fini(struct lu_device *d)
 	}
 
 	lu_ref_fini(&d->ld_reference);
+	if (atomic_read(&d->ld_ref) != 0) {
+		struct lu_env *env = NULL;
+		int rc;
+		LIBCFS_DEBUG_MSG_DATA_DECL(msgdata, D_ERROR, NULL);
+		OBD_ALLOC_PTR(env);
+		if (env) {
+			rc = lu_env_init(env, LCT_DT_THREAD);
+			if (rc == 0) {
+				lu_site_print(env, d->ld_site,
+					      &msgdata,
+					      lu_cdebug_printer);
+				lu_env_fini(env);
+			}
+			OBD_FREE_PTR(env);
+		}
+	}
 	LASSERTF(atomic_read(&d->ld_ref) == 0,
 		 "Refcount is %u\n", atomic_read(&d->ld_ref));
 	LASSERT(atomic_read(&t->ldt_device_nr) > 0);
