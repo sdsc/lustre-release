@@ -482,9 +482,29 @@ static void osp_thandle_invalidate_object(const struct lu_env *env,
 {
 	struct osp_update_request *our = oth->ot_our;
 	struct osp_update_request_sub *ours;
+	struct lu_env local_env;
+	bool	local_env_init = false;
 
 	if (our == NULL)
 		return;
+
+	/* env might not be initialized in some cases, see
+	 * osp_send_update_thread()->...->osp_trans_stop_cb().
+	 * LU-7782 */
+	if (env == NULL) {
+		struct lu_device *lu_dev;
+		int rc;
+
+		lu_dev = &oth->ot_super.th_dev->dd_lu_dev;
+		rc = lu_env_init(&local_env, lu_dev->ld_type->ldt_ctx_tags);
+		if (rc < 0) {
+			CERROR("%s: init env error: rc = %d\n",
+			       lu_dev->ld_obd->obd_name, rc);
+			return;
+		}
+		env = &local_env;
+		local_env_init = true;
+	}
 
 	list_for_each_entry(ours, &our->our_req_list, ours_list) {
 		struct object_update_request *our_req = ours->ours_req;
@@ -521,6 +541,9 @@ static void osp_thandle_invalidate_object(const struct lu_env *env,
 			lu_object_put(env, obj);
 		}
 	}
+
+	if (local_env_init)
+		lu_env_fini(&local_env);
 }
 
 static void osp_trans_stop_cb(const struct lu_env *env,
