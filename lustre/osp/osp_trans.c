@@ -482,9 +482,39 @@ static void osp_thandle_invalidate_object(const struct lu_env *env,
 {
 	struct osp_update_request *our = oth->ot_our;
 	struct osp_update_request_sub *ours;
+	struct lu_env local_env;
 
 	if (our == NULL)
 		return;
+
+	/* env might not be initialized in some cases, see
+	 * this stack
+	 * fld_local_lookup()
+	 *  fld_server_lookup()
+	 *   lod_fld_lookup()
+	 *    lod_object_init()
+	 *     lu_object_alloc()
+	 *      lu_object_find_try()
+	 *       lu_object_find_at()
+	 *        lu_object_find_slice()
+	 *         osp_trans_stop_cb()
+	 *          osp_update_interpret()
+	 *           ptlrpc_check_set()
+	 *            ptlrpc_set_wait()
+	 *             ptlrpc_queue_wait() */
+	if (env == NULL) {
+		struct lu_device *lu_dev;
+		int rc;
+
+		lu_dev = &oth->ot_super.th_dev->dd_lu_dev;
+		rc = lu_env_init(&local_env, lu_dev->ld_type->ldt_ctx_tags);
+		if (rc < 0) {
+			CERROR("%s: init env error: rc = %d\n",
+			       lu_dev->ld_obd->obd_name, rc);
+			return;
+		}
+		env = &local_env;
+	}
 
 	list_for_each_entry(ours, &our->our_req_list, ours_list) {
 		struct object_update_request *our_req = ours->ours_req;
@@ -521,6 +551,9 @@ static void osp_thandle_invalidate_object(const struct lu_env *env,
 			lu_object_put(env, obj);
 		}
 	}
+
+	if (env == &local_env)
+		lu_env_fini(&local_env);
 }
 
 static void osp_trans_stop_cb(const struct lu_env *env,
