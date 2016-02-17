@@ -318,11 +318,22 @@ __sa_make_ready(struct ll_statahead_info *sai, struct sa_entry *entry, int ret)
 	struct sa_entry *se;
 	struct list_head *pos = &sai->sai_entries;
 	__u64 index = entry->se_index;
+	bool wake_up = (index == sai->sai_index_wait);
 
 	LASSERT(!sa_ready(entry));
 	LASSERT(list_empty(&entry->se_list));
 
 	list_for_each_entry_reverse(se, &sai->sai_entries, se_list) {
+		/* If no wake up event is ever missed, this should never
+		 * happen */
+		if (sai->sai_index_wait == se->se_index) {
+			CERROR("readahead missed a wake up event "
+			       "which might had introduced unncessary extra "
+			       "wait time to the stat caller, wait index = "
+			       "%llu\n", sai->sai_index_wait);
+			wake_up = true;
+		}
+
 		if (se->se_index < entry->se_index) {
 			pos = &se->se_list;
 			break;
@@ -331,7 +342,9 @@ __sa_make_ready(struct ll_statahead_info *sai, struct sa_entry *entry, int ret)
 	list_add(&entry->se_list, pos);
 	entry->se_state = ret < 0 ? SA_ENTRY_INVA : SA_ENTRY_SUCC;
 
-	return (index == sai->sai_index_wait);
+	if (wake_up)
+		sai->sai_index_wait = 0;
+	return wake_up;
 }
 
 /*
@@ -412,6 +425,7 @@ static struct ll_statahead_info *ll_sai_alloc(struct dentry *dentry)
 	atomic_set(&sai->sai_refcount, 1);
 	sai->sai_max = LL_SA_RPC_MIN;
 	sai->sai_index = 1;
+	sai->sai_index_wait = 0;
 	init_waitqueue_head(&sai->sai_waitq);
 	init_waitqueue_head(&sai->sai_thread.t_ctl_waitq);
 	init_waitqueue_head(&sai->sai_agl_thread.t_ctl_waitq);
@@ -659,7 +673,8 @@ static int ll_statahead_interpret(struct ptlrpc_request *req,
 	struct ll_statahead_info *sai = lli->lli_sai;
 	struct sa_entry *entry = (struct sa_entry *)minfo->mi_cbdata;
 	__u64 handle = 0;
-	bool wakeup;
+	bool wakeup_thread = false;
+	bool wakeup_sai = false;
 	ENTRY;
 
 	if (it_disposition(it, DISP_LOOKUP_NEG))
@@ -689,7 +704,7 @@ static int ll_statahead_interpret(struct ptlrpc_request *req,
 
 	spin_lock(&lli->lli_sa_lock);
 	if (rc != 0) {
-		wakeup = __sa_make_ready(sai, entry, rc);
+		wakeup_sai = __sa_make_ready(sai, entry, rc);
 	} else {
 		entry->se_minfo = minfo;
 		entry->se_req = ptlrpc_request_addref(req);
@@ -698,13 +713,17 @@ static int ll_statahead_interpret(struct ptlrpc_request *req,
 		 * for readpage and other tries to enqueue lock on child
 		 * with parent's lock held, for example: unlink. */
 		entry->se_handle = handle;
-		wakeup = !sa_has_callback(sai);
+		wakeup_thread = !sa_has_callback(sai);
 		list_add_tail(&entry->se_list, &sai->sai_interim_entries);
 	}
 	sai->sai_replied++;
-	if (wakeup)
-		wake_up(&sai->sai_thread.t_ctl_waitq);
 	spin_unlock(&lli->lli_sa_lock);
+
+	if (wakeup_sai)
+		wake_up(&sai->sai_waitq);
+
+	if (wakeup_thread)
+		wake_up(&sai->sai_thread.t_ctl_waitq);
 
 	RETURN(rc);
 }
@@ -1438,8 +1457,11 @@ static int revalidate_statahead_dentry(struct inode *dir,
 	if (!sa_ready(entry) && sai->sai_in_readpage)
 		sa_handle_callback(sai);
 
+	lli = ll_i2info(sai->sai_dentry->d_inode);
+	spin_lock(&lli->lli_sa_lock);
 	if (!sa_ready(entry)) {
 		sai->sai_index_wait = entry->se_index;
+		spin_unlock(&lli->lli_sa_lock);
 		lwi = LWI_TIMEOUT_INTR(cfs_time_seconds(30), NULL,
 					LWI_ON_SIGNAL_NOOP, NULL);
 		rc = l_wait_event(sai->sai_waitq, sa_ready(entry), &lwi);
@@ -1451,6 +1473,8 @@ static int revalidate_statahead_dentry(struct inode *dir,
 			entry = NULL;
 			GOTO(out, rc = -EAGAIN);
 		}
+	} else {
+		spin_unlock(&lli->lli_sa_lock);
 	}
 
 	if (entry->se_state == SA_ENTRY_SUCC && entry->se_inode != NULL) {
