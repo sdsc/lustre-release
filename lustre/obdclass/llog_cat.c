@@ -369,9 +369,26 @@ static struct llog_handle *llog_cat_current_log(struct llog_handle *cathandle,
 		} else {
 			up_write(&loghandle->lgh_lock);
 		}
-        }
+	}
 
 next:
+	/* Sigh, the chd_next_log and chd_current_log is initialized
+	 * in declare phase, and we do not serialize the catlog
+	 * accessing, so it might be possible the llog creation
+	 * thread (see llog_cat_declare_add_rec()) did not create
+	 * llog successfully, then the following thread might
+	 * meet this situation. */
+	if (cathandle->u.chd.chd_next_log == NULL ||
+	    IS_ERR(cathandle->u.chd.chd_next_log)) {
+		CERROR("%s: next log does not exist!\n",
+		       cathandle->lgh_ctxt->loc_obd->obd_name);
+
+		if (IS_ERR(cathandle->u.chd.chd_next_log))
+			RETURN(cathandle->u.chd.chd_next_log);
+
+		RETURN(ERR_PTR(-EFAULT));
+	}
+
 	CDEBUG(D_INODE, "use next log\n");
 
 	loghandle = cathandle->u.chd.chd_next_log;
@@ -434,7 +451,8 @@ int llog_cat_add_rec(const struct lu_env *env, struct llog_handle *cathandle,
 
 retry:
 	loghandle = llog_cat_current_log(cathandle, th);
-	LASSERT(!IS_ERR(loghandle));
+	if (IS_ERR(loghandle))
+		RETURN(PTR_ERR(loghandle));
 
 	/* loghandle is already locked by llog_cat_current_log() for us */
 	if (!llog_exist(loghandle)) {
@@ -500,10 +518,12 @@ int llog_cat_declare_add_rec(const struct lu_env *env,
 			}
 		}
 		up_write(&cathandle->lgh_lock);
-	} else if (cathandle->u.chd.chd_next_log == NULL) {
+	} else if (cathandle->u.chd.chd_next_log == NULL ||
+		   IS_ERR(cathandle->u.chd.chd_next_log)) {
 		/* declare next plain llog */
 		down_write(&cathandle->lgh_lock);
-		if (cathandle->u.chd.chd_next_log == NULL) {
+		if (cathandle->u.chd.chd_next_log == NULL ||
+		    IS_ERR(cathandle->u.chd.chd_next_log)) {
 			rc = llog_open(env, cathandle->lgh_ctxt, &loghandle,
 				       NULL, NULL, LLOG_OPEN_NEW);
 			if (rc == 0) {
@@ -587,7 +607,7 @@ write_again:
 	}
 
 	next = cathandle->u.chd.chd_next_log;
-	if (next) {
+	if (next != NULL && !IS_ERR(next)) {
 		if (!llog_exist(next)) {
 			if (dt_object_remote(cathandle->lgh_obj)) {
 				/* For remote operation, if we put the llog
@@ -600,15 +620,26 @@ write_again:
 				 * this transaction. So let's create the llog
 				 * object synchronously here to remove the
 				 * dependency. */
-				down_read_nested(&cathandle->lgh_lock,
+				down_write_nested(&cathandle->lgh_lock,
 						 LLOGH_CAT);
 				next = cathandle->u.chd.chd_next_log;
+				if (IS_ERR(next)) {
+					/* Sigh, another thread just tried,
+					 * let's fail as well */
+					up_write(&cathandle->lgh_lock);
+					GOTO(out, rc = PTR_ERR(next));
+				}
+
 				down_write_nested(&next->lgh_lock, LLOGH_LOG);
-				if (!llog_exist(next))
+				if (!llog_exist(next)) {
 					rc = llog_cat_new_log(env, cathandle,
 							      next, NULL);
+					if (rc < 0)
+						cathandle->u.chd.chd_next_log =
+								ERR_PTR(rc);
+				}
 				up_write(&next->lgh_lock);
-				up_read(&cathandle->lgh_lock);
+				up_write(&cathandle->lgh_lock);
 				if (rc < 0)
 					GOTO(out, rc);
 			} else {
