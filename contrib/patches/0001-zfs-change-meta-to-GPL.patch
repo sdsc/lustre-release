@@ -1,0 +1,26 @@
+From a673ce78f08bf705a44bfb5fa47abc8852e7686b Mon Sep 17 00:00:00 2001
+From: Jinshan Xiong <jinshan.xiong@intel.com>
+Date: Tue, 23 Feb 2016 15:31:17 -0800
+Subject: [PATCH] zfs: change meta to GPL
+
+that's it.
+
+Signed-off-by: Jinshan Xiong <jinshan.xiong@intel.com>
+---
+ META | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/META b/META
+index c8865df..8bf01b2 100644
+--- a/META
++++ b/META
+@@ -4,5 +4,5 @@ Branch:       1.0
+ Version:      0.6.5.4
+ Release:      1
+ Release-Tags: relext
+-License:      CDDL
++License:      GPL
+ Author:       OpenZFS on Linux
+-- 
+2.7.0
+
