@@ -1165,6 +1165,10 @@ static int osd_declare_object_create(const struct lu_env *env,
 
 	/* and we'll add it to some mapping */
 	zapid = osd_get_name_n_idx(env, osd, fid, buf);
+
+	/* prefetch any needed zap blocks for this key */
+	zap_prefetch(osd->od_os, zapid, buf);
+
 	dmu_tx_hold_bonus(oh->ot_tx, zapid);
 	dmu_tx_hold_zap(oh->ot_tx, zapid, TRUE, buf);
 
