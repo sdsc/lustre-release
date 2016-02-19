@@ -372,6 +372,18 @@ static struct llog_handle *llog_cat_current_log(struct llog_handle *cathandle,
         }
 
 next:
+	/* Sigh, the chd_next_log and chd_current_log is initialized
+	 * in declare phase, and we do not serialize the catlog
+	 * accessing, so it might be possible the llog creation
+	 * thread (see llog_cat_declare_add_rec()) did not create
+	 * llog successfully, then the following thread might
+	 * meet this situation. */
+	if (cathandle->u.chd.chd_next_log == NULL) {
+		CERROR("%s: next log does not exist!\n",
+		       cathandle->lgh_ctxt->loc_obd->obd_name);
+		RETURN(ERR_PTR(-EFAULT));
+	}
+
 	CDEBUG(D_INODE, "use next log\n");
 
 	loghandle = cathandle->u.chd.chd_next_log;
@@ -434,7 +446,8 @@ int llog_cat_add_rec(const struct lu_env *env, struct llog_handle *cathandle,
 
 retry:
 	loghandle = llog_cat_current_log(cathandle, th);
-	LASSERT(!IS_ERR(loghandle));
+	if (IS_ERR(loghandle))
+		RETURN(PTR_ERR(loghandle));
 
 	/* loghandle is already locked by llog_cat_current_log() for us */
 	if (!llog_exist(loghandle)) {
@@ -607,6 +620,9 @@ write_again:
 				if (!llog_exist(next))
 					rc = llog_cat_new_log(env, cathandle,
 							      next, NULL);
+					if (rc < 0)
+						cathandle->u.chd.chd_next_log =
+									NULL;
 				up_write(&next->lgh_lock);
 				up_read(&cathandle->lgh_lock);
 				if (rc < 0)
