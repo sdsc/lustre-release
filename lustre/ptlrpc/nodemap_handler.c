@@ -92,6 +92,8 @@ static void nodemap_destroy(struct lu_nodemap *nodemap)
 void nodemap_getref(struct lu_nodemap *nodemap)
 {
 	atomic_inc(&nodemap->nm_refcount);
+	CDEBUG(D_INFO, "GETting nodemap %p : new refcount %d\n", nodemap,
+	       atomic_read(&nodemap->nm_refcount));
 }
 
 /**
@@ -104,6 +106,9 @@ void nodemap_putref(struct lu_nodemap *nodemap)
 		return;
 
 	LASSERT(atomic_read(&nodemap->nm_refcount) > 0);
+
+	CDEBUG(D_INFO, "PUTting nodemap %p : new refcount %d\n", nodemap,
+	       atomic_read(&nodemap->nm_refcount) - 1);
 
 	if (atomic_dec_and_test(&nodemap->nm_refcount))
 		nodemap_destroy(nodemap);
@@ -1251,12 +1256,14 @@ struct nodemap_config *nodemap_config_alloc(void)
 
 	return config;
 }
+EXPORT_SYMBOL(nodemap_config_alloc);
 
 void nodemap_config_dealloc(struct nodemap_config *config)
 {
 	nodemap_config_cleanup(config);
 	OBD_FREE_PTR(config);
 }
+EXPORT_SYMBOL(nodemap_config_dealloc);
 
 static int nm_hash_list_cb(struct cfs_hash *hs, struct cfs_hash_bd *bd,
 			   struct hlist_node *hnode,
@@ -1319,6 +1326,7 @@ void nodemap_config_set_active(struct nodemap_config *config)
 
 	EXIT;
 }
+EXPORT_SYMBOL(nodemap_config_set_active);
 
 /**
  * Cleanup nodemap module on exit
