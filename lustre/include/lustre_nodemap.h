@@ -135,4 +135,20 @@ struct nm_config_file *nm_config_file_register(const struct lu_env *env,
 					       struct dt_object *obj);
 void nm_config_file_deregister(const struct lu_env *env,
 			       struct nm_config_file *ncf);
+struct nodemap_config *nodemap_config_alloc(void);
+void nodemap_config_dealloc(struct nodemap_config *config);
+void nodemap_config_set_active(struct nodemap_config *config);
+
+#ifdef HAVE_SERVER_SUPPORT
+int nodemap_process_idx_pages(struct nodemap_config *config, union lu_page *lip,
+			      struct lu_nodemap **recent_nodemap);
+#else /* disable nodemap processing in MGC of non-servers */
+static inline int nodemap_process_idx_pages(struct nodemap_config *config,
+					    union lu_page *lip,
+					    struct lu_nodemap **recent_nodemap)
+{ return 0; }
+#endif /* HAVE_SERVER_SUPPORT */
+
+int nodemap_get_config_req(struct obd_device *mgs_obd,
+			   struct ptlrpc_request *req);
 #endif	/* _LUSTRE_NODEMAP_H */
