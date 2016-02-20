@@ -94,23 +94,23 @@ typedef struct lstcon_rpc_trans {
 	struct list_head	tas_rpcs_list;	/* queued requests */
 } lstcon_rpc_trans_t;
 
-#define LST_TRANS_PRIVATE       0x1000
+#define LST_TRANS_PRIVATE	0x1000
 
-#define LST_TRANS_SESNEW        (LST_TRANS_PRIVATE | 0x01)
-#define LST_TRANS_SESEND        (LST_TRANS_PRIVATE | 0x02)
-#define LST_TRANS_SESQRY        0x03
-#define LST_TRANS_SESPING       0x04
+#define LST_TRANS_SESNEW	(LST_TRANS_PRIVATE | 0x01)
+#define LST_TRANS_SESEND	(LST_TRANS_PRIVATE | 0x02)
+#define LST_TRANS_SESQRY	0x03
+#define LST_TRANS_SESPING	0x04
 
-#define LST_TRANS_TSBCLIADD     (LST_TRANS_PRIVATE | 0x11)
-#define LST_TRANS_TSBSRVADD     (LST_TRANS_PRIVATE | 0x12)
-#define LST_TRANS_TSBRUN        (LST_TRANS_PRIVATE | 0x13)
-#define LST_TRANS_TSBSTOP       (LST_TRANS_PRIVATE | 0x14)
-#define LST_TRANS_TSBCLIQRY     0x15
-#define LST_TRANS_TSBSRVQRY     0x16
+#define LST_TRANS_TSBCLIADD	(LST_TRANS_PRIVATE | 0x11)
+#define LST_TRANS_TSBSRVADD	(LST_TRANS_PRIVATE | 0x12)
+#define LST_TRANS_TSBRUN	(LST_TRANS_PRIVATE | 0x13)
+#define LST_TRANS_TSBSTOP	(LST_TRANS_PRIVATE | 0x14)
+#define LST_TRANS_TSBCLIQRY	0x15
+#define LST_TRANS_TSBSRVQRY	0x16
 
-#define LST_TRANS_STATQRY       0x21
+#define LST_TRANS_STATQRY	0x21
 
-typedef int (* lstcon_rpc_cond_func_t)(int, struct lstcon_node *, void *);
+typedef int (*lstcon_rpc_cond_func_t)(int, struct lstcon_node *, void *);
 typedef int (*lstcon_rpc_readent_func_t)(int, srpc_msg_t *,
 					 lstcon_rpc_ent_t __user *);
 
@@ -119,9 +119,9 @@ int  lstcon_sesrpc_prep(struct lstcon_node *nd, int transop,
 int  lstcon_dbgrpc_prep(struct lstcon_node *nd,
 			unsigned version, lstcon_rpc_t **crpc);
 int  lstcon_batrpc_prep(struct lstcon_node *nd, int transop, unsigned version,
-                        struct lstcon_tsb_hdr *tsb, lstcon_rpc_t **crpc);
+			struct lstcon_tsb_hdr *tsb, lstcon_rpc_t **crpc);
 int  lstcon_testrpc_prep(struct lstcon_node *nd, int transop, unsigned version,
-                         struct lstcon_test *test, lstcon_rpc_t **crpc);
+			 struct lstcon_test *test, lstcon_rpc_t **crpc);
 int  lstcon_statrpc_prep(struct lstcon_node *nd, unsigned version,
 			 lstcon_rpc_t **crpc);
 void lstcon_rpc_put(lstcon_rpc_t *crpc);
@@ -145,6 +145,5 @@ void lstcon_rpc_pinger_stop(void);
 void lstcon_rpc_cleanup_wait(void);
 int  lstcon_rpc_module_init(void);
 void lstcon_rpc_module_fini(void);
-
 
 #endif

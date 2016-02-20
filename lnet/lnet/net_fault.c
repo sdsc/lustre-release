@@ -88,8 +88,10 @@ lnet_fault_attr_match(struct lnet_fault_attr *attr, lnet_nid_t src,
 	if (!(attr->fa_msg_mask & (1 << type)))
 		return false;
 
-	/* NB: ACK and REPLY have no portal, but they should have been
-	 * rejected by message mask */
+	/*
+	 * NB: ACK and REPLY have no portal, but they should have been
+	 * rejected by message mask
+	 */
 	if (attr->fa_ptl_mask != 0 && /* has portal filter */
 	    !(attr->fa_ptl_mask & (1ULL << portal)))
 		return false;
@@ -152,9 +154,7 @@ lnet_drop_rule_add(struct lnet_fault_attr *attr)
 	ENTRY;
 
 	if (!((attr->u.drop.da_rate == 0) ^ (attr->u.drop.da_interval == 0))) {
-		CDEBUG(D_NET,
-		       "please provide either drop rate or drop interval, "
-		       "but not both at the same time %d/%d\n",
+		CDEBUG(D_NET, "please provide either drop rate or drop interval, but not both at the same time %d/%d\n",
 		       attr->u.drop.da_rate, attr->u.drop.da_interval);
 		RETURN(-EINVAL);
 	}
@@ -199,8 +199,8 @@ lnet_drop_rule_del(lnet_nid_t src, lnet_nid_t dst)
 {
 	struct lnet_drop_rule *rule;
 	struct lnet_drop_rule *tmp;
-	struct list_head       zombies;
-	int		       n = 0;
+	struct list_head zombies;
+	int n = 0;
 	ENTRY;
 
 	INIT_LIST_HEAD(&zombies);
@@ -240,9 +240,9 @@ lnet_drop_rule_list(int pos, struct lnet_fault_attr *attr,
 		    struct lnet_fault_stat *stat)
 {
 	struct lnet_drop_rule *rule;
-	int		       cpt;
-	int		       i = 0;
-	int		       rc = -ENOENT;
+	int cpt;
+	int i = 0;
+	int rc = -ENOENT;
 	ENTRY;
 
 	cpt = lnet_net_lock_current();
@@ -269,7 +269,7 @@ static void
 lnet_drop_rule_reset(void)
 {
 	struct lnet_drop_rule *rule;
-	int		       cpt;
+	int cpt;
 	ENTRY;
 
 	cpt = lnet_net_lock_current();
@@ -303,8 +303,8 @@ static bool
 drop_rule_match(struct lnet_drop_rule *rule, lnet_nid_t src,
 		lnet_nid_t dst, unsigned int type, unsigned int portal)
 {
-	struct lnet_fault_attr	*attr = &rule->dr_attr;
-	bool			 drop;
+	struct lnet_fault_attr *attr = &rule->dr_attr;
+	bool drop;
 
 	if (!lnet_fault_attr_match(attr, src, dst, type, portal))
 		return false;
@@ -360,16 +360,18 @@ drop_rule_match(struct lnet_drop_rule *rule, lnet_nid_t src,
 bool
 lnet_drop_rule_match(lnet_hdr_t *hdr)
 {
-	struct lnet_drop_rule	*rule;
-	lnet_nid_t		 src = le64_to_cpu(hdr->src_nid);
-	lnet_nid_t		 dst = le64_to_cpu(hdr->dest_nid);
-	unsigned int		 typ = le32_to_cpu(hdr->type);
-	unsigned int		 ptl = -1;
-	bool			 drop = false;
-	int			 cpt;
+	struct lnet_drop_rule *rule;
+	lnet_nid_t src = le64_to_cpu(hdr->src_nid);
+	lnet_nid_t dst = le64_to_cpu(hdr->dest_nid);
+	unsigned int typ = le32_to_cpu(hdr->type);
+	unsigned int ptl = -1;
+	bool drop = false;
+	int cpt;
 
-	/* NB: if Portal is specified, then only PUT and GET will be
-	 * filtered by drop rule */
+	/*
+	 * NB: if Portal is specified, then only PUT and GET will be
+	 * filtered by drop rule
+	 */
 	if (typ == LNET_MSG_PUT)
 		ptl = le32_to_cpu(hdr->msg.put.ptl_index);
 	else if (typ == LNET_MSG_GET)
@@ -471,8 +473,8 @@ delay_rule_match(struct lnet_delay_rule *rule, lnet_nid_t src,
 		lnet_nid_t dst, unsigned int type, unsigned int portal,
 		struct lnet_msg *msg)
 {
-	struct lnet_fault_attr	*attr = &rule->dl_attr;
-	bool			 delay;
+	struct lnet_fault_attr *attr = &rule->dl_attr;
+	bool delay;
 
 	if (!lnet_fault_attr_match(attr, src, dst, type, portal))
 		return false;
@@ -541,16 +543,18 @@ delay_rule_match(struct lnet_delay_rule *rule, lnet_nid_t src,
 bool
 lnet_delay_rule_match_locked(lnet_hdr_t *hdr, struct lnet_msg *msg)
 {
-	struct lnet_delay_rule	*rule;
-	lnet_nid_t		 src = le64_to_cpu(hdr->src_nid);
-	lnet_nid_t		 dst = le64_to_cpu(hdr->dest_nid);
-	unsigned int		 typ = le32_to_cpu(hdr->type);
-	unsigned int		 ptl = -1;
+	struct lnet_delay_rule *rule;
+	lnet_nid_t src = le64_to_cpu(hdr->src_nid);
+	lnet_nid_t dst = le64_to_cpu(hdr->dest_nid);
+	unsigned int typ = le32_to_cpu(hdr->type);
+	unsigned int ptl = -1;
 
 	/* NB: called with hold of lnet_net_lock */
 
-	/* NB: if Portal is specified, then only PUT and GET will be
-	 * filtered by delay rule */
+	/*
+	 * NB: if Portal is specified, then only PUT and GET will be
+	 * filtered by delay rule
+	 */
 	if (typ == LNET_MSG_PUT)
 		ptl = le32_to_cpu(hdr->msg.put.ptl_index);
 	else if (typ == LNET_MSG_GET)
@@ -571,7 +575,7 @@ delayed_msg_check(struct lnet_delay_rule *rule, bool all,
 {
 	struct lnet_msg *msg;
 	struct lnet_msg *tmp;
-	unsigned long	 now = cfs_time_current();
+	unsigned long now = cfs_time_current();
 
 	if (!all && rule->dl_msg_send > now)
 		return;
@@ -590,8 +594,10 @@ delayed_msg_check(struct lnet_delay_rule *rule, bool all,
 		rule->dl_msg_send = -1;
 
 	} else if (!list_empty(msg_list)) {
-		/* dequeued some timedout messages, update timer for the
-		 * next delayed message on rule */
+		/*
+		 * dequeued some timedout messages, update timer for the
+		 * next delayed message on rule
+		 */
 		msg = list_entry(rule->dl_msg_list.next,
 				 struct lnet_msg, msg_list);
 		rule->dl_msg_send = msg->msg_delay_send;
@@ -607,8 +613,8 @@ delayed_msg_process(struct list_head *msg_list, bool drop)
 
 	while (!list_empty(msg_list)) {
 		struct lnet_ni *ni;
-		int		cpt;
-		int		rc;
+		int cpt;
+		int rc;
 
 		msg = list_entry(msg_list->next, struct lnet_msg, msg_list);
 		LASSERT(msg->msg_rxpeer != NULL);
@@ -653,8 +659,8 @@ delayed_msg_process(struct list_head *msg_list, bool drop)
 void
 lnet_delay_rule_check(void)
 {
-	struct lnet_delay_rule	*rule;
-	struct list_head	 msgs;
+	struct lnet_delay_rule *rule;
+	struct list_head msgs;
 
 	INIT_LIST_HEAD(&msgs);
 	while (1) {
@@ -725,14 +731,12 @@ int
 lnet_delay_rule_add(struct lnet_fault_attr *attr)
 {
 	struct lnet_delay_rule *rule;
-	int		        rc = 0;
+	int rc = 0;
 	ENTRY;
 
 	if (!((attr->u.delay.la_rate == 0) ^
 	      (attr->u.delay.la_interval == 0))) {
-		CDEBUG(D_NET,
-		       "please provide either delay rate or delay interval, "
-		       "but not both at the same time %d/%d\n",
+		CDEBUG(D_NET, "please provide either delay rate or delay interval, but not both at the same time %d/%d\n",
 		       attr->u.delay.la_rate, attr->u.delay.la_interval);
 		RETURN(-EINVAL);
 	}
@@ -753,7 +757,8 @@ lnet_delay_rule_add(struct lnet_fault_attr *attr)
 	if (!delay_dd.dd_running) {
 		struct task_struct *task;
 
-		/* NB: although LND threads will process delayed message
+		/*
+		 *  NB: although LND threads will process delayed message
 		 * in lnet_finalize, but there is no guarantee that LND
 		 * threads will be waken up if no other message needs to
 		 * be handled.
@@ -818,11 +823,11 @@ int
 lnet_delay_rule_del(lnet_nid_t src, lnet_nid_t dst, bool shutdown)
 {
 	struct lnet_delay_rule *rule;
-	struct lnet_delay_rule  *tmp;
-	struct list_head        rule_list;
-	struct list_head	msg_list;
-	int		        n = 0;
-	bool			cleanup;
+	struct lnet_delay_rule *tmp;
+	struct list_head rule_list;
+	struct list_head msg_list;
+	int n = 0;
+	bool cleanup;
 	ENTRY;
 
 	INIT_LIST_HEAD(&rule_list);
@@ -888,9 +893,9 @@ lnet_delay_rule_list(int pos, struct lnet_fault_attr *attr,
 		    struct lnet_fault_stat *stat)
 {
 	struct lnet_delay_rule *rule;
-	int		        cpt;
-	int		        i = 0;
-	int		        rc = -ENOENT;
+	int cpt;
+	int i = 0;
+	int rc = -ENOENT;
 	ENTRY;
 
 	cpt = lnet_net_lock_current();
@@ -917,7 +922,7 @@ void
 lnet_delay_rule_reset(void)
 {
 	struct lnet_delay_rule *rule;
-	int		        cpt;
+	int cpt;
 	ENTRY;
 
 	cpt = lnet_net_lock_current();

@@ -25,7 +25,8 @@
 #include <lnet/types.h>
 
 /** \addtogroup lnet_fault_simulation
- * @{ */
+ * @{
+ */
 
 enum {
 	LNET_CTL_DROP_ADD,
