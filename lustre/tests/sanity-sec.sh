@@ -1601,19 +1601,19 @@ run_test 25 "test save and reload nodemap config"
 test_26() {
 	nodemap_version_check || return 0
 
-	local large_i=13000
+	local large_i=32000
 
 	for ((i = 0; i < large_i; i++)); do
 		((i % 1000 == 0)) && echo $i
-		do_facet mgs $LCTL nodemap_add c$i ||
-			error "cannot add nodemap $i to config"
+		do_facet mgs $LCTL nodemap_add c$i
 	done
+	wait_nm_sync c$large_i admin_nodemap
 
 	for ((i = 0; i < large_i; i++)); do
 		((i % 1000 == 0)) && echo $i
-		do_facet mgs $LCTL nodemap_del c$i ||
-			error "cannot delete nodemap $i from config"
+		do_facet mgs $LCTL nodemap_del c$i
 	done
+	wait_nm_sync c$large_i admin_nodemap
 }
 run_test 26 "test transferring very large nodemap"
 
