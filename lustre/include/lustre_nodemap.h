@@ -135,4 +135,49 @@ struct nm_config_file *nm_config_file_register(const struct lu_env *env,
 					       struct dt_object *obj);
 void nm_config_file_deregister(const struct lu_env *env,
 			       struct nm_config_file *ncf);
+
+#ifdef HAVE_SERVER_SUPPORT
+struct nodemap_range_tree {
+	struct interval_node *nmrt_range_interval_root;
+	unsigned int nmrt_range_highest_id;
+};
+
+struct nodemap_config {
+	/* Highest numerical lu_nodemap.nm_id defined */
+	unsigned int nmc_nodemap_highest_id;
+
+	/* Simple flag to determine if nodemaps are active */
+	bool nmc_nodemap_is_active;
+
+	/* Pointer to default nodemap as it is needed more often */
+	struct lu_nodemap *nmc_default_nodemap;
+
+	/**
+	 * Lock required to access the range tree.
+	 */
+	struct rw_semaphore nmc_range_tree_lock;
+	struct nodemap_range_tree nmc_range_tree;
+
+	/**
+	 * Hash keyed on nodemap name containing all
+	 * nodemaps
+	 */
+	struct cfs_hash *nmc_nodemap_hash;
+};
+
+struct nodemap_config *nodemap_config_alloc(void);
+void nodemap_config_dealloc(struct nodemap_config *config);
+void nodemap_config_set_active(struct nodemap_config *config);
+
+int nodemap_process_idx_pages(struct nodemap_config *config, union lu_page *lip,
+			      struct lu_nodemap **recent_nodemap);
+#else /* disable nodemap processing in MGC of non-servers */
+static inline int nodemap_process_idx_pages(struct nodemap_config *config,
+					    union lu_page *lip,
+					    struct lu_nodemap **recent_nodemap)
+{ return 0; }
+#endif /* HAVE_SERVER_SUPPORT */
+
+int nodemap_get_config_req(struct obd_device *mgs_obd,
+			   struct ptlrpc_request *req);
 #endif	/* _LUSTRE_NODEMAP_H */
