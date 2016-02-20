@@ -1209,12 +1209,14 @@ struct nodemap_config *nodemap_config_alloc(void)
 
 	return config;
 }
+EXPORT_SYMBOL(nodemap_config_alloc);
 
 void nodemap_config_dealloc(struct nodemap_config *config)
 {
 	nodemap_config_cleanup(config);
 	OBD_FREE_PTR(config);
 }
+EXPORT_SYMBOL(nodemap_config_dealloc);
 
 static int nm_hash_list_cb(struct cfs_hash *hs, struct cfs_hash_bd *bd,
 			   struct hlist_node *hnode,
@@ -1277,6 +1279,7 @@ void nodemap_config_set_active(struct nodemap_config *config)
 
 	EXIT;
 }
+EXPORT_SYMBOL(nodemap_config_set_active);
 
 /**
  * Cleanup nodemap module on exit
