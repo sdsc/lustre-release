@@ -1653,6 +1653,7 @@ static const struct inode_operations server_inode_operations = {
 static int server_fill_super_common(struct super_block *sb)
 {
 	struct inode *root = NULL;
+	struct lustre_sb_info *lsi = s2lsi(sb);
 	ENTRY;
 
 	CDEBUG(D_MOUNT, "Server sb, dev=%d\n", (int)sb->s_dev);
@@ -1681,6 +1682,38 @@ static int server_fill_super_common(struct super_block *sb)
 		RETURN(-EIO);
 	}
 
+	/*
+	 * Try to fill out the root inode a bit more, but don't consider
+	 * it a fatal error if this isn't available for some reason.
+	 */
+	if (lsi->lsi_dt_dev) {
+		struct lu_fid root_fid;
+		struct dt_object *root_obj;
+		struct lu_attr attr;
+
+		rc = dt_root_get(NULL, lsi->lsi_dt_dev, &root_fid);
+		if (rc)
+			GOTO(out, rc);
+
+		root_obj = dt_locate(NULL, lsi->lsi_dt_dev, &root_fid);
+		if (IS_ERR(root_obj))
+			GOTO(out, rc = PTR_ERR(root_obj));
+
+		rc = dt_attr_get(NULL, root_obj, &attr);
+		if (rc)
+			GOTO(out, rc);
+
+		LTIME_S(root->i_mtime) = attr.la_mtime;
+		LTIME_S(root->i_atime) = attr.la_atime;
+		LTIME_S(root->i_ctime) = attr.la_ctime;
+		root->i_ino = fid_flatten(&root_fid);
+		/* so stat of mountpoint matches underlying device */
+		root->i_dev = attr.la_rdev;
+	out_obj:
+		lu_object_free(root_obj);
+	}
+
+out:
 	RETURN(0);
 }
 
