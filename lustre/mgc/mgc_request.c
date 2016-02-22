@@ -1756,7 +1756,7 @@ out:
 	if (new_config != NULL) {
 		recent_nodemap = NULL;
 		if (rc == 0)
-			nodemap_config_set_active(new_config);
+			nodemap_config_set_active_mgc(new_config);
 		else
 			nodemap_config_dealloc(new_config);
 	}
