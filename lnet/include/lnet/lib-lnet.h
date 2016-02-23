@@ -184,6 +184,11 @@ lnet_net_lock_current(void)
 
 #define MAX_PORTALS     64
 
+#define LNET_SMALL_MD_SIZE   offsetof(lnet_libmd_t, md_iov.iov[1])
+extern struct kmem_cache *lnet_mes_cachep;	 /* MEs kmem_cache */
+extern struct kmem_cache *lnet_small_mds_cachep; /* <= LNET_SMALL_MD_SIZE bytes
+						  * MDs kmem_cache */
+
 static inline lnet_eq_t *
 lnet_eq_alloc (void)
 {
@@ -215,7 +220,10 @@ lnet_md_alloc (lnet_md_t *umd)
                 size = offsetof(lnet_libmd_t, md_iov.iov[niov]);
         }
 
-        LIBCFS_ALLOC(md, size);
+	if (size <= LNET_SMALL_MD_SIZE)
+		OBD_SLAB_ALLOC_PTR(md, lnet_small_mds_cachep);
+	else
+		LIBCFS_ALLOC(md, size);
 
 	if (md != NULL) {
 		/* Set here in case of early free */
@@ -237,22 +245,25 @@ lnet_md_free(lnet_libmd_t *md)
 	else
 		size = offsetof(lnet_libmd_t, md_iov.iov[md->md_niov]);
 
-	LIBCFS_FREE(md, size);
+	if (size <= LNET_SMALL_MD_SIZE)
+		OBD_SLAB_FREE_PTR(md, lnet_small_mds_cachep);
+	else
+		LIBCFS_FREE(md, size);
 }
 
 static inline lnet_me_t *
 lnet_me_alloc (void)
 {
-        lnet_me_t *me;
+	lnet_me_t *me;
 
-        LIBCFS_ALLOC(me, sizeof(*me));
-        return (me);
+	OBD_SLAB_ALLOC_PTR(me, lnet_mes_cachep);
+	return me;
 }
 
 static inline void
 lnet_me_free(lnet_me_t *me)
 {
-	LIBCFS_FREE(me, sizeof(*me));
+	OBD_SLAB_FREE_PTR(me, lnet_mes_cachep);
 }
 
 static inline lnet_msg_t *
