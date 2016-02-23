@@ -60,17 +60,7 @@
 #include <lustre_log_user.h>
 #include <lustre_cfg.h>
 
-static inline int ext2_test_bit(int nr, const void *addr)
-{
-#if __BYTE_ORDER == __BIG_ENDIAN
-	const unsigned char *tmp = addr;
-	return (tmp[nr >> 3] >> (nr & 7)) & 1;
-#else
-	const unsigned long *tmp = addr;
-	return ((1UL << (nr & (BITS_PER_LONG - 1))) &
-		((tmp)[nr / BITS_PER_LONG])) != 0;
-#endif
-}
+#include "mount_utils.h"
 
 int llog_pack_buffer(int fd, struct llog_log_hdr **llog_buf,
                      struct llog_rec_hdr ***recs, int *recs_number);

@@ -72,9 +72,35 @@ extern int failover;
 #define MO_FAILOVER		0x04
 #define MO_DRYRUN		0x08
 #define MO_QUOTA		0x10
+#define MO_RENAME		0x20
 
 #define MAX_LOOP_DEVICES	16
 #define INDEX_UNASSIGNED	0xFFFF
+
+static inline void ext2_set_bit(int nr, void *addr)
+{
+#if __BYTE_ORDER == __BIG_ENDIAN
+	unsigned char *tmp = addr;
+	tmp += nr >> 3;
+	*tmp |= 1 << (nr & 7);
+#else
+	unsigned long *tmp = addr;
+	tmp += nr / BITS_PER_LONG;
+	*tmp |= 1UL << (nr & (BITS_PER_LONG - 1));
+#endif
+}
+
+static inline int ext2_test_bit(int nr, const void *addr)
+{
+#if __BYTE_ORDER == __BIG_ENDIAN
+	const unsigned char *tmp = addr;
+	return (tmp[nr >> 3] >> (nr & 7)) & 1;
+#else
+	const unsigned long *tmp = addr;
+	return ((1UL << (nr & (BITS_PER_LONG - 1))) &
+		((tmp)[nr / BITS_PER_LONG])) != 0;
+#endif
+}
 
 /* used to describe the options to format the lustre disk, not persistent */
 struct mkfs_opts {
@@ -111,11 +137,12 @@ int get_mountdata(char *, struct lustre_disk_data *);
 #define MT_STR(data)   mt_str((data)->ldd_mount_type)
 
 #undef IS_MDT
-#define IS_MDT(data)   ((data)->ldd_flags & LDD_F_SV_TYPE_MDT)
+#define IS_MDT(data)	((data)->ldd_flags & LDD_F_SV_TYPE_MDT)
 #undef IS_OST
-#define IS_OST(data)   ((data)->ldd_flags & LDD_F_SV_TYPE_OST)
+#define IS_OST(data)	((data)->ldd_flags & LDD_F_SV_TYPE_OST)
 #undef IS_MGS
-#define IS_MGS(data)  ((data)->ldd_flags & LDD_F_SV_TYPE_MGS)
+#define IS_MGS(data)	((data)->ldd_flags & LDD_F_SV_TYPE_MGS)
+#define IS_SEPARATED_MGS(data)	((data)->ldd_flags == LDD_F_SV_TYPE_MGS)
 
 /* mkfs/mount helper functions */
 void fatal(void);
@@ -132,6 +159,8 @@ int update_mtab_entry(char *spec, char *mtpt, char *type, char *opts,
 int check_mountfsoptions(char *mountopts, char *wanted_mountopts);
 void trim_mountfsoptions(char *s);
 __u64 get_device_size(char* device);
+int lustre_rename_fsname(struct mkfs_opts *mop, const char *oldname,
+			 const char *mntpt);
 
 /* loopback helper functions */
 int file_create(char *path, __u64 size);
@@ -149,6 +178,7 @@ int osd_prepare_lustre(struct mkfs_opts *mop,
 int osd_fix_mountopts(struct mkfs_opts *mop, char *mountopts, size_t len);
 int osd_tune_lustre(char *dev, struct mount_opts *mop);
 int osd_label_lustre(struct mount_opts *mop);
+int osd_rename_fsname(struct mkfs_opts *mop, const char *oldname);
 int osd_enable_quota(struct mkfs_opts *mop);
 int osd_init(void);
 void osd_fini(void);
@@ -167,6 +197,7 @@ struct module_backfs_ops {
 	int	(*tune_lustre)(char *dev, struct mount_opts *mop);
 	int	(*label_lustre)(struct mount_opts *mop);
 	int	(*enable_quota)(struct mkfs_opts *mop);
+	int	(*rename_fsname)(struct mkfs_opts *mop, const char *oldname);
 	void   *dl_handle;
 };
 

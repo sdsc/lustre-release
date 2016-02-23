@@ -53,6 +53,11 @@
 #include <linux/loop.h>
 #include <dlfcn.h>
 
+#include <libcfs/libcfs.h>
+#include <lustre/lustre_idl.h>
+#include <lustre_cfg.h>
+#include <dirent.h>
+
 extern char *progname;
 extern int verbose;
 
@@ -80,7 +85,7 @@ int run_command(char *cmd, int cmdsz)
         }
 
         if (verbose > 1) {
-                printf("cmd: %s\n", cmd);
+                fprintf(stderr, "cmd: %s\n", cmd);
         } else {
                 if ((fd = mkstemp(log)) >= 0) {
                         close(fd);
@@ -535,6 +540,7 @@ struct module_backfs_ops *load_backfs_module(enum ldd_mount_type mount_type)
 	DLSYM(name, ops, prepare_lustre);
 	DLSYM(name, ops, tune_lustre);
 	DLSYM(name, ops, label_lustre);
+	DLSYM(name, ops, rename_fsname);
 	DLSYM(name, ops, enable_quota);
 
 	error = dlerror();
@@ -703,6 +709,21 @@ int osd_label_lustre(struct mount_opts *mop)
 	return ret;
 }
 
+/* Rename filesystem fsname */
+int osd_rename_fsname(struct mkfs_opts *mop, const char *oldname)
+{
+	struct lustre_disk_data *ldd = &mop->mo_ldd;
+	int ret;
+
+	if (backfs_mount_type_okay(ldd->ldd_mount_type))
+		ret = backfs_ops[ldd->ldd_mount_type]->rename_fsname(mop,
+								     oldname);
+	else
+		ret = EINVAL;
+
+	return ret;
+}
+
 /* Enable quota accounting */
 int osd_enable_quota(struct mkfs_opts *mop)
 {
@@ -828,4 +849,639 @@ int file_create(char *path, __u64 size)
 	}
 
 	return 0;
+}
+
+struct lustre_cfg_entry {
+	struct list_head lce_list;
+	char		 lce_name[0];
+};
+
+static struct lustre_cfg_entry *lustre_cfg_entry_init(const char *name)
+{
+	struct lustre_cfg_entry *lce;
+
+	lce = malloc(sizeof(*lce) + strlen(name));
+	if (lce != NULL) {
+		INIT_LIST_HEAD(&lce->lce_list);
+		strcpy(lce->lce_name, name);
+	}
+
+	return lce;
+}
+
+static void lustre_cfg_entry_fini(struct lustre_cfg_entry *lce)
+{
+	free(lce);
+}
+
+static bool contain_valid_fsname(char *buf, const char *fsname,
+				 int buflen, int namelen)
+{
+	if (buflen < namelen)
+		return false;
+
+	if (memcmp(buf, fsname, namelen) != 0)
+		return false;
+
+	if (buf[namelen] != '\0' && buf[namelen] != '-')
+		return false;
+
+	return true;
+}
+
+static void lustre_cfg_pad(struct llog_rec_hdr *rec, int len, int idx)
+{
+	struct llog_rec_tail *tail = (struct llog_rec_tail *)((char *)rec +
+					len - sizeof(struct llog_rec_tail));
+
+	rec->lrh_len = tail->lrt_len = cpu_to_le32(len);
+	rec->lrh_index = tail->lrt_index = cpu_to_le32(idx);
+	rec->lrh_type = cpu_to_le32(LLOG_PAD_MAGIC);
+	rec->lrh_id = 0;
+}
+
+/**
+ * Re-generate the config log record.
+ *
+ * This function parses the given config log record, if contains
+ * filesystem name (old_fsname), then replace it with the new
+ * filesystem name (new_fsname). The new config log record will
+ * be written in the new RAM buffer that is different from the
+ * buffer holding the old config log record.
+ *
+ * \param[in] w_rec		the buffer to hold new config log
+ * \param[in] r_rec		the buffer that contains old config log
+ * \param[in] new_fsname	the new filesystem name
+ * \param[in] old_fsname	the old filesystem name
+ * \param[in] idx		the index of the config log record
+ *
+ * \retval			0 for success
+ * \retval			negative error number on failure
+ */
+static int lustre_regen_cfg_rec(struct llog_rec_hdr *w_rec,
+				struct llog_rec_hdr *r_rec,
+				const char *new_fsname,
+				const char *old_fsname, int idx)
+{
+	struct lustre_cfg *w_lcfg = (struct lustre_cfg *)(w_rec + 1);
+	struct lustre_cfg *r_lcfg = (struct lustre_cfg *)(r_rec + 1);
+	struct llog_rec_tail *w_tail;
+	char *w_buf;
+	char *r_buf;
+	int r_buflen;
+	int new_namelen = strlen(new_fsname);
+	int old_namelen = strlen(old_fsname);
+	int diff = new_namelen - old_namelen;
+	__u32 cmd = le32_to_cpu(r_lcfg->lcfg_command);
+	__u32 cnt = le32_to_cpu(r_lcfg->lcfg_bufcount);
+	int w_len = sizeof(struct llog_rec_hdr)+ LCFG_HDR_SIZE(cnt) +
+		    sizeof(struct llog_rec_tail);
+	int i;
+
+	*w_rec = *r_rec;
+	*w_lcfg = *r_lcfg;
+	switch (cmd) {
+	case LCFG_MARKER: {
+		struct cfg_marker *r_marker;
+		struct cfg_marker *w_marker;
+		int tgt_namelen;
+
+		if (cnt != 2) {
+			fprintf(stderr, "Unknown cfg marker entry with %d "
+				"buffers\n", cnt);
+			return -EINVAL;
+		}
+
+		/* buf[0] */
+		r_buflen = le32_to_cpu(r_lcfg->lcfg_buflens[0]);
+		w_lcfg->lcfg_buflens[0] = r_lcfg->lcfg_buflens[0];
+		if (unlikely(r_buflen != 0)) {
+			/* copy it directly if it is not empty */
+			r_buf = lustre_cfg_buf(r_lcfg, 0);
+			w_buf = lustre_cfg_buf(w_lcfg, 0);
+			memcpy(w_buf, r_buf, r_buflen);
+			w_len += cfs_size_round(r_buflen);
+		}
+
+		/* buf[1] */
+		r_buf = lustre_cfg_buf(r_lcfg, 1);
+		w_buf = lustre_cfg_buf(w_lcfg, 1);
+		r_buflen = le32_to_cpu(r_lcfg->lcfg_buflens[1]);
+		w_lcfg->lcfg_buflens[1] = r_lcfg->lcfg_buflens[1];
+		r_marker = (struct cfg_marker *)r_buf;
+		w_marker = (struct cfg_marker *)w_buf;
+		*w_marker = *r_marker;
+		w_len += cfs_size_round(r_buflen);
+		if (unlikely(!contain_valid_fsname(r_marker->cm_tgtname,
+						   old_fsname,
+						   sizeof(r_marker->cm_tgtname),
+						   old_namelen)))
+			break;
+
+		memcpy(w_marker->cm_tgtname, new_fsname, new_namelen);
+		tgt_namelen = strlen(r_marker->cm_tgtname);
+		if (tgt_namelen > old_namelen)
+			memcpy(w_marker->cm_tgtname + new_namelen,
+			       r_marker->cm_tgtname + old_namelen,
+			       tgt_namelen - old_namelen);
+		w_marker->cm_tgtname[tgt_namelen + diff] = '\0';
+		break;
+	}
+	case LCFG_PARAM:
+	case LCFG_SET_PARAM: {
+		/* buf[0] */
+		r_buflen = le32_to_cpu(r_lcfg->lcfg_buflens[0]);
+		if (likely(r_buflen != 0)) {
+			r_buf = lustre_cfg_buf(r_lcfg, 0);
+			w_buf = lustre_cfg_buf(w_lcfg, 0);
+			if (contain_valid_fsname(r_buf, old_fsname,
+						 r_buflen, old_namelen)) {
+				w_lcfg->lcfg_buflens[0] = cpu_to_le32(r_buflen +
+								      diff);
+				memcpy(w_buf, new_fsname, new_namelen);
+				memcpy(w_buf + new_namelen, r_buf + old_namelen,
+				       r_buflen - old_namelen);
+				w_len += cfs_size_round(r_buflen + diff);
+			} else {
+				w_lcfg->lcfg_buflens[0] =
+						r_lcfg->lcfg_buflens[0];
+				memcpy(w_buf, r_buf, r_buflen);
+				w_len += cfs_size_round(r_buflen);
+			}
+		} else {
+			w_lcfg->lcfg_buflens[0] = 0;
+		}
+
+		for (i = 1; i < cnt; i++) {
+			/* buf[i] is the param value, copy it directly */
+			r_buf = lustre_cfg_buf(r_lcfg, i);
+			w_buf = lustre_cfg_buf(w_lcfg, i);
+			r_buflen = le32_to_cpu(r_lcfg->lcfg_buflens[i]);
+			w_lcfg->lcfg_buflens[i] = r_lcfg->lcfg_buflens[i];
+			memcpy(w_buf, r_buf, r_buflen);
+			w_len += cfs_size_round(r_buflen);
+		}
+		break;
+	}
+	case LCFG_POOL_NEW:
+	case LCFG_POOL_ADD:
+	case LCFG_POOL_REM:
+	case LCFG_POOL_DEL: {
+		if (cnt < 3 || cnt > 4) {
+			fprintf(stderr, "Unknown cfg pool (%x) entry with %d "
+				"buffers\n", cmd, cnt);
+			return -EINVAL;
+		}
+
+		for (i = 0; i < 2; i++) {
+			r_buf = lustre_cfg_buf(r_lcfg, i);
+			w_buf = lustre_cfg_buf(w_lcfg, i);
+			r_buflen = le32_to_cpu(r_lcfg->lcfg_buflens[i]);
+			w_lcfg->lcfg_buflens[i] = cpu_to_le32(r_buflen + diff);
+			memcpy(w_buf, new_fsname, new_namelen);
+			memcpy(w_buf + new_namelen, r_buf + old_namelen,
+			       r_buflen - old_namelen);
+			w_len += cfs_size_round(r_buflen + diff);
+		}
+
+		/* buf[2] is the pool name, copy it directly */
+		r_buf = lustre_cfg_buf(r_lcfg, 2);
+		w_buf = lustre_cfg_buf(w_lcfg, 2);
+		r_buflen = le32_to_cpu(r_lcfg->lcfg_buflens[2]);
+		w_lcfg->lcfg_buflens[2] = r_lcfg->lcfg_buflens[2];
+		memcpy(w_buf, r_buf, r_buflen);
+		w_len += cfs_size_round(r_buflen);
+
+		if (cnt == 3)
+			break;
+
+		/* buf[3] is ostname */
+		r_buf = lustre_cfg_buf(r_lcfg, 3);
+		w_buf = lustre_cfg_buf(w_lcfg, 3);
+		r_buflen = le32_to_cpu(r_lcfg->lcfg_buflens[3]);
+		w_lcfg->lcfg_buflens[3] = cpu_to_le32(r_buflen + diff);
+		memcpy(w_buf, new_fsname, new_namelen);
+		memcpy(w_buf + new_namelen, r_buf + old_namelen,
+		       r_buflen - old_namelen);
+		w_len += cfs_size_round(r_buflen + diff);
+		break;
+	}
+	case LCFG_SETUP: {
+		if (cnt == 2) {
+			r_buflen = le32_to_cpu(r_lcfg->lcfg_buflens[1]);
+			if (r_buflen == sizeof(struct lov_desc) ||
+			    r_buflen == sizeof(struct lmv_desc)) {
+				char *r_uuid;
+				char *w_uuid;
+				int uuid_len;
+
+				/* buf[0] */
+				r_buf = lustre_cfg_buf(r_lcfg, 0);
+				w_buf = lustre_cfg_buf(w_lcfg, 0);
+				r_buflen = le32_to_cpu(r_lcfg->lcfg_buflens[0]);
+				w_lcfg->lcfg_buflens[0] =
+					cpu_to_le32(r_buflen + diff);
+				memcpy(w_buf, new_fsname, new_namelen);
+				memcpy(w_buf + new_namelen, r_buf + old_namelen,
+				       r_buflen - old_namelen);
+				w_len += cfs_size_round(r_buflen + diff);
+
+				/* buf[1] */
+				r_buf = lustre_cfg_buf(r_lcfg, 1);
+				w_buf = lustre_cfg_buf(w_lcfg, 1);
+				r_buflen = le32_to_cpu(r_lcfg->lcfg_buflens[1]);
+				w_lcfg->lcfg_buflens[1] =
+						r_lcfg->lcfg_buflens[1];
+				if (r_buflen == sizeof(struct lov_desc)) {
+					struct lov_desc *r_desc =
+						(struct lov_desc *)r_buf;
+					struct lov_desc *w_desc =
+						(struct lov_desc *)w_buf;
+
+					*w_desc = *r_desc;
+					r_uuid = r_desc->ld_uuid.uuid;
+					w_uuid = w_desc->ld_uuid.uuid;
+					uuid_len = sizeof(r_desc->ld_uuid.uuid);
+				} else {
+					struct lmv_desc *r_desc =
+						(struct lmv_desc *)r_buf;
+					struct lmv_desc *w_desc =
+						(struct lmv_desc *)w_buf;
+
+					*w_desc = *r_desc;
+					r_uuid = r_desc->ld_uuid.uuid;
+					w_uuid = w_desc->ld_uuid.uuid;
+					uuid_len = sizeof(r_desc->ld_uuid.uuid);
+				}
+				w_len += cfs_size_round(r_buflen);
+
+				if (unlikely(!contain_valid_fsname(r_uuid,
+					old_fsname, uuid_len, old_namelen)))
+					break;
+
+				memcpy(w_uuid, new_fsname, new_namelen);
+				uuid_len = strlen(r_uuid);
+				if (uuid_len > old_namelen)
+					memcpy(w_uuid + new_namelen,
+					       r_uuid + old_namelen,
+					       uuid_len - old_namelen);
+				w_uuid[uuid_len + diff] = '\0';
+				break;
+			} /* else case go through */
+		} /* else case go through */
+	}
+	default: {
+		for (i = 0; i < cnt; i++) {
+			r_buflen = le32_to_cpu(r_lcfg->lcfg_buflens[i]);
+			if (r_buflen == 0) {
+				w_lcfg->lcfg_buflens[i] = 0;
+				continue;
+			}
+
+			r_buf = lustre_cfg_buf(r_lcfg, i);
+			w_buf = lustre_cfg_buf(w_lcfg, i);
+			if (!contain_valid_fsname(r_buf, old_fsname,
+						  r_buflen, old_namelen)) {
+				w_lcfg->lcfg_buflens[i] =
+					r_lcfg->lcfg_buflens[i];
+				memcpy(w_buf, r_buf, r_buflen);
+				w_len += cfs_size_round(r_buflen);
+				continue;
+			}
+
+			w_len += cfs_size_round(r_buflen + diff);
+			if (r_buflen == old_namelen) {
+				w_lcfg->lcfg_buflens[i] =
+					cpu_to_le32(new_namelen + 1);
+				memcpy(w_buf, new_fsname, new_namelen);
+				continue;
+			}
+
+			w_lcfg->lcfg_buflens[i] = cpu_to_le32(r_buflen + diff);
+			memcpy(w_buf, new_fsname, new_namelen);
+			memcpy(w_buf + new_namelen, r_buf + old_namelen,
+			       r_buflen - old_namelen);
+		}
+		break;
+	}
+	}
+
+	w_tail = (struct llog_rec_tail *)((char *)w_rec + w_len -
+		sizeof(struct llog_rec_tail));
+	w_rec->lrh_len = w_tail->lrt_len = cpu_to_le32(w_len);
+	w_rec->lrh_index = w_tail->lrt_index = cpu_to_le32(idx);
+
+	return 0;
+}
+
+/**
+ * Re-generate config log.
+ *
+ * This function reads the given config log, for each record,
+ * if contains filesystem name (old_fsname), then replace it
+ * with the new filesystem name (new_fsname). The new config
+ * log is recorded in RAM buffer temporarily, and will be
+ * written back to the original config log file after all
+ * the config log records handled. Finally, it will rename
+ * the old config log filename (that contains the old_name)
+ * to the new config log filename.
+ *
+ * \param[in] new_fsname	the new filesystem name
+ * \param[in] old_fsname	the old filesystem name
+ * \param[in] cfg_dir		point to the config logs directory
+ * \param[in] old_cfg		the old config log filename
+ *
+ * \retval			0 for success
+ * \retval			negative error number on failure
+ */
+static int lustre_regen_cfg(const char *new_fsname, const char *old_fsname,
+			    const char *cfg_dir, const char *old_cfg)
+{
+	struct stat st;
+	char filepnm[128];
+	char filepnm_new[128];
+	char *r_buf = NULL;
+	char *w_buf = NULL;
+	struct llog_log_hdr *r_llog_hdr;
+	struct llog_log_hdr *w_llog_hdr;
+	char *r_ptr;
+	char *w_ptr;
+	int fd = -1;
+	int r_size;
+	int w_size;
+	int r_idx = 0;
+	int w_idx = 0;
+	int r_count;
+	int w_count = 1;
+	int boundary;
+	int rc = 0;
+
+	sprintf(filepnm, "%s/%s", cfg_dir, old_cfg);
+	fd = open(filepnm, O_RDWR);
+	if (fd < 0) {
+		fprintf(stderr, "Cannot open %s: %s\n",
+			filepnm, strerror(rc = errno));
+		goto out;
+	}
+
+	rc = fstat(fd, &st);
+	if (rc < 0) {
+		fprintf(stderr, "Cannot stat %s for read: %s\n",
+			filepnm, strerror(rc = errno));
+		goto out;
+	}
+
+	if (unlikely(st.st_size == 0))
+		goto out;
+
+	r_size = st.st_size;
+	r_buf = malloc(r_size);
+	if (r_buf == NULL) {
+		fprintf(stderr, "Cannot allocate RAM (%d) for read %s: %s\n",
+			r_size, filepnm, strerror(rc = errno));
+		goto out;
+	}
+
+	rc = read(fd, r_buf, r_size);
+	if (rc != r_size) {
+		fprintf(stderr, "Fail to read %s: %s, expect %d, read %d\n",
+			filepnm, strerror(errno), r_size, rc);
+		rc = errno;
+		goto out;
+	}
+
+	if (strlen(new_fsname) <= strlen(old_fsname))
+		w_size = r_size;
+	else
+		w_size = r_size * 2; /* large enough */
+
+	w_buf = malloc(w_size);
+	if (w_buf == NULL) {
+		fprintf(stderr, "Cannot allocate RAM (%d) for write %s: %s\n",
+			w_size, filepnm, strerror(rc = errno));
+		goto out;
+	}
+
+	memset(w_buf, 0 , w_size);
+	r_llog_hdr = (struct llog_log_hdr *)r_buf;
+	w_llog_hdr = (struct llog_log_hdr *)w_buf;
+	*w_llog_hdr = *r_llog_hdr;
+	memset(w_llog_hdr->llh_bitmap, 0, sizeof(w_llog_hdr->llh_bitmap));
+	ext2_set_bit(0, (void *)w_llog_hdr->llh_bitmap);
+	r_count = le32_to_cpu(r_llog_hdr->llh_count) - 1;
+	w_size = le32_to_cpu(r_llog_hdr->llh_hdr.lrh_len);
+	r_ptr = r_buf + w_size;
+	w_ptr = w_buf + w_size;
+	boundary = (w_size & ~(LLOG_MIN_CHUNK_SIZE - 1)) + LLOG_MIN_CHUNK_SIZE;
+
+	while (r_count > 0) {
+		struct llog_rec_hdr *r_rec_hdr = (struct llog_rec_hdr*)r_ptr;
+		struct llog_rec_hdr *w_rec_hdr = (struct llog_rec_hdr*)w_ptr;
+
+		r_idx = le32_to_cpu(r_rec_hdr->lrh_index);
+		if (ext2_test_bit(r_idx, (void *)r_llog_hdr->llh_bitmap)) {
+			switch (le32_to_cpu(r_rec_hdr->lrh_type)) {
+			case OBD_CFG_REC: {
+				int left = boundary - w_size;
+
+				w_idx++;
+				rc = lustre_regen_cfg_rec(w_rec_hdr, r_rec_hdr,
+							  new_fsname,
+							  old_fsname, w_idx);
+				if (rc != 0)
+					goto out;
+
+				w_size += le32_to_cpu(w_rec_hdr->lrh_len);
+				if (w_size <= boundary - LLOG_MIN_REC_SIZE)
+					goto forward;
+
+				boundary += LLOG_MIN_CHUNK_SIZE;
+				w_size -= le32_to_cpu(w_rec_hdr->lrh_len);
+				lustre_cfg_pad(w_rec_hdr, left, w_idx);
+				w_size += le32_to_cpu(w_rec_hdr->lrh_len);
+				w_ptr = w_buf + w_size;
+				w_rec_hdr = (struct llog_rec_hdr*)w_ptr;
+				w_idx++;
+				rc = lustre_regen_cfg_rec(w_rec_hdr, r_rec_hdr,
+							  new_fsname,
+							  old_fsname, w_idx);
+				if (rc != 0)
+					goto out;
+
+				w_size += le32_to_cpu(w_rec_hdr->lrh_len);
+
+forward:
+				w_ptr = w_buf + w_size;
+				ext2_set_bit(w_idx,
+					     (void *)w_llog_hdr->llh_bitmap);
+				w_count++;
+				break;
+			}
+			case LLOG_PAD_MAGIC:
+				/* skip padding */
+				break;
+			default:
+				fprintf(stderr, "Unexpected cfg type: 0x%x\n",
+					le32_to_cpu(r_rec_hdr->lrh_type));
+				rc = -EINVAL;
+				goto out;
+			}
+
+			r_count--;
+		}
+
+		r_ptr += le32_to_cpu(r_rec_hdr->lrh_len);
+		if ((r_ptr - r_buf) > r_size) {
+			fprintf(stderr, "%s is corrupted\n", old_cfg);
+			rc = -EINVAL;
+			goto out;
+		}
+	}
+
+	w_llog_hdr->llh_count = cpu_to_le32(w_count);
+	w_llog_hdr->llh_tail.lrt_index = cpu_to_le32(w_idx);
+
+	rc = lseek64(fd, 0, SEEK_SET);
+	if (rc < 0) {
+		fprintf(stderr, "Fail to seek %s: %s\n",
+			filepnm, strerror(rc = errno));
+		goto out;
+	}
+
+	rc = write(fd, w_buf, w_size);
+	if (rc != w_size) {
+		fprintf(stderr, "Fail to write %s: %s, expect %d, read %d\n",
+			filepnm, strerror(errno), w_size, rc);
+		rc = errno;
+		goto out;
+	}
+
+	if (w_size < r_size) {
+		rc = ftruncate(fd, w_size);
+		if (rc < 0) {
+			fprintf(stderr, "Cannot truncate %s: %s\n",
+				filepnm, strerror(rc = errno));
+			goto out;
+		}
+	}
+
+	sprintf(filepnm_new, "%s/%s%s", cfg_dir, new_fsname,
+		old_cfg + strlen(old_fsname));
+	rc = rename(filepnm, filepnm_new);
+	if (rc < 0) {
+		fprintf(stderr, "Cannot rename %s to %s: %s\n",
+			filepnm, filepnm_new, strerror(rc = errno));
+		goto out;
+	}
+
+out:
+	if (fd >= 0)
+		close(fd);
+	if (r_buf != NULL)
+		free(r_buf);
+	if (w_buf != NULL)
+		free(w_buf);
+	return rc;
+}
+
+int lustre_rename_fsname(struct mkfs_opts *mop, const char *oldname,
+			 const char *mntpt)
+{
+	struct lustre_disk_data *ldd = &mop->mo_ldd;
+	char filepnm[128];
+	char cfg_dir[128];
+	DIR *dir = NULL;
+	struct dirent64 *dirent;
+	struct lustre_cfg_entry *lce;
+	struct list_head cfg_list;
+	int namelen = strlen(oldname);
+	int ret;
+
+	INIT_LIST_HEAD(&cfg_list);
+
+	/* remove last_rcvd which can be re-created when re-mount. */
+	sprintf(filepnm, "%s/%s", mntpt, LAST_RCVD);
+	ret = unlink(filepnm);
+	if (ret != 0 && errno != ENOENT) {
+		if (errno != 0)
+			ret = errno;
+		fprintf(stderr, "Unable to unlink %s: %s\n",
+			filepnm, strerror(ret));
+		return ret;
+	}
+
+	sprintf(cfg_dir, "%s/%s", mntpt, MOUNT_CONFIGS_DIR);
+	dir = opendir(cfg_dir);
+	if (dir == NULL) {
+		if (errno != 0)
+			ret = errno;
+		else
+			ret = EINVAL;
+		fprintf(stderr, "Unable to opendir %s: %s\n",
+			cfg_dir, strerror(ret));
+		return ret;
+	}
+
+	while ((dirent = readdir64(dir)) != NULL) {
+		char *ptr;
+
+		if (strlen(dirent->d_name) <= namelen)
+			continue;
+
+		ptr = strrchr(dirent->d_name, '-');
+		if (ptr == NULL || (ptr - dirent->d_name) != namelen)
+			continue;
+
+		if (strncmp(dirent->d_name, oldname, namelen) != 0)
+			continue;
+
+		lce = lustre_cfg_entry_init(dirent->d_name);
+		if (lce == NULL) {
+			if (errno != 0)
+				ret = errno;
+			else
+				ret = EINVAL;
+			fprintf(stderr, "Fail to init item for %s: %s\n",
+				dirent->d_name, strerror(ret));
+			goto out;
+		}
+
+		list_add(&lce->lce_list, &cfg_list);
+	}
+
+	closedir(dir);
+	dir = NULL;
+	ret = 0;
+
+	while (!list_empty(&cfg_list) && ret == 0) {
+		lce = list_entry(cfg_list.next, struct lustre_cfg_entry,
+				 lce_list);
+		list_del(&lce->lce_list);
+		if (IS_MGS(ldd)) {
+			ret = lustre_regen_cfg(ldd->ldd_fsname, oldname,
+					       cfg_dir, lce->lce_name);
+		} else {
+			sprintf(filepnm, "%s/%s", cfg_dir, lce->lce_name);
+			ret = unlink(filepnm);
+			if (ret != 0) {
+				if (errno != 0)
+					ret = errno;
+				fprintf(stderr, "Fail to unlink %s: %s\n",
+					filepnm, strerror(ret));
+			}
+		}
+		lustre_cfg_entry_fini(lce);
+	}
+
+out:
+	if (dir != NULL)
+		closedir(dir);
+
+	while (!list_empty(&cfg_list)) {
+		lce = list_entry(cfg_list.next, struct lustre_cfg_entry,
+				 lce_list);
+		list_del(&lce->lce_list);
+		lustre_cfg_entry_fini(lce);
+	}
+	return ret;
 }
