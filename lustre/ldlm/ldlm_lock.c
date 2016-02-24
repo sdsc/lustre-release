@@ -900,7 +900,7 @@ void ldlm_lock_decref_internal(struct ldlm_lock *lock, enum ldlm_mode mode)
 void ldlm_lock_decref(struct lustre_handle *lockh, enum ldlm_mode mode)
 {
         struct ldlm_lock *lock = __ldlm_handle2lock(lockh, 0);
-        LASSERTF(lock != NULL, "Non-existing lock: "LPX64"\n", lockh->cookie);
+	LASSERTF(lock != NULL, "Non-existing lock: "LPX64"\n", lockh->cookie);
         ldlm_lock_decref_internal(lock, mode);
         LDLM_LOCK_PUT(lock);
 }
@@ -2027,8 +2027,9 @@ int ldlm_work_gl_ast_lock(struct ptlrpc_request_set *rqset, void *opaq)
 		rc = 1;
 
 	LDLM_LOCK_RELEASE(lock);
-
-	if ((gl_work->gl_flags & LDLM_GL_WORK_NOFREE) == 0)
+	if ((gl_work->gl_flags & LDLM_GL_WORK_SLAB_ALLOCATED))
+		OBD_SLAB_FREE_PTR(gl_work, ofd_gl_work_slab);
+	else
 		OBD_FREE_PTR(gl_work);
 
 	RETURN(rc);
