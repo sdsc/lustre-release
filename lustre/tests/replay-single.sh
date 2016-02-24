@@ -4445,6 +4445,24 @@ test_120() {
 }
 run_test 120 "DNE fail abort should stop both normal and DNE replay"
 
+test_122() {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+	([ $FAILURE_MODE == "HARD" ] &&
+		[ "$(facet_host mds1)" == "$(facet_host mds2)" ]) &&
+		skip "MDTs needs to be on diff hosts for HARD fail mode" &&
+		return 0
+
+	mkdir -p $DIR/$tdir
+	replay_barrier mds1
+	$LFS mkdir -i0 -c2 $DIR/$tdir/striped_dir
+	fail mds1 $((TIMEOUT+20))
+
+	$CHECKSTAT -t dir $DIR/$tdir/striped_dir ||
+			error "striped dir does not exists"
+	return 0
+}
+run_test 122 "DNE: long time failover will not cause mdt-mdt eviction"
+
 complete $SECONDS
 check_and_cleanup_lustre
 exit_status

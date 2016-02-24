@@ -2432,6 +2432,11 @@ facet_failover() {
 	$E2FSCK_ON_MDT0 && (run_e2fsck $(facet_active_host $SINGLEMDS) \
 		$(mdsdevname 1) "-n" || error "Running e2fsck")
 
+	[ ! -z "$sleep_time" ] && {
+		echo "sleep $sleep_time"
+		sleep $sleep_time
+	}
+
 	for ((index=0; index<$total; index++)); do
 		facet=$(echo ${affecteds[index]} | tr -s " " | cut -d"," -f 1)
 		echo reboot facets: ${affecteds[index]}
