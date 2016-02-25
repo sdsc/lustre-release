@@ -1196,7 +1196,7 @@ bad_format:
 static inline int cli_brw_size(struct obd_device *obd)
 {
 	LASSERT(obd != NULL);
-	return obd->u.cli.cl_max_pages_per_rpc << PAGE_CACHE_SHIFT;
+	return (__u64)obd->u.cli.cl_max_pages_per_rpc << PAGE_CACHE_SHIFT;
 }
 
 /* when RPC size or the max RPCs in flight is increased, the max dirty pages
