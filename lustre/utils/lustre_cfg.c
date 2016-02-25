@@ -894,7 +894,7 @@ read_param(const char *path, const char *param_name, struct param_opts *popt)
 		rc = -errno;
 		fprintf(stderr,
 			"error: get_param: opening '%s': %s\n",
-			path, strerror(errno));
+			path, strerror(-rc));
 		return rc;
 	}
 
@@ -917,7 +917,7 @@ read_param(const char *path, const char *param_name, struct param_opts *popt)
 			if (errno != EIO) {
 				fprintf(stderr, "error: get_param: "
 					"reading '%s': %s\n",
-					param_name, strerror(errno));
+					param_name, strerror(-rc));
 			}
 			break;
 		}
@@ -943,7 +943,7 @@ read_param(const char *path, const char *param_name, struct param_opts *popt)
 			rc = -errno;
 			fprintf(stderr,
 				"error: get_param: write to stdout: %s\n",
-				strerror(errno));
+				strerror(-rc));
 			break;
 		}
 	}
@@ -979,7 +979,7 @@ write_param(const char *path, const char *param_name, struct param_opts *popt,
 	if (fd < 0) {
 		rc = -errno;
 		fprintf(stderr, "error: set_param: opening '%s': %s\n",
-			path, strerror(errno));
+			path, strerror(-rc));
 		return rc;
 	}
 
@@ -988,7 +988,7 @@ write_param(const char *path, const char *param_name, struct param_opts *popt,
 		rc = -errno;
 		if (errno != EIO) {
 			fprintf(stderr, "error: set_param: setting %s=%s: %s\n",
-				path, value, strerror(errno));
+				path, value, strerror(-rc));
 		}
 	} else if (count < strlen(value)) { /* Truncate case */
 		rc = -EINVAL;
@@ -1028,7 +1028,7 @@ param_display(struct param_opts *popt, char *pattern, char *value,
 		rc = -errno;
 		if (!popt->po_recursive) {
 			fprintf(stderr, "error: %s: param_path '%s': %s\n",
-				opname, pattern, strerror(errno));
+				opname, pattern, strerror(-rc));
 		}
 		return rc;
 	}
