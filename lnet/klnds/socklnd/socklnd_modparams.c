@@ -23,202 +23,199 @@
 
 static int sock_timeout = 50;
 CFS_MODULE_PARM(sock_timeout, "i", int, 0644,
-                "dead socket timeout (seconds)");
+		"dead socket timeout (seconds)");
 
 static int credits = 256;
 CFS_MODULE_PARM(credits, "i", int, 0444,
-                "# concurrent sends");
+		"# concurrent sends");
 
 static int peer_credits = 8;
 CFS_MODULE_PARM(peer_credits, "i", int, 0444,
-                "# concurrent sends to 1 peer");
+		"# concurrent sends to 1 peer");
 
-static int peer_buffer_credits = 0;
+static int peer_buffer_credits;
 CFS_MODULE_PARM(peer_buffer_credits, "i", int, 0444,
-                "# per-peer router buffer credits");
+		"# per-peer router buffer credits");
 
 static int peer_timeout = 180;
 CFS_MODULE_PARM(peer_timeout, "i", int, 0444,
-                "Seconds without aliveness news to declare peer dead (<=0 to disable)");
+		"Seconds without aliveness news to declare peer dead (<=0 to disable)");
 
-/* Number of daemons in each thread pool which is percpt,
- * we will estimate reasonable value based on CPUs if it's not set. */
+/*
+ * Number of daemons in each thread pool which is percpt,
+ * we will estimate reasonable value based on CPUs if it's not set.
+ */
 static unsigned int nscheds;
 CFS_MODULE_PARM(nscheds, "i", int, 0444,
 		"# scheduler daemons in each pool while starting");
 
 static int nconnds = 4;
 CFS_MODULE_PARM(nconnds, "i", int, 0444,
-                "# connection daemons while starting");
+		"# connection daemons while starting");
 
 static int nconnds_max = 64;
 CFS_MODULE_PARM(nconnds_max, "i", int, 0444,
-                "max # connection daemons");
+		"max # connection daemons");
 
 static int min_reconnectms = 1000;
 CFS_MODULE_PARM(min_reconnectms, "i", int, 0644,
-                "min connection retry interval (mS)");
+		"min connection retry interval (mS)");
 
 static int max_reconnectms = 60000;
 CFS_MODULE_PARM(max_reconnectms, "i", int, 0644,
-                "max connection retry interval (mS)");
+		"max connection retry interval (mS)");
 
 static int eager_ack;
 CFS_MODULE_PARM(eager_ack, "i", int, 0644,
-                "send tcp ack packets eagerly");
+		"send tcp ack packets eagerly");
 
 static int typed_conns = 1;
 CFS_MODULE_PARM(typed_conns, "i", int, 0444,
-                "use different sockets for bulk");
+		"use different sockets for bulk");
 
 static int min_bulk = (1<<10);
 CFS_MODULE_PARM(min_bulk, "i", int, 0644,
-                "smallest 'large' message");
+		"smallest 'large' message");
 
 # define DEFAULT_BUFFER_SIZE 0
 static int tx_buffer_size = DEFAULT_BUFFER_SIZE;
 CFS_MODULE_PARM(tx_buffer_size, "i", int, 0644,
-                "socket tx buffer size (0 for system default)");
+		"socket tx buffer size (0 for system default)");
 
 static int rx_buffer_size = DEFAULT_BUFFER_SIZE;
 CFS_MODULE_PARM(rx_buffer_size, "i", int, 0644,
-                "socket rx buffer size (0 for system default)");
+		"socket rx buffer size (0 for system default)");
 
-static int nagle = 0;
+static int nagle;
 CFS_MODULE_PARM(nagle, "i", int, 0644,
-                "enable NAGLE?");
+		"enable NAGLE?");
 
 static int round_robin = 1;
 CFS_MODULE_PARM(round_robin, "i", int, 0644,
-                "Round robin for multiple interfaces");
+		"Round robin for multiple interfaces");
 
 static int keepalive = 30;
 CFS_MODULE_PARM(keepalive, "i", int, 0644,
-                "# seconds before send keepalive");
+		"# seconds before send keepalive");
 
 static int keepalive_idle = 30;
 CFS_MODULE_PARM(keepalive_idle, "i", int, 0644,
-                "# idle seconds before probe");
+		"# idle seconds before probe");
 
 #define DEFAULT_KEEPALIVE_COUNT  5
 static int keepalive_count = DEFAULT_KEEPALIVE_COUNT;
 CFS_MODULE_PARM(keepalive_count, "i", int, 0644,
-                "# missed probes == dead");
+		"# missed probes == dead");
 
 static int keepalive_intvl = 5;
 CFS_MODULE_PARM(keepalive_intvl, "i", int, 0644,
-                "seconds between probes");
+		"seconds between probes");
 
-static int enable_csum = 0;
+static int enable_csum;
 CFS_MODULE_PARM(enable_csum, "i", int, 0644,
-                "enable check sum");
+		"enable check sum");
 
-static int inject_csum_error = 0;
+static int inject_csum_error;
 CFS_MODULE_PARM(inject_csum_error, "i", int, 0644,
-                "set non-zero to inject a checksum error");
+		"set non-zero to inject a checksum error");
 #ifdef CPU_AFFINITY
-static int enable_irq_affinity = 0;
+static int enable_irq_affinity;
 CFS_MODULE_PARM(enable_irq_affinity, "i", int, 0644,
-                "enable IRQ affinity");
+		"enable IRQ affinity");
 #endif
 
 static int nonblk_zcack = 1;
 CFS_MODULE_PARM(nonblk_zcack, "i", int, 0644,
-                "always send ZC-ACK on non-blocking connection");
+		"always send ZC-ACK on non-blocking connection");
 
 static unsigned int zc_min_payload = (16 << 10);
 CFS_MODULE_PARM(zc_min_payload, "i", int, 0644,
-                "minimum payload size to zero copy");
+		"minimum payload size to zero copy");
 
-static unsigned int zc_recv = 0;
+static unsigned int zc_recv;
 CFS_MODULE_PARM(zc_recv, "i", int, 0644,
-                "enable ZC recv for Chelsio driver");
+		"enable ZC recv for Chelsio driver");
 
 static unsigned int zc_recv_min_nfrags = 16;
 CFS_MODULE_PARM(zc_recv_min_nfrags, "i", int, 0644,
-                "minimum # of fragments to enable ZC recv");
+		"minimum # of fragments to enable ZC recv");
 
 #ifdef SOCKNAL_BACKOFF
 static int backoff_init = 3;
 CFS_MODULE_PARM(backoff_init, "i", int, 0644,
-                "seconds for initial tcp backoff");
+		"seconds for initial tcp backoff");
 
 static int backoff_max = 3;
 CFS_MODULE_PARM(backoff_max, "i", int, 0644,
-                "seconds for maximum tcp backoff");
+		"seconds for maximum tcp backoff");
 #endif
 
 #if SOCKNAL_VERSION_DEBUG
 static int protocol = 3;
 CFS_MODULE_PARM(protocol, "i", int, 0644,
-                "protocol version");
+		"protocol version");
 #endif
 
 ksock_tunables_t ksocknal_tunables;
 
 int ksocknal_tunables_init(void)
 {
-
-        /* initialize ksocknal_tunables structure */
-        ksocknal_tunables.ksnd_timeout            = &sock_timeout;
+	/* initialize ksocknal_tunables structure */
+	ksocknal_tunables.ksnd_timeout		  = &sock_timeout;
 	ksocknal_tunables.ksnd_nscheds		  = &nscheds;
-        ksocknal_tunables.ksnd_nconnds            = &nconnds;
-        ksocknal_tunables.ksnd_nconnds_max        = &nconnds_max;
-        ksocknal_tunables.ksnd_min_reconnectms    = &min_reconnectms;
-        ksocknal_tunables.ksnd_max_reconnectms    = &max_reconnectms;
-        ksocknal_tunables.ksnd_eager_ack          = &eager_ack;
-        ksocknal_tunables.ksnd_typed_conns        = &typed_conns;
-        ksocknal_tunables.ksnd_min_bulk           = &min_bulk;
-        ksocknal_tunables.ksnd_tx_buffer_size     = &tx_buffer_size;
-        ksocknal_tunables.ksnd_rx_buffer_size     = &rx_buffer_size;
-        ksocknal_tunables.ksnd_nagle              = &nagle;
-        ksocknal_tunables.ksnd_round_robin        = &round_robin;
-        ksocknal_tunables.ksnd_keepalive          = &keepalive;
-        ksocknal_tunables.ksnd_keepalive_idle     = &keepalive_idle;
-        ksocknal_tunables.ksnd_keepalive_count    = &keepalive_count;
-        ksocknal_tunables.ksnd_keepalive_intvl    = &keepalive_intvl;
-        ksocknal_tunables.ksnd_credits            = &credits;
-        ksocknal_tunables.ksnd_peertxcredits      = &peer_credits;
-        ksocknal_tunables.ksnd_peerrtrcredits     = &peer_buffer_credits;
-        ksocknal_tunables.ksnd_peertimeout        = &peer_timeout;
-        ksocknal_tunables.ksnd_enable_csum        = &enable_csum;
-        ksocknal_tunables.ksnd_inject_csum_error  = &inject_csum_error;
-        ksocknal_tunables.ksnd_nonblk_zcack       = &nonblk_zcack;
-        ksocknal_tunables.ksnd_zc_min_payload     = &zc_min_payload;
-        ksocknal_tunables.ksnd_zc_recv            = &zc_recv;
-        ksocknal_tunables.ksnd_zc_recv_min_nfrags = &zc_recv_min_nfrags;
+	ksocknal_tunables.ksnd_nconnds		  = &nconnds;
+	ksocknal_tunables.ksnd_nconnds_max	  = &nconnds_max;
+	ksocknal_tunables.ksnd_min_reconnectms	  = &min_reconnectms;
+	ksocknal_tunables.ksnd_max_reconnectms	  = &max_reconnectms;
+	ksocknal_tunables.ksnd_eager_ack	  = &eager_ack;
+	ksocknal_tunables.ksnd_typed_conns	  = &typed_conns;
+	ksocknal_tunables.ksnd_min_bulk		  = &min_bulk;
+	ksocknal_tunables.ksnd_tx_buffer_size	  = &tx_buffer_size;
+	ksocknal_tunables.ksnd_rx_buffer_size	  = &rx_buffer_size;
+	ksocknal_tunables.ksnd_nagle		  = &nagle;
+	ksocknal_tunables.ksnd_round_robin	  = &round_robin;
+	ksocknal_tunables.ksnd_keepalive	  = &keepalive;
+	ksocknal_tunables.ksnd_keepalive_idle	  = &keepalive_idle;
+	ksocknal_tunables.ksnd_keepalive_count	  = &keepalive_count;
+	ksocknal_tunables.ksnd_keepalive_intvl	  = &keepalive_intvl;
+	ksocknal_tunables.ksnd_credits		  = &credits;
+	ksocknal_tunables.ksnd_peertxcredits	  = &peer_credits;
+	ksocknal_tunables.ksnd_peerrtrcredits	  = &peer_buffer_credits;
+	ksocknal_tunables.ksnd_peertimeout	  = &peer_timeout;
+	ksocknal_tunables.ksnd_enable_csum	  = &enable_csum;
+	ksocknal_tunables.ksnd_inject_csum_error  = &inject_csum_error;
+	ksocknal_tunables.ksnd_nonblk_zcack	  = &nonblk_zcack;
+	ksocknal_tunables.ksnd_zc_min_payload	  = &zc_min_payload;
+	ksocknal_tunables.ksnd_zc_recv		  = &zc_recv;
+	ksocknal_tunables.ksnd_zc_recv_min_nfrags = &zc_recv_min_nfrags;
 
 #ifdef CPU_AFFINITY
-	if (enable_irq_affinity) {
-		CWARN("irq_affinity is removed from socklnd because modern "
-		      "computer always has fast CPUs and more cores than "
-		      "# NICs, although you still can set irq_affinity by "
-		      "another way, please check manual for details.\n");
-	}
-        ksocknal_tunables.ksnd_irq_affinity       = &enable_irq_affinity;
+	if (enable_irq_affinity)
+		CWARN("irq_affinity is removed from socklnd because modern computer always has fast CPUs and more cores than # NICs, although you still can set irq_affinity by another way, please check manual for details.\n");
+	ksocknal_tunables.ksnd_irq_affinity	  = &enable_irq_affinity;
 #endif
 
 #ifdef SOCKNAL_BACKOFF
-        ksocknal_tunables.ksnd_backoff_init       = &backoff_init;
-        ksocknal_tunables.ksnd_backoff_max        = &backoff_max;
+	ksocknal_tunables.ksnd_backoff_init	  = &backoff_init;
+	ksocknal_tunables.ksnd_backoff_max	  = &backoff_max;
 #endif
 
 #if SOCKNAL_VERSION_DEBUG
-        ksocknal_tunables.ksnd_protocol           = &protocol;
+	ksocknal_tunables.ksnd_protocol		  = &protocol;
 #endif
 
 #if defined(CONFIG_SYSCTL) && !CFS_SYSFS_MODULE_PARM
-        ksocknal_tunables.ksnd_sysctl             =  NULL;
+	ksocknal_tunables.ksnd_sysctl		  =  NULL;
 #endif
 
-        if (*ksocknal_tunables.ksnd_zc_min_payload < (2 << 10))
-                *ksocknal_tunables.ksnd_zc_min_payload = (2 << 10);
+	if (*ksocknal_tunables.ksnd_zc_min_payload < (2 << 10))
+		*ksocknal_tunables.ksnd_zc_min_payload = 2 << 10;
 
-        /* initialize platform-sepcific tunables */
-        return ksocknal_lib_tunables_init();
+	/* initialize platform-sepcific tunables */
+	return ksocknal_lib_tunables_init();
 };
 
 void ksocknal_tunables_fini(void)
 {
-        ksocknal_lib_tunables_fini();
+	ksocknal_lib_tunables_fini();
 }
