@@ -1841,7 +1841,7 @@ int lprocfs_obd_rd_max_pages_per_rpc(char *page, char **start, off_t off,
 	int rc;
 
 	spin_lock(&cli->cl_loi_list_lock);
-	rc = snprintf(page, count, "%d\n", cli->cl_max_pages_per_rpc);
+	rc = snprintf(page, count, "%lld\n", cli->cl_max_pages_per_rpc);
 	spin_unlock(&cli->cl_loi_list_lock);
 
 	return rc;
@@ -1854,7 +1854,7 @@ int lprocfs_obd_max_pages_per_rpc_seq_show(struct seq_file *m, void *data)
 	int rc;
 
 	spin_lock(&cli->cl_loi_list_lock);
-	rc = seq_printf(m, "%d\n", cli->cl_max_pages_per_rpc);
+	rc = seq_printf(m, "%lld\n", cli->cl_max_pages_per_rpc);
 	spin_unlock(&cli->cl_loi_list_lock);
 	return rc;
 }

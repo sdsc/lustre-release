@@ -1216,7 +1216,7 @@ static void osc_extent_tree_dump0(int level, struct osc_object *obj,
 	struct osc_extent *ext;
 	int cnt;
 
-	CDEBUG(level, "Dump object %p extents at %s:%d, mppr: %u.\n",
+	CDEBUG(level, "Dump object %p extents at %s:%d, mppr: %llu.\n",
 	       obj, func, line, osc_cli(obj)->cl_max_pages_per_rpc);
 
 	/* osc_object_lock(obj); */

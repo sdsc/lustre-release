@@ -891,8 +891,8 @@ static int ptlrpc_connect_set_flags(struct obd_import *imp,
 
 	if (ocd->ocd_connect_flags & OBD_CONNECT_BRW_SIZE)
 		cli->cl_max_pages_per_rpc =
-			min(ocd->ocd_brw_size >> PAGE_CACHE_SHIFT,
-			    cli->cl_max_pages_per_rpc);
+			min_t(__u64, ocd->ocd_brw_size >> PAGE_CACHE_SHIFT,
+			      cli->cl_max_pages_per_rpc);
 	else if (imp->imp_connect_op == MDS_CONNECT ||
 		 imp->imp_connect_op == MGS_CONNECT)
 		cli->cl_max_pages_per_rpc = 1;

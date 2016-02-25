@@ -241,7 +241,7 @@ struct client_obd {
 	/* just a sum of the loi/lop pending numbers to be exported by /proc */
 	atomic_t		cl_pending_w_pages;
 	atomic_t		cl_pending_r_pages;
-	__u32			cl_max_pages_per_rpc;
+	__u64			cl_max_pages_per_rpc;
 	__u32			cl_max_rpcs_in_flight;
 	struct obd_histogram	cl_read_rpc_hist;
 	struct obd_histogram	cl_write_rpc_hist;
