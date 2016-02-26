@@ -1426,7 +1426,7 @@ int jt_lcfg_setparam(int argc, char **argv)
 					jt_cmdname(argv[0]), path);
 				if (rc == 0)
 					rc = EINVAL;
-				continue;
+				goto next;
 			}
 		} else {
 			/* format: set_param a b */
@@ -1444,15 +1444,21 @@ int jt_lcfg_setparam(int argc, char **argv)
 				jt_cmdname(argv[0]), path, strerror(-rc2));
 			if (rc == 0)
 				rc = rc2;
-			continue;
+			goto next;
 		}
 
 		rc2 = param_display(&popt, path, value, SET_PARAM);
 		if (rc == 0)
 			rc = rc2;
+next:
 		path = NULL;
 		value = NULL;
 	}
 
+	if (path != NULL && value == NULL) {
+		fprintf(stderr, "error: %s: setting %s: no value\n",
+			jt_cmdname(argv[0]), path);
+		rc = -EINVAL;
+	}
+
 	return rc;
-}
