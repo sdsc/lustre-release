@@ -14424,6 +14424,9 @@ test_401b() {
 	$LCTL set_param -n fog=bam jobid_var=$save bat=fog
 	local jobid_old=$($LCTL get_param -n foe jobid_var bag)
 	[[ "$jobid_old" == "$save" ]] || error "jobid new $jobid_old != $save"
+
+	$LCTL set_param jobid_var= jobid_var=$save timeout &&
+		error "should report errors for wrong formats" || true
 }
 run_test 401b "Verify 'lctl {get,set}_param' continue after error"
 
