@@ -1403,20 +1403,11 @@ int jt_lcfg_setparam(int argc, char **argv)
 
 	for (i = index; i < argc; i++) {
 		int rc2;
+		path = NULL;
 
 		value = strchr(argv[i], '=');
 		if (value != NULL) {
 			/* format: set_param a=b */
-			if (path != NULL) {
-				/* broken value "set_param a b=c" */
-				fprintf(stderr,
-					"error: %s: setting %s=%s: bad value\n",
-					jt_cmdname(argv[0]), path, argv[i]);
-				if (rc == 0)
-					rc = EINVAL;
-				path = NULL;
-				break;
-			}
 			*value = '\0';
 			value++;
 			path = argv[i];
@@ -1425,16 +1416,28 @@ int jt_lcfg_setparam(int argc, char **argv)
 					"error: %s: setting %s: no value\n",
 					jt_cmdname(argv[0]), path);
 				if (rc == 0)
-					rc = EINVAL;
+					rc = -EINVAL;
 				continue;
 			}
 		} else {
 			/* format: set_param a b */
-			if (path == NULL) {
-				path = argv[i];
-				continue;
+			path = argv[i];
+			i++;
+			if (i >= argc) {
+				fprintf(stderr,
+					"error: %s: setting %s: no value\n",
+					jt_cmdname(argv[0]), path);
+				if (rc == 0)
+					rc = -EINVAL;
+				break;
 			} else {
 				value = argv[i];
+				if (strchr(value, '=') != NULL) {
+					fprintf(stderr,
+						"warning: %s: "
+						"value '%s' contains '='\n",
+						jt_cmdname(argv[0]), value);
+				}
 			}
 		}
 
@@ -1450,8 +1453,6 @@ int jt_lcfg_setparam(int argc, char **argv)
 		rc2 = param_display(&popt, path, value, SET_PARAM);
 		if (rc == 0)
 			rc = rc2;
-		path = NULL;
-		value = NULL;
 	}
 
 	return rc;
