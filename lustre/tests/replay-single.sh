@@ -2124,10 +2124,25 @@ random_fail_mdt() {
 	done
 }
 
+mdt_recovery_start() {
+	rm -f $DIR/replay-single.70c.lck
+}
+
+mdt_recovery_complete() {
+	touch $DIR/replay-single.70c.lck
+}
+
+mdt_recovery_is_completed() {
+	[ -e /$DIR/replay-single.70c.lck ] || return 1
+	return 0
+}
+
 cleanup_70c() {
 	trap 0
 	kill -9 $tar_70c_pid
+	rm -rf /$DIR/$tdir
 }
+
 test_70c () {
 	local clients=${CLIENTS:-$HOSTNAME}
 	local rc=0
@@ -2142,6 +2157,8 @@ test_70c () {
 	local elapsed
 	local start_ts=$(date +%s)
 
+	mdt_recovery_start
+
 	trap cleanup_70c EXIT
 	(
 		while true; do
@@ -2151,9 +2168,8 @@ test_70c () {
 				error "set default dirstripe failed"
 			fi
 			cd $DIR/$tdir || break
-			tar cf - /etc | tar xf - || error "tar failed"
-			cd $DIR || break
-			rm -rf $DIR/$tdir || break
+			tar cf - /etc | tar xf - || error "tar failed in loop"
+			mdt_recovery_is_completed && exit
 		done
 	)&
 	tar_70c_pid=$!
@@ -2161,6 +2177,9 @@ test_70c () {
 
 	random_fail_mdt $MDSCOUNT $duration $tar_70c_pid
 	kill -0 $tar_70c_pid || error "tar $tar_70c_pid stopped"
+
+	mdt_recovery_complete
+	wait $tar_70c_pid || error "$?: tar failed"
 
 	cleanup_70c
 	true
