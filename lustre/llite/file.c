@@ -2911,7 +2911,7 @@ ll_file_flock(struct file *file, int cmd, struct file_lock *file_lock)
 	       flock.l_flock.pid, flags, einfo.ei_mode,
 	       flock.l_flock.start, flock.l_flock.end);
 
-	rc = md_enqueue(sbi->ll_md_exp, &einfo, &flock, NULL, op_data, &lockh,
+	rc = md_enqueue(sbi->ll_md_exp, &einfo, &flock, op_data, &lockh,
 			flags);
 
 	/* Restore the file lock type if not TEST lock. */
@@ -2928,7 +2928,7 @@ ll_file_flock(struct file *file, int cmd, struct file_lock *file_lock)
 
 	if (rc2 && file_lock->fl_type != F_UNLCK) {
 		einfo.ei_mode = LCK_NL;
-		md_enqueue(sbi->ll_md_exp, &einfo, &flock, NULL, op_data,
+		md_enqueue(sbi->ll_md_exp, &einfo, &flock, op_data,
 			   &lockh, flags);
 		rc = rc2;
 	}
@@ -3959,12 +3959,7 @@ static int ll_layout_refresh_locked(struct inode *inode)
 	struct lookup_intent	it;
 	struct lustre_handle	lockh;
 	enum ldlm_mode		mode;
-	struct ldlm_enqueue_info einfo = {
-		.ei_type = LDLM_IBITS,
-		.ei_mode = LCK_CR,
-		.ei_cb_bl = &ll_md_blocking_ast,
-		.ei_cb_cp = &ldlm_completion_ast,
-	};
+	struct ptlrpc_request *req;
 	int rc;
 	ENTRY;
 
@@ -3989,13 +3984,13 @@ again:
 	/* have to enqueue one */
 	memset(&it, 0, sizeof(it));
 	it.it_op = IT_LAYOUT;
-	lockh.cookie = 0ULL;
 
 	LDLM_DEBUG_NOLOCK("%s: requeue layout lock for file "DFID"(%p)",
 			  ll_get_fsname(inode->i_sb, NULL, 0),
 			  PFID(&lli->lli_fid), inode);
 
-	rc = md_enqueue(sbi->ll_md_exp, &einfo, NULL, &it, op_data, &lockh, 0);
+	rc = md_intent_lock(sbi->ll_md_exp, op_data, &it, &req,
+			    &ll_md_blocking_ast, 0);
 	if (it.d.lustre.it_data != NULL)
 		ptlrpc_req_finished(it.d.lustre.it_data);
 	it.d.lustre.it_data = NULL;
@@ -4009,6 +4004,7 @@ again:
 	if (rc == 0) {
 		/* set lock data in case this is a new lock */
 		ll_set_lock_data(sbi->ll_md_exp, inode, &it, NULL);
+		lockh.cookie = it.d.lustre.it_lock_handle;
 		rc = ll_layout_lock_set(&lockh, mode, inode);
 		if (rc == -EAGAIN)
 			goto again;
