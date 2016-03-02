@@ -74,6 +74,7 @@ struct osc_brw_async_args {
 	struct client_obd	 *aa_cli;
 	struct list_head	  aa_oaps;
 	struct list_head	  aa_exts;
+	struct jobid_client	 *aa_jobcli;
 };
 
 #define osc_grant_args osc_brw_async_args
@@ -1637,6 +1638,14 @@ static int brw_interpret(const struct lu_env *env,
 		cli->cl_w_in_flight--;
 	else
 		cli->cl_r_in_flight--;
+	/*if (strcmp(aa->aa_jobcli->jc_jobid, "mydd.0") == 0)*/
+		aa->aa_jobcli->jc_check_time--;
+	LASSERT(aa->aa_jobcli->jc_check_time >= 0);
+	printk("QYJ - Finish IO %s, slots:%llu\n",
+		aa->aa_jobcli->jc_jobid, aa->aa_jobcli->jc_check_time);
+	/*if (!list_empty(&aa->aa_jobcli->jc_list))
+		cfs_binheap_relocate(cli->cl_jobid_binheap,
+				     &aa->aa_jobcli->jc_node);*/
 	osc_wake_cache_waiters(cli);
 	spin_unlock(&cli->cl_loi_list_lock);
 
@@ -1788,6 +1797,7 @@ int osc_build_rpc(const struct lu_env *env, struct client_obd *cli,
 	list_splice_init(&rpc_list, &aa->aa_oaps);
 	INIT_LIST_HEAD(&aa->aa_exts);
 	list_splice_init(ext_list, &aa->aa_exts);
+	aa->aa_jobcli = obj->oo_jobcli;
 
 	spin_lock(&cli->cl_loi_list_lock);
 	starting_offset >>= PAGE_CACHE_SHIFT;
@@ -1804,6 +1814,10 @@ int osc_build_rpc(const struct lu_env *env, struct client_obd *cli,
 		lprocfs_oh_tally_log2(&cli->cl_write_offset_hist,
 				      starting_offset + 1);
 	}
+	/*if (strcmp(obj->oo_jobcli->jc_jobid, "mydd.0") == 0)*/
+	obj->oo_jobcli->jc_check_time++;
+	printk("QYJ - send IO %s, slots:%llu\n",
+		obj->oo_jobid, obj->oo_jobcli->jc_check_time);
 	spin_unlock(&cli->cl_loi_list_lock);
 
 	DEBUG_REQ(D_INODE, req, "%d pages, aa %p. now %ur/%uw in flight",
@@ -2663,6 +2677,141 @@ static int brw_queue_work(const struct lu_env *env, void *data)
 	RETURN(0);
 }
 
+/**
+ * Binary heap predicate.
+ *
+ * \param[in] e1 the first binheap node to compare
+ * \param[in] e2 the second binheap node to compare
+ *
+ * \retval 0 e1 > e2
+ * \retval 1 e1 < e2
+ */
+static int jobid_compare(cfs_binheap_node_t *e1, cfs_binheap_node_t *e2)
+{
+	struct jobid_client *cli1;
+	struct jobid_client *cli2;
+
+	cli1 = container_of(e1, struct jobid_client, jc_node);
+	cli2 = container_of(e2, struct jobid_client, jc_node);
+
+	if (cli1->jc_check_time + cli1->jc_nsecs <
+	    cli2->jc_check_time + cli2->jc_nsecs)
+		return 1;
+	else if (cli1->jc_check_time + cli1->jc_nsecs >
+		 cli2->jc_check_time + cli2->jc_nsecs)
+		return 0;
+
+	if (cli1->jc_check_time < cli2->jc_check_time)
+		return 1;
+	else if (cli1->jc_check_time > cli2->jc_check_time)
+		return 0;
+
+	return 1;
+}
+
+
+static cfs_binheap_ops_t jobid_heap_ops = {
+	.hop_enter	= NULL,
+	.hop_exit = NULL,
+	.hop_compare = jobid_compare,
+};
+
+void jobid_cli_fini(struct jobid_client *cli)
+{
+	LASSERT(list_empty(&cli->jc_list));
+	LASSERT(!cli->jc_in_heap);
+	LASSERT(atomic_read(&cli->jc_ref) == 0);
+	OBD_FREE_PTR(cli);
+}
+
+
+static unsigned jobid_hop_hash(struct cfs_hash *hs, const void *key,
+				  unsigned mask)
+{
+	return cfs_hash_djb2_hash(key, strlen(key), mask);
+}
+
+static int jobid_hop_keycmp(const void *key, struct hlist_node *hnode)
+{
+	struct jobid_client *cli = hlist_entry(hnode,
+					       struct jobid_client,
+					       jc_hnode);
+
+	return (strcmp(cli->jc_jobid, key) == 0);
+}
+
+static void *jobid_hop_key(struct hlist_node *hnode)
+{
+	struct jobid_client *cli = hlist_entry(hnode,
+					       struct jobid_client,
+					       jc_hnode);
+
+	return cli->jc_jobid;
+}
+
+static void *jobid_hop_object(struct hlist_node *hnode)
+{
+	return hlist_entry(hnode, struct jobid_client, jc_hnode);
+}
+
+static void jobid_hop_get(struct cfs_hash *hs, struct hlist_node *hnode)
+{
+	struct jobid_client *cli = hlist_entry(hnode,
+					       struct jobid_client,
+					       jc_hnode);
+
+	atomic_inc(&cli->jc_ref);
+}
+
+static void jobid_hop_put(struct cfs_hash *hs, struct hlist_node *hnode)
+{
+	struct jobid_client *cli = hlist_entry(hnode,
+					       struct jobid_client,
+					       jc_hnode);
+
+	atomic_dec(&cli->jc_ref);
+}
+
+static void jobid_hop_exit(struct cfs_hash *hs,
+				   struct hlist_node *hnode)
+
+{
+	struct jobid_client *cli = hlist_entry(hnode,
+					       struct jobid_client,
+					       jc_hnode);
+
+	LASSERT(atomic_read(&cli->jc_ref) == 0);
+	jobid_cli_fini(cli);
+}
+
+static struct cfs_hash_ops jobid_hash_ops = {
+	.hs_hash	= jobid_hop_hash,
+	.hs_keycmp	= jobid_hop_keycmp,
+	.hs_key		= jobid_hop_key,
+	.hs_object	= jobid_hop_object,
+	.hs_get		= jobid_hop_get,
+	.hs_put		= jobid_hop_put,
+	.hs_put_locked	= jobid_hop_put,
+	.hs_exit	= jobid_hop_exit,
+};
+
+
+#define JOBID_BKT_BITS 10
+#define JOBID_HASH_FLAGS (CFS_HASH_SPIN_BKTLOCK | \
+			  CFS_HASH_NO_ITEMREF | \
+			  CFS_HASH_DEPTH)
+#define JOBID_CACHE_SIZE 8192
+
+static int jobid_hash_order(void)
+{
+	int bits;
+
+	for (bits = 1; (1 << bits) < JOBID_CACHE_SIZE; ++bits)
+		;
+
+	return bits;
+}
+
 int osc_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 {
 	struct client_obd *cli = &obd->u.cli;
@@ -2672,15 +2821,44 @@ int osc_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 	int		   adding;
 	int		   added;
 	int		   req_count;
+	int		   bits;
+	int		   i;
+	struct jobid_bucket	*bkt;
+	struct cfs_hash_bd	 bd;
 	ENTRY;
 
 	rc = ptlrpcd_addref();
 	if (rc)
 		RETURN(rc);
 
+	cli->cl_jobid_binheap = cfs_binheap_create(&jobid_heap_ops,
+				CBH_FLAG_ATOMIC_GROW, 4096, NULL, NULL, 0);
+	if (cli->cl_jobid_binheap == NULL)
+		GOTO(out_ptlrpcd, rc = -ENOMEM);
+
+	bits = jobid_hash_order();
+	if (bits < JOBID_BKT_BITS)
+		bits = JOBID_BKT_BITS;
+	cli->cl_cli_hash = cfs_hash_create("nrs_tbf_hash",
+					    bits,
+					    bits,
+					    JOBID_BKT_BITS,
+					    sizeof(*bkt),
+					    0,
+					    0,
+					    &jobid_hash_ops,
+					    JOBID_HASH_FLAGS);
+	if (cli->cl_cli_hash == NULL)
+		GOTO(out_free_heap, rc = -ENOMEM);
+
+	cfs_hash_for_each_bucket(cli->cl_cli_hash, &bd, i) {
+		bkt = cfs_hash_bd_extra_get(cli->cl_cli_hash, &bd);
+		INIT_LIST_HEAD(&bkt->jb_lru);
+	}
+
 	rc = client_obd_setup(obd, lcfg);
 	if (rc)
-		GOTO(out_ptlrpcd, rc);
+		GOTO(out_free_hash, rc);
 
 	handler = ptlrpcd_alloc_work(cli->cl_import, brw_queue_work, cli);
 	if (IS_ERR(handler))
@@ -2763,6 +2941,10 @@ out_ptlrpcd_work:
 	}
 out_client_setup:
 	client_obd_cleanup(obd);
+out_free_hash:
+	cfs_hash_putref(cli->cl_cli_hash);
+out_free_heap:
+	cfs_binheap_destroy(cli->cl_jobid_binheap);
 out_ptlrpcd:
 	ptlrpcd_decref();
 	RETURN(rc);
@@ -2825,6 +3007,9 @@ int osc_cleanup(struct obd_device *obd)
 	osc_quota_cleanup(obd);
 
 	rc = client_obd_cleanup(obd);
+
+	/*cfs_hash_putref(cli->cl_cli_hash);*/
+	cfs_binheap_destroy(cli->cl_jobid_binheap);
 
 	ptlrpcd_decref();
 	RETURN(rc);

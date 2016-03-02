@@ -1515,6 +1515,7 @@ static int osc_enter_cache_try(struct client_obd *cli,
 			       int bytes, int transient)
 {
 	int rc;
+	struct osc_object *osc = oap->oap_obj;
 
 	OSC_DUMP_GRANT(D_CACHE, cli, "need:%d\n", bytes);
 
@@ -1522,8 +1523,12 @@ static int osc_enter_cache_try(struct client_obd *cli,
 	if (rc < 0)
 		return 0;
 
-	if (cli->cl_dirty_pages < cli->cl_dirty_max_pages &&
+	if (atomic_read(&osc->oo_nr_writes) < cli->cl_dirty_max_pages/3 &&
+	    cli->cl_dirty_pages < cli->cl_dirty_max_pages &&
 	    1 + atomic_long_read(&obd_dirty_pages) <= obd_max_dirty_pages) {
+		printk("QYJ - consume grant, nr_write:%d:%lu\n",
+			atomic_read(&osc->oo_nr_writes),
+			cli->cl_dirty_max_pages);
 		osc_consume_write_grant(cli, &oap->oap_brw_page);
 		if (transient) {
 			cli->cl_dirty_transit++;
@@ -1532,6 +1537,9 @@ static int osc_enter_cache_try(struct client_obd *cli,
 		}
 		rc = 1;
 	} else {
+		printk("QYJ - unreserve grant, nr_write:%d:%lu\n",
+			atomic_read(&osc->oo_nr_writes),
+			cli->cl_dirty_max_pages);
 		__osc_unreserve_grant(cli, bytes, bytes);
 		rc = 0;
 	}
@@ -1783,6 +1791,39 @@ static void on_list(struct list_head *item, struct list_head *list,
 		list_del_init(item);
 }
 
+static int  osc_jobid_obj_add(struct client_obd *cli, struct osc_object *osc)
+{
+	struct jobid_client *jobcli = osc->oo_jobcli;
+	int rc = 0;
+
+	if (list_empty(&jobcli->jc_list)) {
+		LASSERT(!jobcli->jc_in_heap);
+
+		/*jobcli->jc_check_time = ktime_to_ns(ktime_get());*/
+		rc = cfs_binheap_insert(cli->cl_jobid_binheap,
+					&jobcli->jc_node);
+		if (rc == 0) {
+			jobcli->jc_in_heap = true;
+			list_add_tail(&osc->oo_jobid_item, &jobcli->jc_list);
+		}
+	} else {
+		LASSERT(jobcli->jc_in_heap);
+		list_add_tail(&osc->oo_jobid_item, &jobcli->jc_list);
+	}
+
+	return rc;
+}
+
+static void osc_jobid_obj_remove(struct client_obd *cli, struct osc_object *osc)
+{
+	struct jobid_client *jobcli = osc->oo_jobcli;
+	list_del_init(&osc->oo_jobid_item);
+	if (list_empty(&jobcli->jc_list)) {
+		cfs_binheap_remove(cli->cl_jobid_binheap, &jobcli->jc_node);
+		jobcli->jc_in_heap = false;
+	}
+}
+
 /* maintain the osc's cli list membership invariants so that osc_send_oap_rpc
  * can find pages to build into rpcs quickly */
 static int __osc_list_maint(struct client_obd *cli, struct osc_object *osc)
@@ -1792,10 +1833,18 @@ static int __osc_list_maint(struct client_obd *cli, struct osc_object *osc)
 		on_list(&osc->oo_ready_item, &cli->cl_loi_ready_list, 0);
 		on_list(&osc->oo_hp_ready_item, &cli->cl_loi_hp_ready_list, 1);
 	} else {
+		int should_be_on = osc_makes_rpc(cli, osc, OBD_BRW_WRITE) ||
+				   osc_makes_rpc(cli, osc, OBD_BRW_READ);
+
 		on_list(&osc->oo_hp_ready_item, &cli->cl_loi_hp_ready_list, 0);
-		on_list(&osc->oo_ready_item, &cli->cl_loi_ready_list,
-			osc_makes_rpc(cli, osc, OBD_BRW_WRITE) ||
-			osc_makes_rpc(cli, osc, OBD_BRW_READ));
+		if (list_empty(&osc->oo_ready_item) && should_be_on) {
+			list_add_tail(&osc->oo_ready_item,
+				      &cli->cl_loi_ready_list);
+			osc_jobid_obj_add(cli, osc);
+		} else if (!list_empty(&osc->oo_ready_item) && !should_be_on) {
+			list_del_init(&osc->oo_ready_item);
+			osc_jobid_obj_remove(cli, osc);
+		}
 	}
 
 	on_list(&osc->oo_write_item, &cli->cl_loi_write_list,
@@ -1807,9 +1856,132 @@ static int __osc_list_maint(struct client_obd *cli, struct osc_object *osc)
 	return osc_is_ready(osc);
 }
 
-static int osc_list_maint(struct client_obd *cli, struct osc_object *osc)
+static struct jobid_client *
+jobid_hash_lookup(struct cfs_hash *hs,
+		  struct cfs_hash_bd *bd,
+		  const char *jobid)
+{
+	struct hlist_node *hnode;
+	struct jobid_client *cli;
+
+	/* cfs_hash_bd_peek_locked is a somehow "internal" function
+	 * of cfs_hash, it doesn't add refcount on object. */
+	hnode = cfs_hash_bd_peek_locked(hs, bd, (void *)jobid);
+	if (hnode == NULL)
+		return NULL;
+
+	cfs_hash_get(hs, hnode);
+	cli = container_of0(hnode, struct jobid_client, jc_hnode);
+	if (!list_empty(&cli->jc_lru))
+		list_del_init(&cli->jc_lru);
+	return cli;
+}
+
+#define NRS_TBF_JOBID_NULL ""
+
+static void jobid_cli_init(struct jobid_client *jobcli,
+			   struct osc_object *osc)
+{
+	char *jobid = osc->oo_jobid;
+
+	if (jobid == NULL)
+		jobid = NRS_TBF_JOBID_NULL;
+	LASSERT(strlen(jobid) < LUSTRE_JOBID_SIZE);
+	INIT_LIST_HEAD(&jobcli->jc_list);
+	INIT_LIST_HEAD(&jobcli->jc_lru);
+	memcpy(jobcli->jc_jobid, jobid, strlen(jobid));
+	/*jobcli->jc_check_time = ktime_to_ns(ktime_get());
+	if (strcmp(jobid, "dd.0") == 0)
+		jobcli->jc_nsecs = NSEC_PER_SEC / 300;
+	else if (strcmp(jobid, "mydd.0") == 0)
+		jobcli->jc_nsecs = NSEC_PER_SEC / 10;
+	*/
+}
+
+static struct jobid_client *
+jobid_cli_find(struct client_obd *obd, struct osc_object *osc)
+{
+	const char		*jobid;
+	struct jobid_client	*cli;
+	struct cfs_hash		*hs = obd->cl_cli_hash;
+	struct cfs_hash_bd	 bd;
+
+	jobid = osc->oo_jobid;
+	if (jobid == NULL)
+		jobid = NRS_TBF_JOBID_NULL;
+	cfs_hash_bd_get_and_lock(hs, (void *)jobid, &bd, 1);
+	cli = jobid_hash_lookup(hs, &bd, jobid);
+	cfs_hash_bd_unlock(hs, &bd, 1);
+
+	return cli;
+}
+
+static struct jobid_client *
+jobid_cli_findadd(struct client_obd *obd,
+		  struct jobid_client *cli)
+{
+	const char		*jobid;
+	struct jobid_client	*ret;
+	struct cfs_hash		*hs = obd->cl_cli_hash;
+	struct cfs_hash_bd	 bd;
+
+	jobid = cli->jc_jobid;
+	cfs_hash_bd_get_and_lock(hs, (void *)jobid, &bd, 1);
+	ret = jobid_hash_lookup(hs, &bd, jobid);
+	if (ret == NULL) {
+		cfs_hash_bd_add_locked(hs, &bd, &cli->jc_hnode);
+		ret = cli;
+	}
+	cfs_hash_bd_unlock(hs, &bd, 1);
+
+	return ret;
+}
+
+static int osc_get_jobid(const struct lu_env *env, struct client_obd *cli,
+			 struct osc_object *osc)
+{
+	struct cl_object *obj;
+	struct jobid_client *jobcli, *tmp;
+
+	if (osc->oo_jobcli != NULL)
+		return 0;
+
+	obj = cl_object_top(&osc->oo_cl);
+	cl_object_getjobid(env, obj, osc->oo_jobid);
+	jobcli = jobid_cli_find(cli, osc);
+	if (jobcli != NULL)
+		goto found;
+
+	OBD_ALLOC(jobcli, sizeof(*jobcli));
+	if (jobcli == NULL)
+		return -ENOMEM;
+
+	jobid_cli_init(jobcli, osc);
+	if (strcmp(osc->oo_jobid, "dd.0") == 0) {
+		cli->cl_dd_obj = osc;
+	} else if (strcmp(osc->oo_jobid, "mydd.0") == 0) {
+		cli->cl_mydd_obj = osc;
+	}
+	tmp = jobid_cli_findadd(cli, jobcli);
+	if (tmp != jobcli) {
+		atomic_dec(&jobcli->jc_ref);
+		jobid_cli_fini(jobcli);
+		jobcli = tmp;
+	}
+found:
+	osc->oo_jobcli = jobcli;
+	return 0;
+}
+
+static int osc_list_maint(const struct lu_env *env,
+			  struct client_obd *cli, struct osc_object *osc)
 {
 	int is_ready;
+	int rc;
+
+	rc = osc_get_jobid(env, cli, osc);
+	if (rc < 0)
+		return rc;
 
 	spin_lock(&cli->cl_loi_list_lock);
 	is_ready = __osc_list_maint(cli, osc);
@@ -2127,6 +2299,69 @@ __must_hold(osc)
 	list_entry(__tmp, struct osc_object, oo_##item);		      \
 })
 
+static struct osc_object *osc_jobid_next_obj(struct client_obd *cli)
+{
+	struct jobid_client *jobcli, *myddcli = NULL, *ddcli = NULL;
+	cfs_binheap_node_t *node;
+	struct osc_object *osc, *myddosc, *ddosc;
+
+	node = cfs_binheap_root(cli->cl_jobid_binheap);
+	if (unlikely(node == NULL))
+		return NULL;
+
+	jobcli = container_of(node, struct jobid_client, jc_node);
+	LASSERT(jobcli->jc_in_heap);
+	osc = list_entry(jobcli->jc_list.next,
+			 struct osc_object,
+			 oo_jobid_item);
+	/*if (strcmp(osc->oo_jobid, "mydd.0") == 0 &&
+	    jobcli->jc_check_time >= 4) {
+		printk("QYJ - Dequeue mydd.0, slots >= 4, abort, return NULL!\n");
+		return NULL;
+	}*/
+	list_del_init(&osc->oo_jobid_item);
+	list_del_init(&osc->oo_ready_item);
+	myddosc = (struct osc_object *)cli->cl_mydd_obj;
+	ddosc = (struct osc_object *)cli->cl_dd_obj;
+	/*if (atomic_read(&osc->oo_nr_writes) >= 2 * cli->cl_max_pages_per_rpc) {
+		list_add_tail(&osc->oo_jobid_item, &jobcli->jc_list);
+		list_add_tail(&osc->oo_ready_item, &cli->cl_loi_ready_list);
+	}*/
+	if (myddosc != NULL && ddosc != NULL) {
+	myddcli = myddosc->oo_jobcli;
+	ddcli = ddosc->oo_jobcli;
+	if (strcmp(osc->oo_jobid, "dd.0") == 0)
+		printk("QYJ - Dequeue %s, slots: %llu:%llu, pages: %d:%d, in heap: %d:%d\n",
+			ddcli->jc_jobid, ddcli->jc_check_time,
+			myddcli->jc_check_time,
+			atomic_read(&ddosc->oo_nr_writes),
+			atomic_read(&myddosc->oo_nr_writes),
+			ddcli->jc_in_heap, myddcli->jc_in_heap);
+	else if (strcmp(osc->oo_jobid, "mydd.0") == 0)
+		/*printk("QYJ - Deqeueu %s, slots: %llu:%llu, pages: %d:%d, in heap: %d:%d\n", 
+			myddcli->jc_jobid, myddcli->jc_check_time,
+			ddcli->jc_check_time,
+			atomic_read(&myddosc->oo_nr_writes),
+			atomic_read(&ddosc->oo_nr_writes),
+			myddcli->jc_in_heap, ddcli->jc_in_heap);*/
+		printk("QYJ - Dequeue %s, slots: %llu, pages: %d, in heap:%d\n",
+			osc->oo_jobid, jobcli->jc_check_time,
+			atomic_read(&osc->oo_nr_writes),
+			jobcli->jc_in_heap);
+	}
+	/*jobcli->jc_check_time = ktime_to_ns(ktime_get());*/
+	if (list_empty(&jobcli->jc_list)) {
+		cfs_binheap_remove(cli->cl_jobid_binheap,
+					&jobcli->jc_node);
+		jobcli->jc_in_heap = false;
+	} else {
+		cfs_binheap_relocate(cli->cl_jobid_binheap,
+				     &jobcli->jc_node);
+	}
+
+	return osc;
+}
+
 /* This is called by osc_check_rpcs() to find which objects have pages that
  * we could be sending.  These lists are maintained by osc_makes_rpc(). */
 static struct osc_object *osc_next_obj(struct client_obd *cli)
@@ -2139,7 +2374,7 @@ static struct osc_object *osc_next_obj(struct client_obd *cli)
 	if (!list_empty(&cli->cl_loi_hp_ready_list))
 		RETURN(list_to_obj(&cli->cl_loi_hp_ready_list, hp_ready_item));
 	if (!list_empty(&cli->cl_loi_ready_list))
-		RETURN(list_to_obj(&cli->cl_loi_ready_list, ready_item));
+		RETURN(osc_jobid_next_obj(cli));
 
 	/* then if we have cache waiters, return all objects with queued
 	 * writes.  This is especially important when many small files
@@ -2223,7 +2458,7 @@ __must_hold(&cli->cl_loi_list_lock)
 		}
 		osc_object_unlock(osc);
 
-		osc_list_maint(cli, osc);
+		osc_list_maint(env, cli, osc);
 		lu_object_ref_del_at(&obj->co_lu, &link, "check", current);
 		cl_object_put(env, obj);
 
@@ -2236,7 +2471,7 @@ static int osc_io_unplug0(const struct lu_env *env, struct client_obd *cli,
 {
 	int rc = 0;
 
-	if (osc != NULL && osc_list_maint(cli, osc) == 0)
+	if (osc != NULL && osc_list_maint(env, cli, osc) == 0)
 		return 0;
 
 	if (!async) {
@@ -2637,7 +2872,7 @@ int osc_cancel_async_page(const struct lu_env *env, struct osc_page *ops)
 		}
 	}
 
-	osc_list_maint(cli, obj);
+	osc_list_maint(env, cli, obj);
 	RETURN(rc);
 }
 
@@ -2771,7 +3006,7 @@ again:
 	}
 	osc_object_unlock(obj);
 
-	osc_list_maint(cli, obj);
+	osc_list_maint(env, cli, obj);
 
 	while (!list_empty(&list)) {
 		int rc;
@@ -2999,7 +3234,7 @@ int osc_cache_writeback_range(const struct lu_env *env, struct osc_object *obj,
 		struct osc_extent *tmp;
 		int rc;
 
-		osc_list_maint(osc_cli(obj), obj);
+		osc_list_maint(env, osc_cli(obj), obj);
 		list_for_each_entry_safe(ext, tmp, &discard_list, oe_link) {
 			list_del_init(&ext->oe_link);
 			EASSERT(ext->oe_state == OES_LOCKING, ext);

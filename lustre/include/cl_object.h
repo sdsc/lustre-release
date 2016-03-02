@@ -416,6 +416,12 @@ struct cl_object_operations {
 	void (*coo_req_attr_set)(const struct lu_env *env,
 				 struct cl_object *obj,
 				 struct cl_req_attr *attr);
+	/**
+	 * Get jobid information of this object.
+	 */
+	int (*coo_getjobid)(const struct lu_env *env,
+			    struct cl_object *obj,
+			    char *jobid);
 };
 
 /**
@@ -2013,6 +2019,8 @@ int  cl_object_attr_get(const struct lu_env *env, struct cl_object *obj,
 			struct cl_attr *attr);
 int  cl_object_attr_update(const struct lu_env *env, struct cl_object *obj,
                            const struct cl_attr *attr, unsigned valid);
+int  cl_object_getjobid(const struct lu_env *env, struct cl_object *obj,
+			   char *jobid);
 int  cl_object_glimpse    (const struct lu_env *env, struct cl_object *obj,
                            struct ost_lvb *lvb);
 int  cl_conf_set          (const struct lu_env *env, struct cl_object *obj,

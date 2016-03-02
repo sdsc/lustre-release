@@ -260,6 +260,28 @@ int cl_object_attr_update(const struct lu_env *env, struct cl_object *obj,
 EXPORT_SYMBOL(cl_object_attr_update);
 
 /**
+ * Get jobid information of this object.
+ */
+int cl_object_getjobid(const struct lu_env *env, struct cl_object *obj,
+		       char *jobid)
+{
+	struct lu_object_header	*top;
+	int			result = 0;
+	ENTRY;
+
+	top = obj->co_lu.lo_header;
+	list_for_each_entry(obj, &top->loh_layers, co_lu.lo_linkage) {
+		if (obj->co_ops->coo_getjobid != NULL) {
+			result = obj->co_ops->coo_getjobid(env, obj, jobid);
+			if (result != 0)
+				break;
+		}
+	}
+	RETURN(result);
+}
+EXPORT_SYMBOL(cl_object_getjobid);
+
+/**
  * Notifies layers (bottom-to-top) that glimpse AST was received.
  *
  * Layers have to fill \a lvb fields with information that will be shipped

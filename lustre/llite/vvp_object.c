@@ -214,6 +214,15 @@ static void vvp_req_attr_set(const struct lu_env *env, struct cl_object *obj,
 	memcpy(attr->cra_jobid, ll_i2info(inode)->lli_jobid, LUSTRE_JOBID_SIZE);
 }
 
+static int vvp_getjobid(const struct lu_env *env, struct cl_object *obj,
+			char *jobid)
+{
+	struct inode *inode = vvp_object_inode(obj);
+
+	memcpy(jobid, ll_i2info(inode)->lli_jobid, LUSTRE_JOBID_SIZE);
+	return 0;
+}
+
 static const struct cl_object_operations vvp_ops = {
 	.coo_page_init    = vvp_page_init,
 	.coo_lock_init    = vvp_lock_init,
@@ -223,7 +232,8 @@ static const struct cl_object_operations vvp_ops = {
 	.coo_conf_set     = vvp_conf_set,
 	.coo_prune        = vvp_prune,
 	.coo_glimpse      = vvp_object_glimpse,
-	.coo_req_attr_set = vvp_req_attr_set
+	.coo_req_attr_set = vvp_req_attr_set,
+	.coo_getjobid	  = vvp_getjobid
 };
 
 static int vvp_object_init0(const struct lu_env *env,

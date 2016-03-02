@@ -172,6 +172,10 @@ struct osc_object {
 	/** number of active IOs of this object */
 	atomic_t		oo_nr_ios;
 	wait_queue_head_t	oo_io_waitq;
+
+	char			oo_jobid[LUSTRE_JOBID_SIZE];
+	struct jobid_client    *oo_jobcli;
+	struct list_head 	oo_jobid_item;
 };
 
 static inline void osc_object_lock(struct osc_object *obj)

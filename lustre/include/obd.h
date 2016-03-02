@@ -328,6 +328,12 @@ struct client_obd {
 	void			*cl_lru_work;
 	/* hash tables for osc_quota_info */
 	struct cfs_hash		*cl_quota_hash[MAXQUOTAS];
+
+	/* binheap for jobid */
+	cfs_binheap_t		*cl_jobid_binheap;
+	struct cfs_hash		*cl_cli_hash;
+	void			*cl_dd_obj;
+	void			*cl_mydd_obj;
 };
 #define obd2cli_tgt(obd) ((char *)(obd)->u.cli.cl_target_uuid.uuid)
 

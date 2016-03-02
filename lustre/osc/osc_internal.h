@@ -80,6 +80,36 @@ struct osc_async_page {
 #define oap_count       oap_brw_page.count
 #define oap_brw_flags   oap_brw_page.flag
 
+struct jobid_bucket {
+	/**
+	 * LRU list, updated on each access to client.
+	 */
+	struct list_head	jb_lru;
+};
+
+struct jobid_client {
+	/** Node in the hash table. */
+	struct hlist_node	jc_hnode;
+	/** Time to wait for next IO. */
+	__u64			jc_nsecs;
+	/** Time check-point. */
+	__u64			jc_check_time;
+	/** osc object list. */
+	struct list_head	jc_list;
+	/** Node in binary heap. */
+	cfs_binheap_node_t	jc_node;
+	/** Reference number of the client. */
+	atomic_t		jc_ref;
+	/** Whether the client is in heap. */
+	bool			jc_in_heap;
+	/** jobid of the client. */
+	char			jc_jobid[LUSTRE_JOBID_SIZE];
+	/** Linkage into LRU list. */
+	struct list_head	jc_lru;
+};
+
+void jobid_cli_fini(struct jobid_client *cli);
+
 static inline struct osc_async_page *brw_page2oap(struct brw_page *pga)
 {
 	return (struct osc_async_page *)container_of(pga, struct osc_async_page,
