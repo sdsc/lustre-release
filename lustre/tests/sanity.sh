@@ -5277,6 +5277,7 @@ test_60e() {
 #define OBD_FAIL_MDS_LLOG_CREATE_FAILED2  0x15b
 	do_facet mds1 lctl set_param fail_loc=0x15b
 	rm $DIR/$tfile
+	do_facet mds1 lctl set_param fail_loc=0
 }
 run_test 60e "no space while new llog is being created"
 
