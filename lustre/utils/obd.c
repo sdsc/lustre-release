@@ -3725,7 +3725,7 @@ int jt_nodemap_modify(int argc, char **argv)
 		fprintf(stderr, "usage: nodemap_modify --name <nodemap_name> "
 				"--property <property_name> --value <value>\n");
 		fprintf(stderr, "valid properties: admin trusted "
-				"squash_uid squash_gid\n");
+				"squash_uid squash_gid deny_squash\n");
 		return -1;
 	}
 
@@ -3733,6 +3733,8 @@ int jt_nodemap_modify(int argc, char **argv)
 		cmd = LCFG_NODEMAP_ADMIN;
 	} else if (strcmp("trusted", param) == 0) {
 		cmd = LCFG_NODEMAP_TRUSTED;
+	} else if (strcmp("deny_squash", param) == 0) {
+		cmd = LCFG_NODEMAP_NO_SQUASH;
 	} else if (strcmp("squash_uid", param) == 0) {
 		cmd = LCFG_NODEMAP_SQUASH_UID;
 	} else if (strcmp("squash_gid", param) == 0) {
