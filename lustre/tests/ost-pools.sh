@@ -27,9 +27,6 @@ init_test_env $@
 . ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}
 init_logging
 
-#unmount everything before starting
-stopall
-
 check_and_setup_lustre
 
 [ "$SLOW" = "no" ] && EXCEPT_SLOW="5b 18 22 23b 25"

@@ -28,9 +28,6 @@ remote_mds_nodsh && log "SKIP: remote MDS with nodsh" && exit 0
 
 [ "$SLOW" = "no" ] && EXCEPT_SLOW="7"
 
-#unmount everything before starting
-stopall
-
 build_test_filter
 
 check_and_setup_lustre

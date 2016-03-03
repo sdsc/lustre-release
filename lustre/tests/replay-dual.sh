@@ -26,9 +26,6 @@ remote_mds_nodsh && skip "remote MDS with nodsh" && exit 0
 # bug number for skipped test:	      LU-2230
 	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 21b"
 
-#unmount everything before starting
-stopall
-
 build_test_filter
 
 check_and_setup_lustre
