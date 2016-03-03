@@ -43,9 +43,6 @@ pios_OFFSET=${pios_OFFSET:-16M}
 
 [ "$SLOW" = "no" ] && EXCEPT_SLOW="iozone"
 
-#unmount everything before starting
-stopall
-
 build_test_filter
 check_and_setup_lustre
 

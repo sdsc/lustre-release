@@ -39,9 +39,6 @@ esac
 # bug number for skipped test:        LU-1867	LU-3127
 	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 89	73b"
 
-#unmount everything before starting
-stopall
-
 build_test_filter
 
 check_and_setup_lustre

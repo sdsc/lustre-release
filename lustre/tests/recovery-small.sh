@@ -23,9 +23,6 @@ require_dsh_mds || exit 0
 # bug number for skipped test:	      LU-2547
 	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 24a 24b"
 
-#unmount everything before starting
-stopall
-
 build_test_filter
 
 # Allow us to override the setup if we already have a mounted system by

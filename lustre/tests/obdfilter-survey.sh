@@ -23,9 +23,6 @@ ALWAYS_EXCEPT="1b    2b    $OBDFILTER_SURVEY_EXCEPT"
 
 OBDSURVEY=${OBDSURVEY:-$(which obdfilter-survey)}
 
-#unmount everything before starting
-stopall
-
 build_test_filter
 check_and_setup_lustre
 

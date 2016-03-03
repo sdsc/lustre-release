@@ -27,9 +27,6 @@ fi
 SETUP=${SETUP:-""}
 CLEANUP=${CLEANUP:-""}
 
-#unmount everything before starting
-stopall
-
 build_test_filter
 
 SINGLECLIENT=${SINGLECLIENT:-$HOSTNAME}

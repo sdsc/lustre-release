@@ -42,7 +42,7 @@ SAVED_OSTCOUNT=${OSTCOUNT}
 MDSSIZE=100000
 OSTSIZE=100000
 # no need  too many OSTs, to reduce the format/start/stop overhead
-stopall
+
 [ $OSTCOUNT -gt 4 ] && OSTCOUNT=4
 
 # build up a clean test environment.
@@ -4297,7 +4297,7 @@ MDSSIZE=${SAVED_MDSSIZE}
 OSTSIZE=${SAVED_OSTSIZE}
 OSTCOUNT=${SAVED_OSTCOUNT}
 
-# cleanup the system at last
+# cleanup  the system at last
 formatall
 
 complete $SECONDS

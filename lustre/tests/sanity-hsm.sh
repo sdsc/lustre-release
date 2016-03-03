@@ -32,8 +32,6 @@ FAIL_ON_ERROR=false
 [ $MDSCOUNT -gt 9 ] &&
 	error "script cannot handle more than 9 MDTs, please fix" && exit
 
-#unmount everything before starting
-stopall
 check_and_setup_lustre
 
 if [[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.4.53) ]]; then
