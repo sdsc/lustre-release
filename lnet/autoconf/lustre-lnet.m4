@@ -400,6 +400,27 @@ AS_IF([test $ENABLEO2IB != "no"], [
 			[rdma_create_id wants 5 args])
 	])
 ])
+# 4.4 split struct ib_send_wr
+AS_IF([test $ENABLEO2IB != "no"], [
+	LB_CHECK_COMPILE([if 'struct ib_rdma_wr' exists],
+	ib_rdma_wr_exists, [
+		#ifdef HAVE_COMPAT_RDMA
+		#undef PACKAGE_NAME
+		#undef PACKAGE_TARNAME
+		#undef PACKAGE_VERSION
+		#undef PACKAGE_STRING
+		#undef PACKAGE_BUGREPORT
+		#undef PACKAGE_URL
+		#include <linux/compat-2.6.h>
+		#endif
+		#include <rdma/ib_verbs.h>
+	],[
+		struct ib_rdma_wr wrq;
+	],[
+		AC_DEFINE(HAVE_IB_RDMA_WR, 1,
+			[struct ib_rdma_wr exists])
+	])
+])
 ]) # LN_CONFIG_O2IB
 
 #

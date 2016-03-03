@@ -768,6 +768,7 @@ __must_hold(&conn->ibc_lock)
         int                ver = conn->ibc_version;
         int                rc;
         int                done;
+	struct ib_send_wr *bad_wr = NULL;
 
 	LASSERT(tx->tx_queued);
 	/* We rely on this for QP sizing */
@@ -847,14 +848,23 @@ __must_hold(&conn->ibc_lock)
                 /* close_conn will launch failover */
                 rc = -ENETDOWN;
         } else {
+#ifdef HAVE_IB_RDMA_WR
+		struct ib_rdma_wr *wrq = &tx->tx_wrq[tx->tx_nwrq - 1];
+
+		LASSERTF(wrq->wr.wr_id == kiblnd_ptr2wreqid(tx, IBLND_WID_TX),
+			 "bad wr_id "LPX64", opc %d, flags %d, peer: %s\n",
+			 wrq->wr.wr_id, wrq->wr.opcode, wrq->wr.send_flags,
+			 libcfs_nid2str(conn->ibc_peer->ibp_nid));
+		rc = ib_post_send(conn->ibc_cmid->qp, &tx->tx_wrq->wr, &bad_wr);
+#else
 		struct ib_send_wr *wrq = &tx->tx_wrq[tx->tx_nwrq - 1];
 
 		LASSERTF(wrq->wr_id == kiblnd_ptr2wreqid(tx, IBLND_WID_TX),
 			 "bad wr_id "LPX64", opc %d, flags %d, peer: %s\n",
 			 wrq->wr_id, wrq->opcode, wrq->send_flags,
 			 libcfs_nid2str(conn->ibc_peer->ibp_nid));
-		wrq = NULL;
-		rc = ib_post_send(conn->ibc_cmid->qp, tx->tx_wrq, &wrq);
+		rc = ib_post_send(conn->ibc_cmid->qp, tx->tx_wrq, &bad_wr);
+#endif
 	}
 
         conn->ibc_last_send = jiffies;
@@ -1025,7 +1035,11 @@ kiblnd_init_tx_msg (lnet_ni_t *ni, kib_tx_t *tx, int type, int body_nob)
 {
         kib_hca_dev_t     *hdev = tx->tx_pool->tpo_hdev;
         struct ib_sge     *sge = &tx->tx_sge[tx->tx_nwrq];
-        struct ib_send_wr *wrq = &tx->tx_wrq[tx->tx_nwrq];
+#ifdef HAVE_IB_RDMA_WR
+	struct ib_rdma_wr *wrq = &tx->tx_wrq[tx->tx_nwrq];
+#else
+	struct ib_send_wr *wrq = &tx->tx_wrq[tx->tx_nwrq];
+#endif
         int                nob = offsetof (kib_msg_t, ibm_u) + body_nob;
 	struct ib_mr      *mr = hdev->ibh_mrs;
 
@@ -1042,12 +1056,21 @@ kiblnd_init_tx_msg (lnet_ni_t *ni, kib_tx_t *tx, int type, int body_nob)
 
         memset(wrq, 0, sizeof(*wrq));
 
-        wrq->next       = NULL;
-        wrq->wr_id      = kiblnd_ptr2wreqid(tx, IBLND_WID_TX);
-        wrq->sg_list    = sge;
-        wrq->num_sge    = 1;
-        wrq->opcode     = IB_WR_SEND;
-        wrq->send_flags = IB_SEND_SIGNALED;
+#ifdef HAVE_IB_RDMA_WR
+	wrq->wr.next       = NULL;
+	wrq->wr.wr_id      = kiblnd_ptr2wreqid(tx, IBLND_WID_TX);
+	wrq->wr.sg_list    = sge;
+	wrq->wr.num_sge    = 1;
+	wrq->wr.opcode     = IB_WR_SEND;
+	wrq->wr.send_flags = IB_SEND_SIGNALED;
+#else
+	wrq->next       = NULL;
+	wrq->wr_id      = kiblnd_ptr2wreqid(tx, IBLND_WID_TX);
+	wrq->sg_list    = sge;
+	wrq->num_sge    = 1;
+	wrq->opcode     = IB_WR_SEND;
+	wrq->send_flags = IB_SEND_SIGNALED;
+#endif
 
         tx->tx_nwrq++;
 }
@@ -1059,7 +1082,11 @@ kiblnd_init_rdma(kib_conn_t *conn, kib_tx_t *tx, int type,
 	kib_msg_t         *ibmsg = tx->tx_msg;
 	kib_rdma_desc_t   *srcrd = tx->tx_rd;
 	struct ib_sge     *sge = &tx->tx_sge[0];
+#ifdef HAVE_IB_RDMA_WR
+	struct ib_rdma_wr *wrq = &tx->tx_wrq[0], *next;
+#else
 	struct ib_send_wr *wrq = &tx->tx_wrq[0];
+#endif
 	int                rc  = resid;
 	int                srcidx;
 	int                dstidx;
@@ -1105,16 +1132,30 @@ kiblnd_init_rdma(kib_conn_t *conn, kib_tx_t *tx, int type,
                 sge->length = wrknob;
 
                 wrq = &tx->tx_wrq[tx->tx_nwrq];
+#ifdef HAVE_IB_RDMA_WR
+		next = wrq + 1;
 
-                wrq->next       = wrq + 1;
-                wrq->wr_id      = kiblnd_ptr2wreqid(tx, IBLND_WID_RDMA);
-                wrq->sg_list    = sge;
-                wrq->num_sge    = 1;
-                wrq->opcode     = IB_WR_RDMA_WRITE;
-                wrq->send_flags = 0;
+		wrq->wr.next       = &next->wr;
+		wrq->wr.wr_id      = kiblnd_ptr2wreqid(tx, IBLND_WID_RDMA);
+		wrq->wr.sg_list    = sge;
+		wrq->wr.num_sge    = 1;
+		wrq->wr.opcode     = IB_WR_RDMA_WRITE;
+		wrq->wr.send_flags = 0;
 
-                wrq->wr.rdma.remote_addr = kiblnd_rd_frag_addr(dstrd, dstidx);
-                wrq->wr.rdma.rkey        = kiblnd_rd_frag_key(dstrd, dstidx);
+		wrq->remote_addr = kiblnd_rd_frag_addr(dstrd, dstidx);
+		wrq->rkey        = kiblnd_rd_frag_key(dstrd, dstidx);
+#else
+
+		wrq->next       = wrq + 1;
+		wrq->wr_id      = kiblnd_ptr2wreqid(tx, IBLND_WID_RDMA);
+		wrq->sg_list    = sge;
+		wrq->num_sge    = 1;
+		wrq->opcode     = IB_WR_RDMA_WRITE;
+		wrq->send_flags = 0;
+
+		wrq->wr.rdma.remote_addr = kiblnd_rd_frag_addr(dstrd, dstidx);
+		wrq->wr.rdma.rkey        = kiblnd_rd_frag_key(dstrd, dstidx);
+#endif
 
                 srcidx = kiblnd_rd_consume_frag(srcrd, srcidx, wrknob);
                 dstidx = kiblnd_rd_consume_frag(dstrd, dstidx, wrknob);
