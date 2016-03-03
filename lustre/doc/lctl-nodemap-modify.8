@@ -42,6 +42,12 @@ squash_gid
 .RS 4
 Defaults to 99. The group ID that unknown groups (if not trusted) and root (if not admin) should be mapped to.
 .RE
+.PP
+deny_squash
+.RS 4
+Defaults to off. If set to on, then squashed users will be denied access to 
+filesystem completely instead of just being squashed.
+.RE
 
 .I value
 is the value to set for the property. Should be 0 or 1 for admin and trusted.
