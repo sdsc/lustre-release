@@ -4320,7 +4320,7 @@ MDSSIZE=${SAVED_MDSSIZE}
 OSTSIZE=${SAVED_OSTSIZE}
 OSTCOUNT=${SAVED_OSTCOUNT}
 
-# cleanup the system at last
+# cleanup  the system at last
 formatall
 
 complete $SECONDS
