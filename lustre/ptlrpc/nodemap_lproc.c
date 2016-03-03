@@ -463,6 +463,33 @@ static int nodemap_admin_seq_show(struct seq_file *m, void *data)
 	return 0;
 }
 
+/**
+ * Reads and prints the admin flag for the given nodemap.
+ *
+ * \param	m		seq file in proc fs
+ * \param	data		unused
+ * \retval	0		success
+ */
+static int nodemap_deny_squash_seq_show(struct seq_file *m, void *data)
+{
+	struct lu_nodemap *nodemap;
+	int rc;
+
+	mutex_lock(&active_config_lock);
+	nodemap = nodemap_lookup(m->private);
+	mutex_unlock(&active_config_lock);
+	if (IS_ERR(nodemap)) {
+		rc = PTR_ERR(nodemap);
+		CERROR("cannot find nodemap '%s': rc = %d\n",
+			(char *)m->private, rc);
+		return rc;
+	}
+
+	seq_printf(m, "%d\n", (int)nodemap->nmf_deny_squashed_access);
+	nodemap_putref(nodemap);
+	return 0;
+}
+
 #ifdef NODEMAP_PROC_DEBUG
 /**
  * Helper functions to set nodemap flags.

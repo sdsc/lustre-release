@@ -488,6 +488,9 @@ static int old_init_ucred_common(struct mdt_thread_info *info,
 	uc->uc_identity = identity;
 
 	if (nodemap && uc->uc_o_uid == nodemap->nm_squash_uid) {
+		if (nodemap->nmf_deny_squashed_access)
+			RETURN(-EACCES);
+
 		uc->uc_fsuid = nodemap->nm_squash_uid;
 		uc->uc_fsgid = nodemap->nm_squash_gid;
 		uc->uc_cap = 0;
@@ -503,6 +506,8 @@ static int old_init_ucred_common(struct mdt_thread_info *info,
 		uc->uc_cap &= ~CFS_CAP_FS_MASK;
 	uc->uc_valid = UCRED_OLD;
 	ucred_set_jobid(info, uc);
+
+	EXIT;
 
 	return 0;
 }
