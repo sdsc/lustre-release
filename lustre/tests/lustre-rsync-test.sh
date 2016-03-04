@@ -33,6 +33,9 @@ init_test_env $@
 . ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}
 init_logging
 
+#unmount everything before starting
+stopall
+
 check_and_setup_lustre
 
 DIR=${DIR:-$MOUNT}
