@@ -1105,9 +1105,15 @@ int target_handle_connect(struct ptlrpc_request *req)
                 goto dont_check_exports;
 
         export = cfs_hash_lookup(target->obd_uuid_hash, &cluuid);
-        if (!export)
+        if (!export) {
                 goto no_export;
-
+	} else {
+		CDEBUG(D_HA, "%s: resend connect req from %s mdt-mdt:%s"
+		       "connection %p\n",
+		       target->obd_name, libcfs_nid2str(req->rq_peer.nid),
+		       data->ocd_connect_flags & OBD_CONNECT_MDS_MDS ?
+		       "yes" : "no", export->exp_connection);
+	}
 	/* We've found an export in the hash. */
 
 	spin_lock(&export->exp_lock);
@@ -1120,7 +1126,9 @@ int target_handle_connect(struct ptlrpc_request *req)
 		class_export_put(export);
 		export = NULL;
 		rc = -EALREADY;
-	} else if ((mds_conn || lw_client) && export->exp_connection != NULL) {
+	} else if ((mds_conn || lw_client ||
+		    data->ocd_connect_flags & OBD_CONNECT_MDS_MDS) &&
+		   export->exp_connection != NULL) {
 		spin_unlock(&export->exp_lock);
 		if (req->rq_peer.nid != export->exp_connection->c_peer.nid)
 			/* MDS or LWP reconnected after failover. */
@@ -1135,10 +1143,23 @@ int target_handle_connect(struct ptlrpc_request *req)
 				"%s, removing former export from same NID\n",
 				target->obd_name, mds_conn ? "MDS" : "LWP",
 				libcfs_nid2str(req->rq_peer.nid));
-                class_fail_export(export);
-                class_export_put(export);
-                export = NULL;
-                rc = 0;
+
+		if (data->ocd_connect_flags & OBD_CONNECT_MDS_MDS) {
+			/* Because exports between MDTs will always be kept,
+			 * let's do not fail such export, otherwise it might
+			 * cause eviction between MDTs, which might cause
+			 * namespace inconsistency */
+			spin_lock(&export->exp_lock);
+			export->exp_connecting = 1;
+			spin_unlock(&export->exp_lock);
+			conn.cookie = export->exp_handle.h_cookie;
+			rc = EALREADY;
+		} else {
+			class_fail_export(export);
+			class_export_put(export);
+			export = NULL;
+			rc = 0;
+		}
         } else if (export->exp_connection != NULL &&
                    req->rq_peer.nid != export->exp_connection->c_peer.nid &&
                    (lustre_msg_get_op_flags(req->rq_reqmsg) &
