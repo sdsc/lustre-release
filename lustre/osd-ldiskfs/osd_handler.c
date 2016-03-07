@@ -435,18 +435,19 @@ int osd_get_idif(struct osd_thread_info *info, struct inode *inode,
 static int osd_check_lma(const struct lu_env *env, struct osd_object *obj)
 {
 	struct osd_thread_info	*info	= osd_oti_get(env);
+	struct osd_device	*osd	= osd_obj2dev(obj);
 	struct lustre_mdt_attrs	*lma	= &info->oti_mdt_attrs;
 	struct inode		*inode	= obj->oo_inode;
 	struct dentry		*dentry = &info->oti_obj_dentry;
 	struct lu_fid		*fid	= NULL;
+	const struct lu_fid	*rfid	= lu_object_fid(&obj->oo_dt.do_lu);
 	int			 rc;
 	ENTRY;
 
 	CLASSERT(LMA_OLD_SIZE >= sizeof(*lma));
 	rc = __osd_xattr_get(inode, dentry, XATTR_NAME_LMA,
 			     info->oti_mdt_attrs_old, LMA_OLD_SIZE);
-	if (rc == -ENODATA && !fid_is_igif(lu_object_fid(&obj->oo_dt.do_lu)) &&
-	    osd_obj2dev(obj)->od_check_ff) {
+	if (rc == -ENODATA && !fid_is_igif(rfid) && osd->od_check_ff) {
 		fid = &lma->lma_self_fid;
 		rc = osd_get_idif(info, inode, dentry, fid);
 		if (rc > 0)
@@ -465,23 +466,36 @@ static int osd_check_lma(const struct lu_env *env, struct osd_object *obj)
 		if (unlikely((lma->lma_incompat & ~LMA_INCOMPAT_SUPP) ||
 			     CFS_FAIL_CHECK(OBD_FAIL_OSD_LMA_INCOMPAT))) {
 			CWARN("%s: unsupported incompat LMA feature(s) %#x for "
-			      "fid = "DFID", ino = %lu\n",
-			      osd_obj2dev(obj)->od_svname,
+			      "fid = "DFID", ino = %lu\n", osd_name(osd),
 			      lma->lma_incompat & ~LMA_INCOMPAT_SUPP,
-			      PFID(lu_object_fid(&obj->oo_dt.do_lu)),
-			      inode->i_ino);
+			      PFID(rfid), inode->i_ino);
 			rc = -EOPNOTSUPP;
 		} else if (!(lma->lma_compat & LMAC_NOT_IN_OI)) {
 			fid = &lma->lma_self_fid;
 		}
 	}
 
-	if (fid != NULL &&
-	    unlikely(!lu_fid_eq(lu_object_fid(&obj->oo_dt.do_lu), fid))) {
-		CDEBUG(D_INODE, "%s: FID "DFID" != self_fid "DFID"\n",
-		       osd_obj2dev(obj)->od_svname,
-		       PFID(lu_object_fid(&obj->oo_dt.do_lu)),
-		       PFID(&lma->lma_self_fid));
+	if (fid != NULL && unlikely(!lu_fid_eq(rfid, fid))) {
+		if (fid_is_idif(rfid) && fid_is_idif(fid)) {
+			struct ost_id	*oi   = &info->oti_ostid;
+			struct lu_fid	*fid1 = &info->oti_fid3;
+			__u32		 idx  = fid_idif_ost_idx(rfid);
+
+			/* For old IDIF, the OST index is not part of the IDIF,
+			 * Means that different OSTs may have the same IDIFs.
+			 * Under such case, we need to make some compatible
+			 * check to make sure to trigger OI scrub properly. */
+			if (idx != 0 && fid_idif_ost_idx(fid) == 0) {
+				/* Given @rfid is new, LMA is old. */
+				fid_to_ostid(fid, oi);
+				ostid_to_fid(fid1, oi, idx);
+				if (lu_fid_eq(fid1, rfid))
+					RETURN(0);
+			}
+		}
+
+		CWARN("%s: FID "DFID" != self_fid "DFID"\n",
+		      osd_name(osd), PFID(rfid), PFID(&lma->lma_self_fid));
 		rc = -EREMCHG;
 	}
 
