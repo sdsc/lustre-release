@@ -1218,15 +1218,15 @@ static void osd_scrub_join(struct osd_device *dev, __u32 flags,
 		sf->sf_status = SS_SCANNING;
 	}
 
-	if (flags & SS_AUTO_FULL) {
-		sf->sf_flags |= SF_AUTO;
-		scrub->os_full_speed = 1;
-	}
-
 	if (sf->sf_flags & (SF_RECREATED | SF_INCONSISTENT | SF_UPGRADE))
 		scrub->os_full_speed = 1;
 	else
 		scrub->os_full_speed = 0;
+
+	if (flags & SS_AUTO_FULL) {
+		sf->sf_flags |= SF_AUTO;
+		scrub->os_full_speed = 1;
+	}
 
 	scrub->os_new_checked = 0;
 	if (sf->sf_pos_last_checkpoint != 0)
@@ -2389,8 +2389,9 @@ static int do_osd_scrub_start(struct osd_device *dev, __u32 flags)
 again:
 	if (thread_is_running(thread)) {
 		spin_unlock(&scrub->os_lock);
-		if (!(scrub->os_file.sf_flags & SF_AUTO) ||
-		     (flags & (SS_AUTO_FULL | SS_AUTO_PARTIAL)))
+		if (!(scrub->os_file.sf_flags & SF_AUTO ||
+		      scrub->os_partial_scan) ||
+		    (flags & SS_AUTO_PARTIAL))
 			RETURN(-EALREADY);
 
 		osd_scrub_join(dev, flags, false);
