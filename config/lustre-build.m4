@@ -422,6 +422,15 @@ AM_CONDITIONAL([USE_QUILT], [test x$use_quilt = xyes])
 AM_CONDITIONAL([RHEL], [test x$RHEL_KERNEL = xyes])
 AM_CONDITIONAL([SUSE], [test x$SUSE_KERNEL = xyes])
 
+# 
+# Check whether build with libmount for mount.lustre.
+# libmount is part of the util-linux since v2.18.
+# We need it to manipulate utab file.
+#
+mount --version | grep -q libmount && with_libmount=yes
+AM_CONDITIONAL([LIBMOUNT], [test x$with_libmount = xyes])
+[ x$with_libmount = xyes ] && AC_DEFINE(HAVE_LIBMOUNT, 1, [kernel has libmount])
+
 # Sanity check for PCLMULQDQ instruction availability
 # PCLMULQDQ instruction is a new instruction available beginning with
 # the all new Core processor family based on the 32nm microarchitecture

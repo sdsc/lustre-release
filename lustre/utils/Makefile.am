@@ -21,6 +21,10 @@ if GSS
 SUBDIRS = gss
 endif
 
+if LIBMOUNT
+LDLIBMOUNT = -lmount
+endif
+
 # mount only finds helpers in /sbin
 rootsbin_PROGRAMS = mount.lustre
 bin_SCRIPTS   = llstat llobdstat plot-llstat
@@ -139,13 +143,13 @@ endif # LDISKFS_ENABLED
 mount_lustre_SOURCES = mount_lustre.c mount_utils.c mount_utils.h
 mount_lustre_CPPFLAGS := ${MNTMODCFLAGS}
 mount_lustre_LDFLAGS  := ${MNTMODLDFLAGS}
-mount_lustre_LDADD    := $(LIBPTLCTL) $(SELINUX)
+mount_lustre_LDADD    := $(LIBPTLCTL) $(SELINUX) $(LDLIBMOUNT)
 mount_lustre_DEPENDENCIES := $(LIBPTLCTL)
 
 mkfs_lustre_SOURCES = mkfs_lustre.c mount_utils.c mount_utils.h
 mkfs_lustre_CPPFLAGS := -UTUNEFS ${MNTMODCFLAGS}
 mkfs_lustre_LDFLAGS  := ${MNTMODLDFLAGS}
-mkfs_lustre_LDADD    := $(LIBPTLCTL)
+mkfs_lustre_LDADD    := $(LIBPTLCTL) $(LDLIBMOUNT)
 mkfs_lustre_DEPENDENCIES := $(LIBPTLCTL)
 
 tunefs_lustre_SOURCES = mkfs_lustre.c mount_utils.c mount_utils.h

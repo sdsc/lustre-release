@@ -806,9 +806,17 @@ int main(int argc, char *const argv[])
                                 rc = WEXITSTATUS(ret);
                 }
 
-	} else if (!mop.mo_nomtab) {
-		rc = update_mtab_entry(mop.mo_usource, mop.mo_target, "lustre",
-				       mop.mo_orig_options, 0,0,0);
+	} else {
+#ifdef HAVE_LIBMOUNT
+		/* deal with utab just for client */
+		if (strstr(mop.mo_usource, ":/") != NULL)
+			update_utab_entry(&mop);
+#endif
+		if (!mop.mo_nomtab) {
+			rc = update_mtab_entry(mop.mo_usource, mop.mo_target,
+					       "lustre", mop.mo_orig_options,
+					       0, 0, 0);
+		}
 	}
 
 	free(options);
