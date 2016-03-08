@@ -199,6 +199,21 @@ AC_SUBST(LIBCFS_SUBDIR)
 ]) # LB_LIBCFS_DIR
 
 #
+# LB_LIBMOUNT
+#
+# Check whether build with libmount for mount.lustre.
+# libmount is part of the util-linux since v2.18.
+# We need it to manipulate utab file.
+#
+AC_DEFUN([LB_LIBMOUNT], [
+LB_CHECK_FILE([/usr/include/libmount/libmount.h], [
+	LDLIBMOUNT="-lmount"
+	AC_SUBST(LDLIBMOUNT)
+	AC_DEFINE(HAVE_LIBMOUNT, 1, [kernel has libmount])
+	])
+]) # LB_LIBMOUNT
+
+#
 # LB_PATH_SNMP
 #
 # check for in-tree snmp support
@@ -660,6 +675,7 @@ m4_ifdef([LC_NODEMAP_PROC_DEBUG], [LC_NODEMAP_PROC_DEBUG])
 LIBCFS_CONFIG_CDEBUG
 LC_QUOTA
 
+LB_LIBMOUNT
 LB_PATH_SNMP
 LB_PATH_LUSTREIOKIT
 
