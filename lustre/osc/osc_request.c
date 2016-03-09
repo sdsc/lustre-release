@@ -1034,6 +1034,7 @@ osc_brw_prep_request(int cmd, struct client_obd *cli, struct obdo *oa,
         struct osc_brw_async_args *aa;
         struct req_capsule      *pill;
         struct brw_page *pg_prev;
+	unsigned max_brw;
 
         ENTRY;
         if (OBD_FAIL_CHECK(OBD_FAIL_OSC_BRW_PREP_REQ))
@@ -1075,8 +1076,17 @@ osc_brw_prep_request(int cmd, struct client_obd *cli, struct obdo *oa,
 	 * retry logic */
 	req->rq_no_retry_einprogress = 1;
 
-	desc = ptlrpc_prep_bulk_imp(req, page_count,
-		cli->cl_import->imp_connect_data.ocd_brw_size >> LNET_MTU_BITS,
+	/*
+	 * An reconnection from OST could cause BRW size of the import changing
+	 * from a big number to a smaller one. Exsiting extents with big max
+	 * pages per rpc is not able to put into current BRW size. Use a large
+	 * BRW here to preven crash.
+	 */
+	max_brw = max((page_count + LNET_MAX_IOV - 1) / LNET_MAX_IOV,
+		      cli->cl_import->imp_connect_data.ocd_brw_size >>
+			LNET_MTU_BITS);
+
+	desc = ptlrpc_prep_bulk_imp(req, page_count, max_brw,
 		(opc == OST_WRITE ? PTLRPC_BULK_GET_SOURCE :
 			PTLRPC_BULK_PUT_SINK) |
 			PTLRPC_BULK_BUF_KIOV,
