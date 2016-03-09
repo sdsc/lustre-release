@@ -22,6 +22,9 @@ require_dsh_mds || exit 0
 [ $(facet_fstype $SINGLEMDS) = "zfs" ] &&
 # bug number for skipped test:	      LU-2547
 	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 24a 24b"
+	
+#unmount everything before starting
+stopall
 
 build_test_filter
 

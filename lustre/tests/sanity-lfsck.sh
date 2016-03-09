@@ -41,8 +41,8 @@ SAVED_OSTCOUNT=${OSTCOUNT}
 # do not use too small MDSSIZE/OSTSIZE, which affect the default journal size
 MDSSIZE=100000
 OSTSIZE=100000
-# no need  too many OSTs, to reduce the format/start/stop overhead
-
+# no need too many OSTs, to reduce the format/start/stop overhead
+stopall
 [ $OSTCOUNT -gt 4 ] && OSTCOUNT=4
 
 # build up a clean test environment.
