@@ -99,4 +99,5 @@ EXTRA_DIST = \
 	obd_target.h \
 	upcall_cache.h \
 	lustre_kernelcomm.h \
+	seq_range.h \
 	uapi_kernelcomm.h
