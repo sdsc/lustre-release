@@ -318,7 +318,7 @@ struct osd_object {
 	 * inode is pinned for the whole duration of lu_object life.
 	 *
 	 * Not modified concurrently (either setup early during object
-	 * creation, or assigned by osd_object_create() under write lock).
+	 * creation, or assigned by osd_create() under write lock).
 	 */
 	dmu_buf_t		*oo_db;
 	sa_handle_t		*oo_sa_hdl;
