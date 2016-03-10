@@ -184,11 +184,10 @@ int mdd_attr_set_internal(const struct lu_env *env,
 int mdd_update_time(const struct lu_env *env, struct mdd_object *obj,
 		    const struct lu_attr *oattr, struct lu_attr *attr,
 		    struct thandle *handle);
-int mdd_object_create_internal(const struct lu_env *env, struct mdd_object *p,
-			       struct mdd_object *c, struct lu_attr *attr,
-			       struct thandle *handle,
-			       const struct md_op_spec *spec,
-			       struct dt_allocation_hint *hint);
+int mdd_create_internal(const struct lu_env *env, struct mdd_object *p,
+			struct mdd_object *c, struct lu_attr *attr,
+			struct thandle *handle, const struct md_op_spec *spec,
+			struct dt_allocation_hint *hint);
 
 /* mdd_lock.c */
 void mdd_write_lock(const struct lu_env *env, struct mdd_object *obj,
@@ -304,13 +303,11 @@ int mdd_changelog_ns_store(const struct lu_env *env, struct mdd_device *mdd,
 			   const struct lu_name *sname,
 			   struct thandle *handle);
 int mdd_invalidate(const struct lu_env *env, struct md_object *obj);
-int mdd_declare_object_create_internal(const struct lu_env *env,
-				       struct mdd_object *p,
-				       struct mdd_object *c,
-				       struct lu_attr *attr,
-				       struct thandle *handle,
-				       const struct md_op_spec *spec,
-				       struct dt_allocation_hint *hint);
+int mdd_declare_create_internal(const struct lu_env *env,
+				struct mdd_object *p, struct mdd_object *c,
+				struct lu_attr *attr, struct thandle *handle,
+				const struct md_op_spec *spec,
+				struct dt_allocation_hint *hint);
 int mdd_get_lov_ea(const struct lu_env *env, struct mdd_object *obj,
 		   struct lu_buf *lmm_buf);
 
@@ -657,24 +654,20 @@ static inline int mdo_ref_del(const struct lu_env *env, struct mdd_object *obj,
 }
 
 static inline int
-mdo_declare_create_obj(const struct lu_env *env, struct mdd_object *o,
-		       struct lu_attr *attr,
-		       struct dt_allocation_hint *hint,
-		       struct dt_object_format *dof,
-		       struct thandle *handle)
+mdo_declare_create(const struct lu_env *env, struct mdd_object *obj,
+		   struct lu_attr *attr, struct dt_allocation_hint *hint,
+		   struct dt_object_format *dof, struct thandle *handle)
 {
-	struct dt_object *next = mdd_object_child(o);
+	struct dt_object *next = mdd_object_child(obj);
 	return dt_declare_create(env, next, attr, hint, dof, handle);
 }
 
 static inline int
-mdo_create_obj(const struct lu_env *env, struct mdd_object *o,
-	       struct lu_attr *attr,
-	       struct dt_allocation_hint *hint,
-	       struct dt_object_format *dof,
-	       struct thandle *handle)
+mdo_create(const struct lu_env *env, struct mdd_object *obj,
+	   struct lu_attr *attr, struct dt_allocation_hint *hint,
+	   struct dt_object_format *dof, struct thandle *handle)
 {
-	struct dt_object *next = mdd_object_child(o);
+	struct dt_object *next = mdd_object_child(obj);
 	return dt_create(env, next, attr, hint, dof, handle);
 }
 
