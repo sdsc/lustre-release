@@ -60,7 +60,7 @@ enum {
 	LU_CACHE_PERCENT_DEFAULT = 20
 };
 
-#define	LU_CACHE_NR_MAX_ADJUST		128
+#define	LU_CACHE_NR_MAX_ADJUST		512
 #define	LU_CACHE_NR_UNLIMITED		-1
 #define	LU_CACHE_NR_DEFAULT		LU_CACHE_NR_UNLIMITED
 #define	LU_CACHE_NR_LDISKFS_LIMIT	LU_CACHE_NR_UNLIMITED
@@ -366,6 +366,9 @@ int lu_site_purge(const struct lu_env *env, struct lu_site *s, int nr)
 	if (OBD_FAIL_CHECK(OBD_FAIL_OBD_NO_LRU))
 		RETURN(0);
 
+	if (nr == LU_CACHE_NR_MAX_ADJUST && mutex_is_locked(&s->ls_purge_mutex))
+		RETURN(0);
+
 	INIT_LIST_HEAD(&dispose);
         /*
          * Under LRU list lock, scan LRU list and move unreferenced objects to
@@ -665,7 +668,7 @@ static void lu_object_limit(const struct lu_env *env,
 
 	size = cfs_hash_size_get(dev->ld_site->ls_obj_hash);
 	nr = (__u64)lu_cache_nr;
-	if (size > nr)
+	if (size > nr + LU_CACHE_NR_MAX_ADJUST)
 		lu_site_purge(env, dev->ld_site,
 			      MIN(size - nr, LU_CACHE_NR_MAX_ADJUST));
 
