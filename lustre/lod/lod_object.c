@@ -2726,7 +2726,7 @@ static int lod_xattr_set(const struct lu_env *env,
 						      th);
 		RETURN(rc);
 	} else if (S_ISREG(dt->do_lu.lo_header->loh_attr) &&
-		   !strcmp(name, XATTR_NAME_LOV)) {
+		   strcmp(name, XATTR_NAME_LOV) == 0) {
 		/* in case of lov EA swap, just set it
 		 * if not, it is a replay so check striping match what we
 		 * already have during req replay, declare_xattr_set()
@@ -2870,12 +2870,15 @@ int lod_object_set_pool(struct lod_object *o, char *pool)
 {
 	int len;
 
+	if (pool == o->ldo_pool)
+		return 0;
+
 	if (o->ldo_pool) {
 		len = strlen(o->ldo_pool);
 		OBD_FREE(o->ldo_pool, len + 1);
 		o->ldo_pool = NULL;
 	}
-	if (pool) {
+	if (pool && pool[0] != '\0') {
 		len = strlen(pool);
 		OBD_ALLOC(o->ldo_pool, len + 1);
 		if (o->ldo_pool == NULL)
