@@ -1780,14 +1780,18 @@ static int lod_qos_parse_config(const struct lu_env *env,
 		lo->ldo_stripe_size = v1->lmm_stripe_size;
 
 	if (lo->ldo_stripe_size & (LOV_MIN_STRIPE_SIZE - 1))
-		lo->ldo_stripe_size = LOV_MIN_STRIPE_SIZE;
+		lo->ldo_stripe_size =
+			(lo->ldo_stripe_size + LOV_MIN_STRIPE_SIZE / 2) &
+			~LOV_MIN_STRIPE_SIZE;
 
 	if (v1->lmm_stripe_count > 0)
 		lo->ldo_stripenr = v1->lmm_stripe_count;
 
 	lo->ldo_def_stripe_offset = v1->lmm_stripe_offset;
 
-	lod_object_set_pool(lo, NULL);
+	/* inherit pool_name from the parent directory, if not otherwise set */
+	if (!pool_name && lo->ldo_pool_name)
+		pool_name = lo->ldo_pool_name;
 	if (pool_name != NULL) {
 		struct pool_desc *pool;
 
