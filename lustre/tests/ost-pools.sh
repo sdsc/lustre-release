@@ -1,6 +1,4 @@
 #!/bin/bash
-# -*- mode: Bash; tab-width: 4; indent-tabs-mode: t; -*-
-# vim:shiftwidth=4:softtabstop=4:tabstop=4:
 #
 # Run select tests by setting ONLY, or as arguments to the script.
 # Skip specific tests by setting EXCEPT.
@@ -1176,30 +1174,39 @@ test_20() {
           printf "$FSNAME-OST%04x_UUID " $i; done)
     add_pool $POOL2 "$FSNAME-OST[$start-$TGT_MAX/2]" "$TGT"
 
-    create_dir $dir1 $POOL
-    create_file $dir1/file1 $POOL2
-    create_dir $dir2 $POOL2
-    touch $dir2/file2
-    mkdir $dir3
-    $SETSTRIPE -c 1 $dir3 # No pool assignment
-    touch $dir3/file3
-    $SETSTRIPE -c 1 $dir2/file4 # No pool assignment
+	create_dir $dir1 $POOL
+	create_file $dir1/file1 $POOL2
+	create_dir $dir2 $POOL2
+	touch $dir2/file2
+	mkdir $dir3
+	$SETSTRIPE -c 1 $dir3 # No explicit pool assignment
+	touch $dir3/file3
+	$SETSTRIPE -c 1 $dir2/file4 # No explicit pool assignment
+	$SETSTRIPE -S 1M $dir2/file5 # No explicit pool assignment
 
-    check_file_in_pool $dir1/file1 $POOL2
-    check_file_in_pool $dir2/file2 $POOL2
+	check_file_in_pool $dir1/file1 $POOL2
+	check_file_in_pool $dir2/file2 $POOL2
 
-    check_dir_not_in_pool $dir3 $POOL
-    check_dir_not_in_pool $dir3 $POOL2
+	if [ $(lustre_version_code mds1) -lt $(version_code 2.8.50) ]; then
+		check_dir_not_in_pool $dir3 $POOL
+		check_dir_not_in_pool $dir3 $POOL2
 
-    check_file_not_in_pool $dir3/file3 $POOL
-    check_file_not_in_pool $dir3/file3 $POOL2
+		check_file_not_in_pool $dir3/file3 $POOL
+		check_file_not_in_pool $dir3/file3 $POOL2
 
-    check_file_not_in_pool $dir2/file4 $POOL
-    check_file_not_in_pool $dir2/file4 $POOL2
+		check_file_not_in_pool $dir2/file4 $POOL
+		check_file_not_in_pool $dir2/file4 $POOL2
+	else
+		check_dir_in_pool $dir3 $POOL
 
-    rm -rf $dir1
+		check_file_in_pool $dir3/file3 $POOL
+		check_file_in_pool $dir2/file4 $POOL
+		check_file_in_pool $dir2/file5 $POOL
+	fi
 
-    return 0
+	rm -rf $dir1
+
+	return 0
 }
 run_test 20 "Different pools in a directory hierarchy."
 
