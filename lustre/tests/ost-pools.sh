@@ -94,16 +94,15 @@ osts_in_pool() {
 }
 
 check_dir_in_pool() {
-    local dir=$1
-    local pool=$2
-    local res=$($GETSTRIPE $dir | grep "^stripe_count:" |
-                cut -d ':' -f 5 | tr -d "[:blank:]")
-    if [[ "$res" != "$pool" ]]; then
-        error found $res instead of $pool
-        return 1
-    fi
+	local dir=$1
+	local pool=$2
+	local res=$($LFS getstripe --pool $dir)
+	if [[ "$res" != "$pool" ]]; then
+		error found $res instead of $pool
+		return 1
+	fi
 
-    return 0
+	return 0
 }
 
 check_file_in_pool() {
@@ -112,51 +111,43 @@ check_file_in_pool() {
 }
 
 check_file_in_osts() {
-        local file=$1
-        local pool_list=${2:-$TGT_LIST}
-        local count=$3
-        local res=$($GETSTRIPE $file | grep 0x | cut -f2)
-        local i
-        for i in $res; do
-                found=$(echo :$pool_list: | tr " " ":" | grep :$i:)
-                if [[ "$found" == "" ]]; then
-                        echo "pool list: $pool_list"
-                        echo "striping: $res"
-                        $GETSTRIPE $file
-                        error "$file not allocated from OSTs $pool_list."
-                        return 1
-                fi
-        done
+	local file=$1
+	local pool_list=${2:-$TGT_LIST}
+	local count=$3
+	local res=$($LFS getstripe $file | grep 0x | cut -f2)
+	local i
+	for i in $res; do
+		found=$(echo :$pool_list: | tr " " ":" | grep :$i:)
+		if [[ "$found" == "" ]]; then
+			echo "pool list: $pool_list"
+			echo "striping: $res"
+			$LFS getstripe -v $file
+			error "$file not allocated from OSTs $pool_list."
+			return 1
+		fi
+	done
 
-        local ost_count=$($GETSTRIPE $file | grep 0x | wc -l)
-        [[ -n "$count" ]] && [[ $ost_count -ne $count ]] &&
-            { error "Stripe count $count expected; got $ost_count" && return 1;}
-
-
-}
-
-file_pool() {
-    $GETSTRIPE -v $1 | grep "^lmm_pool:" | tr -d "[:blank:]" | cut -f 2 -d ':'
+	local ost_count=$($LFS getstripe -c $file)
+	[[ -n "$count" ]] && [[ $ost_count -ne $count ]] &&
+		error "Stripe count $count expected; got $ost_count" && return 1
 }
 
 check_file_not_in_pool() {
-    local file=$1
-    local pool=$2
-    local res=$(file_pool $file)
+	local file=$1
+	local pool=$2
+	local res=$($LFS getstripe --pool $file)
 
-    if [[ "$res" == "$pool" ]]; then
-        error "File $file is in pool: $res"
-        return 1
-    else
-        return 0
-    fi
+	if [[ "$res" == "$pool" ]]; then
+		error "File $file is in pool: $res"
+		return 1
+
+	return 0
 }
 
 check_dir_not_in_pool() {
 	local dir=$1
 	local pool=$2
-	local res=$($GETSTRIPE -v $dir | grep "^stripe_count" | head -n1 |
-		cut -f 8 -d ' ')
+	local res=$($LFS getstripe --pool $dir)
 	if [[ "$res" == "$pool" ]]; then
 		error "File $dir is in pool: $res"
 		return 1
@@ -913,19 +904,19 @@ test_14() {
     add_pool $POOL $TGT_HALF "$TGT_UUID2"
     add_pool $POOL2 "OST0000" "$FSNAME-OST0000_UUID "
 
-    create_dir $POOL_ROOT/dir1 $POOL 1
-    create_file $POOL_ROOT/dir1/file $POOL 1
-    local OST=$($GETSTRIPE -i $POOL_ROOT/dir1/file)
-    i=0
-    while [[ $i -lt $numfiles ]]; do
-        OST=$((OST + 2))
-        [[ $OST -gt $((16#$TGT_MAX)) ]] && OST=$TGT_FIRST
+	create_dir $POOL_ROOT/dir1 $POOL 1
+	create_file $POOL_ROOT/dir1/file $POOL 1
+	local ost=$($LFS getstripe -i $POOL_ROOT/dir1/file)
+	i=0
+	while [[ $i -lt $numfiles ]]; do
+		ost=$((ost + 2))
+		[[ $ost -gt $((16#$TGT_MAX)) ]] && ost=$TGT_FIRST
 
-        # echo "Iteration: $i OST: $OST"
-        create_file $POOL_ROOT/dir1/file${i} $POOL 1
-        check_file_in_pool $POOL_ROOT/dir1/file${i} $POOL
-        i=$((i + 1))
-    done
+		# echo "Iteration: $i OST: $ost"
+		create_file $POOL_ROOT/dir1/file${i} $POOL 1
+		check_file_in_pool $POOL_ROOT/dir1/file${i} $POOL
+		i=$((i + 1))
+	done
 
     # Fill up OST0 until it is nearly full.
     # Create 9 files of size OST0_SIZE/10 each.
@@ -1218,14 +1209,14 @@ test_21() {
 
     add_pool $POOL $TGT_HALF "$TGT_UUID2"
 
-    create_dir $dir $POOL $OSTCOUNT
-    create_file $dir/file1 $POOL $OSTCOUNT
-    $GETSTRIPE -v $dir/file1
-    check_file_in_pool $dir/file1 $POOL
+	create_dir $dir $POOL $OSTCOUNT
+	create_file $dir/file1 $POOL $OSTCOUNT
+	$LFS getstripe -v $dir/file1
+	check_file_in_pool $dir/file1 $POOL
 
-    rm -rf $dir
+	rm -rf $dir
 
-    return 0
+	return 0
 }
 run_test 21 "OST pool with fewer OSTs than stripe count"
 
@@ -1450,53 +1441,42 @@ test_24() {
 
     mkdir $POOL_ROOT/dir4
 
-    for i in 1 2 3 4; do
-        dir=${POOL_ROOT}/dir${i}
-        local pool
-        local pool1
-        local count
-        local count1
-        local index
-        local size
-        local size1
+	for i in 1 2 3 4; do
+		dir=${POOL_ROOT}/dir${i}
+		local pool
+		local pool1
+		local count
+		local count1
+		local index
+		local size
+		local size1
 
-        createmany -o $dir/${tfile} $numfiles ||
-            error "createmany $dir/${tfile} failed!"
-        res=$($GETSTRIPE -v $dir | grep "^stripe_count:")
-        if [ $? -ne 0 ]; then
-            res=$($GETSTRIPE -v $dir | grep "^(Default) ")
-            pool=$(cut -f 9 -d ' ' <<< $res)
-            index=$(cut -f 7 -d ' ' <<< $res)
-            size=$(cut -f 5 -d ' ' <<< $res)
-            count=$(cut -f 3 -d ' ' <<< $res)
-        else
-            pool=$(cut -f 8 -d ' ' <<< $res)
-            index=$(cut -f 6 -d ' ' <<< $res)
-            size=$(cut -f 4 -d ' ' <<< $res)
-            count=$(cut -f 2 -d ' ' <<< $res)
-        fi
+		createmany -o $dir/${tfile} $numfiles ||
+			error "createmany $dir/${tfile} failed!"
+		pool=$($LFS getstripe --pool $dir)
+		index=$($LFS getstripe -i $dir)
+		size=$($LFS getstripe -S $dir)
+		count=$($LFS getstripe -c $dir)
 
-        for file in $dir/*; do
-            if [ "$pool" != "" ]; then
-                check_file_in_pool $file $pool
-            fi
-            pool1=$(file_pool $file)
-            count1=$($GETSTRIPE -v $file | grep "^lmm_stripe_count:" |
-                     tr -d '[:blank:]' | cut -f 2 -d ':')
-            size1=$($GETSTRIPE -v $file | grep "^lmm_stripe_size:" |
-                    tr -d '[:blank:]' | cut -f 2 -d ':')
-            [[ "$pool" != "$pool1" ]] &&
-                error "Pool name ($pool) not inherited in $file($pool1)"
-            [[ "$count" != "$count1" ]] &&
-                error "Stripe count ($count) not inherited in $file ($count1)"
-            [[ "$size" != "$size1" ]] && [[ "$size" != "0" ]] &&
-                error "Stripe size ($size) not inherited in $file ($size1)"
-        done
-    done
+		for file in $dir/*; do
+			if [ "$pool" != "" ]; then
+				check_file_in_pool $file $pool
+			fi
+			pool1=$($LFS getstripe --pool $file)
+			count1=$($LFS getstripe -c $file)
+			size1=$($LFS getstripe -S $file)
+			[[ "$pool" != "$pool1" ]] &&
+				error "Pool $pool not on $file: $pool1"
+			[[ "$count" != "$count1" ]] &&
+				error "Stripe count $count not on $file:$count1"
+			[[ "$size" != "$size1" ]] && [[ "$size" != "0" ]] &&
+				error "Stripe size $size not on $file: $size1"
+		done
+	done
 
-    rm -rf $POOL_ROOT
+	rm -rf $POOL_ROOT
 
-    return 0
+	return 0
 }
 run_test 24 "Independence of pool from other setstripe parameters"
 
@@ -1521,20 +1501,21 @@ test_25() {
         # Veriy that the pool got created and is usable
         df $POOL_ROOT > /dev/null
         sleep 5
-        # Make sure OST0 can be striped on
-        $SETSTRIPE -i 0 -c 1 $POOL_ROOT/$tfile
-        STR=$($GETSTRIPE $POOL_ROOT/$tfile | grep 0x | cut -f2 | tr -d " ")
-        rm $POOL_ROOT/$tfile
-        if [[ "$STR" == "0" ]]; then
-            echo "Creating a file in pool$i"
-            create_file $POOL_ROOT/file$i $POOL$i || break
-            check_file_in_pool $POOL_ROOT/file$i $POOL$i || break
-        else
-            echo "OST 0 seems to be unavailable.  Try later."
-        fi
-    done
 
-    rm -rf $POOL_ROOT
+		# Make sure OST0 can be striped on
+		$SETSTRIPE -i 0 -c 1 $POOL_ROOT/$tfile
+		local STR=$($LFS getstripe -i $POOL_ROOT/$tfile)
+		rm $POOL_ROOT/$tfile
+		if [[ "$STR" == "0" ]]; then
+			echo "Creating a file in pool$i"
+			create_file $POOL_ROOT/file$i $POOL$i || break
+			check_file_in_pool $POOL_ROOT/file$i $POOL$i || break
+		else
+			echo "OST 0 seems to be unavailable.  Try later."
+		fi
+	done
+
+	rm -rf $POOL_ROOT
 }
 run_test 25 "Create new pool and restart MDS"
 
