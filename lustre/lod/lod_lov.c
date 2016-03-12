@@ -1118,8 +1118,8 @@ int lod_verify_striping(struct lod_device *d, const struct lu_buf *buf,
 	magic = le32_to_cpu(lum->lmm_magic);
 	if (magic != LOV_USER_MAGIC_V1 &&
 	    magic != LOV_USER_MAGIC_V3 &&
-	    magic != LOV_MAGIC_V1_DEF &&
-	    magic != LOV_MAGIC_V3_DEF) {
+	    magic != LOV_MAGIC_V1_DEFINED &&
+	    magic != LOV_MAGIC_V3_DEFINED) {
 		CDEBUG(D_IOCTL, "bad userland LOV MAGIC: %#x\n", magic);
 		GOTO(out, rc = -EINVAL);
 	}
@@ -1160,10 +1160,10 @@ int lod_verify_striping(struct lod_device *d, const struct lu_buf *buf,
 		}
 	}
 
-	if (magic == LOV_USER_MAGIC_V1 || magic == LOV_MAGIC_V1_DEF)
+	if (magic == LOV_USER_MAGIC_V1 || magic == LOV_MAGIC_V1_DEFINED)
 		lum_size = offsetof(struct lov_user_md_v1,
 				    lmm_objects[0]);
-	else if (magic == LOV_USER_MAGIC_V3 || magic == LOV_MAGIC_V3_DEF)
+	else if (magic == LOV_USER_MAGIC_V3 || magic == LOV_MAGIC_V3_DEFINED)
 		lum_size = offsetof(struct lov_user_md_v3,
 				    lmm_objects[0]);
 	else
@@ -1177,7 +1177,7 @@ int lod_verify_striping(struct lod_device *d, const struct lu_buf *buf,
 		GOTO(out, rc = -EINVAL);
 	}
 
-	if (!(magic == LOV_USER_MAGIC_V3 || magic == LOV_MAGIC_V3_DEF))
+	if (!(magic == LOV_USER_MAGIC_V3 || magic == LOV_MAGIC_V3_DEFINED))
 		goto out;
 
 	lum3 = buf->lb_buf;

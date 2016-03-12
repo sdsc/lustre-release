@@ -1605,7 +1605,7 @@ static __u16 lod_get_stripecnt(struct lod_device *lod, __u32 magic,
  * \retval negative	negated errno on error
  */
 static int lod_use_defined_striping(const struct lu_env *env,
-				    struct lod_object *mo,
+				    struct lod_object *lo,
 				    const struct lu_buf *buf)
 {
 	struct lov_mds_md_v1   *v1 = buf->lb_buf;
@@ -1616,32 +1616,32 @@ static int lod_use_defined_striping(const struct lu_env *env,
 	ENTRY;
 
 	magic = le32_to_cpu(v1->lmm_magic);
-	if (magic == LOV_MAGIC_V1_DEF) {
+	if (magic == LOV_MAGIC_V1_DEFINED) {
 		magic = LOV_MAGIC_V1;
 		objs = &v1->lmm_objects[0];
-	} else if (magic == LOV_MAGIC_V3_DEF) {
+	} else if (magic == LOV_MAGIC_V3_DEFINED) {
 		magic = LOV_MAGIC_V3;
 		objs = &v3->lmm_objects[0];
-		lod_object_set_pool(mo, v3->lmm_pool_name);
+		lod_object_set_pool(lo, v3->lmm_pool_name);
 	} else {
 		GOTO(out, rc = -EINVAL);
 	}
 
-	mo->ldo_pattern = le32_to_cpu(v1->lmm_pattern);
-	mo->ldo_stripe_size = le32_to_cpu(v1->lmm_stripe_size);
-	mo->ldo_stripenr = le16_to_cpu(v1->lmm_stripe_count);
-	mo->ldo_layout_gen = le16_to_cpu(v1->lmm_layout_gen);
+	lo->ldo_pattern = le32_to_cpu(v1->lmm_pattern);
+	lo->ldo_stripe_size = le32_to_cpu(v1->lmm_stripe_size);
+	lo->ldo_stripenr = le16_to_cpu(v1->lmm_stripe_count);
+	lo->ldo_layout_gen = le16_to_cpu(v1->lmm_layout_gen);
 
 	/* fixup for released file before object initialization */
-	if (mo->ldo_pattern & LOV_PATTERN_F_RELEASED) {
-		mo->ldo_released_stripenr = mo->ldo_stripenr;
-		mo->ldo_stripenr = 0;
+	if (lo->ldo_pattern & LOV_PATTERN_F_RELEASED) {
+		lo->ldo_released_stripenr = lo->ldo_stripenr;
+		lo->ldo_stripenr = 0;
 	}
 
-	LASSERT(buf->lb_len >= lov_mds_md_size(mo->ldo_stripenr, magic));
+	LASSERT(buf->lb_len >= lov_mds_md_size(lo->ldo_stripenr, magic));
 
-	if (mo->ldo_stripenr > 0)
-		rc = lod_initialize_objects(env, mo, objs);
+	if (lo->ldo_stripenr > 0)
+		rc = lod_initialize_objects(env, lo, objs);
 
 out:
 	RETURN(rc);
@@ -1684,7 +1684,8 @@ static int lod_qos_parse_config(const struct lu_env *env,
 	v1 = buf->lb_buf;
 	magic = v1->lmm_magic;
 
-	if (unlikely(magic == LOV_MAGIC_V1_DEF || magic == LOV_MAGIC_V3_DEF)) {
+	if (unlikely(magic == LOV_MAGIC_V1_DEFINED ||
+		     magic == LOV_MAGIC_V3_DEFINED)) {
 		/* try to use as fully defined striping */
 		rc = lod_use_defined_striping(env, lo, buf);
 		RETURN(rc);

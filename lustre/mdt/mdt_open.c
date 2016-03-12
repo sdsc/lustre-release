@@ -1740,18 +1740,20 @@ static int mdt_hsm_release(struct mdt_thread_info *info, struct mdt_object *o,
 	if (!(ma->ma_valid & MA_LOV)) {
 		/* Even empty file are released */
 		memset(ma->ma_lmm, 0, sizeof(*ma->ma_lmm));
-		ma->ma_lmm->lmm_magic = cpu_to_le32(LOV_MAGIC_V1_DEF);
+		ma->ma_lmm->lmm_magic = cpu_to_le32(LOV_MAGIC_V1_DEFINED);
 		ma->ma_lmm->lmm_pattern = cpu_to_le32(LOV_PATTERN_RAID0);
 		ma->ma_lmm->lmm_stripe_size = cpu_to_le32(LOV_MIN_STRIPE_SIZE);
 		ma->ma_lmm_size = sizeof(*ma->ma_lmm);
 	} else {
-		/* Magic must be LOV_MAGIC_Vx_DEF otherwise LOD will interpret
-		 * ma_lmm as lov_user_md, then it will be confused by union of
-		 * layout_gen and stripe_offset. */
+		/* Magic must be LOV_MAGIC_Vx_DEFINED otherwise LOD will
+		 * interpret ma_lmm as lov_user_md, then it will be confused
+		 * by union of layout_gen and stripe_offset. */
 		if (le32_to_cpu(ma->ma_lmm->lmm_magic) == LOV_MAGIC_V1)
-			ma->ma_lmm->lmm_magic = cpu_to_le32(LOV_MAGIC_V1_DEF);
+			ma->ma_lmm->lmm_magic =
+				cpu_to_le32(LOV_MAGIC_V1_DEFINED);
 		else if (le32_to_cpu(ma->ma_lmm->lmm_magic) == LOV_MAGIC_V3)
-			ma->ma_lmm->lmm_magic = cpu_to_le32(LOV_MAGIC_V3_DEF);
+			ma->ma_lmm->lmm_magic =
+				cpu_to_le32(LOV_MAGIC_V3_DEFINED);
 		else
 			GOTO(out_unlock, rc = -EINVAL);
 	}

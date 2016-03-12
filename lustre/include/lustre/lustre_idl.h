@@ -1503,8 +1503,8 @@ enum obdo_flags {
  * hints), so MDT replaces magic with appropriate one and now LOD can
  * easily understand what's inside -bzzz
  */
-#define LOV_MAGIC_V1_DEF  0x0CD10BD0
-#define LOV_MAGIC_V3_DEF  0x0CD30BD0
+#define LOV_MAGIC_V1_DEFINED  0x0CD10BD0
+#define LOV_MAGIC_V3_DEFINED  0x0CD30BD0
 
 #define lov_pattern(pattern)		(pattern & ~LOV_PATTERN_F_MASK)
 #define lov_pattern_flags(pattern)	(pattern & LOV_PATTERN_F_MASK)
