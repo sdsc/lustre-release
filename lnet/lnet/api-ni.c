@@ -2048,6 +2048,7 @@ lnet_get_ni_config(struct lnet_ioctl_config_ni *cfg_ni,
 				  cfg_ni->lic_cpts, &cfg_ni->lic_status,
 				  &cfg_ni->lic_tcp_bonding);
 
+		cfg_ni->lic_dev_cpt = ni->dev_cpt;
 		/* TODO: FUTURE - fill specific LND tunables */
 		lnet_ni_unlock(ni);
 	}
