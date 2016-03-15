@@ -149,6 +149,7 @@ struct lnet_ioctl_config_ni {
 	__u32			lic_status;
 	__u32			lic_tcp_bonding;
 	__u32			lic_idx;
+	__s32			lic_dev_cpt;
 	char 			lic_bulk[0];
 };
 
