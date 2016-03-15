@@ -388,6 +388,9 @@ typedef struct lnet_ni {
 	/* NI FSM */
 	enum lnet_ni_state	ni_state;
 
+	/* physical device CPT */
+	int			dev_cpt;
+
 	/* sequence number used to round robin over nis within a net */
 	int			ni_seq;
 
