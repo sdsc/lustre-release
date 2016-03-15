@@ -62,6 +62,8 @@ struct cfs_cpu_partition {
 	cpumask_t			*cpt_cpumask;
 	/* nodes mask for this partition */
 	nodemask_t			*cpt_nodemask;
+	/* NUMA distance between CPTs */
+	unsigned			*cpt_distance;
 	/* spread rotor for NUMA allocator */
 	unsigned			cpt_spread_rotor;
 };
@@ -72,6 +74,8 @@ struct cfs_cpt_table {
 	unsigned			ctb_version;
 	/* spread rotor for NUMA allocator */
 	unsigned			ctb_spread_rotor;
+	/* maximum NUMA distance between all nodes in table */
+	unsigned			ctb_distance;
 	/* # of CPU partitions */
 	unsigned			ctb_nparts;
 	/* partitions tables */
@@ -80,6 +84,8 @@ struct cfs_cpt_table {
 	int				*ctb_cpu2cpt;
 	/* all cpus in this partition table */
 	cpumask_t			*ctb_cpumask;
+	/* shadow HW node to CPU partition ID */
+	int				*ctb_node2cpt;
 	/* all nodes in this partition table */
 	nodemask_t			*ctb_nodemask;
 };
