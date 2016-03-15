@@ -338,7 +338,9 @@ void request_in_callback(lnet_event_t *ev)
 	if (ev->type == LNET_EVENT_PUT && ev->status == 0)
 		req->rq_reqdata_len = ev->mlength;
 	do_gettimeofday(&req->rq_arrival_time);
+	/* Multi-Rail: keep track of both initiator and source NID. */
 	req->rq_peer = ev->initiator;
+	req->rq_source = ev->source;
 	req->rq_self = ev->target.nid;
 	req->rq_rqbd = rqbd;
 	req->rq_phase = RQ_PHASE_NEW;
@@ -346,7 +348,8 @@ void request_in_callback(lnet_event_t *ev)
 		CDEBUG(D_INFO, "incoming req@%p x"LPU64" msgsize %u\n",
 		       req, req->rq_xid, ev->mlength);
 
-	CDEBUG(D_RPCTRACE, "peer: %s\n", libcfs_id2str(req->rq_peer));
+	CDEBUG(D_RPCTRACE, "peer: %s (source: %s)\n",
+		libcfs_id2str(req->rq_peer), libcfs_id2str(req->rq_source));
 
 	spin_lock(&svcpt->scp_lock);
 
