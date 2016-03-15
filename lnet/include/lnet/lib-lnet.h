@@ -782,6 +782,7 @@ int lnet_find_or_create_peer_locked(lnet_nid_t dst_nid, int cpt,
 				    struct lnet_peer **peer);
 int lnet_nid2peerni_locked(struct lnet_peer_ni **lpp, lnet_nid_t nid, int cpt);
 struct lnet_peer_ni *lnet_find_peer_ni_locked(lnet_nid_t nid, int cpt);
+lnet_nid_t lnet_peer_primary_nid(lnet_nid_t nid);
 void lnet_peer_tables_cleanup(lnet_ni_t *ni);
 void lnet_peer_tables_destroy(void);
 int lnet_peer_tables_create(void);
