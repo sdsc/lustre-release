@@ -4445,6 +4445,19 @@ test_120() {
 }
 run_test 120 "DNE fail abort should stop both normal and DNE replay"
 
+test_121() {
+	replay_barrier mds1
+	touch $DIR/$tfile
+
+	#define OBD_FAIL_TGT_REPLAY_COMPLETE_DROP 0x718
+	do_facet mds1 $LCTL set_param fail_loc=0x80000718
+	fail mds1
+	$CHECKSTAT -t file $DIR/$tfile ||
+		error "$CHECKSTAT $DIR/$tfile attribute check failed"
+	rm $DIR/$tfile
+}
+run_test 121 "drop complete replay during recovery"
+
 complete $SECONDS
 check_and_cleanup_lustre
 exit_status

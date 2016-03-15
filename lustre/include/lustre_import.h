@@ -320,6 +320,8 @@ struct obd_import {
 
         struct imp_at             imp_at;                 /* adaptive timeout data */
         time_t                    imp_last_reply_time;    /* for health check */
+
+	struct ptlrpc_request	  *imp_last_complete_req;
 };
 
 /* import.c */

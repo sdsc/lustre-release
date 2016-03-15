@@ -1319,6 +1319,15 @@ out:
 	RETURN(rc);
 }
 
+static void finish_completed_req(struct obd_import *imp)
+{
+	if (imp->imp_last_complete_req == NULL)
+		return;
+
+	ptlrpc_req_finished(imp->imp_last_complete_req);
+	imp->imp_last_complete_req = NULL;
+}
+
 /**
  * interpret callback for "completed replay" RPCs.
  * \see signal_completed_replay
@@ -1332,16 +1341,37 @@ static int completed_replay_interpret(const struct lu_env *env,
 	if (req->rq_status == 0 &&
 	    !req->rq_import->imp_vbr_failed) {
 		ptlrpc_import_recovery_state_machine(req->rq_import);
+		finish_completed_req(req->rq_import);
 	} else {
 		if (req->rq_import->imp_vbr_failed) {
 			CDEBUG(D_WARNING,
 			       "%s: version recovery fails, reconnecting\n",
 			       req->rq_import->imp_obd->obd_name);
+			finish_completed_req(req->rq_import);
 		} else {
 			CDEBUG(D_HA, "%s: LAST_REPLAY message error: %d, "
 				     "reconnecting\n",
 			       req->rq_import->imp_obd->obd_name,
 			       req->rq_status);
+
+			if (req->rq_status == -ETIMEDOUT) {
+				struct obd_import *imp = req->rq_import;
+
+				if (imp->imp_last_complete_req == NULL) {
+					/* If complete signal request is
+					 * timeout, let's keep the old
+					 * request, and keep sending the
+					 * old request to the target, so
+					 * to avoid multiple signal
+					 * complete reqs for one connection. */
+					lustre_msg_add_flags(req->rq_reqmsg,
+							     MSG_RESENT);
+					ptlrpc_request_addref(req);
+					imp->imp_last_complete_req = req;
+				}
+			} else {
+				finish_completed_req(req->rq_import);
+			}
 		}
 		ptlrpc_connect_import(req->rq_import);
 	}
@@ -1364,6 +1394,12 @@ static int signal_completed_replay(struct obd_import *imp)
 	LASSERT(atomic_read(&imp->imp_replay_inflight) == 0);
 	atomic_inc(&imp->imp_replay_inflight);
 
+	if (imp->imp_last_complete_req != NULL) {
+		imp->imp_last_complete_req->rq_send_state =
+					LUSTRE_IMP_REPLAY_WAIT;
+		ptlrpcd_add_req(imp->imp_last_complete_req);
+		RETURN(0);
+	}
 	req = ptlrpc_request_alloc_pack(imp, &RQF_OBD_PING, LUSTRE_OBD_VERSION,
 					OBD_PING);
 	if (req == NULL) {
@@ -1509,6 +1545,7 @@ int ptlrpc_import_recovery_state_machine(struct obd_import *imp)
 		if (atomic_read(&imp->imp_replay_inflight) == 0) {
 			IMPORT_SET_STATE(imp, LUSTRE_IMP_RECOVER);
 		}
+		finish_completed_req(imp);
 	}
 
         if (imp->imp_state == LUSTRE_IMP_RECOVER) {
@@ -1527,6 +1564,7 @@ int ptlrpc_import_recovery_state_machine(struct obd_import *imp)
         }
 
 	if (imp->imp_state == LUSTRE_IMP_FULL) {
+		finish_completed_req(imp);
 		wake_up_all(&imp->imp_recovery_waitq);
 		ptlrpc_wake_delayed(imp);
 	}

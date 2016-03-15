@@ -2670,7 +2670,11 @@ int target_queue_recovery_request(struct ptlrpc_request *req,
 		DEBUG_REQ(D_HA, req, "queue final req");
 		wake_up(&obd->obd_next_transno_waitq);
 		spin_lock(&obd->obd_recovery_task_lock);
-		if (obd->obd_recovering) {
+		if (OBD_FAIL_CHECK(OBD_FAIL_TGT_REPLAY_COMPLETE_DROP)) {
+			spin_unlock(&obd->obd_recovery_task_lock);
+			target_request_copy_put(req);
+			RETURN(0);
+		} else if (obd->obd_recovering) {
 			list_add_tail(&req->rq_list,
 					  &obd->obd_final_req_queue);
 		} else {
