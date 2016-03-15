@@ -53,6 +53,7 @@ static int jt_show_peer(int argc, char **argv);
 static int jt_set_tiny(int argc, char **argv);
 static int jt_set_small(int argc, char **argv);
 static int jt_set_large(int argc, char **argv);
+static int jt_set_numa(int argc, char **argv);
 static int jt_add_peer_nid(int argc, char **argv);
 static int jt_del_peer_nid(int argc, char **argv);
 /*static int jt_show_peer(int argc, char **argv);*/
@@ -121,6 +122,8 @@ command_t set_cmds[] = {
 	{"routing", jt_set_routing, 0, "enable/disable routing\n"
 	 "\t0 - disable routing\n"
 	 "\t1 - enable routing\n"},
+	{"numa_range", jt_set_numa, 0, "set NUMA range for NI selection\n"
+	 "\tVALUE must be greater than 0\n"},
 	{ 0, 0, 0, NULL }
 };
 
@@ -197,6 +200,33 @@ static int handle_help(const command_t *cmd_list, const char *cmd,
 
 	opterr = 1;
 	optind = 0;
+	return rc;
+}
+
+static int jt_set_numa(int argc, char **argv)
+{
+	long int value;
+	int rc;
+	struct cYAML *err_rc = NULL;
+
+	if (handle_help(set_cmds, "set", "numa_range", argc, argv) == 0)
+		return 0;
+
+	rc = parse_long(argv[1], &value);
+	if (rc != 0) {
+		cYAML_build_error(-1, -1, "parser", "set",
+				  "cannot parse numa_range value", &err_rc);
+		cYAML_print_tree2file(stderr, err_rc);
+		cYAML_free_tree(err_rc);
+		return -1;
+	}
+
+	rc = lustre_lnet_config_buffers(value, -1, -1, -1, &err_rc);
+	if (rc != LUSTRE_CFG_RC_NO_ERR)
+		cYAML_print_tree2file(stderr, err_rc);
+
+	cYAML_free_tree(err_rc);
+
 	return rc;
 }
 
