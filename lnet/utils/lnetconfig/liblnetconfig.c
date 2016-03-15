@@ -1532,6 +1532,10 @@ int lustre_lnet_show_net(char *nw, int detail, int seq_no,
 		if (detail) {
 			char *limit;
 
+			if (cYAML_create_number(item, "dev cpt",
+						ni_data->lic_dev_cpt) == NULL)
+				goto out;
+
 			tunables = cYAML_create_object(item, "tunables");
 			if (tunables == NULL)
 				goto out;
@@ -1653,6 +1657,41 @@ out:
 	cYAML_build_error(rc, seq_no,
 			 (enable) ? ADD_CMD : DEL_CMD,
 			 "routing", err_str, err_rc);
+
+	return rc;
+}
+
+int lustre_lnet_config_numa_range(int range, int seq_no, struct cYAML **err_rc)
+{
+	struct lnet_ioctl_numa_range data;
+	int rc = LUSTRE_CFG_RC_NO_ERR;
+	char err_str[LNET_MAX_STR_LEN];
+
+	snprintf(err_str, sizeof(err_str), "\"success\"");
+
+	/* -1 indicates to ignore changes to this field */
+	if (range < 0) {
+		snprintf(err_str,
+			 sizeof(err_str),
+			 "\"range must be >= 0\"");
+		rc = LUSTRE_CFG_RC_OUT_OF_RANGE_PARAM;
+		goto out;
+	}
+
+	LIBCFS_IOC_INIT_V2(data, nr_hdr);
+	data.nr_range = range;
+
+	rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_NUMA_RANGE, &data);
+	if (rc != 0) {
+		rc = -errno;
+		snprintf(err_str,
+			 sizeof(err_str),
+			 "\"cannot configure buffers: %s\"", strerror(errno));
+		goto out;
+	}
+
+out:
+	cYAML_build_error(rc, seq_no, ADD_CMD, "numa_range", err_str, err_rc);
 
 	return rc;
 }
