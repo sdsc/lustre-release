@@ -551,10 +551,12 @@ typedef struct {
         lnet_process_id_t   target;
         /** The identifier (nid, pid) of the initiator. */
         lnet_process_id_t   initiator;
+	/** The source NID on the initiator. */
+	lnet_process_id_t   source;
         /**
          * The NID of the immediate sender. If the request has been forwarded
          * by routers, this is the NID of the last hop; otherwise it's the
-         * same as the initiator.
+         * same as the source.
          */
         lnet_nid_t          sender;
         /** Indicates the type of the event. */
