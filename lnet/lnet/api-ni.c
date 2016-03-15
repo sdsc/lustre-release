@@ -65,6 +65,8 @@ CFS_MODULE_PARM(use_tcp_bonding, "i", int, 0444,
 
 static __u32 lnet_dlc_seq_no = 0;
 
+static __u32 lnet_numa_range = 0;
+
 static int lnet_ping(lnet_process_id_t id, int timeout_ms,
 		     lnet_process_id_t __user *ids, int n_ids);
 
@@ -2045,6 +2047,7 @@ lnet_get_ni_config(struct lnet_ioctl_config_ni *cfg_ni,
 				  cfg_ni->lic_cpts, &cfg_ni->lic_status,
 				  &cfg_ni->lic_tcp_bonding);
 
+		cfg_ni->lic_dev_cpt = ni->dev_cpt;
 		/* TODO: FUTURE - fill specific LND tunables */
 		lnet_ni_unlock(ni);
 	}
@@ -2440,6 +2443,11 @@ __u32 lnet_get_dlc_seq_locked(void)
 	return lnet_dlc_seq_no;
 }
 
+__u32 lnet_get_numa_range(void)
+{
+	return lnet_numa_range;
+}
+
 /**
  * LNet ioctl handler.
  *
@@ -2597,6 +2605,15 @@ LNetCtl(unsigned int cmd, void *arg)
 						buf_large);
 		LNET_MUTEX_UNLOCK(&the_lnet.ln_api_mutex);
 		return rc;
+
+	case IOC_LIBCFS_NUMA_RANGE: {
+		struct lnet_ioctl_numa_range *numa;
+		numa = arg;
+		if (numa->nr_hdr.ioc_len != sizeof(*numa))
+			return -EINVAL;
+		lnet_numa_range = numa->nr_range;
+		return 0;
+	}
 
 	case IOC_LIBCFS_GET_BUF: {
 		struct lnet_ioctl_pool_cfg *pool_cfg;
