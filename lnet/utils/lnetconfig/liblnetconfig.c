@@ -1450,6 +1450,10 @@ int lustre_lnet_show_net(char *nw, int detail, int seq_no,
 		if (detail) {
 			char *limit;
 
+			if (cYAML_create_number(item, "dev cpt",
+						ni_data->lic_dev_cpt) == NULL)
+				goto out;
+
 			tunables = cYAML_create_object(item, "tunables");
 			if (tunables == NULL)
 				goto out;
