@@ -1284,6 +1284,9 @@ lnet_select_pathway(lnet_nid_t src_nid, lnet_nid_t dst_nid,
 	int			best_credits = 0;
 	__u32			seq, seq2;
 	int			best_peer_credits = INT_MIN;
+	int			md_cpt = 0;
+	int			shortest_distance = INT_MAX;
+	int			distance = 0;
 
 	/*
 	 * get an initial CPT to use for locking. The idea here is not to
@@ -1302,11 +1305,15 @@ again:
 	routing = false;
 	local_net = NULL;
 	best_ni = NULL;
+	shortest_distance = INT_MAX;
 
 	if (the_lnet.ln_shutdown) {
 		lnet_net_unlock(cpt);
 		return -ESHUTDOWN;
 	}
+
+	/* get the cpt of the MD, used during NUMA based selection */
+	md_cpt = lnet_cpt_of_cookie(msg->msg_md->md_lh.lh_cookie);
 
 	/*
 	 * initialize the variables which could be reused if we go to
@@ -1444,10 +1451,19 @@ again:
 		 * from
 		 */
 		while ((ni = lnet_get_next_ni_locked(local_net, ni))) {
+			distance = cfs_cpt_distance(lnet_cpt_table(),
+						    md_cpt,
+						    ni->dev_cpt);
+
 			if (!lnet_is_ni_healthy_locked(ni))
 				continue;
-			/* TODO: compare NUMA distance */
-			if (ni->ni_tx_queues[cpt]->tq_credits <=
+
+			if (distance > shortest_distance)
+				continue;
+
+			if (shortest_distance > distance) {
+				shortest_distance = distance;
+			} else if (ni->ni_tx_queues[cpt]->tq_credits <=
 			    best_credits) {
 				/*
 				 * all we want is to read tq_credits
