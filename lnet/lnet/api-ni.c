@@ -63,6 +63,10 @@ static int use_tcp_bonding = false;
 CFS_MODULE_PARM(use_tcp_bonding, "i", int, 0444,
 		"Set to 1 to use socklnd bonding. 0 to use Multi-Rail");
 
+static __u32 lnet_numa_range = 0;
+CFS_MODULE_PARM(lnet_numa_range, "i", int, 0444,
+		"NUMA range to consider during Multi-Rail selection");
+
 /*
  * This sequence number keeps track of how many times DLC was used to
  * update the configuration. It is incremented on any DLC update and
@@ -2073,6 +2077,7 @@ lnet_get_ni_config(struct lnet_ioctl_config_ni *cfg_ni,
 				  cfg_ni->lic_cpts, &cfg_ni->lic_status,
 				  &cfg_ni->lic_tcp_bonding);
 
+		cfg_ni->lic_dev_cpt = ni->dev_cpt;
 		/* TODO: FUTURE - fill specific LND tunables */
 		lnet_ni_unlock(ni);
 	}
@@ -2470,6 +2475,11 @@ __u32 lnet_get_dlc_seq_locked(void)
 	return atomic_read(&lnet_dlc_seq_no);
 }
 
+inline __u32 lnet_get_numa_range(void)
+{
+	return lnet_numa_range;
+}
+
 /**
  * LNet ioctl handler.
  *
@@ -2627,6 +2637,24 @@ LNetCtl(unsigned int cmd, void *arg)
 						buf_large);
 		LNET_MUTEX_UNLOCK(&the_lnet.ln_api_mutex);
 		return rc;
+
+	case IOC_LIBCFS_SET_NUMA_RANGE: {
+		struct lnet_ioctl_numa_range *numa;
+		numa = arg;
+		if (numa->nr_hdr.ioc_len != sizeof(*numa))
+			return -EINVAL;
+		lnet_numa_range = numa->nr_range;
+		return 0;
+	}
+
+	case IOC_LIBCFS_GET_NUMA_RANGE: {
+		struct lnet_ioctl_numa_range *numa;
+		numa = arg;
+		if (numa->nr_hdr.ioc_len != sizeof(*numa))
+			return -EINVAL;
+		numa->nr_range = lnet_numa_range;
+		return 0;
+	}
 
 	case IOC_LIBCFS_GET_BUF: {
 		struct lnet_ioctl_pool_cfg *pool_cfg;
