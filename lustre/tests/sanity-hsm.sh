@@ -2376,9 +2376,8 @@ test_26b() {
 
 	cdt_enable
 	# copytool must re-register
-	search_and_kill_copytool
-	sleep 5
-	search_copytools && error "Copytool should have stopped"
+	kill_copytools
+	wait_copytools || error "copytool failed to stop"
 	HSM_ARCHIVE_PURGE=false copytool_setup
 
 	wait_request_state $fid REMOVE SUCCEED
