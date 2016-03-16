@@ -46,6 +46,7 @@ FAIL_ON_ERROR=false
 SETUP=${SETUP:-:}
 TRACE=${TRACE:-""}
 
+stopall
 check_and_setup_lustre
 
 assert_DIR
