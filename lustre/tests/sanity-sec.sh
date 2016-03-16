@@ -67,6 +67,9 @@ FOPS_IDMAPS=(
 	[1]="$((IDBASE+5)):$((IDBASE+1)) $((IDBASE+6)):$((IDBASE+2))"
 	)
 
+#unmount everything before starting
+stopall
+
 check_and_setup_lustre
 
 sec_cleanup() {
