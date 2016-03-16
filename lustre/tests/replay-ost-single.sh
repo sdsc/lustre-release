@@ -31,6 +31,9 @@ if [ $(facet_fstype $SINGLEMDS) = "zfs" ]; then
 	[ "$SLOW" = "no" ] && EXCEPT_SLOW="$EXCEPT_SLOW 8a 8b"
 fi
 
+#unmount everything before starting
+stopall
+
 build_test_filter
 
 check_and_setup_lustre
