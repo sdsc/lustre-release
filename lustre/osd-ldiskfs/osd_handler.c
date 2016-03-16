@@ -6257,7 +6257,7 @@ static int osd_mount(const struct lu_env *env,
 	if (opts != NULL && strstr(opts, "force_over_128tb") != NULL)
 		force_over_128tb = 1;
 
-	__page = alloc_page(GFP_IOFS);
+	__page = alloc_page(GFP_KERNEL);
 	if (__page == NULL)
 		GOTO(out, rc = -ENOMEM);
 	page = (unsigned long)page_address(__page);
