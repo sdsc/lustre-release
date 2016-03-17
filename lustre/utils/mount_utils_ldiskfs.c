@@ -187,9 +187,12 @@ static int is_block(char *devname)
 
 	ret = access(devname, F_OK);
 	if (ret != 0) {
-		if (strncmp(devpath, "/dev/", 5) == 0) {
+		if (strncmp(devpath, "/dev/", 5) == 0 &&
+		    strncmp(devpath, "/dev/shm/", 9) != 0) {
 			/* nobody sane wants to create a loopback file under
-			 * /dev. Let's just report the device doesn't exist */
+			 * /dev. Let's just report the device doesn't exist.
+			 * UNLESS it is /dev/shm, in which case, let's not
+			 * overreact */
 			fprintf(stderr, "%s: %s apparently does not exist\n",
 				progname, devpath);
 			ret = -1;
