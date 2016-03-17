@@ -196,6 +196,71 @@ int lustre_lnet_show_routing(int seq_no, struct cYAML **show_rc,
 			     struct cYAML **err_rc);
 
 /*
+ * lustre_lnet_show_conn_queue
+ *   Shows details on the connection queue specified for the net passed
+ *   in.
+ *
+ *     nw - net to query
+ *     qname - queue name
+ *     detail - flag to indicate whether detail output is requested
+ *     seq_no - sequence number of the command
+ *     seq_no - sequence number of the command
+ *     show_rc - YAML structure of the resultant show
+ *     err_rc - YAML strucutre of the resultant return code
+ */
+int lustre_lnet_show_conn_queue(char *nw, char *qname, bool detail,
+				int seq_no, struct cYAML **show_rc,
+				struct cYAML **err_rc);
+
+/*
+ * lustre_lnet_cleanup_conn
+ *   Closes or pushes a connection
+ *
+ *	nw - net used to locate the connection
+ *	ip - local IP address of the connection (socklnd only)
+ *	seq_no - sequence number of the command
+ *	close_conn - flag used to determine the course of act for
+ *		     closing the peer. If set to true we close the
+ *		     connection but in the case of false we push
+ *		     the connection instead.
+ *	err_rc - YAML structure of the resultant return code
+ */
+int lustre_lnet_cleanup_conn(char *nw, char *ip, int seq_no, bool close_conn,
+			     struct cYAML **err_rc);
+
+/*
+ * lustre_lnet_manage_peer
+ *   Deletes or creates a peer at user request.
+ *
+ *	nw - net for a new peer to bind to or used to find the peer
+ *	     for removal
+ *	pid - port that the peer is bound to.
+ *	ip - delete peer bound to this local IP address (socklnd only)
+ *	seq_no - sequence number of the command
+ *	add_peer - flag used to determine the course of act for
+ *		   a peer. If set to true create a peer else delete
+ *		   the peer bound to the net nw.
+ *	err_rc - YAML structure of the resultant return code
+ */
+int lustre_lnet_manage_peers(char *nw, lnet_pid_t pid, char *ip, int seq_no,
+			     bool add_peer, struct cYAML **err_rc);
+
+/*
+ * lustre_lnet_show_peer
+ *   Shows details on the peer specified for the net passed
+ *   in.
+ *
+ *     nw - net to query
+ *     pid - only return data for peers using the PID pid
+ *     detail - flag to indicate whether detail output is requested
+ *     seq_no - sequence number of the command
+ *     show_rc - YAML structure of the resultant show
+ *     err_rc - YAML structure of the resultant return code
+ */
+int lustre_lnet_show_peers(char *nw, lnet_pid_t pid, bool verbose, int seq_no,
+			   struct cYAML **show_rc, struct cYAML **err_rc);
+
+/*
  * lustre_lnet_show_peer_credits
  *   Shows credit details on the peers in the system
  *

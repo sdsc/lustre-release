@@ -125,7 +125,6 @@ struct libcfs_debug_ioctl_data
 #define IOC_LIBCFS_DEL_INTERFACE	   _IOWR('e', 79, IOCTL_LIBCFS_TYPE)
 #define IOC_LIBCFS_GET_INTERFACE	   _IOWR('e', 80, IOCTL_LIBCFS_TYPE)
 
-
 /*
  * DLC Specific IOCTL numbers.
  * In order to maintain backward compatibility with any possible external
@@ -144,6 +143,7 @@ struct libcfs_debug_ioctl_data
 #define IOC_LIBCFS_GET_BUF		_IOWR(IOC_LIBCFS_TYPE, 89, IOCTL_CONFIG_SIZE)
 #define IOC_LIBCFS_GET_PEER_INFO	_IOWR(IOC_LIBCFS_TYPE, 90, IOCTL_CONFIG_SIZE)
 #define IOC_LIBCFS_GET_LNET_STATS	_IOWR(IOC_LIBCFS_TYPE, 91, IOCTL_CONFIG_SIZE)
-#define IOC_LIBCFS_MAX_NR		91
+#define IOC_LIBCFS_GET_CONN_INFO	_IOWR(IOC_LIBCFS_TYPE, 92, IOCTL_CONFIG_SIZE)
+#define IOC_LIBCFS_MAX_NR		92
 
 #endif /* __LIBCFS_IOCTL_H__ */

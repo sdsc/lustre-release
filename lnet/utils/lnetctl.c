@@ -48,6 +48,12 @@ static int jt_show_net(int argc, char **argv);
 static int jt_show_routing(int argc, char **argv);
 static int jt_show_stats(int argc, char **argv);
 static int jt_show_peer_credits(int argc, char **argv);
+static int jt_show_peers(int argc, char **argv);
+static int jt_add_peer(int argc, char **argv);
+static int jt_del_peer(int argc, char **argv);
+static int jt_show_conns(int argc, char **argv);
+static int jt_close_conn(int argc, char **argv);
+static int jt_push_conn(int argc, char **argv);
 static int jt_set_tiny(int argc, char **argv);
 static int jt_set_small(int argc, char **argv);
 static int jt_set_large(int argc, char **argv);
@@ -100,6 +106,34 @@ command_t routing_cmds[] = {
 	{ 0, 0, 0, NULL }
 };
 
+command_t peers_cmds[] = {
+	{"add", jt_add_peer, 0, "add a peer\n"
+	 "\t--net: net name (e.g. tcp0)\n"
+	 "\t--pid: PID (e.g. 12345 which is Lustre PID)\n"
+	 "\t--ip: local IP address for peer. Only for socklnd.\n"},
+	{"del", jt_del_peer, 0, "delete a peer\n"
+	 "\t--net: net name (e.g. tcp0)\n"
+	 "\t--pid: PID (e.g. 12345 which is Lustre PID)\n"
+	 "\t--ip: delete peer with local IP address. Only for socklnd\n"},
+	{"show", jt_show_peers, 0, "show peer information\n"
+	 "\t--net: net name (e.g. tcp0 or host@tcp0) to filter on\n"
+	 "\t--verbose: display detailed output per peer\n"},
+	{ 0, 0, 0, NULL }
+};
+
+command_t conns_cmds[] = {
+	{"close", jt_close_conn, 0, "force close a connection\n"
+	 "\t--nid: NID of the connection (e.g. 10.1.1.2@tcp)\n"
+	 "\t--ip: IP address of the connection. Only for socklnd.\n"},
+	{"push", jt_push_conn, 0, "push a connection\n"
+	 "\t--nid: NID of the connection (e.g. 10.1.1.2@tcp)\n"},
+	{"show", jt_show_conns, 0, "show connection information\n"
+	 "\t--net: net name (e.g. tcp0 or host@tcp0) to filter on\n"
+	 "\t--queue: filter on specific TX queue. Available only on o2ib\n"
+	 "\t--verbose: display detailed output per connection\n"},
+	{ 0, 0, 0, NULL }
+};
+
 command_t stats_cmds[] = {
 	{"show", jt_show_stats, 0, "show LNET statistics\n"},
 	{ 0, 0, 0, NULL }
@@ -146,6 +180,17 @@ static int parse_long(const char *number, long int *value)
 	char *end;
 
 	*value = strtol(number,  &end, 0);
+	if (end != NULL && *end != 0)
+		return -1;
+
+	return 0;
+}
+
+static int parse_ulong(const char *number, unsigned long *value)
+{
+	char *end;
+
+	*value = strtoul(number,  &end, 0);
 	if (end != NULL && *end != 0)
 		return -1;
 
@@ -350,6 +395,7 @@ static int jt_unconfig_lnet(int argc, char **argv)
 
 	return rc;
 }
+
 static int jt_add_route(int argc, char **argv)
 {
 	char *network = NULL, *gateway = NULL;
@@ -497,6 +543,56 @@ static int jt_add_net(int argc, char **argv)
 	return rc;
 }
 
+static int jt_add_peer(int argc, char **argv)
+{
+	const char *const short_options = "n:p:i:h";
+	const struct option long_options[] = {
+		{ "nid", 1, NULL, 'n' },
+		{ "pid", 1, NULL, 'p' },
+		{ "ip", 1, NULL, 'i' },
+		{ "help", 0, NULL, 'h' },
+		{ NULL, 0, NULL, 0 },
+	};
+	struct cYAML *err_rc = NULL;
+	long int pid = LNET_PID_LUSTRE;
+	char *nid = NULL, *ip = NULL;
+	int opt, rc = 0;
+	optind = 0;
+
+	while ((opt = getopt_long(argc, argv, short_options,
+				  long_options, NULL)) != -1) {
+		switch (opt) {
+		case 'n':
+			nid = optarg;
+			break;
+		case 'p':
+			rc = parse_long(optarg, &pid);
+			if (rc != 0) {
+				/* ignore option */
+				pid = LNET_PID_LUSTRE;
+				continue;
+			}
+			break;
+		case 'i':
+			ip = optarg;
+			break;
+		case 'h':
+			print_help(peers_cmds, "peers", "add");
+			return rc;
+		default:
+			return -1;
+		}
+	}
+
+	rc = lustre_lnet_manage_peers(nid, pid, ip, -1, true, &err_rc);
+	if (rc != LUSTRE_CFG_RC_NO_ERR)
+		cYAML_print_tree2file(stderr, err_rc);
+
+	cYAML_free_tree(err_rc);
+
+	return rc;
+}
+
 static int jt_del_route(int argc, char **argv)
 {
 	char *network = NULL, *gateway = NULL;
@@ -573,6 +669,132 @@ static int jt_del_net(int argc, char **argv)
 	cYAML_free_tree(err_rc);
 
 	return rc;
+}
+
+static int jt_del_peer(int argc, char **argv)
+{
+	const char *const short_options = "n:p:i:h";
+	const struct option long_options[] = {
+		{ "nid", 1, NULL, 'n' },
+		{ "pid", 1, NULL, 'p' },
+		{ "ip", 1, NULL, 'i' },
+		{ "help", 0, NULL, 'h' },
+		{ NULL, 0, NULL, 0 },
+	};
+	struct cYAML *err_rc = NULL;
+	char *nid = NULL, *ip = NULL;
+	long int pid = LNET_PID_ANY;
+	int opt, rc = 0;
+	optind = 0;
+
+	while ((opt = getopt_long(argc, argv, short_options,
+				  long_options, NULL)) != -1) {
+		switch (opt) {
+		case 'n':
+			nid = optarg;
+			break;
+		case 'p':
+			rc = parse_long(optarg, &pid);
+			if (rc != 0) {
+				/* ignore option */
+				pid = LNET_PID_ANY;
+				continue;
+			}
+			break;
+		case 'i':
+			ip = optarg;
+			break;
+		case 'h':
+			print_help(peers_cmds, "peers", "del");
+			return rc;
+		default:
+			return -1;
+		}
+	}
+
+	rc = lustre_lnet_manage_peers(nid, pid, ip, -1, false, &err_rc);
+	if (rc != LUSTRE_CFG_RC_NO_ERR)
+		cYAML_print_tree2file(stderr, err_rc);
+
+	cYAML_free_tree(err_rc);
+
+	return rc;
+}
+
+static int jt_close_conn(int argc, char **argv)
+{
+	const char *const short_options = "n:i:h";
+	const struct option long_options[] = {
+		{ "nid", 1, NULL, 'n' },
+		{ "ip", 1, NULL, 'i' },
+		{ "help", 0, NULL, 'h' },
+		{ NULL, 0, NULL, 0 },
+	};
+	struct cYAML *err_rc = NULL;
+	char *nid = NULL, *ip = NULL;
+	int opt, rc = 0;
+	optind = 0;
+
+	while ((opt = getopt_long(argc, argv, short_options,
+				  long_options, NULL)) != -1) {
+		switch (opt) {
+		case 'n':
+			nid = optarg;
+			break;
+		case 'i':
+			ip = optarg;
+			break;
+		case 'h':
+			print_help(conns_cmds, "conns", "close");
+			return rc;
+		default:
+			return -1;
+		}
+	}
+
+	rc = lustre_lnet_cleanup_conn(nid, ip, -1, true, &err_rc);
+	if (rc != LUSTRE_CFG_RC_NO_ERR)
+		cYAML_print_tree2file(stderr, err_rc);
+
+	cYAML_free_tree(err_rc);
+
+	return rc;
+}
+
+static int jt_push_conn(int argc, char **argv)
+{
+	const char *const short_options = "n:h";
+	const struct option long_options[] = {
+		{ "nid", 1, NULL, 'n' },
+		{ "help", 0, NULL, 'h' },
+		{ NULL, 0, NULL, 0 },
+	};
+	struct cYAML *err_rc = NULL;
+	char *nid = NULL;
+	int opt, rc = 0;
+	optind = 0;
+
+	while ((opt = getopt_long(argc, argv, short_options,
+				  long_options, NULL)) != -1) {
+		switch (opt) {
+		case 'n':
+			nid = optarg;
+			break;
+		case 'h':
+			print_help(conns_cmds, "conns", "push");
+			return rc;
+		default:
+			return -1;
+		}
+	}
+
+	rc = lustre_lnet_cleanup_conn(nid, NULL, -1, false, &err_rc);
+	if (rc != LUSTRE_CFG_RC_NO_ERR)
+		cYAML_print_tree2file(stderr, err_rc);
+
+	cYAML_free_tree(err_rc);
+
+	return 0;
 }
 
 static int jt_show_route(int argc, char **argv)
@@ -675,6 +897,111 @@ static int jt_show_net(int argc, char **argv)
 	}
 
 	rc = lustre_lnet_show_net(network, detail, -1, &show_rc, &err_rc);
+
+	if (rc != LUSTRE_CFG_RC_NO_ERR)
+		cYAML_print_tree2file(stderr, err_rc);
+	else if (show_rc)
+		cYAML_print_tree(show_rc);
+
+	cYAML_free_tree(err_rc);
+	cYAML_free_tree(show_rc);
+
+	return rc;
+}
+
+static int jt_show_peers(int argc, char **argv)
+{
+	struct cYAML *err_rc = NULL, *show_rc = NULL;
+	const char *const short_options = "n:v:p:h";
+	const struct option long_options[] = {
+		{ "net", 1, NULL, 'n' },
+		{ "verbose", 0, NULL, 'v' },
+		{ "pid", 1, NULL, 'p' },
+		{ "help", 0, NULL, 'h' },
+		{ NULL, 0, NULL, 0 },
+	};
+	lnet_pid_t pid = LNET_PID_ANY;
+	char *network = NULL;
+	bool detail = false;
+	unsigned long upid;
+	int opt, rc;
+	optind = 0;
+
+	while ((opt = getopt_long(argc, argv, short_options,
+				   long_options, NULL)) != -1) {
+		switch (opt) {
+		case 'n':
+			network = optarg;
+			break;
+		case 'p':
+			rc = parse_ulong(optarg, &upid);
+			if (rc != 0) {
+				/* ignore option */
+				pid = LNET_PID_ANY;
+				continue;
+			}
+			pid = (lnet_pid_t) upid;
+			break;
+		case 'v':
+			detail = true;
+			break;
+		case 'h':
+			print_help(peers_cmds, "peers", "show");
+			return 0;
+		default:
+			return -1;
+		}
+	}
+
+	rc = lustre_lnet_show_peers(network, pid, detail, -1,
+				    &show_rc, &err_rc);
+	if (rc != LUSTRE_CFG_RC_NO_ERR)
+		cYAML_print_tree2file(stderr, err_rc);
+	else if (show_rc)
+		cYAML_print_tree(show_rc);
+
+	cYAML_free_tree(err_rc);
+	cYAML_free_tree(show_rc);
+
+	return rc;
+}
+
+static int jt_show_conns(int argc, char **argv)
+{
+	struct cYAML *err_rc = NULL, *show_rc = NULL;
+	const char *const short_options = "n:q:vh";
+	const struct option long_options[] = {
+		{ "net", 1, NULL, 'n' },
+		{ "queue", 1, NULL, 'q' },
+		{ "verbose", 0, NULL, 'v' },
+		{ "help", 0, NULL, 'h' },
+		{ NULL, 0, NULL, 0 },
+	};
+	char *network = NULL, *qname = NULL;
+	int detail = 0, rc, opt;
+	optind = 0;
+
+	while ((opt = getopt_long(argc, argv, short_options,
+				   long_options, NULL)) != -1) {
+		switch (opt) {
+		case 'n':
+			network = optarg;
+			break;
+		case 'q':
+			qname = optarg;
+		case 'v':
+			detail = 1;
+			break;
+		case 'h':
+			print_help(conns_cmds, "conns", "show");
+			return 0;
+		default:
+			return -1;
+		}
+	}
+
+	rc = lustre_lnet_show_conn_queue(network, qname, detail,
+					 -1, &show_rc, &err_rc);
 
 	if (rc != LUSTRE_CFG_RC_NO_ERR)
 		cYAML_print_tree2file(stderr, err_rc);
@@ -796,6 +1123,30 @@ static inline int jt_routing(int argc, char **argv)
 		return 0;
 
 	return Parser_execarg(argc - 1, &argv[1], routing_cmds);
+}
+
+static inline int jt_peers(int argc, char **argv)
+{
+	if (argc < 2)
+		return CMD_HELP;
+
+	if (argc == 2 &&
+	    handle_help(peers_cmds, "peers", NULL, argc, argv) == 0)
+		return 0;
+
+	return Parser_execarg(argc - 1, &argv[1], peers_cmds);
+}
+
+static inline int jt_conns(int argc, char **argv)
+{
+	if (argc < 2)
+		return CMD_HELP;
+
+	if (argc == 2 &&
+	    handle_help(conns_cmds, "conns", NULL, argc, argv) == 0)
+		return 0;
+
+	return Parser_execarg(argc - 1, &argv[1], conns_cmds);
 }
 
 static inline int jt_stats(int argc, char **argv)
@@ -970,6 +1321,8 @@ command_t list[] = {
 	{"lnet", jt_lnet, 0, "lnet {configure | unconfigure} [--all]"},
 	{"route", jt_route, 0, "route {add | del | show | help}"},
 	{"net", jt_net, 0, "net {add | del | show | help}"},
+	{"peers", jt_peers, 0, "peers {add | del | show | help}"},
+	{"conns", jt_conns, 0, "conns {close | push | show | help}"},
 	{"routing", jt_routing, 0, "routing {show | help}"},
 	{"set", jt_set, 0, "set {tiny_buffers | small_buffers | large_buffers"
 			   " | routing}"},

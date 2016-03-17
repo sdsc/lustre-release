@@ -121,10 +121,59 @@ struct lnet_ioctl_config_data {
 	char cfg_bulk[0];
 };
 
+/**
+ * Struct lnet_ioctl_peer_info contains data about
+ * the peer's current state. Data such as which CPT
+ * is the peer bound to or the state i.e connecting
+ * are reported.
+ */
+struct lnet_ioctl_peer_info {
+	__u32 peer_ref_count;
+	__u32 peer_status;
+	__u32 connecting;
+	__u32 accepting;
+	__u32 active_conns;
+	__u32 waiting_conns;
+	__u32 cpt;
+	__u32 pid;
+
+	union {
+		struct {
+			__u32 local_ip;
+			__u32 peer_ip;
+			__u32 peer_port;
+			__u32 conn_count;
+			__u32 shared_count;
+		} socklnd;
+	} pr_lnd;
+};
+
+/**
+ * LNet has the concept of a peer to represent direct
+ * communication paths. Peers are abstracted to allow
+ * common parameters to fine tune the communication
+ * path for different transport layers. In the DLC
+ * API struct lnet_ioctl_peer is used to report the
+ * values of the parameters for a specific peer. The
+ * tunable parameters that are influenced by the ioctl
+ * IOC_LIBCFS_ADD_NET can be obtained when pr_version
+ * is set to zero, which is also the default value. When
+ * pr_version is zero pr_peer_credits will contain the
+ * data influenced by IOC_LIBCFS_ADD_NET.
+ *
+ * To allow for new LND drivers or expanding the peers
+ * state back to the user land applications pr_version
+ * is used to notify kernel space what version of the
+ * data the lnetconfig library can interpreted. Kernel
+ * space will then report back to the user the version
+ * it can support. The liblnetconfig will always report
+ * the minimum supported API support between what kernel
+ * and user land can support.
+ */
 struct lnet_ioctl_peer {
 	struct libcfs_ioctl_hdr pr_hdr;
 	__u32 pr_count;
-	__u32 pr_pad;
+	__u32 pr_version;
 	__u64 pr_nid;
 
 	union {
@@ -138,7 +187,70 @@ struct lnet_ioctl_peer {
 			__u32 cr_peer_tx_qnob;
 			__u32 cr_ncpt;
 		} pr_peer_credits;
+		struct lnet_ioctl_peer_info pr_peer_info;
 	} pr_lnd_u;
+};
+
+struct ioctl_tx_queue {
+	__u32 tx_sending;
+	__u32 tx_queued;
+	__u32 tx_waiting;
+	__u32 tx_status;
+	__u64 tx_deadline;
+	__u64 tx_cookie;
+	__u8 tx_msg_type;
+	__u8 tx_msg_credits;
+};
+
+enum tx_conn_queue_type {
+	TX_QUEUE_NOOPS = 0,
+	TX_QUEUE_CR,
+	TX_QUEUE_NCR,
+	TX_QUEUE_RSRVD,
+	TX_QUEUE_ACTIVE,
+	TX_QUEUE_MAX,
+};
+
+struct lnet_ioctl_conn {
+	struct libcfs_ioctl_hdr conn_hdr;
+	__u64 conn_nid;
+	__u32 conn_count;
+	__u32 conn_state;
+	__u32 conn_vers;
+	__u32 conn_pad;
+
+	union {
+		struct {
+			__u32 tx_buf_size;
+			__u32 nagle;
+			__u32 peer_ip;
+			__u32 peer_port;
+			__u32 local_ip;
+			__u32 type;
+			__u32 cpt;
+			__u32 rx_buf_size;
+			__u32 pid;
+			__u32 pad;
+		} socklnd;
+		struct {
+			__u64 peer_stamp;
+			__u32 host_id;
+			__u32 gnd_id;
+			__u32 fmaq_len;
+			__u32 nfma;
+			__u32 tx_seq;
+			__u32 rx_seq;
+			__u32 nrdma;
+			__u32 pad;
+		} gnilnd;
+		struct {
+			__u32 path_mtu;
+			__u32 queue_type;
+			__u32 num_entries;
+			__u32 pad;
+			struct ioctl_tx_queue tx_q[MAX_NUM_SHOW_ENTRIES];
+		} o2iblnd;
+	} conn_lnd_u;
 };
 
 struct lnet_ioctl_lnet_stats {
