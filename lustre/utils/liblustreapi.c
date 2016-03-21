@@ -1630,7 +1630,7 @@ int llapi_file_get_lov_uuid(const char *path, struct obd_uuid *lov_uuid)
 {
         int fd, rc;
 
-        fd = open(path, O_RDONLY);
+        fd = open(path, O_RDONLY | O_NONBLOCK);
         if (fd < 0) {
                 rc = -errno;
                 llapi_error(LLAPI_MSG_ERROR, rc, "error opening %s", path);
@@ -2434,7 +2434,7 @@ int llapi_file_get_stripe(const char *path, struct lov_user_md *lum)
                 fname++;
         }
 
-        fd = open(dname, O_RDONLY);
+        fd = open(dname, O_RDONLY | O_NONBLOCK);
         if (fd == -1) {
                 rc = -errno;
                 free(dname);
