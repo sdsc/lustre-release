@@ -945,8 +945,8 @@ int osp_xattr_get(const struct lu_env *env, struct dt_object *dt,
 	if (unlikely(obj->opo_non_exist))
 		RETURN(-ENOENT);
 
-	/* Only cache xattr for OST object */
-	if (!osp->opd_connect_mdt) {
+	/* cache xattr for OST and MDT ROOT object */
+	if (!osp->opd_connect_mdt || fid_is_root(lu_object_fid(&dt->do_lu))) {
 		oxe = osp_oac_xattr_find(obj, name, false);
 		if (oxe != NULL) {
 			spin_lock(&obj->opo_lock);
@@ -1278,6 +1278,33 @@ int osp_xattr_del(const struct lu_env *env, struct dt_object *dt,
 	if (oxe != NULL)
 		/* Drop the ref for entry on list. */
 		osp_oac_xattr_put(oxe);
+
+	return 0;
+}
+
+/**
+ * Implement OSP layer dt_object_operations::do_xattr_invalidate() interface.
+ *
+ * Invalidate extended attributes cached on the specified MDT/OST object.
+ *
+ * \param[in] env	pointer to the thread context
+ * \param[in] dt	pointer to the OSP layer dt_object
+ *
+ * \retval		0 for success
+ * \retval		negative error number on failure
+ */
+int osp_xattr_invalidate(const struct lu_env *env, struct dt_object *dt)
+{
+	struct osp_object *obj = dt2osp_obj(dt);
+	struct osp_xattr_entry *oxe;
+
+	spin_lock(&obj->opo_lock);
+	if (obj->opo_ooa != NULL) {
+		list_for_each_entry(oxe, &obj->opo_ooa->ooa_xattr_list,
+				    oxe_list)
+			oxe->oxe_ready = 0;
+	}
+	spin_unlock(&obj->opo_lock);
 
 	return 0;
 }

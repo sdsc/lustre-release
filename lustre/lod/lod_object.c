@@ -2853,6 +2853,21 @@ static int lod_xattr_list(const struct lu_env *env,
 }
 
 /**
+ * Implementation of dt_object_operations::do_xattr_invalidate.
+ *
+ * \see dt_object_operations::do_xattr_invalidate() in the API description
+ * for details.
+ */
+static int lod_xattr_invalidate(const struct lu_env *env,
+				struct dt_object *dt)
+{
+	struct lod_object *lo = lod_dt_obj(dt);
+
+	lo->ldo_def_striping_cached = 0;
+	return dt_xattr_invalidate(env, dt_object_child(dt));
+}
+
+/**
  * Initialize a pool the object belongs to.
  *
  * When a striped object is being created, striping configuration
@@ -3236,6 +3251,35 @@ static void lod_ah_init(const struct lu_env *env,
 
 	/*
 	 * if the parent doesn't provide with specific pattern, grab fs-wide one
+	 */
+	if (lc->ldo_stripenr == 0 && lc->ldo_stripe_size == 0) {
+		struct lod_thread_info *info = lod_env_info(env);
+		struct dt_object *root;
+		struct lod_object *lroot;
+
+		lu_root_fid(&info->lti_fid);
+		root = dt_locate(env, &d->lod_dt_dev, &info->lti_fid);
+		if (!IS_ERR(root)) {
+			lroot = lod_dt_obj(root);
+			lod_cache_parent_striping(env, lroot, 0);
+			if (lroot->ldo_def_striping_set) {
+				if (lc->ldo_stripenr == 0)
+					lc->ldo_stripenr =
+						 lroot->ldo_def_stripenr;
+				if (lc->ldo_stripe_size == 0)
+					lc->ldo_stripe_size =
+						lroot->ldo_def_stripe_size;
+				CDEBUG(D_OTHER,
+				       "striping from fs default: #%d, sz %d\n",
+				       lc->ldo_stripenr, lc->ldo_stripe_size);
+			}
+			lu_object_put(env, &root->do_lu);
+		}
+	}
+
+	/*
+	 * fs default striping may not be explicitly set, or historically set
+	 * in config log, check striping sanity here and fix to sane values.
 	 */
 	desc = &d->lod_desc;
 	if (lc->ldo_stripenr == 0)
@@ -3993,6 +4037,7 @@ struct dt_object_operations lod_obj_ops = {
 	.do_xattr_set		= lod_xattr_set,
 	.do_declare_xattr_del	= lod_declare_xattr_del,
 	.do_xattr_del		= lod_xattr_del,
+	.do_xattr_invalidate	= lod_xattr_invalidate,
 	.do_xattr_list		= lod_xattr_list,
 	.do_ah_init		= lod_ah_init,
 	.do_declare_create	= lod_declare_object_create,

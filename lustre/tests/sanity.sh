@@ -14445,6 +14445,37 @@ test_402() {
 }
 run_test 402 "Return ENOENT to lod_generate_and_set_lovea"
 
+test_403() {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.8.50) ] &&
+		skip "Need MDS version at least 2.8.50" && return
+
+	local saved_count=$($GETSTRIPE -c $MOUNT)
+	local saved_size=$($GETSTRIPE -S $MOUNT)
+
+	$SETSTRIPE -c 2 -S $saved_size $MOUNT || error "setstripe failed"
+	$LFS mkdir -c $MDSCOUNT $DIR/$tdir || error "mkdir failed"
+	$SETSTRIPE -c 0 $DIR/$tdir || error "setstripe failed"
+	for i in $(seq 10); do
+		local f=$DIR/$tdir/$tfile.$i
+		touch $f || error "touch failed"
+		[ $($GETSTRIPE -c $f) -eq 2 ] || error "$f stripe count != 2"
+	done
+
+	$SETSTRIPE -c 1 -S $saved_size $MOUNT || error "setstripe failed"
+	for i in $(seq 11 20); do
+		local f=$DIR/$tdir/$tfile.$i
+		touch $f || error "touch failed"
+		[ $($GETSTRIPE -c $f) -eq 1 ] || error "$f stripe count != 1"
+	done
+
+	$SETSTRIPE -c $saved_count -S $saved_size $MOUNT ||
+		error "setstripe failed"
+	unlinkmany $DIR/$tdir/$tfile. 20
+}
+run_test 403 "DNE support fs default striping"
+
 #
 # tests that do cleanup/setup should be run at the end
 #
