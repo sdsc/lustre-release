@@ -199,10 +199,13 @@ struct mdt_device {
 				   mdt_skip_lfsck:1;
 
 	gid_t			   mdt_enable_remote_dir_gid;
+
+	/* lock for osfs and md_root */
+	spinlock_t		   mdt_lock;
+
 	/* statfs optimization: we cache a bit  */
 	struct obd_statfs	   mdt_osfs;
 	__u64			   mdt_osfs_age;
-	spinlock_t		   mdt_osfs_lock;
 
         /* root squash */
 	struct root_squash_info    mdt_squash;
@@ -222,20 +225,18 @@ struct mdt_device {
 
 	/* MDT device async commit count, used for debug and sanity test */
 	atomic_t		   mdt_async_commit_count;
+
+	struct mdt_object	  *mdt_md_root;
 };
 
 #define MDT_SERVICE_WATCHDOG_FACTOR	(2)
 #define MDT_COS_DEFAULT         (0)
 
-enum mdt_object_flags {
-	/** lov object has been created. */
-	MOF_LOV_CREATED		= 1 << 0,
-};
-
 struct mdt_object {
 	struct lu_object_header	mot_header;
 	struct lu_object	mot_obj;
-	enum mdt_object_flags	mot_flags;
+	unsigned int		mot_lov_created:1,  /* lov object created */
+				mot_xattr_locked:1; /* object XATTR locked */
 	int			mot_write_count;
 	spinlock_t		mot_write_lock;
         /* Lock to protect create_data */
@@ -612,6 +613,9 @@ struct mdt_object *mdt_object_new(const struct lu_env *env,
 struct mdt_object *mdt_object_find(const struct lu_env *,
                                    struct mdt_device *,
                                    const struct lu_fid *);
+struct mdt_object *mdt_object_find_in_cache(const struct lu_env *,
+					    struct mdt_device *,
+					    const struct lu_fid *);
 struct mdt_object *mdt_object_find_lock(struct mdt_thread_info *,
                                         const struct lu_fid *,
                                         struct mdt_lock_handle *,
