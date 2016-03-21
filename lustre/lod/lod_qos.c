@@ -950,8 +950,8 @@ static int lod_alloc_rr(const struct lu_env *env, struct lod_object *lo,
 	__u32		   ost_idx;
 	ENTRY;
 
-	if (lo->ldo_pool)
-		pool = lod_find_pool(m, lo->ldo_pool);
+	if (lod_object_pool(env, lo) != NULL)
+		pool = lod_find_pool(m, lod_object_pool(env, lo));
 
 	if (pool != NULL) {
 		down_read(&pool_tgt_rw_sem(pool));
@@ -992,7 +992,7 @@ repeat_find:
 
 	QOS_DEBUG("pool '%s' want %d startidx %d startcnt %d offset %d "
 		  "active %d count %d\n",
-		  lo->ldo_pool ? lo->ldo_pool : "",
+		  lod_object_pool(env, lo) ?: "",
 		  stripe_cnt, lqr->lqr_start_idx, lqr->lqr_start_count,
 		  lqr->lqr_offset_idx, osts->op_count, osts->op_count);
 
@@ -1105,7 +1105,8 @@ static int lod_alloc_ost_list(const struct lu_env *env,
 
 	v3 = (struct lov_user_md_v3 *)lum;
 	for (i = 0; i < lo->ldo_stripenr; i++) {
-		if (v3->lmm_objects[i].l_ost_idx == lo->ldo_def_stripe_offset) {
+		if (v3->lmm_objects[i].l_ost_idx ==
+		    lod_object_stripe_offset(env, lo)) {
 			array_idx = i;
 			break;
 		}
@@ -1113,7 +1114,7 @@ static int lod_alloc_ost_list(const struct lu_env *env,
 	if (i == lo->ldo_stripenr) {
 		CDEBUG(D_OTHER,
 		       "%s: start index %d not in the specified list of OSTs\n",
-		       lod2obd(m)->obd_name, lo->ldo_def_stripe_offset);
+		       lod2obd(m)->obd_name, lod_object_stripe_offset(env, lo));
 		RETURN(-EINVAL);
 	}
 
@@ -1161,7 +1162,7 @@ static int lod_alloc_ost_list(const struct lu_env *env,
 /**
  * Allocate a striping on a predefined set of OSTs.
  *
- * Allocates new layout starting from OST index in lo->ldo_def_stripe_offset.
+ * Allocates new layout starting from OST index in lod_object_stripe_offset.
  * Full OSTs are not considered. The exact order of OSTs is not important and
  * varies depending on OST status. The allocation procedure prefers the targets
  * with precreated objects ready. The number of stripes needed and stripe
@@ -1201,8 +1202,8 @@ static int lod_alloc_specific(const struct lu_env *env, struct lod_object *lo,
 	if (rc)
 		GOTO(out, rc);
 
-	if (lo->ldo_pool)
-		pool = lod_find_pool(m, lo->ldo_pool);
+	if (lod_object_pool(env, lo) != NULL)
+		pool = lod_find_pool(m, lod_object_pool(env, lo));
 
 	if (pool != NULL) {
 		down_read(&pool_tgt_rw_sem(pool));
@@ -1217,15 +1218,15 @@ repeat_find:
 	/* search loi_ost_idx in ost array */
 	array_idx = 0;
 	for (i = 0; i < ost_count; i++) {
-		if (osts->op_array[i] == lo->ldo_def_stripe_offset) {
+		if (osts->op_array[i] == lod_object_stripe_offset(env, lo)) {
 			array_idx = i;
 			break;
 		}
 	}
 	if (i == ost_count) {
 		CERROR("Start index %d not found in pool '%s'\n",
-		       lo->ldo_def_stripe_offset,
-		       lo->ldo_pool ? lo->ldo_pool : "");
+		       lod_object_stripe_offset(env, lo),
+		       lod_object_pool(env, lo) ?: "");
 		GOTO(out, rc = -EINVAL);
 	}
 
@@ -1394,8 +1395,8 @@ static int lod_alloc_qos(const struct lu_env *env, struct lod_object *lo,
 	if (stripe_cnt_min < 1)
 		RETURN(-EINVAL);
 
-	if (lo->ldo_pool)
-		pool = lod_find_pool(m, lo->ldo_pool);
+	if (lod_object_pool(env, lo) != NULL)
+		pool = lod_find_pool(m, lod_object_pool(env, lo));
 
 	if (pool != NULL) {
 		down_read(&pool_tgt_rw_sem(pool));
@@ -1651,7 +1652,7 @@ static int lod_use_defined_striping(const struct lu_env *env,
 	} else if (magic == LOV_MAGIC_V3_DEF) {
 		magic = LOV_MAGIC_V3;
 		objs = &v3->lmm_objects[0];
-		lod_object_set_pool(mo, v3->lmm_pool_name);
+		lod_object_set_pool(env, mo, v3->lmm_pool_name);
 	} else {
 		GOTO(out, rc = -EINVAL);
 	}
@@ -1785,9 +1786,9 @@ static int lod_qos_parse_config(const struct lu_env *env,
 	if (v1->lmm_stripe_count > 0)
 		lo->ldo_stripenr = v1->lmm_stripe_count;
 
-	lo->ldo_def_stripe_offset = v1->lmm_stripe_offset;
+	lod_object_set_stripe_offset(env, lo, v1->lmm_stripe_offset);
 
-	lod_object_set_pool(lo, NULL);
+	lod_object_set_pool(env, lo, "");
 	if (pool_name != NULL) {
 		struct pool_desc *pool;
 
@@ -1796,14 +1797,14 @@ static int lod_qos_parse_config(const struct lu_env *env,
 		/* coverity[overrun-buffer-val] */
 		pool = lod_find_pool(d, pool_name);
 		if (pool != NULL) {
-			if (lo->ldo_def_stripe_offset != LOV_OFFSET_DEFAULT) {
-				rc = lod_check_index_in_pool(
-					       lo->ldo_def_stripe_offset, pool);
+			__u32 offset = lod_object_stripe_offset(env, lo);
+
+			if (offset != LOV_OFFSET_DEFAULT) {
+				rc = lod_check_index_in_pool(offset, pool);
 				if (rc < 0) {
 					lod_pool_putref(pool);
 					CERROR("%s: invalid offset, %u\n",
-					       lod2obd(d)->obd_name,
-					       lo->ldo_def_stripe_offset);
+					       lod2obd(d)->obd_name, offset);
 					RETURN(-EINVAL);
 				}
 			}
@@ -1814,7 +1815,7 @@ static int lod_qos_parse_config(const struct lu_env *env,
 			lod_pool_putref(pool);
 		}
 
-		lod_object_set_pool(lo, pool_name);
+		lod_object_set_pool(env, lo, pool_name);
 	}
 
 	/* fixup for released file */
@@ -1910,7 +1911,8 @@ int lod_qos_prep_create(const struct lu_env *env, struct lod_object *lo,
 
 		if (lum != NULL && lum->lmm_magic == LOV_USER_MAGIC_SPECIFIC) {
 			rc = lod_alloc_ost_list(env, lo, stripe, lum, th);
-		} else if (lo->ldo_def_stripe_offset == LOV_OFFSET_DEFAULT) {
+		} else if (lod_object_stripe_offset(env, lo) ==
+			   LOV_OFFSET_DEFAULT) {
 			rc = lod_alloc_qos(env, lo, stripe, flag, th);
 			if (rc == -EAGAIN)
 				rc = lod_alloc_rr(env, lo, stripe, flag, th);

@@ -648,7 +648,7 @@ int lod_generate_and_set_lovea(const struct lu_env *env,
 
 	LASSERT(lo);
 
-	magic = lo->ldo_pool != NULL ? LOV_MAGIC_V3 : LOV_MAGIC_V1;
+	magic = lod_object_pool(env, lo) != NULL ? LOV_MAGIC_V3 : LOV_MAGIC_V1;
 	lmm_size = lov_mds_md_size(lo->ldo_stripenr, magic);
 	if (info->lti_ea_store_size < lmm_size) {
 		rc = lod_ea_store_resize(info, lmm_size);
@@ -676,8 +676,9 @@ int lod_generate_and_set_lovea(const struct lu_env *env,
 		objs = &lmm->lmm_objects[0];
 	} else {
 		struct lov_mds_md_v3 *v3 = (struct lov_mds_md_v3 *) lmm;
-		size_t cplen = strlcpy(v3->lmm_pool_name, lo->ldo_pool,
-				sizeof(v3->lmm_pool_name));
+		size_t cplen = strlcpy(v3->lmm_pool_name,
+				       lod_object_pool(env, lo),
+				       sizeof(v3->lmm_pool_name));
 		if (cplen >= sizeof(v3->lmm_pool_name))
 			RETURN(-E2BIG);
 		objs = &v3->lmm_objects[0];
@@ -960,7 +961,7 @@ int lod_parse_striping(const struct lu_env *env, struct lod_object *lo,
 	if (magic == LOV_MAGIC_V3) {
 		struct lov_mds_md_v3 *v3 = (struct lov_mds_md_v3 *) lmm;
 		objs = &v3->lmm_objects[0];
-		lod_object_set_pool(lo, v3->lmm_pool_name);
+		lod_object_set_pool(env, lo, v3->lmm_pool_name);
 	} else {
 		objs = &lmm->lmm_objects[0];
 	}
@@ -1041,9 +1042,6 @@ int lod_load_striping_locked(const struct lu_env *env, struct lod_object *lo)
 		 */
 		rc = lod_parse_dir_striping(env, lo, buf);
 	}
-
-	if (rc == 0)
-		lo->ldo_striping_cached = 1;
 out:
 	RETURN(rc);
 }

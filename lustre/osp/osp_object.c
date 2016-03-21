@@ -945,34 +945,31 @@ int osp_xattr_get(const struct lu_env *env, struct dt_object *dt,
 	if (unlikely(obj->opo_non_exist))
 		RETURN(-ENOENT);
 
-	/* Only cache xattr for OST object */
-	if (!osp->opd_connect_mdt) {
-		oxe = osp_oac_xattr_find(obj, name, false);
-		if (oxe != NULL) {
-			spin_lock(&obj->opo_lock);
-			if (oxe->oxe_ready) {
-				if (!oxe->oxe_exist)
-					GOTO(unlock, rc = -ENODATA);
+	oxe = osp_oac_xattr_find(obj, name, false);
+	if (oxe != NULL) {
+		spin_lock(&obj->opo_lock);
+		if (oxe->oxe_ready) {
+			if (!oxe->oxe_exist)
+				GOTO(unlock, rc = -ENODATA);
 
-				if (buf->lb_buf == NULL)
-					GOTO(unlock, rc = oxe->oxe_vallen);
-
-				if (buf->lb_len < oxe->oxe_vallen)
-					GOTO(unlock, rc = -ERANGE);
-
-				memcpy(buf->lb_buf, oxe->oxe_value,
-				       oxe->oxe_vallen);
-
+			if (buf->lb_buf == NULL)
 				GOTO(unlock, rc = oxe->oxe_vallen);
 
-unlock:
-				spin_unlock(&obj->opo_lock);
-				osp_oac_xattr_put(oxe);
+			if (buf->lb_len < oxe->oxe_vallen)
+				GOTO(unlock, rc = -ERANGE);
 
-				return rc;
-			}
+			memcpy(buf->lb_buf, oxe->oxe_value,
+			       oxe->oxe_vallen);
+
+			GOTO(unlock, rc = oxe->oxe_vallen);
+
+unlock:
 			spin_unlock(&obj->opo_lock);
+			osp_oac_xattr_put(oxe);
+
+			return rc;
 		}
+		spin_unlock(&obj->opo_lock);
 	}
 	update = osp_update_request_create(dev);
 	if (IS_ERR(update))
@@ -1041,7 +1038,7 @@ unlock:
 		GOTO(out, rc = -ERANGE);
 
 	memcpy(buf->lb_buf, rbuf->lb_buf, rbuf->lb_len);
-	if (obj->opo_ooa == NULL || osp->opd_connect_mdt)
+	if (obj->opo_ooa == NULL)
 		GOTO(out, rc);
 
 	if (oxe == NULL) {
@@ -1278,6 +1275,40 @@ int osp_xattr_del(const struct lu_env *env, struct dt_object *dt,
 	if (oxe != NULL)
 		/* Drop the ref for entry on list. */
 		osp_oac_xattr_put(oxe);
+
+	return 0;
+}
+
+/**
+ * Implement OSP layer dt_object_operations::do_xattr_invalidate() interface.
+ *
+ * Invalidate extended attributes cached on the specified MDT/OST object.
+ *
+ * \param[in] env	pointer to the thread context
+ * \param[in] dt	pointer to the OSP layer dt_object
+ *
+ * \retval		0 for success
+ * \retval		negative error number on failure
+ */
+int osp_invalidate(const struct lu_env *env, struct dt_object *dt, __u64 bits)
+{
+	struct osp_object *obj = dt2osp_obj(dt);
+	struct osp_xattr_entry *oxe;
+	struct osp_xattr_entry *tmp;
+
+	spin_lock(&obj->opo_lock);
+	if ((bits & MDS_INODELOCK_XATTR) && obj->opo_ooa != NULL) {
+		list_for_each_entry_safe(oxe, tmp,
+					 &obj->opo_ooa->ooa_xattr_list,
+					 oxe_list) {
+			oxe->oxe_ready = 0;
+			list_del_init(&oxe->oxe_list);
+			osp_oac_xattr_put(oxe);
+		}
+	}
+	if ((bits & MDS_INODELOCK_UPDATE) && obj->opo_ooa != NULL)
+		obj->opo_ooa->ooa_attr.la_valid = 0;
+	spin_unlock(&obj->opo_lock);
 
 	return 0;
 }

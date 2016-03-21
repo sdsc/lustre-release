@@ -2270,12 +2270,13 @@ int mdt_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
 int mdt_remote_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
 			    void *data, int flag)
 {
-	struct lustre_handle lockh;
-	int		  rc;
+	int rc;
 	ENTRY;
 
 	switch (flag) {
-	case LDLM_CB_BLOCKING:
+	case LDLM_CB_BLOCKING: {
+		struct lustre_handle lockh;
+
 		ldlm_lock2handle(lock, &lockh);
 		rc = ldlm_cli_cancel(&lockh,
 			ldlm_is_atomic_cb(lock) ? 0 : LCF_ASYNC);
@@ -2284,13 +2285,55 @@ int mdt_remote_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
 			RETURN(rc);
 		}
 		break;
-	case LDLM_CB_CANCELING:
+	}
+	case LDLM_CB_CANCELING: {
+		struct mdt_device *mdt = lock->l_ast_data;
+		struct lu_fid fid;
+		struct mdt_object *obj;
+		struct lu_env env;
+		__u64 ibits = lock->l_policy_data.l_inodebits.bits;
+
+		LASSERT(mdt != NULL);
+
 		LDLM_DEBUG(lock, "Revoke remote lock\n");
+
 		/* discard slc lock here so that it can be cleaned anytime,
 		 * especially for cleanup_resource() */
 		tgt_discard_slc_lock(lock);
+
+		if (ibits & (MDS_INODELOCK_XATTR | MDS_INODELOCK_UPDATE)) {
+			fid_extract_from_res_name(&fid,
+						  &lock->l_resource->lr_name);
+
+			rc = lu_env_init(&env, LCT_MD_THREAD);
+			if (unlikely(rc != 0)) {
+				struct obd_device *obd;
+
+				obd = ldlm_lock_to_ns(lock)->ns_obd;
+				CWARN("%s: lu_env initialization failed, cannot"
+				      " invalidate "DFID" XATTR cache: %d\n",
+				      obd->obd_name, PFID(&fid), rc);
+				RETURN(rc);
+			}
+
+			obj = mdt_object_find(&env, mdt, &fid);
+			if (IS_ERR(obj)) {
+				CDEBUG(D_DLMTRACE, "object of "DFID" is not "
+				       "found, maybe it's freed already.",
+				       PFID(&fid));
+				lu_env_fini(&env);
+				RETURN(PTR_ERR(obj));
+			}
+
+			rc = mo_invalidate(&env, mdt_object_child(obj), ibits);
+			mdt_object_put(&env, obj);
+			lu_env_fini(&env);
+
+			if ((ibits & MDS_INODELOCK_XATTR) && fid_is_root(&fid))
+				mdt->mdt_root_xattr_locked = 0;
+		}
 		break;
-	default:
+	} default:
 		LBUG();
 	}
 
@@ -2351,6 +2394,7 @@ int mdt_remote_object_lock(struct mdt_thread_info *mti, struct mdt_object *o,
 	einfo->ei_mode = mode;
 	einfo->ei_cb_bl = mdt_remote_blocking_ast;
 	einfo->ei_cb_cp = ldlm_completion_ast;
+	einfo->ei_cbdata = mti->mti_mdt;
 	einfo->ei_enq_slave = 0;
 	einfo->ei_res_id = res_id;
 	if (nonblock)

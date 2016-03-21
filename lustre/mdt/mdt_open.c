@@ -1181,6 +1181,7 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
 {
         struct mdt_device       *mdt = info->mti_mdt;
         struct ptlrpc_request   *req = mdt_info_req(info);
+	struct mdt_object	*md_root = NULL;
         struct mdt_object       *parent;
         struct mdt_object       *child;
         struct mdt_lock_handle  *lh;
@@ -1268,17 +1269,48 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
 		GOTO(out, result);
 	}
 
-        if (OBD_FAIL_CHECK(OBD_FAIL_MDS_OPEN_PACK))
-                GOTO(out, result = err_serious(-ENOMEM));
+	if (OBD_FAIL_CHECK(OBD_FAIL_MDS_OPEN_PACK))
+		GOTO(out, result = err_serious(-ENOMEM));
 
-        mdt_set_disposition(info, ldlm_rep,
-                            (DISP_IT_EXECD | DISP_LOOKUP_EXECD));
+	mdt_set_disposition(info, ldlm_rep,
+			    (DISP_IT_EXECD | DISP_LOOKUP_EXECD));
 
 	if (!lu_name_is_valid(&rr->rr_name))
 		GOTO(out, result = -EPROTO);
 
+	/* find root object and take its xattr lock, later open may use fs
+	 * default striping in object creation. */
+	lu_root_fid(&info->mti_tmp_fid1);
+	md_root = mdt_object_find(info->mti_env, info->mti_mdt,
+				  &info->mti_tmp_fid1);
+	if (IS_ERR(md_root)) {
+		result = PTR_ERR(md_root);
+		md_root = NULL;
+		GOTO(out, result);
+	}
+
+	if (mdt_object_remote(md_root) && !mdt->mdt_root_xattr_locked) {
+		struct lustre_handle lhroot;
+
+		result = mdt_remote_object_lock(info, md_root,
+						&info->mti_tmp_fid1, &lhroot,
+						LCK_PR, MDS_INODELOCK_XATTR,
+						false);
+		if (result < 0) {
+			mdt_object_put(info->mti_env, md_root);
+			GOTO(out, result);
+		}
+		mdt->mdt_root_xattr_locked = 1;
+		/*
+		 * don't cancel this lock, so that we know the cached xattr in
+		 * OSP is valid.
+		 */
+		ldlm_lock_decref(&lhroot, LCK_PR);
+	}
+	mdt_object_put(info->mti_env, md_root);
+
 again:
-        lh = &info->mti_lh[MDT_LH_PARENT];
+	lh = &info->mti_lh[MDT_LH_PARENT];
 	mdt_lock_pdo_init(lh,
 			  (create_flags & MDS_OPEN_CREAT) ? LCK_PW : LCK_PR,
 			  &rr->rr_name);
