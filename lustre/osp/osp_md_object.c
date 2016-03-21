@@ -890,9 +890,20 @@ static int osp_md_object_lock(const struct lu_env *env,
 	struct ptlrpc_request	*req;
 	int			rc = 0;
 	__u64			flags = LDLM_FL_NO_LRU;
+	enum ldlm_mode		mode;
 
 	res_id = einfo->ei_res_id;
 	LASSERT(res_id != NULL);
+
+	if (einfo->ei_mode & LCK_PR) {
+		/* this is used to cache fs default striping on slave MDTs */
+		mode = ldlm_lock_match(osp->opd_obd->obd_namespace,
+				       LDLM_FL_BLOCK_GRANTED, res_id,
+				       einfo->ei_type, policy,
+				       einfo->ei_mode, lh, 0);
+		if (mode > 0)
+			RETURN(ELDLM_OK);
+	}
 
 	if (einfo->ei_nonblock)
 		flags |= LDLM_FL_BLOCK_NOWAIT;
@@ -1030,6 +1041,7 @@ struct dt_object_operations osp_md_obj_ops = {
 	.do_xattr_set         = osp_xattr_set,
 	.do_declare_xattr_del = osp_declare_xattr_del,
 	.do_xattr_del         = osp_xattr_del,
+	.do_xattr_invalidate  = osp_xattr_invalidate,
 	.do_index_try         = osp_md_index_try,
 	.do_object_lock       = osp_md_object_lock,
 	.do_object_unlock     = osp_md_object_unlock,

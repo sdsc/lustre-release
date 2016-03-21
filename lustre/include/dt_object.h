@@ -727,6 +727,15 @@ struct dt_object_operations {
 			       const struct lu_buf *buf);
 
 	/**
+	 * Invalidate extended attribute cache.
+	 *
+	 * This method invalidate extended attribute cache of the object, this
+	 * cache is on OSP only.
+	 */
+	int   (*do_xattr_invalidate)(const struct lu_env *env,
+				     struct dt_object *dt);
+
+	/**
 	 * Prepare allocation hint for a new object.
 	 *
 	 * This method is used by the caller to inform OSD of the parent-child
@@ -2580,6 +2589,18 @@ static inline int dt_xattr_list(const struct lu_env *env, struct dt_object *dt,
 		return cfs_fail_err;
 
 	return dt->do_ops->do_xattr_list(env, dt, buf);
+}
+
+static inline int dt_xattr_invalidate(const struct lu_env *env,
+				      struct dt_object *dt)
+{
+	LASSERT(dt);
+	LASSERT(dt->do_ops);
+
+	if (dt->do_ops->do_xattr_invalidate == NULL)
+		return 0;
+
+	return dt->do_ops->do_xattr_invalidate(env, dt);
 }
 
 static inline int dt_declare_delete(const struct lu_env *env,

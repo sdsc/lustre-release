@@ -512,37 +512,57 @@ err_exit:
 }
 
 int ll_dir_setstripe(struct inode *inode, struct lov_user_md *lump,
-                     int set_default)
+		     int set_default)
 {
-        struct ll_sb_info *sbi = ll_i2sbi(inode);
-        struct md_op_data *op_data;
-        struct ptlrpc_request *req = NULL;
-        int rc = 0;
-        struct lustre_sb_info *lsi = s2lsi(inode->i_sb);
-        struct obd_device *mgc = lsi->lsi_mgc;
-        int lum_size;
+	struct ll_sb_info *sbi = ll_i2sbi(inode);
+	struct md_op_data *op_data;
+	struct ptlrpc_request *req = NULL;
+	int rc = 0;
+	struct lustre_sb_info *lsi = s2lsi(inode->i_sb);
+	struct obd_device *mgc = lsi->lsi_mgc;
+	int lum_size;
 	ENTRY;
 
-        if (lump != NULL) {
-                /*
-                 * This is coming from userspace, so should be in
-                 * local endian.  But the MDS would like it in little
-                 * endian, so we swab it before we send it.
-                 */
-                switch (lump->lmm_magic) {
-                case LOV_USER_MAGIC_V1: {
-                        if (lump->lmm_magic != cpu_to_le32(LOV_USER_MAGIC_V1))
-                                lustre_swab_lov_user_md_v1(lump);
-                        lum_size = sizeof(struct lov_user_md_v1);
-                        break;
-                }
-                case LOV_USER_MAGIC_V3: {
-                        if (lump->lmm_magic != cpu_to_le32(LOV_USER_MAGIC_V3))
-                                lustre_swab_lov_user_md_v3(
-                                        (struct lov_user_md_v3 *)lump);
-                        lum_size = sizeof(struct lov_user_md_v3);
-                        break;
-                }
+	if (lump != NULL) {
+		/*
+		 * This is coming from userspace, so should be in
+		 * local endian.  But the MDS would like it in little
+		 * endian, so we swab it before we send it.
+		 */
+		switch (lump->lmm_magic) {
+		case LOV_USER_MAGIC_V1: {
+			/* NB, in the future, if fs default striping contains
+			 * more than stripe size and count, e.g. OST pool, or
+			 * PFL, it's better to fetch default striping, and
+			 * update specific field and then set below. */
+			if (set_default &&
+			    (lump->lmm_stripe_size == 0 ||
+			     lump->lmm_stripe_count == 0)) {
+				CERROR("fs default striping size/count "
+				       "should both be set!");
+				RETURN(-EINVAL);
+			}
+
+			if (lump->lmm_magic != cpu_to_le32(LOV_USER_MAGIC_V1))
+				lustre_swab_lov_user_md_v1(lump);
+			lum_size = sizeof(struct lov_user_md_v1);
+			break;
+		}
+		case LOV_USER_MAGIC_V3: {
+			if (set_default &&
+			    (lump->lmm_stripe_size == 0 ||
+			     lump->lmm_stripe_count == 0)) {
+				CERROR("fs default striping size/count "
+				       "should both be set!");
+				RETURN(-EINVAL);
+			}
+
+			if (lump->lmm_magic != cpu_to_le32(LOV_USER_MAGIC_V3))
+				lustre_swab_lov_user_md_v3(
+					(struct lov_user_md_v3 *)lump);
+			lum_size = sizeof(struct lov_user_md_v3);
+			break;
+		}
 		case LMV_USER_MAGIC: {
 			if (lump->lmm_magic != cpu_to_le32(LMV_USER_MAGIC))
 				lustre_swab_lmv_user_md(
@@ -576,10 +596,15 @@ int ll_dir_setstripe(struct inode *inode, struct lov_user_md *lump,
                         CERROR("mdc_setattr fails: rc = %d\n", rc);
         }
 
-        /* In the following we use the fact that LOV_USER_MAGIC_V1 and
-         LOV_USER_MAGIC_V3 have the same initial fields so we do not
-         need the make the distiction between the 2 versions */
-        if (set_default && mgc->u.cli.cl_mgc_mgsexp) {
+	/* In the following we use the fact that LOV_USER_MAGIC_V1 and
+	 * LOV_USER_MAGIC_V3 have the same initial fields so we do not
+	 * need the make the distiction between the 2 versions.
+	 *
+	 * Below is not necessary any more because MDT will obtain fs
+	 * default striping from root XATTR_NAME_ROOT, however to
+	 * interop with old MDS, it's kept.
+	 */
+	if (set_default && mgc->u.cli.cl_mgc_mgsexp) {
 		char *param = NULL;
 		char *buf;
 

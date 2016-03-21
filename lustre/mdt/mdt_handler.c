@@ -2334,7 +2334,8 @@ int mdt_check_resent_lock(struct mdt_thread_info *info,
 
 int mdt_remote_object_lock(struct mdt_thread_info *mti, struct mdt_object *o,
 			   const struct lu_fid *fid, struct lustre_handle *lh,
-			   enum ldlm_mode mode, __u64 ibits, bool nonblock)
+			   enum ldlm_mode mode, __u64 ibits,
+			   ldlm_blocking_callback cb_bl, bool nonblock)
 {
 	struct ldlm_enqueue_info *einfo = &mti->mti_einfo;
 	union ldlm_policy_data *policy = &mti->mti_policy;
@@ -2349,7 +2350,7 @@ int mdt_remote_object_lock(struct mdt_thread_info *mti, struct mdt_object *o,
 	memset(einfo, 0, sizeof(*einfo));
 	einfo->ei_type = LDLM_IBITS;
 	einfo->ei_mode = mode;
-	einfo->ei_cb_bl = mdt_remote_blocking_ast;
+	einfo->ei_cb_bl = cb_bl;
 	einfo->ei_cb_cp = ldlm_completion_ast;
 	einfo->ei_enq_slave = 0;
 	einfo->ei_res_id = res_id;
@@ -2509,7 +2510,8 @@ mdt_object_lock_internal(struct mdt_thread_info *info, struct mdt_object *o,
 		rc = mdt_remote_object_lock(info, o, mdt_object_fid(o),
 					    &lh->mlh_rreg_lh,
 					    lh->mlh_rreg_mode,
-					    MDS_INODELOCK_UPDATE, nonblock);
+					    MDS_INODELOCK_UPDATE,
+					    mdt_remote_blocking_ast, nonblock);
 		if (rc != ELDLM_OK) {
 			if (local_lh != NULL)
 				mdt_object_unlock(info, o, local_lh, rc);

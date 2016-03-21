@@ -571,6 +571,12 @@ mdo_xattr_list(const struct lu_env *env, struct mdd_object *obj,
 	return dt_xattr_list(env, next, buf);
 }
 
+static inline int
+mdo_xattr_invalidate(const struct lu_env *env, struct mdd_object *obj)
+{
+	return dt_xattr_invalidate(env, mdd_object_child(obj));
+}
+
 static inline
 int mdo_declare_index_insert(const struct lu_env *env, struct mdd_object *obj,
 			     const struct lu_fid *fid, __u32 type,

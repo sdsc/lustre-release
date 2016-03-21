@@ -752,21 +752,10 @@ static int mdt_reint_setattr(struct mdt_thread_info *info,
 			GOTO(out_put, rc = -EPROTO);
 
 		rc = mdt_attr_set(info, mo, ma);
-                if (rc)
-                        GOTO(out_put, rc);
-	} else if ((ma->ma_valid & MA_LOV) && (ma->ma_valid & MA_INODE)) {
-		struct lu_buf *buf  = &info->mti_buf;
-
-		if (ma->ma_attr.la_valid != 0)
-			GOTO(out_put, rc = -EPROTO);
-
-		buf->lb_buf = ma->ma_lmm;
-		buf->lb_len = ma->ma_lmm_size;
-		rc = mo_xattr_set(info->mti_env, mdt_object_child(mo),
-				  buf, XATTR_NAME_LOV, 0);
 		if (rc)
 			GOTO(out_put, rc);
-	} else if ((ma->ma_valid & MA_LMV) && (ma->ma_valid & MA_INODE)) {
+	} else if ((ma->ma_valid & (MA_LOV | MA_LMV)) &&
+		   (ma->ma_valid & MA_INODE)) {
 		struct lu_buf *buf  = &info->mti_buf;
 		struct mdt_lock_handle  *lh;
 
@@ -785,14 +774,29 @@ static int mdt_reint_setattr(struct mdt_thread_info *info,
 		if (rc != 0)
 			GOTO(out_put, rc);
 
-		buf->lb_buf = ma->ma_lmv;
-		buf->lb_len = ma->ma_lmv_size;
-		rc = mo_xattr_set(info->mti_env, mdt_object_child(mo),
-				  buf, XATTR_NAME_DEFAULT_LMV, 0);
+		if (ma->ma_valid & MA_LOV) {
+			buf->lb_buf = ma->ma_lmm;
+			buf->lb_len = ma->ma_lmm_size;
+		} else {
+			buf->lb_buf = ma->ma_lmv;
+			buf->lb_len = ma->ma_lmv_size;
+		}
+		rc = mo_xattr_set(info->mti_env, mdt_object_child(mo), buf,
+				  (ma->ma_valid & MA_LOV) ?
+					XATTR_NAME_LOV : XATTR_NAME_DEFAULT_LMV,
+				  0);
 
 		mdt_object_unlock(info, mo, lh, rc);
 		if (rc)
 			GOTO(out_put, rc);
+
+		/* MDT0 invalidate LOD striping cache here */
+		if (fid_is_root(rr->rr_fid1) && (ma->ma_valid & MA_LOV)) {
+			rc = mo_xattr_invalidate(info->mti_env,
+						 mdt_object_child(mo));
+			if (rc)
+				GOTO(out_put, rc);
+		}
 	} else {
 		GOTO(out_put, rc = -EPROTO);
 	}
@@ -1014,7 +1018,8 @@ static int mdt_reint_unlink(struct mdt_thread_info *info,
 		rc = mdt_remote_object_lock(info, mp, mdt_object_fid(mc),
 					    &child_lh->mlh_rreg_lh,
 					    child_lh->mlh_rreg_mode,
-					    MDS_INODELOCK_LOOKUP, false);
+					    MDS_INODELOCK_LOOKUP,
+					    mdt_remote_blocking_ast, false);
 		if (rc != ELDLM_OK)
 			GOTO(unlock_parent, rc);
 
@@ -1265,10 +1270,9 @@ static int mdt_rename_lock(struct mdt_thread_info *info,
 		if (IS_ERR(obj))
 			RETURN(PTR_ERR(obj));
 
-		rc = mdt_remote_object_lock(info, obj,
-					    &LUSTRE_BFL_FID, lh,
-					    LCK_EX,
-					    MDS_INODELOCK_UPDATE, false);
+		rc = mdt_remote_object_lock(info, obj, &LUSTRE_BFL_FID, lh,
+					    LCK_EX, MDS_INODELOCK_UPDATE,
+					    mdt_remote_blocking_ast, false);
 		mdt_object_put(info->mti_env, obj);
 	} else {
 		struct ldlm_namespace *ns = info->mti_mdt->mdt_namespace;
@@ -1647,7 +1651,8 @@ out_lease:
 		rc = mdt_remote_object_lock(info, msrcdir, mdt_object_fid(mold),
 					    &lh_childp->mlh_rreg_lh,
 					    lh_childp->mlh_rreg_mode,
-					    MDS_INODELOCK_LOOKUP, false);
+					    MDS_INODELOCK_LOOKUP,
+					    mdt_remote_blocking_ast, false);
 		if (rc != ELDLM_OK)
 			GOTO(out_unlock_list, rc);
 
@@ -1713,7 +1718,8 @@ out_lease:
 					    mdt_object_fid(mnew),
 					    &lh_tgtp->mlh_rreg_lh,
 					    lh_tgtp->mlh_rreg_mode,
-					    MDS_INODELOCK_UPDATE, false);
+					    MDS_INODELOCK_UPDATE,
+					    mdt_remote_blocking_ast, false);
 		if (rc != 0) {
 			lh_tgtp = NULL;
 			GOTO(out_put_new, rc);
@@ -2025,6 +2031,7 @@ relock:
 						    &lh_oldp->mlh_rreg_lh,
 						    lh_oldp->mlh_rreg_mode,
 						    MDS_INODELOCK_LOOKUP,
+						    mdt_remote_blocking_ast,
 						    false);
 			if (rc != ELDLM_OK)
 				GOTO(out_put_new, rc);
@@ -2074,6 +2081,7 @@ relock:
 						    &lh_oldp->mlh_rreg_lh,
 						    lh_oldp->mlh_rreg_mode,
 						    MDS_INODELOCK_LOOKUP,
+						    mdt_remote_blocking_ast,
 						    false);
 			if (rc != ELDLM_OK)
 				GOTO(out_put_old, rc);

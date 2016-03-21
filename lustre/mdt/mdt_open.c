@@ -1177,12 +1177,90 @@ out:
         RETURN(rc);
 }
 
+/*
+ * Blocking AST for cross-MDT lock for extended attribute cache.
+ *
+ * Invalidate extended attribute cache of an object.
+ *
+ * \param lock	the lock which blocks a request or cancelling lock
+ * \param desc	unused
+ * \param data	unused
+ * \param flag	indicates whether this cancelling or blocking callback
+ *
+ * \retval	0 on success
+ * \retval	negative number on error
+ */
+static int mdt_xattr_blocking_ast(struct ldlm_lock *lock,
+				  struct ldlm_lock_desc *desc,
+				  void *data, int flag)
+{
+	int rc = 0;
+	ENTRY;
+
+	switch (flag) {
+	case LDLM_CB_BLOCKING: {
+		struct lustre_handle lockh;
+
+		ldlm_lock2handle(lock, &lockh);
+		rc = ldlm_cli_cancel(&lockh,
+			ldlm_is_atomic_cb(lock) ? 0 : LCF_ASYNC);
+		if (rc < 0) {
+			CDEBUG(D_INODE, "ldlm_cli_cancel: %d\n", rc);
+			RETURN(rc);
+		}
+		break;
+	} case LDLM_CB_CANCELING: {
+		struct mdt_device *mdt = lock->l_ast_data;
+		struct lu_fid fid;
+		struct mdt_object *obj;
+		struct lu_env env;
+
+		fid_extract_from_res_name(&fid, &lock->l_resource->lr_name);
+
+		LASSERT(mdt != NULL);
+		LASSERT(fid_is_sane(&fid));
+		LASSERT(lock->l_policy_data.l_inodebits.bits &
+			MDS_INODELOCK_XATTR);
+
+		LDLM_DEBUG(lock, "Revoke XATTR lock\n");
+
+		rc = lu_env_init(&env, LCT_MD_THREAD);
+		if (unlikely(rc != 0)) {
+			struct obd_device *obd = ldlm_lock_to_ns(lock)->ns_obd;
+
+			CWARN("%s: lu_env initialization failed, cannot "
+			      "invalidate "DFID" XATTR cache: %d\n",
+			      obd->obd_name, PFID(&fid), rc);
+			RETURN(rc);
+		}
+
+		obj = mdt_object_find(&env, mdt, &fid);
+		if (IS_ERR(obj)) {
+			CDEBUG(D_DLMTRACE, "object of "DFID" is not found, "
+			       "maybe it's freed already.", PFID(&fid));
+			lu_env_fini(&env);
+			RETURN(PTR_ERR(obj));
+		}
+
+		rc = mo_xattr_invalidate(&env, mdt_object_child(obj));
+		mdt_object_put(&env, obj);
+		lu_env_fini(&env);
+		break;
+	} default:
+		LBUG();
+	}
+
+	RETURN(rc);
+}
+
 int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
 {
         struct mdt_device       *mdt = info->mti_mdt;
         struct ptlrpc_request   *req = mdt_info_req(info);
+	struct mdt_object	*md_root = NULL;
         struct mdt_object       *parent;
         struct mdt_object       *child;
+	struct mdt_lock_handle	*lhroot = NULL;
         struct mdt_lock_handle  *lh;
         struct ldlm_reply       *ldlm_rep;
         struct mdt_body         *repbody;
@@ -1268,17 +1346,55 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
 		GOTO(out, result);
 	}
 
-        if (OBD_FAIL_CHECK(OBD_FAIL_MDS_OPEN_PACK))
-                GOTO(out, result = err_serious(-ENOMEM));
+	if (OBD_FAIL_CHECK(OBD_FAIL_MDS_OPEN_PACK))
+		GOTO(out, result = err_serious(-ENOMEM));
 
-        mdt_set_disposition(info, ldlm_rep,
-                            (DISP_IT_EXECD | DISP_LOOKUP_EXECD));
+	mdt_set_disposition(info, ldlm_rep,
+			    (DISP_IT_EXECD | DISP_LOOKUP_EXECD));
 
 	if (!lu_name_is_valid(&rr->rr_name))
 		GOTO(out, result = -EPROTO);
 
+	/* MDT0 doesn't need to lock md root */
+	if (info->mti_mdt->mdt_seq_site.ss_node_id > 0) {
+		struct ldlm_lock *lock;
+
+		lu_root_fid(&info->mti_tmp_fid1);
+		md_root = mdt_object_find(info->mti_env, info->mti_mdt,
+					  &info->mti_tmp_fid1);
+		if (IS_ERR(md_root)) {
+			result = PTR_ERR(md_root);
+			md_root = NULL;
+			GOTO(out, result);
+		}
+
+		lhroot = &info->mti_lh[MDT_LH_XATTR];
+		mdt_lock_handle_init(lhroot);
+		mdt_lock_reg_init(lhroot, LCK_PR);
+		result = mdt_remote_object_lock(info, md_root,
+						mdt_object_fid(md_root),
+						&lhroot->mlh_rreg_lh,
+						lhroot->mlh_rreg_mode,
+						MDS_INODELOCK_XATTR,
+						mdt_xattr_blocking_ast, false);
+		if (result != 0) {
+			mdt_object_put(info->mti_env, md_root);
+			md_root = NULL;
+			GOTO(out, result);
+		}
+
+		lock = ldlm_handle2lock(&lhroot->mlh_rreg_lh);
+		LASSERT(lock != NULL);
+
+		lock_res_and_lock(lock);
+		lock->l_ast_data = info->mti_mdt;
+		unlock_res_and_lock(lock);
+
+		LDLM_LOCK_PUT(lock);
+	}
+
 again:
-        lh = &info->mti_lh[MDT_LH_PARENT];
+	lh = &info->mti_lh[MDT_LH_PARENT];
 	mdt_lock_pdo_init(lh,
 			  (create_flags & MDS_OPEN_CREAT) ? LCK_PW : LCK_PR,
 			  &rr->rr_name);
@@ -1529,6 +1645,10 @@ out_child:
 out_parent:
 	mdt_object_unlock_put(info, parent, lh, result || !created);
 out:
+	if (md_root != NULL) {
+		ldlm_lock_decref(&lhroot->mlh_rreg_lh, lhroot->mlh_rreg_mode);
+		mdt_object_put(info->mti_env, md_root);
+	}
 	if (result)
 		lustre_msg_set_transno(req->rq_repmsg, 0);
 	return result;

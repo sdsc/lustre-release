@@ -271,6 +271,7 @@ enum {
 	MDT_LH_OLD,	/* old lockh for rename */
 	MDT_LH_LAYOUT = MDT_LH_OLD, /* layout lock */
 	MDT_LH_NEW,	/* new lockh for rename */
+	MDT_LH_XATTR  = MDT_LH_NEW, /* xattr lock */
 	MDT_LH_RMT,	/* used for return lh to caller */
 	MDT_LH_LOCAL,	/* local lock never return to client */
 	MDT_LH_NR
@@ -623,10 +624,10 @@ void mdt_object_unlock_put(struct mdt_thread_info *,
 
 void mdt_client_compatibility(struct mdt_thread_info *info);
 
-int mdt_remote_object_lock(struct mdt_thread_info *mti,
-			   struct mdt_object *o, const struct lu_fid *fid,
-			   struct lustre_handle *lh,
-			   enum ldlm_mode mode, __u64 ibits, bool nonblock);
+int mdt_remote_object_lock(struct mdt_thread_info *mti, struct mdt_object *o,
+			   const struct lu_fid *fid, struct lustre_handle *lh,
+			   enum ldlm_mode mode, __u64 ibits,
+			   ldlm_blocking_callback cb_bl, bool nonblock);
 
 enum mdt_name_flags {
 	MNF_FIX_ANON = 1,
