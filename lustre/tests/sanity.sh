@@ -14782,6 +14782,84 @@ test_404() { # LU-6601
 }
 run_test 404 "validate manual {de}activated works properly for OSPs"
 
+test_405() {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+	[ $OSTCOUNT -lt 2 ] && skip "needs >= 2 OSTs" && return
+	[ -n "$FILESET" ] && skip "SKIP due to FILESET set" && return
+	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.8.50) ] &&
+		skip "Need MDS version at least 2.8.50" && return
+
+	local def_stripenr=$($GETSTRIPE -c $MOUNT)
+	local def_stripe_size=$($GETSTRIPE -S $MOUNT)
+	local def_stripe_offset=$($GETSTRIPE -i $MOUNT)
+	local def_pool=$($GETSTRIPE -p $MOUNT)
+
+	local test_pool=$TESTNAME
+	pool_add $test_pool || error "pool_add failed"
+	pool_add_targets $test_pool 0 $(($OSTCOUNT - 1)) 1 ||
+		error "pool_add_targets failed"
+
+	# parent set default stripe count only, child will stripe from both
+	# parent and fs default
+	$SETSTRIPE -c 1 -i 1 -S $((def_stripe_size * 2)) -p $test_pool $MOUNT ||
+		error "setstripe failed"
+	$LFS mkdir -c $MDSCOUNT $DIR/$tdir || error "mkdir failed"
+	$SETSTRIPE -c $MDSCOUNT $DIR/$tdir || error "setstripe failed"
+	for i in $(seq 10); do
+		local f=$DIR/$tdir/$tfile.$i
+		touch $f || error "touch failed"
+		local count=$($GETSTRIPE -c $f)
+		[ $count -eq $MDSCOUNT ] ||
+			error "$f stripe count $count != $MDSCOUNT"
+		local offset=$($GETSTRIPE -i $f)
+		[ $offset -eq 1 ] || error "$f stripe offset $offset != 1"
+		local size=$($GETSTRIPE -S $f)
+		[ $size -eq $((def_stripe_size * 2)) ] ||
+			error "$f stripe size $size != $((def_stripe_size * 2))"
+		local pool=$($GETSTRIPE -p $f)
+		[ $pool == $test_pool ] || error "$f pool $pool != $test_pool"
+	done
+
+	# change fs default striping, delete parent default striping, now child
+	# will stripe from new fs default striping only
+	$SETSTRIPE -c 1 -S $def_stripe_size -i 0 $MOUNT ||
+		error "setstripe failed"
+	$SETSTRIPE -c 0 $DIR/$tdir || error "setstripe failed"
+	for i in $(seq 11 20); do
+		local f=$DIR/$tdir/$tfile.$i
+		touch $f || error "touch failed"
+		local count=$($GETSTRIPE -c $f)
+		[ $count -eq 1 ] || error "$f stripe count $count != 1"
+		local offset=$($GETSTRIPE -i $f)
+		[ $offset -eq 0 ] || error "$f stripe offset $offset != 0"
+		local size=$($GETSTRIPE -S $f)
+		[ $size -eq $def_stripe_size ] ||
+			error "$f stripe size $size != $def_stripe_size"
+		local pool=$($GETSTRIPE -p $f)
+		[ "#$pool" == "#" ] || error "$f pool $pool is set"
+
+	done
+
+	unlinkmany $DIR/$tdir/$tfile. 1 20
+
+	# restore FS default striping
+	if [ -z $def_pool ]; then
+		$SETSTRIPE -c $def_stripenr -S $def_stripe_size \
+			-i $def_stripe_offset $MOUNT ||
+			error "restore default striping failed"
+	else
+		$SETSTRIPE -c $def_stripenr -S $def_stripe_size -p $def_pool \
+			-i $def_stripe_offset $MOUNT ||
+			error "restore default striping with $def_pool failed"
+	fi
+
+	local f=$DIR/$tdir/$tfile
+	pool_remove_all_targets $test_pool $f
+	pool_remove $test_pool $f
+}
+run_test 405 "DNE support fs default striping"
+
 #
 # tests that do cleanup/setup should be run at the end
 #

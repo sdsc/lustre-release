@@ -193,6 +193,22 @@ int osp_oac_init(struct osp_object *obj)
 }
 
 /**
+ * Free the OSP object attribute cache.
+ *
+ * \param[in] obj	pointer to the OSP object
+ */
+void osp_oac_fini(struct osp_object *obj)
+{
+	spin_lock(&obj->opo_lock);
+	if (obj->opo_ooa != NULL) {
+		LASSERT(list_empty(&obj->opo_ooa->ooa_xattr_list));
+		OBD_FREE_PTR(obj->opo_ooa);
+		obj->opo_ooa = NULL;
+	}
+	spin_unlock(&obj->opo_lock);
+}
+
+/**
  * Find the named extended attribute in the OSP object attributes cache.
  *
  * The caller should take the osp_object::opo_lock before calling
@@ -945,34 +961,31 @@ int osp_xattr_get(const struct lu_env *env, struct dt_object *dt,
 	if (unlikely(obj->opo_non_exist))
 		RETURN(-ENOENT);
 
-	/* Only cache xattr for OST object */
-	if (!osp->opd_connect_mdt) {
-		oxe = osp_oac_xattr_find(obj, name, false);
-		if (oxe != NULL) {
-			spin_lock(&obj->opo_lock);
-			if (oxe->oxe_ready) {
-				if (!oxe->oxe_exist)
-					GOTO(unlock, rc = -ENODATA);
+	oxe = osp_oac_xattr_find(obj, name, false);
+	if (oxe != NULL) {
+		spin_lock(&obj->opo_lock);
+		if (oxe->oxe_ready) {
+			if (!oxe->oxe_exist)
+				GOTO(unlock, rc = -ENODATA);
 
-				if (buf->lb_buf == NULL)
-					GOTO(unlock, rc = oxe->oxe_vallen);
-
-				if (buf->lb_len < oxe->oxe_vallen)
-					GOTO(unlock, rc = -ERANGE);
-
-				memcpy(buf->lb_buf, oxe->oxe_value,
-				       oxe->oxe_vallen);
-
+			if (buf->lb_buf == NULL)
 				GOTO(unlock, rc = oxe->oxe_vallen);
 
-unlock:
-				spin_unlock(&obj->opo_lock);
-				osp_oac_xattr_put(oxe);
+			if (buf->lb_len < oxe->oxe_vallen)
+				GOTO(unlock, rc = -ERANGE);
 
-				return rc;
-			}
+			memcpy(buf->lb_buf, oxe->oxe_value,
+			       oxe->oxe_vallen);
+
+			GOTO(unlock, rc = oxe->oxe_vallen);
+
+unlock:
 			spin_unlock(&obj->opo_lock);
+			osp_oac_xattr_put(oxe);
+
+			return rc;
 		}
+		spin_unlock(&obj->opo_lock);
 	}
 	update = osp_update_request_create(dev);
 	if (IS_ERR(update))
@@ -1041,7 +1054,7 @@ unlock:
 		GOTO(out, rc = -ERANGE);
 
 	memcpy(buf->lb_buf, rbuf->lb_buf, rbuf->lb_len);
-	if (obj->opo_ooa == NULL || osp->opd_connect_mdt)
+	if (obj->opo_ooa == NULL)
 		GOTO(out, rc);
 
 	if (oxe == NULL) {
@@ -1155,7 +1168,6 @@ int osp_xattr_set(const struct lu_env *env, struct dt_object *dt,
 		  struct thandle *th)
 {
 	struct osp_object	*o = dt2osp_obj(dt);
-	struct osp_device	*osp = lu2osp_dev(dt->do_lu.lo_dev);
 	struct osp_update_request *update;
 	struct osp_xattr_entry	*oxe;
 	int			rc;
@@ -1169,7 +1181,7 @@ int osp_xattr_set(const struct lu_env *env, struct dt_object *dt,
 
 	rc = osp_update_rpc_pack(env, xattr_set, update, OUT_XATTR_SET,
 				 lu_object_fid(&dt->do_lu), buf, name, fl);
-	if (rc != 0 || o->opo_ooa == NULL || osp->opd_connect_mdt)
+	if (rc != 0 || o->opo_ooa == NULL)
 		RETURN(rc);
 
 	oxe = osp_oac_xattr_find_or_add(o, name, buf->lb_len);
@@ -1278,6 +1290,39 @@ int osp_xattr_del(const struct lu_env *env, struct dt_object *dt,
 	if (oxe != NULL)
 		/* Drop the ref for entry on list. */
 		osp_oac_xattr_put(oxe);
+
+	return 0;
+}
+
+/**
+ * Implement OSP layer dt_object_operations::do_invalidate() interface.
+ *
+ * Invalidate attributes cached on the specified MDT/OST object.
+ *
+ * \param[in] env	pointer to the thread context
+ * \param[in] dt	pointer to the OSP layer dt_object
+ *
+ * \retval		0 for success
+ * \retval		negative error number on failure
+ */
+int osp_invalidate(const struct lu_env *env, struct dt_object *dt)
+{
+	struct osp_object *obj = dt2osp_obj(dt);
+	struct osp_xattr_entry *oxe;
+	struct osp_xattr_entry *tmp;
+
+	spin_lock(&obj->opo_lock);
+	if (obj->opo_ooa != NULL) {
+		list_for_each_entry_safe(oxe, tmp,
+					 &obj->opo_ooa->ooa_xattr_list,
+					 oxe_list) {
+			oxe->oxe_ready = 0;
+			list_del_init(&oxe->oxe_list);
+			osp_oac_xattr_put(oxe);
+		}
+		obj->opo_ooa->ooa_attr.la_valid = 0;
+	}
+	spin_unlock(&obj->opo_lock);
 
 	return 0;
 }
