@@ -3249,6 +3249,9 @@ test_77h() {
 run_test 77h "Wrong policy name should report error, not LBUG"
 
 test_78() { #LU-6673
+	local server_version=$(lustre_version_code $SINGLEMDS)
+	[[ $server_version -ge $(version_code 2.7.58) ]] ||
+		{ skip "Need server version newer than 2.7.57"; return 0; }
 	local rc
 
 	for i in $(seq 1 $OSTCOUNT)
