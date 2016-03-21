@@ -173,6 +173,10 @@ typedef enum {
 	/* When find a dying object, just return -EAGAIN at once instead of
 	 * blocking the thread. */
 	LOC_F_NOWAIT	= 0x00000002,
+
+	/* This object needs to cache attr, e.g. remote update log, because it
+	 * needs to know current log size. */
+	LOC_F_CACHEATTR	= 0x00000004,
 } loc_flags_t;
 
 /**

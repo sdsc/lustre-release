@@ -1015,6 +1015,20 @@ struct dt_object_operations {
 				struct dt_object *dt,
 				struct ldlm_enqueue_info *einfo,
 				union ldlm_policy_data *policy);
+
+	/**
+	 * Invalidate attribute cache.
+	 *
+	 * This method invalidate attribute cache of the object, which is on OSP
+	 * only.
+	 *
+	 * \param[in] env	execution envionment for this thread
+	 * \param[in] dt	object
+	 *
+	 * \retval 0		on success
+	 * \retval negative	negated errno on error
+	 */
+	int   (*do_invalidate)(const struct lu_env *env, struct dt_object *dt);
 };
 
 /**
@@ -2577,7 +2591,9 @@ static inline int dt_declare_xattr_get(const struct lu_env *env,
 {
 	LASSERT(dt);
 	LASSERT(dt->do_ops);
-	LASSERT(dt->do_ops->do_declare_xattr_get);
+
+	if (dt->do_ops->do_declare_xattr_get == NULL)
+		return 0;
 
 	if (CFS_FAULT_CHECK(OBD_FAIL_DT_DECLARE_XATTR_GET))
 		return cfs_fail_err;
@@ -2610,6 +2626,15 @@ static inline int dt_xattr_list(const struct lu_env *env, struct dt_object *dt,
 		return cfs_fail_err;
 
 	return dt->do_ops->do_xattr_list(env, dt, buf);
+}
+
+static inline int dt_invalidate(const struct lu_env *env, struct dt_object *dt)
+{
+	LASSERT(dt);
+	LASSERT(dt->do_ops);
+	LASSERT(dt->do_ops->do_invalidate);
+
+	return dt->do_ops->do_invalidate(env, dt);
 }
 
 static inline int dt_declare_delete(const struct lu_env *env,

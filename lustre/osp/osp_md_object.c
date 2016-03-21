@@ -88,16 +88,11 @@ static int osp_object_create_interpreter(const struct lu_env *env,
 		obj->opo_non_exist = 1;
 	}
 
-	/* Invalid the opo cache for the object after the object
-	 * is being created, so attr_get will try to get attr
-	 * from the remote object. XXX this can be improved when
-	 * we have object lock/cache invalidate mechanism in OSP
-	 * layer */
-	if (obj->opo_ooa != NULL) {
-		spin_lock(&obj->opo_lock);
-		obj->opo_ooa->ooa_attr.la_valid = 0;
-		spin_unlock(&obj->opo_lock);
-	}
+	/*
+	 * invalidate opo cache for the object after the object is created, so
+	 * attr_get will try to get attr from remote object.
+	 */
+	osp_invalidate(env, &obj->opo_obj);
 
 	return 0;
 }
@@ -125,15 +120,6 @@ int osp_md_declare_object_create(const struct lu_env *env,
 				 struct dt_object_format *dof,
 				 struct thandle *th)
 {
-	struct osp_object *obj = dt2osp_obj(dt);
-	int		  rc;
-
-	if (obj->opo_ooa == NULL) {
-		rc = osp_oac_init(obj);
-		if (rc != 0)
-			return rc;
-	}
-
 	return osp_trans_update_request_create(th);
 }
 
@@ -196,8 +182,8 @@ int osp_md_object_create(const struct lu_env *env, struct dt_object *dt,
 	dt->do_lu.lo_header->loh_attr |= LOHA_EXISTS | (attr->la_mode & S_IFMT);
 	dt2osp_obj(dt)->opo_non_exist = 0;
 
-	LASSERT(obj->opo_ooa != NULL);
-	obj->opo_ooa->ooa_attr = *attr;
+	if (obj->opo_ooa != NULL)
+		obj->opo_ooa->ooa_attr = *attr;
 out:
 	return rc;
 }
@@ -367,6 +353,34 @@ int osp_md_attr_set(const struct lu_env *env, struct dt_object *dt,
 
 	rc = osp_update_rpc_pack(env, attr_set, update, OUT_ATTR_SET,
 				 lu_object_fid(&dt->do_lu), attr);
+	return rc;
+}
+
+/**
+ * Implement OSP dt_object_operations::do_declare_xattr_get() interface.
+ *
+ * Declare that the caller will get extended attribute from the specified
+ * MDT object.
+ *
+ * This function will initialize oac.
+ *
+ * \param[in] env	pointer to the thread context
+ * \param[in] dt	pointer to the OSP layer dt_object
+ * \param[out] buf	pointer to the lu_buf to hold the extended attribute
+ * \param[in] name	the name for the expected extended attribute
+ *
+ * \retval		0 for success
+ * \retval		negative error number on failure
+ */
+static int osp_md_declare_xattr_get(const struct lu_env *env,
+				    struct dt_object *dt,
+				    struct lu_buf *buf, const char *name)
+{
+	struct osp_object *obj = dt2osp_obj(dt);
+	int rc = 0;
+
+	if (obj->opo_ooa == NULL)
+		rc = osp_oac_init(obj);
 	return rc;
 }
 
@@ -1025,6 +1039,7 @@ struct dt_object_operations osp_md_obj_ops = {
 	.do_attr_get	      = osp_attr_get,
 	.do_declare_attr_set  = osp_md_declare_attr_set,
 	.do_attr_set          = osp_md_attr_set,
+	.do_declare_xattr_get = osp_md_declare_xattr_get,
 	.do_xattr_get         = osp_xattr_get,
 	.do_declare_xattr_set = osp_declare_xattr_set,
 	.do_xattr_set         = osp_xattr_set,
@@ -1033,6 +1048,7 @@ struct dt_object_operations osp_md_obj_ops = {
 	.do_index_try         = osp_md_index_try,
 	.do_object_lock       = osp_md_object_lock,
 	.do_object_unlock     = osp_md_object_unlock,
+	.do_invalidate	      = osp_invalidate,
 };
 
 /**
