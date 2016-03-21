@@ -3191,6 +3191,8 @@ test_77g() {
 run_test 77g "Change TBF type directly"
 
 test_78() { #LU-6673
+	[[ $server_version -ge $(version_code 2.7.58) ]] ||
+		{ skip "Need server version newer than 2.7.57"; return 0; }	
 	local rc
 
 	for i in $(seq 1 $OSTCOUNT)
