@@ -960,7 +960,9 @@ int lod_parse_striping(const struct lu_env *env, struct lod_object *lo,
 	if (magic == LOV_MAGIC_V3) {
 		struct lov_mds_md_v3 *v3 = (struct lov_mds_md_v3 *) lmm;
 		objs = &v3->lmm_objects[0];
+#if 0		/* no need to set pool, which is used in create only */
 		lod_object_set_pool(lo, v3->lmm_pool_name);
+#endif
 	} else {
 		objs = &lmm->lmm_objects[0];
 	}
@@ -1041,9 +1043,6 @@ int lod_load_striping_locked(const struct lu_env *env, struct lod_object *lo)
 		 */
 		rc = lod_parse_dir_striping(env, lo, buf);
 	}
-
-	if (rc == 0)
-		lo->ldo_striping_cached = 1;
 out:
 	RETURN(rc);
 }

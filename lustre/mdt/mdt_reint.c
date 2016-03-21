@@ -386,6 +386,8 @@ static int mdt_lock_slaves(struct mdt_thread_info *mti, struct mdt_object *obj,
 	int rc;
 	ENTRY;
 
+	memset(einfo, 0, sizeof(*einfo));
+
 	rc = mdt_init_slaves(mti, obj, s0_fid);
 	if (rc <= 0)
 		RETURN(rc);
@@ -409,12 +411,12 @@ static int mdt_lock_slaves(struct mdt_thread_info *mti, struct mdt_object *obj,
 		}
 	}
 
-	memset(einfo, 0, sizeof(*einfo));
 	einfo->ei_type = LDLM_IBITS;
 	einfo->ei_mode = mode;
 	einfo->ei_cb_bl = mdt_remote_blocking_ast;
 	einfo->ei_cb_local_bl = mdt_blocking_ast;
 	einfo->ei_cb_cp = ldlm_completion_ast;
+	einfo->ei_cbdata = mti->mti_mdt;
 	einfo->ei_enq_slave = 1;
 	einfo->ei_namespace = mti->mti_mdt->mdt_namespace;
 	memset(policy, 0, sizeof(*policy));
@@ -752,21 +754,10 @@ static int mdt_reint_setattr(struct mdt_thread_info *info,
 			GOTO(out_put, rc = -EPROTO);
 
 		rc = mdt_attr_set(info, mo, ma);
-                if (rc)
-                        GOTO(out_put, rc);
-	} else if ((ma->ma_valid & MA_LOV) && (ma->ma_valid & MA_INODE)) {
-		struct lu_buf *buf  = &info->mti_buf;
-
-		if (ma->ma_attr.la_valid != 0)
-			GOTO(out_put, rc = -EPROTO);
-
-		buf->lb_buf = ma->ma_lmm;
-		buf->lb_len = ma->ma_lmm_size;
-		rc = mo_xattr_set(info->mti_env, mdt_object_child(mo),
-				  buf, XATTR_NAME_LOV, 0);
 		if (rc)
 			GOTO(out_put, rc);
-	} else if ((ma->ma_valid & MA_LMV) && (ma->ma_valid & MA_INODE)) {
+	} else if ((ma->ma_valid & (MA_LOV | MA_LMV)) &&
+		   (ma->ma_valid & MA_INODE)) {
 		struct lu_buf *buf  = &info->mti_buf;
 		struct mdt_lock_handle  *lh;
 
@@ -780,15 +771,21 @@ static int mdt_reint_setattr(struct mdt_thread_info *info,
 		lh = &info->mti_lh[MDT_LH_PARENT];
 		mdt_lock_reg_init(lh, LCK_PW);
 
-		rc = mdt_object_lock(info, mo, lh,
-				     MDS_INODELOCK_XATTR);
+		rc = mdt_object_lock(info, mo, lh, MDS_INODELOCK_XATTR);
 		if (rc != 0)
 			GOTO(out_put, rc);
 
-		buf->lb_buf = ma->ma_lmv;
-		buf->lb_len = ma->ma_lmv_size;
-		rc = mo_xattr_set(info->mti_env, mdt_object_child(mo),
-				  buf, XATTR_NAME_DEFAULT_LMV, 0);
+		if (ma->ma_valid & MA_LOV) {
+			buf->lb_buf = ma->ma_lmm;
+			buf->lb_len = ma->ma_lmm_size;
+		} else {
+			buf->lb_buf = ma->ma_lmv;
+			buf->lb_len = ma->ma_lmv_size;
+		}
+		rc = mo_xattr_set(info->mti_env, mdt_object_child(mo), buf,
+				  (ma->ma_valid & MA_LOV) ?
+					XATTR_NAME_LOV : XATTR_NAME_DEFAULT_LMV,
+				  0);
 
 		mdt_object_unlock(info, mo, lh, rc);
 		if (rc)

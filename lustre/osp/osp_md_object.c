@@ -371,6 +371,34 @@ int osp_md_attr_set(const struct lu_env *env, struct dt_object *dt,
 }
 
 /**
+ * Implement OSP dt_object_operations::do_declare_xattr_get() interface.
+ *
+ * Declare that the caller will get extended attribute from the specified
+ * MDT object.
+ *
+ * This function will initialize oac.
+ *
+ * \param[in] env	pointer to the thread context
+ * \param[in] dt	pointer to the OSP layer dt_object
+ * \param[out] buf	pointer to the lu_buf to hold the extended attribute
+ * \param[in] name	the name for the expected extended attribute
+ *
+ * \retval		0 for success
+ * \retval		negative error number on failure
+ */
+static int osp_md_declare_xattr_get(const struct lu_env *env,
+				    struct dt_object *dt,
+				    struct lu_buf *buf, const char *name)
+{
+	struct osp_object *obj = dt2osp_obj(dt);
+	int rc = 0;
+
+	if (obj->opo_ooa == NULL)
+		rc = osp_oac_init(obj);
+	return rc;
+}
+
+/**
  * Implementation of dt_object_operations::do_read_lock
  *
  * osp_md_object_{read,write}_lock() will only lock the remote object in the
@@ -1025,11 +1053,13 @@ struct dt_object_operations osp_md_obj_ops = {
 	.do_attr_get	      = osp_attr_get,
 	.do_declare_attr_set  = osp_md_declare_attr_set,
 	.do_attr_set          = osp_md_attr_set,
+	.do_declare_xattr_get = osp_md_declare_xattr_get,
 	.do_xattr_get         = osp_xattr_get,
 	.do_declare_xattr_set = osp_declare_xattr_set,
 	.do_xattr_set         = osp_xattr_set,
 	.do_declare_xattr_del = osp_declare_xattr_del,
 	.do_xattr_del         = osp_xattr_del,
+	.do_invalidate	      = osp_invalidate,
 	.do_index_try         = osp_md_index_try,
 	.do_object_lock       = osp_md_object_lock,
 	.do_object_unlock     = osp_md_object_unlock,
