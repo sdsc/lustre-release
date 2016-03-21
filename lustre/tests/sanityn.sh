@@ -3059,6 +3059,9 @@ tbf_rule_operate()
 }
 
 test_77e() {
+	local server_version=$(lustre_version_code $SINGLEMDS)
+	[[ $server_version -ge $(version_code 2.7.58) ]] ||
+		{ skip "Need server version newer than 2.7.57"; return 0; }
 	for i in $(seq 1 $OSTCOUNT)
 	do
 		do_facet ost"$i" lctl set_param \
@@ -3109,6 +3112,9 @@ test_77e() {
 run_test 77e "check TBF NID nrs policy"
 
 test_77f() {
+	local server_version=$(lustre_version_code $SINGLEMDS)
+	[[ $server_version -ge $(version_code 2.7.58) ]] ||
+		{ skip "Need server version newer than 2.7.57"; return 0; }
 	# Configure jobid_var
 	local saved_jobid_var=$($LCTL get_param -n jobid_var)
 	if [ $saved_jobid_var != procname_uid ]; then
@@ -3172,6 +3178,9 @@ test_77f() {
 run_test 77f "check TBF JobID nrs policy"
 
 test_77g() {
+	local server_version=$(lustre_version_code $SINGLEMDS)
+	[[ $server_version -ge $(version_code 2.7.58) ]] ||
+		{ skip "Need server version newer than 2.7.57"; return 0; }
 	for i in $(seq 1 $OSTCOUNT)
 	do
 		do_facet ost"$i" lctl set_param \
