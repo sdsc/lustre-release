@@ -2297,6 +2297,43 @@ int mdt_remote_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
 	RETURN(0);
 }
 
+int mdt_root_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
+			  void *data, int flag)
+{
+	ENTRY;
+
+	switch (flag) {
+	case LDLM_CB_BLOCKING: {
+		struct lustre_handle lockh;
+		int rc;
+
+		ldlm_lock2handle(lock, &lockh);
+		rc = ldlm_cli_cancel(&lockh,
+			ldlm_is_atomic_cb(lock) ? 0 : LCF_ASYNC);
+		if (rc < 0) {
+			CDEBUG(D_INODE, "ldlm_cli_cancel: %d\n", rc);
+			RETURN(rc);
+		}
+		break;
+	} case LDLM_CB_CANCELING: {
+		struct mdt_device *mdt = lock->l_ast_data;
+
+		LASSERT(mdt != NULL);
+		LASSERT(lock->l_policy_data.l_inodebits.bits ==
+			MDS_INODELOCK_XATTR);
+
+		LDLM_DEBUG(lock, "Revoke root lock\n");
+		mdt->mdt_def_striping_cached = 0;
+		LDLM_LOCK_PUT(lock);
+		break;
+	} default:
+		LBUG();
+	}
+
+	RETURN(0);
+}
+
+
 int mdt_check_resent_lock(struct mdt_thread_info *info,
 			  struct mdt_object *mo,
 			  struct mdt_lock_handle *lhc)
@@ -2711,6 +2748,84 @@ void mdt_object_unlock_put(struct mdt_thread_info * info,
 {
         mdt_object_unlock(info, o, lh, decref);
         mdt_object_put(info->mti_env, o);
+}
+
+/**
+ * revalidate system default striping
+ *
+ * Do nothing if this is MDT0, because it will revalidate default striping upon
+ * setting (see mdt_reint_setattr), while for other MDT, it needs to enqueue
+ * XATTR lock of root, fetch default striping and cache it in LOD (which has its
+ * knowledge), and finally unlock but not cancel, so that it doesn't need to
+ * revalidate each time.
+ *
+ * \param	info	thread info object
+ * \retval	0	success
+ * \retval	negative errno upon error
+ */
+int mdt_revalidate_def_striping(struct mdt_thread_info *info)
+{
+	struct lu_fid fid;
+	struct mdt_object *root;
+	struct lustre_handle lh;
+	struct ldlm_enqueue_info *einfo = &info->mti_einfo;
+	union ldlm_policy_data *policy = &info->mti_policy;
+	struct ldlm_res_id *res_id = &info->mti_res_id;
+	struct ldlm_lock *lock;
+	int rc;
+	ENTRY;
+
+	if (info->mti_mdt->mdt_def_striping_cached)
+		RETURN(0);
+
+	/* MDT0 fs default striping is always valid */
+	LASSERT(info->mti_mdt->mdt_seq_site.ss_node_id != 0);
+
+	lu_root_fid(&fid);
+	root = mdt_object_find(info->mti_env, info->mti_mdt, &fid);
+	if (IS_ERR(root))
+		RETURN(PTR_ERR(root));
+
+	LASSERT(mdt_object_remote(root));
+
+	fid_build_reg_res_name(&fid, res_id);
+
+	memset(einfo, 0, sizeof(*einfo));
+	einfo->ei_type = LDLM_IBITS;
+	einfo->ei_mode = LCK_PR;
+	einfo->ei_cb_bl = mdt_root_blocking_ast;
+	einfo->ei_cb_cp = ldlm_completion_ast;
+	einfo->ei_enq_slave = 0;
+	einfo->ei_res_id = res_id;
+
+	memset(policy, 0, sizeof(*policy));
+	policy->l_inodebits.bits = MDS_INODELOCK_XATTR;
+
+	rc = mo_object_lock(info->mti_env, mdt_object_child(root), &lh, einfo,
+			    policy);
+	if (rc < 0) {
+		mdt_object_put(info->mti_env, root);
+		RETURN(rc);
+	}
+
+	lock = ldlm_handle2lock(&lh);
+	LASSERT(lock != NULL);
+	lock_res_and_lock(lock);
+	lock->l_ast_data = info->mti_mdt;
+	unlock_res_and_lock(lock);
+
+	rc = mdo_revalidate_def_striping(info->mti_env, mdt_object_child(root));
+	if (rc == 0)
+		info->mti_mdt->mdt_def_striping_cached = 1;
+
+	ldlm_lock_decref(&lh, LCK_PR);
+	/* lock is not canceled, but one refcount is kept here, which will be
+	 * put in ldlm namespace cleanup, see osp_disconnect(); it will also
+	 * be put in mdt_root_blocking_ast() upon revoke when setting fs default
+	 * striping. */
+	mdt_object_put(info->mti_env, root);
+
+	RETURN(rc);
 }
 
 /*
@@ -4461,6 +4576,7 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
 			m->mdt_skip_lfsck = 1;
 	}
 
+	m->mdt_def_striping_cached = 0;
 	m->mdt_squash.rsi_uid = 0;
 	m->mdt_squash.rsi_gid = 0;
 	INIT_LIST_HEAD(&m->mdt_squash.rsi_nosquash_nids);
@@ -4839,6 +4955,8 @@ static int mdt_prepare(const struct lu_env *env,
 							 &mdt->mdt_md_root_fid);
 		if (rc)
 			RETURN(rc);
+		/* MDT0 fs default striping is always valid */
+		mdt->mdt_def_striping_cached = 1;
 	}
 
 	LASSERT(!test_bit(MDT_FL_CFGLOG, &mdt->mdt_state));

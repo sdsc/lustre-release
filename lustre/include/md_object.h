@@ -258,6 +258,9 @@ struct md_dir_operations {
 	int (*mdo_migrate)(const struct lu_env *env, struct md_object *pobj,
 			   struct md_object *sobj, const struct lu_name *lname,
 			   struct md_object *tobj, struct md_attr *ma);
+
+	int (*mdo_revalidate_def_striping)(const struct lu_env *env,
+					   struct md_object *root);
 };
 
 struct md_device_operations {
@@ -555,6 +558,13 @@ static inline int mdo_unlink(const struct lu_env *env,
 {
 	LASSERT(p->mo_dir_ops->mdo_unlink);
 	return p->mo_dir_ops->mdo_unlink(env, p, c, lname, ma, no_name);
+}
+
+static inline int mdo_revalidate_def_striping(const struct lu_env *env,
+					      struct md_object *root)
+{
+	LASSERT(root->mo_dir_ops->mdo_revalidate_def_striping);
+	return root->mo_dir_ops->mdo_revalidate_def_striping(env, root);
 }
 
 /**

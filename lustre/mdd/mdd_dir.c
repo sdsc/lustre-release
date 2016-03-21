@@ -4308,6 +4308,15 @@ put:
 	RETURN(rc);
 }
 
+static int mdd_revalidate_def_striping(const struct lu_env *env,
+				       struct md_object *root)
+{
+	struct mdd_object *mdd_root = md2mdd_obj(root);
+	struct dt_object *nr = mdd_object_child(mdd_root);
+
+	return nr->do_ops->do_revalidate_def_striping(env, nr);
+}
+
 const struct md_dir_operations mdd_dir_ops = {
 	.mdo_is_subdir     = mdd_is_subdir,
 	.mdo_lookup        = mdd_lookup,
@@ -4317,4 +4326,5 @@ const struct md_dir_operations mdd_dir_ops = {
 	.mdo_unlink        = mdd_unlink,
 	.mdo_create_data   = mdd_create_data,
 	.mdo_migrate	   = mdd_migrate,
+	.mdo_revalidate_def_striping = mdd_revalidate_def_striping,
 };

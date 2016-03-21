@@ -14438,6 +14438,33 @@ test_402() {
 }
 run_test 402 "Return ENOENT to lod_generate_and_set_lovea"
 
+test_403() {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+
+	local saved_count=$($GETSTRIPE -c $DIR)
+	local saved_size=$($GETSTRIPE -S $DIR)
+
+	$SETSTRIPE -c 2 -S $saved_size $DIR || error "setstripe failed"
+	$LFS mkdir -c $MDSCOUNT $DIR/$tdir || error "mkdir failed"
+	$SETSTRIPE -c 0 $DIR/$tdir || error "setstripe failed"
+	for i in $(seq 100); do
+		local f=$DIR/$tdir/f_$i
+		touch $f || error "touch failed"
+		[ $($GETSTRIPE -c $f) -eq 2 ] || error "$f stripe count != 2"
+	done
+
+	$SETSTRIPE -c 1 -S $saved_size $DIR || error "setstripe failed"
+	for i in $(seq 101 200); do
+		local f=$DIR/$tdir/f_$i
+		touch $f || error "touch failed"
+		[ $($GETSTRIPE -c $f) -eq 1 ] || error "$f stripe count != 1"
+	done
+
+	$SETSTRIPE -c $saved_count -S $saved_size $DIR ||
+		error "setstripe failed"
+}
+run_test 403 "DNE support fs default striping"
+
 #
 # tests that do cleanup/setup should be run at the end
 #

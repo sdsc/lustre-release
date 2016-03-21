@@ -3980,6 +3980,29 @@ out:
 	RETURN(rc);
 }
 
+static int lod_revalidate_def_striping(const struct lu_env *env,
+				       struct dt_object *root)
+{
+	struct lod_object *lr;
+	int rc;
+	ENTRY;
+
+	lr = lod_dt_obj(root);
+	rc = lod_cache_parent_lov_striping(env, lr);
+	if (lr->ldo_def_striping_set) {
+		struct lod_device *d = lu2lod_dev(root->do_lu.lo_dev);
+		struct lov_desc *desc = &d->lod_desc;
+
+		desc->ld_default_stripe_count = lr->ldo_def_stripenr;
+		desc->ld_default_stripe_size = lr->ldo_def_stripe_size;
+		desc->ld_default_stripe_offset = lr->ldo_def_stripe_offset;
+		CDEBUG(D_OTHER, "default striping: #%d, sz %d\n",
+		       lr->ldo_stripenr, lr->ldo_stripe_size);
+	}
+	RETURN(rc);
+}
+
+
 struct dt_object_operations lod_obj_ops = {
 	.do_read_lock		= lod_object_read_lock,
 	.do_write_lock		= lod_object_write_lock,
@@ -4008,6 +4031,7 @@ struct dt_object_operations lod_obj_ops = {
 	.do_object_sync		= lod_object_sync,
 	.do_object_lock		= lod_object_lock,
 	.do_object_unlock	= lod_object_unlock,
+	.do_revalidate_def_striping = lod_revalidate_def_striping,
 };
 
 /**

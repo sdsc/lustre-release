@@ -454,6 +454,10 @@ static int mdt_md_create(struct mdt_thread_info *info)
 
 	repbody = req_capsule_server_get(info->mti_pill, &RMF_MDT_BODY);
 
+	rc = mdt_revalidate_def_striping(info);
+	if (rc < 0)
+		RETURN(rc);
+
 	parent = mdt_object_find(info->mti_env, info->mti_mdt, rr->rr_fid1);
 	if (IS_ERR(parent))
 		RETURN(PTR_ERR(parent));
@@ -754,19 +758,8 @@ static int mdt_reint_setattr(struct mdt_thread_info *info,
 		rc = mdt_attr_set(info, mo, ma);
                 if (rc)
                         GOTO(out_put, rc);
-	} else if ((ma->ma_valid & MA_LOV) && (ma->ma_valid & MA_INODE)) {
-		struct lu_buf *buf  = &info->mti_buf;
-
-		if (ma->ma_attr.la_valid != 0)
-			GOTO(out_put, rc = -EPROTO);
-
-		buf->lb_buf = ma->ma_lmm;
-		buf->lb_len = ma->ma_lmm_size;
-		rc = mo_xattr_set(info->mti_env, mdt_object_child(mo),
-				  buf, XATTR_NAME_LOV, 0);
-		if (rc)
-			GOTO(out_put, rc);
-	} else if ((ma->ma_valid & MA_LMV) && (ma->ma_valid & MA_INODE)) {
+	} else if ((ma->ma_valid & (MA_LOV | MA_LMV)) &&
+		   (ma->ma_valid & MA_INODE)) {
 		struct lu_buf *buf  = &info->mti_buf;
 		struct mdt_lock_handle  *lh;
 
@@ -785,14 +778,30 @@ static int mdt_reint_setattr(struct mdt_thread_info *info,
 		if (rc != 0)
 			GOTO(out_put, rc);
 
-		buf->lb_buf = ma->ma_lmv;
-		buf->lb_len = ma->ma_lmv_size;
-		rc = mo_xattr_set(info->mti_env, mdt_object_child(mo),
-				  buf, XATTR_NAME_DEFAULT_LMV, 0);
+		if (ma->ma_valid & MA_LOV) {
+			buf->lb_buf = ma->ma_lmm;
+			buf->lb_len = ma->ma_lmm_size;
+		} else {
+			buf->lb_buf = ma->ma_lmv;
+			buf->lb_len = ma->ma_lmv_size;
+		}
+		rc = mo_xattr_set(info->mti_env, mdt_object_child(mo), buf,
+				  (ma->ma_valid & MA_LOV) ?
+					XATTR_NAME_LOV : XATTR_NAME_DEFAULT_LMV,
+				  0);
 
 		mdt_object_unlock(info, mo, lh, rc);
 		if (rc)
 			GOTO(out_put, rc);
+
+		/* MDT0 refresh default striping here */
+		if (fid_is_root(rr->rr_fid1) && (ma->ma_valid & MA_LOV)) {
+			rc = mdo_revalidate_def_striping(info->mti_env,
+							 mdt_object_child(mo));
+			if (rc)
+				GOTO(out_put, rc);
+			info->mti_mdt->mdt_def_striping_cached = 1;
+		}
 	} else {
 		GOTO(out_put, rc = -EPROTO);
 	}

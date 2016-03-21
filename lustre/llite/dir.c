@@ -531,12 +531,32 @@ int ll_dir_setstripe(struct inode *inode, struct lov_user_md *lump,
                  */
                 switch (lump->lmm_magic) {
                 case LOV_USER_MAGIC_V1: {
+			/* NB, in the future, if fs default striping contains
+			 * more than stripe size and count, e.g. OST pool, or
+			 * PFL, it's better to fetch default striping, and
+			 * update specific field and then set below. */
+			if (set_default &&
+			    (lump->lmm_stripe_size == 0 ||
+			     lump->lmm_stripe_count == 0)) {
+				CERROR("fs default striping size/count "
+				       "should be set both!");
+				RETURN(-EINVAL);
+			}
+
                         if (lump->lmm_magic != cpu_to_le32(LOV_USER_MAGIC_V1))
                                 lustre_swab_lov_user_md_v1(lump);
                         lum_size = sizeof(struct lov_user_md_v1);
                         break;
                 }
                 case LOV_USER_MAGIC_V3: {
+			if (set_default &&
+			    (lump->lmm_stripe_size == 0 ||
+			     lump->lmm_stripe_count == 0)) {
+				CERROR("fs default striping size/count "
+				       "should be set both!");
+				RETURN(-EINVAL);
+			}
+
                         if (lump->lmm_magic != cpu_to_le32(LOV_USER_MAGIC_V3))
                                 lustre_swab_lov_user_md_v3(
                                         (struct lov_user_md_v3 *)lump);
@@ -576,10 +596,15 @@ int ll_dir_setstripe(struct inode *inode, struct lov_user_md *lump,
                         CERROR("mdc_setattr fails: rc = %d\n", rc);
         }
 
-        /* In the following we use the fact that LOV_USER_MAGIC_V1 and
-         LOV_USER_MAGIC_V3 have the same initial fields so we do not
-         need the make the distiction between the 2 versions */
-        if (set_default && mgc->u.cli.cl_mgc_mgsexp) {
+	/* In the following we use the fact that LOV_USER_MAGIC_V1 and
+	 * LOV_USER_MAGIC_V3 have the same initial fields so we do not
+	 * need the make the distiction between the 2 versions.
+	 *
+	 * Below is not necessary any more because MDT will obtain fs
+	 * default striping from root XATTR_NAME_ROOT, however for
+	 * interop with old MDS, it's kept.
+	 */
+	if (set_default && mgc->u.cli.cl_mgc_mgsexp) {
 		char *param = NULL;
 		char *buf;
 

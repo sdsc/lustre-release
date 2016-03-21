@@ -453,10 +453,11 @@ static void osp_last_used_fini(const struct lu_env *env, struct osp_device *osp)
  */
 static int osp_disconnect(struct osp_device *d)
 {
+	struct obd_device *obd = d->opd_obd;
 	struct obd_import *imp;
 	int rc = 0;
 
-	imp = d->opd_obd->u.cli.cl_import;
+	imp = obd->u.cli.cl_import;
 
 	/* Mark import deactivated now, so we don't try to reconnect if any
 	 * of the cleanup RPCs fails (e.g. ldlm cancel, etc).  We don't
@@ -473,10 +474,13 @@ static int osp_disconnect(struct osp_device *d)
 	 * never added.) */
 	(void)ptlrpc_pinger_del_import(imp);
 
+	if (obd->obd_namespace != NULL)
+		ldlm_namespace_free_prior(obd->obd_namespace, imp,
+					  obd->obd_force);
+
 	rc = ptlrpc_disconnect_import(imp, 0);
 	if (rc != 0)
-		CERROR("%s: can't disconnect: rc = %d\n",
-		       d->opd_obd->obd_name, rc);
+		CERROR("%s: can't disconnect: rc = %d\n", obd->obd_name, rc);
 
 	ptlrpc_invalidate_import(imp);
 

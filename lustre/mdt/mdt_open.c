@@ -1277,6 +1277,10 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
 	if (!lu_name_is_valid(&rr->rr_name))
 		GOTO(out, result = -EPROTO);
 
+	result = mdt_revalidate_def_striping(info);
+	if (result != 0)
+		GOTO(out, result);
+
 again:
         lh = &info->mti_lh[MDT_LH_PARENT];
 	mdt_lock_pdo_init(lh,

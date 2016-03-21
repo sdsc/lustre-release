@@ -1015,6 +1015,9 @@ struct dt_object_operations {
 				struct dt_object *dt,
 				struct ldlm_enqueue_info *einfo,
 				union ldlm_policy_data *policy);
+
+	int (*do_revalidate_def_striping)(const struct lu_env *env,
+					  struct dt_object *root);
 };
 
 /**

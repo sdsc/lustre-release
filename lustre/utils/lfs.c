@@ -1127,35 +1127,6 @@ static int lfs_setstripe(int argc, char **argv)
 		}
 	}
 
-	/* get the stripe size */
-	if (stripe_size_arg != NULL) {
-		result = llapi_parse_size(stripe_size_arg, &st_size,
-					  &size_units, 0);
-		if (result) {
-			fprintf(stderr, "error: %s: bad stripe size '%s'\n",
-				argv[0], stripe_size_arg);
-			return CMD_HELP;
-		}
-	}
-        /* get the stripe offset */
-        if (stripe_off_arg != NULL) {
-                st_offset = strtol(stripe_off_arg, &end, 0);
-                if (*end != '\0') {
-                        fprintf(stderr, "error: %s: bad stripe offset '%s'\n",
-                                argv[0], stripe_off_arg);
-                        return CMD_HELP;
-                }
-        }
-        /* get the stripe count */
-        if (stripe_count_arg != NULL) {
-                st_count = strtoul(stripe_count_arg, &end, 0);
-                if (*end != '\0') {
-                        fprintf(stderr, "error: %s: bad stripe count '%s'\n",
-                                argv[0], stripe_count_arg);
-                        return CMD_HELP;
-                }
-        }
-
 	if (mdt_idx_arg != NULL) {
 		/* initialize migrate mdt parameters */
 		migrate_mdt_param.fp_mdt_index = strtoul(mdt_idx_arg, &end, 0);
@@ -1172,6 +1143,38 @@ static int lfs_setstripe(int argc, char **argv)
 			fprintf(stderr, "error: %s: run out of memory\n",
 				argv[0]);
 			return CMD_HELP;
+		}
+
+		/* get the stripe size */
+		if (stripe_size_arg != NULL) {
+			result = llapi_parse_size(stripe_size_arg, &st_size,
+						  &size_units, 0);
+			if (result) {
+				fprintf(stderr,
+					"error: %s: bad stripe size '%s'\n",
+					argv[0], stripe_size_arg);
+				return CMD_HELP;
+			}
+		}
+		/* get the stripe offset */
+		if (stripe_off_arg != NULL) {
+			st_offset = strtol(stripe_off_arg, &end, 0);
+			if (*end != '\0') {
+				fprintf(stderr,
+					"error: %s: bad stripe offset '%s'\n",
+					argv[0], stripe_off_arg);
+				return CMD_HELP;
+			}
+		}
+		/* get the stripe count */
+		if (stripe_count_arg != NULL) {
+			st_count = strtoul(stripe_count_arg, &end, 0);
+			if (*end != '\0') {
+				fprintf(stderr,
+					"error: %s: bad stripe count '%s'\n",
+					argv[0], stripe_count_arg);
+				return CMD_HELP;
+			}
 		}
 
 		param->lsp_stripe_size = st_size;

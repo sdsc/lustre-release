@@ -196,7 +196,8 @@ struct mdt_device {
 	unsigned int               mdt_capa_conf:1,
 				   /* Enable remote dir on non-MDT0 */
 				   mdt_enable_remote_dir:1,
-				   mdt_skip_lfsck:1;
+				   mdt_skip_lfsck:1,
+				   mdt_def_striping_cached:1;
 
 	gid_t			   mdt_enable_remote_dir_gid;
 	/* statfs optimization: we cache a bit  */
@@ -620,6 +621,7 @@ void mdt_object_unlock_put(struct mdt_thread_info *,
                            struct mdt_object *,
                            struct mdt_lock_handle *,
                            int decref);
+int mdt_revalidate_def_striping(struct mdt_thread_info *info);
 
 void mdt_client_compatibility(struct mdt_thread_info *info);
 
@@ -730,6 +732,8 @@ int mdt_hsm_attr_set(struct mdt_thread_info *info, struct mdt_object *obj,
 
 int mdt_remote_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
 			    void *data, int flag);
+int mdt_root_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
+			  void *data, int flag);
 int mdt_links_read(struct mdt_thread_info *info,
 		   struct mdt_object *mdt_obj,
 		   struct linkea_data *ldata);
