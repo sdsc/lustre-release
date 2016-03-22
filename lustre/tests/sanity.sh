@@ -13481,6 +13481,19 @@ test_246() { # LU-7371
 }
 run_test 246 "Read file of size 4095 should return right length"
 
+test_249() {
+	rm -f $DIR/$tfile
+	$SETSTRIPE -c 1 $DIR/$tfile
+
+	[ "$(facet_fstype ost$(($($GETSTRIPE -i $DIR/$tfile) + 1)))" != "zfs" ] \
+	 && skip "only 2TB file size limit on ZFS" && return
+
+
+	dd if=/dev/zero of=$DIR/$tfile bs=4k count=1 seek=2T ||
+		error "dd to 2T offset failed"
+}
+run_test 249 "Write above 2T file size"
+
 test_250() {
 	[ "$(facet_fstype ost$(($($GETSTRIPE -i $DIR/$tfile) + 1)))" = "zfs" ] \
 	 && skip "no 16TB file size limit on ZFS" && return
