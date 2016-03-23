@@ -130,6 +130,9 @@ osd_oi_lookup(const struct lu_env *env, struct osd_device *o,
 
 	rc = 0;
 	oi->oi_zapid = zde->zde_dnode;
+	rc = __osd_obj2dbuf(env, o->od_os, oi->oi_zapid, &oi->oi_db);
+	if (rc != 0)
+		CERROR("can't get dbuf for %s: rc = %d\n", name, rc);
 
 	return rc;
 }
@@ -195,11 +198,14 @@ osd_oi_find_or_create(const struct lu_env *env, struct osd_device *o,
 	struct osd_oi	oi;
 	int		rc;
 
+	oi.oi_db = NULL;
 	rc = osd_oi_lookup(env, o, parent, name, &oi);
 	if (rc == 0)
 		*child = oi.oi_zapid;
 	else if (rc == -ENOENT)
 		rc = osd_oi_create(env, o, parent, name, child);
+	if (oi.oi_db)
+		sa_buf_rele(oi.oi_db, osd_obj_tag);
 
 	return rc;
 }
@@ -505,6 +511,8 @@ osd_oi_remove_table(const struct lu_env *env, struct osd_device *o, int key)
 
 	oi = o->od_oi_table[key];
 	if (oi) {
+		if (oi->oi_db)
+			sa_buf_rele(oi->oi_db, osd_obj_tag);
 		OBD_FREE_PTR(oi);
 		o->od_oi_table[key] = NULL;
 	}
