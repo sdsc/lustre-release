@@ -165,7 +165,6 @@ static struct dt_it *osd_index_it_init(const struct lu_env *env,
 
 	LASSERT(lu_object_exists(lo));
 	LASSERT(obj->oo_db);
-	LASSERT(osd_object_is_zap(obj->oo_db));
 	LASSERT(info);
 
 	OBD_SLAB_ALLOC_PTR_GFP(it, osd_zapit_cachep, GFP_NOFS);
@@ -394,8 +393,6 @@ static int osd_dir_lookup(const struct lu_env *env, struct dt_object *dt,
 	int                 rc;
 	ENTRY;
 
-	LASSERT(osd_object_is_zap(obj->oo_db));
-
 	if (name[0] == '.') {
 		if (name[1] == 0) {
 			const struct lu_fid *f = lu_object_fid(&dt->do_lu);
@@ -435,8 +432,8 @@ static int osd_declare_dir_insert(const struct lu_env *env,
 	else
 		object = obj->oo_db->db_object;
 
-	dmu_tx_hold_bonus(oh->ot_tx, object);
-	dmu_tx_hold_zap(oh->ot_tx, object, TRUE, (char *)key);
+	/* don't pass name as it's very expensive */
+	dmu_tx_hold_zap(oh->ot_tx, object, TRUE, NULL);
 
 	RETURN(0);
 }
@@ -583,7 +580,6 @@ static int osd_dir_insert(const struct lu_env *env, struct dt_object *dt,
 	ENTRY;
 
 	LASSERT(parent->oo_db);
-	LASSERT(osd_object_is_zap(parent->oo_db));
 
 	LASSERT(dt_object_exists(dt));
 	LASSERT(osd_invariant(parent));
@@ -685,7 +681,6 @@ static int osd_declare_dir_delete(const struct lu_env *env,
 
 	if (dt_object_exists(dt)) {
 		LASSERT(obj->oo_db);
-		LASSERT(osd_object_is_zap(obj->oo_db));
 		dnode = obj->oo_db->db_object;
 	} else {
 		dnode = DMU_NEW_OBJECT;
@@ -707,7 +702,6 @@ static int osd_dir_delete(const struct lu_env *env, struct dt_object *dt,
 	ENTRY;
 
 	LASSERT(zap_db);
-	LASSERT(osd_object_is_zap(zap_db));
 
 	LASSERT(th != NULL);
 	oh = container_of0(th, struct osd_thandle, ot_super);
