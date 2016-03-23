@@ -1827,7 +1827,7 @@ test_106() { # LU-1789
 
 	$LCTL set_param debug=console
 	$LCTL clear
-	facet_failover $SINGLEMDS
+	CLEANUP_DM_DEV=true facet_failover $SINGLEMDS
 
 	# lightweight connection must be evicted
 	touch -c $DIR2/$tfile || true
