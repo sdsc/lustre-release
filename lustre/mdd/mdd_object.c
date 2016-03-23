@@ -907,13 +907,9 @@ static int mdd_xattr_sanity_check(const struct lu_env *env,
 				  struct mdd_object *obj,
 				  const struct lu_attr *attr)
 {
-	struct lu_ucred *uc     = lu_ucred_assert(env);
 	ENTRY;
 
 	if (attr->la_flags & (LUSTRE_IMMUTABLE_FL | LUSTRE_APPEND_FL))
-		RETURN(-EPERM);
-
-	if ((uc->uc_fsuid != attr->la_uid) && !md_capable(uc, CFS_CAP_FOWNER))
 		RETURN(-EPERM);
 
 	RETURN(0);
