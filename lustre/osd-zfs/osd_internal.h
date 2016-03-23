@@ -163,6 +163,8 @@ struct osa_attr {
 	uint64_t	ctime[2];
 };
 
+#define OSD_MAX_IN_BULK		13
+
 struct osd_thread_info {
 	const struct lu_env	*oti_env;
 
@@ -180,6 +182,7 @@ struct osd_thread_info {
 	union {
 		char		 oti_key[MAXNAMELEN + 1];
 		__u64		 oti_key64[(MAXNAMELEN + 1)/sizeof(__u64)];
+		sa_bulk_attr_t	 oti_attr_bulk[OSD_MAX_IN_BULK];
 	};
 	struct lustre_mdt_attrs oti_mdt_attrs;
 
