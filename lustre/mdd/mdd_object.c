@@ -905,16 +905,29 @@ stop:
 
 static int mdd_xattr_sanity_check(const struct lu_env *env,
 				  struct mdd_object *obj,
-				  const struct lu_attr *attr)
+				  const struct lu_attr *attr,
+				  const char *name)
 {
 	struct lu_ucred *uc     = lu_ucred_assert(env);
+
 	ENTRY;
 
 	if (attr->la_flags & (LUSTRE_IMMUTABLE_FL | LUSTRE_APPEND_FL))
 		RETURN(-EPERM);
 
+	if (strncmp(XATTR_USER_PREFIX, name,
+		    sizeof(XATTR_USER_PREFIX) - 1) == 0 ||
+	    strncmp(XATTR_NAME_ACL_ACCESS, name,
+		    sizeof(XATTR_NAME_ACL_ACCESS) - 1) == 0 ||
+	    strncmp(XATTR_NAME_ACL_DEFAULT, name,
+		    sizeof(XATTR_NAME_ACL_DEFAULT) - 1) == 0 ||
+	    strncmp(XATTR_SECURITY_PREFIX, name,
+		    sizeof(XATTR_SECURITY_PREFIX) - 1) == 0)
+		RETURN(0);
+
 	if ((uc->uc_fsuid != attr->la_uid) && !md_capable(uc, CFS_CAP_FOWNER))
 		RETURN(-EPERM);
+
 
 	RETURN(0);
 }
@@ -1036,7 +1049,7 @@ static int mdd_xattr_set(const struct lu_env *env, struct md_object *obj,
 	if (rc)
 		RETURN(rc);
 
-	rc = mdd_xattr_sanity_check(env, mdd_obj, attr);
+	rc = mdd_xattr_sanity_check(env, mdd_obj, attr, name);
 	if (rc)
 		RETURN(rc);
 
@@ -1149,7 +1162,7 @@ static int mdd_xattr_del(const struct lu_env *env, struct md_object *obj,
 	if (rc)
 		RETURN(rc);
 
-	rc = mdd_xattr_sanity_check(env, mdd_obj, attr);
+	rc = mdd_xattr_sanity_check(env, mdd_obj, attr, name);
 	if (rc)
 		RETURN(rc);
 
