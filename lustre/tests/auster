@@ -132,7 +132,7 @@ print_summary () {
 
 setup_if_needed() {
     nfs_client_mode && return
-    auster_cleanup=false
+    AUSTER_CLEANUP=false
 
     local MOUNTED=$(mounted_lustre_filesystems)
     if $(echo $MOUNTED' ' | grep -w -q $MOUNT' '); then
@@ -151,11 +151,11 @@ setup_if_needed() {
         echo "Lustre is not mounted after setup! "
         exit 1
     fi
-    auster_cleanup=true
+    AUSTER_CLEANUP=true
 }
 
 cleanup_if_needed() {
-    if $auster_cleanup; then
+    if $AUSTER_CLEANUP; then
         cleanupall
     fi
 }

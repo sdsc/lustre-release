@@ -32,6 +32,9 @@ build_test_filter
 
 check_and_setup_lustre
 
+SAVED_CLEANUP_DM_DEV=$CLEANUP_DM_DEV
+CLEANUP_DM_DEV=true
+
 assert_DIR
 rm -rf $DIR/[df][0-9]*
 
@@ -1188,6 +1191,8 @@ restore_lustre_params < $cos_param_file
 rm -f $cos_param_file
 
 [ "$CLIENTS" ] && zconf_mount_clients $CLIENTS $DIR
+
+CLEANUP_DM_DEV=$SAVED_CLEANUP_DM_DEV
 
 complete $SECONDS
 check_and_cleanup_lustre
