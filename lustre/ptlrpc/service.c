@@ -2917,6 +2917,18 @@ int ptlrpc_hr_init(void)
 		hrp->hrp_nthrs = cfs_cpt_weight(ptlrpc_hr.hr_cpt_table, i);
 		hrp->hrp_nthrs /= weight;
 
+		if (ptlrpc_hr.hr_cpt_table != NULL)
+		CERROR("AMIR: ctb_spread_rotor = %u, ctb_distance = %u, ctb_nparts = %u\n",
+		       ptlrpc_hr.hr_cpt_table->ctb_spread_rotor,
+		       ptlrpc_hr.hr_cpt_table->ctb_distance,
+		       ptlrpc_hr.hr_cpt_table->ctb_nparts);
+
+		CERROR("AMIR: hrp->hrp_nthrs = %d, cfs_cpt_weight = %d, weight = %d\n",
+		       hrp->hrp_nthrs, cfs_cpt_weight(ptlrpc_hr.hr_cpt_table, i), weight);
+
+		if (hrp->hrp_nthrs <= 0)
+			GOTO(out, rc = -EINVAL);
+
 		LASSERT(hrp->hrp_nthrs > 0);
 		OBD_CPT_ALLOC(hrp->hrp_thrs, ptlrpc_hr.hr_cpt_table, i,
 			      hrp->hrp_nthrs * sizeof(*hrt));
