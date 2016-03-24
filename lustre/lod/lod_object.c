@@ -4032,7 +4032,12 @@ static int lod_object_init(const struct lu_env *env, struct lu_object *lo,
 			LASSERT(tgt->ltd_tgt != NULL);
 
 			cdev = &(tgt->ltd_tgt->dd_lu_dev);
+		} else {
+			CERROR("CDEV-NULL:type=%d, idx=%d, ltdsize=%d, bitmap=%d\n",
+				type, idx, ltd->ltd_tgts_size,
+				cfs_bitmap_check(ltd->ltd_tgt_bitmap, idx));
 		}
+
 		lod_putref(lod, ltd);
 	}
 
