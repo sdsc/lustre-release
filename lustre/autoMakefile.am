@@ -68,7 +68,7 @@ all-recursive: lustre_build_version
 BUILD_VER_H=$(top_builddir)/lustre/include/lustre/lustre_build_version.h
 
 lustre_build_version:
-	echo -n "#define BUILD_VERSION \"" > tmpver
+	printf "#define BUILD_VERSION \"" >tmpver
 	cat $(top_builddir)/LUSTRE-VERSION-FILE | tr -d '\n' | \
 		sed -e 's/^LUSTRE_VERSION = //' >> tmpver
 	echo "\"" >> tmpver
