@@ -58,6 +58,7 @@
 #include <limits.h>
 #include <lnet/nidstr.h>
 #include <lustre/lustre_idl.h>
+#include <stdbool.h>
 #if LUSTRE_VERSION_CODE < OBD_OCD_VERSION(2, 10, 53, 0)
 /*
  * LU-1783
@@ -78,6 +79,7 @@
 int	verbose;
 int	version;
 char	*progname;
+int	g_pagesize;
 
 void usage(FILE *out)
 {
@@ -223,11 +225,28 @@ static int parse_one_option(const char *check, int *flagp)
         return 0;
 }
 
+/*
 static void append_option(char *options, const char *one)
 {
         if (*options)
                 strcat(options, ",");
         strcat(options, one);
+}
+*/
+
+static int append_option(char *options, const char *param, bool is_key)
+{
+	int len = strlen(options) + strlen(param) + (is_key ? 2 : 1);
+
+	if (len >= g_pagesize) {
+		fprintf(stderr, "error: mount options "
+			"exceeds page size of kernel\n");
+		return -E2BIG;
+	}
+	if (is_key && *options)
+		strcat(options, ",");
+	strcat(options, param);
+	return 0;
 }
 
 /* Replace options with subset of Lustre-specific options, and
@@ -235,6 +254,7 @@ static void append_option(char *options, const char *one)
 int parse_options(struct mount_opts *mop, char *orig_options, int *flagp)
 {
         char *options, *opt, *nextopt, *arg, *val;
+	int rc = 0;
 
         options = calloc(strlen(orig_options) + 1, 1);
         *flagp = 0;
@@ -260,17 +280,29 @@ int parse_options(struct mount_opts *mop, char *orig_options, int *flagp)
 			else if (mop->mo_retry < 0)
 				mop->mo_retry = 0;
                 } else if (val && strncmp(arg, "mgssec", 6) == 0) {
-                        append_option(options, opt);
+			rc = append_option(options, opt, true);
+			if (rc != 0) {
+				free(options);
+				return rc;
+			}
 		} else if (strncmp(arg, "nosvc", 5) == 0) {
 			mop->mo_nosvc = 1;
-			append_option(options, opt);
+			rc = append_option(options, opt, true);
+			if (rc != 0) {
+				free(options);
+				return rc;
+			}
 		} else if (strcmp(opt, "force") == 0) {
 			/* XXX special check for 'force' option */
 			++mop->mo_force;
 			printf("force: %d\n", mop->mo_force);
 		} else if (parse_one_option(opt, flagp) == 0) {
 			/* pass this on as an option */
-			append_option(options, opt);
+			rc = append_option(options, opt, true);
+			if (rc != 0) {
+				free(options);
+				return rc;
+			}
 		}
 	}
 #ifdef MS_STRICTATIME
@@ -290,6 +322,13 @@ int parse_options(struct mount_opts *mop, char *orig_options, int *flagp)
 	if (!(*flagp & (MS_NOATIME | MS_RELATIME)))
 		*flagp |= MS_STRICTATIME;
 #endif
+	if (strlen(options) >= g_pagesize) {
+		fprintf(stderr, "error: mount options "
+			"exceeds page size of kernel\n");
+		free(options);
+		return -E2BIG;
+	}
+
 	strcpy(orig_options, options);
 	free(options);
 
@@ -302,14 +341,18 @@ static int add_mgsnids(struct mount_opts *mop, char *options,
 {
 	char *ptr = (char *)params;
 	char tmp, *sep;
-
+	int rc = 0;
 	while ((ptr = strstr(ptr, PARAM_MGSNODE)) != NULL) {
 		sep = strchr(ptr, ' ');
 		if (sep != NULL) {
 			tmp = *sep;
 			*sep = '\0';
 		}
-		append_option(options, ptr);
+		rc = append_option(options, ptr, true);
+		if (rc != 0) {
+			free(options);
+			return rc;
+		}
 		mop->mo_have_mgsnid++;
 		if (sep) {
 			*sep = tmp;
@@ -439,19 +482,35 @@ static int parse_ldd(char *source, struct mount_opts *mop, char *options)
 		}
 	}
 	/* backend osd type */
-	append_option(options, "osd=");
-	strcat(options, mt_type(ldd->ldd_mount_type));
+	rc = append_option(options, "osd=", true);
+	if (rc != 0) {
+		free(options);
+		return rc;
+	}
 
-	append_option(options, ldd->ldd_mount_opts);
+	rc = append_option(options, mt_type(ldd->ldd_mount_type), false);
+	if (rc != 0)
+		return rc;
+
+	rc = append_option(options, ldd->ldd_mount_opts, true);
+	if (rc != 0) {
+		free(options);
+		return rc;
+	}
 
 	if (!mop->mo_have_mgsnid) {
 		/* Only use disk data if mount -o mgsnode=nid wasn't
 		 * specified */
 		if (ldd->ldd_flags & LDD_F_SV_TYPE_MGS) {
-			append_option(options, "mgs");
+			rc = append_option(options, "mgs", true);
+			if (rc != 0) {
+				free(options);
+				return rc;
+			}
 			mop->mo_have_mgsnid++;
 		} else {
-			add_mgsnids(mop, options, ldd->ldd_params);
+			if (add_mgsnids(mop, options, ldd->ldd_params))
+				return -E2BIG;
 		}
 	}
 	/* Better have an mgsnid by now */
@@ -461,14 +520,26 @@ static int parse_ldd(char *source, struct mount_opts *mop, char *options)
 		return EINVAL;
 	}
 
-	if (ldd->ldd_flags & LDD_F_VIRGIN)
-		append_option(options, "virgin");
-	if (ldd->ldd_flags & LDD_F_UPDATE)
-		append_option(options, "update");
-	if (ldd->ldd_flags & LDD_F_WRITECONF)
-		append_option(options, "writeconf");
-	if (ldd->ldd_flags & LDD_F_NO_PRIMNODE)
-		append_option(options, "noprimnode");
+	if (ldd->ldd_flags & LDD_F_VIRGIN) {
+		rc = append_option(options, "virgin", true);
+		if (rc != 0)
+			return rc;
+	}
+	if (ldd->ldd_flags & LDD_F_UPDATE) {
+		rc = append_option(options, "update", true);
+		if (rc != 0)
+			return rc;
+	}
+	if (ldd->ldd_flags & LDD_F_WRITECONF) {
+		rc = append_option(options, "writeconf", true);
+		if (rc != 0)
+			return rc;
+	}
+	if (ldd->ldd_flags & LDD_F_NO_PRIMNODE) {
+		rc = append_option(options, "noprimnode", true);
+		if (rc != 0)
+			return rc;
+	}
 
 	/* prefix every lustre parameter with param= so that in-kernel
 	 * mount can recognize them properly and send to MGS at registration */
@@ -483,14 +554,21 @@ static int parse_ldd(char *source, struct mount_opts *mop, char *options)
 			*start = '\0';
 			start++;
 		}
-		append_option(options, "param=");
-		strcat(options, cur);
+		rc = append_option(options, "param=", true);
+		if (rc != 0)
+			return rc;
+		rc = append_option(options, cur, false);
+		if (rc != 0)
+			return rc;
 	}
 
 	/* svname must be last option */
-	append_option(options, "svname=");
-	strcat(options, ldd->ldd_svname);
-
+	rc = append_option(options, "svname=", true);
+	if (rc != 0)
+		return rc;
+	rc = append_option(options, ldd->ldd_svname, false);
+	if (rc != 0)
+		return rc;
 	return 0;
 }
 
@@ -624,7 +702,12 @@ int main(int argc, char *const argv[])
 	progname = progname ? progname + 1 : argv[0];
 
 	set_defaults(&mop);
-
+	g_pagesize = sysconf(_SC_PAGESIZE);
+	if (g_pagesize == -1) {
+		rc = errno;
+		printf("error: %d failed to get page size.\n", rc);
+		return rc;
+	}
 	rc = parse_opts(argc, argv, &mop);
 	if (rc || version)
 		return rc;
@@ -642,6 +725,13 @@ int main(int argc, char *const argv[])
                 fprintf(stderr, "can't allocate memory for options\n");
                 return -1;
         }
+	if (strlen(mop.mo_orig_options) >= g_pagesize) {
+		fprintf(stderr, "error: mount options "
+				"exceeds page size of kernel\n");
+		free(options);
+		return -E2BIG;
+	}
+
 	strcpy(options, mop.mo_orig_options);
 	rc = parse_options(&mop, options, &flags);
         if (rc) {
@@ -689,8 +779,12 @@ int main(int argc, char *const argv[])
 
 	/* In Linux 2.4, the target device doesn't get passed to any of our
 	   functions.  So we'll stick it on the end of the options. */
-	append_option(options, "device=");
-	strcat(options, mop.mo_source);
+	rc = append_option(options, "device=", true);
+	if (rc != 0)
+		return rc;
+	rc = append_option(options, mop.mo_source, false);
+	if (rc != 0)
+		return rc;
 
 	if (verbose)
 		printf("mounting device %s at %s, flags=%#x options=%s\n",
