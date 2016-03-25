@@ -112,37 +112,43 @@ osd_object_sa_init(struct osd_object *obj, struct osd_device *o)
 /*
  * Add object to list of dirty objects in tx handle.
  */
-static void
-osd_object_sa_dirty_add(struct osd_object *obj, struct osd_thandle *oh)
+void osd_object_sa_dirty_add(struct osd_object *obj, struct osd_thandle *oh)
 {
 	if (!list_empty(&obj->oo_sa_linkage))
 		return;
 
-	down(&oh->ot_sa_lock);
 	write_lock(&obj->oo_attr_lock);
 	if (likely(list_empty(&obj->oo_sa_linkage)))
 		list_add(&obj->oo_sa_linkage, &oh->ot_sa_list);
 	write_unlock(&obj->oo_attr_lock);
-	up(&oh->ot_sa_lock);
 }
 
 /*
  * Release spill block dbuf hold for all dirty SAs.
  */
-void osd_object_sa_dirty_rele(struct osd_thandle *oh)
+void osd_object_sa_dirty_rele(const struct lu_env *env, struct osd_thandle *oh)
 {
 	struct osd_object *obj;
 
-	down(&oh->ot_sa_lock);
 	while (!list_empty(&oh->ot_sa_list)) {
 		obj = list_entry(oh->ot_sa_list.next,
 				 struct osd_object, oo_sa_linkage);
-		sa_spill_rele(obj->oo_sa_hdl);
 		write_lock(&obj->oo_attr_lock);
 		list_del_init(&obj->oo_sa_linkage);
 		write_unlock(&obj->oo_attr_lock);
+		if (obj->oo_late_xattr) {
+			/*
+			 * take oo_guard to protect oo_sa_xattr buffer
+			 * from concurrent update by osd_xattr_set()
+			 */
+			LASSERT(oh->ot_assigned != 0);
+			down_write(&obj->oo_guard);
+			if (obj->oo_late_xattr)
+				__osd_sa_xattr_update(env, obj, oh);
+			up_write(&obj->oo_guard);
+		}
+		sa_spill_rele(obj->oo_sa_hdl);
 	}
-	up(&oh->ot_sa_lock);
 }
 
 /*
