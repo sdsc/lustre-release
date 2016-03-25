@@ -288,7 +288,7 @@ static int osd_trans_stop(const struct lu_env *env, struct dt_device *dt,
 	if (oh->ot_assigned == 0) {
 		LASSERT(oh->ot_tx);
 		dmu_tx_abort(oh->ot_tx);
-		osd_object_sa_dirty_rele(oh);
+		osd_object_sa_dirty_rele(env, oh);
 		osd_unlinked_list_emptify(osd, &unlinked, false);
 		/* there won't be any commit, release reserved quota space now,
 		 * if any */
@@ -317,7 +317,7 @@ static int osd_trans_stop(const struct lu_env *env, struct dt_device *dt,
 	LASSERT(oh->ot_tx);
 	txg = oh->ot_tx->tx_txg;
 
-	osd_object_sa_dirty_rele(oh);
+	osd_object_sa_dirty_rele(env, oh);
 	/* XXX: Once dmu_tx_commit() called, oh/th could have been freed
 	 * by osd_trans_commit_cb already. */
 	dmu_tx_commit(oh->ot_tx);
@@ -680,15 +680,13 @@ static void osd_key_fini(const struct lu_context *ctx,
 {
 	struct osd_thread_info *info = data;
 
+	lu_buf_free(&info->oti_xattr_lbuf);
 	OBD_FREE_PTR(info);
 }
 
 static void osd_key_exit(const struct lu_context *ctx,
 			 struct lu_context_key *key, void *data)
 {
-	struct osd_thread_info *info = data;
-
-	memset(info, 0, sizeof(*info));
 }
 
 struct lu_context_key osd_key = {
