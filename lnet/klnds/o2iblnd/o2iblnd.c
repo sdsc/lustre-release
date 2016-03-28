@@ -1815,7 +1815,7 @@ again:
 				struct ib_reg_wr *wr;
 				int n;
 #else
-				struct ib_send_wr *wr;
+				kib_wr_t *wr;
 				struct ib_fast_reg_page_list *frpl;
 #endif
 				struct ib_mr *mr;
@@ -1832,7 +1832,7 @@ again:
 				mr   = frd->frd_mr;
 
 				if (!frd->frd_valid) {
-					struct ib_send_wr *inv_wr;
+					kib_wr_t *inv_wr;
 					__u32 key = is_rx ? mr->rkey : mr->lkey;
 
 					inv_wr = &frd->frd_inv_wr;
