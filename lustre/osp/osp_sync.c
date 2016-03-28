@@ -1481,6 +1481,9 @@ static void osp_sync_tracker_commit_cb(struct thandle *th, void *cookie)
 
 	LASSERT(tr);
 
+	if (th->th_tags == 0)
+		return;
+
 	txn = osp_txn_info(&th->th_ctx);
 	if (txn == NULL || txn->oti_current_id < tr->otr_committed_id)
 		return;

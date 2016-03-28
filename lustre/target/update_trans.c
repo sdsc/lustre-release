@@ -796,7 +796,7 @@ int top_trans_start(const struct lu_env *env, struct dt_device *master_dev,
 			top_th->tt_master_sub_thandle->th_sync = th->th_sync;
 		if (th->th_local)
 			top_th->tt_master_sub_thandle->th_local = th->th_local;
-		top_th->tt_master_sub_thandle->th_tags = th->th_tags;
+		top_th->tt_master_sub_thandle->th_tags |= th->th_tags;
 		rc = dt_trans_start(env, top_th->tt_master_sub_thandle->th_dev,
 				    top_th->tt_master_sub_thandle);
 		RETURN(rc);
@@ -814,7 +814,7 @@ int top_trans_start(const struct lu_env *env, struct dt_device *master_dev,
 			st->st_sub_th->th_sync = th->th_sync;
 		if (th->th_local)
 			st->st_sub_th->th_local = th->th_local;
-		st->st_sub_th->th_tags = th->th_tags;
+		st->st_sub_th->th_tags |= th->th_tags;
 		rc = dt_trans_start(env, st->st_sub_th->th_dev,
 				    st->st_sub_th);
 		if (rc != 0)
@@ -952,7 +952,7 @@ int top_trans_stop(const struct lu_env *env, struct dt_device *master_dev,
 			top_th->tt_master_sub_thandle->th_sync = th->th_sync;
 		if (th->th_local)
 			top_th->tt_master_sub_thandle->th_local = th->th_local;
-		top_th->tt_master_sub_thandle->th_tags = th->th_tags;
+		top_th->tt_master_sub_thandle->th_tags |= th->th_tags;
 		rc = dt_trans_stop(env, master_dev,
 				   top_th->tt_master_sub_thandle);
 		OBD_FREE_PTR(top_th);
@@ -1012,7 +1012,7 @@ stop_master_trans:
 			master_st->st_sub_th->th_local = th->th_local;
 		if (th->th_sync)
 			master_st->st_sub_th->th_sync = th->th_sync;
-		master_st->st_sub_th->th_tags = th->th_tags;
+		master_st->st_sub_th->th_tags |= th->th_tags;
 		master_st->st_sub_th->th_result = th->th_result;
 		rc = dt_trans_stop(env, master_st->st_dt, master_st->st_sub_th);
 		/* If it does not write_updates, then we call submit callback
@@ -1076,7 +1076,7 @@ stop_other_trans:
 			st->st_sub_th->th_sync = th->th_sync;
 		if (th->th_local)
 			st->st_sub_th->th_local = th->th_local;
-		st->st_sub_th->th_tags = th->th_tags;
+		st->st_sub_th->th_tags |= th->th_tags;
 		st->st_sub_th->th_result = th->th_result;
 		rc = dt_trans_stop(env, st->st_sub_th->th_dev,
 				   st->st_sub_th);
