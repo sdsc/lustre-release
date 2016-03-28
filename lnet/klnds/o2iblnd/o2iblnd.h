@@ -644,7 +644,11 @@ typedef struct kib_tx                           /* transmit message */
 	/* # send work items */
 	int			tx_nwrq;
 	/* send work items... */
+#ifdef HAVE_IB_RDMA_WR
+	struct ib_rdma_wr	*tx_wrq;
+#else
 	struct ib_send_wr	*tx_wrq;
+#endif
 	/* ...and their memory */
 	struct ib_sge		*tx_sge;
 	/* rdma descriptor */
