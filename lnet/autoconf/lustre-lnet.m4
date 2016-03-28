@@ -350,6 +350,7 @@ AS_IF([test $ENABLEO2IB != "no"], [
 			[rdma_create_id wants 4 args])
 	])
 ])
+
 #
 # 4.2 introduced struct ib_cq_init_attr which is used
 # by ib_create_cq(). Note some OFED stacks only keep
@@ -379,6 +380,35 @@ AS_IF([test $ENABLEO2IB != "no"], [
 			[struct ib_cq_init_attr is used by ib_create_cq])
 	])
 ])
+
+# In v4.4 Linux kernel,
+# commit e622f2f4ad2142d2a613a57fb85f8cf737935ef5
+# split up struct ib_send_wr so that all non-trivial verbs
+# use their own structure which embedds struct ib_send_wr.
+#
+AS_IF([test $ENABLEO2IB != "no"], [
+	LB_CHECK_COMPILE([if 'struct ib_rdma_wr' is defined],
+	ib_rdma_wr, [
+		#ifdef HAVE_COMPAT_RDMA
+		#undef PACKAGE_NAME
+		#undef PACKAGE_TARNAME
+		#undef PACKAGE_VERSION
+		#undef PACKAGE_STRING
+		#undef PACKAGE_BUGREPORT
+		#undef PACKAGE_URL
+		#include <linux/compat-2.6.h>
+		#endif
+		#include <rdma/ib_verbs.h>
+	],[
+		struct ib_rdma_wr *wr __attribute__ ((unused));
+
+		wr = rdma_wr(NULL);
+	],[
+		AC_DEFINE(HAVE_IB_RDMA_WR, 1,
+			[struct ib_rdma_wr is defined])
+	])
+])
+
 ]) # LN_CONFIG_O2IB
 
 #
