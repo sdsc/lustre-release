@@ -5840,8 +5840,11 @@ test_85() {
 run_test 85 "osd_ost init: fail ea_fid_set"
 
 test_86() {
+	local server_version=$(lustre_version_code $SINGLEMDS)
 	[ "$(facet_fstype ost1)" = "zfs" ] &&
 		skip "LU-6442: no such mkfs params for ZFS OSTs" && return
+	[[ $server_version -ge $(version_code 2.7.56) ]] ||
+		{ skip "Need server version newer than 2.7.55"; return 0; }
 
 	local OST_OPTS="$(mkfs_opts ost1 $(ostdevname 1)) \
 		--reformat $(ostdevname 1) $(ostvdevname 1)"
