@@ -4014,7 +4014,7 @@ static int osd_index_ea_delete(const struct lu_env *env, struct dt_object *dt,
         }
 
         bh = osd_ldiskfs_find_entry(dir, &dentry->d_name, &de, NULL, hlock);
-        if (bh) {
+	if (!IS_ERR_OR_NULL(bh)) {
 		/* If this is not the ".." entry, it might be a remote DNE
 		 * entry and  we need to check if the FID is for a remote
 		 * MDT.  If the FID is  not in the directory entry (e.g.
@@ -4043,11 +4043,11 @@ static int osd_index_ea_delete(const struct lu_env *env, struct dt_object *dt,
 						le32_to_cpu(de->inode));
 			}
 		}
-                rc = ldiskfs_delete_entry(oh->ot_handle, dir, de, bh);
-                brelse(bh);
-        } else {
-                rc = -ENOENT;
-        }
+		rc = ldiskfs_delete_entry(oh->ot_handle, dir, de, bh);
+		brelse(bh);
+	} else {
+		rc = -ENOENT;
+	}
         if (hlock != NULL)
                 ldiskfs_htree_unlock(hlock);
         else
@@ -4273,7 +4273,7 @@ static int __osd_ea_add_rec(struct osd_thread_info *info,
 
 		bh = osd_ldiskfs_find_entry(pobj->oo_inode, &child->d_name, &de,
 					    NULL, hlock);
-		if (bh != NULL) {
+		if (!IS_ERR_OR_NULL(bh)) {
 			rc1 = ldiskfs_journal_get_write_access(oth->ot_handle,
 							       bh);
 			if (rc1 == 0) {
@@ -4631,7 +4631,7 @@ static int osd_ea_lookup_rec(const struct lu_env *env, struct osd_object *obj,
 	}
 
 	bh = osd_ldiskfs_find_entry(dir, &dentry->d_name, &de, NULL, hlock);
-	if (bh) {
+	if (!IS_ERR_OR_NULL(bh)) {
 		struct osd_thread_info *oti = osd_oti_get(env);
 		struct osd_inode_id *id = &oti->oti_id;
 		struct osd_idmap_cache *oic = &oti->oti_cache;
@@ -5663,7 +5663,7 @@ again:
 	 * For the whole directory, only dot/dotdot entry have no FID-in-dirent
 	 * and needs to get FID from LMA when readdir, it will not affect the
 	 * performance much. */
-	if ((bh == NULL) || (le32_to_cpu(de->inode) != inode->i_ino) ||
+	if (IS_ERR_OR_NULL(bh) || (le32_to_cpu(de->inode) != inode->i_ino) ||
 	    (dot_dotdot != 0 && !osd_dot_dotdot_has_space(de, dot_dotdot))) {
 		*attr |= LUDA_IGNORE;
 
@@ -5831,7 +5831,8 @@ again:
 	GOTO(out, rc);
 
 out:
-	brelse(bh);
+	if (!IS_ERR_OR_NULL(bh))
+		brelse(bh);
 	if (hlock != NULL) {
 		ldiskfs_htree_unlock(hlock);
 	} else {

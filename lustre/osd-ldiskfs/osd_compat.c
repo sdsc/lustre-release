@@ -288,7 +288,7 @@ int osd_delete_from_remote_parent(const struct lu_env *env,
 	mutex_lock(&parent->d_inode->i_mutex);
 	bh = osd_ldiskfs_find_entry(parent->d_inode, &dentry->d_name, &de,
 				    NULL, NULL);
-	if (bh == NULL) {
+	if (IS_ERR_OR_NULL(bh)) {
 		mutex_unlock(&parent->d_inode->i_mutex);
 		RETURN(-ENOENT);
 	}
@@ -329,7 +329,7 @@ int osd_lookup_in_remote_parent(struct osd_thread_info *oti,
 	mutex_lock(&parent->d_inode->i_mutex);
 	bh = osd_ldiskfs_find_entry(parent->d_inode, &dentry->d_name, &de,
 				    NULL, NULL);
-	if (bh == NULL) {
+	if (IS_ERR_OR_NULL(bh)) {
 		rc = -ENOENT;
 	} else {
 		rc = 0;
@@ -549,7 +549,7 @@ static int osd_obj_update_entry(struct osd_thread_info *info,
 	ll_vfs_dq_init(parent);
 	mutex_lock(&parent->i_mutex);
 	bh = osd_ldiskfs_find_entry(parent, &child->d_name, &de, NULL, NULL);
-	if (bh == NULL)
+	if (IS_ERR_OR_NULL(bh))
 		GOTO(out, rc = -ENOENT);
 
 	if (le32_to_cpu(de->inode) == id->oii_ino)
@@ -652,7 +652,8 @@ update:
 	GOTO(out, rc);
 
 out:
-	brelse(bh);
+	if (!IS_ERR_OR_NULL(bh))
+		brelse(bh);
 	mutex_unlock(&parent->i_mutex);
 	return rc;
 }
@@ -684,7 +685,7 @@ static int osd_obj_del_entry(struct osd_thread_info *info,
 	mutex_lock(&dir->i_mutex);
 	rc = -ENOENT;
 	bh = osd_ldiskfs_find_entry(dir, &child->d_name, &de, NULL, NULL);
-	if (bh) {
+	if (!IS_ERR_OR_NULL(bh)) {
 		rc = ldiskfs_delete_entry(th, dir, de, bh);
 		brelse(bh);
 	}
@@ -953,7 +954,7 @@ int osd_obj_map_lookup(struct osd_thread_info *info, struct osd_device *dev,
 	bh = osd_ldiskfs_find_entry(dir, &child->d_name, &de, NULL, NULL);
 	mutex_unlock(&dir->i_mutex);
 
-	if (bh == NULL)
+	if (IS_ERR_OR_NULL(bh))
 		RETURN(-ENOENT);
 
 	osd_id_gen(id, le32_to_cpu(de->inode), OSD_OII_NOGEN);
@@ -1136,7 +1137,7 @@ int osd_obj_map_recover(struct osd_thread_info *info,
 	mutex_lock(&src_parent->i_mutex);
 	mutex_lock(&dir->i_mutex);
 	bh = osd_ldiskfs_find_entry(dir, &tgt_child->d_name, &de, NULL, NULL);
-	if (bh != NULL) {
+	if (!IS_ERR_OR_NULL(bh)) {
 		/* XXX: If some other object occupied the same slot. And If such
 		 * 	inode is zero-sized and with SUID+SGID, then means it is
 		 * 	a new created one. Maybe we can remove it and insert the
@@ -1172,7 +1173,7 @@ int osd_obj_map_recover(struct osd_thread_info *info,
 
 	bh = osd_ldiskfs_find_entry(src_parent, &src_child->d_name, &de,
 				    NULL, NULL);
-	if (unlikely(bh == NULL))
+	if (unlikely(IS_ERR_OR_NULL(bh)))
 		GOTO(unlock, rc = -ENOENT);
 
 	rc = ldiskfs_delete_entry(jh, src_parent, de, bh);
