@@ -380,12 +380,12 @@ test_8e() {
 	sleep 1 # ensure we have a fresh statfs
 	#define OBD_FAIL_OST_STATFS_EINPROGRESS 0x231
 	do_facet ost1 "lctl set_param fail_loc=0x231"
-	df $MOUNT &
+	$LFS df $MOUNT &
 	dfpid=$!
 	sleep $TIMEOUT
 	if ! ps -p $dfpid  > /dev/null 2>&1; then
-			do_facet ost1 "lctl set_param fail_loc=0"
-			error "df shouldn't have completed!"
+		do_facet ost1 "lctl set_param fail_loc=0"
+		error "df shouldn't have completed!"
 	fi
 }
 run_test 8e "Verify that ptlrpc resends request on -EINPROGRESS"
