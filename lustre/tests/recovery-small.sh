@@ -1,14 +1,3 @@
-#!/bin/bash
-
-set -e
-
-#         bug  5493  LU2034
-ALWAYS_EXCEPT="52    60      $RECOVERY_SMALL_EXCEPT"
-
-export MULTIOP=${MULTIOP:-multiop}
-PTLDEBUG=${PTLDEBUG:--1}
-LUSTRE=${LUSTRE:-`dirname $0`/..}
-. $LUSTRE/tests/test-framework.sh
 init_test_env $@
 . ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}
 init_logging
@@ -255,11 +244,12 @@ test_10d() {
 	rm -f $TMP/$tfile
 	echo -n ", world" | dd of=$TMP/$tfile bs=1c seek=5
 
+	remount_client $MOUNT
 	mount_client $MOUNT2
 
 	cancel_lru_locks osc
 	$LFS setstripe -i 0 -c 1 $DIR1/$tfile
-	echo -n hello > $DIR1/$tfile
+	echo -n hello | dd of=$DIR1/$tfile bs=5
 
 	stat $DIR2/$tfile >& /dev/null
 	$LCTL set_param fail_err=71
@@ -267,8 +257,9 @@ test_10d() {
 
 	client_reconnect
 
-	cmp $DIR1/$tfile $DIR2/$tfile || error "file contents differ"
-	cmp $DIR1/$tfile $TMP/$tfile || error "wrong content found"
+	cancel_lru_locks osc
+	cmp -l $DIR1/$tfile $DIR2/$tfile || error "file contents differ"
+	cmp -l $DIR1/$tfile $TMP/$tfile || error "wrong content found"
 
 	evict=$(do_facet client $LCTL get_param osc.$FSNAME-OST0000*.state | \
 		tr -d '\-\[\] ' | \
@@ -518,9 +509,7 @@ test_18c() {
     # lost reply to connect request
     do_facet ost1 lctl set_param fail_loc=0x80000225
     # force reconnect
-    sleep 1
-    df $MOUNT > /dev/null 2>&1
-    sleep 2
+    sleep $((TIMEOUT + 2))
     # my understanding is that there should be nothing in the page
     # cache after the client reconnects?     
     rc=0
@@ -1495,6 +1484,11 @@ check_target_ir_state()
         local recovery_proc=obdfilter.${!name}.recovery_status
         local st
 
+	while : ; do
+		st=$(do_facet $target "$LCTL get_param -n $recovery_proc |
+			awk '/status:/{ print \\\$2}'")
+		[ x$st = xRECOVERING ] || break
+	done
         st=$(do_facet $target "lctl get_param -n $recovery_proc |
                                awk '/IR:/{ print \\\$2}'")
 	[ $st != ON -o $st != OFF -o $st != ENABLED -o $st != DISABLED ] ||

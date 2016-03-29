@@ -2412,16 +2412,17 @@ client_evicted() {
 }
 
 client_reconnect_try() {
-    uname -n >> $MOUNT/recon
-    if [ -z "$CLIENTS" ]; then
-        df $MOUNT; uname -n >> $MOUNT/recon
-    else
-        do_nodes $CLIENTS "df $MOUNT; uname -n >> $MOUNT/recon" > /dev/null
-    fi
-    echo Connected clients:
-    cat $MOUNT/recon
-    ls -l $MOUNT/recon > /dev/null
-    rm $MOUNT/recon
+	local recon=$MOUNT/recon
+
+	uname -n >> $recon
+	if [ -z "$CLIENTS" ]; then
+		stat $MOUNT; uname -n >> $recon
+	else
+		do_nodes $CLIENTS "stat $MOUNT; uname -n >> $recon" > /dev/null
+	fi
+	echo "Connected clients: $(cat $recon)"
+	ls -l $recon > /dev/null
+	rm $recon
 }
 
 client_reconnect() {
@@ -2516,7 +2517,7 @@ obd_name() {
 replay_barrier() {
 	local facet=$1
 	do_facet $facet "sync; sync; sync"
-	df $MOUNT
+	stat $MOUNT
 
 	# make sure there will be no seq change
 	local clients=${CLIENTS:-$HOSTNAME}
@@ -2601,7 +2602,7 @@ fail() {
 
 	facet_failover $* || error "failover: $?"
 	wait_clients_import_state "$clients" "$facets" FULL
-	clients_up || error "post-failover df: $?"
+	clients_up || error "post-failover stat: $?"
 }
 
 fail_nodf() {
@@ -2615,8 +2616,8 @@ fail_abort() {
 	change_active $facet
 	wait_for_facet $facet
 	mount_facet $facet -o abort_recovery
-	clients_up || echo "first df failed: $?"
-	clients_up || error "post-failover df: $?"
+	clients_up || echo "first stat failed: $?"
+	clients_up || error "post-failover stat: $?"
 }
 
 do_lmc() {
