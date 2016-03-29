@@ -267,7 +267,8 @@ test_10d() {
 
 	client_reconnect
 
-	cmp $DIR1/$tfile $DIR2/$tfile || error "file contents differ"
+	cmp $DIR1/$tfile $DIR2/$tfile || { cat $DIR1/$tfile; echo "====="; cat $DIR2/$tfile ;
+		error "file contents differ"; }
 	cmp $DIR1/$tfile $TMP/$tfile || error "wrong content found"
 
 	evict=$(do_facet client $LCTL get_param osc.$FSNAME-OST0000*.state | \
@@ -446,8 +447,10 @@ test_18a() {
 
     do_facet client cp $TMP/$tfile $f
     sync
-    local osc2dev=`lctl get_param -n devices | grep ${ost2_svc}-osc- | egrep -v 'MDT' | awk '{print $1}'`
-    $LCTL --device $osc2dev deactivate || return 3
+    local osc2dev=`lctl dl | grep ${ost2_svc}-osc- | egrep -v 'MDT' | awk '{print $1}'`
+    $LCTL --device $osc2dev deactivate || { 
+		lctl dl; echo "run $osc2dev"; return 3
+	}
     # my understanding is that there should be nothing in the page
     # cache after the client reconnects?     
     rc=0
@@ -481,7 +484,7 @@ test_18b() {
     sync
     ost_evict_client
     # allow recovery to complete
-    sleep $((TIMEOUT + 2))
+    wait_osc_import_state client ost FULL
     # my understanding is that there should be nothing in the page
     # cache after the client reconnects?     
     rc=0
@@ -518,9 +521,7 @@ test_18c() {
     # lost reply to connect request
     do_facet ost1 lctl set_param fail_loc=0x80000225
     # force reconnect
-    sleep 1
-    df $MOUNT > /dev/null 2>&1
-    sleep 2
+    wait_osc_import_state client ost FULL
     # my understanding is that there should be nothing in the page
     # cache after the client reconnects?     
     rc=0
