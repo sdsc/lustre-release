@@ -782,7 +782,8 @@ static inline void i_gid_write(struct inode *inode, gid_t gid)
 # define osd_ldiskfs_append(handle, inode, nblock) \
 		ldiskfs_append(handle, inode, nblock)
 # define osd_ldiskfs_find_entry(dir, name, de, inlined, lock) \
-		__ldiskfs_find_entry(dir, name, de, inlined, lock)
+		(__ldiskfs_find_entry(dir, name, de, inlined, lock) ?: \
+		 ERR_PTR(-ENOENT))
 # define osd_journal_start(inode, type, nblocks) \
 		ldiskfs_journal_start(inode, type, nblocks)
 # define osd_transaction_size(dev) \
@@ -807,7 +808,8 @@ static inline struct buffer_head *osd_ldiskfs_append(handle_t *handle,
 }
 
 # define osd_ldiskfs_find_entry(dir, name, de, inlined, lock) \
-		__ldiskfs_find_entry(dir, name, de, lock)
+		(__ldiskfs_find_entry(dir, name, de, lock) ?: \
+		 ERR_PTR(-ENOENT))
 # define osd_journal_start(inode, type, nblocks) \
 		ldiskfs_journal_start(inode, nblocks)
 # define osd_transaction_size(dev) \
