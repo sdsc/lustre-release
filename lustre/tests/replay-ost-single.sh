@@ -378,14 +378,14 @@ test_8e() {
 	[[ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.3.0) ]] ||
 		{ skip "Need MDS version at least 2.3.0"; return; }
 	sleep 1 # ensure we have a fresh statfs
-	#define OBD_FAIL_OST_STATFS_EINPROGRESS 0x231
+	#define OBD_FAIL_OST_SYNC_EINPROGRESS 0x231
 	do_facet ost1 "lctl set_param fail_loc=0x231"
-	df $MOUNT &
+	dd if=/dev/zero of=$TDIR/$tfile count=1 conv=fsync &
 	dfpid=$!
 	sleep $TIMEOUT
 	if ! ps -p $dfpid  > /dev/null 2>&1; then
-			do_facet ost1 "lctl set_param fail_loc=0"
-			error "df shouldn't have completed!"
+		do_facet ost1 "lctl set_param fail_loc=0"
+		error "dd shouldn't have completed!"
 	fi
 }
 run_test 8e "Verify that ptlrpc resends request on -EINPROGRESS"

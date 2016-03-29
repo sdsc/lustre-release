@@ -280,6 +280,8 @@ static void vvp_page_completion_read(const struct lu_env *env,
 	EXIT;
 }
 
+extern char* ll_d_path(struct dentry *dentry, char *buf, int bufsize);
+
 static void vvp_page_completion_write(const struct lu_env *env,
 				      const struct cl_page_slice *slice,
 				      int ioret)
@@ -287,12 +289,30 @@ static void vvp_page_completion_write(const struct lu_env *env,
 	struct vvp_page *vpg    = cl2vvp_page(slice);
 	struct cl_page  *pg     = slice->cpl_page;
 	struct page     *vmpage = vpg->vpg_page;
+        char *buf, *path = NULL;
+        struct dentry *dentry = NULL;
 	ENTRY;
+
+        buf = (char *)__get_free_page(GFP_ATOMIC);
+        if (buf != NULL) {
+                dentry = d_find_alias(vmpage->mapping->host);
+                if (dentry != NULL)
+                        path = ll_d_path(dentry, buf, PAGE_SIZE);
+        }
 
 	LASSERT(ergo(pg->cp_sync_io != NULL, PageLocked(vmpage)));
 	LASSERT(PageWriteback(vmpage));
 
 	CL_PAGE_HEADER(D_PAGE, env, pg, "completing WRITE with %d\n", ioret);
+	CERROR("completing WRITE with %d(sync=%p) for %s\n",
+                ioret, pg->cp_sync_io,
+                (path && !IS_ERR(path)) ? path : "");
+
+        if (dentry != NULL)
+                dput(dentry);
+
+        if (buf != NULL)
+                free_page((unsigned long)buf);
 
 	/*
 	 * Only mark the page error only when it's an async write because
