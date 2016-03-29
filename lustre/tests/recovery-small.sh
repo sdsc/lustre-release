@@ -255,20 +255,24 @@ test_10d() {
 	rm -f $TMP/$tfile
 	echo -n ", world" | dd of=$TMP/$tfile bs=1c seek=5
 
+	remount_client $MOUNT
 	mount_client $MOUNT2
 
 	cancel_lru_locks osc
 	$LFS setstripe -i 0 -c 1 $DIR1/$tfile
-	echo -n hello > $DIR1/$tfile
+	echo -n hello | dd of=$DIR1/$tfile bs=5
 
 	stat $DIR2/$tfile >& /dev/null
 	$LCTL set_param fail_err=71
 	drop_bl_callback "echo -n \\\", world\\\" >> $DIR2/$tfile"
+	$LCTL mark 'reconnecting....'
 
 	client_reconnect
 
-	cmp $DIR1/$tfile $DIR2/$tfile || error "file contents differ"
-	cmp $DIR1/$tfile $TMP/$tfile || error "wrong content found"
+	$LCTL mark 'reconnected.....'
+	cancel_lru_locks osc
+	cmp -l $DIR1/$tfile $DIR2/$tfile || error "file contents differ"
+	cmp -l $DIR1/$tfile $TMP/$tfile || error "wrong content found"
 
 	evict=$(do_facet client $LCTL get_param osc.$FSNAME-OST0000*.state | \
 		tr -d '\-\[\] ' | \
@@ -446,7 +450,7 @@ test_18a() {
 
     do_facet client cp $TMP/$tfile $f
     sync
-    local osc2dev=`lctl get_param -n devices | grep ${ost2_svc}-osc- | egrep -v 'MDT' | awk '{print $1}'`
+    local osc2dev=`lctl dl | grep ${ost2_svc}-osc- | egrep -v 'MDT' | awk '{print $1}'`
     $LCTL --device $osc2dev deactivate || return 3
     # my understanding is that there should be nothing in the page
     # cache after the client reconnects?     
