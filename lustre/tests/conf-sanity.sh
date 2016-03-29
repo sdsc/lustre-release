@@ -6021,6 +6021,8 @@ check_max_mod_rpcs_in_flight() {
 }
 
 test_90a() {
+	[[ $server_version -ge $(version_code 2.7.58) ]] ||
+		{ skip "Need server version newer than 2.7.57"; return 0; }
 	reformat
 	if ! combined_mgs_mds ; then
 		start_mgs
@@ -6045,6 +6047,8 @@ test_90b() {
 	local tmp
 	local mmrpc
 
+	[[ $server_version -ge $(version_code 2.7.58) ]] ||
+		{ skip "Need server version newer than 2.7.57"; return 0; }
 	setup
 
 	[[ $($LCTL get_param mdc.*.import |
@@ -6100,7 +6104,8 @@ test_90c() {
 	local tmp
 	local mrif
 	local mmrpc
-
+	[[ $server_version -ge $(version_code 2.7.58) ]] ||
+		{ skip "Need server version newer than 2.7.57"; return 0; }
 	setup
 
 	[[ $($LCTL get_param mdc.*.import |
@@ -6162,7 +6167,8 @@ test_90d() {
 	local mmr
 	local i
 	local pid
-
+	[[ $server_version -ge $(version_code 2.7.58) ]] ||
+		{ skip "Need server version newer than 2.7.57"; return 0; }
 	setup
 
 	[[ $($LCTL get_param mdc.*.import |
