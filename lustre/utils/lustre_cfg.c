@@ -569,6 +569,10 @@ static int jt_lcfg_mgsparam2(int argc, char **argv, struct param_opts *popt)
 		/* put an '=' on the end in case it doesn't have one */
 		if (popt->po_delete && argv[i][len - 1] != '=') {
 			buf = malloc(len + 1);
+			if (buf == NULL) {
+				rc = -ENOMEM;
+				break;
+			}
 			sprintf(buf, "%s=", argv[i]);
 		} else {
 			buf = argv[i];
