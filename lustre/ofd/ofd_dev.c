@@ -1925,8 +1925,10 @@ static int ofd_statfs_hdl(struct tgt_session_info *tsi)
 		CERROR("%s: statfs failed: rc = %d\n",
 		       tgt_name(tsi->tsi_tgt), rc);
 
-	if (OBD_FAIL_CHECK(OBD_FAIL_OST_STATFS_EINPROGRESS))
-		rc = -EINPROGRESS;
+#if LUSTRE_VERSION_CODE < OBD_OCD_VERSION(2, 10, 50, 0)
+	if (OBD_FAIL_CHECK(OBD_FAIL_OST_SYNC_EINPROGRESS))
+		RETURN(-EINPROGRESS);
+#endif
 
 	ofd_counter_incr(tsi->tsi_exp, LPROC_OFD_STATS_STATFS,
 			 tsi->tsi_jobid, 1);
@@ -1955,6 +1957,9 @@ static int ofd_sync_hdl(struct tgt_session_info *tsi)
 	int			 rc = 0;
 
 	ENTRY;
+
+	if (OBD_FAIL_CHECK(OBD_FAIL_OST_SYNC_EINPROGRESS))
+		RETURN(-EINPROGRESS);
 
 	repbody = req_capsule_server_get(tsi->tsi_pill, &RMF_OST_BODY);
 
