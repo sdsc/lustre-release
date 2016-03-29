@@ -609,7 +609,7 @@ struct ldlm_interval_tree {
 };
 
 /** Whether to track references to exports by LDLM locks. */
-#define LUSTRE_TRACKS_LOCK_EXP_REFS (0)
+#define LUSTRE_TRACKS_LOCK_EXP_REFS (1)
 
 /** Cancel flags. */
 enum ldlm_cancel_flags {
