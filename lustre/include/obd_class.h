@@ -348,7 +348,6 @@ void obdo_to_ioobj(const struct obdo *oa, struct obd_ioobj *ioobj);
 
 #define OBT(dev)        (dev)->obd_type
 #define OBP(dev, op)    (dev)->obd_type->typ_dt_ops->o_ ## op
-#define MDP(dev, op)    (dev)->obd_type->typ_md_ops->m_ ## op
 #define CTXTP(ctxt, op) (ctxt)->loc_logops->lop_##op
 
 /* Ensure obd_setup: used for cleanup which must be called
@@ -399,33 +398,19 @@ do {                                                            \
 					     _off);			       \
 	} while (0)
 
-#define _MD_COUNTER_OFFSET(m_op)					       \
+#define MD_COUNTER_OFFSET(m_op)						       \
 	((offsetof(struct md_ops, m_op) -				       \
 	  offsetof(struct md_ops, MD_STATS_FIRST_OP)) /			       \
 	 sizeof(((struct md_ops *)NULL)->MD_STATS_FIRST_OP))
 
-#define MD_COUNTER_OFFSET(op) _MD_COUNTER_OFFSET(m_ ## op)
-
 #define NUM_MD_STATS							       \
-	(_MD_COUNTER_OFFSET(MD_STATS_LAST_OP) -				       \
-	 _MD_COUNTER_OFFSET(MD_STATS_FIRST_OP) + 1)
-
-/* Note that we only increment md counters for ops whose offset is less
- * than NUM_MD_STATS. This is explained in a comment in the definition
- * of struct md_ops. */
-#define EXP_MD_COUNTER_INCREMENT(exp, op)				       \
-	do {								       \
-		if (MD_COUNTER_OFFSET(op) < NUM_MD_STATS)		       \
-			lprocfs_counter_incr((exp)->exp_obd->obd_md_stats,     \
-					(exp)->exp_obd->obd_md_cntr_base +     \
-					MD_COUNTER_OFFSET(op));	               \
-	} while (0)
+	(MD_COUNTER_OFFSET(MD_STATS_LAST_OP) -				       \
+	 MD_COUNTER_OFFSET(MD_STATS_FIRST_OP) + 1)
 
 #else
 #define OBD_COUNTER_OFFSET(op)
 #define OBD_COUNTER_INCREMENT(obd, op)
 #define EXP_COUNTER_INCREMENT(exp, op)
-#define EXP_MD_COUNTER_INCREMENT(exp, op)
 #endif
 
 static inline int lprocfs_nid_ldlm_stats_init(struct nid_stat* tmp)
@@ -441,25 +426,6 @@ static inline int lprocfs_nid_ldlm_stats_init(struct nid_stat* tmp)
         return lprocfs_register_stats(tmp->nid_proc, "ldlm_stats",
                                       tmp->nid_ldlm_stats);
 }
-
-#define EXP_CHECK_MD_OP(exp, op)                                \
-do {                                                            \
-        if ((exp) == NULL) {                                    \
-                CERROR("obd_" #op ": NULL export\n");           \
-                RETURN(-ENODEV);                                \
-        }                                                       \
-        if ((exp)->exp_obd == NULL || !OBT((exp)->exp_obd)) {   \
-                CERROR("obd_" #op ": cleaned up obd\n");        \
-                RETURN(-EOPNOTSUPP);                            \
-        }                                                       \
-        if (!OBT((exp)->exp_obd) || !MDP((exp)->exp_obd, op)) { \
-                CERROR("obd_" #op ": dev %s/%d no operation\n", \
-                       (exp)->exp_obd->obd_name,                \
-                       (exp)->exp_obd->obd_minor);              \
-                RETURN(-EOPNOTSUPP);                            \
-        }                                                       \
-} while (0)
-
 
 #define OBD_CHECK_DT_OP(obd, op, err)                           \
 do {                                                            \
@@ -1267,62 +1233,117 @@ static inline int obd_register_observer(struct obd_device *obd,
 }
 
 /* metadata helpers */
+static inline struct md_ops *
+md_check_op(struct obd_export *exp, const char *op_name, size_t op_offset)
+{
+	struct md_ops *md_ops;
+
+	if (!exp) {
+		CERROR("obd_%s: NULL export\n", op_name);
+		md_ops = ERR_PTR(-ENODEV);
+		goto out_no_md_ops;
+	}
+
+	if (!exp->exp_obd || !exp->exp_obd->obd_type) {
+		CERROR("obd_%s: cleaned up obd\n", op_name);
+		md_ops = ERR_PTR(-EOPNOTSUPP);
+		goto out_no_md_ops;
+	}
+
+	md_ops = exp->exp_obd->obd_type->typ_md_ops;
+	if (!md_ops || !(md_ops + op_offset)) {
+		CERROR("obd_%s: dev %s/%d no operation\n", op_name,
+		       exp->exp_obd->obd_name, exp->exp_obd->obd_minor);
+		md_ops = ERR_PTR(-EOPNOTSUPP);
+		goto out_no_md_ops;
+	}
+
+	if (op_offset < NUM_MD_STATS)
+		lprocfs_counter_incr(exp->exp_obd->obd_md_stats,
+				     exp->exp_obd->obd_md_cntr_base +
+				     op_offset);
+out_no_md_ops:
+	return md_ops;
+}
+
 static inline int md_getstatus(struct obd_export *exp, struct lu_fid *fid)
 {
+	struct md_ops *md_ops;
 	int rc;
-
 	ENTRY;
-	EXP_CHECK_MD_OP(exp, getstatus);
-	EXP_MD_COUNTER_INCREMENT(exp, getstatus);
-	rc = MDP(exp->exp_obd, getstatus)(exp, fid);
 
+	md_ops = md_check_op(exp, "getstatus",
+			     MD_COUNTER_OFFSET(m_getstatus));
+	if (!IS_ERR(md_ops))
+		rc = md_ops->m_getstatus(exp, fid);
+	else
+		rc = PTR_ERR(md_ops);
 	RETURN(rc);
 }
 
 static inline int md_getattr(struct obd_export *exp, struct md_op_data *op_data,
                              struct ptlrpc_request **request)
 {
-        int rc;
-        ENTRY;
-        EXP_CHECK_MD_OP(exp, getattr);
-        EXP_MD_COUNTER_INCREMENT(exp, getattr);
-        rc = MDP(exp->exp_obd, getattr)(exp, op_data, request);
-        RETURN(rc);
+	struct md_ops *md_ops;
+	int rc;
+	ENTRY;
+
+	md_ops = md_check_op(exp, "getattr",
+			     MD_COUNTER_OFFSET(m_getattr));
+	if (!IS_ERR(md_ops))
+		rc = md_ops->m_getattr(exp, op_data, request);
+	else
+		rc = PTR_ERR(md_ops);
+	RETURN(rc);
 }
 
 static inline int md_null_inode(struct obd_export *exp,
-                                   const struct lu_fid *fid)
+				const struct lu_fid *fid)
 {
-        int rc;
-        ENTRY;
-        EXP_CHECK_MD_OP(exp, null_inode);
-        EXP_MD_COUNTER_INCREMENT(exp, null_inode);
-        rc = MDP(exp->exp_obd, null_inode)(exp, fid);
-        RETURN(rc);
+	struct md_ops *md_ops;
+	int rc;
+	ENTRY;
+
+	md_ops = md_check_op(exp, "null_inode",
+			     MD_COUNTER_OFFSET(m_null_inode));
+	if (!IS_ERR(md_ops))
+		rc = md_ops->m_null_inode(exp, fid);
+	else
+		rc = PTR_ERR(md_ops);
+	RETURN(rc);
 }
 
 static inline int md_find_cbdata(struct obd_export *exp,
-                                 const struct lu_fid *fid,
-                                 ldlm_iterator_t it, void *data)
+				 const struct lu_fid *fid,
+				 ldlm_iterator_t it, void *data)
 {
-        int rc;
-        ENTRY;
-        EXP_CHECK_MD_OP(exp, find_cbdata);
-        EXP_MD_COUNTER_INCREMENT(exp, find_cbdata);
-        rc = MDP(exp->exp_obd, find_cbdata)(exp, fid, it, data);
-        RETURN(rc);
+	struct md_ops *md_ops;
+	int rc;
+	ENTRY;
+
+	md_ops = md_check_op(exp, "find_cbdata",
+			     MD_COUNTER_OFFSET(m_find_cbdata));
+	if (!IS_ERR(md_ops))
+		rc = md_ops->m_find_cbdata(exp, fid, it, data);
+	else
+		rc = PTR_ERR(md_ops);
+	RETURN(rc);
 }
 
 static inline int md_close(struct obd_export *exp, struct md_op_data *op_data,
-                           struct md_open_data *mod,
-                           struct ptlrpc_request **request)
+			   struct md_open_data *mod,
+			   struct ptlrpc_request **request)
 {
-        int rc;
-        ENTRY;
-        EXP_CHECK_MD_OP(exp, close);
-        EXP_MD_COUNTER_INCREMENT(exp, close);
-        rc = MDP(exp->exp_obd, close)(exp, op_data, mod, request);
-        RETURN(rc);
+	struct md_ops *md_ops;
+	int rc;
+	ENTRY;
+
+	md_ops = md_check_op(exp, "close", MD_COUNTER_OFFSET(m_close));
+	if (!IS_ERR(md_ops))
+		rc = md_ops->m_close(exp, op_data, mod, request);
+	else
+		rc = PTR_ERR(md_ops);
+	RETURN(rc);
 }
 
 static inline int md_create(struct obd_export *exp, struct md_op_data *op_data,
@@ -1330,13 +1351,18 @@ static inline int md_create(struct obd_export *exp, struct md_op_data *op_data,
 			    uid_t uid, gid_t gid, cfs_cap_t cap_effective,
 			    __u64 rdev, struct ptlrpc_request **request)
 {
-        int rc;
-        ENTRY;
-        EXP_CHECK_MD_OP(exp, create);
-        EXP_MD_COUNTER_INCREMENT(exp, create);
-        rc = MDP(exp->exp_obd, create)(exp, op_data, data, datalen, mode,
-                                       uid, gid, cap_effective, rdev, request);
-        RETURN(rc);
+	struct md_ops *md_ops;
+	int rc;
+	ENTRY;
+
+	md_ops = md_check_op(exp, "create", MD_COUNTER_OFFSET(m_create));
+	if (!IS_ERR(md_ops)) {
+		rc = md_ops->m_create(exp, op_data, data, datalen, mode, uid,
+				      gid, cap_effective, rdev, request);
+	} else {
+		rc = PTR_ERR(md_ops);
+	}
+	RETURN(rc);
 }
 
 static inline int md_enqueue(struct obd_export *exp,
@@ -1347,25 +1373,36 @@ static inline int md_enqueue(struct obd_export *exp,
 			     struct lustre_handle *lockh,
 			     __u64 extra_lock_flags)
 {
+	struct md_ops *md_ops;
 	int rc;
 	ENTRY;
-	EXP_CHECK_MD_OP(exp, enqueue);
-	EXP_MD_COUNTER_INCREMENT(exp, enqueue);
-	rc = MDP(exp->exp_obd, enqueue)(exp, einfo, policy, it, op_data, lockh,
-					extra_lock_flags);
-        RETURN(rc);
+
+	md_ops = md_check_op(exp, "enqueue", MD_COUNTER_OFFSET(m_enqueue));
+	if (!IS_ERR(md_ops)) {
+		rc = md_ops->m_enqueue(exp, einfo, policy, it, op_data, lockh,
+				       extra_lock_flags);
+	} else {
+		rc = PTR_ERR(md_ops);
+	}
+	RETURN(rc);
 }
 
 static inline int md_getattr_name(struct obd_export *exp,
-                                  struct md_op_data *op_data,
-                                  struct ptlrpc_request **request)
+				  struct md_op_data *op_data,
+				  struct ptlrpc_request **request)
 {
-        int rc;
-        ENTRY;
-        EXP_CHECK_MD_OP(exp, getattr_name);
-        EXP_MD_COUNTER_INCREMENT(exp, getattr_name);
-        rc = MDP(exp->exp_obd, getattr_name)(exp, op_data, request);
-        RETURN(rc);
+	struct md_ops *md_ops;
+	int rc;
+	ENTRY;
+
+	md_ops = md_check_op(exp, "getattr_name",
+			     MD_COUNTER_OFFSET(m_getattr_name));
+	if (!IS_ERR(md_ops)) {
+		rc = md_ops->m_getattr_name(exp, op_data, request);
+	} else {
+		rc = PTR_ERR(md_ops);
+	}
+	RETURN(rc);
 }
 
 static inline int md_intent_lock(struct obd_export *exp,
@@ -1375,61 +1412,83 @@ static inline int md_intent_lock(struct obd_export *exp,
 				 ldlm_blocking_callback cb_blocking,
 				 __u64 extra_lock_flags)
 {
+	struct md_ops *md_ops;
 	int rc;
 	ENTRY;
-	EXP_CHECK_MD_OP(exp, intent_lock);
-	EXP_MD_COUNTER_INCREMENT(exp, intent_lock);
-	rc = MDP(exp->exp_obd, intent_lock)(exp, op_data, it, reqp, cb_blocking,
-					    extra_lock_flags);
+
+	md_ops = md_check_op(exp, "intent_lock",
+			     MD_COUNTER_OFFSET(m_intent_lock));
+	if (!IS_ERR(md_ops)) {
+		rc = md_ops->m_intent_lock(exp, op_data, it, reqp, cb_blocking,
+					   extra_lock_flags);
+	} else {
+		rc = PTR_ERR(md_ops);
+	}
 	RETURN(rc);
 }
 
 static inline int md_link(struct obd_export *exp, struct md_op_data *op_data,
                           struct ptlrpc_request **request)
 {
-        int rc;
-        ENTRY;
-        EXP_CHECK_MD_OP(exp, link);
-        EXP_MD_COUNTER_INCREMENT(exp, link);
-        rc = MDP(exp->exp_obd, link)(exp, op_data, request);
-        RETURN(rc);
+	struct md_ops *md_ops;
+	int rc;
+	ENTRY;
+
+	md_ops = md_check_op(exp, "link", MD_COUNTER_OFFSET(m_link));
+	if (!IS_ERR(md_ops))
+		rc = md_ops->m_link(exp, op_data, request);
+	else
+		rc = PTR_ERR(md_ops);
+	RETURN(rc);
 }
 
 static inline int md_rename(struct obd_export *exp, struct md_op_data *op_data,
-			    const char *old, size_t oldlen, const char *new,
-			    size_t newlen, struct ptlrpc_request **request)
+			    const char *old_name, size_t oldlen,
+			    const char *new_name, size_t newlen,
+			    struct ptlrpc_request **request)
 {
-        int rc;
-        ENTRY;
-        EXP_CHECK_MD_OP(exp, rename);
-        EXP_MD_COUNTER_INCREMENT(exp, rename);
-        rc = MDP(exp->exp_obd, rename)(exp, op_data, old, oldlen, new,
-                                       newlen, request);
-        RETURN(rc);
+	struct md_ops *md_ops;
+	int rc;
+	ENTRY;
+
+	md_ops = md_check_op(exp, "rename", MD_COUNTER_OFFSET(m_rename));
+	if (!IS_ERR(md_ops)) {
+		rc = md_ops->m_rename(exp, op_data, old_name, oldlen, new_name,
+				      newlen, request);
+	} else {
+		rc = PTR_ERR(md_ops);
+	}
+	RETURN(rc);
 }
 
 static inline int md_setattr(struct obd_export *exp, struct md_op_data *op_data,
 			     void *ea, size_t ealen,
 			     struct ptlrpc_request **request)
 {
+	struct md_ops *md_ops;
 	int rc;
 	ENTRY;
-	EXP_CHECK_MD_OP(exp, setattr);
-	EXP_MD_COUNTER_INCREMENT(exp, setattr);
-	rc = MDP(exp->exp_obd, setattr)(exp, op_data, ea, ealen, request);
+
+	md_ops = md_check_op(exp, "setattr", MD_COUNTER_OFFSET(m_setattr));
+	if (!IS_ERR(md_ops))
+		rc = md_ops->m_setattr(exp, op_data, ea, ealen, request);
+	else
+		rc = PTR_ERR(md_ops);
 	RETURN(rc);
 }
 
 static inline int md_fsync(struct obd_export *exp, const struct lu_fid *fid,
 			   struct ptlrpc_request **request)
 {
+	struct md_ops *md_ops;
 	int rc;
-
 	ENTRY;
-	EXP_CHECK_MD_OP(exp, fsync);
-	EXP_MD_COUNTER_INCREMENT(exp, fsync);
-	rc = MDP(exp->exp_obd, fsync)(exp, fid, request);
 
+	md_ops = md_check_op(exp, "fsync", MD_COUNTER_OFFSET(m_fsync));
+	if (!IS_ERR(md_ops))
+		rc = md_ops->m_fsync(exp, fid, request);
+	else
+		rc = PTR_ERR(md_ops);
 	RETURN(rc);
 }
 
@@ -1439,45 +1498,68 @@ static inline int md_read_page(struct obd_export *exp,
 			       __u64  hash_offset,
 			       struct page **ppage)
 {
+	struct md_ops *md_ops;
 	int rc;
 	ENTRY;
-	EXP_CHECK_MD_OP(exp, read_page);
-	EXP_MD_COUNTER_INCREMENT(exp, read_page);
-	rc = MDP(exp->exp_obd, read_page)(exp, op_data, cb_op, hash_offset,
-					  ppage);
+
+	md_ops = md_check_op(exp, "read_page", MD_COUNTER_OFFSET(m_read_page));
+	if (!IS_ERR(md_ops)) {
+		rc = md_ops->m_read_page(exp, op_data, cb_op, hash_offset,
+					 ppage);
+	} else {
+		rc = PTR_ERR(md_ops);
+	}
 	RETURN(rc);
 }
 
 static inline int md_unlink(struct obd_export *exp, struct md_op_data *op_data,
-                            struct ptlrpc_request **request)
+			    struct ptlrpc_request **request)
 {
-        int rc;
-        ENTRY;
-        EXP_CHECK_MD_OP(exp, unlink);
-        EXP_MD_COUNTER_INCREMENT(exp, unlink);
-        rc = MDP(exp->exp_obd, unlink)(exp, op_data, request);
-        RETURN(rc);
+	struct md_ops *md_ops;
+	int rc;
+	ENTRY;
+
+	md_ops = md_check_op(exp, "unlink", MD_COUNTER_OFFSET(m_unlink));
+	if (!IS_ERR(md_ops))
+		rc = md_ops->m_unlink(exp, op_data, request);
+	else
+		rc = PTR_ERR(md_ops);
+	RETURN(rc);
 }
 
 static inline int md_get_lustre_md(struct obd_export *exp,
-                                   struct ptlrpc_request *req,
-                                   struct obd_export *dt_exp,
-                                   struct obd_export *md_exp,
-                                   struct lustre_md *md)
+				   struct ptlrpc_request *req,
+				   struct obd_export *dt_exp,
+				   struct obd_export *md_exp,
+				   struct lustre_md *md)
 {
-        ENTRY;
-        EXP_CHECK_MD_OP(exp, get_lustre_md);
-        EXP_MD_COUNTER_INCREMENT(exp, get_lustre_md);
-        RETURN(MDP(exp->exp_obd, get_lustre_md)(exp, req, dt_exp, md_exp, md));
+	struct md_ops *md_ops;
+	int rc;
+	ENTRY;
+
+	md_ops = md_check_op(exp, "get_lustre_md",
+			     MD_COUNTER_OFFSET(m_get_lustre_md));
+	if (!IS_ERR(md_ops))
+		rc = md_ops->m_get_lustre_md(exp, req, dt_exp, md_exp, md);
+	else
+		rc = PTR_ERR(md_ops);
+	RETURN(rc);
 }
 
 static inline int md_free_lustre_md(struct obd_export *exp,
                                     struct lustre_md *md)
 {
-        ENTRY;
-        EXP_CHECK_MD_OP(exp, free_lustre_md);
-        EXP_MD_COUNTER_INCREMENT(exp, free_lustre_md);
-        RETURN(MDP(exp->exp_obd, free_lustre_md)(exp, md));
+	struct md_ops *md_ops;
+	int rc;
+	ENTRY;
+
+	md_ops = md_check_op(exp, "free_lustre_md",
+			     MD_COUNTER_OFFSET(m_free_lustre_md));
+	if (!IS_ERR(md_ops))
+		rc = md_ops->m_free_lustre_md(exp, md);
+	else
+		rc = PTR_ERR(md_ops);
+	RETURN(rc);
 }
 
 static inline int md_merge_attr(struct obd_export *exp,
@@ -1485,10 +1567,17 @@ static inline int md_merge_attr(struct obd_export *exp,
 				struct cl_attr *attr,
 				ldlm_blocking_callback cb)
 {
+	struct md_ops *md_ops;
+	int rc;
 	ENTRY;
-	EXP_CHECK_MD_OP(exp, merge_attr);
-	EXP_MD_COUNTER_INCREMENT(exp, merge_attr);
-	RETURN(MDP(exp->exp_obd, merge_attr)(exp, lsm, attr, cb));
+
+	md_ops = md_check_op(exp, "merge_attr",
+			     MD_COUNTER_OFFSET(m_merge_attr));
+	if (!IS_ERR(md_ops))
+		rc = md_ops->m_merge_attr(exp, lsm, attr, cb);
+	else
+		rc = PTR_ERR(md_ops);
+	RETURN(rc);
 }
 
 static inline int md_setxattr(struct obd_export *exp, const struct lu_fid *fid,
@@ -1497,12 +1586,19 @@ static inline int md_setxattr(struct obd_export *exp, const struct lu_fid *fid,
 			      int output_size, int flags, __u32 suppgid,
 			      struct ptlrpc_request **request)
 {
+	struct md_ops *md_ops;
+	int rc;
 	ENTRY;
-	EXP_CHECK_MD_OP(exp, setxattr);
-	EXP_MD_COUNTER_INCREMENT(exp, setxattr);
-	RETURN(MDP(exp->exp_obd, setxattr)(exp, fid, valid, name, input,
-					   input_size, output_size, flags,
-					   suppgid, request));
+
+	md_ops = md_check_op(exp, "setxattr", MD_COUNTER_OFFSET(m_setxattr));
+	if (!IS_ERR(md_ops)) {
+		rc = md_ops->m_setxattr(exp, fid, valid, name, input,
+					input_size, output_size, flags,
+					suppgid, request);
+	} else {
+		rc = PTR_ERR(md_ops);
+	}
+	RETURN(rc);
 }
 
 static inline int md_getxattr(struct obd_export *exp, const struct lu_fid *fid,
@@ -1511,40 +1607,68 @@ static inline int md_getxattr(struct obd_export *exp, const struct lu_fid *fid,
 			      int output_size, int flags,
 			      struct ptlrpc_request **request)
 {
+	struct md_ops *md_ops;
+	int rc;
 	ENTRY;
-	EXP_CHECK_MD_OP(exp, getxattr);
-	EXP_MD_COUNTER_INCREMENT(exp, getxattr);
-	RETURN(MDP(exp->exp_obd, getxattr)(exp, fid, valid, name, input,
-					   input_size, output_size, flags,
-					   request));
+
+	md_ops = md_check_op(exp, "getxattr", MD_COUNTER_OFFSET(m_getxattr));
+	if (!IS_ERR(md_ops)) {
+		rc = md_ops->m_getxattr(exp, fid, valid, name, input,
+					input_size, output_size, flags,
+					request);
+	} else {
+		rc = PTR_ERR(md_ops);
+	}
+	RETURN(rc);
 }
 
 static inline int md_set_open_replay_data(struct obd_export *exp,
 					  struct obd_client_handle *och,
 					  struct lookup_intent *it)
 {
+	struct md_ops *md_ops;
+	int rc;
 	ENTRY;
-	EXP_CHECK_MD_OP(exp, set_open_replay_data);
-	EXP_MD_COUNTER_INCREMENT(exp, set_open_replay_data);
-	RETURN(MDP(exp->exp_obd, set_open_replay_data)(exp, och, it));
+
+	md_ops = md_check_op(exp, "set_open_replay_data",
+			     MD_COUNTER_OFFSET(m_set_open_replay_data));
+	if (!IS_ERR(md_ops))
+		rc = md_ops->m_set_open_replay_data(exp, och, it);
+	else
+		rc = PTR_ERR(md_ops);
+	RETURN(rc);
 }
 
 static inline int md_clear_open_replay_data(struct obd_export *exp,
                                             struct obd_client_handle *och)
 {
-        ENTRY;
-        EXP_CHECK_MD_OP(exp, clear_open_replay_data);
-        EXP_MD_COUNTER_INCREMENT(exp, clear_open_replay_data);
-        RETURN(MDP(exp->exp_obd, clear_open_replay_data)(exp, och));
+	struct md_ops *md_ops;
+	int rc;
+	ENTRY;
+
+	md_ops = md_check_op(exp, "clear_open_replay_data",
+			     MD_COUNTER_OFFSET(m_clear_open_replay_data));
+	if (!IS_ERR(md_ops))
+		rc = md_ops->m_clear_open_replay_data(exp, och);
+	else
+		rc = PTR_ERR(md_ops);
+	RETURN(rc);
 }
 
-static inline int md_set_lock_data(struct obd_export *exp,
-                                   __u64 *lockh, void *data, __u64 *bits)
+static inline int md_set_lock_data(struct obd_export *exp, __u64 *lockh,
+				   void *data, __u64 *bits)
 {
-        ENTRY;
-        EXP_CHECK_MD_OP(exp, set_lock_data);
-        EXP_MD_COUNTER_INCREMENT(exp, set_lock_data);
-        RETURN(MDP(exp->exp_obd, set_lock_data)(exp, lockh, data, bits));
+	struct md_ops *md_ops;
+	int rc;
+	ENTRY;
+
+	md_ops = md_check_op(exp, "set_lock_data",
+			     MD_COUNTER_OFFSET(m_set_lock_data));
+	if (!IS_ERR(md_ops))
+		rc = md_ops->m_set_lock_data(exp, lockh, data, bits);
+	else
+		rc = PTR_ERR(md_ops);
+	RETURN(rc);
 }
 
 static inline
@@ -1552,14 +1676,17 @@ int md_cancel_unused(struct obd_export *exp, const struct lu_fid *fid,
 		     union ldlm_policy_data *policy, enum ldlm_mode mode,
 		     enum ldlm_cancel_flags cancel_flags, void *opaque)
 {
+	struct md_ops *md_ops;
 	int rc;
 	ENTRY;
 
-	EXP_CHECK_MD_OP(exp, cancel_unused);
-	EXP_MD_COUNTER_INCREMENT(exp, cancel_unused);
-
-	rc = MDP(exp->exp_obd, cancel_unused)(exp, fid, policy, mode,
-					      cancel_flags, opaque);
+	md_ops = md_check_op(exp, "cancel_unused",
+			     MD_COUNTER_OFFSET(m_cancel_unused));
+	if (!IS_ERR(md_ops))
+		rc = md_ops->m_cancel_unused(exp, fid, policy, mode,
+					     cancel_flags, opaque);
+	else
+		rc = PTR_ERR(md_ops);
 	RETURN(rc);
 }
 
@@ -1570,41 +1697,67 @@ static inline enum ldlm_mode md_lock_match(struct obd_export *exp, __u64 flags,
 					   enum ldlm_mode mode,
 					   struct lustre_handle *lockh)
 {
+	struct md_ops *md_ops;
+	int rc;
 	ENTRY;
-	EXP_CHECK_MD_OP(exp, lock_match);
-	EXP_MD_COUNTER_INCREMENT(exp, lock_match);
-	RETURN(MDP(exp->exp_obd, lock_match)(exp, flags, fid, type,
-					     policy, mode, lockh));
+
+	md_ops = md_check_op(exp, "lock_match",
+			     MD_COUNTER_OFFSET(m_lock_match));
+	if (!IS_ERR(md_ops)) {
+		rc = md_ops->m_lock_match(exp, flags, fid, type,
+					  policy, mode, lockh);
+	} else {
+		rc = PTR_ERR(md_ops);
+	}
+	RETURN(rc);
 }
 
 static inline int md_init_ea_size(struct obd_export *exp, __u32 ea_size,
 				  __u32 def_ea_size)
 {
+	struct md_ops *md_ops;
+	int rc;
 	ENTRY;
-	EXP_CHECK_MD_OP(exp, init_ea_size);
-	EXP_MD_COUNTER_INCREMENT(exp, init_ea_size);
-	RETURN(MDP(exp->exp_obd, init_ea_size)(exp, ea_size, def_ea_size));
+
+	md_ops = md_check_op(exp, "init_ea_size",
+			     MD_COUNTER_OFFSET(m_init_ea_size));
+	if (!IS_ERR(md_ops))
+		rc = md_ops->m_init_ea_size(exp, ea_size, def_ea_size);
+	else
+		rc = PTR_ERR(md_ops);
+	RETURN(rc);
 }
 
 static inline int md_get_remote_perm(struct obd_export *exp,
 				     const struct lu_fid *fid, u32 suppgid,
 				     struct ptlrpc_request **request)
 {
+	struct md_ops *md_ops;
+	int rc;
 	ENTRY;
-	EXP_CHECK_MD_OP(exp, get_remote_perm);
-	EXP_MD_COUNTER_INCREMENT(exp, get_remote_perm);
 
-	RETURN(MDP(exp->exp_obd, get_remote_perm)(exp, fid, suppgid, request));
+	md_ops = md_check_op(exp, "get_remote_perm",
+			     MD_COUNTER_OFFSET(m_get_remote_perm));
+	if (!IS_ERR(md_ops))
+		rc = md_ops->m_get_remote_perm(exp, fid, suppgid, request);
+	else
+		rc = PTR_ERR(md_ops);
+	RETURN(rc);
 }
 
 static inline int md_intent_getattr_async(struct obd_export *exp,
 					  struct md_enqueue_info *minfo)
 {
+	struct md_ops *md_ops;
 	int rc;
 	ENTRY;
-	EXP_CHECK_MD_OP(exp, intent_getattr_async);
-	EXP_MD_COUNTER_INCREMENT(exp, intent_getattr_async);
-	rc = MDP(exp->exp_obd, intent_getattr_async)(exp, minfo);
+
+	md_ops = md_check_op(exp, "intent_getattr_async",
+			     MD_COUNTER_OFFSET(m_intent_getattr_async));
+	if (!IS_ERR(md_ops))
+		rc = md_ops->m_intent_getattr_async(exp, minfo);
+	else
+		rc = PTR_ERR(md_ops);
 	RETURN(rc);
 }
 
@@ -1612,12 +1765,17 @@ static inline int md_revalidate_lock(struct obd_export *exp,
                                      struct lookup_intent *it,
                                      struct lu_fid *fid, __u64 *bits)
 {
-        int rc;
-        ENTRY;
-        EXP_CHECK_MD_OP(exp, revalidate_lock);
-        EXP_MD_COUNTER_INCREMENT(exp, revalidate_lock);
-        rc = MDP(exp->exp_obd, revalidate_lock)(exp, it, fid, bits);
-        RETURN(rc);
+	struct md_ops *md_ops;
+	int rc;
+	ENTRY;
+
+	md_ops = md_check_op(exp, "revalidate_lock",
+			     MD_COUNTER_OFFSET(m_revalidate_lock));
+	if (!IS_ERR(md_ops))
+		rc = md_ops->m_revalidate_lock(exp, it, fid, bits);
+	else
+		rc = PTR_ERR(md_ops);
+	RETURN(rc);
 }
 
 static inline int md_get_fid_from_lsm(struct obd_export *exp,
@@ -1625,14 +1783,18 @@ static inline int md_get_fid_from_lsm(struct obd_export *exp,
 				      const char *name, int namelen,
 				      struct lu_fid *fid)
 {
+	struct md_ops *md_ops;
 	int rc;
 	ENTRY;
-	EXP_CHECK_MD_OP(exp, get_fid_from_lsm);
-	EXP_MD_COUNTER_INCREMENT(exp, get_fid_from_lsm);
-	rc = MDP(exp->exp_obd, get_fid_from_lsm)(exp, lsm, name, namelen, fid);
+
+	md_ops = md_check_op(exp, "get_fid_from_lsm",
+			     MD_COUNTER_OFFSET(m_get_fid_from_lsm));
+	if (!IS_ERR(md_ops))
+		rc = md_ops->m_get_fid_from_lsm(exp, lsm, name, namelen, fid);
+	else
+		rc = PTR_ERR(md_ops);
 	RETURN(rc);
 }
-
 
 /* Unpack an MD struct from disk to in-memory format.
  * Returns +ve size of unpacked MD (0 for free), or -ve error.
@@ -1644,11 +1806,15 @@ static inline int md_unpackmd(struct obd_export *exp,
 			      struct lmv_stripe_md **plsm,
 			      const union lmv_mds_md *lmm, size_t lmm_size)
 {
+	struct md_ops *md_ops;
 	int rc;
 	ENTRY;
-	EXP_CHECK_MD_OP(exp, unpackmd);
-	EXP_MD_COUNTER_INCREMENT(exp, unpackmd);
-	rc = MDP(exp->exp_obd, unpackmd)(exp, plsm, lmm, lmm_size);
+
+	md_ops = md_check_op(exp, "unpackmd", MD_COUNTER_OFFSET(m_unpackmd));
+	if (!IS_ERR(md_ops))
+		rc = md_ops->m_unpackmd(exp, plsm, lmm, lmm_size);
+	else
+		rc = PTR_ERR(md_ops);
 	RETURN(rc);
 }
 

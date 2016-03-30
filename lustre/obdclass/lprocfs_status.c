@@ -1355,35 +1355,35 @@ EXPORT_SYMBOL(lprocfs_counter_init);
 
 void lprocfs_init_mps_stats(int num_private_stats, struct lprocfs_stats *stats)
 {
-        LPROCFS_MD_OP_INIT(num_private_stats, stats, getstatus);
-        LPROCFS_MD_OP_INIT(num_private_stats, stats, null_inode);
-        LPROCFS_MD_OP_INIT(num_private_stats, stats, find_cbdata);
-        LPROCFS_MD_OP_INIT(num_private_stats, stats, close);
-        LPROCFS_MD_OP_INIT(num_private_stats, stats, create);
-        LPROCFS_MD_OP_INIT(num_private_stats, stats, enqueue);
-        LPROCFS_MD_OP_INIT(num_private_stats, stats, getattr);
-        LPROCFS_MD_OP_INIT(num_private_stats, stats, getattr_name);
-        LPROCFS_MD_OP_INIT(num_private_stats, stats, intent_lock);
-        LPROCFS_MD_OP_INIT(num_private_stats, stats, link);
-        LPROCFS_MD_OP_INIT(num_private_stats, stats, rename);
-        LPROCFS_MD_OP_INIT(num_private_stats, stats, setattr);
-	LPROCFS_MD_OP_INIT(num_private_stats, stats, fsync);
-	LPROCFS_MD_OP_INIT(num_private_stats, stats, read_page);
-        LPROCFS_MD_OP_INIT(num_private_stats, stats, unlink);
-        LPROCFS_MD_OP_INIT(num_private_stats, stats, setxattr);
-        LPROCFS_MD_OP_INIT(num_private_stats, stats, getxattr);
-        LPROCFS_MD_OP_INIT(num_private_stats, stats, init_ea_size);
-        LPROCFS_MD_OP_INIT(num_private_stats, stats, get_lustre_md);
-        LPROCFS_MD_OP_INIT(num_private_stats, stats, free_lustre_md);
-	LPROCFS_MD_OP_INIT(num_private_stats, stats, merge_attr);
-        LPROCFS_MD_OP_INIT(num_private_stats, stats, set_open_replay_data);
-        LPROCFS_MD_OP_INIT(num_private_stats, stats, clear_open_replay_data);
-        LPROCFS_MD_OP_INIT(num_private_stats, stats, set_lock_data);
-        LPROCFS_MD_OP_INIT(num_private_stats, stats, lock_match);
-        LPROCFS_MD_OP_INIT(num_private_stats, stats, cancel_unused);
-        LPROCFS_MD_OP_INIT(num_private_stats, stats, get_remote_perm);
-        LPROCFS_MD_OP_INIT(num_private_stats, stats, intent_getattr_async);
-        LPROCFS_MD_OP_INIT(num_private_stats, stats, revalidate_lock);
+	LPROCFS_MD_OP_INIT(num_private_stats, stats, m_getstatus);
+	LPROCFS_MD_OP_INIT(num_private_stats, stats, m_null_inode);
+	LPROCFS_MD_OP_INIT(num_private_stats, stats, m_find_cbdata);
+	LPROCFS_MD_OP_INIT(num_private_stats, stats, m_close);
+	LPROCFS_MD_OP_INIT(num_private_stats, stats, m_create);
+	LPROCFS_MD_OP_INIT(num_private_stats, stats, m_enqueue);
+	LPROCFS_MD_OP_INIT(num_private_stats, stats, m_getattr);
+	LPROCFS_MD_OP_INIT(num_private_stats, stats, m_getattr_name);
+	LPROCFS_MD_OP_INIT(num_private_stats, stats, m_intent_lock);
+	LPROCFS_MD_OP_INIT(num_private_stats, stats, m_link);
+	LPROCFS_MD_OP_INIT(num_private_stats, stats, m_rename);
+	LPROCFS_MD_OP_INIT(num_private_stats, stats, m_setattr);
+	LPROCFS_MD_OP_INIT(num_private_stats, stats, m_fsync);
+	LPROCFS_MD_OP_INIT(num_private_stats, stats, m_read_page);
+	LPROCFS_MD_OP_INIT(num_private_stats, stats, m_unlink);
+	LPROCFS_MD_OP_INIT(num_private_stats, stats, m_setxattr);
+	LPROCFS_MD_OP_INIT(num_private_stats, stats, m_getxattr);
+	LPROCFS_MD_OP_INIT(num_private_stats, stats, m_init_ea_size);
+	LPROCFS_MD_OP_INIT(num_private_stats, stats, m_get_lustre_md);
+	LPROCFS_MD_OP_INIT(num_private_stats, stats, m_free_lustre_md);
+	LPROCFS_MD_OP_INIT(num_private_stats, stats, m_merge_attr);
+	LPROCFS_MD_OP_INIT(num_private_stats, stats, m_set_open_replay_data);
+	LPROCFS_MD_OP_INIT(num_private_stats, stats, m_clear_open_replay_data);
+	LPROCFS_MD_OP_INIT(num_private_stats, stats, m_set_lock_data);
+	LPROCFS_MD_OP_INIT(num_private_stats, stats, m_lock_match);
+	LPROCFS_MD_OP_INIT(num_private_stats, stats, m_cancel_unused);
+	LPROCFS_MD_OP_INIT(num_private_stats, stats, m_get_remote_perm);
+	LPROCFS_MD_OP_INIT(num_private_stats, stats, m_intent_getattr_async);
+	LPROCFS_MD_OP_INIT(num_private_stats, stats, m_revalidate_lock);
 }
 
 int lprocfs_alloc_md_stats(struct obd_device *obd,
@@ -1394,8 +1394,8 @@ int lprocfs_alloc_md_stats(struct obd_device *obd,
 	int rc, i;
 
 	CLASSERT(offsetof(struct md_ops, MD_STATS_FIRST_OP) == 0);
-	CLASSERT(_MD_COUNTER_OFFSET(MD_STATS_FIRST_OP) == 0);
-	CLASSERT(_MD_COUNTER_OFFSET(MD_STATS_LAST_OP) > 0);
+	CLASSERT(MD_COUNTER_OFFSET(MD_STATS_FIRST_OP) == 0);
+	CLASSERT(MD_COUNTER_OFFSET(MD_STATS_LAST_OP) > 0);
 
 	/* TODO Ensure that this function is only used where
 	 * appropriate by adding an assertion to the effect that
