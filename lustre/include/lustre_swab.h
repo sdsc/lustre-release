@@ -49,6 +49,7 @@
 #define _LUSTRE_SWAB_H_
 
 #include <lustre/lustre_idl.h>
+struct lustre_cfg;
 
 void lustre_swab_orphan_ent(struct lu_orphan_ent *ent);
 void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb);
@@ -116,5 +117,18 @@ void lustre_swab_object_update_reply(struct object_update_reply *our);
 void lustre_swab_swap_layouts(struct mdc_swap_layouts *msl);
 void lustre_swab_close_data(struct close_data *data);
 void lustre_swab_lmv_user_md(struct lmv_user_md *lum);
+void lustre_swab_lu_fid(struct lu_fid *fid);
+void lustre_swab_ost_id(struct ost_id *oid);
+void lustre_swab_ll_fid(struct ll_fid *fid);
+void lustre_swab_llogd_body(struct llogd_body *d);
+void lustre_swab_llog_hdr(struct llog_log_hdr *h);
+void lustre_swab_llogd_conn_body(struct llogd_conn_body *d);
+void lustre_swab_llog_rec(struct llog_rec_hdr *rec);
+void lustre_swab_llog_id(struct llog_logid *lid);
+void lustre_swab_lu_seq_range(struct lu_seq_range *range);
+void lustre_swab_update_ops(struct update_ops *uops, unsigned int op_count);
+void lustre_swab_lustre_cfg(struct lustre_cfg *lcfg);
+void lustre_swab_cfg_marker(struct cfg_marker *marker,
+			    int swab, int size);
 
 #endif
