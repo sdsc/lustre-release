@@ -48,7 +48,6 @@
 #endif
 
 #include <cl_object.h>
-#include <llog_swab.h>
 #include <lprocfs_status.h>
 #include <lustre_acl.h>
 #include <lustre_fid.h>

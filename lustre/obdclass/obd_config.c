@@ -42,12 +42,12 @@
 
 #include <linux/string.h>
 
-#include <llog_swab.h>
 #include <lprocfs_status.h>
 #include <lustre_disk.h>
 #include <lustre_ioctl.h>
 #include <lustre_log.h>
 #include <lustre_param.h>
+#include <lustre_swab.h>
 #include <obd_class.h>
 
 #include "llog_internal.h"

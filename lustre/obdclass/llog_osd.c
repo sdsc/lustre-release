@@ -45,8 +45,8 @@
 #define DEBUG_SUBSYSTEM S_LOG
 
 #include <dt_object.h>
-#include <llog_swab.h>
 #include <lustre_fid.h>
+#include <lustre_swab.h>
 #include <obd.h>
 #include <obd_class.h>
 
