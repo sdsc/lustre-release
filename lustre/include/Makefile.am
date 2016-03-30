@@ -44,7 +44,6 @@ EXTRA_DIST = \
 	cl_object.h \
 	dt_object.h \
 	interval_tree.h \
-	llog_swab.h \
 	lprocfs_status.h \
 	lu_object.h \
 	lu_ref.h \

@@ -54,7 +54,6 @@
 
 #include <lustre/lustre_idl.h>
 
-#include <llog_swab.h>
 #include <lustre_debug.h>
 #include <lustre_swab.h>
 #include <lustre_ver.h>
