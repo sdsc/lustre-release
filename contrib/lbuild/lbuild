@@ -1057,7 +1057,7 @@ build_spl_zfs() {
     # The spl/zfs spec files expect RPM_BUILD_ROOT to point to the root of the
     # destination for the rpms
     export RPM_BUILD_ROOT=$TOPDIR
-    SPLZFSVER=${SPLZFSVER:-0.6.4.2}
+    SPLZFSVER=${SPLZFSVER:-0.6.5.5}
     SPLZFSTAG=${SPLZFSTAG:-}
 
     # The files expect a kver to be set to the kernel version .
@@ -1092,6 +1092,9 @@ build_spl_zfs() {
             specdir=rpm/generic
             speclist="$pkg.spec $pkg-kmod.spec $pkg-dkms.spec"
         fi
+
+	# change license to GPL for ZFS.
+	[ "$pkg" == "zfs" ] && sed -i -e 's/CDDL/GPL/' META
 
         sh autogen.sh || return 255
 
