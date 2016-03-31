@@ -2296,6 +2296,12 @@ out:
 		RETURN(rc);
 	}
 	case LL_IOC_LOV_GETSTRIPE:
+		LCONSOLE_INFO("LL_IOC_LOV_GETSTRIPE ioctl of regular file "
+			      "is deprecated, please use 'lfs getstripe' in "
+			      "your application and report at "
+			      "https://jira.hpdd.intel.com/browse/LU-7964 "
+			      "so that we'd know you are still using this "
+			      "interface.\n");
 		RETURN(ll_file_getstripe(inode,
 					 (struct lov_user_md __user *)arg));
         case FSFILT_IOC_GETFLAGS:
