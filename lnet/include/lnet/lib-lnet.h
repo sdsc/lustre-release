@@ -795,7 +795,7 @@ void lnet_peer_tables_destroy(void);
 int lnet_peer_tables_create(void);
 void lnet_debug_peer(lnet_nid_t nid);
 int lnet_add_peer_ni_to_peer_any_key_nid(lnet_nid_t nid);
-int lnet_add_peer_ni_to_peer(lnet_nid_t key_nid, lnet_nid_t nid);
+int lnet_add_peer_ni_to_peer(lnet_nid_t key_nid, lnet_nid_t nid, bool mr);
 struct lnet_peer_net *lnet_peer_get_net_locked(struct lnet_peer *peer,
 					       __u32 net_id);
 bool lnet_peer_is_ni_pref_locked(struct lnet_peer_ni *lpni,
@@ -809,6 +809,22 @@ int lnet_get_peer_ni_info(__u32 peer_index, __u64 *nid,
 			  __u32 *ni_peer_tx_credits, __u32 *peer_tx_credits,
 			  __u32 *peer_rtr_credits, __u32 *peer_min_rtr_credtis,
 			  __u32 *peer_tx_qnob);
+
+
+static inline __u32
+lnet_get_num_peer_nis(struct lnet_peer *peer)
+{
+	struct lnet_peer_net *lpn;
+	struct lnet_peer_ni *lpni;
+	__u32 count = 0;
+
+	list_for_each_entry(lpn, &peer->lp_peer_nets, lpn_on_peer_list)
+		list_for_each_entry(lpni, &lpn->lpn_peer_nis,
+				    lpni_on_peer_net_list)
+			count++;
+
+	return count;
+}
 
 static inline bool
 lnet_is_peer_ni_healthy_locked(struct lnet_peer_ni *lpni)
