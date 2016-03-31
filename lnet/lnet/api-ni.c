@@ -2664,7 +2664,8 @@ LNetCtl(unsigned int cmd, void *arg)
 
 		lnet_incr_dlc_seq();
 		return lnet_add_peer_ni_to_peer(cfg->prcfg_key_nid,
-						cfg->prcfg_cfg_nid);
+						cfg->prcfg_cfg_nid,
+						cfg->prcfg_mr);
 	}
 
 	case IOC_LIBCFS_DEL_PEER_NI: {
