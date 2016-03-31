@@ -256,7 +256,7 @@ static int dispatch_peer_ni_cmd(lnet_nid_t knid, lnet_nid_t nid, __u32 cmd,
 	return rc;
 }
 
-int lustre_lnet_config_peer_nid(char *knid, char **nid, int seq_no,
+int lustre_lnet_config_peer_nid(char *knid, char **nid, bool mr, int seq_no,
 				struct cYAML **err_rc)
 {
 	struct lnet_ioctl_peer_cfg data;
@@ -287,6 +287,7 @@ int lustre_lnet_config_peer_nid(char *knid, char **nid, int seq_no,
 	snprintf(err_str, sizeof(err_str), "\"Success\"");
 
 	LIBCFS_IOC_INIT_V2(data, prcfg_hdr);
+	data.prcfg_mr = mr;
 	if (nids[0] == LNET_NID_ANY) {
 		rc = dispatch_peer_ni_cmd(LNET_NID_ANY, key_nid,
 					  IOC_LIBCFS_ADD_PEER_NI,
@@ -2481,13 +2482,14 @@ static int handle_yaml_config_peer(struct cYAML *tree, struct cYAML **show_rc,
 	char **nids = NULL;
 	char **cfg_nid;
 	int num, rc;
-	struct cYAML *seq_no;
+	struct cYAML *seq_no, *non_mr;
 
 	num = yaml_copy_peer_nids(tree, &nids);
 	if (num < 0)
 		return num;
 
 	seq_no = cYAML_get_object_item(tree, "seq_no");
+	non_mr = cYAML_get_object_item(tree, "non_mr");
 
 	if (num == 1)
 		cfg_nid = NULL;
@@ -2495,6 +2497,7 @@ static int handle_yaml_config_peer(struct cYAML *tree, struct cYAML **show_rc,
 		cfg_nid = nids + 1;
 
 	rc = lustre_lnet_config_peer_nid(nids[0], cfg_nid,
+					 (non_mr) ? false : true,
 					 (seq_no) ? seq_no->cy_valueint : -1,
 					 err_rc);
 
