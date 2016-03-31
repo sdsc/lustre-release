@@ -640,4 +640,11 @@ osd_zap_create_flags(objset_t *os, int normflags, zap_flags_t flags,
 }
 #endif /* HAVE_DMU_OBJECT_ALLOC_DNSIZE */
 
+#ifdef HAVE_DMU_PREFETCH_6ARG
+#define osd_dmu_prefetch(a, b, c, d, e, f) dmu_prefetch((a), (b), (c), (d), (e), (f))
+
+#else
+#define osd_dmu_prefetch(a, b, c, d, e, f) dmu_prefetch((a), (b), (c), (d))
+#endif
+
 #endif /* _OSD_INTERNAL_H */
