@@ -595,4 +595,11 @@ osd_zio_buf_free(void *buf, size_t size)
 #define	osd_zio_buf_free(buf, size)	zio_buf_free(buf, size)
 #endif
 
+#ifdef HAVE_DMU_PREFETCH_6ARG
+#define osd_dmu_prefetch(a, b, c, d, e, f) dmu_prefetch((a), (b), (c), (d), (e), (f))
+
+#else
+#define osd_dmu_prefetch(a, b, c, d, e, f) dmu_prefetch((a), (b), (c), (d))
+#endif
+
 #endif /* _OSD_INTERNAL_H */

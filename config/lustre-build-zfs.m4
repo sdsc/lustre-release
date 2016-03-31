@@ -450,6 +450,19 @@ your distribution.
 			AC_DEFINE(HAVE_SPA_MAXBLOCKSIZE, 1,
 				[Have spa_maxblocksize in ZFS])
 		])
+		dnl # dmu_prefetch changed to 6 arguments after
+		dnl # 0.6.5.x branch
+		LB_CHECK_COMPILE([if ZFS has 'dmu_prefetch' with 6 args],
+		dmu_prefetch, [
+			#include <sys/dmu.h>
+		],[
+			objset_t *os = NULL;
+
+			dmu_prefetch(os, 0, 0, 0, 0, 0);
+		],[
+			AC_DEFINE(HAVE_DMU_PREFETCH_6ARG, 1,
+				[Have 6 Argument dmu_pretch in ZFS])
+		])
 	])
 
 	AM_CONDITIONAL(ZFS_ENABLED, [test "x$enable_zfs" = xyes])
