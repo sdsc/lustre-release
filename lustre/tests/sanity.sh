@@ -2065,6 +2065,92 @@ test_27E() {
 }
 run_test 27E "check that default extended attribute size properly increases"
 
+test_27F() { # LU-5346/LU-7975
+
+	[[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.8.51) ]] &&
+		skip "Need MDS version at least 2.8.51" && return
+
+	test_mkdir -p $DIR/$tdir
+	rm -f $DIR/$tdir/f0
+	$SETSTRIPE -c 2 $DIR/$tdir
+
+	# Force osp_object_truncate() to return -EAGAIN upon open() with
+	# delayed layout creation and non-0 truncate. This is to reproduce
+	# situation for LU-7975 when -EAGAIN/-EWOULDBLOCK was wrongly returned
+	# and inconsitent MDS in-memory layout was left during error path
+	# leading to LBUG upon next open
+	# all MDTs must have error injected since we don't know which one
+	# will handle file object
+	#define OBD_FAIL_MDS_OSP_TRUNCATE_FAIL   0x161
+	for num in $(seq $MDSCOUNT); do
+		do_facet mds$num lctl set_param fail_loc=0x80000161
+	done
+
+	# open/create f0 with O_LOV_DELAY_CREATE
+	# truncate f0 to a non-0 size
+	# close
+	multiop $DIR/$tdir/f0 oO_RDWR:O_CREAT:O_LOV_DELAY_CREATE:T1050000c
+
+	$CHECKSTAT -s 1050000 $DIR/$tdir/f0 || error "checkstat failed"
+	# open/write it again to force delayed layout creation and
+	# trigger injected error
+	cat /etc/hosts > $DIR/$tdir/f0 && error "cat must fail"
+
+	# reset fail_loc only after 2nd open has failed
+	for num in $(seq $MDSCOUNT); do
+		do_facet mds$num lctl set_param fail_loc=0
+	done
+
+	# 2nd command/open required due to previous error injection
+	cat /etc/hosts > $DIR/$tdir/f0 || error "cat failed"
+	# cmp will also detect a size diff
+	cmp /etc/hosts $DIR/$tdir/f0 || error "cmp failed"
+	[[ $($GETSTRIPE -c $DIR/$tdir/f0) == 2 ]] || error "wrong stripecount"
+
+}
+run_test 27F "validate MDS in-memory layout cleanup during error path"
+
+test_27G() { # LU-5346/LU-7975
+
+	# Stopping OSTs during tests, so
+	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+
+	[[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.8.51) ]] &&
+		skip "Need MDS version at least 2.8.51" && return
+
+	test_mkdir -p $DIR/$tdir
+	rm -f $DIR/$tdir/f0
+	$SETSTRIPE -c 2 $DIR/$tdir
+
+	# stop all OSTs to reproduce situation for LU-7975 ticket
+	for num in $(seq $OSTCOUNT); do
+		stop ost$num
+	done
+
+	# open/create f0 with O_LOV_DELAY_CREATE
+	# truncate f0 to a non-0 size
+	# close
+	multiop $DIR/$tdir/f0 oO_RDWR:O_CREAT:O_LOV_DELAY_CREATE:T1050000c
+
+	$CHECKSTAT -s 1050000 $DIR/$tdir/f0 || error "checkstat failed"
+	# open/write it again to force delayed layout creation
+	cat /etc/hosts > $DIR/$tdir/f0 &
+	catpid=$!
+
+	# restart OSTs
+	for num in $(seq $OSTCOUNT); do
+		start ost$num $(ostdevname $num) $OST_MOUNT_OPTS ||
+			error "ost$num failed to start"
+	done
+
+	wait $catpid || error "cat failed"
+
+	cmp /etc/hosts $DIR/$tdir/f0 || error "cmp failed"
+	[[ $($GETSTRIPE -c $DIR/$tdir/f0) == 2 ]] || error "wrong stripecount"
+
+}
+run_test 27G "MDS resend delayed layout creation with non-zero size"
+
 # createtest also checks that device nodes are created and
 # then visible correctly (#2091)
 test_28() { # bug 2091

@@ -671,6 +671,11 @@ static int osp_declare_attr_set(const struct lu_env *env, struct dt_object *dt,
 	    fid_is_zero(lu_object_fid(&o->opo_obj.do_lu))) {
 		LASSERT(!dt_object_exists(dt));
 		osp_object_assign_fid(env, d, o);
+		if (OBD_FAIL_CHECK(OBD_FAIL_MDS_OSP_TRUNCATE_FAIL)) {
+			CERROR("Simulation of osp_object_truncate() "
+			       "returning -EAGAIN\n");
+			RETURN(-EAGAIN);
+		}
 		rc = osp_object_truncate(env, dt, attr->la_size);
 		if (rc != 0)
 			RETURN(rc);

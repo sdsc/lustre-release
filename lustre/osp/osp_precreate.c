@@ -1482,8 +1482,10 @@ int osp_object_truncate(const struct lu_env *env, struct dt_object *dt,
 	 * XXX: decide how do we do here with resend
 	 * if we don't resend, then client may see wrong file size
 	 * if we do resend, then MDS thread can get stuck for quite long
+	 * req->rq_no_resend = req->rq_no_delay = 1;
+	 * and if we don't resend, then client will also get -EWOULDBLOCK !!
+	 * (see LU-7975 and sanity/test_27[F,G] use cases)
 	 */
-	req->rq_no_resend = req->rq_no_delay = 1;
 
 	req->rq_request_portal = OST_IO_PORTAL; /* bug 7198 */
 	ptlrpc_at_set_req_timeout(req);
