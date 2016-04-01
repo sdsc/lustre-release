@@ -2254,7 +2254,7 @@ test_35() {
 
 	log "Restart..."
 	local ORIG_REFORMAT=$REFORMAT
-	REFORMAT=""
+	REFORMAT="no"
 	cleanup_and_setup_lustre
 	REFORMAT=$ORIG_REFORMAT
 	quota_init

@@ -16,7 +16,7 @@ size=${size:-1024}
 
 [ "$SLOW" = no ] && { crghi=2; thrhi=2; }
 
-if ! ([ "$SGPDD_YES" ] && [ "$REFORMAT" ]); then
+if ! ([ "$SGPDD_YES" ] && [ "$REFORMAT" = "no" ]); then
     skip_env "$0 reformats all devices, please set SGPDD_YES and REFORMAT to run this test"
     exit 0
 fi
