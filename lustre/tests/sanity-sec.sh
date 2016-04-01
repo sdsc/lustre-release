@@ -1520,9 +1520,14 @@ test_24() {
 	nodemap_test_setup
 
 	trap nodemap_test_cleanup EXIT
-	do_nodes $(comma_list $(all_server_nodes)) $LCTL get_param -R nodemap ||
-		error "proc readable file read failed"
-
+	local server_version=$(lustre_version_code $SINGLEMDS)
+	if [ $server_version -ge $(version_code 2.8.50) ]; then
+		do_nodes $(comma_list $(all_server_nodes)) $LCTL get_param -R nodemap ||
+			error "proc readable file read failed"
+	else
+		do_nodes $(comma_list $(all_server_nodes)) $LCTL get_param nodemap ||
+			error "proc readable file read failed"
+	fi
 	nodemap_test_cleanup
 }
 run_test 24 "check nodemap proc files for LBUGs and Oopses"
