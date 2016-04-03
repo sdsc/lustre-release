@@ -287,7 +287,7 @@ scrub_backup_restore() {
 
 	for n in $(seq $MDSCOUNT); do
 		mds_backup_restore mds$n $igif ||
-			error "(error_id) Backup/restore on mds$n failed"
+			error "($error_id) Backup/restore on mds$n failed"
 	done
 }
 
@@ -590,12 +590,12 @@ test_5() {
 	scrub_check_flags 4 recreated,inconsistent
 	mount_client $MOUNT || error "(5) Fail to start client!"
 	scrub_enable_auto
+	full_scrub_ratio 0
 
 	#define OBD_FAIL_OSD_SCRUB_DELAY	 0x190
 	do_nodes $(comma_list $(mdts_nodes)) \
 		$LCTL set_param fail_val=3 fail_loc=0x190
 
-	full_scrub_ratio 0
 	scrub_check_data 6
 	umount_client $MOUNT || error "(7) Fail to stop client!"
 	scrub_check_status 8 scanning
@@ -657,12 +657,12 @@ test_6() {
 	scrub_check_flags 4 recreated,inconsistent
 	mount_client $MOUNT || error "(5) Fail to start client!"
 	scrub_enable_auto
+	full_scrub_ratio 0
 
 	#define OBD_FAIL_OSD_SCRUB_DELAY	 0x190
 	do_nodes $(comma_list $(mdts_nodes)) \
 		$LCTL set_param fail_val=2 fail_loc=0x190
 
-	full_scrub_ratio 0
 	scrub_check_data 6
 
 	# Sleep 5 sec to guarantee at least one object processed by OI scrub
@@ -735,12 +735,12 @@ test_7() {
 	scrub_check_flags 4 recreated,inconsistent
 	mount_client $MOUNT || error "(5) Fail to start client!"
 	scrub_enable_auto
+	full_scrub_ratio 0
 
 	#define OBD_FAIL_OSD_SCRUB_DELAY	 0x190
 	do_nodes $(comma_list $(mdts_nodes)) \
 		$LCTL set_param fail_val=3 fail_loc=0x190
 
-	full_scrub_ratio 0
 	scrub_check_data 6
 
 	local n
@@ -874,12 +874,12 @@ test_10a() {
 	scrub_check_flags 4 recreated,inconsistent
 	mount_client $MOUNT || error "(5) Fail to start client!"
 	scrub_enable_auto
+	full_scrub_ratio 0
 
 	#define OBD_FAIL_OSD_SCRUB_DELAY	 0x190
 	do_nodes $(comma_list $(mdts_nodes)) \
 		$LCTL set_param fail_val=1 fail_loc=0x190
 
-	full_scrub_ratio 0
 	scrub_check_data 6
 	scrub_check_status 7 scanning
 	umount_client $MOUNT || error "(8) Fail to stop client!"
