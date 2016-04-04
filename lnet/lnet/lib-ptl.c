@@ -941,8 +941,13 @@ lnet_clear_lazy_portal(struct lnet_ni *ni, int portal, char *reason)
 		/* grab all messages which are on the NI passed in */
 		list_for_each_entry_safe(msg, tmp, &ptl->ptl_msg_delayed,
 					 msg_list) {
-			if (msg->msg_txni == ni || msg->msg_rxni == ni)
+			if (msg->msg_txni == ni) {
+				lnet_ni_decref_locked(ni, msg->msg_tx_cpt);
 				list_move(&msg->msg_list, &zombies);
+			} else if (msg->msg_rxni == ni) {
+				lnet_ni_decref_locked(ni, msg->msg_rx_cpt);
+				list_move(&msg->msg_list, &zombies);
+			}
 		}
 	} else {
 		if (the_lnet.ln_shutdown)
