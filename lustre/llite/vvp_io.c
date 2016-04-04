@@ -1223,7 +1223,9 @@ static int vvp_io_fault_start(const struct lu_env *env,
 		      " changed while waiting for the page fault lock\n",
 		      PFID(lu_object_fid(&obj->co_lu)));
 
-	down_read(&lli->lli_trunc_sem);
+	/* mkwrite operation takes lli_trunc_sem at llite layer */
+	if (!cl_io_is_mkwrite(io))
+		down_read(&lli->lli_trunc_sem);
 
         /* offset of the last byte on the page */
         offset = cl_offset(obj, fio->ft_index + 1) - 1;
@@ -1370,10 +1372,14 @@ static void vvp_io_fault_end(const struct lu_env *env,
 {
 	struct inode		*inode = vvp_object_inode(ios->cis_obj);
 	struct ll_inode_info	*lli   = ll_i2info(inode);
+	struct cl_io		*io    = ios->cis_io;
 
 	CLOBINVRNT(env, ios->cis_io->ci_obj,
 		   vvp_object_invariant(ios->cis_io->ci_obj));
-	up_read(&lli->lli_trunc_sem);
+
+	/* mkwrite operation takes lli_trunc_sem at llite layer */
+	if (!cl_io_is_mkwrite(io))
+		up_read(&lli->lli_trunc_sem);
 }
 
 static int vvp_io_fsync_start(const struct lu_env *env,
