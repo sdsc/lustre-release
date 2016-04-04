@@ -1277,16 +1277,12 @@ lnet_send(lnet_nid_t src_nid, lnet_msg_t *msg, lnet_nid_t rtr_nid)
 	local_ni = lnet_net2ni(LNET_NIDNET(dst_nid));
 	cpt = lnet_cpt_of_nid(rtr_nid == LNET_NID_ANY ? dst_nid : rtr_nid,
 			      local_ni);
- again:
-	lnet_net_lock(cpt);
-
 	if (local_ni != NULL)
 		lnet_ni_decref_locked(local_ni, 0);
-
-	if (the_lnet.ln_shutdown) {
-		lnet_net_unlock(cpt);
+ again:
+	if (the_lnet.ln_shutdown)
 		return -ESHUTDOWN;
-	}
+	lnet_net_lock(cpt);
 
 	if (src_nid == LNET_NID_ANY) {
 		src_ni = NULL;
@@ -1340,8 +1336,9 @@ lnet_send(lnet_nid_t src_nid, lnet_msg_t *msg, lnet_nid_t rtr_nid)
 
 		rc = lnet_nid2peer_locked(&lp, dst_nid, cpt);
 		/* lp has ref on src_ni; lose mine */
-		lnet_ni_decref_locked(src_ni, cpt);
+		//lnet_ni_decref_locked(src_ni, cpt);
 		if (rc != 0) {
+			lnet_ni_decref_locked(src_ni, cpt);
 			lnet_net_unlock(cpt);
                         LCONSOLE_WARN("Error %d finding peer %s\n", rc,
                                       libcfs_nid2str(dst_nid));
@@ -1389,8 +1386,8 @@ lnet_send(lnet_nid_t src_nid, lnet_msg_t *msg, lnet_nid_t rtr_nid)
 
                 if (src_ni == NULL) {
                         src_ni = lnet_get_next_ni_locked(lp->lp_net, NULL);
-			lnet_ni_addref_locked(src_ni, cpt);
 			LASSERT(src_ni != NULL);
+			lnet_ni_addref_locked(src_ni, cpt);
                         src_nid = src_ni->ni_nid;
                 } else {
                         LASSERT (src_ni->ni_net == lp->lp_net);
@@ -1419,8 +1416,8 @@ lnet_send(lnet_nid_t src_nid, lnet_msg_t *msg, lnet_nid_t rtr_nid)
 
         msg->msg_txpeer = lp;                   /* msg takes my ref on lp */
 	/* set the NI for this message */
-	msg->msg_txni = src_ni;
-	lnet_ni_addref_locked(msg->msg_txni, cpt);
+	msg->msg_txni = src_ni;			/* msg takes my ref on src_ni */
+	//lnet_ni_addref_locked(msg->msg_txni, cpt);
 
         rc = lnet_post_send_locked(msg, 0);
 	lnet_net_unlock(cpt);
@@ -2023,8 +2020,8 @@ lnet_parse(lnet_ni_t *ni, lnet_hdr_t *hdr, lnet_nid_t from_nid,
 		lnet_msg_free(msg);
 		goto drop;
 	}
-	msg->msg_rxni = ni;
 	lnet_ni_addref_locked(ni, cpt);
+	msg->msg_rxni = ni;
 
 	if (lnet_isrouter(msg->msg_rxpeer)) {
 		lnet_peer_set_alive(msg->msg_rxpeer);

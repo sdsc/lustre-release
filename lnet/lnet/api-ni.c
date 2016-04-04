@@ -1230,6 +1230,7 @@ lnet_shutdown_lndni(struct lnet_ni *ni)
 	int i;
 	struct lnet_net *net = ni->ni_net;
 
+	printk(KERN_ERR "Shuttding down NI\n");
 	lnet_net_lock(LNET_LOCK_EX);
 	ni->ni_state = LNET_NI_STATE_DELETING;
 	lnet_ni_unlink_locked(ni);
