@@ -452,6 +452,8 @@ static int mdt_coordinator(void *data)
 	struct mdt_device	*mdt = mti->mti_mdt;
 	struct coordinator	*cdt = &mdt->mdt_coordinator;
 	struct hsm_scan_data	 hsd = { NULL };
+	cfs_time_t		 total_wait_time = 0;
+	const unsigned int	 wait_event_time = 1;
 	int			 rc = 0;
 	ENTRY;
 
@@ -482,11 +484,10 @@ static int mdt_coordinator(void *data)
 		struct l_wait_info lwi;
 		int i;
 
-		lwi = LWI_TIMEOUT(cfs_time_seconds(cdt->cdt_loop_period),
+		lwi = LWI_TIMEOUT(cfs_time_seconds(wait_event_time),
 				  NULL, NULL);
 		l_wait_event(cdt->cdt_thread.t_ctl_waitq,
-			     (cdt->cdt_thread.t_flags &
-			      (SVC_STOPPING|SVC_EVENT)),
+			     (cdt->cdt_thread.t_flags & SVC_STOPPING),
 			     &lwi);
 
 		CDEBUG(D_HSM, "coordinator resumes\n");
@@ -498,15 +499,22 @@ static int mdt_coordinator(void *data)
 			break;
 		}
 
-		/* wake up before timeout, new work arrives */
-		if (cdt->cdt_thread.t_flags & SVC_EVENT)
-			cdt->cdt_thread.t_flags &= ~SVC_EVENT;
+		total_wait_time += wait_event_time;
 
 		/* if coordinator is suspended continue to wait */
 		if (cdt->cdt_state == CDT_DISABLE) {
 			CDEBUG(D_HSM, "disable state, coordinator sleeps\n");
 			continue;
 		}
+
+		/* If no event, and no housekeeping to do, continue to
+		 * wait. */
+		if ((cdt->cdt_thread.t_flags & SVC_EVENT) == 0 &&
+		    total_wait_time < cdt->cdt_loop_period)
+			continue;
+
+		cdt->cdt_thread.t_flags &= ~SVC_EVENT;
+		total_wait_time = 0;
 
 		CDEBUG(D_HSM, "coordinator starts reading llog\n");
 
@@ -852,9 +860,8 @@ int mdt_hsm_cdt_wakeup(struct mdt_device *mdt)
 	if (cdt->cdt_state == CDT_STOPPED)
 		RETURN(-ESRCH);
 
-	/* wake up coordinator */
+	/* Indicate new work */
 	cdt->cdt_thread.t_flags = SVC_EVENT;
-	wake_up(&cdt->cdt_thread.t_ctl_waitq);
 
 	RETURN(0);
 }
