@@ -2931,6 +2931,15 @@ test_40() {
 	local i=""
 	local p=""
 	local fid=""
+	local max_requests=$(get_hsm_param max_requests)
+
+	# Increase the number of HSM request that can be performed in
+	# parallel. With the coordinator running once per second, this
+	# also limits the number of requests per seconds that can be
+	# performed, so we pick a decent number. But we also need to keep
+	# that number low because the copytool has no rate limit and will
+	# fail some requests if if gets too many at once.
+	set_hsm_param max_requests 300
 
 	for i in $(seq 1 $file_count); do
 		for p in $(seq 1 $stream_count); do
@@ -2958,6 +2967,8 @@ test_40() {
 	echo OK
 	wait_all_done 100
 	copytool_cleanup
+
+	set_hsm_param max_requests $max_requests
 }
 run_test 40 "Parallel archive requests"
 
@@ -3615,8 +3626,6 @@ run_test 103 "Purge all requests"
 DATA=CEA
 DATAHEX='[434541]'
 test_104() {
-	# test needs a running copytool
-	copytool_setup
 
 	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
@@ -3624,24 +3633,34 @@ test_104() {
 	fid=$(make_custom_file_for_progress $f 39 1000000)
 	[ $? != 0 ] && skip "not enough free space" && return
 
-	# if cdt is on, it can serve too quickly the request
-	cdt_disable
 	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER --data $DATA $f
+
+	# The coordinator processes new entries once per second. So sleep
+	# enough for it to see it.
+	sleep 3
+
 	local data1=$(do_facet $SINGLEMDS "$LCTL get_param -n\
 			$HSM_PARAM.actions |\
 			grep $fid | cut -f16 -d=")
-	cdt_enable
 
 	[[ "$data1" == "$DATAHEX" ]] ||
 		error "Data field in records is ($data1) and not ($DATAHEX)"
+
+	# archive the file
+	copytool_setup
+
+	wait_request_state $fid ARCHIVE SUCCEED
 
 	copytool_cleanup
 }
 run_test 104 "Copy tool data field"
 
 test_105() {
+	local max_requests=$(get_hsm_param max_requests)
 	mkdir -p $DIR/$tdir
 	local i=""
+
+	set_hsm_param max_requests 300
 
 	cdt_disable
 	for i in $(seq -w 1 10); do
@@ -3661,6 +3680,8 @@ test_105() {
 	[[ "$reqcnt1" == "$reqcnt2" ]] ||
 		error "Requests count after shutdown $reqcnt2 != "\
 		      "before shutdown $reqcnt1"
+
+	set_hsm_param max_requests $max_requests
 }
 run_test 105 "Restart of coordinator"
 
