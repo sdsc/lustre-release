@@ -593,7 +593,9 @@ test_17m() {
 
 	echo "stop and checking mds${mds_index}:"
 	# e2fsck should not return error
+set -x
 	stop mds${mds_index}
+set +x
 	run_e2fsck $(facet_active_host mds${mds_index}) $devname -n
 	rc=$?
 
