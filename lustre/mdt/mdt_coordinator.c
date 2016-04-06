@@ -494,6 +494,8 @@ static int mdt_coordinator(void *data)
 	struct mdt_device	*mdt = mti->mti_mdt;
 	struct coordinator	*cdt = &mdt->mdt_coordinator;
 	struct hsm_scan_data	 hsd = { NULL };
+	const unsigned long	 wait_event_time = HZ;
+	unsigned long		 next_loop_time = 0;
 	int			 rc = 0;
 	int			 request_sz;
 	ENTRY;
@@ -522,15 +524,15 @@ static int mdt_coordinator(void *data)
 	wake_up(&cdt->cdt_waitq);
 
 	while (1) {
-		struct l_wait_info lwi;
 		int i;
 
-		lwi = LWI_TIMEOUT(cfs_time_seconds(cdt->cdt_loop_period),
-				  NULL, NULL);
-		l_wait_event(cdt->cdt_waitq,
-			     (cdt->cdt_event ||
-			      kthread_should_stop()),
-			     &lwi);
+		/* Limit execution of the expensive requests traversal
+		 * to at most every "wait_event_time" jiffies. But we
+		 * also want to start or exit the coordinator as soon
+		 * as it is signaled, so use an event with timeout. */
+		wait_event_timeout(cdt->cdt_waitq,
+				   kthread_should_stop(),
+				   wait_event_time);
 
 		CDEBUG(D_HSM, "coordinator resumes\n");
 
@@ -544,6 +546,14 @@ static int mdt_coordinator(void *data)
 			CDEBUG(D_HSM, "disable state, coordinator sleeps\n");
 			continue;
 		}
+
+		/* If no event, and no housekeeping to do, continue to
+		 * wait. */
+		if (next_loop_time <= get_seconds())
+			next_loop_time = get_seconds() +
+				cdt->cdt_loop_period;
+		else if (!cdt->cdt_event)
+			continue;
 
 		cdt->cdt_event = false;
 
@@ -801,27 +811,6 @@ static int hsm_init_ucred(struct lu_ucred *uc)
 	uc->uc_umask = 0777;
 	uc->uc_ginfo = NULL;
 	uc->uc_identity = NULL;
-
-	RETURN(0);
-}
-
-/**
- * wake up coordinator thread
- * \param mdt [IN] device
- * \retval 0 success
- * \retval -ve failure
- */
-int mdt_hsm_cdt_wakeup(struct mdt_device *mdt)
-{
-	struct coordinator	*cdt = &mdt->mdt_coordinator;
-	ENTRY;
-
-	if (cdt->cdt_state == CDT_STOPPED)
-		RETURN(-ESRCH);
-
-	/* wake up coordinator */
-	cdt->cdt_event = true;
-	wake_up(&cdt->cdt_waitq);
 
 	RETURN(0);
 }
@@ -1478,9 +1467,9 @@ int mdt_hsm_update_request_state(struct mdt_thread_info *mti,
 				       pgs->hpk_cookie);
 			rc = (rc != 0 ? rc : rc1);
 		}
-		/* ct has completed a request, so a slot is available, wakeup
-		 * cdt to find new work */
-		mdt_hsm_cdt_wakeup(mdt);
+		/* ct has completed a request, so a slot is available,
+		 * signal the coordinator to find new work */
+		mdt_hsm_cdt_event(cdt);
 	} else {
 		/* if copytool send a progress on a canceled request
 		 * we inform copytool it should stop
@@ -1924,7 +1913,8 @@ mdt_hsm_cdt_control_seq_write(struct file *file, const char __user *buffer,
 	if (strcmp(kernbuf, CDT_ENABLE_CMD) == 0) {
 		if (cdt->cdt_state == CDT_DISABLE) {
 			rc = set_cdt_state(cdt, CDT_RUNNING);
-			mdt_hsm_cdt_wakeup(mdt);
+			mdt_hsm_cdt_event(cdt);
+			wake_up(&cdt->cdt_waitq);
 		} else {
 			rc = mdt_hsm_cdt_start(mdt);
 		}
