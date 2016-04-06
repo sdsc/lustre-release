@@ -3,7 +3,7 @@
 # Run select tests by setting ONLY, or as arguments to the script.
 # Skip specific tests by setting EXCEPT.
 #
-# e.g. ONLY="22 23" or ONLY="`seq 32 39`" or EXCEPT="31"
+# e.g.  ONLY="22 23" or ONLY="`seq 32 39`" or EXCEPT="31"
 set -e
 
 ONLY=${ONLY:-"$*"}
