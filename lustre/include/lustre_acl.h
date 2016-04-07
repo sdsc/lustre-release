@@ -44,15 +44,20 @@
 # include <linux/dcache.h>
 # ifdef CONFIG_FS_POSIX_ACL
 #  include <linux/posix_acl_xattr.h>
-#  define LUSTRE_POSIX_ACL_MAX_ENTRIES 32
-#  define LUSTRE_POSIX_ACL_MAX_SIZE					\
-	(sizeof(posix_acl_xattr_header) +				\
-	 LUSTRE_POSIX_ACL_MAX_ENTRIES * sizeof(posix_acl_xattr_entry))
+/* Currently, for ldiskfs backend, the ACL EA can be stored in one
+ * separated block, that can hold at most 504 entries. */
+#  define LUSTRE_POSIX_ACL_MAX_SIZE 4096
+
+/* For be interoperable with old client, not return too large ACL EA. */
+#  define LUSTRE_POSIX_ACL_MAX_SIZE_OLD				\
+	(sizeof(posix_acl_xattr_header) +			\
+	 32 * sizeof(posix_acl_xattr_entry))
 # endif /* CONFIG_FS_POSIX_ACL */
 #endif /* __KERNEL__ */
 
 #ifndef LUSTRE_POSIX_ACL_MAX_SIZE
 # define LUSTRE_POSIX_ACL_MAX_SIZE 0
+# define LUSTRE_POSIX_ACL_MAX_SIZE_OLD 0
 #endif /* LUSTRE_POSIX_ACL_MAX_SIZE */
 
 #endif
