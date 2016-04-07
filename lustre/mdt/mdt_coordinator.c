@@ -177,7 +177,7 @@ static int mdt_coordinator_cb(const struct lu_env *env,
 	dump_llog_agent_req_rec("mdt_coordinator_cb(): ", larr);
 	switch (larr->arr_status) {
 	case ARS_WAITING: {
-		int i, empty_slot, found;
+		int i;
 		struct hsm_scan_request *request;
 
 		/* Are agents full? */
@@ -185,34 +185,30 @@ static int mdt_coordinator_cb(const struct lu_env *env,
 		    cdt->cdt_max_requests)
 			break;
 
-		/* first search whether the request is found in the list we
-		 * have built and if there is room in the request vector */
-		empty_slot = -1;
-		found = -1;
-		for (i = 0; i < hsd->max_requests &&
-			    (empty_slot == -1 || found == -1); i++) {
-			if (hsd->request[i].hal == NULL) {
-				empty_slot = i;
-				continue;
-			}
-			if (hsd->request[i].hal->hal_compound_id ==
-				larr->arr_compound_id) {
-				found = i;
-				continue;
+		/* first search whether the request is found in the
+		 * list we have built. */
+		request = NULL;
+		for (i = 0; i < hsd->request_cnt; i++) {
+			if (hsd->request[i].hal &&
+			    (hsd->request[i].hal->hal_compound_id ==
+			     larr->arr_compound_id)) {
+				request = &hsd->request[i];
+				break;
 			}
 		}
-		if (found == -1 && empty_slot == -1)
-			/* unknown request and no more room for new request,
-			 * continue scan for to find other entries for
-			 * already found request
-			 */
-			RETURN(0);
 
-		if (found == -1) {
+		if (!request) {
 			struct hsm_action_list *hal;
 
-			/* request is not already known */
-			request = &hsd->request[empty_slot];
+			if (hsd->request_cnt == hsd->max_requests)
+				/* Unknown request and no more room
+				 * for a new request. Continue to scan
+				 * to find other entries for already
+				 * existing requests.
+				 */
+				RETURN(0);
+
+			request = &hsd->request[hsd->request_cnt];
 
 			/* allocates hai vector size just needs to be large
 			 * enough */
@@ -239,12 +235,9 @@ static int mdt_coordinator_cb(const struct lu_env *env,
 			request->hal_used_sz = hal_size(hal);
 			request->hal = hal;
 			hsd->request_cnt++;
-			found = empty_slot;
 			hai = hai_first(hal);
 		} else {
 			/* request is known */
-			request = &hsd->request[found];
-
 			/* we check if record archive num is the same as the
 			 * known request, if not we will serve it in multiple
 			 * time because we do not know if the agent can serve
@@ -601,16 +594,12 @@ static int mdt_coordinator(void *data)
 		}
 clean_cb_alloc:
 		/* free hal allocated by callback */
-		for (i = 0; i < hsd.max_requests; i++) {
+		for (i = 0; i < hsd.request_cnt; i++) {
 			struct hsm_scan_request *request = &hsd.request[i];
 
-			if (request->hal) {
-				OBD_FREE(request->hal, request->hal_sz);
-				request->hal = NULL;
-				hsd.request_cnt--;
-			}
+			OBD_FREE(request->hal, request->hal_sz);
+			request->hal = NULL;
 		}
-		LASSERT(hsd.request_cnt == 0);
 	}
 	EXIT;
 out:
