@@ -104,6 +104,10 @@ init_agt_vars() {
 	export HSMTOOL_TESTDIR
 	export HSMTOOL_BASE=$(basename "$HSMTOOL" | cut -f1 -d" ")
 	HSM_ARCHIVE=$(copytool_device $SINGLEAGT)
+
+	[ -z "$HSM_ARCHIVE" ] &&
+		error "HSMARCHIVE is empty!"
+
 	HSM_ARCHIVE_NUMBER=2
 
 	# The test only support up to 10 MDTs
@@ -244,6 +248,10 @@ copytool_setup() {
 	local lustre_mntpnt=${2:-${MOUNT2:-$MOUNT}}
 	local arc_id=$3
 	local hsm_root=${4:-$(copytool_device $facet)}
+
+	[ -z "$hsm_root" ] &&
+		error "copytool_setup: hsm_root empty!"
+
 	local agent=$(facet_active_host $facet)
 
 	if [[ -z "$arc_id" ]] &&
@@ -301,6 +309,10 @@ copytool_cleanup() {
 	local agt_facet=$SINGLEAGT
 	local agt_hosts=${1:-$(facet_active_host $agt_facet)}
 	local hsm_root=$(copytool_device $agt_facet)
+
+	[ -z "$hsm_root" ] &&
+		error "copytool_cleanup: hsm_root empty!"
+
 	local i
 	local facet
 	local param
@@ -308,6 +320,7 @@ copytool_cleanup() {
 
 	kill_copytools $agt_hosts
 	wait_copytools $agt_hosts || error "copytools failed to stop"
+
 
 	# Clean all CDTs orphans requests from previous tests that
 	# would otherwise need to timeout to clear.
@@ -794,11 +807,11 @@ parse_json_event() {
 	echo $raw_event | python -c "$json_parser"
 }
 
-# populate MDT device array
-get_mdt_devices
-
 # initiate variables
 init_agt_vars
+
+# populate MDT device array
+get_mdt_devices
 
 # cleanup from previous bad setup
 kill_copytools
