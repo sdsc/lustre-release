@@ -350,11 +350,10 @@ int mdt_cdt_add_request(struct coordinator *cdt, struct cdt_agent_req *new_car)
 	}
 
 	list_add_tail(&new_car->car_request_list, &cdt->cdt_requests);
+	atomic_inc(&cdt->cdt_request_count);
 	up_write(&cdt->cdt_request_lock);
 
 	mdt_hsm_agent_update_statistics(cdt, 0, 0, 1, &new_car->car_uuid);
-
-	atomic_inc(&cdt->cdt_request_count);
 
 	RETURN(0);
 }
