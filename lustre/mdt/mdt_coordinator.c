@@ -134,7 +134,6 @@ struct hsm_scan_data {
 	struct mdt_thread_info		*mti;
 	char				 fs_name[MTI_NAME_MAXLEN+1];
 	/* request to be send to agents */
-	int				 request_sz;	/** allocated size */
 	int				 max_requests;	/** vector size */
 	int				 request_cnt;	/** used count */
 	struct {
@@ -444,8 +443,7 @@ static int mdt_coordinator(void *data)
 	 * hsd.request[] vector
 	 */
 	hsd.max_requests = cdt->cdt_max_requests;
-	hsd.request_sz = hsd.max_requests * sizeof(*hsd.request);
-	OBD_ALLOC(hsd.request, hsd.request_sz);
+	OBD_ALLOC(hsd.request, hsd.max_requests * sizeof(*hsd.request));
 	if (!hsd.request)
 		GOTO(out, rc = -ENOMEM);
 
@@ -497,11 +495,11 @@ static int mdt_coordinator(void *data)
 			/* cdt_max_requests has changed,
 			 * we need to allocate a new buffer
 			 */
-			OBD_FREE(hsd.request, hsd.request_sz);
+			OBD_FREE(hsd.request,
+				 hsd.max_requests * sizeof(*hsd.request));
 			hsd.max_requests = cdt->cdt_max_requests;
-			hsd.request_sz =
-				   hsd.max_requests * sizeof(*hsd.request);
-			OBD_ALLOC(hsd.request, hsd.request_sz);
+			OBD_ALLOC(hsd.request,
+				  hsd.max_requests * sizeof(*hsd.request));
 			if (!hsd.request) {
 				rc = -ENOMEM;
 				break;
@@ -592,12 +590,12 @@ clean_cb_alloc:
 		LASSERT(hsd.request_cnt == 0);
 
 		/* reset callback data */
-		memset(hsd.request, 0, hsd.request_sz);
+		memset(hsd.request, 0, hsd.max_requests * sizeof(*hsd.request));
 	}
 	EXIT;
 out:
 	if (hsd.request)
-		OBD_FREE(hsd.request, hsd.request_sz);
+		OBD_FREE(hsd.request, hsd.max_requests * sizeof(*hsd.request));
 
 	if (cdt->cdt_state == CDT_STOPPING) {
 		/* request comes from /proc path, so we need to clean cdt
