@@ -313,7 +313,9 @@ int mdt_reint_setxattr(struct mdt_thread_info *info,
 		    strcmp(xattr_name, XATTR_NAME_ACL_DEFAULT) == 0)) {
 
 		/* currently lustre limit acl access size */
-		if (xattr_len > LUSTRE_POSIX_ACL_MAX_SIZE)
+		if ((xattr_len > LUSTRE_POSIX_ACL_MAX_SIZE) ||
+		     (exp->exp_small_acl_buffer &&
+		      xattr_len > LUSTRE_POSIX_ACL_MAX_SIZE_OLD))
 			GOTO(out, rc = -ERANGE);
 
 		rc = nodemap_map_acl(nodemap, rr->rr_eadata, xattr_len,

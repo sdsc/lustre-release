@@ -1196,9 +1196,13 @@ struct ptlrpc_body_v2 {
                                                   *to be reused.*/
 #define OBD_CONNECT_ATTRFID            0x4000ULL /*Server can GetAttr By Fid*/
 #define OBD_CONNECT_NODEVOH            0x8000ULL /*No open hndl on specl nodes*/
-#define OBD_CONNECT_RMT_CLIENT        0x10000ULL /*Remote client, not support
-						  *it anymore, keep this flag
-						  *to avoid reusing. */
+/* #define OBD_CONNECT_RMT_CLIENT        0x10000ULL
+ * The connection flag OBD_CONNECT_RMT_CLIENT is obsolete, only old
+ * client sets such flag. Here, we need a new flag to indicate that
+ * the client is old and uses small buffer to hold ACL in RPC reply.
+ * Since new client will not set OBD_CONNECT_RMT_CLIENT, then reuse
+ * it for such purpose. To be clear, name it as OBD_CONNECT_OLD_ACL. */
+#define OBD_CONNECT_OLD_ACL	      0x10000ULL
 #define OBD_CONNECT_RMT_CLIENT_FORCE  0x20000ULL /*Remote client by force, not
 						  *support it anymore, keep this
 						  *flag to avoid reusing. */

@@ -467,6 +467,10 @@ int mdt_pack_acl2body(struct mdt_thread_info *info, struct mdt_body *repbody,
 	if (buf->lb_len == 0)
 		return 0;
 
+	if (info->mti_exp->exp_small_acl_buffer &&
+	    buf->lb_len > LUSTRE_POSIX_ACL_MAX_SIZE_OLD)
+		buf->lb_len = LUSTRE_POSIX_ACL_MAX_SIZE_OLD;
+
 	rc = mo_xattr_get(env, next, buf, XATTR_NAME_ACL_ACCESS);
 	if (rc < 0) {
 		if (rc == -ENODATA) {
@@ -4954,6 +4958,9 @@ static int mdt_connect_internal(struct obd_export *exp,
 				struct obd_connect_data *data)
 {
 	LASSERT(data != NULL);
+
+	if (data->ocd_connect_flags & OBD_CONNECT_OLD_ACL)
+		exp->exp_small_acl_buffer = 1;
 
 	data->ocd_connect_flags &= MDT_CONNECT_SUPPORTED;
 	data->ocd_ibits_known &= MDS_INODELOCK_FULL;
