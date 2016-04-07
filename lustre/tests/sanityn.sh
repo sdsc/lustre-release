@@ -3190,6 +3190,40 @@ test_77g() {
 }
 run_test 77g "Change TBF type directly"
 
+test_77h() {
+	for i in $(seq 1 $OSTCOUNT)
+	do
+		do_facet ost"$i" lctl set_param jobid_var=procname_uid
+		do_facet ost"$i" lctl set_param \
+			ost.OSS.ost_io.nrs_policies="tbf\ opcode"
+
+		do_facet ost"$i" lctl set_param \
+			ost.OSS.ost_io.nrs_tbf_rule=\
+"start\ ost_r\ {ost_read}\ 5"
+		do_facet ost"$i" lctl set_param \
+			ost.OSS.ost_io.nrs_tbf_rule=\
+"start\ ost_w\ {ost_write}\ 20"
+	done
+
+	nrs_write_read
+
+	for i in $(seq 1 $OSTCOUNT)
+	do
+		do_facet ost"$i" lctl set_param \
+			ost.OSS.ost_io.nrs_tbf_rule="stop\ ost_r"
+		do_facet ost"$i" lctl set_param \
+			ost.OSS.ost_io.nrs_tbf_rule="stop\ ost_w"
+
+		do_facet ost"$i" lctl set_param \
+			ost.OSS.ost_io.nrs_policies="fifo"
+	done
+	# sleep 3 seconds to wait the tbf policy stop completely,
+	# or the next test case is possible get -EAGAIN when
+	# setting the tbf policy
+	sleep 3
+}
+run_test 77h "check TBF-OPCode NRS policy"
+
 test_78() { #LU-6673
 	local rc
 
