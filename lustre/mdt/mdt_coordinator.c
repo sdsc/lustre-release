@@ -587,15 +587,11 @@ clean_cb_alloc:
 
 			if (request->hal) {
 				OBD_FREE(request->hal, request->hal_sz);
-				request->hal_sz = 0;
 				request->hal = NULL;
 				hsd.request_cnt--;
 			}
 		}
 		LASSERT(hsd.request_cnt == 0);
-
-		/* reset callback data */
-		memset(hsd.request, 0, hsd.max_requests * sizeof(*hsd.request));
 	}
 	EXIT;
 out:
