@@ -1094,16 +1094,20 @@ test_10b() {
 run_test 10b "Archive of non dirty file must work without doing request"
 
 test_10c() {
-	# test needs a running copytool
-	copytool_setup
-
 	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
 	local fid=$(copy_file /etc/hosts $f)
 	$LFS hsm_set --noarchive $f
-	$LFS hsm_archive $f && error "archive a noarchive file must fail"
+	$LFS hsm_archive $f
 
-	copytool_cleanup
+	# The coordinator processes new entries once per second. So sleep
+    # enough for it to see them. This will discard the request
+	sleep 3
+
+	local cnt=$(do_facet $SINGLEMDS "$LCTL get_param -n $HSM_PARAM.actions |"\
+				" wc -l")
+	[[ "$cnt" == "0" ]] ||
+	error "unexpected number of requests: $cnt instead of 0"
 }
 run_test 10c "Check forbidden archive"
 
@@ -3865,6 +3869,43 @@ test_112() {
 	copytool_cleanup
 }
 run_test 112 "State of recorded request"
+
+# Without a running copytool, push many identical requests for 2 files
+# and make sure only two end up in the catalog
+test_113() {
+	mkdir -p $DIR/$tdir
+	local file1=$DIR/$tdir/$tfile-1
+	local file2=$DIR/$tdir/$tfile-2
+	local fid1=$(make_small $file1) || error "cannot create small file"
+	local fid2=$(make_small $file2) || error "cannot create small file"
+
+	# Stop the copytool
+	copytool_cleanup
+
+	for i in $(seq 1 100); do
+		$LFS hsm_archive $file1 $file1 $file2 $file2
+		$LFS hsm_archive $file2 $file2 $file1 $file1
+		$LFS hsm_archive $file2 $file1 $file2 $file1
+		$LFS hsm_archive $file1 $file2 $file1 $file2
+		$LFS hsm_archive $file1 $file1 $file1 $file1
+		$LFS hsm_archive $file2 $file2 $file2 $file2
+	done
+
+	# Give enough time to the MDT to get the list and clean it.
+	sleep 5
+
+	local reqcnt=$(do_facet $SINGLEMDS "$LCTL get_param -n	$HSM_PARAM.actions | wc -l")
+	[[ $reqcnt -eq 2 ]] || error "Request count should be 2, not $reqcnt"
+
+	# Perform the archive
+	copytool_setup
+
+	wait_request_state $fid1 ARCHIVE SUCCEED
+	wait_request_state $fid2 ARCHIVE SUCCEED
+
+	copytool_cleanup
+}
+run_test 113 "Duplicated archive requests"
 
 test_200() {
 	# test needs a running copytool
