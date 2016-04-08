@@ -50,7 +50,7 @@
  */
 struct hsm_compat_data_cb {
 	struct coordinator	*cdt;
-	struct hsm_action_list	*hal;
+	struct list_head	*hals;
 };
 
 /**
@@ -69,12 +69,11 @@ static int hsm_find_compatible_cb(const struct lu_env *env,
 {
 	struct llog_agent_req_rec	*larr;
 	struct hsm_compat_data_cb	*hcdcb;
-	struct hsm_action_item		*hai;
+	struct mdt_hal_item		*hal_item;
 	int				 i;
 	ENTRY;
 
 	larr = (struct llog_agent_req_rec *)hdr;
-	hcdcb = data;
 	/* a compatible request must be WAITING or STARTED
 	 * and not a cancel */
 	if ((larr->arr_status != ARS_WAITING &&
@@ -82,38 +81,50 @@ static int hsm_find_compatible_cb(const struct lu_env *env,
 	    larr->arr_hai.hai_action == HSMA_CANCEL)
 		RETURN(0);
 
-	hai = hai_first(hcdcb->hal);
-	for (i = 0; i < hcdcb->hal->hal_count; i++, hai = hai_next(hai)) {
-		/* if request is a CANCEL:
-		 * if cookie set in the request, there is no need to find a
-		 * compatible one, the cookie in the request is directly used.
-		 * if cookie is not set, we use the FID to find the request
-		 * to cancel (the "compatible" one)
-		 * if the caller sets the cookie, we assume he also sets the
-		 * arr_archive_id
-		 */
-		if (hai->hai_action == HSMA_CANCEL && hai->hai_cookie != 0)
-			continue;
+	hcdcb = data;
+	list_for_each_entry(hal_item, hcdcb->hals, list) {
+		struct hsm_action_list *hal = &hal_item->hal;
+		struct hsm_action_item *hai;
 
-		if (!lu_fid_eq(&hai->hai_fid, &larr->arr_hai.hai_fid))
-			continue;
+		hai = hai_first(hal);
+		for (i = 0; i < hal->hal_count; i++, hai = hai_next(hai)) {
+			/* if request is a CANCEL:
+			 * if cookie set in the request, there is no
+			 * need to find a compatible one, the cookie
+			 * in the request is directly used.
+			 * if cookie is not set, we use the FID to
+			 * find the request to cancel (the
+			 * "compatible" one)
+			 * if the caller sets the cookie, we assume he
+			 * also sets the arr_archive_id
+			 */
+			if (hai->hai_action == HSMA_CANCEL &&
+			    hai->hai_cookie != 0)
+				continue;
 
-		/* HSMA_NONE is used to find running request for some FID */
-		if (hai->hai_action == HSMA_NONE) {
-			hcdcb->hal->hal_archive_id = larr->arr_archive_id;
-			hcdcb->hal->hal_flags = larr->arr_flags;
-			*hai = larr->arr_hai;
-			continue;
+			if (!lu_fid_eq(&hai->hai_fid, &larr->arr_hai.hai_fid))
+				continue;
+
+			/* HSMA_NONE is used to find running request
+			 * for some FID */
+			if (hai->hai_action == HSMA_NONE) {
+				hal->hal_archive_id = larr->arr_archive_id;
+				hal->hal_flags = larr->arr_flags;
+				*hai = larr->arr_hai;
+				continue;
+			}
+			/* in V1 we do not manage partial transfer
+			 * so extent is always whole file
+			 */
+			hai->hai_cookie = larr->arr_hai.hai_cookie;
+			/* we read the archive number from the request
+			 * we cancel */
+			if (hai->hai_action == HSMA_CANCEL &&
+			    hal->hal_archive_id == 0)
+				hal->hal_archive_id = larr->arr_archive_id;
 		}
-		/* in V1 we do not manage partial transfer
-		 * so extent is always whole file
-		 */
-		hai->hai_cookie = larr->arr_hai.hai_cookie;
-		/* we read the archive number from the request we cancel */
-		if (hai->hai_action == HSMA_CANCEL &&
-		    hcdcb->hal->hal_archive_id == 0)
-			hcdcb->hal->hal_archive_id = larr->arr_archive_id;
 	}
+
 	RETURN(0);
 }
 
@@ -128,32 +139,44 @@ static int hsm_find_compatible_cb(const struct lu_env *env,
  * \retval -ve failure
  */
 static int hsm_find_compatible(const struct lu_env *env, struct mdt_device *mdt,
-			       struct hsm_action_list *hal)
+			       struct list_head *hals)
 {
-	struct hsm_action_item		*hai;
 	struct hsm_compat_data_cb	 hcdcb;
-	int				 rc, i, ok_cnt;
+	struct mdt_hal_item		*hal_item;
+	int				 rc, i;
+	int				 hal_counts = 0;
+	bool				 all_cancel = true;
 	ENTRY;
 
-	ok_cnt = 0;
-	hai = hai_first(hal);
-	for (i = 0; i < hal->hal_count; i++, hai = hai_next(hai)) {
-		/* in a cancel request hai_cookie may be set by caller to
-		 * show the request to be canceled
-		 * if not we need to search by FID
-		 */
-		if (hai->hai_action == HSMA_CANCEL && hai->hai_cookie != 0)
-			ok_cnt++;
-		else
-			hai->hai_cookie = 0;
+	list_for_each_entry(hal_item, hals, list) {
+		struct hsm_action_list *hal = &hal_item->hal;
+		struct hsm_action_item *hai;
+		int ok_cnt = 0;
+		hai = hai_first(hal);
+
+		for (i = 0; i < hal->hal_count; i++, hai = hai_next(hai)) {
+			/* in a cancel request hai_cookie may be set
+			 * by caller to show the request to be
+			 * canceled
+			 * if not we need to search by FID
+			 */
+			if (hai->hai_action == HSMA_CANCEL &&
+			    hai->hai_cookie != 0)
+				ok_cnt++;
+			else
+				hai->hai_cookie = 0;
+		}
+
+		if (ok_cnt != hal_counts)
+			all_cancel = false;
 	}
 
 	/* if all requests are cancel with cookie, no need to find compatible */
-	if (ok_cnt == hal->hal_count)
+	if (all_cancel)
 		RETURN(0);
 
 	hcdcb.cdt = &mdt->mdt_coordinator;
-	hcdcb.hal = hal;
+	hcdcb.hals = hals;
 
 	rc = cdt_llog_process(env, mdt, hsm_find_compatible_cb, &hcdcb);
 
@@ -257,10 +280,6 @@ hsm_action_permission(struct mdt_thread_info *mti,
 	int rc;
 	ENTRY;
 
-	if (hsma != HSMA_RESTORE &&
-	    exp_connect_flags(mti->mti_exp) & OBD_CONNECT_RDONLY)
-		RETURN(-EROFS);
-
 	if (md_capable(uc, CFS_CAP_SYS_ADMIN))
 		RETURN(0);
 
@@ -289,45 +308,73 @@ hsm_action_permission(struct mdt_thread_info *mti,
 /**
  * register a list of requests
  * \param mti [IN]
- * \param hal [IN] list of requests
+ * \param hal_item [IN] one HAL containing one or more HAI
  * \retval 0 success
  * \retval -ve failure
  * in case of restore, caller must hold layout lock
  */
 int mdt_hsm_add_actions(struct mdt_thread_info *mti,
-			struct hsm_action_list *hal)
+			struct mdt_hal_item *hal_item)
 {
 	struct mdt_device	*mdt = mti->mti_mdt;
 	struct coordinator	*cdt = &mdt->mdt_coordinator;
 	struct hsm_action_item	*hai;
-	struct mdt_object	*obj = NULL;
-	int			 rc = 0, i;
-	struct md_hsm		 mh;
-	bool			 is_restore = false;
-	__u64			 compound_id;
+	int			 rc;
 	ENTRY;
 
 	/* no coordinator started, so we cannot serve requests */
 	if (cdt->cdt_state == CDT_STOPPED)
 		RETURN(-EAGAIN);
 
-	if (!hal_is_sane(hal))
+	if (!hal_is_sane(&hal_item->hal))
 		RETURN(-EINVAL);
 
-	compound_id = atomic_inc_return(&cdt->cdt_compound_id);
+	hai = hai_first(&hal_item->hal);
 
-	/* search for compatible request, if found hai_cookie is set
-	 * to the request cookie
-	 * it is also used to set the cookie for cancel request by FID
-	 */
-	rc = hsm_find_compatible(mti->mti_env, mdt, hal);
-	if (rc)
-		GOTO(out, rc);
+	/* Sanity check */
+	if (hai->hai_action != HSMA_RESTORE &&
+	    exp_connect_flags(mti->mti_exp) & OBD_CONNECT_RDONLY)
+		RETURN(-EROFS);
+
+	if (hai->hai_action == HSMA_RESTORE &&
+	    (cdt->cdt_policy & CDT_NONBLOCKING_RESTORE))
+		rc = -ENODATA;
+	else
+		rc = 0;
+
+	spin_lock(&cdt->cdt_deferred_hals_lock);
+	list_add_tail(&hal_item->list, &cdt->cdt_deferred_hals);
+	spin_unlock(&cdt->cdt_deferred_hals_lock);
+
+	RETURN(rc);
+}
+
+void mdt_hsm_free_deferred_hals(struct list_head *deferred_hals)
+{
+	struct mdt_hal_item *hal_item;
+	struct mdt_hal_item *tmp;
+
+	list_for_each_entry_safe(hal_item, tmp, deferred_hals, list) {
+		list_del(&hal_item->list);
+		MDT_HSM_FREE(hal_item, hal_item->size);
+	}
+}
+
+static int add_deferred_hal(struct mdt_thread_info *mti,
+			    struct hsm_action_list *hal)
+{
+	struct mdt_device       *mdt = mti->mti_mdt;
+	struct coordinator      *cdt = &mdt->mdt_coordinator;
+	struct hsm_action_item	*hai;
+	struct mdt_object	*obj = NULL;
+	int			 rc = 0, i;
+	struct md_hsm		 mh;
 
 	hai = hai_first(hal);
 	for (i = 0; i < hal->hal_count; i++, hai = hai_next(hai)) {
 		int archive_id;
 		__u64 flags;
+		__u64 compound_id;
 
 		/* default archive number is the one explicitly specified */
 		archive_id = hal->hal_archive_id;
@@ -337,10 +384,6 @@ int mdt_hsm_add_actions(struct mdt_thread_info *mti,
 		/* the volatile data FID will be created by copy tool and
 		 * send from the agent through the progress call */
 		hai->hai_dfid = hai->hai_fid;
-
-		/* done here to manage first and redundant requests cases */
-		if (hai->hai_action == HSMA_RESTORE)
-			is_restore = true;
 
 		/* test result of hsm_find_compatible()
 		 * if request redundant or cancel of nothing
@@ -452,23 +495,59 @@ int mdt_hsm_add_actions(struct mdt_thread_info *mti,
 		}
 record:
 		/* record request */
+		compound_id = atomic_inc_return(&cdt->cdt_compound_id);
 		rc = mdt_agent_record_add(mti->mti_env, mdt, compound_id,
 					  archive_id, flags, hai);
 		if (rc)
 			GOTO(out, rc);
 	}
-	if (is_restore &&
-	    (cdt->cdt_policy & CDT_NONBLOCKING_RESTORE))
-		rc = -ENODATA;
-	else
-		rc = 0;
 
 	GOTO(out, rc);
 out:
-	/* if work has been added, signal the coordinator */
-	if (rc == 0 || rc == -ENODATA)
-		mdt_hsm_cdt_work(cdt);
+	return rc;
+}
 
+int mdt_hsm_process_deferred_hals(struct mdt_thread_info *mti)
+{
+	struct mdt_device	*mdt = mti->mti_mdt;
+	struct coordinator	*cdt = &mdt->mdt_coordinator;
+	int			 rc = 0;
+	struct mdt_hal_item	*hal_item;
+	struct mdt_hal_item	*tmp;
+	struct list_head	deferred_hals;
+
+	/* Transfer the list to avoid blocking newcomers, and
+	 * spending too much time in this fucntion. */
+	spin_lock(&cdt->cdt_deferred_hals_lock);
+	INIT_LIST_HEAD(&deferred_hals);
+	list_splice_init(&cdt->cdt_deferred_hals, &deferred_hals);
+	spin_unlock(&cdt->cdt_deferred_hals_lock);
+
+	/* search for compatible request, if found hai_cookie is set
+	 * to the request cookie
+	 * it is also used to set the cookie for cancel request by FID
+	 */
+	rc = hsm_find_compatible(mti->mti_env, mdt, &deferred_hals);
+	if (rc) {
+		mdt_hsm_free_deferred_hals(&deferred_hals);
+		GOTO(out, rc);
+	}
+
+	list_for_each_entry_safe(hal_item, tmp, &deferred_hals, list) {
+		struct hsm_action_list *hal = &hal_item->hal;
+
+		list_del(&hal_item->list);
+		add_deferred_hal(mti, hal);
+
+		MDT_HSM_FREE(hal_item, hal_item->size);
+	}
+
+	/* Work has been added, signal the coordinator */
+	mdt_hsm_cdt_work(cdt);
+
+	GOTO(out, rc = 0);
+
+out:
 	return rc;
 }
 
@@ -542,16 +621,18 @@ bool mdt_hsm_restore_is_running(struct mdt_thread_info *mti,
 /**
  * get registered action on a FID list
  * \param mti [IN]
- * \param hal [IN/OUT] requests
+ * \param hal_item [IN/OUT] contains a single HAL
  * \retval 0 success
  * \retval -ve failure
  */
 int mdt_hsm_get_actions(struct mdt_thread_info *mti,
-			struct hsm_action_list *hal)
+			struct mdt_hal_item *hal_item)
 {
 	struct mdt_device	*mdt = mti->mti_mdt;
 	struct coordinator	*cdt = &mdt->mdt_coordinator;
+	struct hsm_action_list	*hal = &hal_item->hal;
 	struct hsm_action_item	*hai;
+	struct list_head	 list;
 	int			 i, rc;
 	ENTRY;
 
@@ -563,7 +644,9 @@ int mdt_hsm_get_actions(struct mdt_thread_info *mti,
 	}
 
 	/* 1st we search in recorded requests */
-	rc = hsm_find_compatible(mti->mti_env, mdt, hal);
+	INIT_LIST_HEAD(&list);
+	list_add(&hal_item->list, &list);
+	rc = hsm_find_compatible(mti->mti_env, mdt, &list);
 	/* if llog file is not created, no action is recorded */
 	if (rc == -ENOENT)
 		RETURN(0);
