@@ -1892,7 +1892,6 @@ retry_get_uuids:
 			uuids_temp = realloc(uuids, obdcount *
 					     sizeof(struct obd_uuid));
 			if (uuids_temp != NULL) {
-				free(uuids);
 				uuids = uuids_temp;
 				goto retry_get_uuids;
 			}
