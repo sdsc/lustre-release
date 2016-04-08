@@ -506,6 +506,8 @@ static int mdt_coordinator(void *data)
 			continue;
 		}
 
+		mdt_hsm_process_deferred_archives(mti);
+
 		/* If no event, and no housekeeping to do, continue to
 		 * wait. */
 		if (next_housekeeping <= get_seconds()) {
@@ -645,6 +647,10 @@ out:
 		cdt->cdt_thread.t_flags = SVC_STOPPED;
 		wake_up(&cdt->cdt_thread.t_ctl_waitq);
 	}
+
+	mutex_lock(&cdt->cdt_deferred_hals_lock);
+	mdt_hsm_free_deferred_archives(&cdt->cdt_deferred_hals);
+	mutex_unlock(&cdt->cdt_deferred_hals_lock);
 
 	if (rc != 0)
 		CERROR("%s: coordinator thread exiting, process=%d, rc=%d\n",
@@ -819,10 +825,12 @@ int mdt_hsm_cdt_init(struct mdt_device *mdt)
 	init_rwsem(&cdt->cdt_agent_lock);
 	init_rwsem(&cdt->cdt_request_lock);
 	mutex_init(&cdt->cdt_restore_lock);
+	mutex_init(&cdt->cdt_deferred_hals_lock);
 
 	INIT_LIST_HEAD(&cdt->cdt_requests);
 	INIT_LIST_HEAD(&cdt->cdt_agents);
 	INIT_LIST_HEAD(&cdt->cdt_restore_hdl);
+	INIT_LIST_HEAD(&cdt->cdt_deferred_hals);
 
 	rc = lu_env_init(&cdt->cdt_env, LCT_MD_THREAD);
 	if (rc < 0)
