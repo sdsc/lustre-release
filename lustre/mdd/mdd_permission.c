@@ -66,9 +66,8 @@ int mdd_acl_chmod(const struct lu_env *env, struct mdd_object *o, __u32 mode,
 
 	ENTRY;
 
-	buf = mdd_buf_get(env, mdd_env_info(env)->mti_xattr_buf,
-			  sizeof(mdd_env_info(env)->mti_xattr_buf));
-
+	buf = lu_buf_check_and_alloc(&mdd_env_info(env)->mti_xattr_buf,
+				     LUSTRE_POSIX_ACL_MAX_SIZE);
 	rc = mdo_xattr_get(env, o, buf, XATTR_NAME_ACL_ACCESS);
 	if ((rc == -EOPNOTSUPP) || (rc == -ENODATA))
 		RETURN(0);
@@ -213,8 +212,8 @@ static int mdd_check_acl(const struct lu_env *env, struct mdd_object *obj,
 	int rc;
 	ENTRY;
 
-	buf = mdd_buf_get(env, mdd_env_info(env)->mti_xattr_buf,
-			  sizeof(mdd_env_info(env)->mti_xattr_buf));
+	buf = lu_buf_check_and_alloc(&mdd_env_info(env)->mti_xattr_buf,
+				     LUSTRE_POSIX_ACL_MAX_SIZE);
 	rc = mdo_xattr_get(env, obj, buf, XATTR_NAME_ACL_ACCESS);
 	if (rc <= 0)
 		RETURN(rc ? : -EACCES);
