@@ -231,6 +231,8 @@ int lmv_revalidate_slaves(struct obd_export *exp,
 						 it.it_lock_mode);
 					it.it_lock_mode = 0;
 				}
+				CERROR("revalidate slave "DFID" i%d: rc = %d\n",
+				       PFID(&fid), i, -ENOENT);
 				GOTO(cleanup, rc = -ENOENT);
 			}
 

@@ -166,18 +166,13 @@ int ptlrpc_replay_next(struct obd_import *imp, int *inflight)
 	spin_lock(&imp->imp_lock);
 	/* The resend replay request may have been removed from the
 	 * unreplied list. */
-	if (req != NULL && imp->imp_resend_replay &&
-	    list_empty(&req->rq_unreplied_list))
+	if (req != NULL && list_empty(&req->rq_unreplied_list))
 		ptlrpc_add_unreplied(req);
 
 	imp->imp_resend_replay = 0;
 	spin_unlock(&imp->imp_lock);
 
 	if (req != NULL) {
-		/* The request should have been added back in unreplied list
-		 * by ptlrpc_prepare_replay(). */
-		LASSERT(!list_empty(&req->rq_unreplied_list));
-
 		rc = ptlrpc_replay_req(req);
 		if (rc) {
 			CERROR("recovery replay error %d for req "
