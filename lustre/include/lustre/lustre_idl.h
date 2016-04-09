@@ -1240,6 +1240,7 @@ struct ptlrpc_body_v2 {
 #define OBD_CONNECT_OPEN_BY_FID	0x20000000000000ULL /* open by fid won't pack
 						       name in request */
 #define OBD_CONNECT_LFSCK      0x40000000000000ULL/* support online LFSCK */
+#define OBD_CONNECT_LARGE_ACL  0x80000000000000ULL /*more than 32 ACL entries*/
 #define OBD_CONNECT_UNLINK_CLOSE 0x100000000000000ULL/* close file in unlink */
 #define OBD_CONNECT_MULTIMODRPCS 0x200000000000000ULL /* support multiple modify
 							 RPCs in parallel */
@@ -1297,7 +1298,7 @@ struct ptlrpc_body_v2 {
 				OBD_CONNECT_DIR_STRIPE | \
 				OBD_CONNECT_BULK_MBITS | \
 				OBD_CONNECT_MULTIMODRPCS | \
-				OBD_CONNECT_SUBTREE)
+				OBD_CONNECT_SUBTREE | OBD_CONNECT_LARGE_ACL)
 
 #define OST_CONNECT_SUPPORTED  (OBD_CONNECT_SRVLOCK | OBD_CONNECT_GRANT | \
                                 OBD_CONNECT_REQPORTAL | OBD_CONNECT_VERSION | \
