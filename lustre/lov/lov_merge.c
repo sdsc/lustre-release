@@ -47,11 +47,13 @@
  * uptodate time on the local client.
  */
 int lov_merge_lvb_kms(struct lov_stripe_md *lsm,
-                      struct ost_lvb *lvb, __u64 *kms_place)
+		      struct ost_lvb *lvb, __u64 *kms_place,
+		      __u64 *blocksize)
 {
 	u64 size = 0;
 	u64 kms = 0;
 	u64 blocks = 0;
+	u64 blksize = 0;
 	s64 current_mtime = lvb->lvb_mtime;
 	s64 current_atime = lvb->lvb_atime;
 	s64 current_ctime = lvb->lvb_ctime;
@@ -94,12 +96,16 @@ int lov_merge_lvb_kms(struct lov_stripe_md *lsm,
                         current_atime = loi->loi_lvb.lvb_atime;
                 if (loi->loi_lvb.lvb_ctime > current_ctime)
                         current_ctime = loi->loi_lvb.lvb_ctime;
+		if (loi->loi_blksize > blksize)
+			blksize = loi->loi_blksize;
 
 		CDEBUG(D_INODE, "MDT ID "DOSTID" on OST[%u]: s="LPU64" m="LPU64
-		       " a="LPU64" c="LPU64" b="LPU64"\n", POSTID(&lsm->lsm_oi),
+		       " a="LPU64" c="LPU64" b="LPU64" bs=%u\n",
+		       POSTID(&lsm->lsm_oi),
 		       loi->loi_ost_idx, loi->loi_lvb.lvb_size,
 		       loi->loi_lvb.lvb_mtime, loi->loi_lvb.lvb_atime,
-		       loi->loi_lvb.lvb_ctime, loi->loi_lvb.lvb_blocks);
+		       loi->loi_lvb.lvb_ctime, loi->loi_lvb.lvb_blocks,
+		       loi->loi_blksize);
         }
 
         *kms_place = kms;
@@ -108,5 +114,6 @@ int lov_merge_lvb_kms(struct lov_stripe_md *lsm,
         lvb->lvb_mtime = current_mtime;
         lvb->lvb_atime = current_atime;
         lvb->lvb_ctime = current_ctime;
+	*blocksize = blksize;
         RETURN(rc);
 }
