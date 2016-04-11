@@ -977,6 +977,8 @@ int ll_merge_attr(const struct lu_env *env, struct inode *inode)
 	LTIME_S(inode->i_mtime) = mtime;
 	LTIME_S(inode->i_ctime) = ctime;
 
+	lli->lli_blksize = attr->cat_rpcsize;
+
 out_size_unlock:
 	ll_inode_size_unlock(inode);
 
@@ -3385,7 +3387,7 @@ int ll_getattr(struct vfsmount *mnt, struct dentry *de, struct kstat *stat)
 	stat->atime = inode->i_atime;
 	stat->mtime = inode->i_mtime;
 	stat->ctime = inode->i_ctime;
-	stat->blksize = 1 << inode->i_blkbits;
+	stat->blksize = 1 << (fls(lli->lli_blksize << PAGE_CACHE_SHIFT) - 1);
 
 	stat->nlink = inode->i_nlink;
 	stat->size = i_size_read(inode);

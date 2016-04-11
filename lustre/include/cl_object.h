@@ -155,10 +155,12 @@ struct cl_attr {
         time_t cat_ctime;
         /**
          * Blocks allocated to this cl_object on the server file system.
-         *
-         * \todo XXX An interface for block size is needed.
          */
         __u64  cat_blocks;
+	/**
+	 *  Optimal I/O size for this object
+	 */
+	__u64  cat_rpcsize;
         /**
          * User identifier for quota purposes.
          */
