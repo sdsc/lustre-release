@@ -194,7 +194,8 @@ static inline void lov_put_reqset(struct lov_request_set *set)
 
 /* lov_merge.c */
 int lov_merge_lvb_kms(struct lov_stripe_md *lsm,
-                      struct ost_lvb *lvb, __u64 *kms_place);
+		      struct ost_lvb *lvb, __u64 *kms_place,
+		      __u64 *blocksize);
 
 /* lov_offset.c */
 u64 lov_stripe_size(struct lov_stripe_md *lsm, u64 ost_size, int stripeno);

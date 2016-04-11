@@ -263,17 +263,15 @@ out:
         ria->ria_start, ria->ria_end, ria->ria_stoff, ria->ria_length,\
         ria->ria_pages)
 
-/* Limit this to the blocksize instead of PTLRPC_BRW_MAX_SIZE, since we don't
- * know what the actual RPC size is.  If this needs to change, it makes more
- * sense to tune the i_blkbits value for the file based on the OSTs it is
- * striped over, rather than having a constant value for all files here. */
+static inline unsigned long ras_get_increase_step(struct inode *inode)
+{
+	struct ll_inode_info	*lli = ll_i2info(inode);
 
-/* RAS_INCREASE_STEP should be (1UL << (inode->i_blkbits - PAGE_CACHE_SHIFT)).
- * Temprarily set RAS_INCREASE_STEP to 1MB. After 4MB RPC is enabled
- * by default, this should be adjusted corresponding with max_read_ahead_mb
- * and max_read_ahead_per_file_mb otherwise the readahead budget can be used
- * up quickly which will affect read performance siginificantly. See LU-2816 */
-#define RAS_INCREASE_STEP(inode) (ONE_MB_BRW_SIZE >> PAGE_CACHE_SHIFT)
+	if (likely(lli->lli_blksize != 0))
+		return lli->lli_blksize;
+
+	return ONE_MB_BRW_SIZE >> PAGE_SHIFT;
+}
 
 static inline int stride_io_mode(struct ll_readahead_state *ras)
 {
@@ -583,7 +581,7 @@ static int ll_readahead(const struct lu_env *env, struct cl_io *io,
 static void ras_set_start(struct inode *inode, struct ll_readahead_state *ras,
 			  unsigned long index)
 {
-	ras->ras_window_start = index & (~(RAS_INCREASE_STEP(inode) - 1));
+	ras->ras_window_start = index - index % ras_get_increase_step(inode);
 }
 
 /* called with the ras_lock held or from places where it doesn't matter */
@@ -722,10 +720,11 @@ static void ras_increase_window(struct inode *inode,
 	 * information from lower layer. FIXME later
 	 */
 	if (stride_io_mode(ras))
-		ras_stride_increase_window(ras, ra, RAS_INCREASE_STEP(inode));
+		ras_stride_increase_window(ras, ra,
+					   ras_get_increase_step(inode));
 	else
 		ras->ras_window_len = min(ras->ras_window_len +
-					  RAS_INCREASE_STEP(inode),
+					  ras_get_increase_step(inode),
 					  ra->ra_max_pages_per_file);
 }
 
@@ -868,7 +867,7 @@ static void ras_update(struct ll_sb_info *sbi, struct inode *inode,
 		 */
 		ras->ras_next_readahead = max(index, ras->ras_next_readahead);
 		ras->ras_stride_offset = index;
-		ras->ras_window_len = RAS_INCREASE_STEP(inode);
+		ras->ras_window_len = ras_get_increase_step(inode);
 	}
 
 	/* The initial ras_window_len is set to the request size.  To avoid
