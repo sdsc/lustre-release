@@ -104,6 +104,9 @@ init_agt_vars() {
 	export HSMTOOL_TESTDIR
 	export HSMTOOL_BASE=$(basename "$HSMTOOL" | cut -f1 -d" ")
 	HSM_ARCHIVE=$(copytool_device $SINGLEAGT)
+
+	[ -z "${HSM_ARCHIVE// }" ] && error "HSM_ARCHIVE is empty!"
+
 	HSM_ARCHIVE_NUMBER=2
 
 	# The test only support up to 10 MDTs
@@ -244,6 +247,9 @@ copytool_setup() {
 	local lustre_mntpnt=${2:-${MOUNT2:-$MOUNT}}
 	local arc_id=$3
 	local hsm_root=${4:-$(copytool_device $facet)}
+
+	[ -z "${hsm_root// }" ] && error "copytool_setup: hsm_root empty!"
+
 	local agent=$(facet_active_host $facet)
 
 	if [[ -z "$arc_id" ]] &&
@@ -254,7 +260,7 @@ copytool_setup() {
 
 	if $HSM_ARCHIVE_PURGE; then
 		echo "Purging archive on $agent"
-		do_facet $facet "rm -rf $hsm_root/*"
+		do_facet $facet "rm -rf $hsm_root/[a-zA-Z0-9]*"
 	fi
 
 	echo "Starting copytool $facet on $agent"
@@ -301,6 +307,9 @@ copytool_cleanup() {
 	local agt_facet=$SINGLEAGT
 	local agt_hosts=${1:-$(facet_active_host $agt_facet)}
 	local hsm_root=$(copytool_device $agt_facet)
+
+	[ -z "${hsm_root// }" ] && error "copytool_cleanup: hsm_root empty!"
+
 	local i
 	local facet
 	local param
@@ -349,7 +358,7 @@ copytool_cleanup() {
 	done
 
 	if do_facet $agt_facet "df $hsm_root" >/dev/null 2>&1 ; then
-		do_facet $agt_facet "rm -rf $hsm_root/*"
+		do_facet $agt_facet "rm -rf $hsm_root/[a-zA-Z0-9]*"
 	fi
 }
 
@@ -794,11 +803,11 @@ parse_json_event() {
 	echo $raw_event | python -c "$json_parser"
 }
 
-# populate MDT device array
-get_mdt_devices
-
 # initiate variables
 init_agt_vars
+
+# populate MDT device array
+get_mdt_devices
 
 # cleanup from previous bad setup
 kill_copytools
