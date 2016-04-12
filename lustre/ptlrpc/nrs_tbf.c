@@ -222,6 +222,51 @@ nrs_tbf_rule_find(struct nrs_tbf_head *head,
 	return rule;
 }
 
+/**
+ * Change the rank of a rule in the rule list
+ *
+ * The matched rule will be moved to the position right before another
+ * given rule.
+ *
+ * \param[in] policy	the policy instance
+ * \param[in] head	the TBF policy instance
+ * \param[in] change	the command to change the rank position of the rule
+ *
+ */
+static int
+nrs_tbf_rule_change_rank(struct ptlrpc_nrs_policy *policy,
+			 struct nrs_tbf_head *head,
+			 struct nrs_tbf_cmd *change)
+{
+	struct nrs_tbf_rule	*rule = NULL;
+	struct nrs_tbf_rule	*next_rule = NULL;
+	int			 rc = 0;
+	char			*name = change->tc_name;
+	char			*next_name = change->tc_next_name;
+
+	LASSERT(head != NULL);
+
+	spin_lock(&head->th_rule_lock);
+	rule = nrs_tbf_rule_find_nolock(head, name);
+	if (!rule)
+		GOTO(out, rc = -ENOENT);
+
+	if (strcmp(name, next_name) == 0)
+		GOTO(out_put, rc);
+
+	next_rule = nrs_tbf_rule_find_nolock(head, next_name);
+	if (!next_rule)
+		GOTO(out_put, rc = -ENOENT);
+
+	list_move(&rule->tr_linkage, next_rule->tr_linkage.prev);
+	nrs_tbf_rule_put(next_rule);
+out_put:
+	nrs_tbf_rule_put(rule);
+out:
+	spin_unlock(&head->th_rule_lock);
+	return rc;
+}
+
 static struct nrs_tbf_rule *
 nrs_tbf_rule_match(struct nrs_tbf_head *head,
 		   struct nrs_tbf_client *cli)
@@ -334,9 +379,9 @@ nrs_tbf_rule_start(struct ptlrpc_nrs_policy *policy,
 }
 
 static int
-nrs_tbf_rule_change(struct ptlrpc_nrs_policy *policy,
-		    struct nrs_tbf_head *head,
-		    struct nrs_tbf_cmd *change)
+nrs_tbf_rule_change_rate(struct ptlrpc_nrs_policy *policy,
+			 struct nrs_tbf_head *head,
+			 struct nrs_tbf_cmd *change)
 {
 	struct nrs_tbf_rule *rule;
 
@@ -398,7 +443,10 @@ nrs_tbf_command(struct ptlrpc_nrs_policy *policy,
 		spin_lock(&policy->pol_nrs->nrs_lock);
 		return rc;
 	case NRS_CTL_TBF_CHANGE_RATE:
-		rc = nrs_tbf_rule_change(policy, head, cmd);
+		rc = nrs_tbf_rule_change_rate(policy, head, cmd);
+		return rc;
+	case NRS_CTL_TBF_CHANGE_RANK:
+		rc = nrs_tbf_rule_change_rank(policy, head, cmd);
 		return rc;
 	case NRS_CTL_TBF_STOP_RULE:
 		rc = nrs_tbf_rule_stop(policy, head, cmd);
@@ -1670,20 +1718,22 @@ out:
 
 static void nrs_tbf_cmd_fini(struct nrs_tbf_cmd *cmd)
 {
-	if (cmd->tc_valid_types & NRS_TBF_FLAG_JOBID)
-		nrs_tbf_jobid_cmd_fini(cmd);
-	if (cmd->tc_valid_types & NRS_TBF_FLAG_NID)
-		nrs_tbf_nid_cmd_fini(cmd);
+	if (cmd->tc_cmd == NRS_CTL_TBF_START_RULE) {
+		if (cmd->tc_valid_types & NRS_TBF_FLAG_JOBID)
+			nrs_tbf_jobid_cmd_fini(cmd);
+		if (cmd->tc_valid_types & NRS_TBF_FLAG_NID)
+			nrs_tbf_nid_cmd_fini(cmd);
+	}
 }
 
 static struct nrs_tbf_cmd *
 nrs_tbf_parse_cmd(char *buffer, unsigned long count)
 {
-	static struct nrs_tbf_cmd *cmd;
-	char			  *token;
-	char			  *val;
-	int			   i;
-	int			   rc = 0;
+	static struct nrs_tbf_cmd	*cmd;
+	char				*token;
+	char				*val;
+	int				 i;
+	int				 rc = 0;
 
 	OBD_ALLOC_PTR(cmd);
 	if (cmd == NULL)
@@ -1699,8 +1749,10 @@ nrs_tbf_parse_cmd(char *buffer, unsigned long count)
 		cmd->tc_cmd = NRS_CTL_TBF_START_RULE;
 	else if (strcmp(token, "stop") == 0)
 		cmd->tc_cmd = NRS_CTL_TBF_STOP_RULE;
-	else if (strcmp(token, "change") == 0)
+	else if (strcmp(token, "rate") == 0)
 		cmd->tc_cmd = NRS_CTL_TBF_CHANGE_RATE;
+	else if (strcmp(token, "rank") == 0)
+		cmd->tc_cmd = NRS_CTL_TBF_CHANGE_RANK;
 	else
 		GOTO(out_free_cmd, rc = -EINVAL);
 
@@ -1731,6 +1783,11 @@ nrs_tbf_parse_cmd(char *buffer, unsigned long count)
 	}
 
 	if (val != NULL) {
+		if (cmd->tc_cmd == NRS_CTL_TBF_CHANGE_RANK) {
+			cmd->tc_next_name = val;
+			goto out;
+		}
+
 		if (cmd->tc_cmd == NRS_CTL_TBF_STOP_RULE ||
 		    strlen(val) == 0 || !isdigit(val[0]))
 			GOTO(out_free_nid, rc = -EINVAL);
@@ -1740,10 +1797,12 @@ nrs_tbf_parse_cmd(char *buffer, unsigned long count)
 		    cmd->tc_rpc_rate >= LPROCFS_NRS_RATE_MAX)
 			GOTO(out_free_nid, rc = -EINVAL);
 	} else {
-		if (cmd->tc_cmd == NRS_CTL_TBF_CHANGE_RATE)
+		if (cmd->tc_cmd == NRS_CTL_TBF_CHANGE_RATE ||
+		    cmd->tc_cmd == NRS_CTL_TBF_CHANGE_RANK)
 			GOTO(out_free_nid, rc = -EINVAL);
-		/* No RPC rate given */
-		cmd->tc_rpc_rate = tbf_rate;
+
+		if (cmd->tc_cmd == NRS_CTL_TBF_START_RULE)
+			cmd->tc_rpc_rate = tbf_rate;
 	}
 	goto out;
 out_free_nid:

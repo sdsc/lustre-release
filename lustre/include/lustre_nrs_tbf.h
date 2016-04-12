@@ -227,12 +227,16 @@ enum nrs_tbf_cmd_type {
 	NRS_CTL_TBF_START_RULE = 0,
 	NRS_CTL_TBF_STOP_RULE,
 	NRS_CTL_TBF_CHANGE_RATE,
+	NRS_CTL_TBF_CHANGE_RANK,
 };
 
 struct nrs_tbf_cmd {
 	enum nrs_tbf_cmd_type	 tc_cmd;
 	char			*tc_name;
-	__u64			 tc_rpc_rate;
+	union {
+		__u64		 tc_rpc_rate;
+		char		*tc_next_name;
+	};
 	struct list_head	 tc_nids;
 	char			*tc_nids_str;
 	struct list_head	 tc_jobids;

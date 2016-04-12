@@ -3076,10 +3076,10 @@ test_77e() {
 	tbf_rule_operate ost1 "start\ others\ {*.*.*.*@$NETTYPE}\ 50"
 	nrs_write_read
 
-	# Change the rules
-	tbf_rule_operate ost1 "change\ localhost\ 1001"
-	tbf_rule_operate ost1 "change\ clients\ 101"
-	tbf_rule_operate ost1 "change\ others\ 51"
+	# Change the rates of rules
+	tbf_rule_operate ost1 "rate\ localhost\ 1001"
+	tbf_rule_operate ost1 "rate\ clients\ 101"
+	tbf_rule_operate ost1 "rate\ others\ 51"
 	nrs_write_read
 
 	# Stop the rules
@@ -3126,9 +3126,9 @@ test_77f() {
 	nrs_write_read "$RUNAS"
 
 	# Change the rules
-	tbf_rule_operate ost1 "change\ runas\ 1001"
-	tbf_rule_operate ost1 "change\ iozone_runas\ 101"
-	tbf_rule_operate ost1 "change\ dd_runas\ 51"
+	tbf_rule_operate ost1 "rate\ runas\ 1001"
+	tbf_rule_operate ost1 "rate\ iozone_runas\ 101"
+	tbf_rule_operate ost1 "rate\ dd_runas\ 51"
 	nrs_write_read "$RUNAS"
 
 	# Stop the rules
@@ -3189,6 +3189,69 @@ test_77g() {
 	return 0
 }
 run_test 77g "Change TBF type directly"
+
+tbf_rule_check()
+{
+	local facet=$1
+	local expected=$2
+	local error_message=$3
+
+	local output=$(do_facet $facet lctl get_param \
+		ost.OSS.ost_io.nrs_tbf_rule | \
+		awk 'NR >= 4 && NR <= 7 {print $1}' | \
+		tr "\n" " " | \
+		sed 's/[ ]*$//')
+	if [ "$output" != "$expected" ]; then
+		error "$error_message, expected \"$expected\", got \"$output\""
+	fi
+}
+
+test_77h() {
+	for i in $(seq 1 $OSTCOUNT)
+	do
+		do_facet ost"$i" lctl set_param \
+			ost.OSS.ost_io.nrs_policies="tbf\ jobid"
+		[ $? -ne 0 ] &&
+			error "failed to set TBF policy"
+	done
+
+	tbf_rule_operate ost1 "start\ after\ {jobid}\ 1000"
+	tbf_rule_operate ost1 "start\ target\ {jobid}\ 1000"
+	tbf_rule_operate ost1 "start\ before\ {jobid}\ 1000"
+	tbf_rule_check ost1 "before target after default" \
+		"origin error"
+
+	echo "Move before itself"
+	tbf_rule_operate ost1 "rank\ target\ target"
+	tbf_rule_check ost1 "before target after default" \
+		"error after moving before itself"
+
+	echo "Move to higher rank"
+	tbf_rule_operate ost1 "rank\ target\ before"
+	tbf_rule_check ost1 "target before after default" \
+		"error after moving to higher rank"
+
+	echo "Move to lower rank"
+	tbf_rule_operate ost1 "rank\ target\ after"
+	tbf_rule_check ost1 "before target after default" \
+		"error after moving to lower rank"
+
+	echo "Move before default"
+	tbf_rule_operate ost1 "rank\ target\ default"
+	tbf_rule_check ost1 "before after target default" \
+		error "error after moving before default"
+
+	# Cleanup the TBF policy
+	for i in $(seq 1 $OSTCOUNT)
+	do
+		do_facet ost"$i" lctl set_param \
+			ost.OSS.ost_io.nrs_policies="fifo"
+		[ $? -ne 0 ] &&
+			error "failed to set policy back to fifo"
+	done
+	return 0
+}
+run_test 77h "Change rank of TBF rule"
 
 test_78() { #LU-6673
 	local rc
