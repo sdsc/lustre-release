@@ -2293,34 +2293,34 @@ static int mgs_write_log_mdt(const struct lu_env *env,
         #14 L mount_option 0:  1:client  2:lov1  3:MDC_uml1_mdsA_MNT_client
         */
 
-                /* copy client info about lov/lmv */
-		mgi->mgi_comp.comp_mti = mti;
-		mgi->mgi_comp.comp_fsdb = fsdb;
+	/* copy client info about lov/lmv */
+	mgi->mgi_comp.comp_mti = mti;
+	mgi->mgi_comp.comp_fsdb = fsdb;
 
-		rc = mgs_steal_llog_for_mdt_from_client(env, mgs, cliname,
-							&mgi->mgi_comp);
-		if (rc)
-			GOTO(out_free, rc);
-		rc = mgs_write_log_mdc_to_lmv(env, mgs, fsdb, mti, cliname,
-                                              fsdb->fsdb_clilmv);
-		if (rc)
-			GOTO(out_free, rc);
+	rc = mgs_steal_llog_for_mdt_from_client(env, mgs, cliname,
+						&mgi->mgi_comp);
+	if (rc)
+		GOTO(out_free, rc);
+	rc = mgs_write_log_mdc_to_lmv(env, mgs, fsdb, mti, cliname,
+				      fsdb->fsdb_clilmv);
+	if (rc)
+		GOTO(out_free, rc);
 
-                /* add mountopts */
-		rc = record_start_log(env, mgs, &llh, cliname);
-		if (rc)
-			GOTO(out_free, rc);
+	/* add mountopts */
+	rc = record_start_log(env, mgs, &llh, cliname);
+	if (rc)
+		GOTO(out_free, rc);
 
-		rc = record_marker(env, llh, fsdb, CM_START, cliname,
-                                   "mount opts");
-		if (rc)
-			GOTO(out_end, rc);
-		rc = record_mount_opt(env, llh, cliname, fsdb->fsdb_clilov,
-                                      fsdb->fsdb_clilmv);
-		if (rc)
-			GOTO(out_end, rc);
-		rc = record_marker(env, llh, fsdb, CM_END, cliname,
-                                   "mount opts");
+	rc = record_marker(env, llh, fsdb, CM_START, cliname,
+			   "mount opts");
+	if (rc)
+		GOTO(out_end, rc);
+	rc = record_mount_opt(env, llh, cliname, fsdb->fsdb_clilov,
+			      fsdb->fsdb_clilmv);
+	if (rc)
+		GOTO(out_end, rc);
+	rc = record_marker(env, llh, fsdb, CM_END, cliname,
+			   "mount opts");
 
 	if (rc)
 		GOTO(out_end, rc);
@@ -2335,8 +2335,18 @@ static int mgs_write_log_mdt(const struct lu_env *env,
 			if (rc)
 				GOTO(out_end, rc);
 
-			rc = mgs_write_log_osp_to_mdt(env, mgs, fsdb, mti,
-						      i, logname);
+			/* NB: If the log for the MDT is empty, it means
+			 * the MDT is only added to the index
+			 * map, and not being process yet, i.e. this
+			 * is an unregistered MDT, see
+			 * mgs_write_log_target(), so we can skip it.
+			 * And also mgs_write_log_target() is protected
+			 * by fsdb_mutex, there should not be any
+			 * race here. */
+			if (!mgs_log_is_empty(env, mgs, logname)) {
+				rc = mgs_write_log_osp_to_mdt(env, mgs, fsdb,
+							      mti, i, logname);
+			}
 			name_destroy(&logname);
 			if (rc)
 				GOTO(out_end, rc);
