@@ -55,15 +55,22 @@ fi
     MODPROBECONF=/etc/modprobe.conf
 
 assert_DIR () {
-    local failed=""
-    [[ $DIR/ = $MOUNT/* ]] || \
-        { failed=1 && echo "DIR=$DIR not in $MOUNT. Aborting."; }
-    [[ $DIR1/ = $MOUNT1/* ]] || \
-        { failed=1 && echo "DIR1=$DIR1 not in $MOUNT1. Aborting."; }
-    [[ $DIR2/ = $MOUNT2/* ]] || \
-        { failed=1 && echo "DIR2=$DIR2 not in $MOUNT2. Aborting"; }
+	local failed=""
+	for i in DIR DIR1 DIR2 MOUNT MOUNT1 MOUNT2
+	do
+		local path=${!i}
+		if [ -d "$path" ]; then
+			eval export $i=$(echo $path | sed -E 's/\/+$//g')
+		fi
+	done
+	[[ $DIR/ = $MOUNT/* ]] || \
+		{ failed=1 && echo "DIR=$DIR not in $MOUNT. Aborting."; }
+	[[ $DIR1/ = $MOUNT1/* ]] || \
+		{ failed=1 && echo "DIR1=$DIR1 not in $MOUNT1. Aborting."; }
+	[[ $DIR2/ = $MOUNT2/* ]] || \
+		{ failed=1 && echo "DIR2=$DIR2 not in $MOUNT2. Aborting"; }
 
-    [ -n "$failed" ] && exit 99 || true
+	[ -n "$failed" ] && exit 99 || true
 }
 
 usage() {
