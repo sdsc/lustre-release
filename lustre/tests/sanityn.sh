@@ -3077,9 +3077,9 @@ test_77e() {
 	nrs_write_read
 
 	# Change the rules
-	tbf_rule_operate ost1 "change\ localhost\ 1001"
-	tbf_rule_operate ost1 "change\ clients\ 101"
-	tbf_rule_operate ost1 "change\ others\ 51"
+	tbf_rule_operate ost1 "rate\ localhost\ 1001"
+	tbf_rule_operate ost1 "rate\ clients\ 101"
+	tbf_rule_operate ost1 "rate\ others\ 51"
 	nrs_write_read
 
 	# Stop the rules
@@ -3126,9 +3126,9 @@ test_77f() {
 	nrs_write_read "$RUNAS"
 
 	# Change the rules
-	tbf_rule_operate ost1 "change\ runas\ 1001"
-	tbf_rule_operate ost1 "change\ iozone_runas\ 101"
-	tbf_rule_operate ost1 "change\ dd_runas\ 51"
+	tbf_rule_operate ost1 "rate\ runas\ 1001"
+	tbf_rule_operate ost1 "rate\ iozone_runas\ 101"
+	tbf_rule_operate ost1 "rate\ dd_runas\ 51"
 	nrs_write_read "$RUNAS"
 
 	# Stop the rules

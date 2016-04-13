@@ -295,7 +295,7 @@ nrs_tbf_rule_start(struct ptlrpc_nrs_policy *policy,
 		return -ENOMEM;
 
 	memcpy(rule->tr_name, start->tc_name, strlen(start->tc_name));
-	rule->tr_rpc_rate = start->tc_rpc_rate;
+	rule->tr_rpc_rate = start->u.tc_start.ts_rpc_rate;
 	rule->tr_nsecs = NSEC_PER_SEC;
 	do_div(rule->tr_nsecs, rule->tr_rpc_rate);
 	rule->tr_depth = tbf_depth;
@@ -324,7 +324,7 @@ nrs_tbf_rule_start(struct ptlrpc_nrs_policy *policy,
 	list_add(&rule->tr_linkage, &head->th_list);
 	spin_unlock(&head->th_rule_lock);
 	atomic_inc(&head->th_rule_sequence);
-	if (start->tc_rule_flags & NTRS_DEFAULT) {
+	if (start->u.tc_start.ts_rule_flags & NTRS_DEFAULT) {
 		rule->tr_flags |= NTRS_DEFAULT;
 		LASSERT(head->th_rule == NULL);
 		head->th_rule = rule;
@@ -334,9 +334,9 @@ nrs_tbf_rule_start(struct ptlrpc_nrs_policy *policy,
 }
 
 static int
-nrs_tbf_rule_change(struct ptlrpc_nrs_policy *policy,
-		    struct nrs_tbf_head *head,
-		    struct nrs_tbf_cmd *change)
+nrs_tbf_rule_change_rate(struct ptlrpc_nrs_policy *policy,
+			 struct nrs_tbf_head *head,
+			 struct nrs_tbf_cmd *change)
 {
 	struct nrs_tbf_rule *rule;
 
@@ -346,7 +346,7 @@ nrs_tbf_rule_change(struct ptlrpc_nrs_policy *policy,
 	if (rule == NULL)
 		return -ENOENT;
 
-	rule->tr_rpc_rate = change->tc_rpc_rate;
+	rule->tr_rpc_rate = change->u.tc_rate.tr_rpc_rate;
 	rule->tr_nsecs = NSEC_PER_SEC;
 	do_div(rule->tr_nsecs, rule->tr_rpc_rate);
 	rule->tr_generation++;
@@ -390,7 +390,7 @@ nrs_tbf_command(struct ptlrpc_nrs_policy *policy,
 
 	switch (cmd->tc_cmd) {
 	case NRS_CTL_TBF_START_RULE:
-		if (!(cmd->tc_valid_types & head->th_type_flag))
+		if (!(cmd->u.tc_start.ts_valid_types & head->th_type_flag))
 			return -EINVAL;
 
 		spin_unlock(&policy->pol_nrs->nrs_lock);
@@ -398,7 +398,7 @@ nrs_tbf_command(struct ptlrpc_nrs_policy *policy,
 		spin_lock(&policy->pol_nrs->nrs_lock);
 		return rc;
 	case NRS_CTL_TBF_CHANGE_RATE:
-		rc = nrs_tbf_rule_change(policy, head, cmd);
+		rc = nrs_tbf_rule_change_rate(policy, head, cmd);
 		return rc;
 	case NRS_CTL_TBF_STOP_RULE:
 		rc = nrs_tbf_rule_stop(policy, head, cmd);
@@ -689,12 +689,12 @@ nrs_tbf_jobid_startup(struct ptlrpc_nrs_policy *policy,
 	}
 
 	memset(&start, 0, sizeof(start));
-	start.tc_jobids_str = "*";
+	start.u.tc_start.ts_jobids_str = "*";
 
-	start.tc_rpc_rate = tbf_rate;
-	start.tc_rule_flags = NTRS_DEFAULT;
+	start.u.tc_start.ts_rpc_rate = tbf_rate;
+	start.u.tc_start.ts_rule_flags = NTRS_DEFAULT;
 	start.tc_name = NRS_TBF_DEFAULT_RULE;
-	INIT_LIST_HEAD(&start.tc_jobids);
+	INIT_LIST_HEAD(&start.u.tc_start.ts_jobids);
 	rc = nrs_tbf_rule_start(policy, head, &start);
 
 	return rc;
@@ -776,26 +776,27 @@ nrs_tbf_jobid_list_parse(char *str, int len, struct list_head *jobid_list)
 
 static void nrs_tbf_jobid_cmd_fini(struct nrs_tbf_cmd *cmd)
 {
-	if (!list_empty(&cmd->tc_jobids))
-		nrs_tbf_jobid_list_free(&cmd->tc_jobids);
-	if (cmd->tc_jobids_str)
-		OBD_FREE(cmd->tc_jobids_str, strlen(cmd->tc_jobids_str) + 1);
+	if (!list_empty(&cmd->u.tc_start.ts_jobids))
+		nrs_tbf_jobid_list_free(&cmd->u.tc_start.ts_jobids);
+	if (cmd->u.tc_start.ts_jobids_str)
+		OBD_FREE(cmd->u.tc_start.ts_jobids_str,
+			 strlen(cmd->u.tc_start.ts_jobids_str) + 1);
 }
 
 static int nrs_tbf_jobid_parse(struct nrs_tbf_cmd *cmd, const char *id)
 {
 	int rc;
 
-	OBD_ALLOC(cmd->tc_jobids_str, strlen(id) + 1);
-	if (cmd->tc_jobids_str == NULL)
+	OBD_ALLOC(cmd->u.tc_start.ts_jobids_str, strlen(id) + 1);
+	if (cmd->u.tc_start.ts_jobids_str == NULL)
 		return -ENOMEM;
 
-	memcpy(cmd->tc_jobids_str, id, strlen(id));
+	memcpy(cmd->u.tc_start.ts_jobids_str, id, strlen(id));
 
 	/* parse jobid list */
-	rc = nrs_tbf_jobid_list_parse(cmd->tc_jobids_str,
-				      strlen(cmd->tc_jobids_str),
-				      &cmd->tc_jobids);
+	rc = nrs_tbf_jobid_list_parse(cmd->u.tc_start.ts_jobids_str,
+				      strlen(cmd->u.tc_start.ts_jobids_str),
+				      &cmd->u.tc_start.ts_jobids);
 	if (rc)
 		nrs_tbf_jobid_cmd_fini(cmd);
 
@@ -808,18 +809,18 @@ static int nrs_tbf_jobid_rule_init(struct ptlrpc_nrs_policy *policy,
 {
 	int rc = 0;
 
-	LASSERT(start->tc_jobids_str);
+	LASSERT(start->u.tc_start.ts_jobids_str);
 	OBD_ALLOC(rule->tr_jobids_str,
-		  strlen(start->tc_jobids_str) + 1);
+		  strlen(start->u.tc_start.ts_jobids_str) + 1);
 	if (rule->tr_jobids_str == NULL)
 		return -ENOMEM;
 
 	memcpy(rule->tr_jobids_str,
-	       start->tc_jobids_str,
-	       strlen(start->tc_jobids_str));
+	       start->u.tc_start.ts_jobids_str,
+	       strlen(start->u.tc_start.ts_jobids_str));
 
 	INIT_LIST_HEAD(&rule->tr_jobids);
-	if (!list_empty(&start->tc_jobids)) {
+	if (!list_empty(&start->u.tc_start.ts_jobids)) {
 		rc = nrs_tbf_jobid_list_parse(rule->tr_jobids_str,
 					      strlen(rule->tr_jobids_str),
 					      &rule->tr_jobids);
@@ -828,7 +829,7 @@ static int nrs_tbf_jobid_rule_init(struct ptlrpc_nrs_policy *policy,
 	}
 	if (rc)
 		OBD_FREE(rule->tr_jobids_str,
-			 strlen(start->tc_jobids_str) + 1);
+			 strlen(start->u.tc_start.ts_jobids_str) + 1);
 	return rc;
 }
 
@@ -991,12 +992,12 @@ nrs_tbf_nid_startup(struct ptlrpc_nrs_policy *policy,
 		return -ENOMEM;
 
 	memset(&start, 0, sizeof(start));
-	start.tc_nids_str = "*";
+	start.u.tc_start.ts_nids_str = "*";
 
-	start.tc_rpc_rate = tbf_rate;
-	start.tc_rule_flags = NTRS_DEFAULT;
+	start.u.tc_start.ts_rpc_rate = tbf_rate;
+	start.u.tc_start.ts_rule_flags = NTRS_DEFAULT;
 	start.tc_name = NRS_TBF_DEFAULT_RULE;
-	INIT_LIST_HEAD(&start.tc_nids);
+	INIT_LIST_HEAD(&start.u.tc_start.ts_nids);
 	rc = nrs_tbf_rule_start(policy, head, &start);
 
 	return rc;
@@ -1013,25 +1014,25 @@ static int nrs_tbf_nid_rule_init(struct ptlrpc_nrs_policy *policy,
 				 struct nrs_tbf_rule *rule,
 				 struct nrs_tbf_cmd *start)
 {
-	LASSERT(start->tc_nids_str);
+	LASSERT(start->u.tc_start.ts_nids_str);
 	OBD_ALLOC(rule->tr_nids_str,
-		  strlen(start->tc_nids_str) + 1);
+		  strlen(start->u.tc_start.ts_nids_str) + 1);
 	if (rule->tr_nids_str == NULL)
 		return -ENOMEM;
 
 	memcpy(rule->tr_nids_str,
-	       start->tc_nids_str,
-	       strlen(start->tc_nids_str));
+	       start->u.tc_start.ts_nids_str,
+	       strlen(start->u.tc_start.ts_nids_str));
 
 	INIT_LIST_HEAD(&rule->tr_nids);
-	if (!list_empty(&start->tc_nids)) {
+	if (!list_empty(&start->u.tc_start.ts_nids)) {
 		if (cfs_parse_nidlist(rule->tr_nids_str,
 				      strlen(rule->tr_nids_str),
 				      &rule->tr_nids) <= 0) {
 			CERROR("nids {%s} illegal\n",
 			       rule->tr_nids_str);
 			OBD_FREE(rule->tr_nids_str,
-				 strlen(start->tc_nids_str) + 1);
+				 strlen(start->u.tc_start.ts_nids_str) + 1);
 			return -EINVAL;
 		}
 	}
@@ -1064,24 +1065,25 @@ static void nrs_tbf_nid_rule_fini(struct nrs_tbf_rule *rule)
 
 static void nrs_tbf_nid_cmd_fini(struct nrs_tbf_cmd *cmd)
 {
-	if (!list_empty(&cmd->tc_nids))
-		cfs_free_nidlist(&cmd->tc_nids);
-	if (cmd->tc_nids_str)
-		OBD_FREE(cmd->tc_nids_str, strlen(cmd->tc_nids_str) + 1);
+	if (!list_empty(&cmd->u.tc_start.ts_nids))
+		cfs_free_nidlist(&cmd->u.tc_start.ts_nids);
+	if (cmd->u.tc_start.ts_nids_str)
+		OBD_FREE(cmd->u.tc_start.ts_nids_str,
+			 strlen(cmd->u.tc_start.ts_nids_str) + 1);
 }
 
 static int nrs_tbf_nid_parse(struct nrs_tbf_cmd *cmd, const char *id)
 {
-	OBD_ALLOC(cmd->tc_nids_str, strlen(id) + 1);
-	if (cmd->tc_nids_str == NULL)
+	OBD_ALLOC(cmd->u.tc_start.ts_nids_str, strlen(id) + 1);
+	if (cmd->u.tc_start.ts_nids_str == NULL)
 		return -ENOMEM;
 
-	memcpy(cmd->tc_nids_str, id, strlen(id));
+	memcpy(cmd->u.tc_start.ts_nids_str, id, strlen(id));
 
 	/* parse NID list */
-	if (cfs_parse_nidlist(cmd->tc_nids_str,
-			      strlen(cmd->tc_nids_str),
-			      &cmd->tc_nids) <= 0) {
+	if (cfs_parse_nidlist(cmd->u.tc_start.ts_nids_str,
+			      strlen(cmd->u.tc_start.ts_nids_str),
+			      &cmd->u.tc_start.ts_nids) <= 0) {
 		nrs_tbf_nid_cmd_fini(cmd);
 		return -EINVAL;
 	}
@@ -1653,13 +1655,13 @@ static int nrs_tbf_id_parse(struct nrs_tbf_cmd *cmd, char **val)
 
 	rc = nrs_tbf_jobid_parse(cmd, token);
 	if (!rc)
-		cmd->tc_valid_types |= NRS_TBF_FLAG_JOBID;
+		cmd->u.tc_start.ts_valid_types |= NRS_TBF_FLAG_JOBID;
 
 	rc = nrs_tbf_nid_parse(cmd, token);
 	if (!rc)
-		cmd->tc_valid_types |= NRS_TBF_FLAG_NID;
+		cmd->u.tc_start.ts_valid_types |= NRS_TBF_FLAG_NID;
 
-	if (!cmd->tc_valid_types)
+	if (!cmd->u.tc_start.ts_valid_types)
 		rc = -EINVAL;
 	else
 		rc = 0;
@@ -1670,20 +1672,33 @@ out:
 
 static void nrs_tbf_cmd_fini(struct nrs_tbf_cmd *cmd)
 {
-	if (cmd->tc_valid_types & NRS_TBF_FLAG_JOBID)
-		nrs_tbf_jobid_cmd_fini(cmd);
-	if (cmd->tc_valid_types & NRS_TBF_FLAG_NID)
-		nrs_tbf_nid_cmd_fini(cmd);
+	if (cmd->tc_cmd == NRS_CTL_TBF_START_RULE) {
+		if (cmd->u.tc_start.ts_valid_types & NRS_TBF_FLAG_JOBID)
+			nrs_tbf_jobid_cmd_fini(cmd);
+		if (cmd->u.tc_start.ts_valid_types & NRS_TBF_FLAG_NID)
+			nrs_tbf_nid_cmd_fini(cmd);
+	}
+}
+
+static bool name_is_valid(const char *name)
+{
+	int i;
+	for (i = 0; i < strlen(name); i++) {
+		if ((!isalnum(name[i])) &&
+		    (name[i] != '_'))
+			return false;
+	}
+	return true;
 }
 
 static struct nrs_tbf_cmd *
 nrs_tbf_parse_cmd(char *buffer, unsigned long count)
 {
-	static struct nrs_tbf_cmd *cmd;
-	char			  *token;
-	char			  *val;
-	int			   i;
-	int			   rc = 0;
+	static struct nrs_tbf_cmd	*cmd;
+	char				*token;
+	char				*val;
+	int				 rc = 0;
+	__u64				 rate;
 
 	OBD_ALLOC_PTR(cmd);
 	if (cmd == NULL)
@@ -1699,51 +1714,59 @@ nrs_tbf_parse_cmd(char *buffer, unsigned long count)
 		cmd->tc_cmd = NRS_CTL_TBF_START_RULE;
 	else if (strcmp(token, "stop") == 0)
 		cmd->tc_cmd = NRS_CTL_TBF_STOP_RULE;
-	else if (strcmp(token, "change") == 0)
+	else if (strcmp(token, "rate") == 0)
 		cmd->tc_cmd = NRS_CTL_TBF_CHANGE_RATE;
 	else
 		GOTO(out_free_cmd, rc = -EINVAL);
 
 	/* Name of the rule */
 	token = strsep(&val, " ");
-	if (val == NULL) {
-		/**
-		 * Stop comand only need name argument,
-		 * But other commands need ID or rate argument.
-		 */
-		if (cmd->tc_cmd != NRS_CTL_TBF_STOP_RULE)
-			GOTO(out_free_cmd, rc = -EINVAL);
-	}
-
-	for (i = 0; i < strlen(token); i++) {
-		if ((!isalnum(token[i])) &&
-		    (token[i] != '_'))
-			GOTO(out_free_cmd, rc = -EINVAL);
-	}
+	if (!name_is_valid(token))
+		GOTO(out_free_cmd, rc = -EINVAL);
 	cmd->tc_name = token;
 
-	if (cmd->tc_cmd == NRS_CTL_TBF_START_RULE) {
-		/* List of ID */
-		LASSERT(val);
+	switch (cmd->tc_cmd) {
+	case NRS_CTL_TBF_START_RULE:
+		if (!val)
+			GOTO(out_free_cmd, rc = -EINVAL);
+
+		/* ID of the rule */
 		rc = nrs_tbf_id_parse(cmd, &val);
 		if (rc)
 			GOTO(out_free_cmd, rc);
-	}
 
-	if (val != NULL) {
-		if (cmd->tc_cmd == NRS_CTL_TBF_STOP_RULE ||
-		    strlen(val) == 0 || !isdigit(val[0]))
-			GOTO(out_free_nid, rc = -EINVAL);
+		if (!val) {
+			cmd->u.tc_start.ts_rpc_rate = tbf_rate;
+			GOTO(out, rc = 0);
+		}
 
-		cmd->tc_rpc_rate = simple_strtoull(val, NULL, 10);
-		if (cmd->tc_rpc_rate <= 0 ||
-		    cmd->tc_rpc_rate >= LPROCFS_NRS_RATE_MAX)
+		/* Rate of the rule */
+		token = strsep(&val, " ");
+		rc = kstrtoull(token, 10, &rate);
+		if (rc)
+			GOTO(out_free_nid, rc);
+
+		if (rate <= 0 || rate >= LPROCFS_NRS_RATE_MAX)
 			GOTO(out_free_nid, rc = -EINVAL);
-	} else {
-		if (cmd->tc_cmd == NRS_CTL_TBF_CHANGE_RATE)
-			GOTO(out_free_nid, rc = -EINVAL);
-		/* No RPC rate given */
-		cmd->tc_rpc_rate = tbf_rate;
+		cmd->u.tc_start.ts_rpc_rate = rate;
+		break;
+	case NRS_CTL_TBF_CHANGE_RATE:
+		if (!val)
+			GOTO(out_free_cmd, rc = -EINVAL);
+
+		rc = kstrtoull(val, 10, &rate);
+		if (rc)
+			GOTO(out_free_cmd, rc);
+
+		if (rate <= 0 || rate >= LPROCFS_NRS_RATE_MAX)
+			GOTO(out_free_cmd, rc = -EINVAL);
+
+		cmd->u.tc_rate.tr_rpc_rate = rate;
+		break;
+	case NRS_CTL_TBF_STOP_RULE:
+		break;
+	default:
+		GOTO(out_free_cmd, rc = -EINVAL);
 	}
 	goto out;
 out_free_nid:

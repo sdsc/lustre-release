@@ -230,15 +230,22 @@ enum nrs_tbf_cmd_type {
 };
 
 struct nrs_tbf_cmd {
-	enum nrs_tbf_cmd_type	 tc_cmd;
-	char			*tc_name;
-	__u64			 tc_rpc_rate;
-	struct list_head	 tc_nids;
-	char			*tc_nids_str;
-	struct list_head	 tc_jobids;
-	char			*tc_jobids_str;
-	__u32			 tc_valid_types;
-	__u32			 tc_rule_flags;
+	enum nrs_tbf_cmd_type			 tc_cmd;
+	char					*tc_name;
+	union {
+		struct nrs_tbf_cmd_start {
+			__u64			 ts_rpc_rate;
+			struct list_head	 ts_nids;
+			char			*ts_nids_str;
+			struct list_head	 ts_jobids;
+			char			*ts_jobids_str;
+			__u32			 ts_valid_types;
+			__u32			 ts_rule_flags;
+		} tc_start;
+		struct nrs_tbf_cmd_rate {
+			__u64			 tr_rpc_rate;
+		} tc_rate;
+	} u;
 };
 
 struct nrs_tbf_req {
