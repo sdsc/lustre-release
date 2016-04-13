@@ -467,6 +467,10 @@ int mdt_pack_acl2body(struct mdt_thread_info *info, struct mdt_body *repbody,
 	if (buf->lb_len == 0)
 		return 0;
 
+	if (!exp_connect_large_acl(info->mti_exp) &&
+	    buf->lb_len > LUSTRE_POSIX_ACL_MAX_SIZE_OLD)
+		buf->lb_len = LUSTRE_POSIX_ACL_MAX_SIZE_OLD;
+
 	rc = mo_xattr_get(env, next, buf, XATTR_NAME_ACL_ACCESS);
 	if (rc < 0) {
 		if (rc == -ENODATA) {
