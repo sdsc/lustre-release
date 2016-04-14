@@ -1032,11 +1032,13 @@ int lr_link(struct lr_info *info)
                         continue;
                 }
 
-                if (info->src[0] == 0 || info->dest[0] == 0)
+                if (info->src[0] == 0 || info->dest[0] == 0) {
+			lr_debug(DTRACE, "Can't find source or destination.\n");
                         /* Could not find the source or destination.
                          This can happen when some links don't exist
                          anymore. */
                         return -EINVAL;
+		}
 
                 if (info->src[0] == 0)
                         snprintf(info->src, PATH_MAX, "%s/%s/%s",
@@ -1048,8 +1050,12 @@ int lr_link(struct lr_info *info)
                                 SPECIAL_DIR, info->tfid);
 
                 rc1 = link(info->src, info->dest);
+                lr_debug(DTRACE, "link: %s [to] %s; rc1=%d\n",
+                         info->src, info->dest, rc1);
+		/*
                 lr_debug(rc1?0:DINFO, "link: %s [to] %s; rc1=%d %s\n",
                          info->src, info->dest, rc1, strerror(errno));
+		*/
 
                 if (rc1)
                         rc = rc1;
