@@ -242,9 +242,11 @@ struct nrs_tbf_cmd {
 			char			*ts_jobids_str;
 			__u32			 ts_valid_type;
 			__u32			 ts_rule_flags;
+			char			*ts_next_name;
 		} tc_start;
 		struct nrs_tbf_cmd_change {
 			__u64			 tc_rpc_rate;
+			char			*tc_next_name;
 		} tc_change;
 	} u;
 };
@@ -273,7 +275,7 @@ enum nrs_ctl_tbf {
 	 */
 	NRS_CTL_TBF_WR_RULE,
 	/**
-	 * Read the TBF policy type preset by prco entry "nrs_policies".
+	 * Read the TBF policy type preset by proc entry "nrs_policies".
 	 */
 	NRS_CTL_TBF_RD_TYPE_FLAG,
 };
