@@ -1566,7 +1566,7 @@ build_with_srpm() {
     # infrastructure files so that find-requires can find our unpacked
     # kernel-devel artifacts
     cp $RPM_HELPERS_DIR/{symset-table,find-requires{,.ksyms}} .
-    FIND_REQUIRES="$(pwd)/find-requires"
+    export FIND_REQUIRES="$(pwd)/find-requires"
     chmod 755 {symset-table,find-requires{,.ksyms}}
     local tmp="$(pwd)"
     tmp="${tmp//\//\\/}"
