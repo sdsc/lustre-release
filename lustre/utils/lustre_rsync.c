@@ -1048,8 +1048,12 @@ int lr_link(struct lr_info *info)
                                 SPECIAL_DIR, info->tfid);
 
                 rc1 = link(info->src, info->dest);
+                lr_debug(DTRACE, "link: %s [to] %s; rc1=%d\n",
+                         info->src, info->dest, rc1);
+		/*
                 lr_debug(rc1?0:DINFO, "link: %s [to] %s; rc1=%d %s\n",
                          info->src, info->dest, rc1, strerror(errno));
+		*/
 
                 if (rc1)
                         rc = rc1;

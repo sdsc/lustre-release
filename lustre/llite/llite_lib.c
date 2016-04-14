@@ -1694,6 +1694,7 @@ int ll_setattr_raw(struct dentry *dentry, struct iattr *attr, bool hsm_import)
 	 * LLIF_DATA_MODIFIED is not set(see vvp_io_setattr_fini()).
 	 * This way we can save an RPC for common open + trunc
 	 * operation. */
+	if (0) {
 	if (ll_file_test_and_clear_flag(lli, LLIF_DATA_MODIFIED)) {
 		struct hsm_state_set hss = {
 			.hss_valid = HSS_SETMASK,
@@ -1710,6 +1711,7 @@ int ll_setattr_raw(struct dentry *dentry, struct iattr *attr, bool hsm_import)
 		if (rc2 < 0)
 			CDEBUG(D_INFO, DFID "HSM set dirty failed: rc2 = %d\n",
 			       PFID(ll_inode2fid(inode)), rc2);
+	}
 	}
 
 	EXIT;
