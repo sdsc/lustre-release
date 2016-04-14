@@ -1699,17 +1699,20 @@ int ll_setattr_raw(struct dentry *dentry, struct iattr *attr, bool hsm_import)
 			.hss_valid = HSS_SETMASK,
 			.hss_setmask = HS_DIRTY,
 		};
-		int rc2;
+		/* int rc2; */
 
-		rc2 = ll_hsm_state_set(inode, &hss);
+		/* rc2 = ll_hsm_state_set(inode, &hss); */
+		(void)ll_hsm_state_set(inode, &hss);
 		/* truncate and write can happen at the same time, so that
 		 * the file can be set modified even though the file is not
 		 * restored from released state, and ll_hsm_state_set() is
 		 * not applicable for the file, and rc2 < 0 is normal in this
 		 * case. */
+		/*
 		if (rc2 < 0)
 			CDEBUG(D_INFO, DFID "HSM set dirty failed: rc2 = %d\n",
 			       PFID(ll_inode2fid(inode)), rc2);
+		*/
 	}
 
 	EXIT;
