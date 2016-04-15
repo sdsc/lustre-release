@@ -92,6 +92,19 @@ struct lu_kmem_descr osc_caches[] = {
         }
 };
 
+int osc_class_cache_size = 8192;
+module_param(osc_class_cache_size, int, 0644);
+MODULE_PARM_DESC(osc_class_cache_size, "the size of osc class cache");
+
+int osc_class_reclaim_nanosecond = NSEC_PER_SEC;
+module_param(osc_class_reclaim_nanosecond, int, 0644);
+MODULE_PARM_DESC(osc_class_reclaim_nanosecond,
+		 "The wait time before reclaiming the pages assigned to a "
+		 "class after an exceeed");
+
+int osc_class_max_reclaim_size = 4096;
+module_param(osc_class_max_reclaim_size, int, 0644);
+MODULE_PARM_DESC(osc_class_reclaim_nanosecond, "The maximum reclaim size");
 /*****************************************************************************
  *
  * Type conversions.

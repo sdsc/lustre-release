@@ -36,6 +36,7 @@
 
 #define DEBUG_SUBSYSTEM S_OSC
 
+#include <linux/kthread.h>
 #include <libcfs/libcfs.h>
 
 #include <lustre/lustre_user.h>
@@ -1724,13 +1725,14 @@ static int brw_interpret(const struct lu_env *env,
 	ptlrpc_lprocfs_brw(req, req->rq_bulk->bd_nob_transferred);
 
 	spin_lock(&cli->cl_loi_list_lock);
-	/* We need to decrement before osc_ap_completion->osc_wake_cache_waiters
+	/* We need to decrement before osc_ap_completion->osc_assign_cache
 	 * is called so we know whether to go to sync BRWs or wait for more
 	 * RPCs to complete */
 	if (lustre_msg_get_opc(req->rq_reqmsg) == OST_WRITE)
 		cli->cl_w_in_flight--;
 	else
 		cli->cl_r_in_flight--;
+	osc_assign_cache(cli);
 	osc_wake_cache_waiters(cli);
 	spin_unlock(&cli->cl_loi_list_lock);
 
@@ -2757,24 +2759,388 @@ static int brw_queue_work(const struct lu_env *env, void *data)
 	RETURN(0);
 }
 
+/**
+ * Binary heap predicate of reclaim.
+ *
+ * \param[in] e1 the first binheap node to compare
+ * \param[in] e2 the second binheap node to compare
+ *
+ * \retval 0 e1 > e2
+ * \retval 1 e1 < e2
+ */
+static int osc_class_reclaim_heap_cmp(struct cfs_binheap_node *e1,
+				      struct cfs_binheap_node *e2)
+{
+	struct osc_class *class1;
+	struct osc_class *class2;
+
+	class1 = container_of(e1, struct osc_class, oc_reclaim_node);
+	class2 = container_of(e2, struct osc_class, oc_reclaim_node);
+
+	if (class1->oc_reclaim_time != 0 && class2->oc_reclaim_time == 0)
+		return 1;
+	else if (class1->oc_reclaim_time == 0 && class2->oc_reclaim_time != 0)
+		return 0;
+
+	if (class1->oc_reclaim_time < class2->oc_reclaim_time)
+		return 1;
+	else if (class1->oc_reclaim_time > class2->oc_reclaim_time)
+		return 0;
+
+	/**
+	 * TODO: the class with old access time should be higher on the heap?
+	 */
+
+	return 1;
+}
+
+static struct cfs_binheap_ops osc_class_reclaim_heap_ops = {
+	.hop_enter	= NULL,
+	.hop_exit	= NULL,
+	.hop_compare	= osc_class_reclaim_heap_cmp,
+};
+
+/**
+ * Binary heap predicate of assign.
+ *
+ * \param[in] e1 the first binheap node to compare
+ * \param[in] e2 the second binheap node to compare
+ *
+ * \retval 0 e1 > e2
+ * \retval 1 e1 < e2
+ */
+static int osc_class_assign_heap_cmp(struct cfs_binheap_node *e1,
+				     struct cfs_binheap_node *e2)
+{
+	struct osc_class *class1;
+	struct osc_class *class2;
+
+	class1 = container_of(e1, struct osc_class, oc_assign_node);
+	class2 = container_of(e2, struct osc_class, oc_assign_node);
+
+	if (class1->oc_max_pages < class2->oc_max_pages)
+		return 1;
+	else if (class1->oc_max_pages > class2->oc_max_pages)
+		return 0;
+
+	return 1;
+}
+
+static struct cfs_binheap_ops osc_class_assign_heap_ops = {
+	.hop_enter	= NULL,
+	.hop_exit	= NULL,
+	.hop_compare	= osc_class_assign_heap_cmp,
+};
+
+void osc_class_fini(struct osc_class *class)
+{
+	LASSERT(atomic_read(&class->oc_ref) == 0);
+	LASSERT(class->oc_max_pages == 0);
+	LASSERT(class->oc_dirty_pages == 0);
+	LASSERT(!class->oc_in_assign_heap);
+	OBD_FREE_PTR(class);
+}
+
+static unsigned osc_class_hop_hash(struct cfs_hash *hs, const void *key,
+				   unsigned mask)
+{
+	return cfs_hash_djb2_hash(key, strlen(key), mask);
+}
+
+static int osc_class_hop_keycmp(const void *key, struct hlist_node *hnode)
+{
+	struct osc_class *class = hlist_entry(hnode,
+					      struct osc_class,
+					      oc_hnode);
+
+	return (strcmp(class->oc_jobid, key) == 0);
+}
+
+static void *osc_class_hop_key(struct hlist_node *hnode)
+{
+	struct osc_class *class = hlist_entry(hnode,
+					      struct osc_class,
+					      oc_hnode);
+
+	return class->oc_jobid;
+}
+
+static void *osc_class_hop_object(struct hlist_node *hnode)
+{
+	return hlist_entry(hnode, struct osc_class, oc_hnode);
+}
+
+static void osc_class_hop_get(struct cfs_hash *hs, struct hlist_node *hnode)
+{
+	struct osc_class *class = hlist_entry(hnode,
+					      struct osc_class,
+					      oc_hnode);
+
+	atomic_inc(&class->oc_ref);
+}
+
+static void osc_class_hop_put(struct cfs_hash *hs, struct hlist_node *hnode)
+{
+	struct osc_class *class = hlist_entry(hnode,
+					      struct osc_class,
+					      oc_hnode);
+
+	atomic_dec(&class->oc_ref);
+}
+
+static void osc_class_hop_exit(struct cfs_hash *hs,
+			       struct hlist_node *hnode)
+
+{
+	struct osc_class	*class = hlist_entry(hnode,
+						     struct osc_class,
+						     oc_hnode);
+	struct client_obd	*cli = class->oc_cli;
+
+	LASSERT(atomic_read(&class->oc_ref) == 0);
+	/* release the assigned cache */
+	spin_lock(&cli->cl_loi_list_lock);
+	if (class->oc_in_assign_heap) {
+		class->oc_in_assign_heap = false;
+		cfs_binheap_remove(cli->cl_class_assign_heap,
+				   &class->oc_assign_node);
+	}
+	cfs_binheap_remove(cli->cl_class_reclaim_heap,
+			   &class->oc_reclaim_node);
+	list_del_init(&class->oc_linkage);
+	cli->cl_assigned_dirty_pages -= class->oc_max_pages;
+	class->oc_max_pages = 0;
+	spin_unlock(&cli->cl_loi_list_lock);
+	osc_class_fini(class);
+}
+
+static struct cfs_hash_ops osc_class_hash_ops = {
+	.hs_hash	= osc_class_hop_hash,
+	.hs_keycmp	= osc_class_hop_keycmp,
+	.hs_key		= osc_class_hop_key,
+	.hs_object	= osc_class_hop_object,
+	.hs_get		= osc_class_hop_get,
+	.hs_put		= osc_class_hop_put,
+	.hs_put_locked	= osc_class_hop_put,
+	.hs_exit	= osc_class_hop_exit,
+};
+
+#define OSC_CLASS_HASH_BKT_BITS	10
+#define OSC_CLASS_HASH_FLAGS	(CFS_HASH_SPIN_BKTLOCK | \
+				 CFS_HASH_NO_ITEMREF | \
+				 CFS_HASH_DEPTH)
+#define OSC_CLASS_HASH_SIZE	8192
+
+static int osc_class_hash_order(void)
+{
+	int bits;
+
+	for (bits = 1; (1 << bits) < OSC_CLASS_HASH_SIZE; ++bits)
+		;
+
+	return bits;
+}
+
+static void osc_reclaim_page(struct client_obd *cli)
+{
+	struct cfs_binheap_node	*node;
+	struct osc_class	*class;
+	__u64			 current_time = ktime_to_ns(ktime_get());
+	unsigned long		 reclaim_size;
+
+	node = cfs_binheap_root(cli->cl_class_reclaim_heap);
+	if (unlikely(node == NULL)) {
+		CERROR("trying to reclaim an empty heap\n");
+		return;
+	}
+
+	class = container_of(node, struct osc_class, oc_reclaim_node);
+	if (class->oc_reclaim_time == 0) {
+		CERROR("trying to reclaim from class \"%s\" with no "
+		       "reclaim time\n", class->oc_jobid);
+		return;
+	}
+
+	if (class->oc_reclaim_time > current_time)
+		CDEBUG(D_CACHE, "trying to reclaim from a class \"%s\" when "
+		       "time is not up, current time: %llu, reclaim time: "
+		       "%llu, reclaiming any way\n",
+		       class->oc_jobid, current_time, class->oc_reclaim_time);
+
+	LASSERT(class->oc_max_pages > class->oc_dirty_pages);
+	/*
+	 * If class still has free pages after reclaim, set the
+	 * empty time to current time. If no free time, set emtpy
+	 * time to zero. This prevents this class to be reclaimed
+	 * all the free pages in less than osc_class_reclaim_second.
+	 */
+	reclaim_size = class->oc_reclaim_size;
+	if (reclaim_size >=
+	    class->oc_max_pages - class->oc_dirty_pages) {
+		reclaim_size = class->oc_max_pages -
+			       class->oc_dirty_pages;
+		class->oc_reclaim_time = 0;
+		class->oc_reclaim_size = 1;
+	} else {
+		class->oc_reclaim_time = current_time +
+			osc_class_reclaim_nanosecond;
+	}
+	cli->cl_assigned_dirty_pages -= reclaim_size;
+	class->oc_max_pages -= reclaim_size;
+	cfs_binheap_relocate(cli->cl_class_reclaim_heap,
+			     &class->oc_reclaim_node);
+	/*
+	 * Double the reclaim size of the next time, thus the reclaim
+	 * process will be speeded up if the class won't be used any
+	 * more.
+	 */
+	if (reclaim_size == class->oc_reclaim_size) {
+		reclaim_size <<= 1;
+		if (reclaim_size > osc_class_max_reclaim_size)
+			reclaim_size = osc_class_max_reclaim_size;
+		class->oc_reclaim_size = reclaim_size;
+	} else {
+		class->oc_reclaim_size = 1;
+	}
+	return;
+}
+
+void osc_reclaim_timer_update(struct client_obd *cli)
+{
+	struct cfs_binheap_node	*node;
+	struct osc_class	*class;
+	ktime_t			 time;
+	int			 rc;
+	struct hrtimer		*timer = &cli->cl_class_reclaim_timer;
+
+	node = cfs_binheap_root(cli->cl_class_reclaim_heap);
+	if (unlikely(node == NULL)) {
+		cli->cl_class_reclaim_time = 0;
+		rc = hrtimer_try_to_cancel(timer);
+		if (rc < 0)
+			CDEBUG(D_CACHE, "failed to cancel timer, rc = %d\n",
+			       rc);
+		return;
+	}
+
+	class = container_of(node, struct osc_class, oc_reclaim_node);
+	if (class->oc_reclaim_time == 0) {
+		cli->cl_class_reclaim_time = 0;
+		rc = hrtimer_try_to_cancel(timer);
+		if (rc < 0)
+			CDEBUG(D_CACHE, "failed to cancel timer, "
+			       "rc = %d\n", rc);
+		return;
+	}
+
+	if (cli->cl_class_reclaim_time == class->oc_reclaim_time)
+		return;
+
+	rc = hrtimer_try_to_cancel(timer);
+	if (rc < 0) {
+		CDEBUG(D_CACHE, "failed to cancel reclaim timer, "
+		       "rc = %d\n", rc);
+		return;
+	}
+
+	cli->cl_class_reclaim_time = class->oc_reclaim_time;
+	time = ktime_set(0, 0);
+	time = ktime_add_ns(time, class->oc_reclaim_time);
+	hrtimer_start(timer, time, HRTIMER_MODE_ABS);
+	return;
+}
+
+static struct obd_device *cli2obd(struct client_obd *cli)
+{
+	return container_of0(cli, struct obd_device, u.cli);
+}
+
+struct ptlrpc_thread	osc_reclaim_thread;
+struct list_head	osc_reclaim_list;
+spinlock_t		osc_reclaim_lock;
+
+static enum hrtimer_restart osc_class_reclaim_timer_cb(struct hrtimer *timer)
+{
+	struct client_obd	*cli = container_of(timer, struct client_obd,
+						    cl_class_reclaim_timer);
+	struct obd_device	*obd = cli2obd(cli);
+	bool			 wakeup = false;
+
+	class_incref(obd, "reclaim", obd);
+	spin_lock(&osc_reclaim_lock);
+	if (list_empty(&osc_reclaim_list))
+		wakeup = true;
+	list_add_tail(&cli->cl_class_reclaim_linkage, &osc_reclaim_list);
+	spin_unlock(&osc_reclaim_lock);
+
+	if (wakeup)
+		wake_up_all(&osc_reclaim_thread.t_ctl_waitq);
+
+	return HRTIMER_NORESTART;
+}
+
 int osc_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 {
-	struct client_obd *cli = &obd->u.cli;
-	struct obd_type	  *type;
-	void		  *handler;
-	int		   rc;
-	int		   adding;
-	int		   added;
-	int		   req_count;
+	struct client_obd	*cli = &obd->u.cli;
+	struct obd_type		*type;
+	void			*handler;
+	int			 rc;
+	int			 adding;
+	int			 added;
+	int			 req_count;
+	int			 bits;
+	int			 i;
+	struct osc_class_bucket	*bkt;
+	struct cfs_hash_bd	 bd;
 	ENTRY;
 
 	rc = ptlrpcd_addref();
 	if (rc)
 		RETURN(rc);
 
+	INIT_LIST_HEAD(&cli->cl_class_list);
+	cli->cl_class_reclaim_heap =
+		cfs_binheap_create(&osc_class_reclaim_heap_ops,
+				   CBH_FLAG_ATOMIC_GROW,
+				   4096, NULL, NULL, 0);
+	if (!cli->cl_class_reclaim_heap)
+		GOTO(out_ptlrpcd, rc);
+
+	cli->cl_class_assign_heap =
+		cfs_binheap_create(&osc_class_assign_heap_ops,
+				   CBH_FLAG_ATOMIC_GROW,
+				   4096, NULL, NULL, 0);
+	if (!cli->cl_class_assign_heap)
+		GOTO(out_free_reclaim_heap, rc);
+
+	hrtimer_init(&cli->cl_class_reclaim_timer, CLOCK_MONOTONIC,
+		     HRTIMER_MODE_ABS);
+	cli->cl_class_reclaim_timer.function = osc_class_reclaim_timer_cb;
+	cli->cl_class_reclaim_time = 0;
+
+	bits = osc_class_hash_order();
+	if (bits < OSC_CLASS_HASH_BKT_BITS)
+		bits = OSC_CLASS_HASH_BKT_BITS;
+	cli->cl_class_hash = cfs_hash_create("osc_class_hash",
+					     bits,
+					     bits,
+					     OSC_CLASS_HASH_BKT_BITS,
+					     sizeof(*bkt),
+					     0,
+					     0,
+					     &osc_class_hash_ops,
+					     OSC_CLASS_HASH_FLAGS);
+	if (!cli->cl_class_hash)
+		GOTO(out_free_assign_heap, rc = -ENOMEM);
+
+	cfs_hash_for_each_bucket(cli->cl_class_hash, &bd, i) {
+		bkt = cfs_hash_bd_extra_get(cli->cl_class_hash, &bd);
+		INIT_LIST_HEAD(&bkt->ocb_lru);
+	}
+
 	rc = client_obd_setup(obd, lcfg);
 	if (rc)
-		GOTO(out_ptlrpcd, rc);
+		GOTO(out_free_hash, rc);
 
 	handler = ptlrpcd_alloc_work(cli->cl_import, brw_queue_work, cli);
 	if (IS_ERR(handler))
@@ -2857,6 +3223,12 @@ out_ptlrpcd_work:
 	}
 out_client_setup:
 	client_obd_cleanup(obd);
+out_free_hash:
+	cfs_hash_putref(cli->cl_class_hash);
+out_free_assign_heap:
+	cfs_binheap_destroy(cli->cl_class_assign_heap);
+out_free_reclaim_heap:
+	cfs_binheap_destroy(cli->cl_class_reclaim_heap);
 out_ptlrpcd:
 	ptlrpcd_decref();
 	RETURN(rc);
@@ -2920,6 +3292,14 @@ int osc_cleanup(struct obd_device *obd)
 
 	rc = client_obd_cleanup(obd);
 
+	hrtimer_cancel(&cli->cl_class_reclaim_timer);
+	cfs_hash_putref(cli->cl_class_hash);
+	LASSERT(cfs_binheap_is_empty(cli->cl_class_assign_heap));
+	cfs_binheap_destroy(cli->cl_class_assign_heap);
+	LASSERT(cfs_binheap_is_empty(cli->cl_class_reclaim_heap));
+	cfs_binheap_destroy(cli->cl_class_reclaim_heap);
+	LASSERT(list_empty(&cli->cl_class_list));
+
 	ptlrpcd_decref();
 	RETURN(rc);
 }
@@ -2979,6 +3359,110 @@ static int osc_cache_shrink(SHRINKER_ARGS(sc, nr_to_scan, gfp_mask))
 }
 #endif
 
+
+static int osc_reclaim_main(void *args)
+{
+	struct l_wait_info	 lwi = { 0 };
+	int			 rc = 0;
+	struct client_obd	*cli;
+	struct obd_device	*obd;
+
+	spin_lock(&osc_reclaim_lock);
+	thread_set_flags(&osc_reclaim_thread, SVC_RUNNING);
+	wake_up_all(&osc_reclaim_thread.t_ctl_waitq);
+
+	while (1) {
+		if (unlikely(!thread_is_running(&osc_reclaim_thread)))
+			break;
+		while (!list_empty(&osc_reclaim_list)) {
+			cli = list_entry(osc_reclaim_list.next,
+					 struct client_obd,
+					 cl_class_reclaim_linkage);
+			list_del_init(&cli->cl_class_reclaim_linkage);
+			spin_unlock(&osc_reclaim_lock);
+
+			spin_lock(&cli->cl_loi_list_lock);
+			cli->cl_class_reclaim_time = 0;
+			osc_reclaim_page(cli);
+			osc_reclaim_timer_update(cli);
+			osc_assign_cache(cli);
+			spin_unlock(&cli->cl_loi_list_lock);
+
+			obd = cli2obd(cli);
+			class_decref(obd, "reclaim", obd);
+			spin_lock(&osc_reclaim_lock);
+		}
+		spin_unlock(&osc_reclaim_lock);
+		l_wait_event(osc_reclaim_thread.t_ctl_waitq,
+			     !list_empty(&osc_reclaim_list) ||
+			     !thread_is_running(&osc_reclaim_thread),
+			     &lwi);
+		spin_lock(&osc_reclaim_lock);
+	}
+
+	/**
+	 * Holding reference of obd will prevent OSC from cleanup. if OSC
+	 * module is exiting, that means all OSCs has already cleanuped.
+	 * And that means reclaim list should be empty.
+	 */
+	LASSERT(list_empty(&osc_reclaim_list));
+
+	thread_set_flags(&osc_reclaim_thread, SVC_STOPPED);
+	wake_up_all(&osc_reclaim_thread.t_ctl_waitq);
+	spin_unlock(&osc_reclaim_lock);
+
+	return rc;
+}
+
+static int osc_start_reclaim_thread(void)
+{
+	struct l_wait_info	 lwi = { 0 };
+	struct task_struct	*task;
+	int			 rc;
+
+	spin_lock_init(&osc_reclaim_lock);
+	INIT_LIST_HEAD(&osc_reclaim_list);
+	init_waitqueue_head(&osc_reclaim_thread.t_ctl_waitq);
+	thread_set_flags(&osc_reclaim_thread, 0);
+
+	task = kthread_run(osc_reclaim_main, NULL, "osc_cache_reclaim");
+	if (IS_ERR(task)) {
+		rc = PTR_ERR(task);
+		CERROR("cannot start reclaim thread: rc = %d\n", rc);
+	} else {
+		rc = 0;
+		l_wait_event(osc_reclaim_thread.t_ctl_waitq,
+			     thread_is_running(&osc_reclaim_thread) ||
+			     thread_is_stopped(&osc_reclaim_thread),
+			     &lwi);
+	}
+
+	return rc;
+}
+
+int osc_stop_reclaim_thread(void)
+{
+	struct l_wait_info	lwi = { 0 };
+
+	spin_lock(&osc_reclaim_lock);
+	if (thread_is_init(&osc_reclaim_thread) ||
+	    thread_is_stopped(&osc_reclaim_thread)) {
+		spin_unlock(&osc_reclaim_lock);
+
+		return -EALREADY;
+	}
+
+	thread_set_flags(&osc_reclaim_thread, SVC_STOPPING);
+	spin_unlock(&osc_reclaim_lock);
+	wake_up_all(&osc_reclaim_thread.t_ctl_waitq);
+	l_wait_event(osc_reclaim_thread.t_ctl_waitq,
+		     thread_is_stopped(&osc_reclaim_thread),
+		     &lwi);
+
+	return 0;
+}
+
+
 static int __init osc_init(void)
 {
 	bool enable_proc = true;
@@ -3032,9 +3516,17 @@ static int __init osc_init(void)
 	osc_rq_pool = ptlrpc_init_rq_pool(0, OST_IO_MAXREQSIZE,
 					  ptlrpc_add_rqs_to_pool);
 
-	if (osc_rq_pool != NULL)
-		GOTO(out, rc);
-	rc = -ENOMEM;
+	if (!osc_rq_pool)
+		GOTO(out_shinker, rc = -ENOMEM);
+
+	rc = osc_start_reclaim_thread();
+	if (rc)
+		GOTO(out_pool, rc = -ENOMEM);
+	GOTO(out, rc);
+out_pool:
+	ptlrpc_free_rq_pool(osc_rq_pool);
+out_shinker:
+	remove_shrinker(osc_cache_shrinker);
 out_type:
 	class_unregister_type(LUSTRE_OSC_NAME);
 out_kmem:
@@ -3045,6 +3537,7 @@ out:
 
 static void __exit osc_exit(void)
 {
+	osc_stop_reclaim_thread();
 	remove_shrinker(osc_cache_shrinker);
 	class_unregister_type(LUSTRE_OSC_NAME);
 	lu_kmem_fini(osc_caches);

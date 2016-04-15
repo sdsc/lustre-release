@@ -55,6 +55,7 @@ enum async_flags {
         ASYNC_HP = 0x10,
 };
 
+struct osc_class;
 struct osc_async_page {
         int                     oap_magic;
         unsigned short          oap_cmd;
@@ -74,6 +75,7 @@ struct osc_async_page {
 	struct osc_object       *oap_obj;
 
 	spinlock_t		 oap_lock;
+	struct osc_class	*oap_class;
 };
 
 #define oap_page        oap_brw_page.pg
@@ -87,13 +89,16 @@ static inline struct osc_async_page *brw_page2oap(struct brw_page *pga)
 }
 
 struct osc_cache_waiter {
-	struct list_head	ocw_entry;
-	wait_queue_head_t	ocw_waitq;
-	struct osc_async_page  *ocw_oap;
-	int                     ocw_grant;
-	int                     ocw_rc;
+	struct list_head	 ocw_entry;
+	/** Linkage to struct osc_class */
+	struct list_head	 ocw_linkage;
+	wait_queue_head_t	 ocw_waitq;
+	struct osc_async_page	*ocw_oap;
+	int			 ocw_grant;
+	int			 ocw_rc;
 };
 
+void osc_assign_cache(struct client_obd *cli);
 void osc_wake_cache_waiters(struct client_obd *cli);
 int osc_shrink_grant_to_target(struct client_obd *cli, __u64 target_bytes);
 void osc_update_next_shrink(struct client_obd *cli);
@@ -248,5 +253,61 @@ extern unsigned long osc_cache_shrink_count(struct shrinker *sk,
 					    struct shrink_control *sc);
 extern unsigned long osc_cache_shrink_scan(struct shrinker *sk,
 					   struct shrink_control *sc);
+
+enum osc_cache_return {
+	CCR_FAIL_GRANT_BYTE = 1,
+	OCR_FAIL_CLASS_PAGE,
+	OCR_FAIL_GLOBAL_PAGE,
+};
+
+struct osc_class_bucket {
+	/**
+	 * LRU list, updated on each access to client. Protected by
+	 * bucket lock of osc_class_hash.
+	 */
+	struct list_head	ocb_lru;
+};
+
+struct osc_class {
+	/** OSC this class belongs to */
+	struct client_obd	*oc_cli;
+	/** Node in the hash table. */
+	struct hlist_node	 oc_hnode;
+	/** Linkage into LRU list. */
+	struct list_head	 oc_lru;
+	/** Reference number of the class. */
+	atomic_t		 oc_ref;
+	/** Node in assign heap. */
+	struct cfs_binheap_node	 oc_assign_node;
+	/** Node in reclaim heap. */
+	struct cfs_binheap_node	 oc_reclaim_node;
+	/** Whether the class is in assign heap. */
+	bool			 oc_in_assign_heap;
+	/** jobid of the class. */
+	char			 oc_jobid[LUSTRE_JOBID_SIZE];
+	/** The pages this class has been assigned */
+	unsigned long		 oc_max_pages;
+	/** Used pages */
+	unsigned long		 oc_dirty_pages;
+	/** The time to reclaim page */
+	__u64			 oc_reclaim_time;
+	/** Waiting for cache */
+	struct list_head	 oc_cache_waiters;
+	/** Linkage in binary heap. */
+	struct list_head	 oc_linkage;
+	/** Reclaim size */
+	unsigned long		 oc_reclaim_size;
+	/** Assign size */
+	unsigned long		 oc_assign_size;
+};
+
+extern int osc_class_cache_size;
+extern int osc_class_reclaim_nanosecond;
+extern int osc_class_max_reclaim_size;
+
+struct osc_class *osc_class_get(struct client_obd *cli, const char *jobid);
+void osc_class_put(struct client_obd *cli, struct osc_class *class);
+void osc_class_fini(struct osc_class *class);
+void osc_reclaim_timer_update(struct client_obd *cli);
 
 #endif /* OSC_INTERNAL_H */

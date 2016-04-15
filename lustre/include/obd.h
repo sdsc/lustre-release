@@ -188,6 +188,8 @@ struct client_obd {
 
 	/* the grant values are protected by loi_list_lock below */
 	unsigned long		 cl_dirty_pages;      /* all _dirty_ in pages */
+	/* dirty pages already assigned */
+	unsigned long		 cl_assigned_dirty_pages;
 	unsigned long		 cl_dirty_max_pages;  /* allowed w/o rpc */
 	unsigned long		 cl_dirty_transit;    /* dirty synchronous */
 	unsigned long		 cl_avail_grant;   /* bytes of credit for ost */
@@ -328,6 +330,24 @@ struct client_obd {
 	void			*cl_lru_work;
 	/* hash tables for osc_quota_info */
 	struct cfs_hash		*cl_quota_hash[MAXQUOTAS];
+
+	/* osc datastruct */
+	struct cfs_binheap	*cl_class_assign_heap;
+	struct cfs_binheap	*cl_class_reclaim_heap;
+	struct cfs_hash		*cl_class_hash;
+	struct list_head	 cl_class_list;
+	/**
+	 * Timer to reclaim page cache.
+	 */
+	struct hrtimer		 cl_class_reclaim_timer;
+	/**
+	 * The time to reclaim page.
+	 */
+	__u64			 cl_class_reclaim_time;
+	/**
+	 * Linkage to osc_reclaim_list.
+	 */
+	struct list_head	 cl_class_reclaim_linkage;
 };
 #define obd2cli_tgt(obd) ((char *)(obd)->u.cli.cl_target_uuid.uuid)
 
