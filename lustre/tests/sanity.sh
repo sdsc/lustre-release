@@ -13489,9 +13489,6 @@ test_246() { # LU-7371
 run_test 246 "Read file of size 4095 should return right length"
 
 test_250() {
-	[ "$(facet_fstype ost$(($($GETSTRIPE -i $DIR/$tfile) + 1)))" = "zfs" ] \
-	 && skip "no 16TB file size limit on ZFS" && return
-
 	$SETSTRIPE -c 1 $DIR/$tfile
 	# ldiskfs extent file size limit is (16TB - 4KB - 1) bytes
 	local size=$((16 * 1024 * 1024 * 1024 * 1024 - 4096 - 1))
