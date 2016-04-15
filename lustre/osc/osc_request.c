@@ -1724,13 +1724,14 @@ static int brw_interpret(const struct lu_env *env,
 	ptlrpc_lprocfs_brw(req, req->rq_bulk->bd_nob_transferred);
 
 	spin_lock(&cli->cl_loi_list_lock);
-	/* We need to decrement before osc_ap_completion->osc_wake_cache_waiters
+	/* We need to decrement before osc_ap_completion->osc_assign_cache
 	 * is called so we know whether to go to sync BRWs or wait for more
 	 * RPCs to complete */
 	if (lustre_msg_get_opc(req->rq_reqmsg) == OST_WRITE)
 		cli->cl_w_in_flight--;
 	else
 		cli->cl_r_in_flight--;
+	osc_assign_cache(cli);
 	osc_wake_cache_waiters(cli);
 	spin_unlock(&cli->cl_loi_list_lock);
 
@@ -2757,24 +2758,245 @@ static int brw_queue_work(const struct lu_env *env, void *data)
 	RETURN(0);
 }
 
+/**
+ * Binary heap predicate of reclaim.
+ *
+ * \param[in] e1 the first binheap node to compare
+ * \param[in] e2 the second binheap node to compare
+ *
+ * \retval 0 e1 > e2
+ * \retval 1 e1 < e2
+ */
+static int osc_class_reclaim_heap_cmp(struct cfs_binheap_node *e1,
+				      struct cfs_binheap_node *e2)
+{
+	struct osc_class *class1;
+	struct osc_class *class2;
+
+	class1 = container_of(e1, struct osc_class, oc_reclaim_node);
+	class2 = container_of(e2, struct osc_class, oc_reclaim_node);
+
+	if (class1->oc_idle_time != 0 && class2->oc_idle_time == 0)
+		return 1;
+	else if (class1->oc_idle_time == 0 && class2->oc_idle_time != 0)
+		return 0;
+
+	if (class1->oc_idle_time < class2->oc_idle_time)
+		return 1;
+	else if (class1->oc_idle_time > class2->oc_idle_time)
+		return 0;
+
+	/**
+	 * TODO: the class with old access time should be higher on the heap?
+	 */
+
+	return 1;
+}
+
+static struct cfs_binheap_ops osc_class_reclaim_heap_ops = {
+	.hop_enter	= NULL,
+	.hop_exit	= NULL,
+	.hop_compare	= osc_class_reclaim_heap_cmp,
+};
+
+/**
+ * Binary heap predicate of assign.
+ *
+ * \param[in] e1 the first binheap node to compare
+ * \param[in] e2 the second binheap node to compare
+ *
+ * \retval 0 e1 > e2
+ * \retval 1 e1 < e2
+ */
+static int osc_class_assign_heap_cmp(struct cfs_binheap_node *e1,
+				     struct cfs_binheap_node *e2)
+{
+	struct osc_class *class1;
+	struct osc_class *class2;
+
+	class1 = container_of(e1, struct osc_class, oc_assign_node);
+	class2 = container_of(e2, struct osc_class, oc_assign_node);
+
+	if (class1->oc_max_pages < class2->oc_max_pages)
+		return 1;
+	else if (class1->oc_max_pages > class2->oc_max_pages)
+		return 0;
+
+	return 1;
+}
+
+static struct cfs_binheap_ops osc_class_assign_heap_ops = {
+	.hop_enter	= NULL,
+	.hop_exit	= NULL,
+	.hop_compare	= osc_class_assign_heap_cmp,
+};
+
+void osc_class_fini(struct osc_class *class)
+{
+	LASSERT(atomic_read(&class->oc_ref) == 0);
+	LASSERT(class->oc_max_pages == 0);
+	LASSERT(class->oc_dirty_pages == 0);
+	LASSERT(!class->oc_in_assign_heap);
+	OBD_FREE_PTR(class);
+}
+
+static unsigned osc_class_hop_hash(struct cfs_hash *hs, const void *key,
+				   unsigned mask)
+{
+	return cfs_hash_djb2_hash(key, strlen(key), mask);
+}
+
+static int osc_class_hop_keycmp(const void *key, struct hlist_node *hnode)
+{
+	struct osc_class *class = hlist_entry(hnode,
+					      struct osc_class,
+					      oc_hnode);
+
+	return (strcmp(class->oc_jobid, key) == 0);
+}
+
+static void *osc_class_hop_key(struct hlist_node *hnode)
+{
+	struct osc_class *class = hlist_entry(hnode,
+					      struct osc_class,
+					      oc_hnode);
+
+	return class->oc_jobid;
+}
+
+static void *osc_class_hop_object(struct hlist_node *hnode)
+{
+	return hlist_entry(hnode, struct osc_class, oc_hnode);
+}
+
+static void osc_class_hop_get(struct cfs_hash *hs, struct hlist_node *hnode)
+{
+	struct osc_class *class = hlist_entry(hnode,
+					      struct osc_class,
+					      oc_hnode);
+
+	atomic_inc(&class->oc_ref);
+}
+
+static void osc_class_hop_put(struct cfs_hash *hs, struct hlist_node *hnode)
+{
+	struct osc_class *class = hlist_entry(hnode,
+					      struct osc_class,
+					      oc_hnode);
+
+	atomic_dec(&class->oc_ref);
+}
+
+static void osc_class_hop_exit(struct cfs_hash *hs,
+			       struct hlist_node *hnode)
+
+{
+	struct osc_class	*class = hlist_entry(hnode,
+						     struct osc_class,
+						     oc_hnode);
+	struct client_obd	*cli = class->oc_cli;
+
+	LASSERT(atomic_read(&class->oc_ref) == 0);
+	/* release the assigned cache */
+	spin_lock(&cli->cl_loi_list_lock);
+	if (class->oc_in_assign_heap) {
+		class->oc_in_assign_heap = false;
+		cfs_binheap_remove(cli->cl_class_assign_heap,
+				   &class->oc_assign_node);
+	}
+	cfs_binheap_remove(cli->cl_class_reclaim_heap,
+			   &class->oc_reclaim_node);
+	list_del_init(&class->oc_linkage);
+	cli->cl_assigned_dirty_pages -= class->oc_max_pages;
+	class->oc_max_pages = 0;
+	spin_unlock(&cli->cl_loi_list_lock);
+	osc_class_fini(class);
+}
+
+static struct cfs_hash_ops osc_class_hash_ops = {
+	.hs_hash	= osc_class_hop_hash,
+	.hs_keycmp	= osc_class_hop_keycmp,
+	.hs_key		= osc_class_hop_key,
+	.hs_object	= osc_class_hop_object,
+	.hs_get		= osc_class_hop_get,
+	.hs_put		= osc_class_hop_put,
+	.hs_put_locked	= osc_class_hop_put,
+	.hs_exit	= osc_class_hop_exit,
+};
+
+#define OSC_CLASS_HASH_BKT_BITS	10
+#define OSC_CLASS_HASH_FLAGS	(CFS_HASH_SPIN_BKTLOCK | \
+				 CFS_HASH_NO_ITEMREF | \
+				 CFS_HASH_DEPTH)
+#define OSC_CLASS_HASH_SIZE	8192
+
+static int osc_class_hash_order(void)
+{
+	int bits;
+
+	for (bits = 1; (1 << bits) < OSC_CLASS_HASH_SIZE; ++bits)
+		;
+
+	return bits;
+}
+
 int osc_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 {
-	struct client_obd *cli = &obd->u.cli;
-	struct obd_type	  *type;
-	void		  *handler;
-	int		   rc;
-	int		   adding;
-	int		   added;
-	int		   req_count;
+	struct client_obd	*cli = &obd->u.cli;
+	struct obd_type		*type;
+	void			*handler;
+	int			 rc;
+	int			 adding;
+	int			 added;
+	int			 req_count;
+	int			 bits;
+	int			 i;
+	struct osc_class_bucket	*bkt;
+	struct cfs_hash_bd	 bd;
 	ENTRY;
 
 	rc = ptlrpcd_addref();
 	if (rc)
 		RETURN(rc);
 
+	INIT_LIST_HEAD(&cli->cl_class_list);
+	cli->cl_class_reclaim_heap =
+		cfs_binheap_create(&osc_class_reclaim_heap_ops,
+				   CBH_FLAG_ATOMIC_GROW,
+				   4096, NULL, NULL, 0);
+	if (!cli->cl_class_reclaim_heap)
+		GOTO(out_ptlrpcd, rc);
+
+	cli->cl_class_assign_heap =
+		cfs_binheap_create(&osc_class_assign_heap_ops,
+				   CBH_FLAG_ATOMIC_GROW,
+				   4096, NULL, NULL, 0);
+	if (!cli->cl_class_assign_heap)
+		GOTO(out_free_reclaim_heap, rc);
+
+	bits = osc_class_hash_order();
+	if (bits < OSC_CLASS_HASH_BKT_BITS)
+		bits = OSC_CLASS_HASH_BKT_BITS;
+	cli->cl_class_hash = cfs_hash_create("osc_class_hash",
+					     bits,
+					     bits,
+					     OSC_CLASS_HASH_BKT_BITS,
+					     sizeof(*bkt),
+					     0,
+					     0,
+					     &osc_class_hash_ops,
+					     OSC_CLASS_HASH_FLAGS);
+	if (!cli->cl_class_hash)
+		GOTO(out_free_assign_heap, rc = -ENOMEM);
+
+	cfs_hash_for_each_bucket(cli->cl_class_hash, &bd, i) {
+		bkt = cfs_hash_bd_extra_get(cli->cl_class_hash, &bd);
+		INIT_LIST_HEAD(&bkt->ocb_lru);
+	}
+
 	rc = client_obd_setup(obd, lcfg);
 	if (rc)
-		GOTO(out_ptlrpcd, rc);
+		GOTO(out_free_hash, rc);
 
 	handler = ptlrpcd_alloc_work(cli->cl_import, brw_queue_work, cli);
 	if (IS_ERR(handler))
@@ -2857,6 +3079,12 @@ out_ptlrpcd_work:
 	}
 out_client_setup:
 	client_obd_cleanup(obd);
+out_free_hash:
+	cfs_hash_putref(cli->cl_class_hash);
+out_free_assign_heap:
+	cfs_binheap_destroy(cli->cl_class_assign_heap);
+out_free_reclaim_heap:
+	cfs_binheap_destroy(cli->cl_class_reclaim_heap);
 out_ptlrpcd:
 	ptlrpcd_decref();
 	RETURN(rc);
@@ -2919,6 +3147,13 @@ int osc_cleanup(struct obd_device *obd)
 	osc_quota_cleanup(obd);
 
 	rc = client_obd_cleanup(obd);
+
+	cfs_hash_putref(cli->cl_class_hash);
+	LASSERT(cfs_binheap_is_empty(cli->cl_class_assign_heap));
+	cfs_binheap_destroy(cli->cl_class_assign_heap);
+	LASSERT(cfs_binheap_is_empty(cli->cl_class_reclaim_heap));
+	cfs_binheap_destroy(cli->cl_class_reclaim_heap);
+	LASSERT(list_empty(&cli->cl_class_list));
 
 	ptlrpcd_decref();
 	RETURN(rc);

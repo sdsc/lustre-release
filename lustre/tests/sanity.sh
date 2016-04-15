@@ -13753,6 +13753,24 @@ test_256() {
 }
 run_test 256 "Check llog delete for empty and not full state"
 
+test_257() {
+	lctl set_param jobid_var=procname_uid
+	lfs setstripe -c 1 -i 0 $DIR/$tdir-0
+	lfs setstripe -c 1 -i 0 $DIR/$tdir-1
+
+	dd if=/dev/zero of=$DIR/$tdir-0 bs=1048576 count=1000 > /dev/null 2>&1 &
+	local pid1=$1
+	dd if=/dev/zero of=$DIR/$tdir-0 bs=1048576 count=1000 > /dev/null 2>&1 &
+	local pid1=$2
+
+	wait $pid1
+	wait $pid2
+
+	local max_pages=$($LCTL get_param -n osc.*.max_pages_per_rpc | head -n1)
+	
+}
+run_test 257 "OSC I/O classfication test"
+
 cleanup_test_300() {
 	trap 0
 	umask $SAVE_UMASK
