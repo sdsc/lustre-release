@@ -4622,13 +4622,34 @@ pgcache_empty() {
 }
 
 debugsave() {
-    DEBUGSAVE="$(lctl get_param -n debug)"
+	DEBUGSAVE="$($LCTL get_param -n debug)"
+	DEBUGSAVE_MDS=$(do_nodes $(comma_list $(mdts_nodes)) \
+			"$LCTL get_param -n debug")
+	DEBUGSAVE_OSS=$(do_nodes $(comma_list $(osts_nodes)) \
+			"$LCTL get_param -n debug")
 }
 
 debugrestore() {
-    [ -n "$DEBUGSAVE" ] && \
-        do_nodes $(comma_list $(nodes_list)) "$LCTL set_param debug=\\\"${DEBUGSAVE}\\\";"
-    DEBUGSAVE=""
+	local SERVER_MDS=$(comma_list $(mdts_nodes))
+	local SERVER_OSS=$(comma_list $(osts_nodes))
+
+	[ -n "$DEBUGSAVE" ] &&
+		do_nodes $CLIENTS "$LCTL set_param debug=\\\"${DEBUGSAVE}\\\";"
+
+	DEBUGSAVE=""
+
+	[ -n "DEBUGSAVE_MDS" ] &&
+		do_nodes $SERVER_MDS \
+		"$LCTL set_param debug=\\\"${DEBUGSAVE_MDS}\\\";"
+
+	DEBUGSAVE_MDS=""
+
+	[ -n "DEBUGSAVE_OSS" ] &&
+		do_nodes $SERVER_OSS \
+		"$LCTL set_param debug=\\\"${DEBUGSAVE_OSS}\\\";"
+
+	DEBUGSAVE_OSS=""
+
 }
 
 debug_size_save() {
