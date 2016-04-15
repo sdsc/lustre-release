@@ -1317,13 +1317,13 @@ static int iam_htree_advance(struct inode *dir, __u32 hash,
 			p->at_shifted = 0;
 		else
 			p->at = iam_entry_shift(path, p->at, +1);
-                if (p->at < iam_entry_shift(path, p->entries,
-                                            dx_get_count(p->entries))) {
-                        p->leaf = dx_get_block(path, p->at);
-                        iam_unlock_bh(p->bh);
-                        break;
-                }
-                iam_unlock_bh(p->bh);
+		if (p->at < iam_entry_shift(path, p->entries,
+					    dx_get_count(p->entries))) {
+			p->leaf = dx_get_block(path, p->at);
+			iam_unlock_bh(p->bh);
+			break;
+		}
+		iam_unlock_bh(p->bh);
                 if (p == path->ip_frames)
                         return 0;
                 num_frames++;
@@ -1331,23 +1331,22 @@ static int iam_htree_advance(struct inode *dir, __u32 hash,
         }
 
         if (compat) {
-                /*
-                 * Htree hash magic.
-                 */
-        /*
-         * If the hash is 1, then continue only if the next page has a
-         * continuation hash of any value.  This is used for readdir
-         * handling.  Otherwise, check to see if the hash matches the
-         * desired contiuation hash.  If it doesn't, return since
-         * there's no point to read in the successive index pages.
-         */
-                dx_get_ikey(path, p->at, (struct iam_ikey *)&bhash);
-        if (start_hash)
-                *start_hash = bhash;
-        if ((hash & 1) == 0) {
-                if ((bhash & ~1) != hash)
-                        return 0;
-        }
+		/*
+		 * Htree hash magic.
+		 *
+		 * If the hash is 1, then continue only if the next page has a
+		 * continuation hash of any value.  This is used for readdir
+		 * handling.  Otherwise, check to see if the hash matches the
+		 * desired contiuation hash.  If it doesn't, return since
+		 * there's no point to read in the successive index pages.
+		 */
+		dx_get_ikey(path, p->at, (struct iam_ikey *)&bhash);
+		if (start_hash)
+			*start_hash = bhash;
+		if ((hash & 1) == 0) {
+			if ((bhash & ~1) != hash)
+				return 0;
+		}
         }
         /*
          * If the hash is HASH_NB_ALWAYS, we always go to the next
@@ -2048,8 +2047,8 @@ int split_index_node(handle_t *handle, struct iam_path *path,
                           iam_lock_bh(frame->bh);
                         next = descr->id_ops->id_root_inc(path->ip_container,
                                                           path, frame);
-                        dx_set_block(path, next, newblock[0]);
-                          iam_unlock_bh(frame->bh);
+			dx_set_block(path, next, newblock[0]);
+			iam_unlock_bh(frame->bh);
 
                         do_corr(schedule());
                         /* Shift frames in the path */
@@ -2110,16 +2109,16 @@ int split_index_node(handle_t *handle, struct iam_path *path,
                 if (err)
                         goto journal_error;
         }
-                /*
-                 * This function was called to make insertion of new leaf
-                 * possible. Check that it fulfilled its obligations.
-                 */
-                assert_corr(dx_get_count(path->ip_frame->entries) <
-                            dx_get_limit(path->ip_frame->entries));
-        assert_corr(lock[nr_splet] != NULL);
-        *lh = lock[nr_splet];
-        lock[nr_splet] = NULL;
-        if (nr_splet > 0) {
+	/*
+	 * This function was called to make insertion of new leaf
+	 * possible. Check that it fulfilled its obligations.
+	 */
+	assert_corr(dx_get_count(path->ip_frame->entries) <
+		    dx_get_limit(path->ip_frame->entries));
+	assert_corr(lock[nr_splet] != NULL);
+	*lh = lock[nr_splet];
+	lock[nr_splet] = NULL;
+	if (nr_splet > 0) {
                 /*
                  * Log ->i_size modification.
                  */
