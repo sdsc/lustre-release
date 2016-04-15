@@ -271,10 +271,35 @@ static int osc_io_commit_async(const struct lu_env *env,
 	struct cl_page  *page;
 	struct cl_page  *last_page;
 	struct osc_page *opg;
+	struct osc_class *class = NULL;
+	struct cl_object *obj = cl_object_top(&osc->oo_cl);
+	struct client_obd *cli = osc_cli(osc);
+	struct cl_attr *attr = &osc_env_info(env)->oti_attr;
 	int result = 0;
 	ENTRY;
 
 	LASSERT(qin->pl_nr > 0);
+
+	cl_object_attr_lock(obj);
+	result = cl_object_attr_get(env, obj, attr);
+	cl_object_attr_unlock(obj);
+	if (result == 0) {
+		class = osc_class_get(cli, attr->cat_jobid);
+		if (class) {
+			spin_lock(&cli->cl_loi_list_lock);
+			class->oc_assign_size = qin->pl_nr;
+			if (!class->oc_in_assign_heap) {
+				result = cfs_binheap_insert(
+					cli->cl_class_assign_heap,
+					&class->oc_assign_node);
+				if (result == 0)
+					class->oc_in_assign_heap = true;
+			}
+			spin_unlock(&cli->cl_loi_list_lock);
+			osc_class_put(cli, class);
+		}
+	}
+	result = 0;
 
 	/* Handle partial page cases */
 	last_page = cl_page_list_last(qin);

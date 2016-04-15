@@ -104,6 +104,8 @@ static int vvp_attr_get(const struct lu_env *env, struct cl_object *obj,
 	attr->cat_blocks = inode->i_blocks;
 	attr->cat_uid = from_kuid(&init_user_ns, inode->i_uid);
 	attr->cat_gid = from_kgid(&init_user_ns, inode->i_gid);
+	memcpy(attr->cat_jobid, ll_i2info(inode)->lli_jobid,
+	       LUSTRE_JOBID_SIZE);
 	/* KMS is not known by this layer */
 	return 0; /* layers below have to fill in the rest */
 }
