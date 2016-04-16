@@ -74,6 +74,7 @@
 #define LFSCK_BOOKMARK		"lfsck_bookmark"
 #define LFSCK_LAYOUT		"lfsck_layout"
 #define LFSCK_NAMESPACE		"lfsck_namespace"
+#define XATTR_USER_RENAME	"user.rename"
 
 /****************** persistent mount data *********************/
 

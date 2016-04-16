@@ -54,6 +54,12 @@
 #include <linux/loop.h>
 #include <dlfcn.h>
 
+#include <lustre/lustre_idl.h>
+#include <lustre_cfg.h>
+#include <dirent.h>
+#include <sys/types.h>
+#include <sys/xattr.h>
+
 #include "mount_utils.h"
 
 extern char *progname;
@@ -83,7 +89,7 @@ int run_command(char *cmd, int cmdsz)
         }
 
         if (verbose > 1) {
-                printf("cmd: %s\n", cmd);
+                fprintf(stderr, "cmd: %s\n", cmd);
         } else {
                 if ((fd = mkstemp(log)) >= 0) {
                         close(fd);
@@ -585,6 +591,7 @@ struct module_backfs_ops *load_backfs_module(enum ldd_mount_type mount_type)
 	DLSYM(name, ops, prepare_lustre);
 	DLSYM(name, ops, tune_lustre);
 	DLSYM(name, ops, label_lustre);
+	DLSYM(name, ops, rename_fsname);
 	DLSYM(name, ops, enable_quota);
 
 	error = dlerror();
@@ -747,6 +754,21 @@ int osd_label_lustre(struct mount_opts *mop)
 	return ret;
 }
 
+/* Rename filesystem fsname */
+int osd_rename_fsname(struct mkfs_opts *mop, const char *oldname)
+{
+	struct lustre_disk_data *ldd = &mop->mo_ldd;
+	int ret;
+
+	if (backfs_mount_type_okay(ldd->ldd_mount_type))
+		ret = backfs_ops[ldd->ldd_mount_type]->rename_fsname(mop,
+								     oldname);
+	else
+		ret = EINVAL;
+
+	return ret;
+}
+
 /* Enable quota accounting */
 int osd_enable_quota(struct mkfs_opts *mop)
 {
@@ -872,4 +894,141 @@ int file_create(char *path, __u64 size)
 	}
 
 	return 0;
+}
+
+struct lustre_cfg_entry {
+	struct list_head lce_list;
+	char		 lce_name[0];
+};
+
+static struct lustre_cfg_entry *lustre_cfg_entry_init(const char *name)
+{
+	struct lustre_cfg_entry *lce;
+
+	lce = malloc(sizeof(*lce) + strlen(name) + 1);
+	if (lce != NULL) {
+		INIT_LIST_HEAD(&lce->lce_list);
+		strcpy(lce->lce_name, name);
+	}
+
+	return lce;
+}
+
+static void lustre_cfg_entry_fini(struct lustre_cfg_entry *lce)
+{
+	free(lce);
+}
+
+int lustre_rename_fsname(struct mkfs_opts *mop, const char *mntpt,
+			 const char *oldname)
+{
+	struct lustre_disk_data *ldd = &mop->mo_ldd;
+	char filepnm[128];
+	char cfg_dir[128];
+	DIR *dir = NULL;
+	struct dirent64 *dirent;
+	struct lustre_cfg_entry *lce;
+	struct list_head cfg_list;
+	int namelen = strlen(oldname);
+	int ret;
+
+	INIT_LIST_HEAD(&cfg_list);
+
+	/* remove last_rcvd which can be re-created when re-mount. */
+	sprintf(filepnm, "%s/%s", mntpt, LAST_RCVD);
+	ret = unlink(filepnm);
+	if (ret != 0 && errno != ENOENT) {
+		if (errno != 0)
+			ret = errno;
+		fprintf(stderr, "Unable to unlink %s: %s\n",
+			filepnm, strerror(ret));
+		return ret;
+	}
+
+	sprintf(cfg_dir, "%s/%s", mntpt, MOUNT_CONFIGS_DIR);
+	dir = opendir(cfg_dir);
+	if (dir == NULL) {
+		if (errno != 0)
+			ret = errno;
+		else
+			ret = EINVAL;
+		fprintf(stderr, "Unable to opendir %s: %s\n",
+			cfg_dir, strerror(ret));
+		return ret;
+	}
+
+	while ((dirent = readdir64(dir)) != NULL) {
+		char *ptr;
+
+		if (strlen(dirent->d_name) <= namelen)
+			continue;
+
+		ptr = strrchr(dirent->d_name, '-');
+		if (ptr == NULL || (ptr - dirent->d_name) != namelen)
+			continue;
+
+		if (strncmp(dirent->d_name, oldname, namelen) != 0)
+			continue;
+
+		lce = lustre_cfg_entry_init(dirent->d_name);
+		if (lce == NULL) {
+			if (errno != 0)
+				ret = errno;
+			else
+				ret = EINVAL;
+
+			fprintf(stderr, "Fail to init item for %s: %s\n",
+				dirent->d_name, strerror(ret));
+			goto out;
+		}
+
+		list_add(&lce->lce_list, &cfg_list);
+	}
+
+	closedir(dir);
+	dir = NULL;
+	ret = 0;
+
+	while (!list_empty(&cfg_list) && ret == 0) {
+		lce = list_entry(cfg_list.next, struct lustre_cfg_entry,
+				 lce_list);
+		list_del(&lce->lce_list);
+		sprintf(filepnm, "%s/%s", cfg_dir, lce->lce_name);
+		if (IS_MGS(ldd)) {
+			ret = setxattr(filepnm, XATTR_USER_RENAME,
+				       ldd->ldd_fsname, strlen(ldd->ldd_fsname),
+				       XATTR_CREATE);
+			if (ret != 0 && errno == EEXIST)
+				ret = setxattr(filepnm, XATTR_USER_RENAME,
+					       ldd->ldd_fsname,
+					       strlen(ldd->ldd_fsname),
+					       XATTR_REPLACE);
+		} else {
+			ret = unlink(filepnm);
+		}
+
+		if (ret != 0) {
+			if (errno != 0)
+				ret = errno;
+
+			fprintf(stderr, "Fail to %s %s: %s\n",
+				IS_MGS(ldd) ? "setxattr" : "unlink",
+				filepnm, strerror(ret));
+		}
+
+		lustre_cfg_entry_fini(lce);
+	}
+
+out:
+	if (dir != NULL)
+		closedir(dir);
+
+	while (!list_empty(&cfg_list)) {
+		lce = list_entry(cfg_list.next, struct lustre_cfg_entry,
+				 lce_list);
+		list_del(&lce->lce_list);
+		lustre_cfg_entry_fini(lce);
+	}
+
+	return ret;
 }
