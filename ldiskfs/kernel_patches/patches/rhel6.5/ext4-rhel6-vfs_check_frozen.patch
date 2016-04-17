@@ -1,0 +1,41 @@
+Index: linux-stage/fs/ext4/super.c
+===================================================================
+--- linux-stage.orig/fs/ext4/super.c
++++ linux-stage/fs/ext4/super.c
+@@ -241,12 +241,23 @@ static void ext4_put_nojournal(handle_t 
+ handle_t *ext4_journal_start_sb(struct super_block *sb, int nblocks)
+ {
+ 	journal_t *journal;
++	handle_t  *handle;
+ 
+ 	if (sb->s_flags & MS_RDONLY)
+ 		return ERR_PTR(-EROFS);
+ 
+-	WARN_ON(sb->s_writers.frozen == SB_FREEZE_COMPLETE);
+ 	journal = EXT4_SB(sb)->s_journal;
++	handle = ext4_journal_current_handle();
++
++	/*
++	 * If a handle has been started, it should be allowed to
++	 * finish, otherwise deadlock could happen between freeze
++	 * and others(e.g. truncate) due to the restart of the
++	 * journal handle if the filesystem is forzen and active
++	 * handles are not stopped.
++	 */
++	if (!handle)
++		vfs_check_frozen(sb, SB_FREEZE_TRANS);
+ 
+ 	if (!journal)
+ 		return ext4_get_nojournal();
+@@ -4177,8 +4188,10 @@ int ext4_force_commit(struct super_block
+ 		return 0;
+ 
+ 	journal = EXT4_SB(sb)->s_journal;
+-	if (journal)
++	if (journal) {
++		vfs_check_frozen(sb, SB_FREEZE_TRANS);
+ 		ret = ext4_journal_force_commit(journal);
++	}
+ 
+ 	return ret;
+ }
