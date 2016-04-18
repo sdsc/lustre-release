@@ -14645,6 +14645,31 @@ test_403() {
 }
 run_test 403 "i_nlink should not drop to zero due to aliasing"
 
+test_404() { # LU-6601
+	local MDS_OSPS=$(do_facet $SINGLEMDS lctl dl |
+		awk '/osp .*-osc-MDT/ { print $4}')
+
+	for OSP in $MDS_OSPS; do
+		echo "Deactivate: " $OSP
+		do_facet $SINGLEMDS lctl --device %$OSP deactivate
+		stat=$(do_facet $SINGLEMDS lctl dl |
+			awk -vp=$OSP '$4 == p { print $2 }')
+		[ x"$stat" == "xIN" ] || {
+			do_facet $SINGLEMDS lctl dl | grep -w $OSP
+			error "deactivate error"
+		}
+		echo "Activate: " $OSP
+		do_facet $SINGLEMDS lctl --device %$OSP activate
+		stat=$(do_facet $SINGLEMDS lctl dl |
+			awk -vp=$OSP '$4 == p { print $2 }')
+		[ x"$stat" == "xUP" ] || {
+			do_facet $SINGLEMDS lctl dl | grep -w $OSP
+			error "activate error"
+		}
+	done
+}
+run_test 404 "validate manual {de}activated works properly for OSPs"
+
 #
 # tests that do cleanup/setup should be run at the end
 #
