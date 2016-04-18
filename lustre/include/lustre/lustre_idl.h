@@ -1185,7 +1185,7 @@ struct ptlrpc_body_v2 {
 #define OBD_CONNECT_REQPORTAL            0x40ULL /*Separate non-IO req portal */
 #define OBD_CONNECT_ACL                  0x80ULL /*access control lists */
 #define OBD_CONNECT_XATTR               0x100ULL /*client use extended attr */
-#define OBD_CONNECT_CROW                0x200ULL /*MDS+OST create obj on write*/
+#define OBD_CONNECT_LARGE_ACL		0x200ULL /* more than 32 ACL entries */
 #define OBD_CONNECT_TRUNCLOCK           0x400ULL /*locks on server for punch */
 #define OBD_CONNECT_TRANSNO             0x800ULL /*replay sends init transno */
 #define OBD_CONNECT_IBITS              0x1000ULL /*support for inodebits locks*/
@@ -1297,7 +1297,7 @@ struct ptlrpc_body_v2 {
 				OBD_CONNECT_DIR_STRIPE | \
 				OBD_CONNECT_BULK_MBITS | \
 				OBD_CONNECT_MULTIMODRPCS | \
-				OBD_CONNECT_SUBTREE)
+				OBD_CONNECT_SUBTREE | OBD_CONNECT_LARGE_ACL)
 
 #define OST_CONNECT_SUPPORTED  (OBD_CONNECT_SRVLOCK | OBD_CONNECT_GRANT | \
                                 OBD_CONNECT_REQPORTAL | OBD_CONNECT_VERSION | \
