@@ -13693,6 +13693,8 @@ test_striped_dir() {
 }
 
 test_300a() {
+	[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.7.1) ] &&
+                skip "skipped for lustre < 2.7.1" && return
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
 	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
 
@@ -13702,6 +13704,8 @@ test_300a() {
 run_test 300a "basic striped dir sanity test"
 
 test_300b() {
+	[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.7.1) ] &&
+                skip "skipped for lustre < 2.7.1" && return
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
 	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
 	local i
@@ -13732,6 +13736,8 @@ test_300b() {
 run_test 300b "check ctime/mtime for striped dir"
 
 test_300c() {
+	[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.7.1) ] &&
+                skip "skipped for lustre < 2.7.1" && return
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
 	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
 	local file_count
@@ -13755,6 +13761,8 @@ test_300c() {
 run_test 300c "chown && check ls under striped directory"
 
 test_300d() {
+	[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.7.1) ] &&
+                skip "skipped for lustre < 2.7.1" && return
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
 	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
 	local stripe_count
