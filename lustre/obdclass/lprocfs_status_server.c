@@ -175,8 +175,12 @@ lprocfs_exp_print_nodemap_seq(struct cfs_hash *hs, struct cfs_hash_bd *bd,
 	struct obd_export *exp = cfs_hash_object(hs, hnode);
 	struct lu_nodemap *nodemap = exp->exp_target_data.ted_nodemap;
 
+	if (IS_ERR(nodemap))
+		RETURN(PTR_ERR(nodemap));
+
 	if (nodemap != NULL)
 		seq_printf(m, "%s\n", nodemap->nm_name);
+
 	return 0;
 }
 
