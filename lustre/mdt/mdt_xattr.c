@@ -374,7 +374,7 @@ int mdt_reint_setxattr(struct mdt_thread_info *info,
 	struct mdt_object	*obj;
 	struct md_object	*child;
 	struct obd_export	*exp = info->mti_exp;
-	struct lu_nodemap	*nodemap = exp->exp_target_data.ted_nodemap;
+	struct lu_nodemap	*nodemap;
 	__u64			 valid = attr->la_valid;
 	const char		*xattr_name = rr->rr_name.ln_name;
 	int			 xattr_len = rr->rr_eadatalen;
@@ -441,8 +441,13 @@ int mdt_reint_setxattr(struct mdt_thread_info *info,
 		if (xattr_len > LUSTRE_POSIX_ACL_MAX_SIZE)
 			GOTO(out, rc = -ERANGE);
 
+		nodemap = nodemap_get_from_exp(exp);
+		if (IS_ERR(nodemap))
+			GOTO(out, rc = PTR_ERR(nodemap));
+
 		rc = nodemap_map_acl(nodemap, rr->rr_eadata, xattr_len,
 				     NODEMAP_CLIENT_TO_FS);
+		nodemap_put(nodemap);
 		if (rc < 0)
 			GOTO(out, rc);
 
