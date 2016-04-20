@@ -385,6 +385,7 @@ int tgt_client_alloc(struct obd_export *exp)
 	exp->exp_target_data.ted_lr_idx = -1;
 	INIT_LIST_HEAD(&exp->exp_target_data.ted_reply_list);
 	mutex_init(&exp->exp_target_data.ted_lcd_lock);
+	spin_lock_init(&exp->exp_target_data.ted_nodemap_lock);
 	RETURN(0);
 }
 EXPORT_SYMBOL(tgt_client_alloc);
