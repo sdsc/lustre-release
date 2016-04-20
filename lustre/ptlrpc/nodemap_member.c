@@ -44,7 +44,9 @@ void nm_member_del(struct lu_nodemap *nodemap, struct obd_export *exp)
 	list_del_init(&exp->exp_target_data.ted_nodemap_member);
 	mutex_unlock(&nodemap->nm_member_list_lock);
 
+	spin_lock(&exp->exp_target_data.ted_nodemap_lock);
 	exp->exp_target_data.ted_nodemap = NULL;
+	spin_unlock(&exp->exp_target_data.ted_nodemap_lock);
 	class_export_put(exp);
 }
 
@@ -61,7 +63,9 @@ void nm_member_delete_list(struct lu_nodemap *nodemap)
 	mutex_lock(&nodemap->nm_member_list_lock);
 	list_for_each_entry_safe(exp, tmp, &nodemap->nm_member_list,
 				 exp_target_data.ted_nodemap_member) {
+		spin_lock(&exp->exp_target_data.ted_nodemap_lock);
 		exp->exp_target_data.ted_nodemap = NULL;
+		spin_unlock(&exp->exp_target_data.ted_nodemap_lock);
 		list_del_init(&exp->exp_target_data.ted_nodemap_member);
 		class_export_put(exp);
 	}
@@ -101,7 +105,9 @@ int nm_member_add(struct lu_nodemap *nodemap, struct obd_export *exp)
 	}
 
 	class_export_get(exp);
+	spin_lock(&exp->exp_target_data.ted_nodemap_lock);
 	exp->exp_target_data.ted_nodemap = nodemap;
+	spin_unlock(&exp->exp_target_data.ted_nodemap_lock);
 	mutex_lock(&nodemap->nm_member_list_lock);
 	list_add(&exp->exp_target_data.ted_nodemap_member,
 		 &nodemap->nm_member_list);
@@ -156,7 +162,9 @@ void nm_member_reclassify_nodemap(struct lu_nodemap *nodemap)
 			 * should never be null
 			 */
 			list_del_init(&exp->exp_target_data.ted_nodemap_member);
+			spin_lock(&exp->exp_target_data.ted_nodemap_lock);
 			exp->exp_target_data.ted_nodemap = new_nodemap;
+			spin_unlock(&exp->exp_target_data.ted_nodemap_lock);
 
 			/* could deadlock if new_nodemap also reclassifying */
 			mutex_lock(&new_nodemap->nm_member_list_lock);
