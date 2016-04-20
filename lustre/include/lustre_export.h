@@ -70,6 +70,7 @@ struct tg_export_data {
 	int			ted_lr_idx;
 
 	/** nodemap this export is a member of */
+	spinlock_t		ted_nodemap_lock; /* ted_nodemap */
 	struct lu_nodemap	*ted_nodemap;
 	struct list_head	ted_nodemap_member;
 

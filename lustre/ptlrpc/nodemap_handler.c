@@ -492,6 +492,47 @@ out:
 EXPORT_SYMBOL(nodemap_del_idmap);
 
 /**
+ * Get nodemap assigned to given export.
+ *
+ * \param	export		export to get nodemap for
+ *
+ * \retval	pointer to nodemap on success
+ * \retval	NULL	nodemap subsystem disabled
+ * \retval	-EACCES	export does not have nodemap assigned
+ */
+struct lu_nodemap *nodemap_get_from_exp(struct obd_export *exp)
+{
+	struct lu_nodemap *nodemap;
+
+	if (!nodemap_active)
+		return NULL;
+
+	spin_lock(&exp->exp_target_data.ted_nodemap_lock);
+	nodemap = exp->exp_target_data.ted_nodemap;
+	if (nodemap)
+		nodemap_getref(nodemap);
+	spin_unlock(&exp->exp_target_data.ted_nodemap_lock);
+
+	if (!nodemap) {
+		CDEBUG(D_INFO, "%s: nodemap null on export %s (at %s)\n",
+		       exp->exp_obd->obd_name,
+		       obd_uuid2str(&exp->exp_client_uuid),
+		       obd_export_nid2str(exp));
+		return ERR_PTR(-EACCES);
+	}
+
+	return nodemap;
+}
+EXPORT_SYMBOL(nodemap_get_from_exp);
+
+void nodemap_put(struct lu_nodemap *nodemap)
+{
+	if (nodemap)
+		nodemap_putref(nodemap);
+}
+EXPORT_SYMBOL(nodemap_put);
+
+/**
  * mapping function for nodemap idmaps
  *
  * \param	nodemap		lu_nodemap structure defining nodemap
@@ -523,11 +564,18 @@ __u32 nodemap_map_id(struct lu_nodemap *nodemap,
 	struct lu_idmap		*idmap = NULL;
 	__u32			 found_id;
 
+	ENTRY;
+
 	if (!nodemap_active)
 		goto out;
 
 	if (unlikely(nodemap == NULL))
 		goto out;
+
+	CWARN("nodemap info: %s(id=%d) trust %d admin %d squash u %u, g %d\n",
+		nodemap->nm_name, nodemap->nm_id, nodemap->nmf_trust_client_ids,
+		nodemap->nmf_allow_root_access, nodemap->nm_squash_uid,
+		nodemap->nm_squash_gid);
 
 	if (id == 0) {
 		if (nodemap->nmf_allow_root_access)
@@ -554,15 +602,15 @@ __u32 nodemap_map_id(struct lu_nodemap *nodemap,
 	else
 		found_id = idmap->id_fs;
 	read_unlock(&nodemap->nm_idmap_lock);
-	return found_id;
+	RETURN(found_id);
 
 squash:
 	if (id_type == NODEMAP_UID)
-		return nodemap->nm_squash_uid;
+		RETURN(nodemap->nm_squash_uid);
 	else
-		return nodemap->nm_squash_gid;
+		RETURN(nodemap->nm_squash_gid);
 out:
-	return id;
+	RETURN(id);
 }
 EXPORT_SYMBOL(nodemap_map_id);
 
@@ -986,7 +1034,7 @@ EXPORT_SYMBOL(nodemap_set_squash_gid);
  */
 bool nodemap_can_setquota(const struct lu_nodemap *nodemap)
 {
-	return !nodemap_active || nodemap->nmf_allow_root_access;
+	return !nodemap_active || (nodemap && nodemap->nmf_allow_root_access);
 }
 EXPORT_SYMBOL(nodemap_can_setquota);
 
