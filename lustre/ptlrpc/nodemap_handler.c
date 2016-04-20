@@ -89,7 +89,7 @@ static void nodemap_destroy(struct lu_nodemap *nodemap)
 /**
  * Functions used for the cfs_hash
  */
-static void nodemap_getref(struct lu_nodemap *nodemap)
+void nodemap_getref(struct lu_nodemap *nodemap)
 {
 	atomic_inc(&nodemap->nm_refcount);
 }
@@ -350,7 +350,7 @@ EXPORT_SYMBOL(nodemap_parse_idmap);
  */
 int nodemap_add_member(lnet_nid_t nid, struct obd_export *exp)
 {
-	struct lu_nodemap	*nodemap;
+	struct lu_nodemap *nodemap;
 	int rc;
 
 	mutex_lock(&active_config_lock);
@@ -375,10 +375,34 @@ EXPORT_SYMBOL(nodemap_add_member);
  */
 void nodemap_del_member(struct obd_export *exp)
 {
-	struct lu_nodemap	*nodemap = exp->exp_target_data.ted_nodemap;
+	struct lu_nodemap *nodemap;
 
-	if (nodemap != NULL)
-		nm_member_del(nodemap, exp);
+	ENTRY;
+
+	/* using ac lock to prevent nodemap reclassification while deleting */
+	mutex_lock(&active_config_lock);
+
+	spin_lock(&exp->exp_target_data.ted_nodemap_lock);
+	nodemap = exp->exp_target_data.ted_nodemap;
+	spin_unlock(&exp->exp_target_data.ted_nodemap_lock);
+
+	if (nodemap == NULL)
+		goto out;
+
+	/* take an extra reference to make sure nodemap isn't destroyed
+	 * under active config lock */
+	nodemap_getref(nodemap);
+	mutex_lock(&nodemap->nm_member_list_lock);
+	nm_member_del(exp);
+	mutex_unlock(&nodemap->nm_member_list_lock);
+
+out:
+	mutex_unlock(&active_config_lock);
+
+	if (nodemap)
+		nodemap_putref(nodemap);
+
+	EXIT;
 }
 EXPORT_SYMBOL(nodemap_del_member);
 
@@ -492,6 +516,49 @@ out:
 EXPORT_SYMBOL(nodemap_del_idmap);
 
 /**
+ * Get nodemap assigned to given export. Takes a reference on the nodemap.
+ *
+ * \param	export		export to get nodemap for
+ *
+ * \retval	pointer to nodemap on success
+ * \retval	NULL	nodemap subsystem disabled
+ * \retval	-EACCES	export does not have nodemap assigned
+ */
+struct lu_nodemap *nodemap_get_from_exp(struct obd_export *exp)
+{
+	struct lu_nodemap *nodemap;
+
+	ENTRY;
+
+	if (!nodemap_active)
+		RETURN(NULL);
+
+	spin_lock(&exp->exp_target_data.ted_nodemap_lock);
+	nodemap = exp->exp_target_data.ted_nodemap;
+	if (nodemap)
+		nodemap_getref(nodemap);
+	spin_unlock(&exp->exp_target_data.ted_nodemap_lock);
+
+	if (!nodemap) {
+		CDEBUG(D_INFO, "%s: nodemap null on export %s (at %s)\n",
+		       exp->exp_obd->obd_name,
+		       obd_uuid2str(&exp->exp_client_uuid),
+		       obd_export_nid2str(exp));
+		RETURN(ERR_PTR(-EACCES));
+	}
+
+	RETURN(nodemap);
+}
+EXPORT_SYMBOL(nodemap_get_from_exp);
+
+void nodemap_put(struct lu_nodemap *nodemap)
+{
+	if (nodemap)
+		nodemap_putref(nodemap);
+}
+EXPORT_SYMBOL(nodemap_put);
+
+/**
  * mapping function for nodemap idmaps
  *
  * \param	nodemap		lu_nodemap structure defining nodemap
@@ -522,6 +589,8 @@ __u32 nodemap_map_id(struct lu_nodemap *nodemap,
 {
 	struct lu_idmap		*idmap = NULL;
 	__u32			 found_id;
+
+	ENTRY;
 
 	if (!nodemap_active)
 		goto out;
@@ -554,15 +623,15 @@ __u32 nodemap_map_id(struct lu_nodemap *nodemap,
 	else
 		found_id = idmap->id_fs;
 	read_unlock(&nodemap->nm_idmap_lock);
-	return found_id;
+	RETURN(found_id);
 
 squash:
 	if (id_type == NODEMAP_UID)
-		return nodemap->nm_squash_uid;
+		RETURN(nodemap->nm_squash_uid);
 	else
-		return nodemap->nm_squash_gid;
+		RETURN(nodemap->nm_squash_gid);
 out:
-	return id;
+	RETURN(id);
 }
 EXPORT_SYMBOL(nodemap_map_id);
 
@@ -986,7 +1055,7 @@ EXPORT_SYMBOL(nodemap_set_squash_gid);
  */
 bool nodemap_can_setquota(const struct lu_nodemap *nodemap)
 {
-	return !nodemap_active || nodemap->nmf_allow_root_access;
+	return !nodemap_active || (nodemap && nodemap->nmf_allow_root_access);
 }
 EXPORT_SYMBOL(nodemap_can_setquota);
 
@@ -1071,6 +1140,15 @@ int nodemap_del(const char *nodemap_name)
 	 */
 	lprocfs_nodemap_remove(nodemap->nm_pde_data);
 	nodemap->nm_pde_data = NULL;
+
+	/* reclassify all member exports from nodemap, so they put their refs */
+	down_read(&active_config->nmc_range_tree_lock);
+	nm_member_reclassify_nodemap(nodemap);
+	up_read(&active_config->nmc_range_tree_lock);
+
+	if (!list_empty(&nodemap->nm_member_list))
+		CWARN("nodemap_del failed to reclassify all members\n");
+
 	mutex_unlock(&active_config_lock);
 
 	nodemap_putref(nodemap);

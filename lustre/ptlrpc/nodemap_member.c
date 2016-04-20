@@ -32,24 +32,37 @@
 #define HASH_NODEMAP_MEMBER_CUR_BITS 3
 #define HASH_NODEMAP_MEMBER_MAX_BITS 7
 
-/**
- * Delete a member from a member list
- *
- * \param	nodemap		nodemap containing list
- * \param	exp		export member to delete
- */
-void nm_member_del(struct lu_nodemap *nodemap, struct obd_export *exp)
-{
-	mutex_lock(&nodemap->nm_member_list_lock);
-	list_del_init(&exp->exp_target_data.ted_nodemap_member);
-	mutex_unlock(&nodemap->nm_member_list_lock);
 
+/**
+ * Delete an export from a nodemap's member list
+ *
+ * Requires nodemap's nm_member_list_lock.
+ *
+ * \param»       nodemap»       »       nodemap containing list
+ * \param»       exp»       »       export member to delete
+ */
+void nm_member_del(struct obd_export *exp)
+{
+	struct lu_nodemap *nodemap;
+
+	ENTRY;
+
+	list_del_init(&exp->exp_target_data.ted_nodemap_member);
+	spin_lock(&exp->exp_target_data.ted_nodemap_lock);
+	nodemap = exp->exp_target_data.ted_nodemap;
 	exp->exp_target_data.ted_nodemap = NULL;
+	spin_unlock(&exp->exp_target_data.ted_nodemap_lock);
+
+	nodemap_put(nodemap);
 	class_export_put(exp);
+
+	EXIT;
 }
 
 /**
  * Delete a member list from a nodemap
+ *
+ * Requires active config lock.
  *
  * \param	nodemap		nodemap to remove the list from
  */
@@ -60,11 +73,8 @@ void nm_member_delete_list(struct lu_nodemap *nodemap)
 
 	mutex_lock(&nodemap->nm_member_list_lock);
 	list_for_each_entry_safe(exp, tmp, &nodemap->nm_member_list,
-				 exp_target_data.ted_nodemap_member) {
-		exp->exp_target_data.ted_nodemap = NULL;
-		list_del_init(&exp->exp_target_data.ted_nodemap_member);
-		class_export_put(exp);
-	}
+				 exp_target_data.ted_nodemap_member)
+		nm_member_del(exp);
 	mutex_unlock(&nodemap->nm_member_list_lock);
 }
 
@@ -78,17 +88,22 @@ void nm_member_delete_list(struct lu_nodemap *nodemap)
  */
 int nm_member_add(struct lu_nodemap *nodemap, struct obd_export *exp)
 {
+	ENTRY;
+
 	if (exp == NULL) {
 		CWARN("attempted to add null export to nodemap %s\n",
 		      nodemap->nm_name);
-		return -EINVAL;
+		RETURN(-EINVAL);
 	}
 
+	mutex_lock(&nodemap->nm_member_list_lock);
 	if (exp->exp_target_data.ted_nodemap != NULL &&
 	    !list_empty(&exp->exp_target_data.ted_nodemap_member)) {
+		mutex_unlock(&nodemap->nm_member_list_lock);
+
 		/* export is already member of nodemap */
 		if (exp->exp_target_data.ted_nodemap == nodemap)
-			return 0;
+			RETURN(0);
 
 		/* possibly reconnecting while about to be reclassified */
 		CWARN("export %p %s already hashed, failed to add to "
@@ -97,17 +112,19 @@ int nm_member_add(struct lu_nodemap *nodemap, struct obd_export *exp)
 		      nodemap->nm_name,
 		      (exp->exp_target_data.ted_nodemap == NULL) ? "unknown" :
 				exp->exp_target_data.ted_nodemap->nm_name);
-		return -EEXIST;
+		RETURN(-EEXIST);
 	}
 
 	class_export_get(exp);
+	nodemap_getref(nodemap);
+	spin_lock(&exp->exp_target_data.ted_nodemap_lock);
 	exp->exp_target_data.ted_nodemap = nodemap;
-	mutex_lock(&nodemap->nm_member_list_lock);
+	spin_unlock(&exp->exp_target_data.ted_nodemap_lock);
 	list_add(&exp->exp_target_data.ted_nodemap_member,
 		 &nodemap->nm_member_list);
 	mutex_unlock(&nodemap->nm_member_list_lock);
 
-	return 0;
+	RETURN(0);
 }
 
 /**
@@ -144,39 +161,55 @@ void nm_member_reclassify_nodemap(struct lu_nodemap *nodemap)
 	struct obd_export *tmp;
 	struct lu_nodemap *new_nodemap;
 
+	ENTRY;
+
 	mutex_lock(&nodemap->nm_member_list_lock);
+
 	list_for_each_entry_safe(exp, tmp, &nodemap->nm_member_list,
 				 exp_target_data.ted_nodemap_member) {
-		struct ptlrpc_connection *conn = exp->exp_connection;
+		lnet_nid_t nid;
 
 		/* if no conn assigned to this exp, reconnect will reclassify */
-		if (conn)
-			/* nodemap_classify_nid requires nmc_range_tree_lock */
-			new_nodemap = nodemap_classify_nid(conn->c_peer.nid);
-		else
+		spin_lock(&exp->exp_lock);
+		if (exp->exp_connection) {
+			nid = exp->exp_connection->c_peer.nid;
+		} else {
+			spin_unlock(&exp->exp_lock);
 			continue;
+		}
+		spin_unlock(&exp->exp_lock);
+
+		/* nodemap_classify_nid requires nmc_range_tree_lock */
+		new_nodemap = nodemap_classify_nid(nid);
 
 		if (new_nodemap != nodemap) {
+			/* could deadlock if new_nodemap also reclassifying,
+			 * active_config_lock serializes reclassifys
+			 */
+			mutex_lock(&new_nodemap->nm_member_list_lock);
+
 			/* don't use member_del because ted_nodemap
-			 * should never be null
+			 * should never be null with a live export
 			 */
 			list_del_init(&exp->exp_target_data.ted_nodemap_member);
-			exp->exp_target_data.ted_nodemap = new_nodemap;
 
-			/* could deadlock if new_nodemap also reclassifying */
-			mutex_lock(&new_nodemap->nm_member_list_lock);
+			/* keep the new_nodemap ref from classify */
+			spin_lock(&exp->exp_target_data.ted_nodemap_lock);
+			exp->exp_target_data.ted_nodemap = new_nodemap;
+			spin_unlock(&exp->exp_target_data.ted_nodemap_lock);
+			nodemap_putref(nodemap);
+
 			list_add(&exp->exp_target_data.ted_nodemap_member,
 				 &new_nodemap->nm_member_list);
 			mutex_unlock(&new_nodemap->nm_member_list_lock);
 			nm_member_exp_revoke(exp);
+		} else {
+			nodemap_putref(new_nodemap);
 		}
-
-		/* This put won't destroy new_nodemap because any nodemap_del
-		 * call done on new_nodemap blocks on our active_config_lock
-		 */
-		nodemap_putref(new_nodemap);
 	}
 	mutex_unlock(&nodemap->nm_member_list_lock);
+
+	EXIT;
 }
 
 /**
