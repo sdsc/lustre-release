@@ -495,7 +495,16 @@ void mdt_pack_attr2body(struct mdt_thread_info *info, struct mdt_body *b,
 {
 	struct md_attr		*ma = &info->mti_attr;
 	struct obd_export	*exp = info->mti_exp;
-	struct lu_nodemap	*nodemap = exp->exp_target_data.ted_nodemap;
+	struct lu_nodemap	*nodemap = nodemap_get_from_exp(exp);
+
+	/* No obvious way to signal error from here. If export has no nodemap,
+	 * commands calling pack_attr would have failed before, so should be ok.
+	 */
+	if (IS_ERR(nodemap)) {
+		CWARN("%s: unable to find nodemap for exp %s\n",
+		      mdt_obd_name(info->mti_mdt), exp->exp_client_uuid.uuid);
+		nodemap = NULL;
+	}
 
 	LASSERT(ma->ma_valid & MA_INODE);
 
@@ -531,6 +540,8 @@ void mdt_pack_attr2body(struct mdt_thread_info *info, struct mdt_body *b,
 					    attr->la_gid);
 		b->mbo_valid |= OBD_MD_FLGID;
 	}
+	nodemap_put(nodemap);
+
 	b->mbo_mode = attr->la_mode;
 	if (attr->la_valid & LA_MODE)
 		b->mbo_valid |= OBD_MD_FLMODE;
@@ -907,7 +918,6 @@ static int mdt_getattr_internal(struct mdt_thread_info *info,
 	struct mdt_body		*repbody;
 	struct lu_buf		*buffer = &info->mti_buf;
 	struct obd_export	*exp = info->mti_exp;
-	struct lu_nodemap	*nodemap = exp->exp_target_data.ted_nodemap;
 	int			 rc;
 	int			 is_root;
 	ENTRY;
@@ -1114,8 +1124,14 @@ static int mdt_getattr_internal(struct mdt_thread_info *info,
 	}
 #ifdef CONFIG_FS_POSIX_ACL
 	else if ((exp_connect_flags(req->rq_export) & OBD_CONNECT_ACL) &&
-		 (reqbody->mbo_valid & OBD_MD_FLACL))
+		 (reqbody->mbo_valid & OBD_MD_FLACL)) {
+		struct lu_nodemap *nodemap = nodemap_get_from_exp(exp);
+		if (IS_ERR(nodemap))
+			RETURN(PTR_ERR(nodemap));
+
 		rc = mdt_pack_acl2body(info, repbody, o, nodemap);
+		nodemap_put(nodemap);
+	}
 #endif
 
 out:
@@ -2013,7 +2029,7 @@ static int mdt_quotactl(struct tgt_session_info *tsi)
 	int			 id, rc;
 	struct mdt_device	*mdt = mdt_exp2dev(exp);
 	struct lu_device	*qmt = mdt->mdt_qmt_dev;
-	struct lu_nodemap	*nodemap = exp->exp_target_data.ted_nodemap;
+	struct lu_nodemap	*nodemap;
 	ENTRY;
 
 	oqctl = req_capsule_client_get(pill, &RMF_OBD_QUOTACTL);
@@ -2024,23 +2040,27 @@ static int mdt_quotactl(struct tgt_session_info *tsi)
 	if (rc)
 		RETURN(err_serious(rc));
 
+	nodemap = nodemap_get_from_exp(exp);
+	if (IS_ERR(nodemap))
+		RETURN(PTR_ERR(nodemap));
+
 	switch (oqctl->qc_cmd) {
 		/* master quotactl */
 	case Q_SETINFO:
 	case Q_SETQUOTA:
 		if (!nodemap_can_setquota(nodemap))
-			RETURN(-EPERM);
+			GOTO(out_nodemap, rc = -EPERM);
 	case Q_GETINFO:
 	case Q_GETQUOTA:
 		if (qmt == NULL)
-			RETURN(-EOPNOTSUPP);
+			GOTO(out_nodemap, rc = -EOPNOTSUPP);
 		/* slave quotactl */
 	case Q_GETOINFO:
 	case Q_GETOQUOTA:
 		break;
 	default:
 		CERROR("Unsupported quotactl command: %d\n", oqctl->qc_cmd);
-		RETURN(-EFAULT);
+		GOTO(out_nodemap, rc = -EFAULT);
 	}
 
 	/* map uid/gid for remote client */
@@ -2052,7 +2072,7 @@ static int mdt_quotactl(struct tgt_session_info *tsi)
 
 		if (unlikely(oqctl->qc_cmd != Q_GETQUOTA &&
 			     oqctl->qc_cmd != Q_GETINFO))
-			RETURN(-EPERM);
+			GOTO(out_nodemap, rc = -EPERM);
 
 		if (oqctl->qc_type == USRQUOTA)
 			id = lustre_idmap_lookup_uid(NULL, idmap, 0,
@@ -2061,11 +2081,11 @@ static int mdt_quotactl(struct tgt_session_info *tsi)
 			id = lustre_idmap_lookup_gid(NULL, idmap, 0,
 						     oqctl->qc_id);
 		else
-			RETURN(-EINVAL);
+			GOTO(out_nodemap, rc = -EINVAL);
 
 		if (id == CFS_IDMAP_NOTFOUND) {
 			CDEBUG(D_QUOTA, "no mapping for id %u\n", oqctl->qc_id);
-			RETURN(-EACCES);
+			GOTO(out_nodemap, rc = -EACCES);
 		}
 	}
 
@@ -2078,7 +2098,7 @@ static int mdt_quotactl(struct tgt_session_info *tsi)
 
 	repoqc = req_capsule_server_get(pill, &RMF_OBD_QUOTACTL);
 	if (repoqc == NULL)
-		RETURN(err_serious(-EFAULT));
+		GOTO(out_nodemap, rc = err_serious(-EFAULT));
 
 	if (oqctl->qc_id != id)
 		swap(oqctl->qc_id, id);
@@ -2102,14 +2122,18 @@ static int mdt_quotactl(struct tgt_session_info *tsi)
 
 	default:
 		CERROR("Unsupported quotactl command: %d\n", oqctl->qc_cmd);
-		RETURN(-EFAULT);
+		GOTO(out_nodemap, rc = -EFAULT);
 	}
 
 	if (oqctl->qc_id != id)
 		swap(oqctl->qc_id, id);
 
 	*repoqc = *oqctl;
-	RETURN(rc);
+
+out_nodemap:
+	nodemap_put(nodemap);
+
+	return rc;
 }
 
 /** clone llog ctxt from child (mdd)
@@ -5277,6 +5301,7 @@ static int mdt_obd_connect(const struct lu_env *env,
 	lexp = class_conn2export(&conn);
 	LASSERT(lexp != NULL);
 
+	spin_lock_init(&lexp->exp_target_data.ted_nodemap_lock);
 	rc = nodemap_add_member(*client_nid, lexp);
 	if (rc != 0 && rc != -EEXIST)
 		GOTO(out, rc);
