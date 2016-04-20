@@ -308,6 +308,12 @@ mdc_intent_open_pack(struct obd_export *exp, struct lookup_intent *it,
         lit = req_capsule_client_get(&req->rq_pill, &RMF_LDLM_INTENT);
         lit->opc = (__u64)it->it_op;
 
+	/* enable opencache if necessary */
+	if (obddev->u.cli.cl_import->imp_opencache)
+		it->it_flags |= MDS_OPEN_LOCK;
+	else
+		it->it_flags &= ~MDS_OPEN_LOCK;
+
         /* pack the intended request */
         mdc_open_pack(req, op_data, it->it_create_mode, 0, it->it_flags, lmm,
                       lmmsize);

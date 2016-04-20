@@ -168,6 +168,37 @@ static ssize_t mdc_rpc_stats_seq_write(struct file *file,
 }
 LPROC_SEQ_FOPS(mdc_rpc_stats);
 
+static int mdc_opencache_seq_show(struct seq_file *m, void *v)
+{
+	struct obd_device *dev = m->private;
+
+	LPROCFS_CLIMP_CHECK(dev);
+	seq_printf(m, "%d\n", dev->u.cli.cl_import->imp_opencache);
+	LPROCFS_CLIMP_EXIT(dev);
+	return 0;
+}
+
+static ssize_t mdc_opencache_seq_write(struct file *file,
+				       const char __user *buffer,
+				       size_t count, loff_t *off)
+{
+	struct obd_device *dev;
+	int val, rc;
+
+	dev = ((struct seq_file *)file->private_data)->private;
+	rc = lprocfs_write_helper(buffer, count, &val);
+	if (rc)
+		return rc;
+	if (val < 0 || val > 1)
+		return -ERANGE;
+
+	LPROCFS_CLIMP_CHECK(dev);
+	dev->u.cli.cl_import->imp_opencache = val;
+	LPROCFS_CLIMP_EXIT(dev);
+
+	return count;
+}
+LPROC_SEQ_FOPS(mdc_opencache);
 
 LPROC_SEQ_FOPS_WO_TYPE(mdc, ping);
 
@@ -241,6 +272,8 @@ struct lprocfs_vars lprocfs_mdc_obd_vars[] = {
 	  .fops	=	&mdc_rpc_stats_fops		},
 	{ .name	=	"active",
 	  .fops	=	&mdc_active_fops		},
+	{ .name	=	"opencache",
+	  .fops	=	&mdc_opencache_fops		},
 	{ NULL }
 };
 #endif /* CONFIG_PROC_FS */
