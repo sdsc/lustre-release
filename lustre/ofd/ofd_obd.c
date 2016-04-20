@@ -355,6 +355,7 @@ static int ofd_obd_connect(const struct lu_env *env, struct obd_export **_exp,
 	LASSERT(exp != NULL);
 
 	if (localdata != NULL) {
+		spin_lock_init(&exp->exp_target_data.ted_nodemap_lock);
 		rc = nodemap_add_member(*(lnet_nid_t *)localdata, exp);
 		if (rc != 0 && rc != -EEXIST)
 			GOTO(out, rc);
