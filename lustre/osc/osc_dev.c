@@ -49,6 +49,10 @@
  * @{ 
  */
 
+int osc_class_cache_size = 8192;
+CFS_MODULE_PARM(osc_class_cache_size, "i", int, 0644,
+		"The size of osc class cache");
+
 struct kmem_cache *osc_lock_kmem;
 struct kmem_cache *osc_object_kmem;
 struct kmem_cache *osc_thread_kmem;

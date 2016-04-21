@@ -170,6 +170,11 @@ struct cl_attr {
 
 	/* nlink of the directory */
 	__u64  cat_nlink;
+	/*
+	 * Job ID. The current client side job ID is attached to inode,
+	 * which is not precise, but good enough most of the time.
+	 */
+	char  cat_jobid[LUSTRE_JOBID_SIZE];
 };
 
 /**

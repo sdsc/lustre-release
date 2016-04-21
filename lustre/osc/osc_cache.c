@@ -838,22 +838,225 @@ out:
 	return found;
 }
 
+static struct osc_class *
+osc_class_hash_lookup(struct cfs_hash *hs,
+		      struct cfs_hash_bd *bd,
+		      const char *jobid)
+{
+	struct hlist_node	*hnode;
+	struct osc_class	*class;
+
+	/* cfs_hash_bd_peek_locked is a somehow "internal" function
+	 * of cfs_hash, it doesn't add refcount on object. */
+	hnode = cfs_hash_bd_peek_locked(hs, bd, (void *)jobid);
+	if (hnode == NULL)
+		return NULL;
+
+	cfs_hash_get(hs, hnode);
+	class = container_of0(hnode, struct osc_class, oc_hnode);
+	if (!list_empty(&class->oc_lru))
+		list_del_init(&class->oc_lru);
+	return class;
+}
+
+static struct osc_class *
+osc_class_find(struct client_obd *cli, const char *jobid)
+{
+	struct osc_class	*class;
+	struct cfs_hash		*hs = cli->cl_class_hash;
+	struct cfs_hash_bd	 bd;
+
+	cfs_hash_bd_get_and_lock(hs, (void *)jobid, &bd, 1);
+	class = osc_class_hash_lookup(hs, &bd, jobid);
+	cfs_hash_bd_unlock(hs, &bd, 1);
+
+	return class;
+}
+
+static struct osc_class *
+osc_class_findadd(struct client_obd *cli, struct osc_class *class)
+{
+	const char		*jobid;
+	struct osc_class	*ret;
+	struct cfs_hash		*hs = cli->cl_class_hash;
+	struct cfs_hash_bd	 bd;
+
+	jobid = class->oc_jobid;
+	cfs_hash_bd_get_and_lock(hs, (void *)jobid, &bd, 1);
+	ret = osc_class_hash_lookup(hs, &bd, jobid);
+	if (ret == NULL) {
+		cfs_hash_bd_add_locked(hs, &bd, &class->oc_hnode);
+		ret = class;
+	}
+	cfs_hash_bd_unlock(hs, &bd, 1);
+
+	return ret;
+}
+
+static void
+osc_class_put(struct client_obd *cli, struct osc_class *class)
+{
+	struct cfs_hash_bd	 bd;
+	struct cfs_hash		*hs = cli->cl_class_hash;
+	struct nrs_tbf_bucket	*bkt;
+	int			 hw;
+	struct list_head	 zombies;
+
+	INIT_LIST_HEAD(&zombies);
+	cfs_hash_bd_get(hs, &class->oc_jobid, &bd);
+	bkt = cfs_hash_bd_extra_get(hs, &bd);
+	if (!cfs_hash_bd_dec_and_lock(hs, &bd, &class->oc_ref))
+		return;
+	LASSERT(list_empty(&class->oc_lru));
+	list_add_tail(&class->oc_lru, &bkt->ntb_lru);
+
+	/*
+	 * Check and purge the LRU, there is at least one class in the LRU.
+	 */
+	hw = osc_class_cache_size >>
+	     (hs->hs_cur_bits - hs->hs_bkt_bits);
+	while (cfs_hash_bd_count_get(&bd) > hw) {
+		if (unlikely(list_empty(&bkt->ntb_lru)))
+			break;
+		class = list_entry(bkt->ntb_lru.next,
+				 struct osc_class,
+				 oc_lru);
+		LASSERT(atomic_read(&class->oc_ref) == 0);
+		cfs_hash_bd_del_locked(hs, &bd, &class->oc_hnode);
+		list_move(&class->oc_lru, &zombies);
+	}
+	cfs_hash_bd_unlock(hs, &bd, 1);
+
+	while (!list_empty(&zombies)) {
+		class = container_of0(zombies.next,
+				    struct osc_class, oc_lru);
+		list_del_init(&class->oc_lru);
+		/* release the assigned cache */
+		spin_lock(&cli->cl_loi_list_lock);
+		if (class->oc_in_heap) {
+			class->oc_in_heap = false;
+			cfs_binheap_remove(cli->cl_class_heap,
+					   &class->oc_node);
+		}
+		list_del_init(&class->oc_linkage);
+		spin_unlock(&cli->cl_loi_list_lock);
+		osc_class_fini(class);
+	}
+}
+
+static struct osc_class *
+osc_class_init(struct client_obd *cli, const char *jobid)
+{
+	struct osc_class *class;
+
+	OBD_ALLOC_PTR(class);
+	if (!class)
+		return NULL;
+
+	class->oc_cli = cli;
+	LASSERT(strlen(jobid) < LUSTRE_JOBID_SIZE);
+	class->oc_in_heap = false;
+	atomic_set(&class->oc_ref, 1);
+	class->oc_dirty_pages = 0;
+	INIT_LIST_HEAD(&class->oc_cache_waiters);
+	INIT_LIST_HEAD(&class->oc_lru);
+	memcpy(class->oc_jobid, jobid, strlen(jobid));
+	return class;
+}
+
+static struct osc_class *
+osc_class_get(struct client_obd *cli, const char *jobid)
+{
+	struct osc_class *class;
+	struct osc_class *tmp;
+
+	class = osc_class_find(cli, jobid);
+	if (class)
+		return class;
+
+	class = osc_class_init(cli, jobid);
+	if (!class)
+		return NULL;
+
+	tmp = osc_class_findadd(cli, class);
+	if (tmp != class) {
+		atomic_dec(&class->oc_ref);
+		osc_class_fini(class);
+		class = tmp;
+	} else {
+		list_add_tail(&class->oc_linkage, &cli->cl_class_list);
+	}
+	return class;
+}
+
+static void osc_class_page_release(struct client_obd *cli,
+				   struct osc_class *class)
+{
+	spin_lock(&cli->cl_loi_list_lock);
+	class->oc_dirty_pages--;
+
+	if (class->oc_in_heap)
+		cfs_binheap_relocate(cli->cl_class_heap, &class->oc_node);
+	spin_unlock(&cli->cl_loi_list_lock);
+	osc_class_put(cli, class);
+}
+
+
+static int osc_class_waiter_add(struct client_obd *cli,
+				struct osc_class *class,
+				struct osc_cache_waiter *ocw)
+{
+	int rc;
+
+	list_add_tail(&ocw->ocw_entry, &cli->cl_cache_waiters);
+	list_add_tail(&ocw->ocw_linkage, &class->oc_cache_waiters);
+
+	if (!class->oc_in_heap) {
+		rc = cfs_binheap_insert(cli->cl_class_heap,
+					&class->oc_node);
+		if (rc == 0) {
+			class->oc_in_heap = true;
+		} else {
+			list_del_init(&ocw->ocw_entry);
+			list_del_init(&ocw->ocw_linkage);
+			return rc;
+		}
+	}
+	return 0;
+}
+
+static void osc_class_waiter_del(struct client_obd *cli,
+				 struct osc_class *class,
+				 struct osc_cache_waiter *ocw)
+{
+	list_del_init(&ocw->ocw_entry);
+	list_del_init(&ocw->ocw_linkage);
+	LASSERT(class->oc_in_heap);
+	if (list_empty(&class->oc_cache_waiters)) {
+		cfs_binheap_remove(cli->cl_class_heap,
+				   &class->oc_node);
+		class->oc_in_heap = false;
+	}
+}
+
 /**
  * Called when IO is finished to an extent.
  */
 int osc_extent_finish(const struct lu_env *env, struct osc_extent *ext,
 		      int sent, int rc)
 {
-	struct client_obd *cli = osc_cli(ext->oe_obj);
-	struct osc_async_page *oap;
-	struct osc_async_page *tmp;
-	int nr_pages = ext->oe_nr_pages;
-	int lost_grant = 0;
-	int blocksize = cli->cl_import->imp_obd->obd_osfs.os_bsize ? : 4096;
-	loff_t last_off = 0;
-	int last_count = -1;
+	struct client_obd	*cli = osc_cli(ext->oe_obj);
+	struct osc_async_page	*oap;
+	struct osc_async_page	*tmp;
+	int			 nr_pages = ext->oe_nr_pages;
+	int			 lost_grant = 0;
+	int			 blocksize;
+	loff_t			 last_off = 0;
+	int			 last_count = -1;
+	struct osc_class	*class;
 	ENTRY;
 
+	blocksize = cli->cl_import->imp_obd->obd_osfs.os_bsize ? : 4096;
 	OSC_EXTENT_DUMP(D_CACHE, ext, "extent finished.\n");
 
 	ext->oe_rc = rc ?: ext->oe_nr_pages;
@@ -870,6 +1073,17 @@ int osc_extent_finish(const struct lu_env *env, struct osc_extent *ext,
 		}
 
 		--ext->oe_nr_pages;
+		/**
+		 * Pages in the same extent might has different class.
+		 * Thus, release every page individually here.
+		 * osc_class_grant_cache will be triggered after other grants
+		 * are freed.
+		 */
+		class = oap->oap_class;
+		if (class) {
+			osc_class_page_release(cli, class);
+			oap->oap_class = NULL;
+		}
 		osc_ap_completion(env, cli, oap, sent, rc);
 	}
 	EASSERT(ext->oe_nr_pages == 0, ext);
@@ -961,20 +1175,21 @@ static int osc_extent_wait(const struct lu_env *env, struct osc_extent *ext,
 static int osc_extent_truncate(struct osc_extent *ext, pgoff_t trunc_index,
 				bool partial)
 {
-	struct cl_env_nest     nest;
-	struct lu_env         *env;
-	struct cl_io          *io;
-	struct osc_object     *obj = ext->oe_obj;
-	struct client_obd     *cli = osc_cli(obj);
-	struct osc_async_page *oap;
-	struct osc_async_page *tmp;
-	int                    pages_in_chunk = 0;
-	int                    ppc_bits    = cli->cl_chunkbits -
-					     PAGE_CACHE_SHIFT;
-	__u64                  trunc_chunk = trunc_index >> ppc_bits;
-	int                    grants   = 0;
-	int                    nr_pages = 0;
-	int                    rc       = 0;
+	struct cl_env_nest	 nest;
+	struct lu_env		*env;
+	struct cl_io		*io;
+	struct osc_object	*obj = ext->oe_obj;
+	struct client_obd	*cli = osc_cli(obj);
+	struct osc_async_page	*oap;
+	struct osc_async_page	*tmp;
+	int			 pages_in_chunk = 0;
+	int			 ppc_bits = cli->cl_chunkbits -
+					    PAGE_CACHE_SHIFT;
+	__u64			 trunc_chunk = trunc_index >> ppc_bits;
+	int			 grants   = 0;
+	int			 nr_pages = 0;
+	int			 rc       = 0;
+	struct osc_class	*class;
 	ENTRY;
 
 	LASSERT(sanity_check(ext) == 0);
@@ -1010,6 +1225,17 @@ static int osc_extent_truncate(struct osc_extent *ext, pgoff_t trunc_index,
 			continue;
 		}
 
+		/**
+		 * Pages in the same extent might has different class.
+		 * Thus, release every page individually here.
+		 * osc_class_grant_cache will be triggered after other grants
+		 * are freed.
+		 */
+		class = oap->oap_class;
+		if (class) {
+			osc_class_page_release(cli, class);
+			oap->oap_class = NULL;
+		}
 		list_del_init(&oap->oap_pending_item);
 
 		cl_page_get(page);
@@ -1379,7 +1605,6 @@ static void osc_consume_write_grant(struct client_obd *cli,
 	assert_spin_locked(&cli->cl_loi_list_lock);
 	LASSERT(!(pga->flag & OBD_BRW_FROM_GRANT));
 	atomic_long_inc(&obd_dirty_pages);
-	cli->cl_dirty_pages++;
 	pga->flag |= OBD_BRW_FROM_GRANT;
 	CDEBUG(D_CACHE, "using %lu grant credits for brw %p page %p\n",
 	       PAGE_CACHE_SIZE, pga, pga->pg);
@@ -1401,7 +1626,6 @@ static void osc_release_write_grant(struct client_obd *cli,
 
 	pga->flag &= ~OBD_BRW_FROM_GRANT;
 	atomic_long_dec(&obd_dirty_pages);
-	cli->cl_dirty_pages--;
 	if (pga->flag & OBD_BRW_NOCACHE) {
 		pga->flag &= ~OBD_BRW_NOCACHE;
 		atomic_long_dec(&obd_dirty_transit_pages);
@@ -1452,7 +1676,7 @@ static void osc_unreserve_grant(struct client_obd *cli,
 	spin_lock(&cli->cl_loi_list_lock);
 	__osc_unreserve_grant(cli, reserved, unused);
 	if (unused > 0)
-		osc_wake_cache_waiters(cli);
+		osc_class_grant_cache(cli);
 	spin_unlock(&cli->cl_loi_list_lock);
 }
 
@@ -1487,7 +1711,7 @@ static void osc_free_grant(struct client_obd *cli, unsigned int nr_pages,
 		cli->cl_lost_grant -= grant;
 		cli->cl_avail_grant += grant;
 	}
-	osc_wake_cache_waiters(cli);
+	osc_class_grant_cache(cli);
 	spin_unlock(&cli->cl_loi_list_lock);
 	CDEBUG(D_CACHE, "lost %u grant: %lu avail: %lu dirty: %lu/%lu\n",
 	       lost_grant, cli->cl_lost_grant,
@@ -1499,16 +1723,22 @@ static void osc_free_grant(struct client_obd *cli, unsigned int nr_pages,
  * The companion to osc_enter_cache(), called when @oap is no longer part of
  * the dirty accounting due to error.
  */
-static void osc_exit_cache(struct client_obd *cli, struct osc_async_page *oap)
+static void osc_exit_cache(struct client_obd *cli, struct osc_class *class,
+			   struct osc_async_page *oap)
 {
 	spin_lock(&cli->cl_loi_list_lock);
 	osc_release_write_grant(cli, &oap->oap_brw_page);
+	cli->cl_dirty_pages--;
+	class->oc_dirty_pages--;
+	if (class->oc_in_heap)
+		cfs_binheap_relocate(cli->cl_class_heap, &class->oc_node);
+	osc_class_grant_cache(cli);
 	spin_unlock(&cli->cl_loi_list_lock);
 }
 
 /**
  * Non-blocking version of osc_enter_cache() that consumes grant only when it
- * is available.
+ * is available. Dirty page has already been reserved, so do not grant any more.
  */
 static int osc_enter_cache_try(struct client_obd *cli,
 			       struct osc_async_page *oap,
@@ -1538,6 +1768,39 @@ static int osc_enter_cache_try(struct client_obd *cli,
 	return rc;
 }
 
+void osc_class_grant_cache(struct client_obd *cli)
+{
+	struct cfs_binheap_node	*node;
+	struct osc_class	*class;
+	struct osc_cache_waiter	*ocw;
+
+	while (cli->cl_dirty_pages < cli->cl_dirty_max_pages) {
+		node = cfs_binheap_root(cli->cl_class_heap);
+		if (unlikely(node == NULL))
+			break;
+
+		class = container_of(node, struct osc_class, oc_node);
+		LASSERT(!list_empty(&class->oc_cache_waiters));
+		ocw = list_entry(class->oc_cache_waiters.next,
+				 struct osc_cache_waiter, ocw_linkage);
+
+		if (osc_enter_cache_try(cli, ocw->ocw_oap, ocw->ocw_grant,
+					0)) {
+			cli->cl_dirty_pages++;
+			class->oc_dirty_pages++;
+			osc_class_waiter_del(cli, class, ocw);
+			if (class->oc_in_heap)
+				cfs_binheap_relocate(cli->cl_class_heap,
+						     &class->oc_node);
+			ocw->ocw_rc = 0;
+			wake_up(&ocw->ocw_waitq);
+		} else {
+			/* Do not wake any waiters */
+			break;
+		}
+	}
+}
+
 static int ocw_granted(struct client_obd *cli, struct osc_cache_waiter *ocw)
 {
 	int rc;
@@ -1555,7 +1818,8 @@ static int ocw_granted(struct client_obd *cli, struct osc_cache_waiter *ocw)
  * The process will be put into sleep if it's already run out of grant.
  */
 static int osc_enter_cache(const struct lu_env *env, struct client_obd *cli,
-			   struct osc_async_page *oap, int bytes)
+			   struct osc_class *class, struct osc_async_page *oap,
+			   int bytes, bool wait)
 {
 	struct osc_object	*osc = oap->oap_obj;
 	struct lov_oinfo	*loi = osc->oo_oinfo;
@@ -1580,12 +1844,6 @@ static int osc_enter_cache(const struct lu_env *env, struct client_obd *cli,
 		GOTO(out, rc = -EDQUOT);
 	}
 
-	/* Hopefully normal case - cache space and write credits available */
-	if (osc_enter_cache_try(cli, oap, bytes, 0)) {
-		OSC_DUMP_GRANT(D_CACHE, cli, "granted from cache\n");
-		GOTO(out, rc = 0);
-	}
-
 	/* We can get here for two reasons: too many dirty pages in cache, or
 	 * run out of grants. In both cases we should write dirty pages out.
 	 * Adding a cache waiter will trigger urgent write-out no matter what
@@ -1595,9 +1853,43 @@ static int osc_enter_cache(const struct lu_env *env, struct client_obd *cli,
 	init_waitqueue_head(&ocw.ocw_waitq);
 	ocw.ocw_oap   = oap;
 	ocw.ocw_grant = bytes;
-	while (cli->cl_dirty_pages > 0 || cli->cl_w_in_flight > 0) {
-		list_add_tail(&ocw.ocw_entry, &cli->cl_cache_waiters);
-		ocw.ocw_rc = 0;
+	while (1) {
+		rc = osc_class_waiter_add(cli, class, &ocw);
+		if (rc)
+			break;
+		/**
+		 * There might be some unassigned cache left, so try to grants
+		 * here.
+		 */
+		osc_class_grant_cache(cli);
+
+		/* I'd better wake up other waiters */
+		if (cli->cl_dirty_pages == 0 && cli->cl_w_in_flight == 0)
+			osc_wake_cache_waiters(cli);
+
+		if (list_empty(&ocw.ocw_entry)) {
+			LASSERT(list_empty(&ocw.ocw_linkage));
+			if (ocw.ocw_rc == 0) {
+				rc = 0;
+				break;
+			} else if (wait && (cli->cl_dirty_pages > 0 ||
+					    cli->cl_w_in_flight > 0)) {
+				/* Try again, and will sleep this time */
+				rc = osc_class_waiter_add(cli, class, &ocw);
+				if (rc)
+					break;
+			} else {
+				rc = -EDQUOT;
+				break;
+			}
+		}
+
+		if (!wait || (cli->cl_dirty_pages == 0 &&
+			      cli->cl_w_in_flight == 0)) {
+			osc_class_waiter_del(cli, class, &ocw);
+			rc = -EDQUOT;
+			break;
+		}
 		spin_unlock(&cli->cl_loi_list_lock);
 
 		osc_io_unplug_async(env, cli, NULL);
@@ -1611,18 +1903,15 @@ static int osc_enter_cache(const struct lu_env *env, struct client_obd *cli,
 
 		if (rc < 0) {
 			/* l_wait_event is interrupted by signal or timed out */
-			list_del_init(&ocw.ocw_entry);
+			osc_class_waiter_del(cli, class, &ocw);
 			break;
 		}
 		LASSERT(list_empty(&ocw.ocw_entry));
+		LASSERT(list_empty(&ocw.ocw_linkage));
 		rc = ocw.ocw_rc;
 
 		if (rc != -EDQUOT)
 			break;
-		if (osc_enter_cache_try(cli, oap, bytes, 0)) {
-			rc = 0;
-			break;
-		}
 	}
 
 	switch (rc) {
@@ -1666,26 +1955,8 @@ void osc_wake_cache_waiters(struct client_obd *cli)
 	ENTRY;
 	list_for_each_safe(l, tmp, &cli->cl_cache_waiters) {
 		ocw = list_entry(l, struct osc_cache_waiter, ocw_entry);
-		list_del_init(&ocw->ocw_entry);
-
+		osc_class_waiter_del(cli, ocw->ocw_oap->oap_class, ocw);
 		ocw->ocw_rc = -EDQUOT;
-		/* we can't dirty more */
-		if ((cli->cl_dirty_pages  >= cli->cl_dirty_max_pages) ||
-		    (1 + atomic_long_read(&obd_dirty_pages) >
-		     obd_max_dirty_pages)) {
-			CDEBUG(D_CACHE, "no dirty room: dirty: %ld "
-			       "osc max %ld, sys max %ld\n",
-			       cli->cl_dirty_pages, cli->cl_dirty_max_pages,
-			       obd_max_dirty_pages);
-			goto wakeup;
-		}
-
-		if (osc_enter_cache_try(cli, ocw->ocw_oap, ocw->ocw_grant, 0))
-			ocw->ocw_rc = 0;
-wakeup:
-		CDEBUG(D_CACHE, "wake up %p for oap %p, avail grant %ld, %d\n",
-		       ocw, ocw->ocw_oap, cli->cl_avail_grant, ocw->ocw_rc);
-
 		wake_up(&ocw->ocw_waitq);
 	}
 
@@ -2296,18 +2567,21 @@ int osc_prep_async_page(struct osc_object *osc, struct osc_page *ops,
 int osc_queue_async_io(const struct lu_env *env, struct cl_io *io,
 		       struct osc_page *ops)
 {
-	struct osc_io *oio = osc_env_io(env);
-	struct osc_extent     *ext = NULL;
-	struct osc_async_page *oap = &ops->ops_oap;
-	struct client_obd     *cli = oap->oap_cli;
-	struct osc_object     *osc = oap->oap_obj;
-	pgoff_t index;
-	unsigned int tmp;
-	unsigned int grants = 0;
-	u32    brw_flags = OBD_BRW_ASYNC;
-	int    cmd = OBD_BRW_WRITE;
-	int    need_release = 0;
-	int    rc = 0;
+	struct osc_io		*oio = osc_env_io(env);
+	struct osc_extent	*ext = NULL;
+	struct osc_async_page	*oap = &ops->ops_oap;
+	struct client_obd	*cli = oap->oap_cli;
+	struct osc_object	*osc = oap->oap_obj;
+	struct cl_object	*obj = cl_object_top(&osc->oo_cl);
+	pgoff_t			 index;
+	unsigned int		 tmp;
+	unsigned int		 grants = 0;
+	u32			 brw_flags = OBD_BRW_ASYNC;
+	int			 cmd = OBD_BRW_WRITE;
+	int			 need_release = 0;
+	int			 rc = 0;
+	struct cl_attr		*attr = &osc_env_info(env)->oti_attr;
+	struct osc_class	*class;
 	ENTRY;
 
 	if (oap->oap_magic != OAP_MAGIC)
@@ -2328,27 +2602,26 @@ int osc_queue_async_io(const struct lu_env *env, struct cl_io *io,
 		cmd |= OBD_BRW_NOQUOTA;
 	}
 
+	cl_object_attr_lock(obj);
+	rc = cl_object_attr_get(env, obj, attr);
+	cl_object_attr_unlock(obj);
+	if (rc)
+		RETURN(rc);
+
 	/* check if the file's owner/group is over quota */
 	if (!(cmd & OBD_BRW_NOQUOTA)) {
-		struct cl_object *obj;
-		struct cl_attr   *attr;
 		unsigned int qid[MAXQUOTAS];
-
-		obj = cl_object_top(&osc->oo_cl);
-		attr = &osc_env_info(env)->oti_attr;
-
-		cl_object_attr_lock(obj);
-		rc = cl_object_attr_get(env, obj, attr);
-		cl_object_attr_unlock(obj);
 
 		qid[USRQUOTA] = attr->cat_uid;
 		qid[GRPQUOTA] = attr->cat_gid;
-		if (rc == 0 && osc_quota_chkdq(cli, qid) == NO_QUOTA)
-			rc = -EDQUOT;
-		if (rc)
-			RETURN(rc);
+		if (osc_quota_chkdq(cli, qid) == NO_QUOTA)
+			RETURN(-EDQUOT);
 	}
 
+	class = osc_class_get(cli, attr->cat_jobid);
+	if (!class)
+		RETURN(-ENOMEM);
+	oap->oap_class = class;
 	oap->oap_cmd = cmd;
 	oap->oap_page_off = ops->ops_from;
 	oap->oap_count = ops->ops_to - ops->ops_from;
@@ -2377,10 +2650,8 @@ int osc_queue_async_io(const struct lu_env *env, struct cl_io *io,
 			grants = 0;
 
 		/* it doesn't need any grant to dirty this page */
-		spin_lock(&cli->cl_loi_list_lock);
-		rc = osc_enter_cache_try(cli, oap, grants, 0);
-		spin_unlock(&cli->cl_loi_list_lock);
-		if (rc == 0) { /* try failed */
+		rc = osc_enter_cache(env, cli, class, oap, grants, false);
+		if (rc) { /* try failed */
 			grants = 0;
 			need_release = 1;
 		} else if (ext->oe_end < index) {
@@ -2420,7 +2691,7 @@ int osc_queue_async_io(const struct lu_env *env, struct cl_io *io,
 		rc = 0;
 		if (grants == 0) {
 			/* we haven't allocated grant for this page. */
-			rc = osc_enter_cache(env, cli, oap, tmp);
+			rc = osc_enter_cache(env, cli, class, oap, tmp, true);
 			if (rc == 0)
 				grants = tmp;
 		}
@@ -2430,7 +2701,7 @@ int osc_queue_async_io(const struct lu_env *env, struct cl_io *io,
 			ext = osc_extent_find(env, osc, index, &tmp);
 			if (IS_ERR(ext)) {
 				LASSERT(tmp == grants);
-				osc_exit_cache(cli, oap);
+				osc_exit_cache(cli, class, oap);
 				rc = PTR_ERR(ext);
 				ext = NULL;
 			} else {
@@ -2455,6 +2726,9 @@ int osc_queue_async_io(const struct lu_env *env, struct cl_io *io,
 		++ext->oe_nr_pages;
 		list_add_tail(&oap->oap_pending_item, &ext->oe_pages);
 		osc_object_unlock(osc);
+	} else {
+		oap->oap_class = NULL;
+		osc_class_put(cli, class);
 	}
 	RETURN(rc);
 }

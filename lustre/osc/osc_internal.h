@@ -55,6 +55,8 @@ enum async_flags {
         ASYNC_HP = 0x10,
 };
 
+struct osc_class;
+
 struct osc_async_page {
         int                     oap_magic;
         unsigned short          oap_cmd;
@@ -74,6 +76,7 @@ struct osc_async_page {
 	struct osc_object       *oap_obj;
 
 	spinlock_t		 oap_lock;
+	struct osc_class	*oap_class;
 };
 
 #define oap_page        oap_brw_page.pg
@@ -87,13 +90,15 @@ static inline struct osc_async_page *brw_page2oap(struct brw_page *pga)
 }
 
 struct osc_cache_waiter {
-	struct list_head	ocw_entry;
-	wait_queue_head_t	ocw_waitq;
-	struct osc_async_page  *ocw_oap;
-	int                     ocw_grant;
-	int                     ocw_rc;
+	struct list_head	 ocw_entry;
+	struct list_head	 ocw_linkage;
+	wait_queue_head_t	 ocw_waitq;
+	struct osc_async_page	*ocw_oap;
+	int			 ocw_grant;
+	int			 ocw_rc;
 };
 
+void osc_class_grant_cache(struct client_obd *cli);
 void osc_wake_cache_waiters(struct client_obd *cli);
 int osc_shrink_grant_to_target(struct client_obd *cli, __u64 target_bytes);
 void osc_update_next_shrink(struct client_obd *cli);
@@ -248,5 +253,40 @@ extern unsigned long osc_cache_shrink_count(struct shrinker *sk,
 					    struct shrink_control *sc);
 extern unsigned long osc_cache_shrink_scan(struct shrinker *sk,
 					   struct shrink_control *sc);
+
+struct osc_class_bucket {
+	/**
+	 * LRU list, updated on each access to client. Protected by
+	 * bucket lock of osc_class_hash.
+	 */
+	struct list_head	ocb_lru;
+};
+
+struct osc_class {
+	/** OSC this class belongs to */
+	struct client_obd	*oc_cli;
+	/** Node in the hash table. */
+	struct hlist_node	 oc_hnode;
+	/** Linkage into LRU list. */
+	struct list_head	 oc_lru;
+	/** Reference number of the class. */
+	atomic_t		 oc_ref;
+	/** Node in assign heap. */
+	struct cfs_binheap_node	 oc_node;
+	/** Whether the class is in assign heap. */
+	bool			 oc_in_heap;
+	/** jobid of the class. */
+	char			 oc_jobid[LUSTRE_JOBID_SIZE];
+	/** Used pages */
+	unsigned long		 oc_dirty_pages;
+	/** Waiting for cache */
+	struct list_head	 oc_cache_waiters;
+	/** Linkage in binary heap. */
+	struct list_head	 oc_linkage;
+};
+
+extern int osc_class_cache_size;
+
+void osc_class_fini(struct osc_class *class);
 
 #endif /* OSC_INTERNAL_H */

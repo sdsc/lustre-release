@@ -165,7 +165,7 @@ static ssize_t osc_max_dirty_mb_seq_write(struct file *file,
 
 	spin_lock(&cli->cl_loi_list_lock);
 	cli->cl_dirty_max_pages = pages_number;
-	osc_wake_cache_waiters(cli);
+	osc_class_grant_cache(cli);
 	spin_unlock(&cli->cl_loi_list_lock);
 
 	return count;
@@ -597,6 +597,97 @@ LPROC_SEQ_FOPS_WO_TYPE(osc, ping);
 LPROC_SEQ_FOPS_RW_TYPE(osc, import);
 LPROC_SEQ_FOPS_RW_TYPE(osc, pinger_recov);
 
+static void *osc_class_seq_start(struct seq_file *m, loff_t *pos)
+{
+	struct obd_device	*dev = m->private;
+	struct client_obd	*cli = &dev->u.cli;
+	loff_t			 off = *pos;
+	struct osc_class	*class;
+
+	spin_lock(&cli->cl_loi_list_lock);
+	if (off == 0)
+		return SEQ_START_TOKEN;
+	off--;
+	list_for_each_entry(class, &cli->cl_class_list, oc_linkage) {
+		if (!off--)
+			return class;
+	}
+	return NULL;
+}
+
+static void osc_class_seq_stop(struct seq_file *m, void *v)
+{
+	struct obd_device	*dev = m->private;
+	struct client_obd	*cli = &dev->u.cli;
+
+	spin_unlock(&cli->cl_loi_list_lock);
+}
+
+static void *osc_class_seq_next(struct seq_file *m, void *v, loff_t *pos)
+{
+	struct obd_device	*dev = m->private;
+	struct client_obd	*cli = &dev->u.cli;
+	struct osc_class	*class;
+	struct list_head	*next;
+
+	++*pos;
+	if (v == SEQ_START_TOKEN) {
+		next = cli->cl_class_list.next;
+	} else {
+		class = (struct osc_class *)v;
+		next = class->oc_linkage.next;
+	}
+
+	return next == &cli->cl_class_list ? NULL :
+		list_entry(next, struct osc_class, oc_linkage);
+}
+
+static int osc_class_seq_show(struct seq_file *m, void *v)
+{
+	struct obd_device	*dev = m->private;
+	struct client_obd	*cli = &dev->u.cli;
+	struct osc_class        *class = v;
+
+	if (v == SEQ_START_TOKEN) {
+		seq_printf(m, "total: %lu, used: %lu\n",
+			   cli->cl_dirty_max_pages,
+			   cli->cl_dirty_pages);
+		return 0;
+	}
+
+	seq_printf(m, "job_id: \"%s\", used: %lu\n",
+		   class->oc_jobid, class->oc_dirty_pages);
+	return 0;
+}
+
+static const struct seq_operations osc_class_seq_sops = {
+	.start = osc_class_seq_start,
+	.stop = osc_class_seq_stop,
+	.next = osc_class_seq_next,
+	.show = osc_class_seq_show,
+};
+
+static int osc_class_seq_open(struct inode *inode, struct file *file)
+{
+	struct seq_file	*seq;
+	int		 rc;
+
+	rc = seq_open(file, &osc_class_seq_sops);
+	if (rc)
+		return rc;
+	seq = file->private_data;
+	seq->private = PDE_DATA(inode);
+	return 0;
+}
+
+static const struct file_operations osc_class_seq_fops = {
+	.owner   = THIS_MODULE,
+	.open    = osc_class_seq_open,
+	.read    = seq_read,
+	.llseek  = seq_lseek,
+	.release = seq_release,
+};
+
 struct lprocfs_vars lprocfs_osc_obd_vars[] = {
 	{ .name	=	"uuid",
 	  .fops	=	&osc_uuid_fops			},
@@ -663,6 +754,8 @@ struct lprocfs_vars lprocfs_osc_obd_vars[] = {
 	  .fops	=	&osc_pinger_recov_fops		},
 	{ .name	=	"unstable_stats",
 	  .fops	=	&osc_unstable_stats_fops	},
+	{ .name	=	"osc_cache_class",
+	  .fops	=	&osc_class_seq_fops		},
 	{ NULL }
 };
 

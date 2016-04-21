@@ -328,6 +328,10 @@ struct client_obd {
 	void			*cl_lru_work;
 	/* hash tables for osc_quota_info */
 	struct cfs_hash		*cl_quota_hash[MAXQUOTAS];
+	/* OSC cache class data structs */
+	struct cfs_binheap	*cl_class_heap;
+	struct cfs_hash		*cl_class_hash;
+	struct list_head	 cl_class_list;
 };
 #define obd2cli_tgt(obd) ((char *)(obd)->u.cli.cl_target_uuid.uuid)
 
