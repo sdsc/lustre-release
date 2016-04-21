@@ -621,7 +621,7 @@ out:
  * \retval cdt_restore_handle found
  * \retval NULL not found
  */
-static struct cdt_restore_handle *hsm_restore_hdl_find(struct coordinator *cdt,
+struct cdt_restore_handle *hsm_restore_hdl_find(struct coordinator *cdt,
 						       const struct lu_fid *fid)
 {
 	struct cdt_restore_handle	*crh;
@@ -681,6 +681,17 @@ static int hsm_restore_cb(const struct lu_env *env,
 		RETURN(0);
 
 	/* restore request not in a final state */
+
+	/* force replay of restore requests left in started state from previous
+	 * CDT context, to be canceled later if finally found to be incompatible
+	 * when being re-started */
+	if (larr->arr_status == ARS_STARTED) {
+		larr->arr_status = ARS_WAITING;
+		larr->arr_req_change = cfs_time_current_sec();
+		rc = llog_write(env, llh, hdr, hdr->lrh_index);
+		if (rc != 0)
+			GOTO(out, rc);
+	}
 
 	OBD_SLAB_ALLOC_PTR(crh, mdt_hsm_cdt_kmem);
 	if (crh == NULL)
