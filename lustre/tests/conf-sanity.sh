@@ -6297,9 +6297,10 @@ generate_ldev_conf() {
 	# generate an ldev.conf file
 	local ldevconfpath=$1
 	touch $ldevconfpath
-	printf "%s\t-\t%s-MGS0000\t%s\n" \
+	printf "%s\t-\t%s-MGS0000\t%s:%s\n" \
 		$mgs_HOST \
 		$FSNAME \
+		$(facet_fstype mgs) \
 		$(mgsdevname) >> $ldevconfpath
 
 	local mdsfo_host=$mdsfailover_HOST;
@@ -6308,11 +6309,12 @@ generate_ldev_conf() {
 	fi
 
 	for num in $(seq $MDSCOUNT); do
-		printf "%s\t%s\t%s-MDT%04d\t%s\n" \
+		printf "%s\t%s\t%s-MDT%04d\t%s:%s\n" \
 			$mds_HOST \
 			$mdsfo_host \
 			$FSNAME \
 			$num \
+			$(facet_fstype mds$num) \
 			$(mdsdevname $num) >> $ldevconfpath
 	done
 
@@ -6322,11 +6324,12 @@ generate_ldev_conf() {
 	fi
 
 	for num in $(seq $OSTCOUNT); do
-		printf "%s\t%s\t%s-OST%04d\t%s\n" \
+		printf "%s\t%s\t%s-OST%04d\t%s:%s\n" \
 			$ost_HOST \
 			$ostfo_host \
 			$FSNAME \
 			$num \
+			$(facet_fstype ost$num) \
 			$(ostdevname $num) >> $ldevconfpath
 	done
 }
@@ -6397,6 +6400,225 @@ test_92() {
 	rm $LDEVCONFPATH $NIDSPATH
 }
 run_test 92 "ldev returns MGS NID correctly in command substitution"
+
+test_93() {
+	local LDEVCONFPATH=$TMP/ldev.conf
+	local NIDSPATH=$TMP/nids
+
+	generate_ldev_conf $LDEVCONFPATH
+	generate_nids $NIDSPATH
+
+	echo "----- ldev.conf -----"
+	cat $LDEVCONFPATH
+	echo "--- END ldev.conf ---"
+
+	echo "----- /etc/nids -----"
+	cat $NIDSPATH
+	echo "--- END /etc/nids ---"
+
+	# ldev can be in our build tree and if we aren't in a
+	# build tree, use 'which' to try and find it
+	local LDEV=$LUSTRE/scripts/ldev
+	[ ! -f "$LDEV" ] && local LDEV=$(which ldev 2> /dev/null)
+
+	echo "ldev path is $LDEV"
+
+	if [ ! -f "$LDEV" ]; then
+		rm $LDEVCONFPATH $NIDSPATH
+		error "failed to find ldev!"
+	fi
+
+	local LDEV_HOST_LIST=$TMP/ldev-output-hostnames.txt
+	perl $LDEV -c $LDEVCONFPATH -n $NIDSPATH -F $FSNAME > $LDEV_HOST_LIST
+
+	# ldev failed, error
+	if [ $? -ne 0 ]; then
+		rm $LDEVCONFPATH $NIDSPATH
+		error "ldev failed to execute!"
+	fi
+
+	sort $LDEV_HOST_LIST -o $LDEV_HOST_LIST
+
+	echo "-- START OF LDEV OUTPUT --"
+	cat $LDEV_HOST_LIST
+	echo "--- END OF LDEV OUTPUT ---"
+
+	# expected output
+	local EXPECTED_HOST_LIST=$TMP/ldev-expected-hostnames.txt
+
+	echo $mgs_HOST >> $EXPECTED_HOST_LIST
+
+	local mdsfo_host=$mdsfailover_HOST;
+	if [ -n "$mdsfo_host" ]; then
+		echo $mdsfo_host >> $EXPECTED_HOST_LIST
+	fi
+
+	echo $mds_HOST >> $EXPECTED_HOST_LIST
+
+	local ostfo_host=$ostfailover_HOST;
+	if [ -n "$ostfo_host" ]; then
+		echo $ostfo_host >> $EXPECTED_HOST_LIST
+	fi
+
+	echo $ost_HOST >> $EXPECTED_HOST_LIST
+	sort -u $EXPECTED_HOST_LIST -o $EXPECTED_HOST_LIST
+
+	echo "-- START OF EXPECTED OUTPUT --"
+	cat $EXPECTED_HOST_LIST
+	echo "--- END OF EXPECTED OUTPUT ---"
+
+	diff $EXPECTED_HOST_LIST $LDEV_HOST_LIST
+	if [ $? -ne 0 ]; then
+		rm $LDEVCONFPATH $NIDSPATH $EXPECTED_HOST_LIST $LDEV_HOST_LIST
+		error "ldev failed to produce the correct hostlist!"
+	fi
+
+	rm $LDEVCONFPATH $NIDSPATH $EXPECTED_HOST_LIST $LDEV_HOST_LIST
+}
+run_test 93 "ldev outputs correct hostlist for file system name query"
+
+test_94() {
+	local LDEVCONFPATH=$TMP/ldev.conf
+	local NIDSPATH=$TMP/nids
+
+	generate_ldev_conf $LDEVCONFPATH
+	generate_nids $NIDSPATH
+
+	echo "----- ldev.conf -----"
+	cat $LDEVCONFPATH
+	echo "--- END ldev.conf ---"
+
+	echo "----- /etc/nids -----"
+	cat $NIDSPATH
+	echo "--- END /etc/nids ---"
+
+	# ldev can be in our build tree and if we aren't in a
+	# build tree, use 'which' to try and find it
+	local LDEV=$LUSTRE/scripts/ldev
+	[ ! -f "$LDEV" ] && local LDEV=$(which ldev 2> /dev/null)
+
+	echo "ldev path is $LDEV"
+
+	if [ ! -f "$LDEV" ]; then
+		rm $LDEVCONFPATH $NIDSPATH
+		error "failed to find ldev!"
+	fi
+
+	local LDEV_OUTPUT=$TMP/ldev-output.txt
+	perl $LDEV -c $LDEVCONFPATH -n $NIDSPATH -H $mgs_HOST \
+		echo %H-%b | \
+		awk '{print $2'} > $LDEV_OUTPUT
+
+	# ldev failed, error
+	if [ $? -ne 0 ]; then
+		rm $LDEVCONFPATH $NIDSPATH $LDEV_OUTPUT
+		error "ldev failed to execute!"
+	fi
+
+	echo "-- START OF LDEV OUTPUT --"
+	cat $LDEV_OUTPUT
+	echo "--- END OF LDEV OUTPUT ---"
+
+	# expected output
+	local EXPECTED_OUTPUT=$TMP/ldev-expected-output.txt
+
+	echo "$mgs_HOST-$(facet_fstype mgs)" > $EXPECTED_OUTPUT
+
+	if [ "$mgs_HOST" == "$mds_HOST" ]; then
+		for num in $(seq $MDSCOUNT); do
+			echo "$mds_HOST-$(facet_fstype mds$num)" \
+			>> $EXPECTED_OUTPUT
+		done
+	fi
+
+	if [ "$mgs_HOST" == "$ost_HOST" ]; then
+		for num in $(seq $OSTCOUNT); do
+			echo "$ost_HOST-$(facet_fstype ost$num)" \
+			>> $EXPECTED_OUTPUT
+		done
+	fi
+
+	sort $EXPECTED_OUTPUT -o $EXPECTED_OUTPUT
+	sort $LDEV_OUTPUT -o $LDEV_OUTPUT
+
+	echo "-- START OF EXPECTED OUTPUT --"
+	cat $EXPECTED_OUTPUT
+	echo "--- END OF EXPECTED OUTPUT ---"
+
+	diff $EXPECTED_OUTPUT $LDEV_OUTPUT
+	if [ $? -ne 0 ]; then
+		rm $LDEVCONFPATH $NIDSPATH $EXPECTED_OUTPUT $LDEV_OUTPUT
+		error "ldev failed to produce the correct output!"
+	fi
+
+	rm $LDEVCONFPATH $NIDSPATH $EXPECTED_OUTPUT $LDEV_OUTPUT
+}
+run_test 94 "ldev returns hostname and backend fs correctly in command sub"
+
+test_95() {
+	local LDEVCONFPATH=$TMP/ldev.conf
+	local NIDSPATH=$TMP/nids
+
+	generate_ldev_conf $LDEVCONFPATH
+	generate_nids $NIDSPATH
+
+	echo "----- ldev.conf -----"
+	cat $LDEVCONFPATH
+	echo "--- END ldev.conf ---"
+
+	echo "----- /etc/nids -----"
+	cat $NIDSPATH
+	echo "--- END /etc/nids ---"
+
+	# ldev can be in our build tree and if we aren't in a
+	# build tree, use 'which' to try and find it
+	local LDEV=$LUSTRE/scripts/ldev
+	[ ! -f "$LDEV" ] && local LDEV=$(which ldev 2> /dev/null)
+
+	echo "ldev path is $LDEV"
+
+	if [ ! -f "$LDEV" ]; then
+		rm $LDEVCONFPATH $NIDSPATH
+		error "failed to find ldev!"
+	fi
+
+	local LDEV_OUTPUT=$TMP/ldev-output.txt
+	perl $LDEV -c $LDEVCONFPATH -n $NIDSPATH -l -R mdt -H $mds_HOST \
+		 > $LDEV_OUTPUT
+
+	# ldev failed, error
+	if [ $? -ne 0 ]; then
+		rm $LDEVCONFPATH $NIDSPATH $LDEV_OUTPUT
+		error "ldev failed to execute!"
+	fi
+
+	echo "-- START OF LDEV OUTPUT --"
+	cat $LDEV_OUTPUT
+	echo "--- END OF LDEV OUTPUT ---"
+
+	# expected output
+	local EXPECTED_OUTPUT=$TMP/ldev-expected-output.txt
+
+	for num in $(seq $MDSCOUNT); do
+		printf "%s-MDT%04d\n" $FSNAME $num >> $EXPECTED_OUTPUT
+	done
+
+	sort $EXPECTED_OUTPUT -o $EXPECTED_OUTPUT
+	sort $LDEV_OUTPUT -o $LDEV_OUTPUT
+
+	echo "-- START OF EXPECTED OUTPUT --"
+	cat $EXPECTED_OUTPUT
+	echo "--- END OF EXPECTED OUTPUT ---"
+
+	diff $EXPECTED_OUTPUT $LDEV_OUTPUT
+	if [ $? -ne 0 ]; then
+		rm $LDEVCONFPATH $NIDSPATH $EXPECTED_OUTPUT $LDEV_OUTPUT
+		error "ldev failed to produce the correct output!"
+	fi
+
+	rm $LDEVCONFPATH $NIDSPATH $EXPECTED_OUTPUT $LDEV_OUTPUT
+}
+run_test 95 "ldev returns correct ouput when querying based on role"
 
 if ! combined_mgs_mds ; then
 	stop mgs
