@@ -28,9 +28,12 @@ Parse ldev.conf and answer the following queries:
   -r, --raidtab LABEL Print raidtab of LABEL if it exists.
   -t, --type LABEL    Print device type of LABEL, i.e. "zfs" or "md".
   -z, --zpool LABEL   Print zpool containing LABEL.
+  -R, --role ROLE     Filter output based on role, i.e. mdt, ost, mgs, mgt.
+  -F, --filesys NAME  Print all hostnames for file system NAME.
   CMD [ARGS] ...      Run CMD in parallel for each device substituting:
                       %f=fsname  %d=device  %i=dec-index %n=main-nid %l=label
                       %t=srvtype %j=journal %I=hex-index %N=fail-nid %m=mgs-nid
+                      %H=hostname %b=backing-fs
                       May be used in combination with -l, -f, -a options.
 EOF
 
@@ -62,6 +65,7 @@ query_journal ()  if $conf{journal};
 query_raidtab ()  if $conf{raidtab};
 query_type ()     if $conf{type};
 query_zpool ()    if $conf{zpool};
+query_filesys ()  if $conf{fsname};
 
 exit(0);
 
@@ -85,6 +89,8 @@ sub parse_cmdline
     $conf{sanity} = 0;
     $conf{execcmd} = "";
     $conf{journal} = "";
+    $conf{role} = "";
+    $conf{fsname} = "";
 
     my $rc = GetOptions (
         "help|h!"         => \$help,
@@ -101,6 +107,8 @@ sub parse_cmdline
         "raidtab|r=s"     => \$conf{raidtab},
         "type|t=s"        => \$conf{type},
         "zpool|z=s"       => \$conf{zpool},
+        "role|R=s"        => \$conf{role},
+        "filesys|F=s"     => \$conf{fsname},
     );
 
     usage() if $help || !$rc;
@@ -128,6 +136,7 @@ sub parse_config
     my %label2hostname = ();
     my @local_labels = ();
     my @foreign_labels = ();
+    my %filesys_hostnames = ();
 
     open (CONF, "< $conf{config}") or log_fatal ("$conf{config}: $!\n");
 
@@ -168,10 +177,20 @@ sub parse_config
             $filesys2mgs{$filesys} = $label;
         }
 
+        next if $conf{role} and lc $conf{role} ne lc $nodetype;
+
         if ($local eq $conf{hostname}) {
             push @local_labels, $label;
         } elsif ($foreign eq $conf{hostname}) {
             push @foreign_labels, $label;
+        }
+
+        if ($conf{fsname} and $filesys eq $conf{fsname}) {
+            $filesys_hostnames{$local} = 0;
+
+            if ($foreign ne "-") {
+                $filesys_hostnames{$foreign} = 0;
+            }
         }
     }
     close CONF;
@@ -185,6 +204,7 @@ sub parse_config
 
     @{$conf{local_labels}} = @local_labels;
     @{$conf{foreign_labels}} = @foreign_labels;
+    @{$conf{fs_hostnames}} = keys %filesys_hostnames;
     %{$conf{l2f}} = %l2f;
     %{$conf{label2dev}} = %label2dev;
     %{$conf{label2local}} = %label2local;
@@ -240,6 +260,11 @@ sub query_local
 sub query_foreign
 {
     map { print "$_\n"; } @{$conf{foreign_labels}};
+}
+
+sub query_filesys
+{
+    map { print "$_\n"; } @{$conf{fs_hostnames}};
 }
 
 sub query_all
@@ -396,6 +421,7 @@ sub exec_cmd
     my @labels = ();
     my @cmds = ();
     my %label2dev = %{$conf{label2dev}};
+    my %label2type = %{$conf{label2type}};
     my %label2journal = %{$conf{label2journal}};
     my %filesys2mgs = %{$conf{filesys2mgs}};
     my %label2hostname = %{$conf{label2hostname}};
@@ -427,6 +453,7 @@ sub exec_cmd
     } else {
         @labels = (@{$conf{local_labels}}, @{$conf{foreign_labels}});
     }
+
     foreach (@labels) {
         /(\w+)-(OST|MDT|MGT|MGS)([0-9a-fA-F]{4})/;
 
@@ -441,6 +468,8 @@ sub exec_cmd
             log_fatal ("%j used but no journal defined for $_\n");
         }
         my $journal = $label2journal{$_};
+        my $fstype = $label2type{$_};
+        my $hostname = $label2hostname{$_};
         my $mgsnid;
         if ($cmd =~ /%m/) {
             if (!exists $filesys2mgs{$fsname}) {
@@ -470,6 +499,8 @@ sub exec_cmd
         $cmd =~ s/%n/$nid/g;     # %n = nid
         $cmd =~ s/%N/$failnid/g; # %N = failnid
         $cmd =~ s/%m/$mgsnid/g;  # %m = MGS nid
+        $cmd =~ s/%b/$fstype/g;  # %b = backing file system type
+        $cmd =~ s/%H/$hostname/g;# %H = hostname
 
         push @cmds, "$_ $cmd";
     }
