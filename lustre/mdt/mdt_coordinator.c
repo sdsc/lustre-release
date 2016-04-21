@@ -704,7 +704,7 @@ out:
  * \retval cdt_restore_handle found
  * \retval NULL not found
  */
-static struct cdt_restore_handle *hsm_restore_hdl_find(struct coordinator *cdt,
+struct cdt_restore_handle *hsm_restore_hdl_find(struct coordinator *cdt,
 						       const struct lu_fid *fid)
 {
 	struct cdt_restore_handle	*crh;
