@@ -704,7 +704,7 @@ out:
  * \retval cdt_restore_handle found
  * \retval NULL not found
  */
-static struct cdt_restore_handle *hsm_restore_hdl_find(struct coordinator *cdt,
+struct cdt_restore_handle *hsm_restore_hdl_find(struct coordinator *cdt,
 						       const struct lu_fid *fid)
 {
 	struct cdt_restore_handle	*crh;
@@ -791,6 +791,22 @@ static int hsm_restore_cb(const struct lu_env *env,
 	mutex_lock(&cdt->cdt_restore_lock);
 	list_add_tail(&crh->crh_list, &cdt->cdt_restore_hdl);
 	mutex_unlock(&cdt->cdt_restore_lock);
+
+	/* replay restore requests left in started state from previous
+	 * CDT context, to be canceled later if finally found to be
+	 * incompatible when being re-started */
+	if (larr->arr_status == ARS_STARTED) {
+		larr->arr_status = ARS_WAITING;
+		larr->arr_req_change = cfs_time_current_sec();
+		rc = mdt_agent_llog_update_rec(env, mti->mti_mdt, llh, larr);
+		if (rc != 0) {
+			/* give back layout lock */
+			mdt_object_unlock(mti, child, &crh->crh_lh, 1);
+			list_del(&crh->crh_list);
+		}
+		/* delete original record */
+		RETURN(LLOG_DEL_RECORD);
+	}
 
 out:
 	RETURN(rc);
