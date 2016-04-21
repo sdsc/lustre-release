@@ -54,6 +54,16 @@ fi
 [ -z "$MODPROBECONF" -a -f /etc/modprobe.conf ] &&
     MODPROBECONF=/etc/modprobe.conf
 
+sanitize_parameters() {
+	for i in DIR DIR1 DIR2 MOUNT MOUNT1 MOUNT2
+	do
+		local path=${!i}
+		if [ -d "$path" ]; then
+			eval export $i=$(echo $path | sed -r 's/\/+$//g')
+		fi
+	done
+}
+
 assert_DIR () {
     local failed=""
     [[ $DIR/ = $MOUNT/* ]] || \
