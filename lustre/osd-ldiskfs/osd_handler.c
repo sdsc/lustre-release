@@ -1213,6 +1213,26 @@ static void osd_trans_commit_cb(struct super_block *sb,
 	OBD_FREE_PTR(oh);
 }
 
+#ifdef HAVE_WRAPPED_FS_FREEZE
+static inline void osd_start_write(struct dt_device *d)
+{
+	sb_start_write(osd_sb(osd_dt_dev(d)));
+}
+
+static inline void osd_end_write(struct dt_device *d)
+{
+	sb_end_write(osd_sb(osd_dt_dev(d)));
+}
+#else
+static inline void osd_start_write(struct dt_device *d)
+{
+}
+
+static inline void osd_end_write(struct dt_device *d)
+{
+}
+#endif
+
 static struct thandle *osd_trans_create(const struct lu_env *env,
 					struct dt_device *d)
 {
@@ -1225,7 +1245,8 @@ static struct thandle *osd_trans_create(const struct lu_env *env,
 	/* on pending IO in this thread should left from prev. request */
 	LASSERT(atomic_read(&iobuf->dr_numreqs) == 0);
 
-	th = ERR_PTR(-ENOMEM);
+	osd_start_write(d);
+
 	OBD_ALLOC_GFP(oh, sizeof *oh, GFP_NOFS);
 	if (oh != NULL) {
 		oh->ot_quota_trans = &oti->oti_quota_trans;
@@ -1245,6 +1266,9 @@ static struct thandle *osd_trans_create(const struct lu_env *env,
 		       sizeof(oti->oti_declare_ops_cred));
 		memset(oti->oti_declare_ops_used, 0,
 		       sizeof(oti->oti_declare_ops_used));
+	} else {
+		osd_end_write(d);
+		th = ERR_PTR(-ENOMEM);
 	}
 	RETURN(th);
 }
@@ -1485,6 +1509,8 @@ static int osd_trans_stop(const struct lu_env *env, struct dt_device *dt,
 
 	if (unlikely(remove_agents != 0))
 		osd_process_scheduled_agent_removals(env, osd);
+
+	osd_end_write(dt);
 
 	RETURN(rc);
 }

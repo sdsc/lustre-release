@@ -2045,6 +2045,23 @@ key_payload_data_array, [
 ]) #LC_HAVE_KEY_PAYLOAD_DATA_ARRAY
 
 #
+# LC_HAVE_WRAPPED_FS_FREEZE
+#
+# 2.6.32, 3.10 or newers support wrapped FS freeze functions
+#
+AC_DEFUN([LC_HAVE_WRAPPED_FS_FREEZE], [
+LB_CHECK_COMPILE([if kernel supports wrapped FS freeze functions],
+wrapped_fs_freeze, [
+	#include <linux/fs.h>
+],[
+	sb_start_write(NULL);
+],[
+	AC_DEFINE(HAVE_WRAPPED_FS_FREEZE, 1,
+		[kernel supports wrapped FS freeze functions])
+])
+]) # LC_HAVE_WRAPPED_FS_FREEZE
+
+#
 # LC_PROG_LINUX
 #
 # Lustre linux kernel checks
@@ -2151,6 +2168,7 @@ AC_DEFUN([LC_PROG_LINUX], [
 	LC_BLKDEV_RELEASE_RETURN_INT
 	LC_HAVE_REMOVE_PROC_SUBTREE
 	LC_HAVE_PROC_REMOVE
+	LC_HAVE_WRAPPED_FS_FREEZE
 
 	# 3.11
 	LC_INVALIDATE_RANGE
