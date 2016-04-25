@@ -443,6 +443,8 @@ enum stats_track_type {
 #define LL_SBI_NOROOTSQUASH  0x100000 /* do not apply root squash */
 #define LL_SBI_ALWAYS_PING   0x200000 /* always ping even if server
 				       * suppress_pings */
+#define LL_SBI_GROUPLOCK     0x400000 /* always acquire grouplock when opening
+				       * files */
 
 #define LL_SBI_FLAGS { 	\
 	"nolck",	\
@@ -467,6 +469,7 @@ enum stats_track_type {
 	"xattr_cache",	\
 	"norootsquash",	\
 	"always_ping",	\
+	"grouplock=%lu",	\
 }
 
 #define RCE_HASHES      32
@@ -581,6 +584,8 @@ struct ll_sb_info {
 
 	/* root squash */
 	struct root_squash_info	  ll_squash;
+	/* Group ID of grouplock */
+	unsigned long		  ll_grouplock_id;
 };
 
 /*
