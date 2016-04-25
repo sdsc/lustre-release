@@ -296,10 +296,10 @@ command_t cmdlist[] = {
         {"===  Changelogs ==", jt_noop, 0, "changelog user management"},
         {"changelog_register", jt_changelog_register, 0,
          "register a new persistent changelog user, returns id\n"
-         "usage:\tdevice <mdtname>\n\tchangelog_register [-n]"},
+         "usage: --device <mdtname> changelog_register [-n]"},
         {"changelog_deregister", jt_changelog_deregister, 0,
          "deregister an existing changelog user\n"
-         "usage:\tdevice <mdtname>\n\tchangelog_deregister <id>"},
+         "usage: --device <mdtname> changelog_deregister <id>"},
 
         /* Device configuration commands */
         {"== device setup (these are not normally used post 1.4) ==",
