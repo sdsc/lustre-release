@@ -802,49 +802,50 @@ static inline int ll_set_opt(const char *opt, char *data, int fl)
 }
 
 /* non-client-specific mount options are parsed in lmd_parse */
-static int ll_options(char *options, int *flags)
+static int ll_options(char *options, struct ll_sb_info *sbi)
 {
-        int tmp;
-        char *s1 = options, *s2;
-        ENTRY;
+	int tmp;
+	char *s1 = options, *s2;
+	unsigned long grouplock_id;
+	ENTRY;
 
-        if (!options)
-                RETURN(0);
+	if (!options)
+		RETURN(0);
 
-        CDEBUG(D_CONFIG, "Parsing opts %s\n", options);
+	CDEBUG(D_CONFIG, "Parsing opts %s\n", options);
 
-        while (*s1) {
-                CDEBUG(D_SUPER, "next opt=%s\n", s1);
-                tmp = ll_set_opt("nolock", s1, LL_SBI_NOLCK);
-                if (tmp) {
-                        *flags |= tmp;
-                        goto next;
-                }
-                tmp = ll_set_opt("flock", s1, LL_SBI_FLOCK);
-                if (tmp) {
-                        *flags |= tmp;
-                        goto next;
-                }
-                tmp = ll_set_opt("localflock", s1, LL_SBI_LOCALFLOCK);
-                if (tmp) {
-                        *flags |= tmp;
-                        goto next;
-                }
-                tmp = ll_set_opt("noflock", s1, LL_SBI_FLOCK|LL_SBI_LOCALFLOCK);
-                if (tmp) {
-                        *flags &= ~tmp;
-                        goto next;
-                }
-                tmp = ll_set_opt("user_xattr", s1, LL_SBI_USER_XATTR);
-                if (tmp) {
-                        *flags |= tmp;
-                        goto next;
-                }
-                tmp = ll_set_opt("nouser_xattr", s1, LL_SBI_USER_XATTR);
-                if (tmp) {
-                        *flags &= ~tmp;
-                        goto next;
-                }
+	while (*s1) {
+		CDEBUG(D_SUPER, "next opt=%s\n", s1);
+		tmp = ll_set_opt("nolock", s1, LL_SBI_NOLCK);
+		if (tmp) {
+			sbi->ll_flags |= tmp;
+			goto next;
+		}
+		tmp = ll_set_opt("flock", s1, LL_SBI_FLOCK);
+		if (tmp) {
+			sbi->ll_flags |= tmp;
+			goto next;
+		}
+		tmp = ll_set_opt("localflock", s1, LL_SBI_LOCALFLOCK);
+		if (tmp) {
+			sbi->ll_flags |= tmp;
+			goto next;
+		}
+		tmp = ll_set_opt("noflock", s1, LL_SBI_FLOCK|LL_SBI_LOCALFLOCK);
+		if (tmp) {
+			sbi->ll_flags &= ~tmp;
+			goto next;
+		}
+		tmp = ll_set_opt("user_xattr", s1, LL_SBI_USER_XATTR);
+		if (tmp) {
+			sbi->ll_flags |= tmp;
+			goto next;
+		}
+		tmp = ll_set_opt("nouser_xattr", s1, LL_SBI_USER_XATTR);
+		if (tmp) {
+			sbi->ll_flags &= ~tmp;
+			goto next;
+		}
 		tmp = ll_set_opt("context", s1, 1);
 		if (tmp)
 			goto next;
@@ -859,82 +860,89 @@ static int ll_options(char *options, int *flags)
 			goto next;
 		tmp = ll_set_opt("remote_client", s1, LL_SBI_RMT_CLIENT);
 		if (tmp) {
-			*flags |= tmp;
+			sbi->ll_flags |= tmp;
 			goto next;
 		}
 		tmp = ll_set_opt("user_fid2path", s1, LL_SBI_USER_FID2PATH);
 		if (tmp) {
-			*flags |= tmp;
+			sbi->ll_flags |= tmp;
 			goto next;
 		}
 		tmp = ll_set_opt("nouser_fid2path", s1, LL_SBI_USER_FID2PATH);
 		if (tmp) {
-			*flags &= ~tmp;
+			sbi->ll_flags &= ~tmp;
 			goto next;
 		}
 
-                tmp = ll_set_opt("checksum", s1, LL_SBI_CHECKSUM);
-                if (tmp) {
-                        *flags |= tmp;
-                        goto next;
-                }
-                tmp = ll_set_opt("nochecksum", s1, LL_SBI_CHECKSUM);
-                if (tmp) {
-                        *flags &= ~tmp;
-                        goto next;
-                }
-                tmp = ll_set_opt("lruresize", s1, LL_SBI_LRU_RESIZE);
-                if (tmp) {
-                        *flags |= tmp;
-                        goto next;
-                }
-                tmp = ll_set_opt("nolruresize", s1, LL_SBI_LRU_RESIZE);
-                if (tmp) {
-                        *flags &= ~tmp;
-                        goto next;
-                }
-                tmp = ll_set_opt("lazystatfs", s1, LL_SBI_LAZYSTATFS);
-                if (tmp) {
-                        *flags |= tmp;
-                        goto next;
-                }
-                tmp = ll_set_opt("nolazystatfs", s1, LL_SBI_LAZYSTATFS);
-                if (tmp) {
-                        *flags &= ~tmp;
-                        goto next;
-                }
-                tmp = ll_set_opt("32bitapi", s1, LL_SBI_32BIT_API);
-                if (tmp) {
-                        *flags |= tmp;
-                        goto next;
-                }
-                tmp = ll_set_opt("verbose", s1, LL_SBI_VERBOSE);
-                if (tmp) {
-                        *flags |= tmp;
-                        goto next;
-                }
-                tmp = ll_set_opt("noverbose", s1, LL_SBI_VERBOSE);
-                if (tmp) {
-                        *flags &= ~tmp;
-                        goto next;
-                }
+		tmp = ll_set_opt("checksum", s1, LL_SBI_CHECKSUM);
+		if (tmp) {
+			sbi->ll_flags |= tmp;
+			goto next;
+		}
+		tmp = ll_set_opt("nochecksum", s1, LL_SBI_CHECKSUM);
+		if (tmp) {
+			sbi->ll_flags &= ~tmp;
+			goto next;
+		}
+		tmp = ll_set_opt("lruresize", s1, LL_SBI_LRU_RESIZE);
+		if (tmp) {
+			sbi->ll_flags |= tmp;
+			goto next;
+		}
+		tmp = ll_set_opt("nolruresize", s1, LL_SBI_LRU_RESIZE);
+		if (tmp) {
+			sbi->ll_flags &= ~tmp;
+			goto next;
+		}
+		tmp = ll_set_opt("lazystatfs", s1, LL_SBI_LAZYSTATFS);
+		if (tmp) {
+			sbi->ll_flags |= tmp;
+			goto next;
+		}
+		tmp = ll_set_opt("nolazystatfs", s1, LL_SBI_LAZYSTATFS);
+		if (tmp) {
+			sbi->ll_flags &= ~tmp;
+			goto next;
+		}
+		tmp = ll_set_opt("32bitapi", s1, LL_SBI_32BIT_API);
+		if (tmp) {
+			sbi->ll_flags |= tmp;
+			goto next;
+		}
+		tmp = ll_set_opt("verbose", s1, LL_SBI_VERBOSE);
+		if (tmp) {
+			sbi->ll_flags |= tmp;
+			goto next;
+		}
+		tmp = ll_set_opt("noverbose", s1, LL_SBI_VERBOSE);
+		if (tmp) {
+			sbi->ll_flags &= ~tmp;
+			goto next;
+		}
 		tmp = ll_set_opt("always_ping", s1, LL_SBI_ALWAYS_PING);
 		if (tmp) {
-			*flags |= tmp;
+			sbi->ll_flags |= tmp;
 			goto next;
 		}
-                LCONSOLE_ERROR_MSG(0x152, "Unknown option '%s', won't mount.\n",
-                                   s1);
-                RETURN(-EINVAL);
+		tmp = ll_set_opt("grouplock=", s1, LL_SBI_GROUPLOCK);
+		if (tmp && (kstrtoul(&s1[strlen("grouplock=")], 10,
+				     &grouplock_id) == 0)) {
+			sbi->ll_flags |= tmp;
+			sbi->ll_grouplock_id = grouplock_id;
+			goto next;
+		}
+		LCONSOLE_ERROR_MSG(0x152, "Unknown option '%s', won't mount.\n",
+				   s1);
+		RETURN(-EINVAL);
 
 next:
-                /* Find next opt */
-                s2 = strchr(s1, ',');
-                if (s2 == NULL)
-                        break;
-                s1 = s2 + 1;
-        }
-        RETURN(0);
+		/* Find next opt */
+		s2 = strchr(s1, ',');
+		if (s2 == NULL)
+			break;
+		s1 = s2 + 1;
+	}
+	RETURN(0);
 }
 
 void ll_lli_init(struct ll_inode_info *lli)
@@ -1025,7 +1033,7 @@ int ll_fill_super(struct super_block *sb, struct vfsmount *mnt)
 		RETURN(-ENOMEM);
 	}
 
-        err = ll_options(lsi->lsi_lmd->lmd_opts, &sbi->ll_flags);
+	err = ll_options(lsi->lsi_lmd->lmd_opts, sbi);
         if (err)
                 GOTO(out_free, err);
 
@@ -2552,6 +2560,9 @@ int ll_show_options(struct seq_file *seq, struct vfsmount *vfs)
 
 	if (sbi->ll_flags & LL_SBI_ALWAYS_PING)
 		seq_puts(seq, ",always_ping");
+
+	if (sbi->ll_flags & LL_SBI_GROUPLOCK)
+		seq_printf(seq, ",groulock=%lu", sbi->ll_grouplock_id);
 
         RETURN(0);
 }

@@ -476,6 +476,9 @@ static int ll_local_open(struct file *file, struct lookup_intent *it,
 	RETURN(0);
 }
 
+static int
+ll_get_grouplock(struct inode *inode, struct file *file, unsigned long arg);
+
 /* Open a file, and (for the very first open) create objects on the OSTs at
  * this time.  If opened with O_LOV_DELAY_CREATE, then we don't do the object
  * creation or open until ll_lov_setstripe() ioctl is called.
@@ -498,6 +501,7 @@ int ll_file_open(struct inode *inode, struct file *file)
 	__u64 *och_usecount = NULL;
 	struct ll_file_data *fd;
 	int rc = 0;
+	struct ll_sb_info *sbi = ll_i2sbi(inode);
 	ENTRY;
 
 	CDEBUG(D_VFSTRACE, "VFS Op:inode="DFID"(%p), flags %o\n",
@@ -635,6 +639,12 @@ restart:
 	}
 	mutex_unlock(&lli->lli_och_mutex);
         fd = NULL;
+
+	if (sbi->ll_flags & LL_SBI_GROUPLOCK) {
+		rc = ll_get_grouplock(inode, file, sbi->ll_grouplock_id);
+		if (rc)
+			GOTO(out_och_free, rc);
+	}
 
         /* Must do this outside lli_och_mutex lock to prevent deadlock where
            different kind of OPEN lock for this same inode gets cancelled
