@@ -58,21 +58,26 @@
 static int import_set_conn(struct obd_import *imp, struct obd_uuid *uuid,
                            int priority, int create)
 {
-        struct ptlrpc_connection *ptlrpc_conn;
-        struct obd_import_conn *imp_conn = NULL, *item;
-        int rc = 0;
-        ENTRY;
+	struct ptlrpc_connection *ptlrpc_conn;
+	struct obd_import_conn *imp_conn = NULL, *item;
+	lnet_nid_t nid4refnet = LNET_NID_ANY;
+	int rc = 0;
+	ENTRY;
 
         if (!create && !priority) {
                 CDEBUG(D_HA, "Nothing to do\n");
                 RETURN(-EINVAL);
         }
 
-        ptlrpc_conn = ptlrpc_uuid_to_connection(uuid);
-        if (!ptlrpc_conn) {
-                CDEBUG(D_HA, "can't find connection %s\n", uuid->uuid);
-                RETURN (-ENOENT);
-        }
+	if (imp->imp_connection &&
+	    imp->imp_connection->c_remote_uuid.uuid[0] == 0)
+		/* nid4refnet is used to restrict network connections */
+		nid4refnet = imp->imp_connection->c_self;
+	ptlrpc_conn = ptlrpc_uuid_to_connection(uuid, nid4refnet);
+	if (!ptlrpc_conn) {
+		CDEBUG(D_HA, "can't find connection %s\n", uuid->uuid);
+		RETURN(-ENOENT);
+	}
 
         if (create) {
                 OBD_ALLOC(imp_conn, sizeof(*imp_conn));
@@ -257,6 +262,7 @@ static int osc_on_mdt(char *obdname)
  * 1 - client UUID
  * 2 - server UUID
  * 3 - inactive-on-startup
+ * 4 - restrictive net
  */
 int client_obd_setup(struct obd_device *obddev, struct lustre_cfg *lcfg)
 {
@@ -267,6 +273,7 @@ int client_obd_setup(struct obd_device *obddev, struct lustre_cfg *lcfg)
 	char *name = obddev->obd_type->typ_name;
 	enum ldlm_ns_type ns_type = LDLM_NS_TYPE_UNKNOWN;
 	char *cli_name = lustre_cfg_buf(lcfg, 0);
+	struct ptlrpc_connection fake_conn;
 	int rc;
 	ENTRY;
 
@@ -457,11 +464,20 @@ int client_obd_setup(struct obd_device *obddev, struct lustre_cfg *lcfg)
                LUSTRE_CFG_BUFLEN(lcfg, 1));
         class_import_put(imp);
 
-        rc = client_import_add_conn(imp, &server_uuid, 1);
-        if (rc) {
-                CERROR("can't add initial connection\n");
-                GOTO(err_import, rc);
-        }
+	if (lustre_cfg_buf(lcfg, 4)) {
+		memset(&fake_conn, 0, sizeof(fake_conn));
+		fake_conn.c_self = LNET_MKNID(
+			libcfs_str2net(lustre_cfg_string(lcfg, 4)),
+			0);
+		imp->imp_connection = &fake_conn;
+	}
+
+	rc = client_import_add_conn(imp, &server_uuid, 1);
+	if (rc) {
+		CERROR("can't add initial connection\n");
+		GOTO(err_import, rc);
+	}
+	imp->imp_connection = NULL;
 
 	cli->cl_import = imp;
 	/* cli->cl_max_mds_easize updated by mdc_init_ea_size() */
