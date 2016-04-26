@@ -563,39 +563,6 @@ int iam_leaf_can_add(const struct iam_leaf *l,
 static int iam_leaf_check(struct iam_leaf *leaf)
 {
         return 1;
-#if 0
-        struct iam_lentry    *orig;
-        struct iam_path      *path;
-        struct iam_container *bag;
-        struct iam_ikey       *k0;
-        struct iam_ikey       *k1;
-        int result;
-        int first;
-
-        orig = leaf->il_at;
-        path = iam_leaf_path(leaf);
-        bag  = iam_leaf_container(leaf);
-
-        result = iam_leaf_ops(leaf)->init(leaf);
-        if (result != 0)
-                return result;
-
-        first = 1;
-        iam_leaf_start(leaf);
-        k0 = iam_path_ikey(path, 0);
-        k1 = iam_path_ikey(path, 1);
-        while (!iam_leaf_at_end(leaf)) {
-                iam_ikeycpy(bag, k0, k1);
-                iam_ikeycpy(bag, k1, iam_leaf_ikey(leaf, k1));
-                if (!first && iam_ikeycmp(bag, k0, k1) > 0) {
-                        return 0;
-                }
-                first = 0;
-                iam_leaf_next(leaf);
-        }
-        leaf->il_at = orig;
-        return 1;
-#endif
 }
 #endif
 
