@@ -6252,7 +6252,7 @@ static int osd_mount(const struct lu_env *env,
 	}
 #endif
 	if (opts != NULL && strstr(opts, "force_over_128tb") != NULL) {
-		CWARN("force_over_128tb option is depricated."
+		CWARN("force_over_128tb option is deprecated."
 		      "Filesystems less then 256TB can be created without any"
 		      "force options. Use force_over_256tb option for"
 		      "filesystems greather then 256TB.\n");
@@ -6278,9 +6278,7 @@ static int osd_mount(const struct lu_env *env,
 			"noextents",
 			/* strip out option we processed in osd */
 			"bigendian_extents",
-#if LUSTRE_VERSION_CODE >= OBD_OCD_VERSION(3,0,53,0)
-#warning "remove force_over_128 option"
-#else
+#if LUSTRE_VERSION_CODE < OBD_OCD_VERSION(3,0,53,0)
 			"force_over_128tb (deprecated)",
 #endif
 			"force_over_256tb",
