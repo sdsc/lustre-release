@@ -34,6 +34,10 @@
  * Lustre is a trademark of Sun Microsystems, Inc.
  */
 
+/*
+ * Canary change to see if the OOM problems are caused by MR changes.
+ */
+
 #define DEBUG_SUBSYSTEM S_LNET
 #include <linux/log2.h>
 #include <lnet/lib-lnet.h>
