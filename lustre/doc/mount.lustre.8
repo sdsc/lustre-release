@@ -112,6 +112,9 @@ Keys are inserted into the KEY_SPEC_SESSION_KEYRING keyring with a description
 containing "lustre:" and a suffix which depends on whether the context of the
 mount command is for an MGS, MDT/OST, or client.
 This option is only available when built with --enable-gss.
+.TP
+.BI network= net
+Network to restrict connections to.
 .PP
 In addition to the standard mount options and backing disk type
 (e.g. ext3) options listed in
