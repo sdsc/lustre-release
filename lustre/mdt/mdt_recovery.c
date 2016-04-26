@@ -332,13 +332,17 @@ static mdt_reconstructor reconstructors[REINT_MAX] = {
         [REINT_UNLINK]   = mdt_reconstruct_generic,
         [REINT_RENAME]   = mdt_reconstruct_generic,
         [REINT_OPEN]     = mdt_reconstruct_open,
-        [REINT_SETXATTR] = mdt_reconstruct_generic
+	[REINT_SETXATTR] = mdt_reconstruct_generic,
+	[REINT_RMENTRY]  = mdt_reconstruct_generic,
+	[REINT_MIGRATE] = mdt_reconstruct_generic
 };
 
 void mdt_reconstruct(struct mdt_thread_info *mti,
                      struct mdt_lock_handle *lhc)
 {
         ENTRY;
+	LASSERT(mti->mti_rr.rr_opcode < REINT_MAX &&
+		reconstructors[mti->mti_rr.rr_opcode] != NULL);
         reconstructors[mti->mti_rr.rr_opcode](mti, lhc);
         EXIT;
 }
