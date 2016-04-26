@@ -1582,7 +1582,8 @@ int class_config_llog_handler(const struct lu_env *env,
 				lcfg->lcfg_command = LCFG_LOV_ADD_INA;
 		}
 
-                lustre_cfg_bufs_init(&bufs, lcfg);
+		lustre_cfg_bufs_reset(&bufs, NULL);
+		lustre_cfg_bufs_init(&bufs, lcfg);
 
                 if (clli && clli->cfg_instance &&
                     LUSTRE_CFG_BUFLEN(lcfg, 0) > 0){
@@ -1623,6 +1624,46 @@ int class_config_llog_handler(const struct lu_env *env,
                         lustre_cfg_bufs_set_string(&bufs, 0,
                                                    clli->cfg_obdname);
                 }
+
+		/* Add net info to setup command
+		 * if given on command line.
+		 * So config log will be:
+		 * [0]: client name
+		 * [1]: client UUID
+		 * [2]: server UUID
+		 * [3]: inactive-on-startup
+		 * [4]: restrictive net
+		 */
+		if (clli && clli->cfg_sb && s2lsi(clli->cfg_sb) &&
+			!IS_SERVER(s2lsi(clli->cfg_sb))) {
+			struct lustre_sb_info *lsi = s2lsi(clli->cfg_sb);
+			char *nidnet = lsi->lsi_lmd->lmd_nidnet;
+			if (lcfg->lcfg_command == LCFG_SETUP &&
+			    lcfg->lcfg_bufcount != 2 && nidnet) {
+				CDEBUG(D_CONFIG, "Adding net %s info to setup "
+				       "command for client %s\n", nidnet,
+				       lustre_cfg_string(lcfg, 0));
+				lustre_cfg_bufs_set_string(&bufs, 4, nidnet);
+			}
+		}
+
+		/* Skip add_conn command if uuid is
+		 * not on restricted net */
+		if (clli && clli->cfg_sb && s2lsi(clli->cfg_sb) &&
+			!IS_SERVER(s2lsi(clli->cfg_sb))) {
+			struct lustre_sb_info *lsi = s2lsi(clli->cfg_sb);
+			char *uuid_str = lustre_cfg_string(lcfg, 1);
+			if (lcfg->lcfg_command == LCFG_ADD_CONN &&
+			    lsi->lsi_lmd->lmd_nidnet &&
+			    LNET_NIDNET(libcfs_str2nid(uuid_str)) !=
+			    libcfs_str2net(lsi->lsi_lmd->lmd_nidnet)) {
+				CDEBUG(D_CONFIG, "skipping add_conn for %s\n",
+				       uuid_str);
+				rc = 0;
+				/* No processing! */
+				break;
+			}
+		}
 
                 lcfg_new = lustre_cfg_new(lcfg->lcfg_command, &bufs);
 		if (lcfg_new == NULL)
