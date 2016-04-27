@@ -1106,10 +1106,18 @@ static int vvp_io_write_start(const struct lu_env *env,
 #ifdef HAVE_FILE_OPERATIONS_READ_WRITE_ITER
 		result = generic_file_write_iter(vio->vui_iocb, vio->vui_iter);
 #else
+#ifdef S_NOSEC
+		if (IS_NOSEC(inode))
+			mutex_lock(&inode->i_mutex);
+#endif
 		result = __generic_file_aio_write(vio->vui_iocb,
 						  vio->vui_iter->iov,
 						  vio->vui_iter->nr_segs,
 						  &vio->vui_iocb->ki_pos);
+#ifdef S_NOSEC
+		if (IS_NOSEC(inode))
+			mutex_unlock(&inode->i_mutex);
+#endif
 #endif
 		if (result > 0 || result == -EIOCBQUEUED) {
 			ssize_t err;
