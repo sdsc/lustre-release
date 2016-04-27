@@ -2195,7 +2195,7 @@ wait_delete_completed_mds() {
 	done
 	if [ -z "$mds2sync" ]; then
 		wait_zfs_commit $SINGLEMDS $ZFS_WAIT
-		return
+		return 0
 	fi
 	mds2sync=$(comma_list $mds2sync)
 
@@ -2213,7 +2213,17 @@ wait_delete_completed_mds() {
 		#echo "$node: $changes changes on all"
 		if [[ $changes -eq 0 ]]; then
 			wait_zfs_commit $SINGLEMDS $ZFS_WAIT
-			return
+			etime=$(date +%s)
+			#echo "delete took $((etime - stime)) seconds"
+
+			# the occupied disk space will be released
+			# only after DMUs are committed
+			if [[ $(facet_fstype $SINGLEMDS) == zfs ]]; then
+				echo "sleep $ZFS_WAIT for ZFS OSD"
+				sleep $ZFS_WAIT
+			fi
+
+			return 0
 		fi
 		sleep 1
 		WAIT=$(( WAIT + 1))
@@ -2222,6 +2232,7 @@ wait_delete_completed_mds() {
 	etime=$(date +%s)
 	echo "Delete is not completed in $((etime - stime)) seconds"
 	do_nodes $mds2sync "$LCTL get_param osc.*MDT*.sync_*"
+	return 1
 }
 
 wait_for_host() {
@@ -2363,7 +2374,7 @@ wait_destroy_complete () {
 
 wait_delete_completed() {
 	wait_delete_completed_mds $1 || return $?
-	wait_destroy_complete
+	wait_destroy_complete || return $?
 }
 
 wait_exit_ST () {
