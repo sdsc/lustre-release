@@ -1244,7 +1244,7 @@ struct ptlrpc_body_v2 {
 #define OBD_CONNECT_MULTIMODRPCS 0x200000000000000ULL /* support multiple modify
 							 RPCs in parallel */
 #define OBD_CONNECT_DIR_STRIPE	 0x400000000000000ULL /* striped DNE dir */
-#define OBD_CONNECT_SUBTREE	0x800000000000000ULL /* fileset mount */
+#define OBD_CONNECT_SUBTREE	0x800000000000000ULL /* subtree mount */
 #define OBD_CONNECT_LOCK_AHEAD	 0x1000000000000000ULL /* lock ahead */
 /** bulk matchbits is sent within ptlrpc_body */
 #define OBD_CONNECT_BULK_MBITS	 0x2000000000000000ULL

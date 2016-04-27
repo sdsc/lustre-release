@@ -87,18 +87,18 @@ static inline int mdc_queue_wait(struct ptlrpc_request *req)
 /*
  * Send MDS_GET_ROOT RPC to fetch root FID.
  *
- * If \a fileset is not NULL it should contain a subdirectory off
+ * If \a subtree is not NULL it should contain a subdirectory of
  * the ROOT/ directory to be mounted on the client. Return the FID
  * of the subdirectory to the client to mount onto its mountpoint.
  *
  * \param[in]	imp	MDC import
- * \param[in]	fileset	fileset name, which could be NULL
+ * \param[in]	subtree	subtree path, which could be NULL
  * \param[out]	rootfid	root FID of this mountpoint
  * \param[out]	pc	root capa will be unpacked and saved in this pointer
  *
  * \retval	0 on success, negative errno on failure
  */
-static int mdc_get_root(struct obd_export *exp, const char *fileset,
+static int mdc_get_root(struct obd_export *exp, const char *subtree,
 			 struct lu_fid *rootfid)
 {
 	struct ptlrpc_request	*req;
@@ -107,7 +107,7 @@ static int mdc_get_root(struct obd_export *exp, const char *fileset,
 
 	ENTRY;
 
-	if (fileset && !(exp_connect_flags(exp) & OBD_CONNECT_SUBTREE))
+	if (subtree && !(exp_connect_flags(exp) & OBD_CONNECT_SUBTREE))
 		RETURN(-ENOTSUPP);
 
 	req = ptlrpc_request_alloc(class_exp2cliimp(exp),
@@ -115,19 +115,19 @@ static int mdc_get_root(struct obd_export *exp, const char *fileset,
 	if (req == NULL)
 		RETURN(-ENOMEM);
 
-	if (fileset != NULL)
+	if (subtree != NULL)
 		req_capsule_set_size(&req->rq_pill, &RMF_NAME, RCL_CLIENT,
-				     strlen(fileset) + 1);
+				     strlen(subtree) + 1);
 	rc = ptlrpc_request_pack(req, LUSTRE_MDS_VERSION, MDS_GET_ROOT);
 	if (rc) {
 		ptlrpc_request_free(req);
 		RETURN(rc);
 	}
 	mdc_pack_body(req, NULL, 0, 0, -1, 0);
-	if (fileset != NULL) {
+	if (subtree != NULL) {
 		char *name = req_capsule_client_get(&req->rq_pill, &RMF_NAME);
 
-		memcpy(name, fileset, strlen(fileset));
+		memcpy(name, subtree, strlen(subtree));
 	}
 	lustre_msg_add_flags(req->rq_reqmsg, LUSTRE_IMP_FULL);
 	req->rq_send_state = LUSTRE_IMP_FULL;
@@ -2791,7 +2791,7 @@ static struct obd_ops mdc_obd_ops = {
 };
 
 static struct md_ops mdc_md_ops = {
-	.m_getstatus        = mdc_get_root,
+	.m_get_root        = mdc_get_root,
         .m_null_inode	    = mdc_null_inode,
         .m_close            = mdc_close,
         .m_create           = mdc_create,

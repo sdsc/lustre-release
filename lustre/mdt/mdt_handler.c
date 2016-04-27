@@ -268,7 +268,7 @@ static void mdt_lock_pdo_mode(struct mdt_thread_info *info, struct mdt_object *o
         EXIT;
 }
 
-static int mdt_lookup_fileset(struct mdt_thread_info *info, const char *fileset,
+static int mdt_lookup_subtree(struct mdt_thread_info *info, const char *subtree,
 			      struct lu_fid *fid)
 {
 	struct mdt_device *mdt = info->mti_mdt;
@@ -287,13 +287,13 @@ static int mdt_lookup_fileset(struct mdt_thread_info *info, const char *fileset,
 
 	/*
 	 * We may want to allow this to mount a completely separate
-	 * fileset from the MDT in the future, but keeping it to
+	 * subtree from the MDT in the future, but keeping it to
 	 * ROOT/ only for now avoid potential security issues.
 	 */
 	*fid = mdt->mdt_md_root_fid;
 
-	while (rc == 0 && fileset != NULL && *fileset != '\0') {
-		const char *s1 = fileset;
+	while (rc == 0 && subtree != NULL && *subtree != '\0') {
+		const char *s1 = subtree;
 		const char *s2;
 
 		while (*++s1 == '/')
@@ -305,7 +305,7 @@ static int mdt_lookup_fileset(struct mdt_thread_info *info, const char *fileset,
 		if (s2 == s1)
 			break;
 
-		fileset = s2;
+		subtree = s2;
 
 		lname->ln_namelen = s2 - s1;
 		if (lname->ln_namelen > NAME_MAX) {
@@ -356,7 +356,7 @@ static int mdt_get_root(struct tgt_session_info *tsi)
 	struct mdt_thread_info	*info = tsi2mdt_info(tsi);
 	struct mdt_device	*mdt = info->mti_mdt;
 	struct mdt_body		*repbody;
-	char			*fileset;
+	char			*subtree;
 	int			 rc;
 
 	ENTRY;
@@ -370,11 +370,11 @@ static int mdt_get_root(struct tgt_session_info *tsi)
 
 	repbody = req_capsule_server_get(info->mti_pill, &RMF_MDT_BODY);
 	if (req_capsule_get_size(info->mti_pill, &RMF_NAME, RCL_CLIENT) > 0) {
-		fileset = req_capsule_client_get(info->mti_pill, &RMF_NAME);
-		if (fileset == NULL)
+		subtree = req_capsule_client_get(info->mti_pill, &RMF_NAME);
+		if (subtree == NULL)
 			GOTO(out, rc = err_serious(-EFAULT));
 
-		rc = mdt_lookup_fileset(info, fileset, &repbody->mbo_fid1);
+		rc = mdt_lookup_subtree(info, subtree, &repbody->mbo_fid1);
 		if (rc < 0)
 			GOTO(out, rc = err_serious(rc));
 	} else {
@@ -5701,7 +5701,7 @@ static int mdt_rpc_fid2path(struct mdt_thread_info *info, void *key, int keylen,
 
 	if (keylen >= cfs_size_round(sizeof(KEY_FID2PATH)) + sizeof(*fpin) +
 		      sizeof(struct lu_fid)) {
-		/* client sent its root FID, which is normally fileset FID */
+		/* client sent its root FID, which is normally subtree FID */
 		root_fid = fpin->gf_u.gf_root_fid;
 		if (ptlrpc_req_need_swab(info->mti_pill->rc_req))
 			lustre_swab_lu_fid(root_fid);

@@ -609,9 +609,9 @@ static int lustre_free_lsi(struct super_block *sb)
 		if (lsi->lsi_lmd->lmd_profile != NULL)
 			OBD_FREE(lsi->lsi_lmd->lmd_profile,
 				strlen(lsi->lsi_lmd->lmd_profile) + 1);
-		if (lsi->lsi_lmd->lmd_fileset != NULL)
-			OBD_FREE(lsi->lsi_lmd->lmd_fileset,
-				strlen(lsi->lsi_lmd->lmd_fileset) + 1);
+		if (lsi->lsi_lmd->lmd_subtree != NULL)
+			OBD_FREE(lsi->lsi_lmd->lmd_subtree,
+				strlen(lsi->lsi_lmd->lmd_subtree) + 1);
 		if (lsi->lsi_lmd->lmd_mgssec != NULL)
 			OBD_FREE(lsi->lsi_lmd->lmd_mgssec,
 				strlen(lsi->lsi_lmd->lmd_mgssec) + 1);
@@ -1321,17 +1321,17 @@ static int lmd_parse(char *options, struct lustre_mount_data *lmd)
 
 		s1 = s2;
 		s2 = s1 + strlen(s1) - 1;
-		/* Remove padding /s from fileset */
+		/* Remove padding /s from subtree */
 		while (*s2 == '/')
 			s2--;
 		if (s2 > s1) {
-			OBD_ALLOC(lmd->lmd_fileset, s2 - s1 + 2);
-			if (lmd->lmd_fileset == NULL) {
+			OBD_ALLOC(lmd->lmd_subtree, s2 - s1 + 2);
+			if (lmd->lmd_subtree == NULL) {
 				OBD_FREE(lmd->lmd_profile,
 					strlen(lmd->lmd_profile) + 1);
 				RETURN(-ENOMEM);
 			}
-			strncat(lmd->lmd_fileset, s1, s2 - s1 + 1);
+			strncat(lmd->lmd_subtree, s1, s2 - s1 + 1);
 		}
 	}
 

@@ -1839,8 +1839,8 @@ int ll_fid2path(struct inode *inode, void __user *arg)
 	if (copy_from_user(gfout, arg, sizeof(*gfout)))
 		GOTO(gf_free, rc = -EFAULT);
 	/* append root FID after gfout to let MDT know the root FID so that it
-	 * can lookup the correct path, this is mainly for fileset.
-	 * old server without fileset mount support will ignore this. */
+	 * can lookup the correct path, this is mainly for subtree.
+	 * old server without subtree mount support will ignore this. */
 	*gfout->gf_u.gf_root_fid = *ll_inode2fid(inode);
 
 	/* Call mdc_iocontrol */

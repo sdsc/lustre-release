@@ -1266,15 +1266,15 @@ static inline int obd_register_observer(struct obd_device *obd,
 }
 
 /* metadata helpers */
-static inline int md_get_root(struct obd_export *exp, const char *fileset,
+static inline int md_get_root(struct obd_export *exp, const char *subtree,
 			      struct lu_fid *fid)
 {
 	int rc;
 
 	ENTRY;
-	EXP_CHECK_MD_OP(exp, getstatus);
-	EXP_MD_COUNTER_INCREMENT(exp, getstatus);
-	rc = MDP(exp->exp_obd, getstatus)(exp, fileset, fid);
+	EXP_CHECK_MD_OP(exp, get_root);
+	EXP_MD_COUNTER_INCREMENT(exp, get_root);
+	rc = MDP(exp->exp_obd, get_root)(exp, subtree, fid);
 
 	RETURN(rc);
 }

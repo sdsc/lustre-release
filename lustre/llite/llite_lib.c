@@ -474,7 +474,7 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
 	mutex_unlock(&sbi->ll_lco.lco_lock);
 
 	fid_zero(&sbi->ll_root_fid);
-	err = md_get_root(sbi->ll_md_exp, get_mount_fileset(sb),
+	err = md_get_root(sbi->ll_md_exp, get_mount_subtree(sb),
 			   &sbi->ll_root_fid);
 	if (err) {
 		CERROR("cannot mds_connect: rc = %d\n", err);

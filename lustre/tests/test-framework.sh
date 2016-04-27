@@ -1518,7 +1518,7 @@ zconf_mount() {
 	opts=${opts:+-o $opts}
 	local flags=${4:-$MOUNT_FLAGS}
 
-	local device=$MGSNID:/$FSNAME$FILESET
+	local device=$MGSNID:/$FSNAME$SUBTREE
 	if [ -z "$mnt" -o -z "$FSNAME" ]; then
 		echo "Bad mount command: opt=$flags $opts dev=$device " \
 		     "mnt=$mnt"
@@ -1527,14 +1527,14 @@ zconf_mount() {
 
 	echo "Starting client: $client: $flags $opts $device $mnt"
 	do_node $client mkdir -p $mnt
-	if [ -n "$FILESET" -a -z "$SKIP_FILESET" ];then
+	if [ -n "$SUBTREE" -a -z "$SKIP_SUBTREE" ];then
 		do_node $client $MOUNT_CMD $flags $opts $MGSNID:/$FSNAME \
 			$mnt || return 1
-		#disable FILESET if not supported
+		#disable SUBTREE if not supported
 		do_nodes $client lctl get_param -n \
 			mdc.$FSNAME-MDT0000*.import | grep -q subtree ||
 				device=$MGSNID:/$FSNAME
-		do_node $client mkdir -p $mnt/$FILESET
+		do_node $client mkdir -p $mnt/$SUBTREE
 		do_node $client "! grep -q $mnt' ' /proc/mounts ||
 			umount $mnt"
 	fi
@@ -1638,7 +1638,7 @@ zconf_mount_clients() {
 	opts=${opts:+-o $opts}
 	local flags=${4:-$MOUNT_FLAGS}
 
-	local device=$MGSNID:/$FSNAME$FILESET
+	local device=$MGSNID:/$FSNAME$SUBTREE
 	if [ -z "$mnt" -o -z "$FSNAME" ]; then
 		echo "Bad conf mount command: opt=$flags $opts dev=$device " \
 		     "mnt=$mnt"
@@ -1646,16 +1646,16 @@ zconf_mount_clients() {
 	fi
 
 	echo "Starting client $clients: $flags $opts $device $mnt"
-	if [ -n "$FILESET" -a ! -n "$SKIP_FILESET" ]; then
+	if [ -n "$SUBTREE" -a ! -n "$SKIP_SUBTREE" ]; then
 		do_nodes $clients "! grep -q $mnt' ' /proc/mounts ||
 			umount $mnt"
 		do_nodes $clients $MOUNT_CMD $flags $opts $MGSNID:/$FSNAME \
 			$mnt || return 1
-		#disable FILESET if not supported
+		#disable SUBTREE if not supported
 		do_nodes $clients lctl get_param -n \
 			mdc.$FSNAME-MDT0000*.import | grep -q subtree ||
 				device=$MGSNID:/$FSNAME
-		do_nodes $clients mkdir -p $mnt/$FILESET
+		do_nodes $clients mkdir -p $mnt/$SUBTREE
 		do_nodes $clients "! grep -q $mnt' ' /proc/mounts ||
 			umount $mnt"
 	fi
