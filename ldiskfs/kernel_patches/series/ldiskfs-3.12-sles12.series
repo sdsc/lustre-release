@@ -1,6 +1,6 @@
 sles12/ext4-inode-version.patch
 rhel7/ext4-lookup-dotdot.patch
-rhel6.3/ext4-print-inum-in-htree-warning.patch
+rhel6.7/ext4-print-inum-in-htree-warning.patch
 sles12/ext4-prealloc.patch
 rhel7/ext4-osd-iop-common.patch
 sles12/ext4-misc.patch
