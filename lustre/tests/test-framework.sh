@@ -2195,7 +2195,7 @@ wait_delete_completed_mds() {
 		mds2sync="$mds2sync $node"
 	done
 	if [ -z "$mds2sync" ]; then
-		return
+		return 0
 	fi
 	mds2sync=$(comma_list $mds2sync)
 
@@ -2222,7 +2222,7 @@ wait_delete_completed_mds() {
 				sleep $ZFS_WAIT
 			fi
 
-			return
+			return 0
 		fi
 		sleep 1
 		WAIT=$(( WAIT + 1))
@@ -2231,6 +2231,7 @@ wait_delete_completed_mds() {
 	etime=$(date +%s)
 	echo "Delete is not completed in $((etime - stime)) seconds"
 	do_nodes $mds2sync "$LCTL get_param osc.*MDT*.sync_*"
+	return 1
 }
 
 wait_for_host() {
@@ -2372,7 +2373,7 @@ wait_destroy_complete () {
 
 wait_delete_completed() {
 	wait_delete_completed_mds $1 || return $?
-	wait_destroy_complete
+	wait_destroy_complete || return $?
 }
 
 wait_exit_ST () {
