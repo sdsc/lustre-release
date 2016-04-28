@@ -1293,6 +1293,7 @@ static int ct_process_item(struct hsm_action_item *hai, const long hal_flags)
 			CT_TRACE("processing file '%s'", path);
 	}
 
+	fprintf(stderr, "hai_len: %u", hai->hai_len);
 	switch (hai->hai_action) {
 	/* set err_major, minor inside these functions */
 	case HSMA_ARCHIVE:
@@ -1790,7 +1791,8 @@ static void handler(int signal)
 /* Daemon waits for messages from the kernel; run it in the background. */
 static int ct_run(void)
 {
-	int	rc;
+	struct sigaction	cleanup_sigaction;
+	int			rc;
 
 	if (opt.o_daemonize) {
 		rc = daemon(1, 1);
@@ -1820,8 +1822,11 @@ static int ct_run(void)
 		return rc;
 	}
 
-	signal(SIGINT, handler);
-	signal(SIGTERM, handler);
+	cleanup_sigaction.sa_handler = handler;
+	sigemptyset(&cleanup_sigaction.sa_mask);
+	cleanup_sigaction.sa_flags = 0;
+	sigaction(SIGINT, &cleanup_sigaction, NULL);
+	sigaction(SIGTERM, &cleanup_sigaction, NULL);
 
 	while (1) {
 		struct hsm_action_list	*hal;
