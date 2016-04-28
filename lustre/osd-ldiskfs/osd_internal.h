@@ -545,10 +545,6 @@ struct osd_thread_info {
          */
         struct timespec        oti_time;
 
-        /** osd_device reference, initialized in osd_trans_start() and
-            used in osd_trans_stop() */
-        struct osd_device     *oti_dev;
-
         /**
          * following ipd and it structures are used for osd_index_iam_lookup()
          * these are defined separately as we might do index operation
@@ -924,7 +920,7 @@ static inline struct seq_server_site *osd_seq_site(struct osd_device *osd)
 
 static inline char *osd_name(struct osd_device *osd)
 {
-	return osd->od_dt_dev.dd_lu_dev.ld_obd->obd_name;
+	return osd->od_svname;
 }
 
 static inline bool osd_is_ea_inode(struct inode *inode)
@@ -1060,9 +1056,9 @@ static inline void osd_trans_exec_op(const struct lu_env *env,
 		if (op == OSD_OT_REF_ADD &&
 		    oti->oti_declare_ops_cred[OSD_OT_DESTROY] > 0)
 			goto proceed;
+		CWARN("%s: cred = 0, op = %d, rb = %d\n",
+		      osd_dt_dev(oh->ot_super.th_dev)->od_svname, op, rb);
 		osd_trans_dump_creds(env, th);
-		CERROR("%s: op = %d, rb = %d\n",
-		       osd_name(osd_dt_dev(oh->ot_super.th_dev)), op, rb);
 		if (unlikely(ldiskfs_track_declares_assert))
 			LBUG();
 	}
@@ -1072,9 +1068,10 @@ proceed:
 	oti->oti_credits_before = oh->ot_handle->h_buffer_credits;
 	left = oti->oti_declare_ops_cred[op] - oti->oti_declare_ops_used[op];
 	if (unlikely(oti->oti_credits_before < left)) {
+		CWARN("%s: before = %u < left = %u, op = %d, rb = %d\n",
+		      osd_dt_dev(oh->ot_super.th_dev)->od_svname,
+		      oti->oti_credits_before, left, op, rb);
 		osd_trans_dump_creds(env, th);
-		CERROR("%s: op = %d, rb = %d\n",
-		       osd_name(osd_dt_dev(oh->ot_super.th_dev)), op, rb);
 		/* on a very small fs (testing?) it's possible that
 		 * the transaction can't fit 1/4 of journal, so we
 		 * just request less credits (see osd_trans_start()).
@@ -1129,8 +1126,9 @@ static inline void osd_trans_exec_check(const struct lu_env *env,
 		oti->oti_declare_ops_used[OSD_OT_QUOTA] += over;
 		oti->oti_declare_ops_used[op] -= over;
 	} else {
-		CWARN("op %d: used %u, used now %u, reserved %u\n",
-		      op, oti->oti_declare_ops_used[op], used,
+		CWARN("%s: op %d: used %u, used now %u, reserved %u\n",
+		      osd_dt_dev(oh->ot_super.th_dev)->od_svname, op,
+		      oti->oti_declare_ops_used[op], used,
 		      oti->oti_declare_ops_cred[op]);
 		osd_trans_dump_creds(env, th);
 		if (unlikely(ldiskfs_track_declares_assert))

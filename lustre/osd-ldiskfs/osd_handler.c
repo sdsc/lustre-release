@@ -447,8 +447,7 @@ int osd_ldiskfs_add_entry(struct osd_thread_info *info,
 		char *errstr;
 		struct dentry *p_dentry = child->d_parent;
 
-		rc2 = osd_get_lma(info, p_dentry->d_inode, p_dentry,
-				 &lma);
+		rc2 = osd_get_lma(info, p_dentry->d_inode, p_dentry, &lma);
 		if (rc2 == 0) {
 			fid = lma.lma_self_fid;
 			snprintf(fidbuf, sizeof(fidbuf), DFID, PFID(&fid));
@@ -456,8 +455,7 @@ int osd_ldiskfs_add_entry(struct osd_thread_info *info,
 			if (unlikely(p_dentry->d_inode ==
 				     inode->i_sb->s_root->d_inode))
 				lu_local_obj_fid(&fid, OSD_FS_ROOT_OID);
-			else if (info->oti_dev && !info->oti_dev->od_is_ost &&
-				 fid_seq_is_mdt0(fid_seq(&fid)))
+			else if (fid_seq_is_mdt0(fid_seq(&fid)))
 				lu_igif_build(&fid, p_dentry->d_inode->i_ino,
 					      p_dentry->d_inode->i_generation);
 			snprintf(fidbuf, sizeof(fidbuf), DFID, PFID(&fid));
@@ -1331,6 +1329,8 @@ static int osd_trans_start(const struct lu_env *env, struct dt_device *d,
 		    time_after(jiffies, last_printed +
 			       msecs_to_jiffies(60 * MSEC_PER_SEC)) &&
 		    osd_transaction_size(dev) > 512) {
+			CWARN("%s: credits %u > trans_max %u\n", dev->od_svname,
+			      oh->ot_credits, osd_transaction_size(dev));
 			osd_trans_dump_creds(env, th);
 			libcfs_debug_dumpstack(NULL);
 			last_credits = oh->ot_credits;
