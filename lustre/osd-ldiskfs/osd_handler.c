@@ -448,8 +448,7 @@ int osd_ldiskfs_add_entry(struct osd_thread_info *info,
 		char *errstr;
 		struct dentry *p_dentry = child->d_parent;
 
-		rc2 = osd_get_lma(info, p_dentry->d_inode, p_dentry,
-				 &lma);
+		rc2 = osd_get_lma(info, p_dentry->d_inode, p_dentry, &lma);
 		if (rc2 == 0) {
 			fid = lma.lma_self_fid;
 			snprintf(fidbuf, sizeof(fidbuf), DFID, PFID(&fid));
@@ -1498,6 +1497,8 @@ static int osd_trans_start(const struct lu_env *env, struct dt_device *d,
 		    time_after(jiffies, last_printed +
 			       msecs_to_jiffies(60 * MSEC_PER_SEC)) &&
 		    osd_transaction_size(dev) > 512) {
+			CWARN("%s: credits %u > trans_max %u\n", osd_name(dev),
+			      oh->ot_credits, osd_transaction_size(dev));
 			osd_trans_dump_creds(env, th);
 			libcfs_debug_dumpstack(NULL);
 			last_credits = oh->ot_credits;
