@@ -203,7 +203,7 @@ struct lquota_site *lquota_site_alloc(const struct lu_env *env, void *parent,
 	char			 hashname[15];
 	ENTRY;
 
-	LASSERT(qtype < MAXQUOTAS);
+	LASSERT(qtype < LL_MAXQUOTAS);
 
 	OBD_ALLOC_PTR(site);
 	if (site == NULL)
