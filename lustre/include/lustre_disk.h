@@ -117,6 +117,8 @@
 
 #define LDD_F_MASK          0xFFFF
 
+#define XATTR_USER_RENAME	"user.rename"
+
 enum ldd_mount_type {
 	LDD_MT_EXT3 = 0,
 	LDD_MT_LDISKFS,
