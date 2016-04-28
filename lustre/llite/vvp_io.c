@@ -1104,7 +1104,10 @@ static int vvp_io_write_start(const struct lu_env *env,
 		 * trucates, etc. is handled in the higher layers of lustre.
 		 */
 #ifdef HAVE_FILE_OPERATIONS_READ_WRITE_ITER
-		result = generic_file_write_iter(vio->vui_iocb, vio->vui_iter);
+		result = generic_write_checks(vio->vui_iocb, vio->vui_iter);
+		if (result > 0)
+			result = __generic_file_write_iter(vio->vui_iocb,
+							   vio->vui_iter);
 #else
 		result = __generic_file_aio_write(vio->vui_iocb,
 						  vio->vui_iter->iov,
