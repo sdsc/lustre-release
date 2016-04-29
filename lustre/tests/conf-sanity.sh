@@ -3320,7 +3320,7 @@ cleanup_48() {
 	reformat_and_config
 }
 
-test_48() { # bug 17636
+test_48a() { # bug 17636
 	reformat
 	setup_noconfig
 	check_mount || error "check_mount failed"
@@ -3343,7 +3343,43 @@ test_48() { # bug 17636
 
 	cleanup_48
 }
-run_test 48 "too many acls on file"
+run_test 48a "too many acls on file"
+
+test_48b() {
+	local count
+
+	reformat
+	setup_noconfig
+	check_mount || error "check_mount failed"
+	touch $DIR/$tfile || error "Fail to generate $DIR/$tfile"
+
+	if [ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.8.0) ]; then
+		count=28	# max_ea_size = 260
+	elif [ $(facet_fstype $SINGLEMDS) != ldiskfs ]; then
+		count=4091	# max_ea_size = 32768
+	elif ! large_xattr_enabled; then
+		count=497	# max_ea_size = 4012
+	else
+		count=8187	# max_ea_size = 1048492
+	fi
+
+	trap cleanup_48 EXIT ERR
+	for ((i = 0; i < $count; i++)) do
+		setfacl -m u:$((i + 100)):rw $DIR/$tfile ||
+			error "Fail to setfacl for $DIR/$tfile at $i"
+	done
+
+	setfacl -m u:$((count + 100)):rw $DIR/$tfile > /dev/null 2>&1 &&
+		error "Set ACL over limitation should fail: $count"
+
+	cancel_lru_locks mdc
+	stat $DIR/$tfile || error "Fail to stat $DIR/$tfile"
+	getfacl $DIR/$tfile > /dev/null ||
+		error "Fail to getfacl on $DIR/$tfile"
+
+	cleanup_48
+}
+run_test 48b "ACL entries limitation"
 
 # check PARAM_SYS_LDLM_TIMEOUT option of MKFS.LUSTRE
 test_49a() { # bug 17710

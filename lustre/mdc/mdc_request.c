@@ -236,7 +236,13 @@ static int mdc_getattr(struct obd_export *exp, struct md_op_data *op_data,
                 LASSERT(client_is_remote(exp));
                 req_capsule_set_size(&req->rq_pill, &RMF_ACL, RCL_SERVER,
                                      sizeof(struct mdt_remote_perm));
-        }
+	} else {
+		LASSERT(!client_is_remote(exp));
+
+		req_capsule_set_size(&req->rq_pill, &RMF_ACL, RCL_SERVER,
+			req->rq_import->imp_connect_data.ocd_max_easize);
+	}
+
         ptlrpc_request_set_replen(req);
 
         rc = mdc_getattr_common(exp, req);
@@ -281,6 +287,12 @@ static int mdc_getattr_name(struct obd_export *exp, struct md_op_data *op_data,
 
         req_capsule_set_size(&req->rq_pill, &RMF_MDT_MD, RCL_SERVER,
                              op_data->op_mode);
+        if (client_is_remote(exp))
+                req_capsule_set_size(&req->rq_pill, &RMF_ACL, RCL_SERVER,
+                                     sizeof(struct mdt_remote_perm));
+	else
+		req_capsule_set_size(&req->rq_pill, &RMF_ACL, RCL_SERVER,
+			req->rq_import->imp_connect_data.ocd_max_easize);
         ptlrpc_request_set_replen(req);
 
         rc = mdc_getattr_common(exp, req);
