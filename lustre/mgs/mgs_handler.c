@@ -1176,6 +1176,10 @@ static int mgs_init0(const struct lu_env *env, struct mgs_device *mgs,
 	spin_lock_init(&mgs->mgs_lock);
 	mutex_init(&mgs->mgs_health_mutex);
 
+	rc = mgs_lcfg_rename(env, mgs);
+	if (rc)
+		GOTO(err_llog, rc);
+
 	rc = lproc_mgs_setup(mgs, lustre_cfg_string(lcfg, 3));
 	if (rc != 0) {
 		CERROR("%s: cannot initialize proc entry: rc = %d\n",
