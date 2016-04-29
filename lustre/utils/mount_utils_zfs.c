@@ -372,6 +372,14 @@ static char *zfs_mkfs_opts(struct mkfs_opts *mop, char *str, int len)
 {
 	memset(str, 0, len);
 
+	if (IS_OST(&mop->mo_ldd)) {
+		int rc = snprintf(str, len, " -o recordsize=1024k");
+		if (rc >= len)
+			return str;
+		str += rc;
+		len -= rc;
+	}
+
 	if (strlen(mop->mo_mkfsopts) != 0)
 		snprintf(str, len, " -o %s", mop->mo_mkfsopts);
 
@@ -498,10 +506,16 @@ int zfs_make_lustre(struct mkfs_opts *mop)
 	}
 
 	if ((mop->mo_pool_vdevs != NULL) && (pool_exists == 0)) {
-
 		memset(mkfs_cmd, 0, PATH_MAX);
-		snprintf(mkfs_cmd, PATH_MAX,
-			"zpool create -f -O canmount=off %s", pool);
+		ret = snprintf(mkfs_cmd, PATH_MAX,
+			       "zpool create -f -O canmount=off ");
+		if (ret >= PATH_MAX) {
+			ret = EOVERFLOW;
+			goto out;
+		}
+		if (IS_OST(&mop->mo_ldd))
+			strscat(mkfs_cmd, "-o ashift=12 ", PATH_MAX);
+		strscat(mkfs_cmd, pool, PATH_MAX);
 
 		/* Append the vdev config and create file vdevs as required */
 		while (*mop->mo_pool_vdevs != NULL) {
