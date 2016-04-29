@@ -234,7 +234,8 @@ struct echo_thread_info {
 	int			eti_big_lmmsize;
 	char                    eti_name[20];
 	struct lu_buf           eti_buf;
-	char                    eti_xattr_buf[LUSTRE_POSIX_ACL_MAX_SIZE];
+	/* If we want to test large ACL, then need to enlarge the buffer. */
+	char                    eti_xattr_buf[LUSTRE_POSIX_ACL_MAX_SIZE_OLD];
 #endif
 };
 
