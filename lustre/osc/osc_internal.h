@@ -299,6 +299,20 @@ struct osc_class {
 	unsigned long		 oc_reclaim_size;
 	/** Assign size */
 	unsigned long		 oc_assign_size;
+	/*
+	 * Lists of objects that contain pages which have been queued for
+	 * async brw.
+	 */
+	struct list_head	 oc_obj_ready_list;
+	struct list_head	 oc_obj_hp_ready_list;
+	struct list_head	 oc_obj_write_list;
+	struct list_head	 oc_obj_read_list;
+	/** Node in request heap. */
+	struct cfs_binheap_node	 oc_request_node;
+	/* Whether this class is in request heap */
+	bool			 oc_in_request_heap;
+	__u32			 oc_r_in_flight;
+	__u32			 oc_w_in_flight;
 };
 
 extern int osc_class_cache_size;

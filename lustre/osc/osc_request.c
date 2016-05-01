@@ -75,6 +75,7 @@ struct osc_brw_async_args {
 	struct client_obd	 *aa_cli;
 	struct list_head	  aa_oaps;
 	struct list_head	  aa_exts;
+	struct osc_class	 *aa_class;
 };
 
 #define osc_grant_args osc_brw_async_args
@@ -1629,6 +1630,7 @@ static int brw_interpret(const struct lu_env *env,
 	struct osc_extent *ext;
 	struct osc_extent *tmp;
 	struct client_obd *cli = aa->aa_cli;
+	struct osc_class *class = aa->aa_class;
         ENTRY;
 
         rc = osc_brw_fini_request(req, rc);
@@ -1653,7 +1655,7 @@ static int brw_interpret(const struct lu_env *env,
 		}
 
 		if (rc == 0)
-			RETURN(0);
+			GOTO(out, rc);
 		else if (rc == -EAGAIN || rc == -EINPROGRESS)
 			rc = -EIO;
 	}
@@ -1728,15 +1730,23 @@ static int brw_interpret(const struct lu_env *env,
 	/* We need to decrement before osc_ap_completion->osc_assign_cache
 	 * is called so we know whether to go to sync BRWs or wait for more
 	 * RPCs to complete */
-	if (lustre_msg_get_opc(req->rq_reqmsg) == OST_WRITE)
+	if (lustre_msg_get_opc(req->rq_reqmsg) == OST_WRITE) {
 		cli->cl_w_in_flight--;
-	else
+		class->oc_w_in_flight--;
+	} else {
 		cli->cl_r_in_flight--;
+		class->oc_r_in_flight--;
+	}
+	if (class->oc_in_request_heap)
+		cfs_binheap_relocate(cli->cl_class_request_heap,
+				     &class->oc_request_node);
 	osc_assign_cache(cli);
 	osc_wake_cache_waiters(cli);
 	spin_unlock(&cli->cl_loi_list_lock);
 
 	osc_io_unplug(env, cli, NULL);
+out:
+	osc_class_put(cli, class);
 	RETURN(rc);
 }
 
@@ -1786,6 +1796,9 @@ int osc_build_rpc(const struct lu_env *env, struct client_obd *cli,
 	int				rc;
 	struct list_head		rpc_list = LIST_HEAD_INIT(rpc_list);
 	struct ost_body			*body;
+	struct cl_object		*cl_obj;
+	struct cl_attr			*attr = &osc_env_info(env)->oti_attr;
+	struct osc_class		*class = NULL;
 	ENTRY;
 	LASSERT(!list_empty(ext_list));
 
@@ -1809,6 +1822,17 @@ int osc_build_rpc(const struct lu_env *env, struct client_obd *cli,
 
 	OBDO_ALLOC(oa);
 	if (oa == NULL)
+		GOTO(out, rc = -ENOMEM);
+
+	cl_obj = cl_object_top(&obj->oo_cl);
+	cl_object_attr_lock(cl_obj);
+	rc = cl_object_attr_get(env, cl_obj, attr);
+	cl_object_attr_unlock(cl_obj);
+	if (rc)
+		GOTO(out, rc);
+
+	class = osc_class_get(cli, attr->cat_jobid);
+	if (!class)
 		GOTO(out, rc = -ENOMEM);
 
 	i = 0;
@@ -1884,22 +1908,28 @@ int osc_build_rpc(const struct lu_env *env, struct client_obd *cli,
 	list_splice_init(&rpc_list, &aa->aa_oaps);
 	INIT_LIST_HEAD(&aa->aa_exts);
 	list_splice_init(ext_list, &aa->aa_exts);
+	aa->aa_class = class;
 
 	spin_lock(&cli->cl_loi_list_lock);
 	starting_offset >>= PAGE_CACHE_SHIFT;
 	if (cmd == OBD_BRW_READ) {
 		cli->cl_r_in_flight++;
+		class->oc_r_in_flight++;
 		lprocfs_oh_tally_log2(&cli->cl_read_page_hist, page_count);
 		lprocfs_oh_tally(&cli->cl_read_rpc_hist, cli->cl_r_in_flight);
 		lprocfs_oh_tally_log2(&cli->cl_read_offset_hist,
 				      starting_offset + 1);
 	} else {
 		cli->cl_w_in_flight++;
+		class->oc_w_in_flight++;
 		lprocfs_oh_tally_log2(&cli->cl_write_page_hist, page_count);
 		lprocfs_oh_tally(&cli->cl_write_rpc_hist, cli->cl_w_in_flight);
 		lprocfs_oh_tally_log2(&cli->cl_write_offset_hist,
 				      starting_offset + 1);
 	}
+	if (class->oc_in_request_heap)
+		cfs_binheap_relocate(cli->cl_class_request_heap,
+				     &class->oc_request_node);
 	spin_unlock(&cli->cl_loi_list_lock);
 
 	DEBUG_REQ(D_INODE, req, "%d pages, aa %p. now %ur/%uw in flight",
@@ -1929,6 +1959,9 @@ out:
 			list_del_init(&ext->oe_link);
 			osc_extent_finish(env, ext, 0, rc);
 		}
+
+		if (class)
+			osc_class_put(cli, class);
 	}
 	RETURN(rc);
 }
@@ -2832,12 +2865,53 @@ static struct cfs_binheap_ops osc_class_assign_heap_ops = {
 	.hop_compare	= osc_class_assign_heap_cmp,
 };
 
+/**
+ * Binary heap predicate of request.
+ *
+ * \param[in] e1 the first binheap node to compare
+ * \param[in] e2 the second binheap node to compare
+ *
+ * \retval 0 e1 > e2
+ * \retval 1 e1 < e2
+ */
+static int osc_class_request_heap_cmp(struct cfs_binheap_node *e1,
+				      struct cfs_binheap_node *e2)
+{
+	struct osc_class *class1;
+	struct osc_class *class2;
+
+	class1 = container_of(e1, struct osc_class, oc_request_node);
+	class2 = container_of(e2, struct osc_class, oc_request_node);
+
+	if (class1->oc_r_in_flight + class1->oc_w_in_flight <
+	    class2->oc_r_in_flight + class2->oc_w_in_flight)
+		return 1;
+	else if (class1->oc_r_in_flight + class1->oc_w_in_flight >
+		 class2->oc_r_in_flight + class2->oc_w_in_flight)
+		return 0;
+
+	return 1;
+}
+
+static struct cfs_binheap_ops osc_class_request_heap_ops = {
+	.hop_enter	= NULL,
+	.hop_exit	= NULL,
+	.hop_compare	= osc_class_request_heap_cmp,
+};
+
 void osc_class_fini(struct osc_class *class)
 {
 	LASSERT(atomic_read(&class->oc_ref) == 0);
 	LASSERT(class->oc_max_pages == 0);
 	LASSERT(class->oc_dirty_pages == 0);
 	LASSERT(!class->oc_in_assign_heap);
+	LASSERT(!class->oc_in_request_heap);
+	LASSERT(list_empty(&class->oc_obj_ready_list));
+	LASSERT(list_empty(&class->oc_obj_hp_ready_list));
+	LASSERT(list_empty(&class->oc_obj_write_list));
+	LASSERT(list_empty(&class->oc_obj_read_list));
+	LASSERT(class->oc_r_in_flight == 0);
+	LASSERT(class->oc_w_in_flight == 0);
 	OBD_FREE_PTR(class);
 }
 
@@ -3113,6 +3187,13 @@ int osc_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 	if (!cli->cl_class_assign_heap)
 		GOTO(out_free_reclaim_heap, rc);
 
+	cli->cl_class_request_heap =
+		cfs_binheap_create(&osc_class_request_heap_ops,
+				   CBH_FLAG_ATOMIC_GROW,
+				   4096, NULL, NULL, 0);
+	if (!cli->cl_class_request_heap)
+		GOTO(out_free_assign_heap, rc);
+
 	hrtimer_init(&cli->cl_class_reclaim_timer, CLOCK_MONOTONIC,
 		     HRTIMER_MODE_ABS);
 	cli->cl_class_reclaim_timer.function = osc_class_reclaim_timer_cb;
@@ -3131,7 +3212,7 @@ int osc_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 					     &osc_class_hash_ops,
 					     OSC_CLASS_HASH_FLAGS);
 	if (!cli->cl_class_hash)
-		GOTO(out_free_assign_heap, rc = -ENOMEM);
+		GOTO(out_free_request_heap, rc = -ENOMEM);
 
 	cfs_hash_for_each_bucket(cli->cl_class_hash, &bd, i) {
 		bkt = cfs_hash_bd_extra_get(cli->cl_class_hash, &bd);
@@ -3225,6 +3306,8 @@ out_client_setup:
 	client_obd_cleanup(obd);
 out_free_hash:
 	cfs_hash_putref(cli->cl_class_hash);
+out_free_request_heap:
+	cfs_binheap_destroy(cli->cl_class_request_heap);
 out_free_assign_heap:
 	cfs_binheap_destroy(cli->cl_class_assign_heap);
 out_free_reclaim_heap:
@@ -3298,6 +3381,8 @@ int osc_cleanup(struct obd_device *obd)
 	cfs_binheap_destroy(cli->cl_class_assign_heap);
 	LASSERT(cfs_binheap_is_empty(cli->cl_class_reclaim_heap));
 	cfs_binheap_destroy(cli->cl_class_reclaim_heap);
+	LASSERT(cfs_binheap_is_empty(cli->cl_class_request_heap));
+	cfs_binheap_destroy(cli->cl_class_request_heap);
 	LASSERT(list_empty(&cli->cl_class_list));
 
 	ptlrpcd_decref();
