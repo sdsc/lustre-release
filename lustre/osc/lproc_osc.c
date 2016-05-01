@@ -653,20 +653,28 @@ static int osc_class_seq_show(struct seq_file *m, void *v)
 	if (v == SEQ_START_TOKEN) {
 		seq_printf(m, "total: %lu, assigned: %lu, "
 			   "current time: %llu(ns), reclaim time: %llu, "
-			   "reclaim interval: %d\n",
+			   "reclaim interval: %d, "
+			   "in flight write RPC: %u, "
+			   "in flight read RPC: %u\n",
 			   cli->cl_dirty_max_pages,
 			   cli->cl_assigned_dirty_pages,
 			   ktime_to_ns(ktime_get()),
 			   cli->cl_class_reclaim_time,
-			   osc_class_reclaim_nanosecond);
+			   osc_class_reclaim_nanosecond,
+			   cli->cl_w_in_flight,
+			   cli->cl_r_in_flight);
 		return 0;
 	}
 
 	seq_printf(m, "job_id: \"%s\", used: %lu, max: %lu, "
-		   "reclaim time: %llu(ns)\n",
+		   "reclaim time: %llu(ns), "
+		   "in flight write RPC: %u, "
+		   "in flight read RPC: %u\n",
 		   class->oc_jobid, class->oc_dirty_pages,
 		   class->oc_max_pages,
-		   class->oc_reclaim_time);
+		   class->oc_reclaim_time,
+		   class->oc_w_in_flight,
+		   class->oc_r_in_flight);
 	return 0;
 }
 
