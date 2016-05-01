@@ -1991,7 +1991,7 @@ int obd_get_request_slot(struct client_obd *cli)
 	}
 
 	init_waitqueue_head(&orsw.orsw_waitq);
-	list_add_tail(&orsw.orsw_entry, &cli->cl_loi_read_list);
+	list_add_tail(&orsw.orsw_entry, &cli->cl_request_slot_waiters);
 	orsw.orsw_signaled = false;
 	spin_unlock(&cli->cl_loi_list_lock);
 
@@ -2032,9 +2032,9 @@ void obd_put_request_slot(struct client_obd *cli)
 	cli->cl_r_in_flight--;
 
 	/* If there is free slot, wakeup the first waiter. */
-	if (!list_empty(&cli->cl_loi_read_list) &&
+	if (!list_empty(&cli->cl_request_slot_waiters) &&
 	    likely(cli->cl_r_in_flight < cli->cl_max_rpcs_in_flight)) {
-		orsw = list_entry(cli->cl_loi_read_list.next,
+		orsw = list_entry(cli->cl_request_slot_waiters.next,
 				  struct obd_request_slot_waiter, orsw_entry);
 		list_del_init(&orsw->orsw_entry);
 		cli->cl_r_in_flight++;
@@ -2087,10 +2087,10 @@ int obd_set_max_rpcs_in_flight(struct client_obd *cli, __u32 max)
 
 	/* We increase the max_rpcs_in_flight, then wakeup some waiters. */
 	for (i = 0; i < diff; i++) {
-		if (list_empty(&cli->cl_loi_read_list))
+		if (list_empty(&cli->cl_request_slot_waiters))
 			break;
 
-		orsw = list_entry(cli->cl_loi_read_list.next,
+		orsw = list_entry(cli->cl_request_slot_waiters.next,
 				  struct obd_request_slot_waiter, orsw_entry);
 		list_del_init(&orsw->orsw_entry);
 		cli->cl_r_in_flight++;

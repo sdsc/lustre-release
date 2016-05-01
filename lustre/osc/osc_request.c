@@ -2832,12 +2832,56 @@ static struct cfs_binheap_ops osc_class_assign_heap_ops = {
 	.hop_compare	= osc_class_assign_heap_cmp,
 };
 
+/**
+ * Binary heap predicate of request.
+ *
+ * \param[in] e1 the first binheap node to compare
+ * \param[in] e2 the second binheap node to compare
+ *
+ * \retval 0 e1 > e2
+ * \retval 1 e1 < e2
+ */
+static int osc_class_request_heap_cmp(struct cfs_binheap_node *e1,
+				      struct cfs_binheap_node *e2)
+{
+	struct osc_class *class1;
+	struct osc_class *class2;
+
+	class1 = container_of(e1, struct osc_class, oc_request_node);
+	class2 = container_of(e2, struct osc_class, oc_request_node);
+
+	if (class1->oc_request_check_time + class1->oc_request_nsecs <
+	    class2->oc_request_check_time + class2->oc_request_nsecs)
+		return 1;
+	else if (class1->oc_request_check_time + class1->oc_request_nsecs >
+		 class2->oc_request_check_time + class2->oc_request_nsecs)
+		return 0;
+
+	if (class1->oc_request_check_time < class2->oc_request_check_time)
+		return 1;
+	else if (class1->oc_request_check_time > class2->oc_request_check_time)
+		return 0;
+
+	return 1;
+}
+
+static struct cfs_binheap_ops osc_class_request_heap_ops = {
+	.hop_enter	= NULL,
+	.hop_exit	= NULL,
+	.hop_compare	= osc_class_request_heap_cmp,
+};
+
 void osc_class_fini(struct osc_class *class)
 {
 	LASSERT(atomic_read(&class->oc_ref) == 0);
 	LASSERT(class->oc_max_pages == 0);
 	LASSERT(class->oc_dirty_pages == 0);
 	LASSERT(!class->oc_in_assign_heap);
+	LASSERT(!class->oc_in_request_heap);
+	LASSERT(list_empty(&class->oc_obj_ready_list));
+	LASSERT(list_empty(&class->oc_obj_hp_ready_list));
+	LASSERT(list_empty(&class->oc_obj_write_list));
+	LASSERT(list_empty(&class->oc_obj_read_list));
 	OBD_FREE_PTR(class);
 }
 
@@ -3113,6 +3157,13 @@ int osc_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 	if (!cli->cl_class_assign_heap)
 		GOTO(out_free_reclaim_heap, rc);
 
+	cli->cl_class_request_heap =
+		cfs_binheap_create(&osc_class_request_heap_ops,
+				   CBH_FLAG_ATOMIC_GROW,
+				   4096, NULL, NULL, 0);
+	if (!cli->cl_class_request_heap)
+		GOTO(out_free_assign_heap, rc);
+
 	hrtimer_init(&cli->cl_class_reclaim_timer, CLOCK_MONOTONIC,
 		     HRTIMER_MODE_ABS);
 	cli->cl_class_reclaim_timer.function = osc_class_reclaim_timer_cb;
@@ -3131,7 +3182,7 @@ int osc_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 					     &osc_class_hash_ops,
 					     OSC_CLASS_HASH_FLAGS);
 	if (!cli->cl_class_hash)
-		GOTO(out_free_assign_heap, rc = -ENOMEM);
+		GOTO(out_free_request_heap, rc = -ENOMEM);
 
 	cfs_hash_for_each_bucket(cli->cl_class_hash, &bd, i) {
 		bkt = cfs_hash_bd_extra_get(cli->cl_class_hash, &bd);
@@ -3225,6 +3276,8 @@ out_client_setup:
 	client_obd_cleanup(obd);
 out_free_hash:
 	cfs_hash_putref(cli->cl_class_hash);
+out_free_request_heap:
+	cfs_binheap_destroy(cli->cl_class_request_heap);
 out_free_assign_heap:
 	cfs_binheap_destroy(cli->cl_class_assign_heap);
 out_free_reclaim_heap:
@@ -3298,6 +3351,8 @@ int osc_cleanup(struct obd_device *obd)
 	cfs_binheap_destroy(cli->cl_class_assign_heap);
 	LASSERT(cfs_binheap_is_empty(cli->cl_class_reclaim_heap));
 	cfs_binheap_destroy(cli->cl_class_reclaim_heap);
+	LASSERT(cfs_binheap_is_empty(cli->cl_class_request_heap));
+	cfs_binheap_destroy(cli->cl_class_request_heap);
 	LASSERT(list_empty(&cli->cl_class_list));
 
 	ptlrpcd_decref();
