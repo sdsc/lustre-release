@@ -215,29 +215,15 @@ struct client_obd {
 	unsigned int		cl_grant_extent_tax;
 	/* maximum extent size, in number of pages */
 	unsigned int		cl_max_extent_pages;
-
-	/* keep track of objects that have lois that contain pages which
-	 * have been queued for async brw.  this lock also protects the
-	 * lists of osc_client_pages that hang off of the loi */
-        /*
-         * ->cl_loi_list_lock protects consistency of
-         * ->cl_loi_{ready,read,write}_list. ->ap_make_ready() and
-         * ->ap_completion() call-backs are executed under this lock. As we
-         * cannot guarantee that these call-backs never block on all platforms
-         * (as a matter of fact they do block on Mac OS X), type of
-         * ->cl_loi_list_lock is platform dependent: it's a spin-lock on Linux
-         * and blocking mutex on Mac OS X. (Alternative is to make this lock
-         * blocking everywhere, but we don't want to slow down fast-path of
-         * our main platform.)
-         *
-	 * NB by Jinshan: though field names are still _loi_, but actually
-	 * osc_object{}s are in the list.
+	/*
+	 * This lock protects the lists of osc_client_pages that hang off of
+	 * the loi. It also protects consistency of
+	 * ->oc_obj_{ready,read,write}_list and ->cl_slot_waiter_list.
+	 * ->ap_make_ready() and ->ap_completion() call-backs are executed
+	 * under this lock too.
 	 */
 	spinlock_t		cl_loi_list_lock;
-	struct list_head	cl_loi_ready_list;
-	struct list_head	cl_loi_hp_ready_list;
-	struct list_head	cl_loi_write_list;
-	struct list_head	cl_loi_read_list;
+	struct list_head	cl_request_slot_waiters;
 	__u32			cl_r_in_flight;
 	__u32			cl_w_in_flight;
 	/* just a sum of the loi/lop pending numbers to be exported by /proc */
@@ -348,6 +334,10 @@ struct client_obd {
 	 * Linkage to osc_reclaim_list.
 	 */
 	struct list_head	 cl_class_reclaim_linkage;
+	/**
+	 * Heap of objects that have requests
+	 */
+	struct cfs_binheap	*cl_class_request_heap;
 };
 #define obd2cli_tgt(obd) ((char *)(obd)->u.cli.cl_target_uuid.uuid)
 

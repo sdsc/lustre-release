@@ -2036,34 +2036,80 @@ static void on_list(struct list_head *item, struct list_head *list,
 
 /* maintain the osc's cli list membership invariants so that osc_send_oap_rpc
  * can find pages to build into rpcs quickly */
-static int __osc_list_maint(struct client_obd *cli, struct osc_object *osc)
+static int __osc_list_maint(const struct lu_env *env, struct client_obd *cli,
+			    struct osc_object *osc)
 {
+	struct cl_object	*obj = cl_object_top(&osc->oo_cl);
+	struct cl_attr		*attr = &osc_env_info(env)->oti_attr;
+	struct osc_class	*class;
+	bool			 list_added = false;
+	bool			 should_be_on;
+	int			 rc;
+
+	cl_object_attr_lock(obj);
+	rc = cl_object_attr_get(env, obj, attr);
+	cl_object_attr_unlock(obj);
+	/* Return not ready if can't get class */
+	if (rc)
+		RETURN(0);
+
+	class = osc_class_get(cli, attr->cat_jobid);
+	if (!class)
+		RETURN(0);
+
 	if (osc_makes_hprpc(osc)) {
 		/* HP rpc */
-		on_list(&osc->oo_ready_item, &cli->cl_loi_ready_list, 0);
-		on_list(&osc->oo_hp_ready_item, &cli->cl_loi_hp_ready_list, 1);
+		on_list(&osc->oo_ready_item, &class->oc_obj_ready_list, 0);
+		on_list(&osc->oo_hp_ready_item, &class->oc_obj_hp_ready_list,
+			1);
+		list_added = true;
 	} else {
-		on_list(&osc->oo_hp_ready_item, &cli->cl_loi_hp_ready_list, 0);
-		on_list(&osc->oo_ready_item, &cli->cl_loi_ready_list,
-			osc_makes_rpc(cli, osc, OBD_BRW_WRITE) ||
-			osc_makes_rpc(cli, osc, OBD_BRW_READ));
+		on_list(&osc->oo_hp_ready_item, &class->oc_obj_hp_ready_list,
+			0);
+		should_be_on = (osc_makes_rpc(cli, osc, OBD_BRW_WRITE) ||
+				osc_makes_rpc(cli, osc, OBD_BRW_READ));
+		on_list(&osc->oo_ready_item, &class->oc_obj_ready_list,
+			should_be_on);
+		if (should_be_on)
+			list_added = true;
 	}
 
-	on_list(&osc->oo_write_item, &cli->cl_loi_write_list,
-		atomic_read(&osc->oo_nr_writes) > 0);
+	should_be_on = (atomic_read(&osc->oo_nr_writes) > 0);
+	on_list(&osc->oo_write_item, &class->oc_obj_write_list,
+		should_be_on);
+	if (should_be_on)
+		list_added = true;
 
-	on_list(&osc->oo_read_item, &cli->cl_loi_read_list,
-		atomic_read(&osc->oo_nr_reads) > 0);
+	should_be_on = (atomic_read(&osc->oo_nr_reads) > 0);
+	on_list(&osc->oo_read_item, &class->oc_obj_read_list,
+		should_be_on);
+	if (should_be_on)
+		list_added = true;
+
+	if (list_added && !class->oc_in_request_heap) {
+		rc = cfs_binheap_insert(cli->cl_class_request_heap,
+					&class->oc_request_node);
+		if (rc == 0) {
+			class->oc_in_request_heap = true;
+		} else {
+			CERROR("failed to insert class \"%s\" into request "
+			       "heap\n", class->oc_jobid);
+			osc_class_put(cli, class);
+		}
+	} else {
+		osc_class_put(cli, class);
+	}
 
 	return osc_is_ready(osc);
 }
 
-static int osc_list_maint(struct client_obd *cli, struct osc_object *osc)
+static int osc_list_maint(const struct lu_env *env, struct client_obd *cli,
+			  struct osc_object *osc)
 {
 	int is_ready;
 
 	spin_lock(&cli->cl_loi_list_lock);
-	is_ready = __osc_list_maint(cli, osc);
+	is_ready = __osc_list_maint(env, cli, osc);
 	spin_unlock(&cli->cl_loi_list_lock);
 
 	return is_ready;
@@ -2378,39 +2424,111 @@ __must_hold(osc)
 	list_entry(__tmp, struct osc_object, oo_##item);		      \
 })
 
-/* This is called by osc_check_rpcs() to find which objects have pages that
- * we could be sending.  These lists are maintained by osc_makes_rpc(). */
-static struct osc_object *osc_next_obj(struct client_obd *cli)
+static void osc_class_request_heap_update(struct client_obd *cli,
+					  struct osc_class *class,
+					  bool remove)
 {
+	LASSERT(class->oc_in_request_heap);
+	if (remove) {
+		cfs_binheap_remove(cli->cl_class_request_heap,
+				   &class->oc_request_node);
+		class->oc_in_request_heap = false;
+		osc_class_put(cli, class);
+	} else {
+		cfs_binheap_relocate(cli->cl_class_request_heap,
+				     &class->oc_request_node);
+	}
+}
+
+static struct osc_object *osc_class_next_obj(struct client_obd *cli,
+					     struct osc_class *class)
+{
+	struct osc_object *osc = NULL;
 	ENTRY;
 
 	/* First return objects that have blocked locks so that they
 	 * will be flushed quickly and other clients can get the lock,
 	 * then objects which have pages ready to be stuffed into RPCs */
-	if (!list_empty(&cli->cl_loi_hp_ready_list))
-		RETURN(list_to_obj(&cli->cl_loi_hp_ready_list, hp_ready_item));
-	if (!list_empty(&cli->cl_loi_ready_list))
-		RETURN(list_to_obj(&cli->cl_loi_ready_list, ready_item));
+	if (!list_empty(&class->oc_obj_hp_ready_list)) {
+		osc = list_to_obj(&class->oc_obj_hp_ready_list, hp_ready_item);
+		if (!list_empty(&class->oc_obj_hp_ready_list)) {
+			osc_class_request_heap_update(cli, class, false);
+			RETURN(osc);
+		}
+	}
+
+	if (!list_empty(&class->oc_obj_ready_list)) {
+		if (osc) {
+			osc_class_request_heap_update(cli, class, false);
+			RETURN(osc);
+		}
+		osc = list_to_obj(&class->oc_obj_ready_list, ready_item);
+		if (!list_empty(&class->oc_obj_hp_ready_list)) {
+			osc_class_request_heap_update(cli, class, false);
+			RETURN(osc);
+		}
+	}
 
 	/* then if we have cache waiters, return all objects with queued
 	 * writes.  This is especially important when many small files
 	 * have filled up the cache and not been fired into rpcs because
 	 * they don't pass the nr_pending/object threshhold */
-	if (!list_empty(&cli->cl_cache_waiters) &&
-	    !list_empty(&cli->cl_loi_write_list))
-		RETURN(list_to_obj(&cli->cl_loi_write_list, write_item));
+	if (!list_empty(&class->oc_obj_write_list)) {
+		if (osc) {
+			osc_class_request_heap_update(cli, class, false);
+			RETURN(osc);
+		}
+		if (!list_empty(&cli->cl_cache_waiters) ||
+		    cli->cl_import == NULL ||
+		    cli->cl_import->imp_invalid) {
+			osc = list_to_obj(&class->oc_obj_write_list,
+					  write_item);
+			if (!list_empty(&class->oc_obj_write_list)) {
+				osc_class_request_heap_update(cli, class,
+							      false);
+				RETURN(osc);
+			}
+		}
+	}
 
 	/* then return all queued objects when we have an invalid import
 	 * so that they get flushed */
-	if (cli->cl_import == NULL || cli->cl_import->imp_invalid) {
-		if (!list_empty(&cli->cl_loi_write_list))
-			RETURN(list_to_obj(&cli->cl_loi_write_list,
-					   write_item));
-		if (!list_empty(&cli->cl_loi_read_list))
-			RETURN(list_to_obj(&cli->cl_loi_read_list,
-					   read_item));
+	if (!list_empty(&class->oc_obj_read_list)) {
+		if (osc) {
+			osc_class_request_heap_update(cli, class, false);
+			RETURN(osc);
+		}
+		if (cli->cl_import == NULL || cli->cl_import->imp_invalid) {
+			osc = list_to_obj(&class->oc_obj_read_list,
+					  read_item);
+			if (!list_empty(&class->oc_obj_read_list)) {
+				osc_class_request_heap_update(cli, class,
+							      false);
+				RETURN(osc);
+			}
+		}
 	}
-	RETURN(NULL);
+
+	osc_class_request_heap_update(cli, class, true);
+
+	RETURN(osc);
+}
+
+
+/* This is called by osc_check_rpcs() to find which objects have pages that
+ * we could be sending.  These lists are maintained by osc_makes_rpc(). */
+static struct osc_object *osc_next_obj(struct client_obd *cli)
+{
+	struct cfs_binheap_node	*node;
+	struct osc_class	*class;
+	ENTRY;
+
+	node = cfs_binheap_root(cli->cl_class_request_heap);
+	if (unlikely(node == NULL))
+		RETURN(NULL);
+
+	class = container_of(node, struct osc_class, oc_request_node);
+	RETURN(osc_class_next_obj(cli, class));
 }
 
 /* called with the loi list lock held */
@@ -2428,7 +2546,7 @@ __must_hold(&cli->cl_loi_list_lock)
 		OSC_IO_DEBUG(osc, "%lu in flight\n", rpcs_in_flight(cli));
 
 		if (osc_max_rpc_in_flight(cli, osc)) {
-			__osc_list_maint(cli, osc);
+			__osc_list_maint(env, cli, osc);
 			break;
 		}
 
@@ -2474,7 +2592,7 @@ __must_hold(&cli->cl_loi_list_lock)
 		}
 		osc_object_unlock(osc);
 
-		osc_list_maint(cli, osc);
+		osc_list_maint(env, cli, osc);
 		lu_object_ref_del_at(&obj->co_lu, &link, "check", current);
 		cl_object_put(env, obj);
 
@@ -2487,7 +2605,7 @@ static int osc_io_unplug0(const struct lu_env *env, struct client_obd *cli,
 {
 	int rc = 0;
 
-	if (osc != NULL && osc_list_maint(cli, osc) == 0)
+	if (osc != NULL && osc_list_maint(env, cli, osc) == 0)
 		return 0;
 
 	if (!async) {
@@ -2675,8 +2793,15 @@ osc_class_init(struct client_obd *cli, const char *jobid)
 	class->oc_reclaim_time = 0;
 	class->oc_reclaim_size = 1;
 	class->oc_assign_size = 1;
+	class->oc_r_in_flight = 0;
+	class->oc_w_in_flight = 0;
+	class->oc_in_request_heap = false;
 	INIT_LIST_HEAD(&class->oc_cache_waiters);
 	INIT_LIST_HEAD(&class->oc_lru);
+	INIT_LIST_HEAD(&class->oc_obj_ready_list);
+	INIT_LIST_HEAD(&class->oc_obj_hp_ready_list);
+	INIT_LIST_HEAD(&class->oc_obj_write_list);
+	INIT_LIST_HEAD(&class->oc_obj_read_list);
 	memcpy(class->oc_jobid, jobid, strlen(jobid));
 	return class;
 }
@@ -3058,7 +3183,7 @@ int osc_cancel_async_page(const struct lu_env *env, struct osc_page *ops)
 		}
 	}
 
-	osc_list_maint(cli, obj);
+	osc_list_maint(env, cli, obj);
 	RETURN(rc);
 }
 
@@ -3192,7 +3317,7 @@ again:
 	}
 	osc_object_unlock(obj);
 
-	osc_list_maint(cli, obj);
+	osc_list_maint(env, cli, obj);
 
 	while (!list_empty(&list)) {
 		int rc;
@@ -3420,7 +3545,7 @@ int osc_cache_writeback_range(const struct lu_env *env, struct osc_object *obj,
 		struct osc_extent *tmp;
 		int rc;
 
-		osc_list_maint(osc_cli(obj), obj);
+		osc_list_maint(env, osc_cli(obj), obj);
 		list_for_each_entry_safe(ext, tmp, &discard_list, oe_link) {
 			list_del_init(&ext->oe_link);
 			EASSERT(ext->oe_state == OES_LOCKING, ext);
