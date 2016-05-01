@@ -244,10 +244,11 @@ static int osc_page_print(const struct lu_env *env,
                           const struct cl_page_slice *slice,
                           void *cookie, lu_printer_t printer)
 {
-        struct osc_page       *opg = cl2osc_page(slice);
-        struct osc_async_page *oap = &opg->ops_oap;
-        struct osc_object     *obj = cl2osc(slice->cpl_obj);
-        struct client_obd     *cli = &osc_export(obj)->exp_obd->u.cli;
+	struct osc_page		*opg = cl2osc_page(slice);
+	struct osc_async_page	*oap = &opg->ops_oap;
+	struct osc_class	*class = oap->oap_class;
+	struct osc_object	*obj = cl2osc(slice->cpl_obj);
+	struct client_obd	*cli = &osc_export(obj)->exp_obd->u.cli;
 
 	return (*printer)(env, cookie, LUSTRE_OSC_NAME"-page@%p %lu: "
 			  "1< %#x %d %u %s %s > "
@@ -256,28 +257,28 @@ static int osc_page_print(const struct lu_env *env,
 			  "4< %d %d %d %lu %s | %s %s %s %s > "
 			  "5< %s %s %s %s | %d %s | %d %s %s>\n",
 			  opg, osc_index(opg),
-                          /* 1 */
-                          oap->oap_magic, oap->oap_cmd,
-                          oap->oap_interrupted,
-                          osc_list(&oap->oap_pending_item),
-                          osc_list(&oap->oap_rpc_item),
-                          /* 2 */
-                          oap->oap_obj_off, oap->oap_page_off, oap->oap_count,
-                          oap->oap_async_flags, oap->oap_brw_flags,
+			  /* 1 */
+			  oap->oap_magic, oap->oap_cmd,
+			  oap->oap_interrupted,
+			  osc_list(&oap->oap_pending_item),
+			  osc_list(&oap->oap_rpc_item),
+			  /* 2 */
+			  oap->oap_obj_off, oap->oap_page_off, oap->oap_count,
+			  oap->oap_async_flags, oap->oap_brw_flags,
 			  oap->oap_request, oap->oap_cli, obj,
 			  /* 3 */
 			  opg->ops_transfer_pinned,
 			  osc_submit_duration(opg), opg->ops_srvlock,
-                          /* 4 */
-                          cli->cl_r_in_flight, cli->cl_w_in_flight,
-                          cli->cl_max_rpcs_in_flight,
-                          cli->cl_avail_grant,
-                          osc_list(&cli->cl_cache_waiters),
-                          osc_list(&cli->cl_loi_ready_list),
-                          osc_list(&cli->cl_loi_hp_ready_list),
-                          osc_list(&cli->cl_loi_write_list),
-                          osc_list(&cli->cl_loi_read_list),
-                          /* 5 */
+			  /* 4 */
+			  cli->cl_r_in_flight, cli->cl_w_in_flight,
+			  cli->cl_max_rpcs_in_flight,
+			  cli->cl_avail_grant,
+			  osc_list(&cli->cl_cache_waiters),
+			  osc_list(&class->oc_obj_ready_list),
+			  osc_list(&class->oc_obj_hp_ready_list),
+			  osc_list(&class->oc_obj_write_list),
+			  osc_list(&class->oc_obj_read_list),
+			  /* 5 */
 			  osc_list(&obj->oo_ready_item),
 			  osc_list(&obj->oo_hp_ready_item),
 			  osc_list(&obj->oo_write_item),
