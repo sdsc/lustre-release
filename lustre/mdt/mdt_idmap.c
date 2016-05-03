@@ -134,21 +134,23 @@ static inline void mdt_revoke_export_locks(struct obd_export *exp)
 
 int mdt_handle_idmap(struct tgt_session_info *tsi)
 {
-	struct ptlrpc_request	*req = tgt_ses_req(tsi);
-	struct mdt_device	*mdt = mdt_exp2dev(req->rq_export);
-        struct mdt_export_data *med;
-        struct ptlrpc_user_desc *pud = req->rq_user_desc;
-        struct md_identity *identity;
-        __u32 opc;
-        int rc = 0;
-        ENTRY;
+	struct ptlrpc_request *req = tgt_ses_req(tsi);
+	struct mdt_device *mdt;
+	struct mdt_export_data *med;
+	struct ptlrpc_user_desc *pud = req->rq_user_desc;
+	struct md_identity *identity;
+	__u32 opc;
+	int rc = 0;
 
-        if (!req->rq_export)
-                RETURN(0);
+	ENTRY;
 
-        med = mdt_req2med(req);
+	if (!req->rq_export)
+		RETURN(0);
+	mdt = mdt_exp2dev(req->rq_export);
+
+	med = mdt_req2med(req);
 	if (!exp_connect_rmtclient(req->rq_export))
-                RETURN(0);
+		RETURN(0);
 
         opc = lustre_msg_get_opc(req->rq_reqmsg);
         /* Bypass other opc */
