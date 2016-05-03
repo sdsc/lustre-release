@@ -62,6 +62,18 @@ MANFILES = lustre.7 lfs.1 mount.lustre.8 lctl.8 lnetctl.8 \
 
 SERVER_MANFILES = mkfs.lustre.8 tunefs.lustre.8
 
+LCTL_CMD_MANFILES = lctl-nodemap-activate.8 \
+	lctl-nodemap-add.8 \
+	lctl-nodemap-add-idmap.8 \
+	lctl-nodemap-add-range.8 \
+	lctl-nodemap-del.8 \
+	lctl-nodemap-del-idmap.8 \
+	lctl-nodemap-del-range.8 \
+	lctl-nodemap-modify.8 \
+	lctl-set_param.8
+
+MANFILES += $(LCTL_CMD_MANFILES)
+
 if SERVER
 MANFILES += $(SERVER_MANFILES)
 else

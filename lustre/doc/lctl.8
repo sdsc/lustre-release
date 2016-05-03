@@ -191,38 +191,10 @@ Print all of the parameter names below the specified name.
 .br
 lctl "get_param -NF" is equivalent to "list_param -F".
 .TP
-.BI set_param " [-n] [-P] [-d] <parameter=value ...>"
-Set the value of Lustre or LNET parameter.
-.br
-.B -n
-Disable printing of the key name when printing values.
-.br
-.B -P
-Set the parameter permanently, filesystem-wide.
-This parameters are only visible to 2.5.0 and later clients, older clients will not see these parameters.
-.br
-.B -d
-Remove the permanent setting (only with -P option)
-.br
-.B Examples:
-.br
-.B
-# lctl set_param fail_loc=0 timeout=20
-.br
-  fail_loc=0
-.br
-  timeout=20
-.br
-.B
-# lctl set_param -n fail_loc=0 timeout=20
-.br
-  0
-.br
-  20
-.br
-.B
-# lctl set_param -P osc.*.max_dirty_mb=32
-.br
+.BI set_param " [-d] [-n] [-p] [-P] <parameter=value ...>"
+See
+.BR lctl\-set_param (8)
+for more details.
 .TP
 .BI conf_param " [-d] <device|fsname>.<parameter>=<value>"
 Set a permanent configuration parameter for any device via the MGS.  This
@@ -543,5 +515,13 @@ filesystem package.
 .BR lustre (7),
 .BR mkfs.lustre (8),
 .BR mount.lustre (8),
-.BR lctl (8),
+.BR lctl-nodemap-activate (8),
+.BR lctl-nodemap-add (8),
+.BR lctl-nodemap-add-idmap (8),
+.BR lctl-nodemap-add-range (8),
+.BR lctl-nodemap-del (8),
+.BR lctl-nodemap-del-idmap (8),
+.BR lctl-nodemap-del-range (8),
+.BR lctl-nodemap-modify (8),
+.BR lctl-set_param (8),
 .BR lfs (1)

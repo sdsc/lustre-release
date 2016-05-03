@@ -1,0 +1,111 @@
+.TH lctl-set_param 8 "2016 Feb 8" Lustre "configuration utilities"
+.SH NAME
+lctl set_param - Set the value of Lustre or LNET parameters
+.SH SYNOPSIS
+.B lctl set_param
+.RB [ \-d ]
+.RB [ \-n ]
+.RB [ \-p ]
+.RB [ \-P ]
+.RI < parameter = value ...>
+.SH DESCRIPTION
+.B lctl set_param
+sets all Lustre or LNET parameters matching the given parameter wildcard(s) to
+the corresponding value(s).
+Multiple
+.IR parameter = value
+options can be supplied at once.
+The components of a parameter name must be separated by a '.'.
+Parameter names can contain any shell pattern matching wildcards, including the
+following:
+.TP
+.B *
+Match any number of characters.
+.TP
+.B ?
+Match a single character.
+.TP
+.RB { a1 , a2 }
+Match \fBa1\fR or \fBa2\fR.
+.TP
+.RB [ chars ]
+Match any of the characters in \fBchars\fR, where \fBchars\fR may contain a
+\fB\-\fR to indicate a range of characters.
+.TP
+.RB [ low - high ]
+Match any of the characters in the range from \fBlow\fR to \fBhigh\fR.
+.PP
+The parameter wildcards will not match across parameter components.
+For example, the parameter wildcard \fBld*spaces\fR will not match the parameter
+\fBldlm.namespaces\fR.
+However, the parameter wildcard \fBld*.*spaces\fR would match.
+If the parameter contains wildcards, it should be quoted to avoid expansion by
+the shell.
+.SH OPTIONS
+.TP
+.B \-d
+Remove the permanent setting (only with -P option)
+.TP
+.B \-n
+Disable printing of the key name when printing values.
+.TP
+.B \-p
+If setting multiple parameters at once, spawn threads and set all parameters in
+parallel.
+Without this option, the parameters will be set serially.
+If this option is supplied and lctl was compiled without pthread support, a
+warning message will be printed, and the set_param will proceed serially.
+.TP
+.B \-P
+Set the parameter permanently, filesystem-wide.
+These parameters are only visible to 2.5.0 and later clients; older clients will
+not see these parameters.
+.SH EXAMPLES
+Set the \fBfail_loc\fR parameter to \fB0\fR and set the \fBtimeout\fR parameter
+to \fB20\fR.
+.PP
+.nf
+.RS
+.B
+# lctl set_param fail_loc=0 timeout=20
+fail_loc=0
+timeout=20
+.RE
+.fi
+.PP
+Do the same as above, but print only the new values of the parameters, not the
+names of the parameters.
+.PP
+.nf
+.RS
+.B
+# lctl set_param -n fail_loc=0 timeout=20
+0
+20
+.RE
+.fi
+.PP
+Set all parameters matching the wildcard \fBosc.*.max_dirty_mb\fR to the value
+\fB32\fR.
+.PP
+.nf
+.RS
+.B
+# lctl set_param -P "osc.*.max_dirty_mb=32"
+.fi
+.RE
+.PP
+Set all parameters matching the wildcard \fBldlm.namespaces.*osc*.lru_size\fR to
+the value \fBclear\fR, and do so in parallel.
+.PP
+.nf
+.RS
+.B
+# lctl set_param -p "ldlm.namespaces.*osc*.lru_size=clear"
+ldlm.namespaces.fsname-OST0001-osc-MDT0000.lru_size=clear
+ldlm.namespaces.fsname-OST0000-osc-MDT0000.lru_size=clear
+.RE
+.fi
+.SH SEE ALSO
+.BR lctl (8),
+.BR lustre (7)
