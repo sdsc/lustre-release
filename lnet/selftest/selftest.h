@@ -57,14 +57,14 @@
 #endif
 
 
-#define SWI_STATE_NEWBORN                  0
-#define SWI_STATE_REPLY_SUBMITTED          1
-#define SWI_STATE_REPLY_SENT               2
-#define SWI_STATE_REQUEST_SUBMITTED        3
-#define SWI_STATE_REQUEST_SENT             4
-#define SWI_STATE_REPLY_RECEIVED           5
-#define SWI_STATE_BULK_STARTED             6
-#define SWI_STATE_DONE                     10
+#define SWI_STATE_NEWBORN		   0
+#define SWI_STATE_REPLY_SUBMITTED	   1
+#define SWI_STATE_REPLY_SENT		   2
+#define SWI_STATE_REQUEST_SUBMITTED	   3
+#define SWI_STATE_REQUEST_SENT		   4
+#define SWI_STATE_REPLY_RECEIVED	   5
+#define SWI_STATE_BULK_STARTED		   6
+#define SWI_STATE_DONE			   10
 
 /* forward refs */
 struct srpc_service;
@@ -75,91 +75,91 @@ struct sfw_test_instance;
 /* services below SRPC_FRAMEWORK_SERVICE_MAX_ID are framework
  * services, e.g. create/modify session.
  */
-#define SRPC_SERVICE_DEBUG              0
-#define SRPC_SERVICE_MAKE_SESSION       1
-#define SRPC_SERVICE_REMOVE_SESSION     2
-#define SRPC_SERVICE_BATCH              3
-#define SRPC_SERVICE_TEST               4
-#define SRPC_SERVICE_QUERY_STAT         5
-#define SRPC_SERVICE_JOIN               6
-#define SRPC_FRAMEWORK_SERVICE_MAX_ID   10
+#define SRPC_SERVICE_DEBUG		0
+#define SRPC_SERVICE_MAKE_SESSION	1
+#define SRPC_SERVICE_REMOVE_SESSION	2
+#define SRPC_SERVICE_BATCH		3
+#define SRPC_SERVICE_TEST		4
+#define SRPC_SERVICE_QUERY_STAT		5
+#define SRPC_SERVICE_JOIN		6
+#define SRPC_FRAMEWORK_SERVICE_MAX_ID	10
 /* other services start from SRPC_FRAMEWORK_SERVICE_MAX_ID+1 */
-#define SRPC_SERVICE_BRW                11
-#define SRPC_SERVICE_PING               12
-#define SRPC_SERVICE_MAX_ID             12
+#define SRPC_SERVICE_BRW		11
+#define SRPC_SERVICE_PING		12
+#define SRPC_SERVICE_MAX_ID		12
 
-#define SRPC_REQUEST_PORTAL             50
+#define SRPC_REQUEST_PORTAL		50
 /* a lazy portal for framework RPC requests */
-#define SRPC_FRAMEWORK_REQUEST_PORTAL   51
+#define SRPC_FRAMEWORK_REQUEST_PORTAL	51
 /* all reply/bulk RDMAs go to this portal */
-#define SRPC_RDMA_PORTAL                52
+#define SRPC_RDMA_PORTAL		52
 
 static inline srpc_msg_type_t
 srpc_service2request (int service)
 {
-        switch (service) {
-        default:
-                LBUG ();
-        case SRPC_SERVICE_DEBUG:
-                return SRPC_MSG_DEBUG_REQST;
+	switch (service) {
+	default:
+		LBUG ();
+	case SRPC_SERVICE_DEBUG:
+		return SRPC_MSG_DEBUG_REQST;
 
-        case SRPC_SERVICE_MAKE_SESSION:
-                return SRPC_MSG_MKSN_REQST;
+	case SRPC_SERVICE_MAKE_SESSION:
+		return SRPC_MSG_MKSN_REQST;
 
-        case SRPC_SERVICE_REMOVE_SESSION:
-                return SRPC_MSG_RMSN_REQST;
+	case SRPC_SERVICE_REMOVE_SESSION:
+		return SRPC_MSG_RMSN_REQST;
 
-        case SRPC_SERVICE_BATCH:
-                return SRPC_MSG_BATCH_REQST;
+	case SRPC_SERVICE_BATCH:
+		return SRPC_MSG_BATCH_REQST;
 
-        case SRPC_SERVICE_TEST:
-                return SRPC_MSG_TEST_REQST;
+	case SRPC_SERVICE_TEST:
+		return SRPC_MSG_TEST_REQST;
 
-        case SRPC_SERVICE_QUERY_STAT:
-                return SRPC_MSG_STAT_REQST;
+	case SRPC_SERVICE_QUERY_STAT:
+		return SRPC_MSG_STAT_REQST;
 
-        case SRPC_SERVICE_BRW:
-                return SRPC_MSG_BRW_REQST;
+	case SRPC_SERVICE_BRW:
+		return SRPC_MSG_BRW_REQST;
 
-        case SRPC_SERVICE_PING:
-                return SRPC_MSG_PING_REQST;
+	case SRPC_SERVICE_PING:
+		return SRPC_MSG_PING_REQST;
 
-        case SRPC_SERVICE_JOIN:
-                return SRPC_MSG_JOIN_REQST;
-        }
+	case SRPC_SERVICE_JOIN:
+		return SRPC_MSG_JOIN_REQST;
+	}
 }
 
 static inline srpc_msg_type_t
 srpc_service2reply (int service)
 {
-        return srpc_service2request(service) + 1;
+	return srpc_service2request(service) + 1;
 }
 
 typedef enum {
-        SRPC_BULK_REQ_RCVD   = 1, /* passive bulk request(PUT sink/GET source) received */
-        SRPC_BULK_PUT_SENT   = 2, /* active bulk PUT sent (source) */
-        SRPC_BULK_GET_RPLD   = 3, /* active bulk GET replied (sink) */
-        SRPC_REPLY_RCVD      = 4, /* incoming reply received */
-        SRPC_REPLY_SENT      = 5, /* outgoing reply sent */
-        SRPC_REQUEST_RCVD    = 6, /* incoming request received */
-        SRPC_REQUEST_SENT    = 7, /* outgoing request sent */
+	SRPC_BULK_REQ_RCVD   = 1, /* passive bulk request(PUT sink/GET source) received */
+	SRPC_BULK_PUT_SENT   = 2, /* active bulk PUT sent (source) */
+	SRPC_BULK_GET_RPLD   = 3, /* active bulk GET replied (sink) */
+	SRPC_REPLY_RCVD      = 4, /* incoming reply received */
+	SRPC_REPLY_SENT      = 5, /* outgoing reply sent */
+	SRPC_REQUEST_RCVD    = 6, /* incoming request received */
+	SRPC_REQUEST_SENT    = 7, /* outgoing request sent */
 } srpc_event_type_t;
 
 /* RPC event */
 typedef struct {
-        srpc_event_type_t ev_type;   /* what's up */
-        lnet_event_kind_t ev_lnet;   /* LNet event type */
-        int               ev_fired;  /* LNet event fired? */
-        int               ev_status; /* LNet event status */
-        void             *ev_data;   /* owning server/client RPC */
+	srpc_event_type_t ev_type;   /* what's up */
+	lnet_event_kind_t ev_lnet;   /* LNet event type */
+	int		  ev_fired;  /* LNet event fired? */
+	int		  ev_status; /* LNet event status */
+	void		 *ev_data;   /* owning server/client RPC */
 } srpc_event_t;
 
 typedef struct {
-        int              bk_len;  /* len of bulk data */
-        lnet_handle_md_t bk_mdh;
-        int              bk_sink; /* sink/source */
-        int              bk_niov; /* # iov in bk_iovs */
-        lnet_kiov_t      bk_iovs[0];
+	int		 bk_len;  /* len of bulk data */
+	lnet_handle_md_t bk_mdh;
+	int		 bk_sink; /* sink/source */
+	int		 bk_niov; /* # iov in bk_iovs */
+	lnet_kiov_t	 bk_iovs[0];
 } srpc_bulk_t; /* bulk descriptor */
 
 /* message buffer descriptor */
@@ -176,9 +176,9 @@ typedef int (*swi_action_t) (struct swi_workitem *);
 
 typedef struct swi_workitem {
 	struct cfs_wi_sched	*swi_sched;
-	struct cfs_workitem       swi_workitem;
-        swi_action_t         swi_action;
-        int                  swi_state;
+	struct cfs_workitem	  swi_workitem;
+	swi_action_t	     swi_action;
+	int		     swi_state;
 } swi_workitem_t;
 
 /* server-side state of a RPC */
@@ -212,53 +212,53 @@ typedef struct srpc_client_rpc {
 	swi_workitem_t		crpc_wi;
 	lnet_process_id_t	crpc_dest;
 
-        void               (*crpc_done)(struct srpc_client_rpc *);
-        void               (*crpc_fini)(struct srpc_client_rpc *);
-        int                  crpc_status;    /* completion status */
-        void                *crpc_priv;      /* caller data */
+	void		   (*crpc_done)(struct srpc_client_rpc *);
+	void		   (*crpc_fini)(struct srpc_client_rpc *);
+	int		     crpc_status;    /* completion status */
+	void		    *crpc_priv;      /* caller data */
 
-        /* state flags */
-        unsigned int         crpc_aborted:1; /* being given up */
-        unsigned int         crpc_closed:1;  /* completed */
+	/* state flags */
+	unsigned int	     crpc_aborted:1; /* being given up */
+	unsigned int	     crpc_closed:1;  /* completed */
 
-        /* RPC events */
-        srpc_event_t         crpc_bulkev;    /* bulk event */
-        srpc_event_t         crpc_reqstev;   /* request event */
-        srpc_event_t         crpc_replyev;   /* reply event */
+	/* RPC events */
+	srpc_event_t	     crpc_bulkev;    /* bulk event */
+	srpc_event_t	     crpc_reqstev;   /* request event */
+	srpc_event_t	     crpc_replyev;   /* reply event */
 
-        /* bulk, request(reqst), and reply exchanged on wire */
-        srpc_msg_t           crpc_reqstmsg;
-        srpc_msg_t           crpc_replymsg;
-        lnet_handle_md_t     crpc_reqstmdh;
-        lnet_handle_md_t     crpc_replymdh;
-        srpc_bulk_t          crpc_bulk;
+	/* bulk, request(reqst), and reply exchanged on wire */
+	srpc_msg_t	     crpc_reqstmsg;
+	srpc_msg_t	     crpc_replymsg;
+	lnet_handle_md_t     crpc_reqstmdh;
+	lnet_handle_md_t     crpc_replymdh;
+	srpc_bulk_t	     crpc_bulk;
 } srpc_client_rpc_t;
 
-#define srpc_client_rpc_size(rpc)                                       \
+#define srpc_client_rpc_size(rpc)					\
 offsetof(srpc_client_rpc_t, crpc_bulk.bk_iovs[(rpc)->crpc_bulk.bk_niov])
 
-#define srpc_client_rpc_addref(rpc)                                     \
-do {                                                                    \
-        CDEBUG(D_NET, "RPC[%p] -> %s (%d)++\n",                         \
-               (rpc), libcfs_id2str((rpc)->crpc_dest),                  \
-	       atomic_read(&(rpc)->crpc_refcount));                 \
-	LASSERT(atomic_read(&(rpc)->crpc_refcount) > 0);            \
-	atomic_inc(&(rpc)->crpc_refcount);                          \
+#define srpc_client_rpc_addref(rpc)					\
+do {									\
+	CDEBUG(D_NET, "RPC[%p] -> %s (%d)++\n",				\
+	       (rpc), libcfs_id2str((rpc)->crpc_dest),			\
+	       atomic_read(&(rpc)->crpc_refcount));		    \
+	LASSERT(atomic_read(&(rpc)->crpc_refcount) > 0);	    \
+	atomic_inc(&(rpc)->crpc_refcount);			    \
 } while (0)
 
-#define srpc_client_rpc_decref(rpc)                                     \
-do {                                                                    \
-        CDEBUG(D_NET, "RPC[%p] -> %s (%d)--\n",                         \
-               (rpc), libcfs_id2str((rpc)->crpc_dest),                  \
-	       atomic_read(&(rpc)->crpc_refcount));                 \
-	LASSERT(atomic_read(&(rpc)->crpc_refcount) > 0);            \
-	if (atomic_dec_and_test(&(rpc)->crpc_refcount))             \
-                srpc_destroy_client_rpc(rpc);                           \
+#define srpc_client_rpc_decref(rpc)					\
+do {									\
+	CDEBUG(D_NET, "RPC[%p] -> %s (%d)--\n",				\
+	       (rpc), libcfs_id2str((rpc)->crpc_dest),			\
+	       atomic_read(&(rpc)->crpc_refcount));		    \
+	LASSERT(atomic_read(&(rpc)->crpc_refcount) > 0);	    \
+	if (atomic_dec_and_test(&(rpc)->crpc_refcount))		    \
+		srpc_destroy_client_rpc(rpc);				\
 } while (0)
 
-#define srpc_event_pending(rpc)   ((rpc)->crpc_bulkev.ev_fired == 0 ||  \
-                                   (rpc)->crpc_reqstev.ev_fired == 0 || \
-                                   (rpc)->crpc_replyev.ev_fired == 0)
+#define srpc_event_pending(rpc)   ((rpc)->crpc_bulkev.ev_fired == 0 ||	\
+				   (rpc)->crpc_reqstev.ev_fired == 0 || \
+				   (rpc)->crpc_replyev.ev_fired == 0)
 
 /* CPU partition data of srpc service */
 struct srpc_service_cd {
@@ -279,7 +279,7 @@ struct srpc_service_cd {
 	/** error code for scd_buf_wi */
 	int			scd_buf_err;
 	/** timestamp for scd_buf_err */
-	unsigned long           scd_buf_err_stamp;
+	unsigned long		scd_buf_err_stamp;
 	/** total # request buffers */
 	int			scd_buf_total;
 	/** # posted request buffers */
@@ -300,7 +300,7 @@ struct srpc_service_cd {
 #define SFW_TEST_WI_MIN		256
 #define SFW_TEST_WI_MAX		2048
 /* extra buffers for tolerating buggy peers, or unbalanced number
- * of peers between partitions  */
+ * of peers between partitions	*/
 #define SFW_TEST_WI_EXTRA	64
 
 /* number of server workitems (mini-thread) for framework service */
@@ -315,12 +315,12 @@ typedef struct srpc_service {
 	int			sv_ncpts;
 	/* percpt data for srpc_service */
 	struct srpc_service_cd	**sv_cpt_data;
-        /* Service callbacks:
-         * - sv_handler: process incoming RPC request
-         * - sv_bulk_ready: notify bulk data
-         */
-        int              (*sv_handler) (srpc_server_rpc_t *);
-        int              (*sv_bulk_ready) (srpc_server_rpc_t *, int);
+	/* Service callbacks:
+	 * - sv_handler: process incoming RPC request
+	 * - sv_bulk_ready: notify bulk data
+	 */
+	int		 (*sv_handler) (srpc_server_rpc_t *);
+	int		 (*sv_bulk_ready) (srpc_server_rpc_t *, int);
 } srpc_service_t;
 
 typedef struct {
@@ -341,7 +341,7 @@ typedef struct {
 } sfw_session_t;
 
 #define sfw_sid_equal(sid0, sid1)     ((sid0).ses_nid == (sid1).ses_nid && \
-                                       (sid0).ses_stamp == (sid1).ses_stamp)
+				       (sid0).ses_stamp == (sid1).ses_stamp)
 
 typedef struct {
 	struct list_head	bat_list;	/* chain on sn_batches */
@@ -353,13 +353,13 @@ typedef struct {
 } sfw_batch_t;
 
 typedef struct {
-        int  (*tso_init)(struct sfw_test_instance *tsi); /* intialize test client */
-        void (*tso_fini)(struct sfw_test_instance *tsi); /* finalize test client */
-        int  (*tso_prep_rpc)(struct sfw_test_unit *tsu,
-                             lnet_process_id_t dest,
-                             srpc_client_rpc_t **rpc);   /* prep a tests rpc */
-        void (*tso_done_rpc)(struct sfw_test_unit *tsu,
-                             srpc_client_rpc_t *rpc);    /* done a test rpc */
+	int  (*tso_init)(struct sfw_test_instance *tsi); /* intialize test client */
+	void (*tso_fini)(struct sfw_test_instance *tsi); /* finalize test client */
+	int  (*tso_prep_rpc)(struct sfw_test_unit *tsu,
+			     lnet_process_id_t dest,
+			     srpc_client_rpc_t **rpc);	 /* prep a tests rpc */
+	void (*tso_done_rpc)(struct sfw_test_unit *tsu,
+			     srpc_client_rpc_t *rpc);	 /* done a test rpc */
 } sfw_test_client_ops_t;
 
 typedef struct sfw_test_instance {
@@ -371,8 +371,8 @@ typedef struct sfw_test_instance {
 	/* public parameter for all test units */
 	unsigned int		tsi_is_client:1;     /* is test client */
 	unsigned int		tsi_stoptsu_onerr:1; /* stop tsu on error */
-        int                     tsi_concur;          /* concurrency */
-        int                     tsi_loop;            /* loop count */
+	int			tsi_concur;	     /* concurrency */
+	int			tsi_loop;	     /* loop count */
 
 	/* status of test instance */
 	spinlock_t		tsi_lock;	/* serialize */
@@ -391,9 +391,9 @@ typedef struct sfw_test_instance {
 
 /* XXX: trailing (PAGE_CACHE_SIZE % sizeof(lnet_process_id_t)) bytes at
  * the end of pages are not used */
-#define SFW_MAX_CONCUR     LST_MAX_CONCUR
+#define SFW_MAX_CONCUR	   LST_MAX_CONCUR
 #define SFW_ID_PER_PAGE    (PAGE_CACHE_SIZE / sizeof(lnet_process_id_packed_t))
-#define SFW_MAX_NDESTS     (LNET_MAX_IOV * SFW_ID_PER_PAGE)
+#define SFW_MAX_NDESTS	   (LNET_MAX_IOV * SFW_ID_PER_PAGE)
 #define sfw_id_pages(n)    (((n) + SFW_ID_PER_PAGE - 1) / SFW_ID_PER_PAGE)
 
 typedef struct sfw_test_unit {
@@ -430,9 +430,9 @@ int sfw_make_session (srpc_mksn_reqst_t *request, srpc_mksn_reply_t *reply);
 
 srpc_client_rpc_t *
 srpc_create_client_rpc(lnet_process_id_t peer, int service,
-                       int nbulkiov, int bulklen,
-                       void (*rpc_done)(srpc_client_rpc_t *),
-                       void (*rpc_fini)(srpc_client_rpc_t *), void *priv);
+		       int nbulkiov, int bulklen,
+		       void (*rpc_done)(srpc_client_rpc_t *),
+		       void (*rpc_fini)(srpc_client_rpc_t *), void *priv);
 void srpc_post_rpc(srpc_client_rpc_t *rpc);
 void srpc_abort_rpc(srpc_client_rpc_t *rpc, int why);
 void srpc_free_bulk(srpc_bulk_t *bk);
@@ -462,18 +462,18 @@ srpc_serv_is_framework(struct srpc_service *svc)
 static inline int
 swi_wi_action(struct cfs_workitem *wi)
 {
-        swi_workitem_t *swi = container_of(wi, swi_workitem_t, swi_workitem);
+	swi_workitem_t *swi = container_of(wi, swi_workitem_t, swi_workitem);
 
-        return swi->swi_action(swi);
+	return swi->swi_action(swi);
 }
 
 static inline void
 swi_init_workitem(swi_workitem_t *swi, void *data,
 		  swi_action_t action, struct cfs_wi_sched *sched)
 {
-	swi->swi_sched  = sched;
+	swi->swi_sched	= sched;
 	swi->swi_action = action;
-	swi->swi_state  = SWI_STATE_NEWBORN;
+	swi->swi_state	= SWI_STATE_NEWBORN;
 	cfs_wi_init(&swi->swi_workitem, data, swi_wi_action);
 }
 
@@ -533,44 +533,44 @@ srpc_init_client_rpc(srpc_client_rpc_t *rpc, lnet_process_id_t peer,
 	spin_lock_init(&rpc->crpc_lock);
 	atomic_set(&rpc->crpc_refcount, 1); /* 1 ref for caller */
 
-	rpc->crpc_dest         = peer;
-	rpc->crpc_priv         = priv;
-        rpc->crpc_service      = service;
-        rpc->crpc_bulk.bk_len  = bulklen;
-        rpc->crpc_bulk.bk_niov = nbulkiov;
-        rpc->crpc_done         = rpc_done;
-        rpc->crpc_fini         = rpc_fini;
-        LNetInvalidateHandle(&rpc->crpc_reqstmdh);
-        LNetInvalidateHandle(&rpc->crpc_replymdh);
-        LNetInvalidateHandle(&rpc->crpc_bulk.bk_mdh);
+	rpc->crpc_dest	       = peer;
+	rpc->crpc_priv	       = priv;
+	rpc->crpc_service      = service;
+	rpc->crpc_bulk.bk_len  = bulklen;
+	rpc->crpc_bulk.bk_niov = nbulkiov;
+	rpc->crpc_done	       = rpc_done;
+	rpc->crpc_fini	       = rpc_fini;
+	LNetInvalidateHandle(&rpc->crpc_reqstmdh);
+	LNetInvalidateHandle(&rpc->crpc_replymdh);
+	LNetInvalidateHandle(&rpc->crpc_bulk.bk_mdh);
 
-        /* no event is expected at this point */
-        rpc->crpc_bulkev.ev_fired  =
-        rpc->crpc_reqstev.ev_fired =
-        rpc->crpc_replyev.ev_fired = 1;
+	/* no event is expected at this point */
+	rpc->crpc_bulkev.ev_fired  =
+	rpc->crpc_reqstev.ev_fired =
+	rpc->crpc_replyev.ev_fired = 1;
 
-        rpc->crpc_reqstmsg.msg_magic   = SRPC_MSG_MAGIC;
-        rpc->crpc_reqstmsg.msg_version = SRPC_MSG_VERSION;
-        rpc->crpc_reqstmsg.msg_type    = srpc_service2request(service);
-        return;
+	rpc->crpc_reqstmsg.msg_magic   = SRPC_MSG_MAGIC;
+	rpc->crpc_reqstmsg.msg_version = SRPC_MSG_VERSION;
+	rpc->crpc_reqstmsg.msg_type    = srpc_service2request(service);
+	return;
 }
 
 static inline const char *
 swi_state2str (int state)
 {
 #define STATE2STR(x) case x: return #x
-        switch(state) {
-                default:
-                        LBUG();
-                STATE2STR(SWI_STATE_NEWBORN);
-                STATE2STR(SWI_STATE_REPLY_SUBMITTED);
-                STATE2STR(SWI_STATE_REPLY_SENT);
-                STATE2STR(SWI_STATE_REQUEST_SUBMITTED);
-                STATE2STR(SWI_STATE_REQUEST_SENT);
-                STATE2STR(SWI_STATE_REPLY_RECEIVED);
-                STATE2STR(SWI_STATE_BULK_STARTED);
-                STATE2STR(SWI_STATE_DONE);
-        }
+	switch(state) {
+		default:
+			LBUG();
+		STATE2STR(SWI_STATE_NEWBORN);
+		STATE2STR(SWI_STATE_REPLY_SUBMITTED);
+		STATE2STR(SWI_STATE_REPLY_SENT);
+		STATE2STR(SWI_STATE_REQUEST_SUBMITTED);
+		STATE2STR(SWI_STATE_REQUEST_SENT);
+		STATE2STR(SWI_STATE_REPLY_RECEIVED);
+		STATE2STR(SWI_STATE_BULK_STARTED);
+		STATE2STR(SWI_STATE_DONE);
+	}
 #undef STATE2STR
 }
 
@@ -607,12 +607,12 @@ srpc_wait_service_shutdown(srpc_service_t *sv)
 }
 
 extern sfw_test_client_ops_t ping_test_client;
-extern srpc_service_t        ping_test_service;
+extern srpc_service_t	     ping_test_service;
 void ping_init_test_client(void);
 void ping_init_test_service(void);
 
 extern sfw_test_client_ops_t brw_test_client;
-extern srpc_service_t        brw_test_service;
+extern srpc_service_t	     brw_test_service;
 void brw_init_test_client(void);
 void brw_init_test_service(void);
 
