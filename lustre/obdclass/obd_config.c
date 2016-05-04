@@ -1624,36 +1624,36 @@ int class_config_llog_handler(const struct lu_env *env,
                                                    clli->cfg_obdname);
                 }
 
-                lcfg_new = lustre_cfg_new(lcfg->lcfg_command, &bufs);
+		lcfg_new = lustre_cfg_new(lcfg->lcfg_command, &bufs);
 		if (lcfg_new == NULL)
 			GOTO(out, rc = -ENOMEM);
 
-                lcfg_new->lcfg_num   = lcfg->lcfg_num;
-                lcfg_new->lcfg_flags = lcfg->lcfg_flags;
+		lcfg_new->lcfg_num   = lcfg->lcfg_num;
+		lcfg_new->lcfg_flags = lcfg->lcfg_flags;
 
-                /* XXX Hack to try to remain binary compatible with
-                 * pre-newconfig logs */
-                if (lcfg->lcfg_nal != 0 &&      /* pre-newconfig log? */
-                    (lcfg->lcfg_nid >> 32) == 0) {
-                        __u32 addr = (__u32)(lcfg->lcfg_nid & 0xffffffff);
+		/* XXX Hack to try to remain binary compatible with
+		 * pre-newconfig logs */
+		if (lcfg->lcfg_nal != 0 &&      /* pre-newconfig log? */
+		    (lcfg->lcfg_nid >> 32) == 0) {
+			__u32 addr = (__u32)(lcfg->lcfg_nid & 0xffffffff);
 
-                        lcfg_new->lcfg_nid =
-                                LNET_MKNID(LNET_MKNET(lcfg->lcfg_nal, 0), addr);
-                        CWARN("Converted pre-newconfig NAL %d NID %x to %s\n",
-                              lcfg->lcfg_nal, addr,
-                              libcfs_nid2str(lcfg_new->lcfg_nid));
-                } else {
-                        lcfg_new->lcfg_nid = lcfg->lcfg_nid;
-                }
+			lcfg_new->lcfg_nid =
+				lnet_mknid(lnet_mknet(lcfg->lcfg_nal, 0), addr);
+			CWARN("Converted pre-newconfig NAL %d NID %x to %s\n",
+			      lcfg->lcfg_nal, addr,
+			      libcfs_nid2str(lcfg_new->lcfg_nid));
+		} else {
+			lcfg_new->lcfg_nid = lcfg->lcfg_nid;
+		}
 
-                lcfg_new->lcfg_nal = 0; /* illegal value for obsolete field */
+		lcfg_new->lcfg_nal = 0; /* illegal value for obsolete field */
 
 		rc = class_process_config(lcfg_new);
-                lustre_cfg_free(lcfg_new);
+		lustre_cfg_free(lcfg_new);
 
-                if (inst)
-                        OBD_FREE(inst_name, inst_len);
-                break;
+		if (inst)
+			OBD_FREE(inst_name, inst_len);
+		break;
         }
         default:
                 CERROR("Unknown llog record type %#x encountered\n",
