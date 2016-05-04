@@ -79,7 +79,7 @@ lustre_interface_show_net(struct cYAML *interfaces, unsigned int index,
 		return -1;
 
 	if (detail) {
-		__u32 net = LNET_NETTYP(LNET_NIDNET(data->cfg_nid));
+		__u32 net = lnet_nettyp(lnet_nidnet(data->cfg_nid));
 		struct lnet_ioctl_config_lnd_tunables *lnd_cfg;
 		struct cYAML *lndparams;
 
