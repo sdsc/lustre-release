@@ -723,7 +723,7 @@ lnet_net2ni_locked(__u32 net, int cpt)
 	list_for_each(tmp, &the_lnet.ln_nis) {
 		ni = list_entry(tmp, lnet_ni_t, ni_list);
 
-		if (LNET_NIDNET(ni->ni_nid) == net) {
+		if (lnet_nidnet(ni->ni_nid) == net) {
 			lnet_ni_addref_locked(ni, cpt);
 			return ni;
 		}
@@ -776,7 +776,7 @@ lnet_cpt_of_nid_locked(lnet_nid_t nid)
 	/* take lnet_net_lock(any) would be OK */
 	if (!list_empty(&the_lnet.ln_nis_cpt)) {
 		list_for_each_entry(ni, &the_lnet.ln_nis_cpt, ni_cptlist) {
-			if (LNET_NIDNET(ni->ni_nid) != LNET_NIDNET(nid))
+			if (lnet_nidnet(ni->ni_nid) != lnet_nidnet(nid))
 				continue;
 
 			LASSERT(ni->ni_cpts != NULL);
@@ -1276,7 +1276,7 @@ lnet_startup_lndni(struct lnet_ni *ni, struct lnet_ioctl_config_data *conf)
 	struct lnet_tx_queue	*tq;
 	int			i;
 
-	lnd_type = LNET_NETTYP(LNET_NIDNET(ni->ni_nid));
+	lnd_type = lnet_nettyp(lnet_nidnet(ni->ni_nid));
 
 	LASSERT(libcfs_isknown_lnd(lnd_type));
 
@@ -1288,7 +1288,7 @@ lnet_startup_lndni(struct lnet_ni *ni, struct lnet_ioctl_config_data *conf)
 
 	/* Make sure this new NI is unique. */
 	lnet_net_lock(LNET_LOCK_EX);
-	rc = lnet_net_unique(LNET_NIDNET(ni->ni_nid), &the_lnet.ln_nis);
+	rc = lnet_net_unique(lnet_nidnet(ni->ni_nid), &the_lnet.ln_nis);
 	lnet_net_unlock(LNET_LOCK_EX);
 
 	if (!rc) {
@@ -1298,7 +1298,7 @@ lnet_startup_lndni(struct lnet_ni *ni, struct lnet_ioctl_config_data *conf)
 		}
 
 		CERROR("Net %s is not unique\n",
-		       libcfs_net2str(LNET_NIDNET(ni->ni_nid)));
+		       libcfs_net2str(lnet_nidnet(ni->ni_nid)));
 
 		rc = -EEXIST;
 		goto failed0;
@@ -1585,7 +1585,7 @@ LNetNIInit(lnet_pid_t requested_pid)
 	}
 
 	/* Add in the loopback network */
-	if (lnet_ni_alloc(LNET_MKNET(LOLND, 0), NULL, &net_head) == NULL) {
+	if (lnet_ni_alloc(lnet_mknet(LOLND, 0), NULL, &net_head) == NULL) {
 		rc = -ENOMEM;
 		goto failed0;
 	}
@@ -1850,7 +1850,7 @@ lnet_dyn_add_ni(lnet_pid_t requested_pid, struct lnet_ioctl_config_data *conf)
 	ni = list_entry(net_head.next, struct lnet_ni, ni_list);
 
 	lnet_net_lock(LNET_LOCK_EX);
-	rnet = lnet_find_net_locked(LNET_NIDNET(ni->ni_nid));
+	rnet = lnet_find_net_locked(lnet_nidnet(ni->ni_nid));
 	lnet_net_unlock(LNET_LOCK_EX);
 	/* make sure that the net added doesn't invalidate the current
 	 * configuration LNet is keeping */
@@ -1909,7 +1909,7 @@ lnet_dyn_del_ni(__u32 net)
 	int		  rc;
 
 	/* don't allow userspace to shutdown the LOLND */
-	if (LNET_NETTYP(net) == LOLND)
+	if (lnet_nettyp(net) == LOLND)
 		return -EINVAL;
 
 	mutex_lock(&the_lnet.ln_api_mutex);
