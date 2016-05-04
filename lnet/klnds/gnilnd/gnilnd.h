@@ -605,13 +605,13 @@ typedef struct kgn_net {
 static inline lnet_nid_t
 kgnilnd_lnd2lnetnid(lnet_nid_t ni_nid, lnet_nid_t kgnilnd_nid)
 {
-	return LNET_MKNID(LNET_NIDNET(ni_nid), LNET_NIDADDR(kgnilnd_nid));
+	return lnet_mknid(lnet_nidnet(ni_nid), lnet_nidaddr(kgnilnd_nid));
 }
 
 static inline lnet_nid_t
 kgnilnd_lnet2lndnid(lnet_nid_t lnet_nid, lnet_nid_t kgnilnd_nid)
 {
-	return LNET_MKNID(LNET_NIDNET(kgnilnd_nid), LNET_NIDADDR(lnet_nid));
+	return lnet_mknid(lnet_nidnet(kgnilnd_nid), lnet_nidaddr(lnet_nid));
 }
 
 /* The code for this is a bit ugly - but really  this just boils down to a __u64
@@ -1263,7 +1263,8 @@ do {                                                                    \
 static inline struct list_head *
 kgnilnd_nid2peerlist(lnet_nid_t nid)
 {
-	unsigned int hash = ((unsigned int)LNET_NIDADDR(nid)) % *kgnilnd_tunables.kgn_peer_hash_size;
+	unsigned int hash = ((unsigned int)lnet_nidaddr(nid)) %
+		*kgnilnd_tunables.kgn_peer_hash_size;
 
 	RETURN(&kgnilnd_data.kgn_peers[hash]);
 }
@@ -1698,6 +1699,8 @@ static inline int
 kgnilnd_find_net(lnet_nid_t nid, kgn_net_t **netp)
 {
 	kgn_net_t *net;
+	struct list_head *list =
+		kgnilnd_netnum2netlist(lnet_netnum(lnet_nidnet(nid)));
 	int rc;
 
 	rc = down_read_trylock(&kgnilnd_data.kgn_net_rw_sem);
@@ -1706,8 +1709,9 @@ kgnilnd_find_net(lnet_nid_t nid, kgn_net_t **netp)
 		return -ESHUTDOWN;
 	}
 
-	list_for_each_entry(net, kgnilnd_netnum2netlist(LNET_NETNUM(LNET_NIDNET(nid))), gnn_list) {
-		if (!net->gnn_shutdown && LNET_NIDNET(net->gnn_ni->ni_nid) == LNET_NIDNET(nid)) {
+	list_for_each_entry(net, list, gnn_list) {
+		if (!net->gnn_shutdown && lnet_nidnet(net->gnn_ni->ni_nid) ==
+		    lnet_nidnet(nid)) {
 			kgnilnd_net_addref(net);
 			up_read(&kgnilnd_data.kgn_net_rw_sem);
 			*netp = net;
