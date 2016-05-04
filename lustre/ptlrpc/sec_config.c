@@ -168,12 +168,12 @@ static void get_default_flavor(struct sptlrpc_flavor *sf)
 
 static void sptlrpc_rule_init(struct sptlrpc_rule *rule)
 {
-        rule->sr_netid = LNET_NIDNET(LNET_NID_ANY);
-        rule->sr_from = LUSTRE_SP_ANY;
-        rule->sr_to = LUSTRE_SP_ANY;
-        rule->sr_padding = 0;
+	rule->sr_netid = lnet_nidnet(LNET_NID_ANY);
+	rule->sr_from = LUSTRE_SP_ANY;
+	rule->sr_to = LUSTRE_SP_ANY;
+	rule->sr_padding = 0;
 
-        get_default_flavor(&rule->sr_flvr);
+	get_default_flavor(&rule->sr_flvr);
 }
 
 /*
@@ -181,57 +181,57 @@ static void sptlrpc_rule_init(struct sptlrpc_rule *rule)
  */
 int sptlrpc_parse_rule(char *param, struct sptlrpc_rule *rule)
 {
-        char           *flavor, *dir;
-        int             rc;
+	char           *flavor, *dir;
+	int             rc;
 
-        sptlrpc_rule_init(rule);
+	sptlrpc_rule_init(rule);
 
-        flavor = strchr(param, '=');
-        if (flavor == NULL) {
-                CERROR("invalid param, no '='\n");
-                RETURN(-EINVAL);
-        }
-        *flavor++ = '\0';
+	flavor = strchr(param, '=');
+	if (flavor == NULL) {
+		CERROR("invalid param, no '='\n");
+		RETURN(-EINVAL);
+	}
+	*flavor++ = '\0';
 
-        dir = strchr(param, '.');
-        if (dir)
-                *dir++ = '\0';
+	dir = strchr(param, '.');
+	if (dir)
+		*dir++ = '\0';
 
-        /* 1.1 network */
-        if (strcmp(param, "default")) {
-                rule->sr_netid = libcfs_str2net(param);
-                if (rule->sr_netid == LNET_NIDNET(LNET_NID_ANY)) {
-                        CERROR("invalid network name: %s\n", param);
-                        RETURN(-EINVAL);
-                }
-        }
+	/* 1.1 network */
+	if (strcmp(param, "default")) {
+		rule->sr_netid = libcfs_str2net(param);
+		if (rule->sr_netid == lnet_nidnet(LNET_NID_ANY)) {
+			CERROR("invalid network name: %s\n", param);
+			RETURN(-EINVAL);
+		}
+	}
 
-        /* 1.2 direction */
-        if (dir) {
-                if (!strcmp(dir, "mdt2ost")) {
-                        rule->sr_from = LUSTRE_SP_MDT;
-                        rule->sr_to = LUSTRE_SP_OST;
-                } else if (!strcmp(dir, "mdt2mdt")) {
-                        rule->sr_from = LUSTRE_SP_MDT;
-                        rule->sr_to = LUSTRE_SP_MDT;
-                } else if (!strcmp(dir, "cli2ost")) {
-                        rule->sr_from = LUSTRE_SP_CLI;
-                        rule->sr_to = LUSTRE_SP_OST;
-                } else if (!strcmp(dir, "cli2mdt")) {
-                        rule->sr_from = LUSTRE_SP_CLI;
-                        rule->sr_to = LUSTRE_SP_MDT;
-                } else {
-                        CERROR("invalid rule dir segment: %s\n", dir);
-                        RETURN(-EINVAL);
-                }
-        }
+	/* 1.2 direction */
+	if (dir) {
+		if (!strcmp(dir, "mdt2ost")) {
+			rule->sr_from = LUSTRE_SP_MDT;
+			rule->sr_to = LUSTRE_SP_OST;
+		} else if (!strcmp(dir, "mdt2mdt")) {
+			rule->sr_from = LUSTRE_SP_MDT;
+			rule->sr_to = LUSTRE_SP_MDT;
+		} else if (!strcmp(dir, "cli2ost")) {
+			rule->sr_from = LUSTRE_SP_CLI;
+			rule->sr_to = LUSTRE_SP_OST;
+		} else if (!strcmp(dir, "cli2mdt")) {
+			rule->sr_from = LUSTRE_SP_CLI;
+			rule->sr_to = LUSTRE_SP_MDT;
+		} else {
+			CERROR("invalid rule dir segment: %s\n", dir);
+			RETURN(-EINVAL);
+		}
+	}
 
-        /* 2.1 flavor */
-        rc = sptlrpc_parse_flavor(flavor, &rule->sr_flvr);
-        if (rc)
-                RETURN(-EINVAL);
+	/* 2.1 flavor */
+	rc = sptlrpc_parse_flavor(flavor, &rule->sr_flvr);
+	if (rc)
+		RETURN(-EINVAL);
 
-        RETURN(0);
+	RETURN(0);
 }
 EXPORT_SYMBOL(sptlrpc_parse_rule);
 
@@ -289,7 +289,7 @@ static inline int rule_spec_dir(struct sptlrpc_rule *rule)
 }
 static inline int rule_spec_net(struct sptlrpc_rule *rule)
 {
-        return (rule->sr_netid != LNET_NIDNET(LNET_NID_ANY));
+	return (rule->sr_netid != lnet_nidnet(LNET_NID_ANY));
 }
 static inline int rule_match_dir(struct sptlrpc_rule *r1,
                                  struct sptlrpc_rule *r2)
@@ -403,30 +403,30 @@ int sptlrpc_rule_set_choose(struct sptlrpc_rule_set *rset,
                             lnet_nid_t nid,
                             struct sptlrpc_flavor *sf)
 {
-        struct sptlrpc_rule    *r;
-        int                     n;
+	struct sptlrpc_rule    *r;
+	int                     n;
 
-        for (n = 0; n < rset->srs_nrule; n++) {
-                r = &rset->srs_rules[n];
+	for (n = 0; n < rset->srs_nrule; n++) {
+		r = &rset->srs_rules[n];
 
-                if (LNET_NIDNET(nid) != LNET_NIDNET(LNET_NID_ANY) &&
-                    r->sr_netid != LNET_NIDNET(LNET_NID_ANY) &&
-                    LNET_NIDNET(nid) != r->sr_netid)
-                        continue;
+		if (lnet_nidnet(nid) != lnet_nidnet(LNET_NID_ANY) &&
+		    r->sr_netid != lnet_nidnet(LNET_NID_ANY) &&
+		    lnet_nidnet(nid) != r->sr_netid)
+			continue;
 
-                if (from != LUSTRE_SP_ANY && r->sr_from != LUSTRE_SP_ANY &&
-                    from != r->sr_from)
-                        continue;
+		if (from != LUSTRE_SP_ANY && r->sr_from != LUSTRE_SP_ANY &&
+		    from != r->sr_from)
+			continue;
 
-                if (to != LUSTRE_SP_ANY && r->sr_to != LUSTRE_SP_ANY &&
-                    to != r->sr_to)
-                        continue;
+		if (to != LUSTRE_SP_ANY && r->sr_to != LUSTRE_SP_ANY &&
+		    to != r->sr_to)
+			continue;
 
-                *sf = r->sr_flvr;
-                return 1;
-        }
+		*sf = r->sr_flvr;
+		return 1;
+	}
 
-        return 0;
+	return 0;
 }
 
 void sptlrpc_rule_set_dump(struct sptlrpc_rule_set *rset)
@@ -941,7 +941,7 @@ static void rule2string(struct sptlrpc_rule *r, char *buf, int buflen)
 	char	 net[LNET_NIDSTR_SIZE] = "default";
 	char	*ptr = buf;
 
-	if (r->sr_netid != LNET_NIDNET(LNET_NID_ANY))
+	if (r->sr_netid != lnet_nidnet(LNET_NID_ANY))
 		libcfs_net2str_r(r->sr_netid, net, sizeof(net));
 
         if (r->sr_from == LUSTRE_SP_ANY && r->sr_to == LUSTRE_SP_ANY)

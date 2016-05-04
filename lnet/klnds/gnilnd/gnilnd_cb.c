@@ -1817,7 +1817,7 @@ kgnilnd_launch_tx(kgn_tx_t *tx, kgn_net_t *net, lnet_process_id_t *target)
 
 	CFS_RACE(CFS_FAIL_GNI_FIND_TARGET);
 
-	node_state = kgnilnd_get_node_state(LNET_NIDADDR(target->nid));
+	node_state = kgnilnd_get_node_state(lnet_nidaddr(target->nid));
 
 	/* NB - this will not block during normal operations -
 	 * the only writer of this is in the startup/shutdown path. */
@@ -4289,7 +4289,7 @@ kgnilnd_check_fma_rx(kgn_conn_t *conn)
 		GOTO(out, rc);
 	}
 
-	if (LNET_NIDADDR(msg->gnm_srcnid) != LNET_NIDADDR(peer->gnp_nid)) {
+	if (lnet_nidaddr(msg->gnm_srcnid) != lnet_nidaddr(peer->gnp_nid)) {
 		GNIDBG_MSG(D_NETERROR, msg, "Unexpected peer %s from %s",
 		       libcfs_nid2str(msg->gnm_srcnid),
 		       libcfs_nid2str(peer->gnp_nid));

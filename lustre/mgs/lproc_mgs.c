@@ -93,23 +93,23 @@ static void seq_show_srpc_rules(struct seq_file *seq, const char *tgtname,
 	for (i = 0; i < rset->srs_nrule; i++) {
 		r = &rset->srs_rules[i];
 
-		if (r->sr_netid == LNET_NIDNET(LNET_NID_ANY))
+		if (r->sr_netid == lnet_nidnet(LNET_NID_ANY))
 			net = "default";
 		else
 			net = libcfs_net2str_r(r->sr_netid, net_buf,
 					       sizeof(net_buf));
 
-                if (r->sr_from == LUSTRE_SP_ANY && r->sr_to == LUSTRE_SP_ANY)
-                        dirbuf[0] = '\0';
-                else
-                        snprintf(dirbuf, sizeof(dirbuf), ".%s2%s",
-                                 sptlrpc_part2name(r->sr_from),
-                                 sptlrpc_part2name(r->sr_to));
+		if (r->sr_from == LUSTRE_SP_ANY && r->sr_to == LUSTRE_SP_ANY)
+			dirbuf[0] = '\0';
+		else
+			snprintf(dirbuf, sizeof(dirbuf), ".%s2%s",
+				 sptlrpc_part2name(r->sr_from),
+				 sptlrpc_part2name(r->sr_to));
 
-                sptlrpc_flavor2name(&r->sr_flvr, flvrbuf, sizeof(flvrbuf));
-                seq_printf(seq, "%s.srpc.flavor.%s%s=%s\n", tgtname,
-                           net, dirbuf, flvrbuf);
-        }
+		sptlrpc_flavor2name(&r->sr_flvr, flvrbuf, sizeof(flvrbuf));
+		seq_printf(seq, "%s.srpc.flavor.%s%s=%s\n", tgtname,
+			   net, dirbuf, flvrbuf);
+	}
 }
 
 static int mgsself_srpc_seq_show(struct seq_file *seq, void *v)

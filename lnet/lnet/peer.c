@@ -161,7 +161,7 @@ lnet_peer_table_del_rtrs_locked(lnet_ni_t *ni, struct lnet_peer_table *ptable,
 			lp_nid = lp->lp_nid;
 
 			lnet_net_unlock(cpt_locked);
-			lnet_del_route(LNET_NIDNET(LNET_NID_ANY), lp_nid);
+			lnet_del_route(lnet_nidnet(LNET_NID_ANY), lp_nid);
 			lnet_net_lock(cpt_locked);
 		}
 	}
@@ -330,7 +330,7 @@ lnet_nid2peer_locked(lnet_peer_t **lpp, lnet_nid_t nid, int cpt)
 		goto out;
 	}
 
-	lp->lp_ni = lnet_net2ni_locked(LNET_NIDNET(nid), cpt2);
+	lp->lp_ni = lnet_net2ni_locked(lnet_nidnet(nid), cpt2);
 	if (lp->lp_ni == NULL) {
 		rc = -EHOSTUNREACH;
 		goto out;

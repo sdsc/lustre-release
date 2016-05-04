@@ -143,8 +143,8 @@ static int __init lustre_init(void)
 		if (LNetGetId(i, &lnet_id) == -ENOENT)
 			break;
 
-		if (LNET_NETTYP(LNET_NIDNET(lnet_id.nid)) != LOLND)
-			seed[0] ^= LNET_NIDADDR(lnet_id.nid);
+		if (lnet_nettyp(lnet_nidnet(lnet_id.nid)) != LOLND)
+			seed[0] ^= lnet_nidaddr(lnet_id.nid);
 	}
 
 	ktime_get_ts64(&ts);

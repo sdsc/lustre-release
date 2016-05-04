@@ -188,9 +188,9 @@ lstcon_trans_stat(void)
 static inline struct list_head *
 lstcon_id2hash(lnet_process_id_t id, struct list_head *hash)
 {
-        unsigned int idx = LNET_NIDADDR(id.nid) % LST_NODE_HASHSIZE;
+	unsigned int idx = lnet_nidaddr(id.nid) % LST_NODE_HASHSIZE;
 
-        return &hash[idx];
+	return &hash[idx];
 }
 
 extern int lstcon_session_match(struct lst_sid sid);

@@ -836,16 +836,16 @@ kgnilnd_unpack_connreq(kgn_dgram_t *dgram)
 		 * the payload coming from a random spot, etc. */
 		connreq->gncr_srcnid = dgram->gndg_conn_out.gncr_dstnid;
 
-		if (LNET_NIDADDR(dgram->gndg_conn_out.gncr_dstnid) !=
-				LNET_NIDADDR(incoming)) {
+		if (lnet_nidaddr(dgram->gndg_conn_out.gncr_dstnid) !=
+				lnet_nidaddr(incoming)) {
 			/* we got a datagram match for the wrong nid... */
 			CERROR("matched datagram 0x%p with srcnid %s "
 				"(%x), expecting %s (%x)\n",
 				dgram,
 				libcfs_nid2str(incoming),
-				LNET_NIDADDR(incoming),
+				lnet_nidaddr(incoming),
 				libcfs_nid2str(dgram->gndg_conn_out.gncr_dstnid),
-				LNET_NIDADDR(dgram->gndg_conn_out.gncr_dstnid));
+				lnet_nidaddr(dgram->gndg_conn_out.gncr_dstnid));
 			return -EBADF;
 		}
 	} else {
@@ -1245,7 +1245,7 @@ kgnilnd_post_dgram(kgn_device_t *dev, lnet_nid_t dstnid, kgn_connreq_type_t type
 	} else {
 		__u32            host_id;
 
-		rc = kgnilnd_nid_to_nicaddrs(LNET_NIDADDR(dstnid), 1, &host_id);
+		rc = kgnilnd_nid_to_nicaddrs(lnet_nidaddr(dstnid), 1, &host_id);
 		if (rc <= 0) {
 			rc = -ESRCH;
 			GOTO(post_failed, rc);
@@ -1269,9 +1269,9 @@ kgnilnd_post_dgram(kgn_device_t *dev, lnet_nid_t dstnid, kgn_connreq_type_t type
 	 */
 
 	if (dstnid == LNET_NID_ANY) {
-		srcnid = LNET_MKNID(LNET_MKNET(GNILND, 0), dev->gnd_nid);
+		srcnid = lnet_mknid(lnet_mknet(GNILND, 0), dev->gnd_nid);
 	} else {
-		srcnid = LNET_MKNID(LNET_NIDNET(dstnid), dev->gnd_nid);
+		srcnid = lnet_mknid(lnet_nidnet(dstnid), dev->gnd_nid);
 	}
 
 	rc = kgnilnd_pack_connreq(&dgram->gndg_conn_out, dgram->gndg_conn,
@@ -1572,7 +1572,9 @@ kgnilnd_cancel_net_dgrams(kgn_net_t *net)
 
 
 			if (dg->gndg_type == GNILND_DGRAM_WC_REQ ||
-				net->gnn_netnum != LNET_NETNUM(LNET_NIDNET(dg->gndg_conn_out.gncr_dstnid)))
+			    net->gnn_netnum !=
+			    lnet_netnum(
+				    lnet_nidnet(dg->gndg_conn_out.gncr_dstnid)))
 				continue;
 
 			kgnilnd_cancel_dgram_locked(dg);

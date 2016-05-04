@@ -1002,7 +1002,7 @@ kgnilnd_create_peer_safe(kgn_peer_t **peerp,
 	peer->gnp_state = node_state;
 
 	/* translate from nid to nic addr & store */
-	rc = kgnilnd_nid_to_nicaddrs(LNET_NIDADDR(nid), 1, &peer->gnp_host_id);
+	rc = kgnilnd_nid_to_nicaddrs(lnet_nidaddr(nid), 1, &peer->gnp_host_id);
 	if (rc <= 0) {
 		kgnilnd_net_decref(net);
 		LIBCFS_FREE(peer, sizeof(*peer));
@@ -1271,12 +1271,12 @@ kgnilnd_find_peer_locked(lnet_nid_t nid)
 	struct list_head *peer_list = kgnilnd_nid2peerlist(nid);
 	kgn_peer_t       *peer;
 
-	/* Chopping nid down to only NIDADDR using LNET_NIDADDR so we only
+	/* Chopping nid down to only NIDADDR using lnet_nidaddr so we only
 	 * have a single peer per device instead of a peer per nid/net combo.
 	 */
 
 	list_for_each_entry(peer, peer_list, gnp_list) {
-		if (LNET_NIDADDR(nid) != LNET_NIDADDR(peer->gnp_nid))
+		if (lnet_nidaddr(nid) != lnet_nidaddr(peer->gnp_nid))
 			continue;
 
 		CDEBUG(D_NET, "got peer [%p] -> %s c %d (%d)\n",
@@ -1395,7 +1395,7 @@ kgnilnd_add_peer(kgn_net_t *net, lnet_nid_t nid, kgn_peer_t **peerp)
 	if (nid == LNET_NID_ANY)
 		return -EINVAL;
 
-	node_state = kgnilnd_get_node_state(LNET_NIDADDR(nid));
+	node_state = kgnilnd_get_node_state(lnet_nidaddr(nid));
 
 	/* NB - this will not block during normal operations -
 	 * the only writer of this is in the startup/shutdown path. */
@@ -1533,7 +1533,8 @@ kgnilnd_del_conn_or_peer(kgn_net_t *net, lnet_nid_t nid, int command,
 			if (net != NULL && peer->gnp_net != net)
 				continue;
 
-			if (!(nid == LNET_NID_ANY || LNET_NIDADDR(peer->gnp_nid) == LNET_NIDADDR(nid)))
+			if (!(nid == LNET_NID_ANY ||
+			      lnet_nidaddr(peer->gnp_nid) == lnet_nidaddr(nid)))
 				continue;
 
 			/* In both cases, we want to stop any in-flight
@@ -1745,7 +1746,7 @@ kgnilnd_report_node_state(lnet_nid_t nid, int down)
 		/* The nid passed in does not yet contain the net portion.
 		 * Let's build it up now
 		 */
-		nid = LNET_MKNID(LNET_NIDNET(net->gnn_ni->ni_nid), nid);
+		nid = lnet_mknid(lnet_nidnet(net->gnn_ni->ni_nid), nid);
 		rc = kgnilnd_add_peer(net, nid, &new_peer);
 
 		if (rc) {
@@ -1789,7 +1790,7 @@ kgnilnd_report_node_state(lnet_nid_t nid, int down)
 		kgnilnd_txlist_done(&zombies, -ENETRESET);
 		kgnilnd_peer_notify(peer, -ECONNRESET, 0);
 		LCONSOLE_INFO("Received down event for nid %d\n",
-			      LNET_NIDADDR(nid));
+			      lnet_nidaddr(nid));
 	}
 
 	return 0;
@@ -1822,11 +1823,14 @@ kgnilnd_ctl(lnet_ni_t *ni, unsigned int cmd, void *arg)
 			break;
 
 		/* Barf */
-		/* LNET_MKNID is used to mask from lnet the multiplexing/demultiplexing of connections and peers
-		 * LNET assumes a conn and peer per net, the LNET_MKNID/LNET_NIDADDR allows us to let Lnet see what it
-		 * wants to see instead of the underlying network that is being used to send the data
+		/* lnet_mknid is used to mask from lnet the
+		 * multiplexing/demultiplexing of connections and peers LNET
+		 * assumes a conn and peer per net, the lnet_mknid/lnet_nidaddr
+		 * allows us to let Lnet see what it wants to see instead of the
+		 * underlying network that is being used to send the data
 		 */
-		data->ioc_nid    = LNET_MKNID(LNET_NIDNET(ni->ni_nid), LNET_NIDADDR(nid));
+		data->ioc_nid    = lnet_mknid(lnet_nidnet(ni->ni_nid),
+					      lnet_nidaddr(nid));
 		data->ioc_flags  = peer_connecting;
 		data->ioc_count  = peer_refcount;
 
@@ -1873,11 +1877,14 @@ kgnilnd_ctl(lnet_ni_t *ni, unsigned int cmd, void *arg)
 		if (conn == NULL)
 			rc = -ENOENT;
 		else {
+			lnet_nid_t nid = conn->gnc_peer->gnp_nid;
 			rc = 0;
-			/* LNET_MKNID is used to build the correct address based on what LNET wants to see instead of
+			/* lnet_mknid is used to build the correct address
+			 * based on what LNET wants to see instead of
 			 * the generic connection that is used to send the data
 			 */
-			data->ioc_nid    = LNET_MKNID(LNET_NIDNET(ni->ni_nid), LNET_NIDADDR(conn->gnc_peer->gnp_nid));
+			data->ioc_nid = lnet_mknid(lnet_nidnet(ni->ni_nid),
+						   lnet_nidaddr(nid));
 			data->ioc_u32[0] = conn->gnc_device->gnd_id;
 			kgnilnd_conn_decref(conn);
 		}
@@ -2736,9 +2743,9 @@ kgnilnd_startup(lnet_ni_t *ni)
 	atomic_set(&net->gnn_refcount, 1);
 
 	/* if we have multiple devices, spread the nets around */
-	net->gnn_netnum = LNET_NETNUM(LNET_NIDNET(ni->ni_nid));
+	net->gnn_netnum = lnet_netnum(lnet_nidnet(ni->ni_nid));
 
-	devno = LNET_NIDNET(ni->ni_nid) % GNILND_MAXDEVS;
+	devno = lnet_nidnet(ni->ni_nid) % GNILND_MAXDEVS;
 	net->gnn_dev = &kgnilnd_data.kgn_devices[devno];
 
 	/* allocate a 'dummy' cdm for datagram use. We can only have a single
@@ -2750,8 +2757,8 @@ kgnilnd_startup(lnet_ni_t *ni)
 	 * ensuring we'll have a unique id */
 
 
-	ni->ni_nid = LNET_MKNID(LNET_NIDNET(ni->ni_nid), net->gnn_dev->gnd_nid);
-	CDEBUG(D_NET, "adding net %p nid=%s on dev %d \n",
+	ni->ni_nid = lnet_mknid(lnet_nidnet(ni->ni_nid), net->gnn_dev->gnd_nid);
+	CDEBUG(D_NET, "adding net %p nid=%s on dev %d\n",
 		net, libcfs_nid2str(ni->ni_nid), net->gnn_dev->gnd_id);
 	/* until the gnn_list is set, we need to cleanup ourselves as
 	 * kgnilnd_shutdown is just gonna get confused */
