@@ -1108,7 +1108,7 @@ static int server_lsi2mti(struct lustre_sb_info *lsi,
 
 	mti->mti_nid_count = 0;
 	while (LNetGetId(i++, &id) != -ENOENT) {
-		if (LNET_NETTYP(LNET_NIDNET(id.nid)) == LOLND)
+		if (lnet_nettyp(lnet_nidnet(id.nid)) == LOLND)
 			continue;
 
 		/* server use --servicenode param, only allow specified
@@ -1120,7 +1120,7 @@ static int server_lsi2mti(struct lustre_sb_info *lsi,
 
 		/* match specified network */
 		if (!class_match_net(lsi->lsi_lmd->lmd_params,
-				     PARAM_NETWORK, LNET_NIDNET(id.nid)))
+				     PARAM_NETWORK, lnet_nidnet(id.nid)))
 			continue;
 
 		mti->mti_nids[mti->mti_nid_count] = id.nid;
