@@ -668,53 +668,57 @@ static int
 kiblnd_setup_rd_iov(lnet_ni_t *ni, kib_tx_t *tx, kib_rdma_desc_t *rd,
 		    unsigned int niov, struct kvec *iov, int offset, int nob)
 {
-        kib_net_t          *net = ni->ni_data;
-        struct page        *page;
-        struct scatterlist *sg;
-        unsigned long       vaddr;
-        int                 fragnob;
-        int                 page_offset;
+	kib_net_t	   *net = ni->ni_data;
+	struct page	   *page;
+	struct scatterlist *sg;
+	unsigned long	    vaddr;
+	int		    fragnob;
+	int		    page_offset;
 
-        LASSERT (nob > 0);
-        LASSERT (niov > 0);
-        LASSERT (net != NULL);
+	LASSERT (nob > 0);
+	LASSERT (niov > 0);
+	LASSERT (net != NULL);
 
-        while (offset >= iov->iov_len) {
-                offset -= iov->iov_len;
-                niov--;
-                iov++;
-                LASSERT (niov > 0);
-        }
+	while (offset >= iov->iov_len) {
+		offset -= iov->iov_len;
+		niov--;
+		iov++;
+		LASSERT (niov > 0);
+	}
 
-        sg = tx->tx_frags;
-        do {
-                LASSERT (niov > 0);
+	sg = tx->tx_frags;
+	do {
+		LASSERT (niov > 0);
 
-                vaddr = ((unsigned long)iov->iov_base) + offset;
-                page_offset = vaddr & (PAGE_SIZE - 1);
-                page = kiblnd_kvaddr_to_page(vaddr);
-                if (page == NULL) {
-                        CERROR ("Can't find page\n");
-                        return -EFAULT;
-                }
+		vaddr = ((unsigned long)iov->iov_base) + offset;
+		page_offset = vaddr & (PAGE_SIZE - 1);
+		page = kiblnd_kvaddr_to_page(vaddr);
+		if (page == NULL) {
+			CERROR ("Can't find page\n");
+			return -EFAULT;
+		}
 
-                fragnob = min((int)(iov->iov_len - offset), nob);
-                fragnob = min(fragnob, (int)PAGE_SIZE - page_offset);
+		fragnob = min((int)(iov->iov_len - offset), nob);
+		fragnob = min(fragnob, (int)PAGE_SIZE - page_offset);
 
-                sg_set_page(sg, page, fragnob, page_offset);
-                sg++;
+		sg_set_page(sg, page, fragnob, page_offset);
+		sg = sg_next(sg);
+		if (!sg) {
+			CERROR("lacking enough sg entries to map tx\n");
+			return -EFAULT;
+		}
 
-                if (offset + fragnob < iov->iov_len) {
-                        offset += fragnob;
-                } else {
-                        offset = 0;
-                        iov++;
-                        niov--;
-                }
-                nob -= fragnob;
-        } while (nob > 0);
+		if (offset + fragnob < iov->iov_len) {
+			offset += fragnob;
+		} else {
+			offset = 0;
+			iov++;
+			niov--;
+		}
+		nob -= fragnob;
+	} while (nob > 0);
 
-        return kiblnd_map_tx(ni, tx, rd, sg - tx->tx_frags);
+	return kiblnd_map_tx(ni, tx, rd, sg - tx->tx_frags);
 }
 
 static int
@@ -744,9 +748,13 @@ kiblnd_setup_rd_kiov (lnet_ni_t *ni, kib_tx_t *tx, kib_rdma_desc_t *rd,
 
                 fragnob = min((int)(kiov->kiov_len - offset), nob);
 
-                sg_set_page(sg, kiov->kiov_page, fragnob,
-                            kiov->kiov_offset + offset);
-                sg++;
+		sg_set_page(sg, kiov->kiov_page, fragnob,
+			    kiov->kiov_offset + offset);
+		sg = sg_next(sg);
+		if (!sg) {
+			CERROR("lacking enough sg entries to map tx\n");
+			return -EFAULT;
+		}
 
                 offset = 0;
                 kiov++;

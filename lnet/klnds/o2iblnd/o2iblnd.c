@@ -2131,30 +2131,30 @@ kiblnd_destroy_tx_pool(kib_pool_t *pool)
                 kib_tx_t *tx = &tpo->tpo_tx_descs[i];
 
 		list_del(&tx->tx_list);
-                if (tx->tx_pages != NULL)
-                        LIBCFS_FREE(tx->tx_pages,
-                                    LNET_MAX_IOV *
-                                    sizeof(*tx->tx_pages));
-                if (tx->tx_frags != NULL)
-                        LIBCFS_FREE(tx->tx_frags,
-                                    IBLND_MAX_RDMA_FRAGS *
-                                            sizeof(*tx->tx_frags));
-                if (tx->tx_wrq != NULL)
-                        LIBCFS_FREE(tx->tx_wrq,
-                                    (1 + IBLND_MAX_RDMA_FRAGS) *
-                                    sizeof(*tx->tx_wrq));
-                if (tx->tx_sge != NULL)
-                        LIBCFS_FREE(tx->tx_sge,
-                                    (1 + IBLND_MAX_RDMA_FRAGS) *
-                                    sizeof(*tx->tx_sge));
-                if (tx->tx_rd != NULL)
-                        LIBCFS_FREE(tx->tx_rd,
-                                    offsetof(kib_rdma_desc_t,
-                                             rd_frags[IBLND_MAX_RDMA_FRAGS]));
-        }
+		if (tx->tx_pages != NULL)
+			LIBCFS_FREE(tx->tx_pages,
+				    LNET_MAX_IOV *
+				    sizeof(*tx->tx_pages));
+		if (tx->tx_frags != NULL)
+			LIBCFS_FREE(tx->tx_frags,
+				    (1 + IBLND_MAX_RDMA_FRAGS) *
+				    sizeof(*tx->tx_frags));
+		if (tx->tx_wrq != NULL)
+			LIBCFS_FREE(tx->tx_wrq,
+				    (1 + IBLND_MAX_RDMA_FRAGS) *
+				    sizeof(*tx->tx_wrq));
+		if (tx->tx_sge != NULL)
+			LIBCFS_FREE(tx->tx_sge,
+				    (1 + IBLND_MAX_RDMA_FRAGS) *
+				    sizeof(*tx->tx_sge));
+		if (tx->tx_rd != NULL)
+			LIBCFS_FREE(tx->tx_rd,
+				    offsetof(kib_rdma_desc_t,
+					     rd_frags[IBLND_MAX_RDMA_FRAGS]));
+	}
 
-        LIBCFS_FREE(tpo->tpo_tx_descs,
-                    pool->po_size * sizeof(kib_tx_t));
+	LIBCFS_FREE(tpo->tpo_tx_descs,
+		    pool->po_size * sizeof(kib_tx_t));
 out:
         kiblnd_fini_pool(pool);
         LIBCFS_FREE(tpo, sizeof(kib_tx_pool_t));
@@ -2216,11 +2216,12 @@ kiblnd_create_tx_pool(kib_poolset_t *ps, int size, kib_pool_t **pp_po)
 		}
 
 		LIBCFS_CPT_ALLOC(tx->tx_frags, lnet_cpt_table(), ps->ps_cpt,
-				 IBLND_MAX_RDMA_FRAGS * sizeof(*tx->tx_frags));
+				 (1 + IBLND_MAX_RDMA_FRAGS) *
+				 sizeof(*tx->tx_frags));
 		if (tx->tx_frags == NULL)
 			break;
 
-		sg_init_table(tx->tx_frags, IBLND_MAX_RDMA_FRAGS);
+		sg_init_table(tx->tx_frags, IBLND_MAX_RDMA_FRAGS + 1);
 
 		LIBCFS_CPT_ALLOC(tx->tx_wrq, lnet_cpt_table(), ps->ps_cpt,
 				 (1 + IBLND_MAX_RDMA_FRAGS) *
