@@ -3166,63 +3166,63 @@ kiblnd_dev_search(char *ifname)
 static int
 kiblnd_startup (lnet_ni_t *ni)
 {
-        char                     *ifname;
-        kib_dev_t                *ibdev = NULL;
-        kib_net_t                *net;
-        struct timeval            tv;
-        unsigned long             flags;
-        int                       rc;
+	char                     *ifname;
+	kib_dev_t                *ibdev = NULL;
+	kib_net_t                *net;
+	struct timeval            tv;
+	unsigned long             flags;
+	int                       rc;
 	int			  newdev;
 
-        LASSERT (ni->ni_lnd == &the_o2iblnd);
+	LASSERT(ni->ni_lnd == &the_o2iblnd);
 
-        if (kiblnd_data.kib_init == IBLND_INIT_NOTHING) {
-                rc = kiblnd_base_startup();
-                if (rc != 0)
-                        return rc;
-        }
+	if (kiblnd_data.kib_init == IBLND_INIT_NOTHING) {
+		rc = kiblnd_base_startup();
+		if (rc != 0)
+			return rc;
+	}
 
-        LIBCFS_ALLOC(net, sizeof(*net));
-        ni->ni_data = net;
-        if (net == NULL)
-                goto failed;
+	LIBCFS_ALLOC(net, sizeof(*net));
+	ni->ni_data = net;
+	if (net == NULL)
+		goto failed;
 
 	do_gettimeofday(&tv);
 	net->ibn_incarnation = (((__u64)tv.tv_sec) * 1000000) + tv.tv_usec;
 
 	kiblnd_tunables_setup(ni);
 
-        if (ni->ni_interfaces[0] != NULL) {
-                /* Use the IPoIB interface specified in 'networks=' */
+	if (ni->ni_interfaces[0] != NULL) {
+		/* Use the IPoIB interface specified in 'networks=' */
 
-                CLASSERT (LNET_MAX_INTERFACES > 1);
-                if (ni->ni_interfaces[1] != NULL) {
-                        CERROR("Multiple interfaces not supported\n");
-                        goto failed;
-                }
+		CLASSERT(LNET_MAX_INTERFACES > 1);
+		if (ni->ni_interfaces[1] != NULL) {
+			CERROR("Multiple interfaces not supported\n");
+			goto failed;
+		}
 
-                ifname = ni->ni_interfaces[0];
-        } else {
-                ifname = *kiblnd_tunables.kib_default_ipif;
-        }
+		ifname = ni->ni_interfaces[0];
+	} else {
+		ifname = *kiblnd_tunables.kib_default_ipif;
+	}
 
-        if (strlen(ifname) >= sizeof(ibdev->ibd_ifname)) {
-                CERROR("IPoIB interface name too long: %s\n", ifname);
-                goto failed;
-        }
+	if (strlen(ifname) >= sizeof(ibdev->ibd_ifname)) {
+		CERROR("IPoIB interface name too long: %s\n", ifname);
+		goto failed;
+	}
 
 	ibdev = kiblnd_dev_search(ifname);
 
 	newdev = ibdev == NULL;
 	/* hmm...create kib_dev even for alias */
 	if (ibdev == NULL || strcmp(&ibdev->ibd_ifname[0], ifname) != 0)
-                ibdev = kiblnd_create_dev(ifname);
+		ibdev = kiblnd_create_dev(ifname);
 
-        if (ibdev == NULL)
-                goto failed;
+	if (ibdev == NULL)
+		goto failed;
 
-        net->ibn_dev = ibdev;
-        ni->ni_nid = LNET_MKNID(LNET_NIDNET(ni->ni_nid), ibdev->ibd_ifip);
+	net->ibn_dev = ibdev;
+	ni->ni_nid = lnet_mknid(lnet_nidnet(ni->ni_nid), ibdev->ibd_ifip);
 
 	rc = kiblnd_dev_start_threads(ibdev, newdev,
 				      ni->ni_cpts, ni->ni_ncpts);
@@ -3230,28 +3230,28 @@ kiblnd_startup (lnet_ni_t *ni)
 		goto failed;
 
 	rc = kiblnd_net_init_pools(net, ni, ni->ni_cpts, ni->ni_ncpts);
-        if (rc != 0) {
-                CERROR("Failed to initialize NI pools: %d\n", rc);
-                goto failed;
-        }
+	if (rc != 0) {
+		CERROR("Failed to initialize NI pools: %d\n", rc);
+		goto failed;
+	}
 
 	write_lock_irqsave(&kiblnd_data.kib_global_lock, flags);
 	ibdev->ibd_nnets++;
 	list_add_tail(&net->ibn_list, &ibdev->ibd_nets);
 	write_unlock_irqrestore(&kiblnd_data.kib_global_lock, flags);
 
-        net->ibn_init = IBLND_INIT_ALL;
+	net->ibn_init = IBLND_INIT_ALL;
 
-        return 0;
+	return 0;
 
 failed:
 	if (net != NULL && net->ibn_dev == NULL && ibdev != NULL)
-                kiblnd_destroy_dev(ibdev);
+		kiblnd_destroy_dev(ibdev);
 
-        kiblnd_shutdown(ni);
+	kiblnd_shutdown(ni);
 
-        CDEBUG(D_NET, "kiblnd_startup failed\n");
-        return -ENETDOWN;
+	CDEBUG(D_NET, "kiblnd_startup failed\n");
+	return -ENETDOWN;
 }
 
 static lnd_t the_o2iblnd = {

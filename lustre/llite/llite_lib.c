@@ -2672,7 +2672,7 @@ void ll_compute_rootsquash_state(struct ll_sb_info *sbi)
 		matched = false;
 		i = 0;
 		while (LNetGetId(i++, &id) != -ENOENT) {
-			if (LNET_NETTYP(LNET_NIDNET(id.nid)) == LOLND)
+			if (lnet_nettyp(lnet_nidnet(id.nid)) == LOLND)
 				continue;
 			if (cfs_match_nid(id.nid, &squash->rsi_nosquash_nids)) {
 				matched = true;

@@ -1244,58 +1244,58 @@ static int kiblnd_resolve_addr(struct rdma_cm_id *cmid,
 static void
 kiblnd_connect_peer (kib_peer_t *peer)
 {
-        struct rdma_cm_id *cmid;
-        kib_dev_t         *dev;
-        kib_net_t         *net = peer->ibp_ni->ni_data;
-        struct sockaddr_in srcaddr;
-        struct sockaddr_in dstaddr;
-        int                rc;
+	struct rdma_cm_id *cmid;
+	kib_dev_t         *dev;
+	kib_net_t         *net = peer->ibp_ni->ni_data;
+	struct sockaddr_in srcaddr;
+	struct sockaddr_in dstaddr;
+	int                rc;
 
-        LASSERT (net != NULL);
-        LASSERT (peer->ibp_connecting > 0);
+	LASSERT(net != NULL);
+	LASSERT(peer->ibp_connecting > 0);
 	LASSERT(!peer->ibp_reconnecting);
 
-        cmid = kiblnd_rdma_create_id(kiblnd_cm_callback, peer, RDMA_PS_TCP,
-                                     IB_QPT_RC);
+	cmid = kiblnd_rdma_create_id(kiblnd_cm_callback, peer, RDMA_PS_TCP,
+				     IB_QPT_RC);
 
-        if (IS_ERR(cmid)) {
-                CERROR("Can't create CMID for %s: %ld\n",
-                       libcfs_nid2str(peer->ibp_nid), PTR_ERR(cmid));
-                rc = PTR_ERR(cmid);
-                goto failed;
-        }
+	if (IS_ERR(cmid)) {
+		CERROR("Can't create CMID for %s: %ld\n",
+		       libcfs_nid2str(peer->ibp_nid), PTR_ERR(cmid));
+		rc = PTR_ERR(cmid);
+		goto failed;
+	}
 
-        dev = net->ibn_dev;
-        memset(&srcaddr, 0, sizeof(srcaddr));
-        srcaddr.sin_family = AF_INET;
-        srcaddr.sin_addr.s_addr = htonl(dev->ibd_ifip);
+	dev = net->ibn_dev;
+	memset(&srcaddr, 0, sizeof(srcaddr));
+	srcaddr.sin_family = AF_INET;
+	srcaddr.sin_addr.s_addr = htonl(dev->ibd_ifip);
 
-        memset(&dstaddr, 0, sizeof(dstaddr));
-        dstaddr.sin_family = AF_INET;
-        dstaddr.sin_port = htons(*kiblnd_tunables.kib_service);
-        dstaddr.sin_addr.s_addr = htonl(LNET_NIDADDR(peer->ibp_nid));
+	memset(&dstaddr, 0, sizeof(dstaddr));
+	dstaddr.sin_family = AF_INET;
+	dstaddr.sin_port = htons(*kiblnd_tunables.kib_service);
+	dstaddr.sin_addr.s_addr = htonl(lnet_nidaddr(peer->ibp_nid));
 
-        kiblnd_peer_addref(peer);               /* cmid's ref */
+	kiblnd_peer_addref(peer);               /* cmid's ref */
 
-        if (*kiblnd_tunables.kib_use_priv_port) {
-                rc = kiblnd_resolve_addr(cmid, &srcaddr, &dstaddr,
-                                         *kiblnd_tunables.kib_timeout * 1000);
-        } else {
-                rc = rdma_resolve_addr(cmid,
-                                       (struct sockaddr *)&srcaddr,
-                                       (struct sockaddr *)&dstaddr,
-                                       *kiblnd_tunables.kib_timeout * 1000);
-        }
-        if (rc != 0) {
-                /* Can't initiate address resolution:  */
-                CERROR("Can't resolve addr for %s: %d\n",
-                       libcfs_nid2str(peer->ibp_nid), rc);
-                goto failed2;
-        }
+	if (*kiblnd_tunables.kib_use_priv_port) {
+		rc = kiblnd_resolve_addr(cmid, &srcaddr, &dstaddr,
+					 *kiblnd_tunables.kib_timeout * 1000);
+	} else {
+		rc = rdma_resolve_addr(cmid,
+				       (struct sockaddr *)&srcaddr,
+				       (struct sockaddr *)&dstaddr,
+				       *kiblnd_tunables.kib_timeout * 1000);
+	}
+	if (rc != 0) {
+		/* Can't initiate address resolution:  */
+		CERROR("Can't resolve addr for %s: %d\n",
+		       libcfs_nid2str(peer->ibp_nid), rc);
+		goto failed2;
+	}
 
-        LASSERT (cmid->device != NULL);
+	LASSERT(cmid->device != NULL);
 	CDEBUG(D_NET, "%s: connection bound to %s:%pI4h:%s\n",
-               libcfs_nid2str(peer->ibp_nid), dev->ibd_ifname,
+	       libcfs_nid2str(peer->ibp_nid), dev->ibd_ifname,
 	       &dev->ibd_ifip, cmid->device->name);
 
 	return;
@@ -2276,8 +2276,8 @@ kiblnd_passive_connect(struct rdma_cm_id *cmid, void *priv, int priv_nob)
                 goto failed;
         }
 
-        nid = reqmsg->ibm_srcnid;
-        ni  = lnet_net2ni(LNET_NIDNET(reqmsg->ibm_dstnid));
+	nid = reqmsg->ibm_srcnid;
+	ni  = lnet_net2ni(lnet_nidnet(reqmsg->ibm_dstnid));
 
         if (ni != NULL) {
                 net = (kib_net_t *)ni->ni_data;

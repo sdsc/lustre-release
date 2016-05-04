@@ -832,92 +832,94 @@ ksocknal_find_connecting_route_locked (ksock_peer_t *peer)
 int
 ksocknal_launch_packet (lnet_ni_t *ni, ksock_tx_t *tx, lnet_process_id_t id)
 {
-        ksock_peer_t     *peer;
-        ksock_conn_t     *conn;
+	ksock_peer_t     *peer;
+	ksock_conn_t     *conn;
 	rwlock_t     *g_lock;
-        int               retry;
-        int               rc;
+	int               retry;
+	int               rc;
 
-        LASSERT (tx->tx_conn == NULL);
+	LASSERT(tx->tx_conn == NULL);
 
-        g_lock = &ksocknal_data.ksnd_global_lock;
+	g_lock = &ksocknal_data.ksnd_global_lock;
 
-        for (retry = 0;; retry = 1) {
+	for (retry = 0;; retry = 1) {
 		read_lock(g_lock);
-                peer = ksocknal_find_peer_locked(ni, id);
-                if (peer != NULL) {
-                        if (ksocknal_find_connectable_route_locked(peer) == NULL) {
-                                conn = ksocknal_find_conn_locked(peer, tx, tx->tx_nonblk);
-                                if (conn != NULL) {
-                                        /* I've got no routes that need to be
-                                         * connecting and I do have an actual
-                                         * connection... */
-                                        ksocknal_queue_tx_locked (tx, conn);
+		peer = ksocknal_find_peer_locked(ni, id);
+		if (peer != NULL) {
+			if (ksocknal_find_connectable_route_locked(peer) ==
+			    NULL) {
+				conn = ksocknal_find_conn_locked(peer, tx,
+								 tx->tx_nonblk);
+				if (conn != NULL) {
+					/* I've got no routes that need to be
+					 * connecting and I do have an actual
+					 * connection... */
+					ksocknal_queue_tx_locked(tx, conn);
 					read_unlock(g_lock);
-                                        return (0);
-                                }
-                        }
-                }
+					return 0;
+				}
+			}
+		}
 
-                /* I'll need a write lock... */
+		/* I'll need a write lock... */
 		read_unlock(g_lock);
 
 		write_lock_bh(g_lock);
 
-                peer = ksocknal_find_peer_locked(ni, id);
-                if (peer != NULL)
-                        break;
+		peer = ksocknal_find_peer_locked(ni, id);
+		if (peer != NULL)
+			break;
 
 		write_unlock_bh(g_lock);
 
-                if ((id.pid & LNET_PID_USERFLAG) != 0) {
-                        CERROR("Refusing to create a connection to "
-                               "userspace process %s\n", libcfs_id2str(id));
-                        return -EHOSTUNREACH;
-                }
+		if ((id.pid & LNET_PID_USERFLAG) != 0) {
+			CERROR("Refusing to create a connection to "
+			       "userspace process %s\n", libcfs_id2str(id));
+			return -EHOSTUNREACH;
+		}
 
-                if (retry) {
-                        CERROR("Can't find peer %s\n", libcfs_id2str(id));
-                        return -EHOSTUNREACH;
-                }
+		if (retry) {
+			CERROR("Can't find peer %s\n", libcfs_id2str(id));
+			return -EHOSTUNREACH;
+		}
 
-                rc = ksocknal_add_peer(ni, id,
-                                       LNET_NIDADDR(id.nid),
-                                       lnet_acceptor_port());
-                if (rc != 0) {
-                        CERROR("Can't add peer %s: %d\n",
-                               libcfs_id2str(id), rc);
-                        return rc;
-                }
-        }
+		rc = ksocknal_add_peer(ni, id,
+				       lnet_nidaddr(id.nid),
+				       lnet_acceptor_port());
+		if (rc != 0) {
+			CERROR("Can't add peer %s: %d\n",
+			       libcfs_id2str(id), rc);
+			return rc;
+		}
+	}
 
-        ksocknal_launch_all_connections_locked(peer);
+	ksocknal_launch_all_connections_locked(peer);
 
-        conn = ksocknal_find_conn_locked(peer, tx, tx->tx_nonblk);
-        if (conn != NULL) {
-                /* Connection exists; queue message on it */
-                ksocknal_queue_tx_locked (tx, conn);
+	conn = ksocknal_find_conn_locked(peer, tx, tx->tx_nonblk);
+	if (conn != NULL) {
+		/* Connection exists; queue message on it */
+		ksocknal_queue_tx_locked(tx, conn);
 		write_unlock_bh(g_lock);
-                return (0);
-        }
+		return 0;
+	}
 
-        if (peer->ksnp_accepting > 0 ||
-            ksocknal_find_connecting_route_locked (peer) != NULL) {
-                /* the message is going to be pinned to the peer */
-                tx->tx_deadline =
-                        cfs_time_shift(*ksocknal_tunables.ksnd_timeout);
+	if (peer->ksnp_accepting > 0 ||
+	    ksocknal_find_connecting_route_locked(peer) != NULL) {
+		/* the message is going to be pinned to the peer */
+		tx->tx_deadline =
+			cfs_time_shift(*ksocknal_tunables.ksnd_timeout);
 
-                /* Queue the message until a connection is established */
+		/* Queue the message until a connection is established */
 		list_add_tail(&tx->tx_list, &peer->ksnp_tx_queue);
 		write_unlock_bh(g_lock);
-                return 0;
-        }
+		return 0;
+	}
 
 	write_unlock_bh(g_lock);
 
-        /* NB Routes may be ignored if connections to them failed recently */
-        CNETERR("No usable routes to %s\n", libcfs_id2str(id));
-        return (-EHOSTUNREACH);
+	/* NB Routes may be ignored if connections to them failed recently */
+	CNETERR("No usable routes to %s\n", libcfs_id2str(id));
+	return -EHOSTUNREACH;
 }
 
 int
@@ -1785,15 +1787,16 @@ ksocknal_recv_hello (lnet_ni_t *ni, ksock_conn_t *conn,
                 return -EPROTO;
         }
 
-        if (!active &&
-            conn->ksnc_port > LNET_ACCEPTOR_MAX_RESERVED_PORT) {
-                /* Userspace NAL assigns peer process ID from socket */
-                recv_id.pid = conn->ksnc_port | LNET_PID_USERFLAG;
-                recv_id.nid = LNET_MKNID(LNET_NIDNET(ni->ni_nid), conn->ksnc_ipaddr);
-        } else {
-                recv_id.nid = hello->kshm_src_nid;
-                recv_id.pid = hello->kshm_src_pid;
-        }
+	if (!active &&
+	    conn->ksnc_port > LNET_ACCEPTOR_MAX_RESERVED_PORT) {
+		/* Userspace NAL assigns peer process ID from socket */
+		recv_id.pid = conn->ksnc_port | LNET_PID_USERFLAG;
+		recv_id.nid = lnet_mknid(lnet_nidnet(ni->ni_nid),
+					 conn->ksnc_ipaddr);
+	} else {
+		recv_id.nid = hello->kshm_src_nid;
+		recv_id.pid = hello->kshm_src_pid;
+	}
 
         if (!active) {
                 *peerid = recv_id;
