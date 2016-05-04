@@ -75,8 +75,8 @@ struct lu_nid_range *range_create(struct nodemap_range_tree *nm_range_tree,
 {
 	struct lu_nid_range *range;
 
-	if (LNET_NIDNET(start_nid) != LNET_NIDNET(end_nid) ||
-	    LNET_NIDADDR(start_nid) > LNET_NIDADDR(end_nid))
+	if (lnet_nidnet(start_nid) != lnet_nidnet(end_nid) ||
+	    lnet_nidaddr(start_nid) > lnet_nidaddr(end_nid))
 		return NULL;
 
 	OBD_ALLOC_PTR(range);
