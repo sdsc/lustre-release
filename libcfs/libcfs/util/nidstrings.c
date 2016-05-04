@@ -544,8 +544,8 @@ libcfs_lnd2str_r(__u32 lnd, char *buf, size_t buf_size)
 char *
 libcfs_net2str_r(__u32 net, char *buf, size_t buf_size)
 {
-	__u32		  nnum = LNET_NETNUM(net);
-	__u32		  lnd  = LNET_NETTYP(net);
+	__u32		  nnum = lnet_netnum(net);
+	__u32		  lnd  = lnet_nettyp(net);
 	struct netstrfns *nf;
 
 	nf = libcfs_lnd2netstrfns(lnd);
@@ -562,10 +562,10 @@ libcfs_net2str_r(__u32 net, char *buf, size_t buf_size)
 char *
 libcfs_nid2str_r(lnet_nid_t nid, char *buf, size_t buf_size)
 {
-	__u32		  addr = LNET_NIDADDR(nid);
-	__u32		  net  = LNET_NIDNET(nid);
-	__u32		  nnum = LNET_NETNUM(net);
-	__u32		  lnd  = LNET_NETTYP(net);
+	__u32		  addr = lnet_nidaddr(nid);
+	__u32		  net  = lnet_nidnet(nid);
+	__u32		  nnum = lnet_netnum(net);
+	__u32		  lnd  = lnet_nettyp(net);
 	struct netstrfns *nf;
 
 	if (nid == LNET_NID_ANY) {
@@ -625,7 +625,7 @@ libcfs_str2net_internal(const char *str, __u32 *net)
 			return NULL;
 	}
 
-	*net = LNET_MKNET(nf->nf_type, netnum);
+	*net = lnet_mknet(nf->nf_type, netnum);
 	return nf;
 }
 
@@ -637,7 +637,7 @@ libcfs_str2net(const char *str)
 	if (libcfs_str2net_internal(str, &net) != NULL)
 		return net;
 
-	return LNET_NIDNET(LNET_NID_ANY);
+	return lnet_nidnet(LNET_NID_ANY);
 }
 
 lnet_nid_t
@@ -654,7 +654,7 @@ libcfs_str2nid(const char *str)
 			return LNET_NID_ANY;
 	} else {
 		sep = str + strlen(str);
-		net = LNET_MKNET(SOCKLND, 0);
+		net = lnet_mknet(SOCKLND, 0);
 		nf = libcfs_lnd2netstrfns(SOCKLND);
 		assert(nf != NULL);
 	}
@@ -662,7 +662,7 @@ libcfs_str2nid(const char *str)
 	if (!nf->nf_str2addr(str, (int)(sep - str), &addr))
 		return LNET_NID_ANY;
 
-	return LNET_MKNID(net, addr);
+	return lnet_mknid(net, addr);
 }
 
 char *
@@ -979,14 +979,14 @@ int cfs_match_nid(lnet_nid_t nid, struct list_head *nidlist)
 	struct addrrange *ar;
 
 	list_for_each_entry(nr, nidlist, nr_link) {
-		if (nr->nr_netstrfns->nf_type != LNET_NETTYP(LNET_NIDNET(nid)))
+		if (nr->nr_netstrfns->nf_type != lnet_nettyp(lnet_nidnet(nid)))
 			continue;
-		if (nr->nr_netnum != LNET_NETNUM(LNET_NIDNET(nid)))
+		if (nr->nr_netnum != lnet_netnum(lnet_nidnet(nid)))
 			continue;
 		if (nr->nr_all)
 			return 1;
 		list_for_each_entry(ar, &nr->nr_addrranges, ar_link)
-			if (nr->nr_netstrfns->nf_match_addr(LNET_NIDADDR(nid),
+			if (nr->nr_netstrfns->nf_match_addr(lnet_nidaddr(nid),
 							&ar->ar_numaddr_ranges))
 				return 1;
 	}

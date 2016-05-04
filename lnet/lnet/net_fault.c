@@ -70,11 +70,11 @@ lnet_fault_nid_match(lnet_nid_t nid, lnet_nid_t msg_nid)
 	if (nid == msg_nid || nid == LNET_NID_ANY)
 		return true;
 
-	if (LNET_NIDNET(nid) != LNET_NIDNET(msg_nid))
+	if (lnet_nidnet(nid) != lnet_nidnet(msg_nid))
 		return false;
 
 	/* 255.255.255.255@net is wildcard for all addresses in a network */
-	return LNET_NIDADDR(nid) == LNET_NIDADDR(LNET_NID_ANY);
+	return lnet_nidaddr(nid) == lnet_nidaddr(LNET_NID_ANY);
 }
 
 static bool
