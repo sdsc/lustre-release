@@ -1638,7 +1638,7 @@ int class_config_llog_handler(const struct lu_env *env,
                         __u32 addr = (__u32)(lcfg->lcfg_nid & 0xffffffff);
 
                         lcfg_new->lcfg_nid =
-                                LNET_MKNID(LNET_MKNET(lcfg->lcfg_nal, 0), addr);
+                                lnet_mknid(lnet_mknet(lcfg->lcfg_nal, 0), addr);
                         CWARN("Converted pre-newconfig NAL %d NID %x to %s\n",
                               lcfg->lcfg_nal, addr,
                               libcfs_nid2str(lcfg_new->lcfg_nid));

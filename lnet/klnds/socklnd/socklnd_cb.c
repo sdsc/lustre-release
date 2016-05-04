@@ -882,7 +882,7 @@ ksocknal_launch_packet (lnet_ni_t *ni, ksock_tx_t *tx, lnet_process_id_t id)
                 }
 
                 rc = ksocknal_add_peer(ni, id,
-                                       LNET_NIDADDR(id.nid),
+                                       lnet_nidaddr(id.nid),
                                        lnet_acceptor_port());
                 if (rc != 0) {
                         CERROR("Can't add peer %s: %d\n",
@@ -1789,7 +1789,7 @@ ksocknal_recv_hello (lnet_ni_t *ni, ksock_conn_t *conn,
             conn->ksnc_port > LNET_ACCEPTOR_MAX_RESERVED_PORT) {
                 /* Userspace NAL assigns peer process ID from socket */
                 recv_id.pid = conn->ksnc_port | LNET_PID_USERFLAG;
-                recv_id.nid = LNET_MKNID(LNET_NIDNET(ni->ni_nid), conn->ksnc_ipaddr);
+                recv_id.nid = lnet_mknid(lnet_nidnet(ni->ni_nid), conn->ksnc_ipaddr);
         } else {
                 recv_id.nid = hello->kshm_src_nid;
                 recv_id.pid = hello->kshm_src_pid;

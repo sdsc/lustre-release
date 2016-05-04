@@ -87,7 +87,7 @@ lnet_net_unique(__u32 net, struct list_head *nilist)
 	list_for_each(tmp, nilist) {
 		ni = list_entry(tmp, lnet_ni_t, ni_list);
 
-		if (LNET_NIDNET(ni->ni_nid) == net)
+		if (lnet_nidnet(ni->ni_nid) == net)
 			return 0;
 	}
 
@@ -176,7 +176,7 @@ lnet_ni_alloc(__u32 net, struct cfs_expr_list *el, struct list_head *nilist)
 	}
 
 	/* LND will fill in the address part of the NID */
-	ni->ni_nid = LNET_MKNID(net, 0);
+	ni->ni_nid = lnet_mknid(net, 0);
 	ni->ni_last_alive = cfs_time_current_sec();
 	list_add_tail(&ni->ni_list, nilist);
 	return ni;
@@ -266,14 +266,14 @@ lnet_parse_networks(struct list_head *nilist, char *networks)
 				*comma++ = 0;
 			net = libcfs_str2net(cfs_trimwhite(str));
 
-			if (net == LNET_NIDNET(LNET_NID_ANY)) {
+			if (net == lnet_nidnet(LNET_NID_ANY)) {
                                 LCONSOLE_ERROR_MSG(0x113, "Unrecognised network"
                                                    " type\n");
 				tmp = str;
 				goto failed_syntax;
                         }
 
-			if (LNET_NETTYP(net) != LOLND && /* LO is implicit */
+			if (lnet_nettyp(net) != LOLND && /* LO is implicit */
 			    lnet_ni_alloc(net, el, nilist) == NULL)
 				goto failed;
 
@@ -288,7 +288,7 @@ lnet_parse_networks(struct list_head *nilist, char *networks)
 
 		*bracket = 0;
 		net = libcfs_str2net(cfs_trimwhite(str));
-		if (net == LNET_NIDNET(LNET_NID_ANY)) {
+		if (net == lnet_nidnet(LNET_NID_ANY)) {
 			tmp = str;
 			goto failed_syntax;
 		}
@@ -745,8 +745,8 @@ lnet_parse_route (char *str, int *im_a_router)
 
 			if (ntokens == 1) {
 				net = libcfs_str2net(ltb->ltb_text);
-				if (net == LNET_NIDNET(LNET_NID_ANY) ||
-                                    LNET_NETTYP(net) == LOLND)
+				if (net == lnet_nidnet(LNET_NID_ANY) ||
+                                    lnet_nettyp(net) == LOLND)
 					goto token_error;
 			} else {
 				rc = lnet_parse_priority(ltb->ltb_text,
@@ -756,7 +756,7 @@ lnet_parse_route (char *str, int *im_a_router)
 
 				nid = libcfs_str2nid(ltb->ltb_text);
 				if (nid == LNET_NID_ANY ||
-                                    LNET_NETTYP(LNET_NIDNET(nid)) == LOLND)
+                                    lnet_nettyp(lnet_nidnet(nid)) == LOLND)
 					goto token_error;
 			}
 		}
@@ -773,7 +773,7 @@ lnet_parse_route (char *str, int *im_a_router)
 	list_for_each(tmp1, &nets) {
 		ltb = list_entry(tmp1, struct lnet_text_buf, ltb_list);
 		net = libcfs_str2net(ltb->ltb_text);
-		LASSERT (net != LNET_NIDNET(LNET_NID_ANY));
+		LASSERT (net != lnet_nidnet(LNET_NID_ANY));
 
 		list_for_each(tmp2, &gateways) {
 			ltb = list_entry(tmp2, struct lnet_text_buf, ltb_list);
@@ -986,7 +986,7 @@ lnet_splitnets(char *source, struct list_head *nets)
                         *sep++ = 0;
 
                 net = lnet_netspec2net(tb->ltb_text);
-                if (net == LNET_NIDNET(LNET_NID_ANY)) {
+                if (net == lnet_nidnet(LNET_NID_ANY)) {
                         lnet_syntax("ip2nets", source, offset,
                                     strlen(tb->ltb_text));
                         return -EINVAL;
@@ -1087,13 +1087,13 @@ lnet_match_networks (char **networksp, char *ip2nets, __u32 *ipaddrs, int nip)
 		list_for_each(t, &current_nets) {
 			tb = list_entry(t, struct lnet_text_buf, ltb_list);
                         net1 = lnet_netspec2net(tb->ltb_text);
-			LASSERT(net1 != LNET_NIDNET(LNET_NID_ANY));
+			LASSERT(net1 != lnet_nidnet(LNET_NID_ANY));
 
 			list_for_each(t2, &matched_nets) {
 				tb2 = list_entry(t2, struct lnet_text_buf,
 						 ltb_list);
 				net2 = lnet_netspec2net(tb2->ltb_text);
-				LASSERT(net2 != LNET_NIDNET(LNET_NID_ANY));
+				LASSERT(net2 != lnet_nidnet(LNET_NID_ANY));
 
 				if (net1 == net2) {
 					dup = 1;

@@ -313,9 +313,9 @@ int lnet_nid2hostname(lnet_nid_t nid, char *buf, int buflen)
 {
         uint32_t lnd, net, addr;
 
-        addr = LNET_NIDADDR(nid);
-        net = LNET_NIDNET(nid);
-        lnd = LNET_NETTYP(net);
+        addr = lnet_nidaddr(nid);
+        net = lnet_nidnet(nid);
+        lnd = lnet_nettyp(net);
 
         if (lnd >= LND_MAX) {
                 printerr(0, "ERROR: Unrecognized LND %u\n", lnd);

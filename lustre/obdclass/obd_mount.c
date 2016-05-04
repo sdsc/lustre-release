@@ -242,7 +242,7 @@ int lustre_start_mgc(struct super_block *sb)
 		} else if (IS_MGS(lsi)) {
                         lnet_process_id_t id;
                         while ((rc = LNetGetId(i++, &id)) != -ENOENT) {
-                                if (LNET_NETTYP(LNET_NIDNET(id.nid)) == LOLND)
+                                if (lnet_nettyp(lnet_nidnet(id.nid)) == LOLND)
                                         continue;
                                 nid = id.nid;
                                 i++;

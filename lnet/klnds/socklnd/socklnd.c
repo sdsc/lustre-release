@@ -1845,7 +1845,7 @@ ksocknal_query (lnet_ni_t *ni, lnet_nid_t nid, cfs_time_t *when)
         if (!connect)
                 return;
 
-        ksocknal_add_peer(ni, id, LNET_NIDADDR(nid), lnet_acceptor_port());
+        ksocknal_add_peer(ni, id, lnet_nidaddr(nid), lnet_acceptor_port());
 
 	write_lock_bh(glock);
 
@@ -2845,7 +2845,7 @@ ksocknal_startup (lnet_ni_t *ni)
 	if (rc != 0)
 		goto fail_1;
 
-	ni->ni_nid = LNET_MKNID(LNET_NIDNET(ni->ni_nid),
+	ni->ni_nid = lnet_mknid(lnet_nidnet(ni->ni_nid),
 				net->ksnn_interfaces[0].ksni_ipaddr);
 	list_add(&net->ksnn_list, &ksocknal_data.ksnd_nets);
 

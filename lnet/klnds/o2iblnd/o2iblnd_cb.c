@@ -1284,7 +1284,7 @@ kiblnd_connect_peer (kib_peer_t *peer)
         memset(&dstaddr, 0, sizeof(dstaddr));
         dstaddr.sin_family = AF_INET;
         dstaddr.sin_port = htons(*kiblnd_tunables.kib_service);
-        dstaddr.sin_addr.s_addr = htonl(LNET_NIDADDR(peer->ibp_nid));
+        dstaddr.sin_addr.s_addr = htonl(lnet_nidaddr(peer->ibp_nid));
 
         kiblnd_peer_addref(peer);               /* cmid's ref */
 
@@ -2292,7 +2292,7 @@ kiblnd_passive_connect(struct rdma_cm_id *cmid, void *priv, int priv_nob)
         }
 
         nid = reqmsg->ibm_srcnid;
-        ni  = lnet_net2ni(LNET_NIDNET(reqmsg->ibm_dstnid));
+        ni  = lnet_net2ni(lnet_nidnet(reqmsg->ibm_dstnid));
 
         if (ni != NULL) {
                 net = (kib_net_t *)ni->ni_data;

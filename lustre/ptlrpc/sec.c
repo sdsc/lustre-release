@@ -1505,7 +1505,7 @@ int sptlrpc_import_sec_adapt(struct obd_import *imp,
                 CDEBUG(D_SEC, "import %s->%s netid %x: select flavor %s\n",
                        imp->imp_obd->obd_name,
                        obd_uuid2str(&conn->c_remote_uuid),
-                       LNET_NIDNET(conn->c_self),
+                       lnet_nidnet(conn->c_self),
                        sptlrpc_flavor2name(&sf, str, sizeof(str)));
         }
 

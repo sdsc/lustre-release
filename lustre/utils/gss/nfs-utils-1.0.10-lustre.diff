@@ -3448,9 +3448,9 @@ diff -rNup nfs-utils-1.0.10/utils/gssd/lsupport.c nfs-utils-1.0.10.lustre/utils/
 +{
 +        uint32_t lnd, net, addr;
 +
-+        addr = LNET_NIDADDR(nid);
-+        net = LNET_NIDNET(nid);
-+        lnd = LNET_NETTYP(net);
++        addr = lnet_nidaddr(nid);
++        net = lnet_nidnet(nid);
++        lnd = lnet_nettyp(net);
 +
 +        if (lnd >= LND_ENUM_END_MARKER) {
 +                printerr(0, "ERROR: Unrecognized LND %u\n", lnd);
@@ -3700,7 +3700,7 @@ diff -rNup nfs-utils-1.0.10/utils/gssd/lsupport.c nfs-utils-1.0.10.lustre/utils/
 +                        return NULL;
 +        }
 +
-+        *net = LNET_MKNET(nf->nf_type, netnum);
++        *net = lnet_mknet(nf->nf_type, netnum);
 +        return nf;
 +}
 +
@@ -3718,7 +3718,7 @@ diff -rNup nfs-utils-1.0.10/utils/gssd/lsupport.c nfs-utils-1.0.10.lustre/utils/
 +                        return LNET_NID_ANY;
 +        } else {
 +                sep = str + strlen(str);
-+                net = LNET_MKNET(SOCKLND, 0);
++                net = lnet_mknet(SOCKLND, 0);
 +                nf = libcfs_lnd2netstrfns(SOCKLND);
 +                if (!nf)
 +                        return LNET_NID_ANY;
@@ -3727,7 +3727,7 @@ diff -rNup nfs-utils-1.0.10/utils/gssd/lsupport.c nfs-utils-1.0.10.lustre/utils/
 +        if (!nf->nf_str2addr(str, sep - str, &addr))
 +                return LNET_NID_ANY;
 +
-+        return LNET_MKNID(net, addr);
++        return lnet_mknid(net, addr);
 +}
 +
 +/****************************************
@@ -4024,13 +4024,13 @@ diff -rNup nfs-utils-1.0.10/utils/gssd/lsupport.h nfs-utils-1.0.10.lustre/utils/
 +lnet_nid_t libcfs_str2nid(char *str);
 +
 +/* how an LNET NID encodes net:address */
-+#define LNET_NIDADDR(nid)      ((uint32_t)((nid) & 0xffffffff))
-+#define LNET_NIDNET(nid)       ((uint32_t)(((nid) >> 32)) & 0xffffffff)
-+#define LNET_MKNID(net,addr)   ((((uint64_t)(net))<<32)|((uint64_t)(addr)))
++#define lnet_nidaddr(nid)      ((uint32_t)((nid) & 0xffffffff))
++#define lnet_nidnet(nid)       ((uint32_t)(((nid) >> 32)) & 0xffffffff)
++#define lnet_mknid(net,addr)   ((((uint64_t)(net))<<32)|((uint64_t)(addr)))
 +/* how net encodes type:number */
-+#define LNET_NETNUM(net)       ((net) & 0xffff)
-+#define LNET_NETTYP(net)       (((net) >> 16) & 0xffff)
-+#define LNET_MKNET(typ,num)    ((((uint32_t)(typ))<<16)|((uint32_t)(num)))
++#define lnet_netnum(net)       ((net) & 0xffff)
++#define lnet_nettyp(net)       (((net) >> 16) & 0xffff)
++#define lnet_mknet(typ,num)    ((((uint32_t)(typ))<<16)|((uint32_t)(num)))
 +
 +#endif /* __LIBCFS_H__ */
 diff -rNup nfs-utils-1.0.10/utils/gssd/Makefile.am nfs-utils-1.0.10.lustre/utils/gssd/Makefile.am

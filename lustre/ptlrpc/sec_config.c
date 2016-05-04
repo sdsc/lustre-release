@@ -172,7 +172,7 @@ static void get_default_flavor(struct sptlrpc_flavor *sf)
 
 static void sptlrpc_rule_init(struct sptlrpc_rule *rule)
 {
-        rule->sr_netid = LNET_NIDNET(LNET_NID_ANY);
+        rule->sr_netid = lnet_nidnet(LNET_NID_ANY);
         rule->sr_from = LUSTRE_SP_ANY;
         rule->sr_to = LUSTRE_SP_ANY;
         rule->sr_padding = 0;
@@ -204,7 +204,7 @@ int sptlrpc_parse_rule(char *param, struct sptlrpc_rule *rule)
         /* 1.1 network */
         if (strcmp(param, "default")) {
                 rule->sr_netid = libcfs_str2net(param);
-                if (rule->sr_netid == LNET_NIDNET(LNET_NID_ANY)) {
+                if (rule->sr_netid == lnet_nidnet(LNET_NID_ANY)) {
                         CERROR("invalid network name: %s\n", param);
                         RETURN(-EINVAL);
                 }
@@ -293,7 +293,7 @@ static inline int rule_spec_dir(struct sptlrpc_rule *rule)
 }
 static inline int rule_spec_net(struct sptlrpc_rule *rule)
 {
-        return (rule->sr_netid != LNET_NIDNET(LNET_NID_ANY));
+        return (rule->sr_netid != lnet_nidnet(LNET_NID_ANY));
 }
 static inline int rule_match_dir(struct sptlrpc_rule *r1,
                                  struct sptlrpc_rule *r2)
@@ -413,9 +413,9 @@ int sptlrpc_rule_set_choose(struct sptlrpc_rule_set *rset,
         for (n = 0; n < rset->srs_nrule; n++) {
                 r = &rset->srs_rules[n];
 
-                if (LNET_NIDNET(nid) != LNET_NIDNET(LNET_NID_ANY) &&
-                    r->sr_netid != LNET_NIDNET(LNET_NID_ANY) &&
-                    LNET_NIDNET(nid) != r->sr_netid)
+                if (lnet_nidnet(nid) != lnet_nidnet(LNET_NID_ANY) &&
+                    r->sr_netid != lnet_nidnet(LNET_NID_ANY) &&
+                    lnet_nidnet(nid) != r->sr_netid)
                         continue;
 
                 if (from != LUSTRE_SP_ANY && r->sr_from != LUSTRE_SP_ANY &&
@@ -937,7 +937,7 @@ static void rule2string(struct sptlrpc_rule *r, char *buf, int buflen)
 	char	 net[LNET_NIDSTR_SIZE] = "default";
 	char	*ptr = buf;
 
-	if (r->sr_netid != LNET_NIDNET(LNET_NID_ANY))
+	if (r->sr_netid != lnet_nidnet(LNET_NID_ANY))
 		libcfs_net2str_r(r->sr_netid, net, sizeof(net));
 
         if (r->sr_from == LUSTRE_SP_ANY && r->sr_to == LUSTRE_SP_ANY)

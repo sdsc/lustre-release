@@ -3125,7 +3125,7 @@ kiblnd_startup (lnet_ni_t *ni)
                 goto failed;
 
         net->ibn_dev = ibdev;
-        ni->ni_nid = LNET_MKNID(LNET_NIDNET(ni->ni_nid), ibdev->ibd_ifip);
+        ni->ni_nid = lnet_mknid(lnet_nidnet(ni->ni_nid), ibdev->ibd_ifip);
 
 	rc = kiblnd_dev_start_threads(ibdev, newdev,
 				      ni->ni_cpts, ni->ni_ncpts);

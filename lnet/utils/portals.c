@@ -264,7 +264,7 @@ static int g_net_is_compatible(char *cmd, ...)
 
 	do {
 		nal = va_arg(ap, int);
-                if (nal == LNET_NETTYP(g_net)) {
+                if (nal == lnet_nettyp(g_net)) {
                         va_end (ap);
                         return 1;
                 }
@@ -276,7 +276,7 @@ static int g_net_is_compatible(char *cmd, ...)
                 fprintf (stderr,
                          "Command %s not compatible with %s NAL\n",
                          cmd,
-                         libcfs_lnd2str(LNET_NETTYP(g_net)));
+                         libcfs_lnd2str(lnet_nettyp(g_net)));
 
         return 0;
 }
@@ -295,7 +295,7 @@ int ptl_initialize(int argc, char **argv)
 int jt_ptl_network(int argc, char **argv)
 {
 	struct libcfs_ioctl_data data;
-	__u32 net = LNET_NIDNET(LNET_NID_ANY);
+	__u32 net = lnet_nidnet(LNET_NID_ANY);
 	int rc;
 
 	if (argc != 2) {
@@ -333,16 +333,16 @@ int jt_ptl_network(int argc, char **argv)
 	}
 
 	net = libcfs_str2net(argv[1]);
-	if (net == LNET_NIDNET(LNET_NID_ANY)) {
+	if (net == lnet_nidnet(LNET_NID_ANY)) {
 		fprintf(stderr, "Can't parse net %s\n", argv[1]);
 		return -1;
 	}
 
-	if (LNET_NETTYP(net) == QSWLND || LNET_NETTYP(net) == GMLND ||
-	    LNET_NETTYP(net) == PTLLND || LNET_NETTYP(net) == CIBLND ||
-	    LNET_NETTYP(net) == OPENIBLND || LNET_NETTYP(net) == IIBLND ||
-	    LNET_NETTYP(net) == RALND || LNET_NETTYP(net) == VIBLND ||
-	    LNET_NETTYP(net) == MXLND) {
+	if (lnet_nettyp(net) == QSWLND || lnet_nettyp(net) == GMLND ||
+	    lnet_nettyp(net) == PTLLND || lnet_nettyp(net) == CIBLND ||
+	    lnet_nettyp(net) == OPENIBLND || lnet_nettyp(net) == IIBLND ||
+	    lnet_nettyp(net) == RALND || lnet_nettyp(net) == VIBLND ||
+	    lnet_nettyp(net) == MXLND) {
 		fprintf(stderr, "Net %s obsoleted\n", libcfs_lnd2str(net));
 		return -1;
 	}
@@ -383,7 +383,7 @@ jt_ptl_list_nids(int argc, char **argv)
                         return -1;
                 }
 
-                if (all || (LNET_NETTYP(LNET_NIDNET(data.ioc_nid)) != LOLND)) {
+                if (all || (lnet_nettyp(lnet_nidnet(data.ioc_nid)) != LOLND)) {
                         printf("%s\n", libcfs_nid2str(data.ioc_nid));
                         if (return_nid) {
                                 *(__u64 *)(argv[1]) = data.ioc_nid;
@@ -1002,7 +1002,7 @@ int jt_ptl_mynid(int argc, char **argv)
         }
 
         LIBCFS_IOC_INIT(data);
-        data.ioc_net = LNET_NIDNET(nid);
+        data.ioc_net = lnet_nidnet(nid);
         data.ioc_nid = nid;
 
         rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_REGISTER_MYNID, &data);
@@ -1135,7 +1135,7 @@ jt_ptl_del_route (int argc, char **argv)
 	}
 
 	LIBCFS_IOC_INIT_V2(data, cfg_hdr);
-	data.cfg_net = g_net_set ? g_net : LNET_NIDNET(LNET_NID_ANY);
+	data.cfg_net = g_net_set ? g_net : lnet_nidnet(LNET_NID_ANY);
 	data.cfg_nid = nid;
 
 	rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_DEL_ROUTE, &data);
@@ -1255,10 +1255,10 @@ fault_attr_nid_parse(char *str, lnet_nid_t *nid_p)
 	/* NB: can't support range ipaddress except * and *@net */
 	if (strlen(str) > 2 && str[0] == '*' && str[1] == '@') {
 		net = libcfs_str2net(str + 2);
-		if (net == LNET_NIDNET(LNET_NID_ANY))
+		if (net == lnet_nidnet(LNET_NID_ANY))
 			goto failed;
 
-		nid = LNET_MKNID(net, LNET_NIDADDR(LNET_NID_ANY));
+		nid = lnet_mknid(net, lnet_nidaddr(LNET_NID_ANY));
 	} else {
 		rc = libcfs_str2anynid(&nid, str);
 		if (!rc)

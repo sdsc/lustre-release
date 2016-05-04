@@ -96,7 +96,7 @@ static void seq_show_srpc_rules(struct seq_file *seq, const char *tgtname,
         for (i = 0; i < rset->srs_nrule; i++) {
                 r = &rset->srs_rules[i];
 
-		if (r->sr_netid != LNET_NIDNET(LNET_NID_ANY))
+		if (r->sr_netid != lnet_nidnet(LNET_NID_ANY))
 			libcfs_net2str_r(r->sr_netid, net, sizeof(net));
 
                 if (r->sr_from == LUSTRE_SP_ANY && r->sr_to == LUSTRE_SP_ANY)
