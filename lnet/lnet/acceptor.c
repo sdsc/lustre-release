@@ -314,16 +314,16 @@ lnet_accept(struct socket *sock, __u32 magic)
         if (flip)
                 __swab64s(&cr.acr_nid);
 
-        ni = lnet_net2ni(LNET_NIDNET(cr.acr_nid));
-        if (ni == NULL ||               /* no matching net */
-            ni->ni_nid != cr.acr_nid) { /* right NET, wrong NID! */
-                if (ni != NULL)
-                        lnet_ni_decref(ni);
+	ni = lnet_net2ni(lnet_nidnet(cr.acr_nid));
+	if (ni == NULL ||               /* no matching net */
+	    ni->ni_nid != cr.acr_nid) { /* right NET, wrong NID! */
+		if (ni != NULL)
+			lnet_ni_decref(ni);
 		LCONSOLE_ERROR_MSG(0x120, "Refusing connection from %pI4h "
 				   "for %s: No matching NI\n",
 				   &peer_ip, libcfs_nid2str(cr.acr_nid));
-                return -EPERM;
-        }
+		return -EPERM;
+	}
 
         if (ni->ni_lnd->lnd_accept == NULL) {
                 /* This catches a request for the loopback LND */
