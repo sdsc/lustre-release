@@ -54,7 +54,7 @@
 #define LST_TRANS_TIMEOUT	30
 #define LST_TRANS_MIN_TIMEOUT	3
 
-#define LST_VALIDATE_TIMEOUT(t) MIN(MAX(t, LST_TRANS_MIN_TIMEOUT), LST_TRANS_TIMEOUT)
+#define LST_VALIDATE_TIMEOUT(t)	MIN(MAX(t, LST_TRANS_MIN_TIMEOUT), LST_TRANS_TIMEOUT)
 
 #define LST_PING_INTERVAL	8
 
@@ -69,13 +69,13 @@ typedef struct lstcon_rpc {
 	struct lstcon_node	*crp_node;	/* destination node */
 	struct lstcon_rpc_trans *crp_trans;	/* conrpc transaction */
 
-	unsigned int		 crp_posted:1;	 /* rpc is posted */
+	unsigned int		 crp_posted:1;   /* rpc is posted */
 	unsigned int		 crp_finished:1; /* rpc is finished */
 	unsigned int		 crp_unpacked:1; /* reply is unpacked */
 	/** RPC is embedded in other structure and can't free it */
 	unsigned int		 crp_embedded:1;
-	int			 crp_status;	 /* console rpc errors */
-	cfs_time_t		 crp_stamp;	 /* replied time stamp */
+	int			 crp_status;     /* console rpc errors */
+	cfs_time_t		 crp_stamp;      /* replied time stamp */
 } lstcon_rpc_t;
 
 typedef struct lstcon_rpc_trans {
@@ -110,7 +110,7 @@ typedef struct lstcon_rpc_trans {
 
 #define LST_TRANS_STATQRY	0x21
 
-typedef int (* lstcon_rpc_cond_func_t)(int, struct lstcon_node *, void *);
+typedef int (*lstcon_rpc_cond_func_t)(int, struct lstcon_node *, void *);
 typedef int (*lstcon_rpc_readent_func_t)(int, srpc_msg_t *,
 					 lstcon_rpc_ent_t __user *);
 
@@ -145,6 +145,5 @@ void lstcon_rpc_pinger_stop(void);
 void lstcon_rpc_cleanup_wait(void);
 int  lstcon_rpc_module_init(void);
 void lstcon_rpc_module_fini(void);
-
 
 #endif

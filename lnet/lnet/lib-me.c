@@ -68,9 +68,9 @@
  * object is saved here. This handle can be used later in LNetMEInsert(),
  * LNetMEUnlink(), or LNetMDAttach() functions.
  *
- * \retval 0	   On success.
- * \retval -EINVAL If \a portal is invalid.
- * \retval -ENOMEM If new ME object cannot be allocated.
+ * \retval 0		On success.
+ * \retval -EINVAL	If \a portal is invalid.
+ * \retval -ENOMEM	If new ME object cannot be allocated.
  */
 int
 LNetMEAttach(unsigned int portal,
@@ -80,8 +80,8 @@ LNetMEAttach(unsigned int portal,
 	     lnet_handle_me_t *handle)
 {
 	struct lnet_match_table *mtable;
-	struct lnet_me		*me;
-	struct list_head	*head;
+	struct lnet_me *me;
+	struct list_head *head;
 
 	LASSERT(the_lnet.ln_refcount > 0);
 
@@ -139,21 +139,19 @@ EXPORT_SYMBOL(LNetMEAttach);
  * \param match_id,match_bits,ignore_bits,unlink,pos,handle See the discussion
  * for LNetMEAttach().
  *
- * \retval 0	   On success.
- * \retval -ENOMEM If new ME object cannot be allocated.
- * \retval -ENOENT If \a current_meh does not point to a valid match entry.
+ * \retval 0		On success.
+ * \retval -ENOMEM	If new ME object cannot be allocated.
+ * \retval -ENOENT	If \a current_meh does not point to a valid match entry.
  */
 int
-LNetMEInsert(lnet_handle_me_t current_meh,
-	     lnet_process_id_t match_id,
-	     __u64 match_bits, __u64 ignore_bits,
-	     lnet_unlink_t unlink, lnet_ins_pos_t pos,
-	     lnet_handle_me_t *handle)
+LNetMEInsert(lnet_handle_me_t current_meh, lnet_process_id_t match_id,
+	     __u64 match_bits, __u64 ignore_bits, lnet_unlink_t unlink,
+	     lnet_ins_pos_t pos, lnet_handle_me_t *handle)
 {
-	struct lnet_me		*current_me;
-	struct lnet_me		*new_me;
-	struct lnet_portal	*ptl;
-	int			cpt;
+	struct lnet_me *current_me;
+	struct lnet_me *new_me;
+	struct lnet_portal *ptl;
+	int cpt;
 
 	LASSERT(the_lnet.ln_refcount > 0);
 
@@ -219,17 +217,18 @@ EXPORT_SYMBOL(LNetMEInsert);
  *
  * \param meh A handle for the ME to be unlinked.
  *
- * \retval 0	   On success.
- * \retval -ENOENT If \a meh does not point to a valid ME.
+ * \retval 0		On success.
+ * \retval -ENOENT	If \a meh does not point to a valid ME.
+ *
  * \see LNetMDUnlink() for the discussion on delivering unlink event.
  */
 int
 LNetMEUnlink(lnet_handle_me_t meh)
 {
-	lnet_me_t	*me;
-	lnet_libmd_t	*md;
-	lnet_event_t	ev;
-	int		cpt;
+	lnet_me_t *me;
+	lnet_libmd_t *md;
+	lnet_event_t ev;
+	int cpt;
 
 	LASSERT(the_lnet.ln_refcount > 0);
 
@@ -280,7 +279,7 @@ lnet_me_unlink(lnet_me_t *me)
 static void
 lib_me_dump(lnet_me_t *me)
 {
-	CWARN("Match Entry %p ("LPX64")\n", me,
+	CWARN("Match Entry %p (%"LPX64")\n", me,
 	      me->me_lh.lh_cookie);
 
 	CWARN("\tMatch/Ignore\t= %016lx / %016lx\n",

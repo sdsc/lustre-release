@@ -27,14 +27,17 @@
  */
 #ifndef _LNET_NIDSTRINGS_H
 #define _LNET_NIDSTRINGS_H
+
 #include <lnet/types.h>
 
 /**
  *  Lustre Network Driver types.
  */
 enum {
-	/* Only add to these values (i.e. don't ever change or redefine them):
-	 * network addresses depend on them... */
+	/*
+	 * Only add to these values (i.e. don't ever change or redefine them):
+	 * network addresses depend on them...
+	 */
 	QSWLND		= 1,
 	SOCKLND		= 2,
 	GMLND		= 3,
@@ -54,7 +57,7 @@ enum {
 struct list_head;
 
 #define LNET_NIDSTR_COUNT  1024    /* # of nidstrings */
-#define LNET_NIDSTR_SIZE   32	   /* size of each one (see below for usage) */
+#define LNET_NIDSTR_SIZE   32      /* size of each one (see below for usage) */
 
 /* support decl needed by both kernel and user space */
 char *libcfs_next_nidstring(void);
@@ -66,6 +69,7 @@ static inline char *libcfs_lnd2str(__u32 lnd)
 	return libcfs_lnd2str_r(lnd, libcfs_next_nidstring(),
 				LNET_NIDSTR_SIZE);
 }
+
 int libcfs_str2lnd(const char *str);
 char *libcfs_net2str_r(__u32 net, char *buf, size_t buf_size);
 static inline char *libcfs_net2str(__u32 net)
@@ -73,6 +77,7 @@ static inline char *libcfs_net2str(__u32 net)
 	return libcfs_net2str_r(net, libcfs_next_nidstring(),
 				LNET_NIDSTR_SIZE);
 }
+
 char *libcfs_nid2str_r(lnet_nid_t nid, char *buf, size_t buf_size);
 static inline char *libcfs_nid2str(lnet_nid_t nid)
 {

@@ -38,7 +38,7 @@
 #include <lnet/lib-lnet.h>
 #include <lnet/lib-dlc.h>
 
-static int config_on_load = 0;
+static int config_on_load;
 module_param(config_on_load, int, 0444);
 MODULE_PARM_DESC(config_on_load, "configure network at module load");
 
@@ -48,7 +48,7 @@ static int
 lnet_configure(void *arg)
 {
 	/* 'arg' only there so I can be passed to cfs_create_thread() */
-	int    rc = 0;
+	int rc = 0;
 
 	mutex_lock(&lnet_config_mutex);
 
@@ -73,9 +73,9 @@ out:
 }
 
 static int
-lnet_unconfigure (void)
+lnet_unconfigure(void)
 {
-	int   refcount;
+	int refcount;
 
 	mutex_lock(&lnet_config_mutex);
 
@@ -98,8 +98,8 @@ static int
 lnet_dyn_configure(struct libcfs_ioctl_hdr *hdr)
 {
 	struct lnet_ioctl_config_data *conf =
-	  (struct lnet_ioctl_config_data *)hdr;
-	int			      rc;
+		(struct lnet_ioctl_config_data *)hdr;
+	int rc;
 
 	mutex_lock(&lnet_config_mutex);
 	if (the_lnet.ln_niinit_self)
@@ -130,12 +130,12 @@ lnet_dyn_unconfigure(struct libcfs_ioctl_hdr *hdr)
 static int
 lnet_ioctl(unsigned int cmd, struct libcfs_ioctl_hdr *hdr)
 {
-	int   rc;
+	int rc;
 
 	switch (cmd) {
 	case IOC_LIBCFS_CONFIGURE: {
 		struct libcfs_ioctl_data *data =
-		  (struct libcfs_ioctl_data *)hdr;
+			(struct libcfs_ioctl_data *)hdr;
 		the_lnet.ln_nis_from_mod_params = data->ioc_flags;
 		return lnet_configure(NULL);
 	}
@@ -150,9 +150,11 @@ lnet_ioctl(unsigned int cmd, struct libcfs_ioctl_hdr *hdr)
 		return lnet_dyn_unconfigure(hdr);
 
 	default:
-		/* Passing LNET_PID_ANY only gives me a ref if the net is up
+		/*
+		 * Passing LNET_PID_ANY only gives me a ref if the net is up
 		 * already; I'll need it to ensure the net can't go down while
-		 * I'm called into it */
+		 * I'm called into it
+		 */
 		rc = LNetNIInit(LNET_PID_ANY);
 		if (rc >= 0) {
 			rc = LNetCtl(cmd, hdr);
@@ -181,8 +183,10 @@ static int __init lnet_init(void)
 	LASSERT(rc == 0);
 
 	if (config_on_load) {
-		/* Have to schedule a separate thread to avoid deadlocking
-		 * in modload */
+		/*
+		 * Have to schedule a separate thread to avoid deadlocking
+		 * in modload
+		 */
 		(void)kthread_run(lnet_configure, NULL, "lnet_initd");
 	}
 

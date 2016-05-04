@@ -39,14 +39,14 @@
 
 /* tmp struct for parsing routes */
 struct lnet_text_buf {
-	struct list_head	ltb_list;	/* stash on lists */
-	int			ltb_size;	/* allocated size */
-	char			ltb_text[0];	/* text buffer */
+	struct list_head ltb_list;	/* stash on lists */
+	int ltb_size;			/* allocated size */
+	char ltb_text[0];		/* text buffer */
 };
 
-static int lnet_tbnob = 0;			/* track text buf allocation */
-#define LNET_MAX_TEXTBUF_NOB	 (64<<10)	/* bound allocation */
-#define LNET_SINGLE_TEXTBUF_NOB  (4<<10)
+static int lnet_tbnob;					/* track text buf allocation */
+#define LNET_MAX_TEXTBUF_NOB		(64 << 10)	/* bound allocation */
+#define LNET_SINGLE_TEXTBUF_NOB		(4 << 10)
 
 static void
 lnet_syntax(char *name, char *str, int offset, int width)
@@ -55,9 +55,9 @@ lnet_syntax(char *name, char *str, int offset, int width)
 	static char dashes[LNET_SINGLE_TEXTBUF_NOB];
 
 	memset(dots, '.', sizeof(dots));
-	dots[sizeof(dots)-1] = 0;
+	dots[sizeof(dots) - 1] = 0;
 	memset(dashes, '-', sizeof(dashes));
-	dashes[sizeof(dashes)-1] = 0;
+	dashes[sizeof(dashes) - 1] = 0;
 
 	LCONSOLE_ERROR_MSG(0x10f, "Error parsing '%s=\"%s\"'\n", name, str);
 	LCONSOLE_ERROR_MSG(0x110, "here...........%.*s..%.*s|%.*s|\n",
@@ -66,7 +66,7 @@ lnet_syntax(char *name, char *str, int offset, int width)
 }
 
 static int
-lnet_issep (char c)
+lnet_issep(char c)
 {
 	switch (c) {
 	case '\n':
@@ -82,7 +82,7 @@ int
 lnet_net_unique(__u32 net, struct list_head *nilist)
 {
 	struct list_head *tmp;
-	lnet_ni_t	 *ni;
+	lnet_ni_t *ni;
 
 	list_for_each(tmp, nilist) {
 		ni = list_entry(tmp, lnet_ni_t, ni_list);
@@ -122,10 +122,10 @@ lnet_ni_free(struct lnet_ni *ni)
 lnet_ni_t *
 lnet_ni_alloc(__u32 net, struct cfs_expr_list *el, struct list_head *nilist)
 {
-	struct lnet_tx_queue	*tq;
-	struct lnet_ni		*ni;
-	int			rc;
-	int			i;
+	struct lnet_tx_queue *tq;
+	struct lnet_ni *ni;
+	int rc;
+	int i;
 
 	if (!lnet_net_unique(net, nilist)) {
 		LCONSOLE_ERROR_MSG(0x111, "Duplicate network specified: %s\n",
@@ -189,13 +189,13 @@ int
 lnet_parse_networks(struct list_head *nilist, char *networks)
 {
 	struct cfs_expr_list *el = NULL;
-	int		tokensize;
-	char		*tokens;
-	char		*str;
-	char		*tmp;
-	struct lnet_ni	*ni;
-	__u32		net;
-	int		nnets = 0;
+	int tokensize;
+	char *tokens;
+	char *str;
+	char *tmp;
+	struct lnet_ni *ni;
+	__u32 net;
+	int nnets = 0;
 	struct list_head *temp_node;
 
 	if (networks == NULL) {
@@ -205,8 +205,8 @@ lnet_parse_networks(struct list_head *nilist, char *networks)
 
 	if (strlen(networks) > LNET_SINGLE_TEXTBUF_NOB) {
 		/* _WAY_ conservative */
-		LCONSOLE_ERROR_MSG(0x112, "Can't parse networks: string too "
-				   "long\n");
+		LCONSOLE_ERROR_MSG(0x112,
+				   "Can't parse networks: string too long\n");
 		return -EINVAL;
 	}
 
@@ -219,22 +219,26 @@ lnet_parse_networks(struct list_head *nilist, char *networks)
 	}
 
 	memcpy(tokens, networks, tokensize);
-	str = tmp = tokens;
+	tmp = tokens;
+	str = tokens;
 
 	while (str != NULL && *str != 0) {
-		char	*comma = strchr(str, ',');
-		char	*bracket = strchr(str, '(');
-		char	*square = strchr(str, '[');
-		char	*iface;
-		int	niface;
-		int	rc;
+		char *comma = strchr(str, ',');
+		char *bracket = strchr(str, '(');
+		char *square = strchr(str, '[');
+		char *iface;
+		int niface;
+		int rc;
 
-		/* NB we don't check interface conflicts here; it's the LNDs
-		 * responsibility (if it cares at all) */
-
+		/*
+		 * NB we don't check interface conflicts here; it's the LNDs
+		 * responsibility (if it cares at all)
+		 */
 		if (square != NULL && (comma == NULL || square < comma)) {
-			/* i.e: o2ib0(ib0)[1,2], number between square
-			 * brackets are CPTs this NI needs to be bond */
+			/*
+			 * i.e: o2ib0(ib0)[1,2], number between square
+			 * brackets are CPTs this NI needs to be bond
+			 */
 			if (bracket != NULL && bracket > square) {
 				tmp = square;
 				goto failed_syntax;
@@ -267,8 +271,8 @@ lnet_parse_networks(struct list_head *nilist, char *networks)
 			net = libcfs_str2net(cfs_trimwhite(str));
 
 			if (net == LNET_NIDNET(LNET_NID_ANY)) {
-				LCONSOLE_ERROR_MSG(0x113, "Unrecognised network"
-						   " type\n");
+				LCONSOLE_ERROR_MSG(0x113,
+						   "Unrecognised network type\n");
 				tmp = str;
 				goto failed_syntax;
 			}
@@ -324,18 +328,20 @@ lnet_parse_networks(struct list_head *nilist, char *networks)
 			}
 
 			if (niface == LNET_MAX_INTERFACES) {
-				LCONSOLE_ERROR_MSG(0x115, "Too many interfaces "
-						   "for net %s\n",
+				LCONSOLE_ERROR_MSG(0x115,
+						   "Too many interfaces for net %s\n",
 						   libcfs_net2str(net));
 				goto failed;
 			}
 
-			/* Allocate a separate piece of memory and copy
+			/*
+			 * Allocate a separate piece of memory and copy
 			 * into it the string, so we don't have
 			 * a depencency on the tokens string.  This way we
 			 * can free the tokens at the end of the function.
 			 * The newly allocated ni_interfaces[] can be
-			 * freed when freeing the NI */
+			 * freed when freeing the NI
+			 */
 			LIBCFS_ALLOC(ni->ni_interfaces[niface],
 				     strlen(iface) + 1);
 			if (ni->ni_interfaces[niface] == NULL) {
@@ -392,7 +398,8 @@ lnet_parse_networks(struct list_head *nilist, char *networks)
 	return -EINVAL;
 }
 
-static struct lnet_text_buf *lnet_new_text_buf(int str_len)
+static struct lnet_text_buf *
+lnet_new_text_buf(int str_len)
 {
 	struct lnet_text_buf *ltb;
 	int nob;
@@ -430,7 +437,7 @@ lnet_free_text_buf(struct lnet_text_buf *ltb)
 static void
 lnet_free_text_bufs(struct list_head *tbs)
 {
-	struct lnet_text_buf  *ltb;
+	struct lnet_text_buf *ltb;
 
 	while (!list_empty(tbs)) {
 		ltb = list_entry(tbs->next, struct lnet_text_buf, ltb_list);
@@ -440,29 +447,14 @@ lnet_free_text_bufs(struct list_head *tbs)
 	}
 }
 
-void
-lnet_print_text_bufs(struct list_head *tbs)
-{
-	struct list_head *tmp;
-	struct lnet_text_buf  *ltb;
-
-	list_for_each(tmp, tbs) {
-		ltb = list_entry(tmp, struct lnet_text_buf, ltb_list);
-
-		CDEBUG(D_WARNING, "%s\n", ltb->ltb_text);
-	}
-
-	CDEBUG(D_WARNING, "%d allocated\n", lnet_tbnob);
-}
-
 static int
 lnet_str2tbs_sep(struct list_head *tbs, char *str)
 {
-	struct list_head  pending;
-	char		 *sep;
-	int		  nob;
-	int		  i;
-	struct lnet_text_buf  *ltb;
+	struct list_head pending;
+	char *sep;
+	int nob;
+	int i;
+	struct lnet_text_buf *ltb;
 
 	INIT_LIST_HEAD(&pending);
 
@@ -518,12 +510,12 @@ lnet_expand1tb(struct list_head *list,
 	       char *str, char *sep1, char *sep2,
 	       char *item, int itemlen)
 {
-	int		 len1 = (int)(sep1 - str);
-	int		 len2 = strlen(sep2 + 1);
+	int len1 = (int)(sep1 - str);
+	int len2 = strlen(sep2 + 1);
 	struct lnet_text_buf *ltb;
 
-	LASSERT (*sep1 == '[');
-	LASSERT (*sep2 == ']');
+	LASSERT(*sep1 == '[');
+	LASSERT(*sep2 == ']');
 
 	ltb = lnet_new_text_buf(len1 + itemlen + len2);
 	if (ltb == NULL)
@@ -531,7 +523,7 @@ lnet_expand1tb(struct list_head *list,
 
 	memcpy(ltb->ltb_text, str, len1);
 	memcpy(&ltb->ltb_text[len1], item, itemlen);
-	memcpy(&ltb->ltb_text[len1+itemlen], sep2 + 1, len2);
+	memcpy(&ltb->ltb_text[len1 + itemlen], sep2 + 1, len2);
 	ltb->ltb_text[len1 + itemlen + len2] = 0;
 
 	list_add_tail(&ltb->ltb_list, list);
@@ -541,18 +533,18 @@ lnet_expand1tb(struct list_head *list,
 static int
 lnet_str2tbs_expand(struct list_head *tbs, char *str)
 {
-	char		  num[16];
-	struct list_head  pending;
-	char		 *sep;
-	char		 *sep2;
-	char		 *parsed;
-	char		 *enditem;
-	int		  lo;
-	int		  hi;
-	int		  stride;
-	int		  i;
-	int		  nob;
-	int		  scanned;
+	char num[16];
+	struct list_head pending;
+	char *sep;
+	char *sep2;
+	char *parsed;
+	char *enditem;
+	int lo;
+	int hi;
+	int stride;
+	int i;
+	int nob;
+	int scanned;
 
 	INIT_LIST_HEAD(&pending);
 
@@ -565,7 +557,6 @@ lnet_str2tbs_expand(struct list_head *tbs, char *str)
 		goto failed;
 
 	for (parsed = sep; parsed < sep2; parsed = enditem) {
-
 		enditem = ++parsed;
 		while (enditem < sep2 && *enditem != ',')
 			enditem++;
@@ -573,15 +564,15 @@ lnet_str2tbs_expand(struct list_head *tbs, char *str)
 		if (enditem == parsed)		/* no empty items */
 			goto failed;
 
-		if (sscanf(parsed, "%d-%d/%d%n", &lo, &hi, &stride, &scanned) < 3) {
-
+		if (sscanf(parsed, "%d-%d/%d%n", &lo, &hi,
+			   &stride, &scanned) < 3) {
 			if (sscanf(parsed, "%d-%d%n", &lo, &hi, &scanned) < 2) {
-
 				/* simple string enumeration */
 				if (lnet_expand1tb(&pending, str, sep, sep2,
-						   parsed, (int)(enditem - parsed)) != 0)
+						   parsed,
+						   (int)(enditem - parsed)) != 0) {
 					goto failed;
-
+				}
 				continue;
 			}
 
@@ -598,7 +589,6 @@ lnet_str2tbs_expand(struct list_head *tbs, char *str)
 			goto failed;
 
 		for (i = lo; i <= hi; i += stride) {
-
 			snprintf(num, sizeof(num), "%d", i);
 			nob = strlen(num);
 			if (nob + 1 == sizeof(num))
@@ -619,14 +609,13 @@ lnet_str2tbs_expand(struct list_head *tbs, char *str)
 }
 
 static int
-lnet_parse_hops (char *str, unsigned int *hops)
+lnet_parse_hops(char *str, unsigned int *hops)
 {
-	int	len = strlen(str);
-	int	nob = len;
+	int len = strlen(str);
+	int nob = len;
 
 	return (sscanf(str, "%u%n", hops, &nob) >= 1 &&
-		nob == len &&
-		*hops > 0 && *hops < 256);
+		nob == len && *hops > 0 && *hops < 256);
 }
 
 #define LNET_PRIORITY_SEPARATOR (':')
@@ -634,9 +623,9 @@ lnet_parse_hops (char *str, unsigned int *hops)
 static int
 lnet_parse_priority(char *str, unsigned int *priority, char **token)
 {
-	int   nob;
+	int nob;
 	char *sep;
-	int   len;
+	int len;
 
 	sep = strchr(str, LNET_PRIORITY_SEPARATOR);
 	if (sep == NULL) {
@@ -645,9 +634,11 @@ lnet_parse_priority(char *str, unsigned int *priority, char **token)
 	}
 	len = strlen(sep + 1);
 
-	if ((sscanf((sep+1), "%u%n", priority, &nob) < 1) || (len != nob)) {
-		/* Update the caller's token pointer so it treats the found
-		   priority as the token to report in the error message. */
+	if ((sscanf((sep + 1), "%u%n", priority, &nob) < 1) || (len != nob)) {
+		/*
+		 * Update the caller's token pointer so it treats the found
+		 * priority as the token to report in the error message.
+		 */
 		*token += sep - str + 1;
 		return -EINVAL;
 	}
@@ -662,26 +653,26 @@ lnet_parse_priority(char *str, unsigned int *priority, char **token)
 }
 
 static int
-lnet_parse_route (char *str, int *im_a_router)
+lnet_parse_route(char *str, int *im_a_router)
 {
 	/* static scratch buffer OK (single threaded) */
-	static char	  cmd[LNET_SINGLE_TEXTBUF_NOB];
+	static char cmd[LNET_SINGLE_TEXTBUF_NOB];
 
-	struct list_head  nets;
-	struct list_head  gateways;
+	struct list_head nets;
+	struct list_head gateways;
 	struct list_head *tmp1;
 	struct list_head *tmp2;
-	__u32		  net;
-	lnet_nid_t	  nid;
-	struct lnet_text_buf  *ltb;
-	int		  rc;
-	char		 *sep;
-	char		 *token = str;
-	int		  ntokens = 0;
-	int		  myrc = -1;
-	__u32		  hops;
-	int		  got_hops = 0;
-	unsigned int	  priority = 0;
+	__u32 net;
+	lnet_nid_t nid;
+	struct lnet_text_buf *ltb;
+	int rc;
+	char *sep;
+	char *token = str;
+	int ntokens = 0;
+	int myrc = -1;
+	__u32 hops;
+	int got_hops = 0;
+	unsigned int priority = 0;
 
 	INIT_LIST_HEAD(&gateways);
 	INIT_LIST_HEAD(&nets);
@@ -762,8 +753,10 @@ lnet_parse_route (char *str, int *im_a_router)
 		}
 	}
 
-	/* if there are no hops set then we want to flag this value as
-	 * unset since hops is an optional parameter */
+	/*
+	 * if there are no hops set then we want to flag this value as
+	 * unset since hops is an optional parameter
+	 */
 	if (!got_hops)
 		hops = LNET_UNDEFINED_HOPS;
 
@@ -773,7 +766,7 @@ lnet_parse_route (char *str, int *im_a_router)
 	list_for_each(tmp1, &nets) {
 		ltb = list_entry(tmp1, struct lnet_text_buf, ltb_list);
 		net = libcfs_str2net(ltb->ltb_text);
-		LASSERT (net != LNET_NIDNET(LNET_NID_ANY));
+		LASSERT(net != LNET_NIDNET(LNET_NID_ANY));
 
 		list_for_each(tmp2, &gateways) {
 			ltb = list_entry(tmp2, struct lnet_text_buf, ltb_list);
@@ -787,8 +780,7 @@ lnet_parse_route (char *str, int *im_a_router)
 
 			rc = lnet_add_route(net, hops, nid, priority);
 			if (rc != 0 && rc != -EEXIST && rc != -EHOSTUNREACH) {
-				CERROR("Can't create route "
-				       "to %s via %s\n",
+				CERROR("Can't create route to %s via %s\n",
 				       libcfs_net2str(net),
 				       libcfs_nid2str(nid));
 				goto out;
@@ -810,7 +802,7 @@ out:
 static int
 lnet_parse_route_tbs(struct list_head *tbs, int *im_a_router)
 {
-	struct lnet_text_buf   *ltb;
+	struct lnet_text_buf *ltb;
 
 	while (!list_empty(tbs)) {
 		ltb = list_entry(tbs->next, struct lnet_text_buf, ltb_list);
@@ -828,10 +820,10 @@ lnet_parse_route_tbs(struct list_head *tbs, int *im_a_router)
 }
 
 int
-lnet_parse_routes (char *routes, int *im_a_router)
+lnet_parse_routes(char *routes, int *im_a_router)
 {
 	struct list_head tbs;
-	int		 rc = 0;
+	int rc = 0;
 
 	*im_a_router = 0;
 
@@ -844,16 +836,16 @@ lnet_parse_routes (char *routes, int *im_a_router)
 		rc = lnet_parse_route_tbs(&tbs, im_a_router);
 	}
 
-	LASSERT (lnet_tbnob == 0);
+	LASSERT(lnet_tbnob == 0);
 	return rc;
 }
 
 static int
 lnet_match_network_token(char *token, int len, __u32 *ipaddrs, int nip)
 {
-	struct list_head list = LIST_HEAD_INIT(list);
-	int		rc;
-	int		i;
+	LIST_HEAD(list);
+	int rc;
+	int i;
 
 	rc = cfs_ip_addr_parse(token, len, &list);
 	if (rc != 0)
@@ -872,15 +864,15 @@ lnet_match_network_tokens(char *net_entry, __u32 *ipaddrs, int nip)
 {
 	static char tokens[LNET_SINGLE_TEXTBUF_NOB];
 
-	int   matched = 0;
-	int   ntokens = 0;
-	int   len;
+	int matched = 0;
+	int ntokens = 0;
+	int len;
 	char *net = NULL;
 	char *sep;
 	char *token;
-	int   rc;
+	int rc;
 
-	LASSERT (strlen(net_entry) < sizeof(tokens));
+	LASSERT(strlen(net_entry) < sizeof(tokens));
 
 	/* work on a copy of the string */
 	strcpy(tokens, net_entry);
@@ -920,15 +912,15 @@ lnet_match_network_tokens(char *net_entry, __u32 *ipaddrs, int nip)
 	if (!matched)
 		return 0;
 
-	strcpy(net_entry, net);			/* replace with matched net */
+	strcpy(net_entry, net);	/* replace with matched net */
 	return 1;
 }
 
 static __u32
 lnet_netspec2net(char *netspec)
 {
-	char   *bracket = strchr(netspec, '(');
-	__u32	net;
+	char *bracket = strchr(netspec, '(');
+	__u32 net;
 
 	if (bracket != NULL)
 		*bracket = 0;
@@ -944,15 +936,15 @@ lnet_netspec2net(char *netspec)
 static int
 lnet_splitnets(char *source, struct list_head *nets)
 {
-	int		  offset = 0;
-	int		  offset2;
-	int		  len;
-	struct lnet_text_buf  *tb;
-	struct lnet_text_buf  *tb2;
+	int offset = 0;
+	int offset2;
+	int len;
+	struct lnet_text_buf *tb;
+	struct lnet_text_buf *tb2;
 	struct list_head *t;
-	char		 *sep;
-	char		 *bracket;
-	__u32		  net;
+	char *sep;
+	char *bracket;
+	__u32 net;
 
 	LASSERT(!list_empty(nets));
 	LASSERT(nets->next == nets->prev);	/* single entry */
@@ -1024,29 +1016,29 @@ lnet_splitnets(char *source, struct list_head *nets)
 }
 
 static int
-lnet_match_networks (char **networksp, char *ip2nets, __u32 *ipaddrs, int nip)
+lnet_match_networks(char **networksp, char *ip2nets, __u32 *ipaddrs, int nip)
 {
-	static char	  networks[LNET_SINGLE_TEXTBUF_NOB];
-	static char	  source[LNET_SINGLE_TEXTBUF_NOB];
+	static char networks[LNET_SINGLE_TEXTBUF_NOB];
+	static char source[LNET_SINGLE_TEXTBUF_NOB];
 
-	struct list_head  raw_entries;
-	struct list_head  matched_nets;
-	struct list_head  current_nets;
+	struct list_head raw_entries;
+	struct list_head matched_nets;
+	struct list_head current_nets;
 	struct list_head *t;
 	struct list_head *t2;
-	struct lnet_text_buf  *tb;
-	struct lnet_text_buf  *tb2;
-	__u32		  net1;
-	__u32		  net2;
-	int		  len;
-	int		  count;
-	int		  dup;
-	int		  rc;
+	struct lnet_text_buf *tb;
+	struct lnet_text_buf *tb2;
+	__u32 net1;
+	__u32 net2;
+	int len;
+	int count;
+	int dup;
+	int rc;
 
 	INIT_LIST_HEAD(&raw_entries);
 	if (lnet_str2tbs_sep(&raw_entries, ip2nets) < 0) {
 		CERROR("Error parsing ip2nets\n");
-		LASSERT (lnet_tbnob == 0);
+		LASSERT(lnet_tbnob == 0);
 		return -EINVAL;
 	}
 
@@ -1060,7 +1052,6 @@ lnet_match_networks (char **networksp, char *ip2nets, __u32 *ipaddrs, int nip)
 	while (!list_empty(&raw_entries)) {
 		tb = list_entry(raw_entries.next, struct lnet_text_buf,
 				ltb_list);
-
 		strncpy(source, tb->ltb_text, sizeof(source));
 		source[sizeof(source) - 1] = '\0';
 
@@ -1130,11 +1121,11 @@ lnet_match_networks (char **networksp, char *ip2nets, __u32 *ipaddrs, int nip)
 		count++;
 	}
 
- out:
+out:
 	lnet_free_text_bufs(&raw_entries);
 	lnet_free_text_bufs(&matched_nets);
 	lnet_free_text_bufs(&current_nets);
-	LASSERT (lnet_tbnob == 0);
+	LASSERT(lnet_tbnob == 0);
 
 	if (rc < 0)
 		return rc;
@@ -1143,24 +1134,18 @@ lnet_match_networks (char **networksp, char *ip2nets, __u32 *ipaddrs, int nip)
 	return count;
 }
 
-static void
-lnet_ipaddr_free_enumeration(__u32 *ipaddrs, int nip)
-{
-	LIBCFS_FREE(ipaddrs, nip * sizeof(*ipaddrs));
-}
-
 static int
-lnet_ipaddr_enumerate (__u32 **ipaddrsp)
+lnet_ipaddr_enumerate(__u32 **ipaddrsp)
 {
-	int	   up;
-	__u32	   netmask;
-	__u32	  *ipaddrs;
-	__u32	  *ipaddrs2;
-	int	   nip;
-	char	 **ifnames;
-	int	   nif = lnet_ipif_enumerate(&ifnames);
-	int	   i;
-	int	   rc;
+	int up;
+	__u32 netmask;
+	__u32 *ipaddrs;
+	__u32 *ipaddrs2;
+	int nip;
+	char **ifnames;
+	int nif = lnet_ipif_enumerate(&ifnames);
+	int i;
+	int rc;
 
 	if (nif <= 0)
 		return nif;
@@ -1176,8 +1161,7 @@ lnet_ipaddr_enumerate (__u32 **ipaddrsp)
 		if (!strcmp(ifnames[i], "lo"))
 			continue;
 
-		rc = lnet_ipif_query(ifnames[i], &up,
-				       &ipaddrs[nip], &netmask);
+		rc = lnet_ipif_query(ifnames[i], &up, &ipaddrs[nip], &netmask);
 		if (rc != 0) {
 			CWARN("Can't query interface %s: %d\n",
 			      ifnames[i], rc);
@@ -1205,37 +1189,38 @@ lnet_ipaddr_enumerate (__u32 **ipaddrsp)
 				nip = -ENOMEM;
 			} else {
 				memcpy(ipaddrs2, ipaddrs,
-					nip * sizeof(*ipaddrs));
+				       nip * sizeof(*ipaddrs));
 				*ipaddrsp = ipaddrs2;
 				rc = nip;
 			}
 		}
-		lnet_ipaddr_free_enumeration(ipaddrs, nif);
+		LIBCFS_FREE(ipaddrs, nip * sizeof(*ipaddrs));
 	}
 	return nip;
 }
 
 int
-lnet_parse_ip2nets (char **networksp, char *ip2nets)
+lnet_parse_ip2nets(char **networksp, char *ip2nets)
 {
-	__u32	  *ipaddrs = NULL;
-	int	   nip = lnet_ipaddr_enumerate(&ipaddrs);
-	int	   rc;
+	__u32 *ipaddrs = NULL;
+	int nip = lnet_ipaddr_enumerate(&ipaddrs);
+	int rc;
 
 	if (nip < 0) {
-		LCONSOLE_ERROR_MSG(0x117, "Error %d enumerating local IP "
-				   "interfaces for ip2nets to match\n", nip);
+		LCONSOLE_ERROR_MSG(0x117,
+				   "Error %d enumerating local IP interfaces for ip2nets to match\n",
+				   nip);
 		return nip;
 	}
 
 	if (nip == 0) {
-		LCONSOLE_ERROR_MSG(0x118, "No local IP interfaces "
-				   "for ip2nets to match\n");
+		LCONSOLE_ERROR_MSG(0x118,
+				   "No local IP interfaces for ip2nets to match\n");
 		return -ENOENT;
 	}
 
 	rc = lnet_match_networks(networksp, ip2nets, ipaddrs, nip);
-	lnet_ipaddr_free_enumeration(ipaddrs, nip);
+	LIBCFS_FREE(ipaddrs, nip * sizeof(*ipaddrs));
 
 	if (rc < 0) {
 		LCONSOLE_ERROR_MSG(0x119, "Error %d parsing ip2nets\n", rc);
@@ -1243,8 +1228,8 @@ lnet_parse_ip2nets (char **networksp, char *ip2nets)
 	}
 
 	if (rc == 0) {
-		LCONSOLE_ERROR_MSG(0x11a, "ip2nets does not match "
-				   "any local IP interfaces\n");
+		LCONSOLE_ERROR_MSG(0x11a,
+				   "ip2nets does not match any local IP interfaces\n");
 		return -ENOENT;
 	}
 

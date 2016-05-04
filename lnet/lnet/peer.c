@@ -44,10 +44,10 @@
 int
 lnet_peer_tables_create(void)
 {
-	struct lnet_peer_table	*ptable;
-	struct list_head	*hash;
-	int			i;
-	int			j;
+	struct lnet_peer_table *ptable;
+	struct list_head *hash;
+	int i;
+	int j;
 
 	the_lnet.ln_peer_tables = cfs_percpt_alloc(lnet_cpt_table(),
 						   sizeof(*ptable));
@@ -78,17 +78,17 @@ lnet_peer_tables_create(void)
 void
 lnet_peer_tables_destroy(void)
 {
-	struct lnet_peer_table	*ptable;
-	struct list_head	*hash;
-	int			i;
-	int			j;
+	struct lnet_peer_table *ptable;
+	struct list_head *hash;
+	int i;
+	int j;
 
 	if (the_lnet.ln_peer_tables == NULL)
 		return;
 
 	cfs_percpt_for_each(ptable, i, the_lnet.ln_peer_tables) {
 		hash = ptable->pt_hash;
-		if (hash == NULL) /* not intialized */
+		if (hash == NULL) /* not initialized */
 			break;
 
 		LASSERT(list_empty(&ptable->pt_deathrow));
@@ -107,9 +107,9 @@ lnet_peer_tables_destroy(void)
 static void
 lnet_peer_table_cleanup_locked(lnet_ni_t *ni, struct lnet_peer_table *ptable)
 {
-	int		 i;
-	lnet_peer_t	*lp;
-	lnet_peer_t	*tmp;
+	int i;
+	lnet_peer_t *lp;
+	lnet_peer_t *tmp;
 
 	for (i = 0; i < LNET_PEER_HASH_SIZE; i++) {
 		list_for_each_entry_safe(lp, tmp, &ptable->pt_hash[i],
@@ -128,7 +128,7 @@ static void
 lnet_peer_table_deathrow_wait_locked(struct lnet_peer_table *ptable,
 				     int cpt_locked)
 {
-	int	i;
+	int i;
 
 	for (i = 3; ptable->pt_zombies != 0; i++) {
 		lnet_net_unlock(cpt_locked);
@@ -148,10 +148,10 @@ static void
 lnet_peer_table_del_rtrs_locked(lnet_ni_t *ni, struct lnet_peer_table *ptable,
 				int cpt_locked)
 {
-	lnet_peer_t	*lp;
-	lnet_peer_t	*tmp;
-	lnet_nid_t	 lp_nid;
-	int		 i;
+	lnet_peer_t *lp;
+	lnet_peer_t *tmp;
+	lnet_nid_t lp_nid;
+	int i;
 
 	for (i = 0; i < LNET_PEER_HASH_SIZE; i++) {
 		list_for_each_entry_safe(lp, tmp, &ptable->pt_hash[i],
@@ -174,24 +174,28 @@ lnet_peer_table_del_rtrs_locked(lnet_ni_t *ni, struct lnet_peer_table *ptable,
 void
 lnet_peer_tables_cleanup(lnet_ni_t *ni)
 {
-	int			i;
-	struct lnet_peer_table	*ptable;
-	lnet_peer_t		*lp;
-	struct list_head	deathrow;
+	struct lnet_peer_table *ptable;
+	struct list_head deathrow;
+	lnet_peer_t *lp;
+	int i;
 
 	INIT_LIST_HEAD(&deathrow);
 
 	LASSERT(the_lnet.ln_shutdown || ni != NULL);
-	/* If just deleting the peers for a NI, get rid of any routes these
-	 * peers are gateways for. */
+	/*
+	 * If just deleting the peers for a NI, get rid of any routes these
+	 * peers are gateways for.
+	 */
 	cfs_percpt_for_each(ptable, i, the_lnet.ln_peer_tables) {
 		lnet_net_lock(i);
 		lnet_peer_table_del_rtrs_locked(ni, ptable, i);
 		lnet_net_unlock(i);
 	}
 
-	/* Start the process of moving the applicable peers to
-	 * deathrow. */
+	/*
+	 * Start the process of moving the applicable peers to
+	 * deathrow.
+	 */
 	cfs_percpt_for_each(ptable, i, the_lnet.ln_peer_tables) {
 		lnet_net_lock(i);
 		lnet_peer_table_cleanup_locked(ni, ptable);
@@ -240,7 +244,7 @@ lnet_peer_t *
 lnet_find_peer_locked(struct lnet_peer_table *ptable, lnet_nid_t nid)
 {
 	struct list_head *peers;
-	lnet_peer_t	 *lp;
+	lnet_peer_t *lp;
 
 	LASSERT(!the_lnet.ln_shutdown);
 
@@ -258,11 +262,11 @@ lnet_find_peer_locked(struct lnet_peer_table *ptable, lnet_nid_t nid)
 int
 lnet_nid2peer_locked(lnet_peer_t **lpp, lnet_nid_t nid, int cpt)
 {
-	struct lnet_peer_table	*ptable;
-	lnet_peer_t		*lp = NULL;
-	lnet_peer_t		*lp2;
-	int			cpt2;
-	int			rc = 0;
+	struct lnet_peer_table *ptable;
+	lnet_peer_t *lp = NULL;
+	lnet_peer_t *lp2;
+	int cpt2;
+	int rc = 0;
 
 	*lpp = NULL;
 	if (the_lnet.ln_shutdown) /* it's shutting down */
@@ -340,9 +344,9 @@ lnet_nid2peer_locked(lnet_peer_t **lpp, lnet_nid_t nid, int cpt)
 		goto out;
 	}
 
-	lp->lp_txcredits    =
+	lp->lp_txcredits = lp->lp_ni->ni_peertxcredits;
 	lp->lp_mintxcredits = lp->lp_ni->ni_peertxcredits;
-	lp->lp_rtrcredits    =
+	lp->lp_rtrcredits = lnet_peer_buffer_credits(lp->lp_ni);
 	lp->lp_minrtrcredits = lnet_peer_buffer_credits(lp->lp_ni);
 
 	list_add_tail(&lp->lp_hashlist,
@@ -361,10 +365,10 @@ out:
 void
 lnet_debug_peer(lnet_nid_t nid)
 {
-	char		*aliveness = "NA";
-	lnet_peer_t	*lp;
-	int		rc;
-	int		cpt;
+	char *aliveness = "NA";
+	lnet_peer_t *lp;
+	int rc;
+	int cpt;
 
 	cpt = lnet_cpt_of_nid(nid);
 	lnet_net_lock(cpt);
@@ -390,23 +394,24 @@ lnet_debug_peer(lnet_nid_t nid)
 	lnet_net_unlock(cpt);
 }
 
-int lnet_get_peer_info(__u32 peer_index, __u64 *nid,
-		       char aliveness[LNET_MAX_STR_LEN],
-		       __u32 *cpt_iter, __u32 *refcount,
-		       __u32 *ni_peer_tx_credits, __u32 *peer_tx_credits,
-		       __u32 *peer_rtr_credits, __u32 *peer_min_rtr_credits,
-		       __u32 *peer_tx_qnob)
+int
+lnet_get_peer_info(__u32 peer_index, __u64 *nid,
+		   char aliveness[LNET_MAX_STR_LEN],
+		   __u32 *cpt_iter, __u32 *refcount,
+		   __u32 *ni_peer_tx_credits, __u32 *peer_tx_credits,
+		   __u32 *peer_rtr_credits, __u32 *peer_min_rtr_credits,
+		   __u32 *peer_tx_qnob)
 {
-	struct lnet_peer_table	*peer_table;
-	lnet_peer_t		*lp;
-	int			j;
-	int			lncpt;
-	bool			found = false;
+	struct lnet_peer_table *peer_table;
+	lnet_peer_t *lp;
+	bool found = false;
+	int lncpt, j;
 
 	/* get the number of CPTs */
 	lncpt = cfs_percpt_number(the_lnet.ln_peer_tables);
 
-	/* if the cpt number to be examined is >= the number of cpts in
+	/*
+	 * if the cpt number to be examined is >= the number of cpts in
 	 * the system then indicate that there are no more cpts to examin
 	 */
 	if (*cpt_iter > lncpt)
@@ -429,7 +434,7 @@ int lnet_get_peer_info(__u32 peer_index, __u64 *nid,
 
 			snprintf(aliveness, LNET_MAX_STR_LEN, "NA");
 			if (lnet_isrouter(lp) ||
-				lnet_peer_aliveness_enabled(lp))
+			    lnet_peer_aliveness_enabled(lp))
 				snprintf(aliveness, LNET_MAX_STR_LEN,
 					 lp->lp_alive ? "up" : "down");
 
@@ -443,7 +448,6 @@ int lnet_get_peer_info(__u32 peer_index, __u64 *nid,
 
 			found = true;
 		}
-
 	}
 	lnet_net_unlock(*cpt_iter);
 

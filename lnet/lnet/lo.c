@@ -36,19 +36,19 @@
 #include <lnet/lib-lnet.h>
 
 static int
-lolnd_send (lnet_ni_t *ni, void *private, lnet_msg_t *lntmsg)
+lolnd_send(lnet_ni_t *ni, void *private, lnet_msg_t *lntmsg)
 {
-	LASSERT (!lntmsg->msg_routing);
-	LASSERT (!lntmsg->msg_target_is_router);
+	LASSERT(!lntmsg->msg_routing);
+	LASSERT(!lntmsg->msg_target_is_router);
 
 	return lnet_parse(ni, &lntmsg->msg_hdr, ni->ni_nid, lntmsg, 0);
 }
 
 static int
-lolnd_recv (lnet_ni_t *ni, void *private, lnet_msg_t *lntmsg,
-	    int delayed, unsigned int niov,
-	    struct kvec *iov, lnet_kiov_t *kiov,
-	    unsigned int offset, unsigned int mlen, unsigned int rlen)
+lolnd_recv(lnet_ni_t *ni, void *private, lnet_msg_t *lntmsg,
+	   int delayed, unsigned int niov,
+	   struct kvec *iov, lnet_kiov_t *kiov,
+	   unsigned int offset, unsigned int mlen, unsigned int rlen)
 {
 	lnet_msg_t *sendmsg = private;
 
@@ -89,32 +89,32 @@ static int lolnd_instanced;
 static void
 lolnd_shutdown(lnet_ni_t *ni)
 {
-	CDEBUG (D_NET, "shutdown\n");
-	LASSERT (lolnd_instanced);
+	CDEBUG(D_NET, "shutdown\n");
+	LASSERT(lolnd_instanced);
 
 	lolnd_instanced = 0;
 }
 
 static int
-lolnd_startup (lnet_ni_t *ni)
+lolnd_startup(lnet_ni_t *ni)
 {
-	LASSERT (ni->ni_lnd == &the_lolnd);
-	LASSERT (!lolnd_instanced);
+	LASSERT(ni->ni_lnd == &the_lolnd);
+	LASSERT(!lolnd_instanced);
 	lolnd_instanced = 1;
 
-	return (0);
+	return 0;
 }
 
 lnd_t the_lolnd = {
-	/* .lnd_list	   = */ {&the_lolnd.lnd_list, &the_lolnd.lnd_list},
-	/* .lnd_refcount   = */ 0,
-	/* .lnd_type	   = */ LOLND,
-	/* .lnd_startup    = */ lolnd_startup,
-	/* .lnd_shutdown   = */ lolnd_shutdown,
-	/* .lnt_ctl	   = */ NULL,
-	/* .lnd_send	   = */ lolnd_send,
-	/* .lnd_recv	   = */ lolnd_recv,
-	/* .lnd_eager_recv = */ NULL,
-	/* .lnd_notify	   = */ NULL,
-	/* .lnd_accept	   = */ NULL
+	.lnd_list	= { &the_lolnd.lnd_list, &the_lolnd.lnd_list },
+	.lnd_refcount	= 0,
+	.lnd_type	= LOLND,
+	.lnd_startup	= lolnd_startup,
+	.lnd_shutdown	= lolnd_shutdown,
+	.lnd_ctl	= NULL,
+	.lnd_send	= lolnd_send,
+	.lnd_recv	= lolnd_recv,
+	.lnd_eager_recv = NULL,
+	.lnd_notify	= NULL,
+	.lnd_accept	= NULL
 };

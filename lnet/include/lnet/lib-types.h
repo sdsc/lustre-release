@@ -99,7 +99,7 @@ typedef struct lnet_msg {
 	unsigned int	      msg_receiving:1;	  /* being received */
 	unsigned int	      msg_txcredit:1;	  /* taken an NI send credit */
 	unsigned int	      msg_peertxcredit:1; /* taken a peer send credit */
-	unsigned int	      msg_rtrcredit:1;	  /* taken a globel router credit */
+	unsigned int	      msg_rtrcredit:1;	  /* taken a global router credit */
 	unsigned int	      msg_peerrtrcredit:1; /* taken a peer router credit */
 	unsigned int	      msg_onactivelist:1; /* on the activelist */
 	unsigned int	      msg_rdma_get:1;
@@ -121,23 +121,22 @@ typedef struct lnet_msg {
 	lnet_hdr_t	      msg_hdr;
 } lnet_msg_t;
 
-
 typedef struct lnet_libhandle {
 	struct list_head	lh_hash_chain;
 	__u64			lh_cookie;
 } lnet_libhandle_t;
 
 #define lh_entry(ptr, type, member) \
-	((type *)((char *)(ptr)-(char *)(&((type *)0)->member)))
+	((type *)((char *)(ptr) - (char *)(&((type *)0)->member)))
 
 typedef struct lnet_eq {
-	struct list_head	eq_list;
-	lnet_libhandle_t	eq_lh;
-	lnet_seq_t		eq_enq_seq;
-	lnet_seq_t		eq_deq_seq;
-	unsigned int		eq_size;
-	lnet_eq_handler_t	eq_callback;
-	lnet_event_t		*eq_events;
+	struct list_head	  eq_list;
+	lnet_libhandle_t	  eq_lh;
+	lnet_seq_t		  eq_enq_seq;
+	lnet_seq_t		  eq_deq_seq;
+	unsigned int		  eq_size;
+	lnet_eq_handler_t	  eq_callback;
+	lnet_event_t		 *eq_events;
 	int			**eq_refs;	/* percpt refcount for EQ */
 } lnet_eq_t;
 
@@ -194,8 +193,7 @@ typedef struct {
 struct lnet_ni;					 /* forward ref */
 struct socket;
 
-typedef struct lnet_lnd
-{
+typedef struct lnet_lnd {
 	/* fields managed by portals */
 	struct list_head	lnd_list;	/* stash in the LND table */
 	int			lnd_refcount;	/* # active instances */
@@ -203,11 +201,12 @@ typedef struct lnet_lnd
 	/* fields initialized by the LND */
 	__u32			lnd_type;
 
-	int  (*lnd_startup) (struct lnet_ni *ni);
-	void (*lnd_shutdown) (struct lnet_ni *ni);
+	int  (*lnd_startup)(struct lnet_ni *ni);
+	void (*lnd_shutdown)(struct lnet_ni *ni);
 	int  (*lnd_ctl)(struct lnet_ni *ni, unsigned int cmd, void *arg);
 
-	/* In data movement APIs below, payload buffers are described as a set
+	/*
+	 * In data movement APIs below, payload buffers are described as a set
 	 * of 'niov' fragments which are...
 	 * EITHER
 	 *    in virtual memory (struct kvec *iov != NULL)
@@ -218,37 +217,45 @@ typedef struct lnet_lnd
 	 * fragments to start from
 	 */
 
-	/* Start sending a preformatted message.  'private' is NULL for PUT and
+	/*
+	 * Start sending a preformatted message.  'private' is NULL for PUT and
 	 * GET messages; otherwise this is a response to an incoming message
 	 * and 'private' is the 'private' passed to lnet_parse().  Return
 	 * non-zero for immediate failure, otherwise complete later with
-	 * lnet_finalize() */
+	 * lnet_finalize()
+	 */
 	int (*lnd_send)(struct lnet_ni *ni, void *private, lnet_msg_t *msg);
 
-	/* Start receiving 'mlen' bytes of payload data, skipping the following
+	/*
+	 * Start receiving 'mlen' bytes of payload data, skipping the following
 	 * 'rlen' - 'mlen' bytes. 'private' is the 'private' passed to
-	 * lnet_parse().  Return non-zero for immedaite failure, otherwise
+	 * lnet_parse().  Return non-zero for immediate failure, otherwise
 	 * complete later with lnet_finalize().  This also gives back a receive
-	 * credit if the LND does flow control. */
+	 * credit if the LND does flow control.
+	 */
 	int (*lnd_recv)(struct lnet_ni *ni, void *private, lnet_msg_t *msg,
 			int delayed, unsigned int niov,
 			struct kvec *iov, lnet_kiov_t *kiov,
-			unsigned int offset, unsigned int mlen, unsigned int rlen);
+			unsigned int offset, unsigned int mlen,
+			unsigned int rlen);
 
-	/* lnet_parse() has had to delay processing of this message
+	/*
+	 * lnet_parse() has had to delay processing of this message
 	 * (e.g. waiting for a forwarding buffer or send credits).  Give the
 	 * LND a chance to free urgently needed resources.  If called, return 0
 	 * for success and do NOT give back a receive credit; that has to wait
 	 * until lnd_recv() gets called.  On failure return < 0 and
-	 * release resources; lnd_recv() will not be called. */
-	int (*lnd_eager_recv)(struct lnet_ni *ni, void *private, lnet_msg_t *msg,
-			      void **new_privatep);
+	 * release resources; lnd_recv() will not be called.
+	 */
+	int (*lnd_eager_recv)(struct lnet_ni *ni, void *private,
+			      lnet_msg_t *msg, void **new_privatep);
 
 	/* notification of peer health */
 	void (*lnd_notify)(struct lnet_ni *ni, lnet_nid_t peer, int alive);
 
 	/* query of peer aliveness */
-	void (*lnd_query)(struct lnet_ni *ni, lnet_nid_t peer, cfs_time_t *when);
+	void (*lnd_query)(struct lnet_ni *ni, lnet_nid_t peer,
+			  cfs_time_t *when);
 
 	/* accept a new connection */
 	int (*lnd_accept)(struct lnet_ni *ni, struct socket *sock);
@@ -295,8 +302,10 @@ typedef struct lnet_ni {
 
 #define LNET_PROTO_PING_MATCHBITS	0x8000000000000000LL
 
-/* NB: value of these features equal to LNET_PROTO_PING_VERSION_x
- * of old LNet, so there shouldn't be any compatibility issue */
+/*
+ * NB: value of these features equal to LNET_PROTO_PING_VERSION_x
+ * of old LNet, so there shouldn't be any compatibility issue
+ */
 #define LNET_PING_FEAT_INVAL		(0)		/* no feature */
 #define LNET_PING_FEAT_BASE		(1 << 0)	/* just a ping */
 #define LNET_PING_FEAT_NI_STATUS	(1 << 1)	/* return NI status */
@@ -392,8 +401,10 @@ struct lnet_peer_table {
 	struct list_head	*pt_hash;	/* NID->peer hash */
 };
 
-/* peer aliveness is enabled only on routers for peers in a network where the
- * lnet_ni_t::ni_peertimeout has been set to a positive value */
+/*
+ * peer aliveness is enabled only on routers for peers in a network where the
+ * lnet_ni_t::ni_peertimeout has been set to a positive value
+ */
 #define lnet_peer_aliveness_enabled(lp) (the_lnet.ln_routing != 0 && \
 					 (lp)->lp_ni->ni_peertimeout > 0)
 
@@ -483,12 +494,16 @@ struct lnet_match_info {
 #define LNET_MT_HASH_BITS		8
 #define LNET_MT_HASH_SIZE		(1 << LNET_MT_HASH_BITS)
 #define LNET_MT_HASH_MASK		(LNET_MT_HASH_SIZE - 1)
-/* we allocate (LNET_MT_HASH_SIZE + 1) entries for lnet_match_table::mt_hash,
- * the last entry is reserved for MEs with ignore-bits */
+/*
+ * we allocate (LNET_MT_HASH_SIZE + 1) entries for lnet_match_table::mt_hash,
+ * the last entry is reserved for MEs with ignore-bits
+ */
 #define LNET_MT_HASH_IGNORE		LNET_MT_HASH_SIZE
-/* __u64 has 2^6 bits, so need 2^(LNET_MT_HASH_BITS - LNET_MT_BITS_U64) which
+/*
+ * __u64 has 2^6 bits, so need 2^(LNET_MT_HASH_BITS - LNET_MT_BITS_U64) which
  * is 4 __u64s as bit-map, and add an extra __u64 (only use one bit) for the
- * ME-list with ignore-bits, which is mtable::mt_hash[LNET_MT_HASH_IGNORE] */
+ * ME-list with ignore-bits, which is mtable::mt_hash[LNET_MT_HASH_IGNORE]
+ */
 #define LNET_MT_BITS_U64		6	/* 2^6 bits */
 #define LNET_MT_EXHAUSTED_BITS		(LNET_MT_HASH_BITS - LNET_MT_BITS_U64)
 #define LNET_MT_EXHAUSTED_BMAP		((1 << LNET_MT_EXHAUSTED_BITS) + 1)
@@ -498,8 +513,10 @@ struct lnet_match_table {
 	/* reserved for upcoming patches, CPU partition ID */
 	unsigned int		mt_cpt;
 	unsigned int		mt_portal;	/* portal index */
-	/* match table is set as "enabled" if there's non-exhausted MD
-	 * attached on mt_mhash, it's only valid for wildcard portal */
+	/*
+	 * match table is set as "enabled" if there's non-exhausted MD
+	 * attached on mt_mhash, it's only valid for wildcard portal
+	 */
 	unsigned int		mt_enabled;
 	/* bitmap to flag whether MEs on mt_hash are exhausted or not */
 	__u64			mt_exhausted[LNET_MT_EXHAUSTED_BMAP];
@@ -564,8 +581,7 @@ struct lnet_msg_container {
 #define LNET_RC_STATE_RUNNING		1	/* started up OK */
 #define LNET_RC_STATE_STOPPING		2	/* telling thread to stop */
 
-typedef struct
-{
+typedef struct {
 	/* CPU partition table of LNet */
 	struct cfs_cpt_table		*ln_cpt_table;
 	/* number of CPTs in ln_cpt_table */
@@ -653,17 +669,21 @@ typedef struct
 	/* test protocol compatibility flags */
 	int				ln_testprotocompat;
 
-	/* 0 - load the NIs from the mod params
+	/*
+	 * 0 - load the NIs from the mod params
 	 * 1 - do not load the NIs from the mod params
 	 * Reverse logic to ensure that other calls to LNetNIInit
 	 * need no change
 	 */
 	bool				ln_nis_from_mod_params;
 
-	/* waitq for router checker.  As long as there are no routes in
+	/*
+	 * waitq for router checker.  As long as there are no routes in
 	 * the list, the router checker will sleep on this queue.  when
-	 * routes are added the thread will wake up */
+	 * routes are added the thread will wake up
+	 */
 	wait_queue_head_t		ln_rc_waitq;
+
 } lnet_t;
 
 #endif

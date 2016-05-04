@@ -41,6 +41,8 @@
 #ifndef __LNET_ST_H__
 #define __LNET_ST_H__
 
+#include <linux/types.h>
+
 #define LST_FEAT_NONE		(0)
 #define LST_FEAT_BULK_LEN	(1 << 0)	/* enable variable page size */
 
@@ -55,7 +57,8 @@
 #define LSTIO_SESSION_INFO	0xC03		/* query session */
 #define LSTIO_GROUP_ADD		0xC10		/* add group */
 #define LSTIO_GROUP_LIST	0xC11		/* list all groups in session */
-#define LSTIO_GROUP_INFO	0xC12		/* query defailt infomation of specified group */
+#define LSTIO_GROUP_INFO	0xC12		/* query default information of
+						 * specified group */
 #define LSTIO_GROUP_DEL		0xC13		/* delete group */
 #define LSTIO_NODES_ADD		0xC14		/* add nodes to specified group */
 #define LSTIO_GROUP_UPDATE	0xC15		/* update group */
@@ -103,17 +106,21 @@ typedef struct {
 	int			tse_type;		/* test type */
 	int			tse_loop;		/* loop count */
 	int			tse_concur;		/* concurrency of test */
-} lstcon_test_ent_t;					/*** test summary entry, for list_batch command */
+} lstcon_test_ent_t;					/*** test summary entry, for
+							 *** list_batch command */
 
 typedef struct {
 	int			bae_state;		/* batch status */
 	int			bae_timeout;		/* batch timeout */
 	int			bae_ntest;		/* # of tests in the batch */
-} lstcon_batch_ent_t;					/*** batch summary entry, for list_batch command */
+} lstcon_batch_ent_t;					/*** batch summary entry, for
+							 *** list_batch command */
 
 typedef struct {
-	lstcon_ndlist_ent_t	tbe_cli_nle;		/* client (group) node_list entry */
-	lstcon_ndlist_ent_t	tbe_srv_nle;		/* server (group) node_list entry */
+	lstcon_ndlist_ent_t	tbe_cli_nle;		/* client (group) node_list
+							 * entry */
+	lstcon_ndlist_ent_t	tbe_srv_nle;		/* server (group) node_list
+							 * entry */
 	union {
 		lstcon_test_ent_t  tbe_test;		/* test entry */
 		lstcon_batch_ent_t tbe_batch;		/* batch entry */

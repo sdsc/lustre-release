@@ -41,7 +41,7 @@
 
 /*
  * LST wired structures
- * 
+ *
  * XXX: *REPLY == *REQST + 1
  */
 typedef enum {
@@ -242,8 +242,8 @@ typedef struct {
 	__u32			brw_status;
 } WIRE_ATTR srpc_brw_reply_t; /* bulk r/w reply */
 
-#define SRPC_MSG_MAGIC			0xeeb0f00d
-#define SRPC_MSG_VERSION		1
+#define SRPC_MSG_MAGIC		0xeeb0f00d
+#define SRPC_MSG_VERSION	1
 
 typedef struct srpc_msg {
 	/** magic number */
@@ -288,8 +288,10 @@ srpc_unpack_msg_hdr(srpc_msg_t *msg)
 	if (msg->msg_magic == SRPC_MSG_MAGIC)
 		return; /* no flipping needed */
 
-	/* We do not swap the magic number here as it is needed to
-	   determine whether the body needs to be swapped. */
+	/*
+	 * We do not swap the magic number here as it is needed to
+	 * determine whether the body needs to be swapped.
+	 */
 	/* __swab32s(&msg->msg_magic); */
 	__swab32s(&msg->msg_type);
 	__swab32s(&msg->msg_version);
