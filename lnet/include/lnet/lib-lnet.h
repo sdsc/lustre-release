@@ -471,8 +471,8 @@ lnet_nid2peerhash(lnet_nid_t nid)
 static inline struct list_head *
 lnet_net2rnethash(__u32 net)
 {
-	return &the_lnet.ln_remote_nets_hash[(LNET_NETNUM(net) +
-		LNET_NETTYP(net)) &
+	return &the_lnet.ln_remote_nets_hash[(lnet_netnum(net) +
+		lnet_nettyp(net)) &
 		((1U << the_lnet.ln_remote_nets_hbits) - 1)];
 }
 

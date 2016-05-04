@@ -864,7 +864,7 @@ int tgt_connect_check_sptlrpc(struct ptlrpc_request *req, struct obd_export *exp
 		if ((strcmp(exp->exp_obd->obd_type->typ_name,
 			   LUSTRE_MGS_NAME) == 0) &&
 		     (exp->exp_flvr.sf_rpc == SPTLRPC_FLVR_NULL ||
-		      LNET_NETTYP(LNET_NIDNET(exp->exp_connection->c_peer.nid))
+		      lnet_nettyp(lnet_nidnet(exp->exp_connection->c_peer.nid))
 		      == LOLND))
 			exp->exp_flvr.sf_rpc = SPTLRPC_FLVR_ANY;
 
