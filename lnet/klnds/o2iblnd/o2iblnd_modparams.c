@@ -144,17 +144,17 @@ module_param(use_privileged_port, int, 0644);
 MODULE_PARM_DESC(use_privileged_port, "use privileged port when initiating connection");
 
 kib_tunables_t kiblnd_tunables = {
-        .kib_dev_failover           = &dev_failover,
-        .kib_service                = &service,
-        .kib_cksum                  = &cksum,
-        .kib_timeout                = &timeout,
-        .kib_keepalive              = &keepalive,
-        .kib_ntx                    = &ntx,
-        .kib_default_ipif           = &ipif_name,
-        .kib_retry_count            = &retry_count,
-        .kib_rnr_retry_count        = &rnr_retry_count,
-        .kib_ib_mtu                 = &ib_mtu,
-        .kib_require_priv_port      = &require_privileged_port,
+	.kib_dev_failover	    = &dev_failover,
+	.kib_service		    = &service,
+	.kib_cksum		    = &cksum,
+	.kib_timeout		    = &timeout,
+	.kib_keepalive		    = &keepalive,
+	.kib_ntx		    = &ntx,
+	.kib_default_ipif	    = &ipif_name,
+	.kib_retry_count	    = &retry_count,
+	.kib_rnr_retry_count	    = &rnr_retry_count,
+	.kib_ib_mtu		    = &ib_mtu,
+	.kib_require_priv_port	    = &require_privileged_port,
 	.kib_use_priv_port	    = &use_privileged_port,
 	.kib_nscheds		    = &nscheds
 };
