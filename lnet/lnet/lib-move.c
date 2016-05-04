@@ -641,9 +641,9 @@ lnet_ni_send(lnet_ni_t *ni, lnet_msg_t *msg)
 	void   *priv = msg->msg_private;
 	int	rc;
 
-	LASSERT (!in_interrupt ());
-	LASSERT (LNET_NETTYP(LNET_NIDNET(ni->ni_nid)) == LOLND ||
-		 (msg->msg_txcredit && msg->msg_peertxcredit));
+	LASSERT(!in_interrupt());
+	LASSERT(lnet_nettyp(lnet_nidnet(ni->ni_nid)) == LOLND ||
+		(msg->msg_txcredit && msg->msg_peertxcredit));
 
 	rc = (ni->ni_lnd->lnd_send)(ni, priv, msg);
 	if (rc < 0)
@@ -1187,7 +1187,7 @@ lnet_find_route_locked(lnet_ni_t *ni, lnet_nid_t target, lnet_nid_t rtr_nid)
 	/* If @rtr_nid is not LNET_NID_ANY, return the gateway with
 	 * rtr_nid nid, otherwise find the best gateway I can use */
 
-	rnet = lnet_find_net_locked(LNET_NIDNET(target));
+	rnet = lnet_find_net_locked(lnet_nidnet(target));
 	if (rnet == NULL)
 		return NULL;
 
@@ -1278,7 +1278,7 @@ lnet_send(lnet_nid_t src_nid, lnet_msg_t *msg, lnet_nid_t rtr_nid)
 	}
 
 	/* Is this for someone on a local network? */
-	local_ni = lnet_net2ni_locked(LNET_NIDNET(dst_nid), cpt);
+	local_ni = lnet_net2ni_locked(lnet_nidnet(dst_nid), cpt);
 
 	if (local_ni != NULL) {
 		if (src_ni == NULL) {
@@ -1884,7 +1884,7 @@ lnet_parse(lnet_ni_t *ni, lnet_hdr_t *hdr, lnet_nid_t from_nid,
 	 * or malicious so we chop them off at the knees :) */
 
 	if (!for_me) {
-		if (LNET_NIDNET(dest_nid) == LNET_NIDNET(ni->ni_nid)) {
+		if (lnet_nidnet(dest_nid) == lnet_nidnet(ni->ni_nid)) {
 			/* should have gone direct */
 			CERROR("%s, src %s: Bad dest nid %s "
 			       "(should have been sent direct)\n",
@@ -1998,13 +1998,13 @@ lnet_parse(lnet_ni_t *ni, lnet_hdr_t *hdr, lnet_nid_t from_nid,
 	if (lnet_isrouter(msg->msg_rxpeer)) {
 		lnet_peer_set_alive(msg->msg_rxpeer);
 		if (avoid_asym_router_failure &&
-		    LNET_NIDNET(src_nid) != LNET_NIDNET(from_nid)) {
+		    lnet_nidnet(src_nid) != lnet_nidnet(from_nid)) {
 			/* received a remote message from router, update
 			 * remote NI status on this router.
 			 * NB: multi-hop routed message will be ignored.
 			 */
 			lnet_router_ni_update_locked(msg->msg_rxpeer,
-						     LNET_NIDNET(src_nid));
+						     lnet_nidnet(src_nid));
 		}
 	}
 
@@ -2463,7 +2463,7 @@ LNetDist(lnet_nid_t dstnid, lnet_nid_t *srcnidp, __u32 *orderp)
 	struct list_head	*e;
 	struct lnet_ni		*ni;
 	lnet_remotenet_t	*rnet;
-	__u32			dstnet = LNET_NIDNET(dstnid);
+	__u32			dstnet = lnet_nidnet(dstnid);
 	int			hops;
 	int			cpt;
 	__u32			order = 2;
@@ -2485,7 +2485,7 @@ LNetDist(lnet_nid_t dstnid, lnet_nid_t *srcnidp, __u32 *orderp)
 			if (srcnidp != NULL)
 				*srcnidp = dstnid;
 			if (orderp != NULL) {
-				if (LNET_NETTYP(LNET_NIDNET(dstnid)) == LOLND)
+				if (lnet_nettyp(lnet_nidnet(dstnid)) == LOLND)
 					*orderp = 0;
 				else
 					*orderp = 1;
@@ -2495,7 +2495,7 @@ LNetDist(lnet_nid_t dstnid, lnet_nid_t *srcnidp, __u32 *orderp)
 			return local_nid_dist_zero ? 0 : 1;
 		}
 
-		if (LNET_NIDNET(ni->ni_nid) == dstnet) {
+		if (lnet_nidnet(ni->ni_nid) == dstnet) {
 			/* Check if ni was originally created in
 			 * current net namespace.
 			 * If not, assign order above 0xffff0000,

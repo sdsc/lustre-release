@@ -264,7 +264,7 @@ struct lu_nodemap *nodemap_classify_nid(lnet_nid_t nid)
 	ENTRY;
 
 	/* don't use 0@lo, use the first non-lo local NID instead */
-	if (LNET_NETTYP(LNET_NIDNET(nid)) == LOLND) {
+	if (lnet_nettyp(lnet_nidnet(nid)) == LOLND) {
 		lnet_process_id_t id;
 		int i = 0;
 
@@ -272,7 +272,7 @@ struct lu_nodemap *nodemap_classify_nid(lnet_nid_t nid)
 			rc = LNetGetId(i++, &id);
 			if (rc < 0)
 				RETURN(ERR_PTR(-EINVAL));
-		} while (LNET_NETTYP(LNET_NIDNET(id.nid)) == LOLND);
+		} while (lnet_nettyp(lnet_nidnet(id.nid)) == LOLND);
 
 		nid = id.nid;
 		CDEBUG(D_INFO, "found nid %s\n", libcfs_nid2str(nid));

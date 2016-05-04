@@ -236,25 +236,25 @@ int lustre_start_mgc(struct super_block *sb)
 		    (class_parse_nid(lsi->lsi_lmd->lmd_mgs, &nid, &ptr) == 0)) {
 			i++;
 		} else if (IS_MGS(lsi)) {
-                        lnet_process_id_t id;
-                        while ((rc = LNetGetId(i++, &id)) != -ENOENT) {
-                                if (LNET_NETTYP(LNET_NIDNET(id.nid)) == LOLND)
-                                        continue;
-                                nid = id.nid;
-                                i++;
-                                break;
-                        }
-                }
-        } else { /* client */
-                /* Use nids from mount line: uml1,1@elan:uml2,2@elan:/lustre */
-                ptr = lsi->lsi_lmd->lmd_dev;
-                if (class_parse_nid(ptr, &nid, &ptr) == 0)
-                        i++;
-        }
-        if (i == 0) {
-                CERROR("No valid MGS nids found.\n");
-                RETURN(-EINVAL);
-        }
+			lnet_process_id_t id;
+			while ((rc = LNetGetId(i++, &id)) != -ENOENT) {
+				if (lnet_nettyp(lnet_nidnet(id.nid)) == LOLND)
+					continue;
+				nid = id.nid;
+				i++;
+				break;
+			}
+		}
+	} else { /* client */
+		/* Use nids from mount line: uml1,1@elan:uml2,2@elan:/lustre */
+		ptr = lsi->lsi_lmd->lmd_dev;
+		if (class_parse_nid(ptr, &nid, &ptr) == 0)
+			i++;
+	}
+	if (i == 0) {
+		CERROR("No valid MGS nids found.\n");
+		RETURN(-EINVAL);
+	}
 
 	mutex_lock(&mgc_start_lock);
 

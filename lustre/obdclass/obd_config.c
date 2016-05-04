@@ -1658,7 +1658,7 @@ int class_config_llog_handler(const struct lu_env *env,
 
 			if (lcfg->lcfg_command == LCFG_ADD_CONN &&
 			    lsi->lsi_lmd->lmd_nidnet &&
-			    LNET_NIDNET(libcfs_str2nid(uuid_str)) !=
+			    lnet_nidnet(libcfs_str2nid(uuid_str)) !=
 			    libcfs_str2net(lsi->lsi_lmd->lmd_nidnet)) {
 				CDEBUG(D_CONFIG, "skipping add_conn for %s\n",
 				       uuid_str);
@@ -1682,7 +1682,7 @@ int class_config_llog_handler(const struct lu_env *env,
 			__u32 addr = (__u32)(lcfg->lcfg_nid & 0xffffffff);
 
 			lcfg_new->lcfg_nid =
-				LNET_MKNID(LNET_MKNET(lcfg->lcfg_nal, 0), addr);
+				lnet_mknid(lnet_mknet(lcfg->lcfg_nal, 0), addr);
 			CWARN("Converted pre-newconfig NAL %d NID %x to %s\n",
 			      lcfg->lcfg_nal, addr,
 			      libcfs_nid2str(lcfg_new->lcfg_nid));

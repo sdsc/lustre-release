@@ -55,7 +55,7 @@
  * LNet networks connected by LNet routers. Therefore an end-point address
  * has two parts: network ID, and address within a network.
  *
- * \see LNET_NIDNET, LNET_NIDADDR, and LNET_MKNID.
+ * \see lnet_nidnet, lnet_nidaddr, and lnet_mknid.
  */
 typedef __u64 lnet_nid_t;
 /**
@@ -78,32 +78,32 @@ typedef __u32 lnet_pid_t;
 /* how an LNET NID encodes net:address */
 /** extract the address part of an lnet_nid_t */
 
-static inline __u32 LNET_NIDADDR(lnet_nid_t nid)
+static inline __u32 lnet_nidaddr(lnet_nid_t nid)
 {
 	return nid & 0xffffffff;
 }
 
-static inline __u32 LNET_NIDNET(lnet_nid_t nid)
+static inline __u32 lnet_nidnet(lnet_nid_t nid)
 {
 	return (nid >> 32) & 0xffffffff;
 }
 
-static inline lnet_nid_t LNET_MKNID(__u32 net, __u32 addr)
+static inline lnet_nid_t lnet_mknid(__u32 net, __u32 addr)
 {
 	return (((__u64)net) << 32) | addr;
 }
 
-static inline __u32 LNET_NETNUM(__u32 net)
+static inline __u32 lnet_netnum(__u32 net)
 {
 	return net & 0xffff;
 }
 
-static inline __u32 LNET_NETTYP(__u32 net)
+static inline __u32 lnet_nettyp(__u32 net)
 {
 	return (net >> 16) & 0xffff;
 }
 
-static inline __u32 LNET_MKNET(__u32 type, __u32 num)
+static inline __u32 lnet_mknet(__u32 type, __u32 num)
 {
 	return (type << 16) | num;
 }

@@ -307,25 +307,25 @@ static struct convert_struct converter[] = {
 
 int lnet_nid2hostname(lnet_nid_t nid, char *buf, int buflen)
 {
-        uint32_t lnd, net, addr;
+	uint32_t lnd, net, addr;
 
-        addr = LNET_NIDADDR(nid);
-        net = LNET_NIDNET(nid);
-        lnd = LNET_NETTYP(net);
+	addr = lnet_nidaddr(nid);
+	net = lnet_nidnet(nid);
+	lnd = lnet_nettyp(net);
 
-        if (lnd >= LND_MAX) {
-                printerr(0, "ERROR: Unrecognized LND %u\n", lnd);
-                return -1;
-        }
+	if (lnd >= LND_MAX) {
+		printerr(0, "ERROR: Unrecognized LND %u\n", lnd);
+		return -1;
+	}
 
-        if (converter[lnd].nid2name == NULL) {
-                printerr(0, "ERROR: %s converter not ready\n",
-                        converter[lnd].name);
-                return -1;
-        }
+	if (converter[lnd].nid2name == NULL) {
+		printerr(0, "ERROR: %s converter not ready\n",
+			 converter[lnd].name);
+		return -1;
+	}
 
-        return converter[lnd].nid2name(converter[lnd].name, net, addr,
-                                       buf, buflen);
+	return converter[lnd].nid2name(converter[lnd].name, net, addr,
+				       buf, buflen);
 }
 
 

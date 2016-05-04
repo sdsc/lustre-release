@@ -463,14 +463,14 @@ int client_obd_setup(struct obd_device *obddev, struct lustre_cfg *lcfg)
 	if (lustre_cfg_buf(lcfg, 4)) {
 		__u32 refnet = libcfs_str2net(lustre_cfg_string(lcfg, 4));
 
-		if (refnet == LNET_NIDNET(LNET_NID_ANY)) {
+		if (refnet == lnet_nidnet(LNET_NID_ANY)) {
 			rc = -EINVAL;
 			CERROR("%s: bad mount option 'network=%s': rc = %d\n",
 			       obddev->obd_name, lustre_cfg_string(lcfg, 4),
 			       rc);
 			GOTO(err_import, rc);
 		}
-		fake_conn.c_self = LNET_MKNID(refnet, 0);
+		fake_conn.c_self = lnet_mknid(refnet, 0);
 		imp->imp_connection = &fake_conn;
 	}
 
