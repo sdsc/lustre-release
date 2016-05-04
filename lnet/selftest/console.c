@@ -69,7 +69,7 @@ static int
 lstcon_node_find(lnet_process_id_t id, lstcon_node_t **ndpp, int create)
 {
 	lstcon_ndlink_t	*ndl;
-	unsigned int	 idx = LNET_NIDADDR(id.nid) % LST_GLOBAL_HASHSIZE;
+	unsigned int	 idx = lnet_nidaddr(id.nid) % LST_GLOBAL_HASHSIZE;
 
 	LASSERT(id.nid != LNET_NID_ANY);
 
@@ -137,7 +137,7 @@ static int
 lstcon_ndlink_find(struct list_head *hash,
                    lnet_process_id_t id, lstcon_ndlink_t **ndlpp, int create)
 {
-	unsigned int	 idx = LNET_NIDADDR(id.nid) % LST_NODE_HASHSIZE;
+	unsigned int	 idx = lnet_nidaddr(id.nid) % LST_NODE_HASHSIZE;
 	lstcon_ndlink_t *ndl;
 	lstcon_node_t   *nd;
 	int		 rc;
@@ -311,7 +311,7 @@ static void
 lstcon_group_ndlink_move(lstcon_group_t *old,
                          lstcon_group_t *new, lstcon_ndlink_t *ndl)
 {
-	unsigned int idx = LNET_NIDADDR(ndl->ndl_node->nd_id.nid) %
+	unsigned int idx = lnet_nidaddr(ndl->ndl_node->nd_id.nid) %
 					LST_NODE_HASHSIZE;
 
 	list_del(&ndl->ndl_hlink);

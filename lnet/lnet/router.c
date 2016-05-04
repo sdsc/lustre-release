@@ -252,10 +252,10 @@ static void lnet_shuffle_seed(void)
 	 * the NID for this node gives the most entropy in the low bits */
 	list_for_each(tmp, &the_lnet.ln_nis) {
 		ni = list_entry(tmp, lnet_ni_t, ni_list);
-		lnd_type = LNET_NETTYP(LNET_NIDNET(ni->ni_nid));
+		lnd_type = lnet_nettyp(lnet_nidnet(ni->ni_nid));
 
 		if (lnd_type != LOLND)
-			seed[0] ^= (LNET_NIDADDR(ni->ni_nid) | lnd_type);
+			seed[0] ^= (lnet_nidaddr(ni->ni_nid) | lnd_type);
 	}
 
 	do_gettimeofday(&tv);
@@ -308,10 +308,10 @@ lnet_add_route(__u32 net, __u32 hops, lnet_nid_t gateway,
 	       libcfs_net2str(net), hops, priority, libcfs_nid2str(gateway));
 
 	if (gateway == LNET_NID_ANY ||
-	    LNET_NETTYP(LNET_NIDNET(gateway)) == LOLND ||
-	    net == LNET_NIDNET(LNET_NID_ANY) ||
-	    LNET_NETTYP(net) == LOLND ||
-	    LNET_NIDNET(gateway) == net ||
+	    lnet_nettyp(lnet_nidnet(gateway)) == LOLND ||
+	    net == lnet_nidnet(LNET_NID_ANY) ||
+	    lnet_nettyp(net) == LOLND ||
+	    lnet_nidnet(gateway) == net ||
 	    (hops != LNET_UNDEFINED_HOPS && (hops < 1 || hops > 255)))
 		return -EINVAL;
 
@@ -487,7 +487,7 @@ lnet_del_route(__u32 net, lnet_nid_t gw_nid)
 	 * or a specific route entry actual NIDs) */
 
 	lnet_net_lock(LNET_LOCK_EX);
-	if (net == LNET_NIDNET(LNET_NID_ANY))
+	if (net == lnet_nidnet(LNET_NID_ANY))
 		rn_list = &the_lnet.ln_remote_nets_hash[0];
 	else
 		rn_list = lnet_net2rnethash(net);
@@ -496,7 +496,7 @@ again:
 	list_for_each(e1, rn_list) {
 		rnet = list_entry(e1, lnet_remotenet_t, lrn_list);
 
-		if (!(net == LNET_NIDNET(LNET_NID_ANY) ||
+		if (!(net == lnet_nidnet(LNET_NID_ANY) ||
 			net == rnet->lrn_net))
 			continue;
 
@@ -533,7 +533,7 @@ again:
 		}
 	}
 
-	if (net == LNET_NIDNET(LNET_NID_ANY) &&
+	if (net == lnet_nidnet(LNET_NID_ANY) &&
 	    ++idx < LNET_REMOTE_NETS_HASH_SIZE) {
 		rn_list = &the_lnet.ln_remote_nets_hash[idx];
 		goto again;
@@ -546,7 +546,7 @@ again:
 void
 lnet_destroy_routes (void)
 {
-	lnet_del_route(LNET_NIDNET(LNET_NID_ANY), LNET_NID_ANY);
+	lnet_del_route(lnet_nidnet(LNET_NID_ANY), LNET_NID_ANY);
 }
 
 int lnet_get_rtr_pool_cfg(int idx, struct lnet_ioctl_pool_cfg *pool_cfg)
@@ -699,7 +699,7 @@ lnet_parse_rc_info(lnet_rc_data_t *rcd)
 				return;
 			}
 
-			if (LNET_NETTYP(LNET_NIDNET(nid)) == LOLND)
+			if (lnet_nettyp(lnet_nidnet(nid)) == LOLND)
 				continue;
 
 			if (stat->ns_status == LNET_NI_STATUS_DOWN) {
@@ -708,7 +708,7 @@ lnet_parse_rc_info(lnet_rc_data_t *rcd)
 			}
 
 			if (stat->ns_status == LNET_NI_STATUS_UP) {
-				if (LNET_NIDNET(nid) == rte->lr_net) {
+				if (lnet_nidnet(nid) == rte->lr_net) {
 					up = 1;
 					break;
 				}
@@ -1732,7 +1732,7 @@ lnet_notify(lnet_ni_t *ni, lnet_nid_t nid, int alive, cfs_time_t when)
 		alive ? "up" : "down");
 
 	if (ni != NULL &&
-	    LNET_NIDNET(ni->ni_nid) != LNET_NIDNET(nid)) {
+	    lnet_nidnet(ni->ni_nid) != lnet_nidnet(nid)) {
 		CWARN("Ignoring notification of %s %s by %s (different net)\n",
 		      libcfs_nid2str(nid), alive ? "birth" : "death",
 		      libcfs_nid2str(ni->ni_nid));
@@ -1749,8 +1749,8 @@ lnet_notify(lnet_ni_t *ni, lnet_nid_t nid, int alive, cfs_time_t when)
 		return -EINVAL;
 	}
 
-	if (ni != NULL && !alive &&		/* LND telling me she's down */
-	    !auto_down) {			/* auto-down disabled */
+	if (ni != NULL && !alive &&             /* LND telling me she's down */
+	    !auto_down) {                       /* auto-down disabled */
 		CDEBUG(D_NET, "Auto-down disabled\n");
 		return 0;
 	}

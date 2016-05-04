@@ -1591,7 +1591,7 @@ static int mgc_process_recover_nodemap_log(struct obd_device *obd,
 
 	/* don't need to get local config */
 	if (cld_is_nodemap(cld) &&
-	    (LNET_NETTYP(LNET_NIDNET(mgc_conn->c_peer.nid)) == LOLND))
+	    (lnet_nettyp(lnet_nidnet(mgc_conn->c_peer.nid)) == LOLND))
 		GOTO(out, rc = 0);
 
         /* allocate buffer for bulk transfer.

@@ -497,43 +497,43 @@ static void ptlrpc_master_callback(lnet_event_t *ev)
 int ptlrpc_uuid_to_peer (struct obd_uuid *uuid,
                          lnet_process_id_t *peer, lnet_nid_t *self)
 {
-        int               best_dist = 0;
-        __u32             best_order = 0;
-        int               count = 0;
-        int               rc = -ENOENT;
-        int               dist;
-        __u32             order;
-        lnet_nid_t        dst_nid;
-        lnet_nid_t        src_nid;
+	int               best_dist = 0;
+	__u32             best_order = 0;
+	int               count = 0;
+	int               rc = -ENOENT;
+	int               dist;
+	__u32             order;
+	lnet_nid_t        dst_nid;
+	lnet_nid_t        src_nid;
 
 	peer->pid = LNET_PID_LUSTRE;
 
-        /* Choose the matching UUID that's closest */
-        while (lustre_uuid_to_peer(uuid->uuid, &dst_nid, count++) == 0) {
-                dist = LNetDist(dst_nid, &src_nid, &order);
-                if (dist < 0)
-                        continue;
+	/* Choose the matching UUID that's closest */
+	while (lustre_uuid_to_peer(uuid->uuid, &dst_nid, count++) == 0) {
+		dist = LNetDist(dst_nid, &src_nid, &order);
+		if (dist < 0)
+			continue;
 
-                if (dist == 0) {                /* local! use loopback LND */
-                        peer->nid = *self = LNET_MKNID(LNET_MKNET(LOLND, 0), 0);
-                        rc = 0;
-                        break;
-                }
+		if (dist == 0) {                /* local! use loopback LND */
+			peer->nid = *self = lnet_mknid(lnet_mknet(LOLND, 0), 0);
+			rc = 0;
+			break;
+		}
 
-                if (rc < 0 ||
-                    dist < best_dist ||
-                    (dist == best_dist && order < best_order)) {
-                        best_dist = dist;
-                        best_order = order;
+		if (rc < 0 ||
+		    dist < best_dist ||
+		    (dist == best_dist && order < best_order)) {
+			best_dist = dist;
+			best_order = order;
 
-                        peer->nid = dst_nid;
-                        *self = src_nid;
-                        rc = 0;
-                }
-        }
+			peer->nid = dst_nid;
+			*self = src_nid;
+			rc = 0;
+		}
+	}
 
-        CDEBUG(D_NET,"%s->%s\n", uuid->uuid, libcfs_id2str(*peer));
-        return rc;
+	CDEBUG(D_NET, "%s->%s\n", uuid->uuid, libcfs_id2str(*peer));
+	return rc;
 }
 
 void ptlrpc_ni_fini(void)

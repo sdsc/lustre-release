@@ -1632,14 +1632,14 @@ int class_config_llog_handler(const struct lu_env *env,
 		lcfg_new->lcfg_num   = lcfg->lcfg_num;
 		lcfg_new->lcfg_flags = lcfg->lcfg_flags;
 
-                /* XXX Hack to try to remain binary compatible with
-                 * pre-newconfig logs */
+		/* XXX Hack to try to remain binary compatible with
+		 * pre-newconfig logs */
 		if (lcfg->lcfg_nal != 0 &&      /* pre-newconfig log? */
 		    (lcfg->lcfg_nid >> 32) == 0) {
 			__u32 addr = (__u32)(lcfg->lcfg_nid & 0xffffffff);
 
 			lcfg_new->lcfg_nid =
-				LNET_MKNID(LNET_MKNET(lcfg->lcfg_nal, 0), addr);
+				lnet_mknid(lnet_mknet(lcfg->lcfg_nal, 0), addr);
 			CWARN("Converted pre-newconfig NAL %d NID %x to %s\n",
 			      lcfg->lcfg_nal, addr,
 			      libcfs_nid2str(lcfg_new->lcfg_nid));
@@ -1658,7 +1658,7 @@ int class_config_llog_handler(const struct lu_env *env,
 	}
 	default:
 		CERROR("Unknown llog record type %#x encountered\n",
-			rec->lrh_type);
+		       rec->lrh_type);
 		break;
 	}
 out:
