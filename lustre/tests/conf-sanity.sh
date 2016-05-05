@@ -6329,6 +6329,11 @@ generate_ldev_conf() {
 			$num \
 			$(ostdevname $num) >> $ldevconfpath
 	done
+
+	echo "----- $ldevconfpath -----"
+	cat $ldevconfpath
+	echo "--- END $ldevconfpath ---"
+
 }
 
 generate_nids() {
@@ -6338,6 +6343,29 @@ generate_nids() {
 	local nidspath=$1
 	touch $nidspath
 	echo -e "${mgs_HOST}\t${MGSNID}" >> $nidspath
+
+	echo "----- $nidspath -----"
+	cat $nidspath
+	echo "--- END $nidspath ---"
+}
+
+compare_ldev_output() {
+	ldev_output=$1
+	expected_output=$2
+    	
+	echo "-- START OF LDEV OUTPUT --"
+	cat $ldev_output
+	echo "--- END OF LDEV OUTPUT ---"
+
+	sort $expected_output -o $expected_output
+	sort $ldev_output -o $ldev_output
+
+	echo "-- START OF EXPECTED OUTPUT --"
+	cat $expected_output
+	echo "--- END OF EXPECTED OUTPUT ---"
+
+	diff $expected_output $ldev_output
+        return $?
 }
 
 test_92() {
@@ -6349,32 +6377,11 @@ test_92() {
 	generate_ldev_conf $LDEVCONFPATH
 	generate_nids $NIDSPATH
 
-	echo "----- ldev.conf -----"
-	cat $LDEVCONFPATH
-	echo "--- END ldev.conf ---"
-
-	echo "----- /etc/nids -----"
-	cat $NIDSPATH
-	echo "--- END /etc/nids ---"
-
-	# ldev can be in our build tree and if we aren't in a
-	# build tree, use 'which' to try and find it
-	local LDEV=$LUSTRE/scripts/ldev
-	[ ! -f "$LDEV" ] && local LDEV=$(which ldev 2> /dev/null)
-
-	echo "ldev path is $LDEV"
-
-	if [ ! -f "$LDEV" ]; then
-		rm $LDEVCONFPATH $NIDSPATH
-		error "failed to find ldev!"
-	fi
-
 	# echo the mgs nid and compare it to environment variable MGSNID
 	# also, ldev.conf and nids is a server side thing, use the OSS
 	# hostname
 	local output
-	output=$(perl $LDEV -c $LDEVCONFPATH -H \
-			$ost_HOST -n $NIDSPATH echo %m)
+	output=$($LDEV -c $LDEVCONFPATH -H $ost_HOST -n $NIDSPATH echo %m)
 
 	echo "-- START OF LDEV OUTPUT --"
 	echo -e "$output"
@@ -6398,6 +6405,129 @@ test_92() {
 }
 run_test 92 "ldev returns MGS NID correctly in command substitution"
 
+test_93() {
+	local LDEVCONFPATH=$TMP/ldev.conf
+	local NIDSPATH=$TMP/nids
+
+	generate_ldev_conf $LDEVCONFPATH
+	generate_nids $NIDSPATH
+
+	local LDEV_OUTPUT=$TMP/ldev-output.txt
+	$LDEV -c $LDEVCONFPATH -n $NIDSPATH -F $FSNAME > $LDEV_OUTPUT
+
+	# ldev failed, error
+	if [ $? -ne 0 ]; then
+		rm $LDEVCONFPATH $NIDSPATH $LDEV_OUTPUT
+		error "ldev failed to execute!"
+	fi
+
+	# expected output
+	local EXPECTED_OUTPUT=$TMP/ldev-expected.txt
+
+	printf "%s-MGS0000\n" $FSNAME >> $EXPECTED_OUTPUT
+
+	for num in $(seq $MDSCOUNT); do
+		printf "%s-MDT%04d\n" $FSNAME $num >> $EXPECTED_OUTPUT
+	done
+
+	for num in $(seq $OSTCOUNT); do
+		printf "%s-OST%04d\n" $FSNAME $num >> $EXPECTED_OUTPUT
+	done
+
+	compare_ldev_output $LDEV_OUTPUT $EXPECTED_OUTPUT
+
+	if [ $? -ne 0 ]; then
+		rm $LDEVCONFPATH $NIDSPATH $EXPECTED_OUTPUT $LDEV_OUTPUT
+		error "ldev failed to produce the correct hostlist!"
+	fi
+
+	rm $LDEVCONFPATH $NIDSPATH $EXPECTED_OUTPUT $LDEV_OUTPUT
+}
+run_test 93 "ldev outputs correct labels for file system name query"
+
+test_94() {
+	local LDEVCONFPATH=$TMP/ldev.conf
+	local NIDSPATH=$TMP/nids
+
+	generate_ldev_conf $LDEVCONFPATH
+	generate_nids $NIDSPATH
+
+	# SUCCESS CASES
+	# file sys filter
+	$LDEV -c $LDEVCONFPATH -n $NIDSPATH -F $FSNAME &>/dev/null
+	if [ $? -ne 0 ]; then
+		rm $LDEVCONFPATH $NIDSPATH
+		error "ldev label filtering w/ -F failed!"
+	fi
+
+	# local filter
+	$LDEV -c $LDEVCONFPATH -n $NIDSPATH -l  &>/dev/null
+	if [ $? -ne 0 ]; then
+		rm $LDEVCONFPATH $NIDSPATH
+		error "ldev label filtering w/ -l failed!"
+	fi
+
+	# foreign filter
+	$LDEV -c $LDEVCONFPATH -n $NIDSPATH -f &>/dev/null
+	if [ $? -ne 0 ]; then
+		rm $LDEVCONFPATH $NIDSPATH
+		error "ldev label filtering w/ -f failed!"
+	fi
+
+	# all filter
+	$LDEV -c $LDEVCONFPATH -n $NIDSPATH -a &>/dev/null
+	if [ $? -ne 0 ]; then
+		rm $LDEVCONFPATH $NIDSPATH
+		error "ldev label filtering w/ -a failed!"
+	fi
+
+	# FAILURE CASES
+	# all & file sys
+	$LDEV -c $LDEVCONFPATH -n $NIDSPATH -a -F $FSNAME &>/dev/null
+	if [ $? -eq 0 ]; then
+		rm $LDEVCONFPATH $NIDSPATH
+		error "ldev label filtering w/ -a and -F incorrectly succeeded"
+	fi
+
+	# all & foreign
+	$LDEV -c $LDEVCONFPATH -n $NIDSPATH -a -f &>/dev/null
+	if [ $? -eq 0 ]; then
+		rm $LDEVCONFPATH $NIDSPATH
+		error "ldev label filtering w/ -a and -f incorrectly succeeded"
+	fi
+
+	# all & local
+	$LDEV -c $LDEVCONFPATH -n $NIDSPATH -a -l &>/dev/null
+	if [ $? -eq 0 ]; then
+		rm $LDEVCONFPATH $NIDSPATH
+		error "ldev label filtering w/ -a and -l incorrectly succeeded"
+	fi
+	rm $LDEVCONFPATH $NIDSPATH
+
+	# foreign & local
+	$LDEV -c $LDEVCONFPATH -n $NIDSPATH -f -l &>/dev/null
+	if [ $? -eq 0 ]; then
+		rm $LDEVCONFPATH $NIDSPATH
+		error "ldev label filtering w/ -f and -l incorrectly succeeded"
+	fi
+
+	# file sys & local
+	$LDEV -c $LDEVCONFPATH -n $NIDSPATH -F $FSNAME -l &>/dev/null
+	if [ $? -eq 0 ]; then
+		rm $LDEVCONFPATH $NIDSPATH
+		error "ldev label filtering w/ -F and -l incorrectly succeeded"
+	fi
+
+	# file sys & foreign
+	$LDEV -c $LDEVCONFPATH -n $NIDSPATH -F $FSNAME -f &>/dev/null
+	if [ $? -eq 0 ]; then
+		rm $LDEVCONFPATH $NIDSPATH
+		error "ldev label filtering w/ -F and -f incorrectly succeeded"
+	fi
+
+	rm $LDEVCONFPATH $NIDSPATH
+}
+run_test 94 "ldev should only allow one label filter"
 if ! combined_mgs_mds ; then
 	stop mgs
 fi
