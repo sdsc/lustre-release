@@ -6298,10 +6298,16 @@ generate_ldev_conf() {
 	# generate an ldev.conf file
 	local ldevconfpath=$1
 	touch $ldevconfpath
-	printf "%s\t-\t%s-MGS0000\t%s\n" \
+	printf "%s\t-\t%s-MGS0000\t" \
 		$mgs_HOST \
-		$FSNAME \
-		$(mgsdevname) > $ldevconfpath
+		$FSNAME > $ldevconfpath
+
+	fstype=$(facet_fstype mds$num)
+	if [ "$fstype" == "zfs" ]; then
+		printf "%s:" $fstype >> $ldevconfpath
+	fi
+
+	printf "%s\n" $(mgsdevname) >> $ldevconfpath
 
 	local mdsfo_host=$mdsfailover_HOST;
 	if [ -z "$mdsfo_host" ]; then
@@ -6309,12 +6315,18 @@ generate_ldev_conf() {
 	fi
 
 	for num in $(seq $MDSCOUNT); do
-		printf "%s\t%s\t%s-MDT%04d\t%s\n" \
+		printf "%s\t%s\t%s-MDT%04d\t" \
 			$mds_HOST \
 			$mdsfo_host \
 			$FSNAME \
-			$num \
-			$(mdsdevname $num) >> $ldevconfpath
+			$num >> $ldevconfpath
+
+		fstype=$(facet_fstype mds$num)
+		if [ "$fstype" == "zfs" ]; then
+			printf "%s:" $fstype >> $ldevconfpath
+		fi
+
+		printf "%s\n" $(mdsdevname $num) >> $ldevconfpath
 	done
 
 	local ostfo_host=$ostfailover_HOST;
@@ -6323,12 +6335,18 @@ generate_ldev_conf() {
 	fi
 
 	for num in $(seq $OSTCOUNT); do
-		printf "%s\t%s\t%s-OST%04d\t%s\n" \
+		printf "%s\t%s\t%s-OST%04d\t" \
 			$ost_HOST \
 			$ostfo_host \
 			$FSNAME \
-			$num \
-			$(ostdevname $num) >> $ldevconfpath
+			$num >> $ldevconfpath
+
+		fstype=$(facet_fstype ost$num)
+		if [ "$fstype" == "zfs" ]; then
+			printf "%s:" $fstype >> $ldevconfpath
+		fi
+
+		printf "%s\n" $(ostdevname $num) >> $ldevconfpath
 	done
 
 	echo "----- $ldevconfpath -----"
@@ -6539,6 +6557,59 @@ test_94() {
 	rm $LDEVCONFPATH $NIDSPATH
 }
 run_test 94 "ldev should only allow one label filter"
+
+test_95() {
+	if [ -z "$LDEV" ]; then
+		error "ldev is missing!"
+	fi
+
+	local LDEVCONFPATH=$TMP/ldev.conf
+	local NIDSPATH=$TMP/nids
+
+	generate_ldev_conf $LDEVCONFPATH
+	generate_nids $NIDSPATH
+
+	local LDEV_OUTPUT=$TMP/ldev-output.txt
+	$LDEV -c $LDEVCONFPATH -n $NIDSPATH -H $mgs_HOST \
+		echo %H-%b | \
+		awk '{print $2}' > $LDEV_OUTPUT
+
+	# ldev failed, error
+	if [ $? -ne 0 ]; then
+		rm $LDEVCONFPATH $NIDSPATH $LDEV_OUTPUT
+		error "ldev failed to execute!"
+	fi
+
+	# expected output
+	local EXPECTED_OUTPUT=$TMP/ldev-expected-output.txt
+
+	echo "$mgs_HOST-$(facet_fstype mgs)" > $EXPECTED_OUTPUT
+
+	if [ "$mgs_HOST" == "$mds_HOST" ]; then
+		for num in $(seq $MDSCOUNT); do
+			echo "$mds_HOST-$(facet_fstype mds$num)" \
+			>> $EXPECTED_OUTPUT
+		done
+	fi
+
+	if [ "$mgs_HOST" == "$ost_HOST" ]; then
+		for num in $(seq $OSTCOUNT); do
+			echo "$ost_HOST-$(facet_fstype ost$num)" \
+			>> $EXPECTED_OUTPUT
+		done
+	fi
+
+	compare_ldev_output $LDEV_OUTPUT $EXPECTED_OUTPUT
+
+	if [ $? -ne 0 ]; then
+		rm $LDEVCONFPATH $NIDSPATH $EXPECTED_OUTPUT $LDEV_OUTPUT
+		error "ldev failed to produce the correct output!"
+	fi
+
+	rm $LDEVCONFPATH $NIDSPATH $EXPECTED_OUTPUT $LDEV_OUTPUT
+}
+run_test 95 "ldev returns hostname and backend fs correctly in command sub"
+
 if ! combined_mgs_mds ; then
 	stop mgs
 fi
