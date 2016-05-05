@@ -29,6 +29,7 @@ Parse ldev.conf and answer the following queries:
   -r, --raidtab LABEL Print raidtab of LABEL if it exists.
   -t, --type LABEL    Print device type of LABEL, i.e. "zfs" or "md".
   -z, --zpool LABEL   Print zpool containing LABEL.
+  -R, --role ROLE     Filter output based on role, i.e. mdt, ost, mgs, mgt.
   CMD [ARGS] ...      Run CMD in parallel for each device substituting:
                       %f=fsname  %d=device  %i=dec-index %n=main-nid %l=label
                       %t=srvtype %j=journal %I=hex-index %N=fail-nid %m=mgs-nid
@@ -88,6 +89,7 @@ sub parse_cmdline
     $conf{sanity} = 0;
     $conf{execcmd} = "";
     $conf{journal} = "";
+    $conf{role} = "";
     $conf{fsname} = "";
 
     my $rc = GetOptions (
@@ -105,6 +107,7 @@ sub parse_cmdline
         "raidtab|r=s"     => \$conf{raidtab},
         "type|t=s"        => \$conf{type},
         "zpool|z=s"       => \$conf{zpool},
+        "role|R=s"        => \$conf{role},
         "filesys|F=s"     => \$conf{fsname},
     );
 
@@ -180,6 +183,8 @@ sub parse_config
         if ($nodetype eq "MGS" or $nodetype eq "MGT") {
             $filesys2mgs{$filesys} = $label;
         }
+
+        next if $conf{role} and lc $conf{role} ne lc $nodetype;
 
         if ($local eq $conf{hostname}) {
             push @local_labels, $label;
