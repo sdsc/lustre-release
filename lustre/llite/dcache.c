@@ -323,6 +323,7 @@ static int ll_revalidate_dentry(struct dentry *dentry,
 				unsigned int lookup_flags)
 {
 	struct inode *dir = dentry->d_parent->d_inode;
+	ENTRY;
 
 	/* If this is intermediate component path lookup and we were able to get
 	 * to this dentry, then its lock has not been revoked and the
@@ -340,8 +341,15 @@ static int ll_revalidate_dentry(struct dentry *dentry,
 	 * For create we also ensure the entry is really created no matter
 	 * what races might have happened.
 	 * LU-4367 */
-	if (lookup_flags & (LOOKUP_OPEN | LOOKUP_CREATE))
-		return 0;
+	if (lookup_flags & (LOOKUP_OPEN | LOOKUP_CREATE)) {
+		struct ll_sb_info *sbi = ll_i2sbi(dentry->d_inode);
+
+		/* If opencache is set, return 1. LU-7915 */
+		if (sbi->ll_opencache)
+			return 1;
+		else
+			return 0;
+	}
 
 	if (!dentry_may_statahead(dir, dentry))
 		return 1;
