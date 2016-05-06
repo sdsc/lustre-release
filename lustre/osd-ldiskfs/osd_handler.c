@@ -592,12 +592,16 @@ check_oi:
 		 *	Generally, when the device is mounted, it will
 		 *	auto check whether the system is restored from
 		 *	file-level backup or not. We trust such detect
-		 *	to distinguish the 1st case from the 2nd case. */
+		 *	to distinguish the 1st case from the 2nd case:
+		 *	if the OI files are consistent but may contain
+		 *	stale OI mappings because of case 2, if iget()
+		 *	returns -ENOENT or -ESTALE, then it should be
+		 *	the case 2. */
 		if (rc == 0) {
-			if (!IS_ERR(inode) && inode->i_generation != 0 &&
-			    inode->i_generation == id->oii_gen)
-				/* "id->oii_gen != OSD_OII_NOGEN" is for
-				 * "@cached == false" case. */
+			if ((!IS_ERR(inode) && inode->i_generation != 0 &&
+			     inode->i_generation == id->oii_gen) ||
+			    (IS_ERR(inode) && !(dev->od_scrub.os_file.sf_flags &
+						SF_INCONSISTENT)))
 				rc = -ENOENT;
 			else
 				rc = -EREMCHG;
@@ -842,7 +846,7 @@ iget:
 	if (IS_ERR(inode)) {
 		result = PTR_ERR(inode);
 		if (result == -ENOENT || result == -ESTALE)
-			GOTO(out, result = -ENOENT);
+			GOTO(out, result = 0);
 
 		if (result == -EREMCHG) {
 
@@ -2757,7 +2761,8 @@ static int osd_declare_object_destroy(const struct lu_env *env,
 	oh = container_of0(th, struct osd_thandle, ot_super);
 	LASSERT(oh->ot_handle == NULL);
 
-	osd_trans_declare_op(env, oh, OSD_OT_DESTROY,
+	if (!OBD_FAIL_CHECK(OBD_FAIL_LFSCK_LOST_MDTOBJ2))
+		osd_trans_declare_op(env, oh, OSD_OT_DESTROY,
 			     osd_dto_credits_noquota[DTO_OBJECT_DELETE]);
 	/* Recycle idle OI leaf may cause additional three OI blocks
 	 * to be changed. */
@@ -2820,8 +2825,10 @@ static int osd_object_destroy(const struct lu_env *env,
 	osd_trans_exec_op(env, th, OSD_OT_DESTROY);
 
 	ldiskfs_set_inode_state(inode, LDISKFS_STATE_LUSTRE_DESTROY);
-	result = osd_oi_delete(osd_oti_get(env), osd, fid, oh->ot_handle,
-			       OI_CHECK_FLD);
+
+	if (!OBD_FAIL_CHECK(OBD_FAIL_LFSCK_LOST_MDTOBJ2))
+		result = osd_oi_delete(osd_oti_get(env), osd, fid,
+				       oh->ot_handle, OI_CHECK_FLD);
 
 	osd_trans_exec_check(env, th, OSD_OT_DESTROY);
 	/* XXX: add to ext3 orphan list */
