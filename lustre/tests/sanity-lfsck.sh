@@ -2470,6 +2470,107 @@ test_18f() {
 }
 run_test 18f "Skip the failed OST(s) when handle orphan OST-objects"
 
+test_18g() {
+	echo "#####"
+	echo "The target MDT-object is lost, but related OI mapping is there"
+	echo "The LFSCK should recreate the lost MDT-object without affected"
+	echo "by the stale OI mapping."
+	echo "#####"
+
+	check_mount_and_prep
+	$LFS mkdir -i 0 $DIR/$tdir/a1
+	$LFS setstripe -c 1 -i 0 -S 1M $DIR/$tdir/a1
+	dd if=/dev/zero of=$DIR/$tdir/a1/f1 bs=1M count=2
+	local fid1=$($LFS path2fid $DIR/$tdir/a1/f1)
+	echo ${fid1}
+	$LFS getstripe $DIR/$tdir/a1/f1
+
+	if [ $MDSCOUNT -ge 2 ]; then
+		$LFS mkdir -i 1 $DIR/$tdir/a2
+		$LFS setstripe -c 2 -i 1 -S 1M $DIR/$tdir/a2
+		dd if=/dev/zero of=$DIR/$tdir/a2/f2 bs=1M count=2
+		fid2=$($LFS path2fid $DIR/$tdir/a2/f2)
+		echo ${fid2}
+		$LFS getstripe $DIR/$tdir/a2/f2
+	fi
+
+	cancel_lru_locks osc
+
+	echo "Inject failure to simulate lost MDT-object but keep OI mapping"
+	#define OBD_FAIL_LFSCK_LOST_MDTOBJ2	0x162e
+	do_facet mds1 $LCTL set_param fail_loc=0x162e
+	rm -f $DIR/$tdir/a1/f1
+
+	if [ $MDSCOUNT -ge 2 ]; then
+		do_facet mds2 $LCTL set_param fail_loc=0x162e
+		rm -f $DIR/$tdir/a2/f2
+	fi
+
+	sync
+	sleep 2
+
+	do_facet mds1 $LCTL set_param fail_loc=0
+	if [ $MDSCOUNT -ge 2 ]; then
+		do_facet mds2 $LCTL set_param fail_loc=0
+	fi
+
+	cancel_lru_locks mdc
+	cancel_lru_locks osc
+
+	echo "Trigger layout LFSCK on all devices to find out orphan OST-object"
+	$START_LAYOUT -r -o || error "(1) Fail to start LFSCK for layout!"
+
+	for k in $(seq $MDSCOUNT); do
+		# The LFSCK status query internal is 30 seconds. For the case
+		# of some LFSCK_NOTIFY RPCs failure/lost, we will wait enough
+		# time to guarantee the status sync up.
+		wait_update_facet mds${k} "$LCTL get_param -n \
+			mdd.$(facet_svc mds${k}).lfsck_layout |
+			awk '/^status/ { print \\\$2 }'" "completed" $LTIME ||
+			error "(2) MDS${k} is not the expected 'completed'"
+	done
+
+	for k in $(seq $OSTCOUNT); do
+		local cur_status=$(do_facet ost${k} $LCTL get_param -n \
+				obdfilter.$(facet_svc ost${k}).lfsck_layout |
+				awk '/^status/ { print $2 }')
+		[ "$cur_status" == "completed" ] ||
+		error "(3) OST${k} Expect 'completed', but got '$cur_status'"
+	done
+
+	local repaired=$(do_facet mds1 $LCTL get_param -n \
+			 mdd.$(facet_svc mds1).lfsck_layout |
+			 awk '/^repaired_orphan/ { print $2 }')
+	[ $repaired -eq 1 ] ||
+		error "(4.1) Expect 1 fixed on mds1, but got: $repaired"
+
+	if [ $MDSCOUNT -ge 2 ]; then
+		repaired=$(do_facet mds2 $LCTL get_param -n \
+			 mdd.$(facet_svc mds2).lfsck_layout |
+			 awk '/^repaired_orphan/ { print $2 }')
+		[ $repaired -eq 2 ] ||
+			error "(4.2) Expect 2 fixed on mds2, but got: $repaired"
+	fi
+
+	echo "Move the files from ./lustre/lost+found/MDTxxxx to namespace"
+	mv $MOUNT/.lustre/lost+found/MDT0000/${fid1}-R-0 $DIR/$tdir/a1/f1 ||
+	error "(5) Fail to move $MOUNT/.lustre/lost+found/MDT0000/${fid1}-R-0"
+
+	if [ $MDSCOUNT -ge 2 ]; then
+		local name=$MOUNT/.lustre/lost+found/MDT0001/${fid2}-R-0
+		mv $name $DIR/$tdir/a2/f2 || error "(6) Fail to move $name"
+	fi
+
+	$LFS path2fid $DIR/$tdir/a1/f1
+	$LFS getstripe $DIR/$tdir/a1/f1
+
+	if [ $MDSCOUNT -ge 2 ]; then
+		$LFS path2fid $DIR/$tdir/a2/f2
+		$LFS getstripe $DIR/$tdir/a2/f2
+	fi
+}
+run_test 18g "Find out orphan OST-object and repair it (7)"
+
 $LCTL set_param debug=-cache > /dev/null
 
 test_19a() {
