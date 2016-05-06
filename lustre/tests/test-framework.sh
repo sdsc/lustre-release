@@ -9,6 +9,7 @@ export LANG=en_US
 export REFORMAT=${REFORMAT:-""}
 export WRITECONF=${WRITECONF:-""}
 export VERBOSE=${VERBOSE:-false}
+export DISPLAYTESTLIST=${DISPLAYTESTLIST:-false}
 export GSS=false
 export GSS_KRB5=false
 export GSS_PIPEFS=false
@@ -335,8 +336,9 @@ init_test_env() {
 
 	# command line
 
-	while getopts "rvwf:" opt $*; do
+	while getopts "rvwlf:" opt $*; do
 		case $opt in
+			l) export DISPLAYTESTLIST=true;;
 			f) CONFIG=$OPTARG;;
 			r) REFORMAT=yes;;
 			v) VERBOSE=true;;
@@ -4844,6 +4846,11 @@ basetest() {
     fi
 }
 
+tf_add() {
+	TF_TESTLIST[${#TF_TESTLIST[*]}]="$1:$2"
+	true
+}
+
 # print a newline if the last test was skipped
 export LAST_SKIPPED=
 export ALWAYS_SKIPPED=
@@ -4856,7 +4863,18 @@ export ALWAYS_SKIPPED=
 # run or not run.  These need to be documented...
 #
 run_test() {
-	assert_DIR
+	# This is workaround to allow old fashion script to execute.
+	# Should be removed after refactoring of all scripts
+	if [[ "$TF_VERSION" == "2" ]] ; then
+		tf_add "$1" "$2"
+	else
+		$DISPLAYTESTLIST && { echo $1 ; return; }
+		_tf_run_test "$1" "$2"
+	fi
+}
+
+_tf_run_test() {
+    assert_DIR
 
 	export base=$(basetest $1)
 	if [ -n "$ONLY" ]; then
@@ -4878,42 +4896,153 @@ run_test() {
 
 	LAST_SKIPPED="y"
 	ALWAYS_SKIPPED="y"
-	testname=EXCEPT_$1
-	if [ ${!testname}x != x ]; then
-		TESTNAME=test_$1 skip "skipping excluded test $1"
+	local skip_msg=$(tf_check_skip $1 $base)
+	[[ "$skip_msg" != "" ]] && {
+		TESTNAME=test_$1 skip "$skip_msg"
 		return 0
-	fi
-	testname=EXCEPT_$base
-	if [ ${!testname}x != x ]; then
-		TESTNAME=test_$1 skip "skipping excluded test $1 (base $base)"
-		return 0
-	fi
-	testname=EXCEPT_ALWAYS_$1
-	if [ ${!testname}x != x ]; then
-		TESTNAME=test_$1 skip "skipping ALWAYS excluded test $1"
-		return 0
-	fi
-	testname=EXCEPT_ALWAYS_$base
-	if [ ${!testname}x != x ]; then
-		TESTNAME=test_$1 skip "skipping ALWAYS excluded test $1 (base $base)"
-		return 0
-	fi
-	testname=EXCEPT_SLOW_$1
-	if [ ${!testname}x != x ]; then
-		TESTNAME=test_$1 skip "skipping SLOW test $1"
-		return 0
-	fi
-	testname=EXCEPT_SLOW_$base
-	if [ ${!testname}x != x ]; then
-		TESTNAME=test_$1 skip "skipping SLOW test $1 (base $base)"
-		return 0
-	fi
-
+	}
 	LAST_SKIPPED=
 	ALWAYS_SKIPPED=
 	run_one_logged $1 "$2"
 
 	return $?
+}
+
+# Returns skip message
+# If empty the test should be skept
+tf_check_skip() {
+	local id=$1
+	local base=$2
+
+	filter=EXCEPT_$id
+	[[ ${!filter}x != x ]] &&
+		echo "skipping excluded test $id"
+	filter=EXCEPT_$base
+	[[ ${!filter}x != x ]] &&
+		echo "skipping excluded test $id (base $base)"
+	filter=EXCEPT_ALWAYS_$id
+	[[ ${!filter}x != x ]] &&
+		echo "skipping ALWAYS excluded test $id"
+	filter=EXCEPT_ALWAYS_$base
+	[[ ${!filter}x != x ]] &&
+		echo "skipping ALWAYS excluded test $id (base $base)"
+	filter=EXCEPT_SLOW_$id
+	[[ ${!filter}x != x ]] &&
+		echo "skipping SLOW test $id"
+	filter=EXCEPT_SLOW_$base
+	[[ ${!filter}x != x ]] &&
+		echo "skipping SLOW test $id (base $base)"
+}
+
+_tf_print_list() {
+	local list
+	local IFS=$'\n'
+	for i in ${TF_TESTLIST[@]}; do
+		local name="${i%%:*}"
+		list="$list $name"
+	done
+	echo ${list# }
+}
+
+_tf_load_config() {
+	export NAME=${NAME:-local}
+	. ${CONFIG:=$LUSTRE/tests/cfg/${NAME}.sh}
+	# Todo: refactor following code to _tf_validate_parameters
+	DIR=${DIR:-$MOUNT}
+
+	# kyr: probably it is better move this to special parameter validation
+	#      function, believe this have to be checked after config loaded
+	assert_DIR
+	true
+}
+
+_tf_setup_base() {
+	local base="$1"
+	[[ "$(type -t test_${base}_setup)" == "function" ]] && {
+		echo
+		echo "Setting up group for test $base"
+		test_${base}_setup
+	}
+	true
+}
+
+_tf_cleanup_base() {
+	local base="$1"
+	[[ "$(type -t test_${base}_cleanup)" == "function" ]] && {
+		echo
+		echo "Cleaning up group for test $base"
+		test_${base}_cleanup
+	}
+	true
+}
+
+_tf_run() {
+	# Test selection logic can be different
+	local BIFS=$IFS
+	local IFS=$'\n'
+	local curr_base=''
+	local prev_base=''
+	for t in ${TF_TESTLIST[@]}; do
+		local IFS=$BIFS
+		local name=${t%%:*}
+		local desc=${t#*:}
+		local base=`basetest $name`
+		if [ -n "$ONLY" ]; then
+			local onlytest=ONLY_$1
+			local onlybase=ONLY_$base
+			[[
+				${!onlytest}x == x &&
+				${!onlybase}x == x
+			]] && continue
+		fi
+		local msg=$(tf_check_skip $name $base)
+		if [[ "$msg" != "" ]] ; then
+			TESTNAME=test_$name skip "$msg"
+			continue
+		fi
+		curr_base=$base
+		# Cleanup if base changed and this is not the first time
+		[[
+			".$curr_base" != ".$prev_base" &&
+			".$prev_base" != "."
+		]] && _tf_cleanup_base $prev_base
+
+		[[ ".$curr_base" != ".$prev_base" ]] && \
+			_tf_setup_base $curr_base
+		_tf_run_test "$name" "$desc"
+		prev_base=$curr_base
+	done
+	# Cleanup if we iterated ones at least
+	[[ ".$curr_base" != "." ]] && _tf_cleanup_base $curr_base
+	true
+}
+
+tf_run() {
+	init_test_env $@
+
+	if $DISPLAYTESTLIST; then
+		_tf_print_list
+		return
+	fi
+
+	_tf_load_config
+
+	init_logging
+
+	check_and_setup_lustre
+
+	[[ "$(type -t tf_setup)" == "function" ]] && tf_setup
+
+	# kyr: filters requires EXCEPT lists to be defined previously
+	build_test_filter
+
+	_tf_run
+
+	[[ "$(type -t tf_cleanup)" == "function" ]] && tf_cleanup
+
+	complete $SECONDS
+	check_and_cleanup_lustre
+	exit_status
 }
 
 log() {
@@ -5025,7 +5154,17 @@ run_one() {
 	fi
 
 	banner "test $testnum: $message"
-	test_${testnum} || error "test_$testnum failed with $?"
+
+	[[ "$testnum" != "$base" &&
+	   "$(type -t test_${testnum}_setup)" == "function" ]] &&
+			test_${testnum}_setup
+
+	(test_${testnum}) || error "test_$testnum failed with $?"
+
+	[[ "$testnum" != "$base" &&
+	   "$(type -t test_${testnum}_cleanup)" == "function" ]] &&
+		test_${testnum}_cleanup
+
 	cd $SAVE_PWD
 	reset_fail_loc
 	check_grant ${testnum} || error "check_grant $testnum failed with $?"
