@@ -37,6 +37,7 @@ noinst_SCRIPTS += setup-cifs.sh parallel-scale-cifs.sh
 noinst_SCRIPTS += posix.sh sanity-scrub.sh scrub-performance.sh ha.sh
 noinst_SCRIPTS += sanity-lfsck.sh lfsck-performance.sh
 noinst_SCRIPTS += resolveip
+noinst_SCRIPTS += tf-suite tf-run
 noinst_SCRIPTS += sanity-hsm.sh
 nobase_noinst_SCRIPTS = cfg/local.sh
 nobase_noinst_SCRIPTS += test-groups/regression test-groups/regression-mpi
