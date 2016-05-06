@@ -7,7 +7,9 @@
 # e.g. ONLY="22 23" or ONLY="`seq 32 39`" or EXCEPT="31"
 set -e
 
-ONLY=${ONLY:-"$*"}
+. tf-suite
+
+tf_setup() {
 # bug number for skipped test: 13297 2108 9789 3637 9789 3561 12622 5188
 ALWAYS_EXCEPT="                42a  42b  42c  42d  45   51d   68b   $SANITY_EXCEPT"
 # UPDATE THE COMMENT ABOVE WITH BUG NUMBERS WHEN CHANGING ALWAYS_EXCEPT!
@@ -61,19 +63,12 @@ CHECK_GRANT=${CHECK_GRANT:-"yes"}
 GRANT_CHECK_LIST=${GRANT_CHECK_LIST:-""}
 export PARALLEL=${PARALLEL:-"no"}
 
-export NAME=${NAME:-local}
-
 SAVE_PWD=$PWD
 
 CLEANUP=${CLEANUP:-:}
 SETUP=${SETUP:-:}
 TRACE=${TRACE:-""}
-LUSTRE=${LUSTRE:-$(cd $(dirname $0)/..; echo $PWD)}
 LUSTRE_TESTS_API_DIR=${LUSTRE_TESTS_API_DIR:-${LUSTRE}/tests/clientapi}
-. $LUSTRE/tests/test-framework.sh
-init_test_env $@
-. ${CONFIG:=$LUSTRE/tests/cfg/${NAME}.sh}
-init_logging
 
 [ "$SLOW" = "no" ] && EXCEPT_SLOW="24o 24D 27m 64b 68 71 77f 78 115 124b 300o"
 
@@ -84,29 +79,6 @@ if [ $(facet_fstype $SINGLEMDS) = "zfs" ]; then
 fi
 
 FAIL_ON_ERROR=false
-
-cleanup() {
-	echo -n "cln.."
-	pgrep ll_sa > /dev/null && { echo "There are ll_sa thread not exit!"; exit 20; }
-	cleanupall ${FORCE} $* || { echo "FAILed to clean up"; exit 20; }
-}
-setup() {
-	echo -n "mnt.."
-        load_modules
-	setupall || exit 10
-	echo "done"
-}
-
-check_swap_layouts_support()
-{
-	$LCTL get_param -n llite.*.sbi_flags | grep -q layout ||
-		{ skip "Does not support layout lock."; return 0; }
-	return 1
-}
-
-check_and_setup_lustre
-DIR=${DIR:-$MOUNT}
-assert_DIR
 
 MDT0=$($LCTL get_param -n mdc.*.mds_server_uuid |
 	awk '{ gsub(/_UUID/,""); print $1 }' | head -n1)
@@ -121,13 +93,6 @@ rm -rf $DIR/[Rdfs][0-9]*
 
 check_runas_id $RUNAS_ID $RUNAS_GID $RUNAS
 
-build_test_filter
-
-if [ "${ONLY}" = "MOUNT" ] ; then
-	echo "Lustre is up, please go on"
-	exit
-fi
-
 echo "preparing for tests involving mounts"
 EXT2_DEV=${EXT2_DEV:-$TMP/SANITY.LOOP}
 touch $EXT2_DEV
@@ -138,6 +103,35 @@ umask 077
 
 OLDDEBUG=$(lctl get_param -n debug 2> /dev/null)
 lctl set_param debug=-1 2> /dev/null || true
+}
+
+cleanup() {
+	echo -n "cln.."
+	pgrep ll_sa > /dev/null && {
+		echo "There are ll_sa thread not exit!"
+		exit 20
+	}
+	cleanupall ${FORCE} $* || {
+		echo "failed to clean up"
+		exit 20
+	}
+}
+
+setup() {
+	echo -n "mnt.."
+	load_modules
+	setupall || exit 10
+	echo "done"
+}
+
+check_swap_layouts_support() {
+	$LCTL get_param -n llite.*.sbi_flags | grep -q layout || {
+		skip "Does not support layout lock."
+		return 0
+	}
+	return 1
+}
+
 test_0a() {
 	touch $DIR/$tfile
 	$CHECKSTAT -t file $DIR/$tfile || error "$tfile is not a file"
@@ -3041,6 +3035,13 @@ test_38() {
 }
 run_test 38 "open a regular file with O_DIRECTORY should return -ENOTDIR ==="
 
+test_39_setup() {
+	# this should be set to past
+	export TEST_39_MTIME=$(date -d "1 year ago" +%s)
+	# this should be set to future
+	export TEST_39_ATIME=$(date -d "1 year" +%s)
+}
+
 test_39() {
 	touch $DIR/$tfile
 	touch $DIR/${tfile}2
@@ -3101,9 +3102,6 @@ test_39b() {
 	done
 }
 run_test 39b "mtime change on open, link, unlink, rename  ======"
-
-# this should be set to past
-TEST_39_MTIME=`date -d "1 year ago" +%s`
 
 # bug 11063
 test_39c() {
@@ -3319,9 +3317,6 @@ test_39k() {
 	done
 }
 run_test 39k "write, utime, close, stat ========================"
-
-# this should be set to future
-TEST_39_ATIME=`date -d "1 year" +%s`
 
 test_39l() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
@@ -5880,7 +5875,20 @@ test_76() { # Now for bug 20433, added originally in bug 1443
 run_test 76 "confirm clients recycle inodes properly ===="
 
 
-export ORIG_CSUM=""
+test_77_setup() {
+	export ORIG_CSUM=""
+	export ORIG_CSUM_TYPE=$(
+		lctl get_param -n osc.*osc-[^mM]*.checksum_type |
+		sed 's/.*\[\(.*\)\].*/\1/g' | head -n1
+	)
+	echo "Presaved original checksum type: $ORIG_CSUM_TYPE"
+	CKSUM_TYPES=${CKSUM_TYPES:-"crc32 adler"}
+	[ "$ORIG_CSUM_TYPE" = "crc32c" ] && CKSUM_TYPES="$CKSUM_TYPES crc32c"
+
+	F77_TMP=$TMP/f77-temp
+	F77SZ=8
+}
+
 set_checksums()
 {
 	# Note: in sptlrpc modes which enable its own bulk checksum, the
@@ -5895,18 +5903,13 @@ set_checksums()
 	return 0
 }
 
-export ORIG_CSUM_TYPE="`lctl get_param -n osc.*osc-[^mM]*.checksum_type |
-                        sed 's/.*\[\(.*\)\].*/\1/g' | head -n1`"
-CKSUM_TYPES=${CKSUM_TYPES:-"crc32 adler"}
-[ "$ORIG_CSUM_TYPE" = "crc32c" ] && CKSUM_TYPES="$CKSUM_TYPES crc32c"
 set_checksum_type()
 {
 	lctl set_param -n osc.*osc-[^mM]*.checksum_type $1
 	log "set checksum type to $1"
 	return 0
 }
-F77_TMP=$TMP/f77-temp
-F77SZ=8
+
 setup_f77() {
 	dd if=/dev/urandom of=$F77_TMP bs=1M count=$F77SZ || \
 		error "error writing to $F77_TMP"
@@ -6048,9 +6051,11 @@ test_77j() { # bug 13805
 }
 run_test 77j "client only supporting ADLER32"
 
-[ "$ORIG_CSUM" ] && set_checksums $ORIG_CSUM || true
-rm -f $F77_TMP
-unset F77_TMP
+test_77_cleanup() {
+	[ "$ORIG_CSUM" ] && set_checksums $ORIG_CSUM || true
+	rm -f $F77_TMP
+	unset F77_TMP
+}
 
 test_78() { # bug 10901
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
@@ -6321,9 +6326,6 @@ function get_named_value()
     done
 }
 
-export CACHE_MAX=$($LCTL get_param -n llite.*.max_cached_mb |
-		   awk '/^max_cached_mb/ { print $2 }')
-
 cleanup_101a() {
 	$LCTL set_param -n llite.*.max_cached_mb $CACHE_MAX
 	trap 0
@@ -6336,6 +6338,9 @@ test_101a() {
 	local discard
 	local nreads=10000
 	local cache_limit=32
+
+	export CACHE_MAX=$($LCTL get_param -n llite.*.max_cached_mb |
+		awk '/^max_cached_mb/ { print $2 }')
 
 	$LCTL set_param -n osc.*-osc*.rpc_stats 0
 	trap cleanup_101a EXIT
@@ -11750,26 +11755,28 @@ test_204h() {
 }
 run_test 204h "Print raw stripe count and size ============="
 
-# Figure out which job scheduler is being used, if any,
-# or use a fake one
-if [ -n "$SLURM_JOB_ID" ]; then # SLURM
-	JOBENV=SLURM_JOB_ID
-elif [ -n "$LSB_JOBID" ]; then # Load Sharing Facility
-	JOBENV=LSB_JOBID
-elif [ -n "$PBS_JOBID" ]; then # PBS/Maui/Moab
-	JOBENV=PBS_JOBID
-elif [ -n "$LOADL_STEPID" ]; then # LoadLeveller
-	JOBENV=LOADL_STEP_ID
-elif [ -n "$JOB_ID" ]; then # Sun Grid Engine
-	JOBENV=JOB_ID
-else
-	$LCTL list_param jobid_name > /dev/null 2>&1
-	if [ $? -eq 0 ]; then
-		JOBENV=nodelocal
+test_205_setup() {
+	# Figure out which job scheduler is being used, if any,
+	# or use a fake one
+	if [ -n "$SLURM_JOB_ID" ]; then # SLURM
+		export JOBENV=SLURM_JOB_ID
+	elif [ -n "$LSB_JOBID" ]; then # Load Sharing Facility
+		export JOBENV=LSB_JOBID
+	elif [ -n "$PBS_JOBID" ]; then # PBS/Maui/Moab
+		export JOBENV=PBS_JOBID
+	elif [ -n "$LOADL_STEPID" ]; then # LoadLeveller
+		export JOBENV=LOADL_STEP_ID
+	elif [ -n "$JOB_ID" ]; then # Sun Grid Engine
+		export JOBENV=JOB_ID
 	else
-		JOBENV=FAKE_JOBID
+		$LCTL list_param jobid_name > /dev/null 2>&1
+		if [ $? -eq 0 ]; then
+			export JOBENV=nodelocal
+		else
+			export JOBENV=FAKE_JOBID
+		fi
 	fi
-fi
+}
 
 verify_jobstats() {
 	local cmd=($1)
@@ -14789,10 +14796,13 @@ test_900() {
 }
 run_test 900 "umount should not race with any mgc requeue thread"
 
-complete $SECONDS
-[ -f $EXT2_DEV ] && rm $EXT2_DEV || true
-check_and_cleanup_lustre
-if [ "$I_MOUNTED" != "yes" ]; then
-	lctl set_param debug="$OLDDEBUG" 2> /dev/null || true
-fi
-exit_status
+tf_cleanup() {
+	[ -f $EXT2_DEV ] && rm $EXT2_DEV || true
+
+	if [ "$I_MOUNTED" != "yes" ]; then
+		lctl set_param debug="$OLDDEBUG" 2> /dev/null || true
+	fi
+}
+
+tf_run $@
+
