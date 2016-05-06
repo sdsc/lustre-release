@@ -1,1 +1,1 @@
-/lib/modules/%{kversion}/%{modules_fs_path}/llog_test.ko
+%{modules_fs_path}/%{lustre_name}-tests/fs/llog_test.ko
