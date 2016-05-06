@@ -581,6 +581,7 @@ struct ll_sb_info {
 
 	/* root squash */
 	struct root_squash_info	  ll_squash;
+	struct vfsmount		  *ll_mnt;
 };
 
 /*
