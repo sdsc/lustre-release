@@ -592,12 +592,16 @@ check_oi:
 		 *	Generally, when the device is mounted, it will
 		 *	auto check whether the system is restored from
 		 *	file-level backup or not. We trust such detect
-		 *	to distinguish the 1st case from the 2nd case. */
+		 *	to distinguish the 1st case from the 2nd case:
+		 *	if the OI files are consistent but may contain
+		 *	stale OI mappings because of case 2, if iget()
+		 *	returns -ENOENT or -ESTALE, then it should be
+		 *	the case 2. */
 		if (rc == 0) {
-			if (!IS_ERR(inode) && inode->i_generation != 0 &&
-			    inode->i_generation == id->oii_gen)
-				/* "id->oii_gen != OSD_OII_NOGEN" is for
-				 * "@cached == false" case. */
+			if ((!IS_ERR(inode) && inode->i_generation != 0 &&
+			     inode->i_generation == id->oii_gen) ||
+			    (IS_ERR(inode) && !(dev->od_scrub.os_file.sf_flags &
+						SF_INCONSISTENT)))
 				rc = -ENOENT;
 			else
 				rc = -EREMCHG;
