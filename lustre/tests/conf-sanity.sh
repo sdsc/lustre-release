@@ -3320,8 +3320,7 @@ cleanup_48() {
 	reformat_and_config
 }
 
-test_48() { # bug 17636
-	reformat
+test_48a() { # bug 17636
 	setup_noconfig
 	check_mount || error "check_mount failed"
 
@@ -3341,9 +3340,47 @@ test_48() { # bug 17636
 
 	stat $MOUNT/widestripe || error "stat $MOUNT/widestripe failed"
 
-	cleanup_48
+	trap 0
+	cleanup
 }
-run_test 48 "too many acls on file"
+run_test 48a "too many acls on file"
+
+test_48b() {
+	local count
+
+	setup_noconfig
+	check_mount || error "check_mount failed"
+	touch $DIR/$tfile || error "Fail to generate $DIR/$tfile"
+
+	# In the further, we may introduce more EAs, such as selinux, enlarged
+	# LOV EA, and so on. These EA will use some EA space that is shared by
+	# ACL entries. So here we only check some reasonable ACL entries count,
+	# instead of the max number that is calculated from the max_ea_size.
+	if [ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.8.0) ]; then
+		count=28	# hard coded of RPC protocol
+	elif [ $(facet_fstype $SINGLEMDS) != ldiskfs ]; then
+		count=4000	# max_num 4091 max_ea_size = 32768
+	elif ! large_xattr_enabled; then
+		count=450	# max_num 497 max_ea_size = 4012
+	else
+		count=8000	# max_num 8187 max_ea_size = 1048492
+	fi
+
+	trap cleanup_48 EXIT ERR
+	for ((i = 0; i < $count; i++)) do
+		setfacl -m u:$((i + 100)):rw $DIR/$tfile ||
+			error "Fail to setfacl for $DIR/$tfile at $i"
+	done
+
+	cancel_lru_locks mdc
+	stat $DIR/$tfile || error "Fail to stat $DIR/$tfile"
+	getfacl $DIR/$tfile > /dev/null ||
+		error "Fail to getfacl on $DIR/$tfile"
+
+	trap 0
+	cleanup
+}
+run_test 48b "ACL entries limitation"
 
 # check PARAM_SYS_LDLM_TIMEOUT option of MKFS.LUSTRE
 test_49a() { # bug 17710
