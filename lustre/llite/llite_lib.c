@@ -325,11 +325,12 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
 	}
 
 	LASSERT(osfs->os_bsize);
-        sb->s_blocksize = osfs->os_bsize;
-        sb->s_blocksize_bits = log2(osfs->os_bsize);
-        sb->s_magic = LL_SUPER_MAGIC;
-        sb->s_maxbytes = MAX_LFS_FILESIZE;
-        sbi->ll_namelen = osfs->os_namelen;
+	sb->s_blocksize = osfs->os_bsize;
+	sb->s_blocksize_bits = log2(osfs->os_bsize);
+	sb->s_magic = LL_SUPER_MAGIC;
+	sb->s_maxbytes = MAX_LFS_FILESIZE;
+	sbi->ll_namelen = osfs->os_namelen;
+	sbi->ll_mnt = mnt;
 
         if ((sbi->ll_flags & LL_SBI_USER_XATTR) &&
             !(data->ocd_connect_flags & OBD_CONNECT_XATTR)) {
@@ -2166,12 +2167,23 @@ int ll_flush_ctx(struct inode *inode)
 	return 0;
 }
 
+/*
+ * return true if the refcount is less than or equal to count
+ */
+static inline int refcount_check(struct vfsmount *mnt, int count)
+{
+	int mycount = atomic_read(&mnt->mnt_count) - mnt->mnt_ghosts;
+	return (mycount <= count);
+}
+
 /* umount -f client means force down, don't save state */
 void ll_umount_begin(struct super_block *sb)
 {
 	struct ll_sb_info *sbi = ll_s2sbi(sb);
 	struct obd_device *obd;
 	struct obd_ioctl_data *ioc_data;
+	struct l_wait_info lwi;
+	wait_queue_head_t waitq;
 	ENTRY;
 
 	CDEBUG(D_VFSTRACE, "VFS Op: superblock %p count %d active %d\n", sb,
@@ -2211,6 +2223,11 @@ void ll_umount_begin(struct super_block *sb)
 	 * schedule() and sleep one second if needed, and hope.
 	 */
 	schedule();
+	init_waitqueue_head(&waitq);
+	lwi = LWI_TIMEOUT_INTERVAL(cfs_time_seconds(10),
+				   cfs_time_seconds(0.5), NULL, NULL);
+	l_wait_event(waitq, refcount_check(sbi->ll_mnt, 2), &lwi);
+
 	EXIT;
 }
 
