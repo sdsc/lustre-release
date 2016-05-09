@@ -3503,6 +3503,7 @@ format_mgs() {
 	fi
 	echo "Format mgs: $(mgsdevname)"
 	reformat_external_journal mgs
+	touch $(mgsdevname)
 	add mgs $(mkfs_opts mgs $(mgsdevname)) --reformat \
 		$(mgsdevname) $(mgsvdevname) ${quiet:+>/dev/null} || exit 10
 }
@@ -3516,6 +3517,7 @@ format_mdt() {
 	fi
 	echo "Format mds$num: $(mdsdevname $num)"
 	reformat_external_journal mds$num
+	touch $(mdsdevname $num)
 	add mds$num $(mkfs_opts mds$num $(mdsdevname ${num})) \
 		--reformat $(mdsdevname $num) $(mdsvdevname $num) \
 		${quiet:+>/dev/null} || exit 10
@@ -3529,6 +3531,7 @@ format_ost() {
 	fi
 	echo "Format ost$num: $(ostdevname $num)"
 	reformat_external_journal ost$num
+	touch $(ostdevname $num)
 	add ost$num $(mkfs_opts ost$num $(ostdevname ${num})) \
 		--reformat $(ostdevname $num) $(ostvdevname ${num}) \
 		${quiet:+>/dev/null} || exit 10
