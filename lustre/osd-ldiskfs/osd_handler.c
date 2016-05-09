@@ -592,21 +592,25 @@ check_oi:
 		 *	Generally, when the device is mounted, it will
 		 *	auto check whether the system is restored from
 		 *	file-level backup or not. We trust such detect
-		 *	to distinguish the 1st case from the 2nd case. */
-		if (rc == 0) {
-			if (!IS_ERR(inode) && inode->i_generation != 0 &&
-			    inode->i_generation == id->oii_gen)
-				/* "id->oii_gen != OSD_OII_NOGEN" is for
-				 * "@cached == false" case. */
-				rc = -ENOENT;
-			else
-				rc = -EREMCHG;
-		} else {
+		 *	to distinguish the 1st case from the 2nd case:
+		 *	if the OI files are consistent but may contain
+		 *	stale OI mappings because of case 2, if iget()
+		 *	returns -ENOENT or -ESTALE, then it should be
+		 *	the case 2. */
+		if (rc != 0)
 			/* If the OI mapping was in OI file before the
 			 * osd_iget_check(), but now, it is disappear,
 			 * then it must be removed by race. That is a
 			 * normal race case. */
-		}
+			GOTO(put, rc);
+
+		if ((!IS_ERR(inode) && inode->i_generation != 0 &&
+		     inode->i_generation == id->oii_gen) ||
+		    (IS_ERR(inode) && !(dev->od_scrub.os_file.sf_flags &
+					SF_INCONSISTENT)))
+			rc = -ENOENT;
+		else
+			rc = -EREMCHG;
 	} else {
 		if (id->oii_gen == OSD_OII_NOGEN)
 			osd_id_gen(id, inode->i_ino, inode->i_generation);
@@ -842,7 +846,7 @@ iget:
 	if (IS_ERR(inode)) {
 		result = PTR_ERR(inode);
 		if (result == -ENOENT || result == -ESTALE)
-			GOTO(out, result = -ENOENT);
+			GOTO(out, result = 0);
 
 		if (result == -EREMCHG) {
 
@@ -2761,7 +2765,8 @@ static int osd_declare_object_destroy(const struct lu_env *env,
 			     osd_dto_credits_noquota[DTO_OBJECT_DELETE]);
 	/* Recycle idle OI leaf may cause additional three OI blocks
 	 * to be changed. */
-	osd_trans_declare_op(env, oh, OSD_OT_DELETE,
+	if (!OBD_FAIL_CHECK(OBD_FAIL_LFSCK_LOST_MDTOBJ2))
+		osd_trans_declare_op(env, oh, OSD_OT_DELETE,
 			     osd_dto_credits_noquota[DTO_INDEX_DELETE] + 3);
 	/* one less inode */
 	rc = osd_declare_inode_qid(env, i_uid_read(inode), i_gid_read(inode),
@@ -2820,8 +2825,10 @@ static int osd_object_destroy(const struct lu_env *env,
 	osd_trans_exec_op(env, th, OSD_OT_DESTROY);
 
 	ldiskfs_set_inode_state(inode, LDISKFS_STATE_LUSTRE_DESTROY);
-	result = osd_oi_delete(osd_oti_get(env), osd, fid, oh->ot_handle,
-			       OI_CHECK_FLD);
+
+	if (!OBD_FAIL_CHECK(OBD_FAIL_LFSCK_LOST_MDTOBJ2))
+		result = osd_oi_delete(osd_oti_get(env), osd, fid,
+				       oh->ot_handle, OI_CHECK_FLD);
 
 	osd_trans_exec_check(env, th, OSD_OT_DESTROY);
 	/* XXX: add to ext3 orphan list */
