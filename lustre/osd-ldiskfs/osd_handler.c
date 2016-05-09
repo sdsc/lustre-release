@@ -779,11 +779,14 @@ static int osd_fid_lookup(const struct lu_env *env, struct osd_object *obj,
 	struct osd_device      *dev;
 	struct osd_idmap_cache *oic;
 	struct osd_inode_id    *id;
+	struct osd_inode_id    *tid;
 	struct inode	       *inode;
 	struct osd_scrub       *scrub;
 	struct scrub_file      *sf;
 	int			result;
 	int			saved  = 0;
+	__u32			saved_ino;
+	__u32			saved_gen;
 	bool			cached  = true;
 	bool			triggered = false;
 	ENTRY;
@@ -907,61 +910,67 @@ trigger:
 	LASSERT(obj->oo_inode->i_sb == osd_sb(dev));
 
 	result = osd_check_lma(env, obj);
-	if (result != 0) {
-		if (result == -ENODATA) {
-			if (cached) {
-				result = osd_oi_lookup(info, dev, fid, id,
-						       OI_CHECK_FLD);
-				if (result != 0) {
-					/* result == -ENOENT means that the OI
-					 * mapping has been removed by race,
-					 * the target inode belongs to other
-					 * object.
-					 *
-					 * Others error also can be returned
-					 * directly. */
-					iput(inode);
-					obj->oo_inode = NULL;
-					GOTO(out, result);
-				} else {
-					/* result == 0 means the cached OI
-					 * mapping is still in the OI file,
-					 * the target the inode is valid. */
-				}
-			} else {
-				/* The current OI mapping is from the OI file,
-				 * since the inode has been found via
-				 * osd_iget_check(), no need recheck OI. */
-			}
+	if (result == 0)
+		goto found;
 
+	if (result == -ENODATA) {
+		tid = &info->oti_id3;
+		LASSERT(tid != id);
+
+		result = osd_oi_lookup(info, dev, fid, tid, OI_CHECK_FLD);
+		if (result == 0) {
+			LASSERTF(tid->oii_ino == id->oii_ino &&
+				 tid->oii_gen == id->oii_gen,
+				 "OI mapping changed(1): %u/%u => %u/%u",
+				 tid->oii_ino, tid->oii_gen,
+				 id->oii_ino, id->oii_gen);
+
+			LASSERTF(tid->oii_ino == inode->i_ino &&
+				 tid->oii_gen == inode->i_generation,
+				 "locate wrong inode(1): %u/%u => %ld/%u",
+				 tid->oii_ino, tid->oii_gen,
+				 inode->i_ino, inode->i_generation);
+
+			/* "result == 0" means the cached OI mapping is still in
+			 * the OI file, so the target the inode is valid. */
 			goto found;
 		}
 
-		iput(inode);
-		obj->oo_inode = NULL;
-		if (result != -EREMCHG)
-			GOTO(out, result);
-
-		if (cached) {
-			result = osd_oi_lookup(info, dev, fid, id,
-					       OI_CHECK_FLD);
-			/* result == -ENOENT means the cached OI mapping
-			 * has been removed from the OI file by race,
-			 * above target inode belongs to other object.
-			 *
-			 * Others error also can be returned directly. */
-			if (result != 0)
-				GOTO(out, result);
-
-			/* result == 0, goto trigger */
-		} else {
-			/* The current OI mapping is from the OI file,
-			 * since the inode has been found via
-			 * osd_iget_check(), no need recheck OI. */
-		}
-
-		goto trigger;
+		/* "result == -ENOENT" means that the OI mappinghas been removed
+		 * by race, the target inode belongs to other object.
+		 *
+		 * Others error can be returned  directly. */
+		if (result == -ENOENT)
+			result = 0;
 	}
+
+	saved_ino = inode->i_ino;
+	saved_gen = inode->i_generation;
+	iput(inode);
+	obj->oo_inode = NULL;
+	if (result != -EREMCHG)
+		GOTO(out, result);
+
+	tid = &info->oti_id3;
+	LASSERT(tid != id);
+
+	result = osd_oi_lookup(info, dev, fid, tid, OI_CHECK_FLD);
+	/* "result == -ENOENT" means the cached OI mapping has been removed from
+	 * the OI file by race, above target inode belongs to other object.
+	 *
+	 * Others error can be returned directly. */
+	if (result != 0)
+		GOTO(out, result = (result == -ENOENT ? 0 : result));
+
+	LASSERTF(tid->oii_ino == id->oii_ino && tid->oii_gen == id->oii_gen,
+		 "OI mapping changed(2): %u/%u => %u/%u",
+		 tid->oii_ino, tid->oii_gen, id->oii_ino, id->oii_gen);
+
+	LASSERTF(tid->oii_ino == saved_ino && tid->oii_gen == saved_gen,
+		 "locate wrong inode(2): %u/%u => %u/%u",
+		 tid->oii_ino, tid->oii_gen, saved_ino, saved_gen);
+
+	goto trigger;
 
 found:
 	obj->oo_compat_dot_created = 1;
