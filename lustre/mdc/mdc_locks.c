@@ -320,8 +320,11 @@ mdc_intent_open_pack(struct obd_export *exp, struct lookup_intent *it,
         if (client_is_remote(exp))
                 req_capsule_set_size(&req->rq_pill, &RMF_ACL, RCL_SERVER,
                                      sizeof(struct mdt_remote_perm));
-        ptlrpc_request_set_replen(req);
-        return req;
+	else
+		req_capsule_set_size(&req->rq_pill, &RMF_ACL, RCL_SERVER,
+			req->rq_import->imp_connect_data.ocd_max_easize);
+	ptlrpc_request_set_replen(req);
+	return req;
 }
 
 static struct ptlrpc_request *
@@ -366,6 +369,8 @@ mdc_intent_getxattr_pack(struct obd_export *exp,
 
 	req_capsule_set_size(&req->rq_pill, &RMF_EAVALS_LENS,
 				RCL_SERVER, maxdata);
+
+	req_capsule_set_size(&req->rq_pill, &RMF_ACL, RCL_SERVER, maxdata);
 
 	ptlrpc_request_set_replen(req);
 
@@ -455,6 +460,9 @@ static struct ptlrpc_request *mdc_intent_getattr_pack(struct obd_export *exp,
 	if (client_is_remote(exp))
 		req_capsule_set_size(&req->rq_pill, &RMF_ACL, RCL_SERVER,
 				     sizeof(struct mdt_remote_perm));
+	else
+		req_capsule_set_size(&req->rq_pill, &RMF_ACL, RCL_SERVER,
+			req->rq_import->imp_connect_data.ocd_max_easize);
 	ptlrpc_request_set_replen(req);
 	RETURN(req);
 }
