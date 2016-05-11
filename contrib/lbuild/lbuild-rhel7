@@ -93,3 +93,20 @@ kernel_srpm_location() {
     echo "http://vault.centos.org/centos/7/updates/Source/SPackages/"
 
 }
+
+kmodtool_location() {
+  cp $RPM_HELPERS_DIR/kmodtool $TOPDIR/bin/kmodtool
+  chmod 755 $TOPDIR/bin/kmodtool
+  local tmp="$TOPDIR/reused"
+  tmp="${tmp//\//\\/}"
+  ed $TOPDIR/bin/kmodtool <<EOF
+1a
+set -x
+.
+g/\(\/usr\/src\/kernels\/\)/s//$tmp\1/g
+wq
+EOF
+echo "$TOPDIR/bin/kmodtool"
+
+}
+

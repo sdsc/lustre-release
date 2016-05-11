@@ -349,6 +349,7 @@ check_options() {
 #!/bin/bash
 
 ARGS="\${FIND_REQUIRES:+--define \"__find_requires \$FIND_REQUIRES\"}"
+ARGS="\$ARGS \${KMODTOOL:+--define \"kmodtool \$KMODTOOL\"}"
 for arg; do
     case \$arg in
     *\'* ) ARGS="\$ARGS \"\$arg\"" ;;
@@ -827,6 +828,12 @@ build_lustre() {
 
     configure_args="$configure_args --with-linux=$linux"
     configure_args="$configure_args ${linuxobj:+--with-linux-obj=$linuxobj}"
+
+    # if there a need for modified kmodtool, do it here
+    if type -p kmodtool_location; then
+      kmodtool=$(kmodtool_location)
+      export KMODTOOL="$kmodtool"
+    fi
 
     # allow environment setting to override ldiskfs series selection
     [ -n "$LDISKFS_SERIES" ] && export LDISKFS_SERIES
