@@ -1,0 +1,114 @@
+diff --git a/fs/ext4/ext4.h b/fs/ext4/ext4.h
+index 35f7b87..c97924d 100644
+--- a/fs/ext4/ext4.h
++++ b/fs/ext4/ext4.h
+@@ -1232,6 +1232,10 @@ struct ext4_sb_info {
+ 
+ 	/* record the last minlen when FITRIM is called. */
+ 	atomic_t s_last_trim_minblks;
++
++	/* for lazyinit stats */
++	unsigned long lazyinit_finished_cnt;
++	unsigned long lazyinit_total_cnt;
+ };
+ 
+ static inline struct ext4_sb_info *EXT4_SB(struct super_block *sb)
+diff --git a/fs/ext4/super.c b/fs/ext4/super.c
+index 1ed737f..b7b0c4d 100644
+--- a/fs/ext4/super.c
++++ b/fs/ext4/super.c
+@@ -2517,6 +2517,26 @@ static ssize_t lifetime_write_kbytes_show(struct ext4_attr *a,
+ 			  EXT4_SB(sb)->s_sectors_written_start) >> 1));
+ }
+ 
++static ssize_t lazyinit_stats_show(struct ext4_attr *a,
++				   struct ext4_sb_info *sbi, char *buf)
++{
++	int len = 0;
++	unsigned long total = sbi->lazyinit_total_cnt;
++	unsigned long finish = sbi->lazyinit_finished_cnt;
++	unsigned long ratio = 100;
++
++	if (total)
++		ratio = finish * 100 / total;
++	len += snprintf(buf + len, PAGE_SIZE,
++			"finished/total			%lu/%lu\n",
++			finish, total);
++	len += snprintf(buf + len, PAGE_SIZE,
++			"lazyinit ratio			%lu%%\n",
++			ratio);
++
++	return len;
++}
++
+ static ssize_t inode_readahead_blks_store(struct ext4_attr *a,
+ 					  struct ext4_sb_info *sbi,
+ 					  const char *buf, size_t count)
+@@ -2574,6 +2594,7 @@ static struct ext4_attr ext4_attr_##name = __ATTR(name, mode, show, store)
+ EXT4_RO_ATTR(delayed_allocation_blocks);
+ EXT4_RO_ATTR(session_write_kbytes);
+ EXT4_RO_ATTR(lifetime_write_kbytes);
++EXT4_RO_ATTR(lazyinit_stats);
+ EXT4_RW_ATTR(reserved_blocks);
+ EXT4_ATTR_OFFSET(inode_readahead_blks, 0644, sbi_ui_show,
+ 		 inode_readahead_blks_store, s_inode_readahead_blks);
+@@ -2593,6 +2614,7 @@ static struct attribute *ext4_attrs[] = {
+ 	ATTR_LIST(delayed_allocation_blocks),
+ 	ATTR_LIST(session_write_kbytes),
+ 	ATTR_LIST(lifetime_write_kbytes),
++	ATTR_LIST(lazyinit_stats),
+ 	ATTR_LIST(reserved_blocks),
+ 	ATTR_LIST(inode_readahead_blks),
+ 	ATTR_LIST(inode_goal),
+@@ -2750,6 +2772,7 @@ static int ext4_run_li_request(struct ext4_li_request *elr)
+ 		}
+ 		elr->lr_next_sched = jiffies + elr->lr_timeout;
+ 		elr->lr_next_group = group + 1;
++		EXT4_SB(sb)->lazyinit_finished_cnt++;
+ 	}
+ 	sb_end_write(sb);
+ 
+@@ -2956,10 +2979,12 @@ static struct ext4_li_request *ext4_li_request_new(struct super_block *sb,
+ 	struct ext4_sb_info *sbi = EXT4_SB(sb);
+ 	struct ext4_li_request *elr;
+ 	unsigned long rnd;
++	ext4_group_t group, ngroups;
++	struct ext4_group_desc *gdp = NULL;
+ 
+ 	elr = kzalloc(sizeof(*elr), GFP_KERNEL);
+ 	if (!elr)
+-		return NULL;
++		return ERR_PTR(-ENOMEM);
+ 
+ 	elr->lr_super = sb;
+ 	elr->lr_sbi = sbi;
+@@ -2974,6 +2999,18 @@ static struct ext4_li_request *ext4_li_request_new(struct super_block *sb,
+ 	elr->lr_next_sched = jiffies + (unsigned long)rnd %
+ 			     (EXT4_DEF_LI_MAX_START_DELAY * HZ);
+ 
++        ngroups = EXT4_SB(sb)->s_groups_count;
++        for (group = elr->lr_next_group; group < ngroups; group++) {
++                gdp = ext4_get_group_desc(sb, group, NULL);
++                if (!gdp) {
++			elr = ERR_PTR(-EIO);
++			break;
++                }
++                if (!(gdp->bg_flags & cpu_to_le16(EXT4_BG_INODE_ZEROED)))
++			sbi->lazyinit_total_cnt++;
++        }
++
++
+ 	return elr;
+ }
+ 
+@@ -3000,8 +3037,8 @@ static int ext4_register_li_request(struct super_block *sb,
+ 		return 0;
+ 
+ 	elr = ext4_li_request_new(sb, first_not_zeroed);
+-	if (!elr)
+-		return -ENOMEM;
++	if (IS_ERR(elr))
++		return PTR_ERR(elr);
+ 
+ 	mutex_lock(&ext4_li_mtx);
+ 
