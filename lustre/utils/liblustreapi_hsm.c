@@ -65,15 +65,18 @@
 #define OPEN_BY_FID_PATH dot_lustre_name"/fid"
 
 /****** HSM Copytool API ********/
-#define CT_PRIV_MAGIC 0xC0BE2001
+#define CT_PRIV_MAGIC	0xC0BE2001
 struct hsm_copytool_private {
 	int			 magic;
 	char			*mnt;
-	struct kuc_hdr		*kuch;
 	int			 mnt_fd;
 	int			 open_by_fid_fd;
+	int			 cdev_fd;
 	struct lustre_kernelcomm kuc;
 	__u32			 archives;
+	size_t			 data_len;
+	char			*cur_pos;
+	char			 buf[HAL_MAXSIZE];
 };
 
 #define CP_PRIV_MAGIC 0x19880429
@@ -673,8 +676,14 @@ int llapi_hsm_copytool_register(struct hsm_copytool_private **priv,
 				const char *mnt, int archive_count,
 				int *archives, int rfd_flags)
 {
-	struct hsm_copytool_private	*ct;
-	int				 rc;
+	struct hsm_copytool_private *ct;
+	char fsname[MAX_OBD_NAME + 1] = "";
+	/* 4                -> /dev
+	 * 10               -> /copytool-
+	 * MAX_OBD_NAME + 1 -> fsname
+	 */
+	char *copytool_path;
+	int rc;
 
 	if (archive_count > 0 && archives == NULL) {
 		llapi_err_noerrno(LLAPI_MSG_ERROR,
@@ -692,21 +701,15 @@ int llapi_hsm_copytool_register(struct hsm_copytool_private **priv,
 	ct = calloc(1, sizeof(*ct));
 	if (ct == NULL)
 		return -ENOMEM;
+	ct->data_len = 0;
+	ct->cur_pos = ct->buf;
 
 	ct->magic = CT_PRIV_MAGIC;
 	ct->mnt_fd = -1;
 	ct->open_by_fid_fd = -1;
-	ct->kuc.lk_rfd = LK_NOFD;
-	ct->kuc.lk_wfd = LK_NOFD;
 
 	ct->mnt = strdup(mnt);
 	if (ct->mnt == NULL) {
-		rc = -ENOMEM;
-		goto out_err;
-	}
-
-	ct->kuch = malloc(HAL_MAXSIZE + sizeof(*ct->kuch));
-	if (ct->kuch == NULL) {
 		rc = -ENOMEM;
 		goto out_err;
 	}
@@ -722,6 +725,22 @@ int llapi_hsm_copytool_register(struct hsm_copytool_private **priv,
 		rc = -errno;
 		goto out_err;
 	}
+
+	/* Build the path to the copytool char device */
+	rc = llapi_search_fsname(mnt, fsname);
+	if (rc != 0)
+		goto out_err;
+	asprintf(&copytool_path, "/dev/copytool-%s", fsname);
+	if (copytool_path == NULL)
+		goto out_err;
+
+	/* Open the copytool char device */
+	ct->cdev_fd = open(copytool_path, O_RDONLY | rfd_flags);
+	if (ct->cdev_fd < 0) {
+		rc = -errno;
+		goto out_err;
+	}
+	free(copytool_path);
 
 	/* no archives specified means "match all". */
 	ct->archives = 0;
@@ -744,10 +763,6 @@ int llapi_hsm_copytool_register(struct hsm_copytool_private **priv,
 		ct->archives |= (1 << (archives[rc] - 1));
 	}
 
-	rc = libcfs_ukuc_start(&ct->kuc, KUC_GRP_HSM, rfd_flags);
-	if (rc < 0)
-		goto out_err;
-
 	/* Storing archive(s) in lk_data; see mdc_ioc_hsm_ct_start */
 	ct->kuc.lk_data = ct->archives;
 	rc = ioctl(ct->mnt_fd, LL_IOC_HSM_CT_START, &ct->kuc);
@@ -755,21 +770,13 @@ int llapi_hsm_copytool_register(struct hsm_copytool_private **priv,
 		rc = -errno;
 		llapi_error(LLAPI_MSG_ERROR, rc,
 			    "cannot start copytool on '%s'", mnt);
-		goto out_kuc;
+		goto out_err;
 	}
 
 	llapi_hsm_log_ct_registration(&ct, CT_REGISTER);
-
-	/* Only the kernel reference keeps the write side open */
-	close(ct->kuc.lk_wfd);
-	ct->kuc.lk_wfd = LK_NOFD;
 	*priv = ct;
 
 	return 0;
-
-out_kuc:
-	/* cleanup the kuc channel */
-	libcfs_ukuc_stop(&ct->kuc);
 
 out_err:
 	if (!(ct->mnt_fd < 0))
@@ -778,10 +785,10 @@ out_err:
 	if (!(ct->open_by_fid_fd < 0))
 		close(ct->open_by_fid_fd);
 
+	if (!(ct->cdev_fd < 0))
+		close(ct->cdev_fd);
+
 	free(ct->mnt);
-
-	free(ct->kuch);
-
 	free(ct);
 
 	return rc;
@@ -803,23 +810,16 @@ int llapi_hsm_copytool_unregister(struct hsm_copytool_private **priv)
 	if (ct->magic != CT_PRIV_MAGIC)
 		return -EINVAL;
 
-	/* Close the read side of the KUC pipe. This should be done
-	 * before unregistering to avoid deadlock: a ldlm_cb thread
-	 * enters libcfs_kkuc_group_put() acquires kg_sem and blocks
-	 * in pipe_write() due to full pipe; then we attempt to
-	 * unregister and block on kg_sem. */
-	libcfs_ukuc_stop(&ct->kuc);
-
 	/* Tell the kernel to stop sending us messages */
 	ct->kuc.lk_flags = LK_FLG_STOP;
 	ioctl(ct->mnt_fd, LL_IOC_HSM_CT_START, &ct->kuc);
 
 	llapi_hsm_log_ct_registration(&ct, CT_UNREGISTER);
 
+	close(ct->cdev_fd);
 	close(ct->open_by_fid_fd);
 	close(ct->mnt_fd);
 	free(ct->mnt);
-	free(ct->kuch);
 	free(ct);
 	*priv = NULL;
 
@@ -833,10 +833,24 @@ int llapi_hsm_copytool_unregister(struct hsm_copytool_private **priv)
  */
 int llapi_hsm_copytool_get_fd(struct hsm_copytool_private *ct)
 {
-	if (ct == NULL || ct->magic != CT_PRIV_MAGIC)
-		return -EINVAL;
+	return ct->cdev_fd;
+}
 
-	return libcfs_ukuc_get_rfd(&ct->kuc);
+ssize_t ct_cdev_read_bulk(struct hsm_copytool_private *ct)
+{
+	ssize_t rd_bytes;
+
+	rd_bytes = pread(ct->cdev_fd, ct->buf, HAL_MAXSIZE, ct->archives);
+	if (rd_bytes < 0)
+		return -errno;
+	else if (rd_bytes == 0)
+		/* any hal shoud be smaller than HAL_MAXSIZE
+		 * and thus fit in the buffer */
+		return -EPROTO;
+
+	ct->cur_pos = ct->buf;
+	ct->data_len = rd_bytes;
+	return 0;
 }
 
 /** Wait for the next hsm_action_list
@@ -846,14 +860,13 @@ int llapi_hsm_copytool_get_fd(struct hsm_copytool_private *ct)
  * \return 0 valid message received; halh and msgsize are set
  *	   <0 error code
  * Note: The application must not call llapi_hsm_copytool_recv until it has
- * cleared the data in ct->kuch from the previous call.
+ * cleared the data in ct->buf from the previous call.
  */
 int llapi_hsm_copytool_recv(struct hsm_copytool_private *ct,
 			    struct hsm_action_list **halh, int *msgsize)
 {
-	struct kuc_hdr		*kuch;
-	struct hsm_action_list	*hal;
-	int			 rc = 0;
+	struct hsm_action_list *hal;
+	int rc = 0;
 
 	if (ct == NULL || ct->magic != CT_PRIV_MAGIC)
 		return -EINVAL;
@@ -861,58 +874,17 @@ int llapi_hsm_copytool_recv(struct hsm_copytool_private *ct,
 	if (halh == NULL || msgsize == NULL)
 		return -EINVAL;
 
-	kuch = ct->kuch;
-
-repeat:
-	rc = libcfs_ukuc_msg_get(&ct->kuc, (char *)kuch,
-				 HAL_MAXSIZE + sizeof(*kuch),
-				 KUC_TRANSPORT_HSM);
-	if (rc < 0)
-		goto out_err;
-
-	/* Handle generic messages */
-	if (kuch->kuc_transport == KUC_TRANSPORT_GENERIC &&
-	    kuch->kuc_msgtype == KUC_MSG_SHUTDOWN) {
-		rc = -ESHUTDOWN;
-		goto out_err;
+	if (ct->cur_pos - ct->buf >= ct->data_len) {
+		rc = ct_cdev_read_bulk(ct);
+		if (rc != 0)
+			goto out_err;
 	}
 
-	if (kuch->kuc_transport != KUC_TRANSPORT_HSM ||
-	    kuch->kuc_msgtype != HMT_ACTION_LIST) {
-		llapi_err_noerrno(LLAPI_MSG_ERROR,
-				  "Unknown HSM message type %d:%d\n",
-				  kuch->kuc_transport, kuch->kuc_msgtype);
-		rc = -EPROTO;
-		goto out_err;
-	}
-
-	if (kuch->kuc_msglen < sizeof(*kuch) + sizeof(*hal)) {
-		llapi_err_noerrno(LLAPI_MSG_ERROR, "Short HSM message %d",
-				  kuch->kuc_msglen);
-		rc = -EPROTO;
-		goto out_err;
-	}
-
-	/* Our message is a hsm_action_list. Use pointer math to skip
-	* kuch_hdr and point directly to the message payload.
-	*/
-	hal = (struct hsm_action_list *)(kuch + 1);
-
-	/* Check that we have registered for this archive #
-	 * if 0 registered, we serve any archive */
-	if (ct->archives &&
-	    ((1 << (hal->hal_archive_id - 1)) & ct->archives) == 0) {
-		llapi_err_noerrno(LLAPI_MSG_INFO,
-				  "This copytool does not service archive #%d,"
-				  " ignoring this request."
-				  " Mask of served archive is 0x%.8X",
-				  hal->hal_archive_id, ct->archives);
-
-		goto repeat;
-	}
+	hal = (struct hsm_action_list *) ct->cur_pos;
+	ct->cur_pos += hal_size(hal);
 
 	*halh = hal;
-	*msgsize = kuch->kuc_msglen - sizeof(*kuch);
+	*msgsize = hal_size(hal);
 	return 0;
 
 out_err:

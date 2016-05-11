@@ -1560,11 +1560,49 @@ out:
 	return rc;
 }
 
+struct ct_infos {
+	struct list_head	list;
+	struct obd_uuid		uuid;
+	__u32			archive_mask;
+};
+/* List inventoring the registered copytool (for crash recovery purposes) */
+static LIST_HEAD(ct_infos_list);
+/* To protect the list */
+static DEFINE_MUTEX(ct_infos_mutex);
+
+static int remember_copytool(struct obd_uuid uuid, __u32 archive_mask)
+{
+	struct ct_infos	*ct_infos;
+
+	OBD_ALLOC_PTR(ct_infos);
+	if (ct_infos == NULL)
+		return -ENOMEM;
+	ct_infos->uuid = uuid;
+	ct_infos->archive_mask = archive_mask;
+	list_add(&ct_infos->list, &ct_infos_list);
+	return 0;
+}
+
+static void forget_copytool(struct obd_uuid uuid)
+{
+	struct ct_infos *ct_infos;
+	struct ct_infos *next;
+
+	mutex_lock(&ct_infos_mutex);
+	list_for_each_entry_safe(ct_infos, next, &ct_infos_list, list) {
+		if (obd_uuid_equals(&ct_infos->uuid, &uuid)) {
+			list_del(&ct_infos->list);
+			OBD_FREE_PTR(ct_infos);
+		}
+	}
+	mutex_unlock(&ct_infos_mutex);
+}
+
 static int mdc_ioc_hsm_ct_register(struct obd_import *imp, __u32 archives)
 {
-	__u32			*archive_mask;
-	struct ptlrpc_request	*req;
-	int			 rc;
+	__u32 *archive_mask;
+	struct ptlrpc_request *req;
+	int rc;
 	ENTRY;
 
 	req = ptlrpc_request_alloc_pack(imp, &RQF_MDS_HSM_CT_REGISTER,
@@ -2257,46 +2295,37 @@ static void lustre_swab_hai(struct hsm_action_item *h)
 
 static void lustre_swab_hal(struct hsm_action_list *h)
 {
-	struct hsm_action_item	*hai;
-	__u32			 i;
+	struct hsm_action_item *hai;
+	__u32 i;
 
 	__swab32s(&h->hal_version);
 	__swab32s(&h->hal_count);
 	__swab32s(&h->hal_archive_id);
 	__swab64s(&h->hal_flags);
+	__swab32s(&h->hal_magic);
 	hai = hai_first(h);
 	for (i = 0; i < h->hal_count; i++, hai = hai_next(hai))
 		lustre_swab_hai(hai);
 }
 
-static void lustre_swab_kuch(struct kuc_hdr *l)
-{
-        __swab16s(&l->kuc_magic);
-        /* __u8 l->kuc_transport */
-        __swab16s(&l->kuc_msgtype);
-        __swab16s(&l->kuc_msglen);
-}
-
 static int mdc_ioc_hsm_ct_start(struct obd_export *exp,
 				struct lustre_kernelcomm *lk)
 {
-	struct obd_import  *imp = class_exp2cliimp(exp);
-	__u32		    archive = lk->lk_data;
-	int		    rc = 0;
-
-	if (lk->lk_group != KUC_GRP_HSM) {
-		CERROR("Bad copytool group %d\n", lk->lk_group);
-		return -EINVAL;
-	}
+	struct obd_import *imp = class_exp2cliimp(exp);
+	__u32 archive = lk->lk_data;
+	int rc = 0;
 
 	CDEBUG(D_HSM, "CT start r%d w%d u%d g%d f%#x\n", lk->lk_rfd, lk->lk_wfd,
 	       lk->lk_uid, lk->lk_group, lk->lk_flags);
 
 	if (lk->lk_flags & LK_FLG_STOP) {
 		/* Unregister with the coordinator */
+		forget_copytool(imp->imp_obd->obd_uuid);
 		rc = mdc_ioc_hsm_ct_unregister(imp);
 	} else {
 		rc = mdc_ioc_hsm_ct_register(imp, archive);
+		if (rc == 0)
+			remember_copytool(imp->imp_obd->obd_uuid, archive);
 	}
 
 	return rc;
@@ -2304,75 +2333,46 @@ static int mdc_ioc_hsm_ct_start(struct obd_export *exp,
 
 /**
  * Send a message to any listening copytools
- * @param val KUC message (kuc_hdr + hsm_action_list)
- * @param len total length of message
+ * @param hal the struct hsm_action_list to send
  */
-static int mdc_hsm_copytool_send(size_t len, void *val)
+static int mdc_hsm_copytool_send(struct obd_device *obd,
+				 struct hsm_action_list *hal, u32 hal_sz)
 {
-	struct kuc_hdr		*lh = (struct kuc_hdr *)val;
-	struct hsm_action_list	*hal = (struct hsm_action_list *)(lh + 1);
-	int			 rc;
+	int rc;
 	ENTRY;
 
-	if (len < sizeof(*lh) + sizeof(*hal)) {
-		CERROR("Short HSM message %zu < %zu\n", len,
-		       sizeof(*lh) + sizeof(*hal));
-		RETURN(-EPROTO);
-	}
-	if (lh->kuc_magic == __swab16(KUC_MAGIC)) {
-		lustre_swab_kuch(lh);
+	if (hal->hal_magic == __swab32(HAL_MAGIC))
 		lustre_swab_hal(hal);
-	} else if (lh->kuc_magic != KUC_MAGIC) {
-		CERROR("Bad magic %x!=%x\n", lh->kuc_magic, KUC_MAGIC);
-		RETURN(-EPROTO);
-	}
+	CDEBUG(D_HSM, " Received hsm_action_list l=%u actions=%d on %s\n",
+	       hal_sz, hal->hal_count, hal->hal_fsname);
 
-	CDEBUG(D_HSM, " Received message mg=%x t=%d m=%d l=%d actions=%d "
-	       "on %s\n",
-	       lh->kuc_magic, lh->kuc_transport, lh->kuc_msgtype,
-	       lh->kuc_msglen, hal->hal_count, hal->hal_fsname);
-
-	/* Broadcast to HSM listeners */
-	rc = libcfs_kkuc_group_put(KUC_GRP_HSM, lh);
+	/* Broadcast to listening copytools */
+	rc = ct_cdev_hal_publish(obd, hal, 0);
+	if (rc == hal_sz)
+		rc = 0;
 
 	RETURN(rc);
-}
-
-/**
- * callback function passed to kuc for re-registering each HSM copytool
- * running on MDC, after MDT shutdown/recovery.
- * @param data copytool registration data
- * @param cb_arg callback argument (obd_import)
- */
-static int mdc_hsm_ct_reregister(void *data, void *cb_arg)
-{
-	struct kkuc_ct_data	*kcd = data;
-	struct obd_import	*imp = (struct obd_import *)cb_arg;
-	int			 rc;
-
-	if (kcd == NULL || kcd->kcd_magic != KKUC_CT_DATA_MAGIC)
-		return -EPROTO;
-
-	if (!obd_uuid_equals(&kcd->kcd_uuid, &imp->imp_obd->obd_uuid))
-		return 0;
-
-	CDEBUG(D_HA, "%s: recover copytool registration to MDT (archive=%#x)\n",
-	       imp->imp_obd->obd_name, kcd->kcd_archive);
-	rc = mdc_ioc_hsm_ct_register(imp, kcd->kcd_archive);
-
-	/* ignore error if the copytool is already registered */
-	return (rc == -EEXIST) ? 0 : rc;
 }
 
 /**
  * Re-establish all kuc contexts with MDT
  * after MDT shutdown/recovery.
  */
-static int mdc_kuc_reregister(struct obd_import *imp)
+static int mdc_ct_reregister(struct obd_import *imp)
 {
+	struct ct_infos *ct_infos;
+	int rc = 0;
+	ENTRY;
+
 	/* re-register HSM agents */
-	return libcfs_kkuc_group_foreach(KUC_GRP_HSM, mdc_hsm_ct_reregister,
-					 (void *)imp);
+	mutex_lock(&ct_infos_mutex);
+	list_for_each_entry(ct_infos, &ct_infos_list, list) {
+		rc = mdc_ioc_hsm_ct_register(imp, ct_infos->archive_mask);
+		if (rc != 0 && rc != -EEXIST)
+			break;
+	}
+	mutex_unlock(&ct_infos_mutex);
+	RETURN(rc);
 }
 
 static int mdc_set_info_async(const struct lu_env *env,
@@ -2381,8 +2381,8 @@ static int mdc_set_info_async(const struct lu_env *env,
 			      u32 vallen, void *val,
 			      struct ptlrpc_request_set *set)
 {
-	struct obd_import	*imp = class_exp2cliimp(exp);
-	int			 rc;
+	struct obd_import *imp = class_exp2cliimp(exp);
+	int rc;
 	ENTRY;
 
 	if (KEY_IS(KEY_READ_ONLY)) {
@@ -2401,27 +2401,27 @@ static int mdc_set_info_async(const struct lu_env *env,
 		}
 		spin_unlock(&imp->imp_lock);
 
-                rc = do_set_info_async(imp, MDS_SET_INFO, LUSTRE_MDS_VERSION,
-                                       keylen, key, vallen, val, set);
-                RETURN(rc);
-        }
-        if (KEY_IS(KEY_SPTLRPC_CONF)) {
-                sptlrpc_conf_client_adapt(exp->exp_obd);
-                RETURN(0);
-        }
-        if (KEY_IS(KEY_FLUSH_CTX)) {
-                sptlrpc_import_flush_my_ctx(imp);
-                RETURN(0);
-        }
-        if (KEY_IS(KEY_CHANGELOG_CLEAR)) {
-                rc = do_set_info_async(imp, MDS_SET_INFO, LUSTRE_MDS_VERSION,
-                                       keylen, key, vallen, val, set);
-                RETURN(rc);
-        }
-        if (KEY_IS(KEY_HSM_COPYTOOL_SEND)) {
-                rc = mdc_hsm_copytool_send(vallen, val);
-                RETURN(rc);
-        }
+		rc = do_set_info_async(imp, MDS_SET_INFO, LUSTRE_MDS_VERSION,
+				       keylen, key, vallen, val, set);
+		RETURN(rc);
+	}
+	if (KEY_IS(KEY_SPTLRPC_CONF)) {
+		sptlrpc_conf_client_adapt(exp->exp_obd);
+		RETURN(0);
+	}
+	if (KEY_IS(KEY_FLUSH_CTX)) {
+		sptlrpc_import_flush_my_ctx(imp);
+		RETURN(0);
+	}
+	if (KEY_IS(KEY_CHANGELOG_CLEAR)) {
+		rc = do_set_info_async(imp, MDS_SET_INFO, LUSTRE_MDS_VERSION,
+				keylen, key, vallen, val, set);
+		RETURN(rc);
+	}
+	if (KEY_IS(KEY_HSM_COPYTOOL_SEND)) {
+		rc = mdc_hsm_copytool_send(imp->imp_obd, val, vallen);
+		RETURN(rc);
+	}
 
 	if (KEY_IS(KEY_DEFAULT_EASIZE)) {
 		__u32 *default_easize = val;
@@ -2543,9 +2543,9 @@ static int mdc_import_event(struct obd_device *obd, struct obd_import *imp,
         }
 	case IMP_EVENT_ACTIVE:
 		rc = obd_notify_observer(obd, obd, OBD_NOTIFY_ACTIVE, NULL);
-		/* redo the kuc registration after reconnecting */
+		/* reregister the copytool after reconnecting */
 		if (rc == 0)
-			rc = mdc_kuc_reregister(imp);
+			rc = mdc_ct_reregister(imp);
 		break;
         case IMP_EVENT_OCD:
                 rc = obd_notify_observer(obd, obd, OBD_NOTIFY_OCD, NULL);
@@ -2670,6 +2670,14 @@ static int mdc_setup(struct obd_device *obd, struct lustre_cfg *cfg)
 		RETURN(rc);
         }
 
+	rc = ct_cdev_init(obd);
+	if (rc) {
+		mdc_cleanup(obd);
+		mdc_llog_finish(obd);
+		CERROR("failed to setup the copytool char device\n");
+		RETURN(rc);
+	}
+
         RETURN(rc);
 
 err_ptlrpcd_decref:
@@ -2705,15 +2713,12 @@ static int mdc_precleanup(struct obd_device *obd)
 {
 	ENTRY;
 
-	/* Failsafe, ok if racy */
-	if (obd->obd_type->typ_refcnt <= 1)
-		libcfs_kkuc_group_rem(0, KUC_GRP_HSM);
-
+	ct_cdev_exit(obd);
+	mdc_llog_finish(obd);
 	obd_cleanup_client_import(obd);
 	ptlrpc_lprocfs_unregister_obd(obd);
 	lprocfs_obd_cleanup(obd);
 	lprocfs_free_md_stats(obd);
-	mdc_llog_finish(obd);
 	RETURN(0);
 }
 
