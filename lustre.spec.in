@@ -141,10 +141,19 @@ Userspace tools and files for the Lustre file system.
 %kernel_module_package_buildreqs
 
 # Lustre modules
+%if %{defined kmodtool}
+%kernel_module_package -n %{name} -p %SOURCE1 -f %SOURCE2 -s %kmodtool default
+%else
 %kernel_module_package -n %{name} -p %SOURCE1 -f %SOURCE2 default
+%endif
 
 %if %{with ldiskfs}
+%if %{defined kmodtool}
+%kernel_module_package -n %{name}-osd-ldiskfs -p %SOURCE3 -f %SOURCE4 -s %kmodtool default
+%else
 %kernel_module_package -n %{name}-osd-ldiskfs -p %SOURCE3 -f %SOURCE4 default
+%endif
+
 %if %{with lustre_utils}
 %package osd-ldiskfs-mount
 Summary: osd-ldiskfs-mount contains mount's ldiskfs specific dso.
@@ -158,7 +167,12 @@ LDISKFS hooks for mount/mkfs into a dynamic library.
 %endif	# with ldiskfs
 
 %if %{with zfs}
+%if %{defined kmodtool}
+%kernel_module_package -n %{name}-osd-zfs -p %SOURCE5 -f %SOURCE6 -s %kmodtool default
+%else
 %kernel_module_package -n %{name}-osd-zfs -p %SOURCE5 -f %SOURCE6 default
+%endif
+
 %if %{with lustre_utils}
 %package osd-zfs-mount
 Summary: osd-zfs-mount contains mount's zfs specific dso.
@@ -220,7 +234,11 @@ This package contains a set of test binaries and scripts that are intended
 to be used by the Lustre testing framework.
 
 %if %{with lustre_modules}
-%kernel_module_package -n %{name}-tests -f %SOURCE7  default
+%if %{defined kmodtool}
+%kernel_module_package -n %{name}-tests -f %SOURCE7 -s %kmodtool default
+%else
+%kernel_module_package -n %{name}-tests -f %SOURCE7 default
+%endif
 %endif
 
 %if %{with lustre_iokit}
