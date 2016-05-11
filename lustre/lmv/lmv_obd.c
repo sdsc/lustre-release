@@ -817,8 +817,8 @@ static int lmv_hsm_ct_unregister(struct lmv_obd *lmv, unsigned int cmd, int len,
 				 struct lustre_kernelcomm *lk,
 				 void __user *uarg)
 {
-	__u32	i;
-	int	rc;
+	__u32 i;
+	int rc = 0;
 	ENTRY;
 
 	/* unregister request (call from llapi_hsm_copytool_fini) */
@@ -832,23 +832,15 @@ static int lmv_hsm_ct_unregister(struct lmv_obd *lmv, unsigned int cmd, int len,
 		obd_iocontrol(cmd, tgt->ltd_exp, len, lk, uarg);
 	}
 
-	/* Whatever the result, remove copytool from kuc groups.
-	 * Unreached coordinators will get EPIPE on next requests
-	 * and will unregister automatically.
-	 */
-	rc = libcfs_kkuc_group_rem(lk->lk_uid, lk->lk_group);
-
 	RETURN(rc);
 }
 
 static int lmv_hsm_ct_register(struct lmv_obd *lmv, unsigned int cmd, int len,
 			       struct lustre_kernelcomm *lk, __user void *uarg)
 {
-	struct file		*filp;
-	__u32			 i, j;
-	int			 err, rc;
-	bool			 any_set = false;
-	struct kkuc_ct_data	 kcd = { 0 };
+	__u32 i, j;
+	int rc = 0;
+	bool any_set = false;
 	ENTRY;
 
 	/* All or nothing: try to register to all MDS.
@@ -859,57 +851,39 @@ static int lmv_hsm_ct_register(struct lmv_obd *lmv, unsigned int cmd, int len,
 
 		if (tgt == NULL || tgt->ltd_exp == NULL)
 			continue;
-		err = obd_iocontrol(cmd, tgt->ltd_exp, len, lk, uarg);
-		if (err) {
-			if (tgt->ltd_active) {
-				/* permanent error */
-				CERROR("%s: iocontrol MDC %s on MDT"
-				       " idx %d cmd %x: err = %d\n",
-				       class_exp2obd(lmv->exp)->obd_name,
-				       tgt->ltd_uuid.uuid, i, cmd, err);
-				rc = err;
-				lk->lk_flags |= LK_FLG_STOP;
-				/* unregister from previous MDS */
-				for (j = 0; j < i; j++) {
-					tgt = lmv->tgts[j];
-					if (tgt == NULL || tgt->ltd_exp == NULL)
-						continue;
-					obd_iocontrol(cmd, tgt->ltd_exp, len,
-						      lk, uarg);
-				}
-				RETURN(rc);
-			}
-			/* else: transient error.
-			 * kuc will register to the missing MDT
-			 * when it is back */
-		} else {
+		rc = obd_iocontrol(cmd, tgt->ltd_exp, len, lk, uarg);
+		if (rc == 0) {
 			any_set = true;
+			continue;
 		}
+		if (tgt->ltd_active) {
+			/* permanent error */
+			CERROR("%s: iocontrol MDC %s on MDT idx %d cmd %x: err = %d\n",
+			       class_exp2obd(lmv->exp)->obd_name,
+			       tgt->ltd_uuid.uuid, i, cmd, rc);
+			lk->lk_flags |= LK_FLG_STOP;
+			/* unregister from previous MDS */
+			for (j = 0; j < i; j++) {
+				tgt = lmv->tgts[j];
+				if (tgt == NULL || tgt->ltd_exp == NULL)
+					continue;
+				obd_iocontrol(cmd, tgt->ltd_exp, len,
+					      lk, uarg);
+			}
+			RETURN(rc);
+		}
+		/* else: transient error.
+		 * Will register to the missing MDT when it is back.
+		 */
+		rc = 0;
 	}
 
 	if (!any_set)
 		/* no registration done: return error */
 		RETURN(-ENOTCONN);
 
-	/* at least one registration done, with no failure */
-	filp = fget(lk->lk_wfd);
-	if (filp == NULL)
-		RETURN(-EBADF);
-
-	kcd.kcd_magic = KKUC_CT_DATA_MAGIC;
-	kcd.kcd_uuid = lmv->cluuid;
-	kcd.kcd_archive = lk->lk_data;
-
-	rc = libcfs_kkuc_group_add(filp, lk->lk_uid, lk->lk_group,
-				   &kcd, sizeof(kcd));
-	if (rc != 0)
-		fput(filp);
-
 	RETURN(rc);
 }
-
-
-
 
 static int lmv_iocontrol(unsigned int cmd, struct obd_export *exp,
 			 int len, void *karg, void __user *uarg)
