@@ -923,7 +923,6 @@ build_spl_zfs() {
         else
             rpmpkg=kmod-$pkg-devel
             specdir=rpm/generic
-            [[ ${DISTROMAJ} == rhel* ]] && specdir=rpm/redhat
             speclist="$pkg.spec $pkg-kmod.spec $pkg-dkms.spec"
         fi
 
@@ -958,6 +957,7 @@ build_spl_zfs() {
             echo "Building RPMs from $pkg/$specdir/$spec"
             if ! rpmbuild $rpmb $pkg/$specdir/$spec \
                 --nodeps -v \
+                --define "_use_internal_dependency_generator 0" \
                 --define "require_kdir ${LINUX}" \
                 ${LINUXOBJ:+--define "require_kobj ${LINUXOBJ}"} \
                 ${spldir:+--define "require_spldir ${spldir}"} \
