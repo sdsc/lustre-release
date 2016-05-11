@@ -412,23 +412,25 @@ static int mgs_target_reg(struct tgt_session_info *tsi)
                     mti->mti_stripe_index == 0) {
 			rc = mgs_erase_logs(tsi->tsi_env, mgs,
 					    mti->mti_fsname);
-                        LCONSOLE_WARN("%s: Logs for fs %s were removed by user "
-                                      "request.  All servers must be restarted "
-                                      "in order to regenerate the logs."
-                                      "\n", obd->obd_name, mti->mti_fsname);
-                } else if (mti->mti_flags &
-                           (LDD_F_SV_TYPE_OST | LDD_F_SV_TYPE_MDT)) {
+			LCONSOLE_WARN("%s: Logs for fs %s were removed by user "
+				      "request.  All servers must be restarted "
+				      "in order to regenerate the logs: rc = %d"
+				      "\n", obd->obd_name, mti->mti_fsname, rc);
+			if (rc && rc != -ENOENT)
+				GOTO(out_nolock, rc);
+		} else if (mti->mti_flags &
+			   (LDD_F_SV_TYPE_OST | LDD_F_SV_TYPE_MDT)) {
 			rc = mgs_erase_log(tsi->tsi_env, mgs, mti->mti_svname);
-                        LCONSOLE_WARN("%s: Regenerating %s log by user "
-                                      "request.\n",
-                                      obd->obd_name, mti->mti_svname);
-                }
-                mti->mti_flags |= LDD_F_UPDATE;
-                /* Erased logs means start from scratch. */
-                mti->mti_flags &= ~LDD_F_UPGRADE14;
-		if (rc)
-			GOTO(out_nolock, rc);
-        }
+			LCONSOLE_WARN("%s: Regenerating %s log by user "
+				      "request: rc = %d\n",
+				      obd->obd_name, mti->mti_svname, rc);
+			if (rc)
+				GOTO(out_nolock, rc);
+		}
+		mti->mti_flags |= LDD_F_UPDATE;
+		/* Erased logs means start from scratch. */
+		mti->mti_flags &= ~LDD_F_UPGRADE14;
+	}
 
 	rc = mgs_find_or_make_fsdb(tsi->tsi_env, mgs, mti->mti_fsname, &fsdb);
         if (rc) {
@@ -968,6 +970,15 @@ out_free:
 
 	case OBD_IOC_NODEMAP:
 		rc = mgs_iocontrol_nodemap(&env, mgs, data);
+		break;
+
+	case OBD_IOC_LCFG_FORK:
+		rc = mgs_lcfg_fork(&env, mgs, data->ioc_inlbuf1,
+				   data->ioc_inlbuf2);
+		break;
+
+	case OBD_IOC_LCFG_ERASE:
+		rc = mgs_lcfg_erase(&env, mgs, data->ioc_inlbuf1);
 		break;
 
 	case OBD_IOC_CATLOGLIST:
