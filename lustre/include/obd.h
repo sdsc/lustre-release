@@ -328,6 +328,13 @@ struct client_obd {
 	void			*cl_lru_work;
 	/* hash tables for osc_quota_info */
 	struct cfs_hash		*cl_quota_hash[MAXQUOTAS];
+
+	/* Copytool char device for the mdc */
+	/* This mutex is only needed for as long as Lustre supports version of
+	 * the kernel that do not define the READ_ONCE/WRITE_ONCE macros
+	 */
+	struct mutex		 cl_ct_cdev_mutex;
+	struct ct_cdev		*cl_ct_cdev;
 };
 #define obd2cli_tgt(obd) ((char *)(obd)->u.cli.cl_target_uuid.uuid)
 
