@@ -4281,10 +4281,10 @@ void lustre_assert_wire_constants(void)
 		 (long long)(int)offsetof(struct hsm_action_list, hal_archive_id));
 	LASSERTF((int)sizeof(((struct hsm_action_list *)0)->hal_archive_id) == 4, "found %lld\n",
 		 (long long)(int)sizeof(((struct hsm_action_list *)0)->hal_archive_id));
-	LASSERTF((int)offsetof(struct hsm_action_list, padding1) == 28, "found %lld\n",
-		 (long long)(int)offsetof(struct hsm_action_list, padding1));
-	LASSERTF((int)sizeof(((struct hsm_action_list *)0)->padding1) == 4, "found %lld\n",
-		 (long long)(int)sizeof(((struct hsm_action_list *)0)->padding1));
+	LASSERTF((int)offsetof(struct hsm_action_list, hal_magic) == 28, "found %lld\n",
+		 (long long)(int)offsetof(struct hsm_action_list, hal_magic));
+	LASSERTF((int)sizeof(((struct hsm_action_list *)0)->hal_magic) == 4, "found %lld\n",
+		 (long long)(int)sizeof(((struct hsm_action_list *)0)->hal_magic));
 	LASSERTF((int)offsetof(struct hsm_action_list, hal_fsname) == 32, "found %lld\n",
 		 (long long)(int)offsetof(struct hsm_action_list, hal_fsname));
 	LASSERTF((int)sizeof(((struct hsm_action_list *)0)->hal_fsname) == 0, "found %lld\n",
