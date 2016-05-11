@@ -62,6 +62,7 @@
 # include <sys/stat.h>
 #endif /* __KERNEL__ */
 #include <lustre/ll_fiemap.h>
+#include <lustre/lustre_copytool_cdev.h>
 
 #if defined(__x86_64__) || defined(__ia64__) || defined(__ppc64__) || \
     defined(__craynv) || defined(__mips64__) || defined(__powerpc64__) || \
@@ -1264,17 +1265,19 @@ static inline char *hai_dump_data_field(const struct hsm_action_item *hai,
 
 /* Copytool action list */
 #define HAL_VERSION 1
+#define HAL_MAGIC 0x48616c6d
 #define HAL_MAXSIZE LNET_MTU /* bytes, used in userspace only */
 struct hsm_action_list {
 	__u32 hal_version;
-	__u32 hal_count;       /* number of hai's to follow */
-	__u64 hal_compound_id; /* returned by coordinator */
+	__u32 hal_count;	/* number of hai's to follow */
+	__u64 hal_compound_id;	/* returned by coordinator */
 	__u64 hal_flags;
-	__u32 hal_archive_id; /* which archive backend */
-	__u32 padding1;
-	char  hal_fsname[0];   /* null-terminated */
+	__u32 hal_archive_id;	/* which archive backend */
+	__u32 hal_magic;	/* Only needed if sent across network */
+	char  hal_fsname[0];	/* null-terminated */
 	/* struct hsm_action_item[hal_count] follows, aligned on 8-byte
-	   boundaries. See hai_zero */
+	 * boundaries. See hai_zero
+	 */
 } __attribute__((packed));
 
 #ifndef HAVE_CFS_SIZE_ROUND

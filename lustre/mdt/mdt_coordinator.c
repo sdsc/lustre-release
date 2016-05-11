@@ -424,11 +424,11 @@ struct lprocfs_vars *hsm_cdt_get_proc_vars(void)
  */
 static int mdt_coordinator(void *data)
 {
-	struct mdt_thread_info	*mti = data;
-	struct mdt_device	*mdt = mti->mti_mdt;
-	struct coordinator	*cdt = &mdt->mdt_coordinator;
-	struct hsm_scan_data	 hsd = { NULL };
-	int			 rc = 0;
+	struct mdt_thread_info *mti = data;
+	struct mdt_device *mdt = mti->mti_mdt;
+	struct coordinator *cdt = &mdt->mdt_coordinator;
+	struct hsm_scan_data hsd = { NULL };
+	int rc = 0;
 	ENTRY;
 
 	cdt->cdt_thread.t_flags = SVC_RUNNING;
@@ -514,11 +514,11 @@ static int mdt_coordinator(void *data)
 
 		/* here hsd contains a list of requests to be started */
 		for (i = 0; i < hsd.max_requests; i++) {
-			struct hsm_action_list	*hal = hsd.request[i].hal;
-			struct hsm_action_item	*hai;
-			__u64			*cookies;
-			int			 sz, j;
-			enum agent_req_status	 status;
+			struct hsm_action_list *hal = hsd.request[i].hal;
+			struct hsm_action_item *hai;
+			__u64 *cookies;
+			int sz, j;
+			enum agent_req_status status;
 
 			/* still room for work ? */
 			if (atomic_read(&cdt->cdt_request_count) >=
