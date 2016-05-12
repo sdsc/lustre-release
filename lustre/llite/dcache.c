@@ -323,6 +323,7 @@ static int ll_revalidate_dentry(struct dentry *dentry,
 				unsigned int lookup_flags)
 {
 	struct inode *dir = dentry->d_parent->d_inode;
+	ENTRY;
 
 	/* If this is intermediate component path lookup and we were able to get
 	 * to this dentry, then its lock has not been revoked and the
@@ -334,6 +335,9 @@ static int ll_revalidate_dentry(struct dentry *dentry,
 	if (dentry->d_inode && dentry->d_inode->i_op->follow_link)
 		return 1;
 
+	/* If opencache is set, return 1. See LU-7915 for details. */
+	if (ll_i2sbi(dir)->ll_opencache && (lookup_flags & LOOKUP_OPEN))
+		return 1;
 	/* Last path component lookup for open or create - we always
 	 * return 0 here to go through re-lookup and properly signal
 	 * MDS whenever we do or do not want an open-cache to be engaged.
