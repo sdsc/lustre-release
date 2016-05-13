@@ -85,17 +85,17 @@ Name: %{lustre_name}
 Version: %{version}
 Release: %{fullrelease}
 License: GPL
-Group: Utilities/System
+Group: System Environment/Kernel
 Source: lustre-%{version}.tar.gz
 URL: https://wiki.hpdd.intel.com/
 BuildRoot: %{_tmppath}/lustre-%{version}-root
-Obsoletes: lustre-lite, lustre-lite-utils, lustre-ldap nfs-utils-lustre
-Provides: lustre-lite = %{version}, lustre-lite-utils = %{version}
 Requires: %{name}-modules = %{version}
 BuildRequires: libtool
 %if %{with servers}
 Requires: lustre-osd
 Requires: lustre-osd-mount
+# If client package is installed when installing server, remove it
+Obsoletes: lustre-client <= %{version}
 Provides: lustre-client = %{version}-%{fullrelease}
 %endif
 # GSS requires this: BuildRequires: pkgconfig, libgssapi-devel >= 0.10
@@ -123,7 +123,7 @@ Requires: libyaml
 BuildRequires: libyaml-devel
 %endif
 %endif
-Group: Development/Kernel
+Group: System Environment/Kernel
 
 %description modules
 Lustre file system, server and network drivers for Linux %{kversion}.
@@ -133,11 +133,11 @@ Lustre file system, server and network drivers for Linux %{kversion}.
 Summary: osd-ldiskfs contains both ldiskfs and its osd interface in Lustre.
 Requires: lustre-modules = %{version}
 Requires: module-init-tools >= 3.9
-Requires: ldiskfsprogs >= 1.42.7.wc1
+Requires: ldiskfsprogs >= 1.42.13.wc1
 Requires: lustre-osd-ldiskfs-mount = %{version}
-Provides: lustre-osd
-Obsoletes: lustre-ldiskfs
-Group: Development/Kernel
+Provides: lustre-osd = %{version}-%{fullrelease}
+Obsoletes: lustre-ldiskfs <= ${version}
+Group: System Environment/Kernel
 
 %description osd-ldiskfs
 The Lustre Object Storage Device (OSD) API is the interface to access and
@@ -149,8 +149,8 @@ backing store of a Lustre server.
 %if %{with lustre_utils}
 %package osd-ldiskfs-mount
 Summary: osd-ldiskfs-mount contains mount's ldiskfs specific dso.
-Provides: lustre-osd-mount
-Group: Development/Kernel
+Provides: lustre-osd-mount = %{version}-%{fullrelease}
+Group: System Environment/Kernel
 
 %description osd-ldiskfs-mount
 LDISKFS hooks for mount/mkfs into a dynamic library.
@@ -163,8 +163,8 @@ LDISKFS hooks for mount/mkfs into a dynamic library.
 Summary: osd-zfs is the mandatory glue for ZFS support in Lustre.
 Requires: lustre-modules = %{version}, zfs-kmod
 Requires: lustre-osd-zfs-mount = %{version}
-Provides: lustre-osd
-Group: Development/Kernel
+Provides: lustre-osd = %{version}-%{fullrelease}
+Group: System Environment/Kernel
 
 %description osd-zfs
 The Lustre Object Storage Device (OSD) API is the interface to access and
@@ -176,8 +176,8 @@ backing store of a Lustre server.
 %if %{with lustre_utils}
 %package osd-zfs-mount
 Summary: osd-zfs-mount contains mount's zfs specific dso.
-Provides: lustre-osd-mount
-Group: Development/Kernel
+Provides: lustre-osd-mount = %{version}-%{fullrelease}
+Group: System Environment/Kernel
 
 %description osd-zfs-mount
 ZFS hooks for mount/mkfs into a dynamic library.
@@ -202,7 +202,7 @@ ZFS hooks for mount/mkfs into a dynamic library.
 
 %package deps-sles
 Summary: Lustre dependencies meta-package for SLES
-Group: Utilities/System
+Group: System Environment/Kernel
 Provides: lustre-deps = %{version}
 Requires: %{name} = %{version}, sles-release
 Conflicts: %{name}-deps-rhel
@@ -212,7 +212,7 @@ This package has RPM dependencies appropriate for SLES systems.
 
 %package deps-rhel
 Summary: Lustre dependencies meta-package for RHEL
-Group: Utilities/System
+Group: System Environment/Kernel
 Provides: lustre-deps = %{version}
 Requires: %{name} = %{version}, redhat-release
 Conflicts: %{name}-deps-sles
@@ -223,7 +223,7 @@ systems.
 
 %package tests
 Summary: Lustre testing framework
-Group: Development/Kernel
+Group: System Environment/Kernel
 Provides: %{name}-tests = %{version}
 Requires: %{name} = %{version}, %{name}-modules = %{version}, lustre-iokit
 Requires: attr, rsync, perl, lsof, /usr/bin/getconf
