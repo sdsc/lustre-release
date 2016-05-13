@@ -5180,10 +5180,18 @@ test_78() {
 	local file
 	local num_files=100
 	mkdir $MOUNT/$tdir || error "(3) mkdir $MOUNT/$tdir failed"
+	$LFS df; $LFS df -i
 	for i in $(seq $num_files); do
 		file=$MOUNT/$tdir/$tfile-$i
-		dd if=/dev/urandom of=$file count=1 bs=1M ||
+		dd if=/dev/urandom of=$file count=1 bs=1M || {
+			$LCTL get_param osc.*.cur*grant*
+			$LFS df; $LFS df -i;
+			$LFS getstripe -v $file
+			local ost_idx=$(LFS getstripe -i $file)
+			do_facet ost$((ost_idx + 1)) \
+				$LCTL get_param obdfilter.*.*grant*
 			error "(4) create $file failed"
+		}
 	done
 
 	# unmount the Lustre filesystem
