@@ -130,6 +130,11 @@ struct lnet_ioctl_config_lnd_tunables {
 	} lt_tun_u;
 };
 
+struct lnet_ioctl_element_stats {
+	__u32	send_count;
+	__u32	recv_count;
+};
+
 /*
  * lnet_ioctl_config_ni
  *  This structure describes an NI configuration. There are multiple components when
