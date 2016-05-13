@@ -296,6 +296,11 @@ enum lnet_ni_state {
 	LNET_NI_STATE_DELETING
 };
 
+struct lnet_element_stats {
+	atomic_t	send_count;
+	atomic_t	recv_count;
+};
+
 struct lnet_net {
 	/* chain on the ln_nets */
 	struct list_head	net_list;
@@ -390,6 +395,9 @@ typedef struct lnet_ni {
 	/* NI FSM */
 	enum lnet_ni_state	ni_state;
 
+	/* NI statistics */
+	struct lnet_element_stats ni_stats;
+
 	/* physical device CPT */
 	int			dev_cpt;
 
@@ -449,7 +457,7 @@ struct lnet_peer_ni {
 	/* pointer to peer net I'm part of */
 	struct lnet_peer_net	*lpni_peer_net;
 	/* statistics kept on each peer NI */
-	struct lnet_peer_ni_stats lpni_stats;
+	struct lnet_element_stats lpni_stats;
 	/* # tx credits available */
 	int			lpni_txcredits;
 	/* low water mark */

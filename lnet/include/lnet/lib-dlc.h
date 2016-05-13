@@ -130,6 +130,11 @@ struct lnet_ioctl_config_lnd_tunables {
 	} lt_tun_u;
 };
 
+struct lnet_ioctl_element_stats {
+	__u32	send_count;
+	__u32	recv_count;
+};
+
 /*
  * lnet_ioctl_config_ni
  *  This structure describes an NI configuration. There are multiple components when
@@ -162,11 +167,6 @@ struct lnet_peer_ni_credit_info {
 	__u32 cr_peer_min_rtr_credits;
 	__u32 cr_peer_tx_qnob;
 	__u32 cr_ncpt;
-};
-
-struct lnet_peer_ni_stats {
-	__u32	send_count;
-	__u32	recv_count;
 };
 
 struct lnet_ioctl_peer {
