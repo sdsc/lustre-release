@@ -46,6 +46,7 @@
 
 #include <linux/kthread.h>
 #include <libcfs/libcfs.h>
+#include <linux/rtc.h>
 
 /* XXX move things up to the top, comment */
 union cfs_trace_data_union (*cfs_trace_data[TCD_MAX_TYPES])[NR_CPUS] __cacheline_aligned;
@@ -943,6 +944,38 @@ int cfs_trace_get_debug_mb(void)
 
 	return (total_pages >> (20 - PAGE_CACHE_SHIFT)) + 1;
 }
+
+void cfs_start_trace_daemon_ondemand(void)
+{
+	cfs_tracefile_write_lock();
+
+	mutex_lock(&cfs_trace_thread_mutex);
+	if (thread_running) {
+		mutex_unlock(&cfs_trace_thread_mutex);
+		goto out;
+	}
+	mutex_unlock(&cfs_trace_thread_mutex);
+
+	if (strlen(cfs_tracefile) == 0) {
+		struct timeval  time;
+		struct rtc_time tm;
+
+		do_gettimeofday(&(time));
+		rtc_time_to_tm(time.tv_sec, &tm);
+		snprintf(cfs_tracefile, TRACEFILE_NAME_SIZE,
+			"/var/log/Lustre_debug_%d-%d-%d@%d:%d_ondemand",
+			tm.tm_year + 1900, tm.tm_mon, tm.tm_mday,
+			tm.tm_hour, tm.tm_min);
+	}
+	printk(KERN_INFO
+	       "Lustre: debug daemon will attempt to start writing "
+	       "to %s (%lukB max)\n", cfs_tracefile,
+	       (long)(cfs_tracefile_size >> 10));
+	cfs_trace_start_thread();
+out:
+	cfs_tracefile_write_unlock();
+}
+EXPORT_SYMBOL(cfs_start_trace_daemon_ondemand);
 
 static int tracefiled(void *arg)
 {

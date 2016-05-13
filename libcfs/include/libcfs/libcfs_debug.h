@@ -56,9 +56,12 @@ extern unsigned int libcfs_console_min_delay;
 extern unsigned int libcfs_console_backoff;
 extern unsigned int libcfs_debug_binary;
 extern char libcfs_debug_file_path_arr[PATH_MAX];
+extern unsigned int libcfs_debug_dump_on_error;
+extern void cfs_start_trace_daemon_ondemand(void);
 
 int libcfs_debug_mask2str(char *str, int size, int mask, int is_subsys);
 int libcfs_debug_str2mask(int *mask, const char *str, int is_subsys);
+
 
 /* Has there been an LBUG? */
 extern unsigned int libcfs_catastrophe;
@@ -226,6 +229,8 @@ do {                                                                    \
                                                                         \
         CFS_CHECK_STACK(&msgdata, mask, cdls);                          \
                                                                         \
+	if (((mask) & D_ERROR) && libcfs_debug_dump_on_error)		\
+		cfs_start_trace_daemon_ondemand();			\
         if (cfs_cdebug_show(mask, DEBUG_SUBSYSTEM)) {                   \
                 LIBCFS_DEBUG_MSG_DATA_INIT(&msgdata, mask, cdls);       \
                 libcfs_debug_msg(&msgdata, format, ## __VA_ARGS__);     \

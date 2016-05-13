@@ -96,6 +96,11 @@ unsigned int libcfs_panic_on_lbug = 1;
 module_param(libcfs_panic_on_lbug, uint, 0644);
 MODULE_PARM_DESC(libcfs_panic_on_lbug, "Lustre kernel panic on LBUG");
 
+unsigned int libcfs_debug_dump_on_error;
+EXPORT_SYMBOL(libcfs_debug_dump_on_error);
+module_param(libcfs_debug_dump_on_error, uint, 0644);
+MODULE_PARM_DESC(libcfs_debug_dump_on_error, "Start debug dump daemon once error occurred");
+
 atomic_t libcfs_kmemory = ATOMIC_INIT(0);
 EXPORT_SYMBOL(libcfs_kmemory);
 

@@ -582,6 +582,14 @@ static struct ctl_table lnet_table[] = {
 	},
 	{
 		INIT_CTL_NAME
+		.procname	= "debug_dump_on_error",
+		.data		= &libcfs_debug_dump_on_error,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= &proc_dointvec,
+	},
+	{
+		INIT_CTL_NAME
 		.procname	= "dump_kernel",
 		.maxlen		= 256,
 		.mode		= 0200,

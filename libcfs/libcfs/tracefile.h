@@ -89,6 +89,7 @@ int cfs_trace_daemon_command_usrstr(void __user *usr_str, int usr_str_nob);
 int cfs_trace_set_debug_mb(int mb);
 int cfs_trace_set_debug_mb_usrstr(void __user *usr_str, int usr_str_nob);
 int cfs_trace_get_debug_mb(void);
+void cfs_start_trace_daemon_ondemand(void);
 
 extern void libcfs_debug_dumplog_internal(void *arg);
 extern void libcfs_register_panic_notifier(void);
