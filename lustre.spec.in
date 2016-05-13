@@ -89,13 +89,14 @@ Group: Utilities/System
 Source: lustre-%{version}.tar.gz
 URL: https://wiki.hpdd.intel.com/
 BuildRoot: %{_tmppath}/lustre-%{version}-root
-Obsoletes: lustre-lite, lustre-lite-utils, lustre-ldap nfs-utils-lustre
-Provides: lustre-lite = %{version}, lustre-lite-utils = %{version}
+Obsoletes: nfs-utils-lustre
 Requires: %{name}-modules = %{version}
 BuildRequires: libtool
 %if %{with servers}
 Requires: lustre-osd
 Requires: lustre-osd-mount
+# If client package is installed when installing server, remove it
+Obsoletes: lustre-client
 Provides: lustre-client = %{version}-%{fullrelease}
 %endif
 # GSS requires this: BuildRequires: pkgconfig, libgssapi-devel >= 0.10
