@@ -97,6 +97,8 @@ int cl_setattr_ost(struct cl_object *obj, const struct iattr *attr,
 	io->u.ci_setattr.sa_attr_flags = attr_flags;
 	io->u.ci_setattr.sa_valid = attr->ia_valid;
 	io->u.ci_setattr.sa_parent_fid = lu_object_fid(&obj->co_lu);
+	if (attr->ia_valid & ATTR_SIZE)
+		io->u.ci_setattr.sa_subtype = CL_SETATTR_TRUNC;
 
 again:
         if (cl_io_init(env, io, CIT_SETATTR, io->ci_obj) == 0) {

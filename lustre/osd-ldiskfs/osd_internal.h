@@ -343,7 +343,8 @@ enum {
 	OSD_OT_INSERT		= 8,
 	OSD_OT_DELETE		= 9,
 	OSD_OT_QUOTA		= 10,
-	OSD_OT_MAX		= 11
+	OSD_OT_PREALLOC		= 11,
+	OSD_OT_MAX		= 12
 };
 
 struct osd_thandle {

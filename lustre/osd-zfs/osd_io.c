@@ -921,6 +921,24 @@ static int osd_ladvise(const struct lu_env *env, struct dt_object *dt,
 	RETURN(rc);
 }
 
+static int osd_prealloc(const struct lu_env *env, struct dt_object *dt,
+			__u64 start, __u64 end, int mode, struct thandle *th)
+{
+	/**
+	 * space preallocation is not supported for ZFS
+	 */
+	RETURN(-EOPNOTSUPP);
+}
+
+static int osd_declare_prealloc(const struct lu_env *env, struct dt_object *dt,
+				struct thandle *th)
+{
+	/**
+	 * space preallocation is not supported for ZFS
+	 */
+	RETURN(-EOPNOTSUPP);
+}
+
 struct dt_body_operations osd_body_ops = {
 	.dbo_read			= osd_read,
 	.dbo_declare_write		= osd_declare_write,
@@ -934,4 +952,6 @@ struct dt_body_operations osd_body_ops = {
 	.dbo_declare_punch		= osd_declare_punch,
 	.dbo_punch			= osd_punch,
 	.dbo_ladvise			= osd_ladvise,
+	.dbo_declare_prealloc		= osd_declare_prealloc,
+	.dbo_prealloc			= osd_prealloc,
 };

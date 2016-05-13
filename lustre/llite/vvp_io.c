@@ -656,14 +656,16 @@ static int vvp_io_setattr_lock(const struct lu_env *env,
                                const struct cl_io_slice *ios)
 {
 	struct cl_io  *io  = ios->cis_io;
-	__u64 new_size;
+	__u64 lock_start, lock_end = OBD_OBJECT_EOF;
 	__u32 enqflags = 0;
 
-        if (cl_io_is_trunc(io)) {
-                new_size = io->u.ci_setattr.sa_attr.lvb_size;
-                if (new_size == 0)
-                        enqflags = CEF_DISCARD_DATA;
-        } else {
+	if (cl_io_is_trunc(io)) {
+		lock_start = io->u.ci_setattr.sa_attr.lvb_size;
+		if (lock_start == 0)
+			enqflags = CEF_DISCARD_DATA;
+	} else if (cl_io_is_prealloc(io)) {
+		return 0;
+	} else {
 		unsigned int valid = io->u.ci_setattr.sa_valid;
 
 		if (!(valid & TIMES_SET_FLAGS))
@@ -677,11 +679,11 @@ static int vvp_io_setattr_lock(const struct lu_env *env,
 		     io->u.ci_setattr.sa_attr.lvb_ctime))
 			return 0;
 
-		new_size = 0;
+		lock_start = 0;
 	}
 
 	return vvp_io_one_lock(env, io, enqflags, CLM_WRITE,
-			       new_size, OBD_OBJECT_EOF);
+			       lock_start, lock_end);
 }
 
 static int vvp_do_vmtruncate(struct inode *inode, size_t size)
@@ -740,6 +742,8 @@ static int vvp_io_setattr_start(const struct lu_env *env,
 	if (cl_io_is_trunc(io)) {
 		down_write(&lli->lli_trunc_sem);
 		inode_dio_wait(inode);
+	} else if (cl_io_is_prealloc(io)) {
+		inode_dio_wait(inode);
 	}
 
 	if (io->u.ci_setattr.sa_valid & TIMES_SET_FLAGS)
@@ -761,6 +765,8 @@ static void vvp_io_setattr_end(const struct lu_env *env,
 		vvp_do_vmtruncate(inode, io->u.ci_setattr.sa_attr.lvb_size);
 		inode_dio_write_done(inode);
 		up_write(&lli->lli_trunc_sem);
+	} else if (cl_io_is_prealloc(io)) {
+		inode_dio_write_done(inode);
 	}
 	mutex_unlock(&inode->i_mutex);
 }
@@ -1446,7 +1452,7 @@ static const struct cl_io_operations vvp_io_ops = {
 };
 
 int vvp_io_init(const struct lu_env *env, struct cl_object *obj,
-                struct cl_io *io)
+		struct cl_io *io)
 {
 	struct vvp_io      *vio   = vvp_env_io(env);
 	struct inode       *inode = vvp_object_inode(obj);
@@ -1512,8 +1518,8 @@ int vvp_io_init(const struct lu_env *env, struct cl_object *obj,
 			result = 0;
 		if (result < 0)
 			CERROR("%s: refresh file layout " DFID " error %d.\n",
-				ll_get_fsname(inode->i_sb, NULL, 0),
-				PFID(lu_object_fid(&obj->co_lu)), result);
+			       ll_get_fsname(inode->i_sb, NULL, 0),
+			       PFID(lu_object_fid(&obj->co_lu)), result);
 	}
 
 	RETURN(result);

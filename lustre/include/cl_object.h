@@ -102,6 +102,15 @@
 #include <lustre_dlm.h>
 
 struct obd_info;
+
+#ifndef FALLOC_FL_KEEP_SIZE
+# define FALLOC_FL_KEEP_SIZE     0x01 /* default is extend size */
+#endif
+
+#ifndef FALLOC_FL_PUNCH_HOLE
+# define FALLOC_FL_PUNCH_HOLE    0x02 /* de-allocates range */
+#endif
+
 struct inode;
 
 struct cl_device;
@@ -1728,6 +1737,15 @@ enum cl_fsync_mode {
 	CL_FSYNC_ALL   = 3
 };
 
+enum cl_setattr_subtype {
+	/** regular setattr **/
+	CL_SETATTR_REG	= 0,
+	/** truncate(2) **/
+	CL_SETATTR_TRUNC,
+	/** fallocate(2) - mode preallocate **/
+	CL_SETATTR_PREALLOC
+};
+
 struct cl_io_rw_common {
         loff_t      crw_pos;
         size_t      crw_count;
@@ -1777,6 +1795,13 @@ struct cl_io {
 			unsigned int		 sa_valid;
 			int			 sa_stripe_index;
 			const struct lu_fid	*sa_parent_fid;
+			/* SETATTR interface is used for regular setattr,
+			 * truncate(2) and fallocate(2) subtypes */
+			enum cl_setattr_subtype	 sa_subtype;
+			/* The following are used for fallocate(2) */
+			int			 sa_falloc_mode;
+			loff_t			 sa_falloc_offset;
+			loff_t			 sa_falloc_len;
 		} ci_setattr;
 		struct cl_data_version_io {
 			u64 dv_data_version;
@@ -1787,15 +1812,15 @@ struct cl_io {
                         pgoff_t         ft_index;
                         /** bytes valid byte on a faulted page. */
 			size_t		ft_nob;
-                        /** writable page? for nopage() only */
-                        int             ft_writable;
-                        /** page of an executable? */
-                        int             ft_executable;
-                        /** page_mkwrite() */
-                        int             ft_mkwrite;
-                        /** resulting page */
-                        struct cl_page *ft_page;
-                } ci_fault;
+			/** writable page? for nopage() only */
+			int		ft_writable;
+			/** page of an executable? */
+			int		ft_executable;
+			/** page_mkwrite() */
+			int		ft_mkwrite;
+			/** resulting page */
+			struct cl_page *ft_page;
+		} ci_fault;
 		struct cl_fsync_io {
 			loff_t             fi_start;
 			loff_t             fi_end;
@@ -1813,26 +1838,26 @@ struct cl_io {
 			enum lu_ladvise_type	 li_advice;
 			__u64			 li_flags;
 		} ci_ladvise;
-        } u;
-        struct cl_2queue     ci_queue;
-        size_t               ci_nob;
-        int                  ci_result;
-	unsigned int         ci_continue:1,
+	} u;
+	struct cl_2queue	ci_queue;
+	size_t			ci_nob;
+	int			ci_result;
+	unsigned int		ci_continue:1,
 	/**
 	 * This io has held grouplock, to inform sublayers that
 	 * don't do lockless i/o.
 	 */
-			     ci_no_srvlock:1,
+				ci_no_srvlock:1,
 	/**
 	 * The whole IO need to be restarted because layout has been changed
 	 */
-			     ci_need_restart:1,
+				ci_need_restart:1,
 	/**
 	 * to not refresh layout - the IO issuer knows that the layout won't
 	 * change(page operations, layout change causes all page to be
 	 * discarded), or it doesn't matter if it changes(sync).
 	 */
-			     ci_ignore_layout:1,
+				ci_ignore_layout:1,
 	/**
 	 * Check if layout changed after the IO finishes. Mainly for HSM
 	 * requirement. If IO occurs to openning files, it doesn't need to
@@ -1840,19 +1865,19 @@ struct cl_io {
 	 * Right now, only two opertaions need to verify layout: glimpse
 	 * and setattr.
 	 */
-			     ci_verify_layout:1,
+				ci_verify_layout:1,
 	/**
 	 * file is released, restore has to to be triggered by vvp layer
 	 */
-			     ci_restore_needed:1,
+				ci_restore_needed:1,
 	/**
 	 * O_NOATIME
 	 */
-			     ci_noatime:1;
+				ci_noatime:1;
 	/**
 	 * Number of pages owned by this IO. For invariant checking.
 	 */
-	unsigned	     ci_owned_nr;
+	unsigned		ci_owned_nr;
 };
 
 /** @} cl_io */
@@ -2302,8 +2327,15 @@ static inline int cl_io_is_mkwrite(const struct cl_io *io)
  */
 static inline int cl_io_is_trunc(const struct cl_io *io)
 {
-        return io->ci_type == CIT_SETATTR &&
-                (io->u.ci_setattr.sa_valid & ATTR_SIZE);
+	return (io->ci_type == CIT_SETATTR) &&
+		(io->u.ci_setattr.sa_subtype == CL_SETATTR_TRUNC) &&
+		(io->u.ci_setattr.sa_valid & ATTR_SIZE);
+}
+
+static inline int cl_io_is_prealloc(const struct cl_io *io)
+{
+	return (io->ci_type == CIT_SETATTR) &&
+	       (io->u.ci_setattr.sa_subtype == CL_SETATTR_PREALLOC);
 }
 
 struct cl_io *cl_io_top(struct cl_io *io);

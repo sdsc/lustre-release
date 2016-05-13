@@ -463,24 +463,24 @@ static int trunc_check_cb(const struct lu_env *env, struct cl_io *io,
 static void osc_trunc_check(const struct lu_env *env, struct cl_io *io,
 			    struct osc_io *oio, __u64 size)
 {
-	struct cl_object *clob;
-	int     partial;
-	pgoff_t start;
+	struct cl_object	*clob;
+	int			 partial;
+	pgoff_t			 start;
 
-        clob    = oio->oi_cl.cis_obj;
-        start   = cl_index(clob, size);
-        partial = cl_offset(clob, start) < size;
+	clob    = oio->oi_cl.cis_obj;
+	start   = cl_index(clob, size);
+	partial = cl_offset(clob, start) < size;
 
-        /*
-         * Complain if there are pages in the truncated region.
-         */
+	/*
+	 * Complain if there are pages in the truncated region.
+	 */
 	osc_page_gang_lookup(env, io, cl2osc(clob),
-				start + partial, CL_PAGE_EOF,
-				trunc_check_cb, (void *)&size);
+			     start + partial, CL_PAGE_EOF,
+			     trunc_check_cb, (void *)&size);
 }
 
 static int osc_io_setattr_start(const struct lu_env *env,
-                                const struct cl_io_slice *slice)
+				const struct cl_io_slice *slice)
 {
         struct cl_io            *io     = slice->cis_io;
         struct osc_io           *oio    = cl2osc_io(env, slice);
@@ -490,13 +490,25 @@ static int osc_io_setattr_start(const struct lu_env *env,
         struct obdo             *oa     = &oio->oi_oa;
 	struct osc_async_cbargs *cbargs = &oio->oi_cbarg;
 	__u64                    size   = io->u.ci_setattr.sa_attr.lvb_size;
+	__u64			 start	= size;
+	__u64			 end	= OBD_OBJECT_EOF;
 	unsigned int             ia_valid = io->u.ci_setattr.sa_valid;
 	int                      result = 0;
+	int			 falloc_mode = io->u.ci_setattr.sa_falloc_mode;
+	bool			 io_is_trunc = false;
+	bool			 io_is_prealloc = false;
 
 	/* truncate cache dirty pages first */
-	if (cl_io_is_trunc(io))
+	if (cl_io_is_trunc(io)) {
+		io_is_trunc = true;
+		falloc_mode |= FALLOC_FL_PUNCH_HOLE;
 		result = osc_cache_truncate_start(env, cl2osc(obj), size,
 						  &oio->oi_trunc);
+	} else if (cl_io_is_prealloc(io)) {
+		io_is_prealloc = true;
+		start = io->u.ci_setattr.sa_falloc_offset;
+		end = start + io->u.ci_setattr.sa_falloc_len;
+	}
 
 	if (result == 0 && oio->oi_lockless == 0) {
 		cl_object_attr_lock(obj);
@@ -532,6 +544,7 @@ static int osc_io_setattr_start(const struct lu_env *env,
 		obdo_set_parent_fid(oa, io->u.ci_setattr.sa_parent_fid);
 		oa->o_stripe_idx = io->u.ci_setattr.sa_stripe_index;
 		oa->o_valid |= OBD_MD_FLID | OBD_MD_FLGROUP;
+		oa->o_falloc_mode = falloc_mode;
 		if (ia_valid & ATTR_CTIME) {
 			oa->o_valid |= OBD_MD_FLCTIME;
 			oa->o_ctime = attr->cat_ctime;
@@ -544,18 +557,18 @@ static int osc_io_setattr_start(const struct lu_env *env,
 			oa->o_valid |= OBD_MD_FLMTIME;
 			oa->o_mtime = attr->cat_mtime;
 		}
-                if (ia_valid & ATTR_SIZE) {
-                        oa->o_size = size;
-                        oa->o_blocks = OBD_OBJECT_EOF;
-                        oa->o_valid |= OBD_MD_FLSIZE | OBD_MD_FLBLOCKS;
+		if (io_is_trunc || io_is_prealloc) {
+			oa->o_size = start;
+			oa->o_blocks = end;
+			oa->o_valid |= OBD_MD_FLSIZE | OBD_MD_FLBLOCKS;
 
-                        if (oio->oi_lockless) {
-                                oa->o_flags = OBD_FL_SRVLOCK;
-                                oa->o_valid |= OBD_MD_FLFLAGS;
-                        }
-                } else {
-                        LASSERT(oio->oi_lockless == 0);
-                }
+			if (oio->oi_lockless) {
+				oa->o_flags = OBD_FL_SRVLOCK;
+				oa->o_valid |= OBD_MD_FLFLAGS;
+			}
+		} else {
+			LASSERT(oio->oi_lockless == 0);
+		}
 
 		if (ia_valid & ATTR_ATTR_FLAG) {
 			oa->o_flags = io->u.ci_setattr.sa_attr_flags;
@@ -564,10 +577,11 @@ static int osc_io_setattr_start(const struct lu_env *env,
 
 		init_completion(&cbargs->opc_sync);
 
-		if (ia_valid & ATTR_SIZE)
-			result = osc_punch_base(osc_export(cl2osc(obj)),
-						oa, osc_async_upcall,
-						cbargs, PTLRPCD_SET);
+		if (io_is_trunc || io_is_prealloc)
+			result = osc_fallocate_base(osc_export(cl2osc(obj)),
+						    oa, osc_async_upcall,
+						    cbargs, PTLRPCD_SET,
+						    falloc_mode);
 		else
 			result = osc_setattr_async(osc_export(cl2osc(obj)),
 						   oa, osc_async_upcall,
@@ -597,7 +611,7 @@ static void osc_io_setattr_end(const struct lu_env *env,
                         /* lockless truncate */
                         struct osc_device *osd = lu2osc_dev(obj->co_lu.lo_dev);
 
-                        LASSERT(cl_io_is_trunc(io));
+			LASSERT(cl_io_is_trunc(io) || cl_io_is_prealloc(io));
                         /* XXX: Need a lock. */
                         osd->od_stats.os_lockless_truncates++;
                 }
@@ -979,13 +993,13 @@ static const struct cl_io_operations osc_io_ops = {
  */
 
 int osc_io_init(const struct lu_env *env,
-                struct cl_object *obj, struct cl_io *io)
+		struct cl_object *obj, struct cl_io *io)
 {
-        struct osc_io *oio = osc_env_io(env);
+	struct osc_io *oio = osc_env_io(env);
 
-        CL_IO_SLICE_CLEAN(oio, oi_cl);
-        cl_io_slice_add(io, &oio->oi_cl, obj, &osc_io_ops);
-        return 0;
+	CL_IO_SLICE_CLEAN(oio, oi_cl);
+	cl_io_slice_add(io, &oio->oi_cl, obj, &osc_io_ops);
+	return 0;
 }
 
 /** @} osc */
