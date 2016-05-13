@@ -90,19 +90,28 @@ static void lov_io_sub_inherit(struct cl_io *io, struct lov_io *lio,
 
 	switch (io->ci_type) {
 	case CIT_SETATTR: {
+		int mode = parent->u.ci_setattr.sa_falloc_mode;
+
 		io->u.ci_setattr.sa_attr = parent->u.ci_setattr.sa_attr;
 		io->u.ci_setattr.sa_attr_flags =
 			parent->u.ci_setattr.sa_attr_flags;
 		io->u.ci_setattr.sa_valid = parent->u.ci_setattr.sa_valid;
+		io->u.ci_setattr.sa_subtype = parent->u.ci_setattr.sa_subtype;
+		io->u.ci_setattr.sa_falloc_mode = mode;
 		io->u.ci_setattr.sa_stripe_index = stripe;
 		io->u.ci_setattr.sa_parent_fid =
 					parent->u.ci_setattr.sa_parent_fid;
-                if (cl_io_is_trunc(io)) {
-                        loff_t new_size = parent->u.ci_setattr.sa_attr.lvb_size;
+		if (cl_io_is_trunc(io)) {
+			loff_t new_size = parent->u.ci_setattr.sa_attr.lvb_size;
 
-                        new_size = lov_size_to_stripe(lsm, new_size, stripe);
-                        io->u.ci_setattr.sa_attr.lvb_size = new_size;
-                }
+			new_size = lov_size_to_stripe(lsm, new_size, stripe);
+			io->u.ci_setattr.sa_attr.lvb_size = new_size;
+		} else if (cl_io_is_prealloc(io)) {
+			io->u.ci_setattr.sa_falloc_offset = start;
+			io->u.ci_setattr.sa_falloc_len = end - start;
+			io->u.ci_setattr.sa_attr.lvb_size =
+				parent->u.ci_setattr.sa_attr.lvb_size;
+		}
                 break;
         }
 	case CIT_DATA_VERSION: {
@@ -112,14 +121,14 @@ static void lov_io_sub_inherit(struct cl_io *io, struct lov_io *lio,
 		break;
 	}
         case CIT_FAULT: {
-                struct cl_object *obj = parent->ci_obj;
-                loff_t off = cl_offset(obj, parent->u.ci_fault.ft_index);
+		struct cl_object *obj = parent->ci_obj;
+		loff_t off = cl_offset(obj, parent->u.ci_fault.ft_index);
 
-                io->u.ci_fault = parent->u.ci_fault;
-                off = lov_size_to_stripe(lsm, off, stripe);
-                io->u.ci_fault.ft_index = cl_index(obj, off);
-                break;
-        }
+		io->u.ci_fault = parent->u.ci_fault;
+		off = lov_size_to_stripe(lsm, off, stripe);
+		io->u.ci_fault.ft_index = cl_index(obj, off);
+		break;
+	}
 	case CIT_FSYNC: {
 		io->u.ci_fsync.fi_start = start;
 		io->u.ci_fsync.fi_end = end;
@@ -334,14 +343,14 @@ static int lov_io_slice_init(struct lov_io *lio,
 	LASSERT(obj->lo_lsm != NULL);
 	lio->lis_stripe_count = obj->lo_lsm->lsm_stripe_count;
 
-        switch (io->ci_type) {
-        case CIT_READ:
-        case CIT_WRITE:
-                lio->lis_pos = io->u.ci_rw.crw_pos;
-                lio->lis_endpos = io->u.ci_rw.crw_pos + io->u.ci_rw.crw_count;
-                lio->lis_io_endpos = lio->lis_endpos;
-                if (cl_io_is_append(io)) {
-                        LASSERT(io->ci_type == CIT_WRITE);
+	switch (io->ci_type) {
+	case CIT_READ:
+	case CIT_WRITE: {
+		lio->lis_pos = io->u.ci_rw.crw_pos;
+		lio->lis_endpos = io->u.ci_rw.crw_pos + io->u.ci_rw.crw_count;
+		lio->lis_io_endpos = lio->lis_endpos;
+		if (cl_io_is_append(io)) {
+			LASSERT(io->ci_type == CIT_WRITE);
 
 			/* If there is LOV EA hole, then we may cannot locate
 			 * the current file-tail exactly. */
@@ -349,18 +358,24 @@ static int lov_io_slice_init(struct lov_io *lio,
 				     LOV_PATTERN_F_HOLE))
 				RETURN(-EIO);
 
-                        lio->lis_pos = 0;
-                        lio->lis_endpos = OBD_OBJECT_EOF;
-                }
-                break;
-
-        case CIT_SETATTR:
-                if (cl_io_is_trunc(io))
-                        lio->lis_pos = io->u.ci_setattr.sa_attr.lvb_size;
-                else
-                        lio->lis_pos = 0;
-                lio->lis_endpos = OBD_OBJECT_EOF;
-                break;
+			lio->lis_pos = 0;
+			lio->lis_endpos = OBD_OBJECT_EOF;
+		}
+		break;
+	}
+	case CIT_SETATTR:
+		if (cl_io_is_trunc(io)) {
+			lio->lis_pos = io->u.ci_setattr.sa_attr.lvb_size;
+			lio->lis_endpos = OBD_OBJECT_EOF;
+		} else if (cl_io_is_prealloc(io)) {
+			lio->lis_pos = io->u.ci_setattr.sa_falloc_offset;
+			lio->lis_endpos = lio->lis_pos +
+				io->u.ci_setattr.sa_falloc_len;
+		} else {
+			lio->lis_pos = 0;
+			lio->lis_endpos = OBD_OBJECT_EOF;
+		}
+		break;
 
 	case CIT_DATA_VERSION:
 		lio->lis_pos = 0;
@@ -379,21 +394,19 @@ static int lov_io_slice_init(struct lov_io *lio,
 		lio->lis_endpos = io->u.ci_fsync.fi_end;
 		break;
 	}
-
 	case CIT_LADVISE: {
 		lio->lis_pos = io->u.ci_ladvise.li_start;
 		lio->lis_endpos = io->u.ci_ladvise.li_end;
 		break;
 	}
-
-        case CIT_MISC:
-                lio->lis_pos = 0;
-                lio->lis_endpos = OBD_OBJECT_EOF;
-                break;
-
-        default:
-                LBUG();
-        }
+	case CIT_MISC: {
+		lio->lis_pos = 0;
+		lio->lis_endpos = OBD_OBJECT_EOF;
+		break;
+	}
+	default:
+		LBUG();
+	}
 
 	RETURN(0);
 }
@@ -427,7 +440,7 @@ static loff_t lov_offset_mod(loff_t val, int delta)
 }
 
 static int lov_io_iter_init(const struct lu_env *env,
-                            const struct cl_io_slice *ios)
+			    const struct cl_io_slice *ios)
 {
 	struct lov_io        *lio = cl2lov_io(env, ios);
 	struct lov_stripe_md *lsm = lio->lis_object->lo_lsm;
@@ -438,12 +451,12 @@ static int lov_io_iter_init(const struct lu_env *env,
         int stripe;
         int rc = 0;
 
-        ENTRY;
-        endpos = lov_offset_mod(lio->lis_endpos, -1);
-        for (stripe = 0; stripe < lio->lis_stripe_count; stripe++) {
-                if (!lov_stripe_intersects(lsm, stripe, lio->lis_pos,
-                                           endpos, &start, &end))
-                        continue;
+	ENTRY;
+	endpos = lov_offset_mod(lio->lis_endpos, -1);
+	for (stripe = 0; stripe < lio->lis_stripe_count; stripe++) {
+		if (!lov_stripe_intersects(lsm, stripe, lio->lis_pos,
+					   endpos, &start, &end))
+			continue;
 
 		if (unlikely(lov_r0(lio->lis_object)->lo_sub[stripe] == NULL)) {
 			if (ios->cis_io->ci_type == CIT_READ ||
@@ -1126,12 +1139,14 @@ int lov_io_init_released(const struct lu_env *env, struct cl_object *obj,
 		 * - in open, for open O_TRUNC
 		 * - in setattr, for truncate
 		 */
-		/* the truncate is for size > 0 so triggers a restore */
-		if (cl_io_is_trunc(io)) {
+		/* the truncate is for size > 0 so triggers a restore.
+		 * also trigger a restore for prealloc/punch */
+		if (cl_io_is_trunc(io) || cl_io_is_prealloc(io)) {
 			io->ci_restore_needed = 1;
 			result = -ENODATA;
-		} else
+		} else {
 			result = 1;
+		}
 		break;
 	case CIT_READ:
 	case CIT_WRITE:

@@ -414,9 +414,12 @@ out:
 	RETURN(rc);
 }
 
-int osc_punch_base(struct obd_export *exp, struct obdo *oa,
-                   obd_enqueue_update_f upcall, void *cookie,
-                   struct ptlrpc_request_set *rqset)
+/**
+ * osc_fallocate_base: Handles truncate, punch and preallocate requests
+ */
+int osc_fallocate_base(struct obd_export *exp, struct obdo *oa,
+		       obd_enqueue_update_f upcall, void *cookie,
+		       struct ptlrpc_request_set *rqset, int mode)
 {
         struct ptlrpc_request   *req;
         struct osc_setattr_args *sa;
@@ -424,15 +427,24 @@ int osc_punch_base(struct obd_export *exp, struct obdo *oa,
         int                      rc;
         ENTRY;
 
-        req = ptlrpc_request_alloc(class_exp2cliimp(exp), &RQF_OST_PUNCH);
-        if (req == NULL)
-                RETURN(-ENOMEM);
+	if (mode & FALLOC_FL_PUNCH_HOLE)
+		req = ptlrpc_request_alloc(class_exp2cliimp(exp),
+					   &RQF_OST_PUNCH);
+	else
+		req = ptlrpc_request_alloc(class_exp2cliimp(exp),
+					   &RQF_OST_PREALLOC);
+	if (req == NULL)
+		RETURN(-ENOMEM);
 
-        rc = ptlrpc_request_pack(req, LUSTRE_OST_VERSION, OST_PUNCH);
-        if (rc) {
-                ptlrpc_request_free(req);
-                RETURN(rc);
-        }
+	if (mode & FALLOC_FL_PUNCH_HOLE)
+		rc = ptlrpc_request_pack(req, LUSTRE_OST_VERSION, OST_PUNCH);
+	else
+		rc = ptlrpc_request_pack(req, LUSTRE_OST_VERSION, OST_PREALLOC);
+
+	if (rc != 0) {
+		ptlrpc_request_free(req);
+		RETURN(rc);
+	}
         req->rq_request_portal = OST_IO_PORTAL; /* bug 7198 */
         ptlrpc_at_set_req_timeout(req);
 

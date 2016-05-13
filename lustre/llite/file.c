@@ -3509,6 +3509,94 @@ int ll_getattr(struct vfsmount *mnt, struct dentry *de, struct kstat *stat)
         return 0;
 }
 
+#if defined(HAVE_IOPS_FALLOCATE) || defined(HAVE_FOPS_FALLOCATE)
+int cl_falloc(struct inode *inode, int mode, loff_t offset, loff_t len)
+{
+	struct lu_env		*env;
+	struct cl_env_nest	 nest;
+	struct cl_io		*io;
+	int			 result;
+	loff_t			 size = i_size_read(inode);
+	ENTRY;
+
+	env = cl_env_nested_get(&nest);
+	if (IS_ERR(env))
+		RETURN(PTR_ERR(env));
+
+	io = vvp_env_thread_io(env);
+	io->ci_obj = ll_i2info(inode)->lli_clob;
+	io->u.ci_setattr.sa_parent_fid = lu_object_fid(&io->ci_obj->co_lu);
+	io->u.ci_setattr.sa_falloc_mode = mode;
+	io->u.ci_setattr.sa_falloc_offset = offset;
+	io->u.ci_setattr.sa_falloc_len = len;
+	io->u.ci_setattr.sa_attr.lvb_ctime = LTIME_S(CURRENT_TIME);
+	io->u.ci_setattr.sa_valid = ATTR_CTIME_SET;
+	io->u.ci_setattr.sa_subtype = CL_SETATTR_PREALLOC;
+	if (offset + len > size) {
+		/* Check new size */
+		result = inode_newsize_ok(inode, offset + len);
+		if (result)
+			goto out;
+		if (offset + len > ll_file_maxbytes(inode)) {
+			CDEBUG(D_INODE, "file size too large %llu > "
+			       ""LPU64"\n",
+			       (unsigned long long)(offset + len),
+			       ll_file_maxbytes(inode));
+			result = -EFBIG;
+			goto out;
+		}
+		io->u.ci_setattr.sa_attr.lvb_size = offset + len;
+		if (!(mode & FALLOC_FL_KEEP_SIZE))
+			io->u.ci_setattr.sa_valid |= ATTR_SIZE;
+	} else {
+		io->u.ci_setattr.sa_attr.lvb_size = size;
+	}
+
+again:
+	if (cl_io_init(env, io, CIT_SETATTR, io->ci_obj) == 0)
+		result = cl_io_loop(env, io);
+	else
+		result = io->ci_result;
+
+	cl_io_fini(env, io);
+	if (unlikely(io->ci_need_restart))
+		goto again;
+
+out:
+	cl_env_nested_put(&nest, env);
+	RETURN(result);
+}
+
+static int ll_falloc_prealloc(struct inode *inode, int mode, loff_t offset,
+			      loff_t len)
+{
+	return cl_falloc(inode, mode, offset, len);
+}
+
+#ifdef HAVE_FOPS_FALLOCATE
+long ll_fallocate(struct file *filp, int mode, loff_t offset, loff_t len)
+{
+	struct inode	*inode = filp->f_path.dentry->d_inode;
+#else
+long ll_fallocate(struct inode *inode, int mode, loff_t offset, loff_t len)
+{
+#endif
+	int rc;
+
+	/*
+	 * Return error if mode is not supported
+	 */
+	if (mode & ~FALLOC_FL_KEEP_SIZE)
+		RETURN(-EOPNOTSUPP);
+
+	ll_stats_ops_tally(ll_i2sbi(inode), LPROC_LL_FALLOCATE, 1);
+
+	rc = ll_falloc_prealloc(inode, mode, offset, len);
+
+	RETURN(rc);
+}
+#endif
+
 static int ll_fiemap(struct inode *inode, struct fiemap_extent_info *fieinfo,
 		     __u64 start, __u64 len)
 {
@@ -3752,7 +3840,10 @@ struct file_operations ll_file_operations_noflock = {
 	.fsync		= ll_fsync,
 	.flush		= ll_flush,
 	.flock		= ll_file_noflock,
-	.lock		= ll_file_noflock
+	.lock		= ll_file_noflock,
+#ifdef HAVE_FOPS_FALLOCATE
+	.fallocate	= ll_fallocate,
+#endif
 };
 
 struct inode_operations ll_file_inode_operations = {
@@ -3766,6 +3857,9 @@ struct inode_operations ll_file_inode_operations = {
 	.fiemap		= ll_fiemap,
 #ifdef HAVE_IOP_GET_ACL
 	.get_acl	= ll_get_acl,
+#endif
+#ifdef HAVE_FOPS_FALLOCATE
+	.fallocate	= ll_fallocate,
 #endif
 };
 
