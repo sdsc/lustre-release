@@ -323,9 +323,17 @@ check_lu_ladvise(void)
 	CHECK_MEMBER(lu_ladvise, lla_end);
 	CHECK_MEMBER(lu_ladvise, lla_value3);
 	CHECK_MEMBER(lu_ladvise, lla_value4);
+	CHECK_VALUE(LU_LADVISE_WILLREAD);
 
-	CHECK_VALUE(LF_ASYNC);
 	CHECK_VALUE(LADVISE_MAGIC_WIRE);
+	CHECK_STRUCT(lu_ladvise_hdr);
+	CHECK_MEMBER(lu_ladvise_hdr, lah_count);
+	CHECK_MEMBER(lu_ladvise_hdr, lah_flags);
+	CHECK_MEMBER(lu_ladvise_hdr, lah_value1);
+	CHECK_MEMBER(lu_ladvise_hdr, lah_value2);
+	CHECK_MEMBER(lu_ladvise_hdr, lah_value3);
+	CHECK_MEMBER(lu_ladvise_hdr, lah_advise);
+	CHECK_VALUE_X(LF_ASYNC);
 }
 
 static void
