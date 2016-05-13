@@ -5064,6 +5064,8 @@ void lustre_assert_wire_constants(void)
 		 (long long)(int)sizeof(((struct lu_ladvise *)0)->lla_padding));
 	LASSERTF(LU_LADVISE_WILLREAD == 1, "found %lld\n",
 		 (long long)LU_LADVISE_WILLREAD);
+	LASSERTF(LU_LADVISE_NOREAD == 2, "found %lld\n",
+		 (long long)LU_LADVISE_NOREAD);
 
 	/* Checks for struct ladvise_hdr */
 	LASSERTF(LADVISE_MAGIC == 0x1ADF1CE0, "found 0x%.8x\n",

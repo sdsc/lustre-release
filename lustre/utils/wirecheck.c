@@ -318,6 +318,7 @@ check_lu_ladvise(void)
 	CHECK_MEMBER(lu_ladvise, lla_padding);
 
 	CHECK_VALUE(LU_LADVISE_WILLREAD);
+	CHECK_VALUE(LU_LADVISE_NOREAD);
 }
 
 static void

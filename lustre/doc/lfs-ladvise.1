@@ -54,6 +54,10 @@ filesystem, while ladvise can send advices or hints to Lustre server sides.
 .B $ lfs ladvise -a willread -s 0 -e 1048576000 /mnt/lustre/file1
 This gives a hint that the first 1GB of file /mnt/lustre/file1 will be
 read soon.
+.TP
+.B $ lfs ladvise -a noread -s 0 -e 1048576000 /mnt/lustre/file1
+This gives a hint that the first 1GB of file /mnt/lustre/file1 will not be
+read in the near future.
 .SH AVAILABILITY
 The lfs ladvise command is part of the Lustre filesystem.
 .SH SEE ALSO

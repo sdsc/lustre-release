@@ -13832,7 +13832,8 @@ test_255a() {
 	echo "Synchronous ladvise should wait"
 	local delay=4
 #define OBD_FAIL_OST_LADVISE_PAUSE	 0x236
-	do_nodes $(comma_list $(osts_nodes)) $LCTL set_param fail_val=$delay fail_loc=0x236
+	do_nodes $(comma_list $(osts_nodes)) $LCTL set_param \
+		fail_val=$delay fail_loc=0x236
 
 	local start_ts=$SECONDS
 	lfs ladvise -a willread $DIR/$tfile ||
@@ -13901,6 +13902,60 @@ test_255a() {
 		"($speed_origin vs. $speed_cache)"
 }
 run_test 255a "check 'lfs ladvise -a willread'"
+
+facet_meminfo() {
+	local facet=$1
+	local info=$2
+
+	do_facet $facet "cat /proc/meminfo | grep ^${info}:" | awk '{print $2}'
+}
+
+test_255b() {
+	local size_mb=100
+	local size=$((size_mb * 1048576))
+	# In order to prevent disturbance of other processes, only check 3/4
+	# of the memory usage
+	local kibibytes=$((size_mb * 256 * 3))
+
+	lfs setstripe -c 1 -i 0 $DIR/$tfile
+	dd if=/dev/zero of=$DIR/$tfile bs=1048576 count=$size_mb ||
+		error "dd to $DIR/$tfile failed"
+
+	local TOTAL=$(facet_meminfo ost1 MemTotal)
+	echo "Total memory: $TOTAL KiB"
+
+	do_facet ost1 "sync && echo 3 > /proc/sys/vm/drop_caches"
+	lfs ladvise -a noread $DIR/$tfile ||
+		error "Ladvise noread failed"
+	local BEFORE_READ=$(facet_meminfo ost1 Cached)
+	echo "Cache used before read: $BEFORE_READ KiB"
+
+	lfs ladvise -a willread $DIR/$tfile ||
+		error "Ladvise willread failed"
+	local AFTER_READ=$(facet_meminfo ost1 Cached)
+	echo "Cache used after read: $AFTER_READ KiB"
+
+	lfs ladvise -a noread $DIR/$tfile ||
+		error "Ladvise noread again failed"
+	local NO_READ=$(facet_meminfo ost1 Cached)
+	echo "Cache used after noread ladvise: $NO_READ KiB"
+
+	if [ $TOTAL -lt $((BEFORE_READ + kibibytes)) ]; then
+		echo "Memory is too small, abort checking"
+		return 0
+	fi
+
+	if [ $((BEFORE_READ + $kibibytes)) -gt $AFTER_READ ]; then
+		error "Ladvise willread should use more memory" \
+			"than $kibibytes KiB"
+	fi
+
+	if [ $((NO_READ + $kibibytes)) -gt $AFTER_READ ]; then
+		error "Ladvise noread should release more memory" \
+			"than $kibibytes KiB"
+	fi
+}
+run_test 255b "check 'lfs ladvise -a noread'"
 
 test_256() {
 	local cl_user

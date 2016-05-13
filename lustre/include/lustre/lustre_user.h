@@ -1393,10 +1393,12 @@ struct llapi_json_item_list {
 enum lu_ladvise_type {
 	LU_LADVISE_INVALID	= 0,
 	LU_LADVISE_WILLREAD	= 1,
+	LU_LADVISE_NOREAD	= 2,
 };
 
 #define LU_LADVISE_NAMES {						\
 	[LU_LADVISE_WILLREAD]	= "willread",				\
+	[LU_LADVISE_NOREAD]	= "noread",				\
 }
 
 struct lu_ladvise {
