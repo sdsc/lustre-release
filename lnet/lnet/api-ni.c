@@ -1890,6 +1890,7 @@ EXPORT_SYMBOL(LNetNIFini);
  * \param[out] ni_cpts		NI cpts
  * \param[out] ni_status	NI status
  * \param[out] tcp_bonding	TCP bonding/Multi-Rail flag
+ * \param[out] stats		Statistics for NI
  */
 static void
 lnet_fill_ni_info(struct lnet_ni *ni, __u32 *cpt_count, __u64 *nid,
@@ -1897,7 +1898,7 @@ lnet_fill_ni_info(struct lnet_ni *ni, __u32 *cpt_count, __u64 *nid,
 		  int *peer_rtr_credits, int *max_tx_credits,
 		  char ni_interfaces[LNET_MAX_INTERFACES][LNET_MAX_STR_LEN],
 		  __u32 *ni_cpts, __u32 *ni_status,
-		  __u32 *tcp_bonding)
+		  __u32 *tcp_bonding, struct lnet_ioctl_element_stats *stats)
 {
 	int i;
 
@@ -1922,6 +1923,10 @@ lnet_fill_ni_info(struct lnet_ni *ni, __u32 *cpt_count, __u64 *nid,
 
 	*ni_status = ni->ni_status->ns_status;
 	*tcp_bonding = use_tcp_bonding;
+	if (stats) {
+		stats->send_count = atomic_read(&ni->ni_stats.send_count);
+		stats->recv_count = atomic_read(&ni->ni_stats.recv_count);
+	}
 
 	if (ni->ni_ncpts == LNET_CPT_NUMBER &&
 	    ni->ni_cpts == NULL)  {
@@ -2019,7 +2024,7 @@ lnet_get_net_config(int idx, __u32 *cpt_count, __u64 *nid, int *peer_timeout,
 				peer_tx_credits, peer_rtr_credits,
 				max_tx_credits, net_config->ni_interfaces,
 				net_config->ni_cpts, &net_config->ni_status,
-				&tcp_bonding);
+				&tcp_bonding, NULL);
 		lnet_ni_unlock(ni);
 	}
 
@@ -2029,13 +2034,14 @@ lnet_get_net_config(int idx, __u32 *cpt_count, __u64 *nid, int *peer_timeout,
 
 int
 lnet_get_ni_config(struct lnet_ioctl_config_ni *cfg_ni,
-		   struct lnet_ioctl_config_lnd_tunables *tun)
+		   struct lnet_ioctl_config_lnd_tunables *tun,
+		   struct lnet_ioctl_element_stats *stats)
 {
 	struct lnet_ni		*ni;
 	int			cpt;
 	int			rc = -ENOENT;
 
-	if (cfg_ni == NULL || tun == NULL)
+	if (cfg_ni == NULL || tun == NULL || stats == NULL)
 		return -EINVAL;
 
 	cpt = lnet_net_lock_current();
@@ -2053,7 +2059,7 @@ lnet_get_ni_config(struct lnet_ioctl_config_ni *cfg_ni,
 				  &tun->lt_cmn.lct_max_tx_credits,
 				  cfg_ni->lic_ni_intf,
 				  cfg_ni->lic_cpts, &cfg_ni->lic_status,
-				  &cfg_ni->lic_tcp_bonding);
+				  &cfg_ni->lic_tcp_bonding, stats);
 
 		cfg_ni->lic_dev_cpt = ni->dev_cpt;
 		/* TODO: FUTURE - fill specific LND tunables */
@@ -2533,17 +2539,20 @@ LNetCtl(unsigned int cmd, void *arg)
 	case IOC_LIBCFS_GET_LOCAL_NI: {
 		struct lnet_ioctl_config_ni *cfg_ni;
 		struct lnet_ioctl_config_lnd_tunables *tun = NULL;
+		struct lnet_ioctl_element_stats *stats;
 
 		cfg_ni = arg;
 		/* get the tunables if they are available */
 		if (cfg_ni->lic_cfg_hdr.ioc_len !=
-		    sizeof(*cfg_ni) + sizeof(*tun))
+		    sizeof(*cfg_ni) + sizeof(*tun) + sizeof(*stats))
 			return -EINVAL;
 
 		tun = (struct lnet_ioctl_config_lnd_tunables *)
 				cfg_ni->lic_bulk;
+		stats = (struct lnet_ioctl_element_stats *) (cfg_ni->lic_bulk +
+				sizeof(*tun));
 
-		return lnet_get_ni_config(cfg_ni, tun);
+		return lnet_get_ni_config(cfg_ni, tun, stats);
 	}
 
 	case IOC_LIBCFS_GET_NET: {
@@ -2682,15 +2691,20 @@ LNetCtl(unsigned int cmd, void *arg)
 	case IOC_LIBCFS_GET_PEER_NI: {
 		struct lnet_ioctl_peer_cfg *cfg = arg;
 		struct lnet_peer_ni_credit_info *lpni_cri;
-		size_t total = sizeof(*cfg) + sizeof(*lpni_cri);
+		struct lnet_ioctl_element_stats *lpni_stats;
+		size_t total = sizeof(*cfg) + sizeof(*lpni_cri) +
+			       sizeof(*lpni_stats);
 
 		if (cfg->prcfg_hdr.ioc_len < total)
 			return -EINVAL;
 
 		lpni_cri = (struct lnet_peer_ni_credit_info*) cfg->prcfg_bulk;
+		lpni_stats = (struct lnet_ioctl_element_stats *)
+			     (cfg->prcfg_bulk + sizeof(*lpni_cri));
 
 		return lnet_get_peer_info(cfg->prcfg_idx, &cfg->prcfg_key_nid,
-					  &cfg->prcfg_cfg_nid, lpni_cri);
+					  &cfg->prcfg_cfg_nid, lpni_cri,
+					  lpni_stats);
 	}
 
 	case IOC_LIBCFS_NOTIFY_ROUTER:
