@@ -6617,7 +6617,7 @@ test_101g() {
 	$LFS setstripe -c 1 $DIR/$tfile
 
 	if [ $(lustre_version_code ost1) -ge $(version_code 2.8.52) ]; then
-		set_osd_param $list '' brw_size 16M
+		set_osd_param $list '' brw_size 16
 
 		echo "remount client to enable large RPC size"
 		remount_client $MOUNT || error "remount_client failed"
@@ -6645,7 +6645,7 @@ test_101g() {
 
 	echo "set RPC size to 4MB"
 
-	$LCTL set_param -n osc.*.max_pages_per_rpc=4M osc.*.rpc_stats=0
+	$LCTL set_param -n osc.*.max_pages_per_rpc=1024 osc.*.rpc_stats=0
 	dd if=/dev/zero of=$DIR/$tfile bs=4M count=25
 	cancel_lru_locks osc
 	dd of=/dev/null if=$DIR/$tfile bs=4M count=25
