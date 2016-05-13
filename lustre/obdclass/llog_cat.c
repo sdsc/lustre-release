@@ -874,7 +874,7 @@ static int llog_cat_size_cb(const struct lu_env *env,
 	size = llog_size(env, llh);
 	*cum_size += size;
 
-	CDEBUG(D_INFO, "Add llog entry "DOSTID" size "LPU64"\n",
+	CDEBUG(D_INFO, "Add llog entry "DOSTID" size %llu\n",
 	       POSTID(&llh->lgh_id.lgl_oi), size);
 
 	llog_handle_put(llh);

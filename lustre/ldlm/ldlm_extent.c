@@ -107,10 +107,10 @@ static void ldlm_extent_internal_policy_fixup(struct ldlm_lock *req,
         new_ex->start = ((new_ex->start - 1) | mask) + 1;
         new_ex->end = ((new_ex->end + 1) & ~mask) - 1;
         LASSERTF(new_ex->start <= req_start,
-                 "mask "LPX64" grant start "LPU64" req start "LPU64"\n",
+		 "mask %#llx grant start %llu req start %llu\n",
                  mask, new_ex->start, req_start);
         LASSERTF(new_ex->end >= req_end,
-                 "mask "LPX64" grant end "LPU64" req end "LPU64"\n",
+		 "mask %#llx grant end %llu req end %llu\n",
                  mask, new_ex->end, req_end);
 }
 
@@ -826,7 +826,7 @@ __u64 ldlm_extent_shift_kms(struct ldlm_lock *lock, __u64 old_kms)
                 if (lck->l_policy_data.l_extent.end + 1 > kms)
                         kms = lck->l_policy_data.l_extent.end + 1;
         }
-        LASSERTF(kms <= old_kms, "kms "LPU64" old_kms "LPU64"\n", kms, old_kms);
+	LASSERTF(kms <= old_kms, "kms %llu old_kms %llu\n", kms, old_kms);
 
         RETURN(kms);
 }
