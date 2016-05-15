@@ -705,6 +705,24 @@ static inline void osp_thandle_put(struct osp_thandle *oth)
 		osp_thandle_destroy(oth);
 }
 
+static inline int osp_allow_rpc(struct osp_device *osp,
+				struct ptlrpc_request *req)
+{
+	struct lu_device *top = osp->opd_dt_dev.dd_lu_dev.ld_site->ls_top_dev;
+	int		  rc;
+
+	if (!top->ld_obd->obd_recovering &&
+	    ptlrpc_import_delay_req(osp->opd_obd->u.cli.cl_import, req, &rc))
+		/* If current server is not in recovering, but remote server
+		 * is recovering, then return -EINPROGRESS to the client that
+		 * will cause the client to retry related RPC some latter. */
+		return -EINPROGRESS;
+
+	req->rq_allow_replay = 1;
+
+	return 0;
+}
+
 int osp_prep_update_req(const struct lu_env *env, struct obd_import *imp,
 			struct osp_update_request *our,
 			struct ptlrpc_request **reqp);
