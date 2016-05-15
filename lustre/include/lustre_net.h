@@ -2102,6 +2102,8 @@ struct ptlrpc_request_set *ptlrpc_prep_fcset(int max, set_producer_func func,
 					     void *arg);
 int ptlrpc_set_add_cb(struct ptlrpc_request_set *set,
                       set_interpreter_func fn, void *data);
+int ptlrpc_import_delay_req(struct obd_import *imp,
+			    struct ptlrpc_request *req, int *status);
 int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set);
 int ptlrpc_set_wait(struct ptlrpc_request_set *);
 void ptlrpc_mark_interrupted(struct ptlrpc_request *req);

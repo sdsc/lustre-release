@@ -705,6 +705,36 @@ static inline void osp_thandle_put(struct osp_thandle *oth)
 		osp_thandle_destroy(oth);
 }
 
+static inline int osp_allow_rpc(struct osp_device *osp,
+				struct ptlrpc_request *req)
+{
+	struct lu_device *top = osp->opd_dt_dev.dd_lu_dev.ld_site->ls_top_dev;
+	int		  rc;
+
+	/* If current server is recovering, the RPC from current server
+	 * to remote server must belong to recovery thread, not client.
+	 * let it go throught. */
+	if (top->ld_obd->obd_recovering) {
+		req->rq_allow_replay = 1;
+		return 0;
+	}
+
+	/* If current server is not in recovering, but remote server
+	 * is recovering, then return -EINPROGRESS to the client that
+	 * will cause the client to retry related RPC some later. */
+	if (ptlrpc_import_delay_req(osp->opd_obd->u.cli.cl_import, req, &rc))
+		return -EINPROGRESS;
+
+	/* If current server is not in recovery, do NOT set rq_allow_replay,
+	 * otherwise, if the remote server become in recovery before the RPC
+	 * really sent out, it will let the non-recovery related RPC to go
+	 * through unexpectedly. That may break remote server recovery, or
+	 * may get stale information remote server because of unfinished
+	 * recovery. Under such race case, the RPC will be blocked until
+	 * the remote server recovery completed or failed. LU-7117. */
+	return 0;
+}
+
 int osp_prep_update_req(const struct lu_env *env, struct obd_import *imp,
 			struct osp_update_request *our,
 			struct ptlrpc_request **reqp);

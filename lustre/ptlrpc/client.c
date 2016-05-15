@@ -1148,8 +1148,8 @@ void ptlrpc_set_add_new_req(struct ptlrpcd_ctl *pc,
  *
  * The imp->imp_lock must be held.
  */
-static int ptlrpc_import_delay_req(struct obd_import *imp,
-                                   struct ptlrpc_request *req, int *status)
+int ptlrpc_import_delay_req(struct obd_import *imp,
+			    struct ptlrpc_request *req, int *status)
 {
         int delay = 0;
         ENTRY;
@@ -1205,6 +1205,7 @@ static int ptlrpc_import_delay_req(struct obd_import *imp,
 
 	RETURN(delay);
 }
+EXPORT_SYMBOL(ptlrpc_import_delay_req);
 
 /**
  * Decide if the error message should be printed to the console or not.

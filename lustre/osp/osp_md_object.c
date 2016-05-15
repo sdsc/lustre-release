@@ -886,7 +886,6 @@ static int osp_md_object_lock(const struct lu_env *env,
 	struct ldlm_res_id	*res_id;
 	struct dt_device	*dt_dev = lu2dt_dev(dt->do_lu.lo_dev);
 	struct osp_device	*osp = dt2osp_dev(dt_dev);
-	struct lu_device	*top_device;
 	struct ptlrpc_request	*req;
 	int			rc = 0;
 	__u64			flags = LDLM_FL_NO_LRU;
@@ -908,9 +907,12 @@ static int osp_md_object_lock(const struct lu_env *env,
 	 * other target is being recovered at the same time,
 	 * and if we wait here for the import to be recovered,
 	 * it might cause deadlock */
-	top_device = dt_dev->dd_lu_dev.ld_site->ls_top_dev;
-	if (top_device->ld_obd->obd_recovering)
-		req->rq_allow_replay = 1;
+	rc = osp_allow_rpc(osp, req);
+	if (rc != 0) {
+		ptlrpc_req_finished(req);
+
+		return rc;
+	}
 
 	rc = ldlm_cli_enqueue(osp->opd_exp, &req, einfo, res_id,
 			      (const union ldlm_policy_data *)policy,
@@ -1189,7 +1191,10 @@ static ssize_t osp_md_read(const struct lu_env *env, struct dt_object *dt,
 	/* This will only be called with read-only update, and these updates
 	 * might be used to retrieve update log during recovery process, so
 	 * it will be allowed to send during recovery process */
-	req->rq_allow_replay = 1;
+	rc = osp_allow_rpc(osp, req);
+	if (rc != 0)
+		GOTO(out, rc);
+
 	req->rq_bulk_read = 1;
 	/* send request to master and wait for RPC to complete */
 	rc = ptlrpc_queue_wait(req);
