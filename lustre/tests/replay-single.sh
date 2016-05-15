@@ -2177,6 +2177,7 @@ run_test 70c "tar ${MDSCOUNT}mdts recovery"
 cleanup_70d() {
 	trap 0
 	kill -9 $mkdir_70d_pid
+	stop_full_debug_logging
 }
 
 test_70d () {
@@ -2196,6 +2197,7 @@ test_70d () {
 	local elapsed
 	local start_ts=$(date +%s)
 
+	start_full_debug_logging
 	trap cleanup_70d EXIT
 	(
 		while true; do
