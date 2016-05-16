@@ -518,7 +518,7 @@ static int import_select_connection(struct obd_import *imp)
 	}
 
 	list_for_each_entry(conn, &imp->imp_conn_list, oic_item) {
-                CDEBUG(D_HA, "%s: connect to NID %s last attempt "LPU64"\n",
+		CDEBUG(D_HA, "%s: connect to NID %s last attempt %llu\n",
                        imp->imp_obd->obd_name,
                        libcfs_nid2str(conn->oic_conn->c_peer.nid),
                        conn->oic_last_attempt);
@@ -804,7 +804,7 @@ static int ptlrpc_connect_set_flags(struct obd_import *imp,
 	    !(ocd->ocd_connect_flags & OBD_CONNECT_IBITS)) {
 		LCONSOLE_WARN("%s: MDS %s does not support ibits "
 			      "lock, either very old or invalid: "
-			      "requested "LPX64", replied "LPX64"\n",
+			      "requested %#llx, replied %#llx\n",
 			      imp->imp_obd->obd_name,
 			      imp->imp_connection->c_remote_uuid.uuid,
 			      imp->imp_connect_flags_orig,
@@ -918,7 +918,7 @@ static int ptlrpc_connect_set_flags(struct obd_import *imp,
 	 * disable lru_resize, etc. */
 	if (old_connect_flags != exp_connect_flags(exp) || init_connect) {
 		CDEBUG(D_HA, "%s: Resetting ns_connect_flags to server "
-			     "flags: "LPX64"\n", imp->imp_obd->obd_name,
+			     "flags: %#llx\n", imp->imp_obd->obd_name,
 			     ocd->ocd_connect_flags);
 		imp->imp_obd->obd_namespace->ns_connect_flags =
 			ocd->ocd_connect_flags;
@@ -1053,7 +1053,7 @@ static int ptlrpc_connect_interpret(const struct lu_env *env,
 	if ((ocd->ocd_connect_flags & imp->imp_connect_flags_orig) !=
 	    ocd->ocd_connect_flags) {
 		CERROR("%s: Server didn't granted asked subset of flags: "
-		       "asked="LPX64" grranted="LPX64"\n",
+		       "asked=%#llx grranted=%#llx\n",
 		       imp->imp_obd->obd_name,imp->imp_connect_flags_orig,
 		       ocd->ocd_connect_flags);
 		GOTO(out, rc = -EPROTO);
@@ -1150,7 +1150,7 @@ static int ptlrpc_connect_interpret(const struct lu_env *env,
                 if (!memcmp(&old_hdl, lustre_msg_get_handle(request->rq_repmsg),
                             sizeof (old_hdl))) {
                         LCONSOLE_WARN("Reconnect to %s (at @%s) failed due "
-                                      "bad handle "LPX64"\n",
+				      "bad handle %#llx\n",
                                       obd2cli_tgt(imp->imp_obd),
                                       imp->imp_connection->c_remote_uuid.uuid,
                                       imp->imp_dlm_handle.cookie);
@@ -1172,7 +1172,7 @@ static int ptlrpc_connect_interpret(const struct lu_env *env,
                          * with server again */
                         if ((MSG_CONNECT_RECOVERING & msg_flags)) {
                                 CDEBUG(level,"%s@%s changed server handle from "
-                                       LPX64" to "LPX64
+				       "%#llx to %#llx"
                                        " but is still in recovery\n",
                                        obd2cli_tgt(imp->imp_obd),
                                        imp->imp_connection->c_remote_uuid.uuid,
@@ -1182,7 +1182,7 @@ static int ptlrpc_connect_interpret(const struct lu_env *env,
                         } else {
                                 LCONSOLE_WARN("Evicted from %s (at %s) "
                                               "after server handle changed from "
-                                              LPX64" to "LPX64"\n",
+					      "%#llx to %#llx\n",
                                               obd2cli_tgt(imp->imp_obd),
                                               imp->imp_connection-> \
                                               c_remote_uuid.uuid,
@@ -1247,8 +1247,8 @@ static int ptlrpc_connect_interpret(const struct lu_env *env,
         if (lustre_msg_get_last_committed(request->rq_repmsg) > 0 &&
             lustre_msg_get_last_committed(request->rq_repmsg) <
             aa->pcaa_peer_committed) {
-                CERROR("%s went back in time (transno "LPD64
-                       " was previously committed, server now claims "LPD64
+		CERROR("%s went back in time (transno %lld"
+		       " was previously committed, server now claims %lld"
                        ")!  See https://bugzilla.lustre.org/show_bug.cgi?"
                        "id=9646\n",
                        obd2cli_tgt(imp->imp_obd), aa->pcaa_peer_committed,
