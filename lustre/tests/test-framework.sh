@@ -1148,7 +1148,7 @@ set_debug_size () {
     if [ -f /sys/devices/system/cpu/possible ]; then
         local cpus=$(($(cut -d "-" -f 2 /sys/devices/system/cpu/possible)+1))
     else
-        local cpus=$(getconf _NPROCESSORS_CONF)
+        local cpus=$(getconf _NPROCESSORS_CONF 2>/dev/null)
     fi
 
     # bug 19944, adjust size to be -gt num_possible_cpus()
@@ -1563,7 +1563,7 @@ zconf_umount() {
     local client=$1
     local mnt=$2
     local force
-    local busy 
+    local busy
     local need_kill
 
     [ "$3" ] && force=-f
@@ -1604,13 +1604,13 @@ if [ \\\$running -ne \\\$mpts ]; then
     echo \\\$(hostname) env are INSANE!;
     exit 1;
 fi"
-    [ $? -eq 0 ] || rc=1 
+    [ $? -eq 0 ] || rc=1
     done
     return $rc
 }
 
 sanity_mount_check_servers () {
-    [ "$CLIENTONLY" ] && 
+    [ -n "$CLIENTONLY" ] &&
         { echo "CLIENTONLY mode, skip mount_check_servers"; return 0; } || true
     echo Checking servers environments
 
@@ -1732,7 +1732,7 @@ shutdown_node_hard () {
         wait_for_function --quiet "! ping -w 3 -c 1 $host" 5 1 && return 0
         echo "waiting for $host to fail attempts=$attempts"
         [ $i -lt $attempts ] || \
-            { echo "$host still pingable after power down! attempts=$attempts" && return 1; } 
+            { echo "$host still pingable after power down! attempts=$attempts" && return 1; }
     done
 }
 
@@ -3338,7 +3338,8 @@ stopall() {
     zconf_umount_clients $clients $MOUNT "$*" || true
     [ -n "$MOUNT2" ] && zconf_umount_clients $clients $MOUNT2 "$*" || true
 
-    [ "$CLIENTONLY" ] && return
+    [ -n "$CLIENTONLY" ] && return
+
     # The add fn does rm ${facet}active file, this would be enough
     # if we use do_facet <facet> only after the facet added, but
     # currently we use do_facet mds in local.sh
@@ -3551,7 +3552,7 @@ formatall() {
 
 	# We need ldiskfs here, may as well load them all
 	load_modules
-	[ "$CLIENTONLY" ] && return
+	[ -n "$CLIENTONLY" ] && return
 	echo Formatting mgs, mds, osts
 	if ! combined_mgs_mds ; then
 		format_mgs
@@ -3641,21 +3642,19 @@ writeconf_all () {
 }
 
 setupall() {
-    nfs_client_mode && return
+	nfs_client_mode && return
 	cifs_client_mode && return
 
-    sanity_mount_check ||
-        error "environments are insane!"
+	sanity_mount_check || error "environments are insane!"
 
-    load_modules
+	load_modules
 
-    if [ -z "$CLIENTONLY" ]; then
-        echo Setup mgs, mdt, osts
-        echo $WRITECONF | grep -q "writeconf" && \
-            writeconf_all
-        if ! combined_mgs_mds ; then
+	if [ -z "$CLIENTONLY" ]; then
+		echo Setup mgs, mdt, osts
+		echo $WRITECONF | grep -q "writeconf" && writeconf_all
+		if ! combined_mgs_mds ; then
 			start mgs $(mgsdevname) $MGS_MOUNT_OPTS
-        fi
+		fi
 
         for num in `seq $MDSCOUNT`; do
             DEVNAME=$(mdsdevname $num)
@@ -3724,7 +3723,7 @@ mounted_lustre_filesystems() {
 }
 
 init_facet_vars () {
-	[ "$CLIENTONLY" ] && return 0
+	[ -n "$CLIENTONLY" ] && return 0
 	local facet=$1
 	shift
 	local device=$1
@@ -3854,9 +3853,12 @@ set_conf_param_and_check() {
 }
 
 init_param_vars () {
-	remote_mds_nodsh ||
-		TIMEOUT=$(do_facet $SINGLEMDS "lctl get_param -n timeout")
+	TIMEOUT=$(lctl get_param -n timeout)
+	TIMEOUT=${TIMEOUT:-20}
 
+	remote_mds_nodsh && log "Using TIMEOUT=$TIMEOUT" && return 0
+
+	TIMEOUT=$(do_facet $SINGLEMDS "lctl get_param -n timeout")
 	log "Using TIMEOUT=$TIMEOUT"
 
 	osc_ensure_active $SINGLEMDS $TIMEOUT
@@ -3917,14 +3919,14 @@ check_config_client () {
     local mntpt=$1
 
     local mounted=$(mount | grep " $mntpt ")
-    if [ "$CLIENTONLY" ]; then
+    if [ -n "$CLIENTONLY" ]; then
         # bug 18021
         # CLIENTONLY should not depend on *_HOST settings
         local mgc=$($LCTL device_list | awk '/MGC/ {print $4}')
         # in theory someone could create a new,
         # client-only config file that assumed lustre was already
         # configured and didn't set the MGSNID. If MGSNID is not set,
-        # then we should use the mgs nid currently being used 
+        # then we should use the mgs nid currently being used
         # as the default value. bug 18021
         [[ x$MGSNID = x ]] &&
             MGSNID=${mgc//MGC/}
@@ -3939,9 +3941,9 @@ check_config_client () {
         return 0
     fi
 
-    local myMGS_host=$mgs_HOST   
+    local myMGS_host=$mgs_HOST
     if [ "$NETTYPE" = "ptl" ]; then
-        myMGS_host=$(h2ptl $mgs_HOST | sed -e s/@ptl//) 
+        myMGS_host=$(h2ptl $mgs_HOST | sed -e s/@ptl//)
     fi
 
     echo Checking config lustre mounted on $mntpt
@@ -4044,7 +4046,7 @@ check_and_setup_lustre() {
                     restore_mount $MOUNT2
                     export I_MOUNTED2=yes
                 fi
-            fi 
+            fi
 
     # 5.
     # MOUNT is mounted MOUNT2 is not mounted
@@ -4065,7 +4067,7 @@ check_and_setup_lustre() {
         set_default_debug_nodes $(comma_list $(nodes_list))
     fi
 
-	if [ $(lower $OSD_TRACK_DECLARES_LBUG) == 'yes' ] ; then
+	if [ -z "$CLIENTONLY" -a $(lower $OSD_TRACK_DECLARES_LBUG) == 'yes' ]; then
 		local facets=""
 		[ "$(facet_fstype ost1)" = "ldiskfs" ] &&
 			facets="$(get_facets OST)"
@@ -4085,12 +4087,14 @@ check_and_setup_lustre() {
 		set_flavor_all $SEC
 	fi
 
-	#Enable remote MDT create for testing
-	for num in $(seq $MDSCOUNT); do
-		do_facet mds$num \
-			lctl set_param -n mdt.${FSNAME}*.enable_remote_dir=1 \
-				2>/dev/null
-	done
+	if [ -z "$CLIENTONLY" ]; then
+		# Enable remote MDT create for testing
+		for num in $(seq $MDSCOUNT); do
+			do_facet mds$num \
+				lctl set_param -n mdt.${FSNAME}*.enable_remote_dir=1 \
+					2>/dev/null
+		done
+	fi
 
 	if [ "$ONLY" == "setup" ]; then
 		exit 0
@@ -4998,9 +5002,9 @@ reset_fail_loc () {
 
 
 #
-# Log a message (on all nodes) padded with "=" before and after. 
+# Log a message (on all nodes) padded with "=" before and after.
 # Also appends a timestamp and prepends the testsuite name.
-# 
+#
 
 EQUALS="===================================================================================================="
 banner() {
@@ -5251,15 +5255,15 @@ remote_mds ()
 
 remote_mds_nodsh()
 {
-    [ "$CLIENTONLY" ] && return 0 || true
-    remote_mds && [ "$PDSH" = "no_dsh" -o -z "$PDSH" -o -z "$mds_HOST" ]
+	[ -n "$CLIENTONLY" ] && return 0 || true
+	remote_mds && [ "$PDSH" = "no_dsh" -o -z "$PDSH" -o -z "$mds_HOST" ]
 }
 
 require_dsh_mds()
 {
-        remote_mds_nodsh && echo "SKIP: $TESTSUITE: remote MDS with nodsh" && \
-            MSKIPPED=1 && return 1
-        return 0
+	remote_mds_nodsh && echo "SKIP: $TESTSUITE: remote MDS with nodsh" &&
+		MSKIPPED=1 && return 1
+	return 0
 }
 
 remote_ost ()
@@ -5273,8 +5277,8 @@ remote_ost ()
 
 remote_ost_nodsh()
 {
-    [ "$CLIENTONLY" ] && return 0 || true 
-    remote_ost && [ "$PDSH" = "no_dsh" -o -z "$PDSH" -o -z "$ost_HOST" ]
+	[ -n "$CLIENTONLY" ] && return 0 || true
+	remote_ost && [ "$PDSH" = "no_dsh" -o -z "$PDSH" -o -z "$ost_HOST" ]
 }
 
 require_dsh_ost()
@@ -5286,10 +5290,10 @@ require_dsh_ost()
 
 remote_mgs_nodsh()
 {
-	[ "$CLIENTONLY" ] && return 0 || true
-    local MGS 
-    MGS=$(facet_host mgs)
-    remote_node $MGS && [ "$PDSH" = "no_dsh" -o -z "$PDSH" -o -z "$ost_HOST" ]
+	[ -n "$CLIENTONLY" ] && return 0 || true
+	local MGS
+	MGS=$(facet_host mgs)
+	remote_node $MGS && [ "$PDSH" = "no_dsh" -o -z "$PDSH" -o -z "$ost_HOST" ]
 }
 
 local_mode ()
@@ -5450,14 +5454,14 @@ get_random_entry () {
     rnodes=${rnodes//,/ }
 
     local -a nodes=($rnodes)
-    local num=${#nodes[@]} 
+    local num=${#nodes[@]}
     local i=$((RANDOM * num * 2 / 65536))
 
     echo ${nodes[i]}
 }
 
 client_only () {
-	[ "$CLIENTONLY" ] || [ "$CLIENTMODSONLY" = yes ]
+	[ -n "$CLIENTONLY" ] || [ "x$CLIENTMODSONLY" = "xyes" ]
 }
 
 check_versions () {
@@ -6260,7 +6264,7 @@ gather_logs () {
     suffix="$ts.log"
     echo "Dumping lctl log to ${prefix}.*.${suffix}"
 
-    if [ "$CLIENTONLY" -o "$PDSH" == "no_dsh" ]; then
+    if [ -n "$CLIENTONLY" -o "$PDSH" == "no_dsh" ]; then
         echo "Dumping logs only on local client."
         $LCTL dk > ${prefix}.debug_log.$(hostname -s).${suffix}
         dmesg > ${prefix}.dmesg.$(hostname -s).${suffix}
@@ -6890,11 +6894,10 @@ get_obd_size() {
 #
 get_page_size() {
 	local facet=$1
-	local size
+	local size=$(getconf PAGE_SIZE 2>/dev/null)
 
-	size=$(do_facet $facet getconf PAGE_SIZE)
-	[[ ${PIPESTATUS[0]} = 0 && -n "$size" ]] || size=4096
-	echo -n $size
+	[ -z "$CLIENTONLY" ] && size=$(do_facet $facet getconf PAGE_SIZE)
+	echo -n ${size:-4096}
 }
 
 #
@@ -6905,20 +6908,20 @@ get_block_count() {
 	local device=$2
 	local count
 
-	count=$(do_facet $facet "$DUMPE2FS -h $device 2>&1" |
+	[ -z "$CLIENTONLY" ] && count=$(do_facet $facet "$DUMPE2FS -h $device 2>&1" |
 		awk '/^Block count:/ {print $3}')
-	echo -n $count
+	echo -n ${count:-0}
 }
 
 # Get the block size of the filesystem.
 get_block_size() {
-    local facet=$1
-    local device=$2
-    local size
+	local facet=$1
+	local device=$2
+	local size
 
-    size=$(do_facet $facet "$DUMPE2FS -h $device 2>&1" |
-           awk '/^Block size:/ {print $3}')
-    echo $size
+	[ -z "$CLIENTONLY" ] && size=$(do_facet $facet "$DUMPE2FS -h $device 2>&1" |
+		awk '/^Block size:/ {print $3}')
+	echo -n ${size:-0}
 }
 
 # Check whether the "large_xattr" feature is enabled or not.
