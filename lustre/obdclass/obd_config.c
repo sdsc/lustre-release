@@ -1346,10 +1346,12 @@ int class_process_proc_param(char *prefix, struct lprocfs_vars *lvars,
 	for (i = 1; i < lcfg->lcfg_bufcount; i++) {
 		key = lustre_cfg_buf(lcfg, i);
 		/* Strip off prefix */
-		if (class_match_param(key, prefix, &key))
+		if (class_match_param(key, prefix, &key)) {
+			printk(KERN_EMERG "1111111111111111111111i: %s, %s\n", key, prefix);
 			/* If the prefix doesn't match, return error so we
 			 * can pass it down the stack */
 			RETURN(-ENOSYS);
+		}
 		sval = strchr(key, '=');
 		if (!sval || (*(sval + 1) == 0)) {
 			CERROR("Can't parse param %s (missing '=')\n", key);
@@ -1382,6 +1384,9 @@ int class_process_proc_param(char *prefix, struct lprocfs_vars *lvars,
 			j++;
 		}
 		if (!matched) {
+			if (strncmp("sec_level", key, keylen) == 0)
+				continue;
+
 			CERROR("%.*s: %s unknown param %s\n",
 			       (int)strlen(prefix) - 1, prefix,
 			       (char *)lustre_cfg_string(lcfg, 0), key);
