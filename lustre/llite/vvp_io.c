@@ -736,7 +736,7 @@ static int vvp_io_setattr_start(const struct lu_env *env,
 	struct inode		*inode = vvp_object_inode(io->ci_obj);
 	struct ll_inode_info	*lli   = ll_i2info(inode);
 
-	mutex_lock(&inode->i_mutex);
+	ll_inode_lock(inode);
 	if (cl_io_is_trunc(io)) {
 		down_write(&lli->lli_trunc_sem);
 		inode_dio_wait(inode);
@@ -762,7 +762,7 @@ static void vvp_io_setattr_end(const struct lu_env *env,
 		inode_dio_write_done(inode);
 		up_write(&lli->lli_trunc_sem);
 	}
-	mutex_unlock(&inode->i_mutex);
+	ll_inode_unlock(inode);
 }
 
 static void vvp_io_setattr_fini(const struct lu_env *env,

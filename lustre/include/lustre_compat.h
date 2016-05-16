@@ -370,6 +370,16 @@ static inline struct dentry *d_make_root(struct inode *root)
 #define ll_vfs_unlink(a, b) vfs_unlink(a, b)
 #endif
 
+#ifdef HAVE_INODE_LOCK
+# define ll_inode_lock(inode) inode_lock(inode)
+# define ll_inode_unlock(inode) inode_unlock(inode)
+# define ll_inode_trylock(inode) inode_trylock(inode)
+#else
+# define ll_inode_lock(inode) mutex_lock(&(inode)->i_mutex)
+# define ll_inode_unlock(inode) mutex_unlock(&(inode)->i_mutex)
+# define ll_inode_trylock(inode) mutex_trylock(&(inode)->i_mutex)
+#endif
+
 #ifndef HAVE_RADIX_EXCEPTION_ENTRY
 static inline int radix_tree_exceptional_entry(void *arg)
 {
