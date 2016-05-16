@@ -1017,7 +1017,9 @@ test_24u() { # bug12192
 run_test 24u "create stripe file"
 
 page_size() {
-	getconf PAGE_SIZE
+	local size
+	size=$(getconf PAGE_SIZE 2>/dev/null)
+	echo -n ${size:-4096}
 }
 
 simple_cleanup_common() {
@@ -2022,6 +2024,7 @@ run_test 27C "check full striping across all OSTs"
 test_27D() {
 	[ $OSTCOUNT -lt 2 ] && skip "needs >= 2 OSTs" && return
 	[ -n "$FILESET" ] && skip "SKIP due to FILESET set" && return
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
 	local POOL=${POOL:-testpool}
 	local first_ost=0
 	local last_ost=$(($OSTCOUNT - 1))
@@ -2400,8 +2403,13 @@ test_31p() {
 run_test 31p "remove of open striped directory"
 
 cleanup_test32_mount() {
+	local rc=0
 	trap 0
-	$UMOUNT $DIR/$tdir/ext2-mountpoint
+	local loopdev=$(losetup -a | grep $EXT2_DEV | sed -ne 's/:.*$/p')
+	$UMOUNT $DIR/$tdir/ext2-mountpoint || rc=$?
+	losetup -d $loopdev || true
+	rm -rf $DIR/$tdir/ext2-mountpoint
+	return $rc
 }
 
 test_32a() {
@@ -2607,8 +2615,13 @@ test_32p() {
 run_test 32p "open d32p/symlink->tmp/symlink->lustre-root/$tfile"
 
 cleanup_testdir_mount() {
+	local rc=0
 	trap 0
-	$UMOUNT $DIR/$tdir
+	local loopdev=$(losetup -a | grep $EXT2_DEV | sed -ne 's/:.*$/p')
+	$UMOUNT $DIR/$tdir || rc=$?
+	losetup -d $loopdev || true
+	rm -rf $DIR/$tdir
+	return $rc
 }
 
 test_32q() {
@@ -2808,6 +2821,7 @@ cleanup_33f() {
 
 test_33f() {
 	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
 
 	mkdir $DIR/$tdir
 	chmod go+rwx $DIR/$tdir
@@ -3436,6 +3450,7 @@ test_39m() {
 run_test 39m "test atime and mtime before 1970"
 
 test_39n() { # LU-3832
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
 	local atime_diff=$(do_facet $SINGLEMDS \
 		lctl get_param -n mdd.*MDT0000*.atime_diff)
 	local atime0
@@ -4024,6 +4039,7 @@ run_test 48e "Access to recreated parent subdir (should return errors)"
 
 test_49() { # LU-1030
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	remote_ost_nodsh && skip "remote OST with nodsh" && return
 	# get ost1 size - lustre-OST0000
 	ost1_size=$(do_facet ost1 $LFS df | grep ${ost1_svc} |
 		awk '{ print $4 }')
@@ -4351,6 +4367,7 @@ find_loop_dev() {
 }
 
 cleanup_54c() {
+	local rc=0
 	loopdev="$DIR/loop54c"
 
 	trap 0
@@ -5345,6 +5362,7 @@ run_test 60d "test printk console message masking"
 
 test_60e() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
 	touch $DIR/$tfile
 #define OBD_FAIL_MDS_LLOG_CREATE_FAILED2  0x15b
 	do_facet mds1 lctl set_param fail_loc=0x15b
@@ -5901,8 +5919,8 @@ set_inode_slab_tunables() {
 
 test_76() { # Now for bug 20433, added originally in bug 1443
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
-	local SLAB_SETTINGS=`get_inode_slab_tunables`
-	local CPUS=`getconf _NPROCESSORS_ONLN`
+	local SLAB_SETTINGS=$(get_inode_slab_tunables)
+	local CPUS=$(getconf _NPROCESSORS_ONLN 2>/dev/null)
 	# we cannot set limit below 1 which means 1 inode in each
 	# per-cpu cache is still allowed
 	set_inode_slab_tunables "1 1 0"
@@ -5919,7 +5937,7 @@ test_76() { # Now for bug 20433, added originally in bug 1443
 	AFTER_INODES=$(num_inodes)
 	echo "after inodes: $AFTER_INODES"
 	local wait=0
-	while [[ $((AFTER_INODES-1*CPUS)) -gt $BEFORE_INODES ]]; do
+	while [[ $((AFTER_INODES-1*${CPUS:-1})) -gt $BEFORE_INODES ]]; do
 		sleep 2
 		AFTER_INODES=$(num_inodes)
 		wait=$((wait+2))
@@ -7223,6 +7241,7 @@ test_103a() {
 	[ -z "$(which setfacl 2>/dev/null)" ] &&
 		skip_env "could not find setfacl" && return
 	$GSS && skip "could not run under gss" && return
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
 
 	gpasswd -a daemon bin				# LU-5641
 	do_facet $SINGLEMDS gpasswd -a daemon bin	# LU-5641
@@ -7283,6 +7302,7 @@ test_103a() {
 run_test 103a "acl test ========================================="
 
 test_103b() {
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
         local noacl=false
         local MDT_DEV=$(mdsdevname ${SINGLEMDS//mds/})
         local mountopts=$MDS_MOUNT_OPTS
@@ -8140,6 +8160,7 @@ run_test 119d "The DIO path should try to send a new rpc once one is completed"
 
 test_120a() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
 	test_mkdir -p $DIR/$tdir
         [ -z "`lctl get_param -n mdc.*.connect_flags | grep early_lock_cancel`" ] && \
                skip "no early lock cancel on server" && return 0
@@ -8171,6 +8192,7 @@ run_test 120a "Early Lock Cancel: mkdir test"
 
 test_120b() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
         test_mkdir $DIR/$tdir
         [ -z "$(lctl get_param -n mdc.*.connect_flags | grep early_lock_cancel)" ] && \
                skip "no early lock cancel on server" && return 0
@@ -8198,6 +8220,7 @@ run_test 120b "Early Lock Cancel: create test"
 
 test_120c() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
 	test_mkdir -c1 $DIR/$tdir
 	[ -z "$(lctl get_param -n mdc.*.connect_flags | grep early_lock_cancel)" ] && \
 	       skip "no early lock cancel on server" && return 0
@@ -8228,6 +8251,7 @@ run_test 120c "Early Lock Cancel: link test"
 
 test_120d() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
 	test_mkdir -p -c1 $DIR/$tdir
 	[ -z "$(lctl get_param -n mdc.*.connect_flags | grep early_lock_cancel)" ] && \
 	       skip "no early lock cancel on server" && return 0
@@ -8258,6 +8282,7 @@ test_120e() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
 	! $($LCTL get_param -n mdc.*.connect_flags | grep -q early_lock_can) &&
 		skip "no early lock cancel on server" && return 0
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
 	local dlmtrace_set=false
 
 	test_mkdir -p -c1 $DIR/$tdir
@@ -8299,6 +8324,7 @@ test_120f() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
         [ -z "`lctl get_param -n mdc.*.connect_flags | grep early_lock_cancel`" ] && \
                skip "no early lock cancel on server" && return 0
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
         test_mkdir -p -c1 $DIR/$tdir
         lru_resize_disable mdc
         lru_resize_disable osc
@@ -8337,6 +8363,7 @@ test_120g() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
         [ -z "`lctl get_param -n mdc.*.connect_flags | grep early_lock_cancel`" ] && \
                skip "no early lock cancel on server" && return 0
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
         lru_resize_disable mdc
         lru_resize_disable osc
         count=10000
@@ -9602,6 +9629,8 @@ test_133f() {
 run_test 133f "Check for LBUGs/Oopses/unreadable files in /proc"
 
 test_133g() {
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
+	remote_ost_nodsh && skip "remote OST with nodsh" && return
 	# Second verifying writability.
 	find $proc_dirs \
 		-type f \
@@ -9635,6 +9664,7 @@ test_133g() {
 run_test 133g "Check for Oopses on bad io area writes/reads in /proc"
 
 test_134a() {
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
 	[[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.7.54) ]] &&
 		skip "Need MDS version at least 2.7.54" && return
 
@@ -9670,6 +9700,7 @@ test_134a() {
 run_test 134a "Server reclaims locks when reaching lock_reclaim_threshold"
 
 test_134b() {
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
 	[[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.7.54) ]] &&
 		skip "Need MDS version at least 2.7.54" && return
 
@@ -9711,9 +9742,9 @@ run_test 134b "Server rejects lock request when reaching lock_limit_mb"
 
 test_140() { #bug-17379
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
-        test_mkdir -p $DIR/$tdir || error "Creating dir $DIR/$tdir"
-        cd $DIR/$tdir || error "Changing to $DIR/$tdir"
-        cp /usr/bin/stat . || error "Copying stat to $DIR/$tdir"
+	test_mkdir -p $DIR/$tdir || error "Creating dir $DIR/$tdir"
+	cd $DIR/$tdir || error "Changing to $DIR/$tdir"
+	cp $(which stat) . || error "Copying stat to $DIR/$tdir"
 
 	# VFS limits max symlink depth to 5(4KSTACK) or 7(8KSTACK) or 8
 	# For kernel > 3.5, bellow only tests consecutive symlink (MAX 40)
@@ -10160,6 +10191,7 @@ test_154c() {
 run_test 154c "lfs path2fid and fid2path multiple arguments"
 
 test_154d() {
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
 	[[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.5.53) ]] &&
 		skip "Need MDS version at least 2.5.53" && return
 
@@ -11449,6 +11481,8 @@ test_184b() {
 run_test 184b "Forbidden layout swap (will generate errors)"
 
 test_184c() {
+	local cmpn_arg=$(cmp -n 2>&1 | grep "invalid option")
+	[ -n "$cmpn_arg" ] && skip_env "cmp does not support -n" && return
 	check_swap_layouts_support && return 0
 
 	local dir0=$DIR/$tdir/$testnum
@@ -12501,6 +12535,7 @@ run_test 224b "Don't panic on bulk IO failure"
 
 test_224c() { # LU-6441
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
 	local pages_per_rpc=$($LCTL get_param \
 				osc.*.max_pages_per_rpc)
 	local at_max=$($LCTL get_param -n at_max)
@@ -13488,6 +13523,7 @@ test_239() {
 run_test 239 "osp_sync test"
 
 test_239a() { #LU-5297
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
 	touch $DIR/$tfile
 	#define OBD_FAIL_OSP_CHECK_INVALID_REC     0x2100
 	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x2100
@@ -13497,6 +13533,7 @@ test_239a() { #LU-5297
 run_test 239a "process invalid osp sync record correctly"
 
 test_239b() { #LU-5297
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
 	touch $DIR/$tfile1
 	#define OBD_FAIL_OSP_CHECK_ENOMEM     0x2101
 	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x2101
@@ -13511,6 +13548,7 @@ run_test 239b "process osp sync record with ENOMEM error correctly"
 
 test_240() {
 	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
 
 	mkdir -p $DIR/$tdir
 
@@ -13565,6 +13603,7 @@ test_241b() {
 run_test 241b "dio vs dio"
 
 test_242() {
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
 	mkdir -p $DIR/$tdir
 	touch $DIR/$tdir/$tfile
 
@@ -13620,6 +13659,7 @@ test_245() {
 run_test 245 "check mdc connection flag/data: multiple modify RPCs"
 
 test_246() { # LU-7371
+	remote_ost_nodsh && skip "remote OST with nodsh" && return
 	[ $(lustre_version_code ost1) -lt $(version_code 2.7.62) ] &&
 		skip "Need OST version >= 2.7.62" && return 0
 	do_facet ost1 $LCTL set_param fail_val=4095
@@ -13755,6 +13795,8 @@ test_252() {
 	local num
 	local gen
 
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
+	remote_ost_nodsh && skip "remote OST with nodsh" && return
 	if [ "$(facet_fstype ost1)" != "ldiskfs" -o \
 	     "$(facet_fstype mds1)" != "ldiskfs" ]; then
 		skip "can only run lr_reader on ldiskfs target"
@@ -14510,6 +14552,7 @@ run_test 300o "unlink big sub stripe(> 65000 subdirs)"
 test_300p() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
 	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
 
 	mkdir -p $DIR/$tdir
 
@@ -14679,6 +14722,9 @@ test_400b() { # LU-1606, LU-5011
 run_test 400b "packaged headers can be compiled"
 
 test_401a() { #LU-7437
+	local printf_arg=$(find -printf 2>&1 | grep "unrecognized:")
+	[ -n "$printf_arg" ] && skip_env "find does not support -printf" &&
+		return
 	#count the number of parameters by "list_param -R"
 	local params=$($LCTL list_param -R '*' 2>/dev/null | wc -l)
 	#count the number of parameters by listing proc files
@@ -14768,6 +14814,7 @@ test_401d() {
 run_test 401d "Verify 'lctl set_param' accepts values containing '='"
 
 test_402() {
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
 	$LFS setdirstripe -i 0 $DIR/$tdir || error "setdirstripe -i 0 failed"
 #define OBD_FAIL_MDS_FLD_LOOKUP 0x15c
 	do_facet mds1 "lctl set_param fail_loc=0x8000015c"
@@ -14806,6 +14853,7 @@ test_403() {
 run_test 403 "i_nlink should not drop to zero due to aliasing"
 
 test_404() { # LU-6601
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
 	local mosps=$(do_facet $SINGLEMDS $LCTL dl |
 		awk '/osp .*-osc-MDT/ { print $4}')
 
