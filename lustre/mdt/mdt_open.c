@@ -1422,6 +1422,7 @@ again:
                                 GOTO(out_child, result);
                 }
                 created = 1;
+		mdt_counter_incr(req, LPROC_MDT_MKNOD);
         } else {
                 /*
                  * The object is on remote node, return its FID for remote open.
