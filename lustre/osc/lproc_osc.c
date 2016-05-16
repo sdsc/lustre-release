@@ -556,7 +556,7 @@ static ssize_t osc_obd_max_pages_per_rpc_seq_write(struct file *file,
 	int chunk_mask, rc;
 	__s64 val;
 
-	rc = lprocfs_str_to_s64(buffer, count, &val);
+	rc = lprocfs_str_with_units_to_s64(buffer, count, &val, '%');
 	if (rc)
 		return rc;
 	if (val < 0)
