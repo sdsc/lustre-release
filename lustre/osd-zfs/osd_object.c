@@ -430,7 +430,7 @@ static int osd_object_init(const struct lu_env *env, struct lu_object *l,
 			GOTO(out, rc);
 		}
 		if (rc != 0) {
-			CERROR("%s: lookup "DFID"/"LPX64" failed: rc = %d\n",
+			CERROR("%s: lookup "DFID"/%#llx failed: rc = %d\n",
 			       osd->od_svname, PFID(lu_object_fid(l)), oid, rc);
 			GOTO(out, rc);
 		}
@@ -623,12 +623,12 @@ static int osd_object_destroy(const struct lu_env *env,
 		LASSERT(obj->oo_attr.la_size <= osd_sync_destroy_max_size);
 		rc = -dmu_object_free(osd->od_os, oid, oh->ot_tx);
 		if (rc)
-			CERROR("%s: failed to free %s "LPU64": rc = %d\n",
+			CERROR("%s: failed to free %s %llu: rc = %d\n",
 			       osd->od_svname, buf, oid, rc);
 	} else if (obj->oo_destroy == OSD_DESTROY_SYNC) {
 		rc = -dmu_object_free(osd->od_os, oid, oh->ot_tx);
 		if (rc)
-			CERROR("%s: failed to free %s "LPU64": rc = %d\n",
+			CERROR("%s: failed to free %s %llu: rc = %d\n",
 			       osd->od_svname, buf, oid, rc);
 	} else { /* asynchronous destroy */
 		rc = osd_object_unlinked_add(obj, oh);
@@ -638,7 +638,7 @@ static int osd_object_destroy(const struct lu_env *env,
 		rc = -zap_add_int(osd->od_os, osd->od_unlinkedid,
 				  oid, oh->ot_tx);
 		if (rc)
-			CERROR("%s: zap_add_int() failed %s "LPU64": rc = %d\n",
+			CERROR("%s: zap_add_int() failed %s %llu: rc = %d\n",
 			       osd->od_svname, buf, oid, rc);
 	}
 
@@ -1297,7 +1297,7 @@ int __osd_object_create(const struct lu_env *env, struct osd_object *obj,
 	oid = dmu_object_alloc(osd->od_os, type, 0,
 			       DMU_OT_SA, DN_MAX_BONUSLEN, tx);
 	rc = -sa_buf_hold(osd->od_os, oid, osd_obj_tag, dbp);
-	LASSERTF(rc == 0, "sa_buf_hold "LPU64" failed: %d\n", oid, rc);
+	LASSERTF(rc == 0, "sa_buf_hold %llu failed: %d\n", oid, rc);
 
 	LASSERT(la->la_valid & LA_MODE);
 	la->la_size = 0;

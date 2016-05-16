@@ -754,8 +754,8 @@ static int osp_statfs(const struct lu_env *env, struct dt_device *dev,
 
 	LASSERT(sfs->os_fprecreated <= OST_MAX_PRECREATE * 2);
 
-	CDEBUG(D_OTHER, "%s: "LPU64" blocks, "LPU64" free, "LPU64" avail, "
-	       LPU64" files, "LPU64" free files\n", d->opd_obd->obd_name,
+	CDEBUG(D_OTHER, "%s: %llu blocks, %llu free, %llu avail, "
+	       "%llu files, %llu free files\n", d->opd_obd->obd_name,
 	       sfs->os_blocks, sfs->os_bfree, sfs->os_bavail,
 	       sfs->os_files, sfs->os_ffree);
 	RETURN(0);

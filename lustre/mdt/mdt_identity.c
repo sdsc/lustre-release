@@ -122,7 +122,7 @@ static int mdt_identity_do_upcall(struct upcall_cache *cache,
         }
 
         argv[0] = cache->uc_upcall;
-        snprintf(keystr, sizeof(keystr), LPU64, entry->ue_key);
+	snprintf(keystr, sizeof(keystr), "%llu", entry->ue_key);
 
 	do_gettimeofday(&start);
 	rc = call_usermodehelper(argv[0], argv, envp, UMH_WAIT_EXEC);
