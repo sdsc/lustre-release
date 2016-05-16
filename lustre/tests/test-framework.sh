@@ -1148,7 +1148,7 @@ set_debug_size () {
     if [ -f /sys/devices/system/cpu/possible ]; then
         local cpus=$(($(cut -d "-" -f 2 /sys/devices/system/cpu/possible)+1))
     else
-        local cpus=$(getconf _NPROCESSORS_CONF)
+        local cpus=$(getconf _NPROCESSORS_CONF 2>/dev/null)
     fi
 
     # bug 19944, adjust size to be -gt num_possible_cpus()
@@ -1601,7 +1601,7 @@ fi"
 }
 
 sanity_mount_check_servers () {
-    [ "$CLIENTONLY" ] && 
+    [ client_only ] &&
         { echo "CLIENTONLY mode, skip mount_check_servers"; return 0; } || true
     echo Checking servers environments
 
@@ -3329,7 +3329,8 @@ stopall() {
     zconf_umount_clients $clients $MOUNT "$*" || true
     [ -n "$MOUNT2" ] && zconf_umount_clients $clients $MOUNT2 "$*" || true
 
-    [ "$CLIENTONLY" ] && return
+    [ client_only ] && return
+
     # The add fn does rm ${facet}active file, this would be enough
     # if we use do_facet <facet> only after the facet added, but
     # currently we use do_facet mds in local.sh
@@ -3539,7 +3540,7 @@ formatall() {
 	stopall
 	# We need ldiskfs here, may as well load them all
 	load_modules
-	[ "$CLIENTONLY" ] && return
+	[ client_only ] && return
 	echo Formatting mgs, mds, osts
 	if ! combined_mgs_mds ; then
 		format_mgs
@@ -3637,7 +3638,7 @@ setupall() {
 
     load_modules
 
-    if [ -z "$CLIENTONLY" ]; then
+    if ! client_only ; then
         echo Setup mgs, mdt, osts
         echo $WRITECONF | grep -q "writeconf" && \
             writeconf_all
@@ -3712,7 +3713,7 @@ mounted_lustre_filesystems() {
 }
 
 init_facet_vars () {
-	[ "$CLIENTONLY" ] && return 0
+	[ client_only ] && return 0
 	local facet=$1
 	shift
 	local device=$1
@@ -3842,9 +3843,12 @@ set_conf_param_and_check() {
 }
 
 init_param_vars () {
-	remote_mds_nodsh ||
-		TIMEOUT=$(do_facet $SINGLEMDS "lctl get_param -n timeout")
+	TIMEOUT=$(lctl get_param -n timeout)
+	TIMEOUT=${TIMEOUT:-20}
 
+	remote_mds_nodsh && log "Using TIMEOUT=$TIMEOUT" && return 0
+
+	TIMEOUT=$(do_facet $SINGLEMDS "lctl get_param -n timeout")
 	log "Using TIMEOUT=$TIMEOUT"
 
 	osc_ensure_active $SINGLEMDS $TIMEOUT
@@ -3905,7 +3909,7 @@ check_config_client () {
     local mntpt=$1
 
     local mounted=$(mount | grep " $mntpt ")
-    if [ "$CLIENTONLY" ]; then
+    if client_only ; then
         # bug 18021
         # CLIENTONLY should not depend on *_HOST settings
         local mgc=$($LCTL device_list | awk '/MGC/ {print $4}')
@@ -4053,7 +4057,7 @@ check_and_setup_lustre() {
         set_default_debug_nodes $(comma_list $(nodes_list))
     fi
 
-	if [ $(lower $OSD_TRACK_DECLARES_LBUG) == 'yes' ] ; then
+	if [ ! client_only -a $(lower $OSD_TRACK_DECLARES_LBUG) == 'yes' ] ; then
 		local facets=""
 		[ "$(facet_fstype ost1)" = "ldiskfs" ] &&
 			facets="$(get_facets OST)"
@@ -4073,12 +4077,14 @@ check_and_setup_lustre() {
 		set_flavor_all $SEC
 	fi
 
-	#Enable remote MDT create for testing
-	for num in $(seq $MDSCOUNT); do
-		do_facet mds$num \
-			lctl set_param -n mdt.${FSNAME}*.enable_remote_dir=1 \
-				2>/dev/null
-	done
+	if ! client_only; then
+		# Enable remote MDT create for testing
+		for num in $(seq $MDSCOUNT); do
+			do_facet mds$num \
+				lctl set_param -n mdt.${FSNAME}*.enable_remote_dir=1 \
+					2>/dev/null
+		done
+	fi
 
 	if [ "$ONLY" == "setup" ]; then
 		exit 0
@@ -5239,7 +5245,7 @@ remote_mds ()
 
 remote_mds_nodsh()
 {
-    [ "$CLIENTONLY" ] && return 0 || true
+    [ client_only ] && return 0 || true
     remote_mds && [ "$PDSH" = "no_dsh" -o -z "$PDSH" -o -z "$mds_HOST" ]
 }
 
@@ -5261,7 +5267,7 @@ remote_ost ()
 
 remote_ost_nodsh()
 {
-    [ "$CLIENTONLY" ] && return 0 || true 
+    [ client_only ] && return 0 || true 
     remote_ost && [ "$PDSH" = "no_dsh" -o -z "$PDSH" -o -z "$ost_HOST" ]
 }
 
@@ -5274,8 +5280,8 @@ require_dsh_ost()
 
 remote_mgs_nodsh()
 {
-	[ "$CLIENTONLY" ] && return 0 || true
-    local MGS 
+	[ client_only ] && return 0 || true
+    local MGS
     MGS=$(facet_host mgs)
     remote_node $MGS && [ "$PDSH" = "no_dsh" -o -z "$PDSH" -o -z "$ost_HOST" ]
 }
@@ -5445,7 +5451,7 @@ get_random_entry () {
 }
 
 client_only () {
-	[ "$CLIENTONLY" ] || [ "$CLIENTMODSONLY" = yes ]
+	[ -n "$CLIENTONLY" ] || [ "x$CLIENTMODSONLY" = "xyes" ]
 }
 
 check_versions () {
@@ -6248,7 +6254,7 @@ gather_logs () {
     suffix="$ts.log"
     echo "Dumping lctl log to ${prefix}.*.${suffix}"
 
-    if [ "$CLIENTONLY" -o "$PDSH" == "no_dsh" ]; then
+    if [ client_only -o "$PDSH" == "no_dsh" ]; then
         echo "Dumping logs only on local client."
         $LCTL dk > ${prefix}.debug_log.$(hostname -s).${suffix}
         dmesg > ${prefix}.dmesg.$(hostname -s).${suffix}
@@ -6878,11 +6884,10 @@ get_obd_size() {
 #
 get_page_size() {
 	local facet=$1
-	local size
+	local size=$(getconf PAGE_SIZE 2>/dev/null)
 
-	size=$(do_facet $facet getconf PAGE_SIZE)
-	[[ ${PIPESTATUS[0]} = 0 && -n "$size" ]] || size=4096
-	echo -n $size
+	[ ! client_only ] && size=$(do_facet $facet getconf PAGE_SIZE)
+	echo -n ${size:-4096}
 }
 
 #
@@ -6895,18 +6900,18 @@ get_block_count() {
 
 	count=$(do_facet $facet "$DUMPE2FS -h $device 2>&1" |
 		awk '/^Block count:/ {print $3}')
-	echo -n $count
+	echo -n ${count:-0}
 }
 
 # Get the block size of the filesystem.
 get_block_size() {
-    local facet=$1
-    local device=$2
-    local size
+	local facet=$1
+	local device=$2
+	local size
 
-    size=$(do_facet $facet "$DUMPE2FS -h $device 2>&1" |
-           awk '/^Block size:/ {print $3}')
-    echo $size
+	size=$(do_facet $facet "$DUMPE2FS -h $device 2>&1" |
+		awk '/^Block size:/ {print $3}')
+	echo -n ${size:-0}
 }
 
 # Check whether the "large_xattr" feature is enabled or not.
