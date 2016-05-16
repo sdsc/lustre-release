@@ -438,6 +438,7 @@ run_mdtest() {
     # We devide the files by number of core
     mdtest_nFiles=$((mdtest_nFiles/mdtest_THREADS/num_clients))
     mdtest_iteration=${mdtest_iteration:-1}
+    mdtest_ostPool=${mdtest_ostPool:-''}
 
     local type=${1:-"ssf"}
 
@@ -458,6 +459,10 @@ run_mdtest() {
     mkdir -p $testdir
     # mpi_run uses mpiuser
     chmod 0777 $testdir
+    if [ "$mdtest_ostPool" ]; then
+	$LFS setstripe --pool $mdtest_ostPool -c -1 $testdir ||
+    		{ error "setstripe failed" && return 2; }
+    fi
 
     # -i # : repeat each test # times
     # -d   : test dir
@@ -554,6 +559,7 @@ run_ior() {
     ior_xferSize=${ior_xferSize:-2m}
     ior_type=${ior_type:-POSIX}
     ior_DURATION=${ior_DURATION:-30}	# minutes
+    ior_ostPool=${ior_ostPool:-''}
 
     [ x$IOR = x ] &&
         { skip_env "IOR not found" && return; }
@@ -581,11 +587,21 @@ run_ior() {
     # mpi_run uses mpiuser
     chmod 0777 $testdir
     if [ "$NFSCLIENT" ]; then
-        setstripe_nfsserver $testdir -c -1 ||
-            { error "setstripe on nfsserver failed" && return 1; }
+	if [ "$ior_ostPool" ];then
+		setstripe_nfsserver $testdir --pool $ior_ostPool -c -1 ||
+ 		{ error "setstripe on nfsserver failed" && return 1; }
+	else
+		setstripe_nfsserver $testdir -c -1 ||
+		{ error "setstripe on nfsserver failed" && return 1; }
+	fi
     else
-        $LFS setstripe $testdir -c -1 ||
-            { error "setstripe failed" && return 2; }
+	if [ "$ior_ostPool" ];then
+		$LFS setstripe $testdir --pool $ior_ostPool -c -1 ||
+		{ error "setstripe failed" && return 2; }
+	else
+		$LFS setstripe $testdir -c -1 ||
+		{ error "setstripe failed" && return 2; }
+	fi
     fi
     #
     # -b N  blockSize --
