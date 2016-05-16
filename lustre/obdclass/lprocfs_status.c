@@ -335,7 +335,7 @@ EXPORT_SYMBOL(lprocfs_uint_seq_write);
 int lprocfs_u64_seq_show(struct seq_file *m, void *data)
 {
 	LASSERT(data != NULL);
-	seq_printf(m, LPU64"\n", *(__u64 *)data);
+	seq_printf(m, "%llu\n", *(__u64 *)data);
 	return 0;
 }
 EXPORT_SYMBOL(lprocfs_u64_seq_show);
@@ -416,7 +416,7 @@ int lprocfs_kbytestotal_seq_show(struct seq_file *m, void *data)
 		while (blk_size >>= 1)
 			result <<= 1;
 
-		seq_printf(m, LPU64"\n", result);
+		seq_printf(m, "%llu\n", result);
 	}
 	return rc;
 }
@@ -436,7 +436,7 @@ int lprocfs_kbytesfree_seq_show(struct seq_file *m, void *data)
 		while (blk_size >>= 1)
 			result <<= 1;
 
-		seq_printf(m, LPU64"\n", result);
+		seq_printf(m, "%llu\n", result);
 	}
 	return rc;
 }
@@ -456,7 +456,7 @@ int lprocfs_kbytesavail_seq_show(struct seq_file *m, void *data)
 		while (blk_size >>= 1)
 			result <<= 1;
 
-		seq_printf(m, LPU64"\n", result);
+		seq_printf(m, "%llu\n", result);
 	}
 	return rc;
 }
@@ -470,7 +470,7 @@ int lprocfs_filestotal_seq_show(struct seq_file *m, void *data)
 			    cfs_time_shift_64(-OBD_STATFS_CACHE_SECONDS),
 			    OBD_STATFS_NODELAY);
 	if (!rc)
-		seq_printf(m, LPU64"\n", osfs.os_files);
+		seq_printf(m, "%llu\n", osfs.os_files);
 	return rc;
 }
 EXPORT_SYMBOL(lprocfs_filestotal_seq_show);
@@ -483,7 +483,7 @@ int lprocfs_filesfree_seq_show(struct seq_file *m, void *data)
 			    cfs_time_shift_64(-OBD_STATFS_CACHE_SECONDS),
 			    OBD_STATFS_NODELAY);
 	if (!rc)
-		seq_printf(m, LPU64"\n", osfs.os_ffree);
+		seq_printf(m, "%llu\n", osfs.os_ffree);
 	return rc;
 }
 EXPORT_SYMBOL(lprocfs_filesfree_seq_show);
@@ -680,7 +680,7 @@ static void obd_connect_seq_flags2str(struct seq_file *m, __u64 flags, char *sep
 		}
 	}
 	if (flags & ~(mask - 1))
-		seq_printf(m, "%sunknown_"LPX64,
+		seq_printf(m, "%sunknown_%#llx",
 			   first ? "" : sep, flags & ~(mask - 1));
 }
 
@@ -696,7 +696,7 @@ int obd_connect_flags2str(char *page, int count, __u64 flags, char *sep)
 	}
 	if (flags & ~(mask - 1))
 		ret += snprintf(page + ret, count - ret,
-				"%sunknown_"LPX64,
+				"%sunknown_%#llx",
 				ret ? sep : "", flags & ~(mask - 1));
 	return ret;
 }
@@ -711,7 +711,7 @@ static void obd_connect_data_seqprint(struct seq_file *m,
 	flags = ocd->ocd_connect_flags;
 
 	seq_printf(m, "    connect_data:\n"
-		   "       flags: "LPX64"\n"
+		   "       flags: %#llx\n"
 		   "       instance: %u\n",
 		   ocd->ocd_connect_flags,
 		   ocd->ocd_instance);
@@ -730,7 +730,7 @@ static void obd_connect_data_seqprint(struct seq_file *m,
 	if (flags & OBD_CONNECT_BRW_SIZE)
 		seq_printf(m, "       max_brw_size: %d\n", ocd->ocd_brw_size);
 	if (flags & OBD_CONNECT_IBITS)
-		seq_printf(m, "       ibits_known: "LPX64"\n",
+		seq_printf(m, "       ibits_known: %#llx\n",
 			   ocd->ocd_ibits_known);
 	if (flags & OBD_CONNECT_GRANT_PARAM)
 		seq_printf(m, "       grant_block_size: %d\n"
@@ -742,7 +742,7 @@ static void obd_connect_data_seqprint(struct seq_file *m,
 			   ocd->ocd_grant_max_blks << ocd->ocd_grant_blkbits,
 			   ocd->ocd_grant_tax_kb << 10);
 	if (flags & OBD_CONNECT_TRANSNO)
-		seq_printf(m, "       first_transno: "LPX64"\n",
+		seq_printf(m, "       first_transno: %#llx\n",
 			   ocd->ocd_transno);
 	if (flags & OBD_CONNECT_CKSUM)
 		seq_printf(m, "       cksum_types: %#x\n",
@@ -750,7 +750,7 @@ static void obd_connect_data_seqprint(struct seq_file *m,
 	if (flags & OBD_CONNECT_MAX_EASIZE)
 		seq_printf(m, "       max_easize: %d\n", ocd->ocd_max_easize);
 	if (flags & OBD_CONNECT_MAXBYTES)
-		seq_printf(m, "       max_object_bytes: "LPU64"\n",
+		seq_printf(m, "       max_object_bytes: %llu\n",
 			   ocd->ocd_maxbytes);
 	if (flags & OBD_CONNECT_MULTIMODRPCS)
 		seq_printf(m, "       max_mod_rpcs: %hu\n",
@@ -833,7 +833,7 @@ int lprocfs_import_seq_show(struct seq_file *m, void *data)
 		   "       inflight: %u\n"
 		   "       unregistering: %u\n"
 		   "       timeouts: %u\n"
-		   "       avg_waittime: "LPU64" %s\n",
+		   "       avg_waittime: %llu %s\n",
 		   atomic_read(&imp->imp_inflight),
 		   atomic_read(&imp->imp_unregistering),
 		   atomic_read(&imp->imp_timeouts),
@@ -853,9 +853,9 @@ int lprocfs_import_seq_show(struct seq_file *m, void *data)
 		   at_get(&imp->imp_at.iat_net_latency));
 
 	seq_printf(m, "    transactions:\n"
-		   "       last_replay: "LPU64"\n"
-		   "       peer_committed: "LPU64"\n"
-		   "       last_checked: "LPU64"\n",
+		   "       last_replay: %llu\n"
+		   "       peer_committed: %llu\n"
+		   "       last_checked: %llu\n",
 		   imp->imp_last_replay_transno,
 		   imp->imp_peer_committed_transno,
 		   imp->imp_last_transno_checked);
@@ -871,7 +871,7 @@ int lprocfs_import_seq_show(struct seq_file *m, void *data)
 			do_div(sum, ret.lc_count);
 			ret.lc_sum = sum;
 			seq_printf(m, "    %s_data_averages:\n"
-				   "       bytes_per_rpc: "LPU64"\n",
+				   "       bytes_per_rpc: %llu\n",
 				   rw ? "write" : "read",
 				   ret.lc_sum);
 		}
@@ -884,7 +884,7 @@ int lprocfs_import_seq_show(struct seq_file *m, void *data)
 			__u64 sum = ret.lc_sum;
 			do_div(sum, ret.lc_count);
 			ret.lc_sum = sum;
-			seq_printf(m, "       %s_per_rpc: "LPU64"\n",
+			seq_printf(m, "       %s_per_rpc: %llu\n",
 				   header->lc_units, ret.lc_sum);
 			j = (int)ret.lc_sum;
 			if (j > 0)
@@ -992,7 +992,7 @@ int lprocfs_connect_flags_seq_show(struct seq_file *m, void *data)
 
 	LPROCFS_CLIMP_CHECK(obd);
 	flags = obd->u.cli.cl_import->imp_connect_data.ocd_connect_flags;
-	seq_printf(m, "flags="LPX64"\n", flags);
+	seq_printf(m, "flags=%#llx\n", flags);
 	obd_connect_seq_flags2str(m, flags, "\n");
 	seq_printf(m, "\n");
 	LPROCFS_CLIMP_EXIT(obd);
@@ -1243,18 +1243,18 @@ static int lprocfs_stats_seq_show(struct seq_file *p, void *v)
 	if (ctr.lc_count == 0)
 		goto out;
 
-	seq_printf(p, "%-25s "LPD64" samples [%s]", hdr->lc_name,
+	seq_printf(p, "%-25s %lld samples [%s]", hdr->lc_name,
 		   ctr.lc_count, hdr->lc_units);
 	if (rc < 0)
 		goto out;
 
 	if ((hdr->lc_config & LPROCFS_CNTR_AVGMINMAX) && ctr.lc_count > 0) {
-		seq_printf(p, " "LPD64" "LPD64" "LPD64,
+		seq_printf(p, " %lld %lld %lld",
 			   ctr.lc_min, ctr.lc_max, ctr.lc_sum);
 		if (rc < 0)
 			goto out;
 		if (hdr->lc_config & LPROCFS_CNTR_STDDEV)
-			seq_printf(p, " "LPD64, ctr.lc_sumsquare);
+			seq_printf(p, " %lld", ctr.lc_sumsquare);
 		if (rc < 0)
 			goto out;
 	}
