@@ -1702,6 +1702,29 @@ EXTRA_KCFLAGS="$tmp_flags"
 ]) # LC_HAVE_IOV_ITER_INIT_DIRECTION
 
 #
+# LC_HAVE_IOV_ITER_TRUNCATE
+#
+#
+# 3.16 introduces a new API iov_iter_truncate()
+#
+AC_DEFUN([LC_HAVE_IOV_ITER_TRUNCATE], [
+tmp_flags="$EXTRA_KCFLAGS"
+EXTRA_KCFLAGS="-Werror"
+LB_CHECK_COMPILE([if 'iov_iter_truncate' exists ],
+iter_truncate, [
+	#include <linux/uio.h>
+	#include <linux/fs.h>
+],[
+	struct iov_iter *i = NULL;
+
+	iov_iter_truncate(i, 0);
+],[
+	AC_DEFINE(HAVE_IOV_ITER_TRUNCATE, 1, [iov_iter_truncate exists])
+])
+EXTRA_KCFLAGS="$tmp_flags"
+]) # LC_HAVE_IOV_ITER_TRUNCATE
+
+#
 # LC_HAVE_FILE_OPERATIONS_READ_WRITE_ITER
 #
 # 3.16 introduces [read|write]_iter to struct file_operations
@@ -2178,6 +2201,7 @@ AC_DEFUN([LC_PROG_LINUX], [
 	# 3.16
 	LC_DIRECTIO_USE_ITER
 	LC_HAVE_IOV_ITER_INIT_DIRECTION
+	LC_HAVE_IOV_ITER_TRUNCATE
 	LC_HAVE_FILE_OPERATIONS_READ_WRITE_ITER
 
 	# 3.17
