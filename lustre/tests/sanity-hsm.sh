@@ -999,13 +999,19 @@ test_8() {
 run_test 8 "Test default archive number"
 
 test_9() {
-	mkdir -p $DIR/$tdir
-	local f=$DIR/$tdir/$tfile
-	local fid=$(copy_file /etc/passwd $f)
 	# we do not use the default one to be sure
 	local new_an=$((HSM_ARCHIVE_NUMBER + 1))
 	copytool_cleanup
 	copytool_setup $SINGLEAGT $MOUNT $new_an
+
+	# give time for CT to register with MDTs
+	sleep 10
+	local uuid=$(get_agent_uuid $(facet_active_host $SINGLEAGT))
+	check_agent_registered $uuid
+
+	mkdir -p $DIR/$tdir
+	local f=$DIR/$tdir/$tfile
+	local fid=$(copy_file /etc/passwd $f)
 	$LFS hsm_archive --archive $new_an $f
 	wait_request_state $fid ARCHIVE SUCCEED
 
