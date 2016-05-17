@@ -3190,6 +3190,41 @@ test_77g() {
 }
 run_test 77g "Change TBF type directly"
 
+test_77h() {
+	local old_policy=$(do_facet ost"$i" \
+		lctl get_param ost.OSS.ost_io.nrs_policies)
+	local new_policy
+
+	do_facet ost"$i" lctl set_param \
+		ost.OSS.ost_io.nrs_policies="abc"
+	[ $? -eq 0 ] && error "should return error"
+
+	do_facet ost"$i" lctl set_param \
+		ost.OSS.ost_io.nrs_policies="tbf\ abc"
+	[ $? -eq 0 ] && error "should return error"
+
+	do_facet ost"$i" lctl set_param \
+		ost.OSS.ost_io.nrs_policies="tbf\ reg"
+	[ $? -eq 0 ] && error "should return error"
+
+	do_facet ost"$i" lctl set_param \
+		ost.OSS.ost_io.nrs_policies="tbf\ reg\ abc"
+	[ $? -eq 0 ] && error "should return error"
+
+	do_facet ost"$i" lctl set_param \
+		ost.OSS.ost_io.nrs_policies="tbf\ abc\ efg"
+	[ $? -eq 0 ] && error "should return error"
+
+	new_policy=$(do_facet ost"$i" \
+		lctl get_param ost.OSS.ost_io.nrs_policies)
+	[ $? -eq 0 ] || error "shouldn't LBUG"
+
+	[ "$old_policy" = "$new_policy" ] || error "NRS policy should be same"
+
+	return 0
+}
+run_test 77h "Wrong policy name should report error, not LBUG"
+
 test_78() { #LU-6673
 	local rc
 
