@@ -512,7 +512,8 @@ static int ofd_brw_size_seq_show(struct seq_file *m, void *data)
 	struct ofd_device	*ofd = ofd_dev(obd->obd_lu_dev);
 	int			 rc;
 
-	rc = seq_printf(m, "%u\n", ofd->ofd_brw_size / ONE_MB_BRW_SIZE);
+	/* Note, this loses precision and only displays whole megabytes */
+	rc = seq_printf(m, "%uM\n", ofd->ofd_brw_size / ONE_MB_BRW_SIZE);
 	return rc;
 }
 
@@ -526,14 +527,18 @@ ofd_brw_size_seq_write(struct file *file, const char __user *buffer,
 	__s64 val;
 	int rc;
 
-	rc = lprocfs_str_to_s64(buffer, count, &val);
+	/* Values with no modifier are assumed to be megabytes */
+	rc = lprocfs_str_with_units_to_s64(buffer, count, &val, 'M');
 	if (rc)
 		return rc;
 
 	if (val < 0)
 		return -EINVAL;
 
-	val = val * ONE_MB_BRW_SIZE;
+	/* Right now LNET_MTU_BITS is 1MB = 20, but if it grows beyond,
+	 * this will turn into actual shifting
+	 */
+	val <<= LNET_MTU_BITS - 20;
 	if (val <= 0 || val > DT_MAX_BRW_SIZE)
 		return -ERANGE;
 
