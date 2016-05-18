@@ -13,8 +13,8 @@ ALWAYS_EXCEPT="                42a  42b  42c  42d  45   51d   68b   $SANITY_EXCE
 # UPDATE THE COMMENT ABOVE WITH BUG NUMBERS WHEN CHANGING ALWAYS_EXCEPT!
 
 # with LOD/OSP landing
-# bug number for skipped tests: LU-2036 LU-8139
-ALWAYS_EXCEPT="                 76	101g	$ALWAYS_EXCEPT"
+# bug number for skipped tests: LU-2036
+ALWAYS_EXCEPT="                 76	$ALWAYS_EXCEPT"
 
 is_sles11()						# LU-4341
 {
@@ -6612,12 +6612,12 @@ test_101g() {
 	local list=$(comma_list $(osts_nodes))
 	local p="$TMP/$TESTSUITE-$TESTNAME.parameters"
 
-	save_lustre_params $osts "obdfilter.*.brw_size" > $p
+	save_lustre_params $osts "obdfilter.*.brw_size_mb" > $p
 
 	$LFS setstripe -c 1 $DIR/$tfile
 
 	if [ $(lustre_version_code ost1) -ge $(version_code 2.8.52) ]; then
-		set_osd_param $list '' brw_size 16M
+		set_osd_param $list '' brw_size_mb 16M
 
 		echo "remount client to enable large RPC size"
 		remount_client $MOUNT || error "remount_client failed"

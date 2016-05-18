@@ -506,19 +506,29 @@ LPROC_SEQ_FOPS(ofd_syncjournal);
 /* This must be longer than the longest string below */
 #define SYNC_STATES_MAXLEN 16
 
-static int ofd_brw_size_seq_show(struct seq_file *m, void *data)
+static int ofd_brw_size_mb_seq_show(struct seq_file *m, void *data)
 {
 	struct obd_device	*obd = m->private;
 	struct ofd_device	*ofd = ofd_dev(obd->obd_lu_dev);
 	int			 rc;
+	s64 frac = ofd->ofd_brw_size % ONE_MB_BRW_SIZE;
 
-	rc = seq_printf(m, "%u\n", ofd->ofd_brw_size / ONE_MB_BRW_SIZE);
+	if (!fraq)
+		rc = seq_printf(m, "%u\n", ofd->ofd_brw_size / ONE_MB_BRW_SIZE);
+	else
+		/* This still loses precision in some cases:
+		 * (50*1024*1024+1234)/1024/1024
+		 * 50.00117683410644531250
+		 */
+		rc = seq_printf(m, "%u.%06u\n",
+				ofd->ofd_brw_size / ONE_MB_BRW_SIZE,
+				(fraq * 1000000) >> 20);
 	return rc;
 }
 
 static ssize_t
-ofd_brw_size_seq_write(struct file *file, const char __user *buffer,
-		       size_t count, loff_t *off)
+ofd_brw_size_mb_seq_write(struct file *file, const char __user *buffer,
+			  size_t count, loff_t *off)
 {
 	struct seq_file	*m = file->private_data;
 	struct obd_device *obd = m->private;
@@ -526,14 +536,10 @@ ofd_brw_size_seq_write(struct file *file, const char __user *buffer,
 	__s64 val;
 	int rc;
 
-	rc = lprocfs_str_to_s64(buffer, count, &val);
+	rc = lprocfs_str_with_units_to_s64(buffer, count, &val, 'M');
 	if (rc)
 		return rc;
 
-	if (val < 0)
-		return -EINVAL;
-
-	val = val * ONE_MB_BRW_SIZE;
 	if (val <= 0 || val > DT_MAX_BRW_SIZE)
 		return -ERANGE;
 
@@ -543,7 +549,7 @@ ofd_brw_size_seq_write(struct file *file, const char __user *buffer,
 
 	return count;
 }
-LPROC_SEQ_FOPS(ofd_brw_size);
+LPROC_SEQ_FOPS(ofd_brw_size_mb);
 
 static char *sync_on_cancel_states[] = {"never",
 					"blocking",
@@ -949,8 +955,8 @@ struct lprocfs_vars lprocfs_ofd_obd_vars[] = {
 	  .fops =	&ofd_degraded_fops		},
 	{ .name =	"sync_journal",
 	  .fops =	&ofd_syncjournal_fops		},
-	{ .name =	"brw_size",
-	  .fops =	&ofd_brw_size_fops		},
+	{ .name =	"brw_size_mb",
+	  .fops =	&ofd_brw_size_mb_fops		},
 	{ .name =	"sync_on_lock_cancel",
 	  .fops =	&ofd_sync_lock_cancel_fops	},
 	{ .name =	"instance",
