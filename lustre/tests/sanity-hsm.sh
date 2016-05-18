@@ -2065,7 +2065,6 @@ test_24c() {
 	chown $RUNAS_ID:nobody $file ||
 		error "cannot chown '$file' to '$RUNAS_ID:nobody'"
 
-	set_hsm_param user_request_mask ""
 	$RUNAS $LFS hsm_$action $file &&
 		error "$action by user should fail"
 
@@ -2079,7 +2078,6 @@ test_24c() {
 	chown nobody:$RUNAS_GID $file ||
 		error "cannot chown '$file' to 'nobody:$RUNAS_GID'"
 
-	set_hsm_param group_request_mask ""
 	$RUNAS $LFS hsm_$action $file &&
 		error "$action by group should fail"
 
@@ -2093,7 +2091,6 @@ test_24c() {
 	chown nobody:nobody $file ||
 		error "cannot chown '$file' to 'nobody:nobody'"
 
-	set_hsm_param other_request_mask ""
 	$RUNAS $LFS hsm_$action $file &&
 		error "$action by other should fail"
 
