@@ -452,10 +452,8 @@ int osp_remote_sync(const struct lu_env *env, struct osp_device *osp,
 	if (rc != 0)
 		RETURN(rc);
 
-	/* This will only be called with read-only update, and these updates
-	 * might be used to retrieve update log during recovery process, so
-	 * it will be allowed to send during recovery process */
-	req->rq_allow_replay = 1;
+	if (is_for_recovery(env))
+		req->rq_allow_replay = 1;
 	req->rq_allow_intr = 1;
 
 	/* Note: some dt index api might return non-zero result here, like
@@ -1432,7 +1430,8 @@ int osp_send_update_thread(void *arg)
 	ENTRY;
 
 	LASSERT(ou != NULL);
-	rc = lu_env_init(&env, osp->opd_dt_dev.dd_lu_dev.ld_type->ldt_ctx_tags);
+	rc = lu_env_init(&env, osp->opd_dt_dev.dd_lu_dev.ld_type->ldt_ctx_tags |
+			 LCT_SERVER_RECOVERY);
 	if (rc < 0) {
 		CERROR("%s: init env error: rc = %d\n", osp->opd_obd->obd_name,
 		       rc);
