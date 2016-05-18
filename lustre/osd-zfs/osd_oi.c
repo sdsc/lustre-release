@@ -730,9 +730,8 @@ void osd_oi_fini(const struct lu_env *env, struct osd_device *o)
 {
 	ENTRY;
 
-	osd_ost_seq_fini(env, o);
-
 	if (o->od_oi_table != NULL) {
+		osd_ost_seq_fini(env, o);
 		(void) osd_oi_close_table(env, o);
 		OBD_FREE(o->od_oi_table,
 			 sizeof(struct osd_oi *) * o->od_oi_count);
