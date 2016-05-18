@@ -533,7 +533,7 @@ ofd_brw_size_seq_write(struct file *file, const char __user *buffer,
 	if (val < 0)
 		return -EINVAL;
 
-	val = val * ONE_MB_BRW_SIZE;
+	val *= ONE_MB_BRW_SIZE;
 	if (val <= 0 || val > DT_MAX_BRW_SIZE)
 		return -ERANGE;
 
@@ -949,7 +949,7 @@ struct lprocfs_vars lprocfs_ofd_obd_vars[] = {
 	  .fops =	&ofd_degraded_fops		},
 	{ .name =	"sync_journal",
 	  .fops =	&ofd_syncjournal_fops		},
-	{ .name =	"brw_size",
+	{ .name =	"brw_size_mb",
 	  .fops =	&ofd_brw_size_fops		},
 	{ .name =	"sync_on_lock_cancel",
 	  .fops =	&ofd_sync_lock_cancel_fops	},
