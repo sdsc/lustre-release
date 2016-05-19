@@ -437,11 +437,9 @@ static void test15(void)
 	ASSERTF(rc == 0,
 		"invalid lease type on '%s': %s", filename, strerror(-rc));
 
-#if 0
 	/* BUG! This returns EBUSY but there's no lease. */
 	rc = llapi_lease_get(fd, LL_LEASE_RDLCK);
 	ASSERTF(rc == 0, "cannot get lease '%s': %s", filename, strerror(-rc));
-#endif
 
 	close(fd);
 
@@ -464,11 +462,9 @@ static void test15(void)
 	ASSERTF(rc == 0,
 		"invalid lease type on '%s': %s", filename, strerror(-rc));
 
-#if 0
 	/* BUG! This returns EBUSY but there's no lease. */
 	rc = llapi_lease_get(fd, LL_LEASE_WRLCK);
 	ASSERTF(rc == 0, "cannot get lease '%s': %s", filename, strerror(-rc));
-#endif
 
 	close(fd);
 
@@ -477,7 +473,6 @@ static void test15(void)
 	ASSERTF(fd >= 0, "open failed for '%s': %s", filename, strerror(errno));
 
 	for (i = 0; i < 1000; i++) {
-#if 0
 		/* BUG! Same as above */
 		rc = llapi_lease_get(fd, LL_LEASE_WRLCK);
 		ASSERTF(rc == 0, "cannot get lease '%s': %s",
@@ -496,7 +491,6 @@ static void test15(void)
 		ASSERTF(rc == LL_LEASE_RDLCK,
 			"was not able to put back lease '%s': %s",
 			filename, strerror(-rc));
-#endif
 	}
 
 	close(fd);
