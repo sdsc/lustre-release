@@ -368,7 +368,7 @@ static int lod_sub_recovery_thread(void *arg)
 	thread->t_flags = SVC_RUNNING;
 	wake_up(&thread->t_ctl_waitq);
 
-	rc = lu_env_init(&env, LCT_LOCAL | LCT_MD_THREAD);
+	rc = lu_env_init(&env, LCT_LOCAL | LCT_MD_THREAD | LCT_SERVER_RECOVERY);
 	if (rc != 0) {
 		OBD_FREE_PTR(lrd);
 		CERROR("%s: can't initialize env: rc = %d\n",
