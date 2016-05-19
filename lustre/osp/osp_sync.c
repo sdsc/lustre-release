@@ -1169,7 +1169,7 @@ static int osp_sync_thread(void *_arg)
 
 	ENTRY;
 
-	rc = lu_env_init(&env, LCT_LOCAL);
+	rc = lu_env_init(&env, LCT_LOCAL | LCT_SERVER_RECOVERY);
 	if (rc) {
 		CERROR("%s: can't initialize env: rc = %d\n",
 		       obd->obd_name, rc);

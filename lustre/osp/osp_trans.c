@@ -452,10 +452,9 @@ int osp_remote_sync(const struct lu_env *env, struct osp_device *osp,
 	if (rc != 0)
 		RETURN(rc);
 
-	/* This will only be called with read-only update, and these updates
-	 * might be used to retrieve update log during recovery process, so
-	 * it will be allowed to send during recovery process */
-	req->rq_allow_replay = 1;
+	if (osp_is_for_recovery(env,
+				osp->opd_dt_dev.dd_lu_dev.ld_site->ls_top_dev))
+		req->rq_allow_replay = 1;
 	req->rq_allow_intr = 1;
 
 	/* Note: some dt index api might return non-zero result here, like
@@ -1107,7 +1106,6 @@ static int osp_send_update_req(const struct lu_env *env,
 {
 	struct osp_update_args	*args;
 	struct ptlrpc_request	*req;
-	struct lu_device *top_device;
 	struct osp_thandle	*oth = our->our_th;
 	int	rc = 0;
 	ENTRY;
@@ -1164,8 +1162,8 @@ static int osp_send_update_req(const struct lu_env *env,
 		 * status, in case the other target is being recoveried
 		 * at the same time, and if we wait here for the import
 		 * to be recoveryed, it might cause deadlock */
-		top_device = osp->opd_dt_dev.dd_lu_dev.ld_site->ls_top_dev;
-		if (top_device->ld_obd->obd_recovering)
+		if (osp_is_for_recovery(env,
+				osp->opd_dt_dev.dd_lu_dev.ld_site->ls_top_dev))
 			req->rq_allow_replay = 1;
 
 		/* Because this req will be synchronus, i.e. it will be called
@@ -1432,7 +1430,8 @@ int osp_send_update_thread(void *arg)
 	ENTRY;
 
 	LASSERT(ou != NULL);
-	rc = lu_env_init(&env, osp->opd_dt_dev.dd_lu_dev.ld_type->ldt_ctx_tags);
+	rc = lu_env_init(&env, osp->opd_dt_dev.dd_lu_dev.ld_type->ldt_ctx_tags |
+			       LCT_SERVER_RECOVERY);
 	if (rc < 0) {
 		CERROR("%s: init env error: rc = %d\n", osp->opd_obd->obd_name,
 		       rc);

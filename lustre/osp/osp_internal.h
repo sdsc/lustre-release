@@ -705,6 +705,12 @@ static inline void osp_thandle_put(struct osp_thandle *oth)
 		osp_thandle_destroy(oth);
 }
 
+static inline bool osp_is_for_recovery(const struct lu_env *env,
+				       const struct lu_device *dev)
+{
+	return !!(is_for_recovery(env) || dev->ld_obd->obd_recovering);
+}
+
 int osp_prep_update_req(const struct lu_env *env, struct obd_import *imp,
 			struct osp_update_request *our,
 			struct ptlrpc_request **reqp);
