@@ -309,7 +309,7 @@ int mdt_hsm_find_best_agent(struct coordinator *cdt, __u32 archive,
 /**
  * send a compound request to the agent
  * \param mti [IN] context
- * \param hal [IN] request (can be a kuc payload)
+ * \param hal [IN] request
  * \param purge [IN] purge mode (no record)
  * \retval 0 success
  * \retval -ve failure
@@ -322,15 +322,15 @@ int mdt_hsm_find_best_agent(struct coordinator *cdt, __u32 archive,
 int mdt_hsm_agent_send(struct mdt_thread_info *mti,
 		       struct hsm_action_list *hal, bool purge)
 {
-	struct obd_export	*exp;
-	struct mdt_device	*mdt = mti->mti_mdt;
-	struct coordinator	*cdt = &mti->mti_mdt->mdt_coordinator;
-	struct hsm_action_list	*buf = NULL;
-	struct hsm_action_item	*hai;
-	struct obd_uuid		 uuid;
-	int			 len, i, rc = 0;
-	bool			 fail_request;
-	bool			 is_registered = false;
+	struct obd_export *exp;
+	struct mdt_device *mdt = mti->mti_mdt;
+	struct coordinator *cdt = &mti->mti_mdt->mdt_coordinator;
+	struct hsm_action_list *buf = NULL;
+	struct hsm_action_item *hai;
+	struct obd_uuid uuid;
+	int len, i, rc = 0;
+	bool fail_request;
+	bool is_registered = false;
 	ENTRY;
 
 	rc = mdt_hsm_find_best_agent(cdt, hal->hal_archive_id, &uuid);
@@ -344,7 +344,7 @@ int mdt_hsm_agent_send(struct mdt_thread_info *mti,
 	       hal->hal_archive_id);
 
 	len = hal_size(hal);
-	buf = kuc_alloc(len, KUC_TRANSPORT_HSM, HMT_ACTION_LIST);
+	OBD_ALLOC(buf, len);
 	if (IS_ERR(buf))
 		RETURN(PTR_ERR(buf));
 	memcpy(buf, hal, len);
@@ -480,7 +480,7 @@ int mdt_hsm_agent_send(struct mdt_thread_info *mti,
 			       LUSTRE_OBD_VERSION,
 			       sizeof(KEY_HSM_COPYTOOL_SEND),
 			       KEY_HSM_COPYTOOL_SEND,
-			       kuc_len(len), kuc_ptr(buf), NULL);
+			       len, buf, NULL);
 
 	if (rc)
 		CERROR("%s: cannot send request to agent '%s': rc = %d\n",
@@ -506,7 +506,7 @@ out:
 	}
 
 out_buf:
-	kuc_free(buf, len);
+	OBD_FREE(buf, len);
 
 	RETURN(rc);
 }

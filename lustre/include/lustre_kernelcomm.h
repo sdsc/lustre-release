@@ -40,17 +40,8 @@
 /* For declarations shared with userspace */
 #include <uapi_kernelcomm.h>
 
-/* prototype for callback function on kuc groups */
-typedef int (*libcfs_kkuc_cb_t)(void *data, void *cb_arg);
-
 /* Kernel methods */
 int libcfs_kkuc_msg_put(struct file *fp, void *payload);
-int libcfs_kkuc_group_put(int group, void *payload);
-int libcfs_kkuc_group_add(struct file *fp, int uid, int group,
-			  void *data, size_t data_len);
-int libcfs_kkuc_group_rem(int uid, int group);
-int libcfs_kkuc_group_foreach(int group, libcfs_kkuc_cb_t cb_func,
-			      void *cb_arg);
 
 #endif /* __LUSTRE_KERNELCOMM_H__ */
 

@@ -1278,6 +1278,7 @@ static inline char *hai_dump_data_field(const struct hsm_action_item *hai,
 
 /* Copytool action list */
 #define HAL_VERSION 1
+#define HAL_MAGIC 0x48616c6d
 #define HAL_MAXSIZE LNET_MTU /* bytes, used in userspace only */
 struct hsm_action_list {
 	__u32 hal_version;
@@ -1285,7 +1286,7 @@ struct hsm_action_list {
 	__u64 hal_compound_id; /* returned by coordinator */
 	__u64 hal_flags;
 	__u32 hal_archive_id; /* which archive backend */
-	__u32 padding1;
+	__u32 hal_magic;
 	char  hal_fsname[0];   /* null-terminated */
 	/* struct hsm_action_item[hal_count] follows, aligned on 8-byte
 	   boundaries. See hai_zero */
