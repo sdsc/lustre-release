@@ -863,16 +863,28 @@ static void test42(void)
 	ASSERTF(rc == 0, "mkdir failed for '%s': %s",
 		mainpath, strerror(errno));
 
+	/* Get dataversion for two files.
+	 * Make sure values are different so that the following checks make
+	 * sense. */
 	fd1 = create_file("foo1", foo1_size, 'x');
-	fd2 = create_file("foo2", foo2_size, 'y');
 
 	rc = llapi_get_data_version(fd1, &dv1, LL_DV_RD_FLUSH);
 	ASSERTF(rc == 0, "cannot get dataversion for fd1: %s", strerror(-rc));
 	ASSERTF(dv1 != 0, "got dataversion 0 for fd1");
 
-	rc = llapi_get_data_version(fd2, &dv2, LL_DV_RD_FLUSH);
-	ASSERTF(rc == 0, "cannot get dataversion for fd1: %s", strerror(-rc));
-	ASSERTF(dv2 != 0, "got dataversion 0 for fd2");
+	for (;;) {
+		fd2 = create_file("foo2", foo2_size, 'y');
+
+		rc = llapi_get_data_version(fd2, &dv2, LL_DV_RD_FLUSH);
+		ASSERTF(rc == 0, "cannot get dataversion for fd2: %s",
+			strerror(-rc));
+		ASSERTF(dv2 != 0, "got dataversion 0 for fd2");
+
+		if (dv1 != dv2)
+			break;
+
+		close(fd2);
+	}
 
 	/* swaps that should fail */
 	rc = llapi_fswap_layouts(fd1, fd2, 0, 0, SWAP_LAYOUTS_CHECK_DV1);
@@ -932,30 +944,21 @@ static void test42(void)
 	ASSERTF(rc == 0,
 		"cannot get new dataversion for fd1: %s", strerror(-rc));
 	ASSERTF(dv1 != 0, "got dataversion 0 for fd1");
-#if 0
-	/* BUG! This fails too often. See LU-7507. */
 	ASSERTF(dv1 != new_dv1, "got identical dataversion for fd1: %llx", dv1);
-#endif
 
 	rc = llapi_get_data_version(fd2, &new_dv2, LL_DV_RD_FLUSH);
 	ASSERTF(rc == 0,
 		"cannot get new dataversion for fd2: %s", strerror(-rc));
 	ASSERTF(dv2 != 0, "got dataversion 0 for fd2");
-#if 0
-	/* BUG! This fails too often */
 	ASSERTF(dv2 != new_dv2, "got identical dataversion for fd2: %llx", dv1);
-#endif
 
 	printf("new DV = %llx and %llx\n", new_dv1, new_dv2);
 
 	/* Try again with same parameters. */
-#if 0
-	/* BUG! because of above code commented out, thus will fail. */
 	rc = llapi_fswap_layouts(fd1, fd2, dv1, dv2,
 				 SWAP_LAYOUTS_CHECK_DV1 |
 				 SWAP_LAYOUTS_CHECK_DV2);
 	ASSERTF(rc == -EAGAIN, "incorrect return from swap: %s", strerror(-rc));
-#endif
 
 	close(fd1);
 	close(fd2);
