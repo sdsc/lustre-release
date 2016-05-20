@@ -39,7 +39,7 @@ if [ $(facet_fstype $SINGLEMDS) = "zfs" ]; then
 	TEST33_NFILES=${TEST33_NFILES:-1000}
 fi
 
-[ "$SLOW" = "no" ] && EXCEPT_SLOW="33a"
+[ "$SLOW" = "no" ] && EXCEPT_SLOW=""
 
 FAIL_ON_ERROR=false
 
