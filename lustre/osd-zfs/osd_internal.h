@@ -576,6 +576,34 @@ static inline void dsl_pool_config_exit(dsl_pool_t *dp, char *name)
 #define	SPA_OLD_MAXBLOCKSIZE		SPA_MAXBLOCKSIZE
 #endif
 
+#ifndef HAVE_DMU_OBJECT_ALLOC_DNSIZE
+static inline uint64_t
+dmu_object_alloc_dnsize(objset_t *os, dmu_object_type_t ot, int blocksize,
+			dmu_object_type_t bonus_type, int bonus_len,
+			int dnodesize, dmu_tx_t *tx)
+{
+	return dmu_object_alloc(os, ot, blocksize, bonus_type, bonus_len, tx);
+}
+
+static inline uint64_t
+zap_create_flags_dnsize(objset_t *os, int normflags, zap_flags_t flags,
+			dmu_object_type_t ot, int leaf_blockshift,
+			int indirect_blockshift, dmu_object_type_t bonustype,
+			int bonuslen, int dnodesize, dmu_tx_t *tx)
+{
+	return zap_create_flags(os, normflags, flags, ot, leaf_blockshift,
+				indirect_blockshift, bonustype, bonuslen, tx);
+}
+
+#define	OSD_DNODE_SIZE(os)	DNODE_SIZE
+#else
+#define	OSD_DNODE_SIZE(os)	((os) ? (os)->os_dnodesize : DNODE_MIN_SIZE)
+#endif /* HAVE_DMU_OBJECT_ALLOC_DNSIZE */
+
+#ifndef HAVE_DN_BONUS_SIZE
+#define	DN_BONUS_SIZE(x)	DN_MAX_BONUSLEN
+#endif
+
 #ifdef HAVE_SA_SPILL_ALLOC
 static inline void *
 osd_zio_buf_alloc(size_t size)

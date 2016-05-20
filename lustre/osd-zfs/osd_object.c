@@ -1282,6 +1282,8 @@ int __osd_object_create(const struct lu_env *env, struct osd_object *obj,
 	struct osd_device   *osd = osd_obj2dev(obj);
 	const struct lu_fid *fid = lu_object_fid(&obj->oo_dt.do_lu);
 	dmu_object_type_t    type = DMU_OT_PLAIN_FILE_CONTENTS;
+	int		     dnodesize = OSD_DNODE_SIZE(osd->od_os);
+	int		     bonuslen = DN_BONUS_SIZE(dnodesize);
 
 	/* Assert that the transaction has been assigned to a
 	   transaction group. */
@@ -1294,8 +1296,8 @@ int __osd_object_create(const struct lu_env *env, struct osd_object *obj,
 		type = DMU_OTN_UINT8_METADATA;
 
 	/* Create a new DMU object. */
-	oid = dmu_object_alloc(osd->od_os, type, 0,
-			       DMU_OT_SA, DN_MAX_BONUSLEN, tx);
+	oid = dmu_object_alloc_dnsize(osd->od_os, type, 0, DMU_OT_SA, bonuslen,
+				      dnodesize, tx);
 	rc = -sa_buf_hold(osd->od_os, oid, osd_obj_tag, dbp);
 	LASSERTF(rc == 0, "sa_buf_hold "LPU64" failed: %d\n", oid, rc);
 
@@ -1329,17 +1331,19 @@ int __osd_zap_create(const struct lu_env *env, struct osd_device *osd,
 		     struct lu_attr *la, uint64_t parent, zap_flags_t flags)
 {
 	uint64_t oid;
+	int	 dnodesize = OSD_DNODE_SIZE(osd->od_os);
+	int	 bonuslen = DN_BONUS_SIZE(dnodesize);
 	int	 rc;
 
 	/* Assert that the transaction has been assigned to a
 	   transaction group. */
 	LASSERT(tx->tx_txg != 0);
 
-	oid = zap_create_flags(osd->od_os, 0, flags | ZAP_FLAG_HASH64,
-			       DMU_OT_DIRECTORY_CONTENTS,
-			       14, /* == ZFS fzap_default_block_shift */
-			       DN_MAX_INDBLKSHIFT, /* indirect block shift */
-			       DMU_OT_SA, DN_MAX_BONUSLEN, tx);
+	oid = zap_create_flags_dnsize(osd->od_os, 0, flags | ZAP_FLAG_HASH64,
+				      DMU_OT_DIRECTORY_CONTENTS,
+				      14, /* == ZFS fzap_default_block_shift */
+				      DN_MAX_INDBLKSHIFT, DMU_OT_SA, bonuslen,
+				      dnodesize, tx);
 
 	rc = -sa_buf_hold(osd->od_os, oid, osd_obj_tag, zap_dbp);
 	if (rc)

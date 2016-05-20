@@ -450,6 +450,42 @@ your distribution.
 			AC_DEFINE(HAVE_SPA_MAXBLOCKSIZE, 1,
 				[Have spa_maxblocksize in ZFS])
 		])
+		LB_CHECK_COMPILE([if zfs defines DN_MAX_BONUSLEN],
+		dn_max_bonuslen, [
+			#include <sys/dnode.h>
+		],[
+			int i = DN_MAX_BONUSLEN;
+		],[
+			AC_DEFINE(HAVE_DN_MAX_BONUSLEN, 1,
+				[Have DN_MAX_BONUSLEN in ZFS])
+		],[
+
+			LB_CHECK_COMPILE([if zfs defines DN_BONUS_SIZE],
+			dn_bonus_size, [
+				#include <sys/dnode.h>
+			],[
+				int i = DN_BONUS_SIZE(DNODE_MIN_SIZE);
+			],[
+				AC_DEFINE(HAVE_DN_BONUS_SIZE, 1,
+					[Have DN_BONUS_SIZE in ZFS])
+			],
+			[
+				AC_MSG_ERROR([
+	No interface found to determine ZFS dnode bonus length.
+	Lustre needs one of DN_MAX_BONUSLEN or DN_BONUS_SIZE.
+				])
+			])
+		])
+		LB_CHECK_COMPILE([if zfs defines dmu_object_alloc_dnsize],
+		dmu_object_alloc_dnsize, [
+			#include <sys/dmu.h>
+		],[
+			uint64_t o;
+			o = dmu_object_alloc_dnsize(NULL, 0, 0, 0, 0, 0, NULL);
+		],[
+			AC_DEFINE(HAVE_DMU_OBJECT_ALLOC_DNSIZE, 1,
+				[Have dmu_object_alloc_dnsize in ZFS])
+		])
 	])
 
 	AM_CONDITIONAL(ZFS_ENABLED, [test "x$enable_zfs" = xyes])
