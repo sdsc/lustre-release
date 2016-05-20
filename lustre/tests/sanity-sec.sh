@@ -21,7 +21,7 @@ init_test_env $@
 . ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}
 init_logging
 
-[ "$SLOW" = "no" ] && EXCEPT_SLOW="26"
+[ "$SLOW" = "no" ] && EXCEPT_SLOW=""
 
 [ "$ALWAYS_EXCEPT$EXCEPT$EXCEPT_SLOW" ] &&
 	echo "Skipping tests: $ALWAYS_EXCEPT $EXCEPT $EXCEPT_SLOW"
