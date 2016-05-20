@@ -1534,4 +1534,80 @@ static inline struct inode *file_inode(struct file *file)
 }
 #endif
 
+#ifndef HAVE_IOV_ITER_TRUNCATE
+static inline void iov_iter_truncate(struct iov_iter *i, u64 count)
+{
+	if (i->count > count)
+		i->count = count;
+}
+#endif
+
+#ifndef HAVE_FILE_OPERATIONS_READ_WRITE_ITER
+static inline void iov_iter_reexpand(struct iov_iter *i, size_t count)
+{
+	i->count = count;
+}
+
+static inline struct iovec iov_iter_iovec(const struct iov_iter *iter)
+{
+	return (struct iovec) {
+		.iov_base = iter->iov->iov_base + iter->iov_offset,
+		.iov_len = min(iter->count,
+			       iter->iov->iov_len - iter->iov_offset),
+	};
+}
+
+#define iov_for_each(iov, iter, start)					\
+	for (iter = (start);						\
+	     (iter).count && ((iov = iov_iter_iovec(&(iter))), 1);	\
+	     iov_iter_advance(&(iter), (iov).iov_len))
+
+static inline ssize_t
+generic_file_read_iter(struct kiocb *iocb, struct iov_iter *iter)
+{
+	struct iovec iov;
+	struct iov_iter i;
+	ssize_t bytes = 0;
+
+	iov_for_each(iov, i, *iter) {
+		ssize_t res;
+
+		res = generic_file_aio_read(iocb, &iov, 1, iocb->ki_pos);
+		if (res > 0)
+			bytes += res;
+
+		if (res < iov.iov_len) {
+			if (bytes == 0)
+				bytes = res;
+			break;
+		}
+	}
+
+	return bytes;
+}
+
+static inline ssize_t
+generic_file_write_iter(struct kiocb *iocb, struct iov_iter *iter)
+{
+	struct iovec iov;
+	struct iov_iter i;
+	ssize_t bytes = 0;
+
+	iov_for_each(iov, i, *iter) {
+		ssize_t res;
+
+		res = __generic_file_aio_write(iocb, &iov, 1, &iocb->ki_pos);
+		if (res <= 0) {
+			if (bytes == 0)
+				bytes = res;
+			break;
+		}
+		bytes += res;
+	}
+
+	return bytes;
+}
+
+#endif /* HAVE_FILE_OPERATIONS_READ_WRITE_ITER */
+
 #endif /* LLITE_INTERNAL_H */
