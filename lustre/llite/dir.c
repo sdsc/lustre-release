@@ -920,17 +920,23 @@ static int copy_and_ioctl(int cmd, struct obd_export *exp,
 	void *copy;
 	int rc;
 
+	rc = (int *)data;
+
 	OBD_ALLOC(copy, size);
 	if (copy == NULL)
 		return -ENOMEM;
 
+	memcpy(copy, data, size);
+
+#if 0
 	if (copy_from_user(copy, data, size)) {
 		rc = -EFAULT;
 		goto out;
 	}
+#endif
 
 	rc = obd_iocontrol(cmd, exp, size, copy, NULL);
-out:
+/*out:*/
 	OBD_FREE(copy, size);
 
 	return rc;
