@@ -45,7 +45,9 @@
 #include <linux/types.h>
 
 /* Sparse annotation. */
+#ifndef __user
 #define __user
+#endif
 
 #include <libcfs/libcfs_ioctl.h>
 
