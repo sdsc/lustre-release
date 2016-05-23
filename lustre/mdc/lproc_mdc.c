@@ -174,9 +174,7 @@ static ssize_t mdc_rpc_stats_seq_write(struct file *file,
 }
 LPROC_SEQ_FOPS(mdc_rpc_stats);
 
-
 LPROC_SEQ_FOPS_WO_TYPE(mdc, ping);
-
 LPROC_SEQ_FOPS_RO_TYPE(mdc, uuid);
 LPROC_SEQ_FOPS_RO_TYPE(mdc, connect_flags);
 LPROC_SEQ_FOPS_RO_TYPE(mdc, blksize);
