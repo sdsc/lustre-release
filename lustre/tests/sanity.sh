@@ -8688,7 +8688,7 @@ test_127a() { # bug 15521
         $LCTL set_param osc.*.stats=0
         FSIZE=$((2048 * 1024))
         dd if=/dev/zero of=$DIR/$tfile bs=$FSIZE count=1
-        cancel_lru_locks osc
+	cancel_lru_locks osc
         dd if=$DIR/$tfile of=/dev/null bs=$FSIZE
 
         $LCTL get_param osc.*0000-osc-*.stats | grep samples > $DIR/${tfile}.tmp
