@@ -4641,10 +4641,18 @@ set_nodes_failloc () {
 }
 
 cancel_lru_locks() {
-	#$LCTL mark "cancel_lru_locks $1 start"
-	$LCTL set_param -n ldlm.namespaces.*$1*.lru_size=clear
-	$LCTL get_param ldlm.namespaces.*$1*.lock_unused_count | grep -v '=0'
-	#$LCTL mark "cancel_lru_locks $1 stop"
+	local attempt=${2:-"3"}
+	local interval=${3:-"1"}
+
+	while ! $LCTL set_param -n ldlm.namespaces.*$1*.lru_size=clear; do
+		attempt=$((attempt - 1))
+		[[ $attempt -le 0 ]] && error "Not able to cancel lru locks."
+		echo "cancel_lru_locks failed, retrying..."
+		sleep $interval
+	done
+
+	$LCTL get_param ldlm.namespaces.*$1*.lock_unused_count |
+		grep -v '=0'
 }
 
 default_lru_size()
