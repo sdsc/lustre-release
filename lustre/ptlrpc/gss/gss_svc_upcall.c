@@ -1070,10 +1070,6 @@ cache_check:
 out:
         /* it looks like here we should put rsip also, but this mess up
          * with NFS cache mgmt code... FIXME */
-#if 0
-        if (rsip)
-                rsi_put(&rsip->h, &rsi_cache);
-#endif
 
         if (rsci) {
                 /* if anything went wrong, we don't keep the context too */
