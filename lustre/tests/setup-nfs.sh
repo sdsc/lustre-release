@@ -63,6 +63,7 @@ cleanup_nfs() {
 				 service nfsserver stop || service nfs stop" ||
 				return 1
 
+	do_nodes $LUSTRE_CLIENT "service nfslock stop" || return 1
     do_nodes $LUSTRE_CLIENT "exportfs -u *:$MNTPNT"
 
     do_nodes $LUSTRE_CLIENT "exportfs -v"
