@@ -176,21 +176,6 @@ int ll_update_remote_perm(struct inode *inode, struct mdt_remote_perm *perm)
 
         LASSERT(ll_i2sbi(inode)->ll_flags & LL_SBI_RMT_CLIENT);
 
-#if 0
-        if (perm->rp_uid != current->uid ||
-            perm->rp_gid != current->gid ||
-            perm->rp_fsuid != current->fsuid ||
-            perm->rp_fsgid != current->fsgid) {
-                /* user might setxid in this small period */
-                CDEBUG(D_SEC,
-                       "remote perm user %u/%u/%u/%u != current %u/%u/%u/%u\n",
-                       perm->rp_uid, perm->rp_gid, perm->rp_fsuid,
-                       perm->rp_fsgid, current->uid, current->gid,
-                       current->fsuid, current->fsgid);
-                RETURN(-EAGAIN);
-        }
-#endif
-
         if (!lli->lli_remote_perms) {
                 perm_hash = alloc_rmtperm_hash();
                 if (perm_hash == NULL) {
