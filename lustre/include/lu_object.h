@@ -1037,6 +1037,10 @@ enum lu_context_tag {
 	 * session for server thread
 	 **/
 	LCT_SERVER_SESSION = 1 << 8,
+	/**
+	 * Server side recovery related thread
+	 **/
+	LCT_SERVER_RECOVERY = 1 << 9,
         /**
          * Set when at least one of keys, having values in this context has
          * non-NULL lu_context_key::lct_exit() method. This is used to
@@ -1409,6 +1413,13 @@ static inline bool lu_device_is_cl(const struct lu_device *d)
 static inline bool lu_object_is_cl(const struct lu_object *o)
 {
 	return lu_device_is_cl(o->lo_dev);
+}
+
+static inline bool is_for_recovery(const struct lu_env *env)
+{
+	return !!((env->le_ctx.lc_tags & LCT_SERVER_RECOVERY) ||
+		  (env->le_ses != NULL &&
+		   env->le_ses->lc_tags & LCT_SERVER_RECOVERY));
 }
 
 /** @} lu */

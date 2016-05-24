@@ -122,7 +122,8 @@ struct osp_update_request {
 	/* linked to the list(ou_list) in osp_updates */
 	struct list_head		our_list;
 	__u32				our_batchid;
-	__u32				our_req_ready:1;
+	__u32				our_req_ready:1,
+					our_allow_replay:1;
 
 };
 
@@ -690,7 +691,8 @@ struct osp_update_request *osp_update_request_create(struct dt_device *dt);
 void osp_update_request_destroy(struct osp_update_request *update);
 
 int osp_send_update_thread(void *arg);
-int osp_check_and_set_rpc_version(struct osp_thandle *oth,
+int osp_check_and_set_rpc_version(const struct lu_env *env,
+				  struct osp_thandle *oth,
 				  struct osp_object *obj);
 
 void osp_thandle_destroy(struct osp_thandle *oth);
@@ -703,6 +705,19 @@ static inline void osp_thandle_put(struct osp_thandle *oth)
 {
 	if (atomic_dec_and_test(&oth->ot_refcount))
 		osp_thandle_destroy(oth);
+}
+
+static inline struct lu_device *osp2top(struct osp_device *osp)
+{
+	return osp->opd_dt_dev.dd_lu_dev.ld_site->ls_top_dev;
+}
+
+static inline void osp_set_req_replay(const struct lu_env *env,
+				      const struct lu_device *dev,
+				      struct ptlrpc_request *req)
+{
+	if (is_for_recovery(env) || dev->ld_obd->obd_recovering)
+		req->rq_allow_replay = 1;
 }
 
 int osp_prep_update_req(const struct lu_env *env, struct obd_import *imp,
