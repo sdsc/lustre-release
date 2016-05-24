@@ -1152,6 +1152,7 @@ static struct ldlm_resource *ldlm_resource_new(enum ldlm_type ldlm_type)
 	INIT_LIST_HEAD(&res->lr_granted);
 	INIT_LIST_HEAD(&res->lr_converting);
 	INIT_LIST_HEAD(&res->lr_waiting);
+	INIT_LIST_HEAD(&res->lr_enqueueing);
 
 	atomic_set(&res->lr_refcount, 1);
 	spin_lock_init(&res->lr_lock);
@@ -1279,6 +1280,11 @@ static void __ldlm_resource_putref_final(struct cfs_hash_bd *bd,
                 ldlm_resource_dump(D_ERROR, res);
                 LBUG();
         }
+
+	if (!list_empty(&res->lr_enqueueing)) {
+		ldlm_resource_dump(D_ERROR, res);
+		LBUG();
+	}
 
         cfs_hash_bd_del_locked(nsb->nsb_namespace->ns_rs_hash,
                                bd, &res->lr_hash);
