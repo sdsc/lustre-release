@@ -555,7 +555,7 @@ ldiskfs_osd_readcache_seq_write(struct file *file, const char *buffer,
 	if (unlikely(osd->od_mnt == NULL))
 		return -EINPROGRESS;
 
-	rc = lprocfs_str_to_s64(buffer, count, &val);
+	rc = lprocfs_str_with_units_to_s64(buffer, count, &val, '1');
 	if (rc)
 		return rc;
 	if (val < 0)
