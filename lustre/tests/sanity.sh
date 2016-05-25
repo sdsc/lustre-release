@@ -10052,6 +10052,21 @@ test_154A() {
 }
 run_test 154A "lfs path2fid and fid2path basic checks"
 
+test_154B() {
+	mkdir -p $DIR/$tdir || error "mkdir $tdir failed"
+	touch $DIR/$tdir/$tfile
+	local PFID=$($LL_DECODE_LINKEA $DIR/$tdir/$tfile 2>&1 | awk '/pfid/ {print $3}' | sed -e 's/,//g')
+	local name=$($LL_DECODE_LINKEA $DIR/$tdir/$tfile 2>&1 | awk '/pfid/ {print $5}' | sed -e 's/"//g')
+	# check that we get the same pathname
+	local FOUND=$($LFS fid2path $MOUNT "$PFID")
+	[ -z "$FOUND" ] && error "fid2path unable to get $PFID path"
+	[ "$FOUND/$name" != "$DIR/$tdir/$tfile" ] &&
+		error "ll_decode_linkea tool gets path $FOUND/$name != $DIR/$tdir/$tfile"
+
+	rm -rf $DIR/$tdir || erro "Can not delete directory $DIR/$tdir"
+}
+run_test 154B "verify the ll_decode_linkea tool"
+
 test_154a() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
 	[[ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.2.51) ]] ||
