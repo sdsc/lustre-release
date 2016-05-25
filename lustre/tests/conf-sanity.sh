@@ -2869,6 +2869,7 @@ run_test 41b "mount mds with --nosvc and --nomgs on first mount"
 
 test_41c() {
 	local server_version=$(lustre_version_code $SINGLEMDS)
+	local ost_list=$(comma_list $(osts_nodes))
 
 	[[ $server_version -ge $(version_code 2.6.52) ]] ||
 	[[ $server_version -ge $(version_code 2.5.26) &&
@@ -2879,6 +2880,13 @@ test_41c() {
 
 	cleanup
 	# MDT concurrent start
+
+	load_modules
+	do_rpc_nodes $(facet_active_host $SINGLEMDS) \
+		 load_module ${LUSTRE}../libcfs/libcfs/libcfs
+	do_facet $SINGLEMDS "lsmod | grep -q libcfs" ||
+		error "MDT concurrent start: libcfs module not loaded"
+
 	#define OBD_FAIL_TGT_MOUNT_RACE 0x716
 	do_facet $SINGLEMDS "$LCTL set_param fail_loc=0x716"
 	start mds1 $(mdsdevname 1) $MDS_MOUNT_OPTS &
@@ -2908,6 +2916,10 @@ test_41c() {
 	fi
 
 	# OST concurrent start
+
+	do_rpc_nodes $ost_list "load_module ${LUSTRE}/../libcfs/libcfs/libcfs;
+		lsmod | grep -q libcfs ||
+		error \\\"OST concurrent start: libcfs module not loaded\\\";"
 
 	#define OBD_FAIL_TGT_MOUNT_RACE 0x716
 	do_facet ost1 "$LCTL set_param fail_loc=0x716"
