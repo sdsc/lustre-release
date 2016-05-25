@@ -22,5 +22,6 @@
 /ltrack_stats
 /lustre_rsync
 /ll_decode_filter_fid
+/ll_decode_linkea
 /lhsmd_posix
 /lhsmtool_posix
