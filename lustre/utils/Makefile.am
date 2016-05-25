@@ -40,7 +40,7 @@ endif # TESTS
 
 if SERVER
 sbin_PROGRAMS += mkfs.lustre tunefs.lustre llverdev lr_reader \
-		 ll_decode_filter_fid llog_reader
+		 ll_decode_filter_fid llog_reader ll_decode_linkea
 endif
 if LIBPTHREAD
 sbin_PROGRAMS += lhsmtool_posix
