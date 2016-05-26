@@ -1298,7 +1298,8 @@ int distribute_txn_replay_handle(struct lu_env *env,
 	ENTRY;
 
 	/* initialize session, it is needed for the handler of target */
-	rc = lu_context_init(&session_env, LCT_SERVER_SESSION | LCT_NOREF);
+	rc = lu_context_init(&session_env, LCT_SERVER_SESSION | LCT_NOREF |
+					   LCT_SERVER_RECOVERY);
 	if (rc) {
 		CERROR("%s: failure to initialize session: rc = %d\n",
 		       tdtd->tdtd_lut->lut_obd->obd_name, rc);

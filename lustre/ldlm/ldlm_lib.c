@@ -2440,7 +2440,8 @@ static int target_recovery_thread(void *arg)
                 RETURN(-ENOMEM);
         }
 
-        rc = lu_context_init(&env->le_ctx, LCT_MD_THREAD | LCT_DT_THREAD);
+	rc = lu_context_init(&env->le_ctx, LCT_MD_THREAD | LCT_DT_THREAD |
+			     LCT_SERVER_RECOVERY);
         if (rc) {
                 OBD_FREE_PTR(thread);
                 OBD_FREE_PTR(env);
