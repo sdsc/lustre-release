@@ -43,76 +43,6 @@
 #include "lov_internal.h"
 
 #ifdef CONFIG_PROC_FS
-static int lov_stripesize_seq_show(struct seq_file *m, void *v)
-{
-	struct obd_device *dev = (struct obd_device *)m->private;
-	struct lov_desc *desc;
-
-	LASSERT(dev != NULL);
-	desc = &dev->u.lov.desc;
-
-	seq_printf(m, LPU64"\n", desc->ld_default_stripe_size);
-	return 0;
-}
-
-static ssize_t lov_stripesize_seq_write(struct file *file,
-					const char __user *buffer,
-					size_t count, loff_t *off)
-{
-	struct obd_device *dev = ((struct seq_file *)file->private_data)->private;
-	struct lov_desc *desc;
-	__s64 val;
-	int rc;
-
-	LASSERT(dev != NULL);
-	desc = &dev->u.lov.desc;
-	rc = lprocfs_str_to_s64(buffer, count, &val);
-	if (rc)
-		return rc;
-	if (val < 0)
-		return -ERANGE;
-
-	lov_fix_desc_stripe_size(&val);
-	desc->ld_default_stripe_size = val;
-
-	return count;
-}
-LPROC_SEQ_FOPS(lov_stripesize);
-
-static int lov_stripeoffset_seq_show(struct seq_file *m, void *v)
-{
-	struct obd_device *dev = (struct obd_device *)m->private;
-	struct lov_desc *desc;
-
-	LASSERT(dev != NULL);
-	desc = &dev->u.lov.desc;
-	seq_printf(m, LPU64"\n", desc->ld_default_stripe_offset);
-	return 0;
-}
-
-static ssize_t lov_stripeoffset_seq_write(struct file *file,
-					  const char __user *buffer,
-					  size_t count, loff_t *off)
-{
-	struct obd_device *dev = ((struct seq_file *)file->private_data)->private;
-	struct lov_desc *desc;
-	__s64 val;
-	int rc;
-
-	LASSERT(dev != NULL);
-	desc = &dev->u.lov.desc;
-	rc = lprocfs_str_to_s64(buffer, count, &val);
-	if (rc)
-		return rc;
-	if (val < 0)
-		return -ERANGE;
-
-	desc->ld_default_stripe_offset = val;
-
-	return count;
-}
-LPROC_SEQ_FOPS(lov_stripeoffset);
-
 static int lov_stripetype_seq_show(struct seq_file *m, void *v)
 {
 	struct obd_device* dev = (struct obd_device*)m->private;
@@ -297,10 +227,6 @@ LPROC_SEQ_FOPS_RO_TYPE(lov, kbytesavail);
 struct lprocfs_vars lprocfs_lov_obd_vars[] = {
 	{ .name	=	"uuid",
 	  .fops	=	&lov_uuid_fops		},
-	{ .name	=	"stripesize",
-	  .fops	=	&lov_stripesize_fops	},
-	{ .name	=	"stripeoffset",
-	  .fops	=	&lov_stripeoffset_fops	},
 	{ .name	=	"stripecount",
 	  .fops	=	&lov_stripecount_fops	},
 	{ .name	=	"stripetype",
