@@ -449,6 +449,8 @@ struct lnet_peer_ni {
 	struct list_head	lpni_on_remote_peer_ni_list;
 	/* chain on peer hash */
 	struct list_head	lpni_hashlist;
+	/* chain on zombie list */
+	struct list_head	lpni_on_global_zombie_list;
 	/* messages blocking for tx credits */
 	struct list_head	lpni_txq;
 	/* messages blocking for router credits */
@@ -555,10 +557,7 @@ struct lnet_peer_net {
 /* peer hash table */
 struct lnet_peer_table {
 	int			pt_version;	/* /proc validity stamp */
-	int			pt_number;	/* # peers extant */
-	int			pt_zombies;	/* # zombies to go to deathrow
-						 * (and not there yet) */
-	struct list_head	pt_deathrow;	/* zombie peers */
+	atomic_t		pt_number;	/* # peers extant */
 	struct list_head	*pt_hash;	/* NID->peer hash */
 };
 
@@ -771,6 +770,10 @@ typedef struct
 	struct list_head		ln_peers;
 	/* list of peer nis not on a local network */
 	struct list_head		ln_remote_peer_ni_list;
+	/* list of peer nis slated to be deleted */
+	struct list_head		ln_peer_ni_zombie_list;
+	/* number of peers nis on the zombie list */
+	__u32				ln_peer_num_zombie_nis;
 	/* failure simulation */
 	struct list_head		ln_test_peers;
 	struct list_head		ln_drop_rules;
