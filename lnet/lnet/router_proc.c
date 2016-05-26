@@ -402,7 +402,7 @@ proc_lnet_peers(struct ctl_table *table, int write, void __user *buffer,
 {
 	const int		tmpsiz	= 256;
 	struct lnet_peer_table	*ptable;
-	char			*tmpstr;
+	char			*tmpstr = NULL;
 	char			*s;
 	int			cpt  = LNET_PROC_CPT_GET(*ppos);
 	int			ver  = LNET_PROC_VER_GET(*ppos);
@@ -411,11 +411,32 @@ proc_lnet_peers(struct ctl_table *table, int write, void __user *buffer,
 	int			rc = 0;
 	int			len;
 
-	CLASSERT(LNET_PROC_HASH_BITS >= LNET_PEER_HASH_BITS);
-	LASSERT(!write);
-
 	if (*lenp == 0)
 		return 0;
+
+	if (write) {
+		int i;
+		struct lnet_peer *peer;
+
+		cfs_percpt_for_each(ptable, i, the_lnet.ln_peer_tables) {
+			lnet_net_lock(i);
+			for (hash = 0; hash < LNET_PEER_HASH_SIZE; hash++) {
+				list_for_each_entry(peer,
+						    &ptable->pt_hash[hash],
+						    lp_hashlist) {
+					peer->lp_mintxcredits =
+						peer->lp_txcredits;
+					peer->lp_minrtrcredits =
+						peer->lp_rtrcredits;
+				}
+			}
+			lnet_net_unlock(i);
+		}
+		*ppos += *lenp;
+		return 0;
+	}
+
+	CLASSERT(LNET_PROC_HASH_BITS >= LNET_PEER_HASH_BITS);
 
 	if (cpt >= LNET_CPT_NUMBER) {
 		*lenp = 0;
@@ -440,6 +461,7 @@ proc_lnet_peers(struct ctl_table *table, int write, void __user *buffer,
 		struct lnet_peer	*peer;
 		struct list_head	*p;
 		int			skip;
+
  again:
 		p = NULL;
 		peer = NULL;
@@ -635,15 +657,46 @@ proc_lnet_nis(struct ctl_table *table, int write, void __user *buffer,
 	      size_t *lenp, loff_t *ppos)
 {
 	int	tmpsiz = 128 * LNET_CPT_NUMBER;
-	int	   rc = 0;
-	char	  *tmpstr;
-	char	  *s;
-	int	   len;
-
-	LASSERT(!write);
+	int	rc = 0;
+	char	*tmpstr;
+	char	*s;
+	int	len;
 
 	if (*lenp == 0)
 		return 0;
+
+	if (write) {
+		/* Just reset the min stat. */
+		lnet_ni_t *ni;
+
+		lnet_net_lock(0);
+
+		list_for_each_entry(ni, &the_lnet.ln_nis, ni_list) {
+			struct lnet_tx_queue *tq;
+			int i;
+			int j;
+
+			cfs_percpt_for_each(tq, i, ni->ni_tx_queues) {
+				for (j = 0; ni->ni_cpts != NULL &&
+				     j < ni->ni_ncpts; j++) {
+					if (i == ni->ni_cpts[j])
+						break;
+				}
+
+				if (j == ni->ni_ncpts)
+					continue;
+
+				if (i != 0)
+					lnet_net_lock(i);
+				tq->tq_credits_min = tq->tq_credits;
+				if (i != 0)
+					lnet_net_unlock(i);
+			}
+		}
+		lnet_net_unlock(0);
+		*ppos += *lenp;
+		return 0;
+	}
 
 	LIBCFS_ALLOC(tmpstr, tmpsiz);
 	if (tmpstr == NULL)
@@ -883,7 +936,7 @@ static struct ctl_table lnet_table[] = {
 	{
 		INIT_CTL_NAME
 		.procname	= "peers",
-		.mode		= 0444,
+		.mode		= 0644,
 		.proc_handler	= &proc_lnet_peers,
 	},
 	{
@@ -895,7 +948,7 @@ static struct ctl_table lnet_table[] = {
 	{
 		INIT_CTL_NAME
 		.procname	= "nis",
-		.mode		= 0444,
+		.mode		= 0644,
 		.proc_handler	= &proc_lnet_nis,
 	},
 	{
