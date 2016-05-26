@@ -555,11 +555,11 @@ struct lnet_peer_net {
 /* peer hash table */
 struct lnet_peer_table {
 	int			pt_version;	/* /proc validity stamp */
-	int			pt_number;	/* # peers extant */
-	int			pt_zombies;	/* # zombies to go to deathrow
-						 * (and not there yet) */
-	struct list_head	pt_deathrow;	/* zombie peers */
+	atomic_t		pt_number;	/* # peers extant */
 	struct list_head	*pt_hash;	/* NID->peer hash */
+	struct list_head	pt_zombie_list;	/* zombie peers */
+	int			pt_zombies;	/* # zombie peers */
+	spinlock_t		pt_zombie_lock;	/* protect list and count */
 };
 
 /* peer aliveness is enabled only on routers for peers in a network where the

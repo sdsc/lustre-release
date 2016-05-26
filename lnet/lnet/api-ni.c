@@ -2549,13 +2549,16 @@ LNetCtl(unsigned int cmd, void *arg)
 		if (config->cfg_hdr.ioc_len < sizeof(*config))
 			return -EINVAL;
 
-		return lnet_get_route(config->cfg_count,
-				      &config->cfg_net,
-				      &config->cfg_config_u.cfg_route.rtr_hop,
-				      &config->cfg_nid,
-				      &config->cfg_config_u.cfg_route.rtr_flags,
-				      &config->cfg_config_u.cfg_route.
+		LNET_MUTEX_LOCK(&the_lnet.ln_api_mutex);
+		rc = lnet_get_route(config->cfg_count,
+				    &config->cfg_net,
+				    &config->cfg_config_u.cfg_route.rtr_hop,
+				    &config->cfg_nid,
+				    &config->cfg_config_u.cfg_route.rtr_flags,
+				    &config->cfg_config_u.cfg_route.
 					rtr_priority);
+		LNET_MUTEX_UNLOCK(&the_lnet.ln_api_mutex);
+		return rc;
 
 	case IOC_LIBCFS_GET_LOCAL_NI: {
 		struct lnet_ioctl_config_ni *cfg_ni;
@@ -2573,7 +2576,10 @@ LNetCtl(unsigned int cmd, void *arg)
 		stats = (struct lnet_ioctl_element_stats *) (cfg_ni->lic_bulk +
 				sizeof(*tun));
 
-		return lnet_get_ni_config(cfg_ni, tun, stats);
+		LNET_MUTEX_LOCK(&the_lnet.ln_api_mutex);
+		rc = lnet_get_ni_config(cfg_ni, tun, stats);
+		LNET_MUTEX_UNLOCK(&the_lnet.ln_api_mutex);
+		return rc;
 	}
 
 	case IOC_LIBCFS_GET_NET: {
@@ -2590,18 +2596,21 @@ LNetCtl(unsigned int cmd, void *arg)
 		if (net_config == NULL)
 			return -EINVAL;
 
-		return lnet_get_net_config(config->cfg_count,
-					   &config->cfg_ncpts,
-					   &config->cfg_nid,
-					   &config->cfg_config_u.
+		LNET_MUTEX_LOCK(&the_lnet.ln_api_mutex);
+		rc = lnet_get_net_config(config->cfg_count,
+					 &config->cfg_ncpts,
+					 &config->cfg_nid,
+					 &config->cfg_config_u.
 						cfg_net.net_peer_timeout,
-					   &config->cfg_config_u.cfg_net.
+					 &config->cfg_config_u.cfg_net.
 						net_peer_tx_credits,
-					   &config->cfg_config_u.cfg_net.
+					 &config->cfg_config_u.cfg_net.
 						net_peer_rtr_credits,
-					   &config->cfg_config_u.cfg_net.
+					 &config->cfg_config_u.cfg_net.
 						net_max_tx_credits,
-					   net_config);
+					 net_config);
+		LNET_MUTEX_UNLOCK(&the_lnet.ln_api_mutex);
+		return rc;
 	}
 
 	case IOC_LIBCFS_GET_LNET_STATS:
@@ -2611,7 +2620,9 @@ LNetCtl(unsigned int cmd, void *arg)
 		if (lnet_stats->st_hdr.ioc_len < sizeof(*lnet_stats))
 			return -EINVAL;
 
+		LNET_MUTEX_LOCK(&the_lnet.ln_api_mutex);
 		lnet_counters_get(&lnet_stats->st_cntrs);
+		LNET_MUTEX_UNLOCK(&the_lnet.ln_api_mutex);
 		return 0;
 	}
 
@@ -2652,7 +2663,9 @@ LNetCtl(unsigned int cmd, void *arg)
 		numa = arg;
 		if (numa->nr_hdr.ioc_len != sizeof(*numa))
 			return -EINVAL;
+		LNET_MUTEX_LOCK(&the_lnet.ln_api_mutex);
 		lnet_numa_range = numa->nr_range;
+		LNET_MUTEX_UNLOCK(&the_lnet.ln_api_mutex);
 		return 0;
 	}
 
@@ -2675,7 +2688,11 @@ LNetCtl(unsigned int cmd, void *arg)
 			return -EINVAL;
 
 		pool_cfg = (struct lnet_ioctl_pool_cfg *)config->cfg_bulk;
-		return lnet_get_rtr_pool_cfg(config->cfg_count, pool_cfg);
+
+		LNET_MUTEX_LOCK(&the_lnet.ln_api_mutex);
+		rc = lnet_get_rtr_pool_cfg(config->cfg_count, pool_cfg);
+		LNET_MUTEX_UNLOCK(&the_lnet.ln_api_mutex);
+		return rc;
 	}
 
 	case IOC_LIBCFS_ADD_PEER_NI: {
@@ -2684,9 +2701,13 @@ LNetCtl(unsigned int cmd, void *arg)
 		if (cfg->prcfg_hdr.ioc_len < sizeof(*cfg))
 			return -EINVAL;
 
-		return lnet_add_peer_ni_to_peer(cfg->prcfg_key_nid,
-						cfg->prcfg_cfg_nid,
-						cfg->prcfg_mr);
+		LNET_MUTEX_LOCK(&the_lnet.ln_api_mutex);
+		lnet_incr_dlc_seq();
+		rc = lnet_add_peer_ni_to_peer(cfg->prcfg_key_nid,
+					      cfg->prcfg_cfg_nid,
+					      cfg->prcfg_mr);
+		LNET_MUTEX_UNLOCK(&the_lnet.ln_api_mutex);
+		return rc;
 	}
 
 	case IOC_LIBCFS_DEL_PEER_NI: {
@@ -2695,8 +2716,12 @@ LNetCtl(unsigned int cmd, void *arg)
 		if (cfg->prcfg_hdr.ioc_len < sizeof(*cfg))
 			return -EINVAL;
 
-		return lnet_del_peer_ni_from_peer(cfg->prcfg_key_nid,
-						  cfg->prcfg_cfg_nid);
+		LNET_MUTEX_LOCK(&the_lnet.ln_api_mutex);
+		lnet_incr_dlc_seq();
+		rc = lnet_del_peer_ni_from_peer(cfg->prcfg_key_nid,
+						cfg->prcfg_cfg_nid);
+		LNET_MUTEX_UNLOCK(&the_lnet.ln_api_mutex);
+		return rc;
 	}
 
 	case IOC_LIBCFS_GET_PEER_INFO: {
@@ -2705,7 +2730,8 @@ LNetCtl(unsigned int cmd, void *arg)
 		if (peer_info->pr_hdr.ioc_len < sizeof(*peer_info))
 			return -EINVAL;
 
-		return lnet_get_peer_ni_info(
+		LNET_MUTEX_LOCK(&the_lnet.ln_api_mutex);
+		rc = lnet_get_peer_ni_info(
 		   peer_info->pr_count,
 		   &peer_info->pr_nid,
 		   peer_info->pr_lnd_u.pr_peer_credits.cr_aliveness,
@@ -2716,6 +2742,8 @@ LNetCtl(unsigned int cmd, void *arg)
 		   &peer_info->pr_lnd_u.pr_peer_credits.cr_peer_rtr_credits,
 		   &peer_info->pr_lnd_u.pr_peer_credits.cr_peer_min_rtr_credits,
 		   &peer_info->pr_lnd_u.pr_peer_credits.cr_peer_tx_qnob);
+		LNET_MUTEX_UNLOCK(&the_lnet.ln_api_mutex);
+		return rc;
 	}
 
 	case IOC_LIBCFS_GET_PEER_NI: {
@@ -2732,9 +2760,12 @@ LNetCtl(unsigned int cmd, void *arg)
 		lpni_stats = (struct lnet_ioctl_element_stats *)
 			     (cfg->prcfg_bulk + sizeof(*lpni_cri));
 
-		return lnet_get_peer_info(cfg->prcfg_idx, &cfg->prcfg_key_nid,
-					  &cfg->prcfg_cfg_nid, lpni_cri,
-					  lpni_stats);
+		LNET_MUTEX_LOCK(&the_lnet.ln_api_mutex);
+		rc = lnet_get_peer_info(cfg->prcfg_idx, &cfg->prcfg_key_nid,
+					&cfg->prcfg_cfg_nid, &cfg->prcfg_mr,
+					lpni_cri, lpni_stats);
+		LNET_MUTEX_UNLOCK(&the_lnet.ln_api_mutex);
+		return rc;
 	}
 
 	case IOC_LIBCFS_NOTIFY_ROUTER:
