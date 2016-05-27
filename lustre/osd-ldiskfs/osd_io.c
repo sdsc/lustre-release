@@ -179,7 +179,11 @@ static void dio_complete_routine(struct bio *bio, int error)
 
 	/* the check is outside of the cycle for performance reason -bzzz */
 	if (!test_bit(__REQ_WRITE, &bio->bi_rw)) {
+#ifdef	bio_for_each_segment_all
+		bio_for_each_segment_all(bvl, bio, iter) {
+#else
 		bio_for_each_segment(bvl, bio, iter) {
+#endif
 			if (likely(error == 0))
 				SetPageUptodate(bvl_to_page(bvl));
 			LASSERT(PageLocked(bvl_to_page(bvl)));
