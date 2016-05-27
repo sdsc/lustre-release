@@ -236,7 +236,11 @@ static int do_bio_lustrebacked(struct lloop_device *lo, struct bio *head)
 			offset += bvec.bv_len;
 #else
 		offset = (pgoff_t)(bio->bi_sector << 9) + lo->lo_offset;
+#ifdef	bio_for_each_segment_all
+		bio_for_each_segment_all(bvec, bio, iter) {
+#else
 		bio_for_each_segment(bvec, bio, iter) {
+#endif
 			BUG_ON(bvec->bv_offset != 0);
 			BUG_ON(bvec->bv_len != PAGE_CACHE_SIZE);
 
