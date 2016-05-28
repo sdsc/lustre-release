@@ -762,7 +762,7 @@ static int inline lod_qos_dev_is_full(struct obd_statfs *msfs)
 	/* the minimum of 0.1% used blocks and 1GB bytes. */
 	used = min_t(__u64, (msfs->os_blocks - msfs->os_bfree) >> 10,
 			1 << (31 - ffs(bs)));
-	return (msfs->os_bavail < used);
+	return (msfs->os_bfree < used);
 }
 
 /**
