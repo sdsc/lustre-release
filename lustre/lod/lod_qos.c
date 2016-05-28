@@ -843,7 +843,7 @@ static int lod_check_and_reserve_ost(const struct lu_env *env,
 				     struct obd_statfs *sfs, __u32 ost_idx,
 				     __u32 speed, __u32 *s_idx,
 				     struct dt_object **stripe,
-				     struct thandle *th)
+				     struct thandle *th, int count)
 {
 	struct dt_object   *o;
 	__u32 stripe_idx = *s_idx;
@@ -858,7 +858,7 @@ static int lod_check_and_reserve_ost(const struct lu_env *env,
 	/*
 	 * skip full devices
 	 */
-	if (lod_qos_dev_is_full(sfs)) {
+	if (sfs->os_bfree < count) {
 		QOS_DEBUG("#%d is full\n", ost_idx);
 		goto out_return;
 	}
@@ -1017,7 +1017,7 @@ repeat_find:
 
 		spin_unlock(&lqr->lqr_alloc);
 		rc = lod_check_and_reserve_ost(env, m, sfs, ost_idx, speed,
-					       &stripe_idx, stripe, th);
+					       &stripe_idx, stripe, th, osts->op_count);
 		spin_lock(&lqr->lqr_alloc);
 
 		if (rc != 0 && OST_TGT(m, ost_idx)->ltd_connecting)
