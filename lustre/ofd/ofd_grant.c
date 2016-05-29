@@ -807,6 +807,10 @@ static long ofd_grant_alloc(struct obd_export *exp, u64 curgrant,
 	if (curgrant >= want || curgrant >= fed->fed_grant + chunk)
 		RETURN(0);
 
+	/* we are in low free space, be conservative. */
+	if (left < 1073741824)
+		conservative = true;
+
 	if (obd->obd_recovering)
 		conservative = false;
 
