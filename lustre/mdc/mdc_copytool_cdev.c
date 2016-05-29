@@ -41,6 +41,15 @@ static inline int __must_check kref_get_unless_zero(struct kref *kref)
 
 #define CTDEV_NAME_LEN_MAX (LUSTRE_MAXFSNAME + 10) /* copytool-<fsname> */
 
+/* The list of devices */
+static LIST_HEAD(device_list);
+/* Protects the device registration and deregistration, to acquire when you:
+ * - modify "device_list"
+ * - register/unregister a miscdevice
+ */
+static DECLARE_RWSEM(device_rwsem);
+
+
 struct hal_record {
 	struct ct_cdev		*hrec_ct_cdev;
 	struct list_head	 hrec_list;
@@ -122,9 +131,6 @@ static inline char *ct_cdev_fsname(struct ct_cdev *device)
 	return device->name + 9;
 }
 
-static DECLARE_RWSEM(device_rwsem);
-static LIST_HEAD(device_list);
-
 /**
  * Find a copytool char device from an obd_device
  * One must hold device_rwsem while using this function
@@ -201,6 +207,25 @@ static void wake_up_readers(struct work_struct *work)
 	wake_up_interruptible(&device->rd_queue);
 }
 
+static void ct_cdev_deregister(struct kref *kref)
+{
+	struct ct_cdev *device = container_of(kref, struct ct_cdev,
+					      ref);
+
+	ENTRY;
+	down_write(&device_rwsem);
+
+	list_del(&device->list);
+	misc_deregister(&device->misc);
+
+	up_write(&device_rwsem);
+
+	flush_workqueue(device->rd_wake_up_wqueue);
+	destroy_workqueue(device->rd_wake_up_wqueue);
+	OBD_FREE_PTR(device);
+	EXIT;
+}
+
 /**
  * Adds a hsm_action_list to a copytool char device. The device is chosen
  * according to the obd provided.
@@ -208,7 +233,7 @@ static void wake_up_readers(struct work_struct *work)
  * \param obd	the obd_device the copytool you want to access is working for
  * \param hal	the hsm_action_list to publish
  *
- * \retval	the number of bytes copied written to the char device
+ * \retval	the number of bytes copied to the char device
  */
 ssize_t ct_cdev_hal_publish(struct obd_device *obd, struct hsm_action_list *hal,
 			    int flags)
@@ -216,17 +241,10 @@ ssize_t ct_cdev_hal_publish(struct obd_device *obd, struct hsm_action_list *hal,
 	struct ct_cdev *device;
 	size_t count = hal_size(hal);
 	struct hal_record *hrec;
+	int rc;
 	int i;
 
 	ENTRY;
-	down_read(&device_rwsem);
-	device = obd2ct_cdev_locked(obd);
-	if (device == NULL) {
-		CERROR("No device found for obd: '%s'", obd->obd_name);
-		RETURN(-EINVAL);
-	}
-	up_read(&device_rwsem);
-
 	CDEBUG(D_HSM,
 	       "ct_cdev: Writing hal '"LPX64"' (%zu o) on channel %i...\n",
 	       hal->hal_compound_id, count, hal->hal_archive_id);
@@ -236,17 +254,31 @@ ssize_t ct_cdev_hal_publish(struct obd_device *obd, struct hsm_action_list *hal,
 		/* Should not happen */
 		RETURN(-EINVAL);
 
+	/* Find the device associated to the obd */
+	down_read(&device_rwsem);
+
+	mutex_lock(&obd->u.cli.cl_ct_cdev_mutex);
+	device = obd->u.cli.cl_ct_cdev;
+	mutex_unlock(&obd->u.cli.cl_ct_cdev_mutex);
+	if (device == NULL || !kref_get_unless_zero(&device->ref)) {
+		CERROR("No device found for obd: '%s'", obd->obd_name);
+		up_read(&device_rwsem);
+		RETURN(-EINVAL);
+	}
+
+	up_read(&device_rwsem);
+
 	if (flags & O_NONBLOCK && !enough_space_left(device, count))
-		RETURN(-EWOULDBLOCK);
+		GOTO(out, rc = -EWOULDBLOCK);
 
 	if (atomic_read(&device->readers_number) == 0)
 		/* Nothing to do */
-		RETURN(count);
+		GOTO(out, rc = count);
 
 	/* Create the hal_record that will hold the hsm_action_list */
 	OBD_ALLOC(hrec, sizeof(*hrec) + count);
 	if (hrec == NULL)
-		RETURN(-ENOMEM);
+		GOTO(out, rc = -ENOMEM);
 	hrec->hrec_ct_cdev = device;
 	hrec->hrec_hal_sz = count;
 	memcpy(hrec->hrec_hal, hal, count);
@@ -256,7 +288,7 @@ repeat:
 				     enough_space_left(device, count) ||
 				     flags & O_NONBLOCK)) {
 		OBD_FREE(hrec, sizeof(*hrec) + hrec->hrec_hal_sz);
-		RETURN(-ERESTARTSYS);
+		GOTO(out, rc = -ERESTARTSYS);
 	}
 
 	down_write(&device->hal_records_rwsem);
@@ -264,7 +296,7 @@ repeat:
 	if (atomic_read(&device->readers_number) == 0) {
 		up_write(&device->hal_records_rwsem);
 		OBD_FREE(hrec, sizeof(*hrec) + hrec->hrec_hal_sz);
-		RETURN(count);
+		GOTO(out, rc = count);
 	}
 
 	if (!enough_space_left(device, count)) {
@@ -274,7 +306,7 @@ repeat:
 		up_write(&device->hal_records_rwsem);
 		if (flags & O_NONBLOCK) {
 			OBD_FREE(hrec, sizeof(*hrec) + hrec->hrec_hal_sz);
-			RETURN(-EWOULDBLOCK);
+			GOTO(out, rc = -EWOULDBLOCK);
 		}
 		goto repeat;
 	}
@@ -295,7 +327,12 @@ repeat:
 
 	CDEBUG(D_HSM, "ct_cdev: Wrote hal "LPX64" for the obd '%s'\n",
 	       hal->hal_compound_id, obd->obd_name);
-	RETURN(count);
+
+	GOTO(out, rc = count);
+
+out:
+	kref_put(&device->ref, ct_cdev_deregister);
+	return rc;
 }
 
 /**
@@ -307,7 +344,6 @@ static struct ct_cdev *inode2ct_cdev(struct inode *inode)
 	int minor = MINOR(inode->i_rdev);
 
 	down_read(&device_rwsem);
-
 	list_for_each_entry(device, &device_list, list) {
 		if (device->misc.minor == minor)
 			break;
@@ -334,16 +370,21 @@ static int ct_cdev_open(struct inode *inode, struct file *file)
 		reader->reader_ct_cdev = device;
 		mutex_init(&reader->reader_archive_mask_mutex);
 
-repeat:
 		down_read(&device->hal_records_rwsem);
 		reader->reader_last_rec =
 			list_last_entry(&device->hal_records_list,
 					struct hal_record, hrec_list);
 
 		if (!kref_get_unless_zero(&reader->reader_last_rec->hrec_ref)) {
-			/* Unlikely to happen */
-			up_read(&device->hal_records_rwsem);
-			goto repeat;
+			/* The last record of the records_list is almost removed
+			 * (kref_put was called but the cleanup functions has
+			 * not been run yet). Since records are removed from the
+			 * list in the order they were inserted, the next
+			 * last_record is actually the dummy record
+			 */
+			reader->reader_last_rec =
+				list_entry(&device->hal_records_list,
+					   struct hal_record, hrec_list);
 		}
 
 		atomic_inc(&device->readers_number);
@@ -537,17 +578,27 @@ int ct_cdev_init(struct obd_device *obd)
 	int rc = 0;
 
 	ENTRY;
+	mutex_init(&obd->u.cli.cl_ct_cdev_mutex);
+
+repeat:
 	down_write(&device_rwsem);
-
 	device = obd2ct_cdev_locked(obd);
-
 	if (device != NULL) {
-		kref_get(&device->ref);
+		if (!kref_get_unless_zero(&device->ref) != 0) {
+			/* Unlikely to happen: the device is being destroyed
+			 * right now
+			 */
+			up_write(&device_rwsem);
+			goto repeat;
+		}
+		mutex_lock(&obd->u.cli.cl_ct_cdev_mutex);
+		obd->u.cli.cl_ct_cdev = device;
+		mutex_unlock(&obd->u.cli.cl_ct_cdev_mutex);
 		up_write(&device_rwsem);
 		RETURN(rc);
 	}
 
-	/* The device does not exist yet */
+	/* The device does not exist yet or was recently removed */
 	OBD_ALLOC_PTR(device);
 	if (device == NULL) {
 		up_write(&device_rwsem);
@@ -597,13 +648,17 @@ int ct_cdev_init(struct obd_device *obd)
 
 	kref_init(&device->ref);
 
-	list_add(&device->list, &device_list);
-
 	/* Now we can actually register the device */
 	rc = misc_register(&device->misc);
 	if (rc != 0)
 		goto out_cleanup;
 
+	list_add(&device->list, &device_list);
+
+	/* The obd's mutex that protect the access to the device's reference */
+	mutex_lock(&obd->u.cli.cl_ct_cdev_mutex);
+	obd->u.cli.cl_ct_cdev = device;
+	mutex_unlock(&obd->u.cli.cl_ct_cdev_mutex);
 	up_write(&device_rwsem);
 
 	RETURN(rc);
@@ -616,35 +671,15 @@ out_free:
 	RETURN(rc);
 }
 
-static void ct_cdev_deregister(struct kref *kref)
-{
-	struct ct_cdev *device = container_of(kref, struct ct_cdev,
-					      ref);
-
-	ENTRY;
-	list_del(&device->list);
-
-	misc_deregister(&device->misc);
-	flush_workqueue(device->rd_wake_up_wqueue);
-	destroy_workqueue(device->rd_wake_up_wqueue);
-	OBD_FREE_PTR(device);
-
-	EXIT;
-}
-
 void ct_cdev_exit(struct obd_device *obd)
 {
 	struct ct_cdev *device;
 
 	ENTRY;
-	down_write(&device_rwsem);
-	device = obd2ct_cdev_locked(obd);
-	if (device == NULL) {
-		CERROR("No device found for obd: '%s'", obd->obd_name);
-		EXIT;
-		return;
-	}
+	mutex_lock(&obd->u.cli.cl_ct_cdev_mutex);
+	device = obd->u.cli.cl_ct_cdev;
+	obd->u.cli.cl_ct_cdev = NULL;
+	mutex_unlock(&obd->u.cli.cl_ct_cdev_mutex);
 	kref_put(&device->ref, ct_cdev_deregister);
-	up_write(&device_rwsem);
 	EXIT;
 }
