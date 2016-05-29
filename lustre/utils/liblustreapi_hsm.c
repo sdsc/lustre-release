@@ -767,6 +767,14 @@ int llapi_hsm_copytool_register(struct hsm_copytool_private **priv,
 		ct->archives |= (1 << (archives[rc] - 1));
 	}
 
+	rc = ioctl(ct->cdev_fd, CT_CDEV_IOC_SET_ARCHIVE_MASK, ct->archives);
+	if (rc != 0) {
+		rc = -errno;
+		llapi_error(LLAPI_MSG_ERROR, rc,
+			    "cannot set the copytool's archive mask");
+		goto out_err;
+	}
+
 	/* Storing archive(s) in lk_data; see mdc_ioc_hsm_ct_start */
 	ct->kuc.lk_data = ct->archives;
 	rc = ioctl(ct->mnt_fd, LL_IOC_HSM_CT_START, &ct->kuc);
@@ -844,7 +852,7 @@ ssize_t ct_cdev_read_bulk(struct hsm_copytool_private *ct)
 {
 	ssize_t rd_bytes;
 
-	rd_bytes = pread(ct->cdev_fd, ct->buf, HAL_MAXSIZE, ct->archives);
+	rd_bytes = read(ct->cdev_fd, ct->buf, HAL_MAXSIZE);
 	if (rd_bytes < 0)
 		return -errno;
 	else if (rd_bytes == 0)

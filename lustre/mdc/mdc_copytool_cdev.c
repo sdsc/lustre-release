@@ -11,6 +11,7 @@
 
 #include <lustre_param.h>
 #include <lustre/lustre_user.h>
+#include <lustre/lustre_copytool_cdev.h>
 #include "mdc_internal.h"
 
 MODULE_LICENSE("GPL");
@@ -40,7 +41,6 @@ static inline int __must_check kref_get_unless_zero(struct kref *kref)
 
 #define CTDEV_NAME_LEN_MAX (LUSTRE_MAXFSNAME + 10) /* copytool-<fsname> */
 
-struct ct_cdev;
 struct hal_record {
 	struct ct_cdev		*hrec_ct_cdev;
 	struct list_head	 hrec_list;
@@ -76,6 +76,10 @@ struct ct_cdev {
 struct reader {
 	struct ct_cdev		*reader_ct_cdev;
 	struct hal_record	*reader_last_rec;
+	/* To protect the archive_mask */
+	struct mutex		 reader_archive_mask_mutex;
+	/* Defaults to 0 => broadcast */
+	int			 reader_archive_mask;
 };
 
 /**
@@ -161,8 +165,13 @@ static inline bool enough_space_left(struct ct_cdev *device, int count)
 /**
  * Is this hal_record compatible with this archive_mask ?
  */
-static inline bool right_channel(struct hal_record *hrec, int archive_mask)
+static bool right_channel(struct hal_record *hrec, struct reader *reader)
 {
+	int archive_mask;
+
+	mutex_lock(&reader->reader_archive_mask_mutex);
+	archive_mask = reader->reader_archive_mask;
+	mutex_unlock(&reader->reader_archive_mask_mutex);
 	return !archive_mask ||
 	       archive_mask & (1 << (hrec->hrec_hal->hal_archive_id - 1));
 }
@@ -323,6 +332,7 @@ static int ct_cdev_open(struct inode *inode, struct file *file)
 			return -ENOMEM;
 
 		reader->reader_ct_cdev = device;
+		mutex_init(&reader->reader_archive_mask_mutex);
 
 repeat:
 		down_read(&device->hal_records_rwsem);
@@ -431,7 +441,7 @@ repeat:
 	list_for_each_entry_continue_rcu(hrec, &device->hal_records_list,
 					 hrec_list) {
 		last_rec = hrec;
-		if (!right_channel(hrec, *ppos))
+		if (!right_channel(hrec, reader))
 			continue;
 		if (hrec->hrec_hal_sz > count - rd_bytes) {
 			last_rec = list_prev_entry(last_rec, hrec_list);
@@ -458,7 +468,7 @@ repeat:
 		kref_put(&reader->reader_last_rec->hrec_ref,
 			 cleanup_hal_record);
 
-	if (rd_bytes == 0 && !right_channel(last_rec, *ppos))
+	if (rd_bytes == 0 && !right_channel(last_rec, reader))
 		/* There was not any message on our channel */
 		goto repeat;
 
@@ -466,11 +476,40 @@ repeat:
 	RETURN(rd_bytes);
 }
 
+static int ct_cdev_ioctl(struct inode *inode, struct file *file,
+			 unsigned int cmd, unsigned long arg)
+{
+	int rc = 0;
+
+	ENTRY;
+	if (_IOC_TYPE(cmd) != CT_CDEV_IOC_MAGIC)
+		RETURN(-ENOTTY);
+	if (_IOC_NR(cmd) > CT_CDEV_IOC_MAXNR)
+		RETURN(-ENOTTY);
+
+	switch (cmd) {
+	case CT_CDEV_IOC_SET_ARCHIVE_MASK:
+		if (file->f_mode & FMODE_READ) {
+			struct reader *reader;
+
+			reader = file->private_data;
+			mutex_lock(&reader->reader_archive_mask_mutex);
+			reader->reader_archive_mask = arg;
+			mutex_unlock(&reader->reader_archive_mask_mutex);
+		} else {
+			rc = -ENOTTY;
+		}
+		break;
+	default:
+		RETURN(-ENOTTY);
+	}
+	RETURN(rc);
+}
+
 static unsigned int ct_cdev_poll(struct file *file, poll_table *wait)
 {
 	unsigned int mask = 0;
 
-	mask |= POLLOUT | POLLWRNORM;	/* Always writable */
 	if (file->f_mode & FMODE_READ) {
 		struct reader *reader = file->private_data;
 		struct ct_cdev *device = reader->reader_ct_cdev;
@@ -487,6 +526,7 @@ static const struct file_operations ct_cdev_fops = {
 	.open		= ct_cdev_open,
 	.release	= ct_cdev_release,
 	.read		= ct_cdev_read,
+	.ioctl		= ct_cdev_ioctl,
 	.poll		= ct_cdev_poll,
 };
 

@@ -62,6 +62,7 @@
 # include <sys/stat.h>
 #endif /* __KERNEL__ */
 #include <lustre/ll_fiemap.h>
+#include <lustre/lustre_copytool_cdev.h>
 
 #if defined(__x86_64__) || defined(__ia64__) || defined(__ppc64__) || \
     defined(__craynv) || defined(__mips64__) || defined(__powerpc64__) || \
