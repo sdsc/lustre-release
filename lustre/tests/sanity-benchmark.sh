@@ -117,6 +117,7 @@ test_iozone() {
     export O_DIRECT
     
     local IOZDIR=$DIR/d0.iozone
+    wait_delete_completed || true
     mkdir -p $IOZDIR
     $LFS setstripe -c -1 $IOZDIR
     sync
@@ -139,6 +140,7 @@ test_iozone() {
     tail -1 $IOZLOG | grep -q complete || \
 	{ error "iozone (1) failed" && return 1; }
     rm -f $IOZLOG
+    wait_delete_completed || true
     $DEBUG_ON
     
     # check if O_DIRECT support is implemented in kernel
@@ -149,6 +151,7 @@ test_iozone() {
 	    O_DIRECT=no
 	fi
 	rm -f $DIR/f.iozone
+	wait_delete_completed || true
     fi
     if [ "$O_DIRECT" != "no" -a "$IOZONE_DIR" != "no" ]; then
 	$DEBUG_OFF
@@ -156,6 +159,7 @@ test_iozone() {
 	tail -1 $IOZLOG | grep -q complete || \
 	    { error "iozone (2) failed" && return 1; }
 	rm -f $IOZLOG
+	wait_delete_completed || true
 	$DEBUG_ON
     fi
 
@@ -176,6 +180,7 @@ test_iozone() {
 	tail -1 $IOZLOG | grep -q complete || \
 	    { error "iozone (3) failed" && return 1; }
 	rm -f $IOZLOG
+	wait_delete_completed || true
 	$DEBUG_ON
     elif [ $IOZVER -lt 3145 ]; then
 	VER=`iozone -v | awk '/Revision:/ { print $3 }'`
