@@ -142,6 +142,7 @@ scrub_prep() {
 		fi
 	done
 	echo "prepared $(date)."
+	sync; sleep 3; sync # wait for the async update on MDT
 	cleanup_mount $MOUNT > /dev/null || error "Fail to stop client!"
 	for n in $(seq $MDSCOUNT); do
 		echo "stop mds$n"
