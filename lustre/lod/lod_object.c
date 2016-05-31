@@ -1809,12 +1809,13 @@ static int lod_prep_md_striped_create(const struct lu_env *env,
 		 * in the above loop */
 		LASSERT(tgt_dt != NULL);
 		LASSERT(fid_is_sane(&fid));
-		conf.loc_flags = LOC_F_NEW;
+		//conf.loc_flags = LOC_F_NEW;
 		dto = dt_locate_at(env, tgt_dt, &fid,
 				   dt->do_lu.lo_dev->ld_site->ls_top_dev,
 				   &conf);
 		if (IS_ERR(dto))
 			GOTO(out_put, rc = PTR_ERR(dto));
+		LASSERT(!dt_object_exists(dto));
 		stripe[i] = dto;
 	}
 

@@ -761,6 +761,7 @@ static int osd_check_lma(const struct lu_env *env, struct osd_object *obj)
 		}
 
 		rc = -EREMCHG;
+		LBUG();
 	}
 
 	RETURN(rc);
