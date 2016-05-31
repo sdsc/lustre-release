@@ -883,8 +883,6 @@ int ldlm_server_blocking_ast(struct ldlm_lock *lock,
 	if (lock->l_granted_mode != lock->l_req_mode) {
 		/* this blocking AST will be communicated as part of the
 		 * completion AST instead */
-		ldlm_add_blocked_lock(lock);
-		ldlm_set_waited(lock);
 		unlock_res_and_lock(lock);
 
 		ptlrpc_req_finished(req);
