@@ -5748,12 +5748,12 @@ check_catastrophe() {
 	local nodes=${1:-$(comma_list $(nodes_list))}
 
 	do_nodes $nodes "rc=0;
-val=\\\$($LCTL get_param -n catastrophe 2>&1);
-if [[ \\\$? -eq 0 && \\\$val -ne 0 ]]; then
-	echo \\\$(hostname -s): \\\$val;
-	rc=\\\$val;
-fi;
-exit \\\$rc"
+	val=\\\$($LCTL get_param -n catastrophe | cut -d':' -f2 2>&1);
+	if [[ \\\$? -eq 0 && \\\$val -ne 0 ]]; then
+		echo \\\$(hostname -s): \\\$val;
+		rc=\\\$val;
+	fi;
+	exit \\\$rc" || true
 }
 
 mdsrate_cleanup () {
