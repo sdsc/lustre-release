@@ -4060,7 +4060,7 @@ test_55() {
 }
 run_test 55 "check lov_objid size"
 
-test_56() {
+test_56a() {
 	local server_version=$(lustre_version_code $SINGLEMDS)
 	local mds_journal_size_orig=$MDSJOURNALSIZE
 	local n
@@ -4098,7 +4098,59 @@ test_56() {
 	MDSJOURNALSIZE=$mds_journal_size_orig
 	reformat
 }
-run_test 56 "check big OST indexes and out-of-index-order start"
+run_test 56a "check big OST indexes and out-of-index-order start"
+
+test_56b() {
+	stopall
+
+	if ! combined_mgs_mds ; then
+		format_mgs
+		start_mgs
+	fi
+
+	add mds1 $(mkfs_opts mds1 $(mdsdevname 1)) --index=0 --reformat \
+		$(mdsdevname 1) $(mdsvdevname 1)
+	add mds2 $(mkfs_opts mds2 $(mdsdevname 2)) --index=1 --reformat \
+		$(mdsdevname 2) $(mdsvdevname 2)
+	add mds3 $(mkfs_opts mds3 $(mdsdevname 3)) --index=1000 --reformat \
+		$(mdsdevname 3) $(mdsvdevname 3)
+	format_ost 1
+	format_ost 2
+
+	start_mdt 1 || error "MDT 1 (idx 0) start failed"
+	start_mdt 2 || error "MDT 2 (idx 1) start failed"
+	start_mdt 3 || error "MDT 3 (idx 1000) start failed"
+	start_ost || error "Unable to start first ost"
+	start_ost2 || error "Unable to start second ost"
+	mount_client $MOUNT || error "Unable to mount client"
+
+	output=$($LFS mdts)
+	echo "=== START lfs mdts OUTPUT ==="
+	echo -e "$output"
+	echo "==== END lfs mdts OUTPUT ===="
+
+	echo -e "$output" | grep -v "MDTS:" | awk '{print $1}' | sed 's/://g' \
+		> $TMP/mdts-actual.txt
+	sort $TMP/mdts-actual.txt -o $TMP/mdts-actual.txt
+
+	echo -e "0\n1\n1000" > $TMP/mdts-expected.txt
+
+	diff $TMP/mdts-expected.txt $TMP/mdts-actual.txt
+	result=$?
+
+	rm $TMP/mdts-expected.txt $TMP/mdts-actual.txt
+
+	stop mds1
+	stop mds2
+	stop mds3
+	stopall
+	reformat
+
+	if [ $result -ne 0 ]; then
+		error "target_obd proc file is incorrect!"
+	fi
+}
+run_test 56b "test target_obd correctness with nonconsecutive MDTs"
 
 test_57a() { # bug 22656
 	do_rpc_nodes $(facet_active_host ost1) load_modules_local
