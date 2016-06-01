@@ -53,19 +53,4 @@
 #define LPLX "%#lx"
 #define LPPID "%d"
 
-#if BITS_PER_LONG == 64
-# define LI_POISON ((int)0x5a5a5a5a5a5a5a5a)
-# define LL_POISON ((long)0x5a5a5a5a5a5a5a5a)
-# define LP_POISON ((void *)(long)0x5a5a5a5a5a5a5a5a)
-#elif BITS_PER_LONG == 32
-# define LI_POISON ((int)0x5a5a5a5a)
-# define LL_POISON ((long)0x5a5a5a5a)
-# define LP_POISON ((void *)(long)0x5a5a5a5a)
-#else /* BITS_PER_LONG == 32 */
-# error "cannot define L{I,L,P}_POISON"
-#endif /* BITS_PER_LONG != 32 */
-
-typedef unsigned long ulong_ptr_t;
-typedef long long_ptr_t;
-
 #endif /* _LIBCFS_TYPES_H */
