@@ -689,6 +689,9 @@ static struct lu_object *lu_object_new(const struct lu_env *env,
 	struct cfs_hash              *hs;
 	struct cfs_hash_bd            bd;
 
+	if (conf != NULL)
+		LASSERT(!(conf->loc_flags & LOC_F_SEARCH_ONLY));
+
         o = lu_object_alloc(env, dev, f, conf);
         if (unlikely(IS_ERR(o)))
                 return o;
@@ -749,6 +752,9 @@ static struct lu_object *lu_object_find_try(const struct lu_env *env,
         cfs_hash_bd_unlock(hs, &bd, 1);
 	if (!IS_ERR(o) || PTR_ERR(o) != -ENOENT)
                 return o;
+
+        if (conf != NULL && conf->loc_flags & LOC_F_SEARCH_ONLY)
+		return ERR_PTR(-ENOENT);
 
         /*
          * Allocate new object. This may result in rather complicated
