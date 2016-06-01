@@ -4075,7 +4075,7 @@ test_55() {
 }
 run_test 55 "check lov_objid size"
 
-test_56() {
+test_56a() {
 	local server_version=$(lustre_version_code $SINGLEMDS)
 	local mds_journal_size_orig=$MDSJOURNALSIZE
 	local n
@@ -4113,7 +4113,102 @@ test_56() {
 	MDSJOURNALSIZE=$mds_journal_size_orig
 	reformat
 }
-run_test 56 "check big OST indexes and out-of-index-order start"
+run_test 56a "check big OST indexes and out-of-index-order start"
+
+cleanup_56b() {
+	trap 0
+
+	umount_client $MOUNT -f || error "unmount client failed"
+	stop mds1
+	stop mds2
+	stop mds3
+	stopall
+	reformat
+}
+
+test_56b() {
+	trap cleanup_56b EXIT RETURN ERR
+	stopall
+
+	if ! combined_mgs_mds ; then
+		format_mgs
+		start_mgs
+	fi
+
+	add mds1 $(mkfs_opts mds1 $(mdsdevname 1)) --index=0 --reformat \
+		$(mdsdevname 1) $(mdsvdevname 1)
+	add mds2 $(mkfs_opts mds2 $(mdsdevname 2)) --index=1 --reformat \
+		$(mdsdevname 2) $(mdsvdevname 2)
+	add mds3 $(mkfs_opts mds3 $(mdsdevname 3)) --index=1000 --reformat \
+		$(mdsdevname 3) $(mdsvdevname 3)
+	format_ost 1
+	format_ost 2
+
+	start_mdt 1 || error "MDT 1 (idx 0) start failed"
+	start_mdt 2 || error "MDT 2 (idx 1) start failed"
+	start_mdt 3 || error "MDT 3 (idx 1000) start failed"
+	start_ost || error "Unable to start first ost"
+	start_ost2 || error "Unable to start second ost"
+
+	do_nodes $(comma_list $(mdts_nodes)) \
+		"$LCTL set_param mdt.*.enable_remote_dir=1 \
+		mdt.*.enable_remote_dir_gid=-1"
+
+	mount_client $MOUNT || error "Unable to mount client"
+
+	$LFS mkdir -c3 $MOUNT/$tdir || error "failed to make testdir"
+
+	echo "This is test file 1!" > $MOUNT/$tdir/$tfile.1 ||
+		error "failed to make test file 1"
+	echo "This is test file 2!" > $MOUNT/$tdir/$tfile.2 ||
+		error "failed to make test file 2"
+	echo "This is test file 1000!" > $MOUNT/$tdir/$tfile.1000 ||
+		error "failed to make test file 1000"
+
+	rm -rf $MOUNT/$tdir || error "failed to remove testdir"
+
+	$LFS mkdir -i1000 $MOUNT/$tdir.1000 ||
+		error "create remote dir at idx 1000 failed"
+	# lfs df here
+	output=$($LFS df)
+	echo "=== START lfs df OUTPUT ==="
+	echo -e "$output"
+	echo "==== END lfs df OUTPUT ===="
+
+	mdtcnt=$(echo -e "$output" | grep $FSNAME-MDT | wc -l)
+	ostcnt=$(echo -e "$output" | grep $FSNAME-OST | wc -l)
+
+	echo "lfs df return mdt count $mdtcnt and ost count $ostcnt"
+	[ $mdtcnt -eq 3 ] || error "lfs df returned wrong mdt count"
+	[ $ostcnt -eq 2 ] || error "lfs df returned wrong ost count"
+
+	echo "This is test file 1!" > $MOUNT/$tdir.1000/$tfile.1 ||
+		error "failed to make test file 1"
+	echo "This is test file 2!" > $MOUNT/$tdir.1000/$tfile.2 ||
+		error "failed to make test file 2"
+	echo "This is test file 1000!" > $MOUNT/$tdir.1000/$tfile.1000 ||
+		error "failed to make test file 1000"
+	rm -rf $MOUNT/$tdir.1000 || error "failed to remove remote_dir"
+
+	output=$($LFS mdts)
+	echo "=== START lfs mdts OUTPUT ==="
+	echo -e "$output"
+	echo "==== END lfs mdts OUTPUT ===="
+
+	echo -e "$output" | grep -v "MDTS:" | awk '{print $1}' |
+		sed 's/://g' > $TMP/mdts-actual.txt
+	sort $TMP/mdts-actual.txt -o $TMP/mdts-actual.txt
+
+	echo -e "0\n1\n1000" > $TMP/mdts-expected.txt
+
+	diff $TMP/mdts-expected.txt $TMP/mdts-actual.txt
+	result=$?
+
+	rm $TMP/mdts-expected.txt $TMP/mdts-actual.txt
+
+	[ $result -eq 0 ] || error "target_obd proc file is incorrect!"
+}
+run_test 56b "test target_obd correctness with nonconsecutive MDTs"
 
 test_57a() { # bug 22656
 	do_rpc_nodes $(facet_active_host ost1) load_modules_local
@@ -6740,11 +6835,6 @@ test_97() {
 	$LDEV -c $LDEVCONFPATH -n $NIDSPATH -F $FSNAME -R mdt > $LDEV_OUTPUT
 
 	if [ $? -ne 0 ]; then
-		rm $LDEVCONFPATH $NIDSPATH $LDEV_OUTPUT
-		error "ldev failed to execute for mdt role!"
-	fi
-
-	for num in $(seq $MDSCOUNT); do
 		printf "%s-MDT%04d\n" $FSNAME $num >> $EXPECTED_OUTPUT
 	done
 
@@ -6795,37 +6885,6 @@ test_97() {
 	rm $LDEVCONFPATH $NIDSPATH $EXPECTED_OUTPUT $LDEV_OUTPUT
 }
 run_test 97 "ldev returns correct ouput when querying based on role"
-
-test_99()
-{
-	[[ $(facet_fstype ost1) != ldiskfs ]] &&
-		{ skip "Only applicable to ldiskfs-based OSTs" && return; }
-
-	local ost_opts="$(mkfs_opts ost1 $(ostdevname 1)) \
-		--reformat $(ostdevname 1) $(ostvdevname 1)"
-	do_facet ost1 $DEBUGFS -c -R stats `ostdevname 1` | grep "meta_bg" &&
-		skip "meta_bg already set" && return
-
-	local opts=ost_opts
-	if [[ ${!opts} != *mkfsoptions* ]]; then
-		eval opts=\"${!opts} \
-		--mkfsoptions='\\\"-O ^resize_inode,meta_bg\\\"'\"
-	else
-		local val=${!opts//--mkfsoptions=\\\"/ \
-		--mkfsoptions=\\\"-O ^resize_inode,meta_bg }
-		eval opts='${val}'
-	fi
-
-	echo "params: $opts"
-
-	add ost1 $opts || error "add ost1 failed with new params"
-
-	do_facet ost1 $DEBUGFS -c -R stats `ostdevname 1` | grep "meta_bg" ||
-		error "meta_bg is not set"
-
-	return 0
-}
-run_test 99 "Adding meta_bg option"
 
 if ! combined_mgs_mds ; then
 	stop mgs
