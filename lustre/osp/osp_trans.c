@@ -494,6 +494,7 @@ static void osp_thandle_invalidate_object(const struct lu_env *env,
 
 		for (i = 0; i < our_req->ourq_count; i++) {
 			struct object_update *update;
+			struct lu_object_conf conf;
 
 			update = object_update_request_get(our_req, i, NULL);
 			if (update == NULL)
@@ -505,11 +506,12 @@ static void osp_thandle_invalidate_object(const struct lu_env *env,
 			if (!fid_is_sane(&update->ou_fid))
 				continue;
 
+			conf.loc_flags = LOC_F_NOWAIT | LOC_F_SEARCH_ONLY;
 			obj = lu_object_find_slice(env,
 					&oth->ot_super.th_dev->dd_lu_dev,
-					&update->ou_fid, NULL);
+					&update->ou_fid, &conf);
 			if (IS_ERR(obj))
-				break;
+				continue;
 
 			osp_invalidate(env, lu2dt_obj(obj));
 			lu_object_put(env, obj);
