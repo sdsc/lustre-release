@@ -21,8 +21,10 @@ LFS_SIZE_OPT="-s"
 
 usage() {
     cat -- <<USAGE 1>&2
-usage: lfs_migrate [-c <stripe_count>] [-h] [-l] [-n] [-q] [-R] [-s] [-y] [-0]
+usage: lfs_migrate [-A|-c <stripe_count>|-R] [-h] [-l] [-n] [-q] [-s] [-v] [-y] [-0]
                    [file|dir ...]
+    -A restripe file using an automatically selected stripe count,
+       currently uses Stripe Count = Log2(size_in_GB)+1
     -c <stripe_count>
        restripe file using the specified stripe count
     -h show this usage message
@@ -31,11 +33,11 @@ usage: lfs_migrate [-c <stripe_count>] [-h] [-l] [-n] [-q] [-R] [-s] [-y] [-0]
     -q run quietly (don't print filenames or status)
     -R restripe file using default directory striping
     -s skip file data comparison after migrate
+    -v be verbose and print information about each file
     -y answer 'y' to usage question
     -0 input file names on stdin are separated by a null character
 
-The -c <stripe_count> option may not be specified at the same time as
-the -R option.
+Only one of the '-A', '-c', or '-R' options may be specified at a time.
 
 If a directory is an argument, all files in the directory are migrated.
 If no file/directory is given, the file list is read from standard input.
@@ -48,15 +50,19 @@ USAGE
 
 OPT_CHECK=y
 OPT_STRIPE_COUNT=""
+OPT_AUTOSTRIPE=""
+OPT_VERBOSE=""
 
-while getopts "c:hlnqRsy0" opt $*; do
+while getopts "Ac:hlnqRsvy0" opt $*; do
     case $opt in
+	A) OPT_AUTOSTRIPE=y;;
 	c) OPT_STRIPE_COUNT=$OPTARG;;
 	l) OPT_NLINK=y;;
 	n) OPT_DRYRUN=n; OPT_YES=y;;
 	q) ECHO=:;;
 	R) OPT_RESTRIPE=y;;
 	s) OPT_CHECK="";;
+	v) OPT_VERBOSE=y;;
 	y) OPT_YES=y;;
 	0) OPT_NULL=y;;
 	h|\?) usage;;
@@ -68,6 +74,16 @@ if [ "$OPT_STRIPE_COUNT" -a "$OPT_RESTRIPE" ]; then
 	echo ""
 	echo "$(basename $0) error: The -c <stripe_count> option may not" 1>&2
 	echo "be specified at the same time as the -R option." 1>&2
+	exit 1
+elif [ "$OPT_STRIPE_COUNT" -a "$OPT_AUTOSTRIPE" ]; then
+	echo ""
+	echo "$(basename $0) error: The -c <stripe_count> option may not" 1>&2
+	echo "be specified at the same time as the -A option." 1>&2
+	exit 1
+elif [ "$OPT_AUTOSTRIPE" -a "$OPT_RESTRIPE" ]; then
+	echo ""
+	echo "$(basename $0) error: The -A option may not be specified at" 1>&2
+	echo "the same time as the -R option." 1>&2
 	exit 1
 fi
 
@@ -100,6 +116,46 @@ umask 0077
 # This is needed for 1.8 Interoperability and can be removed in the future
 $LFS getstripe --help 2>&1 | grep -q stripe-size && LFS_SIZE_OPT="-S"
 
+# Use stripe count = Log2(size_in_GB)+1, but cap object size per OST.
+# Accepts file size in KB, and (optionally) the file being worked on.
+# Sets $COUNT global var as the stripe count
+function calc_stripe()
+{
+	[ $1 -lt 2 ] && COUNT=1 && return
+	local size=1048576
+	COUNT=0
+	while [ $1 -ge $size ]; do
+		size=$(( $size * 2 ))
+		COUNT=$(( $COUNT + 1 ))
+	done
+	if [ -z "$OBJ_MAX_KB" ]; then
+		local ost_min_kb=""
+		# Calculate cap on object size at 1% of smallest OST
+		while read ostname capacity other; do
+			[[ $ostname =~ "-OST" ]] || continue
+			if [ -z "$ost_min_kb" ]; then
+				ost_min_kb=$capacity
+			elif [ $capacity -lt $ost_min_kb  ]; then
+				ost_min_kb=$capacity
+			fi
+		done < <($LFS df -l $2)
+		if [ -z "$ost_min_kb" ]; then
+			echo -e "Warning: unable to determine minimum OST" \
+				"size, object size not capped" >&2
+			OBJ_MAX_KB=0
+			return
+		fi
+		OBJ_MAX_KB=$(( $ost_min_kb / 100 ))
+	elif [ $OBJ_MAX_KB -eq 0 ]; then
+		return
+	fi
+	# Note: if the above is too much overhead, hardcode it assuming:
+	#   8+2 RAID6 using 6 TB disks * .01 = 515396076 KB
+	if [ $1 -gt $(( $COUNT * $OBJ_MAX_KB )) ]; then
+		COUNT=$(( $1 / $OBJ_MAX_KB ))
+	fi
+}
+
 lfs_migrate() {
 	local RSYNC_MODE=false
 
@@ -107,7 +163,7 @@ lfs_migrate() {
 		$ECHO -n "$OLDNAME: "
 
 		# avoid duplicate stat if possible
-		TYPE_LINK=($(LANG=C stat -c "%h %F" "$OLDNAME" || true))
+		TYPE_LINK=($(LANG=C stat -c "%h %F %s" "$OLDNAME" || true))
 
 		# skip non-regular files, since they don't have any objects
 		# and there is no point in trying to migrate them.
@@ -127,11 +183,6 @@ lfs_migrate() {
 			continue
 		fi
 
-		if [ "$OPT_DRYRUN" ]; then
-			echo -e "dry run, skipped"
-			continue
-		fi
-
 		if [ "$OPT_RESTRIPE" ]; then
 			UNLINK=""
 		else
@@ -140,15 +191,36 @@ lfs_migrate() {
 		# then we don't need to do this getstripe/mktemp stuff.
 			UNLINK="-u"
 
-			[ "$OPT_STRIPE_COUNT" ] && COUNT=$OPT_STRIPE_COUNT ||
-				COUNT=$($LFS getstripe -c "$OLDNAME" \
-					2> /dev/null)
 			SIZE=$($LFS getstripe $LFS_SIZE_OPT "$OLDNAME" \
 			       2> /dev/null)
+			if [ "$OPT_AUTOSTRIPE" ]; then
+				calc_stripe $(( ${TYPE_LINK[3]} / 1024 )) \
+					"$OLDNAME"
+				[ "$COUNT" -lt 1 ] && COUNT=1
+			else
+				[ "$OPT_STRIPE_COUNT" ] &&
+					COUNT=$OPT_STRIPE_COUNT ||
+					COUNT=$($LFS getstripe -c "$OLDNAME" \
+						2> /dev/null)
+			fi
 
 			[ -z "$COUNT" -o -z "$SIZE" ] && UNLINK=""
-			SIZE=${LFS_SIZE_OPT}${SIZE}
 		fi
+
+		if [ "$OPT_DRYRUN" ]; then
+			if [ "$OPT_VERBOSE" ]; then
+				echo -e "dry run, would use stripe" \
+					"count=${COUNT} size=${SIZE}"
+			else
+				echo -e "dry run, skipped"
+			fi
+			continue
+		fi
+		if [ "$OPT_VERBOSE" ]; then
+			echo -n "(count=${COUNT} size=${SIZE}) "
+		fi
+
+		[ "$SIZE" ] && SIZE=${LFS_SIZE_OPT}${SIZE}
 
 		# first try to migrate inside lustre
 		# if failed go back to old rsync mode
@@ -206,3 +278,4 @@ else
 		shift
 	done
 fi
+
