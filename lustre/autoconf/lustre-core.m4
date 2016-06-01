@@ -1295,6 +1295,23 @@ file_f_inode, [
 ]) # LC_HAVE_FILE_F_INODE
 
 #
+# LC_HAVE_FILE_INODE
+#
+# 3.8 adds wrapper file_inode
+#
+AC_DEFUN([LC_HAVE_FILE_INODE], [
+LB_CHECK_COMPILE([if Linux kernel has 'file_inode'],
+file_inode, [
+	#include <linux/fs.h>
+],[
+	file_inode(NULL);
+], [
+	AC_DEFINE(HAVE_FILE_INODE, 1,
+		[kernel has file_inode])
+])
+]) # LC_HAVE_FILE_INODE
+
+#
 # LC_HAVE_SUNRPC_UPCALL_HAS_3ARGS
 #
 AC_DEFUN([LC_HAVE_SUNRPC_UPCALL_HAS_3ARGS], [
@@ -2045,6 +2062,23 @@ key_payload_data_array, [
 ]) #LC_HAVE_KEY_PAYLOAD_DATA_ARRAY
 
 #
+# LC_HAVE_FILE_DENTRY
+#
+# 4.5 adds wrapper file_dentry
+#
+AC_DEFUN([LC_HAVE_FILE_DENTRY], [
+LB_CHECK_COMPILE([if Linux kernel has 'file_dentry'],
+file_dentry, [
+	#include <linux/fs.h>
+],[
+	file_dentry(NULL);
+], [
+	AC_DEFINE(HAVE_FILE_DENTRY, 1,
+		[kernel has file_dentry])
+])
+]) # LC_HAVE_FILE_DENTRY
+
+#
 # LC_PROG_LINUX
 #
 # Lustre linux kernel checks
@@ -2142,6 +2176,7 @@ AC_DEFUN([LC_PROG_LINUX], [
 	# 3.8
 	LC_HAVE_FILE_F_INODE
 	LC_HAVE_SUNRPC_UPCALL_HAS_3ARGS
+	LC_HAVE_FILE_INODE
 
 	# 3.9
 	LC_HAVE_HLIST_FOR_EACH_3ARG
@@ -2213,6 +2248,9 @@ AC_DEFUN([LC_PROG_LINUX], [
 	LC_HAVE_LOCKS_LOCK_FILE_WAIT
 	LC_HAVE_QC_MAKE_REQUEST_FN
 	LC_HAVE_KEY_PAYLOAD_DATA_ARRAY
+
+	# 4.5
+	LC_HAVE_FILE_DENTRY
 
 	#
 	AS_IF([test "x$enable_server" != xno], [
