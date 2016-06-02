@@ -2087,6 +2087,7 @@ static int osp_object_init(const struct lu_env *env, struct lu_object *o,
 	spin_lock_init(&po->opo_lock);
 	o->lo_header->loh_attr |= LOHA_REMOTE;
 	INIT_LIST_HEAD(&po->opo_xattr_list);
+	INIT_LIST_HEAD(&po->opo_invalidate_cb_list);
 
 	if (is_ost_obj(o)) {
 		po->opo_obj.do_ops = &osp_obj_ops;
