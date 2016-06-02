@@ -24,9 +24,13 @@
 %{!?kver:    %global kver    %(uname -r)}
 %{!?kdir:    %global kdir    /lib/modules/%{kver}/source}
 %{!?kobjdir: %global kobjdir %(if [ "%{kdir}" = "/lib/modules/%{kver}/source" ]; then echo "/lib/modules/%{kver}/build"; else echo "%{kdir}"; fi)}
+%{warn:CJM kver=%kver}
+%{warn:CJM kdir=%kdir}
+%{warn:CJM kobjdir=%kobjdir}
 
 # as an alternative to this implementation we could simply "make -C $kdir kernelversion"
 %{!?kversion: %global kversion %(files="include/generated/utsrelease.h include/linux/utsrelease.h include/linux/version.h"; for f in $files; do if test -r %{kobjdir}/$f && grep UTS_RELEASE %{kobjdir}/$f >/dev/null; then sed -ne '/^#define UTS_RELEASE/s/.*"\\(.*\\)"$/\\1/p' %{kobjdir}/$f; break; fi; done)}
+%{warn:CJM kversion=%kversion}
 
 # We set this because kernel_module_package has its own method of identifying
 # which kernel to build against, and it is unlikely that its decision will
@@ -34,6 +38,7 @@
 # By setting this variable, we override kernel_module_package's kernel
 # selection with our selection.
 %{!?kernel_version: %global kernel_version %kversion}
+%{warn:CJM kernel_verions=%kernel_version}
 
 %if 0%{?build_src_rpm}
     %{!?myrelease: %global myrelease 1}
