@@ -326,19 +326,25 @@ typedef void (*mdt_reconstructor)(struct mdt_thread_info *mti,
                                   struct mdt_lock_handle *lhc);
 
 static mdt_reconstructor reconstructors[REINT_MAX] = {
-        [REINT_SETATTR]  = mdt_reconstruct_setattr,
-        [REINT_CREATE]   = mdt_reconstruct_create,
-        [REINT_LINK]     = mdt_reconstruct_generic,
-        [REINT_UNLINK]   = mdt_reconstruct_generic,
-        [REINT_RENAME]   = mdt_reconstruct_generic,
-        [REINT_OPEN]     = mdt_reconstruct_open,
-        [REINT_SETXATTR] = mdt_reconstruct_generic
+	[REINT_SETATTR]		= mdt_reconstruct_setattr,
+	[REINT_CREATE]		= mdt_reconstruct_create,
+	[REINT_LINK]		= mdt_reconstruct_generic,
+	[REINT_UNLINK]		= mdt_reconstruct_generic,
+	[REINT_RENAME]		= mdt_reconstruct_generic,
+	[REINT_OPEN]		= mdt_reconstruct_open,
+	[REINT_SETXATTR]	= mdt_reconstruct_generic,
+	[REINT_RMENTRY]		= mdt_reconstruct_generic,
+	[REINT_MIGRATE]		= mdt_reconstruct_generic
 };
 
 void mdt_reconstruct(struct mdt_thread_info *mti,
-                     struct mdt_lock_handle *lhc)
+		     struct mdt_lock_handle *lhc)
 {
-        ENTRY;
-        reconstructors[mti->mti_rr.rr_opcode](mti, lhc);
+	mdt_reconstructor reconstructor;
+	ENTRY;
+
+	reconstructor = reconstructors[mti->mti_rr.rr_opcode];
+	if (reconstructor)
+		reconstructor(mti, lhc);
         EXIT;
 }
