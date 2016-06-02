@@ -17,6 +17,14 @@ USE_KABI=true
 RMAC=$HOME/.rpmmacros
 grep '%dist' $RMAC &> /dev/null || echo '%dist .el7' >> $RMAC
 
+# Replace %kernel_module_package with one is identical, but calls
+# lbuild's kmodtool script rather than the one from RHEL.  We need
+# to fill in the kmodtool script's path here dynamically.
+KMODTOOL_PATH="$PWD/rhel7/kmodtool"
+echo "KMODTOOL_PATH=$KMODTOOL_PATH"
+sed -i -e "s|REPLACE_ME|$KMODTOOL_PATH|" $PWD/rhel7/rpmmacros
+cat $PWD/rhel7/rpmmacros >> $RMAC
+
 patch_spec() {
     local buildid="$1"
 
