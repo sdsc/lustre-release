@@ -27,7 +27,7 @@ init_logging
 remote_mds_nodsh && log "SKIP: remote MDS with nodsh" && exit 0
 
 #                                  ~6  (min)"
-[ "$SLOW" = "no" ] && EXCEPT_SLOW="7"
+[ "$SLOW" = "no" ] && EXCEPT_SLOW=""
 
 build_test_filter
 

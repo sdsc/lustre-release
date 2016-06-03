@@ -33,7 +33,7 @@ case "$(lsb_release -sr)" in	# only disable tests for el7
 esac
 
 #                                  7.5  (min)"
-[ "$SLOW" = "no" ] && EXCEPT_SLOW="44b"
+[ "$SLOW" = "no" ] && EXCEPT_SLOW=""
 
 [ $(facet_fstype $SINGLEMDS) = "zfs" ] &&
 # bug number for skipped test:        LU-1867	LU-3127

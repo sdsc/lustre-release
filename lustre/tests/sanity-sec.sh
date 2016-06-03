@@ -28,7 +28,7 @@ if ! check_versions; then
 	EXCEPT="$EXCEPT $NODEMAP_TESTS"
 fi
 
-[ "$SLOW" = "no" ] && EXCEPT_SLOW="26"
+[ "$SLOW" = "no" ] && EXCEPT_SLOW=""
 
 [ "$ALWAYS_EXCEPT$EXCEPT$EXCEPT_SLOW" ] &&
 	echo "Skipping tests: $ALWAYS_EXCEPT $EXCEPT $EXCEPT_SLOW"

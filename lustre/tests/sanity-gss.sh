@@ -23,7 +23,7 @@ init_logging
 
 require_dsh_mds || exit 0
 
-[ "$SLOW" = "no" ] && EXCEPT_SLOW="100 101"
+[ "$SLOW" = "no" ] && EXCEPT_SLOW=""
 
 # $RUNAS_ID may get set incorrectly somewhere else
 [ $UID -eq 0 -a $RUNAS_ID -eq 0 ] && error "\$RUNAS_ID set to 0, but \$UID is also 0!"
