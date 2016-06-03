@@ -88,7 +88,7 @@ require_dsh_mds || exit 0
 require_dsh_ost || exit 0
 
 #                                  8  22   (min)"
-[ "$SLOW" = "no" ] && EXCEPT_SLOW="45 69"
+[ "$SLOW" = "no" ] && EXCEPT_SLOW=""
 
 assert_DIR
 

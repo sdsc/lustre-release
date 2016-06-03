@@ -21,7 +21,7 @@ init_logging
 remote_mds_nodsh && skip "remote MDS with nodsh" && exit 0
 
 #                                   7  (min)"
-[ "$SLOW" = "no" ] && EXCEPT_SLOW="21b"
+[ "$SLOW" = "no" ] && EXCEPT_SLOW=""
 
 [[ $(facet_fstype $SINGLEMDS) == zfs ]] &&
 # bug number for skipped test:	      LU-2230
