@@ -597,11 +597,14 @@ restart:
 			 *    handle to be returned from LOOKUP|OPEN request,
 			 *    for example if the target entry was a symlink.
 			 *
-			 * Always fetch MDS_OPEN_LOCK if this is not setstripe.
+			 * Always fetch MDS_OPEN_LOCK if opencache is set
+			 * (LU-7915).
 			 *
 			 * Always specify MDS_OPEN_BY_FID because we don't want
 			 * to get file with different fid.
 			 */
+			if (ll_i2sbi(inode)->ll_opencache)
+				it->it_flags |= MDS_OPEN_LOCK;
 			it->it_flags |= MDS_OPEN_LOCK | MDS_OPEN_BY_FID;
                         rc = ll_intent_file_open(file, NULL, 0, it);
                         if (rc)
