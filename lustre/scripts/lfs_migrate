@@ -18,19 +18,23 @@ RSYNC=${RSYNC:-rsync}
 ECHO=echo
 LFS=${LFS:-lfs}
 LFS_SIZE_OPT="-s"
+LFS_POOL_OPT="-p"
 
 usage() {
     cat -- <<USAGE 1>&2
-usage: lfs_migrate [-c <stripe_count>] [-h] [-l] [-n] [-q] [-R] [-s] [-y] [-0]
-                   [file|dir ...]
+usage: lfs_migrate [-c <stripe_count>] [-h] [-l] [-n] [-p <pool_name>] [-q]
+                   [-R] [-s] [-v] [-y] [-0] [file|dir ...]
     -c <stripe_count>
        restripe file using the specified stripe count
     -h show this usage message
     -l migrate files with hard links (skip by default)
     -n only print the names of files to be migrated
+    -p <pool_name>
+       migrate file to the specified pool
     -q run quietly (don't print filenames or status)
     -R restripe file using default directory striping
     -s skip file data comparison after migrate
+    -v be verbose and print information about each file
     -y answer 'y' to usage question
     -0 input file names on stdin are separated by a null character
 
@@ -41,6 +45,7 @@ If a directory is an argument, all files in the directory are migrated.
 If no file/directory is given, the file list is read from standard input.
 
 e.g.: lfs_migrate /mnt/lustre/dir
+      lfs_migrate -p newtargets /mnt/lustre/dir
       lfs find /test -O test-OST0004 -size +4G | lfs_migrate -y
 USAGE
     exit 1
@@ -48,15 +53,19 @@ USAGE
 
 OPT_CHECK=y
 OPT_STRIPE_COUNT=""
+OPT_POOL=""
+OPT_VERBOSE=""
 
-while getopts "c:hlnqRsy0" opt $*; do
+while getopts "c:hlnp:qRsvy0" opt $*; do
     case $opt in
 	c) OPT_STRIPE_COUNT=$OPTARG;;
 	l) OPT_NLINK=y;;
 	n) OPT_DRYRUN=n; OPT_YES=y;;
+	p) OPT_POOL=$OPTARG;;
 	q) ECHO=:;;
 	R) OPT_RESTRIPE=y;;
 	s) OPT_CHECK="";;
+	v) OPT_VERBOSE=y;;
 	y) OPT_YES=y;;
 	0) OPT_NULL=y;;
 	h|\?) usage;;
@@ -127,11 +136,6 @@ lfs_migrate() {
 			continue
 		fi
 
-		if [ "$OPT_DRYRUN" ]; then
-			echo -e "dry run, skipped"
-			continue
-		fi
-
 		if [ "$OPT_RESTRIPE" ]; then
 			UNLINK=""
 		else
@@ -147,13 +151,57 @@ lfs_migrate() {
 			       2> /dev/null)
 
 			[ -z "$COUNT" -o -z "$SIZE" ] && UNLINK=""
-			SIZE=${LFS_SIZE_OPT}${SIZE}
 		fi
+
+		# sanity check pool specification
+		# would rather do this once for efficiency, but should handle
+		# case of files on filesystems that have different pools
+		if [ "$OPT_POOL" ]; then
+			# lfs pool_list needs an absolute path, since
+			# otherwise it is interpreted as fs.name (used later
+			# for the details we want below)
+			FULLPATH=$(readlink -f "$OLDNAME")
+			POOL_NAME=$($LFS pool_list "$FULLPATH" \
+				| egrep "\.$OPT_POOL$" || true)
+			if [ -z "$POOL_NAME" ]; then
+				$ECHO -e "pool '$OPT_POOL' not found"
+				exit 16
+			fi
+			POOL_COUNT=$($LFS pool_list $POOL_NAME \
+				| grep -c -v "Pool: ")
+			if [ -z "$POOL_COUNT" -o "$POOL_COUNT" -eq 0 ]; then
+				$ECHO -e "pool '$POOL_NAME' has no targets"
+				exit 16
+			fi
+			# skip migration if we can't get the specified count
+			if [ -n "$COUNT" -a $POOL_COUNT -lt $COUNT ]; then
+				$ECHO -e "too few targets ($POOL_COUNT) in" \
+					"pool for count ($COUNT), skipped"
+				continue
+			fi
+			POOL=${LFS_POOL_OPT}${OPT_POOL}
+		fi
+
+		if [ "$OPT_DRYRUN" ]; then
+			if [ "$OPT_VERBOSE" ]; then
+				$ECHO "dry run, would use stripe" \
+					"count=${COUNT} size=${SIZE}" \
+					"pool=${OPT_POOL}"
+			else
+				$ECHO "dry run, skipped"
+			fi
+			continue
+		fi
+		[ "$OPT_VERBOSE" ] && $ECHO -n "(count=${COUNT}" \
+			"size=${SIZE} pool=${OPT_POOL}) "
+
+		[ "$SIZE" ] && SIZE=${LFS_SIZE_OPT}${SIZE}
 
 		# first try to migrate inside lustre
 		# if failed go back to old rsync mode
 		if [[ $RSYNC_MODE == false ]]; then
-			if $LFS migrate -c${COUNT} ${SIZE} "$OLDNAME"; then
+			if $LFS migrate -c${COUNT} ${SIZE} ${POOL} "$OLDNAME"
+			then
 				$ECHO "done"
 				continue
 			else
@@ -168,7 +216,8 @@ lfs_migrate() {
 			continue
 		fi
 
-		[ "$UNLINK" ] && $LFS setstripe -c${COUNT} ${SIZE} "$NEWNAME"
+		[ "$UNLINK" ] && $LFS setstripe -c${COUNT} ${SIZE} {$POOL} \
+			"$NEWNAME"
 
 		# we use --inplace, since we created our own temp file already
 		if ! $RSYNC -a --inplace $RSYNC_OPTS "$OLDNAME" "$NEWNAME";then
