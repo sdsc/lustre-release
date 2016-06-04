@@ -1043,6 +1043,9 @@ test_44c() {
 	do_facet $SINGLEMDS "lctl set_param fail_loc=0x80000712"
 	fail_abort $SINGLEMDS
 	unlinkmany $DIR/$tfile-%d 100 && error "unliked after fail abort"
+
+	# make sure the newly connected clients committed to disk
+	do_facet $SINGLEMDS "sync; sync; sync"
 	fail $SINGLEMDS
 	unlinkmany $DIR/$tfile-%d 100 && error "unliked after fail"
 	return 0
