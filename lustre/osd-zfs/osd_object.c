@@ -135,6 +135,8 @@ void osd_object_sa_dirty_rele(const struct lu_env *env, struct osd_thandle *oh)
 				 struct osd_object, oo_sa_linkage);
 		write_lock(&obj->oo_attr_lock);
 		list_del_init(&obj->oo_sa_linkage);
+		write_unlock(&obj->oo_attr_lock);
+
 		if (obj->oo_late_xattr) {
 			LASSERT(oh->ot_assigned != 0);
 			/* we need oo_guard to protect oo_sa_xattr
@@ -153,7 +155,6 @@ void osd_object_sa_dirty_rele(const struct lu_env *env, struct osd_thandle *oh)
 			}
 		}
 		sa_spill_rele(obj->oo_sa_hdl);
-		write_unlock(&obj->oo_attr_lock);
 	}
 }
 
