@@ -85,8 +85,7 @@ int mdc_resource_get_unused(struct obd_export *exp, const struct lu_fid *fid,
 		RETURN(0);
 
 	fid_build_reg_res_name(fid, &res_id);
-	res = ldlm_resource_get(exp->exp_obd->obd_namespace,
-				NULL, &res_id, 0, 0);
+	res = ldlm_resource_get(exp->exp_obd->obd_namespace, &res_id, 0, 0);
 	if (IS_ERR(res))
 		RETURN(0);
 	LDLM_RESOURCE_ADDREF(res);

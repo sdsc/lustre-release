@@ -1416,7 +1416,6 @@ static inline void ldlm_proc_cleanup(void) {}
 
 /* resource.c - internal */
 struct ldlm_resource *ldlm_resource_get(struct ldlm_namespace *ns,
-					struct ldlm_resource *parent,
 					const struct ldlm_res_id *,
 					enum ldlm_type type, int create);
 struct ldlm_resource *ldlm_resource_getref(struct ldlm_resource *res);

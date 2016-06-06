@@ -1980,7 +1980,7 @@ int ldlm_cli_cancel_unused_resource(struct ldlm_namespace *ns,
 	int rc;
 	ENTRY;
 
-	res = ldlm_resource_get(ns, NULL, res_id, 0, 0);
+	res = ldlm_resource_get(ns, res_id, 0, 0);
 	if (IS_ERR(res)) {
 		/* This is not a problem. */
 		CDEBUG(D_INFO, "No resource "LPU64"\n", res_id->name[0]);
@@ -2138,7 +2138,7 @@ int ldlm_resource_iterate(struct ldlm_namespace *ns,
 
 	LASSERTF(ns != NULL, "must pass in namespace\n");
 
-	res = ldlm_resource_get(ns, NULL, res_id, 0, 0);
+	res = ldlm_resource_get(ns, res_id, 0, 0);
 	if (IS_ERR(res))
 		RETURN(0);
 

@@ -1434,8 +1434,8 @@ out:
 		 * otherwise concurrent destroy can make the object unavailable
 		 * for 2nd lu_object_find() waiting for the first reference
 		 * to go... deadlock! */
-		res = ldlm_resource_get(ofd->ofd_namespace, NULL,
-					&tsi->tsi_resid, LDLM_EXTENT, 0);
+		res = ldlm_resource_get(ofd->ofd_namespace, &tsi->tsi_resid,
+					LDLM_EXTENT, 0);
 		if (!IS_ERR(res)) {
 			ldlm_res_lvbo_update(res, NULL, 0);
 			ldlm_resource_putref(res);
@@ -2095,8 +2095,7 @@ out:
 		 * otherwise concurrent destroy can make the object unavailable
 		 * for 2nd lu_object_find() waiting for the first reference
 		 * to go... deadlock! */
-		res = ldlm_resource_get(ns, NULL, &tsi->tsi_resid,
-				        LDLM_EXTENT, 0);
+		res = ldlm_resource_get(ns, &tsi->tsi_resid, LDLM_EXTENT, 0);
 		if (!IS_ERR(res)) {
 			ldlm_res_lvbo_update(res, NULL, 0);
 			ldlm_resource_putref(res);
