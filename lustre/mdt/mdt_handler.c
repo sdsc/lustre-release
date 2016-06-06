@@ -4974,17 +4974,21 @@ static int mdt_prepare(const struct lu_env *env,
 
 	LASSERT(obd);
 
+	spin_lock(&obd->obd_dev_lock);
+	obd->obd_preparing = 1;
+	spin_unlock(&obd->obd_dev_lock);
+
 	rc = next->ld_ops->ldo_prepare(env, cdev, next);
 	if (rc)
-		RETURN(rc);
+		GOTO(out, rc);
 
 	rc = mdt_llog_ctxt_clone(env, mdt, LLOG_CHANGELOG_ORIG_CTXT);
 	if (rc)
-		RETURN(rc);
+		GOTO(out, rc);
 
 	rc = mdt_llog_ctxt_clone(env, mdt, LLOG_AGENT_ORIG_CTXT);
 	if (rc)
-		RETURN(rc);
+		GOTO(out, rc);
 
 	rc = lfsck_register_namespace(env, mdt->mdt_bottom, mdt->mdt_namespace);
 	/* The LFSCK instance is registered just now, so it must be there when
@@ -4995,7 +4999,7 @@ static int mdt_prepare(const struct lu_env *env,
 		rc = mdt->mdt_child->md_ops->mdo_root_get(env, mdt->mdt_child,
 							 &mdt->mdt_md_root_fid);
 		if (rc)
-			RETURN(rc);
+			GOTO(out, rc);
 	}
 
 	LASSERT(!test_bit(MDT_FL_CFGLOG, &mdt->mdt_state));
@@ -5005,12 +5009,19 @@ static int mdt_prepare(const struct lu_env *env,
 	LASSERT(obd->obd_no_conn);
 	spin_lock(&obd->obd_dev_lock);
 	obd->obd_no_conn = 0;
+	obd->obd_preparing = 0;
 	spin_unlock(&obd->obd_dev_lock);
 
 	if (obd->obd_recovering == 0)
 		mdt_postrecov(env, mdt);
 
 	RETURN(rc);
+
+out:
+	spin_lock(&obd->obd_dev_lock);
+	obd->obd_preparing = 0;
+	spin_unlock(&obd->obd_dev_lock);
+	return rc;
 }
 
 const struct lu_device_operations mdt_lu_ops = {

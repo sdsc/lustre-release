@@ -701,6 +701,22 @@ static inline void osp_thandle_put(struct osp_thandle *oth)
 		osp_thandle_destroy(oth);
 }
 
+static inline struct lu_device *osp2top(const struct osp_device *osp)
+{
+	return osp->opd_dt_dev.dd_lu_dev.ld_site->ls_top_dev;
+}
+
+static inline void osp_set_req_replay(const struct osp_device *osp,
+				      struct ptlrpc_request *req)
+{
+	struct lu_device *dev = osp2top(osp);
+
+	/* The RPC sent during the prepare phase must be recovery related,
+	 * such as triggered by lod_sub_recovery_thread(). */
+	if (dev->ld_obd->obd_recovering || dev->ld_obd->obd_preparing)
+		req->rq_allow_replay = 1;
+}
+
 int osp_prep_update_req(const struct lu_env *env, struct obd_import *imp,
 			struct osp_update_request *our,
 			struct ptlrpc_request **reqp);

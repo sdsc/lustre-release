@@ -580,25 +580,29 @@ static int ofd_prepare(const struct lu_env *env, struct lu_device *pdev,
 	struct ofd_device		*ofd = ofd_dev(dev);
 	struct obd_device		*obd = ofd_obd(ofd);
 	struct lu_device		*next = &ofd->ofd_osd->dd_lu_dev;
-	int				 rc;
+	int				 rc = 0;
 
 	ENTRY;
 
+	spin_lock(&obd->obd_dev_lock);
+	obd->obd_preparing = 1;
+	spin_unlock(&obd->obd_dev_lock);
+
 	info = ofd_info_init(env, NULL);
 	if (info == NULL)
-		RETURN(-EFAULT);
+		GOTO(out, rc = -EFAULT);
 
 	/* initialize lower device */
 	rc = next->ld_ops->ldo_prepare(env, dev, next);
 	if (rc != 0)
-		RETURN(rc);
+		GOTO(out, rc);
 
 	rc = lfsck_register(env, ofd->ofd_osd, ofd->ofd_osd, obd,
 			    ofd_lfsck_out_notify, ofd, false);
 	if (rc != 0) {
 		CERROR("%s: failed to initialize lfsck: rc = %d\n",
 		       obd->obd_name, rc);
-		RETURN(rc);
+		GOTO(out, rc);
 	}
 
 	rc = lfsck_register_namespace(env, ofd->ofd_osd, ofd->ofd_namespace);
@@ -610,12 +614,19 @@ static int ofd_prepare(const struct lu_env *env, struct lu_device *pdev,
 	LASSERT(obd->obd_no_conn);
 	spin_lock(&obd->obd_dev_lock);
 	obd->obd_no_conn = 0;
+	obd->obd_preparing = 0;
 	spin_unlock(&obd->obd_dev_lock);
 
 	if (obd->obd_recovering == 0)
 		ofd_postrecov(env, ofd);
 
 	RETURN(rc);
+
+out:
+	spin_lock(&obd->obd_dev_lock);
+	obd->obd_preparing = 0;
+	spin_unlock(&obd->obd_dev_lock);
+	return rc;
 }
 
 /**
