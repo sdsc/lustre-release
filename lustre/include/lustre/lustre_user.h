@@ -1397,11 +1397,29 @@ enum lu_ladvise_type {
 #define LU_LADVISE_NAMES {						\
 }
 
+/* This is the userspace argument for ladvise.  It is currently the same as
+ * what goes on the wire, but is defined separately as we may need info which
+ * is only used locally. */
+struct llapi_lu_ladvise {
+	__u16 lla_advice;	/* advice type */
+	__u32 lla_value1;
+	__u16 lla_value2;
+	__u64 lla_start;	/* first byte of extent for advice */
+	__u64 lla_end;		/* last byte of extent for advice */
+	__u32 lla_value3;
+	__u32 lla_value4;
+};
+
+/* This is the lu_ladvise struct which goes out on the wire.
+ * value[1-4] are unspecified fields, used differently by different advices */
 struct lu_ladvise {
-	__u64 lla_advice;
-	__u64 lla_start;
-	__u64 lla_end;
-	__u64 lla_padding;
+	__u16 lla_advice;	/* advice type */
+	__u32 lla_value1;
+	__u16 lla_value2;
+	__u64 lla_start;	/* first byte of extent for advice */
+	__u64 lla_end;		/* last byte of extent for advice */
+	__u32 lla_value3;
+	__u32 lla_value4;
 };
 
 enum ladvise_flag {
@@ -1411,13 +1429,34 @@ enum ladvise_flag {
 #define LADVISE_MAGIC 0x1ADF1CE0
 #define LF_MASK LF_ASYNC
 
+/* This is the userspace argument for ladvise.
+ *
+ * The offset of lah_version must stay the same, so we can recognize different
+ * versions.  Versioning of this arg is used to detect possible size changes,
+ * not to deal with feature compatibility, which is handled by feature specific
+ * checks. */
+struct llapi_ladvise_hdr {
+	__u32			lah_magic;	/* LADVISE_MAGIC */
+	__u32			lah_version;	/* header version */
+	__u32			lah_count;	/* number of advices */
+	__u64			lah_flags;	/* from enum ladvise_flag */
+	__u32			lah_value1;	/* unused */
+	__u32			lah_value2;	/* unused */
+	__u32			lah_value3;	/* unused */
+	__u32			lah_value4;	/* unused */
+	struct lu_ladvise	lah_advise[0];	/* advices in this header */
+};
+
+/* This is the ladvise_hdr which goes on the wire */
 struct ladvise_hdr {
 	__u32			lah_magic;	/* LADVISE_MAGIC */
 	__u32			lah_count;	/* number of advices */
 	__u64			lah_flags;	/* from enum ladvise_flag */
-	__u64			lah_padding1;	/* unused */
-	__u64			lah_padding2;	/* unused */
-	struct lu_ladvise	lah_advise[0];
+	__u32			lah_value1;	/* unused */
+	__u32			lah_value2;	/* unused */
+	__u32			lah_value3;	/* unused */
+	__u32			lah_value4;	/* unused */
+	struct lu_ladvise	lah_advise[0];	/* advices in this header */
 };
 
 #define LAH_COUNT_MAX	(1024)
