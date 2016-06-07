@@ -1312,6 +1312,12 @@ int osp_precreate_reserve(const struct lu_env *env, struct osp_device *d)
 	while ((rc = d->opd_pre_status) == 0 || rc == -ENOSPC ||
 		rc == -ENODEV || rc == -EAGAIN || rc == -ENOTCONN) {
 
+		/* opd_pre_max_create_count 0 to not use specified OST. */
+		if (!d->opd_pre_max_create_count) {
+			rc = -ENOBUFS;
+			break;
+		}
+
 		/*
 		 * increase number of precreations
 		 */
