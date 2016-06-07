@@ -6692,6 +6692,57 @@ test_96() {
 }
 run_test 96 "ldev returns hostname and backend fs correctly in command sub"
 
+test_93() { # LU-6952
+	local mds_mountopts=$MDS_MOUNT_OPTS
+	local ost_mountopts=$OST_MOUNT_OPTS
+	local newuser="Sanity403"
+
+	[[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.8.53) ]] &&
+		{ skip "this test needs utils above 2.8.53" && return 0; }
+
+	#MDT_MOUNT_FS_OPT=${MDS_MOUNT_FS_OPT:-"acl,user_xattr"}
+	#remount the MDT
+	stopall
+	formatall
+	if [ -z "$MDS_MOUNT_OPTS" ]; then
+		MDS_MOUNT_OPTS="-o noacl"
+	else
+		MDS_MOUNT_OPTS="${MDS_MOUNT_OPTS},noacl"
+	fi
+
+	if [ -z "$OST_MOUNT_OPTS" ]; then
+		OST_MOUNT_OPTS="-o noacl"
+	else
+		OST_MOUNT_OPTS="${OST_MOUNT_OPTS},noacl"
+	fi
+
+	for num in $(seq $MDSCOUNT); do
+		start mds$num $(mdsdevname $num) $MDS_MOUNT_OPTS ||
+			error "Failed to start mds"
+	done
+
+	for num in $(seq $OSTCOUNT); do
+		start ost$num $(ostdevname $num) $OST_MOUNT_OPTS ||
+			error "Failed to start OST"
+	done
+
+	mount_client $MOUNT
+	useradd $newuser
+	setfacl -m d:$newuser:rwx $MOUNT &&
+		error "ACL is applied when FS is mounted with noacl."
+	userdel -r $newuser
+
+	MDS_MOUNT_OPTS=$mds_mountopts
+	OST_MOUNT_OPTS=$ost_mountopts
+	MDT_MOUNT_FS_OPT=""
+
+	stopall
+	formatall
+	setupall
+}
+run_test 93 "Make sure user defined options are reflected in mount"
+
+
 if ! combined_mgs_mds ; then
 	stop mgs
 fi
