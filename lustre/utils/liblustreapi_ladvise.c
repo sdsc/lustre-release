@@ -51,10 +51,10 @@
  * \retval -errno on failure.
  */
 int llapi_ladvise(int fd, unsigned long long flags, int num_advise,
-		  struct lu_ladvise *ladvise)
+		  struct llapi_lu_ladvise *ladvise)
 {
 	int rc;
-	struct ladvise_hdr *ladvise_hdr;
+	struct llapi_ladvise_hdr *ladvise_hdr;
 
 	if (num_advise < 1 || num_advise >= LAH_COUNT_MAX) {
 		errno = EINVAL;
@@ -71,6 +71,7 @@ int llapi_ladvise(int fd, unsigned long long flags, int num_advise,
 		return -1;
 	}
 	ladvise_hdr->lah_magic = LADVISE_MAGIC;
+	ladvise_hdr->lah_version = LADVISE_CURRENT_VERSION;
 	ladvise_hdr->lah_count = num_advise;
 	ladvise_hdr->lah_flags = flags & LF_MASK;
 	memcpy(ladvise_hdr->lah_advise, ladvise, sizeof(*ladvise) * num_advise);

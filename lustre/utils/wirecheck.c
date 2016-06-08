@@ -312,10 +312,13 @@ check_lu_ladvise(void)
 {
 	BLANK_LINE();
 	CHECK_STRUCT(lu_ladvise);
+	CHECK_MEMBER(lu_ladvise, lla_advice);
+	CHECK_MEMBER(lu_ladvise, lla_value1);
+	CHECK_MEMBER(lu_ladvise, lla_value2);
 	CHECK_MEMBER(lu_ladvise, lla_start);
 	CHECK_MEMBER(lu_ladvise, lla_end);
-	CHECK_MEMBER(lu_ladvise, lla_advice);
-	CHECK_MEMBER(lu_ladvise, lla_padding);
+	CHECK_MEMBER(lu_ladvise, lla_value3);
+	CHECK_MEMBER(lu_ladvise, lla_value4);
 }
 
 static void
