@@ -38,6 +38,8 @@
 #include <getopt.h>
 #include <sys/ioctl.h>
 #include <time.h>
+#include <glob.h>
+#include <libgen.h>
 
 #include "obdctl.h"
 
@@ -122,7 +124,7 @@ static void usage_start(void)
 {
 	fprintf(stderr, "start LFSCK\n"
 		"usage:\n"
-		"lfsck_start <-M | --device {MDT,OST}_device>\n"
+		"lfsck_start [-M | --device {MDT,OST}_device]\n"
 		"	     [-A | --all] [-c | --create_ostobj [on | off]]\n"
 		"	     [-C | --create_mdtobj [on | off]]\n"
 		"	     [-e | --error {continue | abort}] [-h | --help]\n"
@@ -154,7 +156,7 @@ static void usage_stop(void)
 {
 	fprintf(stderr, "stop LFSCK\n"
 		"usage:\n"
-		"lfsck_stop <-M | --device {MDT,OST}_device>\n"
+		"lfsck_stop [-M | --device {MDT,OST}_device]\n"
 		"           [-A | --all] [-h | --help]\n"
 		"options:\n"
 		"-M: device to stop LFSCK/scrub on\n"
@@ -167,7 +169,7 @@ static void usage_query(void)
 {
 	fprintf(stderr, "check the LFSCK global status\n"
 		"usage:\n"
-		"lfsck_query <-M | --device MDT_device> [-h | --help]\n"
+		"lfsck_query [-M | --device MDT_device] [-h | --help]\n"
 		"            [-t | --type check_type[,check_type...]]\n"
 		"            [-t | --wait]\n"
 		"options:\n"
@@ -192,6 +194,102 @@ static int lfsck_pack_dev(struct obd_ioctl_data *data, char *device, char *arg)
 	data->ioc_inllen4 = len;
 	data->ioc_dev = OBD_DEV_BY_DEVNAME;
 	return 0;
+}
+
+static int lfsck_err(int val)
+{
+	switch (val) {
+	case GLOB_NOSPACE:
+		errno = ENOMEM;
+		break;
+	case GLOB_ABORTED:
+		errno = ENODEV;
+		break;
+	case GLOB_NOMATCH:
+	default:
+		errno = ENOENT;
+		break;
+	}
+
+	return -1;
+}
+
+static int lfsck_get_dev_name(struct obd_ioctl_data *data, char *device,
+			      int types, bool multipe_devices)
+{
+	glob_t param = { 0 };
+	char *ptr;
+	int rc;
+	int i;
+
+	rc = glob("/proc/fs/lustre/mdd/*", GLOB_NOSORT, NULL, &param);
+	if (rc != 0) {
+		if (multipe_devices || rc != GLOB_NOMATCH ||
+		    types & LFSCK_TYPE_NAMESPACE) {
+			fprintf(stderr, "Fail to get device name: rc = %d\n."
+				"You can specify the device explicitly "
+				"via '-M' option.\n", rc);
+			return lfsck_err(rc);
+		}
+
+		rc = glob("/proc/fs/lustre/obdfilter/*", GLOB_NOSORT,
+			  NULL, &param);
+		if (rc != 0) {
+			fprintf(stderr, "Fail to get device name: rc = %d\n."
+				"You can specify the device explicitly "
+				"via '-M' option.\n", rc);
+			return lfsck_err(rc);
+		}
+	}
+
+	ptr = strrchr(param.gl_pathv[0], '-');
+	if (ptr == NULL) {
+		fprintf(stderr, "Detect invalid device name %s. "
+			"Please specify the device explicitly "
+			"via '-M' option.\n", param.gl_pathv[0]);
+		rc = -EINVAL;
+		goto out;
+	}
+
+	if (!multipe_devices && param.gl_pathc > 1) {
+		fprintf(stderr,
+			"Detect multiple devices on current node. "
+			"Please specify the device explicitly "
+			"via '-M' option or '-A' option for all.\n");
+		rc = -EINVAL;
+		goto out;
+	}
+
+	for (i = 1; i < param.gl_pathc; i++) {
+		char *ptr2;
+
+		ptr2 = strrchr(param.gl_pathv[i], '-');
+		if (ptr2 == NULL) {
+			fprintf(stderr, "Detect invalid device name %s. "
+				"Please specify the device explicitly "
+				"via '-M' option.\n", param.gl_pathv[i]);
+			rc = -EINVAL;
+			goto out;
+		}
+
+		if ((ptr - param.gl_pathv[0]) != (ptr2 - param.gl_pathv[i]) ||
+		    strncmp(param.gl_pathv[0], param.gl_pathv[i],
+			    (ptr - param.gl_pathv[0])) != 0) {
+			fprintf(stderr,
+				"Detect multiple filesystems on current node. "
+				"Please specify the device explicitly "
+				"via '-M' option.\n");
+			rc = -EINVAL;
+			goto out;
+		}
+	}
+
+	rc = lfsck_pack_dev(data, device, basename(param.gl_pathv[0]));
+
+out:
+	globfree(&param);
+
+	return rc;
 }
 
 int jt_lfsck_start(int argc, char **argv)
@@ -335,15 +433,10 @@ bad_type:
 		start.ls_active = LFSCK_TYPES_DEF;
 
 	if (data.ioc_inlbuf4 == NULL) {
-		if (lcfg_get_devname() != NULL) {
-			rc = lfsck_pack_dev(&data, device, lcfg_get_devname());
-			if (rc != 0)
-				return rc;
-		} else {
-			fprintf(stderr,
-				"Must specify device to start LFSCK.\n");
-			return -EINVAL;
-		}
+		rc = lfsck_get_dev_name(&data, device, start.ls_active,
+					start.ls_flags & LPF_ALL_TGT);
+		if (rc != 0)
+			return rc;
 	}
 
 	data.ioc_inlbuf1 = (char *)&start;
@@ -413,15 +506,10 @@ int jt_lfsck_stop(int argc, char **argv)
 	}
 
 	if (data.ioc_inlbuf4 == NULL) {
-		if (lcfg_get_devname() != NULL) {
-			rc = lfsck_pack_dev(&data, device, lcfg_get_devname());
-			if (rc != 0)
-				return rc;
-		} else {
-			fprintf(stderr,
-				"Must specify device to stop LFSCK.\n");
-			return -EINVAL;
-		}
+		rc = lfsck_get_dev_name(&data, device, 0,
+					stop.ls_flags & LPF_ALL_TGT);
+		if (rc != 0)
+			return rc;
 	}
 
 	data.ioc_inlbuf1 = (char *)&stop;
@@ -496,15 +584,9 @@ bad_type:
 	}
 
 	if (data.ioc_inlbuf4 == NULL) {
-		if (lcfg_get_devname() != NULL) {
-			rc = lfsck_pack_dev(&data, device, lcfg_get_devname());
-			if (rc != 0)
-				return rc;
-		} else {
-			fprintf(stderr,
-				"Must specify device to query LFSCK.\n");
-			return -EINVAL;
-		}
+		rc = lfsck_get_dev_name(&data, device, 0, true);
+		if (rc != 0)
+			return rc;
 	}
 
 	data.ioc_inlbuf1 = (char *)&query;
