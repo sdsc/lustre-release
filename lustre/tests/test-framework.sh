@@ -977,6 +977,13 @@ facet_vdevice() {
 	echo -n $device
 }
 
+running_in_vm() {
+	local virt=$(virt-what 2> /dev/null)
+
+	[ $? -ne 0 ] && virt=$(awk '/vda\>/ { print $4 }' /proc/partitions)
+	echo $virt
+}
+
 #
 # Re-read the partition table on failover partner host.
 # After a ZFS storage pool is created on a shared device, the partition table

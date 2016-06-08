@@ -13719,21 +13719,22 @@ run_test 247e "mount .. as fileset"
 test_248() {
 	local my_error=error
 
-	# This test case is time sensitive and maloo uses kvm to run auto test.
+	local fast_read_sav=$($LCTL get_param -n llite.*.fast_read 2>/dev/null)
+	[ -z "$fast_read_sav" ] && skip "no fast read support" && return
+
+	# This test case is time sensitive and Maloo uses KVM to run autotest.
 	# Therefore the complete time of I/O task is unreliable and depends on
-	# the work load on the host machine when the task is running.
-	which virt-what 2> /dev/null && [ "$(virt-what)" != "kvm" ] ||
-		{ echo "no virt-what installed or running in kvm; ignore error";
-		  my_error="error_ignore env=kvm"; }
+	# the workload on the host machine when the task is running.
+	local virt=$(running_in_vm)
+	[ -n "$virt" ] && echo "running in VM '$virt', ignore error" &&
+		  my_error="error_ignore env=$virt"
 
 	# create a large file for fast read verification
-	dd if=/dev/zero of=$DIR/$tfile bs=128M count=1 > /dev/null 2>&1
+	dd if=/dev/zero of=$DIR/$tfile bs=1M count=128 > /dev/null 2>&1
 
 	# make sure the file is created correctly
 	$CHECKSTAT -s $((128*1024*1024)) $DIR/$tfile ||
 		{ rm -f $DIR/$tfile; skip "file creation error" && return; }
-
-	local saved_fast_read=$($LCTL get_param -n llite.*.fast_read)
 
 	echo "Test 1: verify that fast read is 4 times faster on cache read"
 
@@ -13768,7 +13769,7 @@ test_248() {
 	[ $(bc <<< "4 * $t_1k >= $t_1m") -eq 1 ] ||
 		$my_error "bigger IO is way too fast: $t_1k vs $t_1m"
 
-	$LCTL set_param -n llite.*.fast_read=$saved_fast_read
+	$LCTL set_param -n llite.*.fast_read=$fast_read_sav
 	rm -f $DIR/$tfile
 }
 run_test 248 "fast read verification"
