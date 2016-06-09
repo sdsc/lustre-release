@@ -469,6 +469,8 @@ struct lnet_peer_ni {
 	int			lpni_rtrcredits;
 	/* low water mark */
 	int			lpni_minrtrcredits;
+	/* bytes queued for sending */
+	long			lpni_txqnob;
 	/* alive/dead? */
 	bool			lpni_alive;
 	/* notification outstanding? */
@@ -481,8 +483,6 @@ struct lnet_peer_ni {
 	bool			lpni_ping_notsent;
 	/* # times router went dead<->alive. Protected with lpni_lock */
 	int			lpni_alive_count;
-	/* bytes queued for sending */
-	long			lpni_txqnob;
 	/* time of last aliveness news */
 	cfs_time_t		lpni_timestamp;
 	/* time of last ping attempt */
