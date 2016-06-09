@@ -60,12 +60,15 @@ lnet_peer_net_added(struct lnet_net *net)
 
 		if (LNET_NIDNET(lpni->lpni_nid) == net->net_id) {
 			lpni->lpni_net = net;
+
+			spin_lock(&lpni->lpni_lock);
 			lpni->lpni_txcredits =
-			lpni->lpni_mintxcredits =
 				lpni->lpni_net->net_peertxcredits;
+			lpni->lpni_mintxcredits = lpni->lpni_txcredits;
 			lpni->lpni_rtrcredits =
-			lpni->lpni_minrtrcredits =
 				lnet_peer_buffer_credits(lpni->lpni_net);
+			lpni->lpni_minrtrcredits = lpni->lpni_rtrcredits;
+			spin_unlock(&lpni->lpni_lock);
 
 			lnet_peer_remove_from_remote_list(lpni);
 		}
@@ -155,6 +158,8 @@ lnet_peer_ni_alloc(lnet_nid_t nid)
 	INIT_LIST_HEAD(&lpni->lpni_hashlist);
 	INIT_LIST_HEAD(&lpni->lpni_on_peer_net_list);
 	INIT_LIST_HEAD(&lpni->lpni_on_remote_peer_ni_list);
+
+	spin_lock_init(&lpni->lpni_lock);
 
 	lpni->lpni_alive = !lnet_peers_start_down(); /* 1 bit!! */
 	lpni->lpni_last_alive = cfs_time_current(); /* assumes alive */
