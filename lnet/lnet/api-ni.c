@@ -1403,6 +1403,9 @@ lnet_startup_lndni(struct lnet_ni *ni)
 		tq->tq_credits = lnet_ni_tq_credits(ni);
 	}
 
+	atomic_set(&ni->ni_tx_credits,
+		   lnet_ni_tq_credits(ni) * ni->ni_ncpts);
+
 	CDEBUG(D_LNI, "Added LNI %s [%d/%d/%d/%d]\n",
 		libcfs_nid2str(ni->ni_nid), ni->ni_net->net_peertxcredits,
 		lnet_ni_tq_credits(ni) * LNET_CPT_NUMBER,
