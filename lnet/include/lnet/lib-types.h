@@ -378,6 +378,9 @@ typedef struct lnet_ni {
 	/* instance-specific data */
 	void			*ni_data;
 
+	/* per ni credits */
+	atomic_t		ni_tx_credits;
+
 	/* percpt TX queues */
 	struct lnet_tx_queue	**ni_tx_queues;
 

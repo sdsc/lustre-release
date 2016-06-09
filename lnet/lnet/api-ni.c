@@ -1173,6 +1173,21 @@ lnet_ni_tq_credits(lnet_ni_t *ni)
 	return credits;
 }
 
+static int
+lnet_ni_total_tx_credits(lnet_ni_t *ni)
+{
+	int credits;
+
+	if (ni->ni_ncpts == 1)
+		return ni->ni_net->net_maxtxcredits;
+
+	credits = lnet_ni_tq_credits(ni);
+
+	credits *= ni->ni_ncpts;
+
+	return credits;
+}
+
 static void
 lnet_ni_unlink_locked(lnet_ni_t *ni)
 {
@@ -1402,6 +1417,8 @@ lnet_startup_lndni(struct lnet_ni *ni)
 		tq->tq_credits_max =
 		tq->tq_credits = lnet_ni_tq_credits(ni);
 	}
+
+	atomic_set(&ni->ni_tx_credits, lnet_ni_total_tx_credits(ni));
 
 	CDEBUG(D_LNI, "Added LNI %s [%d/%d/%d/%d]\n",
 		libcfs_nid2str(ni->ni_nid), ni->ni_net->net_peertxcredits,

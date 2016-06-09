@@ -128,10 +128,10 @@ lnet_notify_locked(struct lnet_peer_ni *lp, int notifylnd, int alive,
 }
 
 static void
-lnet_ni_notify_locked(lnet_ni_t *ni, struct lnet_peer_ni *lp)
+lnet_ni_notify_locked(lnet_ni_t *ni, struct lnet_peer_ni *lp, int cpt)
 {
-	int        alive;
-	int        notifylnd;
+	int alive;
+	int notifylnd;
 
 	/* Notify only in 1 thread at any time to ensure ordered notification.
 	 * NB individual events can be missed; the only guarantee is that you
@@ -150,7 +150,7 @@ lnet_ni_notify_locked(lnet_ni_t *ni, struct lnet_peer_ni *lp)
 		lp->lpni_notify    = 0;
 
 		if (notifylnd && ni->ni_net->net_lnd->lnd_notify != NULL) {
-			lnet_net_unlock(lp->lpni_cpt);
+			lnet_net_unlock(cpt);
 
 			/* A new notification could happen now; I'll handle it
 			 * when control returns to me */
@@ -158,7 +158,7 @@ lnet_ni_notify_locked(lnet_ni_t *ni, struct lnet_peer_ni *lp)
 			(ni->ni_net->net_lnd->lnd_notify)(ni, lp->lpni_nid,
 							  alive);
 
-			lnet_net_lock(lp->lpni_cpt);
+			lnet_net_lock(cpt);
 		}
 	}
 
@@ -740,8 +740,8 @@ lnet_parse_rc_info(lnet_rc_data_t *rcd)
 static void
 lnet_router_checker_event(lnet_event_t *event)
 {
-	lnet_rc_data_t		*rcd = event->md.user_ptr;
-	struct lnet_peer_ni	*lp;
+	lnet_rc_data_t *rcd = event->md.user_ptr;
+	struct lnet_peer_ni *lp;
 
 	LASSERT(rcd != NULL);
 
@@ -997,7 +997,7 @@ lnet_ping_router_locked (struct lnet_peer_ni *rtr)
 
 	/* Run any outstanding notifications */
 	ni = lnet_get_next_ni_locked(rtr->lpni_net, NULL);
-	lnet_ni_notify_locked(ni, rtr);
+	lnet_ni_notify_locked(ni, rtr, rtr->lpni_cpt);
 
 	if (!lnet_isrouter(rtr) ||
 	    the_lnet.ln_rc_state != LNET_RC_STATE_RUNNING) {
@@ -1787,7 +1787,7 @@ lnet_notify(lnet_ni_t *ni, lnet_nid_t nid, int alive, cfs_time_t when)
         lnet_notify_locked(lp, ni == NULL, alive, when);
 
 	if (ni != NULL)
-		lnet_ni_notify_locked(ni, lp);
+		lnet_ni_notify_locked(ni, lp, cpt);
 
 	lnet_peer_ni_decref_locked(lp);
 

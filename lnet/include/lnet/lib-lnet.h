@@ -505,6 +505,21 @@ struct lnet_ni *lnet_get_next_ni_locked(struct lnet_net *mynet,
 					struct lnet_ni *prev);
 struct lnet_ni *lnet_get_ni_idx_locked(int idx);
 
+static inline void lnet_ni_inc_tx_credits(struct lnet_ni *ni)
+{
+	atomic_inc(&ni->ni_tx_credits);
+}
+
+static inline void lnet_ni_dec_tx_credits(struct lnet_ni *ni)
+{
+	atomic_dec(&ni->ni_tx_credits);
+}
+
+static inline int lnet_ni_get_tx_credits(struct lnet_ni *ni)
+{
+	return atomic_read(&ni->ni_tx_credits);
+}
+
 struct libcfs_ioctl_handler {
 	struct list_head item;
 	int (*handle_ioctl)(unsigned int cmd, struct libcfs_ioctl_hdr *hdr);
