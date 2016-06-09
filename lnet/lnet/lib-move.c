@@ -843,17 +843,21 @@ lnet_post_send_locked(lnet_msg_t *msg, int do_send)
 	}
 
 	if (!msg->msg_peertxcredit) {
-		LASSERT((lp->lpni_txcredits < 0) ==
+		LASSERT((atomic_read(&lp->lpni_txcredits) < 0) ==
 			!list_empty(&lp->lpni_txq));
 
 		msg->msg_peertxcredit = 1;
-		lp->lpni_txqnob += msg->msg_len + sizeof(lnet_hdr_t);
-		lp->lpni_txcredits--;
+		atomic_long_set(&lp->lpni_txqnob,
+			        atomic_long_read(&lp->lpni_txqnob) +
+				msg->msg_len + sizeof(lnet_hdr_t));
+		atomic_dec(&lp->lpni_txcredits);
 
-		if (lp->lpni_txcredits < lp->lpni_mintxcredits)
-			lp->lpni_mintxcredits = lp->lpni_txcredits;
+		if (atomic_read(&lp->lpni_txcredits) <
+		    atomic_read(&lp->lpni_mintxcredits))
+			atomic_set(&lp->lpni_mintxcredits,
+				   atomic_read(&lp->lpni_txcredits));
 
-		if (lp->lpni_txcredits < 0) {
+		if (atomic_read(&lp->lpni_txcredits) < 0) {
 			msg->msg_tx_delayed = 1;
 			list_add_tail(&msg->msg_list, &lp->lpni_txq);
 			return LNET_CREDIT_WAIT;
@@ -929,15 +933,17 @@ lnet_post_routed_recv_locked (lnet_msg_t *msg, int do_recv)
 	LASSERT(!do_recv || msg->msg_rx_delayed);
 
 	if (!msg->msg_peerrtrcredit) {
-		LASSERT((lp->lpni_rtrcredits < 0) ==
+		LASSERT((atomic_read(&lp->lpni_rtrcredits) < 0) ==
 			!list_empty(&lp->lpni_rtrq));
 
                 msg->msg_peerrtrcredit = 1;
-                lp->lpni_rtrcredits--;
-                if (lp->lpni_rtrcredits < lp->lpni_minrtrcredits)
-                        lp->lpni_minrtrcredits = lp->lpni_rtrcredits;
+                atomic_dec(&lp->lpni_rtrcredits);
+                if (atomic_read(&lp->lpni_rtrcredits) <
+		    atomic_read(&lp->lpni_minrtrcredits))
+                        atomic_set(&lp->lpni_minrtrcredits,
+				   atomic_read(&lp->lpni_rtrcredits));
 
-		if (lp->lpni_rtrcredits < 0) {
+		if (atomic_read(&lp->lpni_rtrcredits) < 0) {
 			/* must have checked eager_recv before here */
 			LASSERT(msg->msg_rx_ready_delay);
 			msg->msg_rx_delayed = 1;
@@ -1016,14 +1022,16 @@ lnet_return_tx_credits_locked(lnet_msg_t *msg)
                 /* give back peer txcredits */
                 msg->msg_peertxcredit = 0;
 
-                LASSERT((txpeer->lpni_txcredits < 0) ==
+                LASSERT((atomic_read(&txpeer->lpni_txcredits) < 0) ==
 			!list_empty(&txpeer->lpni_txq));
 
-                txpeer->lpni_txqnob -= msg->msg_len + sizeof(lnet_hdr_t);
-                LASSERT (txpeer->lpni_txqnob >= 0);
+                atomic_long_set(&txpeer->lpni_txqnob,
+				atomic_long_read(&txpeer->lpni_txqnob) -
+				(msg->msg_len + sizeof(lnet_hdr_t)));
+                LASSERT (atomic_long_read(&txpeer->lpni_txqnob) >= 0);
 
-                txpeer->lpni_txcredits++;
-                if (txpeer->lpni_txcredits <= 0) {
+                atomic_inc(&txpeer->lpni_txcredits);
+                if (atomic_read(&txpeer->lpni_txcredits) <= 0) {
 			msg2 = list_entry(txpeer->lpni_txq.next,
                                               lnet_msg_t, msg_list);
 			list_del(&msg2->msg_list);
@@ -1148,17 +1156,17 @@ routing_off:
 		/* give back peer router credits */
 		msg->msg_peerrtrcredit = 0;
 
-		LASSERT((rxpeer->lpni_rtrcredits < 0) ==
+		LASSERT((atomic_read(&rxpeer->lpni_rtrcredits) < 0) ==
 			!list_empty(&rxpeer->lpni_rtrq));
 
-		rxpeer->lpni_rtrcredits++;
+		atomic_inc(&rxpeer->lpni_rtrcredits);
 
 		/* drop all messages which are queued to be routed on that
 		 * peer. */
 		if (!the_lnet.ln_routing) {
 			lnet_drop_routed_msgs_locked(&rxpeer->lpni_rtrq,
 						     msg->msg_rx_cpt);
-		} else if (rxpeer->lpni_rtrcredits <= 0) {
+		} else if (atomic_read(&rxpeer->lpni_rtrcredits) <= 0) {
 			msg2 = list_entry(rxpeer->lpni_rtrq.next,
 					  lnet_msg_t, msg_list);
 			list_del(&msg2->msg_list);
@@ -1179,16 +1187,20 @@ routing_off:
 static int
 lnet_compare_peers(struct lnet_peer_ni *p1, struct lnet_peer_ni *p2)
 {
-	if (p1->lpni_txqnob < p2->lpni_txqnob)
+	if (atomic_long_read(&p1->lpni_txqnob) <
+	    atomic_long_read(&p2->lpni_txqnob))
 		return 1;
 
-	if (p1->lpni_txqnob > p2->lpni_txqnob)
+	if (atomic_long_read(&p1->lpni_txqnob) >
+	    atomic_long_read(&p2->lpni_txqnob))
 		return -1;
 
-	if (p1->lpni_txcredits > p2->lpni_txcredits)
+	if (atomic_read(&p1->lpni_txcredits) >
+	    atomic_read(&p2->lpni_txcredits))
 		return 1;
 
-	if (p1->lpni_txcredits < p2->lpni_txcredits)
+	if (atomic_read(&p1->lpni_txcredits) <
+	    atomic_read(&p2->lpni_txcredits))
 		return -1;
 
 	return 0;
@@ -1689,14 +1701,15 @@ pick_peer:
 			 * it.
 			 */
 			continue;
-		} if (lpni->lpni_txcredits < best_lpni_credits)
+		} if (atomic_read(&lpni->lpni_txcredits) < best_lpni_credits)
 			/*
 			 * We already have a peer that has more credits
 			 * available than this one. No need to consider
 			 * this peer further.
 			 */
 			continue;
-		else if (lpni->lpni_txcredits == best_lpni_credits) {
+		else if (atomic_read(&lpni->lpni_txcredits) ==
+			 best_lpni_credits) {
 			/*
 			 * The best peer found so far and the current peer
 			 * have the same number of available credits let's
@@ -1710,7 +1723,7 @@ pick_peer:
 		}
 
 		best_lpni = lpni;
-		best_lpni_credits = lpni->lpni_txcredits;
+		best_lpni_credits = atomic_read(&lpni->lpni_txcredits);
 	}
 
 	/*
@@ -2127,7 +2140,7 @@ lnet_parse_forward_locked(lnet_ni_t *ni, lnet_msg_t *msg)
 	if (!the_lnet.ln_routing)
 		return -ECANCELED;
 
-	if (msg->msg_rxpeer->lpni_rtrcredits <= 0 ||
+	if (atomic_read(&msg->msg_rxpeer->lpni_rtrcredits) <= 0 ||
 	    lnet_msg2bufpool(msg)->rbp_credits <= 0) {
 		if (ni->ni_net->net_lnd->lnd_eager_recv == NULL) {
 			msg->msg_rx_ready_delay = 1;

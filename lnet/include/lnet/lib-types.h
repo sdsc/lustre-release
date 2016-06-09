@@ -463,13 +463,15 @@ struct lnet_peer_ni {
 	/* statistics kept on each peer NI */
 	struct lnet_element_stats lpni_stats;
 	/* # tx credits available */
-	int			lpni_txcredits;
+	atomic_t		lpni_txcredits;
 	/* low water mark */
-	int			lpni_mintxcredits;
+	atomic_t		lpni_mintxcredits;
 	/* # router credits */
-	int			lpni_rtrcredits;
+	atomic_t		lpni_rtrcredits;
 	/* low water mark */
-	int			lpni_minrtrcredits;
+	atomic_t		lpni_minrtrcredits;
+	/* bytes queued for sending */
+	atomic_long_t		lpni_txqnob;
 	/* alive/dead? */
 	unsigned int		lpni_alive:1;
 	/* notification outstanding? */
@@ -482,8 +484,6 @@ struct lnet_peer_ni {
 	unsigned int		lpni_ping_notsent;
 	/* # times router went dead<->alive */
 	int			lpni_alive_count;
-	/* bytes queued for sending */
-	long			lpni_txqnob;
 	/* time of last aliveness news */
 	cfs_time_t		lpni_timestamp;
 	/* time of last ping attempt */

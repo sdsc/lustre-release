@@ -498,19 +498,19 @@ proc_lnet_peers(struct ctl_table *table, int write, void __user *buffer,
 
                 if (peer != NULL) {
 			lnet_nid_t nid       = peer->lpni_nid;
-			int	   nrefs     = atomic_read(&peer->lpni_refcount);
-			int        lastalive = -1;
-                        char      *aliveness = "NA";
-                        int        maxcr     = peer->lpni_net->net_peertxcredits;
-                        int        txcr      = peer->lpni_txcredits;
-                        int        mintxcr   = peer->lpni_mintxcredits;
-                        int        rtrcr     = peer->lpni_rtrcredits;
-                        int        minrtrcr  = peer->lpni_minrtrcredits;
-                        int        txqnob    = peer->lpni_txqnob;
+			int nrefs     = atomic_read(&peer->lpni_refcount);
+			int lastalive = -1;
+			char *aliveness = "NA";
+			int maxcr = peer->lpni_net->net_peertxcredits;
+			int txcr = atomic_read(&peer->lpni_txcredits);
+			int mintxcr = atomic_read(&peer->lpni_mintxcredits);
+			int rtrcr = atomic_read(&peer->lpni_rtrcredits);
+			int minrtrcr = atomic_read(&peer->lpni_minrtrcredits);
+			int txqnob = atomic_long_read(&peer->lpni_txqnob);
 
-                        if (lnet_isrouter(peer) ||
-                            lnet_peer_aliveness_enabled(peer))
-                                aliveness = peer->lpni_alive ? "up" : "down";
+			if (lnet_isrouter(peer) ||
+			    lnet_peer_aliveness_enabled(peer))
+				aliveness = peer->lpni_alive ? "up" : "down";
 
                         if (lnet_peer_aliveness_enabled(peer)) {
                                 cfs_time_t     now = cfs_time_current();

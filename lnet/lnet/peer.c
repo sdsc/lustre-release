@@ -60,12 +60,14 @@ lnet_peer_net_added(struct lnet_net *net)
 
 		if (LNET_NIDNET(lpni->lpni_nid) == net->net_id) {
 			lpni->lpni_net = net;
-			lpni->lpni_txcredits =
-			lpni->lpni_mintxcredits =
-				lpni->lpni_net->net_peertxcredits;
-			lpni->lpni_rtrcredits =
-			lpni->lpni_minrtrcredits =
-				lnet_peer_buffer_credits(lpni->lpni_net);
+			atomic_set(&lpni->lpni_txcredits,
+				   lpni->lpni_net->net_peertxcredits);
+			atomic_set(&lpni->lpni_mintxcredits,
+				   lpni->lpni_net->net_peertxcredits);
+			atomic_set(&lpni->lpni_rtrcredits,
+				   lnet_peer_buffer_credits(lpni->lpni_net));
+			atomic_set(&lpni->lpni_minrtrcredits,
+				   lnet_peer_buffer_credits(lpni->lpni_net));
 
 			lnet_peer_remove_from_remote_list(lpni);
 		}
@@ -166,10 +168,12 @@ lnet_peer_ni_alloc(lnet_nid_t nid)
 	net = lnet_get_net_locked(LNET_NIDNET(nid));
 	lpni->lpni_net = net;
 	if (net) {
-		lpni->lpni_txcredits = net->net_peertxcredits;
-		lpni->lpni_mintxcredits = lpni->lpni_txcredits;
-		lpni->lpni_rtrcredits = lnet_peer_buffer_credits(net);
-		lpni->lpni_minrtrcredits = lpni->lpni_rtrcredits;
+		atomic_set(&lpni->lpni_txcredits, net->net_peertxcredits);
+		atomic_set(&lpni->lpni_mintxcredits,
+			   atomic_read(&lpni->lpni_txcredits));
+		atomic_set(&lpni->lpni_rtrcredits, lnet_peer_buffer_credits(net));
+		atomic_set(&lpni->lpni_minrtrcredits,
+			   atomic_read(&lpni->lpni_rtrcredits));
 	} else {
 		/*
 		 * This peer_ni is not on a local network, so we
@@ -926,7 +930,7 @@ lnet_destroy_peer_ni_locked(struct lnet_peer_ni *lpni)
 	LASSERT(atomic_read(&lpni->lpni_refcount) == 0);
 	LASSERT(lpni->lpni_rtr_refcount == 0);
 	LASSERT(list_empty(&lpni->lpni_txq));
-	LASSERT(lpni->lpni_txqnob == 0);
+	LASSERT(atomic_long_read(&lpni->lpni_txqnob) == 0);
 
 	lpni->lpni_net = NULL;
 
@@ -1015,8 +1019,11 @@ lnet_debug_peer(lnet_nid_t nid)
 	CDEBUG(D_WARNING, "%-24s %4d %5s %5d %5d %5d %5d %5d %ld\n",
 	       libcfs_nid2str(lp->lpni_nid), atomic_read(&lp->lpni_refcount),
 	       aliveness, lp->lpni_net->net_peertxcredits,
-	       lp->lpni_rtrcredits, lp->lpni_minrtrcredits,
-	       lp->lpni_txcredits, lp->lpni_mintxcredits, lp->lpni_txqnob);
+	       atomic_read(&lp->lpni_rtrcredits),
+	       atomic_read(&lp->lpni_minrtrcredits),
+	       atomic_read(&lp->lpni_txcredits),
+	       atomic_read(&lp->lpni_mintxcredits),
+	       atomic_long_read(&lp->lpni_txqnob));
 
 	lnet_peer_ni_decref_locked(lp);
 
@@ -1069,10 +1076,10 @@ int lnet_get_peer_ni_info(__u32 peer_index, __u64 *nid,
 			*nid = lp->lpni_nid;
 			*refcount = atomic_read(&lp->lpni_refcount);
 			*ni_peer_tx_credits = lp->lpni_net->net_peertxcredits;
-			*peer_tx_credits = lp->lpni_txcredits;
-			*peer_rtr_credits = lp->lpni_rtrcredits;
-			*peer_min_rtr_credits = lp->lpni_mintxcredits;
-			*peer_tx_qnob = lp->lpni_txqnob;
+			*peer_tx_credits = atomic_read(&lp->lpni_txcredits);
+			*peer_rtr_credits = atomic_read(&lp->lpni_rtrcredits);
+			*peer_min_rtr_credits = atomic_read(&lp->lpni_mintxcredits);
+			*peer_tx_qnob = atomic_long_read(&lp->lpni_txqnob);
 
 			found = true;
 		}
@@ -1110,10 +1117,11 @@ int lnet_get_peer_info(__u32 idx, lnet_nid_t *primary_nid, lnet_nid_t *nid,
 	peer_ni_info->cr_refcount = atomic_read(&lpni->lpni_refcount);
 	peer_ni_info->cr_ni_peer_tx_credits = (lpni->lpni_net != NULL) ?
 		lpni->lpni_net->net_peertxcredits : 0;
-	peer_ni_info->cr_peer_tx_credits = lpni->lpni_txcredits;
-	peer_ni_info->cr_peer_rtr_credits = lpni->lpni_rtrcredits;
-	peer_ni_info->cr_peer_min_rtr_credits = lpni->lpni_mintxcredits;
-	peer_ni_info->cr_peer_tx_qnob = lpni->lpni_txqnob;
+	peer_ni_info->cr_peer_tx_credits = atomic_read(&lpni->lpni_txcredits);
+	peer_ni_info->cr_peer_rtr_credits = atomic_read(&lpni->lpni_rtrcredits);
+	peer_ni_info->cr_peer_min_rtr_credits =
+		atomic_read(&lpni->lpni_mintxcredits);
+	peer_ni_info->cr_peer_tx_qnob = atomic_long_read(&lpni->lpni_txqnob);
 
 	peer_ni_stats->send_count = atomic_read(&lpni->lpni_stats.send_count);
 	peer_ni_stats->recv_count = atomic_read(&lpni->lpni_stats.recv_count);
