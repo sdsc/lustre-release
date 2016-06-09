@@ -4091,5 +4091,35 @@ union nodemap_rec {
 	struct nodemap_global_rec ngr;
 };
 
+/* This is the lu_ladvise struct which goes out on the wire.
+ * Corresponds to the userspace arg llapi_lu_ladvise.
+ * value[1-4] are unspecified fields, used differently by different advices */
+struct lu_ladvise {
+	__u16 lla_advice;	/* advice type */
+	__u16 lla_value1;
+	__u32 lla_value2;
+	__u64 lla_start;	/* first byte of extent for advice */
+	__u64 lla_end;		/* last byte of extent for advice */
+	__u32 lla_value3;
+	__u32 lla_value4;
+};
+
+/* The local version of the magic will change with different versions of the
+ * userspace arg, so the wire version must be different (and fixed). */
+#define LADVISE_MAGIC_WIRE 0x1ADF1CF1
+
+/* This is the ladvise_hdr which goes on the wire, corresponds to
+ * Corresponds to the userspace arg llapi_ladvise_hdr.
+ * value[1-4] are unspecified fields, used differently by different advices */
+struct ladvise_hdr {
+	__u32			lah_magic;	/* LADVISE_MAGIC_WIRE */
+	__u32			lah_count;	/* number of advices */
+	__u64			lah_flags;	/* from enum ladvise_flag */
+	__u32			lah_value1;	/* unused */
+	__u32			lah_value2;	/* unused */
+	__u64			lah_value3;	/* unused */
+	struct lu_ladvise	lah_advise[0];	/* advices in this header */
+};
+
 #endif
 /** @} lustreidl */
