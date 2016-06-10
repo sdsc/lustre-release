@@ -1329,7 +1329,6 @@ lnet_select_pathway(lnet_nid_t src_nid, lnet_nid_t dst_nid,
 	bool			ni_is_pref = false;
 	bool			preferred = false;
 	int			best_credits = 0;
-	__u32			seq, seq2;
 	int			best_lpni_credits = INT_MIN;
 	int			md_cpt = 0;
 	int			shortest_distance = INT_MAX;
@@ -1372,7 +1371,6 @@ again:
 	 * again
 	 */
 	lpni = NULL;
-	seq = lnet_get_dlc_seq_locked();
 
 	peer = lnet_find_or_create_peer_locked(dst_nid, cpt);
 	if (IS_ERR(peer)) {
@@ -1757,6 +1755,21 @@ pick_peer:
 
 send:
 	/*
+	 * store the best_lpni in the message right away to avoid having
+	 * to do the same operation under different conditions
+	 */
+	msg->msg_txpeer = (routing) ? best_gw : best_lpni;
+	msg->msg_txni = best_ni;
+
+	/*
+	 * grab the reference counters on the peer and ni now while you're
+	 * still locked. When unlocking later to grab the correct cpt
+	 * lock, the peer_ni/ni pair are guaranteed to remain around and
+	 * we won't have to repeat the algorithm.
+	 */
+	lnet_peer_ni_addref_locked(msg->msg_txpeer);
+
+	/*
 	 * Use lnet_cpt_of_nid() to determine the CPT used to commit the
 	 * message. This ensures that we get a CPT that is correct for
 	 * the NI when the NI has been restricted to a subset of all CPTs.
@@ -1767,29 +1780,20 @@ send:
 	 */
 	cpt2 = lnet_cpt_of_nid_locked(best_lpni->lpni_nid, best_ni);
 	if (cpt != cpt2) {
+		lnet_ni_addref_locked(msg->msg_txni, cpt2);
+
 		lnet_net_unlock(cpt);
 		cpt = cpt2;
 		lnet_net_lock(cpt);
-		seq2 = lnet_get_dlc_seq_locked();
-		if (seq2 != seq) {
-			lnet_net_unlock(cpt);
-			goto again;
-		}
+	} else {
+		lnet_ni_addref_locked(msg->msg_txni, cpt);
 	}
 
-	/*
-	 * store the best_lpni in the message right away to avoid having
-	 * to do the same operation under different conditions
-	 */
-	msg->msg_txpeer = (routing) ? best_gw : best_lpni;
-	msg->msg_txni = best_ni;
 	/*
 	 * grab a reference for the best_ni since now it's in use in this
 	 * send. the reference will need to be dropped when the message is
 	 * finished in lnet_finalize()
 	 */
-	lnet_ni_addref_locked(msg->msg_txni, cpt);
-	lnet_peer_ni_addref_locked(msg->msg_txpeer);
 
 	/*
 	 * set the destination nid in the message here because it's

@@ -67,15 +67,6 @@ static __u32 lnet_numa_range = 0;
 CFS_MODULE_PARM(lnet_numa_range, "i", int, 0444,
 		"NUMA range to consider during Multi-Rail selection");
 
-/*
- * This sequence number keeps track of how many times DLC was used to
- * update the configuration. It is incremented on any DLC update and
- * checked when sending a message to determine if there is a need to
- * re-run the selection algorithm to handle configuration change.
- * Look at lnet_select_pathway() for more details on its usage.
- */
-static atomic_t lnet_dlc_seq_no = ATOMIC_INIT(0);
-
 static int lnet_ping(lnet_process_id_t id, int timeout_ms,
 		     lnet_process_id_t __user *ids, int n_ids);
 
@@ -1554,7 +1545,6 @@ lnet_startup_lndnet(struct lnet_net *net)
 
 	lnet_net_lock(LNET_LOCK_EX);
 	list_splice_tail(&local_ni_list, &net_l->net_ni_list);
-	lnet_incr_dlc_seq();
 	lnet_net_unlock(LNET_LOCK_EX);
 
 	/* if the network is not unique then we don't want to keep
@@ -1888,17 +1878,6 @@ LNetNIFini()
 }
 EXPORT_SYMBOL(LNetNIFini);
 
-
-static int lnet_handle_dbg_task(struct lnet_ioctl_dbg *dbg,
-				struct lnet_dbg_task_info *dbg_info)
-{
-	switch (dbg->dbg_task) {
-	case LNET_DBG_INCR_DLC_SEQ:
-		lnet_incr_dlc_seq();
-	}
-
-	return 0;
-}
 
 /**
  * Grabs the ni data from the ni structure and fills the out
@@ -2474,16 +2453,6 @@ out:
 	return rc;
 }
 
-void lnet_incr_dlc_seq(void)
-{
-	atomic_inc(&lnet_dlc_seq_no);
-}
-
-__u32 lnet_get_dlc_seq_locked(void)
-{
-	return atomic_read(&lnet_dlc_seq_no);
-}
-
 inline __u32 lnet_get_numa_range(void)
 {
 	return lnet_numa_range;
@@ -2705,7 +2674,6 @@ LNetCtl(unsigned int cmd, void *arg)
 			return -EINVAL;
 
 		LNET_MUTEX_LOCK(&the_lnet.ln_api_mutex);
-		lnet_incr_dlc_seq();
 		rc = lnet_add_peer_ni_to_peer(cfg->prcfg_key_nid,
 					      cfg->prcfg_cfg_nid,
 					      cfg->prcfg_mr);
@@ -2720,7 +2688,6 @@ LNetCtl(unsigned int cmd, void *arg)
 			return -EINVAL;
 
 		LNET_MUTEX_LOCK(&the_lnet.ln_api_mutex);
-		lnet_incr_dlc_seq();
 		rc = lnet_del_peer_ni_from_peer(cfg->prcfg_key_nid,
 						cfg->prcfg_cfg_nid);
 		LNET_MUTEX_UNLOCK(&the_lnet.ln_api_mutex);
@@ -2806,16 +2773,10 @@ LNetCtl(unsigned int cmd, void *arg)
 		return 0;
 
 	case IOC_LIBCFS_DBG: {
-		struct lnet_ioctl_dbg *dbg = arg;
-		struct lnet_dbg_task_info *dbg_info;
-		size_t total = sizeof(*dbg) + sizeof(*dbg_info);
-
-		if (dbg->dbg_hdr.ioc_len < total)
-			return -EINVAL;
-
-		dbg_info = (struct lnet_dbg_task_info*) dbg->dbg_bulk;
-
-		return lnet_handle_dbg_task(dbg, dbg_info);
+		/*
+		 * TODO: for future use
+		 */
+		return 0;
 	}
 
 
