@@ -2626,6 +2626,61 @@ void lfsck_quit_generic(const struct lu_env *env,
 		     &lwi);
 }
 
+struct dt_object *lfsck_load_one_trace_file(const struct lu_env *env,
+					    struct lfsck_component *com,
+					    struct dt_object *parent,
+					    const struct dt_index_features *ft,
+					    const char *name, bool reset)
+{
+	struct lfsck_instance	*lfsck = com->lc_lfsck;
+	int			 rc;
+
+	if (reset) {
+		rc = local_object_unlink(env, lfsck->li_bottom, parent, name);
+		if (rc != 0 && rc != -ENOENT)
+			return ERR_PTR(rc);
+	}
+
+	return local_index_find_or_create(env, lfsck->li_los, parent, name,
+					  S_IFREG | S_IRUGO | S_IWUSR, ft);
+}
+
+int lfsck_load_sub_trace_files(const struct lu_env *env,
+			       struct lfsck_component *com,
+			       const struct dt_index_features *ft,
+			       const char *prefix, bool reset)
+{
+	char				*name = lfsck_env_info(env)->lti_key;
+	struct lfsck_sub_trace_obj	*lsto;
+	struct dt_object		*obj;
+	int				 rc;
+	int				 i;
+
+	for (i = 0, lsto = &com->lc_sub_trace_objs[0];
+	     i < LFSCK_STF_COUNT; i++, lsto++) {
+		snprintf(name, NAME_MAX, "%s_%02d", prefix, i);
+		if (lsto->lsto_obj != NULL) {
+			if (!reset)
+				continue;
+
+			lfsck_object_put(env, lsto->lsto_obj);
+			lsto->lsto_obj = NULL;
+		}
+
+		obj = lfsck_load_one_trace_file(env, com,
+				com->lc_lfsck->li_lfsck_dir, ft, name, reset);
+		if (IS_ERR(obj))
+			return PTR_ERR(obj);
+
+		lsto->lsto_obj = obj;
+		rc = obj->do_ops->do_index_try(env, obj, ft);
+		if (rc != 0)
+			return rc;
+	}
+
+	return 0;
+}
+
 /* external interfaces */
 
 int lfsck_get_speed(struct seq_file *m, struct dt_device *key)
