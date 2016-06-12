@@ -423,12 +423,17 @@ fetch_url() {
         fatal 1 "fetch_url() called without a target to fetch to"
     fi
 
+    local dir=$target
     if [ -d $target ]; then
         target+="/${url##*/}"
     fi
 
     local rc=0
-    if which wget >/dev/null 2>&1; then
+    if which mytget >/dev/null 2>&1; then
+        if ! mytget "$url" -d "$dir"; then
+		rc=${PIPESTATUS[0]}
+	fi
+    elif which wget >/dev/null 2>&1; then
         if ! wget -nv "$url" -O "$target"; then
             rc=${PIPESTATUS[0]}
         fi
