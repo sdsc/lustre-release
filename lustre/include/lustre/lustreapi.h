@@ -675,6 +675,13 @@ int llapi_layout_file_open(const char *path, int open_flags, mode_t mode,
 int llapi_layout_file_create(const char *path, int open_flags, int mode,
 			     const struct llapi_layout *layout);
 
+/* Lock ahead */
+struct llapi_lock_ahead_arg *llapi_alloc_lla(size_t count, __u32 mode,
+					     __u32 flags);
+int llapi_lock_ahead_one(int fd, __u64 start, __u64 end, __u32 mode,
+			 __u32 flags);
+int llapi_lock_ahead(int fd, struct llapi_lock_ahead_arg *lla);
+
 /** @} llapi */
 
 #endif
