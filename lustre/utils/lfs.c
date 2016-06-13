@@ -390,6 +390,7 @@ command_t cmdlist[] = {
 	 "usage: ladvise [--advice|-a ADVICE] [--start|-s START[kMGT]]\n"
 	 "               [--background|-b]\n"
 	 "               {[--end|-e END[kMGT]] | [--length|-l LENGTH[kMGT]]}\n"
+	 "               {[--mode|-m MODE}\n"
 	 "               <file> ..."},
 	{"help", Parser_help, 0, "help"},
 	{"exit", Parser_quit, 0, "quit"},
@@ -4230,6 +4231,24 @@ static int lfs_swap_layouts(int argc, char **argv)
 
 static const char *const ladvise_names[] = LU_LADVISE_NAMES;
 
+static const char *const user_lockname[] = USER_LOCKNAMES;
+
+static const char *const lock_ahead_results[] = LU_LOCKAHEAD_RESULTS;
+
+int lfs_get_mode(const char *string)
+{
+	enum lock_mode_user mode;
+
+	for (mode = 0; mode < ARRAY_SIZE(user_lockname); mode++) {
+		if (user_lockname[mode] == NULL)
+			continue;
+		if (strcmp(string, user_lockname[mode]) == 0)
+			return mode;
+	}
+
+	return -EINVAL;
+}
+
 static enum lu_ladvise_type lfs_get_ladvice(const char *string)
 {
 	enum lu_ladvise_type advice;
@@ -4250,12 +4269,14 @@ static int lfs_ladvise(int argc, char **argv)
 	struct option		 long_opts[] = {
 		{"advice",	required_argument,	0, 'a'},
 		{"background",	no_argument,		0, 'b'},
+		{"unset",	no_argument,		0, 'u'},
 		{"end",		required_argument,	0, 'e'},
 		{"start",	required_argument,	0, 's'},
 		{"length",	required_argument,	0, 'l'},
+		{"mode",	required_argument,	0, 'm'},
 		{0, 0, 0, 0}
 	};
-	char			 short_opts[] = "a:be:l:s:";
+	char			 short_opts[] = "a:be:l:s:m:";
 	int			 c;
 	int			 rc = 0;
 	const char		*path;
@@ -4267,6 +4288,7 @@ static int lfs_ladvise(int argc, char **argv)
 	unsigned long long	 length = 0;
 	unsigned long long	 size_units;
 	unsigned long long	 flags = 0;
+	int			 mode = 0;
 
 	optind = 0;
 	while ((c = getopt_long(argc, argv, short_opts,
@@ -4294,6 +4316,9 @@ static int lfs_ladvise(int argc, char **argv)
 			break;
 		case 'b':
 			flags |= LF_ASYNC;
+			break;
+		case 'u':
+			flags |= LF_UNSET;
 			break;
 		case 'e':
 			size_units = 1;
@@ -4325,6 +4350,13 @@ static int lfs_ladvise(int argc, char **argv)
 				return CMD_HELP;
 			}
 			break;
+		case 'm':
+			mode = lfs_get_mode(optarg);
+			if (mode < 0) {
+				fprintf(stderr, "%s: bad mode '%s'\n",
+					argv[0], optarg);
+			}
+			break;
 		case '?':
 			return CMD_HELP;
 		default:
@@ -4344,6 +4376,13 @@ static int lfs_ladvise(int argc, char **argv)
 			fprintf(stderr, " %s", ladvise_names[advice_type]);
 		}
 		fprintf(stderr, "\n");
+		return CMD_HELP;
+	}
+
+	if (advice_type == LU_LADVISE_REQUEST_ONLY) {
+		fprintf(stderr, "%s: Request only advice is a per "
+				 "file descriptor advice, so when called from"
+				 "lfs, it does nothing.\n", argv[0]);
 		return CMD_HELP;
 	}
 
@@ -4368,6 +4407,13 @@ static int lfs_ladvise(int argc, char **argv)
 		return CMD_HELP;
 	}
 
+	if (advice_type != LU_LADVISE_LOCK_AHEAD && mode != 0) {
+			fprintf(stderr,
+				"%s: mode is only valid with lockahead\n",
+				argv[0]);
+			return CMD_HELP;
+	}
+
 	while (optind < argc) {
 		int rc2;
 
@@ -4388,6 +4434,11 @@ static int lfs_ladvise(int argc, char **argv)
 		advice.lla_value2 = 0;
 		advice.lla_value3 = 0;
 		advice.lla_value4 = 0;
+		if (advice_type == LU_LADVISE_LOCK_AHEAD) {
+			advice.lla_value1 = mode;
+			advice.lla_value3 = (flags & LF_LOCK_AHEAD_MASK);
+		}
+
 		rc2 = llapi_ladvise(fd, flags, 1, &advice);
 		close(fd);
 		if (rc2 < 0) {
@@ -4396,6 +4447,11 @@ static int lfs_ladvise(int argc, char **argv)
 				ladvise_names[advice_type],
 				path, strerror(errno));
 		}
+
+		if (advice_type == LU_LADVISE_LOCK_AHEAD)
+			fprintf(stdout, "Lock ahead result: %s\n",
+				lock_ahead_results[advice.lla_value3]);
+
 next:
 		if (rc == 0 && rc2 < 0)
 			rc = rc2;
