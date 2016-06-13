@@ -182,6 +182,8 @@ typedef struct
 	struct list_head  ksnn_list;		/* chain on global list */
 	int		  ksnn_npeers;		/* # peers */
 	int		  ksnn_shutdown;	/* shutting down? */
+	atomic_t	  ksnn_nfails;		/* number of connection
+						   attempt failures */
 	int		  ksnn_ninterfaces;	/* IP interfaces */
 	ksock_interface_t ksnn_interfaces[LNET_MAX_INTERFACES];
 } ksock_net_t;
@@ -642,7 +644,7 @@ extern ksock_tx_t *ksocknal_alloc_tx_noop(__u64 cookie, int nonblk);
 extern void ksocknal_next_tx_carrier(ksock_conn_t *conn);
 extern void ksocknal_queue_tx_locked (ksock_tx_t *tx, ksock_conn_t *conn);
 extern void ksocknal_txlist_done(lnet_ni_t *ni, struct list_head *txlist,
-				 int error);
+				 int error, int suppress_unreach_logs);
 extern void ksocknal_notify (lnet_ni_t *ni, lnet_nid_t gw_nid, int alive);
 extern void ksocknal_query (struct lnet_ni *ni, lnet_nid_t nid, cfs_time_t *when);
 extern int ksocknal_thread_start(int (*fn)(void *arg), void *arg, char *name);
