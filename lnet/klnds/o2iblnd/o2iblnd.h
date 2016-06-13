@@ -362,6 +362,8 @@ typedef struct kib_net
 
 	atomic_t		ibn_npeers;	/* # peers extant */
 	atomic_t		ibn_nconns;	/* # connections extant */
+	atomic_t		ibn_nfails;	/* # consecutive connection
+						   creation failures */
 
 	kib_tx_poolset_t	**ibn_tx_ps;	/* tx pool-set */
 	kib_fmr_poolset_t	**ibn_fmr_ps;	/* fmr pool-set */

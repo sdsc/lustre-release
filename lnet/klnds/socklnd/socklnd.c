@@ -131,7 +131,7 @@ ksocknal_create_peer(ksock_peer_t **peerp, lnet_ni_t *ni, lnet_process_id_t id)
 		spin_unlock_bh(&net->ksnn_lock);
 
 		LIBCFS_FREE(peer, sizeof(*peer));
-		CERROR("Can't create peer: network shutdown\n");
+		CNETERR("Can't create peer: network shutdown\n");
 		return -ESHUTDOWN;
 	}
 
@@ -615,7 +615,7 @@ ksocknal_del_peer (lnet_ni_t *ni, lnet_process_id_t id, __u32 ip)
 
 	write_unlock_bh(&ksocknal_data.ksnd_global_lock);
 
-	ksocknal_txlist_done(ni, &zombies, 1);
+	ksocknal_txlist_done(ni, &zombies, 1, 0);
 
 	return rc;
 }
@@ -1224,16 +1224,16 @@ ksocknal_create_conn(lnet_ni_t *ni, ksock_route_t *route,
                 }
         }
 
-        /* If the connection created by this route didn't bind to the IP
-         * address the route connected to, the connection/route matching
-         * code below probably isn't going to work. */
-        if (active &&
-            route->ksnr_ipaddr != conn->ksnc_ipaddr) {
-		CERROR("Route %s %pI4h connected to %pI4h\n",
-                       libcfs_id2str(peer->ksnp_id),
-		       &route->ksnr_ipaddr,
-		       &conn->ksnc_ipaddr);
-        }
+	/* If the connection created by this route didn't bind to the IP
+	 * address the route connected to, the connection/route matching
+	 * code below probably isn't going to work. */
+	if (active &&
+	    route->ksnr_ipaddr != conn->ksnc_ipaddr) {
+		CNETERR("Route %s %pI4h connected to %pI4h\n",
+			libcfs_id2str(peer->ksnp_id),
+			&route->ksnr_ipaddr,
+			&conn->ksnc_ipaddr);
+	}
 
 	/* Search for a route corresponding to the new connection and
 	 * create an association.  This allows incoming connections created
@@ -1358,14 +1358,14 @@ failed_2:
 
 	write_unlock_bh(global_lock);
 
-        if (warn != NULL) {
-                if (rc < 0)
-                        CERROR("Not creating conn %s type %d: %s\n",
-                               libcfs_id2str(peerid), conn->ksnc_type, warn);
-                else
-                        CDEBUG(D_NET, "Not creating conn %s type %d: %s\n",
-                              libcfs_id2str(peerid), conn->ksnc_type, warn);
-        }
+	if (warn != NULL) {
+		if (rc < 0)
+			CNETERR("Not creating conn %s type %d: %s\n",
+				libcfs_id2str(peerid), conn->ksnc_type, warn);
+		else
+			CDEBUG(D_NET, "Not creating conn %s type %d: %s\n",
+				libcfs_id2str(peerid), conn->ksnc_type, warn);
+	}
 
         if (!active) {
                 if (rc > 0) {
@@ -1377,17 +1377,17 @@ failed_2:
                 }
 
 		write_lock_bh(global_lock);
-                peer->ksnp_accepting--;
+		peer->ksnp_accepting--;
 		write_unlock_bh(global_lock);
-        }
+	}
 
-        ksocknal_txlist_done(ni, &zombies, 1);
-        ksocknal_peer_decref(peer);
+	ksocknal_txlist_done(ni, &zombies, 1, 0);
+	ksocknal_peer_decref(peer);
 
  failed_1:
-        if (hello != NULL)
-                LIBCFS_FREE(hello, offsetof(ksock_hello_msg_t,
-                                            kshm_ips[LNET_MAX_INTERFACES]));
+	if (hello != NULL)
+		LIBCFS_FREE(hello, offsetof(ksock_hello_msg_t,
+					    kshm_ips[LNET_MAX_INTERFACES]));
 
 	LIBCFS_FREE(conn, sizeof(*conn));
 
@@ -1633,45 +1633,45 @@ ksocknal_destroy_conn (ksock_conn_t *conn)
 	LASSERT (!conn->ksnc_rx_scheduled);
 	LASSERT(list_empty(&conn->ksnc_tx_queue));
 
-        /* complete current receive if any */
-        switch (conn->ksnc_rx_state) {
-        case SOCKNAL_RX_LNET_PAYLOAD:
-                last_rcv = conn->ksnc_rx_deadline -
-                           cfs_time_seconds(*ksocknal_tunables.ksnd_timeout);
-		CERROR("Completing partial receive from %s[%d], "
-		       "ip %pI4h:%d, with error, wanted: %d, left: %d, "
-                       "last alive is %ld secs ago\n",
-                       libcfs_id2str(conn->ksnc_peer->ksnp_id), conn->ksnc_type,
-		       &conn->ksnc_ipaddr, conn->ksnc_port,
-                       conn->ksnc_rx_nob_wanted, conn->ksnc_rx_nob_left,
-                       cfs_duration_sec(cfs_time_sub(cfs_time_current(),
-                                        last_rcv)));
-                lnet_finalize (conn->ksnc_peer->ksnp_ni,
-                               conn->ksnc_cookie, -EIO);
-                break;
-        case SOCKNAL_RX_LNET_HEADER:
-                if (conn->ksnc_rx_started)
-			CERROR("Incomplete receive of lnet header from %s, "
-			       "ip %pI4h:%d, with error, protocol: %d.x.\n",
-                               libcfs_id2str(conn->ksnc_peer->ksnp_id),
-			       &conn->ksnc_ipaddr, conn->ksnc_port,
-                               conn->ksnc_proto->pro_version);
-                break;
-        case SOCKNAL_RX_KSM_HEADER:
-                if (conn->ksnc_rx_started)
-			CERROR("Incomplete receive of ksock message from %s, "
-			       "ip %pI4h:%d, with error, protocol: %d.x.\n",
-                               libcfs_id2str(conn->ksnc_peer->ksnp_id),
-			       &conn->ksnc_ipaddr, conn->ksnc_port,
-                               conn->ksnc_proto->pro_version);
-                break;
-        case SOCKNAL_RX_SLOP:
-                if (conn->ksnc_rx_started)
-			CERROR("Incomplete receive of slops from %s, "
-			       "ip %pI4h:%d, with error\n",
-                               libcfs_id2str(conn->ksnc_peer->ksnp_id),
-			       &conn->ksnc_ipaddr, conn->ksnc_port);
-               break;
+	/* complete current receive if any */
+	switch (conn->ksnc_rx_state) {
+	case SOCKNAL_RX_LNET_PAYLOAD:
+		last_rcv = conn->ksnc_rx_deadline -
+			   cfs_time_seconds(*ksocknal_tunables.ksnd_timeout);
+		CNETERR("Completing partial receive from %s[%d], "
+			"ip %pI4h:%d, with error, wanted: %d, left: %d, "
+			"last alive is %ld secs ago\n",
+			libcfs_id2str(conn->ksnc_peer->ksnp_id),
+			conn->ksnc_type, &conn->ksnc_ipaddr, conn->ksnc_port,
+			conn->ksnc_rx_nob_wanted, conn->ksnc_rx_nob_left,
+			cfs_duration_sec(cfs_time_sub(cfs_time_current(),
+					 last_rcv)));
+		lnet_finalize(conn->ksnc_peer->ksnp_ni,
+			      conn->ksnc_cookie, -EIO);
+		break;
+	case SOCKNAL_RX_LNET_HEADER:
+		if (conn->ksnc_rx_started)
+			CNETERR("Incomplete receive of lnet header from %s, "
+				"ip %pI4h:%d, with error, protocol: %d.x.\n",
+				libcfs_id2str(conn->ksnc_peer->ksnp_id),
+				&conn->ksnc_ipaddr, conn->ksnc_port,
+				conn->ksnc_proto->pro_version);
+		break;
+	case SOCKNAL_RX_KSM_HEADER:
+		if (conn->ksnc_rx_started)
+			CNETERR("Incomplete receive of ksock message from %s, "
+				"ip %pI4h:%d, with error, protocol: %d.x.\n",
+				libcfs_id2str(conn->ksnc_peer->ksnp_id),
+				&conn->ksnc_ipaddr, conn->ksnc_port,
+				conn->ksnc_proto->pro_version);
+		break;
+	case SOCKNAL_RX_SLOP:
+		if (conn->ksnc_rx_started)
+			CNETERR("Incomplete receive of slops from %s, "
+				"ip %pI4h:%d, with error\n",
+				libcfs_id2str(conn->ksnc_peer->ksnp_id),
+				&conn->ksnc_ipaddr, conn->ksnc_port);
+		break;
         default:
                 LBUG ();
                 break;
@@ -2187,15 +2187,15 @@ ksocknal_ctl(lnet_ni_t *ni, unsigned int cmd, void *arg)
                 return ksocknal_close_matching_conns (id,
                                                       data->ioc_u32[0]);
 
-        case IOC_LIBCFS_REGISTER_MYNID:
-                /* Ignore if this is a noop */
-                if (data->ioc_nid == ni->ni_nid)
-                        return 0;
+	case IOC_LIBCFS_REGISTER_MYNID:
+		/* Ignore if this is a noop */
+		if (data->ioc_nid == ni->ni_nid)
+			return 0;
 
-                CERROR("obsolete IOC_LIBCFS_REGISTER_MYNID: %s(%s)\n",
-                       libcfs_nid2str(data->ioc_nid),
-                       libcfs_nid2str(ni->ni_nid));
-                return -EINVAL;
+		CNETERR("obsolete IOC_LIBCFS_REGISTER_MYNID: %s(%s)\n",
+			libcfs_nid2str(data->ioc_nid),
+			libcfs_nid2str(ni->ni_nid));
+		return -EINVAL;
 
         case IOC_LIBCFS_PUSH_CONNECTION:
                 id.nid = data->ioc_nid;
@@ -2456,7 +2456,7 @@ ksocknal_base_startup(void)
                         ksocknal_tunables.ksnd_nconnds;
         }
 
-        for (i = 0; i < *ksocknal_tunables.ksnd_nconnds; i++) {
+	for (i = 0; i < *ksocknal_tunables.ksnd_nconnds; i++) {
 		char name[16];
 		spin_lock_bh(&ksocknal_data.ksnd_connd_lock);
 		ksocknal_data.ksnd_connd_starting++;
@@ -2470,16 +2470,16 @@ ksocknal_base_startup(void)
 			spin_lock_bh(&ksocknal_data.ksnd_connd_lock);
 			ksocknal_data.ksnd_connd_starting--;
 			spin_unlock_bh(&ksocknal_data.ksnd_connd_lock);
-                        CERROR("Can't spawn socknal connd: %d\n", rc);
-                        goto failed;
-                }
-        }
+			CNETERR("Can't spawn socknal connd: %d\n", rc);
+			goto failed;
+		}
+	}
 
 	rc = ksocknal_thread_start(ksocknal_reaper, NULL, "socknal_reaper");
-        if (rc != 0) {
-                CERROR ("Can't spawn socknal reaper: %d\n", rc);
-                goto failed;
-        }
+	if (rc != 0) {
+		CNETERR("Can't spawn socknal reaper: %d\n", rc);
+		goto failed;
+	}
 
         /* flag everything initialised */
         ksocknal_data.ksnd_init = SOCKNAL_INIT_ALL;
@@ -2607,10 +2607,10 @@ ksocknal_enumerate_interfaces(ksock_net_t *net)
         int         n;
 
 	n = lnet_ipif_enumerate(&names);
-        if (n <= 0) {
-                CERROR("Can't enumerate interfaces: %d\n", n);
-                return n;
-        }
+	if (n <= 0) {
+		CNETERR("Can't enumerate interfaces: %d\n", n);
+		return n;
+	}
 
         for (i = j = 0; i < n; i++) {
                 int        up;
@@ -2644,14 +2644,14 @@ ksocknal_enumerate_interfaces(ksock_net_t *net)
 		strlcpy(net->ksnn_interfaces[j].ksni_name,
 			names[i], sizeof(net->ksnn_interfaces[j].ksni_name));
                 j++;
-        }
+	}
 
 	lnet_ipif_free_enumeration(names, n);
 
-        if (j == 0)
-                CERROR("Can't find any usable interfaces\n");
+	if (j == 0)
+		CNETERR("Can't find any usable interfaces\n");
 
-        return j;
+	return j;
 }
 
 static int
@@ -2733,8 +2733,8 @@ ksocknal_start_schedulers(struct ksock_sched_info *info)
 		if (rc == 0)
 			continue;
 
-		CERROR("Can't spawn thread %d for scheduler[%d]: %d\n",
-		       info->ksi_cpt, info->ksi_nthreads + i, rc);
+		CNETERR("Can't spawn thread %d for scheduler[%d]: %d\n",
+			info->ksi_cpt, info->ksi_nthreads + i, rc);
 		break;
 	}
 
@@ -2812,17 +2812,17 @@ ksocknal_startup (lnet_ni_t *ni)
                                 &net->ksnn_interfaces[i].ksni_ipaddr,
                                 &net->ksnn_interfaces[i].ksni_netmask);
 
-                        if (rc != 0) {
-                                CERROR("Can't get interface %s info: %d\n",
-                                       ni->ni_interfaces[i], rc);
-                                goto fail_1;
-                        }
+			if (rc != 0) {
+				CNETERR("Can't get interface %s info: %d\n",
+					ni->ni_interfaces[i], rc);
+				goto fail_1;
+			}
 
-                        if (!up) {
-                                CERROR("Interface %s is down\n",
-                                       ni->ni_interfaces[i]);
-                                goto fail_1;
-                        }
+			if (!up) {
+				CNETERR("Interface %s is down\n",
+					ni->ni_interfaces[i]);
+				goto fail_1;
+			}
 
 			strlcpy(net->ksnn_interfaces[i].ksni_name,
 				ni->ni_interfaces[i],

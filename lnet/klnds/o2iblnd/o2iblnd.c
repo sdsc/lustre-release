@@ -158,11 +158,11 @@ kiblnd_unpack_rd(kib_msg_t *msg, int flip)
         nob = offsetof (kib_msg_t, ibm_u) +
               kiblnd_rd_msg_size(rd, msg->ibm_type, n);
 
-        if (msg->ibm_nob < nob) {
-                CERROR("Short %s: %d(%d)\n",
-                       kiblnd_msgtype2str(msg->ibm_type), msg->ibm_nob, nob);
-                return 1;
-        }
+	if (msg->ibm_nob < nob) {
+		CNETERR("Short %s: %d(%d)\n",
+			kiblnd_msgtype2str(msg->ibm_type), msg->ibm_nob, nob);
+		return 1;
+	}
 
         if (!flip)
                 return 0;
@@ -209,48 +209,48 @@ kiblnd_unpack_msg(kib_msg_t *msg, int nob)
         int       msg_nob;
         int       flip;
 
-        /* 6 bytes are enough to have received magic + version */
-        if (nob < 6) {
-                CERROR("Short message: %d\n", nob);
-                return -EPROTO;
-        }
+	/* 6 bytes are enough to have received magic + version */
+	if (nob < 6) {
+		CNETERR("Short message: %d\n", nob);
+		return -EPROTO;
+	}
 
         if (msg->ibm_magic == IBLND_MSG_MAGIC) {
                 flip = 0;
         } else if (msg->ibm_magic == __swab32(IBLND_MSG_MAGIC)) {
                 flip = 1;
-        } else {
-                CERROR("Bad magic: %08x\n", msg->ibm_magic);
-                return -EPROTO;
-        }
+	} else {
+		CNETERR("Bad magic: %08x\n", msg->ibm_magic);
+		return -EPROTO;
+	}
 
-        version = flip ? __swab16(msg->ibm_version) : msg->ibm_version;
-        if (version != IBLND_MSG_VERSION &&
-            version != IBLND_MSG_VERSION_1) {
-                CERROR("Bad version: %x\n", version);
-                return -EPROTO;
-        }
+	version = flip ? __swab16(msg->ibm_version) : msg->ibm_version;
+	if (version != IBLND_MSG_VERSION &&
+	    version != IBLND_MSG_VERSION_1) {
+		CNETERR("Bad version: %x\n", version);
+		return -EPROTO;
+	}
 
-        if (nob < hdr_size) {
-                CERROR("Short message: %d\n", nob);
-                return -EPROTO;
-        }
+	if (nob < hdr_size) {
+		CNETERR("Short message: %d\n", nob);
+		return -EPROTO;
+	}
 
-        msg_nob = flip ? __swab32(msg->ibm_nob) : msg->ibm_nob;
-        if (msg_nob > nob) {
-                CERROR("Short message: got %d, wanted %d\n", nob, msg_nob);
-                return -EPROTO;
-        }
+	msg_nob = flip ? __swab32(msg->ibm_nob) : msg->ibm_nob;
+	if (msg_nob > nob) {
+		CNETERR("Short message: got %d, wanted %d\n", nob, msg_nob);
+		return -EPROTO;
+	}
 
-        /* checksum must be computed with ibm_cksum zero and BEFORE anything
-         * gets flipped */
-        msg_cksum = flip ? __swab32(msg->ibm_cksum) : msg->ibm_cksum;
-        msg->ibm_cksum = 0;
-        if (msg_cksum != 0 &&
-            msg_cksum != kiblnd_cksum(msg, msg_nob)) {
-                CERROR("Bad checksum\n");
-                return -EPROTO;
-        }
+	/* checksum must be computed with ibm_cksum zero and BEFORE anything
+	 * gets flipped */
+	msg_cksum = flip ? __swab32(msg->ibm_cksum) : msg->ibm_cksum;
+	msg->ibm_cksum = 0;
+	if (msg_cksum != 0 &&
+	    msg_cksum != kiblnd_cksum(msg, msg_nob)) {
+		CNETERR("Bad checksum\n");
+		return -EPROTO;
+	}
 
         msg->ibm_cksum = msg_cksum;
 
@@ -266,21 +266,21 @@ kiblnd_unpack_msg(kib_msg_t *msg, int nob)
                 __swab64s(&msg->ibm_dststamp);
         }
 
-        if (msg->ibm_srcnid == LNET_NID_ANY) {
-                CERROR("Bad src nid: %s\n", libcfs_nid2str(msg->ibm_srcnid));
-                return -EPROTO;
-        }
+	if (msg->ibm_srcnid == LNET_NID_ANY) {
+		CNETERR("Bad src nid: %s\n", libcfs_nid2str(msg->ibm_srcnid));
+		return -EPROTO;
+	}
 
-        if (msg_nob < kiblnd_msgtype2size(msg->ibm_type)) {
-                CERROR("Short %s: %d(%d)\n", kiblnd_msgtype2str(msg->ibm_type),
-                       msg_nob, kiblnd_msgtype2size(msg->ibm_type));
-                return -EPROTO;
-        }
+	if (msg_nob < kiblnd_msgtype2size(msg->ibm_type)) {
+		CNETERR("Short %s: %d(%d)\n", kiblnd_msgtype2str(msg->ibm_type),
+			msg_nob, kiblnd_msgtype2size(msg->ibm_type));
+		return -EPROTO;
+	}
 
-        switch (msg->ibm_type) {
-        default:
-                CERROR("Unknown message type %x\n", msg->ibm_type);
-                return -EPROTO;
+	switch (msg->ibm_type) {
+	default:
+		CNETERR("Unknown message type %x\n", msg->ibm_type);
+		return -EPROTO;
 
         case IBLND_MSG_NOOP:
         case IBLND_MSG_IMMEDIATE:
@@ -768,7 +768,7 @@ kiblnd_create_conn(kib_peer_t *peer, struct rdma_cm_id *cmid,
 	write_lock_irqsave(glock, flags);
 	if (dev->ibd_failover) {
 		write_unlock_irqrestore(glock, flags);
-		CERROR("%s: failover in progress\n", dev->ibd_ifname);
+		CNETERR("%s: failover in progress\n", dev->ibd_ifname);
 		goto failed_2;
 	}
 
@@ -781,8 +781,8 @@ kiblnd_create_conn(kib_peer_t *peer, struct rdma_cm_id *cmid,
 		}
 
 		write_unlock_irqrestore(glock, flags);
-		CERROR("cmid HCA(%s), kib_dev(%s) need failover\n",
-		       cmid->device->name, dev->ibd_ifname);
+		CNETERR("cmid HCA(%s), kib_dev(%s) need failover\n",
+			cmid->device->name, dev->ibd_ifname);
 		goto failed_2;
 	}
 
@@ -820,7 +820,7 @@ kiblnd_create_conn(kib_peer_t *peer, struct rdma_cm_id *cmid,
 			  kiblnd_get_completion_vector(conn, cpt));
 #endif
 	if (IS_ERR(cq)) {
-		CERROR("Failed to create CQ with %d CQEs: %ld\n",
+		CNETERR("Failed to create CQ with %d CQEs: %ld\n",
 			IBLND_CQ_ENTRIES(conn), PTR_ERR(cq));
 		goto failed_2;
 	}
@@ -829,7 +829,7 @@ kiblnd_create_conn(kib_peer_t *peer, struct rdma_cm_id *cmid,
 
 	rc = ib_req_notify_cq(cq, IB_CQ_NEXT_COMP);
 	if (rc != 0) {
-		CERROR("Can't request completion notification: %d\n", rc);
+		CNETERR("Can't request completion notification: %d\n", rc);
 		goto failed_2;
 	}
 
@@ -855,7 +855,7 @@ kiblnd_create_conn(kib_peer_t *peer, struct rdma_cm_id *cmid,
 	} while (rc);
 
 	if (rc) {
-		CERROR("Can't create QP: %d, send_wr: %d, recv_wr: %d\n",
+		CNETERR("Can't create QP: %d, send_wr: %d, recv_wr: %d\n",
 			rc, init_qp_attr->cap.max_send_wr,
 			init_qp_attr->cap.max_recv_wr);
 		goto failed_2;
@@ -875,7 +875,7 @@ kiblnd_create_conn(kib_peer_t *peer, struct rdma_cm_id *cmid,
 	for (i = 0; i < IBLND_RX_MSGS(conn); i++) {
 		rc = kiblnd_post_rx(&conn->ibc_rxs[i], IBLND_POSTRX_NO_CREDIT);
 		if (rc != 0) {
-			CERROR("Can't post rxmsg: %d\n", rc);
+			CNETERR("Can't post rxmsg: %d\n", rc);
 
 			/* Make posted receives complete */
 			kiblnd_abort_receives(conn);
@@ -1426,7 +1426,7 @@ kiblnd_destroy_fmr_pool(kib_fmr_pool_t *fpo)
 			i++;
 		}
 		if (i < fpo->fast_reg.fpo_pool_size)
-			CERROR("FastReg pool still has %d regions registered\n",
+			CNETERR("FastReg pool still has %d regions registered\n",
 				fpo->fast_reg.fpo_pool_size - i);
 	}
 
@@ -1484,9 +1484,9 @@ static int kiblnd_alloc_fmr_pool(kib_fmr_poolset_t *fps, kib_fmr_pool_t *fpo)
 	if (IS_ERR(fpo->fmr.fpo_fmr_pool)) {
 		rc = PTR_ERR(fpo->fmr.fpo_fmr_pool);
 		if (rc != -ENOSYS)
-			CERROR("Failed to create FMR pool: %d\n", rc);
+			CNETERR("Failed to create FMR pool: %d\n", rc);
 		else
-			CERROR("FMRs are not supported\n");
+			CNETERR("FMRs are not supported\n");
 	}
 
 	return rc;
@@ -1514,7 +1514,7 @@ static int kiblnd_alloc_freg_pool(kib_fmr_poolset_t *fps, kib_fmr_pool_t *fpo)
 							    LNET_MAX_PAYLOAD/PAGE_SIZE);
 		if (IS_ERR(frd->frd_frpl)) {
 			rc = PTR_ERR(frd->frd_frpl);
-			CERROR("Failed to allocate ib_fast_reg_page_list: %d\n",
+			CNETERR("Failed to allocate ib_fast_reg_page_list: %d\n",
 				rc);
 			frd->frd_frpl = NULL;
 			goto out_middle;
@@ -1531,7 +1531,7 @@ static int kiblnd_alloc_freg_pool(kib_fmr_poolset_t *fps, kib_fmr_pool_t *fpo)
 #endif
 		if (IS_ERR(frd->frd_mr)) {
 			rc = PTR_ERR(frd->frd_mr);
-			CERROR("Failed to allocate ib_fast_reg_mr: %d\n", rc);
+			CNETERR("Failed to allocate ib_fast_reg_mr: %d\n", rc);
 			frd->frd_mr = NULL;
 			goto out_middle;
 		}
@@ -1594,7 +1594,7 @@ kiblnd_create_fmr_pool(kib_fmr_poolset_t *fps, kib_fmr_pool_t **pp_fpo)
 #else
 	rc = ib_query_device(fpo->fpo_hdev->ibh_ibdev, dev_attr);
 	if (rc) {
-		CERROR("Query device failed for %s: %d\n",
+		CNETERR("Query device failed for %s: %d\n",
 			fpo->fpo_hdev->ibh_ibdev->name, rc);
 		goto out_dev_attr;
 	}
@@ -1880,8 +1880,8 @@ again:
 						 tx->tx_nfrags, PAGE_SIZE);
 #endif
 				if (unlikely(n != tx->tx_nfrags)) {
-					CERROR("Failed to map mr %d/%d "
-					       "elements\n", n, tx->tx_nfrags);
+					CNETERR("Failed to map mr %d/%d "
+						"elements\n", n, tx->tx_nfrags);
 					return n < 0 ? n : -EINVAL;
 				}
 
@@ -2079,7 +2079,8 @@ kiblnd_init_poolset(kib_poolset_t *ps, int cpt,
 	if (rc == 0)
 		list_add(&pool->po_list, &ps->ps_pool_list);
 	else
-		CERROR("Failed to create the first pool for %s\n", ps->ps_name);
+		CNETERR("Failed to create the first pool for %s\n",
+			ps->ps_name);
 
 	return rc;
 }
@@ -2193,8 +2194,8 @@ again:
 		list_add_tail(&pool->po_list, &ps->ps_pool_list);
 	} else {
 		ps->ps_next_retry = cfs_time_shift(IBLND_POOL_RETRY);
-		CERROR("Can't allocate new %s pool because out of memory\n",
-		       ps->ps_name);
+		CNETERR("Can't allocate new %s pool because out of memory\n",
+			ps->ps_name);
 	}
 	spin_unlock(&ps->ps_lock);
 
@@ -2278,7 +2279,7 @@ kiblnd_create_tx_pool(kib_poolset_t *ps, int size, kib_pool_t **pp_po)
 
         npg = (size * IBLND_MSG_SIZE + PAGE_SIZE - 1) / PAGE_SIZE;
 	if (kiblnd_alloc_pages(&tpo->tpo_tx_pages, ps->ps_cpt, npg) != 0) {
-		CERROR("Can't allocate tx pages: %d\n", npg);
+		CNETERR("Can't allocate tx pages: %d\n", npg);
 		LIBCFS_FREE(tpo, sizeof(kib_tx_pool_t));
 		return -ENOMEM;
 	}
@@ -2404,9 +2405,9 @@ kiblnd_net_init_pools(kib_net_t *net, lnet_ni_t *ni, __u32 *cpts, int ncpts)
 	read_unlock_irqrestore(&kiblnd_data.kib_global_lock, flags);
 
 	if (tunables->lnd_fmr_pool_size < *kiblnd_tunables.kib_ntx / 4) {
-		CERROR("Can't set fmr pool size (%d) < ntx / 4(%d)\n",
-		       tunables->lnd_fmr_pool_size,
-		       *kiblnd_tunables.kib_ntx / 4);
+		CNETERR("Can't set fmr pool size (%d) < ntx / 4(%d)\n",
+			tunables->lnd_fmr_pool_size,
+			*kiblnd_tunables.kib_ntx / 4);
 		rc = -EINVAL;
 		goto failed;
 	}
@@ -2431,8 +2432,8 @@ kiblnd_net_init_pools(kib_net_t *net, lnet_ni_t *ni, __u32 *cpts, int ncpts)
 		rc = kiblnd_init_fmr_poolset(net->ibn_fmr_ps[cpt], cpt, ncpts,
 					     net, tunables);
 		if (rc != 0) {
-			CERROR("Can't initialize FMR pool for CPT %d: %d\n",
-			       cpt, rc);
+			CNETERR("Can't initialize FMR pool for CPT %d: %d\n",
+				cpt, rc);
 			goto failed;
 		}
 	}
@@ -2458,8 +2459,8 @@ kiblnd_net_init_pools(kib_net_t *net, lnet_ni_t *ni, __u32 *cpts, int ncpts)
 					 kiblnd_destroy_tx_pool,
 					 kiblnd_tx_init, NULL);
 		if (rc != 0) {
-			CERROR("Can't initialize TX pool for CPT %d: %d\n",
-			       cpt, rc);
+			CNETERR("Can't initialize TX pool for CPT %d: %d\n",
+				cpt, rc);
 			goto failed;
 		}
 	}
@@ -2500,10 +2501,10 @@ kiblnd_hdev_get_attr(kib_hca_dev_t *hdev)
 
         LIBCFS_FREE(attr, sizeof(*attr));
 
-        if (rc != 0) {
-                CERROR("Failed to query IB device: %d\n", rc);
-                return rc;
-        }
+	if (rc != 0) {
+		CNETERR("Failed to query IB device: %d\n", rc);
+		return rc;
+	}
 #endif
 
         if (hdev->ibh_mr_size == ~0ULL) {
@@ -2511,8 +2512,8 @@ kiblnd_hdev_get_attr(kib_hca_dev_t *hdev)
                 return 0;
         }
 
-	CERROR("Invalid mr size: %#llx\n", hdev->ibh_mr_size);
-        return -EINVAL;
+	CNETERR("Invalid mr size: %#llx\n", hdev->ibh_mr_size);
+	return -EINVAL;
 }
 
 static void
@@ -2554,7 +2555,7 @@ kiblnd_hdev_setup_mrs(kib_hca_dev_t *hdev)
 
 	mr = ib_get_dma_mr(hdev->ibh_pd, acflags);
 	if (IS_ERR(mr)) {
-		CERROR("Failed ib_get_dma_mr: %ld\n", PTR_ERR(mr));
+		CNETERR("Failed ib_get_dma_mr: %ld\n", PTR_ERR(mr));
 		kiblnd_hdev_cleanup_mrs(hdev);
 		return PTR_ERR(mr);
 	}
@@ -2595,11 +2596,11 @@ kiblnd_dev_need_failover(kib_dev_t *dev)
          * b. rdma_resolve_addr() to zero addr */
         cmid = kiblnd_rdma_create_id(kiblnd_dummy_callback, dev, RDMA_PS_TCP,
                                      IB_QPT_RC);
-        if (IS_ERR(cmid)) {
-                rc = PTR_ERR(cmid);
-                CERROR("Failed to create cmid for failover: %d\n", rc);
-                return rc;
-        }
+	if (IS_ERR(cmid)) {
+		rc = PTR_ERR(cmid);
+		CNETERR("Failed to create cmid for failover: %d\n", rc);
+		return rc;
+	}
 
         memset(&srcaddr, 0, sizeof(srcaddr));
         srcaddr.sin_family      = AF_INET;
@@ -2610,12 +2611,12 @@ kiblnd_dev_need_failover(kib_dev_t *dev)
         rc = rdma_resolve_addr(cmid, (struct sockaddr *)&srcaddr,
                                (struct sockaddr *)&dstaddr, 1);
 	if (rc != 0 || cmid->device == NULL) {
-		CERROR("Failed to bind %s:%pI4h to device(%p): %d\n",
-		       dev->ibd_ifname, &dev->ibd_ifip,
-		       cmid->device, rc);
-                rdma_destroy_id(cmid);
-                return rc;
-        }
+		CNETERR("Failed to bind %s:%pI4h to device(%p): %d\n",
+			dev->ibd_ifname, &dev->ibd_ifip,
+			cmid->device, rc);
+		rdma_destroy_id(cmid);
+		return rc;
+	}
 
 	rc = dev->ibd_hdev->ibh_ibdev != cmid->device; /* true for failover */
 	rdma_destroy_id(cmid);
@@ -2665,26 +2666,26 @@ kiblnd_dev_failover(kib_dev_t *dev)
 
         cmid = kiblnd_rdma_create_id(kiblnd_cm_callback, dev, RDMA_PS_TCP,
                                      IB_QPT_RC);
-        if (IS_ERR(cmid)) {
-                rc = PTR_ERR(cmid);
-                CERROR("Failed to create cmid for failover: %d\n", rc);
-                goto out;
-        }
+	if (IS_ERR(cmid)) {
+		rc = PTR_ERR(cmid);
+		CNETERR("Failed to create cmid for failover: %d\n", rc);
+		goto out;
+	}
 
         memset(&addr, 0, sizeof(addr));
         addr.sin_family      = AF_INET;
         addr.sin_addr.s_addr = (__force u32)htonl(dev->ibd_ifip);
         addr.sin_port        = htons(*kiblnd_tunables.kib_service);
 
-        /* Bind to failover device or port */
-        rc = rdma_bind_addr(cmid, (struct sockaddr *)&addr);
+	/* Bind to failover device or port */
+	rc = rdma_bind_addr(cmid, (struct sockaddr *)&addr);
 	if (rc != 0 || cmid->device == NULL) {
-		CERROR("Failed to bind %s:%pI4h to device(%p): %d\n",
-		       dev->ibd_ifname, &dev->ibd_ifip,
-		       cmid->device, rc);
-                rdma_destroy_id(cmid);
-                goto out;
-        }
+		CNETERR("Failed to bind %s:%pI4h to device(%p): %d\n",
+			dev->ibd_ifname, &dev->ibd_ifip,
+			cmid->device, rc);
+		rdma_destroy_id(cmid);
+		goto out;
+	}
 
 	LIBCFS_ALLOC(hdev, sizeof(*hdev));
         if (hdev == NULL) {
@@ -2699,26 +2700,26 @@ kiblnd_dev_failover(kib_dev_t *dev)
         hdev->ibh_cmid  = cmid;
         hdev->ibh_ibdev = cmid->device;
 
-        pd = ib_alloc_pd(cmid->device);
-        if (IS_ERR(pd)) {
-                rc = PTR_ERR(pd);
-                CERROR("Can't allocate PD: %d\n", rc);
-                goto out;
-        }
+	pd = ib_alloc_pd(cmid->device);
+	if (IS_ERR(pd)) {
+		rc = PTR_ERR(pd);
+		CNETERR("Can't allocate PD: %d\n", rc);
+		goto out;
+	}
 
         hdev->ibh_pd = pd;
 
-        rc = rdma_listen(cmid, 0);
-        if (rc != 0) {
-                CERROR("Can't start new listener: %d\n", rc);
-                goto out;
-        }
+	rc = rdma_listen(cmid, 0);
+	if (rc != 0) {
+		CNETERR("Can't start new listener: %d\n", rc);
+		goto out;
+	}
 
-        rc = kiblnd_hdev_setup_mrs(hdev);
-        if (rc != 0) {
-                CERROR("Can't setup device: %d\n", rc);
-                goto out;
-        }
+	rc = kiblnd_hdev_setup_mrs(hdev);
+	if (rc != 0) {
+		CNETERR("Can't setup device: %d\n", rc);
+		goto out;
+	}
 
 	write_lock_irqsave(&kiblnd_data.kib_global_lock, flags);
 
@@ -2782,16 +2783,16 @@ kiblnd_create_dev(char *ifname)
         int                rc;
 
 	rc = lnet_ipif_query(ifname, &up, &ip, &netmask);
-        if (rc != 0) {
-                CERROR("Can't query IPoIB interface %s: %d\n",
-                       ifname, rc);
-                return NULL;
-        }
+	if (rc != 0) {
+		CNETERR("Can't query IPoIB interface %s: %d\n",
+			ifname, rc);
+		return NULL;
+	}
 
-        if (!up) {
-                CERROR("Can't query IPoIB interface %s: it's down\n", ifname);
-                return NULL;
-        }
+	if (!up) {
+		CNETERR("Can't query IPoIB interface %s: it's down\n", ifname);
+		return NULL;
+	}
 
         LIBCFS_ALLOC(dev, sizeof(*dev));
         if (dev == NULL)
@@ -2811,13 +2812,13 @@ kiblnd_create_dev(char *ifname)
         dev->ibd_ifip = ip;
         strcpy(&dev->ibd_ifname[0], ifname);
 
-        /* initialize the device */
-        rc = kiblnd_dev_failover(dev);
-        if (rc != 0) {
-                CERROR("Can't initialize device: %d\n", rc);
-                LIBCFS_FREE(dev, sizeof(*dev));
-                return NULL;
-        }
+	/* initialize the device */
+	rc = kiblnd_dev_failover(dev);
+	if (rc != 0) {
+		CNETERR("Can't initialize device: %d\n", rc);
+		LIBCFS_FREE(dev, sizeof(*dev));
+		return NULL;
+	}
 
 	list_add_tail(&dev->ibd_list,
                           &kiblnd_data.kib_devs);
@@ -3122,8 +3123,8 @@ kiblnd_dev_start_threads(kib_dev_t *dev, int newdev, __u32 *cpts, int ncpts)
 
 		rc = kiblnd_start_schedulers(kiblnd_data.kib_scheds[cpt]);
 		if (rc != 0) {
-			CERROR("Failed to start scheduler threads for %s\n",
-			       dev->ibd_ifname);
+			CNETERR("Failed to start scheduler threads for %s\n",
+				dev->ibd_ifname);
 			return rc;
 		}
 	}
@@ -3196,20 +3197,20 @@ kiblnd_startup (lnet_ni_t *ni)
                 /* Use the IPoIB interface specified in 'networks=' */
 
                 CLASSERT (LNET_MAX_INTERFACES > 1);
-                if (ni->ni_interfaces[1] != NULL) {
-                        CERROR("Multiple interfaces not supported\n");
-                        goto failed;
-                }
+		if (ni->ni_interfaces[1] != NULL) {
+			CNETERR("Multiple interfaces not supported\n");
+			goto failed;
+		}
 
                 ifname = ni->ni_interfaces[0];
         } else {
                 ifname = *kiblnd_tunables.kib_default_ipif;
         }
 
-        if (strlen(ifname) >= sizeof(ibdev->ibd_ifname)) {
-                CERROR("IPoIB interface name too long: %s\n", ifname);
-                goto failed;
-        }
+	if (strlen(ifname) >= sizeof(ibdev->ibd_ifname)) {
+		CNETERR("IPoIB interface name too long: %s\n", ifname);
+		goto failed;
+	}
 
 	ibdev = kiblnd_dev_search(ifname);
 
@@ -3230,10 +3231,10 @@ kiblnd_startup (lnet_ni_t *ni)
 		goto failed;
 
 	rc = kiblnd_net_init_pools(net, ni, ni->ni_cpts, ni->ni_ncpts);
-        if (rc != 0) {
-                CERROR("Failed to initialize NI pools: %d\n", rc);
-                goto failed;
-        }
+	if (rc != 0) {
+		CNETERR("Failed to initialize NI pools: %d\n", rc);
+		goto failed;
+	}
 
 	write_lock_irqsave(&kiblnd_data.kib_global_lock, flags);
 	ibdev->ibd_nnets++;
