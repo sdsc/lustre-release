@@ -733,9 +733,11 @@ void lnet_register_lnd(lnd_t *lnd);
 void lnet_unregister_lnd(lnd_t *lnd);
 
 int lnet_connect(struct socket **sockp, lnet_nid_t peer_nid,
-                 __u32 local_ip, __u32 peer_ip, int peer_port);
+		 __u32 local_ip, __u32 peer_ip, int peer_port,
+		 int suppress_unreach_logs);
 void lnet_connect_console_error(int rc, lnet_nid_t peer_nid,
-                                __u32 peer_ip, int port);
+				__u32 peer_ip, int port,
+				int suppress_unreach_logs);
 int lnet_count_acceptor_nis(void);
 int lnet_acceptor_timeout(void);
 int lnet_acceptor_port(void);
@@ -755,7 +757,8 @@ int lnet_sock_listen(struct socket **sockp, __u32 ip, int port, int backlog);
 int lnet_sock_accept(struct socket **newsockp, struct socket *sock);
 int lnet_sock_connect(struct socket **sockp, int *fatal,
 			__u32 local_ip, int local_port,
-			__u32 peer_ip, int peer_port);
+			__u32 peer_ip, int peer_port,
+			int suppress_unreach_logs);
 
 int lnet_peers_start_down(void);
 int lnet_peer_buffer_credits(lnet_ni_t *ni);
