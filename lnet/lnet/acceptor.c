@@ -95,21 +95,36 @@ EXPORT_SYMBOL(lnet_acceptor_timeout);
 
 void
 lnet_connect_console_error (int rc, lnet_nid_t peer_nid,
-			   __u32 peer_ip, int peer_port)
+			    __u32 peer_ip, int peer_port,
+			    int suppress_unreach_logs)
 {
 	switch (rc) {
 	/* "normal" errors */
 	case -ECONNREFUSED:
-		CNETERR("Connection to %s at host %pI4h on port %d was "
-			"refused: check that Lustre is running on that node.\n",
-			libcfs_nid2str(peer_nid), &peer_ip, peer_port);
+		if (suppress_unreach_logs)
+			CDEBUG(D_NET,
+			       "Connection to %s at host %pI4h on port %d was "
+			       "refused: check that Lustre is running on that "
+			       "node.\n",
+			       libcfs_nid2str(peer_nid), &peer_ip, peer_port);
+		else
+			CNETERR("Connection to %s at host %pI4h on port %d was "
+				"refused: check that Lustre is running on that "
+				"node.\n",
+				libcfs_nid2str(peer_nid), &peer_ip, peer_port);
 		break;
 	case -EHOSTUNREACH:
 	case -ENETUNREACH:
-		CNETERR("Connection to %s at host %pI4h "
-			"was unreachable: the network or that node may "
-			"be down, or Lustre may be misconfigured.\n",
-			libcfs_nid2str(peer_nid), &peer_ip);
+		if (suppress_unreach_logs)
+			CDEBUG(D_NET, "Connection to %s at host %pI4h "
+			       "was unreachable: the network or that node may "
+			       "be down, or Lustre may be misconfigured.\n",
+			       libcfs_nid2str(peer_nid), &peer_ip);
+		else
+			CNETERR("Connection to %s at host %pI4h "
+				"was unreachable: the network or that node may "
+				"be down, or Lustre may be misconfigured.\n",
+				libcfs_nid2str(peer_nid), &peer_ip);
 		break;
 	case -ETIMEDOUT:
 		CNETERR("Connection to %s at host %pI4h on "
@@ -118,12 +133,12 @@ lnet_connect_console_error (int rc, lnet_nid_t peer_nid,
 			libcfs_nid2str(peer_nid), &peer_ip, peer_port);
 		break;
 	case -ECONNRESET:
-		LCONSOLE_ERROR_MSG(0x11b, "Connection to %s at host %pI4h"
-				   " on port %d was reset: "
-				   "is it running a compatible version of "
-				   "Lustre and is %s one of its NIDs?\n",
-				   libcfs_nid2str(peer_nid), &peer_ip,
-				   peer_port, libcfs_nid2str(peer_nid));
+		CNETERR("Connection to %s at host %pI4h"
+			" on port %d was reset: "
+			"is it running a compatible version of "
+			"Lustre and is %s one of its NIDs?\n",
+			libcfs_nid2str(peer_nid), &peer_ip,
+			peer_port, libcfs_nid2str(peer_nid));
 		break;
 	case -EPROTO:
 		LCONSOLE_ERROR_MSG(0x11c, "Protocol error connecting to %s at "
@@ -150,7 +165,8 @@ EXPORT_SYMBOL(lnet_connect_console_error);
 
 int
 lnet_connect(struct socket **sockp, lnet_nid_t peer_nid,
-	    __u32 local_ip, __u32 peer_ip, int peer_port)
+	     __u32 local_ip, __u32 peer_ip, int peer_port,
+	     int suppress_unreach_logs)
 {
 	lnet_acceptor_connreq_t cr;
 	struct socket		*sock;
@@ -166,8 +182,9 @@ lnet_connect(struct socket **sockp, lnet_nid_t peer_nid,
 		/* Iterate through reserved ports. */
 
 		rc = lnet_sock_connect(&sock, &fatal,
-					 local_ip, port,
-					 peer_ip, peer_port);
+				       local_ip, port,
+				       peer_ip, peer_port,
+				       suppress_unreach_logs);
 		if (rc != 0) {
 			if (fatal)
 				goto failed;
@@ -209,7 +226,8 @@ lnet_connect(struct socket **sockp, lnet_nid_t peer_nid,
 failed_sock:
 	sock_release(sock);
 failed:
-	lnet_connect_console_error(rc, peer_nid, peer_ip, peer_port);
+	lnet_connect_console_error(rc, peer_nid, peer_ip, peer_port,
+				   suppress_unreach_logs);
 	return rc;
 }
 EXPORT_SYMBOL(lnet_connect);
