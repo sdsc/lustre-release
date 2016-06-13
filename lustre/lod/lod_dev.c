@@ -270,10 +270,10 @@ static int lod_sub_process_config(const struct lu_env *env,
 }
 
 struct lod_recovery_data {
-	struct lod_device	*lrd_lod;
-	struct lod_tgt_desc	*lrd_ltd;
-	struct ptlrpc_thread	*lrd_thread;
-	__u32			lrd_idx;
+	struct lod_device			*lrd_lod;
+	struct lod_tgt_desc			*lrd_ltd;
+	struct ptlrpc_thread			*lrd_thread;
+	struct target_update_recovery_data	 lrd_turd;
 };
 
 
@@ -359,9 +359,8 @@ static int lod_sub_recovery_thread(void *arg)
 	struct ptlrpc_thread		*thread = lrd->lrd_thread;
 	struct llog_ctxt		*ctxt = NULL;
 	struct lu_env			env;
-	struct lu_target *lut;
-
-
+	struct lu_target		*lut;
+	struct obd_device		*obd;
 	int				rc;
 	ENTRY;
 
@@ -377,14 +376,19 @@ static int lod_sub_recovery_thread(void *arg)
 	}
 
 	lut = lod2lu_dev(lod)->ld_site->ls_tgt;
-	atomic_inc(&lut->lut_tdtd->tdtd_recovery_threads_count);
+	obd = lod->lod_dt_dev.dd_lu_dev.ld_site->ls_top_dev->ld_obd;
+	spin_lock(&obd->obd_recovery_task_lock);
+	list_add_tail(&lrd->lrd_turd.turd_list,
+		      &obd->obd_update_recovery_list);
+	atomic_inc(&obd->obd_update_recovery_threads);
+	spin_unlock(&obd->obd_recovery_task_lock);
 	if (lrd->lrd_ltd == NULL)
 		dt = lod->lod_child;
 	else
 		dt = lrd->lrd_ltd->ltd_tgt;
 
 again:
-	rc = lod_sub_prep_llog(&env, lod, dt, lrd->lrd_idx);
+	rc = lod_sub_prep_llog(&env, lod, dt, lrd->lrd_turd.turd_index);
 	if (rc == 0) {
 		/* Process the recovery record */
 		ctxt = llog_get_context(dt->dd_lu_dev.ld_obd,
@@ -397,15 +401,11 @@ again:
 	}
 
 	if (rc < 0) {
-		struct lu_device *top_device;
-
-		top_device = lod->lod_dt_dev.dd_lu_dev.ld_site->ls_top_dev;
 		/* Because the remote target might failover at the same time,
 		 * let's retry here */
 		if ((rc == -ETIMEDOUT || rc == -EAGAIN || rc == -EIO) &&
 		     dt != lod->lod_child &&
-		    !top_device->ld_obd->obd_abort_recovery &&
-		    !top_device->ld_obd->obd_stopping) {
+		    !obd->obd_abort_recovery && !obd->obd_stopping) {
 			if (ctxt != NULL) {
 				if (ctxt->loc_handle != NULL)
 					llog_cat_close(&env,
@@ -419,11 +419,10 @@ again:
 		       dt->dd_lu_dev.ld_obd->obd_name, rc);
 		llog_ctxt_put(ctxt);
 
-		spin_lock(&top_device->ld_obd->obd_dev_lock);
-		if (!top_device->ld_obd->obd_abort_recovery &&
-		    !top_device->ld_obd->obd_stopping)
-			top_device->ld_obd->obd_abort_recovery = 1;
-		spin_unlock(&top_device->ld_obd->obd_dev_lock);
+		spin_lock(&obd->obd_dev_lock);
+		if (!obd->obd_abort_recovery && !obd->obd_stopping)
+			obd->obd_abort_recovery = 1;
+		spin_unlock(&obd->obd_dev_lock);
 
 		GOTO(out, rc);
 	}
@@ -460,11 +459,14 @@ again:
 	}
 
 out:
-	OBD_FREE_PTR(lrd);
 	thread->t_flags = SVC_STOPPED;
-	atomic_dec(&lut->lut_tdtd->tdtd_recovery_threads_count);
+	spin_lock(&obd->obd_recovery_task_lock);
+	atomic_dec(&obd->obd_update_recovery_threads);
+	list_del_init(&lrd->lrd_turd.turd_list);
+	spin_unlock(&obd->obd_recovery_task_lock);
 	wake_up(&lut->lut_tdtd->tdtd_recovery_threads_waitq);
 	wake_up(&thread->t_ctl_waitq);
+	OBD_FREE_PTR(lrd);
 	lu_env_fini(&env);
 	RETURN(rc);
 }
@@ -626,7 +628,8 @@ int lod_sub_init_llog(const struct lu_env *env, struct lod_device *lod,
 	lrd->lrd_lod = lod;
 	lrd->lrd_ltd = sub_ltd;
 	lrd->lrd_thread = thread;
-	lrd->lrd_idx = index;
+	INIT_LIST_HEAD(&lrd->lrd_turd.turd_list);
+	lrd->lrd_turd.turd_index = index;
 	init_waitqueue_head(&thread->t_ctl_waitq);
 
 	obd = dt->dd_lu_dev.ld_obd;

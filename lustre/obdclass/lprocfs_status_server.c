@@ -597,6 +597,30 @@ int lprocfs_recovery_status_seq_show(struct seq_file *m, void *data)
 		goto out;
 	}
 
+	if (atomic_read(&obd->obd_update_recovery_threads) != 0) {
+		char *buf;
+		int size = 0;
+		int count = 0;
+
+		buf = target_update_recovery_list(obd, &size, &count);
+		if (likely(count > 0)) {
+			seq_printf(m, "WAITING\n");
+			seq_printf(m, "non-ready MDTs: %s\n",
+				   buf ? buf : "unknown (not enough RAM)");
+			seq_printf(m, "recovery_start: %lu\n",
+				   obd->obd_recovery_start);
+			seq_printf(m, "time_waited: %lu\n",
+				   cfs_time_current_sec() -
+				   obd->obd_recovery_start);
+		}
+
+		if (buf != NULL)
+			OBD_FREE(buf, size);
+
+		if (likely(count > 0))
+			return 0;
+	}
+
 	seq_printf(m, "RECOVERING\n");
 	seq_printf(m, "recovery_start: %lu\n", obd->obd_recovery_start);
 	seq_printf(m, "time_remaining: %lu\n",

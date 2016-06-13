@@ -2619,6 +2619,8 @@ void client_destroy_import(struct obd_import *imp);
 
 #ifdef HAVE_SERVER_SUPPORT
 int server_disconnect_export(struct obd_export *exp);
+char *target_update_recovery_list(struct obd_device *obd,
+				  int *size, int *count);
 #endif
 
 /* ptlrpc/pinger.c */

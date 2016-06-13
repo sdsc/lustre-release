@@ -714,6 +714,42 @@ int server_disconnect_export(struct obd_export *exp)
 }
 EXPORT_SYMBOL(server_disconnect_export);
 
+char *target_update_recovery_list(struct obd_device *obd, int *size, int *count)
+{
+	struct target_update_recovery_data *turd;
+	char *buf;
+	int len = 0;
+	int rc;
+
+	*count = atomic_read(&obd->obd_update_recovery_threads);
+	if (*count == 0) {
+		*size = 0;
+		return NULL;
+	}
+
+	*size = 5 * *count + 1;
+	OBD_ALLOC(buf, *size);
+	if (buf == NULL)
+		return NULL;
+
+	*count = 0;
+	memset(buf, 0, *size);
+	spin_lock(&obd->obd_recovery_task_lock);
+	list_for_each_entry(turd, &obd->obd_update_recovery_list, turd_list) {
+		rc = snprintf(buf + len, *size - len, " %04x",
+			      turd->turd_index);
+		if (unlikely(rc <= 0))
+			break;
+
+		len += rc;
+		(*count)++;
+	}
+	spin_unlock(&obd->obd_recovery_task_lock);
+
+	return buf;
+}
+EXPORT_SYMBOL(target_update_recovery_list);
+
 /* --------------------------------------------------------------------------
  * from old lib/target.c
  * -------------------------------------------------------------------------- */
@@ -775,12 +811,31 @@ static int target_handle_reconnect(struct lustre_handle *conn,
 			target->obd_max_recoverable_clients,
 			timeout / 60, timeout % 60);
 	} else {
+		char *buf;
+		int size = 0;
+		int count = 0;
+
+		buf = target_update_recovery_list(target, &size, &count);
 		timeout = cfs_duration_sec(cfs_time_sub(now, deadline));
-		LCONSOLE_WARN("%s: Recovery already passed deadline"
-			" %d:%.02d, It is most likely due to DNE"
-			" recovery is failed or stuck, please wait a"
-			" few more minutes or abort the recovery.\n",
-			target->obd_name, timeout / 60, timeout % 60);
+		if (count > 0)
+			LCONSOLE_WARN("%s: Recovery already passed deadline "
+				      "%d:%.02d. It is due to DNE recovery "
+				      "failed/stuck on the %d MDT(s):%s. "
+				      "Please wait a few more minutes or "
+				      "abort the recovery by force.\n",
+				      target->obd_name, timeout / 60,
+				      timeout % 60, count,
+				      buf ? buf : "unknown (not enough RAM)");
+		else
+			LCONSOLE_WARN("%s: Recovery already passed deadline "
+				      "%d:%.02d. Please check whether some "
+				      "replay request hung there. If you do "
+				      "not want to wait more, please abort the "
+				      "recovery by force.\n", target->obd_name,
+				      timeout / 60, timeout % 60);
+
+		if (buf != NULL)
+			OBD_FREE(buf, size);
 	}
 
 out_already:
@@ -1986,9 +2041,9 @@ repeat:
 				struct l_wait_info lwi = { 0 };
 
 				l_wait_event(tdtd->tdtd_recovery_threads_waitq,
-				       atomic_read(
-				       &tdtd->tdtd_recovery_threads_count) == 0,
-				       &lwi);
+					atomic_read(
+					&obd->obd_update_recovery_threads) == 0,
+					&lwi);
 
 				next_update_transno =
 					distribute_txn_get_next_transno(
@@ -2034,7 +2089,7 @@ repeat:
 			/* Let's wait all of the update log recovery thread
 			 * finished */
 			l_wait_event(tdtd->tdtd_recovery_threads_waitq,
-			 atomic_read(&tdtd->tdtd_recovery_threads_count) == 0,
+			atomic_read(&obd->obd_update_recovery_threads) == 0,
 			     &lwi);
 			/* Then abort the update recovery list */
 			dtrq_list_dump(lut->lut_tdtd, D_ERROR);

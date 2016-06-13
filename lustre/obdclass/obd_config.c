@@ -407,6 +407,8 @@ int class_attach(struct lustre_cfg *lcfg)
 	INIT_LIST_HEAD(&obd->obd_final_req_queue);
 	INIT_LIST_HEAD(&obd->obd_evict_list);
 	INIT_LIST_HEAD(&obd->obd_lwp_list);
+	INIT_LIST_HEAD(&obd->obd_update_recovery_list);
+	atomic_set(&obd->obd_update_recovery_threads, 0);
 
 	llog_group_init(&obd->obd_olg);
 

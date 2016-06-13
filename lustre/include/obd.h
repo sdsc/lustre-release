@@ -683,6 +683,8 @@ struct obd_device {
 	struct list_head		obd_req_replay_queue;
 	struct list_head		obd_lock_replay_queue;
 	struct list_head		obd_final_req_queue;
+	struct list_head		obd_update_recovery_list;
+	atomic_t			obd_update_recovery_threads;
 
 	union {
 #ifdef HAVE_SERVER_SUPPORT

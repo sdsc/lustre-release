@@ -79,6 +79,12 @@ struct distribute_txn_replay_req_sub {
 	struct list_head	dtrqs_list;
 };
 
+struct target_update_recovery_data {
+	/* List in the top obd_device::obd_update_recovery_list */
+	struct list_head	turd_list;
+	__u32			turd_index;
+};
+
 struct target_distribute_txn_data;
 typedef int (*distribute_txn_replay_handler_t)(struct lu_env *env,
 				       struct target_distribute_txn_data *tdtd,
@@ -111,7 +117,6 @@ struct target_distribute_txn_data {
 	__u32				tdtd_replay_ready:1;
 
 	/* Manage the llog recovery threads */
-	atomic_t		tdtd_recovery_threads_count;
 	wait_queue_head_t	tdtd_recovery_threads_waitq;
 };
 
