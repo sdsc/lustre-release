@@ -1,0 +1,43 @@
+ext4_mark_inode_dirty() could not be called
+inside i_data_sem, otherwise, we hit deadlock
+like following:
+
+ext4_setattr
+ down_write(&EXT4_I(inode)->i_data_sem);
+   ext4_mark_inode_dirty
+     ext4_expand_extra_isize
+       ext4_expand_extra_isize_ea
+         ext4_xattr_block_set
+           down_write(&EXT4_I(inode)->i_data_sem);-->deadlock here
+           ext4_new_meta_blocks
+           up_read((&EXT4_I(inode)->i_data_sem));
+
+i_data_sem lock have been removed in upstream
+kernel, so this won't be problem for upstream,
+but rhel7 still problems, and we need fix this
+since Lustre rely on setattr very much.
+---
+diff --git a/fs/ext4/inode.c b/fs/ext4/inode.c
+index 4716287..9d55ae5 100644
+--- a/fs/ext4/inode.c
++++ b/fs/ext4/inode.c
+@@ -4565,9 +4565,6 @@ int ext4_setattr(struct dentry *dentry, struct iattr *attr)
+ 			}
+ 			down_write(&EXT4_I(inode)->i_data_sem);
+ 			EXT4_I(inode)->i_disksize = attr->ia_size;
+-			rc = ext4_mark_inode_dirty(handle, inode);
+-			if (!error)
+-				error = rc;
+ 			/*
+ 			 * We have to update i_size under i_data_sem together
+ 			 * with i_disksize to avoid races with writeback code
+@@ -4576,6 +4573,9 @@ int ext4_setattr(struct dentry *dentry, struct iattr *attr)
+ 			if (!error)
+ 				i_size_write(inode, attr->ia_size);
+ 			up_write(&EXT4_I(inode)->i_data_sem);
++			rc = ext4_mark_inode_dirty(handle, inode);
++			if (!error)
++				error = rc;
+ 			ext4_journal_stop(handle);
+ 			if (error) {
+ 				ext4_orphan_del(NULL, inode);
