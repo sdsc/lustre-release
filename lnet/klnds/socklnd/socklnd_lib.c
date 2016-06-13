@@ -40,25 +40,25 @@ int
 ksocknal_lib_get_conn_addrs (ksock_conn_t *conn)
 {
 	int rc = lnet_sock_getaddr(conn->ksnc_sock, true,
-                                     &conn->ksnc_ipaddr,
-                                     &conn->ksnc_port);
+				   &conn->ksnc_ipaddr,
+				   &conn->ksnc_port);
 
-        /* Didn't need the {get,put}connsock dance to deref ksnc_sock... */
-        LASSERT (!conn->ksnc_closing);
+	/* Didn't need the {get,put}connsock dance to deref ksnc_sock... */
+	LASSERT(!conn->ksnc_closing);
 
-        if (rc != 0) {
-                CERROR ("Error %d getting sock peer IP\n", rc);
-                return rc;
-        }
+	if (rc != 0) {
+		CNETERR("Error %d getting sock peer IP\n", rc);
+		return rc;
+	}
 
 	rc = lnet_sock_getaddr(conn->ksnc_sock, false,
-                                 &conn->ksnc_myipaddr, NULL);
-        if (rc != 0) {
-                CERROR ("Error %d getting sock local IP\n", rc);
-                return rc;
-        }
+			       &conn->ksnc_myipaddr, NULL);
+	if (rc != 0) {
+		CNETERR("Error %d getting sock local IP\n", rc);
+		return rc;
+	}
 
-        return 0;
+	return 0;
 }
 
 int
@@ -474,39 +474,39 @@ ksocknal_lib_setup_sock (struct socket *sock)
 
 	rc = kernel_setsockopt(sock, SOL_SOCKET, SO_LINGER,
 			       (char *)&linger, sizeof(linger));
-        if (rc != 0) {
-                CERROR ("Can't set SO_LINGER: %d\n", rc);
-                return (rc);
-        }
+	if (rc != 0) {
+		CNETERR("Can't set SO_LINGER: %d\n", rc);
+		return rc;
+	}
 
-        option = -1;
+	option = -1;
 	rc = kernel_setsockopt(sock, SOL_TCP, TCP_LINGER2,
 			       (char *)&option, sizeof(option));
-        if (rc != 0) {
-                CERROR ("Can't set SO_LINGER2: %d\n", rc);
-                return (rc);
-        }
+	if (rc != 0) {
+		CNETERR("Can't set SO_LINGER2: %d\n", rc);
+		return rc;
+	}
 
-        if (!*ksocknal_tunables.ksnd_nagle) {
-                option = 1;
+	if (!*ksocknal_tunables.ksnd_nagle) {
+		option = 1;
 
 		rc = kernel_setsockopt(sock, SOL_TCP, TCP_NODELAY,
 				       (char *)&option, sizeof(option));
-                if (rc != 0) {
-                        CERROR ("Can't disable nagle: %d\n", rc);
-                        return (rc);
-                }
-        }
+		if (rc != 0) {
+			CNETERR("Can't disable nagle: %d\n", rc);
+			return rc;
+		}
+	}
 
 	rc = lnet_sock_setbuf(sock,
 			      *ksocknal_tunables.ksnd_tx_buffer_size,
 			      *ksocknal_tunables.ksnd_rx_buffer_size);
-        if (rc != 0) {
-                CERROR ("Can't set buffer tx %d, rx %d buffers: %d\n",
-                        *ksocknal_tunables.ksnd_tx_buffer_size,
-                        *ksocknal_tunables.ksnd_rx_buffer_size, rc);
-                return (rc);
-        }
+	if (rc != 0) {
+		CNETERR("Can't set buffer tx %d, rx %d buffers: %d\n",
+			*ksocknal_tunables.ksnd_tx_buffer_size,
+			*ksocknal_tunables.ksnd_rx_buffer_size, rc);
+		return rc;
+	}
 
 /* TCP_BACKOFF_* sockopt tunables unsupported in stock kernels */
 #ifdef SOCKNAL_BACKOFF
@@ -518,12 +518,12 @@ ksocknal_lib_setup_sock (struct socket *sock)
 
 		rc = kernel_setsockopt(sock, SOL_TCP, TCP_BACKOFF_INIT,
 				       (char *)&option, sizeof(option));
-                if (rc != 0) {
-                        CERROR ("Can't set initial tcp backoff %d: %d\n",
-                                option, rc);
-                        return (rc);
-                }
-        }
+		if (rc != 0) {
+			CNETERR("Can't set initial tcp backoff %d: %d\n",
+				option, rc);
+			return rc;
+		}
+	}
 
         if (*ksocknal_tunables.ksnd_backoff_max > 0) {
                 option = *ksocknal_tunables.ksnd_backoff_max;
@@ -533,12 +533,12 @@ ksocknal_lib_setup_sock (struct socket *sock)
 
 		rc = kernel_setsockopt(sock, SOL_TCP, TCP_BACKOFF_MAX,
 				       (char *)&option, sizeof(option));
-                if (rc != 0) {
-                        CERROR ("Can't set maximum tcp backoff %d: %d\n",
-                                option, rc);
-                        return (rc);
-                }
-        }
+		if (rc != 0) {
+			CNETERR("Can't set maximum tcp backoff %d: %d\n",
+				option, rc);
+			return rc;
+		}
+	}
 #endif
 
         /* snapshot tunables */
@@ -551,34 +551,34 @@ ksocknal_lib_setup_sock (struct socket *sock)
         option = (do_keepalive ? 1 : 0);
 	rc = kernel_setsockopt(sock, SOL_SOCKET, SO_KEEPALIVE,
 			       (char *)&option, sizeof(option));
-        if (rc != 0) {
-                CERROR ("Can't set SO_KEEPALIVE: %d\n", rc);
-                return (rc);
-        }
+	if (rc != 0) {
+		CNETERR("Can't set SO_KEEPALIVE: %d\n", rc);
+		return rc;
+	}
 
         if (!do_keepalive)
                 return (0);
 
 	rc = kernel_setsockopt(sock, SOL_TCP, TCP_KEEPIDLE,
 			       (char *)&keep_idle, sizeof(keep_idle));
-        if (rc != 0) {
-                CERROR ("Can't set TCP_KEEPIDLE: %d\n", rc);
-                return (rc);
-        }
+	if (rc != 0) {
+		CNETERR("Can't set TCP_KEEPIDLE: %d\n", rc);
+		return rc;
+	}
 
 	rc = kernel_setsockopt(sock, SOL_TCP, TCP_KEEPINTVL,
 			       (char *)&keep_intvl, sizeof(keep_intvl));
-        if (rc != 0) {
-                CERROR ("Can't set TCP_KEEPINTVL: %d\n", rc);
-                return (rc);
-        }
+	if (rc != 0) {
+		CNETERR("Can't set TCP_KEEPINTVL: %d\n", rc);
+		return rc;
+	}
 
 	rc = kernel_setsockopt(sock, SOL_TCP, TCP_KEEPCNT,
 			       (char *)&keep_count, sizeof(keep_count));
-        if (rc != 0) {
-                CERROR ("Can't set TCP_KEEPCNT: %d\n", rc);
-                return (rc);
-        }
+	if (rc != 0) {
+		CNETERR("Can't set TCP_KEEPCNT: %d\n", rc);
+		return rc;
+	}
 
         return (0);
 }

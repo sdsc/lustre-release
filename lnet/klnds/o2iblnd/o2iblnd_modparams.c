@@ -197,8 +197,8 @@ kiblnd_tunables_setup(lnet_ni_t *ni)
 	tunables->lnd_version = 0;
 
 	if (kiblnd_translate_mtu(*kiblnd_tunables.kib_ib_mtu) < 0) {
-		CERROR("Invalid ib_mtu %d, expected 256/512/1024/2048/4096\n",
-		       *kiblnd_tunables.kib_ib_mtu);
+		CNETERR("Invalid ib_mtu %d, expected 256/512/1024/2048/4096\n",
+			*kiblnd_tunables.kib_ib_mtu);
 		return -EINVAL;
 	}
 
