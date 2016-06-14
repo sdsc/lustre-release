@@ -7537,6 +7537,12 @@ test_116a() { # was previously test_116()
 		&& return
 	trap simple_cleanup_common EXIT
 
+test_253()
+{
+	test_mkdir -p $DIR/$tdir
+	lock_ahead_test -d $DIR/$tdir || error "A lock ahead test failed"
+}
+run_test 253 "various lock ahead tests"
 
 	# Check if we need to generate uneven OSTs
 	test_mkdir -p $DIR/$tdir/OST${MINI}

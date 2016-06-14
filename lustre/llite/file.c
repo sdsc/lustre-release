@@ -1093,6 +1093,8 @@ restart:
 		case IO_NORMAL:
 			vio->vui_iter = args->u.normal.via_iter;
 			vio->vui_iocb = args->u.normal.via_iocb;
+
+			io->ci_req_only = vio->vui_fd->ll_req_only;
 			/* Direct IO reads must also take range lock,
 			 * or multiple reads will try to work on the same pages
 			 * See LU-6227 for details. */
@@ -2235,6 +2237,59 @@ static int ll_file_futimes_3(struct file *file, const struct ll_futimes_3 *lfu)
 	RETURN(rc);
 }
 
+/* Masks of valid flags for each advice */
+#define LF_REQUEST_ONLY_MASK LF_UNSET
+#define LF_LOCK_AHEAD_MASK LF_NONBLOCK
+/* Flags valid for all advices not explicitly specified */
+#define LF_DEFAULT_MASK LF_ASYNC
+
+static const char *const ladvise_names[] = LU_LADVISE_NAMES;
+
+static int ladvise_flags_valid(__u64 flags, enum lu_ladvise_type advice)
+{
+	switch (advice) {
+	case LU_LADVISE_REQUEST_ONLY:
+		if (flags & ~LF_REQUEST_ONLY_MASK)
+			goto inval;
+		break;
+	case LU_LADVISE_LOCK_AHEAD:
+		if (flags & ~LF_LOCK_AHEAD_MASK)
+			goto inval;
+		break;
+	default:
+		if (flags & ~LF_DEFAULT_MASK)
+			goto inval;
+		break;
+	}
+
+	goto out;
+
+inval:
+	CERROR("Invalid flags for %s", ladvise_names[advice]);
+	return -EINVAL;
+out:
+	return 0;
+}
+
+static int ll_ladvise_sanity(struct llapi_lu_ladvise *ladvise)
+{
+	int rc = 0;
+
+	rc = ladvise_flags_valid(ladvise->lla_value2, ladvise->lla_advice);
+	if (rc)
+		return rc;
+
+	if (ladvise->lla_advice > LU_LADVISE_MAX ||
+	    ladvise->lla_advice == LU_LADVISE_INVALID) {
+		rc = -EINVAL;
+		CERROR("advice with value '%d' not recognized, last supported"
+		       "advice is %s (value '%d')\n", ladvise->lla_advice,
+		       ladvise_names[LU_LADVISE_MAX-1], LU_LADVISE_MAX-1);
+	}
+
+	return rc;
+}
+
 /*
  * Give file access advices
  *
@@ -2250,7 +2305,7 @@ static int ll_file_futimes_3(struct file *file, const struct ll_futimes_3 *lfu)
  * much more data being sent to the client.
  */
 static int ll_ladvise(struct inode *inode, struct file *file, __u64 flags,
-		      struct lu_ladvise *ladvise)
+		      struct llapi_lu_ladvise *ladvise)
 {
 	struct lu_env *env;
 	struct cl_io *io;
@@ -2281,6 +2336,53 @@ static int ll_ladvise(struct inode *inode, struct file *file, __u64 flags,
 
 	cl_io_fini(env, io);
 	cl_env_put(env, &refcheck);
+	RETURN(rc);
+}
+
+int ll_request_only(struct file *file, int flags)
+{
+	struct ll_file_data     *fd = LUSTRE_FPRIVATE(file);
+
+	if (flags & LF_UNSET)
+		fd->ll_req_only = false;
+	else
+		fd->ll_req_only = true;
+
+	return 0;
+}
+
+/*
+ * Do sanity checking for lock ahead requests.
+ *
+ * Checks flags and translates from ladvise flags to CEF_* flags.
+ * Since only non-blocking requests are allowed, we always set CEF_NONBLOCK.
+ *
+ * \param[in]   file    the file the ioctl was called on
+ * \param[in]   ladvise the ladvise struct describing this request
+ * \param[in]   ladvise_flags   the ladvise flags for this request
+ * \param[in,out]       lock_ahead_flags the lock ahead interpretation of the
+ *                      ladvise flags
+ *
+ * \retval 0            valid lock ahead request
+ * \retval negative     negative errno on failure
+ */
+int ll_lock_ahead_sanity(struct file *file, struct llapi_lu_ladvise *ladvise)
+{
+	int rc = 0;
+
+	ENTRY;
+
+	/* Lock ahead requests must be non-blocking */
+	ladvise->lla_value2 |= CEF_NONBLOCK;
+
+	/* Currently only READ and WRITE modes can be requested */
+	if (ladvise->lla_value1 >= MODE_MAX_USER || ladvise->lla_value1 == 0)
+		GOTO(out, rc = -EINVAL);
+
+	if (ladvise->lla_start >= ladvise->lla_end)
+		GOTO(out, rc = -EINVAL);
+
+out:
 	RETURN(rc);
 }
 
@@ -2626,60 +2728,99 @@ out:
 		RETURN(ll_file_futimes_3(file, &lfu));
 	}
 	case LL_IOC_LADVISE: {
-		struct ladvise_hdr *ladvise_hdr;
-		__u32 magic;
+		struct llapi_ladvise_hdr *k_ladvise_hdr;
+		struct llapi_ladvise_hdr __user *user_ladvise_hdr;
+		__u32 magic = 0;
 		int i;
 		int num_advise;
-		int alloc_size = sizeof(*ladvise_hdr);
+		int alloc_size = sizeof(*k_ladvise_hdr);
 
 		rc = 0;
-		OBD_ALLOC_PTR(ladvise_hdr);
-		if (ladvise_hdr == NULL)
-			RETURN(-ENOMEM);
 
 		if (copy_from_user(&magic, (void __user *) arg, sizeof(__u32)))
-			GOTO(out_ladvise, rc = -EFAULT);
+			GOTO(out_ladvise_nofree, rc = -EFAULT);
 
 		if (magic != LADVISE_MAGIC)
-			GOTO(out_ladvise, rc = -EINVAL);
+			GOTO(out_ladvise_nofree, rc = -EINVAL);
 
-		if (copy_from_user(ladvise_hdr,
-				   (const struct ladvise_hdr __user *)arg,
+		/* OK, now we're sure this is a header version we recognize */
+		user_ladvise_hdr = (void __user *) arg;
+
+		OBD_ALLOC_PTR(k_ladvise_hdr);
+		if (k_ladvise_hdr == NULL)
+			RETURN(-ENOMEM);
+
+		if (copy_from_user(k_ladvise_hdr,
+				   user_ladvise_hdr,
 				   alloc_size))
 			GOTO(out_ladvise, rc = -EFAULT);
 
-		if (ladvise_hdr->lah_magic != LADVISE_MAGIC ||
-		    ladvise_hdr->lah_count < 1)
+		if (k_ladvise_hdr->lah_magic != LADVISE_MAGIC ||
+		    (k_ladvise_hdr->lah_count < 1))
 			GOTO(out_ladvise, rc = -EINVAL);
 
-		num_advise = ladvise_hdr->lah_count;
+		num_advise = k_ladvise_hdr->lah_count;
 		if (num_advise >= LAH_COUNT_MAX)
 			GOTO(out_ladvise, rc = -EFBIG);
 
-		OBD_FREE_PTR(ladvise_hdr);
-		alloc_size = offsetof(typeof(*ladvise_hdr),
+		OBD_FREE_PTR(k_ladvise_hdr);
+		alloc_size = offsetof(typeof(*k_ladvise_hdr),
 				      lah_advise[num_advise]);
-		OBD_ALLOC(ladvise_hdr, alloc_size);
-		if (ladvise_hdr == NULL)
+		OBD_ALLOC(k_ladvise_hdr, alloc_size);
+		if (k_ladvise_hdr == NULL)
 			RETURN(-ENOMEM);
 
 		/*
 		 * TODO: submit multiple advices to one server in a single RPC
 		 */
-		if (copy_from_user(ladvise_hdr,
-				   (const struct ladvise_hdr __user *)arg,
+		if (copy_from_user(k_ladvise_hdr,
+				   user_ladvise_hdr,
 				   alloc_size))
 			GOTO(out_ladvise, rc = -EFAULT);
 
 		for (i = 0; i < num_advise; i++) {
-			rc = ll_ladvise(inode, file, ladvise_hdr->lah_flags,
-					&ladvise_hdr->lah_advise[i]);
+			struct llapi_lu_ladvise *ladvise =
+					&k_ladvise_hdr->lah_advise[i];
+			struct llapi_lu_ladvise *u_ladvise =
+					__user &user_ladvise_hdr->lah_advise[i];
+
+			rc = ll_ladvise_sanity(ladvise);
 			if (rc)
+				GOTO(out_ladvise, rc);
+
+			switch (ladvise->lla_advice) {
+			case LU_LADVISE_REQUEST_ONLY:
+				rc = ll_request_only(file,
+						     ladvise->lla_value2);
+				GOTO(out_ladvise, rc);
 				break;
+			case LU_LADVISE_LOCK_AHEAD:
+
+				rc = ll_lock_ahead_sanity(file, ladvise);
+				if (rc)
+					GOTO(out_ladvise, rc);
+
+				rc = cl_lock_ahead(file, ladvise);
+
+				if (rc < 0)
+					GOTO(out_ladvise, rc);
+				else if (put_user(rc,
+						  __user &u_ladvise->lla_value3))
+						GOTO(out_ladvise, rc = -EFAULT);
+				break;
+			default:
+				rc = ll_ladvise(inode, file,
+						k_ladvise_hdr->lah_flags,
+						ladvise);
+				if (rc)
+					GOTO(out_ladvise, rc);
+				break;
+			}
 		}
 
 out_ladvise:
-		OBD_FREE(ladvise_hdr, alloc_size);
+		OBD_FREE(k_ladvise_hdr, alloc_size);
+out_ladvise_nofree:
 		RETURN(rc);
 	}
 	default: {

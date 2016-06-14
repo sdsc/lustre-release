@@ -192,7 +192,7 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
                 RETURN(-ENOMEM);
         }
 
-        /* indicate the features supported by this client */
+	/* indicate the MDT-dependent features supported by this client */
         data->ocd_connect_flags = OBD_CONNECT_IBITS    | OBD_CONNECT_NODEVOH  |
                                   OBD_CONNECT_ATTRFID  |
                                   OBD_CONNECT_VERSION  | OBD_CONNECT_BRW_SIZE |
@@ -389,6 +389,7 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
 	 * back its backend blocksize for grant calculation purpose */
 	data->ocd_grant_blkbits = PAGE_SHIFT;
 
+	/* Indicate the OST-dependent features supported by this client */
         data->ocd_connect_flags = OBD_CONNECT_GRANT     | OBD_CONNECT_VERSION  |
 				  OBD_CONNECT_REQPORTAL | OBD_CONNECT_BRW_SIZE |
                                   OBD_CONNECT_CANCELSET | OBD_CONNECT_FID      |
@@ -401,7 +402,8 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
 				  OBD_CONNECT_JOBSTATS | OBD_CONNECT_LVB_TYPE |
 				  OBD_CONNECT_LAYOUTLOCK |
 				  OBD_CONNECT_PINGLESS | OBD_CONNECT_LFSCK |
-				  OBD_CONNECT_BULK_MBITS;
+				  OBD_CONNECT_BULK_MBITS |
+				  OBD_CONNECT_LOCK_AHEAD;
 
 	data->ocd_connect_flags2 = 0;
 
