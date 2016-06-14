@@ -10,6 +10,7 @@ export REFORMAT=${REFORMAT:-""}
 export WRITECONF=${WRITECONF:-""}
 export VERBOSE=${VERBOSE:-false}
 export GSS=false
+export GSS_SK=false
 export GSS_KRB5=false
 export GSS_PIPEFS=false
 export IDENTITY_UPCALL=default
@@ -297,6 +298,41 @@ init_test_env() {
     if [ "$ACCEPTOR_PORT" ]; then
         export PORT_OPT="--port $ACCEPTOR_PORT"
     fi
+
+	if [ "$SHARED_KEY" == 1 ]; then
+		echo "Using GSS shared-key feature"
+		which lgss_sk > /dev/null 2>&1 || \
+		error_exit "built with lgss_sk disabled! SEC=$SEC"
+		GSS=true
+		GSS_SK=true
+
+		# security ctx config for keyring
+		local LGSSC_CONF_LINE='create lgssc * * /usr/sbin/lgss_keyring'
+		LGSSC_CONF_LINE=$LGSSC_CONF_LINE' %o %k %t %d %c %u %g %T %P %S'
+
+		init_clients_lists
+
+		local LGSSC_CONF_FILE="/etc/request-key.d/lgssc.conf"	
+		local all_nodes_comma=$(comma_list $(all_nodes))
+		echo "$LGSSC_CONF_LINE" > $LGSSC_CONF_FILE
+		do_nodes $all_nodes_comma rsync -av $HOSTNAME:$LGSSC_CONF_FILE $LGSSC_CONF_FILE
+
+		# create shared key on all nodes
+		local SK_FILE=/tmp/test-framework.key
+		[ ! -e "$SK_FILE" ] || rm "$SK_FILE"
+		/usr/sbin/lgss_sk -f$FSNAME -w $SK_FILE -d /dev/urandom
+		do_nodes $all_nodes_comma rsync -av $HOSTNAME:$SK_FILE $SK_FILE
+
+		# mount options for servers and clients
+		local SK_OPTS="skpath=$SK_FILE"
+		MGS_MOUNT_OPTS="$MGS_MOUNT_OPTS -o $SK_OPTS"
+		MDS_MOUNT_OPTS="$MDS_MOUNT_OPTS -o $SK_OPTS"
+		OST_MOUNT_OPTS="$OST_MOUNT_OPTS -o $SK_OPTS"
+		MOUNT_OPTS="$MOUNT_OPTS $SK_OPTS"
+
+		# use shared key security flavor, actually set elsewhere
+		SEC="ski"
+	fi
 
     case "x$SEC" in
         xkrb5*)
@@ -741,14 +777,22 @@ start_gss_daemons() {
 
     local list=$(comma_list $(mdts_nodes))
     echo "Starting gss daemon on mds: $list"
-    do_nodes $list "$LSVCGSSD -v" || return 1
+    if [ $GSS_SK ]; then
+        do_nodes $list "$LSVCGSSD -v -s -m" || return 1
+    else 
+        do_nodes $list "$LSVCGSSD -v" || return 1
+    fi
     if $GSS_PIPEFS; then
         do_nodes $list "$LGSSD -v" || return 2
     fi
 
     list=$(comma_list $(osts_nodes))
     echo "Starting gss daemon on ost: $list"
-    do_nodes $list "$LSVCGSSD -v" || return 3
+    if [ $GSS_SK ]; then
+        do_nodes $list "$LSVCGSSD -v -s -o" || return 3
+    else
+        do_nodes $list "$LSVCGSSD -v" || return 3
+    fi
     # starting on clients
 
     local clients=${CLIENTS:-`hostname`}
@@ -793,7 +837,7 @@ init_gss() {
             module_loaded ptlrpc_gss ||
                 error_exit "init_gss : GSS=$GSS, but gss/krb5 is not supported!"
         fi
-        if $GSS_KRB5; then
+        if $GSS_KRB5 || $GSS_SK; then
                 start_gss_daemons || error_exit "start gss daemon failed! rc=$?"
         fi
 
@@ -810,6 +854,14 @@ cleanup_gss() {
         # maybe cleanup credential cache?
     fi
 }
+
+cleanup_sk() {
+    if $GSS_SK; then
+        stop_gss_daemons
+	local list=$(comma_list $(all_nodes))
+	do_nodes $list "rm /tmp/test-framework.key"
+    fi
+}	
 
 facet_svc() {
 	local facet=$1
@@ -3375,6 +3427,7 @@ cleanupall() {
     cleanup_echo_devs
 
     unload_modules
+    cleanup_sk
     cleanup_gss
 }
 
@@ -3647,6 +3700,8 @@ setupall() {
 
     load_modules
 
+    init_gss
+
     if [ -z "$CLIENTONLY" ]; then
         echo Setup mgs, mdt, osts
         echo $WRITECONF | grep -q "writeconf" && \
@@ -3683,8 +3738,6 @@ setupall() {
 
         done
     fi
-
-    init_gss
 
     # wait a while to allow sptlrpc configuration be propogated to targets,
     # only needed when mounting new target devices.
@@ -5316,6 +5369,11 @@ facets_nodes () {
 	echo -n $nodes_sort
 }
 
+# Get name of the active MGS node.
+mgs_node () {
+	echo -n $(facets_nodes $(get_facets MGS))
+}
+
 # Get all of the active MDS nodes.
 mdts_nodes () {
 	echo -n $(facets_nodes $(get_facets MDS))
@@ -5357,7 +5415,7 @@ remote_nodes_list () {
 all_mdts_nodes () {
 	local host
 	local failover_host
-	local nodes
+	local nodes="${mds_HOST} ${mdsfailover_HOST}"
 	local nodes_sort
 	local i
 
@@ -5375,7 +5433,7 @@ all_mdts_nodes () {
 all_osts_nodes () {
 	local host
 	local failover_host
-	local nodes
+	local nodes="${ost_HOST} ${ostfailover_HOST}"
 	local nodes_sort
 	local i
 
@@ -6345,7 +6403,7 @@ get_clients_mount_count () {
 
     # we need to take into account the clients mounts and
     # exclude mds/ost mounts if any;
-    do_nodes $clients cat /proc/mounts | grep lustre | grep $MOUNT | wc -l
+    do_nodes $clients cat /proc/mounts | grep lustre | grep " $MOUNT " | wc -l
 }
 
 # gss functions
