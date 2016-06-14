@@ -125,6 +125,8 @@ sec_login() {
 	local user=$1
 	local group=$2
 
+	$GSS_KRB5 || return
+
 	if ! $RUNAS_CMD -u $user krb5_login.sh; then
 		error "$user login kerberos failed."
 		exit 1
@@ -1681,6 +1683,11 @@ test_25() {
 
 	trap nodemap_test_cleanup EXIT
 
+	# Need to know in advance if SK and nodemap will be used
+	if [ $GSS_SK ]; then
+		export SK_NODEMAP_MOUNT=true
+	fi
+
 	# create a new, empty nodemap, and add fileset info to it
 	do_facet mgs $LCTL nodemap_add test26 ||
 		error "unable to create nodemap test26"
@@ -1693,6 +1700,9 @@ test_25() {
 	do_facet mds $LCTL nodemap_info > $tmpfile2
 
 	cleanup_and_setup_lustre
+	if [ $GSS_SK ]; then
+		export SK_NODEMAP_MOUNT=false
+	fi
 	# stop clients for this test
 	zconf_umount_clients $CLIENTS $MOUNT ||
 	    error "unable to umount clients $CLIENTS"
