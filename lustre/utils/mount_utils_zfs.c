@@ -591,6 +591,34 @@ int zfs_make_lustre(struct mkfs_opts *mop)
 		goto out;
 	}
 
+	/*
+	 * Here we will blindly attempt to set dataset properties 
+	 * to reasonable defaults. We don't really care if setting
+	 * a particular property fails since these are for performance
+	 * and are optional. Just issue a warning on stderr that setting
+	 * the property failed. If the property was specified in the
+	 * mkfs options, then we won't argue with the caller.
+	 *
+	 * Also, below we use a zfs handle to set dataset properties.
+	 * If for some reason zfs_open returns NULL, we won't fail
+	 * since the dataset should exist. It is very unlikely that
+	 * zfs_open will return NULL here anyways.
+	 */
+	zhp = zfs_open(g_zfs, ds, ZFS_TYPE_FILESYSTEM);
+	if (zhp) {
+		/* zfs 0.7.0 - large dnode support */
+		if (!strstr(mop->mo_mkfsopts, "dnodesize=") &&
+		    zfs_set_prop_str(zhp, "dnodesize", "auto"))
+			fprintf(stderr, "INFO: zfs dnodesize not set!\n");
+
+		/* zfs 0.6.5 - large block support */
+		if (!strstr(mop->mo_mkfsopts, "recordsize=") &&
+		    zfs_set_prop_str(zhp, "recordsize", "1M"))
+			fprintf(stderr, "INFO: zfs recordsize not set!\n");
+
+		zfs_close(zhp);
+	}
+
 out:
 	if (pool != NULL)
 		free(pool);
