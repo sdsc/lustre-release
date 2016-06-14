@@ -9,7 +9,11 @@ export LANG=en_US
 export REFORMAT=${REFORMAT:-""}
 export WRITECONF=${WRITECONF:-""}
 export VERBOSE=${VERBOSE:-false}
-export GSS=false
+export GSS=${GSS:-false}
+export GSS_SK=${GSS_SK:-false}
+export SK_FILE=${SK_FILE:-/tmp/test-framework.key}
+# flag to trigger if key needs to be generated
+export SK_NO_KEY=${SK_NO_KEY:-true}
 export GSS_KRB5=false
 export GSS_PIPEFS=false
 export IDENTITY_UPCALL=default
@@ -297,6 +301,18 @@ init_test_env() {
     if [ "$ACCEPTOR_PORT" ]; then
         export PORT_OPT="--port $ACCEPTOR_PORT"
     fi
+
+	if [ $SHARED_KEY ]; then
+		echo "Using GSS shared-key feature"
+		which lgss_sk > /dev/null 2>&1 ||
+			error_exit "built with lgss_sk disabled! SEC=$SEC"
+
+		GSS=true
+		GSS_SK=true
+
+		# use shared key security flavor, actually set elsewhere
+		SEC="ski"
+	fi
 
     case "x$SEC" in
         xkrb5*)
@@ -730,85 +746,141 @@ send_sigint() {
 # start gss daemons on all nodes, or
 # "daemon" on "list" if set
 start_gss_daemons() {
-    local list=$1
-    local daemon=$2
+	local list=$1
+	local daemon=$2
 
-    if [ "$list" ] && [ "$daemon" ] ; then
-        echo "Starting gss daemon on nodes: $list"
-        do_nodes $list "$daemon" || return 8
-        return 0
-    fi
+	if [ "$list" ] && [ "$daemon" ] ; then
+		echo "Starting gss daemon on nodes: $list"
+		do_nodes $list "$daemon" || return 8
+		return 0
+	fi
 
-    local list=$(comma_list $(mdts_nodes))
-    echo "Starting gss daemon on mds: $list"
-    do_nodes $list "$LSVCGSSD -v" || return 1
-    if $GSS_PIPEFS; then
-        do_nodes $list "$LGSSD -v" || return 2
-    fi
+	local list=$(comma_list $(mdts_nodes))
+	echo "Starting gss daemon on mds: $list"
+	if [ $GSS_SK ]; then
+		do_nodes $list "$LSVCGSSD -v -s -m" || return 1
+	else
+		do_nodes $list "$LSVCGSSD -v" || return 1
+	fi
+	if $GSS_PIPEFS; then
+		do_nodes $list "$LGSSD -v" || return 2
+	fi
 
-    list=$(comma_list $(osts_nodes))
-    echo "Starting gss daemon on ost: $list"
-    do_nodes $list "$LSVCGSSD -v" || return 3
-    # starting on clients
+	list=$(comma_list $(osts_nodes))
+	echo "Starting gss daemon on ost: $list"
+	if [ $GSS_SK ]; then
+		do_nodes $list "$LSVCGSSD -v -s -o" || return 3
+	else
+		do_nodes $list "$LSVCGSSD -v" || return 3
+	fi
+	# starting on clients
 
-    local clients=${CLIENTS:-`hostname`}
-    if $GSS_PIPEFS; then
-        echo "Starting $LGSSD on clients $clients "
-        do_nodes $clients  "$LGSSD -v" || return 4
-    fi
+	local clients=${CLIENTS:-`hostname`}
+	if $GSS_PIPEFS; then
+		echo "Starting $LGSSD on clients $clients "
+		do_nodes $clients  "$LGSSD -v" || return 4
+	fi
 
-    # wait daemons entering "stable" status
-    sleep 5
+	# wait daemons entering "stable" status
+	sleep 5
 
-    #
-    # check daemons are running
-    #
-    list=$(comma_list $(mdts_nodes) $(osts_nodes))
-    check_gss_daemon_nodes $list lsvcgssd || return 5
-    if $GSS_PIPEFS; then
-        list=$(comma_list $(mdts_nodes))
-        check_gss_daemon_nodes $list lgssd || return 6
-    fi
-    if $GSS_PIPEFS; then
-        check_gss_daemon_nodes $clients lgssd || return 7
-    fi
+	#
+	# check daemons are running
+	#
+	list=$(comma_list $(mdts_nodes) $(osts_nodes))
+	check_gss_daemon_nodes $list lsvcgssd || return 5
+	if $GSS_PIPEFS; then
+		list=$(comma_list $(mdts_nodes))
+		check_gss_daemon_nodes $list lgssd || return 6
+	fi
+	if $GSS_PIPEFS; then
+		check_gss_daemon_nodes $clients lgssd || return 7
+	fi
 }
 
 stop_gss_daemons() {
-    local list=$(comma_list $(mdts_nodes))
+	local list=$(comma_list $(mdts_nodes))
 
-    send_sigint $list lsvcgssd lgssd
+	send_sigint $list lsvcgssd lgssd
 
-    list=$(comma_list $(osts_nodes))
-    send_sigint $list lsvcgssd
+	list=$(comma_list $(osts_nodes))
+	send_sigint $list lsvcgssd
 
-    list=${CLIENTS:-`hostname`}
-    send_sigint $list lgssd
+	list=${CLIENTS:-`hostname`}
+	send_sigint $list lgssd
 }
 
 init_gss() {
-    if $GSS; then
-        if ! module_loaded ptlrpc_gss; then
-            load_module ptlrpc/gss/ptlrpc_gss
-            module_loaded ptlrpc_gss ||
-                error_exit "init_gss : GSS=$GSS, but gss/krb5 is not supported!"
-        fi
-        if $GSS_KRB5; then
-                start_gss_daemons || error_exit "start gss daemon failed! rc=$?"
-        fi
+	if ! $GSS; then
+		return
+	fi
 
-        if [ -n "$LGSS_KEYRING_DEBUG" ]; then
+	if ! module_loaded ptlrpc_gss; then
+		load_module ptlrpc/gss/ptlrpc_gss
+		module_loaded ptlrpc_gss ||
+			error_exit "init_gss : GSS=$GSS, but gss/krb5 is not supported!"
+	fi
+
+	if [ $GSS_KRB5 ] || [ $GSS_SK ]; then
+		start_gss_daemons || error_exit "start gss daemon failed! rc=$?"
+	fi
+
+	if [ $GSS_SK ] && [ $SK_NO_KEY ]; then
+		# security ctx config for keyring
+		export SK_NO_KEY=false
+		local LGSSC_CONF_LINE='create lgssc * * /usr/sbin/lgss_keyring'
+		LGSSC_CONF_LINE+=' %o %k %t %d %c %u %g %T %P %S'
+
+		init_clients_lists
+
+		echo "Synchronizing Shared Key files..."
+
+		local LGSSC_CONF_FILE="/etc/request-key.d/lgssc.conf"
+		local all_nodes_comma=$(comma_list $(all_nodes))
+		local list2=$(comma_list $(all_nodes))
+		echo "$LGSSC_CONF_LINE" > $LGSSC_CONF_FILE
+		do_nodes $all_nodes_comma "rsync -av $HOSTNAME:$LGSSC_CONF_FILE $LGSSC_CONF_FILE" 2>&1
+
+		# create shared key on all nodes
+		[ ! -e "$SK_FILE" ] || rm "$SK_FILE" 
+		/usr/sbin/lgss_sk -f$FSNAME -w $SK_FILE -d /dev/urandom
+		do_nodes $all_nodes_comma "rsync -av $HOSTNAME:$SK_FILE $SK_FILE" 2>&1
+
+		# mount options for servers and clients
+		local SK_OPTS="skpath=$SK_FILE"
+		MGS_MOUNT_OPTS="$MGS_MOUNT_OPTS -o $SK_OPTS"
+		MDS_MOUNT_OPTS="$MDS_MOUNT_OPTS -o $SK_OPTS"
+		OST_MOUNT_OPTS="$OST_MOUNT_OPTS -o $SK_OPTS"
+		if [ $MOUNT_OPTS ]; then
+			MOUNT_OPTS="$MOUNT_OPTS,$SK_OPTS"
+		else
+			MOUNT_OPTS=$SK_OPTS
+		fi
+		# use shared key security flavor, actually set elsewhere
+		SEC="ski"
+	fi
+
+	if [ -n "$LGSS_KEYRING_DEBUG" ]; then
 		lctl set_param -n \
-		    sptlrpc.gss.lgss_keyring.debug_level=$LGSS_KEYRING_DEBUG
-        fi
-    fi
+			sptlrpc.gss.lgss_keyring.debug_level=$LGSS_KEYRING_DEBUG
+	fi
 }
 
 cleanup_gss() {
-    if $GSS; then
-        stop_gss_daemons
-        # maybe cleanup credential cache?
-    fi
+	if $GSS; then
+		stop_gss_daemons
+		# maybe cleanup credential cache?
+	fi
+}
+
+cleanup_sk() {
+	if $GSS_SK; then
+		stop_gss_daemons
+		local list=$(comma_list $(all_nodes))
+		echo "Cleaning up Shared Key on nodes: $list"
+		do_nodes $list "rm -f $SK_FILE"
+		SK_NO_KEY=true
+	fi
 }
 
 facet_svc() {
@@ -3368,14 +3440,15 @@ cleanup_echo_devs () {
 }
 
 cleanupall() {
-    nfs_client_mode && return
+	nfs_client_mode && return
 	cifs_client_mode && return
 
-    stopall $*
-    cleanup_echo_devs
+	stopall $*
+	cleanup_echo_devs
 
-    unload_modules
-    cleanup_gss
+	unload_modules
+	cleanup_sk
+	cleanup_gss
 }
 
 combined_mgs_mds () {
@@ -3639,82 +3712,88 @@ writeconf_all () {
 }
 
 setupall() {
-    nfs_client_mode && return
+	nfs_client_mode && return
 	cifs_client_mode && return
 
-    sanity_mount_check ||
-        error "environments are insane!"
+	sanity_mount_check ||
+		error "environments are insane!"
 
-    load_modules
+	load_modules
 
-    if [ -z "$CLIENTONLY" ]; then
-        echo Setup mgs, mdt, osts
-        echo $WRITECONF | grep -q "writeconf" && \
-            writeconf_all
-        if ! combined_mgs_mds ; then
+	init_gss
+
+	if [ -z "$CLIENTONLY" ]; then
+		echo Setup mgs, mdt, osts
+		echo $WRITECONF | grep -q "writeconf" && \
+			writeconf_all
+		if ! combined_mgs_mds ; then
 			start mgs $(mgsdevname) $MGS_MOUNT_OPTS
-        fi
+		fi
 
-        for num in `seq $MDSCOUNT`; do
-            DEVNAME=$(mdsdevname $num)
-            start mds$num $DEVNAME $MDS_MOUNT_OPTS
+		for num in `seq $MDSCOUNT`; do
+			DEVNAME=$(mdsdevname $num)
+			start mds$num $DEVNAME $MDS_MOUNT_OPTS
 
-            # We started mds, now we should set failover variables properly.
-            # Set mds${num}failover_HOST if it is not set (the default failnode).
-            local varname=mds${num}failover_HOST
-            if [ -z "${!varname}" ]; then
-                eval mds${num}failover_HOST=$(facet_host mds$num)
-            fi
+			# We started mds, now we should set failover variables properly.
+			# Set mds${num}failover_HOST if it is not set (the default failnode).
+			local varname=mds${num}failover_HOST
+			if [ -z "${!varname}" ]; then
+				eval mds${num}failover_HOST=$(facet_host mds$num)
+			fi
 
-            if [ $IDENTITY_UPCALL != "default" ]; then
-                switch_identity $num $IDENTITY_UPCALL
-            fi
-        done
-        for num in `seq $OSTCOUNT`; do
-            DEVNAME=$(ostdevname $num)
-            start ost$num $DEVNAME $OST_MOUNT_OPTS
+			if [ $IDENTITY_UPCALL != "default" ]; then
+				switch_identity $num $IDENTITY_UPCALL
+			fi
+		done
+		for num in `seq $OSTCOUNT`; do
+			DEVNAME=$(ostdevname $num)
+			start ost$num $DEVNAME $OST_MOUNT_OPTS
 
-            # We started ost$num, now we should set ost${num}failover variable properly.
-            # Set ost${num}failover_HOST if it is not set (the default failnode).
-            varname=ost${num}failover_HOST
-            if [ -z "${!varname}" ]; then
-                eval ost${num}failover_HOST=$(facet_host ost${num})
-            fi
+			# We started ost$num, now we should set ost${num}failover variable properly.
+			# Set ost${num}failover_HOST if it is not set (the default failnode).
+			varname=ost${num}failover_HOST
+			if [ -z "${!varname}" ]; then
+				eval ost${num}failover_HOST=$(facet_host ost${num})
+			fi
 
-        done
-    fi
+		done
+		if [ $GSS_SK ]; then
+			local all_nodes_comma=$(comma_list $(all_nodes))
+			echo "GSS_SK: setting kernel keyring perms"
+			do_nodes $all_nodes_comma \
+			"keyctl show | grep lustre | cut -c1-11 | sed -e 's/ //g;' | xargs -IX keyctl setperm X 0x3f3f3f3f"
+		fi
+	fi
 
-    init_gss
+	# wait a while to allow sptlrpc configuration be propogated to targets,
+	# only needed when mounting new target devices.
+	if $GSS; then
+		sleep 10
+	fi
 
-    # wait a while to allow sptlrpc configuration be propogated to targets,
-    # only needed when mounting new target devices.
-    if $GSS; then
-        sleep 10
-    fi
+	[ "$DAEMONFILE" ] && $LCTL debug_daemon start $DAEMONFILE $DAEMONSIZE
+	mount_client $MOUNT
+	[ -n "$CLIENTS" ] && zconf_mount_clients $CLIENTS $MOUNT
+	clients_up
 
-    [ "$DAEMONFILE" ] && $LCTL debug_daemon start $DAEMONFILE $DAEMONSIZE
-    mount_client $MOUNT
-    [ -n "$CLIENTS" ] && zconf_mount_clients $CLIENTS $MOUNT
-    clients_up
+	if [ "$MOUNT_2" ]; then
+		mount_client $MOUNT2
+		[ -n "$CLIENTS" ] && zconf_mount_clients $CLIENTS $MOUNT2
+	fi
 
-    if [ "$MOUNT_2" ]; then
-        mount_client $MOUNT2
-        [ -n "$CLIENTS" ] && zconf_mount_clients $CLIENTS $MOUNT2
-    fi
+	init_param_vars
 
-    init_param_vars
-
-    # by remounting mdt before ost, initial connect from mdt to ost might
-    # timeout because ost is not ready yet. wait some time to its fully
-    # recovery. initial obd_connect timeout is 5s; in GSS case it's preceeded
-    # by a context negotiation rpc with $TIMEOUT.
-    # FIXME better by monitoring import status.
-    if $GSS; then
-        set_flavor_all $SEC
-        sleep $((TIMEOUT + 5))
-    else
-        sleep 5
-    fi
+	# by remounting mdt before ost, initial connect from mdt to ost might
+	# timeout because ost is not ready yet. wait some time to its fully
+	# recovery. initial obd_connect timeout is 5s; in GSS case it's preceeded
+	# by a context negotiation rpc with $TIMEOUT.
+	# FIXME better by monitoring import status.
+	if $GSS; then
+		set_flavor_all $SEC
+		sleep $((TIMEOUT + 5))
+	else
+		sleep 5
+	fi
 }
 
 mounted_lustre_filesystems() {
@@ -4079,7 +4158,9 @@ check_and_setup_lustre() {
 	fi
 
 	init_gss
-	if $GSS; then
+	if $GSS_SK; then
+		set_flavor_all null
+	elif $GSS; then
 		set_flavor_all $SEC
 	fi
 
@@ -5316,6 +5397,11 @@ facets_nodes () {
 	echo -n $nodes_sort
 }
 
+# Get name of the active MGS node.
+mgs_node () {
+	echo -n $(facets_nodes $(get_facets MGS))
+}
+
 # Get all of the active MDS nodes.
 mdts_nodes () {
 	echo -n $(facets_nodes $(get_facets MDS))
@@ -5357,7 +5443,7 @@ remote_nodes_list () {
 all_mdts_nodes () {
 	local host
 	local failover_host
-	local nodes
+	local nodes="${mds_HOST} ${mdsfailover_HOST}"
 	local nodes_sort
 	local i
 
@@ -5375,7 +5461,7 @@ all_mdts_nodes () {
 all_osts_nodes () {
 	local host
 	local failover_host
-	local nodes
+	local nodes="${ost_HOST} ${ostfailover_HOST}"
 	local nodes_sort
 	local i
 
@@ -6341,15 +6427,16 @@ recovery_time_min() {
 }
 
 get_clients_mount_count () {
-    local clients=${CLIENTS:-`hostname`}
+	local clients=${CLIENTS:-`hostname`}
 
-    # we need to take into account the clients mounts and
-    # exclude mds/ost mounts if any;
-    do_nodes $clients cat /proc/mounts | grep lustre | grep $MOUNT | wc -l
+	# we need to take into account the clients mounts and
+	# exclude mds/ost mounts if any;
+	do_nodes $clients cat /proc/mounts | grep lustre | grep -w $MOUNT | wc -l
 }
 
 # gss functions
 PROC_CLI="srpc_info"
+PROC_CON="srpc_contexts"
 
 combination()
 {
@@ -6418,6 +6505,15 @@ set_rule()
     do_facet mgs "$LCTL conf_param $cmd"
 }
 
+count_contexts()
+{
+    local output=$1
+
+    total_mech=`echo "$output" | grep "expire" | grep "key" | grep "hdl" | wc -l`
+    echo $total_mech
+}
+
+
 count_flvr()
 {
     local output=$1
@@ -6464,6 +6560,14 @@ flvr_cnt_cli2mdt()
     for c in ${clients//,/ }; do
         output=`do_node $c lctl get_param -n mdc.*-MDT*-mdc-*.$PROC_CLI 2>/dev/null`
         tmpcnt=`count_flvr "$output" $flavor`
+	if [ $GSS_SK ] && [ $flavor != "null" ]; then
+        	# tmpcnt=min(contexts,flavors) to ensure SK context is on
+        	output=`do_node $c lctl get_param -n mdc.*-MDT*-mdc-*.$PROC_CON 2>/dev/null`
+		outcon=`count_contexts "$output"`
+	        if [ "$outcon" -lt "$tmpcnt" ]; then
+	                tmpcnt=$outcon
+	        fi
+	fi
         cnt=$((cnt + tmpcnt))
     done
     echo $cnt
@@ -6479,6 +6583,14 @@ flvr_cnt_cli2ost()
     for c in ${clients//,/ }; do
         output=`do_node $c lctl get_param -n osc.*OST*-osc-[^M][^D][^T]*.$PROC_CLI 2>/dev/null`
         tmpcnt=`count_flvr "$output" $flavor`
+	if [ $GSS_SK ] && [ $flavor != "null" ]; then
+        	# tmpcnt=min(contexts,flavors) to ensure SK context is on
+        	output=`do_node $c lctl get_param -n osc.*OST*-osc-[^M][^D][^T]*.$PROC_CON 2>/dev/null`
+		outcon=`count_contexts "$output"`
+	        if [ "$outcon" -lt "$tmpcnt" ]; then
+	                tmpcnt=$outcon
+	        fi
+	fi
         cnt=$((cnt + tmpcnt))
     done
     echo $cnt
@@ -6497,6 +6609,14 @@ flvr_cnt_mdt2mdt()
     for num in `seq $MDSCOUNT`; do
         output=`do_facet mds$num lctl get_param -n mdc.*-MDT*-mdc[0-9]*.$PROC_CLI 2>/dev/null`
         tmpcnt=`count_flvr "$output" $flavor`
+	if [ $GSS_SK ] && [ $flavor != "null" ]; then
+        	# tmpcnt=min(contexts,flavors) to ensure SK context is on
+        	output=`do_facet mds$num lctl get_param -n mdc.*-MDT*-mdc[0-9]*.$PROC_CON 2>/dev/null`
+		outcon=`count_contexts "$output"`
+	        if [ "$outcon" -lt "$tmpcnt" ]; then
+	                tmpcnt=$outcon
+	        fi
+	fi
         cnt=$((cnt + tmpcnt))
     done
     echo $cnt;
@@ -6514,6 +6634,14 @@ flvr_cnt_mdt2ost()
         output=$(do_facet mds$num lctl get_param -n \
             osc.$mdtosc.$PROC_CLI 2>/dev/null)
         tmpcnt=`count_flvr "$output" $flavor`
+	if [ $GSS_SK ] && [ $flavor != "null" ]; then
+        	# tmpcnt=min(contexts,flavors) to ensure SK context is on
+        	output=$(do_facet mds$num lctl get_param -n osc.$mdtosc.$PROC_CON 2>/dev/null)
+		outcon=`count_contexts "$output"`
+	        if [ "$outcon" -lt "$tmpcnt" ]; then
+	                tmpcnt=$outcon
+	        fi
+	fi
         cnt=$((cnt + tmpcnt))
     done
     echo $cnt;
@@ -6582,55 +6710,80 @@ wait_flavor()
 
 restore_to_default_flavor()
 {
-    local proc="mgs.MGS.live.$FSNAME"
+	local proc="mgs.MGS.live.$FSNAME"
 
-    echo "restoring to default flavor..."
+	echo "restoring to default flavor..."
 
-    nrule=`do_facet mgs lctl get_param -n $proc 2>/dev/null | grep ".srpc.flavor." | wc -l`
+	nrule=`do_facet mgs lctl get_param -n $proc 2>/dev/null | grep ".srpc.flavor." | wc -l`
 
-    # remove all existing rules if any
-    if [ $nrule -ne 0 ]; then
-        echo "$nrule existing rules"
-        for rule in `do_facet mgs lctl get_param -n $proc 2>/dev/null | grep ".srpc.flavor."`; do
-            echo "remove rule: $rule"
-            spec=`echo $rule | awk -F = '{print $1}'`
-            do_facet mgs "$LCTL conf_param -d $spec"
-        done
-    fi
+	# remove all existing rules if any
+	if [ $nrule -ne 0 ]; then
+		echo "$nrule existing rules"
+		for rule in `do_facet mgs lctl get_param -n $proc 2>/dev/null | grep ".srpc.flavor."`; do
+			echo "remove rule: $rule"
+			spec=`echo $rule | awk -F = '{print $1}'`
+			do_facet mgs "$LCTL conf_param -d $spec"
+		done
+	fi
 
-    # verify no rules left
-    nrule=`do_facet mgs lctl get_param -n $proc 2>/dev/null | grep ".srpc.flavor." | wc -l`
-    [ $nrule -ne 0 ] && error "still $nrule rules left"
+	# verify no rules left
+	nrule=`do_facet mgs lctl get_param -n $proc 2>/dev/null | grep ".srpc.flavor." | wc -l`
+	[ $nrule -ne 0 ] && error "still $nrule rules left"
 
-    # wait for default flavor to be applied
-    # currently default flavor for all connections are 'null'
-    wait_flavor all2all null
-    echo "now at default flavor settings"
+	# wait for default flavor to be applied
+	# currently default flavor for all connections are 'null'
+	if [ $GSS_SK ]; then
+		echo "Skipping MDS test of ski until supported by shared key feature"
+		set_rule $FSNAME any cli2mdt null
+		set_rule $FSNAME any cli2ost null
+		set_rule $FSNAME any mdt2ost null
+		set_rule $FSNAME any mdt2mdt null
+		wait_flavor cli2mdt null
+		wait_flavor cli2ost null
+		wait_flavor mdt2ost null
+		# Do not expect anything to be returned.
+		wait_flavor mdt2mdt null 0
+	else
+	wait_flavor all2all null
+	fi
+	echo "now at default flavor settings"
 }
 
 set_flavor_all()
 {
-    local flavor=${1:-null}
+	local flavor=${1:-null}
 
-    echo "setting all flavor to $flavor"
+	echo "setting all flavor to $flavor"
 
-    # FIXME need parameter to this fn
-    # and remove global vars
-    local cnt_all2all=$(calc_connection_cnt all2all)
+	# FIXME need parameter to this fn
+	# and remove global vars
+	local cnt_all2all=$(calc_connection_cnt all2all)
 
-    local res=$(do_check_flavor all2all $flavor)
-    if [ $res -eq $cnt_all2all ]; then
-        echo "already have total $res $flavor connections"
-        return
-    fi
+	local res=$(do_check_flavor all2all $flavor)
+	if [ $res -eq $cnt_all2all ]; then
+		echo "already have total $res $flavor connections"
+		return
+	fi
 
-    echo "found $res $flavor out of total $cnt_all2all connections"
-    restore_to_default_flavor
+	echo "found $res $flavor out of total $cnt_all2all connections"
+	restore_to_default_flavor
 
-    [[ $flavor = null ]] && return 0
+	[[ $flavor = null ]] && return 0
 
-    set_rule $FSNAME any any $flavor
-    wait_flavor all2all $flavor
+	if [ $GSS_SK ] && [ $flavor == "ski" ]; then
+		echo "GSS_SK: Skipping MDS test of $flavor until implemented"
+		set_rule $FSNAME any cli2mdt $flavor
+		set_rule $FSNAME any cli2ost $flavor
+		set_rule $FSNAME any mdt2ost null
+		set_rule $FSNAME any mdt2mdt null
+		wait_flavor cli2mdt $flavor
+		wait_flavor cli2ost $flavor
+		wait_flavor mdt2ost null
+		wait_flavor mdt2mdt null 0
+	else
+		set_rule $FSNAME any any $flavor
+		wait_flavor all2all $flavor
+	fi
 }
 
 
