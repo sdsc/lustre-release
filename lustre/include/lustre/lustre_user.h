@@ -1392,9 +1392,14 @@ struct llapi_json_item_list {
 
 enum lu_ladvise_type {
 	LU_LADVISE_INVALID	= 0,
+	LU_LADVISE_REQUEST_ONLY = 3,
+	LU_LADVISE_LOCK_AHEAD   = 4,
+	LU_LADVISE_MAX          = 5,
 };
 
 #define LU_LADVISE_NAMES {						\
+	[LU_LADVISE_REQUEST_ONLY] = "requestonly",			\
+	[LU_LADVISE_LOCK_AHEAD] = "lockahead",				\
 }
 
 /* This is the userspace argument for ladvise.  It is currently the same as
@@ -1412,10 +1417,19 @@ struct llapi_lu_ladvise {
 
 enum ladvise_flag {
 	LF_ASYNC	= 0x00000001,
+	LF_UNSET	= 0x00000002,
+	/* For lock requests */
+	LF_NONBLOCK	= 0x00000003,
 };
 
 #define LADVISE_MAGIC 0x1ADF1CE0
-#define LF_MASK LF_ASYNC
+/* Masks of valid flags for each advice */
+#define LF_REQUEST_ONLY_MASK LF_UNSET
+#define LF_LOCK_AHEAD_MASK LF_NONBLOCK
+/* Flags valid for all advices not explicitly specified */
+#define LF_DEFAULT_MASK LF_ASYNC
+/* All flags */
+#define LF_MASK (LF_ASYNC | LF_UNSET | LF_NONBLOCK)
 
 /* This is the userspace argument for ladvise.
  *
@@ -1461,5 +1475,48 @@ struct sk_hmac_type {
 	size_t   sht_bytes;
 };
 
+enum lock_mode_user {
+	MODE_READ_USER = 1,
+	MODE_WRITE_USER,
+	MODE_MAX_USER,
+};
+
+#define USER_LOCKNAMES { \
+	[MODE_READ_USER]  = "READ",\
+	[MODE_WRITE_USER] = "WRITE"\
+}
+
+enum lock_ahead_results {
+	LA_REQUEST_SENT = 0,
+	LA_MATCHED_DIFFERENT,
+	LA_MATCHED_SAME,
+};
+
+#define LU_LOCKAHEAD_RESULTS {						\
+	[LA_REQUEST_SENT] = "Lock request sent",			\
+	[LA_MATCHED_DIFFERENT] = "Different matching lock found",	\
+	[LA_MATCHED_SAME] = "Matching lock on identical extent found",	\
+}
+
+/* Extent for lock ahead requests */
+struct llapi_lock_ahead_extent {
+	__u64	start;
+	__u64	end;
+	/* 0 on success, -ERRNO on error, 1 when a
+	 * matching but non-identical lock is found, 2
+	 * when a matching and identical lock is found */
+	__s32   result;
+};
+
+/* lock ahead ioctl arguments */
+struct llapi_lock_ahead_arg {
+	__u32	lla_version;
+	__u32	lla_lock_mode;
+	__u32	lla_flags;
+	__u32	lla_extent_count;
+	struct	llapi_lock_ahead_extent lla_extents[0];
+};
+
 /** @} lustreuser */
+
 #endif /* _LUSTRE_USER_H */

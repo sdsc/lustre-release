@@ -1317,7 +1317,8 @@ struct ptlrpc_body_v2 {
 				OBD_CONNECT_LAYOUTLOCK | OBD_CONNECT_FID | \
 				OBD_CONNECT_PINGLESS | OBD_CONNECT_LFSCK | \
 				OBD_CONNECT_BULK_MBITS | \
-				OBD_CONNECT_GRANT_PARAM)
+				OBD_CONNECT_GRANT_PARAM | \
+				OBD_CONNECT_LOCK_AHEAD)
 #define ECHO_CONNECT_SUPPORTED (0)
 #define MGS_CONNECT_SUPPORTED  (OBD_CONNECT_VERSION | OBD_CONNECT_AT | \
 				OBD_CONNECT_FULL20 | OBD_CONNECT_IMP_RECOV | \
@@ -2835,6 +2836,12 @@ static inline int ldlm_extent_contain(const struct ldlm_extent *ex1,
 				      const struct ldlm_extent *ex2)
 {
 	return ex1->start <= ex2->start && ex1->end >= ex2->end;
+}
+
+static inline int ldlm_extent_equal(const struct ldlm_extent *ex1,
+			     const struct ldlm_extent *ex2)
+{
+	return ex1->start == ex2->start && ex1->end == ex2->end;
 }
 
 struct ldlm_inodebits {
