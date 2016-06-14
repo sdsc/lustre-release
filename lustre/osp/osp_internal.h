@@ -797,4 +797,13 @@ void __osp_sync_check_for_work(struct osp_device *d);
 extern struct obd_ops lwp_obd_device_ops;
 extern struct lu_device_type lwp_device_type;
 
+static inline void osp_set_req_replay(const struct osp_device *osp,
+				      struct ptlrpc_request *req)
+{
+	/* The RPC sent during the prepare phase must be recovery related,
+	 * such as triggered by lod_sub_recovery_thread(). */
+	if (!osp->opd_recovery_completed)
+		req->rq_allow_replay = 1;
+}
+
 #endif
