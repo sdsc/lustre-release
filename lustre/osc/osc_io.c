@@ -867,7 +867,7 @@ static int osc_io_ladvise_start(const struct lu_env *env,
 		RETURN(-ENOMEM);
 
 	memset(ladvise_hdr, 0, buf_size);
-	ladvise_hdr->lah_magic = LADVISE_MAGIC;
+	ladvise_hdr->lah_magic = LADVISE_MAGIC_WIRE;
 	ladvise_hdr->lah_count = num_advise;
 	ladvise_hdr->lah_flags = lio->li_flags;
 

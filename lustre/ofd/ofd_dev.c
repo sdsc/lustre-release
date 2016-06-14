@@ -2141,7 +2141,7 @@ static int ofd_ladvise_hdl(struct tgt_session_info *tsi)
 	if (ladvise_hdr == NULL)
 		RETURN(err_serious(-EPROTO));
 
-	if (ladvise_hdr->lah_magic != LADVISE_MAGIC ||
+	if (ladvise_hdr->lah_magic != LADVISE_MAGIC_WIRE ||
 	    ladvise_hdr->lah_count < 1)
 		RETURN(err_serious(-EPROTO));
 
