@@ -2627,6 +2627,7 @@ out:
 	}
 	case LL_IOC_LADVISE: {
 		struct ladvise_hdr *ladvise_hdr;
+		__u32 magic;
 		int i;
 		int num_advise;
 		int alloc_size = sizeof(*ladvise_hdr);
@@ -2635,6 +2636,12 @@ out:
 		OBD_ALLOC_PTR(ladvise_hdr);
 		if (ladvise_hdr == NULL)
 			RETURN(-ENOMEM);
+
+		if (copy_from_user(&magic, (void __user *)arg, sizeof(magic)))
+			GOTO(out_ladvise, rc = -EFAULT);
+
+		if (magic != LADVISE_MAGIC)
+			GOTO(out_ladvise, rc = -EINVAL);
 
 		if (copy_from_user(ladvise_hdr,
 				   (const struct ladvise_hdr __user *)arg,
