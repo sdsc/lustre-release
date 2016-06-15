@@ -13975,6 +13975,30 @@ test_256() {
 }
 run_test 256 "Check llog delete for empty and not full state"
 
+test_258()
+{
+	local data=$(mktemp $1_XXXXXX)
+	local file=$DIR/$tfile
+
+	$SETSTRIPE -c 1 -i 0 $file || error "setstripe failed"
+
+	dd if=/dev/urandom of=$data bs=1M count=2
+
+	# OBD_FAIL_OST_WRITE_DELAY | OBD_FAIL_ONCE
+	do_facet ost1 "$LCTL set_param fail_loc=0x80000237"
+
+	dd if=$data of=$file bs=1M count=2
+
+	cancel_lru_locks osc
+	cancel_lru_locks mdc
+
+	cmp $data $file || error "files differ"
+
+	rm -f $data
+	rm -f $file
+}
+run_test 258 "i_size updates from BRW should be atomic"
+
 cleanup_test_300() {
 	trap 0
 	umask $SAVE_UMASK
@@ -14690,6 +14714,7 @@ test_310c() {
 	wait $MULTIPID
 }
 run_test 310c "open-unlink remote file with multiple links"
+
 
 test_400a() { # LU-1606, was conf-sanity test_74
 	local extra_flags=''
