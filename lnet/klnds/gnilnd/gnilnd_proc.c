@@ -39,7 +39,7 @@
 static int
 _kgnilnd_proc_run_cksum_test(int caseno, int nloops, int nob)
 {
-	lnet_kiov_t              *src, *dest;
+	struct lnet_kiov              *src, *dest;
 	struct timespec          begin, end, diff;
 	int                      niov;
 	int                      rc = 0;
@@ -47,8 +47,8 @@ _kgnilnd_proc_run_cksum_test(int caseno, int nloops, int nob)
 	__u16                    cksum, cksum2;
 	__u64                    mbytes;
 
-	LIBCFS_ALLOC(src, LNET_MAX_IOV * sizeof(lnet_kiov_t));
-	LIBCFS_ALLOC(dest, LNET_MAX_IOV * sizeof(lnet_kiov_t));
+	LIBCFS_ALLOC(src, LNET_MAX_IOV * sizeof(struct lnet_kiov));
+	LIBCFS_ALLOC(dest, LNET_MAX_IOV * sizeof(struct lnet_kiov));
 
 	if (src == NULL || dest == NULL) {
 		CERROR("couldn't allocate iovs\n");
@@ -151,9 +151,9 @@ unwind:
 	}
 
 	if (src != NULL)
-		LIBCFS_FREE(src, LNET_MAX_IOV * sizeof(lnet_kiov_t));
+		LIBCFS_FREE(src, LNET_MAX_IOV * sizeof(struct lnet_kiov));
 	if (dest != NULL)
-		LIBCFS_FREE(dest, LNET_MAX_IOV * sizeof(lnet_kiov_t));
+		LIBCFS_FREE(dest, LNET_MAX_IOV * sizeof(struct lnet_kiov));
 	return rc;
 }
 

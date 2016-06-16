@@ -43,7 +43,7 @@
 
 #include "selftest.h"
 
-lst_sid_t LST_INVALID_SID = {LNET_NID_ANY, -1};
+struct lst_sid LST_INVALID_SID = {LNET_NID_ANY, -1};
 
 static int session_timeout = 100;
 module_param(session_timeout, int, 0444);
@@ -268,7 +268,7 @@ sfw_session_expired (void *data)
 }
 
 static inline void
-sfw_init_session(sfw_session_t *sn, lst_sid_t sid,
+sfw_init_session(sfw_session_t *sn, struct lst_sid sid,
 		 unsigned features, const char *name)
 {
         stt_timer_t *timer = &sn->sn_timer;
@@ -334,7 +334,7 @@ sfw_client_rpc_fini (srpc_client_rpc_t *rpc)
 }
 
 static sfw_batch_t *
-sfw_find_batch (lst_bid_t bid)
+sfw_find_batch(struct lst_bid bid)
 {
 	sfw_session_t *sn = sfw_data.fw_session;
 	sfw_batch_t   *bat;
@@ -350,7 +350,7 @@ sfw_find_batch (lst_bid_t bid)
 }
 
 static sfw_batch_t *
-sfw_bid2batch (lst_bid_t bid)
+sfw_bid2batch(struct lst_bid bid)
 {
         sfw_session_t *sn = sfw_data.fw_session;
         sfw_batch_t   *bat;
@@ -376,12 +376,12 @@ sfw_bid2batch (lst_bid_t bid)
 }
 
 static int
-sfw_get_stats (srpc_stat_reqst_t *request, srpc_stat_reply_t *reply)
+sfw_get_stats(srpc_stat_reqst_t *request, srpc_stat_reply_t *reply)
 {
-        sfw_session_t  *sn = sfw_data.fw_session;
-        sfw_counters_t *cnt = &reply->str_fw;
-        sfw_batch_t    *bat;
-        struct timeval  tv;
+	sfw_session_t *sn = sfw_data.fw_session;
+	struct sfw_counters *cnt = &reply->str_fw;
+	sfw_batch_t *bat;
+	struct timeval tv;
 
         reply->str_sid = (sn == NULL) ? LST_INVALID_SID : sn->sn_id;
 
@@ -793,15 +793,15 @@ sfw_add_test_instance (sfw_batch_t *tsb, srpc_server_rpc_t *rpc)
         LASSERT (bk != NULL);
         LASSERT (bk->bk_niov * SFW_ID_PER_PAGE >= (unsigned int)ndest);
 	LASSERT((unsigned int)bk->bk_len >=
-		sizeof(lnet_process_id_packed_t) * ndest);
+		sizeof(struct lnet_process_id_packed) * ndest);
 
 	sfw_unpack_addtest_req(msg);
         memcpy(&tsi->tsi_u, &req->tsr_u, sizeof(tsi->tsi_u));
 
         for (i = 0; i < ndest; i++) {
-                lnet_process_id_packed_t *dests;
-                lnet_process_id_packed_t  id;
-                int                       j;
+		struct lnet_process_id_packed *dests;
+		struct lnet_process_id_packed id;
+		int j;
 
 		dests = page_address(bk->bk_iovs[i / SFW_ID_PER_PAGE].kiov_page);
 		LASSERT (dests != NULL);  /* my pages are within KVM always */
@@ -918,7 +918,7 @@ sfw_test_rpc_done (srpc_client_rpc_t *rpc)
 }
 
 int
-sfw_create_test_rpc(sfw_test_unit_t *tsu, lnet_process_id_t peer,
+sfw_create_test_rpc(sfw_test_unit_t *tsu, struct lnet_process_id peer,
 		    unsigned features, int nblk, int blklen,
 		    srpc_client_rpc_t **rpcpp)
 {
@@ -1184,7 +1184,7 @@ sfw_add_test (srpc_server_rpc_t *rpc)
 			len = npg * PAGE_CACHE_SIZE;
 
 		} else  {
-			len = sizeof(lnet_process_id_packed_t) *
+			len = sizeof(struct lnet_process_id_packed) *
 			      request->tsr_ndest;
 		}
 
@@ -1398,7 +1398,7 @@ sfw_bulk_ready(struct srpc_server_rpc *rpc, int status)
 }
 
 srpc_client_rpc_t *
-sfw_create_rpc(lnet_process_id_t peer, int service,
+sfw_create_rpc(struct lnet_process_id peer, int service,
 	       unsigned features, int nbulkiov, int bulklen,
 	       void (*done)(srpc_client_rpc_t *), void *priv)
 {

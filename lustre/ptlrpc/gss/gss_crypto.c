@@ -276,7 +276,7 @@ int gss_digest_hmac(struct crypto_hash *tfm,
 		    rawobj_t *key,
 		    rawobj_t *hdr,
 		    int msgcnt, rawobj_t *msgs,
-		    int iovcnt, lnet_kiov_t *iovs,
+		    int iovcnt, struct lnet_kiov *iovs,
 		    rawobj_t *cksum)
 {
 	struct hash_desc desc = {
@@ -340,7 +340,7 @@ int gss_digest_norm(struct crypto_hash *tfm,
 		    struct gss_keyblock *kb,
 		    rawobj_t *hdr,
 		    int msgcnt, rawobj_t *msgs,
-		    int iovcnt, lnet_kiov_t *iovs,
+		    int iovcnt, struct lnet_kiov *iovs,
 		    rawobj_t *cksum)
 {
 	struct hash_desc   desc;

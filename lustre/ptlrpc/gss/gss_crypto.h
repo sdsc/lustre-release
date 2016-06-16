@@ -68,11 +68,11 @@ void gss_teardown_sgtable(struct sg_table *sgt);
 int gss_crypt_generic(struct crypto_blkcipher *tfm, int decrypt, void *iv,
 			void *in, void *out, int length);
 int gss_digest_hmac(struct crypto_hash *tfm, rawobj_t *key, rawobj_t *hdr,
-		    int msgcnt, rawobj_t *msgs, int iovcnt, lnet_kiov_t *iovs,
-		    rawobj_t *cksum);
+		    int msgcnt, rawobj_t *msgs, int iovcnt,
+		    struct lnet_kiov *iovs, rawobj_t *cksum);
 int gss_digest_norm(struct crypto_hash *tfm, struct gss_keyblock *kb,
 		    rawobj_t *hdr, int msgcnt, rawobj_t *msgs, int iovcnt,
-		    lnet_kiov_t *iovs, rawobj_t *cksum);
+		    struct lnet_kiov *iovs, rawobj_t *cksum);
 int gss_add_padding(rawobj_t *msg, int msg_buflen, int blocksize);
 int gss_crypt_rawobjs(struct crypto_blkcipher *tfm, int use_internal_iv,
 		      int inobj_cnt, rawobj_t *inobjs, rawobj_t *outobj,

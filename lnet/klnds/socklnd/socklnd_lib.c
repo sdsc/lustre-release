@@ -120,7 +120,7 @@ int
 ksocknal_lib_send_kiov(ksock_conn_t *conn, ksock_tx_t *tx)
 {
         struct socket *sock = conn->ksnc_sock;
-        lnet_kiov_t   *kiov = tx->tx_kiov;
+	struct lnet_kiov   *kiov = tx->tx_kiov;
         int            rc;
         int            nob;
 
@@ -268,7 +268,7 @@ ksocknal_lib_kiov_vunmap(void *addr)
 }
 
 static void *
-ksocknal_lib_kiov_vmap(lnet_kiov_t *kiov, int niov,
+ksocknal_lib_kiov_vmap(struct lnet_kiov *kiov, int niov,
 		       struct kvec *iov, struct page **pages)
 {
         void             *addr;
@@ -320,7 +320,7 @@ ksocknal_lib_recv_kiov (ksock_conn_t *conn)
 	struct page  **pages      = conn->ksnc_scheduler->kss_rx_scratch_pgs;
 	unsigned int   niov       = conn->ksnc_rx_nkiov;
 #endif
-	lnet_kiov_t   *kiov = conn->ksnc_rx_kiov;
+	struct lnet_kiov *kiov = conn->ksnc_rx_kiov;
 	struct msghdr msg = {
 		.msg_flags      = 0
 	};

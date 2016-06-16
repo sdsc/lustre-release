@@ -1320,7 +1320,7 @@ osc_brw_prep_request(int cmd, struct client_obd *cli, struct obdo *oa,
         RETURN(rc);
 }
 
-static int check_write_checksum(struct obdo *oa, const lnet_process_id_t *peer,
+static int check_write_checksum(struct obdo *oa, const struct lnet_process_id *peer,
 				__u32 client_cksum, __u32 server_cksum, int nob,
 				size_t page_count, struct brw_page **pga,
 				cksum_type_t client_cksum_type)
@@ -1369,7 +1369,7 @@ static int check_write_checksum(struct obdo *oa, const lnet_process_id_t *peer,
 static int osc_brw_fini_request(struct ptlrpc_request *req, int rc)
 {
         struct osc_brw_async_args *aa = (void *)&req->rq_async_args;
-        const lnet_process_id_t *peer =
+	const struct lnet_process_id *peer =
                         &req->rq_import->imp_connection->c_peer;
         struct client_obd *cli = aa->aa_cli;
         struct ost_body *body;

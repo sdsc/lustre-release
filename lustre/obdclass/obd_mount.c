@@ -240,7 +240,7 @@ int lustre_start_mgc(struct super_block *sb)
 		    (class_parse_nid(lsi->lsi_lmd->lmd_mgs, &nid, &ptr) == 0)) {
 			i++;
 		} else if (IS_MGS(lsi)) {
-                        lnet_process_id_t id;
+			struct lnet_process_id id;
                         while ((rc = LNetGetId(i++, &id)) != -ENOENT) {
                                 if (LNET_NETTYP(LNET_NIDNET(id.nid)) == LOLND)
                                         continue;
@@ -346,7 +346,7 @@ int lustre_start_mgc(struct super_block *sb)
 		CDEBUG(D_MOUNT, "mgs nids %s.\n", ptr);
 		if (IS_MGS(lsi)) {
 			/* Use local nids (including LO) */
-			lnet_process_id_t id;
+			struct lnet_process_id id;
 			while ((rc = LNetGetId(i++, &id)) != -ENOENT) {
 				rc = do_lcfg(mgcname, id.nid, LCFG_ADD_UUID,
 					     niduuid, NULL, NULL, NULL);

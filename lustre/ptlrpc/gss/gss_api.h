@@ -50,14 +50,14 @@ __u32 lgss_get_mic(
                 int                      msgcnt,
                 rawobj_t                *msgs,
                 int                      iovcnt,
-                lnet_kiov_t             *iovs,
+		struct lnet_kiov             *iovs,
                 rawobj_t                *mic_token);
 __u32 lgss_verify_mic(
                 struct gss_ctx          *ctx,
                 int                      msgcnt,
                 rawobj_t                *msgs,
                 int                      iovcnt,
-                lnet_kiov_t             *iovs,
+		struct lnet_kiov             *iovs,
                 rawobj_t                *mic_token);
 __u32 lgss_wrap(
                 struct gss_ctx          *ctx,
@@ -125,14 +125,14 @@ struct gss_api_ops {
                         int                     msgcnt,
                         rawobj_t               *msgs,
                         int                     iovcnt,
-                        lnet_kiov_t            *iovs,
+			struct lnet_kiov            *iovs,
                         rawobj_t               *mic_token);
         __u32 (*gss_verify_mic)(
                         struct gss_ctx         *ctx,
                         int                     msgcnt,
                         rawobj_t               *msgs,
                         int                     iovcnt,
-                        lnet_kiov_t            *iovs,
+			struct lnet_kiov            *iovs,
                         rawobj_t               *mic_token);
         __u32 (*gss_wrap)(
                         struct gss_ctx         *ctx,

@@ -159,11 +159,11 @@ int
 lnet_connect(struct socket **sockp, lnet_nid_t peer_nid,
             __u32 local_ip, __u32 peer_ip, int peer_port)
 {
-        lnet_acceptor_connreq_t cr;
-	struct socket           *sock;
-        int                     rc;
-        int                     port;
-        int                     fatal;
+	struct lnet_acceptor_connreq cr;
+	struct socket *sock;
+	int rc;
+	int port;
+	int fatal;
 
         CLASSERT (sizeof(cr) <= 16);            /* not too big to be on the stack */
 
@@ -224,13 +224,13 @@ EXPORT_SYMBOL(lnet_connect);
 static int
 lnet_accept(struct socket *sock, __u32 magic)
 {
-        lnet_acceptor_connreq_t cr;
-        __u32                   peer_ip;
-        int                     peer_port;
-        int                     rc;
-        int                     flip;
-        lnet_ni_t              *ni;
-        char                   *str;
+	struct lnet_acceptor_connreq cr;
+	__u32 peer_ip;
+	int peer_port;
+	int rc;
+	int flip;
+	struct lnet_ni *ni;
+	char *str;
 
         LASSERT (sizeof(cr) <= 16);             /* not too big for the stack */
 
@@ -306,7 +306,7 @@ lnet_accept(struct socket *sock, __u32 magic)
 
 	rc = lnet_sock_read(sock, &cr.acr_nid,
                               sizeof(cr) -
-                              offsetof(lnet_acceptor_connreq_t, acr_nid),
+			      offsetof(struct lnet_acceptor_connreq, acr_nid),
                               accept_timeout);
         if (rc != 0) {
                 CERROR("Error %d reading connection request from "

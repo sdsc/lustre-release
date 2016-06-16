@@ -86,9 +86,9 @@ EXPORT_SYMBOL(ptlrpc_init_client);
 struct ptlrpc_connection *ptlrpc_uuid_to_connection(struct obd_uuid *uuid)
 {
         struct ptlrpc_connection *c;
-        lnet_nid_t                self;
-        lnet_process_id_t         peer;
-        int                       err;
+	lnet_nid_t self;
+	struct lnet_process_id peer;
+	int err;
 
 	/* ptlrpc_uuid_to_peer() initializes its 2nd parameter
 	 * before accessing its values. */
@@ -206,7 +206,7 @@ void __ptlrpc_prep_bulk_page(struct ptlrpc_bulk_desc *desc,
 			     struct page *page, int pageoffset, int len,
 			     int pin)
 {
-	lnet_kiov_t *kiov;
+	struct lnet_kiov *kiov;
 
 	LASSERT(desc->bd_iov_count < desc->bd_max_iov);
 	LASSERT(page != NULL);

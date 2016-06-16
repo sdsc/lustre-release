@@ -208,7 +208,7 @@ __u32 lgss_get_mic(struct gss_ctx *context_handle,
                    int msgcnt,
                    rawobj_t *msg,
                    int iovcnt,
-                   lnet_kiov_t *iovs,
+		   struct lnet_kiov *iovs,
                    rawobj_t *mic_token)
 {
         LASSERT(context_handle);
@@ -230,7 +230,7 @@ __u32 lgss_verify_mic(struct gss_ctx *context_handle,
                       int msgcnt,
                       rawobj_t *msg,
                       int iovcnt,
-                      lnet_kiov_t *iovs,
+		      struct lnet_kiov *iovs,
                       rawobj_t *mic_token)
 {
         LASSERT(context_handle);

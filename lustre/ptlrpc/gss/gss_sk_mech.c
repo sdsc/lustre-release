@@ -269,7 +269,7 @@ __u32 gss_inquire_context_sk(struct gss_ctx *gss_context,
 static
 __u32 sk_make_checksum(char *alg_name, rawobj_t *key,
 		       int msg_count, rawobj_t *msgs,
-		       int iov_count, lnet_kiov_t *iovs,
+		       int iov_count, struct lnet_kiov *iovs,
 		       rawobj_t *token)
 {
 	struct crypto_hash *tfm;
@@ -294,7 +294,7 @@ __u32 gss_get_mic_sk(struct gss_ctx *gss_context,
 		     int message_count,
 		     rawobj_t *messages,
 		     int iov_count,
-		     lnet_kiov_t *iovs,
+		     struct lnet_kiov *iovs,
 		     rawobj_t *token)
 {
 	struct sk_ctx *skc = gss_context->internal_ctx_id;
@@ -309,7 +309,7 @@ __u32 sk_verify_checksum(struct sk_hmac_type *sht,
 			 int message_count,
 			 rawobj_t *messages,
 			 int iov_count,
-			 lnet_kiov_t *iovs,
+			 struct lnet_kiov *iovs,
 			 rawobj_t *token)
 {
 	rawobj_t checksum = RAWOBJ_EMPTY;
@@ -350,7 +350,7 @@ __u32 gss_verify_mic_sk(struct gss_ctx *gss_context,
 			int message_count,
 			rawobj_t *messages,
 			int iov_count,
-			lnet_kiov_t *iovs,
+			struct lnet_kiov *iovs,
 			rawobj_t *token)
 {
 	struct sk_ctx *skc = gss_context->internal_ctx_id;
@@ -552,8 +552,8 @@ static __u32 sk_decrypt_bulk(struct crypto_blkcipher *tfm,
 	}
 
 	for (i = 0; i < desc->bd_iov_count; i++) {
-		lnet_kiov_t *piov = &BD_GET_KIOV(desc, i);
-		lnet_kiov_t *ciov = &BD_GET_ENC_KIOV(desc, i);
+		struct lnet_kiov *piov = &BD_GET_KIOV(desc, i);
+		struct lnet_kiov *ciov = &BD_GET_ENC_KIOV(desc, i);
 
 		if (piov->kiov_offset % blocksize != 0 ||
 		    piov->kiov_len % blocksize != 0) {
