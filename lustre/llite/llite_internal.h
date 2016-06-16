@@ -136,9 +136,6 @@ struct ll_inode_info {
 	/* master inode fid for stripe directory */
 	struct lu_fid			lli_pfid;
 
-	/* open count currently used by capability only, indicate whether
-	 * capability needs renewal */
-	atomic_t			lli_open_count;
 	cfs_time_t			lli_rmtperm_time;
 
 	/* We need all three because every inode may be opened in different
