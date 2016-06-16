@@ -795,6 +795,7 @@ static void lod_fini_distribute_txn(const struct lu_env *env,
 	struct lu_target		  *lut;
 
 	lut = lod2lu_dev(lod)->ld_site->ls_tgt;
+	target_recovery_fini(lut->lut_obd);
 	if (lut->lut_tdtd == NULL)
 		return;
 
