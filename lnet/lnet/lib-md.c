@@ -316,9 +316,9 @@ LNetMDAttach(lnet_handle_me_t meh, lnet_md_t umd,
 	return 0;
 
  failed:
-	lnet_md_free(md);
-
 	lnet_res_unlock(cpt);
+
+	lnet_md_free(md);
 	return rc;
 }
 EXPORT_SYMBOL(LNetMDAttach);
