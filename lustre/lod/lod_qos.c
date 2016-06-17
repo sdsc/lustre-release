@@ -1760,9 +1760,18 @@ static int lod_qos_parse_config(const struct lu_env *env,
 
 	lo->ldo_stripe_offset = v1->lmm_stripe_offset;
 
-	lod_object_set_pool(lo, NULL);
-	if (pool_name != NULL) {
+	printk("RDEBUG1: %s checking values pool_name=%s and ldo_pool=%s\n",
+		 __func__, pool_name, lo->ldo_pool);
+	if (pool_name != NULL || lo->ldo_pool != NULL) {
 		struct pool_desc *pool;
+
+		if (pool_name == NULL && lo->ldo_pool != NULL)
+			pool_name = lo->ldo_pool;
+		else if (pool_name != NULL)
+			lod_object_set_pool(lo, pool_name);
+		printk("RDEBUG2: %s checking values pool_name=%s and \
+			ldo_pool=%s\n",__FUNCTION__, pool_name,
+			lo->ldo_pool);
 
 		/* In the function below, .hs_keycmp resolves to
 		 * pool_hashkey_keycmp() */
@@ -1786,8 +1795,6 @@ static int lod_qos_parse_config(const struct lu_env *env,
 
 			lod_pool_putref(pool);
 		}
-
-		lod_object_set_pool(lo, pool_name);
 	}
 
 	/* fixup for released file */
