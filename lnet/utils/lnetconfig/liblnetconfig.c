@@ -1164,7 +1164,7 @@ lustre_lnet_ioctl_config_ni(struct list_head *intf_list,
 		conf = (struct lnet_ioctl_config_ni*) data;
 		if (i == 0 && tunables != NULL)
 			tun = (struct lnet_ioctl_config_lnd_tunables*)
-				(data + sizeof(*conf));
+				conf->lic_bulk;
 
 		LIBCFS_IOC_INIT_V2(*conf, lic_cfg_hdr);
 		conf->lic_cfg_hdr.ioc_len = len;
@@ -2114,6 +2114,16 @@ int lustre_lnet_show_peer(char *knid, int detail, int seq_no,
 			    == NULL)
 				goto out;
 
+			if (cYAML_create_number(peer_ni, "min_tx_credits",
+						lpni_cri->cr_peer_min_tx_credits)
+			    == NULL)
+				goto out;
+
+			if (cYAML_create_number(peer_ni, "tx_q_num_of_buf",
+						lpni_cri->cr_peer_tx_qnob)
+			    == NULL)
+				goto out;
+
 			if (cYAML_create_number(peer_ni, "available_rtr_credits",
 						lpni_cri->cr_peer_rtr_credits)
 			    == NULL)
@@ -2121,11 +2131,6 @@ int lustre_lnet_show_peer(char *knid, int detail, int seq_no,
 
 			if (cYAML_create_number(peer_ni, "min_rtr_credits",
 						lpni_cri->cr_peer_min_rtr_credits)
-			    == NULL)
-				goto out;
-
-			if (cYAML_create_number(peer_ni, "tx_q_num_of_buf",
-						lpni_cri->cr_peer_tx_qnob)
 			    == NULL)
 				goto out;
 
@@ -2443,10 +2448,10 @@ failed:
 static bool
 yaml_extract_tunables(struct cYAML *tree,
 		      struct lnet_ioctl_config_lnd_tunables *tunables,
-		      int *num_global_cpts,
 		      struct cfs_expr_list **global_cpts)
 {
 	struct cYAML *tun, *item, *smp;
+	int rc;
 
 	tun = cYAML_get_object_item(tree, "tunables");
 	if (tun != NULL) {
@@ -2464,10 +2469,11 @@ yaml_extract_tunables(struct cYAML *tree,
 			tunables->lt_cmn.lct_max_tx_credits = item->cy_valueint;
 		smp = cYAML_get_object_item(tun, "CPT");
 		if (smp != NULL) {
-			*num_global_cpts =
-				cfs_expr_list_parse(smp->cy_valuestring,
+			rc = cfs_expr_list_parse(smp->cy_valuestring,
 						 strlen(smp->cy_valuestring),
 						 0, UINT_MAX, global_cpts);
+			if (rc != 0)
+				*global_cpts = NULL;
 		}
 
 		return true;
@@ -2499,7 +2505,7 @@ static int handle_yaml_config_ni(struct cYAML *tree, struct cYAML **show_rc,
 {
 	struct cYAML *net, *intf, *seq_no, *ip2net = NULL, *local_nis = NULL,
 		     *item = NULL;
-	int num_entries = 0, num_global_cpts = 0, rc;
+	int num_entries = 0, rc;
 	struct lnet_dlc_network_descr nw_descr;
 	struct cfs_expr_list *global_cpts = NULL;
 	struct lnet_ioctl_config_lnd_tunables tunables;
@@ -2535,12 +2541,11 @@ static int handle_yaml_config_ni(struct cYAML *tree, struct cYAML **show_rc,
 		}
 	}
 
-	found = yaml_extract_tunables(tree, &tunables, &num_global_cpts,
-				      &global_cpts);
+	found = yaml_extract_tunables(tree, &tunables, &global_cpts);
 	seq_no = cYAML_get_object_item(tree, "seq_no");
 
 	rc = lustre_lnet_config_ni(&nw_descr,
-				   (num_global_cpts > 0) ? global_cpts: NULL,
+				   global_cpts,
 				   (ip2net) ? ip2net->cy_valuestring : NULL,
 				   (found) ? &tunables: NULL,
 				   (seq_no) ? seq_no->cy_valueint : -1,
@@ -2571,7 +2576,7 @@ static int handle_yaml_config_ip2nets(struct cYAML *tree,
 	struct lustre_lnet_ip2nets ip2nets;
 	struct lustre_lnet_ip_range_descr *ip_range_descr = NULL,
 					  *tmp = NULL;
-	int rc = LUSTRE_CFG_RC_NO_ERR, num_global_cpts = 0;
+	int rc = LUSTRE_CFG_RC_NO_ERR;
 	struct cfs_expr_list *global_cpts = NULL;
 	struct cfs_expr_list *el, *el_tmp;
 	struct lnet_ioctl_config_lnd_tunables tunables;
@@ -2625,12 +2630,11 @@ static int handle_yaml_config_ip2nets(struct cYAML *tree,
 		}
 	}
 
-	found = yaml_extract_tunables(tree, &tunables, &num_global_cpts,
-				      &global_cpts);
+	found = yaml_extract_tunables(tree, &tunables, &global_cpts);
 
 	rc = lustre_lnet_config_ip2nets(&ip2nets,
 			(found) ? &tunables : NULL,
-			(num_global_cpts > 0) ? global_cpts : NULL,
+			global_cpts,
 			(seq_no) ? seq_no->cy_valueint : -1,
 			err_rc);
 
