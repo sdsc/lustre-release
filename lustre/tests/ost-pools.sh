@@ -1,11 +1,8 @@
 #!/bin/bash
-# -*- mode: Bash; tab-width: 4; indent-tabs-mode: t; -*-
-# vim:shiftwidth=4:softtabstop=4:tabstop=4:
 #
 # Run select tests by setting ONLY, or as arguments to the script.
 # Skip specific tests by setting EXCEPT.
 #
-# Run test by setting NOSETUP=true when ltest has setup env for us
 
 SRCDIR=$(dirname $0)
 export PATH=$PWD/$SRCDIR:$SRCDIR:$PWD/$SRCDIR/../utils:$PATH:/sbin
@@ -97,16 +94,15 @@ osts_in_pool() {
 }
 
 check_dir_in_pool() {
-    local dir=$1
-    local pool=$2
-    local res=$($GETSTRIPE $dir | grep "^stripe_count:" |
-                cut -d ':' -f 5 | tr -d "[:blank:]")
-    if [[ "$res" != "$pool" ]]; then
-        error found $res instead of $pool
-        return 1
-    fi
+	local dir=$1
+	local pool=$2
+	local res=$($GETSTRIPE $dir | grep "^stripe_count:" |
+		    cut -d ':' -f 5 | tr -d "[:blank:]")
+	if [[ "$res" != "$pool" ]]; then
+		error "$dir in pool $res instead of $pool"
+	fi
 
-    return 0
+	return 0
 }
 
 check_file_in_pool() {
@@ -131,11 +127,10 @@ check_file_in_osts() {
                 fi
         done
 
-        local ost_count=$($GETSTRIPE $file | grep 0x | wc -l)
-        [[ -n "$count" ]] && [[ $ost_count -ne $count ]] &&
-            { error "Stripe count $count expected; got $ost_count" && return 1;}
-
-
+	local ost_count=$($GETSTRIPE $file | grep 0x | wc -l)
+	[[ -n "$count" ]] && [[ $ost_count -ne $count ]] &&
+		{ error "Stripe count $count expected; got $ost_count"
+		  && return 1;}
 }
 
 file_pool() {
@@ -143,16 +138,14 @@ file_pool() {
 }
 
 check_file_not_in_pool() {
-    local file=$1
-    local pool=$2
-    local res=$(file_pool $file)
+	local file=$1
+	local pool=$2
+	local res=$(file_pool $file)
 
-    if [[ "$res" == "$pool" ]]; then
-        error "File $file is in pool: $res"
-        return 1
-    else
-        return 0
-    fi
+	if [[ "$res" == "$pool" ]]; then
+		error "File $file is in pool: $res"
+	fi
+	return 0
 }
 
 check_dir_not_in_pool() {
@@ -161,8 +154,7 @@ check_dir_not_in_pool() {
 	local res=$($GETSTRIPE -v $dir | grep "^stripe_count" | head -n1 |
 		cut -f 8 -d ' ')
 	if [[ "$res" == "$pool" ]]; then
-		error "File $dir is in pool: $res"
-		return 1
+		error "Dir $dir is in pool: $res"
 	fi
 	return 0
 }
@@ -612,45 +604,49 @@ test_5b() {
 run_test 5b "lctl pool_list from MDS"
 
 test_6() {
-    set_cleanup_trap
-    local POOL_ROOT=${POOL_ROOT:-$DIR/$tdir}
-    local POOL_DIR=$POOL_ROOT/dir_tst
-    local POOL_FILE=$POOL_ROOT/file_tst
+	set_cleanup_trap
+	local POOL_ROOT=${POOL_ROOT:-$DIR/$tdir}
+	local POOL_DIR=$POOL_ROOT/dir_tst
+	local POOL_FILE=$POOL_ROOT/file_tst
 
-    create_pool_nofail $POOL
+	create_pool_nofail $POOL
 
-    do_facet $SINGLEMDS lctl pool_list $FSNAME
-    [[ $? -eq 0 ]] || error "pool_list $FSNAME failed."
+	do_facet $SINGLEMDS lctl pool_list $FSNAME
+	[[ $? -eq 0 ]] || error "pool_list $FSNAME failed."
 
-    add_pool $POOL $TGT_ALL "$TGT_UUID"
+	add_pool $POOL $TGT_HALF "$TGT_UUID2"
 
-    mkdir -p $POOL_DIR
-    $SETSTRIPE -c -1 -p $POOL $POOL_DIR
-    [[ $? -eq 0 ]] || error "$SETSTRIPE -p $POOL failed."
-    check_dir_in_pool $POOL_DIR $POOL
+	mkdir -p $POOL_DIR
+	$SETSTRIPE -c -1 -p $POOL $POOL_DIR
+	[[ $? -eq 0 ]] || error "$SETSTRIPE -p $POOL failed."
+	check_dir_in_pool $POOL_DIR $POOL
 
-    # If an invalid pool name is specified, the command should fail
-    $SETSTRIPE -c 2 -p $INVALID_POOL $POOL_DIR 2>/dev/null
-    [[ $? -ne 0 ]] || error "setstripe to invalid pool did not fail."
+	# If an invalid pool name is specified, the command should fail
+	$SETSTRIPE -c 2 -p $INVALID_POOL $POOL_DIR 2>/dev/null
+	[[ $? -ne 0 ]] || error "setstripe to invalid pool did not fail."
 
-    # If the pool name does not exist, the command should fail
-    $SETSTRIPE -c 2 -p $NON_EXISTANT_POOL $POOL_DIR 2>/dev/null
-    [[ $? -ne 0 ]] || error "setstripe to non-existant pool did not fail."
+	# If the pool name does not exist, the command should fail
+	$SETSTRIPE -c 2 -p $NON_EXISTANT_POOL $POOL_DIR 2>/dev/null
+	[[ $? -ne 0 ]] || error "setstripe to non-existant pool did not fail."
 
-    # lfs setstripe should work as before if a pool name is not specified.
-    $SETSTRIPE -c -1 $POOL_DIR
-    [[ $? -eq 0 ]] || error "$SETSTRIPE -p $POOL_DIR failed."
-    $SETSTRIPE -c -1 $POOL_FILE
-    [[ $? -eq 0 ]] || error "$SETSTRIPE -p $POOL_FILE failed."
+	# lfs setstripe should work as before if a pool name is not specified.
+	$SETSTRIPE -c -1 $POOL_DIR
+	[[ $? -eq 0 ]] || error "$SETSTRIPE -p $POOL_DIR failed."
+	$SETSTRIPE -c -1 $POOL_FILE
+	[[ $? -eq 0 ]] || error "$SETSTRIPE -p $POOL_FILE failed."
 
-    # lfs setstripe should fail if a start index that is outside the
-    # pool is specified.
-    create_pool_nofail $POOL2
-    add_pool $POOL2 "OST0000" "$FSNAME-OST0000_UUID "
-    $SETSTRIPE -i 1 -p $POOL2 $ROOT_POOL/$tfile 2>/dev/null
-    [[ $? -ne 0 ]] ||
-        error "$SETSTRIPE with start index outside the pool did not fail."
+	if [ $(lustre_version_code mds1) -ge $(version_code 2.8.54) ]; then
+		check_dir_in_pool $POOL_DIR $POOL
+		check_file_in_pool $POOL_FILE $POOL
+	fi
 
+	# lfs setstripe should fail if a start index that is outside the
+	# pool is specified.
+	create_pool_nofail $POOL2
+	add_pool $POOL2 "OST0000" "$FSNAME-OST0000_UUID "
+	$SETSTRIPE -i 1 -p $POOL2 $ROOT_POOL/$tfile 2>/dev/null
+	[[ $? -ne 0 ]] ||
+		error "$SETSTRIPE with ost index outside the pool did not fail."
 }
 run_test 6 "getstripe/setstripe"
 
@@ -1181,30 +1177,36 @@ test_20() {
           printf "$FSNAME-OST%04x_UUID " $i; done)
     add_pool $POOL2 "$FSNAME-OST[$start-$TGT_MAX/2]" "$TGT"
 
-    create_dir $dir1 $POOL
-    create_file $dir1/file1 $POOL2
-    create_dir $dir2 $POOL2
-    touch $dir2/file2
-    mkdir $dir3
-    $SETSTRIPE -c 1 $dir3 # No pool assignment
-    touch $dir3/file3
-    $SETSTRIPE -c 1 $dir2/file4 # No pool assignment
+	create_dir $dir1 $POOL
+	create_file $dir1/file1 $POOL2	# Should replace $dir1 pool with $POOL2
+	create_dir $dir2 $POOL2
+	touch $dir2/file2		# Should inherit $POOL2 from parent $dir2
+	mkdir $dir3			# Should inherit $POOL from parent $dir1
+	$SETSTRIPE -c 1 $dir3
+	touch $dir3/file3		# Should inherit $POOL from $dir3
+	$SETSTRIPE -c 1 $dir2/file4	# Should inherit $POOL2 from $dir2
+	$SETSTRIPE -c $OSTCOUNT $dir2/file5 # Should inherit $POOL2 from $dir2
+	$SETSTRIPE -S 64K $dir1/file6	# Should inherit $POOL from $dir1
 
-    check_file_in_pool $dir1/file1 $POOL2
-    check_file_in_pool $dir2/file2 $POOL2
+	check_file_in_pool $dir1/file1 $POOL2
+	check_file_in_pool $dir2/file2 $POOL2
+	check_dir_not_in_pool $dir3 $POOL2
+	check_file_not_in_pool $dir3/file3 $POOL2
+	check_file_not_in_pool $dir2/file4 $POOL
+	check_file_not_in_pool $dir2/file5 $POOL
+	check_file_not_in_pool $dir1/file6 $POOL2
 
-    check_dir_not_in_pool $dir3 $POOL
-    check_dir_not_in_pool $dir3 $POOL2
+	if [ $(lustre_version_code mds1) -ge $(version_code 2.8.54) ]; then
+		check_dir_in_pool $dir3 $POOL
+		check_file_in_pool $dir3/file3 $POOL
+		check_file_in_pool $dir2/file4 $POOL2
+		check_file_in_pool $dir2/file5 $POOL2
+		check_file_in_pool $dir1/file6 $POOL
+	fi
 
-    check_file_not_in_pool $dir3/file3 $POOL
-    check_file_not_in_pool $dir3/file3 $POOL2
+	rm -rf $dir1
 
-    check_file_not_in_pool $dir2/file4 $POOL
-    check_file_not_in_pool $dir2/file4 $POOL2
-
-    rm -rf $dir1
-
-    return 0
+	return 0
 }
 run_test 20 "Different pools in a directory hierarchy."
 
