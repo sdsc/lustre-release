@@ -1175,23 +1175,30 @@ test_20() {
     mkdir $dir3
     $SETSTRIPE -c 1 $dir3 # No pool assignment
     touch $dir3/file3
-    $SETSTRIPE -c 1 $dir2/file4 # No pool assignment
+	$SETSTRIPE -c 1 $dir2/file4 # inherited parent pool
 
-    check_file_in_pool $dir1/file1 $POOL2
-    check_file_in_pool $dir2/file2 $POOL2
+	$SETSTRIPE -p $POOL2 $MOUNT
+	touch $dir3/file5 # inherited filesystem default pool
+	$SETSTRIPE -d $MOUNT
 
-    check_dir_not_in_pool $dir3 $POOL
-    check_dir_not_in_pool $dir3 $POOL2
+	check_file_in_pool $dir1/file1 $POOL2
+	check_file_in_pool $dir2/file2 $POOL2
 
-    check_file_not_in_pool $dir3/file3 $POOL
-    check_file_not_in_pool $dir3/file3 $POOL2
+	check_dir_not_in_pool $dir3 $POOL
+	check_dir_not_in_pool $dir3 $POOL2
 
-    check_file_not_in_pool $dir2/file4 $POOL
-    check_file_not_in_pool $dir2/file4 $POOL2
+	check_file_not_in_pool $dir3/file3 $POOL
+	check_file_not_in_pool $dir3/file3 $POOL2
 
-    rm -rf $dir1
+	check_file_not_in_pool $dir2/file4 $POOL
+	check_file_in_pool $dir2/file4 $POOL2
 
-    return 0
+	check_file_not_in_pool $dir3/file5 $POOL
+	check_file_in_pool $dir3/file5 $POOL2
+
+	rm -rf $dir1
+
+	return 0
 }
 run_test 20 "Different pools in a directory hierarchy."
 
