@@ -68,11 +68,11 @@
  */
 int
 LNetEQAlloc(unsigned int count, lnet_eq_handler_t callback,
-            lnet_handle_eq_t *handle)
+	    struct lnet_handle_any *handle)
 {
-        lnet_eq_t     *eq;
+	struct lnet_eq *eq;
 
-        LASSERT (the_lnet.ln_refcount > 0);
+	LASSERT(the_lnet.ln_refcount > 0);
 
         /* We need count to be a power of 2 so that when eq_{enq,deq}_seq
          * overflow, they don't skip entries, so the queue has the same
@@ -98,7 +98,7 @@ LNetEQAlloc(unsigned int count, lnet_eq_handler_t callback,
 		return -ENOMEM;
 
 	if (count != 0) {
-		LIBCFS_ALLOC(eq->eq_events, count * sizeof(lnet_event_t));
+		LIBCFS_ALLOC(eq->eq_events, count * sizeof(struct lnet_event));
 		if (eq->eq_events == NULL)
 			goto failed;
 		/* NB allocator has set all event sequence numbers to 0,
@@ -132,7 +132,7 @@ LNetEQAlloc(unsigned int count, lnet_eq_handler_t callback,
 
 failed:
 	if (eq->eq_events != NULL)
-		LIBCFS_FREE(eq->eq_events, count * sizeof(lnet_event_t));
+		LIBCFS_FREE(eq->eq_events, count * sizeof(struct lnet_event));
 
 	if (eq->eq_refs != NULL)
 		cfs_percpt_free(eq->eq_refs);
@@ -153,15 +153,15 @@ EXPORT_SYMBOL(LNetEQAlloc);
  * \retval -EBUSY  If the EQ is still in use by some MDs.
  */
 int
-LNetEQFree(lnet_handle_eq_t eqh)
+LNetEQFree(struct lnet_handle_any eqh)
 {
-	struct lnet_eq	*eq;
-	lnet_event_t	*events = NULL;
-	int		**refs = NULL;
-	int		*ref;
-	int		rc = 0;
-	int		size = 0;
-	int		i;
+	struct lnet_eq *eq;
+	struct lnet_event *events = NULL;
+	int **refs = NULL;
+	int *ref;
+	int rc = 0;
+	int size = 0;
+	int i;
 
 	LASSERT(the_lnet.ln_refcount > 0);
 
@@ -200,7 +200,7 @@ LNetEQFree(lnet_handle_eq_t eqh)
 	lnet_res_unlock(LNET_LOCK_EX);
 
 	if (events != NULL)
-		LIBCFS_FREE(events, size * sizeof(lnet_event_t));
+		LIBCFS_FREE(events, size * sizeof(struct lnet_event));
 	if (refs != NULL)
 		cfs_percpt_free(refs);
 
@@ -209,7 +209,7 @@ LNetEQFree(lnet_handle_eq_t eqh)
 EXPORT_SYMBOL(LNetEQFree);
 
 void
-lnet_eq_enqueue_event(lnet_eq_t *eq, lnet_event_t *ev)
+lnet_eq_enqueue_event(struct lnet_eq *eq, struct lnet_event *ev)
 {
 	/* MUST called with resource lock hold but w/o lnet_eq_wait_lock */
 	int index;
@@ -238,11 +238,11 @@ lnet_eq_enqueue_event(lnet_eq_t *eq, lnet_event_t *ev)
 }
 
 static int
-lnet_eq_dequeue_event(lnet_eq_t *eq, lnet_event_t *ev)
+lnet_eq_dequeue_event(struct lnet_eq *eq, struct lnet_event *ev)
 {
-	int		new_index = eq->eq_deq_seq & (eq->eq_size - 1);
-	lnet_event_t	*new_event = &eq->eq_events[new_index];
-	int		rc;
+	int new_index = eq->eq_deq_seq & (eq->eq_size - 1);
+	struct lnet_event *new_event = &eq->eq_events[new_index];
+	int rc;
 	ENTRY;
 
 	/* must called with lnet_eq_wait_lock hold */
@@ -287,7 +287,7 @@ lnet_eq_dequeue_event(lnet_eq_t *eq, lnet_event_t *ev)
  * EQ has been dropped due to limited space in the EQ.
  */
 int
-LNetEQGet (lnet_handle_eq_t eventq, lnet_event_t *event)
+LNetEQGet(struct lnet_handle_any eventq, struct lnet_event *event)
 {
         int which;
 
@@ -313,7 +313,7 @@ EXPORT_SYMBOL(LNetEQGet);
  * EQ has been dropped due to limited space in the EQ.
  */
 int
-LNetEQWait (lnet_handle_eq_t eventq, lnet_event_t *event)
+LNetEQWait(struct lnet_handle_any eventq, struct lnet_event *event)
 {
         int which;
 
@@ -389,8 +389,8 @@ __must_hold(&the_lnet.ln_eq_wait_lock)
  * \retval -ENOENT    If there's an invalid handle in \a eventqs.
  */
 int
-LNetEQPoll(lnet_handle_eq_t *eventqs, int neq, int timeout_ms,
-	   lnet_event_t *event, int *which)
+LNetEQPoll(struct lnet_handle_any *eventqs, int neq, int timeout_ms,
+	   struct lnet_event *event, int *which)
 {
 	int	wait = 1;
 	int	rc;
@@ -406,7 +406,7 @@ LNetEQPoll(lnet_handle_eq_t *eventqs, int neq, int timeout_ms,
 
 	for (;;) {
 		for (i = 0; i < neq; i++) {
-			lnet_eq_t *eq = lnet_handle2eq(&eventqs[i]);
+			struct lnet_eq *eq = lnet_handle2eq(&eventqs[i]);
 
 			if (eq == NULL) {
 				lnet_eq_wait_unlock();

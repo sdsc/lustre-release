@@ -43,18 +43,18 @@
 static void kiblnd_peer_alive(kib_peer_t *peer);
 static void kiblnd_peer_connect_failed(kib_peer_t *peer, int active, int error);
 static void kiblnd_check_sends(kib_conn_t *conn);
-static void kiblnd_init_tx_msg(lnet_ni_t *ni, kib_tx_t *tx,
+static void kiblnd_init_tx_msg(struct lnet_ni *ni, kib_tx_t *tx,
 			       int type, int body_nob);
 static int kiblnd_init_rdma(kib_conn_t *conn, kib_tx_t *tx, int type,
 			    int resid, kib_rdma_desc_t *dstrd, __u64 dstcookie);
 static void kiblnd_queue_tx_locked(kib_tx_t *tx, kib_conn_t *conn);
 static void kiblnd_queue_tx(kib_tx_t *tx, kib_conn_t *conn);
-static void kiblnd_unmap_tx(lnet_ni_t *ni, kib_tx_t *tx);
+static void kiblnd_unmap_tx(struct lnet_ni *ni, kib_tx_t *tx);
 
 static void
-kiblnd_tx_done (lnet_ni_t *ni, kib_tx_t *tx)
+kiblnd_tx_done(struct lnet_ni *ni, kib_tx_t *tx)
 {
-	lnet_msg_t *lntmsg[2];
+	struct lnet_msg *lntmsg[2];
 	kib_net_t  *net = ni->ni_data;
 	int         rc;
 	int         i;
@@ -95,7 +95,7 @@ kiblnd_tx_done (lnet_ni_t *ni, kib_tx_t *tx)
 }
 
 void
-kiblnd_txlist_done(lnet_ni_t *ni, struct list_head *txlist, int status)
+kiblnd_txlist_done(struct lnet_ni *ni, struct list_head *txlist, int status)
 {
 	kib_tx_t *tx;
 
@@ -111,7 +111,7 @@ kiblnd_txlist_done(lnet_ni_t *ni, struct list_head *txlist, int status)
 }
 
 static kib_tx_t *
-kiblnd_get_idle_tx(lnet_ni_t *ni, lnet_nid_t target)
+kiblnd_get_idle_tx(struct lnet_ni *ni, lnet_nid_t target)
 {
 	kib_net_t		*net = (kib_net_t *)ni->ni_data;
 	struct list_head	*node;
@@ -251,9 +251,9 @@ kiblnd_find_waiting_tx_locked(kib_conn_t *conn, int txtype, __u64 cookie)
 static void
 kiblnd_handle_completion(kib_conn_t *conn, int txtype, int status, __u64 cookie)
 {
-	kib_tx_t    *tx;
-	lnet_ni_t   *ni = conn->ibc_peer->ibp_ni;
-	int          idle;
+	kib_tx_t *tx;
+	struct lnet_ni *ni = conn->ibc_peer->ibp_ni;
+	int idle;
 
 	spin_lock(&conn->ibc_lock);
 
@@ -290,8 +290,8 @@ kiblnd_handle_completion(kib_conn_t *conn, int txtype, int status, __u64 cookie)
 static void
 kiblnd_send_completion(kib_conn_t *conn, int type, int status, __u64 cookie)
 {
-	lnet_ni_t   *ni = conn->ibc_peer->ibp_ni;
-	kib_tx_t    *tx = kiblnd_get_idle_tx(ni, conn->ibc_peer->ibp_nid);
+	struct lnet_ni *ni = conn->ibc_peer->ibp_ni;
+	kib_tx_t *tx = kiblnd_get_idle_tx(ni, conn->ibc_peer->ibp_nid);
 
         if (tx == NULL) {
                 CERROR("Can't get tx for completion %x for %s\n",
@@ -311,8 +311,8 @@ kiblnd_handle_rx (kib_rx_t *rx)
 {
         kib_msg_t    *msg = rx->rx_msg;
         kib_conn_t   *conn = rx->rx_conn;
-        lnet_ni_t    *ni = conn->ibc_peer->ibp_ni;
-        int           credits = msg->ibm_credits;
+	struct lnet_ni *ni = conn->ibc_peer->ibp_ni;
+	int credits = msg->ibm_credits;
         kib_tx_t     *tx;
         int           rc = 0;
         int           rc2;
@@ -472,8 +472,8 @@ kiblnd_rx_complete (kib_rx_t *rx, int status, int nob)
 {
         kib_msg_t    *msg = rx->rx_msg;
         kib_conn_t   *conn = rx->rx_conn;
-        lnet_ni_t    *ni = conn->ibc_peer->ibp_ni;
-        kib_net_t    *net = ni->ni_data;
+	struct lnet_ni *ni = conn->ibc_peer->ibp_ni;
+	kib_net_t *net = ni->ni_data;
         int           rc;
         int           err = -EIO;
 
@@ -593,7 +593,7 @@ kiblnd_fmr_map_tx(kib_net_t *net, kib_tx_t *tx, kib_rdma_desc_t *rd, __u32 nob)
 }
 
 static void
-kiblnd_unmap_tx(lnet_ni_t *ni, kib_tx_t *tx)
+kiblnd_unmap_tx(struct lnet_ni *ni, kib_tx_t *tx)
 {
 	kib_net_t  *net = ni->ni_data;
 
@@ -610,7 +610,7 @@ kiblnd_unmap_tx(lnet_ni_t *ni, kib_tx_t *tx)
 }
 
 static int
-kiblnd_map_tx(lnet_ni_t *ni, kib_tx_t *tx, kib_rdma_desc_t *rd, int nfrags)
+kiblnd_map_tx(struct lnet_ni *ni, kib_tx_t *tx, kib_rdma_desc_t *rd, int nfrags)
 {
 	kib_net_t     *net   = ni->ni_data;
 	kib_hca_dev_t *hdev  = net->ibn_dev->ibd_hdev;
@@ -651,7 +651,7 @@ kiblnd_map_tx(lnet_ni_t *ni, kib_tx_t *tx, kib_rdma_desc_t *rd, int nfrags)
 
 
 static int
-kiblnd_setup_rd_iov(lnet_ni_t *ni, kib_tx_t *tx, kib_rdma_desc_t *rd,
+kiblnd_setup_rd_iov(struct lnet_ni *ni, kib_tx_t *tx, kib_rdma_desc_t *rd,
 		    unsigned int niov, struct kvec *iov, int offset, int nob)
 {
         kib_net_t          *net = ni->ni_data;
@@ -708,8 +708,8 @@ kiblnd_setup_rd_iov(lnet_ni_t *ni, kib_tx_t *tx, kib_rdma_desc_t *rd,
 }
 
 static int
-kiblnd_setup_rd_kiov (lnet_ni_t *ni, kib_tx_t *tx, kib_rdma_desc_t *rd,
-                      int nkiov, lnet_kiov_t *kiov, int offset, int nob)
+kiblnd_setup_rd_kiov(struct lnet_ni *ni, kib_tx_t *tx, kib_rdma_desc_t *rd,
+		     int nkiov, struct lnet_kiov *kiov, int offset, int nob)
 {
         kib_net_t          *net = ni->ni_data;
         struct scatterlist *sg;
@@ -757,10 +757,10 @@ __must_hold(&conn->ibc_lock)
 {
         kib_msg_t         *msg = tx->tx_msg;
         kib_peer_t        *peer = conn->ibc_peer;
-	struct lnet_ni    *ni = peer->ibp_ni;
-        int                ver = conn->ibc_version;
-        int                rc;
-        int                done;
+	struct lnet_ni *ni = peer->ibp_ni;
+	int ver = conn->ibc_version;
+	int rc;
+	int done;
 
 	LASSERT(tx->tx_queued);
 	/* We rely on this for QP sizing */
@@ -907,9 +907,9 @@ __must_hold(&conn->ibc_lock)
 static void
 kiblnd_check_sends (kib_conn_t *conn)
 {
-        int        ver = conn->ibc_version;
-        lnet_ni_t *ni = conn->ibc_peer->ibp_ni;
-        kib_tx_t  *tx;
+	int ver = conn->ibc_version;
+	struct lnet_ni *ni = conn->ibc_peer->ibp_ni;
+	kib_tx_t *tx;
 
         /* Don't send anything until after the connection is established */
         if (conn->ibc_state < IBLND_CONN_ESTABLISHED) {
@@ -1029,7 +1029,7 @@ kiblnd_tx_complete (kib_tx_t *tx, int status)
 }
 
 static void
-kiblnd_init_tx_msg (lnet_ni_t *ni, kib_tx_t *tx, int type, int body_nob)
+kiblnd_init_tx_msg(struct lnet_ni *ni, kib_tx_t *tx, int type, int body_nob)
 {
 	kib_hca_dev_t *hdev = tx->tx_pool->tpo_hdev;
 	struct ib_sge *sge = &tx->tx_sge[tx->tx_nwrq];
@@ -1372,7 +1372,7 @@ kiblnd_reconnect_peer(kib_peer_t *peer)
 }
 
 void
-kiblnd_launch_tx (lnet_ni_t *ni, kib_tx_t *tx, lnet_nid_t nid)
+kiblnd_launch_tx(struct lnet_ni *ni, kib_tx_t *tx, lnet_nid_t nid)
 {
         kib_peer_t        *peer;
         kib_peer_t        *peer2;
@@ -1491,16 +1491,16 @@ kiblnd_launch_tx (lnet_ni_t *ni, kib_tx_t *tx, lnet_nid_t nid)
 }
 
 int
-kiblnd_send (lnet_ni_t *ni, void *private, lnet_msg_t *lntmsg)
+kiblnd_send(struct lnet_ni *ni, void *private, struct lnet_msg *lntmsg)
 {
-        lnet_hdr_t       *hdr = &lntmsg->msg_hdr;
-	int               type = lntmsg->msg_type;
-	lnet_process_id_t target = lntmsg->msg_target;
-	int               target_is_router = lntmsg->msg_target_is_router;
-	int               routing = lntmsg->msg_routing;
+	struct lnet_hdr *hdr = &lntmsg->msg_hdr;
+	int type = lntmsg->msg_type;
+	struct lnet_process_id target = lntmsg->msg_target;
+	int target_is_router = lntmsg->msg_target_is_router;
+	int routing = lntmsg->msg_routing;
 	unsigned int      payload_niov = lntmsg->msg_niov;
 	struct kvec      *payload_iov = lntmsg->msg_iov;
-	lnet_kiov_t      *payload_kiov = lntmsg->msg_kiov;
+	struct lnet_kiov      *payload_kiov = lntmsg->msg_kiov;
 	unsigned int      payload_offset = lntmsg->msg_offset;
 	unsigned int      payload_nob = lntmsg->msg_len;
 	kib_msg_t        *ibmsg;
@@ -1661,16 +1661,16 @@ kiblnd_send (lnet_ni_t *ni, void *private, lnet_msg_t *lntmsg)
 }
 
 static void
-kiblnd_reply (lnet_ni_t *ni, kib_rx_t *rx, lnet_msg_t *lntmsg)
+kiblnd_reply(struct lnet_ni *ni, kib_rx_t *rx, struct lnet_msg *lntmsg)
 {
-        lnet_process_id_t target = lntmsg->msg_target;
-        unsigned int      niov = lntmsg->msg_niov;
-	struct kvec      *iov = lntmsg->msg_iov;
-        lnet_kiov_t      *kiov = lntmsg->msg_kiov;
-        unsigned int      offset = lntmsg->msg_offset;
-        unsigned int      nob = lntmsg->msg_len;
-        kib_tx_t         *tx;
-        int               rc;
+	struct lnet_process_id target = lntmsg->msg_target;
+	unsigned int niov = lntmsg->msg_niov;
+	struct kvec *iov = lntmsg->msg_iov;
+	struct lnet_kiov *kiov = lntmsg->msg_kiov;
+	unsigned int offset = lntmsg->msg_offset;
+	unsigned int nob = lntmsg->msg_len;
+	kib_tx_t *tx;
+	int rc;
 
 	tx = kiblnd_get_idle_tx(ni, rx->rx_conn->ibc_peer->ibp_nid);
         if (tx == NULL) {
@@ -1723,9 +1723,10 @@ kiblnd_reply (lnet_ni_t *ni, kib_rx_t *rx, lnet_msg_t *lntmsg)
 }
 
 int
-kiblnd_recv(lnet_ni_t *ni, void *private, lnet_msg_t *lntmsg, int delayed,
-	    unsigned int niov, struct kvec *iov, lnet_kiov_t *kiov,
-	    unsigned int offset, unsigned int mlen, unsigned int rlen)
+kiblnd_recv(struct lnet_ni *ni, void *private, struct lnet_msg *lntmsg,
+	    int delayed, unsigned int niov, struct kvec *iov,
+	    struct lnet_kiov *kiov, unsigned int offset, unsigned int mlen,
+	    unsigned int rlen)
 {
         kib_rx_t    *rx = private;
         kib_msg_t   *rxmsg = rx->rx_msg;
@@ -2173,7 +2174,7 @@ kiblnd_connreq_done(kib_conn_t *conn, int status)
 
         if (!kiblnd_peer_active(peer) ||        /* peer has been deleted */
             conn->ibc_comms_error != 0) {       /* error has happened already */
-                lnet_ni_t *ni = peer->ibp_ni;
+		struct lnet_ni *ni = peer->ibp_ni;
 
                 /* start to shut down connection */
                 kiblnd_close_conn_locked(conn, -ECONNABORTED);
@@ -2234,9 +2235,9 @@ kiblnd_passive_connect(struct rdma_cm_id *cmid, void *priv, int priv_nob)
         kib_peer_t            *peer;
         kib_peer_t            *peer2;
         kib_conn_t            *conn;
-        lnet_ni_t             *ni  = NULL;
-        kib_net_t             *net = NULL;
-        lnet_nid_t             nid;
+	struct lnet_ni *ni  = NULL;
+	kib_net_t *net = NULL;
+	lnet_nid_t nid;
         struct rdma_conn_param cp;
         kib_rej_t              rej;
 	int                    version = IBLND_MSG_VERSION;
@@ -2773,10 +2774,10 @@ kiblnd_rejected (kib_conn_t *conn, int reason, void *priv, int priv_nob)
 static void
 kiblnd_check_connreply (kib_conn_t *conn, void *priv, int priv_nob)
 {
-        kib_peer_t    *peer = conn->ibc_peer;
-        lnet_ni_t     *ni   = peer->ibp_ni;
-        kib_net_t     *net  = ni->ni_data;
-        kib_msg_t     *msg  = priv;
+	kib_peer_t *peer = conn->ibc_peer;
+	struct lnet_ni *ni   = peer->ibp_ni;
+	kib_net_t *net  = ni->ni_data;
+	kib_msg_t *msg  = priv;
         int            ver  = conn->ibc_version;
         int            rc   = kiblnd_unpack_msg(msg, priv_nob);
         unsigned long  flags;

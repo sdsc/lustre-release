@@ -41,7 +41,7 @@
 #include <asm/page.h>
 #include "o2iblnd.h"
 
-static lnd_t the_o2iblnd;
+static struct lnet_lnd the_o2iblnd;
 
 kib_data_t              kiblnd_data;
 
@@ -180,8 +180,8 @@ kiblnd_unpack_rd(kib_msg_t *msg, int flip)
 }
 
 void
-kiblnd_pack_msg (lnet_ni_t *ni, kib_msg_t *msg, int version,
-                 int credits, lnet_nid_t dstnid, __u64 dststamp)
+kiblnd_pack_msg(struct lnet_ni *ni, kib_msg_t *msg, int version,
+		int credits, lnet_nid_t dstnid, __u64 dststamp)
 {
         kib_net_t *net = ni->ni_data;
 
@@ -317,7 +317,7 @@ kiblnd_unpack_msg(kib_msg_t *msg, int nob)
 }
 
 int
-kiblnd_create_peer(lnet_ni_t *ni, kib_peer_t **peerp, lnet_nid_t nid)
+kiblnd_create_peer(struct lnet_ni *ni, kib_peer_t **peerp, lnet_nid_t nid)
 {
 	kib_peer_t	*peer;
 	kib_net_t	*net = ni->ni_data;
@@ -417,7 +417,7 @@ kiblnd_unlink_peer_locked (kib_peer_t *peer)
 }
 
 static int
-kiblnd_get_peer_info(lnet_ni_t *ni, int index,
+kiblnd_get_peer_info(struct lnet_ni *ni, int index,
 		     lnet_nid_t *nidp, int *count)
 {
 	kib_peer_t		*peer;
@@ -475,7 +475,7 @@ kiblnd_del_peer_locked (kib_peer_t *peer)
 }
 
 static int
-kiblnd_del_peer (lnet_ni_t *ni, lnet_nid_t nid)
+kiblnd_del_peer(struct lnet_ni *ni, lnet_nid_t nid)
 {
 	struct list_head	zombies = LIST_HEAD_INIT(zombies);
 	struct list_head	*ptmp;
@@ -527,7 +527,7 @@ kiblnd_del_peer (lnet_ni_t *ni, lnet_nid_t nid)
 }
 
 static kib_conn_t *
-kiblnd_get_conn_by_idx(lnet_ni_t *ni, int index)
+kiblnd_get_conn_by_idx(struct lnet_ni *ni, int index)
 {
 	kib_peer_t		*peer;
 	struct list_head	*ptmp;
@@ -1043,7 +1043,7 @@ kiblnd_close_stale_conns_locked(kib_peer_t *peer,
 }
 
 static int
-kiblnd_close_matching_conns(lnet_ni_t *ni, lnet_nid_t nid)
+kiblnd_close_matching_conns(struct lnet_ni *ni, lnet_nid_t nid)
 {
 	kib_peer_t		*peer;
 	struct list_head	*ptmp;
@@ -1089,7 +1089,7 @@ kiblnd_close_matching_conns(lnet_ni_t *ni, lnet_nid_t nid)
 }
 
 static int
-kiblnd_ctl(lnet_ni_t *ni, unsigned int cmd, void *arg)
+kiblnd_ctl(struct lnet_ni *ni, unsigned int cmd, void *arg)
 {
         struct libcfs_ioctl_data *data = arg;
         int                       rc = -EINVAL;
@@ -1143,7 +1143,7 @@ kiblnd_ctl(lnet_ni_t *ni, unsigned int cmd, void *arg)
 }
 
 static void
-kiblnd_query(lnet_ni_t *ni, lnet_nid_t nid, cfs_time_t *when)
+kiblnd_query(struct lnet_ni *ni, lnet_nid_t nid, cfs_time_t *when)
 {
 	cfs_time_t	last_alive = 0;
 	cfs_time_t	now = cfs_time_current();
@@ -2373,7 +2373,8 @@ kiblnd_net_fini_pools(kib_net_t *net)
 }
 
 static int
-kiblnd_net_init_pools(kib_net_t *net, lnet_ni_t *ni, __u32 *cpts, int ncpts)
+kiblnd_net_init_pools(kib_net_t *net, struct lnet_ni *ni, __u32 *cpts,
+		      int ncpts)
 {
 	struct lnet_ioctl_config_o2iblnd_tunables *tunables;
 	unsigned long	flags;
@@ -2879,7 +2880,7 @@ kiblnd_base_shutdown(void)
 }
 
 static void
-kiblnd_shutdown (lnet_ni_t *ni)
+kiblnd_shutdown(struct lnet_ni *ni)
 {
         kib_net_t        *net = ni->ni_data;
 	rwlock_t     *g_lock = &kiblnd_data.kib_global_lock;
@@ -3147,7 +3148,7 @@ kiblnd_dev_search(char *ifname)
 }
 
 static int
-kiblnd_startup (lnet_ni_t *ni)
+kiblnd_startup(struct lnet_ni *ni)
 {
         char                     *ifname;
         kib_dev_t                *ibdev = NULL;
@@ -3237,7 +3238,7 @@ failed:
         return -ENETDOWN;
 }
 
-static lnd_t the_o2iblnd = {
+static struct lnet_lnd the_o2iblnd = {
 	.lnd_type	= O2IBLND,
 	.lnd_startup	= kiblnd_startup,
 	.lnd_shutdown	= kiblnd_shutdown,

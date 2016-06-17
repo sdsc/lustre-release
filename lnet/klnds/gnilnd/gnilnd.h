@@ -397,12 +397,12 @@ typedef struct {
 } WIRE_ATTR kgn_rdma_desc_t;
 
 typedef struct {
-	lnet_hdr_t        gnim_hdr;             /* LNet header */
+	struct lnet_hdr   gnim_hdr;             /* LNet header */
 	/* LNet payload is in FMA "Message Data" */
 } WIRE_ATTR kgn_immediate_msg_t;
 
 typedef struct {
-	lnet_hdr_t        gnprm_hdr;            /* LNet header */
+	struct lnet_hdr   gnprm_hdr;            /* LNet header */
 	__u64             gnprm_cookie;         /* opaque completion cookie */
 } WIRE_ATTR kgn_putreq_msg_t;
 
@@ -414,7 +414,7 @@ typedef struct {
 } WIRE_ATTR kgn_putack_msg_t;
 
 typedef struct {
-	lnet_hdr_t        gngm_hdr;             /* LNet header */
+	struct lnet_hdr	  gngm_hdr;             /* LNet header */
 	__u64             gngm_cookie;          /* opaque completion cookie */
 	__u16		  gngm_payload_cksum;   /* checksum for put msg */
 	kgn_rdma_desc_t   gngm_desc;            /* sender's sink buffer */
@@ -599,7 +599,7 @@ typedef struct kgn_device {
 typedef struct kgn_net {
 	struct list_head    gnn_list;           /* chain on kgni_data::kgn_nets */
 	kgn_device_t       *gnn_dev;            /* device for this net */
-	lnet_ni_t          *gnn_ni;             /* network interface instance */
+	struct lnet_ni          *gnn_ni;             /* network interface instance */
 	atomic_t            gnn_refcount;       /* # current references */
 	int                 gnn_shutdown;       /* lnd_shutdown set */
 	__u16               gnn_netnum;         /* stash netnum for quicker lookup */
@@ -667,7 +667,7 @@ typedef struct kgn_tx {                         /* message descriptor */
 	kgn_tx_list_state_t       tx_list_state;/* where in state machine is this TX ? */
 	struct list_head         *tx_list_p;    /* pointer to current list */
 	struct kgn_conn          *tx_conn;      /* owning conn */
-	lnet_msg_t               *tx_lntmsg[2]; /* ptl msgs to finalize on completion */
+	struct lnet_msg               *tx_lntmsg[2]; /* ptl msgs to finalize on completion */
 	unsigned long             tx_qtime;     /* when tx started to wait for something (jiffies) */
 	unsigned long             tx_cred_wait; /* time spend waiting for smsg creds */
 	struct list_head          tx_map_list;  /* list entry on device map list */
@@ -792,7 +792,7 @@ typedef struct kgn_peer {
 typedef struct kgn_rx {
 	kgn_conn_t              *grx_conn;      /* connection */
 	kgn_msg_t               *grx_msg;       /* message */
-	lnet_msg_t              *grx_lntmsg;    /* lnet msg for this rx (eager only) */
+	struct lnet_msg              *grx_lntmsg;    /* lnet msg for this rx (eager only) */
 	int                      grx_eager;     /* if eager, we copied msg to somewhere */
 	struct timespec          grx_received;  /* time this msg received */
 } kgn_rx_t;
@@ -1725,8 +1725,8 @@ kgnilnd_find_net(lnet_nid_t nid, kgn_net_t **netp)
 
 int kgnilnd_dev_init(kgn_device_t *dev);
 void kgnilnd_dev_fini(kgn_device_t *dev);
-int kgnilnd_startup(lnet_ni_t *ni);
-void kgnilnd_shutdown(lnet_ni_t *ni);
+int kgnilnd_startup(struct lnet_ni *ni);
+void kgnilnd_shutdown(struct lnet_ni *ni);
 int kgnilnd_base_startup(void);
 void kgnilnd_base_shutdown(void);
 
@@ -1735,17 +1735,18 @@ int kgnilnd_map_phys_fmablk(kgn_device_t *device);
 void kgnilnd_unmap_fma_blocks(kgn_device_t *device);
 void kgnilnd_free_phys_fmablk(kgn_device_t *device);
 
-int kgnilnd_ctl(lnet_ni_t *ni, unsigned int cmd, void *arg);
-void kgnilnd_query(lnet_ni_t *ni, lnet_nid_t nid, cfs_time_t *when);
-int kgnilnd_send(lnet_ni_t *ni, void *private, lnet_msg_t *lntmsg);
-int kgnilnd_eager_recv(lnet_ni_t *ni, void *private,
-			lnet_msg_t *lntmsg, void **new_private);
-int kgnilnd_recv(lnet_ni_t *ni, void *private, lnet_msg_t *lntmsg,
+int kgnilnd_ctl(struct lnet_ni *ni, unsigned int cmd, void *arg);
+void kgnilnd_query(struct lnet_ni *ni, lnet_nid_t nid, cfs_time_t *when);
+int kgnilnd_send(struct lnet_ni *ni, void *private, struct lnet_msg *lntmsg);
+int kgnilnd_eager_recv(struct lnet_ni *ni, void *private,
+			struct lnet_msg *lntmsg, void **new_private);
+int kgnilnd_recv(struct lnet_ni *ni, void *private, struct lnet_msg *lntmsg,
 		int delayed, unsigned int niov,
-		struct kvec *iov, lnet_kiov_t *kiov,
+		struct kvec *iov, struct lnet_kiov *kiov,
 		unsigned int offset, unsigned int mlen, unsigned int rlen);
 
-__u16 kgnilnd_cksum_kiov(unsigned int nkiov, lnet_kiov_t *kiov, unsigned int offset, unsigned int nob, int dump_blob);
+__u16 kgnilnd_cksum_kiov(unsigned int nkiov, struct lnet_kiov *kiov,
+			 unsigned int offset, unsigned int nob, int dump_blob);
 
 /* purgatory functions */
 void kgnilnd_add_purgatory_locked(kgn_conn_t *conn, kgn_peer_t *peer);
@@ -1772,7 +1773,8 @@ int kgnilnd_del_conn_or_peer(kgn_net_t *net, lnet_nid_t nid, int command, int er
 void kgnilnd_peer_increase_reconnect_locked(kgn_peer_t *peer);
 void kgnilnd_queue_reply(kgn_conn_t *conn, kgn_tx_t *tx);
 void kgnilnd_queue_tx(kgn_conn_t *conn, kgn_tx_t *tx);
-void kgnilnd_launch_tx(kgn_tx_t *tx, kgn_net_t *net, lnet_process_id_t *target);
+void kgnilnd_launch_tx(kgn_tx_t *tx, kgn_net_t *net,
+		       struct lnet_process_id *target);
 int kgnilnd_send_mapped_tx(kgn_tx_t *tx, int try_map_if_full);
 void kgnilnd_consume_rx(kgn_rx_t *rx);
 

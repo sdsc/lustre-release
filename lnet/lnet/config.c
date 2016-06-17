@@ -82,10 +82,10 @@ int
 lnet_net_unique(__u32 net, struct list_head *nilist)
 {
 	struct list_head *tmp;
-	lnet_ni_t	 *ni;
+	struct lnet_ni *ni;
 
 	list_for_each(tmp, nilist) {
-		ni = list_entry(tmp, lnet_ni_t, ni_list);
+		ni = list_entry(tmp, struct lnet_ni, ni_list);
 
 		if (LNET_NIDNET(ni->ni_nid) == net)
 			return 0;
@@ -119,13 +119,13 @@ lnet_ni_free(struct lnet_ni *ni)
 	LIBCFS_FREE(ni, sizeof(*ni));
 }
 
-lnet_ni_t *
+struct lnet_ni *
 lnet_ni_alloc(__u32 net, struct cfs_expr_list *el, struct list_head *nilist)
 {
-	struct lnet_tx_queue	*tq;
-	struct lnet_ni		*ni;
-	int			rc;
-	int			i;
+	struct lnet_tx_queue *tq;
+	struct lnet_ni *ni;
+	int rc;
+	int i;
 
         if (!lnet_net_unique(net, nilist)) {
                 LCONSOLE_ERROR_MSG(0x111, "Duplicate network specified: %s\n",
@@ -189,13 +189,13 @@ int
 lnet_parse_networks(struct list_head *nilist, char *networks)
 {
 	struct cfs_expr_list *el = NULL;
-	int		tokensize;
-	char		*tokens;
-	char		*str;
-	char		*tmp;
-	struct lnet_ni	*ni;
-	__u32		net;
-	int		nnets = 0;
+	int tokensize;
+	char *tokens;
+	char *str;
+	char *tmp;
+	struct lnet_ni *ni;
+	__u32 net;
+	int nnets = 0;
 	struct list_head *temp_node;
 
 	if (networks == NULL) {
@@ -378,7 +378,7 @@ lnet_parse_networks(struct list_head *nilist, char *networks)
 	lnet_syntax("networks", networks, (int)(tmp - tokens), strlen(tmp));
  failed:
 	while (!list_empty(nilist)) {
-		ni = list_entry(nilist->next, lnet_ni_t, ni_list);
+		ni = list_entry(nilist->next, struct lnet_ni, ni_list);
 
 		list_del(&ni->ni_list);
 		lnet_ni_free(ni);

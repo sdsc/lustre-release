@@ -36,21 +36,21 @@
 #include <lnet/lib-lnet.h>
 
 static int
-lolnd_send (lnet_ni_t *ni, void *private, lnet_msg_t *lntmsg)
+lolnd_send(struct lnet_ni *ni, void *private, struct lnet_msg *lntmsg)
 {
-        LASSERT (!lntmsg->msg_routing);
-        LASSERT (!lntmsg->msg_target_is_router);
+	LASSERT(!lntmsg->msg_routing);
+	LASSERT(!lntmsg->msg_target_is_router);
 
         return lnet_parse(ni, &lntmsg->msg_hdr, ni->ni_nid, lntmsg, 0);
 }
 
 static int
-lolnd_recv (lnet_ni_t *ni, void *private, lnet_msg_t *lntmsg,
-	    int delayed, unsigned int niov,
-	    struct kvec *iov, lnet_kiov_t *kiov,
-            unsigned int offset, unsigned int mlen, unsigned int rlen)
+lolnd_recv(struct lnet_ni *ni, void *private, struct lnet_msg *lntmsg,
+	   int delayed, unsigned int niov,
+	   struct kvec *iov, struct lnet_kiov *kiov,
+	   unsigned int offset, unsigned int mlen, unsigned int rlen)
 {
-        lnet_msg_t *sendmsg = private;
+	struct lnet_msg *sendmsg = private;
 
         if (lntmsg != NULL) {                   /* not discarding */
                 if (sendmsg->msg_iov != NULL) {
@@ -87,7 +87,7 @@ lolnd_recv (lnet_ni_t *ni, void *private, lnet_msg_t *lntmsg,
 static int lolnd_instanced;
 
 static void
-lolnd_shutdown(lnet_ni_t *ni)
+lolnd_shutdown(struct lnet_ni *ni)
 {
 	CDEBUG (D_NET, "shutdown\n");
         LASSERT (lolnd_instanced);
@@ -96,7 +96,7 @@ lolnd_shutdown(lnet_ni_t *ni)
 }
 
 static int
-lolnd_startup (lnet_ni_t *ni)
+lolnd_startup(struct lnet_ni *ni)
 {
 	LASSERT (ni->ni_lnd == &the_lolnd);
 	LASSERT (!lolnd_instanced);
@@ -105,7 +105,7 @@ lolnd_startup (lnet_ni_t *ni)
 	return (0);
 }
 
-lnd_t the_lolnd = {
+struct lnet_lnd the_lolnd = {
         /* .lnd_list       = */ {&the_lolnd.lnd_list, &the_lolnd.lnd_list},
         /* .lnd_refcount   = */ 0,
         /* .lnd_type       = */ LOLND,

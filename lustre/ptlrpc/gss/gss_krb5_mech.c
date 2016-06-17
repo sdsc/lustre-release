@@ -443,7 +443,7 @@ __s32 krb5_make_checksum(__u32 enctype,
 			 struct gss_keyblock *kb,
 			 struct krb5_header *khdr,
 			 int msgcnt, rawobj_t *msgs,
-			 int iovcnt, lnet_kiov_t *iovs,
+			 int iovcnt, struct lnet_kiov *iovs,
 			 rawobj_t *cksum)
 {
         struct krb5_enctype   *ke = &enctypes[enctype];
@@ -554,7 +554,7 @@ __u32 gss_get_mic_kerberos(struct gss_ctx *gctx,
                            int msgcnt,
                            rawobj_t *msgs,
                            int iovcnt,
-                           lnet_kiov_t *iovs,
+			   struct lnet_kiov *iovs,
                            rawobj_t *token)
 {
         struct krb5_ctx     *kctx = gctx->internal_ctx_id;
@@ -587,7 +587,7 @@ __u32 gss_verify_mic_kerberos(struct gss_ctx *gctx,
                               int msgcnt,
                               rawobj_t *msgs,
                               int iovcnt,
-                              lnet_kiov_t *iovs,
+			      struct lnet_kiov *iovs,
                               rawobj_t *token)
 {
         struct krb5_ctx     *kctx = gctx->internal_ctx_id;
