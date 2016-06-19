@@ -443,6 +443,7 @@ static int ofd_preprw_read(const struct lu_env *env, struct obd_export *exp,
 			   struct niobuf_remote *rnb, int *nr_local,
 			   struct niobuf_local *lnb, char *jobid)
 {
+	struct ofd_thread_info	*info = ofd_info(env);
 	struct ofd_object	*fo;
 	int			 i, j, rc, tot_bytes = 0;
 
@@ -487,6 +488,7 @@ static int ofd_preprw_read(const struct lu_env *env, struct obd_export *exp,
 	if (unlikely(rc))
 		GOTO(buf_put, rc);
 
+	info->fti_obj = fo;
 	ofd_counter_incr(exp, LPROC_OFD_STATS_READ, jobid, tot_bytes);
 	RETURN(0);
 
@@ -528,6 +530,7 @@ static int ofd_preprw_write(const struct lu_env *env, struct obd_export *exp,
 			    struct niobuf_remote *rnb, int *nr_local,
 			    struct niobuf_local *lnb, char *jobid)
 {
+	struct ofd_thread_info	*info = ofd_info(env);
 	struct ofd_object	*fo;
 	int			 i, j, k, rc = 0, tot_bytes = 0;
 
@@ -647,6 +650,7 @@ static int ofd_preprw_write(const struct lu_env *env, struct obd_export *exp,
 	if (unlikely(rc != 0))
 		GOTO(err, rc);
 
+	info->fti_obj = fo;
 	ofd_counter_incr(exp, LPROC_OFD_STATS_WRITE, jobid, tot_bytes);
 	RETURN(0);
 err:
@@ -773,23 +777,21 @@ ofd_commitrw_read(const struct lu_env *env, struct ofd_device *ofd,
 		  const struct lu_fid *fid, int objcount, int niocount,
 		  struct niobuf_local *lnb)
 {
-	struct ofd_object *fo;
+	struct ofd_thread_info	*info = ofd_info(env);
+	struct ofd_object *fo = info->fti_obj;
 
 	ENTRY;
 
 	LASSERT(niocount > 0);
 
-	fo = ofd_object_find(env, ofd, fid);
-	if (IS_ERR(fo))
-		RETURN(PTR_ERR(fo));
 	LASSERT(fo != NULL);
 	LASSERT(ofd_object_exists(fo));
 	dt_bufs_put(env, ofd_object_child(fo), lnb, niocount);
 
 	ofd_read_unlock(env, fo);
+	/* put is pair to object_get at ofd_preprw_read */
 	ofd_object_put(env, fo);
-	/* second put is pair to object_get in ofd_preprw_read */
-	ofd_object_put(env, fo);
+	info->fti_obj=NULL;
 
 	RETURN(0);
 }
@@ -1012,7 +1014,8 @@ ofd_commitrw_write(const struct lu_env *env, struct obd_export *exp,
 		   int niocount, struct niobuf_local *lnb,
 		   unsigned long granted, int old_rc)
 {
-	struct ofd_object	*fo;
+	struct ofd_thread_info  *info = ofd_info(env);
+	struct ofd_object	*fo=info->fti_obj;
 	struct dt_object	*o;
 	struct thandle		*th;
 	int			 rc = 0;
@@ -1026,7 +1029,6 @@ ofd_commitrw_write(const struct lu_env *env, struct obd_export *exp,
 
 	LASSERT(objcount == 1);
 
-	fo = ofd_object_find(env, ofd, fid);
 	LASSERT(fo != NULL);
 	LASSERT(ofd_object_exists(fo));
 
@@ -1130,9 +1132,9 @@ out_stop:
 out:
 	dt_bufs_put(env, o, lnb, niocount);
 	ofd_read_unlock(env, fo);
+	/* put is pair to object_get at ofd_preprw_write */
 	ofd_object_put(env, fo);
-	/* second put is pair to object_get in ofd_preprw_write */
-	ofd_object_put(env, fo);
+	info->fti_obj = NULL;
 	if (granted > 0)
 		ofd_grant_commit(exp, granted, old_rc);
 	RETURN(rc);
