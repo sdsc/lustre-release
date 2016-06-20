@@ -680,7 +680,7 @@ int ldlm_process_extent_lock(struct ldlm_lock *lock, __u64 *flags,
 	struct ldlm_resource *res = lock->l_resource;
 	struct list_head rpc_list;
 	int rc, rc2;
-	int contended_locks = 0;
+	int contended_locks;
 	ENTRY;
 
 	LASSERT(lock->l_granted_mode != lock->l_req_mode);
@@ -691,22 +691,35 @@ int ldlm_process_extent_lock(struct ldlm_lock *lock, __u64 *flags,
 	check_res_locked(res);
 	*err = ELDLM_OK;
 
+restart:
+	contended_locks = 0;
         if (!first_enq) {
+		struct list_head *tmp;
+		tmp = *flags & LDLM_FL_INTENT_ONLY ? NULL : &rpc_list;
                 /* Careful observers will note that we don't handle -EWOULDBLOCK
                  * here, but it's ok for a non-obvious reason -- compat_queue
                  * can only return -EWOULDBLOCK if (flags & BLOCK_NOWAIT).
                  * flags should always be zero here, and if that ever stops
                  * being true, we want to find out. */
-                LASSERT(*flags == 0);
-                rc = ldlm_extent_compat_queue(&res->lr_granted, lock, flags,
-                                              err, NULL, &contended_locks);
+		LASSERT(*flags == 0 || *flags == LDLM_FL_INTENT_ONLY);
+		rc = ldlm_extent_compat_queue(&res->lr_granted, lock, flags,
+					      err, tmp, &contended_locks);
                 if (rc == 1) {
-                        rc = ldlm_extent_compat_queue(&res->lr_waiting, lock,
-                                                      flags, err, NULL,
-                                                      &contended_locks);
+			rc = ldlm_extent_compat_queue(&res->lr_waiting, lock,
+						      flags, err, tmp,
+						      &contended_locks);
                 }
-                if (rc == 0)
+		if (rc == 0) {
+			rc = ldlm_send_blast_locked(lock, flags, err,
+						    &rpc_list);
+			if (rc == -ERESTART) {
+				GOTO(restart, rc);
+			} else if (rc != 0) {
+				GOTO(out, rc);
+			}
+
                         RETURN(LDLM_ITER_STOP);
+		}
 
                 ldlm_resource_unlink_lock(lock);
 
@@ -716,8 +729,6 @@ int ldlm_process_extent_lock(struct ldlm_lock *lock, __u64 *flags,
                 RETURN(LDLM_ITER_CONTINUE);
         }
 
- restart:
-        contended_locks = 0;
         rc = ldlm_extent_compat_queue(&res->lr_granted, lock, flags, err,
                                       &rpc_list, &contended_locks);
         if (rc < 0)
@@ -744,39 +755,13 @@ int ldlm_process_extent_lock(struct ldlm_lock *lock, __u64 *flags,
                  * re-ordered!  Causes deadlock, because ASTs aren't sent! */
 		if (list_empty(&lock->l_res_link))
                         ldlm_resource_add_lock(res, &res->lr_waiting, lock);
-                unlock_res(res);
-                rc = ldlm_run_ast_work(ldlm_res_to_ns(res), &rpc_list,
-                                       LDLM_WORK_BL_AST);
 
-                if (OBD_FAIL_CHECK(OBD_FAIL_LDLM_OST_FAIL_RACE) &&
-                    !ns_is_client(ldlm_res_to_ns(res)))
-                        class_fail_export(lock->l_export);
 
-		lock_res(res);
+		rc = ldlm_send_blast_locked(lock, flags, err, &rpc_list);
 		if (rc == -ERESTART) {
-			/* 15715: The lock was granted and destroyed after
-			 * resource lock was dropped. Interval node was freed
-			 * in ldlm_lock_destroy. Anyway, this always happens
-			 * when a client is being evicted. So it would be
-			 * ok to return an error. -jay */
-			if (ldlm_is_destroyed(lock)) {
-				*err = -EAGAIN;
-				GOTO(out, rc = -EAGAIN);
-			}
-
-			/* lock was granted while resource was unlocked. */
-			if (lock->l_granted_mode == lock->l_req_mode) {
-				/* bug 11300: if the lock has been granted,
-				 * break earlier because otherwise, we will go
-				 * to restart and ldlm_resource_unlink will be
-				 * called and it causes the interval node to be
-				 * freed. Then we will fail at
-				 * ldlm_extent_add_lock() */
-				*flags &= ~LDLM_FL_BLOCKED_MASK;
-				GOTO(out, rc = 0);
-			}
-
 			GOTO(restart, rc);
+		} else if (rc != 0) {
+			GOTO(out, rc);
 		}
 
 		/* this way we force client to wait for the lock
