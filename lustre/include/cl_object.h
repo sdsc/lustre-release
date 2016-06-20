@@ -2364,8 +2364,6 @@ void cl_page_list_del    (const struct lu_env *env,
                           struct cl_page_list *plist, struct cl_page *page);
 void cl_page_list_disown (const struct lu_env *env,
                           struct cl_io *io, struct cl_page_list *plist);
-int  cl_page_list_own    (const struct lu_env *env,
-                          struct cl_io *io, struct cl_page_list *plist);
 void cl_page_list_assume (const struct lu_env *env,
                           struct cl_io *io, struct cl_page_list *plist);
 void cl_page_list_discard(const struct lu_env *env,
