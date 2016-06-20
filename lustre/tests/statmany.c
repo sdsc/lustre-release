@@ -176,24 +176,7 @@ int main(int argc, char ** argv)
                 tmp = random() % count;
                 sprintf(filename, "%s%d", base, tmp);
 
-                if (mode == 'e') {
-#if 0
-                        fd = open(filename, O_RDWR|O_LARGEFILE);
-                        if (fd < 0) {
-                                printf("open(%s) error: %s\n", filename,
-                                       strerror(errno));
-                                break;
-                        }
-                        rc = ioctl(fd, LDISKFS_IOC_GETEA, NULL);
-                        if (rc < 0) {
-                                printf("ioctl(%s) error: %s\n", filename,
-                                       strerror(errno));
-                                break;
-                        }
-                        close(fd);
-                        break;
-#endif
-		} else if (mode == 's') {
+		if (mode == 's') {
                         struct stat buf;
 
                         rc = stat(filename, &buf);
