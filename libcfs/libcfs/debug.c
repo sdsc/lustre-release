@@ -258,12 +258,12 @@ void libcfs_debug_dumplog(void)
 	 * able to set our state to running as it exits before we
 	 * get to schedule() */
 	init_waitqueue_entry(&wait, current);
-	set_current_state(TASK_INTERRUPTIBLE);
 	add_wait_queue(&debug_ctlwq, &wait);
 
 	dumper = kthread_run(libcfs_debug_dumplog_thread,
 			     (void *)(long)current_pid(),
 			     "libcfs_debug_dumper");
+	set_current_state(TASK_INTERRUPTIBLE);
 	if (IS_ERR(dumper))
 		printk(KERN_ERR "LustreError: cannot start log dump thread:"
 		       " %ld\n", PTR_ERR(dumper));
