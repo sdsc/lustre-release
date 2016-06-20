@@ -1308,6 +1308,8 @@ int nodemap_fs_init(const struct lu_env *env, struct dt_device *dev,
 	nm_config_file = nm_config_file_register(env, config_obj, los,
 						 NCFT_TGT);
 	if (IS_ERR(nm_config_file)) {
+		lu_object_put(env, &config_obj->do_lu);
+
 		CERROR("%s: error loading nodemap config file, file must be "
 		       "removed via ldiskfs: rc = %ld\n",
 		       obd->obd_name, PTR_ERR(nm_config_file));
