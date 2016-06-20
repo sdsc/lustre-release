@@ -3425,7 +3425,6 @@ mkfs_opts() {
 	opts+=${LDLM_TIMEOUT:+" --param=sys.ldlm_timeout=$LDLM_TIMEOUT"}
 
 	if [ $type == MDS ]; then
-		opts+=${SECLEVEL:+" --param=mdt.sec_level"}
 		opts+=${MDSCAPA:+" --param-mdt.capa=$MDSCAPA"}
 		opts+=${STRIPE_BYTES:+" --param=lov.stripesize=$STRIPE_BYTES"}
 		opts+=${STRIPES_PER_OBJ:+" --param=lov.stripecount=$STRIPES_PER_OBJ"}
@@ -3449,7 +3448,6 @@ mkfs_opts() {
 	fi
 
 	if [ $type == OST ]; then
-		opts+=${SECLEVEL:+" --param=ost.sec_level"}
 		opts+=${OSSCAPA:+" --param=ost.capa=$OSSCAPA"}
 
 		if [ $fstype == ldiskfs ]; then
