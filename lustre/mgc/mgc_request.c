@@ -1620,6 +1620,8 @@ again:
 			new_config = NULL;
 			GOTO(out, rc);
 		}
+
+		CWARN("Created new nodemap config %p\n", new_config);
 	}
 #endif
 	LASSERT(cld_is_recover(cld) || cld_is_nodemap(cld));
@@ -1701,7 +1703,7 @@ again:
 			nodemap_config_dealloc(new_config);
 			new_config = NULL;
 
-			CDEBUG(D_INFO, "nodemap config changed in transit, retrying\n");
+			CWARN("nodemap config changed in transit, retrying\n");
 
 			/* setting eof to false, we request config again */
 			eof = false;
@@ -1768,6 +1770,8 @@ out:
 
 #ifdef HAVE_SERVER_SUPPORT
 	if (new_config != NULL) {
+		CWARN("Done with nodemap config %p, rc = %d\n", new_config, rc);
+
 		/* recent_nodemap cannot be used after set_active/dealloc */
 		if (rc == 0)
 			nodemap_config_set_active(new_config);
@@ -2004,7 +2008,7 @@ restart:
 
         OBD_FAIL_TIMEOUT(OBD_FAIL_MGC_PAUSE_PROCESS_LOG, 20);
 
-	CDEBUG(D_MGC, "Process log %s:%p from %d\n", cld->cld_logname,
+	CWARN("Process log %s:%p from %d\n", cld->cld_logname,
 	       cld->cld_cfg.cfg_instance, cld->cld_cfg.cfg_last_idx + 1);
 
 	/* Get the cfg lock on the llog */
@@ -2075,7 +2079,7 @@ restart:
 		rc = mgc_process_cfg_log(mgc, cld, rcl != 0);
 	}
 
-	CDEBUG(D_MGC, "%s: configuration from log '%s' %sed (%d).\n",
+	CWARN("%s: configuration from log '%s' %sed (%d).\n",
 	       mgc->obd_name, cld->cld_logname, rc ? "fail" : "succeed", rc);
 
 	mutex_unlock(&cld->cld_lock);
