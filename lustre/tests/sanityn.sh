@@ -38,8 +38,8 @@ if [ $(facet_fstype $SINGLEMDS) = "zfs" ]; then
 # LU-2829 / LU-2887 - make allowances for ZFS slowness
 	TEST33_NFILES=${TEST33_NFILES:-1000}
 fi
-#                                  23   (min)"
-[ "$SLOW" = "no" ] && EXCEPT_SLOW="33a"
+#                                  23  12  5  (min)"
+[ "$SLOW" = "no" ] && EXCEPT_SLOW="33a 33b 80b"
 
 FAIL_ON_ERROR=false
 

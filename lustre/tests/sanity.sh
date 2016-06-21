@@ -75,8 +75,8 @@ init_test_env $@
 . ${CONFIG:=$LUSTRE/tests/cfg/${NAME}.sh}
 init_logging
 
-#                                  5              12          (min)"
-[ "$SLOW" = "no" ] && EXCEPT_SLOW="24D 27m 64b 68 71 115 300o"
+#                                  7       10         12     7       (min)"
+[ "$SLOW" = "no" ] && EXCEPT_SLOW="24v 27m 51e 64b 68 71 115 230d 300o"
 
 if [ $(facet_fstype $SINGLEMDS) = "zfs" ]; then
 	# bug number for skipped test: LU-4536 LU-1957 LU-2805
