@@ -50,9 +50,9 @@ if [ $(facet_fstype $SINGLEMDS) = "zfs" ]; then
 	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 3       4a      6       7d"
 # bug number for skipped test:        LU-5638
 	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 11 33 34 35"
-# bug number:     LU-2887
-	#         21  9	  (min)"
-	ZFS_SLOW="12a 9"
+# bug number:
+	#          (min)"
+	ZFS_SLOW=" "
 fi
 
 [ "$SLOW" = "no" ] && EXCEPT_SLOW="$ZFS_SLOW"
