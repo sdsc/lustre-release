@@ -87,8 +87,8 @@ init_logging
 require_dsh_mds || exit 0
 require_dsh_ost || exit 0
 
-#                                  8  22   (min)"
-[ "$SLOW" = "no" ] && EXCEPT_SLOW="45 69"
+#                                  10  6   6   10   8  22   (min)"
+[ "$SLOW" = "no" ] && EXCEPT_SLOW="32a 32b 32c 32d 45 69"
 
 assert_DIR
 
