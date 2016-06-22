@@ -14979,6 +14979,21 @@ test_406() {
 }
 run_test 406 "DNE support fs default striping"
 
+test_407() {
+	umount $MOUNT
+	umount $MOUNT2
+
+	do_facet $SINGLEMDS "sync; sync; sync"
+
+	#defin OBD_FAIL_PTLRPC_EXP_SYNC 0x521
+	$LCTL set_param fail_loc=0x80000521
+
+	mount_client $MOUNT || error "mount $MOUNT failed"
+	touch $DIR/$tfile
+	rm -f $DIR/$tfile
+}
+run_test 407 "First request with transno should be committed by Target"
+
 #
 # tests that do cleanup/setup should be run at the end
 #

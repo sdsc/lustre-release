@@ -784,8 +784,6 @@ static int out_tx_start(const struct lu_env *env, struct dt_device *dt,
 		       rc);
 		return rc;
 	}
-	if (exp->exp_need_sync)
-		ta->ta_handle->th_sync = 1;
 
 	return 0;
 }

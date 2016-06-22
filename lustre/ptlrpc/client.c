@@ -1457,13 +1457,21 @@ static int after_reply(struct ptlrpc_request *req)
                 ldlm_cli_update_pool(req);
         }
 
-        /*
-         * Store transno in reqmsg for replay.
-         */
-        if (!(lustre_msg_get_flags(req->rq_reqmsg) & MSG_REPLAY)) {
-                req->rq_transno = lustre_msg_get_transno(req->rq_repmsg);
-                lustre_msg_set_transno(req->rq_reqmsg, req->rq_transno);
-        }
+	/* Store transno in reqmsg for replay. */
+	if (!(lustre_msg_get_flags(req->rq_reqmsg) & MSG_REPLAY)) {
+		req->rq_transno = lustre_msg_get_transno(req->rq_repmsg);
+		lustre_msg_set_transno(req->rq_reqmsg, req->rq_transno);
+	}
+
+	if (req->rq_transno != 0) {
+		committed = lustre_msg_get_last_committed(req->rq_repmsg);
+		if (OBD_FAIL_CHECK(OBD_FAIL_PTLRPC_EXP_SYNC)) {
+			DEBUG_REQ(D_HA, req, "last committed transno %llu",
+				  committed);
+			LASSERT(req->rq_transno <= committed);
+		}
+	}
+
 
         if (imp->imp_replayable) {
 		spin_lock(&imp->imp_lock);
