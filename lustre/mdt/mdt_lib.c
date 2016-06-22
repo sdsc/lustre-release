@@ -535,10 +535,9 @@ int mdt_init_ucred(struct mdt_thread_info *info, struct mdt_body *body)
 /* LU-6528 when "no_subtree_check" is set for NFS export, nfsd_set_fh_dentry()
  * doesn't set correct fsuid explicitely, but raise capability to allow
  * exportfs_decode_fh() to reconnect disconnected dentry into dcache. So for
- * lookup (i.e. intent_getattr), we should keep FS capability, otherwise it
- * will fail permission check. */
-int mdt_init_ucred_intent_getattr(struct mdt_thread_info *info,
-				  struct mdt_body *body)
+ * lookup/getattr, we should keep FS capability, otherwise it will fail
+ * permission check. */
+int mdt_init_ucred_getattr(struct mdt_thread_info *info, struct mdt_body *body)
 {
 	return __mdt_init_ucred(info, body, false);
 }
