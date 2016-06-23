@@ -372,9 +372,9 @@ static struct lu_device *lwp_device_fini(const struct lu_env *env,
 	if (m->lpd_exp != NULL)
 		class_disconnect(m->lpd_exp);
 
+	LASSERT(m->lpd_obd);
 	imp = m->lpd_obd->u.cli.cl_import;
 
-	LASSERT(m->lpd_obd);
 	ptlrpc_lprocfs_unregister_obd(m->lpd_obd);
 	lprocfs_obd_cleanup(m->lpd_obd);
 

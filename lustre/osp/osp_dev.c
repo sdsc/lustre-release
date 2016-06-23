@@ -1331,15 +1331,15 @@ static struct lu_device *osp_device_fini(const struct lu_env *env,
 		osp->opd_async_requests = NULL;
 	}
 
+	LASSERT(osp->opd_obd);
+	imp = osp->opd_obd->u.cli.cl_import;
+
 	if (osp->opd_storage_exp)
 		obd_disconnect(osp->opd_storage_exp);
-
-	imp = osp->opd_obd->u.cli.cl_import;
 
 	if (osp->opd_symlink)
 		lprocfs_remove(&osp->opd_symlink);
 
-	LASSERT(osp->opd_obd);
 	ptlrpc_lprocfs_unregister_obd(osp->opd_obd);
 	lprocfs_obd_cleanup(osp->opd_obd);
 
