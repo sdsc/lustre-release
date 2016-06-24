@@ -177,7 +177,7 @@ static int sub_updates_write(const struct lu_env *env,
 	__u32			param_count = 0;
 	__u32			last_update_count = 0;
 	__u32			last_param_count = 0;
-	void			*src;
+	void			*ptr;
 	void			*start;
 	void			*next;
 	struct sub_thandle_cookie *stc;
@@ -233,30 +233,34 @@ static int sub_updates_write(const struct lu_env *env,
 	memcpy(lur, &record->lur_hdr, sizeof(record->lur_hdr));
 	lur->lur_update_rec.ur_update_count = 0;
 	lur->lur_update_rec.ur_param_count = 0;
-	src = &record->lur_update_rec.ur_ops;
-	start = next = src;
+	ptr = &record->lur_update_rec.ur_ops;
+	start = next = ptr;
 	lur->lur_hdr.lrh_len = llog_update_record_size(lur);
 	params = update_records_get_params(&record->lur_update_rec);
 	do {
-		size_t rec_len;
+		size_t rec_size;
 
+		/* Walk through the ops and params to fill to the split
+		 * llog record. */ 
 		if (update_count < record->lur_update_rec.ur_update_count) {
-			next = update_op_next_op((struct update_op *)src);
+			/* If there are still updates */
+			next = update_op_next_op((struct update_op *)ptr);
 		} else {
+			/* Only parameters left */
 			if (param_count == 0)
 				next = update_records_get_params(
 						&record->lur_update_rec);
 			else
-				next = (char *)src +
+				next = (char *)ptr +
 					object_update_param_size(
-					(struct object_update_param *)src);
+					(struct object_update_param *)ptr);
 		}
 
-		rec_len = cfs_size_round((unsigned long)(next - src));
-		/* If its size > llog chunk_size, then write current chunk to
-		 * the update llog. */
-		if (lur->lur_hdr.lrh_len + rec_len + LLOG_MIN_REC_SIZE >
-		    ctxt->loc_chunk_size ||
+		/* Let's check if the write buffer is full or reaching the
+		 * end of the records */
+		rec_size = cfs_size_round((unsigned long)(next - ptr));
+		if (cfs_size_round(lur->lur_hdr.lrh_len + rec_size) +
+		    LLOG_MIN_REC_SIZE > ctxt->loc_chunk_size ||
 		    param_count == record->lur_update_rec.ur_param_count) {
 			lur->lur_update_rec.ur_update_count =
 				update_count > last_update_count ?
@@ -265,14 +269,17 @@ static int sub_updates_write(const struct lu_env *env,
 							     last_param_count;
 
 			memcpy(&lur->lur_update_rec.ur_ops, start,
-			       (unsigned long)(src - start));
+			       (unsigned long)(ptr - start));
 			if (last_update_count != 0)
 				lur->lur_update_rec.ur_flags |=
 						UPDATE_RECORD_CONTINUE;
 
-			update_records_dump(&lur->lur_update_rec, D_INFO, true);
+			update_records_dump(&lur->lur_update_rec, D_HA, true);
 			lur->lur_hdr.lrh_len = llog_update_record_size(lur);
-			LASSERT(lur->lur_hdr.lrh_len <= ctxt->loc_chunk_size);
+			LASSERTF(lur->lur_hdr.lrh_len <= ctxt->loc_chunk_size,
+				 "lrh_len %u chunk_size %u rec_size %zu\n",
+				 lur->lur_hdr.lrh_len, ctxt->loc_chunk_size,
+				 rec_size);
 
 			OBD_ALLOC_PTR(stc);
 			if (stc == NULL)
@@ -299,14 +306,18 @@ static int sub_updates_write(const struct lu_env *env,
 
 			last_update_count = update_count;
 			last_param_count = param_count;
-			start = src;
+			start = ptr;
 			lur->lur_update_rec.ur_update_count = 0;
 			lur->lur_update_rec.ur_param_count = 0;
 			lur->lur_hdr.lrh_len = llog_update_record_size(lur);
 		}
 
-		src = next;
-		lur->lur_hdr.lrh_len += cfs_size_round(rec_len);
+		ptr = next;
+		lur->lur_hdr.lrh_len += cfs_size_round(rec_size);
+		LASSERTF(lur->lur_hdr.lrh_len <= ctxt->loc_chunk_size,
+			 "lrh_len %u chunk_size %u rec_size %zd\n",
+			 lur->lur_hdr.lrh_len, ctxt->loc_chunk_size,
+			 rec_size);
 		if (update_count < record->lur_update_rec.ur_update_count)
 			update_count++;
 		else if (param_count < record->lur_update_rec.ur_param_count)
