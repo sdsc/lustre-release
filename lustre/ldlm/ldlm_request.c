@@ -929,28 +929,35 @@ int ldlm_cli_enqueue(struct obd_export *exp, struct ptlrpc_request **reqp,
 
         /* lock not sent to server yet */
 
-        if (reqp == NULL || *reqp == NULL) {
-                req = ptlrpc_request_alloc_pack(class_exp2cliimp(exp),
-                                                &RQF_LDLM_ENQUEUE,
-                                                LUSTRE_DLM_VERSION,
-                                                LDLM_ENQUEUE);
-                if (req == NULL) {
-                        failed_lock_cleanup(ns, lock, einfo->ei_mode);
-                        LDLM_LOCK_RELEASE(lock);
-                        RETURN(-ENOMEM);
-                }
-                req_passed_in = 0;
-                if (reqp)
-                        *reqp = req;
-        } else {
-                int len;
+	if (reqp == NULL || *reqp == NULL) {
+		req = ptlrpc_request_alloc_pack(class_exp2cliimp(exp),
+						&RQF_LDLM_ENQUEUE,
+						LUSTRE_DLM_VERSION,
+						LDLM_ENQUEUE);
+		if (req == NULL) {
+			failed_lock_cleanup(ns, lock, einfo->ei_mode);
+			LDLM_LOCK_RELEASE(lock);
+			RETURN(-ENOMEM);
+		}
 
-                req = *reqp;
-                len = req_capsule_get_size(&req->rq_pill, &RMF_DLM_REQ,
-                                           RCL_CLIENT);
-                LASSERTF(len >= sizeof(*body), "buflen[%d] = %d, not %d\n",
-                         DLM_LOCKREQ_OFF, len, (int)sizeof(*body));
-        }
+		rc = ldlm_prep_enqueue_req(exp, req, NULL, 0);
+	        if (rc) {
+        	        ptlrpc_request_free(req);
+                	RETURN(rc);
+        	}
+
+		req_passed_in = 0;
+		if (reqp)
+			*reqp = req;
+	} else {
+		int len;
+
+		req = *reqp;
+		len = req_capsule_get_size(&req->rq_pill, &RMF_DLM_REQ,
+					   RCL_CLIENT);
+		LASSERTF(len >= sizeof(*body), "buflen[%d] = %d, not %d\n",
+			 DLM_LOCKREQ_OFF, len, (int)sizeof(*body));
+	}
 
         /* Dump lock data into the request buffer */
         body = req_capsule_client_get(&req->rq_pill, &RMF_DLM_REQ);
