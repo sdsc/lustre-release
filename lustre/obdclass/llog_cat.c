@@ -603,6 +603,13 @@ write_again:
 				down_read_nested(&cathandle->lgh_lock,
 						 LLOGH_CAT);
 				next = cathandle->u.chd.chd_next_log;
+				/* chd_next_log could be changed during
+				 * acquiring the read lock of cathandle */
+				if (next == NULL) {
+					up_read(&cathandle->lgh_lock);
+					GOTO(out, rc);
+				}
+
 				down_write_nested(&next->lgh_lock, LLOGH_LOG);
 				if (!llog_exist(next))
 					rc = llog_cat_new_log(env, cathandle,
