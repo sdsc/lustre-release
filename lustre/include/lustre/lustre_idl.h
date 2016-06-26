@@ -1679,6 +1679,7 @@ lov_mds_md_max_stripe_count(size_t buf_size, __u32 lmm_magic)
 #define OBD_MD_FLUID       (0x00000200ULL) /* user ID */
 #define OBD_MD_FLGID       (0x00000400ULL) /* group ID */
 #define OBD_MD_FLFLAGS     (0x00000800ULL) /* flags word */
+#define OBD_MD_DOM_SIZE    (0X00001000ULL) /* size on MDS */
 #define OBD_MD_FLNLINK     (0x00002000ULL) /* link count */
 #define OBD_MD_FLGENER     (0x00004000ULL) /* generation number */
 /*#define OBD_MD_FLINLINE    (0x00008000ULL)  inline data. used until 1.6.5 */
