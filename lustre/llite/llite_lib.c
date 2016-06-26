@@ -1934,6 +1934,12 @@ int ll_update_inode(struct inode *inode, struct lustre_md *md)
 		       PFID(ll_inode2fid(inode)),
 		       (unsigned long long)body->mbo_size);
 
+		if (body->mbo_valid & OBD_MD_DOM_SIZE) {
+			LASSERT(S_ISREG(inode->i_mode));
+
+			ll_file_set_flag(lli, LLIF_MDS_SIZE_VALID);
+		}
+
 		if (body->mbo_valid & OBD_MD_FLBLOCKS)
 			inode->i_blocks = body->mbo_blocks;
 	}
