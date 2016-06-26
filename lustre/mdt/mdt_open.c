@@ -1578,6 +1578,8 @@ out_child_unlock:
 		mdt_object_open_unlock(info, child, lhc, ibits, result);
 out_child:
 	mdt_object_put(info->mti_env, child);
+	if (result == 0)
+		mdt_pack_size2body(info, child_fid, ibits & MDS_INODELOCK_DOM);
 out_parent:
 	mdt_object_unlock_put(info, parent, lh, result || !created);
 out:
