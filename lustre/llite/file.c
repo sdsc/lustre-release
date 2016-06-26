@@ -1047,6 +1047,15 @@ int ll_merge_attr(const struct lu_env *env, struct inode *inode)
 
 	i_size_write(inode, attr->cat_size);
 	inode->i_blocks = attr->cat_blocks;
+	if (i_size_read(inode) > 0 && inode->i_blocks == 0) {
+		/*
+		 * LU-417: Add dirty pages block count
+		 * lest i_blocks reports 0, some "cp" or
+		 * "tar" may think it's a completely
+		 * sparse file and skip it.
+		 */
+		inode->i_blocks = dirty_cnt(inode);
+	}
 
 	LTIME_S(inode->i_atime) = atime;
 	LTIME_S(inode->i_mtime) = mtime;

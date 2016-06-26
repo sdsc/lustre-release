@@ -469,6 +469,27 @@ out:
 	RETURN(rc);
 }
 
+/**
+ * Pack size attributes into the reply.
+ */
+void mdt_pack_size2body(struct mdt_thread_info *info,
+			const struct lu_fid *fid, bool dom_lock)
+{
+	struct mdt_body *b;
+	struct md_attr *ma = &info->mti_attr;
+
+	LASSERT(ma->ma_attr.la_valid & LA_MODE);
+
+	if (!((ma->ma_valid & MA_LOV) && (ma->ma_lmm != NULL) &&
+	    (lov_pattern(ma->ma_lmm->lmm_pattern) == LOV_PATTERN_MDT)))
+		return;
+
+	b = req_capsule_server_get(info->mti_pill, &RMF_MDT_BODY);
+
+	mdt_dom_object_size(info->mti_env, info->mti_mdt, fid, b, dom_lock);
+	return;
+}
+
 #ifdef CONFIG_FS_POSIX_ACL
 /*
  * Pack ACL data into the reply. UIDs/GIDs are mapped and filtered by nodemap.
@@ -1634,6 +1655,15 @@ static int mdt_getattr_name_lock(struct mdt_thread_info *info,
 			 "Lock res_id: "DLDLMRES", fid: "DFID"\n",
 			 PLDLMRES(lock->l_resource),
 			 PFID(mdt_object_fid(child)));
+		if (mdt_object_exists(child)) {
+			LDLM_LOCK_PUT(lock);
+			mdt_object_put(info->mti_env, child);
+			/* NB: call the mdt_pack_size2body always after
+			 * mdt_object_put(), that is why this speacial
+			 * exit path is used. */
+			mdt_pack_size2body(info, child_fid, false);
+			GOTO(out_parent, rc);
+		}
         }
         if (lock)
                 LDLM_LOCK_PUT(lock);

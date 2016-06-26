@@ -1835,6 +1835,16 @@ void ll_inode_size_unlock(struct inode *inode)
 	mutex_unlock(&lli->lli_size_mutex);
 }
 
+static void ll_update_dom_size(struct inode *inode, struct mdt_body *body)
+{
+	struct ll_inode_info *lli = ll_i2info(inode);
+
+	i_size_write(inode, body->mbo_size);
+	spin_lock(&lli->lli_lock);
+	lli->lli_flags |= LLIF_MDS_SIZE_VALID;
+	spin_unlock(&lli->lli_lock);
+}
+
 int ll_update_inode(struct inode *inode, struct lustre_md *md)
 {
 	struct ll_inode_info *lli = ll_i2info(inode);
@@ -1934,6 +1944,11 @@ int ll_update_inode(struct inode *inode, struct lustre_md *md)
 		CDEBUG(D_VFSTRACE, "inode="DFID", updating i_size %llu\n",
 		       PFID(ll_inode2fid(inode)),
 		       (unsigned long long)body->mbo_size);
+
+		if (S_ISREG(inode->i_mode)) {
+			/* assume that only DoM may have size attr */
+			ll_update_dom_size(inode, body);
+		}
 
 		if (body->mbo_valid & OBD_MD_FLBLOCKS)
 			inode->i_blocks = body->mbo_blocks;
