@@ -597,6 +597,7 @@ out:
 int mdt_do_glimpse(const struct lu_env *env, struct ldlm_namespace *ns,
 		   struct ldlm_resource *res)
 {
+	struct tgt_session_info *tsi = tgt_ses_info(env);
 	union ldlm_policy_data policy;
 	struct lustre_handle lockh;
 	enum ldlm_mode mode;
@@ -609,15 +610,25 @@ int mdt_do_glimpse(const struct lu_env *env, struct ldlm_namespace *ns,
 
 	/* There can be only one lock covering data, try to match it. */
 	policy.l_inodebits.bits = MDS_INODELOCK_DOM;
-	mode = ldlm_lock_match(ns, LDLM_FL_BLOCK_GRANTED, &res->lr_name,
-			       LDLM_IBITS, &policy, LCK_PW | LCK_EX,
-			       &lockh, 0);
+	mode = ldlm_lock_match(ns, LDLM_FL_BLOCK_GRANTED | LDLM_FL_TEST_LOCK,
+			       &res->lr_name, LDLM_IBITS, &policy,
+			       LCK_PW | LCK_EX, &lockh, 0);
 
 	/* There is no other PW lock on this object; finished. */
 	if (mode == 0)
 		RETURN(0);
 
 	lock = ldlm_handle2lock(&lockh);
+	if (lock == NULL)
+		RETURN(0);
+
+	/* do not glimpse for the same client, may happen due to local
+	 * glimpse, see mdt_dom_object_size()
+	 */
+	if (lock->l_export->exp_handle.h_cookie ==
+	    tsi->tsi_exp->exp_handle.h_cookie)
+		GOTO(out, rc = -EINVAL);
+
 	/*
 	 * This check is for lock taken in mdt_reint_unlink() that does
 	 * not have l_glimpse_ast set. So the logic is: if there is a lock
@@ -649,7 +660,6 @@ int mdt_do_glimpse(const struct lu_env *env, struct ldlm_namespace *ns,
 	rc = 0;
 	EXIT;
 out:
-	ldlm_lock_decref(&lockh, mode);
 	LDLM_LOCK_PUT(lock);
 	return rc;
 }
@@ -675,8 +685,11 @@ int mdt_dom_object_size(const struct lu_env *env, struct mdt_device *mdt,
 	fid_build_reg_res_name(fid, &resid);
 	res = ldlm_resource_get(mdt->mdt_namespace, NULL, &resid,
 				LDLM_IBITS, 1);
-	if (IS_ERR(res) || res->lr_lvb_data == NULL)
+	if (IS_ERR(res))
 		RETURN(-ENOENT);
+
+	if (res->lr_lvb_data == NULL)
+		ldlm_lvbo_init(res);
 
 	res_lvb = res->lr_lvb_data;
 
@@ -695,12 +708,22 @@ int mdt_dom_object_size(const struct lu_env *env, struct mdt_device *mdt,
 	lock_res(res);
 	mb->mbo_size = res_lvb->lvb_size;
 	mb->mbo_blocks = res_lvb->lvb_blocks;
-	mb->mbo_valid |= OBD_MD_FLSIZE | OBD_MD_FLBLOCKS;
-	unlock_res(res);
 
+	if (mb->mbo_mtime < res_lvb->lvb_mtime)
+		mb->mbo_mtime = res_lvb->lvb_mtime;
+
+	if (mb->mbo_ctime < res_lvb->lvb_ctime)
+		mb->mbo_ctime = res_lvb->lvb_ctime;
+
+	if (mb->mbo_atime < res_lvb->lvb_atime)
+		mb->mbo_atime = res_lvb->lvb_atime;
+
+	mb->mbo_valid |= OBD_MD_FLATIME | OBD_MD_FLCTIME | OBD_MD_FLMTIME |
+			 OBD_MD_FLSIZE | OBD_MD_FLBLOCKS | OBD_MD_DOM_SIZE;
+	unlock_res(res);
 out:
 	ldlm_resource_putref(res);
-	RETURN(rc);
+	RETURN(0);
 }
 
 /**
@@ -780,6 +803,13 @@ int mdt_glimpse_enqueue(struct tgt_session_info *tsi, struct ldlm_namespace *ns,
 	if (rc == -ENOENT) {
 		/* We are racing with unlink(); just return -ENOENT */
 		rep->lock_policy_res1 = ptlrpc_status_hton(-ENOENT);
+	} else if (rc == -EINVAL) {
+		/* this is possible is client lock has been cancelled but
+		 * still exists on server. If that lock was found on server
+		 * as only conflicting lock then the client has already
+		 * size authority and glimpse is not needed. */
+		CDEBUG(D_DLMTRACE, "Glimpse from the client owning lock\n");
+		RETURN(ELDLM_LOCK_REPLACED);
 	}
 
 	res_lvb = res->lr_lvb_data;
@@ -804,7 +834,7 @@ int mdt_dom_discard_data(struct mdt_thread_info *info,
 	struct ldlm_res_id *res_id = &info->mti_res_id;
 	struct lustre_handle dom_lh;
 	__u64 flags = LDLM_FL_AST_DISCARD_DATA;
-	__u64 rc = 0;
+	int rc = 0;
 
 	policy->l_inodebits.bits = MDS_INODELOCK_DOM;
 	fid_build_reg_res_name(fid, res_id);
