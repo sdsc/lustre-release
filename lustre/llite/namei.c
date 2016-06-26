@@ -224,6 +224,11 @@ int ll_md_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
 			bits &= ~MDS_INODELOCK_XATTR;
 		}
 
+		if (bits & MDS_INODELOCK_DOM) {
+			ll_file_clear_flag(lli, LLIF_MDS_SIZE_VALID);
+			bits &= ~MDS_INODELOCK_DOM;
+		}
+
 		/* For OPEN locks we differentiate between lock modes
 		 * LCK_CR, LCK_CW, LCK_PR - bug 22891 */
 		if (bits & MDS_INODELOCK_OPEN)
