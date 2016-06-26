@@ -14736,6 +14736,25 @@ test_271a() {
 }
 run_test 271a "DoM: data is cached for read after write"
 
+test_271b() {
+	local dom=$DIR/$tdir/dom
+
+	mkdir -p $DIR/$tdir
+
+	$SETSTRIPE -P mdt -S 1024K $dom
+
+	lctl set_param -n mdc.*.stats=clear
+	dd if=/dev/zero of=$dom bs=4096 count=1 || return 1
+	cancel_lru_locks mdc
+	$CHECKSTAT -t file -s 4096 $dom || error "stat"
+
+	local reads=$(lctl get_param -n mdc.*.stats | \
+		awk '/ldlm_glimpse/ {print $2}')
+	[ -z $reads ] || error "Unexpected $reads glimpse RPCs"
+	rm -f $dom
+}
+run_test 271b "DoM: no glimpse RPC for stat"
+
 test_272() {
 	# XXX just reserve test number so far
 	return 0
