@@ -253,6 +253,8 @@ enum ll_file_flags {
 	LLIF_FILE_RESTORING	= 1,
 	/* Xattr cache is attached to the file */
 	LLIF_XATTR_CACHE	= 2,
+	/* Data-on-MDT file size can be trusted */
+	LLIF_MDS_SIZE_VALID	= 4,
 };
 
 static inline void ll_file_set_flag(struct ll_inode_info *lli,
@@ -1175,13 +1177,30 @@ static inline int cl_agl(struct inode *inode)
 	return cl_glimpse_size0(inode, 1);
 }
 
+static inline bool ll_inode_size_is_valid(struct inode *inode)
+{
+	struct ll_inode_info *lli = ll_i2info(inode);
+
+	/* DoM returns size always with glimpse on MDT and it is valid only
+	 * for the current call if there is no LLIF_MDS_SIZE_LOCK flag.
+	 */
+	if (lli->lli_flags & LLIF_MDS_SIZE_VALID) {
+		lli->lli_flags &= ~LLIF_MDS_SIZE_VALID;
+		return true;
+	}
+	return false;
+}
+
 static inline int ll_glimpse_size(struct inode *inode)
 {
 	struct ll_inode_info *lli = ll_i2info(inode);
 	int rc;
 
 	down_read(&lli->lli_glimpse_sem);
-	rc = cl_glimpse_size(inode);
+	if (ll_inode_size_is_valid(inode))
+		rc = 0;
+	else
+		rc = cl_glimpse_size(inode);
 	lli->lli_glimpse_time = cfs_time_current();
 	up_read(&lli->lli_glimpse_sem);
 	return rc;

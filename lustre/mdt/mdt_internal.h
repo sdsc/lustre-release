@@ -643,8 +643,9 @@ int mdt_pack_acl2body(struct mdt_thread_info *info, struct mdt_body *repbody,
 		      struct mdt_object *o, struct lu_nodemap *nodemap);
 #endif
 void mdt_pack_attr2body(struct mdt_thread_info *info, struct mdt_body *b,
-                        const struct lu_attr *attr, const struct lu_fid *fid);
-
+			const struct lu_attr *attr, const struct lu_fid *fid);
+void mdt_pack_size2body(struct mdt_thread_info *info,
+			const struct lu_fid *fid, bool dom_lock);
 int mdt_getxattr(struct mdt_thread_info *info);
 int mdt_reint_setxattr(struct mdt_thread_info *info,
                        struct mdt_lock_handle *lh);
@@ -1077,6 +1078,9 @@ int mdt_glimpse_enqueue(struct tgt_session_info *tsi, struct ldlm_namespace *ns,
 			struct ldlm_lock **lockp, __u64 flags);
 int mdt_dom_discard_data(struct mdt_thread_info *info,
 			 const struct lu_fid *fid);
+int mdt_dom_object_size(const struct lu_env *env, struct mdt_device *mdt,
+		        const struct lu_fid *fid, struct mdt_body *mb,
+			bool dom_lock);
 /* grants */
 long mdt_grant_connect(const struct lu_env *env, struct obd_export *exp,
 		       u64 want, bool conservative);
