@@ -691,7 +691,7 @@ out_unlock:
 	if (dt_object_remote(o))
 		loghandle->lgh_write_offset = lgi->lgi_off;
 
-	CDEBUG(D_HA, "added record "DFID": idx: %u, %u off"LPU64"\n",
+	CDEBUG(D_HA, "added record "DFID": idx: %u, %u off%llu\n",
 	       PFID(lu_object_fid(&o->do_lu)), index, rec->lrh_len,
 	       lgi->lgi_off);
 	if (reccookie != NULL) {
@@ -854,7 +854,7 @@ static int llog_osd_next_block(const struct lu_env *env,
 		GOTO(out, rc);
 
 	CDEBUG(D_OTHER, "looking for log index %u (cur idx %u off"
-	       LPU64"), size %llu\n", next_idx, *cur_idx,
+	       "%llu), size %llu\n", next_idx, *cur_idx,
 	       *cur_offset, lgi->lgi_attr.la_size);
 
 	while (*cur_offset < lgi->lgi_attr.la_size) {
@@ -875,7 +875,7 @@ static int llog_osd_next_block(const struct lu_env *env,
 				goto retry;
 
 			CERROR("%s: can't read llog block from log "DFID
-			       " offset "LPU64": rc = %d\n",
+			       " offset %llu: rc = %d\n",
 			       o->do_lu.lo_dev->ld_obd->obd_name,
 			       PFID(lu_object_fid(&o->do_lu)), *cur_offset,
 			       rc);
@@ -899,7 +899,7 @@ static int llog_osd_next_block(const struct lu_env *env,
 				goto retry;
 
 			CERROR("%s: invalid llog block at log id "DOSTID"/%u "
-			       "offset "LPU64"\n",
+			       "offset %llu\n",
 			       o->do_lu.lo_dev->ld_obd->obd_name,
 			       POSTID(&loghandle->lgh_id.lgl_oi),
 			       loghandle->lgh_id.lgl_ogen, *cur_offset);
@@ -921,7 +921,7 @@ static int llog_osd_next_block(const struct lu_env *env,
 
 		if (last_rec->lrh_index != tail->lrt_index) {
 			CERROR("%s: invalid llog tail at log id "DOSTID"/%u "
-			       "offset "LPU64" last_rec idx %u tail idx %u\n",
+			       "offset %llu last_rec idx %u tail idx %u\n",
 			       o->do_lu.lo_dev->ld_obd->obd_name,
 			       POSTID(&loghandle->lgh_id.lgl_oi),
 			       loghandle->lgh_id.lgl_ogen, *cur_offset,
@@ -934,7 +934,7 @@ static int llog_osd_next_block(const struct lu_env *env,
 		/* this shouldn't happen */
 		if (tail->lrt_index == 0) {
 			CERROR("%s: invalid llog tail at log id "DOSTID"/%u "
-			       "offset "LPU64" bytes %d\n",
+			       "offset %llu bytes %d\n",
 			       o->do_lu.lo_dev->ld_obd->obd_name,
 			       POSTID(&loghandle->lgh_id.lgl_oi),
 			       loghandle->lgh_id.lgl_ogen, *cur_offset, rc);
@@ -1042,7 +1042,7 @@ static int llog_osd_prev_block(const struct lu_env *env,
 		rc = dt_read(env, o, &lgi->lgi_buf, &cur_offset);
 		if (rc < 0) {
 			CERROR("%s: can't read llog block from log "DFID
-			       " offset "LPU64": rc = %d\n",
+			       " offset %llu: rc = %d\n",
 			       o->do_lu.lo_dev->ld_obd->obd_name,
 			       PFID(lu_object_fid(&o->do_lu)), cur_offset, rc);
 			GOTO(out, rc);
@@ -1053,7 +1053,7 @@ static int llog_osd_prev_block(const struct lu_env *env,
 
 		if (rc < sizeof(*tail)) {
 			CERROR("%s: invalid llog block at log id "DOSTID"/%u "
-			       "offset "LPU64"\n",
+			       "offset %llu\n",
 			       o->do_lu.lo_dev->ld_obd->obd_name,
 			       POSTID(&loghandle->lgh_id.lgl_oi),
 			       loghandle->lgh_id.lgl_ogen, cur_offset);
@@ -1077,7 +1077,7 @@ static int llog_osd_prev_block(const struct lu_env *env,
 		/* this shouldn't happen */
 		if (tail->lrt_index == 0) {
 			CERROR("%s: invalid llog tail at log id "DOSTID"/%u "
-			       "offset "LPU64"\n",
+			       "offset %llu\n",
 			       o->do_lu.lo_dev->ld_obd->obd_name,
 			       POSTID(&loghandle->lgh_id.lgl_oi),
 			       loghandle->lgh_id.lgl_ogen, cur_offset);
