@@ -231,7 +231,7 @@ static int seq_client_alloc_seq(const struct lu_env *env,
 	*seqnr = seq->lcs_space.lsr_start;
 	seq->lcs_space.lsr_start += 1;
 
-        CDEBUG(D_INFO, "%s: Allocated sequence ["LPX64"]\n", seq->lcs_name,
+	CDEBUG(D_INFO, "%s: Allocated sequence [%#llx]\n", seq->lcs_name,
                *seqnr);
 
         RETURN(rc);
@@ -294,7 +294,7 @@ int seq_client_get_seq(const struct lu_env *env,
         }
 
         CDEBUG(D_INFO, "%s: allocate sequence "
-               "[0x%16.16"LPF64"x]\n", seq->lcs_name, *seqnr);
+	       "[0x%16.16llx]\n", seq->lcs_name, *seqnr);
 
 	/* Since the caller require the whole seq,
 	 * so marked this seq to be used */
@@ -358,7 +358,7 @@ int seq_client_alloc_fid(const struct lu_env *env,
                 }
 
                 CDEBUG(D_INFO, "%s: Switch to sequence "
-                       "[0x%16.16"LPF64"x]\n", seq->lcs_name, seqnr);
+		       "[0x%16.16llx]\n", seq->lcs_name, seqnr);
 
                 seq->lcs_fid.f_oid = LUSTRE_FID_INIT_OID;
                 seq->lcs_fid.f_seq = seqnr;
