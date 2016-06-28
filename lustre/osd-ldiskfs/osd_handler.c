@@ -6562,6 +6562,10 @@ static int osd_mount(const struct lu_env *env,
 					LDISKFS_FEATURE_COMPAT_HAS_JOURNAL)) {
 		CERROR("%s: device %s is mounted w/o journal\n", name, dev);
 		GOTO(out_mnt, rc = -EINVAL);
+	} else if (osd_journal(o)->j_maxlen < 8192) {
+		CERROR("%s: device %s has too small journal size(< 8192 blocks)\n",
+		       name, dev);
+		GOTO(out_mnt, rc = -EINVAL);
 	}
 
 #ifdef LDISKFS_MOUNT_DIRDATA
