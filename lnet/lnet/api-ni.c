@@ -34,6 +34,8 @@
  * Lustre is a trademark of Sun Microsystems, Inc.
  */
 
+/* Canary Change */
+
 #define DEBUG_SUBSYSTEM S_LNET
 #include <linux/log2.h>
 #include <lnet/lib-lnet.h>
