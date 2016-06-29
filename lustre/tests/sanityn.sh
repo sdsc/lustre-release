@@ -1351,6 +1351,35 @@ test_39c() {
 }
 run_test 39c "check truncate mtime update ======================"
 
+test_39d() { # LU-7310
+	local client1=${CLIENT1:-`hostname`}
+	local client2=${CLIENT2:-`hostname`}
+
+	do_node $client1 "touch $DIR1/$tfile"
+
+	do_node $client1 "touch -m -d @$TEST_39_MTIME $DIR1/$tfile"
+	local mtime1=`do_node $client2 "stat -c %Y $DIR1/$tfile"`
+	[ "$mtime1" = $TEST_39_MTIME ] ||
+		error "mtime: $mtime1, should be $TEST_39_MTIME"
+
+	# force sync write
+	# define OBD_FAIL_OSC_NO_GRANT 0x411
+	do_node $client1 $LCTL set_param fail_loc=0x411
+
+	local d1=`do_node $client1 date +%s`
+	do_node $client1 'echo hello >> '$DIR1/$tfile
+	local d2=`do_node $client1 date +%s`
+
+	do_node $client1 $LCTL set_param fail_loc=0
+
+	cancel_lru_locks osc
+
+	local mtime2=`do_node $client2 "stat -c %Y $DIR1/$tfile"`
+	[ "$mtime2" -ge "$d1" ] && [ "$mtime2" -le "$d2" ] ||
+		error "mtime is not updated on write: $d1 <= $mtime2 <= $d2"
+}
+run_test 39d "sync write should update mtime"
+
 # check that pid exists hence second operation wasn't blocked by first one
 # if it is so then there is no conflict, return 0
 # else second operation is conflicting with first one, return 1
