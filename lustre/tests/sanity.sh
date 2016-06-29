@@ -13,8 +13,8 @@ ALWAYS_EXCEPT="                42a  42b  42c  42d  45   68b   $SANITY_EXCEPT"
 # UPDATE THE COMMENT ABOVE WITH BUG NUMBERS WHEN CHANGING ALWAYS_EXCEPT!
 
 # with LOD/OSP landing
-# bug number for skipped tests: LU-2036 LU-8139
-ALWAYS_EXCEPT="                 76	101g	$ALWAYS_EXCEPT"
+# bug number for skipped tests: LU-2036
+ALWAYS_EXCEPT="                 76	$ALWAYS_EXCEPT"
 
 is_sles11()						# LU-4341
 {
@@ -6636,13 +6636,14 @@ test_101g() {
 	$LFS setstripe -c 1 $DIR/$tfile
 
 	if [ $(lustre_version_code ost1) -ge $(version_code 2.8.52) ]; then
+		local page_count=$((16 * 1048576 / $(page_size)))
 		set_osd_param $list '' brw_size 16M
 
 		echo "remount client to enable large RPC size"
 		remount_client $MOUNT || error "remount_client failed"
 
 		for mp in $($LCTL get_param -n osc.*.max_pages_per_rpc); do
-			[ "$mp" -eq 4096 ] ||
+			[ "$mp" -eq "$page_count" ] ||
 				error "max_pages_per_rpc not correctly set"
 		done
 
@@ -6656,7 +6657,7 @@ test_101g() {
 		# calculate 16 MiB RPCs
 		rpcs=$($LCTL get_param 'osc.*.rpc_stats' |
 		       sed -n '/pages per rpc/,/^$/p' |
-		       awk 'BEGIN { sum = 0 }; /4096:/ { sum += $2 };
+		       awk 'BEGIN { sum = 0 }; /'$page_count':/ { sum += $2 };
 			    END { print sum }')
 		echo $rpcs RPCs
 		[ "$rpcs" -eq 10 ] || error "not all RPCs are 16 MiB BRW rpcs"
