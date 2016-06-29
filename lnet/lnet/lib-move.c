@@ -1482,8 +1482,8 @@ again:
 		 */
 		ni = NULL;
 		while ((ni = lnet_get_next_ni_locked(local_net, ni))) {
+			unsigned int distance;
 			int ni_credits;
-			int distance;
 
 			if (!lnet_is_ni_healthy_locked(ni))
 				continue;
@@ -1503,8 +1503,8 @@ again:
 			 * All distances smaller than the NUMA range
 			 * are treated equally.
 			 */
-			if (distance < lnet_get_numa_range())
-				distance = lnet_get_numa_range();
+			if (distance < lnet_numa_range)
+				distance = lnet_numa_range;
 
 			/*
 			 * Select on shorter distance, then available
