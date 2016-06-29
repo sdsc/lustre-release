@@ -6472,6 +6472,40 @@ test_93() {
 }
 run_test 93 "register mulitple MDT at the same time"
 
+test_94()
+{
+	[ "$OSTCOUNT" -lt "2" ] && skip_env "$OSTCOUNT < 2, skipping" && return
+	stopall
+	reformat
+	setup_noconfig
+	start_ost2
+	umount_client $MOUNT
+	stop_ost2
+	stop_ost
+	stop_mds
+
+	writeconf_all $MDSCOUNT 2
+
+	start_mds || error "start_mds failed"
+	start_ost || error "should fail"
+
+# have mgs to drop reply to MGS_TARGET_REG
+#define OBD_FAIL_MGS_ALL_REPLY_NET	 0x902
+	do_facet mgs "$LCTL set_param fail_val=253"
+	do_facet mgs "$LCTL set_param fail_loc=0x902"
+	start_ost2 && error "should fail"
+	do_facet mgs "$LCTL set_param fail_loc=0"
+	do_facet mgs "$LCTL set_param fail_val=0"
+
+	start_ost2 || error "start_ost failed"
+	wait_osc_import_state mds ost FULL
+
+	mount_client $MOUNT || error "mount_client failed"
+
+	stopall
+}
+run_test 94 "test ost registration failure after writeconf"
+
 if ! combined_mgs_mds ; then
 	stop mgs
 fi
