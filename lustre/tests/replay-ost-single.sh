@@ -263,7 +263,7 @@ test_7() {
 		error "space grew after dd: before:$before after_dd:$after_dd"
 	replay_barrier ost1
 	rm -f $f
-	fail ost1
+	CLEANUP_DM_DEV=true fail ost1
 	wait_recovery_complete ost1 || error "OST recovery not done"
 	$CHECKSTAT -t file $f && return 2 || true
 	sync
@@ -404,7 +404,7 @@ test_9() {
 	#define OBD_FAIL_TGT_REPLAY_DELAY2       0x714
 	do_facet ost1 $LCTL set_param fail_loc=0x00000714
 	do_facet ost1 $LCTL set_param fail_val=$TIMEOUT
-	fail ost1
+	CLEANUP_DM_DEV=true fail ost1
 	do_facet ost1 $LCTL set_param fail_loc=0
 	do_facet ost1 "dmesg | tail -n 100" |
 		sed -n '/no req deadline/,$ p' | grep -q 'Already past' &&
