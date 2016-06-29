@@ -3550,6 +3550,7 @@ static int osd_xattr_get(const struct lu_env *env, struct dt_object *dt,
 	LASSERT(inode->i_op->getxattr != NULL);
 
 	if (strcmp(name, XATTR_NAME_LOV) == 0 ||
+	    strcmp(name, XATTR_NAME_LMV) == 0 ||
 	    strcmp(name, XATTR_NAME_DEFAULT_LMV) == 0)
 		cache_xattr = true;
 
@@ -3714,6 +3715,7 @@ static int osd_xattr_set(const struct lu_env *env, struct dt_object *dt,
 
 	if (rc == 0 &&
 	    (strcmp(name, XATTR_NAME_LOV) == 0 ||
+	     strcmp(name, XATTR_NAME_LMV) == 0 ||
 	     strcmp(name, XATTR_NAME_DEFAULT_LMV) == 0))
 		osd_oxc_add(obj, name, buf->lb_buf, buf->lb_len);
 
@@ -3797,6 +3799,7 @@ static int osd_xattr_del(const struct lu_env *env, struct dt_object *dt,
 
 	if (rc == 0 &&
 	    (strcmp(name, XATTR_NAME_LOV) == 0 ||
+	     strcmp(name, XATTR_NAME_LMV) == 0 ||
 	     strcmp(name, XATTR_NAME_DEFAULT_LMV) == 0))
 		osd_oxc_del(obj, name);
 
