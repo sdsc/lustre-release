@@ -418,6 +418,7 @@ typedef struct lnet_ni {
 #define LNET_PING_FEAT_BASE		(1 << 0)	/* just a ping */
 #define LNET_PING_FEAT_NI_STATUS	(1 << 1)	/* return NI status */
 #define LNET_PING_FEAT_RTE_DISABLED	(1 << 2)        /* Routing enabled */
+#define LNET_PING_FEAT_MULTI_RAIL	(1 << 3)        /* Multi-Rail aware */
 
 /*
  * All ping feature bits fit to hit the wire.
@@ -429,7 +430,8 @@ typedef struct lnet_ni {
  */
 #define LNET_PING_FEAT_BITS		(LNET_PING_FEAT_BASE | \
 					 LNET_PING_FEAT_NI_STATUS | \
-					 LNET_PING_FEAT_RTE_DISABLED)
+					 LNET_PING_FEAT_RTE_DISABLED | \
+					 LNET_PING_FEAT_MULTI_RAIL)
 /* Ping feature bits used by the router checker. */
 #define LNET_PING_FEAT_RC_MASK		(LNET_PING_FEAT_BASE | \
 					 LNET_PING_FEAT_NI_STATUS)

@@ -356,7 +356,8 @@ static void lnet_assert_wire_constants(void)
 	CLASSERT(LNET_PING_FEAT_BASE == 0x1);
 	CLASSERT(LNET_PING_FEAT_NI_STATUS == 0x2);
 	CLASSERT(LNET_PING_FEAT_RTE_DISABLED == 0x4);
-	CLASSERT(LNET_PING_FEAT_BITS == 0x7);
+	CLASSERT(LNET_PING_FEAT_MULTI_RAIL == 0x8);
+	CLASSERT(LNET_PING_FEAT_BITS == 0xf);
 	CLASSERT((int)sizeof(lnet_ping_info_t) == 16);
 	CLASSERT((int)offsetof(lnet_ping_info_t, pi_magic) == 0);
 	CLASSERT((int)sizeof(((lnet_ping_info_t *)0)->pi_magic) == 4);
