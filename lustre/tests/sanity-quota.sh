@@ -1668,7 +1668,7 @@ test_18_sub () {
 
 	replay_barrier $SINGLEMDS
 	log "Fail mds for $((2 * timeout)) seconds"
-	fail $SINGLEMDS $((2 * timeout))
+	CLEANUP_DM_DEV=true fail $SINGLEMDS $((2 * timeout))
 
 	local count=0
 	if at_is_enabled; then
