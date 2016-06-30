@@ -79,11 +79,12 @@ int ldlm_flock_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
         for (n = pos->next; pos != (head); pos = n, n = pos->next)
 
 static inline int
-ldlm_same_flock_owner(struct ldlm_lock *lock, struct ldlm_lock *new)
+ldlm_same_flock_owner(const struct ldlm_flock *f1,
+		      const struct ldlm_flock *f2,
+		      struct obd_export *e1,
+		      struct obd_export *e2)
 {
-        return((new->l_policy_data.l_flock.owner ==
-                lock->l_policy_data.l_flock.owner) &&
-               (new->l_export == lock->l_export));
+	return f1->owner == f2->owner && e1 == e2;
 }
 
 static inline int
@@ -95,13 +96,13 @@ ldlm_flocks_overlap(struct ldlm_lock *lock, struct ldlm_lock *new)
                 lock->l_policy_data.l_flock.start));
 }
 
-static int ldlm_flocks_are_equal(struct ldlm_lock *l1, struct ldlm_lock *l2)
+static int ldlm_flocks_are_equal(const struct ldlm_flock *f1,
+				 const struct ldlm_flock *f2,
+				 struct obd_export *e1,
+				 struct obd_export *e2)
 {
-	return ldlm_same_flock_owner(l1, l2) &&
-	       l1->l_policy_data.l_flock.start ==
-	       l2->l_policy_data.l_flock.start &&
-	       l1->l_policy_data.l_flock.end ==
-	       l2->l_policy_data.l_flock.end;
+	return ldlm_same_flock_owner(f1, f2, e1, e2) &&
+		f1->start == f2->start && f1->end == f2->end;
 }
 
 static inline void ldlm_flock_blocking_link(struct ldlm_lock *req,
@@ -335,7 +336,10 @@ reprocess:
 	if (*flags != LDLM_FL_WAIT_NOREPROC && mode == LCK_NL) {
 #ifdef HAVE_SERVER_SUPPORT
 		list_for_each_entry(lock, &res->lr_waiting, l_res_link) {
-			if (ldlm_flocks_are_equal(req, lock)) {
+			if (ldlm_flocks_are_equal(&lock->l_policy_data.l_flock,
+						  &req->l_policy_data.l_flock,
+						  lock->l_export,
+						  req->l_export)) {
 				/* To start cancel a waiting lock */
 				LIST_HEAD(rpc_list);
 
@@ -372,7 +376,10 @@ reprocess:
 		list_for_each(tmp, &res->lr_granted) {
 			lock = list_entry(tmp, struct ldlm_lock,
                                               l_res_link);
-                        if (ldlm_same_flock_owner(lock, req)) {
+			if (ldlm_same_flock_owner(&lock->l_policy_data.l_flock,
+						  &req->l_policy_data.l_flock,
+						  lock->l_export,
+						  req->l_export)) {
                                 ownlocks = tmp;
                                 break;
                         }
@@ -386,8 +393,10 @@ reprocess:
 		list_for_each(tmp, &res->lr_granted) {
 			lock = list_entry(tmp, struct ldlm_lock,
                                               l_res_link);
-
-                        if (ldlm_same_flock_owner(lock, req)) {
+			if (ldlm_same_flock_owner(&lock->l_policy_data.l_flock,
+						  &req->l_policy_data.l_flock,
+						  lock->l_export,
+						  req->l_export)) {
                                 if (!ownlocks)
                                         ownlocks = tmp;
                                 continue;
@@ -467,8 +476,9 @@ reprocess:
 
         list_for_remaining_safe(ownlocks, tmp, &res->lr_granted) {
 		lock = list_entry(ownlocks, struct ldlm_lock, l_res_link);
-
-                if (!ldlm_same_flock_owner(lock, new))
+		if (!ldlm_same_flock_owner(&lock->l_policy_data.l_flock,
+					   &new->l_policy_data.l_flock,
+					   lock->l_export, new->l_export))
                         break;
 
                 if (lock->l_granted_mode == mode) {
@@ -669,6 +679,95 @@ restart:
         RETURN(LDLM_ITER_CONTINUE);
 }
 
+/**
+ * Avoid reordered async flock lock and unlock RPC.
+ *
+ * For async flock case, the unlock request may be triggered before related
+ * lock RPC handled by the MDT. If such case hanppend, it will leave a ldlm
+ * lock on the MDT side that cannot be released until the client is umount,
+ * or the client is evicted by the MDT.
+ *
+ * To avoid the trouble, before sending the flock unlock RPC to the MDT, we
+ * search related flock ldlm lock locally. If it is still in 'lr_enqueueing'
+ * list, then means related lock RPC has not been handled by the MDT yet.
+ * Wait there until related lock is granted (then go ahead to handle the
+ * unlock request) or cancelled.
+ *
+ * \retval	0 for the case of related flock lock RPC has been handled
+ *		by the MDT
+ * \retval	1 for the case of no need to trigger unlock RPC right now
+ * \retval	negative error number on failure
+ */
+int ldlm_pre_process_flock_unlock(struct ldlm_namespace *ns,
+				  struct ldlm_enqueue_info *einfo,
+				  const struct ldlm_res_id *res_id,
+				  const struct ldlm_flock *policy)
+{
+	struct ldlm_resource *res;
+	struct ldlm_lock *lock;
+	int rc = 0;
+	ENTRY;
+
+	res = ldlm_resource_get(ns, NULL, res_id, LDLM_FLOCK, 0);
+	if (IS_ERR(res)) {
+		rc = PTR_ERR(res);
+
+		/* No resource means no lock to be unlocked. */
+		RETURN(rc == -ENOENT ? 1 : rc);
+	}
+
+	LDLM_RESOURCE_ADDREF(res);
+	lock_res(res);
+
+	list_for_each_entry(lock, &res->lr_granted, l_res_link) {
+		if (ldlm_flocks_are_equal(&lock->l_policy_data.l_flock, policy,
+					  lock->l_export, NULL))
+			GOTO(out, rc = 0);
+	}
+
+	list_for_each_entry(lock, &res->lr_converting, l_res_link) {
+		if (ldlm_flocks_are_equal(&lock->l_policy_data.l_flock, policy,
+					  lock->l_export, NULL))
+			GOTO(out, rc = 0);
+	}
+
+	list_for_each_entry(lock, &res->lr_waiting, l_res_link) {
+		if (ldlm_flocks_are_equal(&lock->l_policy_data.l_flock, policy,
+					  lock->l_export, NULL))
+			GOTO(out, rc = 0);
+	}
+
+	list_for_each_entry(lock, &res->lr_enqueueing, l_res_link) {
+		if (ldlm_flocks_are_equal(&lock->l_policy_data.l_flock, policy,
+					  lock->l_export, NULL)) {
+			struct l_wait_info lwi = { 0 };
+
+			LDLM_LOCK_GET(lock);
+			unlock_res(res);
+			LDLM_RESOURCE_DELREF(res);
+			ldlm_resource_putref(res);
+			l_wait_event(lock->l_waitq,
+				     is_granted_or_cancelled(lock), &lwi);
+			if (lock->l_req_mode == lock->l_granted_mode)
+				rc = 0;
+			else
+				rc = 1;
+			LDLM_LOCK_RELEASE(lock);
+
+			RETURN(rc);
+		}
+	}
+
+	GOTO(out, rc = 0);
+
+out:
+	unlock_res(res);
+	LDLM_RESOURCE_DELREF(res);
+	ldlm_resource_putref(res);
+
+	return rc;
+}
+
 struct ldlm_flock_wait_data {
         struct ldlm_lock *fwd_lock;
         int               fwd_generation;
@@ -702,7 +801,10 @@ static void ldlm_flock_mark_canceled(struct ldlm_lock *lock)
 	ENTRY;
 	check_res_locked(res);
 	list_for_each_entry(waiting_lock, &res->lr_enqueueing, l_res_link) {
-		if (ldlm_flocks_are_equal(waiting_lock, lock)) {
+		if (ldlm_flocks_are_equal(&lock->l_policy_data.l_flock,
+					  &waiting_lock->l_policy_data.l_flock,
+					  lock->l_export,
+					  waiting_lock->l_export)) {
 			LDLM_DEBUG(lock, "mark canceled enqueueing lock");
 			args = waiting_lock->l_ast_data;
 			if (args)
@@ -711,7 +813,10 @@ static void ldlm_flock_mark_canceled(struct ldlm_lock *lock)
 		}
 	}
 	list_for_each_entry(waiting_lock, &res->lr_waiting, l_res_link) {
-		if (ldlm_flocks_are_equal(waiting_lock, lock)) {
+		if (ldlm_flocks_are_equal(&lock->l_policy_data.l_flock,
+					  &waiting_lock->l_policy_data.l_flock,
+					  lock->l_export,
+					  waiting_lock->l_export)) {
 			LDLM_DEBUG(lock, "mark canceled waiting lock");
 			args = waiting_lock->l_ast_data;
 			if (args)
