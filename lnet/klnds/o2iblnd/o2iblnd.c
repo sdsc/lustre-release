@@ -3186,7 +3186,7 @@ kiblnd_startup (lnet_ni_t *ni)
         if (ni->ni_interfaces[0] != NULL) {
                 /* Use the IPoIB interface specified in 'networks=' */
 
-                CLASSERT (LNET_MAX_INTERFACES > 1);
+                CLASSERT (LNET_NUM_INTERFACES > 1);
                 if (ni->ni_interfaces[1] != NULL) {
                         CERROR("Multiple interfaces not supported\n");
                         goto failed;

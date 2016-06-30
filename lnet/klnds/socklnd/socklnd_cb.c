@@ -1660,7 +1660,7 @@ ksocknal_send_hello (lnet_ni_t *ni, ksock_conn_t *conn,
         /* CAVEAT EMPTOR: this byte flips 'ipaddrs' */
         ksock_net_t         *net = (ksock_net_t *)ni->ni_data;
 
-        LASSERT (hello->kshm_nips <= LNET_MAX_INTERFACES);
+        LASSERT (hello->kshm_nips <= LNET_NUM_INTERFACES);
 
         /* rely on caller to hold a ref on socket so it wouldn't disappear */
         LASSERT (conn->ksnc_proto != NULL);

@@ -55,7 +55,7 @@ ksocknal_ip2iface(lnet_ni_t *ni, __u32 ip)
         ksock_interface_t *iface;
 
         for (i = 0; i < net->ksnn_ninterfaces; i++) {
-                LASSERT(i < LNET_MAX_INTERFACES);
+                LASSERT(i < LNET_NUM_INTERFACES);
                 iface = &net->ksnn_interfaces[i];
 
                 if (iface->ksni_ipaddr == ip)
@@ -224,7 +224,7 @@ ksocknal_unlink_peer_locked (ksock_peer_ni_t *peer_ni)
         ksock_interface_t *iface;
 
         for (i = 0; i < peer_ni->ksnp_n_passive_ips; i++) {
-                LASSERT (i < LNET_MAX_INTERFACES);
+                LASSERT (i < LNET_NUM_INTERFACES);
                 ip = peer_ni->ksnp_passive_ips[i];
 
                 iface = ksocknal_ip2iface(peer_ni->ksnp_ni, ip);
@@ -696,7 +696,7 @@ ksocknal_local_ipvec (lnet_ni_t *ni, __u32 *ipaddrs)
 	read_lock(&ksocknal_data.ksnd_global_lock);
 
         nip = net->ksnn_ninterfaces;
-        LASSERT (nip <= LNET_MAX_INTERFACES);
+        LASSERT (nip <= LNET_NUM_INTERFACES);
 
 	/* Only offer interfaces for additional connections if I have
          * more than one. */
@@ -773,8 +773,8 @@ ksocknal_select_ips(ksock_peer_ni_t *peer_ni, __u32 *peerips, int n_peerips)
 
 	write_lock_bh(global_lock);
 
-        LASSERT (n_peerips <= LNET_MAX_INTERFACES);
-        LASSERT (net->ksnn_ninterfaces <= LNET_MAX_INTERFACES);
+        LASSERT (n_peerips <= LNET_NUM_INTERFACES);
+        LASSERT (net->ksnn_ninterfaces <= LNET_NUM_INTERFACES);
 
 	/* Only match interfaces for additional connections
          * if I have > 1 interface */
@@ -884,7 +884,7 @@ ksocknal_create_routes(ksock_peer_ni_t *peer_ni, int port,
                 return;
         }
 
-        LASSERT (npeer_ipaddrs <= LNET_MAX_INTERFACES);
+        LASSERT (npeer_ipaddrs <= LNET_NUM_INTERFACES);
 
         for (i = 0; i < npeer_ipaddrs; i++) {
                 if (newroute != NULL) {
@@ -921,7 +921,7 @@ ksocknal_create_routes(ksock_peer_ni_t *peer_ni, int port,
 		best_nroutes = 0;
 		best_netmatch = 0;
 
-		LASSERT(net->ksnn_ninterfaces <= LNET_MAX_INTERFACES);
+		LASSERT(net->ksnn_ninterfaces <= LNET_NUM_INTERFACES);
 
 		/* Select interface to connect from */
 		for (j = 0; j < net->ksnn_ninterfaces; j++) {
@@ -1065,7 +1065,7 @@ ksocknal_create_conn(lnet_ni_t *ni, ksock_route_t *route,
 	atomic_set (&conn->ksnc_tx_nob, 0);
 
 	LIBCFS_ALLOC(hello, offsetof(ksock_hello_msg_t,
-				     kshm_ips[LNET_MAX_INTERFACES]));
+				     kshm_ips[LNET_NUM_INTERFACES]));
         if (hello == NULL) {
                 rc = -ENOMEM;
                 goto failed_1;
@@ -1314,7 +1314,7 @@ ksocknal_create_conn(lnet_ni_t *ni, ksock_route_t *route,
         }
 
         LIBCFS_FREE(hello, offsetof(ksock_hello_msg_t,
-                                    kshm_ips[LNET_MAX_INTERFACES]));
+                                    kshm_ips[LNET_NUM_INTERFACES]));
 
         /* setup the socket AFTER I've received hello (it disables
          * SO_LINGER).  I might call back to the acceptor who may want
@@ -1392,7 +1392,7 @@ failed_2:
  failed_1:
         if (hello != NULL)
                 LIBCFS_FREE(hello, offsetof(ksock_hello_msg_t,
-                                            kshm_ips[LNET_MAX_INTERFACES]));
+                                            kshm_ips[LNET_NUM_INTERFACES]));
 
 	LIBCFS_FREE(conn, sizeof(*conn));
 
@@ -1958,7 +1958,7 @@ ksocknal_add_interface(lnet_ni_t *ni, __u32 ipaddress, __u32 netmask)
         if (iface != NULL) {
                 /* silently ignore dups */
                 rc = 0;
-        } else if (net->ksnn_ninterfaces == LNET_MAX_INTERFACES) {
+        } else if (net->ksnn_ninterfaces == LNET_NUM_INTERFACES) {
                 rc = -ENOSPC;
         } else {
                 iface = &net->ksnn_interfaces[net->ksnn_ninterfaces++];
@@ -2638,7 +2638,7 @@ ksocknal_enumerate_interfaces(ksock_net_t *net)
                         continue;
                 }
 
-                if (j == LNET_MAX_INTERFACES) {
+                if (j == LNET_NUM_INTERFACES) {
                         CWARN("Ignoring interface %s (too many interfaces)\n",
                               names[i]);
                         continue;
@@ -2818,7 +2818,7 @@ ksocknal_startup (lnet_ni_t *ni)
 
                 net->ksnn_ninterfaces = 1;
         } else {
-                for (i = 0; i < LNET_MAX_INTERFACES; i++) {
+                for (i = 0; i < LNET_NUM_INTERFACES; i++) {
                         int    up;
 
                         if (ni->ni_interfaces[i] == NULL)
