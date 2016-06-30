@@ -118,13 +118,13 @@ int ldlm_expired_completion_wait(void *data)
         obd = lock->l_conn_export->exp_obd;
         imp = obd->u.cli.cl_import;
         ptlrpc_fail_import(imp, lwd->lwd_conn_cnt);
-        LDLM_ERROR(lock, "lock timed out (enqueued at "CFS_TIME_T", "
-                  CFS_DURATION_T"s ago), entering recovery for %s@%s",
-                  lock->l_last_activity,
-                  cfs_time_sub(cfs_time_current_sec(), lock->l_last_activity),
-                  obd2cli_tgt(obd), imp->imp_connection->c_remote_uuid.uuid);
+	LDLM_ERROR(lock, "lock timed out (enqueued at "CFS_TIME_T", "
+		   CFS_DURATION_T"s ago), entering recovery for %s@%s",
+		   lock->l_last_activity,
+		   cfs_time_sub(cfs_time_current_sec(), lock->l_last_activity),
+		   obd2cli_tgt(obd), imp->imp_connection->c_remote_uuid.uuid);
 
-        RETURN(0);
+	RETURN(-ETIMEDOUT);
 }
 
 /**
