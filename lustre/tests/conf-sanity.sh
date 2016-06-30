@@ -2880,16 +2880,14 @@ test_41c() {
 	cleanup
 	# MDT concurrent start
 	#define OBD_FAIL_TGT_MOUNT_RACE 0x716
-	do_facet $SINGLEMDS "$LCTL set_param fail_loc=0x716"
+	do_facet $SINGLEMDS "$LCTL set_param fail_loc=0x80000716"
 	start mds1 $(mdsdevname 1) $MDS_MOUNT_OPTS &
 	local pid=$!
-	start mds1 $(mdsdevname 1) $MDS_MOUNT_OPTS &
-	do_facet $SINGLEMDS "$LCTL set_param fail_loc=0x0"
-	local pid2=$!
-	wait $pid2
+	start mds1 $(mdsdevname 1) $MDS_MOUNT_OPTS
 	local rc2=$?
 	wait $pid
 	local rc=$?
+	do_facet $SINGLEMDS "$LCTL set_param fail_loc=0x0"
 	if [ $rc -eq 0 ] && [ $rc2 -ne 0 ]; then
 		echo "1st MDT start succeed"
 		echo "2nd MDT start failed with $rc2"
@@ -2910,16 +2908,14 @@ test_41c() {
 	# OST concurrent start
 
 	#define OBD_FAIL_TGT_MOUNT_RACE 0x716
-	do_facet ost1 "$LCTL set_param fail_loc=0x716"
+	do_facet ost1 "$LCTL set_param fail_loc=0x80000716"
 	start ost1 $(ostdevname 1) $OST_MOUNT_OPTS &
 	pid=$!
-	start ost1 $(ostdevname 1) $OST_MOUNT_OPTS &
-	do_facet ost1 "$LCTL set_param fail_loc=0x0"
-	pid2=$!
-	wait $pid2
+	start ost1 $(ostdevname 1) $OST_MOUNT_OPTS
 	rc2=$?
 	wait $pid
 	rc=$?
+	do_facet ost1 "$LCTL set_param fail_loc=0x0"
 	if [ $rc -eq 0 ] && [ $rc2 -ne 0 ]; then
 		echo "1st OST start succeed"
 		echo "2nd OST start failed with $rc2"
