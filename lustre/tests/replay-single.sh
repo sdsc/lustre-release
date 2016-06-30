@@ -43,6 +43,9 @@ build_test_filter
 
 check_and_setup_lustre
 
+SAVED_CLEANUP_DM_DEV=$CLEANUP_DM_DEV
+CLEANUP_DM_DEV=true
+
 mkdir -p $DIR
 
 assert_DIR
@@ -4468,6 +4471,8 @@ test_120() {
 	done
 }
 run_test 120 "DNE fail abort should stop both normal and DNE replay"
+
+CLEANUP_DM_DEV=$SAVED_CLEANUP_DM_DEV
 
 complete $SECONDS
 check_and_cleanup_lustre

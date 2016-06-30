@@ -36,6 +36,9 @@ if ! $(echo $MOUNTED' ' | grep -w -q $MOUNT2' '); then
     MOUNTED2=yes
 fi
 
+SAVED_CLEANUP_DM_DEV=$CLEANUP_DM_DEV
+CLEANUP_DM_DEV=true
+
 assert_DIR
 rm -rf $DIR/[df][0-9]*
 
@@ -537,7 +540,7 @@ test_21b_sub () {
 	replay_barrier_nosync $mds
 	shutdown_client $CLIENT2 $MOUNT1
 
-	facet_failover $mds
+	CLEANUP_DM_DEV=false facet_failover $mds
 
 	# were renames replayed?
 	local rc=0
@@ -1001,6 +1004,8 @@ test_26() {
 	cleanup_26 || true
 }
 run_test 26 "dbench and tar with mds failover"
+
+CLEANUP_DM_DEV=$SAVED_CLEANUP_DM_DEV
 
 complete $SECONDS
 SLEEP=$((SECONDS - $NOW))

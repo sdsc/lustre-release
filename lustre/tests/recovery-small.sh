@@ -1391,7 +1391,7 @@ test_61()
 	local oid=$(do_facet ost1 "lctl get_param -n \
 		obdfilter.${ost1_svc}.last_id" | sed -e 's/.*://')
 
-	fail_abort $SINGLEMDS
+	CLEANUP_DM_DEV=true fail_abort $SINGLEMDS
 
 	touch $DIR/$tdir/$tfile
 	local id=$($LFS getstripe $DIR/$tdir/$tfile |
@@ -1834,7 +1834,7 @@ test_106() { # LU-1789
 
 	$LCTL set_param debug=console
 	$LCTL clear
-	facet_failover $SINGLEMDS
+	CLEANUP_DM_DEV=true facet_failover $SINGLEMDS
 
 	# lightweight connection must be evicted
 	touch -c $DIR2/$tfile || true
