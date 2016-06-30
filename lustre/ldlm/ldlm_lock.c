@@ -2419,6 +2419,11 @@ int ldlm_export_cancel_locks(struct obd_export *exp)
 	       "left on hash table %d.\n", exp, ecl.ecl_loop,
 	       atomic_read(&exp->exp_lock_hash->hs_count));
 
+	if (ecl.ecl_loop > 0 &&
+	    atomic_read(&exp->exp_lock_hash->hs_count) == 0 &&
+	    exp->exp_obd->obd_stopping)
+		ldlm_reprocess_all_ns(exp->exp_obd->obd_namespace);
+
 	return ecl.ecl_loop;
 }
 
