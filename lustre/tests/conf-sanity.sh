@@ -2877,19 +2877,40 @@ test_41c() {
 	   $server_version -lt $(version_code 2.5.11) ]] ||
 		{ skip "Need MDS version 2.5.4+ or 2.5.26+ or 2.6.52+"; return; }
 
+	# ensure mds1 ost1 have been created even if running sub-test standalone
 	cleanup
+	setup
+	cleanup || error "cleanup failed"
+
+	# using directly mount command instead of start() function to avoid
+	# any side effect of // with others/externals tools/features
+	# ("zpool import", ...)
+
 	# MDT concurrent start
 	#define OBD_FAIL_TGT_MOUNT_RACE 0x716
-	do_facet $SINGLEMDS "$LCTL set_param fail_loc=0x716"
-	start mds1 $(mdsdevname 1) $MDS_MOUNT_OPTS &
+	do_facet $SINGLEMDS "$LCTL set_param fail_loc=0x80000716"
+
+	local mds1dev=$(mdsdevname 1)
+	local mds1mnt=$(facet_mntpt mds1)
+	local mds1fstype=$(facet_fstype mds1)
+	local mds1opts=$MDS_MOUNT_OPTS
+
+	if [ $(facet_fstype $SINGLEMDS) == ldiskfs ] &&
+	   ! do_facet $SINGLEMDS test -b $mds1dev; then
+		mds1opts=$(csa_add "$mds1opts" -o loop)
+	fi
+	if [[ $(facet_fstype $SINGLEMDS) == zfs ]]; then
+		import_zpool $SINGLEMDS || return ${PIPESTATUS[0]}
+	fi
+
+	do_facet mds1 mount -t lustre $mds1dev $mds1mnt $mds1opts &
 	local pid=$!
-	start mds1 $(mdsdevname 1) $MDS_MOUNT_OPTS &
-	do_facet $SINGLEMDS "$LCTL set_param fail_loc=0x0"
-	local pid2=$!
-	wait $pid2
+
+	do_facet mds1 mount -t lustre $mds1dev $mds1mnt $mds1opts
 	local rc2=$?
 	wait $pid
 	local rc=$?
+	do_facet $SINGLEMDS "$LCTL set_param fail_loc=0x0"
 	if [ $rc -eq 0 ] && [ $rc2 -ne 0 ]; then
 		echo "1st MDT start succeed"
 		echo "2nd MDT start failed with $rc2"
@@ -2908,18 +2929,30 @@ test_41c() {
 	fi
 
 	# OST concurrent start
-
 	#define OBD_FAIL_TGT_MOUNT_RACE 0x716
-	do_facet ost1 "$LCTL set_param fail_loc=0x716"
-	start ost1 $(ostdevname 1) $OST_MOUNT_OPTS &
+	do_facet ost1 "$LCTL set_param fail_loc=0x80000716"
+
+	local ost1dev=$(ostdevname 1)
+	local ost1mnt=$(facet_mntpt ost1)
+	local ost1fstype=$(facet_fstype ost1)
+	local ost1opts=$OST_MOUNT_OPTS
+
+	if [ $(facet_fstype $ost1) == ldiskfs ] &&
+	   ! do_facet $ost1 test -b $ost1dev; then
+		ost1opts=$(csa_add "$ost1opts" -o loop)
+	fi
+	if [[ $(facet_fstype $ost1) == zfs ]]; then
+		import_zpool $ost1 || return ${PIPESTATUS[0]}
+	fi
+
+	do_facet ost1 mount -t lustre $ost1dev $ost1mnt $ost1opts $
 	pid=$!
-	start ost1 $(ostdevname 1) $OST_MOUNT_OPTS &
-	do_facet ost1 "$LCTL set_param fail_loc=0x0"
-	pid2=$!
-	wait $pid2
+
+	do_facet ost1 mount -t lustre $ost1dev $ost1mnt $ost1opts
 	rc2=$?
 	wait $pid
 	rc=$?
+	do_facet ost1 "$LCTL set_param fail_loc=0x0"
 	if [ $rc -eq 0 ] && [ $rc2 -ne 0 ]; then
 		echo "1st OST start succeed"
 		echo "2nd OST start failed with $rc2"
