@@ -913,6 +913,15 @@ int ldlm_cli_enqueue(struct obd_export *exp, struct ptlrpc_request **reqp,
 			.lcs_blocking	= einfo->ei_cb_bl,
 			.lcs_glimpse	= einfo->ei_cb_gl
 		};
+
+		if (einfo->ei_type == LDLM_FLOCK &&
+		    einfo->ei_mode == LCK_NL) {
+			rc = ldlm_pre_process_flock_unlock(ns, einfo, res_id,
+					(const struct ldlm_flock *)policy);
+			if (rc)
+				RETURN(rc > 0 ? 0 : rc);
+		}
+
 		lock = ldlm_lock_create(ns, res_id, einfo->ei_type,
 					einfo->ei_mode, &cbs, einfo->ei_cbdata,
 					lvb_len, lvb_type);
