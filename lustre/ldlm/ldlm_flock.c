@@ -104,6 +104,13 @@ static int ldlm_flocks_are_equal(struct ldlm_lock *l1, struct ldlm_lock *l2)
 	       l2->l_policy_data.l_flock.end;
 }
 
+static int ldlm_flocks_are_equal2(const struct ldlm_flock *f1,
+				  const struct ldlm_flock *f2)
+{
+	return f1->owner == f2->owner &&
+	       f1->start == f2->start && f1->end == f2->end;
+}
+
 static inline void ldlm_flock_blocking_link(struct ldlm_lock *req,
 					    struct ldlm_lock *lock)
 {
@@ -667,6 +674,102 @@ restart:
 
         ldlm_resource_dump(D_INFO, res);
         RETURN(LDLM_ITER_CONTINUE);
+}
+
+/**
+ * Avoid reordered async flock lock and unlock RPC.
+ *
+ * For async flock case, the unlock request may be triggered before related
+ * lock RPC handled by the MDT. If such case hanppend, it will leave a ldlm
+ * lock on the MDT side that cannot be released until the client is umount,
+ * or the client is evicted by the MDT.
+ *
+ * To avoid the trouble, before sending the flock unlock RPC to the MDT, we
+ * search related flock ldlm lock locally. If it is still in 'lr_enqueueing'
+ * list, then means related lock RPC has not been handled by the MDT yet.
+ * Wait there until related lock is granted (then go ahead to handle the
+ * unlock request) or cancelled.
+ *
+ * \retval	0 for the case of related flock lock RPC has been handled
+ *		by the MDT
+ * \retval	1 for the case of no need to trigger unlock RPC right now
+ * \retval	negative error number on failure
+ */
+int ldlm_pre_process_flock_unlock(struct ldlm_namespace *ns,
+				  struct ldlm_enqueue_info *einfo,
+				  const struct ldlm_res_id *res_id,
+				  const struct ldlm_flock *policy)
+{
+	struct ldlm_resource *res;
+	struct ldlm_lock *lock;
+	struct l_wait_info lwi = { 0 };
+	int rc = 0;
+	ENTRY;
+
+	res = ldlm_resource_get(ns, NULL, res_id, LDLM_FLOCK, 0);
+	if (IS_ERR(res)) {
+		rc = PTR_ERR(res);
+
+		/* No resource means no lock to be unlocked. */
+		RETURN(rc == -ENOENT ? 1 : rc);
+	}
+
+	LDLM_RESOURCE_ADDREF(res);
+	lock_res(res);
+
+	list_for_each_entry(lock, &res->lr_granted, l_res_link) {
+		if (ldlm_flocks_are_equal2(&lock->l_policy_data.l_flock,
+					   policy))
+			GOTO(out, rc = 0);
+	}
+
+	list_for_each_entry(lock, &res->lr_converting, l_res_link) {
+		if (ldlm_flocks_are_equal2(&lock->l_policy_data.l_flock,
+					   policy))
+			GOTO(out, rc = 0);
+	}
+
+	list_for_each_entry(lock, &res->lr_waiting, l_res_link) {
+		if (ldlm_flocks_are_equal2(&lock->l_policy_data.l_flock,
+					   policy))
+			GOTO(out, rc = 0);
+	}
+
+	list_for_each_entry(lock, &res->lr_enqueueing, l_res_link) {
+		if (ldlm_flocks_are_equal2(&lock->l_policy_data.l_flock,
+					   policy)) {
+			if (unlikely(lock->l_req_mode == LCK_NL))
+				continue;
+
+			LDLM_LOCK_GET(lock);
+			unlock_res(res);
+			LDLM_RESOURCE_DELREF(res);
+			ldlm_resource_putref(res);
+			l_wait_event(lock->l_waitq,
+				     !ldlm_is_async_enqueueing(lock) ||
+				     ldlm_is_cancel(lock) ||
+				     ldlm_is_failed(lock) ||
+				     ldlm_is_destroyed(lock),
+				     &lwi);
+			if (ldlm_is_cancel(lock) || ldlm_is_failed(lock) ||
+			    ldlm_is_destroyed(lock))
+				rc = 1;
+			else
+				rc = 0;
+			LDLM_LOCK_RELEASE(lock);
+
+			RETURN(rc);
+		}
+	}
+
+	GOTO(out, rc = 0);
+
+out:
+	unlock_res(res);
+	LDLM_RESOURCE_DELREF(res);
+	ldlm_resource_putref(res);
+
+	return rc;
 }
 
 struct ldlm_flock_wait_data {
