@@ -861,12 +861,14 @@ struct ptlrpc_request *ldlm_enqueue_pack(struct obd_export *exp, int lvb_len)
 }
 EXPORT_SYMBOL(ldlm_enqueue_pack);
 
-static void ldlm_lock_add_to_enqueueing(struct ldlm_lock *lock)
+static void ldlm_lock_add_to_enqueueing(struct ldlm_lock *lock, int async)
 {
 	struct ldlm_resource *res = lock->l_resource;
 
 	lock_res(res);
 	ldlm_resource_add_lock(res, &res->lr_enqueueing, lock);
+	if (async)
+		ldlm_set_async_enqueueing(lock);
 	unlock_res(res);
 }
 
@@ -913,6 +915,15 @@ int ldlm_cli_enqueue(struct obd_export *exp, struct ptlrpc_request **reqp,
 			.lcs_blocking	= einfo->ei_cb_bl,
 			.lcs_glimpse	= einfo->ei_cb_gl
 		};
+
+		if (einfo->ei_type == LDLM_FLOCK &&
+		    einfo->ei_mode == LCK_NL) {
+			rc = ldlm_pre_process_flock_unlock(ns, einfo, res_id,
+					(const struct ldlm_flock *)policy);
+			if (rc)
+				RETURN(rc > 0 ? 0 : rc);
+		}
+
 		lock = ldlm_lock_create(ns, res_id, einfo->ei_type,
 					einfo->ei_mode, &cbs, einfo->ei_cbdata,
 					lvb_len, lvb_type);
@@ -931,7 +942,7 @@ int ldlm_cli_enqueue(struct obd_export *exp, struct ptlrpc_request **reqp,
 
 			lock->l_req_extent = policy->l_extent;
 		} else if (einfo->ei_type == LDLM_FLOCK) {
-			ldlm_lock_add_to_enqueueing(lock);
+			ldlm_lock_add_to_enqueueing(lock, async);
 		}
 		LDLM_DEBUG(lock, "client-side enqueue START, flags "LPX64,
 			   *flags);

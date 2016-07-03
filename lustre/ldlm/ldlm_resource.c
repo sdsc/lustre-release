@@ -1379,6 +1379,10 @@ void ldlm_resource_unlink_lock(struct ldlm_lock *lock)
         else if (type == LDLM_EXTENT)
                 ldlm_extent_unlink_lock(lock);
 	list_del_init(&lock->l_res_link);
+	if (ldlm_is_async_enqueueing(lock)) {
+		ldlm_clear_async_enqueueing(lock);
+		wake_up(&lock->l_waitq);
+	}
 }
 EXPORT_SYMBOL(ldlm_resource_unlink_lock);
 

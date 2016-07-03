@@ -215,6 +215,10 @@ void ldlm_extent_unlink_lock(struct ldlm_lock *lock);
 int ldlm_process_flock_lock(struct ldlm_lock *req, __u64 *flags,
 			    int first_enq, enum ldlm_error *err,
 			    struct list_head *work_list);
+int ldlm_pre_process_flock_unlock(struct ldlm_namespace *ns,
+				  struct ldlm_enqueue_info *einfo,
+				  const struct ldlm_res_id *res_id,
+				  const struct ldlm_flock *policy);
 int ldlm_init_flock_export(struct obd_export *exp);
 void ldlm_destroy_flock_export(struct obd_export *exp);
 
