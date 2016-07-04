@@ -301,14 +301,15 @@ void ptlrpc_abort_bulk(struct ptlrpc_bulk_desc *desc)
 int ptlrpc_register_bulk(struct ptlrpc_request *req)
 {
 	struct ptlrpc_bulk_desc *desc = req->rq_bulk;
-	lnet_process_id_t peer;
+	struct obd_import *imp = desc->bd_import;
+	lnet_process_id_t peer = imp->imp_connection->c_peer;
 	int rc = 0;
 	int rc2;
 	int posted_md;
 	int total_md;
 	__u64 mbits;
-	lnet_handle_me_t  me_h;
-	lnet_md_t         md;
+	lnet_handle_me_t me_h;
+	lnet_md_t md;
 	ENTRY;
 
         if (OBD_FAIL_CHECK(OBD_FAIL_PTLRPC_BULK_GET_NET))
@@ -321,6 +322,8 @@ int ptlrpc_register_bulk(struct ptlrpc_request *req)
 	LASSERT(desc->bd_iov_count <= PTLRPC_MAX_BRW_PAGES);
 	LASSERT(desc->bd_req != NULL);
 	LASSERT(ptlrpc_is_bulk_op_passive(desc->bd_type));
+	LASSERT(desc->bd_cbid.cbid_fn == client_bulk_callback);
+	LASSERT(desc->bd_cbid.cbid_arg == desc);
 
 	/* cleanup the state of the bulk for it will be reused */
 	if (req->rq_resend || req->rq_send_state == LUSTRE_IMP_REPLAY)
@@ -329,12 +332,6 @@ int ptlrpc_register_bulk(struct ptlrpc_request *req)
 		LASSERT(desc->bd_nob_transferred == 0);
 
 	desc->bd_failure = 0;
-
-	peer = desc->bd_import->imp_connection->c_peer;
-
-	LASSERT(desc->bd_cbid.cbid_fn == client_bulk_callback);
-	LASSERT(desc->bd_cbid.cbid_arg == desc);
-
 	total_md = (desc->bd_iov_count + LNET_MAX_IOV - 1) / LNET_MAX_IOV;
 	/* rq_mbits is matchbits of the final bulk */
 	mbits = req->rq_mbits - total_md + 1;
@@ -365,8 +362,7 @@ int ptlrpc_register_bulk(struct ptlrpc_request *req)
 				  LNET_UNLINK, LNET_INS_AFTER, &me_h);
 		if (rc != 0) {
 			CERROR("%s: LNetMEAttach failed x%llu/%d: rc = %d\n",
-			       desc->bd_import->imp_obd->obd_name, mbits,
-			       posted_md, rc);
+			       imp->imp_obd->obd_name, mbits, posted_md, rc);
 			break;
 		}
 
@@ -375,8 +371,7 @@ int ptlrpc_register_bulk(struct ptlrpc_request *req)
 				  &desc->bd_mds[posted_md]);
 		if (rc != 0) {
 			CERROR("%s: LNetMDAttach failed x%llu/%d: rc = %d\n",
-			       desc->bd_import->imp_obd->obd_name, mbits,
-			       posted_md, rc);
+			       imp->imp_obd->obd_name, mbits, posted_md, rc);
 			rc2 = LNetMEUnlink(me_h);
 			LASSERT(rc2 == 0);
 			break;
@@ -398,9 +393,13 @@ int ptlrpc_register_bulk(struct ptlrpc_request *req)
 	/* Holler if peer manages to touch buffers before he knows the mbits */
 	if (desc->bd_md_count != total_md)
 		CWARN("%s: Peer %s touched %d buffers while I registered\n",
-		      desc->bd_import->imp_obd->obd_name, libcfs_id2str(peer),
+		      imp->imp_obd->obd_name, libcfs_id2str(peer),
 		      total_md - desc->bd_md_count);
 	spin_unlock(&desc->bd_lock);
+
+	if (!req->rq_resend ||
+	    !(imp->imp_connect_data.ocd_connect_flags & OBD_CONNECT_BULK_MBITS))
+		req->rq_xid = req->rq_mbits;
 
 	CDEBUG(D_NET, "Setup %u bulk %s buffers: %u pages %u bytes, "
 	       "mbits x%#llx-%#llx, portal %u\n", desc->bd_md_count,
