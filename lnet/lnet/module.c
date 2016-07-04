@@ -225,6 +225,8 @@ static int __init lnet_init(void)
 		(void)kthread_run(lnet_configure, NULL, "lnet_initd");
 	}
 
+	LCONSOLE_INFO("LNet %s module loaded\n", LNET_VERSION);
+
 	RETURN(0);
 }
 
