@@ -365,7 +365,7 @@ lnet_add_route(__u32 net, __u32 hops, lnet_nid_t gateway,
 
 	lnet_net_lock(LNET_LOCK_EX);
 
-	lpni = lnet_nid2peerni_locked(gateway, LNET_LOCK_EX);
+	lpni = lnet_nid2peerni_ex(gateway, LNET_LOCK_EX);
 	if (IS_ERR(lpni)) {
 		lnet_net_unlock(LNET_LOCK_EX);
 
@@ -1724,7 +1724,7 @@ lnet_rtrpools_adjust(int tiny, int small, int large)
 int
 lnet_rtrpools_enable(void)
 {
-	int rc;
+	int rc = 0;
 
 	if (the_lnet.ln_routing)
 		return 0;
@@ -1735,9 +1735,9 @@ lnet_rtrpools_enable(void)
 		 * standard buffer pool allocation routine as
 		 * if we are just configuring this for the first
 		 * time. */
-		return lnet_rtrpools_alloc(1);
-
-	rc = lnet_rtrpools_adjust_helper(0, 0, 0);
+		rc = lnet_rtrpools_alloc(1);
+	else
+		rc = lnet_rtrpools_adjust_helper(0, 0, 0);
 	if (rc != 0)
 		return rc;
 
@@ -1747,7 +1747,7 @@ lnet_rtrpools_enable(void)
 	the_lnet.ln_ping_info->pi_features &= ~LNET_PING_FEAT_RTE_DISABLED;
 	lnet_net_unlock(LNET_LOCK_EX);
 
-	return 0;
+	return rc;
 }
 
 void
