@@ -1,0 +1,27 @@
+Index: linux-3.10.0-327.10.1.el7.x86_64/fs/ext4/super.c
+===================================================================
+--- linux-3.10.0-327.10.1.el7.x86_64.orig/fs/ext4/super.c
++++ linux-3.10.0-327.10.1.el7.x86_64/fs/ext4/super.c
+@@ -3945,10 +3945,6 @@ static int ext4_fill_super(struct super_
+ 			goto failed_mount2;
+ 		}
+ 	}
+-	if (!ext4_check_descriptors(sb, &first_not_zeroed)) {
+-		ext4_msg(sb, KERN_ERR, "group descriptors corrupted!");
+-		goto failed_mount2;
+-	}
+
+ 	sbi->s_gdb_count = db_count;
+ 	get_random_bytes(&sbi->s_next_generation, sizeof(u32));
+@@ -4067,6 +4063,11 @@ static int ext4_fill_super(struct super_
+ 	sbi->s_journal->j_commit_callback = ext4_journal_commit_callback;
+
+ no_journal:
++
++	if (!ext4_check_descriptors(sb, &first_not_zeroed)) {
++		ext4_msg(sb, KERN_ERR, "group descriptors corrupted!");
++		goto failed_mount2;
++	}
+ 	/*
+ 	 * Get the # of file system overhead blocks from the
+ 	 * superblock if present.
