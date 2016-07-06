@@ -3192,6 +3192,9 @@ test_90() { # bug 19494
             return 0
         fi
     fi
+echo '--------------import state-----------------'
+grep current_state /proc/fs/lustre/???/*/state
+
 	# maybe effected by previous test
         wait_osc_import_state mds ost FULL
 
@@ -3204,6 +3207,7 @@ test_90() { # bug 19494
 
     $SETSTRIPE -c $OSTCOUNT $dir/all ||
         error "setstripe failed to create $dir/all"
+	[ $($GETSTRIPE -c $dir/all) -eq $OSTCOUNT ] || error "setstripe all failed"
 
     for (( i=0; i<$OSTCOUNT; i++ )); do
         local f=$dir/f$i
