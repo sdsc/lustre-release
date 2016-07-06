@@ -661,9 +661,13 @@ static struct dentry *ll_lookup_nd(struct inode *parent, struct dentry *dentry,
 	       dentry->d_name.len, dentry->d_name.name,
 	       PFID(ll_inode2fid(parent)), parent, flags);
 
-	/* Optimize away (CREATE && !OPEN). Let .create handle the race. */
+	/* Optimize away (CREATE && !OPEN). Let .create handle the race.
+	 * but only if we have write permissions there, otherwise we need
+	 * lo proceed with lookup. LU-4185
+	 */
 	if ((flags & LOOKUP_CREATE) && !(flags & LOOKUP_OPEN))
-		return NULL;
+		if (inode_permission(parent, MAY_WRITE | MAY_EXEC))
+			return NULL;
 
 	if (flags & (LOOKUP_PARENT|LOOKUP_OPEN|LOOKUP_CREATE))
 		itp = NULL;
@@ -796,7 +800,9 @@ static struct dentry *ll_lookup_nd(struct inode *parent, struct dentry *dentry,
                 } else {
 			if ((nd->flags & LOOKUP_CREATE) &&
 			    !(nd->flags & LOOKUP_OPEN))
-                                RETURN(NULL);
+				if (inode_permission(parent,
+						     MAY_WRITE | MAY_EXEC))
+					RETURN(NULL);
 
                         it = ll_convert_intent(&nd->intent.open, nd->flags);
                         if (IS_ERR(it))
