@@ -25,6 +25,8 @@
  *
  * Copyright (c) 2013, 2014, Intel Corporation.
  * Use is subject to license terms.
+ *
+ * Copyright (c) 2016, Cray Inc. All rights reserved.
  */
 /*
  * lustre/mdt/mdt_coordinator.c
@@ -139,10 +141,16 @@ struct hsm_scan_request {
 struct hsm_scan_data {
 	struct mdt_thread_info		*mti;
 	char				 fs_name[MTI_NAME_MAXLEN+1];
+	/* are we scanning the logs for housekeeping, or just looking
+	 * for new work ? */
+	bool				 housekeeping;
 	/* request to be send to agents */
 	int				 max_requests;	/** vector size */
 	int				 request_cnt;	/** used count */
 	struct hsm_scan_request		*request;
+
+	/* record to be updated */
+	struct hsm_record_update *rec;
 };
 
 /**
@@ -199,13 +207,24 @@ static int mdt_coordinator_cb(const struct lu_env *env,
 		if (!request) {
 			struct hsm_action_list *hal;
 
-			if (hsd->request_cnt == hsd->max_requests)
-				/* Unknown request and no more room
-				 * for a new request. Continue to scan
-				 * to find other entries for already
-				 * existing requests.
-				 */
-				RETURN(0);
+			if (hsd->request_cnt == hsd->max_requests) {
+				if (!hsd->housekeeping) {
+					/* The request array is full,
+					 * stop here. There might be
+					 * more known requests that
+					 * could be merged, but this
+					 * avoid analyzing too many
+					 * llogs for minor gains. */
+					RETURN(LLOG_PROC_BREAK);
+				} else {
+					/* Unknown request and no more room
+					 * for a new request. Continue to scan
+					 * to find other entries for already
+					 * existing requests.
+					 */
+					RETURN(0);
+				}
+			}
 
 			request = &hsd->request[hsd->request_cnt];
 
@@ -289,6 +308,9 @@ static int mdt_coordinator_cb(const struct lu_env *env,
 		cfs_time_t now = cfs_time_current_sec();
 		cfs_time_t last;
 
+		if (!hsd->housekeeping)
+			break;
+
 		/* we search for a running request
 		 * error may happen if coordinator crashes or stopped
 		 * with running request
@@ -354,6 +376,9 @@ static int mdt_coordinator_cb(const struct lu_env *env,
 	case ARS_FAILED:
 	case ARS_CANCELED:
 	case ARS_SUCCEED:
+		if (!hsd->housekeeping)
+			break;
+
 		if ((larr->arr_req_change + cdt->cdt_grace_delay) <
 		    cfs_time_current_sec())
 			RETURN(LLOG_DEL_RECORD);
@@ -450,6 +475,11 @@ static int mdt_coordinator(void *data)
 	while (1) {
 		struct l_wait_info lwi;
 		int i;
+		int updates_sz;
+		int updates_cnt;
+		struct hsm_record_update *updates;
+		struct hsm_record_update *update;
+		int update_idx = 0;
 
 		/* Limit execution of the expensive requests traversal
 		 * to at most every "wait_event_time" seconds. But we
@@ -477,13 +507,19 @@ static int mdt_coordinator(void *data)
 			continue;
 		}
 
+		mdt_hsm_process_deferred_archives(mti);
+
 		/* If no event, and no housekeeping to do, continue to
 		 * wait. */
-		if (next_housekeeping <= get_seconds())
+		if (next_housekeeping <= get_seconds()) {
 			next_housekeeping = get_seconds() +
 				cdt->cdt_loop_period;
-		else if ((cdt->cdt_thread.t_flags & SVC_EVENT) == 0)
+			hsd.housekeeping = true;
+		} else if (cdt->cdt_thread.t_flags & SVC_EVENT) {
+			hsd.housekeeping = false;
+		} else {
 			continue;
+		}
 
 		cdt->cdt_thread.t_flags &= ~SVC_EVENT;
 
@@ -519,14 +555,32 @@ static int mdt_coordinator(void *data)
 			goto clean_cb_alloc;
 		}
 
+		/* Compute how many HAI we have in all the requests */
+		updates_cnt = 0;
+		for (i = 0; i < hsd.request_cnt; i++) {
+			const struct hsm_scan_request *request = &hsd.request[i];
+
+			updates_cnt += request->hal->hal_count;
+		}
+
+		/* Allocate a temporary array to store the cookies to
+		 * update, and their status. */
+		updates_sz = updates_cnt * sizeof(*updates);
+		OBD_ALLOC(updates, updates_sz);
+		if (updates == NULL) {
+			CERROR("%s: Cannot allocate memory (%d o) for %d updates\n",
+			       mdt_obd_name(mdt), updates_sz, updates_cnt);
+			continue;
+		}
+		update = updates;
+
 		/* here hsd contains a list of requests to be started */
 		for (i = 0; i < hsd.request_cnt; i++) {
 			struct hsm_scan_request *request = &hsd.request[i];
 			struct hsm_action_list	*hal = request->hal;
 			struct hsm_action_item	*hai;
-			__u64			*cookies;
-			int			 sz, j;
-			enum agent_req_status	 status;
+			int			 j;
+			struct hsm_record_update *update = &updates[update_idx];
 
 			/* still room for work ? */
 			if (atomic_read(&cdt->cdt_request_count) >=
@@ -538,38 +592,33 @@ static int mdt_coordinator(void *data)
 			 * if the copy tool failed to do the request
 			 * it has to use hsm_progress
 			 */
-			status = (rc ? ARS_WAITING : ARS_STARTED);
 
 			/* set up cookie vector to set records status
 			 * after copy tools start or failed
 			 */
-			sz = hal->hal_count * sizeof(__u64);
-			OBD_ALLOC(cookies, sz);
-			if (cookies == NULL) {
-				CERROR("%s: Cannot allocate memory (%d o) "
-				       "for cookies vector "LPX64"\n",
-				       mdt_obd_name(mdt), sz,
-				       hal->hal_compound_id);
-				continue;
-			}
 			hai = hai_first(hal);
 			for (j = 0; j < hal->hal_count; j++) {
-				cookies[j] = hai->hai_cookie;
+				update->cookie = hai->hai_cookie;
+				update->status =
+					(rc ? ARS_WAITING : ARS_STARTED);
 				hai = hai_next(hai);
 			}
 
-			rc = mdt_agent_record_update(mti->mti_env, mdt, cookies,
-						     hal->hal_count, status);
+			update_idx++;
+		}
+
+		if (update_idx) {
+			rc = mdt_agent_record_update(mti->mti_env, mdt,
+						     updates, update_idx);
 			if (rc)
 				CERROR("%s: mdt_agent_record_update() failed, "
-				       "rc=%d, cannot update status to %s "
+				       "rc=%d, cannot update records "
 				       "for %d cookies\n",
-				       mdt_obd_name(mdt), rc,
-				       agent_req_status2name(status),
-				       hal->hal_count);
-
-			OBD_FREE(cookies, sz);
+				       mdt_obd_name(mdt), rc, update_idx);
 		}
+
+		OBD_FREE(updates, updates_sz);
+
 clean_cb_alloc:
 		/* free hal allocated by callback */
 		for (i = 0; i < hsd.request_cnt; i++) {
@@ -597,6 +646,10 @@ out:
 		cdt->cdt_thread.t_flags = SVC_STOPPED;
 		wake_up(&cdt->cdt_thread.t_ctl_waitq);
 	}
+
+	mutex_lock(&cdt->cdt_deferred_hals_lock);
+	mdt_hsm_free_deferred_archives(&cdt->cdt_deferred_hals);
+	mutex_unlock(&cdt->cdt_deferred_hals_lock);
 
 	if (rc != 0)
 		CERROR("%s: coordinator thread exiting, process=%d, rc=%d\n",
@@ -782,10 +835,12 @@ int mdt_hsm_cdt_init(struct mdt_device *mdt)
 	init_rwsem(&cdt->cdt_agent_lock);
 	init_rwsem(&cdt->cdt_request_lock);
 	mutex_init(&cdt->cdt_restore_lock);
+	mutex_init(&cdt->cdt_deferred_hals_lock);
 
 	INIT_LIST_HEAD(&cdt->cdt_requests);
 	INIT_LIST_HEAD(&cdt->cdt_agents);
 	INIT_LIST_HEAD(&cdt->cdt_restore_hdl);
+	INIT_LIST_HEAD(&cdt->cdt_deferred_hals);
 
 	rc = lu_env_init(&cdt->cdt_env, LCT_MD_THREAD);
 	if (rc < 0)
@@ -1004,9 +1059,13 @@ int mdt_hsm_add_hal(struct mdt_thread_info *mti,
 		 * it will be done when updating the request status
 		 */
 		if (hai->hai_action == HSMA_CANCEL) {
+			struct hsm_record_update update = {
+				.cookie = hai->hai_cookie,
+				.status = ARS_CANCELED,
+			};
+
 			rc = mdt_agent_record_update(mti->mti_env, mti->mti_mdt,
-						     &hai->hai_cookie,
-						     1, ARS_CANCELED);
+						     &update, 1);
 			if (rc) {
 				CERROR("%s: mdt_agent_record_update() failed, "
 				       "rc=%d, cannot update status to %s "
@@ -1441,10 +1500,13 @@ int mdt_hsm_update_request_state(struct mdt_thread_info *mti,
 
 		if (update_record) {
 			int rc1;
+			struct hsm_record_update update = {
+				.cookie = pgs->hpk_cookie,
+				.status = status,
+			};
 
 			rc1 = mdt_agent_record_update(mti->mti_env, mdt,
-						     &pgs->hpk_cookie, 1,
-						     status);
+						      &update, 1);
 			if (rc1)
 				CERROR("%s: mdt_agent_record_update() failed,"
 				       " rc=%d, cannot update status to %s"
