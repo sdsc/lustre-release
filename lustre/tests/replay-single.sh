@@ -23,7 +23,7 @@ require_dsh_mds || exit 0
 # Skip these tests
 # bug number for skipped tests:
 #                                    LU-472 LU-4039
-ALWAYS_EXCEPT="$REPLAY_SINGLE_EXCEPT 61d    90"
+ALWAYS_EXCEPT="$REPLAY_SINGLE_EXCEPT 61d    "
 # UPDATE THE COMMENT ABOVE WITH BUG NUMBERS WHEN CHANGING ALWAYS_EXCEPT!
 
 case "$(lsb_release -sr)" in	# only disable tests for el7
@@ -3192,6 +3192,9 @@ test_90() { # bug 19494
             return 0
         fi
     fi
+echo '--------------import state-----------------'
+grep current_state /proc/fs/lustre/???/*/state
+
 	# maybe effected by previous test
         wait_osc_import_state mds ost FULL
 
