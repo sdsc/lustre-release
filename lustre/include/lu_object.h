@@ -169,11 +169,15 @@ struct lu_device_operations {
 typedef enum {
 	/* This is a new object to be allocated, or the file
 	 * corresponding to the object does not exists. */
-	LOC_F_NEW	= 0x00000001,
+	LOC_F_NEW		= 0x00000001,
 
 	/* When find a dying object, just return -EAGAIN at once instead of
 	 * blocking the thread. */
-	LOC_F_NOWAIT	= 0x00000002,
+	LOC_F_NOWAIT		= 0x00000002,
+
+	/* When lookup the object, only search in-RAM cache, not allocate
+	 * if not found. */
+	LOC_F_SEARCH_ONLY	= 0x00000004,
 } loc_flags_t;
 
 /**
