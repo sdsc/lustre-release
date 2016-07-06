@@ -816,7 +816,7 @@ int mdt_hsm_coordinator_update(struct mdt_thread_info *mti,
 			       struct hsm_progress_kernel *pgs);
 /* mdt/mdt_hsm_cdt_client.c */
 int mdt_hsm_add_actions(struct mdt_thread_info *info,
-			struct hsm_action_list *hal, __u64 *compound_id);
+			struct hsm_action_list *hal);
 int mdt_hsm_get_actions(struct mdt_thread_info *mti,
 			struct hsm_action_list *hal);
 int mdt_hsm_get_running(struct mdt_thread_info *mti,
@@ -850,7 +850,16 @@ int mdt_hsm_cdt_init(struct mdt_device *mdt);
 int mdt_hsm_cdt_start(struct mdt_device *mdt);
 int mdt_hsm_cdt_stop(struct mdt_device *mdt);
 int mdt_hsm_cdt_fini(struct mdt_device *mdt);
-int mdt_hsm_cdt_wakeup(struct mdt_device *mdt);
+
+/*
+ * Signal the coordinator has work to do
+ * \param cdt [IN] coordinator
+ */
+static inline void mdt_hsm_cdt_work(struct coordinator *cdt)
+{
+	if (cdt->cdt_state != CDT_STOPPED)
+		cdt->cdt_thread.t_flags = SVC_EVENT;
+}
 
 /* coordinator control /proc interface */
 ssize_t mdt_hsm_cdt_control_seq_write(struct file *file,
