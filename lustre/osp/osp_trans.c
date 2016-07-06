@@ -479,41 +479,22 @@ int osp_remote_sync(const struct lu_env *env, struct osp_device *osp,
  * \param[in] oth	osp thandle.
  */
 static void osp_thandle_invalidate_object(const struct lu_env *env,
-					  struct osp_thandle *oth)
+					  struct osp_thandle *oth,
+					  int result)
 {
-	struct osp_update_request *our = oth->ot_our;
-	struct osp_update_request_sub *ours;
+	struct osp_object *obj;
+	struct osp_object *next;
 
-	if (our == NULL)
-		return;
+	list_for_each_entry_safe(obj, next, &oth->ot_invalidate_cb_list,
+				 opo_invalidate_cb_list) {
+		if (result < 0)
+			osp_invalidate(env, &obj->opo_obj);
 
-	list_for_each_entry(ours, &our->our_req_list, ours_list) {
-		struct object_update_request *our_req = ours->ours_req;
-		unsigned int i;
-		struct lu_object *obj;
+		spin_lock(&obj->opo_lock);
+		list_del_init(&obj->opo_invalidate_cb_list);
+		spin_unlock(&obj->opo_lock);
 
-		for (i = 0; i < our_req->ourq_count; i++) {
-			struct object_update *update;
-
-			update = object_update_request_get(our_req, i, NULL);
-			if (update == NULL)
-				break;
-
-			if (update->ou_type != OUT_WRITE)
-				continue;
-
-			if (!fid_is_sane(&update->ou_fid))
-				continue;
-
-			obj = lu_object_find_slice(env,
-					&oth->ot_super.th_dev->dd_lu_dev,
-					&update->ou_fid, NULL);
-			if (IS_ERR(obj))
-				break;
-
-			osp_invalidate(env, lu2dt_obj(obj));
-			lu_object_put(env, obj);
-		}
+		lu_object_put(env, &obj->opo_obj.do_lu);
 	}
 }
 
@@ -533,8 +514,7 @@ static void osp_trans_stop_cb(const struct lu_env *env,
 		dcb->dcb_func(NULL, &oth->ot_super, dcb, result);
 	}
 
-	if (result < 0)
-		osp_thandle_invalidate_object(env, oth);
+	osp_thandle_invalidate_object(env, oth, result);
 }
 
 /**
@@ -914,6 +894,7 @@ void osp_thandle_destroy(struct osp_thandle *oth)
 	LASSERT(oth->ot_magic == OSP_THANDLE_MAGIC);
 	LASSERT(list_empty(&oth->ot_commit_dcb_list));
 	LASSERT(list_empty(&oth->ot_stop_dcb_list));
+	LASSERT(list_empty(&oth->ot_invalidate_cb_list));
 	if (oth->ot_our != NULL)
 		osp_update_request_destroy(oth->ot_our);
 	OBD_FREE_PTR(oth);
@@ -964,6 +945,7 @@ struct thandle *osp_trans_create(const struct lu_env *env, struct dt_device *d)
 	atomic_set(&oth->ot_refcount, 1);
 	INIT_LIST_HEAD(&oth->ot_commit_dcb_list);
 	INIT_LIST_HEAD(&oth->ot_stop_dcb_list);
+	INIT_LIST_HEAD(&oth->ot_invalidate_cb_list);
 
 	RETURN(th);
 }

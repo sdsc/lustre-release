@@ -293,6 +293,7 @@ struct osp_object {
 	const struct lu_env	*opo_owner;
 	struct lu_attr		opo_attr;
 	struct list_head	opo_xattr_list;
+	struct list_head	opo_invalidate_cb_list;
 	/* Protect opo_ooa. */
 	spinlock_t		opo_lock;
 };
@@ -350,6 +351,7 @@ struct osp_thandle {
 	__u32			 ot_magic;
 	struct list_head	 ot_commit_dcb_list;
 	struct list_head	 ot_stop_dcb_list;
+	struct list_head	 ot_invalidate_cb_list;
 	struct osp_update_request *ot_our;
 	atomic_t		 ot_refcount;
 };

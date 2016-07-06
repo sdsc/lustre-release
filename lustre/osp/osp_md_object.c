@@ -1104,6 +1104,15 @@ static ssize_t osp_md_write(const struct lu_env *env, struct dt_object *dt,
 	if (obj->opo_attr.la_valid & LA_SIZE && obj->opo_attr.la_size < *pos)
 		obj->opo_attr.la_size = *pos;
 
+	spin_lock(&obj->opo_lock);
+	if (list_empty(&obj->opo_invalidate_cb_list)) {
+		lu_object_get(&obj->opo_obj.do_lu);
+
+		list_add_tail(&obj->opo_invalidate_cb_list,
+			      &oth->ot_invalidate_cb_list);
+	}
+	spin_unlock(&obj->opo_lock);
+
 	RETURN(buf->lb_len);
 }
 
