@@ -23,7 +23,7 @@ require_dsh_mds || exit 0
 # Skip these tests
 # bug number for skipped tests:
 #                                    LU-472 LU-4039
-ALWAYS_EXCEPT="$REPLAY_SINGLE_EXCEPT 61d    90"
+ALWAYS_EXCEPT="$REPLAY_SINGLE_EXCEPT 61d 70 80"
 # UPDATE THE COMMENT ABOVE WITH BUG NUMBERS WHEN CHANGING ALWAYS_EXCEPT!
 
 case "$(lsb_release -sr)" in	# only disable tests for el7
@@ -2216,10 +2216,16 @@ test_70d () {
 				echo "mkdir fails"
 				break;
 			}
+start_full_debug_logging
 			rm -rf $DIR/$tdir/test || {
+stop_full_debug_logging
 				echo "rmdir fails"
+echo '--------------import state-----------------'
+grep current_state /proc/fs/lustre/???/*/state
+ls -lR $DIR/$tdir/test1
 				break
 			}
+stop_full_debug_logging
 
 			touch $DIR/$tdir/test1/a || {
 				echo "touch fails"
@@ -2230,10 +2236,16 @@ test_70d () {
 				break;
 			}
 
+start_full_debug_logging
 			rm -rf $DIR/$tdir/test1 || {
+stop_full_debug_logging
 				echo "rmdir fails"
+echo '--------------import state-----------------'
+grep current_state /proc/fs/lustre/???/*/state
+ls -lR $DIR/$tdir/test1
 				break
 			}
+stop_full_debug_logging
 		done
 	)&
 	mkdir_70d_pid=$!
@@ -3192,6 +3204,9 @@ test_90() { # bug 19494
             return 0
         fi
     fi
+echo '--------------import state-----------------'
+grep current_state /proc/fs/lustre/???/*/state
+
 	# maybe effected by previous test
         wait_osc_import_state mds ost FULL
 
