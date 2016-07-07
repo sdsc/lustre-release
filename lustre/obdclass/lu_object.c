@@ -747,7 +747,8 @@ static struct lu_object *lu_object_find_try(const struct lu_env *env,
         cfs_hash_bd_get_and_lock(hs, (void *)f, &bd, 1);
         o = htable_lookup(s, &bd, f, waiter, &version);
         cfs_hash_bd_unlock(hs, &bd, 1);
-	if (!IS_ERR(o) || PTR_ERR(o) != -ENOENT)
+	if (!IS_ERR(o) || PTR_ERR(o) != -ENOENT ||
+	    (conf != NULL && conf->loc_flags & LOC_F_CACHE_ONLY))
                 return o;
 
         /*
