@@ -29,9 +29,15 @@ chmod 755 kmodtool
 popd
 # Next we replace %kernel_module_package with one that is nearly
 # identical, but calls lbuild's modified kmodtool script.
+# We need to cleanout the previous entry
+BEGIN_MARKER='#BEGIN_CUSTOM_MACRO'
+END_MARKER='#END_CUSTOM_MACRO'
+sed -i "/^${BEGIN_MARKER}/,/^${END_MARKER}/d" $RMAC
 sed -e "s|REPLACE_ME|$LBUILD_KMODTOOL|" \
     ${LBUILD_DIR}/rhel7/rpmmacros.template > ${LBUILD_DIR}/rhel7/rpmmacros
+echo ${BEGIN_MARKER} >> $RMAC
 cat ${LBUILD_DIR}/rhel7/rpmmacros >> $RMAC
+echo ${END_MARKER} >> $RMAC
 
 patch_spec() {
     local buildid="$1"
