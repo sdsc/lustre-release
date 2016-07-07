@@ -878,6 +878,12 @@ static int osp_md_object_lock(const struct lu_env *env,
 	res_id = einfo->ei_res_id;
 	LASSERT(res_id != NULL);
 
+	rc = ldlm_lock_match(class_exp2obd(osp->opd_exp)->obd_namespace,
+			     LDLM_FL_BLOCK_GRANTED, res_id, einfo->ei_type,
+			     policy, einfo->ei_mode, lh, 0);
+	if (rc > 0)
+		RETURN(0);
+
 	if (einfo->ei_nonblock)
 		flags |= LDLM_FL_BLOCK_NOWAIT;
 	if (einfo->ei_mode & (LCK_EX | LCK_PW))

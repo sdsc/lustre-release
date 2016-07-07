@@ -2392,15 +2392,21 @@ int mdt_remote_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
 		break;
 	}
 	case LDLM_CB_CANCELING: {
+		struct mdt_object *mo;
+
 		LDLM_DEBUG(lock, "Revoke remote lock\n");
 
 		/* discard slc lock here so that it can be cleaned anytime,
 		 * especially for cleanup_resource() */
 		tgt_discard_slc_lock(lock);
 
+		lock_res_and_lock(lock);
+		mo = lock->l_ast_data;
+		lock->l_ast_data = NULL;
+		unlock_res_and_lock(lock);
+
 		/* once we cache lock, l_ast_data is set to mdt_object */
-		if (lock->l_ast_data != NULL) {
-			struct mdt_object *mo = lock->l_ast_data;
+		if (mo != NULL) {
 			struct lu_env env;
 
 			rc = lu_env_init(&env, LCT_MD_THREAD);
@@ -2491,24 +2497,34 @@ int mdt_remote_object_lock(struct mdt_thread_info *mti, struct mdt_object *o,
 	einfo->ei_res_id = res_id;
 	if (nonblock)
 		einfo->ei_nonblock = 1;
-	if (cache) {
-		/*
-		 * if we cache lock, couple lock with mdt_object, so that object
-		 * can be easily found in lock ASTs.
-		 */
-		mdt_object_get(mti->mti_env, o);
-		einfo->ei_cbdata = o;
-	}
 
 	memset(policy, 0, sizeof(*policy));
 	policy->l_inodebits.bits = ibits;
 
 	rc = mo_object_lock(mti->mti_env, mdt_object_child(o), lh, einfo,
 			    policy);
-	if (rc < 0 && cache) {
-		mdt_object_put(mti->mti_env, o);
-		einfo->ei_cbdata = NULL;
+	if (!rc && cache) {
+		struct ldlm_lock *lock = ldlm_handle2lock(lh);
+
+		LASSERT(lock != NULL);
+
+		lock_res_and_lock(lock);
+		if (lock->l_ast_data != NULL) {
+			LASSERTF(lock->l_ast_data == o, "Want lock on %p "DFID
+				 ", but got lock on %p "DFID"\n",
+				 o, PFID(mdt_object_fid(o)), lock->l_ast_data,
+				 PFID(mdt_object_fid((struct mdt_object *)\
+							(lock->l_ast_data))));
+		} else {
+			/* If we cache lock, couple lock with mdt_object,
+			 * so that object can be easily found in lock ASTs. */
+			mdt_object_get(mti->mti_env, o);
+			lock->l_ast_data = o;
+		}
+		unlock_res_and_lock(lock);
+		LDLM_LOCK_PUT(lock);
 	}
+
 	RETURN(rc);
 }
 
