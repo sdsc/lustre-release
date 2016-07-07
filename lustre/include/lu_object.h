@@ -174,6 +174,9 @@ typedef enum {
 	/* When find a dying object, just return -EAGAIN at once instead of
 	 * blocking the thread. */
 	LOC_F_NOWAIT	= 0x00000002,
+
+	/* Only return the cached object, not create one if not in cache. */
+	LOC_F_CACHE_ONLY = 0x00000004,
 } loc_flags_t;
 
 /**
