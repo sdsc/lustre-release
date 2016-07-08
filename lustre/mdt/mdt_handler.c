@@ -2398,29 +2398,41 @@ int mdt_remote_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
 		 * especially for cleanup_resource() */
 		tgt_discard_slc_lock(lock);
 
-		/* once we cache lock, l_ast_data is set to mdt_object */
-		if (lock->l_ast_data != NULL) {
-			struct mdt_object *mo = lock->l_ast_data;
+		if (!ldlm_is_data_purged(lock) &&
+		    lock->l_policy_data.l_inodebits.bits &
+		    (MDS_INODELOCK_XATTR | MDS_INODELOCK_UPDATE)) {
 			struct lu_env env;
+			struct lu_object *o;
+			struct obd_device *obd = ldlm_lock_to_ns(lock)->ns_obd;
+			struct lu_object_conf conf = {
+				.loc_flags = LOC_F_NOWAIT | LOC_F_CACHE_ONLY };
+			struct lu_fid fid;
 
+			fid_extract_from_res_name(&fid,
+						  &lock->l_resource->lr_name);
 			rc = lu_env_init(&env, LCT_MD_THREAD);
 			if (unlikely(rc != 0)) {
-				struct obd_device *obd;
-
-				obd = ldlm_lock_to_ns(lock)->ns_obd;
-				CWARN("%s: lu_env initialization failed, object"
-				      "%p "DFID" is leaked!\n",
-				      obd->obd_name, mo,
-				      PFID(mdt_object_fid(mo)));
+				CWARN("%s: lu_env initialization failed, "
+				      "object "DFID" cache may be invalid.\n",
+				      obd->obd_name, PFID(&fid));
 				RETURN(rc);
 			}
 
-			if (lock->l_policy_data.l_inodebits.bits &
-			    (MDS_INODELOCK_XATTR | MDS_INODELOCK_UPDATE)) {
-				rc = mo_invalidate(&env, mdt_object_child(mo));
-				mo->mot_cache_attr = 0;
+			o = lu_object_find(&env, obd->obd_lu_dev, &fid, &conf);
+			if (!IS_ERR(o)) {
+				struct mdt_object *m = mdt_obj(o);
+
+				rc = mo_invalidate(&env, mdt_object_child(m));
+				m->mot_cache_attr = 0;
+				mdt_object_put(&env, m);
+				if (!rc)
+					ldlm_set_data_purged(lock);
+			} else {
+				rc = PTR_ERR(o);
+				if (rc == -ENOENT || rc == -EAGAIN)
+					rc = 0;
 			}
-			mdt_object_put(&env, mo);
+
 			lu_env_fini(&env);
 		}
 		break;
@@ -2491,24 +2503,12 @@ int mdt_remote_object_lock(struct mdt_thread_info *mti, struct mdt_object *o,
 	einfo->ei_res_id = res_id;
 	if (nonblock)
 		einfo->ei_nonblock = 1;
-	if (cache) {
-		/*
-		 * if we cache lock, couple lock with mdt_object, so that object
-		 * can be easily found in lock ASTs.
-		 */
-		mdt_object_get(mti->mti_env, o);
-		einfo->ei_cbdata = o;
-	}
 
 	memset(policy, 0, sizeof(*policy));
 	policy->l_inodebits.bits = ibits;
 
 	rc = mo_object_lock(mti->mti_env, mdt_object_child(o), lh, einfo,
 			    policy);
-	if (rc < 0 && cache) {
-		mdt_object_put(mti->mti_env, o);
-		einfo->ei_cbdata = NULL;
-	}
 	RETURN(rc);
 }
 
@@ -2794,10 +2794,15 @@ static void mdt_save_remote_lock(struct mdt_thread_info *info,
 	if (lustre_handle_is_used(h)) {
 		struct ldlm_lock *lock = ldlm_handle2lock(h);
 
-		if (o != NULL &&
-		    (lock->l_policy_data.l_inodebits.bits &
-		     (MDS_INODELOCK_XATTR | MDS_INODELOCK_UPDATE)))
+		LASSERT(lock != NULL);
+
+		if (o == NULL) {
+			ldlm_set_data_purged(lock);
+		} else if (lock->l_policy_data.l_inodebits.bits &
+			   (MDS_INODELOCK_XATTR | MDS_INODELOCK_UPDATE)) {
 			mo_invalidate(info->mti_env, mdt_object_child(o));
+			ldlm_set_data_purged(lock);
+		}
 
 		if (decref || !info->mti_has_trans ||
 		    !(mode & (LCK_PW | LCK_EX))) {

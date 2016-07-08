@@ -362,6 +362,12 @@
 #define ldlm_is_cos_enabled(_l)          LDLM_TEST_FLAG((_l), 1ULL << 57)
 #define ldlm_set_cos_enabled(_l)         LDLM_SET_FLAG((_l), 1ULL << 57)
 
+/** Flag whether the protected data has been purged or not. */
+#define LDLM_FL_DATA_PURGED		0x0400000000000000ULL // bit  58
+#define ldlm_is_data_purged(_l) 	LDLM_TEST_FLAG(( _l), 1ULL << 58)
+#define ldlm_set_data_purged(_l)	LDLM_SET_FLAG((  _l), 1ULL << 58)
+#define ldlm_clear_data_purged(_l)	LDLM_CLEAR_FLAG((_l), 1ULL << 58)
+
 /** l_flags bits marked as "ast" bits */
 #define LDLM_FL_AST_MASK                (LDLM_FL_FLOCK_DEADLOCK		|\
 					 LDLM_FL_AST_DISCARD_DATA)
