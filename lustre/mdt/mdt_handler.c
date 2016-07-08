@@ -4510,8 +4510,6 @@ static void mdt_fini(const struct lu_env *env, struct mdt_device *m)
 	if (m->mdt_opts.mo_coordinator)
 		mdt_hsm_cdt_stop(m);
 
-	mdt_hsm_cdt_fini(m);
-
 	mdt_llog_ctxt_unclone(env, m, LLOG_AGENT_ORIG_CTXT);
         mdt_llog_ctxt_unclone(env, m, LLOG_CHANGELOG_ORIG_CTXT);
 
@@ -4523,6 +4521,8 @@ static void mdt_fini(const struct lu_env *env, struct mdt_device *m)
         obd_zombie_barrier();
 
         mdt_procfs_fini(m);
+
+	mdt_hsm_cdt_fini(m);
 
         tgt_fini(env, &m->mdt_lut);
         mdt_fs_cleanup(env, m);
