@@ -1,0 +1,16 @@
+[Unit]
+Description=Lustre shutdown
+After=network.target network-online.target opa.service openibd.service
+DefaultDependencies=false
+Conflicts=umount.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=true
+ExecStart=/bin/true
+ExecStop=/usr/bin/umount -a -t lustre
+ExecStop=/usr/sbin/lustre_rmmod
+
+[Install]
+WantedBy=sysinit.target
+WantedBy=final.target
