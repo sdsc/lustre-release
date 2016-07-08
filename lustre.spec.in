@@ -91,9 +91,11 @@
 
 %if %{_vendor}=="redhat" || %{_vendor}=="fedora"
 	%global requires_kmod_name kmod-%{lustre_name}
+	%global requires_kmod_tests_name kmod-%{lustre_name}-tests
 	%global requires_kmod_version %{version}
 %else	#for Suse
 	%global requires_kmod_name %{lustre_name}-kmp
+	%global requires_kmod_tests_name %{lustre_name}-tests-kmp
 	%global requires_kmod_version %{version}_%(echo %{krequires} | sed -r 'y/-/_/; s/^(2\.6\.[0-9]+)_/\\1.0_/;')
 %endif
 
@@ -129,6 +131,7 @@ BuildRequires: libselinux-devel
 Requires: libselinux
 %endif
 %if %{with lustre_modules}
+BuildRequires: %kernel_module_package_buildreqs
 %if %{_vendor}=="redhat"
 BuildRequires: redhat-rpm-config
 %endif
@@ -138,9 +141,6 @@ BuildRequires: redhat-rpm-config
 Userspace tools and files for the Lustre file system.
 
 %if %{with lustre_modules}
-%kernel_module_package_buildreqs
-
-# Lustre modules
 %kernel_module_package -n %{name} -p %SOURCE1 -f %SOURCE2 default
 
 %if %{with ldiskfs}
@@ -212,7 +212,7 @@ systems.
 Summary: Lustre testing framework
 Group: Development/Kernel
 Provides: %{name}-tests = %{version}
-Requires: %{name} = %{version}, %{requires_kmod_name} = %{requires_kmod_version}, lustre-iokit
+Requires: %{name} = %{version}, %{requires_kmod_name} = %{requires_kmod_version}, %{requires_kmod_tests_name} = %{requires_kmod_version}, lustre-iokit
 Requires: attr, rsync, perl, lsof, /usr/bin/getconf
 
 %description tests
@@ -220,7 +220,7 @@ This package contains a set of test binaries and scripts that are intended
 to be used by the Lustre testing framework.
 
 %if %{with lustre_modules}
-%kernel_module_package -n %{name}-tests -f %SOURCE7  default
+%kernel_module_package -n %{name}-tests -f %SOURCE7 default
 %endif
 
 %if %{with lustre_iokit}
@@ -380,8 +380,10 @@ if [ -d $RPM_BUILD_ROOT%{_libdir}/lustre/snmp ] ; then
 	echo '%{_libdir}/lustre/snmp' >>lustre.files
 fi
 
+%if %{with lustre_utils}
 find $RPM_BUILD_ROOT%{_libdir}/@PACKAGE@ \
     -name \*.la -type f -exec rm -f {} \;
+%endif
 
 %if %{with lustre_modules}
 # mark modules executable for find-debuginfo.sh
@@ -389,6 +391,7 @@ find $RPM_BUILD_ROOT/lib/modules -name \*.ko -type f -exec chmod u+x {} \;
 %endif
 
 %if %{with lustre_tests}
+:> lustre-tests.files
 echo '%{_libdir}/lustre/tests/*' >>lustre-tests.files
 echo '%{_bindir}/mcreate' >>lustre-tests.files
 echo '%{_bindir}/munlink' >>lustre-tests.files
