@@ -781,6 +781,8 @@ static int mdt_object_open_lock(struct mdt_thread_info *info,
 	bool try_layout = false;
 	bool create_layout = false;
 	int rc = 0;
+	bool dom_lock = false;
+
 	ENTRY;
 
 	*ibits = 0;
@@ -796,6 +798,14 @@ static int mdt_object_open_lock(struct mdt_thread_info *info,
 		if (exp_connect_layout(info->mti_exp) && !create_layout &&
 		    ma->ma_need & MA_LOV)
 			try_layout = true;
+
+		if (ma->ma_valid & MA_LOV && ma->ma_lmm != NULL &&
+		    lov_pattern(ma->ma_lmm->lmm_pattern) == LOV_PATTERN_MDT &&
+		    info->mti_mdt->mdt_opts.mo_dom_lock != 0 &&
+		    !mdt_dom_client_has_lock(info, mdt_object_fid(obj))) {
+			dom_lock = true;
+			*ibits = MDS_INODELOCK_DOM;
+		}
 	}
 
 	if (acq_lease) {
@@ -820,7 +830,7 @@ static int mdt_object_open_lock(struct mdt_thread_info *info,
 
 		/* XXX: only exclusive open is supported. */
 		lm = LCK_EX;
-		*ibits = MDS_INODELOCK_OPEN;
+		*ibits |= MDS_INODELOCK_OPEN;
 
 		/* never grant LCK_EX layout lock to client */
 		try_layout = false;
@@ -828,7 +838,9 @@ static int mdt_object_open_lock(struct mdt_thread_info *info,
 		/* normal open holds read mode of open sem */
 		down_read(&obj->mot_open_sem);
 
-		if (open_flags & MDS_OPEN_LOCK) {
+		if (dom_lock) {
+			lm = (open_flags & FMODE_WRITE) ? LCK_PW : LCK_PR;
+		} else if (open_flags & MDS_OPEN_LOCK) {
 			if (open_flags & FMODE_WRITE)
 				lm = LCK_CW;
 			else if (open_flags & MDS_FMODE_EXEC)
@@ -836,7 +848,7 @@ static int mdt_object_open_lock(struct mdt_thread_info *info,
 			else
 				lm = LCK_CR;
 
-			*ibits = MDS_INODELOCK_LOOKUP | MDS_INODELOCK_OPEN;
+			*ibits |= MDS_INODELOCK_LOOKUP | MDS_INODELOCK_OPEN;
 		} else if (atomic_read(&obj->mot_lease_count) > 0) {
 			if (open_flags & FMODE_WRITE)
 				lm = LCK_CW;
@@ -844,7 +856,7 @@ static int mdt_object_open_lock(struct mdt_thread_info *info,
 				lm = LCK_CR;
 
 			/* revoke lease */
-			*ibits = MDS_INODELOCK_OPEN;
+			*ibits |= MDS_INODELOCK_OPEN;
 			try_layout = false;
 
 			lhc = &info->mti_lh[MDT_LH_LOCAL];
@@ -978,7 +990,8 @@ static void mdt_object_open_unlock(struct mdt_thread_info *info,
 	if (ibits == 0 || rc == -MDT_EREMOTE_OPEN)
 		RETURN_EXIT;
 
-	if (!(open_flags & MDS_OPEN_LOCK) && !(ibits & MDS_INODELOCK_LAYOUT)) {
+	if (!(open_flags & MDS_OPEN_LOCK) && !(ibits & MDS_INODELOCK_LAYOUT) &&
+	    !(ibits & MDS_INODELOCK_DOM)) {
 		/* for the open request, the lock will only return to client
 		 * if open or layout lock is granted. */
 		rc = 1;

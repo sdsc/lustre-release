@@ -908,6 +908,7 @@ void ll_compute_rootsquash_state(struct ll_sb_info *sbi);
 ssize_t ll_copy_user_md(const struct lov_user_md __user *md,
 			struct lov_user_md **kbuf);
 void ll_open_cleanup(struct super_block *sb, struct ptlrpc_request *open_req);
+void ll_dom_lvb_update(struct inode *inode, struct lookup_intent *it);
 
 /* Compute expected user md size when passing in a md from user space */
 static inline ssize_t ll_lov_user_md_size(const struct lov_user_md *lum)
