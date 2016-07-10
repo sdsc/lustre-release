@@ -200,10 +200,6 @@ int ll_md_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
 		struct inode *inode = ll_inode_from_resource_lock(lock);
 		__u64 bits = lock->l_policy_data.l_inodebits.bits;
 
-		/* Inode is set to lock->l_resource->lr_lvb_inode
-		 * for mdc - bug 24555 */
-		LASSERT(lock->l_ast_data == NULL);
-
 		if (inode == NULL)
 			break;
 
@@ -217,16 +213,25 @@ int ll_md_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
 			LBUG();
 		}
 
+		/* XXX: DoM lock require MDC cache to be flushed. Call mdc code
+		 * directly for now, but CLIO API may require changes to do that
+		 * in proper way.
+		 */
+		if (bits & MDS_INODELOCK_DOM) {
+			struct ll_inode_info *lli = ll_i2info(inode);
+
+			mdc_ldlm_blocking_ast(lock, NULL,
+					      lli->lli_clob->co_lu.lo_header,
+					      LDLM_CB_CANCELING);
+			ll_file_clear_flag(lli, LLIF_MDS_SIZE_VALID);
+			bits &= ~MDS_INODELOCK_DOM;
+		}
+
 		if (bits & MDS_INODELOCK_XATTR) {
 			if (S_ISDIR(inode->i_mode))
 				ll_i2info(inode)->lli_def_stripe_offset = -1;
 			ll_xattr_cache_destroy(inode);
 			bits &= ~MDS_INODELOCK_XATTR;
-		}
-
-		if (bits & MDS_INODELOCK_DOM) {
-			ll_file_clear_flag(ll_i2info(inode), LLIF_MDS_SIZE_VALID);
-			bits &= ~MDS_INODELOCK_DOM;
 		}
 
 		/* For OPEN locks we differentiate between lock modes
@@ -487,7 +492,8 @@ static int ll_lookup_it_finish(struct ptlrpc_request *request,
                 rc = ll_prep_inode(&inode, request, (*de)->d_sb, it);
                 if (rc)
                         RETURN(rc);
-
+		if (it->it_op & IT_OPEN)
+			ll_dom_lvb_update(inode, it);
                 ll_set_lock_data(ll_i2sbi(parent)->ll_md_exp, inode, it, &bits);
 
                 /* We used to query real size from OSTs here, but actually

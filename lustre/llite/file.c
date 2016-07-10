@@ -347,6 +347,67 @@ int ll_file_release(struct inode *inode, struct file *file)
 
 	RETURN(rc);
 }
+/* If DOM lock was returned along with open then it didn't pass through
+ * MDC IO lock enqueue path and MDC LVB wasn't updated in lock upcall,
+ * see mdc_lock_lvb_update(). Do that from ll_intent_file_open().
+ */
+void ll_dom_lvb_update(struct inode *inode, struct lookup_intent *it)
+{
+	struct ll_inode_info *lli = ll_i2info(inode);
+	struct cl_object *obj = lli->lli_clob;
+	struct lu_env *env;
+	__u16 refcheck;
+	struct lustre_handle lockh;
+	struct ldlm_lock *lock;
+	struct cl_attr *attr;
+	unsigned valid = CAT_CTIME | CAT_ATIME | CAT_MTIME | CAT_SIZE |
+			 CAT_BLOCKS;
+	int rc;
+	bool lvb_update = false;
+
+	if (obj != NULL && it->it_lock_mode != 0) {
+		lockh.cookie = it->it_lock_handle;
+		lock = ldlm_handle2lock(&lockh);
+		LASSERT(lock != NULL);
+		/* for DOM lock we have to update MDC LVB data from mdt_body */
+		lvb_update = ldlm_has_dom(lock);
+		LDLM_LOCK_PUT(lock);
+	}
+
+	if (!lvb_update)
+		RETURN_EXIT;
+
+	env = cl_env_get(&refcheck);
+	if (IS_ERR(env))
+		RETURN_EXIT;
+
+	cl_object_attr_lock(obj);
+	attr = vvp_env_thread_attr(env);
+
+	rc = cl_object_attr_get(env, obj, attr);
+	if (rc != 0)
+		GOTO(out, rc);
+
+	attr->cat_size = i_size_read(inode);
+	attr->cat_mtime = LTIME_S(inode->i_mtime);
+	attr->cat_atime = LTIME_S(inode->i_atime);
+	attr->cat_ctime = LTIME_S(inode->i_ctime);
+	attr->cat_blocks = inode->i_blocks;
+
+	if (attr->cat_size > attr->cat_kms) {
+		CDEBUG(D_INODE,
+		       "update from attr, setting rss=%llu, kms=%llu\n",
+		       attr->cat_size, attr->cat_kms);
+		valid |= CAT_KMS;
+		attr->cat_kms = attr->cat_size;
+	}
+
+	rc = cl_object_attr_update(env, obj, attr, valid);
+out:
+	cl_object_attr_unlock(obj);
+	cl_env_put(env, &refcheck);
+	EXIT;
+}
 
 static int ll_intent_file_open(struct file *file, void *lmm, int lmmsize,
 				struct lookup_intent *itp)
@@ -403,8 +464,10 @@ static int ll_intent_file_open(struct file *file, void *lmm, int lmmsize,
 	}
 
 	rc = ll_prep_inode(&de->d_inode, req, NULL, itp);
-	if (!rc && itp->it_lock_mode)
+	if (!rc && itp->it_lock_mode) {
+		ll_dom_lvb_update(de->d_inode, itp);
 		ll_set_lock_data(sbi->ll_md_exp, de->d_inode, itp, NULL);
+	}
 
 out:
 	ptlrpc_req_finished(req);
