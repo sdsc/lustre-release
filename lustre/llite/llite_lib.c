@@ -1832,7 +1832,7 @@ void ll_inode_size_unlock(struct inode *inode)
 	mutex_unlock(&lli->lli_size_mutex);
 }
 
-static void ll_update_dom_size(struct inode *inode, struct mdt_body *body)
+void ll_update_dom_size(struct inode *inode, struct mdt_body *body)
 {
 	struct ll_inode_info *lli = ll_i2info(inode);
 

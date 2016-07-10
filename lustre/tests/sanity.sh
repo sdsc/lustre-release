@@ -14740,6 +14740,39 @@ test_271b() {
 }
 run_test 271b "DoM: no glimpse RPC for stat"
 
+test_271c() {
+	local dom=$DIR/$tdir/dom
+
+	mkdir -p $DIR/$tdir
+
+	$SETSTRIPE -P mdt -S 1024K $DIR/$tdir
+
+	local mdtidx=$($GETSTRIPE -M $DIR/$tdir)
+	local facet=mds$((mdtidx + 1))
+
+	cancel_lru_locks mdc
+	do_facet $facet lctl set_param -n mdt.*.dom_lock 0
+	createmany -o $dom 1000
+	lctl set_param -n mdc.*.stats=clear
+	smalliomany -w $dom 1000 200
+	local num=$(lctl get_param -n mdc.*.stats | \
+		awk '/ldlm_ibits_enqueue/ {print $2}')
+	[ $num -ge 2000 ] || error "Too few enqueues $num, expected > 2000"
+	unlinkmany $dom 1000
+
+	cancel_lru_locks mdc
+	do_facet $facet lctl set_param -n mdt.*.dom_lock 1
+	createmany -o $dom 1000
+	lctl set_param -n mdc.*.stats=clear
+	smalliomany -w $dom 1000 200
+	num=$(lctl get_param -n mdc.*.stats | \
+		awk '/ldlm_ibits_enqueue/ {print $2}')
+	[ $num -le 1100 ] || error "Too many enqueues $num, expected ~1000"
+	unlinkmany $dom 1000
+	return 0
+}
+run_test 271c "DoM: IO lock at open saves enqueue RPCs"
+
 test_272() {
 	# XXX just reserve test number so far
 	return 0
