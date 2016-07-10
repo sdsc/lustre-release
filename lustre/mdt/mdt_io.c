@@ -701,8 +701,8 @@ int mdt_dom_object_size(const struct lu_env *env, struct mdt_device *mdt,
 			GOTO(out, rc);
 	}
 
-	/* LVB can be without valid data in case of DOM */
-	if (OST_LVB_IS_ERR(res_lvb->lvb_blocks))
+	/* Update lvbo data if DoM lock returned or if it is not yet valid. */
+	if (dom_lock || OST_LVB_IS_ERR(res_lvb->lvb_blocks))
 		ldlm_res_lvbo_update(res, NULL, 0);
 
 	lock_res(res);
@@ -850,5 +850,41 @@ int mdt_dom_discard_data(struct mdt_thread_info *info,
 	if (rc == ELDLM_OK)
 		ldlm_lock_decref(&dom_lh, LCK_PW);
 	return 0;
+}
+
+/* check if client has already DoM lock for given resource */
+int mdt_dom_client_has_lock(struct mdt_thread_info *info,
+			    const struct lu_fid *fid)
+{
+	struct mdt_device *mdt = info->mti_mdt;
+	union ldlm_policy_data *policy = &info->mti_policy;
+	struct ldlm_res_id *res_id = &info->mti_res_id;
+	struct lustre_handle lockh;
+	enum ldlm_mode mode;
+	struct ldlm_lock *lock;
+	int rc = 0;
+
+	policy->l_inodebits.bits = MDS_INODELOCK_DOM;
+	fid_build_reg_res_name(fid, res_id);
+
+	mode = ldlm_lock_match(mdt->mdt_namespace, LDLM_FL_BLOCK_GRANTED |
+			       LDLM_FL_TEST_LOCK, res_id, LDLM_IBITS, policy,
+			       LCK_PW, &lockh, 0);
+
+	/* There is no other PW lock on this object; finished. */
+	if (mode == 0)
+		return 0;
+
+	lock = ldlm_handle2lock(&lockh);
+	if (lock == 0)
+		return 0;
+
+	/* check if lock from the same client */
+	if (lock->l_export->exp_handle.h_cookie ==
+	    info->mti_exp->exp_handle.h_cookie)
+		rc = 1;
+
+	LDLM_LOCK_PUT(lock);
+	return rc;
 }
 
