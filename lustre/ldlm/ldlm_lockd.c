@@ -1135,6 +1135,7 @@ int ldlm_server_glimpse_ast(struct ldlm_lock *lock, void *data)
 
 	RETURN(rc);
 }
+EXPORT_SYMBOL(ldlm_server_glimpse_ast);
 
 int ldlm_glimpse_locks(struct ldlm_resource *res,
 		       struct list_head *gl_work_list)
