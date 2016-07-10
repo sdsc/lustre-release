@@ -173,7 +173,8 @@ struct mdt_device {
 				   mo_acl:1,
 				   mo_cos:1,
 				   mo_evict_tgt_nids:1,
-				   mo_coordinator:1;
+				   mo_coordinator:1,
+				   mo_dom_lock:1;
 	} mdt_opts;
         /* mdt state flags */
         unsigned long              mdt_state;
@@ -947,11 +948,6 @@ static inline int is_identity_get_disabled(struct upcall_cache *cache)
 
 int mdt_blocking_ast(struct ldlm_lock*, struct ldlm_lock_desc*, void*, int);
 
-static int mdt_dom_glimpse_ast(struct ldlm_lock *lock, void *reqp)
-{
-	return -ELDLM_NO_LOCK_DATA;
-}
-
 /* Issues dlm lock on passed @ns, @f stores it lock handle into @lh. */
 static inline int mdt_fid_lock(struct ldlm_namespace *ns,
 			       struct lustre_handle *lh, enum ldlm_mode mode,
@@ -960,15 +956,13 @@ static inline int mdt_fid_lock(struct ldlm_namespace *ns,
 			       __u64 flags, const __u64 *client_cookie)
 {
 	int rc;
-	bool glimpse = policy->l_inodebits.bits & MDS_INODELOCK_DOM;
 
 	LASSERT(ns != NULL);
 	LASSERT(lh != NULL);
 
 	rc = ldlm_cli_enqueue_local(ns, res_id, LDLM_IBITS, policy,
 				    mode, &flags, mdt_blocking_ast,
-				    ldlm_completion_ast,
-				    glimpse ? mdt_dom_glimpse_ast : NULL,
+				    ldlm_completion_ast, NULL,
 				    NULL, 0, LVB_T_NONE, client_cookie, lh);
 	return rc == ELDLM_OK ? 0 : -EIO;
 }
@@ -1084,6 +1078,8 @@ int mdt_dom_discard_data(struct mdt_thread_info *info,
 int mdt_dom_object_size(const struct lu_env *env, struct mdt_device *mdt,
 			const struct lu_fid *fid, struct mdt_body *mb,
 			bool dom_lock);
+int mdt_dom_client_has_lock(struct mdt_thread_info *info,
+			    const struct lu_fid *fid);
 /* grants */
 long mdt_grant_connect(const struct lu_env *env, struct obd_export *exp,
 		       u64 want, bool conservative);
