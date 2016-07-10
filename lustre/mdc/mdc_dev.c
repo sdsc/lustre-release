@@ -243,6 +243,13 @@ static int mdc_dlm_blocking_ast0(const struct lu_env *env,
 		obj = osc2cl(dlmlock->l_ast_data);
 		dlmlock->l_ast_data = NULL;
 		cl_object_get(obj);
+	} else if (data != NULL) {
+		struct lu_object_header *loh = data;
+		struct lu_object *lo;
+
+		lo = lu_object_locate(loh, &mdc_device_type);
+		obj = lu2cl(lo);
+		cl_object_get(obj);
 	}
 	unlock_res_and_lock(dlmlock);
 
@@ -313,6 +320,7 @@ int mdc_ldlm_blocking_ast(struct ldlm_lock *dlmlock,
 	}
 	RETURN(rc);
 }
+EXPORT_SYMBOL(mdc_ldlm_blocking_ast);
 
 int mdc_ldlm_glimpse_ast(struct ldlm_lock *dlmlock, void *data)
 {
@@ -358,6 +366,8 @@ static void mdc_lock_lvb_update(const struct lu_env *env,
 	if (lvb == NULL) {
 		LASSERT(dlmlock != NULL);
 		lvb = dlmlock->l_lvb_data;
+		if (lvb == NULL)
+			RETURN_EXIT;
 		LASSERT(dlmlock->l_lvb_type == LVB_T_OST);
 	}
 	cl_lvb2attr(attr, lvb);
@@ -514,10 +524,10 @@ static int mdc_set_lock_data_with_check(struct ldlm_lock *lock,
 	int set = 0;
 
 	LASSERT(lock != NULL);
-	LASSERT(lock->l_blocking_ast == einfo->ei_cb_bl);
 	LASSERT(lock->l_resource->lr_type == einfo->ei_type);
 	LASSERT(lock->l_completion_ast == einfo->ei_cb_cp);
-	LASSERT(lock->l_glimpse_ast == einfo->ei_cb_gl);
+	if (lock->l_glimpse_ast == NULL)
+		lock->l_glimpse_ast = einfo->ei_cb_gl;
 
 	lock_res_and_lock(lock);
 
@@ -559,7 +569,7 @@ int mdc_enqueue_send(struct obd_export *exp, struct ldlm_res_id *res_id,
 	mode = einfo->ei_mode;
 	if (einfo->ei_mode == LCK_PR)
 		mode |= LCK_PW;
-	mode = ldlm_lock_match(obd->obd_namespace, *flags | LDLM_FL_LVB_READY,
+	mode = ldlm_lock_match(obd->obd_namespace, *flags,
 			       res_id, einfo->ei_type, policy, mode, &lockh,
 			       0);
 	if (mode != 0) {
