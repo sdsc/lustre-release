@@ -3273,6 +3273,8 @@ mdt_intent_lock_replace(struct mdt_thread_info *info,
         new_lock->l_export = class_export_lock_get(req->rq_export, new_lock);
         new_lock->l_blocking_ast = lock->l_blocking_ast;
         new_lock->l_completion_ast = lock->l_completion_ast;
+	if (ldlm_has_dom(new_lock))
+		new_lock->l_glimpse_ast = ldlm_server_glimpse_ast;
         new_lock->l_remote_handle = lock->l_remote_handle;
         new_lock->l_flags &= ~LDLM_FL_LOCAL;
 
@@ -4673,6 +4675,9 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
 	/* default is coordinator off, it is started through conf_param
 	 * or /proc */
 	m->mdt_opts.mo_coordinator = 0;
+
+	/* DoM files get IO lock at open by default */
+	m->mdt_opts.mo_dom_lock = 1;
 
 	lmi = server_get_mount(dev);
         if (lmi == NULL) {
