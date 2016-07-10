@@ -670,7 +670,10 @@ static int mdc_finish_enqueue(struct obd_export *exp,
 	 * client still does this checking in case it's talking with an old
 	 * server. - Jinshan */
 	lock = ldlm_handle2lock(lockh);
-	if (lock != NULL && ldlm_has_layout(lock) && lvb_data != NULL &&
+	if (lock == NULL)
+		RETURN(rc);
+
+	if (ldlm_has_layout(lock) && lvb_data != NULL &&
 	    !(lockrep->lock_flags & LDLM_FL_BLOCKED_MASK)) {
 		void *lmm;
 
@@ -696,8 +699,11 @@ static int mdc_finish_enqueue(struct obd_export *exp,
 		if (lmm != NULL)
 			OBD_FREE_LARGE(lmm, lvb_len);
 	}
-	if (lock != NULL)
-		LDLM_LOCK_PUT(lock);
+
+	if (ldlm_has_dom(lock) && (lock->l_glimpse_ast == NULL))
+		lock->l_glimpse_ast = mdc_ldlm_glimpse_ast;
+
+	LDLM_LOCK_PUT(lock);
 
 	RETURN(rc);
 }
