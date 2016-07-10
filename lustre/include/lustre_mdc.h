@@ -234,6 +234,9 @@ static inline void cl_lov_delay_create_clear(unsigned int *flags)
 		*flags &= ~O_LOV_DELAY_CREATE_MASK;
 }
 
+int mdc_ldlm_blocking_ast(struct ldlm_lock *dlmlock,
+			  struct ldlm_lock_desc *new, void *data, int flag);
+
 /** @} mdc */
 
 #endif
