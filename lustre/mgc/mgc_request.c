@@ -308,6 +308,8 @@ static struct config_llog_data *config_params_log_add(struct obd_device *obd,
 	return cld;
 }
 
+static void mgc_wakeup_requeue(void);
+
 /** Add this log to the list of active logs watched by an MGC.
  * Active means we're watching for updates.
  * We have one active log per "mount" - client instance or servername.
@@ -321,7 +323,7 @@ static int config_log_add(struct obd_device *obd, char *logname,
 	struct config_llog_data *cld;
 	struct config_llog_data *sptlrpc_cld;
 	struct config_llog_data *params_cld;
-	struct config_llog_data *nodemap_cld;
+	struct config_llog_data *nodemap_cld = NULL;
 	char			seclogname[32];
 	char			*ptr;
 	int			rc;
@@ -352,15 +354,24 @@ static int config_log_add(struct obd_device *obd, char *logname,
 		}
 	}
 
-	nodemap_cld = config_log_find(LUSTRE_NODEMAP_NAME, NULL);
-	if (!nodemap_cld && IS_SERVER(lsi) && !IS_MGS(lsi)) {
-		nodemap_cld = do_config_log_add(obd, LUSTRE_NODEMAP_NAME,
-						CONFIG_T_NODEMAP, NULL, NULL);
-		if (IS_ERR(nodemap_cld)) {
-			rc = PTR_ERR(nodemap_cld);
-			CERROR("%s: cannot create nodemap log: rc = %d\n",
-			       obd->obd_name, rc);
-			GOTO(out_sptlrpc, rc);
+	if (IS_SERVER(lsi) && !IS_MGS(lsi)) {
+		nodemap_cld = config_log_find(LUSTRE_NODEMAP_NAME, NULL);
+
+		if (!nodemap_cld) {
+			nodemap_cld = do_config_log_add(obd,
+							LUSTRE_NODEMAP_NAME,
+							CONFIG_T_NODEMAP,
+							NULL, NULL);
+			if (IS_ERR(nodemap_cld)) {
+				rc = PTR_ERR(nodemap_cld);
+				CERROR("%s: cannot create nodemap log: rc = %d\n",
+				       obd->obd_name, rc);
+				GOTO(out_sptlrpc, rc);
+			}
+		} else if (nodemap_cld->cld_lostlock) {
+			CWARN("waking requeue thread\n");
+			/* force a config pull now */
+			mgc_wakeup_requeue();
 		}
 	}
 
@@ -410,7 +421,8 @@ out_params:
 	config_log_put(params_cld);
 
 out_nodemap:
-	config_log_put(nodemap_cld);
+	if (nodemap_cld)
+		config_log_put(nodemap_cld);
 
 out_sptlrpc:
 	config_log_put(sptlrpc_cld);
@@ -485,12 +497,9 @@ static int config_log_end(char *logname, struct config_llog_instance *cfg)
 		config_log_put(cld_params);
 	}
 
-	if (cld_nodemap) {
-		mutex_lock(&cld_nodemap->cld_lock);
-		cld_nodemap->cld_stopping = 1;
-		mutex_unlock(&cld_nodemap->cld_lock);
+	/* don't set cld_stopping on nm lock as other targets may be active */
+	if (cld_nodemap)
 		config_log_put(cld_nodemap);
-	}
 
 	/* drop the ref from the find */
 	config_log_put(cld);
@@ -632,6 +641,14 @@ static int mgc_requeue_thread(void *data)
 		rq_state &= ~RQ_PRECLEANUP;
 		list_for_each_entry(cld, &config_llog_list,
 					cld_list_chain) {
+			/* XXX */
+			/*
+			if (cld_is_nodemap(cld))
+				CDEBUG(D_INFO, "log %s: checking (r=%d sp=%d st=%x)\n",
+					cld->cld_logname, atomic_read(&cld->cld_refcount),
+					cld->cld_stopping, rq_state);
+			*/
+
 			if (!cld->cld_lostlock)
 				continue;
 
@@ -708,6 +725,7 @@ static void mgc_requeue_add(struct config_llog_data *cld)
 	} else {
 		rq_state |= RQ_NOW;
 		spin_unlock(&config_list_lock);
+		CWARN("waking up requeue waitq\n");
 		wake_up(&rq_waitq);
 	}
 	EXIT;
@@ -1142,15 +1160,13 @@ static int mgc_cancel(struct obd_export *exp, enum ldlm_mode mode,
 	RETURN(0);
 }
 
-static void mgc_notify_active(struct obd_device *unused)
+static void mgc_wakeup_requeue(void)
 {
 	/* wakeup mgc_requeue_thread to requeue mgc lock */
 	spin_lock(&config_list_lock);
 	rq_state |= RQ_NOW;
 	spin_unlock(&config_list_lock);
 	wake_up(&rq_waitq);
-
-	/* TODO: Help the MGS rebuild nidtbl. -jay */
 }
 
 /* Send target_reg message to MGS */
@@ -1343,7 +1359,7 @@ static int mgc_import_event(struct obd_device *obd,
 		CDEBUG(D_INFO, "%s: Reactivating import\n", obd->obd_name);
 		/* Clearing obd_no_recov allows us to continue pinging */
 		obd->obd_no_recov = 0;
-		mgc_notify_active(obd);
+		mgc_wakeup_requeue();
 		if (OCD_HAS_FLAG(&imp->imp_connect_data, IMP_RECOV))
 			ptlrpc_pinger_ir_up();
 		break;
