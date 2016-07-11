@@ -2473,12 +2473,18 @@ static int ldlm_hpreq_handler(struct ptlrpc_request *req)
         RETURN(0);
 }
 
+static int revoke_lock_count;
+
 static int ldlm_revoke_lock_cb(struct cfs_hash *hs, struct cfs_hash_bd *bd,
 			       struct hlist_node *hnode, void *data)
 
 {
 	struct list_head         *rpc_list = data;
         struct ldlm_lock   *lock = cfs_hash_object(hs, hnode);
+
+	if (revoke_lock_count++ == 1000000)
+		LDLM_DEBUG(lock,
+			"nodemap (?) tried to empty list 1000000 times");
 
         lock_res_and_lock(lock);
 
@@ -2526,6 +2532,7 @@ void ldlm_revoke_export_locks(struct obd_export *exp)
         ENTRY;
 
 	INIT_LIST_HEAD(&rpc_list);
+	revoke_lock_count = 0;
         cfs_hash_for_each_empty(exp->exp_lock_hash,
                                 ldlm_revoke_lock_cb, &rpc_list);
         ldlm_run_ast_work(exp->exp_obd->obd_namespace, &rpc_list,
