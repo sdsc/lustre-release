@@ -2798,11 +2798,13 @@ struct lu_context_key ofd_thread_key = {
 static int ofd_init0(const struct lu_env *env, struct ofd_device *m,
 		     struct lu_device_type *ldt, struct lustre_cfg *cfg)
 {
-	const char		*dev = lustre_cfg_string(cfg, 0);
-	struct ofd_thread_info	*info = NULL;
-	struct obd_device	*obd;
-	struct obd_statfs	*osfs;
-	int			 rc;
+	const char *dev = lustre_cfg_string(cfg, 0);
+	struct ofd_thread_info *info = NULL;
+	struct obd_device *obd;
+	struct obd_statfs *osfs;
+	struct lu_fid fid;
+	struct nm_config_file *nodemap_config;
+	int rc;
 
 	ENTRY;
 
@@ -2933,14 +2935,35 @@ static int ofd_init0(const struct lu_env *env, struct ofd_device *m,
 	if (rc)
 		GOTO(err_fini_lut, rc);
 
-	rc = ofd_start_inconsistency_verification_thread(m);
+	fid.f_seq = FID_SEQ_LOCAL_NAME;
+	fid.f_oid = 1;
+	fid.f_ver = 0;
+	rc = local_oid_storage_init(env, m->ofd_osd, &fid,
+				    &m->ofd_los);
 	if (rc != 0)
 		GOTO(err_fini_fs, rc);
+
+	nodemap_config = nm_config_file_register_tgt(env, m->ofd_osd,
+						     m->ofd_los);
+	if (IS_ERR(nodemap_config))
+		GOTO(err_fini_los, rc = PTR_ERR(nodemap_config));
+	else
+		obd->u.obt.obt_nodemap_config_file = nodemap_config;
+
+	rc = ofd_start_inconsistency_verification_thread(m);
+	if (rc != 0)
+		GOTO(err_fini_nm, rc);
 
 	tgt_adapt_sptlrpc_conf(&m->ofd_lut, 1);
 
 	RETURN(0);
 
+err_fini_nm:
+	obd->u.obt.obt_nodemap_config_file = NULL;
+	nm_config_file_deregister_tgt(env, nodemap_config);
+err_fini_los:
+	local_oid_storage_fini(env, m->ofd_los);
+	m->ofd_los = NULL;
 err_fini_fs:
 	ofd_fs_cleanup(env, m);
 err_fini_lut:
@@ -2985,6 +3008,12 @@ static void ofd_fini(const struct lu_env *env, struct ofd_device *m)
 	ofd_stop_inconsistency_verification_thread(m);
 	lfsck_degister(env, m->ofd_osd);
 	ofd_fs_cleanup(env, m);
+	nm_config_file_deregister_tgt(env, obd->u.obt.obt_nodemap_config_file);
+
+	if (m->ofd_los != NULL) {
+		local_oid_storage_fini(env, m->ofd_los);
+		m->ofd_los = NULL;
+	}
 
 	if (m->ofd_namespace != NULL) {
 		ldlm_namespace_free_post(m->ofd_namespace);
