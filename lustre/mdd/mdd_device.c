@@ -51,6 +51,7 @@
 #include <lu_object.h>
 #include <lustre_param.h>
 #include <lustre_fid.h>
+#include <lustre_nodemap.h>
 
 #include "mdd_internal.h"
 
@@ -883,6 +884,7 @@ static void mdd_device_shutdown(const struct lu_env *env, struct mdd_device *m,
 	mdd_changelog_fini(env, m);
 	orph_index_fini(env, m);
 	mdd_dot_lustre_cleanup(env, m);
+	nm_config_file_deregister_tgt(env, (mdd2obd_dev(m))->u.obt.obt_nodemap_config_file);
 	if (m->mdd_los != NULL) {
 		local_oid_storage_fini(env, m->mdd_los);
 		m->mdd_los = NULL;
@@ -993,10 +995,11 @@ static int mdd_prepare(const struct lu_env *env,
                        struct lu_device *pdev,
                        struct lu_device *cdev)
 {
-	struct mdd_device	*mdd = lu2mdd_dev(cdev);
-	struct lu_device	*next = &mdd->mdd_child->dd_lu_dev;
-	struct lu_fid		 fid;
-	int			 rc;
+	struct mdd_device *mdd = lu2mdd_dev(cdev);
+	struct lu_device *next = &mdd->mdd_child->dd_lu_dev;
+	struct nm_config_file *nodemap_config;
+	struct lu_fid fid;
+	int rc;
 
 	ENTRY;
 
@@ -1056,15 +1059,27 @@ static int mdd_prepare(const struct lu_env *env,
 	if (rc != 0)
 		GOTO(out_changelog, rc);
 
+	nodemap_config = nm_config_file_register_tgt(env, mdd->mdd_bottom,
+						     mdd->mdd_los);
+	if (IS_ERR(nodemap_config))
+		GOTO(out_hsm, rc = PTR_ERR(nodemap_config));
+	else
+		mdd2obd_dev(mdd)->u.obt.obt_nodemap_config_file = nodemap_config;
+
 	rc = lfsck_register(env, mdd->mdd_bottom, mdd->mdd_child,
 			    mdd2obd_dev(mdd), mdd_lfsck_out_notify,
 			    mdd, true);
 	if (rc != 0) {
 		CERROR("%s: failed to initialize lfsck: rc = %d\n",
 		       mdd2obd_dev(mdd)->obd_name, rc);
-		GOTO(out_hsm, rc);
+		GOTO(out_nodemap, rc);
 	}
+
 	RETURN(0);
+
+out_nodemap:
+	mdd2obd_dev(mdd)->u.obt.obt_nodemap_config_file = NULL;
+	nm_config_file_deregister_tgt(env, nodemap_config);
 out_hsm:
 	mdd_hsm_actions_llog_fini(env, mdd);
 out_changelog:

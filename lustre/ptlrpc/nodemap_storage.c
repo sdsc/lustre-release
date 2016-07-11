@@ -153,6 +153,74 @@ static void nodemap_inc_version(const struct lu_env *env,
 	dt_version_set(env, nodemap_idx, ver + 1, th);
 }
 
+enum ncfc_find_create {
+	NCFC_CREATE_FIND = 0,
+	NCFC_CREATE_ONLY = 1,
+};
+
+static struct dt_object *nodemap_cache_find_create(const struct lu_env *env,
+						   struct dt_device *dev,
+						   struct local_oid_storage *los,
+						   enum ncfc_find_create find_create)
+{
+	struct lu_fid root_fid;
+	struct dt_object *root_obj;
+	struct dt_object *nm_obj;
+	int rc = 0;
+
+	rc = dt_root_get(env, dev, &root_fid);
+	if (rc < 0)
+		GOTO(out, nm_obj = ERR_PTR(rc));
+
+	root_obj = dt_locate(env, dev, &root_fid);
+	if (unlikely(IS_ERR(root_obj)))
+		GOTO(out, nm_obj = root_obj);
+
+again:
+	/* if loading index fails the first time, create new index */
+	if (find_create == NCFC_CREATE_ONLY) {
+		CDEBUG(D_INFO, "removing old index, creating new one\n");
+		rc = local_object_unlink(env, dev, root_obj,
+					 LUSTRE_NODEMAP_NAME);
+		if (rc < 0) {
+			/* XXX not sure the best way to get obd name. */
+			CERROR("cannot destroy nodemap index: rc = %d\n",
+			       rc);
+			GOTO(out_root, nm_obj = ERR_PTR(rc));
+		}
+	}
+
+	nm_obj = local_index_find_or_create(env, los, root_obj,
+						LUSTRE_NODEMAP_NAME,
+						S_IFREG | S_IRUGO | S_IWUSR,
+						&dt_nodemap_features);
+	if (IS_ERR(nm_obj))
+		GOTO(out_root, nm_obj);
+
+	if (nm_obj->do_index_ops == NULL) {
+		rc = nm_obj->do_ops->do_index_try(env, nm_obj,
+						      &dt_nodemap_features);
+		/* even if loading from tgt fails, connecting to MGS will
+		 * rewrite the config
+		 */
+		if (rc < 0 && find_create == NCFC_CREATE_FIND) {
+			CERROR("cannot load nodemap index from disk, creating "
+			       "new index: rc = %d\n", rc);
+			lu_object_put(env, &nm_obj->do_lu);
+			find_create = NCFC_CREATE_ONLY;
+			goto again;
+		}
+	}
+
+	if (rc < 0)
+		nm_obj = ERR_PTR(rc);
+
+out_root:
+	lu_object_put(env, &root_obj->do_lu);
+out:
+	return nm_obj;
+}
+
 static int nodemap_idx_insert(const struct lu_env *env,
 			      struct dt_object *idx,
 			      const struct nodemap_key *nk,
@@ -292,6 +360,7 @@ enum nm_add_update {
 };
 
 static int nodemap_idx_nodemap_add_update(const struct lu_nodemap *nodemap,
+					  struct dt_object *idx,
 					  enum nm_add_update update)
 {
 	struct nodemap_key nk;
@@ -301,11 +370,6 @@ static int nodemap_idx_nodemap_add_update(const struct lu_nodemap *nodemap,
 
 	ENTRY;
 
-	if (nodemap_mgs_ncf == NULL) {
-		CERROR("cannot add nodemap config to non-existing MGS.\n");
-		return -EINVAL;
-	}
-
 	rc = lu_env_init(&env, LCT_LOCAL);
 	if (rc)
 		RETURN(rc);
@@ -314,11 +378,9 @@ static int nodemap_idx_nodemap_add_update(const struct lu_nodemap *nodemap,
 	nodemap_cluster_rec_init(&nr, nodemap);
 
 	if (update == NM_UPDATE)
-		rc = nodemap_idx_update(&env, nodemap_mgs_ncf->ncf_obj,
-					&nk, &nr);
+		rc = nodemap_idx_update(&env, idx, &nk, &nr);
 	else
-		rc = nodemap_idx_insert(&env, nodemap_mgs_ncf->ncf_obj,
-					&nk, &nr);
+		rc = nodemap_idx_insert(&env, idx, &nk, &nr);
 
 	lu_env_fini(&env);
 
@@ -327,12 +389,24 @@ static int nodemap_idx_nodemap_add_update(const struct lu_nodemap *nodemap,
 
 int nodemap_idx_nodemap_add(const struct lu_nodemap *nodemap)
 {
-	return nodemap_idx_nodemap_add_update(nodemap, NM_ADD);
+	if (nodemap_mgs_ncf == NULL) {
+		CERROR("cannot add nodemap config to non-existing MGS.\n");
+		return -EINVAL;
+	}
+
+	return nodemap_idx_nodemap_add_update(nodemap, nodemap_mgs_ncf->ncf_obj,
+					      NM_ADD);
 }
 
 int nodemap_idx_nodemap_update(const struct lu_nodemap *nodemap)
 {
-	return nodemap_idx_nodemap_add_update(nodemap, NM_UPDATE);
+	if (nodemap_mgs_ncf == NULL) {
+		CERROR("cannot add nodemap config to non-existing MGS.\n");
+		return -EINVAL;
+	}
+
+	return nodemap_idx_nodemap_add_update(nodemap, nodemap_mgs_ncf->ncf_obj,
+					      NM_UPDATE);
 }
 
 int nodemap_idx_nodemap_del(const struct lu_nodemap *nodemap)
@@ -782,6 +856,7 @@ out:
 		} else {
 			rc = nodemap_idx_nodemap_add_update(
 					new_config->nmc_default_nodemap,
+					nodemap_idx,
 					NM_ADD);
 			nodemap_putref(new_config->nmc_default_nodemap);
 		}
@@ -805,6 +880,137 @@ out:
 	RETURN(rc);
 }
 
+/**
+ * Step through active config and write to disk.
+ */
+struct dt_object *nodemap_save_config_cache(const struct lu_env *env,
+					    struct dt_device *dev,
+					    struct local_oid_storage *los)
+{
+	struct dt_object *o;
+	struct lu_nodemap *nodemap;
+	struct lu_nodemap *nm_tmp;
+	struct lu_nid_range *range;
+	struct lu_nid_range *range_temp;
+	struct lu_idmap *idmap;
+	struct lu_idmap *id_tmp;
+	struct rb_root root;
+	struct nodemap_key nk;
+	union nodemap_rec nr;
+	LIST_HEAD(nodemap_list_head);
+	int rc = 0, rc2;
+	ENTRY;
+
+	/* create a new index file to fill with active config */
+	o = nodemap_cache_find_create(env, dev, los, NCFC_CREATE_ONLY);
+	if (IS_ERR(o))
+		GOTO(out, o);
+
+	mutex_lock(&active_config_lock);
+
+	/* convert hash to list so we don't spin */
+	cfs_hash_for_each_safe(active_config->nmc_nodemap_hash,
+			       nm_hash_list_cb, &nodemap_list_head);
+
+	list_for_each_entry_safe(nodemap, nm_tmp, &nodemap_list_head, nm_list) {
+		nodemap_cluster_key_init(&nk, nodemap->nm_id);
+		nodemap_cluster_rec_init(&nr, nodemap);
+
+		rc2 = nodemap_idx_insert(env, o, &nk, &nr);
+		if (rc2 < 0) {
+			rc = rc2;
+			continue;
+		}
+
+		down_read(&active_config->nmc_range_tree_lock);
+		list_for_each_entry_safe(range, range_temp, &nodemap->nm_ranges,
+					 rn_list) {
+			lnet_nid_t nid[2] = {
+				range->rn_node.in_extent.start,
+				range->rn_node.in_extent.end
+			};
+			nodemap_range_key_init(&nk, nodemap->nm_id,
+					       range->rn_id);
+			nodemap_range_rec_init(&nr, nid);
+			rc2 = nodemap_idx_insert(env, o, &nk, &nr);
+			if (rc2 < 0)
+				rc = rc2;
+		}
+		up_read(&active_config->nmc_range_tree_lock);
+
+		/* we don't need to take nm_idmap_lock because active config
+		 * lock prevents changes from happening to nodemaps
+		 */
+		root = nodemap->nm_client_to_fs_uidmap;
+		nm_rbtree_postorder_for_each_entry_safe(idmap, id_tmp, &root,
+							id_client_to_fs) {
+			nodemap_idmap_key_init(&nk, nodemap->nm_id, NODEMAP_UID,
+					       idmap->id_client);
+			nodemap_idmap_rec_init(&nr, idmap->id_fs);
+			rc2 = nodemap_idx_insert(env, o, &nk, &nr);
+			if (rc2 < 0)
+				rc = rc2;
+		}
+
+		root = nodemap->nm_client_to_fs_gidmap;
+		nm_rbtree_postorder_for_each_entry_safe(idmap, id_tmp, &root,
+							id_client_to_fs) {
+			nodemap_idmap_key_init(&nk, nodemap->nm_id, NODEMAP_GID,
+					       idmap->id_client);
+			nodemap_idmap_rec_init(&nr, idmap->id_fs);
+			rc2 = nodemap_idx_insert(env, o, &nk, &nr);
+			if (rc2 < 0)
+				rc = rc2;
+		}
+	}
+	nodemap_global_key_init(&nk);
+	nodemap_global_rec_init(&nr, active_config->nmc_nodemap_is_active);
+	rc2 = nodemap_idx_insert(env, o, &nk, &nr);
+	if (rc2 < 0)
+		rc = rc2;
+
+out:
+	mutex_unlock(&active_config_lock);
+
+	if (rc < 0)
+		o = ERR_PTR(rc);
+
+	RETURN(o);
+}
+
+static void nodemap_save_all_caches(void)
+{
+	struct nm_config_file	*ncf;
+	struct lu_env		 env;
+	int			 rc = 0;
+
+	/* recreating nodemap cache requires fld_thread_key be in env */
+	rc = lu_env_init(&env, LCT_MD_THREAD | LCT_DT_THREAD | LCT_MG_THREAD);
+	if (rc != 0) {
+		CWARN("cannot init env for nodemap config: rc = %d\n", rc);
+		return;
+	}
+
+	mutex_lock(&ncf_list_lock);
+	list_for_each_entry(ncf, &ncf_list_head, ncf_list) {
+		struct dt_device *dev = lu2dt_dev(ncf->ncf_obj->do_lu.lo_dev);
+		struct dt_object *o;
+
+		/* put current config file so save conf can rewrite it */
+		lu_object_put_nocache(&env, &ncf->ncf_obj->do_lu);
+
+		o = nodemap_save_config_cache(&env, dev, ncf->ncf_los);
+		if (IS_ERR(o))
+			CWARN("%s: error writing to nodemap config: rc = %d\n",
+			      ncf->ncf_obj->do_lu.lo_dev->ld_obd->obd_name, rc);
+		else
+			ncf->ncf_obj = o;
+	}
+	mutex_unlock(&ncf_list_lock);
+
+	lu_env_fini(&env);
+}
+
 /* tracks if config still needs to be loaded, either from disk or network */
 static bool nodemap_config_loaded;
 static DEFINE_MUTEX(nodemap_config_loaded_lock);
@@ -820,6 +1026,7 @@ void nodemap_config_set_active_mgc(struct nodemap_config *config)
 	mutex_lock(&nodemap_config_loaded_lock);
 	nodemap_config_set_active(config);
 	nodemap_config_loaded = true;
+	nodemap_save_all_caches();
 	mutex_unlock(&nodemap_config_loaded_lock);
 }
 EXPORT_SYMBOL(nodemap_config_set_active_mgc);
@@ -837,10 +1044,9 @@ EXPORT_SYMBOL(nodemap_config_set_active_mgc);
  * \retval	-ENOENT		error loading nodemap config
  * \retval	-EINVAL		error loading nodemap config
  */
-struct nm_config_file *nm_config_file_register(const struct lu_env *env,
-					       struct dt_object *obj,
-					       struct local_oid_storage *los,
-					       enum nm_config_file_type ncf_type)
+struct nm_config_file *nm_config_file_register_mgs(const struct lu_env *env,
+						   struct dt_object *obj,
+						   struct local_oid_storage *los)
 {
 	struct nm_config_file *ncf;
 	int rc = 0;
@@ -850,69 +1056,126 @@ struct nm_config_file *nm_config_file_register(const struct lu_env *env,
 	if (ncf == NULL)
 		RETURN(ERR_PTR(-ENOMEM));
 
+	/* if loading from cache, prevent activation of MGS config until cache
+	 * loading is done, so disk config is overwritten by MGS config.
+	 */
+	mutex_lock(&nodemap_config_loaded_lock);
+	rc = nodemap_load_entries(env, obj);
+	if (!rc)
+		nodemap_config_loaded = true;
+	mutex_unlock(&nodemap_config_loaded_lock);
+
+	if (rc) {
+		OBD_FREE_PTR(ncf);
+		RETURN(ERR_PTR(rc));
+	}
+
+	lu_object_get(&obj->do_lu);
+
 	ncf->ncf_obj = obj;
 	ncf->ncf_los = los;
 
-	if (ncf_type == NCFT_MGS) {
-		nodemap_mgs_ncf = ncf;
-	} else {
-		mutex_lock(&ncf_list_lock);
-		list_add(&ncf->ncf_list, &ncf_list_head);
-		mutex_unlock(&ncf_list_lock);
+	nodemap_mgs_ncf = ncf;
+
+	RETURN(ncf);
+}
+EXPORT_SYMBOL(nm_config_file_register_mgs);
+
+struct nm_config_file *nm_config_file_register_tgt(const struct lu_env *env,
+						   struct dt_device *dev,
+						   struct local_oid_storage *los)
+{
+	struct nm_config_file *ncf;
+	struct dt_object *config_obj = NULL;
+	int rc = 0;
+	ENTRY;
+
+	OBD_ALLOC_PTR(ncf);
+	if (ncf == NULL)
+		RETURN(ERR_PTR(-ENOMEM));
+
+	/* don't load from cache if config already loaded */
+	mutex_lock(&nodemap_config_loaded_lock);
+	if (!nodemap_config_loaded) {
+		config_obj = nodemap_cache_find_create(env, dev, los,
+						       NCFC_CREATE_FIND);
+		if (IS_ERR(config_obj))
+			rc = PTR_ERR(config_obj);
+		else
+			rc = nodemap_load_entries(env, config_obj);
+
+		if (!rc)
+			nodemap_config_loaded = true;
+	}
+	mutex_unlock(&nodemap_config_loaded_lock);
+	if (rc)
+		GOTO(out_ncf, rc);
+
+	/* sync on disk caches w/ loaded config in memory, ncf_obj may change */
+	if (!config_obj) {
+		config_obj = nodemap_save_config_cache(env, dev, los);
+		if (IS_ERR(config_obj))
+			GOTO(out_ncf, rc = PTR_ERR(config_obj));
 	}
 
-	/* prevent activation of config loaded from MGS until disk is loaded
-	 * so disk config is overwritten by MGS config.
-	 */
-	mutex_lock(&nodemap_config_loaded_lock);
-	if (ncf_type == NCFT_MGS || !nodemap_config_loaded)
-		rc = nodemap_load_entries(env, obj);
-	nodemap_config_loaded = true;
-	mutex_unlock(&nodemap_config_loaded_lock);
+	ncf->ncf_obj = config_obj;
+	ncf->ncf_los = los;
 
-	if (rc < 0) {
-		if (ncf_type == NCFT_MGS) {
-			nodemap_mgs_ncf = NULL;
-		} else {
-			mutex_lock(&ncf_list_lock);
-			list_del(&ncf->ncf_list);
-			mutex_unlock(&ncf_list_lock);
-		}
+	mutex_lock(&ncf_list_lock);
+	list_add(&ncf->ncf_list, &ncf_list_head);
+	mutex_unlock(&ncf_list_lock);
 
+out_ncf:
+	if (rc) {
 		OBD_FREE_PTR(ncf);
 		RETURN(ERR_PTR(rc));
 	}
 
 	RETURN(ncf);
 }
-EXPORT_SYMBOL(nm_config_file_register);
+EXPORT_SYMBOL(nm_config_file_register_tgt);
 
 /**
  * Deregister a nm_config_file. Should be called by targets during cleanup.
  *
  * \param ncf	config file to deregister
  */
-void nm_config_file_deregister(const struct lu_env *env,
-			       struct nm_config_file *ncf,
-			       enum nm_config_file_type ncf_type)
+void nm_config_file_deregister_mgs(const struct lu_env *env,
+				   struct nm_config_file *ncf)
 {
 	ENTRY;
+	LASSERT(nodemap_mgs_ncf == ncf);
 
+	nodemap_mgs_ncf = NULL;
 	if (ncf->ncf_obj)
 		lu_object_put(env, &ncf->ncf_obj->do_lu);
 
-	if (ncf_type == NCFT_TGT) {
-		mutex_lock(&ncf_list_lock);
-		list_del(&ncf->ncf_list);
-		mutex_unlock(&ncf_list_lock);
-	} else {
-		nodemap_mgs_ncf = NULL;
-	}
 	OBD_FREE_PTR(ncf);
 
 	EXIT;
 }
-EXPORT_SYMBOL(nm_config_file_deregister);
+EXPORT_SYMBOL(nm_config_file_deregister_mgs);
+
+void nm_config_file_deregister_tgt(const struct lu_env *env,
+				   struct nm_config_file *ncf)
+{
+	ENTRY;
+
+	if (ncf == NULL)
+		return;
+
+	mutex_lock(&ncf_list_lock);
+	list_del(&ncf->ncf_list);
+	mutex_unlock(&ncf_list_lock);
+
+	if (ncf->ncf_obj)
+		lu_object_put(env, &ncf->ncf_obj->do_lu);
+
+	OBD_FREE_PTR(ncf);
+
+	EXIT;
+}
+EXPORT_SYMBOL(nm_config_file_deregister_tgt);
 
 int nodemap_process_idx_pages(struct nodemap_config *config, union lu_page *lip,
 			      struct lu_nodemap **recent_nodemap)
