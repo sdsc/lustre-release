@@ -1333,6 +1333,7 @@ lnet_select_pathway(lnet_nid_t src_nid, lnet_nid_t dst_nid,
 	int			best_credits;
 	int			best_lpni_credits;
 	int			md_cpt;
+	int			router_count;
 	unsigned int		shortest_distance;
 
 	/*
@@ -1352,6 +1353,7 @@ again:
 	local_net = NULL;
 	routing = false;
 	routing2 = false;
+	router_count = 0;
 
 	seq = lnet_get_dlc_seq_locked();
 
@@ -1565,11 +1567,39 @@ again:
 
 			local_net = lnet_get_net_locked
 					(LNET_NIDNET(best_gw->lpni_nid));
-			routing2 = true;
+			/*
+			 * Keep the number of contiguous networks you need
+			 * to route to. When picking the best_ni we need
+			 * to make sure to turn routing off if we decide
+			 * not to pick the network the best gw is on. An
+			 * example of that is the following scenario:
+			 *  local networks: tcp and tcp1
+			 *  peer networks: tcp and tcp2
+			 *  route all tcp2 traffic over local tcp1
+			 * The first time in the loop we will look at the
+			 * peer's tcp network and find that we can get to
+			 * that network over the local tcp network. The
+			 * second time around the loop, we will examine
+			 * the tcp2 network and find that we have a route to
+			 * that tcp2 network over the local tcp1 network.
+			 * When we pick the best_ni, we find that tcp is
+			 * actually better than tcp1, but routing is
+			 * turned on, which leads to confusion later on.
+			 * When we decide to stick to the directly
+			 * connected network, we'd want to turn off the
+			 * routing as done in the loop which picks the
+			 * best_ni below.
+			 */
+			router_count++;
 		} else {
-			routing2 = false;
 			best_gw = NULL;
+			router_count = 0;
 		}
+
+		/*
+		 * if you're routing, the result of the algorithm can not
+		 * be a different network than what the gateway is on.
+		 */
 
 		/* no routable net found go on to a different net */
 		if (!local_net)
@@ -1588,8 +1618,11 @@ again:
 			unsigned int distance;
 			int ni_credits;
 
-			if (!lnet_is_ni_healthy_locked(ni))
+			if (!lnet_is_ni_healthy_locked(ni)) {
+				if (router_count == 1)
+					router_count = 0;
 				continue;
+			}
 
 			ni_credits = atomic_read(&ni->ni_tx_credits);
 
@@ -1614,21 +1647,28 @@ again:
 			 * credits, then round-robin.
 			 */
 			if (distance > shortest_distance) {
+				if (router_count == 1)
+					router_count = 0;
 				continue;
 			} else if (distance < shortest_distance) {
 				shortest_distance = distance;
 			} else if (ni_credits < best_credits) {
+				if (router_count == 1)
+					router_count = false;
 				continue;
 			} else if (ni_credits == best_credits) {
-				if (best_ni && best_ni->ni_seq <= ni->ni_seq)
+				if (best_ni && best_ni->ni_seq <= ni->ni_seq) {
+					if (router_count == 1)
+						router_count = 0;
 					continue;
+				}
 			}
 			best_ni = ni;
 			best_credits = ni_credits;
 		}
 	}
 
-	if (routing2) {
+	if (router_count > 0) {
 		/*
 		 * RULE: Each node considers only the next-hop
 		 *
@@ -1688,7 +1728,7 @@ pick_peer:
 			libcfs_nid2str(best_gw->lpni_nid),
 			lnet_msgtyp2str(msg->msg_type), msg->msg_len);
 
-		routing2 = true;
+		router_count++;
 		/*
 		 * RULE: Each node considers only the next-hop
 		 *
@@ -1773,7 +1813,7 @@ pick_peer:
 	}
 
 send:
-	routing = routing || routing2;
+	routing = routing || router_count > 0;
 
 	/*
 	 * Increment sequence number of the peer selected so that we
