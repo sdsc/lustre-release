@@ -243,10 +243,10 @@ static int mtab_is_proc(const char *mtab)
 	if (readlink(mtab, path, sizeof(path)) < 0)
 		return 0;
 
-	if (strncmp(path, PROC_DIR, strlen(PROC_DIR)))
-		return 0;
+	if (strstr(path, PROC_DIR) != NULL)
+		return 1;
 
-	return 1;
+	return 0;
 }
 
 #ifdef HAVE_LIBMOUNT
@@ -315,12 +315,12 @@ int update_mtab_entry(char *spec, char *mtpt, char *type, char *opts,
 
 	fp = setmntent(MOUNTED, "a+");
 	if (fp == NULL) {
-		fprintf(stderr, "%s: setmntent(%s): %s:",
+		fprintf(stderr, "%s: setmntent(%s): %s\n",
 			progname, MOUNTED, strerror (errno));
 		rc = 16;
 	} else {
 		if ((addmntent(fp, &mnt)) == 1) {
-			fprintf(stderr, "%s: addmntent: %s:",
+			fprintf(stderr, "%s: addmntent: %s\n",
 				progname, strerror (errno));
 			rc = 16;
 		}
