@@ -39,6 +39,8 @@
 #include "selftest.h"
 #include "console.h"
 
+#define MAX_SCHEDULER_THREADS 64
+
 enum {
 	LST_INIT_NONE		= 0,
 	LST_INIT_WI_SERIAL,
@@ -105,6 +107,7 @@ lnet_selftest_init(void)
 	int	nscheds;
 	int	rc;
 	int	i;
+	int	max_nthrs;
 
 	rc = cfs_wi_sched_create("lst_s", lnet_cpt_table(), CFS_CPT_ANY,
 				 1, &lst_sched_serial);
@@ -119,12 +122,19 @@ lnet_selftest_init(void)
 	if (lst_sched_test == NULL)
 		goto error;
 
+	/* Set max_nthrs such that we won't have over 64 total scheduling
+	 * threads */
+	 for (max_nthrs = MAX_SCHEDULER_THREADS;
+	      (max_nthrs * nscheds) > MAX_SCHEDULER_THREADS;
+	      max_nthrs <<= 1);
+
 	lst_init_step = LST_INIT_WI_TEST;
 	for (i = 0; i < nscheds; i++) {
 		int nthrs = cfs_cpt_weight(lnet_cpt_table(), i);
 
-		/* reserve at least one CPU for LND */
+		/* reserve at least one CPU for LND, but limit to max_nthrs */
 		nthrs = max(nthrs - 1, 1);
+		nthrs = min(max_nthrs, nthrs);
 		rc = cfs_wi_sched_create("lst_t", lnet_cpt_table(), i,
 					 nthrs, &lst_sched_test[i]);
 		if (rc != 0) {
