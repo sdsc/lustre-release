@@ -139,8 +139,8 @@ extern kib_tunables_t  kiblnd_tunables;
 #define IBLND_OOB_CAPABLE(v)       ((v) != IBLND_MSG_VERSION_1)
 #define IBLND_OOB_MSGS(v)           (IBLND_OOB_CAPABLE(v) ? 2 : 0)
 
-#define IBLND_MSG_SIZE              (4<<10)                 /* max size of queued messages (inc hdr) */
-#define IBLND_MAX_RDMA_FRAGS         LNET_MAX_IOV           /* max # of fragments supported */
+#define IBLND_MSG_SIZE		(4<<10)			/* max size of queued messages (inc hdr) */
+#define IBLND_MAX_RDMA_FRAGS	(LNET_MAX_PAYLOAD >> 12)/* max # of fragments supported in 4K size */
 
 /************************/
 /* derived constants... */

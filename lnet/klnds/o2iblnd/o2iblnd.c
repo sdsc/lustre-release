@@ -135,6 +135,7 @@ static int
 kiblnd_unpack_rd(kib_msg_t *msg, int flip)
 {
         kib_rdma_desc_t   *rd;
+	int msg_size;
         int                nob;
         int                n;
         int                i;
@@ -152,10 +153,11 @@ kiblnd_unpack_rd(kib_msg_t *msg, int flip)
         }
 
         n = rd->rd_nfrags;
+	msg_size = n * rd->rd_frags[0].rf_nob;
 
-        if (n <= 0 || n > IBLND_MAX_RDMA_FRAGS) {
-                CERROR("Bad nfrags: %d, should be 0 < n <= %d\n",
-                       n, IBLND_MAX_RDMA_FRAGS);
+	if (msg_size <= 0 || msg_size > LNET_MAX_PAYLOAD) {
+		CERROR("Bad msg_size: %d, should be 0 < n <= %ld\n",
+		       msg_size, LNET_MAX_PAYLOAD);
                 return 1;
         }
 

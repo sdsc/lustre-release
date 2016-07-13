@@ -57,6 +57,7 @@
 
 #include <linux/uio.h>
 #include <libcfs/libcfs.h>
+#include <lnet/lib-types.h>
 #include <lnet/nidstr.h>
 #include <lnet/api.h>
 #include <lustre/lustre_idl.h>

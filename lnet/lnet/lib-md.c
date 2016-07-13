@@ -226,7 +226,7 @@ lnet_md_validate(lnet_md_t *umd)
 
         if ((umd->options & (LNET_MD_KIOV | LNET_MD_IOVEC)) != 0 &&
             umd->length > LNET_MAX_IOV) {
-                CERROR("Invalid option: too many fragments %u, %d max\n",
+		CERROR("Invalid option: too many fragments %u, %ld max\n",
                        umd->length, LNET_MAX_IOV);
                 return -EINVAL;
         }

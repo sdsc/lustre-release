@@ -57,12 +57,15 @@
 # error "CONFIG_LNET_MAX_PAYLOAD must be defined in config.h"
 #endif
 
-#define LNET_MAX_PAYLOAD       CONFIG_LNET_MAX_PAYLOAD
-#if (LNET_MAX_PAYLOAD < LNET_MTU)
+#if (CONFIG_LNET_MAX_PAYLOAD < LNET_MTU)
 # error "LNET_MAX_PAYLOAD too small - error in configure --with-max-payload-mb"
-#elif (LNET_MAX_PAYLOAD > (PAGE_SIZE * LNET_MAX_IOV))
+#elif (CONFIG_LNET_MAX_PAYLOAD > (1024 * 1024))
 # error "LNET_MAX_PAYLOAD too large - error in configure --with-max-payload-mb"
 #endif
+
+/** limit on the number of fragments in discontiguous MDs */
+#define LNET_MAX_IOV		DIV_ROUND_UP(CONFIG_LNET_MAX_PAYLOAD, PAGE_SIZE)
+#define LNET_MAX_PAYLOAD	LNET_MAX_IOV * PAGE_SIZE
 
 /* forward refs */
 struct lnet_libmd;

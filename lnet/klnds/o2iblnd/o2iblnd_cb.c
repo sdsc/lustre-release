@@ -765,7 +765,7 @@ __must_hold(&conn->ibc_lock)
 	LASSERT(tx->tx_queued);
 	/* We rely on this for QP sizing */
 	LASSERT(tx->tx_nwrq > 0);
-	LASSERT(tx->tx_nwrq <= 1 + conn->ibc_max_frags);
+	LASSERT((tx->tx_nwrq << 12) <= (conn->ibc_max_frags + 1) * PAGE_SIZE);
 
 	LASSERT(credit == 0 || credit == 1);
 	LASSERT(conn->ibc_outstanding_credits >= 0);
@@ -1085,7 +1085,7 @@ kiblnd_init_rdma(kib_conn_t *conn, kib_tx_t *tx, int type,
                         break;
                 }
 
-		if (tx->tx_nwrq >= conn->ibc_max_frags) {
+		if ((tx->tx_nwrq << 12) >= conn->ibc_max_frags * PAGE_SIZE) {
 			CERROR("RDMA has too many fragments for peer %s (%d), "
 			       "src idx/frags: %d/%d dst idx/frags: %d/%d\n",
 			       libcfs_nid2str(conn->ibc_peer->ibp_nid),
@@ -2329,41 +2329,33 @@ kiblnd_passive_connect(struct rdma_cm_id *cmid, void *priv, int priv_nob)
 		goto failed;
 	}
 
-	if (reqmsg->ibm_u.connparams.ibcp_max_frags >
-	    kiblnd_rdma_frags(version, ni)) {
+	if (reqmsg->ibm_u.connparams.ibcp_max_msg_size >
+	    kiblnd_rdma_frags(version, ni) << PAGE_SHIFT) {
 		CWARN("Can't accept conn from %s (version %x): "
-		      "max_frags %d too large (%d wanted)\n",
+		      "max message size %d is too large (%d wanted)\n",
 		      libcfs_nid2str(nid), version,
-		      reqmsg->ibm_u.connparams.ibcp_max_frags,
-		      kiblnd_rdma_frags(version, ni));
+		      reqmsg->ibm_u.connparams.ibcp_max_msg_size,
+		      kiblnd_rdma_frags(version, ni) << PAGE_SHIFT);
 
 		if (version >= IBLND_MSG_VERSION)
 			rej.ibr_why = IBLND_REJECT_RDMA_FRAGS;
 
 		goto failed;
-	} else if (reqmsg->ibm_u.connparams.ibcp_max_frags <
-		   kiblnd_rdma_frags(version, ni) &&
+	} else if ((reqmsg->ibm_u.connparams.ibcp_max_msg_size <
+		   (kiblnd_rdma_frags(version, ni) << PAGE_SHIFT)) &&
 		   net->ibn_fmr_ps == NULL) {
 		CWARN("Can't accept conn from %s (version %x): "
-		      "max_frags %d incompatible without FMR pool "
+		      "max message size %d incompatible without FMR pool "
 		      "(%d wanted)\n",
 		      libcfs_nid2str(nid), version,
-		      reqmsg->ibm_u.connparams.ibcp_max_frags,
-		      kiblnd_rdma_frags(version, ni));
+		      reqmsg->ibm_u.connparams.ibcp_max_msg_size,
+		      kiblnd_rdma_frags(version, ni) << PAGE_SHIFT);
 
 		if (version == IBLND_MSG_VERSION)
 			rej.ibr_why = IBLND_REJECT_RDMA_FRAGS;
 
 		goto failed;
 	}
-
-        if (reqmsg->ibm_u.connparams.ibcp_max_msg_size > IBLND_MSG_SIZE) {
-                CERROR("Can't accept %s: message size %d too big (%d max)\n",
-                       libcfs_nid2str(nid),
-                       reqmsg->ibm_u.connparams.ibcp_max_msg_size,
-                       IBLND_MSG_SIZE);
-                goto failed;
-        }
 
 	/* assume 'nid' is a new peer; create  */
 	rc = kiblnd_create_peer(ni, &peer, nid);

@@ -80,7 +80,7 @@ _kgnilnd_proc_run_cksum_test(int caseno, int nloops, int nob)
 	/* add extra 2 pages - one for offset of src, 2nd to allow dest offset */
 	niov = (nob / PAGE_SIZE) + 2;
 	if (niov > LNET_MAX_IOV) {
-		CERROR("bytes %d too large, requires niov %d > %d\n",
+		CERROR("bytes %d too large, requires niov %d > %ld\n",
 			nob, niov, LNET_MAX_IOV);
 		GOTO(unwind, rc = -E2BIG);
 	}

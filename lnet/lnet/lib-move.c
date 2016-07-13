@@ -1853,7 +1853,7 @@ lnet_parse(lnet_ni_t *ni, lnet_hdr_t *hdr, lnet_nid_t from_nid,
 		if (payload_length >
 		    (__u32)(for_me ? LNET_MAX_PAYLOAD : LNET_MTU)) {
 			CERROR("%s, src %s: bad %s payload %d "
-			       "(%d max expected)\n",
+			       "(%ld max expected)\n",
 			       libcfs_nid2str(from_nid),
 			       libcfs_nid2str(src_nid),
 			       lnet_msgtyp2str(type),

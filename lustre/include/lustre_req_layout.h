@@ -72,9 +72,6 @@ struct req_capsule {
 
 #if !defined(__REQ_LAYOUT_USER__)
 
-/* struct ptlrpc_request, lustre_msg* */
-#include <lustre_net.h>
-
 void req_capsule_init(struct req_capsule *pill, struct ptlrpc_request *req,
                       enum req_location location);
 void req_capsule_fini(struct req_capsule *pill);

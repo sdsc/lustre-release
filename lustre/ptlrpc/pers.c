@@ -55,7 +55,7 @@ void ptlrpc_fill_bulk_md(lnet_md_t *md, struct ptlrpc_bulk_desc *desc,
 	LASSERT(!(md->options & (LNET_MD_IOVEC | LNET_MD_KIOV |
 				 LNET_MD_PHYS)));
 
-	md->length = max(0, desc->bd_iov_count - mdidx * LNET_MAX_IOV);
+	md->length = max_t(unsigned int, 0, desc->bd_iov_count - mdidx * LNET_MAX_IOV);
 	md->length = min_t(unsigned int, LNET_MAX_IOV, md->length);
 
 	if (ptlrpc_is_bulk_desc_kiov(desc->bd_type)) {

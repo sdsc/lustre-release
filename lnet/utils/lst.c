@@ -2962,7 +2962,7 @@ lst_get_bulk_param(int argc, char **argv, lst_test_bulk_param_t *bulk)
 
 		} else if (strcasestr(argv[i], "size=") == argv[i] ||
 			   strcasestr(argv[i], "s=") == argv[i]) {
-			int max_size = sysconf(_SC_PAGESIZE) * LNET_MAX_IOV;
+			int max_size = CONFIG_LNET_MAX_PAYLOAD;
 
                         tok = strchr(argv[i], '=') + 1;
 

@@ -446,9 +446,6 @@ typedef struct {
 #define LNET_MTU_BITS	20
 #define LNET_MTU	(1 << LNET_MTU_BITS)
 
-/** limit on the number of fragments in discontiguous MDs */
-#define LNET_MAX_IOV    256
-
 /**
  * Options for the MD structure. See lnet_md_t::options.
  */
