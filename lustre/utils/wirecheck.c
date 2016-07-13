@@ -46,147 +46,7 @@
 #include <lustre/lustre_lfsck_user.h>
 #include <lustre_disk.h>
 
-#define BLANK_LINE()						\
-do {								\
-	printf("\n");						\
-} while(0)
-
-#define COMMENT(c)						\
-do {								\
-	printf("	/* "c" */\n");				\
-} while(0)
-
-#define STRINGIFY(a) #a
-
-#define CHECK_CDEFINE(a)					\
-	printf("	CLASSERT("#a" == "STRINGIFY(a) ");\n")
-
-#define CHECK_CVALUE(a)					 \
-	printf("	CLASSERT("#a" == %lld);\n", (long long)a)
-
-#define CHECK_CVALUE_X(a)					\
-	printf("	CLASSERT("#a" == 0x%.8x);\n", a)
-
-#define CHECK_DEFINE(a)						\
-do {								\
-	printf("	LASSERTF("#a" == "STRINGIFY(a)		\
-		", \"found %%lld\\n\",\n			"\
-		"(long long)"#a");\n");				\
-} while(0)
-
-#define CHECK_DEFINE_X(a)					\
-do {								\
-	printf("	LASSERTF("#a" == "STRINGIFY(a)		\
-		", \"found 0x%%.8x\\n\",\n		"#a	\
-		");\n");					\
-} while(0)
-
-#define CHECK_DEFINE_64X(a)					\
-do {								\
-	printf("	LASSERTF("#a" == "STRINGIFY(a)		\
-		", \"found 0x%%.16llxULL\\n\",\n		"\
-		" "#a");\n");					\
-} while(0)
-
-#define CHECK_VALUE(a)						\
-do {								\
-	printf("	LASSERTF("#a				\
-		" == %lld, \"found %%lld\\n\",\n		"\
-		" (long long)"#a");\n", (long long)a);		\
-} while(0)
-
-#define CHECK_VALUE_X(a)					\
-do {								\
-	printf("	LASSERTF("#a				\
-		" == 0x%.8xUL, \"found 0x%%.8xUL\\n\",\n	"\
-		"	(unsigned)"#a");\n", (unsigned)a);	\
-} while(0)
-
-#define CHECK_VALUE_O(a)					\
-do {								\
-	printf("	LASSERTF("#a				\
-		" == 0%.11oUL, \"found 0%%.11oUL\\n\",\n	"\
-		"	"#a");\n", a);				\
-} while(0)
-
-#define CHECK_VALUE_64X(a)					\
-do {								\
-	printf("	LASSERTF("#a" == 0x%.16llxULL, "	\
-		"\"found 0x%%.16llxULL\\n\",\n			"\
-		"(long long)"#a");\n", (long long)a);		\
-} while(0)
-
-#define CHECK_VALUE_64O(a)					\
-do {								\
-	printf("	LASSERTF("#a" == 0%.22lloULL, "		\
-		"\"found 0%%.22lloULL\\n\",\n			"\
-		"(long long)"#a");\n", (long long)a);		\
-} while(0)
-
-#define CHECK_MEMBER_OFFSET(s, m)				\
-do {								\
-	CHECK_VALUE((int)offsetof(struct s, m));		\
-} while(0)
-
-#define CHECK_MEMBER_OFFSET_TYPEDEF(s, m)			\
-do {								\
-	CHECK_VALUE((int)offsetof(s, m));			\
-} while(0)
-
-#define CHECK_MEMBER_SIZEOF(s, m)				\
-do {								\
-	CHECK_VALUE((int)sizeof(((struct s *)0)->m));		\
-} while(0)
-
-#define CHECK_MEMBER_SIZEOF_TYPEDEF(s, m)			\
-do {								\
-	CHECK_VALUE((int)sizeof(((s *)0)->m));			\
-} while(0)
-
-#define CHECK_MEMBER(s, m)					\
-do {								\
-	CHECK_MEMBER_OFFSET(s, m);				\
-	CHECK_MEMBER_SIZEOF(s, m);				\
-} while(0)
-
-#define CHECK_MEMBER_TYPEDEF(s, m)				\
-do {								\
-	CHECK_MEMBER_OFFSET_TYPEDEF(s, m);			\
-	CHECK_MEMBER_SIZEOF_TYPEDEF(s, m);			\
-} while(0)
-
-#define CHECK_STRUCT(s)						\
-do {								\
-	COMMENT("Checks for struct "#s);			\
-		CHECK_VALUE((int)sizeof(struct s));		\
-} while(0)
-
-#define CHECK_STRUCT_TYPEDEF(s)					\
-do {								\
-	COMMENT("Checks for type "#s);				\
-		CHECK_VALUE((int)sizeof(s));			\
-} while(0)
-
-#define CHECK_UNION(s)						\
-do {								\
-	COMMENT("Checks for union "#s);				\
-	CHECK_VALUE((int)sizeof(union s));			\
-} while(0)
-
-#define CHECK_VALUE_SAME(v1, v2)				\
-do {								\
-	printf("\tLASSERTF("#v1" == "#v2", "			\
-		"\"%%d != %%d\\n\",\n"				\
-		"\t\t "#v1", "#v2");\n");			\
-} while (0)
-
-#define CHECK_MEMBER_SAME(s1, s2, m)				\
-do {								\
-	CHECK_VALUE_SAME((int)offsetof(struct s1, m),		\
-			 (int)offsetof(struct s2, m));		\
-	CHECK_VALUE_SAME((int)sizeof(((struct s1 *)0)->m),	\
-			 (int)sizeof(((struct s2 *)0)->m));	\
-} while (0)
+#include "const_check.h"
 
 static void
 check_lu_seq_range(void)
@@ -316,9 +176,9 @@ check_lu_ladvise(void)
 {
 	BLANK_LINE();
 	CHECK_STRUCT(lu_ladvise);
+	CHECK_MEMBER(lu_ladvise, lla_advice);
 	CHECK_MEMBER(lu_ladvise, lla_start);
 	CHECK_MEMBER(lu_ladvise, lla_end);
-	CHECK_MEMBER(lu_ladvise, lla_advice);
 	CHECK_MEMBER(lu_ladvise, lla_padding);
 }
 
@@ -2314,72 +2174,15 @@ static void check_llog_update_record(void)
 	CHECK_MEMBER(llog_update_record, lur_update_rec);
 }
 
-static void system_string(char *cmdline, char *str, int len)
-{
-	int   fds[2];
-	int   rc;
-	pid_t pid;
-
-	rc = pipe(fds);
-	if (rc != 0)
-		abort();
-
-	pid = fork();
-	if (pid == 0) {
-		/* child */
-		int   fd = fileno(stdout);
-
-		rc = dup2(fds[1], fd);
-		if (rc != fd)
-			abort();
-
-		exit(system(cmdline));
-		/* notreached */
-	} else if ((int)pid < 0) {
-		abort();
-	} else {
-		FILE *f = fdopen(fds[0], "r");
-
-		if (f == NULL)
-			abort();
-
-		close(fds[1]);
-
-		if (fgets(str, len, f) == NULL)
-			abort();
-
-		if (waitpid(pid, &rc, 0) != pid)
-			abort();
-
-		if (!WIFEXITED(rc) || WEXITSTATUS(rc) != 0)
-			abort();
-
-		if (strnlen(str, len) == len)
-			str[len - 1] = 0;
-
-		if (str[strlen(str) - 1] == '\n')
-			str[strlen(str) - 1] = 0;
-
-		fclose(f);
-	}
-}
-
 int
 main(int argc, char **argv)
 {
-	char unameinfo[80];
-	char gccinfo[80];
-
-	system_string("uname -a", unameinfo, sizeof(unameinfo));
-	system_string(CC " -v 2>&1 | tail -1", gccinfo, sizeof(gccinfo));
-
+	BLANK_LINE();
 	printf ("void lustre_assert_wire_constants(void)\n"
 		"{\n"
-		"	 /* Wire protocol assertions generated by 'wirecheck'\n"
-		"	  * (make -C lustre/utils newwiretest)\n"
-		"	  * running on %s\n"
-		"	  * with %s */\n"
-		"\n", unameinfo, gccinfo);
+		"	/* Wire protocol assertions generated by 'wirecheck'\n"
+		"	 * (make -C lustre/utils newwiretest)\n"
+		"	 */\n");
 
 	BLANK_LINE ();
 
@@ -2609,7 +2412,6 @@ main(int argc, char **argv)
 	check_lu_dirent();
 	check_luda_type();
 	check_lu_dirpage();
-	check_lu_ladvise();
 	check_lustre_handle();
 	check_lustre_msg_v2();
 	check_ptlrpc_body();
@@ -2721,8 +2523,9 @@ main(int argc, char **argv)
 	check_update_ops();
 	check_update_records();
 	check_llog_update_record();
+	check_lu_ladvise();
 
-	printf("}\n\n");
+	printf("}\n");
 
 	return 0;
 }
