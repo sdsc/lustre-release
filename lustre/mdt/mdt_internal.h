@@ -625,11 +625,12 @@ void mdt_object_unlock_put(struct mdt_thread_info *,
 
 void mdt_client_compatibility(struct mdt_thread_info *info);
 
+int mdt_remote_root_lock(struct mdt_thread_info *mti, struct lustre_handle *lh,
+			 enum ldlm_mode mode, __u64 ibits);
 int mdt_remote_object_lock(struct mdt_thread_info *mti,
 			   struct mdt_object *o, const struct lu_fid *fid,
 			   struct lustre_handle *lh,
-			   enum ldlm_mode mode, __u64 ibits, bool nonblock,
-			   bool cache);
+			   enum ldlm_mode mode, __u64 ibits, bool nonblock);
 
 enum mdt_name_flags {
 	MNF_FIX_ANON = 1,
