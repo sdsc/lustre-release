@@ -12,7 +12,7 @@ LIBPTLCTL := $(top_builddir)/lnet/utils/libptlctl.a \
 	     $(top_builddir)/libcfs/libcfs/libcfs.a
 
 if TESTS
-EXTRA_PROGRAMS = wirecheck
+EXTRA_PROGRAMS = wirecheck ioctlcheck
 endif
 
 if UTILS
@@ -168,9 +168,6 @@ lhsmtool_posix_SOURCES = lhsmtool_posix.c
 lhsmtool_posix_LDADD := liblustreapi.a $(LIBPTLCTL) $(PTHREAD_LIBS)
 lhsmtool_posix_DEPENDENCIES := liblustreapi.a $(LIBPTLCTL)
 
-wirecheck_SOURCES = wirecheck.c
-wirecheck_CPPFLAGS := -DCC="\"$(CC)\""
-
 wiretest_SOURCES = wiretest.c
 
 endif # UTILS
@@ -178,8 +175,9 @@ endif # UTILS
 EXTRA_DIST = llstat llobdstat plot-llstat ldlm_debug_upcall
 
 # NOTE: this should only be run on i386.
-newwiretest: wirehdr.c wirecheck
+newwiretest: wirehdr.c wirecheck ioctlcheck
 	cp wirehdr.c wiretest.c
 	LANG=C ./wirecheck >> wiretest.c
+	LANG=C ./ioctlcheck >> wiretest.c
 	cp ../ptlrpc/wirehdr.c ../ptlrpc/wiretest.c
 	LANG=C ./wirecheck >> ../ptlrpc/wiretest.c
