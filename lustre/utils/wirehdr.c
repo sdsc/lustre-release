@@ -15,11 +15,7 @@
  *
  * You should have received a copy of the GNU General Public License
  * version 2 along with this program; If not, see
- * http://www.sun.com/software/products/lustre/docs/GPLv2.pdf
- *
- * Please contact Sun Microsystems, Inc., 4150 Network Circle, Santa Clara,
- * CA 95054 USA or visit www.sun.com if you need additional information or
- * have any questions.
+ * http://www.gnu.org/licenses/gpl-2.0.html
  *
  * GPL HEADER END
  */
@@ -27,17 +23,20 @@
  * Copyright (c) 2003, 2010, Oracle and/or its affiliates. All rights reserved.
  * Use is subject to license terms.
  *
- * Copyright (c) 2011, 2014, Intel Corporation.
- */
-/*
- * This file is part of Lustre, http://www.lustre.org/
- * Lustre is a trademark of Sun Microsystems, Inc.
+ * Copyright (c) 2011, 2016, Intel Corporation.
  */
 
+#include <errno.h>
+#include <limits.h>
 #include <stdio.h>
+#include <string.h>
+
 #include <lustre/lustre_idl.h>
 #include <lustre/lustre_lfsck_user.h>
 #include <lustre_disk.h>
+
+#include <uapi_kernelcomm.h>
+#include <lustre_ioctl.h>
 
 #undef LASSERT
 #undef LASSERTF
@@ -47,13 +46,19 @@
 int ret;
 
 void lustre_assert_wire_constants(void);
+void lustre_assert_ioctl_constants(void);
 
 int main()
 {
-        lustre_assert_wire_constants();
+	lustre_assert_wire_constants();
 
-        if (ret == 0)
-                printf("wire constants OK\n");
+	if (ret == 0)
+		printf("wire constants OK\n");
 
-        return ret;
+	lustre_assert_ioctl_constants();
+
+	if (ret == 0)
+		printf("ioctl constants OK\n");
+
+	return ret;
 }
