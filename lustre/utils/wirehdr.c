@@ -27,17 +27,24 @@
  * Copyright (c) 2003, 2010, Oracle and/or its affiliates. All rights reserved.
  * Use is subject to license terms.
  *
- * Copyright (c) 2011, 2014, Intel Corporation.
+ * Copyright (c) 2011, 2016, Intel Corporation.
  */
 /*
  * This file is part of Lustre, http://www.lustre.org/
  * Lustre is a trademark of Sun Microsystems, Inc.
  */
 
+#include <errno.h>
+#include <limits.h>
 #include <stdio.h>
+#include <string.h>
+
 #include <lustre/lustre_idl.h>
 #include <lustre/lustre_lfsck_user.h>
 #include <lustre_disk.h>
+
+#include <uapi_kernelcomm.h>
+#include <lustre_ioctl.h>
 
 #undef LASSERT
 #undef LASSERTF
@@ -47,13 +54,19 @@
 int ret;
 
 void lustre_assert_wire_constants(void);
+void lustre_assert_ioctl_constants(void);
 
 int main()
 {
-        lustre_assert_wire_constants();
+	lustre_assert_wire_constants();
 
-        if (ret == 0)
-                printf("wire constants OK\n");
+	if (ret == 0)
+		printf("wire constants OK\n");
 
-        return ret;
+	lustre_assert_ioctl_constants();
+
+	if (ret == 0)
+		printf("ioctl constants OK\n");
+
+	return ret;
 }
