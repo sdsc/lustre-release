@@ -2372,8 +2372,9 @@ int mdt_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
  * \retval	0 on success
  * \retval	negative number on error
  */
-int mdt_remote_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
-			    void *data, int flag)
+static int __mdt_remote_blocking_ast(struct ldlm_lock *lock,
+				     struct ldlm_lock_desc *desc,
+				     void *data, int flag, bool drop_cache)
 {
 	int rc = 0;
 	ENTRY;
@@ -2392,35 +2393,31 @@ int mdt_remote_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
 		break;
 	}
 	case LDLM_CB_CANCELING: {
+		struct mdt_device *mdt = lock->l_ast_data;
+		struct lu_env env;
+
 		LDLM_DEBUG(lock, "Revoke remote lock\n");
 
 		/* discard slc lock here so that it can be cleaned anytime,
 		 * especially for cleanup_resource() */
 		tgt_discard_slc_lock(lock);
 
-		/* once we cache lock, l_ast_data is set to mdt_object */
-		if (lock->l_ast_data != NULL) {
-			struct mdt_object *mo = lock->l_ast_data;
-			struct lu_env env;
+		if (!(lock->l_policy_data.l_inodebits.bits &
+		      (MDS_INODELOCK_XATTR | MDS_INODELOCK_UPDATE)) ||
+		    !drop_cache ||
+		    unlikely(mdt == NULL || mdt->mdt_md_root == NULL) ||
+		    !mdt->mdt_md_root->mot_cache_attr)
+			break;
 
-			rc = lu_env_init(&env, LCT_MD_THREAD);
-			if (unlikely(rc != 0)) {
-				struct obd_device *obd;
-
-				obd = ldlm_lock_to_ns(lock)->ns_obd;
-				CWARN("%s: lu_env initialization failed, object"
-				      "%p "DFID" is leaked!\n",
-				      obd->obd_name, mo,
-				      PFID(mdt_object_fid(mo)));
-				RETURN(rc);
-			}
-
-			if (lock->l_policy_data.l_inodebits.bits &
-			    (MDS_INODELOCK_XATTR | MDS_INODELOCK_UPDATE)) {
-				rc = mo_invalidate(&env, mdt_object_child(mo));
-				mo->mot_cache_attr = 0;
-			}
-			mdt_object_put(&env, mo);
+		mdt->mdt_md_root->mot_cache_attr = 0;
+		rc = lu_env_init(&env, LCT_MD_THREAD);
+		if (unlikely(rc != 0)) {
+			CWARN("%s: Fail to init env to invalidate "
+			      "remote root object cache.\n",
+			      ldlm_lock_to_ns(lock)->ns_obd->obd_name);
+		} else {
+			rc = mo_invalidate(&env,
+					   mdt_object_child(mdt->mdt_md_root));
 			lu_env_fini(&env);
 		}
 		break;
@@ -2430,6 +2427,19 @@ int mdt_remote_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
 	}
 
 	RETURN(rc);
+}
+
+static int mdt_remote_root_blocking_ast(struct ldlm_lock *lock,
+					struct ldlm_lock_desc *desc,
+					void *data, int flag)
+{
+	return __mdt_remote_blocking_ast(lock, desc, data, flag, true);
+}
+
+int mdt_remote_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
+			    void *data, int flag)
+{
+	return __mdt_remote_blocking_ast(lock, desc, data, flag, false);
 }
 
 int mdt_check_resent_lock(struct mdt_thread_info *info,
@@ -2467,10 +2477,11 @@ int mdt_check_resent_lock(struct mdt_thread_info *info,
 	return 1;
 }
 
-int mdt_remote_object_lock(struct mdt_thread_info *mti, struct mdt_object *o,
-			   const struct lu_fid *fid, struct lustre_handle *lh,
-			   enum ldlm_mode mode, __u64 ibits, bool nonblock,
-			   bool cache)
+static int
+__mdt_remote_object_lock(struct mdt_thread_info *mti, struct mdt_object *o,
+			 const struct lu_fid *fid, struct lustre_handle *lh,
+			 void *ei_cb_bl, void *cb_data, enum ldlm_mode mode,
+			 __u64 ibits, bool nonblock)
 {
 	struct ldlm_enqueue_info *einfo = &mti->mti_einfo;
 	union ldlm_policy_data *policy = &mti->mti_policy;
@@ -2485,31 +2496,42 @@ int mdt_remote_object_lock(struct mdt_thread_info *mti, struct mdt_object *o,
 	memset(einfo, 0, sizeof(*einfo));
 	einfo->ei_type = LDLM_IBITS;
 	einfo->ei_mode = mode;
-	einfo->ei_cb_bl = mdt_remote_blocking_ast;
+	einfo->ei_cb_bl = ei_cb_bl;
 	einfo->ei_cb_cp = ldlm_completion_ast;
-	einfo->ei_enq_slave = 0;
 	einfo->ei_res_id = res_id;
+	einfo->ei_cbdata = cb_data;
 	if (nonblock)
 		einfo->ei_nonblock = 1;
-	if (cache) {
-		/*
-		 * if we cache lock, couple lock with mdt_object, so that object
-		 * can be easily found in lock ASTs.
-		 */
-		mdt_object_get(mti->mti_env, o);
-		einfo->ei_cbdata = o;
-	}
 
 	memset(policy, 0, sizeof(*policy));
 	policy->l_inodebits.bits = ibits;
 
 	rc = mo_object_lock(mti->mti_env, mdt_object_child(o), lh, einfo,
 			    policy);
-	if (rc < 0 && cache) {
-		mdt_object_put(mti->mti_env, o);
-		einfo->ei_cbdata = NULL;
-	}
 	RETURN(rc);
+}
+
+int mdt_remote_root_lock(struct mdt_thread_info *mti, struct lustre_handle *lh,
+			 enum ldlm_mode mode, __u64 ibits)
+{
+	struct mdt_device *mdt = mti->mti_mdt;
+	struct mdt_object *o;
+
+	LASSERT(mdt != NULL);
+
+	o = mdt->mdt_md_root;
+	LASSERT(o != NULL);
+
+	return __mdt_remote_object_lock(mti, o, mdt_object_fid(o), lh,
+			mdt_remote_root_blocking_ast, mdt, mode, ibits, false);
+}
+
+int mdt_remote_object_lock(struct mdt_thread_info *mti, struct mdt_object *o,
+			   const struct lu_fid *fid, struct lustre_handle *lh,
+			   enum ldlm_mode mode, __u64 ibits, bool nonblock)
+{
+	return __mdt_remote_object_lock(mti, o, fid, lh,
+			mdt_remote_blocking_ast, NULL, mode, ibits, nonblock);
 }
 
 static int mdt_object_local_lock(struct mdt_thread_info *info,
@@ -2657,8 +2679,7 @@ mdt_object_lock_internal(struct mdt_thread_info *info, struct mdt_object *o,
 		rc = mdt_remote_object_lock(info, o, mdt_object_fid(o),
 					    &lh->mlh_rreg_lh,
 					    lh->mlh_rreg_mode,
-					    MDS_INODELOCK_UPDATE, nonblock,
-					    false);
+					    MDS_INODELOCK_UPDATE, nonblock);
 		if (rc != ELDLM_OK) {
 			if (local_lh != NULL)
 				mdt_object_unlock(info, o, local_lh, rc);
@@ -4511,11 +4532,6 @@ static void mdt_fini(const struct lu_env *env, struct mdt_device *m)
 	struct lfsck_stop	 stop;
 	ENTRY;
 
-	if (m->mdt_md_root != NULL) {
-		mdt_object_put(env, m->mdt_md_root);
-		m->mdt_md_root = NULL;
-	}
-
 	stop.ls_status = LS_PAUSED;
 	stop.ls_flags = 0;
 	next->md_ops->mdo_iocontrol(env, next, OBD_IOC_STOP_LFSCK, 0, &stop);
@@ -4548,6 +4564,11 @@ static void mdt_fini(const struct lu_env *env, struct mdt_device *m)
 	if (m->mdt_namespace != NULL) {
 		ldlm_namespace_free_post(m->mdt_namespace);
 		d->ld_obd->obd_namespace = m->mdt_namespace = NULL;
+	}
+
+	if (m->mdt_md_root != NULL) {
+		mdt_object_put(env, m->mdt_md_root);
+		m->mdt_md_root = NULL;
 	}
 
 	mdt_quota_fini(env, m);

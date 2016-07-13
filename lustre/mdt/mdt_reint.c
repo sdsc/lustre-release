@@ -1018,7 +1018,7 @@ relock:
 		rc = mdt_remote_object_lock(info, mp, mdt_object_fid(mc),
 					    &child_lh->mlh_rreg_lh,
 					    child_lh->mlh_rreg_mode,
-					    MDS_INODELOCK_LOOKUP, false, false);
+					    MDS_INODELOCK_LOOKUP, false);
 		if (rc != ELDLM_OK)
 			GOTO(put_child, rc);
 
@@ -1272,7 +1272,7 @@ static int mdt_rename_lock(struct mdt_thread_info *info,
 		rc = mdt_remote_object_lock(info, obj,
 					    &LUSTRE_BFL_FID, lh,
 					    LCK_EX,
-					    MDS_INODELOCK_UPDATE, false, false);
+					    MDS_INODELOCK_UPDATE, false);
 		mdt_object_put(info->mti_env, obj);
 	} else {
 		struct ldlm_namespace *ns = info->mti_mdt->mdt_namespace;
@@ -1651,7 +1651,7 @@ out_lease:
 		rc = mdt_remote_object_lock(info, msrcdir, mdt_object_fid(mold),
 					    &lh_childp->mlh_rreg_lh,
 					    lh_childp->mlh_rreg_mode,
-					    MDS_INODELOCK_LOOKUP, false, false);
+					    MDS_INODELOCK_LOOKUP, false);
 		if (rc != ELDLM_OK)
 			GOTO(out_unlock_list, rc);
 
@@ -1719,7 +1719,7 @@ out_lease:
 					    mdt_object_fid(mnew),
 					    &lh_tgtp->mlh_rreg_lh,
 					    lh_tgtp->mlh_rreg_mode,
-					    MDS_INODELOCK_UPDATE, false, false);
+					    MDS_INODELOCK_UPDATE, false);
 		if (rc != 0) {
 			lh_tgtp = NULL;
 			GOTO(out_put_new, rc);
@@ -2031,7 +2031,7 @@ relock:
 						    &lh_oldp->mlh_rreg_lh,
 						    lh_oldp->mlh_rreg_mode,
 						    MDS_INODELOCK_LOOKUP,
-						    false, false);
+						    false);
 			if (rc != ELDLM_OK)
 				GOTO(out_put_new, rc);
 
@@ -2080,7 +2080,7 @@ relock:
 						    &lh_oldp->mlh_rreg_lh,
 						    lh_oldp->mlh_rreg_mode,
 						    MDS_INODELOCK_LOOKUP,
-						    false, false);
+						    false);
 			if (rc != ELDLM_OK)
 				GOTO(out_put_old, rc);
 
