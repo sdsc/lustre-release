@@ -199,6 +199,14 @@ static void __exit lnet_exit(void)
 	lnet_lib_exit();
 }
 
+/*
+ * Weakly resolve the symbol dependency on compat in case of
+ * compiled with OFED but compat.ko module doesn't exist.
+ */
+void __attribute__((weak)) backport_dependency_symbol(void)
+{
+}
+
 MODULE_AUTHOR("OpenSFS, Inc. <http://www.lustre.org/>");
 MODULE_DESCRIPTION("Lustre Networking layer");
 MODULE_VERSION(LNET_VERSION);

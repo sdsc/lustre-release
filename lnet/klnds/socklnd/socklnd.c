@@ -2891,6 +2891,14 @@ static int __init ksocklnd_init(void)
 	return 0;
 }
 
+/*
+ * Weakly resolve the symbol dependency on compat in case of
+ * compiled with OFED but compat.ko module doesn't exist.
+ */
+void __attribute__((weak)) backport_dependency_symbol(void)
+{
+}
+
 MODULE_AUTHOR("OpenSFS, Inc. <http://www.lustre.org/>");
 MODULE_DESCRIPTION("TCP Socket LNet Network Driver");
 MODULE_VERSION("2.8.0");
