@@ -2414,43 +2414,37 @@ wait_remote_prog () {
     return $rc
 }
 
+client_reconnect_try() {
+	local clients=${1:-$CLIENTS}
+	local f=$MOUNT/recon
+
+	if [ -z "$clients" ]; then
+		$LFS df $MOUNT; uname -n >> $f
+		echo "Connected clients: $(cat $f)"
+		ls -l $f > /dev/null
+		rm $f
+	else
+		do_nodes $clients "$LFS df $MOUNT; uname -n >> $f; \
+				   echo 'Connected client: $(cat $f)'; \
+				   ls -l $f > /dev/null; rm $f " > /dev/null
+	fi
+}
+
+
 clients_up() {
-    # not every config has many clients
-    sleep 1
-    if [ ! -z "$CLIENTS" ]; then
-        $PDSH $CLIENTS "stat -f $MOUNT" > /dev/null
-    else
-        stat -f $MOUNT > /dev/null
-    fi
+	# not every config has many clients
+	sleep 1
+	client_reconnect_try
 }
 
 client_up() {
-    local client=$1
-    # usually checked on particular client or locally
-    sleep 1
-    if [ ! -z "$client" ]; then
-        $PDSH $client "stat -f $MOUNT" > /dev/null
-    else
-        stat -f $MOUNT > /dev/null
-    fi
+	# usually checked on particular client or locally
+	sleep 1
+	client_reconnect_try $1
 }
 
 client_evicted() {
     ! client_up $1
-}
-
-client_reconnect_try() {
-	local f=$MOUNT/recon
-
-	uname -n >> $f
-	if [ -z "$CLIENTS" ]; then
-		$LFS df $MOUNT; uname -n >> $f
-	else
-		do_nodes $CLIENTS "$LFS df $MOUNT; uname -n >> $f" > /dev/null
-	fi
-	echo "Connected clients: $(cat $f)"
-	ls -l $f > /dev/null
-	rm $f
 }
 
 client_reconnect() {
