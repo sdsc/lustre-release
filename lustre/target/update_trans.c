@@ -172,13 +172,12 @@ static int sub_updates_write(const struct lu_env *env,
 	struct llog_ctxt	*ctxt;
 	int			rc;
 	struct llog_update_record *lur = NULL;
-	struct update_params	*params = NULL;
 	__u32			update_count = 0;
 	__u32			param_count = 0;
 	__u32			last_update_count = 0;
 	__u32			last_param_count = 0;
-	void			*src;
 	void			*start;
+	void			*cur;
 	void			*next;
 	struct sub_thandle_cookie *stc;
 	ENTRY;
@@ -233,46 +232,31 @@ static int sub_updates_write(const struct lu_env *env,
 	memcpy(lur, &record->lur_hdr, sizeof(record->lur_hdr));
 	lur->lur_update_rec.ur_update_count = 0;
 	lur->lur_update_rec.ur_param_count = 0;
-	src = &record->lur_update_rec.ur_ops;
-	start = next = src;
-	lur->lur_hdr.lrh_len = llog_update_record_size(lur);
-	params = update_records_get_params(&record->lur_update_rec);
+	start = &record->lur_update_rec.ur_ops;
+	cur = next = start;
 	do {
-		size_t rec_len;
+		if (update_count < record->lur_update_rec.ur_update_count)
+			next = update_op_next_op((struct update_op *)cur);
+		else if (param_count < record->lur_update_rec.ur_param_count)
+			next = update_param_next_param(
+						(struct update_param *)cur);
 
-		if (update_count < record->lur_update_rec.ur_update_count) {
-			next = update_op_next_op((struct update_op *)src);
-		} else {
-			if (param_count == 0)
-				next = update_records_get_params(
-						&record->lur_update_rec);
-			else
-				next = (char *)src +
-					object_update_param_size(
-					(struct object_update_param *)src);
-		}
-
-		rec_len = cfs_size_round((unsigned long)(next - src));
 		/* If its size > llog chunk_size, then write current chunk to
 		 * the update llog. */
-		if (lur->lur_hdr.lrh_len + rec_len + LLOG_MIN_REC_SIZE >
+		if (__llog_update_record_size(
+			__update_records_size((size_t)(next - start))) >
 		    ctxt->loc_chunk_size ||
 		    param_count == record->lur_update_rec.ur_param_count) {
-			lur->lur_update_rec.ur_update_count =
-				update_count > last_update_count ?
-				update_count - last_update_count : 0;
+			lur->lur_update_rec.ur_update_count = update_count -
+							      last_update_count;
 			lur->lur_update_rec.ur_param_count = param_count -
 							     last_param_count;
-
 			memcpy(&lur->lur_update_rec.ur_ops, start,
-			       (unsigned long)(src - start));
-			if (last_update_count != 0)
-				lur->lur_update_rec.ur_flags |=
-						UPDATE_RECORD_CONTINUE;
-
-			update_records_dump(&lur->lur_update_rec, D_INFO, true);
+			       (unsigned long)(cur - start));
 			lur->lur_hdr.lrh_len = llog_update_record_size(lur);
 			LASSERT(lur->lur_hdr.lrh_len <= ctxt->loc_chunk_size);
+
+			update_records_dump(&lur->lur_update_rec, D_INFO, true);
 
 			OBD_ALLOC_PTR(stc);
 			if (stc == NULL)
@@ -299,14 +283,14 @@ static int sub_updates_write(const struct lu_env *env,
 
 			last_update_count = update_count;
 			last_param_count = param_count;
-			start = src;
+			start = cur;
 			lur->lur_update_rec.ur_update_count = 0;
 			lur->lur_update_rec.ur_param_count = 0;
-			lur->lur_hdr.lrh_len = llog_update_record_size(lur);
+			lur->lur_update_rec.ur_flags |= UPDATE_RECORD_CONTINUE;
+		} else {
+			cur = next;
 		}
 
-		src = next;
-		lur->lur_hdr.lrh_len += cfs_size_round(rec_len);
 		if (update_count < record->lur_update_rec.ur_update_count)
 			update_count++;
 		else if (param_count < record->lur_update_rec.ur_param_count)
