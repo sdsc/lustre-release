@@ -1071,7 +1071,7 @@ static int lmd_find_comma(char *buf, char **endh)
 		else if (*c == ']')
 			skip--;
 
-		if (*c == ',' && skip == 0) {
+		if ((*c == ',' || *c == ':') && skip == 0) {
 			if (endh != NULL)
 				*endh = c;
 			return 0;
