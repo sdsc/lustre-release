@@ -327,8 +327,8 @@ enum {
 static struct llog_handle *llog_cat_current_log(struct llog_handle *cathandle,
 						struct thandle *th)
 {
-        struct llog_handle *loghandle = NULL;
-        ENTRY;
+	struct llog_handle *loghandle = NULL;
+	ENTRY;
 
 
 	if (OBD_FAIL_CHECK(OBD_FAIL_MDS_LLOG_CREATE_FAILED2)) {
@@ -337,69 +337,58 @@ static struct llog_handle *llog_cat_current_log(struct llog_handle *cathandle,
 	}
 
 	down_read_nested(&cathandle->lgh_lock, LLOGH_CAT);
-        loghandle = cathandle->u.chd.chd_current_log;
-        if (loghandle) {
-		struct llog_log_hdr *llh;
-
+	loghandle = cathandle->u.chd.chd_current_log;
+	if (loghandle) {
 		down_write_nested(&loghandle->lgh_lock, LLOGH_LOG);
-		llh = loghandle->lgh_hdr;
-		if (llh == NULL || !llog_is_full(loghandle)) {
+		if (loghandle->lgh_hdr == NULL || !llog_is_full(loghandle)) {
 			up_read(&cathandle->lgh_lock);
-                        RETURN(loghandle);
-                } else {
-			up_write(&loghandle->lgh_lock);
-                }
-        }
+			RETURN(loghandle);
+		}
+		up_write(&loghandle->lgh_lock);
+	}
 	up_read(&cathandle->lgh_lock);
-
-	/* time to use next log */
 
 	/* first, we have to make sure the state hasn't changed */
 	down_write_nested(&cathandle->lgh_lock, LLOGH_CAT);
 	loghandle = cathandle->u.chd.chd_current_log;
 	if (loghandle) {
-		struct llog_log_hdr *llh;
-
 		down_write_nested(&loghandle->lgh_lock, LLOGH_LOG);
-		llh = loghandle->lgh_hdr;
-		LASSERT(llh);
+		LASSERT(loghandle->lgh_hdr);
 		if (!llog_is_full(loghandle))
 			GOTO(out_unlock, loghandle);
-		else
-			up_write(&loghandle->lgh_lock);
+
+		up_write(&loghandle->lgh_lock);
 	}
 
 next:
-	/* Sigh, the chd_next_log and chd_current_log is initialized
-	 * in declare phase, and we do not serialize the catlog
-	 * accessing, so it might be possible the llog creation
-	 * thread (see llog_cat_declare_add_rec()) did not create
-	 * llog successfully, then the following thread might
-	 * meet this situation. */
-	if (IS_ERR_OR_NULL(cathandle->u.chd.chd_next_log)) {
-		CERROR("%s: next log does not exist!\n",
-		       cathandle->lgh_ctxt->loc_obd->obd_name);
-		loghandle = ERR_PTR(-EIO);
-		if (cathandle->u.chd.chd_next_log == NULL) {
-			/* Store the error in chd_next_log, so
-			 * the following process can get correct
-			 * failure value */
-			cathandle->u.chd.chd_next_log = loghandle;
-		}
+	if (!IS_ERR_OR_NULL(cathandle->u.chd.chd_next_log)) {
+		loghandle = cathandle->u.chd.chd_next_log;
+		cathandle->u.chd.chd_current_log = loghandle;
+		cathandle->u.chd.chd_next_log = NULL;
+
+		CDEBUG(D_INODE, "use next log\n");
+		down_write_nested(&loghandle->lgh_lock, LLOGH_LOG);
 		GOTO(out_unlock, loghandle);
 	}
 
-	CDEBUG(D_INODE, "use next log\n");
+	if (!IS_ERR_OR_NULL(cathandle->u.chd.chd_next_log2)) {
+		loghandle = cathandle->u.chd.chd_next_log2;
+		cathandle->u.chd.chd_current_log = loghandle;
+		cathandle->u.chd.chd_next_log2 = NULL;
 
-	loghandle = cathandle->u.chd.chd_next_log;
-	cathandle->u.chd.chd_current_log = loghandle;
-	cathandle->u.chd.chd_next_log = NULL;
-	down_write_nested(&loghandle->lgh_lock, LLOGH_LOG);
+		CDEBUG(D_INODE, "use next log2\n");
+		down_write_nested(&loghandle->lgh_lock, LLOGH_LOG);
+		GOTO(out_unlock, loghandle);
+	}
+
+	CERROR("%s: next log/log2 does not exist!\n",
+	       cathandle->lgh_ctxt->loc_obd->obd_name);
+
+	GOTO(out_unlock, loghandle = ERR_PTR(-EIO));
 
 out_unlock:
 	up_write(&cathandle->lgh_lock);
-	LASSERT(loghandle);
-	RETURN(loghandle);
+	return loghandle;
 }
 
 static int llog_cat_update_header(const struct lu_env *env,
@@ -507,37 +496,65 @@ int llog_cat_declare_add_rec(const struct lu_env *env,
 
 	ENTRY;
 
+	/* In theory, it is possible that the concurrent multiple llog
+	 * append operations, such as unlink large striped (large EA)
+	 * files concurrently, that can fill up an empty llog in very
+	 * short time. Because the llog may be shared (at the same time)
+	 * by many concurrent modifications, everyone needs to prepare
+	 * three llogs (chd_current_log, chd_next_log, chd_next_log2)
+	 * during the declare phase.
+	 *
+	 * In theory, that is still not absolutely safe. But let's pray
+	 * that it will NOT happen that more than 2 llogs are filled up
+	 * by multiple concurrent modifications in very short time. LU-8527 */
+
 	if (cathandle->u.chd.chd_current_log == NULL) {
 		/* declare new plain llog */
 		down_write(&cathandle->lgh_lock);
 		if (cathandle->u.chd.chd_current_log == NULL) {
 			rc = llog_open(env, cathandle->lgh_ctxt, &loghandle,
 				       NULL, NULL, LLOG_OPEN_NEW);
-			if (rc == 0) {
-				cathandle->u.chd.chd_current_log = loghandle;
-				list_add_tail(&loghandle->u.phd.phd_entry,
-					      &cathandle->u.chd.chd_head);
-			}
-		}
-		up_write(&cathandle->lgh_lock);
-	} else if (cathandle->u.chd.chd_next_log == NULL ||
-		   IS_ERR(cathandle->u.chd.chd_next_log)) {
-		/* declare next plain llog */
-		down_write(&cathandle->lgh_lock);
-		if (cathandle->u.chd.chd_next_log == NULL ||
-		    IS_ERR(cathandle->u.chd.chd_next_log)) {
-			rc = llog_open(env, cathandle->lgh_ctxt, &loghandle,
-				       NULL, NULL, LLOG_OPEN_NEW);
-			if (rc == 0) {
-				cathandle->u.chd.chd_next_log = loghandle;
-				list_add_tail(&loghandle->u.phd.phd_entry,
-					      &cathandle->u.chd.chd_head);
-			}
+			if (rc)
+				GOTO(out_unlock, rc);
+
+			cathandle->u.chd.chd_current_log = loghandle;
+			list_add_tail(&loghandle->u.phd.phd_entry,
+				      &cathandle->u.chd.chd_head);
 		}
 		up_write(&cathandle->lgh_lock);
 	}
-	if (rc)
-		GOTO(out, rc);
+
+	if (IS_ERR_OR_NULL(cathandle->u.chd.chd_next_log)) {
+		/* declare next plain llog */
+		down_write(&cathandle->lgh_lock);
+		if (IS_ERR_OR_NULL(cathandle->u.chd.chd_next_log)) {
+			rc = llog_open(env, cathandle->lgh_ctxt, &loghandle,
+				       NULL, NULL, LLOG_OPEN_NEW);
+			if (rc)
+				GOTO(out_unlock, rc);
+
+			cathandle->u.chd.chd_next_log = loghandle;
+			list_add_tail(&loghandle->u.phd.phd_entry,
+				      &cathandle->u.chd.chd_head);
+		}
+		up_write(&cathandle->lgh_lock);
+	}
+
+	if (IS_ERR_OR_NULL(cathandle->u.chd.chd_next_log2)) {
+		/* declare the 2nd next plain llog */
+		down_write(&cathandle->lgh_lock);
+		if (IS_ERR_OR_NULL(cathandle->u.chd.chd_next_log2)) {
+			rc = llog_open(env, cathandle->lgh_ctxt, &loghandle,
+				       NULL, NULL, LLOG_OPEN_NEW);
+			if (rc)
+				GOTO(out_unlock, rc);
+
+			cathandle->u.chd.chd_next_log2 = loghandle;
+			list_add_tail(&loghandle->u.phd.phd_entry,
+				      &cathandle->u.chd.chd_head);
+		}
+		up_write(&cathandle->lgh_lock);
+	}
 
 	lirec->lid_hdr.lrh_len = sizeof(*lirec);
 
@@ -571,19 +588,21 @@ create_again:
 			up_read(&cathandle->lgh_lock);
 			if (rc == -ESTALE) {
 				rc = llog_cat_update_header(env, cathandle);
-				if (rc != 0)
-					GOTO(out, rc);
-				goto create_again;
-			} else if (rc < 0) {
-				GOTO(out, rc);
+				if (!rc)
+					goto create_again;
 			}
-		} else {
-			rc = llog_declare_create(env,
-					cathandle->u.chd.chd_current_log, th);
 			if (rc)
 				GOTO(out, rc);
-			llog_declare_write_rec(env, cathandle,
-					       &lirec->lid_hdr, -1, th);
+		} else if (th->th_llog_handlers < LLOG_HANDLERS_MAX_DECLARED) {
+			rc = llog_declare_create(env,
+					cathandle->u.chd.chd_current_log, th);
+			if (!rc)
+				rc = llog_declare_write_rec(env, cathandle,
+						&lirec->lid_hdr, -1, th);
+			if (rc)
+				GOTO(out, rc);
+
+			th->th_llog_handlers++;
 		}
 	}
 
@@ -593,66 +612,62 @@ write_again:
 				    rec, -1, th);
 	if (rc == -ESTALE) {
 		down_write(&cathandle->lgh_lock);
-		if (cathandle->lgh_stale) {
-			up_write(&cathandle->lgh_lock);
-			GOTO(out, rc = -EIO);
-		}
+		if (cathandle->lgh_stale)
+			GOTO(out_unlock, rc = -EIO);
 
 		cathandle->lgh_stale = 1;
 		up_write(&cathandle->lgh_lock);
 		rc = llog_cat_update_header(env, cathandle);
-		if (rc != 0)
-			GOTO(out, rc);
-		goto write_again;
-	} else if (rc < 0) {
-		GOTO(out, rc);
+		if (!rc)
+			goto write_again;
 	}
+	if (rc)
+		GOTO(out, rc);
 
 	next = cathandle->u.chd.chd_next_log;
-	if (!IS_ERR_OR_NULL(next)) {
-		if (!llog_exist(next)) {
-			if (dt_object_remote(cathandle->lgh_obj)) {
-				/* For remote operation, if we put the llog
-				 * object creation in the current transaction,
-				 * then the llog object will not be created on
-				 * the remote target until the transaction stop,
-				 * if other operations start before the
-				 * transaction stop, and use the same llog
-				 * object, will be dependent on the success of
-				 * this transaction. So let's create the llog
-				 * object synchronously here to remove the
-				 * dependency. */
-				down_write_nested(&cathandle->lgh_lock,
-						 LLOGH_CAT);
-				next = cathandle->u.chd.chd_next_log;
-				if (IS_ERR_OR_NULL(next)) {
-					/* Sigh, another thread just tried,
-					 * let's fail as well */
-					up_write(&cathandle->lgh_lock);
-					if (next == NULL)
-						rc = -EIO;
-					else
-						rc = PTR_ERR(next);
-					GOTO(out, rc);
-				}
-
-				down_write_nested(&next->lgh_lock, LLOGH_LOG);
-				if (!llog_exist(next)) {
-					rc = llog_cat_new_log(env, cathandle,
-							      next, NULL);
-					if (rc < 0)
-						cathandle->u.chd.chd_next_log =
-								ERR_PTR(rc);
-				}
-				up_write(&next->lgh_lock);
-				up_write(&cathandle->lgh_lock);
-				if (rc < 0)
-					GOTO(out, rc);
-			} else {
-				rc = llog_declare_create(env, next, th);
-				llog_declare_write_rec(env, cathandle,
-						&lirec->lid_hdr, -1, th);
+	if (!IS_ERR_OR_NULL(next) && !llog_exist(next)) {
+		if (dt_object_remote(cathandle->lgh_obj)) {
+			/* For remote operation, if we put the llog object
+			 * creation in the current transaction, then the
+			 * llog object will not be created on the remote
+			 * target until the transaction stop, if other
+			 * operations start before the transaction stop,
+			 * and use the same llog object, will be dependent
+			 * on the success of this transaction. So let's
+			 * create the llog object synchronously here to
+			 * remove the dependency. */
+			down_write_nested(&cathandle->lgh_lock, LLOGH_CAT);
+			next = cathandle->u.chd.chd_next_log;
+			if (IS_ERR_OR_NULL(next)) {
+				/* Sigh, another thread just tried,
+				 * let's fail as well */
+				if (next == NULL)
+					rc = -EIO;
+				else
+					rc = PTR_ERR(next);
+				GOTO(out_unlock, rc);
 			}
+
+			down_write_nested(&next->lgh_lock, LLOGH_LOG);
+			if (!llog_exist(next)) {
+				rc = llog_cat_new_log(env, cathandle,
+						      next, NULL);
+				if (rc < 0)
+					cathandle->u.chd.chd_next_log =
+								ERR_PTR(rc);
+			}
+			up_write(&next->lgh_lock);
+			if (rc)
+				GOTO(out_unlock, rc);
+		} else if (th->th_llog_handlers < LLOG_HANDLERS_MAX_DECLARED) {
+			rc = llog_declare_create(env, next, th);
+			if (!rc)
+				rc = llog_declare_write_rec(env, cathandle,
+						&lirec->lid_hdr, -1, th);
+			if (rc)
+				GOTO(out, rc);
+
+			th->th_llog_handlers++;
 		}
 		/* XXX: we hope for declarations made for existing llog
 		 *	this might be not correct with some backends
@@ -660,8 +675,32 @@ write_again:
 		 *	object like ZFS with full debugging enabled */
 		/*llog_declare_write_rec(env, next, rec, -1, th);*/
 	}
+
+	next = cathandle->u.chd.chd_next_log2;
+	if (!IS_ERR_OR_NULL(next) && !llog_exist(next) &&
+	    !dt_object_remote(cathandle->lgh_obj) &&
+	    th->th_llog_handlers < LLOG_HANDLERS_MAX_DECLARED) {
+		rc = llog_declare_create(env, next, th);
+		if (!rc)
+			rc = llog_declare_write_rec(env, cathandle,
+						&lirec->lid_hdr, -1, th);
+		if (rc)
+			GOTO(out, rc);
+
+		th->th_llog_handlers++;
+		/* XXX: we hope for declarations made for existing llog
+		 *	this might be not correct with some backends
+		 *	where declarations are expected against specific
+		 *	object like ZFS with full debugging enabled */
+		/*llog_declare_write_rec(env, next, rec, -1, th);*/
+	}
+
+	GOTO(out, rc = 0);
+
+out_unlock:
+	up_write(&cathandle->lgh_lock);
 out:
-	RETURN(rc);
+	return rc;
 }
 EXPORT_SYMBOL(llog_cat_declare_add_rec);
 

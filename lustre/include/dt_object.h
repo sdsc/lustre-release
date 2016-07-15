@@ -1858,6 +1858,9 @@ struct thandle {
 	 * this value is used in recovery */
 	__s32             th_result;
 
+	/** how many llog handlers have been declared to be created. */
+	int		  th_llog_handlers;
+
 	/** whether we need sync commit */
 	unsigned int		th_sync:1,
 	/* local transation, no need to inform other layers */

@@ -72,10 +72,13 @@ struct plain_handle_data {
 	struct llog_cookie	phd_cookie;
 };
 
+#define LLOG_HANDLERS_MAX_DECLARED	3
+
 struct cat_handle_data {
 	struct list_head	chd_head;
 	struct llog_handle     *chd_current_log;/* currently open log */
 	struct llog_handle     *chd_next_log;	/* llog to be used next */
+	struct llog_handle     *chd_next_log2;	/* the 2nd next llog */
 };
 
 struct llog_handle;
