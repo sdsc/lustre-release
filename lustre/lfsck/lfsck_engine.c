@@ -1568,6 +1568,7 @@ int lfsck_assistant_engine(void *args)
 	int				   rc      = 0;
 	int				   rc1	   = 0;
 	int				   rc2;
+	bool				   phase1  = true;
 	ENTRY;
 
 	CDEBUG(D_LFSCK, "%s: %s LFSCK assistant thread start\n",
@@ -1597,7 +1598,7 @@ int lfsck_assistant_engine(void *args)
 
 			if (unlikely(lad->lad_exit ||
 				     !thread_is_running(mthread)))
-				GOTO(cleanup1, rc = lad->lad_post_result);
+				GOTO(cleanup, rc = lad->lad_post_result);
 
 			lar = list_entry(lad->lad_req_list.next,
 					 struct lfsck_assistant_req,
@@ -1622,7 +1623,7 @@ int lfsck_assistant_engine(void *args)
 
 			lao->la_req_fini(env, lar);
 			if (rc < 0 && bk->lb_param & LPF_FAILOUT)
-				GOTO(cleanup1, rc);
+				GOTO(cleanup, rc);
 		}
 
 		l_wait_event(athread->t_ctl_waitq,
@@ -1633,7 +1634,7 @@ int lfsck_assistant_engine(void *args)
 			     &lwi);
 
 		if (unlikely(lad->lad_exit))
-			GOTO(cleanup1, rc = lad->lad_post_result);
+			GOTO(cleanup, rc = lad->lad_post_result);
 
 		if (!list_empty(&lad->lad_req_list))
 			continue;
@@ -1643,7 +1644,7 @@ int lfsck_assistant_engine(void *args)
 			       lfsck_lfsck2name(lfsck), lad->lad_name);
 
 			if (unlikely(lad->lad_exit))
-				GOTO(cleanup1, rc = lad->lad_post_result);
+				GOTO(cleanup, rc = lad->lad_post_result);
 
 			lad->lad_to_post = 0;
 			LASSERT(lad->lad_post_result > 0);
@@ -1663,6 +1664,7 @@ int lfsck_assistant_engine(void *args)
 		}
 
 		if (lad->lad_to_double_scan) {
+			phase1 = false;
 			lad->lad_to_double_scan = 0;
 			atomic_inc(&lfsck->li_double_scan_count);
 			lad->lad_in_double_scan = 1;
@@ -1687,7 +1689,7 @@ int lfsck_assistant_engine(void *args)
 			       lfsck_lfsck2name(lfsck), rc2);
 
 			if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_NO_DOUBLESCAN))
-				GOTO(cleanup2, rc = 0);
+				GOTO(cleanup, rc = 0);
 
 			while (lad->lad_in_double_scan) {
 				rc = lfsck_assistant_query_others(env, com);
@@ -1695,7 +1697,7 @@ int lfsck_assistant_engine(void *args)
 					goto p2_next;
 
 				if (rc < 0)
-					GOTO(cleanup2, rc);
+					GOTO(cleanup, rc);
 
 				/* Pull LFSCK status on related targets once
 				 * per 30 seconds if we are not notified. */
@@ -1710,35 +1712,36 @@ int lfsck_assistant_engine(void *args)
 
 				if (unlikely(lad->lad_exit ||
 					     !thread_is_running(mthread)))
-					GOTO(cleanup2, rc = 0);
+					GOTO(cleanup, rc = 0);
 
 				if (rc == -ETIMEDOUT)
 					continue;
 
 				if (rc < 0)
-					GOTO(cleanup2, rc);
+					GOTO(cleanup, rc);
 
 p2_next:
 				rc = lao->la_handler_p2(env, com);
 				if (rc != 0)
-					GOTO(cleanup2, rc);
+					GOTO(cleanup, rc);
 
 				if (unlikely(lad->lad_exit ||
 					     !thread_is_running(mthread)))
-					GOTO(cleanup2, rc = 0);
+					GOTO(cleanup, rc = 0);
 			}
 		}
 	}
 
-cleanup1:
+cleanup:
 	/* Cleanup the unfinished requests. */
 	spin_lock(&lad->lad_lock);
 	if (rc < 0)
 		lad->lad_assistant_status = rc;
 
-	if (lad->lad_exit && lad->lad_post_result <= 0)
+	if (phase1 && lad->lad_exit && lad->lad_post_result <= 0)
 		lao->la_fill_pos(env, com, &lfsck->li_pos_checkpoint);
 
+	thread_set_flags(athread, SVC_STOPPING);
 	while (!list_empty(&lad->lad_req_list)) {
 		lar = list_entry(lad->lad_req_list.next,
 				 struct lfsck_assistant_req,
@@ -1754,7 +1757,6 @@ cleanup1:
 	LASSERTF(lad->lad_prefetched == 0, "unmatched prefeteched objs %d\n",
 		 lad->lad_prefetched);
 
-cleanup2:
 	memset(lr, 0, sizeof(*lr));
 	if (rc > 0) {
 		lr->lr_event = LE_PHASE2_DONE;
