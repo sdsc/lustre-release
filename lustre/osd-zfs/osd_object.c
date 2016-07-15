@@ -551,6 +551,10 @@ static int osd_declare_object_destroy(const struct lu_env *env,
 	else
 		dmu_tx_hold_zap(oh->ot_tx, osd->od_unlinkedid, TRUE, NULL);
 
+	/* will help to find FID->ino when this object is being
+	 * added to PENDING/ */
+	osd_idc_find_and_init(env, osd, obj);
+
 	RETURN(0);
 }
 
@@ -1112,6 +1116,13 @@ static void osd_ah_init(const struct lu_env *env, struct dt_allocation_hint *ah,
 
 	ah->dah_parent = parent;
 	ah->dah_mode = child_mode;
+
+	if (parent != NULL && !dt_object_remote(parent)) {
+		/* will help to find FID->ino at dt_insert("..") */
+		struct osd_object *pobj = osd_dt_obj(parent);
+
+		osd_idc_find_and_init(env, osd_obj2dev(pobj), pobj);
+	}
 }
 
 static int osd_declare_object_create(const struct lu_env *env,
@@ -1182,8 +1193,12 @@ static int osd_declare_object_create(const struct lu_env *env,
 	__osd_xattr_declare_set(env, obj, sizeof(struct lustre_mdt_attrs),
 				XATTR_NAME_LMA, oh);
 
+	/* will help to find FID->ino mapping at dt_insert() */
+	osd_idc_find_and_init(env, osd, obj);
+
 	rc = osd_declare_quota(env, osd, attr->la_uid, attr->la_gid, 1, oh,
 			       false, NULL, false);
+
 	RETURN(rc);
 }
 
@@ -1574,7 +1589,9 @@ static int osd_object_create(const struct lu_env *env, struct dt_object *dt,
 	LASSERT(osd_invariant(obj));
 
 	rc = osd_init_lma(env, obj, fid, oh);
-	if (rc != 0)
+	if (rc == 0)
+		osd_idc_find_and_init(env, osd, obj);
+	else
 		CERROR("%s: can not set LMA on "DFID": rc = %d\n",
 		       osd->od_svname, PFID(fid), rc);
 
