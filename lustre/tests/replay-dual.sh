@@ -537,7 +537,7 @@ test_21b_sub () {
 	replay_barrier_nosync $mds
 	shutdown_client $CLIENT2 $MOUNT1
 
-	facet_failover $mds
+	CLEAR_DEV_READONLY=false facet_failover $mds
 
 	# were renames replayed?
 	local rc=0
