@@ -1546,20 +1546,44 @@ int ldlm_handle_convert0(struct ptlrpc_request *req,
         lock = ldlm_handle2lock(&dlm_req->lock_handle[0]);
         if (!lock) {
 		req->rq_status = LUSTRE_EINVAL;
-        } else {
-                void *res = NULL;
+	} else {
+		void *res = NULL;
+		__u64 bits;
+		__u64 new;
 
+		bits = lock->l_policy_data.l_inodebits.bits;
+		new = dlm_req->lock_desc.l_policy_data.l_inodebits.bits;
                 LDLM_DEBUG(lock, "server-side convert handler START");
 
-                res = ldlm_lock_convert(lock, dlm_req->lock_desc.l_req_mode,
-                                        &dlm_rep->lock_flags);
-                if (res) {
-                        if (ldlm_del_waiting_lock(lock))
-                                LDLM_DEBUG(lock, "converted waiting lock");
-                        req->rq_status = 0;
-                } else {
-			req->rq_status = LUSTRE_EDEADLK;
-                }
+		if (bits != new) {
+			LASSERT(dlm_req->lock_desc.l_req_mode ==
+				lock->l_granted_mode);
+
+			lock_res_and_lock(lock);
+			if (ldlm_is_waited(lock))
+				ldlm_del_waiting_lock(lock);
+
+			ldlm_clear_cbpending(lock);
+			/* IBITS downgrade */
+			ldlm_inodebits_downgrade(lock, bits & ~new);
+			lock->l_bl_ast_run = 0;
+			ldlm_clear_ast_sent(lock);
+			unlock_res_and_lock(lock);
+
+			req->rq_status = 0;
+		} else {
+			res = ldlm_lock_convert(lock,
+						dlm_req->lock_desc.l_req_mode,
+						&dlm_rep->lock_flags);
+			if (res) {
+				if (ldlm_del_waiting_lock(lock))
+					LDLM_DEBUG(lock,
+						   "converted waiting lock");
+				req->rq_status = 0;
+			} else {
+				req->rq_status = LUSTRE_EDEADLK;
+			}
+		}
         }
 
         if (lock) {
@@ -1569,7 +1593,6 @@ int ldlm_handle_convert0(struct ptlrpc_request *req,
                 LDLM_LOCK_PUT(lock);
         } else
                 LDLM_DEBUG_NOLOCK("server-side convert handler END");
-
         RETURN(0);
 }
 
