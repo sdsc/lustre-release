@@ -1076,7 +1076,8 @@ int ldlm_cli_convert(const struct lustre_handle *lockh, int new_mode,
 
         body->lock_desc.l_req_mode = new_mode;
 	body->lock_flags = ldlm_flags_to_wire(*flags);
-
+	body->lock_desc.l_policy_data.l_inodebits.bits =
+					lock->l_policy_data.l_inodebits.bits;
 
         ptlrpc_request_set_replen(req);
         rc = ptlrpc_queue_wait(req);
@@ -1376,7 +1377,8 @@ int ldlm_cli_cancel(const struct lustre_handle *lockh,
 
 	lock_res_and_lock(lock);
 	/* Lock is being canceled and the caller doesn't want to wait */
-	if (ldlm_is_canceling(lock) && (cancel_flags & LCF_ASYNC)) {
+	if ((ldlm_is_canceling(lock) && (cancel_flags & LCF_ASYNC)) ||
+	     ldlm_is_converting(lock)) {
 		unlock_res_and_lock(lock);
 		LDLM_LOCK_RELEASE(lock);
 		RETURN(0);
@@ -1890,7 +1892,8 @@ int ldlm_cancel_resource_local(struct ldlm_resource *res,
 
 		/* If somebody is already doing CANCEL, or blocking AST came,
 		 * skip this lock. */
-		if (ldlm_is_bl_ast(lock) || ldlm_is_canceling(lock))
+		if (ldlm_is_bl_ast(lock) || ldlm_is_canceling(lock) ||
+		    ldlm_is_converting(lock))
 			continue;
 
                 if (lockmode_compat(lock->l_granted_mode, mode))
