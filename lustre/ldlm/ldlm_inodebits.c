@@ -261,3 +261,72 @@ void ldlm_ibits_policy_local_to_wire(const union ldlm_policy_data *lpolicy,
 	memset(wpolicy, 0, sizeof(*wpolicy));
 	wpolicy->l_inodebits.bits = lpolicy->l_inodebits.bits;
 }
+
+/**
+ * Attempt to convert already granted IBITS lock with several bits set to
+ * a lock with less bits (downgrade).
+ *
+ * Such lock conversion is used to keep lock with non-blocking bits instead of
+ * cancelling it, introduced for better support of DoM files.
+ */
+int ldlm_inodebits_downgrade(struct ldlm_lock *lock,  __u64 wanted)
+{
+	ENTRY;
+
+	check_res_locked(lock->l_resource);
+	/* Just return if there are no conflicting bits */
+	if ((lock->l_policy_data.l_inodebits.bits & wanted) == 0) {
+		CERROR("Attempt to downgrade but no conflicts "LPU64"/"LPU64
+		       "\n", lock->l_policy_data.l_inodebits.bits, wanted);
+		RETURN(-EINVAL);
+	}
+	LASSERT(lock->l_resource->lr_type == LDLM_IBITS);
+
+	/* remove lock from a skiplist and put in the new place
+	 * according with new inodebits */
+	ldlm_resource_unlink_lock(lock);
+	lock->l_policy_data.l_inodebits.bits &= ~wanted;
+	ldlm_grant_lock_with_skiplist(lock);
+
+	RETURN(0);
+}
+
+int ldlm_cli_inodebits_downgrade(struct ldlm_lock *lock,  __u64 wanted)
+{
+	struct lustre_handle lockh;
+	__u32 flags = 0;
+	int rc;
+
+	ENTRY;
+
+	ldlm_lock2handle(lock, &lockh);
+
+	lock_res_and_lock(lock);
+	/* check if there is race with cancel */
+	if (ldlm_is_canceling(lock) || ldlm_is_cancel(lock)) {
+		unlock_res_and_lock(lock);
+		RETURN(-EINVAL);
+	}
+	ldlm_lock_addref_internal_nolock(lock, lock->l_granted_mode);
+	ldlm_set_converting(lock);
+
+	rc = ldlm_inodebits_downgrade(lock, wanted);
+	unlock_res_and_lock(lock);
+	if (rc != 0) {
+		LBUG();
+		RETURN(rc);
+	}
+	/* now send convert RPC to the server */
+	rc = ldlm_cli_convert(&lockh, lock->l_granted_mode, &flags);
+	lock_res_and_lock(lock);
+	ldlm_clear_converting(lock);
+	if (rc == 0) {
+		ldlm_clear_cbpending(lock);
+		ldlm_clear_bl_ast(lock);
+	}
+	ldlm_lock_decref_internal_nolock(lock, lock->l_granted_mode);
+	unlock_res_and_lock(lock);
+
+	RETURN(rc);
+}
+EXPORT_SYMBOL(ldlm_cli_inodebits_downgrade);
