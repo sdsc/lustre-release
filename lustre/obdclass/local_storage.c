@@ -638,9 +638,7 @@ int local_object_unlink(const struct lu_env *env, struct dt_device *dt,
 	ENTRY;
 
 	rc = dt_lookup_dir(env, parent, name, &dti->dti_fid);
-	if (rc == -ENOENT)
-		RETURN(0);
-	else if (rc < 0)
+	if (rc < 0)
 		RETURN(rc);
 
 	dto = dt_locate(env, dt, &dti->dti_fid);
@@ -651,6 +649,9 @@ int local_object_unlink(const struct lu_env *env, struct dt_device *dt,
 	if (IS_ERR(th))
 		GOTO(out, rc = PTR_ERR(th));
 
+	/* It is used for unlink filesystem backend local objects,
+	 * use sync mode to avoid recovery trouble. */
+	th->th_sync = 1;
 	rc = local_object_declare_unlink(env, dt, parent, dto, name, th);
 	if (rc < 0)
 		GOTO(stop, rc);
