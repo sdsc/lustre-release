@@ -1510,14 +1510,9 @@ test_14() {
 	ls -ail $DIR/$tdir > /dev/null 2>&1 && error "(1) ls should fail."
 
 	echo "Trigger layout LFSCK to find out dangling reference"
-	$START_LAYOUT -r || error "(2) Fail to start LFSCK for layout!"
+	$START_LAYOUT -r -o || error "(2) Fail to start LFSCK for layout!"
 
-	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
-		mdd.${MDT_DEV}.lfsck_layout |
-		awk '/^status/ { print \\\$2 }'" "completed" 32 || {
-		$SHOW_LAYOUT
-		error "(3) unexpected status"
-	}
+	wait_all_targets_blocked layout completed 3
 
 	local repaired=$($SHOW_LAYOUT |
 			 awk '/^repaired_dangling/ { print $2 }')
@@ -1528,14 +1523,9 @@ test_14() {
 	stat $DIR/$tdir/guard > /dev/null 2>&1 && error "(5) stat should fail"
 
 	echo "Trigger layout LFSCK to repair dangling reference"
-	$START_LAYOUT -r -c || error "(6) Fail to start LFSCK for layout!"
+	$START_LAYOUT -r -o -c || error "(6) Fail to start LFSCK for layout!"
 
-	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
-		mdd.${MDT_DEV}.lfsck_layout |
-		awk '/^status/ { print \\\$2 }'" "completed" 32 || {
-		$SHOW_LAYOUT
-		error "(7) unexpected status"
-	}
+	wait_all_targets_blocked layout completed 7
 
 	# There may be some async LFSCK updates in processing, wait for
 	# a while until the target reparation has been done. LU-4970.
@@ -2117,11 +2107,9 @@ run_test 18c "Find out orphan OST-object and repair it (3)"
 
 test_18d() {
 	echo "#####"
-	echo "The target MDT-object layout EA slot is occpuied by some new"
-	echo "created OST-object when repair dangling reference case. Such"
-	echo "conflict OST-object has never been modified. Then when found"
-	echo "the orphan OST-object, LFSCK will replace it with the orphan"
-	echo "OST-object."
+	echo "The target MDT-object layout EA is corrupted, but the right"
+	echo "OST-object is still alive as orphan. The layout LFSCK will"
+	echo "not create new OST-object to occupy such slot."
 	echo "#####"
 
 	check_mount_and_prep
@@ -2197,10 +2185,16 @@ test_18d() {
 	[ $repaired -eq 1 ] ||
 		error "(5) Expect 1 orphan has been fixed, but got: $repaired"
 
+	repaired=$(do_facet $SINGLEMDS $LCTL get_param -n \
+		   mdd.$(facet_svc $SINGLEMDS).lfsck_layout |
+		   awk '/^repaired_dangling/ { print $2 }')
+	[ $repaired -eq 0 ] ||
+		error "(6) Expect 0 dangling has been fixed, but got: $repaired"
+
 	echo "The file size should be correct after layout LFSCK scanning"
 	cur_size=$(ls -il $DIR/$tdir/a1/f2 | awk '{ print $6 }')
 	[ "$cur_size" == "$saved_size" ] ||
-		error "(6) Expect file2 size $saved_size, but got $cur_size"
+		error "(7) Expect file2 size $saved_size, but got $cur_size"
 
 	echo "The LFSCK should find back the original data."
 	cat $DIR/$tdir/a1/f2
@@ -2209,6 +2203,7 @@ test_18d() {
 }
 run_test 18d "Find out orphan OST-object and repair it (4)"
 
+# test_18 is obsolete because of LU-8288.
 test_18e() {
 	echo "#####"
 	echo "The target MDT-object layout EA slot is occpuied by some new"
@@ -2324,7 +2319,7 @@ test_18e() {
 	$LFS path2fid $DIR/$tdir/a1/f2
 	$LFS getstripe $DIR/$tdir/a1/f2
 }
-run_test 18e "Find out orphan OST-object and repair it (5)"
+#run_test 18e "Find out orphan OST-object and repair it (5)"
 
 test_18f() {
 	[ $OSTCOUNT -lt 2 ] &&
