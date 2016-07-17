@@ -45,6 +45,7 @@ mkdir -p $MOUNT2
 mount_client $MOUNT2
 
 lctl set_param debug=0xffffffff 2> /dev/null
+lctl set_param panic_on_lbug=0
 
 test_1() {
 	dd if=/dev/zero of=$DIR1/$tfile bs=7k count=1 || error "write 1"

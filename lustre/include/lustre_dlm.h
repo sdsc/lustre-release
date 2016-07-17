@@ -1578,6 +1578,7 @@ int ldlm_cli_cancel_list_local(struct list_head *cancels, int count,
 int ldlm_cli_cancel_list(struct list_head *head, int count,
 			 struct ptlrpc_request *req,
 			 enum ldlm_cancel_flags flags);
+int ldlm_cli_inodebits_downgrade(struct ldlm_lock *lock,  __u64 wanted);
 /** @} ldlm_cli_api */
 
 /* mds/handler.c */
