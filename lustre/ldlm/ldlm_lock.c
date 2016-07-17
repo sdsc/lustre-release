@@ -1068,7 +1068,7 @@ static void ldlm_granted_list_add_lock(struct ldlm_lock *lock,
  * Add a lock to granted list on a resource maintaining skiplist
  * correctness.
  */
-static void ldlm_grant_lock_with_skiplist(struct ldlm_lock *lock)
+void ldlm_grant_lock_with_skiplist(struct ldlm_lock *lock)
 {
         struct sl_insert_point prev;
         ENTRY;
@@ -2265,6 +2265,7 @@ void ldlm_lock_cancel(struct ldlm_lock *lock)
          * talking to me first. -phik */
         if (lock->l_readers || lock->l_writers) {
                 LDLM_ERROR(lock, "lock still has references");
+		unlock_res_and_lock(lock);
                 LBUG();
         }
 
