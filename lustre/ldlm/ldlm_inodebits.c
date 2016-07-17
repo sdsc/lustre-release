@@ -197,51 +197,87 @@ int ldlm_process_inodebits_lock(struct ldlm_lock *lock, __u64 *flags,
 	INIT_LIST_HEAD(&rpc_list);
 	check_res_locked(res);
 
-	/* (*flags & LDLM_FL_BLOCK_NOWAIT) is for layout lock right now. */
-        if (!first_enq || (*flags & LDLM_FL_BLOCK_NOWAIT)) {
-		*err = ELDLM_LOCK_ABORTED;
-		if (*flags & LDLM_FL_BLOCK_NOWAIT)
+	/* The LDLM_FL_BLOCK_NOWAIT flag is used by MDT in several cases:
+	 * - to get layout lock in advance during open and getattr
+	 * - for COS locks to resolve DNE remote objects conflicts
+	 */
+	if (!first_enq || (*flags & LDLM_FL_BLOCK_NOWAIT)) {
+		struct list_head *ast_list;
+
+		if (*flags & LDLM_FL_BLOCK_NOWAIT) {
+			ast_list = NULL;
 			*err = ELDLM_LOCK_WOULDBLOCK;
+		} else {
+			ast_list = &rpc_list;
+			*err = ELDLM_LOCK_ABORTED;
+		}
+restart2:
+		rc = ldlm_inodebits_compat_queue(&res->lr_granted, lock,
+						 ast_list);
+		if (rc == 0) {
+			if (!ast_list || list_empty(ast_list))
+				RETURN(LDLM_ITER_STOP);
 
-                rc = ldlm_inodebits_compat_queue(&res->lr_granted, lock, NULL);
-                if (!rc)
-                        RETURN(LDLM_ITER_STOP);
-                rc = ldlm_inodebits_compat_queue(&res->lr_waiting, lock, NULL);
-                if (!rc)
-                        RETURN(LDLM_ITER_STOP);
+			/* It is possible that lock was converted and is kept
+			 * in granted queue but there was another new lock that
+			 * conflicts too, so blocking AST should be sent again:
+			 * 1) lock1 conflicts with lock2
+			 * 2) bl_ast was sent for lock2
+			 * 3) lock3 comes and conflicts with lock2 too
+			 * 4) no bl_ast sent because lock2->l_bl_ast_sent is 1
+			 * 5) lock2 was converted for lock1 but not for lock3
+			 * 6) lock1 granted, lock3 still is waiting for lock2,
+			 *    but there will never be another bl_ast for that
+			 *
+			 * To avoid this scenario the rpc_list with items from
+			 * the granted list is prepared during every reprocess
+			 * and bl_ast is sent again.
+			 */
+			unlock_res(res);
+			rc = ldlm_run_ast_work(ldlm_res_to_ns(res), &rpc_list,
+					       LDLM_WORK_BL_AST);
+			lock_res(res);
+			if (rc == -ERESTART)
+				GOTO(restart2, rc);
+			*flags |= LDLM_FL_BLOCK_GRANTED;
+			RETURN(0);
+		}
+		rc = ldlm_inodebits_compat_queue(&res->lr_waiting, lock, NULL);
+		if (!rc)
+			RETURN(LDLM_ITER_STOP);
 
-                ldlm_resource_unlink_lock(lock);
-                ldlm_grant_lock(lock, work_list);
+		ldlm_resource_unlink_lock(lock);
+		ldlm_grant_lock(lock, work_list);
 
 		*err = ELDLM_OK;
 		RETURN(LDLM_ITER_CONTINUE);
 	}
 
- restart:
-        rc = ldlm_inodebits_compat_queue(&res->lr_granted, lock, &rpc_list);
-        rc += ldlm_inodebits_compat_queue(&res->lr_waiting, lock, &rpc_list);
-
-        if (rc != 2) {
-                /* If either of the compat_queue()s returned 0, then we
-                 * have ASTs to send and must go onto the waiting list.
-                 *
-                 * bug 2322: we used to unlink and re-add here, which was a
-                 * terrible folly -- if we goto restart, we could get
-                 * re-ordered!  Causes deadlock, because ASTs aren't sent! */
+restart:
+	rc = ldlm_inodebits_compat_queue(&res->lr_granted, lock, &rpc_list);
+	rc += ldlm_inodebits_compat_queue(&res->lr_waiting, lock, &rpc_list);
+	if (rc != 2) {
+		/* If either of the compat_queue()s returned 0, then we
+		 * have ASTs to send and must go onto the waiting list.
+		 *
+		 * bug 2322: we used to unlink and re-add here, which was a
+		 * terrible folly -- if we goto restart, we could get
+		 * re-ordered!  Causes deadlock, because ASTs aren't sent!
+		 */
 		if (list_empty(&lock->l_res_link))
-                        ldlm_resource_add_lock(res, &res->lr_waiting, lock);
-                unlock_res(res);
-                rc = ldlm_run_ast_work(ldlm_res_to_ns(res), &rpc_list,
-                                       LDLM_WORK_BL_AST);
-                lock_res(res);
+			ldlm_resource_add_lock(res, &res->lr_waiting, lock);
+		unlock_res(res);
+		rc = ldlm_run_ast_work(ldlm_res_to_ns(res), &rpc_list,
+				       LDLM_WORK_BL_AST);
+		lock_res(res);
 		if (rc == -ERESTART)
 			GOTO(restart, rc);
-                *flags |= LDLM_FL_BLOCK_GRANTED;
-        } else {
-                ldlm_resource_unlink_lock(lock);
-                ldlm_grant_lock(lock, NULL);
-        }
-        RETURN(0);
+		*flags |= LDLM_FL_BLOCK_GRANTED;
+	} else {
+		ldlm_resource_unlink_lock(lock);
+		ldlm_grant_lock(lock, NULL);
+	}
+	RETURN(0);
 }
 #endif /* HAVE_SERVER_SUPPORT */
 
@@ -257,3 +293,73 @@ void ldlm_ibits_policy_local_to_wire(const union ldlm_policy_data *lpolicy,
 	memset(wpolicy, 0, sizeof(*wpolicy));
 	wpolicy->l_inodebits.bits = lpolicy->l_inodebits.bits;
 }
+
+/**
+ * Attempt to convert already granted IBITS lock with several bits set to
+ * a lock with less bits (downgrade).
+ *
+ * Such lock conversion is used to keep lock with non-blocking bits instead of
+ * cancelling it, introduced for better support of DoM files.
+ */
+int ldlm_inodebits_downgrade(struct ldlm_lock *lock,  __u64 wanted)
+{
+	ENTRY;
+
+	check_res_locked(lock->l_resource);
+	/* Just return if there are no conflicting bits */
+	if ((lock->l_policy_data.l_inodebits.bits & wanted) == 0) {
+		LDLM_WARN(lock, "try to downgrade with no conflicts %#llx"
+			  "/%#llx\n", lock->l_policy_data.l_inodebits.bits,
+			  wanted);
+		RETURN(-EINVAL);
+	}
+	LASSERT(lock->l_resource->lr_type == LDLM_IBITS);
+
+	/* remove lock from a skiplist and put in the new place
+	 * according with new inodebits */
+	ldlm_resource_unlink_lock(lock);
+	lock->l_policy_data.l_inodebits.bits &= ~wanted;
+	ldlm_grant_lock_with_skiplist(lock);
+
+	RETURN(0);
+}
+
+int ldlm_cli_inodebits_downgrade(struct ldlm_lock *lock,  __u64 wanted)
+{
+	struct lustre_handle lockh;
+	__u32 flags = 0;
+	int rc;
+
+	ENTRY;
+
+	ldlm_lock2handle(lock, &lockh);
+
+	lock_res_and_lock(lock);
+	/* check if there is race with cancel */
+	if (ldlm_is_canceling(lock) || ldlm_is_cancel(lock)) {
+		unlock_res_and_lock(lock);
+		RETURN(-EINVAL);
+	}
+	ldlm_lock_addref_internal_nolock(lock, lock->l_granted_mode);
+	ldlm_set_converting(lock);
+
+	rc = ldlm_inodebits_downgrade(lock, wanted);
+	unlock_res_and_lock(lock);
+	if (rc != 0) {
+		LBUG();
+		RETURN(rc);
+	}
+	/* now send convert RPC to the server */
+	rc = ldlm_cli_convert(&lockh, lock->l_granted_mode, &flags);
+	lock_res_and_lock(lock);
+	ldlm_clear_converting(lock);
+	if (rc == 0) {
+		ldlm_clear_cbpending(lock);
+		ldlm_clear_bl_ast(lock);
+	}
+	ldlm_lock_decref_internal_nolock(lock, lock->l_granted_mode);
+	unlock_res_and_lock(lock);
+
+	RETURN(rc);
+}
+EXPORT_SYMBOL(ldlm_cli_inodebits_downgrade);
