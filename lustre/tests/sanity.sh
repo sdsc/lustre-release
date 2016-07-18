@@ -15460,6 +15460,20 @@ test_312() { # LU-4856
 }
 run_test 312 "make sure ZFS adjusts its block size by write pattern"
 
+test_313() {
+	local file=$DIR/$tfile
+	rm -f $file
+	$SETSTRIPE -c 1 -i 0 $file || error "setstripe failed"
+
+	# define OBD_FAIL_TGT_RCVD_EIO		 0x718
+	do_facet ost1 "$LCTL set_param fail_loc=0x718"
+	dd if=/dev/zero of=$file bs=4096 oflag=direct count=1 &&
+		error "write should failed"
+	do_facet ost1 "$LCTL set_param fail_loc=0"
+	rm -f $file
+}
+run_test 313 "io should fail after last_rcvd update fail"
+
 test_399() { # LU-7655 for OST fake write
 	# turn off debug for performance testing
 	local saved_debug=$($LCTL get_param -n debug)
