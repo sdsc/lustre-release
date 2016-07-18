@@ -1136,7 +1136,9 @@ out_stop:
 			granted = 0;
 	}
 
-	ofd_trans_stop(env, ofd, th, rc);
+	rcl = ofd_trans_stop(env, ofd, th, rc);
+	if (!rc)
+		rc = rcl;
 	if (rc == -ENOSPC && retries++ < 3) {
 		CDEBUG(D_INODE, "retry after force commit, retries:%d\n",
 		       retries);

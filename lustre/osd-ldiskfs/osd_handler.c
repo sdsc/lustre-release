@@ -1808,6 +1808,7 @@ static int osd_trans_stop(const struct lu_env *env, struct dt_device *dt,
 	oh->ot_quota_trans = NULL;
 
 	if (oh->ot_handle != NULL) {
+		int rcl;
                 handle_t *hdl = oh->ot_handle;
 
                 /*
@@ -1831,10 +1832,11 @@ static int osd_trans_stop(const struct lu_env *env, struct dt_device *dt,
 		hdl->h_sync = th->th_sync;
 
 		oh->ot_handle = NULL;
-		OSD_CHECK_SLOW_TH(oh, osd, rc = ldiskfs_journal_stop(hdl));
-		if (rc != 0)
-			CERROR("%s: failed to stop transaction: rc = %d\n",
-			       osd_name(osd), rc);
+		OSD_CHECK_SLOW_TH(oh, osd, rcl = ldiskfs_journal_stop(hdl));
+		if (rcl != 0)
+			CERROR("Failure to stop transaction: %d\n", rcl);
+		if (!rc)
+			rc = rcl;
 	} else {
 		osd_trans_stop_cb(oh, th->th_result);
 		OBD_FREE_PTR(oh);
