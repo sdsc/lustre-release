@@ -3171,6 +3171,11 @@ int target_bulk_io(struct obd_export *exp, struct ptlrpc_bulk_desc *desc,
 	} while ((rc == -ETIMEDOUT) &&
 		 (deadline > cfs_time_current_sec()));
 
+	/* add pause to target_bulk_io, as if client lost bulk
+	 * transfer */
+	if (CFS_FAIL_TIMEOUT(OBD_FAIL_PTLRPC_OST_BULK_TIMEOUT, 10))
+		rc = -ETIMEDOUT;
+
 	if (rc == -ETIMEDOUT) {
 		DEBUG_REQ(D_ERROR, req, "timeout on bulk %s after %ld%+lds",
 			  bulk2type(req), deadline - start,

@@ -390,7 +390,7 @@ test_16() {
 }
 run_test 16 "timeout bulk put, don't evict client (2732)"
 
-test_17() {
+test_17a() {
     local at_max_saved=0
 
     remote_ost_nodsh && skip "remote OST with nodsh" && return 0
@@ -424,7 +424,33 @@ test_17() {
     [ $at_max_saved -ne 0 ] && at_max_set $at_max_saved ost1
     return 0
 }
-run_test 17 "timeout bulk get, don't evict client (2732)"
+run_test 17a "timeout bulk get, don't evict client (2732)"
+
+test_17b() {
+	[ $CLIENTCOUNT -lt 2 ] && skip "two clients are needed" && return 0
+	local -a clients=(${CLIENTS//,/ })
+	local client1=${clients[0]}
+	local client2=${clients[1]}
+
+	local SAMPLE_FILE=$TMP/$tfile
+	do_facet_random_file client $SAMPLE_FILE 10M ||
+	{ error_noexit "Create random file $SAMPLE_FILE" ; return 0; }
+
+	$LFS setstripe -i 0 -c 1 $DIR/$tfile
+	do_facet ost1 "$LCTL set_param fail_loc=0xa0000522;
+		   $LCTL set_param fail_val=9"
+	do_node $client1 "$LCTL set_param at_min=70"
+	do_node $client1 \
+	    "dd if=$SAMPLE_FILE of=$DIR/$tfile conv=notrunc bs=1M count=10"
+	sleep 5
+	do_node $client2 "dd if=$DIR/$tfile of=/dev/null bs=1M count=2"
+
+	do_facet ost1 "$LCTL set_param fail_loc=0;
+		   $LCTL set_param fail_val=0"
+
+	do_facet client "cmp $SAMPLE_FILE $DIR/$tfile" || return 1
+}
+run_test 17b "timeout bulk write and blocking ast, dont evict client"
 
 test_18a() {
     [ -z ${ost2_svc} ] && skip_env "needs 2 osts" && return 0
