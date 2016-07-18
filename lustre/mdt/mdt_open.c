@@ -1186,6 +1186,8 @@ static int mdt_lock_root_xattr(struct mdt_thread_info *info,
 	int rc;
 
 	if (md_root == NULL) {
+		bool put;
+
 		lu_root_fid(&info->mti_tmp_fid1);
 		md_root = mdt_object_find(info->mti_env, mdt,
 					  &info->mti_tmp_fid1);
@@ -1193,10 +1195,25 @@ static int mdt_lock_root_xattr(struct mdt_thread_info *info,
 			return PTR_ERR(md_root);
 
 		spin_lock(&mdt->mdt_lock);
-		if (mdt->mdt_md_root != NULL)
-			mdt_object_put(info->mti_env, mdt->mdt_md_root);
-		mdt->mdt_md_root = md_root;
+		if (mdt->mdt_md_root != NULL) {
+			put = true;
+		} else {
+			put = false;
+			mdt->mdt_md_root = md_root;
+		}
 		spin_unlock(&mdt->mdt_lock);
+
+		if (put) {
+			LASSERTF(mdt->mdt_md_root == md_root,
+				 "Different root object ("
+				 DFID") instances, %p, %p\n",
+				 PFID(&info->mti_tmp_fid1),
+				 mdt->mdt_md_root, md_root);
+			LASSERT(atomic_read(
+				&md_root->mot_obj.lo_header->loh_ref) > 1);
+
+			mdt_object_put(info->mti_env, md_root);
+		}
 	}
 
 	if (md_root->mot_cache_attr || !mdt_object_remote(md_root))
