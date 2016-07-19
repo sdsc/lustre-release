@@ -1737,6 +1737,9 @@ int tgt_txn_start_cb(const struct lu_env *env, struct thandle *th,
 	if (tsi->tsi_exp == NULL)
 		return 0;
 
+	/* export can require sync operations */
+	th->th_sync |= tsi->tsi_exp->exp_need_sync;
+
 	if (tgt_is_multimodrpcs_client(tsi->tsi_exp)) {
 		/*
 		 * Use maximum possible file offset for declaration to ensure
