@@ -15418,6 +15418,20 @@ test_312() { # LU-4856
 }
 run_test 312 "make sure ZFS adjusts its block size by write pattern"
 
+test_313() { # LU-6670
+	umount $MOUNT
+
+	do_facet $SINGLEMDS "sync; sync; sync"
+
+	#define OBD_FAIL_PTLRPC_EXP_SYNC 0x521
+	$LCTL set_param fail_loc=0x80000521
+
+	mount_client $MOUNT || error "mount $MOUNT failed"
+	touch $DIR/$tfile
+	rm -f $DIR/$tfile
+}
+run_test 313 "first RPC with transno after mount should be committed"
+
 test_399() { # LU-7655 for OST fake write
 	# turn off debug for performance testing
 	local saved_debug=$($LCTL get_param -n debug)
