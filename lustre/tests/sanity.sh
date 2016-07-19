@@ -12242,7 +12242,7 @@ test_209() {
 
 	# open/close 500 times
 	for i in $(seq 500); do
-		cat $DIR/$tfile
+		multiop $DIR/$tfile oc
 	done
 
 	echo 3 > /proc/sys/vm/drop_caches
