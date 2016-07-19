@@ -271,9 +271,22 @@ static int lov_init_raid0(const struct lu_env *env, struct lov_device *dev,
 			if (result != 0)
 				GOTO(out, result);
 
+			if (dev->ld_lov->lov_tgts[ost_idx] == NULL) {
+				CERROR("OST %d is not initialized\n", ost_idx);
+				continue;
+			}
+
 			subdev = lovsub2cl_dev(dev->ld_target[ost_idx]);
 			subconf->u.coc_oinfo = oinfo;
-			LASSERTF(subdev != NULL, "not init ost %d\n", ost_idx);
+
+			if (subdev == NULL) {
+				for (i = 0; i < dev->ld_target_nr; ++i)
+					CERROR("target[%d]=%p desc=%p\n", i,
+					       dev->ld_target[i],
+					       dev->ld_lov->lov_tgts[i]);
+				CERROR("not init ost %d\n", ost_idx);
+				LBUG();
+			}
 			/* In the function below, .hs_keycmp resolves to
 			 * lu_obj_hop_keycmp() */
 			/* coverity[overrun-buffer-val] */
