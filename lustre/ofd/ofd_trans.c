@@ -66,9 +66,6 @@ struct thandle *ofd_trans_create(const struct lu_env *env,
 	if (IS_ERR(th))
 		return th;
 
-	/* export can require sync operations */
-	if (info->fti_exp != NULL)
-		th->th_sync |= info->fti_exp->exp_need_sync;
 	return th;
 }
 
