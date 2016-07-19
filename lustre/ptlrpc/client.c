@@ -1449,23 +1449,24 @@ static int after_reply(struct ptlrpc_request *req)
 			ptlrpc_request_handle_notconn(req);
 			RETURN(rc);
 		}
-        } else {
-                /*
-                 * Let's look if server sent slv. Do it only for RPC with
-                 * rc == 0.
-                 */
-                ldlm_cli_update_pool(req);
-        }
+	} else {
+		/* Look if server sent slv. Do it only for RPC with rc == 0 */
+		ldlm_cli_update_pool(req);
+	}
 
-        /*
-         * Store transno in reqmsg for replay.
-         */
-        if (!(lustre_msg_get_flags(req->rq_reqmsg) & MSG_REPLAY)) {
-                req->rq_transno = lustre_msg_get_transno(req->rq_repmsg);
-                lustre_msg_set_transno(req->rq_reqmsg, req->rq_transno);
-        }
+	/* Store transno in reqmsg for replay */
+	if (!(lustre_msg_get_flags(req->rq_reqmsg) & MSG_REPLAY)) {
+		req->rq_transno = lustre_msg_get_transno(req->rq_repmsg);
+		lustre_msg_set_transno(req->rq_reqmsg, req->rq_transno);
+	}
 
-        if (imp->imp_replayable) {
+	if (OBD_FAIL_CHECK(OBD_FAIL_PTLRPC_EXP_SYNC) && req->rq_transno != 0) {
+		committed = lustre_msg_get_last_committed(req->rq_repmsg);
+		DEBUG_REQ(D_HA, req, "last committed %llu", committed);
+		LASSERT(req->rq_transno <= committed);
+	}
+
+	if (imp->imp_replayable) {
 		spin_lock(&imp->imp_lock);
                 /*
                  * No point in adding already-committed requests to the replay

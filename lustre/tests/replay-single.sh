@@ -1042,9 +1042,9 @@ test_44c() {
 	#define OBD_FAIL_TGT_RCVG_FLAG 0x712
 	do_facet $SINGLEMDS "lctl set_param fail_loc=0x80000712"
 	fail_abort $SINGLEMDS
-	unlinkmany $DIR/$tfile-%d 100 && error "unliked after fail abort"
+	unlinkmany $DIR/$tfile-%d 100 && error "unlinked after fail abort"
 	fail $SINGLEMDS
-	unlinkmany $DIR/$tfile-%d 100 && error "unliked after fail"
+	unlinkmany $DIR/$tfile-%d 100 && error "unlinked after fail"
 	return 0
 }
 run_test 44c "race in target handle connect"

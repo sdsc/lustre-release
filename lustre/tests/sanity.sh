@@ -15776,6 +15776,20 @@ test_407() {
 }
 run_test 407 "transaction fail should cause operation fail"
 
+test_408() { # LU-6670
+	umount $MOUNT
+
+	do_facet $SINGLEMDS "sync; sync; sync"
+
+	#define OBD_FAIL_PTLRPC_EXP_SYNC 0x521
+	$LCTL set_param fail_loc=0x80000521
+
+	mount_client $MOUNT || error "mount $MOUNT failed"
+	touch $DIR/$tfile
+	rm -f $DIR/$tfile
+}
+run_test 408 "first request with transno should be committed by target"
+
 #
 # tests that do cleanup/setup should be run at the end
 #
