@@ -2498,29 +2498,27 @@ LNetDist(lnet_nid_t dstnid, lnet_nid_t *srcnidp, __u32 *orderp)
                 }
 
 		if (LNET_NIDNET(ni->ni_nid) == dstnet) {
+			int i, up, rc;
+			__u32 mask, addr, ref_addr = 0;
+			char *if_names[LNET_MAX_INTERFACES];
+
+			memset(if_names, 0, LNET_MAX_INTERFACES*sizeof(char *));
 			if (ni->ni_interfaces[0] != NULL) {
-				/* Check if ni's address is the one visible in
-				 * current namespace.
-				 * If not, assign order above 0xffff0000,
-				 * to make this ni not a priority. */
-				int i, up, rc;
-				__u32 mask, addr;
+				/* Build list of interface names for this ni */
 				char *name;
 				for (i = 0; i < ARRAY_SIZE(ni->ni_interfaces);
 				     i++) {
-					if (ni->ni_interfaces[i] == NULL)
-						continue;
 					name = ni->ni_interfaces[i];
-					rc = lnet_ipif_query(name, &up, &addr,
-							     &mask);
-					if ((rc != 0) || (rc == 0 &&
-					     (!up ||
-					      LNET_NIDADDR(ni->ni_nid) !=
-					      addr))) {
-						order += 0xffff0000;
+					if (name == NULL)
 						break;
-					}
+					LIBCFS_ALLOC(if_names[i],
+						     strlen(name) + 1);
+					if (if_names[i] == NULL)
+						return -ENOMEM;
+					strncpy(if_names[i], name,
+						strlen(name));
 				}
+				ref_addr = LNET_NIDADDR(ni->ni_nid);
 			}
 
 			if (srcnidp != NULL)
@@ -2528,6 +2526,24 @@ LNetDist(lnet_nid_t dstnid, lnet_nid_t *srcnidp, __u32 *orderp)
 			if (orderp != NULL)
 				*orderp = order;
 			lnet_net_unlock(cpt);
+
+			/* Now that we have released lnet_net_lock,
+			 * check if ni's address is the one visible in
+			 * current namespace.
+			 * If not, assign order above 0xffff0000,
+			 * to make this ni not a priority. */
+			for (i = 0; if_names[i] != NULL; i++) {
+				rc = lnet_ipif_query(if_names[i], &up, &addr,
+						     &mask);
+				LIBCFS_FREE(if_names[i],
+					    strlen(if_names[i]) + 1);
+				if ((rc != 0) ||
+				    (rc == 0 && (!up || addr != ref_addr))) {
+					*orderp += 0xffff0000;
+					break;
+				}
+			}
+
 			return 1;
 		}
 
