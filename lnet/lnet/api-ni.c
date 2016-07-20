@@ -2225,7 +2225,6 @@ lnet_get_ni_config(struct lnet_ioctl_config_ni *cfg_ni,
 static int lnet_add_net_common(struct lnet_net *net,
 			       struct lnet_ioctl_config_lnd_tunables *tun)
 {
-	struct lnet_net		*netl = NULL;
 	__u32			net_id;
 	lnet_ping_info_t	*pinfo;
 	lnet_handle_md_t	md_handle;
@@ -2283,33 +2282,37 @@ static int lnet_add_net_common(struct lnet_net *net,
 
 	rc = lnet_startup_lndnet(net,
 				 (tun) ? &tun->lt_tun : NULL);
+
+	/* lnet_startup_lndnet() consumed net */
+	net = NULL;
+
 	if (rc < 0)
 		goto failed;
 
 	lnet_net_lock(LNET_LOCK_EX);
-	netl = lnet_get_net_locked(net_id);
+	net = lnet_get_net_locked(net_id);
 	lnet_net_unlock(LNET_LOCK_EX);
 
-	LASSERT(netl);
+	LASSERT(net);
 
 	/*
 	 * Start the acceptor thread if this is the first network
 	 * being added that requires the thread.
 	 */
-	if (netl->net_lnd->lnd_accept &&
-	    num_acceptor_nets == 0)
-	{
+	if (net->net_lnd->lnd_accept && num_acceptor_nets == 0)	{
 		rc = lnet_acceptor_start();
 		if (rc < 0) {
 			/* shutdown the net that we just started */
 			CERROR("Failed to start up acceptor thread\n");
 			lnet_shutdown_lndnet(net);
+			/* lnet_shutdown_lndnet() freed net */
+			net = NULL;
 			goto failed;
 		}
 	}
 
 	lnet_net_lock(LNET_LOCK_EX);
-	lnet_peer_net_added(netl);
+	lnet_peer_net_added(net);
 	lnet_net_unlock(LNET_LOCK_EX);
 
 	lnet_ping_target_update(pinfo, md_handle);
@@ -2320,7 +2323,8 @@ failed:
 	lnet_ping_md_unlink(pinfo, &md_handle);
 	lnet_ping_info_free(pinfo);
 failed1:
-	lnet_net_free(net);
+	if (net)
+		lnet_net_free(net);
 	return rc;
 }
 
