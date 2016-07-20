@@ -2470,6 +2470,8 @@ LNetDist(lnet_nid_t dstnid, lnet_nid_t *srcnidp, __u32 *orderp)
 	int			cpt;
 	__u32			order = 2;
 	struct list_head	*rn_list;
+	int			i, rc;
+	char			*if_names[LNET_MAX_INTERFACES];
 
         /* if !local_nid_dist_zero, I don't return a distance of 0 ever
          * (when lustre sees a distance of 0, it substitutes 0@lo), so I
@@ -2477,6 +2479,13 @@ LNetDist(lnet_nid_t dstnid, lnet_nid_t *srcnidp, __u32 *orderp)
          * match */
 
         LASSERT (the_lnet.ln_refcount > 0);
+
+	memset(if_names, 0, LNET_MAX_INTERFACES*sizeof(char *));
+	for (i = 0; i < LNET_MAX_INTERFACES; i++) {
+		LIBCFS_ALLOC(if_names[i], LNET_MAX_STR_LEN);
+		if (if_names[i] == NULL)
+			GOTO(out, rc = -ENOMEM);
+	}
 
 	cpt = lnet_net_lock_current();
 
@@ -2494,33 +2503,29 @@ LNetDist(lnet_nid_t dstnid, lnet_nid_t *srcnidp, __u32 *orderp)
                         }
 			lnet_net_unlock(cpt);
 
-                        return local_nid_dist_zero ? 0 : 1;
+			GOTO(out, rc = local_nid_dist_zero ? 0 : 1);
                 }
 
 		if (LNET_NIDNET(ni->ni_nid) == dstnet) {
+			int up;
+			__u32 mask, addr, ref_addr = 0;
+
 			if (ni->ni_interfaces[0] != NULL) {
-				/* Check if ni's address is the one visible in
-				 * current namespace.
-				 * If not, assign order above 0xffff0000,
-				 * to make this ni not a priority. */
-				int i, up, rc;
-				__u32 mask, addr;
+				/* Build list of interface names for this ni */
 				char *name;
 				for (i = 0; i < ARRAY_SIZE(ni->ni_interfaces);
 				     i++) {
-					if (ni->ni_interfaces[i] == NULL)
-						continue;
 					name = ni->ni_interfaces[i];
-					rc = lnet_ipif_query(name, &up, &addr,
-							     &mask);
-					if ((rc != 0) || (rc == 0 &&
-					     (!up ||
-					      LNET_NIDADDR(ni->ni_nid) !=
-					      addr))) {
-						order += 0xffff0000;
+					if (name == NULL)
 						break;
-					}
+					if (strlen(name) >= LNET_MAX_STR_LEN)
+						GOTO(out, rc = -ENAMETOOLONG);
+					strncpy(if_names[i], name,
+						strlen(name));
 				}
+				if (i < LNET_MAX_INTERFACES)
+					if_names[i][0] = '\0';
+				ref_addr = LNET_NIDADDR(ni->ni_nid);
 			}
 
 			if (srcnidp != NULL)
@@ -2528,7 +2533,26 @@ LNetDist(lnet_nid_t dstnid, lnet_nid_t *srcnidp, __u32 *orderp)
 			if (orderp != NULL)
 				*orderp = order;
 			lnet_net_unlock(cpt);
-			return 1;
+
+			/* Now that we have released lnet_net_lock,
+			 * check if ni's address is the one visible in
+			 * current namespace.
+			 * If not, assign order above 0xffff0000,
+			 * to make this ni not a priority. */
+			for (i = 0; i < LNET_MAX_INTERFACES; i++) {
+				if (if_names[i][0] == '\0')
+					break;
+
+				rc = lnet_ipif_query(if_names[i], &up, &addr,
+						     &mask);
+				if ((rc != 0) ||
+				    (rc == 0 && (!up || addr != ref_addr))) {
+					*orderp += 0xffff0000;
+					break;
+				}
+			}
+
+			GOTO(out, rc = 1);
 		}
 
 		order++;
@@ -2565,12 +2589,17 @@ LNetDist(lnet_nid_t dstnid, lnet_nid_t *srcnidp, __u32 *orderp)
 			if (orderp != NULL)
 				*orderp = order;
 			lnet_net_unlock(cpt);
-			return hops + 1;
+			GOTO(out, rc = hops + 1);
 		}
 		order++;
 	}
 
 	lnet_net_unlock(cpt);
-	return -EHOSTUNREACH;
+	rc = -EHOSTUNREACH;
+
+out:
+	for (i = 0; (i < LNET_MAX_INTERFACES) && (if_names[i] != NULL); i++)
+		LIBCFS_FREE(if_names[i], LNET_MAX_STR_LEN);
+	return rc;
 }
 EXPORT_SYMBOL(LNetDist);
