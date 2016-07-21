@@ -40,6 +40,8 @@
 
 #define D_LNI D_CONSOLE
 
+/* Canary patch */
+
 lnet_t      the_lnet;                           /* THE state of the network */
 EXPORT_SYMBOL(the_lnet);
 
