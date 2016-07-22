@@ -127,6 +127,34 @@ lmv_hash_all_chars(unsigned int count, const char *name, int namelen)
 	return c;
 }
 
+/**
+ * The FNV-1a hash algorithm is as follows:
+ *	hash = FNV_offset_basis
+ *	for each octet_of_data to be hashed
+ *		hash = hash XOR octet_of_data
+ *		hash = hash × FNV_prime
+ *	return hash
+ * http://en.wikipedia.org/wiki/Fowler–Noll–Vo_hash_function#FNV-1a_hash
+ *
+ * http://www.isthe.com/chongo/tech/comp/fnv/index.html#FNV-reference-source
+ * FNV_prime is 2^40 + 2^8 + 0xb3 = 0x100000001b3ULL
+ **/
+#define LUSTRE_FNV_1A_64_PRIME	0x100000001b3ULL
+#define LUSTRE_FNV_1A_64_OFFSET_BIAS 0xcbf29ce484222325ULL
+static inline __u64 lustre_hash_fnv_1a_64(const void *buf, size_t size)
+{
+	__u64 hash = LUSTRE_FNV_1A_64_OFFSET_BIAS;
+	const unsigned char *p = buf;
+	size_t i;
+
+	for (i = 0; i < size; i++) {
+		hash ^= p[i];
+		hash *= LUSTRE_FNV_1A_64_PRIME;
+	}
+
+	return hash;
+}
+
 static inline unsigned int
 lmv_hash_fnv1a(unsigned int count, const char *name, int namelen)
 {
