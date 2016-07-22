@@ -2528,6 +2528,42 @@ test_131() {
 }
 run_test 131 "IO vs evict results to IO under staled lock"
 
+test_133() {
+	local file1
+	local pid1
+
+	rm -rf $DIR/$tdir
+	test_mkdir -p $DIR/$tdir
+	file1="$DIR/$tdir/file1"
+
+	$SETSTRIPE -i 0 -c -1 $DIR/$tdir || error "setstripe failed"
+
+	replay_barrier ost1
+	createmany -o $DIR/$tdir/$tfile-%d 400
+	#define OBD_FAIL_MDS_OSP_PRECREATE_WAIT     0x163
+	#fail for ost_id = 1
+	do_facet $SINGLEMDS \
+		"lctl set_param fail_loc=0x80000163 fail_val=1"
+	dd if=/dev/zero of=$file1 count=1 oflag=sync &
+	pid1=$!
+
+	facet_failover ost1
+	wait_recovery_complete ost1
+	#give cleanup_orphans some time to finish
+	sleep 2
+
+	do_facet $SINGLEMDS "ps --no-headers -o pid -C osp-pre-0-0 | xargs -I {} cat /proc/{}/stack "
+	local block=$(do_facet $SINGLEMDS "ps --no-headers -o pid -C osp-pre-0-0 | xargs -I {} grep --no-filename -c osp_precreate_cleanup_orphans /proc/{}/stack ")
+	echo "precreate blocked $block"
+	[ $block -eq 0 ] || return 5
+
+	wait $pid1 || error "dd failed"
+
+	return 0;
+}
+run_test 133 "MDT<>OST recovery don't block multistripe file creation"
+
+
 complete $SECONDS
 check_and_cleanup_lustre
 exit_status
