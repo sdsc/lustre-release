@@ -1321,6 +1321,12 @@ int osp_precreate_reserve(const struct lu_env *env, struct osp_device *d)
 	if (d->opd_pre_max_create_count == 0)
 		RETURN(-ENOBUFS);
 
+	if (OBD_FAIL_PRECHECK(OBD_FAIL_MDS_OSP_PRECREATE_WAIT)) {
+		if (d->opd_index == cfs_fail_val)
+			OBD_FAIL_TIMEOUT(OBD_FAIL_MDS_OSP_PRECREATE_WAIT,
+					 obd_timeout);
+	}
+
 	/*
 	 * wait till:
 	 *  - preallocation is done
