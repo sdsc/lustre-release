@@ -87,6 +87,17 @@ struct ldlm_async_args {
         struct lustre_handle lock_handle;
 };
 
+/* If LDLM_ENQUEUE, 1 slot is already occupied, 1 is available.
+ * Otherwise, 2 are available. */
+#define ldlm_request_bufsize(count, type)                               \
+({                                                                      \
+	int _avail = LDLM_LOCKREQ_HANDLES;                              \
+	_avail -= (type == LDLM_ENQUEUE ? LDLM_ENQUEUE_CANCEL_OFF : 0); \
+	sizeof(struct ldlm_request) +                                   \
+	(count > _avail ? count - _avail : 0) *                         \
+	sizeof(struct lustre_handle);                                   \
+})
+
 int ldlm_expired_completion_wait(void *data)
 {
         struct lock_wait_data *lwd = data;
