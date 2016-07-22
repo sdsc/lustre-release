@@ -256,7 +256,8 @@ static int lcw_dispatch_main(void *data)
 			spin_lock_bh(&lcw->lcw_lock);
 			spin_lock_bh(&lcw_pending_timers_lock);
 
-			if (list_empty(&lcw->lcw_list)) {
+			if (list_empty(&lcw->lcw_list) ||
+			    lcw->lcw_state == LC_WATCHDOG_DISABLED) {
 				/* already removed from pending list */
 				lcw->lcw_refcount--; /* -1 ref for callback */
 				if (lcw->lcw_refcount == 0)
@@ -440,15 +441,16 @@ EXPORT_SYMBOL(lc_watchdog_touch);
 
 void lc_watchdog_disable(struct lc_watchdog *lcw)
 {
-        ENTRY;
-        LASSERT(lcw != NULL);
+	ENTRY;
+	LASSERT(lcw != NULL);
 
-        lc_watchdog_del_pending(lcw);
+	lcw->lcw_state = LC_WATCHDOG_DISABLED;
 
-        lcw_update_time(lcw, "completed");
-        lcw->lcw_state = LC_WATCHDOG_DISABLED;
+	lc_watchdog_del_pending(lcw);
 
-        EXIT;
+	lcw_update_time(lcw, "completed");
+
+	EXIT;
 }
 EXPORT_SYMBOL(lc_watchdog_disable);
 
