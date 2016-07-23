@@ -2695,7 +2695,11 @@ int target_queue_recovery_request(struct ptlrpc_request *req,
 		RETURN(1);
 	}
 
-        target_process_req_flags(obd, req);
+	/* Is it delayed replay request */
+	if (req->rq_xid < req->rq_export->exp_recovery_final_xid)
+		RETURN(-ESTALE);
+
+	target_process_req_flags(obd, req);
 
         if (lustre_msg_get_flags(req->rq_reqmsg) & MSG_LOCK_REPLAY_DONE) {
                 /* client declares he's ready to complete recovery
@@ -2707,6 +2711,8 @@ int target_queue_recovery_request(struct ptlrpc_request *req,
 		if (obd->obd_recovering) {
 			struct ptlrpc_request *tmp;
 			struct ptlrpc_request *duplicate = NULL;
+
+			req->rq_export->exp_recovery_final_xid = req->rq_xid;
 
 			if (likely(!req->rq_export->exp_replay_done)) {
 				req->rq_export->exp_replay_done = 1;

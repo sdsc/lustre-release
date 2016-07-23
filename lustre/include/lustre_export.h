@@ -300,6 +300,9 @@ struct obd_export {
 	 * unreceived lower-numbered XID
 	 */
 	__u64			  exp_last_xid;
+
+	/* xid of the final ping request during recovery */
+	__u64			  exp_recovery_final_xid;
 };
 
 #define exp_target_data u.eu_target_data
