@@ -66,6 +66,14 @@ static int tbf_depth = 3;
 module_param(tbf_depth, int, 0644);
 MODULE_PARM_DESC(tbf_depth, "How many tokens that a client can save up");
 
+static int tbf_alpha_pct = 150;
+module_param(tbf_alpha_pct, int, 0644);
+MODULE_PARM_DESC(tbf_alpha_pct, "Amplification factor of I/O inactive time.");
+
+static int tbf_beta_pct = 130;
+module_param(tbf_beta_pct, int, 0644);
+MODULE_PARM_DESC(tbf_beta_pct, "Amplification factor of request backlogged time.");
+
 static enum hrtimer_restart nrs_tbf_timer_cb(struct hrtimer *timer)
 {
 	struct nrs_tbf_head *head = container_of(timer, struct nrs_tbf_head,
@@ -124,8 +132,9 @@ nrs_tbf_cli_rule_put(struct nrs_tbf_client *cli)
 }
 
 static void
-nrs_tbf_cli_reset_value(struct nrs_tbf_head *head,
-			struct nrs_tbf_client *cli)
+__nrs_tbf_cli_reset_value(struct nrs_tbf_head *head,
+			struct nrs_tbf_client *cli,
+			bool keep)
 
 {
 	struct nrs_tbf_rule *rule = cli->tc_rule;
@@ -133,14 +142,23 @@ nrs_tbf_cli_reset_value(struct nrs_tbf_head *head,
 	cli->tc_rpc_rate = rule->tr_rpc_rate;
 	cli->tc_nsecs = rule->tr_nsecs;
 	cli->tc_depth = rule->tr_depth;
-	cli->tc_ntoken = rule->tr_depth;
-	cli->tc_check_time = ktime_to_ns(ktime_get());
 	cli->tc_rule_sequence = atomic_read(&head->th_rule_sequence);
 	cli->tc_rule_generation = rule->tr_generation;
+	if (keep == false) {
+		cli->tc_ntoken = rule->tr_depth;
+		cli->tc_check_time = ktime_to_ns(ktime_get());
+	}
 
 	if (cli->tc_in_heap)
 		cfs_binheap_relocate(head->th_binheap,
 				     &cli->tc_node);
+}
+
+static void
+nrs_tbf_cli_reset_value(struct nrs_tbf_head *head,
+			struct nrs_tbf_client *cli)
+{
+	__nrs_tbf_cli_reset_value(head, cli, false);
 }
 
 static void
@@ -164,9 +182,49 @@ nrs_tbf_cli_reset(struct nrs_tbf_head *head,
 	nrs_tbf_cli_reset_value(head, cli);
 }
 
+static void
+nrs_tbf_rule_stat(struct  nrs_tbf_rule *rule, enum nrs_tbf_op op)
+{
+	struct nrs_tbf_stat *nts;
+
+	nts = &rule->tr_nts;
+	switch (op) {
+	case OP_ENQUEUE:
+		nts->nts_queue_depth++;
+		nts->nts_tot_depth++;
+		break;
+	case OP_DELETE:
+		nts->nts_tot_depth--;
+		LASSERT(nts->nts_tot_depth >= 0);
+	case OP_DEQUEUE:
+		nts->nts_queue_depth--;
+		LASSERT(nts->nts_queue_depth >= 0);
+		break;
+	case OP_FINISH:
+		nts->nts_tot_depth--;
+		LASSERT(nts->nts_tot_depth >= 0);
+		nts->nts_tot_rpcs++;
+	case OP_UPDATE: {
+		__u64 passed;
+		__u64 now = ktime_to_ns(ktime_get());
+
+		passed = now - nts->nts_last_check;
+		if (passed >= NSEC_PER_SEC) {
+			nts->nts_real_rate = nts->nts_tot_rpcs;
+			nts->nts_last_check = now;
+			nts->nts_tot_rpcs = 0;
+		}
+		}
+		break;
+	default:
+		break;
+	}
+}
+
 static int
 nrs_tbf_rule_dump(struct nrs_tbf_rule *rule, struct seq_file *m)
 {
+	nrs_tbf_rule_stat(rule, OP_UPDATE);
 	return rule->tr_head->th_ops->o_rule_dump(rule, m);
 }
 
@@ -278,6 +336,18 @@ nrs_tbf_cli_fini(struct nrs_tbf_client *cli)
 }
 
 static int
+nrs_tbf_check_cyclic_dep(struct nrs_tbf_rule *rule)
+{
+	struct nrs_tbf_rule *tmp;
+
+	for (tmp = rule->tr_deprule; tmp != NULL; tmp = tmp->tr_deprule) {
+		if (tmp == rule)
+			return 1;
+	}
+	return 0;
+}
+
+static int
 nrs_tbf_rule_start(struct ptlrpc_nrs_policy *policy,
 		   struct nrs_tbf_head *head,
 		   struct nrs_tbf_cmd *start)
@@ -326,6 +396,29 @@ nrs_tbf_rule_start(struct ptlrpc_nrs_policy *policy,
 		return -EEXIST;
 	}
 
+
+	if (start->u.tc_start.ts_rule_flags & NTRS_DEPENDENT) {
+		tmp_rule = nrs_tbf_rule_find_nolock(head,
+					start->u.tc_start.ts_depname);
+		if (tmp_rule == NULL) {
+			spin_unlock(&head->th_rule_lock);
+			nrs_tbf_rule_put(rule);
+			return -EINVAL;
+		}
+		rule->tr_flags |= NTRS_DEPENDENT;
+		rule->tr_upper_rate = start->u.tc_start.ts_upper_rate;
+		rule->tr_lower_rate = start->u.tc_start.ts_lower_rate;
+		rule->tr_deprule = tmp_rule;
+		rc = nrs_tbf_check_cyclic_dep(rule);
+		if (rc) {
+			spin_unlock(&head->th_rule_lock);
+			nrs_tbf_rule_put(tmp_rule);
+			nrs_tbf_rule_put(rule);
+			return -EINVAL;
+		}
+		nrs_tbf_rule_put(tmp_rule);
+	}
+
 	if (next_name) {
 		next_rule = nrs_tbf_rule_find_nolock(head, next_name);
 		if (!next_rule) {
@@ -340,6 +433,7 @@ nrs_tbf_rule_start(struct ptlrpc_nrs_policy *policy,
 		/* Add on the top of the rule list */
 		list_add(&rule->tr_linkage, &head->th_list);
 	}
+	
 	spin_unlock(&head->th_rule_lock);
 	atomic_inc(&head->th_rule_sequence);
 	if (start->u.tc_start.ts_rule_flags & NTRS_DEFAULT) {
@@ -950,8 +1044,16 @@ static int nrs_tbf_jobid_rule_init(struct ptlrpc_nrs_policy *policy,
 static int
 nrs_tbf_jobid_rule_dump(struct nrs_tbf_rule *rule, struct seq_file *m)
 {
-	seq_printf(m, "%s {%s} %llu, ref %d\n", rule->tr_name,
-		   rule->tr_jobids_str, rule->tr_rpc_rate,
+	seq_printf(m, "%s {%s} %llu %llu %llu %llu %llu %llu %llu ref %d\n",
+		   rule->tr_name,
+		   rule->tr_jobids_str,
+		   rule->tr_rpc_rate,
+		   rule->tr_nts.nts_real_rate,
+		   rule->tr_nts.nts_queue_depth,
+		   rule->tr_nts.nts_tot_depth,
+		   rule->tr_nsecs_inactive,
+		   rule->tr_nsecs_backlog,
+		   rule->tr_nsecs_backlog2,
 		   atomic_read(&rule->tr_ref) - 1);
 	return 0;
 }
@@ -1156,8 +1258,16 @@ static int nrs_tbf_nid_rule_init(struct ptlrpc_nrs_policy *policy,
 static int
 nrs_tbf_nid_rule_dump(struct nrs_tbf_rule *rule, struct seq_file *m)
 {
-	seq_printf(m, "%s {%s} %llu, ref %d\n", rule->tr_name,
-		   rule->tr_nids_str, rule->tr_rpc_rate,
+	seq_printf(m, "%s {%s} %llu %llu %llu %llu %llu %llu %llu ref %d\n",
+		   rule->tr_name,
+		   rule->tr_nids_str,
+		   rule->tr_rpc_rate,
+		   rule->tr_nts.nts_real_rate,
+		   rule->tr_nts.nts_queue_depth,
+		   rule->tr_nts.nts_tot_depth,
+		   rule->tr_nsecs_inactive,
+		   rule->tr_nsecs_backlog,
+		   rule->tr_nsecs_backlog2,
 		   atomic_read(&rule->tr_ref) - 1);
 	return 0;
 }
@@ -1751,8 +1861,16 @@ nrs_tbf_rule_init(struct ptlrpc_nrs_policy *policy,
 static int
 nrs_tbf_generic_rule_dump(struct nrs_tbf_rule *rule, struct seq_file *m)
 {
-	seq_printf(m, "%s %s %llu, ref %d\n", rule->tr_name,
-		   rule->tr_conds_str, rule->tr_rpc_rate,
+	seq_printf(m, "%s %s %llu %llu %llu %llu %llu %llu %llu ref %d\n",
+		   rule->tr_name,
+		   rule->tr_conds_str,
+		   rule->tr_rpc_rate,
+		   rule->tr_nts.nts_real_rate,
+		   rule->tr_nts.nts_queue_depth,
+		   rule->tr_nts.nts_tot_depth,
+		   rule->tr_nsecs_inactive,
+		   rule->tr_nsecs_backlog,
+		   rule->tr_nsecs_backlog2,
 		   atomic_read(&rule->tr_ref) - 1);
 	return 0;
 }
@@ -2050,8 +2168,16 @@ static int nrs_tbf_opcode_rule_init(struct ptlrpc_nrs_policy *policy,
 static int
 nrs_tbf_opcode_rule_dump(struct nrs_tbf_rule *rule, struct seq_file *m)
 {
-	seq_printf(m, "%s {%s} %llu, ref %d\n", rule->tr_name,
-		   rule->tr_opcodes_str, rule->tr_rpc_rate,
+	seq_printf(m, "%s {%s} %llu %llu %llu %llu %llu %llu %llu ref %d\n",
+		   rule->tr_name,
+		   rule->tr_opcodes_str,
+		   rule->tr_rpc_rate,
+		   rule->tr_nts.nts_real_rate,
+		   rule->tr_nts.nts_queue_depth,
+		   rule->tr_nts.nts_tot_depth,
+		   rule->tr_nsecs_inactive,
+		   rule->tr_nsecs_backlog,
+		   rule->tr_nsecs_backlog2,
 		   atomic_read(&rule->tr_ref) - 1);
 	return 0;
 }
@@ -2155,6 +2281,8 @@ static int nrs_tbf_start(struct ptlrpc_nrs_policy *policy, char *arg)
 	INIT_LIST_HEAD(&head->th_list);
 	hrtimer_init(&head->th_timer, CLOCK_MONOTONIC, HRTIMER_MODE_ABS);
 	head->th_timer.function = nrs_tbf_timer_cb;
+	head->th_alpha_pct = tbf_alpha_pct;
+	head->th_beta_pct = tbf_beta_pct;
 	rc = head->th_ops->o_startup(policy, head);
 	if (rc)
 		GOTO(out_free_heap, rc);
@@ -2264,6 +2392,36 @@ static int nrs_tbf_ctl(struct ptlrpc_nrs_policy *policy,
 		struct nrs_tbf_head *head = policy->pol_private;
 
 		*(__u32 *)arg = head->th_type_flag;
+		}
+		break;
+
+	case NRS_CTL_TBF_RD_ALPHA_PCT: {
+		struct nrs_tbf_head *head = policy->pol_private;
+		struct seq_file *m = (struct seq_file *) arg;
+
+		seq_printf(m, "%u\n", head->th_alpha_pct);
+		}
+		break;
+
+	case NRS_CTL_TBF_WR_ALPHA_PCT: {
+		struct nrs_tbf_head *head = policy->pol_private;
+
+		head->th_alpha_pct = *(__u32 *)arg;
+		}
+		break;
+
+	case NRS_CTL_TBF_RD_BETA_PCT: {
+		struct nrs_tbf_head *head = policy->pol_private;
+		struct seq_file *m = (struct seq_file *) arg;
+
+		seq_printf(m, "%u\n", head->th_beta_pct);
+		}
+		break;
+
+	case NRS_CTL_TBF_WR_BETA_PCT: {
+		struct nrs_tbf_head *head = policy->pol_private;
+
+		head->th_beta_pct = *(__u32 *)arg;
 		}
 		break;
 	}
@@ -2409,15 +2567,22 @@ struct ptlrpc_nrs_request *nrs_tbf_req_get(struct ptlrpc_nrs_policy *policy,
 				     struct ptlrpc_nrs_request,
 				     nr_u.tbf.tr_list);
 	} else {
+		struct nrs_tbf_rule *rule;
 		__u64 now = ktime_to_ns(ktime_get());
 		__u64 passed;
 		__u64 ntoken;
 		__u64 deadline;
 
+		/** dependent rule */
+		rule = cli->tc_rule;
+		LASSERT(rule != NULL);
+		rule->tr_last_active_time = now;
+
 		deadline = cli->tc_check_time +
 			  cli->tc_nsecs;
 		LASSERT(now >= cli->tc_check_time);
 		passed = now - cli->tc_check_time;
+		rule->tr_nsecs_backlog2 = passed;
 		ntoken = passed * cli->tc_rpc_rate;
 		do_div(ntoken, NSEC_PER_SEC);
 		ntoken += cli->tc_ntoken;
@@ -2434,6 +2599,9 @@ struct ptlrpc_nrs_request *nrs_tbf_req_get(struct ptlrpc_nrs_policy *policy,
 			ntoken--;
 			cli->tc_ntoken = ntoken;
 			cli->tc_check_time = now;
+			rule->tr_nsecs_backlog = now - cli->tc_backlog_ckpt;
+			cli->tc_backlog_ckpt = now;
+			nrs_tbf_rule_stat(rule, OP_DEQUEUE);
 			list_del_init(&nrq->nr_u.tbf.tr_list);
 			if (list_empty(&cli->tc_list)) {
 				cfs_binheap_remove(head->th_binheap,
@@ -2463,6 +2631,62 @@ struct ptlrpc_nrs_request *nrs_tbf_req_get(struct ptlrpc_nrs_policy *policy,
 	return nrq;
 }
 
+static void nrs_tbf_update_rule_rate(struct nrs_tbf_head *head,
+				     struct nrs_tbf_client *cli)
+{
+	struct nrs_tbf_rule *rule;
+	struct nrs_tbf_rule *deprule;
+	__u64 now = ktime_to_ns(ktime_get());
+	__u64 passed;
+	__u64 oldrate;
+
+	rule = cli->tc_rule;
+	LASSERT(rule != NULL);
+	if (!(rule->tr_flags & NTRS_DEPENDENT))
+		return;
+
+	deprule = rule->tr_deprule;
+	if (deprule == NULL || now - rule->tr_check_time < deprule->tr_nsecs)
+		return;
+
+	passed = now - deprule->tr_last_active_time;
+	oldrate = rule->tr_rpc_rate;
+	rule->tr_check_time = now;
+	deprule->tr_nsecs_inactive = passed;
+	if (passed > head->th_alpha_pct * deprule->tr_nsecs / 100 &&
+	    deprule->tr_nsecs_backlog < head->th_beta_pct *
+	    deprule->tr_nsecs / 100) {
+		/** Increase the RPC rate. */
+		if (rule->tr_last_round == 0) {
+			rule->tr_last_round = 1;
+		} else {
+			rule->tr_last_round <<= 1;
+			rule->tr_last_round = min(rule->tr_last_round,
+						  rule->tr_upper_rate -
+						  rule->tr_lower_rate -
+						  rule->tr_speedup);
+		}
+		rule->tr_speedup += rule->tr_last_round;
+	} else {
+		/** Decrease the RPC rate accordingly. */
+		if (rule->tr_last_round > 0) {
+			LASSERT(rule->tr_speedup >= rule->tr_last_round);
+			rule->tr_speedup -= rule->tr_last_round;
+			rule->tr_last_round = 0;
+		} else {
+			LASSERT(rule->tr_last_round == 0);
+			rule->tr_speedup >>= 1;
+		}
+	}
+
+	rule->tr_rpc_rate = rule->tr_speedup + rule->tr_lower_rate;
+	rule->tr_rpc_rate = min(rule->tr_upper_rate, rule->tr_rpc_rate);
+	if (oldrate != rule->tr_rpc_rate) {
+		rule->tr_nsecs = NSEC_PER_SEC / rule->tr_rpc_rate;
+		__nrs_tbf_cli_reset_value(head, cli, true);
+	}
+}
+
 /**
  * Adds request \a nrq to \a policy's list of queued requests
  *
@@ -2485,8 +2709,10 @@ static int nrs_tbf_req_add(struct ptlrpc_nrs_policy *policy,
 			   struct nrs_tbf_client, tc_res);
 	head = container_of(nrs_request_resource(nrq)->res_parent,
 			    struct nrs_tbf_head, th_res);
+	nrs_tbf_update_rule_rate(head, cli);
 	if (list_empty(&cli->tc_list)) {
 		LASSERT(!cli->tc_in_heap);
+		cli->tc_backlog_ckpt = ktime_to_ns(ktime_get());
 		rc = cfs_binheap_insert(head->th_binheap, &cli->tc_node);
 		if (rc == 0) {
 			cli->tc_in_heap = true;
@@ -2514,6 +2740,7 @@ static int nrs_tbf_req_add(struct ptlrpc_nrs_policy *policy,
 		list_add_tail(&nrq->nr_u.tbf.tr_list,
 				  &cli->tc_list);
 	}
+	nrs_tbf_rule_stat(cli->tc_rule, OP_ENQUEUE);
 	return rc;
 }
 
@@ -2546,6 +2773,7 @@ static void nrs_tbf_req_del(struct ptlrpc_nrs_policy *policy,
 		cfs_binheap_relocate(head->th_binheap,
 				     &cli->tc_node);
 	}
+	nrs_tbf_rule_stat(cli->tc_rule, OP_DELETE);
 }
 
 /**
@@ -2561,6 +2789,7 @@ static void nrs_tbf_req_del(struct ptlrpc_nrs_policy *policy,
 static void nrs_tbf_req_stop(struct ptlrpc_nrs_policy *policy,
 			      struct ptlrpc_nrs_request *nrq)
 {
+	struct nrs_tbf_client *cli;
 	struct ptlrpc_request *req = container_of(nrq, struct ptlrpc_request,
 						  rq_nrq);
 
@@ -2569,6 +2798,10 @@ static void nrs_tbf_req_stop(struct ptlrpc_nrs_policy *policy,
 	CDEBUG(D_RPCTRACE, "NRS stop %s request from %s, seq: %llu\n",
 	       policy->pol_desc->pd_name, libcfs_id2str(req->rq_peer),
 	       nrq->nr_u.tbf.tr_sequence);
+
+	cli = container_of(nrs_request_resource(nrq),
+			   struct nrs_tbf_client, tc_res);
+	nrs_tbf_rule_stat(cli->tc_rule, OP_FINISH);
 }
 
 #ifdef CONFIG_PROC_FS
@@ -2580,7 +2813,7 @@ static void nrs_tbf_req_stop(struct ptlrpc_nrs_policy *policy,
 /**
  * The maximum RPC rate.
  */
-#define LPROCFS_NRS_RATE_MAX		65535
+#define LPROCFS_NRS_RATE_MAX		655350
 
 static int
 ptlrpc_lprocfs_nrs_tbf_rule_seq_show(struct seq_file *m, void *data)
@@ -2716,11 +2949,43 @@ nrs_tbf_parse_value_pair(struct nrs_tbf_cmd *cmd, char *buffer)
 			cmd->u.tc_change.tc_rpc_rate = rate;
 		else
 			return -EINVAL;
-	}  else if (strcmp(key, "rank") == 0) {
+	}  else if (strcmp(key, "upperrate") == 0) {
+		rc = kstrtoull(val, 10, &rate);
+		if (rc)
+			return rc;
+
+		if (rate <= 0 || rate >= LPROCFS_NRS_RATE_MAX)
+			return -EINVAL;
+
+		if (cmd->tc_cmd == NRS_CTL_TBF_START_RULE)
+			cmd->u.tc_start.ts_upper_rate = rate;
+		else
+			return -EINVAL;
+	} else if (strcmp(key, "lowerrate") == 0) {
+		rc = kstrtoull(val, 10, &rate);
+		if (rc)
+			return rc;
+
+		if (rate <= 0 || rate >= LPROCFS_NRS_RATE_MAX)
+			return -EINVAL;
+
+		if (cmd->tc_cmd == NRS_CTL_TBF_START_RULE)
+			cmd->u.tc_start.ts_lower_rate = rate;
+		else
+			return -EINVAL;
+	} else if (strcmp(key, "deprule") == 0) {
 		if (!name_is_valid(val))
 			return -EINVAL;
 
 		if (cmd->tc_cmd == NRS_CTL_TBF_START_RULE)
+			cmd->u.tc_start.ts_depname = val;
+		else
+			return -EINVAL;
+	} else if (strcmp(key, "rank") == 0) {
+                if (!name_is_valid(val))
+                        return -EINVAL;
+                        
+                if (cmd->tc_cmd == NRS_CTL_TBF_START_RULE)
 			cmd->u.tc_start.ts_next_name = val;
 		else if (cmd->tc_cmd == NRS_CTL_TBF_CHANGE_RULE)
 			cmd->u.tc_change.tc_next_name = val;
@@ -2749,6 +3014,15 @@ nrs_tbf_parse_value_pairs(struct nrs_tbf_cmd *cmd, char *buffer)
 
 	switch (cmd->tc_cmd) {
 	case NRS_CTL_TBF_START_RULE:
+		if (cmd->u.tc_start.ts_depname != NULL) {
+			if (cmd->u.tc_start.ts_lower_rate == 0 ||
+			    cmd->u.tc_start.ts_upper_rate <=
+			    cmd->u.tc_start.ts_lower_rate)
+				return -EINVAL;
+
+			cmd->u.tc_start.ts_rule_flags |= NTRS_DEPENDENT;
+			cmd->u.tc_start.ts_rpc_rate = cmd->u.tc_start.ts_lower_rate;
+		}
 		if (cmd->u.tc_start.ts_rpc_rate == 0)
 			cmd->u.tc_start.ts_rpc_rate = tbf_rate;
 		break;
@@ -2937,6 +3211,194 @@ out:
 }
 LPROC_SEQ_FOPS(ptlrpc_lprocfs_nrs_tbf_rule);
 
+static int
+ptlrpc_lprocfs_nrs_tbf_alpha_pct_seq_show(struct seq_file *m, void *data)
+{
+	struct ptlrpc_service	*svc = m->private;
+	int			 rc;
+
+	seq_printf(m, "regular_requests:\n");
+	/**
+	 * Perform two separate calls to this as only one of the NRS heads'
+	 * policies may be in the ptlrpc_nrs_pol_state::NRS_POL_STATE_STARTED or
+	 * ptlrpc_nrs_pol_state::NRS_POL_STATE_STOPPING state.
+	 */
+	rc = ptlrpc_nrs_policy_control(svc, PTLRPC_NRS_QUEUE_REG,
+				       NRS_POL_NAME_TBF,
+				       NRS_CTL_TBF_RD_ALPHA_PCT,
+				       false, m);
+	if (rc == 0) {
+		/**
+		 * -ENOSPC means buf in the parameter m is overflow, return 0
+		 * here to let upper layer function seq_read alloc a larger
+		 * memory area and do this process again.
+		 */
+	} else if (rc == -ENOSPC) {
+		return 0;
+
+                /**
+		 * Ignore -ENODEV as the regular NRS head's policy may be in the
+		 * ptlrpc_nrs_pol_state::NRS_POL_STATE_STOPPED state.
+		 */
+	} else if (rc != -ENODEV) {
+		return rc;
+	}
+
+	if (!nrs_svc_has_hp(svc))
+		goto no_hp;
+
+	seq_printf(m, "high_priority_requests:\n");
+	rc = ptlrpc_nrs_policy_control(svc, PTLRPC_NRS_QUEUE_HP,
+				       NRS_POL_NAME_TBF,
+				       NRS_CTL_TBF_RD_ALPHA_PCT,
+				       false, m);
+	if (rc == 0) {
+		/**
+		 * -ENOSPC means buf in the parameter m is overflow, return 0
+		 * here to let upper layer function seq_read alloc a larger
+		 * memory area and do this process again.
+		 */
+	} else if (rc == -ENOSPC) {
+		return 0;
+	}
+
+no_hp:
+	return rc;
+}
+
+#define LPROCFS_NRS_TBF_ALPHA_PCT_MAX	10000
+
+static ssize_t
+ptlrpc_lprocfs_nrs_tbf_alpha_pct_seq_write(struct file *file, const char *buffer,
+                                          size_t count, loff_t *off)
+{
+	struct seq_file		  *m = file->private_data;
+	struct ptlrpc_service	  *svc = m->private;
+	char			  *kernbuf;
+	__u32			   pct;
+	int			   rc;
+	enum ptlrpc_nrs_queue_type queue = PTLRPC_NRS_QUEUE_BOTH;
+
+	OBD_ALLOC(kernbuf, LPROCFS_WR_NRS_TBF_MAX_CMD);
+	if (kernbuf == NULL)
+		GOTO(out, rc = -ENOMEM);
+
+	if (count > LPROCFS_WR_NRS_TBF_MAX_CMD - 1)
+		GOTO(out_free_kernbuff, rc = -EINVAL);
+
+	if (copy_from_user(kernbuf, buffer, count))
+		GOTO(out_free_kernbuff, rc = -EFAULT);
+
+	pct = simple_strtoul(kernbuf, NULL, 10);
+	if (pct > LPROCFS_NRS_TBF_ALPHA_PCT_MAX ||
+	    pct <= 100)
+		GOTO(out_free_kernbuff, rc = -EINVAL);
+
+	rc = ptlrpc_nrs_policy_control(svc, queue,
+				       NRS_POL_NAME_TBF,
+				       NRS_CTL_TBF_WR_ALPHA_PCT,
+				       false, &pct);
+out_free_kernbuff:
+	OBD_FREE(kernbuf, LPROCFS_WR_NRS_TBF_MAX_CMD);
+out:
+	return rc ? rc : count;
+}
+
+LPROC_SEQ_FOPS(ptlrpc_lprocfs_nrs_tbf_alpha_pct);
+
+static int
+ptlrpc_lprocfs_nrs_tbf_beta_pct_seq_show(struct seq_file *m, void *data)
+{
+	struct ptlrpc_service	*svc = m->private;
+	int			 rc;
+
+	seq_printf(m, "regular_requests:\n");
+	/**
+	 * Perform two separate calls to this as only one of the NRS heads'
+	 * policies may be in the ptlrpc_nrs_pol_state::NRS_POL_STATE_STARTED or
+	 * ptlrpc_nrs_pol_state::NRS_POL_STATE_STOPPING state.
+	 */
+	rc = ptlrpc_nrs_policy_control(svc, PTLRPC_NRS_QUEUE_REG,
+				       NRS_POL_NAME_TBF,
+				       NRS_CTL_TBF_RD_BETA_PCT,
+				       false, m);
+	if (rc == 0) {
+		/**
+		 * -ENOSPC means buf in the parameter m is overflow, return 0
+		 * here to let upper layer function seq_read alloc a larger
+		 * memory area and do this process again.
+		 */
+	} else if (rc == -ENOSPC) {
+		return 0;
+
+		/**
+		 * Ignore -ENODEV as the regular NRS head's policy may be in the
+		 * ptlrpc_nrs_pol_state::NRS_POL_STATE_STOPPED state.
+		 */
+	} else if (rc != -ENODEV) {
+		return rc;
+	}
+
+	if (!nrs_svc_has_hp(svc))
+		goto no_hp;
+
+	seq_printf(m, "high_priority_requests:\n");
+	rc = ptlrpc_nrs_policy_control(svc, PTLRPC_NRS_QUEUE_HP,
+				       NRS_POL_NAME_TBF,
+				       NRS_CTL_TBF_RD_BETA_PCT,
+				       false, m);
+	if (rc == 0) {
+	} else if (rc == -ENOSPC) {
+		return 0;
+	}
+
+no_hp:
+	return rc;
+}
+
+#define LPROCFS_NRS_TBF_BETA_PCT_MAX    10000
+
+static ssize_t
+ptlrpc_lprocfs_nrs_tbf_beta_pct_seq_write(struct file *file,
+					  const char *buffer,
+					  size_t count, loff_t *off)
+{
+	struct seq_file		  *m = file->private_data;
+	struct ptlrpc_service	  *svc = m->private;
+	char			  *kernbuf;
+	__u32			   pct;
+	int			   rc;
+	enum ptlrpc_nrs_queue_type queue = PTLRPC_NRS_QUEUE_BOTH;
+
+	OBD_ALLOC(kernbuf, LPROCFS_WR_NRS_TBF_MAX_CMD);
+	if (kernbuf == NULL)
+		GOTO(out, rc = -ENOMEM);
+
+	if (count > LPROCFS_WR_NRS_TBF_MAX_CMD - 1)
+		GOTO(out_free_kernbuff, rc = -EINVAL);
+
+	if (copy_from_user(kernbuf, buffer, count))
+		GOTO(out_free_kernbuff, rc = -EFAULT);
+
+	pct = simple_strtoul(kernbuf, NULL, 10);
+	if (pct > LPROCFS_NRS_TBF_BETA_PCT_MAX || pct <= 100)
+		GOTO(out_free_kernbuff, rc = -EINVAL);
+
+	if (queue == PTLRPC_NRS_QUEUE_BOTH && !nrs_svc_has_hp(svc))
+		queue = PTLRPC_NRS_QUEUE_REG;
+
+	rc = ptlrpc_nrs_policy_control(svc, queue,
+				       NRS_POL_NAME_TBF,
+				       NRS_CTL_TBF_WR_BETA_PCT,
+				       false, &pct);
+out_free_kernbuff:
+	OBD_FREE(kernbuf, LPROCFS_WR_NRS_TBF_MAX_CMD);
+out:
+	return rc ? rc : count;
+}
+
+LPROC_SEQ_FOPS(ptlrpc_lprocfs_nrs_tbf_beta_pct);
+
 /**
  * Initializes a TBF policy's lprocfs interface for service \a svc
  *
@@ -2951,6 +3413,12 @@ static int nrs_tbf_lprocfs_init(struct ptlrpc_service *svc)
 		{ .name		= "nrs_tbf_rule",
 		  .fops		= &ptlrpc_lprocfs_nrs_tbf_rule_fops,
 		  .data = svc },
+		{ .name		= "nrs_tbf_alpha_pct",
+		  .fops		= &ptlrpc_lprocfs_nrs_tbf_alpha_pct_fops,
+		  .data	= svc },
+		{ .name		= "nrs_tbf_beta_pct",
+		  .fops		= &ptlrpc_lprocfs_nrs_tbf_beta_pct_fops,
+		  .data	= svc },
 		{ NULL }
 	};
 
