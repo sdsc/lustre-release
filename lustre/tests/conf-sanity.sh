@@ -6779,6 +6779,28 @@ test_97() {
 }
 run_test 97 "ldev returns correct ouput when querying based on role"
 
+test_98()
+{
+	local mountopt
+	local temp=$MDS_MOUNT_OPTS
+
+	setup
+	check_mount || return 41
+	mountopt="user_xattr"
+	for x in $(seq 1 400); do
+		mountopt="$mountopt,user_xattr"
+	done
+	stop_mds
+	MDS_MOUNT_OPTS="-o $mountopt"
+	out_str=$(start_mds 2>&1)
+	[[ "$out_str" =~ "mount options exceeds page size of kernel" ]] ||
+	error "Buffer overflow check failed"
+	MDS_MOUNT_OPTS=$temp
+	start_mds
+	cleanup || return $?
+}
+run_test 98 "Buffer-overflow check while parsing mount_opts"
+
 if ! combined_mgs_mds ; then
 	stop mgs
 fi
