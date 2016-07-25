@@ -94,12 +94,31 @@ struct nrs_tbf_client {
 	 * nrs_tbf_head::th_cli_hash.
 	 */
 	struct list_head		 tc_lru;
+	/** Time checkpoint for backlog. */
+	__u64				 tc_backlog_ckpt;
+};
+
+enum nrs_tbf_op {
+	OP_ENQUEUE,
+	OP_DEQUEUE,
+	OP_DELETE,
+	OP_FINISH,
+	OP_UPDATE,
+};
+
+struct nrs_tbf_stat {
+	__u64	nts_tot_depth;
+	__u64	nts_queue_depth;
+	__u64	nts_tot_rpcs;
+	__u64	nts_real_rate;
+	__u64	nts_last_check;
 };
 
 #define MAX_TBF_NAME (16)
 
 #define NTRS_STOPPING	0x0000001
 #define NTRS_DEFAULT	0x0000002
+#define NTRS_DEPENDENT	0x0000004
 
 struct nrs_tbf_rule {
 	/** Name of the rule. */
@@ -140,6 +159,27 @@ struct nrs_tbf_rule {
 	atomic_t			 tr_ref;
 	/** Generation of the rule. */
 	__u64				 tr_generation;
+	/** Dependent rule. */
+	struct nrs_tbf_rule		*tr_deprule;
+	/** Upper rate limit. */
+	__u64				 tr_upper_rate;
+	/** Lower rate limit. */
+	__u64				 tr_lower_rate;
+	/** The number of increased rate. */
+	__u64				 tr_speedup;
+	/** The last round rate change. */
+	__u64				 tr_last_round;
+	/** Latest I/O active time point of a rule */
+	__u64				 tr_last_active_time;
+	/** I/O inactive time length of a rule */
+	__u64				 tr_nsecs_inactive;
+	/** Latest backlog time length. */
+	__u64				 tr_nsecs_backlog;
+	__u64				 tr_nsecs_backlog2;
+	/** Time to check whether change speed. */
+	__u64				 tr_check_time;
+	/** Stat info for the rule. */
+	struct nrs_tbf_stat		 tr_nts;
 };
 
 struct nrs_tbf_ops {
@@ -248,6 +288,14 @@ struct nrs_tbf_head {
 	 * Index of bucket on hash table while purging.
 	 */
 	int				 th_purge_start;
+	/**
+	 * Amplification factor of I/O inactive time.
+	 */
+	__u32				 th_alpha_pct;
+	/**
+	 * Amplification factor of I/O backlogged time.
+	 */
+	__u32				 th_beta_pct;
 };
 
 enum nrs_tbf_cmd_type {
@@ -273,6 +321,9 @@ struct nrs_tbf_cmd {
 			__u32			 ts_valid_type;
 			__u32			 ts_rule_flags;
 			char			*ts_next_name;
+			char			*ts_depname;
+			__u64			 ts_upper_rate;
+			__u64			 ts_lower_rate;
 		} tc_start;
 		struct nrs_tbf_cmd_change {
 			__u64			 tc_rpc_rate;
@@ -333,6 +384,10 @@ enum nrs_ctl_tbf {
 	 * Read the TBF policy type preset by proc entry "nrs_policies".
 	 */
 	NRS_CTL_TBF_RD_TYPE_FLAG,
+	NRS_CTL_TBF_RD_ALPHA_PCT,
+	NRS_CTL_TBF_WR_ALPHA_PCT,
+	NRS_CTL_TBF_RD_BETA_PCT,
+	NRS_CTL_TBF_WR_BETA_PCT,
 };
 
 /** @} tbf */
