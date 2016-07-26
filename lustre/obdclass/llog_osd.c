@@ -162,7 +162,9 @@ static int llog_osd_pad(const struct lu_env *env, struct dt_object *o,
 
 	LASSERT(th);
 	LASSERT(off);
-	LASSERT(len >= LLOG_MIN_REC_SIZE && (len & 0x7) == 0);
+	LASSERTF(len >= LLOG_MIN_REC_SIZE && (len & 0x7) == 0,
+		 "wrong pad len %i, off "LPU64", index %i\n",
+		 len, *off, index);
 
 	OBD_ALLOC(rec, len);
 	if (rec == NULL)
@@ -716,6 +718,11 @@ out:
 
 	/* restore llog last_idx */
 	if (dt_object_remote(o)) {
+		/* debug code, not for landing */
+		CERROR("Failed write llog index %u at "LPU64" offset"
+		       "set index %u, off "LPU64"\n", loghandle->lgh_last_idx,
+		       loghandle->lgh_write_offset, orig_last_idx,
+		       orig_write_offset);
 		loghandle->lgh_last_idx = orig_last_idx;
 		loghandle->lgh_write_offset = orig_write_offset;
 	} else if (--loghandle->lgh_last_idx == 0 &&
