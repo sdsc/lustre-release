@@ -4392,13 +4392,16 @@ test_56a() {	# was test_56
                 touch $DIR/$tdir/dir/file$i
         done
 
+	# test lfs getstripe default mode is non-recursive
+	FILENUM=$($GETSTRIPE $DIR/$tdir | grep -c obdidx)
+	[[ $FILENUM -eq 0 ]] ||
+		error "$GETSTRIPE: found $FILENUM, not 0"
+	echo "$GETSTRIPE passed."
+
         # test lfs getstripe with --recursive
 	FILENUM=$($GETSTRIPE --recursive $DIR/$tdir | grep -c obdidx)
 	[[ $FILENUM -eq $NUMFILESx2 ]] ||
 		error "$GETSTRIPE --recursive: found $FILENUM, not $NUMFILESx2"
-	FILENUM=$($GETSTRIPE $DIR/$tdir | grep -c obdidx)
-	[[ $FILENUM -eq $NUMFILES ]] ||
-		error "$GETSTRIPE $DIR/$tdir: found $FILENUM, not $NUMFILES"
 	echo "$GETSTRIPE --recursive passed."
 
         # test lfs getstripe with file instead of dir
@@ -4408,11 +4411,13 @@ test_56a() {	# was test_56
 	echo "$GETSTRIPE file1 passed."
 
         #test lfs getstripe with --verbose
-	[[ $($GETSTRIPE --verbose $DIR/$tdir |
-		grep -c lmm_magic) -eq $NUMFILES ]] ||
-		error "$GETSTRIPE --verbose $DIR/$tdir: want $NUMFILES"
-	[[ $($GETSTRIPE $DIR/$tdir | grep -c lmm_magic) -eq 0 ]] ||
-		rror "$GETSTRIPE $DIR/$tdir: showed lmm_magic"
+	FILENUM=$($GETSTRIPE --verbose --recursive $DIR/$tdir |
+		  grep -c lmm_magic)
+	[[ $FILENUM -eq $NUMFILESx2 ]] ||
+		error "$GETSTRIPE --verbose $DIR/$tdir: found $FILENUM, " \
+			"not $NUMFILESx2"
+	[[ $($GETSTRIPE --recursive $DIR/$tdir | grep -c lmm_magic) -eq 0 ]] ||
+		error "$GETSTRIPE $DIR/$tdir: showed lmm_magic"
 	echo "$GETSTRIPE --verbose passed."
 
         #test lfs getstripe with --obd
