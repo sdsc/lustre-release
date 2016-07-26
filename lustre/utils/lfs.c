@@ -1775,7 +1775,7 @@ static int lfs_getstripe_internal(int argc, char **argv,
 	};
 	int c, rc;
 
-	param->fp_max_depth = 1;
+	param->fp_max_depth = 0;
 	while ((c = getopt_long(argc, argv, "cdDghiLMoO:pqrRsSv",
 				long_opts, NULL)) != -1) {
 		switch (c) {
