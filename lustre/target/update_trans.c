@@ -202,6 +202,11 @@ static int sub_updates_write(const struct lu_env *env,
 		 llog_update_record_size(record));
 
 	if (likely(record->lur_hdr.lrh_len <= ctxt->loc_chunk_size)) {
+		if (record->lur_hdr.lrh_len + LLOG_MIN_REC_SIZE >
+		    ctxt->loc_chunk_size) {
+			CERROR("There will be no space for padding\n");
+			record->lur_hdr.lrh_len = ctxt->loc_chunk_size;
+		}
 		OBD_ALLOC_PTR(stc);
 		if (stc == NULL)
 			GOTO(llog_put, rc = -ENOMEM);
@@ -273,7 +278,11 @@ static int sub_updates_write(const struct lu_env *env,
 			update_records_dump(&lur->lur_update_rec, D_INFO, true);
 			lur->lur_hdr.lrh_len = llog_update_record_size(lur);
 			LASSERT(lur->lur_hdr.lrh_len <= ctxt->loc_chunk_size);
-
+			if (lur->lur_hdr.lrh_len + LLOG_MIN_REC_SIZE >
+			    ctxt->loc_chunk_size) {
+				CERROR("There is no space for padding in chunk\n");
+				lur->lur_hdr.lrh_len = ctxt->loc_chunk_size;
+			}
 			OBD_ALLOC_PTR(stc);
 			if (stc == NULL)
 				GOTO(llog_put, rc = -ENOMEM);
@@ -306,7 +315,7 @@ static int sub_updates_write(const struct lu_env *env,
 		}
 
 		src = next;
-		lur->lur_hdr.lrh_len += cfs_size_round(rec_len);
+		lur->lur_hdr.lrh_len += rec_len;
 		if (update_count < record->lur_update_rec.ur_update_count)
 			update_count++;
 		else if (param_count < record->lur_update_rec.ur_param_count)
