@@ -162,7 +162,9 @@ static int llog_osd_pad(const struct lu_env *env, struct dt_object *o,
 
 	LASSERT(th);
 	LASSERT(off);
-	LASSERT(len >= LLOG_MIN_REC_SIZE && (len & 0x7) == 0);
+	LASSERTF(len >= LLOG_MIN_REC_SIZE && (len & 0x7) == 0,
+		 "wrong pad len %i, off "LPU64", index %i\n",
+		 len, *off, index);
 
 	OBD_ALLOC(rec, len);
 	if (rec == NULL)
