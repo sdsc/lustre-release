@@ -563,6 +563,7 @@ extern int libcfs_register_ioctl(struct libcfs_ioctl_handler *hand);
 extern int libcfs_deregister_ioctl(struct libcfs_ioctl_handler *hand);
 extern int libcfs_ioctl_getdata(struct libcfs_ioctl_hdr **hdr_pp,
 				struct libcfs_ioctl_hdr __user *uparam);
+extern int lnet_get_peer_list(__u32 *countp, lnet_process_id_t __user *ids);
 
 void lnet_proc_init(void);
 void lnet_proc_fini(void);

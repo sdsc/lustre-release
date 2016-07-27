@@ -3132,6 +3132,19 @@ LNetCtl(unsigned int cmd, void *arg)
 		return rc;
 	}
 
+	case IOC_LIBCFS_GET_PEER_LIST: {
+		struct lnet_ioctl_peer_cfg_1 *cfg = arg;
+
+		if (cfg->prcfg_hdr.ioc_len < sizeof(*cfg))
+			return -EINVAL;
+
+		mutex_lock(&the_lnet.ln_api_mutex);
+		rc = lnet_get_peer_list(&cfg->prcfg_count,
+				(lnet_process_id_t __user *)cfg->prcfg_bulk);
+		mutex_unlock(&the_lnet.ln_api_mutex);
+		return rc;
+	}
+
 	case IOC_LIBCFS_NOTIFY_ROUTER:
 		return lnet_notify(NULL, data->ioc_nid, data->ioc_flags,
 				   cfs_time_current() -

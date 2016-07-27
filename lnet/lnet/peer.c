@@ -725,6 +725,66 @@ lnet_get_next_peer_ni_locked(struct lnet_peer *peer,
 	return lpni;
 }
 
+/* Call with the ln_api_mutex held */
+int
+lnet_get_peer_list(__u32 *countp, lnet_process_id_t __user *ids)
+{
+	lnet_process_id_t id;
+	struct lnet_peer_table *ptable;
+	struct lnet_peer *lp;
+	__u32 count = *countp;
+	__u32 total = 0;
+	int lncpt;
+	int cpt;
+	__u32 i;
+	int rc;
+
+	rc = -ESHUTDOWN;
+	if (the_lnet.ln_state != LNET_STATE_RUNNING)
+		goto done;
+
+	lncpt = cfs_percpt_number(the_lnet.ln_peer_tables);
+
+	/*
+	 * Count the number of peers, and return E2BIG if the buffer
+	 * is too small. We'll also return the desired size.
+	 */
+	rc = -E2BIG;
+	for (cpt = 0; cpt < lncpt; cpt++) {
+		ptable = the_lnet.ln_peer_tables[cpt];
+		total += ptable->pt_peers;
+	}
+	if (total > count)
+		goto done;
+
+	/*
+	 * Walk the peer lists and copy out the primary nids.
+	 * This is safe because the peer lists are only modified
+	 * while the ln_api_mutex is held. So we don't need to
+	 * hold the lnet_net_lock as well, and can therefore
+	 * directly call copy_to_user().
+	 */
+	rc = -EFAULT;
+	memset(&id, 0, sizeof(id));
+	id.pid = LNET_PID_LUSTRE;
+	i = 0;
+	for (cpt = 0; cpt < lncpt; cpt++) {
+		ptable = the_lnet.ln_peer_tables[cpt];
+		list_for_each_entry(lp, &ptable->pt_peer_list, lp_peer_list) {
+			if (i >= count)
+				goto done;
+			id.nid = lp->lp_primary_nid;
+			if (copy_to_user(&ids[i], &id, sizeof(id)))
+				goto done;
+			i++;
+		}
+	}
+	rc = 0;
+done:
+	*countp = total;
+	return rc;
+}
+
 /*
  * Test whether a ni is a preferred ni for this peer_ni, e.g, whether
  * this is a preferred point-to-point path. Call with lnet_net_lock in
@@ -2292,7 +2352,9 @@ lnet_peer_set_primary_data(struct lnet_peer *lp, struct lnet_ping_buffer *pbuf)
 			}
 		}
 	}
-	if (lp->lp_state & LNET_PEER_PING_FAILED) {
+	if (lp->lp_state & (LNET_PEER_PING_SENT | LNET_PEER_PUSH_SENT)) {
+		/* Do nothing */
+	} else if (lp->lp_state & LNET_PEER_PING_FAILED) {
 		lp->lp_state &= ~LNET_PEER_PING_FAILED;
 		lp->lp_state |= LNET_PEER_DATA_PRESENT;
 		lnet_ping_buffer_decref(lp->lp_data);
@@ -2610,6 +2672,7 @@ static int lnet_peer_send_push(struct lnet_peer *lp)
 	cpt = lnet_net_lock_current();
 	/* Refcount for MD. */
 	lnet_peer_addref_locked(lp);
+	lp->lp_data = pbuf;
 	id.pid = LNET_PID_LUSTRE;
 	id.nid = lnet_peer_select_nid(lp);
 	lnet_net_unlock(cpt);
@@ -2642,6 +2705,7 @@ fail:
 	 */
 	spin_lock(&lp->lp_lock);
 	lp->lp_state &= ~LNET_PEER_PUSH_SENT;
+	lp->lp_data = NULL;
 	return rc;
 }
 

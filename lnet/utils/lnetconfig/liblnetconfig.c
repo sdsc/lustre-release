@@ -2196,6 +2196,103 @@ out:
 	return rc;
 }
 
+int lustre_lnet_list_peer(int seq_no,
+			  struct cYAML **show_rc, struct cYAML **err_rc)
+{
+	struct lnet_ioctl_peer_cfg_1 peer_info;
+	int rc = LUSTRE_CFG_RC_OUT_OF_MEM;
+	__u32 count;
+	int i = 0;
+	int l_errno = 0;
+	struct cYAML *root = NULL, *list_root = NULL, *first_seq = NULL;
+	char err_str[LNET_MAX_STR_LEN];
+	lnet_process_id_t *list = NULL;
+
+	snprintf(err_str, sizeof(err_str),
+		 "\"out of memory\"");
+
+	memset(&peer_info, 0, sizeof(peer_info));
+
+	/* create struct cYAML root object */
+	root = cYAML_create_object(NULL, NULL);
+	if (root == NULL)
+		goto out;
+
+	list_root = cYAML_create_seq(root, "peer list");
+	if (list_root == NULL)
+		goto out;
+
+	count = 1000;
+	for (;;) {
+		list = malloc(sizeof(lnet_process_id_t) * count);
+		if (list == NULL) {
+			l_errno = ENOMEM;
+			goto out;
+		}
+		LIBCFS_IOC_INIT_V2(peer_info, prcfg_hdr);
+		peer_info.prcfg_hdr.ioc_len = sizeof(peer_info);
+		peer_info.prcfg_count = count;
+		peer_info.prcfg_bulk = list;
+
+		l_errno = 0;
+		rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_GET_PEER_LIST, &peer_info);
+		count = peer_info.prcfg_count;
+		if (rc == 0)
+			break;
+		l_errno = errno;
+		if (l_errno != E2BIG)
+			goto out;
+		free(list);
+	}
+
+	/* count is now the actual number of ids in the list. */
+	for (i = 0; i < count; i++) {
+		if (cYAML_create_string(list_root, "nid",
+					libcfs_nid2str(list[i].nid))
+		    == NULL)
+			goto out;
+	}
+
+	/* print output iff show_rc is not provided */
+	if (show_rc == NULL)
+		cYAML_print_tree(root);
+
+	snprintf(err_str, sizeof(err_str), "\"success\"");
+	rc = LUSTRE_CFG_RC_NO_ERR;
+
+out:
+	if (list != NULL)
+		free(list);
+	if (show_rc == NULL || rc != LUSTRE_CFG_RC_NO_ERR) {
+		cYAML_free_tree(root);
+	} else if (show_rc != NULL && *show_rc != NULL) {
+		struct cYAML *show_node;
+		/* find the peer node, if one doesn't exist then
+		 * insert one.  Otherwise add to the one there
+		 */
+		show_node = cYAML_get_object_item(*show_rc,
+						  "peer");
+		if (show_node != NULL && cYAML_is_sequence(show_node)) {
+			cYAML_insert_child(show_node, first_seq);
+			free(list_root);
+			free(root);
+		} else if (show_node == NULL) {
+			cYAML_insert_sibling((*show_rc)->cy_child,
+					     list_root);
+			free(root);
+		} else {
+			cYAML_free_tree(root);
+		}
+	} else {
+		*show_rc = root;
+	}
+
+	cYAML_build_error(rc, seq_no, SHOW_CMD, "peer", err_str,
+			  err_rc);
+
+	return rc;
+}
+
 int lustre_lnet_show_numa_range(int seq_no, struct cYAML **show_rc,
 				struct cYAML **err_rc)
 {

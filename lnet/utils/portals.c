@@ -1058,7 +1058,7 @@ int jt_ptl_discover(int argc, char **argv)
 		}
 	}
 
-	LIBCFS_IOC_INIT (data);
+	LIBCFS_IOC_INIT(data);
 	data.ioc_nid	 = id.nid;
 	data.ioc_u32[0]	 = id.pid;
 	data.ioc_u32[1]	 = force;
