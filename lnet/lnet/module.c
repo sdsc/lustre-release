@@ -208,6 +208,7 @@ static int __init lnet_init(void)
 	int rc;
 	ENTRY;
 
+	printk(KERN_INFO "LNET_PEER_MULTI_RAIL\n");
 	mutex_init(&lnet_config_mutex);
 
 	rc = lnet_lib_init();
