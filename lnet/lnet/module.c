@@ -213,6 +213,7 @@ static int __init lnet_init(void)
 	printk(KERN_INFO "LNET_PEER_CONFIGURED\n");
 	printk(KERN_INFO "peer refcount\n");
 	printk(KERN_INFO "event message type\n");
+	printk(KERN_INFO "peer discovery thread\n");
 	mutex_init(&lnet_config_mutex);
 
 	rc = lnet_lib_init();

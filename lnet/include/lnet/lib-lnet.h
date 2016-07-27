@@ -853,6 +853,9 @@ struct lnet_peer_ni *lnet_nid2peerni_ex(lnet_nid_t nid, int cpt);
 struct lnet_peer_ni *lnet_find_peer_ni_locked(lnet_nid_t nid);
 void lnet_peer_net_added(struct lnet_net *net);
 lnet_nid_t lnet_peer_primary_nid(lnet_nid_t nid);
+int lnet_discover_peer_locked(struct lnet_peer_ni *lpni, int cpt);
+int lnet_peer_discovery_start(void);
+void lnet_peer_discovery_stop(void);
 void lnet_peer_tables_cleanup(struct lnet_net *net);
 void lnet_peer_uninit(void);
 int lnet_peer_tables_create(void);
@@ -928,5 +931,7 @@ lnet_peer_is_multi_rail(struct lnet_peer *lp)
 		return true;
 	return false;
 }
+
+bool lnet_peer_is_uptodate(struct lnet_peer *lp);
 
 #endif
