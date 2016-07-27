@@ -12311,6 +12311,10 @@ test_209() {
 	echo 3 > /proc/sys/vm/drop_caches
 	req_before=$(awk '/ptlrpc_cache / { print $2 }' /proc/slabinfo)
 
+	# do not return layout in open
+#define OBD_FAIL_MDS_NO_LL_OPEN 0x171
+	$LCTL set_param fail_loc=0x171
+
 	# open/close 500 times
 	for i in $(seq 500); do
 		cat $DIR/$tfile
