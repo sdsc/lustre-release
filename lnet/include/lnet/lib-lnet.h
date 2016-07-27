@@ -942,4 +942,11 @@ lnet_peer_is_multi_rail(struct lnet_peer *lp)
 
 bool lnet_peer_is_uptodate(struct lnet_peer *lp);
 
+static inline bool
+lnet_peer_needs_push(struct lnet_peer *lp)
+{
+	return (lp->lp_node_seqno <
+		LNET_PING_BUFFER_SEQNO(the_lnet.ln_ping_target));
+}
+
 #endif

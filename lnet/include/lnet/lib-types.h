@@ -597,6 +597,9 @@ struct lnet_peer {
 	/* buffer for data pushed by peer */
 	struct lnet_ping_buffer	*lp_data;
 
+	/* MD ping / push handle */
+	lnet_handle_md_t	lp_data_mdh;
+
 	/* number of NIDs for sizing push data */
 	int			lp_data_nnis;
 
@@ -605,6 +608,9 @@ struct lnet_peer {
 
 	/* Local NI config sequence number peer knows */
 	__u32			lp_node_seqno;
+
+	/* Error encountered during discovery. */
+	int			lp_dc_error;
 
 	/* link on discovery-related lists */
 	struct list_head	lp_dc_list;
