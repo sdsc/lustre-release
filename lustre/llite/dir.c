@@ -754,20 +754,20 @@ int ll_dir_setstripe(struct inode *inode, struct lov_user_md *lump,
 	if (lump != NULL && lump->lmm_magic == cpu_to_le32(LMV_USER_MAGIC))
 		op_data->op_cli_flags |= CLI_SET_MEA;
 
-        /* swabbing is done in lov_setstripe() on server side */
-        rc = md_setattr(sbi->ll_md_exp, op_data, lump, lum_size,
-                        NULL, 0, &req, NULL);
-        ll_finish_md_op_data(op_data);
-        ptlrpc_req_finished(req);
-        if (rc) {
-                if (rc != -EPERM && rc != -EACCES)
-                        CERROR("mdc_setattr fails: rc = %d\n", rc);
-        }
+	/* swabbing is done in lov_setstripe() on server side */
+	rc = md_setattr(sbi->ll_md_exp, op_data, lump, lum_size, NULL, 0, &req,
+			NULL);
+	ll_finish_md_op_data(op_data);
+	ptlrpc_req_finished(req);
+	if (rc)
+		RETURN(rc);
 
-        /* In the following we use the fact that LOV_USER_MAGIC_V1 and
-         LOV_USER_MAGIC_V3 have the same initial fields so we do not
-         need the make the distiction between the 2 versions */
-        if (set_default && mgc->u.cli.cl_mgc_mgsexp) {
+	/*
+	 * In the following we use the fact that LOV_USER_MAGIC_V1 and
+	 * LOV_USER_MAGIC_V3 have the same initial fields so we do not
+	 * need the make the distiction between the 2 versions
+	 */
+	if (set_default && mgc->u.cli.cl_mgc_mgsexp) {
 		char *param = NULL;
 		char *buf;
 
