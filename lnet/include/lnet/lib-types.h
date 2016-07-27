@@ -430,9 +430,11 @@ typedef struct {
 	lnet_ni_status_t	pi_ni[0];
 } WIRE_ATTR lnet_ping_info_t;
 
+#define LNET_PINGINFO_SIZE(NNIDS) offsetof(lnet_ping_info_t, pi_ni[NNIDS])
+
 /* router checker data, per router */
-#define LNET_MAX_RTR_NIS   16
-#define LNET_PINGINFO_SIZE offsetof(lnet_ping_info_t, pi_ni[LNET_MAX_RTR_NIS])
+#define LNET_MAX_RTR_NIS   LNET_MIN_INTERFACES
+#define LNET_RTR_PINGINFO_SIZE	LNET_PINGINFO_SIZE(LNET_MAX_RTR_NIS)
 typedef struct {
 	/* chain on the_lnet.ln_zombie_rcd or ln_deathrow_rcd */
 	struct list_head	rcd_list;
