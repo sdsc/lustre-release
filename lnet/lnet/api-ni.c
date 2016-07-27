@@ -984,25 +984,44 @@ lnet_count_acceptor_nets(void)
 	return count;
 }
 
-static lnet_ping_info_t *
-lnet_ping_info_create(int num_ni)
+struct lnet_ping_buffer *
+lnet_ping_buffer_alloc(int nnis, gfp_t gfp)
 {
-	lnet_ping_info_t *ping_info;
-	unsigned int	 infosz;
+	struct lnet_ping_buffer *pbuf;
 
-	infosz = offsetof(lnet_ping_info_t, pi_ni[num_ni]);
-	LIBCFS_ALLOC(ping_info, infosz);
-	if (ping_info == NULL) {
-		CERROR("Can't allocate ping info[%d]\n", num_ni);
+	LIBCFS_ALLOC_GFP(pbuf, LNET_PING_BUFFER_SIZE(nnis), gfp);
+	if (pbuf) {
+		pbuf->pb_nnis = nnis;
+		atomic_set(&pbuf->pb_refcnt, 1);
+	}
+
+	return pbuf;
+}
+
+void
+lnet_ping_buffer_free(struct lnet_ping_buffer *pbuf)
+{
+	LASSERT(lnet_ping_buffer_numref(pbuf) == 0);
+	LIBCFS_FREE(pbuf, LNET_PING_BUFFER_SIZE(pbuf->pb_nnis));
+}
+
+static struct lnet_ping_buffer *
+lnet_ping_target_create(int nnis)
+{
+	struct lnet_ping_buffer *pbuf;
+
+	pbuf = lnet_ping_buffer_alloc(nnis, GFP_NOFS);
+	if (pbuf == NULL) {
+		CERROR("Can't allocate ping source [%d]\n", nnis);
 		return NULL;
 	}
 
-	ping_info->pi_nnis = num_ni;
-	ping_info->pi_pid = the_lnet.ln_pid;
-	ping_info->pi_magic = LNET_PROTO_PING_MAGIC;
-	ping_info->pi_features = LNET_PING_FEAT_NI_STATUS;
+	pbuf->pb_info.pi_nnis = nnis;
+	pbuf->pb_info.pi_pid = the_lnet.ln_pid;
+	pbuf->pb_info.pi_magic = LNET_PROTO_PING_MAGIC;
+	pbuf->pb_info.pi_features = LNET_PING_FEAT_NI_STATUS;
 
-	return ping_info;
+	return pbuf;
 }
 
 static inline int
@@ -1048,16 +1067,25 @@ lnet_get_ni_count(void)
 	return count;
 }
 
-static inline void
-lnet_ping_info_free(lnet_ping_info_t *pinfo)
+int
+lnet_ping_info_validate(struct lnet_ping_info *pinfo)
 {
-	LIBCFS_FREE(pinfo,
-		    offsetof(lnet_ping_info_t,
-			     pi_ni[pinfo->pi_nnis]));
+	if (!pinfo)
+		return -EINVAL;
+	if (pinfo->pi_magic != LNET_PROTO_PING_MAGIC)
+		return -EPROTO;
+	if (!(pinfo->pi_features & LNET_PING_FEAT_NI_STATUS))
+		return -EPROTO;
+	/* Loopback is guaranteed to be present */
+	if (pinfo->pi_nnis < 1 || pinfo->pi_nnis > lnet_max_interfaces)
+		return -ERANGE;
+	if (LNET_NETTYP(LNET_NIDNET(LNET_PING_INFO_LONI(pinfo))) != LOLND)
+		return -EPROTO;
+	return 0;
 }
 
 static void
-lnet_ping_info_destroy(void)
+lnet_ping_target_destroy(void)
 {
 	struct lnet_net *net;
 	struct lnet_ni	*ni;
@@ -1072,24 +1100,24 @@ lnet_ping_info_destroy(void)
 		}
 	}
 
-	lnet_ping_info_free(the_lnet.ln_ping_info);
-	the_lnet.ln_ping_info = NULL;
+	lnet_ping_buffer_decref(the_lnet.ln_ping_target);
+	the_lnet.ln_ping_target = NULL;
 
 	lnet_net_unlock(LNET_LOCK_EX);
 }
 
 static void
-lnet_ping_event_handler(lnet_event_t *event)
+lnet_ping_target_event_handler(lnet_event_t *event)
 {
-	lnet_ping_info_t *pinfo = event->md.user_ptr;
+	struct lnet_ping_buffer *pbuf = event->md.user_ptr;
 
 	if (event->unlinked)
-		pinfo->pi_features = LNET_PING_FEAT_INVAL;
+		lnet_ping_buffer_decref(pbuf);
 }
 
 static int
-lnet_ping_info_setup(lnet_ping_info_t **ppinfo, lnet_handle_md_t *md_handle,
-		     int ni_count, bool set_eq)
+lnet_ping_target_setup(struct lnet_ping_buffer **ppbuf,
+		       lnet_handle_md_t *ping_mdh, int ni_count, bool set_eq)
 {
 	lnet_handle_me_t  me_handle;
 	lnet_process_id_t id = {LNET_NID_ANY, LNET_PID_ANY};
@@ -1097,72 +1125,75 @@ lnet_ping_info_setup(lnet_ping_info_t **ppinfo, lnet_handle_md_t *md_handle,
 	int		  rc, rc2;
 
 	if (set_eq) {
-		rc = LNetEQAlloc(0, lnet_ping_event_handler,
+		rc = LNetEQAlloc(0, lnet_ping_target_event_handler,
 				 &the_lnet.ln_ping_target_eq);
 		if (rc != 0) {
-			CERROR("Can't allocate ping EQ: %d\n", rc);
+			CERROR("Can't allocate ping buffer EQ: %d\n", rc);
 			return rc;
 		}
 	}
 
-	*ppinfo = lnet_ping_info_create(ni_count);
-	if (*ppinfo == NULL) {
+	*ppbuf = lnet_ping_target_create(ni_count);
+	if (*ppbuf == NULL) {
 		rc = -ENOMEM;
-		goto failed_0;
+		goto fail_free_eq;
 	}
 
+	/* Ping target ME/MD */
 	rc = LNetMEAttach(LNET_RESERVED_PORTAL, id,
 			  LNET_PROTO_PING_MATCHBITS, 0,
 			  LNET_UNLINK, LNET_INS_AFTER,
 			  &me_handle);
 	if (rc != 0) {
-		CERROR("Can't create ping ME: %d\n", rc);
-		goto failed_1;
+		CERROR("Can't create ping target ME: %d\n", rc);
+		goto fail_decref_ping_buffer;
 	}
 
 	/* initialize md content */
-	md.start     = *ppinfo;
-	md.length    = offsetof(lnet_ping_info_t,
-				pi_ni[(*ppinfo)->pi_nnis]);
+	md.start     = &(*ppbuf)->pb_info;
+	md.length    = LNET_PING_INFO_SIZE((*ppbuf)->pb_nnis);
 	md.threshold = LNET_MD_THRESH_INF;
 	md.max_size  = 0;
 	md.options   = LNET_MD_OP_GET | LNET_MD_TRUNCATE |
 		       LNET_MD_MANAGE_REMOTE;
-	md.user_ptr  = NULL;
 	md.eq_handle = the_lnet.ln_ping_target_eq;
-	md.user_ptr = *ppinfo;
+	md.user_ptr  = *ppbuf;
 
-	rc = LNetMDAttach(me_handle, md, LNET_RETAIN, md_handle);
+	rc = LNetMDAttach(me_handle, md, LNET_RETAIN, ping_mdh);
 	if (rc != 0) {
-		CERROR("Can't attach ping MD: %d\n", rc);
-		goto failed_2;
+		CERROR("Can't attach ping target MD: %d\n", rc);
+		goto fail_unlink_ping_me;
 	}
+	lnet_ping_buffer_addref(*ppbuf);
 
 	return 0;
 
-failed_2:
+fail_unlink_ping_me:
 	rc2 = LNetMEUnlink(me_handle);
 	LASSERT(rc2 == 0);
-failed_1:
-	lnet_ping_info_free(*ppinfo);
-	*ppinfo = NULL;
-failed_0:
-	if (set_eq)
-		LNetEQFree(the_lnet.ln_ping_target_eq);
+fail_decref_ping_buffer:
+	LASSERT(lnet_ping_buffer_numref(*ppbuf) == 1);
+	lnet_ping_buffer_decref(*ppbuf);
+	*ppbuf = NULL;
+fail_free_eq:
+	if (set_eq) {
+		rc2 = LNetEQFree(the_lnet.ln_ping_target_eq);
+		LASSERT(rc2 == 0);
+	}
 	return rc;
 }
 
 static void
-lnet_ping_md_unlink(lnet_ping_info_t *pinfo, lnet_handle_md_t *md_handle)
+lnet_ping_md_unlink(struct lnet_ping_buffer *pbuf, lnet_handle_md_t *ping_mdh)
 {
 	sigset_t	blocked = cfs_block_allsigs();
 
-	LNetMDUnlink(*md_handle);
-	LNetInvalidateHandle(md_handle);
+	LNetMDUnlink(*ping_mdh);
+	LNetInvalidateHandle(ping_mdh);
 
-	/* NB md could be busy; this just starts the unlink */
-	while (pinfo->pi_features != LNET_PING_FEAT_INVAL) {
-		CDEBUG(D_NET, "Still waiting for ping MD to unlink\n");
+	/* NB the MD could be busy; this just starts the unlink */
+	while (lnet_ping_buffer_numref(pbuf) > 1) {
+		CDEBUG(D_NET, "Still waiting for ping data MD to unlink\n");
 		set_current_state(TASK_UNINTERRUPTIBLE);
 		schedule_timeout(cfs_time_seconds(1));
 	}
@@ -1171,66 +1202,78 @@ lnet_ping_md_unlink(lnet_ping_info_t *pinfo, lnet_handle_md_t *md_handle)
 }
 
 static void
-lnet_ping_info_install_locked(lnet_ping_info_t *ping_info)
+lnet_ping_target_install_locked(struct lnet_ping_buffer *pbuf)
 {
-	int			i;
 	struct lnet_ni		*ni;
 	struct lnet_net		*net;
 	lnet_ni_status_t	*ns;
+	int			i;
+	int			rc;
 
 	i = 0;
 	list_for_each_entry(net, &the_lnet.ln_nets, net_list) {
 		list_for_each_entry(ni, &net->net_ni_list, ni_netlist) {
-			LASSERT(i < ping_info->pi_nnis);
+			LASSERT(i < pbuf->pb_nnis);
 
-			ns = &ping_info->pi_ni[i];
+			ns = &pbuf->pb_info.pi_ni[i];
 
 			ns->ns_nid = ni->ni_nid;
 
 			lnet_ni_lock(ni);
 			ns->ns_status = (ni->ni_status != NULL) ?
-					ni->ni_status->ns_status :
+					 ni->ni_status->ns_status :
 						LNET_NI_STATUS_UP;
 			ni->ni_status = ns;
 			lnet_ni_unlock(ni);
 
 			i++;
 		}
-
 	}
+	/*
+	 * We (ab)use the ns_status of the loopback interface to
+	 * transmit the sequence number. The first interface listed
+	 * must be the loopback interface.
+	 */
+	rc = lnet_ping_info_validate(&pbuf->pb_info);
+	if (rc) {
+		LCONSOLE_EMERG("Invalid ping target: %d\n", rc);
+		LBUG();
+	}
+	LNET_PING_BUFFER_SEQNO(pbuf) = ++the_lnet.ln_ping_target_seqno;
 }
 
 static void
-lnet_ping_target_update(lnet_ping_info_t *pinfo, lnet_handle_md_t md_handle)
+lnet_ping_target_update(struct lnet_ping_buffer *pbuf,
+			lnet_handle_md_t ping_mdh)
 {
-	lnet_ping_info_t *old_pinfo = NULL;
-	lnet_handle_md_t old_md;
+	struct lnet_ping_buffer *old_pbuf = NULL;
+	lnet_handle_md_t old_ping_md;
 
 	/* switch the NIs to point to the new ping info created */
 	lnet_net_lock(LNET_LOCK_EX);
 
 	if (!the_lnet.ln_routing)
-		pinfo->pi_features |= LNET_PING_FEAT_RTE_DISABLED;
+		pbuf->pb_info.pi_features |= LNET_PING_FEAT_RTE_DISABLED;
 
 	/* Ensure only known feature bits have been set. */
-	LASSERT(pinfo->pi_features & LNET_PING_FEAT_BITS);
-	LASSERT(!(pinfo->pi_features & ~LNET_PING_FEAT_BITS));
+	LASSERT(pbuf->pb_info.pi_features & LNET_PING_FEAT_BITS);
+	LASSERT(!(pbuf->pb_info.pi_features & ~LNET_PING_FEAT_BITS));
 
-	lnet_ping_info_install_locked(pinfo);
+	lnet_ping_target_install_locked(pbuf);
 
-	if (the_lnet.ln_ping_info != NULL) {
-		old_pinfo = the_lnet.ln_ping_info;
-		old_md = the_lnet.ln_ping_target_md;
+	if (the_lnet.ln_ping_target) {
+		old_pbuf = the_lnet.ln_ping_target;
+		old_ping_md = the_lnet.ln_ping_target_md;
 	}
-	the_lnet.ln_ping_target_md = md_handle;
-	the_lnet.ln_ping_info = pinfo;
+	the_lnet.ln_ping_target_md = ping_mdh;
+	the_lnet.ln_ping_target = pbuf;
 
 	lnet_net_unlock(LNET_LOCK_EX);
 
-	if (old_pinfo != NULL) {
-		/* unlink the old ping info */
-		lnet_ping_md_unlink(old_pinfo, &old_md);
-		lnet_ping_info_free(old_pinfo);
+	if (old_pbuf) {
+		/* unlink and free the old ping info */
+		lnet_ping_md_unlink(old_pbuf, &old_ping_md);
+		lnet_ping_buffer_decref(old_pbuf);
 	}
 }
 
@@ -1239,13 +1282,13 @@ lnet_ping_target_fini(void)
 {
 	int             rc;
 
-	lnet_ping_md_unlink(the_lnet.ln_ping_info,
+	lnet_ping_md_unlink(the_lnet.ln_ping_target,
 			    &the_lnet.ln_ping_target_md);
 
 	rc = LNetEQFree(the_lnet.ln_ping_target_eq);
 	LASSERT(rc == 0);
 
-	lnet_ping_info_destroy();
+	lnet_ping_target_destroy();
 }
 
 static int
@@ -1844,8 +1887,8 @@ LNetNIInit(lnet_pid_t requested_pid)
 	int			im_a_router = 0;
 	int			rc;
 	int			ni_count;
-	lnet_ping_info_t	*pinfo;
-	lnet_handle_md_t	md_handle;
+	struct lnet_ping_buffer	*pbuf;
+	lnet_handle_md_t	ping_mdh;
 	struct list_head	net_head;
 	struct lnet_net		*net;
 
@@ -1919,11 +1962,11 @@ LNetNIInit(lnet_pid_t requested_pid)
 	the_lnet.ln_refcount = 1;
 	/* Now I may use my own API functions... */
 
-	rc = lnet_ping_info_setup(&pinfo, &md_handle, ni_count, true);
+	rc = lnet_ping_target_setup(&pbuf, &ping_mdh, ni_count, true);
 	if (rc != 0)
 		goto failed3;
 
-	lnet_ping_target_update(pinfo, md_handle);
+	lnet_ping_target_update(pbuf, ping_mdh);
 
 	rc = lnet_router_checker_start();
 	if (rc != 0)
@@ -1974,30 +2017,30 @@ LNetNIFini()
 {
 	mutex_lock(&the_lnet.ln_api_mutex);
 
-        LASSERT (the_lnet.ln_refcount > 0);
+	LASSERT(the_lnet.ln_refcount > 0);
 
-        if (the_lnet.ln_refcount != 1) {
-                the_lnet.ln_refcount--;
-        } else {
+	if (the_lnet.ln_refcount != 1) {
+		the_lnet.ln_refcount--;
+	} else {
 		LASSERT(!the_lnet.ln_niinit_self);
 
 		lnet_fault_fini();
 
-                lnet_proc_fini();
-                lnet_router_checker_stop();
-                lnet_ping_target_fini();
+		lnet_proc_fini();
+		lnet_router_checker_stop();
+		lnet_ping_target_fini();
 
-                /* Teardown fns that use my own API functions BEFORE here */
-                the_lnet.ln_refcount = 0;
+		/* Teardown fns that use my own API functions BEFORE here */
+		the_lnet.ln_refcount = 0;
 
-                lnet_acceptor_stop();
-                lnet_destroy_routes();
-                lnet_shutdown_lndnets();
-                lnet_unprepare();
-        }
+		lnet_acceptor_stop();
+		lnet_destroy_routes();
+		lnet_shutdown_lndnets();
+		lnet_unprepare();
+	}
 
 	mutex_unlock(&the_lnet.ln_api_mutex);
-        return 0;
+	return 0;
 }
 EXPORT_SYMBOL(LNetNIFini);
 
@@ -2279,8 +2322,8 @@ static int lnet_add_net_common(struct lnet_net *net,
 			       struct lnet_ioctl_config_lnd_tunables *tun)
 {
 	__u32			net_id;
-	lnet_ping_info_t	*pinfo;
-	lnet_handle_md_t	md_handle;
+	struct lnet_ping_buffer *pbuf;
+	lnet_handle_md_t	ping_mdh;
 	int			rc;
 	lnet_remotenet_t	*rnet;
 	int			net_ni_count;
@@ -2302,7 +2345,7 @@ static int lnet_add_net_common(struct lnet_net *net,
 
 	/*
 	 * make sure you calculate the correct number of slots in the ping
-	 * info. Since the ping info is a flattened list of all the NIs,
+	 * buffer. Since the ping info is a flattened list of all the NIs,
 	 * we should allocate enough slots to accomodate the number of NIs
 	 * which will be added.
 	 *
@@ -2311,9 +2354,9 @@ static int lnet_add_net_common(struct lnet_net *net,
 	 */
 	net_ni_count = lnet_get_net_ni_count_pre(net);
 
-	rc = lnet_ping_info_setup(&pinfo, &md_handle,
-				  net_ni_count + lnet_get_ni_count(),
-				  false);
+	rc = lnet_ping_target_setup(&pbuf, &ping_mdh,
+				    net_ni_count + lnet_get_ni_count(),
+				    false);
 	if (rc < 0) {
 		lnet_net_free(net);
 		return rc;
@@ -2364,13 +2407,13 @@ static int lnet_add_net_common(struct lnet_net *net,
 	lnet_peer_net_added(net);
 	lnet_net_unlock(LNET_LOCK_EX);
 
-	lnet_ping_target_update(pinfo, md_handle);
+	lnet_ping_target_update(pbuf, ping_mdh);
 
 	return 0;
 
 failed:
-	lnet_ping_md_unlink(pinfo, &md_handle);
-	lnet_ping_info_free(pinfo);
+	lnet_ping_md_unlink(pbuf, &ping_mdh);
+	lnet_ping_buffer_decref(pbuf);
 	return rc;
 }
 
@@ -2461,8 +2504,8 @@ int lnet_dyn_del_ni(struct lnet_ioctl_config_ni *conf)
 	struct lnet_net	 *net;
 	struct lnet_ni *ni;
 	__u32 net_id = LNET_NIDNET(conf->lic_nid);
-	lnet_ping_info_t *pinfo;
-	lnet_handle_md_t  md_handle;
+	struct lnet_ping_buffer *pbuf;
+	lnet_handle_md_t  ping_mdh;
 	int		  rc;
 	int		  net_count;
 	__u32		  addr;
@@ -2480,7 +2523,7 @@ int lnet_dyn_del_ni(struct lnet_ioctl_config_ni *conf)
 		CERROR("net %s not found\n",
 		       libcfs_net2str(net_id));
 		rc = -ENOENT;
-		goto net_unlock;
+		goto unlock_net;
 	}
 
 	addr = LNET_NIDADDR(conf->lic_nid);
@@ -2491,28 +2534,28 @@ int lnet_dyn_del_ni(struct lnet_ioctl_config_ni *conf)
 		lnet_net_unlock(0);
 
 		/* create and link a new ping info, before removing the old one */
-		rc = lnet_ping_info_setup(&pinfo, &md_handle,
+		rc = lnet_ping_target_setup(&pbuf, &ping_mdh,
 					lnet_get_ni_count() - net_count,
 					false);
 		if (rc != 0)
-			goto out;
+			goto unlock_api_mutex;
 
 		lnet_shutdown_lndnet(net);
 
 		if (lnet_count_acceptor_nets() == 0)
 			lnet_acceptor_stop();
 
-		lnet_ping_target_update(pinfo, md_handle);
+		lnet_ping_target_update(pbuf, ping_mdh);
 
-		goto out;
+		goto unlock_api_mutex;
 	}
 
 	ni = lnet_nid2ni_locked(conf->lic_nid, 0);
 	if (!ni) {
-		CERROR("nid %s not found \n",
+		CERROR("nid %s not found\n",
 		       libcfs_nid2str(conf->lic_nid));
 		rc = -ENOENT;
-		goto net_unlock;
+		goto unlock_net;
 	}
 
 	net_count = lnet_get_net_ni_count_locked(net);
@@ -2520,27 +2563,27 @@ int lnet_dyn_del_ni(struct lnet_ioctl_config_ni *conf)
 	lnet_net_unlock(0);
 
 	/* create and link a new ping info, before removing the old one */
-	rc = lnet_ping_info_setup(&pinfo, &md_handle,
+	rc = lnet_ping_target_setup(&pbuf, &ping_mdh,
 				  lnet_get_ni_count() - 1, false);
 	if (rc != 0)
-		goto out;
+		goto unlock_api_mutex;
 
 	lnet_shutdown_lndni(ni);
 
 	if (lnet_count_acceptor_nets() == 0)
 		lnet_acceptor_stop();
 
-	lnet_ping_target_update(pinfo, md_handle);
+	lnet_ping_target_update(pbuf, ping_mdh);
 
 	/* check if the net is empty and remove it if it is */
 	if (net_count == 1)
 		lnet_shutdown_lndnet(net);
 
-	goto out;
+	goto unlock_api_mutex;
 
-net_unlock:
+unlock_net:
 	lnet_net_unlock(0);
-out:
+unlock_api_mutex:
 	mutex_unlock(&the_lnet.ln_api_mutex);
 
 	return rc;
@@ -2611,8 +2654,8 @@ int
 lnet_dyn_del_net(__u32 net_id)
 {
 	struct lnet_net	 *net;
-	lnet_ping_info_t *pinfo;
-	lnet_handle_md_t  md_handle;
+	struct lnet_ping_buffer *pbuf;
+	lnet_handle_md_t  ping_mdh;
 	int		  rc;
 	int		  net_ni_count;
 
@@ -2635,8 +2678,8 @@ lnet_dyn_del_net(__u32 net_id)
 	lnet_net_unlock(0);
 
 	/* create and link a new ping info, before removing the old one */
-	rc = lnet_ping_info_setup(&pinfo, &md_handle,
-				  lnet_get_ni_count() - net_ni_count, false);
+	rc = lnet_ping_target_setup(&pbuf, &ping_mdh,
+				    lnet_get_ni_count() - net_ni_count, false);
 	if (rc != 0)
 		goto out;
 
@@ -2645,7 +2688,7 @@ lnet_dyn_del_net(__u32 net_id)
 	if (lnet_count_acceptor_nets() == 0)
 		lnet_acceptor_stop();
 
-	lnet_ping_target_update(pinfo, md_handle);
+	lnet_ping_target_update(pbuf, ping_mdh);
 
 out:
 	mutex_unlock(&the_lnet.ln_api_mutex);
