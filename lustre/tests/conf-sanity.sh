@@ -6782,6 +6782,47 @@ test_97() {
 }
 run_test 97 "ldev returns correct ouput when querying based on role"
 
+test_98()
+{
+	if [ $(facet_fstype $SINGLEMDS) != ldiskfs ]; then
+		skip "Only applicable to ldiskfs-based MDTs"
+		return
+	fi
+
+	# We need MDS size 3072G, because it is smallest
+	# partition that can store 2GB inodes
+	local MIN=3298534883328
+	echo mdssize: $MDSSIZE
+	if [ $MDSSIZE -lt $MIN ]; then
+		skip "Minimum MDS size must be at least 3072G"
+		return
+	fi
+
+	local saved_opts=$MDS_MOUNT_OPTS
+
+	MDS_MOUNT_OPTS="$MDS_MOUNT_OPTS --mkfsoptions="-i 1024 -O large_xattr""
+
+	reformat
+	setup || error "Can not setup"
+
+	touch $DIR/$tfile
+	local pathes=`do_facet $SINGLEMDS "ls /sys/fs/ldiskfs/*/inode_goal"`
+	echo pathes: $pathes
+	for goal_path in $pathes ; do
+		do_facet $SINGLEMDS  "echo 2147483947 >> $goal_path";
+	done
+	for goal_path in $pathes ; do
+		do_facet $SINGLEMDS  "cat $goal_path";
+	done
+
+	ln $DIR/$tfile $DIR/$tfile-link || error "Can't make link"
+	rm -f $DIR/$tfile-link
+
+	cleanup || error "Can not cleanup"
+	MDS_MOUNT_OPTS=saved_opts
+}
+run_test 98 "Access xattr for inodes number  > 2G"
+
 if ! combined_mgs_mds ; then
 	stop mgs
 fi
