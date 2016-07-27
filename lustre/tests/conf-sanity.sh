@@ -6893,6 +6893,53 @@ test_97() {
 }
 run_test 97 "ldev returns correct ouput when querying based on role"
 
+test_98()
+{
+	if [ $(facet_fstype $SINGLEMDS) != ldiskfs ]; then
+		skip "Only applicable to ldiskfs-based MDTs"
+		return
+	fi
+
+	# We need MDS size 3072G, because it is smallest
+	# partition that can store 2GB inodes
+	local MIN=3298534883328
+	echo mdssize: $MDSSIZE
+	if [ $MDSSIZE -lt $MIN ]; then
+		skip "Minimum MDS size must be at least 3072G"
+		return
+	fi
+
+	local saved_opts=$MDS_MOUNT_OPTS
+
+	MDS_MOUNT_OPTS="$MDS_MOUNT_OPTS --mkfsoptions="-i 1024 -O large_xattr""
+
+	reformat
+	setup || error "Can not setup"
+
+	mkdir -p $DIR/$tdir || error "mkdir fail"
+	touch $DIR/$tdir/$tfile
+	local pathes=$(do_facet $SINGLEMDS "ls /sys/fs/ldiskfs/*/inode_goal")
+	echo pathes: $pathes
+	for goal_path in $pathes ; do
+		do_facet $SINGLEMDS  "echo 2147483947 >> $goal_path";
+	done
+	for goal_path in $pathes ; do
+		do_facet $SINGLEMDS  "cat $goal_path";
+	done
+
+	#Add > 5k bytes to xattr
+	for i in $(seq 30); do
+		ln $DIR/$tdir/$tfile $DIR/$tdir/$(printf %0255d i) || error "Can't make link"
+	done
+	rm -rf $DIR/$tdir || error "delete dir fail"
+
+	cleanup || error "Can not cleanup"
+	MDS_MOUNT_OPTS=saved_opts
+
+	reformat
+}
+run_test 98 "Access xattr for inodes number  > 2G"
+
 test_99()
 {
 	[[ $(facet_fstype ost1) != ldiskfs ]] &&
