@@ -216,6 +216,7 @@ static int __init lnet_init(void)
 	printk(KERN_INFO "peer discovery thread\n");
 	printk(KERN_INFO "push target\n");
 	printk(KERN_INFO "peer discovery\n");
+	printk(KERN_INFO "IOC_LIBCFS_DISCOVER\n");
 	mutex_init(&lnet_config_mutex);
 
 	rc = lnet_lib_init();
