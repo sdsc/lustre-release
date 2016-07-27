@@ -210,6 +210,7 @@ static int __init lnet_init(void)
 
 	printk(KERN_INFO "LNET_PEER_MULTI_RAIL\n");
 	printk(KERN_INFO "preferred NI for non-MR\n");
+	printk(KERN_INFO "LNET_PEER_CONFIGURED\n");
 	mutex_init(&lnet_config_mutex);
 
 	rc = lnet_lib_init();
