@@ -735,6 +735,11 @@ struct lnet_msg_container {
 #define LNET_RC_STATE_RUNNING		1	/* started up OK */
 #define LNET_RC_STATE_STOPPING		2	/* telling thread to stop */
 
+/* LNet states */
+#define LNET_STATE_SHUTDOWN		0	/* not started */
+#define LNET_STATE_RUNNING		1	/* started up OK */
+#define LNET_STATE_STOPPING		2	/* telling thread to stop */
+
 typedef struct
 {
 	/* CPU partition table of LNet */
@@ -814,8 +819,8 @@ typedef struct
 	int				ln_niinit_self;
 	/* LNetNIInit/LNetNIFini counter */
 	int				ln_refcount;
-	/* shutdown in progress */
-	int				ln_shutdown;
+	/* SHUTDOWN/RUNNING/STOPPING */
+	int				ln_state;
 
 	int				ln_routing;	/* am I a router? */
 	lnet_pid_t			ln_pid;		/* requested pid */
