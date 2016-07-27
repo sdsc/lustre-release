@@ -703,7 +703,7 @@ lnet_parse_rc_info(lnet_rc_data_t *rcd)
 	}
 
 	gw->lpni_ping_feats = info->pi_features;
-	if ((gw->lpni_ping_feats & LNET_PING_FEAT_MASK) == 0) {
+	if ((gw->lpni_ping_feats & LNET_PING_FEAT_RC_MASK) == 0) {
 		CDEBUG(D_NET, "%s: Unexpected features 0x%x\n",
 		       libcfs_nid2str(gw->lpni_nid), gw->lpni_ping_feats);
 		spin_unlock(&gw->lpni_lock);
