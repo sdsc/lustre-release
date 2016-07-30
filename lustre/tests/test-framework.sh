@@ -1937,6 +1937,7 @@ check_client_load () {
 	local var=$(node_var_name $client)_load
 	local testload=run_${!var}.sh
 
+	log $(ps auxwww)
 	ps -C $testload | grep $client || return 1
 
 	# bug 18914: try to connect several times not only when
@@ -1979,7 +1980,7 @@ check_client_load () {
 			sleep 30
 		fi
 	done
-	if [ $RC = 254 ]; then
+	if [ $RC != 0 ]; then
 		echo "got a return status of $RC from do_node while checking " \
 		"(node health and 'ps') the client load on $client"
 		# see if we can diagnose a bit why this is
