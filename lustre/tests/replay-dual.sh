@@ -530,6 +530,8 @@ test_21b_sub () {
 	do_node $CLIENT1 rm -f $MOUNT1/$tfile-*
 
 	do_facet $mds sync
+	sleep 3
+
 	do_node $CLIENT1 touch $MOUNT1/$tfile-1
 	do_node $CLIENT2 mv $MOUNT1/$tfile-1 $MOUNT1/$tfile-2
 	do_node $CLIENT1 mv $MOUNT1/$tfile-2 $MOUNT1/$tfile-3
