@@ -5154,8 +5154,9 @@ check_grant() {
 	export base=$(basetest $1)
 	[ "$CHECK_GRANT" == "no" ] && return 0
 
-	testname=GCHECK_ONLY_${base}
-	[ ${!testname}x == x ] && return 0
+	testnamebase=GCHECK_ONLY_${base}
+	testname=GCHECK_ONLY_$1
+	[ ${!testnamebase}x == x -a ${!testname}x == x ] && return 0
 
 	echo -n "checking grant......"
 
