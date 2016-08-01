@@ -40,6 +40,7 @@ while [ ! -e "$END_RUN_FILE" ] && $CONTINUE; do
 	AVAIL=$((FREE_SPACE * 9 / 10 / CLIENT_COUNT))
 	if [ $AVAIL -lt $USAGE ]; then
 		echoerr "no enough free disk space: need $USAGE, avail $AVAIL"
+		echoerr $($LFS df $TESTDIR)
 		echo $(hostname) >> $END_RUN_FILE
 		break
 	fi
