@@ -2082,10 +2082,19 @@ static void osd_conf_get(const struct lu_env *env,
 static int osd_sync(const struct lu_env *env, struct dt_device *d)
 {
 	int rc;
+	struct super_block *sb = osd_sb(osd_dt_dev(d));
 
 	CDEBUG(D_CACHE, "syncing OSD %s\n", LUSTRE_OSD_LDISKFS_NAME);
 
-	rc = ldiskfs_force_commit(osd_sb(osd_dt_dev(d)));
+	if (sb->s_op->freeze_fs) {
+		rc = sb->s_op->freeze_fs(sb);
+		if (rc)
+			return rc;
+
+		rc = sb->s_op->unfreeze_fs(sb);
+	} else {
+		rc = ldiskfs_force_commit(osd_sb(osd_dt_dev(d)));
+	}
 
 	CDEBUG(D_CACHE, "synced OSD %s: rc = %d\n",
 	       LUSTRE_OSD_LDISKFS_NAME, rc);

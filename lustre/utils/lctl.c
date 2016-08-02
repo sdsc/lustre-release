@@ -324,6 +324,8 @@ command_t cmdlist[] = {
 	 "usage: lookup <directory> <file>"},
 	{"readonly", jt_obd_set_readonly, 0,
 	 "disable writes to the underlying device\n"},
+	{"sync", jt_obd_sync, 0,
+	 "flush all dirty data to disk\n"},
 	{"notransno", jt_obd_no_transno, 0,
 	 "disable sending of committed-transno updates\n"},
 	{"add_uuid", jt_lcfg_add_uuid, 0, "associate a UUID with a NID\n"

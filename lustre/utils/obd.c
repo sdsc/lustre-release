@@ -895,6 +895,34 @@ int jt_obd_set_readonly(int argc, char **argv)
         return rc;
 }
 
+int jt_obd_sync(int argc, char **argv)
+{
+	struct obd_ioctl_data data;
+	char rawbuf[MAX_IOC_BUFLEN], *buf = rawbuf;
+	int rc;
+
+	memset(&data, 0, sizeof(data));
+	data.ioc_dev = cur_device;
+
+	if (argc != 1)
+		return CMD_HELP;
+
+	memset(buf, 0, sizeof(rawbuf));
+	rc = obd_ioctl_pack(&data, &buf, sizeof(rawbuf));
+	if (rc) {
+		fprintf(stderr, "error: %s: invalid ioctl\n",
+			jt_cmdname(argv[0]));
+		return rc;
+	}
+
+	rc = l2_ioctl(OBD_DEV_ID, OBD_IOC_SYNC, buf);
+	if (rc < 0)
+		fprintf(stderr, "error: %s: %s\n", jt_cmdname(argv[0]),
+			strerror(rc = errno));
+
+	return rc;
+}
+
 int jt_obd_abort_recovery(int argc, char **argv)
 {
         struct obd_ioctl_data data;

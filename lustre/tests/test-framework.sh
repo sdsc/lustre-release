@@ -1347,8 +1347,10 @@ mount_facet() {
 
 	# commit the device label change to disk
 	if [[ $devicelabel =~ (:[a-zA-Z]{3}[0-9]{4}) ]]; then
+		local svc = ${facet}_svc
+
 		echo "Commit the device label on ${!dev}"
-		do_facet $facet "sync; sync; sync"
+		do_facet $facet $LCTL --device ${!svc} sync
 		sleep 5
 	fi
 
