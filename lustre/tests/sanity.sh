@@ -6562,6 +6562,14 @@ test_101d() {
 	echo "Create test file $file size ${sz_MB}M, ${free_MB}M free"
 	$SETSTRIPE -c -1 $file || error "setstripe failed"
 
+	for i in $(seq 1 $OSTCOUNT)
+	do
+#define OBD_FAIL_OST_BYPASS_READ	 0x237
+		do_facet ost"$i" lctl set_param fail_loc=0x237
+		[ $? -ne 0 ] &&
+			error "failed to bypass read"
+	done
+
 	dd if=/dev/zero of=$file bs=1M count=$sz_MB || error "dd failed"
 	echo Cancel LRU locks on lustre client to flush the client cache
 	cancel_lru_locks osc
@@ -6583,6 +6591,12 @@ test_101d() {
 	echo "read-ahead disabled time read $raOFF"
 	echo "read-ahead enabled  time read $raON"
 
+	for i in $(seq 1 $OSTCOUNT)
+	do
+		do_facet ost"$i" lctl set_param fail_loc=0
+		[ $? -ne 0 ] &&
+			error "failed to bypass read"
+	done
 	set_read_ahead $old_READAHEAD
 	rm -f $file
 	wait_delete_completed
