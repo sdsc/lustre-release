@@ -4038,6 +4038,10 @@ test_55() {
 
 	for i in 1023 2048
 	do
+		if ! combined_mgs_mds; then
+			stop_mgs || error "stopping MGS service failed"
+			format_mgs || error "formatting MGT failed"
+		fi
 		add mds1 $(mkfs_opts mds1 ${mdsdev}) --reformat $mdsdev \
 			$mdsvdev || exit 10
 		add ost1 $(mkfs_opts ost1 $(ostdevname 1)) --index=$i \
@@ -4134,6 +4138,7 @@ count_osts() {
 }
 
 test_58() { # bug 22658
+	combined_mgs_mds || stop_mgs || error "stopping MGS service failed"
 	setup_noconfig
 	mkdir $DIR/$tdir || error "mkdir $DIR/$tdir failed"
 	createmany -o $DIR/$tdir/$tfile-%d 100
@@ -4237,6 +4242,7 @@ test_61() { # LU-80
 		done
 	fi
 
+	combined_mgs_mds || stop_mgs || error "stopping MGS service failed"
 	setup_noconfig || error "setting up the filesystem failed"
 	client_up || error "starting client failed"
 
