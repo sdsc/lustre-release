@@ -1617,7 +1617,12 @@ static int ptlrpc_send_new_req(struct ptlrpc_request *req)
 	       libcfs_nid2str(imp->imp_connection->c_peer.nid),
 	       lustre_msg_get_opc(req->rq_reqmsg));
 
-        rc = ptl_send_rpc(req, 0);
+	rc = ptl_send_rpc(req, 0);
+	if (rc && req->rq_bulk != NULL)
+		LASSERTF(req->rq_bulk->bd_md_count == 0,
+			 "REQ env is not sane (1), md_count %d: rc = %d\n",
+			 req->rq_bulk->bd_md_count, rc);
+
 	if (rc == -ENOMEM) {
 		spin_lock(&imp->imp_lock);
 		if (!list_empty(&req->rq_list)) {
@@ -1925,6 +1930,12 @@ int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set)
 				}
 
 				rc = ptl_send_rpc(req, 0);
+				if (rc && req->rq_bulk != NULL)
+					LASSERTF(req->rq_bulk->bd_md_count == 0,
+						 "REQ env is not sane (2), "
+						 "md_count %d: rc = %d\n",
+						 req->rq_bulk->bd_md_count, rc);
+
 				if (rc == -ENOMEM) {
 					spin_lock(&imp->imp_lock);
 					if (!list_empty(&req->rq_list))
@@ -3054,6 +3065,10 @@ int ptlrpc_replay_req(struct ptlrpc_request *req)
         LASSERT (sizeof (*aa) <= sizeof (req->rq_async_args));
         aa = ptlrpc_req_async_args(req);
         memset(aa, 0, sizeof *aa);
+
+	/* cleanup req env by force before the replay. */
+	if (req->rq_bulk != NULL)
+		ptlrpc_unregister_bulk(req, 0);
 
         /* Prepare request to be resent with ptlrpcd */
         aa->praa_old_state = req->rq_send_state;

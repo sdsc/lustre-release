@@ -307,12 +307,16 @@ int ptlrpc_register_bulk(struct ptlrpc_request *req)
 	lnet_md_t         md;
 	ENTRY;
 
-        if (OBD_FAIL_CHECK(OBD_FAIL_PTLRPC_BULK_GET_NET))
-                RETURN(0);
+	if (OBD_FAIL_CHECK(OBD_FAIL_PTLRPC_BULK_GET_NET))
+		RETURN(0);
 
 	/* NB no locking required until desc is on the network */
 	LASSERT(desc->bd_nob > 0);
-	LASSERT(desc->bd_md_count == 0);
+	if (unlikely(desc->bd_md_count != 0)) {
+		DEBUG_REQ(D_ERROR, req, "REQ env is NOT sane, md_count %d",
+			  desc->bd_md_count);
+		LBUG();
+	}
 	LASSERT(desc->bd_md_max_brw <= PTLRPC_BULK_OPS_COUNT);
 	LASSERT(desc->bd_iov_count <= PTLRPC_MAX_BRW_PAGES);
 	LASSERT(desc->bd_req != NULL);
@@ -766,12 +770,12 @@ int ptl_send_rpc(struct ptlrpc_request *request, int noreply)
 	if (rc)
 		GOTO(out, rc);
 
-        /* bulk register should be done after wrap_request() */
-        if (request->rq_bulk != NULL) {
-                rc = ptlrpc_register_bulk (request);
-                if (rc != 0)
-                        GOTO(out, rc);
-        }
+	/* bulk register should be done after wrap_request() */
+	if (request->rq_bulk != NULL) {
+		rc = ptlrpc_register_bulk(request);
+		if (rc != 0)
+			GOTO(cleanup_bulk, rc);
+	}
 
         if (!noreply) {
                 LASSERT (request->rq_replen != 0);
