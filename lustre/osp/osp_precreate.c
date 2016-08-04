@@ -892,10 +892,6 @@ out:
 	if (req)
 		ptlrpc_req_finished(req);
 
-	spin_lock(&d->opd_pre_lock);
-	d->opd_pre_recovering = 0;
-	spin_unlock(&d->opd_pre_lock);
-
 	/*
 	 * If rc is zero, the pre-creation window should have been emptied.
 	 * Since waking up the herd would be useless without pre-created
@@ -914,6 +910,10 @@ out:
 		} else {
 			wake_up(&d->opd_pre_user_waitq);
 		}
+	} else {
+		spin_lock(&d->opd_pre_lock);
+		d->opd_pre_recovering = 0;
+		spin_unlock(&d->opd_pre_lock);
 	}
 
 	RETURN(rc);
@@ -1114,6 +1114,9 @@ static int osp_precreate_thread(void *_arg)
 		 * need to be connected to OST
 		 */
 		while (osp_precreate_running(d)) {
+			if (d->opd_pre_recovering &&
+			    d->opd_imp_connected)
+				break;
 			l_wait_event(d->opd_pre_waitq,
 				     !osp_precreate_running(d) ||
 				     d->opd_new_connection,
@@ -1145,7 +1148,8 @@ static int osp_precreate_thread(void *_arg)
 			continue;
 		}
 
-		if (osp_statfs_update(d)) {
+		if (!d->opd_statfs_update_in_progress &&
+		    osp_statfs_update(d)) {
 			l_wait_event(d->opd_pre_waitq,
 				     !osp_precreate_running(d), &lwi2);
 			continue;
