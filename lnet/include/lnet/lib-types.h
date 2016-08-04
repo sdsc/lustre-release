@@ -419,7 +419,19 @@ typedef struct lnet_ni {
 #define LNET_PING_FEAT_NI_STATUS	(1 << 1)	/* return NI status */
 #define LNET_PING_FEAT_RTE_DISABLED	(1 << 2)        /* Routing enabled */
 
-#define LNET_PING_FEAT_MASK		(LNET_PING_FEAT_BASE | \
+/*
+ * All ping feature bits fit to hit the wire.
+ * In lnet_assert_wire_constants() this is compared against its open-coded
+ * value, and in lnet_ping_target_update() it is used to verify that no
+ * unknown bits have been set.
+ * New feature bits can be added, just be aware that this does change the
+ * over-the-wire protocol.
+ */
+#define LNET_PING_FEAT_BITS		(LNET_PING_FEAT_BASE | \
+					 LNET_PING_FEAT_NI_STATUS | \
+					 LNET_PING_FEAT_RTE_DISABLED)
+/* Ping feature bits used by the router checker. */
+#define LNET_PING_FEAT_RC_MASK		(LNET_PING_FEAT_BASE | \
 					 LNET_PING_FEAT_NI_STATUS)
 
 typedef struct {
