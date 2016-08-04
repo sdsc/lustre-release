@@ -3046,14 +3046,18 @@ static int ptlrpc_replay_interpret(const struct lu_env *env,
  */
 int ptlrpc_replay_req(struct ptlrpc_request *req)
 {
-        struct ptlrpc_replay_async_args *aa;
-        ENTRY;
+	struct ptlrpc_replay_async_args *aa;
+	ENTRY;
 
-        LASSERT(req->rq_import->imp_state == LUSTRE_IMP_REPLAY);
+	LASSERT(req->rq_import->imp_state == LUSTRE_IMP_REPLAY);
+	LASSERT(sizeof(*aa) <= sizeof(req->rq_async_args));
 
-        LASSERT (sizeof (*aa) <= sizeof (req->rq_async_args));
-        aa = ptlrpc_req_async_args(req);
-        memset(aa, 0, sizeof *aa);
+	aa = ptlrpc_req_async_args(req);
+	memset(aa, 0, sizeof *aa);
+
+	/* cleanup req env by force before the replay. */
+	if (req->rq_bulk != NULL)
+		ptlrpc_unregister_bulk(req, 0);
 
         /* Prepare request to be resent with ptlrpcd */
         aa->praa_old_state = req->rq_send_state;
