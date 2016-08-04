@@ -1305,6 +1305,15 @@ int ldiskfs_label_lustre(struct mount_opts *mop)
 		 mop->mo_ldd.ldd_svname, mop->mo_source);
 	rc = run_command(label_cmd, sizeof(label_cmd));
 
+	if (rc == 0) {
+		int fd = open(mop->mo_source, O_RDWR);
+		if (fd < 0)
+			return fd;
+
+		fsync(fd);
+		close(fd);
+	}
+
 	return rc;
 }
 
