@@ -936,7 +936,7 @@ lnet_destroy_rc_data(lnet_rc_data_t *rcd)
 	}
 
 	if (rcd->rcd_pinginfo != NULL)
-		LIBCFS_FREE(rcd->rcd_pinginfo, LNET_PINGINFO_SIZE);
+		LIBCFS_FREE(rcd->rcd_pinginfo, LNET_RTR_PINGINFO_SIZE);
 
 	LIBCFS_FREE(rcd, sizeof(*rcd));
 }
@@ -958,7 +958,7 @@ lnet_create_rc_data_locked(struct lnet_peer_ni *gateway)
 	LNetInvalidateHandle(&rcd->rcd_mdh);
 	INIT_LIST_HEAD(&rcd->rcd_list);
 
-	LIBCFS_ALLOC(pi, LNET_PINGINFO_SIZE);
+	LIBCFS_ALLOC(pi, LNET_RTR_PINGINFO_SIZE);
 	if (pi == NULL)
 		goto out;
 
@@ -971,7 +971,7 @@ lnet_create_rc_data_locked(struct lnet_peer_ni *gateway)
 	LASSERT (!LNetHandleIsInvalid(the_lnet.ln_rc_eqh));
 	rc = LNetMDBind((lnet_md_t){.start     = pi,
 				    .user_ptr  = rcd,
-				    .length    = LNET_PINGINFO_SIZE,
+				    .length    = LNET_RTR_PINGINFO_SIZE,
 				    .threshold = LNET_MD_THRESH_INF,
 				    .options   = LNET_MD_TRUNCATE,
 				    .eq_handle = the_lnet.ln_rc_eqh},
