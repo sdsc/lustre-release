@@ -431,7 +431,7 @@ lnet_peer_tables_cleanup(struct lnet_net *net)
 	int				i;
 	struct lnet_peer_table		*ptable;
 
-	LASSERT(the_lnet.ln_shutdown || net != NULL);
+	LASSERT(the_lnet.ln_state != LNET_STATE_SHUTDOWN || net != NULL);
 	/* If just deleting the peers for a NI, get rid of any routes these
 	 * peers are gateways for. */
 	cfs_percpt_for_each(ptable, i, the_lnet.ln_peer_tables) {
@@ -457,7 +457,7 @@ lnet_get_peer_ni_locked(struct lnet_peer_table *ptable, lnet_nid_t nid)
 	struct list_head	*peers;
 	struct lnet_peer_ni	*lp;
 
-	LASSERT(!the_lnet.ln_shutdown);
+	LASSERT(the_lnet.ln_state == LNET_STATE_RUNNING);
 
 	peers = &ptable->pt_hash[lnet_nid2peerhash(nid)];
 	list_for_each_entry(lp, peers, lpni_hashlist) {
@@ -998,7 +998,7 @@ lnet_nid2peerni_ex(lnet_nid_t nid, int cpt)
 	struct lnet_peer_ni *lpni = NULL;
 	int rc;
 
-	if (the_lnet.ln_shutdown) /* it's shutting down */
+	if (the_lnet.ln_state != LNET_STATE_RUNNING)
 		return ERR_PTR(-ESHUTDOWN);
 
 	/*
@@ -1032,7 +1032,7 @@ lnet_nid2peerni_locked(lnet_nid_t nid, int cpt)
 	struct lnet_peer_ni *lpni = NULL;
 	int rc;
 
-	if (the_lnet.ln_shutdown) /* it's shutting down */
+	if (the_lnet.ln_state != LNET_STATE_RUNNING)
 		return ERR_PTR(-ESHUTDOWN);
 
 	/*
@@ -1061,7 +1061,7 @@ lnet_nid2peerni_locked(lnet_nid_t nid, int cpt)
 	 * Shutdown is only set under the ln_api_lock, so a single
 	 * check here is sufficent.
 	 */
-	if (the_lnet.ln_shutdown) {
+	if (the_lnet.ln_state != LNET_STATE_RUNNING) {
 		lpni = ERR_PTR(-ESHUTDOWN);
 		goto out_mutex_unlock;
 	}
