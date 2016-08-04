@@ -932,6 +932,119 @@ char *nodemap_get_fileset(const struct lu_nodemap *nodemap)
 }
 EXPORT_SYMBOL(nodemap_get_fileset);
 
+static int nodemap_validate_sepol(const char *sepol)
+{
+	int rc = 0;
+	char buf[LUSTRE_NODEMAP_SEPOL_LENGTH];
+	char *p, *q;
+	unsigned long ver;
+
+	/* we allow sepol = "" which means clear SELinux policy info */
+	if (sepol == NULL)
+		return -EINVAL;
+
+	if (strlcpy(buf, sepol, sizeof(buf)) >= sizeof(buf))
+		return -ENAMETOOLONG;
+
+	p = strchr(buf, ':');
+	if (p == NULL)
+		return -EINVAL;
+	p++;
+
+	if (p != buf+2 || (*buf != '0' && *buf != '1'))
+		return -EINVAL;
+
+	q = p;
+	p = strchr(q, ':');
+	if (p == NULL)
+		return -EINVAL;
+	*p = '\0';
+	p++;
+
+	if (strlen(q) == 0)
+		return -EINVAL;
+
+	q = p;
+	p = strchr(q, ':');
+	if (p == NULL)
+		return -EINVAL;
+	*p = '\0';
+	p++;
+
+	rc = kstrtoul(q, 10, &ver);
+	if (rc != 0 || ver < 0)
+		return -EINVAL;
+
+	if (strlen(p) == 0)
+		return -EINVAL;
+
+	return rc;
+}
+
+/**
+ * set SELinux policy on nodemap
+ * \param	name		nodemap to set SELinux policy info on
+ * \param	sepol		string containing SELinux policy info
+ * \retval	0 on success
+ *
+ * set SELinux policy info on the named nodemap
+ */
+int nodemap_set_sepol(const char *name, const char *sepol)
+{
+	struct lu_nodemap	*nodemap = NULL;
+	char			 nm_sepol[LUSTRE_NODEMAP_SEPOL_LENGTH + 1] = "";
+	int			 rc = 0;
+
+	mutex_lock(&active_config_lock);
+	nodemap = nodemap_lookup(name);
+	if (IS_ERR(nodemap)) {
+		mutex_unlock(&active_config_lock);
+		GOTO(out, rc = PTR_ERR(nodemap));
+	}
+
+	if (is_default_nodemap(nodemap)) {
+		rc = -EINVAL;
+	} else {
+		rc = nodemap_validate_sepol(sepol);
+		if (rc == 0) {
+			/* save old sepol value */
+			strncpy(nm_sepol, nodemap->nm_sepol,
+				strlen(nodemap->nm_sepol));
+			if (strlcpy(nodemap->nm_sepol, sepol,
+				    sizeof(nodemap->nm_sepol)) >=
+			    sizeof(nodemap->nm_sepol)) {
+				/* new value is too long, restore old sepol */
+				nodemap->nm_sepol[0] = '\0';
+				strncpy(nodemap->nm_sepol, nm_sepol,
+					strlen(nm_sepol));
+				rc = -ENAMETOOLONG;
+			}
+		}
+	}
+	mutex_unlock(&active_config_lock);
+
+	nodemap_putref(nodemap);
+out:
+	return rc;
+}
+EXPORT_SYMBOL(nodemap_set_sepol);
+
+/**
+ * get SELinux policy info defined on nodemap
+ * \param	nodemap		nodemap to get SELinux policy info from
+ * \retval	SELinux policy info, or NULL if not defined or not activated
+ *
+ * get the SELinux policy info defined on the nodemap
+ */
+char *nodemap_get_sepol(const struct lu_nodemap *nodemap)
+{
+	if (!nodemap_active || is_default_nodemap(nodemap))
+		return NULL;
+	else
+		return (char *)nodemap->nm_sepol;
+}
+EXPORT_SYMBOL(nodemap_get_sepol);
+
 /**
  * Nodemap constructor
  *
@@ -1029,6 +1142,7 @@ struct lu_nodemap *nodemap_create(const char *name,
 		nodemap->nm_squash_uid = default_nodemap->nm_squash_uid;
 		nodemap->nm_squash_gid = default_nodemap->nm_squash_gid;
 		nodemap->nm_fileset[0] = 0;
+		nodemap->nm_sepol[0] = 0;
 	}
 
 	return nodemap;

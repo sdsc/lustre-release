@@ -3268,6 +3268,14 @@ struct llog_update_record {
 	*/
 };
 
+/* sepol string format is:
+ * <1-digit for SELinux status>:<policy name>:<policy version>:<policy checksum>
+ */
+/* Max length of the sepol string
+ * Should be large enough to contain a sha512sum of the policy
+ */
+#define LUSTRE_NODEMAP_SEPOL_LENGTH (NAME_MAX+128+7)
+
 /* nodemap records, uses 32 byte record length */
 #define LUSTRE_NODEMAP_NAME_LENGTH 16
 struct nodemap_cluster_rec {
