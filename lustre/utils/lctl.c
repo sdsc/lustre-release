@@ -114,6 +114,8 @@ command_t cmdlist[] = {
 	 "usage: show_route"},
 	{"ping", jt_ptl_ping, 0, "Check LNET connectivity\n"
 	 "usage: ping nid [timeout] [pid]"},
+	{"discover", jt_ptl_discover, 0, "Check LNET connectivity\n"
+	 "usage: discover [-f | --force] nid [pid]"},
 	{"net_drop_add", jt_ptl_drop_add, 0, "Add LNet drop rule\n"
 	 "usage: net_drop_add <-s | --source NID>\n"
 	 "		      <-d | --dest NID>\n"
