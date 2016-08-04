@@ -892,10 +892,6 @@ out:
 	if (req)
 		ptlrpc_req_finished(req);
 
-	spin_lock(&d->opd_pre_lock);
-	d->opd_pre_recovering = 0;
-	spin_unlock(&d->opd_pre_lock);
-
 	/*
 	 * If rc is zero, the pre-creation window should have been emptied.
 	 * Since waking up the herd would be useless without pre-created
@@ -914,6 +910,10 @@ out:
 		} else {
 			wake_up(&d->opd_pre_user_waitq);
 		}
+	} else {
+		spin_lock(&d->opd_pre_lock);
+		d->opd_pre_recovering = 0;
+		spin_unlock(&d->opd_pre_lock);
 	}
 
 	RETURN(rc);
