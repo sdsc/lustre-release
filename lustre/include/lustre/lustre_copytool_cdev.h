@@ -15,33 +15,25 @@
  *
  * You should have received a copy of the GNU General Public License
  * version 2 along with this program; If not, see
- * http://www.gnu.org/licenses/gpl-2.0.html
+ * http://www.sun.com/software/products/lustre/docs/GPLv2.pdf
+ *
+ * Please contact Sun Microsystems, Inc., 4150 Network Circle, Santa Clara,
+ * CA 95054 USA or visit www.sun.com if you need additional information or
+ * have any questions.
  *
  * GPL HEADER END
  */
 /*
- * Copyright (c) 2009, 2010, Oracle and/or its affiliates. All rights reserved.
- * Use is subject to license terms.
- *
- * Copyright (c) 2013, 2015, Intel Corporation.
- */
-/*
- * This file is part of Lustre, http://www.lustre.org/
- *
- * Author: Nathan Rutman <nathan.rutman@sun.com>
- *
- * Kernel <-> userspace communication routines.
- * The definitions below are used in the kernel and userspace.
+ * Copyright (c) 2016, Commissariat a l'Energie Atomique et aux Energies
+ *                     Alternatives.
  */
 
-#ifndef __LUSTRE_KERNELCOMM_H__
-#define __LUSTRE_KERNELCOMM_H__
+#ifndef _LUSTRE_COPYTOOL_CDEV_H
+#define _LUSTRE_COPYTOOL_CDEV_H
 
-/* For declarations shared with userspace */
-#include <uapi_kernelcomm.h>
+/* Copytool char device ioctl */
+#define CT_CDEV_IOC_MAGIC 0xC5
+#define CT_CDEV_IOC_SET_ARCHIVE_MASK _IO(CT_CDEV_IOC_MAGIC, 1)
+#define CT_CDEV_IOC_MAXNR 2
 
-/* Kernel methods */
-int libcfs_kkuc_msg_put(struct file *fp, void *payload);
-
-#endif /* __LUSTRE_KERNELCOMM_H__ */
-
+#endif

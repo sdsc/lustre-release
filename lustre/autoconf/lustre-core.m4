@@ -403,6 +403,26 @@ blk_queue_max_segments, [
 ]) # LC_BLK_QUEUE_MAX_SEGMENTS
 
 #
+# LB_HAVE_KREF_GET_UNLESS_ZERO
+#
+# kref_get_unless_zero gets implemented in 2.6.32
+# 2.6.32-431.29.2 does not have it
+# 2.6.32-573.12.1 does
+#
+AC_DEFUN([LC_HAVE_KREF_GET_UNLESS_ZERO], [
+LB_CHECK_COMPILE([if 'kref_get_unless_zero' exists],
+kref_get_unless_zero, [
+	#include <linux/kref.h>
+],[
+	struct kref kref;
+	kref_get_unless_zero(&kref);
+],[
+	AC_DEFINE(HAVE_KREF_GET_UNLESS_ZERO, 1,
+		['kref_get_unless_zero' exists])
+])
+]) # LC_HAVE_KREF_GET_UNLESS_ZERO
+
+#
 # LC_HAVE_DQUOT_FS_DISK_QUOTA
 #
 # 2.6.34 has quotactl_ops->[sg]et_dqblk that take struct fs_disk_quota
@@ -2188,6 +2208,7 @@ AC_DEFUN([LC_PROG_LINUX], [
 
 	# 2.6.32
 	LC_BLK_QUEUE_MAX_SEGMENTS
+	LC_HAVE_KREF_GET_UNLESS_ZERO
 
 	# 2.6.34
 	LC_HAVE_DQUOT_FS_DISK_QUOTA
