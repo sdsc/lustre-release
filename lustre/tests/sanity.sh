@@ -15059,6 +15059,27 @@ test_406() {
 }
 run_test 406 "DNE support fs default striping"
 
+test_420() {
+	local cg_basedir=/sys/fs/cgroup/memory
+	test -d "$cg_basedir" || skip "no setup for cgroup" && return
+
+	dd if=/dev/zero of=$DIR/$tfile bs=1M count=100 || return 1
+	cancel_lru_locks osc
+
+	# Create a very small memory cgroup to force a slab allocation error
+	local cgdir=$cg_basedir/osc_slab_alloc
+	mkdir $cgdir
+	echo 2M > $cgdir/memory.kmem.limit_in_bytes
+	echo 1M > $cgdir/memory.limit_in_bytes
+	echo $$ > $cgdir/tasks
+
+	# Should not LBUG, just be killed by oom-killer
+	dd if=$DIR/$tfile of=/dev/null && \
+		error "fail to trig an memory allocation error"
+
+	return 0
+}
+
 #
 # tests that do cleanup/setup should be run at the end
 #
