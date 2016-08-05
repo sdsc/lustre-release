@@ -795,6 +795,36 @@ void osd_fini(void)
 	}
 }
 
+void print_ldd(char *str, struct lustre_disk_data *ldd)
+{
+	printf("\n   %s:\n", str);
+	printf("Target:     %s\n", ldd->ldd_svname);
+	if (ldd->ldd_svindex == INDEX_UNASSIGNED)
+		printf("Index:      unassigned\n");
+	else
+		printf("Index:      %d\n", ldd->ldd_svindex);
+	if (ldd->ldd_uuid[0])
+		printf("UUID:       %s\n", (char *)ldd->ldd_uuid);
+	printf("Lustre FS:  %s\n", ldd->ldd_fsname);
+	printf("Mount type: %s\n", MT_STR(ldd));
+	printf("Flags:      %#x\n", ldd->ldd_flags);
+	printf("              (%s%s%s%s%s%s%s%s%s)\n",
+	       IS_MDT(ldd) ? "MDT ":"",
+	       IS_OST(ldd) ? "OST ":"",
+	       IS_MGS(ldd) ? "MGS ":"",
+	       ldd->ldd_flags & LDD_F_NEED_INDEX ? "needs_index ":"",
+	       ldd->ldd_flags & LDD_F_VIRGIN     ? "first_time ":"",
+	       ldd->ldd_flags & LDD_F_UPDATE     ? "update ":"",
+	       ldd->ldd_flags & LDD_F_WRITECONF  ? "writeconf ":"",
+	       ldd->ldd_flags & LDD_F_NO_PRIMNODE? "no_primnode ":"",
+	       ldd->ldd_flags & LDD_F_UPGRADE14  ? "upgrade1.4 ":"");
+	printf("Persistent mount opts: %s\n", ldd->ldd_mount_opts);
+	printf("Parameters:%s\n", ldd->ldd_params);
+	if (ldd->ldd_userdata[0])
+		printf("Comment: %s\n", ldd->ldd_userdata);
+	printf("\n");
+}
+
 __u64 get_device_size(char* device)
 {
 	int ret, fd;
