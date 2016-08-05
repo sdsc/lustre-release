@@ -1283,6 +1283,8 @@ mount_facet() {
 	esac
 
 	echo "Starting ${facet}: $opts ${!dev} $mntpt"
+
+	run_e2fsck $(facet_active_host $facet) ${!dev} -p
 	# for testing LU-482 error handling in mount_facets() and test_0a()
 	if [ -f $TMP/test-lu482-trigger ]; then
 		RC=2
