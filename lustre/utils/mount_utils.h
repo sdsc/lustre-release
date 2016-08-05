@@ -160,6 +160,7 @@ int osd_label_lustre(struct mount_opts *mop);
 int osd_enable_quota(struct mkfs_opts *mop);
 int osd_init(void);
 void osd_fini(void);
+void print_ldd(char *str, struct lustre_disk_data *ldd);
 
 struct module_backfs_ops {
 	int	(*init)(void);

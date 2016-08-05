@@ -454,6 +454,8 @@ static int parse_ldd(char *source, struct mount_opts *mop,
 		return rc;
 	}
 
+	print_ldd(source, ldd);
+
 	if ((IS_MDT(ldd) || IS_OST(ldd)) &&
 	    (ldd->ldd_flags & LDD_F_NEED_INDEX)) {
 		fprintf(stderr, "%s: %s has no index assigned "
@@ -694,6 +696,7 @@ int main(int argc, char *const argv[])
 	bool client;
 	size_t maxopt_len;
 	size_t g_pagesize;
+	struct lustre_disk_data tmpldd;
 
 	progname = strrchr(argv[0], '/');
 	progname = progname ? progname + 1 : argv[0];
@@ -799,6 +802,10 @@ int main(int argc, char *const argv[])
 					argv[0], mop.mo_source);
 	}
 
+	memset(&tmpldd, 0, sizeof(tmpldd));
+	osd_read_ldd(mop.mo_source, &tmpldd);
+	print_ldd(mop.mo_source, &tmpldd);
+
 #ifdef HAVE_GSS
 	if (mop.mo_skpath[0] != '\0') {
 		/* Treat shared key failures as fatal */
@@ -817,6 +824,7 @@ int main(int argc, char *const argv[])
 		 * lustre_fill_super().  Lustre ignores the flags, but mount
 		 * does not. */
 		for (i = 0, rc = -EAGAIN; i <= mop.mo_retry && rc != 0; i++) {
+			print_ldd(mop.mo_source, &mop.mo_ldd);
 			rc = mount(mop.mo_source, mop.mo_target, "lustre",
 				   flags, (void *)options);
 			if (rc == 0) {
@@ -825,10 +833,19 @@ int main(int argc, char *const argv[])
 				 *  been registered. only if the label is
 				 *  supposed to be changed and target service
 				 *  is supposed to start */
+				osd_read_ldd(mop.mo_source, &tmpldd);
+				print_ldd(mop.mo_source, &tmpldd);
 				if (mop.mo_ldd.ldd_flags &
 				   (LDD_F_VIRGIN | LDD_F_WRITECONF)) {
-					if (mop.mo_nosvc == 0)
-						(void)osd_label_lustre(&mop);
+					if (mop.mo_nosvc == 0) {
+						rc = osd_label_lustre(&mop);
+						if (rc != 0)
+                                        		fprintf(stderr, "label "
+								"lustre failed "
+								"%s",
+								strerror(rc));
+						rc = 0;
+					}
 				}
 			} else {
                                 if (verbose) {
