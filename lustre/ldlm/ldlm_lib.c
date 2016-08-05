@@ -1774,11 +1774,12 @@ static void extend_recovery_timer(struct obd_device *obd, int drt, bool extend)
         end  = obd->obd_recovery_start + to;
         left = cfs_time_sub(end, now);
 
-        if (extend && (drt > left)) {
-                to += drt - left;
-        } else if (!extend && (drt > to)) {
-                to = drt;
-        }
+	if (extend && (drt > left)) {
+		to += drt - left;
+	} else if (!extend && (drt > to) &&
+		   ((now + drt) < obd->obd_recovery_time_hard)) {
+		to = drt;
+	}
 
 	if (to > obd->obd_recovery_time_hard) {
 		to = obd->obd_recovery_time_hard;
