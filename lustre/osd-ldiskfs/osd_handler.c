@@ -6710,6 +6710,49 @@ static void osd_umount(const struct lu_env *env, struct osd_device *o)
 	EXIT;
 }
 
+#define EXT2_SUPER_MAGIC 0xEF53
+#define VOLNAMSZ 16
+
+struct ext2_super_block {
+        char  s_dummy0[56];
+        unsigned char  s_magic[2];
+        char  s_dummy1[62];
+        char  s_volume_name[VOLNAMSZ];
+        char  s_last_mounted[64];
+        char  s_dummy2[824];
+};
+
+static int print_device_label(const char *dev)
+{
+	mm_segment_t old_fs;
+	struct file *filp;
+	struct ext2_super_block sb;
+	ssize_t rc;
+
+	filp = filp_open(dev, O_RDONLY, 0);
+
+        if (filp == NULL) {
+		CDEBUG(D_ERROR, "Can't open device %s\n", dev);
+		return -EINVAL;
+	}
+
+	old_fs = get_fs();
+	set_fs(get_ds());
+	filp->f_pos = 1024;
+	rc = filp->f_op->read(filp, (char*)&sb, sizeof(sb), &filp->f_pos);
+	set_fs(old_fs);
+
+	if (rc == sizeof(sb) &&
+	    (sb.s_magic[0] + 256 * sb.s_magic[1] == EXT2_SUPER_MAGIC)) {
+		sb.s_volume_name[VOLNAMSZ - 1] = 0;
+		CDEBUG(D_ERROR, "the %s label is %s\n", dev, sb.s_volume_name);
+	} else {
+		CDEBUG(D_ERROR, "Read super block of %s failed", dev);
+	}
+
+	return 0;
+}
+
 static int osd_mount(const struct lu_env *env,
                      struct osd_device *o, struct lustre_cfg *cfg)
 {
@@ -6816,7 +6859,10 @@ static int osd_mount(const struct lu_env *env,
 		GOTO(out, rc = -ENODEV);
 	}
 
+	print_device_label(dev);
 	o->od_mnt = vfs_kern_mount(type, s_flags, dev, options);
+	CDEBUG(D_ERROR, "[After mount] %s label is %s\n", dev,
+	       LDISKFS_SB(osd_sb(o))->s_es->s_volume_name);
 	module_put(type->owner);
 
 	if (IS_ERR(o->od_mnt)) {
