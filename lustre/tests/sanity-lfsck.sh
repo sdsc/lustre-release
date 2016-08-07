@@ -32,6 +32,11 @@ fi
 [[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.3.60) ]] &&
 	skip "Need MDS version at least 2.3.60" && exit 0
 
+if [ -n "$FILESET" ] || [ ! -d "$DIR/.lustre" ]; then
+	skip "Don't run sanity-lfsck when a subdirectory is mounted"
+	exit 0
+fi
+
 LTIME=${LTIME:-120}
 
 SAVED_MDSSIZE=${MDSSIZE}

@@ -36,6 +36,11 @@ fi
 [[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.2.90) ]] &&
 	skip "Need MDS version at least 2.2.90" && exit 0
 
+if [ -n "$FILESET" ] || [ ! -d "$DIR/.lustre" ]; then
+	skip "Don't run sanity-scrub when a subdirectory is mounted"
+	exit 0
+fi
+
 SAVED_MDSSIZE=${MDSSIZE}
 SAVED_OSTSIZE=${OSTSIZE}
 SAVED_OSTCOUNT=${OSTCOUNT}

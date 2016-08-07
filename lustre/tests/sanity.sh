@@ -2023,7 +2023,10 @@ run_test 27C "check full striping across all OSTs"
 
 test_27D() {
 	[ $OSTCOUNT -lt 2 ] && skip "needs >= 2 OSTs" && return
-	[ -n "$FILESET" ] && skip "SKIP due to FILESET set" && return
+	if [ -n "$FILESET" ] || [ ! -d "$DIR/.lustre" ]; then
+		skip "Subdirectory mounted; FILESET set or .lustre not found"
+		return
+	fi
 	remote_mds_nodsh && skip "remote MDS with nodsh" && return
 	local POOL=${POOL:-testpool}
 	local first_ost=0
@@ -10163,7 +10166,10 @@ test_154a() {
 	[[ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.2.51) ]] ||
 		{ skip "Need MDS version at least 2.2.51"; return 0; }
 	[ -z "$(which setfacl)" ] && skip "must have setfacl tool" && return
-	[ -n "$FILESET" ] && skip "SKIP due to FILESET set" && return
+	if [ -n "$FILESET" ] || [ ! -d "$DIR/.lustre" ]; then
+		skip "Subdirectory mounted; FILESET set or .lustre not found"
+		return
+	fi
 
 	cp /etc/hosts $DIR/$tfile
 
@@ -10190,7 +10196,10 @@ test_154b() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
 	[[ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.2.51) ]] ||
 		{ skip "Need MDS version at least 2.2.51"; return 0; }
-	[ -n "$FILESET" ] && skip "SKIP due to FILESET set" && return
+	if [ -n "$FILESET" ] || [ ! -d "$DIR/.lustre" ]; then
+		skip "Subdirectory mounted; FILESET set or .lustre not found"
+		return
+	fi
 
 	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
 
@@ -10288,7 +10297,10 @@ test_154e()
 run_test 154e ".lustre is not returned by readdir"
 
 test_154f() {
-	[ -n "$FILESET" ] && skip "SKIP due to FILESET set" && return
+	if [ -n "$FILESET" ] || [ ! -d "$DIR/.lustre" ]; then
+		skip "Subdirectory mounted; FILESET set or .lustre not found"
+		return
+	fi
 	# create parent directory on a single MDT to avoid cross-MDT hardlinks
 	test_mkdir -p -c1 $DIR/$tdir/d
 	# test dirs inherit from its stripe
@@ -10369,7 +10381,10 @@ test_154g()
 {
 	[[ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.6.92) ]] ||
 		{ skip "Need MDS version at least 2.6.92"; return 0; }
-	[ -n "$FILESET" ] && skip "SKIP due to FILESET set" && return
+	if [ -n "$FILESET" ] || [ ! -d "$DIR/.lustre" ]; then
+		skip "Subdirectory mounted; FILESET set or .lustre not found"
+		return
+	fi
 
 	mkdir -p $DIR/$tdir
 	llapi_fid_test -d $DIR/$tdir
@@ -11779,7 +11794,10 @@ run_test 187b "Test data version change on volatile file"
 test_200() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
 	remote_mgs_nodsh && skip "remote MGS with nodsh" && return
-	[ -n "$FILESET" ] && skip "SKIP due to FILESET set" && return
+	if [ -n "$FILESET" ] || [ ! -d "$DIR/.lustre" ]; then
+		skip "Subdirectory mounted; FILESET set or .lustre not found"
+		return
+	fi
 
 	local POOL=${POOL:-cea1}
 	local POOL_ROOT=${POOL_ROOT:-$DIR/d200.pools}
@@ -13485,7 +13503,10 @@ run_test 232 "failed lock should not block umount"
 test_233a() {
 	[ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.3.64) ] ||
 	{ skip "Need MDS version at least 2.3.64"; return; }
-	[ -n "$FILESET" ] && skip "SKIP due to FILESET set" && return
+	if [ -n "$FILESET" ] || [ ! -d "$DIR/.lustre" ]; then
+		skip "Subdirectory mounted; FILESET set or .lustre not found"
+		return
+	fi
 
 	local fid=$($LFS path2fid $MOUNT)
 	stat $MOUNT/.lustre/fid/$fid > /dev/null ||
@@ -13496,7 +13517,10 @@ run_test 233a "checking that OBF of the FS root succeeds"
 test_233b() {
 	[ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.5.90) ] ||
 	{ skip "Need MDS version at least 2.5.90"; return; }
-	[ -n "$FILESET" ] && skip "SKIP due to FILESET set" && return
+	if [ -n "$FILESET" ] || [ ! -d "$DIR/.lustre" ]; then
+		skip "Subdirectory mounted; FILESET set or .lustre not found"
+		return
+	fi
 
 	local fid=$($LFS path2fid $MOUNT/.lustre)
 	stat $MOUNT/.lustre/fid/$fid > /dev/null ||
@@ -15447,6 +15471,10 @@ run_test 404 "validate manual {de}activated works properly for OSPs"
 test_405() {
 	[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.6.92) ] &&
 		skip "Layout swap lock is not supported" && return
+	if [ -n "$FILESET" ] || [ ! -d "$DIR/.lustre" ]; then
+		skip "Subdirectory mounted; FILESET set or .lustre not found"
+		return
+	fi
 
 	check_swap_layouts_support && return 0
 
@@ -15459,7 +15487,10 @@ run_test 405 "Various layout swap lock tests"
 test_406() {
 	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
 	[ $OSTCOUNT -lt 2 ] && skip "needs >= 2 OSTs" && return
-	[ -n "$FILESET" ] && skip "SKIP due to FILESET set" && return
+	if [ -n "$FILESET" ] || [ ! -d "$DIR/.lustre" ]; then
+		skip "Subdirectory mounted; FILESET set or .lustre not found"
+		return
+	fi
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
 	[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.8.50) ] &&
 		skip "Need MDS version at least 2.8.50" && return
