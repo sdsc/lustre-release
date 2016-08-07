@@ -1926,8 +1926,7 @@ check_link_ea_header(void)
 	CHECK_MEMBER(link_ea_header, leh_magic);
 	CHECK_MEMBER(link_ea_header, leh_reccount);
 	CHECK_MEMBER(link_ea_header, leh_len);
-	CHECK_MEMBER(link_ea_header, padding1);
-	CHECK_MEMBER(link_ea_header, padding2);
+	CHECK_MEMBER(link_ea_header, leh_overflow_time);
 
 	CHECK_CDEFINE(LINK_EA_MAGIC);
 }
@@ -2266,8 +2265,6 @@ static void check_lfsck_request(void)
 	CHECK_VALUE(LE_PEER_EXIT);
 	CHECK_VALUE(LE_CONDITIONAL_DESTROY);
 	CHECK_VALUE(LE_PAIRS_VERIFY);
-	CHECK_VALUE(LE_SKIP_NLINK_DECLARE);
-	CHECK_VALUE(LE_SKIP_NLINK);
 	CHECK_VALUE(LE_SET_LMV_MASTER);
 	CHECK_VALUE(LE_SET_LMV_SLAVE);
 

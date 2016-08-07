@@ -4143,14 +4143,10 @@ void lustre_assert_wire_constants(void)
 		 (long long)(int)offsetof(struct link_ea_header, leh_len));
 	LASSERTF((int)sizeof(((struct link_ea_header *)0)->leh_len) == 8, "found %lld\n",
 		 (long long)(int)sizeof(((struct link_ea_header *)0)->leh_len));
-	LASSERTF((int)offsetof(struct link_ea_header, padding1) == 16, "found %lld\n",
-		 (long long)(int)offsetof(struct link_ea_header, padding1));
-	LASSERTF((int)sizeof(((struct link_ea_header *)0)->padding1) == 4, "found %lld\n",
-		 (long long)(int)sizeof(((struct link_ea_header *)0)->padding1));
-	LASSERTF((int)offsetof(struct link_ea_header, padding2) == 20, "found %lld\n",
-		 (long long)(int)offsetof(struct link_ea_header, padding2));
-	LASSERTF((int)sizeof(((struct link_ea_header *)0)->padding2) == 4, "found %lld\n",
-		 (long long)(int)sizeof(((struct link_ea_header *)0)->padding2));
+	LASSERTF((int)offsetof(struct link_ea_header, leh_overflow_time) == 16, "found %lld\n",
+		 (long long)(int)offsetof(struct link_ea_header, leh_overflow_time));
+	LASSERTF((int)sizeof(((struct link_ea_header *)0)->leh_overflow_time) == 8, "found %lld\n",
+		 (long long)(int)sizeof(((struct link_ea_header *)0)->leh_overflow_time));
 	CLASSERT(LINK_EA_MAGIC == 0x11EAF1DFUL);
 
 	/* Checks for struct link_ea_entry */
@@ -4863,10 +4859,6 @@ void lustre_assert_wire_constants(void)
 		 (long long)LE_CONDITIONAL_DESTROY);
 	LASSERTF(LE_PAIRS_VERIFY == 11, "found %lld\n",
 		 (long long)LE_PAIRS_VERIFY);
-	LASSERTF(LE_SKIP_NLINK_DECLARE == 13, "found %lld\n",
-		 (long long)LE_SKIP_NLINK_DECLARE);
-	LASSERTF(LE_SKIP_NLINK == 14, "found %lld\n",
-		 (long long)LE_SKIP_NLINK);
 	LASSERTF(LE_SET_LMV_MASTER == 15, "found %lld\n",
 		 (long long)LE_SET_LMV_MASTER);
 	LASSERTF(LE_SET_LMV_SLAVE == 16, "found %lld\n",

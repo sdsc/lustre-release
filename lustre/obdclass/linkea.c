@@ -39,6 +39,7 @@ int linkea_data_new(struct linkea_data *ldata, struct lu_buf *buf)
 	ldata->ld_leh = ldata->ld_buf->lb_buf;
 	ldata->ld_leh->leh_magic = LINK_EA_MAGIC;
 	ldata->ld_leh->leh_len = sizeof(struct link_ea_header);
+	ldata->ld_leh->leh_overflow_time = 0;
 	ldata->ld_leh->leh_reccount = 0;
 	return 0;
 }
@@ -54,6 +55,7 @@ int linkea_init(struct linkea_data *ldata)
 		leh->leh_magic = LINK_EA_MAGIC;
 		leh->leh_reccount = __swab32(leh->leh_reccount);
 		leh->leh_len = __swab64(leh->leh_len);
+		leh->leh_overflow_time = __swab64(leh->leh_overflow_time);
 		/* entries are swabbed by linkea_entry_unpack */
 	}
 	if (leh->leh_magic != LINK_EA_MAGIC)
@@ -113,17 +115,26 @@ EXPORT_SYMBOL(linkea_entry_unpack);
 int linkea_add_buf(struct linkea_data *ldata, const struct lu_name *lname,
 		   const struct lu_fid *pfid)
 {
+	int reclen;
+
 	LASSERT(ldata->ld_leh != NULL);
 
 	if (lname == NULL || pfid == NULL)
 		return -EINVAL;
 
-	ldata->ld_reclen = lname->ln_namelen + sizeof(struct link_ea_entry);
-	if (ldata->ld_leh->leh_len + ldata->ld_reclen >
-	    ldata->ld_buf->lb_len) {
+	reclen = lname->ln_namelen + sizeof(struct link_ea_entry);
+	if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_LINKEA_OVERFLOW) ||
+	    unlikely(ldata->ld_leh->leh_len + reclen > MAX_LINKEA_SIZE)) {
+		ldata->ld_leh->leh_overflow_time = cfs_time_current_sec();
+		CWARN("No enough space to hold linkea entry '"DFID
+		      ":%.*s' at %llu\n", PFID(pfid), lname->ln_namelen,
+		      lname->ln_name, ldata->ld_leh->leh_overflow_time);
+		return 0;
+	}
+
+	if (ldata->ld_leh->leh_len + reclen > ldata->ld_buf->lb_len) {
 		if (lu_buf_check_and_grow(ldata->ld_buf,
-					  ldata->ld_leh->leh_len +
-					  ldata->ld_reclen) < 0)
+					  ldata->ld_leh->leh_len + reclen) < 0)
 			return -ENOMEM;
 	}
 
@@ -156,6 +167,61 @@ void linkea_del_buf(struct linkea_data *ldata, const struct lu_name *lname)
 		ldata->ld_lee = NULL;
 }
 EXPORT_SYMBOL(linkea_del_buf);
+
+int linkea_links_new(struct linkea_data *ldata, struct lu_buf *buf,
+		     const struct lu_name *cname, const struct lu_fid *pfid)
+{
+	int rc;
+
+	rc = linkea_data_new(ldata, buf);
+	if (!rc)
+		rc = linkea_add_buf(ldata, cname, pfid);
+
+	return rc;
+}
+EXPORT_SYMBOL(linkea_links_new);
+
+/**
+ * Mark the linkEA as overflow with current timestamp,
+ * and remove the last linkEA entry.
+ */
+int linkea_overflow_shrink(struct linkea_data *ldata)
+{
+	struct link_ea_header *leh;
+	struct lu_name tname;
+	struct lu_fid tfid;
+	int count;
+
+	leh = ldata->ld_leh = ldata->ld_buf->lb_buf;
+	if (leh->leh_magic == __swab32(LINK_EA_MAGIC)) {
+		leh->leh_magic = LINK_EA_MAGIC;
+		leh->leh_reccount = __swab32(leh->leh_reccount);
+	}
+
+	LASSERT(leh->leh_reccount > 1);
+
+	leh->leh_reccount--;
+	leh->leh_overflow_time = cfs_time_current_sec();
+	ldata->ld_reclen = 0;
+	leh->leh_len = sizeof(struct link_ea_header);
+	ldata->ld_lee = (struct link_ea_entry *)(leh + 1);
+	for (count = 0; count < leh->leh_reccount; count++) {
+		linkea_entry_unpack(ldata->ld_lee, &ldata->ld_reclen,
+				    &tname, &tfid);
+		leh->leh_len += ldata->ld_reclen;
+		ldata->ld_lee = (struct link_ea_entry *)((char *)ldata->ld_lee +
+							 ldata->ld_reclen);
+	}
+
+	linkea_entry_unpack(ldata->ld_lee, &ldata->ld_reclen, &tname, &tfid);
+	CWARN("No enough space to hold the last linkea entry '"DFID
+	      ":%.*s', shrink it, left %d linkea entries, size %llu\n",
+	      PFID(&tfid), tname.ln_namelen, tname.ln_name,
+	      leh->leh_reccount, leh->leh_len);
+
+	return leh->leh_len;
+}
+EXPORT_SYMBOL(linkea_overflow_shrink);
 
 /**
  * Check if such a link exists in linkEA.
