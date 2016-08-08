@@ -3384,8 +3384,6 @@ enum lfsck_events {
 	LE_PEER_EXIT		= 9,
 	LE_CONDITIONAL_DESTROY	= 10,
 	LE_PAIRS_VERIFY 	= 11,
-	LE_SKIP_NLINK_DECLARE	= 13,
-	LE_SKIP_NLINK		= 14,
 	LE_SET_LMV_MASTER	= 15,
 	LE_SET_LMV_SLAVE	= 16,
 };
@@ -3569,12 +3567,10 @@ struct lustre_capa_key {
 /** The link ea holds 1 \a link_ea_entry for each hardlink */
 #define LINK_EA_MAGIC 0x11EAF1DFUL
 struct link_ea_header {
-        __u32 leh_magic;
-        __u32 leh_reccount;
-        __u64 leh_len;      /* total size */
-        /* future use */
-        __u32 padding1;
-        __u32 padding2;
+	__u32 leh_magic;
+	__u32 leh_reccount;
+	__u64 leh_len;	/* total size */
+	__u64 leh_overflow_time;
 };
 
 /** Hardlink data is name and parent fid.

@@ -27,6 +27,7 @@
  * Author: di wang <di.wang@intel.com>
  */
 
+#define MAX_LINKEA_SIZE	4096
 #define DEFAULT_LINKEA_SIZE	4096
 
 struct linkea_data {
@@ -51,6 +52,9 @@ int linkea_entry_pack(struct link_ea_entry *lee, const struct lu_name *lname,
 int linkea_add_buf(struct linkea_data *ldata, const struct lu_name *lname,
 		   const struct lu_fid *pfid);
 void linkea_del_buf(struct linkea_data *ldata, const struct lu_name *lname);
+int linkea_links_new(struct linkea_data *ldata, struct lu_buf *buf,
+		     const struct lu_name *cname, const struct lu_fid *pfid);
+int linkea_overflow_shrink(struct linkea_data *ldata);
 int linkea_links_find(struct linkea_data *ldata, const struct lu_name *lname,
 		      const struct lu_fid  *pfid);
 
