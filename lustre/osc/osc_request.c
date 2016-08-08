@@ -937,12 +937,17 @@ static void osc_init_grant(struct client_obd *cli, struct obd_connect_data *ocd)
 
 	if (OCD_HAS_FLAG(ocd, GRANT_PARAM)) {
 		u64 size;
+		int chunk_mask;
 
 		/* overhead for each extent insertion */
 		cli->cl_grant_extent_tax = ocd->ocd_grant_tax_kb << 10;
 		/* determine the appropriate chunk size used by osc_extent. */
 		cli->cl_chunkbits = max_t(int, PAGE_CACHE_SHIFT,
 					  ocd->ocd_grant_blkbits);
+		/* max_pages_per_rpc must be chunk aligned */
+		chunk_mask = ~((1 << (cli->cl_chunkbits - PAGE_SHIFT)) - 1);
+		cli->cl_max_pages_per_rpc = (cli->cl_max_pages_per_rpc +
+					     ~chunk_mask) & chunk_mask;
 		/* determine maximum extent size, in #pages */
 		size = (u64)ocd->ocd_grant_max_blks << ocd->ocd_grant_blkbits;
 		cli->cl_max_extent_pages = size >> PAGE_CACHE_SHIFT;
