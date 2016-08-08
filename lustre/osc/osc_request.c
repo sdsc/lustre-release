@@ -943,6 +943,9 @@ static void osc_init_grant(struct client_obd *cli, struct obd_connect_data *ocd)
 		/* determine the appropriate chunk size used by osc_extent. */
 		cli->cl_chunkbits = max_t(int, PAGE_CACHE_SHIFT,
 					  ocd->ocd_grant_blkbits);
+		cli->cl_chunkbits = min_t(int, cli->cl_chunkbits,
+					  fls(cli->cl_max_pages_per_rpc) +
+					  PAGE_SHIFT - 1);
 		/* determine maximum extent size, in #pages */
 		size = (u64)ocd->ocd_grant_max_blks << ocd->ocd_grant_blkbits;
 		cli->cl_max_extent_pages = size >> PAGE_CACHE_SHIFT;
