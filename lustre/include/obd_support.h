@@ -251,6 +251,8 @@ extern char obd_jobid_var[];
 #define OBD_FAIL_MDS_FLD_LOOKUP			0x15c
 #define OBD_FAIL_MDS_INTENT_DELAY		0x160
 #define OBD_FAIL_MDS_TRACK_OVERFLOW	 0x162
+#define OBD_FAIL_MDS_OSP_PRECREATE_WAIT	 0x163
+
 
 /* layout lock */
 #define OBD_FAIL_MDS_NO_LL_GETATTR	 0x170
