@@ -92,6 +92,7 @@ struct osp_precreate {
 	int				 osp_pre_create_slow;
 	/* cleaning up orphans or recreating missing objects */
 	int				 osp_pre_recovering;
+	int				 osp_pre_orphan_cleanup_done;
 };
 
 struct osp_update_request_sub {
@@ -264,6 +265,7 @@ struct osp_device {
 #define opd_pre_max_create_count	opd_pre->osp_pre_max_create_count
 #define opd_pre_create_slow		opd_pre->osp_pre_create_slow
 #define opd_pre_recovering		opd_pre->osp_pre_recovering
+#define opd_pre_orphan_cleanup_done	opd_pre->osp_pre_orphan_cleanup_done
 
 extern struct kmem_cache *osp_object_kmem;
 
