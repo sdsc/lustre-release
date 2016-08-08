@@ -683,7 +683,8 @@ out_req:
  * \retval negative	negated errno on error
  **/
 static int osp_get_lastfid_from_ost(const struct lu_env *env,
-				    struct osp_device *d)
+				    struct osp_device *d,
+				    struct lu_fid *fid)
 {
 	struct ptlrpc_request	*req = NULL;
 	struct obd_import	*imp;
@@ -694,6 +695,7 @@ static int osp_get_lastfid_from_ost(const struct lu_env *env,
 
 	imp = d->opd_obd->u.cli.cl_import;
 	LASSERT(imp);
+	LASSERT(fid);
 
 	req = ptlrpc_request_alloc(imp, &RQF_OST_GET_INFO_LAST_FID);
 	if (req == NULL)
@@ -740,10 +742,8 @@ static int osp_get_lastfid_from_ost(const struct lu_env *env,
 		GOTO(out, rc = -EPROTO);
 	}
 
-	/* Only update the last used fid, if the OST has objects for
-	 * this sequence, i.e. fid_oid > 0 */
-	if (fid_oid(last_fid) > 0)
-		d->opd_last_used_fid = *last_fid;
+	if (fid)
+		*fid = *last_fid;
 
 	CDEBUG(D_HA, "%s: Got last_fid "DFID"\n", d->opd_obd->obd_name,
 	       PFID(last_fid));
@@ -785,6 +785,26 @@ static int osp_precreate_cleanup_orphans(struct lu_env *env,
 
 	ENTRY;
 
+	if (d->opd_pre_orphan_cleanup_done && 0) {
+		/*
+		 * if initial orphan cleanup was done, then it should be
+		 * enough to verify OST's status hasn't changed in terms
+		 * of precreation (i.e. last created FID is the same).
+		 * and we don't need to block orphan recovery because of
+		 * reserved objects, which can lead to a livelock when
+		 * few threads are trying to allocate multiple objects.
+		 */
+		rc = osp_get_lastfid_from_ost(env, d, last_fid);
+		if (rc)
+			GOTO(out, rc);
+		if (lu_fid_eq(last_fid, &d->opd_pre_last_created_fid)) {
+			CDEBUG(D_HA, "%s: no need to cleanup orphans\n",
+				d->opd_obd->obd_name);
+			return 0;
+		}
+		LBUG();
+	}
+
 	/*
 	 * wait for local recovery to finish, so we can cleanup orphans
 	 * orphans are all objects since "last used" (assigned), but
@@ -817,10 +837,15 @@ static int osp_precreate_cleanup_orphans(struct lu_env *env,
 	/* The OSP should already get the valid seq now */
 	LASSERT(!fid_is_zero(last_fid));
 	if (fid_oid(&d->opd_last_used_fid) < 2) {
+		struct lu_fid fid = { 0 };
 		/* lastfid looks strange... ask OST */
-		rc = osp_get_lastfid_from_ost(env, d);
+		rc = osp_get_lastfid_from_ost(env, d, &fid);
 		if (rc)
 			GOTO(out, rc);
+		/* Only update the last used fid, if the OST has objects for
+		 * this sequence, i.e. fid_oid > 0 */
+		if (fid_oid(&fid) > 0)
+			d->opd_last_used_fid = fid;
 	}
 
 	imp = d->opd_obd->u.cli.cl_import;
@@ -884,6 +909,7 @@ static int osp_precreate_cleanup_orphans(struct lu_env *env,
 	d->opd_pre_used_fid = d->opd_pre_last_created_fid;
 	d->opd_pre_create_slow = 0;
 	spin_unlock(&d->opd_pre_lock);
+	d->opd_pre_orphan_cleanup_done = 1;
 
 	CDEBUG(D_HA, "%s: Got last_id "DFID" from OST, last_created "DFID
 	       "last_used is "DFID"\n", d->opd_obd->obd_name, PFID(last_fid),
@@ -1321,6 +1347,11 @@ int osp_precreate_reserve(const struct lu_env *env, struct osp_device *d)
 	if (d->opd_pre_max_create_count == 0)
 		RETURN(-ENOBUFS);
 
+	if (OBD_FAIL_PRECHECK(OBD_FAIL_MDS_OSP_PRECREATE_WAIT)) {
+		if (d->opd_index == cfs_fail_val)
+			OBD_FAIL_TIMEOUT(OBD_FAIL_MDS_OSP_PRECREATE_WAIT,
+					 obd_timeout);
+	}
 	/*
 	 * wait till:
 	 *  - preallocation is done
