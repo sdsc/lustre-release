@@ -8,13 +8,13 @@
 #BUILD_GEN+=".0"
 #BUILD_GEN+=".1"		# added --with firmware to rpmbuild for rhel6
 #BUILD_GEN+=".0"	# TT-107: don't cache the BUILD dir (reset major to 5)
-BUILD_GEN+=".1"	# LU-1361: enable kernel ABI
+BUILD_GEN+=".2"	# LU-1823: disable kernel ABI for debug kernel config
 
 source ${LBUILD_DIR}/lbuild-rhel
 
 SPEC_NAME="kernel.spec"
 DEVEL_PATH_ARCH_DELIMETER="."
-USE_KABI=true
+USE_KABI=false
 
 patch_spec() {
     local buildid="$1"
