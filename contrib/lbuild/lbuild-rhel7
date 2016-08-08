@@ -4,11 +4,11 @@ source ${LBUILD_DIR}/lbuild-rhel
 
 # increment this if you have made a change that should force a new kernel
 # to build built
-BUILD_GEN+=".0"
+BUILD_GEN+=".1"
 
 SPEC_NAME="kernel.spec"
 DEVEL_PATH_ARCH_DELIMETER="."
-USE_KABI=true
+USE_KABI=false
 
 # force local definition of %dist into ~/.rpmmacros
 # to avoid verbose extended strings like ".el7.centos"
