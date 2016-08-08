@@ -4097,6 +4097,12 @@ test_51a() {	# was test_51
 }
 run_test 51a "special situations: split htree with empty entry =="
 
+cleanup_print_lfs_df () {
+	trap 0
+	$LFS df
+	$LFS df -i
+}
+
 test_51b() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
 	local dir=$DIR/$tdir
@@ -4122,6 +4128,8 @@ test_51b() {
 	[[ $numfree -lt $nrdirs ]] && skip "not enough blocks ($numfree)" &&
 		return
 
+	trap cleanup_print_lfsdf EXIT
+
 	# create files
 	createmany -d $dir/d $nrdirs ||
 		error "failed to create $nrdirs subdirs in MDT$mdtidx:$dir"
@@ -4132,6 +4140,9 @@ test_51b() {
 	# unlink all but 100 subdirectories, then check it still works
 	local left=100
 	local delete=$((nrdirs - left))
+
+	$LFS df
+	$LFS df -i	
 
 	# for ldiskfs the nlink count should be 1, but this is OSD specific
 	# and so this is listed for informational purposes only
@@ -4151,6 +4162,8 @@ test_51b() {
 	local after=$(stat -c %h $dir)
 	[[ $after -gt 2 ]] && error "nlink after: $after > 2" ||
 		echo "nlink after: $after"
+
+	cleanup_print_lfs_df
 }
 run_test 51b "exceed 64k subdirectory nlink limit on create, verify unlink"
 
