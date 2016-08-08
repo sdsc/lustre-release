@@ -3898,7 +3898,6 @@ static int osd_xattr_set(const struct lu_env *env, struct dt_object *dt,
 
 	if (strcmp(name, XATTR_NAME_LMV) == 0) {
 		struct lustre_mdt_attrs *lma = &info->oti_mdt_attrs;
-		int			 rc;
 
 		rc = osd_get_lma(info, inode, &info->oti_obj_dentry, lma);
 		if (rc != 0)
@@ -3912,10 +3911,6 @@ static int osd_xattr_set(const struct lu_env *env, struct dt_object *dt,
 			RETURN(rc);
 	}
 
-	if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_LINKEA_OVERFLOW) &&
-	    strcmp(name, XATTR_NAME_LINK) == 0)
-		return -ENOSPC;
-
 	rc = __osd_xattr_set(info, inode, name, buf->lb_buf, buf->lb_len,
 			       fs_flags);
 	osd_trans_exec_check(env, handle, OSD_OT_XATTR_SET);
@@ -3925,7 +3920,50 @@ static int osd_xattr_set(const struct lu_env *env, struct dt_object *dt,
 	     strcmp(name, XATTR_NAME_DEFAULT_LMV) == 0))
 		osd_oxc_add(obj, name, buf->lb_buf, buf->lb_len);
 
-	return rc;
+	if (unlikely(rc == -ENOSPC && strcmp(name, XATTR_NAME_LINK) == 0)) {
+		/* Ignore linkEA overflow case. Although the upper layer checks
+		 * the linkEA size before the real set, but it does not exactly
+		 * knows the backend limitation, and because kinds of EA shares
+		 * the XATTR block(s), the upper layer cannot exactly knows the
+		 * left space for the new linkEA entry.
+		 *
+		 * In theory, we should return -ENOSPC to the upper layer, and
+		 * ask the upper layer to shrink the linkEA and try again. But
+		 * it does not always work well, especially for DNE cross-MDTs
+		 * operation, it will cause complexed transaction rollback. To
+		 * avoid unnecessary troubles, handle it inside OSD. LU-8569 */
+		struct linkea_data ldata = { NULL };
+
+		LASSERT(buf != NULL);
+		LASSERT(buf->lb_buf != NULL);
+		LASSERT(buf->lb_len > 0);
+
+		ldata.ld_buf = lu_buf_check_and_alloc(&info->oti_big_buf,
+						      buf->lb_len);
+		if (unlikely(ldata.ld_buf->lb_buf == NULL)) {
+			CERROR("%s: fail to allocate RAM to shrink linkEA for "
+			       DFID"\n", osd_name(osd_dev(dt->do_lu.lo_dev)),
+			       PFID(lu_object_fid(&dt->do_lu)));
+			RETURN(-ENOMEM);
+		}
+
+		memcpy(ldata.ld_buf->lb_buf, buf->lb_buf, buf->lb_len);
+		do {
+			rc = linkea_overflow_shrink(&ldata);
+			LASSERT(rc >= 0);
+
+			/* For rc == 0 case, it means that all the EA space
+			 * has been exhausted. We can hold nothing for this
+			 * linkEA, just skip it. */
+
+			if (likely(rc > 0))
+				rc = __osd_xattr_set(info, inode, name,
+						     ldata.ld_buf->lb_buf,
+						     rc, fs_flags);
+		} while (rc == -ENOSPC);
+	}
+
+	RETURN(rc);
 }
 
 /*
