@@ -46,6 +46,7 @@
 #include <obd_class.h>
 #include <lustre_disk.h>
 #include <lustre_fid.h>
+#include <lustre_linkea.h>
 
 #include "osd_internal.h"
 
@@ -607,16 +608,59 @@ int osd_xattr_set(const struct lu_env *env, struct dt_object *dt,
 	     strcmp(name, XATTR_NAME_POSIX_ACL_DEFAULT) == 0))
 		RETURN(-EOPNOTSUPP);
 
-	if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_LINKEA_OVERFLOW) &&
-	    strcmp(name, XATTR_NAME_LINK) == 0)
-		RETURN(-ENOSPC);
-
 	oh = container_of0(handle, struct osd_thandle, ot_super);
 
 	down_write(&obj->oo_guard);
 	CDEBUG(D_INODE, "Setting xattr %s with size %d\n",
 		name, (int)buf->lb_len);
 	rc = osd_xattr_set_internal(env, obj, buf, name, fl, oh);
+	if (unlikely(rc == -ENOSPC && strcmp(name, XATTR_NAME_LINK) == 0)) {
+		/* Ignore linkEA overflow case. Although the upper layer checks
+		 * the linkEA size before the real set, but it does not exactly
+		 * knows the backend limitation, and because kinds of EA shares
+		 * the XATTR block(s), the upper layer cannot exactly knows the
+		 * left space for the new linkEA entry.
+		 *
+		 * In theory, we should return -ENOSPC to the upper layer, and
+		 * ask the upper layer to shrink the linkEA and try again. But
+		 * it does not always work well, especially for DNE cross-MDTs
+		 * operation, it will cause complexed transaction rollback. To
+		 * avoid unnecessary troubles, handle it inside OSD. LU-8569 */
+		struct linkea_data ldata = { NULL };
+
+		LASSERT(buf != NULL);
+		LASSERT(buf->lb_buf != NULL);
+		LASSERT(buf->lb_len > 0);
+
+		ldata.ld_buf = lu_buf_check_and_alloc(
+						&osd_oti_get(env)->oti_big_buf,
+						buf->lb_len);
+		if (unlikely(ldata.ld_buf->lb_buf == NULL)) {
+			CERROR("%s: fail to allocate RAM to shrink linkEA for "
+			       DFID"\n", osd_name(osd_dev(dt->do_lu.lo_dev)),
+			       PFID(lu_object_fid(&dt->do_lu)));
+			RETURN(-ENOMEM);
+		}
+
+		memcpy(ldata.ld_buf->lb_buf, buf->lb_buf, buf->lb_len);
+		do {
+			struct lu_buf tbuf;
+
+			rc = linkea_overflow_shrink(&ldata);
+			LASSERT(rc >= 0);
+
+			/* For rc == 0 case, it means that all the EA space
+			 * has been exhausted. We can hold nothing for this
+			 * linkEA, just skip it. */
+
+			if (likely(rc > 0)) {
+				tbuf.lb_buf = ldata.ld_buf->lb_buf;
+				tbuf.lb_len = rc;
+				rc = osd_xattr_set_internal(env, obj, &tbuf,
+							    name, fl, oh);
+			}
+		} while (rc == -ENOSPC);
+	}
 	up_write(&obj->oo_guard);
 
 	RETURN(rc);

@@ -698,6 +698,7 @@ static void osd_key_fini(const struct lu_context *ctx,
 {
 	struct osd_thread_info *info = data;
 
+	lu_buf_free(&info->oti_big_buf);
 	OBD_FREE_PTR(info);
 }
 
