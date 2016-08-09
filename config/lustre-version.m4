@@ -15,6 +15,6 @@ AC_DEFINE_UNQUOTED([LUSTRE_FIX], [$LUSTRE_FIX], [Fourth number in the Lustre ver
 # Even though the code could just use VERSION or PACKAGE_VERSION directly,
 # we use this copy named LUSTRE_VERSION_STRING instead to maintain less
 # divergence from the Lustre client code in the upstream Linux kernel code.
-AC_DEFINE_UNQUOTED([LUSTRE_VERSION_STRING], ["$PACKAGE_VERSION"], [A copy of PACKAGE_VERSION])
+AC_DEFINE_UNQUOTED([LUSTRE_VERSION_STRING], ["2.8.55.0"], [A copy of PACKAGE_VERSION])
 
 ])
