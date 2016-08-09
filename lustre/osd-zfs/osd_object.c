@@ -147,8 +147,11 @@ void osd_object_sa_dirty_rele(const struct lu_env *env, struct osd_thandle *oh)
 				__osd_sa_xattr_update(env, obj, oh);
 				up_read(&obj->oo_guard);
 			} else {
+				write_unlock(&obj->oo_attr_lock);
 				down_read(&obj->oo_guard);
-				__osd_sa_xattr_update(env, obj, oh);
+				write_lock(&obj->oo_attr_lock);
+				if (obj->oo_late_xattr)
+					__osd_sa_xattr_update(env, obj, oh);
 				up_read(&obj->oo_guard);
 			}
 		}
