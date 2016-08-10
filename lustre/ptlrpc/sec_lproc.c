@@ -138,6 +138,80 @@ out:
 }
 LPROC_SEQ_FOPS_RO(sptlrpc_ctxs_lprocfs);
 
+static ssize_t
+lprocfs_sptlrpc_sepol_seq_write(struct file *file, const char __user *buffer,
+				size_t count, void *data)
+{
+	struct seq_file	*seq = file->private_data;
+	struct obd_device *dev = seq->private;
+	struct ptlrpc_request *req = NULL;
+	struct sepol_downcall_data *param;
+	int size = sizeof(*param);
+	int rc = 0;
+
+	if (count < size) {
+		CERROR("%s: invalid data count = %lu, size = %d\n",
+		       dev->obd_name, (unsigned long) count, size);
+		return -EINVAL;
+	}
+
+	OBD_ALLOC(param, size);
+	if (param == NULL)
+		return -ENOMEM;
+
+	if (copy_from_user(param, buffer, size)) {
+		CERROR("%s: bad sepol data\n", dev->obd_name);
+		GOTO(out, rc = -EFAULT);
+	}
+
+	if (param->sdd_magic != SEPOL_DOWNCALL_MAGIC) {
+		CERROR("%s: sepol downcall bad params\n",
+		       dev->obd_name);
+		GOTO(out, rc = -EINVAL);
+	}
+
+	req = param->sdd_req;
+	if (req->rq_import != param->sdd_imp) {
+		CERROR("%s: invalid data returned, req: %p\n",
+		       dev->obd_name, req);
+		GOTO(out, rc = -EINVAL);
+	}
+
+	if (param->sdd_sepol_len == 0) {
+		CERROR("%s: invalid sepol data returned\n",
+		       dev->obd_name);
+		GOTO(out, rc = -EINVAL);
+	}
+	rc = param->sdd_sepol_len; /* save sdd_sepol_len */
+	OBD_FREE(param, size);
+	size = offsetof(struct sepol_downcall_data,
+			sdd_sepol[rc]);
+
+	/* alloc again with real size */
+	rc = 0;
+	OBD_ALLOC(param, size);
+	if (param == NULL)
+		return -ENOMEM;
+
+	if (copy_from_user(param, buffer, size)) {
+		CERROR("%s: bad sepol data\n", dev->obd_name);
+		GOTO(out, rc = -EFAULT);
+	}
+
+	snprintf(req->rq_sepol, param->sdd_sepol_len + 1, param->sdd_sepol);
+	spin_lock(&req->rq_import->imp_sec->ps_lock);
+	snprintf(req->rq_import->imp_sec->ps_sepol,
+		 param->sdd_sepol_len + 1, param->sdd_sepol);
+	spin_unlock(&req->rq_import->imp_sec->ps_lock);
+
+out:
+	if (param != NULL)
+		OBD_FREE(param, size);
+
+	return rc ? rc : count;
+}
+LPROC_SEQ_FOPS_WO_TYPE(srpc, sptlrpc_sepol);
+
 int sptlrpc_lprocfs_cliobd_attach(struct obd_device *dev)
 {
         int     rc;
@@ -152,23 +226,31 @@ int sptlrpc_lprocfs_cliobd_attach(struct obd_device *dev)
 		return -EINVAL;
 	}
 
-        rc = lprocfs_obd_seq_create(dev, "srpc_info", 0444,
-                                    &sptlrpc_info_lprocfs_fops, dev);
-        if (rc) {
-                CERROR("create proc entry srpc_info for %s: %d\n",
-                       dev->obd_name, rc);
-                return rc;
-        }
+	rc = lprocfs_obd_seq_create(dev, "srpc_info", 0444,
+				    &sptlrpc_info_lprocfs_fops, dev);
+	if (rc) {
+		CERROR("create proc entry srpc_info for %s: %d\n",
+		       dev->obd_name, rc);
+		return rc;
+	}
 
-        rc = lprocfs_obd_seq_create(dev, "srpc_contexts", 0444,
-                                    &sptlrpc_ctxs_lprocfs_fops, dev);
-        if (rc) {
-                CERROR("create proc entry srpc_contexts for %s: %d\n",
-                       dev->obd_name, rc);
-                return rc;
-        }
+	rc = lprocfs_obd_seq_create(dev, "srpc_contexts", 0444,
+				    &sptlrpc_ctxs_lprocfs_fops, dev);
+	if (rc) {
+		CERROR("create proc entry srpc_contexts for %s: %d\n",
+		       dev->obd_name, rc);
+		return rc;
+	}
 
-        return 0;
+	rc = lprocfs_obd_seq_create(dev, "srpc_sepol", 0200,
+				    &srpc_sptlrpc_sepol_fops, dev);
+	if (rc) {
+		CERROR("create proc entry srpc_sepol for %s: %d\n",
+		       dev->obd_name, rc);
+		return rc;
+	}
+
+	return 0;
 }
 EXPORT_SYMBOL(sptlrpc_lprocfs_cliobd_attach);
 

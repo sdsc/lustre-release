@@ -34,7 +34,8 @@ rootsbin_PROGRAMS = mount.lustre
 bin_SCRIPTS   = llstat llobdstat plot-llstat
 bin_PROGRAMS  = lfs
 sbin_SCRIPTS  = ldlm_debug_upcall
-sbin_PROGRAMS = lctl l_getidentity llverfs lustre_rsync ll_decode_linkea
+sbin_PROGRAMS = lctl l_getidentity l_getsepol llverfs lustre_rsync \
+		ll_decode_linkea
 
 if TESTS
 bin_PROGRAMS  += req_layout
@@ -169,6 +170,10 @@ tunefs_lustre_DEPENDENCIES := $(mkfs_lustre_DEPENDENCIES)
 l_getidentity_SOURCES = l_getidentity.c
 l_getidentity_LDADD := $(LIBPTLCTL)
 l_getidentity_DEPENDENCIES := $(LIBPTLCTL)
+
+l_getsepol_SOURCES = l_getsepol.c
+l_getsepol_LDADD := $(LIBPTLCTL) -lcrypto
+l_getsepol_DEPENDENCIES := $(LIBPTLCTL)
 
 lhsmtool_posix_SOURCES = lhsmtool_posix.c
 lhsmtool_posix_LDADD := liblustreapi.a $(LIBPTLCTL) $(PTHREAD_LIBS)

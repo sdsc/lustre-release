@@ -581,6 +581,7 @@ static inline __u64 lustre_stoqb(size_t space)
 #define UGQUOTA 2       /* set both USRQUOTA and GRPQUOTA */
 
 #define IDENTITY_DOWNCALL_MAGIC 0x6d6dd629
+#define SEPOL_DOWNCALL_MAGIC 0x8b8bb842
 
 /* permission */
 #define N_PERMS_MAX      64
@@ -600,6 +601,14 @@ struct identity_downcall_data {
         __u32                            idd_ngroups;
         struct perm_downcall_data idd_perms[N_PERMS_MAX];
         __u32                            idd_groups[0];
+};
+
+struct sepol_downcall_data {
+	__u32	       sdd_magic;
+	void	      *sdd_req;
+	void	      *sdd_imp;
+	__u16	       sdd_sepol_len;
+	char	       sdd_sepol[0];
 };
 
 #ifdef NEED_QUOTA_DEFS
