@@ -36,7 +36,9 @@
 
 #define DEBUG_SUBSYSTEM S_SEC
 
+#include <linux/pid_namespace.h>
 #include <linux/user_namespace.h>
+#include <linux/kthread.h>
 #ifdef HAVE_UIDGID_HEADER
 # include <linux/uidgid.h>
 #endif
@@ -1743,6 +1745,190 @@ int sptlrpc_svc_install_rvs_ctx(struct obd_import *imp,
                 return 0;
         return policy->sp_sops->install_rctx(imp, ctx);
 }
+
+/* Definition taken from libselinux/src/selinux_config.c */
+#define SELINUXDIR "/etc/selinux/"
+
+struct sepol_process_info {
+	int		   spi_rc;
+	char		  *spi_pol_path;
+	struct kstat	   spi_stat;
+	struct completion  spi_completion;
+};
+
+static int sepol_stat_thread(void *arg)
+{
+	struct sepol_process_info *spi = arg;
+	mm_segment_t oldfs;
+
+	oldfs = get_fs();
+	set_fs(get_ds());
+	spi->spi_rc = vfs_stat((char __user *)spi->spi_pol_path,
+			       &spi->spi_stat);
+	set_fs(oldfs);
+
+	complete(&spi->spi_completion);
+	return spi->spi_rc;
+}
+
+static inline int sepol_stat(char *path, unsigned long *mtime)
+{
+	struct pid_namespace *curr_pid_ns = ll_task_pid_ns(current);
+	mm_segment_t oldfs;
+	int rc = 0;
+
+	/* Stat policy file.
+	 * It must be done in host's namespace because
+	 * SELinux is not installed in container. */
+	if (likely(curr_pid_ns->child_reaper->pid == 1)) {
+		/* if child reaper's PID is 1, it means
+		 * we are running directly on the host */
+		struct kstat stat;
+		int total_link_count = current->total_link_count;
+
+		oldfs = get_fs();
+		set_fs(get_ds());
+		rc = vfs_stat((char __user *)path, &stat);
+		set_fs(oldfs);
+		current->total_link_count = total_link_count;
+		*mtime = (unsigned long)stat.mtime.tv_sec;
+	} else {
+		/* Fork kernel thread to stat SELinux policy file,
+		 * it will run in host's namespace. */
+		struct sepol_process_info *spi;
+		struct task_struct *task;
+
+		OBD_ALLOC_PTR(spi);
+		if (spi == NULL) {
+			CERROR("cannot alloc pointer\n");
+			RETURN(-ENOMEM);
+		}
+
+		spi->spi_pol_path = path;
+		init_completion(&spi->spi_completion);
+		task = kthread_run(sepol_stat_thread, spi, "sepol_stat_thread");
+		if (IS_ERR(task)) {
+			rc = PTR_ERR(task);
+			CDEBUG(D_SEC,
+			       "cannot start thread for sepol stat: rc = %d\n",
+			       rc);
+		} else {
+			wait_for_completion(&spi->spi_completion);
+			rc = spi->spi_rc;
+			*mtime = (unsigned long)spi->spi_stat.mtime.tv_sec;
+		}
+		OBD_FREE_PTR(spi);
+	}
+
+	return rc;
+}
+
+/* Get SELinux policy info from userspace */
+int sptlrpc_get_sepol(struct ptlrpc_request *req)
+{
+	char req_str[32], imp_str[32];
+	char *argv[] = {
+		[0] = "/usr/sbin/l_getsepol",
+		[1] = NULL,    /* obd type */
+		[2] = NULL,    /* obd name */
+		[3] = req_str, /* request */
+		[4] = imp_str, /* import */
+		[5] = NULL
+	};
+	char *envp[] = {
+		[0] = "HOME=/",
+		[1] = "PATH=/sbin:/usr/sbin",
+		[2] = NULL
+	};
+	char pol_path[100] = SELINUXDIR;
+	char *p = NULL, *q;
+	unsigned long sepol_mtime = 0;
+	struct ptlrpc_sec *imp_sec = req->rq_import->imp_sec;
+	char imp_ps_sepol[LUSTRE_NODEMAP_SEPOL_LENGTH + 1];
+	unsigned long imp_ps_sepol_mtime;
+	int rc = 0;
+	ENTRY;
+
+	(req->rq_sepol)[0] = '\0';
+
+	if (!selinux_is_enabled())
+		RETURN(0);
+
+	spin_lock(&imp_sec->ps_lock);
+	memcpy(imp_ps_sepol, imp_sec->ps_sepol, sizeof(imp_sec->ps_sepol));
+	imp_ps_sepol_mtime = imp_sec->ps_sepol_mtime;
+	spin_unlock(&imp_sec->ps_lock);
+
+	if (imp_ps_sepol[0] == '\0') {
+		spin_lock(&imp_sec->ps_lock);
+#ifdef HAVE_KALLSYMS_LOOKUP_NAME
+		imp_sec->ps_sepol_enforceaddr =
+			(int *)kallsyms_lookup_name("selinux_enforcing");
+#else
+		imp_sec->ps_sepol_enforceaddr = NULL;
+#endif
+		spin_unlock(&imp_sec->ps_lock);
+		goto helper;
+	}
+
+stat:
+	p = strchr(imp_ps_sepol + 2, ':');
+	strncat(pol_path, imp_ps_sepol + 2, p - imp_ps_sepol - 2);
+	strncat(pol_path, "/policy/policy.", 100);
+	q = strchr(p + 1, ':');
+	strncat(pol_path, p + 1, q - p - 1);
+
+	rc = sepol_stat(pol_path, &sepol_mtime);
+	if (rc == 0) {
+		CDEBUG(D_SEC, "File mtime: %lu, previous mtime %lu\n",
+		       sepol_mtime, imp_ps_sepol_mtime);
+		if (likely(imp_ps_sepol_mtime ==
+		    sepol_mtime)) {
+			if (imp_sec->ps_sepol_enforceaddr != NULL &&
+			    likely(imp_ps_sepol[0] - '0' ==
+				   *(imp_sec->ps_sepol_enforceaddr))) {
+				/* SELinux policy has not changed
+				 * since last time */
+				CDEBUG(D_SEC, "sepol not changed\n");
+				memcpy(req->rq_sepol, imp_ps_sepol,
+				       sizeof(req->rq_sepol));
+				RETURN(0);
+			}
+		} else {
+			spin_lock(&imp_sec->ps_lock);
+			imp_sec->ps_sepol_mtime = sepol_mtime;
+			imp_ps_sepol_mtime = imp_sec->ps_sepol_mtime;
+			spin_unlock(&imp_sec->ps_lock);
+		}
+	}
+	rc = 0;
+
+helper:
+	if (argv[1] == NULL) {
+		if (req != NULL && req->rq_import != NULL
+		    && req->rq_import->imp_obd != NULL) {
+			if (req->rq_import->imp_obd->obd_type != NULL)
+				argv[1] =
+				    req->rq_import->imp_obd->obd_type->typ_name;
+			argv[2] = req->rq_import->imp_obd->obd_name;
+		}
+
+		snprintf(req_str, 32, "%p", req);
+		snprintf(imp_str, 32, "%p", req->rq_import);
+		rc = call_usermodehelper(argv[0], argv, envp, UMH_WAIT_PROC);
+
+		spin_lock(&imp_sec->ps_lock);
+		memcpy(imp_ps_sepol, imp_sec->ps_sepol,
+		       sizeof(imp_sec->ps_sepol));
+		spin_unlock(&imp_sec->ps_lock);
+
+		if (imp_ps_sepol_mtime == 0 && p == NULL)
+			goto stat;
+	}
+
+	RETURN(rc);
+}
+EXPORT_SYMBOL(sptlrpc_get_sepol);
 
 /****************************************
  * server side security                 *

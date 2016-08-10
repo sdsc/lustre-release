@@ -409,6 +409,17 @@ blk_queue_max_segments, [
 ]) # LC_BLK_QUEUE_MAX_SEGMENTS
 
 #
+# LC_HAVE_KALLSYMS_LOOKUP_NAME
+#
+# 2.6.33 exported kallsyms_lookup_name()
+#
+AC_DEFUN([LC_HAVE_KALLSYMS_LOOKUP_NAME], [
+LB_CHECK_EXPORT([kallsyms_lookup_name], [kernel/kallsyms.c],
+	[AC_DEFINE(HAVE_KALLSYMS_LOOKUP_NAME, 1,
+		[kallsyms_lookup_name is exported by the kernel])])
+]) # LC_HAVE_KALLSYMS_LOOKUP_NAME
+
+#
 # LC_HAVE_DQUOT_FS_DISK_QUOTA
 #
 # 2.6.34 has quotactl_ops->[sg]et_dqblk that take struct fs_disk_quota
@@ -2273,6 +2284,9 @@ AC_DEFUN([LC_PROG_LINUX], [
 
 	# 2.6.32
 	LC_BLK_QUEUE_MAX_SEGMENTS
+
+	# 2.6.33
+	LC_HAVE_KALLSYMS_LOOKUP_NAME
 
 	# 2.6.34
 	LC_HAVE_DQUOT_FS_DISK_QUOTA
