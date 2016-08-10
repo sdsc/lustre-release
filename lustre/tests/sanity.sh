@@ -34,6 +34,10 @@ if is_sles11; then					# LU-4341
 	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 170"
 fi
 
+if ! check_versions; then
+	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 133a"
+fi
+
 SRCDIR=$(cd $(dirname $0); echo $PWD)
 export PATH=$PATH:/sbin
 
