@@ -36,6 +36,7 @@
 
 #define DEBUG_SUBSYSTEM S_LNET
 #include <linux/log2.h>
+#include <linux/nsproxy.h>
 #include <lnet/lib-lnet.h>
 
 #define D_LNI D_CONSOLE
@@ -1361,6 +1362,9 @@ lnet_startup_lndni(struct lnet_ni *ni, struct lnet_ioctl_config_data *conf)
 		lnet_net_unlock(LNET_LOCK_EX);
 		goto failed0;
 	}
+
+	/* Store net namespace in which current ni is being created */
+	ni->ni_net_ns = current->nsproxy->net_ns;
 
 	/* If given some LND tunable parameters, parse those now to
 	 * override the values in the NI structure. */
