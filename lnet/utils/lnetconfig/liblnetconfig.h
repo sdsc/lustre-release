@@ -39,7 +39,7 @@
 #define LUSTRE_CFG_RC_MATCH			-7
 
 #include <lnet/lnet.h>
-#include <libcfs/libcfs_string.h>
+#include <libcfs/util/string.h>
 #include <lnet/lib-dlc.h>
 
 /* forward declaration of the cYAML structure. */
