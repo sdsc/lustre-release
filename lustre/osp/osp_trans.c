@@ -916,6 +916,11 @@ int osp_trans_update_request_create(struct thandle *th)
 		return PTR_ERR(our);
 	}
 
+	if (oth->ot_super.th_sync)
+		our->our_flags |= UPDATE_FL_SYNC;
+	if (!dt2osp_dev(oth->ot_super.th_dev)->opd_connect_mdt)
+		our->our_flags |= UPDATE_FL_OST;
+
 	oth->ot_our = our;
 	our->our_th = oth;
 
@@ -1515,8 +1520,6 @@ int osp_trans_start(const struct lu_env *env, struct dt_device *dt,
 {
 	struct osp_thandle	*oth = thandle_to_osp_thandle(th);
 
-	if (oth->ot_super.th_sync)
-		oth->ot_our->our_flags |= UPDATE_FL_SYNC;
 	/* For remote thandle, if there are local thandle, start it here*/
 	if (is_only_remote_trans(th) && oth->ot_storage_th != NULL)
 		return dt_trans_start(env, oth->ot_storage_th->th_dev,

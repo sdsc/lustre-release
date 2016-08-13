@@ -357,7 +357,7 @@ struct sub_thandle {
 
 struct tx_arg;
 typedef int (*tx_exec_func_t)(const struct lu_env *env, struct thandle *th,
-			      struct tx_arg *ta);
+			      struct tx_arg *ta, bool prelocked);
 
 /* Structure for holding one update execution */
 struct tx_arg {
@@ -406,6 +406,7 @@ struct thandle_exec_args {
 	int			ta_argno;   /* used args */
 	int			ta_alloc_args; /* allocated args count */
 	struct tx_arg		**ta_args;
+	bool			ta_prelocked;
 };
 
 /* target/out_lib.c */

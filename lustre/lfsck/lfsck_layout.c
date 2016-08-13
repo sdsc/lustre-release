@@ -5748,9 +5748,11 @@ static void lfsck_layout_destroy_orphan(const struct lu_env *env,
 	int			 rc;
 	ENTRY;
 
+	/* lock the OST-object before transaction start. */
+	dt_write_lock(env, obj, 0);
 	handle = dt_trans_create(env, dev);
 	if (IS_ERR(handle))
-		RETURN_EXIT;
+		GOTO(unlock, rc = PTR_ERR(handle));
 
 	rc = dt_declare_ref_del(env, obj, handle);
 	if (rc != 0)
@@ -5764,16 +5766,16 @@ static void lfsck_layout_destroy_orphan(const struct lu_env *env,
 	if (rc != 0)
 		GOTO(stop, rc);
 
-	dt_write_lock(env, obj, 0);
 	rc = dt_ref_del(env, obj, handle);
 	if (rc == 0)
 		rc = dt_destroy(env, obj, handle);
-	dt_write_unlock(env, obj);
 
 	GOTO(stop, rc);
 
 stop:
 	dt_trans_stop(env, dev, handle);
+unlock:
+	dt_write_unlock(env, obj);
 
 	CDEBUG(D_LFSCK, "destroy orphan OST-object "DFID": rc = %d\n",
 	       PFID(lfsck_dto2fid(obj)), rc);
