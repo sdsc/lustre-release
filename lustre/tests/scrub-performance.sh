@@ -40,7 +40,7 @@ if [ ${NTHREADS} -eq 0 ]; then
 	NTHREADS=$((CPUCORE * 2))
 fi
 
-stopall
+cleanupall
 do_rpc_nodes $(facet_active_host $SINGLEMDS) load_modules_local
 reformat_external_journal ${SINGLEMDS}
 add ${SINGLEMDS} $(mkfs_opts ${SINGLEMDS} ${MDT_DEVNAME}) --backfstype ldiskfs \
@@ -86,7 +86,7 @@ scrub_create() {
 
 scrub_cleanup() {
 	do_rpc_nodes $(facet_active_host $SINGLEMDS) unload_modules
-	formatall
+	REFORMAT="yes" cleanup_and_setup_lustre
 }
 
 scrub_create_nfiles() {
@@ -180,4 +180,5 @@ run_test 0 "OI scrub performance test"
 # cleanup the system at last
 scrub_cleanup
 complete $SECONDS
+check_and_cleanup_lustre
 exit_status
