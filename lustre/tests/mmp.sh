@@ -672,4 +672,5 @@ FAIL_ON_ERROR=$SAVED_FAIL_ON_ERROR
 
 complete $SECONDS
 $MMP_RESTORE_MOUNT && setupall
+check_and_cleanup_lustre
 exit_status
