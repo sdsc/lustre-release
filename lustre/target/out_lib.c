@@ -743,23 +743,91 @@ static int out_tx_xattr_set_exec(const struct lu_env *env,
 		rc = -ENOENT;
 	} else {
 		struct linkea_data ldata;
+		bool linkea;
 
 		ldata.ld_buf = &arg->u.xattr_set.buf;
 		linkea_init(&ldata);
+		if (strcmp(arg->u.xattr_set.name, XATTR_NAME_LINK) == 0)
+			linkea = true;
+		else
+			linkea = false;
+
 		dt_write_lock(env, dt_obj, MOR_TGT_CHILD);
+		if (linkea) {
+			struct link_ea_header *leh = ldata.ld_leh;
+
+			LASSERT(leh != NULL);
+
+			/* If the new linkEA contains overflow timestamp,
+			 * then two cases:
+			 *
+			 * 1. The old linkEA for the object has already
+			 *    overflowed before current setting, the new
+			 *    linkEA does not contains new link entry. So
+			 *    the linkEA overflow timestamp is unchanged.
+			 *
+			 * 2. There are new link entry in the new linkEA,
+			 *    so its overflow timestamp is differnt from
+			 *    the old one. Usually, the overstamp in the
+			 *    given linkEA is newer. But because of clock
+			 *    drift among MDTs, the timestamp may become
+			 *    older. So here, we convert the timestamp to
+			 *    the server local time. Then namespace LFSCK
+			 *    that uses local time can handle it easily. */
+			if (unlikely(leh->leh_overflow_time)) {
+				struct lu_buf tbuf = { 0 };
+				bool update = false;
+
+				lu_buf_alloc(&tbuf, MAX_LINKEA_SIZE);
+				if (tbuf.lb_buf == NULL) {
+					rc = -ENOMEM;
+					goto unlock;
+				}
+
+				rc = dt_xattr_get(env, dt_obj, &tbuf,
+						  XATTR_NAME_LINK);
+				if (rc > 0) {
+					struct linkea_data tdata;
+
+					rc = 0;
+					tdata.ld_buf = &tbuf;
+					linkea_init(&tdata);
+					if (leh->leh_overflow_time !=
+					    tdata.ld_leh->leh_overflow_time)
+						update = true;
+				} else if (rc == -ENODATA) {
+					rc = 0;
+					update = true;
+				} else if (unlikely(!rc)) {
+					update = true;
+				}
+
+				lu_buf_free(&tbuf);
+				if (rc)
+					goto unlock;
+
+				if (update) {
+					leh->leh_overflow_time =
+							cfs_time_current_sec();
+					if (unlikely(!leh->leh_overflow_time))
+						leh->leh_overflow_time++;
+				}
+			}
+		}
 
 again:
 		rc = dt_xattr_set(env, dt_obj, ldata.ld_buf,
 				  arg->u.xattr_set.name, arg->u.xattr_set.flags,
 				  th);
-		if (unlikely(rc == -ENOSPC &&
-		    strcmp(arg->u.xattr_set.name, XATTR_NAME_LINK) == 0)) {
+		if (unlikely(rc == -ENOSPC && linkea)) {
 			rc = linkea_overflow_shrink(&ldata);
 			if (likely(rc > 0)) {
 				arg->u.xattr_set.buf.lb_len = rc;
 				goto again;
 			}
 		}
+
+unlock:
 		dt_write_unlock(env, dt_obj);
 	}
 

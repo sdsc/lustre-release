@@ -76,7 +76,7 @@ init_test_env $@
 init_logging
 
 #                                  5              12          (min)"
-[ "$SLOW" = "no" ] && EXCEPT_SLOW="24D 27m 64b 68 71 115 300o"
+[ "$SLOW" = "no" ] && EXCEPT_SLOW="24D 27m 64b 68 71 115 300o 409"
 
 if [ $(facet_fstype $SINGLEMDS) = "zfs" ]; then
 	# bug number for skipped test: LU-4536 LU-1957
@@ -15849,6 +15849,39 @@ test_408() {
 	echo 2 > /proc/sys/vm/drop_caches
 }
 run_test 408 "drop_caches should not hang due to page leaks"
+
+test_409()
+{
+	[ $MDSCOUNT -lt 2 ] &&
+		skip "We need at least 2 MDTs for this test" && return
+
+	check_mount_and_prep
+
+	mkdir -p $DIR/$tdir || error "(0) Fail to mkdir"
+	$LFS mkdir -i 1 -c 2 $DIR/$tdir/foo || error "(1) Fail to mkdir"
+	touch $DIR/$tdir/guard || error "(2) Fail to create"
+
+	echo "Create 3K hard links start at $(date)"
+	createmany -l $DIR/$tdir/guard \
+	$DIR/$tdir/foo/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_ 3000 ||
+		error "(3) Fail to hard link"
+
+	echo "Links count should be right although linkEA overflow"
+	stat $DIR/$tdir/guard || error "(4) Fail to stat"
+	local linkcount=$(stat --format=%h $DIR/$tdir/guard)
+	[ $linkcount -eq 3001 ] ||
+		error "(5) Unexpected hard links count: $linkcount"
+
+	echo "List all links start at $(date)"
+	ls -l $DIR/$tdir/foo > /dev/null ||
+		error "(6) Fail to list $DIR/$tdir/foo"
+
+	echo "Unlink hard links start at $(date)"
+	unlinkmany \
+	$DIR/$tdir/foo/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_ 3000 ||
+		error "(7) Fail to unlink"
+}
+run_test 409 "Large amount of cross-MDTs hard links on the same file"
 
 #
 # tests that do cleanup/setup should be run at the end

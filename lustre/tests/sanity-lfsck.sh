@@ -3850,8 +3850,83 @@ test_29c() {
 	[ $count2 -eq 2 ] ||
 		error "(11) Repaired something unexpectedly: $count2"
 }
-# disable test_29c temporarily, it will be re-enabled in subsequent patch.
-#run_test 29c "Not verify nlink attr if hark links exceed linkEA limitation"
+run_test 29c "Not verify nlink attr if hark links exceed linkEA limitation"
+
+test_29d()
+{
+	[ $MDSCOUNT -lt 2 ] &&
+		skip "We need at least 2 MDTs for this test" && return
+
+	echo "#####"
+	echo "The namespace LFSCK will create many hard links to the target"
+	echo "file as to exceed the linkEA size limitation. Under such case"
+	echo "the linkEA will be marked as overflow that will prevent the"
+	echo "target file to be migrated. Then remove some hard links to"
+	echo "make the left hard links to be held within the linkEA size"
+	echo "limitation. But before the namespace LFSCK adding all the"
+	echo "missed linkEA entries back, the overflow mark (timestamp)"
+	echo "will not be cleared."
+	echo "#####"
+
+	check_mount_and_prep
+
+	mkdir -p $DIR/$tdir/guard || error "(0.1) Fail to mkdir"
+	$LFS mkdir -i 1 $DIR/$tdir/foo || error "(0.2) Fail to mkdir"
+	touch $DIR/$tdir/guard/f0 || error "(1) Fail to create"
+	local oldfid=$($LFS path2fid $DIR/$tdir/guard/f0)
+
+	# define MAX_LINKEA_SIZE        4096
+	# 300 hard links will be enough to overflow the linkEA
+	echo "Create 300 hard links should succeed although the linkEA overflow"
+	createmany -l $DIR/$tdir/guard/f0 $DIR/$tdir/foo/t 300 ||
+		error "(2) Fail to hard link"
+
+	$LFS migrate -m 1 $DIR/$tdir/guard 2>/dev/nul ||
+		error "(3.1) Migrate failure"
+
+	echo "The object with linkEA overflow should NOT be migrated"
+	local newfid=$($LFS path2fid $DIR/$tdir/guard/f0)
+	[ "$newfid" == "$oldfid" ] ||
+		error "(3.2) Migrate should fail: $newfid != $oldfid"
+
+	# Remove 200 hard links, then the linkEA should have space
+	# to hold the missed linkEA entries.
+	echo "Remove 200 hard links to save space for the missed linkEA entries"
+	unlinkmany $DIR/$tdir/foo/t 200 || error "(4) Fail to unlink"
+
+	# The overflow timestamp is still there, so migration will fail.
+	$LFS migrate -m 1 $DIR/$tdir/guard 2>/dev/null ||
+		error "(5.1) Migrate failure"
+
+	newfid=$($LFS path2fid $DIR/$tdir/guard/f0)
+	[ "$newfid" == "$oldfid" ] ||
+		error "(5.2) Migrate should fail: $newfid != $oldfid"
+
+	# sleep 3 seconds to guarantee that the overflow is recognized
+	sleep 3
+
+	echo "Trigger namespace LFSCK to clear the overflow timestamp"
+	$START_NAMESPACE -r -A ||
+		error "(6) Fail to start LFSCK for namespace"
+
+	wait_all_targets_blocked namespace completed 7
+
+	local repaired=$($SHOW_NAMESPACE |
+			 awk '/^linkea_overflow_cleared/ { print $2 }')
+	[ $repaired -eq 1 ] ||
+		error "(8) Fail to clear linkea overflow: $repaired"
+
+	# Migration should succeed after clear the overflow timestamp.
+	$LFS migrate -m 1 $DIR/$tdir/guard 2>/dev/null ||
+		error "(9.1) Migrate failure"
+
+	newfid=$($LFS path2fid $DIR/$tdir/guard/f0)
+	[ "$newfid" != "$oldfid" ] || error "(9.2) Migrate should succeed"
+
+	ls -l $DIR/$tdir/foo > /dev/null ||
+		error "(10) 'ls' failed after migration"
+}
+run_test 29d "verify linkEA size limitation"
 
 test_30() {
 	[ $(facet_fstype $SINGLEMDS) != ldiskfs ] &&

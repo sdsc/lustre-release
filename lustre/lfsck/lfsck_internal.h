@@ -111,7 +111,6 @@ struct lfsck_bookmark {
 enum lfsck_namespace_trace_flags {
 	LNTF_CHECK_LINKEA	= 0x01,
 	LNTF_CHECK_PARENT	= 0x02,
-	LNTF_SKIP_NLINK		= 0x04,
 	LNTF_CHECK_ORPHAN	= 0x08,
 	LNTF_UNCERTAIN_LMV	= 0x10,
 	LNTF_RECHECK_NAME_HASH	= 0x20,
@@ -274,9 +273,14 @@ struct lfsck_namespace {
 	 * the MDTs that contain non-verified MDT-objects. */
 	__u32	ln_bitmap_size;
 
-	__u32	ln_reserved_1;
+	/* Time for the latest LFSCK scan in seconds from the beginning. */
+	__u32	ln_time_latest_reset;
+
+	/* How many linkEA overflow timestamp have been cleared. */
+	__u64	ln_linkea_overflow_cleared;
+
 	/* For further using. 256-bytes aligned now. */
-	__u64   ln_reserved[15];
+	__u64   ln_reserved[14];
 };
 
 enum lfsck_layout_inconsistency_type {
@@ -1450,7 +1454,7 @@ static inline int lfsck_links_read(const struct lu_env *env,
 {
 	ldata->ld_buf =
 		lu_buf_check_and_alloc(&lfsck_env_info(env)->lti_linkea_buf,
-				       PAGE_SIZE);
+				       MAX_LINKEA_SIZE);
 
 	return __lfsck_links_read(env, obj, ldata);
 }
@@ -1461,7 +1465,7 @@ static inline int lfsck_links_read2(const struct lu_env *env,
 {
 	ldata->ld_buf =
 		lu_buf_check_and_alloc(&lfsck_env_info(env)->lti_linkea_buf2,
-				       PAGE_SIZE);
+				       MAX_LINKEA_SIZE);
 
 	return __lfsck_links_read(env, obj, ldata);
 }
