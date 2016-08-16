@@ -185,12 +185,17 @@ int mdt_getxattr(struct mdt_thread_info *info)
         struct lu_buf          *buf;
         int                     easize, rc;
 	u64			valid;
+	const char             *sepol;
         ENTRY;
 
         LASSERT(info->mti_object != NULL);
 	LASSERT(lu_object_assert_exists(&info->mti_object->mot_obj));
 
 	CDEBUG(D_INODE, "getxattr "DFID"\n", PFID(&info->mti_body->mbo_fid1));
+
+	rc = req_sepol_unpack(info->mti_pill, &sepol);
+	if (rc < 0)
+		RETURN(err_serious(rc));
 
         reqbody = req_capsule_client_get(info->mti_pill, &RMF_MDT_BODY);
         if (reqbody == NULL)
