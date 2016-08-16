@@ -1066,6 +1066,7 @@ static int mdt_create_unpack(struct mdt_thread_info *info)
         struct mdt_reint_record *rr = &info->mti_rr;
         struct req_capsule      *pill = info->mti_pill;
         struct md_op_spec       *sp = &info->mti_spec;
+	const char		*sepol;
         int rc;
         ENTRY;
 
@@ -1129,6 +1130,10 @@ static int mdt_create_unpack(struct mdt_thread_info *info)
 	if (rc < 0)
 		RETURN(rc);
 
+	rc = req_sepol_unpack(pill, &sepol);
+	if (rc < 0)
+		RETURN(rc);
+
 	rc = mdt_dlmreq_unpack(info);
 	RETURN(rc);
 }
@@ -1180,6 +1185,7 @@ static int mdt_unlink_unpack(struct mdt_thread_info *info)
         struct lu_attr          *attr = &info->mti_attr.ma_attr;
         struct mdt_reint_record *rr = &info->mti_rr;
         struct req_capsule      *pill = info->mti_pill;
+	const char              *sepol;
         int rc;
         ENTRY;
 
@@ -1215,6 +1221,10 @@ static int mdt_unlink_unpack(struct mdt_thread_info *info)
 
 	info->mti_spec.no_create = !!req_is_replay(mdt_info_req(info));
 
+	rc = req_sepol_unpack(pill, &sepol);
+	if (rc < 0)
+		RETURN(rc);
+
         rc = mdt_dlmreq_unpack(info);
         RETURN(rc);
 }
@@ -1233,6 +1243,7 @@ static int mdt_rename_unpack(struct mdt_thread_info *info)
         struct lu_attr          *attr = &info->mti_attr.ma_attr;
         struct mdt_reint_record *rr = &info->mti_rr;
         struct req_capsule      *pill = info->mti_pill;
+	const char              *sepol;
         int rc;
         ENTRY;
 
@@ -1281,6 +1292,9 @@ static int mdt_rename_unpack(struct mdt_thread_info *info)
 
         info->mti_spec.no_create = !!req_is_replay(mdt_info_req(info));
 
+	rc = req_sepol_unpack(pill, &sepol);
+	if (rc < 0)
+		RETURN(rc);
 
 	rc = mdt_dlmreq_unpack(info);
 
@@ -1320,6 +1334,7 @@ static int mdt_open_unpack(struct mdt_thread_info *info)
         struct mdt_reint_record *rr   = &info->mti_rr;
         struct ptlrpc_request   *req  = mdt_info_req(info);
         struct md_op_spec       *sp   = &info->mti_spec;
+	const char		*sepol;
 	int rc;
         ENTRY;
 
@@ -1383,6 +1398,12 @@ static int mdt_open_unpack(struct mdt_thread_info *info)
 	rc = mdt_file_secctx_unpack(pill, &sp->sp_cr_file_secctx_name,
 				    &sp->sp_cr_file_secctx,
 				    &sp->sp_cr_file_secctx_size);
+	if (rc < 0)
+		RETURN(rc);
+
+	rc = req_sepol_unpack(pill, &sepol);
+	if (rc < 0)
+		RETURN(rc);
 
 	RETURN(rc);
 }
@@ -1394,6 +1415,7 @@ static int mdt_setxattr_unpack(struct mdt_thread_info *info)
 	struct lu_attr		*attr	= &info->mti_attr.ma_attr;
 	struct req_capsule	*pill	= info->mti_pill;
 	struct mdt_rec_setxattr	*rec;
+	const char              *sepol;
 	int			 rc;
 	ENTRY;
 
@@ -1438,6 +1460,10 @@ static int mdt_setxattr_unpack(struct mdt_thread_info *info)
                 CDEBUG(D_INFO, "no xattr data supplied\n");
                 RETURN(-EFAULT);
         }
+
+	rc = req_sepol_unpack(pill, &sepol);
+	if (rc < 0)
+		RETURN(rc);
 
 	if (mdt_dlmreq_unpack(info) < 0)
 		RETURN(-EPROTO);

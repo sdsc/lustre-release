@@ -3334,7 +3334,10 @@ static int mdt_intent_getxattr(enum mdt_it_code opcode,
 	if (ldlm_rep == NULL ||
 	    OBD_FAIL_CHECK(OBD_FAIL_MDS_XATTR_REP)) {
 		mdt_object_unlock(info,  info->mti_object, lhc, 1);
-		RETURN(err_serious(-EFAULT));
+		if (is_serious(rc))
+			RETURN(rc);
+		else
+			RETURN(err_serious(-EFAULT));
 	}
 
 	ldlm_rep->lock_policy_res2 = clear_serious(rc);
@@ -3519,11 +3522,15 @@ static int mdt_intent_reint(enum mdt_it_code opcode,
 
         rc = mdt_reint_internal(info, lhc, opc);
 
-        /* Check whether the reply has been packed successfully. */
-        if (mdt_info_req(info)->rq_repmsg != NULL)
-                rep = req_capsule_server_get(info->mti_pill, &RMF_DLM_REP);
-        if (rep == NULL)
-                RETURN(err_serious(-EFAULT));
+	/* Check whether the reply has been packed successfully. */
+	if (mdt_info_req(info)->rq_repmsg != NULL)
+		rep = req_capsule_server_get(info->mti_pill, &RMF_DLM_REP);
+	if (rep == NULL) {
+		if (is_serious(rc))
+			RETURN(rc);
+		else
+			RETURN(err_serious(-EFAULT));
+	}
 
         /* MDC expects this in any case */
         if (rc != 0)
