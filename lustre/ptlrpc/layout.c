@@ -332,11 +332,12 @@ static const struct req_msg_field *mdt_swap_layouts[] = {
 };
 
 static const struct req_msg_field *obd_connect_client[] = {
-        &RMF_PTLRPC_BODY,
-        &RMF_TGTUUID,
-        &RMF_CLUUID,
-        &RMF_CONN,
-        &RMF_CONNECT_DATA
+	&RMF_PTLRPC_BODY,
+	&RMF_TGTUUID,
+	&RMF_CLUUID,
+	&RMF_CONN,
+	&RMF_CONNECT_DATA,
+	&RMF_SELINUX_POL
 };
 
 static const struct req_msg_field *obd_connect_server[] = {
@@ -1118,6 +1119,10 @@ struct req_msg_field RMF_LAYOUT_INTENT =
 		    sizeof(struct layout_intent), lustre_swab_layout_intent,
 		    NULL);
 EXPORT_SYMBOL(RMF_LAYOUT_INTENT);
+
+struct req_msg_field RMF_SELINUX_POL =
+	DEFINE_MSGF("selinux_pol", RMF_F_STRING, -1, NULL, NULL);
+EXPORT_SYMBOL(RMF_SELINUX_POL);
 
 /*
  * OST request field.
@@ -2547,4 +2552,32 @@ int req_capsule_server_grow(struct req_capsule *pill,
 }
 EXPORT_SYMBOL(req_capsule_server_grow);
 /* __REQ_LAYOUT_USER__ */
+
+int req_sepol_unpack(struct req_capsule *pill,
+			  const char **sepol_info)
+{
+	const char *sepol;
+	size_t sepol_size;
+
+	*sepol_info = NULL;
+
+	if (!req_capsule_has_field(pill, &RMF_SELINUX_POL, RCL_CLIENT) ||
+	    !req_capsule_field_present(pill, &RMF_SELINUX_POL, RCL_CLIENT))
+		return 0;
+
+	sepol_size = req_capsule_get_size(pill, &RMF_SELINUX_POL,
+					  RCL_CLIENT);
+	if (sepol_size == 0)
+		return 0;
+
+	sepol = req_capsule_client_get(pill, &RMF_SELINUX_POL);
+	if (sepol == NULL || strnlen(sepol, sepol_size) != sepol_size - 1)
+		return -EPROTO;
+
+	*sepol_info = sepol;
+
+	return 0;
+}
+EXPORT_SYMBOL(req_sepol_unpack);
+
 #endif
