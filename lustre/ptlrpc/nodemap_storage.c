@@ -779,10 +779,13 @@ static int nodemap_load_entries(const struct lu_env *env,
 		GOTO(out, rc = PTR_ERR(it));
 
 	rc = iops->load(env, it, hash);
-	if (rc == 0) {
+	if (rc < 0) {
+		GOTO(out_iops, rc);
+	} else {
 		rc = iops->next(env, it);
-		if (rc != 0)
-			GOTO(out_iops, rc = 0);
+
+		if (rc < 0)
+			GOTO(out_iops, rc);
 	}
 
 	new_config = nodemap_config_alloc();
@@ -792,7 +795,8 @@ static int nodemap_load_entries(const struct lu_env *env,
 		GOTO(out_lock, rc);
 	}
 
-	do {
+	/* rc > 0 is eof, check initial iops->next here as well */
+	while (rc == 0) {
 		struct nodemap_key *key;
 		union nodemap_rec rec;
 
@@ -812,7 +816,7 @@ static int nodemap_load_entries(const struct lu_env *env,
 		do
 			rc = iops->next(env, it);
 		while (rc == -ESTALE);
-	} while (rc == 0);
+	}
 
 	if (rc > 0)
 		rc = 0;
