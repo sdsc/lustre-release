@@ -1069,6 +1069,8 @@ static int mdt_create_unpack(struct mdt_thread_info *info)
         struct req_capsule      *pill = info->mti_pill;
         struct md_op_spec       *sp = &info->mti_spec;
 	const char		*sepol;
+	const char		*nm_sepol = NULL;
+	struct obd_export	*export = info->mti_exp;
         int rc;
         ENTRY;
 
@@ -1136,6 +1138,14 @@ static int mdt_create_unpack(struct mdt_thread_info *info)
 	if (rc < 0)
 		RETURN(rc);
 
+	if (export != NULL && export->exp_target_data.ted_nodemap != NULL) {
+		nm_sepol =
+			nodemap_get_sepol(export->exp_target_data.ted_nodemap);
+		if (nm_sepol && nm_sepol[0])
+			if (sepol == NULL || strcmp(sepol, nm_sepol) != 0)
+				RETURN(-EACCES);
+	}
+
 	rc = mdt_dlmreq_unpack(info);
 	RETURN(rc);
 }
@@ -1188,6 +1198,8 @@ static int mdt_unlink_unpack(struct mdt_thread_info *info)
         struct mdt_reint_record *rr = &info->mti_rr;
         struct req_capsule      *pill = info->mti_pill;
 	const char              *sepol;
+	const char		*nm_sepol = NULL;
+	struct obd_export	*export = info->mti_exp;
         int rc;
         ENTRY;
 
@@ -1227,6 +1239,14 @@ static int mdt_unlink_unpack(struct mdt_thread_info *info)
 	if (rc < 0)
 		RETURN(rc);
 
+	if (export != NULL && export->exp_target_data.ted_nodemap != NULL) {
+		nm_sepol =
+			nodemap_get_sepol(export->exp_target_data.ted_nodemap);
+		if (nm_sepol && nm_sepol[0])
+			if (sepol == NULL || strcmp(sepol, nm_sepol) != 0)
+				RETURN(-EACCES);
+	}
+
         rc = mdt_dlmreq_unpack(info);
         RETURN(rc);
 }
@@ -1246,6 +1266,8 @@ static int mdt_rename_unpack(struct mdt_thread_info *info)
         struct mdt_reint_record *rr = &info->mti_rr;
         struct req_capsule      *pill = info->mti_pill;
 	const char              *sepol;
+	const char		*nm_sepol = NULL;
+	struct obd_export	*export = info->mti_exp;
         int rc;
         ENTRY;
 
@@ -1298,6 +1320,14 @@ static int mdt_rename_unpack(struct mdt_thread_info *info)
 	if (rc < 0)
 		RETURN(rc);
 
+	if (export != NULL && export->exp_target_data.ted_nodemap != NULL) {
+		nm_sepol =
+			nodemap_get_sepol(export->exp_target_data.ted_nodemap);
+		if (nm_sepol && nm_sepol[0])
+			if (sepol == NULL || strcmp(sepol, nm_sepol) != 0)
+				RETURN(-EACCES);
+	}
+
 	rc = mdt_dlmreq_unpack(info);
 
 	RETURN(rc);
@@ -1337,6 +1367,8 @@ static int mdt_open_unpack(struct mdt_thread_info *info)
         struct ptlrpc_request   *req  = mdt_info_req(info);
         struct md_op_spec       *sp   = &info->mti_spec;
 	const char		*sepol;
+	const char		*nm_sepol = NULL;
+	struct obd_export	*export = info->mti_exp;
 	int rc;
         ENTRY;
 
@@ -1407,6 +1439,14 @@ static int mdt_open_unpack(struct mdt_thread_info *info)
 	if (rc < 0)
 		RETURN(rc);
 
+	if (export != NULL && export->exp_target_data.ted_nodemap != NULL) {
+		nm_sepol =
+			nodemap_get_sepol(export->exp_target_data.ted_nodemap);
+		if (nm_sepol && nm_sepol[0])
+			if (sepol == NULL || strcmp(sepol, nm_sepol) != 0)
+				RETURN(-EACCES);
+	}
+
 	RETURN(rc);
 }
 
@@ -1418,6 +1458,8 @@ static int mdt_setxattr_unpack(struct mdt_thread_info *info)
 	struct req_capsule	*pill	= info->mti_pill;
 	struct mdt_rec_setxattr	*rec;
 	const char              *sepol;
+	const char		*nm_sepol = NULL;
+	struct obd_export	*export = info->mti_exp;
 	int			 rc;
 	ENTRY;
 
@@ -1466,6 +1508,14 @@ static int mdt_setxattr_unpack(struct mdt_thread_info *info)
 	rc = req_sepol_unpack(pill, &sepol);
 	if (rc < 0)
 		RETURN(rc);
+
+	if (export != NULL && export->exp_target_data.ted_nodemap != NULL) {
+		nm_sepol =
+			nodemap_get_sepol(export->exp_target_data.ted_nodemap);
+		if (nm_sepol && nm_sepol[0])
+			if (sepol == NULL || strcmp(sepol, nm_sepol) != 0)
+				RETURN(-EACCES);
+	}
 
 	if (mdt_dlmreq_unpack(info) < 0)
 		RETURN(-EPROTO);
