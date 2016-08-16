@@ -3898,7 +3898,6 @@ static int osd_xattr_set(const struct lu_env *env, struct dt_object *dt,
 
 	if (strcmp(name, XATTR_NAME_LMV) == 0) {
 		struct lustre_mdt_attrs *lma = &info->oti_mdt_attrs;
-		int			 rc;
 
 		rc = osd_get_lma(info, inode, &info->oti_obj_dentry, lma);
 		if (rc != 0)
@@ -3911,10 +3910,6 @@ static int osd_xattr_set(const struct lu_env *env, struct dt_object *dt,
 		if (rc != 0)
 			RETURN(rc);
 	}
-
-	if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_LINKEA_OVERFLOW) &&
-	    strcmp(name, XATTR_NAME_LINK) == 0)
-		return -ENOSPC;
 
 	rc = __osd_xattr_set(info, inode, name, buf->lb_buf, buf->lb_len,
 			       fs_flags);
@@ -5037,6 +5032,9 @@ again:
 	ldata.ld_buf = buf;
 	rc = linkea_init(&ldata);
 	if (rc == 0) {
+		if (unlikely(!ldata.ld_leh->leh_reccount))
+			RETURN(-ENODATA);
+
 		linkea_first_entry(&ldata);
 		linkea_entry_unpack(ldata.ld_lee, &ldata.ld_reclen, NULL, fid);
 	}
@@ -5080,8 +5078,12 @@ again:
 
 	ldata.ld_buf = buf;
 	rc = linkea_init(&ldata);
-	if (rc == 0)
-		rc = linkea_links_find(&ldata, &cname, pfid);
+	if (rc == 0) {
+		if (unlikely(!ldata.ld_leh->leh_reccount))
+			rc = -ENODATA;
+		else
+			rc = linkea_links_find(&ldata, &cname, pfid);
+	}
 
 	RETURN(rc);
 }

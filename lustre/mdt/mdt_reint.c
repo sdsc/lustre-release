@@ -1380,7 +1380,7 @@ static int mdt_lock_objects_in_linkea(struct mdt_thread_info *info,
 
 	ldata.ld_buf = buf;
 	rc = mdt_links_read(info, obj, &ldata);
-	if (rc != 0) {
+	if (rc != 0 || unlikely(!ldata.ld_leh->leh_reccount)) {
 		if (rc == -ENOENT || rc == -ENODATA)
 			rc = 0;
 		RETURN(rc);

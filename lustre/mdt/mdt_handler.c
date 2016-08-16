@@ -5587,6 +5587,11 @@ static int mdt_path_current(struct mdt_thread_info *info,
 			GOTO(out, rc);
 		}
 
+		if (unlikely(!ldata.ld_leh->leh_reccount)) {
+			mdt_object_put(info->mti_env, mdt_obj);
+			GOTO(out, rc = -ENODATA);
+		}
+
 		leh = buf->lb_buf;
 		lee = (struct link_ea_entry *)(leh + 1); /* link #0 */
 		linkea_entry_unpack(lee, &reclen, tmpname, tmpfid);
