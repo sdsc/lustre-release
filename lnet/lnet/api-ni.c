@@ -1364,28 +1364,19 @@ lnet_startup_lndni(struct lnet_ni *ni, struct lnet_ioctl_config_data *conf)
 
 	/* If given some LND tunable parameters, parse those now to
 	 * override the values in the NI structure. */
-	if (conf && conf->cfg_config_u.cfg_net.net_peer_rtr_credits >= 0) {
-		ni->ni_peerrtrcredits =
-			conf->cfg_config_u.cfg_net.net_peer_rtr_credits;
-	}
-	if (conf && conf->cfg_config_u.cfg_net.net_peer_timeout >= 0) {
-		ni->ni_peertimeout =
-			conf->cfg_config_u.cfg_net.net_peer_timeout;
-	}
-
-	/*
-	 * TODO
-	 * Note: For now, don't allow the user to change
-	 * peertxcredits as this number is used in the
-	 * IB LND to control queue depth.
-	 *
-	 * if (conf && conf->cfg_config_u.cfg_net.net_peer_tx_credits != -1)
-	 *	ni->ni_peertxcredits =
-	 *		conf->cfg_config_u.cfg_net.net_peer_tx_credits;
-	 */
-	if (conf && conf->cfg_config_u.cfg_net.net_max_tx_credits >= 0) {
-		ni->ni_maxtxcredits =
-			conf->cfg_config_u.cfg_net.net_max_tx_credits;
+	if (conf) {
+		if (conf->cfg_config_u.cfg_net.net_peer_rtr_credits >= 0)
+			ni->ni_peerrtrcredits =
+				conf->cfg_config_u.cfg_net.net_peer_rtr_credits;
+		if (conf->cfg_config_u.cfg_net.net_peer_timeout >= 0)
+			ni->ni_peertimeout =
+				conf->cfg_config_u.cfg_net.net_peer_timeout;
+		if (conf->cfg_config_u.cfg_net.net_peer_tx_credits >= 0)
+			ni->ni_peertxcredits =
+				conf->cfg_config_u.cfg_net.net_peer_tx_credits;
+		if (conf->cfg_config_u.cfg_net.net_max_tx_credits >= 0)
+			ni->ni_maxtxcredits =
+				conf->cfg_config_u.cfg_net.net_max_tx_credits;
 	}
 
 	LASSERT(ni->ni_peertimeout <= 0 || lnd->lnd_query != NULL);
