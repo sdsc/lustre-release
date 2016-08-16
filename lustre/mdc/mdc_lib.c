@@ -144,6 +144,22 @@ void mdc_file_secctx_pack(struct ptlrpc_request *req, const char *secctx_name,
 	memcpy(buf, secctx, buf_size);
 }
 
+void mdc_file_sepol_pack(struct ptlrpc_request *req)
+{
+	void *buf;
+	size_t buf_size;
+
+	if (strlen(req->rq_sepol) == 0)
+		return;
+
+	buf = req_capsule_client_get(&req->rq_pill, &RMF_SELINUX_POL);
+	buf_size = req_capsule_get_size(&req->rq_pill, &RMF_SELINUX_POL,
+					RCL_CLIENT);
+
+	LASSERT(buf_size == strlen(req->rq_sepol) + 1);
+	memcpy(buf, req->rq_sepol, buf_size);
+}
+
 void mdc_readdir_pack(struct ptlrpc_request *req, __u64 pgoff, size_t size,
 		      const struct lu_fid *fid)
 {
@@ -197,6 +213,9 @@ void mdc_create_pack(struct ptlrpc_request *req, struct md_op_data *op_data,
 	mdc_file_secctx_pack(req, op_data->op_file_secctx_name,
 			     op_data->op_file_secctx,
 			     op_data->op_file_secctx_size);
+
+	/* pack SELinux policy info if any */
+	mdc_file_sepol_pack(req);
 }
 
 static inline __u64 mds_pack_open_flags(__u64 flags)
@@ -270,6 +289,9 @@ void mdc_open_pack(struct ptlrpc_request *req, struct md_op_data *op_data,
 		mdc_file_secctx_pack(req, op_data->op_file_secctx_name,
 				     op_data->op_file_secctx,
 				     op_data->op_file_secctx_size);
+
+		/* pack SELinux policy info if any */
+		mdc_file_sepol_pack(req);
 	}
 
 	if (lmm) {
@@ -406,6 +428,9 @@ void mdc_unlink_pack(struct ptlrpc_request *req, struct md_op_data *op_data)
         rec->ul_bias    = op_data->op_bias;
 
 	mdc_pack_name(req, &RMF_NAME, op_data->op_name, op_data->op_namelen);
+
+	/* pack SELinux policy info if any */
+	mdc_file_sepol_pack(req);
 }
 
 void mdc_link_pack(struct ptlrpc_request *req, struct md_op_data *op_data)
@@ -491,6 +516,9 @@ void mdc_rename_pack(struct ptlrpc_request *req, struct md_op_data *op_data,
 		epoch = req_capsule_client_get(&req->rq_pill, &RMF_MDT_EPOCH);
 		mdc_ioepoch_pack(epoch, op_data);
 	}
+
+	/* pack SELinux policy info if any */
+	mdc_file_sepol_pack(req);
 }
 
 void mdc_getattr_pack(struct ptlrpc_request *req, __u64 valid, __u32 flags,
