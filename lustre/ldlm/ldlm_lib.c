@@ -967,6 +967,7 @@ int target_handle_connect(struct ptlrpc_request *req)
         struct obd_connect_data *data, *tmpdata;
         int size, tmpsize;
         lnet_nid_t *client_nid = NULL;
+	const char *sepol = NULL;
 	ENTRY;
 
         OBD_RACE(OBD_FAIL_TGT_CONN_RACE);
@@ -1042,6 +1043,11 @@ int target_handle_connect(struct ptlrpc_request *req)
         data = req_capsule_client_get(&req->rq_pill, &RMF_CONNECT_DATA);
         if (!data)
                 GOTO(out, rc = -EPROTO);
+
+	rc = req_sepol_unpack(&req->rq_pill, &sepol);
+	if (rc < 0)
+		GOTO(out, rc);
+	CDEBUG(D_SEC, "retrieved sepol %s\n", sepol);
 
         rc = req_capsule_server_pack(&req->rq_pill);
         if (rc)

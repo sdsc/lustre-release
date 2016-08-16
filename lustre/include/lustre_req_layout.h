@@ -131,6 +131,8 @@ int req_capsule_server_grow(struct req_capsule *pill,
 			    __u32 newlen);
 int  req_layout_init(void);
 void req_layout_fini(void);
+int req_sepol_unpack(struct req_capsule *pill,
+		     const char **sepol_info);
 
 /* __REQ_LAYOUT_USER__ */
 #endif
@@ -297,6 +299,7 @@ extern struct req_msg_field RMF_HSM_USER_STATE;
 extern struct req_msg_field RMF_HSM_STATE_SET;
 extern struct req_msg_field RMF_MDS_HSM_CURRENT_ACTION;
 extern struct req_msg_field RMF_MDS_HSM_REQUEST;
+extern struct req_msg_field RMF_SELINUX_POL;
 
 /* seq-mgr fields */
 extern struct req_msg_field RMF_SEQ_OPC;
