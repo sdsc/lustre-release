@@ -46,6 +46,7 @@
 #include <lustre_dlm.h>
 #include <lustre_net.h>
 #include <lustre_sec.h>
+#include <lustre_nodemap.h>
 #include "ldlm_internal.h"
 
 /* @priority: If non-zero, move the selected connection to the list head.
@@ -968,6 +969,7 @@ int target_handle_connect(struct ptlrpc_request *req)
         int size, tmpsize;
         lnet_nid_t *client_nid = NULL;
 	const char *sepol = NULL;
+	const char *nm_sepol = NULL;
 	ENTRY;
 
         OBD_RACE(OBD_FAIL_TGT_CONN_RACE);
@@ -1316,6 +1318,14 @@ dont_check_exports:
 	}
 	if (rc)
 		GOTO(out, rc);
+
+	if (export != NULL && export->exp_target_data.ted_nodemap != NULL) {
+		nm_sepol =
+			nodemap_get_sepol(export->exp_target_data.ted_nodemap);
+		if (nm_sepol && nm_sepol[0])
+			if (sepol == NULL || strcmp(sepol, nm_sepol) != 0)
+				GOTO(out, rc = -EACCES);
+	}
 
 	LASSERT(target->u.obt.obt_magic == OBT_MAGIC);
 	data->ocd_instance = target->u.obt.obt_instance;
