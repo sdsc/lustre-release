@@ -186,6 +186,8 @@ int mdt_getxattr(struct mdt_thread_info *info)
         int                     easize, rc;
 	u64			valid;
 	const char             *sepol;
+	const char	       *nm_sepol = NULL;
+	struct obd_export      *export = info->mti_exp;
         ENTRY;
 
         LASSERT(info->mti_object != NULL);
@@ -196,6 +198,14 @@ int mdt_getxattr(struct mdt_thread_info *info)
 	rc = req_sepol_unpack(info->mti_pill, &sepol);
 	if (rc < 0)
 		RETURN(err_serious(rc));
+
+	if (export != NULL && export->exp_target_data.ted_nodemap != NULL) {
+		nm_sepol =
+			nodemap_get_sepol(export->exp_target_data.ted_nodemap);
+		if (nm_sepol && nm_sepol[0])
+			if (sepol == NULL || strcmp(sepol, nm_sepol) != 0)
+				RETURN(err_serious(-EACCES));
+	}
 
         reqbody = req_capsule_client_get(info->mti_pill, &RMF_MDT_BODY);
         if (reqbody == NULL)
