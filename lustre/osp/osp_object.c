@@ -917,26 +917,6 @@ unlock:
 			obj->opo_non_exist = 1;
 		}
 
-		if (oxe == NULL)
-			oxe = osp_oac_xattr_find_or_add(obj, name, buf->lb_len);
-
-		if (oxe == NULL) {
-			CWARN("%s: Fail to add xattr (%s) to cache for "
-			      DFID" (1): rc = %d\n", dname, name,
-			      PFID(lu_object_fid(&dt->do_lu)), rc);
-
-			GOTO(out, rc);
-		}
-
-		spin_lock(&obj->opo_lock);
-		if (rc == -ENOENT || rc == -ENODATA) {
-			oxe->oxe_exist = 0;
-			oxe->oxe_ready = 1;
-		} else {
-			oxe->oxe_ready = 0;
-		}
-		spin_unlock(&obj->opo_lock);
-
 		GOTO(out, rc);
 	}
 
@@ -955,6 +935,7 @@ unlock:
 	if (rc < 0)
 		GOTO(out, rc);
 
+	rc = rbuf->lb_len;
 	if (buf->lb_buf == NULL)
 		GOTO(out, rc);
 
