@@ -351,35 +351,14 @@ int ll_file_release(struct inode *inode, struct file *file)
  * MDC IO lock enqueue path and MDC LVB wasn't updated in lock upcall,
  * see mdc_lock_lvb_update(). Do that from ll_intent_file_open().
  */
-void ll_dom_lvb_update(struct inode *inode, struct lookup_intent *it)
+void ll_dom_lvb_update(const struct lu_env *env, struct inode *inode)
 {
 	struct ll_inode_info *lli = ll_i2info(inode);
 	struct cl_object *obj = lli->lli_clob;
-	struct lu_env *env;
-	__u16 refcheck;
-	struct lustre_handle lockh;
-	struct ldlm_lock *lock;
 	struct cl_attr *attr;
 	unsigned valid = CAT_CTIME | CAT_ATIME | CAT_MTIME | CAT_SIZE |
 			 CAT_BLOCKS;
 	int rc;
-	bool lvb_update = false;
-
-	if (obj != NULL && it->it_lock_mode != 0) {
-		lockh.cookie = it->it_lock_handle;
-		lock = ldlm_handle2lock(&lockh);
-		LASSERT(lock != NULL);
-		/* for DOM lock we have to update MDC LVB data from mdt_body */
-		lvb_update = ldlm_has_dom(lock);
-		LDLM_LOCK_PUT(lock);
-	}
-
-	if (!lvb_update)
-		RETURN_EXIT;
-
-	env = cl_env_get(&refcheck);
-	if (IS_ERR(env))
-		RETURN_EXIT;
 
 	cl_object_attr_lock(obj);
 	attr = vvp_env_thread_attr(env);
@@ -405,8 +384,118 @@ void ll_dom_lvb_update(struct inode *inode, struct lookup_intent *it)
 	rc = cl_object_attr_update(env, obj, attr, valid);
 out:
 	cl_object_attr_unlock(obj);
-	cl_env_put(env, &refcheck);
 	EXIT;
+}
+
+static inline int ll_dom_readpage(void *data, struct page *page)
+{
+	struct niobuf_local *lnb = data;
+	void *kaddr;
+
+	kaddr = ll_kmap_atomic(page, KM_USER0);
+	memcpy(kaddr, lnb->lnb_data, lnb->lnb_len);
+	if (lnb->lnb_len < PAGE_SIZE)
+		memset(kaddr + lnb->lnb_len, 0,
+		       PAGE_SIZE - lnb->lnb_len);
+	ll_kunmap_atomic(kaddr, KM_USER0);
+	flush_dcache_page(page);
+	SetPageUptodate(page);
+	unlock_page(page);
+	return 0;
+}
+
+void ll_dom_finish_open(struct inode *inode, struct ptlrpc_request *req,
+			struct lookup_intent *it)
+{
+	struct ll_inode_info *lli = ll_i2info(inode);
+	struct cl_object *obj = lli->lli_clob;
+	struct address_space *mapping = inode->i_mapping;
+	struct page *vmpage;
+	struct niobuf_remote *rnb;
+	char *data;
+	struct lu_env *env;
+	__u16 refcheck;
+	struct lustre_handle lockh;
+	struct ldlm_lock *lock;
+	unsigned long index, start;
+	struct niobuf_local lnb;
+	int rc;
+	bool dom_lock = false;
+
+	ENTRY;
+
+	if (obj != NULL && it->it_lock_mode != 0) {
+		/* XXX: is there is race possible for just returned lock to
+		 * lost DoM bit? If so then lock_match should be used here.
+		 */
+		lockh.cookie = it->it_lock_handle;
+		lock = ldlm_handle2lock(&lockh);
+		LASSERT(lock != NULL);
+		/* for DOM lock we have to update MDC LVB data from mdt_body */
+		dom_lock = ldlm_has_dom(lock);
+		LDLM_LOCK_PUT(lock);
+	}
+
+	if (!dom_lock)
+		RETURN_EXIT;
+
+	env = cl_env_get(&refcheck);
+	if (IS_ERR(env))
+		RETURN_EXIT;
+
+	ll_dom_lvb_update(env, inode);
+
+	if (obj == NULL)
+		GOTO(out_env, rc = -ENOENT);
+
+	if (!req_capsule_has_field(&req->rq_pill, &RMF_NIOBUF_INLINE,
+				   RCL_SERVER))
+		GOTO(out_env, rc = -ENODATA);
+
+	rnb = req_capsule_server_get(&req->rq_pill, &RMF_NIOBUF_INLINE);
+	data = (char *)rnb + sizeof(*rnb);
+
+	if (rnb == NULL || rnb->rnb_len == 0)
+		GOTO(out_env, rc = 0);
+
+	CDEBUG(D_INFO, "Get data buffer along with open, len %i, i_size %llu\n",
+	       rnb->rnb_len, i_size_read(inode));
+
+	lnb.lnb_file_offset = rnb->rnb_offset;
+	start = lnb.lnb_file_offset / PAGE_SIZE;
+	index = 0;
+	LASSERT(lnb.lnb_file_offset % PAGE_SIZE == 0);
+	lnb.lnb_page_offset = 0;
+	do {
+		struct cl_page *clp;
+
+		lnb.lnb_data = data + (index << PAGE_SHIFT);
+		lnb.lnb_len = rnb->rnb_len - (index << PAGE_SHIFT);
+		if (lnb.lnb_len > PAGE_SIZE)
+			lnb.lnb_len = PAGE_SIZE;
+
+		vmpage = read_cache_page(mapping, index + start,
+					 ll_dom_readpage, &lnb);
+		if (IS_ERR(vmpage)) {
+			CDEBUG(D_WARNING, "Cannot fill page with data\n");
+			break;
+		}
+		lock_page(vmpage);
+		clp = cl_page_find(env, obj, vmpage->index, vmpage,
+				   CPT_CACHEABLE);
+		if (!IS_ERR(clp)) {
+			cl_page_export(env, clp, 1);
+			cl_page_put(env, clp);
+		}
+		unlock_page(vmpage);
+		page_cache_release(vmpage);
+		index++;
+	} while (rnb->rnb_len > (index << PAGE_SHIFT));
+	rc = 0;
+	EXIT;
+out_env:
+	cl_env_put(env, &refcheck);
+	return;
 }
 
 static int ll_intent_file_open(struct file *file, void *lmm, int lmmsize,
@@ -465,7 +554,7 @@ static int ll_intent_file_open(struct file *file, void *lmm, int lmmsize,
 
 	rc = ll_prep_inode(&de->d_inode, req, NULL, itp);
 	if (!rc && itp->it_lock_mode) {
-		ll_dom_lvb_update(de->d_inode, itp);
+		ll_dom_finish_open(de->d_inode, req, itp);
 		ll_set_lock_data(sbi->ll_md_exp, de->d_inode, itp, NULL);
 	}
 
