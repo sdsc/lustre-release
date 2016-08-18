@@ -174,7 +174,8 @@ struct mdt_device {
 				   mo_cos:1,
 				   mo_evict_tgt_nids:1,
 				   mo_coordinator:1,
-				   mo_dom_lock:1;
+				   mo_dom_lock:1,
+				   mo_dom_read_open:1;
 	} mdt_opts;
         /* mdt state flags */
         unsigned long              mdt_state;
@@ -646,7 +647,7 @@ int mdt_pack_acl2body(struct mdt_thread_info *info, struct mdt_body *repbody,
 void mdt_pack_attr2body(struct mdt_thread_info *info, struct mdt_body *b,
 			const struct lu_attr *attr, const struct lu_fid *fid);
 void mdt_pack_size2body(struct mdt_thread_info *info,
-			const struct lu_fid *fid, bool dom_lock);
+			const struct lu_fid *fid, struct lustre_handle *lh);
 int mdt_getxattr(struct mdt_thread_info *info);
 int mdt_reint_setxattr(struct mdt_thread_info *info,
                        struct mdt_lock_handle *lh);
@@ -1077,9 +1078,12 @@ int mdt_dom_discard_data(struct mdt_thread_info *info,
 			 const struct lu_fid *fid);
 int mdt_dom_object_size(const struct lu_env *env, struct mdt_device *mdt,
 			const struct lu_fid *fid, struct mdt_body *mb,
-			bool dom_lock);
+			struct lustre_handle *lh);
 int mdt_dom_client_has_lock(struct mdt_thread_info *info,
 			    const struct lu_fid *fid);
+int mdt_dom_read_on_open(struct mdt_thread_info *mti, struct mdt_device *mdt,
+			 struct lustre_handle *lh);
+
 /* grants */
 long mdt_grant_connect(const struct lu_env *env, struct obd_export *exp,
 		       u64 want, bool conservative);
