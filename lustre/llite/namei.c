@@ -509,7 +509,7 @@ static int ll_lookup_it_finish(struct ptlrpc_request *request,
                 if (rc)
                         RETURN(rc);
 		if (it->it_op & IT_OPEN)
-			ll_dom_lvb_update(inode, it);
+			ll_dom_finish_open(inode, request, it);
                 ll_set_lock_data(ll_i2sbi(parent)->ll_md_exp, inode, it, &bits);
 
                 /* We used to query real size from OSTs here, but actually

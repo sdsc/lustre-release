@@ -14734,6 +14734,132 @@ test_271c() {
 }
 run_test 271c "DoM: IO lock at open saves enqueue RPCs"
 
+test_271d() {
+	local dom=$DIR/$tdir/dom
+
+	mkdir -p $DIR/$tdir
+
+	$SETSTRIPE -P mdt -S 1024K $DIR/$tdir
+
+	local mdtidx=$($GETSTRIPE -M $DIR/$tdir)
+	local facet=mds$((mdtidx + 1))
+
+	cancel_lru_locks mdc
+	dd if=/dev/urandom of=$dom bs=1000 count=1
+	cancel_lru_locks mdc
+	lctl set_param -n mdc.*.stats=clear
+	cat /etc/hosts >> $dom
+	local num=$(lctl get_param -n mdc.*.stats | \
+		awk '/ost_read/ {print $2}')
+	local ra=$(lctl get_param -n mdc.*.stats | \
+		awk '/req_active/ {print $2}')
+	local rw=$(lctl get_param -n mdc.*.stats | \
+		awk '/req_waittime/ {print $2}')
+
+	[ -z $num ] || error "Expected no read, $num occured"
+	[ $ra == $rw ] || error "Expected no resent, $((ra - rw)) occured"
+
+	cancel_lru_locks mdc
+	lctl set_param -n mdc.*.stats=clear
+	cat $dom > /dev/null
+	local num=$(lctl get_param -n mdc.*.stats | \
+		awk '/ost_read/ {print $2}')
+	local ra=$(lctl get_param -n mdc.*.stats | \
+		awk '/req_active/ {print $2}')
+	local rw=$(lctl get_param -n mdc.*.stats | \
+		awk '/req_waittime/ {print $2}')
+
+	[ -z $num ] || error "Expected no read, $num occured"
+	[ $ra == $rw ] || error "Expected no resent, $((ra - rw)) occured"
+
+	return 0
+}
+run_test 271d "DoM: read on open saves READ RPCs"
+
+test_271e() {
+	local dom=$DIR/$tdir/dom
+
+	mkdir -p $DIR/$tdir
+
+	$SETSTRIPE -P mdt -S 1024K $DIR/$tdir
+
+	local mdtidx=$($GETSTRIPE -M $DIR/$tdir)
+	local facet=mds$((mdtidx + 1))
+
+	cancel_lru_locks mdc
+	dd if=/dev/urandom of=$dom bs=10000 count=1
+	cancel_lru_locks mdc
+	lctl set_param -n mdc.*.stats=clear
+	cat /etc/hosts >> $dom
+	local num=$(lctl get_param -n mdc.*.stats | \
+		awk '/ost_read/ {print $2}')
+	local ra=$(lctl get_param -n mdc.*.stats | \
+		awk '/req_active/ {print $2}')
+	local rw=$(lctl get_param -n mdc.*.stats | \
+		awk '/req_waittime/ {print $2}')
+
+	[ -z $num ] || error "Expected no read, $num occured"
+	[ $((ra - rw)) == 1 ] || error "Expected 1 resent, $((ra - rw)) occured"
+
+	cancel_lru_locks mdc
+	lctl set_param -n mdc.*.stats=clear
+	cat $dom > /dev/null
+	local num=$(lctl get_param -n mdc.*.stats | \
+		awk '/ost_read/ {print $2}')
+	local ra=$(lctl get_param -n mdc.*.stats | \
+		awk '/req_active/ {print $2}')
+	local rw=$(lctl get_param -n mdc.*.stats | \
+		awk '/req_waittime/ {print $2}')
+
+	[ -z $num ] || error "Expected no read, $num occured"
+	[ $((ra - rw)) == 1 ] || error "Expected 1 resent, $((ra - rw)) occured"
+
+	return 0
+}
+run_test 271e "DoM: read on open saves READ RPCs with resend"
+
+test_271f() {
+	local dom=$DIR/$tdir/dom
+
+	mkdir -p $DIR/$tdir
+
+	$SETSTRIPE -P mdt -S 1024K $DIR/$tdir
+
+	local mdtidx=$($GETSTRIPE -M $DIR/$tdir)
+	local facet=mds$((mdtidx + 1))
+
+	cancel_lru_locks mdc
+	dd if=/dev/urandom of=$dom bs=200000 count=1
+	cancel_lru_locks mdc
+	lctl set_param -n mdc.*.stats=clear
+	cat /etc/hosts >> $dom
+	local num=$(lctl get_param -n mdc.*.stats | \
+		awk '/ost_read/ {print $2}')
+	local ra=$(lctl get_param -n mdc.*.stats | \
+		awk '/req_active/ {print $2}')
+	local rw=$(lctl get_param -n mdc.*.stats | \
+		awk '/req_waittime/ {print $2}')
+
+	[ -z $num ] || error "Expected no read, $num occured"
+	[ $ra == $rw ] || error "Expected no resent, $((ra - rw)) occured"
+
+	cancel_lru_locks mdc
+	lctl set_param -n mdc.*.stats=clear
+	cat $dom > /dev/null
+	local num=$(lctl get_param -n mdc.*.stats | \
+		awk '/ost_read/ {print $2}')
+	local ra=$(lctl get_param -n mdc.*.stats | \
+		awk '/req_active/ {print $2}')
+	local rw=$(lctl get_param -n mdc.*.stats | \
+		awk '/req_waittime/ {print $2}')
+
+	[ $num > 0 ] || error "Expected 1 read, $num occured"
+	[ $ra == $rw ] || error "Expected no resent, $((ra - rw)) occured"
+
+	return 0
+}
+run_test 271f "DoM: read on open saves READ RPCs for append"
+
 test_272() {
 	# XXX just reserve test number so far
 	return 0
