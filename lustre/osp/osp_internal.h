@@ -779,6 +779,16 @@ int osp_reset_last_used(const struct lu_env *env, struct osp_device *osp);
 int osp_write_last_oid_seq_files(struct lu_env *env, struct osp_device *osp,
 				 struct lu_fid *fid, int sync);
 int osp_init_pre_fid(struct osp_device *osp);
+static inline bool osp_precreate_running(struct osp_device *d)
+{
+	return !!(d->opd_pre_thread.t_flags & SVC_RUNNING);
+}
+
+static inline bool osp_precreate_stopped(struct osp_device *d)
+{
+	return !!(d->opd_pre_thread.t_flags & SVC_STOPPED);
+}
+
 
 /* lproc_osp.c */
 void osp_lprocfs_init(struct osp_device *osp);
