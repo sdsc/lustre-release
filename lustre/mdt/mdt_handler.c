@@ -489,7 +489,7 @@ out:
  * Pack size attributes into the reply.
  */
 void mdt_pack_size2body(struct mdt_thread_info *info,
-			const struct lu_fid *fid, bool dom_lock)
+			const struct lu_fid *fid, struct lustre_handle *lh)
 {
 	struct mdt_body *b;
 	struct md_attr *ma = &info->mti_attr;
@@ -503,7 +503,7 @@ void mdt_pack_size2body(struct mdt_thread_info *info,
 
 	b = req_capsule_server_get(info->mti_pill, &RMF_MDT_BODY);
 
-	mdt_dom_object_size(info->mti_env, info->mti_mdt, fid, b, dom_lock);
+	mdt_dom_object_size(info->mti_env, info->mti_mdt, fid, b, lh);
 	return;
 }
 
@@ -1678,7 +1678,7 @@ static int mdt_getattr_name_lock(struct mdt_thread_info *info,
 			/* NB: call the mdt_pack_size2body always after
 			 * mdt_object_put(), that is why this speacial
 			 * exit path is used. */
-			mdt_pack_size2body(info, child_fid, false);
+			mdt_pack_size2body(info, child_fid, &lhc->mlh_reg_lh);
 			GOTO(out_parent, rc);
 		}
         }
@@ -1953,11 +1953,21 @@ static int mdt_reint_internal(struct mdt_thread_info *info,
 out_ucred:
         mdt_exit_ucred(info);
 out_shrink:
-        mdt_client_compatibility(info);
-        rc2 = mdt_fix_reply(info);
-        if (rc == 0)
-                rc = rc2;
-        return rc;
+	mdt_client_compatibility(info);
+	/* Data-on-MDT optimization - read data along with OPEN and return it
+	 * in reply.
+	 */
+	if (rc == 0 && (op == REINT_OPEN) &&
+	    (info->mti_attr.ma_lmm != NULL) && (LOV_PATTERN_MDT ==
+	     lov_pattern(info->mti_attr.ma_lmm->lmm_pattern))) {
+		rc = mdt_dom_read_on_open(info, info->mti_mdt,
+					  &lhc->mlh_reg_lh);
+	} else {
+		rc2 = mdt_fix_reply(info);
+		if (rc == 0)
+			rc = rc2;
+	}
+	return rc;
 }
 
 static long mdt_reint_opcode(struct ptlrpc_request *req,
@@ -4699,6 +4709,8 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
 
 	/* DoM files get IO lock at open by default */
 	m->mdt_opts.mo_dom_lock = 1;
+	/* DoM files are read at open and data is packed in the reply */
+	m->mdt_opts.mo_dom_read_open = 1;
 
 	lmi = server_get_mount(dev);
         if (lmi == NULL) {
