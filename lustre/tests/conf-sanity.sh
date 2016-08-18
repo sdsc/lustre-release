@@ -6968,6 +6968,32 @@ test_100() {
 }
 run_test 100 "check lshowmount lists MGS, MDT, OST and 0@lo"
 
+test_101() {
+	local cmp=0
+	local dev=$FSNAME-OST0000-osc-MDT0000
+	setupall
+
+	createmany -o $DIR1/$tfile-%d 50000&
+	cmp=$!
+	# MDT->OST reconnection causes lMDT<->OST last_id synchornisation
+	# via osp_precreate_cleanup_orphans.
+	for i in $(seq 0 100); do
+		for k in $(seq 0 10); do
+			do_facet mds1 $LCTL --device $dev deactivate
+			do_facet mds1 $LCTL --device $dev activate
+		done
+	ls -asl $MOUNT | grep '???' | gawk '{print $8}' | while read FF; do
+		$LFS getstripe $DIR1/$FF
+	done
+	ls -asl $MOUNT | grep '???' && \
+		(kill -9 $cmp &>/dev/null; error "File hasn't object on OST")
+	ps -A -o pid | grep $cmp 1>/dev/null || break
+	done
+	wait $cmp
+	stopall
+}
+run_test 101 "Race MDT->OST reconnection with create"
+
 if ! combined_mgs_mds ; then
 	stop mgs
 fi

@@ -1553,6 +1553,31 @@ out:
 	return rc;
 }
 
+static void osp_turn_inactive(struct osp_device *d)
+{
+	struct l_wait_info	 lwi = { 0 };
+
+	if (d->opd_pre == NULL) {
+		d->opd_imp_active = 0;
+		d->opd_imp_connected = 0;
+		d->opd_obd->obd_inactive = 1;
+		return;
+	}
+	/* wait for reserved objects to be consumed before we go inactive */
+again:
+	l_wait_event(d->opd_pre_waitq,
+		     !d->opd_pre_reserved || !osp_precreate_running(d), &lwi);
+	spin_lock(&d->opd_pre_lock);
+	if (d->opd_pre_reserved) {
+		spin_unlock(&d->opd_pre_lock);
+		goto again;
+	}
+	d->opd_imp_active = 0;
+	d->opd_imp_connected = 0;
+	d->opd_obd->obd_inactive = 1;
+	spin_unlock(&d->opd_pre_lock);
+}
+
 /**
  * Implementation of obd_ops::o_import_event
  *
@@ -1588,9 +1613,7 @@ static int osp_import_event(struct obd_device *obd, struct obd_import *imp,
 		CDEBUG(D_HA, "got disconnected\n");
 		break;
 	case IMP_EVENT_INACTIVE:
-		d->opd_imp_active = 0;
-		d->opd_imp_connected = 0;
-		d->opd_obd->obd_inactive = 1;
+		osp_turn_inactive(d);
 		if (d->opd_connect_mdt)
 			break;
 		if (d->opd_pre != NULL) {

@@ -79,16 +79,6 @@ static inline int osp_statfs_need_update(struct osp_device *d)
  *
  * each time OSP gets connected to OST, we should start from precreation cleanup
  */
-static inline bool osp_precreate_running(struct osp_device *d)
-{
-	return !!(d->opd_pre_thread.t_flags & SVC_RUNNING);
-}
-
-static inline bool osp_precreate_stopped(struct osp_device *d)
-{
-	return !!(d->opd_pre_thread.t_flags & SVC_STOPPED);
-}
-
 static void osp_statfs_timer_cb(unsigned long _d)
 {
 	struct osp_device *d = (struct osp_device *) _d;
@@ -888,10 +878,6 @@ out:
 	if (req)
 		ptlrpc_req_finished(req);
 
-	spin_lock(&d->opd_pre_lock);
-	d->opd_pre_recovering = 0;
-	spin_unlock(&d->opd_pre_lock);
-
 	/*
 	 * If rc is zero, the pre-creation window should have been emptied.
 	 * Since waking up the herd would be useless without pre-created
@@ -911,6 +897,15 @@ out:
 			wake_up(&d->opd_pre_user_waitq);
 		}
 	}
+
+	/*
+	 * reset recovering status only when precreate status has been
+	 * updated. otherwise another thread can race and get a non-existing
+	 * object.
+	 */
+	spin_lock(&d->opd_pre_lock);
+	d->opd_pre_recovering = 0;
+	spin_unlock(&d->opd_pre_lock);
 
 	RETURN(rc);
 }
@@ -1336,6 +1331,8 @@ int osp_precreate_reserve(const struct lu_env *env, struct osp_device *d)
 	/* opd_pre_max_create_count 0 to not use specified OST. */
 	if (d->opd_pre_max_create_count == 0)
 		RETURN(-ENOBUFS);
+	if (d->opd_obd->obd_inactive)
+		return -ENOSPC;
 
 	/*
 	 * wait till:
@@ -1345,7 +1342,7 @@ int osp_precreate_reserve(const struct lu_env *env, struct osp_device *d)
 	 *  - OST can allocate fid sequence.
 	 */
 	while ((rc = d->opd_pre_status) == 0 || rc == -ENOSPC ||
-		rc == -ENODEV || rc == -EAGAIN || rc == -ENOTCONN) {
+		/*rc == -ENODEV ||*/ rc == -EAGAIN || rc == -ENOTCONN) {
 
 		/*
 		 * increase number of precreations
@@ -1361,6 +1358,11 @@ int osp_precreate_reserve(const struct lu_env *env, struct osp_device *d)
 		}
 
 		spin_lock(&d->opd_pre_lock);
+		if (unlikely(d->opd_obd->obd_inactive)) {
+			spin_unlock(&d->opd_pre_lock);
+			rc = -ENOSPC;
+			break;
+		}
 		precreated = osp_objs_precreated(env, d);
 		if (precreated > d->opd_pre_reserved &&
 		    !d->opd_pre_recovering) {
