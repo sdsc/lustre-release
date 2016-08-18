@@ -286,6 +286,10 @@ check_mount2() {
 	echo "setup double mount lustre success"
 }
 
+generate_name() {
+	cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w $1 | head -n 1
+}
+
 build_test_filter
 
 if [ "$ONLY" == "setup" ]; then
@@ -6967,6 +6971,141 @@ test_100() {
 	cleanup || error "cleanup failed with $?"
 }
 run_test 100 "check lshowmount lists MGS, MDT, OST and 0@lo"
+
+test_101()
+{
+	[[ $(facet_fstype ost1) != ldiskfs ]] &&
+		{ skip "Only applicable to ldiskfs-based OSTs" && return; }
+
+	$DEBUGFS -w -R supported_features $mdsdevname | grep large_dir || \
+		{ skip "large_dir option is not supported" && return; }
+
+	for num in $(seq $MDSCOUNT); do
+		stop mds${num}
+		local mds_opts_${num}=`
+			`"$(mkfs_opts mds${num} $(mdsdevname ${num})) \
+			--reformat $(mdsdevname ${num}) $(mdsvdevname ${num})"
+		local opts=mds_opts_${num}
+		if [[ ${!opts} != *mkfsoptions* ]]; then
+			eval opts=\"${!opts} \
+			--mkfsoptions='\\\"-O large_dir -b 1023 -i 1024 \\"'\"
+		else
+			local val=${!opts//--mkfsoptions=\\\"/ \
+			--mkfsoptions=\\\"-O large_dir -b 1024 -i 1024 }
+			eval opts='${val}'
+		fi
+
+		echo "params: $opts"
+
+		add mds${num} $opts || error "add mdt failed with new params"
+		start mds$num $(mdsdevname $num) $MDS_MOUNT_OPTS
+	done
+
+	for num in $(seq $OSTCOUNT); do
+		stop ost${num}
+		local ost_opts_${num}=`
+			`"$(mkfs_opts ost${num} $(ostdevname ${num})) \
+		--reformat $(ostdevname ${num}) $(ostvdevname ${num})"
+
+		local opts=ost_opts_${num}
+		if [[ ${!opts} != *mkfsoptions* ]]; then
+			eval opts=\"${!opts} \
+			--mkfsoptions='\\\"-O large_dir -b 1024 -i 1024 \\"'\"
+		else
+			local val=${!opts//--mkfsoptions=\\\"/ \
+			--mkfsoptions=\\\"-O large_dir -b 1024 -i 1024 }
+			eval opts='${val}'
+		fi
+
+		echo "params: $opts"
+
+		add ost${num} $opts || error "add ost1 failed with new params"
+		start ost$num $(ostdevname $num) $OST_MOUNT_OPTS
+	done
+
+	mount_client $MOUNT || error "mount client failed"
+	echo "creating dir"
+	mkdir $DIR/$tdir/
+	touch $DIR/$tdir/$tfile
+	echo "creating hard links"
+	for i in $(seq 65000); do
+		local new_uuid=$(generate_name 255)
+		ln $DIR/$tdir/$tfile $DIR/$tdir/$new_uuid
+		[[ $(( $i % 1024 )) -eq 0 ]] && \
+			echo "created $i hard links, last filename $new_uuid"
+	done
+
+	stopall
+	reformat
+}
+run_test 101 "Adding large_dir with 3-level htree"
+
+test_102() {
+	[[ $(facet_fstype ost1) != ldiskfs ]] &&
+		{ skip "Only applicable to ldiskfs-based OSTs" && return; }
+
+	$DEBUGFS -w -R supported_features $mdsdevname | grep large_dir || \
+		{ skip "large_dir option is not supported" && return; }
+
+	for num in $(seq $MDSCOUNT); do
+		stop mds${num}
+		local mds_opts_${num}=`
+			`"$(mkfs_opts mds${num} $(mdsdevname ${num})) \
+			--reformat $(mdsdevname ${num}) $(mdsvdevname ${num})"
+		local opts=mds_opts_${num}
+		if [[ ${!opts} != *mkfsoptions* ]]; then
+			eval opts=\"${!opts} \
+			--mkfsoptions='\\\"-O large_dir -i 4096 \\"'\"
+		else
+			local val=${!opts//--mkfsoptions=\\\"/ \
+			--mkfsoptions=\\\"-O large_dir -i 4096 }
+			eval opts='${val}'
+		fi
+
+		echo "params: $opts"
+
+		add mds${num} $opts || error "add ost1 failed with new params"
+		start mds$num $(mdsdevname $num) $MDS_MOUNT_OPTS
+	done
+
+	for num in $(seq $OSTCOUNT); do
+		stop ost${num}
+		local ost_opts_${num}=`
+			`"$(mkfs_opts ost${num} $(ostdevname ${num})) \
+			--reformat $(ostdevname ${num}) $(ostvdevname ${num})"
+
+		local opts=ost_opts_${num}
+		if [[ ${!opts} != *mkfsoptions* ]]; then
+			eval opts=\"${!opts} \
+			--mkfsoptions='\\\"-O large_dir -i 4096 \\"'\"
+		else
+			local val=${!opts//--mkfsoptions=\\\"/ \
+			--mkfsoptions=\\\"-O large_dir -i 4096 }
+			eval opts='${val}'
+		fi
+
+		echo "params: $opts"
+
+		add ost${num} $opts || error "add ost1 failed with new params"
+		start ost$num $(ostdevname $num) $OST_MOUNT_OPTS
+	done
+
+	mount_client $MOUNT || error "mount client failed"
+	mkdir $DIR/$tdir/
+	while [ $(stat -c %s $DIR/$tdir) -lt $((2 << 30)) ]; do
+		j=$((j + 1))
+		local long=$(generate_name 200)
+		touch $DIR/$tdir/$j
+		createmany -l $DIR/$tdir/$j \
+			$DIR/$tdir/$tfile-$j-%d-$long 60000 ||
+			error "createmany error for $DIR/$tdir loop $j"
+	done
+
+	stopall
+	reformat
+}
+run_test 102 "Adding large_dir with over 2GB directory"
+
 
 if ! combined_mgs_mds ; then
 	stop mgs
