@@ -6782,6 +6782,132 @@ test_97() {
 }
 run_test 97 "ldev returns correct ouput when querying based on role"
 
+test_100()
+{
+	[[ $(facet_fstype ost1) != ldiskfs ]] &&
+		{ skip "Only applicable to ldiskfs-based OSTs" && return; }
+
+	for num in $(seq $MDSCOUNT); do
+		stop mds${num}
+		local mds_opts_${num}="$(mkfs_opts mds${num} $(mdsdevname ${num})) \
+			--reformat $(mdsdevname ${num}) $(mdsvdevname ${num})"
+		local opts=mds_opts_${num}
+		if [[ ${!opts} != *mkfsoptions* ]]; then
+			eval opts=\"${!opts} \
+			--mkfsoptions='\\\"-O large_dir -b 1024 -i 1024 \\"'\" #  -O ^large_dir\
+		else
+			local val=${!opts//--mkfsoptions=\\\"/ \
+			--mkfsoptions=\\\"-O large_dir -b 1024 -i 1024 } #  -O ^large_dir 
+			eval opts='${val}'
+		fi
+
+		echo "params: $opts"
+
+		add mds${num} $opts || error "add ost1 failed with new params"
+		start mds$num $(mdsdevname $num) $MDS_MOUNT_OPTS 
+	done
+
+	for num in $(seq $OSTCOUNT); do
+		stop ost${num}
+		local ost_opts_${num}="$(mkfs_opts ost${num} $(ostdevname ${num})) \
+		--reformat $(ostdevname ${num}) $(ostvdevname ${num})"
+		#do_facet ost${num} $DEBUGFS -c -R stats `ostdevname ${num}` | grep "large_dir" &&
+		#skip "large_dir already set" && return
+
+		local opts=ost_opts_${num}
+		if [[ ${!opts} != *mkfsoptions* ]]; then
+			eval opts=\"${!opts} \
+			--mkfsoptions='\\\"-O large_dir -b 1024 -i 1024 \\"'\" #  -O ^large_dir\
+		else
+			local val=${!opts//--mkfsoptions=\\\"/ \
+			--mkfsoptions=\\\"-O large_dir -b 1024 -i 1024 } #  -O ^large_dir 
+			eval opts='${val}'
+		fi
+
+		echo "params: $opts"
+
+		add ost${num} $opts || error "add ost1 failed with new params"
+		start ost$num $(ostdevname $num) $OST_MOUNT_OPTS 
+	done
+
+	mount_client $MOUNT || error "mount client failed"
+	echo "crating dir"
+	mkdir $DIR/$tdir/
+	touch $DIR/$tdir/$tfile
+	echo "creating hard links"
+	for i in $(seq 65000); do
+		local NEW_UUID=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 255 | head -n 1)
+		ln  $DIR/$tdir/$tfile $DIR/$tdir/$NEW_UUID
+		[[ $(( $i % 1024 )) -eq 0 ]] && echo "created $i hard links, last filename $NEW_UUID"
+	done
+
+	stopall
+	reformat
+	return 0
+}
+run_test 100 "Adding large_dir option"
+
+test_101() {
+	[[ $(facet_fstype ost1) != ldiskfs ]] &&
+		{ skip "Only applicable to ldiskfs-based OSTs" && return; }
+
+	for num in $(seq $MDSCOUNT); do
+		stop mds${num}
+		local mds_opts_${num}="$(mkfs_opts mds${num} $(mdsdevname ${num})) \
+			--reformat $(mdsdevname ${num}) $(mdsvdevname ${num})"
+		local opts=mds_opts_${num}
+		if [[ ${!opts} != *mkfsoptions* ]]; then
+			eval opts=\"${!opts} \
+			--mkfsoptions='\\\"-O large_dir -i 1024 \\"'\" #  -O large_dir\
+		else
+			local val=${!opts//--mkfsoptions=\\\"/ \
+			--mkfsoptions=\\\"-O large_dir -i 1024 } #  -O large_dir 
+			eval opts='${val}'
+		fi
+
+		echo "params: $opts"
+
+		add mds${num} $opts || error "add ost1 failed with new params"
+		start mds$num $(mdsdevname $num) $MDS_MOUNT_OPTS 
+	done
+
+	for num in $(seq $OSTCOUNT); do
+		stop ost${num}
+		local ost_opts_${num}="$(mkfs_opts ost${num} $(ostdevname ${num})) \
+		--reformat $(ostdevname ${num}) $(ostvdevname ${num})"
+
+		local opts=ost_opts_${num}
+		if [[ ${!opts} != *mkfsoptions* ]]; then
+			eval opts=\"${!opts} \
+			--mkfsoptions='\\\"-O large_dir -i 1024 \\"'\" #  -O ^large_dir\
+		else
+			local val=${!opts//--mkfsoptions=\\\"/ \
+			--mkfsoptions=\\\"-O large_dir -i 1024 } #  -O ^large_dir 
+			eval opts='${val}'
+		fi
+
+		echo "params: $opts"
+
+		add ost${num} $opts || error "add ost1 failed with new params"
+		start ost$num $(ostdevname $num) $OST_MOUNT_OPTS 
+	done
+
+	mount_client $MOUNT || error "mount client failed"
+	mkdir $DIR/$tdir/
+	for j in $(seq 200); do
+		echo "Iteration $j"
+		touch $DIR/$tdir/$j
+		createmany -l $DIR/$tdir/$j $DIR/$tdir/$tfile-$j-%d 60000 || error "createmany error"
+	done
+
+	stopall
+	reformat
+
+	return 0
+}
+run_test 101 "Over 2GB directory"
+
+
 if ! combined_mgs_mds ; then
 	stop mgs
 fi
