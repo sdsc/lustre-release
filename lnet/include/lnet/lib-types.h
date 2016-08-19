@@ -423,6 +423,8 @@ struct lnet_ping_buffer {
 #define LNET_PING_BUFFER_LONI(PBUF)	((PBUF)->pb_info.pi_ni[0].ns_nid)
 #define LNET_PING_BUFFER_SEQNO(PBUF)	((PBUF)->pb_info.pi_ni[0].ns_status)
 
+#define LNET_PING_INFO_TO_BUFFER(PINFO)	\
+	container_of((PINFO), struct lnet_ping_buffer, pb_info)
 
 /* router checker data, per router */
 typedef struct {
@@ -553,14 +555,32 @@ struct lnet_peer {
 	/* buffer for data pushed by peer */
 	struct lnet_ping_buffer	*lp_data;
 
+	/* MD handle for ping in progress */
+	lnet_handle_md_t	lp_ping_mdh;
+
+	/* MD handle for push in progress */
+	lnet_handle_md_t	lp_push_mdh;
+
 	/* number of NIDs for sizing push data */
 	int			lp_data_nnis;
 
 	/* NI config sequence number of peer */
 	__u32			lp_peer_seqno;
 
-	/* Local NI config sequence number peer knows */
+	/* Local NI config sequence number acked by peer */
 	__u32			lp_node_seqno;
+
+	/* Local NI config sequence number sent to peer */
+	__u32			lp_node_seqno_sent;
+
+	/* Ping error encountered during discovery. */
+	int			lp_ping_error;
+
+	/* Push error encountered during discovery. */
+	int			lp_push_error;
+
+	/* Error encountered during discovery. */
+	int			lp_dc_error;
 
 	/* link on discovery-related lists */
 	struct list_head	lp_dc_list;

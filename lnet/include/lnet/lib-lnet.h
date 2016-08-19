@@ -948,4 +948,14 @@ lnet_peer_ni_is_primary(struct lnet_peer_ni *lpni)
 
 bool lnet_peer_is_uptodate(struct lnet_peer *lp);
 
+static inline bool
+lnet_peer_needs_push(struct lnet_peer *lp)
+{
+	if (!(lp->lp_state & LNET_PEER_MULTI_RAIL))
+		return false;
+	if (lp->lp_node_seqno < LNET_PING_BUFFER_SEQNO(the_lnet.ln_ping_target))
+		return true;
+	return false;
+}
+
 #endif

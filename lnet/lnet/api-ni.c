@@ -1021,7 +1021,8 @@ lnet_ping_target_create(int nnis)
 	pbuf->pb_info.pi_nnis = nnis;
 	pbuf->pb_info.pi_pid = the_lnet.ln_pid;
 	pbuf->pb_info.pi_magic = LNET_PROTO_PING_MAGIC;
-	pbuf->pb_info.pi_features = LNET_PING_FEAT_NI_STATUS;
+	pbuf->pb_info.pi_features =
+		LNET_PING_FEAT_NI_STATUS | LNET_PING_FEAT_MULTI_RAIL;
 
 	return pbuf;
 }
@@ -1377,7 +1378,7 @@ static void lnet_push_target_event_handler(struct lnet_event *ev)
 
 	if (pbuf->pb_info.pi_magic == __swab32(LNET_PROTO_PING_MAGIC))
 		lnet_swap_pinginfo(pbuf);
-
+	lnet_peer_push_event(ev);
 	if (ev->unlinked)
 		lnet_ping_buffer_decref(pbuf);
 }
