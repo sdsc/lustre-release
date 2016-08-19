@@ -1361,11 +1361,11 @@ lnet_shutdown_lndnets(void)
 	/* NB called holding the global mutex */
 
 	/* All quiet on the API front */
-	LASSERT(!the_lnet.ln_shutdown);
+	LASSERT(the_lnet.ln_state == LNET_STATE_RUNNING);
 	LASSERT(the_lnet.ln_refcount == 0);
 
 	lnet_net_lock(LNET_LOCK_EX);
-	the_lnet.ln_shutdown = 1;	/* flag shutdown */
+	the_lnet.ln_state = LNET_STATE_STOPPING;
 
 	while (!list_empty(&the_lnet.ln_nets)) {
 		/*
@@ -1393,7 +1393,7 @@ lnet_shutdown_lndnets(void)
 	}
 
 	lnet_net_lock(LNET_LOCK_EX);
-	the_lnet.ln_shutdown = 0;
+	the_lnet.ln_state = LNET_STATE_SHUTDOWN;
 	lnet_net_unlock(LNET_LOCK_EX);
 }
 
@@ -1670,6 +1670,15 @@ lnet_startup_lndnets(struct list_head *netlist)
 	struct lnet_net		*net;
 	int			rc;
 	int			ni_count = 0;
+
+	/*
+	 * Change to running state before bringing up the LNDs. This
+	 * allows lnet_shutdown_lndnets() to assert we've passed
+	 * through here.
+	 */
+	lnet_net_lock(LNET_LOCK_EX);
+	the_lnet.ln_state = LNET_STATE_RUNNING;
+	lnet_net_unlock(LNET_LOCK_EX);
 
 	while (!list_empty(netlist)) {
 		net = list_entry(netlist->next, struct lnet_net, net_list);
