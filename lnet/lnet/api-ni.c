@@ -1979,6 +1979,10 @@ LNetNIInit(lnet_pid_t requested_pid)
 	if (rc != 0)
 		goto failed4;
 
+	rc = lnet_peer_discovery_start();
+	if (rc != 0)
+		goto failed5;
+
 	lnet_fault_init();
 	lnet_proc_init();
 
@@ -1986,6 +1990,8 @@ LNetNIInit(lnet_pid_t requested_pid)
 
 	return 0;
 
+failed5:
+	lnet_router_checker_stop();
 failed4:
 	lnet_ping_target_fini();
 failed3:
@@ -2034,6 +2040,7 @@ LNetNIFini()
 		lnet_fault_fini();
 
 		lnet_proc_fini();
+		lnet_peer_discovery_stop();
 		lnet_router_checker_stop();
 		lnet_ping_target_fini();
 
