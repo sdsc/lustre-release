@@ -3126,22 +3126,30 @@ LNetCtl(unsigned int cmd, void *arg)
 
 	case IOC_LIBCFS_GET_PEER_NI: {
 		struct lnet_ioctl_peer_cfg *cfg = arg;
-		struct lnet_peer_ni_credit_info *lpni_cri;
-		struct lnet_ioctl_element_stats *lpni_stats;
-		size_t total = sizeof(*cfg) + sizeof(*lpni_cri) +
-			       sizeof(*lpni_stats);
 
-		if (cfg->prcfg_hdr.ioc_len < total)
+		if (cfg->prcfg_hdr.ioc_len < sizeof(*cfg))
 			return -EINVAL;
 
-		lpni_cri = (struct lnet_peer_ni_credit_info*) cfg->prcfg_bulk;
-		lpni_stats = (struct lnet_ioctl_element_stats *)
-			     (cfg->prcfg_bulk + sizeof(*lpni_cri));
+		mutex_lock(&the_lnet.ln_api_mutex);
+		rc = lnet_get_peer_info(&cfg->prcfg_key_nid,
+					&cfg->prcfg_cfg_nid,
+					&cfg->prcfg_count,
+					&cfg->prcfg_mr,
+					&cfg->prcfg_size,
+					(void __user *)cfg->prcfg_bulk);
+		mutex_unlock(&the_lnet.ln_api_mutex);
+		return rc;
+	}
+
+	case IOC_LIBCFS_GET_PEER_LIST: {
+		struct lnet_ioctl_peer_cfg *cfg = arg;
+
+		if (cfg->prcfg_hdr.ioc_len < sizeof(*cfg))
+			return -EINVAL;
 
 		mutex_lock(&the_lnet.ln_api_mutex);
-		rc = lnet_get_peer_info(cfg->prcfg_idx, &cfg->prcfg_key_nid,
-					&cfg->prcfg_cfg_nid, &cfg->prcfg_mr,
-					lpni_cri, lpni_stats);
+		rc = lnet_get_peer_list(&cfg->prcfg_count, &cfg->prcfg_size,
+				(lnet_process_id_t __user *)cfg->prcfg_bulk);
 		mutex_unlock(&the_lnet.ln_api_mutex);
 		return rc;
 	}
