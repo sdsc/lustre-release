@@ -4557,6 +4557,10 @@ test_68() {
 
 	umount_client $MOUNT || error "umount client failed"
 
+	if ! combined_mgs_mds ; then
+		start_mgs || error "start mgs failed"
+	fi
+
 	start_mdt 1 || error "MDT start failed"
 	start_ost || error "Unable to start OST1"
 
@@ -4988,6 +4992,13 @@ test_72() { #LU-2634
 
 	#tune MDT with "-O extents"
 
+	if ! combined_mgs_mds; then
+		stop_mgs || error "stop mgs failed"
+		add mgs $(mkfs_opts mgs $(mgsdevname)) --reformat \
+		$(mgsdevname) $(mgsvdevname) ${quiet:+>/dev/null} ||
+		error "add mgs failed"
+	fi
+
 	for num in $(seq $MDSCOUNT); do
 		add mds${num} $(mkfs_opts mds$num $(mdsdevname $num)) \
 			--reformat $(mdsdevname $num) $(mdsvdevname $num) ||
@@ -5059,6 +5070,13 @@ test_75() { # LU-2374
 
 	add mds1 $opts_mds || error "add mds1 failed for new params"
 	add ost1 $opts_ost || error "add ost1 failed for new params"
+
+	if ! combined_mgs_mds; then
+		stop_mgs || error "stop mgs failed"
+	fi
+
+	reformat
+
 	return 0
 }
 run_test 75 "The order of --index should be irrelevant"
