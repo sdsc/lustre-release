@@ -58,13 +58,13 @@ lnet_selftest_exit(void)
 {
 	int	i;
 
-        switch (lst_init_step) {
-                case LST_INIT_CONSOLE:
-                        lstcon_console_fini();
-                case LST_INIT_FW:
-                        sfw_shutdown();
-                case LST_INIT_RPC:
-                        srpc_shutdown();
+	switch (lst_init_step) {
+		case LST_INIT_CONSOLE:
+			lstcon_console_fini();
+		case LST_INIT_FW:
+			sfw_shutdown();
+		case LST_INIT_RPC:
+			srpc_shutdown();
 		case LST_INIT_WI_TEST:
 			for (i = 0;
 			     i < cfs_cpt_number(lnet_cpt_table()); i++) {
@@ -80,23 +80,23 @@ lnet_selftest_exit(void)
 		case LST_INIT_WI_SERIAL:
 			cfs_wi_sched_destroy(lst_sched_serial);
 			lst_sched_serial = NULL;
-                case LST_INIT_NONE:
-                        break;
-                default:
-                        LBUG();
-        }
-        return;
+		case LST_INIT_NONE:
+			break;
+		default:
+			LBUG();
+	}
+	return;
 }
 
 void
 lnet_selftest_structure_assertion(void)
 {
-        CLASSERT(sizeof(srpc_msg_t) == 160);
-        CLASSERT(sizeof(srpc_test_reqst_t) == 70);
-        CLASSERT(offsetof(srpc_msg_t, msg_body.tes_reqst.tsr_concur) == 72);
-        CLASSERT(offsetof(srpc_msg_t, msg_body.tes_reqst.tsr_ndest) == 78);
-        CLASSERT(sizeof(srpc_stat_reply_t) == 136);
-        CLASSERT(sizeof(srpc_stat_reqst_t) == 28);
+	CLASSERT(sizeof(srpc_msg_t) == 160);
+	CLASSERT(sizeof(srpc_test_reqst_t) == 70);
+	CLASSERT(offsetof(srpc_msg_t, msg_body.tes_reqst.tsr_concur) == 72);
+	CLASSERT(offsetof(srpc_msg_t, msg_body.tes_reqst.tsr_ndest) == 78);
+	CLASSERT(sizeof(srpc_stat_reply_t) == 136);
+	CLASSERT(sizeof(srpc_stat_reqst_t) == 28);
 }
 
 static int __init
@@ -134,25 +134,25 @@ lnet_selftest_init(void)
 		}
 	}
 
-        rc = srpc_startup();
-        if (rc != 0) {
-                CERROR("LST can't startup rpc\n");
-                goto error;
-        }
-        lst_init_step = LST_INIT_RPC;
+	rc = srpc_startup();
+	if (rc != 0) {
+		CERROR("LST can't startup rpc\n");
+		goto error;
+	}
+	lst_init_step = LST_INIT_RPC;
 
-        rc = sfw_startup();
-        if (rc != 0) {
-                CERROR("LST can't startup framework\n");
-                goto error;
-        }
-        lst_init_step = LST_INIT_FW;
+	rc = sfw_startup();
+	if (rc != 0) {
+		CERROR("LST can't startup framework\n");
+		goto error;
+	}
+	lst_init_step = LST_INIT_FW;
 
-        rc = lstcon_console_init();
-        if (rc != 0) {
-                CERROR("LST can't startup console\n");
-                goto error;
-        }
+	rc = lstcon_console_init();
+	if (rc != 0) {
+		CERROR("LST can't startup console\n");
+		goto error;
+	}
 	lst_init_step = LST_INIT_CONSOLE;
 	return 0;
 error:
