@@ -1296,13 +1296,13 @@ static int mdd_declare_link(const struct lu_env *env,
 }
 
 static int mdd_link(const struct lu_env *env, struct md_object *tgt_obj,
-                    struct md_object *src_obj, const struct lu_name *lname,
-                    struct md_attr *ma)
+		    struct md_object *src_obj, const struct lu_name *lname,
+		    struct md_attr *ma)
 {
-        const char *name = lname->ln_name;
-        struct lu_attr    *la = &mdd_env_info(env)->mti_la_for_fix;
-        struct mdd_object *mdd_tobj = md2mdd_obj(tgt_obj);
-        struct mdd_object *mdd_sobj = md2mdd_obj(src_obj);
+	const char *name = lname->ln_name;
+	struct lu_attr    *la = &mdd_env_info(env)->mti_la_for_fix;
+	struct mdd_object *mdd_tobj = md2mdd_obj(tgt_obj);
+	struct mdd_object *mdd_sobj = md2mdd_obj(src_obj);
 	struct lu_attr	  *cattr = MDD_ENV_VAR(env, cattr);
 	struct lu_attr	  *tattr = MDD_ENV_VAR(env, tattr);
 	struct mdd_device *mdd = mdo2mdd(src_obj);
@@ -1310,6 +1310,7 @@ static int mdd_link(const struct lu_env *env, struct md_object *tgt_obj,
 	struct lu_fid *tfid = &mdd_env_info(env)->mti_fid2;
 	struct linkea_data *ldata = &mdd_env_info(env)->mti_link_data;
 	int rc;
+	int rc2;
 	ENTRY;
 
 	rc = mdd_la_get(env, mdd_sobj, cattr);
@@ -1320,9 +1321,9 @@ static int mdd_link(const struct lu_env *env, struct md_object *tgt_obj,
 	if (rc != 0)
 		RETURN(rc);
 
-        handle = mdd_trans_create(env, mdd);
-        if (IS_ERR(handle))
-                GOTO(out_pending, rc = PTR_ERR(handle));
+	handle = mdd_trans_create(env, mdd);
+	if (IS_ERR(handle))
+		GOTO(out_pending, rc = PTR_ERR(handle));
 
 	memset(ldata, 0, sizeof(*ldata));
 
@@ -1331,12 +1332,12 @@ static int mdd_link(const struct lu_env *env, struct md_object *tgt_obj,
 
 	rc = mdd_declare_link(env, mdd, mdd_tobj, mdd_sobj, lname, handle,
 			      la, ldata);
-        if (rc)
-                GOTO(stop, rc);
+	if (rc)
+		GOTO(stop, rc);
 
-        rc = mdd_trans_start(env, mdd, handle);
-        if (rc)
-                GOTO(stop, rc);
+	rc = mdd_trans_start(env, mdd, handle);
+	if (rc)
+		GOTO(stop, rc);
 
 	mdd_write_lock(env, mdd_sobj, MOR_TGT_CHILD);
 	rc = mdd_link_sanity_check(env, mdd_tobj, tattr, lname, mdd_sobj,
@@ -1385,21 +1386,23 @@ static int mdd_link(const struct lu_env *env, struct md_object *tgt_obj,
 		 * failure, reset rc here */
 		rc = 0;
 	}
-        EXIT;
+	EXIT;
 out_unlock:
-        mdd_write_unlock(env, mdd_sobj);
-        if (rc == 0)
+	mdd_write_unlock(env, mdd_sobj);
+	if (rc == 0)
 		rc = mdd_changelog_ns_store(env, mdd, CL_HARDLINK, 0, mdd_sobj,
 					    mdo2fid(mdd_tobj), NULL, NULL,
 					    lname, NULL, handle);
 stop:
-	mdd_trans_stop(env, mdd, rc, handle);
+	rc2 = mdd_trans_stop(env, mdd, rc, handle);
+	if (rc == 0)
+		rc = rc2;
 
 	if (is_vmalloc_addr(ldata->ld_buf))
 		/* if we vmalloced a large buffer drop it */
 		lu_buf_free(ldata->ld_buf);
 out_pending:
-        return rc;
+	return rc;
 }
 
 static int mdd_mark_orphan_object(const struct lu_env *env,
@@ -1620,6 +1623,7 @@ static int mdd_unlink(const struct lu_env *env, struct md_object *pobj,
 	struct mdd_device *mdd = mdo2mdd(pobj);
 	struct thandle    *handle;
 	int rc, is_dir = 0, cl_flags = 0;
+	int rc2;
 	ENTRY;
 
 	/* cobj == NULL means only delete name entry */
@@ -1757,7 +1761,9 @@ cleanup:
 	}
 
 stop:
-	mdd_trans_stop(env, mdd, rc, handle);
+	rc2 = mdd_trans_stop(env, mdd, rc, handle);
+	if (rc == 0)
+		rc = rc2;
 
 	return rc;
 }
@@ -1777,9 +1783,11 @@ static int mdd_cd_sanity_check(const struct lu_env *env,
         RETURN(0);
 }
 
-static int mdd_create_data(const struct lu_env *env, struct md_object *pobj,
-                           struct md_object *cobj, const struct md_op_spec *spec,
-                           struct md_attr *ma)
+static int mdd_create_data(const struct lu_env *env,
+			   struct md_object *pobj,
+			   struct md_object *cobj,
+			   const struct md_op_spec *spec,
+			   struct md_attr *ma)
 {
 	struct mdd_device *mdd = mdo2mdd(cobj);
 	struct mdd_object *mdd_pobj = md2mdd_obj(pobj);
@@ -1789,6 +1797,7 @@ static int mdd_create_data(const struct lu_env *env, struct md_object *pobj,
 	struct lu_attr    *attr = MDD_ENV_VAR(env, cattr);
 	struct dt_allocation_hint *hint = &mdd_env_info(env)->mti_hint;
 	int		   rc;
+	int		   rc2;
 	ENTRY;
 
 	rc = mdd_cd_sanity_check(env, son);
@@ -1811,14 +1820,14 @@ static int mdd_create_data(const struct lu_env *env, struct md_object *pobj,
 	/* calling ->ah_make_hint() is used to transfer information from parent */
 	mdd_object_make_hint(env, mdd_pobj, son, attr, spec, hint);
 
-        handle = mdd_trans_create(env, mdd);
-        if (IS_ERR(handle))
-                GOTO(out_free, rc = PTR_ERR(handle));
+	handle = mdd_trans_create(env, mdd);
+	if (IS_ERR(handle))
+		GOTO(out_free, rc = PTR_ERR(handle));
 
-        /*
-         * XXX: Setting the lov ea is not locked but setting the attr is locked?
-         * Should this be fixed?
-         */
+	/*
+	 * XXX: Setting the lov ea is not locked but setting the attr is locked?
+	 * Should this be fixed?
+	 */
 	CDEBUG(D_OTHER, "ea %p/%u, cr_flags "LPO64", no_create %u\n",
 	       spec->u.sp_ea.eadata, spec->u.sp_ea.eadatalen,
 	       spec->sp_cr_flags, spec->no_create);
@@ -1852,7 +1861,9 @@ static int mdd_create_data(const struct lu_env *env, struct md_object *pobj,
 	rc = mdd_changelog_data_store(env, mdd, CL_LAYOUT, 0, son, handle);
 
 stop:
-	mdd_trans_stop(env, mdd, rc, handle);
+	rc2 = mdd_trans_stop(env, mdd, rc, handle);
+	if (rc == 0)
+		rc = rc2;
 out_free:
 	RETURN(rc);
 }
@@ -2314,6 +2325,7 @@ static int mdd_index_delete(const struct lu_env *env,
 	struct mdd_device *mdd = mdo2mdd(&mdd_pobj->mod_obj);
 	struct thandle *handle;
 	int rc;
+	int rc2;
 	ENTRY;
 
 	handle = mdd_trans_create(env, mdd);
@@ -2343,7 +2355,9 @@ static int mdd_index_delete(const struct lu_env *env,
 	if (rc)
 		GOTO(stop, rc);
 stop:
-	mdd_trans_stop(env, mdd, rc, handle);
+	rc2 = mdd_trans_stop(env, mdd, rc, handle);
+	if (rc == 0)
+		rc = rc2;
 	RETURN(rc);
 }
 
@@ -3055,7 +3069,9 @@ cleanup:
 					    ltname, lsname, handle);
 
 stop:
-	mdd_trans_stop(env, mdd, rc, handle);
+	rc2 = mdd_trans_stop(env, mdd, rc, handle);
+	if (rc == 0)
+		rc = rc2;
 
 out_pending:
 	mdd_object_put(env, mdd_sobj);
@@ -3317,7 +3333,7 @@ static int mdd_migrate_xattrs(const struct lu_env *env,
 	int			list_xsize;
 	struct lu_buf		list_xbuf;
 	int			rc;
-	int			rc1;
+	int			rc2;
 
 	/* retrieve xattr list from the old object */
 	list_xsize = mdo_xattr_list(env, mdd_sobj, &LU_BUF_NULL);
@@ -3392,9 +3408,9 @@ static int mdd_migrate_xattrs(const struct lu_env *env,
 		if (rc != 0)
 			GOTO(stop_trans, rc);
 stop_trans:
-		rc1 = mdd_trans_stop(env, mdd, rc, handle);
+		rc2 = mdd_trans_stop(env, mdd, rc, handle);
 		if (rc == 0)
-			rc = rc1;
+			rc = rc2;
 		if (rc != 0)
 			GOTO(out, rc);
 next:
@@ -3597,11 +3613,11 @@ static int mdd_migrate_create(const struct lu_env *env,
 	rc = mdo_attr_set(env, mdd_sobj, la_flag, handle);
 stop_trans:
 	if (handle != NULL) {
-		int rc1;
+		int rc2;
 
-		rc1 = mdd_trans_stop(env, mdd, rc, handle);
+		rc2 = mdd_trans_stop(env, mdd, rc, handle);
 		if (rc == 0)
-			rc = rc1;
+			rc = rc2;
 	}
 out_free:
 	if (lmm_buf.lb_buf != NULL)
@@ -3619,9 +3635,9 @@ static int mdd_migrate_entries(const struct lu_env *env,
 	struct thandle		*handle;
 	struct dt_it            *it;
 	const struct dt_it_ops  *iops;
-	int                      rc;
 	int                      result;
 	struct lu_dirent        *ent;
+	int                      rc;
 	ENTRY;
 
 	OBD_ALLOC(ent, NAME_MAX + sizeof(*ent) + 1);
@@ -3657,7 +3673,7 @@ static int mdd_migrate_entries(const struct lu_env *env,
 		int			recsize;
 		int			is_dir;
 		bool			target_exist = false;
-		int			rc1;
+		int			rc2;
 
 		len = iops->key_size(env, it);
 		if (len == 0)
@@ -3791,9 +3807,9 @@ static int mdd_migrate_entries(const struct lu_env *env,
 out_put:
 		mdd_write_unlock(env, child);
 		mdd_object_put(env, child);
-		rc1 = mdd_trans_stop(env, mdd, rc, handle);
+		rc2 = mdd_trans_stop(env, mdd, rc, handle);
 		if (rc == 0)
-			rc = rc1;
+			rc = rc2;
 
 		if (rc != 0)
 			GOTO(out, rc);
@@ -3952,6 +3968,7 @@ static int mdd_migrate_update_name(const struct lu_env *env,
 	int			is_dir = S_ISDIR(mdd_object_type(mdd_sobj));
 	const char		*name = lname->ln_name;
 	int			rc;
+	int			rc2;
 	ENTRY;
 
 	/* update time for parent */
@@ -4089,7 +4106,9 @@ out_unlock:
 	mdd_write_unlock(env, mdd_sobj);
 
 stop_trans:
-	mdd_trans_stop(env, mdd, rc, handle);
+	rc2 = mdd_trans_stop(env, mdd, rc, handle);
+	if (rc == 0)
+		rc = rc2;
 
 	RETURN(rc);
 }
