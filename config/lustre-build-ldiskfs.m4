@@ -2,15 +2,8 @@
 # LDISKFS_LINUX_SERIES
 #
 AC_DEFUN([LDISKFS_LINUX_SERIES], [
+LDISKFS_SERIES=
 AC_MSG_CHECKING([which ldiskfs series to use])
-case x$LDISKFS_SERIES in
-	x)			# not set
-		;;
-	*.series)		# set externally
-		;;
-	*) LDISKFS_SERIES=
-esac
-AS_IF([test -z "$LDISKFS_SERIES"], [
 AS_IF([test x$RHEL_KERNEL = xyes], [
 	case $RHEL_RELEASE_NO in
 	72)	LDISKFS_SERIES="3.10-rhel7.2.series"	;;
@@ -44,7 +37,6 @@ AS_IF([test x$RHEL_KERNEL = xyes], [
 			;;
 		esac
 	])
-])
 ])
 AS_IF([test -z "$LDISKFS_SERIES"],
 	[AC_MSG_WARN([Unknown kernel version $LDISKFS_VERSIONRELEASE])])
