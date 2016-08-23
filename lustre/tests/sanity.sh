@@ -15303,6 +15303,22 @@ test_406() {
 }
 run_test 406 "DNE support fs default striping"
 
+test_407() {
+	$LFS mkdir -i 0 -c 1 $DIR/$tdir.0 ||
+		error "$LFS mkdir -i 0 -c 1 $tdir.0 failed"
+	$LFS mkdir -i 1 -c 1 $DIR/$tdir.1 ||
+		error "$LFS mkdir -i 1 -c 1 $tdir.1 failed"
+	touch $DIR/$tdir.0/$tfile.0 || error "touch $tdir.0/$tfile.0 failed"
+
+	#define OBD_FAIL_DT_TXN_STOP	0x2019
+	$LCTL set_param fail_loc=0x2019
+	$LFS mkdir -c 2 $DIR/$tdir && error "$LFS mkdir -c 2 $tdir should fail"
+	mv $DIR/$tdir.0/$tfile.0 $DIR/$tdir.1/$tfile.1 &&
+		error "mv $tdir.0/$tfile.0 $tdir.1/$tfile.1 should fail"
+	true
+}
+run_test 407 "transaction fail should cause operation fail"
+
 #
 # tests that do cleanup/setup should be run at the end
 #
