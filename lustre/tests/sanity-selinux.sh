@@ -40,13 +40,10 @@ check_selinux() {
 		 "but it must be enforced to run sanity-selinux" && exit 0
 	fi
 	local selinux_policy=$(sestatus |
-			       awk -F':' '$1 == "Loaded policy name" {print $2}' |
-			       xargs)
+		awk -F':' '$1 == "Loaded policy name" {print $2}' | xargs)
 	if [ -z "$selinux_policy" ]; then
 	    selinux_policy=$(sestatus |
-			     awk -F':' '$1 == "Policy from config file"
-				     {print $2}' |
-			     xargs)
+		awk -F':' '$1 == "Policy from config file" {print $2}' | xargs)
 	fi
 	[ "$selinux_policy" == "targeted" ] ||
 		error "Accepting only targeted policy"
