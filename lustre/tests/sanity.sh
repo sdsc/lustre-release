@@ -7583,7 +7583,6 @@ test_116a() { # was previously test_116()
 		&& return
 	trap simple_cleanup_common EXIT
 
-
 	# Check if we need to generate uneven OSTs
 	test_mkdir -p $DIR/$tdir/OST${MINI}
 	local FILL=$(($MINV / 4))
@@ -13940,6 +13939,13 @@ test_252() {
 	echo -e "Number of reply data returned by $LR_READER is '$num'\n"
 }
 run_test 252 "check lr_reader tool"
+
+test_253()
+{
+	test_mkdir -p $DIR/$tdir
+	lock_ahead_test -d $DIR/$tdir || error "A lock ahead test failed"
+}
+run_test 253 "various lock ahead tests"
 
 test_254() {
 	local cl_user
