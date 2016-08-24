@@ -1095,7 +1095,10 @@ int lprocfs_stats_alloc_one(struct lprocfs_stats *stats, unsigned int cpuid)
 	LASSERT((stats->ls_flags & LPROCFS_STATS_FLAG_NOPERCPU) == 0);
 
 	percpusize = lprocfs_stats_counter_size(stats);
-	LIBCFS_ALLOC_ATOMIC(stats->ls_percpu[cpuid], percpusize);
+	if (in_interrupt())
+		LIBCFS_ALLOC_ATOMIC(stats->ls_percpu[cpuid], percpusize);
+	else
+		LIBCFS_ALLOC(stats->ls_percpu[cpuid], percpusize);
 	if (stats->ls_percpu[cpuid] != NULL) {
 		rc = 0;
 		if (unlikely(stats->ls_biggest_alloc_num <= cpuid)) {
