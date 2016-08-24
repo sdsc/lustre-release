@@ -1823,7 +1823,9 @@ static int osd_punch(const struct lu_env *env, struct dt_object *dt,
 
 	tid = oh->ot_handle->h_transaction->t_tid;
 
+	spin_lock(&inode->i_lock);
 	i_size_write(inode, start);
+	spin_unlock(&inode->i_lock);
 	ll_truncate_pagecache(inode, start);
 #ifdef HAVE_INODEOPS_TRUNCATE
 	if (inode->i_op->truncate) {
