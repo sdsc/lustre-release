@@ -4357,8 +4357,15 @@ test_63() {
 	fi
 
 	echo "$inode_slab ldisk inodes per page"
-	[ "$inode_slab" -ge "3" ] ||
-		error "ldisk inode size is too big, $inode_slab objs per page"
+	if [ "$inode_slab" -ge "3" ] ; then
+		# If kmalloc-32 is also 1 per page - this is a debug kernel
+		# and so this is not an error.
+		local kmalloc32=$(do_facet $SINGLEMDS \
+			"awk '/kmalloc-32/ { print \\\$5 }' /proc/slabinfo")
+		[ "$kmalloc32" -ge 3 ] ||
+			error "ldisk inode size is too big, $inode_slab objs per page"
+	fi
+
 	return
 }
 run_test 63 "Verify each page can at least hold 3 ldisk inodes"
