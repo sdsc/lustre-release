@@ -96,7 +96,9 @@ struct lu_nid_range *range_create(struct nodemap_range_tree *nm_range_tree,
 		range->rn_id = nm_range_tree->nmrt_range_highest_id;
 	}
 	range->rn_nodemap = nodemap;
-	interval_set(&range->rn_node, start_nid, end_nid);
+	if (!interval_set(&range->rn_node, start_nid, end_nid))
+		return NULL;
+
 	INIT_LIST_HEAD(&range->rn_list);
 
 	return range;

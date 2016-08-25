@@ -37,6 +37,8 @@
  *
  * Author: jay <jxiong@clusterfs.com>
  */
+#include <assert.h>
+#include <errno.h>
 #include <inttypes.h>
 #include <limits.h>
 #include <stdio.h>
@@ -48,6 +50,7 @@
 #include <linux/types.h>
 
 #define EXPORT_SYMBOL(s)
+#define LASSERT assert
 
 #include <../ldlm/interval_tree.c>
 

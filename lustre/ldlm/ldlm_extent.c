@@ -1020,7 +1020,7 @@ void ldlm_extent_add_lock(struct ldlm_resource *res,
 
         /* node extent initialize */
         extent = &lock->l_policy_data.l_extent;
-        interval_set(&node->li_node, extent->start, extent->end);
+	LASSERT(!interval_set(&node->li_node, extent->start, extent->end));
 
         root = &res->lr_itree[idx].lit_root;
         found = interval_insert(&node->li_node, root);
