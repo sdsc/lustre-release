@@ -642,6 +642,10 @@ restart:
 			GOTO(out_och_free, rc);
 	}
 	mutex_unlock(&lli->lli_och_mutex);
+
+	/* lockless for direct IO so that it can do IO in parallel */
+	if (file->f_flags & O_DIRECT)
+		fd->fd_flags |= LL_FILE_LOCKLESS_IO;
         fd = NULL;
 
         /* Must do this outside lli_och_mutex lock to prevent deadlock where
