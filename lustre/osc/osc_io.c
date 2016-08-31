@@ -152,6 +152,10 @@ static int osc_io_submit(const struct lu_env *env,
 	cmd = crt == CRT_WRITE ? OBD_BRW_WRITE : OBD_BRW_READ;
 	brw_flags = osc_io_srvlock(cl2osc_io(env, ios)) ? OBD_BRW_SRVLOCK : 0;
 
+	page = cl_page_list_first(qin);
+	if (page->cp_type == CPT_TRANSIENT)
+		brw_flags |= OBD_BRW_NOCACHE;
+
         /*
          * NOTE: here @page is a top-level page. This is done to avoid
          *       creation of sub-page-list.

@@ -15095,6 +15095,46 @@ test_312() { # LU-4856
 }
 run_test 312 "make sure ZFS adjusts its block size by write pattern"
 
+test_397()
+{
+	$LFS setstripe -c 1 -i 0 $DIR/$tfile
+	$LCTL set_param ldlm.namespaces.*.lru_size=clear
+
+	dd if=/dev/zero of=$DIR/$tfile bs=1M count=1 oflag=direct
+	lock_count=$($LCTL get_param -n \
+		     ldlm.namespaces.*-OST0000-osc-ffff*.lru_size)
+	[[ $lock_count -eq 0 ]] ||
+		error "expected 0 locks for direct IO, actual $lock_count"
+}
+run_test 397 "direct IO should be lockless"
+
+test_398() {
+	[[ $OSTCOUNT -lt 2 ]] && skip "need at least 2 OSTs" && return
+
+	local saved_debug=$($LCTL get_param -n debug)
+	$LCTL set_param debug=0
+
+	$LFS setstripe -c 2 -S 1M $DIR/$tfile
+
+	$LCTL set_param ldlm.namespaces.*.lru_size=clear
+	local t_now=$(dd of=$DIR/$tfile if=/dev/zero bs=8M count=8 \
+		      oflag=direct 2>&1 | awk '/copied/ { print $6 }')
+
+	$LCTL set_param ldlm.namespaces.*.lru_size=clear
+#define OBD_FAIL_LLITE_NO_PARALLEL_DIO             0x140c
+	$LCTL set_param fail_loc=0x140c
+	local t_before=$(dd of=$DIR/$tfile if=/dev/zero bs=8M count=8 \
+			 oflag=direct 2>&1 | awk '/copied/ { print $6 }')
+
+	# verify that direct IO should be faster
+	[ $(bc <<< "$t_now < $t_before") -eq 1 ] ||
+		error "parallel direct IO is slower: $t_now vs $t_before(s)"
+
+	rm -f $DIR/$tfile
+	$LCTL set_param debug="$saved_debug"
+}
+run_test 398 "direct IO should be parallel"
+
 test_400a() { # LU-1606, was conf-sanity test_74
 	local extra_flags=''
 	local out=$TMP/$tfile
