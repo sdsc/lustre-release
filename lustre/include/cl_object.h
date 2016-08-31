@@ -1844,6 +1844,11 @@ struct cl_io {
 	 */
 			     ci_restore_needed:1,
 	/**
+	 * This IO has group lock held, or direct IO, or mount with no lock,
+	 * this flag is to tell sublayers to do IO in parallel.
+	 */
+			     ci_parallel_io:1,
+	/**
 	 * O_NOATIME
 	 */
 			     ci_noatime:1;

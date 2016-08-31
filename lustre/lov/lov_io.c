@@ -427,34 +427,30 @@ static int lov_io_rw_iter_init(const struct lu_env *env,
 	struct lov_io        *lio = cl2lov_io(env, ios);
 	struct cl_io         *io  = ios->cis_io;
 	struct lov_stripe_md *lsm = lio->lis_object->lo_lsm;
-        loff_t start = io->u.ci_rw.crw_pos;
-        loff_t next;
-        unsigned long ssize = lsm->lsm_stripe_size;
+	loff_t start = io->u.ci_rw.crw_pos;
+	loff_t next;
+	unsigned long ssize = lsm->lsm_stripe_size;
 
-        LASSERT(io->ci_type == CIT_READ || io->ci_type == CIT_WRITE);
-        ENTRY;
+	LASSERT(io->ci_type == CIT_READ || io->ci_type == CIT_WRITE);
+	ENTRY;
 
-        /* fast path for common case. */
-        if (lio->lis_nr_subios != 1 && !cl_io_is_append(io)) {
-
+	/* To determine whether to do IO in stripes */
+	if (lio->lis_nr_subios != 1 && !io->ci_parallel_io) {
 		lov_do_div64(start, ssize);
 		next = (start + 1) * ssize;
 		if (next <= start * ssize)
 			next = ~0ull;
 
-                io->ci_continue = next < lio->lis_io_endpos;
-                io->u.ci_rw.crw_count = min_t(loff_t, lio->lis_io_endpos,
-                                              next) - io->u.ci_rw.crw_pos;
-                lio->lis_pos    = io->u.ci_rw.crw_pos;
-                lio->lis_endpos = io->u.ci_rw.crw_pos + io->u.ci_rw.crw_count;
-		CDEBUG(D_VFSTRACE, "stripe: %llu chunk: [%llu, %llu) "
-		       "%llu\n", (__u64)start, lio->lis_pos, lio->lis_endpos,
+		io->ci_continue = next < lio->lis_io_endpos;
+		io->u.ci_rw.crw_count = min_t(loff_t, lio->lis_io_endpos,
+					      next) - io->u.ci_rw.crw_pos;
+		lio->lis_pos    = io->u.ci_rw.crw_pos;
+		lio->lis_endpos = io->u.ci_rw.crw_pos + io->u.ci_rw.crw_count;
+		CDEBUG(D_VFSTRACE, "stripe: %llu chunk: [%llu, %llu) %llu\n",
+		       (__u64)start, lio->lis_pos, lio->lis_endpos,
 		       (__u64)lio->lis_io_endpos);
 	}
-	/*
-	 * XXX The following call should be optimized: we know, that
-	 * [lio->lis_pos, lio->lis_endpos) intersects with exactly one stripe.
-	 */
+
 	RETURN(lov_io_iter_init(env, ios));
 }
 

@@ -263,15 +263,25 @@ static int vvp_io_one_lock(const struct lu_env *env, struct cl_io *io,
 				     cl_index(obj, start), cl_index(obj, end));
 }
 
-static int vvp_io_write_iter_init(const struct lu_env *env,
-				  const struct cl_io_slice *ios)
+static int vvp_io_rw_iter_init(const struct lu_env *env,
+			       const struct cl_io_slice *ios)
 {
-	struct vvp_io *vio = cl2vvp_io(env, ios);
+	struct ll_file_data *fd = cl2vvp_io(env, ios)->vui_fd;
 
-	cl_page_list_init(&vio->u.write.vui_queue);
-	vio->u.write.vui_written = 0;
-	vio->u.write.vui_from = 0;
-	vio->u.write.vui_to = PAGE_SIZE;
+	if (likely(!OBD_FAIL_CHECK(OBD_FAIL_LLITE_NO_PARALLEL_DIO)) &&
+	    (ll_file_nolock(fd->fd_file) ||
+	     cl_io_is_append(ios->cis_io) ||
+	     fd->fd_flags & (LL_FILE_GROUP_LOCKED | LL_FILE_LOCKLESS_IO)))
+		ios->cis_io->ci_parallel_io = 1;
+
+	if (ios->cis_io->ci_type == CIT_WRITE) {
+		struct vvp_io *vio = cl2vvp_io(env, ios);
+
+		cl_page_list_init(&vio->u.write.vui_queue);
+		vio->u.write.vui_written = 0;
+		vio->u.write.vui_from = 0;
+		vio->u.write.vui_to = PAGE_SIZE;
+	}
 
 	return 0;
 }
@@ -513,12 +523,14 @@ static int vvp_io_rw_lock(const struct lu_env *env, struct cl_io *io,
 
 	if (io->u.ci_rw.crw_nonblock)
 		ast_flags |= CEF_NONBLOCK;
-
+	if (ll_file_nolock(vio->vui_fd->fd_file) ||
+	    ((vio->vui_fd->fd_flags & LL_FILE_LOCKLESS_IO) &&
+	     !(vio->vui_fd->fd_flags & LL_FILE_GROUP_LOCKED)))
+		ast_flags |= CEF_NEVER;
 	result = vvp_mmap_locks(env, vio, io);
 	if (result == 0)
 		result = vvp_io_one_lock(env, io, ast_flags, mode, start, end);
-
-        RETURN(result);
+	RETURN(result);
 }
 
 static int vvp_io_read_lock(const struct lu_env *env,
@@ -1314,6 +1326,7 @@ static const struct cl_io_operations vvp_io_ops = {
 	.op = {
 		[CIT_READ] = {
 			.cio_fini	= vvp_io_fini,
+			.cio_iter_init	= vvp_io_rw_iter_init,
 			.cio_lock	= vvp_io_read_lock,
 			.cio_start	= vvp_io_read_start,
 			.cio_end	= vvp_io_rw_end,
@@ -1321,7 +1334,7 @@ static const struct cl_io_operations vvp_io_ops = {
 		},
                 [CIT_WRITE] = {
 			.cio_fini      = vvp_io_fini,
-			.cio_iter_init = vvp_io_write_iter_init,
+			.cio_iter_init = vvp_io_rw_iter_init,
 			.cio_iter_fini = vvp_io_write_iter_fini,
 			.cio_lock      = vvp_io_write_lock,
 			.cio_start     = vvp_io_write_start,

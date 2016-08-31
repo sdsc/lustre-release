@@ -626,7 +626,9 @@ struct osc_extent {
 				oe_hp:1,
 	/** this extent should be written back asap. set if one of pages is
 	 * called by page WB daemon, or sync write or reading requests. */
-				oe_urgent:1;
+				oe_urgent:1,
+	/** direct IO pages */
+				oe_dio:1;
 	/** how many grants allocated for this extent.
 	 *  Grant allocated for this extent. There is no grant allocated
 	 *  for reading extents and sync write extents. */
