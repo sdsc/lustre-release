@@ -1187,11 +1187,7 @@ struct ptlrpc_body_v2 {
 #define OBD_CONNECT_TRUNCLOCK           0x400ULL /*locks on server for punch */
 #define OBD_CONNECT_TRANSNO             0x800ULL /*replay sends init transno */
 #define OBD_CONNECT_IBITS              0x1000ULL /*support for inodebits locks*/
-#define OBD_CONNECT_JOIN               0x2000ULL /*files can be concatenated.
-                                                  *We do not support JOIN FILE
-                                                  *anymore, reserve this flags
-                                                  *just for preventing such bit
-                                                  *to be reused.*/
+#define OBD_CONNECT_BARRIER	       0x2000ULL /* write barrier */
 #define OBD_CONNECT_ATTRFID            0x4000ULL /*Server can GetAttr By Fid*/
 #define OBD_CONNECT_NODEVOH            0x8000ULL /*No open hndl on specl nodes*/
 #define OBD_CONNECT_RMT_CLIENT        0x10000ULL /* Remote client, never used
@@ -1333,7 +1329,7 @@ struct ptlrpc_body_v2 {
 #define MGS_CONNECT_SUPPORTED  (OBD_CONNECT_VERSION | OBD_CONNECT_AT | \
 				OBD_CONNECT_FULL20 | OBD_CONNECT_IMP_RECOV | \
 				OBD_CONNECT_MNE_SWAB | OBD_CONNECT_PINGLESS |\
-				OBD_CONNECT_BULK_MBITS)
+				OBD_CONNECT_BULK_MBITS | OBD_CONNECT_BARRIER)
 
 #define MGS_CONNECT_SUPPORTED2 0
 
@@ -2872,7 +2868,9 @@ typedef enum {
         MGS_TARGET_DEL,
         MGS_SET_INFO,
         MGS_CONFIG_READ,
-        MGS_LAST_OPC
+	MGS_BARRIER_READ,
+	MGS_BARRIER_NOTIFY,
+	MGS_LAST_OPC
 } mgs_cmd_t;
 #define MGS_FIRST_OPC MGS_CONNECT
 
@@ -3401,6 +3399,34 @@ enum lfsck_event_flags {
 	LEF_RECHECK_NAME_HASH	= 0x00000010,
 	LEF_QUERY_ALL		= 0x00000020,
 };
+
+enum barrier_notify_events {
+	BNE_READ		= 1,
+	BNE_FREEZE_DONE_P1	= 2,
+	BNE_FREEZE_DONE_P2	= 3,
+	BNE_FREEZE_FAILED	= 4,
+	BNE_THAW_DONE		= 5,
+	BNE_EXPIRED		= 6,
+};
+
+struct barrier_request {
+	char	br_name[MTI_NAME_MAXLEN];
+	__u32	br_event;
+	__u32	br_gen;
+	__s32	br_index;
+	__u32	br_padding_1;
+	__u64	br_padding_2;
+};
+extern void lustre_swab_barrier_request(struct barrier_request *br);
+
+struct barrier_reply {
+	__u32	br_status;
+	__u32	br_gen;
+	__u32	br_timeout;
+	__u32	br_padding_1;
+	__u64	br_padding_2;
+};
+extern void lustre_swab_barrier_reply(struct barrier_reply *br);
 
 /* request structure for OST's */
 struct ost_body {
