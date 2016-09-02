@@ -48,6 +48,7 @@
 #include <lustre_nodemap.h>
 #include <lustre_swab.h>
 #include <obd_class.h>
+#include <lustre_barrier.h>
 #include <lustre/lustre_barrier_user.h>
 
 #include "mgc_internal.h"
@@ -552,6 +553,8 @@ static int config_log_end(char *logname, struct config_llog_instance *cfg)
 		mutex_lock(&cld_barrier->cld_lock);
 		cld_barrier->cld_stopping = 1;
 		mutex_unlock(&cld_barrier->cld_lock);
+		barrier_orphan_cleanup(
+				s2lsi(cld_barrier->cld_cfg.cfg_sb)->lsi_dt_dev);
 		config_log_put(cld_barrier);
 	}
 
@@ -1857,15 +1860,6 @@ out:
 		OBD_FREE(pages, sizeof(*pages) * nrpages);
 	}
 	return rc;
-}
-
-/* XXX: It will be implemented in subsequent patch. */
-static int barrier_handler(struct obd_export *exp,
-			   struct dt_device *key,
-			   __u32 status, __u32 gen,
-			   __u32 timeout, const char *name)
-{
-	return 0;
 }
 
 static int mgc_process_barrier_log(struct obd_device *obd,
