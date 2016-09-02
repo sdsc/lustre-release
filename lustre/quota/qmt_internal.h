@@ -82,7 +82,8 @@ struct qmt_device {
 	/* lock protecting rebalancing list */
 	spinlock_t		 qmt_reba_lock;
 
-	unsigned long		 qmt_stopping:1; /* qmt is stopping */
+	unsigned long		 qmt_stopping:1, /* qmt is stopping */
+				 qmt_reba_init:1;
 
 };
 

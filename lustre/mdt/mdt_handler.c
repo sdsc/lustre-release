@@ -3638,6 +3638,9 @@ static int mdt_intent_opc(enum ldlm_intent_flags itopc,
 		if (qmt == NULL)
 			RETURN(-EOPNOTSUPP);
 
+		if (mdt_rdonly(req->rq_export))
+			RETURN(-EROFS);
+
 		(*lockp)->l_lvb_type = LVB_T_LQUOTA;
 		/* pass the request to quota master */
 		rc = qmt_hdls.qmth_intent_policy(info->mti_env, qmt,
@@ -3654,8 +3657,7 @@ static int mdt_intent_opc(enum ldlm_intent_flags itopc,
 	if (rc < 0)
 		RETURN(rc);
 
-	if (flv->it_flags & MUTABOR &&
-	    exp_connect_flags(req->rq_export) & OBD_CONNECT_RDONLY)
+	if (flv->it_flags & MUTABOR && mdt_rdonly(req->rq_export))
 		RETURN(-EROFS);
 
 	if (flv->it_act != NULL) {
@@ -5100,6 +5102,11 @@ static int mdt_connect_internal(struct obd_export *exp,
 
 	data->ocd_connect_flags &= MDT_CONNECT_SUPPORTED;
 
+	if (mdt->mdt_bottom->dd_rdonly &&
+	    !(data->ocd_connect_flags & OBD_CONNECT_MDS_MDS) &&
+	    !(data->ocd_connect_flags & OBD_CONNECT_RDONLY))
+		RETURN(-EACCES);
+
 	if (data->ocd_connect_flags & OBD_CONNECT_FLAGS2)
 		data->ocd_connect_flags2 &= MDT_CONNECT_SUPPORTED2;
 
@@ -6034,7 +6041,7 @@ static int mdt_postrecov(const struct lu_env *env, struct mdt_device *mdt)
 	int rc;
 	ENTRY;
 
-	if (!mdt->mdt_skip_lfsck) {
+	if (!mdt->mdt_skip_lfsck && !mdt->mdt_bottom->dd_rdonly) {
 		struct lfsck_start_param lsp;
 
 		lsp.lsp_start = NULL;

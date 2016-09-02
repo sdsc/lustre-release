@@ -113,8 +113,9 @@ struct qsd_instance {
 						  * called */
 				 qsd_exp_valid:1,/* qsd_exp is now valid */
 				 qsd_stopping:1, /* qsd_instance is stopping */
-				 qsd_acct_failed:1; /* failed to set up acct
+				 qsd_acct_failed:1, /* failed to set up acct
 						     * for one quota type */
+				 qsd_upd_init:1;
 };
 
 /*
