@@ -1130,28 +1130,28 @@ test_11a() {
 run_test 11a "concurrent creates don't affect each other"
 
 test_11b() {
-    local var=${SINGLEMDS}_svc
-    zconf_mount $CLIENT2 $MOUNT2
+	local var=${SINGLEMDS}_svc
+	zconf_mount $CLIENT2 $MOUNT2
 
-    do_facet $SINGLEMDS "$LCTL set_param mdt.${!var}.commit_on_sharing=0"
+	do_facet $SINGLEMDS "$LCTL set_param mdt.${!var}.commit_on_sharing=0"
 
-    do_node $CLIENT2 createmany -o $MOUNT2/$tfile-2- 100
+	do_node $CLIENT2 createmany -o $MOUNT2/$tfile-2- 100
 
-    replay_barrier $SINGLEMDS
-    do_node $CLIENT1 createmany -o $DIR/$tfile-1- 100 &
-    PID=$!
-    do_node $CLIENT2 unlinkmany -o $MOUNT2/$tfile-2- 100
-    zconf_umount $CLIENT2 $MOUNT2
-    wait $PID
+	replay_barrier $SINGLEMDS
+	do_node $CLIENT1 createmany -o $DIR/$tfile-1- 100 &
+	PID=$!
+	do_node $CLIENT2 unlinkmany $MOUNT2/$tfile-2- 100
+	zconf_umount $CLIENT2 $MOUNT2
+	wait $PID
 
-    facet_failover $SINGLEMDS
-    # recovery shouldn't fail due to missing client 2
-    client_up $CLIENT1 || return 1
-    # All files from client1 should have been replayed
-    do_node $CLIENT1 unlinkmany $DIR/$tfile-1- 100 || return 2
+	facet_failover $SINGLEMDS
+	# recovery shouldn't fail due to missing client 2
+	client_up $CLIENT1 || return 1
+	# All files from client1 should have been replayed
+	do_node $CLIENT1 unlinkmany $DIR/$tfile-1- 100 || return 2
 
-    [ -e $DIR/$tdir/$tfile-2-0 ] && error "$tfile-2-0 exists"
-    return 0
+	[ -e $DIR/$tdir/$tfile-2-0 ] && error "$tfile-2-0 exists"
+	return 0
 }
 run_test 11b "concurrent creates and unlinks don't affect each other"
 

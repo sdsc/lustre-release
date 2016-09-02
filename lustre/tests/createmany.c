@@ -44,15 +44,22 @@
 
 static void usage(const char *prog)
 {
-	printf("usage: %s {-o [-k]|-m|-d|-l<tgt>} [-u[<unlinkfmt>]] "
-	       "[-t seconds] filenamefmt [[start] count]\n", prog);
-	printf("\t-l\tlink files to existing <tgt> file\n"
-	       "\t-m\tmknod regular files (don't create OST objects)\n"
-	       "\t-o\topen+create files with path and printf format\n"
-	       "\t-k\t    keep files open until all files are opened\n"
-	       "\t-u\tunlink file/dir (with optional <unlinkfmt>)\n");
+	if (strcmp(prog, "unlinkmany") == 0) {
+		printf("usage: %s [-d] [-t seconds] filenamefmt "
+		       "[[start] count]\n", prog);
+	} else {
+		printf("usage: %s {-o [-k]|-m|-d|-l<tgt>} [-u[<unlinkfmt>]] "
+		       "[-t seconds] filenamefmt [[start] count]\n", prog);
+		printf("\t-l\tlink files to existing <tgt> file\n"
+		       "\t-m\tmknod regular files (don't create OST objects)\n"
+		       "\t-o\topen+create files with path and printf format\n"
+		       "\t-k\t    keep files open until all files are opened\n"
+		       "\t-u\tunlink file/dir (with optional <unlinkfmt>)\n");
+	}
 	printf("\t-d\tuse directories instead of regular files\n"
-	       "\t-t\tstop creating files after <seconds> have elapsed\n");
+	       "\t-t\tstop creating files after <seconds> have elapsed\n"
+	       "\nIf both '-t' and <count> are unset, then run indefinitely.\n"
+	       );
 
 	exit(EXIT_FAILURE);
 }
@@ -142,7 +149,11 @@ int main(int argc, char ** argv)
 		}
 	}
 
-	if (do_open + do_mkdir + do_link + do_mknod > 1 ||
+	if (strcmp(progname, "unlinkmany") == 0) {
+		if (do_open + do_link + do_mknod != 0)
+			usage(progname);
+		do_unlink = true;
+	} else if (do_open + do_mkdir + do_link + do_mknod > 1 ||
 	    do_open + do_mkdir + do_link + do_mknod + do_unlink == 0) {
 		fprintf(stderr, "error: only one of -o, -m, -l, -d\n");
 		usage(progname);
