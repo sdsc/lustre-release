@@ -84,6 +84,9 @@ test_DATA = $(noinst_DATA)
 nobase_test_DATA = $(nobase_noinst_DATA)
 endif # TESTS
 
+unlinkmany$(EXEEXT):
+	ln -s createmany unlinkmany
+
 mmap_sanity_SOURCES= mmap_sanity.c
 mmap_sanity_LDADD=$(LIBCFS)
 
