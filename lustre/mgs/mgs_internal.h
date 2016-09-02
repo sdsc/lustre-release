@@ -213,7 +213,7 @@ int mgs_replace_nids(const struct lu_env *env, struct mgs_device *mgs,
 int mgs_erase_log(const struct lu_env *env, struct mgs_device *mgs,
 		  char *name);
 int mgs_erase_logs(const struct lu_env *env, struct mgs_device *mgs,
-		   char *fsname);
+		   const char *fsname);
 int mgs_setparam(const struct lu_env *env, struct mgs_device *mgs,
 		 struct lustre_cfg *lcfg, char *fsname);
 int mgs_list_logs(const struct lu_env *env, struct mgs_device *mgs,
@@ -420,6 +420,10 @@ static inline struct mgs_direntry *mgs_direntry_alloc(int len)
 
 /* mgs_llog.c */
 int class_dentry_readdir(const struct lu_env *env, struct mgs_device *mgs,
-			 struct list_head *list);
+			 struct list_head *list, const char *exc_name);
+int mgs_lcfg_fork(const struct lu_env *env, struct mgs_device *mgs,
+		  const char *oldname, const char *newname);
+int mgs_lcfg_erase(const struct lu_env *env, struct mgs_device *mgs,
+		   const char *fsname);
 
 #endif /* _MGS_INTERNAL_H */
