@@ -108,6 +108,7 @@ enum ldlm_lru_flags {
 	LDLM_LRU_FLAG_NO_WAIT	= 0x10, /* Cancel locks w/o blocking (neither
 					 * sending nor waiting for any RPCs) */
 	LDLM_LRU_FLAG_LRUR_NO_WAIT = 0x20, /* LRUR + NO_WAIT */
+	LDLM_LRU_FLAG_AGED_NO_WAIT = 0x40, /* AGED + NO_WAIT */
 };
 
 int ldlm_cancel_lru(struct ldlm_namespace *ns, int nr,
