@@ -201,7 +201,7 @@ int mgs_params_fsdb_setup(const struct lu_env *env, struct mgs_device *mgs,
 int mgs_params_fsdb_cleanup(const struct lu_env *env, struct mgs_device *mgs);
 int mgs_find_or_make_fsdb(const struct lu_env *env, struct mgs_device *mgs,
 			  char *name, struct fs_db **dbh);
-struct fs_db *mgs_find_fsdb(struct mgs_device *mgs, char *fsname);
+struct fs_db *mgs_find_fsdb(struct mgs_device *mgs, const char *fsname);
 int mgs_get_fsdb_srpc_from_llog(const struct lu_env *env,
 				struct mgs_device *mgs, struct fs_db *fsdb);
 int mgs_check_index(const struct lu_env *env, struct mgs_device *mgs,
@@ -226,6 +226,9 @@ int mgs_nodemap_cmd(const struct lu_env *env, struct mgs_device *mgs,
 		    char *param);
 
 /* mgs_barrier.c*/
+int mgs_iocontrol_barrier(const struct lu_env *env,
+			  struct mgs_device *mgs,
+			  struct obd_ioctl_data *data);
 int mgs_barrier_read(struct tgt_session_info *tsi);
 int mgs_barrier_notify(struct tgt_session_info *tsi);
 
