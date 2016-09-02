@@ -319,7 +319,7 @@ static void mgs_free_fsdb_srpc(struct fs_db *fsdb)
         sptlrpc_rule_set_free(&fsdb->fsdb_srpc_gen);
 }
 
-struct fs_db *mgs_find_fsdb(struct mgs_device *mgs, char *fsname)
+struct fs_db *mgs_find_fsdb(struct mgs_device *mgs, const char *fsname)
 {
         struct fs_db *fsdb;
 	struct list_head *tmp;
