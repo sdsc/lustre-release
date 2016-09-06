@@ -521,6 +521,8 @@ struct lnet_peer_ni {
 
 /* Preferred path added due to traffic on non-MR peer_ni */
 #define LNET_PEER_NI_NON_MR_PREF	(1 << 0)
+/* Peer NI was configured with DLC */
+#define LNET_PEER_NI_CONFIGURED		(1 << 1)
 
 struct lnet_peer {
 	/* chain on global peer list */
@@ -540,6 +542,7 @@ struct lnet_peer {
 };
 
 #define LNET_PEER_MULTI_RAIL	(1 << 0)
+#define LNET_PEER_CONFIGURED	(1 << 1)
 
 struct lnet_peer_net {
 	/* chain on peer block */
