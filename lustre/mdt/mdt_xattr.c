@@ -93,7 +93,7 @@ static int mdt_getxattr_pack_reply(struct mdt_thread_info * info)
 		req_capsule_set_size(pill, &RMF_EAVALS, RCL_SERVER, size);
 		req_capsule_set_size(pill, &RMF_EAVALS_LENS, RCL_SERVER, size);
 	} else {
-		CDEBUG(D_INFO, "Valid bits: "LPX64"\n",
+		CDEBUG(D_INFO, "Valid bits: %#llx\n",
 		       info->mti_body->mbo_valid);
                 RETURN(-EINVAL);
         }
@@ -358,7 +358,7 @@ int mdt_reint_setxattr(struct mdt_thread_info *info,
 		/* This isn't strictly an error, but all current clients
 		 * should set OBD_MD_FLCTIME when setting attributes. */
 		CWARN("%s: client miss to set OBD_MD_FLCTIME when "
-		      "setxattr %s: [object "DFID"] [valid "LPU64"]\n",
+		      "setxattr %s: [object "DFID"] [valid %llu]\n",
 		      mdt_obd_name(info->mti_mdt), xattr_name,
 		      PFID(rr->rr_fid1), valid);
 		attr->la_ctime = cfs_time_current_sec();
@@ -393,7 +393,7 @@ int mdt_reint_setxattr(struct mdt_thread_info *info,
                         mo_attr_set(env, child, ma);
                 }
         } else {
-                CDEBUG(D_INFO, "valid bits: "LPX64"\n", valid);
+		CDEBUG(D_INFO, "valid bits: %#llx\n", valid);
                 rc = -EINVAL;
         }
         if (rc == 0)
