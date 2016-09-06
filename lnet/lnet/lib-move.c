@@ -44,6 +44,10 @@ static int local_nid_dist_zero = 1;
 module_param(local_nid_dist_zero, int, 0444);
 MODULE_PARM_DESC(local_nid_dist_zero, "Reserved");
 
+static unsigned long lnet_msg_timeout = 1000;
+module_param(lnet_msg_timeout, ulong, 0644);
+MODULE_PARM_DESC(lnet_msg_timeout, "LNet message timeout (ms)");
+
 int
 lnet_fail_nid(lnet_nid_t nid, unsigned int threshold)
 {
@@ -615,14 +619,28 @@ lnet_setpayloadbuffer(lnet_msg_t *msg)
 		msg->msg_iov = md->md_iov.iov;
 }
 
+/*
+ * Prepare a message for sending. This includes storing all
+ * information required to be able to resend it.
+ *
+ * The msg_deadline is the time before which we're willing to attempt
+ * to resend a message. A combination of slow processing (for example
+ * due to lack of credits) and a send failure (due to congestion?)
+ * would result in a hard failure to send instead of a retry being
+ * attempted.
+ */
 void
 lnet_prep_send(lnet_msg_t *msg, int type, lnet_process_id_t target,
+	       lnet_nid_t source, lnet_nid_t router,
 	       unsigned int offset, unsigned int len)
 {
 	msg->msg_type = type;
 	msg->msg_target = target;
+	msg->msg_source = source;
+	msg->msg_router = router;
 	msg->msg_len = len;
 	msg->msg_offset = offset;
+	msg->msg_deadline = jiffies + msecs_to_jiffies(lnet_msg_timeout);
 
 	if (len != 0)
 		lnet_setpayloadbuffer(msg);
@@ -635,6 +653,33 @@ lnet_prep_send(lnet_msg_t *msg, int type, lnet_process_id_t target,
 	/* src_nid will be set later */
 	msg->msg_hdr.src_pid        = cpu_to_le32(the_lnet.ln_pid);
 	msg->msg_hdr.payload_length = cpu_to_le32(len);
+
+	CDEBUG(D_NET, "%p %d from %s to %s via %s (%u/%u)\n",
+	       msg, msg->msg_type, libcfs_nid2str(source),
+	       libcfs_nid2str(target.nid), libcfs_nid2str(router),
+	       offset, len);
+}
+
+/*
+ * Cut-down version of lnet_prep_send() for messages that will be
+ * forwarded by a router.
+ */
+static void
+lnet_prep_forward(lnet_msg_t *msg, lnet_nid_t target, lnet_pid_t pid,
+		  lnet_nid_t source, lnet_nid_t router)
+{
+	msg->msg_target.pid	= target;
+	msg->msg_target.nid	= pid;
+	msg->msg_source		= source;
+	msg->msg_router		= source;
+	msg->msg_deadline	= jiffies + msecs_to_jiffies(lnet_msg_timeout);
+	msg->msg_routing	= 1;
+
+	CDEBUG(D_NET, "%p %d from %s to %s via %s (%u/%u)\n",
+	       msg, msg->msg_type, libcfs_nid2str(msg->msg_source),
+	       libcfs_nid2str(msg->msg_target.nid),
+	       libcfs_nid2str(msg->msg_router),
+	       msg->msg_offset, msg->msg_len);
 }
 
 static void
@@ -1861,6 +1906,10 @@ send:
 		msg->msg_txni = best_ni;
 		lnet_net_unlock(cpt);
 
+		CDEBUG(D_NET, "%p %d from %s to %s\n",
+			msg, msg->msg_type, libcfs_nid2str(best_ni->ni_nid),
+			libcfs_nid2str(best_ni->ni_nid));
+
 		return LNET_CREDIT_OK;
 	}
 
@@ -1959,13 +2008,19 @@ send:
 
 	lnet_net_unlock(cpt);
 
+	CDEBUG(D_NET, "%p %d from %s to %s\n",
+			msg, msg->msg_type, libcfs_nid2str(best_ni->ni_nid),
+			libcfs_nid2str(best_lpni->lpni_nid));
+
 	return rc;
 }
 
 int
-lnet_send(lnet_nid_t src_nid, lnet_msg_t *msg, lnet_nid_t rtr_nid)
+lnet_send(lnet_msg_t *msg)
 {
+	lnet_nid_t		src_nid = msg->msg_source;
 	lnet_nid_t		dst_nid = msg->msg_target.nid;
+	lnet_nid_t		rtr_nid = msg->msg_router;
 	int			rc;
 
 	/*
@@ -2125,8 +2180,8 @@ lnet_parse_get(lnet_ni_t *ni, lnet_msg_t *msg, int rdma_get)
 
 	reply_wmd = hdr->msg.get.return_wmd;
 
-	lnet_prep_send(msg, LNET_MSG_REPLY, source_id,
-		       msg->msg_offset, msg->msg_wanted);
+	lnet_prep_send(msg, LNET_MSG_REPLY, source_id, ni->ni_nid,
+		       LNET_NID_ANY, msg->msg_offset, msg->msg_wanted);
 
 	msg->msg_hdr.msg.reply.dst_wmd = reply_wmd;
 
@@ -2140,7 +2195,7 @@ lnet_parse_get(lnet_ni_t *ni, lnet_msg_t *msg, int rdma_get)
 	lnet_ni_recv(ni, msg->msg_private, NULL, 0, 0, 0, 0);
 	msg->msg_receiving = 0;
 
-	rc = lnet_send(ni->ni_nid, msg, LNET_NID_ANY);
+	rc = lnet_send(msg);
 	if (rc < 0) {
 		/* didn't get as far as lnet_ni_send() */
 		CERROR("%s: Unable to send REPLY for GET from %s: %d\n",
@@ -2565,10 +2620,8 @@ lnet_parse(lnet_ni_t *ni, lnet_hdr_t *hdr, lnet_nid_t from_nid,
 	/* for building message event */
 	msg->msg_from = from_nid;
 	if (!for_me) {
-		msg->msg_target.pid	= dest_pid;
-		msg->msg_target.nid	= dest_nid;
-		msg->msg_routing	= 1;
-
+		lnet_prep_forward(msg, dest_nid, dest_pid,
+				  LNET_NID_ANY, LNET_NID_ANY);
 	} else {
 		/* convert common msg->hdr fields to host byteorder */
 		msg->msg_hdr.type	= type;
@@ -2819,7 +2872,8 @@ LNetPut(lnet_nid_t self, lnet_handle_md_t mdh, lnet_ack_req_t ack,
 
 	lnet_msg_attach_md(msg, md, 0, 0);
 
-	lnet_prep_send(msg, LNET_MSG_PUT, target, 0, md->md_length);
+	lnet_prep_send(msg, LNET_MSG_PUT, target, self, LNET_NID_ANY,
+		       0, md->md_length);
 
 	msg->msg_hdr.msg.put.match_bits = cpu_to_le64(match_bits);
 	msg->msg_hdr.msg.put.ptl_index = cpu_to_le32(portal);
@@ -2843,11 +2897,11 @@ LNetPut(lnet_nid_t self, lnet_handle_md_t mdh, lnet_ack_req_t ack,
 
 	lnet_build_msg_event(msg, LNET_EVENT_SEND);
 
-	rc = lnet_send(self, msg, LNET_NID_ANY);
+	rc = lnet_send(msg);
 	if (rc != 0) {
 		CNETERR("Error sending PUT to %s: %d\n",
 			libcfs_id2str(target), rc);
-		lnet_finalize(NULL, msg, rc);
+		lnet_finalize (NULL, msg, rc);
 	}
 
 	/* completion will be signalled by an event */
@@ -3020,7 +3074,7 @@ LNetGet(lnet_nid_t self, lnet_handle_md_t mdh,
 
 	lnet_msg_attach_md(msg, md, 0, 0);
 
-	lnet_prep_send(msg, LNET_MSG_GET, target, 0, 0);
+	lnet_prep_send(msg, LNET_MSG_GET, target, self, LNET_NID_ANY, 0, 0);
 
 	msg->msg_hdr.msg.get.match_bits = cpu_to_le64(match_bits);
 	msg->msg_hdr.msg.get.ptl_index = cpu_to_le32(portal);
@@ -3037,7 +3091,7 @@ LNetGet(lnet_nid_t self, lnet_handle_md_t mdh,
 
 	lnet_build_msg_event(msg, LNET_EVENT_SEND);
 
-	rc = lnet_send(self, msg, LNET_NID_ANY);
+	rc = lnet_send(msg);
 	if (rc < 0) {
 		CNETERR("Error sending GET to %s: %d\n",
 			libcfs_id2str(target), rc);
