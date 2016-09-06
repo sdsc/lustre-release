@@ -1794,9 +1794,44 @@ out:
 	return rc;
 }
 
+int lustre_lnet_config_max_intf(int max, int seq_no, struct cYAML **err_rc)
+{
+	struct lnet_ioctl_set_value data;
+	int rc = LUSTRE_CFG_RC_NO_ERR;
+	char err_str[LNET_MAX_STR_LEN];
+
+	snprintf(err_str, sizeof(err_str), "\"success\"");
+
+	if (max < LNET_MIN_INTERFACES) {
+		snprintf(err_str,
+			 sizeof(err_str),
+			 "\"max interfaces must be greater than %d\"",
+			 LNET_MIN_INTERFACES);
+		rc = LUSTRE_CFG_RC_OUT_OF_RANGE_PARAM;
+		goto out;
+	}
+
+	LIBCFS_IOC_INIT_V2(data, sv_hdr);
+	data.sv_value = max;
+
+	rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_SET_MAX_INTF, &data);
+	if (rc != 0) {
+		rc = -errno;
+		snprintf(err_str,
+			 sizeof(err_str),
+			 "\"cannot configure max interfaces: %s\"", strerror(errno));
+		goto out;
+	}
+
+out:
+	cYAML_build_error(rc, seq_no, ADD_CMD, "max_interfaces", err_str, err_rc);
+
+	return rc;
+}
+
 int lustre_lnet_config_numa_range(int range, int seq_no, struct cYAML **err_rc)
 {
-	struct lnet_ioctl_numa_range data;
+	struct lnet_ioctl_set_value data;
 	int rc = LUSTRE_CFG_RC_NO_ERR;
 	char err_str[LNET_MAX_STR_LEN];
 
@@ -1810,15 +1845,15 @@ int lustre_lnet_config_numa_range(int range, int seq_no, struct cYAML **err_rc)
 		goto out;
 	}
 
-	LIBCFS_IOC_INIT_V2(data, nr_hdr);
-	data.nr_range = range;
+	LIBCFS_IOC_INIT_V2(data, sv_hdr);
+	data.sv_value = range;
 
 	rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_SET_NUMA_RANGE, &data);
 	if (rc != 0) {
 		rc = -errno;
 		snprintf(err_str,
 			 sizeof(err_str),
-			 "\"cannot configure buffers: %s\"", strerror(errno));
+			 "\"cannot configure numa_range: %s\"", strerror(errno));
 		goto out;
 	}
 
@@ -2226,18 +2261,87 @@ out:
 	return rc;
 }
 
-int lustre_lnet_show_numa_range(int seq_no, struct cYAML **show_rc,
-				struct cYAML **err_rc)
+void static add_to_global(struct cYAML *show_rc, struct cYAML *node,
+			  struct cYAML *root)
 {
-	struct lnet_ioctl_numa_range data;
+	struct cYAML *show_node;
+
+	show_node = cYAML_get_object_item(show_rc, "global");
+	if (show_node != NULL)
+		cYAML_insert_sibling(show_node->cy_child,
+				     node->cy_child);
+	else
+		cYAML_insert_sibling(show_rc->cy_child,
+				     node);
+	free(root);
+}
+
+int lustre_lnet_show_max_intf(int seq_no, struct cYAML **show_rc,
+			      struct cYAML **err_rc)
+{
+	struct lnet_ioctl_set_value data;
 	int rc = LUSTRE_CFG_RC_OUT_OF_MEM;
 	int l_errno;
 	char err_str[LNET_MAX_STR_LEN];
-	struct cYAML *root = NULL, *range = NULL;
+	struct cYAML *root = NULL, *global = NULL;
 
 	snprintf(err_str, sizeof(err_str), "\"out of memory\"");
 
-	LIBCFS_IOC_INIT_V2(data, nr_hdr);
+	LIBCFS_IOC_INIT_V2(data, sv_hdr);
+
+	rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_GET_MAX_INTF, &data);
+	if (rc != 0) {
+		l_errno = errno;
+		snprintf(err_str,
+			 sizeof(err_str),
+			 "\"cannot get max interfaces: %s\"",
+			 strerror(l_errno));
+		rc = -l_errno;
+		goto out;
+	}
+
+	root = cYAML_create_object(NULL, NULL);
+	if (root == NULL)
+		goto out;
+
+	global = cYAML_create_object(root, "global");
+	if (global == NULL)
+		goto out;
+
+	if (cYAML_create_number(global, "max_intf",
+				data.sv_value) == NULL)
+		goto out;
+
+	if (show_rc == NULL)
+		cYAML_print_tree(root);
+
+	snprintf(err_str, sizeof(err_str), "\"success\"");
+out:
+	if (show_rc == NULL || rc != LUSTRE_CFG_RC_NO_ERR) {
+		cYAML_free_tree(root);
+	} else if (show_rc != NULL && *show_rc != NULL) {
+		add_to_global(*show_rc, global, root);
+	} else {
+		*show_rc = root;
+	}
+
+	cYAML_build_error(rc, seq_no, SHOW_CMD, "global", err_str, err_rc);
+
+	return rc;
+}
+
+int lustre_lnet_show_numa_range(int seq_no, struct cYAML **show_rc,
+				struct cYAML **err_rc)
+{
+	struct lnet_ioctl_set_value data;
+	int rc = LUSTRE_CFG_RC_OUT_OF_MEM;
+	int l_errno;
+	char err_str[LNET_MAX_STR_LEN];
+	struct cYAML *root = NULL, *global = NULL;
+
+	snprintf(err_str, sizeof(err_str), "\"out of memory\"");
+
+	LIBCFS_IOC_INIT_V2(data, sv_hdr);
 
 	rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_GET_NUMA_RANGE, &data);
 	if (rc != 0) {
@@ -2254,12 +2358,12 @@ int lustre_lnet_show_numa_range(int seq_no, struct cYAML **show_rc,
 	if (root == NULL)
 		goto out;
 
-	range = cYAML_create_object(root, "numa");
-	if (range == NULL)
+	global = cYAML_create_object(root, "global");
+	if (global == NULL)
 		goto out;
 
-	if (cYAML_create_number(range, "range",
-				data.nr_range) == NULL)
+	if (cYAML_create_number(global, "numa_range",
+				data.sv_value) == NULL)
 		goto out;
 
 	if (show_rc == NULL)
@@ -2270,14 +2374,12 @@ out:
 	if (show_rc == NULL || rc != LUSTRE_CFG_RC_NO_ERR) {
 		cYAML_free_tree(root);
 	} else if (show_rc != NULL && *show_rc != NULL) {
-		cYAML_insert_sibling((*show_rc)->cy_child,
-					root->cy_child);
-		free(root);
+		add_to_global(*show_rc, global, root);
 	} else {
 		*show_rc = root;
 	}
 
-	cYAML_build_error(rc, seq_no, SHOW_CMD, "numa", err_str, err_rc);
+	cYAML_build_error(rc, seq_no, SHOW_CMD, "global", err_str, err_rc);
 
 	return rc;
 }
@@ -3013,39 +3115,77 @@ static int handle_yaml_show_stats(struct cYAML *tree, struct cYAML **show_rc,
 				      show_rc, err_rc);
 }
 
-static int handle_yaml_config_numa(struct cYAML *tree, struct cYAML **show_rc,
-				  struct cYAML **err_rc)
+static int handle_yaml_config_global_settings(struct cYAML *tree,
+					      struct cYAML **show_rc,
+					      struct cYAML **err_rc)
 {
-	struct cYAML *seq_no, *range;
+	struct cYAML *max_intf, *numa, *seq_no;
+	int rc = 0;
 
 	seq_no = cYAML_get_object_item(tree, "seq_no");
-	range = cYAML_get_object_item(tree, "range");
+	max_intf = cYAML_get_object_item(tree, "max_intf");
+	if (max_intf)
+		rc = lustre_lnet_config_max_intf(max_intf->cy_valueint,
+						 seq_no ? seq_no->cy_valueint
+							: -1,
+						 err_rc);
 
-	return lustre_lnet_config_numa_range(range ? range->cy_valueint : -1,
-					     seq_no ? seq_no->cy_valueint : -1,
-					     err_rc);
+	numa = cYAML_get_object_item(tree, "numa_range");
+	if (numa)
+		rc = lustre_lnet_config_numa_range(numa->cy_valueint,
+						   seq_no ? seq_no->cy_valueint
+							: -1,
+						   err_rc);
+
+	return rc;
 }
 
-static int handle_yaml_del_numa(struct cYAML *tree, struct cYAML **show_rc,
-			       struct cYAML **err_rc)
+static int handle_yaml_del_global_settings(struct cYAML *tree,
+					   struct cYAML **show_rc,
+					   struct cYAML **err_rc)
 {
-	struct cYAML *seq_no;
+	struct cYAML *max_intf, *numa, *seq_no;
+	int rc = 0;
 
 	seq_no = cYAML_get_object_item(tree, "seq_no");
+	max_intf = cYAML_get_object_item(tree, "max_intf");
+	if (max_intf)
+		rc = lustre_lnet_config_max_intf(LNET_MAX_INTERFACES_DEFAULT,
+						 seq_no ? seq_no->cy_valueint
+							: -1,
+						 err_rc);
 
-	return lustre_lnet_config_numa_range(0, seq_no ? seq_no->cy_valueint : -1,
-					     err_rc);
+	numa = cYAML_get_object_item(tree, "numa_range");
+	if (numa)
+		rc = lustre_lnet_config_numa_range(0,
+						   seq_no ? seq_no->cy_valueint
+							: -1,
+						   err_rc);
+
+	return rc;
 }
 
-static int handle_yaml_show_numa(struct cYAML *tree, struct cYAML **show_rc,
-				struct cYAML **err_rc)
+static int handle_yaml_show_global_settings(struct cYAML *tree,
+					    struct cYAML **show_rc,
+					    struct cYAML **err_rc)
 {
-	struct cYAML *seq_no;
+	struct cYAML *max_intf, *numa, *seq_no;
+	int rc = 0;
 
 	seq_no = cYAML_get_object_item(tree, "seq_no");
+	max_intf = cYAML_get_object_item(tree, "max_intf");
+	if (max_intf)
+		rc = lustre_lnet_show_max_intf(seq_no ? seq_no->cy_valueint
+							: -1,
+						show_rc, err_rc);
 
-	return lustre_lnet_show_numa_range(seq_no ? seq_no->cy_valueint : -1,
-					   show_rc, err_rc);
+	numa = cYAML_get_object_item(tree, "numa_range");
+	if (numa)
+		rc = lustre_lnet_show_numa_range(seq_no ? seq_no->cy_valueint
+							: -1,
+						 show_rc, err_rc);
+
+	return rc;
 }
 
 struct lookup_cmd_hdlr_tbl {
@@ -3060,7 +3200,7 @@ static struct lookup_cmd_hdlr_tbl lookup_config_tbl[] = {
 	{"peer", handle_yaml_config_peer},
 	{"routing", handle_yaml_config_routing},
 	{"buffers", handle_yaml_config_buffers},
-	{"numa", handle_yaml_config_numa},
+	{"global", handle_yaml_config_global_settings},
 	{NULL, NULL}
 };
 
@@ -3069,7 +3209,7 @@ static struct lookup_cmd_hdlr_tbl lookup_del_tbl[] = {
 	{"net", handle_yaml_del_ni},
 	{"peer", handle_yaml_del_peer},
 	{"routing", handle_yaml_del_routing},
-	{"numa", handle_yaml_del_numa},
+	{"global", handle_yaml_del_global_settings},
 	{NULL, NULL}
 };
 
@@ -3080,7 +3220,7 @@ static struct lookup_cmd_hdlr_tbl lookup_show_tbl[] = {
 	{"routing", handle_yaml_show_routing},
 	{"credits", handle_yaml_show_credits},
 	{"statistics", handle_yaml_show_stats},
-	{"numa", handle_yaml_show_numa},
+	{"global", handle_yaml_show_global_settings},
 	{NULL, NULL}
 };
 
