@@ -321,6 +321,34 @@ lnet_msg_decommit(lnet_msg_t *msg, int cpt, int status)
 	}
 }
 
+/*
+ * Uncommit for TX, in preparation for calling lnet_msg_commit() and
+ * lnet_send() again.  Call with lnet_net_lock/CPT held.
+ */
+void
+lnet_msg_uncommit_tx(lnet_msg_t *msg, int cpt, int status)
+{
+	LASSERT(msg->msg_tx_committed || msg->msg_rx_committed);
+	LASSERT(msg->msg_onactivelist);
+
+	/* decommit for sending first */
+	if (msg->msg_tx_committed) {
+		LASSERT(msg->msg_sending);
+		LASSERT(cpt == msg->msg_tx_cpt);
+		lnet_msg_decommit_tx(msg, status);
+		msg->msg_sending = 0;
+	}
+
+	/* if the message is also commited for receiving we're done */
+	if (msg->msg_rx_committed)
+		return;
+
+	list_del(&msg->msg_activelist);
+	msg->msg_onactivelist = 0;
+
+	the_lnet.ln_counters[cpt]->msgs_alloc--;
+}
+
 void
 lnet_msg_attach_md(lnet_msg_t *msg, lnet_libmd_t *md,
 		   unsigned int offset, unsigned int mlen)
@@ -350,10 +378,15 @@ lnet_msg_attach_md(lnet_msg_t *msg, lnet_libmd_t *md,
 }
 
 void
-lnet_msg_detach_md(lnet_msg_t *msg, int status)
+lnet_msg_detach_md(lnet_msg_t *msg)
 {
 	lnet_libmd_t	*md = msg->msg_md;
 	int		unlink;
+	int		cpt;
+
+	cpt = lnet_cpt_of_cookie(msg->msg_md->md_lh.lh_cookie);
+
+	lnet_res_lock(cpt);
 
 	/* Now it's safe to drop my caller's ref */
 	md->md_refcount--;
@@ -361,7 +394,6 @@ lnet_msg_detach_md(lnet_msg_t *msg, int status)
 
 	unlink = lnet_md_unlinkable(md);
 	if (md->md_eq != NULL) {
-		msg->msg_ev.status   = status;
 		msg->msg_ev.unlinked = unlink;
 		lnet_eq_enqueue_event(md->md_eq, &msg->msg_ev);
 	}
@@ -370,6 +402,8 @@ lnet_msg_detach_md(lnet_msg_t *msg, int status)
 		lnet_md_unlink(md);
 
 	msg->msg_md = NULL;
+
+	lnet_res_unlock(cpt);
 }
 
 static int
@@ -381,8 +415,53 @@ lnet_complete_msg_locked(lnet_msg_t *msg, int cpt)
 
 	LASSERT(msg->msg_onactivelist);
 
-        if (status == 0 && msg->msg_ack) {
-                /* Only send an ACK if the PUT completed successfully */
+	if (status != 0) {
+		/*
+		 * A failure occurred when sending or receiving a
+		 * message after lnet_msg_commit() had been called on
+		 * it.
+		 *
+		 * The MD has been kept attached because we may want
+		 * to use it to re-send.
+		 *  if (status != -ESHUTDOWN) {
+		 *     try resending
+		 *
+		 */
+		if (status != -ESHUTDOWN &&
+		    msg->msg_sending &&
+		    !lnet_msg_expired(msg)) {
+			CDEBUG(D_NET, "Resending %p from %s to %s via %s\n",
+			       msg, libcfs_nid2str(msg->msg_source),
+			       libcfs_nid2str(msg->msg_target.nid),
+			       libcfs_nid2str(msg->msg_router));
+			lnet_msg_uncommit_tx(msg, cpt, status);
+			lnet_net_unlock(cpt);
+			rc = lnet_send(msg);
+			lnet_net_lock(cpt);
+			return rc;
+		}
+		/*
+		 * The message is no longer a candidate for resending.
+		 * Detach the MD and signal the EQ in preparation for
+		 * deallocating msg below.
+		 */
+		CDEBUG(D_NET, "Failed %p %s from %s to %s via %s: %d\n",
+		       msg, (msg->msg_sending ? "send" : "recv"),
+		       libcfs_nid2str(msg->msg_source),
+		       libcfs_nid2str(msg->msg_target.nid),
+		       libcfs_nid2str(msg->msg_router), status);
+		if (msg->msg_md) {
+			lnet_net_unlock(cpt);
+			lnet_msg_detach_md(msg);
+			lnet_net_lock(cpt);
+		}
+	} else if (msg->msg_ack) {
+                /*
+		 * An ACK was requested, and the PUT completed
+		 * successfully. Reuse the existing lnet_msg_t.  This
+		 * reuse means msg cannot be freed below. This will be
+		 * done when the send operation calls lnet_finalize().
+		 */
 
 		lnet_msg_decommit(msg, cpt, 0);
 
@@ -394,7 +473,8 @@ lnet_complete_msg_locked(lnet_msg_t *msg, int cpt)
 
                 ack_wmd = msg->msg_hdr.msg.put.ack_wmd;
 
-                lnet_prep_send(msg, LNET_MSG_ACK, msg->msg_ev.source, 0, 0);
+                lnet_prep_send(msg, LNET_MSG_ACK, msg->msg_ev.source,
+			       msg->msg_ev.target.nid, LNET_NID_ANY, 0, 0);
 
                 msg->msg_hdr.msg.ack.dst_wmd = ack_wmd;
                 msg->msg_hdr.msg.ack.match_bits = msg->msg_ev.match_bits;
@@ -402,7 +482,7 @@ lnet_complete_msg_locked(lnet_msg_t *msg, int cpt)
 
 		/* NB: we probably want to use NID of msg::msg_from as 3rd
 		 * parameter (router NID) if it's routed message */
-		rc = lnet_send(msg->msg_ev.target.nid, msg, LNET_NID_ANY);
+		rc = lnet_send(msg);
 
 		lnet_net_lock(cpt);
 		/*
@@ -418,13 +498,18 @@ lnet_complete_msg_locked(lnet_msg_t *msg, int cpt)
 		 */
 		return rc;
 
-	} else if (status == 0 &&	/* OK so far */
-		   (msg->msg_routing && !msg->msg_sending)) {
-		/* not forwarded */
+	} else if (msg->msg_routing && !msg->msg_sending) {
+		/*
+		 * A routed message has been fully received and not
+		 * yet forwarded. Reuse the lnet_msg_t and send it
+		 * on. This reuse means msg cannot be freed below.
+		 * This will be done when the send operation calls
+		 * lnet_finalize().
+		 */
 		LASSERT(!msg->msg_receiving);	/* called back recv already */
 		lnet_net_unlock(cpt);
 
-		rc = lnet_send(LNET_NID_ANY, msg, LNET_NID_ANY);
+		rc = lnet_send(msg);
 
 		lnet_net_lock(cpt);
 		/*
@@ -462,21 +547,27 @@ lnet_finalize(lnet_ni_t *ni, lnet_msg_t *msg, int status)
 	if (msg == NULL)
 		return;
 
-        msg->msg_ev.status = status;
+	CDEBUG(D_NET, "%p %d from %s to %s via %s (%u/%u): %d\n",
+	       msg, msg->msg_type, libcfs_nid2str(msg->msg_source),
+	       libcfs_nid2str(msg->msg_target.nid),
+	       libcfs_nid2str(msg->msg_router), msg->msg_offset,
+		msg->msg_len, status);
 
-	if (msg->msg_md != NULL) {
-		cpt = lnet_cpt_of_cookie(msg->msg_md->md_lh.lh_cookie);
+	msg->msg_ev.status = status;
+	/*
+	 * If the message was successfully sent, detach the MD now so
+	 * the sender gets the event and can make progress.
+	 */
+	if (status == 0 && msg->msg_md != NULL)
+		lnet_msg_detach_md(msg);
 
-		lnet_res_lock(cpt);
-		lnet_msg_detach_md(msg, status);
-		lnet_res_unlock(cpt);
-	}
-
- again:
+again:
 	rc = 0;
 	if (!msg->msg_tx_committed && !msg->msg_rx_committed) {
 		/* not committed to network yet */
 		LASSERT(!msg->msg_onactivelist);
+		if (msg->msg_md != NULL)
+			lnet_msg_detach_md(msg);
 		lnet_msg_free(msg);
 		return;
 	}
