@@ -892,14 +892,16 @@ lnet_peer_ni_add_non_mr(lnet_nid_t nid)
 }
 
 /*
+ * Implementation of IOC_LIBCFS_ADD_PEER_NI.
+ *
  * This API handles the following combinations:
- *	Create a primary NI if only the key_nid is provided
- *	Create or add an lpni to a primary NI. Primary NI must've already
- *	been created
- *	Create a non-MR peer.
+ *   Create a primary NI if only the key_nid is provided
+ *   Create or add an lpni to a primary NI. Primary NI must've already
+ *   been created
+ *   Create a non-MR peer.
  */
 int
-lnet_add_peer_ni_to_peer(lnet_nid_t key_nid, lnet_nid_t nid, bool mr)
+lnet_add_peer_ni(lnet_nid_t key_nid, lnet_nid_t nid, bool mr)
 {
 	/*
 	 * Caller trying to setup an MR like peer hierarchy but
@@ -930,8 +932,16 @@ lnet_add_peer_ni_to_peer(lnet_nid_t key_nid, lnet_nid_t nid, bool mr)
 	return 0;
 }
 
+/*
+ * Implementation of IOC_LIBCFS_DEL_PEER_NI.
+ *
+ * This API handles the following combinations:
+ *   Delete a NI from a peer if both key_nid and nid are provided.
+ *   Delete a peer if only key_nid is provided.
+ *   Delete a peer if its primary nid is provided.
+ */
 int
-lnet_del_peer_ni_from_peer(lnet_nid_t key_nid, lnet_nid_t nid)
+lnet_del_peer_ni(lnet_nid_t key_nid, lnet_nid_t nid)
 {
 	lnet_nid_t local_nid;
 	struct lnet_peer *peer;
