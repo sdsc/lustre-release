@@ -1686,6 +1686,8 @@ static int lnet_peer_discovery_wait_for_work(void)
 				TASK_INTERRUPTIBLE);
 		if (the_lnet.ln_dc_state == LNET_DC_STATE_STOPPING)
 			break;
+		if (lnet_push_target_resize_needed())
+			break;
 		if (!list_empty(&the_lnet.ln_dc_request))
 			break;
 		lnet_net_unlock(cpt);
@@ -1716,6 +1718,9 @@ static int lnet_peer_discovery(void *arg)
 	for (;;) {
 		if (lnet_peer_discovery_wait_for_work())
 			break;
+
+		if (lnet_push_target_resize_needed())
+			lnet_push_target_resize();
 
 		lnet_net_lock(LNET_LOCK_EX);
 		if (the_lnet.ln_dc_state == LNET_DC_STATE_STOPPING)
