@@ -483,7 +483,8 @@ struct ll_sb_info {
         int                       ll_flags;
 	unsigned int		  ll_umounting:1,
 				  ll_xattr_cache_enabled:1,
-				  ll_client_common_fill_super_succeeded:1;
+				  ll_client_common_fill_super_succeeded:1,
+				  ll_opencache:1; /* for test only */
 
         struct lustre_client_ocd  ll_lco;
 
