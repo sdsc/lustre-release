@@ -911,4 +911,10 @@ lnet_peer_is_multi_rail(struct lnet_peer *lp)
 	return false;
 }
 
+static inline bool
+lnet_peer_ni_is_primary(struct lnet_peer_ni *lpni)
+{
+	return lpni->lpni_nid == lpni->lpni_peer_net->lpn_peer->lp_primary_nid;
+}
+
 #endif
