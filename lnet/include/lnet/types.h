@@ -242,6 +242,48 @@ typedef struct lnet_counters {
 #define LNET_NI_STATUS_DOWN	0xdeadface
 #define LNET_NI_STATUS_INVALID	0x00000000
 
+typedef struct {
+	lnet_nid_t ns_nid;
+	__u32      ns_status;
+	__u32      ns_unused;
+} WIRE_ATTR lnet_ni_status_t;
+
+/*
+ * NB: value of these features equal to LNET_PROTO_PING_VERSION_x
+ * of old LNet, so there shouldn't be any compatibility issue
+ */
+#define LNET_PING_FEAT_INVAL		(0)		/* no feature */
+#define LNET_PING_FEAT_BASE		(1 << 0)	/* just a ping */
+#define LNET_PING_FEAT_NI_STATUS	(1 << 1)	/* return NI status */
+#define LNET_PING_FEAT_RTE_DISABLED	(1 << 2)        /* Routing enabled */
+#define LNET_PING_FEAT_MULTI_RAIL	(1 << 3)        /* Multi-Rail aware */
+
+/*
+ * All ping feature bits fit to hit the wire.
+ * In lnet_assert_wire_constants() this is compared against its open-coded
+ * value, and in lnet_ping_target_update() it is used to verify that no
+ * unknown bits have been set.
+ * New feature bits can be added, just be aware that this does change the
+ * over-the-wire protocol.
+ */
+#define LNET_PING_FEAT_BITS		(LNET_PING_FEAT_BASE | \
+					 LNET_PING_FEAT_NI_STATUS | \
+					 LNET_PING_FEAT_RTE_DISABLED | \
+					 LNET_PING_FEAT_MULTI_RAIL)
+
+typedef struct lnet_ping_info {
+	__u32			pi_magic;
+	__u32			pi_features;
+	lnet_pid_t		pi_pid;
+	__u32			pi_nnis;
+	lnet_ni_status_t	pi_ni[0];
+} WIRE_ATTR lnet_ping_info_t;
+
+#define LNET_PING_INFO_SIZE(NNIDS) \
+	offsetof(struct lnet_ping_info, pi_ni[NNIDS])
+#define LNET_PING_INFO_LONI(PINFO)	((PINFO)->pi_ni[0].ns_nid)
+#define LNET_PING_INFO_SEQNO(PINFO)	((PINFO)->pi_ni[0].ns_status)
+
 /*
  * This is a hard-coded limit on the number of interfaces supported by
  * the interface bonding implemented by the ksocknal LND. It must be
