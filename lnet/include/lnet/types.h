@@ -607,7 +607,7 @@ typedef unsigned LNET_SEQ_BASETYPE lnet_seq_t;
 /**
  * Information about an event on a MD.
  */
-typedef struct {
+typedef struct lnet_event {
 	/** The identifier (nid, pid) of the target. */
 	lnet_process_id_t   target;
 	/** The identifier (nid, pid) of the initiator. */
@@ -652,6 +652,11 @@ typedef struct {
 	 * \see LNetPut
 	 */
 	__u64               hdr_data;
+	/**
+	 * The message type, to ensure a handler for LNET_EVENT_SEND can
+	 * distinguish between LNET_MSG_GET and LNET_MSG_PUT.
+	 */
+	__u32               msg_type;
 	/**
 	 * Indicates the completion status of the operation. It's 0 for
 	 * successful operations, otherwise it's an error code.
