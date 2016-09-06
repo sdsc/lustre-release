@@ -65,6 +65,11 @@ module_param(lnet_numa_range, uint, 0444);
 MODULE_PARM_DESC(lnet_numa_range,
 		"NUMA range to consider during Multi-Rail selection");
 
+static int lnet_max_interfaces = LNET_MAX_INTERFACES_DEFAULT;
+module_param(lnet_max_interfaces, int, 0444);
+MODULE_PARM_DESC(lnet_max_interfaces,
+		"Maximum number of interfaces in a node.");
+
 /*
  * This sequence number keeps track of how many times DLC was used to
  * update the local NIs. It is incremented when a NI is added or
@@ -1711,6 +1716,9 @@ int lnet_lib_init(void)
 
 	lnet_assert_wire_constants();
 
+	if (lnet_max_interfaces < LNET_MIN_INTERFACES)
+		lnet_max_interfaces = LNET_MIN_INTERFACES;
+
 	memset(&the_lnet, 0, sizeof(the_lnet));
 
 	/* refer to global cfs_cpt_table for now */
@@ -3030,7 +3038,7 @@ lnet_ping(lnet_process_id_t id, int timeout_ms, lnet_process_id_t __user *ids,
 	if (n_ids <= 0 ||
 	    id.nid == LNET_NID_ANY ||
 	    timeout_ms > 500000 ||		/* arbitrary limit! */
-	    n_ids > 20)				/* arbitrary limit! */
+	    n_ids > lnet_max_interfaces)
 		return -EINVAL;
 
 	if (id.pid == LNET_PID_ANY)
