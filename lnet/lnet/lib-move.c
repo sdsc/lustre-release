@@ -633,6 +633,8 @@ lnet_prep_send(lnet_msg_t *msg, int type, lnet_process_id_t target,
 
         memset (&msg->msg_hdr, 0, sizeof (msg->msg_hdr));
         msg->msg_hdr.type           = cpu_to_le32(type);
+	/* dest_nid will be overwritten by lnet_select_pathway() */
+	msg->msg_hdr.dest_nid       = cpu_to_le64(target.nid);
         msg->msg_hdr.dest_pid       = cpu_to_le32(target.pid);
         /* src_nid will be set later */
         msg->msg_hdr.src_pid        = cpu_to_le32(the_lnet.ln_pid);
