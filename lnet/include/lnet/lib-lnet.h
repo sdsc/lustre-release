@@ -583,7 +583,7 @@ int lnet_islocalnet(__u32 net);
 
 void lnet_msg_attach_md(lnet_msg_t *msg, lnet_libmd_t *md,
 			unsigned int offset, unsigned int mlen);
-void lnet_msg_detach_md(lnet_msg_t *msg, int status);
+void lnet_msg_detach_md(lnet_msg_t *msg);
 void lnet_build_unlink_event(lnet_libmd_t *md, lnet_event_t *ev);
 void lnet_build_msg_event(lnet_msg_t *msg, lnet_event_kind_t ev_type);
 void lnet_msg_commit(lnet_msg_t *msg, int cpt);
@@ -591,12 +591,19 @@ void lnet_msg_decommit(lnet_msg_t *msg, int cpt, int status);
 
 void lnet_eq_enqueue_event(lnet_eq_t *eq, lnet_event_t *ev);
 void lnet_prep_send(lnet_msg_t *msg, int type, lnet_process_id_t target,
+		    lnet_nid_t source, lnet_nid_t router,
 		    unsigned int offset, unsigned int len);
-int lnet_send(lnet_nid_t nid, lnet_msg_t *msg, lnet_nid_t rtr_nid);
+int lnet_send(lnet_msg_t *msg);
 void lnet_return_tx_credits_locked(lnet_msg_t *msg);
 void lnet_return_rx_credits_locked(lnet_msg_t *msg);
 void lnet_schedule_blocked_locked(lnet_rtrbufpool_t *rbp);
 void lnet_drop_routed_msgs_locked(struct list_head *list, int cpt);
+
+static inline bool
+lnet_msg_expired(lnet_msg_t *msg)
+{
+	return time_after(jiffies, msg->msg_deadline);
+}
 
 /* portals functions */
 /* portals attributes */

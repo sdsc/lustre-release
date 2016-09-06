@@ -67,12 +67,19 @@ typedef struct lnet_msg {
 	struct list_head	msg_activelist;
 	struct list_head	msg_list;	/* Q for credits/MD */
 
+	/* Ultimate destination of message. */
 	lnet_process_id_t	msg_target;
-	/* Primary NID of the source. */
+	/* NID to send from. */
+	lnet_nid_t		msg_source;
+	/* NID of preferred router. */
+	lnet_nid_t		msg_router;
+	/* Primary NID of the original sender. */
 	lnet_nid_t		msg_initiator;
 	/* where is it from, it's only for building event */
 	lnet_nid_t		msg_from;
 	__u32			msg_type;
+	/* We we should stop trying to resend it. */
+	unsigned long		msg_deadline;
 
 	/* committed for sending */
 	unsigned int		msg_tx_committed:1;
