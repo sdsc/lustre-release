@@ -984,6 +984,105 @@ int jt_ptl_ping(int argc, char **argv)
         return 0;
 }
 
+int jt_ptl_discover(int argc, char **argv)
+{
+	int			 rc;
+	lnet_process_id_t	 id;
+	lnet_process_id_t	 ids[16];
+	int			 maxids = sizeof(ids)/sizeof(ids[0]);
+	struct libcfs_ioctl_data data;
+	char			*sep;
+	int			 force = 0;
+	int			 i;
+
+	static struct option opts[] = {
+		{"force",	no_argument,	NULL,	'f'},
+		{0, 0, NULL, 0}
+	};
+
+	for (;;) {
+		int c = getopt_long(argc, argv, "f", opts, NULL);
+
+		if (c == -1)
+			break;
+
+		switch (c) {
+		case 'f': /* force */
+			force = 1;
+			break;
+
+		default:
+			fprintf(stderr,
+				"error: %s: option '%s' unrecognized\n",
+				argv[0], argv[optind - 1]);
+			optind = 1;
+			return -1;
+		}
+	}
+	i = optind;
+	optind = 1;
+
+	if (argc <= i) {
+		fprintf(stderr, "usage: %s  [-f | --force] id\n", argv[0]);
+		return 0;
+	}
+
+
+	sep = strchr(argv[i], '-');
+	if (sep == NULL) {
+		rc = lnet_parse_nid(argv[i], &id);
+		if (rc != 0)
+			return -1;
+	} else {
+		char   *end;
+
+		if (argv[i][0] == 'u' ||
+		    argv[i][0] == 'U')
+			id.pid = strtoul(&argv[i][1], &end, 0) | LNET_PID_USERFLAG;
+		else
+			id.pid = strtoul(argv[i], &end, 0);
+
+		if (end != sep) { /* assuming '-' is part of hostname */
+			rc = lnet_parse_nid(argv[i], &id);
+			if (rc != 0)
+				return -1;
+		} else {
+			id.nid = libcfs_str2nid(sep + 1);
+
+			if (id.nid == LNET_NID_ANY) {
+				fprintf(stderr,
+					"Can't parse process id \"%s\"\n",
+					argv[i]);
+				return -1;
+			}
+		}
+	}
+
+	LIBCFS_IOC_INIT(data);
+	data.ioc_nid	 = id.nid;
+	data.ioc_u32[0]	 = id.pid;
+	data.ioc_u32[1]	 = force;
+	data.ioc_plen1	 = sizeof(ids);
+	data.ioc_pbuf1	 = (char *)ids;
+
+	rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_DISCOVER, &data);
+	if (rc != 0) {
+		fprintf(stderr, "failed to discover %s: %s\n",
+			id.pid == LNET_PID_ANY ?
+			libcfs_nid2str(id.nid) : libcfs_id2str(id),
+			strerror(errno));
+		return -1;
+	}
+
+	for (i = 0; i < data.ioc_count && i < maxids; i++)
+		printf("%s\n", libcfs_id2str(ids[i]));
+
+	if (data.ioc_count > maxids)
+		printf("%d out of %d ids listed\n", maxids, data.ioc_count);
+
+	return 0;
+}
+
 int jt_ptl_mynid(int argc, char **argv)
 {
         struct libcfs_ioctl_data data;
