@@ -451,14 +451,13 @@ struct lnet_ping_buffer {
 
 
 /* router checker data, per router */
-#define LNET_MAX_RTR_NIS   LNET_MIN_INTERFACES
-#define LNET_RTR_PINGINFO_SIZE	LNET_PING_INFO_SIZE(LNET_MAX_RTR_NIS)
 typedef struct {
 	/* chain on the_lnet.ln_zombie_rcd or ln_deathrow_rcd */
 	struct list_head	rcd_list;
 	lnet_handle_md_t	rcd_mdh;	/* ping buffer MD */
 	struct lnet_peer_ni	*rcd_gateway;	/* reference to gateway */
 	struct lnet_ping_buffer	*rcd_pingbuffer;/* ping buffer */
+	int			rcd_nnis;	/* desired size of buffer */
 } lnet_rc_data_t;
 
 struct lnet_peer_ni {
