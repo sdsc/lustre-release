@@ -50,13 +50,14 @@ static int jt_show_net(int argc, char **argv);
 static int jt_show_routing(int argc, char **argv);
 static int jt_show_stats(int argc, char **argv);
 static int jt_show_peer(int argc, char **argv);
-static int jt_show_numa(int argc, char **argv);
+static int jt_show_global(int argc, char **argv);
 static int jt_set_tiny(int argc, char **argv);
 static int jt_set_small(int argc, char **argv);
 static int jt_set_large(int argc, char **argv);
 static int jt_set_numa(int argc, char **argv);
 static int jt_add_peer_nid(int argc, char **argv);
 static int jt_del_peer_nid(int argc, char **argv);
+static int jt_set_max_intf(int argc, char **argv);
 /*static int jt_show_peer(int argc, char **argv);*/
 
 command_t lnet_cmds[] = {
@@ -113,8 +114,8 @@ command_t stats_cmds[] = {
 	{ 0, 0, 0, NULL }
 };
 
-command_t numa_cmds[] = {
-	{"show", jt_show_numa, 0, "show NUMA range\n"},
+command_t global_cmds[] = {
+	{"show", jt_show_global, 0, "show global variables\n"},
 	{ 0, 0, 0, NULL }
 };
 
@@ -130,6 +131,9 @@ command_t set_cmds[] = {
 	 "\t1 - enable routing\n"},
 	{"numa_range", jt_set_numa, 0, "set NUMA range for NI selection\n"
 	 "\tVALUE must be at least 0\n"},
+	{"max_interfaces", jt_set_max_intf, 0, "set the default value for "
+		"max interfaces\n"
+	 "\tValue must be greater than 16\n"},
 	{ 0, 0, 0, NULL }
 };
 
@@ -210,6 +214,33 @@ static int handle_help(const command_t *cmd_list, const char *cmd,
 	return rc;
 }
 
+static int jt_set_max_intf(int argc, char **argv)
+{
+	long int value;
+	int rc;
+	struct cYAML *err_rc = NULL;
+
+	if (handle_help(set_cmds, "set", "max_interfaces", argc, argv) == 0)
+		return 0;
+
+	rc = parse_long(argv[1], &value);
+	if (rc != 0) {
+		cYAML_build_error(-1, -1, "parser", "set",
+				  "cannot parse max_interfaces value", &err_rc);
+		cYAML_print_tree2file(stderr, err_rc);
+		cYAML_free_tree(err_rc);
+		return -1;
+	}
+
+	rc = lustre_lnet_config_max_intf(value, -1, &err_rc);
+	if (rc != LUSTRE_CFG_RC_NO_ERR)
+		cYAML_print_tree2file(stderr, err_rc);
+
+	cYAML_free_tree(err_rc);
+
+	return rc;
+}
+
 static int jt_set_numa(int argc, char **argv)
 {
 	long int value;
@@ -228,7 +259,7 @@ static int jt_set_numa(int argc, char **argv)
 		return -1;
 	}
 
-	rc = lustre_lnet_config_buffers(value, -1, -1, -1, &err_rc);
+	rc = lustre_lnet_config_numa_range(value, -1, &err_rc);
 	if (rc != LUSTRE_CFG_RC_NO_ERR)
 		cYAML_print_tree2file(stderr, err_rc);
 
@@ -824,21 +855,30 @@ static int jt_show_stats(int argc, char **argv)
 	return rc;
 }
 
-static int jt_show_numa(int argc, char **argv)
+static int jt_show_global(int argc, char **argv)
 {
 	int rc;
 	struct cYAML *show_rc = NULL, *err_rc = NULL;
 
-	if (handle_help(numa_cmds, "numa", "show", argc, argv) == 0)
+	if (handle_help(global_cmds, "global", "show", argc, argv) == 0)
 		return 0;
 
 	rc = lustre_lnet_show_numa_range(-1, &show_rc, &err_rc);
-
-	if (rc != LUSTRE_CFG_RC_NO_ERR)
+	if (rc != LUSTRE_CFG_RC_NO_ERR) {
 		cYAML_print_tree2file(stderr, err_rc);
-	else if (show_rc)
+		goto out;
+	}
+
+	rc = lustre_lnet_show_max_intf(-1, &show_rc, &err_rc);
+	if (rc != LUSTRE_CFG_RC_NO_ERR) {
+		cYAML_print_tree2file(stderr, err_rc);
+		goto out;
+	}
+
+	if (show_rc)
 		cYAML_print_tree(show_rc);
 
+out:
 	cYAML_free_tree(err_rc);
 	cYAML_free_tree(show_rc);
 
@@ -905,16 +945,16 @@ static inline int jt_stats(int argc, char **argv)
 	return Parser_execarg(argc - 1, &argv[1], stats_cmds);
 }
 
-static inline int jt_numa(int argc, char **argv)
+static inline int jt_global(int argc, char **argv)
 {
 	if (argc < 2)
 		return CMD_HELP;
 
 	if (argc == 2 &&
-	    handle_help(numa_cmds, "numa", NULL, argc, argv) == 0)
+	    handle_help(global_cmds, "global", NULL, argc, argv) == 0)
 		return 0;
 
-	return Parser_execarg(argc - 1, &argv[1], numa_cmds);
+	return Parser_execarg(argc - 1, &argv[1], global_cmds);
 }
 
 static inline int jt_peers(int argc, char **argv)
@@ -1069,6 +1109,12 @@ static int jt_export(int argc, char **argv)
 	}
 
 	rc = lustre_lnet_show_numa_range(-1, &show_rc, &err_rc);
+	if (rc != LUSTRE_CFG_RC_NO_ERR) {
+		cYAML_print_tree2file(stderr, err_rc);
+		cYAML_free_tree(err_rc);
+	}
+
+	rc = lustre_lnet_show_max_intf(-1, &show_rc, &err_rc);
 	if (rc != LUSTRE_CFG_RC_NO_ERR) {
 		cYAML_print_tree2file(stderr, err_rc);
 		cYAML_free_tree(err_rc);
@@ -1252,7 +1298,7 @@ command_t list[] = {
 				 "--help} FILE.yaml"},
 	{"export", jt_export, 0, "export {--help} FILE.yaml"},
 	{"stats", jt_stats, 0, "stats {show | help}"},
-	{"numa", jt_numa, 0, "numa {show | help}"},
+	{"global", jt_global, 0, "global {show | help}"},
 	{"peer", jt_peers, 0, "peer {add | del | show | help}"},
 	{"help", Parser_help, 0, "help"},
 	{"exit", Parser_quit, 0, "quit"},
