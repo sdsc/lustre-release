@@ -195,9 +195,10 @@ struct lnet_ioctl_peer_cfg {
 	struct libcfs_ioctl_hdr prcfg_hdr;
 	lnet_nid_t prcfg_prim_nid;
 	lnet_nid_t prcfg_cfg_nid;
-	__u32 prcfg_idx;
+	__u32 prcfg_count;
 	bool prcfg_mr;
-	char prcfg_bulk[0];
+	__u32 prcfg_size;
+	void *prcfg_bulk;
 };
 
 struct lnet_ioctl_set_value {

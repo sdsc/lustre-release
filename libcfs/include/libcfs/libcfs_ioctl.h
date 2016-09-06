@@ -150,7 +150,8 @@ struct libcfs_debug_ioctl_data
 #define IOC_LIBCFS_GET_NUMA_RANGE	   _IOWR(IOC_LIBCFS_TYPE, 99, IOCTL_CONFIG_SIZE)
 #define IOC_LIBCFS_SET_MAX_INTF		   _IOWR(IOC_LIBCFS_TYPE, 100, IOCTL_CONFIG_SIZE)
 #define IOC_LIBCFS_GET_MAX_INTF		   _IOWR(IOC_LIBCFS_TYPE, 101, IOCTL_CONFIG_SIZE)
-#define IOC_LIBCFS_MAX_NR					  101
+#define IOC_LIBCFS_GET_PEER_LIST	   _IOWR(IOC_LIBCFS_TYPE, 102, IOCTL_CONFIG_SIZE)
+#define IOC_LIBCFS_MAX_NR					  102
 
 extern int libcfs_ioctl_data_adjust(struct libcfs_ioctl_data *data);
 
