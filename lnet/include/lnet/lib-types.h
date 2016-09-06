@@ -523,6 +523,8 @@ struct lnet_peer_ni {
 #define LNET_PEER_NI_NON_MR_PREF	(1 << 0)
 /* Peer NI was configured with DLC */
 #define LNET_PEER_NI_CONFIGURED		(1 << 1)
+/* Peer NI was added/processed by discovery */
+#define LNET_PEER_NI_DISCOVERED		(1 << 2)
 
 struct lnet_peer {
 	/* chain on pt_peer_list */
@@ -548,10 +550,37 @@ struct lnet_peer {
 
 	/* peer state flags */
 	unsigned		lp_state;
+
+	/* link on discovery-related lists */
+	struct list_head	lp_dc_list;
+
+	/* tasks waiting on discovery of this peer */
+	wait_queue_head_t	lp_dc_waitq;
 };
 
-#define LNET_PEER_MULTI_RAIL	(1 << 0)
-#define LNET_PEER_CONFIGURED	(1 << 1)
+#define LNET_PEER_MULTI_RAIL	(1 << 0)	/* Multi-rail aware */
+
+/*
+ * A peer can be CONFIGURED by DLC, DISCOVERED by peer discovery, or
+ * UNDISCOVERED if discovery was disabled. The UNDISCOVERED state
+ * exists to keep a peer from being requeued to discovery.
+ *
+ * A peer that was created as the result of inbound traffic will not
+ * be marked at all.
+ */
+#define LNET_PEER_CONFIGURED	(1 << 1)	/* Configured via DLC */
+#define LNET_PEER_DISCOVERED	(1 << 2)	/* Peer was discovered */
+#define LNET_PEER_UNDISCOVERED	(1 << 3)	/* Discovery was disabled */
+
+#define LNET_PEER_QUEUED	(1 << 4)	/* Queued for discovery */
+#define LNET_PEER_DISCOVERING	(1 << 5)	/* Discovering */
+#define LNET_PEER_DATA_PRESENT	(1 << 6)	/* Remote peer data present */
+#define LNET_PEER_NIDS_UPTODATE	(1 << 7)	/* Remote peer info uptodate */
+#define LNET_PEER_PING_SENT	(1 << 8)	/* Waiting for REPLY to Ping */
+#define LNET_PEER_PUSH_SENT	(1 << 9)	/* Waiting for ACK of Push */
+#define LNET_PEER_PING_FAILED	(1 << 10)	/* Ping send failure */
+#define LNET_PEER_PUSH_FAILED	(1 << 11)	/* Push send failure */
+#define LNET_PEER_PING_REQUIRED	(1 << 12)	/* Must ping to fix up state */
 
 struct lnet_peer_net {
 	/* chain on lp_peer_nets */
@@ -771,6 +800,11 @@ struct lnet_msg_container {
 	void			**msc_finalizers;
 };
 
+/* Peer Discovery states */
+#define LNET_DC_STATE_SHUTDOWN		0	/* not started */
+#define LNET_DC_STATE_RUNNING		1	/* started up OK */
+#define LNET_DC_STATE_STOPPING		2	/* telling thread to stop */
+
 /* Router Checker states */
 #define LNET_RC_STATE_SHUTDOWN		0	/* not started */
 #define LNET_RC_STATE_RUNNING		1	/* started up OK */
@@ -848,6 +882,17 @@ typedef struct
 	lnet_handle_md_t		ln_ping_target_md;
 	struct lnet_ping_buffer		*ln_ping_target;
 	__u32				ln_ping_target_seqno;
+
+	/* discovery event queue handle */
+	lnet_handle_eq_t		ln_dc_eqh;
+	/* discovery requests */
+	struct list_head		ln_dc_request;
+	/* discovery working list */
+	struct list_head		ln_dc_working;
+	/* discovery thread wait queue */
+	wait_queue_head_t		ln_dc_waitq;
+	/* discovery startup/shutdown state */
+	int				ln_dc_state;
 
 	/* router checker startup/shutdown state */
 	int				ln_rc_state;
