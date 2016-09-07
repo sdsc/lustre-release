@@ -120,6 +120,7 @@ struct fs_db {
 	char		  fsdb_name[9];
 	struct list_head  fsdb_list;		/* list of databases */
 	struct mutex	  fsdb_mutex;
+	atomic_t	  fsdb_ref;
 	void		 *fsdb_ost_index_map;	/* bitmap of used indicies */
 	void		 *fsdb_mdt_index_map;	/* bitmap of used indicies */
 	int		  fsdb_mdt_count;
@@ -185,14 +186,14 @@ struct mgs_object {
 
 int mgs_init_fsdb_list(struct mgs_device *mgs);
 int mgs_cleanup_fsdb_list(struct mgs_device *mgs);
-int mgs__mgs_fsdb_setup(const struct lu_env *env, struct mgs_device *mgs,
-			struct fs_db *fsdb);
-int mgs_params_fsdb_setup(const struct lu_env *env, struct mgs_device *mgs,
-			  struct fs_db *fsdb);
+int mgs__mgs_fsdb_setup(const struct lu_env *env, struct mgs_device *mgs);
+int mgs_params_fsdb_setup(const struct lu_env *env, struct mgs_device *mgs);
 int mgs_params_fsdb_cleanup(const struct lu_env *env, struct mgs_device *mgs);
 int mgs_find_or_make_fsdb(const struct lu_env *env, struct mgs_device *mgs,
 			  char *name, struct fs_db **dbh);
-struct fs_db *mgs_find_fsdb(struct mgs_device *mgs, char *fsname);
+struct fs_db *mgs_find_fsdb(struct mgs_device *mgs, const char *fsname,
+			    bool unlink);
+void mgs_put_fsdb(struct mgs_device *mgs, struct fs_db *fsdb);
 int mgs_get_fsdb_srpc_from_llog(const struct lu_env *env,
 				struct mgs_device *mgs, struct fs_db *fsdb);
 int mgs_check_index(const struct lu_env *env, struct mgs_device *mgs,
@@ -204,7 +205,7 @@ int mgs_replace_nids(const struct lu_env *env, struct mgs_device *mgs,
 int mgs_erase_log(const struct lu_env *env, struct mgs_device *mgs,
 		  char *name);
 int mgs_erase_logs(const struct lu_env *env, struct mgs_device *mgs,
-		   char *fsname);
+		   const char *fsname);
 int mgs_setparam(const struct lu_env *env, struct mgs_device *mgs,
 		 struct lustre_cfg *lcfg, char *fsname);
 int mgs_list_logs(const struct lu_env *env, struct mgs_device *mgs,
