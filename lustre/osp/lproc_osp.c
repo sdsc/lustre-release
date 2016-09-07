@@ -794,6 +794,8 @@ static struct lprocfs_vars lprocfs_osp_obd_vars[] = {
 	  .fops =	&osp_syn_in_prog_fops		},
 	{ .name =	"old_sync_processed",
 	  .fops =	&osp_old_sync_processed_fops	},
+	{ .name =	"max_pages_per_rpc",
+	  .fops =	&osp_max_pages_per_rpc_fops	},
 
 	/* for compatibility reasons */
 	{ .name =	"destroys_in_flight",
