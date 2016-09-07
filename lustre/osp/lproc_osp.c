@@ -918,6 +918,8 @@ static struct lprocfs_vars lprocfs_osp_obd_vars[] = {
 	  .fops =	&osp_reserved_mb_high_fops	},
 	{ .name =	"reserved_mb_low",
 	  .fops =	&osp_reserved_mb_low_fops	},
+	{ .name =	"max_pages_per_rpc",
+	  .fops =	&osp_max_pages_per_rpc_fops	},
 
 	/* for compatibility reasons */
 	{ .name =	"destroys_in_flight",

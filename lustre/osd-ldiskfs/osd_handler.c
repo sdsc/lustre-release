@@ -110,10 +110,8 @@ static struct lu_kmem_descr ldiskfs_caches[] = {
 
 static const char dot[] = ".";
 static const char dotdot[] = "..";
-static const char remote_obj_dir[] = "REM_OBJ_DIR";
 
 static const struct lu_object_operations      osd_lu_obj_ops;
-static const struct dt_object_operations      osd_obj_ops;
 static const struct dt_object_operations      osd_obj_ea_ops;
 static const struct dt_object_operations      osd_obj_otable_it_ops;
 static const struct dt_index_operations       osd_index_iam_ops;
@@ -3072,43 +3070,6 @@ static int osd_declare_object_create(const struct lu_env *env,
 	RETURN(rc);
 }
 
-static int osd_object_create(const struct lu_env *env, struct dt_object *dt,
-			     struct lu_attr *attr,
-			     struct dt_allocation_hint *hint,
-			     struct dt_object_format *dof, struct thandle *th)
-{
-	const struct lu_fid	*fid	= lu_object_fid(&dt->do_lu);
-	struct osd_object	*obj	= osd_dt_obj(dt);
-	struct osd_thread_info	*info	= osd_oti_get(env);
-	int result;
-	ENTRY;
-
-	if (dt_object_exists(dt))
-		return -EEXIST;
-
-	LINVRNT(osd_invariant(obj));
-	LASSERT(!dt_object_remote(dt));
-	LASSERT(osd_write_locked(env, obj));
-	LASSERT(th != NULL);
-
-	if (unlikely(fid_is_acct(fid)))
-		/* Quota files can't be created from the kernel any more,
-		 * 'tune2fs -O quota' will take care of creating them */
-		RETURN(-EPERM);
-
-	result = __osd_object_create(info, obj, attr, hint, dof, th);
-	if (result == 0) {
-		result = __osd_oi_insert(env, obj, fid, th);
-		if (obj->oo_dt.do_body_ops == &osd_body_ops_new)
-			obj->oo_dt.do_body_ops = &osd_body_ops;
-	}
-	LASSERT(ergo(result == 0,
-		dt_object_exists(dt) && !dt_object_remote(dt)));
-
-	LASSERT(osd_invariant(obj));
-	RETURN(result);
-}
-
 /**
  * Called to destroy on-disk representation of the object
  *
@@ -4180,35 +4141,6 @@ static int osd_otable_it_attr_get(const struct lu_env *env,
 	attr->la_valid = 0;
 	return 0;
 }
-
-static const struct dt_object_operations osd_obj_ops = {
-        .do_read_lock         = osd_object_read_lock,
-        .do_write_lock        = osd_object_write_lock,
-        .do_read_unlock       = osd_object_read_unlock,
-        .do_write_unlock      = osd_object_write_unlock,
-        .do_write_locked      = osd_object_write_locked,
-        .do_attr_get          = osd_attr_get,
-        .do_declare_attr_set  = osd_declare_attr_set,
-        .do_attr_set          = osd_attr_set,
-        .do_ah_init           = osd_ah_init,
-        .do_declare_create    = osd_declare_object_create,
-        .do_create            = osd_object_create,
-        .do_declare_destroy   = osd_declare_object_destroy,
-        .do_destroy           = osd_object_destroy,
-        .do_index_try         = osd_index_try,
-        .do_declare_ref_add   = osd_declare_object_ref_add,
-        .do_ref_add           = osd_object_ref_add,
-        .do_declare_ref_del   = osd_declare_object_ref_del,
-        .do_ref_del           = osd_object_ref_del,
-        .do_xattr_get         = osd_xattr_get,
-        .do_declare_xattr_set = osd_declare_xattr_set,
-        .do_xattr_set         = osd_xattr_set,
-        .do_declare_xattr_del = osd_declare_xattr_del,
-        .do_xattr_del         = osd_xattr_del,
-        .do_xattr_list        = osd_xattr_list,
-        .do_object_sync       = osd_object_sync,
-	.do_invalidate	      = osd_invalidate,
-};
 
 /**
  * dt_object_operations for interoperability mode
