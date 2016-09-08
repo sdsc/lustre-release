@@ -62,4 +62,9 @@ static inline int cld_is_nodemap(struct config_llog_data *cld)
 	return cld->cld_type == CONFIG_T_NODEMAP;
 }
 
+static inline int cld_is_barrier(struct config_llog_data *cld)
+{
+        return cld->cld_type == CONFIG_T_BARRIER;
+}
+
 #endif  /* _MGC_INTERNAL_H */
