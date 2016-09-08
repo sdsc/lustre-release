@@ -90,13 +90,13 @@ static inline int out_check_resent(const struct lu_env *env,
 		lustre_msg_set_transno(req->rq_repmsg, req->rq_transno);
 		lustre_msg_set_status(req->rq_repmsg, req->rq_status);
 
-		DEBUG_REQ(D_RPCTRACE, req, "restoring transno "LPD64"status %d",
+		DEBUG_REQ(D_RPCTRACE, req, "restoring transno %lldstatus %d",
 			  req->rq_transno, req->rq_status);
 
 		reconstruct(env, dt, obj, reply, index);
 		return 1;
 	}
-	DEBUG_REQ(D_HA, req, "no reply for RESENT req (have "LPD64")",
+	DEBUG_REQ(D_HA, req, "no reply for RESENT req (have %lld)",
 		 req->rq_export->exp_target_data.ted_lcd->lcd_last_xid);
 	return 0;
 }
