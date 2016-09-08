@@ -6796,6 +6796,29 @@ test_97() {
 }
 run_test 97 "ldev returns correct ouput when querying based on role"
 
+test_98()
+{
+	local mountopt
+	local temp=$MDS_MOUNT_OPTS
+
+	setup
+	check_mount || return 41
+	mountopt="user_xattr"
+	for ((x = 1; x <= 400; x++)); do
+		mountopt="$mountopt,user_xattr"
+	done
+	stop_mds
+	MDS_MOUNT_OPTS="-o $mountopt"
+	out_str=$(start_mds 2>&1)
+	echo $out_str
+	[[ "$out_str" =~ "too long" ]] ||
+		error "Buffer overflow check failed"
+	MDS_MOUNT_OPTS=$temp
+	start_mds
+	cleanup || return $?
+}
+run_test 98 "Buffer-overflow check while parsing mount_opts"
+
 test_99()
 {
 	[[ $(facet_fstype ost1) != ldiskfs ]] &&
