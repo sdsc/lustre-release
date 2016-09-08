@@ -642,13 +642,17 @@ restart:
 			GOTO(out_och_free, rc);
 	}
 	mutex_unlock(&lli->lli_och_mutex);
-        fd = NULL;
 
-        /* Must do this outside lli_och_mutex lock to prevent deadlock where
-           different kind of OPEN lock for this same inode gets cancelled
-           by ldlm_cancel_lru */
-        if (!S_ISREG(inode->i_mode))
-                GOTO(out_och_free, rc);
+	/* lockless for direct IO so that it can do IO in parallel */
+	if (file->f_flags & O_DIRECT)
+		fd->fd_flags |= LL_FILE_LOCKLESS_IO;
+	fd = NULL;
+
+	/* Must do this outside lli_och_mutex lock to prevent deadlock where
+	   different kind of OPEN lock for this same inode gets cancelled
+	   by ldlm_cancel_lru */
+	if (!S_ISREG(inode->i_mode))
+		GOTO(out_och_free, rc);
 
 	cl_lov_delay_create_clear(&file->f_flags);
 	GOTO(out_och_free, rc);
