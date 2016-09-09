@@ -523,6 +523,10 @@ static int ll_dir_setdirstripe(struct dentry *dparent, struct lmv_user_md *lump,
 		err = ll_inode_init_security(&dentry, inode, parent);
 		if (err)
 			GOTO(out_inode, err);
+	} else {
+		err = ll_inode_init_security_simple(&dentry, inode, parent);
+		if (err)
+			GOTO(out_inode, err);
 	}
 
 out_inode:

@@ -956,6 +956,12 @@ static int ll_create_it(struct inode *dir, struct dentry *dentry,
 	if (IS_ERR(inode))
 		RETURN(PTR_ERR(inode));
 
+	if (ll_i2sbi(inode)->ll_flags & LL_SBI_FILE_SECCTX) {
+		rc = ll_inode_init_security_simple(dentry, inode, dir);
+		if (rc)
+			RETURN(rc);
+	}
+
 	d_instantiate(dentry, inode);
 
 	if (!(ll_i2sbi(inode)->ll_flags & LL_SBI_FILE_SECCTX)) {
@@ -1065,6 +1071,12 @@ again:
 	err = ll_prep_inode(&inode, request, dchild->d_sb, NULL);
 	if (err)
 		GOTO(err_exit, err);
+
+	if (sbi->ll_flags & LL_SBI_FILE_SECCTX) {
+		err = ll_inode_init_security_simple(dchild, inode, dir);
+		if (err)
+			GOTO(err_exit, err);
+	}
 
 	d_instantiate(dchild, inode);
 
