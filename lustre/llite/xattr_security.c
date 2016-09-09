@@ -144,6 +144,26 @@ ll_inode_init_security(struct dentry *dentry, struct inode *inode,
 	return ll_security_inode_init_security(inode, dir, NULL, NULL, 0,
 					       &ll_initxattrs, dentry);
 }
+
+/**
+ * Initializes security context of inode from dentry
+ *
+ * Set security context of @inode in @dir from @dentry.
+ * Do not set 'security.xxx' xattr.
+ *
+ * \retval 0        success, or SELinux is disabled
+ * \retval < 0      failure to get security context
+ */
+int
+ll_inode_init_security_simple(struct dentry *dentry, struct inode *inode,
+			      struct inode *dir)
+{
+	if (!selinux_is_enabled())
+		return 0;
+
+	return ll_security_inode_init_security(inode, dir, NULL, NULL, 0,
+					       NULL, dentry);
+}
 #else /* !HAVE_SECURITY_IINITSEC_CALLBACK */
 /**
  * Initializes security context
@@ -188,6 +208,38 @@ ll_inode_init_security(struct dentry *dentry, struct inode *inode,
 out_free:
 	kfree(name);
 	kfree(value);
+
+	return err;
+}
+
+/**
+ * Initializes security context of inode from dentry
+ *
+ * Set security context of @inode in @dir from @dentry.
+ * Do not set 'security.xxx' xattr.
+ *
+ * \retval 0        success, or SELinux is disabled
+ * \retval < 0      failure to get security context
+ */
+int
+ll_inode_init_security_simple(struct dentry *dentry, struct inode *inode,
+			      struct inode *dir)
+{
+	int err;
+	size_t len;
+	void *value;
+	char *name;
+
+	if (!selinux_is_enabled())
+		return 0;
+
+	err = ll_security_inode_init_security(inode, dir, &name, &value, &len,
+					      NULL, dentry);
+	if (err != 0) {
+		if (err == -EOPNOTSUPP)
+			return 0;
+		return err;
+	}
 
 	return err;
 }
