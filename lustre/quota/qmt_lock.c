@@ -857,6 +857,7 @@ int qmt_start_reba_thread(struct qmt_device *qmt)
 		RETURN(PTR_ERR(task));
 	}
 
+	qmt->qmt_reba_init = 1;
 	l_wait_event(thread->t_ctl_waitq,
 		     thread_is_running(thread) || thread_is_stopped(thread),
 		     &lwi);
@@ -871,7 +872,7 @@ void qmt_stop_reba_thread(struct qmt_device *qmt)
 {
 	struct ptlrpc_thread *thread = &qmt->qmt_reba_thread;
 
-	if (!thread_is_stopped(thread)) {
+	if (qmt->qmt_reba_init && !thread_is_stopped(thread)) {
 		struct l_wait_info lwi = { 0 };
 
 		thread_set_flags(thread, SVC_STOPPING);
