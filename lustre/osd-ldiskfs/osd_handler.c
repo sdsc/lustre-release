@@ -2262,8 +2262,6 @@ static int osd_declare_attr_set(const struct lu_env *env,
 		qi->lqi_id.qid_gid = attr->la_gid;
 		qi->lqi_space      = 1;
 		rc = osd_declare_qid(env, oh, qi, NULL, enforce, NULL);
-		if (rc == -EDQUOT || rc == -EINPROGRESS)
-			rc = 0;
 		if (rc)
 			RETURN(rc);
 
@@ -2271,8 +2269,6 @@ static int osd_declare_attr_set(const struct lu_env *env,
 		qi->lqi_id.qid_gid = gid;
 		qi->lqi_space      = -1;
 		rc = osd_declare_qid(env, oh, qi, obj, enforce, NULL);
-		if (rc == -EDQUOT || rc == -EINPROGRESS)
-			rc = 0;
 		if (rc)
 			RETURN(rc);
 
@@ -2283,8 +2279,6 @@ static int osd_declare_attr_set(const struct lu_env *env,
 		qi->lqi_id.qid_gid = attr->la_gid;
 		qi->lqi_space      = bspace;
 		rc = osd_declare_qid(env, oh, qi, obj, enforce, NULL);
-		if (rc == -EDQUOT || rc == -EINPROGRESS)
-			rc = 0;
 		if (rc)
 			RETURN(rc);
 
@@ -2292,8 +2286,6 @@ static int osd_declare_attr_set(const struct lu_env *env,
 		qi->lqi_id.qid_gid = gid;
 		qi->lqi_space      = -bspace;
 		rc = osd_declare_qid(env, oh, qi, obj, enforce, NULL);
-		if (rc == -EDQUOT || rc == -EINPROGRESS)
-			rc = 0;
 		if (rc)
 			RETURN(rc);
 	}
