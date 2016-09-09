@@ -317,17 +317,23 @@ static void mgs_free_fsdb_srpc(struct fs_db *fsdb)
         sptlrpc_rule_set_free(&fsdb->fsdb_srpc_gen);
 }
 
-struct fs_db *mgs_find_fsdb(struct mgs_device *mgs, char *fsname)
+struct fs_db *mgs_find_fsdb(struct mgs_device *mgs, const char *fsname,
+			    bool unlink)
 {
-        struct fs_db *fsdb;
+	struct fs_db *fsdb;
 	struct list_head *tmp;
 
 	list_for_each(tmp, &mgs->mgs_fs_db_list) {
 		fsdb = list_entry(tmp, struct fs_db, fsdb_list);
-                if (strcmp(fsdb->fsdb_name, fsname) == 0)
-                        return fsdb;
-        }
-        return NULL;
+		if (strcmp(fsdb->fsdb_name, fsname) == 0) {
+			if (unlink)
+				list_del_init(&fsdb->fsdb_list);
+			else
+				atomic_inc(&fsdb->fsdb_ref);
+			return fsdb;
+		}
+	}
+	return NULL;
 }
 
 /* caller must hold the mgs->mgs_fs_db_lock */
@@ -351,6 +357,7 @@ static struct fs_db *mgs_new_fsdb(const struct lu_env *env,
 	mutex_init(&fsdb->fsdb_mutex);
 	set_bit(FSDB_UDESC, &fsdb->fsdb_flags);
 	fsdb->fsdb_gen = 1;
+	atomic_set(&fsdb->fsdb_ref, 2);
 
         if (strcmp(fsname, MGSSELF_NAME) == 0) {
 		set_bit(FSDB_MGS_SELF, &fsdb->fsdb_flags);
@@ -392,10 +399,11 @@ err:
 
 static void mgs_free_fsdb(struct mgs_device *mgs, struct fs_db *fsdb)
 {
+	LASSERT(list_empty(&fsdb->fsdb_list));
+
 	/* wait for anyone with the sem */
 	mutex_lock(&fsdb->fsdb_mutex);
 	lproc_mgs_del_live(mgs, fsdb);
-	list_del(&fsdb->fsdb_list);
 
         /* deinitialize fsr */
 	mgs_ir_fini_fs(mgs, fsdb);
@@ -409,6 +417,12 @@ static void mgs_free_fsdb(struct mgs_device *mgs, struct fs_db *fsdb)
         mgs_free_fsdb_srpc(fsdb);
 	mutex_unlock(&fsdb->fsdb_mutex);
         OBD_FREE_PTR(fsdb);
+}
+
+void mgs_put_fsdb(struct mgs_device *mgs, struct fs_db *fsdb)
+{
+	if (atomic_dec_and_test(&fsdb->fsdb_ref))
+		mgs_free_fsdb(mgs, fsdb);
 }
 
 int mgs_init_fsdb_list(struct mgs_device *mgs)
@@ -425,29 +439,29 @@ int mgs_cleanup_fsdb_list(struct mgs_device *mgs)
 	mutex_lock(&mgs->mgs_mutex);
 	list_for_each_safe(tmp, tmp2, &mgs->mgs_fs_db_list) {
 		fsdb = list_entry(tmp, struct fs_db, fsdb_list);
-		mgs_free_fsdb(mgs, fsdb);
+		list_del_init(&fsdb->fsdb_list);
+		mgs_put_fsdb(mgs, fsdb);
 	}
 	mutex_unlock(&mgs->mgs_mutex);
 	return 0;
 }
 
-int mgs_find_or_make_fsdb(const struct lu_env *env,
-			  struct mgs_device *mgs, char *name,
-                          struct fs_db **dbh)
+int mgs_find_or_make_fsdb(const struct lu_env *env, struct mgs_device *mgs,
+			  char *name, struct fs_db **dbh)
 {
-        struct fs_db *fsdb;
-        int rc = 0;
-
+	struct fs_db *fsdb;
+	int rc = 0;
 	ENTRY;
-	mutex_lock(&mgs->mgs_mutex);
-	fsdb = mgs_find_fsdb(mgs, name);
-        if (fsdb) {
-		mutex_unlock(&mgs->mgs_mutex);
-                *dbh = fsdb;
-		RETURN(0);
-        }
 
-        CDEBUG(D_MGS, "Creating new db\n");
+	mutex_lock(&mgs->mgs_mutex);
+	fsdb = mgs_find_fsdb(mgs, name, false);
+	if (fsdb) {
+		mutex_unlock(&mgs->mgs_mutex);
+		*dbh = fsdb;
+		RETURN(0);
+	}
+
+	CDEBUG(D_MGS, "Creating new db\n");
 	fsdb = mgs_new_fsdb(env, mgs, name);
 	/* lock fsdb_mutex until the db is loaded from llogs */
 	if (!IS_ERR(fsdb))
@@ -478,8 +492,17 @@ int mgs_find_or_make_fsdb(const struct lu_env *env,
         RETURN(0);
 
 out_free:
+	if (likely(!list_empty(&fsdb->fsdb_list))) {
+		LASSERTF(atomic_read(&fsdb->fsdb_ref) >= 2,
+			 "Invalid ref %d on %s\n",
+			 atomic_read(&fsdb->fsdb_ref), fsdb->fsdb_name);
+
+		list_del_init(&fsdb->fsdb_list);
+		mgs_put_fsdb(mgs, fsdb);
+	}
 	mutex_unlock(&fsdb->fsdb_mutex);
-	mgs_free_fsdb(mgs, fsdb);
+	mgs_put_fsdb(mgs, fsdb);
+
 	return rc;
 }
 
@@ -504,18 +527,23 @@ int mgs_check_index(const struct lu_env *env,
         }
 
 	if (test_bit(FSDB_LOG_EMPTY, &fsdb->fsdb_flags))
-                RETURN(-1);
+		GOTO(out, rc = -1);
 
-        if (mti->mti_flags & LDD_F_SV_TYPE_OST)
-                imap = fsdb->fsdb_ost_index_map;
-        else if (mti->mti_flags & LDD_F_SV_TYPE_MDT)
-                imap = fsdb->fsdb_mdt_index_map;
-        else
-                RETURN(-EINVAL);
+	if (mti->mti_flags & LDD_F_SV_TYPE_OST)
+		imap = fsdb->fsdb_ost_index_map;
+	else if (mti->mti_flags & LDD_F_SV_TYPE_MDT)
+		imap = fsdb->fsdb_mdt_index_map;
+	else
+		GOTO(out, rc = -EINVAL);
 
 	if (test_bit(mti->mti_stripe_index, imap))
-                RETURN(1);
-        RETURN(0);
+		GOTO(out, rc = 1);
+
+	GOTO(out, rc = 0);
+
+out:
+	mgs_put_fsdb(mgs, fsdb);
+	return rc;
 }
 
 static __inline__ int next_index(void *index_map, int map_len)
@@ -593,20 +621,21 @@ static int mgs_set_index(const struct lu_env *env,
 
 	set_bit(mti->mti_stripe_index, imap);
 	clear_bit(FSDB_LOG_EMPTY, &fsdb->fsdb_flags);
-	mutex_unlock(&fsdb->fsdb_mutex);
 	if (server_make_name(mti->mti_flags & ~(LDD_F_VIRGIN | LDD_F_WRITECONF),
 			     mti->mti_stripe_index, mti->mti_fsname,
 			     mti->mti_svname)) {
 		CERROR("unknown server type %#x\n", mti->mti_flags);
-		return -EINVAL;
+		GOTO(out_up, rc = -EINVAL);
 	}
 
-        CDEBUG(D_MGS, "Set index for %s to %d\n", mti->mti_svname,
-               mti->mti_stripe_index);
+	CDEBUG(D_MGS, "Set index for %s to %d\n", mti->mti_svname,
+	       mti->mti_stripe_index);
 
-        RETURN(0);
+	GOTO(out_up, rc = 0);
+
 out_up:
 	mutex_unlock(&fsdb->fsdb_mutex);
+	mgs_put_fsdb(mgs, fsdb);
 	return rc;
 }
 
@@ -1331,7 +1360,7 @@ int mgs_replace_nids(const struct lu_env *env,
 	int rc;
 	__u32 index;
 	char *logname;
-	struct fs_db *fsdb;
+	struct fs_db *fsdb = NULL;
 	unsigned int i;
 	int conn_state;
 	struct obd_device *mgs_obd = mgs->mgs_obd;
@@ -1385,6 +1414,9 @@ out:
 	spin_lock(&mgs_obd->obd_dev_lock);
 	mgs_obd->obd_no_conn = conn_state;
 	spin_unlock(&mgs_obd->obd_dev_lock);
+
+	if (fsdb)
+		mgs_put_fsdb(mgs, fsdb);
 
 	RETURN(rc);
 }
@@ -3938,7 +3970,8 @@ int mgs_erase_log(const struct lu_env *env, struct mgs_device *mgs, char *name)
 }
 
 /* erase all logs for the given fs */
-int mgs_erase_logs(const struct lu_env *env, struct mgs_device *mgs, char *fsname)
+int mgs_erase_logs(const struct lu_env *env, struct mgs_device *mgs,
+		   const char *fsname)
 {
 	struct fs_db *fsdb;
 	struct list_head log_list;
@@ -3954,10 +3987,10 @@ int mgs_erase_logs(const struct lu_env *env, struct mgs_device *mgs, char *fsnam
 
 	mutex_lock(&mgs->mgs_mutex);
 
-        /* Delete the fs db */
-	fsdb = mgs_find_fsdb(mgs, fsname);
-        if (fsdb)
-		mgs_free_fsdb(mgs, fsdb);
+	/* Delete the fs db */
+	fsdb = mgs_find_fsdb(mgs, fsname, true);
+	if (fsdb)
+		mgs_put_fsdb(mgs, fsdb);
 
 	mutex_unlock(&mgs->mgs_mutex);
 
@@ -3975,7 +4008,7 @@ int mgs_erase_logs(const struct lu_env *env, struct mgs_device *mgs, char *fsnam
 		mgs_direntry_free(dirent);
 	}
 
-        RETURN(rc);
+	RETURN(rc);
 }
 
 /* list all logs for the given fs */
@@ -4038,33 +4071,36 @@ static void print_lustre_cfg(struct lustre_cfg *lcfg)
 
 /* Setup _mgs fsdb and log
  */
-int mgs__mgs_fsdb_setup(const struct lu_env *env, struct mgs_device *mgs,
-			  struct fs_db *fsdb)
+int mgs__mgs_fsdb_setup(const struct lu_env *env, struct mgs_device *mgs)
 {
-	int			rc;
+	struct fs_db *fsdb = NULL;
+	int rc;
 	ENTRY;
 
 	rc = mgs_find_or_make_fsdb(env, mgs, MGSSELF_NAME, &fsdb);
+	if (!rc)
+		mgs_put_fsdb(mgs, fsdb);
 
 	RETURN(rc);
 }
 
 /* Setup params fsdb and log
  */
-int mgs_params_fsdb_setup(const struct lu_env *env, struct mgs_device *mgs,
-			  struct fs_db *fsdb)
+int mgs_params_fsdb_setup(const struct lu_env *env, struct mgs_device *mgs)
 {
-	struct llog_handle	*params_llh = NULL;
-	int			rc;
+	struct fs_db *fsdb = NULL;
+	struct llog_handle *params_llh = NULL;
+	int rc;
 	ENTRY;
 
 	rc = mgs_find_or_make_fsdb(env, mgs, PARAMS_FILENAME, &fsdb);
-	if (fsdb != NULL) {
+	if (!rc) {
 		mutex_lock(&fsdb->fsdb_mutex);
 		rc = record_start_log(env, mgs, &params_llh, PARAMS_FILENAME);
-		if (rc == 0)
+		if (!rc)
 			rc = record_end_log(env, &params_llh);
 		mutex_unlock(&fsdb->fsdb_mutex);
+		mgs_put_fsdb(mgs, fsdb);
 	}
 
 	RETURN(rc);
@@ -4084,13 +4120,14 @@ int mgs_params_fsdb_cleanup(const struct lu_env *env, struct mgs_device *mgs)
 int mgs_setparam(const struct lu_env *env, struct mgs_device *mgs,
 		 struct lustre_cfg *lcfg, char *fsname)
 {
-	struct fs_db *fsdb;
-	struct mgs_target_info *mti;
-        char *devname, *param;
+	struct fs_db *fsdb = NULL;
+	struct mgs_target_info *mti = NULL;
+	char *devname, *param;
 	char *ptr;
 	const char *tmp;
 	__u32 index;
 	int rc = 0;
+	bool free = false;
 	ENTRY;
 
         print_lustre_cfg(lcfg);
@@ -4134,16 +4171,16 @@ int mgs_setparam(const struct lu_env *env, struct mgs_device *mgs,
 	if (lcfg->lcfg_command != LCFG_SET_PARAM &&
 	    !test_bit(FSDB_MGS_SELF, &fsdb->fsdb_flags) &&
 	    test_bit(FSDB_LOG_EMPTY, &fsdb->fsdb_flags)) {
-                CERROR("No filesystem targets for %s.  cfg_device from lctl "
-                       "is '%s'\n", fsname, devname);
-		mgs_free_fsdb(mgs, fsdb);
-                RETURN(-EINVAL);
-        }
+		CERROR("No filesystem targets for %s. cfg_device from lctl "
+		       "is '%s'\n", fsname, devname);
+		free = true;
+		GOTO(out, rc = -EINVAL);
+	}
 
-        /* Create a fake mti to hold everything */
-        OBD_ALLOC_PTR(mti);
-        if (!mti)
-                GOTO(out, rc = -ENOMEM);
+	/* Create a fake mti to hold everything */
+	OBD_ALLOC_PTR(mti);
+	if (!mti)
+		GOTO(out, rc = -ENOMEM);
 	if (strlcpy(mti->mti_fsname, fsname, sizeof(mti->mti_fsname))
 	    >= sizeof(mti->mti_fsname))
 		GOTO(out, rc = -E2BIG);
@@ -4183,8 +4220,27 @@ int mgs_setparam(const struct lu_env *env, struct mgs_device *mgs,
 	}
 
 out:
-        OBD_FREE_PTR(mti);
-        RETURN(rc);
+	if (mti)
+		OBD_FREE_PTR(mti);
+
+	if (fsdb) {
+		if (free) {
+			mutex_lock(&mgs->mgs_mutex);
+			if (likely(!list_empty(&fsdb->fsdb_list))) {
+				LASSERTF(atomic_read(&fsdb->fsdb_ref) >= 2,
+					 "Invalid ref %d on %s\n",
+					 atomic_read(&fsdb->fsdb_ref),
+					 fsdb->fsdb_name);
+
+				list_del_init(&fsdb->fsdb_list);
+				mgs_put_fsdb(mgs, fsdb);
+			}
+			mutex_unlock(&mgs->mgs_mutex);
+		}
+		mgs_put_fsdb(mgs, fsdb);
+	}
+
+	RETURN(rc);
 }
 
 static int mgs_write_log_pool(const struct lu_env *env,
@@ -4309,17 +4365,18 @@ int mgs_pool_cmd(const struct lu_env *env, struct mgs_device *mgs,
         struct mgs_target_info *mti = NULL;
 	bool checked = false;
         int rc, i;
-        ENTRY;
+	bool free = false;
+	ENTRY;
 
 	rc = mgs_find_or_make_fsdb(env, mgs, fsname, &fsdb);
-        if (rc) {
-                CERROR("Can't get db for %s\n", fsname);
-                RETURN(rc);
-        }
+	if (rc) {
+		CERROR("Can't get db for %s\n", fsname);
+		RETURN(rc);
+	}
 	if (test_bit(FSDB_LOG_EMPTY, &fsdb->fsdb_flags)) {
-                CERROR("%s is not defined\n", fsname);
-		mgs_free_fsdb(mgs, fsdb);
-                RETURN(-EINVAL);
+		CERROR("%s is not defined\n", fsname);
+		free = true;
+		GOTO(out_fsdb, rc = -EINVAL);
         }
 
         label_sz = 10 + strlen(fsname) + strlen(poolname);
@@ -4336,8 +4393,8 @@ int mgs_pool_cmd(const struct lu_env *env, struct mgs_device *mgs,
         }
 
         OBD_ALLOC(label, label_sz);
-        if (label == NULL)
-		RETURN(-ENOMEM);
+	if (!label)
+		GOTO(out_fsdb, rc = -ENOMEM);
 
         switch(cmd) {
 	case LCFG_POOL_NEW:
@@ -4460,5 +4517,21 @@ out_cancel:
 		OBD_FREE(canceled_label, label_sz);
 out_label:
 	OBD_FREE(label, label_sz);
-        return rc;
+out_fsdb:
+	if (free) {
+		mutex_lock(&mgs->mgs_mutex);
+		if (likely(!list_empty(&fsdb->fsdb_list))) {
+			LASSERTF(atomic_read(&fsdb->fsdb_ref) >= 2,
+				 "Invalid ref %d on %s\n",
+				 atomic_read(&fsdb->fsdb_ref),
+				 fsdb->fsdb_name);
+
+			list_del_init(&fsdb->fsdb_list);
+			mgs_put_fsdb(mgs, fsdb);
+		}
+		mutex_unlock(&mgs->mgs_mutex);
+	}
+	mgs_put_fsdb(mgs, fsdb);
+
+	return rc;
 }
