@@ -1383,9 +1383,10 @@ static void osp_sync_llog_fini(const struct lu_env *env, struct osp_device *d)
 	struct llog_ctxt *ctxt;
 
 	ctxt = llog_get_context(d->opd_obd, LLOG_MDS_OST_ORIG_CTXT);
-	if (ctxt != NULL)
+	if (ctxt) {
 		llog_cat_close(env, ctxt->loc_handle);
-	llog_cleanup(env, ctxt);
+		llog_cleanup(env, ctxt);
+	}
 }
 
 /**
@@ -1408,6 +1409,18 @@ int osp_sync_init(const struct lu_env *env, struct osp_device *d)
 
 	ENTRY;
 
+	d->opd_syn_max_rpc_in_flight = OSP_MAX_IN_FLIGHT;
+	d->opd_syn_max_rpc_in_progress = OSP_MAX_IN_PROGRESS;
+	spin_lock_init(&d->opd_syn_lock);
+	init_waitqueue_head(&d->opd_syn_waitq);
+	init_waitqueue_head(&d->opd_syn_barrier_waitq);
+	init_waitqueue_head(&d->opd_syn_thread.t_ctl_waitq);
+	INIT_LIST_HEAD(&d->opd_syn_inflight_list);
+	INIT_LIST_HEAD(&d->opd_syn_committed_there);
+
+	if (d->opd_storage->dd_rdonly)
+		RETURN(0);
+
 	rc = osp_sync_id_traction_init(d);
 	if (rc)
 		RETURN(rc);
@@ -1425,15 +1438,6 @@ int osp_sync_init(const struct lu_env *env, struct osp_device *d)
 	/*
 	 * Start synchronization thread
 	 */
-	d->opd_syn_max_rpc_in_flight = OSP_MAX_IN_FLIGHT;
-	d->opd_syn_max_rpc_in_progress = OSP_MAX_IN_PROGRESS;
-	spin_lock_init(&d->opd_syn_lock);
-	init_waitqueue_head(&d->opd_syn_waitq);
-	init_waitqueue_head(&d->opd_syn_barrier_waitq);
-	init_waitqueue_head(&d->opd_syn_thread.t_ctl_waitq);
-	INIT_LIST_HEAD(&d->opd_syn_inflight_list);
-	INIT_LIST_HEAD(&d->opd_syn_committed_there);
-
 	task = kthread_run(osp_sync_thread, d, "osp-syn-%u-%u",
 			   d->opd_index, d->opd_group);
 	if (IS_ERR(task)) {
@@ -1443,6 +1447,7 @@ int osp_sync_init(const struct lu_env *env, struct osp_device *d)
 		GOTO(err_llog, rc);
 	}
 
+	d->opd_sync_init = 1;
 	l_wait_event(d->opd_syn_thread.t_ctl_waitq,
 		     osp_sync_running(d) || osp_sync_stopped(d), &lwi);
 
@@ -1469,9 +1474,11 @@ int osp_sync_fini(struct osp_device *d)
 
 	ENTRY;
 
-	thread->t_flags = SVC_STOPPING;
-	wake_up(&d->opd_syn_waitq);
-	wait_event(thread->t_ctl_waitq, thread->t_flags & SVC_STOPPED);
+	if (d->opd_sync_init) {
+		thread->t_flags = SVC_STOPPING;
+		wake_up(&d->opd_syn_waitq);
+		wait_event(thread->t_ctl_waitq, thread_is_stopped(thread));
+	}
 
 	/*
 	 * unregister transaction callbacks only when sync thread
