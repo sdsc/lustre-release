@@ -325,7 +325,7 @@ static struct osd_seq *osd_find_or_add_seq(const struct lu_env *env,
 
 	oi.oi_zapid = osd->od_O_id;
 	sprintf(seq_name, (fid_seq_is_rsvd(seq) ||
-		fid_seq_is_mdt0(seq)) ?  LPU64 : LPX64i,
+		fid_seq_is_mdt0(seq)) ?  "%llu" : "%llx",
 		fid_seq_is_idif(seq) ? 0 : seq);
 
 	rc = osd_oi_find_or_create(env, osd, oi.oi_zapid, seq_name, &odb);
@@ -391,7 +391,7 @@ osd_get_idx_for_ost_obj(const struct lu_env *env, struct osd_device *osd,
 	b = id % OSD_OST_MAP_SIZE;
 	LASSERT(osd_seq->os_compat_dirs[b]);
 
-	sprintf(buf, LPU64, id);
+	sprintf(buf, "%llu", id);
 
 	return osd_seq->os_compat_dirs[b];
 }
