@@ -55,7 +55,7 @@
 #define STTIMER_SLOTTIMEMASK   (~(STTIMER_SLOTTIME - 1))
 #define STTIMER_NSLOTS	       (1 << 7)
 #define STTIMER_SLOT(t)	       (&stt_data.stt_hash[(((t) >> STTIMER_MINPOLL) & \
-                                                    (STTIMER_NSLOTS - 1))])
+						    (STTIMER_NSLOTS - 1))])
 
 static struct st_timer_data {
 	spinlock_t		stt_lock;
@@ -148,12 +148,12 @@ stt_expire_list(struct list_head *slot, cfs_time_t now)
 static int
 stt_check_timers (cfs_time_t *last)
 {
-        int        expired = 0;
-        cfs_time_t now;
-        cfs_time_t this_slot;
+	int	   expired = 0;
+	cfs_time_t now;
+	cfs_time_t this_slot;
 
-        now = cfs_time_current_sec();
-        this_slot = now & STTIMER_SLOTTIMEMASK;
+	now = cfs_time_current_sec();
+	this_slot = now & STTIMER_SLOTTIMEMASK;
 
 	spin_lock(&stt_data.stt_lock);
 
@@ -171,9 +171,9 @@ stt_check_timers (cfs_time_t *last)
 static int
 stt_timer_main (void *arg)
 {
-        int rc = 0;
+	int rc = 0;
 
-        cfs_block_allsigs();
+	cfs_block_allsigs();
 
 	while (!stt_data.stt_shuttingdown) {
 		stt_check_timers(&stt_data.stt_prev_slot);
@@ -210,14 +210,14 @@ stt_start_timer_thread (void)
 int
 stt_startup (void)
 {
-        int rc = 0;
-        int i;
+	int rc = 0;
+	int i;
 
-        stt_data.stt_shuttingdown = 0;
-        stt_data.stt_prev_slot = cfs_time_current_sec() & STTIMER_SLOTTIMEMASK;
+	stt_data.stt_shuttingdown = 0;
+	stt_data.stt_prev_slot = cfs_time_current_sec() & STTIMER_SLOTTIMEMASK;
 
 	spin_lock_init(&stt_data.stt_lock);
-        for (i = 0; i < STTIMER_NSLOTS; i++)
+	for (i = 0; i < STTIMER_NSLOTS; i++)
 		INIT_LIST_HEAD(&stt_data.stt_hash[i]);
 
 	stt_data.stt_nthreads = 0;
@@ -226,7 +226,7 @@ stt_startup (void)
 	if (rc != 0)
 		CERROR ("Can't spawn timer thread: %d\n", rc);
 
-        return rc;
+	return rc;
 }
 
 void

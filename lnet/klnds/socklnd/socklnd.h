@@ -71,15 +71,15 @@
 #define SOCKNAL_NSCHEDS		3
 #define SOCKNAL_NSCHEDS_HIGH	(SOCKNAL_NSCHEDS << 1)
 
-#define SOCKNAL_PEER_HASH_SIZE  101             /* # peer lists */
-#define SOCKNAL_RESCHED         100             /* # scheduler loops before reschedule */
-#define SOCKNAL_INSANITY_RECONN 5000            /* connd is trying on reconn infinitely */
-#define SOCKNAL_ENOMEM_RETRY    CFS_TICK        /* jiffies between retries */
+#define SOCKNAL_PEER_HASH_SIZE	101		/* # peer lists */
+#define SOCKNAL_RESCHED		100		/* # scheduler loops before reschedule */
+#define SOCKNAL_INSANITY_RECONN 5000		/* connd is trying on reconn infinitely */
+#define SOCKNAL_ENOMEM_RETRY	CFS_TICK	/* jiffies between retries */
 
-#define SOCKNAL_SINGLE_FRAG_TX      0           /* disable multi-fragment sends */
-#define SOCKNAL_SINGLE_FRAG_RX      0           /* disable multi-fragment receives */
+#define SOCKNAL_SINGLE_FRAG_TX	    0		/* disable multi-fragment sends */
+#define SOCKNAL_SINGLE_FRAG_RX	    0		/* disable multi-fragment receives */
 
-#define SOCKNAL_VERSION_DEBUG       0           /* enable protocol version debugging */
+#define SOCKNAL_VERSION_DEBUG	    0		/* enable protocol version debugging */
 
 /* risk kmap deadlock on multi-frag I/O (backs off to single-frag if disabled).
  * no risk if we're not running on a CONFIG_HIGHMEM platform. */
@@ -91,7 +91,7 @@
 
 struct ksock_sched_info;
 
-typedef struct                                  /* per scheduler state */
+typedef struct					/* per scheduler state */
 {
 	spinlock_t		kss_lock;	/* serialise */
 	struct list_head	kss_rx_conns;	/* conn waiting to be read */
@@ -123,7 +123,7 @@ struct ksock_sched_info {
 #define KSOCK_THREAD_CPT(id)		((id) >> KSOCK_CPT_SHIFT)
 #define KSOCK_THREAD_SID(id)		((id) & ((1UL << KSOCK_CPT_SHIFT) - 1))
 
-typedef struct                                  /* in-use interface */
+typedef struct					/* in-use interface */
 {
 	__u32		ksni_ipaddr;		/* interface's IP address */
 	__u32		ksni_netmask;		/* interface's network mask */
@@ -135,43 +135,43 @@ typedef struct                                  /* in-use interface */
 typedef struct
 {
 	/* "stuck" socket timeout (seconds) */
-	int              *ksnd_timeout;
+	int		 *ksnd_timeout;
 	/* # scheduler threads in each pool while starting */
 	int		 *ksnd_nscheds;
-        int              *ksnd_nconnds;         /* # connection daemons */
-        int              *ksnd_nconnds_max;     /* max # connection daemons */
-        int              *ksnd_min_reconnectms; /* first connection retry after (ms)... */
-        int              *ksnd_max_reconnectms; /* ...exponentially increasing to this */
-        int              *ksnd_eager_ack;       /* make TCP ack eagerly? */
-        int              *ksnd_typed_conns;     /* drive sockets by type? */
-        int              *ksnd_min_bulk;        /* smallest "large" message */
-        int              *ksnd_tx_buffer_size;  /* socket tx buffer size */
-        int              *ksnd_rx_buffer_size;  /* socket rx buffer size */
-        int              *ksnd_nagle;           /* enable NAGLE? */
-        int              *ksnd_round_robin;     /* round robin for multiple interfaces */
-        int              *ksnd_keepalive;       /* # secs for sending keepalive NOOP */
-        int              *ksnd_keepalive_idle;  /* # idle secs before 1st probe */
-        int              *ksnd_keepalive_count; /* # probes */
-        int              *ksnd_keepalive_intvl; /* time between probes */
-        int              *ksnd_credits;         /* # concurrent sends */
-        int              *ksnd_peertxcredits;   /* # concurrent sends to 1 peer */
-        int              *ksnd_peerrtrcredits;  /* # per-peer router buffer credits */
-        int              *ksnd_peertimeout;     /* seconds to consider peer dead */
-        int              *ksnd_enable_csum;     /* enable check sum */
-        int              *ksnd_inject_csum_error; /* set non-zero to inject checksum error */
-        int              *ksnd_nonblk_zcack;    /* always send zc-ack on non-blocking connection */
-        unsigned int     *ksnd_zc_min_payload;  /* minimum zero copy payload size */
-        int              *ksnd_zc_recv;         /* enable ZC receive (for Chelsio TOE) */
-        int              *ksnd_zc_recv_min_nfrags; /* minimum # of fragments to enable ZC receive */
+	int		 *ksnd_nconnds;		/* # connection daemons */
+	int		 *ksnd_nconnds_max;	/* max # connection daemons */
+	int		 *ksnd_min_reconnectms; /* first connection retry after (ms)... */
+	int		 *ksnd_max_reconnectms; /* ...exponentially increasing to this */
+	int		 *ksnd_eager_ack;	/* make TCP ack eagerly? */
+	int		 *ksnd_typed_conns;	/* drive sockets by type? */
+	int		 *ksnd_min_bulk;	/* smallest "large" message */
+	int		 *ksnd_tx_buffer_size;	/* socket tx buffer size */
+	int		 *ksnd_rx_buffer_size;	/* socket rx buffer size */
+	int		 *ksnd_nagle;		/* enable NAGLE? */
+	int		 *ksnd_round_robin;	/* round robin for multiple interfaces */
+	int		 *ksnd_keepalive;	/* # secs for sending keepalive NOOP */
+	int		 *ksnd_keepalive_idle;	/* # idle secs before 1st probe */
+	int		 *ksnd_keepalive_count; /* # probes */
+	int		 *ksnd_keepalive_intvl; /* time between probes */
+	int		 *ksnd_credits;		/* # concurrent sends */
+	int		 *ksnd_peertxcredits;	/* # concurrent sends to 1 peer */
+	int		 *ksnd_peerrtrcredits;	/* # per-peer router buffer credits */
+	int		 *ksnd_peertimeout;	/* seconds to consider peer dead */
+	int		 *ksnd_enable_csum;	/* enable check sum */
+	int		 *ksnd_inject_csum_error; /* set non-zero to inject checksum error */
+	int		 *ksnd_nonblk_zcack;	/* always send zc-ack on non-blocking connection */
+	unsigned int	 *ksnd_zc_min_payload;	/* minimum zero copy payload size */
+	int		 *ksnd_zc_recv;		/* enable ZC receive (for Chelsio TOE) */
+	int		 *ksnd_zc_recv_min_nfrags; /* minimum # of fragments to enable ZC receive */
 #ifdef CPU_AFFINITY
-        int              *ksnd_irq_affinity;    /* enable IRQ affinity? */
+	int		 *ksnd_irq_affinity;	/* enable IRQ affinity? */
 #endif
 #ifdef SOCKNAL_BACKOFF
-        int              *ksnd_backoff_init;    /* initial TCP backoff */
-        int              *ksnd_backoff_max;     /* maximum TCP backoff */
+	int		 *ksnd_backoff_init;	/* initial TCP backoff */
+	int		 *ksnd_backoff_max;	/* maximum TCP backoff */
 #endif
 #if SOCKNAL_VERSION_DEBUG
-        int              *ksnd_protocol;        /* protocol version */
+	int		 *ksnd_protocol;	/* protocol version */
 #endif
 } ksock_tunables_t;
 
@@ -216,15 +216,15 @@ typedef struct
 	/* conns to retry: reaper_lock*/
 	struct list_head	ksnd_enomem_conns;
 	/* reaper sleeps here */
-	wait_queue_head_t       ksnd_reaper_waitq;
+	wait_queue_head_t	ksnd_reaper_waitq;
 	/* when reaper will wake */
-	cfs_time_t        ksnd_reaper_waketime;
+	cfs_time_t	  ksnd_reaper_waketime;
 	/* serialise */
 	spinlock_t	  ksnd_reaper_lock;
 
-	int               ksnd_enomem_tx;      /* test ENOMEM sender */
-	int               ksnd_stall_tx;       /* test sluggish sender */
-	int               ksnd_stall_rx;       /* test sluggish receiver */
+	int		  ksnd_enomem_tx;      /* test ENOMEM sender */
+	int		  ksnd_stall_tx;       /* test sluggish sender */
+	int		  ksnd_stall_rx;       /* test sluggish receiver */
 
 	/* incoming connection requests */
 	struct list_head	ksnd_connd_connreqs;
@@ -252,9 +252,9 @@ typedef struct
 
 } ksock_nal_data_t;
 
-#define SOCKNAL_INIT_NOTHING    0
-#define SOCKNAL_INIT_DATA       1
-#define SOCKNAL_INIT_ALL        2
+#define SOCKNAL_INIT_NOTHING	0
+#define SOCKNAL_INIT_DATA	1
+#define SOCKNAL_INIT_ALL	2
 
 /* A packet just assembled for transmission is represented by 1 or more
  * struct kvec fragments (the first frag contains the portals header),
@@ -265,40 +265,40 @@ typedef struct
  * received into either struct kvec or lnet_kiov_t fragments, depending on
  * what the header matched or whether the message needs forwarding. */
 
-struct ksock_conn;                              /* forward ref */
-struct ksock_peer;                              /* forward ref */
-struct ksock_route;                             /* forward ref */
-struct ksock_proto;                             /* forward ref */
+struct ksock_conn;				/* forward ref */
+struct ksock_peer;				/* forward ref */
+struct ksock_route;				/* forward ref */
+struct ksock_proto;				/* forward ref */
 
-typedef struct                                  /* transmit packet */
+typedef struct					/* transmit packet */
 {
 	struct list_head   tx_list;	/* queue on conn for transmission etc */
 	struct list_head   tx_zc_list;	/* queue on peer for ZC request */
 	atomic_t       tx_refcount;    /* tx reference count */
-	int            tx_nob;         /* # packet bytes */
-	int            tx_resid;       /* residual bytes */
-	int            tx_niov;        /* # packet kvec frags */
-	struct kvec  *tx_iov;         /* packet kvec frags */
-        int            tx_nkiov;       /* # packet page frags */
-        unsigned short tx_zc_aborted;  /* aborted ZC request */
-        unsigned short tx_zc_capable:1; /* payload is large enough for ZC */
-        unsigned short tx_zc_checked:1; /* Have I checked if I should ZC? */
-        unsigned short tx_nonblk:1;    /* it's a non-blocking ACK */
-        lnet_kiov_t   *tx_kiov;        /* packet page frags */
-	struct ksock_conn *tx_conn;        /* owning conn */
-        lnet_msg_t    *tx_lnetmsg;     /* lnet message for lnet_finalize() */
-        cfs_time_t     tx_deadline;    /* when (in jiffies) tx times out */
-        ksock_msg_t    tx_msg;         /* socklnd message buffer */
-        int            tx_desc_size;   /* size of this descriptor */
-        union {
-                struct {
+	int	       tx_nob;	       /* # packet bytes */
+	int	       tx_resid;       /* residual bytes */
+	int	       tx_niov;        /* # packet kvec frags */
+	struct kvec  *tx_iov;	      /* packet kvec frags */
+	int	       tx_nkiov;       /* # packet page frags */
+	unsigned short tx_zc_aborted;  /* aborted ZC request */
+	unsigned short tx_zc_capable:1; /* payload is large enough for ZC */
+	unsigned short tx_zc_checked:1; /* Have I checked if I should ZC? */
+	unsigned short tx_nonblk:1;    /* it's a non-blocking ACK */
+	lnet_kiov_t   *tx_kiov;        /* packet page frags */
+	struct ksock_conn *tx_conn;	   /* owning conn */
+	lnet_msg_t    *tx_lnetmsg;     /* lnet message for lnet_finalize() */
+	cfs_time_t     tx_deadline;    /* when (in jiffies) tx times out */
+	ksock_msg_t    tx_msg;	       /* socklnd message buffer */
+	int	       tx_desc_size;   /* size of this descriptor */
+	union {
+		struct {
 			struct kvec iov;	/* virt hdr */
 			lnet_kiov_t kiov[0];	/* paged payload */
-                }                  paged;
-                struct {
+		}		   paged;
+		struct {
 			struct kvec iov[1];	/* virt hdr + payload */
-                }                  virt;
-        }                       tx_frags;
+		}		   virt;
+	}			tx_frags;
 } ksock_tx_t;
 
 #define KSOCK_NOOP_TX_SIZE  ((int)offsetof(ksock_tx_t, tx_frags.paged.kiov[0]))
@@ -308,62 +308,62 @@ typedef struct                                  /* transmit packet */
 /* space for the rx frag descriptors; we either read a single contiguous
  * header, or up to LNET_MAX_IOV frags of payload of either type. */
 typedef union {
-	struct kvec     iov[LNET_MAX_IOV];
-        lnet_kiov_t      kiov[LNET_MAX_IOV];
+	struct kvec	iov[LNET_MAX_IOV];
+	lnet_kiov_t	 kiov[LNET_MAX_IOV];
 } ksock_rxiovspace_t;
 
-#define SOCKNAL_RX_KSM_HEADER   1               /* reading ksock message header */
-#define SOCKNAL_RX_LNET_HEADER  2               /* reading lnet message header */
-#define SOCKNAL_RX_PARSE        3               /* Calling lnet_parse() */
-#define SOCKNAL_RX_PARSE_WAIT   4               /* waiting to be told to read the body */
-#define SOCKNAL_RX_LNET_PAYLOAD 5               /* reading lnet payload (to deliver here) */
-#define SOCKNAL_RX_SLOP         6               /* skipping body */
+#define SOCKNAL_RX_KSM_HEADER	1		/* reading ksock message header */
+#define SOCKNAL_RX_LNET_HEADER	2		/* reading lnet message header */
+#define SOCKNAL_RX_PARSE	3		/* Calling lnet_parse() */
+#define SOCKNAL_RX_PARSE_WAIT	4		/* waiting to be told to read the body */
+#define SOCKNAL_RX_LNET_PAYLOAD 5		/* reading lnet payload (to deliver here) */
+#define SOCKNAL_RX_SLOP		6		/* skipping body */
 
 typedef struct ksock_conn
 {
 	struct ksock_peer  *ksnc_peer;		/* owning peer */
 	struct ksock_route *ksnc_route;		/* owning route */
 	struct list_head    ksnc_list;		/* stash on peer's conn list */
-	struct socket       *ksnc_sock;		/* actual socket */
-	void                *ksnc_saved_data_ready; /* socket's original data_ready() callback */
-	void                *ksnc_saved_write_space; /* socket's original write_space() callback */
-	atomic_t            ksnc_conn_refcount; /* conn refcount */
-	atomic_t            ksnc_sock_refcount; /* sock refcount */
-	ksock_sched_t       *ksnc_scheduler;  /* who schedules this connection */
-	__u32               ksnc_myipaddr;   /* my IP */
-        __u32               ksnc_ipaddr;     /* peer's IP */
-        int                 ksnc_port;       /* peer's port */
-	signed int          ksnc_type:3;     /* type of connection,
+	struct socket	    *ksnc_sock;		/* actual socket */
+	void		    *ksnc_saved_data_ready; /* socket's original data_ready() callback */
+	void		    *ksnc_saved_write_space; /* socket's original write_space() callback */
+	atomic_t	    ksnc_conn_refcount; /* conn refcount */
+	atomic_t	    ksnc_sock_refcount; /* sock refcount */
+	ksock_sched_t	    *ksnc_scheduler;  /* who schedules this connection */
+	__u32		    ksnc_myipaddr;   /* my IP */
+	__u32		    ksnc_ipaddr;     /* peer's IP */
+	int		    ksnc_port;	     /* peer's port */
+	signed int	    ksnc_type:3;     /* type of connection,
 					      * should be signed value */
 	unsigned int	    ksnc_closing:1;  /* being shut down */
 	unsigned int	    ksnc_flip:1;     /* flip or not, only for V2.x */
 	unsigned int	    ksnc_zc_capable:1; /* enable to ZC */
-        struct ksock_proto *ksnc_proto;      /* protocol for the connection */
+	struct ksock_proto *ksnc_proto;      /* protocol for the connection */
 
 	/* READER */
 
 	/* where I enq waiting input or a forwarding descriptor */
 	struct list_head   ksnc_rx_list;
-        cfs_time_t            ksnc_rx_deadline; /* when (in jiffies) receive times out */
-        __u8                  ksnc_rx_started;  /* started receiving a message */
-        __u8                  ksnc_rx_ready;    /* data ready to read */
-        __u8                  ksnc_rx_scheduled;/* being progressed */
-        __u8                  ksnc_rx_state;    /* what is being read */
-        int                   ksnc_rx_nob_left; /* # bytes to next hdr/body */
-        int                   ksnc_rx_nob_wanted; /* bytes actually wanted */
-	int                   ksnc_rx_niov;     /* # kvec frags */
-	struct kvec          *ksnc_rx_iov;      /* the kvec frags */
-        int                   ksnc_rx_nkiov;    /* # page frags */
-        lnet_kiov_t          *ksnc_rx_kiov;     /* the page frags */
-        ksock_rxiovspace_t    ksnc_rx_iov_space;/* space for frag descriptors */
-        __u32                 ksnc_rx_csum;     /* partial checksum for incoming data */
-        void                 *ksnc_cookie;      /* rx lnet_finalize passthru arg */
-        ksock_msg_t           ksnc_msg;         /* incoming message buffer:
-                                                 * V2.x message takes the
-                                                 * whole struct
-                                                 * V1.x message is a bare
-                                                 * lnet_hdr_t, it's stored in
-                                                 * ksnc_msg.ksm_u.lnetmsg */
+	cfs_time_t	      ksnc_rx_deadline; /* when (in jiffies) receive times out */
+	__u8		      ksnc_rx_started;	/* started receiving a message */
+	__u8		      ksnc_rx_ready;	/* data ready to read */
+	__u8		      ksnc_rx_scheduled;/* being progressed */
+	__u8		      ksnc_rx_state;	/* what is being read */
+	int		      ksnc_rx_nob_left; /* # bytes to next hdr/body */
+	int		      ksnc_rx_nob_wanted; /* bytes actually wanted */
+	int		      ksnc_rx_niov;	/* # kvec frags */
+	struct kvec	     *ksnc_rx_iov;	/* the kvec frags */
+	int		      ksnc_rx_nkiov;	/* # page frags */
+	lnet_kiov_t	     *ksnc_rx_kiov;	/* the page frags */
+	ksock_rxiovspace_t    ksnc_rx_iov_space;/* space for frag descriptors */
+	__u32		      ksnc_rx_csum;	/* partial checksum for incoming data */
+	void		     *ksnc_cookie;	/* rx lnet_finalize passthru arg */
+	ksock_msg_t	      ksnc_msg;		/* incoming message buffer:
+						 * V2.x message takes the
+						 * whole struct
+						 * V1.x message is a bare
+						 * lnet_hdr_t, it's stored in
+						 * ksnc_msg.ksm_u.lnetmsg */
 
 	/* -- WRITER -- */
 	/* where I enq waiting for output space */
@@ -392,44 +392,44 @@ typedef struct ksock_route
 	struct list_head   ksnr_connd_list;	/* chain on ksnr_connd_routes */
 	struct ksock_peer *ksnr_peer;		/* owning peer */
 	atomic_t	   ksnr_refcount;	/* # users */
-	cfs_time_t            ksnr_timeout;     /* when (in jiffies) reconnection can happen next */
-	cfs_duration_t        ksnr_retry_interval; /* how long between retries */
-        __u32                 ksnr_myipaddr;    /* my IP */
-        __u32                 ksnr_ipaddr;      /* IP address to connect to */
-        int                   ksnr_port;        /* port to connect to */
-        unsigned int          ksnr_scheduled:1; /* scheduled for attention */
-        unsigned int          ksnr_connecting:1;/* connection establishment in progress */
-        unsigned int          ksnr_connected:4; /* connections established by type */
-        unsigned int          ksnr_deleted:1;   /* been removed from peer? */
-        unsigned int          ksnr_share_count; /* created explicitly? */
-        int                   ksnr_conn_count;  /* # conns established by this route */
+	cfs_time_t	      ksnr_timeout;	/* when (in jiffies) reconnection can happen next */
+	cfs_duration_t	      ksnr_retry_interval; /* how long between retries */
+	__u32		      ksnr_myipaddr;	/* my IP */
+	__u32		      ksnr_ipaddr;	/* IP address to connect to */
+	int		      ksnr_port;	/* port to connect to */
+	unsigned int	      ksnr_scheduled:1; /* scheduled for attention */
+	unsigned int	      ksnr_connecting:1;/* connection establishment in progress */
+	unsigned int	      ksnr_connected:4; /* connections established by type */
+	unsigned int	      ksnr_deleted:1;	/* been removed from peer? */
+	unsigned int	      ksnr_share_count; /* created explicitly? */
+	int		      ksnr_conn_count;	/* # conns established by this route */
 } ksock_route_t;
 
-#define SOCKNAL_KEEPALIVE_PING          1       /* cookie for keepalive ping */
+#define SOCKNAL_KEEPALIVE_PING		1	/* cookie for keepalive ping */
 
 typedef struct ksock_peer
 {
 	struct list_head	ksnp_list;	/* stash on global peer list */
-	cfs_time_t            ksnp_last_alive;  /* when (in jiffies) I was last alive */
-	lnet_process_id_t     ksnp_id;       /* who's on the other end(s) */
-	atomic_t              ksnp_refcount; /* # users */
-	int                   ksnp_sharecount;  /* lconf usage counter */
-	int                   ksnp_closing;  /* being closed */
-        int                   ksnp_accepting;/* # passive connections pending */
-        int                   ksnp_error;    /* errno on closing last conn */
-        __u64                 ksnp_zc_next_cookie;/* ZC completion cookie */
-        __u64                 ksnp_incarnation;   /* latest known peer incarnation */
-        struct ksock_proto   *ksnp_proto;    /* latest known peer protocol */
+	cfs_time_t	      ksnp_last_alive;	/* when (in jiffies) I was last alive */
+	lnet_process_id_t     ksnp_id;	     /* who's on the other end(s) */
+	atomic_t	      ksnp_refcount; /* # users */
+	int		      ksnp_sharecount;	/* lconf usage counter */
+	int		      ksnp_closing;  /* being closed */
+	int		      ksnp_accepting;/* # passive connections pending */
+	int		      ksnp_error;    /* errno on closing last conn */
+	__u64		      ksnp_zc_next_cookie;/* ZC completion cookie */
+	__u64		      ksnp_incarnation;   /* latest known peer incarnation */
+	struct ksock_proto   *ksnp_proto;    /* latest known peer protocol */
 	struct list_head	ksnp_conns;	/* all active connections */
 	struct list_head	ksnp_routes;	/* routes */
 	struct list_head	ksnp_tx_queue;	/* waiting packets */
 	spinlock_t	      ksnp_lock;	/* serialize, g_lock unsafe */
 	/* zero copy requests wait for ACK  */
 	struct list_head	ksnp_zc_req_list;
-        cfs_time_t            ksnp_send_keepalive; /* time to send keepalive */
-        lnet_ni_t            *ksnp_ni;       /* which network */
-        int                   ksnp_n_passive_ips; /* # of... */
-        __u32                 ksnp_passive_ips[LNET_MAX_INTERFACES]; /* preferred local interfaces */
+	cfs_time_t	      ksnp_send_keepalive; /* time to send keepalive */
+	lnet_ni_t	     *ksnp_ni;	     /* which network */
+	int		      ksnp_n_passive_ips; /* # of... */
+	__u32		      ksnp_passive_ips[LNET_MAX_INTERFACES]; /* preferred local interfaces */
 } ksock_peer_t;
 
 typedef struct ksock_connreq
@@ -445,38 +445,38 @@ typedef struct ksock_connreq
 extern ksock_nal_data_t ksocknal_data;
 extern ksock_tunables_t ksocknal_tunables;
 
-#define SOCKNAL_MATCH_NO        0        /* TX can't match type of connection */
-#define SOCKNAL_MATCH_YES       1        /* TX matches type of connection */
-#define SOCKNAL_MATCH_MAY       2        /* TX can be sent on the connection, but not preferred */
+#define SOCKNAL_MATCH_NO	0	 /* TX can't match type of connection */
+#define SOCKNAL_MATCH_YES	1	 /* TX matches type of connection */
+#define SOCKNAL_MATCH_MAY	2	 /* TX can be sent on the connection, but not preferred */
 
 typedef struct ksock_proto
 {
-        int           pro_version;                                              /* version number of protocol */
-        int         (*pro_send_hello)(ksock_conn_t *, ksock_hello_msg_t *);     /* handshake function */
-        int         (*pro_recv_hello)(ksock_conn_t *, ksock_hello_msg_t *, int);/* handshake function */
-        void        (*pro_pack)(ksock_tx_t *);                                  /* message pack */
-        void        (*pro_unpack)(ksock_msg_t *);                               /* message unpack */
-        ksock_tx_t *(*pro_queue_tx_msg)(ksock_conn_t *, ksock_tx_t *);          /* queue tx on the connection */
-        int         (*pro_queue_tx_zcack)(ksock_conn_t *, ksock_tx_t *, __u64); /* queue ZC ack on the connection */
-        int         (*pro_handle_zcreq)(ksock_conn_t *, __u64, int);            /* handle ZC request */
-        int         (*pro_handle_zcack)(ksock_conn_t *, __u64, __u64);          /* handle ZC ACK */
-        int         (*pro_match_tx)(ksock_conn_t *, ksock_tx_t *, int);         /* msg type matches the connection type:
-                                                                                 * return value:
-                                                                                 *   return MATCH_NO  : no
-                                                                                 *   return MATCH_YES : matching type
-                                                                                 *   return MATCH_MAY : can be backup */
+	int	      pro_version;						/* version number of protocol */
+	int	    (*pro_send_hello)(ksock_conn_t *, ksock_hello_msg_t *);	/* handshake function */
+	int	    (*pro_recv_hello)(ksock_conn_t *, ksock_hello_msg_t *, int);/* handshake function */
+	void	    (*pro_pack)(ksock_tx_t *);					/* message pack */
+	void	    (*pro_unpack)(ksock_msg_t *);				/* message unpack */
+	ksock_tx_t *(*pro_queue_tx_msg)(ksock_conn_t *, ksock_tx_t *);		/* queue tx on the connection */
+	int	    (*pro_queue_tx_zcack)(ksock_conn_t *, ksock_tx_t *, __u64); /* queue ZC ack on the connection */
+	int	    (*pro_handle_zcreq)(ksock_conn_t *, __u64, int);		/* handle ZC request */
+	int	    (*pro_handle_zcack)(ksock_conn_t *, __u64, __u64);		/* handle ZC ACK */
+	int	    (*pro_match_tx)(ksock_conn_t *, ksock_tx_t *, int);		/* msg type matches the connection type:
+										 * return value:
+										 *   return MATCH_NO  : no
+										 *   return MATCH_YES : matching type
+										 *   return MATCH_MAY : can be backup */
 } ksock_proto_t;
 
 extern ksock_proto_t ksocknal_protocol_v1x;
 extern ksock_proto_t ksocknal_protocol_v2x;
 extern ksock_proto_t ksocknal_protocol_v3x;
 
-#define KSOCK_PROTO_V1_MAJOR    LNET_PROTO_TCP_VERSION_MAJOR
-#define KSOCK_PROTO_V1_MINOR    LNET_PROTO_TCP_VERSION_MINOR
-#define KSOCK_PROTO_V1          KSOCK_PROTO_V1_MAJOR
+#define KSOCK_PROTO_V1_MAJOR	LNET_PROTO_TCP_VERSION_MAJOR
+#define KSOCK_PROTO_V1_MINOR	LNET_PROTO_TCP_VERSION_MINOR
+#define KSOCK_PROTO_V1		KSOCK_PROTO_V1_MAJOR
 
 #ifndef CPU_MASK_NONE
-#define CPU_MASK_NONE   0UL
+#define CPU_MASK_NONE	0UL
 #endif
 
 static inline __u32 ksocknal_csum(__u32 crc, unsigned char const *p, size_t len)
@@ -494,20 +494,20 @@ static inline __u32 ksocknal_csum(__u32 crc, unsigned char const *p, size_t len)
 static inline int
 ksocknal_route_mask(void)
 {
-        if (!*ksocknal_tunables.ksnd_typed_conns)
-                return (1 << SOCKLND_CONN_ANY);
+	if (!*ksocknal_tunables.ksnd_typed_conns)
+		return (1 << SOCKLND_CONN_ANY);
 
-        return ((1 << SOCKLND_CONN_CONTROL) |
-                (1 << SOCKLND_CONN_BULK_IN) |
-                (1 << SOCKLND_CONN_BULK_OUT));
+	return ((1 << SOCKLND_CONN_CONTROL) |
+		(1 << SOCKLND_CONN_BULK_IN) |
+		(1 << SOCKLND_CONN_BULK_OUT));
 }
 
 static inline struct list_head *
 ksocknal_nid2peerlist (lnet_nid_t nid)
 {
-        unsigned int hash = ((unsigned int)nid) % ksocknal_data.ksnd_peer_hash_size;
+	unsigned int hash = ((unsigned int)nid) % ksocknal_data.ksnd_peer_hash_size;
 
-        return (&ksocknal_data.ksnd_peers [hash]);
+	return (&ksocknal_data.ksnd_peers[hash]);
 }
 
 static inline void
@@ -615,7 +615,7 @@ int ksocknal_send (lnet_ni_t *ni, void *private, lnet_msg_t *lntmsg);
 int ksocknal_recv(lnet_ni_t *ni, void *private, lnet_msg_t *lntmsg,
 		  int delayed, unsigned int niov,
 		  struct kvec *iov, lnet_kiov_t *kiov,
-                  unsigned int offset, unsigned int mlen, unsigned int rlen);
+		  unsigned int offset, unsigned int mlen, unsigned int rlen);
 int ksocknal_accept(lnet_ni_t *ni, struct socket *sock);
 
 extern int ksocknal_add_peer(lnet_ni_t *ni, lnet_process_id_t id, __u32 ip, int port);
@@ -628,14 +628,14 @@ extern void ksocknal_close_conn_locked (ksock_conn_t *conn, int why);
 extern void ksocknal_terminate_conn (ksock_conn_t *conn);
 extern void ksocknal_destroy_conn (ksock_conn_t *conn);
 extern int  ksocknal_close_peer_conns_locked (ksock_peer_t *peer,
-                                              __u32 ipaddr, int why);
+					      __u32 ipaddr, int why);
 extern int ksocknal_close_conn_and_siblings (ksock_conn_t *conn, int why);
 extern int ksocknal_close_matching_conns(lnet_process_id_t id, __u32 ipaddr);
 extern ksock_conn_t *ksocknal_find_conn_locked(ksock_peer_t *peer,
-                                               ksock_tx_t *tx, int nonblk);
+					       ksock_tx_t *tx, int nonblk);
 
 extern int  ksocknal_launch_packet(lnet_ni_t *ni, ksock_tx_t *tx,
-                                   lnet_process_id_t id);
+				   lnet_process_id_t id);
 extern ksock_tx_t *ksocknal_alloc_tx(int type, int size);
 extern void ksocknal_free_tx (ksock_tx_t *tx);
 extern ksock_tx_t *ksocknal_alloc_tx_noop(__u64 cookie, int nonblk);
@@ -655,10 +655,10 @@ extern int ksocknal_scheduler (void *arg);
 extern int ksocknal_connd (void *arg);
 extern int ksocknal_reaper (void *arg);
 extern int ksocknal_send_hello (lnet_ni_t *ni, ksock_conn_t *conn,
-                                lnet_nid_t peer_nid, ksock_hello_msg_t *hello);
+				lnet_nid_t peer_nid, ksock_hello_msg_t *hello);
 extern int ksocknal_recv_hello (lnet_ni_t *ni, ksock_conn_t *conn,
-                                ksock_hello_msg_t *hello, lnet_process_id_t *id,
-                                __u64 *incarnation);
+				ksock_hello_msg_t *hello, lnet_process_id_t *id,
+				__u64 *incarnation);
 extern void ksocknal_read_callback(ksock_conn_t *conn);
 extern void ksocknal_write_callback(ksock_conn_t *conn);
 
