@@ -354,6 +354,9 @@ int osp_write_last_oid_seq_files(struct lu_env *env, struct osp_device *osp,
 	int		      rc;
 	ENTRY;
 
+	if (osp->opd_storage->dd_rdonly)
+		RETURN(0);
+
 	/* Note: through f_oid is only 32 bits, it will also write 64 bits
 	 * for oid to keep compatibility with the previous version. */
 	lb_oid->lb_buf = &fid->f_oid;
@@ -1645,6 +1648,9 @@ int osp_init_precreate(struct osp_device *d)
 	       (unsigned long long)d->opd_statfs_fresh_till);
 	cfs_timer_init(&d->opd_statfs_timer, osp_statfs_timer_cb, d);
 
+	if (d->opd_storage->dd_rdonly)
+		RETURN(0);
+
 	/*
 	 * start thread handling precreation and statfs updates
 	 */
@@ -1655,6 +1661,7 @@ int osp_init_precreate(struct osp_device *d)
 		RETURN(PTR_ERR(task));
 	}
 
+	d->opd_precreate_init = 1;
 	l_wait_event(d->opd_pre_thread.t_ctl_waitq,
 		     osp_precreate_running(d) || osp_precreate_stopped(d),
 		     &lwi);
@@ -1673,8 +1680,6 @@ int osp_init_precreate(struct osp_device *d)
  */
 void osp_precreate_fini(struct osp_device *d)
 {
-	struct ptlrpc_thread *thread;
-
 	ENTRY;
 
 	cfs_timer_disarm(&d->opd_statfs_timer);
@@ -1682,12 +1687,13 @@ void osp_precreate_fini(struct osp_device *d)
 	if (d->opd_pre == NULL)
 		RETURN_EXIT;
 
-	thread = &d->opd_pre_thread;
+	if (d->opd_precreate_init) {
+		struct ptlrpc_thread *thread = &d->opd_pre_thread;
 
-	thread->t_flags = SVC_STOPPING;
-	wake_up(&d->opd_pre_waitq);
-
-	wait_event(thread->t_ctl_waitq, thread->t_flags & SVC_STOPPED);
+		thread->t_flags = SVC_STOPPING;
+		wake_up(&d->opd_pre_waitq);
+		wait_event(thread->t_ctl_waitq, thread_is_stopped(thread));
+	}
 
 	OBD_FREE_PTR(d->opd_pre);
 	d->opd_pre = NULL;

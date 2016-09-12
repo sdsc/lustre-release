@@ -703,6 +703,9 @@ int qsd_prepare(const struct lu_env *env, struct qsd_instance *qsd)
 	qsd->qsd_prepared = true;
 	write_unlock(&qsd->qsd_lock);
 
+	if (qsd->qsd_dev->dd_rdonly)
+		goto lwp;
+
 	/* start reintegration thread for each type, if required */
 	for (qtype = USRQUOTA; qtype < LL_MAXQUOTAS; qtype++) {
 		struct qsd_qtype_info	*qqi = qsd->qsd_type_array[qtype];
@@ -733,6 +736,7 @@ int qsd_prepare(const struct lu_env *env, struct qsd_instance *qsd)
 		RETURN(rc);
 	}
 
+lwp:
 	/* generate osp name */
 	rc = tgt_name2lwp_name(qsd->qsd_svname, qti->qti_buf,
 			       MTI_NAME_MAXLEN, 0);
