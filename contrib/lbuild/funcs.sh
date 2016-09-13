@@ -74,6 +74,14 @@ find_linux_rpms() {
 
 }
 
+# provide a cleanup to whatever distro that modified/added ~/.rpmmacros
+cleanup_rpmmacros() {
+        if type -p cleanup_rpmmacros; then
+                cleanup_rpmmacros
+        fi
+        return 0
+}
+
 # a noop function which can be overridden by a distro method implementation
 resolve_arch() {
     local arch="$1"
