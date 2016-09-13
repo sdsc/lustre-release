@@ -40,6 +40,8 @@
 
 #define D_LNI D_CONSOLE
 
+/* canary change to test multi-rail tip after master sync */
+
 lnet_t      the_lnet;                           /* THE state of the network */
 EXPORT_SYMBOL(the_lnet);
 
