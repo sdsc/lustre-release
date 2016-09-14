@@ -182,7 +182,10 @@ cfs_trimwhite(char *str)
 		end--;
 	}
 
-	*end = 0;
+	/* Don't modify the string if it isn't needed, it may be a static
+	 * string that already has no whitespace and has a trailing NUL. */
+	if (*end != '\0')
+		*end = '\0';
 	return str;
 }
 EXPORT_SYMBOL(cfs_trimwhite);
