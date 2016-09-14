@@ -2107,21 +2107,17 @@ out:
 
 static int ofd_ladvise_prefetch(const struct lu_env *env,
 				struct ofd_object *fo,
+				struct niobuf_local *lnb,
 				__u64 start, __u64 end)
 {
 	struct ofd_thread_info	*info = ofd_info(env);
 	pgoff_t			 start_index, end_index, pages;
 	struct niobuf_remote	 rnb;
 	unsigned long		 nr_local;
-	struct niobuf_local	*lnb;
 	int			 rc = 0;
 
 	if (end <= start)
 		RETURN(-EINVAL);
-
-	OBD_ALLOC_LARGE(lnb, sizeof(*lnb) * PTLRPC_MAX_BRW_PAGES);
-	if (lnb == NULL)
-		RETURN(-ENOMEM);
 
 	ofd_read_lock(env, fo);
 	if (!ofd_object_exists(fo))
@@ -2160,7 +2156,6 @@ static int ofd_ladvise_prefetch(const struct lu_env *env,
 
 out_unlock:
 	ofd_read_unlock(env, fo);
-	OBD_FREE_LARGE(lnb, sizeof(*lnb) * PTLRPC_MAX_BRW_PAGES);
 	RETURN(rc);
 }
 
@@ -2176,21 +2171,23 @@ out_unlock:
  */
 static int ofd_ladvise_hdl(struct tgt_session_info *tsi)
 {
-	struct ptlrpc_request	*req = tgt_ses_req(tsi);
-	struct obd_export	*exp = tsi->tsi_exp;
-	struct ofd_device	*ofd = ofd_exp(exp);
-	struct ost_body		*body, *repbody;
-	struct ofd_thread_info	*info;
-	struct ofd_object	*fo;
-	const struct lu_env	*env = req->rq_svc_thread->t_env;
-	int			 rc = 0;
-	struct lu_ladvise	*ladvise;
-	int			 num_advise;
-	struct ladvise_hdr	*ladvise_hdr;
-	struct obd_ioobj	 ioo;
-	struct lustre_handle	 lockh = { 0 };
-	__u64			 flags = 0;
-	int			 i;
+	struct ptlrpc_request		*req = tgt_ses_req(tsi);
+	struct obd_export		*exp = tsi->tsi_exp;
+	struct ofd_device		*ofd = ofd_exp(exp);
+	struct ost_body			*body, *repbody;
+	struct ofd_thread_info		*info;
+	struct ofd_object		*fo;
+	struct ptlrpc_thread		*svc_thread = req->rq_svc_thread;
+	const struct lu_env		*env = svc_thread->t_env;
+	struct tgt_thread_big_cache	*tbc = svc_thread->t_data;
+	int				 rc = 0;
+	struct lu_ladvise		*ladvise;
+	int				 num_advise;
+	struct ladvise_hdr		*ladvise_hdr;
+	struct obd_ioobj		 ioo;
+	struct lustre_handle		 lockh = { 0 };
+	__u64				 flags = 0;
+	int				 i;
 	ENTRY;
 
 	CFS_FAIL_TIMEOUT(OBD_FAIL_OST_LADVISE_PAUSE, cfs_fail_val);
@@ -2250,6 +2247,9 @@ static int ofd_ladvise_hdl(struct tgt_session_info *tsi)
 			rc = -ENOTSUPP;
 			break;
 		case LU_LADVISE_WILLREAD:
+			if (tbc == NULL)
+				RETURN(-ENOMEM);
+
 			ioo.ioo_oid = body->oa.o_oi;
 			ioo.ioo_bufcnt = 1;
 			rc = tgt_extent_lock(exp->exp_obd->obd_namespace,
@@ -2262,6 +2262,7 @@ static int ofd_ladvise_hdl(struct tgt_session_info *tsi)
 
 			req->rq_status = ofd_ladvise_prefetch(env,
 				fo,
+				tbc->local,
 				ladvise->lla_start,
 				ladvise->lla_end);
 			tgt_extent_unlock(&lockh, LCK_PR);
