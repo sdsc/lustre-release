@@ -415,6 +415,7 @@ static inline void check_lcd(char *obd_name, int index,
         }
 }
 
+#ifdef __KERNEL__
 /* last_rcvd handling */
 static inline void lsd_le_to_cpu(struct lr_server_data *buf,
                                  struct lr_server_data *lsd)
@@ -509,6 +510,7 @@ static inline void lcd_cpu_to_le(struct lsd_client_data *lcd,
         buf->lcd_last_epoch         = cpu_to_le32(lcd->lcd_last_epoch);
 	buf->lcd_generation	    = cpu_to_le32(lcd->lcd_generation);
 }
+#endif /* __KERNEL___ */
 
 static inline __u64 lcd_last_transno(struct lsd_client_data *lcd)
 {
