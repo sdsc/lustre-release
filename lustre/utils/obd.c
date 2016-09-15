@@ -49,6 +49,7 @@
 #include <sys/un.h>
 #include <sys/wait.h>
 
+#include <assert.h>
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -2982,7 +2983,7 @@ static int check_pool_cmd(enum lcfg_command_type cmd,
 
         switch (cmd) {
         case LCFG_POOL_NEW: {
-                LASSERT(ostname == NULL);
+		assert(ostname == NULL);
                 if (rc >= 0) {
                         fprintf(stderr, "Pool %s.%s already exists\n",
                                 fsname, poolname);
@@ -2991,7 +2992,7 @@ static int check_pool_cmd(enum lcfg_command_type cmd,
                 return 0;
         }
         case LCFG_POOL_DEL: {
-                LASSERT(ostname == NULL);
+		assert(ostname == NULL);
                 if (rc == 1) {
                         fprintf(stderr, "Pool %s.%s not empty, "
                                 "please remove all members\n",
