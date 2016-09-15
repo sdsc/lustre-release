@@ -47,6 +47,7 @@
 #include <libcfs/util/list.h>
 
 #include <linux/types.h>
+#include <asm/errno.h>
 
 #define EXPORT_SYMBOL(s)
 
