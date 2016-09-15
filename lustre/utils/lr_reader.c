@@ -201,12 +201,12 @@ int main(int argc, char *const argv[])
 	}
 
 	/* swab structure fields of interest */
-	lsd.lsd_feature_compat = le32_to_cpu(lsd.lsd_feature_compat);
-	lsd.lsd_feature_incompat = le32_to_cpu(lsd.lsd_feature_incompat);
-	lsd.lsd_feature_rocompat = le32_to_cpu(lsd.lsd_feature_rocompat);
-	lsd.lsd_last_transno = le64_to_cpu(lsd.lsd_last_transno);
-	lsd.lsd_osd_index = le32_to_cpu(lsd.lsd_osd_index);
-	lsd.lsd_mount_count = le64_to_cpu(lsd.lsd_mount_count);
+	lsd.lsd_feature_compat = le32toh(lsd.lsd_feature_compat);
+	lsd.lsd_feature_incompat = le32toh(lsd.lsd_feature_incompat);
+	lsd.lsd_feature_rocompat = le32toh(lsd.lsd_feature_rocompat);
+	lsd.lsd_last_transno = le64toh(lsd.lsd_last_transno);
+	lsd.lsd_osd_index = le32toh(lsd.lsd_osd_index);
+	lsd.lsd_mount_count = le64toh(lsd.lsd_mount_count);
 
 	/* display */
 	printf("  uuid: %.40s\n", lsd.lsd_uuid);
@@ -219,8 +219,8 @@ int main(int argc, char *const argv[])
 
 	/* read client information */
 	if (opt_client) {
-		lsd.lsd_client_start = le32_to_cpu(lsd.lsd_client_start);
-		lsd.lsd_client_size = le16_to_cpu(lsd.lsd_client_size);
+		lsd.lsd_client_start = le32toh(lsd.lsd_client_start);
+		lsd.lsd_client_size = le16toh(lsd.lsd_client_size);
 		printf("  client_area_start: %u\n", lsd.lsd_client_start);
 		printf("  client_area_size: %hu\n", lsd.lsd_client_size);
 
@@ -253,11 +253,11 @@ int main(int argc, char *const argv[])
 
 			/* swab structure fields */
 			lcd.lcd_last_transno =
-					le64_to_cpu(lcd.lcd_last_transno);
-			lcd.lcd_last_xid = le64_to_cpu(lcd.lcd_last_xid);
-			lcd.lcd_last_result = le32_to_cpu(lcd.lcd_last_result);
-			lcd.lcd_last_data = le32_to_cpu(lcd.lcd_last_data);
-			lcd.lcd_generation = le32_to_cpu(lcd.lcd_generation);
+					le64toh(lcd.lcd_last_transno);
+			lcd.lcd_last_xid = le64toh(lcd.lcd_last_xid);
+			lcd.lcd_last_result = le32toh(lcd.lcd_last_result);
+			lcd.lcd_last_data = le32toh(lcd.lcd_last_data);
+			lcd.lcd_generation = le32toh(lcd.lcd_generation);
 
 			/* display per-client data area */
 			printf("\n  %.40s:\n", lcd.lcd_uuid);
@@ -271,13 +271,13 @@ int main(int argc, char *const argv[])
 			if (lcd.lcd_last_close_transno != 0 &&
 			    lcd.lcd_last_close_xid != 0) {
 				lcd.lcd_last_close_transno =
-					le64_to_cpu(lcd.lcd_last_close_transno);
+					le64toh(lcd.lcd_last_close_transno);
 				lcd.lcd_last_close_xid =
-					le64_to_cpu(lcd.lcd_last_close_xid);
+					le64toh(lcd.lcd_last_close_xid);
 				lcd.lcd_last_close_result =
-					le32_to_cpu(lcd.lcd_last_close_result);
+					le32toh(lcd.lcd_last_close_result);
 				lcd.lcd_last_close_data =
-					le32_to_cpu(lcd.lcd_last_close_data);
+					le32toh(lcd.lcd_last_close_data);
 				printf("    last_close_transation: %llu\n",
 				       lcd.lcd_last_close_transno);
 				printf("    last_close_xid: %llu\n",
@@ -332,9 +332,9 @@ int main(int argc, char *const argv[])
 		}
 
 		/* check header */
-		lrh.lrh_magic = le32_to_cpu(lrh.lrh_magic);
-		lrh.lrh_header_size = le32_to_cpu(lrh.lrh_header_size);
-		lrh.lrh_reply_size = le32_to_cpu(lrh.lrh_reply_size);
+		lrh.lrh_magic = le32toh(lrh.lrh_magic);
+		lrh.lrh_header_size = le32toh(lrh.lrh_header_size);
+		lrh.lrh_reply_size = le32toh(lrh.lrh_reply_size);
 		if (lrh.lrh_magic != LRH_MAGIC) {
 			fprintf(stderr, "%s: invalid %s header: "
 				"lrh_magic=%08x expected %08x\n",
@@ -370,11 +370,11 @@ int main(int argc, char *const argv[])
 			}
 
 			/* display reply data */
-			lrd.lrd_transno = le64_to_cpu(lrd.lrd_transno);
-			lrd.lrd_xid = le64_to_cpu(lrd.lrd_xid);
-			lrd.lrd_data = le64_to_cpu(lrd.lrd_data);
-			lrd.lrd_result = le32_to_cpu(lrd.lrd_result);
-			lrd.lrd_client_gen = le32_to_cpu(lrd.lrd_client_gen);
+			lrd.lrd_transno = le64toh(lrd.lrd_transno);
+			lrd.lrd_xid = le64toh(lrd.lrd_xid);
+			lrd.lrd_data = le64toh(lrd.lrd_data);
+			lrd.lrd_result = le32toh(lrd.lrd_result);
+			lrd.lrd_client_gen = le32toh(lrd.lrd_client_gen);
 
 			printf("  %lld:\n", slot);
 			printf("    client_generation: %u\n",
