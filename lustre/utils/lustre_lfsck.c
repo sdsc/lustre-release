@@ -29,7 +29,7 @@
  *
  * Author: Fan Yong <yong.fan@whamcloud.com>
  */
-
+#include <assert.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -235,12 +235,12 @@ static int lfsck_get_dev_name(struct obd_ioctl_data *data, char *device,
 	}
 
 	ptr = strrchr(param.gl_pathv[0], '-');
-	LASSERT(ptr != NULL);
+	assert(ptr != NULL);
 
 	for (i = 1; i < param.gl_pathc; i++) {
 		char *ptr2 = strrchr(param.gl_pathv[i], '-');
 
-		LASSERT(ptr2 != NULL);
+		assert(ptr2 != NULL);
 
 		if ((ptr - param.gl_pathv[0]) != (ptr2 - param.gl_pathv[i]) ||
 		    strncmp(param.gl_pathv[0], param.gl_pathv[i],

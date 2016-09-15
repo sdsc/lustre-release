@@ -25,6 +25,7 @@
  * Author: Jeremy Filizetti <jfilizet@iu.edu>
  */
 
+#include <assert.h>
 #include <fcntl.h>
 #include <limits.h>
 #include <math.h>
@@ -1095,8 +1096,8 @@ int sk_kdf(struct sk_cred *skc, lnet_nid_t client_nid,
 			return rc;
 		}
 
-		LASSERT(sk_hmac_types[kctx->skc_hmac_alg].sht_bytes ==
-			tmp_hash.length);
+		assert(sk_hmac_types[kctx->skc_hmac_alg].sht_bytes ==
+		       tmp_hash.length);
 
 		bytes = (remain < tmp_hash.length) ? remain : tmp_hash.length;
 		memcpy(skp, tmp_hash.value, bytes);
