@@ -676,13 +676,13 @@ osd_oi_init_compat(const struct lu_env *env, struct osd_device *o)
 	 * Those new indexes are created in the top-level ZAP outside the
 	 * namespace in order not to confuse ZPL which might interpret those
 	 * indexes as directories and assume the values are object IDs */
-	rc = osd_oi_find_or_create(env, o, MASTER_NODE_OBJ,
+	rc = osd_oi_find_or_create(env, o, o->od_root,
 			oid2name(ACCT_USER_OID), &odb);
 	if (rc)
 		RETURN(rc);
 	o->od_iusr_oid = odb;
 
-	rc = osd_oi_find_or_create(env, o, MASTER_NODE_OBJ,
+	rc = osd_oi_find_or_create(env, o, o->od_root,
 			oid2name(ACCT_GROUP_OID), &odb);
 	if (rc)
 		RETURN(rc);
