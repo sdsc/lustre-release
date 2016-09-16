@@ -6827,6 +6827,26 @@ test_99()
 }
 run_test 99 "Adding meta_bg option"
 
+test_100() {
+
+	cleanup || error "cleanup failed with $?"
+
+	# load libcfs to allow fail_loc setting
+	load_module ../libcfs/libcfs/libcfs || error "libcfs not loaded"
+	module_loaded libcfs || error "libcfs not loaded"
+
+	#define OBD_FAIL_OBDCLASS_MODULE_LOAD    0x60a
+	do_facet $SINGLEMDS "$LCTL set_param fail_loc=0x8000060a"
+
+	start_mdt 1 && error "mdt start must fail"
+	module_loaded obdclass && error "obdclass must not load"
+
+	start_mdt 1 || error "mdt start must not fail"
+
+	cleanup || error "cleanup failed with $?"
+}
+run_test 100 "obdclass module cleanup upon error"
+
 if ! combined_mgs_mds ; then
 	stop mgs
 fi
