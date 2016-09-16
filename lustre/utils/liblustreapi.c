@@ -2668,9 +2668,10 @@ static int print_failed_tgt(struct find_param *param, char *path, int type)
 {
         struct obd_statfs stat_buf;
         struct obd_uuid uuid_buf;
-        int ret;
+	int ret = -EINVAL;
 
-        LASSERT(type == LL_STATFS_LOV || type == LL_STATFS_LMV);
+	if (type != LL_STATFS_LOV && type != LL_STATFS_LMV)
+		return ret;
 
         memset(&stat_buf, 0, sizeof(struct obd_statfs));
         memset(&uuid_buf, 0, sizeof(struct obd_uuid));
@@ -2698,7 +2699,8 @@ static int cb_find_init(char *path, DIR *parent, DIR **dirp,
         int checked_type = 0;
         int ret = 0;
 
-        LASSERT(parent != NULL || dir != NULL);
+	if (parent == NULL && dir == NULL)
+		return -EINVAL;
 
 	param->fp_lmd->lmd_lmm.lmm_stripe_count = 0;
 
@@ -3034,7 +3036,9 @@ static int cb_migrate_mdt_init(char *path, DIR *parent, DIR **dirp,
 	char			*filename;
 	bool			retry = false;
 
-	LASSERT(parent != NULL || dirp != NULL);
+	if (parent == NULL && dirp == NULL)
+		return -EINVAL;
+
 	if (dirp != NULL)
 		closedir(*dirp);
 
@@ -3153,7 +3157,8 @@ static int cb_get_mdt_index(char *path, DIR *parent, DIR **dirp, void *data,
 	int ret;
 	int mdtidx;
 
-	LASSERT(parent != NULL || d != NULL);
+	if (parent == NULL && d == NULL)
+		return -EINVAL;
 
 	if (d != NULL) {
 		ret = llapi_file_fget_mdtidx(dirfd(d), &mdtidx);
@@ -3215,7 +3220,8 @@ static int cb_getstripe(char *path, DIR *parent, DIR **dirp, void *data,
 	DIR *d = dirp == NULL ? NULL : *dirp;
         int ret = 0;
 
-        LASSERT(parent != NULL || d != NULL);
+	if (parent == NULL && d == NULL)
+		return -EINVAL;
 
 	if (param->fp_obd_uuid) {
 		param->fp_quiet = 1;

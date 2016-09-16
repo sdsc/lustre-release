@@ -1095,8 +1095,9 @@ int sk_kdf(struct sk_cred *skc, lnet_nid_t client_nid,
 			return rc;
 		}
 
-		LASSERT(sk_hmac_types[kctx->skc_hmac_alg].sht_bytes ==
-			tmp_hash.length);
+		if (sk_hmac_types[kctx->skc_hmac_alg].sht_bytes !=
+		    tmp_hash.length)
+			return -EINVAL;
 
 		bytes = (remain < tmp_hash.length) ? remain : tmp_hash.length;
 		memcpy(skp, tmp_hash.value, bytes);

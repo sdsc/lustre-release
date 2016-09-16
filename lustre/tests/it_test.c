@@ -37,6 +37,7 @@
  *
  * Author: jay <jxiong@clusterfs.com>
  */
+#include <assert.h>
 #include <errno.h>
 #include <inttypes.h>
 #include <limits.h>
@@ -49,7 +50,13 @@
 
 #include <linux/types.h>
 
+/*
+ * it_test.c is built against one of the lustre kernel
+ * files (interval_tree.c). This pulls in kernel specific
+ * definitions which are not of interest for user land.
+ */
 #define EXPORT_SYMBOL(s)
+#define LASSERT assert
 
 #include <../ldlm/interval_tree.c>
 

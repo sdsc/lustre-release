@@ -533,7 +533,7 @@ static inline __u64 ostid_seq(const struct ost_id *ostid)
 	if (fid_seq_is_mdt0(ostid->oi.oi_seq))
 		return FID_SEQ_OST_MDT0;
 
-	if (unlikely(fid_seq_is_default(ostid->oi.oi_seq)))
+	if (fid_seq_is_default(ostid->oi.oi_seq))
 		return FID_SEQ_LOV_DEFAULT;
 
 	if (fid_is_idif(&ostid->oi_fid))
@@ -548,7 +548,7 @@ static inline __u64 ostid_id(const struct ost_id *ostid)
 	if (fid_seq_is_mdt0(ostid->oi.oi_seq))
 		return ostid->oi.oi_id & IDIF_OID_MASK;
 
-	if (unlikely(fid_seq_is_default(ostid->oi.oi_seq)))
+	if (fid_seq_is_default(ostid->oi.oi_seq))
 		return ostid->oi.oi_id;
 
 	if (fid_is_idif(&ostid->oi_fid))
@@ -622,7 +622,7 @@ static inline void ostid_set_id(struct ost_id *oi, __u64 oid)
 
 static inline int fid_set_id(struct lu_fid *fid, __u64 oid)
 {
-	if (unlikely(fid_seq_is_igif(fid->f_seq))) {
+	if (fid_seq_is_igif(fid->f_seq)) {
 		CERROR("bad IGIF, "DFID"\n", PFID(fid));
 		return -EBADF;
 	}
@@ -685,7 +685,7 @@ static inline int ostid_to_fid(struct lu_fid *fid, const struct ost_id *ostid,
 		fid->f_oid = oid;
 		/* in theory, not currently used */
 		fid->f_ver = oid >> 48;
-	} else if (likely(!fid_seq_is_default(seq)))
+	} else if (!fid_seq_is_default(seq))
 		/* if (fid_seq_is_idif(seq) || fid_seq_is_norm(seq)) */ {
 		/* This is either an IDIF object, which identifies objects
 		 * across all OSTs, or a regular FID.  The IDIF namespace maps
@@ -705,7 +705,7 @@ static inline int ostid_to_fid(struct lu_fid *fid, const struct ost_id *ostid,
 /* pack any OST FID into an ostid (id/seq) for the wire/disk */
 static inline int fid_to_ostid(const struct lu_fid *fid, struct ost_id *ostid)
 {
-	if (unlikely(fid_seq_is_igif(fid->f_seq))) {
+	if (fid_seq_is_igif(fid->f_seq)) {
 		CERROR("bad IGIF, "DFID"\n", PFID(fid));
 		return -EBADF;
 	}

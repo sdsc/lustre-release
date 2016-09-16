@@ -913,7 +913,8 @@ int lr_move(struct lr_info *info)
         int special_dest = 0;
 	char srcpath[PATH_MAX + 1] = "";
 
-	LASSERT(info->is_extended);
+	if (!info->is_extended)
+		return -EINVAL;
 
 	rc_src = lr_get_path(info, info->spfid);
 	if (rc_src < 0 && rc_src != -ENOENT)
