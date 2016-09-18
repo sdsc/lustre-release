@@ -954,12 +954,16 @@ static int lfs_setstripe(int argc, char **argv)
 #endif
 		{"stripe-index", required_argument, 0, 'i'},
 		{"stripe_index", required_argument, 0, 'i'},
+		{"mdt",	 	 required_argument, 0, 'm'},
 		{"mdt-index",	 required_argument, 0, 'm'},
 		{"mdt_index",	 required_argument, 0, 'm'},
 		/* --non-block is only valid in migrate mode */
 		{"non-block",	 no_argument,	    0, 'n'},
+		{"ost",		 required_argument, 0, 'o'},
+#if LUSTRE_VERSION_CODE < OBD_OCD_VERSION(2, 9, 53, 0)
 		{"ost-list",     required_argument, 0, 'o'},
 		{"ost_list",     required_argument, 0, 'o'},
+#endif
 		{"pool",	 required_argument, 0, 'p'},
 #if LUSTRE_VERSION_CODE < OBD_OCD_VERSION(2, 9, 53, 0)
 		/* This formerly implied "--stripe-size", but was confusing
@@ -1368,6 +1372,8 @@ static int lfs_find(int argc, char **argv)
                 {"stripe_index", required_argument, 0, 'i'},
 		{"layout",	 required_argument, 0, 'L'},
                 {"mdt",          required_argument, 0, 'm'},
+                {"mdt-index",    required_argument, 0, 'm'},
+                {"mdt_index",    required_argument, 0, 'm'},
                 {"mtime",        required_argument, 0, 'M'},
                 {"name",         required_argument, 0, 'n'},
      /* reserve {"or",           no_argument,     , 0, 'o'}, to match find(1) */
@@ -1748,9 +1754,12 @@ static int lfs_getstripe_internal(int argc, char **argv,
 		{"stripe-index",	no_argument,		0, 'i'},
 		{"stripe_index",	no_argument,		0, 'i'},
 		{"layout",		no_argument,		0, 'L'},
+		{"mdt",			no_argument,		0, 'm'},
+		{"mdt-index",		no_argument,		0, 'm'},
+		{"mdt_index",		no_argument,		0, 'm'},
+#if LUSTRE_VERSION_CODE < OBD_OCD_VERSION(2, 9, 53, 0)
 		{"mdt-index",		no_argument,		0, 'M'},
 		{"mdt_index",		no_argument,		0, 'M'},
-#if LUSTRE_VERSION_CODE < OBD_OCD_VERSION(2, 9, 53, 0)
 		/* This formerly implied "stripe-index", but was confusing
 		 * with "file offset" (which will eventually be needed for
 		 * with different layouts by offset), so deprecate it. */
@@ -1775,7 +1784,7 @@ static int lfs_getstripe_internal(int argc, char **argv,
 	};
 	int c, rc;
 
-	while ((c = getopt_long(argc, argv, "cdDghiLMoO:pqrRsSv",
+	while ((c = getopt_long(argc, argv, "cdDghiLmMoO:pqrRsSv",
 				long_opts, NULL)) != -1) {
 		switch (c) {
 		case 'O':
@@ -1860,7 +1869,10 @@ static int lfs_getstripe_internal(int argc, char **argv,
 				param->fp_max_depth = 0;
 			}
 			break;
+#if LUSTRE_VERSION_CODE < OBD_OCD_VERSION(2, 9, 53, 0)
 		case 'M':
+#endif
+		case 'm':
 			if (!(param->fp_verbose & VERBOSE_DETAIL))
 				param->fp_max_depth = 0;
 			param->fp_verbose |= VERBOSE_MDTINDEX;
@@ -1969,11 +1981,20 @@ static int lfs_setdirstripe(int argc, char **argv)
 	bool			delete = false;
 
 	struct option long_opts[] = {
+#if LUSTRE_VERSION_CODE < OBD_OCD_VERSION(2, 9, 53, 0)
 		{"count",	required_argument, 0, 'c'},
+#endif
+		{"mdt-count",	required_argument, 0, 'c'},
 		{"delete",	no_argument, 0, 'd'},
+#if LUSTRE_VERSION_CODE < OBD_OCD_VERSION(2, 9, 53, 0)
 		{"index",	required_argument, 0, 'i'},
+#endif
+		{"mdt-index",	required_argument, 0, 'i'},
 		{"mode",	required_argument, 0, 'm'},
+#if LUSTRE_VERSION_CODE < OBD_OCD_VERSION(2, 9, 53, 0)
 		{"hash-type",	required_argument, 0, 't'},
+#endif
+		{"mdt-hash",	required_argument, 0, 't'},
 		{"default_stripe", no_argument, 0, 'D'},
 		{0, 0, 0, 0}
 	};
