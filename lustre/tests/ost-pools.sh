@@ -178,9 +178,16 @@ add_pool() {
 	local RC=$?
 	[[ $RC -ne 0 ]] && return $RC
 
+	# wait for OSTs to be added to the pool
+	for num in $(seq $MDSCOUNT); do
+		wait_update_facet mds$num \
+			"lctl get_param -n lov.$FSNAME-*.pools.$pool |
+			sort -u | tr '\n' ' ' " "$tgt" >/dev/null ||
+			error "mds$num:pool add failed $1; $2"
+	done
 	wait_update $HOSTNAME "lctl get_param -n lov.$FSNAME-*.pools.$pool |
-		sort -u | tr '\n' ' ' " "$tgt" >/dev/null || RC=1
-	[[ $RC -ne 0 ]] && error "pool_add failed: $1; $2"
+		sort -u | tr '\n' ' ' " "$tgt" >/dev/null ||
+		error "pool_add failed: $1; $2"
 	return $RC
 }
 
