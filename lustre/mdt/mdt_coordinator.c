@@ -412,6 +412,49 @@ struct lprocfs_vars *hsm_cdt_get_proc_vars(void)
 	return lprocfs_mdt_hsm_vars;
 }
 
+/* Release the ressource used by the coordinator. Called when the
+ * coordinator is stopping. */
+static void mdt_hsm_cdt_cleanup(struct mdt_device *mdt)
+{
+	struct coordinator		*cdt = &mdt->mdt_coordinator;
+	struct cdt_agent_req		*car, *tmp1;
+	struct hsm_agent		*ha, *tmp2;
+	struct cdt_restore_handle	*crh, *tmp3;
+	struct mdt_thread_info		*cdt_mti;
+
+	/* start cleaning */
+	down_write(&cdt->cdt_request_lock);
+	list_for_each_entry_safe(car, tmp1, &cdt->cdt_requests,
+				 car_request_list) {
+		list_del(&car->car_request_list);
+		mdt_cdt_free_request(car);
+	}
+	up_write(&cdt->cdt_request_lock);
+
+	down_write(&cdt->cdt_agent_lock);
+	list_for_each_entry_safe(ha, tmp2, &cdt->cdt_agents, ha_list) {
+		list_del(&ha->ha_list);
+		OBD_FREE_PTR(ha);
+	}
+	up_write(&cdt->cdt_agent_lock);
+
+	cdt_mti = lu_context_key_get(&cdt->cdt_env.le_ctx, &mdt_thread_key);
+	mutex_lock(&cdt->cdt_restore_lock);
+	list_for_each_entry_safe(crh, tmp3, &cdt->cdt_restore_hdl, crh_list) {
+		struct mdt_object	*child;
+
+		/* give back layout lock */
+		child = mdt_object_find(&cdt->cdt_env, mdt, &crh->crh_fid);
+		if (!IS_ERR(child))
+			mdt_object_unlock_put(cdt_mti, child, &crh->crh_lh, 1);
+
+		list_del(&crh->crh_list);
+
+		OBD_SLAB_FREE_PTR(crh, mdt_hsm_cdt_kmem);
+	}
+	mutex_unlock(&cdt->cdt_restore_lock);
+}
+
 /**
  * coordinator thread
  * \param data [IN] obd device
@@ -427,9 +470,6 @@ static int mdt_coordinator(void *data)
 	int			 rc = 0;
 	int			 request_sz;
 	ENTRY;
-
-	cdt->cdt_thread.t_flags = SVC_RUNNING;
-	wake_up(&cdt->cdt_thread.t_ctl_waitq);
 
 	CDEBUG(D_HSM, "%s: coordinator thread starting, pid=%d\n",
 	       mdt_obd_name(mdt), current_pid());
@@ -447,6 +487,10 @@ static int mdt_coordinator(void *data)
 	hsd.mti = mti;
 	obd_uuid2fsname(hsd.fs_name, mdt_obd_name(mdt), MTI_NAME_MAXLEN);
 
+	/* Inform mdt_hsm_cdt_start(). */
+	cdt->cdt_state = CDT_RUNNING;
+	wake_up(&cdt->cdt_thread.t_ctl_waitq);
+
 	while (1) {
 		struct l_wait_info lwi;
 		int i;
@@ -454,15 +498,13 @@ static int mdt_coordinator(void *data)
 		lwi = LWI_TIMEOUT(cfs_time_seconds(cdt->cdt_loop_period),
 				  NULL, NULL);
 		l_wait_event(cdt->cdt_thread.t_ctl_waitq,
-			     (cdt->cdt_thread.t_flags &
-			      (SVC_STOPPING|SVC_EVENT)),
+			     ((cdt->cdt_thread.t_flags & SVC_EVENT) |
+			      (cdt->cdt_state == CDT_STOPPING)),
 			     &lwi);
 
 		CDEBUG(D_HSM, "coordinator resumes\n");
 
-		if (cdt->cdt_thread.t_flags & SVC_STOPPING ||
-		    cdt->cdt_state == CDT_STOPPING) {
-			cdt->cdt_thread.t_flags &= ~SVC_STOPPING;
+		if (cdt->cdt_state == CDT_STOPPING) {
 			rc = 0;
 			break;
 		}
@@ -569,22 +611,15 @@ clean_cb_alloc:
 	}
 	EXIT;
 out:
+	cdt->cdt_state = CDT_STOPPING;
+
 	if (hsd.request)
 		OBD_FREE(hsd.request, request_sz);
 
-	if (cdt->cdt_state == CDT_STOPPING) {
-		/* request comes from /proc path, so we need to clean cdt
-		 * struct */
-		 mdt_hsm_cdt_stop(mdt);
-		 mdt->mdt_opts.mo_coordinator = 0;
-	} else {
-		/* request comes from a thread event, generated
-		 * by mdt_stop_coordinator(), we have to ack
-		 * and cdt cleaning will be done by event sender
-		 */
-		cdt->cdt_thread.t_flags = SVC_STOPPED;
-		wake_up(&cdt->cdt_thread.t_ctl_waitq);
-	}
+	mdt_hsm_cdt_cleanup(mdt);
+
+	cdt->cdt_state = CDT_STOPPED;
+	wake_up(&cdt->cdt_thread.t_ctl_waitq);
 
 	if (rc != 0)
 		CERROR("%s: coordinator thread exiting, process=%d, rc=%d\n",
@@ -853,7 +888,7 @@ int  mdt_hsm_cdt_fini(struct mdt_device *mdt)
  * \retval 0 success
  * \retval -ve failure
  */
-int mdt_hsm_cdt_start(struct mdt_device *mdt)
+static int mdt_hsm_cdt_start(struct mdt_device *mdt)
 {
 	struct coordinator	*cdt = &mdt->mdt_coordinator;
 	int			 rc;
@@ -904,84 +939,43 @@ int mdt_hsm_cdt_start(struct mdt_device *mdt)
 		cdt->cdt_state = CDT_STOPPED;
 		CERROR("%s: error starting coordinator thread: %d\n",
 		       mdt_obd_name(mdt), rc);
-		RETURN(rc);
 	} else {
-		CDEBUG(D_HSM, "%s: coordinator thread started\n",
-		       mdt_obd_name(mdt));
-		rc = 0;
+		wait_event(cdt->cdt_thread.t_ctl_waitq,
+			   cdt->cdt_state != CDT_INIT);
+		if (cdt->cdt_state == CDT_INIT) {
+			CDEBUG(D_HSM, "%s: coordinator thread started\n",
+			       mdt_obd_name(mdt));
+			rc = 0;
+		} else {
+			CDEBUG(D_HSM,
+			       "%s: coordinator thread failed to start\n",
+			       mdt_obd_name(mdt));
+			rc = EINVAL;
+		}
 	}
 
-	wait_event(cdt->cdt_thread.t_ctl_waitq,
-		       (cdt->cdt_thread.t_flags & SVC_RUNNING));
-
-	cdt->cdt_state = CDT_RUNNING;
-	mdt->mdt_opts.mo_coordinator = 1;
-	RETURN(0);
+	RETURN(rc);
 }
 
 /**
  * stop a coordinator thread
  * \param mdt [IN] device
  */
-int mdt_hsm_cdt_stop(struct mdt_device *mdt)
+void mdt_hsm_cdt_stop(struct mdt_device *mdt)
 {
-	struct coordinator		*cdt = &mdt->mdt_coordinator;
-	struct cdt_agent_req		*car, *tmp1;
-	struct hsm_agent		*ha, *tmp2;
-	struct cdt_restore_handle	*crh, *tmp3;
-	struct mdt_thread_info		*cdt_mti;
+	struct coordinator *cdt = &mdt->mdt_coordinator;
+
 	ENTRY;
 
-	if (cdt->cdt_state == CDT_STOPPED) {
-		CERROR("%s: Coordinator already stopped\n",
-		       mdt_obd_name(mdt));
-		RETURN(-EALREADY);
-	}
-
-	if (cdt->cdt_state != CDT_STOPPING) {
+	if (cdt->cdt_state != CDT_STOPPED) {
 		/* stop coordinator thread before cleaning */
-		cdt->cdt_thread.t_flags = SVC_STOPPING;
-		wake_up(&cdt->cdt_thread.t_ctl_waitq);
+		cdt->cdt_state = CDT_STOPPING;
+
 		wait_event(cdt->cdt_thread.t_ctl_waitq,
-			   cdt->cdt_thread.t_flags & SVC_STOPPED);
+			   cdt->cdt_state == CDT_STOPPED);
 	}
-	cdt->cdt_state = CDT_STOPPED;
 
-	/* start cleaning */
-	down_write(&cdt->cdt_request_lock);
-	list_for_each_entry_safe(car, tmp1, &cdt->cdt_requests,
-				 car_request_list) {
-		list_del(&car->car_request_list);
-		mdt_cdt_free_request(car);
-	}
-	up_write(&cdt->cdt_request_lock);
-
-	down_write(&cdt->cdt_agent_lock);
-	list_for_each_entry_safe(ha, tmp2, &cdt->cdt_agents, ha_list) {
-		list_del(&ha->ha_list);
-		OBD_FREE_PTR(ha);
-	}
-	up_write(&cdt->cdt_agent_lock);
-
-	cdt_mti = lu_context_key_get(&cdt->cdt_env.le_ctx, &mdt_thread_key);
-	mutex_lock(&cdt->cdt_restore_lock);
-	list_for_each_entry_safe(crh, tmp3, &cdt->cdt_restore_hdl, crh_list) {
-		struct mdt_object	*child;
-
-		/* give back layout lock */
-		child = mdt_object_find(&cdt->cdt_env, mdt, &crh->crh_fid);
-		if (!IS_ERR(child))
-			mdt_object_unlock_put(cdt_mti, child, &crh->crh_lh, 1);
-
-		list_del(&crh->crh_list);
-
-		OBD_SLAB_FREE_PTR(crh, mdt_hsm_cdt_kmem);
-	}
-	mutex_unlock(&cdt->cdt_restore_lock);
-
-	mdt->mdt_opts.mo_coordinator = 0;
-
-	RETURN(0);
+	EXIT;
 }
 
 /**
