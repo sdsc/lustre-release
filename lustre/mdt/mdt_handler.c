@@ -4516,9 +4516,7 @@ static void mdt_fini(const struct lu_env *env, struct mdt_device *m)
 	mdt_stack_pre_fini(env, m, md2lu_dev(m->mdt_child));
 	ping_evictor_stop();
 
-	if (m->mdt_opts.mo_coordinator)
-		mdt_hsm_cdt_stop(m);
-
+	mdt_hsm_cdt_stop(m);
 	mdt_hsm_cdt_fini(m);
 
 	mdt_llog_ctxt_unclone(env, m, LLOG_AGENT_ORIG_CTXT);
@@ -4609,10 +4607,6 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
         m->mdt_max_mdsize = MAX_MD_SIZE; /* 4 stripes */
 	m->mdt_opts.mo_evict_tgt_nids = 1;
         m->mdt_opts.mo_cos = MDT_COS_DEFAULT;
-
-	/* default is coordinator off, it is started through conf_param
-	 * or /proc */
-	m->mdt_opts.mo_coordinator = 0;
 
 	lmi = server_get_mount(dev);
         if (lmi == NULL) {
