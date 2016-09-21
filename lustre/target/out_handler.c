@@ -807,6 +807,11 @@ static int out_trans_stop(const struct lu_env *env,
 		if (ta->ta_args[i]->object != NULL) {
 			struct dt_object *obj = ta->ta_args[i]->object;
 
+			if (ta->ta_prelocked) {
+				ta->ta_prelocked = false;
+				dt_write_unlock(env, obj);
+			}
+
 			/* If the object is being created during this
 			 * transaction, we need to remove them from the
 			 * cache immediately, because a few layers are
@@ -815,7 +820,7 @@ static int out_trans_stop(const struct lu_env *env,
 			if (ta->ta_args[i]->exec_fn == out_tx_create_exec)
 				set_bit(LU_OBJECT_HEARD_BANSHEE,
 					&obj->do_lu.lo_header->loh_flags);
-			lu_object_put(env, &ta->ta_args[i]->object->do_lu);
+			lu_object_put(env, &obj->do_lu);
 			ta->ta_args[i]->object = NULL;
 		}
 	}
@@ -847,7 +852,7 @@ static int out_tx_end(const struct lu_env *env, struct thandle_exec_args *ta,
 
 	for (i = 0; i < ta->ta_argno; i++) {
 		rc = ta->ta_args[i]->exec_fn(env, ta->ta_handle,
-					     ta->ta_args[i]);
+					     ta->ta_args[i], ta->ta_prelocked);
 		if (unlikely(rc != 0)) {
 			CDEBUG(D_INFO, "error during execution of #%u from"
 			       " %s:%d: rc = %d\n", i, ta->ta_args[i]->file,
@@ -855,8 +860,8 @@ static int out_tx_end(const struct lu_env *env, struct thandle_exec_args *ta,
 			while (--i >= 0) {
 				if (ta->ta_args[i]->undo_fn != NULL)
 					ta->ta_args[i]->undo_fn(env,
-							       ta->ta_handle,
-							       ta->ta_args[i]);
+						ta->ta_handle, ta->ta_args[i],
+						ta->ta_prelocked);
 				else
 					CERROR("%s: undo for %s:%d: rc = %d\n",
 					     dt_obd_name(ta->ta_handle->th_dev),
@@ -1057,13 +1062,14 @@ int out_handle(struct tgt_session_info *tsi)
 	tti->tti_u.update.tti_update_reply = reply;
 	tti->tti_mult_trans = !req_is_replay(tgt_ses_req(tsi));
 
+	ta->ta_prelocked = false;
 	/* Walk through updates in the request to execute them */
 	for (i = 0; i < update_buf_count; i++) {
-		struct tgt_handler	*h;
-		struct dt_object	*dt_obj;
-		int			update_count;
+		struct tgt_handler *h;
+		struct dt_object *dt_obj;
 		struct object_update_request *our;
-		int			j;
+		int update_count;
+		int j;
 
 		our = update_bufs[i];
 		update_count = our->ourq_count;
@@ -1109,6 +1115,44 @@ int out_handle(struct tgt_session_info *tsi)
 						     out_reconstruct, reply,
 						     reply_index))
 					GOTO(next, rc = 0);
+
+				/* XXX: Usually, the out handler will start
+				 *	the transaction before locking the
+				 *	object for DNE requirement. But such
+				 *	order of starting transaction before
+				 *	locking object is different from the
+				 *	OFD handler when handle the OST side
+				 *	modification. The OFD handler needs
+				 *	to lock the object before starting
+				 *	the transaction. The reason for such
+				 *	order is that the lower layer, mainly
+				 *	for ldiskfs backend, may re-start the
+				 *	transaction handle during some update,
+				 *	such as truncating very large object.
+				 *	Such action is transparent for Lustre.
+				 *	If we lock the object after the first
+				 *	transaction started, then it may cause
+				 *	deadlock when re-start the transaction
+				 *	handle. So here, the OUT handler for
+				 *	OST side modifications should follow
+				 *	the same order to avoid the potential
+				 *	deadlock. LU-8806 */
+				if (update->ou_flags & UPDATE_FL_OST) {
+					/* For OST side modification, we need
+					 * to lock the object firstly. If more
+					 * than one updates belong to the same
+					 * transaction, the action of locking
+					 * multiple objects with unknown order
+					 * may cause deadlock. So only allow
+					 * to update one object (can be kinds
+					 * of updates combined) in each OST
+					 * transaction. */
+					if (!ta->ta_prelocked) {
+						dt_write_lock(env, dt_obj,
+							      MOR_TGT_CHILD);
+						ta->ta_prelocked = true;
+					}
+				}
 			}
 
 			/* start transaction for modification RPC only */
@@ -1134,6 +1178,14 @@ int out_handle(struct tgt_session_info *tsi)
 
 				/* start a new transaction if needed */
 				if (h->th_flags & MUTABOR) {
+					if (update->ou_flags & UPDATE_FL_OST) {
+						LASSERT(!ta->ta_prelocked);
+
+						dt_write_lock(env, dt_obj,
+							      MOR_TGT_CHILD);
+						ta->ta_prelocked = true;
+					}
+
 					rc = out_tx_start(env, dt, ta,
 							  tsi->tsi_exp);
 					if (rc != 0)
@@ -1147,6 +1199,10 @@ int out_handle(struct tgt_session_info *tsi)
 			rc = h->th_act(tsi);
 next:
 			reply_index++;
+			if (rc < 0 && ta->ta_prelocked) {
+				ta->ta_prelocked = false;
+				dt_write_unlock(env, dt_obj);
+			}
 			lu_object_put(env, &dt_obj->do_lu);
 			if (rc < 0)
 				GOTO(out, rc);
@@ -1158,6 +1214,8 @@ out:
 		if (rc == 0)
 			rc = rc1;
 	}
+
+	LASSERT(!ta->ta_prelocked);
 
 out_free:
 	if (update_bufs != NULL) {

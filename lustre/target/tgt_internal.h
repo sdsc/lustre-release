@@ -122,10 +122,7 @@ static inline char *dt_obd_name(struct dt_device *dt)
 
 /* out_lib.c */
 int out_tx_create_exec(const struct lu_env *env, struct thandle *th,
-		       struct tx_arg *arg);
-struct tx_arg *tx_add_exec(struct thandle_exec_args *ta,
-			   tx_exec_func_t func, tx_exec_func_t undo,
-			   const char *file, int line);
+		       struct tx_arg *arg, bool prelocked);
 
 int out_create_add_exec(const struct lu_env *env, struct dt_object *obj,
 			struct lu_attr *attr, struct lu_fid *parent_fid,

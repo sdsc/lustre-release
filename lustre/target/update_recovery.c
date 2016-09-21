@@ -1383,7 +1383,7 @@ int distribute_txn_replay_handle(struct lu_env *env,
 		LASSERT(st != NULL);
 		LASSERT(st->st_sub_th != NULL);
 		rc = ta->ta_args[i]->exec_fn(env, st->st_sub_th,
-					     ta->ta_args[i]);
+					     ta->ta_args[i], false);
 
 		/* If the update is to update the reply data, then
 		 * we need set the session information, so
@@ -1406,8 +1406,8 @@ int distribute_txn_replay_handle(struct lu_env *env,
 					LASSERT(st->st_sub_th != NULL);
 
 					ta->ta_args[i]->undo_fn(env,
-							       st->st_sub_th,
-							       ta->ta_args[i]);
+						st->st_sub_th, ta->ta_args[i],
+						false);
 				} else {
 					CERROR("%s: undo for %s:%d: rc = %d\n",
 					     dt_obd_name(ta->ta_handle->th_dev),

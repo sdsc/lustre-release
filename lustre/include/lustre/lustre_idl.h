@@ -3118,7 +3118,7 @@ enum update_type {
 };
 
 enum update_flag {
-	UPDATE_FL_OST		= 0x00000001,	/* op from OST (not MDT) */
+	UPDATE_FL_OST		= 0x00000001,	/* op to OST (not MDT) */
 	UPDATE_FL_SYNC		= 0x00000002,	/* commit before replying */
 	UPDATE_FL_COMMITTED	= 0x00000004,	/* op committed globally */
 	UPDATE_FL_NOLOG		= 0x00000008	/* for idempotent updates */

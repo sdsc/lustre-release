@@ -466,9 +466,11 @@ out:
 }
 
 #define TX_ALLOC_STEP	8
-struct tx_arg *tx_add_exec(struct thandle_exec_args *ta,
-			   tx_exec_func_t func, tx_exec_func_t undo,
-			   const char *file, int line)
+static struct tx_arg *tx_add_exec(struct thandle_exec_args *ta,
+				  tx_exec_func_t func, tx_exec_func_t undo,
+				  const char *file, int line, int index,
+				  struct dt_object *obj,
+				  struct object_update_reply *reply)
 {
 	int rc;
 	int i;
@@ -484,27 +486,58 @@ struct tx_arg *tx_add_exec(struct thandle_exec_args *ta,
 
 	i = ta->ta_argno;
 
+	if (ta->ta_prelocked && i > 0 && ta->ta_args[i - 1]->object != obj) {
+		LASSERT(ta->ta_args[i - 1]->object != NULL);
+
+		CERROR("Want to update more than one objects under pre locked "
+		       "mode: "DFID", "DFID"\n",
+		       PFID(lu_object_fid(&ta->ta_args[i - 1]->object->do_lu)),
+		       PFID(lu_object_fid(&obj->do_lu)));
+
+		return ERR_PTR(-EPROTO);
+	}
+
 	ta->ta_argno++;
 
 	ta->ta_args[i]->exec_fn = func;
 	ta->ta_args[i]->undo_fn = undo;
-	ta->ta_args[i]->file    = file;
-	ta->ta_args[i]->line    = line;
+	ta->ta_args[i]->file = file;
+	ta->ta_args[i]->line = line;
+	ta->ta_args[i]->index = index;
+	ta->ta_args[i]->reply = reply;
+
+	/* release the object in out_trans_stop */
+	lu_object_get(&obj->do_lu);
+	ta->ta_args[i]->object = obj;
 
 	return ta->ta_args[i];
 }
 
+static inline void out_write_lock(const struct lu_env *env,
+				  struct dt_object *dt, bool prelocked)
+{
+	if (!prelocked)
+		dt_write_lock(env, dt, MOR_TGT_CHILD);
+}
+
+static inline void out_write_unlock(const struct lu_env *env,
+				    struct dt_object *dt, bool prelocked)
+{
+	if (!prelocked)
+		dt_write_unlock(env, dt);
+}
+
 static int out_obj_destroy(const struct lu_env *env, struct dt_object *dt_obj,
-			   struct thandle *th)
+			   struct thandle *th, bool prelocked)
 {
 	int rc;
 
 	CDEBUG(D_INFO, "%s: destroy "DFID"\n", dt_obd_name(th->th_dev),
 	       PFID(lu_object_fid(&dt_obj->do_lu)));
 
-	dt_write_lock(env, dt_obj, MOR_TGT_CHILD);
+	out_write_lock(env, dt_obj, prelocked);
 	rc = dt_destroy(env, dt_obj, th);
-	dt_write_unlock(env, dt_obj);
+	out_write_unlock(env, dt_obj, prelocked);
 
 	return rc;
 }
@@ -517,11 +550,11 @@ static int out_obj_destroy(const struct lu_env *env, struct dt_object *dt_obj,
  * should be useless for most of the time in Phase I
  */
 static int out_tx_create_undo(const struct lu_env *env, struct thandle *th,
-			      struct tx_arg *arg)
+			      struct tx_arg *arg, bool prelocked)
 {
 	int rc;
 
-	rc = out_obj_destroy(env, arg->object, th);
+	rc = out_obj_destroy(env, arg->object, th, prelocked);
 	if (rc != 0)
 		CERROR("%s: undo failure, we are doomed!: rc = %d\n",
 		       dt_obd_name(th->th_dev), rc);
@@ -529,7 +562,7 @@ static int out_tx_create_undo(const struct lu_env *env, struct thandle *th,
 }
 
 int out_tx_create_exec(const struct lu_env *env, struct thandle *th,
-		       struct tx_arg *arg)
+		       struct tx_arg *arg, bool prelocked)
 {
 	struct dt_object	*dt_obj = arg->object;
 	int			 rc;
@@ -540,11 +573,10 @@ int out_tx_create_exec(const struct lu_env *env, struct thandle *th,
 	       arg->u.create.dof.dof_type,
 	       arg->u.create.attr.la_mode & S_IFMT);
 
-	dt_write_lock(env, dt_obj, MOR_TGT_CHILD);
+	out_write_lock(env, dt_obj, prelocked);
 	rc = dt_create(env, dt_obj, &arg->u.create.attr,
 		       &arg->u.create.hint, &arg->u.create.dof, th);
-
-	dt_write_unlock(env, dt_obj);
+	out_write_unlock(env, dt_obj, prelocked);
 
 	CDEBUG(D_INFO, "%s: insert create reply %p index %d: rc = %d\n",
 	       dt_obd_name(th->th_dev), arg->reply, arg->index, rc);
@@ -596,26 +628,22 @@ int out_create_add_exec(const struct lu_env *env, struct dt_object *obj,
 		return rc;
 
 	arg = tx_add_exec(ta, out_tx_create_exec, out_tx_create_undo, file,
-			  line);
+			  line, index, obj, reply);
 	if (IS_ERR(arg))
 		return PTR_ERR(arg);
 
-	/* release the object in out_trans_stop */
-	lu_object_get(&obj->do_lu);
-	arg->object = obj;
 	arg->u.create.attr = *attr;
 	if (parent_fid != NULL)
 		arg->u.create.fid = *parent_fid;
 	memset(&arg->u.create.hint, 0, sizeof(arg->u.create.hint));
 	arg->u.create.dof  = *dof;
-	arg->reply = reply;
-	arg->index = index;
 
 	return 0;
 }
 
 static int out_tx_attr_set_undo(const struct lu_env *env,
-				struct thandle *th, struct tx_arg *arg)
+				struct thandle *th, struct tx_arg *arg,
+				bool prelocked)
 {
 	CERROR("%s: attr set undo "DFID" unimplemented yet!: rc = %d\n",
 	       dt_obd_name(th->th_dev),
@@ -625,7 +653,7 @@ static int out_tx_attr_set_undo(const struct lu_env *env,
 }
 
 static int out_tx_attr_set_exec(const struct lu_env *env, struct thandle *th,
-				struct tx_arg *arg)
+				struct tx_arg *arg, bool prelocked)
 {
 	struct dt_object	*dt_obj = arg->object;
 	int			rc;
@@ -633,9 +661,9 @@ static int out_tx_attr_set_exec(const struct lu_env *env, struct thandle *th,
 	CDEBUG(D_OTHER, "%s: attr set "DFID"\n", dt_obd_name(th->th_dev),
 	       PFID(lu_object_fid(&dt_obj->do_lu)));
 
-	dt_write_lock(env, dt_obj, MOR_TGT_CHILD);
+	out_write_lock(env, dt_obj, prelocked);
 	rc = dt_attr_set(env, dt_obj, &arg->u.attr_set.attr, th);
-	dt_write_unlock(env, dt_obj);
+	out_write_unlock(env, dt_obj, prelocked);
 
 	CDEBUG(D_INFO, "%s: insert attr_set reply %p index %d: rc = %d\n",
 	       dt_obd_name(th->th_dev), arg->reply, arg->index, rc);
@@ -661,20 +689,16 @@ int out_attr_set_add_exec(const struct lu_env *env, struct dt_object *dt_obj,
 		return rc;
 
 	arg = tx_add_exec(ta, out_tx_attr_set_exec, out_tx_attr_set_undo,
-			  file, line);
+			  file, line, index, dt_obj, reply);
 	if (IS_ERR(arg))
 		return PTR_ERR(arg);
 
-	lu_object_get(&dt_obj->do_lu);
-	arg->object = dt_obj;
 	arg->u.attr_set.attr = *attr;
-	arg->reply = reply;
-	arg->index = index;
 	return 0;
 }
 
 static int out_tx_write_exec(const struct lu_env *env, struct thandle *th,
-			     struct tx_arg *arg)
+			     struct tx_arg *arg, bool prelocked)
 {
 	struct dt_object *dt_obj = arg->object;
 	int rc;
@@ -686,10 +710,10 @@ static int out_tx_write_exec(const struct lu_env *env, struct thandle *th,
 	if (OBD_FAIL_CHECK(OBD_FAIL_OUT_ENOSPC)) {
 		rc = -ENOSPC;
 	} else {
-		dt_write_lock(env, dt_obj, MOR_TGT_CHILD);
+		out_write_lock(env, dt_obj, prelocked);
 		rc = dt_record_write(env, dt_obj, &arg->u.write.buf,
 				     &arg->u.write.pos, th);
-		dt_write_unlock(env, dt_obj);
+		out_write_unlock(env, dt_obj, prelocked);
 
 		if (rc == 0)
 			rc = arg->u.write.buf.lb_len;
@@ -715,22 +739,19 @@ int out_write_add_exec(const struct lu_env *env, struct dt_object *dt_obj,
 	if (rc != 0)
 		return rc;
 
-	arg = tx_add_exec(ta, out_tx_write_exec, NULL, file, line);
+	arg = tx_add_exec(ta, out_tx_write_exec, NULL, file, line,
+			  index, dt_obj, reply);
 	if (IS_ERR(arg))
 		return PTR_ERR(arg);
 
-	lu_object_get(&dt_obj->do_lu);
-	arg->object = dt_obj;
 	arg->u.write.buf = *buf;
 	arg->u.write.pos = pos;
-	arg->reply = reply;
-	arg->index = index;
 	return 0;
 }
 
 static int out_tx_xattr_set_exec(const struct lu_env *env,
 				 struct thandle *th,
-				 struct tx_arg *arg)
+				 struct tx_arg *arg, bool prelocked)
 {
 	struct dt_object *dt_obj = arg->object;
 	int rc;
@@ -756,7 +777,7 @@ static int out_tx_xattr_set_exec(const struct lu_env *env,
 			linkea = false;
 		}
 
-		dt_write_lock(env, dt_obj, MOR_TGT_CHILD);
+		out_write_lock(env, dt_obj, prelocked);
 
 again:
 		rc = dt_xattr_set(env, dt_obj, ldata.ld_buf,
@@ -769,7 +790,7 @@ again:
 				goto again;
 			}
 		}
-		dt_write_unlock(env, dt_obj);
+		out_write_unlock(env, dt_obj, prelocked);
 	}
 
 	GOTO(out, rc);
@@ -799,23 +820,20 @@ int out_xattr_set_add_exec(const struct lu_env *env, struct dt_object *dt_obj,
 	if (rc != 0)
 		return rc;
 
-	arg = tx_add_exec(ta, out_tx_xattr_set_exec, NULL, file, line);
+	arg = tx_add_exec(ta, out_tx_xattr_set_exec, NULL, file, line,
+			  index, dt_obj, reply);
 	if (IS_ERR(arg))
 		return PTR_ERR(arg);
 
-	lu_object_get(&dt_obj->do_lu);
-	arg->object = dt_obj;
 	arg->u.xattr_set.name = name;
 	arg->u.xattr_set.flags = flags;
 	arg->u.xattr_set.buf = *buf;
-	arg->reply = reply;
-	arg->index = index;
 	arg->u.xattr_set.csum = 0;
 	return 0;
 }
 
 static int out_tx_xattr_del_exec(const struct lu_env *env, struct thandle *th,
-				 struct tx_arg *arg)
+				 struct tx_arg *arg, bool prelocked)
 {
 	struct dt_object *dt_obj = arg->object;
 	int rc;
@@ -827,10 +845,9 @@ static int out_tx_xattr_del_exec(const struct lu_env *env, struct thandle *th,
 	if (!lu_object_exists(&dt_obj->do_lu))
 		GOTO(out, rc = -ENOENT);
 
-	dt_write_lock(env, dt_obj, MOR_TGT_CHILD);
-	rc = dt_xattr_del(env, dt_obj, arg->u.xattr_set.name,
-			  th);
-	dt_write_unlock(env, dt_obj);
+	out_write_lock(env, dt_obj, prelocked);
+	rc = dt_xattr_del(env, dt_obj, arg->u.xattr_set.name, th);
+	out_write_unlock(env, dt_obj, prelocked);
 out:
 	CDEBUG(D_INFO, "%s: insert xattr del reply %p index %d: rc = %d\n",
 	       dt_obd_name(th->th_dev), arg->reply, arg->index, rc);
@@ -855,51 +872,48 @@ int out_xattr_del_add_exec(const struct lu_env *env, struct dt_object *dt_obj,
 	if (rc != 0)
 		return rc;
 
-	arg = tx_add_exec(ta, out_tx_xattr_del_exec, NULL, file, line);
+	arg = tx_add_exec(ta, out_tx_xattr_del_exec, NULL, file, line,
+			  index, dt_obj, reply);
 	if (IS_ERR(arg))
 		return PTR_ERR(arg);
 
-	lu_object_get(&dt_obj->do_lu);
-	arg->object = dt_obj;
 	arg->u.xattr_set.name = name;
-	arg->reply = reply;
-	arg->index = index;
 	return 0;
 }
 
 static int out_obj_ref_add(const struct lu_env *env,
 			   struct dt_object *dt_obj,
-			   struct thandle *th)
+			   struct thandle *th, bool prelocked)
 {
 	int rc;
 
-	dt_write_lock(env, dt_obj, MOR_TGT_CHILD);
+	out_write_lock(env, dt_obj, prelocked);
 	rc = dt_ref_add(env, dt_obj, th);
-	dt_write_unlock(env, dt_obj);
+	out_write_unlock(env, dt_obj, prelocked);
 
 	return rc;
 }
 
 static int out_obj_ref_del(const struct lu_env *env,
 			   struct dt_object *dt_obj,
-			   struct thandle *th)
+			   struct thandle *th, bool prelocked)
 {
 	int rc;
 
-	dt_write_lock(env, dt_obj, MOR_TGT_CHILD);
+	out_write_lock(env, dt_obj, prelocked);
 	rc = dt_ref_del(env, dt_obj, th);
-	dt_write_unlock(env, dt_obj);
+	out_write_unlock(env, dt_obj, prelocked);
 
 	return rc;
 }
 
 static int out_tx_ref_add_exec(const struct lu_env *env, struct thandle *th,
-			       struct tx_arg *arg)
+			       struct tx_arg *arg, bool prelocked)
 {
 	struct dt_object *dt_obj = arg->object;
 	int rc;
 
-	rc = out_obj_ref_add(env, dt_obj, th);
+	rc = out_obj_ref_add(env, dt_obj, th, prelocked);
 
 	CDEBUG(D_INFO, "%s: insert ref_add reply %p index %d: rc = %d\n",
 	       dt_obd_name(th->th_dev), arg->reply, arg->index, rc);
@@ -911,9 +925,9 @@ static int out_tx_ref_add_exec(const struct lu_env *env, struct thandle *th,
 }
 
 static int out_tx_ref_add_undo(const struct lu_env *env, struct thandle *th,
-			       struct tx_arg *arg)
+			       struct tx_arg *arg, bool prelocked)
 {
-	return out_obj_ref_del(env, arg->object, th);
+	return out_obj_ref_del(env, arg->object, th, prelocked);
 }
 
 int out_ref_add_add_exec(const struct lu_env *env, struct dt_object *dt_obj,
@@ -930,24 +944,20 @@ int out_ref_add_add_exec(const struct lu_env *env, struct dt_object *dt_obj,
 		return rc;
 
 	arg = tx_add_exec(ta, out_tx_ref_add_exec, out_tx_ref_add_undo, file,
-			  line);
+			  line, index, dt_obj, reply);
 	if (IS_ERR(arg))
 		return PTR_ERR(arg);
 
-	lu_object_get(&dt_obj->do_lu);
-	arg->object = dt_obj;
-	arg->reply = reply;
-	arg->index = index;
 	return 0;
 }
 
 static int out_tx_ref_del_exec(const struct lu_env *env, struct thandle *th,
-			       struct tx_arg *arg)
+			       struct tx_arg *arg, bool prelocked)
 {
 	struct dt_object	*dt_obj = arg->object;
 	int			 rc;
 
-	rc = out_obj_ref_del(env, dt_obj, th);
+	rc = out_obj_ref_del(env, dt_obj, th, prelocked);
 
 	CDEBUG(D_INFO, "%s: insert ref_del reply %p index %d: rc = %d\n",
 	       dt_obd_name(th->th_dev), arg->reply, arg->index, 0);
@@ -960,9 +970,9 @@ static int out_tx_ref_del_exec(const struct lu_env *env, struct thandle *th,
 }
 
 static int out_tx_ref_del_undo(const struct lu_env *env, struct thandle *th,
-			       struct tx_arg *arg)
+			       struct tx_arg *arg, bool prelocked)
 {
-	return out_obj_ref_add(env, arg->object, th);
+	return out_obj_ref_add(env, arg->object, th, prelocked);
 }
 
 int out_ref_del_add_exec(const struct lu_env *env, struct dt_object *dt_obj,
@@ -979,14 +989,10 @@ int out_ref_del_add_exec(const struct lu_env *env, struct dt_object *dt_obj,
 		return rc;
 
 	arg = tx_add_exec(ta, out_tx_ref_del_exec, out_tx_ref_del_undo, file,
-			  line);
+			  line, index, dt_obj, reply);
 	if (IS_ERR(arg))
 		return PTR_ERR(arg);
 
-	lu_object_get(&dt_obj->do_lu);
-	arg->object = dt_obj;
-	arg->reply = reply;
-	arg->index = index;
 	return 0;
 }
 
@@ -994,7 +1000,7 @@ static int out_obj_index_insert(const struct lu_env *env,
 				struct dt_object *dt_obj,
 				const struct dt_rec *rec,
 				const struct dt_key *key,
-				struct thandle *th)
+				struct thandle *th, bool prelocked)
 {
 	int rc;
 
@@ -1006,9 +1012,9 @@ static int out_obj_index_insert(const struct lu_env *env,
 	if (dt_try_as_dir(env, dt_obj) == 0)
 		return -ENOTDIR;
 
-	dt_write_lock(env, dt_obj, MOR_TGT_CHILD);
+	out_write_lock(env, dt_obj, prelocked);
 	rc = dt_insert(env, dt_obj, rec, key, th, 0);
-	dt_write_unlock(env, dt_obj);
+	out_write_unlock(env, dt_obj, prelocked);
 
 	return rc;
 }
@@ -1016,7 +1022,7 @@ static int out_obj_index_insert(const struct lu_env *env,
 static int out_obj_index_delete(const struct lu_env *env,
 				struct dt_object *dt_obj,
 				const struct dt_key *key,
-				struct thandle *th)
+				struct thandle *th, bool prelocked)
 {
 	int rc;
 
@@ -1027,15 +1033,16 @@ static int out_obj_index_delete(const struct lu_env *env,
 	if (dt_try_as_dir(env, dt_obj) == 0)
 		return -ENOTDIR;
 
-	dt_write_lock(env, dt_obj, MOR_TGT_CHILD);
+	out_write_lock(env, dt_obj, prelocked);
 	rc = dt_delete(env, dt_obj, key, th);
-	dt_write_unlock(env, dt_obj);
+	out_write_unlock(env, dt_obj, prelocked);
 
 	return rc;
 }
 
 static int out_tx_index_insert_exec(const struct lu_env *env,
-				    struct thandle *th, struct tx_arg *arg)
+				    struct thandle *th, struct tx_arg *arg,
+				    bool prelocked)
 {
 	struct dt_object *dt_obj = arg->object;
 	int rc;
@@ -1045,7 +1052,7 @@ static int out_tx_index_insert_exec(const struct lu_env *env,
 
 	rc = out_obj_index_insert(env, dt_obj,
 				  (const struct dt_rec *)&arg->u.insert.rec,
-				  arg->u.insert.key, th);
+				  arg->u.insert.key, th, prelocked);
 
 	CDEBUG(D_INFO, "%s: insert idx insert reply %p index %d: rc = %d\n",
 	       dt_obd_name(th->th_dev), arg->reply, arg->index, rc);
@@ -1057,9 +1064,11 @@ static int out_tx_index_insert_exec(const struct lu_env *env,
 }
 
 static int out_tx_index_insert_undo(const struct lu_env *env,
-				    struct thandle *th, struct tx_arg *arg)
+				    struct thandle *th, struct tx_arg *arg,
+				    bool prelocked)
 {
-	return out_obj_index_delete(env, arg->object, arg->u.insert.key, th);
+	return out_obj_index_delete(env, arg->object, arg->u.insert.key,
+				    th, prelocked);
 }
 
 int out_index_insert_add_exec(const struct lu_env *env,
@@ -1084,14 +1093,11 @@ int out_index_insert_add_exec(const struct lu_env *env,
 		return rc;
 
 	arg = tx_add_exec(ta, out_tx_index_insert_exec,
-			  out_tx_index_insert_undo, file, line);
+			  out_tx_index_insert_undo, file, line, index,
+			  dt_obj, reply);
 	if (IS_ERR(arg))
 		return PTR_ERR(arg);
 
-	lu_object_get(&dt_obj->do_lu);
-	arg->object = dt_obj;
-	arg->reply = reply;
-	arg->index = index;
 	arg->u.insert.rec = *(const struct dt_insert_rec *)rec;
 	arg->u.insert.key = key;
 
@@ -1100,11 +1106,12 @@ int out_index_insert_add_exec(const struct lu_env *env,
 
 static int out_tx_index_delete_exec(const struct lu_env *env,
 				    struct thandle *th,
-				    struct tx_arg *arg)
+				    struct tx_arg *arg, bool prelocked)
 {
 	int rc;
 
-	rc = out_obj_index_delete(env, arg->object, arg->u.insert.key, th);
+	rc = out_obj_index_delete(env, arg->object, arg->u.insert.key,
+				  th, prelocked);
 
 	CDEBUG(D_INFO, "%s: delete idx insert reply %p index %d: rc = %d\n",
 	       dt_obd_name(th->th_dev), arg->reply, arg->index, rc);
@@ -1118,7 +1125,7 @@ static int out_tx_index_delete_exec(const struct lu_env *env,
 
 static int out_tx_index_delete_undo(const struct lu_env *env,
 				    struct thandle *th,
-				    struct tx_arg *arg)
+				    struct tx_arg *arg, bool prelocked)
 {
 	CERROR("%s: Oops, can not rollback index_delete yet: rc = %d\n",
 	       dt_obd_name(th->th_dev), -ENOTSUPP);
@@ -1147,25 +1154,22 @@ int out_index_delete_add_exec(const struct lu_env *env,
 		return rc;
 
 	arg = tx_add_exec(ta, out_tx_index_delete_exec,
-			  out_tx_index_delete_undo, file, line);
+			  out_tx_index_delete_undo, file, line,
+			  index, dt_obj, reply);
 	if (IS_ERR(arg))
 		return PTR_ERR(arg);
 
-	lu_object_get(&dt_obj->do_lu);
-	arg->object = dt_obj;
-	arg->reply = reply;
-	arg->index = index;
 	arg->u.insert.key = key;
 	return 0;
 }
 
 static int out_tx_destroy_exec(const struct lu_env *env, struct thandle *th,
-			       struct tx_arg *arg)
+			       struct tx_arg *arg, bool locked)
 {
 	struct dt_object *dt_obj = arg->object;
 	int rc;
 
-	rc = out_obj_destroy(env, dt_obj, th);
+	rc = out_obj_destroy(env, dt_obj, th, locked);
 
 	CDEBUG(D_INFO, "%s: insert destroy reply %p index %d: rc = %d\n",
 	       dt_obd_name(th->th_dev), arg->reply, arg->index, rc);
@@ -1178,7 +1182,7 @@ static int out_tx_destroy_exec(const struct lu_env *env, struct thandle *th,
 }
 
 static int out_tx_destroy_undo(const struct lu_env *env, struct thandle *th,
-			       struct tx_arg *arg)
+			       struct tx_arg *arg, bool prelocked)
 {
 	CERROR("%s: not support destroy undo yet!: rc = %d\n",
 	       dt_obd_name(th->th_dev), -ENOTSUPP);
@@ -1198,13 +1202,9 @@ int out_destroy_add_exec(const struct lu_env *env, struct dt_object *dt_obj,
 		return rc;
 
 	arg = tx_add_exec(ta, out_tx_destroy_exec, out_tx_destroy_undo,
-			  file, line);
+			  file, line, index, dt_obj, reply);
 	if (IS_ERR(arg))
 		return PTR_ERR(arg);
 
-	lu_object_get(&dt_obj->do_lu);
-	arg->object = dt_obj;
-	arg->reply = reply;
-	arg->index = index;
 	return 0;
 }
