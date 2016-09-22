@@ -546,7 +546,7 @@ void qsd_stop_reint_thread(struct qsd_qtype_info *qqi)
 	struct ptlrpc_thread	*thread = &qqi->qqi_reint_thread;
 	struct l_wait_info	 lwi = { 0 };
 
-	if (!thread_is_stopped(thread)) {
+	if (qqi->qqi_reint && !thread_is_stopped(thread)) {
 		thread_set_flags(thread, SVC_STOPPING);
 		wake_up(&thread->t_ctl_waitq);
 
@@ -631,6 +631,9 @@ int qsd_start_reint_thread(struct qsd_qtype_info *qqi)
 	char			*name;
 	ENTRY;
 
+	if (qsd->qsd_dev->dd_rdonly)
+		RETURN(0);
+
 	/* don't bother to do reintegration when quota isn't enabled */
 	if (!qsd_type_enabled(qsd, qqi->qqi_qtype))
 		RETURN(0);
@@ -662,8 +665,12 @@ int qsd_start_reint_thread(struct qsd_qtype_info *qqi)
 	}
 
 	OBD_ALLOC(name, MTI_NAME_MAXLEN);
-	if (name == NULL)
+	if (name == NULL) {
+		write_lock(&qsd->qsd_lock);
+		qqi->qqi_reint = 0;
+		write_unlock(&qsd->qsd_lock);
 		RETURN(-ENOMEM);
+	}
 
 	snprintf(name, MTI_NAME_MAXLEN, "qsd_reint_%d.%s",
 		 qqi->qqi_qtype, qsd->qsd_svname);
