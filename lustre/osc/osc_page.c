@@ -513,23 +513,17 @@ static void discard_pagevec(const struct lu_env *env, struct cl_io *io,
 
 /**
  * Check if a cl_page can be released, i.e, it's not being used.
- *
- * If unstable account is turned on, bulk transfer may hold one refcount
- * for recovery so we need to check vmpage refcount as well; otherwise,
- * even we can destroy cl_page but the corresponding vmpage can't be reused.
  */
 static inline bool lru_page_busy(struct client_obd *cli, struct cl_page *page)
 {
+	struct page *vmpage = cl_page_vmpage(page);
+
 	if (cl_page_in_use_noref(page))
 		return true;
 
-	if (cli->cl_cache->ccc_unstable_check) {
-		struct page *vmpage = cl_page_vmpage(page);
-
-		/* vmpage have two known users: cl_page and VM page cache */
-		if (page_count(vmpage) - page_mapcount(vmpage) > 2)
-			return true;
-	}
+	/* vmpage have two known users: cl_page and VM page cache */
+	if (page_count(vmpage) - page_mapcount(vmpage) > 2)
+		return true;
 	return false;
 }
 
