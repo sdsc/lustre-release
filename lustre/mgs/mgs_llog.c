@@ -539,26 +539,27 @@ int mgs_find_or_make_fsdb(const struct lu_env *env, struct mgs_device *mgs,
 		RETURN(0);
 	}
 
-	if (!test_bit(FSDB_MGS_SELF, &fsdb->fsdb_flags)) {
-                /* populate the db from the client llog */
+	if (!test_bit(FSDB_MGS_SELF, &fsdb->fsdb_flags) &&
+	    strcmp(PARAMS_FILENAME, name) != 0) {
+		/* populate the db from the client llog */
 		rc = mgs_get_fsdb_from_llog(env, mgs, fsdb);
-                if (rc) {
-                        CERROR("Can't get db from client log %d\n", rc);
+		if (rc) {
+			CERROR("Can't get db from client log %d\n", rc);
 			GOTO(out_free, rc);
-                }
-        }
+		}
+	}
 
-        /* populate srpc rules from params llog */
+	/* populate srpc rules from params llog */
 	rc = mgs_get_fsdb_srpc_from_llog(env, mgs, fsdb);
-        if (rc) {
-                CERROR("Can't get db from params log %d\n", rc);
+	if (rc) {
+		CERROR("Can't get db from params log %d\n", rc);
 		GOTO(out_free, rc);
-        }
+	}
 
 	mutex_unlock(&fsdb->fsdb_mutex);
-        *dbh = fsdb;
+	*dbh = fsdb;
 
-        RETURN(0);
+	RETURN(0);
 
 out_free:
 	mutex_unlock(&fsdb->fsdb_mutex);

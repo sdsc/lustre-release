@@ -2559,6 +2559,9 @@ static int do_osd_scrub_start(struct osd_device *dev, __u32 flags)
 	int		      rc;
 	ENTRY;
 
+	if (dev->od_dt_dev.dd_rdonly)
+		RETURN(-EROFS);
+
 	/* os_lock: sync status between stop and scrub thread */
 	spin_lock(&scrub->os_lock);
 
@@ -2806,7 +2809,7 @@ int osd_scrub_setup(const struct lu_env *env, struct osd_device *dev)
 		 * later if found that the system is upgrading. */
 		dev->od_igif_inoi = 1;
 
-	if (!dev->od_noscrub &&
+	if (!dev->od_dt_dev.dd_rdonly && !dev->od_noscrub &&
 	    ((sf->sf_status == SS_PAUSED) ||
 	     (sf->sf_status == SS_CRASHED &&
 	      sf->sf_flags & (SF_RECREATED | SF_INCONSISTENT |
