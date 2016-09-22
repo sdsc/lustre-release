@@ -56,11 +56,6 @@ MODULE_PARM_DESC(ldlm_cpts, "CPU partitions ldlm threads should run on");
 static struct mutex	ldlm_ref_mutex;
 static int ldlm_refcount;
 
-struct ldlm_cb_async_args {
-        struct ldlm_cb_set_arg *ca_set_arg;
-        struct ldlm_lock       *ca_lock;
-};
-
 /* LDLM state */
 
 static struct ldlm_state *ldlm_state;
@@ -729,7 +724,9 @@ static int ldlm_cb_interpret(const struct lu_env *env,
 		 * - Glimpse callback of remote lock might return
 		 *   -ELDLM_NO_LOCK_DATA when inode is cleared. LU-274
 		 */
-		if (rc == -ELDLM_NO_LOCK_DATA) {
+		if (unlikely(arg->gl_interpret_reply)) {
+			rc = arg->gl_interpret_reply(env, req, data, rc);
+		} else if (rc == -ELDLM_NO_LOCK_DATA) {
 			LDLM_DEBUG(lock, "lost race - client has a lock but no "
 				   "inode");
 			ldlm_res_lvbo_update(lock->l_resource, NULL, 1);

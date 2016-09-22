@@ -52,41 +52,53 @@
 #include "mgc_internal.h"
 
 static int mgc_name2resid(char *name, int len, struct ldlm_res_id *res_id,
-                          int type)
+			  int type)
 {
-        __u64 resname = 0;
+	__u64 resname = 0;
+	int fslen;
 
-	if (len > sizeof(resname)) {
-                CERROR("name too long: %s\n", name);
-                return -EINVAL;
-        }
-        if (len <= 0) {
-                CERROR("missing name: %s\n", name);
-                return -EINVAL;
-        }
-        memcpy(&resname, name, len);
+	if (logname_is_barrier(name))
+		fslen = strlen(name) - strlen(BARRIER_FILENAME) - 1;
+	else
+		fslen = len;
 
-        /* Always use the same endianness for the resid */
-        memset(res_id, 0, sizeof(*res_id));
-        res_id->name[0] = cpu_to_le64(resname);
-        /* XXX: unfortunately, sptlprc and config llog share one lock */
-        switch(type) {
-        case CONFIG_T_CONFIG:
-        case CONFIG_T_SPTLRPC:
-                resname = 0;
-                break;
+	if (fslen > sizeof(resname)) {
+		CERROR("name too long: name %s, len %d, type %d\n",
+		       name, fslen, type);
+		return -EINVAL;
+	}
+
+	if (fslen <= 0) {
+		CERROR("missing name: %s\n", name);
+		return -EINVAL;
+	}
+
+	memcpy(&resname, name, fslen);
+	/* Always use the same endianness for the resid */
+	memset(res_id, 0, sizeof(*res_id));
+	res_id->name[0] = cpu_to_le64(resname);
+
+	/* XXX: unfortunately, sptlprc and config llog share one lock */
+	switch (type) {
+	case CONFIG_T_CONFIG:
+	case CONFIG_T_SPTLRPC:
+		resname = 0;
+		break;
 	case CONFIG_T_RECOVER:
 	case CONFIG_T_PARAMS:
 	case CONFIG_T_NODEMAP:
+	case CONFIG_T_BARRIER:
 		resname = type;
 		break;
-        default:
-                LBUG();
-        }
-        res_id->name[1] = cpu_to_le64(resname);
+	default:
+		LBUG();
+	}
+
+	res_id->name[1] = cpu_to_le64(resname);
 	CDEBUG(D_MGC, "log %s to resid %#llx/%#llx (%.8s)\n", name,
-               res_id->name[0], res_id->name[1], (char *)&res_id->name[0]);
-        return 0;
+	       res_id->name[0], res_id->name[1], (char *)&res_id->name[0]);
+
+	return 0;
 }
 
 int mgc_fsname2resid(char *fsname, struct ldlm_res_id *res_id, int type)
@@ -105,7 +117,7 @@ static int mgc_logname2resid(char *logname, struct ldlm_res_id *res_id,
 
 	/* logname consists of "fsname-nodetype".
 	 * e.g. "lustre-MDT0001", "SUN-000-client"
-	 * there is an exception: llog "params" */
+	 * there are some exceptions: llog "params", "barrier" */
 	name_end = strrchr(logname, '-');
 	if (!name_end)
 		len = strlen(logname);
@@ -145,6 +157,8 @@ static void config_log_put(struct config_llog_data *cld)
 
 		CDEBUG(D_MGC, "dropping config log %s\n", cld->cld_logname);
 
+		if (cld->cld_barrier)
+			config_log_put(cld->cld_barrier);
 		if (cld->cld_recover)
 			config_log_put(cld->cld_recover);
 		if (cld->cld_params)
@@ -242,7 +256,7 @@ struct config_llog_data *do_config_log_add(struct obd_device *obd,
 	list_add(&cld->cld_list_chain, &config_llog_list);
 	spin_unlock(&config_list_lock);
 
-	if (cld_is_sptlrpc(cld) || cld_is_nodemap(cld)) {
+	if (cld_is_sptlrpc(cld) || cld_is_nodemap(cld) || cld_is_barrier(cld)) {
 		rc = mgc_process_log(obd, cld);
 		if (rc && rc != -ENOENT)
 			CERROR("%s: failed processing log, type %d: rc = %d\n",
@@ -292,10 +306,36 @@ static struct config_llog_data *config_params_log_add(struct obd_device *obd,
 	struct config_llog_instance	lcfg = *cfg;
 	struct config_llog_data		*cld;
 
-	lcfg.cfg_instance = sb;
+	cld = config_log_find(PARAMS_FILENAME, NULL);
+	if (unlikely(cld))
+		return cld;
 
+	lcfg.cfg_instance = sb;
 	cld = do_config_log_add(obd, PARAMS_FILENAME, CONFIG_T_PARAMS,
 				&lcfg, sb);
+
+	return cld;
+}
+
+static struct config_llog_data *config_barrier_log_add(struct obd_device *obd,
+				struct config_llog_instance *cfg,
+				struct super_block *sb, const char *fsname)
+{
+	struct config_llog_instance lcfg;
+	char logname[20];
+	struct config_llog_data *cld;
+
+	if (!IS_MDT(s2lsi(sb)))
+		return NULL;
+
+	lcfg = *cfg;
+	lcfg.cfg_instance = sb;
+	snprintf(logname, 20, "%s.%s", fsname, BARRIER_FILENAME);
+	cld = config_log_find(logname, &lcfg);
+	if (unlikely(cld))
+		return cld;
+
+	cld = do_config_log_add(obd, logname, CONFIG_T_BARRIER, &lcfg, sb);
 
 	return cld;
 }
@@ -310,10 +350,11 @@ config_log_add(struct obd_device *obd, char *logname,
 	       struct config_llog_instance *cfg, struct super_block *sb)
 {
 	struct lustre_sb_info *lsi = s2lsi(sb);
-	struct config_llog_data *cld;
-	struct config_llog_data *sptlrpc_cld;
-	struct config_llog_data *params_cld;
-	struct config_llog_data *nodemap_cld;
+	struct config_llog_data *cld = NULL;
+	struct config_llog_data *sptlrpc_cld = NULL;
+	struct config_llog_data *params_cld = NULL;
+	struct config_llog_data *nodemap_cld = NULL;
+	struct config_llog_data *barrier_cld = NULL;
 	char seclogname[32];
 	char *ptr;
 	int rc;
@@ -353,7 +394,7 @@ config_log_add(struct obd_device *obd, char *logname,
 			rc = PTR_ERR(nodemap_cld);
 			CERROR("%s: cannot create nodemap log: rc = %d\n",
 			       obd->obd_name, rc);
-			GOTO(out_sptlrpc, rc);
+			GOTO(out, rc);
 		}
 	}
 
@@ -362,13 +403,23 @@ config_log_add(struct obd_device *obd, char *logname,
 		rc = PTR_ERR(params_cld);
 		CERROR("%s: can't create params log: rc = %d\n",
 		       obd->obd_name, rc);
-		GOTO(out_nodemap, rc);
+		GOTO(out, rc);
+	}
+
+	seclogname[ptr - logname] = 0;
+	barrier_cld = config_barrier_log_add(obd, cfg, sb, seclogname);
+	seclogname[ptr - logname] = '-';
+	if (IS_ERR(barrier_cld)) {
+		rc = PTR_ERR(barrier_cld);
+		CERROR("%s: can't create barrier log: rc = %d\n",
+		       obd->obd_name, rc);
+		GOTO(out, rc);
 	}
 
 	cld = do_config_log_add(obd, logname, CONFIG_T_CONFIG, cfg, sb);
 	if (IS_ERR(cld)) {
 		CERROR("can't create log: %s\n", logname);
-		GOTO(out_params, rc = PTR_ERR(cld));
+		GOTO(out, rc = PTR_ERR(cld));
 	}
 
 	LASSERT(lsi->lsi_lmd);
@@ -381,12 +432,12 @@ config_log_add(struct obd_device *obd, char *logname,
 		} else {
 			CERROR("%s: sptlrpc log name not correct, %s: "
 			       "rc = %d\n", obd->obd_name, seclogname, -EINVAL);
-			GOTO(out_cld, rc = -EINVAL);
+			GOTO(out, rc = -EINVAL);
 		}
 
 		recover_cld = config_recover_log_add(obd, seclogname, cfg, sb);
 		if (IS_ERR(recover_cld))
-			GOTO(out_cld, rc = PTR_ERR(recover_cld));
+			GOTO(out, rc = PTR_ERR(recover_cld));
 
 		mutex_lock(&cld->cld_lock);
 		locked = true;
@@ -396,25 +447,25 @@ config_log_add(struct obd_device *obd, char *logname,
 	if (!locked)
 		mutex_lock(&cld->cld_lock);
 	cld->cld_params = params_cld;
+	cld->cld_barrier = barrier_cld;
 	cld->cld_nodemap = nodemap_cld;
 	cld->cld_sptlrpc = sptlrpc_cld;
 	mutex_unlock(&cld->cld_lock);
 
 	RETURN(cld);
 
-out_cld:
-	config_log_put(cld);
-
-out_params:
-	config_log_put(params_cld);
-
-out_nodemap:
-	config_log_put(nodemap_cld);
-
-out_sptlrpc:
-	config_log_put(sptlrpc_cld);
-
 out:
+	if (cld && IS_ERR(cld))
+		config_log_put(cld);
+	if (barrier_cld && IS_ERR(barrier_cld))
+		config_log_put(barrier_cld);
+	if (params_cld && IS_ERR(params_cld))
+		config_log_put(params_cld);
+	if (nodemap_cld && IS_ERR(nodemap_cld))
+		config_log_put(nodemap_cld);
+	if (sptlrpc_cld && IS_ERR(sptlrpc_cld))
+		config_log_put(sptlrpc_cld);
+
 	return ERR_PTR(rc);
 }
 
@@ -438,6 +489,7 @@ static int config_log_end(char *logname, struct config_llog_instance *cfg)
 	struct config_llog_data *cld_params = NULL;
 	struct config_llog_data *cld_recover = NULL;
 	struct config_llog_data *cld_nodemap = NULL;
+	struct config_llog_data *cld_barrier = NULL;
 	int rc = 0;
 
 	ENTRY;
@@ -471,6 +523,8 @@ static int config_log_end(char *logname, struct config_llog_instance *cfg)
 	cld->cld_params = NULL;
 	cld_nodemap = cld->cld_nodemap;
 	cld->cld_nodemap = NULL;
+	cld_barrier = cld->cld_barrier;
+	cld->cld_barrier = NULL;
 	cld_sptlrpc = cld->cld_sptlrpc;
 	cld->cld_sptlrpc = NULL;
 	mutex_unlock(&cld->cld_lock);
@@ -488,6 +542,13 @@ static int config_log_end(char *logname, struct config_llog_instance *cfg)
 	/* don't set cld_stopping on nm lock as other targets may be active */
 	if (cld_nodemap)
 		config_log_put(cld_nodemap);
+
+	if (cld_barrier) {
+		mutex_lock(&cld_barrier->cld_lock);
+		cld_barrier->cld_stopping = 1;
+		mutex_unlock(&cld_barrier->cld_lock);
+		config_log_put(cld_barrier);
+	}
 
 	if (cld_sptlrpc)
 		config_log_put(cld_sptlrpc);
@@ -1077,7 +1138,7 @@ static int mgc_set_mgs_param(struct obd_export *exp,
 /* Take a config lock so we can get cancel notifications */
 static int mgc_enqueue(struct obd_export *exp, enum ldlm_type type,
 		       union ldlm_policy_data *policy, enum ldlm_mode mode,
-		       __u64 *flags, void *bl_cb, void *cp_cb, void *gl_cb,
+		       __u64 *flags, ldlm_glimpse_callback glimpse_callback,
 		       void *data, __u32 lvb_len, void *lvb_swabber,
 		       struct lustre_handle *lockh)
 {
@@ -1087,6 +1148,7 @@ static int mgc_enqueue(struct obd_export *exp, enum ldlm_type type,
 		.ei_mode	= mode,
 		.ei_cb_bl	= mgc_blocking_ast,
 		.ei_cb_cp	= ldlm_completion_ast,
+		.ei_cb_gl	= glimpse_callback,
 	};
 	struct ptlrpc_request *req;
 	int short_limit = cld_is_sptlrpc(cld);
@@ -1793,6 +1855,12 @@ out:
 	return rc;
 }
 
+static int mgc_barrier_glimpse_ast(struct ldlm_lock *lock, void *data)
+{
+	/* XXX: TBD */
+	return 0;
+}
+
 /* Copy a remote log locally */
 static int mgc_llog_local_copy(const struct lu_env *env,
 			       struct obd_device *obd,
@@ -2015,7 +2083,8 @@ restart:
 
 	/* Get the cfg lock on the llog */
 	rcl = mgc_enqueue(mgc->u.cli.cl_mgc_mgsexp, LDLM_PLAIN, NULL,
-			  LCK_CR, &flags, NULL, NULL, NULL,
+			  LCK_CR, &flags,
+			  cld_is_barrier(cld) ? mgc_barrier_glimpse_ast : NULL,
 			  cld, 0, NULL, &lockh);
 	if (rcl == 0) {
 		/* Get the cld, it will be released in mgc_blocking_ast. */
@@ -2080,7 +2149,7 @@ restart:
 			}
 			rc = 0; /* this is not a fatal error for recover log */
 		}
-	} else {
+	} else if (!cld_is_barrier(cld)) {
 		rc = mgc_process_cfg_log(mgc, cld, rcl != 0);
 	}
 
