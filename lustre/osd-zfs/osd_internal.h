@@ -685,4 +685,8 @@ static inline bool osd_dmu_userobj_accounting_available(struct osd_device *o)
 }
 #endif /* #ifdef HAVE_DMU_USEROBJ_ACCOUNTING */
 
+#ifndef DN_MAX_BONUSLEN
+#define DN_MAX_BONUSLEN	DN_OLD_MAX_BONUSLEN
+#endif
+
 #endif /* _OSD_INTERNAL_H */
