@@ -934,6 +934,57 @@ static int mdd_xattr_sanity_check(const struct lu_env *env,
 	RETURN(0);
 }
 
+/**
+ * Check if a string begins with a given prefix.
+ *
+ * \param str	  String to check
+ * \param prefix  Substring to check at the beginning of \a str
+ * \return true/false whether the condition is verified.
+ */
+static inline bool has_prefix(const char *str, const char *prefix)
+{
+	return strncmp(prefix, str, strlen(prefix)) == 0;
+}
+
+/**
+ * Indicate whether a xattr set/del has to be recorded with a changelog and the
+ * type of changelog to use, if applicable.
+ *
+ * \param[in]  xattr_name  Full extended attribute name.
+ * \param[out] which_type  If non-NULL, receives the type of changelog to use.
+ *
+ * \return true/false whether a changelog record has to be emitted.
+ */
+static bool mdd_xattr_need_changelog(const struct lu_env *env,
+				     struct mdd_device *mdd,
+				     const char *xattr_name,
+				     enum changelog_rec_type *which_type)
+{
+	/* Layout changes systematically recorded */
+	if (strcmp(XATTR_NAME_LOV, xattr_name) == 0) {
+		if (which_type != NULL)
+			*which_type = CL_LAYOUT;
+		return true;
+	}
+
+	/* HSM information changes systematically recorded */
+	if (strcmp(XATTR_NAME_HSM, xattr_name) == 0) {
+		if (which_type != NULL)
+			*which_type = CL_HSM;
+		return true;
+	}
+
+	if (has_prefix(xattr_name, XATTR_USER_PREFIX) ||
+	    has_prefix(xattr_name, XATTR_NAME_POSIX_ACL_ACCESS) ||
+	    has_prefix(xattr_name, XATTR_NAME_POSIX_ACL_DEFAULT)) {
+		if (which_type != NULL)
+			*which_type = CL_XATTR;
+		return true;
+	}
+
+	return false;
+}
+
 static int mdd_declare_xattr_set(const struct lu_env *env,
 				 struct mdd_device *mdd,
 				 struct mdd_object *obj,
@@ -947,23 +998,9 @@ static int mdd_declare_xattr_set(const struct lu_env *env,
 	if (rc)
 		return rc;
 
-	/* Only record user and layout xattr changes */
-	if (strncmp(XATTR_USER_PREFIX, name,
-		    sizeof(XATTR_USER_PREFIX) - 1) == 0 ||
-	    strcmp(XATTR_NAME_LOV, name) == 0) {
+	if (mdd_xattr_need_changelog(env, mdd, name, NULL))
 		rc = mdd_declare_changelog_store(env, mdd, NULL, NULL, handle);
-		if (rc)
-			return rc;
-	}
 
-	/* If HSM data is modified, this could add a changelog */
-	if (strcmp(XATTR_NAME_HSM, name) == 0) {
-		rc = mdd_declare_changelog_store(env, mdd, NULL, NULL, handle);
-		if (rc)
-			return rc;
-	}
-
-	rc = mdd_declare_changelog_store(env, mdd, NULL, NULL, handle);
 	return rc;
 }
 
@@ -979,7 +1016,7 @@ static int mdd_declare_xattr_set(const struct lu_env *env,
 static int mdd_hsm_update_locked(const struct lu_env *env,
 				 struct md_object *obj,
 				 const struct lu_buf *buf,
-				 struct thandle *handle)
+				 struct thandle *handle, int *flags)
 {
 	struct mdd_thread_info *info = mdd_env_info(env);
 	struct mdd_device      *mdd = mdo2mdd(obj);
@@ -1014,19 +1051,19 @@ static int mdd_hsm_update_locked(const struct lu_env *env,
 	/* If HSM flags are different, add a changelog */
 	rc = 0;
 	if (current_mh->mh_flags != new_mh->mh_flags) {
-		int flags = 0;
-		hsm_set_cl_event(&flags, HE_STATE);
+		hsm_set_cl_event(flags, HE_STATE);
 		if (new_mh->mh_flags & HS_DIRTY)
-			hsm_set_cl_flags(&flags, CLF_HSM_DIRTY);
+			hsm_set_cl_flags(flags, CLF_HSM_DIRTY);
 
-		rc = mdd_changelog_data_store(env, mdd, CL_HSM, flags, mdd_obj,
+		rc = mdd_changelog_data_store(env, mdd, CL_HSM, *flags, mdd_obj,
 					      handle);
 	}
 
 	OBD_FREE_PTR(new_mh);
+	EXIT;
 free:
 	OBD_FREE_PTR(current_mh);
-	return(rc);
+	return rc;
 }
 
 static int mdd_xattr_del(const struct lu_env *env, struct md_object *obj,
@@ -1044,6 +1081,8 @@ static int mdd_xattr_set(const struct lu_env *env, struct md_object *obj,
 	struct lu_attr		*attr = MDD_ENV_VAR(env, cattr);
 	struct mdd_device	*mdd = mdo2mdd(obj);
 	struct thandle		*handle;
+	enum changelog_rec_type	 cl_type;
+	int			 cl_flags = 0;
 	int			 rc;
 	ENTRY;
 
@@ -1092,7 +1131,7 @@ static int mdd_xattr_set(const struct lu_env *env, struct md_object *obj,
 	mdd_write_lock(env, mdd_obj, MOR_TGT_CHILD);
 
 	if (strcmp(XATTR_NAME_HSM, name) == 0) {
-		rc = mdd_hsm_update_locked(env, obj, buf, handle);
+		rc = mdd_hsm_update_locked(env, obj, buf, handle, &cl_flags);
 		if (rc) {
 			mdd_write_unlock(env, mdd_obj);
 			GOTO(stop, rc);
@@ -1104,22 +1143,13 @@ static int mdd_xattr_set(const struct lu_env *env, struct md_object *obj,
 	if (rc)
 		GOTO(stop, rc);
 
-	if (strcmp(XATTR_NAME_LOV, name) == 0)
-		rc = mdd_changelog_data_store(env, mdd, CL_LAYOUT, 0, mdd_obj,
-					      handle);
-	else if (strncmp(XATTR_USER_PREFIX, name,
-			sizeof(XATTR_USER_PREFIX) - 1) == 0 ||
-	    strncmp(XATTR_NAME_POSIX_ACL_ACCESS, name,
-		    sizeof(XATTR_NAME_POSIX_ACL_ACCESS) - 1) == 0 ||
-	    strncmp(XATTR_NAME_POSIX_ACL_DEFAULT, name,
-		    sizeof(XATTR_NAME_POSIX_ACL_DEFAULT) - 1) == 0)
-		rc = mdd_changelog_data_store(env, mdd, CL_XATTR, 0, mdd_obj,
-					      handle);
+	if (mdd_xattr_need_changelog(env, mdd, name, &cl_type))
+		rc = mdd_changelog_data_store(env, mdd, cl_type, cl_flags,
+					      mdd_obj, handle);
 
+	EXIT;
 stop:
-	rc = mdd_trans_stop(env, mdd, rc, handle);
-
-	RETURN(rc);
+	return mdd_trans_stop(env, mdd, rc, handle);
 }
 
 static int mdd_declare_xattr_del(const struct lu_env *env,
@@ -1134,13 +1164,7 @@ static int mdd_declare_xattr_del(const struct lu_env *env,
 	if (rc)
 		return rc;
 
-	/* Only record system & user xattr changes */
-	if (strncmp(XATTR_USER_PREFIX, name,
-			sizeof(XATTR_USER_PREFIX) - 1) == 0 ||
-		strncmp(XATTR_NAME_POSIX_ACL_ACCESS, name,
-			sizeof(XATTR_NAME_POSIX_ACL_ACCESS) - 1) == 0 ||
-		strncmp(XATTR_NAME_POSIX_ACL_DEFAULT, name,
-			sizeof(XATTR_NAME_POSIX_ACL_DEFAULT) - 1) == 0)
+	if (mdd_xattr_need_changelog(env, mdd, name, NULL))
 		rc = mdd_declare_changelog_store(env, mdd, NULL, NULL, handle);
 
 	return rc;
@@ -1186,20 +1210,13 @@ static int mdd_xattr_del(const struct lu_env *env, struct md_object *obj,
 	if (rc)
 		GOTO(stop, rc);
 
-        /* Only record system & user xattr changes */
-	if (strncmp(XATTR_USER_PREFIX, name,
-                                  sizeof(XATTR_USER_PREFIX) - 1) == 0 ||
-			  strncmp(XATTR_NAME_POSIX_ACL_ACCESS, name,
-				  sizeof(XATTR_NAME_POSIX_ACL_ACCESS) - 1) == 0 ||
-			  strncmp(XATTR_NAME_POSIX_ACL_DEFAULT, name,
-				  sizeof(XATTR_NAME_POSIX_ACL_DEFAULT) - 1) == 0)
+	if (mdd_xattr_need_changelog(env, mdd, name, NULL))
                 rc = mdd_changelog_data_store(env, mdd, CL_XATTR, 0, mdd_obj,
                                               handle);
 
+	EXIT;
 stop:
-	rc = mdd_trans_stop(env, mdd, rc, handle);
-
-	RETURN(rc);
+	return mdd_trans_stop(env, mdd, rc, handle);
 }
 
 /*
