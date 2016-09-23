@@ -271,7 +271,6 @@ struct osd_device {
 	unsigned int		 od_dev_set_rdonly:1, /**< osd_ro() called */
 				 od_prop_rdonly:1,  /**< ZFS property readonly */
 				 od_xattr_in_sa:1,
-				 od_quota_iused_est:1,
 				 od_is_ost:1,
 				 od_posix_acl:1;
 
@@ -662,5 +661,27 @@ osd_zap_create_flags(objset_t *os, int normflags, zap_flags_t flags,
 #define osd_dmu_prefetch(os, obj, lvl, off, len, pri)	\
 	dmu_prefetch((os), (obj), (lvl), (off))
 #endif
+
+#ifdef HAVE_DMU_USEROBJ_ACCOUNTING
+
+#define OSD_DMU_USEROBJ_PREFIX	DMU_OBJACCT_PREFIX
+
+static inline bool osd_dmu_userobj_accounting_available(struct osd_device *o)
+{
+	if (dmu_objset_userobjspace_upgradable(o->od_os))
+		dmu_objset_userobjspace_upgrade(o->od_os);
+
+	return dmu_objset_userobjspace_present(o->od_os);
+}
+
+#else
+
+#define OSD_DMU_USEROBJ_PREFIX	"obj-"
+
+static inline bool osd_dmu_userobj_accounting_available(struct osd_device *o)
+{
+	return false;
+}
+#endif /* #ifdef HAVE_DMU_USEROBJ_ACCOUNTING */
 
 #endif /* _OSD_INTERNAL_H */
