@@ -51,6 +51,7 @@
 
 #include <upcall_cache.h>
 #include <lustre_net.h>
+#include <lustre/lustre_errno.h>
 #include <lustre/lustre_idl.h>
 #include <obd_class.h>
 #include <lustre_disk.h>

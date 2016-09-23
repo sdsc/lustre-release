@@ -39,6 +39,7 @@
 
 #include <linux/spinlock.h>
 
+#include <lustre/lustre_fid.h>
 #include <lustre/lustre_idl.h>
 #include <lustre_lib.h>
 #include <libcfs/bitmap.h>

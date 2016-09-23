@@ -57,6 +57,7 @@
 #include <lustre_intent.h>
 #include <libcfs/libcfs.h>
 #include <obd_class.h>
+#include <lustre/lustre_errno.h>
 #include <lustre/lustre_idl.h>
 #include <lustre_lib.h>
 #include <lustre_dlm.h>
