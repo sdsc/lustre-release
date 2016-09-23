@@ -92,6 +92,7 @@ static int osd_acct_index_lookup(const struct lu_env *env,
 {
 	struct osd_thread_info	*info = osd_oti_get(env);
 	char			*buf  = info->oti_buf;
+	size_t			 buflen = sizeof(info->oti_buf);
 	struct lquota_acct_rec	*rec  = (struct lquota_acct_rec *)dtrec;
 	struct osd_object	*obj = osd_dt_obj(dtobj);
 	struct osd_device	*osd = osd_obj2dev(obj);
@@ -102,7 +103,7 @@ static int osd_acct_index_lookup(const struct lu_env *env,
 	rec->bspace = rec->ispace = 0;
 
 	/* convert the 64-bit uid/gid into a string */
-	sprintf(buf, "%llx", *((__u64 *)dtkey));
+	snprintf(buf, buflen, "%llx", *((__u64 *)dtkey));
 	/* fetch DMU object ID (DMU_USERUSED_OBJECT/DMU_GROUPUSED_OBJECT) to be
 	 * used */
 	oid = osd_quota_fid2dmu(lu_object_fid(&dtobj->do_lu));
@@ -114,32 +115,34 @@ static int osd_acct_index_lookup(const struct lu_env *env,
 	 * requires a valid oo_db. */
 	rc = -zap_lookup(osd->od_os, oid, buf, sizeof(uint64_t), 1,
 			&rec->bspace);
-	if (rc == -ENOENT)
+	if (rc == -ENOENT) {
 		/* user/group has not created anything yet */
 		CDEBUG(D_QUOTA, "%s: id %s not found in DMU accounting ZAP\n",
 		       osd->od_svname, buf);
-	else if (rc)
+	} else if (rc) {
 		RETURN(rc);
+	}
 
-	if (osd->od_quota_iused_est) {
+	if (!osd_dmu_userobj_accounting_available(osd)) {
 		if (rec->bspace != 0)
 			/* estimate #inodes in use */
 			rec->ispace = osd_objset_user_iused(osd, rec->bspace);
-		RETURN(+1);
+		rc = +1;
+	} else {
+		snprintf(buf, buflen, OSD_DMU_USEROBJ_PREFIX "%llx",
+			 *((__u64 *)dtkey));
+		rc = -zap_lookup(osd->od_os, oid, buf, sizeof(uint64_t), 1,
+				&rec->ispace);
+		if (rc == -ENOENT) {
+			CDEBUG(D_QUOTA,
+			       "%s: id %s not found dnode accounting\n",
+			       osd->od_svname, buf);
+		} else if (rc == 0) {
+			rc = +1;
+		}
 	}
 
-	/* as for inode accounting, it is not maintained by DMU, so we just
-	 * use our own ZAP to track inode usage */
-	rc = -zap_lookup(osd->od_os, obj->oo_db->db_object,
-			 buf, sizeof(uint64_t), 1, &rec->ispace);
-	if (rc == -ENOENT)
-		/* user/group has not created any file yet */
-		CDEBUG(D_QUOTA, "%s: id %s not found in accounting ZAP\n",
-		       osd->od_svname, buf);
-	else if (rc)
-		RETURN(rc);
-
-	RETURN(+1);
+	RETURN(rc);
 }
 
 /**
@@ -262,43 +265,6 @@ static int osd_it_acct_key_size(const struct lu_env *env,
 	RETURN((int)sizeof(uint64_t));
 }
 
-/*
- * zap_cursor_retrieve read from current record.
- * to read bytes we need to call zap_lookup explicitly.
- */
-static int osd_zap_cursor_retrieve_value(const struct lu_env *env,
-					 zap_cursor_t *zc,  char *buf,
-					 int buf_size, int *bytes_read)
-{
-	zap_attribute_t *za = &osd_oti_get(env)->oti_za;
-	int rc, actual_size;
-
-	rc = -zap_cursor_retrieve(zc, za);
-	if (unlikely(rc != 0))
-		return -rc;
-
-	if (unlikely(za->za_integer_length <= 0))
-		return -ERANGE;
-
-	actual_size = za->za_integer_length * za->za_num_integers;
-
-	if (actual_size > buf_size) {
-		actual_size = buf_size;
-		buf_size = actual_size / za->za_integer_length;
-	} else {
-		buf_size = za->za_num_integers;
-	}
-
-	rc = -zap_lookup(zc->zc_objset, zc->zc_zapobj,
-			 za->za_name, za->za_integer_length,
-			 buf_size, buf);
-
-	if (likely(rc == 0))
-		*bytes_read = actual_size;
-
-	return rc;
-}
-
 /**
  * Return pointer to the record under iterator.
  *
@@ -313,46 +279,59 @@ static int osd_it_acct_rec(const struct lu_env *env,
 	zap_attribute_t		*za = &info->oti_za;
 	struct osd_it_quota	*it = (struct osd_it_quota *)di;
 	struct lquota_acct_rec	*rec  = (struct lquota_acct_rec *)dtrec;
+	zap_cursor_t		*zc = it->oiq_zc;
 	struct osd_object	*obj = it->oiq_obj;
 	struct osd_device	*osd = osd_obj2dev(obj);
-	int			 bytes_read;
 	int			 rc;
 	ENTRY;
 
 	it->oiq_reset = 0;
 	rec->ispace = rec->bspace = 0;
 
-	/* retrieve block usage from the DMU accounting object */
-	rc = osd_zap_cursor_retrieve_value(env, it->oiq_zc,
-					   (char *)&rec->bspace,
-					   sizeof(uint64_t), &bytes_read);
-	if (rc)
-		RETURN(rc);
-
-	if (osd->od_quota_iused_est) {
-		if (rec->bspace != 0)
-			/* estimate #inodes in use */
-			rec->ispace = osd_objset_user_iused(osd, rec->bspace);
-		RETURN(0);
-	}
-
 	/* retrieve key associated with the current cursor */
-	rc = -zap_cursor_retrieve(it->oiq_zc, za);
+	rc = -zap_cursor_retrieve(zc, za);
 	if (unlikely(rc != 0))
 		RETURN(rc);
 
-	/* inode accounting is not maintained by DMU, so we use our own ZAP to
-	 * track inode usage */
-	rc = -zap_lookup(osd->od_os, it->oiq_obj->oo_db->db_object,
-			 za->za_name, sizeof(uint64_t), 1, &rec->ispace);
-	if (rc == -ENOENT)
+	if (strncmp(za->za_name, OSD_DMU_USEROBJ_PREFIX,
+		    strlen(OSD_DMU_USEROBJ_PREFIX)) == 0) /* dnode accounting */
+		RETURN(+1); /* skipped - at least I hope so */
+
+	if (unlikely(za->za_integer_length != sizeof(uint64_t)))
+		RETURN(-ERANGE);
+
+	if (unlikely(za->za_num_integers != 1))
+		RETURN(-EINVAL);
+
+	rc = -zap_lookup(osd->od_os, zc->zc_zapobj, za->za_name,
+			 sizeof(uint64_t), 1, &rec->bspace);
+	if (rc == -ENOENT) {
 		/* user/group has not created any file yet */
 		CDEBUG(D_QUOTA, "%s: id %s not found in accounting ZAP\n",
 		       osd->od_svname, za->za_name);
-	else if (rc)
+	} else if (rc) {
 		RETURN(rc);
+	}
 
-	RETURN(0);
+	if (!osd_dmu_userobj_accounting_available(osd)) {
+		if (rec->bspace != 0)
+			/* estimate #inodes in use */
+			rec->ispace = osd_objset_user_iused(osd, rec->bspace);
+	} else {
+		char *buf  = info->oti_buf;
+
+		sprintf(buf, OSD_DMU_USEROBJ_PREFIX "%s", za->za_name);
+		rc = -zap_lookup(osd->od_os, zc->zc_zapobj, buf,
+				 sizeof(uint64_t), 1, &rec->ispace);
+		if (rc == -ENOENT) {
+			/* user/group has not created any file yet */
+			CDEBUG(D_QUOTA,
+			       "%s: id %s not found in dnode accounting ZAP\n",
+			       osd->od_svname, za->za_name);
+		}
+	}
+
+	RETURN(rc);
 }
 
 /**
