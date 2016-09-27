@@ -40,7 +40,6 @@
 
 #include <linux/kthread.h>
 #include <obd_support.h>
-#include <lustre_net.h>
 #include <lustre_export.h>
 #include <obd.h>
 #include <lprocfs_status.h>
@@ -524,7 +523,7 @@ static int mdt_coordinator(void *data)
 		int i;
 
 		wait_event_timeout(cdt->cdt_waitq,
-				   ((cdt->cdt_flags & SVC_EVENT) ||
+				   (cdt->cdt_event ||
 				    (cdt->cdt_state == CDT_STOPPING)),
 				   cdt->cdt_loop_period * HZ);
 
@@ -535,15 +534,13 @@ static int mdt_coordinator(void *data)
 			break;
 		}
 
-		/* wake up before timeout, new work arrives */
-		if (cdt->cdt_flags & SVC_EVENT)
-			cdt->cdt_flags &= ~SVC_EVENT;
-
 		/* if coordinator is suspended continue to wait */
 		if (cdt->cdt_state == CDT_DISABLE) {
 			CDEBUG(D_HSM, "disable state, coordinator sleeps\n");
 			continue;
 		}
+
+		cdt->cdt_event = false;
 
 		CDEBUG(D_HSM, "coordinator starts reading llog\n");
 
@@ -822,7 +819,7 @@ int mdt_hsm_cdt_wakeup(struct mdt_device *mdt)
 		RETURN(-ESRCH);
 
 	/* wake up coordinator */
-	cdt->cdt_flags = SVC_EVENT;
+	cdt->cdt_event = true;
 	wake_up(&cdt->cdt_waitq);
 
 	RETURN(0);
