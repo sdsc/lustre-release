@@ -508,8 +508,10 @@ static int mdt_coordinator(void *data)
 	hsd.max_requests = cdt->cdt_max_requests;
 	request_sz = hsd.max_requests * sizeof(*hsd.request);
 	OBD_ALLOC(hsd.request, request_sz);
-	if (!hsd.request)
-		GOTO(out, rc = -ENOMEM);
+	if (!hsd.request) {
+		set_cdt_state(cdt, CDT_STOPPED);
+		RETURN(-ENOMEM);
+	}
 
 	hsd.mti = mti;
 	obd_uuid2fsname(hsd.fs_name, mdt_obd_name(mdt), MTI_NAME_MAXLEN);
@@ -526,7 +528,7 @@ static int mdt_coordinator(void *data)
 		lwi = LWI_TIMEOUT(cfs_time_seconds(cdt->cdt_loop_period),
 				  NULL, NULL);
 		l_wait_event(cdt->cdt_waitq,
-			     cdt->cdt_event || (cdt->cdt_state == CDT_STOPPING),
+			     cdt->cdt_event || kthread_should_stop(),
 			     &lwi);
 
 		CDEBUG(D_HSM, "coordinator resumes\n");
@@ -630,17 +632,13 @@ clean_cb_alloc:
 			OBD_FREE(request->hal, request->hal_sz);
 		}
 	}
-	EXIT;
-out:
+
 	set_cdt_state(cdt, CDT_STOPPING);
 
 	if (hsd.request)
 		OBD_FREE(hsd.request, request_sz);
 
 	mdt_hsm_cdt_cleanup(mdt);
-
-	set_cdt_state(cdt, CDT_STOPPED);
-	wake_up(&cdt->cdt_waitq);
 
 	if (rc != 0)
 		CERROR("%s: coordinator thread exiting, process=%d, rc=%d\n",
@@ -650,7 +648,7 @@ out:
 			      " no error\n",
 		       mdt_obd_name(mdt), current_pid());
 
-	return rc;
+	RETURN(rc);
 }
 
 /**
@@ -961,17 +959,21 @@ static int mdt_hsm_cdt_start(struct mdt_device *mdt)
 		CERROR("%s: error starting coordinator thread: %d\n",
 		       mdt_obd_name(mdt), rc);
 	} else {
+		cdt->cdt_task = task;
 		wait_event(cdt->cdt_waitq,
 			   cdt->cdt_state != CDT_INIT);
-		if (cdt->cdt_state == CDT_RUNNING) {
-			CDEBUG(D_HSM, "%s: coordinator thread started\n",
-			       mdt_obd_name(mdt));
-			rc = 0;
-		} else {
+		if (cdt->cdt_state == CDT_STOPPING) {
 			CDEBUG(D_HSM,
 			       "%s: coordinator thread failed to start\n",
 			       mdt_obd_name(mdt));
+			kthread_stop(cdt->cdt_task);
+			cdt->cdt_task = NULL;
+			set_cdt_state(cdt, CDT_STOPPED);
 			rc = EINVAL;
+		} else {
+			CDEBUG(D_HSM, "%s: coordinator thread started\n",
+			       mdt_obd_name(mdt));
+			rc = 0;
 		}
 	}
 
@@ -991,10 +993,11 @@ int mdt_hsm_cdt_stop(struct mdt_device *mdt)
 
 	/* stop coordinator thread */
 	rc = set_cdt_state(cdt, CDT_STOPPING);
-	wake_up(&cdt->cdt_waitq);
-	if (rc == 0)
-		wait_event(cdt->cdt_waitq,
-			   cdt->cdt_state == CDT_STOPPED);
+	if (rc == 0) {
+		kthread_stop(cdt->cdt_task);
+		cdt->cdt_task = NULL;
+		set_cdt_state(cdt, CDT_STOPPED);
+	}
 
 	RETURN(rc);
 }
