@@ -40,7 +40,6 @@
 
 #include <linux/kthread.h>
 #include <obd_support.h>
-#include <lustre_net.h>
 #include <lustre_export.h>
 #include <obd.h>
 #include <lprocfs_status.h>
@@ -518,7 +517,7 @@ static int mdt_coordinator(void *data)
 	set_cdt_state(cdt, CDT_RUNNING);
 
 	/* Inform mdt_hsm_cdt_start(). */
-	wake_up(&cdt->cdt_thread.t_ctl_waitq);
+	wake_up(&cdt->cdt_waitq);
 
 	while (1) {
 		struct l_wait_info lwi;
@@ -526,8 +525,8 @@ static int mdt_coordinator(void *data)
 
 		lwi = LWI_TIMEOUT(cfs_time_seconds(cdt->cdt_loop_period),
 				  NULL, NULL);
-		l_wait_event(cdt->cdt_thread.t_ctl_waitq,
-			     ((cdt->cdt_thread.t_flags & SVC_EVENT) ||
+		l_wait_event(cdt->cdt_waitq,
+			     (cdt->cdt_event ||
 			      (cdt->cdt_state == CDT_STOPPING)),
 			     &lwi);
 
@@ -538,15 +537,13 @@ static int mdt_coordinator(void *data)
 			break;
 		}
 
-		/* wake up before timeout, new work arrives */
-		if (cdt->cdt_thread.t_flags & SVC_EVENT)
-			cdt->cdt_thread.t_flags &= ~SVC_EVENT;
-
 		/* if coordinator is suspended continue to wait */
 		if (cdt->cdt_state == CDT_DISABLE) {
 			CDEBUG(D_HSM, "disable state, coordinator sleeps\n");
 			continue;
 		}
+
+		cdt->cdt_event = false;
 
 		CDEBUG(D_HSM, "coordinator starts reading llog\n");
 
@@ -644,7 +641,7 @@ out:
 	mdt_hsm_cdt_cleanup(mdt);
 
 	set_cdt_state(cdt, CDT_STOPPED);
-	wake_up(&cdt->cdt_thread.t_ctl_waitq);
+	wake_up(&cdt->cdt_waitq);
 
 	if (rc != 0)
 		CERROR("%s: coordinator thread exiting, process=%d, rc=%d\n",
@@ -825,8 +822,8 @@ int mdt_hsm_cdt_wakeup(struct mdt_device *mdt)
 		RETURN(-ESRCH);
 
 	/* wake up coordinator */
-	cdt->cdt_thread.t_flags = SVC_EVENT;
-	wake_up(&cdt->cdt_thread.t_ctl_waitq);
+	cdt->cdt_event = true;
+	wake_up(&cdt->cdt_waitq);
 
 	RETURN(0);
 }
@@ -846,7 +843,7 @@ int mdt_hsm_cdt_init(struct mdt_device *mdt)
 
 	set_cdt_state(cdt, CDT_STOPPED);
 
-	init_waitqueue_head(&cdt->cdt_thread.t_ctl_waitq);
+	init_waitqueue_head(&cdt->cdt_waitq);
 	mutex_init(&cdt->cdt_llog_lock);
 	init_rwsem(&cdt->cdt_agent_lock);
 	init_rwsem(&cdt->cdt_request_lock);
@@ -965,7 +962,7 @@ static int mdt_hsm_cdt_start(struct mdt_device *mdt)
 		CERROR("%s: error starting coordinator thread: %d\n",
 		       mdt_obd_name(mdt), rc);
 	} else {
-		wait_event(cdt->cdt_thread.t_ctl_waitq,
+		wait_event(cdt->cdt_waitq,
 			   cdt->cdt_state != CDT_INIT);
 		if (cdt->cdt_state == CDT_RUNNING) {
 			CDEBUG(D_HSM, "%s: coordinator thread started\n",
@@ -995,9 +992,9 @@ int mdt_hsm_cdt_stop(struct mdt_device *mdt)
 
 	/* stop coordinator thread before cleaning */
 	rc = set_cdt_state(cdt, CDT_STOPPING);
-	wake_up(&cdt->cdt_thread.t_ctl_waitq);
+	wake_up(&cdt->cdt_waitq);
 	if (rc == 0)
-		wait_event(cdt->cdt_thread.t_ctl_waitq,
+		wait_event(cdt->cdt_waitq,
 			   cdt->cdt_state == CDT_STOPPED);
 
 	RETURN(rc);

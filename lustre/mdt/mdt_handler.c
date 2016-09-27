@@ -57,7 +57,6 @@
 #include <lustre_ioctl.h>
 #include <lustre_lfsck.h>
 #include <lustre_log.h>
-#include <lustre_net.h>
 #include <lustre_nodemap.h>
 #include <lustre_mds.h>
 #include <lustre_param.h>

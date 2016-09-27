@@ -50,7 +50,6 @@
 
 
 #include <upcall_cache.h>
-#include <lustre_net.h>
 #include <lustre/lustre_idl.h>
 #include <obd_class.h>
 #include <lustre_disk.h>
@@ -110,7 +109,8 @@ enum cdt_states { CDT_STOPPED = 0,
  * cdt_request_lock
  */
 struct coordinator {
-	struct ptlrpc_thread	 cdt_thread;	     /**< coordinator thread */
+	wait_queue_head_t	 cdt_waitq;	     /**< cdt event wait queue */
+	bool			 cdt_event;	     /**< coordinator event */
 	struct lu_env		 cdt_env;	     /**< coordinator lustre
 						      * env */
 	struct lu_context	 cdt_session;	     /** session for lu_ucred */
