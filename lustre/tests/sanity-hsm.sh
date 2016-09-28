@@ -4734,6 +4734,124 @@ test_406() {
 }
 run_test 406 "attempting to migrate HSM archived files is safe"
 
+hsm_policy_result()
+{
+	local RULE="$1"
+
+	do_facet $SINGLEMDS $LCTL set_param \
+		mdt.$FSNAME-MDT0000.hsm_policy_rule="$RULE" > /dev/null
+	[ $? -eq 0 ] || error "failed to set rule of "\"$RULE\"
+
+	local OUTPUT=$(do_facet $SINGLEMDS $LCTL get_param \
+		mdt.$FSNAME-MDT0000.hsm_policy_rule)
+	echo "$OUTPUT" | grep "Result:" | awk '{print $2}'
+}
+
+test_hsm_policy()
+{
+	local RULE="$1"
+	local EXPECTED_RESULT="$2"
+
+	local RESULT=$(hsm_policy_result "$RULE")
+	[ "$RESULT" = "$EXPECTED_RESULT" ] || error \
+		"wrong result of rule \"$RULE\", expected" \
+		"$EXPECTED_RESULT, got $RESULT"
+	echo "Got expected result $RESULT from rule \"$RULE\""
+}
+
+test_407()
+{
+	# 18446744073709551615 = 2^64 - 1
+	test_hsm_policy 18446744073709551615 18446744073709551615
+	# Arithmetic Operators
+	test_hsm_policy "+\ 567\ 321" 888
+	test_hsm_policy "-\ 888\ 567" 321
+	test_hsm_policy "\*\ 123\ 567" 69741
+	test_hsm_policy "/\ 987\ 3" 329
+	test_hsm_policy "%\ 15\ 2" 1
+
+	# Relational and Logical Operators
+	test_hsm_policy "==\ 123\ 124" 0
+	test_hsm_policy "!=\ 123\ 124" 1
+	test_hsm_policy "\>\ 123\ 123" 0
+	test_hsm_policy "\>=\ 123\ 123" 1
+	test_hsm_policy "\<\ 123\ 123" 0
+	test_hsm_policy "\<=\ 123\ 123" 1
+
+	# Bitwise Operators
+	# 4294967295 = 2^32 - 1
+	test_hsm_policy "\&\ 18446744073709551615\ 4294967295" \
+		4294967295
+	# 8589934591 = 2^33 - 1
+	# 18446744069414584320 = 4294967295 << 32
+	test_hsm_policy "\|\ 18446744069414584320\ 4294967295" \
+		18446744073709551615
+	test_hsm_policy "^\ 18446744069414584320\ 4294967295" \
+		18446744073709551615
+	test_hsm_policy "\<\<\ 1\ 63" 9223372036854775808
+	test_hsm_policy "\>\>\ 9223372036854775808\ 63" 1
+
+	# Attributes tests
+	local FILE=$DIR/$tfile
+	touch $FILE
+	local FID=$($LFS path2fid $FILE)
+
+	do_facet $SINGLEMDS $LCTL set_param \
+		mdt.$FSNAME-MDT0000.hsm_policy_dump_obj="$FID" > /dev/null 2>&1
+	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
+		mdt.$FSNAME-MDT0000.hsm_policy_dump_obj" "$FID"
+
+	local ATIME=$(stat $FILE --printf=%X)
+	local MTIME=$(stat $FILE --printf=%Y)
+	local CTIME=$(stat $FILE --printf=%Z)
+	local SIZE=$(stat $FILE --printf=%s)
+	local MODE=$(stat $FILE --printf=%f)
+	local myUID=$(stat $FILE --printf=%u)
+	local myGID=$(stat $FILE --printf=%g)
+	local BLOCKS=$(stat $FILE --printf=%b)
+	local TYPES=$S_IFREG
+	#local FLAGS=
+	local NLINK=1
+	local RDEV=0
+	local BLKSIZE=$(stat $FILE --printf=%B)
+
+	#test_hsm_policy atime $ATIME
+	#test_hsm_policy mtime $MTIME
+	#test_hsm_policy ctime $CTIME
+	test_hsm_policy size $SIZE
+	#test_hsm_policy mode $MODE
+	test_hsm_policy uid $myUID
+	test_hsm_policy gid $myGID
+	test_hsm_policy blocks $BLOCKS
+	#test_hsm_policy flags $FLAGS
+	test_hsm_policy nlink $NLINK
+	test_hsm_policy rdev $RDEV
+	#test_hsm_policy blksize $BLKSIZE
+
+	local SYS_TIME=$(hsm_policy_result sys_time)
+	local TIME=$(date +%s)
+	[ $SYS_TIME -le $TIME ] || error \
+		"system time value error, got $SYS_TIME, should be smaller" \
+		"than but around $TIME"
+
+	local LARGEST_LATENCY=3
+	local BEGIN_TIME=$(expr $TIME - $LARGEST_LATENCY)
+	[ $SYS_TIME -gt $BEGIN_TIME ] || error \
+		"system time value error, got $SYS_TIME, should be larger" \
+		"than but around $BEGIN_TIME"
+	echo "Got expected result $SYS_TIME from sys_time, datetime: $TIME"
+
+	# Constant tests
+	test_hsm_policy "hsma_bit_archive" 1
+	test_hsm_policy "hsma_bit_restore" 2
+	test_hsm_policy "hsma_bit_remove" 4
+	test_hsm_policy "hsma_bit_cancel" 8
+
+	# Complex expression
+	test_hsm_policy "+\ /\ \*\ 2\ 3\ 1\ 1" 7
+}
+run_test 407 "===  HSM policy tests ==="
+
 test_500()
 {
 	[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.6.92) ] &&

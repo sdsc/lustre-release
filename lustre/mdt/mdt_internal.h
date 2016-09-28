@@ -154,6 +154,60 @@ struct coordinator {
 #define MDT_FL_CFGLOG 0
 #define MDT_FL_SYNCED 1
 
+struct mdt_device;
+struct mdt_hsm_policy {
+	/**
+	 * MDT this policy belongs to.
+	 */
+	struct mdt_device	*mhp_mdt;
+	/**
+	 * Rule to determine whether to prefetch the project or not.
+	 * Protected by oc_rule_lock.
+	 */
+	struct obd_policy_value	*mhp_rule;
+	/** What attributes are need to evaluate the rule */
+	__u64			 mhp_valid;
+	/** Protect mhp_rule, mhp_valid and mhp_values. */
+	rwlock_t		 mhp_lock;
+	/**
+	 * List of value structure in mhp_rule. Used when freeing
+	 * mhp_rule. Protected by mhp_lock.
+	 */
+	struct list_head	 mhp_values;
+	/**
+	 * Currect FID whose map are dumping through proc.
+	 * This is also used for getting the value of expressions.
+	 * Protected by oc_lock.
+	 */
+	struct lu_fid		 mhp_fid;
+	/**
+	 * Whether to enable the hook of triggering HSM actions.
+	 */
+	__u32			 mhp_archive_id;
+	/** IO thread. Immutable after creation. */
+	struct ptlrpc_thread	*mhp_threads;
+	/** Work list. Protected by mhp_thread_lock */
+	struct list_head	 mhp_work_list;
+	/** Protect mhp_work_list. */
+	spinlock_t		 mhp_thread_lock;
+	/**
+	 * All threads sleep on this. This wait-queue is signalled when new
+	 * incoming request arrives.
+	 */
+	wait_queue_head_t	 mhp_waitq;
+};
+
+struct mdt_hsm_policy_work {
+	/** FID needs to be prefetched */
+	struct lu_fid		mhpw_fid;
+	/** Linkage to work list. Protected by oc_thread_lock */
+	struct list_head	mhpw_linkage;
+	/** A combination of bit-flags from enum ofd_cache_work_opc. */
+	__u64			mhpw_operations;
+	/** Archive ID */
+	int			mhpw_archive_id;
+};
+
 struct mdt_device {
 	/* super-class */
 	struct lu_device	   mdt_lu_dev;
@@ -227,6 +281,7 @@ struct mdt_device {
 	atomic_t		   mdt_async_commit_count;
 
 	struct mdt_object	  *mdt_md_root;
+	struct mdt_hsm_policy	   mdt_hsm_policy;
 };
 
 #define MDT_SERVICE_WATCHDOG_FACTOR	(2)
@@ -825,7 +880,8 @@ int mdt_hsm_coordinator_update(struct mdt_thread_info *mti,
 			       struct hsm_progress_kernel *pgs);
 /* mdt/mdt_hsm_cdt_client.c */
 int mdt_hsm_add_actions(struct mdt_thread_info *info,
-			struct hsm_action_list *hal);
+			struct hsm_action_list *hal,
+			bool permitted);
 int mdt_hsm_get_actions(struct mdt_thread_info *mti,
 			struct hsm_action_list *hal);
 int mdt_hsm_get_running(struct mdt_thread_info *mti,
@@ -882,6 +938,15 @@ bool mdt_hsm_is_action_compat(const struct hsm_action_item *hai,
 int mdt_hsm_update_request_state(struct mdt_thread_info *mti,
 				 struct hsm_progress_kernel *pgs,
 				 const int update_record);
+
+int mdt_hsm_policy_rule_init(struct mdt_hsm_policy *policy,
+			     const char *expression);
+int mdt_hsm_policy_init(struct mdt_device *mdt);
+void mdt_hsm_policy_fini(struct mdt_device *mdt);
+int mdt_hsm_attr_get(struct mdt_device *mdt, const struct lu_fid *fid,
+		     struct md_attr **ma);
+void mdt_hsm_policy_trigger(struct mdt_device *mdt, struct mdt_object *obj,
+			    struct md_attr *ma);
 
 int mdt_close_swap_layouts(struct mdt_thread_info *info,
 			   struct mdt_object *o, struct md_attr *ma);

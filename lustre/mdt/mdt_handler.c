@@ -873,6 +873,7 @@ int mdt_attr_get_complex(struct mdt_thread_info *info,
 		if (rc)
 			GOTO(out, rc);
 		ma->ma_valid |= MA_INODE;
+		mdt_hsm_policy_trigger(info->mti_mdt, o, ma);
 	}
 
 	if (need & MA_PFID) {
@@ -4540,6 +4541,7 @@ static void mdt_fini(const struct lu_env *env, struct mdt_device *m)
 
         mdt_procfs_fini(m);
 
+	mdt_hsm_policy_fini(m);
         tgt_fini(env, &m->mdt_lut);
         mdt_fs_cleanup(env, m);
         upcall_cache_cleanup(m->mdt_identity_cache);
@@ -4757,10 +4759,16 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
 		GOTO(err_fs_cleanup, rc);
 	}
 
+	rc = mdt_hsm_policy_init(m);
+	if (rc) {
+		CERROR("Can't init MDT HSM policy engine, rc %d\n", rc);
+		GOTO(err_recovery, rc);
+	}
+
         rc = mdt_procfs_init(m, dev);
         if (rc) {
                 CERROR("Can't init MDT lprocfs, rc %d\n", rc);
-                GOTO(err_recovery, rc);
+		GOTO(err_policy, rc);
         }
 
 	rc = mdt_quota_init(env, m, cfg);
@@ -4786,6 +4794,8 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
         RETURN(0);
 err_procfs:
 	mdt_procfs_fini(m);
+err_policy:
+	mdt_hsm_policy_fini(m);
 err_recovery:
 	target_recovery_fini(obd);
 	upcall_cache_cleanup(m->mdt_identity_cache);

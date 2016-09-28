@@ -1717,4 +1717,20 @@ extern struct miscdevice obd_psdev;
 int class_procfs_init(void);
 int class_procfs_clean(void);
 
+int obd_policy_value_init(struct list_head *list,
+			  struct obd_policy_value **value,
+			  __u64 *valid, const char *expression);
+int obd_policy_rule_preorder_traverse(struct obd_policy_value *value,
+				      obd_policy_value_func_t func,
+				      void *data);
+int obd_policy_rule_postorder_traverse(struct obd_policy_value *value,
+				       obd_policy_value_func_t func,
+				       void *data,
+				       bool evaluating,
+				       struct lu_attr *attr,
+				       struct timeval *sys_time);
+void obd_policy_rule_result_func(struct obd_policy_value *value,
+				 void *data, __u64 result);
+void obd_policy_rule_print_func(struct obd_policy_value *value,
+				void *data, __u64 result);
 #endif /* __LINUX_OBD_CLASS_H */

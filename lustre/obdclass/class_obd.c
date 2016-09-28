@@ -644,6 +644,526 @@ static void __exit obdclass_exit(void)
         EXIT;
 }
 
+int obd_policy_rule_preorder_traverse(struct obd_policy_value *value,
+				      obd_policy_value_func_t func,
+				      void *data)
+{
+	struct list_head		 list;
+	struct obd_policy_value_node	*node, *n;
+	int				 rc = 0;
+	ENTRY;
+
+	INIT_LIST_HEAD(&list);
+
+	while (value != NULL || !list_empty(&list)) {
+		while (value != NULL) {
+			func(value, data, 0);
+
+			if (value->opv_type != OBD_POLICY_VALUE_EXPRESSION) {
+				value = NULL;
+				break;
+			}
+
+			OBD_ALLOC_PTR(node);
+			if (node == NULL)
+				GOTO(out, rc = -ENOMEM);
+			node->opvn_value = value;
+			/** Stack: push to the begining */
+			list_add(&node->opvn_linkage, &list);
+			value = value->u.opv_expression.ope_left;
+		}
+
+		if (!list_empty(&list)) {
+			/** Stack: pop from the begining */
+			node = list_entry(list.next,
+					  struct obd_policy_value_node,
+					  opvn_linkage);
+			list_del_init(&node->opvn_linkage);
+			value = node->opvn_value;
+			OBD_FREE_PTR(node);
+			if (value->opv_type != OBD_POLICY_VALUE_EXPRESSION)
+				value = NULL;
+			else
+				value = value->u.opv_expression.ope_right;
+		}
+	}
+out:
+	list_for_each_entry_safe(node, n, &list, opvn_linkage) {
+		list_del_init(&node->opvn_linkage);
+		OBD_FREE_PTR(node);
+	}
+	RETURN(rc);
+}
+EXPORT_SYMBOL(obd_policy_rule_preorder_traverse);
+
+static __u64 obd_policy_expression_evaluate(enum obd_policy_operator operator,
+					   __u64 left_value,
+					   __u64 right_value)
+{
+	__u64 result;
+	ENTRY;
+
+	switch (operator) {
+	default:
+		LBUG();
+	/* Arithmetic Operators  */
+	case OBD_POLICY_OPERATOR_ADD:
+		result = left_value + right_value;
+		break;
+	case OBD_POLICY_OPERATOR_MINUS:
+		result = left_value - right_value;
+		break;
+	case OBD_POLICY_OPERATOR_MULTIPLY:
+		result = left_value * right_value;
+		break;
+	case OBD_POLICY_OPERATOR_DIVIDE:
+		result = left_value / right_value;
+		break;
+	case OBD_POLICY_OPERATOR_MODULUS:
+		result = left_value % right_value;
+		break;
+	/*  Relational and Logical Operators */
+	case OBD_POLICY_OPERATOR_EQUAL:
+		result = (left_value == right_value) ? 1 : 0;
+		break;
+	case OBD_POLICY_OPERATOR_NOT_EQUAL:
+		result = (left_value != right_value) ? 1 : 0;
+		break;
+	case OBD_POLICY_OPERATOR_GREATER:
+		result = (left_value > right_value) ? 1 : 0;
+		break;
+	case OBD_POLICY_OPERATOR_GREATER_OR_EQUAL:
+		result = (left_value >= right_value) ? 1 : 0;
+		break;
+	case OBD_POLICY_OPERATOR_LESS:
+		result = (left_value < right_value) ? 1 : 0;
+		break;
+	case OBD_POLICY_OPERATOR_LESS_OR_EQUAL:
+		result = (left_value <= right_value) ? 1 : 0;
+		break;
+	/* Bitwise Operators */
+	case OBD_POLICY_OPERATOR_BITWISE_AND:
+		result = left_value & right_value;
+		break;
+	case OBD_POLICY_OPERATOR_BITWISE_INCLUSIVE_OR:
+		result = left_value | right_value;
+		break;
+	case OBD_POLICY_OPERATOR_BITWISE_EXCLUSIVE_OR:
+		result = left_value ^ right_value;
+		break;
+	case OBD_POLICY_OPERATOR_LEFT_SHIFT:
+		result = left_value << right_value;
+		break;
+	case OBD_POLICY_OPERATOR_RIGHT_SHIFT:
+		result = left_value >> right_value;
+		break;
+	}
+	RETURN(result);
+}
+
+static __u64 obd_policy_attribute_evaluate(enum obd_policy_attribute_type type,
+					   struct lu_attr *attr,
+					   struct timeval *sys_time)
+{
+	__u64	result = 0;
+	ENTRY;
+
+	switch (type) {
+	default:
+		LBUG();
+	case OBD_POLICY_ATTRIBUTE_ATIME:
+		result = (__u64)attr->la_atime;
+		break;
+	case OBD_POLICY_ATTRIBUTE_MTIME:
+		result = (__u64)attr->la_mtime;
+		break;
+	case OBD_POLICY_ATTRIBUTE_CTIME:
+		result = (__u64)attr->la_ctime;
+		break;
+	case OBD_POLICY_ATTRIBUTE_SIZE:
+		result = (__u64)attr->la_size;
+		break;
+	case OBD_POLICY_ATTRIBUTE_MODE:
+		result = (__u64)attr->la_mode;
+		break;
+	case OBD_POLICY_ATTRIBUTE_UID:
+		result = (__u64)attr->la_uid;
+		break;
+	case OBD_POLICY_ATTRIBUTE_GID:
+		result = (__u64)attr->la_gid;
+		break;
+	case OBD_POLICY_ATTRIBUTE_BLOCKS:
+		result = (__u64)attr->la_blocks;
+		break;
+	case OBD_POLICY_ATTRIBUTE_TYPE:
+		result = (__u64)(attr->la_mode & S_IFMT);
+		break;
+	case OBD_POLICY_ATTRIBUTE_FLAGS:
+		result = (__u64)attr->la_flags;
+		break;
+	case OBD_POLICY_ATTRIBUTE_NLINK:
+		result = (__u64)attr->la_nlink;
+		break;
+	case OBD_POLICY_ATTRIBUTE_RDEV:
+		result = (__u64)attr->la_rdev;
+		break;
+	case OBD_POLICY_ATTRIBUTE_BLKSIZE:
+		result = (__u64)attr->la_blksize;
+		break;
+	case OBD_POLICY_ATTRIBUTE_SYS_TIME:
+		result = (__u64)sys_time->tv_sec;
+	}
+	RETURN(result);
+}
+
+static __u64 obd_policy_value_evaluate(struct obd_policy_value_node *node,
+				       struct lu_attr *attr,
+				       struct timeval *sys_time)
+{
+	__u64					 result = 0;
+	struct obd_policy_value_extension	*extention;
+	struct obd_policy_value_node		*parent;
+	enum obd_policy_operator		 operator;
+	struct obd_policy_value			*value = node->opvn_value;
+	__u64					 left_value;
+	__u64					 right_value;
+	enum obd_policy_attribute_type		 type;
+	ENTRY;
+
+	extention = node->opvn_extension;
+	switch (value->opv_type) {
+	default:
+		LBUG();
+	case OBD_POLICY_VALUE_EXPRESSION:
+		operator = value->u.opv_expression.ope_operator;
+		left_value = extention->opve_left_value;
+		right_value = extention->opve_right_value;
+		result = obd_policy_expression_evaluate(operator,
+						       left_value,
+						       right_value);
+		break;
+	case OBD_POLICY_VALUE_NUMBER:
+		result = value->u.opv_number;
+		break;
+	case OBD_POLICY_VALUE_ATTRIBUTE:
+		type = value->u.opv_attribute.oca_type;
+		result = obd_policy_attribute_evaluate(type, attr, sys_time);
+		break;
+	case OBD_POLICY_VALUE_CONSTANT:
+		result = value->u.opv_constant.opc_value;
+		break;
+	}
+
+	parent = extention->opve_parent;
+	if (parent != NULL) {
+		if (extention->opve_is_left_child)
+			parent->opvn_extension->opve_left_value = result;
+		else
+			parent->opvn_extension->opve_right_value = result;
+	}
+	RETURN(result);
+}
+
+void obd_policy_rule_result_func(struct obd_policy_value *value,
+				 void *data, __u64 result)
+{
+	__u64 *rc = data;
+
+	*rc = result;
+}
+EXPORT_SYMBOL(obd_policy_rule_result_func);
+
+int obd_policy_rule_postorder_traverse(struct obd_policy_value *value,
+				       obd_policy_value_func_t func,
+				       void *data,
+				       bool evaluating,
+				       struct lu_attr *attr,
+				       struct timeval *sys_time)
+{
+	struct obd_policy_value			*prev = NULL;
+	struct list_head			 list;
+	struct obd_policy_value_node		*node, *n;
+	int					 rc = 0;
+	__u64					 result = 0;
+	struct obd_policy_value_extension	*extention;
+	size_t					 size;
+	ENTRY;
+
+	if (evaluating)
+		size = offsetof(struct obd_policy_value_node,
+				opvn_extension[1]);
+	else
+		size = sizeof(struct obd_policy_value_node);
+	INIT_LIST_HEAD(&list);
+	OBD_ALLOC(node, size);
+	if (node == NULL)
+		RETURN(-ENOMEM);
+	node->opvn_value = value;
+	if (evaluating)
+		node->opvn_extension->opve_parent = NULL;
+	list_add(&node->opvn_linkage, &list);
+
+	while (!list_empty(&list)) {
+		/** Stack: pop from the begining */
+		node = list_entry(list.next,
+				  struct obd_policy_value_node,
+				  opvn_linkage);
+		value = node->opvn_value;
+		if (value->opv_type != OBD_POLICY_VALUE_EXPRESSION ||
+		    (prev == value->u.opv_expression.ope_right)) {
+			if (evaluating)
+				result = obd_policy_value_evaluate(node, attr,
+								   sys_time);
+			func(value, data, result);
+			/** Stack: pop from the begining */
+			list_del_init(&node->opvn_linkage);
+			OBD_FREE(node, size);
+			prev = value;
+		} else {
+			OBD_ALLOC(n, size);
+			if (n == NULL)
+				GOTO(out, rc = -ENOMEM);
+			n->opvn_value = value->u.opv_expression.ope_right;
+			if (evaluating) {
+				extention = n->opvn_extension;
+				extention->opve_parent = node;
+				extention->opve_is_left_child = false;
+			}
+			/** Stack: push to the begining */
+			list_add(&n->opvn_linkage, &list);
+
+			OBD_ALLOC(n, size);
+			if (n == NULL)
+				GOTO(out, rc = -ENOMEM);
+			n->opvn_value = value->u.opv_expression.ope_left;
+			if (evaluating) {
+				extention = n->opvn_extension;
+				extention->opve_parent = node;
+				extention->opve_is_left_child = true;
+			}
+			/** Stack: push to the begining */
+			list_add(&n->opvn_linkage, &list);
+		}
+	}
+out:
+	list_for_each_entry_safe(node, n, &list, opvn_linkage) {
+		list_del_init(&node->opvn_linkage);
+		OBD_FREE(node, size);
+	}
+	RETURN(rc);
+}
+EXPORT_SYMBOL(obd_policy_rule_postorder_traverse);
+
+static const char * const obd_policy_operators[] = OBD_POLICY_OPERATORS;
+static const char * const obd_policy_attributes[] = OBD_POLICY_ATTRIBUTES;
+static const char * const obd_policy_constant_names[] =
+	OBD_POLICY_CONSTANT_NAMES;
+static const __u64 const obd_policy_constant_values[] =
+	OBD_POLICY_CONSTANT_VALUES;
+
+void obd_policy_rule_print_func(struct obd_policy_value *value,
+				void *data, __u64 result)
+{
+	struct seq_file			*m = data;
+	enum obd_policy_operator	 operator;
+	enum obd_policy_attribute_type	 type;
+
+	switch (value->opv_type) {
+	default:
+		LBUG();
+	case OBD_POLICY_VALUE_EXPRESSION:
+		operator = value->u.opv_expression.ope_operator;
+		seq_printf(m, "%s ", obd_policy_operators[operator]);
+		break;
+	case OBD_POLICY_VALUE_NUMBER:
+		seq_printf(m, "%llu ", value->u.opv_number);
+		break;
+	case OBD_POLICY_VALUE_ATTRIBUTE:
+		type = value->u.opv_attribute.oca_type;
+		seq_printf(m, "%s ", obd_policy_attributes[type]);
+		break;
+	case OBD_POLICY_VALUE_CONSTANT:
+		seq_printf(m, "%s ", value->u.opv_constant.opc_name);
+		break;
+	}
+}
+EXPORT_SYMBOL(obd_policy_rule_print_func);
+
+static int obd_policy_value_field_parse(struct obd_policy_value *value,
+					const char *field,
+					__u64 *valid)
+{
+	int				rc;
+	enum obd_policy_operator	operator;
+	enum obd_policy_attribute_type	type;
+	__u64				number;
+	enum obd_policy_constant_type	constant;
+	ENTRY;
+
+	*valid = 0;
+	for (operator = 0; operator < ARRAY_SIZE(obd_policy_operators);
+	     operator++) {
+		if (strcmp(field, obd_policy_operators[operator]) == 0) {
+			value->opv_type = OBD_POLICY_VALUE_EXPRESSION;
+			value->u.opv_expression.ope_operator = operator;
+			value->u.opv_expression.ope_left = NULL;
+			value->u.opv_expression.ope_right = NULL;
+			RETURN(0);
+		}
+	}
+
+	for (type = 0; type < ARRAY_SIZE(obd_policy_attributes); type++) {
+		if (strcmp(field, obd_policy_attributes[type]) == 0) {
+			value->opv_type = OBD_POLICY_VALUE_ATTRIBUTE;
+			value->u.opv_attribute.oca_type = type;
+			if (type == OBD_POLICY_ATTRIBUTE_SYS_TIME)
+				*valid = OBD_POLICY_VALID_SYS_TIME;
+			else
+				*valid = OBD_POLICY_VALID_ATTR;
+			RETURN(0);
+		}
+	}
+
+	for (constant = 0; constant < ARRAY_SIZE(obd_policy_constant_names);
+	     constant++) {
+		if (strcmp(field, obd_policy_constant_names[constant]) == 0) {
+			value->opv_type = OBD_POLICY_VALUE_CONSTANT;
+			value->u.opv_constant.opc_name =
+				obd_policy_constant_names[constant];
+			value->u.opv_constant.opc_value =
+				obd_policy_constant_values[constant];
+			RETURN(0);
+		}
+	}
+
+	rc = kstrtou64(field, 10, &number);
+	if (rc != 0)
+		RETURN(rc);
+	value->opv_type = OBD_POLICY_VALUE_NUMBER;
+	value->u.opv_number = number;
+	RETURN(0);
+}
+
+/**
+ * list:
+ * The list of all values that represent the expression. This is only used
+ * for fast releasing the values without the need of traversing the expression
+ * tree.
+ *
+ * value:
+ * The root node of the expression tree.
+ *
+ * valid:
+ * The flags of attributes when evaluating the expression tree.
+ *
+ */
+int obd_policy_value_init(struct list_head *list,
+			  struct obd_policy_value **value,
+			  __u64 *valid, const char *expression)
+{
+	struct obd_policy_value	*parent, *child, *val, *n;
+	struct obd_policy_value	*top = NULL;
+	char			*buf;
+	int			 bufsize = 4096;
+	char			*end;
+	char			*start;
+	char			*field;
+	struct list_head	 stack_list;
+	__u64			 tmp_valid = 0;
+	int			 rc = 0;
+	__u64			 field_valid;
+	ENTRY;
+
+	INIT_LIST_HEAD(&stack_list);
+	LASSERT(list_empty(list));
+
+	if (strlen(expression) >= bufsize)
+		RETURN(-EINVAL);
+
+	OBD_ALLOC(buf, bufsize);
+	if (buf == NULL)
+		RETURN(-ENOMEM);
+
+	strncpy(buf, expression, bufsize);
+	end = buf + strlen(buf);
+	start = buf;
+	while (start < end) {
+		field = start;
+		while (start < end && *start != ' ')
+			start++;
+		*start = '\0';
+		start++;
+
+		OBD_ALLOC_PTR(child);
+		if (child == NULL)
+			GOTO(out, rc = -ENOMEM);
+
+		/** Stack: pop from the begining */
+		if (!list_empty(&stack_list)) {
+			parent = list_entry(stack_list.next,
+					    struct obd_policy_value,
+					    opv_linkage);
+			if (parent->u.opv_expression.ope_left == NULL) {
+				parent->u.opv_expression.ope_left = child;
+			} else if (parent->u.opv_expression.ope_right == NULL) {
+				parent->u.opv_expression.ope_right = child;
+				list_move(&parent->opv_linkage, list);
+			} else {
+				OBD_FREE_PTR(child);
+				GOTO(out, rc = -EINVAL);
+			}
+		} else if (top == NULL) {
+			top = child;
+		} else {
+			OBD_FREE_PTR(child);
+			GOTO(out, rc = -EINVAL);
+		}
+
+		rc = obd_policy_value_field_parse(child, field, &field_valid);
+		if (rc) {
+			OBD_FREE_PTR(child);
+			GOTO(out, rc);
+		}
+
+		tmp_valid |= field_valid;
+		switch (child->opv_type) {
+		default:
+			LBUG();
+		case OBD_POLICY_VALUE_EXPRESSION:
+			list_add(&child->opv_linkage, &stack_list);
+			break;
+		case OBD_POLICY_VALUE_ATTRIBUTE:
+		case OBD_POLICY_VALUE_NUMBER:
+		case OBD_POLICY_VALUE_CONSTANT:
+			list_add(&child->opv_linkage, list);
+			break;
+		}
+	}
+
+	if (!list_empty(&stack_list) || top == NULL)
+		GOTO(out, rc = -EINVAL);
+out:
+	if (rc != 0) {
+		list_for_each_entry_safe(val, n, list,
+					 opv_linkage) {
+			list_del_init(&val->opv_linkage);
+			OBD_FREE_PTR(val);
+		}
+		list_for_each_entry_safe(val, n, &stack_list,
+					 opv_linkage) {
+			list_del_init(&val->opv_linkage);
+			OBD_FREE_PTR(val);
+		}
+	} else {
+		*valid = tmp_valid;
+		*value = top;
+	}
+	/* Clear both lists */
+	OBD_FREE(buf, bufsize);
+	RETURN(rc);
+}
+EXPORT_SYMBOL(obd_policy_value_init);
+
 MODULE_AUTHOR("OpenSFS, Inc. <http://www.lustre.org/>");
 MODULE_DESCRIPTION("Lustre Class Driver");
 MODULE_VERSION(LUSTRE_VERSION_STRING);

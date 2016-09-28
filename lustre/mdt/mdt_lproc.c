@@ -781,6 +781,164 @@ LPROC_SEQ_FOPS(mdt_hsm_cdt_control);
 LPROC_SEQ_FOPS_RW_TYPE(mdt, recovery_time_hard);
 LPROC_SEQ_FOPS_RW_TYPE(mdt, recovery_time_soft);
 
+static int mdt_hsm_policy_dump_obj_seq_show(struct seq_file *m, void *v)
+{
+	struct obd_device	*obd = m->private;
+	struct mdt_device	*mdt = mdt_dev(obd->obd_lu_dev);
+	struct mdt_hsm_policy	*policy = &mdt->mdt_hsm_policy;
+	struct lu_fid		 fid;
+
+	read_lock(&policy->mhp_lock);
+	fid = policy->mhp_fid;
+	read_unlock(&policy->mhp_lock);
+
+	seq_printf(m, DFID"\n", PFID(&fid));
+	return 0;
+}
+
+static ssize_t
+mdt_hsm_policy_dump_obj_seq_write(struct file *file,
+				  const char __user *buffer,
+				  size_t count, loff_t *off)
+{
+	char			 kernbuf[30];
+	char			*pbuf;
+	struct lu_fid		 fid;
+	struct seq_file		*m = file->private_data;
+	struct obd_device	*obd = m->private;
+	struct mdt_device	*mdt = mdt_dev(obd->obd_lu_dev);
+	struct mdt_hsm_policy	*policy = &mdt->mdt_hsm_policy;
+	int rc;
+
+	if (count > (sizeof(kernbuf) - 1))
+		return -EINVAL;
+
+	if (copy_from_user(kernbuf, buffer, count))
+		return -EFAULT;
+
+	kernbuf[count] = '\0';
+	pbuf = kernbuf;
+	while (*pbuf == '[')
+		pbuf++;
+
+	rc = sscanf(pbuf, SFID, RFID(&fid));
+	if (rc != 3)
+		return -EINVAL;
+
+	write_lock(&policy->mhp_lock);
+	policy->mhp_fid = fid;
+	write_unlock(&policy->mhp_lock);
+
+	return count;
+}
+LPROC_SEQ_FOPS(mdt_hsm_policy_dump_obj);
+
+static int mdt_hsm_policy_rule_seq_show(struct seq_file *m, void *v)
+{
+	struct obd_device	*obd = m->private;
+	struct mdt_device	*mdt = mdt_dev(obd->obd_lu_dev);
+	struct mdt_hsm_policy	*policy = &mdt->mdt_hsm_policy;
+	int			 rc;
+	__u64			 result = 0;
+	struct lu_fid		 fid;
+	struct md_attr		*ma = NULL;
+	int			 attr_error = 0;
+	struct timeval		 sys_time;
+	ENTRY;
+
+	read_lock(&policy->mhp_lock);
+	fid = policy->mhp_fid;
+
+	if (policy->mhp_valid & OBD_POLICY_VALID_ATTR)
+		attr_error = mdt_hsm_attr_get(mdt, &fid, &ma);
+
+	if (policy->mhp_valid & OBD_POLICY_VALID_SYS_TIME)
+		do_gettimeofday(&sys_time);
+
+	rc = obd_policy_rule_preorder_traverse(policy->mhp_rule,
+					       obd_policy_rule_print_func, m);
+	if (rc != 0)
+		GOTO(out, rc);
+
+	if (attr_error != 0) {
+		seq_printf(m, "\nResult: unkown, because failed to "
+			   "get attr of fid "DFID", rc = %d\n",
+			   PFID(&fid), attr_error);
+		GOTO(out, rc);
+	}
+
+	rc = obd_policy_rule_postorder_traverse(policy->mhp_rule,
+						obd_policy_rule_result_func,
+						&result, true, &ma->ma_attr,
+						&sys_time);
+	if (rc == 0)
+		seq_printf(m, "\nResult: %llu\n", result);
+out:
+	read_unlock(&policy->mhp_lock);
+	if (attr_error == 0) {
+		if (policy->mhp_valid & OBD_POLICY_VALID_ATTR)
+			OBD_FREE_PTR(ma);
+	}
+	RETURN(rc);
+}
+
+static ssize_t
+mdt_hsm_policy_rule_seq_write(struct file *file,
+			      const char __user *buffer,
+			      size_t count, loff_t *off)
+{
+	struct seq_file		*m = file->private_data;
+	struct obd_device	*obd = m->private;
+	struct mdt_device	*mdt = mdt_dev(obd->obd_lu_dev);
+	struct mdt_hsm_policy	*policy = &mdt->mdt_hsm_policy;
+	char			*kernbuf;
+	int			 bufsize = 4096;
+	int			 rc = 0;
+	ENTRY;
+
+	OBD_ALLOC(kernbuf, bufsize);
+	if (kernbuf == NULL)
+		RETURN(-ENOMEM);
+
+	if (count > (bufsize - 1))
+		GOTO(out, rc = -EINVAL);
+
+	if (copy_from_user(kernbuf, buffer, count))
+		GOTO(out, rc = -EFAULT);
+
+	rc = mdt_hsm_policy_rule_init(policy, kernbuf);
+out:
+	OBD_FREE(kernbuf, bufsize);
+	if (rc)
+		RETURN(rc);
+	else
+		RETURN(count);
+}
+LPROC_SEQ_FOPS(mdt_hsm_policy_rule);
+
+static int mdt_hsm_policy_archive_id_seq_show(struct seq_file *m, void *v)
+{
+	struct obd_device	*obd = m->private;
+	struct mdt_device	*mdt = mdt_dev(obd->obd_lu_dev);
+	struct mdt_hsm_policy	*policy = &mdt->mdt_hsm_policy;
+
+	return lprocfs_uint_seq_show(m, &policy->mhp_archive_id);
+}
+
+static ssize_t
+mdt_hsm_policy_archive_id_seq_write(struct file *file,
+				     const char __user *buffer,
+				     size_t count, loff_t *off)
+{
+	struct seq_file		*m = file->private_data;
+	struct obd_device	*obd = m->private;
+	struct mdt_device	*mdt = mdt_dev(obd->obd_lu_dev);
+	struct mdt_hsm_policy	*policy = &mdt->mdt_hsm_policy;
+
+	return lprocfs_wr_uint(file, buffer, count, &policy->mhp_archive_id);
+}
+LPROC_SEQ_FOPS(mdt_hsm_policy_archive_id);
+
 static struct lprocfs_vars lprocfs_mdt_obd_vars[] = {
 	{ .name =	"uuid",
 	  .fops =	&mdt_uuid_fops				},
@@ -834,6 +992,12 @@ static struct lprocfs_vars lprocfs_mdt_obd_vars[] = {
 	  .fops =	&mdt_async_commit_count_fops		},
 	{ .name =	"sync_count",
 	  .fops =	&mdt_sync_count_fops			},
+	{ .name	=	"hsm_policy_dump_obj",
+	  .fops	=	&mdt_hsm_policy_dump_obj_fops	},
+	{ .name	=	"hsm_policy_rule",
+	  .fops	=	&mdt_hsm_policy_rule_fops	},
+	{ .name	=	"hsm_policy_archive_id",
+	  .fops	=	&mdt_hsm_policy_archive_id_fops	},
 	{ NULL }
 };
 

@@ -295,7 +295,8 @@ hsm_action_permission(struct mdt_thread_info *mti,
  * in case of restore, caller must hold layout lock
  */
 int mdt_hsm_add_actions(struct mdt_thread_info *mti,
-			struct hsm_action_list *hal)
+			struct hsm_action_list *hal,
+			bool permitted)
 {
 	struct mdt_device	*mdt = mti->mti_mdt;
 	struct coordinator	*cdt = &mdt->mdt_coordinator;
@@ -364,7 +365,8 @@ int mdt_hsm_add_actions(struct mdt_thread_info *mti,
 			/* In case of REMOVE and CANCEL a Lustre file
 			 * is not mandatory, but restrict this
 			 * exception to admins. */
-			if (md_capable(mdt_ucred(mti), CFS_CAP_SYS_ADMIN) &&
+			if ((permitted ||
+			     md_capable(mdt_ucred(mti), CFS_CAP_SYS_ADMIN)) &&
 			    (hai->hai_action == HSMA_REMOVE ||
 			     hai->hai_action == HSMA_CANCEL))
 				goto record;
@@ -372,7 +374,8 @@ int mdt_hsm_add_actions(struct mdt_thread_info *mti,
 				GOTO(out, rc = PTR_ERR(obj));
 		}
 
-		rc = hsm_action_permission(mti, obj, hai->hai_action);
+		if (!permitted)
+			rc = hsm_action_permission(mti, obj, hai->hai_action);
 		mdt_object_put(mti->mti_env, obj);
 
 		if (rc < 0)

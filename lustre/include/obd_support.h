@@ -904,4 +904,174 @@ static inline int lustre_to_lma_flags(__u32 la_flags)
 	return (la_flags & LUSTRE_ORPHAN_FL) ? LMAI_ORPHAN : 0;
 }
 
+enum obd_policy_attribute_type {
+	OBD_POLICY_ATTRIBUTE_ATIME	= 0,
+	OBD_POLICY_ATTRIBUTE_MTIME,
+	OBD_POLICY_ATTRIBUTE_CTIME,
+	OBD_POLICY_ATTRIBUTE_SIZE,
+	OBD_POLICY_ATTRIBUTE_MODE,
+	OBD_POLICY_ATTRIBUTE_UID,
+	OBD_POLICY_ATTRIBUTE_GID,
+	OBD_POLICY_ATTRIBUTE_BLOCKS,
+	OBD_POLICY_ATTRIBUTE_TYPE,
+	OBD_POLICY_ATTRIBUTE_FLAGS,
+	OBD_POLICY_ATTRIBUTE_NLINK,
+	OBD_POLICY_ATTRIBUTE_RDEV,
+	OBD_POLICY_ATTRIBUTE_BLKSIZE,
+	OBD_POLICY_ATTRIBUTE_SYS_TIME,
+};
+
+#define OBD_POLICY_ATTRIBUTES {						\
+	[OBD_POLICY_ATTRIBUTE_ATIME]			= "atime",	\
+	[OBD_POLICY_ATTRIBUTE_MTIME]			= "mtime",	\
+	[OBD_POLICY_ATTRIBUTE_CTIME]			= "ctime",	\
+	[OBD_POLICY_ATTRIBUTE_SIZE]			= "size",	\
+	[OBD_POLICY_ATTRIBUTE_MODE]			= "mode",	\
+	[OBD_POLICY_ATTRIBUTE_UID]			= "uid",	\
+	[OBD_POLICY_ATTRIBUTE_GID]			= "gid",	\
+	[OBD_POLICY_ATTRIBUTE_BLOCKS]			= "blocks",	\
+	[OBD_POLICY_ATTRIBUTE_TYPE]			= "type",	\
+	[OBD_POLICY_ATTRIBUTE_FLAGS]			= "flags",	\
+	[OBD_POLICY_ATTRIBUTE_NLINK]			= "nlink",	\
+	[OBD_POLICY_ATTRIBUTE_RDEV]			= "rdev",	\
+	[OBD_POLICY_ATTRIBUTE_BLKSIZE]			= "blksize",	\
+	[OBD_POLICY_ATTRIBUTE_SYS_TIME]			= "sys_time",	\
+}
+
+struct obd_policy_attribute {
+	enum obd_policy_attribute_type	oca_type;
+};
+
+enum obd_policy_operator {
+	/* Arithmetic Operators  */
+	OBD_POLICY_OPERATOR_ADD	= 0,			/* + */
+	OBD_POLICY_OPERATOR_MINUS,			/* - */
+	OBD_POLICY_OPERATOR_MULTIPLY,			/* * */
+	OBD_POLICY_OPERATOR_DIVIDE,			/* / */
+	OBD_POLICY_OPERATOR_MODULUS,			/* % */
+	/*  Relational and Logical Operators */
+	OBD_POLICY_OPERATOR_EQUAL,			/* == */
+	OBD_POLICY_OPERATOR_NOT_EQUAL,			/* != */
+	OBD_POLICY_OPERATOR_GREATER,			/* > */
+	OBD_POLICY_OPERATOR_GREATER_OR_EQUAL,		/* >= */
+	OBD_POLICY_OPERATOR_LESS,			/* < */
+	OBD_POLICY_OPERATOR_LESS_OR_EQUAL,		/* <= */
+	/* Bitwise Operators */
+	OBD_POLICY_OPERATOR_BITWISE_AND,		/* & */
+	OBD_POLICY_OPERATOR_BITWISE_INCLUSIVE_OR,	/* | */
+	OBD_POLICY_OPERATOR_BITWISE_EXCLUSIVE_OR,	/* ^ */
+	OBD_POLICY_OPERATOR_LEFT_SHIFT,			/* << */
+	OBD_POLICY_OPERATOR_RIGHT_SHIFT,		/* >> */
+};
+
+#define OBD_POLICY_OPERATORS {					\
+	[OBD_POLICY_OPERATOR_ADD]			= "+",	\
+	[OBD_POLICY_OPERATOR_MINUS]			= "-",	\
+	[OBD_POLICY_OPERATOR_MULTIPLY]			= "*",	\
+	[OBD_POLICY_OPERATOR_DIVIDE]			= "/",	\
+	[OBD_POLICY_OPERATOR_MODULUS]			= "%",	\
+	[OBD_POLICY_OPERATOR_EQUAL]			= "==",	\
+	[OBD_POLICY_OPERATOR_NOT_EQUAL]			= "!=",	\
+	[OBD_POLICY_OPERATOR_GREATER]			= ">",	\
+	[OBD_POLICY_OPERATOR_GREATER_OR_EQUAL]		= ">=",	\
+	[OBD_POLICY_OPERATOR_LESS]			= "<",	\
+	[OBD_POLICY_OPERATOR_LESS_OR_EQUAL]		= "<=",	\
+	[OBD_POLICY_OPERATOR_BITWISE_AND]		= "&",	\
+	[OBD_POLICY_OPERATOR_BITWISE_INCLUSIVE_OR]	= "|",	\
+	[OBD_POLICY_OPERATOR_BITWISE_EXCLUSIVE_OR]	= "^",	\
+	[OBD_POLICY_OPERATOR_LEFT_SHIFT]		= "<<",	\
+	[OBD_POLICY_OPERATOR_RIGHT_SHIFT]		= ">>",	\
+}
+
+enum obd_policy_value_type {
+	OBD_POLICY_VALUE_EXPRESSION	= 0,
+	OBD_POLICY_VALUE_NUMBER,
+	OBD_POLICY_VALUE_ATTRIBUTE,
+	OBD_POLICY_VALUE_CONSTANT,
+};
+
+enum {
+	OBD_POLICY_VALID_ATTR		= 1 << 0,
+	OBD_POLICY_VALID_SYS_TIME	= 1 << 1,
+};
+
+struct obd_policy_expression {
+	struct obd_policy_value		*ope_left;
+	enum obd_policy_operator	 ope_operator;
+	struct obd_policy_value		*ope_right;
+};
+
+enum obd_policy_constant_type {
+	/* HSM action bit flags  */
+	OPC_HSMA_BIT_ARCHIVE	= 0,
+	OPC_HSMA_BIT_RESTORE,
+	OPC_HSMA_BIT_REMOVE,
+	OPC_HSMA_BIT_CANCEL,
+};
+
+#define OBD_POLICY_CONSTANT_NAMES {				\
+	[OPC_HSMA_BIT_ARCHIVE]		= "hsma_bit_archive",	\
+	[OPC_HSMA_BIT_RESTORE]		= "hsma_bit_restore",	\
+	[OPC_HSMA_BIT_REMOVE]		= "hsma_bit_remove",	\
+	[OPC_HSMA_BIT_CANCEL]		= "hsma_bit_cancel",	\
+}
+
+#define OPC_HSMA_BIT_ARCHIVE_VALUE	1ULL
+#define OPC_HSMA_BIT_RESTORE_VALUE	(1ULL << 1)
+#define OPC_HSMA_BIT_REMOVE_VALUE	(1ULL << 2)
+#define OPC_HSMA_BIT_CANCEL_VALUE	(1ULL << 3)
+#define OPC_HSMA_BIT_MASK (OPC_HSMA_BIT_ARCHIVE_VALUE | \
+			   OPC_HSMA_BIT_RESTORE_VALUE | \
+			   OPC_HSMA_BIT_REMOVE_VALUE | \
+			   OPC_HSMA_BIT_CANCEL_VALUE)
+
+
+#define OBD_POLICY_CONSTANT_VALUES {					\
+	[OPC_HSMA_BIT_ARCHIVE]		= OPC_HSMA_BIT_ARCHIVE_VALUE,	\
+	[OPC_HSMA_BIT_RESTORE]		= OPC_HSMA_BIT_RESTORE_VALUE,	\
+	[OPC_HSMA_BIT_REMOVE]		= OPC_HSMA_BIT_REMOVE_VALUE,	\
+	[OPC_HSMA_BIT_CANCEL]		= OPC_HSMA_BIT_CANCEL_VALUE,	\
+}
+
+struct obd_policy_constant {
+	const char	*opc_name;
+	__u64		 opc_value;
+};
+
+struct obd_policy_value {
+	/** Linkage to values, only used when freeing the rule */
+	struct list_head			opv_linkage;
+	enum obd_policy_value_type		opv_type;
+	union {
+		struct obd_policy_expression	opv_expression;
+		struct obd_policy_attribute	opv_attribute;
+		__u64				opv_number;
+		struct obd_policy_constant	opv_constant;
+	} u;
+};
+
+typedef void (*obd_policy_value_func_t)(struct obd_policy_value *,
+					void *, __u64);
+
+struct obd_policy_value_extension {
+	/** Parent node, only used when calculating value */
+	struct obd_policy_value_node	*opve_parent;
+	/** Left value, only used when calculating value */
+	__u64				 opve_left_value;
+	/** Right value, only used when calculating value */
+	__u64				 opve_right_value;
+	/**
+	 * Whether I am left child of parent, only used when calculating value
+	 */
+	bool				 opve_is_left_child;
+};
+
+struct obd_policy_value_node {
+	/** Pointer to node in expression tree */
+	struct obd_policy_value			*opvn_value;
+	/** Linkage to some list, usually a list of stack */
+	struct list_head			 opvn_linkage;
+	struct obd_policy_value_extension	 opvn_extension[0];
+};
+
 #endif
