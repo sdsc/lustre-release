@@ -356,12 +356,12 @@ struct osd_thandle {
 	struct list_head       ot_stop_dcb_list;
 	/* Link to the device, for debugging. */
 	struct lu_ref_link      ot_dev_link;
-        unsigned short          ot_credits;
-        unsigned short          ot_id_cnt;
-        unsigned short          ot_id_type;
-	unsigned int		ot_remove_agents:1;
-        uid_t                   ot_id_array[OSD_MAX_UGID_CNT];
+	unsigned int		ot_credits;
 	struct lquota_trans    *ot_quota_trans;
+	uid_t                   ot_id_array[OSD_MAX_UGID_CNT];
+	unsigned short          ot_id_cnt;
+	unsigned short          ot_id_type;
+	unsigned int		ot_remove_agents:1;
 #if OSD_THANDLE_STATS
         /** time when this handle was allocated */
         cfs_time_t oth_alloced;
@@ -626,9 +626,9 @@ struct osd_thread_info {
 	 * cases where a large number of credits are being allocated for
 	 * single transaction. */
 	unsigned int		oti_credits_before;
-	unsigned short		oti_declare_ops[OSD_OT_MAX];
-	unsigned short		oti_declare_ops_cred[OSD_OT_MAX];
-	unsigned short		oti_declare_ops_used[OSD_OT_MAX];
+	unsigned int		oti_declare_ops[OSD_OT_MAX];
+	unsigned int		oti_declare_ops_cred[OSD_OT_MAX];
+	unsigned int		oti_declare_ops_used[OSD_OT_MAX];
 };
 
 extern int ldiskfs_pdo;
