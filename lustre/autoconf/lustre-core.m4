@@ -335,6 +335,23 @@ AS_IF([test "x$enable_gss" != xno], [
 		gss_conf_test="failure"
 	])
 
+	AC_COMPILE_IFELSE([AC_LANG_SOURCE([[
+		#include <openssl/hmac.h>
+		#include <openssl/evp.h>
+
+		int main(void) {
+			unsigned char buffer[EVP_MAX_MD_SIZE];
+			int rc;
+			PKCS5_PBKDF2_HMAC("test", -1, "test", 4, 1, EVP_sha256(), EVP_MAX_MD_SIZE, buffer);
+			HMAC_CTX ctx;
+			HMAC_CTX_init(&ctx);
+			rc = HMAC_Init_ex(&ctx, "test", 4, EVP_md_null(), NULL);
+		}
+		]])],[],[
+			AC_MSG_WARN([Unable to build SK with OpenSSL library disabling GSS])
+			gss_conf_test="failure"
+		])
+
 	AS_IF([test "x$gss_conf_test" = xsuccess], [
 		AC_DEFINE([HAVE_GSS], [1], [Define this is if you enable gss])
 		enable_gss="yes"
@@ -343,25 +360,6 @@ AS_IF([test "x$enable_gss" != xno], [
 	])
 ])
 ]) # LC_CONFIG_GSS
-
-# LC_HAVE_VOID_OPENSSL_HMAC_FUNCS
-#
-# OpenSSL 1.0+ return int for HMAC functions but previous versions do not
-AC_DEFUN([LC_HAVE_VOID_OPENSSL_HMAC_FUNCS], [
-AC_COMPILE_IFELSE([AC_LANG_SOURCE([
-	#include <openssl/hmac.h>
-	#include <openssl/evp.h>
-
-	int main(void) {
-		int rc;
-		HMAC_CTX ctx;
-		HMAC_CTX_init(&ctx);
-		rc = HMAC_Init_ex(&ctx, "test", 4, EVP_md_null(), NULL);
-	}
-])],[],[AC_DEFINE(HAVE_VOID_OPENSSL_HMAC_FUNCS, 1,
-		[OpenSSL HMAC functions return void instead of int])
-])
-]) # LC_HAVE_VOID_OPENSSL_HMAC_FUNCS
 
 # LC_INODE_PERMISION_2ARGS
 #
@@ -2234,7 +2232,6 @@ AC_DEFUN([LC_PROG_LINUX], [
 
 	LC_GLIBC_SUPPORT_FHANDLES
 	LC_CONFIG_GSS
-	LC_HAVE_VOID_OPENSSL_HMAC_FUNCS
 
 	# 2.6.32
 	LC_BLK_QUEUE_MAX_SEGMENTS
