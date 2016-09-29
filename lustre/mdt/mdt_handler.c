@@ -2738,10 +2738,6 @@ static void mdt_save_lock(struct mdt_thread_info *info, struct lustre_handle *h,
 			struct mdt_device *mdt = info->mti_mdt;
 			struct ldlm_lock *lock = ldlm_handle2lock(h);
 			struct ptlrpc_request *req = mdt_info_req(info);
-			int cos;
-
-			cos = (mdt_cos_is_enabled(mdt) ||
-			       mdt_slc_is_enabled(mdt));
 
 			LASSERTF(lock != NULL, "no lock for cookie %#llx\n",
 				 h->cookie);
@@ -2749,14 +2745,16 @@ static void mdt_save_lock(struct mdt_thread_info *info, struct lustre_handle *h,
 			/* there is no request if mdt_object_unlock() is called
 			 * from mdt_export_cleanup()->mdt_add_dirty_flag() */
 			if (likely(req != NULL)) {
-				CDEBUG(D_HA, "request = %p reply state = %p"
-				       " transno = %lld\n", req,
-				       req->rq_reply_state, req->rq_transno);
-				if (cos) {
+				LDLM_DEBUG(lock, "save lock request %p reply "
+					"state %p transno %lld\n", req,
+					req->rq_reply_state, req->rq_transno);
+				if (mdt_cos_is_enabled(mdt)) {
 					ldlm_lock_downgrade(lock, LCK_COS);
 					mode = LCK_COS;
 				}
-				ptlrpc_save_lock(req, h, mode, cos);
+				ptlrpc_save_lock(req, h, mode,
+						 mdt_cos_is_enabled(mdt),
+						 mdt_slc_is_enabled(mdt));
 			} else {
 				mdt_fid_unlock(h, mode);
 			}
