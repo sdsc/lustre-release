@@ -720,6 +720,7 @@ kiblnd_create_conn(kib_peer_t *peer, struct rdma_cm_id *cmid,
 	LASSERT(net != NULL);
 	LASSERT(!in_interrupt());
 
+	CERROR("Creating connection for peer = %p, cmid = %p\n", peer, cmid);
 	dev = net->ibn_dev;
 
 	cpt = lnet_cpt_of_nid(peer->ibp_nid);
