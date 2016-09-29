@@ -1147,7 +1147,7 @@ kiblnd_queue_tx_locked(kib_tx_t *tx, kib_conn_t *conn)
 
 	LASSERT(tx->tx_nwrq > 0);	/* work items set up */
 	LASSERT(!tx->tx_queued);	/* not queued for sending already */
-	LASSERT(conn->ibc_state >= IBLND_CONN_ESTABLISHED);
+	/* LASSERT(conn->ibc_state >= IBLND_CONN_ESTABLISHED); */
 
 	tx->tx_queued = 1;
 	tx->tx_deadline = jiffies +
@@ -1253,7 +1253,7 @@ kiblnd_connect_peer (kib_peer_t *peer)
 
         LASSERT (net != NULL);
         LASSERT (peer->ibp_connecting > 0);
-	LASSERT(!peer->ibp_reconnecting);
+	/* LASSERT(!peer->ibp_reconnecting); */
 
         cmid = kiblnd_rdma_create_id(kiblnd_cm_callback, peer, RDMA_PS_TCP,
                                      IB_QPT_RC);
@@ -1368,6 +1368,7 @@ kiblnd_launch_tx (lnet_ni_t *ni, kib_tx_t *tx, lnet_nid_t nid)
 	rwlock_t	*g_lock = &kiblnd_data.kib_global_lock;
         unsigned long      flags;
         int                rc;
+	int		   i;
 
         /* If I get here, I've committed to send, so I complete the tx with
          * failure on any problems */
@@ -1459,9 +1460,9 @@ kiblnd_launch_tx (lnet_ni_t *ni, kib_tx_t *tx, lnet_nid_t nid)
                 return;
         }
 
-        /* Brand new peer */
-        LASSERT (peer->ibp_connecting == 0);
-        peer->ibp_connecting = 1;
+	/* Brand new peer */
+	LASSERT(peer->ibp_connecting == 0);
+	peer->ibp_connecting = *kiblnd_tunables.kib_conns_per_peer;
 
         /* always called with a ref on ni, which prevents ni being shutdown */
         LASSERT (((kib_net_t *)ni->ni_data)->ibn_shutdown == 0);
@@ -1474,7 +1475,10 @@ kiblnd_launch_tx (lnet_ni_t *ni, kib_tx_t *tx, lnet_nid_t nid)
 
 	write_unlock_irqrestore(g_lock, flags);
 
-        kiblnd_connect_peer(peer);
+	for (i = 0; i < *kiblnd_tunables.kib_conns_per_peer; i++) {
+		CERROR("Creating connection %d\n", i);
+		kiblnd_connect_peer(peer);
+	}
         kiblnd_peer_decref(peer);
 }
 
@@ -1916,6 +1920,9 @@ kiblnd_close_conn_locked (kib_conn_t *conn, int error)
         }
 
         dev = ((kib_net_t *)peer->ibp_ni->ni_data)->ibn_dev;
+	if (peer->ibp_next_conn == conn)
+		/* clear next_conn so it won't be used */
+		peer->ibp_next_conn = NULL;
 	list_del(&conn->ibc_list);
         /* connd (see below) takes over ibc_list's ref */
 
@@ -2410,7 +2417,6 @@ kiblnd_passive_connect(struct rdma_cm_id *cmid, void *priv, int priv_nob)
 		 * higher NID is stuck in a connecting state and will never
 		 * recover.  As such, we pass through this if-block and let
 		 * the lower NID connection win so we can move forward.
-		 */
 		if (peer2->ibp_connecting != 0 &&
 		    nid < ni->ni_nid && peer2->ibp_races <
 		    MAX_CONN_RACES_BEFORE_ABORT) {
@@ -2424,6 +2430,7 @@ kiblnd_passive_connect(struct rdma_cm_id *cmid, void *priv, int priv_nob)
 			rej.ibr_why = IBLND_REJECT_CONN_RACE;
 			goto failed;
 		}
+		 */
 		if (peer2->ibp_races >= MAX_CONN_RACES_BEFORE_ABORT)
 			CNETERR("Conn race %s: unresolved after %d attempts, letting lower NID win\n",
 				libcfs_nid2str(peer2->ibp_nid),
@@ -2562,7 +2569,7 @@ kiblnd_check_reconnect(kib_conn_t *conn, int version,
          * initiated by kiblnd_query() */
 	reconnect = (!list_empty(&peer->ibp_tx_queue) ||
 		     peer->ibp_version != version) &&
-		    peer->ibp_connecting == 1 &&
+		    peer->ibp_connecting &&
 		    peer->ibp_accepting == 0;
 	if (!reconnect) {
 		reason = "no need";
