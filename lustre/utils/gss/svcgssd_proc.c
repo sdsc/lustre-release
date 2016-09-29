@@ -704,6 +704,7 @@ int handle_channel_request(FILE *f)
 		}
 		snd.mech = &nulloid;
 		break;
+#ifdef HAVE_INT_OPENSSL_HMAC_FUNCS
 	case LGSS_MECH_SK:
 		if (!sk_enabled) {
 			printerr(1, "WARNING: Request for sk but service "
@@ -712,6 +713,7 @@ int handle_channel_request(FILE *f)
 		}
 		snd.mech = &skoid;
 		break;
+#endif
 	default:
 		printerr(0, "WARNING: invalid mechanism recevied: %d\n",
 			 lustre_mech);
@@ -758,8 +760,10 @@ int handle_channel_request(FILE *f)
 
 	if (lustre_mech == LGSS_MECH_KRB5)
 		rc = handle_krb(&snd);
+#ifdef HAVE_INT_OPENSSL_HMAC_FUNCS
 	else if (lustre_mech == LGSS_MECH_SK)
 		rc = handle_sk(&snd);
+#endif
 	else if (lustre_mech == LGSS_MECH_NULL)
 		rc = handle_null(&snd);
 	else
