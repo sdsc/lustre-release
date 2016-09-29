@@ -437,15 +437,12 @@ static int mdt_coordinator(void *data)
 	obd_uuid2fsname(hsd.fs_name, mdt_obd_name(mdt), MTI_NAME_MAXLEN);
 
 	while (1) {
-		struct l_wait_info lwi;
 		int i;
 
-		lwi = LWI_TIMEOUT(cfs_time_seconds(cdt->cdt_loop_period),
-				  NULL, NULL);
-		l_wait_event(cdt->cdt_thread.t_ctl_waitq,
-			     (cdt->cdt_thread.t_flags &
-			      (SVC_STOPPING|SVC_EVENT)),
-			     &lwi);
+		wait_event_timeout(cdt->cdt_thread.t_ctl_waitq,
+				   (cdt->cdt_thread.t_flags &
+				    (SVC_STOPPING|SVC_EVENT)),
+				   cdt->cdt_loop_period * HZ);
 
 		CDEBUG(D_HSM, "coordinator resumes\n");
 
