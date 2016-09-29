@@ -58,6 +58,10 @@ static int nscheds;
 module_param(nscheds, int, 0444);
 MODULE_PARM_DESC(nscheds, "number of threads in each scheduler pool");
 
+static unsigned int conns_per_peer = 1;
+module_param(conns_per_peer, uint, 0444);
+MODULE_PARM_DESC(conns_per_peer, "number of connections per peer");
+
 /* NB: this value is shared by all CPTs, it can grow at runtime */
 static int ntx = 512;
 module_param(ntx, int, 0444);
@@ -156,7 +160,8 @@ kib_tunables_t kiblnd_tunables = {
         .kib_ib_mtu                 = &ib_mtu,
         .kib_require_priv_port      = &require_privileged_port,
 	.kib_use_priv_port	    = &use_privileged_port,
-	.kib_nscheds		    = &nscheds
+	.kib_nscheds		    = &nscheds,
+	.kib_conns_per_peer	    = &conns_per_peer
 };
 
 static struct lnet_ioctl_config_o2iblnd_tunables default_tunables;
