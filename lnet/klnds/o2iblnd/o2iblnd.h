@@ -103,6 +103,7 @@ typedef struct
 	int              *kib_use_priv_port;    /* use privileged port for active connect */
 	/* # threads on each CPT */
 	int		 *kib_nscheds;
+	unsigned int	 *kib_conns_per_peer;	/* number of connections per peer */
 } kib_tunables_t;
 
 extern kib_tunables_t  kiblnd_tunables;
@@ -728,6 +729,8 @@ typedef struct kib_peer
 	lnet_ni_t		*ibp_ni;
 	/* all active connections */
 	struct list_head	ibp_conns;
+	/* next connection to send on for round robin */
+	kib_conn_t		*ibp_next_conn;
 	/* msgs waiting for a conn */
 	struct list_head	ibp_tx_queue;
 	/* incarnation of peer */
@@ -921,8 +924,26 @@ kiblnd_get_conn_locked (kib_peer_t *peer)
 {
 	LASSERT(!list_empty(&peer->ibp_conns));
 
-        /* just return the first connection */
-	return list_entry(peer->ibp_conns.next, kib_conn_t, ibc_list);
+        CERROR("next_conn = %p\n", peer->ibp_next_conn);
+	if (peer->ibp_next_conn) {
+		/* if the next item is the list head, reset to start */
+		if (peer->ibp_next_conn->ibc_list.next == &peer->ibp_conns) {
+			peer->ibp_next_conn = list_entry(peer->ibp_conns.next,
+							 kib_conn_t, ibc_list);
+		} else {
+			/* advance to next connection */
+			peer->ibp_next_conn = list_entry(
+					peer->ibp_next_conn->ibc_list.next,
+					kib_conn_t, ibc_list);
+		}
+		CDEBUG(D_NET, "Using conn %p\n", peer->ibp_next_conn);
+	} else {
+		/* start off by using the first connection in list */
+		peer->ibp_next_conn = list_entry(peer->ibp_conns.next,
+						 kib_conn_t, ibc_list);
+	}
+        CERROR("returned conn = %p\n", peer->ibp_next_conn);
+	return peer->ibp_next_conn;
 }
 
 static inline int
