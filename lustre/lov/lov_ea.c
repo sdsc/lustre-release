@@ -45,7 +45,7 @@
 #include "lov_internal.h"
 
 static int lsm_lmm_verify_common(struct lov_mds_md *lmm, int lmm_bytes,
-                                 __u16 stripe_count)
+				 __u16 stripe_count)
 {
 	if (stripe_count > LOV_V1_INSANE_STRIPE_COUNT) {
 		CERROR("bad stripe count %d\n", stripe_count);
@@ -230,7 +230,7 @@ lsm_stripe_by_offset_plain(struct lov_stripe_md *lsm, int *stripeno,
 }
 
 static int lsm_lmm_verify_v1(struct lov_mds_md_v1 *lmm, int lmm_bytes,
-                             __u16 *stripe_count)
+			     __u16 *stripe_count)
 {
 	if (lmm_bytes < sizeof(*lmm)) {
 		CERROR("lov_mds_md_v1 too small: %d, need at least %d\n",
@@ -267,7 +267,7 @@ const struct lsm_operations lsm_v1_ops = {
 };
 
 static int lsm_lmm_verify_v3(struct lov_mds_md *lmmv1, int lmm_bytes,
-                             __u16 *stripe_count)
+			     __u16 *stripe_count)
 {
 	struct lov_mds_md_v3 *lmm;
 

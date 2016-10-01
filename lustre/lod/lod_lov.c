@@ -649,7 +649,7 @@ int lod_generate_and_set_lovea(const struct lu_env *env,
 	LASSERT(lo);
 
 	magic = lo->ldo_pool != NULL ? LOV_MAGIC_V3 : LOV_MAGIC_V1;
-	lmm_size = lov_mds_md_size(lo->ldo_stripenr, magic);
+	lmm_size = lov_mds_md_size(lo->ldo_stripe_count, magic);
 	if (info->lti_ea_store_size < lmm_size) {
 		rc = lod_ea_store_resize(info, lmm_size);
 		if (rc)
@@ -668,9 +668,10 @@ int lod_generate_and_set_lovea(const struct lu_env *env,
 		lmm->lmm_oi.oi.oi_id++;
 	lmm_oi_cpu_to_le(&lmm->lmm_oi, &lmm->lmm_oi);
 	lmm->lmm_stripe_size = cpu_to_le32(lo->ldo_stripe_size);
-	lmm->lmm_stripe_count = cpu_to_le16(lo->ldo_stripenr);
+	lmm->lmm_stripe_count = cpu_to_le16(lo->ldo_stripe_count);
 	if (lo->ldo_pattern & LOV_PATTERN_F_RELEASED)
-		lmm->lmm_stripe_count = cpu_to_le16(lo->ldo_released_stripenr);
+		lmm->lmm_stripe_count =
+			cpu_to_le16(lo->ldo_released_stripe_count);
 	lmm->lmm_layout_gen = 0;
 	if (magic == LOV_MAGIC_V1) {
 		objs = &lmm->lmm_objects[0];
@@ -683,7 +684,7 @@ int lod_generate_and_set_lovea(const struct lu_env *env,
 		objs = &v3->lmm_objects[0];
 	}
 
-	for (i = 0; i < lo->ldo_stripenr; i++) {
+	for (i = 0; i < lo->ldo_stripe_count; i++) {
 		struct lu_fid		*fid	= &info->lti_fid;
 		struct lod_device	*lod;
 		__u32			index;
@@ -824,7 +825,7 @@ static int validate_lod_and_idx(struct lod_device *md, __u32 idx)
  * Instantiate objects for stripes.
  *
  * Allocate and initialize LU-objects representing the stripes. The number
- * of the stripes (ldo_stripenr) must be initialized already. The caller
+ * of the stripes (ldo_stripe_count) must be initialized already. The caller
  * must ensure nobody else is calling the function on the object at the same
  * time. FLDB service must be running to be able to map a FID to the targets
  * and find appropriate device representing that target.
@@ -852,15 +853,15 @@ int lod_initialize_objects(const struct lu_env *env, struct lod_object *lo,
 	LASSERT(lo != NULL);
 	md = lu2lod_dev(lo->ldo_obj.do_lu.lo_dev);
 	LASSERT(lo->ldo_stripe == NULL);
-	LASSERT(lo->ldo_stripenr > 0);
+	LASSERT(lo->ldo_stripe_count > 0);
 	LASSERT(lo->ldo_stripe_size > 0);
 
-	stripe_len = lo->ldo_stripenr;
+	stripe_len = lo->ldo_stripe_count;
 	OBD_ALLOC(stripe, sizeof(stripe[0]) * stripe_len);
 	if (stripe == NULL)
 		RETURN(-ENOMEM);
 
-	for (i = 0; i < lo->ldo_stripenr; i++) {
+	for (i = 0; i < lo->ldo_stripe_count; i++) {
 		if (unlikely(lovea_slot_is_dummy(&objs[i])))
 			continue;
 
@@ -902,7 +903,7 @@ out:
 				lu_object_put(env, &stripe[i]->do_lu);
 
 		OBD_FREE(stripe, sizeof(stripe[0]) * stripe_len);
-		lo->ldo_stripenr = 0;
+		lo->ldo_stripe_count = 0;
 	} else {
 		lo->ldo_stripe = stripe;
 		lo->ldo_stripes_allocated = stripe_len;
@@ -950,12 +951,12 @@ int lod_parse_striping(const struct lu_env *env, struct lod_object *lo,
 	lo->ldo_pattern = pattern;
 	lo->ldo_stripe_size = le32_to_cpu(lmm->lmm_stripe_size);
 	lo->ldo_layout_gen = le16_to_cpu(lmm->lmm_layout_gen);
-	lo->ldo_stripenr = le16_to_cpu(lmm->lmm_stripe_count);
-	/* released file stripenr fixup. */
+	lo->ldo_stripe_count = le16_to_cpu(lmm->lmm_stripe_count);
+	/* released file stripe_count fixup */
 	if (pattern & LOV_PATTERN_F_RELEASED)
-		lo->ldo_stripenr = 0;
+		lo->ldo_stripe_count = 0;
 
-	LASSERT(buf->lb_len >= lov_mds_md_size(lo->ldo_stripenr, magic));
+	LASSERT(buf->lb_len >= lov_mds_md_size(lo->ldo_stripe_count, magic));
 
 	if (magic == LOV_MAGIC_V3) {
 		struct lov_mds_md_v3 *v3 = (struct lov_mds_md_v3 *) lmm;
@@ -965,7 +966,7 @@ int lod_parse_striping(const struct lu_env *env, struct lod_object *lo,
 		objs = &lmm->lmm_objects[0];
 	}
 
-	if (lo->ldo_stripenr > 0)
+	if (lo->ldo_stripe_count > 0)
 		rc = lod_initialize_objects(env, lo, objs);
 
 out:
@@ -1125,7 +1126,7 @@ int lod_verify_striping(struct lod_device *d, const struct lu_buf *buf,
 	}
 
 	/* the user uses "0" for default stripe pattern normally. */
-	if (!is_from_disk && lum->lmm_pattern == 0)
+	if (!is_from_disk && lum->lmm_pattern == LOV_PATTERN_NONE)
 		lum->lmm_pattern = cpu_to_le32(LOV_PATTERN_RAID0);
 
 	if (le32_to_cpu(lum->lmm_pattern) != LOV_PATTERN_RAID0) {

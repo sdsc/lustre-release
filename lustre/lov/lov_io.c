@@ -146,16 +146,16 @@ static int lov_io_sub_init(const struct lu_env *env, struct lov_io *lio,
 	int stripe = sub->sub_stripe;
 	int rc;
 
-        LASSERT(sub->sub_io == NULL);
-        LASSERT(sub->sub_env == NULL);
-        LASSERT(sub->sub_stripe < lio->lis_stripe_count);
-        ENTRY;
+	LASSERT(sub->sub_io == NULL);
+	LASSERT(sub->sub_env == NULL);
+	LASSERT(sub->sub_stripe < lio->lis_stripe_count);
+	ENTRY;
 
 	if (unlikely(lov_r0(lov)->lo_sub[stripe] == NULL))
 		RETURN(-EIO);
 
-        sub->sub_io_initialized = 0;
-        sub->sub_borrowed = 0;
+	sub->sub_io_initialized = 0;
+	sub->sub_borrowed = 0;
 
 	/* obtain new environment */
 	sub->sub_env = cl_env_get(&sub->sub_refcheck);
@@ -199,19 +199,20 @@ fini_lov_io:
 }
 
 struct lov_io_sub *lov_sub_get(const struct lu_env *env,
-                               struct lov_io *lio, int stripe)
+			       struct lov_io *lio, int stripe)
 {
-        int rc;
-        struct lov_io_sub *sub = &lio->lis_subs[stripe];
+	struct lov_io_sub *sub = &lio->lis_subs[stripe];
+	int rc;
 
-        LASSERT(stripe < lio->lis_stripe_count);
-        ENTRY;
+	ENTRY;
+	LASSERT(stripe < lio->lis_stripe_count);
 
-        if (!sub->sub_io_initialized) {
-                sub->sub_stripe = stripe;
-                rc = lov_io_sub_init(env, lio, sub);
-        } else
-                rc = 0;
+	if (!sub->sub_io_initialized) {
+		sub->sub_stripe = stripe;
+		rc = lov_io_sub_init(env, lio, sub);
+	} else {
+		rc = 0;
+	}
 
 	if (rc < 0)
 		sub = ERR_PTR(rc);
@@ -376,15 +377,15 @@ static int lov_io_iter_init(const struct lu_env *env,
 	loff_t endpos;
 	loff_t start;
 	loff_t end;
-        int stripe;
-        int rc = 0;
+	int stripe;
+	int rc = 0;
 
-        ENTRY;
-        endpos = lov_offset_mod(lio->lis_endpos, -1);
-        for (stripe = 0; stripe < lio->lis_stripe_count; stripe++) {
-                if (!lov_stripe_intersects(lsm, stripe, lio->lis_pos,
-                                           endpos, &start, &end))
-                        continue;
+	ENTRY;
+	endpos = lov_offset_mod(lio->lis_endpos, -1);
+	for (stripe = 0; stripe < lio->lis_stripe_count; stripe++) {
+		if (!lov_stripe_intersects(lsm, stripe, lio->lis_pos,
+					   endpos, &start, &end))
+			continue;
 
 		if (unlikely(lov_r0(lio->lis_object)->lo_sub[stripe] == NULL)) {
 			if (ios->cis_io->ci_type == CIT_READ ||

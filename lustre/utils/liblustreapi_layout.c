@@ -289,7 +289,7 @@ llapi_layout_to_lum(const struct llapi_layout *layout)
 	lum->lmm_magic = magic;
 
 	if (pattern == LLAPI_LAYOUT_DEFAULT)
-		lum->lmm_pattern = 0;
+		lum->lmm_pattern = LOV_PATTERN_NONE;
 	else if (pattern == LLAPI_LAYOUT_RAID0)
 		lum->lmm_pattern = LOV_PATTERN_RAID0;
 	else

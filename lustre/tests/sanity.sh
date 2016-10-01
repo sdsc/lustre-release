@@ -15722,7 +15722,7 @@ test_406() {
 	[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.8.50) ] &&
 		skip "Need MDS version at least 2.8.50" && return
 
-	local def_stripenr=$($GETSTRIPE -c $MOUNT)
+	local def_stripe_count=$($GETSTRIPE -c $MOUNT)
 	local def_stripe_size=$($GETSTRIPE -S $MOUNT)
 	local def_stripe_offset=$($GETSTRIPE -i $MOUNT)
 	local def_pool=$($GETSTRIPE -p $MOUNT)
@@ -15777,12 +15777,12 @@ test_406() {
 
 	# restore FS default striping
 	if [ -z $def_pool ]; then
-		$SETSTRIPE -c $def_stripenr -S $def_stripe_size \
+		$SETSTRIPE -c $def_stripe_count -S $def_stripe_size \
 			-i $def_stripe_offset $MOUNT ||
 			error "restore default striping failed"
 	else
-		$SETSTRIPE -c $def_stripenr -S $def_stripe_size -p $def_pool \
-			-i $def_stripe_offset $MOUNT ||
+		$SETSTRIPE -c $def_stripe_count -S $def_stripe_size \
+			-i $def_stripe_offset -p $def_pool $MOUNT ||
 			error "restore default striping with $def_pool failed"
 	fi
 

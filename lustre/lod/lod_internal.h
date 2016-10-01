@@ -232,11 +232,11 @@ struct lod_device {
 struct lod_default_striping {
 	/* default LOV */
 	__u32		lds_def_stripe_size;
-	__u16		lds_def_stripenr;
+	__u16		lds_def_stripe_count;
 	__u16		lds_def_stripe_offset;
 	char		lds_def_pool[LOV_MAXPOOLNAME + 1];
 	/* default LMV */
-	__u32		lds_dir_def_stripenr;
+	__u32		lds_dir_def_stripe_count;
 	__u32		lds_dir_def_stripe_offset;
 	__u32		lds_dir_def_hash_type;
 	/* flags whether default striping is set */
@@ -245,19 +245,15 @@ struct lod_default_striping {
 };
 
 struct lod_object {
+	/* common fields for both files and directories */
 	struct dt_object			     ldo_obj;
+	__u16					     ldo_stripe_count;
+	__u16					     ldo_stripes_allocated;
 	union {
 		/* file stripe */
 		struct {
-			/*
-			 * don't change field order, because both file and
-			 * directory use ldo_stripenr/ldo_stripes_allocated
-			 * to access stripe number.
-			 */
-			__u16			     ldo_stripenr;
-			__u16			     ldo_stripes_allocated;
 			__u16			     ldo_layout_gen;
-			__u16			     ldo_released_stripenr;
+			__u16			     ldo_released_stripe_count;
 			__u32			     ldo_pattern;
 			__u32			     ldo_stripe_size;
 			__u16			     ldo_stripe_offset;
@@ -265,8 +261,6 @@ struct lod_object {
 		};
 		/* directory stripe */
 		struct {
-			__u16			     ldo_dir_stripenr;
-			__u16			     ldo_dir_stripes_allocated;
 			__u32			     ldo_dir_stripe_offset;
 			__u32			     ldo_dir_hash_type;
 			__u32			     ldo_dir_slave_stripe:1,

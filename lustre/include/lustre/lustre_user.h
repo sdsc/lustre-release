@@ -336,6 +336,7 @@ enum ll_lease_type {
 
 #define LMV_USER_MAGIC    0x0CD30CD0    /*default lmv magic*/
 
+#define LOV_PATTERN_NONE	0x000
 #define LOV_PATTERN_RAID0	0x001
 #define LOV_PATTERN_RAID1	0x002
 #define LOV_PATTERN_FIRST	0x100
@@ -344,6 +345,7 @@ enum ll_lease_type {
 #define LOV_PATTERN_F_MASK	0xffff0000
 #define LOV_PATTERN_F_HOLE	0x40000000 /* there is hole in LOV EA */
 #define LOV_PATTERN_F_RELEASED	0x80000000 /* HSM released file */
+#define LOV_PATTERN_DEFAULT	0xffffffff
 
 #define LOV_MAXPOOLNAME 15
 #define LOV_POOLNAMEF "%.15s"

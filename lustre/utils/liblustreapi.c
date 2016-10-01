@@ -2775,7 +2775,7 @@ static int cb_find_init(char *path, DIR *parent, DIR **dirp,
 			/* We need to "fake" the "use the default" values
 			 * since the lmm struct is zeroed out at this point. */
 			lmm->lmm_magic = LOV_USER_MAGIC_V1;
-			lmm->lmm_pattern = 0xFFFFFFFF;
+			lmm->lmm_pattern = LOV_PATTERN_DEFAULT;
 			if (!param->fp_raw)
 				ostid_set_seq(&lmm->lmm_oi,
 					      FID_SEQ_LOV_DEFAULT);
@@ -2881,8 +2881,9 @@ static int cb_find_init(char *path, DIR *parent, DIR **dirp,
 	if (param->fp_check_layout) {
 		__u32 found;
 
-		found = (param->fp_lmd->lmd_lmm.lmm_pattern & param->fp_layout);
-		if ((param->fp_lmd->lmd_lmm.lmm_pattern == 0xFFFFFFFF) ||
+		found = param->fp_lmd->lmd_lmm.lmm_pattern & param->fp_layout;
+		if (param->fp_lmd->lmd_lmm.lmm_pattern ==
+		    LOV_PATTERN_DEFAULT ||
 		    (found && param->fp_exclude_layout) ||
 		    (!found && !param->fp_exclude_layout)) {
 			decision = -1;

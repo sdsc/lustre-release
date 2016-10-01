@@ -66,7 +66,7 @@ void lov_dump_lmm_common(int level, void *lmmp)
 }
 
 static void lov_dump_lmm_objects(int level, struct lov_ost_data *lod,
-                                 int stripe_count)
+				 int stripe_count)
 {
 	int i;
 
@@ -77,7 +77,7 @@ static void lov_dump_lmm_objects(int level, struct lov_ost_data *lod,
 	}
 
 	for (i = 0; i < stripe_count; ++i, ++lod) {
-		struct ost_id	oi;
+		struct ost_id oi;
 
 		ostid_le_to_cpu(&lod->l_ost_oi, &oi);
 		CDEBUG(level, "stripe %u idx %u subobj "DOSTID"\n", i,
@@ -94,10 +94,10 @@ void lov_dump_lmm_v1(int level, struct lov_mds_md_v1 *lmm)
 
 void lov_dump_lmm_v3(int level, struct lov_mds_md_v3 *lmm)
 {
-        lov_dump_lmm_common(level, lmm);
-        CDEBUG(level,"pool_name "LOV_POOLNAMEF"\n", lmm->lmm_pool_name);
-        lov_dump_lmm_objects(level, lmm->lmm_objects,
-                             le16_to_cpu(lmm->lmm_stripe_count));
+	lov_dump_lmm_common(level, lmm);
+	CDEBUG(level, "pool_name "LOV_POOLNAMEF"\n", lmm->lmm_pool_name);
+	lov_dump_lmm_objects(level, lmm->lmm_objects,
+			     le16_to_cpu(lmm->lmm_stripe_count));
 }
 
 void lov_dump_lmm(int level, void *lmm)
@@ -179,54 +179,57 @@ ssize_t lov_lsm_pack(const struct lov_stripe_md *lsm, void *buf,
 /* Find the max stripecount we should use */
 __u16 lov_get_stripecnt(struct lov_obd *lov, __u32 magic, __u16 stripe_count)
 {
-        __u32 max_stripes = LOV_MAX_STRIPE_COUNT_OLD;
+	__u32 max_stripes = LOV_MAX_STRIPE_COUNT_OLD;
 
-        if (!stripe_count)
-                stripe_count = lov->desc.ld_default_stripe_count;
-        if (stripe_count > lov->desc.ld_active_tgt_count)
-                stripe_count = lov->desc.ld_active_tgt_count;
-        if (!stripe_count)
-                stripe_count = 1;
+	if (!stripe_count)
+		stripe_count = lov->desc.ld_default_stripe_count;
+	if (stripe_count > lov->desc.ld_active_tgt_count)
+		stripe_count = lov->desc.ld_active_tgt_count;
+	if (!stripe_count)
+		stripe_count = 1;
 
-        /* stripe count is based on whether ldiskfs can handle
-         * larger EA sizes */
-        if (lov->lov_ocd.ocd_connect_flags & OBD_CONNECT_MAX_EASIZE &&
-            lov->lov_ocd.ocd_max_easize)
+	/* stripe count is based on whether ldiskfs can handle
+	 * larger EA sizes */
+	if (lov->lov_ocd.ocd_connect_flags & OBD_CONNECT_MAX_EASIZE &&
+	    lov->lov_ocd.ocd_max_easize)
 		max_stripes = lov_mds_md_max_stripe_count(
 			lov->lov_ocd.ocd_max_easize, magic);
 
-        if (stripe_count > max_stripes)
-                stripe_count = max_stripes;
+	if (stripe_count > max_stripes)
+		stripe_count = max_stripes;
 
-        return stripe_count;
+	return stripe_count;
 }
 
-static int lov_verify_lmm(void *lmm, int lmm_bytes, __u16 *stripe_count)
+static int lov_verify_lmm(struct lov_obd *lov, void *lmm, int lmm_bytes,
+			  __u16 *stripe_count)
 {
-        int rc;
+	int rc;
 
-        if (lsm_op_find(le32_to_cpu(*(__u32 *)lmm)) == NULL) {
-                char *buffer;
-                int sz;
+	if (lsm_op_find(le32_to_cpu(*(__u32 *)lmm)) == NULL) {
+		char *buffer;
+		int sz;
 
-                CERROR("bad disk LOV MAGIC: 0x%08X; dumping LMM (size=%d):\n",
-                       le32_to_cpu(*(__u32 *)lmm), lmm_bytes);
-                sz = lmm_bytes * 2 + 1;
-                OBD_ALLOC_LARGE(buffer, sz);
-                if (buffer != NULL) {
-                        int i;
+		CERROR("%s: bad disk LOV MAGIC: 0x%08X; dump LMM size=%d:\n",
+		       container_of(lov, struct obd_device, u.lov)->obd_name,
+		       le32_to_cpu(*(__u32 *)lmm), lmm_bytes);
+		sz = lmm_bytes * 2 + 1;
+		OBD_ALLOC_LARGE(buffer, sz);
+		if (buffer != NULL) {
+			int i;
 
-                        for (i = 0; i < lmm_bytes; i++)
-                                sprintf(buffer+2*i, "%.2X", ((char *)lmm)[i]);
+			for (i = 0; i < lmm_bytes; i++)
+				sprintf(buffer + 2 * i, "%.2X",
+					((char *)lmm)[i]);
 			buffer[sz - 1] = '\0';
-                        CERROR("%s\n", buffer);
-                        OBD_FREE_LARGE(buffer, sz);
-                }
-                return -EINVAL;
-        }
-        rc = lsm_op_find(le32_to_cpu(*(__u32 *)lmm))->lsm_lmm_verify(lmm,
-                                     lmm_bytes, stripe_count);
-        return rc;
+			CERROR("%s\n", buffer);
+			OBD_FREE_LARGE(buffer, sz);
+		}
+		return -EINVAL;
+	}
+	rc = lsm_op_find(le32_to_cpu(*(__u32 *)lmm))->
+		lsm_lmm_verify(lmm, lmm_bytes, stripe_count);
+	return rc;
 }
 
 struct lov_stripe_md *lov_lsm_alloc(u16 stripe_count, u32 pattern, u32 magic)
@@ -280,8 +283,8 @@ int lov_free_memmd(struct lov_stripe_md **lsmp)
 /* Unpack LOV object metadata from disk storage.  It is packed in LE byte
  * order and is opaque to the networking layer.
  */
-struct lov_stripe_md *lov_unpackmd(struct lov_obd *lov, struct lov_mds_md *lmm,
-				   size_t lmm_size)
+struct lov_stripe_md *lov_unpackmd(struct lov_obd *lov,
+				   struct lov_mds_md *lmm, size_t lmm_size)
 {
 	struct lov_stripe_md *lsm;
 	u16 stripe_count;
@@ -290,7 +293,7 @@ struct lov_stripe_md *lov_unpackmd(struct lov_obd *lov, struct lov_mds_md *lmm,
 	int rc;
 	ENTRY;
 
-	rc = lov_verify_lmm(lmm, lmm_size, &stripe_count);
+	rc = lov_verify_lmm(lov, lmm, lmm_size, &stripe_count);
 	if (rc != 0)
 		RETURN(ERR_PTR(rc));
 
