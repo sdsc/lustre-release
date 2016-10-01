@@ -1048,6 +1048,10 @@ static int ofd_echo_destroy(const struct lu_env *env, struct obd_export *exp,
 
 	ofd_info_init(env, exp);
 
+	rc = ofd_validate_seq(exp, seq);
+	if (rc != 0)
+		RETURN(rc);
+
 	CDEBUG(D_HA, "%s: Destroy object "DFID"\n", ofd_name(ofd), PFID(fid));
 
 	rc = ofd_destroy_by_fid(env, ofd, fid, 0);
@@ -1110,6 +1114,10 @@ static int ofd_echo_create(const struct lu_env *env, struct obd_export *exp,
 	 * Return -ENOSPC until the LAST_ID rebuilt. */
 	if (unlikely(ofd->ofd_lastid_rebuilding))
 		GOTO(out_sem, rc = -ENOSPC);
+
+	rc = ofd_validate_seq(exp, seq);
+	if (rc != 0)
+		RETURN(rc);
 
 	oseq = ofd_seq_load(env, ofd, seq);
 	if (IS_ERR(oseq)) {
