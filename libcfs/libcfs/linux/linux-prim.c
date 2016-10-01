@@ -96,6 +96,17 @@ void ktime_get_real_ts64(struct timespec64 *ts)
 EXPORT_SYMBOL(ktime_get_real_ts64);
 #endif /* HAVE_KTIME_GET_REAL_TS64 */
 
+#ifndef HAVE_KTIME_GET_REAL_SECONDS
+time64_t ktime_get_real_seconds(void)
+{
+	struct timespec64 now;
+
+	ktime_get_real_ts64(&now);
+	return now.tv_sec;
+}
+EXPORT_SYMBOL(ktime_get_real_seconds);
+#endif /* HAVE_KTIME_GET_REAL_SECONDS */
+
 sigset_t
 cfs_block_allsigs(void)
 {
