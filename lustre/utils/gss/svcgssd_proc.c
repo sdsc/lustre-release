@@ -368,6 +368,7 @@ int handle_sk(struct svc_nego_data *snd)
 	uint32_t rc = GSS_S_DEFECTIVE_TOKEN;
 	uint32_t version;
 	uint32_t flags;
+	int p_len;
 	int i;
 
 	printerr(3, "Handling sk request\n");
@@ -409,7 +410,7 @@ int handle_sk(struct svc_nego_data *snd)
 	}
 	memcpy(&flags, bufs[SK_INIT_FLAGS].value, sizeof(flags));
 
-	skc = sk_create_cred(target, snd->nm_name, be32toh(flags));
+	skc = sk_create_cred(target, snd->nm_name, be32toh(flags), &p_len);
 	if (!skc) {
 		printerr(0, "Failed to create sk credentials\n");
 		goto cleanup_buffers;
@@ -432,7 +433,7 @@ int handle_sk(struct svc_nego_data *snd)
 	/* Verify that the peer has used a key size greater to or equal
 	 * the size specified by the key file */
 	if (skc->sc_flags & LGSS_SVC_PRIV &&
-	    skc->sc_p.length < skc->sc_session_keylen) {
+	    skc->sc_p.length < p_len) {
 		printerr(0, "Peer DH parameters do not meet the size required "
 			 "by keyfile\n");
 		goto cleanup_partial;
@@ -456,7 +457,7 @@ int handle_sk(struct svc_nego_data *snd)
 		goto cleanup_partial;
 	}
 
-	rc = sk_gen_params(skc, false);
+	rc = sk_gen_params(skc);
 	if (rc != GSS_S_COMPLETE) {
 		printerr(0, "Failed to generate DH params for responder\n");
 		goto cleanup_partial;
