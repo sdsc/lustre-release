@@ -14531,6 +14531,36 @@ test_257() {
 }
 run_test 257 "xattr locks are not lost"
 
+# Verify we take the i_mutex for writes when setuid bit is set
+test_258a() {
+#define OBD_FAIL_IMUTEX_SEC 0x140c
+	$LCTL set_param fail_loc=0x140c
+	touch $DIR/$tfile
+	chmod a+rwx $DIR/$tfile
+	chmod u+s $DIR/$tfile
+	$RUNAS dd if=/dev/zero of=$DIR/$tfile bs=4k count=1 oflag=append
+	RC=$?
+	if [ $RC -ne 0 ]; then
+		error "did not take i_mutex when needed"
+	fi
+	rm -f $DIR/$tfile
+}
+run_test 258a
+
+# Verify we do NOT take the i_mutex in the normal case
+test_258b() {
+#define OBD_FAIL_IMUTEX_NOSEC 0x140d
+	$LCTL set_param fail_loc=0x140d
+	$RUNAS dd if=/dev/zero of=$DIR/$tfile bs=4k count=1 oflag=append
+	RC=$?
+	if [ $RC -ne 0 ]; then
+		error "took i_mutex when not needed"
+	fi
+	rm -f $DIR/$tfile
+
+}
+run_test 258b "verify i_mutex security behavior"
+
 test_260() {
 #define OBD_FAIL_MDC_CLOSE               0x806
 	$LCTL set_param fail_loc=0x80000806
