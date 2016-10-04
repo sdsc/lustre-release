@@ -449,6 +449,8 @@ download_srpm() {
     local srpm=$2
     local force="${3:-false}"
 
+    download_file "$location/$srpm" "$KERNELDIR/$srpm" "$force"
+    return 0
     if $force || [ ! -r "$KERNELDIR/$srpm" ] ||
        [ ! -s "$KERNELDIR/$srpm" ]; then
         if $DOWNLOAD; then
@@ -458,7 +460,7 @@ download_srpm() {
                 location=$(kernel_srpm_location)
             fi
             echo "Downloading $location/$srpm..."
-            if ! fetch_url "$location/$srpm" "$KERNELDIR/$srpm" 2>&1 ||
+            if ! download_file "$location/$srpm" "$KERNELDIR/$srpm" "$force" 2>&1 ||
                [ ! -s "$KERNELDIR/$srpm" ]; then
                 rm -f $KERNELDIR/$srpm
                 # punt to a distro specific method if it exists
@@ -1376,10 +1378,10 @@ build_kernel_with_srpm() {
     if ! $USE_BUILD_CACHE || ! reuse kernel "$TOPDIR" "$CAN_LINK_FOR_REUSE" \
                                    "$REUSE_SIGNATURE"; then
         # nothing cached, build from scratch
-        if [ ! -r "$KERNELDIR/$KERNEL_SRPM" ]; then
+        #if [ ! -r "$KERNELDIR/$KERNEL_SRPM" ]; then
             echo "Downloading kernel SRPM" >&${outfd}
             download_srpm "$CANONICAL_TARGET" "$KERNEL_SRPM" >&${outfd}
-        fi
+        #fi
 
         if ! rpm -ivh $KERNELDIR/$KERNEL_SRPM \
                   --define "_topdir $TOPDIR" >&${outfd} 2>&1; then
