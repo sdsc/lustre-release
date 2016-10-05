@@ -1456,7 +1456,7 @@ static inline bool is_sxid(umode_t mode)
 }
 #endif
 
-#ifndef IS_NOSEC
+#ifndef HAVE_IS_NOSEC
 #define IS_NOSEC(inode)	(!is_sxid(inode->i_mode))
 #endif
 

@@ -789,6 +789,24 @@ dirty_inode_super_operation_flag, [
 ]) # LC_DIRTY_INODE_WITH_FLAG
 
 #
+# 3.0 added IS_NOSEC (and MS_NOSEC)
+# See 69b4573296469fd3f70cf7044693074980517067 for original and
+# 9e1f1de02c2275d7172e18dc4e7c2065777611bf for Lustre-relevant fix
+#
+AC_DEFUN([LC_HAVE_IS_NOSEC], [
+LB_CHECK_COMPILE([if 'IS_NOSEC' is defined],
+IS_NOSEC, [
+	#include <linux/fs.h>
+],[
+	struct inode inode;
+
+	IS_NOSEC(&inode);
+],[
+	AC_DEFINE(HAVE_IS_NOSEC, 1, [IS_NOSEC is defined])
+])
+]) # LC_HAVE_IS_NOSEC
+
+#
 # LC_GENERIC_PERMISSION
 #
 # 2.6.38 generic_permission taken 4 parameters.
@@ -2280,6 +2298,7 @@ AC_DEFUN([LC_PROG_LINUX], [
 
 	# 3.0
 	LC_DIRTY_INODE_WITH_FLAG
+	LC_HAVE_IS_NOSEC
 
 	# 3.1
 	LC_LM_XXX_LOCK_MANAGER_OPS

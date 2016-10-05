@@ -244,6 +244,12 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
         if (sbi->ll_flags & LL_SBI_USER_XATTR)
                 data->ocd_connect_flags |= OBD_CONNECT_XATTR;
 
+#ifdef HAVE_IS_NOSEC
+	/* Setting this indicates we correctly support S_NOSEC (See kernel
+	 * commit 9e1f1de02c2275d7172e18dc4e7c2065777611bf) */
+	sb->s_flags |= MS_NOSEC;
+#endif
+
         if (sbi->ll_flags & LL_SBI_FLOCK)
                 sbi->ll_fop = &ll_file_operations_flock;
         else if (sbi->ll_flags & LL_SBI_LOCALFLOCK)
@@ -1688,6 +1694,14 @@ out:
 		inode_lock(inode);
 		if ((attr->ia_valid & ATTR_SIZE) && !hsm_import)
 			inode_dio_wait(inode);
+#ifdef HAVE_IS_NOSEC
+		/* Once we've got the i_mutex, it's safe to set the S_NOSEC
+		 * flag.  ll_update_inode (called from ll_md_setattr), clears
+		 * inode flags, so there is a gap where S_NOSEC is not set.
+		 * This can cause a writer to take the i_mutex unnecessarily,
+		 * but this is safe to do and should be rare. */
+		inode_has_no_xattr(inode);
+#endif
 	}
 
 	ll_stats_ops_tally(ll_i2sbi(inode), (attr->ia_valid & ATTR_SIZE) ?
