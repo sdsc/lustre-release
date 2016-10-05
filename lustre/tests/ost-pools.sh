@@ -86,10 +86,10 @@ create_file() {
 }
 
 osts_in_pool() {
-	local pool=$1
-	local res
-	for i in $(do_facet mgs lctl pool_list $FSNAME.$pool |
-               grep -v "^Pool:" | sed -e 's/_UUID$//;s/^.*-OST//'); do
+    local pool=$1
+    local res
+	for i in $(list_pool $FSNAME.$pool |
+               sed -e 's/_UUID$//;s/^.*-OST//'); do
         res="$res $(printf "%d" 0x$i)"
 	done
 	echo $res
@@ -199,11 +199,11 @@ create_pool_fail() {
 }
 
 cleanup_tests() {
-	# Destroy pools from previous test runs
-	for p in $(do_facet mgs lctl pool_list $FSNAME | grep $POOL); do
-		destroy_pool_int $p;
-	done
-	rm -rf $DIR/d0.${TESTSUITE}
+    # Destroy pools from previous test runs
+	for p in $(list_pool $FSNAME | grep $POOL); do
+        destroy_pool_int $p;
+    done
+    rm -rf $DIR/d0.${TESTSUITE}
 }
 
 ost_pools_init() {
