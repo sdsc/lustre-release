@@ -335,18 +335,13 @@ int ptlrpc_register_bulk(struct ptlrpc_request *req)
 	LASSERT(desc->bd_cbid.cbid_fn == client_bulk_callback);
 	LASSERT(desc->bd_cbid.cbid_arg == desc);
 
-	total_md = (desc->bd_iov_count + LNET_MAX_IOV - 1) / LNET_MAX_IOV;
+	total_md = DIV_ROUND_UP(desc->bd_iov_count, LNET_MAX_IOV);
 	/* rq_mbits is matchbits of the final bulk */
 	mbits = req->rq_mbits - total_md + 1;
 
 	LASSERTF(mbits == (req->rq_mbits & PTLRPC_BULK_OPS_MASK),
 		 "first mbits = x%llu, last mbits = x%llu\n",
 		 mbits, req->rq_mbits);
-	LASSERTF(!(desc->bd_registered &&
-		   req->rq_send_state != LUSTRE_IMP_REPLAY) ||
-		 mbits != desc->bd_last_mbits,
-		 "registered: %d  rq_mbits: %llu bd_last_mbits: %llu\n",
-		 desc->bd_registered, mbits, desc->bd_last_mbits);
 
 	desc->bd_registered = 1;
 	desc->bd_last_mbits = mbits;
