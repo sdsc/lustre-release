@@ -3325,6 +3325,12 @@ run_test 77i "Change rank of TBF rule"
 test_78() { #LU-6673
 	local rc
 
+	for num in `seq $OSTCOUNT`; do
+		local server_version=$(lustre_version_code ost$num)
+		[[ $server_version -ge $(version_code 2.7.58) ]] ||
+			{ skip "Need server version newer than 2.7.57"; return 0; }
+	done;
+
 	oss=$(comma_list $(osts_nodes))
 	do_nodes $oss lctl set_param ost.OSS.ost_io.nrs_policies="orr" &
 	do_nodes $oss lctl set_param ost.OSS.*.nrs_orr_quantum=1
