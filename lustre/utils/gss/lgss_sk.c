@@ -50,7 +50,7 @@
 /* One week default expiration */
 #define SK_DEFAULT_EXPIRE 604800
 #define SK_DEFAULT_SK_KEYLEN 256
-#define SK_DEFAULT_DH_KEYLEN 1024
+#define SK_DEFAULT_DH_KEYLEN 2048
 #define SK_DEFAULT_NODEMAP "default"
 
 /* Names match up with openssl enc and dgst commands */
