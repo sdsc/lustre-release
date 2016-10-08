@@ -3240,6 +3240,8 @@ ug_output:
                         goto out;
                 case -EPERM:
                         fprintf(stderr, "Permission denied.\n");
+		case -ENOTTY:
+			fprintf(stderr, "'%s' is not a Lustre fs.\n", mnt);
                 case -ENOENT:
                         /* We already got a "No such file..." message. */
                         goto out;
