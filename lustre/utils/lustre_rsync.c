@@ -103,6 +103,7 @@
  *      [pfid,tfid,name] tracked from (1) is used for this.
  */
 
+#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -119,6 +120,8 @@
 #include <time.h>
 #include <sys/xattr.h>
 
+#include <linux/types.h>
+#include <libcfs/libcfs_debug.h>  /* For D_TRACE */
 #include <libcfs/util/string.h>
 #include <libcfs/util/parser.h>
 #include <lustre/lustreapi.h>
@@ -909,7 +912,7 @@ int lr_move(struct lr_info *info)
         int special_dest = 0;
 	char srcpath[PATH_MAX + 1] = "";
 
-	LASSERT(info->is_extended);
+	assert(info->is_extended);
 
 	rc_src = lr_get_path(info, info->spfid);
 	if (rc_src < 0 && rc_src != -ENOENT)
