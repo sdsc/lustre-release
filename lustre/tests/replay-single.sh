@@ -1997,6 +1997,47 @@ at_cleanup
 # end of AT tests includes above lines
 
 # start multi-client tests
+test_70_write_and_read(){
+	local FILE=$1
+	local TARGET="$DIR/$tdir"
+	echo "Write/read files on $TARGET ; clients $CLIENTS ... "
+	for CLIENT in $clients; do
+		do_node $CLIENT \
+			"mkdir -p $TARGET && $SETSTRIPE -c -1 $TARGET" ||
+			error "cannot create $TARGET directory"
+		do_node $CLIENT dd $DD_OPTS bs=1M count=10 if=$FILE \
+			of=$TARGET/${tfile}_${CLIENT} 2>/dev/null ||
+			error "dd $DD_OPTS bs=1M count=10 if=$FILE \
+			of=$TARGET/${tfile}_${CLIENT} failed on $CLIENT, rc=$?"
+	done
+
+	local prev_client=$(echo $clients | sed 's/^.* \(.\+\)$/\1/')
+	local index=0
+	for C in ${CLIENTS//,/ }; do
+		md5=$(do_node $prev_client "md5sum  $TARGET/${tfile}_${C}")
+		[ ${checksum[$index]// */} = ${md5// */} ] ||
+			error "$TARGET/${tfile}_${C}: \
+			checksum does not match on $prev_client"
+		index=$((index+1))
+		prev_client=$C
+	done
+
+	#use direct IO and buffer cache in turns if loop
+	if [ "x$DD_OPTS" != "x" ]; then
+		DD_OPTS=
+	else
+		DD_OPTS="oflag=direct"
+	fi
+}
+test_70_loop(){
+	local file=$1
+	local stopflag=$2
+	local DD_OPTS=
+	touch $stopflag
+	while [ -f $stopflag ]; do
+		test_70_write_and_read $file
+	done
+}
 test_70a () {
 	[ -z "$CLIENTS" ] &&
 		{ skip "Need two or more clients." && return; }
@@ -3633,6 +3674,60 @@ test_103() {
 }
 run_test 103 "Check otr_next_id overflow"
 
+test_70f() {
+	[ x$ost1failover_HOST = x$ost_HOST ] &&
+		{ skip "Failover host not defined" && return; }
+	[ -z "$CLIENTS" ] &&
+		{ skip "Need two or more clients." && return; }
+	[ $CLIENTCOUNT -lt 2 ] &&
+		{ skip "Need 2 or more clients, have $CLIENTCOUNT" && return; }
+
+
+	echo "mount clients $CLIENTS ..."
+	zconf_mount_clients $CLIENTS $MOUNT
+
+	FILE=$TMP/$tfile
+
+	clients=${CLIENTS//,/ }
+
+	index=0
+	for CLIENT in $clients; do
+		do_node $CLIENT dd bs=1M count=10 if=/dev/urandom of=$FILE \
+			2>/dev/null
+		checksum[$index]=$(do_node $CLIENT "md5sum $FILE")
+		index=$((index + 1))
+	done
+
+
+	local duration=120
+	[ "$SLOW" = "no" ] && duration=60
+	# set duration to 900 because it takes some time to boot node
+	[ "$FAILURE_MODE" = HARD ] && duration=900
+
+	local stopflag=$TMP/$tfile.stop
+	test_70_loop $FILE $stopflag &
+	local pid=$!
+
+	local elapsed=0
+	local num_failovers=0
+	local start_ts=$(date +%s)
+	while [ $elapsed -lt $duration ]; do
+		sleep 3
+		replay_barrier ost1
+		sleep 1
+		num_failovers=$((num_failovers+1))
+		log "$TESTNAME fail OST $num_failovers times"
+		fail ost1
+		sleep 2
+		elapsed=$(($(date +%s) - start_ts))
+	done
+
+	rm -f $stopflag
+	wait $pid
+	do_facet client "rm -f $FILE"
+	rm -f $FILE
+}
+run_test 70f "OSS recovery; $CLIENTCOUNT clients"
 
 check_striped_dir_110()
 {

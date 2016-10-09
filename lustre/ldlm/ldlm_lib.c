@@ -2855,20 +2855,29 @@ int target_handle_ping(struct ptlrpc_request *req)
         return req_capsule_server_pack(&req->rq_pill);
 }
 
-void target_committed_to_req(struct ptlrpc_request *req)
+/**
+ * Add a last commited trasaction to the request
+ * \retval 1 if last commited transno sent to a client,
+ * \retval 0 otherwise
+ */
+int target_committed_to_req(struct ptlrpc_request *req)
 {
-        struct obd_export *exp = req->rq_export;
+	struct obd_export *exp = req->rq_export;
+	int ret = 1;
 
-        if (!exp->exp_obd->obd_no_transno && req->rq_repmsg != NULL)
-                lustre_msg_set_last_committed(req->rq_repmsg,
-                                              exp->exp_last_committed);
-        else
-                DEBUG_REQ(D_IOCTL, req, "not sending last_committed update (%d/"
-                          "%d)", exp->exp_obd->obd_no_transno,
-                          req->rq_repmsg == NULL);
+	if (likely(!exp->exp_obd->obd_no_transno && req->rq_repmsg != NULL)) {
+		lustre_msg_set_last_committed(req->rq_repmsg,
+					      exp->exp_last_committed);
+	} else {
+		DEBUG_REQ(D_IOCTL, req, "not sending last_committed update (%d/"
+			  "%d)", exp->exp_obd->obd_no_transno,
+			  req->rq_repmsg == NULL);
+		ret = 0;
+	}
 
 	CDEBUG(D_INFO, "last_committed %llu, transno %llu, xid %llu\n",
-               exp->exp_last_committed, req->rq_transno, req->rq_xid);
+	       exp->exp_last_committed, req->rq_transno, req->rq_xid);
+	return ret;
 }
 
 #endif /* HAVE_SERVER_SUPPORT */
