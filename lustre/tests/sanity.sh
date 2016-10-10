@@ -15810,6 +15810,59 @@ test_408() {
 }
 run_test 408 "drop_caches should not hang due to page leaks"
 
+test_409() { # LU-7915
+	[ -z $(lctl get_param llite.$FSNAME-*.opencache 2> /dev/null) ] &&
+		skip "client does not opencache parameter" && return
+
+	local testfile=$DIR/$tfile
+	local ll_opencache="llite.$FSNAME-*.opencache"
+	local mdc_rpcstats="mdc.$FSNAME-MDT0000-*.rpc_stats"
+	local old_flag=$($LCTL get_param -n $ll_opencache)
+	local new_flag=1
+	local first_rpc
+	local second_rpc
+	local third_rpc
+
+	$LCTL set_param $ll_opencache=$new_flag
+	[ $($LCTL get_param -n $ll_opencache) = $new_flag ] ||
+		error "enable opencache failed"
+	touch $testfile
+	# drop MDC DLM locks
+	cancel_lru_locks mdc
+	# clear MDC RPC stats counters
+	$LCTL set_param $mdc_rpcstats=clear
+
+	# According to the current implementation, we need to run 3 times
+	# open & close file to verify if opencache is enabled correctly.
+	# 1st, RPCs are sent for lookup/open and open handle is released on
+	#      close finally.
+	# 2nd, RPC is sent for open, MDS_OPEN_LOCK is fetched automatically,
+	#      so open handle won't be released thereafter.
+	# 3rd, No RPC is sent out.
+	$MULTIOP $testfile oc || error "multiop failed"
+	first_rpc=$($LCTL get_param -n $mdc_rpcstats | awk 'END {print $2}')
+	echo "1st: $first_rpc RPCs in flight"
+
+	$MULTIOP $testfile oc || error "multiop failed"
+	second_rpc=$($LCTL get_param -n $mdc_rpcstats | awk 'END {print $2}')
+	echo "2nd: $second_rpc RPCs in flight"
+
+	$MULTIOP $testfile oc || error "multiop failed"
+	third_rpc=$($LCTL get_param -n $mdc_rpcstats | awk 'END {print $2}')
+	echo "3rd: $third_rpc RPCs in flight"
+
+	#verify no MDC RPC is sent
+	[ $second_rpc = $third_rpc ] || error "MDC RPC is still sent"
+
+	#restore opencache
+	$LCTL set_param $ll_opencache=$old_flag
+	[ $($LCTL get_param -n $ll_opencache) = $old_flag ] ||
+		error "set opencache back failed"
+
+	rm -f $DIR/$tfile
+}
+run_test 409 "verify if opencache flag on client side does work"
+
 #
 # tests that do cleanup/setup should be run at the end
 #

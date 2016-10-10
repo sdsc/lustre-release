@@ -1012,6 +1012,36 @@ static ssize_t ll_nosquash_nids_seq_write(struct file *file,
 }
 LPROC_SEQ_FOPS(ll_nosquash_nids);
 
+static int ll_opencache_seq_show(struct seq_file *m, void *v)
+{
+	struct ll_sb_info *sbi = ll_s2sbi((struct super_block *)m->private);
+
+	seq_printf(m, "%u\n", sbi->ll_opencache);
+	return 0;
+}
+
+static ssize_t ll_opencache_seq_write(struct file *file,
+				      const char __user *buffer,
+				      size_t count, loff_t *off)
+{
+	struct seq_file *m = file->private_data;
+	struct ll_sb_info *sbi = ll_s2sbi((struct super_block *)m->private);
+	__s64 val;
+	int rc;
+
+	rc = lprocfs_str_to_s64(buffer, count, &val);
+	if (rc)
+		return rc;
+
+	if (val != 0 && val != 1)
+		return -ERANGE;
+
+	sbi->ll_opencache = val;
+
+	return count;
+}
+LPROC_SEQ_FOPS(ll_opencache);
+
 struct lprocfs_vars lprocfs_llite_obd_vars[] = {
 	{ .name	=	"uuid",
 	  .fops	=	&ll_sb_uuid_fops			},
@@ -1073,6 +1103,8 @@ struct lprocfs_vars lprocfs_llite_obd_vars[] = {
 	  .fops	=	&ll_nosquash_nids_fops			},
 	{ .name =       "fast_read",
 	  .fops =       &ll_fast_read_fops,                     },
+	{ .name	=	"opencache",
+	  .fops	=	&ll_opencache_fops			},
 	{ NULL }
 };
 

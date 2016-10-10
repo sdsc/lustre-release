@@ -594,7 +594,7 @@ restart:
 			 *  marked by a bit set in ll_iget_for_nfs. Clear the
 			 *  bit so that it's not confusing later callers.
 			 *
-			 *  NB; when ldd is NULL, it must have come via normal
+			 *  NB: when ldd is NULL, it must have come via normal
 			 *  lookup path only, since ll_iget_for_nfs always calls
 			 *  ll_d_init().
 			 */
@@ -602,7 +602,12 @@ restart:
 				ldd->lld_nfs_dentry = 0;
 				it->it_flags |= MDS_OPEN_LOCK;
 			}
-
+			/*
+			 * Always fetch MDS_OPEN_LOCK if opencache is enabled.
+			 * (LU-7915)
+			 */
+			if (ll_i2sbi(inode)->ll_opencache)
+				it->it_flags |= MDS_OPEN_LOCK;
 			 /*
 			 * Always specify MDS_OPEN_BY_FID because we don't want
 			 * to get file with different fid.
