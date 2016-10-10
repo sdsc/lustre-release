@@ -520,10 +520,6 @@ static int osd_declare_object_destroy(const struct lu_env *env,
 
 	osd_declare_xattrs_destroy(env, obj, oh);
 
-	/* declare that we'll remove object from inode accounting ZAPs */
-	dmu_tx_hold_zap(oh->ot_tx, osd->od_iusr_oid, FALSE, NULL);
-	dmu_tx_hold_zap(oh->ot_tx, osd->od_igrp_oid, FALSE, NULL);
-
 	/* one less inode */
 	rc = osd_declare_quota(env, osd, obj->oo_attr.la_uid,
 			       obj->oo_attr.la_gid, -1, oh, false, NULL, false);
@@ -585,22 +581,6 @@ static int osd_object_destroy(const struct lu_env *env,
 		       osd->od_svname, buf, rc);
 		GOTO(out, rc);
 	}
-
-	/* Remove object from inode accounting. It is not fatal for the destroy
-	 * operation if something goes wrong while updating accounting, but we
-	 * still log an error message to notify the administrator */
-	rc = -zap_increment_int(osd->od_os, osd->od_iusr_oid,
-				obj->oo_attr.la_uid, -1, oh->ot_tx);
-	if (rc)
-		CERROR("%s: failed to remove "DFID" from accounting ZAP for usr"
-		       " %d: rc = %d\n", osd->od_svname, PFID(fid),
-		       obj->oo_attr.la_uid, rc);
-	rc = -zap_increment_int(osd->od_os, osd->od_igrp_oid,
-				obj->oo_attr.la_gid, -1, oh->ot_tx);
-	if (rc)
-		CERROR("%s: failed to remove "DFID" from accounting ZAP for grp"
-		       " %d: rc = %d\n", osd->od_svname, PFID(fid),
-		       obj->oo_attr.la_gid, rc);
 
 	oid = obj->oo_db->db_object;
 	if (unlikely(obj->oo_destroy == OSD_DESTROY_NONE)) {
@@ -892,9 +872,6 @@ static int osd_declare_attr_set(const struct lu_env *env,
 	}
 
 	if (attr && attr->la_valid & LA_UID) {
-		/* account for user inode tracking ZAP update */
-		dmu_tx_hold_zap(oh->ot_tx, osd->od_iusr_oid, FALSE, NULL);
-
 		/* quota enforcement for user */
 		if (attr->la_uid != obj->oo_attr.la_uid) {
 			rc = qsd_transfer(env, osd->od_quota_slave,
@@ -906,9 +883,6 @@ static int osd_declare_attr_set(const struct lu_env *env,
 		}
 	}
 	if (attr && attr->la_valid & LA_GID) {
-		/* account for user inode tracking ZAP update */
-		dmu_tx_hold_zap(oh->ot_tx, osd->od_igrp_oid, FALSE, NULL);
-
 		/* quota enforcement for group */
 		if (attr->la_gid != obj->oo_attr.la_gid) {
 			rc = qsd_transfer(env, osd->od_quota_slave,
@@ -1007,38 +981,6 @@ static int osd_attr_set(const struct lu_env *env, struct dt_object *dt,
 				RETURN(rc);
 			}
 		}
-	}
-
-	/* do both accounting updates outside oo_attr_lock below */
-	if ((valid & LA_UID) && (la->la_uid != obj->oo_attr.la_uid)) {
-		/* Update user accounting. Failure isn't fatal, but we still
-		 * log an error message */
-		rc = -zap_increment_int(osd->od_os, osd->od_iusr_oid,
-					la->la_uid, 1, oh->ot_tx);
-		if (rc)
-			CERROR("%s: failed to update accounting ZAP for user "
-				"%d (%d)\n", osd->od_svname, la->la_uid, rc);
-		rc = -zap_increment_int(osd->od_os, osd->od_iusr_oid,
-					obj->oo_attr.la_uid, -1, oh->ot_tx);
-		if (rc)
-			CERROR("%s: failed to update accounting ZAP for user "
-				"%d (%d)\n", osd->od_svname,
-				obj->oo_attr.la_uid, rc);
-	}
-	if ((valid & LA_GID) && (la->la_gid != obj->oo_attr.la_gid)) {
-		/* Update group accounting. Failure isn't fatal, but we still
-		 * log an error message */
-		rc = -zap_increment_int(osd->od_os, osd->od_igrp_oid,
-					la->la_gid, 1, oh->ot_tx);
-		if (rc)
-			CERROR("%s: failed to update accounting ZAP for user "
-				"%d (%d)\n", osd->od_svname, la->la_gid, rc);
-		rc = -zap_increment_int(osd->od_os, osd->od_igrp_oid,
-					obj->oo_attr.la_gid, -1, oh->ot_tx);
-		if (rc)
-			CERROR("%s: failed to update accounting ZAP for user "
-				"%d (%d)\n", osd->od_svname,
-				obj->oo_attr.la_gid, rc);
 	}
 
 	write_lock(&obj->oo_attr_lock);
@@ -1188,10 +1130,6 @@ static int osd_declare_object_create(const struct lu_env *env,
 	/* and we'll add it to some mapping */
 	zapid = osd_get_name_n_idx(env, osd, fid, NULL, 0);
 	dmu_tx_hold_zap(oh->ot_tx, zapid, TRUE, NULL);
-
-	/* we will also update inode accounting ZAPs */
-	dmu_tx_hold_zap(oh->ot_tx, osd->od_iusr_oid, FALSE, NULL);
-	dmu_tx_hold_zap(oh->ot_tx, osd->od_igrp_oid, FALSE, NULL);
 
 	rc = osd_declare_quota(env, osd, attr->la_uid, attr->la_gid, 1, oh,
 			       false, NULL, false);
@@ -1485,10 +1423,6 @@ static int osd_object_create(const struct lu_env *env, struct dt_object *dt,
 	LASSERT(th != NULL);
 	oh = container_of0(th, struct osd_thandle, ot_super);
 
-	/*
-	 * XXX missing: Quote handling.
-	 */
-
 	LASSERT(obj->oo_db == NULL);
 
 	/* to follow ZFS on-disk format we need
@@ -1554,21 +1488,6 @@ static int osd_object_create(const struct lu_env *env, struct dt_object *dt,
 	rc = __osd_sa_xattr_update(env, obj, oh);
 	if (rc)
 		GOTO(out, rc);
-
-	/* Add new object to inode accounting.
-	 * Errors are not considered as fatal */
-	rc = -zap_increment_int(osd->od_os, osd->od_iusr_oid,
-				(attr->la_valid & LA_UID) ? attr->la_uid : 0, 1,
-				oh->ot_tx);
-	if (rc)
-		CERROR("%s: failed to add "DFID" to accounting ZAP for usr %d "
-			"(%d)\n", osd->od_svname, PFID(fid), attr->la_uid, rc);
-	rc = -zap_increment_int(osd->od_os, osd->od_igrp_oid,
-				(attr->la_valid & LA_GID) ? attr->la_gid : 0, 1,
-				oh->ot_tx);
-	if (rc)
-		CERROR("%s: failed to add "DFID" to accounting ZAP for grp %d "
-			"(%d)\n", osd->od_svname, PFID(fid), attr->la_gid, rc);
 
 out:
 	if (unlikely(rc && db)) {
