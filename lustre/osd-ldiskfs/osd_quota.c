@@ -554,12 +554,10 @@ int osd_declare_qid(const struct lu_env *env, struct osd_thandle *oh,
 			if (qi->lqi_space < 0)
 				crd = LDISKFS_QUOTA_DEL_BLOCKS(osd_sb(dev));
 			/* reserve credits for adding ID entry to the quota
-			 * file if the i_dquot isn't initialized yet. */
-			else if (inode == NULL ||
-				 inode->i_dquot[qi->lqi_type] == NULL)
-				crd = LDISKFS_QUOTA_INIT_BLOCKS(osd_sb(dev));
+			 * file, we can't rely on the current state as it
+			 * can change by the transaction start */
 			else
-				crd = 1;
+				crd = LDISKFS_QUOTA_INIT_BLOCKS(osd_sb(dev));
 		}
 
 		osd_trans_declare_op(env, oh, OSD_OT_QUOTA, crd);
