@@ -1004,6 +1004,11 @@ static inline void osd_trans_declare_op(const struct lu_env *env,
 {
 	struct osd_thread_info *oti = osd_oti_get(env);
 
+	/* The current thread should not hold any journal
+	 * in declare phase, otherwise it might cause deadlock
+	 * later during transaction start. */
+	LASSERT(current->journal_info == NULL);
+
 	LASSERT(oh->ot_handle == NULL);
 	if (unlikely(op >= OSD_OT_MAX)) {
 		if (unlikely(ldiskfs_track_declares_assert)) {
