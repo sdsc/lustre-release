@@ -2875,6 +2875,10 @@ int ptlrpc_queue_wait(struct ptlrpc_request *req)
 
         LASSERT(req->rq_set == NULL);
         LASSERT(!req->rq_receiving_reply);
+	/* The current thread should not hold any journal,
+	 * otherwise if it is blocked here, which will then
+	 * block other threads to start their transaction. */
+	LASSERT(current->journal_info == NULL);
 
 	set = ptlrpc_prep_set();
 	if (set == NULL) {
