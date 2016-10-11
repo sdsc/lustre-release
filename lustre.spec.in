@@ -281,6 +281,7 @@ make install DESTDIR=$RPM_BUILD_ROOT
 # RHEL, we handle this here in the spec file rather than in
 # Lustre's build system.  This is not expected to bother SLES's
 # kernel_module_path macro.
+%if %{_vendor}=="redhat" || %{_vendor}=="fedora"
 basemodpath=$RPM_BUILD_ROOT%{modules_fs_path}/%{lustre_name}
 %if %{with ldiskfs}
 mkdir -p $basemodpath-osd-ldiskfs/fs
@@ -295,7 +296,7 @@ mv $basemodpath/fs/osd_zfs.ko $basemodpath-osd-zfs/fs/osd_zfs.ko
 mkdir -p $basemodpath-tests/fs
 mv $basemodpath/fs/llog_test.ko $basemodpath-tests/fs/llog_test.ko
 %endif
-
+%endif
 :> lustre.files
 
 %if %{with servers} && %{with lustre_utils}
