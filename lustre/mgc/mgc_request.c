@@ -774,7 +774,7 @@ static int mgc_fs_setup(const struct lu_env *env, struct obd_device *obd,
 	dto = local_file_find_or_create(env, cli->cl_mgc_los, root,
 					MOUNT_CONFIGS_DIR,
 					S_IFDIR | S_IRUGO | S_IWUSR | S_IXUGO);
-	lu_object_put_nocache(env, &root->do_lu);
+	dt_object_put_nocache(env, root);
 	if (IS_ERR(dto))
 		GOTO(out_los, rc = PTR_ERR(dto));
 
@@ -793,7 +793,7 @@ static int mgc_fs_setup(const struct lu_env *env, struct obd_device *obd,
 	EXIT;
 out_llog:
 	if (rc) {
-		lu_object_put(env, &cli->cl_mgc_configs_dir->do_lu);
+		dt_object_put(env, cli->cl_mgc_configs_dir);
 		cli->cl_mgc_configs_dir = NULL;
 	}
 out_los:
@@ -814,7 +814,7 @@ static int mgc_fs_cleanup(const struct lu_env *env, struct obd_device *obd)
 
 	mgc_local_llog_fini(env, obd);
 
-	lu_object_put_nocache(env, &cli->cl_mgc_configs_dir->do_lu);
+	dt_object_put_nocache(env, cli->cl_mgc_configs_dir);
 	cli->cl_mgc_configs_dir = NULL;
 
 	local_oid_storage_fini(env, cli->cl_mgc_los);

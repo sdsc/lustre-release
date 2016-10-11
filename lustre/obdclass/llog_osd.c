@@ -1135,7 +1135,7 @@ static struct dt_object *llog_osd_dir_get(const struct lu_env *env,
 		dir = dt_locate(env, dt, &dti->dti_fid);
 
 		if (!IS_ERR(dir) && !dt_try_as_dir(env, dir)) {
-			lu_object_put(env, &dir->do_lu);
+			dt_object_put(env, dir);
 			return ERR_PTR(-ENOTDIR);
 		}
 	} else {
@@ -1234,7 +1234,7 @@ static int llog_osd_open(const struct lu_env *env, struct llog_handle *handle,
 		dt_read_lock(env, llog_dir, 0);
 		rc = dt_lookup_dir(env, llog_dir, name, &lgi->lgi_fid);
 		dt_read_unlock(env, llog_dir);
-		lu_object_put(env, &llog_dir->do_lu);
+		dt_object_put(env, llog_dir);
 		if (rc == -ENOENT && open_param == LLOG_OPEN_NEW) {
 			/* generate fid for new llog */
 			rc = local_object_fid_generate(env, los,
@@ -1269,7 +1269,7 @@ generate:
 		       ", skipping\n",
 		       o->do_lu.lo_dev->ld_obd->obd_name,
 		       PFID(lu_object_fid(&o->do_lu)));
-		lu_object_put(env, &o->do_lu);
+		dt_object_put(env, o);
 		/* just skip this llog ID, we shouldn't delete it because we
 		 * don't know exactly what is its purpose and state. */
 		goto generate;
@@ -1288,7 +1288,7 @@ after_open:
 	RETURN(rc);
 
 out_put:
-	lu_object_put(env, &o->do_lu);
+	dt_object_put(env, o);
 out_name:
 	if (handle->lgh_name != NULL)
 		OBD_FREE(handle->lgh_name, strlen(name) + 1);
@@ -1335,7 +1335,7 @@ struct dt_object *llog_osd_get_regular_fid_dir(const struct lu_env *env,
 		RETURN(dir);
 
 	if (!dt_try_as_dir(env, dir)) {
-		lu_object_put(env, &dir->do_lu);
+		dt_object_put(env, dir);
 		RETURN(ERR_PTR(-ENOTDIR));
 	}
 
@@ -1390,7 +1390,7 @@ llog_osd_regular_fid_add_name_entry(const struct lu_env *env,
 	}
 	dt_write_unlock(env, dir);
 
-	lu_object_put(env, &dir->do_lu);
+	dt_object_put(env, dir);
 	RETURN(rc);
 }
 
@@ -1467,7 +1467,7 @@ static int llog_osd_declare_create(const struct lu_env *env,
 		rc = dt_declare_insert(env, llog_dir,
 				       (struct dt_rec *)rec,
 				       (struct dt_key *)res->lgh_name, th);
-		lu_object_put(env, &llog_dir->do_lu);
+		dt_object_put(env, llog_dir);
 		if (rc)
 			CERROR("%s: can't declare named llog %s: rc = %d\n",
 			       o->do_lu.lo_dev->ld_obd->obd_name,
@@ -1556,7 +1556,7 @@ static int llog_osd_create(const struct lu_env *env, struct llog_handle *res,
 			       (struct dt_key *)res->lgh_name,
 			       th, 1);
 		dt_read_unlock(env, llog_dir);
-		lu_object_put(env, &llog_dir->do_lu);
+		dt_object_put(env, llog_dir);
 		if (rc)
 			CERROR("%s: can't create named llog %s: rc = %d\n",
 			       o->do_lu.lo_dev->ld_obd->obd_name,
@@ -1589,11 +1589,11 @@ static int llog_osd_close(const struct lu_env *env, struct llog_handle *handle)
 	if (handle->lgh_ctxt->loc_flags & LLOG_CTXT_FLAG_NORMAL_FID) {
 		/* Remove the object from the cache, otherwise it may
 		 * hold LOD being released during cleanup process */
-		lu_object_put_nocache(env, &handle->lgh_obj->do_lu);
+		dt_object_put_nocache(env, handle->lgh_obj);
 		LASSERT(handle->private_data == NULL);
 		RETURN(rc);
 	} else {
-		lu_object_put(env, &handle->lgh_obj->do_lu);
+		dt_object_put(env, handle->lgh_obj);
 	}
 	los = handle->private_data;
 	LASSERT(los);
@@ -1648,7 +1648,7 @@ llog_osd_regular_fid_del_name_entry(const struct lu_env *env,
 	}
 	dt_write_unlock(env, dir);
 
-	lu_object_put(env, &dir->do_lu);
+	dt_object_put(env, dir);
 	RETURN(rc);
 }
 
@@ -1708,7 +1708,7 @@ static int llog_osd_declare_destroy(const struct lu_env *env,
 
 out_put:
 	if (!(IS_ERR_OR_NULL(llog_dir)))
-		lu_object_put(env, &llog_dir->do_lu);
+		dt_object_put(env, llog_dir);
 
 	RETURN(rc);
 }
@@ -1779,7 +1779,7 @@ static int llog_osd_destroy(const struct lu_env *env,
 out_unlock:
 	dt_write_unlock(env, o);
 	if (!(IS_ERR_OR_NULL(llog_dir)))
-		lu_object_put(env, &llog_dir->do_lu);
+		dt_object_put(env, llog_dir);
 	RETURN(rc);
 }
 
@@ -2025,7 +2025,7 @@ out_trans:
 
 	EXIT;
 out:
-	lu_object_put(env, &o->do_lu);
+	dt_object_put(env, o);
 	RETURN(rc);
 }
 EXPORT_SYMBOL(llog_osd_get_cat_list);
@@ -2115,7 +2115,7 @@ int llog_osd_put_cat_list(const struct lu_env *env, struct dt_device *d,
 out_trans:
 	dt_trans_stop(env, d, th);
 out:
-	lu_object_put(env, &o->do_lu);
+	dt_object_put(env, o);
 	RETURN(rc);
 }
 EXPORT_SYMBOL(llog_osd_put_cat_list);

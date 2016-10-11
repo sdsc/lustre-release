@@ -1834,7 +1834,7 @@ out_put:
 	if (rc < 0) {
 		for (i = 0; i < stripe_count; i++)
 			if (stripe[i] != NULL)
-				lu_object_put(env, &stripe[i]->do_lu);
+				dt_object_put(env, stripe[i]);
 		OBD_FREE(stripe, sizeof(stripe[0]) * stripe_count);
 		lo->ldo_stripenr = 0;
 		lo->ldo_stripes_allocated = 0;
@@ -3107,8 +3107,7 @@ static void lod_ah_init(const struct lu_env *env,
 
 			spin_lock(&d->lod_lock);
 			if (d->lod_md_root != NULL)
-				lu_object_put(env,
-					      &d->lod_md_root->ldo_obj.do_lu);
+				dt_object_put(env, &d->lod_md_root->ldo_obj);
 			d->lod_md_root = lroot;
 			spin_unlock(&d->lod_lock);
 		}
@@ -4071,7 +4070,7 @@ void lod_object_free_striping(const struct lu_env *env, struct lod_object *lo)
 
 		for (i = 0; i < lo->ldo_stripenr; i++) {
 			if (lo->ldo_stripe[i])
-				lu_object_put(env, &lo->ldo_stripe[i]->do_lu);
+				dt_object_put(env, lo->ldo_stripe[i]);
 		}
 
 		len = sizeof(struct dt_object *) * lo->ldo_stripes_allocated;

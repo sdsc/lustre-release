@@ -192,7 +192,7 @@ static void osd_index_it_fini(const struct lu_env *env, struct dt_it *di)
 	obj = it->ozi_obj;
 
 	osd_zap_cursor_fini(it->ozi_zc);
-	lu_object_put(env, &obj->oo_dt.do_lu);
+	dt_object_put(env, &obj->oo_dt);
 	OBD_SLAB_FREE_PTR(it, osd_zapit_cachep);
 
 	EXIT;
@@ -542,7 +542,7 @@ struct osd_object *osd_object_find(const struct lu_env *env,
 static inline void osd_object_put(const struct lu_env *env,
 				  struct osd_object *obj)
 {
-	lu_object_put(env, &obj->oo_dt.do_lu);
+	dt_object_put(env, &obj->oo_dt);
 }
 
 static int osd_seq_exists(const struct lu_env *env, struct osd_device *osd,

@@ -249,6 +249,17 @@ static inline struct ofd_device *ofd_obj2dev(const struct ofd_object *fo)
 	return ofd_dev(fo->ofo_obj.do_lu.lo_dev);
 }
 
+/**
+ * Put OFD object reference.
+ *
+ * \param[in] env	execution environment
+ * \param[in] fo	OFD object
+ */
+void ofd_object_put(const struct lu_env *env, struct ofd_object *fo)
+{
+	dt_object_put(env, &fo->ofo_obj);
+}
+
 static inline void ofd_read_lock(const struct lu_env *env,
 				 struct ofd_object *fo)
 {
