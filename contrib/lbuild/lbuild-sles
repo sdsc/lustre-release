@@ -128,8 +128,8 @@ find_linux_devel_paths() {
 
 	# We modify %kernel_module_package macro to use the linux obj
 	# that lbuild install, not the OS installed /usr/src
-	sed -i "/^%kernel_module_package/,/^)}$/d" $RMAC
-	sed -e "s/\/usr\/src/${path//\//\\/}\/usr\/src/" ${SUSE_MACROS} >> $RMAC
+#	sed -i "/^%kernel_module_package/,/^)}$/d" $RMAC
+#	sed -e "s/\/usr\/src/${path//\//\\/}\/usr\/src/" ${SUSE_MACROS} >> $RMAC
 
 	return 0
 }
