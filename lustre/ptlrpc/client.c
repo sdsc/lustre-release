@@ -2870,11 +2870,20 @@ void ptlrpc_retain_replayable_request(struct ptlrpc_request *req,
 int ptlrpc_queue_wait(struct ptlrpc_request *req)
 {
         struct ptlrpc_request_set *set;
+	static bool warned;
         int rc;
         ENTRY;
 
         LASSERT(req->rq_set == NULL);
         LASSERT(!req->rq_receiving_reply);
+	/* The current thread should not hold any journal,
+	 * otherwise if it is blocked here, which will then
+	 * block other threads to start their transaction. */
+	if (unlikely(current->journal_info != NULL && !warned)) {
+		CWARN("Sending RPC inside the transaction!\n");
+		libcfs_debug_dumpstack(NULL);
+		warned = true;
+	}
 
 	set = ptlrpc_prep_set();
 	if (set == NULL) {

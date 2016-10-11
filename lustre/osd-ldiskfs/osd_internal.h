@@ -1003,6 +1003,19 @@ static inline void osd_trans_declare_op(const struct lu_env *env,
 					enum osd_op_type op, int credits)
 {
 	struct osd_thread_info *oti = osd_oti_get(env);
+	static bool warned;
+
+	/* The current thread should not hold any journal
+	 * in declare phase, otherwise it might cause deadlock
+	 * later during transaction start. */
+	if (unlikely(ldiskfs_track_declares_assert)) {
+		LASSERT(journal_current_handle() == NULL);
+	} else if (journal_current_handle() != NULL && !warned) {
+		CWARN("%s: journal handle set during declare\n",
+		      osd_name(osd_dt_dev(oh->ot_super.th_dev)));
+		libcfs_debug_dumpstack(NULL);
+		warned = true;
+	}
 
 	LASSERT(oh->ot_handle == NULL);
 	if (unlikely(op >= OSD_OT_MAX)) {
