@@ -39,10 +39,9 @@
 #include <lustre/lustre_lfsck_user.h>
 #include <lustre_disk.h>
 
-#undef LASSERT
-#undef LASSERTF
 #define LASSERT(cond) if (!(cond)) { printf("failed " #cond "\n"); ret = 1; }
 #define LASSERTF(cond, fmt, ...) if (!(cond)) { printf("failed '" #cond "'" fmt, ## __VA_ARGS__);ret = 1;}
+#define CLASSERT(cond) do {switch (1) {case (cond): case 0: break; } } while (0)
 
 int ret;
 
