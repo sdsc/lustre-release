@@ -2548,6 +2548,55 @@ test_133() {
 }
 run_test 133 "don't fail on flock resend"
 
+test_134() {
+	local file1
+	local pid1
+	local pid2
+
+	[ $OSTCOUNT -lt 2 ] && skip "needs >= 2 OSTs" && return 0
+	[[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.8.59) ]] &&
+		skip "Need MDS version at least 2.8.59" && return
+
+	test_mkdir -p $DIR/$tdir
+	file1="$DIR/$tdir/file1"
+	file2="$DIR/$tdir/file2"
+
+#define OBD_FAIL_MDS_OSP_PRECREATE_WAIT	 0x164
+	# reserve stripe on ost1, block on ost2
+	do_facet $SINGLEMDS \
+		"lctl set_param fail_loc=0x80000164 fail_val=1"
+	$SETSTRIPE  -c 2 -o 0,1 $file1 &
+	pid1=$!
+	sleep 1
+
+	# reserve stripe on ost2, block on ost1
+	do_facet $SINGLEMDS \
+		"lctl set_param fail_loc=0x80000164 fail_val=0"
+	$SETSTRIPE  -c 2 -o 1,0 $file2 &
+	pid2=$!
+	sleep 1
+
+	do_facet $SINGLEMDS \
+		"lctl set_param fail_loc=0 fail_val=0"
+
+	# initiate recovery with orphan cleanup on ost1 and ost2
+	facet_failover ost1
+	facet_failover ost2
+
+	# now check the both files got all requested striped.
+	# if orphan cleanup on OST X was blocked by a reservation,
+	# then the thread trying to create an object on OST X would
+	# get a timeout and fail to get a stripe
+	wait $pid1
+	wait $pid2
+	i=$($LFS getstripe -c $file1)
+	[ $i -eq 2 ] || error "unexpected striping on $file1"
+	i=$($LFS getstripe -c $file2)
+	[ $i -eq 2 ] || error "unexpected striping on $file2"
+	return 0
+}
+run_test 134 "MDT<>OST recovery don't block multistripe file creation"
+
 complete $SECONDS
 check_and_cleanup_lustre
 exit_status
