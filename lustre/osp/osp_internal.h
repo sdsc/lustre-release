@@ -253,6 +253,8 @@ struct osp_device {
 	 */
 	int				opd_reserved_mb_high;
 	int				opd_reserved_mb_low;
+
+	int				opd_pre_move_to_new;
 };
 
 #define opd_pre_lock			opd_pre->osp_pre_lock
