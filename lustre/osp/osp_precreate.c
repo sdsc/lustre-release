@@ -778,6 +778,7 @@ static int osp_precreate_cleanup_orphans(struct lu_env *env,
 	int			 update_status = 0;
 	int			 rc;
 	int			 diff;
+	struct lu_fid		 fid;
 
 	ENTRY;
 
@@ -799,8 +800,7 @@ static int osp_precreate_cleanup_orphans(struct lu_env *env,
 	 * catch all osp_precreate_reserve() calls who find
 	 * "!opd_pre_recovering".
 	 */
-	l_wait_event(d->opd_pre_waitq,
-		     (!d->opd_pre_reserved && d->opd_recovery_completed) ||
+	l_wait_event(d->opd_pre_waitq, d->opd_recovery_completed ||
 		     !osp_precreate_running(d) || d->opd_got_disconnected,
 		     &lwi);
 	if (!osp_precreate_running(d) || d->opd_got_disconnected)
@@ -840,7 +840,9 @@ static int osp_precreate_cleanup_orphans(struct lu_env *env,
 	body->oa.o_flags = OBD_FL_DELORPHAN;
 	body->oa.o_valid = OBD_MD_FLFLAGS | OBD_MD_FLGROUP;
 
-	fid_to_ostid(&d->opd_last_used_fid, &body->oa.o_oi);
+	fid = d->opd_last_used_fid;
+	fid.f_oid += d->opd_pre_reserved;
+	fid_to_ostid(&fid, &body->oa.o_oi);
 
 	ptlrpc_request_set_replen(req);
 
@@ -863,10 +865,10 @@ static int osp_precreate_cleanup_orphans(struct lu_env *env,
 	ostid_to_fid(last_fid, &body->oa.o_oi, d->opd_index);
 
 	spin_lock(&d->opd_pre_lock);
-	diff = osp_fid_diff(&d->opd_last_used_fid, last_fid);
+	diff = osp_fid_diff(&fid, last_fid);
 	if (diff > 0) {
 		d->opd_pre_create_count = OST_MIN_PRECREATE + diff;
-		d->opd_pre_last_created_fid = d->opd_last_used_fid;
+		d->opd_pre_last_created_fid = fid;
 	} else {
 		d->opd_pre_create_count = OST_MIN_PRECREATE;
 		d->opd_pre_last_created_fid = *last_fid;
@@ -877,20 +879,22 @@ static int osp_precreate_cleanup_orphans(struct lu_env *env,
 	 */
 	LASSERT(fid_oid(&d->opd_pre_last_created_fid) <=
 		LUSTRE_DATA_SEQ_MAX_WIDTH);
-	d->opd_pre_used_fid = d->opd_pre_last_created_fid;
+	if (d->opd_pre_reserved) {
+		printk("!!!! keep old window for %d\n", (int)d->opd_pre_reserved);
+		d->opd_pre_move_to_new = 1;
+	} else {
+		d->opd_pre_used_fid = d->opd_pre_last_created_fid;
+	}
 	d->opd_pre_create_slow = 0;
 	spin_unlock(&d->opd_pre_lock);
 
 	CDEBUG(D_HA, "%s: Got last_id "DFID" from OST, last_created "DFID
-	       "last_used is "DFID"\n", d->opd_obd->obd_name, PFID(last_fid),
-	       PFID(&d->opd_pre_last_created_fid), PFID(&d->opd_last_used_fid));
+	       "last_used is "DFID" used "DFID"\n", d->opd_obd->obd_name,
+	       PFID(last_fid), PFID(&d->opd_pre_last_created_fid),
+	       PFID(&d->opd_last_used_fid), PFID(&d->opd_pre_used_fid));
 out:
 	if (req)
 		ptlrpc_req_finished(req);
-
-	spin_lock(&d->opd_pre_lock);
-	d->opd_pre_recovering = 0;
-	spin_unlock(&d->opd_pre_lock);
 
 	/*
 	 * If rc is zero, the pre-creation window should have been emptied.
@@ -907,10 +911,13 @@ out:
 			 * from the beginning. notify possible waiters
 			 * this OSP isn't quite functional yet */
 			osp_pre_update_status(d, rc);
-		} else {
-			wake_up(&d->opd_pre_user_waitq);
 		}
+	} else {
+		spin_lock(&d->opd_pre_lock);
+		d->opd_pre_recovering = 0;
+		spin_unlock(&d->opd_pre_lock);
 	}
+	wake_up(&d->opd_pre_user_waitq);
 
 	RETURN(rc);
 }
@@ -1337,6 +1344,12 @@ int osp_precreate_reserve(const struct lu_env *env, struct osp_device *d)
 	if (d->opd_pre_max_create_count == 0)
 		RETURN(-ENOBUFS);
 
+	if (OBD_FAIL_PRECHECK(OBD_FAIL_MDS_OSP_PRECREATE_WAIT)) {
+		if (d->opd_index == cfs_fail_val)
+			OBD_FAIL_TIMEOUT(OBD_FAIL_MDS_OSP_PRECREATE_WAIT,
+					 obd_timeout);
+	}
+
 	/*
 	 * wait till:
 	 *  - preallocation is done
@@ -1445,7 +1458,7 @@ int osp_precreate_get_fid(const struct lu_env *env, struct osp_device *d,
 	spin_lock(&d->opd_pre_lock);
 
 	LASSERTF(osp_fid_diff(&d->opd_pre_used_fid,
-			     &d->opd_pre_last_created_fid) < 0,
+			     &d->opd_pre_last_created_fid) <= 0,
 		 "next fid "DFID" last created fid "DFID"\n",
 		 PFID(&d->opd_pre_used_fid),
 		 PFID(&d->opd_pre_last_created_fid));
@@ -1453,6 +1466,11 @@ int osp_precreate_get_fid(const struct lu_env *env, struct osp_device *d,
 	d->opd_pre_used_fid.f_oid++;
 	memcpy(fid, &d->opd_pre_used_fid, sizeof(*fid));
 	d->opd_pre_reserved--;
+	if (d->opd_pre_reserved == 0 && d->opd_pre_move_to_new) {
+		printk("!!! move to new precreate window\n");
+		d->opd_pre_used_fid = d->opd_pre_last_created_fid;
+		d->opd_pre_move_to_new = 0;
+	}
 	/*
 	 * last_used_id must be changed along with getting new id otherwise
 	 * we might miscalculate gap causing object loss or leak
