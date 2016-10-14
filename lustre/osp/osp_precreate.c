@@ -778,18 +778,20 @@ static int osp_precreate_cleanup_orphans(struct lu_env *env,
 	int			 update_status = 0;
 	int			 rc;
 	int			 diff;
+	struct lu_fid		 fid;
 
 	ENTRY;
 
 	/*
 	 * wait for local recovery to finish, so we can cleanup orphans
-	 * orphans are all objects since "last used" (assigned), but
-	 * there might be objects reserved and in some cases they won't
-	 * be used. we can't cleanup them till we're sure they won't be
-	 * used. also can't we allow new reservations because they may
-	 * end up getting orphans being cleaned up below. so we block
-	 * new reservations and wait till all reserved objects either
-	 * user or released.
+	 * orphans are all objects since "last used" (assigned).
+	 * consider reserved objects as created otherwise we can get into
+	 * a livelock when one blocked thread holding a reservation can
+	 * block recovery. see LU-8367 for the details. in some cases this
+	 * can result in gaps (i.e. leaked objects), but we've got LFSCK..
+	 *
+	 * do not  allow new reservations because they may end up getting
+	 * orphans being cleaned up below. so we block new reservations.
 	 */
 	spin_lock(&d->opd_pre_lock);
 	d->opd_pre_recovering = 1;
@@ -799,8 +801,7 @@ static int osp_precreate_cleanup_orphans(struct lu_env *env,
 	 * catch all osp_precreate_reserve() calls who find
 	 * "!opd_pre_recovering".
 	 */
-	l_wait_event(d->opd_pre_waitq,
-		     (!d->opd_pre_reserved && d->opd_recovery_completed) ||
+	l_wait_event(d->opd_pre_waitq, d->opd_recovery_completed ||
 		     !osp_precreate_running(d) || d->opd_got_disconnected,
 		     &lwi);
 	if (!osp_precreate_running(d) || d->opd_got_disconnected)
@@ -840,7 +841,9 @@ static int osp_precreate_cleanup_orphans(struct lu_env *env,
 	body->oa.o_flags = OBD_FL_DELORPHAN;
 	body->oa.o_valid = OBD_MD_FLFLAGS | OBD_MD_FLGROUP;
 
-	fid_to_ostid(&d->opd_last_used_fid, &body->oa.o_oi);
+	fid = d->opd_last_used_fid;
+	fid.f_oid += d->opd_pre_reserved;
+	fid_to_ostid(&fid, &body->oa.o_oi);
 
 	ptlrpc_request_set_replen(req);
 
@@ -863,10 +866,10 @@ static int osp_precreate_cleanup_orphans(struct lu_env *env,
 	ostid_to_fid(last_fid, &body->oa.o_oi, d->opd_index);
 
 	spin_lock(&d->opd_pre_lock);
-	diff = osp_fid_diff(&d->opd_last_used_fid, last_fid);
+	diff = osp_fid_diff(&fid, last_fid);
 	if (diff > 0) {
 		d->opd_pre_create_count = OST_MIN_PRECREATE + diff;
-		d->opd_pre_last_created_fid = d->opd_last_used_fid;
+		d->opd_pre_last_created_fid = fid;
 	} else {
 		d->opd_pre_create_count = OST_MIN_PRECREATE;
 		d->opd_pre_last_created_fid = *last_fid;
@@ -877,7 +880,13 @@ static int osp_precreate_cleanup_orphans(struct lu_env *env,
 	 */
 	LASSERT(fid_oid(&d->opd_pre_last_created_fid) <=
 		LUSTRE_DATA_SEQ_MAX_WIDTH);
-	d->opd_pre_used_fid = d->opd_pre_last_created_fid;
+	/* we've got a start of new precreated window, but if some objects
+	 * were reserved, we can't switch to that right away. we postpone
+	 * this and do as soon as all reservations are used */
+	if (d->opd_pre_reserved)
+		d->opd_pre_move_to_new = 1;
+	else
+		d->opd_pre_used_fid = d->opd_pre_last_created_fid;
 	d->opd_pre_create_slow = 0;
 	spin_unlock(&d->opd_pre_lock);
 
@@ -1337,6 +1346,12 @@ int osp_precreate_reserve(const struct lu_env *env, struct osp_device *d)
 	if (d->opd_pre_max_create_count == 0)
 		RETURN(-ENOBUFS);
 
+	if (OBD_FAIL_PRECHECK(OBD_FAIL_MDS_OSP_PRECREATE_WAIT)) {
+		if (d->opd_index == cfs_fail_val)
+			OBD_FAIL_TIMEOUT(OBD_FAIL_MDS_OSP_PRECREATE_WAIT,
+					 obd_timeout);
+	}
+
 	/*
 	 * wait till:
 	 *  - preallocation is done
@@ -1453,6 +1468,10 @@ int osp_precreate_get_fid(const struct lu_env *env, struct osp_device *d,
 	d->opd_pre_used_fid.f_oid++;
 	memcpy(fid, &d->opd_pre_used_fid, sizeof(*fid));
 	d->opd_pre_reserved--;
+	if (d->opd_pre_reserved == 0 && d->opd_pre_move_to_new) {
+		d->opd_pre_used_fid = d->opd_pre_last_created_fid;
+		d->opd_pre_move_to_new = 0;
+	}
 	/*
 	 * last_used_id must be changed along with getting new id otherwise
 	 * we might miscalculate gap causing object loss or leak
