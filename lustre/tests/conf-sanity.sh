@@ -5085,6 +5085,10 @@ test_72() { #LU-2634
 
 	#tune MDT with "-O extents"
 
+	if ! combined_mgs_mds ; then
+		reformat
+	fi
+
 	for num in $(seq $MDSCOUNT); do
 		add mds${num} $(mkfs_opts mds$num $(mdsdevname $num)) \
 			--reformat $(mdsdevname $num) $(mdsvdevname $num) ||
