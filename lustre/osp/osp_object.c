@@ -1336,6 +1336,12 @@ static int osp_declare_object_create(const struct lu_env *env,
 		LASSERT(o->opo_reserved == 0);
 		o->opo_reserved = 1;
 
+		osp_object_assign_fid(env, d, o);
+
+		LASSERTF(fid_is_sane(fid),
+			 "fid for osp_object %p is insane"DFID"!\n", o,
+			 PFID(fid));
+
 		/* common for all OSPs file hystorically */
 		osi->osi_off = sizeof(osi->osi_id) * d->opd_index;
 		osi->osi_lb.lb_len = sizeof(osi->osi_id);
@@ -1397,10 +1403,6 @@ static int osp_object_create(const struct lu_env *env, struct dt_object *dt,
 	}
 
 	o->opo_non_exist = 0;
-	if (o->opo_reserved) {
-		/* regular case, fid is assigned holding transaction open */
-		 osp_object_assign_fid(env, d, o);
-	}
 
 	memcpy(fid, lu_object_fid(&dt->do_lu), sizeof(*fid));
 

@@ -3227,7 +3227,8 @@ int lod_declare_striped_object(const struct lu_env *env, struct dt_object *dt,
 	struct lod_thread_info	*info = lod_env_info(env);
 	struct dt_object	*next = dt_object_child(dt);
 	struct lod_object	*lo = lod_dt_obj(dt);
-	int			 rc;
+	int			i;
+	int			rc;
 	ENTRY;
 
 	if (OBD_FAIL_CHECK(OBD_FAIL_MDS_ALLOC_OBDO))
@@ -3244,6 +3245,26 @@ int lod_declare_striped_object(const struct lu_env *env, struct dt_object *dt,
 		 */
 		info->lti_buf.lb_len = lov_mds_md_size(lo->ldo_stripenr,
 				lo->ldo_pool ?  LOV_MAGIC_V3 : LOV_MAGIC_V1);
+
+		/* Let's lookup fid to cache FLD entry to avoid RPC inside
+		 * the transaction (see lod_striping_create()). */
+		for (i = 0; i < lo->ldo_stripenr; i++) {
+			struct lu_fid		*fid	= &info->lti_fid;
+			struct lod_device	*lod;
+			__u32			index;
+			int			type	= LU_SEQ_RANGE_OST;
+
+			lod = lu2lod_dev(lo->ldo_obj.do_lu.lo_dev);
+			LASSERT(lo->ldo_stripe[i]);
+
+			*fid = *lu_object_fid(&lo->ldo_stripe[i]->do_lu);
+			rc = lod_fld_lookup(env, lod, fid, &index, &type);
+			if (rc < 0) {
+				CERROR("%s: Can not locate "DFID": rc = %d\n",
+				       lod2obd(lod)->obd_name, PFID(fid), rc);
+				GOTO(out, rc);
+			}
+		}
 	} else {
 		/* LOD can not choose OST objects for remote objects, i.e.
 		 * stripes must be ready before that. Right now, it can only
