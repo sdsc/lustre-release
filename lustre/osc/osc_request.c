@@ -745,6 +745,18 @@ static int osc_set_info_async(const struct lu_env *env, struct obd_export *exp,
 			      u32 vallen, void *val,
 			      struct ptlrpc_request_set *set);
 
+/**
+ * grant thread data for shrinking space.
+ */
+struct grant_thread_data {
+	struct list_head	gtd_clients;
+	wait_queue_head_t	gtd_waitq;
+	struct mutex		gtd_mutex;
+	unsigned long		gtd_running:1,
+				gtd_stopped:1;
+};
+static struct grant_thread_data client_gtd;
+
 static int osc_shrink_grant_interpret(const struct lu_env *env,
                                       struct ptlrpc_request *req,
                                       void *aa, int rc)
@@ -847,6 +859,9 @@ static int osc_should_shrink_grant(struct client_obd *client)
         cfs_time_t time = cfs_time_current();
         cfs_time_t next_shrink = client->cl_next_shrink_grant;
 
+	if (client->cl_import == NULL)
+		return 0;
+
         if ((client->cl_import->imp_connect_data.ocd_connect_flags &
              OBD_CONNECT_GRANT_SHRINK) == 0)
                 return 0;
@@ -866,38 +881,120 @@ static int osc_should_shrink_grant(struct client_obd *client)
         return 0;
 }
 
-static int osc_grant_shrink_grant_cb(struct timeout_item *item, void *data)
-{
-	struct client_obd *client;
+#define GRANT_SHRINK_RPC_BATCH	100
 
-	list_for_each_entry(client, &item->ti_obd_list, cl_grant_shrink_list) {
-		if (osc_should_shrink_grant(client))
-			osc_shrink_grant(client);
+static int osc_grant_thread(void *arg)
+{
+	struct l_wait_info lwi;
+
+	client_gtd.gtd_running = 1;
+	wake_up(&client_gtd.gtd_waitq);
+
+	while (1) {
+		struct client_obd *cli;
+		int rpc_sent = 0;
+		bool init_next_shrink = true;
+		cfs_time_t next_shrink = cfs_time_shift(GRANT_SHRINK_INTERVAL);
+
+		mutex_lock(&client_gtd.gtd_mutex);
+		list_for_each_entry(cli, &client_gtd.gtd_clients,
+				    cl_grant_chain) {
+			if (++rpc_sent < GRANT_SHRINK_RPC_BATCH &&
+			    osc_should_shrink_grant(cli)) {
+				osc_shrink_grant(cli);
+				osc_update_next_shrink(cli);
+			}
+
+			if (!init_next_shrink) {
+				if (cfs_time_before(cli->cl_next_shrink_grant,
+						    next_shrink))
+					next_shrink = cli->cl_next_shrink_grant;
+			} else {
+				init_next_shrink = false;
+				next_shrink = cli->cl_next_shrink_grant;
+			}
+		}
+		mutex_unlock(&client_gtd.gtd_mutex);
+
+		if (client_gtd.gtd_stopped == 1) {
+			client_gtd.gtd_running = 0;
+			wake_up(&client_gtd.gtd_waitq);
+			break;
+		}
+
+		/* Wait until the next grant shrink */
+		if (cfs_time_after(next_shrink, cfs_time_current())) {
+			lwi = LWI_TIMEOUT(
+				max_t(cfs_duration_t,
+				      cfs_time_sub(next_shrink,
+						   cfs_time_current()),
+				      cfs_time_seconds(1)),
+				NULL, NULL);
+			l_wait_event(client_gtd.gtd_waitq,
+				     client_gtd.gtd_stopped == 1, &lwi);
+			if (client_gtd.gtd_stopped == 1) {
+				client_gtd.gtd_running = 0;
+				wake_up(&client_gtd.gtd_waitq);
+				break;
+			}
+		}
 	}
+
 	return 0;
 }
 
-static int osc_add_shrink_grant(struct client_obd *client)
+/**
+ * Start grant thread for returing grant to server for idle clients.
+ */
+static int osc_start_grant_thread(void)
 {
-	int rc;
+	struct l_wait_info lwi = { 0 };
+	struct task_struct *task;
 
-	rc = ptlrpc_add_timeout_client(client->cl_grant_shrink_interval,
-				       TIMEOUT_GRANT,
-				       osc_grant_shrink_grant_cb, NULL,
-				       &client->cl_grant_shrink_list);
-	if (rc) {
-		CERROR("add grant client %s error %d\n", cli_name(client), rc);
-		return rc;
+	client_gtd.gtd_running = 0;
+	client_gtd.gtd_stopped = 0;
+	mutex_init(&client_gtd.gtd_mutex);
+	init_waitqueue_head(&client_gtd.gtd_waitq);
+	INIT_LIST_HEAD(&client_gtd.gtd_clients);
+
+	task = kthread_run(osc_grant_thread, NULL, "grant_shrink");
+	if (IS_ERR(task)) {
+		CERROR("Can't start grant shrinking thread, error %ld.\n",
+		       PTR_ERR(task));
+		return PTR_ERR(task);
 	}
-	CDEBUG(D_CACHE, "add grant client %s\n", cli_name(client));
-	osc_update_next_shrink(client);
+	l_wait_event(client_gtd.gtd_waitq, client_gtd.gtd_running == 1, &lwi);
+
 	return 0;
 }
 
-static int osc_del_shrink_grant(struct client_obd *client)
+static void osc_stop_grant_thread(void)
 {
-        return ptlrpc_del_timeout_client(&client->cl_grant_shrink_list,
-                                         TIMEOUT_GRANT);
+	struct l_wait_info lwi = { 0 };
+
+	mutex_lock(&client_gtd.gtd_mutex);
+	client_gtd.gtd_stopped = 1;
+	wake_up(&client_gtd.gtd_waitq);
+	mutex_unlock(&client_gtd.gtd_mutex);
+
+	l_wait_event(client_gtd.gtd_waitq, client_gtd.gtd_running == 0, &lwi);
+}
+
+static void osc_add_grant_list(struct client_obd *client)
+{
+	mutex_lock(&client_gtd.gtd_mutex);
+	list_add(&client->cl_grant_chain, &client_gtd.gtd_clients);
+	mutex_unlock(&client_gtd.gtd_mutex);
+}
+
+static void osc_del_grant_list(struct client_obd *client)
+{
+	if (list_empty(&client->cl_grant_chain))
+		return;
+
+	mutex_lock(&client_gtd.gtd_mutex);
+	list_del_init(&client->cl_grant_chain);
+	mutex_unlock(&client_gtd.gtd_mutex);
 }
 
 static void osc_init_grant(struct client_obd *cli, struct obd_connect_data *ocd)
@@ -962,9 +1059,8 @@ static void osc_init_grant(struct client_obd *cli, struct obd_connect_data *ocd)
 		cli->cl_avail_grant, cli->cl_lost_grant, cli->cl_chunkbits,
 		cli->cl_max_extent_pages);
 
-	if (ocd->ocd_connect_flags & OBD_CONNECT_GRANT_SHRINK &&
-	    list_empty(&cli->cl_grant_shrink_list))
-		osc_add_shrink_grant(cli);
+	if (OCD_HAS_FLAG(ocd, GRANT_SHRINK) && list_empty(&cli->cl_grant_chain))
+		osc_add_grant_list(cli);
 }
 
 /* We assume that the reason this OSC got a short read is because it read
@@ -2578,27 +2674,24 @@ static int osc_disconnect(struct obd_export *exp)
 	struct obd_device *obd = class_exp2obd(exp);
 	int rc;
 
-        rc = client_disconnect_export(exp);
-        /**
-         * Initially we put del_shrink_grant before disconnect_export, but it
-         * causes the following problem if setup (connect) and cleanup
-         * (disconnect) are tangled together.
-         *      connect p1                     disconnect p2
-         *   ptlrpc_connect_import
-         *     ...............               class_manual_cleanup
-         *                                     osc_disconnect
-         *                                     del_shrink_grant
-         *   ptlrpc_connect_interrupt
-         *     init_grant_shrink
-         *   add this client to shrink list
-         *                                      cleanup_osc
-         * Bang! pinger trigger the shrink.
-         * So the osc should be disconnected from the shrink list, after we
-         * are sure the import has been destroyed. BUG18662
-         */
-        if (obd->u.cli.cl_import == NULL)
-                osc_del_shrink_grant(&obd->u.cli);
-        return rc;
+	rc = client_disconnect_export(exp);
+	/**
+	 * Initially we put del_shrink_grant before disconnect_export, but it
+	 * causes the following problem if setup (connect) and cleanup
+	 * (disconnect) are tangled together.
+	 *      connect p1                     disconnect p2
+	 *   ptlrpc_connect_import
+	 *     ...............               class_manual_cleanup
+	 *                                     osc_disconnect
+	 *                                     del_shrink_grant
+	 *   ptlrpc_connect_interrupt
+	 *     init_grant_shrink
+	 *   add this client to shrink list
+	 *                                      cleanup_osc
+	 * Bang! grant shrink thread trigger the shrink. BUG18662
+	 */
+	osc_del_grant_list(&obd->u.cli);
+	return rc;
 }
 
 static int osc_ldlm_resource_invalidate(struct cfs_hash *hs,
@@ -2818,7 +2911,7 @@ int osc_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 		atomic_add(added, &osc_pool_req_count);
 	}
 
-	INIT_LIST_HEAD(&cli->cl_grant_shrink_list);
+	INIT_LIST_HEAD(&cli->cl_grant_chain);
 	ns_register_cancel(obd->obd_namespace, osc_cancel_weight);
 
 	spin_lock(&osc_shrink_lock);
@@ -3013,9 +3106,15 @@ static int __init osc_init(void)
 	osc_rq_pool = ptlrpc_init_rq_pool(0, OST_IO_MAXREQSIZE,
 					  ptlrpc_add_rqs_to_pool);
 
-	if (osc_rq_pool != NULL)
-		GOTO(out, rc);
-	rc = -ENOMEM;
+	if (osc_rq_pool == NULL)
+		GOTO(out_type, rc = -ENOMEM);
+
+	rc = osc_start_grant_thread();
+	if (rc != 0)
+		GOTO(out_type, rc);
+
+	GOTO(out, rc);
+
 out_type:
 	class_unregister_type(LUSTRE_OSC_NAME);
 out_kmem:
@@ -3026,6 +3125,7 @@ out:
 
 static void __exit osc_exit(void)
 {
+	osc_stop_grant_thread();
 	remove_shrinker(osc_cache_shrinker);
 	class_unregister_type(LUSTRE_OSC_NAME);
 	lu_kmem_fini(osc_caches);
