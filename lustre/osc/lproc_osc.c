@@ -599,6 +599,54 @@ static int osc_unstable_stats_seq_show(struct seq_file *m, void *v)
 }
 LPROC_SEQ_FOPS_RO(osc_unstable_stats);
 
+static int osc_grant_shrink_seq_show(struct seq_file *seq, void *v)
+{
+	struct obd_device *dev = seq->private;
+	struct client_obd *cli = &dev->u.cli;
+	struct obd_connect_data *ocd = &cli->cl_import->imp_connect_data;
+
+	seq_printf(seq, "%d\n", OCD_HAS_FLAG(ocd, GRANT_SHRINK) ? 1 : 0);
+	return 0;
+}
+
+static ssize_t osc_grant_shrink_seq_write(struct file *file,
+					  const char __user *buffer,
+					  size_t count, loff_t *off)
+{
+	struct obd_device *dev =
+		((struct seq_file *)file->private_data)->private;
+	struct client_obd *cli = &dev->u.cli;
+	struct obd_connect_data *ocd = &cli->cl_import->imp_connect_data;
+	int rc;
+	__s64 val;
+
+	if (dev == NULL)
+		return 0;
+
+	rc = lprocfs_str_to_s64(buffer, count, &val);
+	if (rc)
+		return rc;
+
+	if (val == 0) {
+		if (OCD_HAS_FLAG(ocd, GRANT_SHRINK))
+			ocd->ocd_connect_flags &= ~OBD_CONNECT_GRANT_SHRINK;
+	} else {
+		/**
+		 * server replied obd_connect_data is always bigger, so
+		 * client's imp_connect_flags_orig are always supported
+		 * by the server
+		 */
+		if (!OCD_HAS_FLAG(ocd, GRANT_SHRINK) &&
+		    cli->cl_import->imp_connect_flags_orig &
+		    OBD_CONNECT_GRANT_SHRINK)
+			ocd->ocd_connect_flags |= OBD_CONNECT_GRANT_SHRINK;
+	}
+
+	return count;
+}
+
+LPROC_SEQ_FOPS(osc_grant_shrink);
+
 LPROC_SEQ_FOPS_RO_TYPE(osc, uuid);
 LPROC_SEQ_FOPS_RO_TYPE(osc, connect_flags);
 LPROC_SEQ_FOPS_RO_TYPE(osc, blksize);
@@ -683,6 +731,8 @@ struct lprocfs_vars lprocfs_osc_obd_vars[] = {
 	  .fops	=	&osc_pinger_recov_fops		},
 	{ .name	=	"unstable_stats",
 	  .fops	=	&osc_unstable_stats_fops	},
+	{ .name =	"grant_shrink",
+	  .fops =	&osc_grant_shrink_fops		},
 	{ NULL }
 };
 
