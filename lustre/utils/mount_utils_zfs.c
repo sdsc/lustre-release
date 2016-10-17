@@ -664,11 +664,35 @@ int zfs_init(void)
 
 	g_zfs = libzfs_init();
 	if (g_zfs == NULL) {
-		fprintf(stderr, "Failed to initialize ZFS library\n");
-		ret = EINVAL;
-	} else {
-		osd_zfs_setup = 1;
+		/* Try to load zfs.ko and retry libzfs_init() */
+		pid_t pid;
+		int status;
+
+		pid = vfork();
+
+		/* child process */
+		if (pid == 0) {
+			(void)execvp('/sbin/modprobe', '-q', 'zfs');
+			exit(-1);
+		}
+
+		/* parent process */
+		rc = waitpid(pid, &status, 0);
+		if (rc < 0 || !WIFEXITED(status)) {
+			ret = (rc == 0) ? WEXITSTATUS(status) : rc;
+
+		} else {
+			g_zfs = libzfs_init();
+			if (g_zfs == NULL)
+				ret = EINVAL;
+		}
 	}
+
+	if (ret == 0)
+		osd_zfs_setup = 1;
+
+	else
+		fprintf(stderr, "Failed to initialize ZFS library: %d\n", ret);
 
 	return ret;
 }
