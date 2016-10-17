@@ -205,7 +205,7 @@ struct client_obd {
 	long			cl_reserved_grant;
 	struct list_head	cl_cache_waiters; /* waiting for cache/grant */
 	cfs_time_t		cl_next_shrink_grant;   /* jiffies */
-	struct list_head	cl_grant_shrink_list;  /* Timeout event list */
+	struct list_head	cl_grant_chain;
 	int			cl_grant_shrink_interval; /* seconds */
 
 	/* A chunk is an optimal size used by osc_extent to determine
