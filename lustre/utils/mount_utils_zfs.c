@@ -31,6 +31,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <libzfs.h>
+#include <sys/wait.h>
 
 /* Persistent mount data is stored in these user attributes */
 #define LDD_PREFIX		"lustre:"
@@ -664,11 +665,36 @@ int zfs_init(void)
 
 	g_zfs = libzfs_init();
 	if (g_zfs == NULL) {
-		fprintf(stderr, "Failed to initialize ZFS library\n");
-		ret = EINVAL;
-	} else {
-		osd_zfs_setup = 1;
+		/* Try to load zfs.ko and retry libzfs_init() */
+		pid_t pid;
+		int status, rc;
+
+		pid = vfork();
+
+		/* child process */
+		if (pid == 0) {
+			char *args[] = { "/sbin/modprobe", "-q", "zfs", NULL };
+			execvp("/sbin/modprobe", args);
+			exit(-1);
+		}
+
+		/* parent process */
+		rc = waitpid(pid, &status, 0);
+		if (rc < 0 || !WIFEXITED(status)) {
+			ret = (rc == 0) ? WEXITSTATUS(status) : rc;
+
+		} else {
+			g_zfs = libzfs_init();
+			if (g_zfs == NULL)
+				ret = EINVAL;
+		}
 	}
+
+	if (ret == 0)
+		osd_zfs_setup = 1;
+
+	else
+		fprintf(stderr, "Failed to initialize ZFS library: %d\n", ret);
 
 	return ret;
 }
