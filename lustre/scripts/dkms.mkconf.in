@@ -22,6 +22,12 @@ else
 	GSS="no"
 fi
 
+if [ $(getconf PAGE_SIZE) -ge 655536 ] ; then
+	LLITE_LLOOP="no"
+else
+	LLITE_LLOOP="yes"
+fi
+
 cat >${filename} <<EOF
 PACKAGE_NAME="${pkgname}"
 PACKAGE_VERSION="${pkgver}"
@@ -86,9 +92,11 @@ DEST_MODULE_LOCATION[\${#DEST_MODULE_LOCATION[@]}]="/@KMP_MODDIR@/lustre/"
 BUILT_MODULE_NAME[\${#BUILT_MODULE_NAME[@]}]="mgc"
 BUILT_MODULE_LOCATION[\${#BUILT_MODULE_LOCATION[@]}]="lustre/mgc/"
 DEST_MODULE_LOCATION[\${#DEST_MODULE_LOCATION[@]}]="/@KMP_MODDIR@/lustre/"
+	if [ $LLITE_LLOOP = "yes" ]; then
 BUILT_MODULE_NAME[\${#BUILT_MODULE_NAME[@]}]="llite_lloop"
 BUILT_MODULE_LOCATION[\${#BUILT_MODULE_LOCATION[@]}]="lustre/llite/"
 DEST_MODULE_LOCATION[\${#DEST_MODULE_LOCATION[@]}]="/@KMP_MODDIR@/lustre/"
+	fi
 BUILT_MODULE_NAME[\${#BUILT_MODULE_NAME[@]}]="fid"
 BUILT_MODULE_LOCATION[\${#BUILT_MODULE_LOCATION[@]}]="lustre/fid/"
 DEST_MODULE_LOCATION[\${#DEST_MODULE_LOCATION[@]}]="/@KMP_MODDIR@/lustre/"
