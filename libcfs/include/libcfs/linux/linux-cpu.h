@@ -63,17 +63,17 @@ struct cfs_cpu_partition {
 	/* nodes mask for this partition */
 	nodemask_t			*cpt_nodemask;
 	/* spread rotor for NUMA allocator */
-	unsigned			cpt_spread_rotor;
+	int				 cpt_spread_rotor;
+	/* NUMA node if cpt_nodemask is empty */
+	int				 cpt_node;
 };
 
 /** descriptor for CPU partitions */
 struct cfs_cpt_table {
-	/* version, reserved for hotplug */
-	unsigned			ctb_version;
 	/* spread rotor for NUMA allocator */
-	unsigned			ctb_spread_rotor;
+	int				 ctb_spread_rotor;
 	/* # of CPU partitions */
-	unsigned			ctb_nparts;
+	int				 ctb_nparts;
 	/* partitions tables */
 	struct cfs_cpu_partition	*ctb_parts;
 	/* shadow HW CPU to CPU partition ID */
@@ -85,10 +85,7 @@ struct cfs_cpt_table {
 };
 
 void cfs_cpu_core_siblings(int cpu, cpumask_t *mask);
-void cfs_cpu_ht_siblings(int cpu, cpumask_t *mask);
-void cfs_node_to_cpumask(int node, cpumask_t *mask);
-int cfs_cpu_core_nsiblings(int cpu);
-int cfs_cpu_ht_nsiblings(int cpu);
+int  cfs_cpu_ht_nsiblings(int cpu);
 
 #endif /* CONFIG_SMP */
 
