@@ -169,12 +169,6 @@ cfs_cpt_unset_nodemask(struct cfs_cpt_table *cptab, int cpt, nodemask_t *mask)
 }
 EXPORT_SYMBOL(cfs_cpt_unset_nodemask);
 
-void
-cfs_cpt_clear(struct cfs_cpt_table *cptab, int cpt)
-{
-}
-EXPORT_SYMBOL(cfs_cpt_clear);
-
 int
 cfs_cpt_spread_node(struct cfs_cpt_table *cptab, int cpt)
 {

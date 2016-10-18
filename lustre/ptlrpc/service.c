@@ -559,14 +559,13 @@ ptlrpc_server_nthreads_check(struct ptlrpc_service *svc,
 		 * have too many threads no matter how many cores/HTs
 		 * there are.
 		 */
-		if (cfs_cpu_ht_nsiblings(0) > 1) { /* weight is # of HTs */
+		if (cfs_cpu_ht_nsiblings(smp_processor_id()) > 1) {
+			/* weight is # of HTs */
 			/* depress thread factor for hyper-thread */
 			factor = factor - (factor >> 1) + (factor >> 3);
 		}
 
 		weight = cfs_cpt_weight(svc->srv_cptable, 0);
-		LASSERT(weight > 0);
-
 		for (; factor > 0 && weight > 0; factor--, weight -= fade)
 			nthrs += min(weight, fade) * factor;
 	}
@@ -2583,16 +2582,17 @@ static int ptlrpc_hr_main(void *arg)
 	struct ptlrpc_hr_thread		*hrt = (struct ptlrpc_hr_thread *)arg;
 	struct ptlrpc_hr_partition	*hrp = hrt->hrt_partition;
 	struct list_head		replies;
-	char				threadname[20];
 	int				rc;
 
 	INIT_LIST_HEAD(&replies);
-	snprintf(threadname, sizeof(threadname), "ptlrpc_hr%02d_%03d",
-		 hrp->hrp_cpt, hrt->hrt_id);
 	unshare_fs_struct();
 
 	rc = cfs_cpt_bind(ptlrpc_hr.hr_cpt_table, hrp->hrp_cpt);
 	if (rc != 0) {
+		char threadname[20];
+
+		snprintf(threadname, sizeof(threadname), "ptlrpc_hr%02d_%03d",
+			 hrp->hrp_cpt, hrt->hrt_id);
 		CWARN("Failed to bind %s on CPT %d of CPT table %p: rc = %d\n",
 		      threadname, hrp->hrp_cpt, ptlrpc_hr.hr_cpt_table, rc);
 	}
@@ -2893,8 +2893,8 @@ int ptlrpc_hr_init(void)
 	struct ptlrpc_hr_partition	*hrp;
 	struct ptlrpc_hr_thread		*hrt;
 	int				rc;
+	int				cpt;
 	int				i;
-	int				j;
 	int				weight;
 	ENTRY;
 
@@ -2908,27 +2908,29 @@ int ptlrpc_hr_init(void)
 
 	init_waitqueue_head(&ptlrpc_hr.hr_waitq);
 
-	weight = cfs_cpu_ht_nsiblings(0);
+	weight = cfs_cpu_ht_nsiblings(smp_processor_id());
 
-	cfs_percpt_for_each(hrp, i, ptlrpc_hr.hr_partitions) {
-		hrp->hrp_cpt = i;
+	cfs_percpt_for_each(hrp, cpt, ptlrpc_hr.hr_partitions) {
+		hrp->hrp_cpt = cpt;
 
 		atomic_set(&hrp->hrp_nstarted, 0);
 		atomic_set(&hrp->hrp_nstopped, 0);
 
-		hrp->hrp_nthrs = cfs_cpt_weight(ptlrpc_hr.hr_cpt_table, i);
+		hrp->hrp_nthrs = cfs_cpt_weight(ptlrpc_hr.hr_cpt_table, cpt);
 		hrp->hrp_nthrs /= weight;
 
-		LASSERT(hrp->hrp_nthrs > 0);
-		OBD_CPT_ALLOC(hrp->hrp_thrs, ptlrpc_hr.hr_cpt_table, i,
+		if (hrp->hrp_nthrs == 0)
+			hrp->hrp_nthrs = 1;
+
+		OBD_CPT_ALLOC(hrp->hrp_thrs, ptlrpc_hr.hr_cpt_table, cpt,
 			      hrp->hrp_nthrs * sizeof(*hrt));
 		if (hrp->hrp_thrs == NULL)
 			GOTO(out, rc = -ENOMEM);
 
-		for (j = 0; j < hrp->hrp_nthrs; j++) {
-			hrt = &hrp->hrp_thrs[j];
+		for (i = 0; i < hrp->hrp_nthrs; i++) {
+			hrt = &hrp->hrp_thrs[i];
 
-			hrt->hrt_id = j;
+			hrt->hrt_id = i;
 			hrt->hrt_partition = hrp;
 			init_waitqueue_head(&hrt->hrt_waitq);
 			spin_lock_init(&hrt->hrt_lock);
@@ -2946,14 +2948,14 @@ out:
 void ptlrpc_hr_fini(void)
 {
 	struct ptlrpc_hr_partition	*hrp;
-	int				i;
+	int				cpt;
 
 	if (ptlrpc_hr.hr_partitions == NULL)
 		return;
 
 	ptlrpc_stop_hr_threads();
 
-	cfs_percpt_for_each(hrp, i, ptlrpc_hr.hr_partitions) {
+	cfs_percpt_for_each(hrp, cpt, ptlrpc_hr.hr_partitions) {
 		if (hrp->hrp_thrs != NULL) {
 			OBD_FREE(hrp->hrp_thrs,
 				 hrp->hrp_nthrs * sizeof(hrp->hrp_thrs[0]));
