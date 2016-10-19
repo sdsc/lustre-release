@@ -165,5 +165,6 @@ run_test smoke "lst regression test"
 complete $SECONDS
 if [ "$RESTORE_MOUNT" = yes ]; then
     setupall
-fi 
+fi
+check_and_cleanup_lustre
 exit_status
