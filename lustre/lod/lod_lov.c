@@ -617,6 +617,27 @@ int lod_ea_store_resize(struct lod_thread_info *info, size_t size)
 	RETURN(0);
 }
 
+static __u32
+lod_find_ost_idx(struct lod_object *lo, struct dt_object *dto)
+{
+	struct lod_device *lod = lu2lod_dev(lo->ldo_obj.do_lu.lo_dev);
+	struct dt_device *dt = lu2dt_dev(dto->do_lu.lo_dev);
+	struct lod_tgt_descs *ltd = &lod->lod_ost_descs;
+	struct lod_tgt_desc *tgt;
+	__u32 index = -1;
+	int i;
+
+	cfs_foreach_bit(lod->lod_ost_bitmap, i) {
+		tgt = LTD_TGT(ltd, i);
+		if (tgt->ltd_tgt == dt) {
+			index = tgt->ltd_index;
+			break;
+		}
+	}
+
+	return index;
+}
+
 /**
  * Make LOV EA for striped object.
  *
@@ -684,12 +705,8 @@ int lod_generate_and_set_lovea(const struct lu_env *env,
 	}
 
 	for (i = 0; i < lo->ldo_stripenr; i++) {
-		struct lu_fid		*fid	= &info->lti_fid;
-		struct lod_device	*lod;
-		__u32			index;
-		int			type	= LU_SEQ_RANGE_OST;
+		struct lu_fid *fid = &info->lti_fid;
 
-		lod = lu2lod_dev(lo->ldo_obj.do_lu.lo_dev);
 		LASSERT(lo->ldo_stripe[i]);
 
 		*fid = *lu_object_fid(&lo->ldo_stripe[i]->do_lu);
@@ -705,18 +722,16 @@ int lod_generate_and_set_lovea(const struct lu_env *env,
 
 		ostid_cpu_to_le(&info->lti_ostid, &objs[i].l_ost_oi);
 		objs[i].l_ost_gen    = cpu_to_le32(0);
-		if (OBD_FAIL_CHECK(OBD_FAIL_MDS_FLD_LOOKUP))
-			rc = -ENOENT;
-		else
-			rc = lod_fld_lookup(env, lod, fid,
-					    &index, &type);
-		if (rc < 0) {
-			CERROR("%s: Can not locate "DFID": rc = %d\n",
-			       lod2obd(lod)->obd_name, PFID(fid), rc);
+		if (OBD_FAIL_CHECK(OBD_FAIL_MDS_FLD_LOOKUP)) {
 			lod_object_free_striping(env, lo);
-			RETURN(rc);
+			RETURN(-ENOENT);
+		} else {
+			__u32 index;
+
+			index = lod_find_ost_idx(lo, lo->ldo_stripe[i]);
+			LASSERT((int)index != -1);
+			objs[i].l_ost_idx = cpu_to_le32(index);
 		}
-		objs[i].l_ost_idx = cpu_to_le32(index);
 	}
 
 	info->lti_buf.lb_buf = lmm;
