@@ -2160,6 +2160,28 @@ out:
 	RETURN(rc);
 }
 
+static int osd_freeze(const struct lu_env *env, struct dt_device *d)
+{
+	struct super_block *sb = osd_sb(osd_dt_dev(d));
+	int rc = 0;
+
+	if (sb->s_op->freeze_fs)
+		rc = sb->s_op->freeze_fs(sb);
+
+	RETURN(rc);
+}
+
+static int osd_unfreeze(const struct lu_env *env, struct dt_device *d)
+{
+	struct super_block *sb = osd_sb(osd_dt_dev(d));
+	int rc = 0;
+
+	if (sb->s_op->unfreeze_fs)
+		rc = sb->s_op->unfreeze_fs(sb);
+
+	RETURN(rc);
+}
+
 /**
  * Note: we do not count into QUOTA here.
  * If we mount with --data_journal we may need more.
@@ -2219,16 +2241,18 @@ const int osd_dto_credits_noquota[DTO_NR] = {
 };
 
 static const struct dt_device_operations osd_dt_ops = {
-        .dt_root_get       = osd_root_get,
-        .dt_statfs         = osd_statfs,
-        .dt_trans_create   = osd_trans_create,
-        .dt_trans_start    = osd_trans_start,
-        .dt_trans_stop     = osd_trans_stop,
-        .dt_trans_cb_add   = osd_trans_cb_add,
-        .dt_conf_get       = osd_conf_get,
-        .dt_sync           = osd_sync,
-        .dt_ro             = osd_ro,
-        .dt_commit_async   = osd_commit_async,
+	.dt_root_get	   = osd_root_get,
+	.dt_statfs	   = osd_statfs,
+	.dt_trans_create   = osd_trans_create,
+	.dt_trans_start	   = osd_trans_start,
+	.dt_trans_stop	   = osd_trans_stop,
+	.dt_trans_cb_add   = osd_trans_cb_add,
+	.dt_conf_get	   = osd_conf_get,
+	.dt_sync	   = osd_sync,
+	.dt_ro		   = osd_ro,
+	.dt_freeze	   = osd_freeze,
+	.dt_unfreeze	   = osd_unfreeze,
+	.dt_commit_async   = osd_commit_async,
 };
 
 static void osd_object_read_lock(const struct lu_env *env,

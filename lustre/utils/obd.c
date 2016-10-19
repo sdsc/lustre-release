@@ -895,6 +895,49 @@ int jt_obd_set_readonly(int argc, char **argv)
         return rc;
 }
 
+static int obd_set_freezed(int argc, char *cmd, bool freezed)
+{
+	struct obd_ioctl_data data;
+	char rawbuf[MAX_IOC_BUFLEN], *buf = rawbuf;
+	int rc;
+
+	memset(&data, 0, sizeof(data));
+	data.ioc_dev = cur_device;
+
+	memset(buf, 0, sizeof(rawbuf));
+	rc = obd_ioctl_pack(&data, &buf, sizeof(rawbuf));
+	if (rc) {
+		fprintf(stderr, "error: %s: invalid ioctl\n", cmd);
+		return rc;
+	}
+
+	if (freezed)
+		rc = l2_ioctl(OBD_DEV_ID, OBD_IOC_SET_FREEZED, buf);
+	else
+		rc = l2_ioctl(OBD_DEV_ID, OBD_IOC_SET_UNFREEZED, buf);
+
+	if (rc < 0)
+		fprintf(stderr, "error: %s: %s\n", cmd, strerror(rc = errno));
+
+	return rc;
+}
+
+int jt_obd_freeze(int argc, char **argv)
+{
+	if (argc != 1)
+		return CMD_HELP;
+
+	return obd_set_freezed(argc, argv[0], true);
+}
+
+int jt_obd_unfreeze(int argc, char **argv)
+{
+	if (argc != 1)
+		return CMD_HELP;
+
+	return obd_set_freezed(argc, argv[0], false);
+}
+
 int jt_obd_abort_recovery(int argc, char **argv)
 {
         struct obd_ioctl_data data;

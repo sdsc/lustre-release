@@ -324,6 +324,10 @@ command_t cmdlist[] = {
 	 "usage: lookup <directory> <file>"},
 	{"readonly", jt_obd_set_readonly, 0,
 	 "disable writes to the underlying device\n"},
+	{"freeze", jt_obd_freeze, 0,
+	 "freeze the underlying device\n"},
+	{"unfreeze", jt_obd_unfreeze, 0,
+	 "unfreeze the underlying device\n"},
 	{"notransno", jt_obd_no_transno, 0,
 	 "disable sending of committed-transno updates\n"},
 	{"add_uuid", jt_lcfg_add_uuid, 0, "associate a UUID with a NID\n"

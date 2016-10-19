@@ -408,6 +408,8 @@ obd_ioctl_unpack(struct obd_ioctl_data *data, char *pbuf, int max_len)
 #define OBD_IOC_QUERY_LFSCK	_IOR('f', 232, struct obd_ioctl_data)
 /*	lustre/lustre_user.h	240-249 */
 /*	LIBCFS_IOC_DEBUG_MASK	250 */
+#define OBD_IOC_SET_FREEZED	_IOW ('f', 241, OBD_IOC_DATA_TYPE)
+#define OBD_IOC_SET_UNFREEZED	_IOW ('f', 242, OBD_IOC_DATA_TYPE)
 
 #define IOC_OSC_SET_ACTIVE	_IOWR('h', 21, void *)
 

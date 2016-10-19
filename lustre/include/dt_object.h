@@ -286,6 +286,17 @@ struct dt_device_operations {
 		       struct dt_device *dev);
 
 	/**
+	 * Freeze or Unfreeze the device
+	 *
+	 * Flush the journal completely and mark the fs clean,
+	 * mainly used before creating a snapshot or test purpose.
+	 */
+	int   (*dt_freeze)(const struct lu_env *env,
+			   struct dt_device *dev);
+
+	int   (*dt_unfreeze)(const struct lu_env *env,
+			     struct dt_device *dev);
+	/**
 	 * Start transaction commit asynchronously.
 	 *
 
@@ -2486,6 +2497,26 @@ static inline int dt_ro(const struct lu_env *env, struct dt_device *dev)
         LASSERT(dev->dd_ops);
         LASSERT(dev->dd_ops->dt_ro);
         return dev->dd_ops->dt_ro(env, dev);
+}
+
+static inline int dt_freeze(const struct lu_env *env, struct dt_device *dev)
+{
+	LASSERT(dev);
+	LASSERT(dev->dd_ops);
+	if (dev->dd_ops->dt_freeze == NULL)
+		return -ENOTSUPP;
+
+	return dev->dd_ops->dt_freeze(env, dev);
+}
+
+static inline int dt_unfreeze(const struct lu_env *env, struct dt_device *dev)
+{
+	LASSERT(dev);
+	LASSERT(dev->dd_ops);
+	if (dev->dd_ops->dt_unfreeze == NULL)
+		return -ENOTSUPP;
+
+	return dev->dd_ops->dt_unfreeze(env, dev);
 }
 
 static inline int dt_declare_insert(const struct lu_env *env,
