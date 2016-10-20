@@ -1524,7 +1524,7 @@ int osd_calc_bkmap_credits(struct super_block *sb, struct inode *inode,
 		/* single indirect */
 		credits = blocks * 3;
 		if (inode == NULL ||
-		    LDISKFS_I(inode)->i_data[LDISKFS_IND_BLOCK] == 0)
+		    LDISKFS_I(inode)->i_data[LDISKFS_IND_BLOCK])
 			credits += 3;
 		else
 			/* The indirect block may be modified. */
