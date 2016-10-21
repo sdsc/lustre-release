@@ -159,14 +159,13 @@ EXPORT_SYMBOL(cfs_cpt_table_alloc);
 
 int cfs_cpt_table_print(struct cfs_cpt_table *cptab, char *buf, int len)
 {
-	char	*tmp = buf;
-	int	rc = 0;
-	int	i;
-	int	j;
+	char *tmp = buf;
+	int rc = 0;
+	int cpt;
 
-	for (i = 0; i < cptab->ctb_nparts; i++) {
+	for (cpt = 0; cpt < cptab->ctb_nparts; cpt++) {
 		if (len > 0) {
-			rc = snprintf(tmp, len, "%d\t: ", i);
+			rc = snprintf(tmp, len, "%d\t: ", cpt);
 			len -= rc;
 		}
 
@@ -174,17 +173,16 @@ int cfs_cpt_table_print(struct cfs_cpt_table *cptab, char *buf, int len)
 			rc = -EFBIG;
 			goto out;
 		}
-
 		tmp += rc;
-		for_each_cpu(j, cptab->ctb_parts[i].cpt_cpumask) {
-			rc = snprintf(tmp, len, "%d ", j);
-			len -= rc;
-			if (len <= 0) {
-				rc = -EFBIG;
-				goto out;
-			}
-			tmp += rc;
+
+		rc = cpulist_scnprintf(tmp, len,
+				       cptab->ctb_parts[cpt].cpt_cpumask);
+		len -= rc;
+		if (len <= 0) {
+			rc = -EFBIG;
+			goto out;
 		}
+		tmp += rc;
 
 		*tmp = '\n';
 		tmp++;
@@ -258,7 +256,7 @@ int cfs_cpt_set_cpu(struct cfs_cpt_table *cptab, int cpt, int cpu)
 
 	if (cptab->ctb_cpu2cpt[cpu] != -1) {
 		CDEBUG(D_INFO, "CPU %d is already in partition %d\n",
-		       cpu, cptab->ctb_cpu2cpt[cpu]);
+				cpu, cptab->ctb_cpu2cpt[cpu]);
 		return 0;
 	}
 
@@ -313,8 +311,7 @@ void cfs_cpt_unset_cpu(struct cfs_cpt_table *cptab, int cpt, int cpu)
 		}
 
 	} else if (cpt != cptab->ctb_cpu2cpt[cpu]) {
-		CDEBUG(D_INFO,
-		       "CPU %d is not in cpu-partition %d\n", cpu, cpt);
+		CDEBUG(D_INFO, "CPU %d is not in CPU partition %d\n", cpu, cpt);
 		return;
 	}
 
@@ -390,8 +387,8 @@ int cfs_cpt_set_node(struct cfs_cpt_table *cptab, int cpt, int node)
 	int rc = 1;
 
 	if (node < 0 || node >= MAX_NUMNODES) {
-		CDEBUG(D_INFO,
-		       "Invalid NUMA id %d for CPU partition %d\n", node, cpt);
+		CDEBUG(D_INFO, "Invalid NUMA id %d for CPU partition %d\n",
+				node, cpt);
 		return 0;
 	}
 
@@ -409,8 +406,8 @@ void cfs_cpt_unset_node(struct cfs_cpt_table *cptab, int cpt, int node)
 	const cpumask_t *mask;
 
 	if (node < 0 || node >= MAX_NUMNODES) {
-		CDEBUG(D_INFO,
-		       "Invalid NUMA id %d for CPU partition %d\n", node, cpt);
+		CDEBUG(D_INFO, "Invalid NUMA id %d for CPU partition %d\n",
+				node, cpt);
 		return;
 	}
 
@@ -520,11 +517,12 @@ int cfs_cpt_bind(struct cfs_cpt_table *cptab, int cpt)
 		nodemask = cptab->ctb_parts[cpt].cpt_nodemask;
 	}
 
-	if (cpumask_any_and(cpumask, cpu_online_mask) >= nr_cpu_ids) {
-		CERROR("No online CPU found in CPU partition %d, did someone "
-		       "do CPU hotplug on system? You might need to reload "
-		       "Lustre modules to keep system working well.\n", cpt);
-		return -EINVAL;
+	if (!cpumask_intersects(cpumask, cpu_online_mask)) {
+		CDEBUG(D_INFO, "No online CPU found in CPU partition %d, did "
+			"someone do CPU hotplug on system? You might need to "
+			"reload Lustre modules to keep system working well.\n",
+			cpt);
+		return -ENODEV;
 	}
 
 	for_each_online_cpu(cpu) {
@@ -690,27 +688,31 @@ static struct cfs_cpt_table *cfs_cpt_table_create(int ncpt)
 
 	if (num_online_cpus() % ncpt != 0) {
 		CERROR("CPU number %d is not multiple of cpu_npartition %d, "
-		       "please try different cpu_npartitions value or"
-		       "set pattern string by cpu_pattern=STRING\n",
-		       (int)num_online_cpus(), ncpt);
+			"please try different cpu_npartitions value or"
+			"set pattern string by cpu_pattern=STRING\n",
+			num_online_cpus(), ncpt);
+		rc = -EINVAL;
 		goto failed;
 	}
 
 	cptab = cfs_cpt_table_alloc(ncpt);
 	if (cptab == NULL) {
 		CERROR("Failed to allocate CPU map(%d)\n", ncpt);
+		rc = -ENOMEM;
 		goto failed;
 	}
 
 	num = num_online_cpus() / ncpt;
 	if (num == 0) {
 		CERROR("CPU changed while setting CPU partition\n");
+		rc = -EPERM;
 		goto failed;
 	}
 
 	LIBCFS_ALLOC(mask, cpumask_size());
 	if (mask == NULL) {
 		CERROR("Failed to allocate scratch cpumask\n");
+		rc = -ENOMEM;
 		goto failed;
 	}
 
@@ -749,6 +751,7 @@ static struct cfs_cpt_table *cfs_cpt_table_create(int ncpt)
 		       "CPU hotplug/unplug while setting?\n",
 		       cptab->ctb_nparts, num, cpt,
 		       cpumask_weight(cptab->ctb_parts[ncpt - 1].cpt_cpumask));
+		rc = -EINVAL;
 		goto failed;
 	}
 
@@ -756,10 +759,10 @@ static struct cfs_cpt_table *cfs_cpt_table_create(int ncpt)
 
 	return cptab;
 
- failed:
-	CERROR("Failed to setup CPU-partition-table with %d "
-	       "CPU-partitions, online HW nodes: %d, HW cpus: %d.\n",
-	       ncpt, num_online_nodes(), num_online_cpus());
+failed:
+	CERROR("Failed to setup CPU partition table with %d "
+		"partitions, online HW nodes: %d, HW cpus: %d.\n",
+		ncpt, num_online_nodes(), num_online_cpus());
 
 	if (mask != NULL)
 		LIBCFS_FREE(mask, cpumask_size());
@@ -767,28 +770,34 @@ static struct cfs_cpt_table *cfs_cpt_table_create(int ncpt)
 	if (cptab != NULL)
 		cfs_cpt_table_free(cptab);
 
-	return NULL;
+	return ERR_PTR(rc);
 }
 
-static struct cfs_cpt_table *
-cfs_cpt_table_create_pattern(char *pattern)
+static struct cfs_cpt_table *cfs_cpt_table_create_pattern(const char *pattern)
 {
-	struct cfs_cpt_table	*cptab;
-	char			*str;
-	int			node	= 0;
-	int			ncpt	= 0;
-	int			high;
-	int			cpt;
-	int			rc;
-	int			c;
-	int			i;
+	struct cfs_cpt_table *cptab;
+	char *pattern_dup;
+	char *bracket;
+	char *str;
+	int node = 0;
+	int ncpt = 0;
+	int high;
+	int cpt;
+	int rc;
+	int c;
+	int i;
 
-	str = cfs_trimwhite(pattern);
+	pattern_dup = kstrdup(pattern, GFP_KERNEL);
+	if (pattern_dup == NULL) {
+		CERROR("Failed to duplicate pattern '%s'\n", pattern);
+		return ERR_PTR(-ENOMEM);
+	}
+
+	str = cfs_trimwhite(pattern_dup);
 	if (*str == 'n' || *str == 'N') {
-		pattern = str + 1;
-		if (*pattern != '\0') {
-			node = 1; /* numa pattern */
-
+		str++; /* skip 'N' char */
+		if (*str != '\0') {
+			node = 1; /* NUMA pattern */
 		} else { /* shortcut to create CPT from NUMA & CPU topology */
 			node = -1;
 			ncpt = num_online_nodes();
@@ -796,25 +805,24 @@ cfs_cpt_table_create_pattern(char *pattern)
 	}
 
 	if (ncpt == 0) { /* scanning bracket which is mark of partition */
-		for (str = pattern;; str++, ncpt++) {
-			str = strchr(str, '[');
-			if (str == NULL)
-				break;
-		}
+		for (bracket = str; bracket != NULL; bracket++, ncpt++)
+			bracket = strchr(bracket, '[');
 	}
 
 	if (ncpt == 0 ||
 	    (node && ncpt > num_online_nodes()) ||
 	    (!node && ncpt > num_online_cpus())) {
-		CERROR("Invalid pattern %s, or too many partitions %d\n",
-		       pattern, ncpt);
-		return NULL;
+		CERROR("Invalid pattern '%s', or too many partitions %d\n",
+			pattern_dup, ncpt);
+		rc = -EINVAL;
+		goto err_free_str;
 	}
 
 	cptab = cfs_cpt_table_alloc(ncpt);
 	if (cptab == NULL) {
-		CERROR("Failed to allocate cpu partition table\n");
-		return NULL;
+		CERROR("Failed to allocate CPU partition table\n");
+		rc = -ENOMEM;
+		goto err_free_str;
 	}
 
 	if (node < 0) { /* shortcut to create CPT from NUMA & CPU topology */
@@ -823,69 +831,81 @@ cfs_cpt_table_create_pattern(char *pattern)
 			if (cpt >= ncpt) {
 				CERROR("CPU changed while setting CPU "
 				       "partition table, %d/%d\n", cpt, ncpt);
-				goto failed;
+				rc = -EPERM;
+				goto err_free_table;
 			}
 
 			rc = cfs_cpt_set_node(cptab, cpt++, i);
-			if (!rc)
-				goto failed;
+			if (!rc) {
+				rc = -EINVAL;
+				goto err_free_table;
+			}
 		}
+		kfree(pattern_dup);
 		return cptab;
 	}
 
 	high = node ? MAX_NUMNODES - 1 : nr_cpu_ids - 1;
 
-	for (str = cfs_trimwhite(pattern), c = 0;; c++) {
-		struct cfs_range_expr	*range;
-		struct cfs_expr_list	*el;
-		char			*bracket = strchr(str, '[');
-		int			n;
+	for (str = cfs_trimwhite(str), c = 0; /* until break */; c++) {
+		struct cfs_range_expr *range;
+		struct cfs_expr_list *el;
+		int n;
 
+		bracket = strchr(str, '[');
 		if (bracket == NULL) {
 			if (*str != 0) {
-				CERROR("Invalid pattern %s\n", str);
-				goto failed;
+				CERROR("Invalid pattern '%s'\n", str);
+				rc = -EINVAL;
+				goto err_free_table;
 			} else if (c != ncpt) {
-				CERROR("expect %d partitions but found %d\n",
-				       ncpt, c);
-				goto failed;
+				CERROR("Expect %d partitions but found %d\n",
+					ncpt, c);
+				rc = -EINVAL;
+				goto err_free_table;
 			}
 			break;
 		}
 
 		if (sscanf(str, "%d%n", &cpt, &n) < 1) {
-			CERROR("Invalid cpu pattern %s\n", str);
-			goto failed;
+			CERROR("Invalid CPU pattern '%s'\n", str);
+			rc = -EINVAL;
+			goto err_free_table;
 		}
 
 		if (cpt < 0 || cpt >= ncpt) {
 			CERROR("Invalid partition id %d, total partitions %d\n",
-			       cpt, ncpt);
-			goto failed;
+				cpt, ncpt);
+			rc = -EINVAL;
+			goto err_free_table;
 		}
 
 		if (cfs_cpt_weight(cptab, cpt) != 0) {
 			CERROR("Partition %d has already been set.\n", cpt);
-			goto failed;
+			rc = -EPERM;
+			goto err_free_table;
 		}
 
 		str = cfs_trimwhite(str + n);
 		if (str != bracket) {
-			CERROR("Invalid pattern %s\n", str);
-			goto failed;
+			CERROR("Invalid pattern '%s'\n", str);
+			rc = -EINVAL;
+			goto err_free_table;
 		}
 
 		bracket = strchr(str, ']');
 		if (bracket == NULL) {
-			CERROR("missing right bracket for cpt %d, %s\n",
-			       cpt, str);
-			goto failed;
+			CERROR("Missing right bracket for partition "
+				"%d in '%s'\n", cpt, str);
+			rc = -EINVAL;
+			goto err_free_table;
 		}
 
-		if (cfs_expr_list_parse(str, (bracket - str) + 1,
-					0, high, &el) != 0) {
-			CERROR("Can't parse number range: %s\n", str);
-			goto failed;
+		rc = cfs_expr_list_parse(str, (bracket - str) + 1, 0, high,
+					 &el);
+		if (rc) {
+			CERROR("Can't parse number range in '%s'\n", str);
+			goto err_free_table;
 		}
 
 		list_for_each_entry(range, &el->el_exprs, re_link) {
@@ -893,11 +913,12 @@ cfs_cpt_table_create_pattern(char *pattern)
 				if ((i - range->re_lo) % range->re_stride != 0)
 					continue;
 
-				rc = node ? cfs_cpt_set_node(cptab, cpt, i) :
-					    cfs_cpt_set_cpu(cptab, cpt, i);
+				rc = node ? cfs_cpt_set_node(cptab, cpt, i)
+					  : cfs_cpt_set_cpu(cptab, cpt, i);
 				if (!rc) {
 					cfs_expr_list_free(el);
-					goto failed;
+					rc = -EINVAL;
+					goto err_free_table;
 				}
 			}
 		}
@@ -906,17 +927,21 @@ cfs_cpt_table_create_pattern(char *pattern)
 
 		if (!cfs_cpt_online(cptab, cpt)) {
 			CERROR("No online CPU is found on partition %d\n", cpt);
-			goto failed;
+			rc = -ENODEV;
+			goto err_free_table;
 		}
 
 		str = cfs_trimwhite(bracket + 1);
 	}
 
+	kfree(pattern_dup);
 	return cptab;
 
- failed:
+err_free_table:
 	cfs_cpt_table_free(cptab);
-	return NULL;
+err_free_str:
+	kfree(pattern_dup);
+	return ERR_PTR(rc);
 }
 
 #ifdef CONFIG_HOTPLUG_CPU
@@ -959,7 +984,7 @@ static struct notifier_block cfs_cpu_notifier = {
 
 void cfs_cpu_fini(void)
 {
-	if (cfs_cpt_table != NULL)
+	if (!IS_ERR_OR_NULL(cfs_cpt_table))
 		cfs_cpt_table_free(cfs_cpt_table);
 
 #ifdef CONFIG_HOTPLUG_CPU
@@ -976,26 +1001,18 @@ int cfs_cpu_init(void)
 #endif
 	get_online_cpus();
 	if (*cpu_pattern != 0) {
-		char *cpu_pattern_dup = kstrdup(cpu_pattern, GFP_KERNEL);
-
-		if (cpu_pattern_dup == NULL) {
-			CERROR("Failed to duplicate cpu_pattern\n");
-			goto failed;
-		}
-
-		cfs_cpt_table = cfs_cpt_table_create_pattern(cpu_pattern_dup);
-		kfree(cpu_pattern_dup);
-		if (cfs_cpt_table == NULL) {
-			CERROR("Failed to create cptab from pattern %s\n",
-			       cpu_pattern);
+		cfs_cpt_table = cfs_cpt_table_create_pattern(cpu_pattern);
+		if (IS_ERR(cfs_cpt_table)) {
+			CERROR("Failed to create cptab from pattern '%s'\n",
+				cpu_pattern);
 			goto failed;
 		}
 
 	} else {
 		cfs_cpt_table = cfs_cpt_table_create(cpu_npartitions);
-		if (cfs_cpt_table == NULL) {
-			CERROR("Failed to create ptable with npartitions %d\n",
-			       cpu_npartitions);
+		if (IS_ERR(cfs_cpt_table)) {
+			CERROR("Failed to create cptab with npartitions %d\n",
+				cpu_npartitions);
 			goto failed;
 		}
 	}
@@ -1008,7 +1025,7 @@ int cfs_cpu_init(void)
 failed:
 	put_online_cpus();
 	cfs_cpu_fini();
-	return -1;
+	return PTR_ERR(cfs_cpt_table);
 }
 
 #endif
