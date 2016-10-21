@@ -3019,6 +3019,9 @@ kiblnd_base_startup(void)
 		init_waitqueue_head(&sched->ibs_waitq);
 
 		nthrs = cfs_cpt_weight(lnet_cpt_table(), i);
+		if (nthrs == 0)
+			nthrs = 1;
+
 		if (*kiblnd_tunables.kib_nscheds > 0) {
 			nthrs = min(nthrs, *kiblnd_tunables.kib_nscheds);
 		} else {
@@ -3078,6 +3081,8 @@ kiblnd_start_schedulers(struct kib_sched_info *sched)
 					       sched->ibs_cpt);
 			nthrs = min(max(IBLND_N_SCHED, nthrs >> 1), nthrs);
 			nthrs = min(IBLND_N_SCHED_HIGH, nthrs);
+			if (nthrs == 0)
+				nthrs = 1;
 		}
 	} else {
 		LASSERT(sched->ibs_nthreads <= sched->ibs_nthreads_max);

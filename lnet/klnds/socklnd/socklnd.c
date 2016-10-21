@@ -2414,6 +2414,9 @@ ksocknal_base_startup(void)
 		int		nthrs;
 
 		nthrs = cfs_cpt_weight(lnet_cpt_table(), i);
+		if (nthrs == 0)
+			nthrs = 1;
+
 		if (*ksocknal_tunables.ksnd_nscheds > 0) {
 			nthrs = min(nthrs, *ksocknal_tunables.ksnd_nscheds);
 		} else {
@@ -2711,6 +2714,8 @@ ksocknal_start_schedulers(struct ksock_sched_info *info)
 					       info->ksi_cpt);
 			nthrs = min(max(SOCKNAL_NSCHEDS, nthrs >> 1), nthrs);
 			nthrs = min(SOCKNAL_NSCHEDS_HIGH, nthrs);
+			if (nthrs == 0)
+				nthrs = 1;
 		}
 		nthrs = min(nthrs, info->ksi_nthreads_max);
 	} else {
