@@ -329,6 +329,40 @@ ktime_get_real_ts64, [
 ]) # LIBCFS_KTIME_GET_REAL_TS64
 
 #
+# Kernel version 3.17 introduced ktime_get_real_seconds
+#
+AC_DEFUN([LIBCFS_KTIME_GET_REAL_SECONDS],[
+LB_CHECK_COMPILE([does function 'ktime_get_real_seconds' exist],
+ktime_get_real_seconds, [
+	#include <linux/ktime.h>
+],[
+	time64_t now;
+
+	now = ktime_get_real_seconds();
+],[
+	AC_DEFINE(HAVE_KTIME_GET_REAL_SECONDS, 1,
+		['ktime_get_real_seconds' is available])
+])
+]) # LIBCFS_KTIME_GET_REAL_SECONDS
+
+#
+# Kernel version 3.19 introduced ktime_get_seconds
+#
+AC_DEFUN([LIBCFS_KTIME_GET_SECONDS],[
+LB_CHECK_COMPILE([does function 'ktime_get_seconds' exist],
+ktime_get_seconds, [
+	#include <linux/ktime.h>
+],[
+	time64_t now;
+
+	now = ktime_get_seconds();
+],[
+	AC_DEFINE(HAVE_KTIME_GET_SECONDS, 1,
+		['ktime_get_seconds' is available])
+])
+]) # LIBCFS_KTIME_GET_SECONDS
+
+#
 # Kernel version 4.2 changed topology_thread_cpumask
 # to topology_sibling_cpumask
 #
@@ -449,6 +483,9 @@ LIBCFS_SHRINKER_COUNT
 LIBCFS_HLIST_ADD_AFTER
 LIBCFS_TIMESPEC64
 LIBCFS_KTIME_GET_REAL_TS64
+LIBCFS_KTIME_GET_REAL_SECONDS
+# 3.19
+LIBCFS_KTIME_GET_SECONDS
 # 4.2
 LIBCFS_HAVE_TOPOLOGY_SIBLING_CPUMASK
 LIBCFS_FPU_API

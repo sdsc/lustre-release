@@ -83,10 +83,41 @@ EXPORT_SYMBOL(cfs_timer_deadline);
 #ifndef HAVE_KTIME_GET_REAL_TS64
 void ktime_get_real_ts64(struct timespec64 *ts)
 {
+	/* CURRENT_TIME is based on wall clock */
 	*ts = timespec_to_timespec64(CURRENT_TIME);
 }
 EXPORT_SYMBOL(ktime_get_real_ts64);
 #endif /* HAVE_KTIME_GET_REAL_TS64 */
+
+#ifndef HAVE_KTIME_GET_REAL_SECONDS
+/*
+ * Get the seconds portion of CLOCK_REALTIME (wall clock).
+ * This is the clock that can be altered by NTP and is
+ * independent of a reboot.
+ */
+time64_t ktime_get_real_seconds(void)
+{
+	struct timespec now = CURRENT_TIME;
+
+	return now.tv_sec;
+}
+EXPORT_SYMBOL(ktime_get_real_seconds);
+#endif /* HAVE_KTIME_GET_REAL_SECONDS */
+
+#ifndef HAVE_KTIME_GET_SECONDS
+/*
+ * Get the seconds portion of CLOCK_MONOTONIC
+ * This clock is immutable and is reset across
+ * reboots. For older platforms this is a
+ * wrapper around get_seconds which is valid
+ * until 2038. By that time this will be gone
+ * one would hope.
+ */
+time64_t ktime_get_seconds(void)
+{
+	return (time64_t)get_seconds();
+}
+#endif /* HAVE_KTIME_GET_SECONDS */
 
 sigset_t
 cfs_block_allsigs(void)
