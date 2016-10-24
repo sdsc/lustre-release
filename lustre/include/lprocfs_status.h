@@ -44,6 +44,7 @@
 #include <linux/spinlock.h>
 #include <linux/seq_file.h>
 
+#include <libcfs/libcfs.h>
 #include <lustre/lustre_idl.h>
 
 struct lprocfs_vars {
