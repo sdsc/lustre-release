@@ -2261,6 +2261,7 @@ static int showdf(char *mntdir, struct obd_statfs *stat,
         long long avail, used, total;
         double ratio = 0;
         char *suffix = "KMGTPEZY";
+	char *status = NULL;
         /* Note if we have >2^64 bytes/fs these buffers will need to be grown */
 	char tbuf[3 * sizeof(__u64)];
 	char ubuf[3 * sizeof(__u64)];
@@ -2318,15 +2319,24 @@ static int showdf(char *mntdir, struct obd_statfs *stat,
                         sprintf(abuf, CDF, avail);
                 }
 
-                sprintf(rbuf, RDF, (int)(ratio * 100 + 0.5));
-                printf(UUF" "CSF" "CSF" "CSF" "RSF" %-s",
-                       uuid, tbuf, ubuf, abuf, rbuf, mntdir);
-                if (type)
-                        printf("[%s:%d]\n", type, index);
-                else
-                        printf("\n");
+		sprintf(rbuf, RDF, (int)(ratio * 100 + 0.5));
+		printf(UUF" "CSF" "CSF" "CSF" "RSF" %-s",
+		       uuid, tbuf, ubuf, abuf, rbuf, mntdir);
+		if (type)
+			printf("[%s:%d]", type, index);
 
-                break;
+		if (stat->os_state & OS_STATE_DEGRADED & OS_STATE_READONLY)
+			status = "DR";
+		else if (stat->os_state & OS_STATE_DEGRADED)
+			status = "D";
+		else if (stat->os_state & OS_STATE_READONLY)
+			status = "R";
+
+		if (status != NULL)
+			printf(" %-s", status);
+
+		printf("\n");
+		break;
         case -ENODATA:
                 printf(UUF": inactive device\n", uuid);
                 break;
