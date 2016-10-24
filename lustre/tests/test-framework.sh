@@ -1507,6 +1507,21 @@ mdt_free_inodes() {
 	echo $free_inodes
 }
 
+#
+# Get the OST device status from 'lfs df' with a given OST index.
+#
+ost_dev_status() {
+	local ost_idx=$1
+	local mnt_pnt=${2:-$MOUNT}
+	local ost_uuid
+	local ost_status
+
+	ost_uuid=$(ostuuid_from_index $ost_idx $mnt_pnt)
+	ost_status=$(lfs_df $mnt_pnt | grep $ost_uuid | awk '{print $7}')
+
+	echo -n $ost_status
+}
+
 setup_quota(){
 	local mntpt=$1
 
