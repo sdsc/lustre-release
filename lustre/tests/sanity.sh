@@ -264,8 +264,23 @@ test_6g() {
 	test_mkdir $DIR/$tdir/d/subdir || error "mkdir $tdir/d/subdir failed"
 	$CHECKSTAT -g \#$RUNAS_GID $DIR/$tdir/d/subdir ||
 		error "$tdir/d/subdir should be GID $RUNAS_GID"
+	if [[ $MDSCOUNT -gt 1 ]]; then
+		# check remote dir sgid inherite
+		$LFS mkdir -i 0 $DIR/$tdir.local ||
+			error "mkdir $tdir.local failed"
+		chmod g+s $DIR/$tdir.local ||
+			error "chmod $tdir.local failed"
+		chgrp $RUNAS_GID $DIR/$tdir.local ||
+			error "chgrp $tdir.local failed"
+		$LFS mkdir -i 1 $DIR/$tdir.local/$tdir.remote ||
+			error "mkdir $tdir.remote failed"
+		$CHECKSTAT -g \#$RUNAS_GID $DIR/$tdir.local/$tdir.remote ||
+			error "$tdir.remote should be owned by $UID.$RUNAS_ID"
+	fi
+exit
 }
 run_test 6g "Is new dir in sgid dir inheriting group?"
+exit
 
 test_6h() { # bug 7331
 	[ $RUNAS_ID -eq $UID ] && skip_env "RUNAS_ID = UID = $UID" && return
