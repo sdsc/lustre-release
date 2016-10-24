@@ -1976,10 +1976,12 @@ static inline unsigned osc_max_write_chunks(const struct client_obd *cli)
 	 *
 	 * This limitation doesn't apply to ldiskfs, which allows as many
 	 * chunks in one RPC as we want. However, it won't have any benefits
-	 * to have too many discontiguous pages in one RPC. Therefore, it
-	 * can only have 256 chunks at most in one RPC.
+	 * to have too many discontiguous pages in one RPC.
+	 *
+	 * An osc_extent won't cover over a RPC size, so the chunks in an
+	 * osc_extent won't bigger than PTLRPC_MAX_BRW_SIZE >> chunkbits.
 	 */
-	return min(PTLRPC_MAX_BRW_SIZE >> cli->cl_chunkbits, 256);
+	return PTLRPC_MAX_BRW_SIZE >> cli->cl_chunkbits;
 }
 
 /**
