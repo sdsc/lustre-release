@@ -162,6 +162,13 @@ from this client via the nid cfs21@tcp0.
 .B mount -t lustre cfs21@tcp0:/testfs/dir /mnt/myfilesystem
 Like above example, but mount subdirectory 'dir' as fileset.
 .TP
+.B mount -t lustre cfs21@tcp0,cfs21@tcp1,cfs21@o2ib:cfs22@tcp0,cfs22@tcp1,cfs22@o2ib:/testfs/dir /mnt/myfilesystem
+Like above example, but the Management Service is running on one of the service
+nodes cfs21 and cfs22, which are two different hosts separated by a colon and
+served as a failover pair. Lustre tries the first one, and if that fails, it
+tries the second one. On one service node, the comma-separated NIDs refer to
+the same host, and Lustre chooses the best one for communication.
+.TP
 .B mount -t lustre /dev/sda1 /mnt/test/mdt
 Start the Lustre metadata target service from /dev/sda1 on mountpoint /mnt/test/mdt.
 .TP
