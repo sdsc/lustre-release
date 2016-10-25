@@ -135,6 +135,7 @@ struct inode *ll_iget(struct super_block *sb, ino_t hash,
 			iput(inode);
 			inode = ERR_PTR(rc);
 		} else {
+			inode_has_no_xattr(inode);
 			unlock_new_inode(inode);
 		}
 	} else if (!(inode->i_state & (I_FREEING | I_CLEAR))) {
@@ -147,6 +148,7 @@ struct inode *ll_iget(struct super_block *sb, ino_t hash,
 			iput(inode);
 			inode = ERR_PTR(rc);
 		}
+		inode_has_no_xattr_lock(inode);
 	}
 
         RETURN(inode);
@@ -663,11 +665,31 @@ static struct dentry *ll_lookup_nd(struct inode *parent, struct dentry *dentry,
 				   unsigned int flags)
 {
 	struct lookup_intent *itp, it = { .it_op = IT_GETATTR };
+	struct lu_fid obf_fid = { .f_seq = FID_SEQ_DOT_LUSTRE,
+				  .f_oid = FID_OID_DOT_LUSTRE_OBF,
+				  .f_ver = 0x0000000000000000 };
+	struct lu_fid child;
 	struct dentry *de;
+	int rc = 0;
 
 	CDEBUG(D_VFSTRACE, "VFS Op:name=%.*s, dir="DFID"(%p), flags=%u\n",
 	       dentry->d_name.len, dentry->d_name.name,
 	       PFID(ll_inode2fid(parent)), parent, flags);
+
+	/* It is not valid for an object to be its own parent, so we must not
+	 * do an open-by-fid of the open by fid directory (./lustre/fid) */
+	if (unlikely(lu_fid_eq(ll_inode2fid(parent), &obf_fid)) &&
+	    dentry->d_name.len > 1) {
+		/* Handle fids in []s */
+		if (dentry->d_name.name[0] == '[')
+			rc = sscanf(dentry->d_name.name+1, SFID, RFID(&child));
+		else
+			rc = sscanf(dentry->d_name.name, SFID, RFID(&child));
+
+		/* Return -ENODATA to match behavior of lfs fid2path */
+		if (rc == 3 && unlikely(lu_fid_eq(&child, &obf_fid)))
+			return ERR_PTR(-ENODATA);
+	}
 
 	/*
 	 * Optimize away (CREATE && !OPEN). Let .create handle the race.

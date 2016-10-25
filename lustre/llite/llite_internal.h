@@ -1457,6 +1457,27 @@ static inline bool is_sxid(umode_t mode)
 #define IS_NOSEC(inode)	(!is_sxid(inode->i_mode))
 #endif
 
+#ifndef MS_NOSEC
+static inline void inode_has_no_xattr(struct inode *inode)
+{
+	return;
+}
+
+static inline void inode_has_no_xattr_lock(struct inode *inode)
+{
+	return;
+}
+
+#else /* MS_NOSEC */
+
+static inline void inode_has_no_xattr_lock(struct inode *inode)
+{
+	mutex_lock(&inode->i_mutex);
+	inode_has_no_xattr(inode);
+	mutex_unlock(&inode->i_mutex);
+}
+#endif
+
 #ifndef HAVE_FILE_OPERATIONS_READ_WRITE_ITER
 static inline void iov_iter_reexpand(struct iov_iter *i, size_t count)
 {

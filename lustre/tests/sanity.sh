@@ -13571,10 +13571,6 @@ test_233b() {
 	local fid=$($LFS path2fid $MOUNT/.lustre)
 	stat $MOUNT/.lustre/fid/$fid > /dev/null ||
 		error "cannot access $MOUNT/.lustre using its FID '$fid'"
-
-	fid=$($LFS path2fid $MOUNT/.lustre/fid)
-	stat $MOUNT/.lustre/fid/$fid > /dev/null ||
-		error "cannot access $MOUNT/.lustre/fid using its FID '$fid'"
 }
 run_test 233b "checking that OBF of the FS .lustre succeeds"
 
@@ -14569,6 +14565,36 @@ test_257() {
 		error "start MDS fail"
 }
 run_test 257 "xattr locks are not lost"
+
+# Verify we take the i_mutex when security requires it
+test_258a() {
+#define OBD_FAIL_IMUTEX_SEC 0x141c
+	$LCTL set_param fail_loc=0x141c
+	touch $DIR/$tfile
+	chmod u+s $DIR/$tfile
+	chmod a+rwx $DIR/$tfile
+	$RUNAS dd if=/dev/zero of=$DIR/$tfile bs=4k count=1 oflag=append
+	RC=$?
+	if [ $RC -ne 0 ]; then
+		error "error, failed to take i_mutex, rc=$?"
+	fi
+	rm -f $DIR/$tfile
+}
+run_test 258a
+
+# Verify we do NOT take the i_mutex in the normal case
+test_258b() {
+#define OBD_FAIL_IMUTEX_NOSEC 0x141d
+	$LCTL set_param fail_loc=0x141d
+	$RUNAS dd if=/dev/zero of=$DIR/$tfile bs=4k count=1 oflag=append
+	RC=$?
+	if [ $RC -ne 0 ]; then
+		error "error, took i_mutex unnecessarily, rc=$?"
+	fi
+	rm -f $DIR/$tfile
+
+}
+run_test 258b "verify i_mutex security behavior"
 
 test_260() {
 #define OBD_FAIL_MDC_CLOSE               0x806
