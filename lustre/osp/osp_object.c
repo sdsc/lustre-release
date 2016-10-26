@@ -1276,7 +1276,8 @@ static int osp_declare_object_create(const struct lu_env *env,
 	struct osp_object	*o = dt2osp_obj(dt);
 	const struct lu_fid	*fid = lu_object_fid(&dt->do_lu);
 	struct thandle		*local_th;
-	int			 rc = 0;
+	int			type;
+	int			rc = 0;
 
 	ENTRY;
 
@@ -1325,29 +1326,42 @@ static int osp_declare_object_create(const struct lu_env *env,
 	 * awaiting precreation RPC to complete
 	 */
 	rc = osp_precreate_reserve(env, d);
+	if (rc != 0)
+		GOTO(out, rc);
+
+	/* lookup fid to cache the senquence here to avoid fid lookup
+	 * RPC inside create transaction. */
+	osi->osi_fid = d->opd_pre_used_fid;
+	type = LU_SEQ_RANGE_OST;
+	rc = osp_fld_lookup(env, d, &osi->osi_fid, NULL, &type);
+	if (rc != 0)
+		GOTO(out, rc);
+
+	/* mark id is reserved: in create we don't want to talk
+	 * to OST */
+	LASSERT(o->opo_reserved == 0);
+	o->opo_reserved = 1;
+
 	/*
 	 * we also need to declare update to local "last used id" file for
 	 * recovery if object isn't used for a reason, we need to release
 	 * reservation, this can be made in osd_object_release()
 	 */
-	if (rc == 0) {
-		/* mark id is reserved: in create we don't want to talk
-		 * to OST */
-		LASSERT(o->opo_reserved == 0);
-		o->opo_reserved = 1;
-
-		/* common for all OSPs file hystorically */
-		osi->osi_off = sizeof(osi->osi_id) * d->opd_index;
-		osi->osi_lb.lb_len = sizeof(osi->osi_id);
-		osi->osi_lb.lb_buf = NULL;
-		rc = dt_declare_record_write(env, d->opd_last_used_oid_file,
-					     &osi->osi_lb, osi->osi_off,
-					     local_th);
-	} else {
+	/* common for all OSPs file hystorically */
+	osi->osi_off = sizeof(osi->osi_id) * d->opd_index;
+	osi->osi_lb.lb_len = sizeof(osi->osi_id);
+	osi->osi_lb.lb_buf = NULL;
+	rc = dt_declare_record_write(env, d->opd_last_used_oid_file,
+				     &osi->osi_lb, osi->osi_off,
+				     local_th);
+out:
+	if (rc != 0) {
 		/* not needed in the cache anymore */
 		set_bit(LU_OBJECT_HEARD_BANSHEE,
-			    &dt->do_lu.lo_header->loh_flags);
+			&dt->do_lu.lo_header->loh_flags);
+		o->opo_reserved = 0;
 	}
+
 	RETURN(rc);
 }
 

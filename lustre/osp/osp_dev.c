@@ -1832,6 +1832,63 @@ static int osp_fid_alloc(const struct lu_env *env, struct obd_export *exp,
 	RETURN(seq_client_alloc_fid(env, seq, fid));
 }
 
+/**
+ * lookup fid in OSP
+ *
+ * Lookup fid sequence in OSP device. Right now it is called
+ * in osp_declare_object_create() to cache the fld entry locally.
+ *
+ * \param[in] env	execution environment.
+ * \param[in] osp	OSP device.
+ * \param[out] tgt	result target index
+ * \param[in|out] type	expected type of the target:
+ *			LU_SEQ_RANGE_{MDT,OST,ANY}
+ *
+ * \retval 0		on success
+ * \retval negative	negated errno on error
+ **/
+int osp_fld_lookup(const struct lu_env *env, struct osp_device *osp,
+		   const struct lu_fid *fid, __u32 *tgt, int *type)
+{
+	struct lu_seq_range	range = { 0 };
+	struct lu_server_fld	*server_fld;
+	int rc;
+	ENTRY;
+
+	if (!fid_is_sane(fid)) {
+		CERROR("%s: invalid FID "DFID"\n",
+		       osp2lu_dev(osp)->ld_obd->obd_name, PFID(fid));
+		RETURN(-EIO);
+	}
+
+	if (fid_is_idif(fid)) {
+		if (tgt != NULL)
+			*tgt = fid_idif_ost_idx(fid);
+		*type = LU_SEQ_RANGE_OST;
+		RETURN(0);
+	}
+
+	server_fld = lu_site2seq(osp2lu_dev(osp)->ld_site)->ss_server_fld;
+	if (server_fld == NULL)
+		RETURN(-EIO);
+
+	fld_range_set_type(&range, *type);
+	rc = fld_server_lookup(env, server_fld, fid_seq(fid), &range);
+	if (rc != 0)
+		RETURN(rc);
+
+	if (tgt != NULL)
+		*tgt = range.lsr_index;
+
+	*type = range.lsr_flags;
+
+	CDEBUG(D_INFO, "%s: got tgt %x for sequence: %#llx\n",
+	       osp2lu_dev(osp)->ld_obd->obd_name, range.lsr_index,
+	       fid_seq(fid));
+
+	RETURN(0);
+}
+
 /* context key constructor/destructor: mdt_key_init, mdt_key_fini */
 LU_KEY_INIT_FINI(osp, struct osp_thread_info);
 static void osp_key_exit(const struct lu_context *ctx,
