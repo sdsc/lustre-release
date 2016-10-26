@@ -1,0 +1,114 @@
+#!/bin/bash
+
+#run llog_reader on all files on MGS/PARAMS directory specified by $1
+
+get_ostid()
+{
+	trim_arg ${1}
+	OSTID=`echo ${TRIM} | awk 'BEGIN {FS="(-OST)|(_UUID)"} { print $2 }'`
+	OSTID=$((16#${OSTID}))
+	if [[ ${OSTID} -gt ${MAX_OST} ]]; then
+		MAX_OST=${OSTID}
+	fi
+}
+
+#
+# The config logs are just a list of each add/remove/etc. command
+# They don't collapse pools that have been created, then deleted or OSTs
+# that have been added/removed from those pools, so we need to keep
+# track of the configuration as it evolves over time, so we only output
+# the "current" configuration at the end.
+#
+
+parse_pool()
+{
+	ARGS=("${@}")
+	TRIM=''
+
+	local ACTION=''
+	local OSTNAME=''
+
+	trim_arg ${ARGS[ (( 5 + ${SKIP} )) ]}
+	POOLNAME=${TRIM}
+
+	case ${ARGS[ (( 2 + ${SKIP} )) ]} in
+	*add*)
+		ACTION='add'
+		get_ostid ${ARGS[ (( 6 + ${SKIP} )) ]}
+
+		for i in `seq 0 ${MAX_POOL}`; do
+			if [ "${OST_LIST[${OSTID},${i}]}" == '' ]; then
+				OST_LIST[${OSTID},${i}]=${POOLNAME}
+				break
+			fi
+		done
+		;;
+	*remove*)
+		ACTION='remove'
+		get_ostid ${ARGS[ (( 6 + ${SKIP} )) ]}
+
+		for i in `seq 0 ${MAX_POOL}`; do
+			if [ "${OST_LIST[${OSTID},${i}]}" == "${POOLNAME}" ]; then
+				OST_LIST[${OSTID},${i}]=''
+				break
+			fi
+		done
+
+		;;
+	*destroy*)
+		for i in `seq 0 ${MAX_POOL}`; do
+			if [ "${POOLNAME}" == "${POOL_NAMES[${i}]}" ]; then
+				POOL_NAMES[${i}]=''
+				break
+			fi
+		done
+		ACTION='destroy'
+		;;
+	*new*)
+		ACTION='new'
+		for i in `seq 0 ${MAX_POOL}`; do
+			if [ "${POOL_NAMES[${i}]}" == '' ]; then
+				break
+			fi
+		done
+		if [ "${POOL_NAMES[${i}]}" == '' ]; then
+			POOL_NAMES[${i}]=${POOLNAME}
+		else
+			((MAX_POOL++))
+			POOL_NAMES[${MAX_POOL}]=${POOLNAME}
+		fi
+		;;
+	*)
+		echo "bad pool argument"
+		return
+		;;
+	esac
+}
+
+parse_param()
+{
+	return
+}
+
+LOCAL_DIR="$(dirname "${0}")"
+. "${LOCAL_DIR}/params_main"
+
+# process ${FSNAME}-client file
+process_file "${FSNAME}-client"
+
+# Print the commands to create the existing pools
+for i in `seq 0 ${MAX_POOL}`; do
+	if [ ! -z "${POOL_NAMES[${i}]}" ]; then
+		echo "lctl pool_new ${FSNAME}.${POOL_NAMES[${i}]}"
+	fi
+done
+
+# Print the commands to add the proper OSTs to their pools
+for j in `seq 0 ${MAX_OST}`; do
+	for k in `seq 0 ${MAX_POOL}`; do
+		if [ ! -z "${OST_LIST[${j},${k}]}" ]; then
+			echo -n "lctl pool_add ${FSNAME}.${OST_LIST[$j,$k]} OST"
+			printf "%04x\n" ${j}
+		fi
+	done
+done
