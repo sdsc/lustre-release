@@ -10946,6 +10946,33 @@ test_160d() {
 }
 run_test 160d "verify that changelog log catch the migrate event"
 
+test_160e() {
+	#create a user
+	CL_USER=$(do_facet $SINGLEMDS $LCTL --device $MDT0 \
+		changelog_register -n)
+	echo "Registered as changelog user $CL_USER"
+	trap cleanup_changelog EXIT
+
+	#delete a future user (expect fail)
+	local rc=$(do_facet $SINGLEMDS $LCTL --device $MDT0 \
+		changelog_deregister cl77)
+
+	if [ -n "$rc" ]; then
+		error "Deleted non-existant user cl77"
+		return
+	fi
+
+	#Clear to a bad index (1 billion should be safe)
+	$LFS changelog_clear $MDT0 $CL_USER 1000000000
+	rc=$?
+
+	if [ $rc -ne 22 ]; then
+		error "Successfully cleared to invalid CL index"
+		return
+	fi
+}
+run_test 160e "changelog negative testing"
+
 test_161a() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
 	test_mkdir -p -c1 $DIR/$tdir

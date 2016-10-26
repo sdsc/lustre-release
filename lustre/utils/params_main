@@ -1,0 +1,67 @@
+#!/bin/bash
+
+usage()
+{
+	echo "usage: ${CMD} [directory] [fsname]"
+	echo "where [directory] is the directory the MGS config files are kept"
+	echo " For an ldiskfs mounted filesystem this is in /mountdir/CONFIGS"
+	echo ""
+	echo "[fsname] is the name of the Lustre filesystem"
+	exit
+}
+
+CMD=${0}
+if [[ -n "${1}" ]]; then
+	PARAMSDIR=${1}
+else
+	usage
+fi
+
+if [[ ! -d "${PARAMSDIR}" ]]; then
+	usage
+fi
+
+FSNAME=''
+if [[ -n "${2}" ]]; then
+	FSNAME=${2}
+else
+	usage
+fi
+
+trim_arg()
+{
+	echo ${1} | awk -F ':' '{print $2}'
+}
+
+process_file()
+{
+	FILENAME=${1}
+
+	while read -a line; do
+		SKIP=0
+		if [[ ${line[0]} != \#* ]]; then
+			continue;
+		fi
+
+		if [[ ${line[1]} == *SKIP* ]]; then
+			SKIP=1
+		fi
+
+		if [[ ${line[1]} == *marker* ]]; then
+			continue
+		fi
+
+		if [[ ${line[ (( 2+${SKIP} )) ]} == *marker* ]]; then
+			continue;
+		fi
+
+		if [[ ${line[ ((1+${SKIP} )) ]} == *pool* ]]; then
+			parse_pool ${line[@]}
+		fi
+
+		if [[ ${line[ ((1+${SKIP} )) ]} == *param* ]]; then
+			parse_param ${line[@]}
+		fi
+
+	done < <(llog_reader ${PARAMSDIR}/${FILENAME})
+}

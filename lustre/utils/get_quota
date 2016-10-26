@@ -1,0 +1,60 @@
+#!/bin/bash
+
+usage()
+{
+	echo "usage: ${0} [fsname]"
+	echo ""
+	echo "[fsname] is the name of the Lustre filesystem"
+	exit
+}
+
+print_setquota() {
+	local ug=${1}
+	local ib=${2}
+	local id=${3}
+	local hard=${4}
+	local soft=${5}
+	local mountpt=${6}
+
+	if [[ ${id} == 0 ]]; then
+		return
+	fi
+
+	if [[ ${ug} == "usr" ]]; then
+		ug="-u"
+	else
+		ug="-g"
+	fi
+
+	if [[ ${ib} == "md" ]]; then
+		echo "lfs setquota ${ug} ${id} -i ${soft} -I ${hard} ${mountpt}"
+	else
+		echo "lfs setquota ${ug} ${id} -b ${soft} -B ${hard} ${mountpt}"
+	fi
+}
+
+if [ -z ${1} ]; then
+	usage
+else
+	mountpt=${1}
+fi
+
+if [[ ! -d /proc/fs/lustre/qmt || -z "$(ls -A /proc/fs/lustre/qmt)" ]]; then
+	echo "This command must be run on an active MDT"
+	exit -1
+fi
+
+for TYPE in md dt; do
+	for UG in usr grp; do
+		while read -a line; do
+			if [[ ${line[0]} == *limits:* ]]; then
+				hard=${line[3]/','}
+				soft=${line[5]/','}
+				print_setquota ${UG} ${TYPE} ${id} ${hard} ${soft} ${mountpt}
+			else
+				id=${line[2]}
+			fi
+
+		done < <(lctl get_param qmt.*-*.${TYPE}-0x0.glb-${UG})
+	done
+done
