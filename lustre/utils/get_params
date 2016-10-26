@@ -1,0 +1,66 @@
+#!/bin/bash
+
+declare -a PARAM_LIST
+MAX_PARAM=0
+
+get_setting()
+{
+	echo ${@} | awk -F '=' '{ print $1 }'
+}
+
+parse_pool()
+{
+	return
+}
+
+parse_param()
+{
+	ARGS=("${@}")
+	COUNT=${#ARGS[@]}
+	CMD=''
+
+	FUNC=${ARGS[ (( 1 + ${SKIP} )) ]}
+
+	SETTING=$(trim_arg ${ARGS[ (( 3 + ${SKIP} )) ]})
+
+	if [[ ${FUNC} == *set_param* ]]; then
+		CMD="lctl set_param -P ${SETTING}"
+	elif [[ ${FUNC} == *param* ]]; then
+		CMD="lctl conf_param ${SETTING}"
+	fi
+
+	A=$(get_setting ${CMD})
+
+	for i in `seq 0 ${MAX_PARAM}`; do
+		B=$(get_setting ${PARAM_LIST[${i}]})
+		if [[ "${A}" == "${B}" ]]; then
+			break;
+		fi
+	done
+
+	if [[ "${A}" == "${B}" ]]; then
+		PARAM_LIST[${i}]="${CMD}"
+	else
+		(( MAX_PARAM++ ))
+		PARAM_LIST[${MAX_PARAM}]="${CMD}"
+	fi
+
+	return
+}
+
+LOCAL_DIR="$(dirname "${0}")"
+if [ ! -d ${LOCAL_DIR} ]; then
+	echo "${LOCAL_DIR} does not exist"
+	exit
+fi
+. "${LOCAL_DIR}/params_main"
+
+# process params file for lctl set_param -P
+process_file "params"
+
+# process ${FSNAME}-client for lctl conf_param
+process_file "${FSNAME}-client"
+
+for i in `seq 0 ${MAX_PARAM}`; do
+	echo "${PARAM_LIST[${i}]}"
+done
