@@ -884,7 +884,7 @@ build_spl_zfs() {
     # The spl/zfs spec files expect RPM_BUILD_ROOT to point to the root of the
     # destination for the rpms
     export RPM_BUILD_ROOT=$TOPDIR
-    SPLZFSVER=${SPLZFSVER:-0.6.5.7}
+    SPLZFSVER=${SPLZFSVER:-0.7.0-rc2}
     SPLZFSTAG=${SPLZFSTAG:-}
 
     # The files expect a kver to be set to the kernel version .
@@ -895,8 +895,6 @@ build_spl_zfs() {
     for pkg in spl zfs; do
 
         local rpmpkg
-
-        [ "$pkg" == "zfs" ] && spldir="$(ls -d $TOPDIR/usr/src/spl-*|tail -1)"
 
         # need to fetch the repo in order to build it.
         # default to github but allow override
@@ -923,7 +921,7 @@ build_spl_zfs() {
         sh autogen.sh || return 255
 
         if  ! ./configure --with-linux=${LINUX} --with-linux-obj=${LINUXOBJ:-$LINUX} \
-                          ${spldir:+--with-spl="${spldir}"} 2>&1 ||
+                          ${CONFIGURE_FLAGS} 2>&1 ||
             ! make dist 2>&1; then
             popd
             return 255
