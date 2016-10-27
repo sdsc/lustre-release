@@ -1514,28 +1514,73 @@ struct lookup_cmd_hdlr_tbl {
 };
 
 static struct lookup_cmd_hdlr_tbl lookup_config_tbl[] = {
-	{"route", handle_yaml_config_route},
-	{"net", handle_yaml_config_net},
-	{"routing", handle_yaml_config_routing},
-	{"buffers", handle_yaml_config_buffers},
-	{NULL, NULL}
+	{
+		.name	= "route",
+		.cb	= handle_yaml_config_route
+	},
+	{
+		.name	= "net",
+		.cb	= handle_yaml_config_net
+	},
+	{
+		.name	= "routing",
+		.cb	= handle_yaml_config_routing
+	},
+	{
+		.name	= "buffers",
+		.cb	= handle_yaml_config_buffers
+	},
+	{
+		.name	= NULL
+	}
 };
 
 static struct lookup_cmd_hdlr_tbl lookup_del_tbl[] = {
-	{"route", handle_yaml_del_route},
-	{"net", handle_yaml_del_net},
-	{"routing", handle_yaml_del_routing},
-	{NULL, NULL}
+	{
+		.name	= "route",
+		.cb	= handle_yaml_del_route
+	},
+	{
+		.name	= "net",
+		.cb	= handle_yaml_del_net
+	},
+	{
+		.name	= "routing",
+		.cb	= handle_yaml_del_routing
+	},
+	{
+		.name	= NULL
+	}
 };
 
 static struct lookup_cmd_hdlr_tbl lookup_show_tbl[] = {
-	{"route", handle_yaml_show_route},
-	{"net", handle_yaml_show_net},
-	{"buffers", handle_yaml_show_routing},
-	{"routing", handle_yaml_show_routing},
-	{"credits", handle_yaml_show_credits},
-	{"statistics", handle_yaml_show_stats},
-	{NULL, NULL}
+	{
+		.name	= "route",
+		.cb	= handle_yaml_show_route
+	},
+	{
+		.name	= "net",
+		.cb	= handle_yaml_show_net
+	},
+	{
+		.name	= "buffers",
+		.cb	= handle_yaml_show_routing
+	},
+	{
+		.name	= "routing",
+		.cb	= handle_yaml_show_routing
+	},
+	{
+		.name	= "credits",
+		.cb	= handle_yaml_show_credits
+	},
+	{
+		.name	= "statistics",
+		.cb	= handle_yaml_show_stats
+	},
+	{
+		.name	= NULL
+	}
 };
 
 static cmd_handler_t lookup_fn(char *key,
