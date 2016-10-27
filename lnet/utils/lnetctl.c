@@ -162,8 +162,18 @@ static int handle_help(const command_t *cmd_list, const char *cmd,
 
 	const char *const short_options = "h";
 	const struct option long_options[] = {
-		{ "help", 0, NULL, 'h' },
-		{ NULL, 0, NULL, 0 },
+		{
+			.name		= "help",
+			.has_arg	= no_argument,
+			.flag		= NULL,
+			.val		= 'h'
+		},
+		{
+			.name		= NULL,
+			.has_arg	= no_argument,
+			.flag		= NULL,
+			.val		= 0
+		}
 	};
 
 	while ((opt = getopt_long(argc, argv, short_options,
@@ -303,9 +313,24 @@ static int jt_config_lnet(int argc, char **argv)
 
 	const char *const short_options = "ah";
 	const struct option long_options[] = {
-		{ "all", 0, NULL, 'a' },
-		{ "help", 0, NULL, 'h' },
-		{ NULL, 0, NULL, 0 },
+		{
+			.name		= "all",
+			.has_arg	= no_argument,
+			.flag		= NULL,
+			.val		= 'a'
+		},
+		{
+			.name		= "help",
+			.has_arg	= no_argument,
+			.flag		= NULL,
+			.val		= 'h'
+		},
+		{
+			.name		= NULL,
+			.has_arg	= no_argument,
+			.flag		= NULL,
+			.val		= 0
+		}
 	};
 
 	while ((opt = getopt_long(argc, argv, short_options,
@@ -359,12 +384,42 @@ static int jt_add_route(int argc, char **argv)
 
 	const char *const short_options = "n:g:c:p:h";
 	const struct option long_options[] = {
-		{ "net", 1, NULL, 'n' },
-		{ "gateway", 1, NULL, 'g' },
-		{ "hop-count", 1, NULL, 'c' },
-		{ "priority", 1, NULL, 'p' },
-		{ "help", 0, NULL, 'h' },
-		{ NULL, 0, NULL, 0 },
+		{
+			.name		= "net",
+			.has_arg	= required_argument,
+			.flag		= NULL,
+			.val		= 'n'
+		},
+		{
+			.name		= "gateway",
+			.has_arg	= required_argument,
+			.flag		= NULL,
+			.val		= 'g'
+		},
+		{
+			.name		= "hop-count",
+			.has_arg	= required_argument,
+			.flag		= NULL,
+			.val		= 'c'
+		},
+		{
+			.name		= "priority",
+			.has_arg	= required_argument,
+			.flag		= NULL,
+			.val		= 'p'
+		},
+		{
+			.name		= "help",
+			.has_arg	= no_argument,
+			.flag		= NULL,
+			.val		= 'h'
+		},
+		{
+			.name		= NULL,
+			.has_arg	= no_argument,
+			.flag		= NULL,
+			.val		= 0
+		}
 	};
 
 	while ((opt = getopt_long(argc, argv, short_options,
@@ -419,16 +474,66 @@ static int jt_add_net(int argc, char **argv)
 
 	const char *const short_options = "n:i:p:t:c:b:r:s:h";
 	const struct option long_options[] = {
-		{ "net", 1, NULL, 'n' },
-		{ "if", 1, NULL, 'i' },
-		{ "ip2net", 1, NULL, 'p' },
-		{ "peer-timeout", 1, NULL, 't' },
-		{ "peer-credits", 1, NULL, 'c' },
-		{ "peer-buffer-credits", 1, NULL, 'b' },
-		{ "credits", 1, NULL, 'r' },
-		{ "cpt", 1, NULL, 's' },
-		{ "help", 0, NULL, 'h' },
-		{ NULL, 0, NULL, 0 },
+		{
+			.name		= "net",
+			.has_arg	= required_argument,
+			.flag		= NULL,
+			.val		= 'n'
+		},
+		{
+			.name		= "if",
+			.has_arg	= required_argument,
+			.flag		= NULL,
+			.val		= 'i'
+		},
+		{
+			.name		= "ip2net",
+			.has_arg	= required_argument,
+			.flag		= NULL,
+			.val		= 'p'
+		},
+		{
+			.name		= "peer-timeout",
+			.has_arg	= required_argument,
+			.flag		= NULL,
+			.val		= 't'
+		},
+		{
+			.name		= "peer-credits",
+			.has_arg	= required_argument,
+			.flag		= NULL,
+			.val		= 'c'
+		},
+		{
+			.name		= "peer-buffer-credits",
+			.has_arg	= required_argument,
+			.flag		= NULL,
+			.val		= 'b'
+		},
+		{
+			.name		= "credits",
+			.has_arg	= required_argument,
+			.flag		= NULL,
+			.val		= 'r'
+		},
+		{
+			.name		= "cpt",
+			.has_arg	= required_argument,
+			.flag		= NULL,
+			.val		= 's'
+		},
+		{
+			.name		= "help",
+			.has_arg	= no_argument,
+			.flag		= NULL,
+			.val		= 'h'
+		},
+		{
+			.name		= NULL,
+			.has_arg	= no_argument,
+			.flag		= NULL,
+			.val		= 0
+		}
 	};
 
 	while ((opt = getopt_long(argc, argv, short_options,
@@ -505,10 +610,30 @@ static int jt_del_route(int argc, char **argv)
 
 	const char *const short_options = "n:g:h";
 	const struct option long_options[] = {
-		{ "net", 1, NULL, 'n' },
-		{ "gateway", 1, NULL, 'g' },
-		{ "help", 0, NULL, 'h' },
-		{ NULL, 0, NULL, 0 },
+		{
+			.name		= "net",
+			.has_arg	= required_argument,
+			.flag		= NULL,
+			.val		= 'n'
+		},
+		{
+			.name		= "gateway",
+			.has_arg	= required_argument,
+			.flag		= NULL,
+			.val		= 'g'
+		},
+		{
+			.name		= "help",
+			.has_arg	= no_argument,
+			.flag		= NULL,
+			.val		= 'h'
+		},
+		{
+			.name		= NULL,
+			.has_arg	= no_argument,
+			.flag		= NULL,
+			.val		= 0
+		}
 	};
 
 	while ((opt = getopt_long(argc, argv, short_options,
@@ -546,9 +671,24 @@ static int jt_del_net(int argc, char **argv)
 
 	const char *const short_options = "n:h";
 	const struct option long_options[] = {
-		{ "net", 1, NULL, 'n' },
-		{ "help", 0, NULL, 'h' },
-		{ NULL, 0, NULL, 0 },
+		{
+			.name		= "net",
+			.has_arg	= required_argument,
+			.flag		= NULL,
+			.val		= 'n'
+		},
+		{
+			.name		= "help",
+			.has_arg	= no_argument,
+			.flag		= NULL,
+			.val		= 'h'
+		},
+		{
+			.name		= NULL,
+			.has_arg	= no_argument,
+			.flag		= NULL,
+			.val		= 0
+		}
 	};
 
 	while ((opt = getopt_long(argc, argv, short_options,
@@ -584,13 +724,48 @@ static int jt_show_route(int argc, char **argv)
 
 	const char *const short_options = "n:g:h:p:vh";
 	const struct option long_options[] = {
-		{ "net", 1, NULL, 'n' },
-		{ "gateway", 1, NULL, 'g' },
-		{ "hop-count", 1, NULL, 'c' },
-		{ "priority", 1, NULL, 'p' },
-		{ "verbose", 0, NULL, 'v' },
-		{ "help", 0, NULL, 'h' },
-		{ NULL, 0, NULL, 0 },
+		{
+			.name		= "net",
+			.has_arg	= required_argument,
+			.flag		= NULL,
+			.val		= 'n'
+		},
+		{
+			.name		= "gateway",
+			.has_arg	= required_argument,
+			.flag		= NULL,
+			.val		= 'g'
+		},
+		{
+			.name		= "hop-count",
+			.has_arg	= required_argument,
+			.flag		= NULL,
+			.val		= 'c'
+		},
+		{
+			.name		= "priority",
+			.has_arg	= required_argument,
+			.flag		= NULL,
+			.val		= 'p'
+		},
+		{
+			.name		= "verbose",
+			.has_arg	= no_argument,
+			.flag		= NULL,
+			.val		= 'v'
+		},
+		{
+			.name		= "help",
+			.has_arg	= no_argument,
+			.flag		= NULL,
+			.val		= 'h'
+		},
+		{
+			.name		= NULL,
+			.has_arg	= no_argument,
+			.flag		= NULL,
+			.val		= 0
+		}
 	};
 
 	while ((opt = getopt_long(argc, argv, short_options,
@@ -651,10 +826,30 @@ static int jt_show_net(int argc, char **argv)
 
 	const char *const short_options = "n:vh";
 	const struct option long_options[] = {
-		{ "net", 1, NULL, 'n' },
-		{ "verbose", 0, NULL, 'v' },
-		{ "help", 0, NULL, 'h' },
-		{ NULL, 0, NULL, 0 },
+		{
+			.name		= "net",
+			.has_arg	= required_argument,
+			.flag		= NULL,
+			.val		= 'n'
+		},
+		{
+			.name		= "verbose",
+			.has_arg	= no_argument,
+			.flag		= NULL,
+			.val		= 'v'
+		},
+		{
+			.name		= "help",
+			.has_arg	= no_argument,
+			.flag		= NULL,
+			.val		= 'h'
+		},
+		{
+			.name		= NULL,
+			.has_arg	= no_argument,
+			.flag		= NULL,
+			.val		= 0
+		}
 	};
 
 	while ((opt = getopt_long(argc, argv, short_options,
@@ -844,11 +1039,36 @@ static int jt_import(int argc, char **argv)
 
 	const char *const short_options = "adsh";
 	const struct option long_options[] = {
-		{ "add", 0, NULL, 'a' },
-		{ "del", 0, NULL, 'd' },
-		{ "show", 0, NULL, 's' },
-		{ "help", 0, NULL, 'h' },
-		{ NULL, 0, NULL, 0 },
+		{
+			.name		= "add",
+			.has_arg	= no_argument,
+			.flag		= NULL,
+			.val		= 'a'
+		},
+		{
+			.name		= "del",
+			.has_arg	= no_argument,
+			.flag		= NULL,
+			.val		= 'd'
+		},
+		{
+			.name		= "show",
+			.has_arg	= no_argument,
+			.flag		= NULL,
+			.val		= 's'
+		},
+		{
+			.name		= "help",
+			.has_arg	= no_argument,
+			.flag		= NULL,
+			.val		= 'h'
+		},
+		{
+			.name		= NULL,
+			.has_arg	= no_argument,
+			.flag		= NULL,
+			.val		= 0
+		}
 	};
 
 	while ((opt = getopt_long(argc, argv, short_options,
@@ -912,8 +1132,18 @@ static int jt_export(int argc, char **argv)
 
 	const char *const short_options = "h";
 	const struct option long_options[] = {
-		{ "help", 0, NULL, 'h' },
-		{ NULL, 0, NULL, 0 },
+		{
+			.name		= "help",
+			.has_arg	= no_argument,
+			.flag		= NULL,
+			.val		= 'h'
+		},
+		{
+			.name		= NULL,
+			.has_arg	= no_argument,
+			.flag		= NULL,
+			.val		= 0
+		}
 	};
 
 	while ((opt = getopt_long(argc, argv, short_options,

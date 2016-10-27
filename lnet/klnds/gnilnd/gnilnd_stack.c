@@ -581,9 +581,21 @@ struct rcadata {
 	rs_event_code_t ec;
 };
 static struct rcadata rd[RCA_EVENTS] = {
-	{0, 0, ec_node_unavailable},
-	{0, 0, ec_node_available},
-	{0, 0, ec_node_failed}
+	{
+		.ticket		= 0,
+		.subscribed	= 0,
+		.ec		= ec_node_unavailable
+	},
+	{
+		.ticket		= 0,
+		.subscribed	= 0,
+		.ec		= ec_node_available
+	},
+	{
+		.ticket		= 0,
+		.subscribed	= 0,
+		.ec		= ec_node_failed
+	}
 };
 
 /* thread for receiving rca events */
