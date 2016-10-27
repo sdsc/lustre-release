@@ -426,7 +426,7 @@ static int obd_device_list_open(struct inode *inode, struct file *file)
 		return rc;
 
 	seq = file->private_data;
-	seq->private = PDE_DATA(inode);
+	seq->private = inode->i_private;
 	return 0;
 }
 
@@ -491,19 +491,6 @@ int class_procfs_init(void)
 	}
 
 	proc_lustre_root = entry;
-
-	rc = lprocfs_seq_create(proc_lustre_root, "devices", 0444,
-				&obd_device_list_fops, NULL);
-	if (rc < 0) {
-		CERROR("cannot create '/proc/fs/lustre/devices': rc = %d\n",
-		       rc);
-		GOTO(out_proc, rc);
-	}
-
-	RETURN(rc);
-
-out_proc:
-	lprocfs_remove(&proc_lustre_root);
 out:
 	RETURN(rc);
 }
