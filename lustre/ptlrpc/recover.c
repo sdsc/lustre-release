@@ -129,6 +129,8 @@ int ptlrpc_replay_next(struct obd_import *imp, int *inflight)
 					break;
 
 				req = NULL;
+				LASSERT(imp->imp_replay_cursor !=
+					imp->imp_replay_cursor->next);
 				imp->imp_replay_cursor =
 					imp->imp_replay_cursor->next;
 			}
