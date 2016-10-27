@@ -21,3 +21,5 @@ Lustre Coding Guidelines.  To do this, run in the top-level lustre/ tree:
     cd .git/hooks
     ln -s ../../contrib/git-hooks/{prepare-,}commit-msg ./
     cd ../..
+
+# COMMENT
