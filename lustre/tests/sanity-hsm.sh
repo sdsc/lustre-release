@@ -247,6 +247,16 @@ copytool_monitor_cleanup() {
 	fi
 }
 
+copytool_log_file() {
+	local facet="${1:-$SINGLEAGT}"
+	local agent="$(facet_active_host "$facet")"
+	local arc_id=$2
+	local prefix="$TESTLOG_PREFIX"
+	[ -n "$TESTNAME" ] && prefix+=.${TESTNAME}
+
+	printf "%s.copytool%s_log.%s.log" "$prefix" "$arc_id" "$agent"
+}
+
 copytool_setup() {
 	local facet=${1:-$SINGLEAGT}
 	# Use MOUNT2 by default if defined
@@ -285,11 +295,8 @@ copytool_setup() {
 
 	# Redirect the standard output and error to a log file which
 	# can be uploaded to Maloo.
-	local prefix=$TESTLOG_PREFIX
-	[[ -z "$TESTNAME" ]] || prefix=$prefix.$TESTNAME
-	local copytool_log=$prefix.copytool${arc_id}_log.$agent.log
-
-	do_facet $facet "$cmd < /dev/null > $copytool_log 2>&1"
+	local copytool_log_file_name="$(copytool_log_file "$facet" "$arc_id")"
+	do_facet $facet "$cmd < /dev/null > ${copytool_log_file_name} 2>&1"
 	if [[ $? !=  0 ]]; then
 		[[ $HSMTOOL_NOERROR == true ]] ||
 			error "start copytool $facet on $agent failed"
@@ -4393,6 +4400,234 @@ test_251() {
 	copytool_cleanup
 }
 run_test 251 "Coordinator request timeout"
+
+# Try switching scan policies (check them all, plus one that does not exist)
+test_252() {
+	local scan_policies=( "priority_policy" )
+	local scan_policy='scan_policy'
+
+	# Shuffle the policies to have a chance to detect side effects
+	for policy in $(shuf -e ${scan_policies[@]}); do
+		printf "$policy: "
+		set_hsm_param "$scan_policy" "$policy" 2>/dev/null
+		[ $? -eq 0 ] || (printf "KO\n";
+		error "Failed setting the current scan policy to '$policy'")
+		printf "OK\n"
+	done
+
+	# Try to set the scan policy to one that does not exist
+	set_hsm_param "$scan_policy" 2>/dev/null
+	[ $? -ne 0 ] ||
+		error "Successfully set the scan policy to something that is "\
+		      "not a scan policy"
+}
+run_test 252 "Switch scan policies"
+
+test_253() {
+	local priority_ratio='csp_priority_ratio'
+	local low_ratio=51
+	local high_ratio=99
+	local too_low_ratio=$((low_ratio - 1))
+	local too_high_ratio=$((high_ratio + 1))
+	local bogus_ratio=abc
+
+	printf "too little ('$too_low_ratio'): "
+	set_hsm_param "$priority_ratio" "$too_low_ratio" 2>/dev/null
+	[ $? -ne 0 ] ||
+		error "Successfully set '$priority_ratio' to '$too_low_ratio' "\
+		      "although no value under '$low_ratio' should be accepted"
+	printf "OK\n"
+
+	printf "too much ('$too_high_ratio'): "
+	set_hsm_param "$priority_ratio" "$too_high_ratio" 2>/dev/null
+	[ $? -ne 0 ] ||
+		error "Successfully set '$priority_ratio' to "\
+		      "'$too_high_ratio' although no value over '$high_ratio' "\
+		      "should be accepted"
+	printf "OK\n"
+
+	printf "not a number ('$bogus_ratio'): "
+	set_hsm_param "$priority_ratio" "$bogus_ratio" 2>/dev/null
+	[ $? -ne 0 ] ||
+		error "Successfully set '$priority_ratio' to '$bogus_value' "\
+		      "although only integers should be accepted"
+	printf "OK\n"
+
+	printf "correct values ('$low_ratio' to '$high_ratio'): "
+	for value in `seq $low_ratio $high_ratio`; do
+		set_hsm_param "$priority_ratio" "$value"
+		[ "$(get_hsm_param \"$priority_ratio\")" -eq $value ] ||
+			error "Failed to set '$priority_ratio' to '$value'"
+	done
+	printf " OK\n"
+}
+run_test 253 "Set the priority ratio"
+
+test_254() {
+	# This test does not intend to test cfs_str2mask extensively
+	local priority_mask='csp_priority_mask'
+	local mask_values=( "NOOP" "ARCHIVE" "RESTORE" "REMOVE" "CANCEL" )
+	local mask
+
+	printf "Unset all, at once: "
+	set_hsm_param "$priority_mask" -all
+	[ $? -eq 0 ] ||
+		error "Failed to set '$priority_mask' to none (with '-all')"
+	# Check it actually worked
+	mask="$(get_hsm_param \"$priority_mask\")"
+	for elt in ${mask_values[@]}; do
+		[[ "$mask" =~ (^|[^[])$elt([^\]]|$) ]] ||
+			error "Expected '$elt' to be unset in "\
+			      "'$priority_mask' but it is not: '$mask'"
+	done
+	printf "OK\n"
+
+	printf "Set all, one value at a time: "
+	for elt in ${mask_values[@]}; do
+		printf "($elt, "
+		set_hsm_param "$priority_mask" "+$elt"
+		mask="$(get_hsm_param \"$priority_mask\")"
+		[[ "$mask" =~ \[$elt\] ]] || (printf " KO)\n"
+		error "Expected '$elt' to be set in '$priority_mask' but \
+			it is not: '$mask'")
+		printf "OK) "
+	done
+	printf "\n"
+
+	printf "Unset all, one value at a time: "
+	for elt in ${mask_values[@]}; do
+		printf "($elt, "
+		set_hsm_param "$priority_mask" "-$elt"
+		mask="$(get_hsm_param \"$priority_mask\")"
+		[[ "$mask" =~ (^|[^[])$elt([^\]]|$) ]] || (printf " KO)\n"
+		error "Expected '$elt' to be unset in '$priority_mask' "\
+		      "but it is not: '$mask'")
+		printf "OK) "
+	done
+	printf "\n"
+
+	printf "Try to set a bogus value: "
+	set_hsm_param "$priority_mask" "bogus_value" 2>/dev/null
+	[ $? -ne 0 ] ||
+		error "Successfully set 'bogus_value' in '$priority_mask' "\
+		      "which is not a correct value"
+	printf "OK\n"
+}
+run_test 254 "Set the priority mask"
+
+test_255() {
+	local loop_period_ini="$(get_hsm_param 'loop_period')"
+	local max_requests_ini="$(get_hsm_param 'max_requests')"
+	local max_requests=10
+	local file_max=$((max_requests * 2 - 1))
+	local files
+	local i
+
+	# Cleanup
+	rm -rf "$DIR/$tdir"
+
+	# Create files
+	mkdir "$DIR/$tdir"
+	for i in `seq 0 ${file_max}`; do
+		files+=( ${DIR}/${tdir}/${tfile}.${i} )
+		touch ${files[@]:(-1)}
+		[ $? -eq 0 ] || error "Could not create the necessary files"
+	done
+
+	# Archive the first half of the files
+	$LFS hsm_archive ${files[@]:0:$max_requests}
+
+	# Increase the loop period to fasten the test
+	set_hsm_param loop_period 1
+
+	# Launch the copytool
+	copytool_setup
+
+	# Wait for the archives to complete
+	for file in ${files[@]:0:$max_requests}; do
+		wait_request_state "$(path2fid "$file")" ARCHIVE SUCCEED
+	done
+
+	# Kill the copytool
+	kill_copytools
+    wait_copytools || error "copytool failed to stop"
+
+	# Set the loop period back to normal
+	set_hsm_param loop_period "$loop_period_ini"
+
+	# Release the 10 archived files
+	$LFS hsm_release ${files[@]:0:$max_requests}
+
+	# Archive the 10 last files (each in a separate request)
+	for file in ${files[@]:$max_requests}; do
+		$LFS hsm_archive "$file"
+	done
+
+	# Restore the first 10 files
+	for file in ${files[@]:0:$max_requests}; do
+		lfs hsm_restore "$file"
+	done
+
+	# Set the priority_policy, max_requests and loop_period
+	set_hsm_param scan_policy priority_policy
+	set_hsm_param max_requests $max_requests
+	set_hsm_param loop_period 1
+
+	# Launch the copytool
+	HSM_ARCHIVE_PURGE=false copytool_setup
+	local priority_ratio=$(get_hsm_param csp_priority_ratio)
+
+	# Wait for completion
+	for file in ${files[@]:0:$max_requests}; do
+		wait_request_state $(path2fid "$file") RESTORE SUCCEED
+	done
+
+	for file in ${files[@]:$max_requests}; do
+		wait_request_state $(path2fid "$file") ARCHIVE SUCCEED
+	done
+
+	# Kill the copytool
+	copytool_cleanup
+
+	# Set the loop period back to normal
+	# Set the max requests param back to normal
+	set_hsm_param loop_period "$loop_period_ini"
+	set_hsm_param max_requests "$max_requests_ini"
+
+	# Check the order in which requests were processed by the copytool
+	local results=( $(grep -o "ARCHIVE\|RESTORE" "$(copytool_log_file)") )
+
+	# Debug line to see the two batches of requests
+	printf "First batch: "
+	printf "%s " "${results[@]:0:$max_requests}" && printf "\n"
+	printf "Second batch: "
+	printf "%s " "${results[@]:$max_requests}" && printf "\n"
+
+	# We expect to find (priority_ratio * max_requests / 100) high priority
+	# requests amongst the first first batch of requests
+	# At the time this is written, it means "8 RESTOREs for 2 ARCHIVEs"
+	local restore_num=$(grep -o "RESTORE" \
+			    <<< "${results[@]:0:$max_requests}" | wc -l)
+	local restore_num_expect=$((priority_ratio * max_requests / 100))
+
+	[ "$restore_num" -eq $restore_num_expect ] ||
+		error "Expected to find '$restore_num_expect' RESTORE HSM "\
+		      "requests in the first batch but instread there "\
+		      "was/were '$restore_num'"
+
+	# The second batch should have inverted proportions
+	restore_num=$(grep -o "RESTORE" <<< "${results[@]:$max_requests}" |\
+		wc -l)
+	restore_num_expect=$((max_requests - restore_num_expect))
+	[ $restore_num -eq $restore_num_expect ] ||
+		error "Expected to find '$restore_num_expect' RESTORE HSM "\
+		      "requests in the second batch but instread there "\
+		      "was/were '$restore_num'"
+
+	# Delete the test_dir
+	rm -rf "$DIR/$tdir"
+}
+run_test 255 "priority_policy behaviour"
 
 test_300() {
 	# the only way to test ondisk conf is to restart MDS ...
