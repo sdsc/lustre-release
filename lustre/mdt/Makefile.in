@@ -7,5 +7,7 @@ mdt-objs += mdt_hsm_cdt_requests.o
 mdt-objs += mdt_hsm_cdt_client.o
 mdt-objs += mdt_hsm_cdt_agent.o
 mdt-objs += mdt_coordinator.o
+mdt-objs += mdt_coordinator_scan_policies.o
+mdt-objs += mdt_coordinator_priority_scan_policy.o
 
 @INCLUDE_RULES@

@@ -253,7 +253,7 @@ hsm_action_permission(struct mdt_thread_info *mti,
 	struct coordinator *cdt = &mti->mti_mdt->mdt_coordinator;
 	struct lu_ucred *uc = mdt_ucred(mti);
 	struct md_attr *ma = &mti->mti_attr;
-	const __u64 *mask;
+	const int *mask;
 	int rc;
 	ENTRY;
 
