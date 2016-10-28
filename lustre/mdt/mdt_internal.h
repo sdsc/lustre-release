@@ -140,10 +140,15 @@ struct coordinator {
 						       * agents */
 	struct list_head	 cdt_restore_hdl;     /**< list of restore lock
 						       * handles */
+	/* Scan policy related members */
+	struct mdt_thread_info	*cdt_mti;
+	struct rw_semaphore	 cdt_scan_policy_rwsem;
+	struct cdt_scan_policy	*cdt_scan_policy;
+
 	/* Bitmasks indexed by the HSMA_XXX constants. */
-	__u64			 cdt_user_request_mask;
-	__u64			 cdt_group_request_mask;
-	__u64			 cdt_other_request_mask;
+	int			 cdt_user_request_mask;
+	int			 cdt_group_request_mask;
+	int			 cdt_other_request_mask;
 };
 
 /* mdt state flag bits */

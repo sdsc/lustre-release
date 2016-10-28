@@ -35,4 +35,6 @@ modulefs_DATA = mdt$(KMODEXT)
 endif
 
 MOSTLYCLEANFILES := @MOSTLYCLEANFILES@
-EXTRA_DIST := $(mdt-objs:%.o=%.c) mdt_internal.h
+EXTRA_DIST :=	$(mdt-objs:%.o=%.c) \
+		mdt_internal.h \
+		mdt_coordinator_scan_policies.h
