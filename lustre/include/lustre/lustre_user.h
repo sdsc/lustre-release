@@ -1203,16 +1203,22 @@ enum hsm_copytool_action {
         HSMA_CANCEL  = 23
 };
 
-static inline const char *hsm_copytool_action2name(enum hsm_copytool_action  a)
+#define HSM_COPYTOOL_ACTION_MAX_MASK ((1 << HSMA_NONE)    |\
+				      (1 << HSMA_ARCHIVE) |\
+				      (1 << HSMA_RESTORE) |\
+				      (1 << HSMA_REMOVE)  |\
+				      (1 << HSMA_CANCEL))
+
+static inline const char *hsm_copytool_action2name(int action)
 {
-        switch  (a) {
-        case HSMA_NONE:    return "NOOP";
-        case HSMA_ARCHIVE: return "ARCHIVE";
-        case HSMA_RESTORE: return "RESTORE";
-        case HSMA_REMOVE:  return "REMOVE";
-        case HSMA_CANCEL:  return "CANCEL";
-        default:           return "UNKNOWN";
-        }
+	switch (action) {
+	case HSMA_NONE:    return "NOOP";
+	case HSMA_ARCHIVE: return "ARCHIVE";
+	case HSMA_RESTORE: return "RESTORE";
+	case HSMA_REMOVE:  return "REMOVE";
+	case HSMA_CANCEL:  return "CANCEL";
+	default:           return "UNKNOWN";
+	}
 }
 
 /* Copytool item action description */
@@ -1259,7 +1265,7 @@ static inline char *hai_dump_data_field(const struct hsm_action_item *hai,
 
 /* Copytool action list */
 #define HAL_VERSION 1
-#define HAL_MAXSIZE LNET_MTU /* bytes, used in userspace only */
+#define HAL_MAXSIZE (5 * 1024) /* LDLM_MAXREQSIZE */
 struct hsm_action_list {
 	__u32 hal_version;
 	__u32 hal_count;       /* number of hai's to follow */
