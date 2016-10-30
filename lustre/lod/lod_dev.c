@@ -1172,6 +1172,7 @@ static int lod_prepare(const struct lu_env *env, struct lu_device *pdev,
 	int			rc;
 	struct dt_object	*root;
 	struct dt_object	*dto;
+	bool			retried = false;
 	__u32			index;
 	ENTRY;
 
@@ -1196,24 +1197,51 @@ static int lod_prepare(const struct lu_env *env, struct lu_device *pdev,
 	index = lu_site2seq(lod2lu_dev(lod)->ld_site)->ss_node_id;
 	lu_update_log_fid(fid, index);
 
+retry_update_log:
 	dto = local_file_find_or_create_with_fid(env, lod->lod_child,
 						 fid, root,
 						 lod_update_log_name,
 						 S_IFREG | S_IRUGO | S_IWUSR);
-	if (IS_ERR(dto))
+	if (IS_ERR(dto)) {
+		if (PTR_ERR(dto) == -EEXIST && !retried) {
+			/* If sysadmin manually delete update_log/update_log_dir
+			 * by ZFS mount, they might still in OI. Let's delete
+			 * them again, and retry */
+			rc = local_object_unlink_by_fid(env, lod->lod_child,
+							fid);
+			if (rc != 0)
+				GOTO(out_put, rc);
+			retried = true;
+			goto retry_update_log;
+		}
 		GOTO(out_put, rc = PTR_ERR(dto));
+	}
 
 	lu_object_put(env, &dto->do_lu);
 
 	/* Create update log dir */
 	lu_update_log_dir_fid(fid, index);
+	retried = false;
+
+retry_update_log_dir:
 	dto = local_file_find_or_create_with_fid(env, lod->lod_child,
 						 fid, root,
 						 lod_update_log_dir_name,
 						 S_IFDIR | S_IRUGO | S_IWUSR);
-	if (IS_ERR(dto))
+	if (IS_ERR(dto)) {
+		if (PTR_ERR(dto) == -EEXIST && !retried) {
+			/* If sysadmin manually delete update_log/update_log_dir
+			 * by ZFS mount, they might still in OI. Let's delete
+			 * them again, and retry */
+			rc = local_object_unlink_by_fid(env, lod->lod_child,
+							fid);
+			if (rc != 0)
+				GOTO(out_put, rc);
+			retried = true;
+			goto retry_update_log_dir;
+		}
 		GOTO(out_put, rc = PTR_ERR(dto));
-
+	}
 	lu_object_put(env, &dto->do_lu);
 
 	rc = lod_prepare_distribute_txn(env, lod);

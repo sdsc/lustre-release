@@ -1997,6 +1997,9 @@ local_index_find_or_create_with_fid(const struct lu_env *env,
 int local_object_unlink(const struct lu_env *env, struct dt_device *dt,
 			struct dt_object *parent, const char *name);
 
+int local_object_unlink_by_fid(const struct lu_env *env, struct dt_device *dt,
+			       struct lu_fid *fid);
+
 static inline int dt_object_lock(const struct lu_env *env,
 				 struct dt_object *o, struct lustre_handle *lh,
 				 struct ldlm_enqueue_info *einfo,

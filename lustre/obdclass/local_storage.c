@@ -616,16 +616,72 @@ static int local_object_declare_unlink(const struct lu_env *env,
 {
 	int rc;
 
-	rc = dt_declare_delete(env, p, (const struct dt_key *)name, th);
-	if (rc < 0)
-		return rc;
+	if (p != NULL && name != NULL) {
+		rc = dt_declare_delete(env, p, (const struct dt_key *)name, th);
+		if (rc < 0)
+			return rc;
+	}
 
 	rc = dt_declare_ref_del(env, c, th);
 	if (rc < 0)
 		return rc;
 
+	if (S_ISDIR(lu_object_attr(&c->do_lu))) {
+		rc = dt_declare_ref_del(env, c, th);
+		if (rc < 0)
+			return rc;
+	}
+
 	return dt_declare_destroy(env, c, th);
 }
+
+int local_object_unlink_by_fid(const struct lu_env *env, struct dt_device *dt,
+			       struct lu_fid *fid)
+{
+	struct dt_object	*dto;
+	struct thandle		*th;
+	int			 rc;
+
+	ENTRY;
+
+	dto = dt_locate(env, dt, fid);
+	if (unlikely(IS_ERR(dto)))
+		RETURN(PTR_ERR(dto));
+
+	th = dt_trans_create(env, dt);
+	if (IS_ERR(th))
+		GOTO(out, rc = PTR_ERR(th));
+
+	rc = local_object_declare_unlink(env, dt, NULL, dto, NULL, th);
+	if (rc < 0)
+		GOTO(stop, rc);
+
+	rc = dt_trans_start_local(env, dt, th);
+	if (rc < 0)
+		GOTO(stop, rc);
+
+	dt_write_lock(env, dto, 0);
+
+	rc = dt_ref_del(env, dto, th);
+	if (rc < 0)
+		GOTO(unlock, rc);
+
+	if (S_ISDIR(lu_object_attr(&dto->do_lu))) {
+		rc = dt_ref_del(env, dto, th);
+		if (rc < 0)
+			GOTO(unlock, rc);
+	}
+
+	rc = dt_destroy(env, dto, th);
+unlock:
+	dt_write_unlock(env, dto);
+stop:
+	dt_trans_stop(env, dt, th);
+out:
+	lu_object_put_nocache(env, &dto->do_lu);
+	return rc;
+}
+EXPORT_SYMBOL(local_object_unlink_by_fid);
 
 int local_object_unlink(const struct lu_env *env, struct dt_device *dt,
 			struct dt_object *parent, const char *name)
