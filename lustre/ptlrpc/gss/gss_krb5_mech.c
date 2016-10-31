@@ -88,51 +88,45 @@ struct krb5_enctype {
  * yet. this need to be fixed in the future.
  */
 static struct krb5_enctype enctypes[] = {
-        [ENCTYPE_DES_CBC_RAW] = {               /* des-cbc-md5 */
-                "des-cbc-md5",
-                "cbc(des)",
-                "md5",
-                0,
-                16,
-                8,
-                0,
-        },
-        [ENCTYPE_DES3_CBC_RAW] = {              /* des3-hmac-sha1 */
-                "des3-hmac-sha1",
-                "cbc(des3_ede)",
-                "hmac(sha1)",
-                0,
-                20,
-                8,
-                1,
-        },
-        [ENCTYPE_AES128_CTS_HMAC_SHA1_96] = {   /* aes128-cts */
-                "aes128-cts-hmac-sha1-96",
-                "cbc(aes)",
-                "hmac(sha1)",
-                0,
-                12,
-                16,
-                1,
-        },
-        [ENCTYPE_AES256_CTS_HMAC_SHA1_96] = {   /* aes256-cts */
-                "aes256-cts-hmac-sha1-96",
-                "cbc(aes)",
-                "hmac(sha1)",
-                0,
-                12,
-                16,
-                1,
-        },
-        [ENCTYPE_ARCFOUR_HMAC] = {              /* arcfour-hmac-md5 */
-                "arcfour-hmac-md5",
-                "ecb(arc4)",
-                "hmac(md5)",
-                0,
-                16,
-                8,
-                1,
-        },
+	[ENCTYPE_DES_CBC_RAW] = {		/* des-cbc-md5 */
+		.ke_dispname	= "des-cbc-md5",
+		.ke_enc_name	= "cbc(des)",
+		.ke_hash_name	= "md5",
+		.ke_hash_size	= 16,
+		.ke_conf_size	= 8,
+	},
+	[ENCTYPE_DES3_CBC_RAW] = {		/* des3-hmac-sha1 */
+		.ke_dispname	= "des3-hmac-sha1",
+		.ke_enc_name	= "cbc(des3_ede)",
+		.ke_hash_name	= "hmac(sha1)",
+		.ke_hash_size	= 20,
+		.ke_conf_size	= 8,
+		.ke_hash_hmac	= 1,
+	},
+	[ENCTYPE_AES128_CTS_HMAC_SHA1_96] = {	/* aes128-cts */
+		.ke_dispname	= "aes128-cts-hmac-sha1-96",
+		.ke_enc_name	= "cbc(aes)",
+		.ke_hash_name	= "hmac(sha1)",
+		.ke_hash_size	= 12,
+		.ke_conf_size	= 16,
+		.ke_hash_hmac	= 1,
+	},
+	[ENCTYPE_AES256_CTS_HMAC_SHA1_96] = {	/* aes256-cts */
+		.ke_dispname	= "aes256-cts-hmac-sha1-96",
+		.ke_enc_name	= "cbc(aes)",
+		.ke_hash_name	= "hmac(sha1)",
+		.ke_hash_size	= 12,
+		.ke_conf_size	= 16,
+		.ke_hash_hmac	= 1,
+	},
+	[ENCTYPE_ARCFOUR_HMAC] = {		/* arcfour-hmac-md5 */
+		.ke_dispname	= "arcfour-hmac-md5",
+		.ke_enc_name	= "ecb(arc4)",
+		.ke_hash_name	= "hmac(md5)",
+		.ke_hash_size	= 16,
+		.ke_conf_size	= 8,
+		.ke_hash_hmac	= 1,
+	}
 };
 
 #define MAX_ENCTYPES    sizeof(enctypes)/sizeof(struct krb5_enctype)
