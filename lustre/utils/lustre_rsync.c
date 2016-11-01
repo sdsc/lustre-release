@@ -204,23 +204,103 @@ FILE *debug_log;
 
 /* Command line options */
 struct option long_opts[] = {
-        {"source",      required_argument, 0, 's'},
-        {"target",      required_argument, 0, 't'},
-        {"mdt",         required_argument, 0, 'm'},
-        {"user",        required_argument, 0, 'u'},
-        {"statuslog",   required_argument, 0, 'l'},
-        {"verbose",     no_argument,       0, 'v'},
-        {"xattr",       required_argument, 0, 'x'},
-        {"dry-run",     no_argument,       0, 'z'},
-        /* Undocumented options follow */
-        {"cl-clear",    required_argument, 0, 'c'},
-        {"use-rsync",   no_argument,       0, 'r'},
-        {"rsync-threshold", required_argument, 0, 'y'},
-        {"start-recno", required_argument, 0, 'n'},
-        {"abort-on-err",no_argument,       0, 'a'},
-        {"debug",       required_argument, 0, 'd'},
-	{"debuglog",	required_argument, 0, 'D'},
-	{0, 0, 0, 0}
+	{
+		.name		= "source",
+		.has_arg	= required_argument,
+		.flag		= NULL,
+		.val		= 's'
+	},
+	{
+		.name		= "target",
+		.has_arg	= required_argument,
+		.flag		= NULL,
+		.val		= 't'
+	},
+	{
+		.name		= "mdt",
+		.has_arg	= required_argument,
+		.flag		= NULL,
+		.val		= 'm'
+	},
+	{
+		.name		= "user",
+		.has_arg	= required_argument,
+		.flag		= NULL,
+		.val		= 'u'
+	},
+	{
+		.name		= "statuslog",
+		.has_arg	= required_argument,
+		.flag		= NULL,
+		.val		= 'l'
+	},
+	{
+		.name		= "verbose",
+		.has_arg	= no_argument,
+		.flag		= NULL,
+		.val		= 'v'
+	},
+	{
+		.name		= "xattr",
+		.has_arg	= required_argument,
+		.flag		= NULL,
+		.val		= 'x'
+	},
+	{
+		.name		= "dry-run",
+		.has_arg	= no_argument,
+		.flag		= NULL,
+		.val		= 'z'
+	},
+	/* Undocumented options follow */
+	{
+		.name		= "cl-clear",
+		.has_arg	= required_argument,
+		.flag		= NULL,
+		.val		= 'c'
+	},
+	{
+		.name		= "use-rsync",
+		.has_arg	= no_argument,
+		.flag		= NULL,
+		.val		= 'r'
+	},
+	{
+		.name		= "rsync-threshold",
+		.has_arg	= required_argument,
+		.flag		= NULL,
+		.val		= 'y'
+	},
+	{
+		.name		= "start-recno",
+		.has_arg	= required_argument,
+		.flag		= NULL,
+		.val		= 'n'
+	},
+	{
+		.name		= "abort-on-err",
+		.has_arg	= no_argument,
+		.flag		= NULL,
+		.val		= 'a'
+	},
+	{
+		.name		= "debug",
+		.has_arg	= required_argument,
+		.flag		= NULL,
+		.val		= 'd'
+	},
+	{
+		.name		= "debuglog",
+		.has_arg	= required_argument,
+		.flag		= NULL,
+		.val		= 'D'
+	},
+	{
+		.name		= NULL,
+		.has_arg	= no_argument,
+		.flag		= NULL,
+		.val		= 0
+	}
 };
 
 /* Command line usage */

@@ -210,34 +210,174 @@ static void usage(const char *name, int rc)
 static int ct_parseopts(int argc, char * const *argv)
 {
 	struct option long_opts[] = {
-		{"abort-on-error", no_argument,	      &opt.o_abort_on_error, 1},
-		{"abort_on_error", no_argument,	      &opt.o_abort_on_error, 1},
-		{"archive",	   required_argument, NULL,		   'A'},
-		{"bandwidth",	   required_argument, NULL,		   'b'},
-		{"chunk-size",	   required_argument, NULL,		   'c'},
-		{"chunk_size",	   required_argument, NULL,		   'c'},
-		{"daemon",	   no_argument,	      &opt.o_daemonize,	    1},
-		{"event-fifo",	   required_argument, NULL,		   'f'},
-		{"event_fifo",	   required_argument, NULL,		   'f'},
-		{"dry-run",	   no_argument,	      &opt.o_dry_run,	    1},
-		{"help",	   no_argument,	      NULL,		   'h'},
-		{"hsm-root",	   required_argument, NULL,		   'p'},
-		{"hsm_root",	   required_argument, NULL,		   'p'},
-		{"import",	   no_argument,	      NULL,		   'i'},
-		{"max-sequence",   no_argument,	      NULL,		   'M'},
-		{"max_sequence",   no_argument,	      NULL,		   'M'},
-		{"no-attr",	   no_argument,	      &opt.o_copy_attrs,    0},
-		{"no_attr",	   no_argument,	      &opt.o_copy_attrs,    0},
-		{"no-shadow",	   no_argument,	      &opt.o_shadow_tree,   0},
-		{"no_shadow",	   no_argument,	      &opt.o_shadow_tree,   0},
-		{"no-xattr",	   no_argument,	      &opt.o_copy_xattrs,   0},
-		{"no_xattr",	   no_argument,	      &opt.o_copy_xattrs,   0},
-		{"quiet",	   no_argument,	      NULL,		   'q'},
-		{"rebind",	   no_argument,	      NULL,		   'r'},
-		{"update-interval", required_argument,	NULL,		   'u'},
-		{"update_interval", required_argument,	NULL,		   'u'},
-		{"verbose",	   no_argument,	      NULL,		   'v'},
-		{0, 0, 0, 0}
+		{
+			.name		= "abort-on-error",
+			.has_arg	= no_argument,
+			.flag		= &opt.o_abort_on_error,
+			.val		= 1
+		},
+		{
+			.name		= "abort_on_error",
+			.has_arg	= no_argument,
+			.flag		= &opt.o_abort_on_error,
+			.val		= 1
+		},
+		{
+			.name		= "archive",
+			.has_arg	= required_argument,
+			.flag		= NULL,
+			.val		= 'A'
+		},
+		{
+			.name		= "bandwidth",
+			.has_arg	= required_argument,
+			.flag		= NULL,
+			.val		= 'b'
+		},
+		{
+			.name		= "chunk-size",
+			.has_arg	= required_argument,
+			.flag		= NULL,
+			.val		= 'c'
+		},
+		{
+			.name		= "chunk_size",
+			.has_arg	= required_argument,
+			.flag		= NULL,
+			.val		= 'c'
+		},
+		{
+			.name		= "daemon",
+			.has_arg	= no_argument,
+			.flag		= &opt.o_daemonize,
+			.val		= 1
+		},
+		{
+			.name		= "event-fifo",
+			.has_arg	= required_argument,
+			.flag		= NULL,
+			.val		= 'f'
+		},
+		{
+			.name		= "event_fifo",
+			.has_arg	= required_argument,
+			.flag		= NULL,
+			.val		= 'f'
+		},
+		{
+			.name		= "dry-run",
+			.has_arg	= no_argument,
+			.flag		= &opt.o_dry_run,
+			.val		= 1
+		},
+		{
+			.name		= "help",
+			.has_arg	= no_argument,
+			.flag		= NULL,
+			.val		= 'h'
+		},
+		{
+			.name		= "hsm-root",
+			.has_arg	= required_argument,
+			.flag		= NULL,
+			.val		= 'p'
+		},
+		{
+			.name		= "hsm_root",
+			.has_arg	= required_argument,
+			.flag		= NULL,
+			.val		= 'p'
+		},
+		{
+			.name		= "import",
+			.has_arg	= no_argument,
+			.flag		= NULL,
+			.val		= 'i'
+		},
+		{
+			.name		= "max-sequence",
+			.has_arg	= no_argument,
+			.flag		= NULL,
+			.val		= 'M'
+		},
+		{
+			.name		= "max_sequence",
+			.has_arg	= no_argument,
+			.flag		= NULL,
+			.val		= 'M'
+		},
+		{
+			.name		= "no-attr",
+			.has_arg	= no_argument,
+			.flag		= &opt.o_copy_attrs,
+			.val		= 0
+		},
+		{
+			.name		= "no_attr",
+			.has_arg	= no_argument,
+			.flag		= &opt.o_copy_attrs,
+			.val		= 0
+		},
+		{
+			.name		= "no-shadow",
+			.has_arg	= no_argument,
+			.flag		= &opt.o_shadow_tree,
+			.val		= 0
+		},
+		{
+			.name		= "no_shadow",
+			.has_arg	= no_argument,
+			.flag		= &opt.o_shadow_tree,
+			.val		= 0
+		},
+		{
+			.name		= "no-xattr",
+			.has_arg	= no_argument,
+			.flag		= &opt.o_copy_xattrs,
+			.val		= 0
+		},
+		{
+			.name		= "no_xattr",
+			.has_arg	= no_argument,
+			.flag		= &opt.o_copy_xattrs,
+			.val		= 0
+		},
+		{
+			.name		= "quiet",
+			.has_arg	= no_argument,
+			.flag		= NULL,
+			.val		= 'q'
+		},
+		{
+			.name		= "rebind",
+			.has_arg	= no_argument,
+			.flag		= NULL,
+			.val		= 'r'
+		},
+		{
+			.name		= "update-interval",
+			.has_arg	= required_argument,
+			.flag		= NULL,
+			.val		= 'u'
+		},
+		{
+			.name		= "update_interval",
+			.has_arg	= required_argument,
+			.flag		= NULL,
+			.val		= 'u'
+		},
+		{
+			.name		= "verbose",
+			.has_arg	= no_argument,
+			.flag		= NULL,
+			.val		= 'v'
+		},
+		{
+			.name		= NULL,
+			.has_arg	= no_argument,
+			.flag		= NULL,
+			.val		= 0
+		}
 	};
 	int			 c, rc;
 	unsigned long long	 value;

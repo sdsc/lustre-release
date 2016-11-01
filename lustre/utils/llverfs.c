@@ -122,19 +122,84 @@ static int perms =  S_IRWXU | S_IRGRP | S_IROTH;
 
 static struct option const longopts[] =
 {
-	{ "chunksize", required_argument, 0, 'c' },
-	{ "help", no_argument, 0, 'h' },
-	{ "offset", required_argument, 0, 'o' },
-	{ "long", no_argument, 0, 'l' },
-	{ "full", no_argument, 0, 'l' },
-	{ "partial", required_argument, 0, 'p' },
-	{ "quiet", required_argument, 0, 'q' },
-	{ "read", no_argument, 0, 'r' },
-	{ "filesize", no_argument, 0, 's' },
-	{ "timestamp", required_argument, 0, 't' },
-	{ "verbose", no_argument, 0, 'v' },
-	{ "write", no_argument, 0, 'w' },
-	{ 0, 0, 0, 0}
+	{
+		.name		= "chunksize",
+		.has_arg	= required_argument,
+		.flag		= NULL,
+		.val		= 'c'
+	},
+	{
+		.name		= "help",
+		.has_arg	= no_argument,
+		.flag		= NULL,
+		.val		= 'h'
+	},
+	{
+		.name		= "offset",
+		.has_arg	= required_argument,
+		.flag		= NULL,
+		.val		= 'o'
+	},
+	{
+		.name		= "long",
+		.has_arg	= no_argument,
+		.flag		= NULL,
+		.val		= 'l'
+	},
+	{
+		.name		= "full",
+		.has_arg	= no_argument,
+		.flag		= NULL,
+		.val		= 'l'
+	},
+	{
+		.name		= "partial",
+		.has_arg	= required_argument,
+		.flag		= NULL,
+		.val		= 'p'
+	},
+	{
+		.name		= "quiet",
+		.has_arg	= required_argument,
+		.flag		= NULL,
+		.val		= 'q'
+	},
+	{
+		.name		= "read",
+		.has_arg	= no_argument,
+		.flag		= NULL,
+		.val		= 'r'
+	},
+	{
+		.name		= "filesize",
+		.has_arg	= no_argument,
+		.flag		= NULL,
+		.val		= 's'
+	},
+	{
+		.name		= "timestamp",
+		.has_arg	= required_argument,
+		.flag		= NULL,
+		.val		= 't'
+	},
+	{
+		.name		= "verbose",
+		.has_arg	= no_argument,
+		.flag		= NULL,
+		.val		= 'v'
+	},
+	{
+		.name		= "write",
+		.has_arg	= no_argument,
+		.flag		= NULL,
+		.val		= 'w'
+	},
+	{
+		.name		= NULL,
+		.has_arg	= no_argument,
+		.flag		= NULL,
+		.val		= 0
+	}
 };
 
 /*
