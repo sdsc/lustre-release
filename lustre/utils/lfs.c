@@ -927,48 +927,129 @@ static int lfs_setstripe(int argc, char **argv)
 	__u32				 osts[LOV_MAX_STRIPE_COUNT] = { 0 };
 	int				 nr_osts = 0;
 
-	struct option		 long_opts[] = {
+	struct option long_opts[] = {
 		/* --block is only valid in migrate mode */
-		{"block",	 no_argument,	    0, 'b'},
+		{
+			.name		= "block",
+			.has_arg	= no_argument,
+			.val		= 'b'
+		},
 #if LUSTRE_VERSION_CODE < OBD_OCD_VERSION(2, 9, 53, 0)
 		/* This formerly implied "stripe-count", but was explicitly
 		 * made "stripe-count" for consistency with other options,
 		 * and to separate it from "mdt-count" when DNE arrives. */
-		{"count",	 required_argument, 0, 'c'},
+		{
+			.name		= "count",
+			.has_arg	= required_argument,
+			.val		= 'c'
+		},
 #endif
-		{"stripe-count", required_argument, 0, 'c'},
-		{"stripe_count", required_argument, 0, 'c'},
-		{"delete",       no_argument,       0, 'd'},
+		{
+			.name		= "stripe-count",
+			.has_arg	= required_argument,
+			.val		= 'c'
+		},
+		{
+			.name		= "stripe_count",
+			.has_arg	= required_argument,
+			.val		= 'c'
+		},
+		{
+			.name		= "delete",
+			.has_arg	= no_argument,
+			.val		= 'd'},
 #if LUSTRE_VERSION_CODE < OBD_OCD_VERSION(2, 9, 53, 0)
 		/* This formerly implied "stripe-index", but was explicitly
 		 * made "stripe-index" for consistency with other options,
 		 * and to separate it from "mdt-index" when DNE arrives. */
-		{"index",	 required_argument, 0, 'i'},
+		{
+			.name		= "index",
+			.has_arg	= required_argument,
+			.val		= 'i'
+		},
 #endif
-		{"stripe-index", required_argument, 0, 'i'},
-		{"stripe_index", required_argument, 0, 'i'},
-		{"mdt",	 	 required_argument, 0, 'm'},
-		{"mdt-index",	 required_argument, 0, 'm'},
-		{"mdt_index",	 required_argument, 0, 'm'},
+		{
+			.name		= "stripe-index",
+			.has_arg	= required_argument,
+			.val		= 'i'
+		},
+		{
+			.name		= "stripe_index",
+			.has_arg	= required_argument,
+			.val		= 'i'
+		},
+		{
+			.name		= "mdt",
+			.has_arg	= required_argument,
+			.val		= 'm'
+		},
+		{
+			.name		= "mdt-index",
+			.has_arg	= required_argument,
+			.val		= 'm'
+		},
+		{
+			.name		= "mdt_index",
+			.has_arg	= required_argument,
+			.val		= 'm'
+		},
 		/* --non-block is only valid in migrate mode */
-		{"non-block",	 no_argument,	    0, 'n'},
-		{"ost",		 required_argument, 0, 'o'},
+		{
+			.name		= "non-block",
+			.has_arg	= no_argument,
+			.val		= 'n'
+		},
+		{
+			.name		= "ost",
+			.has_arg	= required_argument,
+			.val		= 'o'
+		},
 #if LUSTRE_VERSION_CODE < OBD_OCD_VERSION(3, 0, 53, 0)
-		{"ost-list",     required_argument, 0, 'o'},
-		{"ost_list",     required_argument, 0, 'o'},
+		{
+			.name		= "ost-list",
+			.has_arg	= required_argument,
+			.val		= 'o'
+		},
+		{
+			.name		= "ost_list",
+			.has_arg	= required_argument,
+			.val		= 'o'
+		},
 #endif
-		{"pool",	 required_argument, 0, 'p'},
+		{
+			.name		= "pool",
+			.has_arg	= required_argument,
+			.val		= 'p'
+		},
 #if LUSTRE_VERSION_CODE < OBD_OCD_VERSION(2, 9, 53, 0)
 		/* This formerly implied "--stripe-size", but was confusing
 		 * with "lfs find --size|-s", which means "file size", so use
 		 * the consistent "--stripe-size|-S" for all commands. */
-		{"size",	 required_argument, 0, 's'},
+		{
+			.name		= "size",
+			.has_arg	= required_argument,
+			.val		= 's'
+		},
 #endif
-		{"stripe-size",  required_argument, 0, 'S'},
-		{"stripe_size",  required_argument, 0, 'S'},
+		{
+			.name		= "stripe-size",
+			.has_arg	= required_argument,
+			.val		= 'S'
+		},
+		{
+			.name		= "stripe_size",
+			.has_arg	= required_argument,
+			.val		= 'S'
+		},
 		/* --verbose is only valid in migrate mode */
-		{"verbose",	 no_argument,	    0, 'v'},
-		{0, 0, 0, 0}
+		{
+			.name		= "verbose",
+			.has_arg	= no_argument,
+			.val		= 'v'
+		},
+		{
+			.name		= NULL
+		}
 	};
 
 	st_size = 0;
@@ -1353,37 +1434,143 @@ static int lfs_find(int argc, char **argv)
 		.fp_max_depth = -1,
 		.fp_quiet = 1,
 	};
-        struct option long_opts[] = {
-                {"atime",        required_argument, 0, 'A'},
-                {"stripe-count", required_argument, 0, 'c'},
-                {"stripe_count", required_argument, 0, 'c'},
-                {"ctime",        required_argument, 0, 'C'},
-                {"maxdepth",     required_argument, 0, 'D'},
-                {"gid",          required_argument, 0, 'g'},
-                {"group",        required_argument, 0, 'G'},
-                {"stripe-index", required_argument, 0, 'i'},
-                {"stripe_index", required_argument, 0, 'i'},
-		{"layout",	 required_argument, 0, 'L'},
-                {"mdt",          required_argument, 0, 'm'},
-                {"mdt-index",    required_argument, 0, 'm'},
-                {"mdt_index",    required_argument, 0, 'm'},
-                {"mtime",        required_argument, 0, 'M'},
-                {"name",         required_argument, 0, 'n'},
-     /* reserve {"or",           no_argument,     , 0, 'o'}, to match find(1) */
-                {"obd",          required_argument, 0, 'O'},
-                {"ost",          required_argument, 0, 'O'},
-                /* no short option for pool, p/P already used */
-                {"pool",         required_argument, 0, FIND_POOL_OPT},
-                {"print0",       no_argument,       0, 'p'},
-                {"print",        no_argument,       0, 'P'},
-                {"size",         required_argument, 0, 's'},
-                {"stripe-size",  required_argument, 0, 'S'},
-                {"stripe_size",  required_argument, 0, 'S'},
-                {"type",         required_argument, 0, 't'},
-                {"uid",          required_argument, 0, 'u'},
-                {"user",         required_argument, 0, 'U'},
-                {0, 0, 0, 0}
-        };
+	struct option long_opts[] = {
+		{
+			.name		= "atime",
+			.has_arg	= required_argument,
+			.val		= 'A'
+		},
+		{
+			.name		= "stripe-count",
+			.has_arg	= required_argument,
+			.val		= 'c'
+		},
+		{
+			.name		= "stripe_count",
+			.has_arg	= required_argument,
+			.val		= 'c'
+		},
+		{
+			.name		= "ctime",
+			.has_arg	= required_argument,
+			.val		= 'C'
+		},
+		{
+			.name		= "maxdepth",
+			.has_arg	= required_argument,
+			.val		= 'D'
+		},
+		{
+			.name		= "gid",
+			.has_arg	= required_argument,
+			.val		= 'g'
+		},
+		{
+			.name		= "group",
+			.has_arg	= required_argument,
+			.val		= 'G'
+		},
+		{
+			.name		= "stripe-index",
+			.has_arg	= required_argument,
+			.val		= 'i'
+		},
+		{
+			.name		= "stripe_index",
+			.has_arg	= required_argument,
+			.val		= 'i'
+		},
+		{
+			.name		= "layout",
+			.has_arg	= required_argument,
+			.val		= 'L'
+		},
+		{
+			.name		= "mdt",
+			.has_arg	= required_argument,
+			.val		= 'm'
+		},
+		{
+			.name		= "mdt-index",
+			.has_arg	= required_argument,
+			.val		= 'm'
+		},
+		{
+			.name		= "mdt_index",
+			.has_arg	= required_argument,
+			.val		= 'm'
+		},
+		{
+			.name		= "mtime",
+			.has_arg	= required_argument,
+			.val		= 'M'
+		},
+		{
+			.name		= "name",
+			.has_arg	= required_argument,
+			.val		= 'n'
+		},
+		/* reserve { "or", no_argument, 0, 'o'}, to match find(1) */
+		{
+			.name		= "obd",
+			.has_arg	= required_argument,
+			.val		= 'O'
+		},
+		{
+			.name		= "ost",
+			.has_arg	= required_argument,
+			.val		= 'O'
+		},
+		/* no short option for pool, p/P already used */
+		{
+			.name		= "pool",
+			.has_arg	= required_argument,
+			.val		= FIND_POOL_OPT
+		},
+		{
+			.name		= "print0",
+			.has_arg	= no_argument,
+			.val		= 'p'
+		},
+		{
+			.name		= "print",
+			.has_arg	= no_argument,
+			.val		= 'P'
+		},
+		{
+			.name		= "size",
+			.has_arg	= required_argument,
+			.val		= 's'
+		},
+		{
+			.name		= "stripe-size",
+			.has_arg	= required_argument,
+			.val		= 'S'
+		},
+		{
+			.name		= "stripe_size",
+			.has_arg	= required_argument,
+			.val		= 'S'
+		},
+		{
+			.name		= "type",
+			.has_arg	= required_argument,
+			.val		= 't'
+		},
+		{
+			.name		= "uid",
+			.has_arg	= required_argument,
+			.val		= 'u'
+		},
+		{
+			.name		= "user",
+			.has_arg	= required_argument,
+			.val		= 'U'
+		},
+		{
+			.name		= NULL
+		}
+	};
         int pathstart = -1;
         int pathend = -1;
         int neg_opt = 0;
@@ -1731,52 +1918,162 @@ static int lfs_getstripe_internal(int argc, char **argv,
 		/* This formerly implied "stripe-count", but was explicitly
 		 * made "stripe-count" for consistency with other options,
 		 * and to separate it from "mdt-count" when DNE arrives. */
-		{"count",		no_argument,		0, 'c'},
+		{
+			.name		= "count",
+			.has_arg	= no_argument,
+			.val		= 'c'
+		},
 #endif
-		{"stripe-count",	no_argument,		0, 'c'},
-		{"stripe_count",	no_argument,		0, 'c'},
-		{"directory",		no_argument,		0, 'd'},
-		{"default",		no_argument,		0, 'D'},
-		{"fid",			no_argument,		0, 'F'},
-		{"generation",		no_argument,		0, 'g'},
+		{
+			.name		= "stripe-count",
+			.has_arg	= no_argument,
+			.val		= 'c'
+		},
+		{
+			.name		= "stripe_count",
+			.has_arg	= no_argument,
+			.val		= 'c'
+		},
+		{
+			.name		= "directory",
+			.has_arg	= no_argument,
+			.val		= 'd'
+		},
+		{
+			.name		= "default",
+			.has_arg	= no_argument,
+			.val		= 'D'
+		},
+		{
+			.name		= "fid",
+			.has_arg	= no_argument,
+			.val		= 'F'
+		},
+		{
+			.name		= "generation",
+			.has_arg	= no_argument,
+			.val		= 'g'
+		},
 #if LUSTRE_VERSION_CODE < OBD_OCD_VERSION(2, 9, 53, 0)
 		/* This formerly implied "stripe-index", but was explicitly
 		 * made "stripe-index" for consistency with other options,
 		 * and to separate it from "mdt-index" when DNE arrives. */
-		{"index",		no_argument,		0, 'i'},
+		{
+			.name		= "index",
+			.has_arg	= no_argument,
+			.val		= 'i'
+		},
 #endif
-		{"stripe-index",	no_argument,		0, 'i'},
-		{"stripe_index",	no_argument,		0, 'i'},
-		{"layout",		no_argument,		0, 'L'},
-		{"mdt",			no_argument,		0, 'm'},
-		{"mdt-index",		no_argument,		0, 'm'},
-		{"mdt_index",		no_argument,		0, 'm'},
+		{
+			.name		= "stripe-index",
+			.has_arg	= no_argument,
+			.val		= 'i'
+		},
+		{
+			.name		= "stripe_index",
+			.has_arg	= no_argument,
+			.val		= 'i'
+		},
+		{
+			.name		= "layout",
+			.has_arg	= no_argument,
+			.val		= 'L'
+		},
+		{
+			.name		= "mdt",
+			.has_arg	= no_argument,
+			.val		= 'm'
+		},
+		{
+			.name		= "mdt-index",
+			.has_arg	= no_argument,
+			.val		= 'm'
+		},
+		{
+			.name		= "mdt_index",
+			.has_arg	= no_argument,
+			.val		= 'm'
+		},
 #if LUSTRE_VERSION_CODE < OBD_OCD_VERSION(3, 0, 53, 0)
-		{"mdt-index",		no_argument,		0, 'M'},
-		{"mdt_index",		no_argument,		0, 'M'},
+		{
+			.name		= "mdt-index",
+			.has_arg	= no_argument,
+			.val		= 'M'
+		},
+		{
+			.name		= "mdt_index",
+			.has_arg	= no_argument,
+			.val		= 'M'
+		},
 #endif
 #if LUSTRE_VERSION_CODE < OBD_OCD_VERSION(2, 9, 53, 0)
 		/* This formerly implied "stripe-index", but was confusing
 		 * with "file offset" (which will eventually be needed for
 		 * with different layouts by offset), so deprecate it. */
-		{"offset",		no_argument,		0, 'o'},
+		{
+			.name		= "offset",
+			.has_arg	= no_argument,
+			.val		= 'o'
+		},
 #endif
-		{"obd",			required_argument,	0, 'O'},
-		{"ost",			required_argument,	0, 'O'},
-		{"pool",		no_argument,		0, 'p'},
-		{"quiet",		no_argument,		0, 'q'},
-		{"recursive",		no_argument,		0, 'r'},
-		{"raw",			no_argument,		0, 'R'},
+		{
+			.name		= "obd",
+			.has_arg	= required_argument,
+			.val		= 'O'
+		},
+		{
+			.name		= "ost",
+			.has_arg	= required_argument,
+			.val		= 'O'
+		},
+		{
+			.name		= "pool",
+			.has_arg	= no_argument,
+			.val		= 'p'
+		},
+		{
+			.name		= "quiet",
+			.has_arg	= no_argument,
+			.val		= 'q'
+		},
+		{
+			.name		= "recursive",
+			.has_arg	= no_argument,
+			.val		= 'r'
+		},
+		{
+			.name		= "raw",
+			.has_arg	= no_argument,
+			.val		= 'R'
+		},
 #if LUSTRE_VERSION_CODE < OBD_OCD_VERSION(2, 9, 53, 0)
 		/* This formerly implied "--stripe-size", but was confusing
 		 * with "lfs find --size|-s", which means "file size", so use
 		 * the consistent "--stripe-size|-S" for all commands. */
-		{"size",		no_argument,		0, 's'},
+		{
+			.name		= "size",
+			.has_arg	= no_argument,
+			.val		= 's'
+		},
 #endif
-		{"stripe-size",		no_argument,		0, 'S'},
-		{"stripe_size",		no_argument,		0, 'S'},
-		{"verbose",		no_argument,		0, 'v'},
-		{0, 0, 0, 0}
+		{
+			.name		= "stripe-size",
+			.has_arg	= no_argument,
+			.val		= 'S'
+		},
+		{
+			.name		= "stripe_size",
+			.has_arg	= no_argument,
+			.val		= 'S'
+		},
+		{
+			.name		= "verbose",
+			.has_arg	= no_argument,
+			.val		= 'v'
+		},
+		{
+			.name		= NULL
+		}
 	};
 	int c, rc;
 
@@ -1988,21 +2285,59 @@ static int lfs_setdirstripe(int argc, char **argv)
 
 	struct option long_opts[] = {
 #if LUSTRE_VERSION_CODE < OBD_OCD_VERSION(3, 0, 53, 0)
-		{"count",	required_argument, 0, 'c'},
+		{
+			.name		= "count",
+			.has_arg	= required_argument,
+			.val		= 'c'
+		},
 #endif
-		{"mdt-count",	required_argument, 0, 'c'},
-		{"delete",	no_argument, 0, 'd'},
+		{
+			.name		= "mdt-count",
+			.has_arg	= required_argument,
+			.val		= 'c'
+		},
+		{
+			.name		= "delete",
+			.has_arg	= no_argument,
+			.val		= 'd'
+		},
 #if LUSTRE_VERSION_CODE < OBD_OCD_VERSION(3, 0, 53, 0)
-		{"index",	required_argument, 0, 'i'},
+		{
+			.name		= "index",
+			.has_arg	= required_argument,
+			.val		= 'i'
+		},
 #endif
-		{"mdt-index",	required_argument, 0, 'i'},
-		{"mode",	required_argument, 0, 'm'},
+		{
+			.name		= "mdt-index",
+			.has_arg	= required_argument,
+			.val		= 'i'
+		},
+		{
+			.name		= "mode",
+			.has_arg	= required_argument,
+			.val		= 'm'
+		},
 #if LUSTRE_VERSION_CODE < OBD_OCD_VERSION(3, 0, 53, 0)
-		{"hash-type",	required_argument, 0, 't'},
+		{
+			.name		= "hash-type",
+			.has_arg	= required_argument,
+			.val		= 't'
+		},
 #endif
-		{"mdt-hash",	required_argument, 0, 't'},
-		{"default_stripe", no_argument, 0, 'D'},
-		{0, 0, 0, 0}
+		{
+			.name		= "mdt-hash",
+			.has_arg	= required_argument,
+			.val		= 't'
+		},
+		{
+			.name		= "default_stripe",
+			.has_arg	= no_argument,
+			.val		= 'D'
+		},
+		{
+			.name		= NULL
+		}
 	};
 
 	while ((c = getopt_long(argc, argv, "c:dDi:m:t:", long_opts,
@@ -2349,9 +2684,11 @@ static int mntdf(char *mntdir, char *fsname, char *pool, int ishow,
 	struct obd_statfs stat_buf, sum = { .os_bsize = 1 };
 	struct obd_uuid uuid_buf;
 	char *poolname = NULL;
-	struct ll_stat_type types[] = { { LL_STATFS_LMV, "MDT" },
-					{ LL_STATFS_LOV, "OST" },
-					{ 0, NULL } };
+	struct ll_stat_type types[] = {
+		{ .st_op = LL_STATFS_LMV, .st_name = "MDT" },
+		{ .st_op = LL_STATFS_LOV, .st_name = "OST" },
+		{ .st_op = 0, .st_name = NULL }
+	};
 	struct ll_stat_type *tp;
 	__u64 ost_ffree = 0;
 	__u32 index;
@@ -2463,10 +2800,20 @@ static int lfs_df(int argc, char **argv)
         int c, rc = 0, index = 0;
         char fsname[PATH_MAX] = "", *pool_name = NULL;
         struct option long_opts[] = {
-                {"pool", required_argument, 0, 'p'},
-                {"lazy", 0, 0, 'l'},
-                {0, 0, 0, 0}
-        };
+		{
+			.name		= "pool",
+			.has_arg	= required_argument,
+			.val		= 'p'
+		},
+		{
+			.name		= "lazy",
+			.has_arg	= no_argument,
+			.val		= 'l'
+		},
+		{
+			.name		= NULL
+		}
+	};
 
 	while ((c = getopt_long(argc, argv, "hilp:", long_opts, NULL)) != -1) {
 		switch (c) {
@@ -2700,13 +3047,35 @@ int lfs_setquota_times(int argc, char **argv)
         struct obd_dqblk *dqb = &qctl.qc_dqblk;
         struct obd_dqinfo *dqi = &qctl.qc_dqinfo;
         struct option long_opts[] = {
-                {"block-grace",     required_argument, 0, 'b'},
-                {"group",           no_argument,       0, 'g'},
-                {"inode-grace",     required_argument, 0, 'i'},
-                {"times",           no_argument,       0, 't'},
-                {"user",            no_argument,       0, 'u'},
-                {0, 0, 0, 0}
-        };
+		{
+			.name		= "block-grace",
+			.has_arg	= required_argument,
+			.val		= 'b'
+		},
+		{
+			.name		= "group",
+			.has_arg	= no_argument,
+			.val		= 'g'
+		},
+		{
+			.name		= "inode-grace",
+			.has_arg	= required_argument,
+			.val		= 'i'
+		},
+		{
+			.name		= "times",
+			.has_arg	= no_argument,
+			.val		= 't'
+		},
+		{
+			.name		= "user",
+			.has_arg	= no_argument,
+			.val		= 'u'
+		},
+		{
+			.name		= NULL
+		}
+	};
 
         memset(&qctl, 0, sizeof(qctl));
         qctl.qc_cmd  = LUSTRE_Q_SETINFO;
@@ -2780,15 +3149,41 @@ int lfs_setquota(int argc, char **argv)
         struct if_quotactl qctl;
         char *mnt, *obd_type = (char *)qctl.obd_type;
         struct obd_dqblk *dqb = &qctl.qc_dqblk;
-        struct option long_opts[] = {
-                {"block-softlimit", required_argument, 0, 'b'},
-                {"block-hardlimit", required_argument, 0, 'B'},
-                {"group",           required_argument, 0, 'g'},
-                {"inode-softlimit", required_argument, 0, 'i'},
-                {"inode-hardlimit", required_argument, 0, 'I'},
-                {"user",            required_argument, 0, 'u'},
-                {0, 0, 0, 0}
-        };
+	struct option long_opts[] = {
+		{
+			.name		= "block-softlimit",
+			.has_arg	= required_argument,
+			.val		= 'b'
+		},
+		{
+			.name		= "block-hardlimit",
+			.has_arg	= required_argument,
+			.val		= 'B'
+		},
+		{
+			.name		= "group",
+			.has_arg	= required_argument,
+			.val		= 'g'
+		},
+		{
+			.name		= "inode-softlimit",
+			.has_arg	= required_argument,
+			.val		= 'i'
+		},
+		{
+			.name		= "inode-hardlimit",
+			.has_arg	= required_argument,
+			.val		= 'I'
+		},
+		{
+			.name		= "user",
+			.has_arg	= required_argument,
+			.val		= 'u'
+		},
+		{
+			.name		= NULL
+		}
+	};
         unsigned limit_mask = 0;
         char *endptr;
 
@@ -3466,10 +3861,16 @@ static int lfs_changelog(int argc, char **argv)
 	struct changelog_rec *rec;
         long long startrec = 0, endrec = 0;
         char *mdd;
-        struct option long_opts[] = {
-                {"follow", no_argument, 0, 'f'},
-                {0, 0, 0, 0}
-        };
+	struct option long_opts[] = {
+		{
+			.name		= "follow",
+			.has_arg	= no_argument,
+			.val		= 'f'
+		},
+		{
+			.name		= NULL
+		}
+	};
         char short_opts[] = "f";
         int rc, follow = 0;
 
@@ -3585,12 +3986,26 @@ static int lfs_changelog_clear(int argc, char **argv)
 
 static int lfs_fid2path(int argc, char **argv)
 {
-        struct option long_opts[] = {
-                {"cur", no_argument, 0, 'c'},
-                {"link", required_argument, 0, 'l'},
-                {"rec", required_argument, 0, 'r'},
-                {0, 0, 0, 0}
-        };
+	struct option long_opts[] = {
+		{
+			.name		= "cur",
+			.has_arg	= no_argument,
+			.val		= 'c'
+		},
+		{
+			.name		= "link",
+			.has_arg	= required_argument,
+			.val		= 'l'
+		},
+		{
+			.name		= "rec",
+			.has_arg	= required_argument,
+			.val		= 'r'
+		},
+		{
+			.name		= NULL
+		}
+	};
         char  short_opts[] = "cl:r:";
         char *device, *fid, *path;
         long long recno = -1;
@@ -3675,9 +4090,15 @@ static int lfs_fid2path(int argc, char **argv)
 
 static int lfs_path2fid(int argc, char **argv)
 {
-	struct option	  long_opts[] = {
-		{"parents", no_argument, 0, 'p'},
-		{0, 0, 0, 0}
+	struct option long_opts[] = {
+		{
+			.name		= "parents",
+			.has_arg	= no_argument,
+			.val		= 'p'
+		},
+		{
+			.name		= NULL
+		}
 	};
 	char		**path;
 	const char	  short_opts[] = "p";
@@ -3853,13 +4274,39 @@ static int lfs_hsm_state(int argc, char **argv)
 static int lfs_hsm_change_flags(int argc, char **argv, int mode)
 {
 	struct option long_opts[] = {
-		{"lost", 0, 0, 'l'},
-		{"norelease", 0, 0, 'r'},
-		{"noarchive", 0, 0, 'a'},
-		{"archived", 0, 0, 'A'},
-		{"dirty", 0, 0, 'd'},
-		{"exists", 0, 0, 'e'},
-		{0, 0, 0, 0}
+		{
+			.name		= "lost",
+			.has_arg	= no_argument,
+			.val		= 'l'
+		},
+		{
+			.name		= "norelease",
+			.has_arg	= no_argument,
+			.val		= 'r'
+		},
+		{
+			.name		= "noarchive",
+			.has_arg	= no_argument,
+			.val		= 'a'
+		},
+		{
+			.name		= "archived",
+			.has_arg	= no_argument,
+			.val		= 'A'
+		},
+		{
+			.name		= "dirty",
+			.has_arg	= no_argument,
+			.val		= 'd'
+		},
+		{
+			.name		= "exists",
+			.has_arg	= no_argument,
+			.val		= 'e'
+		},
+		{
+			.name		= NULL
+		}
 	};
 	char short_opts[] = "lraAde";
 	__u64 mask = 0;
@@ -4079,11 +4526,29 @@ static int fill_hur_item(struct hsm_user_request *hur, unsigned int idx,
 static int lfs_hsm_request(int argc, char **argv, int action)
 {
 	struct option		 long_opts[] = {
-		{"filelist", 1, 0, 'l'},
-		{"data", 1, 0, 'D'},
-		{"archive", 1, 0, 'a'},
-		{"mntpath", 1, 0, 'm'},
-		{0, 0, 0, 0}
+		{
+			.name		= "filelist",
+			.has_arg	= required_argument,
+			.val		= 'l'
+		},
+		{
+			.name		= "data",
+			.has_arg	= required_argument,
+			.val		= 'D'
+		},
+		{
+			.name		= "archive",
+			.has_arg	= required_argument,
+			.val		= 'a'
+		},
+		{
+			.name		= "mntpath",
+			.has_arg	= required_argument,
+			.val		= 'm'
+		},
+		{
+			.name		= NULL
+		}
 	};
 	dev_t			 last_dev = 0;
 	char			 short_opts[] = "l:D:a:m:";
@@ -4320,12 +4785,34 @@ static enum lu_ladvise_type lfs_get_ladvice(const char *string)
 static int lfs_ladvise(int argc, char **argv)
 {
 	struct option		 long_opts[] = {
-		{"advice",	required_argument,	0, 'a'},
-		{"background",	no_argument,		0, 'b'},
-		{"end",		required_argument,	0, 'e'},
-		{"start",	required_argument,	0, 's'},
-		{"length",	required_argument,	0, 'l'},
-		{0, 0, 0, 0}
+		{
+			.name		= "advice",
+			.has_arg	= required_argument,
+			.val		= 'a'
+		},
+		{
+			.name		= "background",
+			.has_arg	= no_argument,
+			.val		= 'b'
+		},
+		{
+			.name		= "end",
+			.has_arg	= required_argument,
+			.val		= 'e'
+		},
+		{
+			.name		= "start",
+			.has_arg	= required_argument,
+			.val		= 's'
+		},
+		{
+			.name		= "length",
+			.has_arg	= required_argument,
+			.val		= 'l'
+		},
+		{
+			.name		= NULL
+		}
 	};
 	char			 short_opts[] = "a:be:l:s:";
 	int			 c;

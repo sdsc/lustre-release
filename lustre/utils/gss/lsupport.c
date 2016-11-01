@@ -292,15 +292,15 @@ struct convert_struct {
 };
 
 static struct convert_struct converter[] = {
-        [0]             = { "UNUSED0",  NULL},
-        [QSWLND]        = { "QSWLND",   external_nid2hostname},
-        [SOCKLND]       = { "SOCKLND",  ipv4_nid2hostname },
-        [GMLND]         = { "GMLND",    external_nid2hostname},
-        [PTLLND]        = { "PTLLND",   external_nid2hostname },
-        [O2IBLND]       = { "O2IBLND",  ipv4_nid2hostname },
-        [LOLND]         = { "LOLND",    lolnd_nid2hostname },
-        [RALND]         = { "RALND",    external_nid2hostname },
-        [MXLND]         = { "MXLND",    external_nid2hostname },
+	[0] = { .name = "UNUSED0", .nid2name = NULL },
+	[QSWLND] = { .name = "QSWLND", .nid2name = external_nid2hostname },
+	[SOCKLND] = { .name = "SOCKLND", .nid2name = ipv4_nid2hostname },
+	[GMLND] = { .name = "GMLND", .nid2name = external_nid2hostname },
+	[PTLLND] = { .name = "PTLLND", .nid2name = external_nid2hostname },
+	[O2IBLND] = { .name = "O2IBLND", .nid2name = ipv4_nid2hostname },
+	[LOLND] = { .name = "LOLND", .nid2name = lolnd_nid2hostname },
+	[RALND] = { .name = "RALND", .nid2name = external_nid2hostname },
+	[MXLND] = { .name = "MXLND", .nid2name = external_nid2hostname }
 };
 
 #define LND_MAX         (sizeof(converter) / sizeof(converter[0]))
@@ -348,7 +348,7 @@ struct user_mapping {
         struct user_map_item *items;
 };
 
-static struct user_mapping mapping = {0, NULL};
+static struct user_mapping mapping = { .nitems = 0, .items = NULL };
 /* FIXME to be finished: monitor change of mapping database */
 static int mapping_mtime = 0;
 

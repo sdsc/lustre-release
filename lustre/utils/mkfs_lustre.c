@@ -277,41 +277,167 @@ int parse_opts(int argc, char *const argv[], struct mkfs_opts *mop,
 	       char **mountopts)
 {
 	static struct option long_opt[] = {
-		{ "backfs-mount-opts",  required_argument,	NULL, 'B' },
-		{ "failnode",		required_argument,	NULL, 'f' },
-		{ "failover",		required_argument,	NULL, 'f' },
-		{ "help",		no_argument,		NULL, 'h' },
-		{ "index",		required_argument,	NULL, 'i' },
-		{ "fsname",		required_argument,	NULL, 'L' },
-		{ "mgsnode",		required_argument,	NULL, 'm' },
-		{ "mgsnid",		required_argument,	NULL, 'm' },
-		{ "dryrun",		no_argument,		NULL, 'n' },
-		{ "mountfsoptions",	required_argument,	NULL, 'o' },
-		{ "param",		required_argument,	NULL, 'p' },
-		{ "quiet",		no_argument,		NULL, 'q' },
-		{ "servicenode",	required_argument,	NULL, 's' },
-		{ "network",		required_argument,	NULL, 't' },
-		{ "comment",		required_argument,	NULL, 'u' },
-		{ "force-nohostid",	no_argument,		NULL, 'U' },
-		{ "verbose",		no_argument,		NULL, 'v' },
-		{ "version",		no_argument,		NULL, 'V' },
+		{
+			.name		= "backfs-mount-opts",
+			.has_arg	= required_argument,
+			.val		= 'B'
+		},
+		{
+			.name		= "failnode",
+			.has_arg	= required_argument,
+			.val		= 'f'
+		},
+		{
+			.name		= "failover",
+			.has_arg	= required_argument,
+			.val		= 'f'
+		},
+		{
+			.name		= "help",
+			.has_arg	= no_argument,
+			.val		= 'h'
+		},
+		{
+			.name		= "index",
+			.has_arg	= required_argument,
+			.val		= 'i'
+		},
+		{
+			.name		= "fsname",
+			.has_arg	= required_argument,
+			.val		= 'L'
+		},
+		{
+			.name		= "mgsnode",
+			.has_arg	= required_argument,
+			.val		= 'm'
+		},
+		{
+			.name		= "mgsnid",
+			.has_arg	= required_argument,
+			.val		= 'm'
+		},
+		{
+			.name		= "dryrun",
+			.has_arg	= no_argument,
+			.val		= 'n'
+		},
+		{
+			.name		= "mountfsoptions",
+			.has_arg	= required_argument,
+			.val		= 'o'
+		},
+		{
+			.name		= "param",
+			.has_arg	= required_argument,
+			.val		= 'p'
+		},
+		{
+			.name		= "quiet",
+			.has_arg	= no_argument,
+			.val		= 'q'
+		},
+		{
+			.name		= "servicenode",
+			.has_arg	= required_argument,
+			.val		= 's'
+		},
+		{
+			.name		= "network",
+			.has_arg	= required_argument,
+			.val		= 't'
+		},
+		{
+			.name		= "comment",
+			.has_arg	= required_argument,
+			.val		= 'u'
+		},
+		{
+			.name		= "force-nohostid",
+			.has_arg	= no_argument,
+			.val		= 'U'
+		},
+		{
+			.name		= "verbose",
+			.has_arg	= no_argument,
+			.val		= 'v'
+		},
+		{
+			.name		= "version",
+			.has_arg	= no_argument,
+			.val		= 'V'
+		},
 #ifndef TUNEFS
-		{ "backfstype",		required_argument,	NULL, 'b' },
-		{ "stripe-count-hint",	required_argument,	NULL, 'c' },
-		{ "device-size",	required_argument,	NULL, 'd' },
-		{ "mgs",		no_argument,		NULL, 'G' },
-		{ "mkfsoptions",	required_argument,	NULL, 'k' },
-		{ "mdt",		no_argument,		NULL, 'M' },
-		{ "nomgs",		no_argument,		NULL, 'N' },
-		{ "ost",		no_argument,		NULL, 'O' },
-		{ "reformat",		no_argument,		NULL, 'r' },
-		{ "replace",		no_argument,		NULL, 'R' },
+		{
+			.name		= "backfstype",
+			.has_arg	= required_argument,
+			.val		= 'b'
+		},
+		{
+			.name		= "stripe-count-hint",
+			.has_arg	= required_argument,
+			.val		= 'c'
+		},
+		{
+			.name		= "device-size",
+			.has_arg	= required_argument,
+			.val		= 'd'
+		},
+		{
+			.name		= "mgs",
+			.has_arg	= no_argument,
+			.val		= 'G'
+		},
+		{
+			.name		= "mkfsoptions",
+			.has_arg	= required_argument,
+			.val		= 'k'
+		},
+		{
+			.name		= "mdt",
+			.has_arg	= no_argument,
+			.val		= 'M'
+		},
+		{
+			.name		= "nomgs",
+			.has_arg	= no_argument,
+			.val		= 'N'
+		},
+		{
+			.name		= "ost",
+			.has_arg	= no_argument,
+			.val		= 'O'
+		},
+		{
+			.name		= "reformat",
+			.has_arg	= no_argument,
+			.val		= 'r'
+		},
+		{
+			.name		= "replace",
+			.has_arg	= no_argument,
+			.val		= 'R'
+		},
 #else
-		{ "erase-params",	no_argument,		NULL, 'e' },
-		{ "quota",		no_argument,		NULL, 'Q' },
-		{ "writeconf",		no_argument,		NULL, 'w' },
+		{
+			.name		= "erase-params",
+			.has_arg	= no_argument,
+			.val		= 'e'
+		},
+		{
+			.name		= "quota",
+			.has_arg	= no_argument,
+			.val		= 'Q'
+		},
+		{
+			.name		= "writeconf",
+			.has_arg	= no_argument,
+			.val		= 'w'
+		},
 #endif
-		{ 0,			0,			NULL,  0  }
+		{
+			.name		= NULL
+		}
 	};
 	char *optstring = "B:f:hi:L:m:no:p:qs:t:u:vV"
 #ifndef TUNEFS

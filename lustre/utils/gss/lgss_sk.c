@@ -334,23 +334,89 @@ int main(int argc, char **argv)
 	DH *dh;
 
 	static struct option long_opt[] = {
-		{"crypt", 1, 0, 'c'},
-		{"data", 1, 0, 'd'},
-		{"expire", 1, 0, 'e'},
-		{"fsname", 1, 0, 'f'},
-		{"mgsnids", 1, 0, 'g'},
-		{"help", 0, 0, 'h'},
-		{"hmac", 1, 0, 'i'},
-		{"shared", 1, 0, 'k'},
-		{"load", 1, 0, 'l'},
-		{"modify", 1, 0, 'm'},
-		{"nodemap", 1, 0, 'n'},
-		{"prime-bits", 1, 0, 'p'},
-		{"read", 1, 0, 'r'},
-		{"type", 1, 0, 't'},
-		{"verbose", 0, 0, 'v'},
-		{"write", 1, 0, 'w'},
-		{0, 0, 0, 0},
+		{
+			.name		= "crypt",
+			.has_arg	= required_argument,
+			.val		= 'c'
+		},
+		{
+			.name		= "data",
+			.has_arg	= required_argument,
+			.val		= 'd'
+		},
+		{
+			.name		= "expire",
+			.has_arg	= required_argument,
+			.val		= 'e'
+		},
+		{
+			.name		= "fsname",
+			.has_arg	= required_argument,
+			.val		= 'f'
+		},
+		{
+			.name		= "mgsnids",
+			.has_arg	= required_argument,
+			.val		= 'g'
+		},
+		{
+			.name		= "help",
+			.has_arg	= no_argument,
+			.val		= 'h'
+		},
+		{
+			.name		= "hmac",
+			.has_arg	= required_argument,
+			.val		= 'i'
+		},
+		{
+			.name		= "shared",
+			.has_arg	= required_argument,
+			.val		= 'k'
+		},
+		{
+			.name		= "load",
+			.has_arg	= required_argument,
+			.val		= 'l'
+		},
+		{
+			.name		= "modify",
+			.has_arg	= required_argument,
+			.val		= 'm'
+		},
+		{
+			.name		= "nodemap",
+			.has_arg	= required_argument,
+			.val		= 'n'
+		},
+		{
+			.name		= "prime-bits",
+			.has_arg	= required_argument,
+			.val		= 'p'
+		},
+		{
+			.name		= "read",
+			.has_arg	= required_argument,
+			.val		= 'r'
+		},
+		{
+			.name		= "type",
+			.has_arg	= required_argument,
+			.val		= 't'
+		},
+		{
+			.name		= "verbose",
+			.has_arg	= no_argument,
+			.val		= 'v'
+		},
+		{
+			.name		= "write",
+			.has_arg	= required_argument,
+			.val		= 'w'
+		},
+		{
+			.name		= NULL
+		}
 	};
 
 	while ((opt = getopt_long(argc, argv,
