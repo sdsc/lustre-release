@@ -334,23 +334,108 @@ int main(int argc, char **argv)
 	DH *dh;
 
 	static struct option long_opt[] = {
-		{"crypt", 1, 0, 'c'},
-		{"data", 1, 0, 'd'},
-		{"expire", 1, 0, 'e'},
-		{"fsname", 1, 0, 'f'},
-		{"mgsnids", 1, 0, 'g'},
-		{"help", 0, 0, 'h'},
-		{"hmac", 1, 0, 'i'},
-		{"shared", 1, 0, 'k'},
-		{"load", 1, 0, 'l'},
-		{"modify", 1, 0, 'm'},
-		{"nodemap", 1, 0, 'n'},
-		{"prime-bits", 1, 0, 'p'},
-		{"read", 1, 0, 'r'},
-		{"type", 1, 0, 't'},
-		{"verbose", 0, 0, 'v'},
-		{"write", 1, 0, 'w'},
-		{0, 0, 0, 0},
+		{
+			.name		= "crypt",
+			.has_arg	= required_argument,
+			.flag		= NULL,
+			.val		= 'c'
+		},
+		{
+			.name		= "data",
+			.has_arg	= required_argument,
+			.flag		= NULL,
+			.val		= 'd'
+		},
+		{
+			.name		= "expire",
+			.has_arg	= required_argument,
+			.flag		= NULL,
+			.val		= 'e'
+		},
+		{
+			.name		= "fsname",
+			.has_arg	= required_argument,
+			.flag		= NULL,
+			.val		= 'f'
+		},
+		{
+			.name		= "mgsnids",
+			.has_arg	= required_argument,
+			.flag		= NULL,
+			.val		= 'g'
+		},
+		{
+			.name		= "help",
+			.has_arg	= no_argument,
+			.flag		= NULL,
+			.val		= 'h'
+		},
+		{
+			.name		= "hmac",
+			.has_arg	= required_argument,
+			.flag		= NULL,
+			.val		= 'i'
+		},
+		{
+			.name		= "shared",
+			.has_arg	= required_argument,
+			.flag		= NULL,
+			.val		= 'k'
+		},
+		{
+			.name		= "load",
+			.has_arg	= required_argument,
+			.flag		= NULL,
+			.val		= 'l'
+		},
+		{
+			.name		= "modify",
+			.has_arg	= required_argument,
+			.flag		= NULL,
+			.val		= 'm'
+		},
+		{
+			.name		= "nodemap",
+			.has_arg	= required_argument,
+			.flag		= NULL,
+			.val		= 'n'
+		},
+		{
+			.name		= "prime-bits",
+			.has_arg	= required_argument,
+			.flag		= NULL,
+			.val		= 'p'
+		},
+		{
+			.name		= "read",
+			.has_arg	= required_argument,
+			.flag		= NULL,
+			.val		= 'r'
+		},
+		{
+			.name		= "type",
+			.has_arg	= required_argument,
+			.flag		= NULL,
+			.val		= 't'
+		},
+		{
+			.name		= "verbose",
+			.has_arg	= no_argument,
+			.flag		= NULL,
+			.val		= 'v'
+		},
+		{
+			.name		= "write",
+			.has_arg	= required_argument,
+			.flag		= NULL,
+			.val		= 'w'
+		},
+		{
+			.name		= NULL,
+			.has_arg	= no_argument,
+			.flag		= NULL,
+			.val		= 0
+		}
 	};
 
 	while ((opt = getopt_long(argc, argv,

@@ -63,11 +63,36 @@ char *prog;
 
 #define OPTIONS "ehlv"
 static struct option long_options[] = {
-	{"enumerate", no_argument, 0, 'e'},
-	{"help",      no_argument, 0, 'h'},
-	{"lookup",    no_argument, 0, 'l'},
-	{"verbose",   no_argument, 0, 'v'},
-	{0, 0, 0, 0},
+	{
+		.name		= "enumerate",
+		.has_arg	= no_argument,
+		.flag		= NULL,
+		.val		= 'e'
+	},
+	{
+		.name		= "help",
+		.has_arg	= no_argument,
+		.flag		= NULL,
+		.val		= 'h'
+	},
+	{
+		.name		= "lookup",
+		.has_arg	= no_argument,
+		.flag		= NULL,
+		.val		= 'l'
+	},
+	{
+		.name		= "verbose",
+		.has_arg	= no_argument,
+		.flag		= NULL,
+		.val		= 'v'
+	},
+	{
+		.name		= NULL,
+		.has_arg	= no_argument,
+		.flag		= NULL,
+		.val		= 0
+	}
 };
 
 static void usage(void)

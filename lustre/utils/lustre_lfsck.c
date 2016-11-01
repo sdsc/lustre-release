@@ -49,37 +49,162 @@
 #include <libcfs/util/param.h>
 
 static struct option long_opt_start[] = {
-	{"device",		required_argument, 0, 'M'},
-	{"all",			no_argument,	   0, 'A'},
-	{"create_ostobj",	optional_argument, 0, 'c'},
-	{"create-ostobj",	optional_argument, 0, 'c'},
-	{"create_mdtobj",	optional_argument, 0, 'C'},
-	{"create-mdtobj",	optional_argument, 0, 'C'},
-	{"error",		required_argument, 0, 'e'},
-	{"help",		no_argument,	   0, 'h'},
-	{"dryrun",		optional_argument, 0, 'n'},
-	{"orphan",		no_argument,	   0, 'o'},
-	{"reset",		no_argument,	   0, 'r'},
-	{"speed",		required_argument, 0, 's'},
-	{"type",		required_argument, 0, 't'},
-	{"window_size",		required_argument, 0, 'w'},
-	{"window-size",		required_argument, 0, 'w'},
-	{0,			0,		   0,  0 }
+	{
+		.name		= "device",
+		.has_arg	= required_argument,
+		.flag		= NULL,
+		.val		= 'M'
+	},
+	{
+		.name		= "all",
+		.has_arg	= no_argument,
+		.flag		= NULL,
+		.val		= 'A'
+	},
+	{
+		.name		= "create_ostobj",
+		.has_arg	= optional_argument,
+		.flag		= NULL,
+		.val		= 'c'
+	},
+	{
+		.name		= "create-ostobj",
+		.has_arg	= optional_argument,
+		.flag		= NULL,
+		.val		= 'c'
+	},
+	{
+		.name		= "create_mdtobj",
+		.has_arg	= optional_argument,
+		.flag		= NULL,
+		.val		= 'C'
+	},
+	{
+		.name		= "create-mdtobj",
+		.has_arg	= optional_argument,
+		.flag		= NULL,
+		.val		= 'C'
+	},
+	{
+		.name		= "error",
+		.has_arg	= required_argument,
+		.flag		= NULL,
+		.val		= 'e'
+	},
+	{
+		.name		= "help",
+		.has_arg	= no_argument,
+		.flag		= NULL,
+		.val		= 'h'
+	},
+	{
+		.name		= "dryrun",
+		.has_arg	= optional_argument,
+		.flag		= NULL,
+		.val		= 'n'
+	},
+	{
+		.name		= "orphan",
+		.has_arg	= no_argument,
+		.flag		= NULL,
+		.val		= 'o'
+	},
+	{
+		.name		= "reset",
+		.has_arg	= no_argument,
+		.flag		= NULL,
+		.val		= 'r'
+	},
+	{
+		.name		= "speed",
+		.has_arg	= required_argument,
+		.flag		= NULL,
+		.val		= 's'
+	},
+	{
+		.name		= "type",
+		.has_arg	= required_argument,
+		.flag		= NULL,
+		.val		= 't'
+	},
+	{
+		.name		= "window_size",
+		.has_arg	= required_argument,
+		.flag		= NULL,
+		.val		= 'w'
+	},
+	{
+		.name		= "window-size",
+		.has_arg	= required_argument,
+		.flag		= NULL,
+		.val		= 'w'
+	},
+	{
+		.name		= NULL,
+		.has_arg	= no_argument,
+		.flag		= NULL,
+		.val		= 0
+	}
 };
 
 static struct option long_opt_stop[] = {
-	{"device",      required_argument, 0, 'M'},
-	{"all", 	no_argument,       0, 'A'},
-	{"help",	no_argument,       0, 'h'},
-	{0,		0,		   0,  0 }
+	{
+		.name		= "device",
+		.has_arg	= required_argument,
+		.flag		= NULL,
+		.val		= 'M'
+	},
+	{
+		.name		= "all",
+		.has_arg	= no_argument,
+		.flag		= NULL,
+		.val		= 'A'
+	},
+	{
+		.name		= "help",
+		.has_arg	= no_argument,
+		.flag		= NULL,
+		.val		= 'h'
+	},
+	{
+		.name		= NULL,
+		.has_arg	= no_argument,
+		.flag		= NULL,
+		.val		= 0
+	}
 };
 
 static struct option long_opt_query[] = {
-	{"device",      required_argument, 0, 'M'},
-	{"type",	required_argument, 0, 't'},
-	{"help",	no_argument,       0, 'h'},
-	{"wait",	no_argument,       0, 'w'},
-	{0,		0,		   0,  0 }
+	{
+		.name		= "device",
+		.has_arg	= required_argument,
+		.flag		= NULL,
+		.val		= 'M'
+	},
+	{
+		.name		= "type",
+		.has_arg	= required_argument,
+		.flag		= NULL,
+		.val		= 't'
+	},
+	{
+		.name		= "help",
+		.has_arg	= no_argument,
+		.flag		= NULL,
+		.val		= 'h'
+	},
+	{
+		.name		= "wait",
+		.has_arg	= no_argument,
+		.flag		= NULL,
+		.val		= 'w'
+	},
+	{
+		.name		= NULL,
+		.has_arg	= no_argument,
+		.flag		= NULL,
+		.val		= 0
+	}
 };
 
 struct lfsck_type_name {
@@ -88,12 +213,30 @@ struct lfsck_type_name {
 };
 
 static struct lfsck_type_name lfsck_types_names[] = {
-	{ "scrub",	LFSCK_TYPE_SCRUB },
-	{ "layout",	LFSCK_TYPE_LAYOUT },
-	{ "namespace",	LFSCK_TYPE_NAMESPACE },
-	{ "default",	LFSCK_TYPES_DEF },
-	{ "all",	LFSCK_TYPES_SUPPORTED },
-	{ NULL,		0 }
+	{
+		.ltn_name	= "scrub",
+		.ltn_type	= LFSCK_TYPE_SCRUB
+	},
+	{
+		.ltn_name	= "layout",
+		.ltn_type	= LFSCK_TYPE_LAYOUT
+	},
+	{
+		.ltn_name	= "namespace",
+		.ltn_type	= LFSCK_TYPE_NAMESPACE
+	},
+	{
+		.ltn_name	= "default",
+		.ltn_type	= LFSCK_TYPES_DEF
+	},
+	{
+		.ltn_name	= "all",
+		.ltn_type	= LFSCK_TYPES_SUPPORTED
+	},
+	{
+		.ltn_name	= NULL,
+		.ltn_type	= 0
+	}
 };
 
 static enum lfsck_type lfsck_name2type(const char *name)

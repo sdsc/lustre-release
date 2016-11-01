@@ -64,10 +64,30 @@
 
 char *progname;
 static struct option const longopts[] = {
-	{ "help", no_argument, 0, 'h' },
-	{ "client", no_argument, 0, 'c' },
-	{ "reply", no_argument, 0, 'r' },
-	{ 0, 0, 0, 0}
+	{
+		.name		= "help",
+		.has_arg	= no_argument,
+		.flag		= NULL,
+		.val		= 'h'
+	},
+	{
+		.name		= "client",
+		.has_arg	= no_argument,
+		.flag		= NULL,
+		.val		= 'c'
+	},
+	{
+		.name		= "reply",
+		.has_arg	= no_argument,
+		.flag		= NULL,
+		.val		= 'r'
+	},
+	{
+		.name		= NULL,
+		.has_arg	= no_argument,
+		.flag		= NULL,
+		.val		= 0
+	}
 };
 
 /* Executes the command \a cmd and returns command status.
