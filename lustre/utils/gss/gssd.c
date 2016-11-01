@@ -109,8 +109,10 @@ void lgssd_fini_mutexs(void)
 
 void lgssd_mutex_get(int semid)
 {
-	struct sembuf	op[1] = { {0, -1, SEM_UNDO} };
-	int		rc;
+	struct sembuf op[1] = {
+		{ .sem_num = 0, .sem_op = -1, .sem_flag = SEM_UNDO }
+	};
+	int rc;
 
 	rc = semop(semid, op, 1);
 	if (rc != 0) {
@@ -122,8 +124,10 @@ void lgssd_mutex_get(int semid)
 
 void lgssd_mutex_put(int semid)
 {
-	struct sembuf	op[1] = { {0, 1, 0} };
-	int		rc;
+	struct sembuf op[1] = {
+		{ .sem_num = 0, .sem_op = 1, .sem_flag = 0 }
+	};
+	int rc;
 
 	rc = semop(semid, op, 1);
 	if (rc != 0) {
