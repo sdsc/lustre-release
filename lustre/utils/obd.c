@@ -1148,18 +1148,68 @@ int jt_obd_md_common(int argc, char **argv, int cmd)
         char                  *name = NULL;
         struct jt_fid_space    fid_space = {0};
         int                    version = 0;
-        struct option          long_opts[] = {
-                {"child_base_id",     required_argument, 0, 'b'},
-                {"stripe_count",      required_argument, 0, 'c'},
-                {"parent_basedir",    required_argument, 0, 'd'},
-                {"parent_dircount",   required_argument, 0, 'D'},
-                {"stripe_index",      required_argument, 0, 'i'},
-                {"mode",              required_argument, 0, 'm'},
-                {"count",             required_argument, 0, 'n'},
-                {"time",              required_argument, 0, 't'},
-                {"version",           no_argument,       0, 'v'},
-                {0, 0, 0, 0}
-        };
+	struct option long_opts[] = {
+		{
+			.name		= "child_base_id",
+			.has_arg	= required_argument,
+			.flag		= NULL,
+			.val		= 'b'
+		},
+		{
+			.name		= "stripe_count",
+			.has_arg	= required_argument,
+			.flag		= NULL,
+			.val		= 'c'
+		},
+		{
+			.name		= "parent_basedir",
+			.has_arg	= required_argument,
+			.flag		= NULL,
+			.val		= 'd'
+		},
+		{
+			.name		= "parent_dircount",
+			.has_arg	= required_argument,
+			.flag		= NULL,
+			.val		= 'D'
+		},
+		{
+			.name		= "stripe_index",
+			.has_arg	= required_argument,
+			.flag		= NULL,
+			.val		= 'i'
+		},
+		{
+			.name		= "mode",
+			.has_arg	= required_argument,
+			.flag		= NULL,
+			.val		= 'm'
+		},
+		{
+			.name		= "count",
+			.has_arg	= required_argument,
+			.flag		= NULL,
+			.val		= 'n'
+		},
+		{
+			.name		= "time",
+			.has_arg	= required_argument,
+			.flag		= NULL,
+			.val		= 't'
+		},
+		{
+			.name		= "version",
+			.has_arg	= no_argument,
+			.flag		= NULL,
+			.val		= 'v'
+		},
+		{
+			.name		= NULL,
+			.has_arg	= no_argument,
+			.flag		= NULL,
+			.val		= 0
+		}
+	};
 
         while ((c = getopt_long(argc, argv, "b:c:d:D:m:n:t:v",
                                 long_opts, NULL)) >= 0) {
@@ -2535,11 +2585,36 @@ static int llog_cancel_parse_optional(int argc, char **argv,
 	int cOpt;
 	const char *const short_options = "c:l:i:h";
 	const struct option long_options[] = {
-		{"catalog", required_argument, NULL, 'c'},
-		{"log_id", required_argument, NULL, 'l'},
-		{"log_idx", required_argument, NULL, 'i'},
-		{"help", no_argument, NULL, 'h'},
-		{NULL, 0, NULL, 0}
+		{
+			.name		= "catalog",
+			.has_arg	= required_argument,
+			.flag		= NULL,
+			.val		= 'c'
+		},
+		{
+			.name		= "log_id",
+			.has_arg	= required_argument,
+			.flag		= NULL,
+			.val		= 'l'
+		},
+		{
+			.name		= "log_idx",
+			.has_arg	= required_argument,
+			.flag		= NULL,
+			.val		= 'i'
+		},
+		{
+			.name		= "help",
+			.has_arg	= no_argument,
+			.flag		= NULL,
+			.val		= 'h'
+		},
+		{
+			.name		= NULL,
+			.has_arg	= no_argument,
+			.flag		= NULL,
+			.val		= 0
+		}
 	};
 
 	/* sanity check */
@@ -3440,19 +3515,19 @@ int jt_nodemap_test_id(int argc, char **argv)
 		{
 			.name		= "nid",
 			.has_arg	= required_argument,
-			.flag		= 0,
+			.flag		= NULL,
 			.val		= 'n',
 		},
 		{
 			.name		= "idtype",
 			.has_arg	= required_argument,
-			.flag		= 0,
+			.flag		= NULL,
 			.val		= 't',
 		},
 		{
 			.name		= "id",
 			.has_arg	= required_argument,
-			.flag		= 0,
+			.flag		= NULL,
 			.val		= 'i',
 		},
 		{
@@ -3515,13 +3590,13 @@ int jt_nodemap_add_range(int argc, char **argv)
 		{
 			.name		= "name",
 			.has_arg	= required_argument,
-			.flag		= 0,
+			.flag		= NULL,
 			.val		= 'n',
 		},
 		{
 			.name		= "range",
 			.has_arg	= required_argument,
-			.flag		= 0,
+			.flag		= NULL,
 			.val		= 'r',
 		},
 		{
@@ -3604,13 +3679,13 @@ int jt_nodemap_del_range(int argc, char **argv)
 		{
 			.name		= "name",
 			.has_arg	= required_argument,
-			.flag		= 0,
+			.flag		= NULL,
 			.val		= 'n',
 		},
 		{
 			.name		= "range",
 			.has_arg	= required_argument,
-			.flag		= 0,
+			.flag		= NULL,
 			.val		= 'r',
 		},
 		{
@@ -3689,13 +3764,13 @@ int jt_nodemap_set_fileset(int argc, char **argv)
 		{
 			.name		= "name",
 			.has_arg	= required_argument,
-			.flag		= 0,
+			.flag		= NULL,
 			.val		= 'n',
 		},
 		{
 			.name		= "fileset",
 			.has_arg	= required_argument,
-			.flag		= 0,
+			.flag		= NULL,
 			.val		= 'f',
 		},
 		{
@@ -3759,19 +3834,19 @@ int jt_nodemap_modify(int argc, char **argv)
 		{
 			.name		= "name",
 			.has_arg	= required_argument,
-			.flag		= 0,
+			.flag		= NULL,
 			.val		= 'n',
 		},
 		{
 			.name		= "property",
 			.has_arg	= required_argument,
-			.flag		= 0,
+			.flag		= NULL,
 			.val		= 'p',
 		},
 		{
 			.name		= "value",
 			.has_arg	= required_argument,
-			.flag		= 0,
+			.flag		= NULL,
 			.val		= 'v',
 		},
 		{
@@ -3844,19 +3919,19 @@ int jt_nodemap_add_idmap(int argc, char **argv)
 		{
 			.name		= "name",
 			.has_arg	= required_argument,
-			.flag		= 0,
+			.flag		= NULL,
 			.val		= 'n',
 		},
 		{
 			.name		= "idmap",
 			.has_arg	= required_argument,
-			.flag		= 0,
+			.flag		= NULL,
 			.val		= 'm',
 		},
 		{
 			.name		= "idtype",
 			.has_arg	= required_argument,
-			.flag		= 0,
+			.flag		= NULL,
 			.val		= 'i',
 		},
 		{
@@ -3918,19 +3993,19 @@ int jt_nodemap_del_idmap(int argc, char **argv)
 		{
 			.name		= "name",
 			.has_arg	= required_argument,
-			.flag		= 0,
+			.flag		= NULL,
 			.val		= 'n',
 		},
 		{
 			.name		= "idmap",
 			.has_arg	= required_argument,
-			.flag		= 0,
+			.flag		= NULL,
 			.val		= 'm',
 		},
 		{
 			.name		= "idtype",
 			.has_arg	= required_argument,
-			.flag		= 0,
+			.flag		= NULL,
 			.val		= 'i',
 		},
 		{

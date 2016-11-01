@@ -112,19 +112,84 @@ static int isatty_flag;
 
 static struct option const longopts[] =
 {
-	{ "chunksize", required_argument, 0, 'c' },
-	{ "force", no_argument, 0, 'f' },
-	{ "help", no_argument, 0, 'h' },
-	{ "offset", required_argument, 0, 'o' },
-	{ "partial", required_argument, 0, 'p' },
-	{ "quiet", required_argument, 0, 'q' },
-	{ "read", no_argument, 0, 'r' },
-	{ "timestamp", required_argument, 0, 't' },
-	{ "verbose", no_argument, 0, 'v' },
-	{ "write", no_argument, 0, 'w' },
-	{ "long", no_argument, 0, 'l' },
-	{ "full", no_argument, 0, 'l' },
-	{ 0, 0, 0, 0}
+	{
+		.name		= "chunksize",
+		.has_arg	= required_argument,
+		.flag		= NULL,
+		.val		= 'c'
+	},
+	{
+		.name		= "force",
+		.has_arg	= no_argument,
+		.flag		= NULL,
+		.val		= 'f'
+	},
+	{
+		.name		= "help",
+		.has_arg	= no_argument,
+		.flag		= NULL,
+		.val		= 'h'
+	},
+	{
+		.name		= "offset",
+		.has_arg	= required_argument,
+		.flag		= NULL,
+		.val		= 'o'
+	},
+	{
+		.name		= "partial",
+		.has_arg	= required_argument,
+		.flag		= NULL,
+		.val		= 'p'
+	},
+	{
+		.name		= "quiet",
+		.has_arg	= required_argument,
+		.flag		= NULL,
+		.val		= 'q'
+	},
+	{
+		.name		= "read",
+		.has_arg	= no_argument,
+		.flag		= NULL,
+		.val		= 'r'
+	},
+	{
+		.name		= "timestamp",
+		.has_arg	= required_argument,
+		.flag		= NULL,
+		.val		= 't'
+	},
+	{
+		.name		= "verbose",
+		.has_arg	= no_argument,
+		.flag		= NULL,
+		.val		= 'v'
+	},
+	{
+		.name		= "write",
+		.has_arg	= no_argument,
+		.flag		= NULL,
+		.val		= 'w'
+	},
+	{
+		.name		= "long",
+		.has_arg	= no_argument,
+		.flag		= NULL,
+		.val		= 'l'
+	},
+	{
+		.name		= "full",
+		.has_arg	= no_argument,
+		.flag		= NULL,
+		.val		= 'l'
+	},
+	{
+		.name		= NULL,
+		.has_arg	= no_argument,
+		.flag		= NULL,
+		.val		= 0
+	}
 };
 
 /*

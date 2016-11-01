@@ -172,41 +172,149 @@ struct opt_map {
 };
 
 static const struct opt_map opt_map[] = {
-  /*"optname", inv,ms_mask */
-  /* These flags are parsed by mount, not lustre */
-  { "defaults", 0, 0         },      /* default options */
-  { "remount",  0, MS_REMOUNT},      /* remount with different options */
-  { "rw",       1, MS_RDONLY },      /* read-write */
-  { "ro",       0, MS_RDONLY },      /* read-only */
-  { "exec",     1, MS_NOEXEC },      /* permit execution of binaries */
-  { "noexec",   0, MS_NOEXEC },      /* don't execute binaries */
-  { "suid",     1, MS_NOSUID },      /* honor suid executables */
-  { "nosuid",   0, MS_NOSUID },      /* don't honor suid executables */
-  { "dev",      1, MS_NODEV  },      /* interpret device files  */
-  { "nodev",    0, MS_NODEV  },      /* don't interpret devices */
-  { "sync",     0, MS_SYNCHRONOUS},  /* synchronous I/O */
-  { "async",    1, MS_SYNCHRONOUS},  /* asynchronous I/O */
-  { "atime",    1, MS_NOATIME  },    /* set file access time on read */
-  { "noatime",  0, MS_NOATIME  },    /* do not set file access time on read */
+	/*"optname", inv,ms_mask */
+	/* These flags are parsed by mount, not lustre */
+	{
+		.opt	= "defaults",
+		.inv	= 0,
+		.mask	= 0
+	},	/* default options */
+	{
+		.opt	= "remount",
+		.inv	= 0,
+		.mask	= MS_REMOUNT
+	},	/* remount with different options */
+	{
+		.opt	= "rw",
+		.inv	= 1,
+		.mask	= MS_RDONLY
+	},	/* read-write */
+	{
+		.opt	= "ro",
+		.inv	= 0,
+		.mask	= MS_RDONLY
+	},	/* read-only */
+	{
+		.opt	= "exec",
+		.inv	= 1,
+		.mask	= MS_NOEXEC
+	},	/* permit execution of binaries */
+	{
+		.opt	= "noexec",
+		.inv	= 0,
+		.mask	= MS_NOEXEC
+	},	/* don't execute binaries */
+	{
+		.opt	= "suid",
+		.inv	= 1,
+		.mask	= MS_NOSUID
+	},	/* honor suid executables */
+	{
+		.opt	= "nosuid",
+		.inv	= 0,
+		.mask	= MS_NOSUID
+	},	/* don't honor suid executables */
+	{
+		.opt	= "dev",
+		.inv	= 1,
+		.mask	= MS_NODEV
+	},	/* interpret device files */
+	{
+		.opt	= "nodev",
+		.inv	= 0,
+		.mask	= MS_NODEV
+	},	/* don't interpret devices */
+	{
+		.opt	= "sync",
+		.inv	= 0,
+		.mask	= MS_SYNCHRONOUS
+	},	/* synchronous I/O */
+	{
+		.opt	= "async",
+		.inv	= 1,
+		.mask	= MS_SYNCHRONOUS
+	},	/* asynchronous I/O */
+	{
+		.opt	= "atime",
+		.inv	= 1,
+		.mask	= MS_NOATIME
+	},	/* set file access time on read */
+	{
+		.opt	= "noatime",
+		.inv	= 0,
+		.mask	= MS_NOATIME
+	},	/* do not set file access time on read */
 #ifdef MS_NODIRATIME
-  { "diratime", 1, MS_NODIRATIME },  /* set file access time on read */
-  { "nodiratime",0,MS_NODIRATIME },  /* do not set file access time on read */
+	{
+		.opt	= "diratime",
+		.inv	= 1,
+		.mask	= MS_NODIRATIME
+	},	/* set file access time on read */
+	{
+		.opt	= "nodiratime",
+		.inv	= 0,
+		.mask	= MS_NODIRATIME
+	},	/* do not set file access time on read */
 #endif
 #ifdef MS_RELATIME
-  { "relatime", 0, MS_RELATIME },  /* set file access time on read */
-  { "norelatime",1,MS_RELATIME },  /* do not set file access time on read */
+	{
+		.opt	= "relatime",
+		.inv	= 0,
+		.mask	= MS_RELATIME
+	},	/* set file access time on read */
+	{
+		.opt	= "norelatime",
+		.inv	= 1,
+		.mask	= MS_RELATIME
+	},	/* do not set file access time on read */
 #endif
 #ifdef MS_STRICTATIME
-  { "strictatime",0,MS_STRICTATIME },  /* update access time strictly */
+	{
+		.opt	= "strictatime",
+		.inv	= 0,
+		.mask	= MS_STRICTATIME
+	},	/* update access time strictly */
 #endif
-  { "auto",     0, 0         },      /* Can be mounted using -a */
-  { "noauto",   0, 0         },      /* Can only be mounted explicitly */
-  { "nousers",  1, 0         },      /* Forbid ordinary user to mount */
-  { "nouser",   1, 0         },      /* Forbid ordinary user to mount */
-  { "noowner",  1, 0         },      /* Device owner has no special privs */
-  { "_netdev",  0, 0         },      /* Device accessible only via network */
-  { "loop",     0, 0         },
-  { NULL,       0, 0         }
+	{
+		.opt	= "auto",
+		.inv	= 0,
+		.mask	= 0
+	},	/* Can be mounted using -a */
+	{
+		.opt	= "noauto",
+		.inv	= 0,
+		.mask	= 0
+	},	/* Can only be mounted explicitly */
+	{
+		.opt	= "nousers",
+		.inv	= 1,
+		.mask	= 0
+	},	/* Forbid ordinary user to mount */
+	{
+		.opt	= "nouser",
+		.inv	= 1,
+		.mask	= 0
+	},	/* Forbid ordinary user to mount */
+	{
+		.opt	= "noowner",
+		.inv	= 1,
+		.mask	= 0
+	},	/* Device owner has no special privs */
+	{
+		.opt	= "_netdev",
+		.inv	= 0,
+		.mask	= 0
+	},	/* Device accessible only via network */
+	{
+		.opt	= "loop",
+		.inv	= 0,
+		.mask	= 0
+	},
+	{
+		.opt	= NULL,
+		.inv	= 0,
+		.mask	= 0
+	}
 };
 /****************************************************************************/
 
@@ -583,14 +691,54 @@ static void set_defaults(struct mount_opts *mop)
 static int parse_opts(int argc, char *const argv[], struct mount_opts *mop)
 {
 	static struct option long_opt[] = {
-		{"fake", 0, 0, 'f'},
-		{"force", 0, 0, 1},
-		{"help", 0, 0, 'h'},
-		{"nomtab", 0, 0, 'n'},
-		{"options", 1, 0, 'o'},
-		{"verbose", 0, 0, 'v'},
-		{"version", 0, 0, 'V'},
-		{0, 0, 0, 0}
+		{
+			.name		= "fake",
+			.has_arg	= no_argument,
+			.flag		= NULL,
+			.val		= 'f'
+		},
+		{
+			.name		= "force",
+			.has_arg	= no_argument,
+			.flag		= NULL,
+			.val		= 1
+		},
+		{
+			.name		= "help",
+			.has_arg	= no_argument,
+			.flag		= NULL,
+			.val		= 'h'
+		},
+		{
+			.name		= "nomtab",
+			.has_arg	= no_argument,
+			.flag		= NULL,
+			.val		= 'n'
+		},
+		{
+			.name		= "options",
+			.has_arg	= required_argument,
+			.flag		= NULL,
+			.val		= 'o'
+		},
+		{
+			.name		= "verbose",
+			.has_arg	= no_argument,
+			.flag		= NULL,
+			.val		= 'v'
+		},
+		{
+			.name		= "version",
+			.has_arg	= no_argument,
+			.flag		= NULL,
+			.val		= 'V'
+		},
+		{
+			.name		= NULL,
+			.has_arg	= no_argument,
+			.flag		= NULL,
+			.val		= 0
+		}
 	};
 	char real_path[PATH_MAX] = {'\0'};
 	FILE *f;
