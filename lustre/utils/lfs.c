@@ -387,6 +387,7 @@ command_t cmdlist[] = {
 	 "usage: ladvise [--advice|-a ADVICE] [--start|-s START[kMGT]]\n"
 	 "               [--background|-b]\n"
 	 "               {[--end|-e END[kMGT]] | [--length|-l LENGTH[kMGT]]}\n"
+	 "               {[--mode|-m [READ,WRITE]}\n"
 	 "               <file> ..."},
 	{"help", Parser_help, 0, "help"},
 	{"exit", Parser_quit, 0, "quit"},
@@ -4288,6 +4289,28 @@ static int lfs_swap_layouts(int argc, char **argv)
 
 static const char *const ladvise_names[] = LU_LADVISE_NAMES;
 
+static const char *const lock_mode_names[] = LOCK_MODE_NAMES;
+
+static const char *const requestlock_results[] = {
+	[LRL_RESULT_SENT] = "Lock request sent",
+	[LRL_RESULT_DIFFERENT] = "Different matching lock found",
+	[LRL_RESULT_SAME] = "Matching lock on identical extent found",
+};
+
+int lfs_get_mode(const char *string)
+{
+	enum lock_mode_user mode;
+
+	for (mode = 0; mode < ARRAY_SIZE(lock_mode_names); mode++) {
+		if (lock_mode_names[mode] == NULL)
+			continue;
+		if (strcmp(string, lock_mode_names[mode]) == 0)
+			return mode;
+	}
+
+	return -EINVAL;
+}
+
 static enum lu_ladvise_type lfs_get_ladvice(const char *string)
 {
 	enum lu_ladvise_type advice;
@@ -4308,12 +4331,14 @@ static int lfs_ladvise(int argc, char **argv)
 	struct option		 long_opts[] = {
 		{"advice",	required_argument,	0, 'a'},
 		{"background",	no_argument,		0, 'b'},
+		{"unset",       no_argument,            0, 'u'},
 		{"end",		required_argument,	0, 'e'},
 		{"start",	required_argument,	0, 's'},
 		{"length",	required_argument,	0, 'l'},
+		{"mode",        required_argument,      0, 'm'},
 		{0, 0, 0, 0}
 	};
-	char			 short_opts[] = "a:be:l:s:";
+	char			 short_opts[] = "a:be:l:s:m:";
 	int			 c;
 	int			 rc = 0;
 	const char		*path;
@@ -4325,6 +4350,7 @@ static int lfs_ladvise(int argc, char **argv)
 	unsigned long long	 length = 0;
 	unsigned long long	 size_units;
 	unsigned long long	 flags = 0;
+	int			 mode = 0;
 
 	optind = 0;
 	while ((c = getopt_long(argc, argv, short_opts,
@@ -4352,6 +4378,9 @@ static int lfs_ladvise(int argc, char **argv)
 			break;
 		case 'b':
 			flags |= LF_ASYNC;
+			break;
+		case 'u':
+			flags |= LF_UNSET;
 			break;
 		case 'e':
 			size_units = 1;
@@ -4383,6 +4412,14 @@ static int lfs_ladvise(int argc, char **argv)
 				return CMD_HELP;
 			}
 			break;
+		case 'm':
+			mode = lfs_get_mode(optarg);
+			if (mode < 0) {
+				fprintf(stderr, "%s: bad mode '%s', valid "
+						 "modes are READ or WRITE\n",
+					argv[0], optarg);
+			}
+			break;
 		case '?':
 			return CMD_HELP;
 		default:
@@ -4402,6 +4439,13 @@ static int lfs_ladvise(int argc, char **argv)
 			fprintf(stderr, " %s", ladvise_names[advice_type]);
 		}
 		fprintf(stderr, "\n");
+		return CMD_HELP;
+	}
+
+	if (advice_type == LU_LADVISE_LOCKNOEXPAND) {
+		fprintf(stderr, "%s: Request only advice is a per "
+				 "file descriptor advice, so when called from "
+				 "lfs, it does nothing.\n", argv[0]);
 		return CMD_HELP;
 	}
 
@@ -4426,6 +4470,20 @@ static int lfs_ladvise(int argc, char **argv)
 		return CMD_HELP;
 	}
 
+	if (advice_type != LU_LADVISE_REQUESTLOCK && mode != 0) {
+			fprintf(stderr,
+				"%s: mode is only valid with requestlock\n",
+				argv[0]);
+			return CMD_HELP;
+	}
+
+	if (advice_type == LU_LADVISE_REQUESTLOCK && !mode) {
+			fprintf(stderr,
+				"%s: mode is required with requestlock\n",
+				argv[0]);
+			return CMD_HELP;
+	}
+
 	while (optind < argc) {
 		int rc2;
 
@@ -4446,6 +4504,12 @@ static int lfs_ladvise(int argc, char **argv)
 		advice.lla_value2 = 0;
 		advice.lla_value3 = 0;
 		advice.lla_value4 = 0;
+		if (advice_type == LU_LADVISE_REQUESTLOCK) {
+			advice.lla_requestlock_mode = mode;
+			advice.lla_peradvice_flags =
+						(flags & LF_REQUESTLOCK_MASK);
+		}
+
 		rc2 = llapi_ladvise(fd, flags, 1, &advice);
 		close(fd);
 		if (rc2 < 0) {
@@ -4454,6 +4518,12 @@ static int lfs_ladvise(int argc, char **argv)
 				ladvise_names[advice_type],
 				path, strerror(errno));
 		}
+
+		if (advice_type == LU_LADVISE_REQUESTLOCK)
+			fprintf(stdout, "Request lock result: %s\n",
+				requestlock_results[
+						advice.lla_requestlock_result]);
+
 next:
 		if (rc == 0 && rc2 < 0)
 			rc = rc2;

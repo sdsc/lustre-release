@@ -4300,3 +4300,176 @@ int llapi_group_unlock(int fd, int gid)
 	}
 	return rc;
 }
+
+/* Allocate and initialize an lla. */
+struct llapi_lock_ahead_arg *llapi_alloc_lla(size_t count, __u32 mode,
+					     __u32 flags)
+{
+	struct llapi_lock_ahead_arg *lla;
+	size_t len;
+
+	len = sizeof(struct llapi_lock_ahead_arg) +
+	      sizeof(struct llapi_lock_ahead_extent) * count;
+
+	lla = calloc(1, len);
+	if (!lla)
+		goto out;
+
+	lla->lla_version = 1;
+	lla->lla_lock_mode = mode;
+	lla->lla_flags = flags;
+	lla->lla_extent_count = count;
+
+out:
+	return lla;
+}
+
+/**
+ * Make a single lock ahead request - Intended for testing
+ * Locks are [start, end), IE, they include the 'start' byte, but not the 'end'
+ * byte.
+ *
+ * \param fd [IN]    fd to operate on
+ * \param start [IN] first byte of lock extent
+ * \param end [IN]   last+1 byte of lock extent
+ * \param mode [IN]  lock mode to request - From enum lock_mode_user
+ * \param flags [IN] lock request flags
+ *
+ * \retval LRL_RESULT_SENT request sent to server
+ * \retval LRL_RESULT_DIFFERENT matching lock with different (larger) extent
+ * already present
+ * \retval LRL_RESULT_SAME matching lock with the same extent already present
+ * \retval -errno on failure
+ **/
+int llapi_lock_ahead_one(int fd, __u64 start, __u64 end, __u32 mode,
+			 __u32 flags)
+{
+#if LUSTRE_VERSION_CODE > OBD_OCD_VERSION(2, 10, 0, 0)
+	/* Disable after 2.10 release */
+	static bool printed;
+
+	if (!printed) {
+		llapi_error(LLAPI_MSG_ERROR, -EOPNOTSUPP, "The lock ahead API "
+		    " was deprecated in Lustre 2.10 and is now disabled.  Use"
+		    "ladvise with LU_LADVISE_LOCKREQUEST instead.");
+		printed = true;
+	}
+
+	return -1;
+#else
+
+	struct llapi_lock_ahead_arg *lla;
+	int rc;
+
+	lla = llapi_alloc_lla(1, mode, flags);
+	if (!lla)
+		return -ENOMEM;
+
+	lla->lla_extents[0].start = start;
+	lla->lla_extents[0].end = end;
+
+	rc = llapi_lock_ahead(fd, lla);
+
+	/* Return extent specific result only if ioctl succeeded */
+	if (rc == 0)
+		rc = lla->lla_extents[0].result;
+
+	return rc;
+#endif
+}
+
+/**
+ * NOTE: THIS API IS DEPRECATED.  All future users should use the ladvise
+ * interface with LU_LADVISE_LOCKREQUEST directly.
+ *
+ * Pass a set of lock ahead requests to Lustre. (as provided from userspace in
+ * an llapi_lock_ahead struct)
+ *
+ * Note:
+ * In order for caller to read back per-extent status, caller must provide
+ * the llapi_lock_ahead object.  Otherwise caller loses the ability to check
+ * the results of each lock request, which is essential.  So this API is
+ * limited to a trivial wrapper function to make it safe against future ioctl
+ * changes.
+ *
+ * The status of each individual request is stored in the 'result' field of the
+ * corresponding lla_extent struct.  See the comment on llapi_lock_ahead_one
+ * for an explanation of what each value means.
+ *
+ * \param [IN] fd      fd to operate on
+ * \param [IN/OUT] lla lock ahead argument describing extents to request locks
+ * on and other options
+ *
+ * \retval 0 success of ioctl (does not indicate status of actual extent lock
+ * requests, just that they were issued successfully)
+ * \retval -errno on failure
+ **/
+int llapi_lock_ahead(int fd, struct llapi_lock_ahead_arg *lla)
+{
+	struct llapi_lu_ladvise *ladvise;
+	int i = 0;
+	int rc = 0;
+
+#if LUSTRE_VERSION_CODE > OBD_OCD_VERSION(2, 10, 0, 0)
+	/* Disable after 2.10 release */
+	static bool printed;
+
+	if (!printed) {
+		llapi_error(LLAPI_MSG_ERROR, -EOPNOTSUPP, "The lock ahead API "
+		    " was deprecated in Lustre 2.10 and is now disabled.  Use"
+		    "ladvise with LU_LADVISE_LOCKREQUEST instead.");
+		printed = true;
+	}
+
+	return -1;
+#else
+
+	if (lla->lla_version != 1) {
+		llapi_error(LLAPI_MSG_ERROR, -EINVAL,
+			    "invalid lock ahead version (%d)",
+			    lla->lla_version);
+		return -1;
+	}
+
+	ladvise = malloc(lla->lla_extent_count * sizeof(*ladvise));
+	if (!ladvise)
+		return -ENOMEM;
+
+	for (i = 0; i < lla->lla_extent_count; i++) {
+		struct llapi_lu_ladvise *ladvise_iter = &ladvise[i];
+
+		ladvise_iter->lla_advice = LU_LADVISE_REQUESTLOCK;
+		ladvise_iter->lla_requestlock_mode = lla->lla_lock_mode;
+		ladvise_iter->lla_peradvice_flags = lla->lla_flags;
+		ladvise_iter->lla_start = lla->lla_extents[i].start;
+		ladvise_iter->lla_end = lla->lla_extents[i].end;
+		ladvise_iter->lla_value3 = 0;
+		ladvise_iter->lla_value4 = 0;
+
+	}
+
+	rc = llapi_ladvise(fd, 0, lla->lla_extent_count, ladvise);
+
+	if (rc < 0)
+		return rc;
+
+	for (i = 0; i < lla->lla_extent_count; i++) {
+		struct llapi_lu_ladvise *ladvise_iter = &ladvise[i];
+
+		lla->lla_extents[i].result =
+					ladvise_iter->lla_requestlock_result;
+	}
+
+	return rc;
+#endif
+}
+
+/* Set the locknoexpand flag on a file descriptor.  This will cause the server
+ * to not attempt to expand any future lock requests on this file descriptor.
+ * Used to avoid pathological cases in the normal lock expansion behavior.*/
+int llapi_set_lock_noexpand(int fd)
+{
+	struct llapi_lu_ladvise ladvise = { LU_LADVISE_LOCKNOEXPAND };
+
+	return llapi_ladvise(fd, 0, 1, &ladvise);
+}

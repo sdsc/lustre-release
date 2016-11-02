@@ -7651,7 +7651,6 @@ test_116a() { # was previously test_116()
 		&& return
 	trap simple_cleanup_common EXIT
 
-
 	# Check if we need to generate uneven OSTs
 	test_mkdir -p $DIR/$tdir/OST${MINI}
 	local FILL=$(($MINV / 4))
@@ -14483,6 +14482,14 @@ test_255b() {
 }
 run_test 255b "check 'lfs ladvise -a dontneed'"
 
+test_255c()
+{
+	test_mkdir -p $DIR/$tdir
+	requestlock_test -d $DIR/$tdir || error "An ladvise requestlock test"\
+						"failed"
+}
+run_test 255c "various ladvise requestlock tests"
+
 test_256() {
 	local cl_user
 	local cat_sl
@@ -14569,6 +14576,14 @@ test_257() {
 		error "start MDS fail"
 }
 run_test 257 "xattr locks are not lost"
+
+# Tests for the deprecated ioctl based lock ahead API
+test_258()
+{
+	test_mkdir -p $DIR/$tdir
+	lock_ahead_test -d $DIR/$tdir || error "A lock ahead test failed"
+}
+run_test 258 "various lock ahead tests"
 
 test_260() {
 #define OBD_FAIL_MDC_CLOSE               0x806
