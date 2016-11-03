@@ -139,13 +139,9 @@ static void vvp_page_discard(const struct lu_env *env,
 			     struct cl_io *unused)
 {
 	struct page     *vmpage = cl2vm_page(slice);
-	struct vvp_page *vpg    = cl2vvp_page(slice);
 
 	LASSERT(vmpage != NULL);
 	LASSERT(PageLocked(vmpage));
-
-	if (vpg->vpg_defer_uptodate && !vpg->vpg_ra_used)
-		ll_ra_stats_inc(vmpage->mapping->host, RA_STAT_DISCARDED);
 
 	ll_invalidate_page(vmpage);
 }
@@ -253,14 +249,10 @@ static void vvp_page_completion_read(const struct lu_env *env,
 	struct vvp_page *vpg    = cl2vvp_page(slice);
 	struct page     *vmpage = vpg->vpg_page;
 	struct cl_page  *page   = slice->cpl_page;
-	struct inode    *inode  = vvp_object_inode(page->cp_obj);
 	ENTRY;
 
 	LASSERT(PageLocked(vmpage));
 	CL_PAGE_HEADER(D_PAGE, env, page, "completing READ with %d\n", ioret);
-
-	if (vpg->vpg_defer_uptodate)
-		ll_ra_count_put(ll_i2sbi(inode), 1);
 
 	if (ioret == 0)  {
 		if (!vpg->vpg_defer_uptodate)

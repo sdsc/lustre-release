@@ -118,12 +118,6 @@ struct vvp_io {
 	*/
 	struct ll_file_data	*vui_fd;
 	struct kiocb		*vui_iocb;
-
-	/* Readahead state. */
-	pgoff_t	vui_ra_start;
-	pgoff_t	vui_ra_count;
-	/* Set when vui_ra_{start,count} have been initialized. */
-	bool		vui_ra_valid;
 };
 
 extern struct lu_device_type vvp_device_type;
@@ -236,9 +230,7 @@ struct vvp_object {
  */
 struct vvp_page {
 	struct cl_page_slice vpg_cl;
-	unsigned	vpg_defer_uptodate:1,
-			vpg_ra_updated:1,
-			vpg_ra_used:1;
+	unsigned	vpg_defer_uptodate:1;
 	/** VM page */
 	struct page	*vpg_page;
 };
@@ -337,4 +329,7 @@ void vvp_global_fini(void);
 
 extern const struct file_operations vvp_dump_pgcache_file_ops;
 
+ssize_t
+ll_generic_file_aio_read(struct kiocb *iocb, const struct iovec *iov,
+			 unsigned long nr_segs, loff_t pos, bool fast_read);
 #endif /* VVP_INTERNAL_H */

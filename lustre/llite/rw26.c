@@ -811,6 +811,7 @@ static int ll_migratepage(struct address_space *mapping,
 
 const struct address_space_operations ll_aops = {
 	.readpage	= ll_readpage,
+	.readpages	= ll_readpages,
 	.direct_IO	= ll_direct_IO,
 	.writepage	= ll_writepage,
 	.writepages	= ll_writepages,
