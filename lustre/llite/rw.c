@@ -34,6 +34,7 @@
  * Lustre Lite I/O page cache routines shared by different kernel revs
  */
 
+#include <linux/kthread.h>
 #include <linux/kernel.h>
 #include <linux/mm.h>
 #include <linux/string.h>
@@ -56,839 +57,6 @@
 #include <obd_cksum.h>
 #include "llite_internal.h"
 #include <lustre_compat.h>
-
-static void ll_ra_stats_inc_sbi(struct ll_sb_info *sbi, enum ra_stat which);
-
-/**
- * Get readahead pages from the filesystem readahead pool of the client for a
- * thread.
- *
- * /param sbi superblock for filesystem readahead state ll_ra_info
- * /param ria per-thread readahead state
- * /param pages number of pages requested for readahead for the thread.
- *
- * WARNING: This algorithm is used to reduce contention on sbi->ll_lock.
- * It should work well if the ra_max_pages is much greater than the single
- * file's read-ahead window, and not too many threads contending for
- * these readahead pages.
- *
- * TODO: There may be a 'global sync problem' if many threads are trying
- * to get an ra budget that is larger than the remaining readahead pages
- * and reach here at exactly the same time. They will compute /a ret to
- * consume the remaining pages, but will fail at atomic_add_return() and
- * get a zero ra window, although there is still ra space remaining. - Jay */
-
-static unsigned long ll_ra_count_get(struct ll_sb_info *sbi,
-				     struct ra_io_arg *ria,
-				     unsigned long pages, unsigned long min)
-{
-        struct ll_ra_info *ra = &sbi->ll_ra_info;
-        long ret;
-        ENTRY;
-
-        /* If read-ahead pages left are less than 1M, do not do read-ahead,
-         * otherwise it will form small read RPC(< 1M), which hurt server
-         * performance a lot. */
-	ret = min(ra->ra_max_pages - atomic_read(&ra->ra_cur_pages),
-		  pages);
-        if (ret < 0 || ret < min_t(long, PTLRPC_MAX_BRW_PAGES, pages))
-                GOTO(out, ret = 0);
-
-	if (atomic_add_return(ret, &ra->ra_cur_pages) > ra->ra_max_pages) {
-		atomic_sub(ret, &ra->ra_cur_pages);
-		ret = 0;
-	}
-
-out:
-	if (ret < min) {
-		/* override ra limit for maximum performance */
-		atomic_add(min - ret, &ra->ra_cur_pages);
-		ret = min;
-	}
-	RETURN(ret);
-}
-
-void ll_ra_count_put(struct ll_sb_info *sbi, unsigned long len)
-{
-	struct ll_ra_info *ra = &sbi->ll_ra_info;
-	atomic_sub(len, &ra->ra_cur_pages);
-}
-
-static void ll_ra_stats_inc_sbi(struct ll_sb_info *sbi, enum ra_stat which)
-{
-        LASSERTF(which >= 0 && which < _NR_RA_STAT, "which: %u\n", which);
-        lprocfs_counter_incr(sbi->ll_ra_stats, which);
-}
-
-void ll_ra_stats_inc(struct inode *inode, enum ra_stat which)
-{
-	struct ll_sb_info *sbi = ll_i2sbi(inode);
-	ll_ra_stats_inc_sbi(sbi, which);
-}
-
-#define RAS_CDEBUG(ras) \
-	CDEBUG(D_READA,                                                      \
-	       "lrp %lu cr %lu cp %lu ws %lu wl %lu nra %lu rpc %lu "        \
-	       "r %lu ri %lu csr %lu sf %lu sp %lu sl %lu\n",                \
-	       ras->ras_last_readpage, ras->ras_consecutive_requests,        \
-	       ras->ras_consecutive_pages, ras->ras_window_start,            \
-	       ras->ras_window_len, ras->ras_next_readahead,                 \
-	       ras->ras_rpc_size,                                            \
-	       ras->ras_requests, ras->ras_request_index,                    \
-	       ras->ras_consecutive_stride_requests, ras->ras_stride_offset, \
-	       ras->ras_stride_pages, ras->ras_stride_length)
-
-static int index_in_window(unsigned long index, unsigned long point,
-                           unsigned long before, unsigned long after)
-{
-        unsigned long start = point - before, end = point + after;
-
-        if (start > point)
-               start = 0;
-        if (end < point)
-               end = ~0;
-
-        return start <= index && index <= end;
-}
-
-void ll_ras_enter(struct file *f)
-{
-	struct ll_file_data *fd = LUSTRE_FPRIVATE(f);
-	struct ll_readahead_state *ras = &fd->fd_ras;
-
-	spin_lock(&ras->ras_lock);
-	ras->ras_requests++;
-	ras->ras_request_index = 0;
-	ras->ras_consecutive_requests++;
-	spin_unlock(&ras->ras_lock);
-}
-
-/**
- * Initiates read-ahead of a page with given index.
- *
- * \retval +ve: page was already uptodate so it will be skipped
- *              from being added;
- * \retval -ve: page wasn't added to \a queue for error;
- * \retval   0: page was added into \a queue for read ahead.
- */
-static int ll_read_ahead_page(const struct lu_env *env, struct cl_io *io,
-			      struct cl_page_list *queue, pgoff_t index)
-{
-	struct cl_object *clob  = io->ci_obj;
-	struct inode     *inode = vvp_object_inode(clob);
-	struct page      *vmpage;
-	struct cl_page   *page;
-	struct vvp_page  *vpg;
-	enum ra_stat      which = _NR_RA_STAT; /* keep gcc happy */
-	int               rc    = 0;
-	const char       *msg   = NULL;
-	ENTRY;
-
-	vmpage = grab_cache_page_nowait(inode->i_mapping, index);
-	if (vmpage == NULL) {
-		which = RA_STAT_FAILED_GRAB_PAGE;
-		msg   = "g_c_p_n failed";
-		GOTO(out, rc = -EBUSY);
-	}
-
-	/* Check if vmpage was truncated or reclaimed */
-	if (vmpage->mapping != inode->i_mapping) {
-		which = RA_STAT_WRONG_GRAB_PAGE;
-		msg   = "g_c_p_n returned invalid page";
-		GOTO(out, rc = -EBUSY);
-	}
-
-	page = cl_page_find(env, clob, vmpage->index, vmpage, CPT_CACHEABLE);
-	if (IS_ERR(page)) {
-		which = RA_STAT_FAILED_GRAB_PAGE;
-		msg   = "cl_page_find failed";
-		GOTO(out, rc = PTR_ERR(page));
-	}
-
-	lu_ref_add(&page->cp_reference, "ra", current);
-	cl_page_assume(env, io, page);
-	vpg = cl2vvp_page(cl_object_page_slice(clob, page));
-	if (!vpg->vpg_defer_uptodate && !PageUptodate(vmpage)) {
-		vpg->vpg_defer_uptodate = 1;
-		vpg->vpg_ra_used = 0;
-		cl_page_list_add(queue, page);
-	} else {
-		/* skip completed pages */
-		cl_page_unassume(env, io, page);
-		/* This page is already uptodate, returning a positive number
-		 * to tell the callers about this */
-		rc = 1;
-	}
-
-	lu_ref_del(&page->cp_reference, "ra", current);
-	cl_page_put(env, page);
-
-out:
-	if (vmpage != NULL) {
-		if (rc != 0)
-			unlock_page(vmpage);
-		put_page(vmpage);
-	}
-	if (msg != NULL) {
-		ll_ra_stats_inc(inode, which);
-		CDEBUG(D_READA, "%s\n", msg);
-
-	}
-
-	RETURN(rc);
-}
-
-#define RIA_DEBUG(ria)                                                       \
-        CDEBUG(D_READA, "rs %lu re %lu ro %lu rl %lu rp %lu\n",       \
-        ria->ria_start, ria->ria_end, ria->ria_stoff, ria->ria_length,\
-        ria->ria_pages)
-
-static inline int stride_io_mode(struct ll_readahead_state *ras)
-{
-        return ras->ras_consecutive_stride_requests > 1;
-}
-
-/* The function calculates how much pages will be read in
- * [off, off + length], in such stride IO area,
- * stride_offset = st_off, stride_lengh = st_len,
- * stride_pages = st_pgs
- *
- *   |------------------|*****|------------------|*****|------------|*****|....
- * st_off
- *   |--- st_pgs     ---|
- *   |-----     st_len   -----|
- *
- *              How many pages it should read in such pattern
- *              |-------------------------------------------------------------|
- *              off
- *              |<------                  length                      ------->|
- *
- *          =   |<----->|  +  |-------------------------------------| +   |---|
- *             start_left                 st_pgs * i                    end_left
- */
-static unsigned long
-stride_pg_count(pgoff_t st_off, unsigned long st_len, unsigned long st_pgs,
-                unsigned long off, unsigned long length)
-{
-        __u64 start = off > st_off ? off - st_off : 0;
-        __u64 end = off + length > st_off ? off + length - st_off : 0;
-        unsigned long start_left = 0;
-        unsigned long end_left = 0;
-        unsigned long pg_count;
-
-        if (st_len == 0 || length == 0 || end == 0)
-                return length;
-
-        start_left = do_div(start, st_len);
-        if (start_left < st_pgs)
-                start_left = st_pgs - start_left;
-        else
-                start_left = 0;
-
-        end_left = do_div(end, st_len);
-        if (end_left > st_pgs)
-                end_left = st_pgs;
-
-	CDEBUG(D_READA, "start %llu, end %llu start_left %lu end_left %lu\n",
-               start, end, start_left, end_left);
-
-        if (start == end)
-                pg_count = end_left - (st_pgs - start_left);
-        else
-                pg_count = start_left + st_pgs * (end - start - 1) + end_left;
-
-        CDEBUG(D_READA, "st_off %lu, st_len %lu st_pgs %lu off %lu length %lu"
-               "pgcount %lu\n", st_off, st_len, st_pgs, off, length, pg_count);
-
-        return pg_count;
-}
-
-static int ria_page_count(struct ra_io_arg *ria)
-{
-        __u64 length = ria->ria_end >= ria->ria_start ?
-                       ria->ria_end - ria->ria_start + 1 : 0;
-
-        return stride_pg_count(ria->ria_stoff, ria->ria_length,
-                               ria->ria_pages, ria->ria_start,
-                               length);
-}
-
-static unsigned long ras_align(struct ll_readahead_state *ras,
-			       unsigned long index,
-			       unsigned long *remainder)
-{
-	unsigned long rem = index % ras->ras_rpc_size;
-	if (remainder != NULL)
-		*remainder = rem;
-	return index - rem;
-}
-
-/*Check whether the index is in the defined ra-window */
-static int ras_inside_ra_window(unsigned long idx, struct ra_io_arg *ria)
-{
-        /* If ria_length == ria_pages, it means non-stride I/O mode,
-         * idx should always inside read-ahead window in this case
-         * For stride I/O mode, just check whether the idx is inside
-         * the ria_pages. */
-        return ria->ria_length == 0 || ria->ria_length == ria->ria_pages ||
-               (idx >= ria->ria_stoff && (idx - ria->ria_stoff) %
-                ria->ria_length < ria->ria_pages);
-}
-
-static unsigned long
-ll_read_ahead_pages(const struct lu_env *env, struct cl_io *io,
-		    struct cl_page_list *queue, struct ll_readahead_state *ras,
-		    struct ra_io_arg *ria)
-{
-	struct cl_read_ahead ra = { 0 };
-	int rc = 0;
-	bool stride_ria;
-	unsigned long ra_end = 0;
-	pgoff_t page_idx;
-
-	LASSERT(ria != NULL);
-	RIA_DEBUG(ria);
-
-	stride_ria = ria->ria_length > ria->ria_pages && ria->ria_pages > 0;
-	for (page_idx = ria->ria_start;
-	     page_idx <= ria->ria_end && ria->ria_reserved > 0; page_idx++) {
-		if (ras_inside_ra_window(page_idx, ria)) {
-			if (ra.cra_end == 0 || ra.cra_end < page_idx) {
-				unsigned long end;
-
-				cl_read_ahead_release(env, &ra);
-
-				rc = cl_io_read_ahead(env, io, page_idx, &ra);
-				if (rc < 0)
-					break;
-
-				CDEBUG(D_READA, "idx: %lu, ra: %lu, rpc: %lu\n",
-				       page_idx, ra.cra_end, ra.cra_rpc_size);
-				LASSERTF(ra.cra_end >= page_idx,
-					 "object: %p, indcies %lu / %lu\n",
-					 io->ci_obj, ra.cra_end, page_idx);
-				/* update read ahead RPC size.
-				 * NB: it's racy but doesn't matter */
-				if (ras->ras_rpc_size > ra.cra_rpc_size &&
-				    ra.cra_rpc_size > 0)
-					ras->ras_rpc_size = ra.cra_rpc_size;
-				/* trim it to align with optimal RPC size */
-				end = ras_align(ras, ria->ria_end + 1, NULL);
-				if (end > 0 && !ria->ria_eof)
-					ria->ria_end = end - 1;
-				if (ria->ria_end < ria->ria_end_min)
-					ria->ria_end = ria->ria_end_min;
-				if (ria->ria_end > ra.cra_end)
-					ria->ria_end = ra.cra_end;
-			}
-			if (page_idx > ria->ria_end)
-				break;
-
-			/* If the page is inside the read-ahead window */
-			rc = ll_read_ahead_page(env, io, queue, page_idx);
-			if (rc < 0)
-				break;
-
-			ra_end = page_idx;
-			if (rc == 0)
-				ria->ria_reserved--;
-                } else if (stride_ria) {
-                        /* If it is not in the read-ahead window, and it is
-                         * read-ahead mode, then check whether it should skip
-                         * the stride gap */
-                        pgoff_t offset;
-                        /* FIXME: This assertion only is valid when it is for
-                         * forward read-ahead, it will be fixed when backward
-                         * read-ahead is implemented */
-			LASSERTF(page_idx >= ria->ria_stoff,
-				"Invalid page_idx %lu rs %lu re %lu ro %lu "
-				"rl %lu rp %lu\n", page_idx,
-				ria->ria_start, ria->ria_end, ria->ria_stoff,
-				ria->ria_length, ria->ria_pages);
-                        offset = page_idx - ria->ria_stoff;
-                        offset = offset % (ria->ria_length);
-                        if (offset > ria->ria_pages) {
-                                page_idx += ria->ria_length - offset;
-                                CDEBUG(D_READA, "i %lu skip %lu \n", page_idx,
-                                       ria->ria_length - offset);
-                                continue;
-                        }
-                }
-        }
-
-	cl_read_ahead_release(env, &ra);
-
-	return ra_end;
-}
-
-static int ll_readahead(const struct lu_env *env, struct cl_io *io,
-			struct cl_page_list *queue,
-			struct ll_readahead_state *ras, bool hit)
-{
-	struct vvp_io *vio = vvp_env_io(env);
-	struct ll_thread_info *lti = ll_env_info(env);
-	struct cl_attr *attr = vvp_env_thread_attr(env);
-	unsigned long len, mlen = 0;
-	pgoff_t ra_end, start = 0, end = 0;
-	struct inode *inode;
-	struct ra_io_arg *ria = &lti->lti_ria;
-	struct cl_object *clob;
-	int ret = 0;
-	__u64 kms;
-	ENTRY;
-
-	clob = io->ci_obj;
-	inode = vvp_object_inode(clob);
-
-	memset(ria, 0, sizeof *ria);
-
-	cl_object_attr_lock(clob);
-	ret = cl_object_attr_get(env, clob, attr);
-	cl_object_attr_unlock(clob);
-
-	if (ret != 0)
-		RETURN(ret);
-	kms = attr->cat_kms;
-	if (kms == 0) {
-		ll_ra_stats_inc(inode, RA_STAT_ZERO_LEN);
-		RETURN(0);
-	}
-
-	spin_lock(&ras->ras_lock);
-
-	/**
-	 * Note: other thread might rollback the ras_next_readahead,
-	 * if it can not get the full size of prepared pages, see the
-	 * end of this function. For stride read ahead, it needs to
-	 * make sure the offset is no less than ras_stride_offset,
-	 * so that stride read ahead can work correctly.
-	 */
-	if (stride_io_mode(ras))
-		start = max(ras->ras_next_readahead, ras->ras_stride_offset);
-	else
-		start = ras->ras_next_readahead;
-
-	if (ras->ras_window_len > 0)
-		end = ras->ras_window_start + ras->ras_window_len - 1;
-
-	/* Enlarge the RA window to encompass the full read */
-	if (vio->vui_ra_valid &&
-	    end < vio->vui_ra_start + vio->vui_ra_count - 1)
-		end = vio->vui_ra_start + vio->vui_ra_count - 1;
-
-        if (end != 0) {
-		unsigned long end_index;
-
-		/* Truncate RA window to end of file */
-		end_index = (unsigned long)((kms - 1) >> PAGE_SHIFT);
-		if (end_index <= end) {
-			end = end_index;
-			ria->ria_eof = true;
-		}
-
-		ras->ras_next_readahead = max(end, end + 1);
-		RAS_CDEBUG(ras);
-        }
-        ria->ria_start = start;
-        ria->ria_end = end;
-        /* If stride I/O mode is detected, get stride window*/
-        if (stride_io_mode(ras)) {
-                ria->ria_stoff = ras->ras_stride_offset;
-                ria->ria_length = ras->ras_stride_length;
-                ria->ria_pages = ras->ras_stride_pages;
-        }
-	spin_unlock(&ras->ras_lock);
-
-	if (end == 0) {
-		ll_ra_stats_inc(inode, RA_STAT_ZERO_WINDOW);
-		RETURN(0);
-	}
-	len = ria_page_count(ria);
-	if (len == 0) {
-		ll_ra_stats_inc(inode, RA_STAT_ZERO_WINDOW);
-		RETURN(0);
-	}
-
-	CDEBUG(D_READA, DFID": ria: %lu/%lu, bead: %lu/%lu, hit: %d\n",
-	       PFID(lu_object_fid(&clob->co_lu)),
-	       ria->ria_start, ria->ria_end,
-	       vio->vui_ra_valid ? vio->vui_ra_start : 0,
-	       vio->vui_ra_valid ? vio->vui_ra_count : 0,
-	       hit);
-
-	/* at least to extend the readahead window to cover current read */
-	if (!hit && vio->vui_ra_valid &&
-	    vio->vui_ra_start + vio->vui_ra_count > ria->ria_start) {
-		unsigned long remainder;
-
-		/* to the end of current read window. */
-		mlen = vio->vui_ra_start + vio->vui_ra_count - ria->ria_start;
-		/* trim to RPC boundary */
-		ras_align(ras, ria->ria_start, &remainder);
-		mlen = min(mlen, ras->ras_rpc_size - remainder);
-		ria->ria_end_min = ria->ria_start + mlen;
-	}
-
-	ria->ria_reserved = ll_ra_count_get(ll_i2sbi(inode), ria, len, mlen);
-	if (ria->ria_reserved < len)
-		ll_ra_stats_inc(inode, RA_STAT_MAX_IN_FLIGHT);
-
-	CDEBUG(D_READA, "reserved pages: %lu/%lu/%lu, ra_cur %d, ra_max %lu\n",
-	       ria->ria_reserved, len, mlen,
-	       atomic_read(&ll_i2sbi(inode)->ll_ra_info.ra_cur_pages),
-	       ll_i2sbi(inode)->ll_ra_info.ra_max_pages);
-
-	ra_end = ll_read_ahead_pages(env, io, queue, ras, ria);
-
-	if (ria->ria_reserved != 0)
-		ll_ra_count_put(ll_i2sbi(inode), ria->ria_reserved);
-
-	if (ra_end == end && ra_end == (kms >> PAGE_SHIFT))
-		ll_ra_stats_inc(inode, RA_STAT_EOF);
-
-	/* if we didn't get to the end of the region we reserved from
-	 * the ras we need to go back and update the ras so that the
-	 * next read-ahead tries from where we left off.  we only do so
-	 * if the region we failed to issue read-ahead on is still ahead
-	 * of the app and behind the next index to start read-ahead from */
-	CDEBUG(D_READA, "ra_end = %lu end = %lu stride end = %lu pages = %d\n",
-	       ra_end, end, ria->ria_end, ret);
-
-	if (ra_end > 0 && ra_end != end) {
-		ll_ra_stats_inc(inode, RA_STAT_FAILED_REACH_END);
-		spin_lock(&ras->ras_lock);
-		if (ra_end <= ras->ras_next_readahead &&
-		    index_in_window(ra_end, ras->ras_window_start, 0,
-				    ras->ras_window_len)) {
-			ras->ras_next_readahead = ra_end + 1;
-			RAS_CDEBUG(ras);
-		}
-		spin_unlock(&ras->ras_lock);
-	}
-
-	RETURN(ret);
-}
-
-static void ras_set_start(struct inode *inode, struct ll_readahead_state *ras,
-			  unsigned long index)
-{
-	ras->ras_window_start = ras_align(ras, index, NULL);
-}
-
-/* called with the ras_lock held or from places where it doesn't matter */
-static void ras_reset(struct inode *inode, struct ll_readahead_state *ras,
-		      unsigned long index)
-{
-	ras->ras_last_readpage = index;
-	ras->ras_consecutive_requests = 0;
-	ras->ras_consecutive_pages = 0;
-	ras->ras_window_len = 0;
-	ras_set_start(inode, ras, index);
-	ras->ras_next_readahead = max(ras->ras_window_start, index + 1);
-
-	RAS_CDEBUG(ras);
-}
-
-/* called with the ras_lock held or from places where it doesn't matter */
-static void ras_stride_reset(struct ll_readahead_state *ras)
-{
-        ras->ras_consecutive_stride_requests = 0;
-        ras->ras_stride_length = 0;
-        ras->ras_stride_pages = 0;
-        RAS_CDEBUG(ras);
-}
-
-void ll_readahead_init(struct inode *inode, struct ll_readahead_state *ras)
-{
-	spin_lock_init(&ras->ras_lock);
-	ras->ras_rpc_size = PTLRPC_MAX_BRW_PAGES;
-	ras_reset(inode, ras, 0);
-	ras->ras_requests = 0;
-}
-
-/*
- * Check whether the read request is in the stride window.
- * If it is in the stride window, return 1, otherwise return 0.
- */
-static int index_in_stride_window(struct ll_readahead_state *ras,
-				  unsigned long index)
-{
-	unsigned long stride_gap;
-
-	if (ras->ras_stride_length == 0 || ras->ras_stride_pages == 0 ||
-	    ras->ras_stride_pages == ras->ras_stride_length)
-		return 0;
-
-	stride_gap = index - ras->ras_last_readpage - 1;
-
-	/* If it is contiguous read */
-	if (stride_gap == 0)
-		return ras->ras_consecutive_pages + 1 <= ras->ras_stride_pages;
-
-	/* Otherwise check the stride by itself */
-	return (ras->ras_stride_length - ras->ras_stride_pages) == stride_gap &&
-		ras->ras_consecutive_pages == ras->ras_stride_pages;
-}
-
-static void ras_update_stride_detector(struct ll_readahead_state *ras,
-                                       unsigned long index)
-{
-        unsigned long stride_gap = index - ras->ras_last_readpage - 1;
-
-        if (!stride_io_mode(ras) && (stride_gap != 0 ||
-             ras->ras_consecutive_stride_requests == 0)) {
-                ras->ras_stride_pages = ras->ras_consecutive_pages;
-                ras->ras_stride_length = stride_gap +ras->ras_consecutive_pages;
-        }
-        LASSERT(ras->ras_request_index == 0);
-        LASSERT(ras->ras_consecutive_stride_requests == 0);
-
-        if (index <= ras->ras_last_readpage) {
-                /*Reset stride window for forward read*/
-                ras_stride_reset(ras);
-                return;
-        }
-
-        ras->ras_stride_pages = ras->ras_consecutive_pages;
-        ras->ras_stride_length = stride_gap +ras->ras_consecutive_pages;
-
-        RAS_CDEBUG(ras);
-        return;
-}
-
-static unsigned long
-stride_page_count(struct ll_readahead_state *ras, unsigned long len)
-{
-        return stride_pg_count(ras->ras_stride_offset, ras->ras_stride_length,
-                               ras->ras_stride_pages, ras->ras_stride_offset,
-                               len);
-}
-
-/* Stride Read-ahead window will be increased inc_len according to
- * stride I/O pattern */
-static void ras_stride_increase_window(struct ll_readahead_state *ras,
-                                       struct ll_ra_info *ra,
-                                       unsigned long inc_len)
-{
-        unsigned long left, step, window_len;
-        unsigned long stride_len;
-
-        LASSERT(ras->ras_stride_length > 0);
-        LASSERTF(ras->ras_window_start + ras->ras_window_len
-                 >= ras->ras_stride_offset, "window_start %lu, window_len %lu"
-                 " stride_offset %lu\n", ras->ras_window_start,
-                 ras->ras_window_len, ras->ras_stride_offset);
-
-        stride_len = ras->ras_window_start + ras->ras_window_len -
-                     ras->ras_stride_offset;
-
-        left = stride_len % ras->ras_stride_length;
-        window_len = ras->ras_window_len - left;
-
-        if (left < ras->ras_stride_pages)
-                left += inc_len;
-        else
-                left = ras->ras_stride_pages + inc_len;
-
-        LASSERT(ras->ras_stride_pages != 0);
-
-        step = left / ras->ras_stride_pages;
-        left %= ras->ras_stride_pages;
-
-        window_len += step * ras->ras_stride_length + left;
-
-        if (stride_page_count(ras, window_len) <= ra->ra_max_pages_per_file)
-                ras->ras_window_len = window_len;
-
-        RAS_CDEBUG(ras);
-}
-
-static void ras_increase_window(struct inode *inode,
-				struct ll_readahead_state *ras,
-				struct ll_ra_info *ra)
-{
-	/* The stretch of ra-window should be aligned with max rpc_size
-	 * but current clio architecture does not support retrieve such
-	 * information from lower layer. FIXME later
-	 */
-	if (stride_io_mode(ras)) {
-		ras_stride_increase_window(ras, ra, ras->ras_rpc_size);
-	} else {
-		unsigned long wlen;
-
-		wlen = min(ras->ras_window_len + ras->ras_rpc_size,
-			   ra->ra_max_pages_per_file);
-		ras->ras_window_len = ras_align(ras, wlen, NULL);
-	}
-}
-
-static void ras_update(struct ll_sb_info *sbi, struct inode *inode,
-		       struct ll_readahead_state *ras, unsigned long index,
-		       enum ras_update_flags flags)
-{
-	struct ll_ra_info *ra = &sbi->ll_ra_info;
-	bool hit = flags & LL_RAS_HIT;
-	int zero = 0, stride_detect = 0, ra_miss = 0;
-	ENTRY;
-
-	spin_lock(&ras->ras_lock);
-
-	if (!hit)
-		CDEBUG(D_READA, DFID " pages at %lu miss.\n",
-		       PFID(ll_inode2fid(inode)), index);
-        ll_ra_stats_inc_sbi(sbi, hit ? RA_STAT_HIT : RA_STAT_MISS);
-
-        /* reset the read-ahead window in two cases.  First when the app seeks
-         * or reads to some other part of the file.  Secondly if we get a
-         * read-ahead miss that we think we've previously issued.  This can
-         * be a symptom of there being so many read-ahead pages that the VM is
-         * reclaiming it before we get to it. */
-        if (!index_in_window(index, ras->ras_last_readpage, 8, 8)) {
-                zero = 1;
-                ll_ra_stats_inc_sbi(sbi, RA_STAT_DISTANT_READPAGE);
-        } else if (!hit && ras->ras_window_len &&
-                   index < ras->ras_next_readahead &&
-                   index_in_window(index, ras->ras_window_start, 0,
-                                   ras->ras_window_len)) {
-                ra_miss = 1;
-                ll_ra_stats_inc_sbi(sbi, RA_STAT_MISS_IN_WINDOW);
-        }
-
-        /* On the second access to a file smaller than the tunable
-         * ra_max_read_ahead_whole_pages trigger RA on all pages in the
-         * file up to ra_max_pages_per_file.  This is simply a best effort
-         * and only occurs once per open file.  Normal RA behavior is reverted
-         * to for subsequent IO.  The mmap case does not increment
-         * ras_requests and thus can never trigger this behavior. */
-	if (ras->ras_requests >= 2 && !ras->ras_request_index) {
-		__u64 kms_pages;
-
-		kms_pages = (i_size_read(inode) + PAGE_SIZE - 1) >>
-			    PAGE_SHIFT;
-
-		CDEBUG(D_READA, "kmsp %llu mwp %lu mp %lu\n", kms_pages,
-                       ra->ra_max_read_ahead_whole_pages, ra->ra_max_pages_per_file);
-
-                if (kms_pages &&
-                    kms_pages <= ra->ra_max_read_ahead_whole_pages) {
-                        ras->ras_window_start = 0;
-			ras->ras_next_readahead = index + 1;
-                        ras->ras_window_len = min(ra->ra_max_pages_per_file,
-                                ra->ra_max_read_ahead_whole_pages);
-                        GOTO(out_unlock, 0);
-                }
-        }
-	if (zero) {
-		/* check whether it is in stride I/O mode*/
-		if (!index_in_stride_window(ras, index)) {
-			if (ras->ras_consecutive_stride_requests == 0 &&
-			    ras->ras_request_index == 0) {
-				ras_update_stride_detector(ras, index);
-				ras->ras_consecutive_stride_requests++;
-			} else {
-				ras_stride_reset(ras);
-			}
-			ras_reset(inode, ras, index);
-			ras->ras_consecutive_pages++;
-			GOTO(out_unlock, 0);
-		} else {
-			ras->ras_consecutive_pages = 0;
-			ras->ras_consecutive_requests = 0;
-			if (++ras->ras_consecutive_stride_requests > 1)
-				stride_detect = 1;
-			RAS_CDEBUG(ras);
-		}
-	} else {
-		if (ra_miss) {
-			if (index_in_stride_window(ras, index) &&
-			    stride_io_mode(ras)) {
-				if (index != ras->ras_last_readpage + 1)
-					ras->ras_consecutive_pages = 0;
-				ras_reset(inode, ras, index);
-
-				/* If stride-RA hit cache miss, the stride
-				 * detector will not be reset to avoid the
-				 * overhead of redetecting read-ahead mode,
-				 * but on the condition that the stride window
-				 * is still intersect with normal sequential
-				 * read-ahead window. */
-				if (ras->ras_window_start <
-				    ras->ras_stride_offset)
-					ras_stride_reset(ras);
-				RAS_CDEBUG(ras);
-			} else {
-				/* Reset both stride window and normal RA
-				 * window */
-				ras_reset(inode, ras, index);
-				ras->ras_consecutive_pages++;
-				ras_stride_reset(ras);
-				GOTO(out_unlock, 0);
-			}
-		} else if (stride_io_mode(ras)) {
-			/* If this is contiguous read but in stride I/O mode
-			 * currently, check whether stride step still is valid,
-			 * if invalid, it will reset the stride ra window*/
-			if (!index_in_stride_window(ras, index)) {
-				/* Shrink stride read-ahead window to be zero */
-				ras_stride_reset(ras);
-				ras->ras_window_len = 0;
-				ras->ras_next_readahead = index;
-			}
-		}
-	}
-	ras->ras_consecutive_pages++;
-	ras->ras_last_readpage = index;
-	ras_set_start(inode, ras, index);
-
-	if (stride_io_mode(ras)) {
-		/* Since stride readahead is sentivite to the offset
-		 * of read-ahead, so we use original offset here,
-		 * instead of ras_window_start, which is RPC aligned */
-		ras->ras_next_readahead = max(index, ras->ras_next_readahead);
-		ras->ras_window_start = max(ras->ras_stride_offset,
-					    ras->ras_window_start);
-	} else {
-		if (ras->ras_next_readahead < ras->ras_window_start)
-			ras->ras_next_readahead = ras->ras_window_start;
-		if (!hit)
-			ras->ras_next_readahead = index + 1;
-	}
-	RAS_CDEBUG(ras);
-
-	/* Trigger RA in the mmap case where ras_consecutive_requests
-	 * is not incremented and thus can't be used to trigger RA */
-	if (ras->ras_consecutive_pages >= 4 && flags & LL_RAS_MMAP) {
-		ras_increase_window(inode, ras, ra);
-		/* reset consecutive pages so that the readahead window can
-		 * grow gradually. */
-		ras->ras_consecutive_pages = 0;
-		GOTO(out_unlock, 0);
-	}
-
-	/* Initially reset the stride window offset to next_readahead*/
-	if (ras->ras_consecutive_stride_requests == 2 && stride_detect) {
-		/**
-		 * Once stride IO mode is detected, next_readahead should be
-		 * reset to make sure next_readahead > stride offset
-		 */
-		ras->ras_next_readahead = max(index, ras->ras_next_readahead);
-		ras->ras_stride_offset = index;
-		ras->ras_window_start = max(index, ras->ras_window_start);
-	}
-
-	/* The initial ras_window_len is set to the request size.  To avoid
-	 * uselessly reading and discarding pages for random IO the window is
-	 * only increased once per consecutive request received. */
-	if ((ras->ras_consecutive_requests > 1 || stride_detect) &&
-	    !ras->ras_request_index)
-		ras_increase_window(inode, ras, ra);
-	EXIT;
-out_unlock:
-	RAS_CDEBUG(ras);
-	ras->ras_request_index++;
-	spin_unlock(&ras->ras_lock);
-	return;
-}
 
 int ll_writepage(struct page *vmpage, struct writeback_control *wbc)
 {
@@ -1082,151 +250,174 @@ void ll_cl_remove(struct file *file, const struct lu_env *env)
 	write_unlock(&fd->fd_lock);
 }
 
-static int ll_io_read_page(const struct lu_env *env, struct cl_io *io,
-			   struct cl_page *page, struct file *file)
+static int ll_readpage_extend_one(const struct lu_env *env, struct cl_io *io,
+				  struct cl_page_list *queue, pgoff_t index)
 {
-	struct inode              *inode  = vvp_object_inode(page->cp_obj);
-	struct ll_sb_info         *sbi    = ll_i2sbi(inode);
-	struct ll_file_data       *fd     = LUSTRE_FPRIVATE(file);
-	struct ll_readahead_state *ras    = &fd->fd_ras;
-	struct cl_2queue          *queue  = &io->ci_queue;
-	struct vvp_page           *vpg;
-	int			   rc = 0;
-	bool			   uptodate;
+	struct cl_object *clob  = io->ci_obj;
+	struct inode     *inode = vvp_object_inode(clob);
+	struct page      *vmpage;
+	struct cl_page   *page;
+	int               rc    = 0;
+	const char       *msg   = NULL;
 	ENTRY;
 
-	vpg = cl2vvp_page(cl_object_page_slice(page->cp_obj, page));
-	uptodate = vpg->vpg_defer_uptodate;
-
-	if (sbi->ll_ra_info.ra_max_pages_per_file > 0 &&
-	    sbi->ll_ra_info.ra_max_pages > 0 &&
-	    !vpg->vpg_ra_updated) {
-		struct vvp_io *vio = vvp_env_io(env);
-		enum ras_update_flags flags = 0;
-
-		if (uptodate)
-			flags |= LL_RAS_HIT;
-		if (!vio->vui_ra_valid)
-			flags |= LL_RAS_MMAP;
-		ras_update(sbi, inode, ras, vvp_index(vpg), flags);
+	vmpage = grab_cache_page_nowait(inode->i_mapping, index);
+	if (vmpage == NULL) {
+		msg = "g_c_p_n failed";
+		GOTO(out, rc = -EBUSY);
 	}
 
-	cl_2queue_init(queue);
-	if (uptodate) {
-		vpg->vpg_ra_used = 1;
-		cl_page_export(env, page, 1);
-		cl_page_disown(env, io, page);
+	/* Check if vmpage was truncated or reclaimed */
+	if (vmpage->mapping != inode->i_mapping) {
+		msg = "g_c_p_n returned invalid page";
+		GOTO(out, rc = -EBUSY);
+	}
+
+	page = cl_page_find(env, clob, vmpage->index, vmpage, CPT_CACHEABLE);
+	if (IS_ERR(page)) {
+		msg = "cl_page_find failed";
+		GOTO(out, rc = PTR_ERR(page));
+	}
+
+	lu_ref_add(&page->cp_reference, "readpage", current);
+	cl_page_assume(env, io, page);
+	/* Page from a non-object file */
+	if (PageUptodate(vmpage)) {
+		cl_page_unassume(env, io, page);
+		unlock_page(vmpage);
 	} else {
-		cl_2queue_add(queue, page);
+		cl_page_list_add(queue, page);
+	}
+	lu_ref_del(&page->cp_reference, "readpage", current);
+	cl_page_put(env, page);
+
+out:
+	if (vmpage != NULL) {
+		if (rc)
+			unlock_page(vmpage);
+		put_page(vmpage);
 	}
 
-	if (sbi->ll_ra_info.ra_max_pages_per_file > 0 &&
-	    sbi->ll_ra_info.ra_max_pages > 0) {
-		int rc2;
-
-		rc2 = ll_readahead(env, io, &queue->c2_qin, ras,
-				   uptodate);
-		CDEBUG(D_READA, DFID "%d pages read ahead at %lu\n",
-		       PFID(ll_inode2fid(inode)), rc2, vvp_index(vpg));
-	}
-
-	if (queue->c2_qin.pl_nr > 0)
-		rc = cl_io_submit_rw(env, io, CRT_READ, queue);
-
-	/*
-	 * Unlock unsent pages in case of error.
-	 */
-	cl_page_list_disown(env, io, &queue->c2_qin);
-	cl_2queue_fini(env, queue);
+	if (msg != NULL)
+		CDEBUG(D_READA, "%s\n", msg);
 
 	RETURN(rc);
 }
 
+/**
+ * Extend the readpage to one RA block if possible. Because ll_readpage()
+ * will only be called when both async RA and sync RA failed, do not extend
+ * too many pages.
+ */
+static void ll_readpage_extend(const struct lu_env *env, struct cl_io *io,
+			       struct cl_page_list *queue, pgoff_t page_idx)
+{
+	pgoff_t			index;
+	pgoff_t			start;
+	pgoff_t			end;
+	struct cl_read_ahead	ra = { 0 };
+	int			rc;
+
+	/* TODO: extend to RPC size */
+	start = page_idx & LL_RA_SEQ_BLOCK_PAGE_MASK;
+	end = start + LL_RA_SEQ_BLOCK_NPAGES;
+	for (index = start; index < end; index++) {
+		if (index == page_idx)
+			continue;
+
+		if (ra.cra_end == 0 || ra.cra_end < index) {
+			cl_read_ahead_release(env, &ra);
+
+			rc = cl_io_read_ahead(env, io, index, &ra);
+			if (rc < 0)
+				break;
+
+			if (ra.cra_end < index)
+				break;
+		}
+
+		rc = ll_readpage_extend_one(env, io, queue, index);
+		if (rc < 0)
+			break;
+	}
+	cl_read_ahead_release(env, &ra);
+
+	/* TODO: call ll_async_readahead to push forward RA window */
+	return;
+}
+
 int ll_readpage(struct file *file, struct page *vmpage)
 {
-	struct inode *inode = file_inode(file);
-	struct cl_object *clob = ll_i2info(inode)->lli_clob;
-	struct ll_cl_context *lcc;
-	const struct lu_env  *env;
-	struct cl_io   *io;
-	struct cl_page *page;
-	int result;
+	struct inode		*inode = file->f_path.dentry->d_inode;
+	struct cl_object	*clob = ll_i2info(inode)->lli_clob;
+	struct ll_cl_context	*lcc;
+	const struct lu_env	*env;
+	struct cl_io		*io;
+	struct cl_page		*page;
+	int			 rc = 0;
+	int			 rc2 = 0;
+	struct cl_2queue	*queue;
 	ENTRY;
 
+	CDEBUG(D_READA, "readpage at page offset %lu\n",
+	       vmpage->index);
+
 	lcc = ll_cl_find(file);
-	if (lcc == NULL) {
-		unlock_page(vmpage);
-		RETURN(-EIO);
-	}
+	if (lcc == NULL)
+		GOTO(out, rc = -ENOMEM);
 
 	env = lcc->lcc_env;
 	io  = lcc->lcc_io;
 	if (io == NULL) { /* fast read */
-		struct inode *inode = file_inode(file);
-		struct ll_file_data *fd = LUSTRE_FPRIVATE(file);
-		struct ll_readahead_state *ras = &fd->fd_ras;
-		struct vvp_page *vpg;
-
-		result = -ENODATA;
+		rc = -ENODATA;
 
 		/* TODO: need to verify the layout version to make sure
 		 * the page is not invalid due to layout change. */
 		page = cl_vmpage_page(vmpage, clob);
 		if (page == NULL) {
 			unlock_page(vmpage);
-			RETURN(result);
-		}
-
-		vpg = cl2vvp_page(cl_object_page_slice(page->cp_obj, page));
-		if (vpg->vpg_defer_uptodate) {
-			enum ras_update_flags flags = LL_RAS_HIT;
-
-			if (lcc->lcc_type == LCC_MMAP)
-				flags |= LL_RAS_MMAP;
-
-			/* For fast read, it updates read ahead state only
-			 * if the page is hit in cache because non cache page
-			 * case will be handled by slow read later. */
-			ras_update(ll_i2sbi(inode), inode, ras, vvp_index(vpg),
-				   flags);
-			/* avoid duplicate ras_update() call */
-			vpg->vpg_ra_updated = 1;
-
-			/* Check if we can issue a readahead RPC, if that is
-			 * the case, we can't do fast IO because we will need
-			 * a cl_io to issue the RPC. */
-			if (ras->ras_window_start + ras->ras_window_len <
-			    ras->ras_next_readahead + PTLRPC_MAX_BRW_PAGES) {
-				/* export the page and skip io stack */
-				vpg->vpg_ra_used = 1;
-				cl_page_export(env, page, 1);
-				result = 0;
-			}
+			RETURN(rc);
 		}
 
 		unlock_page(vmpage);
 		cl_page_put(env, page);
-		RETURN(result);
+		RETURN(rc);
 	}
 
 	LASSERT(io->ci_state == CIS_IO_GOING);
-	page = cl_page_find(env, clob, vmpage->index, vmpage, CPT_CACHEABLE);
-	if (!IS_ERR(page)) {
-		LASSERT(page->cp_type == CPT_CACHEABLE);
-		if (likely(!PageUptodate(vmpage))) {
-			cl_page_assume(env, io, page);
-			result = ll_io_read_page(env, io, page, file);
-		} else {
-			/* Page from a non-object file. */
-			unlock_page(vmpage);
-			result = 0;
-		}
+	page = cl_page_find(env, clob, vmpage->index, vmpage,
+			    CPT_CACHEABLE);
+	if (IS_ERR(page))
+		GOTO(out, rc = PTR_ERR(page));
+
+	/* Page from a non-object file. */
+	if (PageUptodate(vmpage)) {
 		cl_page_put(env, page);
-	} else {
-		unlock_page(vmpage);
-		result = PTR_ERR(page);
-        }
-	RETURN(result);
+		GOTO(out, rc = 0);
+	}
+	queue  = &io->ci_queue;
+	cl_2queue_init(queue);
+	cl_page_assume(env, io, page);
+	cl_2queue_add(queue, page);
+	cl_page_put(env, page);
+
+	ll_readpage_extend(env, io, &queue->c2_qin, vmpage->index);
+
+	CDEBUG(D_READA, "submit page %u at page offset %lu\n",
+	       queue->c2_qin.pl_nr, vmpage->index);
+
+	if (queue->c2_qin.pl_nr > 0)
+		rc2 = cl_io_submit_rw(env, io, CRT_READ, queue);
+
+	rc = rc ?: rc2;
+
+	cl_page_list_disown(env, io, &queue->c2_qin);
+	cl_2queue_fini(env, queue);
+
+	RETURN(rc);
+out:
+	unlock_page(vmpage);
+	RETURN(rc);
 }
 
 int ll_page_sync_io(const struct lu_env *env, struct cl_io *io,
@@ -1252,4 +443,822 @@ int ll_page_sync_io(const struct lu_env *env, struct cl_io *io,
 	cl_2queue_fini(env, queue);
 
 	return result;
+}
+
+int ll_readpages(struct file *file, struct address_space *mapping,
+		 struct list_head *pages, unsigned nr_pages)
+{
+	struct inode		*inode = file->f_path.dentry->d_inode;
+	struct cl_object	*clob = ll_i2info(inode)->lli_clob;
+	struct ll_cl_context	*lcc;
+	const struct lu_env	*env;
+	struct cl_io		*io;
+	struct cl_page		*page;
+	int			 rc = 0;
+	int			 rc2 = 0;
+	struct cl_2queue	*queue;
+	pgoff_t			 page_idx;
+	unsigned		 i;
+	struct page		*vmpage;
+	struct cl_read_ahead	 ra = { 0 };
+	ENTRY;
+
+	CDEBUG(D_READA, "going to submit readpages\n");
+	lcc = ll_cl_find(file);
+	if (lcc == NULL)
+		RETURN(-ENOMEM);
+
+	env = lcc->lcc_env;
+	io  = lcc->lcc_io;
+	LASSERT(io);
+	LASSERT(io->ci_state == CIS_IO_GOING);
+	queue  = &io->ci_queue;
+	cl_2queue_init(queue);
+
+	for (i = 0; i < nr_pages; i++) {
+		vmpage = list_entry(pages->prev, struct page, lru);
+		LASSERT(!PageLocked(vmpage));
+		list_del(&vmpage->lru);
+
+		page_idx = vmpage->index;
+		if (ra.cra_end == 0 || ra.cra_end < page_idx) {
+			cl_read_ahead_release(env, &ra);
+
+			rc = cl_io_read_ahead(env, io, page_idx, &ra);
+			if (rc < 0)
+				break;
+
+			if (ra.cra_end < page_idx)
+				break;
+		}
+
+		if (!add_to_page_cache_lru(vmpage, mapping, page_idx,
+					   GFP_KERNEL)) {
+			LASSERT(!PageUptodate(vmpage));
+			page = cl_page_find(env, clob, page_idx, vmpage,
+					    CPT_CACHEABLE);
+			if (IS_ERR(page)) {
+				rc = PTR_ERR(page);
+				unlock_page(vmpage);
+				put_page(vmpage);
+				break;
+			}
+
+			/* Check if vmpage was truncated or reclaimed */
+			if (vmpage->mapping != inode->i_mapping) {
+				rc = -EBUSY;
+				unlock_page(vmpage);
+				put_page(vmpage);
+				cl_page_put(env, page);
+				break;
+			}
+
+			/* Page from a non-object file */
+			if (PageUptodate(vmpage)) {
+				unlock_page(vmpage);
+				put_page(vmpage);
+				cl_page_put(env, page);
+				continue;
+			}
+
+			LASSERT(page->cp_type == CPT_CACHEABLE);
+			cl_page_assume(env, io, page);
+			cl_2queue_add(queue, page);
+			cl_page_put(env, page);
+		}
+		put_page(vmpage);
+	}
+
+	cl_read_ahead_release(env, &ra);
+
+	CDEBUG(D_READA, "submit readpages %u\n", queue->c2_qin.pl_nr);
+
+	if (queue->c2_qin.pl_nr > 0)
+		rc2 = cl_io_submit_rw(env, io, CRT_READ, queue);
+
+	rc = rc ?: rc2;
+
+	cl_page_list_disown(env, io, &queue->c2_qin);
+	cl_2queue_fini(env, queue);
+
+	RETURN(rc);
+}
+
+#define list_to_page(head) (list_entry((head)->prev, struct page, lru))
+
+int __ll_do_page_cache_readahead(struct address_space *mapping,
+				 struct file *filp, pgoff_t offset,
+				 unsigned long nr_to_read)
+{
+	struct inode *inode = mapping->host;
+	struct page *page;
+	unsigned long end_index;	/* The last page we want to read */
+	LIST_HEAD(page_pool);
+	int page_idx;
+	int ret = 0;
+	loff_t isize = i_size_read(inode);
+
+	if (isize == 0)
+		goto out;
+
+	end_index = ((isize - 1) >> PAGE_SHIFT);
+
+	/*
+	 * Preallocate as many pages as we will need.
+	 */
+	for (page_idx = 0; page_idx < nr_to_read; page_idx++) {
+		pgoff_t page_offset = offset + page_idx;
+
+		if (page_offset > end_index)
+			break;
+
+		rcu_read_lock();
+		page = radix_tree_lookup(&mapping->page_tree, page_offset);
+		rcu_read_unlock();
+		if (page)
+			continue;
+
+		page = page_cache_alloc_readahead(mapping);
+		if (!page)
+			break;
+		page->index = page_offset;
+		LASSERT(!PageUptodate(page));
+		list_add(&page->lru, &page_pool);
+		ret++;
+	}
+
+	/*
+	 * Now start the IO.  We ignore I/O errors - if the page is not
+	 * uptodate then the caller will launch readpage again, and
+	 * will then handle the error.
+	 */
+	if (ret)
+		ret = ll_readpages(filp, mapping, &page_pool, ret);
+	/* Clean up the remaining pages */
+	put_pages_list(&page_pool);
+	BUG_ON(!list_empty(&page_pool));
+out:
+	return ret;
+}
+
+void ll_readahead_init(struct inode *inode, struct ll_readahead_state *ras)
+{
+	struct ll_sb_info	*sbi = ll_i2sbi(inode);
+
+	spin_lock_init(&ras->lrs_lock);
+	ras->lrs_window_npages = sbi->ll_max_readahead_window;
+	ras->lrs_sequential.lrs_matched_number = 0;
+	ras->lrs_sequential.lrs_next_block = 0;
+
+	ras->lrs_stride.lrs_matched_number = 0;
+	ras->lrs_stride.lrs_prev_valid = false;
+	ras->lrs_stride.lrs_stride_valid = false;
+}
+
+struct list_head	ll_readahead_list;
+spinlock_t		ll_readahead_lock;
+struct list_head	ll_readahead_thread_list;
+wait_queue_head_t	ll_readahead_waitq;
+
+static void ll_readahead_work_add(struct ll_readahead_work *work)
+{
+	bool	wakeup = false;
+
+	spin_lock(&ll_readahead_lock);
+	if (list_empty(&ll_readahead_list))
+		wakeup = true;
+	list_add_tail(&work->lrw_linkage, &ll_readahead_list);
+	spin_unlock(&ll_readahead_lock);
+
+	if (wakeup)
+		wake_up_all(&ll_readahead_waitq);
+}
+
+static int ll_readahead_need_move_window(unsigned long former_index,
+					 unsigned long page_index)
+{
+	unsigned long former_block;
+	unsigned long new_block;
+
+	/*
+	 * Do not submit work unless the window has move forward a RPC
+	 * size, otherwise, there will be two many works which won't do
+	 * any real prefetch.
+	 */
+	former_block = former_index >> LL_RA_SEQ_BLOCK_PAGE_SHIFT;
+	new_block = page_index >> LL_RA_SEQ_BLOCK_PAGE_SHIFT;
+
+	if (new_block > former_block)
+		return 1;
+	return 0;
+}
+
+void ll_ra_stats_inc(struct file *filp, enum ra_stat which)
+{
+	struct inode		*inode = filp->f_path.dentry->d_inode;
+	struct ll_sb_info	*sbi = ll_i2sbi(inode);
+
+	LASSERTF(which >= 0 && which < _NR_RA_STAT, "which: %u\n", which);
+	lprocfs_counter_incr(sbi->ll_ra_stats, which);
+}
+
+void ll_readahead_sequential_window_move(struct address_space *mapping,
+					 struct file *filp,
+					 unsigned long page_index,
+					 unsigned long npages)
+{
+	struct ll_file_data		*fd = LUSTRE_FPRIVATE(filp);
+	struct ll_readahead_state	*ras = &fd->fd_ras;
+	unsigned long			 former_index = 0;
+	unsigned long			 window_size;
+	unsigned long			 moving_forward = 0;
+	struct ll_readahead_work	*work;
+
+	ll_ra_stats_inc(filp, RA_STAT_HIT);
+
+	spin_lock(&ras->lrs_lock);
+	window_size = ras->lrs_window_npages;
+	former_index = ras->lrs_sequential.lrs_window_start;
+	if (ras->lrs_sequential.lrs_matched_number > 0 &&
+	    ll_readahead_need_move_window(former_index, page_index)) {
+		CDEBUG(D_READA, "updating RA start page index from %lu "
+		       "to %lu\n", former_index, page_index);
+		ras->lrs_sequential.lrs_window_start = page_index;
+		moving_forward = page_index - former_index;
+	} else {
+		spin_unlock(&ras->lrs_lock);
+		return;
+	}
+	spin_unlock(&ras->lrs_lock);
+
+	if (window_size == 0)
+		return;
+
+	OBD_ALLOC_PTR(work);
+	if (work == NULL) {
+		CERROR("failed to submit readhead work because of OOM\n");
+		return;
+	}
+	get_file(filp);
+	work->lrw_filp = filp;
+	/*
+	 * Submit async readahead request caused by moving window
+	 * forward
+	 */
+	LASSERT(moving_forward > 0);
+	work->lrw_page_index = former_index + window_size;
+	work->lrw_npages = moving_forward;
+	work->lrw_pattern = LRP_SEQUENTIAL;
+	ll_readahead_work_add(work);
+
+	return;
+}
+
+void ll_sync_readahead(struct address_space *mapping, struct file *filp,
+		       unsigned long page_index, unsigned long npages)
+{
+	if (npages > LL_RA_SYNC_NPAGES)
+		npages = LL_RA_SYNC_NPAGES;
+
+	__ll_do_page_cache_readahead(mapping, filp,
+				     page_index,
+				     npages);
+
+	ll_ra_stats_inc(filp, RA_STAT_MISS);
+
+	return;
+}
+
+static int ll_readahead_detect_sequential(struct ll_readahead_state *ras,
+					  loff_t pos,
+					  size_t count,
+					  struct ll_readahead_work *work)
+{
+	struct ll_readahead_sequential	*sequential = &ras->lrs_sequential;
+	int				 rc = 0;
+	unsigned long			 block_index;
+	unsigned long			 page_index;
+	unsigned long			 next_block;
+
+	block_index = pos >> LL_RA_SEQ_BLOCK_BYTE_SHIFT;
+	next_block = (pos + count) >> LL_RA_SEQ_BLOCK_BYTE_SHIFT;
+	page_index = pos >> PAGE_SHIFT;
+
+	if (block_index != sequential->lrs_next_block) {
+		/** The start offset is out of expected range */
+		sequential->lrs_matched_number = 0;
+		sequential->lrs_next_block = next_block;
+	} else {
+		CDEBUG(D_READA, "sequential matched, number %llu, pos %llu, "
+		       "count %lu, block index %lu, expected next block %lu, "
+		       "readahead next block %lu\n",
+		       sequential->lrs_matched_number, pos, count,
+		       block_index, next_block,
+		       sequential->lrs_next_block);
+		sequential->lrs_next_block = next_block;
+		if (sequential->lrs_matched_number == 0) {
+			sequential->lrs_window_start = page_index;
+			if (work != NULL) {
+				rc = 1;
+				work->lrw_page_index = page_index;
+				work->lrw_npages = ras->lrs_window_npages;
+				work->lrw_pattern = LRP_SEQUENTIAL;
+			}
+		}
+		sequential->lrs_matched_number++;
+	}
+	return rc;
+}
+
+static int ll_readahead_detect_stride(struct ll_readahead_state *ras,
+				      loff_t pos, size_t count,
+				      struct ll_readahead_work *work)
+{
+	struct ll_readahead_stride	*stride = &ras->lrs_stride;
+	loff_t				 prev_pos = stride->lrs_prev_byte;
+	loff_t				 prev_count = stride->lrs_req_nbyte;
+	int				 rc = 0;
+
+	stride->lrs_prev_byte = pos;
+	stride->lrs_req_nbyte = count;
+
+	if (!stride->lrs_prev_valid) {
+		stride->lrs_prev_valid = true;
+		LASSERT(!stride->lrs_stride_valid);
+		LASSERT(stride->lrs_matched_number == 0);
+		CDEBUG(D_READA, "init previous offset to %llu Byte, "
+		       "req size %lu\n", pos, count);
+		return rc;
+	}
+
+	if (!stride->lrs_stride_valid) {
+		LASSERT(stride->lrs_matched_number == 0);
+		if (prev_count != count ||
+		    pos < prev_pos + prev_count + LL_RA_SEQ_BLOCK_NBYTES) {
+			stride->lrs_prev_valid = true;
+			CDEBUG(D_READA, "re-init previous offset to %llu "
+			       "Byte, req size %lu\n", pos, count);
+			return rc;
+		}
+		stride->lrs_stride_valid = true;
+		stride->lrs_stride_nbyte = pos - prev_pos;
+		CDEBUG(D_READA, "init stride nbyte to %llu",
+		       stride->lrs_stride_nbyte);
+		return rc;
+	}
+
+	if (prev_count != count ||
+	    pos != prev_pos + stride->lrs_stride_nbyte) {
+		stride->lrs_matched_number = 0;
+		if (pos < prev_pos + prev_count + LL_RA_SEQ_BLOCK_NBYTES) {
+			stride->lrs_stride_valid = false;
+			CDEBUG(D_READA, "invalidate stride, pos %llu, "
+			       "prev_pos %llu, prev_count %llu\n",
+			       pos, prev_pos, prev_count);
+		} else {
+			stride->lrs_stride_nbyte = pos - prev_pos;
+			CDEBUG(D_READA, "init stride to %llu Byte, pos %llu, "
+			       "prev_pos %llu, prev_count %llu\n",
+			       stride->lrs_stride_nbyte, pos, prev_pos,
+			       prev_count);
+		}
+		return rc;
+	}
+
+	stride->lrs_start_byte = pos;
+	if (work != NULL) {
+		rc = 1;
+		if (stride->lrs_matched_number == 0) {
+			work->lrw_start_byte = pos;
+			work->lrw_nrequest = LA_STRIDE_NREQUEST;
+				work->lrw_pattern = LRP_STRIDE;
+		} else {
+			work->lrw_start_byte = pos +
+				LA_STRIDE_NREQUEST * stride->lrs_stride_nbyte;
+			work->lrw_nrequest = 1;
+			work->lrw_pattern = LRP_STRIDE;
+			CDEBUG(D_READA, "add work start_byte %llu\n",
+			       work->lrw_start_byte);
+		}
+	}
+	stride->lrs_matched_number++;
+	CDEBUG(D_READA, "stride matched, number %llu, stride width %llu, "
+	       "req size %lu\n", stride->lrs_matched_number,
+	       stride->lrs_stride_nbyte, count);
+	return rc;
+}
+
+static void ll_readahead_work_free(struct ll_readahead_work *work)
+{
+	fput(work->lrw_filp);
+	OBD_FREE(work, sizeof(*work));
+}
+
+void ll_readahead_start(struct address_space *mapping, struct file *filp,
+			loff_t pos, size_t count)
+{
+	struct ll_file_data		*fd = LUSTRE_FPRIVATE(filp);
+	struct ll_readahead_state	*ras = &fd->fd_ras;
+	struct ll_readahead_work	*work;
+	int				 rc;
+	int				 rc2;
+
+	OBD_ALLOC_PTR(work);
+	if (work != NULL) {
+		get_file(filp);
+		work->lrw_filp = filp;
+	} else {
+		CERROR("failed to submit readhead work because of OOM\n");
+	}
+
+	spin_lock(&ras->lrs_lock);
+	rc = ll_readahead_detect_sequential(ras, pos, count, work);
+	rc2 = ll_readahead_detect_stride(ras, pos, count,
+					 rc == 1 ? NULL : work);
+	spin_unlock(&ras->lrs_lock);
+
+	if (work != NULL) {
+		if (rc == 1 || rc2 == 1)
+			ll_readahead_work_add(work);
+		else
+			ll_readahead_work_free(work);
+	}
+}
+
+static void ll_readahead_read(const struct lu_env *env, struct file *filp,
+			      pgoff_t offset, unsigned long nr_to_read)
+{
+	struct address_space	*mapping = filp->f_mapping;
+	struct vvp_io		*vio = vvp_env_io(env);
+	struct ll_file_data	*fd = LUSTRE_FPRIVATE(filp);
+	struct cl_io		*io;
+	int			 rc;
+
+	io = vvp_env_thread_io(env);
+	ll_io_init(io, filp, false);
+
+	/**
+	 * We could add the work back, but that needs memory allocation, which
+	 * could also fail in this circumstance.
+	 */
+	rc = cl_io_rw_init(env, io, CIT_READ, offset, nr_to_read);
+	if (rc)
+		GOTO(out, rc);
+
+	/* ll_file_io_generic, ll_readpages->vvp_io_read_ahead */
+	vio->vui_fd  = fd;
+	ll_cl_add(filp, env, io, LCC_RW);
+	io->ci_state = CIS_IO_GOING; /* cl_io_start, ll_readpages */
+	/* rc = cl_io_loop(env, io); */
+	CDEBUG(D_READA, "async readahead %lu pages at page offset %lu\n",
+	       nr_to_read, offset);
+	__ll_do_page_cache_readahead(mapping, filp, offset, nr_to_read);
+
+	ll_cl_remove(filp, env);
+out:
+	cl_io_fini(env, io);
+	return;
+}
+
+static void ll_readhead_handle_sequential_work(const struct lu_env *env,
+					       struct ll_readahead_work *work)
+{
+	struct file			*filp = work->lrw_filp;
+	struct ll_file_data		*fd = LUSTRE_FPRIVATE(filp);
+	struct ll_readahead_state	*ras = &fd->fd_ras;
+	unsigned long			 window_start;
+	unsigned long			 end_index;
+	unsigned long			 skip_index = 0;
+	unsigned long			 index;
+	unsigned long			 npages;
+	__u64				 matched_number;
+
+	spin_lock(&ras->lrs_lock);
+	window_start = ras->lrs_sequential.lrs_window_start;
+	matched_number = ras->lrs_sequential.lrs_matched_number;
+	end_index = window_start + ras->lrs_window_npages;
+	spin_unlock(&ras->lrs_lock);
+
+	/* Not sequential pattern */
+	if (matched_number == 0) {
+		ll_readahead_work_free(work);
+		return;
+	}
+
+	CDEBUG(D_READA, "handling work, page index %lu, npages %lu, "
+	       "RA window [%lu, %lu), matched_number %llu\n",
+	       work->lrw_page_index, work->lrw_npages,
+	       window_start, end_index, matched_number);
+
+	if (window_start > work->lrw_page_index)
+		skip_index = window_start - work->lrw_page_index;
+
+	/* No more work inside readahead window */
+	if (work->lrw_npages <= skip_index) {
+		ll_readahead_work_free(work);
+		return;
+	}
+
+	/* Cut the work brefore readahead window */
+	work->lrw_npages -= skip_index;
+	work->lrw_page_index += skip_index;
+
+	/* No more work inside readahead window */
+	if (work->lrw_page_index >= end_index) {
+		ll_readahead_work_free(work);
+		return;
+	}
+
+	index = work->lrw_page_index;
+	npages = work->lrw_npages;
+	if (npages > LL_RA_ASYNC_NPAGES)
+		npages = LL_RA_ASYNC_NPAGES;
+	if (work->lrw_page_index + npages > end_index)
+		npages = end_index - work->lrw_page_index;
+
+	LASSERT(npages > 0);
+	LASSERT(npages <= work->lrw_npages);
+	work->lrw_page_index += npages;
+	work->lrw_npages -= npages;
+
+	/**
+	 * If still some work left, put it back in case someone else is idle
+	 */
+	get_file(filp);
+	if (work->lrw_npages == 0)
+		ll_readahead_work_free(work);
+	else
+		ll_readahead_work_add(work);
+	ll_readahead_read(env, filp, index, npages);
+
+	fput(filp);
+}
+
+static void ll_readhead_handle_stride_work(const struct lu_env *env,
+					   struct ll_readahead_work *work)
+{
+	struct file			*filp = work->lrw_filp;
+	struct ll_file_data		*fd = LUSTRE_FPRIVATE(filp);
+	struct ll_readahead_state	*ras = &fd->fd_ras;
+	struct ll_readahead_stride	*stride = &ras->lrs_stride;
+	__u64				 matched_number;
+	loff_t				 stride_nbyte;
+	size_t				 req_nbyte;
+	unsigned long			 req_npage;
+	loff_t				 window_start_byte;
+	loff_t				 window_end_byte;
+	loff_t				 skip_nbyte;
+	unsigned long			 skip_nreq;
+	loff_t				 start_byte;
+
+	spin_lock(&ras->lrs_lock);
+	matched_number = stride->lrs_matched_number;
+	stride_nbyte = stride->lrs_stride_nbyte;
+	window_start_byte = stride->lrs_start_byte;
+	req_nbyte = stride->lrs_req_nbyte;
+	spin_unlock(&ras->lrs_lock);
+
+	/* Not stride pattern */
+	if (matched_number == 0) {
+		ll_readahead_work_free(work);
+		return;
+	}
+
+	if (work->lrw_start_byte < window_start_byte) {
+		skip_nbyte = window_start_byte - work->lrw_start_byte;
+		skip_nreq = skip_nbyte / stride_nbyte;
+		/** different stride pattern, or no work left after skip */
+		if (skip_nreq * stride_nbyte != skip_nbyte ||
+		    work->lrw_nrequest < skip_nreq) {
+			ll_readahead_work_free(work);
+			return;
+		}
+		work->lrw_nrequest -= skip_nreq;
+		work->lrw_start_byte += stride_nbyte * skip_nreq;
+	}
+
+	window_end_byte = window_start_byte + LA_STRIDE_NREQUEST * stride_nbyte;
+	CDEBUG(D_READA, "handling readahead stride at offset %llu byte, "
+	       "window start byte %llu, window end byte %llu\n",
+	       work->lrw_start_byte, window_start_byte, window_end_byte);
+
+	/** Work is beyond the window */
+	if (work->lrw_start_byte > window_end_byte) {
+		ll_readahead_work_free(work);
+		return;
+	}
+
+	start_byte = work->lrw_start_byte;
+	work->lrw_start_byte += stride_nbyte;
+	work->lrw_nrequest--;
+
+	/**
+	 * If still some work left, put it back in case someone else is idle
+	 */
+	get_file(filp);
+	if (work->lrw_nrequest == 0 || work->lrw_start_byte > window_end_byte)
+		ll_readahead_work_free(work);
+	else
+		ll_readahead_work_add(work);
+
+	req_npage = (req_nbyte + PAGE_SIZE - 1) >> PAGE_SHIFT;
+	CDEBUG(D_READA, "readahead stride at page offset %llu, "
+	       "size page %lu\n", start_byte >> PAGE_SHIFT, req_npage);
+	ll_readahead_read(env, filp, start_byte >> PAGE_SHIFT, req_npage);
+	fput(filp);
+	return;
+}
+
+static void ll_readhead_handle_work(const struct lu_env *env,
+				    struct ll_readahead_work *work)
+{
+	switch (work->lrw_pattern) {
+	case LRP_SEQUENTIAL:
+		ll_readhead_handle_sequential_work(env, work);
+		break;
+	case LRP_STRIDE:
+		ll_readhead_handle_stride_work(env, work);
+		break;
+	default:
+		CERROR("unkown readahead pattern %d\n", work->lrw_pattern);
+		break;
+	}
+}
+static void ll_readhead_handle_works(struct ptlrpc_thread *thread)
+{
+
+	struct lu_env			*env;
+	__u16				 refcheck;
+	int				 rc;
+	struct ll_readahead_work	*work;
+
+	/*
+	 * No module reference should be taken, otherwise unable to rmmod
+	 * lustre.ko
+	 */
+	env = cl_env_alloc(&refcheck, LCT_NOREF);
+	if (IS_ERR(env)) {
+		rc = PTR_ERR(env);
+		thread->t_id = rc;
+	}
+
+	spin_lock(&ll_readahead_lock);
+	while (!list_empty(&ll_readahead_list)) {
+		/**
+		 * Check whether to exit again here since readahead is
+		 * heavy.
+		 */
+		if (unlikely(!thread_is_running(thread)))
+			break;
+		work = list_entry(ll_readahead_list.next,
+				  struct ll_readahead_work,
+				  lrw_linkage);
+		list_del_init(&work->lrw_linkage);
+		spin_unlock(&ll_readahead_lock);
+
+		ll_readhead_handle_work(env, work);
+
+		spin_lock(&ll_readahead_lock);
+	}
+	spin_unlock(&ll_readahead_lock);
+
+	cl_env_put(env, &refcheck);
+}
+
+static int ll_readahead_main(void *args)
+{
+	struct ptlrpc_thread		*thread = args;
+	struct l_wait_info		 lwi = { 0 };
+	int				 rc = 0;
+	ENTRY;
+
+	spin_lock(&ll_readahead_lock);
+	thread_set_flags(thread, rc ? SVC_STOPPED : SVC_RUNNING);
+	wake_up_all(&thread->t_ctl_waitq);
+	spin_unlock(&ll_readahead_lock);
+
+	if (rc)
+		RETURN(rc);
+
+	while (1) {
+		spin_lock(&ll_readahead_lock);
+		if (unlikely(!thread_is_running(thread))) {
+			spin_unlock(&ll_readahead_lock);
+			break;
+		}
+		spin_unlock(&ll_readahead_lock);
+
+		if (!list_empty(&ll_readahead_list))
+			ll_readhead_handle_works(thread);
+
+		l_wait_event(ll_readahead_waitq,
+			     !list_empty(&ll_readahead_list) ||
+			     !thread_is_running(thread),
+			     &lwi);
+	}
+
+	spin_lock(&ll_readahead_lock);
+	thread_set_flags(thread, SVC_STOPPED);
+	wake_up_all(&thread->t_ctl_waitq);
+	spin_unlock(&ll_readahead_lock);
+
+	RETURN(0);
+}
+
+static int ll_start_readahead_thread(int id)
+{
+	struct l_wait_info	 lwi = { 0 };
+	struct task_struct	*task;
+	int			 rc;
+	struct ptlrpc_thread	*thread;
+
+	OBD_ALLOC_PTR(thread);
+	if (thread == NULL)
+		RETURN(-ENOMEM);
+
+	init_waitqueue_head(&thread->t_ctl_waitq);
+	thread->t_id = id;
+
+	thread_add_flags(thread, SVC_STARTING);
+	snprintf(thread->t_name, PTLRPC_THR_NAME_LEN,
+		 "ll_readahead_%02d", id);
+
+	task = kthread_run(ll_readahead_main, thread, thread->t_name);
+	if (IS_ERR(task)) {
+		rc = PTR_ERR(task);
+		CERROR("cannot start prefetch thread: rc = %d\n", rc);
+	} else {
+		rc = 0;
+		l_wait_event(thread->t_ctl_waitq,
+			     thread_is_running(thread) ||
+			     thread_is_stopped(thread),
+			     &lwi);
+		rc = thread_is_stopped(thread) ? thread->t_id : 0;
+	}
+
+	if (rc)
+		OBD_FREE_PTR(thread);
+	else
+		list_add(&thread->t_link, &ll_readahead_thread_list);
+
+	RETURN(rc);
+}
+
+void ll_stop_readahead_threads(void)
+{
+	struct ptlrpc_thread	*thread;
+	struct list_head	 zombie;
+	struct l_wait_info	 lwi = { 0 };
+
+	INIT_LIST_HEAD(&zombie);
+
+	spin_lock(&ll_readahead_lock);
+	list_for_each_entry(thread, &ll_readahead_thread_list, t_link) {
+		thread_set_flags(thread, SVC_STOPPING);
+	}
+	wake_up_all(&ll_readahead_waitq);
+
+	while (!list_empty(&ll_readahead_thread_list)) {
+		thread = list_entry(ll_readahead_thread_list.next,
+				    struct ptlrpc_thread, t_link);
+		if (thread_is_stopped(thread)) {
+			list_del(&thread->t_link);
+			list_add(&thread->t_link, &zombie);
+			continue;
+		}
+		spin_unlock(&ll_readahead_lock);
+
+		l_wait_event(thread->t_ctl_waitq,
+			     thread_is_stopped(thread), &lwi);
+
+		spin_lock(&ll_readahead_lock);
+	}
+	spin_unlock(&ll_readahead_lock);
+
+	while (!list_empty(&zombie)) {
+		thread = list_entry(zombie.next,
+				    struct ptlrpc_thread, t_link);
+		list_del(&thread->t_link);
+		OBD_FREE_PTR(thread);
+	}
+}
+
+int ll_start_readahead_threads(void)
+{
+	int	i;
+	int	rc;
+
+	spin_lock_init(&ll_readahead_lock);
+	INIT_LIST_HEAD(&ll_readahead_list);
+	init_waitqueue_head(&ll_readahead_waitq);
+	INIT_LIST_HEAD(&ll_readahead_thread_list);
+
+	for (i = 0; i < LL_RA_NTHREADS; i++) {
+		rc = ll_start_readahead_thread(i);
+		if (rc) {
+			ll_stop_readahead_threads();
+			break;
+		}
+	}
+	return rc;
 }

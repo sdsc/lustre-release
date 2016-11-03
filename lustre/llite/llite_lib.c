@@ -96,12 +96,6 @@ static struct ll_sb_info *ll_init_sbi(void)
 		RETURN(NULL);
 	}
 
-	sbi->ll_ra_info.ra_max_pages_per_file = min(pages / 32,
-					   SBI_DEFAULT_READAHEAD_MAX);
-	sbi->ll_ra_info.ra_max_pages = sbi->ll_ra_info.ra_max_pages_per_file;
-	sbi->ll_ra_info.ra_max_read_ahead_whole_pages =
-					   SBI_DEFAULT_READAHEAD_WHOLE_MAX;
-
         ll_generate_random_uuid(uuid);
         class_uuid_unparse(uuid, &sbi->ll_sb_uuid);
         CDEBUG(D_CONFIG, "generated uuid: %s\n", sbi->ll_sb_uuid.uuid);
@@ -137,6 +131,7 @@ static struct ll_sb_info *ll_init_sbi(void)
 	sbi->ll_squash.rsi_gid = 0;
 	INIT_LIST_HEAD(&sbi->ll_squash.rsi_nosquash_nids);
 	init_rwsem(&sbi->ll_squash.rsi_sem);
+	sbi->ll_max_readahead_window = SBI_DEFAULT_READAHEAD_WINDOW;
 
 	RETURN(sbi);
 }
