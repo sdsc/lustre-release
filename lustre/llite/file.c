@@ -1081,7 +1081,7 @@ static bool file_is_noatime(const struct file *file)
 	return false;
 }
 
-static void ll_io_init(struct cl_io *io, const struct file *file, int write)
+void ll_io_init(struct cl_io *io, const struct file *file, int write)
 {
 	struct inode *inode = file_inode((struct file *)file);
 
@@ -1277,7 +1277,7 @@ ll_do_fast_read(const struct lu_env *env, struct kiocb *iocb,
 		return 0;
 
 	ll_cl_add(iocb->ki_filp, env, NULL, LCC_RW);
-	result = generic_file_read_iter(iocb, iter);
+	result = ll_generic_file_read_iter(iocb, iter, true);
 	ll_cl_remove(iocb->ki_filp, env);
 
 	/* If the first page is not in cache, generic_file_aio_read() will be
