@@ -691,6 +691,32 @@ int llapi_layout_file_open(const char *path, int open_flags, mode_t mode,
 int llapi_layout_file_create(const char *path, int open_flags, int mode,
 			     const struct llapi_layout *layout);
 
+/* These API functions are *deprecated*.  This has been replaced by the
+ * LU_LADVISE_REQUESTLOCK advice via ladvise. */
+struct llapi_lock_ahead_arg *llapi_alloc_lla(size_t count, __u32 mode,
+					     __u32 flags);
+int llapi_lock_ahead_one(int fd, __u64 start, __u64 end, __u32 mode,
+			 __u32 flags);
+int llapi_lock_ahead(int fd, struct llapi_lock_ahead_arg *lla);
+
+struct llapi_lock_ahead_extent {
+	__u64   start;
+	__u64   end;
+	/* LRL_RESULT_SENT when no local lock is found and a request is sent,
+	 * -ERRNO on error, LRL_RESULT_DIFFERENT when a  matching but
+	 * different lock is found, LRL_RESULT_SAME when a matching and
+	 * identical lock is found, -errno on error */
+	__s32   result;
+};
+
+struct llapi_lock_ahead_arg {
+	__u32   lla_version;
+	__u32   lla_lock_mode;
+	__u32   lla_flags;
+	__u32   lla_extent_count;
+	struct  llapi_lock_ahead_extent lla_extents[0];
+};
+
 /** @} llapi */
 
 #endif

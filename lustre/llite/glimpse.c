@@ -109,7 +109,7 @@ int cl_glimpse_lock(const struct lu_env *env, struct cl_io *io,
 	descr->cld_mode = CLM_READ;
 	descr->cld_enq_flags = CEF_ASYNC | CEF_MUST;
 	if (agl)
-		descr->cld_enq_flags |= CEF_AGL;
+		descr->cld_enq_flags |= CEF_SPECULATIVE;
 	/*
 	 * CEF_ASYNC is used because glimpse sub-locks cannot
 	 * deadlock (because they never conflict with other
@@ -140,7 +140,20 @@ int cl_glimpse_lock(const struct lu_env *env, struct cl_io *io,
 	RETURN(result);
 }
 
-static int cl_io_get(struct inode *inode, struct lu_env **envout,
+/**
+ * Get an IO environment for special operations such as glimpse locks and
+ * manually requested locks (ladvise requestlock)
+ *
+ * \param[in] inode	inode the operation is being performed on
+ * \param[out] envout	thread specific execution environment
+ * \param[out] ioout	client io description
+ * \param[out] refcheck	reference check
+ *
+ * \retval 1		on success
+ * \retval 0		not a regular file, cannot get environment
+ * \retval negative	negative errno on error
+ */
+int cl_io_get(struct inode *inode, struct lu_env **envout,
 		     struct cl_io **ioout, __u16 *refcheck)
 {
 	struct lu_env		*env;
