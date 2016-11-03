@@ -704,6 +704,375 @@ static void vvp_io_setattr_fini(const struct lu_env *env,
 	}
 }
 
+#ifdef HAVE_FILE_OPERATIONS_READ_WRITE_ITER
+#else
+#include <linux/swap.h>
+
+static int ll_file_read_actor(read_descriptor_t *desc, struct page *page,
+			      unsigned long offset, unsigned long size)
+{
+	char *kaddr;
+	unsigned long left, count = desc->count;
+
+	if (size > count)
+		size = count;
+
+	/*
+	 * Faults on the destination of a read are common, so do it before
+	 * taking the kmap.
+	 */
+	if (!fault_in_pages_writeable(desc->arg.buf, size)) {
+		kaddr = ll_kmap_atomic(page, KM_USER0);
+		left = __copy_to_user_inatomic(desc->arg.buf,
+						kaddr + offset, size);
+		ll_kunmap_atomic(kaddr, KM_USER0);
+		if (left == 0)
+			goto success;
+	}
+
+	/* Do it the slow way */
+	kaddr = kmap(page);
+	left = __copy_to_user(desc->arg.buf, kaddr + offset, size);
+	kunmap(page);
+
+	if (left) {
+		size -= left;
+		desc->error = -EFAULT;
+	}
+success:
+	desc->count = count - size;
+	desc->written += size;
+	desc->arg.buf += size;
+	return size;
+}
+
+static void ll_do_generic_file_read(struct file *filp, loff_t *ppos,
+				    read_descriptor_t *desc,
+				    read_actor_t actor,
+				    bool fast_read)
+{
+	struct address_space	*mapping = filp->f_mapping;
+	struct inode		*inode = mapping->host;
+	pgoff_t			 index;
+	pgoff_t			 last_index;
+	unsigned long		 offset;      /* offset into pagecache page */
+
+	int error;
+
+	index = *ppos >> PAGE_SHIFT;
+	last_index = (*ppos + desc->count + PAGE_SIZE - 1) >>
+		PAGE_SHIFT;
+	offset = *ppos & ~PAGE_MASK;
+
+	/*
+	 * This function will be called twice for each system call,
+	 * The first one is fast read. Only trigger readahead on fast
+	 * read, otherwise, the readahead status might be destroyed.
+	 */
+	if (fast_read)
+		ll_readahead_start(mapping, filp, *ppos, desc->count);
+
+	for (;;) {
+		struct page *page;
+		pgoff_t end_index;
+		loff_t isize;
+		unsigned long nr, ret;
+
+		cond_resched();
+find_page:
+		page = find_get_page(mapping, index);
+		if (!page) {
+			CDEBUG(D_READA, "sync readahead at page index %lu\n",
+			       index);
+			if (fast_read) {
+				desc->error = -ENODATA;
+				goto out;
+			}
+			ll_sync_readahead(mapping, filp, index,
+					  last_index - index);
+			page = find_get_page(mapping, index);
+			if (unlikely(page == NULL))
+				goto no_cached_page;
+		} else {
+			CDEBUG(D_READA, "trigger async readahead %lu\n",
+			       index);
+			ll_readahead_sequential_window_move(mapping, filp,
+				index,
+				last_index - index);
+		}
+		if (!PageUptodate(page)) {
+			CDEBUG(D_READA, "page is not uptodate when reading\n");
+			if (fast_read) {
+				desc->error = -ENODATA;
+				put_page(page);
+				goto out;
+			}
+			if (inode->i_blkbits == PAGE_SHIFT ||
+					!mapping->a_ops->is_partially_uptodate)
+				goto page_not_up_to_date;
+			if (!trylock_page(page))
+				goto page_not_up_to_date;
+			/* Did it get truncated before we got the lock? */
+			if (!page->mapping)
+				goto page_not_up_to_date_locked;
+			if (!mapping->a_ops->is_partially_uptodate(page,
+								desc, offset))
+				goto page_not_up_to_date_locked;
+			unlock_page(page);
+		}
+page_ok:
+		/*
+		 * i_size must be checked after we know the page is Uptodate.
+		 *
+		 * Checking i_size after the check allows us to calculate
+		 * the correct value for "nr", which means the zero-filled
+		 * part of the page is not copied back to userspace (unless
+		 * another truncate extends the file - this is desired though).
+		 */
+
+		isize = i_size_read(inode);
+		end_index = (isize - 1) >> PAGE_SHIFT;
+		if (unlikely(!isize || index > end_index)) {
+			put_page(page);
+			goto out;
+		}
+
+		/* nr is the maximum number of bytes to copy from this page */
+		nr = PAGE_SIZE;
+		if (index == end_index) {
+			nr = ((isize - 1) & ~PAGE_MASK) + 1;
+			if (nr <= offset) {
+				put_page(page);
+				goto out;
+			}
+		}
+		nr = nr - offset;
+
+		/* If users can be writing to this page using arbitrary
+		 * virtual addresses, take care about potential aliasing
+		 * before reading the page on the kernel side.
+		 */
+		if (mapping_writably_mapped(mapping))
+			flush_dcache_page(page);
+
+		/*
+		 * Ok, we have the page, and it's up-to-date, so
+		 * now we can copy it to user space...
+		 *
+		 * The actor routine returns how many bytes were actually used..
+		 * NOTE! This may not be the same as how much of a user buffer
+		 * we filled up (we may be padding etc), so we can only update
+		 * "pos" here (the actor routine has to update the user buffer
+		 * pointers and the remaining count).
+		 */
+		ret = actor(desc, page, offset, nr);
+		offset += ret;
+		index += offset >> PAGE_SHIFT;
+		offset &= ~PAGE_MASK;
+
+		put_page(page);
+		if (ret == nr && desc->count)
+			continue;
+		goto out;
+
+page_not_up_to_date:
+		/* Get exclusive access to the page ... */
+		error = lock_page_killable(page);
+		if (unlikely(error))
+			goto readpage_error;
+
+page_not_up_to_date_locked:
+		CDEBUG(D_READA, "page is not uptodate when reading and "
+		       "locked\n");
+		/* Did it get truncated before we got the lock? */
+		if (!page->mapping) {
+			unlock_page(page);
+			put_page(page);
+			continue;
+		}
+
+		/* Did somebody else fill it already? */
+		if (PageUptodate(page)) {
+			unlock_page(page);
+			goto page_ok;
+		}
+
+readpage:
+		/*
+		 * A previous I/O error may have been due to temporary
+		 * failures, eg. multipath errors.
+		 * PG_error will be set again if readpage fails.
+		 */
+		ClearPageError(page);
+		/* Start the actual read. The read will unlock the page. */
+		error = mapping->a_ops->readpage(filp, page);
+
+		if (unlikely(error)) {
+			if (error == AOP_TRUNCATED_PAGE) {
+				put_page(page);
+				goto find_page;
+			}
+			goto readpage_error;
+		}
+
+		if (!PageUptodate(page)) {
+			error = lock_page_killable(page);
+			if (unlikely(error))
+				goto readpage_error;
+			if (!PageUptodate(page)) {
+				if (page->mapping == NULL) {
+					/*
+					 * invalidate_inode_pages got it
+					 */
+					unlock_page(page);
+					put_page(page);
+					goto find_page;
+				}
+				unlock_page(page);
+				error = -EIO;
+				goto readpage_error;
+			}
+			unlock_page(page);
+		}
+
+		goto page_ok;
+
+readpage_error:
+		/* UHHUH! A synchronous read error occurred. Report it */
+		desc->error = error;
+		put_page(page);
+		goto out;
+
+no_cached_page:
+		/*
+		 * Ok, it wasn't cached, so we need to create a new
+		 * page..
+		 */
+		page = page_cache_alloc_cold(mapping);
+		if (!page) {
+			desc->error = -ENOMEM;
+			goto out;
+		}
+		error = add_to_page_cache_lru(page, mapping,
+						index, GFP_KERNEL);
+		if (error) {
+			put_page(page);
+			if (error == -EEXIST)
+				goto find_page;
+			desc->error = error;
+			goto out;
+		}
+		goto readpage;
+	}
+
+out:
+
+	*ppos = ((loff_t)index << PAGE_SHIFT) + offset;
+	file_accessed(filp);
+}
+
+/**
+ * generic_file_aio_read - generic filesystem read routine
+ * @iocb:	kernel I/O control block
+ * @iov:	io vector request
+ * @nr_segs:	number of segments in the iovec
+ * @pos:	current file position
+ *
+ * This is the "read()" routine for all filesystems
+ * that can use the page cache directly.
+ */
+ssize_t
+ll_generic_file_aio_read(struct kiocb *iocb, const struct iovec *iov,
+			 unsigned long nr_segs, loff_t pos, bool fast_read)
+{
+	struct file *filp = iocb->ki_filp;
+	ssize_t retval;
+	unsigned long seg = 0;
+	size_t count;
+	loff_t *ppos = &iocb->ki_pos;
+
+	count = 0;
+	retval = generic_segment_checks(iov, &nr_segs, &count, VERIFY_WRITE);
+	if (retval)
+		return retval;
+
+	/* coalesce the iovecs and go direct-to-BIO for O_DIRECT */
+	if (filp->f_flags & O_DIRECT) {
+		loff_t size;
+		struct address_space *mapping;
+		struct inode *inode;
+
+		mapping = filp->f_mapping;
+		inode = mapping->host;
+		if (!count)
+			goto out; /* skip atime */
+		size = i_size_read(inode);
+		if (pos < size) {
+			retval = filemap_write_and_wait_range(mapping, pos,
+					pos + iov_length(iov, nr_segs) - 1);
+			if (!retval) {
+				retval = mapping->a_ops->direct_IO(READ, iocb,
+							iov, pos, nr_segs);
+			}
+			if (retval > 0) {
+				*ppos = pos + retval;
+				count -= retval;
+			}
+
+			/*
+			 * Btrfs can have a short DIO read if we encounter
+			 * compressed extents, so if there was an error, or if
+			 * we've already read everything we wanted to, or if
+			 * there was a short read because we hit EOF, go ahead
+			 * and return.  Otherwise fallthrough to buffered io for
+			 * the rest of the read.
+			 */
+			if (retval < 0 || !count || *ppos >= size) {
+				file_accessed(filp);
+				goto out;
+			}
+		}
+	}
+
+	count = retval;
+	for (seg = 0; seg < nr_segs; seg++) {
+		read_descriptor_t desc;
+		loff_t offset = 0;
+
+		/*
+		 * If we did a short DIO read we need to skip the section of the
+		 * iov that we've already read data into.
+		 */
+		if (count) {
+			if (count > iov[seg].iov_len) {
+				count -= iov[seg].iov_len;
+				continue;
+			}
+			offset = count;
+			count = 0;
+		}
+
+		desc.written = 0;
+		desc.arg.buf = iov[seg].iov_base + offset;
+		desc.count = iov[seg].iov_len - offset;
+		if (desc.count == 0)
+			continue;
+		desc.error = 0;
+		ll_do_generic_file_read(filp, ppos, &desc, ll_file_read_actor,
+					fast_read);
+		retval += desc.written;
+		if (desc.error) {
+			retval = retval ?: desc.error;
+			break;
+		}
+		if (desc.count > 0)
+			break;
+	}
+out:
+	return retval;
+}
+#endif
+
 static int vvp_io_read_start(const struct lu_env *env,
 			     const struct cl_io_slice *ios)
 {
@@ -743,20 +1112,14 @@ static int vvp_io_read_start(const struct lu_env *env,
 	/* turn off the kernel's read-ahead */
 	vio->vui_fd->fd_file->f_ra.ra_pages = 0;
 
-	/* initialize read-ahead window once per syscall */
-	if (!vio->vui_ra_valid) {
-		vio->vui_ra_valid = true;
-		vio->vui_ra_start = cl_index(obj, pos);
-		vio->vui_ra_count = cl_index(obj, tot + PAGE_SIZE - 1);
-		ll_ras_enter(file);
-	}
-
 	/* BUG: 5972 */
 	file_accessed(file);
 	switch (vio->vui_io_subtype) {
 	case IO_NORMAL:
 		LASSERT(vio->vui_iocb->ki_pos == pos);
-		result = generic_file_read_iter(vio->vui_iocb, vio->vui_iter);
+		result = ll_generic_file_read_iter(vio->vui_iocb,
+						   vio->vui_iter,
+						   false);
 		break;
 	case IO_SPLICE:
 		result = generic_file_splice_read(file, &pos,
@@ -1382,7 +1745,6 @@ int vvp_io_init(const struct lu_env *env, struct cl_object *obj,
 
 	CL_IO_SLICE_CLEAN(vio, vui_cl);
 	cl_io_slice_add(io, &vio->vui_cl, obj, &vvp_io_ops);
-	vio->vui_ra_valid = false;
 	result = 0;
 	if (io->ci_type == CIT_READ || io->ci_type == CIT_WRITE) {
 		size_t count;
