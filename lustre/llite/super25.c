@@ -165,12 +165,18 @@ static int __init lustre_init(void)
 	if (rc != 0)
 		GOTO(out_inode_fini_env, rc);
 
+	rc = ll_start_readahead_threads();
+	if (rc != 0)
+		GOTO(out_fini_xattr, rc);
+
 	lustre_register_client_fill_super(ll_fill_super);
 	lustre_register_kill_super_cb(ll_kill_super);
 	lustre_register_client_process_config(ll_process_config);
 
 	RETURN(0);
 
+out_fini_xattr:
+	ll_xattr_fini();
 out_inode_fini_env:
 	cl_env_put(cl_inode_fini_env, &cl_inode_fini_refcheck);
 out_vvp:
@@ -195,6 +201,7 @@ static void __exit lustre_exit(void)
 
 	lprocfs_remove(&proc_lustre_fs_root);
 
+	ll_stop_readahead_threads();
 	ll_xattr_fini();
 	cl_env_put(cl_inode_fini_env, &cl_inode_fini_refcheck);
 	vvp_global_fini();

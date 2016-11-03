@@ -1717,6 +1717,22 @@ vfs_rename_6args, [
 ]) # LC_VFS_RENAME_6ARGS
 
 #
+# LC_HAVE_PAGE_CACHE_HOLE
+# 3.15 replaces radix_tree_[next|prev]_hole with page_cache_[next|prev]_hole
+#
+AC_DEFUN([LC_HAVE_PAGE_CACHE_HOLE], [
+LB_CHECK_COMPILE([if 'page_cache_[next|prev]_hole' exist],
+page_cache_hole, [
+	#include <linux/pagemap.h>
+],[
+	page_cache_next_hole(NULL, 0, 0);
+],[
+	AC_DEFINE(HAVE_PAGE_CACHE_HOLE, 1,
+		  [page_cache_[next|prev]_hole functions exist])
+])
+]) # LC_HAVE_PAGE_CACHE_HOLE
+
+#
 # LC_DIRECTIO_USE_ITER
 #
 # 3.16 kernel changes direct IO to use iov_iter
@@ -2357,6 +2373,7 @@ AC_DEFUN([LC_PROG_LINUX], [
 
 	# 3.15
 	LC_VFS_RENAME_6ARGS
+	LC_HAVE_PAGE_CACHE_HOLE
 
 	# 3.16
 	LC_DIRECTIO_USE_ITER
