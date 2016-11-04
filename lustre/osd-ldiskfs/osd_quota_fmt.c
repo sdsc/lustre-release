@@ -281,16 +281,14 @@ int walk_tree_dqentry(const struct lu_env *env, struct osd_object *obj,
 		if (!blk)       /* No reference */
 			continue;
 
-		if (depth < LUSTRE_DQTREEDEPTH - 1)
+		if (depth < LUSTRE_DQTREEDEPTH - 1) {
 			ret = walk_tree_dqentry(env, obj, type, blk,
 						depth + 1, 0, it);
-		else
+			it->oiq_blk[depth + 1] = blk;
+			it->oiq_index[depth] = index;
+		} else {
 			ret = walk_block_dqentry(env, obj, type, blk, 0, it);
-	}
-
-	if (ret == 0) { /* Entry found */
-		it->oiq_blk[depth + 1] = blk;
-		it->oiq_index[depth] = index;
+		}
 	}
 
 out_buf:
