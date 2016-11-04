@@ -41,8 +41,10 @@
  * It is passed to seq_start/stop/next/show which can thus use the same lu_env
  * to be used with the iterator API */
 struct lquota_procfs {
-	struct dt_object	*lqp_obj;
-	struct lu_env		 lqp_env;
+	struct dt_object *lqp_obj;
+	struct lu_env lqp_env;
+	struct dt_it *lqp_it;
+	__u64 lqp_id;
 };
 
 /* global shared environment */
@@ -51,6 +53,7 @@ static void *lprocfs_quota_seq_start(struct seq_file *p, loff_t *pos)
 	struct lquota_procfs	*lqp = p->private;
 	const struct dt_it_ops	*iops;
 	struct dt_it		*it;
+	struct dt_key		*key;
 	loff_t			 offset = *pos;
 	int			 rc;
 
@@ -64,21 +67,14 @@ static void *lprocfs_quota_seq_start(struct seq_file *p, loff_t *pos)
 		/* accounting not enabled. */
 		return NULL;
 
-	/* initialize iterator */
-	iops = &lqp->lqp_obj->do_index_ops->dio_it;
-	it = iops->init(&lqp->lqp_env, lqp->lqp_obj, 0);
-	if (IS_ERR(it)) {
-		CERROR("%s: failed to initialize iterator: rc = %ld\n",
-		       lqp->lqp_obj->do_lu.lo_dev->ld_obd->obd_name,
-		       PTR_ERR(it));
+	if (lqp->lqp_it == NULL) /* reach the end */
 		return NULL;
-	}
 
-	/* move on to the first valid record */
-	rc = iops->load(&lqp->lqp_env, it, 0);
-	if (rc < 0) { /* Error */
-		goto not_found;
-	} else if (rc == 0) {
+	/* move on to the the last processed entry */
+	iops = &lqp->lqp_obj->do_index_ops->dio_it;
+	it = lqp->lqp_it;
+	rc = iops->load(&lqp->lqp_env, it, lqp->lqp_id);
+	if (rc == 0 && offset == 0) {
 		/*
 		 * Iterator didn't find record with exactly the key requested.
 		 *
@@ -92,17 +88,21 @@ static void *lprocfs_quota_seq_start(struct seq_file *p, loff_t *pos)
 		rc = iops->next(&lqp->lqp_env, it);
 		if (rc != 0)
 			goto not_found;
+	} else if (rc <= 0) {
+		goto not_found;
 	}
-	while (offset--) {
-		rc = iops->next(&lqp->lqp_env, it);
-		if (rc != 0) /* Error or reach the end */
-			goto not_found;
-	}
+
+	key = iops->key(&lqp->lqp_env, it);
+	if (IS_ERR(key))
+		goto not_found;
+	lqp->lqp_id = *((__u64 *)key);
+
 	return it;
 
 not_found:
 	iops->put(&lqp->lqp_env, it);
 	iops->fini(&lqp->lqp_env, it);
+	lqp->lqp_it = NULL;
 	return NULL;
 }
 
@@ -120,7 +120,6 @@ static void lprocfs_quota_seq_stop(struct seq_file *p, void *v)
 	/* if something wrong happened during ->seq_show, we need to release
 	 * the iterator here */
 	iops->put(&lqp->lqp_env, it);
-	iops->fini(&lqp->lqp_env, it);
 }
 
 static void *lprocfs_quota_seq_next(struct seq_file *p, void *v, loff_t *pos)
@@ -139,13 +138,25 @@ static void *lprocfs_quota_seq_next(struct seq_file *p, void *v, loff_t *pos)
 	if (v == SEQ_START_TOKEN)
 		return lprocfs_quota_seq_start(p, pos);
 
+	if (lqp->lqp_it == NULL) /* reach the end */
+		return NULL;
+
 	iops = &lqp->lqp_obj->do_index_ops->dio_it;
 	it = (struct dt_it *)v;
 
 	rc = iops->next(&lqp->lqp_env, it);
-	if (rc == 0)
-		return it;
+	if (rc == 0) {
+		struct dt_key *key;
 
+		key = iops->key(&lqp->lqp_env, it);
+		if (IS_ERR(key)) {
+			rc = PTR_ERR(key);
+			goto out;
+		}
+		lqp->lqp_id = *((__u64 *)key);
+		return it;
+	}
+out:
 	if (rc < 0)
 		CERROR("%s: seq_next failed: rc = %d\n",
 		       lqp->lqp_obj->do_lu.lo_dev->ld_obd->obd_name, rc);
@@ -153,6 +164,7 @@ static void *lprocfs_quota_seq_next(struct seq_file *p, void *v, loff_t *pos)
 	/* Reach the end or error */
 	iops->put(&lqp->lqp_env, it);
 	iops->fini(&lqp->lqp_env, it);
+	lqp->lqp_it = NULL;
 	return NULL;
 }
 
@@ -254,6 +266,8 @@ static int lprocfs_quota_seq_open(struct inode *inode, struct file *file)
 	struct seq_file		*seq;
 	int			 rc;
 	struct lquota_procfs	*lqp;
+	const struct dt_it_ops	*iops;
+	struct dt_it *it;
 
 	/* Allocate quota procfs data. This structure will be passed to
 	 * seq_start/stop/next/show via seq->private */
@@ -285,6 +299,20 @@ static int lprocfs_quota_seq_open(struct inode *inode, struct file *file)
 	if (rc)
 		goto out_env;
 
+	/* initialize iterator */
+	iops = &lqp->lqp_obj->do_index_ops->dio_it;
+	it = iops->init(&lqp->lqp_env, lqp->lqp_obj, 0);
+	if (IS_ERR(it)) {
+		rc = PTR_ERR(it);
+		CERROR("%s: failed to initialize iterator: rc = %ld\n",
+		       lqp->lqp_obj->do_lu.lo_dev->ld_obd->obd_name,
+		       PTR_ERR(it));
+		seq_release(inode, file);
+		goto out_env;
+	}
+	lqp->lqp_it = it;
+	lqp->lqp_id = 0;
+
 	seq = file->private_data;
 	seq->private = lqp;
 	return 0;
@@ -300,8 +328,12 @@ static int lprocfs_quota_seq_release(struct inode *inode, struct file *file)
 {
 	struct seq_file		*seq = file->private_data;
 	struct lquota_procfs	*lqp = seq->private;
+	const struct dt_it_ops	*iops;
 
 	LASSERT(lqp);
+	iops = &lqp->lqp_obj->do_index_ops->dio_it;
+	if (lqp->lqp_it != NULL)
+		iops->fini(&lqp->lqp_env, lqp->lqp_it);
 	lu_env_fini(&lqp->lqp_env);
 	OBD_FREE_PTR(lqp);
 
