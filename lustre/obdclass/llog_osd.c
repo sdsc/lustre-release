@@ -923,11 +923,13 @@ static int llog_osd_next_block(const struct lu_env *env,
 
 		if (last_rec->lrh_index != tail->lrt_index) {
 			CERROR("%s: invalid llog tail at log id "DOSTID"/%u "
-			       "offset %llu last_rec idx %u tail idx %u\n",
+			       "offset %llu last_rec idx %u tail idx %u"
+			       "lrt len %u read_size %d\n",
 			       o->do_lu.lo_dev->ld_obd->obd_name,
 			       POSTID(&loghandle->lgh_id.lgl_oi),
 			       loghandle->lgh_id.lgl_ogen, *cur_offset,
-			       last_rec->lrh_index, tail->lrt_index);
+			       last_rec->lrh_index, tail->lrt_index,
+			       tail->lrt_len, rc);
 			GOTO(out, rc = -EINVAL);
 		}
 
