@@ -25,6 +25,7 @@
  * Author: Jeremy Filizetti <jfilizet@iu.edu>
  */
 
+#include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <getopt.h>
@@ -59,11 +60,7 @@ char *sk_crypt2name[] = {
 	[SK_CRYPT_AES256_CTR] = "AES-256-CTR",
 };
 
-char *sk_hmac2name[] = {
-	[SK_HMAC_EMPTY] = "NONE",
-	[SK_HMAC_SHA256] = "SHA256",
-	[SK_HMAC_SHA512] = "SHA512",
-};
+const char *sk_hmac2name[] = { "NONE", "SHA256", "SHA512" };
 
 int sk_name2crypt(char *name)
 {
@@ -77,16 +74,26 @@ int sk_name2crypt(char *name)
 	return SK_CRYPT_INVALID;
 }
 
-int sk_name2hmac(char *name)
+enum cfs_crypto_hash_alg sk_name2hmac(char *name)
 {
-	int i;
+	enum cfs_crypto_hash_alg algo;
+	int i = 0;
 
-	for (i = 0; i < SK_HMAC_MAX; i++) {
-		if (strcasecmp(name, sk_hmac2name[i]) == 0)
-			return i;
+	/* convert to lower case */
+	while (name[i]) {
+		putchar(tolower(name[i]));
+		i++;
 	}
 
-	return SK_HMAC_INVALID;
+	if (strcmp(name, "none"))
+		return CFS_HASH_ALG_NULL;
+
+	algo = cfs_crypto_hash_alg(name);
+	if ((algo != CFS_HASH_ALG_SHA256) ||
+	    (algo != CFS_HASH_ALG_SHA512))
+		return SK_HMAC_INVALID;
+
+	return algo;
 }
 
 void usage(FILE *fp, char *program)
@@ -109,7 +116,7 @@ void usage(FILE *fp, char *program)
 
 	fprintf(fp, "-i|--hmac       <num>	Hash algorithm for integrity "
 		"(Default: SHA256)\n");
-	for (i = 1; i < SK_HMAC_MAX; i++)
+	for (i = 1; i < sizeof(sk_hmac2name) / sizeof(sk_hmac2name[0]); i++)
 		fprintf(fp, "                        %s\n", sk_hmac2name[i]);
 
 	fprintf(fp, "-e|--expire     <num>	Seconds before contexts from "
@@ -238,7 +245,7 @@ int print_config(char *filename)
 	if (config->skc_type & SK_TYPE_CLIENT)
 		printf("client ");
 	printf("\n");
-	printf("HMAC alg:       %s\n", sk_hmac2name[config->skc_hmac_alg]);
+	printf("HMAC alg:       %s\n", cfs_crypto_hash_name(config->skc_hmac_alg));
 	printf("Crypt alg:      %s\n", sk_crypt2name[config->skc_crypt_alg]);
 	printf("Ctx Expiration: %u seconds\n", config->skc_expire);
 	printf("Shared keylen:  %u bits\n", config->skc_shared_keylen);
@@ -322,7 +329,7 @@ int main(int argc, char **argv)
 	char *tmp;
 	char *tmp2;
 	int crypt = SK_CRYPT_EMPTY;
-	int hmac = SK_HMAC_EMPTY;
+	enum cfs_crypto_hash_alg hmac = CFS_HASH_ALG_NULL;
 	int expire = -1;
 	int shared_keylen = -1;
 	int prime_bits = -1;
@@ -489,7 +496,7 @@ int main(int argc, char **argv)
 
 		if (crypt != SK_CRYPT_EMPTY)
 			config->skc_crypt_alg = crypt;
-		if (hmac != SK_HMAC_EMPTY)
+		if (hmac != CFS_HASH_ALG_NULL)
 			config->skc_hmac_alg = hmac;
 		if (expire != -1)
 			config->skc_expire = expire;
@@ -574,13 +581,13 @@ int main(int argc, char **argv)
 	config->skc_shared_keylen = SK_DEFAULT_SK_KEYLEN;
 	config->skc_prime_bits = SK_DEFAULT_PRIME_BITS;
 	config->skc_crypt_alg = SK_CRYPT_AES256_CTR;
-	config->skc_hmac_alg = SK_HMAC_SHA256;
+	config->skc_hmac_alg = CFS_HASH_ALG_SHA256;
 	for (i = 0; i < MAX_MGSNIDS; i++)
 		config->skc_mgsnids[i] = LNET_NID_ANY;
 
 	if (crypt != SK_CRYPT_EMPTY)
 		config->skc_crypt_alg = crypt;
-	if (hmac != SK_HMAC_EMPTY)
+	if (hmac != CFS_HASH_ALG_NULL)
 		config->skc_hmac_alg = hmac;
 	if (expire != -1)
 		config->skc_expire = expire;
