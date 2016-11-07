@@ -314,10 +314,14 @@ struct osc_lock {
          * Glimpse lock should be destroyed immediately after use.
          */
                                  ols_glimpse:1,
-        /**
-         * For async glimpse lock.
-         */
-                                 ols_agl:1;
+	/**
+	 * for speculative locks - asynchronous glimpse locks and ladvise
+	 * requestlock manual lock requests
+	 *
+	 * Used to tell osc layer to not create an OSC lock for this lock
+	 * request and not wait for reply from the server.
+	 */
+				ols_speculative:1;
 };
 
 
