@@ -222,85 +222,16 @@ int lolnd_nid2hostname(char *lnd, uint32_t net, uint32_t addr,
         return 0;
 }
 
-static int is_space(char c)
-{
-        return (c == ' ' || c == '\t' || c == '\n');
-}
-
-static
-int external_nid2hostname(char *lnd, uint32_t net, uint32_t addr,
-                          char *namebuf, int namebuflen)
-{
-        const int bufsize = PATH_MAX + 256;
-        char buf[bufsize], *head, *tail;
-        FILE *fghn;
-
-        sprintf(buf, "%s %s 0x%x 0x%x", gethostname_ex, lnd, net, addr);
-        printerr(2, "cmd: %s\n", buf);
-
-        fghn = popen(buf, "r");
-        if (fghn == NULL) {
-                printerr(0, "failed to call %s\n", gethostname_ex);
-                return -1;
-        }
-
-        head = fgets(buf, bufsize, fghn);
-        if (head == NULL) {
-                printerr(0, "can't read from %s\n", gethostname_ex);
-                return -1;
-        }
-        if (pclose(fghn) == -1)
-                printerr(1, "pclose failed, continue\n");
-
-        /* trim head/tail space */
-        while (is_space(*head))
-                head++;
-
-        tail = head + strlen(head);
-        if (tail <= head) {
-                printerr(0, "no output from %s\n", gethostname_ex);
-                return -1;
-        }
-        while (is_space(*(tail - 1)))
-                tail--;
-        if (tail <= head) {
-                printerr(0, "output are all space from %s\n", gethostname_ex);
-                return -1;
-        }
-        *tail = '\0';
-
-        /* start with '@' means error msg */
-        if (head[0] == '@') {
-                printerr(0, "error from %s: %s\n", gethostname_ex, &head[1]);
-                return -1;
-        }
-
-        if (tail - head > namebuflen) {
-                printerr(0, "external hostname too long: %s\n", head);
-                return -1;
-        }
-
-        printerr(2, "%s: net 0x%x, addr 0x%x => %s\n",
-                 lnd, net, addr, head);
-        strcpy(namebuf, head);
-        return 0;
-}
-
 struct convert_struct {
         char                    *name;
         lnd_nid2hostname_t      *nid2name;
 };
 
 static struct convert_struct converter[] = {
-        [0]             = { "UNUSED0",  NULL},
-        [QSWLND]        = { "QSWLND",   external_nid2hostname},
-        [SOCKLND]       = { "SOCKLND",  ipv4_nid2hostname },
-        [GMLND]         = { "GMLND",    external_nid2hostname},
-        [PTLLND]        = { "PTLLND",   external_nid2hostname },
-        [O2IBLND]       = { "O2IBLND",  ipv4_nid2hostname },
-        [LOLND]         = { "LOLND",    lolnd_nid2hostname },
-        [RALND]         = { "RALND",    external_nid2hostname },
-        [MXLND]         = { "MXLND",    external_nid2hostname },
+	[0]             = { .name = "UNUSED0",  .nid2name = NULL},
+	[SOCKLND]       = { .name = "SOCKLND",  .nid2name = ipv4_nid2hostname },
+	[O2IBLND]       = { .name = "O2IBLND",  .nid2name = ipv4_nid2hostname },
+	[LOLND]         = { .name = "LOLND",    .nid2name = lolnd_nid2hostname },
 };
 
 #define LND_MAX         (sizeof(converter) / sizeof(converter[0]))
