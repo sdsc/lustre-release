@@ -1140,6 +1140,7 @@ static int hsm_cdt_request_completed(struct mdt_thread_info *mti,
 	int			 cl_flags = 0, rc = 0;
 	struct md_hsm		 mh;
 	bool			 is_mh_changed;
+	bool			 need_changelog = true;
 	ENTRY;
 
 	/* default is to retry */
@@ -1309,6 +1310,15 @@ unlock:
 		if (*status == ARS_WAITING)
 			GOTO(out, rc);
 
+		/* restore special case, need to create ChangeLog record
+		 * before to give back layout lock to avoid concurrent
+		 * file updater to post out of order ChangeLog */
+		if (!IS_ERR_OR_NULL(obj)) {
+			mo_changelog(env, CL_HSM, cl_flags,
+				     mdt_object_child(obj));
+			need_changelog = false;
+		}
+
 		/* give back layout lock */
 		mutex_lock(&cdt->cdt_restore_lock);
 		crh = mdt_hsm_restore_hdl_find(cdt, &car->car_hai->hai_fid);
@@ -1328,9 +1338,10 @@ unlock:
 	GOTO(out, rc);
 
 out:
-	if (obj != NULL && !IS_ERR(obj)) {
-		mo_changelog(env, CL_HSM, cl_flags,
-			     mdt_object_child(obj));
+	if (!IS_ERR_OR_NULL(obj)) {
+		if (need_changelog)
+			mo_changelog(env, CL_HSM, cl_flags,
+				     mdt_object_child(obj));
 		mdt_object_put(mti->mti_env, obj);
 	}
 
