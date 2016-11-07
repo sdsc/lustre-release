@@ -43,12 +43,12 @@ enum {
 	/*CIBLND	= 6, removed v2_0_0-rc1a-175-gd2b8a0e */
 	/*OPENIBLND	= 7, removed v2_0_0-rc1a-175-gd2b8a0e */
 	/*IIBLND	= 8, removed v2_0_0-rc1a-175-gd2b8a0e */
-	LOLND		= 9, 
+	LOLND		= 9,
 	/*RALND		= 10, removed v2_7_50_0-34-g8be9e41    */
 	/*VIBLND	= 11, removed v2_0_0-rc1a-175-gd2b8a0e */
 	/*MXLND		= 12, removed v2_7_50_0-34-g8be9e41    */
 	GNILND		= 13,
-	GNIIPLND	= 14, 
+	GNIIPLND	= 14,
 };
 
 struct list_head;

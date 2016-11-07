@@ -232,11 +232,11 @@ libcfs_decnum_addr2str(__u32 addr, char *str, size_t size)
 	snprintf(str, size, "%u", addr);
 }
 
-static void
+/*static void
 libcfs_hexnum_addr2str(__u32 addr, char *str, size_t size)
 {
 	snprintf(str, size, "0x%x", addr);
-}
+}*/
 
 static int
 libcfs_num_str2addr(const char *str, int nob, __u32 *addr)

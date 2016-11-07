@@ -221,7 +221,7 @@ int lolnd_nid2hostname(char *lnd, uint32_t net, uint32_t addr,
         printerr(3, "%s: addr 0x%x => %s\n", lnd, addr, buf);
         return 0;
 }
-
+/*
 static int is_space(char c)
 {
         return (c == ' ' || c == '\t' || c == '\n');
@@ -252,7 +252,7 @@ int external_nid2hostname(char *lnd, uint32_t net, uint32_t addr,
         if (pclose(fghn) == -1)
                 printerr(1, "pclose failed, continue\n");
 
-        /* trim head/tail space */
+        // trim head/tail space 
         while (is_space(*head))
                 head++;
 
@@ -269,7 +269,7 @@ int external_nid2hostname(char *lnd, uint32_t net, uint32_t addr,
         }
         *tail = '\0';
 
-        /* start with '@' means error msg */
+        // start with '@' means error msg 
         if (head[0] == '@') {
                 printerr(0, "error from %s: %s\n", gethostname_ex, &head[1]);
                 return -1;
@@ -284,7 +284,7 @@ int external_nid2hostname(char *lnd, uint32_t net, uint32_t addr,
                  lnd, net, addr, head);
         strcpy(namebuf, head);
         return 0;
-}
+}*/
 
 struct convert_struct {
         char                    *name;
@@ -293,14 +293,14 @@ struct convert_struct {
 
 static struct convert_struct converter[] = {
         [0]             = { "UNUSED0",  NULL},
-        /*[QSWLND]      = { "QSWLND",   external_nid2hostname},*/
-        [SOCKLND]       = { "SOCKLND",  ipv4_nid2hostname },
-        /*[GMLND]       = { "GMLND",    external_nid2hostname},*/
-        /*[PTLLND]      = { "PTLLND",   external_nid2hostname },*/
-        [O2IBLND]       = { "O2IBLND",  ipv4_nid2hostname },
-        [LOLND]         = { "LOLND",    lolnd_nid2hostname },
-        /*[RALND]       = { "RALND",    external_nid2hostname },*/
-        /*[MXLND]       = { "MXLND",    external_nid2hostname },*/
+	/*[QSWLND]      = { "QSWLND",   external_nid2hostname},*/
+	[SOCKLND]       = { "SOCKLND",  ipv4_nid2hostname },
+	/*[GMLND]       = { "GMLND",    external_nid2hostname},*/
+	/*[PTLLND]      = { "PTLLND",   external_nid2hostname },*/
+	[O2IBLND]       = { "O2IBLND",  ipv4_nid2hostname },
+	[LOLND]         = { "LOLND",    lolnd_nid2hostname },
+	/*[RALND]       = { "RALND",    external_nid2hostname },*/
+	/*[MXLND]       = { "MXLND",    external_nid2hostname },*/
 };
 
 #define LND_MAX         (sizeof(converter) / sizeof(converter[0]))
