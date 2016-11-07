@@ -1309,6 +1309,13 @@ unlock:
 		if (*status == ARS_WAITING)
 			GOTO(out, rc);
 
+		/* restore special case, need to create ChangeLog record
+		 * before to give back layout lock to avoid concurrent
+		 * file updater to post out of order ChangeLog */
+		if (!IS_ERR_OR_NULL(obj))
+			mo_changelog(env, CL_HSM, cl_flags,
+				     mdt_object_child(obj));
+
 		/* give back layout lock */
 		mutex_lock(&cdt->cdt_restore_lock);
 		crh = mdt_hsm_restore_hdl_find(cdt, &car->car_hai->hai_fid);
@@ -1323,12 +1330,16 @@ unlock:
 
 		if (crh != NULL)
 			OBD_SLAB_FREE_PTR(crh, mdt_hsm_cdt_kmem);
+
+		if (!IS_ERR_OR_NULL(obj))
+			mdt_object_put(mti->mti_env, obj);
+		RETURN(rc);
 	}
 
 	GOTO(out, rc);
 
 out:
-	if (obj != NULL && !IS_ERR(obj)) {
+	if (!IS_ERR_OR_NULL(obj)) {
 		mo_changelog(env, CL_HSM, cl_flags,
 			     mdt_object_child(obj));
 		mdt_object_put(mti->mti_env, obj);
