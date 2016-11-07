@@ -252,7 +252,7 @@ int external_nid2hostname(char *lnd, uint32_t net, uint32_t addr,
         if (pclose(fghn) == -1)
                 printerr(1, "pclose failed, continue\n");
 
-        // trim head/tail space 
+	trim head/tail space
         while (is_space(*head))
                 head++;
 
@@ -269,7 +269,7 @@ int external_nid2hostname(char *lnd, uint32_t net, uint32_t addr,
         }
         *tail = '\0';
 
-        // start with '@' means error msg 
+	start with '@' means error msg
         if (head[0] == '@') {
                 printerr(0, "error from %s: %s\n", gethostname_ex, &head[1]);
                 return -1;
