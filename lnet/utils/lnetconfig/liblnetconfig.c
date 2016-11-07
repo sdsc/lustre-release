@@ -122,7 +122,7 @@ int lustre_lnet_config_route(char *nw, char *gw, int hops, int prio,
 		goto out;
 	}
 
-	if (LNET_NETTYP(net) == CIBLND    ||
+	/*if (LNET_NETTYP(net) == CIBLND    ||
 	    LNET_NETTYP(net) == OPENIBLND ||
 	    LNET_NETTYP(net) == IIBLND    ||
 	    LNET_NETTYP(net) == VIBLND) {
@@ -131,7 +131,7 @@ int lustre_lnet_config_route(char *nw, char *gw, int hops, int prio,
 			 "\"obselete LNet type '%s'\"", libcfs_lnd2str(net));
 		rc = LUSTRE_CFG_RC_BAD_PARAM;
 		goto out;
-	}
+	}*/
 
 	gateway_nid = libcfs_str2nid(gw);
 	if (gateway_nid == LNET_NID_ANY) {
@@ -216,7 +216,7 @@ int lustre_lnet_del_route(char *nw, char *gw,
 		goto out;
 	}
 
-	if (LNET_NETTYP(net) == CIBLND    ||
+	/*if (LNET_NETTYP(net) == CIBLND    ||
 	    LNET_NETTYP(net) == OPENIBLND ||
 	    LNET_NETTYP(net) == IIBLND    ||
 	    LNET_NETTYP(net) == VIBLND) {
@@ -225,7 +225,7 @@ int lustre_lnet_del_route(char *nw, char *gw,
 			 "\"obselete LNet type '%s'\"", libcfs_lnd2str(net));
 		rc = LUSTRE_CFG_RC_BAD_PARAM;
 		goto out;
-	}
+	}*/
 
 	gateway_nid = libcfs_str2nid(gw);
 	if (gateway_nid == LNET_NID_ANY) {
@@ -283,7 +283,7 @@ int lustre_lnet_show_route(char *nw, char *gw, int hops, int prio, int detail,
 			goto out;
 		}
 
-		if (LNET_NETTYP(net) == CIBLND    ||
+		/*if (LNET_NETTYP(net) == CIBLND    ||
 		    LNET_NETTYP(net) == OPENIBLND ||
 		    LNET_NETTYP(net) == IIBLND    ||
 		    LNET_NETTYP(net) == VIBLND) {
@@ -293,7 +293,7 @@ int lustre_lnet_show_route(char *nw, char *gw, int hops, int prio, int detail,
 				 libcfs_lnd2str(net));
 			rc = LUSTRE_CFG_RC_BAD_PARAM;
 			goto out;
-		}
+		}*/
 	} else {
 		/* show all routes without filtering on net */
 		net = LNET_NIDNET(LNET_NID_ANY);
