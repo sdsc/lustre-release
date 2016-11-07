@@ -293,14 +293,14 @@ struct convert_struct {
 
 static struct convert_struct converter[] = {
         [0]             = { "UNUSED0",  NULL},
-        [QSWLND]        = { "QSWLND",   external_nid2hostname},
+        /*[QSWLND]      = { "QSWLND",   external_nid2hostname},*/
         [SOCKLND]       = { "SOCKLND",  ipv4_nid2hostname },
-        [GMLND]         = { "GMLND",    external_nid2hostname},
-        [PTLLND]        = { "PTLLND",   external_nid2hostname },
+        /*[GMLND]       = { "GMLND",    external_nid2hostname},*/
+        /*[PTLLND]      = { "PTLLND",   external_nid2hostname },*/
         [O2IBLND]       = { "O2IBLND",  ipv4_nid2hostname },
         [LOLND]         = { "LOLND",    lolnd_nid2hostname },
-        [RALND]         = { "RALND",    external_nid2hostname },
-        [MXLND]         = { "MXLND",    external_nid2hostname },
+        /*[RALND]       = { "RALND",    external_nid2hostname },*/
+        /*[MXLND]       = { "MXLND",    external_nid2hostname },*/
 };
 
 #define LND_MAX         (sizeof(converter) / sizeof(converter[0]))
