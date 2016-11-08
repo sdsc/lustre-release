@@ -1,0 +1,47 @@
+--- linux-stage/fs/ext4/mballoc.c	2016-11-06 15:52:10.730951606 +0530
++++ linux-stage.orig.1/fs/ext4/mballoc.c	2016-11-06 16:11:50.533557740 +0530
+@@ -26,6 +26,7 @@
+ #include <linux/debugfs.h>
+ #include <trace/events/ext4.h>
+ #include <linux/swap.h>
++#include <linux/version.h>
+
+ /*
+  * MUSTDO:
+@@ -3559,6 +3560,13 @@
+	unsigned short max = EXT4_BLOCKS_PER_GROUP(sb);
+	unsigned short i, first, free = 0;
+
++	/* be quiet if readonly device */
++#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 0, 0)
++	if (dev_check_rdonly(sb->s_bdev))
++#else
++	if (bdev_read_only(sb->s_bdev))
++#endif
++	return 0;
+	i = mb_find_next_zero_bit(bitmap, max, 0);
+
+	while (i < max) {
+@@ -3940,6 +3948,12 @@
+		bit = next + 1;
+	}
+
++#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 0, 0)
++	if (dev_check_rdonly(sb->s_bdev))
++#else
++	if (bdev_read_only(sb->s_bdev))
++#endif
++	goto add_free;
+	/* "free < pa->pa_free" means we maybe double alloc the same blocks,
+	 * otherwise maybe leave some free blocks unavailable, no need to BUG.*/
+	if ((free > pa->pa_free && !pa->pa_error) || (free < pa->pa_free)) {
+@@ -3961,8 +3975,9 @@
+	}
+	/* do not verify if the file system is being umounted */
+	BUG_ON(atomic_read(&sb->s_active) > 0 && pa->pa_free != free);
+-	atomic_add(free, &sbi->s_mb_discarded);
+
++add_free:
++	atomic_add(free, &sbi->s_mb_discarded);
+	return err;
+ }
