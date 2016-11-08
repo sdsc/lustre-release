@@ -96,6 +96,50 @@ static int print_only = 0;
 
 #define FSLIST FSLIST_LDISKFS FSLIST_ZFS
 
+
+static struct option long_opts[] = {
+{ .name = "backfs-mount-opts", .has_arg = required_argument, .val = 'B' },
+{ .name = "failnode",	       .has_arg = required_argument, .val = 'f' },
+{ .name = "failover",	       .has_arg = required_argument, .val = 'f' },
+{ .name = "help",	       .has_arg = no_argument,	     .val = 'h' },
+{ .name = "index",	       .has_arg = required_argument, .val = 'i' },
+{ .name = "fsname",	       .has_arg = required_argument, .val = 'L' },
+{ .name = "mgsnode",	       .has_arg = required_argument, .val = 'm' },
+{ .name = "mgsnid",	       .has_arg = required_argument, .val = 'm' },
+{ .name = "dryrun",	       .has_arg = no_argument,	     .val = 'n' },
+{ .name = "mountfsoptions",    .has_arg = required_argument, .val = 'o' },
+{ .name = "param",	       .has_arg = required_argument, .val = 'p' },
+{ .name = "quiet",	       .has_arg = no_argument,	     .val = 'q' },
+{ .name = "servicenode",       .has_arg = required_argument, .val = 's' },
+{ .name = "network",	       .has_arg = required_argument, .val = 't' },
+{ .name = "comment",	       .has_arg = required_argument, .val = 'u' },
+{ .name = "force-nohostid",    .has_arg = no_argument,	     .val = 'U' },
+{ .name = "verbose",	       .has_arg = no_argument,	     .val = 'v' },
+{ .name = "version",	       .has_arg = no_argument,	     .val = 'V' },
+#ifndef TUNEFS
+{ .name = "backfstype",	       .has_arg = required_argument, .val = 'b' },
+{ .name = "stripe-count-hint", .has_arg = required_argument, .val = 'c' },
+{ .name = "device-size",       .has_arg = required_argument, .val = 'd' },
+{ .name = "mgs",	       .has_arg = no_argument,	     .val = 'G' },
+{ .name = "mkfsoptions",       .has_arg = required_argument, .val = 'k' },
+{ .name = "mdt",	       .has_arg = no_argument,	     .val = 'M' },
+{ .name = "nomgs",	       .has_arg = no_argument,	     .val = 'N' },
+{ .name = "ost",	       .has_arg = no_argument,	     .val = 'O' },
+{ .name = "reformat",	       .has_arg = no_argument,	     .val = 'r' },
+{ .name = "replace",	       .has_arg = no_argument,	     .val = 'R' },
+#else
+{ .name = "erase-params",      .has_arg = no_argument,	     .val = 'e' },
+{ .name = "quota",	       .has_arg = no_argument,	     .val = 'Q' },
+{ .name = "writeconf",	       .has_arg = no_argument,	     .val = 'w' },
+#endif
+{ .name = NULL } };
+char *short_opts = "B:f:hi:L:m:no:p:qs:t:u:vV"
+#ifndef TUNEFS
+		  "b:c:d:Gk:MNOrR";
+#else
+		  "eQw";
+#endif
+
 void usage(FILE *out)
 {
 	fprintf(out, "usage: %s <target type> [--backfstype="FSLIST"] "
@@ -276,49 +320,6 @@ static char *convert_hostnames(char *s1)
 int parse_opts(int argc, char *const argv[], struct mkfs_opts *mop,
 	       char **mountopts)
 {
-	static struct option long_opt[] = {
-		{ "backfs-mount-opts",  required_argument,	NULL, 'B' },
-		{ "failnode",		required_argument,	NULL, 'f' },
-		{ "failover",		required_argument,	NULL, 'f' },
-		{ "help",		no_argument,		NULL, 'h' },
-		{ "index",		required_argument,	NULL, 'i' },
-		{ "fsname",		required_argument,	NULL, 'L' },
-		{ "mgsnode",		required_argument,	NULL, 'm' },
-		{ "mgsnid",		required_argument,	NULL, 'm' },
-		{ "dryrun",		no_argument,		NULL, 'n' },
-		{ "mountfsoptions",	required_argument,	NULL, 'o' },
-		{ "param",		required_argument,	NULL, 'p' },
-		{ "quiet",		no_argument,		NULL, 'q' },
-		{ "servicenode",	required_argument,	NULL, 's' },
-		{ "network",		required_argument,	NULL, 't' },
-		{ "comment",		required_argument,	NULL, 'u' },
-		{ "force-nohostid",	no_argument,		NULL, 'U' },
-		{ "verbose",		no_argument,		NULL, 'v' },
-		{ "version",		no_argument,		NULL, 'V' },
-#ifndef TUNEFS
-		{ "backfstype",		required_argument,	NULL, 'b' },
-		{ "stripe-count-hint",	required_argument,	NULL, 'c' },
-		{ "device-size",	required_argument,	NULL, 'd' },
-		{ "mgs",		no_argument,		NULL, 'G' },
-		{ "mkfsoptions",	required_argument,	NULL, 'k' },
-		{ "mdt",		no_argument,		NULL, 'M' },
-		{ "nomgs",		no_argument,		NULL, 'N' },
-		{ "ost",		no_argument,		NULL, 'O' },
-		{ "reformat",		no_argument,		NULL, 'r' },
-		{ "replace",		no_argument,		NULL, 'R' },
-#else
-		{ "erase-params",	no_argument,		NULL, 'e' },
-		{ "quota",		no_argument,		NULL, 'Q' },
-		{ "writeconf",		no_argument,		NULL, 'w' },
-#endif
-		{ 0,			0,			NULL,  0  }
-	};
-	char *optstring = "B:f:hi:L:m:no:p:qs:t:u:vV"
-#ifndef TUNEFS
-			  "b:c:d:Gk:MNOrR";
-#else
-			  "eQw";
-#endif
 	struct lustre_disk_data *ldd = &mop->mo_ldd;
 	char new_fsname[16] = { 0 };
 	int opt;
@@ -327,7 +328,8 @@ int parse_opts(int argc, char *const argv[], struct mkfs_opts *mop,
 	int replace = 0;
 	bool index_option = false;
 
-	while ((opt = getopt_long(argc, argv, optstring, long_opt, &longidx)) !=
+	while ((opt = getopt_long(argc, argv, short_opts,
+		long_opts, &longidx)) !=
 	       EOF) {
 		switch (opt) {
 		case 'B':
@@ -340,7 +342,7 @@ int parse_opts(int argc, char *const argv[], struct mkfs_opts *mop,
 			if ((opt == 'f' && servicenode_set) ||
 			    (opt == 's' && failnode_set)) {
 				fprintf(stderr, "%s: %s cannot use with --%s\n",
-					progname, long_opt[longidx].name,
+					progname, long_opts[longidx].name,
 					opt == 'f' ? "servicenode" :
 					"failnode");
 				return 1;
@@ -450,7 +452,7 @@ int parse_opts(int argc, char *const argv[], struct mkfs_opts *mop,
 			break;
 		case 't':
 			if (!IS_MDT(ldd) && !IS_OST(ldd)) {
-				badopt(long_opt[longidx].name, "MDT,OST");
+				badopt(long_opts[longidx].name, "MDT,OST");
 				return 1;
 			}
 
@@ -508,7 +510,7 @@ int parse_opts(int argc, char *const argv[], struct mkfs_opts *mop,
 				}
 				mop->mo_stripe_count = stripe_count;
 			} else {
-				badopt(long_opt[longidx].name, "MDT");
+				badopt(long_opts[longidx].name, "MDT");
 				return 1;
 			}
 			break;
