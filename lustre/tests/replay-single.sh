@@ -3261,6 +3261,76 @@ test_90() { # bug 19494
 }
 run_test 90 "lfs find identifies the missing striped file segments"
 
+#MRP-1658
+# set_quota_size(size, parameter)
+set_quota_size() {
+	local btune=$(($1 * 1024))
+	local param=$2
+
+	# set quota size on all obdfilters & mds
+	do_nodes $(comma_list $(osts_nodes) $(mdts_nodes)) \
+		"lctl set_param lquota.*${FSNAME}*.$param=$btune"
+}
+
+do_client_write() {
+	local FSIZE=$($LFS df $DIR | grep OST0000 | awk '{print $4}')
+	FSIZE=$((FSIZE / 1024))
+
+	echo "start io filesize = $FSIZE"
+	for i in {1..100}; do
+		dd if=/dev/zero of=$DIR/$tdir/data bs=1M count=$FSIZE > \
+			/dev/null 2>&1
+	done
+	rm -rf $DIR/$tdir/data
+	echo "end io"
+}
+
+#this test requeires ENABLE_QOUTA=yes
+test_92() {
+	[ "$ENABLE_QUOTA" != "yes" ] && skip "ENABLE_QUOTA != yes" && return 0
+	[ $FAILURE_MODE == "HARD" ] || skip "Needs HARD fail mode"
+
+	mkdir -p $DIR/$tdir
+	$SETSTRIPE -i 0 -c 1 $DIR/$tdir
+	#remount ost1 with errors=panic
+	stop ost1
+	mount_facet ost1 -o errors=panic
+
+	local now=$(date +"%s")
+	local period=$((60 * 3))
+
+	local till=$((now + period))
+	local iteration=0
+
+	local pid=99999999
+	while [ $(date +"%s") -lt  $till ]; do
+		#run IO activity on clients fpp
+		kill -s 0 $pid > /dev/null 2>&1
+		if [ $? != 0 ]; then
+			do_client_write &
+			pid=$!
+			sleep 4
+		fi
+		echo "iteration $iteration"
+		local svc=ost1_svc
+		let iteration++
+		# Here we emulate failback operations notransno/readonly/umount
+		do_facet ost1 "$LCTL --device %${!svc} notransno; \
+				$LCTL --device %${!svc} readonly;"
+		stop ost1
+		# The OSS should panic during stop ost1,
+		# and this command would not be completed
+		mount_facet ost1 -o errors=panic
+		sleep 30
+	done
+	kill -9 $pid
+	rm -rf $DIR/$tdir
+	#remount ost1 normal
+	stop ost1
+	mount_facet ost1
+}
+run_test 92 "Check failback with errors=panic"
+
 test_93a() {
 	local server_version=$(lustre_version_code $SINGLEMDS)
 		[[ $server_version -ge $(version_code 2.6.90) ]] ||
