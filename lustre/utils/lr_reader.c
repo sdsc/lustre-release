@@ -63,12 +63,11 @@
 #include <lustre_ver.h>
 
 char *progname;
-static struct option const longopts[] = {
-	{ "help", no_argument, 0, 'h' },
-	{ "client", no_argument, 0, 'c' },
-	{ "reply", no_argument, 0, 'r' },
-	{ 0, 0, 0, 0}
-};
+static struct option const long_opts[] = {
+	{ .name = "client", .has_arg = no_argument, .val = 'c' },
+	{ .name = "help",   .has_arg = no_argument, .val = 'h' },
+	{ .name = "reply",  .has_arg = no_argument, .val = 'r' },
+	{ .name = NULL } };
 
 /* Executes the command \a cmd and returns command status.
  */
@@ -136,7 +135,7 @@ int main(int argc, char *const argv[])
 	int opt_reply = 0;
 
 	progname = argv[0];
-	while ((c = getopt_long(argc, argv, "chr", longopts, NULL)) != -1) {
+	while ((c = getopt_long(argc, argv, "chr", long_opts, NULL)) != -1) {
 		switch (c) {
 		case 'c':
 			opt_client = 1;
