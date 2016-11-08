@@ -1695,6 +1695,13 @@ void lustre_swab_connect(struct obd_connect_data *ocd)
         CLASSERT(offsetof(typeof(*ocd), paddingF) != 0);
 }
 
+static void lustre_swab_o_lcookie(struct llog_cookie *o_lcookie)
+{
+	__swab32s(&o_lcookie->lgc_subsys);
+	__swab32s(&o_lcookie->lgc_index);
+	__swab32s(&o_lcookie->lgc_padding);
+}
+
 void lustre_swab_obdo (struct obdo  *o)
 {
         __swab64s (&o->o_valid);
@@ -1718,7 +1725,7 @@ void lustre_swab_obdo (struct obdo  *o)
         __swab32s (&o->o_stripe_idx);
         __swab32s (&o->o_parent_ver);
         /* o_handle is opaque */
-        /* o_lcookie is swabbed elsewhere */
+	lustre_swab_o_lcookie(&o->o_lcookie);
         __swab32s (&o->o_uid_h);
         __swab32s (&o->o_gid_h);
         __swab64s (&o->o_data_version);
