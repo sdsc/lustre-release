@@ -120,21 +120,20 @@ const int dirmode = S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH;
 static int isatty_flag;
 static int perms =  S_IRWXU | S_IRGRP | S_IROTH;
 
-static struct option const longopts[] =
-{
-	{ "chunksize", required_argument, 0, 'c' },
-	{ "help", no_argument, 0, 'h' },
-	{ "offset", required_argument, 0, 'o' },
-	{ "long", no_argument, 0, 'l' },
-	{ "full", no_argument, 0, 'l' },
-	{ "partial", required_argument, 0, 'p' },
-	{ "quiet", required_argument, 0, 'q' },
-	{ "read", no_argument, 0, 'r' },
-	{ "filesize", no_argument, 0, 's' },
-	{ "timestamp", required_argument, 0, 't' },
-	{ "verbose", no_argument, 0, 'v' },
-	{ "write", no_argument, 0, 'w' },
-	{ 0, 0, 0, 0}
+static struct option const long_opts[] = {
+	{ .name = "chunksize", .has_arg = required_argument, .val = 'c' },
+	{ .name = "help",      .has_arg = no_argument,	     .val = 'h' },
+	{ .name = "long",      .has_arg = no_argument,	     .val = 'l' },
+	{ .name = "full",      .has_arg = no_argument,	     .val = 'l' },
+	{ .name = "offset",    .has_arg = required_argument, .val = 'o' },
+	{ .name = "partial",   .has_arg = required_argument, .val = 'p' },
+	{ .name = "quiet",     .has_arg = required_argument, .val = 'q' },
+	{ .name = "read",      .has_arg = no_argument,	     .val = 'r' },
+	{ .name = "filesize",  .has_arg = no_argument,	     .val = 's' },
+	{ .name = "timestamp", .has_arg = required_argument, .val = 't' },
+	{ .name = "verbose",   .has_arg = no_argument,	     .val = 'v' },
+	{ .name = "write",     .has_arg = no_argument,	     .val = 'w' },
+	{ .name = NULL }
 };
 
 /*
@@ -728,7 +727,7 @@ int main(int argc, char **argv)
 
 	progname = strrchr(argv[0], '/') ? strrchr(argv[0], '/') + 1 : argv[0];
 	while ((c = getopt_long(argc, argv, "c:hlo:pqrs:t:vw",
-				      longopts, NULL)) != -1) {
+				      long_opts, NULL)) != -1) {
 		switch (c) {
 		case 'c':
 			chunksize = strtoul(optarg, NULL, 0) * ONE_MB;
