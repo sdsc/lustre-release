@@ -3170,7 +3170,7 @@ kiblnd_startup (lnet_ni_t *ni)
         char                     *ifname;
         kib_dev_t                *ibdev = NULL;
         kib_net_t                *net;
-        struct timeval            tv;
+	struct timespec64 tv;
         unsigned long             flags;
         int                       rc;
 	int			  newdev;
@@ -3188,8 +3188,9 @@ kiblnd_startup (lnet_ni_t *ni)
         if (net == NULL)
                 goto failed;
 
-	do_gettimeofday(&tv);
-	net->ibn_incarnation = (((__u64)tv.tv_sec) * 1000000) + tv.tv_usec;
+	ktime_get_real_ts64(&tv);
+	net->ibn_incarnation = tv.tv_sec * USEC_PER_SEC +
+			       tv.tv_nsec / NSEC_PER_USEC;
 
 	kiblnd_tunables_setup(ni);
 
