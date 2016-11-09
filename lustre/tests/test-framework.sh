@@ -1224,6 +1224,11 @@ set_hostid () {
     if [ ! -s /etc/hostid ]; then
 	printf $(echo -n $hostid |
 	    sed 's/\(..\)\(..\)\(..\)\(..\)/\\x\4\\x\3\\x\2\\x\1/') >/etc/hostid
+	if module_loaded spl; then
+		$LUSTRE_RMMOD spl || return 2
+	else
+		load_module spl
+	fi
     fi
 }
 
