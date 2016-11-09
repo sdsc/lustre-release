@@ -75,10 +75,6 @@ struct cl_thread_info {
          * Fields used by cl_io.c
          */
         /**
-         * Pointer to the topmost ongoing IO in this thread.
-         */
-        struct cl_io        *clt_current_io;
-        /**
          * Used for submitting a sync io.
          */
         struct cl_sync_io    clt_anchor;

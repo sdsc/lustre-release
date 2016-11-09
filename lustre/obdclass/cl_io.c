@@ -67,14 +67,6 @@ static inline int cl_io_is_loopable(const struct cl_io *io)
 }
 
 /**
- * Returns true iff there is an IO ongoing in the given environment.
- */
-int cl_io_is_going(const struct lu_env *env)
-{
-        return cl_env_info(env)->clt_current_io != NULL;
-}
-
-/**
  * cl_io invariant that holds at all times when exported cl_io_*() functions
  * are entered and left.
  */
@@ -120,8 +112,6 @@ void cl_io_fini(const struct lu_env *env, struct cl_io *io)
         }
         io->ci_state = CIS_FINI;
         info = cl_env_info(env);
-        if (info->clt_current_io == io)
-                info->clt_current_io = NULL;
 
 	/* sanity check for layout change */
 	switch(io->ci_type) {
@@ -185,11 +175,8 @@ static int cl_io_init0(const struct lu_env *env, struct cl_io *io,
 int cl_io_sub_init(const struct lu_env *env, struct cl_io *io,
                    enum cl_io_type iot, struct cl_object *obj)
 {
-        struct cl_thread_info *info = cl_env_info(env);
-
         LASSERT(obj != cl_object_top(obj));
-        if (info->clt_current_io == NULL)
-                info->clt_current_io = io;
+
         return cl_io_init0(env, io, iot, obj);
 }
 EXPORT_SYMBOL(cl_io_sub_init);
@@ -207,12 +194,8 @@ EXPORT_SYMBOL(cl_io_sub_init);
 int cl_io_init(const struct lu_env *env, struct cl_io *io,
                enum cl_io_type iot, struct cl_object *obj)
 {
-        struct cl_thread_info *info = cl_env_info(env);
-
         LASSERT(obj == cl_object_top(obj));
-        LASSERT(info->clt_current_io == NULL);
 
-        info->clt_current_io = io;
         return cl_io_init0(env, io, iot, obj);
 }
 EXPORT_SYMBOL(cl_io_init);
