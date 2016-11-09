@@ -1224,6 +1224,11 @@ set_hostid () {
     if [ ! -s /etc/hostid ]; then
 	printf $(echo -n $hostid |
 	    sed 's/\(..\)\(..\)\(..\)\(..\)/\\x\4\\x\3\\x\2\\x\1/') >/etc/hostid
+	if module_loaded spl; then
+		$LUSTRE_RMMOD spl || return 2
+	else
+		load_module spl
+	fi
     fi
 }
 
@@ -3589,7 +3594,10 @@ formatall() {
 	# (Assumes MDS version is also OSS version)
 	if [ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.8.54) ];
 	then
-	    do_rpc_nodes "$(comma_list $(remote_nodes_list))" set_hostid
+		[ "$(facet_fstype mds1)" = "zfs" ] &&
+		do_rpc_nodes "$(comma_list $(mdts_nodes))" set_hostid
+		[ "$(facet_fstype ost1)" = "zfs" ] &&
+		do_rpc_nodes "$(comma_list $(osts_nodes))" set_hostid
 	fi
 
 	# We need ldiskfs here, may as well load them all
