@@ -1995,6 +1995,8 @@ lnet_parse_put(lnet_ni_t *ni, lnet_msg_t *msg)
 		LBUG();
 
 	case LNET_MATCHMD_OK:
+		if (info.mi_md_cpt != ni->ni_dev_cpt)
+			atomic_inc(&ni->ni_stats.cpt_mismatch);
 		lnet_recv_put(ni, msg);
 		return 0;
 
@@ -2058,6 +2060,9 @@ lnet_parse_get(lnet_ni_t *ni, lnet_msg_t *msg, int rdma_get)
 	}
 
 	LASSERT(rc == LNET_MATCHMD_OK);
+
+	if (info.mi_md_cpt != ni->ni_dev_cpt)
+		atomic_inc(&ni->ni_stats.cpt_mismatch);
 
 	lnet_build_msg_event(msg, LNET_EVENT_GET);
 

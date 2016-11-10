@@ -1995,6 +1995,7 @@ lnet_fill_ni_info(struct lnet_ni *ni, struct lnet_ioctl_config_ni *cfg_ni,
 	if (stats) {
 		stats->send_count = atomic_read(&ni->ni_stats.send_count);
 		stats->recv_count = atomic_read(&ni->ni_stats.recv_count);
+		stats->cpt_mismatch = atomic_read(&ni->ni_stats.cpt_mismatch);
 	}
 
 	/*

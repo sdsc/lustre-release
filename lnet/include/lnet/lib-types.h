@@ -296,6 +296,7 @@ struct lnet_element_stats {
 	atomic_t	send_count;
 	atomic_t	recv_count;
 	atomic_t	drop_count;
+	atomic_t	cpt_mismatch;
 };
 
 struct lnet_net {
@@ -642,6 +643,7 @@ struct lnet_match_info {
 	__u64			mi_mbits;
 	lnet_process_id_t	mi_id;
 	unsigned int		mi_cpt;
+	unsigned int		mi_md_cpt;
 	unsigned int		mi_opc;
 	unsigned int		mi_portal;
 	unsigned int		mi_rlength;
