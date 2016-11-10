@@ -322,7 +322,8 @@ static ssize_t lprocfs_lru_size_seq_write(struct file *file,
 
 			/* Try to cancel all @ns_nr_unused locks. */
 			canceled = ldlm_cancel_lru(ns, unused, 0,
-						   LDLM_LRU_FLAG_PASSED);
+						   LDLM_LRU_FLAG_PASSED |
+						   LDLM_LRU_FLAG_CLEANUP);
 			if (canceled < unused) {
 				CDEBUG(D_DLMTRACE,
 				       "not all requested locks are canceled, "
@@ -333,7 +334,8 @@ static ssize_t lprocfs_lru_size_seq_write(struct file *file,
 		} else {
 			tmp = ns->ns_max_unused;
 			ns->ns_max_unused = 0;
-			ldlm_cancel_lru(ns, 0, 0, LDLM_LRU_FLAG_PASSED);
+			ldlm_cancel_lru(ns, 0, 0, LDLM_LRU_FLAG_PASSED |
+					LDLM_LRU_FLAG_CLEANUP);
 			ns->ns_max_unused = tmp;
 		}
 		return count;

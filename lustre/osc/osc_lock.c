@@ -410,6 +410,13 @@ static int osc_lock_flush(struct osc_object *obj, pgoff_t start, pgoff_t end,
 			rc = 0;
 	}
 
+	/* This makes osc_lock_discard_pages unconditionally discard pages for
+	 * read locks.  (It already does so for write locks.) We set it after
+	 * the osc_cache_writeback_range check because we should not call that
+	 * for a read lock. */
+	if (discard)
+		mode = CLM_WRITE;
+
 	rc2 = osc_lock_discard_pages(env, obj, start, end, mode);
 	if (rc == 0 && rc2 < 0)
 		rc = rc2;
