@@ -7195,21 +7195,23 @@ getxattr() { # getxattr path name
 }
 
 test_102n() { # LU-4101 mdt: protect internal xattrs
+	[ -z "$(which setfattr 2>/dev/null)" ] &&
+		skip "could not find setfattr" && return
+	if [ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.5.50) ]
+	then
+		skip "MDT < 2.5.50 allows setxattr on internal trusted xattrs"
+		return
+	fi
+	[ $(lustre_version_code client) -eq \
+	  $(lustre_version_code $SINGLEMDS) ] ||
+		skip "Client and server should have the same version" && return
+
 	local file0=$DIR/$tfile.0
 	local file1=$DIR/$tfile.1
 	local xattr0=$TMP/$tfile.0
 	local xattr1=$TMP/$tfile.1
 	local name
 	local value
-
-	[ -z "$(which setfattr 2>/dev/null)" ] &&
-		skip "could not find setfattr" && return
-
-	if [ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.5.50) ]
-	then
-		skip "MDT < 2.5.50 allows setxattr on internal trusted xattrs"
-		return
-	fi
 
 	rm -rf $file0 $file1 $xattr0 $xattr1
 	touch $file0 $file1
