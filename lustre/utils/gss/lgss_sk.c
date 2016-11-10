@@ -93,14 +93,12 @@ void usage(FILE *fp, char *program)
 {
 	int i;
 
-	fprintf(fp, "Usage %s [OPTIONS] -l <file> | -m <file> | "
-		"-r <file> | -w <file>\n", program);
-	fprintf(fp, "-l|--load       <file>	Load key from file into user's "
+	fprintf(fp, "Usage %s [OPTIONS] {-l|-m|-r|-w} <keyfile>\n", program);
+	fprintf(fp, "-l|--load       <keyfile>	Load key from file into user's "
 		"session keyring\n");
-	fprintf(fp, "-m|--modify     <file>	Modify a file's key "
-		"attributes\n");
-	fprintf(fp, "-r|--read       <file>	Show file's key attributes\n");
-	fprintf(fp, "-w|--write      <file>	Generate key file\n\n");
+	fprintf(fp, "-m|--modify     <keyfile>	Modify keyfile's attributes\n");
+	fprintf(fp, "-r|--read       <keyfile>	Show keyfile's attributes\n");
+	fprintf(fp, "-w|--write      <keyfile>	Generate keyfile\n\n");
 	fprintf(fp, "Modify/Write Options:\n");
 	fprintf(fp, "-c|--crypt      <num>	Cipher for encryption "
 		"(Default: AES Counter mode)\n");
@@ -113,24 +111,23 @@ void usage(FILE *fp, char *program)
 		fprintf(fp, "                        %s\n", sk_hmac2name[i]);
 
 	fprintf(fp, "-e|--expire     <num>	Seconds before contexts from "
-		"key expire (Default: %d seconds)\n", SK_DEFAULT_EXPIRE);
+		"key expire (Default: %d seconds (%.3g days))\n",
+		SK_DEFAULT_EXPIRE, (double)SK_DEFAULT_EXPIRE / 3600 / 24);
 	fprintf(fp, "-f|--fsname     <name>	File system name for key\n");
 	fprintf(fp, "-g|--mgsnids    <nids>	Comma seperated list of MGS "
-		"NIDs.  Only required when mgssec is used (Default: "
-		"\"\")\n");
+		"NIDs.  Only required when mgssec is used (Default: \"\")\n");
 	fprintf(fp, "-n|--nodemap    <name>	Nodemap name for key "
 		"(Default: \"%s\")\n", SK_DEFAULT_NODEMAP);
 	fprintf(fp, "-p|--prime-bits <len>	Prime length (p) for DHKE in "
 		"bits (Default: %d)\n", SK_DEFAULT_PRIME_BITS);
 	fprintf(fp, "-t|--type       <type>	Key type (mgs, server, "
 		"client)\n");
-	fprintf(fp, "-k|--shared     <len>	Shared key length in bits "
+	fprintf(fp, "-k|--key-bits   <len>	Shared key length in bits "
 		"(Default: %d)\n", SK_DEFAULT_SK_KEYLEN);
-	fprintf(fp, "-d|--data       <file>	Shared key data source "
+	fprintf(fp, "-d|--data       <file>	Key random data source "
 		"(Default: /dev/random)\n\n");
 	fprintf(fp, "Other Options:\n");
-	fprintf(fp, "-v|--verbose           Increase verbosity for "
-		"errors\n");
+	fprintf(fp, "-v|--verbose           Increase verbosity for errors\n");
 	exit(EXIT_FAILURE);
 }
 
@@ -138,6 +135,7 @@ ssize_t get_key_data(char *src, void *buffer, size_t bits)
 {
 	char *ptr = buffer;
 	size_t remain;
+	struct stat st;
 	ssize_t rc;
 	int fd;
 
@@ -151,6 +149,12 @@ ssize_t get_key_data(char *src, void *buffer, size_t bits)
 			strerror(errno));
 		return -errno;
 	}
+
+	rc = fstat(fd, &st);
+	if (rc == 0 && (st.st_mode & ~0600))
+		fprintf(stderr,
+			"warning: secret key '%s' has insecure file mode %#o\n",
+			src, st.st_mode);
 
 	while (remain > 0) {
 		rc = read(fd, ptr, remain);
@@ -239,7 +243,7 @@ int print_config(char *filename)
 		printf("client ");
 	printf("\n");
 	printf("HMAC alg:       %s\n", sk_hmac2name[config->skc_hmac_alg]);
-	printf("Crypt alg:      %s\n", sk_crypt2name[config->skc_crypt_alg]);
+	printf("Crypto alg:     %s\n", sk_crypt2name[config->skc_crypt_alg]);
 	printf("Ctx Expiration: %u seconds\n", config->skc_expire);
 	printf("Shared keylen:  %u bits\n", config->skc_shared_keylen);
 	printf("Prime length:   %u bits\n", config->skc_prime_bits);
@@ -254,15 +258,16 @@ int print_config(char *filename)
 	printf("Nodemap name:   %s\n", config->skc_nodemap);
 	printf("Shared key:\n");
 	print_hex(0, config->skc_shared_key, config->skc_shared_keylen / 8);
-	printf("Prime (p) :\n");
 
 	/* Don't print empty keys */
 	for (i = 0; i < SK_MAX_P_BYTES; i++)
 		if (config->skc_p[i] != 0)
 			break;
 
-	if (i != SK_MAX_P_BYTES)
+	if (i != SK_MAX_P_BYTES) {
+		printf("Prime (p):\n");
 		print_hex(0, config->skc_p, config->skc_prime_bits / 8);
+	}
 
 	free(config);
 	return EXIT_SUCCESS;
@@ -341,6 +346,8 @@ int main(int argc, char **argv)
 		{"mgsnids", 1, 0, 'g'},
 		{"help", 0, 0, 'h'},
 		{"hmac", 1, 0, 'i'},
+		{"integrity", 1, 0, 'i'},
+		{"key-bits", 1, 0, 'k'},
 		{"shared", 1, 0, 'k'},
 		{"load", 1, 0, 'l'},
 		{"modify", 1, 0, 'm'},
