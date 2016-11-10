@@ -145,6 +145,7 @@ struct lnet_ioctl_element_stats {
 	__u32	send_count;
 	__u32	recv_count;
 	__u32	drop_count;
+	__u32	cpt_mismatch;
 };
 
 /*

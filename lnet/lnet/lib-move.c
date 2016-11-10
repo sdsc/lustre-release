@@ -1984,6 +1984,7 @@ lnet_parse_put(lnet_ni_t *ni, lnet_msg_t *msg)
 	info.mi_roffset	= hdr->msg.put.offset;
 	info.mi_mbits	= hdr->msg.put.match_bits;
 	info.mi_cpt	= lnet_cpt_of_nid(msg->msg_rxpeer->lpni_nid, ni);
+	info.mi_ni	= ni;
 
 	msg->msg_rx_ready_delay = ni->ni_net->net_lnd->lnd_eager_recv == NULL;
 	ready_delay = msg->msg_rx_ready_delay;
@@ -1995,6 +1996,11 @@ lnet_parse_put(lnet_ni_t *ni, lnet_msg_t *msg)
 		LBUG();
 
 	case LNET_MATCHMD_OK:
+		if (info.mi_md_cpt != ni->ni_dev_cpt) {
+			CDEBUG(D_NET, "AMIR: mi_md_cpt = %d, ni->ni_dev_cpt = %d\n",
+			       info.mi_md_cpt, ni->ni_dev_cpt);
+			atomic_inc(&ni->ni_stats.cpt_mismatch);
+		}
 		lnet_recv_put(ni, msg);
 		return 0;
 
@@ -2047,6 +2053,7 @@ lnet_parse_get(lnet_ni_t *ni, lnet_msg_t *msg, int rdma_get)
 	info.mi_roffset	= hdr->msg.get.src_offset;
 	info.mi_mbits	= hdr->msg.get.match_bits;
 	info.mi_cpt	= lnet_cpt_of_nid(msg->msg_rxpeer->lpni_nid, ni);
+	info.mi_ni	= ni;
 
 	rc = lnet_ptl_match_md(&info, msg);
 	if (rc == LNET_MATCHMD_DROP) {
@@ -2058,6 +2065,12 @@ lnet_parse_get(lnet_ni_t *ni, lnet_msg_t *msg, int rdma_get)
 	}
 
 	LASSERT(rc == LNET_MATCHMD_OK);
+
+	if (info.mi_md_cpt != ni->ni_dev_cpt) {
+		CDEBUG(D_NET, "AMIR: mi_md_cpt = %d, ni->ni_dev_cpt = %d\n",
+			info.mi_md_cpt, ni->ni_dev_cpt);
+		atomic_inc(&ni->ni_stats.cpt_mismatch);
+	}
 
 	lnet_build_msg_event(msg, LNET_EVENT_GET);
 

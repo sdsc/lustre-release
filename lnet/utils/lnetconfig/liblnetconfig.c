@@ -1675,6 +1675,11 @@ int lustre_lnet_show_net(char *nw, int detail, int seq_no,
 							== NULL)
 				goto out;
 
+			if (cYAML_create_number(statistics, "cpt_mismatch",
+						stats->cpt_mismatch)
+							== NULL)
+				goto out;
+
 			tunables = cYAML_create_object(item, "tunables");
 			if (!tunables)
 				goto out;

@@ -215,14 +215,15 @@ lnet_try_match_md(lnet_libmd_t *md,
 }
 
 static struct lnet_match_table *
-lnet_match2mt(struct lnet_portal *ptl, lnet_process_id_t id, __u64 mbits)
+lnet_match2mt(struct lnet_portal *ptl, lnet_process_id_t id,
+	      lnet_ni_t *ni, __u64 mbits)
 {
 	if (LNET_CPT_NUMBER == 1)
 		return ptl->ptl_mtables[0]; /* the only one */
 
 	/* if it's a unique portal, return match-table hashed by NID */
 	return lnet_ptl_is_unique(ptl) ?
-	       ptl->ptl_mtables[lnet_cpt_of_nid(id.nid, NULL)] : NULL;
+	       ptl->ptl_mtables[lnet_cpt_of_nid(id.nid, ni)] : NULL;
 }
 
 struct lnet_match_table *
@@ -240,7 +241,7 @@ lnet_mt_of_attach(unsigned int index, lnet_process_id_t id,
 
 	ptl = the_lnet.ln_portals[index];
 
-	mtable = lnet_match2mt(ptl, id, mbits);
+	mtable = lnet_match2mt(ptl, id, NULL, mbits);
 	if (mtable != NULL) /* unique portal or only one match-table */
 		return mtable;
 
@@ -275,9 +276,17 @@ lnet_mt_of_match(struct lnet_match_info *info, struct lnet_msg *msg)
 
 	LASSERT(lnet_ptl_is_wildcard(ptl) || lnet_ptl_is_unique(ptl));
 
-	mtable = lnet_match2mt(ptl, info->mi_id, info->mi_mbits);
-	if (mtable != NULL)
+	mtable = lnet_match2mt(ptl, info->mi_id, info->mi_ni, info->mi_mbits);
+	if (mtable != NULL) {
+		CDEBUG(D_NET, "AMIR: unique portal case\n");
+		if (LNET_CPT_NUMBER == 1)
+			info->mi_md_cpt = 0;
+		else
+			info->mi_md_cpt = lnet_cpt_of_nid(info->mi_id.nid, NULL);
 		return mtable;
+	}
+
+	CDEBUG(D_NET, "AMIR: Entering wildcard portal code\n");
 
 	/* it's a wildcard portal */
 	routed = LNET_NIDNET(msg->msg_hdr.src_nid) !=
@@ -286,17 +295,29 @@ lnet_mt_of_match(struct lnet_match_info *info, struct lnet_msg *msg)
 	if (portal_rotor == LNET_PTL_ROTOR_OFF ||
 	    (portal_rotor != LNET_PTL_ROTOR_ON && !routed)) {
 		cpt = lnet_cpt_current();
-		if (ptl->ptl_mtables[cpt]->mt_enabled)
+		if (ptl->ptl_mtables[cpt]->mt_enabled) {
+			CDEBUG(D_NET, "AMIR: using current cpt = %d\n", cpt);
+			info->mi_md_cpt = cpt;
 			return ptl->ptl_mtables[cpt];
+		}
 	}
 
 	rotor = ptl->ptl_rotor++; /* get round-robin factor */
-	if (portal_rotor == LNET_PTL_ROTOR_HASH_RT && routed)
+	if (portal_rotor == LNET_PTL_ROTOR_HASH_RT && routed) {
+		CDEBUG(D_NET, "AMIR: routed case using info->mi_cpt = %d\n",
+		       info->mi_cpt);
 		cpt = info->mi_cpt;
-	else
+		info->mi_md_cpt = cpt;
+	} else {
 		cpt = rotor % LNET_CPT_NUMBER;
+		info->mi_md_cpt = cpt;
+		CDEBUG(D_NET, "AMIR: non-routed case using rotor = %d\n",
+		       cpt);
+	}
 
 	if (!ptl->ptl_mtables[cpt]->mt_enabled) {
+		CDEBUG(D_NET, "AMIR: ptl_mtables[%d] not enabled\n",
+		       cpt);
 		/* is there any active entry for this portal? */
 		nmaps = ptl->ptl_mt_nmaps;
 		/* map to an active mtable to avoid heavy "stealing" */
@@ -305,6 +326,7 @@ lnet_mt_of_match(struct lnet_match_info *info, struct lnet_msg *msg)
 			 * changed because we are not under protection of
 			 * lnet_ptl_lock, but it shouldn't hurt anything */
 			cpt = ptl->ptl_mt_maps[rotor % nmaps];
+			CDEBUG(D_NET, "AMIR: using cpt = %d\n", cpt);
 		}
 	}
 
