@@ -30,6 +30,11 @@ fi
 
 [ "$SLOW" = "no" ] && EXCEPT_SLOW="26"
 
+if [ $(facet_fstype $SINGLEMDS) = "zfs" ]; then
+    # bug number for skipped test: LU-8824
+    ALWAYS_EXCEPT="$ALWAYS_EXCEPT  9"
+fi
+
 [ "$ALWAYS_EXCEPT$EXCEPT$EXCEPT_SLOW" ] &&
 	echo "Skipping tests: $ALWAYS_EXCEPT $EXCEPT $EXCEPT_SLOW"
 
