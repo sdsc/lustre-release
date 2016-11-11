@@ -146,6 +146,13 @@ time64_t ktime_get_real_seconds(void);
 time64_t ktime_get_seconds(void);
 #endif /* HAVE_KTIME_GET_SECONDS */
 
+#ifndef HAVE_JIFFIES_TO_NSECS
+static inline u64 jiffies_to_nsecs(const unsigned long j)
+{
+	return (u64)jiffies_to_usecs(j) * NSEC_PER_USEC;
+}
+#endif /* HAVE_JIFFIES_TO_NSECS */
+
 static inline int cfs_time_before(cfs_time_t t1, cfs_time_t t2)
 {
         return time_before(t1, t2);

@@ -297,6 +297,32 @@ shrinker_count_objects, [
 ]) # LIBCFS_SHRINKER_COUNT
 
 #
+# Kernel version 3.14 introduced jiffies_to_nsecs
+#
+AC_DEFUN([LIBCFS_JIFFIES_TO_NSECS],[
+LB_CHECK_COMPILE([does function 'jiffies_to_nsecs' exist],
+jiffies_to_nsecs, [
+	#include <linux/jiffies.h>
+],[
+	jiffies_to_nsecs(0);
+],[
+	AC_DEFINE(HAVE_JIFFIES_TO_NSECS, 1,
+		['jiffies_to_nsecs' is available])
+])
+]) # LIBCFS_JIFFIES_TO_NSECS
+
+#
+
+#
+
+
+
+
+
+
+
+
+#
 # Kernel version 3.17 changed hlist_add_after to
 # hlist_add_behind
 #
@@ -500,6 +526,8 @@ LIBCFS_ENABLE_CRC32C_ACCEL
 LIBCFS_KTIME_GET_TS64
 # 3.12
 LIBCFS_SHRINKER_COUNT
+# 3.14
+LIBCFS_JIFFIES_TO_NSECS
 # 3.17
 LIBCFS_HLIST_ADD_AFTER
 LIBCFS_TIMESPEC64
