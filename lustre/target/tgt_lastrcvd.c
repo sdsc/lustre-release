@@ -492,7 +492,7 @@ int tgt_client_data_write(const struct lu_env *env, struct lu_target *tgt,
  * Update client data in last_rcvd
  */
 static int tgt_client_data_update(const struct lu_env *env,
-				  struct obd_export *exp)
+				  struct obd_export *exp, int sync)
 {
 	struct tg_export_data	*ted = &exp->exp_target_data;
 	struct lu_target	*tgt = class_exp2tgt(exp);
@@ -531,14 +531,18 @@ static int tgt_client_data_update(const struct lu_env *env,
 	 * transaction so that many connecting clients will not bring
 	 * server down with lots of sync writes.
 	 */
-	rc = tgt_new_client_cb_add(th, exp);
-	if (rc) {
-		/* can't add callback, do sync now */
+	if (sync) {
 		th->th_sync = 1;
 	} else {
-		spin_lock(&exp->exp_lock);
-		exp->exp_need_sync = 1;
-		spin_unlock(&exp->exp_lock);
+		rc = tgt_new_client_cb_add(th, exp);
+		if (rc) {
+			/* can't add callback, do sync now */
+			th->th_sync = 1;
+		} else {
+			spin_lock(&exp->exp_lock);
+			exp->exp_need_sync = 1;
+			spin_unlock(&exp->exp_lock);
+		}
 	}
 
 	tti->tti_off = ted->ted_lr_off;
@@ -693,7 +697,7 @@ static void tgt_client_epoch_update(const struct lu_env *env,
 	if (lcd->lcd_last_epoch >= tgt->lut_lsd.lsd_start_epoch)
 		return;
 	lcd->lcd_last_epoch = tgt->lut_lsd.lsd_start_epoch;
-	tgt_client_data_update(env, exp);
+	tgt_client_data_update(env, exp, 0);
 }
 
 /**
@@ -842,7 +846,7 @@ int tgt_last_commit_cb_add(struct thandle *th, struct lu_target *tgt,
 		/* report failure to force synchronous operation */
 		return -EPERM;
 
-	return rc;
+	return rc ? rc : exp->exp_need_sync;
 }
 
 struct tgt_new_client_callback {
@@ -974,7 +978,7 @@ repeat:
 	if (OBD_FAIL_CHECK(OBD_FAIL_TGT_CLIENT_ADD))
 		RETURN(-ENOSPC);
 
-	rc = tgt_client_data_update(env, exp);
+	rc = tgt_client_data_update(env, exp, 0);
 	if (rc)
 		CERROR("%s: Failed to write client lcd at idx %d, rc %d\n",
 		       tgt->lut_obd->obd_name, idx, rc);
@@ -1085,7 +1089,7 @@ int tgt_client_del(const struct lu_env *env, struct obd_export *exp)
 	}
 
 	memset(ted->ted_lcd->lcd_uuid, 0, sizeof ted->ted_lcd->lcd_uuid);
-	rc = tgt_client_data_update(env, exp);
+	rc = tgt_client_data_update(env, exp, 1);
 
 	CDEBUG(rc == 0 ? D_INFO : D_ERROR,
 	       "%s: zeroing out client %s at idx %u (%llu), rc %d\n",
