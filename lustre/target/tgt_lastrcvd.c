@@ -842,7 +842,7 @@ int tgt_last_commit_cb_add(struct thandle *th, struct lu_target *tgt,
 		/* report failure to force synchronous operation */
 		return -EPERM;
 
-	return rc;
+	return rc ? rc : exp->exp_need_sync;
 }
 
 struct tgt_new_client_callback {
