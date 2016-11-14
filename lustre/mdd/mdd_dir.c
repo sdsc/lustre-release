@@ -49,8 +49,8 @@ static const char dot[] = ".";
 static const char dotdot[] = "..";
 
 static struct lu_name lname_dotdot = {
-        (char *) dotdot,
-        sizeof(dotdot) - 1
+	.ln_name	= (char *) dotdot,
+	.ln_namelen	= sizeof(dotdot) - 1,
 };
 
 static inline int
@@ -140,7 +140,9 @@ static inline int mdd_parent_fid(const struct lu_env *env,
 				 struct lu_fid *fid)
 {
 	struct mdd_thread_info  *info = mdd_env_info(env);
-	struct linkea_data	ldata = { NULL };
+	struct linkea_data	ldata = {
+		.ld_buf = NULL,
+	};
 	struct lu_buf		*buf = &info->mti_link_buf;
 	struct lu_name		lname;
 	int			rc = 0;
@@ -1135,7 +1137,9 @@ int mdd_links_read(const struct lu_env *env, struct mdd_object *mdd_obj,
 struct lu_buf *mdd_links_get(const struct lu_env *env,
 			     struct mdd_object *mdd_obj)
 {
-	struct linkea_data ldata = { NULL };
+	struct linkea_data ldata = {
+		.ld_buf = NULL,
+	};
 	int rc;
 
 	rc = mdd_links_read(env, mdd_obj, &ldata);
@@ -3075,7 +3079,9 @@ static int mdd_linkea_update_child_internal(const struct lu_env *env,
 					    bool declare)
 {
 	struct mdd_thread_info  *info = mdd_env_info(env);
-	struct linkea_data	ldata = { NULL };
+	struct linkea_data	ldata = {
+		.ld_buf = NULL,
+	};
 	struct lu_buf		*buf = &info->mti_link_buf;
 	int			count;
 	int			rc = 0;
@@ -3477,8 +3483,12 @@ static int mdd_migrate_create(const struct lu_env *env,
 	struct mdd_thread_info	*info = mdd_env_info(env);
 	struct mdd_device       *mdd = mdo2mdd(&mdd_sobj->mod_obj);
 	struct md_op_spec	*spec = &info->mti_spec;
-	struct lu_buf		lmm_buf = { NULL };
-	struct lu_buf		link_buf = { NULL };
+	struct lu_buf		lmm_buf = {
+		.lb_buf = NULL,
+	};
+	struct lu_buf		link_buf = {
+		.lb_buf = NULL,
+	};
 	const struct lu_buf	*buf;
 	struct thandle		*handle;
 	struct lmv_mds_md_v1	*mgr_ea;
