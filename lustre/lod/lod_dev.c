@@ -121,7 +121,9 @@ static const char lod_update_log_dir_name[] = "update_log_dir";
 int lod_fld_lookup(const struct lu_env *env, struct lod_device *lod,
 		   const struct lu_fid *fid, __u32 *tgt, int *type)
 {
-	struct lu_seq_range	range = { 0 };
+	struct lu_seq_range	range = {
+		.lsr_start = 0,
+	};
 	struct lu_server_fld	*server_fld;
 	int rc;
 	ENTRY;
@@ -582,7 +584,9 @@ int lod_sub_init_llog(const struct lu_env *env, struct lod_device *lod,
 	struct lod_recovery_data	*lrd = NULL;
 	struct ptlrpc_thread		*thread;
 	struct task_struct		*task;
-	struct l_wait_info		lwi = { 0 };
+	struct l_wait_info		lwi = {
+		.lwi_timeout = 0,
+	};
 	struct lod_tgt_desc		*sub_ltd = NULL;
 	__u32				index;
 	__u32				master_index;
