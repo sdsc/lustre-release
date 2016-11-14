@@ -114,6 +114,8 @@ sec_login() {
 	local user=$1
 	local group=$2
 
+	$GSS_KRB5 || return
+
 	if ! $RUNAS_CMD -u $user krb5_login.sh; then
 		error "$user login kerberos failed."
 		exit 1
@@ -1581,9 +1583,18 @@ test_25() {
 	local tmpfile=$(mktemp)
 	local tmpfile2=$(mktemp)
 	local subdir=c0dir
-	local client
 
 	nodemap_version_check || return 0
+
+	# Because of how the test is stopping, cleaning up, and restarting
+	# nodemap to save configuration, the testing script is not keeping
+	# the needed SK info to restart properly. This should be fixable
+	# by adjusting the test or framework to not completely clean up
+	# in cleanupall() when SK_UNIQUE_NM is set.
+	if $SHARED_KEY; then
+		skip "this test currently not compat with shared_key, see code"
+		return
+	fi
 
 	# stop clients for this test
 	zconf_umount_clients $CLIENTS $MOUNT ||
@@ -1591,18 +1602,12 @@ test_25() {
 
 	nodemap_test_setup
 
-	# enable trusted/admin for setquota call in cleanup_and_setup_lustre()
-	i=0
-	for client in $clients; do
-		do_facet mgs $LCTL nodemap_modify --name c${i} \
-			--property admin --value 1
-		do_facet mgs $LCTL nodemap_modify --name c${i} \
-			--property trusted --value 1
-		((i++))
-	done
-	wait_nm_sync c$((i - 1)) trusted_nodemap
-
 	trap nodemap_test_cleanup EXIT
+
+	# Need to know in advance if SK and nodemap will be used
+	if [ $GSS_SK ]; then
+		export SK_UNIQUE_NM=true
+	fi
 
 	# create a new, empty nodemap, and add fileset info to it
 	do_facet mgs $LCTL nodemap_add test26 ||
@@ -1616,6 +1621,9 @@ test_25() {
 	do_facet mds $LCTL nodemap_info > $tmpfile2
 
 	cleanup_and_setup_lustre
+	if [ $GSS_SK ]; then
+		export SK_UNIQUE_NM=false
+	fi
 	# stop clients for this test
 	zconf_umount_clients $CLIENTS $MOUNT ||
 	    error "unable to umount clients $CLIENTS"
@@ -1654,6 +1662,14 @@ run_test 26 "test transferring very large nodemap"
 test_27() {
 	local subdir=c0dir
 	local subsubdir=c0subdir
+
+	# Because of how the test is remounting nodemap, it is not currently
+	# compatible with SK code being enabled.  It will lock during the
+	# client re-mount with zconf_mount_clients().  Skipping for now.
+	if $SHARED_KEY; then
+		skip "this test currently not compat with shared_key, see code"
+		return
+	fi
 
 	nodemap_test_setup
 	trap nodemap_test_cleanup EXIT
