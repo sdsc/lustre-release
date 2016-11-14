@@ -1162,7 +1162,8 @@ static int ll_create_nd(struct inode *dir, struct dentry *dentry,
 		it = lld->lld_it;
 
         if (!it)
-		return ll_mknod(dir, dentry, mode, 0);
+		return ll_new_node(dir, dentry, NULL, mode, 0,
+				   LUSTRE_OPC_CREATE);
 
 	lld->lld_it = NULL;
 
