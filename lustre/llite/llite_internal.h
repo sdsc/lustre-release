@@ -887,7 +887,6 @@ int ll_process_config(struct lustre_cfg *lcfg);
 enum {
 	LUSTRE_OPC_MKDIR	= 0,
 	LUSTRE_OPC_SYMLINK	= 1,
-	LUSTRE_OPC_MKNOD	= 2,
 	LUSTRE_OPC_CREATE	= 3,
 	LUSTRE_OPC_ANY		= 5,
 };
