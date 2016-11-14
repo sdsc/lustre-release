@@ -582,7 +582,9 @@ int lod_sub_init_llog(const struct lu_env *env, struct lod_device *lod,
 	struct lod_recovery_data	*lrd = NULL;
 	struct ptlrpc_thread		*thread;
 	struct task_struct		*task;
-	struct l_wait_info		lwi = { 0 };
+	struct l_wait_info		lwi = {
+		.lwi_timeout = 0,
+	};
 	struct lod_tgt_desc		*sub_ltd = NULL;
 	__u32				index;
 	__u32				master_index;
