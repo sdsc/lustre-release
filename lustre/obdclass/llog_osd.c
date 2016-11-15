@@ -1299,103 +1299,6 @@ out:
 }
 
 /**
- * Get dir for regular fid log object
- *
- * Get directory for regular fid log object, and these regular fid log
- * object will be inserted under this directory, to satisfy the FS
- * consistency check, e2fsck etc.
- *
- * \param [in] env	execution environment
- * \param [in] dto	llog object
- *
- * \retval		pointer to the directory if it is found.
- * \retval		ERR_PTR(negative errno) if it fails.
- */
-struct dt_object *llog_osd_get_regular_fid_dir(const struct lu_env *env,
-					       struct dt_object *dto)
-{
-	struct llog_thread_info *lgi = llog_info(env);
-	struct seq_server_site *ss = dto->do_lu.lo_dev->ld_site->ld_seq_site;
-	struct lu_seq_range	*range = &lgi->lgi_range;
-	struct lu_fid		*dir_fid = &lgi->lgi_fid;
-	struct dt_object	*dir;
-	int			rc;
-	ENTRY;
-
-	fld_range_set_any(range);
-	LASSERT(ss != NULL);
-	rc = ss->ss_server_fld->lsf_seq_lookup(env, ss->ss_server_fld,
-				   fid_seq(lu_object_fid(&dto->do_lu)), range);
-	if (rc < 0)
-		RETURN(ERR_PTR(rc));
-
-	lu_update_log_dir_fid(dir_fid, range->lsr_index);
-	dir = dt_locate(env, lu2dt_dev(dto->do_lu.lo_dev), dir_fid);
-	if (IS_ERR(dir))
-		RETURN(dir);
-
-	if (!dt_try_as_dir(env, dir)) {
-		lu_object_put(env, &dir->do_lu);
-		RETURN(ERR_PTR(-ENOTDIR));
-	}
-
-	RETURN(dir);
-}
-
-/**
- * Add llog object with regular FID to name entry
- *
- * Add llog object with regular FID to name space, and each llog
- * object on each MDT will be /update_log_dir/[seq:oid:ver],
- * so to satisfy the namespace consistency check, e2fsck etc.
- *
- * \param [in] env	execution environment
- * \param [in] dto	llog object
- * \param [in] th	thandle
- * \param [in] declare	if it is declare or execution
- *
- * \retval		0 if insertion succeeds.
- * \retval		negative errno if insertion fails.
- */
-static int
-llog_osd_regular_fid_add_name_entry(const struct lu_env *env,
-				    struct dt_object *dto,
-				    struct thandle *th, bool declare)
-{
-	struct llog_thread_info *lgi = llog_info(env);
-	const struct lu_fid	*fid = lu_object_fid(&dto->do_lu);
-	struct dt_insert_rec	*rec = &lgi->lgi_dt_rec;
-	struct dt_object	*dir;
-	char			*name = lgi->lgi_name;
-	int			rc;
-	ENTRY;
-
-	if (!fid_is_norm(fid))
-		RETURN(0);
-
-	dir = llog_osd_get_regular_fid_dir(env, dto);
-	if (IS_ERR(dir))
-		RETURN(PTR_ERR(dir));
-
-	rec->rec_fid = fid;
-	rec->rec_type = S_IFREG;
-	snprintf(name, sizeof(lgi->lgi_name), DFID, PFID(fid));
-	dt_write_lock(env, dir, 0);
-	if (declare) {
-		rc = dt_declare_insert(env, dir, (struct dt_rec *)rec,
-			       (struct dt_key *)name, th);
-	} else {
-		rc = dt_insert(env, dir, (struct dt_rec *)rec,
-			       (struct dt_key *)name, th, 1);
-	}
-	dt_write_unlock(env, dir);
-
-	lu_object_put(env, &dir->do_lu);
-	RETURN(rc);
-}
-
-
-/**
  * Implementation of the llog_operations::lop_declare_create
  *
  * This function declares the llog create. It declares also name insert
@@ -1433,16 +1336,10 @@ static int llog_osd_declare_create(const struct lu_env *env,
 		lgi->lgi_attr.la_valid = LA_MODE | LA_SIZE;
 		lgi->lgi_attr.la_size = 0;
 		lgi->lgi_attr.la_mode = S_IFREG | S_IRUGO | S_IWUSR;
-		lgi->lgi_dof.dof_type = dt_mode_to_dft(S_IFREG);
+		lgi->lgi_dof.dof_type = DFT_LLOG;
 
 		rc = dt_declare_create(env, o, &lgi->lgi_attr, NULL,
 				       &lgi->lgi_dof, th);
-		if (rc < 0)
-			RETURN(rc);
-
-
-		rc = llog_osd_regular_fid_add_name_entry(env, o, th, true);
-
 		RETURN(rc);
 	}
 	los = res->private_data;
@@ -1514,17 +1411,12 @@ static int llog_osd_create(const struct lu_env *env, struct llog_handle *res,
 		lgi->lgi_attr.la_valid = LA_MODE | LA_SIZE | LA_TYPE;
 		lgi->lgi_attr.la_size = 0;
 		lgi->lgi_attr.la_mode = S_IFREG | S_IRUGO | S_IWUSR;
-		lgi->lgi_dof.dof_type = dt_mode_to_dft(S_IFREG);
+		lgi->lgi_dof.dof_type = DFT_LLOG;
 
 		dt_write_lock(env, o, 0);
 		rc = dt_create(env, o, &lgi->lgi_attr, NULL,
 			       &lgi->lgi_dof, th);
 		dt_write_unlock(env, o);
-		if (rc < 0)
-			RETURN(rc);
-
-		rc = llog_osd_regular_fid_add_name_entry(env, o, th, false);
-
 		RETURN(rc);
 	}
 
@@ -1606,53 +1498,6 @@ static int llog_osd_close(const struct lu_env *env, struct llog_handle *handle)
 }
 
 /**
- * delete llog object name entry
- *
- * Delete llog object (with regular FID) from name space (under
- * update_log_dir).
- *
- * \param [in] env	execution environment
- * \param [in] dto	llog object
- * \param [in] th	thandle
- * \param [in] declare	if it is declare or execution
- *
- * \retval		0 if deletion succeeds.
- * \retval		negative errno if deletion fails.
- */
-static int
-llog_osd_regular_fid_del_name_entry(const struct lu_env *env,
-				    struct dt_object *dto,
-				    struct thandle *th, bool declare)
-{
-	struct llog_thread_info *lgi = llog_info(env);
-	const struct lu_fid	*fid = lu_object_fid(&dto->do_lu);
-	struct dt_object	*dir;
-	char			*name = lgi->lgi_name;
-	int			rc;
-	ENTRY;
-
-	if (!fid_is_norm(fid))
-		RETURN(0);
-
-	dir = llog_osd_get_regular_fid_dir(env, dto);
-	if (IS_ERR(dir))
-		RETURN(PTR_ERR(dir));
-
-	snprintf(name, sizeof(lgi->lgi_name), DFID, PFID(fid));
-	dt_write_lock(env, dir, 0);
-	if (declare) {
-		rc = dt_declare_delete(env, dir, (struct dt_key *)name,
-				       th);
-	} else {
-		rc = dt_delete(env, dir, (struct dt_key *)name, th);
-	}
-	dt_write_unlock(env, dir);
-
-	lu_object_put(env, &dir->do_lu);
-	RETURN(rc);
-}
-
-/**
  * Implementation of the llog_operations::lop_declare_destroy
  *
  * This function declare destroys the llog and deletes also entry in the
@@ -1699,12 +1544,6 @@ static int llog_osd_declare_destroy(const struct lu_env *env,
 	rc = dt_declare_destroy(env, o, th);
 	if (rc < 0)
 		GOTO(out_put, rc);
-
-	if (loghandle->lgh_ctxt->loc_flags & LLOG_CTXT_FLAG_NORMAL_FID) {
-		rc = llog_osd_regular_fid_del_name_entry(env, o, th, true);
-		if (rc < 0)
-			GOTO(out_put, rc);
-	}
 
 out_put:
 	if (!(IS_ERR_OR_NULL(llog_dir)))
@@ -1769,13 +1608,6 @@ static int llog_osd_destroy(const struct lu_env *env,
 	rc = dt_destroy(env, o, th);
 	if (rc < 0)
 		GOTO(out_unlock, rc);
-
-	if (loghandle->lgh_ctxt->loc_flags & LLOG_CTXT_FLAG_NORMAL_FID) {
-		rc = llog_osd_regular_fid_del_name_entry(env, o, th, false);
-		if (rc < 0)
-			GOTO(out_unlock, rc);
-	}
-
 out_unlock:
 	dt_write_unlock(env, o);
 	if (!(IS_ERR_OR_NULL(llog_dir)))

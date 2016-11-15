@@ -195,8 +195,9 @@ enum lma_incompat {
 						 is on the remote MDT */
 	LMAI_STRIPED		= 0x00000008, /* striped directory inode */
 	LMAI_ORPHAN		= 0x00000010, /* inode is orphan */
+	LMAI_LLOG		= 0x00000020, /* llog inode */
 	LMA_INCOMPAT_SUPP	= (LMAI_AGENT | LMAI_REMOTE_PARENT | \
-				   LMAI_STRIPED | LMAI_ORPHAN)
+				   LMAI_STRIPED | LMAI_ORPHAN | LMAI_LLOG)
 };
 
 extern void lustre_lma_swab(struct lustre_mdt_attrs *lma);
