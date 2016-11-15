@@ -1254,6 +1254,8 @@ static int osd_object_init(const struct lu_env *env, struct lu_object *l,
 			 * and cache it to oo_lma_flags */
 			obj->oo_lma_flags =
 				lma_to_lustre_flags(lma->lma_incompat);
+			if (lma->lma_incompat & LMAI_LLOG)
+				obj->oo_llog = 1;
 		} else if (result == -ENODATA) {
 			result = 0;
 		}
@@ -2790,6 +2792,44 @@ static int osd_mk_index(struct osd_thread_info *info, struct osd_object *obj,
         return result;
 }
 
+static struct dt_object *
+osd_reg_llog_dir_get(struct osd_thread_info *info,
+		     struct dt_object *dto)
+{
+	struct lu_seq_range	*range = &info->oti_seq_range;
+	struct lu_fid		*dir_fid = &info->oti_fid;
+	struct osd_device	*osd = osd_dev(dto->do_lu.lo_dev);
+	struct dt_object	*dir;
+	int			rc;
+	ENTRY;
+
+	fld_range_set_any(range);
+
+	rc = osd_fld_lookup(info->oti_env, osd,
+			    fid_seq(lu_object_fid(&dto->do_lu)), range);
+	if (rc < 0)
+		RETURN(ERR_PTR(rc));
+
+	lu_update_log_dir_fid(dir_fid, range->lsr_index);
+	dir = dt_locate(info->oti_env, lu2dt_dev(dto->do_lu.lo_dev), dir_fid);
+	if (IS_ERR(dir))
+		RETURN(dir);
+
+	if (!dt_try_as_dir(info->oti_env, dir)) {
+		lu_object_put(info->oti_env, &dir->do_lu);
+		RETURN(ERR_PTR(-ENOTDIR));
+	}
+
+	RETURN(dir);
+}
+
+static int
+osd_reg_llog_entry_del(struct osd_thread_info *info, struct dt_object *dto,
+		       struct thandle *th, bool declare);
+static int
+osd_reg_llog_entry_insert(struct osd_thread_info *info, struct dt_object *dto,
+			  struct thandle *th, bool declare);
+
 static int osd_mkreg(struct osd_thread_info *info, struct osd_object *obj,
                      struct lu_attr *attr,
                      struct dt_allocation_hint *hint,
@@ -2848,30 +2888,30 @@ typedef int (*osd_obj_type_f)(struct osd_thread_info *, struct osd_object *,
 
 static osd_obj_type_f osd_create_type_f(enum dt_format_type type)
 {
-        osd_obj_type_f result;
+	osd_obj_type_f result;
 
-        switch (type) {
-        case DFT_DIR:
-                result = osd_mkdir;
-                break;
-        case DFT_REGULAR:
-                result = osd_mkreg;
-                break;
-        case DFT_SYM:
-                result = osd_mksym;
-                break;
-        case DFT_NODE:
-                result = osd_mknod;
-                break;
-        case DFT_INDEX:
-                result = osd_mk_index;
-                break;
-
-        default:
-                LBUG();
-                break;
-        }
-        return result;
+	switch (type) {
+	case DFT_DIR:
+		result = osd_mkdir;
+		break;
+	case DFT_REGULAR:
+	case DFT_LLOG:
+		result = osd_mkreg;
+		break;
+	case DFT_SYM:
+		result = osd_mksym;
+		break;
+	case DFT_NODE:
+		result = osd_mknod;
+		break;
+	case DFT_INDEX:
+		result = osd_mk_index;
+		break;
+	default:
+		LBUG();
+		break;
+	}
+	return result;
 }
 
 
@@ -3068,6 +3108,16 @@ static int osd_declare_object_create(const struct lu_env *env,
 	/* will help to find FID->ino mapping at dt_insert() */
 	rc = osd_idc_find_and_init(env, osd_obj2dev(osd_dt_obj(dt)),
 				   osd_dt_obj(dt));
+	if (rc != 0)
+		RETURN(rc);
+
+	/* Create reference for regular fid llog. */
+	if (dof->dof_type == DFT_LLOG) {
+		rc = osd_reg_llog_entry_insert(osd_oti_get(env), dt, handle,
+					       true);
+		if (rc != 0)
+			RETURN(rc);
+	}
 
 	RETURN(rc);
 }
@@ -3151,6 +3201,15 @@ static int osd_declare_object_destroy(const struct lu_env *env,
 	/* will help to find FID->ino when this object is being
 	 * added to PENDING/ */
 	rc = osd_idc_find_and_init(env, osd_obj2dev(obj), obj);
+	if (rc != 0)
+		RETURN(rc);
+
+	if (obj->oo_llog) {
+		rc = osd_reg_llog_entry_del(osd_oti_get(env), dt, th, true);
+		if (rc != 0)
+			RETURN(rc);
+	}
+
 
 	RETURN(rc);
 }
@@ -3189,6 +3248,14 @@ static int osd_object_destroy(const struct lu_env *env,
 		clear_nlink(inode);
 		spin_unlock(&obj->oo_guard);
 		ll_dirty_inode(inode, I_DIRTY_DATASYNC);
+	}
+
+	if (obj->oo_llog) {
+		result = osd_reg_llog_entry_del(osd_oti_get(env), dt, th,
+						false);
+		if (result != 0)
+			CERROR("%s: delete llog entry "DFID": rc = %d\n",
+			       osd_name(osd), PFID(fid), result);
 	}
 
 	osd_trans_exec_op(env, th, OSD_OT_DESTROY);
@@ -3534,11 +3601,16 @@ static int osd_object_ea_create(const struct lu_env *env, struct dt_object *dt,
 			result = osd_ea_fid_set(info, obj->oo_inode, tfid,
 						LMAC_FID_ON_OST, 0);
 		} else {
+			__u32 incompat = 0;
+
+			if (dof->dof_type == DFT_LLOG)
+				incompat |= LMAI_LLOG;
+
 			on_ost = fid_is_on_ost(info, osd_obj2dev(obj),
 					       fid, OI_CHECK_FLD);
 			result = osd_ea_fid_set(info, obj->oo_inode, fid,
 						on_ost ? LMAC_FID_ON_OST : 0,
-						0);
+						incompat);
 		}
 		if (obj->oo_dt.do_body_ops == &osd_body_ops_new)
 			obj->oo_dt.do_body_ops = &osd_body_ops;
@@ -3554,6 +3626,13 @@ static int osd_object_ea_create(const struct lu_env *env, struct dt_object *dt,
 		struct osd_device *osd = osd_dev(dt->do_lu.lo_dev);
 		result = osd_idc_find_and_init(env, osd, obj);
 		LASSERT(result == 0);
+	}
+
+	if (dof->dof_type == DFT_LLOG) {
+		result = osd_reg_llog_entry_insert(info, &obj->oo_dt,
+						   th, false);
+		if (result == 0)
+			obj->oo_llog = 1;
 	}
 
 	LASSERT(ergo(result == 0,
@@ -5353,6 +5432,97 @@ static int osd_index_ea_insert(const struct lu_env *env, struct dt_object *dt,
 		iput(child_inode);
 	LASSERT(osd_invariant(obj));
 	osd_trans_exec_check(env, th, OSD_OT_INSERT);
+	RETURN(rc);
+}
+
+/**
+ * Add regular FID llog entry
+ *
+ * Add name reference for regular FID llog object, so the FID llog object will
+ * not become an orphan, which is called during llog object create.
+ *
+ * \param info	execute env information.
+ * \param dto	llog object to be created.
+ * \param th	tranaction handle.
+ * \param declare indicate declare or execute.
+ *
+ * \return	0 if it succeeds.
+ * \return	errno if it fails.
+ **/
+static int
+osd_reg_llog_entry_insert(struct osd_thread_info *info, struct dt_object *dto,
+			  struct thandle *th, bool declare)
+{
+	const struct lu_fid	*fid = lu_object_fid(&dto->do_lu);
+	struct dt_insert_rec	*rec = &info->oti_dt_rec;
+	struct dt_object	*dir;
+	char			*name = info->oti_name;
+	int			rc;
+	ENTRY;
+
+	if (!fid_is_norm(fid))
+		RETURN(0);
+
+	dir = osd_reg_llog_dir_get(info, dto);
+	if (IS_ERR(dir))
+		RETURN(PTR_ERR(dir));
+
+	rec->rec_fid = fid;
+	rec->rec_type = S_IFREG;
+	snprintf(name, sizeof(info->oti_name), DFID, PFID(fid));
+	if (declare)
+		rc = osd_index_declare_ea_insert(info->oti_env, dir,
+					 (struct dt_rec *)rec,
+					 (struct dt_key *)name, th);
+	else
+		rc = osd_index_ea_insert(info->oti_env, dir,
+					 (struct dt_rec *)rec,
+					 (struct dt_key *)name, th, 1);
+
+	lu_object_put(info->oti_env, &dir->do_lu);
+	RETURN(rc);
+}
+
+/**
+ * Delete regular FID llog name entry.
+ *
+ * This function will delete name reference of the regular FID llog entry,
+ * which is called when the llog object is deleted.
+ *
+ * \param info	execute env information.
+ * \param dto	llog object to be deleted.
+ * \param th	tranaction handle.
+ * \param declare indicate declare or execute.
+ *
+ * \return	0 if it succeeds.
+ * \return	errno if it fails.
+ **/
+static int
+osd_reg_llog_entry_del(struct osd_thread_info *info, struct dt_object *dto,
+		       struct thandle *th, bool declare)
+{
+	const struct lu_fid	*fid = lu_object_fid(&dto->do_lu);
+	struct dt_object	*dir;
+	char			*name = info->oti_name;
+	int			rc;
+	ENTRY;
+
+	if (!fid_is_norm(fid))
+		RETURN(0);
+
+	dir = osd_reg_llog_dir_get(info, dto);
+	if (IS_ERR(dir))
+		RETURN(PTR_ERR(dir));
+
+	snprintf(name, sizeof(info->oti_name), DFID, PFID(fid));
+	if (declare)
+		rc = osd_index_declare_ea_delete(info->oti_env, dir,
+						(struct dt_key *)name, th);
+	else
+		rc = osd_index_ea_delete(info->oti_env, dir,
+					 (struct dt_key *)name, th);
+	lu_object_put(info->oti_env, &dir->do_lu);
+
 	RETURN(rc);
 }
 

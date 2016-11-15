@@ -128,7 +128,8 @@ struct osd_object {
 	/** protects inode attributes. */
 	spinlock_t		oo_guard;
 
-	__u32			oo_destroyed:1;
+	__u32			oo_destroyed:1,
+				oo_llog:1;
 
 	/* the i_flags in LMA */
 	__u32			oo_lma_flags;
@@ -614,6 +615,7 @@ struct osd_thread_info {
 	__u64			oti_quota_id;
 	struct lu_seq_range	oti_seq_range;
 
+	struct dt_insert_rec	oti_dt_rec;
 	/* Tracking for transaction credits, to allow debugging and optimizing
 	 * cases where a large number of credits are being allocated for
 	 * single transaction. */
