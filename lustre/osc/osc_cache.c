@@ -808,7 +808,6 @@ restart:
 		EASSERT(osc_extent_is_overlapped(obj, cur) == 0, cur);
 		cur->oe_grants = chunksize + cli->cl_grant_extent_tax;
 		*grants -= cur->oe_grants;
-		LASSERT(*grants >= 0);
 
 		cur->oe_state = OES_CACHE;
 		found = osc_extent_hold(cur);
@@ -835,7 +834,6 @@ restart:
 
 out:
 	osc_extent_put(env, cur);
-	LASSERT(*grants >= 0);
 	return found;
 }
 
@@ -1202,7 +1200,6 @@ static int osc_extent_expand(struct osc_extent *ext, pgoff_t index,
 	ext->oe_end = end_index;
 	ext->oe_grants += chunksize;
 	*grants -= chunksize;
-	LASSERT(*grants >= 0);
 	EASSERTF(osc_extent_is_overlapped(obj, ext) == 0, ext,
 		 "overlapped after expanding for %lu.\n", index);
 	EXIT;
