@@ -1749,6 +1749,9 @@ again:
 						     mne_swab);
 		kunmap(pages[i]);
 		if (rc2 < 0) {
+			if (cld_is_nodemap(cld))
+				rc = rc2;
+
 			CWARN("%s: error processing %s log %s: rc = %d\n",
 			      obd->obd_name,
 			      cld_is_nodemap(cld) ? "nodemap" : "recovery",
