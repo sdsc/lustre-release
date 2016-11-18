@@ -45,11 +45,15 @@
 #include <libcfs/util/list.h>
 
 #ifndef HAVE_STRLCPY /* not in glibc for RHEL 5.x, remove when obsolete */
-size_t strlcpy(char *tgt, const char *src, size_t tgt_len);
+size_t ll_strlcpy(char *tgt, const char *src, size_t tgt_len);
+/* We must not export the strlcpy symbol from liblustre, hence this weirdness */
+#define strlcpy(a, b, c) ll_strlcpy(a, b, c)
 #endif
 
 #ifndef HAVE_STRLCAT /* not in glibc for RHEL 5.x, remove when obsolete */
-size_t strlcat(char *tgt, const char *src, size_t tgt_len);
+size_t ll_strlcat(char *tgt, const char *src, size_t tgt_len);
+/* We must not export the strlcat symbol from liblustre, hence this weirdness */
+#define strlcat(a, b, c) ll_strlcat(a, b, c)
 #endif
 
 /**
