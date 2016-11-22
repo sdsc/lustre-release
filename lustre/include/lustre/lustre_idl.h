@@ -1251,7 +1251,9 @@ struct ptlrpc_body_v2 {
 							 RPCs in parallel */
 #define OBD_CONNECT_DIR_STRIPE	 0x400000000000000ULL /* striped DNE dir */
 #define OBD_CONNECT_SUBTREE	0x800000000000000ULL /* fileset mount */
-#define OBD_CONNECT_LOCK_AHEAD	 0x1000000000000000ULL /* lock ahead */
+#define OBD_CONNECT_REQUESTLOCK	 0x1000000000000000ULL /* ladvise requestlock,
+							renamed from
+							..._LOCK_AHEAD*/
 /** bulk matchbits is sent within ptlrpc_body */
 #define OBD_CONNECT_BULK_MBITS	 0x2000000000000000ULL
 #define OBD_CONNECT_OBDOPACK	 0x4000000000000000ULL /* compact OUT obdo */
@@ -1324,7 +1326,8 @@ struct ptlrpc_body_v2 {
 				OBD_CONNECT_LAYOUTLOCK | OBD_CONNECT_FID | \
 				OBD_CONNECT_PINGLESS | OBD_CONNECT_LFSCK | \
 				OBD_CONNECT_BULK_MBITS | \
-				OBD_CONNECT_GRANT_PARAM)
+				OBD_CONNECT_GRANT_PARAM | \
+				OBD_CONNECT_REQUESTLOCK)
 #define OST_CONNECT_SUPPORTED2 0
 
 #define ECHO_CONNECT_SUPPORTED 0
@@ -2775,6 +2778,12 @@ struct ldlm_extent {
         __u64 end;
         __u64 gid;
 };
+
+static inline bool ldlm_extent_equal(const struct ldlm_extent *ex1,
+				    const struct ldlm_extent *ex2)
+{
+	return ex1->start == ex2->start && ex1->end == ex2->end;
+}
 
 struct ldlm_inodebits {
         __u64 bits;
