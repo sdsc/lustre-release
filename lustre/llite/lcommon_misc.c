@@ -185,3 +185,114 @@ void cl_put_grouplock(struct ll_grouplock *lg)
 	cl_io_fini(env, io);
 	cl_env_put(env, NULL);
 }
+
+static enum cl_lock_mode cl_mode_user_to_kernel(enum lock_mode_user mode)
+{
+	switch (mode) {
+	case MODE_READ_USER:
+		return CLM_READ;
+	case MODE_WRITE_USER:
+		return CLM_WRITE;
+	default:
+		return -EINVAL;
+	}
+}
+
+static const char *const user_lockname[] = LOCK_MODE_NAMES;
+
+/* Used to allow the upper layers of the client to request an LDLM lock
+ * without doing an actual read or write.
+ *
+ * Used for ladvise requestlock to manually request specific locks.
+ *
+ * \param[in] inode	inode for the file this lock request is on
+ * \param[in] start	start of the lock extent (bytes)
+ * \param[in] end	end of the lock extent (bytes)
+ * \param[in] mode	lock mode (read, write)
+ * \param[in] flags	flags
+ *
+ * \retval 0		on success (CIT_MISC type should never have a
+ *			positive io->ci_result)
+ * \retval negative	negative errno on error
+ */
+int cl_request_lock(struct file *file, struct llapi_lu_ladvise *ladvise)
+{
+	struct lu_env		*env = NULL;
+	struct cl_io		*io  = NULL;
+	struct cl_lock		*lock = NULL;
+	struct cl_lock_descr	*descr = NULL;
+	struct dentry		*dentry = file->f_path.dentry;
+	struct inode		*inode = dentry->d_inode;
+	enum cl_lock_mode	cl_mode;
+	off_t			start = ladvise->lla_start;
+	off_t			end = ladvise->lla_end;
+	int                     result;
+	__u16                     refcheck;
+
+	ENTRY;
+
+	CDEBUG(D_VFSTRACE, "Lock request: file=%.*s, inode=%p, mode=%s "
+	       "start=%llu, end=%llu\n", dentry->d_name.len,
+	       dentry->d_name.name, dentry->d_inode,
+	       user_lockname[ladvise->lla_requestlock_mode], (__u64) start,
+	       (__u64) end);
+
+	/* Get IO environment */
+	result = cl_io_get(inode, &env, &io, &refcheck);
+	if (result > 0) {
+again:
+		result = cl_io_init(env, io, CIT_MISC, io->ci_obj);
+
+		if (result > 0) {
+			/*
+			 * nothing to do for this io. This currently happens
+			 * when stripe sub-object's are not yet created.
+			 */
+			result = io->ci_result;
+		} else if (result == 0) {
+			lock = vvp_env_lock(env);
+			descr = &lock->cll_descr;
+
+			cl_mode = cl_mode_user_to_kernel(
+						ladvise->lla_requestlock_mode);
+			if (cl_mode < 0) {
+				cl_io_fini(env, io);
+				cl_env_put(env, &refcheck);
+				RETURN(cl_mode);
+			}
+
+			descr->cld_obj   = io->ci_obj;
+			/* Convert byte offsets to pages */
+			descr->cld_start = cl_index(io->ci_obj, start);
+			descr->cld_end   = cl_index(io->ci_obj, end);
+			descr->cld_mode  = cl_mode;
+			/* CEF_MUST is used because we do not want to convert a
+			 * requestlock request to a lockless lock */
+			descr->cld_enq_flags = CEF_MUST | CEF_LOCK_NO_EXPAND |
+					       CEF_SPECULATIVE |
+					       ladvise->lla_peradvice_flags;
+
+			result = cl_lock_request(env, io, lock);
+
+			/* On success, we need to release the lock */
+			if (result >= 0)
+				cl_lock_release(env, lock);
+		}
+		cl_io_fini(env, io);
+		if (unlikely(io->ci_need_restart))
+			goto again;
+		cl_env_put(env, &refcheck);
+	}
+
+	/* -ECANCELED indicates a matching lock with a different extent
+	 * was already present, and -EEXIST indicates a matching lock
+	 * on exactly the same extent was already present.
+	 * We convert them to positive values for userspace to make
+	 * recognizing true errors easier. */
+	if (result == -ECANCELED)
+		result = LRL_RESULT_DIFFERENT;
+	else if (result == -EEXIST)
+		result = LRL_RESULT_SAME;
+
+	RETURN(result);
+}
