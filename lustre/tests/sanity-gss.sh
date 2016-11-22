@@ -99,10 +99,13 @@ stop_dbench()
     sync || true
 }
 
-calc_connection_cnt
-umask 077
+# If using SK already, use whatever flavor we have already
+if ! $SHARED_KEY; then
+	calc_connection_cnt
+	set_flavor_all gssnull
+fi
 
-set_flavor_all gssnull
+umask 077
 
 test_1() {
 	local file=$DIR/$tfile
@@ -127,7 +130,9 @@ test_2() {
 
 	# cleanup all cred/ctx and touch
 	$RUNAS $LFS flushctx $MOUNT || error "can't flush context on $MOUNT"
-	$RUNAS touch $file2 && error "unexpected success"
+	if ! $SHARED_KEY; then
+		$RUNAS touch $file2 && error "unexpected success"
+	fi
 }
 run_test 2 "lfs flushctx"
 
@@ -151,8 +156,10 @@ test_3() {
     # metadata check should fail, but file data check should success
     # because we always use root credential to OSTs
     $RUNAS $LFS flushctx $MOUNT || error "can't flush context on $MOUNT"
-    echo "destroied credentials/contexs for $RUNAS_ID"
-    $RUNAS $CHECKSTAT -p 0666 $file && error "checkstat succeed"
+    if ! $SHARED_KEY; then
+        echo "destroied credentials/contexs for $RUNAS_ID"
+        $RUNAS $CHECKSTAT -p 0666 $file && error "checkstat succeed"
+    fi
     kill -s 10 $OPPID
     wait $OPPID || error "read file data failed"
     echo "read file data OK"
@@ -206,6 +213,9 @@ run_test 7 "exercise enlarge_reqbuf()"
 
 test_8()
 {
+    if $SHARED_KEY; then
+	skip "not compatible with shared key" && return
+    fi
     local ATHISTORY=$(do_facet $SINGLEMDS "find /sys/ -name at_history")
     local ATOLDBASE=$(do_facet $SINGLEMDS "cat $ATHISTORY")
     local REQ_DELAY
@@ -255,6 +265,10 @@ run_test 8 "Early reply sent for slow gss context negotiation"
 #
 
 test_90() {
+    if $SHARED_KEY; then
+	skip "not compatible with shared key" && return
+    fi
+
     if [ "$SLOW" = "no" ]; then
         total=10
     else
@@ -262,8 +276,8 @@ test_90() {
     fi
 
     restore_to_default_flavor
-	set_rule $FSNAME any any gssnull
-	wait_flavor all2all gssnull
+    set_rule $FSNAME any any gssnull
+    wait_flavor all2all gssnull
 
     start_dbench
 
@@ -277,6 +291,7 @@ test_90() {
     #sleep to let ctxs be re-established
     sleep 10
     stop_dbench
+    restore_to_default_flavor
 }
 run_test 90 "recoverable from losing contexts under load"
 
@@ -285,6 +300,9 @@ test_99() {
     local nrule_new=0
     local max=64
 
+    if $SHARED_KEY; then
+        skip "not compatible with shared key" && return
+    fi
     #
     # general rules
     #
@@ -318,6 +336,9 @@ error_dbench()
 }
 
 test_100() {
+        if $SHARED_KEY; then
+            skip "not compatible with shared key" && return
+        fi
 	# started from default flavors
 	restore_to_default_flavor
 
@@ -445,15 +466,19 @@ switch_sec_test()
 
 test_101()
 {
-	# started from default flavors
-	restore_to_default_flavor
-
-	switch_sec_test null    plain
-	switch_sec_test plain   gssnull
-	switch_sec_test gssnull null
-	switch_sec_test null    gssnull
-	switch_sec_test gssnull plain
-	switch_sec_test plain   gssnull
+	if $SHARED_KEY; then
+		switch_sec_test $SK_FLAVOR skn
+		switch_sec_test skn $SK_FLAVOR
+	else
+		# started from default flavors
+		restore_to_default_flavor
+		switch_sec_test null    plain
+		switch_sec_test plain   gssnull
+		switch_sec_test gssnull null
+		switch_sec_test null    gssnull
+		switch_sec_test gssnull plain
+		switch_sec_test plain   gssnull
+	fi
 }
 run_test 101 "switch ctx/sec for resending request"
 
