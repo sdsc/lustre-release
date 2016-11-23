@@ -340,6 +340,11 @@ void request_in_callback(lnet_event_t *ev)
 	req->rq_peer = ev->initiator;
 	req->rq_source = ev->source;
 	req->rq_self = ev->target.nid;
+	CDEBUG(D_NET, "AMIR: peer %s source %s self %s req %p\n",
+	       libcfs_nid2str(ev->initiator.nid),
+	       libcfs_nid2str(ev->source.nid),
+	       libcfs_nid2str(ev->target.nid),
+		req);
 	req->rq_rqbd = rqbd;
 	req->rq_phase = RQ_PHASE_NEW;
 	if (ev->type == LNET_EVENT_PUT)

@@ -77,6 +77,9 @@ static int ptl_send_buf(lnet_handle_md_t *mdh, void *base, int len,
 	CDEBUG(D_NET, "Sending %d bytes to portal %d, xid %lld, offset %u\n",
                len, portal, xid, offset);
 
+	CDEBUG(D_NET, "AMIR: Buf Put peer nid %s self %s\n",
+	       libcfs_nid2str(peer_id.nid),
+	       libcfs_nid2str(self));
         rc = LNetPut(self, *mdh, ack,
                      peer_id, portal, xid, offset, 0);
         if (unlikely(rc != 0)) {
@@ -218,13 +221,22 @@ int ptlrpc_start_bulk_transfer(struct ptlrpc_bulk_desc *desc)
 		}
 
 		/* Network is about to get at the memory */
-		if (ptlrpc_is_bulk_put_source(desc->bd_type))
+		if (ptlrpc_is_bulk_put_source(desc->bd_type)) {
+			CDEBUG(D_NET, "AMIR: Bulk Put peer %s self %s req %p\n",
+			       libcfs_nid2str(peer_id.nid),
+			       libcfs_nid2str(self_nid),
+			       desc->bd_req);
 			rc = LNetPut(self_nid, desc->bd_mds[posted_md],
 				     LNET_ACK_REQ, peer_id,
 				     desc->bd_portal, mbits, 0, 0);
-		else
+		 } else {
+			CDEBUG(D_NET, "AMIR: Bulk Get peer %s self %s req %p\n",
+			       libcfs_nid2str(peer_id.nid),
+			       libcfs_nid2str(self_nid),
+			       desc->bd_req);
 			rc = LNetGet(self_nid, desc->bd_mds[posted_md],
 				     peer_id, desc->bd_portal, mbits, 0);
+		}
 
 		posted_md++;
 		if (rc != 0) {

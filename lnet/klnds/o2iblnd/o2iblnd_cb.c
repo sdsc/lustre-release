@@ -1697,8 +1697,24 @@ kiblnd_reply (lnet_ni_t *ni, kib_rx_t *rx, lnet_msg_t *lntmsg)
                 /* No RDMA: local completion may happen now! */
                 lnet_finalize(ni, lntmsg, 0);
         } else {
+		lnet_nid_t src_nid = LNET_NID_ANY, dst_nid = LNET_NID_ANY;
+		if (rx->rx_conn && rx->rx_conn->ibc_peer)
+			dst_nid = rx->rx_conn->ibc_peer->ibp_nid;
+
+		if (rx->rx_conn && rx->rx_conn->ibc_peer &&
+		    rx->rx_conn->ibc_peer->ibp_ni)
+			src_nid = rx->rx_conn->ibc_peer->ibp_ni->ni_nid;
+
                 /* RDMA: lnet_finalize(lntmsg) when it
                  * completes */
+		CDEBUG(D_NET, "AMIR: REPLY %s -> %s payload = %u %d:%d\n",
+		       libcfs_nid2str(src_nid),
+		       libcfs_nid2str(dst_nid),
+		       lntmsg->msg_hdr.payload_length,
+		       (lntmsg->msg_md) ?
+		       lnet_cpt_of_cookie(lntmsg->msg_md->md_lh.lh_cookie)
+		       : -1, ni->ni_dev_cpt); 
+
                 tx->tx_lntmsg[0] = lntmsg;
         }
 
