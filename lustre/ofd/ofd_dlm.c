@@ -263,6 +263,9 @@ int ofd_intent_policy(struct ldlm_namespace *ns, struct ldlm_lock **lockp,
 		RETURN(ELDLM_LOCK_ABORTED);
 	}
 
+	if (ldlm_lock_is_outdated(l))
+		goto out;
+
 	/*
 	 * This check is for lock taken in ofd_destroy_by_fid() that does
 	 * not have l_glimpse_ast set. So the logic is: if there is a lock

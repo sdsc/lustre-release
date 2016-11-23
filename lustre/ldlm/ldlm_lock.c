@@ -646,6 +646,15 @@ void ldlm_lock2desc(struct ldlm_lock *lock, struct ldlm_lock_desc *desc)
 				    &desc->l_policy_data);
 }
 
+bool ldlm_lock_is_outdated(struct ldlm_lock *lock)
+{
+	return (lock->l_export->exp_failed ||
+		lock->l_export->exp_disconnected ||
+		lock->l_export->exp_imp_reverse->imp_state ==
+		LUSTRE_IMP_CLOSED);
+}
+EXPORT_SYMBOL(ldlm_lock_is_outdated);
+
 /**
  * Add a lock to list of conflicting locks to send AST to.
  *
@@ -654,7 +663,8 @@ void ldlm_lock2desc(struct ldlm_lock *lock, struct ldlm_lock_desc *desc)
 static void ldlm_add_bl_work_item(struct ldlm_lock *lock, struct ldlm_lock *new,
 				  struct list_head *work_list)
 {
-	if (!ldlm_is_ast_sent(lock)) {
+	if (!ldlm_is_ast_sent(lock) &&
+	    !ldlm_lock_is_outdated(lock)) {
 		LDLM_DEBUG(lock, "lock incompatible; sending blocking AST.");
 		ldlm_set_ast_sent(lock);
 		/* If the enqueuing client said so, tell the AST recipient to
@@ -695,6 +705,7 @@ void ldlm_add_ast_work_item(struct ldlm_lock *lock, struct ldlm_lock *new,
 {
         ENTRY;
         check_res_locked(lock->l_resource);
+
         if (new)
                 ldlm_add_bl_work_item(lock, new, work_list);
         else

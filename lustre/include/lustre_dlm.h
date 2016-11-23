@@ -1608,5 +1608,7 @@ static inline int ldlm_extent_contain(const struct ldlm_extent *ex1,
 	return ex1->start <= ex2->start && ex1->end >= ex2->end;
 }
 
+bool ldlm_lock_is_outdated(struct ldlm_lock *lock);
+
 #endif
 /** @} LDLM */
