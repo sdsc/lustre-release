@@ -664,7 +664,7 @@ static const char *obd_connect_names[] = {
 	"multi_mod_rpcs",
 	"dir_stripe",
 	"subtree",
-	"lock_ahead",
+	"requestlock",
 	"bulk_mbits",
 	"compact_obdo",
 	"second_flags",
