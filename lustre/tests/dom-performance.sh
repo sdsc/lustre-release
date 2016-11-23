@@ -120,6 +120,24 @@ run_cmd() {
 
 }
 
+run_MDtest() {
+	if ! which mdtest > /dev/null 2>&1 ; then
+		echo "No mdtest installed, skipping"
+		return 0
+	fi
+
+	local mdtest=$(which mdtest)
+
+	local TDIR=${1:-$MOUNT}
+
+	for bsize in 4096 ; do
+		run_cmd "mpirun -np $NUM $mdtest \
+			-d $TDIR/ -I $FNUM -i 3 -F -z 1 -b 1 -L -u -w $bsize -r $bsize"
+	done
+	rm -rf $TDIR/*
+	return 0
+}
+
 run_smalliomany() {
 	if [ ! -f createmany ] ; then
 		echo "No createmany installed, skipping"
@@ -171,11 +189,11 @@ run_IOR() {
 	for bsize in 4 ; do
 		segments=$((128 / bsize))
 
-		run_cmd "mpirun -np $NUM --allow-run-as-root $IOR \
+		run_cmd "mpirun -np $NUM $IOR \
 			-a POSIX -b ${bsize}K -t ${bsize}K -o $TDIR/ -k \
 			-s $segments -w -r -i $iter -F -E -z -m -Z $direct"
 		# check READ performance only (no cache)
-		run_cmd "mpirun -np $NUM --allow-run-as-root $IOR \
+		run_cmd "mpirun -np $NUM $IOR \
 			-a POSIX -b ${bsize}K -t ${bsize}K -o $TDIR/ -X 42\
 			-s $segments -r -i $iter -F -E -z -m -Z $direct"
 	done
@@ -270,6 +288,24 @@ test_smallio() {
 	run_smalliomany $NORM
 }
 run_test smallio "Performance comparision: smallio"
+
+test_mdtest() {
+	OSC="mdc"
+	echo "### Data-on-MDT files, NO IO lock, NO read on open ###"
+	do_facet $SINGLEMDS lctl set_param -n mdt.*.dom_lock 0
+	do_facet $SINGLEMDS lctl set_param -n mdt.*.dom_read_open 0
+	run_MDtest $DOM
+	echo "### Data-on-MDT files, IO lock, NO read on open ###"
+	do_facet $SINGLEMDS lctl set_param -n mdt.*.dom_lock 1
+	run_MDtest $DOM
+	echo "### Data-on-MDT files, IO lock, read on open ###"
+	do_facet $SINGLEMDS lctl set_param -n mdt.*.dom_read_open 1
+	run_MDtest $DOM
+	echo "### Normal files, $OSTCOUNT OSTs ###"
+	OSC="osc"
+	run_MDtest $NORM
+}
+run_test mdtest "Performance comparision: mdtest"
 
 test_IOR() {
 	OSC="mdc"
