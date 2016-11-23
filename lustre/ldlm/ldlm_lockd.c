@@ -670,6 +670,18 @@ static int ldlm_handle_ast_error(struct ldlm_lock *lock,
 				   libcfs_nid2str(peer.nid));
 			ldlm_lock_cancel(lock);
 			rc = -ERESTART;
+		} else if (rc == -ENODEV) {
+			/* ptl_send_rpc() returns -ENODEV if obd is being
+			 * destroyed or failed. Just ignore this case and
+			 * don't call ldlm_failed_ast(). */
+			ldlm_lock_cancel(lock);
+			rc = -ERESTART;
+		} else if (lock->l_export && (lock->l_export->exp_failed ||
+			   lock->l_export->exp_disconnected)) {
+			/* Silently ignore errors on disconnected or failed
+			 * export but cancel such locks */
+			ldlm_lock_cancel(lock);
+			rc = -ERESTART;
 		} else {
 			LDLM_ERROR(lock,
 				   "client (nid %s) %s %s AST (req@%p x%llu status %d rc %d), evict it",
