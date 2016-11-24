@@ -252,7 +252,7 @@ static int can_be_merged(struct bio *bio, sector_t sector)
 }
 
 static int osd_do_bio(struct osd_device *osd, struct inode *inode,
-                      struct osd_iobuf *iobuf)
+                      struct osd_iobuf *iobuf, const struct lu_fid *fid)
 {
 	int            blocks_per_page = PAGE_SIZE >> inode->i_blkbits;
 	struct page  **pages = iobuf->dr_pages;
@@ -290,14 +290,23 @@ static int osd_do_bio(struct osd_device *osd, struct inode *inode,
 
                         nblocks = 1;
 
-                        if (blocks[block_idx + i] == 0) {  /* hole */
-                                LASSERTF(iobuf->dr_rw == 0,
-                                         "page_idx %u, block_idx %u, i %u\n",
-                                         page_idx, block_idx, i);
+                        if (blocks[block_idx + i] == 0 && iobuf->dr_rw) {  /* hole */
+				CWARN("%s: file (inode: %lu, size: %llu, FID: "DFID") "
+					"too large to handle page_idx %u, block_idx %u, i %u",
+					osd_name(osd), inode->i_ino,
+					(unsigned long long)i_size_read(inode),
+					PFID(fid), page_idx, block_idx, i);
+				if (bio != NULL) {
+					record_start_io(iobuf, bio_sectors(bio) << 9);
+					osd_submit_bio(iobuf->dr_rw, bio);
+					rc = -EFBIG;
+					goto out;
+				}
+                        } else if (blocks[block_idx + i] == 0) {
                                 memset(kmap(page) + page_offset, 0, blocksize);
                                 kunmap(page);
                                 continue;
-                        }
+			}
 
                         sector = (sector_t)blocks[block_idx + i] << sector_bits;
 
@@ -970,6 +979,7 @@ static int osd_write_prep(const struct lu_env *env, struct dt_object *dt,
         int                     rc = 0;
         int                     i;
         int                     cache = 0;
+	const struct lu_fid *fid = lu_object_fid(&dt->do_lu);
 
         LASSERT(inode);
 
@@ -1027,7 +1037,7 @@ static int osd_write_prep(const struct lu_env *env, struct dt_object *dt,
 						 iobuf->dr_npages,
 						 iobuf->dr_blocks, 0);
                 if (likely(rc == 0)) {
-                        rc = osd_do_bio(osd, inode, iobuf);
+                        rc = osd_do_bio(osd, inode, iobuf, fid);
                         /* do IO stats for preparation reads */
                         osd_fini_iobuf(osd, iobuf);
                 }
@@ -1212,6 +1222,7 @@ static int osd_write_commit(const struct lu_env *env, struct dt_object *dt,
         loff_t isize;
         int rc = 0, i;
 	struct osd_fextent extent = { 0 };
+	const struct lu_fid *fid = lu_object_fid(&dt->do_lu);
 
         LASSERT(inode);
 
@@ -1281,7 +1292,7 @@ static int osd_write_commit(const struct lu_env *env, struct dt_object *dt,
 			spin_unlock(&inode->i_lock);
 		}
 
-		rc = osd_do_bio(osd, inode, iobuf);
+		rc = osd_do_bio(osd, inode, iobuf, fid);
 		/* we don't do stats here as in read path because
 		 * write is async: we'll do this in osd_put_bufs() */
 	} else {
@@ -1315,6 +1326,7 @@ static int osd_read_prep(const struct lu_env *env, struct dt_object *dt,
         unsigned long timediff;
 	int rc = 0, i, cache = 0, cache_hits = 0, cache_misses = 0;
 	loff_t isize;
+	const struct lu_fid *fid = lu_object_fid(&dt->do_lu);
 
         LASSERT(inode);
 
@@ -1371,7 +1383,7 @@ static int osd_read_prep(const struct lu_env *env, struct dt_object *dt,
 		rc = osd_ldiskfs_map_inode_pages(inode, iobuf->dr_pages,
 						 iobuf->dr_npages,
 						 iobuf->dr_blocks, 0);
-                rc = osd_do_bio(osd, inode, iobuf);
+                rc = osd_do_bio(osd, inode, iobuf, fid);
 
                 /* IO stats will be done in osd_bufs_put() */
         }
