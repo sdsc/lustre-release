@@ -322,6 +322,7 @@ int filter_do_bio(struct obd_export *exp, struct inode *inode,
         int            page_idx;
         int            i;
         int            rc = 0;
+	int	       ret = 0;
         ENTRY;
 
         LASSERT(iobuf->dr_npages == npages);
@@ -341,7 +342,11 @@ int filter_do_bio(struct obd_export *exp, struct inode *inode,
                         nblocks = 1;
 
                         if (blocks[block_idx + i] == 0) {  /* hole */
-                                LASSERT(rw == OBD_BRW_READ);
+				/* ldiskfs could not map physical space */
+				if (rw != OBD_BRW_READ) {
+					ret = -EFBIG;
+					goto big;
+				}
                                 memset(kmap(page) + page_offset, 0, blocksize);
                                 kunmap(page);
                                 continue;
@@ -424,6 +429,7 @@ int filter_do_bio(struct obd_export *exp, struct inode *inode,
                 }
         }
 
+big:
         if (bio != NULL) {
                 record_start_io(iobuf, rw, bio->bi_size, exp);
                 rc = fsfilt_send_bio(rw, obd, inode, bio);
@@ -435,6 +441,9 @@ int filter_do_bio(struct obd_export *exp, struct inode *inode,
                         record_finish_io(iobuf, rw, rc);
                 }
         }
+
+	if (ret)
+		rc = ret;
 
  out:
         cfs_wait_event(iobuf->dr_wait,
