@@ -1739,23 +1739,23 @@ int llapi_lov_get_uuids(int fd, struct obd_uuid *uuidp, int *ost_count)
 
 int llapi_get_obd_count(char *mnt, int *count, int is_mdt)
 {
-        DIR *root;
-        int rc;
+	int root;
+	int rc;
 
-        root = opendir(mnt);
-        if (!root) {
-                rc = -errno;
-                llapi_error(LLAPI_MSG_ERROR, rc, "open %s failed", mnt);
-                return rc;
-        }
+	root = open(mnt, 0);
+	if (root < 0) {
+		rc = -errno;
+		llapi_error(LLAPI_MSG_ERROR, rc, "open %s failed", mnt);
+		return rc;
+	}
 
-        *count = is_mdt;
-        rc = ioctl(dirfd(root), LL_IOC_GETOBDCOUNT, count);
-        if (rc < 0)
-                rc = -errno;
+	*count = is_mdt;
+	rc = ioctl(root, LL_IOC_GETOBDCOUNT, count);
+	if (rc < 0)
+		rc = -errno;
 
-        closedir(root);
-        return rc;
+	close(root);
+	return rc;
 }
 
 /* Check if user specified value matches a real uuid.  Ignore _UUID,
@@ -3532,7 +3532,7 @@ int llapi_is_lustre_mnt(struct mntent *mnt)
 int llapi_quotactl(char *mnt, struct if_quotactl *qctl)
 {
 	char fsname[PATH_MAX + 1];
-	DIR *root;
+	int root;
 	int rc;
 
 	rc = llapi_search_fsname(mnt, fsname);
@@ -3542,19 +3542,19 @@ int llapi_quotactl(char *mnt, struct if_quotactl *qctl)
 		return rc;
 	}
 
-        root = opendir(mnt);
-        if (!root) {
-                rc = -errno;
-                llapi_error(LLAPI_MSG_ERROR, rc, "open %s failed", mnt);
-                return rc;
-        }
+	root = open(mnt, 0);
+	if (root < 0) {
+		rc = -errno;
+		llapi_error(LLAPI_MSG_ERROR, rc, "open %s failed", mnt);
+		return rc;
+	}
 
-	rc = ioctl(dirfd(root), OBD_IOC_QUOTACTL, qctl);
-        if (rc < 0)
-                rc = -errno;
+	rc = ioctl(root, OBD_IOC_QUOTACTL, qctl);
+	if (rc < 0)
+		rc = -errno;
 
-        closedir(root);
-        return rc;
+	close(root);
+	return rc;
 }
 
 /* Print mdtname 'name' into 'buf' using 'format'.  Add -MDT0000 if needed.
@@ -3996,24 +3996,24 @@ int llapi_path2parent(const char *path, unsigned int linkno,
 
 int llapi_get_connect_flags(const char *mnt, __u64 *flags)
 {
-        DIR *root;
-        int rc;
+	int root;
+	int rc;
 
-        root = opendir(mnt);
-        if (!root) {
-                rc = -errno;
-                llapi_error(LLAPI_MSG_ERROR, rc, "open %s failed", mnt);
-                return rc;
-        }
+	root = open(mnt, 0);
+	if (root < 0) {
+		rc = -errno;
+		llapi_error(LLAPI_MSG_ERROR, rc, "open %s failed", mnt);
+		return rc;
+	}
 
-        rc = ioctl(dirfd(root), LL_IOC_GET_CONNECT_FLAGS, flags);
-        if (rc < 0) {
-                rc = -errno;
-                llapi_error(LLAPI_MSG_ERROR, rc,
-                            "ioctl on %s for getting connect flags failed", mnt);
-        }
-        closedir(root);
-        return rc;
+	rc = ioctl(root, LL_IOC_GET_CONNECT_FLAGS, flags);
+	if (rc < 0) {
+		rc = -errno;
+		llapi_error(LLAPI_MSG_ERROR, rc,
+			"ioctl on %s for getting connect flags failed", mnt);
+	}
+	close(root);
+	return rc;
 }
 
 /**
