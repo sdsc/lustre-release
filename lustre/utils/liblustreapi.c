@@ -1305,7 +1305,7 @@ err:
 	return rc;
 }
 
-typedef int (semantic_func_t)(char *path, DIR *parent, DIR **d,
+typedef int (semantic_func_t)(char *path, int fd_parent, int *fd,
 			      void *data, struct dirent64 *de);
 
 #define OBD_NOT_FOUND           (-1)
@@ -1358,7 +1358,7 @@ static void find_param_fini(struct find_param *param)
 		free(param->fp_lmv_md);
 }
 
-static int cb_common_fini(char *path, DIR *parent, DIR **dirp, void *data,
+static int cb_common_fini(char *path, int fd_parent, int *fd, void *data,
 			  struct dirent64 *de)
 {
 	struct find_param *param = data;
@@ -1368,24 +1368,24 @@ static int cb_common_fini(char *path, DIR *parent, DIR **dirp, void *data,
 }
 
 /* set errno upon failure */
-static DIR *opendir_parent(const char *path)
+static int open_parent(const char *path)
 {
 	char *path_copy;
 	char *parent_path;
-	DIR *parent;
+	int fd_parent;
 
 	path_copy = strdup(path);
 	if (path_copy == NULL)
-		return NULL;
+		return -1;
 
 	parent_path = dirname(path_copy);
-	parent = opendir(parent_path);
+	fd_parent = open(parent_path, O_RDONLY | O_DIRECTORY);
 	free(path_copy);
 
-	return parent;
+	return fd_parent;
 }
 
-static int cb_get_dirstripe(char *path, DIR *d, struct find_param *param)
+static int cb_get_dirstripe(char *path, int fd, struct find_param *param)
 {
 	int ret;
 
@@ -1396,7 +1396,7 @@ again:
 	else
 		param->fp_lmv_md->lum_magic = LMV_MAGIC_V1;
 
-	ret = ioctl(dirfd(d), LL_IOC_LMV_GETSTRIPE, param->fp_lmv_md);
+	ret = ioctl(fd, LL_IOC_LMV_GETSTRIPE, param->fp_lmv_md);
 	if (errno == E2BIG && ret != 0) {
 		int stripe_count;
 		int lmv_size;
@@ -1421,18 +1421,18 @@ again:
 	return ret;
 }
 
-static int get_lmd_info(char *path, DIR *parent, DIR *dir,
-                 struct lov_user_mds_data *lmd, int lumlen)
+static int get_lmd_info(char *path, int fd_parent, int *fd,
+			struct lov_user_mds_data *lmd, int lumlen)
 {
-        lstat_t *st = &lmd->lmd_st;
-        int ret = 0;
+	lstat_t *st = &lmd->lmd_st;
+	int ret = 0;
 
-        if (parent == NULL && dir == NULL)
-                return -EINVAL;
+	if (fd_parent < 0 && (fd == NULL || *fd < 0))
+		return -EINVAL;
 
-        if (dir) {
-                ret = ioctl(dirfd(dir), LL_IOC_MDC_GETINFO, (void *)lmd);
-        } else if (parent) {
+	if (fd != NULL && *fd >= 0) {
+		ret = ioctl(*fd, LL_IOC_MDC_GETINFO, (void *)lmd);
+	} else if (fd_parent >= 0) {
 		char *fname = strrchr(path, '/');
 
 		/* To avoid opening, locking, and closing each file on the
@@ -1444,8 +1444,8 @@ static int get_lmd_info(char *path, DIR *parent, DIR *dir,
 		fname = (fname == NULL ? path : fname + 1);
 		/* retrieve needed file info */
 		strlcpy((char *)lmd, fname, lumlen);
-		ret = ioctl(dirfd(parent), IOC_MDC_GETFILEINFO, (void *)lmd);
-        }
+		ret = ioctl(fd_parent, IOC_MDC_GETFILEINFO, (void *)lmd);
+	}
 
         if (ret) {
                 if (errno == ENOTTY) {
@@ -1463,12 +1463,13 @@ static int get_lmd_info(char *path, DIR *parent, DIR *dir,
                         llapi_error(LLAPI_MSG_WARN, ret,
                                     "warning: %s: %s does not exist",
                                     __func__, path);
-                } else if (errno != EISDIR) {
-                        ret = -errno;
-                        llapi_error(LLAPI_MSG_ERROR, ret,
-                                    "%s ioctl failed for %s.",
-                                    dir ? "LL_IOC_MDC_GETINFO" :
-                                    "IOC_MDC_GETFILEINFO", path);
+		} else if (errno != EISDIR) {
+			ret = -errno;
+			llapi_error(LLAPI_MSG_ERROR, ret,
+				    "%s ioctl failed for %s.",
+				    (fd != NULL && *fd >= 0) ?
+				    "LL_IOC_MDC_GETINFO" :
+				    "IOC_MDC_GETFILEINFO", path);
 		} else {
 			ret = -errno;
 			llapi_error(LLAPI_MSG_ERROR, ret,
@@ -1487,28 +1488,34 @@ static int llapi_semantic_traverse(char *path, int size, DIR *parent,
 	struct find_param *param = (struct find_param *)data;
 	struct dirent64 *dent;
 	int len, ret;
-	DIR *d, *p = NULL;
+	DIR *d;
+	int fd;
+	int fd_parent = (parent == NULL) ? -1 : dirfd(parent);
 
 	ret = 0;
 	len = strlen(path);
 
-        d = opendir(path);
-        if (!d && errno != ENOTDIR) {
-                ret = -errno;
-                llapi_error(LLAPI_MSG_ERROR, ret, "%s: Failed to open '%s'",
-                            __func__, path);
-                return ret;
-        } else if (!d && !parent) {
-                /* ENOTDIR. Open the parent dir. */
-                p = opendir_parent(path);
-		if (!p) {
+	d = opendir(path);
+	if (d == NULL && errno != ENOTDIR) {
+		ret = -errno;
+		llapi_error(LLAPI_MSG_ERROR, ret, "%s: Failed to open '%s'",
+			    __func__, path);
+		return ret;
+	} else if (d == NULL && parent == NULL) {
+		/* ENOTDIR. Open the parent dir. */
+		fd_parent = open_parent(path);
+		if (fd_parent < 0) {
 			ret = -errno;
 			goto out;
 		}
-        }
+	}
+	fd = (d == NULL) ? -1 : dirfd(d);
 
-	if (sem_init && (ret = sem_init(path, parent ?: p, &d, data, de)))
-		goto err;
+	if (sem_init != NULL) {
+		ret = sem_init(path, fd_parent, &fd, data, de);
+		if (ret != 0)
+			goto err;
+	}
 
 	if (d == NULL)
 		goto out;
@@ -1533,10 +1540,10 @@ static int llapi_semantic_traverse(char *path, int size, DIR *parent,
                 strcat(path, "/");
                 strcat(path, dent->d_name);
 
-                if (dent->d_type == DT_UNKNOWN) {
+		if (dent->d_type == DT_UNKNOWN) {
 			lstat_t *st = &param->fp_lmd->lmd_st;
 
-			rc = get_lmd_info(path, d, NULL, param->fp_lmd,
+			rc = get_lmd_info(path, fd, NULL, param->fp_lmd,
 					   param->fp_lum_size);
 			if (rc == 0)
 				dent->d_type = IFTODT(st->st_mode);
@@ -1561,25 +1568,25 @@ static int llapi_semantic_traverse(char *path, int size, DIR *parent,
 		default:
 			rc = 0;
 			if (sem_init) {
-				rc = sem_init(path, d, NULL, data, dent);
+				rc = sem_init(path, fd, NULL, data, dent);
 				if (rc < 0 && ret == 0)
 					ret = rc;
 			}
 			if (sem_fini && rc == 0)
-				sem_fini(path, d, NULL, data, dent);
-                }
-        }
+				sem_fini(path, fd, NULL, data, dent);
+		}
+	}
 
 out:
-        path[len] = 0;
+	path[len] = 0;
 
 	if (sem_fini)
-		sem_fini(path, parent, &d, data, de);
+		sem_fini(path, fd_parent, &fd, data, de);
 err:
-        if (d)
-                closedir(d);
-        if (p)
-                closedir(p);
+	if (d != NULL)
+		closedir(d);
+	if (parent == NULL)
+		close(fd_parent);
 	return ret;
 }
 
@@ -1739,23 +1746,23 @@ int llapi_lov_get_uuids(int fd, struct obd_uuid *uuidp, int *ost_count)
 
 int llapi_get_obd_count(char *mnt, int *count, int is_mdt)
 {
-        DIR *root;
-        int rc;
+	int root;
+	int rc;
 
-        root = opendir(mnt);
-        if (!root) {
-                rc = -errno;
-                llapi_error(LLAPI_MSG_ERROR, rc, "open %s failed", mnt);
-                return rc;
-        }
+	root = open(mnt, O_RDONLY | O_DIRECTORY);
+	if (root < 0) {
+		rc = -errno;
+		llapi_error(LLAPI_MSG_ERROR, rc, "open %s failed", mnt);
+		return rc;
+	}
 
-        *count = is_mdt;
-        rc = ioctl(dirfd(root), LL_IOC_GETOBDCOUNT, count);
-        if (rc < 0)
-                rc = -errno;
+	*count = is_mdt;
+	rc = ioctl(root, LL_IOC_GETOBDCOUNT, count);
+	if (rc < 0)
+		rc = -errno;
 
-        closedir(root);
-        return rc;
+	close(root);
+	return rc;
 }
 
 /* Check if user specified value matches a real uuid.  Ignore _UUID,
@@ -1783,7 +1790,7 @@ int llapi_uuid_match(char *real_uuid, char *search_uuid)
 
 /* Here, param->fp_obd_uuid points to a single obduuid, the index of which is
  * returned in param->fp_obd_index */
-static int setup_obd_uuid(DIR *dir, char *dname, struct find_param *param)
+static int setup_obd_uuid(int fd, char *dname, struct find_param *param)
 {
 	struct obd_uuid obd_uuid;
 	char buf[PATH_MAX];
@@ -1797,9 +1804,9 @@ static int setup_obd_uuid(DIR *dir, char *dname, struct find_param *param)
 
 	/* Get the lov/lmv name */
 	if (param->fp_get_lmv)
-		rc = llapi_file_fget_lmv_uuid(dirfd(dir), &obd_uuid);
+		rc = llapi_file_fget_lmv_uuid(fd, &obd_uuid);
 	else
-		rc = llapi_file_fget_lov_uuid(dirfd(dir), &obd_uuid);
+		rc = llapi_file_fget_lov_uuid(fd, &obd_uuid);
 	if (rc) {
 		if (rc != -ENOTTY) {
 			llapi_error(LLAPI_MSG_ERROR, rc,
@@ -1870,9 +1877,9 @@ free_param:
 /* In this case, param->fp_obd_uuid will be an array of obduuids and
  * obd index for all these obduuids will be returned in
  * param->fp_obd_indexes */
-static int setup_indexes(DIR *dir, char *path, struct obd_uuid *obduuids,
-                         int num_obds, int **obdindexes, int *obdindex,
-                         enum tgt_type type)
+static int setup_indexes(int fd, char *path, struct obd_uuid *obduuids,
+			 int num_obds, int **obdindexes, int *obdindex,
+			 enum tgt_type type)
 {
 	int ret, obdcount, obd_valid = 0, obdnum;
 	long i;
@@ -1893,7 +1900,7 @@ static int setup_indexes(DIR *dir, char *path, struct obd_uuid *obduuids,
 		return -ENOMEM;
 
 retry_get_uuids:
-	ret = llapi_get_target_uuids(dirfd(dir), uuids, &obdcount, type);
+	ret = llapi_get_target_uuids(fd, uuids, &obdcount, type);
 	if (ret) {
 		if (ret == -EOVERFLOW) {
 			struct obd_uuid *uuids_temp;
@@ -1957,12 +1964,12 @@ out_free:
         return ret;
 }
 
-static int setup_target_indexes(DIR *dir, char *path, struct find_param *param)
+static int setup_target_indexes(int fd, char *path, struct find_param *param)
 {
-        int ret = 0;
+	int ret = 0;
 
 	if (param->fp_mdt_uuid) {
-		ret = setup_indexes(dir, path, param->fp_mdt_uuid,
+		ret = setup_indexes(fd, path, param->fp_mdt_uuid,
 				    param->fp_num_mdts,
 				    &param->fp_mdt_indexes,
 				    &param->fp_mdt_index, LMV_TYPE);
@@ -1971,7 +1978,7 @@ static int setup_target_indexes(DIR *dir, char *path, struct find_param *param)
 	}
 
 	if (param->fp_obd_uuid) {
-		ret = setup_indexes(dir, path, param->fp_obd_uuid,
+		ret = setup_indexes(fd, path, param->fp_obd_uuid,
 				    param->fp_num_obds,
 				    &param->fp_obd_indexes,
 				    &param->fp_obd_index, LOV_TYPE);
@@ -1986,17 +1993,17 @@ static int setup_target_indexes(DIR *dir, char *path, struct find_param *param)
 
 int llapi_ostlist(char *path, struct find_param *param)
 {
-        DIR *dir;
-        int ret;
+	int fd;
+	int ret;
 
-        dir = opendir(path);
-        if (dir == NULL)
-                return -errno;
+	fd = open(path, O_RDONLY | O_DIRECTORY);
+	if (fd < 0)
+		return -errno;
 
-        ret = setup_obd_uuid(dir, path, param);
-        closedir(dir);
+	ret = setup_obd_uuid(fd, path, param);
+	close(fd);
 
-        return ret;
+	return ret;
 }
 
 /*
@@ -2711,18 +2718,18 @@ static int print_failed_tgt(struct find_param *param, char *path, int type)
 	return ret;
 }
 
-static int cb_find_init(char *path, DIR *parent, DIR **dirp,
+static int cb_find_init(char *path, int fd_parent, int *fd,
 			void *data, struct dirent64 *de)
 {
-        struct find_param *param = (struct find_param *)data;
-	DIR *dir = dirp == NULL ? NULL : *dirp;
-        int decision = 1; /* 1 is accepted; -1 is rejected. */
+	struct find_param *param = (struct find_param *)data;
+	int decision = 1; /* 1 is accepted; -1 is rejected. */
 	lstat_t *st = &param->fp_lmd->lmd_st;
-        int lustre_fs = 1;
-        int checked_type = 0;
-        int ret = 0;
+	int lustre_fs = 1;
+	int checked_type = 0;
+	int ret = 0;
 
-        LASSERT(parent != NULL || dir != NULL);
+	if (fd_parent < 0 && (fd == NULL || *fd < 0))
+		return -EINVAL;
 
 	param->fp_lmd->lmd_lmm.lmm_stripe_count = 0;
 
@@ -2765,7 +2772,7 @@ static int cb_find_init(char *path, DIR *parent, DIR **dirp,
                 decision = 0;
 
 	if (decision == 0) {
-		ret = get_lmd_info(path, parent, dir, param->fp_lmd,
+		ret = get_lmd_info(path, fd_parent, fd, param->fp_lmd,
 				   param->fp_lum_size);
 		if (ret == 0 && param->fp_lmd->lmd_lmm.lmm_magic == 0 &&
 		    (param->fp_check_pool || param->fp_check_stripe_count ||
@@ -2784,11 +2791,11 @@ static int cb_find_init(char *path, DIR *parent, DIR **dirp,
 			lmm->lmm_stripe_offset = -1;
 		}
 		if (ret == 0 && param->fp_mdt_uuid != NULL) {
-			if (dir != NULL) {
-				ret = llapi_file_fget_mdtidx(dirfd(dir),
+			if (fd != NULL && *fd >= 0) {
+				ret = llapi_file_fget_mdtidx(*fd,
 						     &param->fp_file_mdt_index);
 			} else if (S_ISREG(st->st_mode)) {
-				int fd;
+				int fd_tmp;
 
 				/* FIXME: we could get the MDT index from the
 				 * file's FID in lmd->lmd_lmm.lmm_oi without
@@ -2796,18 +2803,18 @@ static int cb_find_init(char *path, DIR *parent, DIR **dirp,
 				 * LFSCK2 (2.6) has fixed up pre-2.0 LOV EAs.
 				 * That would still be an ioctl() to map the
 				 * FID to the MDT, but not an open RPC. */
-				fd = open(path, O_RDONLY);
-				if (fd > 0) {
-					ret = llapi_file_fget_mdtidx(fd,
+				fd_tmp = open(path, O_RDONLY | O_NOCTTY);
+				if (fd_tmp >= 0) {
+					ret = llapi_file_fget_mdtidx(fd_tmp,
 						     &param->fp_file_mdt_index);
-					close(fd);
+					close(fd_tmp);
 				} else {
 					ret = -errno;
 				}
 			} else {
 				/* For a special file, we assume it resides on
 				 * the same MDT as the parent directory. */
-				ret = llapi_file_fget_mdtidx(dirfd(parent),
+				ret = llapi_file_fget_mdtidx(fd_parent,
 						     &param->fp_file_mdt_index);
 			}
 		}
@@ -2843,8 +2850,8 @@ static int cb_find_init(char *path, DIR *parent, DIR **dirp,
 		}
 
 		if (lustre_fs && !param->fp_got_uuids) {
-			ret = setup_target_indexes(dir ? dir : parent, path,
-						   param);
+			ret = setup_target_indexes((fd != NULL && *fd >= 0) ?
+						  *fd : fd_parent, path, param);
 			if (ret)
 				return ret;
 
@@ -2991,10 +2998,10 @@ obd_matches:
 		if (param->fp_mdt_index != OBD_NOT_FOUND)
                         print_failed_tgt(param, path, LL_STATFS_LMV);
 
-		if (dir != NULL)
-			ret = fstat_f(dirfd(dir), st);
+		if (fd != NULL && *fd >= 0)
+			ret = fstat_f(*fd, st);
 		else if (de != NULL)
-			ret = fstatat_f(dirfd(parent), de->d_name, st,
+			ret = fstatat_f(fd_parent, de->d_name, st,
 					AT_SYMLINK_NOFOLLOW);
 		else
 			ret = lstat_f(path, st);
@@ -3044,36 +3051,37 @@ decided:
 	return 0;
 }
 
-static int cb_migrate_mdt_init(char *path, DIR *parent, DIR **dirp,
+static int cb_migrate_mdt_init(char *path, int fd_parent, int *fd,
 			       void *param_data, struct dirent64 *de)
 {
 	struct find_param	*param = (struct find_param *)param_data;
-	DIR			*tmp_parent = parent;
 	char			raw[OBD_MAX_IOCTL_BUFFER] = {'\0'};
 	char			*rawbuf = raw;
 	struct obd_ioctl_data	data = { 0 };
-	int			fd;
 	int			ret;
 	char			*path_copy;
 	char			*filename;
 	bool			retry = false;
+	bool			close_temp = false;
 
-	LASSERT(parent != NULL || dirp != NULL);
-	if (dirp != NULL)
-		closedir(*dirp);
+	if (fd_parent < 0 && (fd == NULL || *fd < 0))
+		return -EINVAL;
+	if (fd != NULL && *fd > 0) {
+		close(*fd);
+		*fd = -1;
+	}
 
-	if (parent == NULL) {
-		tmp_parent = opendir_parent(path);
-		if (tmp_parent == NULL) {
-			*dirp = NULL;
+	if (fd_parent < 0) {
+		fd_parent = open_parent(path);
+		if (fd_parent < 0) {
 			ret = -errno;
 			llapi_error(LLAPI_MSG_ERROR, ret,
 				    "can not open %s", path);
 			return ret;
 		}
+		close_temp = true;
 	}
 
-	fd = dirfd(tmp_parent);
 
 	path_copy = strdup(path);
 	filename = basename(path_copy);
@@ -3089,7 +3097,7 @@ static int cb_migrate_mdt_init(char *path, DIR *parent, DIR **dirp,
 	}
 
 migrate:
-	ret = ioctl(fd, LL_IOC_MIGRATE, rawbuf);
+	ret = ioctl(fd_parent, LL_IOC_MIGRATE, rawbuf);
 	if (ret != 0) {
 		if (errno == EBUSY && !retry) {
 			/* because migrate may not be able to lock all involved
@@ -3111,22 +3119,22 @@ migrate:
 	}
 
 out:
-	if (dirp != NULL) {
+	if (fd != NULL) {
 		/* If the directory is being migration, we need
 		 * close the directory after migration,
 		 * so the old directory cache will be cleanup
 		 * on the client side, and re-open to get the
 		 * new directory handle */
-		*dirp = opendir(path);
-		if (*dirp == NULL) {
+		*fd = open(path, O_RDONLY | O_DIRECTORY);
+		if (*fd < 0) {
 			ret = -errno;
 			llapi_error(LLAPI_MSG_ERROR, ret,
 				    "%s: Failed to open '%s'", __func__, path);
 		}
 	}
 
-	if (parent == NULL)
-		closedir(tmp_parent);
+	if (close_temp)
+		close(fd_parent);
 
 	free(path_copy);
 
@@ -3169,25 +3177,25 @@ int llapi_file_fget_mdtidx(int fd, int *mdtidx)
         return 0;
 }
 
-static int cb_get_mdt_index(char *path, DIR *parent, DIR **dirp, void *data,
+static int cb_get_mdt_index(char *path, int fd_parent, int *fd, void *data,
 			    struct dirent64 *de)
 {
 	struct find_param *param = (struct find_param *)data;
-	DIR *d = dirp == NULL ? NULL : *dirp;
 	int ret;
 	int mdtidx;
 
-	LASSERT(parent != NULL || d != NULL);
+	if (fd_parent < 0 && (fd == NULL || *fd < 0))
+		return -EINVAL;
 
-	if (d != NULL) {
-		ret = llapi_file_fget_mdtidx(dirfd(d), &mdtidx);
+	if (fd != NULL && *fd >= 0) {
+		ret = llapi_file_fget_mdtidx(*fd, &mdtidx);
 	} else /* if (parent) */ {
-		int fd;
+		int fd_tmp;
 
-		fd = open(path, O_RDONLY | O_NOCTTY);
-		if (fd > 0) {
-			ret = llapi_file_fget_mdtidx(fd, &mdtidx);
-			close(fd);
+		fd_tmp = open(path, O_RDONLY | O_NOCTTY);
+		if (fd_tmp >= 0) {
+			ret = llapi_file_fget_mdtidx(fd_tmp, &mdtidx);
+			close(fd_tmp);
 		} else {
 			ret = -errno;
 		}
@@ -3232,45 +3240,47 @@ out:
 	return 0;
 }
 
-static int cb_getstripe(char *path, DIR *parent, DIR **dirp, void *data,
+static int cb_getstripe(char *path, int fd_parent, int *fd, void *data,
 			struct dirent64 *de)
 {
-        struct find_param *param = (struct find_param *)data;
-	DIR *d = dirp == NULL ? NULL : *dirp;
-        int ret = 0;
+	struct find_param *param = (struct find_param *)data;
+	int ret = 0;
 
-        LASSERT(parent != NULL || d != NULL);
+	if (fd_parent < 0 && (fd == NULL || *fd < 0))
+		return -EINVAL;
 
 	if (param->fp_obd_uuid) {
 		param->fp_quiet = 1;
-                ret = setup_obd_uuid(d ? d : parent, path, param);
-                if (ret)
-                        return ret;
-        }
+		ret = setup_obd_uuid((fd != NULL && *fd >= 0) ? *fd : fd_parent,
+				     path, param);
+		if (ret)
+			return ret;
+	}
 
-	if (d) {
+	if (fd != NULL && *fd >= 0) {
 		if (param->fp_get_lmv || param->fp_get_default_lmv) {
-			ret = cb_get_dirstripe(path, d, param);
+			ret = cb_get_dirstripe(path, *fd, param);
 		} else {
-			ret = ioctl(dirfd(d), LL_IOC_LOV_GETSTRIPE,
+			ret = ioctl(*fd, LL_IOC_LOV_GETSTRIPE,
 				     (void *)&param->fp_lmd->lmd_lmm);
 		}
 
-	} else if (parent && !param->fp_get_lmv && !param->fp_get_default_lmv) {
+	} else if (fd_parent >= 0 && !param->fp_get_lmv &&
+		   !param->fp_get_default_lmv) {
 		char *fname = strrchr(path, '/');
 		fname = (fname == NULL ? path : fname + 1);
 
 		strlcpy((char *)&param->fp_lmd->lmd_lmm, fname,
 			param->fp_lum_size);
 
-		ret = ioctl(dirfd(parent), IOC_MDC_GETFILESTRIPE,
+		ret = ioctl(fd_parent, IOC_MDC_GETFILESTRIPE,
 			    (void *)&param->fp_lmd->lmd_lmm);
 	} else {
 		return 0;
 	}
 
-        if (ret) {
-                if (errno == ENODATA && d != NULL) {
+	if (ret) {
+		if (errno == ENODATA && fd != NULL && *fd >= 0) {
 			/* We need to "fake" the "use the default" values
 			 * since the lmm struct is zeroed out at this point.
 			 * The magic needs to be set in order to satisfy
@@ -3288,7 +3298,7 @@ static int cb_getstripe(char *path, DIR *parent, DIR **dirp, void *data,
 				struct lmv_user_md *lum = param->fp_lmv_md;
 				int mdtidx;
 
-				ret = llapi_file_fget_mdtidx(dirfd(d), &mdtidx);
+				ret = llapi_file_fget_mdtidx(*fd, &mdtidx);
 				if (ret != 0)
 					goto err_out;
 				lum->lum_magic = LMV_MAGIC_V1;
@@ -3308,7 +3318,7 @@ static int cb_getstripe(char *path, DIR *parent, DIR **dirp, void *data,
 				lmm->lmm_stripe_offset = -1;
 				goto dump;
 			}
-                } else if (errno == ENODATA && parent != NULL) {
+		} else if (errno == ENODATA && fd_parent >= 0) {
 			if (!param->fp_obd_uuid && !param->fp_mdt_uuid)
                                 llapi_printf(LLAPI_MSG_NORMAL,
                                              "%s has no stripe info\n", path);
@@ -3328,7 +3338,8 @@ static int cb_getstripe(char *path, DIR *parent, DIR **dirp, void *data,
 err_out:
 			llapi_error(LLAPI_MSG_ERROR, ret,
 				    "error: %s: %s failed for %s",
-				     __func__, d ? "LL_IOC_LOV_GETSTRIPE" :
+				     __func__, (fd != NULL) ?
+				    "LL_IOC_LOV_GETSTRIPE" :
 				    "IOC_MDC_GETFILESTRIPE", path);
 		}
 
@@ -3337,7 +3348,8 @@ err_out:
 
 dump:
 	if (!(param->fp_verbose & VERBOSE_MDTINDEX))
-                llapi_lov_dump_user_lmm(param, path, d ? 1 : 0);
+		llapi_lov_dump_user_lmm(param, path, (fd != NULL && *fd >= 0) ?
+					1 : 0);
 
 out:
 	/* Do not get down anymore? */
@@ -3532,7 +3544,7 @@ int llapi_is_lustre_mnt(struct mntent *mnt)
 int llapi_quotactl(char *mnt, struct if_quotactl *qctl)
 {
 	char fsname[PATH_MAX + 1];
-	DIR *root;
+	int root;
 	int rc;
 
 	rc = llapi_search_fsname(mnt, fsname);
@@ -3542,19 +3554,19 @@ int llapi_quotactl(char *mnt, struct if_quotactl *qctl)
 		return rc;
 	}
 
-        root = opendir(mnt);
-        if (!root) {
-                rc = -errno;
-                llapi_error(LLAPI_MSG_ERROR, rc, "open %s failed", mnt);
-                return rc;
-        }
+	root = open(mnt, O_RDONLY | O_DIRECTORY);
+	if (root < 0) {
+		rc = -errno;
+		llapi_error(LLAPI_MSG_ERROR, rc, "open %s failed", mnt);
+		return rc;
+	}
 
-	rc = ioctl(dirfd(root), OBD_IOC_QUOTACTL, qctl);
-        if (rc < 0)
-                rc = -errno;
+	rc = ioctl(root, OBD_IOC_QUOTACTL, qctl);
+	if (rc < 0)
+		rc = -errno;
 
-        closedir(root);
-        return rc;
+	close(root);
+	return rc;
 }
 
 /* Print mdtname 'name' into 'buf' using 'format'.  Add -MDT0000 if needed.
@@ -3996,24 +4008,24 @@ int llapi_path2parent(const char *path, unsigned int linkno,
 
 int llapi_get_connect_flags(const char *mnt, __u64 *flags)
 {
-        DIR *root;
-        int rc;
+	int root;
+	int rc;
 
-        root = opendir(mnt);
-        if (!root) {
-                rc = -errno;
-                llapi_error(LLAPI_MSG_ERROR, rc, "open %s failed", mnt);
-                return rc;
-        }
+	root = open(mnt, O_RDONLY | O_DIRECTORY);
+	if (root < 0) {
+		rc = -errno;
+		llapi_error(LLAPI_MSG_ERROR, rc, "open %s failed", mnt);
+		return rc;
+	}
 
-        rc = ioctl(dirfd(root), LL_IOC_GET_CONNECT_FLAGS, flags);
-        if (rc < 0) {
-                rc = -errno;
-                llapi_error(LLAPI_MSG_ERROR, rc,
-                            "ioctl on %s for getting connect flags failed", mnt);
-        }
-        closedir(root);
-        return rc;
+	rc = ioctl(root, LL_IOC_GET_CONNECT_FLAGS, flags);
+	if (rc < 0) {
+		rc = -errno;
+		llapi_error(LLAPI_MSG_ERROR, rc,
+			"ioctl on %s for getting connect flags failed", mnt);
+	}
+	close(root);
+	return rc;
 }
 
 /**
