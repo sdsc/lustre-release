@@ -1128,6 +1128,80 @@ int llapi_get_poolmembers(const char *poolname, char **members,
         return rc;
 }
 
+#define POOL_PREFIX "pool_id: "
+#define POOL_RREFIX_LENG strlen(POOL_PREFIX)
+
+/**
+ * Get the ID of pool.
+ * \param poolname    string of format \<fsname\>.\<poolname\>
+ * \param pool_id     ID of the pool
+ *
+ * \return number of members retrieved for this pool
+ * \retval -error failure
+ */
+int llapi_get_pool_id(const char *poolname, __u32 *pool_id)
+{
+	char fsname[PATH_MAX + 1];
+	char *pool;
+	char path[PATH_MAX + 1];
+	char buf[1024];
+	FILE *fd;
+	int rc = 0;
+	glob_t param;
+
+	/* name is FSNAME.POOLNAME */
+	if (strlen(poolname) > PATH_MAX)
+		return -EOVERFLOW;
+	strncpy(fsname, poolname, PATH_MAX);
+	pool = strchr(fsname, '.');
+	if (pool == NULL)
+		return -EINVAL;
+
+	*pool = '\0';
+	pool++;
+	rc = poolpath(&param, fsname, NULL);
+	if (rc != 0) {
+		llapi_error(LLAPI_MSG_ERROR, rc,
+			    "Lustre filesystem '%s' not found",
+			    fsname);
+		return rc;
+	}
+
+	llapi_printf(LLAPI_MSG_NORMAL, "Pool: %s.%s\n", fsname, pool);
+	snprintf(path, PATH_MAX, "%s/%s", param.gl_pathv[0], pool);
+	fd = fopen(path, "r");
+	if (fd == NULL) {
+		rc = -errno;
+		llapi_error(LLAPI_MSG_ERROR, rc, "Cannot open %s", path);
+		return rc;
+	}
+
+	rc = 0;
+	if (fgets(buf, sizeof(buf), fd) == NULL) {
+		rc = -ENODATA;
+		llapi_error(LLAPI_MSG_ERROR, rc,
+			    "Cannot get pool ID from %s", path);
+		goto out;
+	}
+
+	if (strncmp(buf, POOL_PREFIX, POOL_RREFIX_LENG) != 0 ||
+	    strlen(buf) <= POOL_RREFIX_LENG) {
+		rc = -EINVAL;
+		llapi_error(LLAPI_MSG_ERROR, rc, "Invalid pool string %s", buf);
+		goto out;
+	}
+
+	*pool_id = strtoul(buf + POOL_RREFIX_LENG, NULL, 0);
+	if (*pool_id == 0) {
+		rc = -EINVAL;
+		llapi_error(LLAPI_MSG_ERROR, rc, "Invalid pool ID %s", buf);
+	}
+out:
+	cfs_free_param_data(&param);
+	fclose(fd);
+	return rc;
+}
+
 /**
  * Get the list of pools in a filesystem.
  * \param name        filesystem name or path

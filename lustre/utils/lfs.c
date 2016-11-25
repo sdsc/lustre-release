@@ -1287,6 +1287,11 @@ static int name2gid(unsigned int *id, const char *name)
 	return 0;
 }
 
+static inline int name2pid(unsigned int *id, const char *name)
+{
+	return llapi_get_pool_id(name, id);
+}
+
 static int uid2name(char **name, unsigned int id)
 {
 	struct passwd *passwd;
@@ -2690,6 +2695,7 @@ int lfs_setquota_times(int argc, char **argv)
                 {"block-grace",     required_argument, 0, 'b'},
                 {"group",           no_argument,       0, 'g'},
                 {"inode-grace",     required_argument, 0, 'i'},
+		{"project",         no_argument,       0, 'p'},
                 {"times",           no_argument,       0, 't'},
                 {"user",            no_argument,       0, 'u'},
                 {0, 0, 0, 0}
@@ -2700,7 +2706,7 @@ int lfs_setquota_times(int argc, char **argv)
 	qctl.qc_cmd  = LUSTRE_Q_SETINFO;
 	qctl.qc_type = ALLQUOTA;
 
-	while ((c = getopt_long(argc, argv, "b:gi:tu",
+	while ((c = getopt_long(argc, argv, "b:gi:ptu",
 				long_opts, NULL)) != -1) {
 		switch (c) {
 		case 'u':
@@ -2708,9 +2714,12 @@ int lfs_setquota_times(int argc, char **argv)
 			goto quota_type;
 		case 'g':
 			qtype = GRPQUOTA;
+			goto quota_type;
+		case 'p':
+			qtype = PRJQUOTA;
 quota_type:
 			if (qctl.qc_type != ALLQUOTA) {
-				fprintf(stderr, "error: -u and -g can't be used "
+				fprintf(stderr, "error: -u/g/p can't be used "
                                                 "more than once\n");
 				return CMD_HELP;
 			}
@@ -2740,7 +2749,7 @@ quota_type:
         }
 
 	if (qctl.qc_type == ALLQUOTA) {
-                fprintf(stderr, "error: neither -u nor -g specified\n");
+		fprintf(stderr, "error: neither -u, -g nor -p specified\n");
                 return CMD_HELP;
         }
 
@@ -2780,6 +2789,7 @@ int lfs_setquota(int argc, char **argv)
                 {"inode-softlimit", required_argument, 0, 'i'},
                 {"inode-hardlimit", required_argument, 0, 'I'},
                 {"user",            required_argument, 0, 'u'},
+		{"project",         required_argument, 0, 'p'},
                 {0, 0, 0, 0}
         };
         unsigned limit_mask = 0;
@@ -2795,17 +2805,20 @@ int lfs_setquota(int argc, char **argv)
                                  * so it can be used as a marker that qc_type
                                  * isn't reinitialized from command line */
 
-        while ((c = getopt_long(argc, argv, "b:B:g:i:I:u:", long_opts, NULL)) != -1) {
+        while ((c = getopt_long(argc, argv, "b:B:g:i:I:p:u:", long_opts, NULL)) != -1) {
                 switch (c) {
                 case 'u':
 			qtype = USRQUOTA;
 			rc = name2uid(&qctl.qc_id, optarg);
-			/* fall through */
+			goto quota_type;
                 case 'g':
-			if (c == 'g') {
-				qtype = GRPQUOTA;
-				rc = name2gid(&qctl.qc_id, optarg);
-			}
+			qtype = GRPQUOTA;
+			rc = name2gid(&qctl.qc_id, optarg);
+			goto quota_type;
+		case 'p':
+			qtype = PRJQUOTA;
+			rc = name2pid(&qctl.qc_id, optarg);
+quota_type:
 			if (qctl.qc_type != ALLQUOTA) {
 				fprintf(stderr, "error: -u and -g can't be used"
 						" more than once\n");
@@ -3186,15 +3199,17 @@ static int lfs_quota(int argc, char **argv)
 	bool human_readable = false;
 	int qtype;
 
-	while ((c = getopt(argc, argv, "gi:I:o:qtuvh")) != -1) {
+	while ((c = getopt(argc, argv, "gi:I:o:pqtuvh")) != -1) {
 		switch (c) {
 		case 'u':
 			qtype = USRQUOTA;
-			/* fall through */
+			goto quota_type;
 		case 'g':
-			if (c == 'g')
-				qtype = GRPQUOTA;
-
+			qtype = GRPQUOTA;
+			goto quota_type;
+		case 'p':
+			qtype = PRJQUOTA;
+quota_type:
 			if (qctl.qc_type != ALLQUOTA) {
 				fprintf(stderr, "error: use either -u or -g\n");
 				return CMD_HELP;
@@ -3273,6 +3288,9 @@ all_output:
 			break;
 		case GRPQUOTA:
 			rc = name2gid(&qctl.qc_id, name);
+			break;
+		case PRJQUOTA:
+			rc = name2pid(&qctl.qc_id, name);
 			break;
 		default:
 			rc = -ENOTSUP;
