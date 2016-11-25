@@ -94,7 +94,8 @@ int osd_acct_obj_lookup(struct osd_thread_info *info, struct osd_device *osd,
 		RETURN(-ENOTSUPP);
 #endif
 	}
-	if (!ldiskfs_valid_inum(sb, id->oii_ino))
+	if (!ldiskfs_valid_inum(sb, id->oii_ino) &&
+	    fid2type(fid) != PRJQUOTA)
 		RETURN(-ENOENT);
 	RETURN(0);
 }
