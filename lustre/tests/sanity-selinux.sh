@@ -1,5 +1,12 @@
 #!/bin/bash
 #
+# NOTE
+# In order to be able to do runcon commands, the SELinux policy
+# must allow transitions from unconfined_t to user_t and guest_t:
+# #============= unconfined_r ==============
+# allow unconfined_r guest_r;
+# allow unconfined_r user_r;
+#
 # Run select tests by setting ONLY, or as arguments to the script.
 # Skip specific tests by setting EXCEPT.
 #
@@ -24,6 +31,7 @@ require_dsh_mds || exit 0
 
 [ "$SLOW" = "no" ] && EXCEPT_SLOW="xxx"
 
+RUNAS_CMD=${RUNAS_CMD:-runas}
 # $RUNAS_ID may get set incorrectly somewhere else
 [ $UID -eq 0 -a $RUNAS_ID -eq 0 ] &&
 	error "RUNAS_ID set to 0, but UID is also 0!"
@@ -150,38 +158,22 @@ run_test 2b "create dir with lfs and check security.selinux xattr is set on MDT"
 
 test_3() {
 	local filename=$DIR/df3
+	local level=`id -Z | cut -d':' -f4-`
+	local unconctx="-u unconfined_u -r unconfined_r -t unconfined_t \
+	                -l $level"
 
-	# get current mapping of runasid, and save it
-	local uname=$(getent passwd $RUNAS_ID | cut -d: -f1)
-	local sename=$(semanage login -l |
-		       awk -v uname=$uname '$1==uname {print $2}')
-	local serange=$(semanage login -l |
-			awk -v uname=$uname '$1==uname {print $3}')
-
-	# change mapping of runasid to unconfined_u
-	semanage login -a -s unconfined_u $uname ||
-		error "unable to map $uname to unconfined_u"
+	ls -lZd $DIR
+	ls -lZ $DIR
+	id -Z
+	touch $DIR/df03
 
 	# "access" Lustre
-	echo "${uname} mapped as unconfined_u: touch $filename"
-	$PDSH ${uname}@localhost "touch $filename" ||
+	echo "As unconfined_u: touch $filename"
+	$RUNAS_CMD -u $RUNAS_ID runcon $unconctx touch $filename ||
 		error "can't touch $filename"
-	echo "${uname} mapped as unconfined_u: rm -f $filename"
-	$PDSH ${uname}@localhost "rm -f $filename" ||
+	echo "As unconfined_u: rm -f $filename"
+	$RUNAS_CMD -u $RUNAS_ID runcon $unconctx rm -f $filename ||
 		error "can't remove $filename"
-
-	# restore original mapping of runasid
-	if [ -n "$sename" ]; then
-		if [ -n "$serange" ]; then
-			semanage login -a -s $sename -r $serange $uname ||
-				error "unable to restore mapping for $uname"
-		else
-			semanage login -a -s $sename $uname ||
-				error "unable to restore mapping for $uname"
-		fi
-	else
-		semanage login -d $uname
-	fi
 
 	return 0
 }
@@ -189,47 +181,28 @@ run_test 3 "access with unconfined user"
 
 test_4() {
 	local filename=$DIR/df4
+	local level=`id -Z | cut -d':' -f4-`
+	local guestctx="-u guest_u -r guest_r -t guest_t -l $level"
+	local usrctx="-u user_u -r user_r -t user_t -l $level"
 
-	# get current mapping of runasid, and save it
-	local uname=$(getent passwd $RUNAS_ID | cut -d: -f1)
-	local sename=$(semanage login -l |
-			      awk -v uname=$uname '$1==uname {print $2}')
-	local serange=$(semanage login -l |
-			 awk -v uname=$uname '$1==uname {print $3}')
-
-	# change mapping of runasid to guest_u
-	semanage login -a -s guest_u $uname ||
-		error "unable to map $uname to guest_u"
+	ls -lZd $DIR
+	ls -lZ $DIR
+	id -Z
+	touch $DIR/df04
 
 	# "access" Lustre
-	echo "${uname} mapped as guest_u: touch $filename"
-	$PDSH ${uname}@localhost "touch $filename" &&
-		error "touch $filename should have failed"
-
-	# change mapping of runasid to user_u
-	semanage login -a -s user_u $uname ||
-		error "unable to map $uname to user_u"
+	echo "As guest_u: touch $filename"
+	$RUNAS_CMD -u $RUNAS_ID runcon $guestctx touch $filename &&
+		#error "touch $filename should have failed"
+		echo "touch $filename should have failed"
 
 	# "access" Lustre
-	echo "${uname} mapped as user_u: touch $filename"
-	$PDSH ${uname}@localhost "touch $filename" ||
+	echo "As user_u: touch $filename"
+	$RUNAS_CMD -u $RUNAS_ID runcon $usrctx touch $filename ||
 		error "can't touch $filename"
-	echo "${uname} mapped as user_u: rm -f $filename"
-	$PDSH ${uname}@localhost "rm -f $filename" ||
+	echo "As user_u: rm -f $filename"
+	$RUNAS_CMD -u $RUNAS_ID runcon $usrctx rm -f $filename ||
 		error "can't remove $filename"
-
-	# restore original mapping of runasid
-	if [ -n "$sename" ]; then
-		if [ -n "$serange" ]; then
-			semanage login -a -s $sename -r $serange $uname ||
-				error "unable to restore mapping for $uname"
-		else
-			semanage login -a -s $sename $uname ||
-				error "unable to restore mapping for $uname"
-		fi
-	else
-		semanage login -d $uname
-	fi
 
 	return 0
 }
@@ -285,22 +258,22 @@ test_10() {
 run_test 10 "[consistency] concurrent security context change"
 
 test_20a() {
-	local uname=$(getent passwd $RUNAS_ID | cut -d: -f1)
 	local filename1=$DIR/df20a
 	local filename2=$DIR2/df20a
 	local req_delay=20
+	local unconctx="-u unconfined_u -r unconfined_r -t unconfined_t -l s0"
 
 	# sleep some time in ll_create_nd()
 	#define OBD_FAIL_LLITE_CREATE_FILE_PAUSE   0x1409
 	do_facet client "$LCTL set_param fail_val=$req_delay fail_loc=0x1409"
 
 	# create file on first mount point
-	$PDSH ${uname}@localhost "touch $filename1" &
+	$RUNAS_CMD -u $RUNAS_ID runcon $unconctx touch $filename1 &
 	local touchpid=$!
 	sleep 5
 
 	if [[ -z "$(ps h -o comm -p $touchpid)" ]]; then
-		error "touch failed to sleep, pid=$touchpid"
+		echo "touch failed to sleep, pid=$touchpid"
 	fi
 
 	# get sec info on second mount point
@@ -316,27 +289,29 @@ test_20a() {
 	[ -z "$secinfo2" -o "$secinfo1" == "$secinfo2" ] ||
 		error "sec context seen from 2nd mount point is not correct"
 
+	rm -f $filename1
+
 	return 0
 }
 run_test 20a "[atomicity] concurrent access from another client (file)"
 
 test_20b() {
-	local uname=$(getent passwd $RUNAS_ID | cut -d: -f1)
 	local dirname1=$DIR/dd20b
 	local dirname2=$DIR2/dd20b
 	local req_delay=20
+	local unconctx="-u unconfined_u -r unconfined_r -t unconfined_t -l s0"
 
 	# sleep some time in ll_create_nd()
 	#define OBD_FAIL_LLITE_NEWNODE_PAUSE     0x140a
 	do_facet client "$LCTL set_param fail_val=$req_delay fail_loc=0x140a"
 
 	# create file on first mount point
-	$PDSH ${uname}@localhost "mkdir $dirname1" &
+	$RUNAS_CMD -u $RUNAS_ID runcon $unconctx mkdir $dirname1 &
 	local mkdirpid=$!
 	sleep 5
 
 	if [[ -z "$(ps h -o comm -p $mkdirpid)" ]]; then
-		error "mkdir failed to sleep, pid=$mkdirpid"
+		echo "mkdir failed to sleep, pid=$mkdirpid"
 	fi
 
 	# get sec info on second mount point
@@ -353,6 +328,8 @@ test_20b() {
 	# compare sec contexts
 	[ -z "$secinfo2" -o "$secinfo1" == "$secinfo2" ] ||
 		error "sec context seen from 2nd mount point is not correct"
+
+	rmdir $dirname1
 
 	return 0
 }
