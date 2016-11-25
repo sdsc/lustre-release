@@ -968,7 +968,7 @@ out:
 	return rc;
 }
 
-static inline int check_owner(int type, int id)
+static int check_owner(int type, int id, struct ll_sb_info *sbi)
 {
 	switch (type) {
 	case USRQUOTA:
@@ -978,6 +978,8 @@ static inline int check_owner(int type, int id)
 	case GRPQUOTA:
 		if (!in_egroup_p(make_kgid(&init_user_ns, id)))
 			return -EPERM;
+		break;
+	case PRJQUOTA:
 		break;
 	}
 	return 0;
@@ -999,7 +1001,7 @@ static int quotactl_ioctl(struct ll_sb_info *sbi, struct if_quotactl *qctl)
 			RETURN(-EPERM);
 		break;
 	case Q_GETQUOTA:
-		if (check_owner(type, id) &&
+		if (check_owner(type, id, sbi) &&
 		    (!cfs_capable(CFS_CAP_SYS_ADMIN)))
 			RETURN(-EPERM);
                 break;
