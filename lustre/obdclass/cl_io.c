@@ -58,7 +58,7 @@
 
 static inline int cl_io_type_is_valid(enum cl_io_type type)
 {
-        return CIT_READ <= type && type < CIT_OP_NR;
+	return type < CIT_OP_NR;
 }
 
 static inline int cl_io_is_loopable(const struct cl_io *io)
