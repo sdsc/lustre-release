@@ -135,6 +135,12 @@ static int __init lustre_init(void)
 
 	proc_lustre_fs_root = entry;
 
+	llite_kset = kset_create_and_add("llite", NULL, lustre_kobj);
+	if (!llite_kset) {
+		rc = -ENOMEM;
+		goto out_proc;
+	}
+
 	cfs_get_random_bytes(seed, sizeof(seed));
 
 	/* Nodes with small feet have little entropy. The NID for this
@@ -152,7 +158,7 @@ static int __init lustre_init(void)
 
 	rc = vvp_global_init();
 	if (rc != 0)
-		GOTO(out_proc, rc);
+		GOTO(out_sysfs, rc);
 
 	cl_inode_fini_env = cl_env_alloc(&cl_inode_fini_refcheck,
 					 LCT_REMEMBER | LCT_NOREF);
@@ -175,6 +181,8 @@ out_inode_fini_env:
 	cl_env_put(cl_inode_fini_env, &cl_inode_fini_refcheck);
 out_vvp:
 	vvp_global_fini();
+out_sysfs:
+	kset_unregister(llite_kset);
 out_proc:
 	lprocfs_remove(&proc_lustre_fs_root);
 out_cache:
@@ -194,6 +202,7 @@ static void __exit lustre_exit(void)
 	lustre_register_client_process_config(NULL);
 
 	lprocfs_remove(&proc_lustre_fs_root);
+	kset_unregister(llite_kset);
 
 	ll_xattr_fini();
 	cl_env_put(cl_inode_fini_env, &cl_inode_fini_refcheck);
