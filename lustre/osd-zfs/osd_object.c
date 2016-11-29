@@ -1520,8 +1520,8 @@ static int osd_object_create(const struct lu_env *env, struct dt_object *dt,
 		GOTO(out, rc);
 
 	/* Now add in all of the "SA" attributes */
-	rc = -sa_handle_get(osd->od_os, db->db_object, NULL,
-			    SA_HDL_PRIVATE, &obj->oo_sa_hdl);
+	rc = -sa_handle_get_from_db(osd->od_os, db, obj,
+				    SA_HDL_PRIVATE, &obj->oo_sa_hdl);
 	if (rc)
 		GOTO(out, rc);
 
