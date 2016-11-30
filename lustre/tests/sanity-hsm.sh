@@ -3688,6 +3688,8 @@ test_106() {
 run_test 106 "Copytool register/unregister"
 
 test_107() {
+	[ "$CLIENTONLY" ] && skip "CLIENTONLY mode" && return
+
 	# test needs a running copytool
 	copytool_setup
 	# create and archive file
@@ -4395,6 +4397,8 @@ test_251() {
 run_test 251 "Coordinator request timeout"
 
 test_300() {
+	[ "$CLIENTONLY" ] && skip "CLIENTONLY mode" && return
+
 	# the only way to test ondisk conf is to restart MDS ...
 	echo "Stop coordinator and remove coordinator state at mount"
 	# stop coordinator
@@ -4422,6 +4426,8 @@ test_300() {
 run_test 300 "On disk coordinator state kept between MDT umount/mount"
 
 test_301() {
+	[ "$CLIENTONLY" ] && skip "CLIENTONLY mode" && return
+
 	local ai=$(get_hsm_param default_archive_id)
 	local new=$((ai + 1))
 
@@ -4437,6 +4443,8 @@ test_301() {
 run_test 301 "HSM tunnable are persistent"
 
 test_302() {
+	[ "$CLIENTONLY" ] && skip "CLIENTONLY mode" && return
+
 	local ai=$(get_hsm_param default_archive_id)
 	local new=$((ai + 1))
 
