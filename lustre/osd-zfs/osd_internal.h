@@ -249,7 +249,7 @@ struct osd_device {
 	/* information about underlying file system */
 	struct objset		*od_os;
 	uint64_t		 od_rootid;  /* id of root znode */
-	uint64_t		 od_unlinkedid; /* id of unlinked zapobj */
+	dnode_t		 	*od_unlinked; /* dnode of unlinked zapobj */
 	/* SA attr mapping->id,
 	 * name is the same as in ZFS to use defines SA_ZPL_...*/
 	sa_attr_type_t		 *z_attr_table;
@@ -367,6 +367,8 @@ int osd_declare_quota(const struct lu_env *env, struct osd_device *osd,
 		      bool force);
 uint64_t osd_objs_count_estimate(uint64_t refdbytes, uint64_t usedobjs,
 				 uint64_t nrblocks, uint64_t est_maxblockshift);
+int osd_unlinked_object_free(const struct lu_env *env, struct osd_device *osd,
+			 uint64_t oid);
 
 /*
  * Helpers.
@@ -459,8 +461,7 @@ int osd_procfs_fini(struct osd_device *osd);
 /* osd_object.c */
 extern char *osd_obj_tag;
 void osd_object_sa_dirty_rele(struct osd_thandle *oh);
-int __osd_obj2dnode(const struct lu_env *env, objset_t *os,
-		   uint64_t oid, dnode_t **dnp);
+int __osd_obj2dnode(objset_t *os, uint64_t oid, dnode_t **dnp);
 struct lu_object *osd_object_alloc(const struct lu_env *env,
 				   const struct lu_object_header *hdr,
 				   struct lu_device *d);
@@ -481,7 +482,8 @@ void osd_oi_fini(const struct lu_env *env, struct osd_device *o);
 int osd_fid_lookup(const struct lu_env *env,
 		   struct osd_device *, const struct lu_fid *, uint64_t *);
 uint64_t osd_get_name_n_idx(const struct lu_env *env, struct osd_device *osd,
-			    const struct lu_fid *fid, char *buf, int bufsize);
+			    const struct lu_fid *fid, char *buf, int bufsize,
+				dnode_t **zdn);
 int osd_options_init(void);
 int osd_ost_seq_exists(const struct lu_env *env, struct osd_device *osd,
 		       __u64 seq);
@@ -690,4 +692,58 @@ static inline void osd_dnode_rele(dnode_t *dn)
 	DB_DNODE_EXIT(db);
 	dmu_buf_rele(&db->db, osd_obj_tag);
 }
+
+static inline int osd_zap_add(struct osd_device *osd, uint64_t zap,
+			      dnode_t *dn, const char *key,
+			      int int_size, int int_num,
+			      const void *val, dmu_tx_t *tx)
+{
+	LASSERT(zap != 0);
+
+#ifdef HAVE_ZAP_ADD_BY_DNODE
+	if (dn)
+		return -zap_add_by_dnode(dn, key, int_size, int_num, val, tx);
+#endif
+	return -zap_add(osd->od_os, zap, key, int_size, int_num, val, tx);
+}
+
+static inline int osd_zap_remove(struct osd_device *osd, uint64_t zap,
+				 dnode_t *dn, const char *key,
+				 dmu_tx_t *tx)
+{
+	LASSERT(zap != 0);
+
+#ifdef HAVE_ZAP_ADD_BY_DNODE
+	if (dn)
+		return -zap_remove_by_dnode(dn, key, tx);
+#endif
+	return -zap_remove(osd->od_os, zap, key, tx);
+}
+
+
+static inline int osd_zap_lookup(struct osd_device *osd, uint64_t zap,
+				 dnode_t *dn, const char *key,
+				 int int_size, int int_num, void *v)
+{
+	LASSERT(zap != 0);
+
+#ifdef HAVE_ZAP_ADD_BY_DNODE
+	if (dn)
+		return -zap_lookup_by_dnode(dn, key, int_size, int_num, v);
+#endif
+	return -zap_lookup(osd->od_os, zap, key, int_size, int_num, v);
+}
+
+static inline void osd_tx_hold_zap(dmu_tx_t *tx, uint64_t zap,
+				   dnode_t *dn, int add, const char *name)
+{
+#ifdef HAVE_DMU_TX_HOLD_ZAP_BY_DNODE
+	if (dn) {
+		dmu_tx_hold_zap_by_dnode(tx, dn, add, name);
+		return;
+	}
+#endif
+	dmu_tx_hold_zap(tx, zap, add, name);
+}
+
 #endif /* _OSD_INTERNAL_H */
