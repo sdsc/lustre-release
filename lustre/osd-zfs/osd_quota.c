@@ -343,8 +343,9 @@ static int osd_it_acct_rec(const struct lu_env *env,
 
 	/* inode accounting is not maintained by DMU, so we use our own ZAP to
 	 * track inode usage */
-	rc = -zap_lookup(osd->od_os, it->oiq_obj->oo_dn->dn_object,
-			 za->za_name, sizeof(uint64_t), 1, &rec->ispace);
+	rc = osd_zap_lookup(osd, it->oiq_obj->oo_dn->dn_object,
+			    it->oiq_obj->oo_dn, za->za_name, sizeof(uint64_t),
+			    1, &rec->ispace);
 	if (rc == -ENOENT)
 		/* user/group has not created any file yet */
 		CDEBUG(D_QUOTA, "%s: id %s not found in accounting ZAP\n",
