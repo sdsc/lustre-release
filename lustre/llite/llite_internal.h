@@ -527,6 +527,12 @@ struct ll_sb_info {
 	/* root squash */
 	struct root_squash_info	  ll_squash;
 	struct path		  ll_mnt;
+
+	struct kobject		  ll_kobj;	/* sysfs object */
+	struct super_block	 *ll_sb;	/* struct super_block
+						 * (for sysfs code)
+						 */
+	struct completion	  ll_kobj_unregister;
 };
 
 /*
@@ -636,6 +642,7 @@ struct ll_file_data {
 };
 
 extern struct proc_dir_entry *proc_lustre_fs_root;
+extern struct kset *llite_kset;
 
 static inline struct inode *ll_info2i(struct ll_inode_info *lli)
 {
