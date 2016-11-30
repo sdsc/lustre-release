@@ -481,7 +481,8 @@ void osd_oi_fini(const struct lu_env *env, struct osd_device *o);
 int osd_fid_lookup(const struct lu_env *env,
 		   struct osd_device *, const struct lu_fid *, uint64_t *);
 uint64_t osd_get_name_n_idx(const struct lu_env *env, struct osd_device *osd,
-			    const struct lu_fid *fid, char *buf, int bufsize);
+			    const struct lu_fid *fid, char *buf, int bufsize,
+				dnode_t **zdn);
 int osd_options_init(void);
 int osd_ost_seq_exists(const struct lu_env *env, struct osd_device *osd,
 		       __u64 seq);
@@ -690,4 +691,49 @@ static inline void osd_dnode_rele(dnode_t *dn)
 	DB_DNODE_EXIT(db);
 	dmu_buf_rele(&db->db, osd_obj_tag);
 }
+
+static inline int osd_zap_add(struct osd_device *osd, uint64_t zap,
+			      dnode_t *dn, const char *key,
+			      int int_size, int int_num,
+			      const void *val, struct osd_thandle *oh)
+{
+	LASSERT(zap != 0);
+
+#ifdef HAVE_ZAP_ADD_BY_DNODE
+	if (dn)
+		return -zap_add_by_dnode(dn, key, int_size, int_num,
+					 val, oh->ot_tx);
+#endif
+	return -zap_add(osd->od_os, zap, key, int_size,
+			int_num, val, oh->ot_tx);
+}
+
+static inline int osd_zap_remove(struct osd_device *osd, uint64_t zap,
+				 dnode_t *dn, const char *key,
+				 struct osd_thandle *oh)
+{
+	LASSERT(zap != 0);
+
+#ifdef HAVE_ZAP_ADD_BY_DNODE
+	if (dn)
+		return -zap_remove_by_dnode(dn, key, oh->ot_tx);
+#endif
+	return -zap_remove(osd->od_os, zap, key, oh->ot_tx);
+}
+
+
+static inline int osd_zap_lookup(struct osd_device *osd, uint64_t zap,
+				 dnode_t *dn, const char *key,
+				 int int_size, int int_num, void *v)
+{
+	LASSERT(zap != 0);
+
+#ifdef HAVE_ZAP_ADD_BY_DNODE
+	if (dn)
+		return -zap_lookup_by_dnode(dn, key, int_size, int_num, v);
+#endif
+	return -zap_lookup(osd->od_os, zap, key, int_size, int_num, v);
+}
+
+
 #endif /* _OSD_INTERNAL_H */
