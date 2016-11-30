@@ -515,7 +515,7 @@ static int osd_declare_object_destroy(const struct lu_env *env,
 	LASSERT(oh->ot_tx != NULL);
 
 	/* declare that we'll remove object from fid-dnode mapping */
-	zapid = osd_get_name_n_idx(env, osd, fid, NULL, 0);
+	zapid = osd_get_name_n_idx(env, osd, fid, NULL, 0, NULL);
 	dmu_tx_hold_zap(oh->ot_tx, zapid, FALSE, NULL);
 
 	osd_declare_xattrs_destroy(env, obj, oh);
@@ -557,6 +557,7 @@ static int osd_object_destroy(const struct lu_env *env,
 	struct osd_thandle	*oh;
 	int			 rc;
 	uint64_t		 oid, zapid;
+	dmu_buf_t		*zdb;
 	ENTRY;
 
 	down_write(&obj->oo_guard);
@@ -571,8 +572,9 @@ static int osd_object_destroy(const struct lu_env *env,
 	LASSERT(oh->ot_tx != NULL);
 
 	/* remove obj ref from index dir (it depends) */
-	zapid = osd_get_name_n_idx(env, osd, fid, buf, sizeof(info->oti_str));
-	rc = -zap_remove(osd->od_os, zapid, buf, oh->ot_tx);
+	zapid = osd_get_name_n_idx(env, osd, fid, buf,
+				   sizeof(info->oti_str), &zdb);
+	rc = osd_zap_remove(osd, zapid, zdb, buf, oh);
 	if (rc) {
 		CERROR("%s: zap_remove(%s) failed: rc = %d\n",
 		       osd->od_svname, buf, rc);
@@ -1186,8 +1188,8 @@ static int osd_declare_object_create(const struct lu_env *env,
 	}
 
 	/* and we'll add it to some mapping */
-	zapid = osd_get_name_n_idx(env, osd, fid, NULL, 0);
-	dmu_tx_hold_zap(oh->ot_tx, zapid, TRUE, NULL);
+	zapid = osd_get_name_n_idx(env, osd, fid, NULL, 0i, NULL);
+	dmu_tx_hold_zap(oh->ot_tx, DMU_NEW_OBJECT, TRUE, NULL);
 
 	/* we will also update inode accounting ZAPs */
 	dmu_tx_hold_zap(oh->ot_tx, osd->od_iusr_oid, FALSE, NULL);
@@ -1466,7 +1468,7 @@ static int osd_object_create(const struct lu_env *env, struct dt_object *dt,
 	struct osd_device	*osd = osd_obj2dev(obj);
 	char			*buf = info->oti_str;
 	struct osd_thandle	*oh;
-	dmu_buf_t		*db = NULL;
+	dmu_buf_t		*db = NULL, *zdb;
 	uint64_t		 zapid, parent = 0;
 	int			 rc;
 
@@ -1513,9 +1515,9 @@ static int osd_object_create(const struct lu_env *env, struct dt_object *dt,
 	zde->zde_dnode = db->db_object;
 	zde->zde_type = IFTODT(attr->la_mode & S_IFMT);
 
-	zapid = osd_get_name_n_idx(env, osd, fid, buf, sizeof(info->oti_str));
-
-	rc = -zap_add(osd->od_os, zapid, buf, 8, 1, zde, oh->ot_tx);
+	zapid = osd_get_name_n_idx(env, osd, fid, buf,
+				   sizeof(info->oti_str), &zdb);
+	rc = osd_zap_add(osd, zapid, zdb, buf, 8, 1, zde, oh);
 	if (rc)
 		GOTO(out, rc);
 

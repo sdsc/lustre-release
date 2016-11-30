@@ -503,6 +503,45 @@ your distribution.
 			AC_DEFINE(HAVE_DMU_PREFETCH_6ARG, 1,
 				[Have 6 argument dmu_pretch in ZFS])
 		])
+		dnl #
+		dnl # ZFS 0.7.x adds new method zap_lookup_by_dnode
+		dnl #
+		LB_CHECK_COMPILE([if ZFS has 'zap_lookup_by_dnode'],
+		zap_lookup_by_dnode, [
+			#include <sys/zap.h>
+		],[
+			dnode_t *dn = NULL;
+			zap_lookup_by_dnode(dn, NULL, 1, 1, NULL);
+		],[
+			AC_DEFINE(HAVE_ZAP_LOOKUP_BY_DNODE, 1,
+				[Have zap_lookup_by_dnode() in ZFS])
+		])
+		dnl #
+		dnl # ZFS 0.7.x adds new method zap_add_by_dnode
+		dnl #
+		LB_CHECK_COMPILE([if ZFS has 'zap_add_by_dnode'],
+		zap_add_by_dnode, [
+			#include <sys/zap.h>
+		],[
+			dnode_t *dn = NULL;
+			zap_add_by_dnode(dn, NULL, 1, 1, NULL, NULL);
+		],[
+			AC_DEFINE(HAVE_ZAP_ADD_BY_DNODE, 1,
+				[Have zap_add_by_dnode() in ZFS])
+		])
+		dnl #
+		dnl # ZFS 0.7.x adds new method zap_remove_by_dnode
+		dnl #
+		LB_CHECK_COMPILE([if ZFS has 'zap_remove_by_dnode'],
+		zap_remove_by_dnode, [
+			#include <sys/zap.h>
+		],[
+			dnode_t *dn = NULL;
+			zap_remove_by_dnode(dn, NULL, NULL);
+		],[
+			AC_DEFINE(HAVE_ZAP_REMOVE_ADD_BY_DNODE, 1,
+				[Have zap_remove_by_dnode() in ZFS])
+		])
 	])
 
 	AM_CONDITIONAL(ZFS_ENABLED, [test "x$enable_zfs" = xyes])

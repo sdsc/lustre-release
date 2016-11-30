@@ -481,7 +481,8 @@ void osd_oi_fini(const struct lu_env *env, struct osd_device *o);
 int osd_fid_lookup(const struct lu_env *env,
 		   struct osd_device *, const struct lu_fid *, uint64_t *);
 uint64_t osd_get_name_n_idx(const struct lu_env *env, struct osd_device *osd,
-			    const struct lu_fid *fid, char *buf, int bufsize);
+			    const struct lu_fid *fid, char *buf, int bufsize,
+				dmu_buf_t **zdb);
 int osd_options_init(void);
 int osd_ost_seq_exists(const struct lu_env *env, struct osd_device *osd,
 		       __u64 seq);
@@ -662,5 +663,82 @@ osd_zap_create_flags(objset_t *os, int normflags, zap_flags_t flags,
 #ifndef DN_MAX_BONUSLEN
 #define DN_MAX_BONUSLEN        DN_OLD_MAX_BONUSLEN
 #endif
+
+static inline int osd_zap_add(struct osd_device *osd, uint64_t zap,
+			      dmu_buf_t *db, const char *key,
+			      int int_size, int int_num,
+			      const void *val, struct osd_thandle *oh)
+{
+	int err;
+
+	LASSERT(zap != 0);
+
+#ifdef HAVE_ZAP_ADD_BY_DNODE
+	if (db) {
+		dmu_buf_impl_t *dbi = (dmu_buf_impl_t *)db;
+		dnode_t *dn;
+
+		DB_DNODE_ENTER(dbi);
+		dn = (DB_DNODE(dbi));
+		err = -zap_add_by_dnode(dn, key, int_size, int_num,
+					val, oh->ot_tx);
+		DB_DNODE_EXIT(dbi);
+	} else
+#endif
+		return -zap_add(osd->od_os, zap, key, int_size,
+				int_num, val, oh->ot_tx);
+
+	return err;
+}
+
+static inline int osd_zap_remove(struct osd_device *osd, uint64_t zap,
+				 dmu_buf_t *db, const char *key,
+				 struct osd_thandle *oh)
+{
+	int err;
+
+	LASSERT(zap != 0);
+
+#ifdef HAVE_ZAP_ADD_BY_DNODE
+	if (db) {
+		dmu_buf_impl_t *dbi = (dmu_buf_impl_t *)db;
+		dnode_t *dn;
+
+		DB_DNODE_ENTER(dbi);
+		dn = (DB_DNODE(dbi));
+		err = -zap_remove_by_dnode(dn, key, oh->ot_tx);
+		DB_DNODE_EXIT(dbi);
+	} else
+#endif
+		return -zap_remove(osd->od_os, zap, key, oh->ot_tx);
+
+	return err;
+}
+
+
+static inline int osd_zap_lookup(struct osd_device *osd, uint64_t zap,
+				 dmu_buf_t *db, const char *key,
+				 int int_size, int int_num, void *v)
+{
+	int err;
+
+	LASSERT(zap != 0);
+
+#ifdef HAVE_ZAP_ADD_BY_DNODE
+	if (db) {
+		dmu_buf_impl_t *dbi = (dmu_buf_impl_t *)db;
+		dnode_t *dn;
+
+		DB_DNODE_ENTER(dbi);
+		dn = (DB_DNODE(dbi));
+		err = -zap_lookup_by_dnode(dn, key, int_size, int_num, v);
+		DB_DNODE_EXIT(dbi);
+	} else
+#endif
+		return -zap_lookup(osd->od_os, zap, key, int_size, int_num, v);
+
+	return err;
+}
+
 
 #endif /* _OSD_INTERNAL_H */
