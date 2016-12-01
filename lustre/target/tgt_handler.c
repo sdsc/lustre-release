@@ -1968,6 +1968,7 @@ int tgt_brw_write(struct tgt_session_info *tsi)
 	cksum_type_t		 cksum_type = OBD_CKSUM_CRC32;
 	bool			 no_reply = false, mmap;
 	struct tgt_thread_big_cache *tbc = req->rq_svc_thread->t_data;
+	bool			 wait_sync = false;
 
 	ENTRY;
 
@@ -2135,6 +2136,12 @@ skip_transfer:
 		 * has timed out the request already */
 		no_reply = true;
 
+	for (i = 0; i < niocount; i++) {
+		if (!(local_nb[i].lnb_flags & OBD_BRW_ASYNC)) {
+			wait_sync = true;
+			break;
+		}
+	}
 	/*
 	 * Disable sending mtime back to the client. If the client locked the
 	 * whole object, then it has already updated the mtime on its side,
@@ -2168,7 +2175,9 @@ out_lock:
 	if (desc)
 		ptlrpc_free_bulk(desc);
 out:
-	if (no_reply) {
+	if (likely(no_reply == 0))
+		no_reply = !target_committed_to_req(req) && wait_sync;
+	if (unlikely(no_reply)) {
 		req->rq_no_reply = 1;
 		/* reply out callback would free */
 		ptlrpc_req_drop_rs(req);
