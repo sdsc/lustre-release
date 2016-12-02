@@ -744,6 +744,7 @@ void lnet_me_unlink(lnet_me_t *me);
 
 void lnet_md_unlink(lnet_libmd_t *md);
 void lnet_md_deconstruct(lnet_libmd_t *lmd, lnet_md_t *umd);
+int lnet_cpt_of_md_page(lnet_handle_md_t handle);
 
 void lnet_register_lnd(lnd_t *lnd);
 void lnet_unregister_lnd(lnd_t *lnd);
