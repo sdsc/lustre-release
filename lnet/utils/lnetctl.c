@@ -1323,6 +1323,60 @@ static int jt_list_peer(int argc, char **argv)
 	return rc;
 }
 
+static int jt_ping(int argc, char **argv)
+{
+        struct cYAML *err_rc = NULL;
+	struct cYAML *show_rc = NULL;
+        char *pnid = NULL;
+	int timeout = 1000;
+        int rc, opt;
+
+        const char *const short_options = "n:t:h";
+        const struct option long_options[] = {
+		{ "nid", 1, NULL, 'n' },
+		{ "timeout", 1, NULL, 't' },
+                { "help", 0, NULL, 'h' },
+                { NULL, 0, NULL, 0 },
+        };
+
+        while ((opt = getopt_long(argc, argv, short_options,
+                                   long_options, NULL)) != -1) {
+                switch (opt) {
+		case 'n':
+			pnid = optarg;
+			break;
+		case 't':
+			timeout = 1000 * atol(optarg);
+			break;
+                case 'h':
+                        printf("Usage: ping \n"
+				"\t--nid(e.g. 10.2.2.2@tcp):"
+				  " <nid1>,<nid2>,..,<nidN>\n"
+                                "\t--timeout: timeout(secs)\n"
+                                "\t--help: display this help\n");
+                        return 0;
+                default:
+                        return 0;
+                }
+        }
+
+        if (argc < 3){
+                return CMD_HELP;
+        }
+
+        rc = lustre_lnet_ping_nid(pnid, timeout, -1, &show_rc, &err_rc);
+
+	if (rc != LUSTRE_CFG_RC_NO_ERR)
+                cYAML_print_tree2file(stderr, err_rc);
+        else if (show_rc)
+                cYAML_print_tree(show_rc);
+
+        cYAML_free_tree(err_rc);
+        cYAML_free_tree(show_rc);
+
+        return rc;
+}
+
 command_t list[] = {
 	{"lnet", jt_lnet, 0, "lnet {configure | unconfigure} [--all]"},
 	{"route", jt_route, 0, "route {add | del | show | help}"},
@@ -1336,6 +1390,7 @@ command_t list[] = {
 	{"stats", jt_stats, 0, "stats {show | help}"},
 	{"global", jt_global, 0, "global {show | help}"},
 	{"peer", jt_peers, 0, "peer {add | del | show | help}"},
+	{"ping", jt_ping, 0, "ping {--nid | --help}"},
 	{"help", Parser_help, 0, "help"},
 	{"exit", Parser_quit, 0, "quit"},
 	{"quit", Parser_quit, 0, "quit"},

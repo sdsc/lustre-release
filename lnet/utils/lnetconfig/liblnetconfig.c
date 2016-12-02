@@ -58,6 +58,7 @@
 #define DEL_CMD			"del"
 #define SHOW_CMD		"show"
 #define DBG_CMD			"dbg"
+#define MANAGE_CMD              "manage"
 
 /*
  * lustre_lnet_ip_range_descr
@@ -425,6 +426,176 @@ static int dispatch_peer_ni_cmd(lnet_nid_t pnid, lnet_nid_t nid, __u32 cmd,
 	}
 
 	return rc;
+}
+
+int lustre_lnet_ping_nid(char *ping_nids, int timeout, int seq_no,
+                         struct cYAML **show_rc,
+			 struct cYAML **err_rc)
+{
+        struct libcfs_ioctl_data data;
+	struct cYAML *root = NULL, *ping = NULL, *item = NULL;
+        struct cYAML *first_seq = NULL;
+        lnet_process_id_t id;
+        lnet_process_id_t ids[16];
+	char err_str[LNET_MAX_STR_LEN];
+        char *sep, *token, *end, *pnid_buf[8];
+	char buf[2], maxbuf[20];
+        int maxids = sizeof(ids)/sizeof(ids[0]);
+        int rc = -1, i, num, iter, count = 0;
+	bool exist = false;
+
+	/* collect the nids in pnid_buf array if
+ 	 * ping_nids has comma separated multiple nids.
+ 	 */
+   	token = strtok(ping_nids, ",");
+	if (token == NULL) {
+		pnid_buf[0] = ping_nids;
+		count = 1;
+	}
+	while (token) {
+		pnid_buf[count] = token;
+		count = count + 1;
+      		token = strtok(NULL, ",");
+   	}
+
+	/* create struct cYAML root object */
+        root = cYAML_create_object(NULL, NULL);
+        if (root == NULL)
+                goto out;
+
+        ping = cYAML_create_seq(root, "ping");
+        if (ping == NULL)
+                goto out;
+        
+	exist = true;
+
+	for (iter = 0; iter < count; iter++) {
+		item = cYAML_create_seq_item(ping);
+        	if (item == NULL)
+                	goto out;
+		
+		if (first_seq == NULL)
+                	first_seq = item;
+		
+		/* check if '-' is a part of NID, pnid_buf[iter] */
+        	sep = strchr(pnid_buf[iter], '-');
+        	if (sep == NULL) {
+                	id.pid = LNET_PID_ANY;
+                	id.nid = libcfs_str2nid(pnid_buf[iter]);
+                	if (id.nid == LNET_NID_ANY) {
+                        	snprintf(err_str,
+                                	 sizeof(err_str),
+                                 	 "\"cannot parse NID '%s'\"", pnid_buf[iter]);
+                        	rc = LUSTRE_CFG_RC_BAD_PARAM;
+                        	goto out;
+                	}
+        	}
+        	else {
+                	if (pnid_buf[iter][0] == 'u' ||
+                            pnid_buf[iter][0] == 'U')
+                        	id.pid = (strtoul(&pnid_buf[iter][1], &end, 0) 
+				  | (LNET_PID_USERFLAG));
+                	else
+                        	id.pid = strtoul(pnid_buf[iter], &end, 0);
+
+			/* assuming '-' is part of hostname */
+			if (end != sep) {
+                        	id.pid = LNET_PID_ANY;
+                        	id.nid = libcfs_str2nid(pnid_buf[iter]);
+                        	if (id.nid == LNET_NID_ANY) {
+                                	snprintf(err_str,
+                                         	 sizeof(err_str),
+                                         	 "\"cannot parse NID '%s'\"",
+						 	pnid_buf[iter]);
+                                	rc = LUSTRE_CFG_RC_BAD_PARAM;
+                                	goto out;
+                        	}
+                	} else {
+                        	id.nid = libcfs_str2nid(sep + 1);
+                        	if (id.nid == LNET_NID_ANY) {
+                                	snprintf(err_str,
+                                         	 sizeof(err_str),
+						 "\"cannot parse NID '%s'\"",
+							 pnid_buf[iter]);
+                                	rc = LUSTRE_CFG_RC_BAD_PARAM;
+                                	goto out;
+                        	}
+                	}
+        	}
+
+        	LIBCFS_IOC_INIT (data);
+        	data.ioc_nid     = id.nid;
+        	data.ioc_u32[0]  = id.pid;
+        	data.ioc_u32[1]  = timeout;
+        	data.ioc_plen1   = sizeof(ids);
+        	data.ioc_pbuf1   = (char *)ids;
+
+        	rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_PING, &data);
+        	if (rc != 0) {
+			snprintf(err_str,
+                         	 sizeof(err_str),
+                         	 "failed to ping %s: %s\n",
+                         	 id.pid == LNET_PID_ANY ?
+                         	 libcfs_nid2str(id.nid) : libcfs_id2str(id),
+                         	 strerror(errno));
+
+                	rc = LUSTRE_CFG_RC_BAD_PARAM;
+                	goto out;
+        	}
+
+        	for (i = 0; i < data.ioc_count && i < maxids; i++) {
+			num = i;
+			memset(buf, 0, sizeof buf);
+			snprintf(buf, sizeof buf, "%d", num);
+                	if (cYAML_create_string(item, buf,
+                                        libcfs_id2str(ids[i])) == NULL)
+                        	goto out;
+		}
+
+        	if (data.ioc_count > maxids) {
+			memset(maxbuf, 0, sizeof buf);
+			snprintf(maxbuf, sizeof maxbuf,
+				 "%d out of %d ids listed", maxids, data.ioc_count);
+			if (cYAML_create_string(item, "Note:", maxbuf) == NULL)
+                        	goto out;	
+		}
+	}
+
+	/* print output if show_rc is not provided */
+        if (show_rc == NULL)
+                cYAML_print_tree(root);
+
+	rc = LUSTRE_CFG_RC_NO_ERR;
+
+        snprintf(err_str, sizeof(err_str), "\"success\"");
+
+out:
+	if (show_rc == NULL || rc != LUSTRE_CFG_RC_NO_ERR || !exist) {
+                cYAML_free_tree(root);
+        } else if (show_rc != NULL && *show_rc != NULL) {
+                struct cYAML *show_node;
+                /* find the ping node, if one doesn't exist then
+                 * insert one.  Otherwise add to the one there
+                 */
+                show_node = cYAML_get_object_item(*show_rc, "ping");
+                if (show_node != NULL && cYAML_is_sequence(show_node)) {
+                        cYAML_insert_child(show_node, first_seq);
+                        free(ping);
+                        free(root);
+                } else if (show_node == NULL) {
+                        cYAML_insert_sibling((*show_rc)->cy_child,
+                                                ping);
+                        free(root);
+                } else {
+                        cYAML_free_tree(root);
+                }
+        } else {
+                *show_rc = root;
+        }
+
+        cYAML_build_error(rc, seq_no, MANAGE_CMD, "ping", err_str, err_rc);
+
+        return rc;
 }
 
 int lustre_lnet_config_peer_nid(char *pnid, char **nid, int num_nids,
