@@ -1422,11 +1422,13 @@ again:
 		return -ESHUTDOWN;
 	}
 
-	if (msg->msg_md != NULL)
-		/* get the cpt of the MD, used during NUMA based selection */
-		md_cpt = lnet_cpt_of_cookie(msg->msg_md->md_lh.lh_cookie);
-	else
-		md_cpt = CFS_CPT_ANY;
+	if (msg->msg_md != NULL) {
+		md_cpt = lnet_cpt_of_md_page(&msg->msg_md->md_bulk_handle);
+		if (md_cpt == CFS_CPT_ANY)
+			md_cpt = lnet_cpt_current();
+	} else {
+		md_cpt = lnet_cpt_current();
+	}
 
 	peer = lnet_find_or_create_peer_locked(dst_nid, cpt);
 	if (IS_ERR(peer)) {
@@ -1466,7 +1468,8 @@ again:
 
 	if (msg->msg_type == LNET_MSG_REPLY ||
 	    msg->msg_type == LNET_MSG_ACK ||
-	    !peer->lp_multi_rail) {
+	    !peer->lp_multi_rail ||
+	    best_ni) {
 		/*
 		 * for replies we want to respond on the same peer_ni we
 		 * received the message on if possible. If not, then pick
@@ -1474,6 +1477,12 @@ again:
 		 *
 		 * if the peer is non-multi-rail then you want to send to
 		 * the dst_nid provided as well.
+		 *
+		 * If the best_ni has already been determined, IE the
+		 * src_nid has been specified, then use the
+		 * destination_nid provided as well, since we're
+		 * continuing a series of related messages for the same
+		 * RPC.
 		 *
 		 * It is expected to find the lpni using dst_nid, since we
 		 * created it earlier.

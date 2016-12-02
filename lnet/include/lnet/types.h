@@ -434,6 +434,12 @@ typedef struct {
 	 * descriptor are not logged.
 	 */
 	lnet_handle_eq_t eq_handle;
+	/**
+	 * The bulk MD handle which was registered to describe the buffers
+	 * either to be used to transfer data to the peer or receive data
+	 * from the peer.
+	 */
+	lnet_handle_md_t bulk_md_handle;
 } lnet_md_t;
 
 /* Max Transfer Unit (minimum supported everywhere).
