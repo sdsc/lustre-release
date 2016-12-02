@@ -5508,6 +5508,66 @@ test_64c() {
 }
 run_test 64c "verify grant shrink ========================------"
 
+# this does exactly what osc_request.c:osc_announce_cached() does in
+# order to calculate max amount of grants to ask from server
+want_grant() {
+	local tgt=$1
+
+	local page_size=$(get_page_size client)
+
+	local nrpages=$($LCTL get_param -n osc.${tgt}.max_pages_per_rpc)
+	local rpc_in_flight=$($LCTL get_param -n osc.${tgt}.max_rpcs_in_flight)
+	((rpc_in_flight ++));
+	nrpages=$((nrpages * rpc_in_flight))
+
+	local dirty_max_pages=$($LCTL get_param -n osc.${tgt}.max_dirty_mb)
+	dirty_max_pages=$((dirty_max_pages * 1024 * 1024 / page_size))
+
+	[[ $dirty_max_pages -gt $nrpages ]] && nrpages=$dirty_max_pages
+	local undirty=$((nrpages * page_size))
+
+	[[ $($LCTL get_param osc.${tgt}.import |
+		    grep "connect_flags:.*grant_param") ]] &&
+	{
+		local max_extent_pages
+		max_extent_pages=$($LCTL get_param osc.${tgt}.import |
+		    grep grant_max_extent_size | awk '{print $2}')
+		max_extent_pages=$((max_extent_pages / page_size))
+		local nrextents=$(((nrpages + max_extent_pages - 1) /
+			max_extent_pages))
+		local grant_extent_tax
+		grant_extent_tax=$($LCTL get_param osc.${tgt}.import |
+		    grep grant_extent_tax | awk '{print $2}')
+
+		undirty=$((undirty + nrextents * grant_extent_tax))
+	}
+	echo $undirty
+}
+
+test_64d() {
+	local tgt=$($LCTL dl | grep "0000-osc-[^mM]" | awk '{print $4}')
+	local max_wanted=$(want_grant $tgt)
+
+	$SETSTRIPE $DIR/$tfile -i 0 -c 1
+	dd if=/dev/zero of=$DIR/$tfile bs=1M count=1000 &
+	ddpid=$!
+
+	while true
+	do
+		local cur_grant=$($LCTL get_param -n osc.${tgt}.cur_grant_bytes)
+		if [[ $cur_grant -gt $max_wanted ]]
+		then
+			kill $ddpid
+			error "cur_grant_bytes $cur_grant is too big, \
+limit is $undirty"
+		fi
+		kill -0 $ddpid
+		[[ $? -ne 0 ]] && break;
+		sleep 2
+	done
+}
+run_test 64d "check grant limit exceed ========================="
+
 # bug 1414 - set/get directories' stripe info
 test_65a() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
