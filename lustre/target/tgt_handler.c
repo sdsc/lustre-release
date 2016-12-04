@@ -893,7 +893,8 @@ int tgt_connect_check_sptlrpc(struct ptlrpc_request *req, struct obd_export *exp
 	return rc;
 }
 
-int tgt_adapt_sptlrpc_conf(struct lu_target *tgt, int initial)
+int tgt_adapt_sptlrpc_conf(const struct lu_env *env, struct lu_target *tgt,
+			   int initial)
 {
 	struct sptlrpc_rule_set	 tmp_rset;
 	int			 rc;
@@ -904,7 +905,8 @@ int tgt_adapt_sptlrpc_conf(struct lu_target *tgt, int initial)
 	}
 
 	sptlrpc_rule_set_init(&tmp_rset);
-	rc = sptlrpc_conf_target_get_rules(tgt->lut_obd, &tmp_rset, initial);
+	rc = sptlrpc_conf_target_get_rules(env, tgt->lut_obd, &tmp_rset,
+					   initial);
 	if (rc) {
 		CERROR("%s: failed get sptlrpc rules: rc = %d\n",
 		       tgt_name(tgt), rc);

@@ -4507,6 +4507,7 @@ static void mdt_fini(const struct lu_env *env, struct mdt_device *m)
 	struct lu_device	*d    = &m->mdt_lu_dev;
 	struct obd_device	*obd  = mdt2obd_dev(m);
 	struct lfsck_stop	 stop;
+	struct llog_ctxt	*ctxt;
 	ENTRY;
 
 	stop.ls_status = LS_PAUSED;
@@ -4532,6 +4533,9 @@ static void mdt_fini(const struct lu_env *env, struct mdt_device *m)
         obd_zombie_barrier();
 
         mdt_procfs_fini(m);
+
+	ctxt = llog_get_context(obd, LLOG_CONFIG_ORIG_CTXT);
+	llog_cleanup(env, ctxt);
 
         tgt_fini(env, &m->mdt_lut);
         mdt_fs_cleanup(env, m);
@@ -4719,7 +4723,14 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
 	if (rc)
 		GOTO(err_tgt, rc);
 
-	tgt_adapt_sptlrpc_conf(&m->mdt_lut, 1);
+	OBD_SET_CTXT_MAGIC(&obd->obd_lvfs_ctxt);
+	obd->obd_lvfs_ctxt.dt = m->mdt_bottom;
+	rc = llog_setup(env, obd, &obd->obd_olg, LLOG_CONFIG_ORIG_CTXT,
+			lsi->lsi_osd_exp->exp_obd, &llog_osd_ops);
+	if (rc < 0)
+		GOTO(err_fs_cleanup, rc);
+
+	tgt_adapt_sptlrpc_conf(env, &m->mdt_lut, 1);
 
         next = m->mdt_child;
         rc = next->md_ops->mdo_iocontrol(env, next, OBD_IOC_GET_MNTOPT, 0,
@@ -5050,7 +5061,7 @@ static int mdt_obd_set_info_async(const struct lu_env *env,
 	ENTRY;
 
 	if (KEY_IS(KEY_SPTLRPC_CONF)) {
-		rc = tgt_adapt_sptlrpc_conf(class_exp2tgt(exp), 0);
+		rc = tgt_adapt_sptlrpc_conf(env, class_exp2tgt(exp), 0);
 		RETURN(rc);
 	}
 
