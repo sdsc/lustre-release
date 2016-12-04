@@ -364,7 +364,8 @@ char *tgt_name(struct lu_target *tgt);
 void tgt_counter_incr(struct obd_export *exp, int opcode);
 int tgt_connect_check_sptlrpc(struct ptlrpc_request *req,
 			      struct obd_export *exp);
-int tgt_adapt_sptlrpc_conf(struct lu_target *tgt, int initial);
+int tgt_adapt_sptlrpc_conf(const struct lu_env *env, struct lu_target *tgt,
+			   int initial);
 int tgt_connect(struct tgt_session_info *tsi);
 int tgt_disconnect(struct tgt_session_info *uti);
 int tgt_obd_ping(struct tgt_session_info *tsi);

@@ -1001,15 +1001,16 @@ static int sptlrpc_record_rules(struct llog_handle *llh,
 #define LOG_SPTLRPC     "sptlrpc"
 
 static
-int sptlrpc_target_local_copy_conf(struct obd_device *obd,
-                                   struct sptlrpc_conf *conf)
+int sptlrpc_target_local_copy_conf(const struct lu_env *env,
+				   struct obd_device *obd,
+				   struct sptlrpc_conf *conf)
 {
-        struct llog_handle   *llh = NULL;
-        struct llog_ctxt     *ctxt;
-        struct lvfs_run_ctxt  saved;
-        struct dentry        *dentry;
-        int                   rc;
-        ENTRY;
+	struct llog_handle *llh = NULL;
+	struct llog_ctxt *ctxt;
+	struct lvfs_run_ctxt saved;
+	struct dentry *dentry;
+	int rc;
+	ENTRY;
 
 	ctxt = llog_get_context(obd, LLOG_CONFIG_ORIG_CTXT);
 	if (ctxt == NULL)
@@ -1018,16 +1019,16 @@ int sptlrpc_target_local_copy_conf(struct obd_device *obd,
 	push_ctxt(&saved, &obd->obd_lvfs_ctxt);
 
 	dentry = ll_lookup_one_len(MOUNT_CONFIGS_DIR, current->fs->pwd.dentry,
-                                   strlen(MOUNT_CONFIGS_DIR));
-        if (IS_ERR(dentry)) {
-                rc = PTR_ERR(dentry);
-                CERROR("cannot lookup %s directory: rc = %d\n",
-                       MOUNT_CONFIGS_DIR, rc);
-                GOTO(out_ctx, rc);
-        }
+				   strlen(MOUNT_CONFIGS_DIR));
+	if (IS_ERR(dentry)) {
+		rc = PTR_ERR(dentry);
+		CERROR("cannot lookup %s directory: rc = %d\n",
+		       MOUNT_CONFIGS_DIR, rc);
+		GOTO(out_ctx, rc);
+	}
 
-        /* erase the old tmp log */
-	rc = llog_erase(NULL, ctxt, NULL, LOG_SPTLRPC_TMP);
+	/* erase the old tmp log */
+	rc = llog_erase(env, ctxt, NULL, LOG_SPTLRPC_TMP);
 	if (rc < 0 && rc != -ENOENT) {
 		CERROR("%s: cannot erase temporary sptlrpc log: rc = %d\n",
 		       obd->obd_name, rc);
@@ -1035,17 +1036,17 @@ int sptlrpc_target_local_copy_conf(struct obd_device *obd,
 	}
 
 	/* write temporary log */
-	rc = llog_open_create(NULL, ctxt, &llh, NULL, LOG_SPTLRPC_TMP);
+	rc = llog_open_create(env, ctxt, &llh, NULL, LOG_SPTLRPC_TMP);
 	if (rc)
 		GOTO(out_dput, rc);
-	rc = llog_init_handle(NULL, llh, LLOG_F_IS_PLAIN, NULL);
-        if (rc)
-                GOTO(out_close, rc);
+	rc = llog_init_handle(env, llh, LLOG_F_IS_PLAIN, NULL);
+	if (rc)
+		GOTO(out_close, rc);
 
-        rc = sptlrpc_record_rules(llh, conf);
+	rc = sptlrpc_record_rules(llh, conf);
 
 out_close:
-	llog_close(NULL, llh);
+	llog_close(env, llh);
 	if (rc == 0)
 		rc = lustre_rename(dentry, obd->obd_lvfs_ctxt.pwdmnt,
 				   LOG_SPTLRPC_TMP, LOG_SPTLRPC);
@@ -1091,51 +1092,50 @@ static int local_read_handler(const struct lu_env *env,
 }
 
 static
-int sptlrpc_target_local_read_conf(struct obd_device *obd,
-                                   struct sptlrpc_conf *conf)
+int sptlrpc_target_local_read_conf(const struct lu_env *env,
+				   struct obd_device *obd,
+				   struct sptlrpc_conf *conf)
 {
-        struct llog_handle    *llh = NULL;
-        struct llog_ctxt      *ctxt;
-        struct lvfs_run_ctxt   saved;
-        int                    rc;
-        ENTRY;
+	struct llog_handle    *llh = NULL;
+	struct llog_ctxt      *ctxt;
+	struct lvfs_run_ctxt   saved;
+	int		    rc;
+	ENTRY;
 
-        LASSERT(conf->sc_updated == 0 && conf->sc_local == 0);
+	LASSERT(conf->sc_updated == 0 && conf->sc_local == 0);
 
-        ctxt = llog_get_context(obd, LLOG_CONFIG_ORIG_CTXT);
-        if (ctxt == NULL) {
-                CERROR("missing llog context\n");
-                RETURN(-EINVAL);
-        }
+	ctxt = llog_get_context(obd, LLOG_CONFIG_ORIG_CTXT);
+	if (ctxt == NULL) {
+		CERROR("missing llog context\n");
+		RETURN(-EINVAL);
+	}
 
 	push_ctxt(&saved, &obd->obd_lvfs_ctxt);
 
-	rc = llog_open(NULL, ctxt, &llh, NULL, LOG_SPTLRPC, LLOG_OPEN_EXISTS);
+	rc = llog_open(env, ctxt, &llh, NULL, LOG_SPTLRPC, LLOG_OPEN_EXISTS);
 	if (rc < 0) {
 		if (rc == -ENOENT)
 			rc = 0;
 		GOTO(out_pop, rc);
 	}
 
-	rc = llog_init_handle(NULL, llh, LLOG_F_IS_PLAIN, NULL);
-        if (rc)
-                GOTO(out_close, rc);
+	rc = llog_init_handle(env, llh, LLOG_F_IS_PLAIN, NULL);
+	if (rc)
+		GOTO(out_close, rc);
 
-        if (llog_get_size(llh) <= 1) {
-                CDEBUG(D_SEC, "no local sptlrpc copy found\n");
-                GOTO(out_close, rc = 0);
-        }
+	if (llog_get_size(llh) <= 1) {
+		CDEBUG(D_SEC, "no local sptlrpc copy found\n");
+		GOTO(out_close, rc = 0);
+	}
 
-	rc = llog_process(NULL, llh, local_read_handler, (void *)conf, NULL);
-
-        if (rc == 0) {
-                conf->sc_local = 1;
-        } else {
-                sptlrpc_conf_free_rsets(conf);
-        }
+	rc = llog_process(env, llh, local_read_handler, (void *)conf, NULL);
+	if (rc == 0)
+		conf->sc_local = 1;
+	else
+		sptlrpc_conf_free_rsets(conf);
 
 out_close:
-	llog_close(NULL, llh);
+	llog_close(env, llh);
 out_pop:
 	pop_ctxt(&saved, &obd->obd_lvfs_ctxt);
 	llog_ctxt_put(ctxt);
@@ -1144,71 +1144,71 @@ out_pop:
 	RETURN(rc);
 }
 
-
 /**
  * called by target devices, extract sptlrpc rules which applies to
  * this target, to be used for future rpc flavor checking.
  */
-int sptlrpc_conf_target_get_rules(struct obd_device *obd,
-                                  struct sptlrpc_rule_set *rset,
-                                  int initial)
+int sptlrpc_conf_target_get_rules(const struct lu_env *env,
+				  struct obd_device *obd,
+				  struct sptlrpc_rule_set *rset,
+				  int initial)
 {
-        struct sptlrpc_conf      *conf;
-        struct sptlrpc_conf_tgt  *conf_tgt;
-        enum lustre_sec_part      sp_dst;
-        char                      fsname[MTI_NAME_MAXLEN];
-        int                       rc = 0;
-        ENTRY;
+	struct sptlrpc_conf *conf;
+	struct sptlrpc_conf_tgt *conf_tgt;
+	enum lustre_sec_part sp_dst;
+	char fsname[MTI_NAME_MAXLEN];
+	int rc = 0;
+	ENTRY;
 
-        if (strcmp(obd->obd_type->typ_name, LUSTRE_MDT_NAME) == 0) {
-                sp_dst = LUSTRE_SP_MDT;
-        } else if (strcmp(obd->obd_type->typ_name, LUSTRE_OST_NAME) == 0) {
-                sp_dst = LUSTRE_SP_OST;
-        } else {
-                CERROR("unexpected obd type %s\n", obd->obd_type->typ_name);
-                RETURN(-EINVAL);
-        }
-        CDEBUG(D_SEC, "get rules for target %s\n", obd->obd_uuid.uuid);
+	if (strcmp(obd->obd_type->typ_name, LUSTRE_MDT_NAME) == 0) {
+		sp_dst = LUSTRE_SP_MDT;
+	} else if (strcmp(obd->obd_type->typ_name, LUSTRE_OST_NAME) == 0) {
+		sp_dst = LUSTRE_SP_OST;
+	} else {
+		CERROR("unexpected obd type %s\n", obd->obd_type->typ_name);
+		RETURN(-EINVAL);
+	}
+	CDEBUG(D_SEC, "get rules for target %s\n", obd->obd_uuid.uuid);
 
-        target2fsname(obd->obd_uuid.uuid, fsname, sizeof(fsname));
+	target2fsname(obd->obd_uuid.uuid, fsname, sizeof(fsname));
 
 	mutex_lock(&sptlrpc_conf_lock);
 
-        conf = sptlrpc_conf_get(fsname, 0);
-        if (conf == NULL) {
-                CERROR("missing sptlrpc config log\n");
-                GOTO(out, rc);
-        }
+	conf = sptlrpc_conf_get(fsname, 0);
+	if (conf == NULL) {
+		CERROR("missing sptlrpc config log\n");
+		GOTO(out, rc);
+	}
 
-        if (conf->sc_updated  == 0) {
-                /*
-                 * always read from local copy. here another option is
-                 * if we already have a local copy (read from another
-                 * target device hosted on the same node) we simply use that.
-                 */
-                if (conf->sc_local)
-                        sptlrpc_conf_free_rsets(conf);
+	if (conf->sc_updated == 0) {
+		/*
+		 * always read from local copy. here another option is
+		 * if we already have a local copy (read from another
+		 * target device hosted on the same node) we simply use that.
+		 */
+		if (conf->sc_local)
+			sptlrpc_conf_free_rsets(conf);
 
-                sptlrpc_target_local_read_conf(obd, conf);
-        } else {
-                LASSERT(conf->sc_local == 0);
+		sptlrpc_target_local_read_conf(env, obd, conf);
+	} else {
+		LASSERT(conf->sc_local == 0);
 
-                /* write a local copy */
-                if (initial || conf->sc_modified)
-                        sptlrpc_target_local_copy_conf(obd, conf);
-                else
-                        CDEBUG(D_SEC, "unchanged, skip updating local copy\n");
-        }
+		/* write a local copy */
+		if (initial || conf->sc_modified)
+			sptlrpc_target_local_copy_conf(env, obd, conf);
+		else
+			CDEBUG(D_SEC, "unchanged, skip updating local copy\n");
+	}
 
-        /* extract rule set for this target */
-        conf_tgt = sptlrpc_conf_get_tgt(conf, obd->obd_name, 0);
+	/* extract rule set for this target */
+	conf_tgt = sptlrpc_conf_get_tgt(conf, obd->obd_name, 0);
 
-        rc = sptlrpc_rule_set_extract(&conf->sc_rset,
-                                      conf_tgt ? &conf_tgt->sct_rset: NULL,
-                                      LUSTRE_SP_ANY, sp_dst, rset);
+	rc = sptlrpc_rule_set_extract(&conf->sc_rset,
+				      conf_tgt ? &conf_tgt->sct_rset : NULL,
+				      LUSTRE_SP_ANY, sp_dst, rset);
 out:
 	mutex_unlock(&sptlrpc_conf_lock);
-        RETURN(rc);
+	RETURN(rc);
 }
 
 int  sptlrpc_conf_init(void)
