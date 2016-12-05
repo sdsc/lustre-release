@@ -178,7 +178,7 @@ static int osc_cached_mb_seq_show(struct seq_file *m, void *v)
 {
 	struct obd_device *dev = m->private;
 	struct client_obd *cli = &dev->u.cli;
-	int shift = 20 - PAGE_SHIFT;
+	int shift = 1; //20 - PAGE_SHIFT;
 
 	seq_printf(m, "used_mb: %ld\n"
 		   "busy_cnt: %ld\n"
