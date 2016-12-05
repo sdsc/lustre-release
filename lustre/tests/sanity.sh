@@ -14500,6 +14500,17 @@ test_255b() {
 }
 run_test 255b "check 'lfs ladvise -a dontneed'"
 
+test_255c() {
+
+	mkdir -p $DIR/$tdir
+
+	llapi_ladvise_test -d $DIR/$tdir || error "llapi_ladvise failed"
+
+	rm -rf $DIR/$tdir
+
+}
+run_test 255c "validate llapi_ladvise API"
+
 test_256() {
 	local cl_user
 	local cat_sl
