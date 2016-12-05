@@ -178,11 +178,13 @@ static int osc_cached_mb_seq_show(struct seq_file *m, void *v)
 {
 	struct obd_device *dev = m->private;
 	struct client_obd *cli = &dev->u.cli;
-	int shift = 20 - PAGE_SHIFT;
+	int shift = 1; //20 - PAGE_SHIFT;
 
-	seq_printf(m, "used_mb: %ld\n"
+	seq_printf(m, "cache %p\nleft: %ld\nused_mb: %ld\n"
 		   "busy_cnt: %ld\n"
 		   "reclaim: %llu\n",
+		   cli->cl_cache,
+		   atomic_long_read(&cli->cl_lru_left),
 		   (atomic_long_read(&cli->cl_lru_in_list) +
 		    atomic_long_read(&cli->cl_lru_busy)) >> shift,
 		    atomic_long_read(&cli->cl_lru_busy),
