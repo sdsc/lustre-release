@@ -129,9 +129,18 @@ run_MDtest() {
 	local mdtest=$(which mdtest)
 
 	local TDIR=${1:-$MOUNT}
-	local th_num=$((FNUM * 2 / NUM))
+	local th_num=$((2 * FNUM / NUM))
 
 	for bsize in 4096 ; do
+		run_cmd "mpirun -np $NUM $mdtest \
+			 -i 3 -I $th_num -F -C -z 1 -b 1 -L -u -w $bsize -d $TDIR"
+		run_cmd "mpirun -np $NUM $mdtest \
+			 -i 3 -I $th_num -F -T -R -z 1 -b 1 -L -u -d $TDIR"
+		run_cmd "mpirun -np $NUM $mdtest \
+			 -i 3 -I $th_num -F -E -z 1 -b 1 -L -u -e $bsize -d $TDIR"
+		run_cmd "mpirun -np $NUM $mdtest \
+			 -i 3 -I $th_num -F -r -z 1 -b 1 -L -u -d $TDIR"
+		# all at once
 		run_cmd "mpirun -np $NUM $mdtest \
 			 -i 3 -I $th_num -F -z 1 -b 1 -L -u -w $bsize -d $TDIR"
 	done
