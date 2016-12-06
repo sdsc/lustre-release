@@ -1479,6 +1479,7 @@ static int kiblnd_alloc_fmr_pool(kib_fmr_poolset_t *fps, kib_fmr_pool_t *fpo)
 		.cache             = !!fps->fps_cache };
 	int rc = 0;
 
+        CERROR("Doug: alloc_fmr_pool called!!!\n");
 	fpo->fmr.fpo_fmr_pool = ib_create_fmr_pool(fpo->fpo_hdev->ibh_pd,
 						   &param);
 	if (IS_ERR(fpo->fmr.fpo_fmr_pool)) {
@@ -1497,6 +1498,7 @@ static int kiblnd_alloc_freg_pool(kib_fmr_poolset_t *fps, kib_fmr_pool_t *fpo)
 	struct kib_fast_reg_descriptor *frd, *tmp;
 	int i, rc;
 
+        CERROR("Doug: alloc_reg_pool called\n");
 	INIT_LIST_HEAD(&fpo->fast_reg.fpo_pool_list);
 	fpo->fast_reg.fpo_pool_size = 0;
 	for (i = 0; i < fps->fps_pool_size; i++) {
@@ -1522,9 +1524,11 @@ static int kiblnd_alloc_freg_pool(kib_fmr_poolset_t *fps, kib_fmr_pool_t *fpo)
 #endif
 
 #ifdef HAVE_IB_ALLOC_FAST_REG_MR
+                CERROR("Doug: Calling fast_reg_mr\n");
 		frd->frd_mr = ib_alloc_fast_reg_mr(fpo->fpo_hdev->ibh_pd,
 						   LNET_MAX_PAYLOAD/PAGE_SIZE);
 #else
+                CERROR("Doug: Calling reg_mr\n");
 		frd->frd_mr = ib_alloc_mr(fpo->fpo_hdev->ibh_pd,
 					  IB_MR_TYPE_MEM_REG,
 					  LNET_MAX_PAYLOAD/PAGE_SIZE);
@@ -1865,9 +1869,11 @@ again:
 					inv_wr->wr.opcode = IB_WR_LOCAL_INV;
 					inv_wr->wr.wr_id  = IBLND_WID_MR;
 					inv_wr->wr.ex.invalidate_rkey = key;
+                                        CERROR("Invalidate FMR key %d (is_rx = %d)\n", key, is_rx);
 
 					/* Bump the key */
 					key = ib_inc_rkey(key);
+                                        CERROR("Updated FMR key %d\n", key);
 					ib_update_fast_reg_key(mr, key);
 				}
 
@@ -1896,6 +1902,7 @@ again:
 				wr->wr.send_flags = 0;
 				wr->mr = mr;
 				wr->key = is_rx ? mr->rkey : mr->lkey;
+                                CERROR("FMR reg key: is_rx = %d, key = %d\n", is_rx, wr->key);
 				wr->access = (IB_ACCESS_LOCAL_WRITE |
 					      IB_ACCESS_REMOTE_WRITE);
 #else
@@ -1922,6 +1929,7 @@ again:
 				wr->wr.wr.fast_reg.length = nob;
 				wr->wr.wr.fast_reg.rkey =
 						is_rx ? mr->rkey : mr->lkey;
+                                CERROR("Fast reg key: is_rx = %d, key = %d\n", is_rx, wr->wr.wr.fast_reg.rkey);
 				wr->wr.wr.fast_reg.access_flags =
 						(IB_ACCESS_LOCAL_WRITE |
 						 IB_ACCESS_REMOTE_WRITE);
