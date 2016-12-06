@@ -258,12 +258,6 @@ copytool_setup() {
 
 	local agent=$(facet_active_host $facet)
 
-	if [[ -z "$arc_id" ]] &&
-		do_facet $facet "pkill -CONT -x $HSMTOOL_BASE"; then
-			echo "Only wakeup running copytool $facet on $agent"
-			return 0
-	fi
-
 	if $HSM_ARCHIVE_PURGE; then
 		echo "Purging archive on $agent"
 		do_facet $facet "rm -rf $hsm_root/$HSMTMP/*"
@@ -844,9 +838,6 @@ kill_copytools
 echo "Set HSM on and start"
 cdt_set_mount_state enabled
 cdt_check_state enabled
-
-echo "Start copytool"
-copytool_setup
 
 echo "Set sanity-hsm HSM policy"
 cdt_set_sanity_policy
@@ -2139,14 +2130,13 @@ test_24d() {
 	local fid1
 	local fid2
 
-	copytool_setup
-
 	mkdir -p $DIR/$tdir
 	rm -f $file1
 	fid1=$(make_small $file1)
 
-	trap cleanup_test_24d EXIT
+	copytool_setup $SINGLEAGT $MOUNT
 
+	trap cleanup_test_24d EXIT
 	mount -o remount,ro $MOUNT2
 
 	fid2=$(path2fid $file2)
