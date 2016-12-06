@@ -1969,6 +1969,22 @@ cancel_dirty_page, [
 ])
 ]) # LC_CANCEL_DIRTY_PAGE
 
+# LC_HAVE_D_INODE
+#
+# 4.0 adds wrapper d_inode
+#
+AC_DEFUN([LC_HAVE_D_INODE], [
+LB_CHECK_COMPILE([if Linux kernel has 'd_inode()'],
+d_inode, [
+	#include <linux/dcache.h>
+],[
+	d_inode(NULL);
+], [
+	AC_DEFINE(HAVE_D_INODE, 1,
+		[kernel has d_inode()])
+])
+]) # LC_HAVE_D_INODE
+
 #
 # LC_IOV_ITER_RW
 #
