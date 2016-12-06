@@ -339,6 +339,13 @@ static inline struct inode *file_inode(const struct file *file)
 }
 #endif
 
+#ifndef HAVE_D_INODE
+static inline struct inode *d_inode(const struct dentry *dentry)
+{
+	return dentry->d_inode;
+}
+#endif
+
 #ifdef HAVE_OLDSIZE_TRUNCATE_PAGECACHE
 #define ll_truncate_pagecache(inode, size) truncate_pagecache(inode, 0, size)
 #else
