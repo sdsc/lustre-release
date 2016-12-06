@@ -1497,6 +1497,7 @@ static int kiblnd_alloc_freg_pool(kib_fmr_poolset_t *fps, kib_fmr_pool_t *fpo)
 	struct kib_fast_reg_descriptor *frd, *tmp;
 	int i, rc;
 
+        CERROR("Doug: alloc_reg_pool called\n");
 	INIT_LIST_HEAD(&fpo->fast_reg.fpo_pool_list);
 	fpo->fast_reg.fpo_pool_size = 0;
 	for (i = 0; i < fps->fps_pool_size; i++) {
@@ -1522,9 +1523,11 @@ static int kiblnd_alloc_freg_pool(kib_fmr_poolset_t *fps, kib_fmr_pool_t *fpo)
 #endif
 
 #ifdef HAVE_IB_ALLOC_FAST_REG_MR
+                CERROR("Doug: Calling fast_reg_mr\n");
 		frd->frd_mr = ib_alloc_fast_reg_mr(fpo->fpo_hdev->ibh_pd,
 						   LNET_MAX_PAYLOAD/PAGE_SIZE);
 #else
+                CERROR("Doug: Calling reg_mr\n");
 		frd->frd_mr = ib_alloc_mr(fpo->fpo_hdev->ibh_pd,
 					  IB_MR_TYPE_MEM_REG,
 					  LNET_MAX_PAYLOAD/PAGE_SIZE);
