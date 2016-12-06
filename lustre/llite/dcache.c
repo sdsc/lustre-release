@@ -72,6 +72,7 @@ static void ll_release(struct dentry *de)
 	EXIT;
 }
 
+#if 0
 /* Compare if two dentries are the same.  Don't match if the existing dentry
  * is marked invalid.  Returns 1 if different, 0 if the same.
  *
@@ -120,6 +121,7 @@ static int ll_dcompare(struct dentry *parent, struct qstr *d_name,
 
 	RETURN(0);
 }
+#endif
 
 /**
  * Called when last reference to a dentry is dropped and dcache wants to know
@@ -309,6 +311,16 @@ static int ll_revalidate_dentry(struct dentry *dentry,
 {
 	struct inode *dir = dentry->d_parent->d_inode;
 
+	/* mountpoint is always valid */
+	if (d_mountpoint((struct dentry *)dentry))
+		return 1;
+
+	/* No lock -> invalid dentry */
+	if (d_lustre_invalid(dentry))
+		return 0;
+
+
+
 	/* If this is intermediate component path lookup and we were able to get
 	 * to this dentry, then its lock has not been revoked and the
 	 * path component is valid. */
@@ -384,5 +396,5 @@ const struct dentry_operations ll_d_ops = {
         .d_revalidate = ll_revalidate_nd,
         .d_release = ll_release,
         .d_delete  = ll_ddelete,
-        .d_compare = ll_dcompare,
+//        .d_compare = ll_dcompare,
 };
