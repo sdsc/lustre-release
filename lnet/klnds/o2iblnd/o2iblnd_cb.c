@@ -859,7 +859,9 @@ __must_hold(&conn->ibc_lock)
 			 libcfs_nid2str(conn->ibc_peer->ibp_nid));
 
 		bad = NULL;
+		CERROR("Before Post-Send\n");
 		rc = ib_post_send(conn->ibc_cmid->qp, wr, &bad);
+		CERROR("After Post-Send, rc = %d\n", rc);
 	}
 
         conn->ibc_last_send = jiffies;
