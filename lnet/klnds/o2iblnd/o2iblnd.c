@@ -1471,6 +1471,7 @@ static int kiblnd_alloc_fmr_pool(kib_fmr_poolset_t *fps, kib_fmr_pool_t *fpo)
 		.max_pages_per_fmr = LNET_MAX_PAYLOAD/PAGE_SIZE,
 		.page_shift        = PAGE_SHIFT,
 		.access            = (IB_ACCESS_LOCAL_WRITE |
+				      IB_ACCESS_REMOTE_READ |
 				      IB_ACCESS_REMOTE_WRITE),
 		.pool_size	   = fps->fps_pool_size,
 		.dirty_watermark   = fps->fps_flush_trigger,
@@ -1479,6 +1480,7 @@ static int kiblnd_alloc_fmr_pool(kib_fmr_poolset_t *fps, kib_fmr_pool_t *fpo)
 		.cache             = !!fps->fps_cache };
 	int rc = 0;
 
+        CERROR("Doug: alloc_fmr_pool called!!!\n");
 	fpo->fmr.fpo_fmr_pool = ib_create_fmr_pool(fpo->fpo_hdev->ibh_pd,
 						   &param);
 	if (IS_ERR(fpo->fmr.fpo_fmr_pool)) {
@@ -1497,6 +1499,7 @@ static int kiblnd_alloc_freg_pool(kib_fmr_poolset_t *fps, kib_fmr_pool_t *fpo)
 	struct kib_fast_reg_descriptor *frd, *tmp;
 	int i, rc;
 
+        CERROR("Doug: alloc_reg_pool called\n");
 	INIT_LIST_HEAD(&fpo->fast_reg.fpo_pool_list);
 	fpo->fast_reg.fpo_pool_size = 0;
 	for (i = 0; i < fps->fps_pool_size; i++) {
@@ -1522,9 +1525,11 @@ static int kiblnd_alloc_freg_pool(kib_fmr_poolset_t *fps, kib_fmr_pool_t *fpo)
 #endif
 
 #ifdef HAVE_IB_ALLOC_FAST_REG_MR
+                CERROR("Doug: Calling fast_reg_mr\n");
 		frd->frd_mr = ib_alloc_fast_reg_mr(fpo->fpo_hdev->ibh_pd,
 						   LNET_MAX_PAYLOAD/PAGE_SIZE);
 #else
+                CERROR("Doug: Calling reg_mr\n");
 		frd->frd_mr = ib_alloc_mr(fpo->fpo_hdev->ibh_pd,
 					  IB_MR_TYPE_MEM_REG,
 					  LNET_MAX_PAYLOAD/PAGE_SIZE);
@@ -1748,6 +1753,7 @@ kiblnd_fmr_pool_unmap(kib_fmr_t *fmr, int status)
 	if (!fpo)
 		return;
 
+	CERROR("fmr_pool_unmap\n");
 	fps = fpo->fpo_owner;
 	if (fpo->fpo_is_fmr) {
 		if (fmr->fmr_pfmr) {
@@ -1764,6 +1770,8 @@ kiblnd_fmr_pool_unmap(kib_fmr_t *fmr, int status)
 		struct kib_fast_reg_descriptor *frd = fmr->fmr_frd;
 
 		if (frd) {
+			CERROR("Unmapping key %d, %d\n", frd->frd_mr->lkey,
+							 frd->frd_mr->rkey);
 			frd->frd_valid = false;
 			spin_lock(&fps->fps_lock);
 			list_add_tail(&frd->frd_list, &fpo->fast_reg.fpo_pool_list);
@@ -1804,6 +1812,7 @@ kiblnd_fmr_pool_map(kib_fmr_poolset_t *fps, kib_tx_t *tx, kib_rdma_desc_t *rd,
 	int npages = 0;
 	int rc;
 
+	CERROR("fmr_pool_map\n");
 again:
 	spin_lock(&fps->fps_lock);
 	version = fps->fps_version;
@@ -1855,6 +1864,7 @@ again:
 #endif
 				mr   = frd->frd_mr;
 
+				frd->frd_valid = 0;
 				if (!frd->frd_valid) {
 					struct ib_rdma_wr *inv_wr;
 					__u32 key = is_rx ? mr->rkey : mr->lkey;
@@ -1865,10 +1875,19 @@ again:
 					inv_wr->wr.opcode = IB_WR_LOCAL_INV;
 					inv_wr->wr.wr_id  = IBLND_WID_MR;
 					inv_wr->wr.ex.invalidate_rkey = key;
+                                        CERROR("Invalidate FMR key %d (is_rx = %d)\n", key, is_rx);
 
 					/* Bump the key */
 					key = ib_inc_rkey(key);
+                                        CERROR("Updated FMR key %d\n", key);
 					ib_update_fast_reg_key(mr, key);
+				} else {
+				    __u32 key = is_rx ? mr->rkey : mr->lkey;
+
+				    /* Bump the key */
+				    key = ib_inc_rkey(key);
+				    CERROR("Initializing FMR key %d\n", key);
+				    ib_update_fast_reg_key(mr, key);
 				}
 
 #ifdef HAVE_IB_MAP_MR_SG
@@ -1896,13 +1915,17 @@ again:
 				wr->wr.send_flags = 0;
 				wr->mr = mr;
 				wr->key = is_rx ? mr->rkey : mr->lkey;
+                                CERROR("FMR reg key: is_rx = %d, key = %d\n", is_rx, wr->key);
 				wr->access = (IB_ACCESS_LOCAL_WRITE |
+					      IB_ACCESS_REMOTE_READ |
 					      IB_ACCESS_REMOTE_WRITE);
 #else
 				if (!tx_pages_mapped) {
+					CERROR("Mapping pages\n");
 					npages = kiblnd_map_tx_pages(tx, rd);
 					tx_pages_mapped = 1;
 				}
+				CERROR("Past Mapping pages\n");
 
 				LASSERT(npages <= frpl->max_page_list_len);
 				memcpy(frpl->page_list, pages,
@@ -1922,8 +1945,10 @@ again:
 				wr->wr.wr.fast_reg.length = nob;
 				wr->wr.wr.fast_reg.rkey =
 						is_rx ? mr->rkey : mr->lkey;
+                                CERROR("Fast reg key: is_rx = %d, key = %d\n", is_rx, wr->wr.wr.fast_reg.rkey);
 				wr->wr.wr.fast_reg.access_flags =
 						(IB_ACCESS_LOCAL_WRITE |
+						 IB_ACCESS_REMOTE_READ |
 						 IB_ACCESS_REMOTE_WRITE);
 #endif
 
@@ -1931,6 +1956,7 @@ again:
 				fmr->fmr_frd  = frd;
 				fmr->fmr_pfmr = NULL;
 				fmr->fmr_pool = fpo;
+				CERROR("Leaving FMR alloc\n");
 				return 0;
 			}
 			spin_unlock(&fps->fps_lock);
@@ -1970,6 +1996,7 @@ again:
 	spin_unlock(&fps->fps_lock);
 
 	CDEBUG(D_NET, "Allocate new FMR pool\n");
+	CERROR("Allocate new FMR pool\n");
 	rc = kiblnd_create_fmr_pool(fps, &fpo);
 	spin_lock(&fps->fps_lock);
 	fps->fps_increasing = 0;
@@ -2546,6 +2573,7 @@ kiblnd_hdev_setup_mrs(kib_hca_dev_t *hdev)
 	struct ib_mr *mr;
 	int           rc;
 	int           acflags = IB_ACCESS_LOCAL_WRITE |
+				IB_ACCESS_REMOTE_READ |
 				IB_ACCESS_REMOTE_WRITE;
 
 	rc = kiblnd_hdev_get_attr(hdev);

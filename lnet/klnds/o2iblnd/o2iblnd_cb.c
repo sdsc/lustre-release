@@ -166,6 +166,7 @@ kiblnd_post_rx (kib_rx_t *rx, int credit)
 		 credit == IBLND_POSTRX_RSRVD_CREDIT);
 	LASSERT(mr != NULL);
 
+	CERROR("1 - Setting lkey to %d\n", mr->lkey);
         rx->rx_sge.lkey   = mr->lkey;
         rx->rx_sge.addr   = rx->rx_msgaddr;
         rx->rx_sge.length = IBLND_MSG_SIZE;
@@ -583,6 +584,7 @@ kiblnd_fmr_map_tx(kib_net_t *net, kib_tx_t *tx, kib_rdma_desc_t *rd, __u32 nob)
 	/* If rd is not tx_rd, it's going to get sent to a peer, who will need
 	 * the rkey */
 	rd->rd_key = tx->fmr.fmr_key;
+	CERROR("12 - Setting rd_key to %d\n", rd->rd_key);
 	rd->rd_frags[0].rf_addr &= ~hdev->ibh_page_mask;
 	rd->rd_frags[0].rf_nob   = nob;
 	rd->rd_nfrags = 1;
@@ -596,6 +598,7 @@ kiblnd_unmap_tx(lnet_ni_t *ni, kib_tx_t *tx)
 	kib_net_t  *net = ni->ni_data;
 
 	LASSERT(net != NULL);
+	CERROR("unmap_tx\n");
 
 	if (net->ibn_fmr_ps != NULL)
 		kiblnd_fmr_pool_unmap(&tx->fmr, tx->tx_status);
@@ -637,6 +640,7 @@ kiblnd_map_tx(lnet_ni_t *ni, kib_tx_t *tx, kib_rdma_desc_t *rd, int nfrags)
 				   tx->tx_conn->ibc_max_frags : -1);
 	if (mr != NULL) {
 		/* found pre-mapping MR */
+		CERROR("2 - Setting rd_key to %d\n", mr->lkey);
 		rd->rd_key = (rd != tx->tx_rd) ? mr->rkey : mr->lkey;
 		return 0;
 	}
@@ -859,7 +863,9 @@ __must_hold(&conn->ibc_lock)
 			 libcfs_nid2str(conn->ibc_peer->ibp_nid));
 
 		bad = NULL;
+		CERROR("Before Post-Send\n");
 		rc = ib_post_send(conn->ibc_cmid->qp, wr, &bad);
+		CERROR("After Post-Send, rc = %d\n", rc);
 	}
 
         conn->ibc_last_send = jiffies;
@@ -1033,6 +1039,7 @@ kiblnd_init_tx_msg (lnet_ni_t *ni, kib_tx_t *tx, int type, int body_nob)
 
         kiblnd_init_msg(tx->tx_msg, type, body_nob);
 
+	CERROR("3 - Setting lkey to %d\n", mr->lkey);
         sge->lkey   = mr->lkey;
         sge->addr   = tx->tx_msgaddr;
         sge->length = nob;
@@ -1100,6 +1107,7 @@ kiblnd_init_rdma(kib_conn_t *conn, kib_tx_t *tx, int type,
                 sge = &tx->tx_sge[tx->tx_nwrq];
                 sge->addr   = kiblnd_rd_frag_addr(srcrd, srcidx);
                 sge->lkey   = kiblnd_rd_frag_key(srcrd, srcidx);
+		CERROR("4 - Setting lkey to %d\n", sge->lkey);
                 sge->length = wrknob;
 
                 wrq = &tx->tx_wrq[tx->tx_nwrq];
@@ -1114,9 +1122,11 @@ kiblnd_init_rdma(kib_conn_t *conn, kib_tx_t *tx, int type,
 #ifdef HAVE_IB_RDMA_WR
 		wrq->remote_addr	= kiblnd_rd_frag_addr(dstrd, dstidx);
 		wrq->rkey		= kiblnd_rd_frag_key(dstrd, dstidx);
+		CERROR("10 - Setting rkey to %d\n", wrq->rkey);
 #else
 		wrq->wr.wr.rdma.remote_addr = kiblnd_rd_frag_addr(dstrd, dstidx);
 		wrq->wr.wr.rdma.rkey	= kiblnd_rd_frag_key(dstrd, dstidx);
+		CERROR("11 - Setting rkey to %d\n", wrq->wr.wr.rdma.rkey);
 #endif
 
                 srcidx = kiblnd_rd_consume_frag(srcrd, srcidx, wrknob);
