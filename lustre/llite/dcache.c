@@ -305,10 +305,9 @@ void ll_lookup_finish_locks(struct lookup_intent *it, struct dentry *dentry)
 }
 
 static int ll_revalidate_dentry(struct dentry *dentry,
-				unsigned int lookup_flags)
+				unsigned int lookup_flags,
+				struct inode *parent)
 {
-	struct inode *dir = dentry->d_parent->d_inode;
-
 	/* If this is intermediate component path lookup and we were able to get
 	 * to this dentry, then its lock has not been revoked and the
 	 * path component is valid. */
@@ -332,7 +331,7 @@ static int ll_revalidate_dentry(struct dentry *dentry,
 	if (lookup_flags & LOOKUP_REVAL)
 		return 0;
 
-	if (!dentry_may_statahead(dir, dentry))
+	if (!dentry_may_statahead(parent, dentry))
 		return 1;
 
 #ifndef HAVE_DCACHE_LOCK
@@ -340,7 +339,7 @@ static int ll_revalidate_dentry(struct dentry *dentry,
 		return -ECHILD;
 #endif
 
-	ll_statahead(dir, &dentry, dentry->d_inode == NULL);
+	ll_statahead(parent, &dentry, dentry->d_inode == NULL);
 	return 1;
 }
 
@@ -351,18 +350,21 @@ static int ll_revalidate_dentry(struct dentry *dentry,
 static int ll_revalidate_nd(struct dentry *dentry, unsigned int flags)
 {
 	int rc;
+	struct dentry *dir = dget_parent(dentry);
 	ENTRY;
 
 	CDEBUG(D_VFSTRACE, "VFS Op:name=%s, flags=%u\n",
 	       dentry->d_name.name, flags);
 
-	rc = ll_revalidate_dentry(dentry, flags);
+	rc = ll_revalidate_dentry(dentry, flags, d_inode(dir));
+	dput(dir);
 	RETURN(rc);
 }
 #else
 static int ll_revalidate_nd(struct dentry *dentry, struct nameidata *nd)
 {
 	int rc;
+	struct dentry *dir;
 	ENTRY;
 
 	/*
@@ -375,7 +377,9 @@ static int ll_revalidate_nd(struct dentry *dentry, struct nameidata *nd)
 	CDEBUG(D_VFSTRACE, "VFS Op:name=%s, flags=%u\n",
 	       dentry->d_name.name, nd->flags);
 
-	rc = ll_revalidate_dentry(dentry, nd->flags);
+	dir = dget_parent(dentry);
+	rc = ll_revalidate_dentry(dentry, nd->flags, dir->d_inode);
+	dput(dir);
 	RETURN(rc);
 }
 #endif
