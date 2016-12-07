@@ -3514,6 +3514,7 @@ kiblnd_scheduler(void *arg)
 
 	init_waitqueue_entry(&wait, current);
 
+
 	sched = kiblnd_data.kib_scheds[KIB_THREAD_CPT(id)];
 
 	rc = cfs_cpt_bind(lnet_cpt_table(), sched->ibs_cpt);
@@ -3523,6 +3524,9 @@ kiblnd_scheduler(void *arg)
 		      "otherwise your system might under risk of low "
 		      "performance\n", sched->ibs_cpt);
 	}
+
+	CDEBUG(D_NET, "AMIR: scheduler thread bound to CPT: %d\n",
+	       sched->ibs_cpt);
 
 	spin_lock_irqsave(&sched->ibs_lock, flags);
 
