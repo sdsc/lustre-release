@@ -3034,6 +3034,8 @@ kiblnd_base_startup(void)
 			nthrs = min(max(IBLND_N_SCHED, nthrs >> 1), nthrs);
 		}
 
+		CDEBUG(D_CONSOLE, "AMIR: number of scheduler threads = %d\n", nthrs);
+
 		sched->ibs_nthreads_max = nthrs;
 		sched->ibs_cpt = i;
 	}

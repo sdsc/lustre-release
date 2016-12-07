@@ -1901,6 +1901,15 @@ send:
 
 	rc = lnet_post_send_locked(msg, 0);
 
+	CDEBUG(D_NET, "AMIR [%s] %s: %s -> %s md_niov = %u payload = %u %d:%d\n",
+	       (src_nid != LNET_NID_ANY) ? libcfs_nid2str(src_nid) : "SN",
+	       lnet_msgtyp2str(msg->msg_type),
+	       libcfs_nid2str(msg->msg_hdr.src_nid),
+	       libcfs_nid2str(msg->msg_hdr.dest_nid),
+	       (msg->msg_md) ? msg->msg_md->md_niov : -1,
+	       msg->msg_hdr.payload_length,
+	       md_cpt, best_ni->ni_dev_cpt);
+
 	lnet_net_unlock(cpt);
 
 	return rc;
@@ -2584,6 +2593,15 @@ lnet_parse(lnet_ni_t *ni, lnet_hdr_t *hdr, lnet_nid_t from_nid,
 	rc = lnet_parse_local(ni, msg);
 	if (rc != 0)
 		goto free_drop;
+
+	CDEBUG(D_NET, "AMIR %s: %s <- %s payload = %u %d:%d\n",
+	       lnet_msgtyp2str(type),
+	       libcfs_nid2str(dest_nid),
+	       libcfs_nid2str(src_nid),
+	       payload_length,
+	       lnet_cpt_current(),
+	       ni->ni_dev_cpt);
+
 	return 0;
 
  free_drop:
