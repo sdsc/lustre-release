@@ -332,13 +332,13 @@ static int ll_revalidate_dentry(struct dentry *dentry,
 	if (lookup_flags & LOOKUP_REVAL)
 		return 0;
 
-	if (!dentry_may_statahead(dir, dentry))
-		return 1;
-
 #ifndef HAVE_DCACHE_LOCK
 	if (lookup_flags & LOOKUP_RCU)
 		return -ECHILD;
 #endif
+
+	if (!dentry_may_statahead(dir, dentry))
+		return 1;
 
 	ll_statahead(dir, &dentry, dentry->d_inode == NULL);
 	return 1;
