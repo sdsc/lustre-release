@@ -689,11 +689,18 @@ static int osd_dir_insert(const struct lu_env *env, struct dt_object *dt,
 		      (char *)key, 8, sizeof(oti->oti_zde) / 8,
 		      (void *)&oti->oti_zde, oh->ot_tx);
 	if (unlikely(rc == -EEXIST &&
-		     name[0] == '.' && name[1] == '.' && name[2] == 0))
+		     name[0] == '.' && name[1] == '.' && name[2] == 0)) {
 		/* Update (key,oid) in ZAP */
 		rc = -zap_update(osd->od_os, parent->oo_db->db_object,
 				(char *)key, 8, sizeof(oti->oti_zde) / 8,
 				(void *)&oti->oti_zde, oh->ot_tx);
+	} else {
+		if (rc == 0) {
+			parent->oo_attr.la_size++;
+			rc = osd_object_sa_update(parent, SA_ZPL_SIZE(osd),
+					&parent->oo_attr.la_size, 8, oh);
+		}
+	}
 
 out:
 	if (child != NULL)
@@ -767,6 +774,12 @@ static int osd_dir_delete(const struct lu_env *env, struct dt_object *dt,
 
 	if (unlikely(rc && rc != -ENOENT))
 		CERROR("%s: zap_remove failed: rc = %d\n", osd->od_svname, rc);
+
+	if (rc == 0) {
+		obj->oo_attr.la_size--;
+		rc = osd_object_sa_update(obj, SA_ZPL_SIZE(osd),
+				&obj->oo_attr.la_size, 8, oh);
+	}
 
 	RETURN(rc);
 }
@@ -1240,6 +1253,13 @@ static int osd_index_insert(const struct lu_env *env, struct dt_object *dt,
 	rc = -zap_add_uint64(osd->od_os, obj->oo_db->db_object,
 			     k, rc, obj->oo_recusize, obj->oo_recsize,
 			     (void *)rec, oh->ot_tx);
+
+	if (rc == 0) {
+		obj->oo_attr.la_size++;
+		rc = osd_object_sa_update(obj, SA_ZPL_SIZE(osd),
+				&obj->oo_attr.la_size, 8, oh);
+	}
+
 	RETURN(rc);
 }
 
