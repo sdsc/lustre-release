@@ -189,10 +189,11 @@ int mdt_hsm_agent_register_mask(struct mdt_thread_info *mti,
  * \retval -ve failure
  */
 int mdt_hsm_agent_unregister(struct mdt_thread_info *mti,
-			     const struct obd_uuid *uuid)
+		const struct obd_uuid *uuid, int cancel_hsm_actions)
 {
 	struct coordinator	*cdt = &mti->mti_mdt->mdt_coordinator;
 	struct hsm_agent	*ha;
+	struct mdt_device	*mdt = mti->mti_mdt;
 	int			 rc;
 	ENTRY;
 
@@ -214,6 +215,13 @@ int mdt_hsm_agent_unregister(struct mdt_thread_info *mti,
 	if (ha->ha_archive_cnt != 0)
 		OBD_FREE(ha->ha_archive_id,
 			 ha->ha_archive_cnt * sizeof(*ha->ha_archive_id));
+
+	/* 3rd arg = 1, indicates copy tool agent is un registered
+	 * This is required to avoid double unregistration call
+	 */
+	if (cancel_hsm_actions)
+		hsm_cancel_all_actions(mdt, uuid, 1);
+
 	OBD_FREE_PTR(ha);
 
 	GOTO(out, rc = 0);
@@ -364,6 +372,9 @@ int mdt_hsm_send_action_to_each_archive(struct mdt_thread_info *mti,
  * \param mti [IN] context
  * \param hal [IN] request (can be a kuc payload)
  * \param purge [IN] purge mode (no record)
+ * \param agent_unregistered [IN] unregistartion state
+ * agent_unregistered = 1, already unregistered
+ * agent_unregistered = 0, Yet to be unregistered
  * \retval 0 success
  * \retval -ve failure
  * This function supposes:
@@ -373,7 +384,7 @@ int mdt_hsm_send_action_to_each_archive(struct mdt_thread_info *mti,
  *  before when building the hal
  */
 int mdt_hsm_agent_send(struct mdt_thread_info *mti,
-		       struct hsm_action_list *hal, bool purge)
+	struct hsm_action_list *hal, bool purge, int agent_unregistered)
 {
 	struct obd_export	*exp;
 	struct mdt_device	*mdt = mti->mti_mdt;
@@ -381,11 +392,14 @@ int mdt_hsm_agent_send(struct mdt_thread_info *mti,
 	struct hsm_action_list	*buf = NULL;
 	struct hsm_action_item	*hai;
 	struct obd_uuid		 uuid;
-	int			 len, i, rc = 0;
+	int			 len = 0, i, rc = 0;
 	bool			 fail_request;
 	bool			 is_registered = false;
 	ENTRY;
 
+	if (agent_unregistered)
+		goto out_cancel;
+	
 	rc = mdt_hsm_find_best_agent(cdt, hal->hal_archive_id, &uuid);
 	if (rc && hal->hal_archive_id == 0) {
 		uint notrmcount = 0;
@@ -553,18 +567,19 @@ int mdt_hsm_agent_send(struct mdt_thread_info *mti,
 	if (fail_request)
 		GOTO(out_buf, rc = 0);
 
+out_cancel:
 	/* Cancel memory registration is useless for purge
 	 * non registration avoid a deadlock :
 	 * in case of failure we have to take the write lock
 	 * to remove entry which conflict with the read loack needed
 	 * by purge
 	 */
-	if (!purge) {
+	if (!purge || agent_unregistered) {
 		/* set is_registered even if failure because we may have
 		 * partial work done */
 		is_registered = true;
 		rc = mdt_hsm_add_hal(mti, hal, &uuid);
-		if (rc)
+		if (rc || agent_unregistered)
 			GOTO(out_buf, rc);
 	}
 
@@ -581,8 +596,11 @@ int mdt_hsm_agent_send(struct mdt_thread_info *mti,
 		CERROR("%s: agent uuid (%s) not found, unregistering:"
 		       " rc = %d\n",
 		       mdt_obd_name(mdt), obd_uuid2str(&uuid), rc);
-		mdt_hsm_agent_unregister(mti, &uuid);
-		GOTO(out, rc);
+		if (!agent_unregistered) {
+			/* 3rd arg = 0, dont call hsm_cancel_all_actions() */
+			mdt_hsm_agent_unregister(mti, &uuid, 0);
+			GOTO(out, rc);
+		}
 	}
 
 	/* send request to agent */
@@ -601,7 +619,11 @@ int mdt_hsm_agent_send(struct mdt_thread_info *mti,
 	if (rc == -EPIPE) {
 		CDEBUG(D_HSM, "Lost connection to agent '%s', unregistering\n",
 		       obd_uuid2str(&uuid));
-		mdt_hsm_agent_unregister(mti, &uuid);
+		if (!agent_unregistered) {
+			/* 3rd arg = 0, dont call hsm_cancel_all_actions() */
+			mdt_hsm_agent_unregister(mti, &uuid, 0);
+			GOTO(out, rc);
+		}
 	}
 
 out:
@@ -616,7 +638,8 @@ out:
 	}
 
 out_buf:
-	kuc_free(buf, len);
+	if (buf != NULL)
+		kuc_free(buf, len);
 
 	RETURN(rc);
 }

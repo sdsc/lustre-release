@@ -179,8 +179,10 @@ int mdt_hsm_ct_unregister(struct tgt_session_info *tsi)
 	if (!mdt_hsm_is_admin(info))
 		GOTO(out, rc = -EPERM);
 
-	/* XXX: directly include this function here? */
-	rc = mdt_hsm_agent_unregister(info, &tsi->tsi_exp->exp_client_uuid);
+	/* XXX: directly include this function here?
+	 * 3rd  arg = 1, call hsm_cancel_all_actions()
+	 */
+	rc = mdt_hsm_agent_unregister(info, &tsi->tsi_exp->exp_client_uuid, 1);
 out:
 	mdt_thread_info_fini(info);
 	RETURN(rc);
