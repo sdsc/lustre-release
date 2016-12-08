@@ -809,14 +809,16 @@ int mdt_hsm_agent_register_mask(struct mdt_thread_info *info,
 				const struct obd_uuid *uuid,
 				__u32 archive_mask);
 int mdt_hsm_agent_unregister(struct mdt_thread_info *info,
-			     const struct obd_uuid *uuid);
+		const struct obd_uuid *uuid, int cancel_hsm_actions);
 int mdt_hsm_agent_update_statistics(struct coordinator *cdt,
 				    int succ_rq, int fail_rq, int new_rq,
 				    const struct obd_uuid *uuid);
 int mdt_hsm_find_best_agent(struct coordinator *cdt, __u32 archive,
 			    struct obd_uuid *uuid);
 int mdt_hsm_agent_send(struct mdt_thread_info *mti, struct hsm_action_list *hal,
-		       bool purge);
+		       bool purge, int agent_unregistered);
+int hsm_cancel_all_actions(struct mdt_device *mdt,
+			const struct obd_uuid *uuid, int agent_unregistered);
 int mdt_hsm_coordinator_update(struct mdt_thread_info *mti,
 			       struct hsm_progress_kernel *pgs);
 /* mdt/mdt_hsm_cdt_client.c */

@@ -3286,6 +3286,34 @@ test_60() {
 }
 run_test 60 "Changing progress update interval from default"
 
+test_61() {
+	local facet=$SINGLEAGT
+	local agents=${1:-$(facet_active_host $facet)}
+
+	copytool_setup
+
+	mkdir -p $DIR/$tdir
+	local f=$DIR/$tdir/$tfile
+	local fid
+	fid=$(make_custom_file_for_progress $f 39)
+	[ $? != 0 ] && skip "not enough free space" && return
+
+	$LFS hsm_archive $f
+
+	wait_request_state $fid ARCHIVE STARTED
+
+	# Kill copytool while md5sum is running
+	do_nodesv $agents "pkill -INT -x $HSMTOOL_BASE" ||
+		error "failed to kill the copy tool" || return
+	sleep 1
+	echo "Copytool is stopped on $agents"
+
+	wait_request_state $fid ARCHIVE CANCELED
+
+	copytool_cleanup
+}
+run_test 61 "Request should CANCEL after killing the copy tool"
+
 test_70() {
 	# test needs a new running copytool
 	copytool_cleanup
