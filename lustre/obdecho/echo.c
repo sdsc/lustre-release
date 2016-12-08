@@ -59,6 +59,25 @@ enum {
         LPROC_ECHO_LAST = LPROC_ECHO_WRITE_BYTES +1
 };
 
+/*
+ * echo target device
+ */
+struct etd_device {
+	struct dt_device	etd_dt_dev;
+	struct lu_target	etd_lut;
+	struct obd_device	*etd_obd;
+};
+
+static inline struct lu_device *etd2lu_dev(struct etd_device *d)
+{
+	return &d->etd_dt_dev.dd_lu_dev;
+}
+
+static inline struct etd_device *lu2etd_dev(struct lu_device *d)
+{
+        return container_of0(d, struct etd_device, etd_dt_dev.dd_lu_dev);
+}
+
 static int echo_connect(const struct lu_env *env,
                         struct obd_export **exp, struct obd_device *obd,
                         struct obd_uuid *cluuid, struct obd_connect_data *data,
@@ -136,9 +155,14 @@ static int echo_create(const struct lu_env *env, struct obd_export *exp,
                 return -EINVAL;
         }
 
+	if (!fid_seq_is_echo(ostid_seq(&oa->o_oi))) {
+		CERROR("invalid seq %#llx\n", ostid_seq(&oa->o_oi));
+		return -EINVAL;
+	}
+
 	ostid_set_seq_echo(&oa->o_oi);
 	ostid_set_id(&oa->o_oi, echo_next_id(obd));
-	oa->o_valid = OBD_MD_FLID;
+	oa->o_valid |= OBD_MD_FLID | OBD_MD_FLGROUP;
 
 	return 0;
 }
@@ -515,9 +539,9 @@ static int echo_commitrw(const struct lu_env *env, int cmd,
 
 	atomic_sub(pgs, &obd->u.echo.eo_prep);
 
-        CDEBUG(D_PAGE, "%d pages remain after commit\n",
+	CDEBUG(D_PAGE, "%d pages remain after commit\n",
 	       atomic_read(&obd->u.echo.eo_prep));
-        RETURN(rc);
+	RETURN(rc);
 
 commitrw_cleanup:
 	atomic_sub(pgs, &obd->u.echo.eo_prep);
@@ -545,15 +569,94 @@ static struct lprocfs_vars lprocfs_echo_obd_vars[] = {
 	{ NULL }
 };
 
-static int echo_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
+struct obd_ops echo_obd_ops = {
+        .o_owner           = THIS_MODULE,
+        .o_connect         = echo_connect,
+        .o_disconnect      = echo_disconnect,
+        .o_init_export     = echo_init_export,
+        .o_destroy_export  = echo_destroy_export,
+        .o_create          = echo_create,
+        .o_destroy         = echo_destroy,
+        .o_getattr         = echo_getattr,
+        .o_setattr         = echo_setattr,
+        .o_preprw          = echo_preprw,
+        .o_commitrw        = echo_commitrw,
+};
+
+#define DECLEARE_HDL(name)						\
+static int etd_##name##_hdl(struct tgt_session_info *tsi)		\
+{									\
+	struct ost_body *repbody;					\
+        repbody = req_capsule_server_get(tsi->tsi_pill, &RMF_OST_BODY);	\
+        repbody->oa = tsi->tsi_ost_body->oa;				\
+        return echo_##name(tsi->tsi_env, tsi->tsi_exp, &repbody->oa);	\
+}
+
+DECLEARE_HDL(create);
+DECLEARE_HDL(destroy);
+DECLEARE_HDL(getattr);
+DECLEARE_HDL(setattr);
+
+#define OBD_FAIL_OST_READ_NET	OBD_FAIL_OST_BRW_NET
+#define OBD_FAIL_OST_WRITE_NET	OBD_FAIL_OST_BRW_NET
+#define OST_BRW_READ		OST_READ
+#define OST_BRW_WRITE		OST_WRITE
+
+static struct tgt_handler echo_tgt_handlers[] = {
+TGT_RPC_HANDLER(OST_FIRST_OPC,
+                0,                      OST_CONNECT,    tgt_connect,
+                &RQF_CONNECT, LUSTRE_OBD_VERSION),
+TGT_RPC_HANDLER(OST_FIRST_OPC,
+                0,                      OST_DISCONNECT, tgt_disconnect,
+                &RQF_OST_DISCONNECT, LUSTRE_OBD_VERSION),
+TGT_OST_HDL(HABEO_CORPUS| HABEO_REFERO, OST_GETATTR,    etd_getattr_hdl),
+TGT_OST_HDL(HABEO_CORPUS| HABEO_REFERO | MUTABOR,
+                                        OST_SETATTR,    etd_setattr_hdl),
+TGT_OST_HDL(0           | HABEO_REFERO | MUTABOR,
+                                        OST_CREATE,     etd_create_hdl),
+TGT_OST_HDL(0           | HABEO_REFERO | MUTABOR,
+                                        OST_DESTROY,    etd_destroy_hdl),
+TGT_OST_HDL(HABEO_CORPUS| HABEO_REFERO,
+					OST_BRW_READ,	tgt_brw_read),
+TGT_OST_HDL(HABEO_CORPUS| MUTABOR,	OST_BRW_WRITE,	tgt_brw_write),
+};
+
+static struct tgt_opc_slice echo_common_slice[] = {
+	{
+		.tos_opc_start  = OST_FIRST_OPC,
+		.tos_opc_end    = OST_LAST_OPC,
+		.tos_hs         = echo_tgt_handlers
+	},
+	{
+		.tos_opc_start  = OBD_FIRST_OPC,
+		.tos_opc_end    = OBD_LAST_OPC,
+		.tos_hs         = tgt_obd_handlers
+	},
+	{
+		.tos_opc_start  = LDLM_FIRST_OPC,
+		.tos_opc_end    = LDLM_LAST_OPC,
+		.tos_hs         = tgt_dlm_handlers
+	}
+};
+
+const struct lu_device_operations etd_lu_ops = {
+};
+
+static int echo_init0(const struct lu_env *env, struct etd_device *etd,
+	struct lu_device_type *ldt, struct lustre_cfg *lcfg)
 {
-	int			rc;
+	struct obd_device	*obd;
 	__u64			lock_flags = 0;
 	struct ldlm_res_id	res_id = {.name = {1}};
 	char			ns_name[48];
+	int			rc;
 	ENTRY;
 
-        obd->u.echo.eo_obt.obt_magic = OBT_MAGIC;
+	etd->etd_dt_dev.dd_lu_dev.ld_ops = &etd_lu_ops;
+
+	obd = class_name2obd(lustre_cfg_string(lcfg, 0));
+	etd->etd_obd = obd;
+
 	spin_lock_init(&obd->u.echo.eo_lock);
         obd->u.echo.eo_lastino = ECHO_INIT_OID;
 
@@ -567,11 +670,16 @@ static int echo_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
                 RETURN(-ENOMEM);
         }
 
-        rc = ldlm_cli_enqueue_local(obd->obd_namespace, &res_id, LDLM_PLAIN,
-                                    NULL, LCK_NL, &lock_flags, NULL,
+	obd->obd_replayable = 0;
+	rc = tgt_init(env, &etd->etd_lut, obd, &etd->etd_dt_dev, echo_common_slice,
+			0, 0);
+	LASSERT(rc == 0);
+
+	rc = ldlm_cli_enqueue_local(obd->obd_namespace, &res_id, LDLM_PLAIN,
+				    NULL, LCK_NL, &lock_flags, NULL,
 				    ldlm_completion_ast, NULL, NULL, 0,
 				    LVB_T_NONE, NULL, &obd->u.echo.eo_nl_lock);
-        LASSERT (rc == ELDLM_OK);
+	LASSERT (rc == ELDLM_OK);
 
 	obd->obd_vars = lprocfs_echo_obd_vars;
 	if (lprocfs_obd_setup(obd) == 0 &&
@@ -586,11 +694,14 @@ static int echo_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 
 	ptlrpc_init_client(LDLM_CB_REQUEST_PORTAL, LDLM_CB_REPLY_PORTAL,
 			   "echo_ldlm_cb_client", &obd->obd_ldlm_client);
-        RETURN(0);
+	RETURN(0);
 }
 
-static int echo_cleanup(struct obd_device *obd)
+static struct lu_device *
+etd_device_fini(const struct lu_env *env, struct lu_device *d)
 {
+	struct etd_device	*etd = lu2etd_dev(d);
+	struct obd_device	*obd = etd->etd_obd;
 	int leaked;
 	ENTRY;
 
@@ -611,23 +722,55 @@ static int echo_cleanup(struct obd_device *obd)
 	if (leaked != 0)
 		CERROR("%d prep/commitrw pages leaked\n", leaked);
 
-	RETURN(0);
+	RETURN(NULL);
 }
 
-struct obd_ops echo_obd_ops = {
-        .o_owner           = THIS_MODULE,
-        .o_connect         = echo_connect,
-        .o_disconnect      = echo_disconnect,
-        .o_init_export     = echo_init_export,
-        .o_destroy_export  = echo_destroy_export,
-        .o_create          = echo_create,
-        .o_destroy         = echo_destroy,
-        .o_getattr         = echo_getattr,
-        .o_setattr         = echo_setattr,
-        .o_preprw          = echo_preprw,
-        .o_commitrw        = echo_commitrw,
-        .o_setup           = echo_setup,
-        .o_cleanup         = echo_cleanup
+static struct lu_device *
+etd_device_free(const struct lu_env *env, struct lu_device *lu)
+{
+	struct etd_device *etd = lu2etd_dev(lu);
+	ENTRY;
+
+	dt_device_fini(&etd->etd_dt_dev);
+	OBD_FREE_PTR(etd);
+	RETURN(NULL);
+}
+
+static struct lu_device *etd_device_alloc(const struct lu_env *env,
+		struct lu_device_type *type,
+		struct lustre_cfg *lcfg)
+{
+	struct etd_device *etd;
+	struct lu_device  *ludev;
+
+	OBD_ALLOC_PTR(etd);
+	if (etd == NULL) {
+		ludev = ERR_PTR(-ENOMEM);
+	} else {
+		int rc;
+
+		ludev = etd2lu_dev(etd);
+		dt_device_init(&etd->etd_dt_dev, type);
+		rc = echo_init0(env, etd, type, lcfg);
+		if (rc != 0) {
+			etd_device_free(env, ludev);
+			ludev = ERR_PTR(rc);
+		}
+	}
+	return ludev;
+}
+
+static const struct lu_device_type_operations etd_device_type_ops = {
+	.ldto_device_alloc = etd_device_alloc,
+	.ldto_device_free  = etd_device_free,
+	.ldto_device_fini  = etd_device_fini
+};
+
+struct lu_device_type echo_target_device_type = {
+	.ldt_tags     = LU_DEVICE_DT,
+	.ldt_name     = LUSTRE_ECHO_NAME,
+	.ldt_ops      = &etd_device_type_ops,
+	.ldt_ctx_tags = LCT_DT_THREAD,
 };
 
 void echo_persistent_pages_fini(void)
