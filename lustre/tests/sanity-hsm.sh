@@ -395,11 +395,107 @@ import_file() {
 		error "import of $1 to $2 failed"
 }
 
-make_archive() {
-	local file=$HSM_ARCHIVE/$1
-	do_facet $SINGLEAGT mkdir -p $(dirname $file)
-	do_facet $SINGLEAGT dd if=/dev/urandom of=$file count=32 bs=1000000 ||
-		file_creation_failure dd $file $?
+file_creation_failure() {
+	local cmd=$1
+	local file=$2
+	local err=$3
+
+	case $err in
+	28)
+		df $MOUNT $MOUNT2 >&2
+		error "Not enough space to create $file with $cmd"
+		;;
+	*)
+		error "cannot create $f with $cmd, status=$err"
+		;;
+	esac
+}
+
+# Feel free to add your own conversion operator
+# Format is key=<unit> value=<operation to convert to bytes>
+declare -A __conv2B=(
+	["M"]="* 1024"
+	)
+
+# Convert a string of the format <value><unit> to bytes
+# Example: 10M -> 10240
+convert_to_bytes() {
+	local value=$(grep -o "[[:digit:]]\+" <<< "$1")
+	local unit=$(grep -o "[^[:digit:]]\+" <<< "$1")
+
+	[ -z $unit ] && printf "$value\n" || bc <<< "$value ${__conv2B[$unit]}"
+}
+
+# Is there enough free space to create a file?
+enough_free_space() {
+	local bs=$(convert_to_bytes "$1")
+	local count=$(convert_to_bytes "$2")
+	local need=$(bc <<< "$bs * $count")
+	local free=$(df -kP $MOUNT | tail -1 | awk '{print $4 * 1024}')
+	return $((need > free))
+}
+
+# Creates a file using dd
+create_file() {
+	local file=$1
+	local bs=$2
+	local count=$3
+	local conv=$4
+	local if=${5:-/dev/zero}
+	local facet=$SINGLEAGT
+	local is_archive
+	[[ "$file" =~ ^$HSM_ARCHIVE ]] && is_archive=true || is_archive=false
+
+	$is_archive || enough_free_space $bs $count || return 28
+
+	local cmd=$(printf 'do_facet "%s" dd if="%s" of="%s" count=%s bs=%s' \
+		    "$facet" "$if" "$file" "$count" "$bs")
+	[ -n "$conv" ] && cmd=$(printf "%s conv=%s" "$cmd" "$conv")
+
+	# Create the directory in case it does not exist
+	do_facet "$facet" mkdir -p "$(dirname "$file")"
+	# Delete the file in case it already exist
+	do_facet "$facet" rm -f "$file"
+
+	if eval "$cmd"; then
+		$is_archive || path2fid "$file" || error "cannot get fid on '$file'"
+	else
+		local err=$?
+		printf "$cmd failed with $err\n" >&2;
+		# Let the caller decide what to do on error
+		return $err;
+	fi
+}
+
+create_empty_file() {
+	create_file "${1/$DIR/$DIR2}" 1M 0 ||
+		file_creation_failure dd "${1/$DIR/$DIR2}" $?
+}
+
+create_small_file() {
+	local source_file=/dev/urandom
+	local count=1
+	local bs=1M
+	local conv=${2:-fsync}
+
+	create_file "${1/$DIR/$DIR2}" $bs $count $conv $source_file ||
+		file_creation_failure dd "${1/$DIR/$DIR2}" $?
+}
+
+create_small_sync_file() {
+	create_small_file "$1" sync
+}
+
+create_archive_file() {
+	local if=/dev/urandom
+	local count=${2:-39}
+	local bs=1M
+	local facet=$SINGLEAGT
+
+	# Create the counterpart directory of the archive
+	do_facet "$facet" mkdir -p "$DIR2/$(dirname "$1")"
+	create_file "${HSM_ARCHIVE}/$1" $bs $count "" $if ||
+		file_creation_failure dd "${HSM_ARCHIVE}/$1" $?
 }
 
 copy2archive() {
@@ -629,15 +725,6 @@ check_hsm_flags_user() {
 	[[ $st == $fl ]] || error "hsm flags on $f are $st != $fl"
 }
 
-file_creation_failure() {
-	local cmd=$1
-	local f=$2
-	local err=$3
-
-	df $MOUNT $MOUNT2 >&2
-	error "cannot create $f with $cmd, status=$err"
-}
-
 copy_file() {
 	local f=
 
@@ -656,50 +743,15 @@ copy_file() {
 	path2fid $f || error "cannot get fid on $f"
 }
 
-make_small() {
-        local file2=${1/$DIR/$DIR2}
-        dd if=/dev/urandom of=$file2 count=2 bs=1M conv=fsync ||
-		file_creation_failure dd $file2 $?
-
-        path2fid $1 || error "cannot get fid on $1"
-}
-
-make_small_sync() {
-	dd if=/dev/urandom of=$1 count=1 bs=1M conv=sync ||
-		file_creation_failure dd $1 $?
-	path2fid $1 || error "cannot get fid on $1"
-}
-
-cleanup_large_files() {
-	local ratio=$(df -P $MOUNT | tail -1 | awk '{print $5}' |
-		      sed 's/%//g')
-	[ $ratio -gt 50 ] && find $MOUNT -size +10M -exec rm -f {} \;
-}
-
-check_enough_free_space() {
-	local nb=$1
-	local unit=$2
-	local need=$((nb * unit /1024))
-	local free=$(df -kP $MOUNT | tail -1 | awk '{print $4}')
-	(( $need >= $free )) && return 1
-	return 0
-}
-
 make_custom_file_for_progress() {
-	local file2=${1/$DIR/$DIR2}
-	local fsize=${2:-"39"}
-	local blksz=$($LCTL get_param -n lov.*-clilov-*.stripesize | head -n1)
-	blksz=${3:-$blksz}
+	local count=${2:-"39"}
+	local bs=$($LCTL get_param -n lov.*-clilov-*.stripesize | head -n1)
+	bs=${3:-$bs}
 
-	[[ $fsize -gt  0 ]] || error "Invalid file size"
-	[[ $blksz -gt 0 ]] || error "Invalid stripe size"
+	[[ $count -gt  0 ]] || error "Invalid file size"
+	[[ $bs -gt 0 ]] || error "Invalid stripe size"
 
-	cleanup_large_files
-	check_enough_free_space $fsize $blksz
-	[ $? != 0 ] && return $?
-	dd if=/dev/zero of=$file2 count=$fsize bs=$blksz conv=fsync ||
-		file_creation_failure dd $file2 $?
-	path2fid $1 || error "cannot get fid on $1"
+	create_file "${1/$DIR/$DIR2}" $bs $count fsync
 }
 
 wait_result() {
@@ -891,9 +943,8 @@ test_1() {
 run_test 1 "lfs hsm flags root/non-root access"
 
 test_1a() {
-	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
-	local fid=$(make_small $f)
+	local fid=$(create_small_file $f)
 
 	copytool_setup
 
@@ -912,9 +963,9 @@ test_1a() {
 run_test 1a "mmap & cat a HSM released file"
 
 test_2() {
-	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
-	touch $f
+
+	create_empty_file "$f"
 	# New files are not dirty
 	check_hsm_flags $f "0x00000000"
 
@@ -995,9 +1046,8 @@ test_3() {
 run_test 3 "Check file dirtyness when opening for write"
 
 test_4() {
-	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
-	local fid=$(make_small $f)
+	local fid=$(create_small_file $f)
 
 	$LFS hsm_cancel $f
 	local st=$(get_request_state $fid CANCEL)
@@ -1060,10 +1110,9 @@ test_9a() {
 
 	trap "copytool_cleanup $(comma_list $(agts_nodes))" EXIT
 	# archive files
-	mkdir -p $DIR/$tdir
 	for n in $(seq $AGTCOUNT); do
 		file=$DIR/$tdir/$tfile.$n
-		fid=$(make_small $file)
+		fid=$(create_small_file $file)
 
 		$LFS hsm_archive $file || error "could not archive file $file"
 		wait_request_state $fid ARCHIVE SUCCEED
@@ -1264,9 +1313,9 @@ test_12c() {
 	# test needs a running copytool
 	copytool_setup
 
-	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
-	$LFS setstripe -c 2 $f
+	mkdir -p $DIR/$tdir
+	$LFS setstripe -c 2 "$f"
 	local fid
 	fid=$(make_custom_file_for_progress $f 5)
 	[ $? != 0 ] && skip "not enough free space" && return
@@ -1535,10 +1584,9 @@ test_12q() {
 	# test needs a running copytool
 	copytool_setup $SINGLEAGT $MOUNT3
 
-	mkdir $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
 	local f2=$DIR2/$tdir/$tfile
-	local fid=$(make_small $f)
+	local fid=$(create_small_file $f)
 	local orig_size=$(stat -c "%s" $f)
 
 	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER $f
@@ -1631,18 +1679,14 @@ test_14() {
 	copytool_setup
 
 	# archive a file
-	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
-	local fid=$(make_small $f)
+	local fid=$(create_small_file $f)
 	local sum=$(md5sum $f | awk '{print $1}')
 	$LFS hsm_archive $f || error "could not archive file"
 	wait_request_state $fid ARCHIVE SUCCEED
 
-	# delete the file
-	rm -f $f
 	# create released file (simulate llapi_hsm_import call)
-	touch $f
-	local fid2=$(path2fid $f)
+	local fid2=$(create_empty_file "$f")
 	$LFS hsm_set --archived --exists $f || error "could not force hsm flags"
 	$LFS hsm_release $f || error "could not release file"
 
@@ -1667,7 +1711,6 @@ test_15() {
 	copytool_setup
 
 	# archive files
-	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
 	local count=5
 	local tmpfile=$SHARED_DIRECTORY/tmp.$$
@@ -1675,7 +1718,7 @@ test_15() {
 	local fids=()
 	local sums=()
 	for i in $(seq 1 $count); do
-		fids[$i]=$(make_small $f.$i)
+		fids[$i]=$(create_small_file $f.$i)
 		sums[$i]=$(md5sum $f.$i | awk '{print $1}')
 		$LFS hsm_archive $f.$i || error "could not archive file"
 	done
@@ -1684,9 +1727,7 @@ test_15() {
 	:>$tmpfile
 	# delete the files
 	for i in $(seq 1 $count); do
-		rm -f $f.$i
-		touch $f.$i
-		local fid2=$(path2fid $f.$i)
+		local fid2=$(create_empty_file "${f}.${i}")
 		# add the rebind operation to the list
 		echo ${fids[$i]} $fid2 >> $tmpfile
 
@@ -1744,10 +1785,8 @@ test_16() {
 run_test 16 "Test CT bandwith control option"
 
 test_20() {
-	mkdir -p $DIR/$tdir
-
 	local f=$DIR/$tdir/$tfile
-	touch $f || error "touch $f failed"
+	create_empty_file "$f"
 
 	# Could not release a non-archived file
 	$LFS hsm_release $f && error "release should not succeed"
@@ -1776,11 +1815,10 @@ test_21() {
 	# test needs a running copytool
 	copytool_setup
 
-	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/test_release
 
 	# Create a file and check its states
-	local fid=$(make_small $f)
+	local fid=$(create_small_file $f)
 	check_hsm_flags $f "0x00000000"
 
 	# LU-4388/LU-4389 - ZFS does not report full number of blocks
@@ -1845,13 +1883,11 @@ test_22() {
 	# test needs a running copytool
 	copytool_setup
 
-	mkdir -p $DIR/$tdir
-
 	local f=$DIR/$tdir/test_release
 	local swap=$DIR/$tdir/test_swap
 
 	# Create a file and check its states
-	local fid=$(make_small $f)
+	local fid=$(create_small_file $f)
 	check_hsm_flags $f "0x00000000"
 
 	$LFS hsm_archive $f || error "could not archive file"
@@ -1861,7 +1897,7 @@ test_22() {
 	$LFS hsm_release $f || error "could not release file"
 	check_hsm_flags $f "0x0000000d"
 
-	make_small $swap
+	create_small_file $swap
 	$LFS swap_layouts $swap $f && error "swap_layouts should failed"
 
 	true
@@ -1873,12 +1909,10 @@ test_23() {
 	# test needs a running copytool
 	copytool_setup
 
-	mkdir -p $DIR/$tdir
-
 	local f=$DIR/$tdir/test_mtime
 
 	# Create a file and check its states
-	local fid=$(make_small $f)
+	local fid=$(create_small_file $f)
 	check_hsm_flags $f "0x00000000"
 
 	$LFS hsm_archive $f || error "could not archive file"
@@ -1913,9 +1947,7 @@ test_24a() {
 	# test needs a running copytool
 	copytool_setup
 
-	mkdir -p $DIR/$tdir
-	rm -f $file
-	fid=$(make_small $file)
+	fid=$(create_small_file $file)
 
 	# Create a file and check its states
 	check_hsm_flags $file "0x00000000"
@@ -2015,11 +2047,9 @@ test_24b() {
 
 	# Test needs a running copytool.
 	copytool_setup
-	mkdir -p $DIR/$tdir
 
 	# Check that root can do HSM actions on a regular user's file.
-	rm -f $file
-	fid=$(make_small $file)
+	fid=$(create_small_file $file)
 	sum0=$(md5sum $file)
 
 	chown $RUNAS_ID:$RUNAS_GID $file ||
@@ -2090,8 +2120,7 @@ test_24c() {
 	trap cleanup_test_24c EXIT
 
 	# User.
-	rm -f $file
-	make_small $file
+	create_small_file $file
 	chown $RUNAS_ID:nobody $file ||
 		error "cannot chown '$file' to '$RUNAS_ID:nobody'"
 
@@ -2103,8 +2132,7 @@ test_24c() {
 		error "$action by user should succeed"
 
 	# Group.
-	rm -f $file
-	make_small $file
+	create_small_file $file
 	chown nobody:$RUNAS_GID $file ||
 		error "cannot chown '$file' to 'nobody:$RUNAS_GID'"
 
@@ -2116,8 +2144,7 @@ test_24c() {
 		error "$action by group should succeed"
 
 	# Other.
-	rm -f $file
-	make_small $file
+	create_small_file $file
 	chown nobody:nobody $file ||
 		error "cannot chown '$file' to 'nobody:nobody'"
 
@@ -2144,9 +2171,7 @@ test_24d() {
 	local fid1
 	local fid2
 
-	mkdir -p $DIR/$tdir
-	rm -f $file1
-	fid1=$(make_small $file1)
+	fid1=$(create_small_file $file1)
 
 	copytool_setup $SINGLEAGT $MOUNT
 
@@ -2182,12 +2207,10 @@ run_test 24d "check that read-only mounts are respected"
 test_24e() {
 	copytool_setup
 
-	mkdir -p $DIR/$tdir
-
 	local f=$DIR/$tdir/$tfile
 	local fid
 
-	fid=$(make_small $f) || error "cannot create $f"
+	fid=$(create_small_file $f) || error "cannot create $f"
 	$LFS hsm_archive $f || error "cannot archive $f"
 	wait_request_state $fid ARCHIVE SUCCEED
 	$LFS hsm_release $f || error "cannot release $f"
@@ -2279,7 +2302,6 @@ test_26() {
 	# test needs a running copytool
 	copytool_setup
 
-	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
 	local fid
 	fid=$(make_custom_file_for_progress $f 39 1000000)
@@ -2301,8 +2323,7 @@ test_27a() {
 	# test needs a running copytool
 	copytool_setup
 
-	mkdir -p $DIR/$tdir
-	make_archive $tdir/$tfile
+	create_archive_file $tdir/$tfile
 	local f=$DIR/$tdir/$tfile
 	import_file $tdir/$tfile $f
 	local fid=$(path2fid $f)
@@ -2319,7 +2340,6 @@ test_27b() {
 	# test needs a running copytool
 	copytool_setup
 
-	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
 	local fid
 	fid=$(make_custom_file_for_progress $f 39 1000000)
@@ -2341,7 +2361,6 @@ test_28() {
 	# test needs a running copytool
 	copytool_setup
 
-	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
 	local fid
 	fid=$(make_custom_file_for_progress $f 39 1000000)
@@ -2387,9 +2406,8 @@ test_29b() {
 	# test needs a running copytool
 	copytool_setup
 
-	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
-	local fid=$(make_small $f)
+	local fid=$(create_small_file $f)
 
 	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER $f
 	wait_request_state $fid ARCHIVE SUCCEED
@@ -2407,10 +2425,9 @@ test_29c() {
 	# test needs a running copytool
 	copytool_setup
 
-	mkdir -p $DIR/$tdir
-	local fid1=$(make_small $DIR/$tdir/$tfile-1)
-	local fid2=$(make_small $DIR/$tdir/$tfile-2)
-	local fid3=$(make_small $DIR/$tdir/$tfile-3)
+	local fid1=$(create_small_file $DIR/$tdir/$tfile-1)
+	local fid2=$(create_small_file $DIR/$tdir/$tfile-2)
+	local fid3=$(create_small_file $DIR/$tdir/$tfile-3)
 
 	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER $DIR/$tdir/$tfile-[1-3]
 	wait_request_state $fid1 ARCHIVE SUCCEED
@@ -2450,9 +2467,8 @@ test_29d() {
 
 	trap "copytool_cleanup $(comma_list $(agts_nodes))" EXIT
 	# archive files
-	mkdir -p $DIR/$tdir
 	file=$DIR/$tdir/$tfile
-	fid=$(make_small $file)
+	fid=$(create_small_file $file)
 
 	$LFS hsm_archive $file
 	wait_request_state $fid ARCHIVE SUCCEED
@@ -2645,9 +2661,7 @@ test_31a() {
 	# test needs a running copytool
 	copytool_setup
 
-	mkdir -p $DIR/$tdir
-
-	make_archive $tdir/$tfile
+	create_archive_file $tdir/$tfile
 	local f=$DIR/$tdir/$tfile
 	import_file $tdir/$tfile $f
 	local fid=$($LFS path2fid $f)
@@ -2666,8 +2680,6 @@ run_test 31a "Import a large file and check size during restore"
 test_31b() {
 	# test needs a running copytool
 	copytool_setup
-
-	mkdir -p $DIR/$tdir
 
 	local f=$DIR/$tdir/$tfile
 	local fid
@@ -2691,8 +2703,6 @@ test_31c() {
 	# test needs a running copytool
 	copytool_setup
 
-	mkdir -p $DIR/$tdir
-
 	local f=$DIR/$tdir/$tfile
 	local fid
 	fid=$(make_custom_file_for_progress $f 33 1048576)
@@ -2714,8 +2724,6 @@ run_test 31c "Restore a large aligned file and check size during restore"
 test_33() {
 	# test needs a running copytool
 	copytool_setup
-
-	mkdir -p $DIR/$tdir
 
 	local f=$DIR/$tdir/$tfile
 	local fid
@@ -2782,8 +2790,6 @@ test_34() {
 	# test needs a running copytool
 	copytool_setup
 
-	mkdir -p $DIR/$tdir
-
 	local f=$DIR/$tdir/$tfile
 	local fid
 	fid=$(make_custom_file_for_progress $f 39 1000000)
@@ -2816,8 +2822,6 @@ run_test 34 "Remove file during restore"
 test_35() {
 	# test needs a running copytool
 	copytool_setup
-
-	mkdir -p $DIR/$tdir
 
 	local f=$DIR/$tdir/$tfile
 	local f1=$DIR/$tdir/$tfile-1
@@ -2857,8 +2861,6 @@ test_36() {
 	# test needs a running copytool
 	copytool_setup
 
-	mkdir -p $DIR/$tdir
-
 	local f=$DIR/$tdir/$tfile
 	local fid
 	fid=$(make_custom_file_for_progress $f 39 1000000)
@@ -2895,11 +2897,10 @@ test_37() {
 	copytool_cleanup
 	copytool_setup $SINGLEAGT $MOUNT2
 
-	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
 	local fid
 
-	fid=$(make_small $f) || error "cannot create small file"
+	fid=$(create_small_file $f) || error "cannot create small file"
 
 	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER $f
 	wait_request_state $fid ARCHIVE SUCCEED
@@ -3026,7 +3027,6 @@ test_54() {
 	# test needs a running copytool
 	copytool_setup
 
-	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
 	local fid=$(make_custom_file_for_progress $f 39 1000000)
 
@@ -3054,7 +3054,6 @@ test_55() {
 	# test needs a running copytool
 	copytool_setup
 
-	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
 	local fid=$(make_custom_file_for_progress $f 39 1000000)
 
@@ -3082,7 +3081,6 @@ test_56() {
 	# test needs a running copytool
 	copytool_setup
 
-	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
 	local fid
 	fid=$(make_custom_file_for_progress $f 39 1000000)
@@ -3223,7 +3221,6 @@ test_60() {
 	copytool_cleanup
 	HSMTOOL_UPDATE_INTERVAL=$interval copytool_setup
 
-	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
 	local fid
 	fid=$(make_custom_file_for_progress $f 10)
@@ -3346,7 +3343,6 @@ test_71() {
 	HSMTOOL_UPDATE_INTERVAL=$interval \
 	HSMTOOL_EVENT_FIFO=$HSMTOOL_MONITOR_DIR/fifo copytool_setup
 
-	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
 	local fid
 	fid=$(make_custom_file_for_progress $f 39 1000000)
@@ -3624,7 +3620,6 @@ test_104() {
 	# test needs a running copytool
 	copytool_setup
 
-	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
 	local fid
 	fid=$(make_custom_file_for_progress $f 39 1000000)
@@ -3892,7 +3887,6 @@ test_200() {
 	# test needs a running copytool
 	copytool_setup
 
-	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
 	local fid
 	fid=$(make_custom_file_for_progress $f 103 1048576)
@@ -3916,9 +3910,8 @@ test_201() {
 	# test needs a running copytool
 	copytool_setup
 
-	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
-	make_archive $tdir/$tfile
+	create_archive_file $tdir/$tfile
 	import_file $tdir/$tfile $f
 	local fid=$(path2fid $f)
 
@@ -3940,7 +3933,6 @@ test_202() {
 	# test needs a running copytool
 	copytool_setup
 
-	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
 	local fid
 	fid=$(make_custom_file_for_progress $f 39 1000000)
@@ -4022,8 +4014,6 @@ run_test 220a "Changelog for failed archive"
 test_221() {
 	# test needs a running copytool
 	copytool_setup
-
-	mkdir -p $DIR/$tdir
 
 	local f=$DIR/$tdir/$tfile
 	local fid
@@ -4164,10 +4154,8 @@ test_223a() {
 	# test needs a running copytool
 	copytool_setup
 
-	mkdir -p $DIR/$tdir
-
 	local f=$DIR/$tdir/$tfile
-	make_archive $tdir/$tfile
+	create_archive_file $tdir/$tfile
 
 	changelog_setup
 
@@ -4193,8 +4181,6 @@ run_test 223a "Changelog for restore canceled (import case)"
 test_223b() {
 	# test needs a running copytool
 	copytool_setup
-
-	mkdir -p $DIR/$tdir
 
 	local f=$DIR/$tdir/$tfile
 	local fid
@@ -4294,7 +4280,6 @@ test_225() {
 	copytool_cleanup
 	return 0
 
-	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
 	local fid
 	fid=$(make_custom_file_for_progress $f 39 1000000)
@@ -4425,7 +4410,7 @@ test_228() {
 	# test needs a running copytool
 	copytool_setup
 
-	local fid=$(make_small_sync $DIR/$tfile)
+	local fid=$(create_small_sync_file $DIR/$tfile)
 	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER $DIR/$tfile
 	wait_request_state $fid ARCHIVE SUCCEED
 
@@ -4499,7 +4484,6 @@ test_251() {
 	# test needs a running copytool
 	copytool_setup
 
-	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
 	local fid
 	fid=$(make_custom_file_for_progress $f 103 1048576)
@@ -4614,8 +4598,8 @@ test_400() {
 	$LFS mkdir -i 1 $dir_mdt1 || error "lfs mkdir"
 
 	# create 1 file in each MDT
-	local fid1=$(make_small $dir_mdt0/$tfile)
-	local fid2=$(make_small $dir_mdt1/$tfile)
+	local fid1=$(create_small_file $dir_mdt0/$tfile)
+	local fid2=$(create_small_file $dir_mdt1/$tfile)
 
 	# check that hsm request on mdt0 is sent to the right MDS
 	$LFS hsm_archive $dir_mdt0/$tfile || error "lfs hsm_archive"
@@ -4648,8 +4632,8 @@ test_401() {
 	$LFS mkdir -i 1 $dir_mdt1 || error "lfs mkdir"
 
 	# create 1 file in each MDT
-	local fid1=$(make_small $dir_mdt0/$tfile)
-	local fid2=$(make_small $dir_mdt1/$tfile)
+	local fid1=$(create_small_file $dir_mdt0/$tfile)
+	local fid2=$(create_small_file $dir_mdt1/$tfile)
 
 	# check that compound requests are shunt to the rights MDTs
 	$LFS hsm_archive $dir_mdt0/$tfile $dir_mdt1/$tfile ||
@@ -4740,7 +4724,7 @@ test_404() {
 	$LFS mkdir -i 0 $dir_mdt0 || error "lfs mkdir"
 
 	# create 1 file on mdt0
-	local fid1=$(make_small $dir_mdt0/$tfile)
+	local fid1=$(create_small_file $dir_mdt0/$tfile)
 
 	# deactivate all mdc for MDT0001
 	mdc_change_state $SINGLEAGT "$FSNAME-MDT0001" "deactivate"
@@ -4773,10 +4757,10 @@ test_405() {
 	# create striped dir on all of MDTs
 	$LFS mkdir -i 0 -c $MDSCOUNT $striped_dir || error "lfs mkdir"
 
-	local fid1=$(make_small_sync $striped_dir/${tfile}_0)
-	local fid2=$(make_small_sync $striped_dir/${tfile}_1)
-	local fid3=$(make_small_sync $striped_dir/${tfile}_2)
-	local fid4=$(make_small_sync $striped_dir/${tfile}_3)
+	local fid1=$(create_small_sync_file $striped_dir/${tfile}_0)
+	local fid2=$(create_small_sync_file $striped_dir/${tfile}_1)
+	local fid3=$(create_small_sync_file $striped_dir/${tfile}_2)
+	local fid4=$(create_small_sync_file $striped_dir/${tfile}_3)
 
 	local idx1=$($LFS getstripe -M $striped_dir/${tfile}_0)
 	local idx2=$($LFS getstripe -M $striped_dir/${tfile}_1)
@@ -4821,8 +4805,7 @@ test_406() {
 	local mdt_index
 
 	copytool_setup
-	mkdir -p $DIR/$tdir
-	fid=$(make_small $DIR/$tdir/$tfile)
+	fid=$(create_small_file $DIR/$tdir/$tfile)
 	echo "old fid $fid"
 
 	$LFS hsm_archive $DIR/$tdir/$tfile
