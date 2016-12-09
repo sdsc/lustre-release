@@ -156,7 +156,6 @@ osd_oi_create(const struct lu_env *env, struct osd_device *o,
 	dmu_tx_hold_zap(tx, DMU_NEW_OBJECT, 1, NULL);
 	dmu_tx_hold_bonus(tx, parent);
 	dmu_tx_hold_zap(tx, parent, TRUE, name);
-	LASSERT(tx->tx_objset->os_sa);
 	dmu_tx_hold_sa_create(tx, ZFS_SA_BASE_ATTR_SIZE);
 
 	rc = -dmu_tx_assign(tx, TXG_WAIT);
@@ -519,8 +518,8 @@ osd_oi_remove_table(const struct lu_env *env, struct osd_device *o, int key)
 
 	oi = o->od_oi_table[key];
 	if (oi) {
-		if (oi->oi_db)
-			sa_buf_rele(oi->oi_db, osd_obj_tag);
+		if (oi->oi_dn)
+			osd_dnode_rele(oi->oi_dn);
 		OBD_FREE_PTR(oi);
 		o->od_oi_table[key] = NULL;
 	}
@@ -550,7 +549,7 @@ osd_oi_add_table(const struct lu_env *env, struct osd_device *o,
 	}
 
 	o->od_oi_table[key] = oi;
-	__osd_obj2dbuf(env, o->od_os, oi->oi_zapid, &oi->oi_db);
+	__osd_obj2dnode(env, o->od_os, oi->oi_zapid, &oi->oi_dn);
 
 	return 0;
 }
