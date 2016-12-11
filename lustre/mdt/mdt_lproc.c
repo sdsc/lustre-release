@@ -777,9 +777,22 @@ LPROC_SEQ_FOPS(mdt_hsm_cdt_control);
 LPROC_SEQ_FOPS_RW_TYPE(mdt, recovery_time_hard);
 LPROC_SEQ_FOPS_RW_TYPE(mdt, recovery_time_soft);
 
+LPROC_SEQ_FOPS_RO(tgt_tot_dirty);
+LPROC_SEQ_FOPS_RO(tgt_tot_granted);
+LPROC_SEQ_FOPS_RO(tgt_tot_pending);
+LPROC_SEQ_FOPS(tgt_grant_compat_disable);
+
 static struct lprocfs_vars lprocfs_mdt_obd_vars[] = {
 	{ .name =	"uuid",
-	  .fops =	&mdt_uuid_fops				},
+	  .fops =	&mdt_uuid_fops			},
+	{ .name =	"tot_dirty",
+	  .fops =	&tgt_tot_dirty_fops		},
+	{ .name =	"tot_pending",
+	  .fops =	&tgt_tot_pending_fops		},
+	{ .name =	"tot_granted",
+	  .fops =	&tgt_tot_granted_fops		},
+	{ .name =	"grant_compat_disable",
+	  .fops =	&tgt_grant_compat_disable_fops	},
 	{ .name =	"recovery_status",
 	  .fops =	&mdt_recovery_status_fops		},
 	{ .name =	"num_exports",
