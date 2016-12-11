@@ -14729,7 +14729,7 @@ test_271a() {
 
 	lctl set_param -n mdc.*.stats=clear
 	dd if=/dev/zero of=$dom bs=4096 count=1 || return 1
-	cat $dom > /dev/null
+	dd if=$dom of=/dev/null bs=4096 count=1 || return 2
 	local reads=$(lctl get_param -n mdc.*.stats | \
 		awk '/ost_read/ {print $2}')
 	[ -z $reads ] || error "Unexpected $reads READ RPCs"
