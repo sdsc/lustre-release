@@ -623,33 +623,16 @@ out:
 
 static int cfs_cpt_num_estimate(void)
 {
-	int nnode = num_online_nodes();
-	int ncpu  = num_online_cpus();
-	int ncpt;
+	int ncpu = num_online_cpus();
+	int ncpt = 1;
 
-	if (ncpu <= CPT_WEIGHT_MIN) {
-		ncpt = 1;
-		goto out;
+	if (ncpu > CPT_WEIGHT_MIN) {
+		int nthr = cfs_cpu_ht_nsiblings(smp_processor_id());
+
+		for (ncpt = 2; ncpu > 2 * nthr * ncpt; ncpt++)
+			/* nothing */;
 	}
 
-	/* generate reasonable number of CPU partitions based on total number
-	 * of CPUs, Preferred N should be power2 and match this condition:
-	 * 2 * (N - 1)^2 < NCPUS <= 2 * N^2 */
-	for (ncpt = 2; ncpu > 2 * ncpt * ncpt; ncpt <<= 1)
-		;
-
-	if (ncpt <= nnode) { /* fat numa system */
-		while (nnode > ncpt)
-			nnode >>= 1;
-
-	} else { /* ncpt > nnode */
-		while ((nnode << 1) <= ncpt)
-			nnode <<= 1;
-	}
-
-	ncpt = nnode;
-
-out:
 #if (BITS_PER_LONG == 32)
 	/* config many CPU partitions on 32-bit system could consume
 	 * too much memory */
