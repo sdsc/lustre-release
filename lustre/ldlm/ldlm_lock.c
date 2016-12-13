@@ -2155,12 +2155,9 @@ void ldlm_reprocess_all(struct ldlm_resource *res)
                 return;
         }
 
-	/* Disable reprocess during lock replay stage but allow during
-	 * request replay stage.
-	 */
+	/* Disable reprocess during recovery. */
 	obd = ldlm_res_to_ns(res)->ns_obd;
-	if (obd->obd_recovering &&
-	    atomic_read(&obd->obd_req_replay_clients) == 0)
+	if (obd->obd_recovering)
 		RETURN_EXIT;
 restart:
         lock_res(res);

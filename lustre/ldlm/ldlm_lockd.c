@@ -1509,7 +1509,8 @@ existing_lock:
 			}
 		}
 
-                if (!err && dlm_req->lock_desc.l_resource.lr_type != LDLM_FLOCK)
+                if (!err && !(flags & LDLM_FL_REPLAY) &&
+		    dlm_req->lock_desc.l_resource.lr_type != LDLM_FLOCK)
                         ldlm_reprocess_all(lock->l_resource);
 
                 LDLM_LOCK_RELEASE(lock);
