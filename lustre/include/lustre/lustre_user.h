@@ -441,6 +441,7 @@ enum lmv_hash_type {
 	LMV_HASH_TYPE_UNKNOWN	= 0,	/* 0 is reserved for testing purpose */
 	LMV_HASH_TYPE_ALL_CHARS = 1,
 	LMV_HASH_TYPE_FNV_1A_64 = 2,
+	LMV_HASH_TYPE_MAX,
 };
 
 #define LMV_HASH_NAME_ALL_CHARS	"all_char"

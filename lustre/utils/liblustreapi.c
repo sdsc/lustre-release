@@ -2306,6 +2306,9 @@ void lmv_dump_user_lmm(struct lmv_user_md *lum, char *pool_name,
 	char *prefix = lum->lum_magic == LMV_USER_MAGIC ? "(Default)" : "";
 	int i, obdstripe = 0;
 	char *separator = "";
+	char *hash_type_name[] = { "N/A",
+				   LMV_HASH_NAME_ALL_CHARS,
+				   LMV_HASH_NAME_FNV_1A_64 };
 
 	if (obdindex != OBD_NOT_FOUND) {
 		if (lum->lum_stripe_count == 0) {
@@ -2332,7 +2335,8 @@ void lmv_dump_user_lmm(struct lmv_user_md *lum, char *pool_name,
 	/* show all information default */
 	if (!verbose) {
 		if (lum->lum_magic == LMV_USER_MAGIC)
-			verbose = VERBOSE_POOL | VERBOSE_COUNT | VERBOSE_OFFSET;
+			verbose = VERBOSE_POOL | VERBOSE_COUNT |
+				  VERBOSE_OFFSET | VERBOSE_HASH_TYPE;
 		else
 			verbose = VERBOSE_OBJID;
 	}
@@ -2358,6 +2362,24 @@ void lmv_dump_user_lmm(struct lmv_user_md *lum, char *pool_name,
 			llapi_printf(LLAPI_MSG_NORMAL, "lmv_stripe_offset: ");
 		llapi_printf(LLAPI_MSG_NORMAL, "%d",
 			     (int)lum->lum_stripe_offset);
+		if (verbose & VERBOSE_HASH_TYPE)
+			separator = " ";
+		else
+			separator = "\n";
+	}
+
+	if (verbose & VERBOSE_HASH_TYPE) {
+		unsigned int type = lum->lum_hash_type;
+
+		llapi_printf(LLAPI_MSG_NORMAL, "%s", separator);
+		if (verbose & ~VERBOSE_HASH_TYPE)
+			llapi_printf(LLAPI_MSG_NORMAL, "lmv_hash_type: ");
+		if (type < LMV_HASH_TYPE_MAX)
+			llapi_printf(LLAPI_MSG_NORMAL, "%s",
+				     hash_type_name[type]);
+		else
+			llapi_printf(LLAPI_MSG_NORMAL, "%d",
+				     (int)type);
 		separator = "\n";
 	}
 

@@ -160,7 +160,7 @@ static int lfs_ladvise(int argc, char **argv);
 	"		[--mdt-count|-c stripe_count>\n"	\
 	"		[--mdt-index|-i mdt_index]\n"		\
 	"		[--mdt-hash|-t mdt_hash]\n"		\
-	"		[--default_stripe|-D] [--mode|-m mode] <dir>\n"	\
+	"		[--default|-D] [--mode|-m mode] <dir>\n"	\
 	"\tstripe_count: stripe count of the striped directory\n"	\
 	"\tmdt_index: MDT index of first stripe\n"			\
 	"\tmdt_hash:  hash type of the striped directory. mdt types:\n"	\
@@ -198,9 +198,9 @@ command_t cmdlist[] = {
 	{"getdirstripe", lfs_getdirstripe, 0,
 	 "To list the striping info for a given directory\n"
 	 "or recursively for all directories in a directory tree.\n"
-	 "usage: getdirstripe [--obd|-O <uuid>] [--quiet|-q] [--verbose|-v]\n"
-	 "		 [--count|-c ] [--index|-i ] [--raw|-R]\n"
-	 "		 [--recursive | -r] [ --default_stripe | -D ] <dir> "},
+	 "usage: getdirstripe [--obd|-O <uuid>] [--mdt-count|-c]\n"
+	 "		      [--mdt-index|-i] [--mdt-hash|-t]\n"
+	 "		      [--recursive|-r] [--default|-D] <dir> ..."},
 	{"mkdir", lfs_setdirstripe, 0,
 	 "To create a striped directory on a specified MDT. This can only\n"
 	 "be done on MDT0 with the right of administrator.\n"
@@ -1962,9 +1962,68 @@ static int lfs_getstripe(int argc, char **argv)
 static int lfs_getdirstripe(int argc, char **argv)
 {
 	struct find_param param = { 0 };
+	struct option long_opts[] = {
+		{"obd",		required_argument,	0, 'O'},
+		{"mdt-count",	no_argument,		0, 'c'},
+		{"mdt-index",	no_argument,		0, 'i'},
+		{"mdt-hash",	no_argument,		0, 't'},
+		{"default",	no_argument,		0, 'D'},
+		{"recursive",	no_argument,		0, 'r'},
+		{0, 0, 0, 0}
+	};
+	int c, rc;
 
 	param.fp_get_lmv = 1;
-	return lfs_getstripe_internal(argc, argv, &param);
+
+	while ((c = getopt_long(argc, argv, "citDO:r", long_opts, NULL)) != -1)
+	{
+		switch (c) {
+		case 'O':
+			if (param.fp_obd_uuid) {
+				fprintf(stderr,
+					"error: %s: only one obduuid allowed",
+					argv[0]);
+				return CMD_HELP;
+			}
+			param.fp_obd_uuid = (struct obd_uuid *)optarg;
+			break;
+		case 'c':
+			param.fp_verbose |= VERBOSE_COUNT;
+			break;
+		case 'i':
+			param.fp_verbose |= VERBOSE_OFFSET;
+			break;
+		case 't':
+			param.fp_verbose |= VERBOSE_HASH_TYPE;
+			break;
+		case 'D':
+			param.fp_get_default_lmv = 1;
+			break;
+		case 'r':
+			param.fp_recursive = 1;
+			break;
+		default:
+			return CMD_HELP;
+		}
+	}
+
+	if (optind >= argc)
+		return CMD_HELP;
+
+	if (param.fp_recursive)
+		param.fp_max_depth = -1;
+
+	if (!param.fp_verbose)
+		param.fp_verbose = VERBOSE_DEFAULT;
+
+	do {
+		rc = llapi_getstripe(argv[optind], &param);
+	} while (++optind < argc && !rc);
+
+	if (rc)
+		fprintf(stderr, "error: %s failed for %s.\n",
+			argv[0], argv[optind - 1]);
+	return rc;
 }
 
 /* functions */
@@ -2002,6 +2061,7 @@ static int lfs_setdirstripe(int argc, char **argv)
 #endif
 		{"mdt-hash",	required_argument, 0, 't'},
 		{"default_stripe", no_argument, 0, 'D'},
+		{"default",	no_argument, 0, 'D'},
 		{0, 0, 0, 0}
 	};
 
