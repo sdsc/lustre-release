@@ -198,9 +198,10 @@ command_t cmdlist[] = {
 	{"getdirstripe", lfs_getdirstripe, 0,
 	 "To list the striping info for a given directory\n"
 	 "or recursively for all directories in a directory tree.\n"
-	 "usage: getdirstripe [--obd|-O <uuid>] [--quiet|-q] [--verbose|-v]\n"
-	 "		 [--count|-c ] [--index|-i ] [--raw|-R]\n"
-	 "		 [--recursive | -r] [ --default_stripe | -D ] <dir> "},
+	 "usage: getdirstripe [--obd|-O <uuid>] [--mdt-count|-c]\n"
+	 "		      [--mdt-index|-i] [--mdt-hash|-t]\n"
+	 "		      [--recursive|-r] [--default_stripe|-D] <dir> ..."}
+	,
 	{"mkdir", lfs_setdirstripe, 0,
 	 "To create a striped directory on a specified MDT. This can only\n"
 	 "be done on MDT0 with the right of administrator.\n"
