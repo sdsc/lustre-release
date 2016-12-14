@@ -97,22 +97,22 @@ static void ll_invalidatepage(struct page *vmpage,
 #else
 	if (offset == 0) {
 #endif
-		/* See the comment in ll_releasepage() */
-		env = cl_env_percpu_get();
-		LASSERT(!IS_ERR(env));
+		__u16 refcheck;
 
-		inode = vmpage->mapping->host;
-		obj = ll_i2info(inode)->lli_clob;
-		if (obj != NULL) {
-			page = cl_vmpage_page(vmpage, obj);
-			if (page != NULL) {
-				cl_page_delete(env, page);
-				cl_page_put(env, page);
-			}
-		} else
-			LASSERT(vmpage->private == 0);
-
-		cl_env_percpu_put(env);
+                env = cl_env_get(&refcheck);
+                if (!IS_ERR(env)) {
+                        inode = vmpage->mapping->host;
+                        obj = ll_i2info(inode)->lli_clob;
+                        if (obj != NULL) {
+                                page = cl_vmpage_page(vmpage, obj);
+                                if (page != NULL) {
+                                        cl_page_delete(env, page);
+                                        cl_page_put(env, page);
+                                }
+                        } else
+                                LASSERT(vmpage->private == 0);
+                        cl_env_put(env, &refcheck);
+                }
         }
 }
 
