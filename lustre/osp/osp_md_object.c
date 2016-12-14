@@ -1085,7 +1085,7 @@ static ssize_t osp_md_write(const struct lu_env *env, struct dt_object *dt,
 	if (rc < 0)
 		RETURN(rc);
 
-	rc = osp_check_and_set_rpc_version(oth, obj);
+	rc = osp_check_and_set_rpc_id(oth, obj);
 	if (rc < 0)
 		RETURN(rc);
 
