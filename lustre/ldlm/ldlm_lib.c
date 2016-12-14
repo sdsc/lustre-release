@@ -2061,6 +2061,15 @@ repeat:
 		return 1;
 	} else if (obd->obd_recovery_expired) {
 		obd->obd_recovery_expired = 0;
+		if (lut->lut_tdtd != NULL) {
+			/** Let's always extend the update recovery for now.*/
+			extend_recovery_timer(obd, obd->obd_recovery_timeout,
+					      true);
+			LCONSOLE_WARN("%s: Let's not timeout update recover"
+				      " for now \n", obd->obd_name);
+			return 0;
+		}
+
 		/** If some clients died being recovered, evict them */
 		LCONSOLE_WARN("%s: recovery is timed out, "
 			      "evict stale exports\n", obd->obd_name);
