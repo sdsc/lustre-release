@@ -508,8 +508,9 @@ static int osp_update_init(struct osp_device *osp)
 	init_waitqueue_head(&osp->opd_update->ou_waitq);
 	spin_lock_init(&osp->opd_update->ou_lock);
 	INIT_LIST_HEAD(&osp->opd_update->ou_list);
-	osp->opd_update->ou_rpc_version = 1;
-	osp->opd_update->ou_version = 1;
+	osp->opd_update->ou_next_rpc_id = 1;
+	osp->opd_update->ou_rpc_id = 1;
+	osp->opd_update->ou_rpc_version = 0;
 
 	/* start thread handling sending updates to the remote MDT */
 	task = kthread_run(osp_send_update_thread, osp,

@@ -1254,19 +1254,19 @@ struct thandle *osp_get_storage_thandle(const struct lu_env *env,
 }
 
 /**
- * Set version for the transaction
+ * Set rpc id for the transaction
  *
- * Set the version for the transaction and add the request to
+ * Set the rpc id for the transaction and add the request to
  * the sending list, then after transaction stop, the request
- * will be picked in the order of version, by sending thread.
+ * will be sent by the order of rpc_id in the sending thread.
  *
- * \param [in] oth	osp thandle to be set version.
+ * \param [in] oth	osp thandle to be set rpc_id.
  *
- * \retval		0 if set version succeeds
- *                      negative errno if set version fails.
+ * \retval		0 if set id succeeds
+ *                      negative errno if set id fails.
  */
-int osp_check_and_set_rpc_version(struct osp_thandle *oth,
-				  struct osp_object *obj)
+int osp_check_and_set_rpc_id(struct osp_thandle *oth,
+			     struct osp_object *obj)
 {
 	struct osp_device *osp = dt2osp_dev(oth->ot_super.th_dev);
 	struct osp_updates *ou = osp->opd_update;
@@ -1274,7 +1274,7 @@ int osp_check_and_set_rpc_version(struct osp_thandle *oth,
 	if (ou == NULL)
 		return -EIO;
 
-	if (oth->ot_our->our_version != 0)
+	if (oth->ot_our->our_rpc_id != 0)
 		return 0;
 
 	spin_lock(&ou->ou_lock);
@@ -1285,9 +1285,10 @@ int osp_check_and_set_rpc_version(struct osp_thandle *oth,
 		return -ESTALE;
 	}
 
-	/* Assign the version and add it to the sending list */
+	/* Assign the id and add it to the sending list */
 	osp_thandle_get(oth);
-	oth->ot_our->our_version = ou->ou_version++;
+	oth->ot_our->our_rpc_id = ou->ou_rpc_id++;
+	oth->ot_our->our_rpc_version = ou->ou_rpc_version;
 	list_add_tail(&oth->ot_our->our_list,
 		      &osp->opd_update->ou_list);
 	oth->ot_our->our_req_ready = 0;
@@ -1295,19 +1296,19 @@ int osp_check_and_set_rpc_version(struct osp_thandle *oth,
 	spin_unlock(&ou->ou_lock);
 
 	LASSERT(oth->ot_super.th_wait_submit == 1);
-	CDEBUG(D_INFO, "%s: version %llu oth:version %p:%llu\n",
-	       osp->opd_obd->obd_name, ou->ou_version, oth,
-	       oth->ot_our->our_version);
+	CDEBUG(D_INFO, "%s: rpc_id %llu oth:rpc_id %p:%llu\n",
+	       osp->opd_obd->obd_name, ou->ou_rpc_id, oth,
+	       oth->ot_our->our_rpc_id);
 
 	return 0;
 }
 
 /**
  * Get next OSP update request in the sending list
- * Get next OSP update request in the sending list by version number, next
+ * Get next OSP update request in the sending list by rpc_id, next
  * request will be
- * 1. transaction which does not have a version number.
- * 2. transaction whose version == opd_rpc_version.
+ * 1. transaction which does not have a rpc_id.
+ * 2. transaction whose rpc_id == ou_next_rpc_id.
  *
  * \param [in] ou	osp update structure.
  * \param [out] ourp	the pointer holding the next update request.
@@ -1325,11 +1326,11 @@ osp_get_next_request(struct osp_updates *ou, struct osp_update_request **ourp)
 	spin_lock(&ou->ou_lock);
 	list_for_each_entry_safe(our, tmp, &ou->ou_list, our_list) {
 		LASSERT(our->our_th != NULL);
-		CDEBUG(D_HA, "ou %p version %llu rpc_version %llu\n",
-		       ou, our->our_version, ou->ou_rpc_version);
+		CDEBUG(D_HA, "ou %p next rpc_id %llu our_rpc_id %llu\n",
+		       ou, ou->ou_next_rpc_id, our->our_rpc_id);
 		spin_lock(&our->our_list_lock);
 		/* Find next osp_update_request in the list */
-		if (our->our_version == ou->ou_rpc_version &&
+		if (our->our_rpc_id == ou->ou_next_rpc_id &&
 		    our->our_req_ready) {
 			list_del_init(&our->our_list);
 			spin_unlock(&our->our_list_lock);
@@ -1389,14 +1390,17 @@ void osp_invalidate_request(struct osp_device *osp)
 		if (our->our_th->ot_super.th_result == 0)
 			our->our_th->ot_super.th_result = -EIO;
 
-		if (our->our_version >= ou->ou_rpc_version)
-			ou->ou_rpc_version = our->our_version + 1;
+		if (our->our_rpc_id >= ou->ou_next_rpc_id)
+			ou->ou_next_rpc_id = our->our_rpc_id + 1;
 		spin_unlock(&our->our_list_lock);
 
 		CDEBUG(D_HA, "%s invalidate our %p\n", osp->opd_obd->obd_name,
 		       our);
 	}
 
+	/* Increase the rpc version, then the update request with old version
+	 * will fail with -EIO. */ 
+	ou->ou_rpc_version++;
 	spin_unlock(&ou->ou_lock);
 
 	/* invalidate all of request in the sending list */
@@ -1415,8 +1419,8 @@ void osp_invalidate_request(struct osp_device *osp)
  * Sending update thread
  *
  * Create thread to send update request to other MDTs, this thread will pull
- * out update request from the list in OSP by version number, i.e. it will
- * make sure the update request with lower version number will be sent first.
+ * out update request from the list in OSP by rpc_id, i.e. it will
+ * make sure the update request with lower rpc_id will be sent first.
  *
  * \param[in] arg	hold the OSP device.
  *
@@ -1464,17 +1468,18 @@ int osp_send_update_thread(void *arg)
 			osp_trans_callback(&env, our->our_th,
 				our->our_th->ot_super.th_result);
 			rc = our->our_th->ot_super.th_result;
-		} else if (OBD_FAIL_CHECK(OBD_FAIL_INVALIDATE_UPDATE)) {
+		} else if (ou->ou_rpc_version != our->our_rpc_version ||
+			   OBD_FAIL_CHECK(OBD_FAIL_INVALIDATE_UPDATE)) {
 			rc = -EIO;
 			osp_trans_callback(&env, our->our_th, rc);
 		} else {
 			rc = osp_send_update_req(&env, osp, our);
 		}
 
-		/* Update the rpc version */
+		/* Update the rpc id */
 		spin_lock(&ou->ou_lock);
-		if (our->our_version == ou->ou_rpc_version)
-			ou->ou_rpc_version++;
+		if (our->our_rpc_id == ou->ou_next_rpc_id)
+			ou->ou_next_rpc_id++;
 		spin_unlock(&ou->ou_lock);
 
 		/* If one update request fails, let's fail all of the requests
@@ -1484,7 +1489,7 @@ int osp_send_update_thread(void *arg)
 		if (rc < 0)
 			osp_invalidate_request(osp);
 
-		/* Balanced for thandle_get in osp_check_and_set_rpc_version */
+		/* Balanced for thandle_get in osp_check_and_set_rpc_id */
 		osp_thandle_put(&env, our->our_th);
 	}
 
@@ -1577,8 +1582,8 @@ int osp_trans_stop(const struct lu_env *env, struct dt_device *dt,
 		GOTO(out, rc = -EIO);
 	}
 
-	CDEBUG(D_HA, "%s: add oth %p with version %llu\n",
-	       osp->opd_obd->obd_name, oth, our->our_version);
+	CDEBUG(D_HA, "%s: add oth %p with rpc_id %llu\n",
+	       osp->opd_obd->obd_name, oth, our->our_rpc_id);
 
 	LASSERT(our->our_req_ready == 0);
 	spin_lock(&our->our_list_lock);
