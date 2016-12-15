@@ -45,6 +45,7 @@
 
 #include <linux/types.h>
 
+#define LUSTRE_POSIX_ACL_MAX_SIZE 0
 #define __REQ_LAYOUT_USER__ (1)
 #define EXPORT_SYMBOL(s)
 
