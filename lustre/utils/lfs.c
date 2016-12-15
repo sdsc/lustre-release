@@ -1116,7 +1116,7 @@ static int lfs_setstripe(int argc, char **argv)
 			++ptr;
 		}
 
-		rc = lustre_is_poolname_valid(ptr, 1, LOV_MAXPOOLNAME);
+		rc = llapi_is_poolname_valid(ptr, 1, LOV_MAXPOOLNAME);
 		if (rc == -1) {
 			fprintf(stderr, "error: %s: poolname '%s' is "
 				"empty\n",

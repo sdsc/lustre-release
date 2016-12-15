@@ -39,36 +39,10 @@
 #ifndef _LUSTRE_PARAM_H
 #define _LUSTRE_PARAM_H
 
-#include <libcfs/libcfs.h>
-#include <lnet/types.h>
-
 /** \defgroup param param
  *
  * @{
  */
-
-/* For interoperability */
-struct cfg_interop_param {
-	char *old_param;
-	char *new_param;
-};
-
-/* obd_config.c */
-int class_find_param(char *buf, char *key, char **valp);
-struct cfg_interop_param *class_find_old_param(const char *param,
-					       struct cfg_interop_param *ptr);
-int class_get_next_param(char **params, char *copy);
-int class_match_param(char *buf, const char *key, char **valp);
-int class_parse_nid(char *buf, lnet_nid_t *nid, char **endh);
-int class_parse_nid_quiet(char *buf, lnet_nid_t *nid, char **endh);
-int class_parse_net(char *buf, __u32 *net, char **endh);
-int class_match_nid(char *buf, char *key, lnet_nid_t nid);
-int class_match_net(char *buf, char *key, __u32 net);
-/* obd_mount.c */
-int do_lcfg(char *cfgname, lnet_nid_t nid, int cmd,
-            char *s1, char *s2, char *s3, char *s4);
-
-
 
 /****************** User-settable parameter keys *********************/
 /* e.g.
@@ -118,79 +92,5 @@ int do_lcfg(char *cfgname, lnet_nid_t nid, int cmd,
 #define PARAM_QUOTA		"quota."	/* global */
 
 /** @} param */
-
-#define LUSTRE_MAXFSNAME	8
-
-/**
- * Check whether the name is valid.
- *
- * \param name [in]	the name to be checked
- * \param minlen [in]	the minimum length of the name
- * \param maxlen [in]	the maximum length of the name
- *
- * \retval 0	the name is valid
- * \retval >0	the invalid character in the name
- * \retval -1	the name is too short
- * \retval -2	the name is too long
- */
-static inline int lustre_is_name_valid(const char *name, const int minlen,
-				       const int maxlen)
-{
-	const char	*tmp;
-	size_t		len;
-
-	len = strlen(name);
-
-	if (len < minlen)
-		return -1;
-
-	if (len > maxlen)
-		return -2;
-
-	for (tmp = name; *tmp != '\0'; ++tmp) {
-		if (isalnum(*tmp) || *tmp == '_' || *tmp == '-')
-			continue;
-		else
-			break;
-	}
-
-	return *tmp == '\0' ? 0 : *tmp;
-}
-
-/**
- * Check whether the fsname is valid.
- *
- * \param fsname [in]	the fsname to be checked
- * \param minlen [in]	the minimum length of the fsname
- * \param maxlen [in]	the maximum length of the fsname
- *
- * \retval 0	the fsname is valid
- * \retval >0	the invalid character in the fsname
- * \retval -1	the fsname is too short
- * \retval -2	the fsname is too long
- */
-static inline int lustre_is_fsname_valid(const char *fsname, const int minlen,
-					 const int maxlen)
-{
-	return lustre_is_name_valid(fsname, minlen, maxlen);
-}
-
-/**
- * Check whether the poolname is valid.
- *
- * \param poolname [in]	the poolname to be checked
- * \param minlen [in]	the minimum length of the poolname
- * \param maxlen [in]	the maximum length of the poolname
- *
- * \retval 0	the poolname is valid
- * \retval >0	the invalid character in the poolname
- * \retval -1	the poolname is too short
- * \retval -2	the poolname is too long
- */
-static inline int lustre_is_poolname_valid(const char *poolname,
-					   const int minlen, const int maxlen)
-{
-	return lustre_is_name_valid(poolname, minlen, maxlen);
-}
 
 #endif /* _LUSTRE_PARAM_H */

@@ -4087,7 +4087,7 @@ static int extract_fsname_poolname(const char *arg, char *fsname,
 	*ptr = '\0';
 	++ptr;
 
-	rc = lustre_is_fsname_valid(fsname, 1, LUSTRE_MAXFSNAME);
+	rc = llapi_is_fsname_valid(fsname, 1, LUSTRE_MAXFSNAME);
 	if (rc < 0) {
 		fprintf(stderr, "filesystem name %s must be 1-%d chars\n",
 			fsname, LUSTRE_MAXFSNAME);
@@ -4100,7 +4100,7 @@ static int extract_fsname_poolname(const char *arg, char *fsname,
 		goto err;
 	}
 
-	rc = lustre_is_poolname_valid(ptr, 1, LOV_MAXPOOLNAME);
+	rc = llapi_is_poolname_valid(ptr, 1, LOV_MAXPOOLNAME);
 	if (rc == -1) {
 		fprintf(stderr, "poolname is empty\n");
 		rc = -EINVAL;

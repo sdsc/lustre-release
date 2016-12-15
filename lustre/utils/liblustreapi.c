@@ -312,6 +312,40 @@ int llapi_chomp_string(char *buf)
 	return '\n';
 }
 
+/**
+ * Check whether the name is valid.
+ *
+ * \param name	 [in]	the name to be checked
+ * \param minlen [in]	the minimum length of the name
+ * \param maxlen [in]	the maximum length of the name
+ *
+ * \retval 0	the name is valid
+ * \retval >0	the invalid character in the name
+ * \retval -1	the name is too short
+ * \retval -2	the name is too long
+ */
+int llapi_is_name_valid(const char *name, const int minlen, const int maxlen)
+{
+	const char *tmp;
+	size_t len;
+
+	len = strlen(name);
+
+	if (len < minlen)
+		return -1;
+
+	if (len > maxlen)
+		return -2;
+
+	for (tmp = name; *tmp != '\0'; ++tmp) {
+		if (isalnum(*tmp) || *tmp == '_' || *tmp == '-')
+			continue;
+		else
+			break;
+	}
+	return *tmp == '\0' ? 0 : *tmp;
+}
+
 /*
  * Wrapper to grab parameter settings for lov.*-clilov-*.* values
  */

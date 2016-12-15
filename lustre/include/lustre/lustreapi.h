@@ -38,6 +38,7 @@
  * @{
  */
 
+#include <ctype.h>
 #include <stdarg.h>
 #include <stdint.h>
 #include <lustre/lustre_user.h>
@@ -102,6 +103,8 @@ struct llapi_stripe_param {
 	__u32			lsp_osts[0];
 };
 
+#define LUSTRE_MAXFSNAME	8
+
 extern int llapi_file_open_param(const char *name, int flags, mode_t mode,
 				 const struct llapi_stripe_param *param);
 extern int llapi_file_create(const char *name, unsigned long long stripe_size,
@@ -123,6 +126,21 @@ extern int llapi_get_poollist(const char *name, char **poollist, int list_size,
                               char *buffer, int buffer_size);
 extern int llapi_get_poolmembers(const char *poolname, char **members,
                                  int list_size, char *buffer, int buffer_size);
+extern int llapi_is_name_valid(const char *name, const int minlen,
+			       const int maxlen);
+
+static inline int llapi_is_fsname_valid(const char *fsname, const int minlen,
+					const int maxlen)
+{
+	return llapi_is_name_valid(fsname, minlen, maxlen);
+}
+
+static inline int llapi_is_poolname_valid(const char *poolname,
+					  const int minlen, const int maxlen)
+{
+	return llapi_is_name_valid(poolname, minlen, maxlen);
+}
+
 extern int llapi_file_get_stripe(const char *path, struct lov_user_md *lum);
 #define HAVE_LLAPI_FILE_LOOKUP
 extern int llapi_file_lookup(int dirfd, const char *name);

@@ -65,6 +65,7 @@
 #include <lustre_param.h>
 #include <lnet/lnetctl.h>
 #include <lustre_ver.h>
+#include <lustre/lustreapi.h>
 
 #include "mount_utils.h"
 
@@ -399,8 +400,8 @@ int parse_opts(int argc, char *const argv[], struct mkfs_opts *mop,
 			break;
 		}
 		case 'L': {
-			rc = lustre_is_fsname_valid(optarg, 1,
-						    LUSTRE_MAXFSNAME);
+			rc = llapi_is_fsname_valid(optarg, 1,
+						   LUSTRE_MAXFSNAME);
 			if (rc < 0) {
 				fprintf(stderr, "%s: filesystem name must be "
 					"1-%d chars\n", progname,
