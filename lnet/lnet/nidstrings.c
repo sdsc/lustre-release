@@ -650,7 +650,7 @@ libcfs_num_match(__u32 addr, struct list_head *numaddr)
 	return cfs_expr_list_match(addr, el);
 }
 
-/* nf_is_contiguous and nf_min_max only used in userspace */
+/* nf_min_max only used in userspace */
 static struct netstrfns libcfs_netstrfns[] = {
 	{ .nf_type		= LOLND,
 	  .nf_name		= "lo",
@@ -660,7 +660,6 @@ static struct netstrfns libcfs_netstrfns[] = {
 	  .nf_parse_addrlist	= libcfs_num_parse,
 	  .nf_print_addrlist	= libcfs_num_addr_range_print,
 	  .nf_match_addr	= libcfs_num_match,
-	  .nf_is_contiguous	= NULL,
 	  .nf_min_max		= NULL },
 	{ .nf_type		= SOCKLND,
 	  .nf_name		= "tcp",
@@ -670,7 +669,6 @@ static struct netstrfns libcfs_netstrfns[] = {
 	  .nf_parse_addrlist	= cfs_ip_addr_parse,
 	  .nf_print_addrlist	= libcfs_ip_addr_range_print,
 	  .nf_match_addr	= cfs_ip_addr_match,
-	  .nf_is_contiguous	= NULL,
 	  .nf_min_max		= NULL },
 	{ .nf_type		= O2IBLND,
 	  .nf_name		= "o2ib",
@@ -680,7 +678,6 @@ static struct netstrfns libcfs_netstrfns[] = {
 	  .nf_parse_addrlist	= cfs_ip_addr_parse,
 	  .nf_print_addrlist	= libcfs_ip_addr_range_print,
 	  .nf_match_addr	= cfs_ip_addr_match,
-	  .nf_is_contiguous	= NULL,
 	  .nf_min_max		= NULL },
 	{ .nf_type		= GNILND,
 	  .nf_name		= "gni",
@@ -690,7 +687,6 @@ static struct netstrfns libcfs_netstrfns[] = {
 	  .nf_parse_addrlist	= libcfs_num_parse,
 	  .nf_print_addrlist	= libcfs_num_addr_range_print,
 	  .nf_match_addr	= libcfs_num_match,
-	  .nf_is_contiguous	= NULL,
 	  .nf_min_max		= NULL },
 	{ .nf_type		= GNIIPLND,
 	  .nf_name		= "gip",
@@ -700,7 +696,6 @@ static struct netstrfns libcfs_netstrfns[] = {
 	  .nf_parse_addrlist	= cfs_ip_addr_parse,
 	  .nf_print_addrlist	= libcfs_ip_addr_range_print,
 	  .nf_match_addr	= cfs_ip_addr_match,
-	  .nf_is_contiguous	= NULL,
 	  .nf_min_max		= NULL },
 };
 
