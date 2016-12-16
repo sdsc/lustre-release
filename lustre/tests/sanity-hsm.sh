@@ -161,8 +161,10 @@ search_copytools() {
 kill_copytools() {
 	local hosts=${1:-$(facet_active_host $SINGLEAGT)}
 
+	echo "Wake up potentially sleeping copytools on $hosts"
+	copytool_continue "$hosts"
 	echo "Killing existing copytools on $hosts"
-	do_nodesv $hosts "killall -q $HSMTOOL_BASE" || true
+	do_nodesv $hosts "killall -q $HSMTOOL_BASE"
 }
 
 wait_copytools() {
@@ -323,7 +325,7 @@ copytool_cleanup() {
 	local param
 	local -a state
 
-	kill_copytools $agt_hosts
+	kill_copytools $agt_hosts || true
 	wait_copytools $agt_hosts || error "copytools failed to stop"
 
 	# Clean all CDTs orphans requests from previous tests that
@@ -373,8 +375,15 @@ copytool_cleanup() {
 copytool_suspend() {
 	local agents=${1:-$(facet_active_host $SINGLEAGT)}
 
-	do_nodesv $agents "pkill -STOP -x $HSMTOOL_BASE" || return 0
+	do_nodesv $agents "pkill -STOP -x $HSMTOOL_BASE" || return $?
 	echo "Copytool is suspended on $agents"
+}
+
+copytool_continue() {
+	local agents=${1:-$(facet_active_host $SINGLEAGT)}
+
+	do_nodesv $agents "pkill -CONT -x $HSMTOOL_BASE" || return $?
+	echo "Copytool is running on $agents"
 }
 
 copytool_remove_backend() {
@@ -836,7 +845,7 @@ init_agt_vars
 get_mdt_devices
 
 # cleanup from previous bad setup
-kill_copytools
+kill_copytools || true
 
 # for recovery tests, coordinator needs to be started at mount
 # so force it
@@ -4091,24 +4100,27 @@ test_223a() {
 run_test 223a "Changelog for restore canceled (import case)"
 
 test_223b() {
-	# test needs a running copytool
-	copytool_setup
-
 	mkdir -p $DIR/$tdir
-
 	local f=$DIR/$tdir/$tfile
-	local fid
-	fid=$(make_custom_file_for_progress $f 39 1000000)
-	[ $? != 0 ] && skip "not enough free space" && return
+	touch "$f"
+	local fid=$(path2fid "$f")
 
+	copytool_setup
 	changelog_setup
+
 	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER $f
 	wait_request_state $fid ARCHIVE SUCCEED
 	$LFS hsm_release $f
+
+	copytool_suspend
+
 	$LFS hsm_restore $f
 	wait_request_state $fid RESTORE STARTED
+
 	$LFS hsm_cancel $f
 	wait_request_state $fid RESTORE CANCELED
+
+	copytool_continue
 	wait_request_state $fid CANCEL SUCCEED
 
 	local flags=$(changelog_get_flags ${MDT[0]} HSM $fid | tail -1)
