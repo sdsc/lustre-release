@@ -12542,6 +12542,7 @@ test_220() { #LU-325
 	do_facet ost$((OSTIDX + 1)) lctl set_param fail_val=-1
 	#define OBD_FAIL_OST_ENOINO              0x229
 	do_facet ost$((OSTIDX + 1)) lctl set_param fail_loc=0x229
+	trap "destroy_test_pools $FSNAME" EXIT
 	do_facet mgs $LCTL pool_new $FSNAME.$TESTNAME || return 1
 	do_facet mgs $LCTL pool_add $FSNAME.$TESTNAME $OST || return 2
 
@@ -14085,6 +14086,7 @@ test_253() {
 	wait_delete_completed
 	mkdir $DIR/$tdir
 
+	trap "destroy_test_pools $FSNAME" EXIT
 	local last_wm_h=$(do_facet $SINGLEMDS $LCTL get_param -n \
 			osp.$mdtosc_proc1.reserved_mb_high)
 	local last_wm_l=$(do_facet $SINGLEMDS $LCTL get_param -n \
