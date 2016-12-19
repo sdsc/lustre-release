@@ -2047,6 +2047,7 @@ test_27D() {
 	local ost_list=$(seq $first_ost $ost_step $last_ost)
 	local ost_range="$first_ost $last_ost $ost_step"
 
+	trap "destroy_test_pools $FSNAME" EXIT
 	test_mkdir -p $DIR/$tdir
 	pool_add $POOL || error "pool_add failed"
 	pool_add_targets $POOL $ost_range || error "pool_add_targets failed"
@@ -2057,7 +2058,7 @@ test_27D() {
 	llapi_layout_test -d$DIR/$tdir -p$POOL -o$OSTCOUNT $skip27D ||
 		error "llapi_layout_test failed"
 
-	cleanup_pools || error "cleanup_pools failed"
+	destroy_pool $POOL || error "destroy_pool failed"
 }
 run_test 27D "validate llapi_layout API"
 
@@ -11815,6 +11816,7 @@ test_200() {
 	local file_dir=$POOL_ROOT/file_tst
 	local subdir=$test_path/subdir
 
+	trap "destroy_test_pools $FSNAME" EXIT
 	local rc=0
 	while : ; do
 		# former test_200a test_200b
@@ -11847,7 +11849,7 @@ test_200() {
 		break
 	done
 
-	cleanup_pools
+	destroy_pool $POOL
 	return $rc
 }
 run_test 200 "OST pools"
@@ -12542,6 +12544,7 @@ test_220() { #LU-325
 	do_facet ost$((OSTIDX + 1)) lctl set_param fail_val=-1
 	#define OBD_FAIL_OST_ENOINO              0x229
 	do_facet ost$((OSTIDX + 1)) lctl set_param fail_loc=0x229
+	trap "destroy_test_pools $FSNAME" EXIT
 	do_facet mgs $LCTL pool_new $FSNAME.$TESTNAME || return 1
 	do_facet mgs $LCTL pool_add $FSNAME.$TESTNAME $OST || return 2
 
@@ -14085,6 +14088,7 @@ test_253() {
 	wait_delete_completed
 	mkdir $DIR/$tdir
 
+	trap "destroy_test_pools $FSNAME" EXIT
 	local last_wm_h=$(do_facet $SINGLEMDS $LCTL get_param -n \
 			osp.$mdtosc_proc1.reserved_mb_high)
 	local last_wm_l=$(do_facet $SINGLEMDS $LCTL get_param -n \
