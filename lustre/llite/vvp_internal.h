@@ -118,12 +118,6 @@ struct vvp_io {
 	*/
 	struct ll_file_data	*vui_fd;
 	struct kiocb		*vui_iocb;
-
-	/* Readahead state. */
-	pgoff_t	vui_ra_start;
-	pgoff_t	vui_ra_count;
-	/* Set when vui_ra_{start,count} have been initialized. */
-	bool		vui_ra_valid;
 };
 
 extern struct lu_device_type vvp_device_type;
@@ -235,12 +229,8 @@ struct vvp_object {
  * VVP-private page state.
  */
 struct vvp_page {
-	struct cl_page_slice vpg_cl;
-	unsigned	vpg_defer_uptodate:1,
-			vpg_ra_updated:1,
-			vpg_ra_used:1;
-	/** VM page */
-	struct page	*vpg_page;
+	struct cl_page_slice	 vpg_cl;
+	struct page		*vpg_page; 	/** << VM page */
 };
 
 static inline struct vvp_page *cl2vvp_page(const struct cl_page_slice *slice)
