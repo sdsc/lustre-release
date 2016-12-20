@@ -6397,67 +6397,48 @@ test_100() {
 }
 run_test 100 "check local port using privileged port ==========="
 
-function get_named_value()
-{
-    local tag
-
-    tag=$1
-    while read ;do
-        line=$REPLY
-        case $line in
-        $tag*)
-            echo $line | sed "s/^$tag[ ]*//"
-            break
-            ;;
-        esac
-    done
-}
-
 export CACHE_MAX=$($LCTL get_param -n llite.*.max_cached_mb |
 		   awk '/^max_cached_mb/ { print $2 }')
+export OLD_DEBUG=$($LCTL get_param -n debug 2> /dev/null)
+export OLD_SUBSYS_DEBUG=$($LCTL get_param -n subsystem_debug 2> /dev/null)
 
 cleanup_101a() {
-	$LCTL set_param -n llite.*.max_cached_mb $CACHE_MAX
 	trap 0
+	$LCTL set_param -n llite.*.max_cached_mb $CACHE_MAX
+	$LCTL set_param debug="$OLD_DEBUG" subsystem_debug="$OLD_SUBSYS_DEBUG" \
+		> /dev/null 2>&1
+	rm -f $DIR/$tfile
 }
 
 test_101a() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
-	[ $MDSCOUNT -ge 2 ] && skip "skip now for >= 2 MDTs" && return #LU-4322
-	local s
-	local discard
-	local nreads=10000
+	local nreads=1000
 	local cache_limit=32
 
-	$LCTL set_param -n osc.*-osc*.rpc_stats 0
 	trap cleanup_101a EXIT
-	$LCTL set_param -n llite.*.read_ahead_stats 0
 	$LCTL set_param -n llite.*.max_cached_mb $cache_limit
+	$LCTL set_param debug="vfstrace" subsystem_debug="llite"
 
 	#
-	# randomly read 10000 of 64K chunks from file 3x 32MB in size
+	# randomly read 1000 of 64K chunks from file 3x 32MB in size
 	#
 	echo "nreads: $nreads file size: $((cache_limit * 3))MB"
-	$READS -f $DIR/$tfile -s$((cache_limit * 3192 * 1024)) -b65536 -C -n$nreads -t 180
-
-	discard=0
-	for s in $($LCTL get_param -n llite.*.read_ahead_stats |
-		get_named_value 'read but discarded' | cut -d" " -f1); do
-			discard=$(($discard + $s))
-	done
+	$LCTL dk > $TMP/$tfile-1.log
+	$READS -f $DIR/$tfile -s $((cache_limit * 3192 * 1024)) -b 65536 -C \
+		-n $nreads -t 180
+	$LCTL dk > $TMP/$tfile-2.log
 	cleanup_101a
 
-	if [[ $(($discard * 10)) -gt $nreads ]]; then
-		$LCTL get_param osc.*-osc*.rpc_stats
-		$LCTL get_param llite.*.read_ahead_stats
-		error "too many ($discard) discarded pages"
+	RAMISS=$(grep 'generic read pos:' $TMP/$tfile-2.log | wc -l)
+	rm -f $TMP/$tfile-[12].log
+	if (( $RAMISS > $nreads )); then
+		error "misses too much pages ($RAMISS > $nreads)"
 	fi
-	rm -f $DIR/$tfile || true
+	echo "misses $RAMISS pages"
 }
 run_test 101a "check read-ahead for random reads ================"
 
-setup_test101bc() {
-	test_mkdir -p $DIR/$tdir
+setup_101bc() {
 	local STRIPE_SIZE=$1
 	local FILE_LENGTH=$2
 	STRIPE_OFFSET=0
@@ -6468,54 +6449,28 @@ setup_test101bc() {
 	set_osd_param $list '' read_cache_enable 0
 	set_osd_param $list '' writethrough_cache_enable 0
 
-	trap cleanup_test101bc EXIT
+	trap cleanup_101bc EXIT
 	# prepare the read-ahead file
 	$SETSTRIPE -S $STRIPE_SIZE -i $STRIPE_OFFSET -c $OSTCOUNT $DIR/$tfile
-
-	dd if=/dev/zero of=$DIR/$tfile bs=$STRIPE_SIZE \
-				count=$FILE_SIZE_MB 2> /dev/null
-
+	dd if=/dev/zero of=$DIR/$tfile bs=$STRIPE_SIZE count=$FILE_SIZE_MB \
+		2> /dev/null
+	$LCTL set_param debug="vfstrace" subsystem_debug="llite"
 }
 
-cleanup_test101bc() {
+cleanup_101bc() {
 	trap 0
-	rm -rf $DIR/$tdir
-	rm -f $DIR/$tfile
-
 	local list=$(comma_list $(osts_nodes))
 	set_osd_param $list '' read_cache_enable 1
 	set_osd_param $list '' writethrough_cache_enable 1
-}
-
-calc_total() {
-	awk 'BEGIN{total=0}; {total+=$1}; END{print total}'
-}
-
-ra_check_101() {
-	local READ_SIZE=$1
-	local STRIPE_SIZE=$2
-	local FILE_LENGTH=$3
-	local RA_INC=1048576
-	local STRIDE_LENGTH=$((STRIPE_SIZE/READ_SIZE))
-	local discard_limit=$((((STRIDE_LENGTH - 1)*3/(STRIDE_LENGTH*OSTCOUNT))* \
-			     (STRIDE_LENGTH*OSTCOUNT - STRIDE_LENGTH)))
-	DISCARD=$($LCTL get_param -n llite.*.read_ahead_stats |
-			get_named_value 'read but discarded' |
-			cut -d" " -f1 | calc_total)
-	if [[ $DISCARD -gt $discard_limit ]]; then
-		$LCTL get_param llite.*.read_ahead_stats
-		error "Too many ($DISCARD) discarded pages with size (${READ_SIZE})"
-	else
-		echo "Read-ahead success for size ${READ_SIZE}"
-	fi
+	$LCTL set_param debug="$OLD_DEBUG" subsystem_debug="$OLD_SUBSYS_DEBUG" \
+		> /dev/null 2>&1
+	rm -f $DIR/$tfile
 }
 
 test_101b() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
-	[[ $OSTCOUNT -lt 2 ]] &&
-		skip_env "skipping stride IO stride-ahead test" && return
 	local STRIPE_SIZE=1048576
-	local STRIDE_SIZE=$((STRIPE_SIZE*OSTCOUNT))
+	local STRIDE_SIZE=$((STRIPE_SIZE * OSTCOUNT))
 	if [ $SLOW == "yes" ]; then
 		local FILE_LENGTH=$((STRIDE_SIZE * 64))
 	else
@@ -6525,61 +6480,35 @@ test_101b() {
 	local ITERATION=$((FILE_LENGTH / STRIDE_SIZE))
 
 	# prepare the read-ahead file
-	setup_test101bc $STRIPE_SIZE $FILE_LENGTH
+	setup_101bc $STRIPE_SIZE $FILE_LENGTH
 	cancel_lru_locks osc
 	for BIDX in 2 4 8 16 32 64 128 256
 	do
-		local BSIZE=$((BIDX*4096))
-		local READ_COUNT=$((STRIPE_SIZE/BSIZE))
-		local STRIDE_LENGTH=$((STRIDE_SIZE/BSIZE))
-		local OFFSET=$((STRIPE_SIZE/BSIZE*(OSTCOUNT - 1)))
-		$LCTL set_param -n llite.*.read_ahead_stats 0
-		$READS -f $DIR/$tfile  -l $STRIDE_LENGTH -o $OFFSET \
-			      -s $FILE_LENGTH -b $STRIPE_SIZE -a $READ_COUNT -n $ITERATION
+		local BSIZE=$((BIDX * 4096))
+		local READ_COUNT=$((STRIPE_SIZE / BSIZE))
+		local STRIDE_LENGTH=$((STRIDE_SIZE / BSIZE))
+		local OFFSET=$((STRIPE_SIZE / BSIZE * (OSTCOUNT - 1)))
+		$LCTL dk > $TMP/$tfile-1.log
+		$READS -f $DIR/$tfile -l $STRIDE_LENGTH -o $OFFSET \
+			-s $FILE_LENGTH -b $STRIPE_SIZE -a $READ_COUNT \
+			-n $ITERATION
+		$LCTL dk > $TMP/$tfile-2.log
 		cancel_lru_locks osc
-		ra_check_101 $BSIZE $STRIPE_SIZE $FILE_LENGTH
+		RAMISS=$(grep 'generic read pos:' $TMP/$tfile-2.log | wc -l)
+		rm -f $TMP/$tfile-[12].log
+		if (( $RAMISS > $ITERATION + $READ_COUNT / 2 )); then
+			error "misses too much pages ($RAMISS > $((ITERATION+$READ_COUNT/2))) with size ($BSIZE)"
+		fi
+		echo "misses $RAMISS pages with size ($BSIZE)"
 	done
-	cleanup_test101bc
+	cleanup_101bc
 	true
 }
 run_test 101b "check stride-io mode read-ahead ================="
 
-test_101c() {
-	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
-	local STRIPE_SIZE=1048576
-	local FILE_LENGTH=$((STRIPE_SIZE*100))
-	local nreads=10000
-	local osc_rpc_stats
-
-	setup_test101bc $STRIPE_SIZE $FILE_LENGTH
-
-	cancel_lru_locks osc
-	$LCTL set_param osc.*.rpc_stats 0
-	$READS -f $DIR/$tfile -s$FILE_LENGTH -b65536 -n$nreads -t 180
-	for osc_rpc_stats in $($LCTL get_param -N osc.*.rpc_stats); do
-		local stats=$($LCTL get_param -n $osc_rpc_stats)
-		local lines=$(echo "$stats" | awk 'END {print NR;}')
-		local size
-
-		if [ $lines -le 20 ]; then
-			continue
-		fi
-		for size in 1 2 4 8; do
-			local rpc=$(echo "$stats" |
-				    awk '($1 == "'$size':") {print $2; exit; }')
-			[ $rpc != 0 ] &&
-				error "Small $((size*4))k read IO $rpc !"
-		done
-		echo "$osc_rpc_stats check passed!"
-	done
-	cleanup_test101bc
-	true
-}
-run_test 101c "check stripe_size aligned read-ahead ================="
-
 set_read_ahead() {
-	$LCTL get_param -n llite.*.max_read_ahead_mb | head -n 1
-	$LCTL set_param -n llite.*.max_read_ahead_mb $1 > /dev/null 2>&1
+	$LCTL get_param -n llite.*.max_read_ahead_per_file_mb | head -n 1
+	$LCTL set_param -n llite.*.max_read_ahead_per_file_mb $1 >/dev/null 2>&1
 }
 
 test_101d() {
@@ -6589,28 +6518,30 @@ test_101d() {
 	local ra_MB=${READAHEAD_MB:-40}
 
 	local free_MB=$(($(df -P $DIR | tail -n 1 | awk '{ print $4 }') / 1024))
-	[ $free_MB -lt $sz_MB ] &&
-		skip "Need free space ${sz_MB}M, have ${free_MB}M" && return
+	if (( $free_MB < $sz_MB )); then
+		skip "Need free space ${sz_MB}M, have ${free_MB}M"
+		return
+	fi
 
 	echo "Create test file $file size ${sz_MB}M, ${free_MB}M free"
 	$SETSTRIPE -c -1 $file || error "setstripe failed"
 
 	dd if=/dev/zero of=$file bs=1M count=$sz_MB || error "dd failed"
-	echo Cancel LRU locks on lustre client to flush the client cache
+	echo "Cancel LRU locks on lustre client to flush the client cache"
 	cancel_lru_locks osc
 
-	echo Disable read-ahead
+	echo "Disable read-ahead"
 	local old_READAHEAD=$(set_read_ahead 0)
 
-	echo Reading the test file $file with read-ahead disabled
+	echo "Reading the test file $file with read-ahead disabled"
 	local raOFF=$(do_and_time "dd if=$file of=/dev/null bs=1M count=$sz_MB")
 
-	echo Cancel LRU locks on lustre client to flush the client cache
+	echo "Cancel LRU locks on lustre client to flush the client cache"
 	cancel_lru_locks osc
-	echo Enable read-ahead with ${ra_MB}MB
+	echo "Enable read-ahead with ${ra_MB}MB"
 	set_read_ahead $ra_MB
 
-	echo Reading the test file $file with read-ahead enabled
+	echo "Reading the test file $file with read-ahead enabled"
 	local raON=$(do_and_time "dd if=$file of=/dev/null bs=1M count=$sz_MB")
 
 	echo "read-ahead disabled time read $raOFF"
@@ -6620,78 +6551,93 @@ test_101d() {
 	rm -f $file
 	wait_delete_completed
 
-	[ $raOFF -le 1 -o $raON -lt $raOFF ] ||
+	if (( $raON > $raOFF )); then
 		error "readahead ${raON}s > no-readahead ${raOFF}s ${sz_MB}M"
+	fi
+	true
 }
 run_test 101d "file read with and without read-ahead enabled"
 
+cleanup_101e() {
+	trap 0
+	$LCTL set_param debug="$OLD_DEBUG" subsystem_debug="$OLD_SUBSYS_DEBUG" \
+		> /dev/null 2>&1
+	rm -f $DIR/$tfile.*
+}
+
 test_101e() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
-	local file=$DIR/$tfile
 	local size_KB=500  #KB
 	local count=100
 	local bsize=1024
 
 	local free_KB=$(df -P $DIR | tail -n 1 | awk '{ print $4 }')
 	local need_KB=$((count * size_KB))
-	[[ $free_KB -le $need_KB ]] &&
-		skip_env "Need free space $need_KB, have $free_KB" && return
+	if (( $free_KB < $need_KB )); then
+		skip_env "Need free space $need_KB, have $free_KB"
+		return
+	fi
 
 	echo "Creating $count ${size_KB}K test files"
 	for ((i = 0; i < $count; i++)); do
-		dd if=/dev/zero of=$file.$i bs=$bsize count=$size_KB 2>/dev/null
+		dd if=/dev/zero of=$DIR/$tfile.$i bs=$bsize count=$size_KB \
+			2> /dev/null
 	done
+
+	trap cleanup_101e EXIT
+	$LCTL set_param debug="vfstrace" subsystem_debug="llite"
 
 	echo "Cancel LRU locks on lustre client to flush the client cache"
 	cancel_lru_locks osc
 
-	echo "Reset readahead stats"
-	$LCTL set_param -n llite.*.read_ahead_stats 0
-
+	$LCTL dk > $TMP/$tfile-1.log
 	for ((i = 0; i < $count; i++)); do
-		dd if=$file.$i of=/dev/null bs=$bsize count=$size_KB 2>/dev/null
+		dd if=$DIR/$tfile.$i of=/dev/null bs=$bsize count=$size_KB \
+			2> /dev/null
 	done
+	$LCTL dk > $TMP/$tfile-2.log
+	cleanup_101e
 
-	local miss=$($LCTL get_param -n llite.*.read_ahead_stats |
-		     get_named_value 'misses' | cut -d" " -f1 | calc_total)
-
-	for ((i = 0; i < $count; i++)); do
-		rm -rf $file.$i 2>/dev/null
-	done
-
-	#10000 means 20% reads are missing in readahead
-	[[ $miss -lt 10000 ]] ||  error "misses too much for small reads"
+	RAMISS=$(grep 'generic read pos:' $TMP/$tfile-2.log | wc -l)
+	rm -f $TMP/$tfile-[12].log
+	if (( $RAMISS > $count * $size_KB )); then
+		error "misses too much pages ($RAMISS > $((count*$size_KB))) for small reads"
+	fi
+	echo "misses $RAMISS pages for small reads"
 }
 run_test 101e "check read-ahead for small read(1k) for small files(500k)"
+
+cleanup_101f() {
+	trap 0
+	$LCTL set_param debug="$OLD_DEBUG" subsystem_debug="$OLD_SUBSYS_DEBUG" \
+		> /dev/null 2>&1
+	rm -f $DIR/$tfile
+}
 
 test_101f() {
 	which iozone || { skip "no iozone installed" && return; }
 
-	local old_debug=$($LCTL get_param debug)
-	old_debug=${old_debug#*=}
-	$LCTL set_param debug="reada mmap"
+	trap cleanup_101f EXIT
+	$LCTL set_param debug="vfstrace" subsystem_debug="llite"
 
 	# create a test file
 	iozone -i 0 -+n -r 1m -s 128m -w -f $DIR/$tfile > /dev/null 2>&1
 
-	echo Cancel LRU locks on lustre client to flush the client cache
+	echo "Cancel LRU locks on lustre client to flush the client cache"
 	cancel_lru_locks osc
 
-	echo Reset readahead stats
-	$LCTL set_param -n llite.*.read_ahead_stats 0
+	echo "mmap read the file with small 32k block size"
+	$LCTL dk > $TMP/$tfile-1.log
+	iozone -i 1 -+n -r 32k -s 128m -B -f $DIR/$tfile > /dev/null 2>&1
+	$LCTL dk > $TMP/$tfile-2.log
+	cleanup_101f
 
-	echo mmap read the file with small block size
-	iozone -i 1 -u 1 -l 1 -+n -r 32k -s 128m -B -f $DIR/$tfile \
-		> /dev/null 2>&1
-
-	echo checking missing pages
-	$LCTL get_param llite.*.read_ahead_stats
-	local miss=$($LCTL get_param -n llite.*.read_ahead_stats |
-			get_named_value 'misses' | cut -d" " -f1 | calc_total)
-
-	$LCTL set_param debug="$old_debug"
-	[ $miss -lt 3 ] || error "misses too much pages ('$miss')!"
-	rm -f $DIR/$tfile
+	RAMISS=$(grep 'generic read pos:' $TMP/$tfile-2.log | wc -l)
+	rm -f $TMP/$tfile-[12].log
+	if (( $RAMISS > 3 )); then
+		error "misses too much pages ($RAMISS > 3)"
+	fi
+	echo "misses $RAMISS pages"
 }
 run_test 101f "check mmap read performance"
 

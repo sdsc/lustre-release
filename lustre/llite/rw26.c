@@ -589,6 +589,31 @@ out:
 }
 #endif /* HAVE_DIRECTIO_ITER || HAVE_IOV_ITER_RW */
 
+
+static int ll_page_sync_io(const struct lu_env *env, struct cl_io *io,
+			   struct cl_page *page, enum cl_req_type crt)
+{
+	struct cl_2queue *queue = &io->ci_queue;
+	int rc;
+
+	LASSERT(io->ci_type == CIT_READ || io->ci_type == CIT_WRITE);
+
+	cl_2queue_init_page(queue, page);
+
+	rc = cl_io_submit_sync(env, io, crt, queue, 0);
+	LASSERT(cl_page_is_owned(page, io));
+
+	if (crt == CRT_READ)
+		/*
+		 * in CRT_WRITE case page is left locked even in case of
+		 * error.
+		 */
+		cl_page_list_disown(env, io, &queue->c2_qin);
+	cl_2queue_fini(env, queue);
+
+	return rc;
+}
+
 /**
  * Prepare partially written-to page for a write.
  */
@@ -615,10 +640,9 @@ static int ll_prepare_partial_page(const struct lu_env *env, struct cl_io *io,
 
 			memset(kaddr, 0, cl_page_size(obj));
 			ll_kunmap_atomic(kaddr, KM_USER0);
-		} else if (vpg->vpg_defer_uptodate)
-			vpg->vpg_ra_used = 1;
-		else
+		} else {
 			result = ll_page_sync_io(env, io, pg, CRT_READ);
+		}
 	}
 	return result;
 }
@@ -811,6 +835,7 @@ static int ll_migratepage(struct address_space *mapping,
 
 const struct address_space_operations ll_aops = {
 	.readpage	= ll_readpage,
+	.readpages	= ll_readpages,
 	.direct_IO	= ll_direct_IO,
 	.writepage	= ll_writepage,
 	.writepages	= ll_writepages,
