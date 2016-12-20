@@ -458,7 +458,6 @@ static int ll_local_open(struct file *file, struct lookup_intent *it,
 	}
 
 	LUSTRE_FPRIVATE(file) = fd;
-	ll_readahead_init(inode, &fd->fd_ras);
 	fd->fd_omode = it->it_flags & (FMODE_READ | FMODE_WRITE | FMODE_EXEC);
 
 	/* ll_cl_context initialize */
@@ -1481,9 +1480,10 @@ static ssize_t
 ll_do_fast_read(const struct lu_env *env, struct kiocb *iocb,
 		struct iov_iter *iter)
 {
+	struct ll_sb_info *sbi = ll_i2sbi(file_inode(iocb->ki_filp));
 	ssize_t result;
 
-	if (!ll_sbi_has_fast_read(ll_i2sbi(file_inode(iocb->ki_filp))))
+	if (!ll_sbi_has_fast_read(sbi))
 		return 0;
 
 	/* NB: we can't do direct IO for fast read because it will need a lock
@@ -1496,14 +1496,12 @@ ll_do_fast_read(const struct lu_env *env, struct kiocb *iocb,
 	ll_cl_remove(iocb->ki_filp, env);
 
 	/* If the first page is not in cache, generic_file_aio_read() will be
-	 * returned with -ENODATA.
-	 * See corresponding code in ll_readpage(). */
+	 * returned with -ENODATA. See corresponding code in ll_readpage(). */
 	if (result == -ENODATA)
-		result = 0;
+		return 0;
 
 	if (result > 0)
-		ll_stats_ops_tally(ll_i2sbi(file_inode(iocb->ki_filp)),
-				LPROC_LL_READ_BYTES, result);
+		ll_stats_ops_tally(sbi, LPROC_LL_READ_BYTES, result);
 
 	return result;
 }
