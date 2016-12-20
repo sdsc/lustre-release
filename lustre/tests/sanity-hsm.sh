@@ -720,7 +720,8 @@ wait_request_state() {
 	local mds=mds$(($mdtidx + 1))
 
 	local cmd="$LCTL get_param -n ${MDT_PREFIX}${mdtidx}.hsm.actions"
-	cmd+=" | awk '/'$fid'.*action='$request'/ {print \\\$13}' | cut -f2 -d="
+	cmd+=" | awk '/'$fid'.*action='$request'/ {print \\\$13}'"
+	cmd+=" | cut -f2 -d= | uniq | grep $state"
 
 	wait_result $mds "$cmd" $state 200 ||
 		error "request on $fid is not $state on $mds"
