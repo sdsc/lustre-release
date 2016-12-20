@@ -713,16 +713,17 @@ static int vvp_io_read_start(const struct lu_env *env,
 	struct inode		*inode = vvp_object_inode(obj);
 	struct ll_inode_info	*lli   = ll_i2info(inode);
 	struct file		*file  = vio->vui_fd->fd_file;
-
-	int     result;
-	loff_t  pos = io->u.ci_rd.rd.crw_pos;
-	long    cnt = io->u.ci_rd.rd.crw_count;
-	long    tot = vio->vui_tot_count;
-        int     exceed = 0;
+	loff_t pos = io->u.ci_rd.rd.crw_pos;
+	size_t cnt = io->u.ci_rd.rd.crw_count;
+	loff_t total_pos = io->u.ci_rd.rd.crw_total_pos;
+	size_t total_cnt = io->u.ci_rd.rd.crw_total_count;
+	int exceed = 0;
+	int result;
 
 	CLOBINVRNT(env, obj, vvp_object_invariant(obj));
 
-	CDEBUG(D_VFSTRACE, "read: -> [%lli, %lli)\n", pos, pos + cnt);
+	CDEBUG(D_VFSTRACE, "read: [%lli, %lli) of [%lli, %lli)\n",
+		pos, pos + cnt, total_pos, total_pos + total_cnt);
 
 	if (vio->vui_io_subtype == IO_NORMAL)
 		down_read(&lli->lli_trunc_sem);
@@ -730,24 +731,23 @@ static int vvp_io_read_start(const struct lu_env *env,
 	if (!can_populate_pages(env, io, inode))
 		return 0;
 
-	result = vvp_prep_size(env, obj, io, pos, tot, &exceed);
+	result = vvp_prep_size(env, obj, io, total_pos, total_cnt, &exceed);
 	if (result != 0)
 		return result;
 	else if (exceed != 0)
 		goto out;
 
 	LU_OBJECT_HEADER(D_INODE, env, &obj->co_lu,
-			"Read ino %lu, %lu bytes, offset %lld, size %llu\n",
-			inode->i_ino, cnt, pos, i_size_read(inode));
-
+			 "Read ino %lu, %zu bytes, offset %lld, size %llu\n",
+			 inode->i_ino, cnt, pos, i_size_read(inode));
 	/* turn off the kernel's read-ahead */
 	vio->vui_fd->fd_file->f_ra.ra_pages = 0;
 
 	/* initialize read-ahead window once per syscall */
 	if (!vio->vui_ra_valid) {
 		vio->vui_ra_valid = true;
-		vio->vui_ra_start = cl_index(obj, pos);
-		vio->vui_ra_count = cl_index(obj, tot + PAGE_SIZE - 1);
+		vio->vui_ra_start = cl_index(obj, total_pos);
+		vio->vui_ra_count = cl_index(obj, total_cnt + PAGE_SIZE - 1);
 		ll_ras_enter(file);
 	}
 
@@ -974,6 +974,8 @@ static int vvp_io_write_start(const struct lu_env *env,
 	ssize_t			 result = 0;
 	loff_t			 pos = io->u.ci_wr.wr.crw_pos;
 	size_t			 cnt = io->u.ci_wr.wr.crw_count;
+	loff_t			 total_pos = io->u.ci_wr.wr.crw_total_pos;
+	size_t			 total_cnt = io->u.ci_wr.wr.crw_total_count;
 
 	ENTRY;
 
@@ -995,7 +997,8 @@ static int vvp_io_write_start(const struct lu_env *env,
 		LASSERT(vio->vui_iocb->ki_pos == pos);
 	}
 
-	CDEBUG(D_VFSTRACE, "write: [%lli, %lli)\n", pos, pos + (long long)cnt);
+	CDEBUG(D_VFSTRACE, "write: [%lli, %lli) of [%lli, %lli)\n",
+		pos, pos + cnt, total_pos, total_pos + total_cnt);
 
 	/* The maximum Lustre file size is variable, based on the OST maximum
 	 * object size and number of stripes.  This needs another check in
@@ -1021,13 +1024,11 @@ static int vvp_io_write_start(const struct lu_env *env,
 		 * consistency, proper locking to protect against writes,
 		 * trucates, etc. is handled in the higher layers of lustre.
 		 */
-		bool lock_node = !IS_NOSEC(inode);
-
-		if (lock_node)
+		if (io->ci_need_inode_lock)
 			inode_lock(inode);
 		result = __generic_file_write_iter(vio->vui_iocb,
 						   vio->vui_iter);
-		if (lock_node)
+		if (io->ci_need_inode_lock)
 			inode_unlock(inode);
 
 		if (result > 0 || result == -EIOCBQUEUED) {
