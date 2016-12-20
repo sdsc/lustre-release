@@ -1723,9 +1723,12 @@ enum cl_fsync_mode {
 };
 
 struct cl_io_rw_common {
-        loff_t      crw_pos;
-        size_t      crw_count;
-        int         crw_nonblock;
+	loff_t	crw_pos;
+	size_t	crw_count;
+	/* total range of parallel I/O */
+	loff_t	crw_total_pos;
+	size_t	crw_total_count;
+	int	crw_nonblock;
 };
 
 /**
@@ -1842,7 +1845,11 @@ struct cl_io {
 	/**
 	 * O_NOATIME
 	 */
-			     ci_noatime:1;
+			     ci_noatime:1,
+	/**
+	 * In case of parallel I/O this lock held by upper call.
+	 */
+			     ci_need_inode_lock:1;
 	/**
 	 * Number of pages owned by this IO. For invariant checking.
 	 */
