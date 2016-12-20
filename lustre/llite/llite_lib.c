@@ -1003,6 +1003,8 @@ int ll_fill_super(struct super_block *sb, struct vfsmount *mnt)
 	if (err)
 		GOTO(out_free, err);
 	lsi->lsi_flags |= LSI_BDI_INITIALIZED;
+	/* tune readahead according to max_pages_per_file */
+	lsi->lsi_bdi.ra_pages = sbi->ll_ra_info.ra_max_pages_per_file;
 #ifdef HAVE_BDI_CAP_MAP_COPY
 	lsi->lsi_bdi.capabilities = BDI_CAP_MAP_COPY;
 #else

@@ -138,14 +138,10 @@ static void vvp_page_discard(const struct lu_env *env,
 			     const struct cl_page_slice *slice,
 			     struct cl_io *unused)
 {
-	struct page     *vmpage = cl2vm_page(slice);
-	struct vvp_page *vpg    = cl2vvp_page(slice);
+	struct page *vmpage = cl2vm_page(slice);
 
 	LASSERT(vmpage != NULL);
 	LASSERT(PageLocked(vmpage));
-
-	if (vpg->vpg_defer_uptodate && !vpg->vpg_ra_used)
-		ll_ra_stats_inc(vmpage->mapping->host, RA_STAT_DISCARDED);
 
 	ll_invalidate_page(vmpage);
 }
@@ -250,24 +246,16 @@ static void vvp_page_completion_read(const struct lu_env *env,
 				     const struct cl_page_slice *slice,
 				     int ioret)
 {
-	struct vvp_page *vpg    = cl2vvp_page(slice);
-	struct page     *vmpage = vpg->vpg_page;
-	struct cl_page  *page   = slice->cpl_page;
-	struct inode    *inode  = vvp_object_inode(page->cp_obj);
+	struct vvp_page *vpg = cl2vvp_page(slice);
+	struct cl_page *page = slice->cpl_page;
+	struct page *vmpage = vpg->vpg_page;
 	ENTRY;
 
 	LASSERT(PageLocked(vmpage));
 	CL_PAGE_HEADER(D_PAGE, env, page, "completing READ with %d\n", ioret);
 
-	if (vpg->vpg_defer_uptodate)
-		ll_ra_count_put(ll_i2sbi(inode), 1);
-
-	if (ioret == 0)  {
-		if (!vpg->vpg_defer_uptodate)
-			cl_page_export(env, page, 1);
-	} else {
-		vpg->vpg_defer_uptodate = 0;
-	}
+	if (ioret == 0)
+		cl_page_export(env, page, 1);
 
 	if (page->cp_sync_io == NULL)
 		unlock_page(vmpage);
@@ -279,22 +267,22 @@ static void vvp_page_completion_write(const struct lu_env *env,
 				      const struct cl_page_slice *slice,
 				      int ioret)
 {
-	struct vvp_page *vpg    = cl2vvp_page(slice);
-	struct cl_page  *pg     = slice->cpl_page;
-	struct page     *vmpage = vpg->vpg_page;
+	struct vvp_page *vpg = cl2vvp_page(slice);
+	struct cl_page *page = slice->cpl_page;
+	struct page *vmpage = vpg->vpg_page;
 	ENTRY;
 
-	LASSERT(ergo(pg->cp_sync_io != NULL, PageLocked(vmpage)));
+	LASSERT(ergo(page->cp_sync_io != NULL, PageLocked(vmpage)));
 	LASSERT(PageWriteback(vmpage));
 
-	CL_PAGE_HEADER(D_PAGE, env, pg, "completing WRITE with %d\n", ioret);
+	CL_PAGE_HEADER(D_PAGE, env, page, "completing WRITE with %d\n", ioret);
 
 	/*
 	 * Only mark the page error only when it's an async write because
 	 * applications won't wait for IO to finish.
 	 */
-	if (pg->cp_sync_io == NULL)
-		vvp_vmpage_error(vvp_object_inode(pg->cp_obj), vmpage, ioret);
+	if (page->cp_sync_io == NULL)
+		vvp_vmpage_error(vvp_object_inode(page->cp_obj), vmpage, ioret);
 
 	end_page_writeback(vmpage);
 	EXIT;
@@ -348,9 +336,7 @@ static int vvp_page_print(const struct lu_env *env,
 	struct vvp_page *vpg	= cl2vvp_page(slice);
 	struct page     *vmpage	= vpg->vpg_page;
 
-	(*printer)(env, cookie, LUSTRE_VVP_NAME"-page@%p(%d:%d) "
-		   "vm@%p ",
-		   vpg, vpg->vpg_defer_uptodate, vpg->vpg_ra_used, vmpage);
+	(*printer)(env, cookie, LUSTRE_VVP_NAME"-page@%p vm@%p ", vpg, vmpage);
 
 	if (vmpage != NULL) {
 		(*printer)(env, cookie, "%lx %d:%d %lx %lu %slru",
