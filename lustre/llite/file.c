@@ -50,6 +50,7 @@
 #include <lustre_ioctl.h>
 #include <lustre_swab.h>
 
+#include <libcfs/libcfs_ptask.h>
 #include "cl_object.h"
 #include "llite_internal.h"
 #include "vvp_internal.h"
@@ -1081,12 +1082,13 @@ static bool file_is_noatime(const struct file *file)
 	return false;
 }
 
-static void ll_io_init(struct cl_io *io, const struct file *file, int write)
+void ll_io_init(struct cl_io *io, const struct file *file,
+		int is_write, int is_parallel)
 {
 	struct inode *inode = file_inode((struct file *)file);
 
         io->u.ci_rw.crw_nonblock = file->f_flags & O_NONBLOCK;
-	if (write) {
+	if (is_write) {
 		io->u.ci_wr.wr_append = !!(file->f_flags & O_APPEND);
 		io->u.ci_wr.wr_sync = file->f_flags & O_SYNC ||
 				      file->f_flags & O_DIRECT ||
@@ -1102,63 +1104,49 @@ static void ll_io_init(struct cl_io *io, const struct file *file, int write)
         }
 
 	io->ci_noatime = file_is_noatime(file);
+	io->ci_need_inode_lock = is_parallel ? 0 : !IS_NOSEC(inode);
 }
 
-static ssize_t
-ll_file_io_generic(const struct lu_env *env, struct vvp_io_args *args,
-		   struct file *file, enum cl_io_type iot,
-		   loff_t *ppos, size_t count)
+static ssize_t ll_file_io_generic0(const struct lu_env *env,
+				   struct vvp_io_args *args,
+				   struct file *file, enum cl_io_type iot,
+				   loff_t *ppos, size_t count,
+				   int is_parallel, int *perr)
 {
-	struct vvp_io		*vio = vvp_env_io(env);
-	struct inode		*inode = file_inode(file);
-	struct ll_inode_info	*lli = ll_i2info(inode);
-	struct ll_file_data	*fd  = LUSTRE_FPRIVATE(file);
-	struct cl_io		*io;
-	ssize_t			result = 0;
-	int			rc = 0;
-	struct range_lock	range;
+	struct cl_io *io;
+	struct vvp_io *vio;
+	ssize_t result = 0;
+	int rc = 0;
 
-	ENTRY;
-
-	CDEBUG(D_VFSTRACE, "file: %s, type: %d ppos: %llu, count: %zu\n",
-		file_dentry(file)->d_name.name, iot, *ppos, count);
+	CDEBUG(D_VFSTRACE, "file: %s, generic %s from %lld, count: %zu\n",
+		file_dentry(file)->d_name.name,
+		iot == CIT_READ ? "read" : "write", *ppos, count);
 
 restart:
 	io = vvp_env_thread_io(env);
-	ll_io_init(io, file, iot == CIT_WRITE);
+	ll_io_init(io, file, iot == CIT_WRITE, is_parallel);
+	if (iot == CIT_READ) {
+		io->u.ci_rd.rd.crw_total_pos   = args->via_pos;
+		io->u.ci_rd.rd.crw_total_count = args->via_count;
+	} else if (iot == CIT_WRITE) {
+		io->u.ci_wr.wr.crw_total_pos   = args->via_pos;
+		io->u.ci_wr.wr.crw_total_count = args->via_count;
+	}
 
+	vio = vvp_env_io(env);
 	if (cl_io_rw_init(env, io, iot, *ppos, count) == 0) {
-		bool range_locked = false;
+		struct ll_file_data *fd  = LUSTRE_FPRIVATE(file);
 
-		if (file->f_flags & O_APPEND)
-			range_lock_init(&range, 0, LUSTRE_EOF);
-		else
-			range_lock_init(&range, *ppos, *ppos + count - 1);
-
-		vio->vui_fd  = LUSTRE_FPRIVATE(file);
+		vio->vui_fd = fd;
 		vio->vui_io_subtype = args->via_io_subtype;
 
 		switch (vio->vui_io_subtype) {
 		case IO_NORMAL:
 			vio->vui_iter = args->u.normal.via_iter;
 			vio->vui_iocb = args->u.normal.via_iocb;
-			/* Direct IO reads must also take range lock,
-			 * or multiple reads will try to work on the same pages
-			 * See LU-6227 for details. */
-			if (((iot == CIT_WRITE) ||
-			    (iot == CIT_READ && (file->f_flags & O_DIRECT))) &&
-			    !(vio->vui_fd->fd_flags & LL_FILE_GROUP_LOCKED)) {
-				CDEBUG(D_VFSTRACE, "Range lock "RL_FMT"\n",
-				       RL_PARA(&range));
-				rc = range_lock(&lli->lli_write_tree, &range);
-				if (rc < 0)
-					GOTO(out, rc);
-
-				range_locked = true;
-			}
 			break;
 		case IO_SPLICE:
-			vio->u.splice.vui_pipe = args->u.splice.via_pipe;
+			vio->u.splice.vui_pipe  = args->u.splice.via_pipe;
 			vio->u.splice.vui_flags = args->u.splice.via_flags;
 			break;
 		default:
@@ -1169,39 +1157,271 @@ restart:
 		ll_cl_add(file, env, io, LCC_RW);
 		rc = cl_io_loop(env, io);
 		ll_cl_remove(file, env);
-
-		if (range_locked) {
-			CDEBUG(D_VFSTRACE, "Range unlock "RL_FMT"\n",
-			       RL_PARA(&range));
-			range_unlock(&lli->lli_write_tree, &range);
-		}
 	} else {
 		/* cl_io_rw_init() handled IO */
 		rc = io->ci_result;
 	}
 
 	if (io->ci_nob > 0) {
+		count  -= io->ci_nob;
 		result += io->ci_nob;
-		count -= io->ci_nob;
-		*ppos = io->u.ci_wr.wr.crw_pos; /* for splice */
 
 		/* prepare IO restart */
+		*ppos = io->u.ci_wr.wr.crw_pos; /* for splice */
 		if (count > 0 && args->via_io_subtype == IO_NORMAL)
 			args->u.normal.via_iter = vio->vui_iter;
 	}
-	GOTO(out, rc);
-out:
+
 	cl_io_fini(env, io);
 
 	if ((rc == 0 || rc == -ENODATA) && count > 0 && io->ci_need_restart) {
-		CDEBUG(D_VFSTRACE,
-		       "%s: restart %s from %lld, count:%zu, result: %zd\n",
-		       file_dentry(file)->d_name.name,
-		       iot == CIT_READ ? "read" : "write",
-		       *ppos, count, result);
+		CDEBUG(D_VFSTRACE, "file: %s, restart %s from %lld, "
+			"count: %zu, result: %zd, rc: %d\n",
+			file_dentry(file)->d_name.name,
+			iot == CIT_READ ? "read" : "write",
+			*ppos, count, result, rc);
 		goto restart;
 	}
 
+	CDEBUG(D_VFSTRACE, "file: %s, finish %s from %lld, count: %zu, "
+		"result: %zd, rc: %d\n", file_dentry(file)->d_name.name,
+		iot == CIT_READ ? "read" : "write", *ppos, count, result, rc);
+
+	*perr = rc;
+	return result;
+}
+
+struct ll_file_io_ptask_args {
+	struct kiocb		 iocb;
+	struct iov_iter		 iter;
+	struct vvp_io_args	 args;
+	struct file		*file;
+	enum cl_io_type		 iot;
+	loff_t			 pos;
+	size_t			 count;
+	ssize_t			 result;
+};
+
+static int ll_file_io_ptask(struct cfs_ptask *ptask)
+{
+	struct ll_file_io_ptask_args *pargs = ptask->pt_cbdata;
+	struct lu_env *env;
+	int rc = 0;
+	__u16 refcheck;
+
+	env = cl_env_get(&refcheck);
+	if (IS_ERR(env)) {
+		fput(pargs->file);
+		return PTR_ERR(env);
+	}
+
+	pargs->result = ll_file_io_generic0(env, &pargs->args, pargs->file,
+					    pargs->iot, &pargs->pos,
+					    pargs->count, 1, &rc);
+	fput(pargs->file);
+
+	cl_env_put(env, &refcheck);
+	return rc;
+}
+
+static ssize_t ll_file_io_generic(const struct lu_env *env,
+				  struct vvp_io_args *args,
+				  struct file *file, enum cl_io_type iot,
+				  loff_t *ppos, size_t count)
+{
+	struct inode		*inode = file_inode(file);
+	struct ll_inode_info	*lli = ll_i2info(inode);
+	struct ll_file_data	*fd  = LUSTRE_FPRIVATE(file);
+	ssize_t			result = 0;
+	struct range_lock	range;
+	bool range_locked;
+	struct {
+		struct cfs_ptask task;
+		struct ll_file_io_ptask_args args;
+	} *pt;
+	struct kiocb *iocb = args->u.normal.via_iocb;
+	struct iov_iter *iter = args->u.normal.via_iter;
+	size_t ntasks = 1;
+	size_t csize = count;
+	size_t ptpos = 0;
+	size_t pt_size;
+	size_t i;
+	int rc = 0;
+	int cpu = smp_processor_id();
+	bool lock_inode = false;
+
+	ENTRY;
+
+	args->via_pos   = *ppos;
+	args->via_count = count;
+
+	if (args->via_io_subtype == IO_NORMAL && !(file->f_flags & O_APPEND)) {
+		csize = cfs_ptasks_estimate_chunk(PTT_CLIO, count, &ntasks);
+
+		if (ntasks > 1)
+			lock_inode = !IS_NOSEC(inode);
+	}
+
+	CDEBUG(D_VFSTRACE, "file: %s, type: %d, ppos: %llu, count: %zu, "
+		"chunks: %zu, csize: %zu\n", file_dentry(file)->d_name.name,
+		iot, *ppos, count, ntasks, csize);
+
+	pt_size = ntasks * sizeof(*pt);
+	OBD_ALLOC(pt, pt_size);
+	if (pt == NULL)
+		GOTO(out, rc = -ENOMEM);
+
+	range_locked = false;
+	if (count > 0 && args->via_io_subtype == IO_NORMAL) {
+		if (file->f_flags & O_APPEND)
+			range_lock_init(&range, 0, LUSTRE_EOF);
+		else
+			range_lock_init(&range, *ppos, *ppos + count - 1);
+
+		/* Direct IO reads must also take range lock,
+		 * or multiple reads will try to work on the same pages
+		 * See LU-6227 for details. */
+		if (((iot == CIT_WRITE) ||
+		     (iot == CIT_READ && (file->f_flags & O_DIRECT))) &&
+		    !(fd->fd_flags & LL_FILE_GROUP_LOCKED)) {
+			CDEBUG(D_VFSTRACE, "Range lock "RL_FMT"\n",
+			       RL_PARA(&range));
+			rc = range_lock(&lli->lli_write_tree, &range);
+			if (rc < 0)
+				GOTO(out_free, rc);
+
+			range_locked = true;
+		}
+	}
+
+	if (lock_inode)
+		inode_lock(inode);
+
+	for (i = 0; i < ntasks; i++) {
+		size_t rsize;
+
+		pt[i].args.pos = *ppos + ptpos;
+		rsize = ((csize + PAGE_SIZE - 1) & PAGE_MASK) -
+			(pt[i].args.pos & ~PAGE_MASK);
+		pt[i].args.count = min(rsize, count);
+
+		rc = cfs_ptask_init(&pt[i].task, ll_file_io_ptask, &pt[i].args,
+				PTF_ORDERED | PTF_COMPLETE | PTF_USER_MM |
+				PTF_RETRY, cpu);
+		if (rc) {
+			ntasks = i;
+			break;
+		}
+
+		if (ntasks > 1) {
+			switch (args->via_io_subtype) {
+			case IO_NORMAL:
+# ifdef HAVE_IOV_ITER_INIT_DIRECTION
+				iov_iter_init(&pt[i].args.iter,
+						iot == CIT_WRITE ? WRITE : READ,
+						iter->iov, iter->nr_segs,
+						iter->count);
+				iov_iter_advance(&pt[i].args.iter, ptpos);
+# else /* !HAVE_IOV_ITER_INIT_DIRECTION */
+				iov_iter_init(&pt[i].args.iter, iter->iov,
+						iter->nr_segs, iter->count,
+						ptpos);
+# endif /* HAVE_IOV_ITER_INIT_DIRECTION */
+				iov_iter_truncate(&pt[i].args.iter,
+						  pt[i].args.count);
+
+				pt[i].args.iocb = *iocb;
+				pt[i].args.iocb.ki_pos = pt[i].args.pos;
+#ifdef HAVE_KIOCB_KI_LEFT
+				pt[i].args.iocb.ki_left = pt[i].args.count;
+#elif defined(HAVE_KI_NBYTES)
+				pt[i].args.iocb.ki_nbytes = pt[i].args.count;
+#endif
+				break;
+			case IO_SPLICE:
+				break;
+			default:
+				CERROR("unknown IO subtype %u\n",
+					args->via_io_subtype);
+				LBUG();
+			}
+
+			pt[i].args.args = *args;
+			pt[i].args.args.u.normal.via_iocb = &pt[i].args.iocb;
+			pt[i].args.args.u.normal.via_iter = &pt[i].args.iter;
+			get_file(file);
+			pt[i].args.file = file;
+			pt[i].args.iot  = iot;
+			CDEBUG(D_VFSTRACE, "submit task: %zu, "
+				"pos: %llu, count: %zu\n", i,
+				pt[i].args.pos, pt[i].args.count);
+
+			rc = cfs_ptask_submit(&pt[i].task, PTT_CLIO);
+			if (rc) {
+				fput(file);
+				ntasks = i;
+				break;
+			}
+		} else {
+			CDEBUG(D_VFSTRACE, "execute task: %zu, "
+				"pos: %llu, count: %zu\n", i,
+				pt[i].args.pos, pt[i].args.count);
+
+			pt[i].args.result = ll_file_io_generic0(env, args, file,
+						iot, &pt[i].args.pos,
+						pt[i].args.count, 0,
+						&pt[i].task.pt_result);
+			complete(&pt[i].task.pt_completion);
+		}
+
+		count -= pt[i].args.count;
+		ptpos += pt[i].args.count;
+	}
+
+	if (ntasks > 0) {
+		rc = cfs_ptask_waitfor(&pt[ntasks - 1].task);
+		if (rc) {
+			if (lock_inode)
+				inode_unlock(inode);
+
+			if (range_locked) {
+				range_unlock(&lli->lli_write_tree, &range);
+				CDEBUG(D_VFSTRACE, "Range unlock "RL_FMT"\n",
+					RL_PARA(&range));
+			}
+
+			GOTO(out_free, rc);
+		}
+	}
+
+	if (lock_inode)
+		inode_unlock(inode);
+
+	if (range_locked) {
+		range_unlock(&lli->lli_write_tree, &range);
+		CDEBUG(D_VFSTRACE, "Range unlock "RL_FMT"\n", RL_PARA(&range));
+	}
+
+	for (i = 0; i < ntasks; i++) {
+		rc = cfs_ptask_result(&pt[i].task);
+		if (rc < 0) {
+			ntasks = i + 1;
+			break;
+		}
+
+		result += pt[i].args.result;
+		if (pt[i].args.result != pt[i].args.count) {
+			ntasks = i + 1;
+			break;
+		}
+	}
+
+	if (ntasks > 0)
+		*ppos = pt[ntasks - 1].args.pos; /* for splice */
+
+out_free:
+	OBD_FREE(pt, pt_size);
+out:
 	if (iot == CIT_READ) {
 		if (result > 0)
 			ll_stats_ops_tally(ll_i2sbi(inode),
@@ -1211,18 +1431,13 @@ out:
 			ll_stats_ops_tally(ll_i2sbi(inode),
 					   LPROC_LL_WRITE_BYTES, result);
 			fd->fd_write_failed = false;
-		} else if (result == 0 && rc == 0) {
-			rc = io->ci_result;
-			if (rc < 0)
-				fd->fd_write_failed = true;
-			else
-				fd->fd_write_failed = false;
 		} else if (rc != -ERESTARTSYS) {
 			fd->fd_write_failed = true;
 		}
 	}
 
-	CDEBUG(D_VFSTRACE, "iot: %d, result: %zd\n", iot, result);
+	CDEBUG(D_VFSTRACE, "file: %s, type: %d, count: %zu, result: %zd, rc: %d\n",
+		file_dentry(file)->d_name.name, iot, count, result, rc);
 
 	return result > 0 ? result : rc;
 }

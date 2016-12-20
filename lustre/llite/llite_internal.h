@@ -834,6 +834,8 @@ int ll_fid2path(struct inode *inode, void __user *arg);
 int ll_data_version(struct inode *inode, __u64 *data_version, int flags);
 int ll_hsm_release(struct inode *inode);
 int ll_hsm_state_set(struct inode *inode, struct hsm_state_set *hss);
+void ll_io_init(struct cl_io *io, const struct file *file,
+		int is_write, int is_parallel);
 
 /* llite/dcache.c */
 
@@ -950,6 +952,9 @@ struct vvp_io_args {
                         unsigned int       via_flags;
                 } splice;
         } u;
+
+	loff_t via_pos;
+	size_t via_count;
 };
 
 enum lcc_type {

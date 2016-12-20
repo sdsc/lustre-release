@@ -565,8 +565,8 @@ EXPORT_SYMBOL(cl_site_stats_print);
  * bz20044, bz22683.
  */
 
-static unsigned cl_envs_cached_max = 32; /* XXX: prototype: arbitrary limit
-					  * for now. */
+static unsigned cl_envs_cached_max = 384; /* XXX: prototype:
+					   * arbitrary limit for now. */
 static struct cl_env_cache {
 	rwlock_t		cec_guard;
 	unsigned		cec_count;
