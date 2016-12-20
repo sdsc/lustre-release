@@ -514,7 +514,7 @@ static void vvp_pgcache_page_show(const struct lu_env *env,
 		   0 /* gen */,
 		   vpg, page,
 		   "none",
-		   vpg->vpg_defer_uptodate ? "du" : "- ",
+		   "- ", /* formerly readahead defer_uptodate, removed 2.10 */
 		   PageWriteback(vmpage) ? "wb" : "-",
 		   vmpage,
 		   PFID(ll_inode2fid(vmpage->mapping->host)),
