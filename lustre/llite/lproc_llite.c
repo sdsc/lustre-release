@@ -1147,22 +1147,6 @@ void ll_stats_ops_tally(struct ll_sb_info *sbi, int op, int count)
 }
 EXPORT_SYMBOL(ll_stats_ops_tally);
 
-static const char *ra_stat_string[] = {
-	[RA_STAT_HIT] = "hits",
-	[RA_STAT_MISS] = "misses",
-	[RA_STAT_DISTANT_READPAGE] = "readpage not consecutive",
-	[RA_STAT_MISS_IN_WINDOW] = "miss inside window",
-	[RA_STAT_FAILED_GRAB_PAGE] = "failed grab_cache_page",
-	[RA_STAT_FAILED_MATCH] = "failed lock match",
-	[RA_STAT_DISCARDED] = "read but discarded",
-	[RA_STAT_ZERO_LEN] = "zero length file",
-	[RA_STAT_ZERO_WINDOW] = "zero size window",
-	[RA_STAT_EOF] = "read-ahead to EOF",
-	[RA_STAT_MAX_IN_FLIGHT] = "hit max r-a issue",
-	[RA_STAT_WRONG_GRAB_PAGE] = "wrong page from grab_cache_page",
-	[RA_STAT_FAILED_REACH_END] = "failed to reach end"
-};
-
 LPROC_SEQ_FOPS_RO_TYPE(llite, name);
 LPROC_SEQ_FOPS_RO_TYPE(llite, uuid);
 
@@ -1248,20 +1232,6 @@ int lprocfs_register_mountpoint(struct proc_dir_entry *parent,
         if (err)
                 GOTO(out, err);
 
-        sbi->ll_ra_stats = lprocfs_alloc_stats(ARRAY_SIZE(ra_stat_string),
-                                               LPROCFS_STATS_FLAG_NONE);
-        if (sbi->ll_ra_stats == NULL)
-                GOTO(out, err = -ENOMEM);
-
-        for (id = 0; id < ARRAY_SIZE(ra_stat_string); id++)
-                lprocfs_counter_init(sbi->ll_ra_stats, id, 0,
-                                     ra_stat_string[id], "pages");
-        err = lprocfs_register_stats(sbi->ll_proc_root, "read_ahead_stats",
-                                     sbi->ll_ra_stats);
-        if (err)
-                GOTO(out, err);
-
-
 	err = lprocfs_add_vars(sbi->ll_proc_root, lprocfs_llite_obd_vars, sb);
 	if (err)
 		GOTO(out, err);
@@ -1312,7 +1282,6 @@ int lprocfs_register_mountpoint(struct proc_dir_entry *parent,
 out:
 	if (err) {
 		lprocfs_remove(&sbi->ll_proc_root);
-		lprocfs_free_stats(&sbi->ll_ra_stats);
 		lprocfs_free_stats(&sbi->ll_stats);
 	}
 	RETURN(err);
@@ -1322,7 +1291,6 @@ void lprocfs_unregister_mountpoint(struct ll_sb_info *sbi)
 {
         if (sbi->ll_proc_root) {
                 lprocfs_remove(&sbi->ll_proc_root);
-                lprocfs_free_stats(&sbi->ll_ra_stats);
                 lprocfs_free_stats(&sbi->ll_stats);
         }
 }

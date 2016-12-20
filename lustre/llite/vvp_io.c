@@ -740,16 +740,9 @@ static int vvp_io_read_start(const struct lu_env *env,
 	LU_OBJECT_HEADER(D_INODE, env, &obj->co_lu,
 			 "Read ino %lu, %zu bytes, offset %lld, size %llu\n",
 			 inode->i_ino, cnt, pos, i_size_read(inode));
-	/* turn off the kernel's read-ahead */
-	vio->vui_fd->fd_file->f_ra.ra_pages = 0;
 
-	/* initialize read-ahead window once per syscall */
-	if (!vio->vui_ra_valid) {
-		vio->vui_ra_valid = true;
-		vio->vui_ra_start = cl_index(obj, total_pos);
-		vio->vui_ra_count = cl_index(obj, total_cnt + PAGE_SIZE - 1);
-		ll_ras_enter(file);
-	}
+	/* tune readahead according to max_pages_per_file */
+	 vio->vui_fd->fd_file->f_ra.ra_pages = ll_i2sbi(inode)->ll_ra_info.ra_max_pages_per_file;
 
 	/* BUG: 5972 */
 	file_accessed(file);
@@ -1383,7 +1376,6 @@ int vvp_io_init(const struct lu_env *env, struct cl_object *obj,
 
 	CL_IO_SLICE_CLEAN(vio, vui_cl);
 	cl_io_slice_add(io, &vio->vui_cl, obj, &vvp_io_ops);
-	vio->vui_ra_valid = false;
 	result = 0;
 	if (io->ci_type == CIT_READ || io->ci_type == CIT_WRITE) {
 		size_t count;
