@@ -51,6 +51,7 @@
 #define DEBUG_SUBSYSTEM S_LNET
 
 #include <libcfs/libcfs.h>
+#include <libcfs/libcfs_ptask.h>
 #include <libcfs/libcfs_crypto.h>
 #include <lnet/lib-lnet.h>
 #include "tracefile.h"
@@ -681,10 +682,16 @@ static int __init libcfs_init(void)
 	if (rc != 0)
 		goto cleanup_debug;
 
+	rc = cfs_ptasks_init();
+	if (rc) {
+		CERROR("ptasks init error %d\n", rc);
+		goto cleanup_cpu;
+	}
+
 	rc = misc_register(&libcfs_dev);
 	if (rc) {
 		CERROR("misc_register: error %d\n", rc);
-		goto cleanup_cpu;
+		goto cleanup_ptasks;
 	}
 
 	rc = cfs_wi_startup();
@@ -708,7 +715,6 @@ static int __init libcfs_init(void)
 		goto cleanup_wi;
 	}
 
-
 	rc = insert_proc();
 	if (rc) {
 		CERROR("insert_proc: error %d\n", rc);
@@ -723,6 +729,8 @@ cleanup_wi:
 	cfs_wi_shutdown();
 cleanup_deregister:
 	misc_deregister(&libcfs_dev);
+cleanup_ptasks:
+	cfs_ptasks_fini();
 cleanup_cpu:
 	cfs_cpu_fini();
 cleanup_debug:
@@ -749,6 +757,7 @@ static void __exit libcfs_exit(void)
 
 	misc_deregister(&libcfs_dev);
 
+	cfs_ptasks_fini();
 	cfs_cpu_fini();
 
 	if (atomic_read(&libcfs_kmemory) != 0)

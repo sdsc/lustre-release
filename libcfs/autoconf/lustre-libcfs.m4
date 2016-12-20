@@ -85,6 +85,22 @@ stacktrace_ops_warning, [
 ]) # LIBCFS_STACKTRACE_WARNING
 
 #
+# LIBCFS_REINIT_COMPLETION
+#
+AC_DEFUN([LIBCFS_REINIT_COMPLETION], [
+LB_CHECK_COMPILE([if 'reinit_completion' is exist],
+reinit_completion, [
+	#include <linux/completion.h>
+],[
+	struct completion x;
+	reinit_completion(&x);
+],[
+	AC_DEFINE(HAVE_REINIT_COMPLETION, 1,
+		[reinit_completion is exist])
+])
+]) # LIBCFS_REINIT_COMPLETION
+
+#
 # LC_SHRINKER_WANT_SHRINK_PTR
 #
 # RHEL6/2.6.32 want to have pointer to shrinker self pointer in handler function
@@ -433,6 +449,7 @@ LIBCFS_DUMP_TRACE_ADDRESS
 LC_SHRINK_CONTROL
 # 3.0
 LIBCFS_STACKTRACE_WARNING
+LIBCFS_REINIT_COMPLETION
 # 3.5
 LIBCFS_PROCESS_NAMESPACE
 LIBCFS_I_UID_READ
