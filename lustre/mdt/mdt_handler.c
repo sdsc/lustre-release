@@ -4637,8 +4637,10 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
 	init_rwsem(&m->mdt_squash.rsi_sem);
 	spin_lock_init(&m->mdt_lock);
 	m->mdt_osfs_age = cfs_time_shift_64(-1000);
-	m->mdt_enable_remote_dir = 0;
+	m->mdt_enable_remote_dir = 1;
 	m->mdt_enable_remote_dir_gid = 0;
+	m->mdt_enable_striped_dir = 1;
+	m->mdt_enable_dir_migration = 1;
 
 	atomic_set(&m->mdt_mds_mds_conns, 0);
 	atomic_set(&m->mdt_async_commit_count, 0);
