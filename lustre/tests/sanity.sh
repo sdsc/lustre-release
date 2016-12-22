@@ -15787,6 +15787,36 @@ test_408() {
 }
 run_test 408 "drop_caches should not hang due to page leaks"
 
+test_409() {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+
+	$LFS mkdir -i 1 $DIR/$tdir.1 || error "create remote dir $tdir.1 failed"
+	do_nodes $(comma_list $(mdts_nodes)) \
+		"$LCTL set_param -n mdt.*MDT*.enable_dir_migration=0"
+	$LFS migrate -m 0 $DIR/$tdir.1 &&
+		error "migrate dir $tdir.1 should fail"
+
+	do_nodes $(comma_list $(mdts_nodes)) \
+		"$LCTL set_param -n mdt.*MDT*.enable_remote_dir=0"
+	$LFS mkdir -i 1 $DIR/$tdir.2 || error "create remote dir $tdir.2 failed"
+	$LFS mkdir -i 0 $DIR/$tdir.2/subdir &&
+		error "create remote dir $tdir.2/subdir should fail"
+
+	do_nodes $(comma_list $(mdts_nodes)) \
+		"$LCTL set_param -n mdt.*MDT*.enable_striped_dir=0"
+	$LFS mkdir -c 2 $DIR/$tdir.3 &&
+		error "create striped dir $tdir.3 should fail"
+	true
+}
+run_test 409 "disable remote dir, striped dir and dir migration"
+
+do_nodes $(comma_list $(mdts_nodes)) \
+	"$LCTL set_param -n mdt.*MDT*.enable_dir_migration=1"
+do_nodes $(comma_list $(mdts_nodes)) \
+	"$LCTL set_param -n mdt.*MDT*.enable_remote_dir=1"
+do_nodes $(comma_list $(mdts_nodes)) \
+	"$LCTL set_param -n mdt.*MDT*.enable_striped_dir=1"
+
 #
 # tests that do cleanup/setup should be run at the end
 #

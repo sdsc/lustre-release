@@ -192,6 +192,10 @@ struct mdt_device {
 	unsigned int               mdt_capa_conf:1,
 				   /* Enable remote dir on non-MDT0 */
 				   mdt_enable_remote_dir:1,
+				   /* Enable striped dir */
+				   mdt_enable_striped_dir:1,
+				   /* Enable dir migration */
+				   mdt_enable_dir_migration:1,
 				   mdt_skip_lfsck:1;
 
 	gid_t			   mdt_enable_remote_dir_gid;
