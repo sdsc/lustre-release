@@ -5127,6 +5127,10 @@ test_72() { #LU-2634
 	[ "$(facet_fstype $SINGLEMDS)" != "ldiskfs" ] &&
 		skip "ldiskfs only test" && return
 
+	if ! combined_mgs_mds; then
+		stop_mgs || error "stopping MGS service failed"
+		format_mgs || error "formatting MGT failed"
+	fi
 	#tune MDT with "-O extents"
 
 	for num in $(seq $MDSCOUNT); do
