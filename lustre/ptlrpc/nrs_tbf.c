@@ -804,10 +804,18 @@ nrs_tbf_jobid_list_free(struct list_head *jobid_list)
 	}
 }
 
+static inline bool
+nrs_tbf_check_wildcard(const struct cfs_lstr *src)
+{
+	return (src->ls_len == 1 && src->ls_str[0] == '*');
+}
+
 static int
-nrs_tbf_jobid_list_add(const struct cfs_lstr *id, struct list_head *jobid_list)
+nrs_tbf_jobid_list_add(struct cfs_lstr *id, struct list_head *jobid_list)
 {
 	struct nrs_tbf_jobid *jobid;
+	struct cfs_lstr prog;
+	int rc;
 
 	OBD_ALLOC(jobid, sizeof(struct nrs_tbf_jobid));
 	if (jobid == NULL)
@@ -820,8 +828,60 @@ nrs_tbf_jobid_list_add(const struct cfs_lstr *id, struct list_head *jobid_list)
 	}
 
 	memcpy(jobid->tj_id, id->ls_str, id->ls_len);
+	rc = cfs_gettok(id, '.', &prog);
+	if (rc == 0)
+		jobid->tj_match_flag = NRS_TBF_JOBID_MATCH_FULL;
+	else {
+		if (nrs_tbf_check_wildcard(&prog))
+			jobid->tj_match_flag = NRS_TBF_JOBID_MATCH_USER;
+		else if (nrs_tbf_check_wildcard(id))
+			jobid->tj_match_flag = NRS_TBF_JOBID_MATCH_PROG;
+		else
+			jobid->tj_match_flag = NRS_TBF_JOBID_MATCH_FULL;
+	}
+
 	list_add_tail(&jobid->tj_linkage, jobid_list);
 	return 0;
+}
+
+static inline bool
+nrs_tbf_jobid_match(const struct nrs_tbf_jobid *jobid, char *id)
+{
+	struct cfs_lstr src1, src2;
+	struct cfs_lstr res1, res2;
+	int rc;
+
+	if (jobid->tj_match_flag == NRS_TBF_JOBID_MATCH_FULL)
+		return (strcmp(id, jobid->tj_id) == 0);
+
+	src1.ls_str = id;
+	src1.ls_len = strlen(id);
+	rc = cfs_gettok(&src1, '.', &res1);
+	if (rc == 0)
+		return false;
+
+	src2.ls_str = jobid->tj_id;
+	src2.ls_len = strlen(jobid->tj_id);
+	rc = cfs_gettok(&src2, '.', &res2);
+	if (rc == 0) {
+		CERROR("jobid {%s} should contain wildcard.\n",
+			jobid->tj_id);
+		return false;
+	}
+
+	if (jobid->tj_match_flag == NRS_TBF_JOBID_MATCH_PROG) {
+		LASSERT(nrs_tbf_check_wildcard(&src2));
+		return (res1.ls_len == res2.ls_len &&
+			strncmp(res1.ls_str, res2.ls_str, res1.ls_len) == 0);
+	}
+
+	if (jobid->tj_match_flag == NRS_TBF_JOBID_MATCH_USER) {
+		LASSERT(nrs_tbf_check_wildcard(&res2));
+		return (src1.ls_len == src2.ls_len &&
+			strncmp(src1.ls_str, src2.ls_str, src1.ls_len) == 0);
+	}
+
+	return false;
 }
 
 static int
@@ -830,7 +890,7 @@ nrs_tbf_jobid_list_match(struct list_head *jobid_list, char *id)
 	struct nrs_tbf_jobid *jobid;
 
 	list_for_each_entry(jobid, jobid_list, tj_linkage) {
-		if (strcmp(id, jobid->tj_id) == 0)
+		if (nrs_tbf_jobid_match(jobid, id) == true)
 			return 1;
 	}
 	return 0;

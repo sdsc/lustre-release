@@ -42,8 +42,13 @@
 struct nrs_tbf_head;
 struct nrs_tbf_cmd;
 
+#define NRS_TBF_JOBID_MATCH_FULL	0x0000001
+#define NRS_TBF_JOBID_MATCH_PROG	0x0000002
+#define NRS_TBF_JOBID_MATCH_USER	0x0000004
+
 struct nrs_tbf_jobid {
 	char		*tj_id;
+	int		 tj_match_flag;
 	struct list_head tj_linkage;
 };
 
