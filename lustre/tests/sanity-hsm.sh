@@ -124,6 +124,9 @@ init_agt_vars() {
 
 	# Don't allow copytool error upon start/setup
 	HSMTOOL_NOERROR=false
+
+	# control CT is registered with all MDTs
+	HSM_CT_REGISTERED=true
 }
 
 # Get the backend root path for the given agent facet.
@@ -294,6 +297,14 @@ copytool_setup() {
 		[[ $HSMTOOL_NOERROR == true ]] ||
 			error "start copytool $facet on $agent failed"
 		echo "start copytool $facet on $agent failed"
+	fi
+
+	# give time for CT to register with all MDTs
+	# we may use a timeout instead of a tempo?
+	if $HSM_CT_REGISTERED; then
+		sleep $(($MDSCOUNT*2))
+		local uuid=$(get_agent_uuid $(facet_active_host $facet))
+		check_agent_registered $uuid
 	fi
 
 	trap cleanup EXIT
@@ -1028,11 +1039,6 @@ test_9() {
 	local new_an=$((HSM_ARCHIVE_NUMBER + 1))
 	copytool_cleanup
 	copytool_setup $SINGLEAGT $MOUNT $new_an
-
-	# give time for CT to register with MDTs
-	sleep $(($MDSCOUNT*2))
-	local uuid=$(get_agent_uuid $(facet_active_host $SINGLEAGT))
-	check_agent_registered $uuid
 
 	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
@@ -3224,7 +3230,7 @@ test_60() {
 
 	# test needs a new running copytool
 	copytool_cleanup
-	HSMTOOL_UPDATE_INTERVAL=$interval copytool_setup
+	HSMTOOL_UPDATE_INTERVAL=$interval HSM_CT_REGISTERED=false copytool_setup
 
 	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
@@ -3297,7 +3303,8 @@ test_70() {
 	# test needs a new running copytool
 	copytool_cleanup
 	copytool_monitor_setup
-	HSMTOOL_EVENT_FIFO=$HSMTOOL_MONITOR_DIR/fifo copytool_setup
+	HSMTOOL_EVENT_FIFO=$HSMTOOL_MONITOR_DIR/fifo HSM_CT_REGISTERED=false \
+		copytool_setup
 
 	# Just start and stop the copytool to generate events.
 	cdt_clear_no_retry
@@ -3675,7 +3682,7 @@ run_test 105 "Restart of coordinator"
 
 test_106() {
 	# test needs a running copytool
-	copytool_setup
+	HSM_CT_REGISTERED=false copytool_setup
 
 	local uuid=$(get_agent_uuid $(facet_active_host $SINGLEAGT))
 
@@ -3686,7 +3693,7 @@ test_106() {
 	copytool_cleanup
 	check_agent_unregistered $uuid
 
-	copytool_setup
+	HSM_CT_REGISTERED=false copytool_setup
 	uuid=$(get_agent_uuid $(facet_active_host $SINGLEAGT))
 	check_agent_registered $uuid
 
@@ -4689,7 +4696,7 @@ test_402() {
 	# deactivate all mdc on agent1
 	mdc_change_state $SINGLEAGT "$FSNAME-MDT000." "deactivate"
 
-	HSMTOOL_NOERROR=true copytool_setup $SINGLEAGT
+	HSMTOOL_NOERROR=true HSM_CT_REGISTERED=false copytool_setup $SINGLEAGT
 
 	check_agent_unregistered "uuid" # match any agent
 
@@ -4712,7 +4719,7 @@ test_403() {
 	# deactivate all mdc for MDT0001
 	mdc_change_state $SINGLEAGT "$FSNAME-MDT0001" "deactivate"
 
-	copytool_setup
+	HSM_CT_REGISTERED=false copytool_setup
 	local uuid=$(get_agent_uuid $agent)
 	# check the agent is registered on MDT0000, and not on MDT0001
 	check_agent_registered_by_mdt $uuid 0
