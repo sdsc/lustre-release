@@ -574,22 +574,6 @@ test_9() {
 }
 run_test 9 "test ptldebug and subsystem for mkfs"
 
-is_blkdev () {
-	local facet=$1
-	local dev=$2
-	local size=${3:-""}
-
-	local rc=0
-	do_facet $facet "test -b $dev" || rc=1
-	if [[ "$size" ]]; then
-		local in=$(do_facet $facet "dd if=$dev of=/dev/null bs=1k \
-			   count=1 skip=$size 2>&1" |
-			awk '($3 == "in") { print $1 }')
-		[[ $in  = "1+0" ]] || rc=1
-	fi
-	return $rc
-}
-
 #
 # Test 16 was to "verify that lustre will correct the mode of OBJECTS".
 # But with new MDS stack we don't care about the mode of local objects
@@ -7052,4 +7036,5 @@ OSTSIZE=$STORED_OSTSIZE
 reformat
 
 complete $SECONDS
+check_and_cleanup_lustre
 exit_status
