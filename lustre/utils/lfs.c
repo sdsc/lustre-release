@@ -678,10 +678,10 @@ static int lfs_migrate(char *name, __u64 migration_flags,
 	else
 		buf_size = lum->lmm_stripe_size;
 
-	/* open file, direct io */
+	/* open file, don't use O_DIRECT - LU-8969 */
 	/* even if the file is only read, WR mode is nedeed to allow
 	 * layout swap on fd */
-	fd = open(name, O_RDWR | O_DIRECT);
+	fd = open(name, O_RDWR);
 	if (fd == -1) {
 		rc = -errno;
 		fprintf(stderr, "%s: %s: cannot open: %s\n", progname, name,
