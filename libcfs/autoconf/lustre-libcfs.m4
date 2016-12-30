@@ -357,6 +357,16 @@ LB_CHECK_LINUX_HEADER([asm/fpu/api.h], [
 ]) # LIBCFS_FPU_API
 
 #
+# Kernel version 4.2 commit af658dca221207174fc0a7bcdcd4cff7c589fdd8
+# renamed ftrace_event.h to trace_events.h
+#
+AC_DEFUN([LIBCFS_TRACE_EVENTS], [
+LB_CHECK_LINUX_HEADER([linux/trace_events.h], [
+	AC_DEFINE(HAVE_TRACE_EVENTS_HEADER, 1,
+		[trace_events.h is present])])
+]) # LIBCFS_TRACE_EVENTS
+
+#
 # Kernel version 4.5-rc1 commit d12481bc58fba89427565f8592e88446ec084a24
 # added crypto hash helpers
 #
@@ -451,6 +461,7 @@ LIBCFS_TIMESPEC64
 LIBCFS_KTIME_GET_REAL_TS64
 # 4.2
 LIBCFS_HAVE_TOPOLOGY_SIBLING_CPUMASK
+LIBCFS_TRACE_EVENTS
 LIBCFS_FPU_API
 # 4.5
 LIBCFS_CRYPTO_HASH_HELPERS

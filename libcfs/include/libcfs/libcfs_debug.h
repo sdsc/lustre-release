@@ -205,6 +205,15 @@ do {                                                        \
 
 #ifdef __KERNEL__
 
+#define CFS_TRACE_CONSOLE_BUFFER_SIZE	1024
+
+int libcfs_debug_trace_init(int sub_system);
+
+void cfs_debug_trace(void (*trace)(const char *msg_file, int msg_line,
+				   const char *msg_fn, struct va_format *vaf),
+		     const char *msg_file, int msg_line, const char *msg_fn,
+		     const char *fmt, ...);
+
 # ifdef CDEBUG_ENABLED
 
 /**

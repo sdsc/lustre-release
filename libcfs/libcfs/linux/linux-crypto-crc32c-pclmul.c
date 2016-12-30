@@ -147,7 +147,7 @@ static struct shash_alg alg = {
 int cfs_crypto_crc32c_pclmul_register(void)
 {
 	if (!boot_cpu_has(X86_FEATURE_XMM4_2)) {
-		CDEBUG(D_INFO, "CRC32 instruction is not detected.\n");
+		trace_info("CRC32 instruction is not detected.\n");
 		return -ENODEV;
 	}
 	return crypto_register_shash(&alg);
