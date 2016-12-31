@@ -105,10 +105,6 @@ extern int  cfs_trace_max_debug_mb(void);
 
 #define CFS_TRACEFILE_SIZE (500 << 20)
 
-/* Size of a buffer for sprinting console messages if we can't get a page
- * from system */
-#define CFS_TRACE_CONSOLE_BUFFER_SIZE   1024
-
 union cfs_trace_data_union {
 	struct cfs_trace_cpu_data {
 		/*

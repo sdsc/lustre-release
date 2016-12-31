@@ -38,6 +38,11 @@
 # define DEBUG_SUBSYSTEM S_LNET
 
 #include <linux/kthread.h>
+#ifdef HAVE_TRACE_EVENTS_HEADER
+# include <linux/trace_events.h>
+#else
+# include <linux/ftrace_event.h>
+#endif /* HAVE_TRACE_EVENTS_HEADER */
 #include <libcfs/libcfs.h>
 #include "tracefile.h"
 
@@ -272,6 +277,40 @@ void libcfs_debug_dumplog(void)
 }
 EXPORT_SYMBOL(libcfs_debug_dumplog);
 
+int libcfs_debug_trace_init(int sub_system)
+{
+	char subsys[64], buf[512], *debug_mask, *masks;
+
+	if (!(libcfs_subsystem_debug & sub_system))
+		return -ENODEV;
+
+	libcfs_debug_mask2str(subsys, sizeof(subsys), sub_system, 1);
+	if (!strlen(subsys))
+		return -EINVAL;
+
+	libcfs_debug_mask2str(buf, sizeof(buf), libcfs_debug, 0);
+	masks = buf;
+
+	while ((debug_mask = strsep(&masks, " ")) && *debug_mask) {
+		char event[128];
+
+		/*
+		 * trace and malloc can be done with standard trace
+		 * functionality
+		 */
+		if (!strcmp(debug_mask, "trace") ||
+		    !strcmp(debug_mask, "malloc"))
+			continue;
+
+		snprintf(event, sizeof(event), "%s_%s", subsys, debug_mask);
+
+		trace_set_clr_event(subsys, event, 1);
+	}
+
+	return 0;
+}
+EXPORT_SYMBOL(libcfs_debug_trace_init);
+
 int libcfs_debug_init(unsigned long bufsize)
 {
 	int    rc = 0;
@@ -305,7 +344,9 @@ int libcfs_debug_init(unsigned long bufsize)
         if (rc == 0)
                 libcfs_register_panic_notifier();
 
-        return rc;
+	/* Turn on LNet/libcfs trace events. */
+	libcfs_debug_trace_init(S_LNET);
+	return rc;
 }
 
 int libcfs_debug_cleanup(void)
@@ -351,3 +392,23 @@ void libcfs_log_goto(struct libcfs_debug_msg_data *msgdata, const char *label,
 			 " : %#lx)\n", label, rc, rc, rc);
 }
 EXPORT_SYMBOL(libcfs_log_goto);
+
+void libcfs_debug_trace(void (*trace)(const char *msg_file, int msg_line,
+				      const char *msg_fn,
+				      struct va_format *msg_va),
+			const char *msg_file, int msg_line,
+			const char *msg_fn, const char *fmt, ...)
+{
+	struct va_format vaf;
+	va_list args;
+
+	if (strchr(msg_file, '/'))
+		msg_file = strrchr(msg_file, '/') + 1;
+
+	va_start(args, fmt);
+	vaf.fmt = fmt;
+	vaf.va = &args;
+	trace(msg_file, msg_line, msg_fn, &vaf);
+	va_end(args);
+}
+EXPORT_SYMBOL(libcfs_debug_trace);
