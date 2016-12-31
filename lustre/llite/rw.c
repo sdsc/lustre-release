@@ -127,8 +127,7 @@ void ll_ra_stats_inc(struct inode *inode, enum ra_stat which)
 }
 
 #define RAS_CDEBUG(ras) \
-	CDEBUG(D_READA,                                                      \
-	       "lrp %lu cr %lu cp %lu ws %lu wl %lu nra %lu rpc %lu "        \
+	trace_reada("lrp %lu cr %lu cp %lu ws %lu wl %lu nra %lu rpc %lu "   \
 	       "r %lu ri %lu csr %lu sf %lu sp %lu sl %lu\n",                \
 	       ras->ras_last_readpage, ras->ras_consecutive_requests,        \
 	       ras->ras_consecutive_pages, ras->ras_window_start,            \
@@ -231,7 +230,7 @@ out:
 	}
 	if (msg != NULL) {
 		ll_ra_stats_inc(inode, which);
-		CDEBUG(D_READA, "%s\n", msg);
+		trace_reada("%s\n", msg);
 
 	}
 
@@ -239,7 +238,7 @@ out:
 }
 
 #define RIA_DEBUG(ria)                                                       \
-        CDEBUG(D_READA, "rs %lu re %lu ro %lu rl %lu rp %lu\n",       \
+	trace_reada("rs %lu re %lu ro %lu rl %lu rp %lu\n",       \
         ria->ria_start, ria->ria_end, ria->ria_stoff, ria->ria_length,\
         ria->ria_pages)
 
@@ -289,16 +288,16 @@ stride_pg_count(pgoff_t st_off, unsigned long st_len, unsigned long st_pgs,
         if (end_left > st_pgs)
                 end_left = st_pgs;
 
-	CDEBUG(D_READA, "start %llu, end %llu start_left %lu end_left %lu\n",
-               start, end, start_left, end_left);
+	trace_reada("start %llu, end %llu start_left %lu end_left %lu\n",
+		    start, end, start_left, end_left);
 
         if (start == end)
                 pg_count = end_left - (st_pgs - start_left);
         else
                 pg_count = start_left + st_pgs * (end - start - 1) + end_left;
 
-        CDEBUG(D_READA, "st_off %lu, st_len %lu st_pgs %lu off %lu length %lu"
-               "pgcount %lu\n", st_off, st_len, st_pgs, off, length, pg_count);
+	trace_reada("st_off %lu, st_len %lu st_pgs %lu off %lu length %lu pgcount %lu\n",
+		    st_off, st_len, st_pgs, off, length, pg_count);
 
         return pg_count;
 }
@@ -362,8 +361,9 @@ ll_read_ahead_pages(const struct lu_env *env, struct cl_io *io,
 				if (rc < 0)
 					break;
 
-				CDEBUG(D_READA, "idx: %lu, ra: %lu, rpc: %lu\n",
-				       page_idx, ra.cra_end, ra.cra_rpc_size);
+				trace_reada("idx: %lu, ra: %lu, rpc: %lu\n",
+					    page_idx, ra.cra_end,
+					    ra.cra_rpc_size);
 				LASSERTF(ra.cra_end >= page_idx,
 					 "object: %p, indcies %lu / %lu\n",
 					 io->ci_obj, ra.cra_end, page_idx);
@@ -409,8 +409,8 @@ ll_read_ahead_pages(const struct lu_env *env, struct cl_io *io,
                         offset = offset % (ria->ria_length);
                         if (offset > ria->ria_pages) {
                                 page_idx += ria->ria_length - offset;
-                                CDEBUG(D_READA, "i %lu skip %lu \n", page_idx,
-                                       ria->ria_length - offset);
+				trace_reada("i %lu skip %lu \n", page_idx,
+					    ria->ria_length - offset);
                                 continue;
                         }
                 }
@@ -509,12 +509,12 @@ static int ll_readahead(const struct lu_env *env, struct cl_io *io,
 		RETURN(0);
 	}
 
-	CDEBUG(D_READA, DFID": ria: %lu/%lu, bead: %lu/%lu, hit: %d\n",
-	       PFID(lu_object_fid(&clob->co_lu)),
-	       ria->ria_start, ria->ria_end,
-	       vio->vui_ra_valid ? vio->vui_ra_start : 0,
-	       vio->vui_ra_valid ? vio->vui_ra_count : 0,
-	       hit);
+	trace_reada(DFID ": ria: %lu/%lu, bead: %lu/%lu, hit: %d\n",
+		    PFID(lu_object_fid(&clob->co_lu)),
+		    ria->ria_start, ria->ria_end,
+		    vio->vui_ra_valid ? vio->vui_ra_start : 0,
+		    vio->vui_ra_valid ? vio->vui_ra_count : 0,
+		    hit);
 
 	/* at least to extend the readahead window to cover current read */
 	if (!hit && vio->vui_ra_valid &&
@@ -533,10 +533,10 @@ static int ll_readahead(const struct lu_env *env, struct cl_io *io,
 	if (ria->ria_reserved < len)
 		ll_ra_stats_inc(inode, RA_STAT_MAX_IN_FLIGHT);
 
-	CDEBUG(D_READA, "reserved pages: %lu/%lu/%lu, ra_cur %d, ra_max %lu\n",
-	       ria->ria_reserved, len, mlen,
-	       atomic_read(&ll_i2sbi(inode)->ll_ra_info.ra_cur_pages),
-	       ll_i2sbi(inode)->ll_ra_info.ra_max_pages);
+	trace_reada("reserved pages: %lu/%lu/%lu, ra_cur %d, ra_max %lu\n",
+		    ria->ria_reserved, len, mlen,
+		    atomic_read(&ll_i2sbi(inode)->ll_ra_info.ra_cur_pages),
+		    ll_i2sbi(inode)->ll_ra_info.ra_max_pages);
 
 	ra_end = ll_read_ahead_pages(env, io, queue, ras, ria);
 
@@ -546,13 +546,15 @@ static int ll_readahead(const struct lu_env *env, struct cl_io *io,
 	if (ra_end == end && ra_end == (kms >> PAGE_SHIFT))
 		ll_ra_stats_inc(inode, RA_STAT_EOF);
 
-	/* if we didn't get to the end of the region we reserved from
+	/*
+	 * if we didn't get to the end of the region we reserved from
 	 * the ras we need to go back and update the ras so that the
 	 * next read-ahead tries from where we left off.  we only do so
 	 * if the region we failed to issue read-ahead on is still ahead
-	 * of the app and behind the next index to start read-ahead from */
-	CDEBUG(D_READA, "ra_end = %lu end = %lu stride end = %lu pages = %d\n",
-	       ra_end, end, ria->ria_end, ret);
+	 * of the app and behind the next index to start read-ahead from
+	 */
+	trace_reada("ra_end = %lu end = %lu stride end = %lu pages = %d\n",
+		    ra_end, end, ria->ria_end, ret);
 
 	if (ra_end > 0 && ra_end != end) {
 		ll_ra_stats_inc(inode, RA_STAT_FAILED_REACH_END);
@@ -734,8 +736,8 @@ static void ras_update(struct ll_sb_info *sbi, struct inode *inode,
 	spin_lock(&ras->ras_lock);
 
 	if (!hit)
-		CDEBUG(D_READA, DFID " pages at %lu miss.\n",
-		       PFID(ll_inode2fid(inode)), index);
+		trace_reada(DFID " pages at %lu miss.\n",
+			    PFID(ll_inode2fid(inode)), index);
         ll_ra_stats_inc_sbi(sbi, hit ? RA_STAT_HIT : RA_STAT_MISS);
 
         /* reset the read-ahead window in two cases.  First when the app seeks
@@ -766,8 +768,9 @@ static void ras_update(struct ll_sb_info *sbi, struct inode *inode,
 		kms_pages = (i_size_read(inode) + PAGE_SIZE - 1) >>
 			    PAGE_SHIFT;
 
-		CDEBUG(D_READA, "kmsp %llu mwp %lu mp %lu\n", kms_pages,
-                       ra->ra_max_read_ahead_whole_pages, ra->ra_max_pages_per_file);
+		trace_reada("kmsp %llu mwp %lu mp %lu\n", kms_pages,
+			    ra->ra_max_read_ahead_whole_pages,
+			    ra->ra_max_pages_per_file);
 
                 if (kms_pages &&
                     kms_pages <= ra->ra_max_read_ahead_whole_pages) {
@@ -1126,8 +1129,8 @@ static int ll_io_read_page(const struct lu_env *env, struct cl_io *io,
 
 		rc2 = ll_readahead(env, io, &queue->c2_qin, ras,
 				   uptodate);
-		CDEBUG(D_READA, DFID "%d pages read ahead at %lu\n",
-		       PFID(ll_inode2fid(inode)), rc2, vvp_index(vpg));
+		trace_reada(DFID "%d pages read ahead at %lu\n",
+			    PFID(ll_inode2fid(inode)), rc2, vvp_index(vpg));
 	}
 
 	if (queue->c2_qin.pl_nr > 0)

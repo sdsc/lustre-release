@@ -339,9 +339,9 @@ static int ll_readdir(struct file *filp, void *cookie, filldir_t filldir)
 	else
 		pos = 0;
 
-	CDEBUG(D_VFSTRACE, "VFS Op:inode="DFID"(%p) pos/size"
-	       "%lu/%llu 32bit_api %d\n", PFID(ll_inode2fid(inode)),
-	       inode, (unsigned long)pos, i_size_read(inode), api32);
+	trace_vfstrace("VFS Op:inode=" DFID "(%p) pos/size %lu/%llu 32bit_api %d\n",
+		       PFID(ll_inode2fid(inode)), inode, (unsigned long)pos,
+		       i_size_read(inode), api32);
 
 	if (pos == MDS_DIR_END_OFF)
 		/*
@@ -466,10 +466,9 @@ static int ll_dir_setdirstripe(struct dentry *dparent, struct lmv_user_md *lump,
 	if (unlikely(lump->lum_magic != LMV_USER_MAGIC))
 		RETURN(-EINVAL);
 
-	CDEBUG(D_VFSTRACE, "VFS Op:inode="DFID"(%p) name %s"
-	       "stripe_offset %d, stripe_count: %u\n",
-	       PFID(ll_inode2fid(parent)), parent, dirname,
-	       (int)lump->lum_stripe_offset, lump->lum_stripe_count);
+	trace_vfstrace("VFS Op:inode=" DFID "(%p) name %s stripe_offset %d, stripe_count: %u\n",
+		       PFID(ll_inode2fid(parent)), parent, dirname,
+		       (int)lump->lum_stripe_offset, lump->lum_stripe_count);
 
 	if (lump->lum_stripe_count > 1 &&
 	    !(exp_connect_flags(sbi->ll_md_exp) & OBD_CONNECT_DIR_STRIPE))
@@ -577,13 +576,12 @@ int ll_dir_setstripe(struct inode *inode, struct lov_user_md *lump,
 			lum_size = sizeof(struct lmv_user_md);
 			break;
 		}
-                default: {
-                        CDEBUG(D_IOCTL, "bad userland LOV MAGIC:"
-                                        " %#08x != %#08x nor %#08x\n",
-                                        lump->lmm_magic, LOV_USER_MAGIC_V1,
-                                        LOV_USER_MAGIC_V3);
+		default: {
+			trace_ioctl("bad userland LOV MAGIC: %#08x != %#08x nor %#08x\n",
+				    lump->lmm_magic, LOV_USER_MAGIC_V1,
+				    LOV_USER_MAGIC_V3);
                         RETURN(-EINVAL);
-                }
+		}
                 }
         } else {
                 lum_size = sizeof(struct lov_user_md_v1);
@@ -685,8 +683,8 @@ int ll_dir_getstripe(struct inode *inode, void **plmm, int *plmm_size,
 	rc = md_getattr(sbi->ll_md_exp, op_data, &req);
 	ll_finish_md_op_data(op_data);
 	if (rc < 0) {
-		CDEBUG(D_INFO, "md_getattr failed on inode "
-		       DFID": rc %d\n", PFID(ll_inode2fid(inode)), rc);
+		trace_info("md_getattr failed on inode " DFID ": rc %d\n",
+			   PFID(ll_inode2fid(inode)), rc);
 		GOTO(out, rc);
 	}
 
@@ -815,11 +813,9 @@ static int ll_ioc_copy_start(struct super_block *sb, struct hsm_copy *copy)
 		rc = ll_data_version(inode, &data_version, LL_DV_RD_FLUSH);
 		iput(inode);
 		if (rc != 0) {
-			CDEBUG(D_HSM, "Could not read file data version of "
-				      DFID" (rc = %d). Archive request ("
-				      "%#llx) could not be done.\n",
-				      PFID(&copy->hc_hai.hai_fid), rc,
-				      copy->hc_hai.hai_cookie);
+			trace_hsm("Could not read file data version of " DFID " (rc = %d). Archive request (%#llx) could not be done.\n",
+				  PFID(&copy->hc_hai.hai_fid), rc,
+				  copy->hc_hai.hai_cookie);
 			hpk.hpk_flags |= HP_FLAG_RETRY;
 			/* hpk_errval must be >= 0 */
 			hpk.hpk_errval = -rc;
@@ -902,8 +898,7 @@ static int ll_ioc_copy_end(struct super_block *sb, struct hsm_copy *copy)
 		rc = ll_data_version(inode, &data_version, LL_DV_RD_FLUSH);
 		iput(inode);
 		if (rc) {
-			CDEBUG(D_HSM, "Could not read file data version. "
-				      "Request could not be confirmed.\n");
+			trace_hsm("Could not read file data version. Request could not be confirmed.\n");
 			if (hpk.hpk_errval == 0)
 				hpk.hpk_errval = -rc;
 			GOTO(progress, rc);
@@ -917,11 +912,9 @@ static int ll_ioc_copy_end(struct super_block *sb, struct hsm_copy *copy)
 		 * to check anyway. */
 		if ((copy->hc_hai.hai_action == HSMA_ARCHIVE) &&
 		    (copy->hc_data_version != data_version)) {
-			CDEBUG(D_HSM, "File data version mismatched. "
-			      "File content was changed during archiving. "
-			       DFID", start:%#llx current:%#llx\n",
-			       PFID(&copy->hc_hai.hai_fid),
-			       copy->hc_data_version, data_version);
+			trace_hsm("File data version mismatched. File content was changed during archiving." DFID ", start:%#llx current:%#llx\n",
+				  PFID(&copy->hc_hai.hai_fid),
+				  copy->hc_data_version, data_version);
 			/* File was changed, send error to cdt. Do not ask for
 			 * retry because if a file is modified frequently,
 			 * the cdt will loop on retried archive requests.
@@ -1130,8 +1123,8 @@ static long ll_dir_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
         int rc = 0;
         ENTRY;
 
-	CDEBUG(D_VFSTRACE, "VFS Op:inode="DFID"(%p), cmd=%#x\n",
-	       PFID(ll_inode2fid(inode)), inode, cmd);
+	trace_vfstrace("VFS Op:inode=" DFID "(%p), cmd=%#x\n",
+		       PFID(ll_inode2fid(inode)), inode, cmd);
 
         /* asm-ppc{,64} declares TCGETS, et. al. as type 't' not 'T' */
         if (_IOC_TYPE(cmd) == 'T' || _IOC_TYPE(cmd) == 't') /* tty ioctls */
@@ -1176,7 +1169,7 @@ static long ll_dir_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		filename = data->ioc_inlbuf1;
 		namelen = strlen(filename);
 		if (namelen < 1) {
-			CDEBUG(D_INFO, "IOC_MDC_LOOKUP missing filename\n");
+			trace_info("IOC_MDC_LOOKUP missing filename\n");
 			GOTO(out_free, rc = -EINVAL);
 		}
 
@@ -1214,7 +1207,7 @@ out_free:
 		namelen = data->ioc_inllen1;
 
 		if (namelen < 1) {
-			CDEBUG(D_INFO, "IOC_MDC_LOOKUP missing filename\n");
+			trace_info("IOC_MDC_LOOKUP missing filename\n");
 			GOTO(lmv_out_free, rc = -EINVAL);
 		}
 		lum = (struct lmv_user_md *)data->ioc_inlbuf2;

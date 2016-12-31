@@ -197,10 +197,9 @@ static int vvp_prep_size(const struct lu_env *env, struct cl_object *obj,
 			 */
 			if (i_size_read(inode) < kms) {
 				i_size_write(inode, kms);
-				CDEBUG(D_VFSTRACE,
-				       DFID" updating i_size %llu\n",
-				       PFID(lu_object_fid(&obj->co_lu)),
-				       (__u64)i_size_read(inode));
+				trace_vfstrace(DFID" updating i_size %llu\n",
+					       PFID(lu_object_fid(&obj->co_lu)),
+					       (u64)i_size_read(inode));
 			}
 		}
 	}
@@ -227,7 +226,7 @@ static int vvp_io_one_lock_index(const struct lu_env *env, struct cl_io *io,
 	CLOBINVRNT(env, obj, vvp_object_invariant(obj));
 	ENTRY;
 
-	CDEBUG(D_VFSTRACE, "lock: %d [%lu, %lu]\n", mode, start, end);
+	trace_vfstrace("lock: %d [%lu, %lu]\n", mode, start, end);
 
 	memset(&vio->vui_link, 0, sizeof vio->vui_link);
 
@@ -301,11 +300,10 @@ static void vvp_io_fini(const struct lu_env *env, const struct cl_io_slice *ios)
 
 	CLOBINVRNT(env, obj, vvp_object_invariant(obj));
 
-	CDEBUG(D_VFSTRACE, DFID" ignore/verify layout %d/%d, layout version %d "
-			   "restore needed %d\n",
-	       PFID(lu_object_fid(&obj->co_lu)),
-	       io->ci_ignore_layout, io->ci_verify_layout,
-	       vio->vui_layout_gen, io->ci_restore_needed);
+	trace_vfstrace(DFID" ignore/verify layout %d/%d, layout version %d restore needed %d\n",
+		       PFID(lu_object_fid(&obj->co_lu)),
+		       io->ci_ignore_layout, io->ci_verify_layout,
+		       vio->vui_layout_gen, io->ci_restore_needed);
 
 	if (io->ci_restore_needed) {
 		int	rc;
@@ -341,10 +339,9 @@ static void vvp_io_fini(const struct lu_env *env, const struct cl_io_slice *ios)
 		ll_layout_refresh(inode, &gen);
 		io->ci_need_restart = vio->vui_layout_gen != gen;
 		if (io->ci_need_restart) {
-			CDEBUG(D_VFSTRACE,
-			       DFID" layout changed from %d to %d.\n",
-			       PFID(lu_object_fid(&obj->co_lu)),
-			       vio->vui_layout_gen, gen);
+			trace_vfstrace(DFID " layout changed from %d to %d.\n",
+				       PFID(lu_object_fid(&obj->co_lu)),
+				       vio->vui_layout_gen, gen);
 			/* today successful restore is the only possible
 			 * case */
 			/* restore was done, clear restoring state */
@@ -447,9 +444,9 @@ static int vvp_mmap_locks(const struct lu_env *env,
                         descr->cld_enq_flags = flags;
                         result = cl_io_lock_alloc_add(env, io, descr);
 
-                        CDEBUG(D_VFSTRACE, "lock: %d: [%lu, %lu]\n",
-                               descr->cld_mode, descr->cld_start,
-                               descr->cld_end);
+			trace_vfstrace("lock: %d: [%lu, %lu]\n",
+				       descr->cld_mode, descr->cld_start,
+				       descr->cld_end);
 
 			if (result < 0)
 				break;
@@ -722,7 +719,7 @@ static int vvp_io_read_start(const struct lu_env *env,
 
 	CLOBINVRNT(env, obj, vvp_object_invariant(obj));
 
-	CDEBUG(D_VFSTRACE, "read: -> [%lli, %lli)\n", pos, pos + cnt);
+	trace_vfstrace("read: -> [%lli, %lli)\n", pos, pos + cnt);
 
 	if (vio->vui_io_subtype == IO_NORMAL)
 		down_read(&lli->lli_trunc_sem);
@@ -898,8 +895,8 @@ int vvp_io_write_commit(const struct lu_env *env, struct cl_io *io)
 	if (npages == 0)
 		RETURN(0);
 
-	CDEBUG(D_VFSTRACE, "commit async pages: %d, from %d, to %d\n",
-		npages, vio->u.write.vui_from, vio->u.write.vui_to);
+	trace_vfstrace("commit async pages: %d, from %d, to %d\n",
+		       npages, vio->u.write.vui_from, vio->u.write.vui_to);
 
 	LASSERT(page_list_sanity_check(obj, queue));
 
@@ -920,8 +917,8 @@ int vvp_io_write_commit(const struct lu_env *env, struct cl_io *io)
 
 		vio->u.write.vui_written += bytes;
 
-		CDEBUG(D_VFSTRACE, "Committed %d pages %d bytes, tot: %ld\n",
-			npages, bytes, vio->u.write.vui_written);
+		trace_vfstrace("Committed %d pages %d bytes, tot: %ld\n",
+			       npages, bytes, vio->u.write.vui_written);
 
 		/* the first page must have been written. */
 		vio->u.write.vui_from = 0;
@@ -995,17 +992,16 @@ static int vvp_io_write_start(const struct lu_env *env,
 		LASSERT(vio->vui_iocb->ki_pos == pos);
 	}
 
-	CDEBUG(D_VFSTRACE, "write: [%lli, %lli)\n", pos, pos + (long long)cnt);
+	trace_vfstrace("write: [%lli, %lli)\n", pos, pos + (long long)cnt);
 
 	/* The maximum Lustre file size is variable, based on the OST maximum
 	 * object size and number of stripes.  This needs another check in
 	 * addition to the VFS checks earlier. */
 	if (pos + cnt > ll_file_maxbytes(inode)) {
-		CDEBUG(D_INODE,
-		       "%s: file "DFID" offset %llu > maxbytes %llu\n",
-		       ll_get_fsname(inode->i_sb, NULL, 0),
-		       PFID(ll_inode2fid(inode)), pos + cnt,
-		       ll_file_maxbytes(inode));
+		trace_inode("%s: file " DFID " offset %llu > maxbytes %llu\n",
+			    ll_get_fsname(inode->i_sb, NULL, 0),
+			    PFID(ll_inode2fid(inode)), pos + cnt,
+			    ll_file_maxbytes(inode));
 		RETURN(-EFBIG);
 	}
 
@@ -1046,8 +1042,8 @@ static int vvp_io_write_start(const struct lu_env *env,
 			result = vio->u.write.vui_written;
 			io->ci_nob += result;
 
-			CDEBUG(D_VFSTRACE, "write: nob %zd, result: %zd\n",
-				io->ci_nob, result);
+			trace_vfstrace("write: nob %zd, result: %zd\n",
+				       io->ci_nob, result);
 		}
 	}
 	if (result > 0) {
@@ -1095,12 +1091,12 @@ static int vvp_io_kernel_fault(struct vvp_fault_io *cfio)
 	}
 
 	if (cfio->ft_flags & VM_FAULT_SIGBUS) {
-		CDEBUG(D_PAGE, "got addr %p - SIGBUS\n", vmf->virtual_address);
+		trace_page("got addr %p - SIGBUS\n", vmf->virtual_address);
 		return -EFAULT;
 	}
 
 	if (cfio->ft_flags & VM_FAULT_OOM) {
-		CDEBUG(D_PAGE, "got addr %p - OOM\n", vmf->virtual_address);
+		trace_page("got addr %p - OOM\n", vmf->virtual_address);
 		return -ENOMEM;
 	}
 
@@ -1166,7 +1162,7 @@ static int vvp_io_fault_start(const struct lu_env *env,
          * it still can be truncated locally. */
 	if (unlikely((vmpage->mapping != inode->i_mapping) ||
 		     (page_offset(vmpage) > size))) {
-                CDEBUG(D_PAGE, "llite: fault and truncate race happened!\n");
+		trace_page("llite: fault and truncate race happened!\n");
 
                 /* return +1 to stop cl_io_loop() and ll_fault() will catch
                  * and retry. */
@@ -1183,10 +1179,8 @@ static int vvp_io_fault_start(const struct lu_env *env,
 		 * not past the end of the file.
 		 */
 		if (last_index < fio->ft_index) {
-			CDEBUG(D_PAGE,
-				"llite: mkwrite and truncate race happened: "
-				"%p: 0x%lx 0x%lx\n",
-				vmpage->mapping,fio->ft_index,last_index);
+			trace_page("llite: mkwrite and truncate race happened: %p: 0x%lx 0x%lx\n",
+				   vmpage->mapping, fio->ft_index, last_index);
 			/*
 			 * We need to return if we are
 			 * passed the end of the file. This will propagate
@@ -1374,11 +1368,10 @@ int vvp_io_init(const struct lu_env *env, struct cl_object *obj,
 	CLOBINVRNT(env, obj, vvp_object_invariant(obj));
 	ENTRY;
 
-	CDEBUG(D_VFSTRACE, DFID" ignore/verify layout %d/%d, layout version %d "
-	       "restore needed %d\n",
-	       PFID(lu_object_fid(&obj->co_lu)),
-	       io->ci_ignore_layout, io->ci_verify_layout,
-	       vio->vui_layout_gen, io->ci_restore_needed);
+	trace_vfstrace(DFID " ignore/verify layout %d/%d, layout version %d restore needed %d\n",
+		       PFID(lu_object_fid(&obj->co_lu)),
+		       io->ci_ignore_layout, io->ci_verify_layout,
+		       vio->vui_layout_gen, io->ci_restore_needed);
 
 	CL_IO_SLICE_CLEAN(vio, vui_cl);
 	cl_io_slice_add(io, &vio->vui_cl, obj, &vvp_io_ops);

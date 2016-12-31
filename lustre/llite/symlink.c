@@ -57,9 +57,9 @@ static int ll_readlink_internal(struct inode *inode,
 		/* If the total CDEBUG() size is larger than a page, it
 		 * will print a warning to the console, avoid this by
 		 * printing just the last part of the symlink. */
-		CDEBUG(D_INODE, "using cached symlink %s%.*s, len = %d\n",
-		       print_limit < symlen ? "..." : "", print_limit,
-		       (*symname) + symlen - print_limit, symlen);
+		trace_inode("using cached symlink %s%.*s, len = %d\n",
+			    print_limit < symlen ? "..." : "", print_limit,
+			    (*symname) + symlen - print_limit, symlen);
 		RETURN(0);
 	}
 
@@ -140,10 +140,12 @@ static void *ll_follow_link(struct dentry *dentry, struct nameidata *nd)
 	char *symname = NULL;
 	ENTRY;
 
-        CDEBUG(D_VFSTRACE, "VFS Op\n");
-        /* Limit the recursive symlink depth to 5 instead of default
+	trace_vfstrace("VFS Op\n");
+	/*
+	 * Limit the recursive symlink depth to 5 instead of default
          * 8 links when kernel has 4k stack to prevent stack overflow.
-         * For 8k stacks we need to limit it to 7 for local servers. */
+	 * For 8k stacks we need to limit it to 7 for local servers.
+	 */
         if (THREAD_SIZE < 8192 && current->link_count >= 6) {
                 rc = -ELOOP;
         } else if (THREAD_SIZE == 8192 && current->link_count >= 8) {
@@ -176,7 +178,7 @@ static const char *ll_get_link(struct dentry *dentry,
 	int rc;
 
 	ENTRY;
-	CDEBUG(D_VFSTRACE, "VFS Op\n");
+	trace_vfstrace("VFS Op\n");
 	if (!dentry)
 		RETURN(ERR_PTR(-ECHILD));
 	ll_inode_size_lock(inode);
@@ -202,7 +204,7 @@ static const char *ll_follow_link(struct dentry *dentry, void **cookie)
 	int rc;
 	ENTRY;
 
-	CDEBUG(D_VFSTRACE, "VFS Op\n");
+	trace_vfstrace("VFS Op\n");
 	ll_inode_size_lock(inode);
 	rc = ll_readlink_internal(inode, &request, &symname);
 	ll_inode_size_unlock(inode);

@@ -46,6 +46,7 @@
 #include <linux/compat.h>
 #include <linux/aio.h>
 
+#include "llite_trace.h"
 #include "vvp_internal.h"
 #include "range_lock.h"
 
@@ -72,6 +73,228 @@
 
 #define LL_IT2STR(it) ((it) ? ldlm_it2str((it)->it_op) : "0")
 #define LUSTRE_FPRIVATE(file) ((file)->private_data)
+
+/* Trace event handling */
+#define trace_info(fmt, ...)						\
+do {									\
+	libcfs_debug_trace(trace_llite_info, __FILE__, __LINE__,	\
+			   __func__, fmt, ## __VA_ARGS__);		\
+									\
+	if (cfs_cdebug_show(D_INFO, DEBUG_SUBSYSTEM)) {			\
+		static struct libcfs_debug_msg_data msgdata;		\
+									\
+		LIBCFS_DEBUG_MSG_DATA_INIT(&msgdata, D_INFO, NULL);	\
+		libcfs_debug_msg(&msgdata, fmt, ## __VA_ARGS__);	\
+	}								\
+} while (0)
+
+#define trace_config(fmt, ...)						\
+do {									\
+	libcfs_debug_trace(trace_llite_config, __FILE__, __LINE__,	\
+			   __func__, fmt, ## __VA_ARGS__);		\
+									\
+	if (cfs_cdebug_show(D_CONFIG, DEBUG_SUBSYSTEM)) {		\
+		static struct libcfs_debug_msg_data msgdata;		\
+									\
+		LIBCFS_DEBUG_MSG_DATA_INIT(&msgdata, D_CONFIG, NULL);	\
+		libcfs_debug_msg(&msgdata, fmt, ## __VA_ARGS__);	\
+	}								\
+} while (0)
+
+#define trace_other(fmt, ...)						\
+do {									\
+	libcfs_debug_trace(trace_llite_other, __FILE__, __LINE__,	\
+			   __func__, fmt, ## __VA_ARGS__);		\
+									\
+	if (cfs_cdebug_show(D_OTHER, DEBUG_SUBSYSTEM)) {		\
+		static struct libcfs_debug_msg_data msgdata;		\
+									\
+		LIBCFS_DEBUG_MSG_DATA_INIT(&msgdata, D_OTHER, NULL);	\
+		libcfs_debug_msg(&msgdata, fmt, ## __VA_ARGS__);	\
+	}								\
+} while (0)
+
+#define trace_ioctl(fmt, ...)						\
+do {									\
+	libcfs_debug_trace(trace_llite_ioctl, __FILE__, __LINE__,	\
+			   __func__, fmt, ## __VA_ARGS__);		\
+									\
+	if (cfs_cdebug_show(D_IOCTL, DEBUG_SUBSYSTEM)) {		\
+		static struct libcfs_debug_msg_data msgdata;		\
+									\
+		LIBCFS_DEBUG_MSG_DATA_INIT(&msgdata, D_IOCTL, NULL);	\
+		libcfs_debug_msg(&msgdata, fmt, ## __VA_ARGS__);	\
+	}								\
+} while (0)
+
+#define trace_ha(fmt, ...)						\
+do {									\
+	libcfs_debug_trace(trace_llite_ha, __FILE__, __LINE__,		\
+			   __func__, fmt, ## __VA_ARGS__);		\
+									\
+	if (cfs_cdebug_show(D_HA, DEBUG_SUBSYSTEM)) {			\
+		static struct libcfs_debug_msg_data msgdata;		\
+									\
+		LIBCFS_DEBUG_MSG_DATA_INIT(&msgdata, D_HA, NULL);	\
+		libcfs_debug_msg(&msgdata, fmt, ## __VA_ARGS__);	\
+	}								\
+} while (0)
+
+#define trace_rpctrace(fmt, ...)					\
+do {									\
+	libcfs_debug_trace(trace_llite_rpctrace, __FILE__, __LINE__,	\
+			   __func__, fmt, ## __VA_ARGS__);		\
+									\
+	if (cfs_cdebug_show(D_RPCTRACE, DEBUG_SUBSYSTEM)) {		\
+		static struct libcfs_debug_msg_data msgdata;		\
+									\
+		LIBCFS_DEBUG_MSG_DATA_INIT(&msgdata, D_RPCTRACE, NULL);	\
+		libcfs_debug_msg(&msgdata, fmt, ## __VA_ARGS__);	\
+	}								\
+} while (0)
+
+#define trace_dlmtrace(fmt, ...)					\
+do {									\
+	libcfs_debug_trace(trace_llite_dlmtrace, __FILE__, __LINE__,	\
+			   __func__, fmt, ## __VA_ARGS__);		\
+									\
+	if (cfs_cdebug_show(D_DLMTRACE, DEBUG_SUBSYSTEM)) {		\
+		static struct libcfs_debug_msg_data msgdata;		\
+									\
+		LIBCFS_DEBUG_MSG_DATA_INIT(&msgdata, D_DLMTRACE, NULL);	\
+		libcfs_debug_msg(&msgdata, fmt, ## __VA_ARGS__);	\
+	}								\
+} while (0)
+
+#define trace_vfstrace(fmt, ...)					\
+do {									\
+	libcfs_debug_trace(trace_llite_vfstrace, __FILE__, __LINE__,	\
+			   __func__, fmt, ## __VA_ARGS__);		\
+									\
+	if (cfs_cdebug_show(D_VFSTRACE, DEBUG_SUBSYSTEM)) {		\
+		static struct libcfs_debug_msg_data msgdata;		\
+									\
+		LIBCFS_DEBUG_MSG_DATA_INIT(&msgdata, D_VFSTRACE, NULL);	\
+		libcfs_debug_msg(&msgdata, fmt, ## __VA_ARGS__);	\
+	}								\
+} while (0)
+
+#define trace_super(fmt, ...)						\
+do {									\
+	libcfs_debug_trace(trace_llite_super, __FILE__, __LINE__,	\
+			   __func__, fmt, ## __VA_ARGS__);		\
+									\
+	if (cfs_cdebug_show(D_SUPER, DEBUG_SUBSYSTEM)) {		\
+		static struct libcfs_debug_msg_data msgdata;		\
+									\
+		LIBCFS_DEBUG_MSG_DATA_INIT(&msgdata, D_SUPER, NULL);	\
+		libcfs_debug_msg(&msgdata, fmt, ## __VA_ARGS__);	\
+	}								\
+} while (0)
+
+#define trace_dentry(fmt, ...)						\
+do {									\
+	libcfs_debug_trace(trace_llite_dentry, __FILE__, __LINE__,	\
+			   __func__, fmt, ## __VA_ARGS__);		\
+									\
+	if (cfs_cdebug_show(D_DENTRY, DEBUG_SUBSYSTEM)) {		\
+		static struct libcfs_debug_msg_data msgdata;		\
+									\
+		LIBCFS_DEBUG_MSG_DATA_INIT(&msgdata, D_DENTRY, NULL);	\
+		libcfs_debug_msg(&msgdata, fmt, ## __VA_ARGS__);	\
+	}								\
+} while (0)
+
+#define trace_inode(fmt, ...)						\
+do {									\
+	libcfs_debug_trace(trace_llite_inode, __FILE__, __LINE__,	\
+			   __func__, fmt, ## __VA_ARGS__);		\
+									\
+	if (cfs_cdebug_show(D_INODE, DEBUG_SUBSYSTEM)) {		\
+		static struct libcfs_debug_msg_data msgdata;		\
+									\
+		LIBCFS_DEBUG_MSG_DATA_INIT(&msgdata, D_INODE, NULL);	\
+		libcfs_debug_msg(&msgdata, fmt, ## __VA_ARGS__);	\
+	}								\
+} while (0)
+
+#define trace_cache(fmt, ...)						\
+do {									\
+	libcfs_debug_trace(trace_llite_cache, __FILE__, __LINE__,	\
+			   __func__, fmt, ## __VA_ARGS__);		\
+									\
+	if (cfs_cdebug_show(D_CACHE, DEBUG_SUBSYSTEM)) {		\
+		static struct libcfs_debug_msg_data msgdata;		\
+									\
+		LIBCFS_DEBUG_MSG_DATA_INIT(&msgdata, D_CACHE, NULL);	\
+		libcfs_debug_msg(&msgdata, fmt, ## __VA_ARGS__);	\
+	}								\
+} while (0)
+
+#define trace_page(fmt, ...)						\
+do {									\
+	libcfs_debug_trace(trace_llite_page, __FILE__, __LINE__,	\
+			   __func__, fmt, ## __VA_ARGS__);		\
+									\
+	if (cfs_cdebug_show(D_PAGE, DEBUG_SUBSYSTEM)) {			\
+		static struct libcfs_debug_msg_data msgdata;		\
+									\
+		LIBCFS_DEBUG_MSG_DATA_INIT(&msgdata, D_PAGE, NULL);	\
+		libcfs_debug_msg(&msgdata, fmt, ## __VA_ARGS__);	\
+	}								\
+} while (0)
+
+#define trace_mmap(fmt, ...)						\
+do {									\
+	libcfs_debug_trace(trace_llite_mmap, __FILE__, __LINE__,	\
+			   __func__, fmt, ## __VA_ARGS__);		\
+									\
+	if (cfs_cdebug_show(D_MMAP, DEBUG_SUBSYSTEM)) {			\
+		static struct libcfs_debug_msg_data msgdata;		\
+									\
+		LIBCFS_DEBUG_MSG_DATA_INIT(&msgdata, D_MMAP, NULL);	\
+		libcfs_debug_msg(&msgdata, fmt, ## __VA_ARGS__);	\
+	}								\
+} while (0)
+
+#define trace_reada(fmt, ...)						\
+do {									\
+	libcfs_debug_trace(trace_llite_reada, __FILE__, __LINE__,	\
+			   __func__, fmt, ## __VA_ARGS__);		\
+									\
+	if (cfs_cdebug_show(D_READA, DEBUG_SUBSYSTEM)) {		\
+		static struct libcfs_debug_msg_data msgdata;		\
+									\
+		LIBCFS_DEBUG_MSG_DATA_INIT(&msgdata, D_READA, NULL);	\
+		libcfs_debug_msg(&msgdata, fmt, ## __VA_ARGS__);	\
+	}								\
+} while (0)
+
+#define trace_hsm(fmt, ...)						\
+do {									\
+	libcfs_debug_trace(trace_llite_hsm, __FILE__, __LINE__,		\
+			   __func__, fmt, ## __VA_ARGS__);		\
+									\
+	if (cfs_cdebug_show(D_HSM, DEBUG_SUBSYSTEM)) {			\
+		static struct libcfs_debug_msg_data msgdata;		\
+									\
+		LIBCFS_DEBUG_MSG_DATA_INIT(&msgdata, D_HSM, NULL);	\
+		libcfs_debug_msg(&msgdata, fmt, ## __VA_ARGS__);	\
+	}								\
+} while (0)
+
+#define trace_sec(fmt, ...)						\
+do {									\
+	libcfs_debug_trace(trace_llite_sec, __FILE__, __LINE__,		\
+			   __func__, fmt, ## __VA_ARGS__);		\
+									\
+	if (cfs_cdebug_show(D_SEC, DEBUG_SUBSYSTEM)) {			\
+		static struct libcfs_debug_msg_data msgdata;		\
+									\
+		LIBCFS_DEBUG_MSG_DATA_INIT(&msgdata, D_SEC, NULL);	\
+		libcfs_debug_msg(&msgdata, fmt, ## __VA_ARGS__);	\
+	}								\
+} while (0)
 
 struct ll_dentry_data {
 	struct lookup_intent		*lld_it;
@@ -1322,18 +1545,16 @@ static inline void ll_set_lock_data(struct obd_export *exp, struct inode *inode,
 		 * case the dcache being cleared */
 		if (it->it_remote_lock_mode) {
 			handle.cookie = it->it_remote_lock_handle;
-			CDEBUG(D_DLMTRACE, "setting l_data to inode "DFID
-			       "(%p) for remote lock %#llx\n",
-			       PFID(ll_inode2fid(inode)), inode,
-			       handle.cookie);
+			trace_dlmtrace("setting l_data to inode " DFID "(%p) for remote lock %#llx\n",
+				       PFID(ll_inode2fid(inode)), inode,
+				       handle.cookie);
 			md_set_lock_data(exp, &handle, inode, NULL);
 		}
 
 		handle.cookie = it->it_lock_handle;
 
-		CDEBUG(D_DLMTRACE, "setting l_data to inode "DFID"(%p)"
-		       " for lock %#llx\n",
-		       PFID(ll_inode2fid(inode)), inode, handle.cookie);
+		trace_dlmtrace("setting l_data to inode " DFID "(%p) for lock %#llx\n",
+			       PFID(ll_inode2fid(inode)), inode, handle.cookie);
 
 		md_set_lock_data(exp, &handle, inode, &it->it_lock_bits);
 		it->it_lock_set = 1;
@@ -1383,9 +1604,9 @@ static inline void __d_lustre_invalidate(struct dentry *dentry)
  */
 static inline void d_lustre_invalidate(struct dentry *dentry, int nested)
 {
-	CDEBUG(D_DENTRY, "invalidate dentry %.*s (%p) parent %p inode %p "
-	       "refc %d\n", dentry->d_name.len, dentry->d_name.name, dentry,
-	       dentry->d_parent, dentry->d_inode, ll_d_count(dentry));
+	trace_dentry("invalidate dentry %pd (%p) parent %p inode %p refc %d\n",
+		     dentry, dentry, dentry->d_parent, dentry->d_inode,
+		     ll_d_count(dentry));
 
 	spin_lock_nested(&dentry->d_lock,
 			 nested ? DENTRY_D_LOCK_NESTED : DENTRY_D_LOCK_NORMAL);

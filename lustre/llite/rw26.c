@@ -361,11 +361,10 @@ ll_direct_IO(
 	if ((file_offset & ~PAGE_MASK) || (count & ~PAGE_MASK))
 		return -EINVAL;
 
-	CDEBUG(D_VFSTRACE, "VFS Op:inode="DFID"(%p), size=%zd (max %lu), "
-	       "offset=%lld=%llx, pages %zd (max %lu)\n",
-	       PFID(ll_inode2fid(inode)), inode, count, MAX_DIO_SIZE,
-	       file_offset, file_offset, count >> PAGE_SHIFT,
-	       MAX_DIO_SIZE >> PAGE_SHIFT);
+	trace_vfstrace("VFS Op:inode=" DFID "(%p), size=%zd (max %lu), offset=%lld=%llx, pages %zd (max %lu)\n",
+		       PFID(ll_inode2fid(inode)), inode, count, MAX_DIO_SIZE,
+		       file_offset, file_offset, count >> PAGE_SHIFT,
+		       MAX_DIO_SIZE >> PAGE_SHIFT);
 
 	/* Check that all user buffers are aligned as well */
 	if (iov_iter_alignment(iter) & ~PAGE_MASK)
@@ -422,8 +421,7 @@ ll_direct_IO(
 				    PAGE_SIZE) {
 				size = ((((size / 2) - 1) |
 					~PAGE_MASK) + 1) & PAGE_MASK;
-				CDEBUG(D_VFSTRACE, "DIO size now %zu\n",
-				       size);
+				trace_vfstrace("DIO size now %zu\n", size);
 				continue;
 			}
 
@@ -498,11 +496,10 @@ ll_direct_IO(int rw, struct kiocb *iocb, const struct iovec *iov,
 	if ((file_offset & ~PAGE_MASK) || (count & ~PAGE_MASK))
                 RETURN(-EINVAL);
 
-	CDEBUG(D_VFSTRACE, "VFS Op:inode="DFID"(%p), size=%zd (max %lu), "
-	       "offset=%lld=%llx, pages %zd (max %lu)\n",
-	       PFID(ll_inode2fid(inode)), inode, count, MAX_DIO_SIZE,
-	       file_offset, file_offset, count >> PAGE_SHIFT,
-	       MAX_DIO_SIZE >> PAGE_SHIFT);
+	trace_vfstrace("VFS Op:inode=" DFID "(%p), size=%zd (max %lu), offset=%lld=%llx, pages %zd (max %lu)\n",
+		       PFID(ll_inode2fid(inode)), inode, count, MAX_DIO_SIZE,
+		       file_offset, file_offset, count >> PAGE_SHIFT,
+		       MAX_DIO_SIZE >> PAGE_SHIFT);
 
         /* Check that all user buffers are aligned as well */
         for (seg = 0; seg < nr_segs; seg++) {
@@ -563,8 +560,8 @@ ll_direct_IO(int rw, struct kiocb *iocb, const struct iovec *iov,
                                         size = ((((size / 2) - 1) |
 						 ~PAGE_MASK) + 1) &
 						PAGE_MASK;
-					CDEBUG(D_VFSTRACE, "DIO size now %zu\n",
-                                               size);
+					trace_vfstrace("DIO size now %zu\n",
+						       size);
                                         continue;
                                 }
 
@@ -640,7 +637,7 @@ static int ll_write_begin(struct file *file, struct address_space *mapping,
 	int result = 0;
 	ENTRY;
 
-	CDEBUG(D_VFSTRACE, "Writing %lu of %d to %d bytes\n", index, from, len);
+	trace_vfstrace("Writing %lu of %d to %d bytes\n", index, from, len);
 
 	lcc = ll_cl_find(file);
 	if (lcc == NULL) {

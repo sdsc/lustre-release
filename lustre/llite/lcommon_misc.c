@@ -67,8 +67,7 @@ static int cl_init_ea_size(struct obd_export *md_exp, struct obd_export *dt_exp)
 
 	/* default cookiesize is 0 because from 2.4 server doesn't send
 	 * llog cookies to client. */
-	CDEBUG(D_HA, "updating def/max_easize: %d/%d\n",
-	       def_easize, max_easize);
+	trace_ha("updating def/max_easize: %d/%d\n", def_easize, max_easize);
 
 	rc = md_init_ea_size(md_exp, max_easize, def_easize);
 	RETURN(rc);
@@ -95,8 +94,8 @@ int cl_ocd_update(struct obd_device *host,
                 cli = &watched->u.cli;
                 lco = owner;
                 flags = cli->cl_import->imp_connect_data.ocd_connect_flags;
-		CDEBUG(D_SUPER, "Changing connect_flags: %#llx -> %#llx\n",
-                       lco->lco_flags, flags);
+		trace_super("Changing connect_flags: %#llx -> %#llx\n",
+			    lco->lco_flags, flags);
 		mutex_lock(&lco->lco_lock);
                 lco->lco_flags &= flags;
                 /* for each osc event update ea size */

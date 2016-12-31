@@ -66,7 +66,7 @@ struct inode *search_inode_for_lustre(struct super_block *sb,
         int                   rc;
         ENTRY;
 
-        CDEBUG(D_INFO, "searching inode for:(%lu,"DFID")\n", hash, PFID(fid));
+	trace_info("searching inode for:(%lu," DFID ")\n", hash, PFID(fid));
 
 	inode = ilookup5(sb, hash, ll_test_inode_by_fid, (void *)fid);
 	if (inode)
@@ -92,7 +92,7 @@ struct inode *search_inode_for_lustre(struct super_block *sb,
         if (rc) {
 		/* Suppress erroneous/confusing messages when NFS
 		 * is out of sync and requests old data. */
-		CDEBUG(D_INFO, "can't get object attrs, fid "DFID", rc %d\n",
+		trace_info("can't get object attrs, fid " DFID ", rc %d\n",
 				PFID(fid), rc);
                 RETURN(ERR_PTR(rc));
         }
@@ -119,7 +119,7 @@ ll_iget_for_nfs(struct super_block *sb, struct lu_fid *fid, struct lu_fid *paren
 	if (!fid_is_sane(fid))
 		RETURN(ERR_PTR(-ESTALE));
 
-	CDEBUG(D_INFO, "Get dentry for fid: "DFID"\n", PFID(fid));
+	trace_info("Get dentry for fid: " DFID "\n", PFID(fid));
 
         inode = search_inode_for_lustre(sb, fid);
         if (IS_ERR(inode))
@@ -186,9 +186,9 @@ static int ll_encode_fh(struct inode *inode, __u32 *fh, int *plen,
 	struct lustre_nfs_fid *nfs_fid = (void *)fh;
 	ENTRY;
 
-	CDEBUG(D_INFO, "%s: encoding for ("DFID") maxlen=%d minlen=%d\n",
-	       ll_get_fsname(inode->i_sb, NULL, 0),
-	       PFID(ll_inode2fid(inode)), *plen, fileid_len);
+	trace_info("%s: encoding for (" DFID ") maxlen=%d minlen=%d\n",
+		   ll_get_fsname(inode->i_sb, NULL, 0),
+		   PFID(ll_inode2fid(inode)), *plen, fileid_len);
 
 	if (*plen < fileid_len) {
 		*plen = fileid_len;
@@ -313,9 +313,9 @@ int ll_dir_get_parent_fid(struct inode *dir, struct lu_fid *parent_fid)
 
 	sbi = ll_s2sbi(dir->i_sb);
 
-	CDEBUG(D_INFO, "%s: getting parent for ("DFID")\n",
-	       ll_get_fsname(dir->i_sb, NULL, 0),
-	       PFID(ll_inode2fid(dir)));
+	trace_info("%s: getting parent for (" DFID ")\n",
+		   ll_get_fsname(dir->i_sb, NULL, 0),
+		   PFID(ll_inode2fid(dir)));
 
 	rc = ll_get_default_mdsize(sbi, &lmmsize);
 	if (rc != 0)
@@ -342,8 +342,8 @@ int ll_dir_get_parent_fid(struct inode *dir, struct lu_fid *parent_fid)
 	 * the NFS server, ll_iget_for_nfs() will handle the error.
 	 */
 	if (body->mbo_valid & OBD_MD_FLID) {
-		CDEBUG(D_INFO, "parent for "DFID" is "DFID"\n",
-		       PFID(ll_inode2fid(dir)), PFID(&body->mbo_fid1));
+		trace_info("parent for " DFID " is " DFID "\n",
+			   PFID(ll_inode2fid(dir)), PFID(&body->mbo_fid1));
 		*parent_fid = body->mbo_fid1;
 	}
 

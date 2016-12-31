@@ -197,14 +197,12 @@ static int get_hsm_state(struct inode *inode, __u32 *hus_states)
 		if (rc == 0)
 			*hus_states = hus->hus_states;
 		else
-			CDEBUG(D_VFSTRACE, "obd_iocontrol failed. rc = %d\n",
-			       rc);
+			trace_vfstrace("obd_iocontrol failed. rc = %d\n", rc);
 
 		ll_finish_md_op_data(op_data);
 	} else {
 		rc = PTR_ERR(op_data);
-		CDEBUG(D_VFSTRACE, "Could not prepare the opdata. rc = %d\n",
-		       rc);
+		trace_vfstrace("Could not prepare the opdata. rc = %d\n", rc);
 	}
 	OBD_FREE_PTR(hus);
 	return rc;
@@ -218,8 +216,8 @@ int ll_setxattr(struct dentry *dentry, const char *name,
         LASSERT(inode);
         LASSERT(name);
 
-	CDEBUG(D_VFSTRACE, "VFS Op:inode="DFID"(%p), xattr %s\n",
-	       PFID(ll_inode2fid(inode)), inode, name);
+	trace_vfstrace("VFS Op:inode=" DFID "(%p), xattr %s\n",
+		       PFID(ll_inode2fid(inode)), inode, name);
 
         ll_stats_ops_tally(ll_i2sbi(inode), LPROC_LL_SETXATTR, 1);
 
@@ -247,9 +245,8 @@ int ll_setxattr(struct dentry *dentry, const char *name,
 			if (rc != 0)
 				RETURN(rc);
 			if (!(state & HS_ARCHIVED)) {
-				CDEBUG(D_VFSTRACE,
-					"hus_states state = %x, pattern = %x\n",
-					state, lump->lmm_pattern);
+				trace_vfstrace("hus_states state = %x, pattern = %x\n",
+					       state, lump->lmm_pattern);
 				/* Here the state is: real file is not
 				 * archived but user is requesting to set
 				 * the RELEASED flag so we mask off the
@@ -294,8 +291,8 @@ int ll_removexattr(struct dentry *dentry, const char *name)
         LASSERT(inode);
         LASSERT(name);
 
-	CDEBUG(D_VFSTRACE, "VFS Op:inode="DFID"(%p), xattr %s\n",
-	       PFID(ll_inode2fid(inode)), inode, name);
+	trace_vfstrace("VFS Op:inode=" DFID "(%p), xattr %s\n",
+		       PFID(ll_inode2fid(inode)), inode, name);
 
         ll_stats_ops_tally(ll_i2sbi(inode), LPROC_LL_REMOVEXATTR, 1);
         return ll_setxattr_common(inode, name, NULL, 0, 0,
@@ -313,8 +310,8 @@ int ll_getxattr_common(struct inode *inode, const char *name,
 	struct ll_inode_info *lli = ll_i2info(inode);
         ENTRY;
 
-	CDEBUG(D_VFSTRACE, "VFS Op:inode="DFID"(%p)\n",
-	       PFID(ll_inode2fid(inode)), inode);
+	trace_vfstrace("VFS Op:inode=" DFID "(%p)\n",
+		       PFID(ll_inode2fid(inode)), inode);
 
         /* listxattr have slightly different behavior from of ext3:
          * without 'user_xattr' ext3 will list all xattr names but
@@ -513,8 +510,8 @@ ssize_t ll_getxattr(struct dentry *dentry, const char *name, void *buf,
 	LASSERT(inode);
 	LASSERT(name);
 
-	CDEBUG(D_VFSTRACE, "VFS Op:inode="DFID"(%p), xattr %s\n",
-	       PFID(ll_inode2fid(inode)), inode, name);
+	trace_vfstrace("VFS Op:inode=" DFID "(%p), xattr %s\n",
+		       PFID(ll_inode2fid(inode)), inode, name);
 
 	ll_stats_ops_tally(ll_i2sbi(inode), LPROC_LL_GETXATTR, 1);
 
@@ -534,8 +531,8 @@ ssize_t ll_listxattr(struct dentry *dentry, char *buf, size_t buf_size)
 	ssize_t rc, rc2;
 	size_t len, rem;
 
-	CDEBUG(D_VFSTRACE, "VFS Op:inode="DFID"(%p)\n",
-	       PFID(ll_inode2fid(inode)), inode);
+	trace_vfstrace("VFS Op:inode=" DFID "(%p)\n",
+		       PFID(ll_inode2fid(inode)), inode);
 
 	ll_stats_ops_tally(ll_i2sbi(inode), LPROC_LL_LISTXATTR, 1);
 

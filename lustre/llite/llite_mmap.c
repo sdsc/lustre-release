@@ -123,8 +123,8 @@ restart:
         vma->vm_flags &= ~VM_SEQ_READ;
         vma->vm_flags |= VM_RAND_READ;
 
-        CDEBUG(D_MMAP, "vm_flags: %lx (%lu %d)\n", vma->vm_flags,
-               fio->ft_index, fio->ft_executable);
+	trace_mmap("vm_flags: %lx (%lu %d)\n", vma->vm_flags,
+		   fio->ft_index, fio->ft_executable);
 
 	rc = cl_io_init(env, io, CIT_FAULT, io->ci_obj);
 	if (rc == 0) {
@@ -211,9 +211,8 @@ static int ll_page_mkwrite0(struct vm_area_struct *vma, struct page *vmpage,
                          */
                         unlock_page(vmpage);
 
-                        CDEBUG(D_MMAP, "Race on page_mkwrite %p/%lu, page has "
-                               "been written out, retry.\n",
-                               vmpage, vmpage->index);
+			trace_mmap("Race on page_mkwrite %p/%lu, page has been written out, retry.\n",
+				   vmpage, vmpage->index);
 
                         *retry = true;
                         result = -EAGAIN;
@@ -228,7 +227,7 @@ out_io:
 	cl_io_fini(env, io);
 out:
 	cl_env_put(env, &refcheck);
-	CDEBUG(D_MMAP, "%s mkwrite with %d\n", current->comm, result);
+	trace_mmap("%s mkwrite with %d\n", current->comm, result);
 	LASSERT(ergo(result == 0, PageLocked(vmpage)));
 
 	return result;
@@ -338,7 +337,7 @@ out:
 	if (result != 0 && !(fault_ret & VM_FAULT_RETRY))
 		fault_ret |= to_fault_error(result);
 
-	CDEBUG(D_MMAP, "%s fault %d/%d\n", current->comm, fault_ret, result);
+	trace_mmap("%s fault %d/%d\n", current->comm, fault_ret, result);
 	RETURN(fault_ret);
 }
 

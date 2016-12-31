@@ -107,9 +107,9 @@ static int ll_dcompare(struct dentry *parent, struct qstr *d_name,
 	if (memcmp(str, name->name, len))
 		RETURN(1);
 
-	CDEBUG(D_DENTRY, "found name %.*s(%p) flags %#x refc %d\n",
-	       name->len, name->name, dentry, dentry->d_flags,
-	       ll_d_count(dentry));
+	trace_dentry("found name %.*s(%p) flags %#x refc %d\n",
+		     name->len, name->name, dentry, dentry->d_flags,
+		     ll_d_count(dentry));
 
 	/* mountpoint is always valid */
 	if (d_mountpoint((struct dentry *)dentry))
@@ -133,11 +133,11 @@ static int ll_ddelete(HAVE_D_DELETE_CONST struct dentry *de)
 	ENTRY;
 	LASSERT(de);
 
-	CDEBUG(D_DENTRY, "%s dentry %.*s (%p, parent %p, inode %p) %s%s\n",
-	       d_lustre_invalid((struct dentry *)de) ? "deleting" : "keeping",
-	       de->d_name.len, de->d_name.name, de, de->d_parent, de->d_inode,
-	       d_unhashed((struct dentry *)de) ? "" : "hashed,",
-	       list_empty(&de->d_subdirs) ? "" : "subdirs");
+	trace_dentry("%s dentry %pd (%p, parent %p, inode %p) %s%s\n",
+		     d_lustre_invalid((struct dentry *)de) ? "deleting" : "keeping",
+		     de, de, de->d_parent, de->d_inode,
+		     d_unhashed((struct dentry *)de) ? "" : "hashed,",
+		     list_empty(&de->d_subdirs) ? "" : "subdirs");
 
 #ifdef HAVE_DCACHE_LOCK
 	LASSERT(ll_d_count(de) == 0);
@@ -156,9 +156,8 @@ int ll_d_init(struct dentry *de)
 	ENTRY;
 	LASSERT(de != NULL);
 
-	CDEBUG(D_DENTRY, "ldd on dentry %.*s (%p) parent %p inode %p refc %d\n",
-		de->d_name.len, de->d_name.name, de, de->d_parent, de->d_inode,
-		ll_d_count(de));
+	trace_dentry("ldd on dentry %pd (%p) parent %p inode %p refc %d\n",
+		     de, de, de->d_parent, de->d_inode, ll_d_count(de));
 
 	if (de->d_fsdata == NULL) {
 		struct ll_dentry_data *lld;
@@ -193,8 +192,8 @@ void ll_intent_drop_lock(struct lookup_intent *it)
 
 		handle.cookie = it->it_lock_handle;
 
-		CDEBUG(D_DLMTRACE, "releasing lock with cookie %#llx from it %p\n",
-		       handle.cookie, it);
+		trace_dlmtrace("releasing lock with cookie %#llx from it %p\n",
+			       handle.cookie, it);
 		ldlm_lock_decref(&handle, it->it_lock_mode);
 
 		/* bug 494: intent_release may be called multiple times, from
@@ -203,8 +202,8 @@ void ll_intent_drop_lock(struct lookup_intent *it)
 		if (it->it_remote_lock_mode != 0) {
 			handle.cookie = it->it_remote_lock_handle;
 
-			CDEBUG(D_DLMTRACE, "releasing remote lock with cookie"
-			       "%#llx from it %p\n", handle.cookie, it);
+			trace_dlmtrace("releasing remote lock with cookie %#llx from it %p\n",
+				       handle.cookie, it);
 			ldlm_lock_decref(&handle,
 					 it->it_remote_lock_mode);
 			it->it_remote_lock_mode = 0;
@@ -216,7 +215,7 @@ void ll_intent_release(struct lookup_intent *it)
 {
         ENTRY;
 
-        CDEBUG(D_INFO, "intent %p released\n", it);
+	trace_info("intent %p released\n", it);
         ll_intent_drop_lock(it);
         /* We are still holding extra reference on a request, need to free it */
         if (it_disposition(it, DISP_ENQ_OPEN_REF))
@@ -238,15 +237,14 @@ void ll_invalidate_aliases(struct inode *inode)
 
 	LASSERT(inode != NULL);
 
-	CDEBUG(D_INODE, "marking dentries for inode "DFID"(%p) invalid\n",
-	       PFID(ll_inode2fid(inode)), inode);
+	trace_inode("marking dentries for inode " DFID "(%p) invalid\n",
+		    PFID(ll_inode2fid(inode)), inode);
 
 	ll_lock_dcache(inode);
 	ll_d_hlist_for_each_entry(dentry, p, &inode->i_dentry) {
-		CDEBUG(D_DENTRY, "dentry in drop %.*s (%p) parent %p "
-		       "inode %p flags %d\n", dentry->d_name.len,
-		       dentry->d_name.name, dentry, dentry->d_parent,
-		       dentry->d_inode, dentry->d_flags);
+		trace_dentry("dentry in drop %pd (%p) parent %p inode %p flags %d\n",
+			     dentry, dentry, dentry->d_parent,
+			     dentry->d_inode, dentry->d_flags);
 
 		if (unlikely(dentry == dentry->d_sb->s_root)) {
 			CERROR("%s: called on root dentry=%p, fid="DFID"\n",
@@ -290,8 +288,8 @@ void ll_lookup_finish_locks(struct lookup_intent *it, struct dentry *dentry)
                 struct inode *inode = dentry->d_inode;
                 struct ll_sb_info *sbi = ll_i2sbi(dentry->d_inode);
 
-		CDEBUG(D_DLMTRACE, "setting l_data to inode "DFID"(%p)\n",
-		       PFID(ll_inode2fid(inode)), inode);
+		trace_dlmtrace("setting l_data to inode "DFID"(%p)\n",
+			       PFID(ll_inode2fid(inode)), inode);
                 ll_set_lock_data(sbi->ll_md_exp, inode, it, NULL);
         }
 
@@ -353,8 +351,7 @@ static int ll_revalidate_nd(struct dentry *dentry, unsigned int flags)
 	int rc;
 	ENTRY;
 
-	CDEBUG(D_VFSTRACE, "VFS Op:name=%s, flags=%u\n",
-	       dentry->d_name.name, flags);
+	trace_vfstrace("VFS Op:name=%pd, flags=%u\n", dentry, flags);
 
 	rc = ll_revalidate_dentry(dentry, flags);
 	RETURN(rc);
@@ -372,8 +369,7 @@ static int ll_revalidate_nd(struct dentry *dentry, struct nameidata *nd)
 	if (nd == NULL)
 		RETURN(1);
 
-	CDEBUG(D_VFSTRACE, "VFS Op:name=%s, flags=%u\n",
-	       dentry->d_name.name, nd->flags);
+	trace_vfstrace("VFS Op:name=%pd, flags=%u\n", dentry, nd->flags);
 
 	rc = ll_revalidate_dentry(dentry, nd->flags);
 	RETURN(rc);

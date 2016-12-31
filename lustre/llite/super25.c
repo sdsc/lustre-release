@@ -107,11 +107,12 @@ static int __init lustre_init(void)
 
 	CLASSERT(sizeof(LUSTRE_VOLATILE_HDR) == LUSTRE_VOLATILE_HDR_LEN + 1);
 
+	libcfs_debug_trace_init(S_LLITE);
+
 	/* print an address of _any_ initialized kernel symbol from this
 	 * module, to allow debugging with gdb that doesn't support data
 	 * symbols from modules.*/
-	CDEBUG(D_INFO, "Lustre client module (%p).\n",
-	       &lustre_super_operations);
+	trace_info("Lustre client module (%p).\n", &lustre_super_operations);
 
 	ll_inode_cachep = kmem_cache_create("lustre_inode_cache",
 					    sizeof(struct ll_inode_info),

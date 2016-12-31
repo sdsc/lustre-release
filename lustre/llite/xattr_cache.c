@@ -111,9 +111,8 @@ static int ll_xattr_cache_find(struct list_head *cache,
 		if (xattr_name == NULL ||
 		    strcmp(xattr_name, entry->xe_name) == 0) {
 			*xattr = entry;
-			CDEBUG(D_CACHE, "find: [%s]=%.*s\n",
-			       entry->xe_name, entry->xe_vallen,
-			       entry->xe_value);
+			trace_cache("find: [%s]=%.*s\n", entry->xe_name,
+				    entry->xe_vallen, entry->xe_value);
 			RETURN(0);
 		}
 	}
@@ -140,13 +139,13 @@ static int ll_xattr_cache_add(struct list_head *cache,
 	ENTRY;
 
 	if (ll_xattr_cache_find(cache, xattr_name, &xattr) == 0) {
-		CDEBUG(D_CACHE, "duplicate xattr: [%s]\n", xattr_name);
+		trace_cache("duplicate xattr: [%s]\n", xattr_name);
 		RETURN(-EPROTO);
 	}
 
 	OBD_SLAB_ALLOC_PTR_GFP(xattr, xattr_kmem, GFP_NOFS);
 	if (xattr == NULL) {
-		CDEBUG(D_CACHE, "failed to allocate xattr\n");
+		trace_cache("failed to allocate xattr\n");
 		RETURN(-ENOMEM);
 	}
 
@@ -154,14 +153,14 @@ static int ll_xattr_cache_add(struct list_head *cache,
 
 	OBD_ALLOC(xattr->xe_name, xattr->xe_namelen);
 	if (!xattr->xe_name) {
-		CDEBUG(D_CACHE, "failed to alloc xattr name %u\n",
-		       xattr->xe_namelen);
+		trace_cache("failed to alloc xattr name %u\n",
+			    xattr->xe_namelen);
 		goto err_name;
 	}
 	OBD_ALLOC(xattr->xe_value, xattr_val_len);
 	if (!xattr->xe_value) {
-		CDEBUG(D_CACHE, "failed to alloc xattr value %d\n",
-		       xattr_val_len);
+		trace_cache("failed to alloc xattr value %d\n",
+			    xattr_val_len);
 		goto err_value;
 	}
 
@@ -170,8 +169,7 @@ static int ll_xattr_cache_add(struct list_head *cache,
 	xattr->xe_vallen = xattr_val_len;
 	list_add(&xattr->xe_list, cache);
 
-	CDEBUG(D_CACHE, "set: [%s]=%.*s\n", xattr_name,
-		xattr_val_len, xattr_val);
+	trace_cache("set: [%s]=%.*s\n", xattr_name, xattr_val_len, xattr_val);
 
 	RETURN(0);
 err_value:
@@ -197,7 +195,7 @@ static int ll_xattr_cache_del(struct list_head *cache,
 
 	ENTRY;
 
-	CDEBUG(D_CACHE, "del xattr: %s\n", xattr_name);
+	trace_cache("del xattr: %s\n", xattr_name);
 
 	if (ll_xattr_cache_find(cache, xattr_name, &xattr) == 0) {
 		list_del(&xattr->xe_list);
@@ -231,8 +229,8 @@ static int ll_xattr_cache_list(struct list_head *cache,
 	ENTRY;
 
 	list_for_each_entry_safe(xattr, tmp, cache, xe_list) {
-		CDEBUG(D_CACHE, "list: buffer=%p[%d] name=%s\n",
-			xld_buffer, xld_tail, xattr->xe_name);
+		trace_cache("list: buffer=%p[%d] name=%s\n",
+			    xld_buffer, xld_tail, xattr->xe_name);
 
 		if (xld_buffer) {
 			xld_size -= xattr->xe_namelen;
@@ -352,8 +350,8 @@ static int ll_xattr_find_get_lock(struct inode *inode,
 	*req = oit->it_request;
 
 	if (rc < 0) {
-		CDEBUG(D_CACHE, "md_intent_lock failed with %d for fid "DFID"\n",
-		       rc, PFID(ll_inode2fid(inode)));
+		trace_cache("md_intent_lock failed with %d for fid " DFID "\n",
+			    rc, PFID(ll_inode2fid(inode)));
 		mutex_unlock(&lli->lli_xattrs_enq_lock);
 		RETURN(rc);
 	}
@@ -400,7 +398,7 @@ static int ll_xattr_cache_refill(struct inode *inode)
 
 	/* Matched but no cache? Cancelled on error by a parallel refill. */
 	if (unlikely(req == NULL)) {
-		CDEBUG(D_CACHE, "cancelled by a parallel getxattr\n");
+		trace_cache("cancelled by a parallel getxattr\n");
 		ll_intent_drop_lock(&oit);
 		GOTO(err_unlock, rc = -EIO);
 	}
@@ -426,12 +424,12 @@ static int ll_xattr_cache_refill(struct inode *inode)
 	xtail = xdata + body->mbo_eadatasize;
 	xvtail = xval + body->mbo_aclsize;
 
-	CDEBUG(D_CACHE, "caching: xdata=%p xtail=%p\n", xdata, xtail);
+	trace_cache("caching: xdata=%p xtail=%p\n", xdata, xtail);
 
 	ll_xattr_cache_init(lli);
 
 	for (i = 0; i < body->mbo_max_mdsize; i++) {
-		CDEBUG(D_CACHE, "caching [%s]=%.*s\n", xdata, *xsizes, xval);
+		trace_cache("caching [%s]=%.*s\n", xdata, *xsizes, xval);
 		/* Perform consistency checks: attr names and vals in pill */
 		if (memchr(xdata, 0, xtail - xdata) == NULL) {
 			CERROR("xattr protocol violation (names are broken)\n");
@@ -443,12 +441,11 @@ static int ll_xattr_cache_refill(struct inode *inode)
 			rc = -ENOMEM;
 		} else if (!strcmp(xdata, XATTR_NAME_ACL_ACCESS)) {
 			/* Filter out ACL ACCESS since it's cached separately */
-			CDEBUG(D_CACHE, "not caching %s\n",
-			       XATTR_NAME_ACL_ACCESS);
+			trace_cache("not caching %s\n", XATTR_NAME_ACL_ACCESS);
 			rc = 0;
 		} else if (!strcmp(xdata, "security.selinux")) {
 			/* Filter out security.selinux, it is cached in slab */
-			CDEBUG(D_CACHE, "not caching security.selinux\n");
+			trace_cache("not caching security.selinux\n");
 			rc = 0;
 		} else {
 			rc = ll_xattr_cache_add(&lli->lli_xattrs, xdata, xval,

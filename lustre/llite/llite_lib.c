@@ -104,7 +104,7 @@ static struct ll_sb_info *ll_init_sbi(void)
 
         ll_generate_random_uuid(uuid);
         class_uuid_unparse(uuid, &sbi->ll_sb_uuid);
-        CDEBUG(D_CONFIG, "generated uuid: %s\n", sbi->ll_sb_uuid.uuid);
+	trace_config("generated uuid: %s\n", sbi->ll_sb_uuid.uuid);
 
         sbi->ll_flags |= LL_SBI_VERBOSE;
 #ifdef ENABLE_CHECKSUM
@@ -421,9 +421,9 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
 	if (sbi->ll_flags & LL_SBI_ALWAYS_PING)
 		data->ocd_connect_flags &= ~OBD_CONNECT_PINGLESS;
 
-	CDEBUG(D_RPCTRACE, "ocd_connect_flags: %#llx ocd_version: %d "
-	       "ocd_grant: %d\n", data->ocd_connect_flags,
-	       data->ocd_version, data->ocd_grant);
+	trace_rpctrace("ocd_connect_flags: %#llx ocd_version: %d ocd_grant: %d\n",
+		       data->ocd_connect_flags,
+		       data->ocd_version, data->ocd_grant);
 
 	obd->obd_upcall.onu_owner = &sbi->ll_lco;
 	obd->obd_upcall.onu_upcall = cl_ocd_update;
@@ -473,7 +473,7 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
 		       PFID(&sbi->ll_root_fid));
 		GOTO(out_lock_cn_cb, err = -EINVAL);
 	}
-	CDEBUG(D_SUPER, "rootfid "DFID"\n", PFID(&sbi->ll_root_fid));
+	trace_super("rootfid " DFID "\n", PFID(&sbi->ll_root_fid));
 
 	sb->s_op = &lustre_super_operations;
 #if THREAD_SIZE >= 8192 /*b=17630*/
@@ -790,10 +790,10 @@ static int ll_options(char *options, int *flags)
         if (!options)
                 RETURN(0);
 
-        CDEBUG(D_CONFIG, "Parsing opts %s\n", options);
+	trace_config("Parsing opts %s\n", options);
 
         while (*s1) {
-                CDEBUG(D_SUPER, "next opt=%s\n", s1);
+		trace_super("next opt=%s\n", s1);
                 tmp = ll_set_opt("nolock", s1, LL_SBI_NOLCK);
                 if (tmp) {
                         *flags |= tmp;
@@ -979,7 +979,7 @@ int ll_fill_super(struct super_block *sb, struct vfsmount *mnt)
         int    err;
         ENTRY;
 
-        CDEBUG(D_VFSTRACE, "VFS Op: sb %p\n", sb);
+	trace_vfstrace("VFS Op: sb %p\n", sb);
 
         OBD_ALLOC_PTR(cfg);
         if (cfg == NULL)
@@ -1037,8 +1037,8 @@ int ll_fill_super(struct super_block *sb, struct vfsmount *mnt)
                                    "exist?\n", profilenm);
                 GOTO(out_free, err = -EINVAL);
         }
-        CDEBUG(D_CONFIG, "Found profile %s: mdc=%s osc=%s\n", profilenm,
-               lprof->lp_md, lprof->lp_dt);
+	trace_config("Found profile %s: mdc=%s osc=%s\n", profilenm,
+		     lprof->lp_md, lprof->lp_dt);
 
         OBD_ALLOC(dt, strlen(lprof->lp_dt) + instlen + 2);
         if (!dt)
@@ -1084,7 +1084,7 @@ void ll_put_super(struct super_block *sb)
 	int next, force = 1, rc = 0;
         ENTRY;
 
-        CDEBUG(D_VFSTRACE, "VFS Op: sb %p - %s\n", sb, profilenm);
+	trace_vfstrace("VFS Op: sb %p - %s\n", sb, profilenm);
 
         cfg.cfg_instance = sb;
         lustre_end_log(sb, profilenm, &cfg);
@@ -1236,8 +1236,8 @@ static struct inode *ll_iget_anon_dir(struct super_block *sb,
 		LASSERT(lsm != NULL);
 		/* master object FID */
 		lli->lli_pfid = body->mbo_fid1;
-		CDEBUG(D_INODE, "lli %p slave "DFID" master "DFID"\n",
-		       lli, PFID(fid), PFID(&lli->lli_pfid));
+		trace_inode("lli %p slave " DFID " master " DFID "\n",
+			    lli, PFID(fid), PFID(&lli->lli_pfid));
 		unlock_new_inode(inode);
 	}
 
@@ -1302,8 +1302,8 @@ static int ll_update_lsm_md(struct inode *inode, struct lustre_md *md)
 	ENTRY;
 
 	LASSERT(S_ISDIR(inode->i_mode));
-	CDEBUG(D_INODE, "update lsm %p of "DFID"\n", lli->lli_lsm_md,
-	       PFID(ll_inode2fid(inode)));
+	trace_inode("update lsm %p of " DFID "\n", lli->lli_lsm_md,
+		    PFID(ll_inode2fid(inode)));
 
 	/* no striped information from request. */
 	if (lsm == NULL) {
@@ -1313,8 +1313,8 @@ static int ll_update_lsm_md(struct inode *inode, struct lustre_md *md)
 						LMV_HASH_FLAG_MIGRATION) {
 			/* migration is done, the temporay MIGRATE layout has
 			 * been removed */
-			CDEBUG(D_INODE, DFID" finish migration.\n",
-			       PFID(ll_inode2fid(inode)));
+			trace_inode(DFID " finish migration.\n",
+				    PFID(ll_inode2fid(inode)));
 			lmv_free_memmd(lli->lli_lsm_md);
 			lli->lli_lsm_md = NULL;
 			RETURN(0);
@@ -1363,8 +1363,8 @@ static int ll_update_lsm_md(struct inode *inode, struct lustre_md *md)
 
 		OBD_FREE_PTR(attr);
 
-		CDEBUG(D_INODE, "Set lsm %p magic %x to "DFID"\n", lsm,
-		       lsm->lsm_md_magic, PFID(ll_inode2fid(inode)));
+		trace_inode("Set lsm %p magic %x to " DFID "\n", lsm,
+			    lsm->lsm_md_magic, PFID(ll_inode2fid(inode)));
 		RETURN(0);
 	}
 
@@ -1413,8 +1413,8 @@ void ll_clear_inode(struct inode *inode)
         struct ll_sb_info *sbi = ll_i2sbi(inode);
         ENTRY;
 
-	CDEBUG(D_VFSTRACE, "VFS Op:inode="DFID"(%p)\n",
-	       PFID(ll_inode2fid(inode)), inode);
+	trace_vfstrace("VFS Op:inode=" DFID "(%p)\n",
+		       PFID(ll_inode2fid(inode)), inode);
 
         if (S_ISDIR(inode->i_mode)) {
                 /* these should have been cleared in ll_file_release */
@@ -1548,11 +1548,10 @@ int ll_setattr_raw(struct dentry *dentry, struct iattr *attr, bool hsm_import)
 	int rc = 0;
 	ENTRY;
 
-	CDEBUG(D_VFSTRACE, "%s: setattr inode "DFID"(%p) from %llu to %llu, "
-	       "valid %x, hsm_import %d\n",
-	       ll_get_fsname(inode->i_sb, NULL, 0), PFID(&lli->lli_fid),
-	       inode, i_size_read(inode), attr->ia_size, attr->ia_valid,
-	       hsm_import);
+	trace_vfstrace("%s: setattr inode " DFID "(%p) from %llu to %llu, valid %x, hsm_import %d\n",
+		       ll_get_fsname(inode->i_sb, NULL, 0),
+		       PFID(&lli->lli_fid), inode, i_size_read(inode),
+		       attr->ia_size, attr->ia_valid, hsm_import);
 
 	if (attr->ia_valid & ATTR_SIZE) {
                 /* Check new size against VFS/VM file size limit and rlimit */
@@ -1564,9 +1563,9 @@ int ll_setattr_raw(struct dentry *dentry, struct iattr *attr, bool hsm_import)
                  * OST maximum object size and number of stripes.  This
                  * needs another check in addition to the VFS check above. */
                 if (attr->ia_size > ll_file_maxbytes(inode)) {
-			CDEBUG(D_INODE,"file "DFID" too large %llu > %llu\n",
-                               PFID(&lli->lli_fid), attr->ia_size,
-                               ll_file_maxbytes(inode));
+			trace_inode("file " DFID " too large %llu > %llu\n",
+				    PFID(&lli->lli_fid), attr->ia_size,
+				    ll_file_maxbytes(inode));
                         RETURN(-EFBIG);
                 }
 
@@ -1598,9 +1597,9 @@ int ll_setattr_raw(struct dentry *dentry, struct iattr *attr, bool hsm_import)
         }
 
         if (attr->ia_valid & (ATTR_MTIME | ATTR_CTIME))
-                CDEBUG(D_INODE, "setting mtime %lu, ctime %lu, now = %lu\n",
-                       LTIME_S(attr->ia_mtime), LTIME_S(attr->ia_ctime),
-                       cfs_time_current_sec());
+		trace_inode("setting mtime %lu, ctime %lu, now = %lu\n",
+			    LTIME_S(attr->ia_mtime), LTIME_S(attr->ia_ctime),
+			    cfs_time_current_sec());
 
 	if (S_ISREG(inode->i_mode)) {
 		if (attr->ia_valid & ATTR_SIZE)
@@ -1672,8 +1671,8 @@ int ll_setattr_raw(struct dentry *dentry, struct iattr *attr, bool hsm_import)
 		 * not applicable for the file, and rc2 < 0 is normal in this
 		 * case. */
 		if (rc2 < 0)
-			CDEBUG(D_INFO, DFID "HSM set dirty failed: rc2 = %d\n",
-			       PFID(ll_inode2fid(inode)), rc2);
+			trace_info(DFID "HSM set dirty failed: rc2 = %d\n",
+				   PFID(ll_inode2fid(inode)), rc2);
 	}
 
 	EXIT;
@@ -1739,8 +1738,9 @@ int ll_statfs_internal(struct super_block *sb, struct obd_statfs *osfs,
 
         osfs->os_type = sb->s_magic;
 
-	CDEBUG(D_SUPER, "MDC blocks %llu/%llu objects %llu/%llu\n",
-               osfs->os_bavail, osfs->os_blocks, osfs->os_ffree,osfs->os_files);
+	trace_super("MDC blocks %llu/%llu objects %llu/%llu\n",
+		    osfs->os_bavail, osfs->os_blocks, osfs->os_ffree,
+		    osfs->os_files);
 
         if (sbi->ll_flags & LL_SBI_LAZYSTATFS)
                 flags |= OBD_STATFS_NODELAY;
@@ -1751,9 +1751,9 @@ int ll_statfs_internal(struct super_block *sb, struct obd_statfs *osfs,
                 RETURN(rc);
         }
 
-	CDEBUG(D_SUPER, "OSC blocks %llu/%llu objects %llu/%llu\n",
-               obd_osfs.os_bavail, obd_osfs.os_blocks, obd_osfs.os_ffree,
-               obd_osfs.os_files);
+	trace_super("OSC blocks %llu/%llu objects %llu/%llu\n",
+		    obd_osfs.os_bavail, obd_osfs.os_blocks, obd_osfs.os_ffree,
+		    obd_osfs.os_files);
 
         osfs->os_bsize = obd_osfs.os_bsize;
         osfs->os_blocks = obd_osfs.os_blocks;
@@ -1779,7 +1779,7 @@ int ll_statfs(struct dentry *de, struct kstatfs *sfs)
 	__u64 fsid = huge_encode_dev(sb->s_dev);
 	int rc;
 
-	CDEBUG(D_VFSTRACE, "VFS Op: at %llu jiffies\n", get_jiffies_64());
+	trace_vfstrace("VFS Op: at %llu jiffies\n", get_jiffies_64());
         ll_stats_ops_tally(ll_s2sbi(sb), LPROC_LL_STAFS, 1);
 
         /* Some amount of caching on the client is allowed */
@@ -1869,9 +1869,9 @@ int ll_update_inode(struct inode *inode, struct lustre_md *md)
 
 	if (body->mbo_valid & OBD_MD_FLMTIME) {
 		if (body->mbo_mtime > LTIME_S(inode->i_mtime)) {
-			CDEBUG(D_INODE, "setting ino %lu mtime from %lu "
-			       "to %llu\n", inode->i_ino,
-			       LTIME_S(inode->i_mtime), body->mbo_mtime);
+			trace_inode("setting ino %lu mtime from %lu to %llu\n",
+				    inode->i_ino, LTIME_S(inode->i_mtime),
+				    body->mbo_mtime);
 			LTIME_S(inode->i_mtime) = body->mbo_mtime;
 		}
 		lli->lli_mtime = body->mbo_mtime;
@@ -1927,9 +1927,9 @@ int ll_update_inode(struct inode *inode, struct lustre_md *md)
 	if (body->mbo_valid & OBD_MD_FLSIZE) {
 		i_size_write(inode, body->mbo_size);
 
-		CDEBUG(D_VFSTRACE, "inode="DFID", updating i_size %llu\n",
-		       PFID(ll_inode2fid(inode)),
-		       (unsigned long long)body->mbo_size);
+		trace_vfstrace("inode=" DFID ", updating i_size %llu\n",
+			       PFID(ll_inode2fid(inode)),
+			       (unsigned long long)body->mbo_size);
 
 		if (body->mbo_valid & OBD_MD_FLBLOCKS)
 			inode->i_blocks = body->mbo_blocks;
@@ -1956,8 +1956,8 @@ int ll_read_inode2(struct inode *inode, void *opaque)
 	int	rc;
         ENTRY;
 
-        CDEBUG(D_VFSTRACE, "VFS Op:inode="DFID"(%p)\n",
-               PFID(&lli->lli_fid), inode);
+	trace_vfstrace("VFS Op:inode=" DFID "(%p)\n",
+		       PFID(&lli->lli_fid), inode);
 
         /* Core attributes from the MDS first.  This is a new inode, and
          * the VFS doesn't zero times in the core inode so we have to do
@@ -2111,8 +2111,8 @@ int ll_flush_ctx(struct inode *inode)
 {
 	struct ll_sb_info  *sbi = ll_i2sbi(inode);
 
-	CDEBUG(D_SEC, "flush context for user %d\n",
-	       from_kuid(&init_user_ns, current_uid()));
+	trace_sec("flush context for user %d\n",
+		  from_kuid(&init_user_ns, current_uid()));
 
 	obd_set_info_async(NULL, sbi->ll_md_exp,
 			   sizeof(KEY_FLUSH_CTX), KEY_FLUSH_CTX,
@@ -2133,8 +2133,8 @@ void ll_umount_begin(struct super_block *sb)
 	wait_queue_head_t waitq;
 	ENTRY;
 
-	CDEBUG(D_VFSTRACE, "VFS Op: superblock %p count %d active %d\n", sb,
-	       sb->s_count, atomic_read(&sb->s_active));
+	trace_vfstrace("VFS Op: superblock %p count %d active %d\n", sb,
+		       sb->s_count, atomic_read(&sb->s_active));
 
 	obd = class_exp2obd(sbi->ll_md_exp);
 	if (obd == NULL) {

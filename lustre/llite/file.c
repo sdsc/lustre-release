@@ -315,8 +315,8 @@ int ll_file_release(struct inode *inode, struct file *file)
         int rc;
         ENTRY;
 
-	CDEBUG(D_VFSTRACE, "VFS Op:inode="DFID"(%p)\n",
-	       PFID(ll_inode2fid(inode)), inode);
+	trace_vfstrace("VFS Op:inode=" DFID "(%p)\n",
+		       PFID(ll_inode2fid(inode)), inode);
 
 	if (inode->i_sb->s_root != file_dentry(file))
                 ll_stats_ops_tally(sbi, LPROC_LL_RELEASE, 1);
@@ -398,7 +398,7 @@ static int ll_intent_file_open(struct file *file, void *lmm, int lmmsize,
 
 	if (rc != 0 || it_open_error(DISP_OPEN_OPEN, itp)) {
 		rc = rc ? rc : it_open_error(DISP_OPEN_OPEN, itp);
-		CDEBUG(D_VFSTRACE, "lock enqueue: err: %d\n", rc);
+		trace_vfstrace("lock enqueue: err: %d\n", rc);
 		GOTO(out, rc);
 	}
 
@@ -491,8 +491,8 @@ int ll_file_open(struct inode *inode, struct file *file)
 	int rc = 0;
 	ENTRY;
 
-	CDEBUG(D_VFSTRACE, "VFS Op:inode="DFID"(%p), flags %o\n",
-	       PFID(ll_inode2fid(inode)), inode, file->f_flags);
+	trace_vfstrace("VFS Op:inode=" DFID "(%p), flags %o\n",
+		       PFID(ll_inode2fid(inode)), inode, file->f_flags);
 
 	it = file->private_data; /* XXX: compat macro */
 	file->private_data = NULL; /* prevent ll_local_open assertion */
@@ -687,7 +687,7 @@ static int ll_md_blocking_lease_ast(struct ldlm_lock *lock,
 		ldlm_lock2handle(lock, &lockh);
 		rc = ldlm_cli_cancel(&lockh, LCF_ASYNC);
 		if (rc < 0) {
-			CDEBUG(D_INODE, "ldlm_cli_cancel: %d\n", rc);
+			trace_inode("ldlm_cli_cancel: %d\n", rc);
 			RETURN(rc);
 		}
 		break;
@@ -926,8 +926,8 @@ static int ll_swap_layouts_close(struct obd_client_handle *och,
 	int			 rc;
 	ENTRY;
 
-	CDEBUG(D_INODE, "%s: biased close of file "DFID"\n",
-	       ll_get_fsname(inode->i_sb, NULL, 0), PFID(fid1));
+	trace_inode("%s: biased close of file " DFID "\n",
+		    ll_get_fsname(inode->i_sb, NULL, 0), PFID(fid1));
 
 	rc = ll_check_swap_layouts_validity(inode, inode2);
 	if (rc < 0)
@@ -975,8 +975,8 @@ static int ll_lease_close(struct obd_client_handle *och, struct inode *inode,
 		LDLM_LOCK_PUT(lock);
 	}
 
-	CDEBUG(D_INODE, "lease for "DFID" broken? %d\n",
-	       PFID(&ll_i2info(inode)->lli_fid), cancelled);
+	trace_inode("lease for " DFID " broken? %d\n",
+		    PFID(&ll_i2info(inode)->lli_fid), cancelled);
 
 	if (!cancelled)
 		ldlm_cli_cancel(&och->och_lease_handle, 0);
@@ -1038,8 +1038,8 @@ int ll_merge_attr(const struct lu_env *env, struct inode *inode)
 	if (mtime < attr->cat_mtime)
 		mtime = attr->cat_mtime;
 
-	CDEBUG(D_VFSTRACE, DFID" updating i_size %llu\n",
-	       PFID(&lli->lli_fid), attr->cat_size);
+	trace_vfstrace(DFID " updating i_size %llu\n",
+		       PFID(&lli->lli_fid), attr->cat_size);
 
 	i_size_write(inode, attr->cat_size);
 	inode->i_blocks = attr->cat_blocks;
@@ -1120,8 +1120,8 @@ ll_file_io_generic(const struct lu_env *env, struct vvp_io_args *args,
 
 	ENTRY;
 
-	CDEBUG(D_VFSTRACE, "file: %s, type: %d ppos: %llu, count: %zu\n",
-		file_dentry(file)->d_name.name, iot, *ppos, count);
+	trace_vfstrace("file: %pD, type: %d ppos: %llu, count: %zu\n",
+		       file, iot, *ppos, count);
 
 restart:
 	io = vvp_env_thread_io(env);
@@ -1148,8 +1148,9 @@ restart:
 			if (((iot == CIT_WRITE) ||
 			    (iot == CIT_READ && (file->f_flags & O_DIRECT))) &&
 			    !(vio->vui_fd->fd_flags & LL_FILE_GROUP_LOCKED)) {
-				CDEBUG(D_VFSTRACE, "Range lock "RL_FMT"\n",
-				       RL_PARA(&range));
+				trace_vfstrace("Range lock [%llu, %llu]\n",
+					       range.rl_node.in_extent.start,
+					       range.rl_node.in_extent.end);
 				rc = range_lock(&lli->lli_write_tree, &range);
 				if (rc < 0)
 					GOTO(out, rc);
@@ -1171,8 +1172,9 @@ restart:
 		ll_cl_remove(file, env);
 
 		if (range_locked) {
-			CDEBUG(D_VFSTRACE, "Range unlock "RL_FMT"\n",
-			       RL_PARA(&range));
+			trace_vfstrace("Range unlock [%llu, %llu]\n",
+				       range.rl_node.in_extent.start,
+				       range.rl_node.in_extent.end);
 			range_unlock(&lli->lli_write_tree, &range);
 		}
 	} else {
@@ -1194,11 +1196,9 @@ out:
 	cl_io_fini(env, io);
 
 	if ((rc == 0 || rc == -ENODATA) && count > 0 && io->ci_need_restart) {
-		CDEBUG(D_VFSTRACE,
-		       "%s: restart %s from %lld, count:%zu, result: %zd\n",
-		       file_dentry(file)->d_name.name,
-		       iot == CIT_READ ? "read" : "write",
-		       *ppos, count, result);
+		trace_vfstrace("%pD: restart %s from %lld, count:%zu, result: %zd\n",
+			       file, iot == CIT_READ ? "read" : "write",
+			       *ppos, count, result);
 		goto restart;
 	}
 
@@ -1222,7 +1222,7 @@ out:
 		}
 	}
 
-	CDEBUG(D_VFSTRACE, "iot: %d, result: %zd\n", iot, result);
+	trace_vfstrace("iot: %d, result: %zd\n", iot, result);
 
 	return result > 0 ? result : rc;
 }
@@ -1570,8 +1570,8 @@ int ll_lov_getstripe_ea_info(struct inode *inode, const char *filename,
         rc = md_getattr_name(sbi->ll_md_exp, op_data, &req);
         ll_finish_md_op_data(op_data);
         if (rc < 0) {
-                CDEBUG(D_INFO, "md_getattr_name failed "
-                       "on %s: rc %d\n", filename, rc);
+		trace_info("md_getattr_name failed on %s: rc %d\n",
+			   filename, rc);
                 GOTO(out, rc);
         }
 
@@ -1746,7 +1746,7 @@ ll_get_grouplock(struct inode *inode, struct file *file, unsigned long arg)
 	fd->fd_grouplock = grouplock;
 	spin_unlock(&lli->lli_lock);
 
-	CDEBUG(D_INFO, "group lock %lu obtained\n", arg);
+	trace_info("group lock %lu obtained\n", arg);
 	RETURN(0);
 }
 
@@ -1780,7 +1780,7 @@ static int ll_put_grouplock(struct inode *inode, struct file *file,
 	spin_unlock(&lli->lli_lock);
 
 	cl_put_grouplock(&grouplock);
-	CDEBUG(D_INFO, "group lock %lu released\n", arg);
+	trace_info("group lock %lu released\n", arg);
 	RETURN(0);
 }
 
@@ -1998,9 +1998,9 @@ int ll_hsm_release(struct inode *inode)
 	__u16 refcheck;
 	ENTRY;
 
-	CDEBUG(D_INODE, "%s: Releasing file "DFID".\n",
-	       ll_get_fsname(inode->i_sb, NULL, 0),
-	       PFID(&ll_i2info(inode)->lli_fid));
+	trace_inode("%s: Releasing file " DFID ".\n",
+		    ll_get_fsname(inode->i_sb, NULL, 0),
+		    PFID(&ll_i2info(inode)->lli_fid));
 
 	och = ll_lease_open(inode, NULL, FMODE_WRITE, MDS_OPEN_RELEASE);
 	if (IS_ERR(och))
@@ -2341,8 +2341,8 @@ ll_file_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	int			 flags, rc;
 	ENTRY;
 
-	CDEBUG(D_VFSTRACE, "VFS Op:inode="DFID"(%p), cmd=%x\n",
-	       PFID(ll_inode2fid(inode)), inode, cmd);
+	trace_vfstrace("VFS Op:inode=" DFID "(%p), cmd=%x\n",
+		       PFID(ll_inode2fid(inode)), inode, cmd);
         ll_stats_ops_tally(ll_i2sbi(inode), LPROC_LL_IOCTL, 1);
 
         /* asm-ppc{,64} declares TCGETS, et. al. as type 't' not 'T' */
@@ -2607,7 +2607,7 @@ out:
 			RETURN(-EINVAL);
 		}
 
-		CDEBUG(D_INODE, "Set lease with mode %u\n", fmode);
+		trace_inode("Set lease with mode %u\n", fmode);
 
 		/* apply for lease */
 		och = ll_lease_open(inode, file, fmode, 0);
@@ -2816,9 +2816,9 @@ static loff_t ll_file_seek(struct file *file, loff_t offset, int origin)
 	ENTRY;
 	retval = offset + ((origin == SEEK_END) ? i_size_read(inode) :
 			   (origin == SEEK_CUR) ? file->f_pos : 0);
-	CDEBUG(D_VFSTRACE, "VFS Op:inode="DFID"(%p), to=%llu=%#llx(%d)\n",
-	       PFID(ll_inode2fid(inode)), inode, retval, retval,
-	       origin);
+	trace_vfstrace("VFS Op:inode=" DFID "(%p), to=%llu=%#llx(%d)\n",
+		       PFID(ll_inode2fid(inode)), inode, retval, retval,
+		       origin);
 	ll_stats_ops_tally(ll_i2sbi(inode), LPROC_LL_LLSEEK, 1);
 
 	if (origin == SEEK_END || origin == SEEK_HOLE || origin == SEEK_DATA) {
@@ -2935,8 +2935,8 @@ int ll_fsync(struct file *file, struct dentry *dentry, int datasync)
 	int rc, err;
 	ENTRY;
 
-	CDEBUG(D_VFSTRACE, "VFS Op:inode="DFID"(%p)\n",
-	       PFID(ll_inode2fid(inode)), inode);
+	trace_vfstrace("VFS Op:inode=" DFID "(%p)\n",
+		       PFID(ll_inode2fid(inode)), inode);
 	ll_stats_ops_tally(ll_i2sbi(inode), LPROC_LL_FSYNC, 1);
 
 #ifdef HAVE_FILE_FSYNC_4ARGS
@@ -3005,8 +3005,8 @@ ll_file_flock(struct file *file, int cmd, struct file_lock *file_lock)
 	int rc2 = 0;
 	ENTRY;
 
-	CDEBUG(D_VFSTRACE, "VFS Op:inode="DFID" file_lock=%p\n",
-	       PFID(ll_inode2fid(inode)), file_lock);
+	trace_vfstrace("VFS Op:inode=" DFID " file_lock=%p\n",
+		       PFID(ll_inode2fid(inode)), file_lock);
 
         ll_stats_ops_tally(ll_i2sbi(inode), LPROC_LL_FLOCK, 1);
 
@@ -3054,7 +3054,7 @@ ll_file_flock(struct file *file, int cmd, struct file_lock *file_lock)
                 einfo.ei_mode = LCK_PW;
                 break;
         default:
-		CDEBUG(D_INFO, "Unknown fcntl lock type: %d\n", fl_type);
+		trace_info("Unknown fcntl lock type: %d\n", fl_type);
                 RETURN (-ENOTSUPP);
         }
 
@@ -3091,10 +3091,10 @@ ll_file_flock(struct file *file, int cmd, struct file_lock *file_lock)
         if (IS_ERR(op_data))
                 RETURN(PTR_ERR(op_data));
 
-	CDEBUG(D_DLMTRACE, "inode="DFID", pid=%u, flags=%#llx, mode=%u, "
-	       "start=%llu, end=%llu\n", PFID(ll_inode2fid(inode)),
-	       flock.l_flock.pid, flags, einfo.ei_mode,
-	       flock.l_flock.start, flock.l_flock.end);
+	trace_dlmtrace("inode=" DFID ", pid=%u, flags=%#llx, mode=%u, start=%llu, end=%llu\n",
+		       PFID(ll_inode2fid(inode)),
+		       flock.l_flock.pid, flags, einfo.ei_mode,
+		       flock.l_flock.start, flock.l_flock.end);
 
 	rc = md_enqueue(sbi->ll_md_exp, &einfo, &flock, op_data, &lockh,
 			flags);
@@ -3177,8 +3177,8 @@ int ll_migrate(struct inode *parent, struct file *file, int mdtidx,
 	__u64			data_version = 0;
 	ENTRY;
 
-	CDEBUG(D_VFSTRACE, "migrate %s under "DFID" to MDT%04x\n",
-	       name, PFID(ll_inode2fid(parent)), mdtidx);
+	trace_vfstrace("migrate %s under " DFID " to MDT%04x\n",
+		       name, PFID(ll_inode2fid(parent)), mdtidx);
 
 	op_data = ll_prep_md_op_data(NULL, parent, NULL, name, namelen,
 				     0, LUSTRE_OPC_ANY, NULL);
@@ -3228,8 +3228,8 @@ int ll_migrate(struct inode *parent, struct file *file, int mdtidx,
 		GOTO(out_unlock, rc);
 
 	if (rc == mdtidx) {
-		CDEBUG(D_INFO, "%s: "DFID" is already on MDT%04x\n", name,
-		       PFID(&op_data->op_fid3), mdtidx);
+		trace_info("%s: " DFID " is already on MDT%04x\n", name,
+			   PFID(&op_data->op_fid3), mdtidx);
 		GOTO(out_unlock, rc = 0);
 	}
 again:
@@ -3333,8 +3333,8 @@ int ll_have_md_lock(struct inode *inode, __u64 *bits, enum ldlm_mode l_req_mode)
                RETURN(0);
 
         fid = &ll_i2info(inode)->lli_fid;
-        CDEBUG(D_INFO, "trying to match res "DFID" mode %s\n", PFID(fid),
-               ldlm_lockname[mode]);
+	trace_info("trying to match res " DFID " mode %s\n", PFID(fid),
+		   ldlm_lockname[mode]);
 
 	flags = LDLM_FL_BLOCK_GRANTED | LDLM_FL_CBPENDING | LDLM_FL_TEST_LOCK;
 	for (i = 0; i <= MDS_INODELOCK_MAXSHIFT && *bits != 0; i++) {
@@ -3369,7 +3369,7 @@ enum ldlm_mode ll_take_md_lock(struct inode *inode, __u64 bits,
 	ENTRY;
 
 	fid = &ll_i2info(inode)->lli_fid;
-	CDEBUG(D_INFO, "trying to match res "DFID"\n", PFID(fid));
+	trace_info("trying to match res " DFID "\n", PFID(fid));
 
 	rc = md_lock_match(ll_i2mdexp(inode), LDLM_FL_BLOCK_GRANTED|flags,
 			   fid, LDLM_IBITS, &policy, mode, lockh);
@@ -3414,8 +3414,8 @@ static int __ll_inode_revalidate(struct dentry *dentry, __u64 ibits)
 
         LASSERT(inode != NULL);
 
-	CDEBUG(D_VFSTRACE, "VFS Op:inode="DFID"(%p),name=%s\n",
-	       PFID(ll_inode2fid(inode)), inode, dentry->d_name.name);
+	trace_vfstrace("VFS Op:inode=" DFID "(%p), name=%pd\n",
+		       PFID(ll_inode2fid(inode)), inode, dentry);
 
         exp = ll_i2mdexp(inode);
 
@@ -3712,8 +3712,8 @@ int ll_inode_permission(struct inode *inode, int mask, struct nameidata *nd)
                         RETURN(rc);
         }
 
-	CDEBUG(D_VFSTRACE, "VFS Op:inode="DFID"(%p), inode mode %x mask %o\n",
-	       PFID(ll_inode2fid(inode)), inode, inode->i_mode, mask);
+	trace_vfstrace("VFS Op:inode=" DFID "(%p), inode mode %x mask %o\n",
+		       PFID(ll_inode2fid(inode)), inode, inode->i_mode, mask);
 
 	/* squash fsuid/fsgid if needed */
 	sbi = ll_i2sbi(inode);
@@ -3724,9 +3724,10 @@ int ll_inode_permission(struct inode *inode, int mask, struct nameidata *nd)
 			squash_id = true;
 	}
 	if (squash_id) {
-		CDEBUG(D_OTHER, "squash creds (%d:%d)=>(%d:%d)\n",
-		       __kuid_val(current_fsuid()), __kgid_val(current_fsgid()),
-		       squash->rsi_uid, squash->rsi_gid);
+		trace_other("squash creds (%d:%d)=>(%d:%d)\n",
+			    __kuid_val(current_fsuid()),
+			    __kgid_val(current_fsgid()),
+			    squash->rsi_uid, squash->rsi_gid);
 
 		/* update current process's credentials
 		 * and FS capability */
@@ -3986,10 +3987,9 @@ int ll_layout_conf(struct inode *inode, const struct cl_object_conf *conf)
 		if (rc < 0)
 			GOTO(out, rc);
 
-		CDEBUG(D_VFSTRACE,
-		       DFID": layout version change: %u -> %u\n",
-		       PFID(&lli->lli_fid), ll_layout_version_get(lli),
-		       cl.cl_layout_gen);
+		trace_vfstrace(DFID ": layout version change: %u -> %u\n",
+			       PFID(&lli->lli_fid), ll_layout_version_get(lli),
+			       cl.cl_layout_gen);
 		ll_layout_version_set(lli, cl.cl_layout_gen);
 	}
 
@@ -4012,9 +4012,9 @@ static int ll_layout_fetch(struct inode *inode, struct ldlm_lock *lock)
 	int rc;
 	ENTRY;
 
-	CDEBUG(D_INODE, DFID" LVB_READY=%d l_lvb_data=%p l_lvb_len=%d\n",
-	       PFID(ll_inode2fid(inode)), ldlm_is_lvb_ready(lock),
-	       lock->l_lvb_data, lock->l_lvb_len);
+	trace_inode(DFID " LVB_READY=%d l_lvb_data=%p l_lvb_len=%d\n",
+		    PFID(ll_inode2fid(inode)), ldlm_is_lvb_ready(lock),
+		    lock->l_lvb_data, lock->l_lvb_len);
 
 	if (lock->l_lvb_data != NULL)
 		RETURN(0);
@@ -4133,9 +4133,9 @@ out:
 
 	/* wait for IO to complete if it's still being used. */
 	if (wait_layout) {
-		CDEBUG(D_INODE, "%s: "DFID"(%p) wait for layout reconf\n",
-		       ll_get_fsname(inode->i_sb, NULL, 0),
-		       PFID(&lli->lli_fid), inode);
+		trace_inode("%s: " DFID "(%p) wait for layout reconf\n",
+			    ll_get_fsname(inode->i_sb, NULL, 0),
+			    PFID(&lli->lli_fid), inode);
 
 		memset(&conf, 0, sizeof conf);
 		conf.coc_opc = OBJECT_CONF_WAIT;
@@ -4144,9 +4144,9 @@ out:
 		if (rc == 0)
 			rc = -EAGAIN;
 
-		CDEBUG(D_INODE, "%s file="DFID" waiting layout return: %d\n",
-		       ll_get_fsname(inode->i_sb, NULL, 0),
-		       PFID(&lli->lli_fid), rc);
+		trace_inode("%s file=" DFID " waiting layout return: %d\n",
+			    ll_get_fsname(inode->i_sb, NULL, 0),
+			    PFID(&lli->lli_fid), rc);
 	}
 	RETURN(rc);
 }

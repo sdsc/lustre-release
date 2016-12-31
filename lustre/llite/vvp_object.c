@@ -133,8 +133,8 @@ static int vvp_conf_set(const struct lu_env *env, struct cl_object *obj,
 	struct ll_inode_info *lli = ll_i2info(conf->coc_inode);
 
 	if (conf->coc_opc == OBJECT_CONF_INVALIDATE) {
-		CDEBUG(D_VFSTRACE, DFID ": losing layout lock\n",
-		       PFID(&lli->lli_fid));
+		trace_vfstrace(DFID ": losing layout lock\n",
+			       PFID(&lli->lli_fid));
 
 		ll_layout_version_set(lli, CL_LAYOUT_GEN_NONE);
 
@@ -160,8 +160,8 @@ static int vvp_prune(const struct lu_env *env, struct cl_object *obj)
 
 	rc = cl_sync_file_range(inode, 0, OBD_OBJECT_EOF, CL_FSYNC_LOCAL, 1);
 	if (rc < 0) {
-		CDEBUG(D_VFSTRACE, DFID ": writeback failed: %d\n",
-		       PFID(lu_object_fid(&obj->co_lu)), rc);
+		trace_vfstrace(DFID ": writeback failed: %d\n",
+			       PFID(lu_object_fid(&obj->co_lu)), rc);
 		RETURN(rc);
 	}
 

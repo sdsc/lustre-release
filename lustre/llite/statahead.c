@@ -193,8 +193,8 @@ sa_alloc(struct ll_statahead_info *sai, __u64 index, const char *name, int len,
 	if (unlikely(entry == NULL))
 		RETURN(ERR_PTR(-ENOMEM));
 
-	CDEBUG(D_READA, "alloc sa entry %.*s(%p) index %llu\n",
-	       len, name, entry, index);
+	trace_reada("alloc sa entry %.*s(%p) index %llu\n",
+		    len, name, entry, index);
 
 	entry->se_index = index;
 
@@ -223,9 +223,9 @@ sa_alloc(struct ll_statahead_info *sai, __u64 index, const char *name, int len,
 /* free sa_entry, which should have been unhashed and not in any list */
 static void sa_free(struct ll_statahead_info *sai, struct sa_entry *entry)
 {
-	CDEBUG(D_READA, "free sa entry %.*s(%p) index %llu\n",
-	       entry->se_qstr.len, entry->se_qstr.name, entry,
-	       entry->se_index);
+	trace_reada("free sa entry %.*s(%p) index %llu\n",
+		    entry->se_qstr.len, entry->se_qstr.name, entry,
+		    entry->se_index);
 
 	LASSERT(list_empty(&entry->se_list));
 	LASSERT(sa_unhashed(entry));
@@ -535,17 +535,16 @@ static void ll_agl_trigger(struct inode *inode, struct ll_statahead_info *sai)
                 RETURN_EXIT;
         }
 
-        CDEBUG(D_READA, "Handling (init) async glimpse: inode = "
-	       DFID", idx = %llu\n", PFID(&lli->lli_fid), index);
+	trace_reada("Handling (init) async glimpse: inode = " DFID ", idx = %llu\n",
+		    PFID(&lli->lli_fid), index);
 
         cl_agl(inode);
         lli->lli_agl_index = 0;
         lli->lli_glimpse_time = cfs_time_current();
 	up_write(&lli->lli_glimpse_sem);
 
-        CDEBUG(D_READA, "Handled (init) async glimpse: inode= "
-	       DFID", idx = %llu, rc = %d\n",
-               PFID(&lli->lli_fid), index, rc);
+	trace_reada("Handled (init) async glimpse: inode= " DFID ", idx = %llu, rc = %d\n",
+		    PFID(&lli->lli_fid), index, rc);
 
         iput(inode);
 
@@ -597,10 +596,10 @@ static void sa_instantiate(struct ll_statahead_info *sai,
         if (rc)
                 GOTO(out, rc);
 
-	CDEBUG(D_READA, "%s: setting %.*s"DFID" l_data to inode %p\n",
-	       ll_get_fsname(child->i_sb, NULL, 0),
-	       entry->se_qstr.len, entry->se_qstr.name,
-	       PFID(ll_inode2fid(child)), child);
+	trace_reada("%s: setting %.*s" DFID " l_data to inode %p\n",
+		    ll_get_fsname(child->i_sb, NULL, 0),
+		    entry->se_qstr.len, entry->se_qstr.name,
+		    PFID(ll_inode2fid(child)), child);
         ll_set_lock_data(ll_i2sbi(dir)->ll_md_exp, child, it, NULL);
 
         entry->se_inode = child;
@@ -667,8 +666,8 @@ static int ll_statahead_interpret(struct ptlrpc_request *req,
 	LASSERT(!thread_is_stopped(&sai->sai_thread));
 	LASSERT(entry != NULL);
 
-	CDEBUG(D_READA, "sa_entry %.*s rc %d\n",
-	       entry->se_qstr.len, entry->se_qstr.name, rc);
+	trace_reada("sa_entry %.*s rc %d\n",
+		    entry->se_qstr.len, entry->se_qstr.name, rc);
 
 	if (rc != 0) {
 		ll_intent_release(it);
@@ -877,8 +876,7 @@ static int ll_agl_thread(void *arg)
 	sai = ll_sai_get(dir);
 	thread = &sai->sai_agl_thread;
 	thread->t_pid = current_pid();
-	CDEBUG(D_READA, "agl thread started: sai %p, parent %.*s\n",
-	       sai, parent->d_name.len, parent->d_name.name);
+	trace_reada("agl thread started: sai %p, parent %pd\n", sai, parent);
 
 	atomic_inc(&sbi->ll_agl_total);
 	spin_lock(&plli->lli_agl_lock);
@@ -927,8 +925,7 @@ static int ll_agl_thread(void *arg)
 	spin_unlock(&plli->lli_agl_lock);
 	wake_up(&thread->t_ctl_waitq);
 	ll_sai_put(sai);
-	CDEBUG(D_READA, "agl thread stopped: sai %p, parent %.*s\n",
-	       sai, parent->d_name.len, parent->d_name.name);
+	trace_reada("agl thread stopped: sai %p, parent %pd\n", sai, parent);
 	RETURN(0);
 }
 
@@ -941,8 +938,7 @@ static void ll_start_agl(struct dentry *parent, struct ll_statahead_info *sai)
 	struct task_struct	      *task;
 	ENTRY;
 
-	CDEBUG(D_READA, "start agl thread: sai %p, parent %.*s\n",
-	       sai, parent->d_name.len, parent->d_name.name);
+	trace_reada("start agl thread: sai %p, parent %pd\n", sai, parent);
 
 	plli = ll_i2info(parent->d_inode);
 	task = kthread_run(ll_agl_thread, parent,
@@ -982,8 +978,8 @@ static int ll_statahead_thread(void *arg)
 	sa_thread = &sai->sai_thread;
 	agl_thread = &sai->sai_agl_thread;
 	sa_thread->t_pid = current_pid();
-	CDEBUG(D_READA, "statahead thread starting: sai %p, parent %.*s\n",
-	       sai, parent->d_name.len, parent->d_name.name);
+	trace_reada("statahead thread starting: sai %p, parent %pd\n",
+		    sai, parent);
 
 	op_data = ll_prep_md_op_data(NULL, dir, dir, NULL, 0, 0,
 				     LUSTRE_OPC_ANY, dir);
@@ -1015,10 +1011,9 @@ static int ll_statahead_thread(void *arg)
 		sai->sai_in_readpage = 0;
 		if (IS_ERR(page)) {
 			rc = PTR_ERR(page);
-			CDEBUG(D_READA, "error reading dir "DFID" at %llu"
-			       "/%llu opendir_pid = %u: rc = %d\n",
-			       PFID(ll_inode2fid(dir)), pos, sai->sai_index,
-			       lli->lli_opendir_pid, rc);
+			trace_reada("error reading dir " DFID " at %llu/%llu opendir_pid = %u: rc = %d\n",
+				    PFID(ll_inode2fid(dir)), pos,
+				    sai->sai_index, lli->lli_opendir_pid, rc);
 			break;
 		}
 
@@ -1114,13 +1109,10 @@ static int ll_statahead_thread(void *arg)
 		if (sa_low_hit(sai)) {
 			rc = -EFAULT;
 			atomic_inc(&sbi->ll_sa_wrong);
-			CDEBUG(D_READA, "Statahead for dir "DFID" hit "
-			       "ratio too low: hit/miss %llu/%llu"
-			       ", sent/replied %llu/%llu, stopping "
-			       "statahead thread: pid %d\n",
-			       PFID(&lli->lli_fid), sai->sai_hit,
-			       sai->sai_miss, sai->sai_sent,
-			       sai->sai_replied, current_pid());
+			trace_reada("Statahead for dir " DFID " hit ratio too low: hit/miss %llu/%llu, sent/replied %llu/%llu, stopping statahead thread: pid %d\n",
+				    PFID(&lli->lli_fid), sai->sai_hit,
+				    sai->sai_miss, sai->sai_sent,
+				    sai->sai_replied, current_pid());
 			break;
 		}
 	}
@@ -1153,8 +1145,8 @@ out:
 		spin_unlock(&lli->lli_agl_lock);
 		wake_up(&agl_thread->t_ctl_waitq);
 
-		CDEBUG(D_READA, "stop agl thread: sai %p pid %u\n",
-		       sai, (unsigned int)agl_thread->t_pid);
+		trace_reada("stop agl thread: sai %p pid %u\n",
+			    sai, (unsigned int)agl_thread->t_pid);
 		l_wait_event(agl_thread->t_ctl_waitq,
 			     thread_is_stopped(agl_thread),
 			     &lwi);
@@ -1180,8 +1172,8 @@ out:
 	thread_set_flags(sa_thread, SVC_STOPPED);
 	spin_unlock(&lli->lli_sa_lock);
 
-	CDEBUG(D_READA, "statahead thread stopped: sai %p, parent %.*s\n",
-	       sai, parent->d_name.len, parent->d_name.name);
+	trace_reada("statahead thread stopped: sai %p, parent %pd\n",
+		    sai, parent);
 
 	wake_up(&sai->sai_waitq);
 	wake_up(&sa_thread->t_ctl_waitq);
@@ -1221,8 +1213,8 @@ void ll_deauthorize_statahead(struct inode *dir, void *key)
 	LASSERT(lli->lli_opendir_key == key);
 	LASSERT(lli->lli_opendir_pid != 0);
 
-	CDEBUG(D_READA, "deauthorize statahead for "DFID"\n",
-		PFID(&lli->lli_fid));
+	trace_reada("deauthorize statahead for " DFID "\n",
+		    PFID(&lli->lli_fid));
 
 	spin_lock(&lli->lli_sa_lock);
 	lli->lli_opendir_key = NULL;
@@ -1334,9 +1326,9 @@ static int is_first_dirent(struct inode *dir, struct dentry *dentry)
 			}
 
 			if (dot_de && target->name[0] != '.') {
-				CDEBUG(D_READA, "%.*s skip hidden file %.*s\n",
-				       target->len, target->name,
-				       namelen, name);
+				trace_reada("%.*s skip hidden file %.*s\n",
+					    target->len, target->name,
+					    namelen, name);
 				continue;
 			}
 
@@ -1478,16 +1470,13 @@ static int revalidate_statahead_dentry(struct inode *dir,
 				entry->se_inode = NULL;
 			} else if ((*dentryp)->d_inode != inode) {
 				/* revalidate, but inode is recreated */
-				CDEBUG(D_READA,
-					"%s: stale dentry %.*s inode "
-					DFID", statahead inode "DFID
-					"\n",
-					ll_get_fsname((*dentryp)->d_inode->i_sb,
-						      NULL, 0),
-					(*dentryp)->d_name.len,
-					(*dentryp)->d_name.name,
-					PFID(ll_inode2fid((*dentryp)->d_inode)),
-					PFID(ll_inode2fid(inode)));
+				trace_reada("%s: stale dentry %.*s inode " DFID ", statahead inode " DFID "\n",
+					    ll_get_fsname((*dentryp)->d_inode->i_sb,
+							  NULL, 0),
+					    (*dentryp)->d_name.len,
+					    (*dentryp)->d_name.name,
+					    PFID(ll_inode2fid((*dentryp)->d_inode)),
+					    PFID(ll_inode2fid(inode)));
 				ll_intent_release(&it);
 				GOTO(out, rc = -ESTALE);
 			}
@@ -1565,8 +1554,8 @@ static int start_statahead_thread(struct inode *dir, struct dentry *dentry)
 
 	atomic_inc(&ll_i2sbi(parent->d_inode)->ll_sa_running);
 
-	CDEBUG(D_READA, "start statahead thread: [pid %d] [parent %.*s]\n",
-	       current_pid(), parent->d_name.len, parent->d_name.name);
+	trace_reada("start statahead thread: [pid %d] [parent %pd]\n",
+		    current_pid(), parent);
 
 	task = kthread_run(ll_statahead_thread, parent, "ll_sa_%u",
 			   lli->lli_opendir_pid);
@@ -1626,8 +1615,8 @@ int ll_statahead(struct inode *dir, struct dentry **dentryp, bool unplug)
 		int rc;
 
 		rc = revalidate_statahead_dentry(dir, sai, dentryp, unplug);
-		CDEBUG(D_READA, "revalidate statahead %.*s: %d.\n",
-			(*dentryp)->d_name.len, (*dentryp)->d_name.name, rc);
+		trace_reada("revalidate statahead %pd: %d.\n",
+			    *dentryp, rc);
 		ll_sai_put(sai);
 		return rc;
 	}

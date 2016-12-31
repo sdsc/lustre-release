@@ -89,7 +89,7 @@ int cl_glimpse_lock(const struct lu_env *env, struct cl_io *io,
 	ENTRY;
 	result = 0;
 
-	CDEBUG(D_DLMTRACE, "Glimpsing inode "DFID"\n", PFID(fid));
+	trace_dlmtrace("Glimpsing inode " DFID "\n", PFID(fid));
 
 	/* NOTE: this looks like DLM lock request, but it may
 	 *       not be one. Due to CEF_ASYNC flag (translated
