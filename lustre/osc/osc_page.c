@@ -376,11 +376,13 @@ static int osc_cache_too_much(struct client_obd *cli)
 		else if (pages >= budget / 2)
 			return lru_shrink_min(cli);
 	} else {
-		int duration = cfs_time_current_sec() - cli->cl_lru_last_used;
+		time64_t duration = ktime_get_real_seconds();
 
 		/* knock out pages by duration of no IO activity */
+		duration -= cli->cl_lru_last_used;
 		duration >>= 6; /* approximately 1 minute */
-		if (duration > 0 && pages >= budget / duration)
+		if (duration > 0 &&
+		    pages >= div64_s64((s64)budget, duration))
 			return lru_shrink_min(cli);
 	}
 	return 0;
