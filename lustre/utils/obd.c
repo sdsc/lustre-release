@@ -60,6 +60,7 @@
 #include <limits.h>
 
 #include "obdctl.h"
+#include "lustreapi_internal.h"
 #include <libcfs/util/list.h>
 #include <libcfs/util/ioctl.h>
 #include <libcfs/util/param.h>

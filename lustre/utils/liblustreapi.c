@@ -253,6 +253,179 @@ int llapi_parse_size(const char *optarg, unsigned long long *size,
 	return 0;
 }
 
+/* Internal function to handle liblustreapi <-> ioctl calls */
+
+static inline int obd_ioctl_is_invalid(struct obd_ioctl_data *data)
+{
+	if (data->ioc_len > (1 << 30)) {
+		fprintf(stderr, "OBD ioctl: ioc_len larger than 1<<30\n");
+		return 1;
+	}
+
+	if (data->ioc_inllen1 > (1 << 30)) {
+		fprintf(stderr, "OBD ioctl: ioc_inllen1 larger than 1<<30\n");
+		return 1;
+	}
+
+	if (data->ioc_inllen2 > (1 << 30)) {
+		fprintf(stderr, "OBD ioctl: ioc_inllen2 larger than 1<<30\n");
+		return 1;
+	}
+
+	if (data->ioc_inllen3 > (1 << 30)) {
+		fprintf(stderr, "OBD ioctl: ioc_inllen3 larger than 1<<30\n");
+		return 1;
+	}
+
+	if (data->ioc_inllen4 > (1 << 30)) {
+		fprintf(stderr, "OBD ioctl: ioc_inllen4 larger than 1<<30\n");
+		return 1;
+	}
+
+	if (data->ioc_inlbuf1 != NULL && data->ioc_inllen1 == 0) {
+		fprintf(stderr, "OBD ioctl: inlbuf1 pointer but 0 length\n");
+		return 1;
+	}
+
+	if (data->ioc_inlbuf2 != NULL && data->ioc_inllen2 == 0) {
+		fprintf(stderr, "OBD ioctl: inlbuf2 pointer but 0 length\n");
+		return 1;
+	}
+
+	if (data->ioc_inlbuf3 != NULL && data->ioc_inllen3 == 0) {
+		fprintf(stderr, "OBD ioctl: inlbuf3 pointer but 0 length\n");
+		return 1;
+	}
+
+	if (data->ioc_inlbuf4 != NULL && data->ioc_inllen4 == 0) {
+		fprintf(stderr, "OBD ioctl: inlbuf4 pointer but 0 length\n");
+		return 1;
+	}
+
+	if (data->ioc_pbuf1 != NULL && data->ioc_plen1 == 0) {
+		fprintf(stderr, "OBD ioctl: pbuf1 pointer but 0 length\n");
+		return 1;
+	}
+
+	if (data->ioc_pbuf2 != NULL && data->ioc_plen2 == 0) {
+		fprintf(stderr, "OBD ioctl: pbuf2 pointer but 0 length\n");
+		return 1;
+	}
+
+	if (data->ioc_pbuf1 == NULL && data->ioc_plen1 != 0) {
+		fprintf(stderr, "OBD ioctl: plen1 set but NULL pointer\n");
+		return 1;
+	}
+
+	if (data->ioc_pbuf2 == NULL && data->ioc_plen2 != 0) {
+		fprintf(stderr, "OBD ioctl: plen2 set but NULL pointer\n");
+		return 1;
+	}
+
+	if (obd_ioctl_packlen(data) > data->ioc_len) {
+		fprintf(stderr, "OBD ioctl: packlen exceeds ioc_len (%d > %d)\n",
+		       obd_ioctl_packlen(data), data->ioc_len);
+		return 1;
+	}
+
+	return 0;
+}
+
+int obd_ioctl_pack(struct obd_ioctl_data *data, char **pbuf, int max_len)
+{
+	struct obd_ioctl_data *overlay;
+	char *ptr;
+
+	data->ioc_len = obd_ioctl_packlen(data);
+	data->ioc_version = OBD_IOCTL_VERSION;
+
+	if (*pbuf != NULL && data->ioc_len > max_len) {
+		fprintf(stderr, "pbuf = %p, ioc_len = %u, max_len = %d\n",
+			*pbuf, data->ioc_len, max_len);
+		return -EINVAL;
+	}
+
+	if (*pbuf == NULL)
+		*pbuf = malloc(data->ioc_len);
+
+	if (*pbuf == NULL)
+		return -ENOMEM;
+
+	overlay = (struct obd_ioctl_data *)*pbuf;
+	memcpy(*pbuf, data, sizeof(*data));
+
+	ptr = overlay->ioc_bulk;
+	if (data->ioc_inlbuf1) {
+		memcpy(ptr, data->ioc_inlbuf1, data->ioc_inllen1);
+		ptr += cfs_size_round(data->ioc_inllen1);
+	}
+
+	if (data->ioc_inlbuf2) {
+		memcpy(ptr, data->ioc_inlbuf2, data->ioc_inllen2);
+		ptr += cfs_size_round(data->ioc_inllen2);
+	}
+
+	if (data->ioc_inlbuf3) {
+		memcpy(ptr, data->ioc_inlbuf3, data->ioc_inllen3);
+		ptr += cfs_size_round(data->ioc_inllen3);
+	}
+
+	if (data->ioc_inlbuf4) {
+		memcpy(ptr, data->ioc_inlbuf4, data->ioc_inllen4);
+		ptr += cfs_size_round(data->ioc_inllen4);
+	}
+
+	if (obd_ioctl_is_invalid(overlay)) {
+		fprintf(stderr, "invalid ioctl data: ioc_len = %u, "
+			"max_len = %d\n", data->ioc_len, max_len);
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+int obd_ioctl_unpack(struct obd_ioctl_data *data, char *pbuf, int max_len)
+{
+	struct obd_ioctl_data *overlay;
+	char *ptr;
+
+	if (pbuf == NULL)
+		return 1;
+
+	overlay = (struct obd_ioctl_data *)pbuf;
+
+	/* Preserve the caller's buffer pointers */
+	overlay->ioc_inlbuf1 = data->ioc_inlbuf1;
+	overlay->ioc_inlbuf2 = data->ioc_inlbuf2;
+	overlay->ioc_inlbuf3 = data->ioc_inlbuf3;
+	overlay->ioc_inlbuf4 = data->ioc_inlbuf4;
+
+	memcpy(data, pbuf, sizeof(*data));
+
+	ptr = overlay->ioc_bulk;
+	if (data->ioc_inlbuf1) {
+		memcpy(data->ioc_inlbuf1, ptr, data->ioc_inllen1);
+		ptr += cfs_size_round(data->ioc_inllen1);
+	}
+
+	if (data->ioc_inlbuf2) {
+		memcpy(data->ioc_inlbuf2, ptr, data->ioc_inllen2);
+		ptr += cfs_size_round(data->ioc_inllen2);
+	}
+
+	if (data->ioc_inlbuf3) {
+		memcpy(data->ioc_inlbuf3, ptr, data->ioc_inllen3);
+		ptr += cfs_size_round(data->ioc_inllen3);
+	}
+
+	if (data->ioc_inlbuf4) {
+		memcpy(data->ioc_inlbuf4, ptr, data->ioc_inllen4);
+		ptr += cfs_size_round(data->ioc_inllen4);
+	}
+
+	return 0;
+}
+
 /* XXX: llapi_xxx() functions return negative values upon failure */
 
 int llapi_stripe_limit_check(unsigned long long stripe_size, int stripe_offset,

@@ -1139,17 +1139,17 @@ static int lov_iocontrol(unsigned int cmd, struct obd_export *exp, int len,
                 data = (struct obd_ioctl_data *)buf;
 
                 if (sizeof(*desc) > data->ioc_inllen1) {
-                        obd_ioctl_freedata(buf, len);
+			OBD_FREE_LARGE(buf, len);
                         RETURN(-EINVAL);
                 }
 
                 if (sizeof(uuidp->uuid) * count > data->ioc_inllen2) {
-                        obd_ioctl_freedata(buf, len);
+			OBD_FREE_LARGE(buf, len);
                         RETURN(-EINVAL);
                 }
 
                 if (sizeof(__u32) * count > data->ioc_inllen3) {
-                        obd_ioctl_freedata(buf, len);
+			OBD_FREE_LARGE(buf, len);
                         RETURN(-EINVAL);
                 }
 
@@ -1168,7 +1168,7 @@ static int lov_iocontrol(unsigned int cmd, struct obd_export *exp, int len,
 
 		if (copy_to_user(uarg, buf, len))
                         rc = -EFAULT;
-                obd_ioctl_freedata(buf, len);
+		OBD_FREE_LARGE(buf, len);
                 break;
         }
         case OBD_IOC_QUOTACTL: {

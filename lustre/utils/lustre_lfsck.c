@@ -40,6 +40,7 @@
 #include <time.h>
 
 #include "obdctl.h"
+#include "lustreapi_internal.h"
 
 #include <lustre/lustre_lfsck_user.h>
 #include <lnet/lnetctl.h>
