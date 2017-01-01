@@ -34,7 +34,6 @@
 #ifndef _LUSTRE_OSTID_H_
 #define _LUSTRE_OSTID_H_
 
-#include <libcfs/libcfs.h>
 #include <lustre/lustre_fid.h>
 #include <lustre/lustre_idl.h>
 
@@ -138,33 +137,25 @@ static inline void ostid_set_seq_llog(struct ost_id *oi)
  * Note: we need check oi_seq to decide where to set oi_id,
  * so oi_seq should always be set ahead of oi_id.
  */
-static inline void ostid_set_id(struct ost_id *oi, __u64 oid)
+static inline int ostid_set_id(struct ost_id *oi, __u64 oid)
 {
 	if (fid_seq_is_mdt0(oi->oi.oi_seq)) {
-		if (oid >= IDIF_MAX_OID) {
-			CERROR("Bad %llu to set "DOSTID"\n",
-				(unsigned long long)oid, POSTID(oi));
-			return;
-		}
+		if (oid >= IDIF_MAX_OID)
+			return -EINVAL;
 		oi->oi.oi_id = oid;
 	} else if (fid_is_idif(&oi->oi_fid)) {
-		if (oid >= IDIF_MAX_OID) {
-			CERROR("Bad %llu to set "DOSTID"\n",
-				(unsigned long long)oid, POSTID(oi));
-			return;
-		}
+		if (oid >= IDIF_MAX_OID)
+			return -EINVAL;
 		oi->oi_fid.f_seq = fid_idif_seq(oid,
 						fid_idif_ost_idx(&oi->oi_fid));
 		oi->oi_fid.f_oid = oid;
 		oi->oi_fid.f_ver = oid >> 48;
 	} else {
-		if (oid > OBIF_MAX_OID) {
-			CERROR("Bad %llu to set "DOSTID"\n",
-				(unsigned long long)oid, POSTID(oi));
-			return;
-		}
+		if (oid > OBIF_MAX_OID)
+			return -EINVAL;
 		oi->oi_fid.f_oid = oid;
 	}
+	return 0;
 }
 
 static inline void ostid_cpu_to_le(const struct ost_id *src_oi,
@@ -192,20 +183,20 @@ static inline void ostid_le_to_cpu(const struct ost_id *src_oi,
 /* pack any OST FID into an ostid (id/seq) for the wire/disk */
 static inline int fid_to_ostid(const struct lu_fid *fid, struct ost_id *ostid)
 {
-	if (fid_seq_is_igif(fid->f_seq)) {
-		CERROR("bad IGIF, "DFID"\n", PFID(fid));
+	int rc = 0;
+
+	if (fid_seq_is_igif(fid->f_seq))
 		return -EBADF;
-	}
 
 	if (fid_is_idif(fid)) {
 		ostid_set_seq_mdt0(ostid);
-		ostid_set_id(ostid, fid_idif_id(fid_seq(fid), fid_oid(fid),
-						fid_ver(fid)));
+		rc = ostid_set_id(ostid, fid_idif_id(fid_seq(fid),
+				  fid_oid(fid), fid_ver(fid)));
 	} else {
 		ostid->oi_fid = *fid;
 	}
 
-	return 0;
+	return rc;
 }
 
 /**

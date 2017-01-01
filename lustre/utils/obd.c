@@ -1493,7 +1493,11 @@ int jt_obd_create(int argc, char **argv)
 	ostid_set_seq_echo(&data.ioc_obdo1.o_oi);
         for (i = 1, next_count = verbose; i <= count && shmem_running(); i++) {
 		data.ioc_obdo1.o_mode = mode;
-		ostid_set_id(&data.ioc_obdo1.o_oi, base_id);
+		rc = ostid_set_id(&data.ioc_obdo1.o_oi, base_id);
+		if (rc != 0) {
+			fprintf(stderr, "errr: %s: invalid ostid\n",
+				jt_cmdname(argv[0]));
+		}
 		data.ioc_obdo1.o_uid = 0;
 		data.ioc_obdo1.o_gid = 0;
 		data.ioc_obdo1.o_valid = OBD_MD_FLTYPE | OBD_MD_FLMODE |
@@ -1544,8 +1548,8 @@ int jt_obd_setattr(int argc, char **argv)
                 return CMD_HELP;
 
 	ostid_set_seq_echo(&data.ioc_obdo1.o_oi);
-	ostid_set_id(&data.ioc_obdo1.o_oi, strtoull(argv[1], &end, 0));
-        if (*end) {
+	rc = ostid_set_id(&data.ioc_obdo1.o_oi, strtoull(argv[1], &end, 0));
+	if (rc != 0) {
                 fprintf(stderr, "error: %s: invalid objid '%s'\n",
                         jt_cmdname(argv[0]), argv[1]);
                 return CMD_HELP;
@@ -1626,7 +1630,11 @@ int jt_obd_test_setattr(int argc, char **argv)
 
 	ostid_set_seq_echo(&data.ioc_obdo1.o_oi);
         for (i = 1, next_count = verbose; i <= count && shmem_running(); i++) {
-		ostid_set_id(&data.ioc_obdo1.o_oi, objid);
+		rc = ostid_set_id(&data.ioc_obdo1.o_oi, objid);
+		if (rc != 0) {
+			fprintf(stderr, "error: %s: invalid objid\n",
+				jt_cmdname(argv[0]));
+		}
                 data.ioc_obdo1.o_mode = S_IFREG;
                 data.ioc_obdo1.o_valid = OBD_MD_FLID | OBD_MD_FLTYPE | OBD_MD_FLMODE;
                 memset(buf, 0, sizeof(rawbuf));
@@ -1712,7 +1720,12 @@ int jt_obd_destroy(int argc, char **argv)
 
 	ostid_set_seq_echo(&data.ioc_obdo1.o_oi);
         for (i = 1, next_count = verbose; i <= count && shmem_running(); i++, id++) {
-		ostid_set_id(&data.ioc_obdo1.o_oi, id);
+		rc = ostid_set_id(&data.ioc_obdo1.o_oi, id);
+		if (rc != 0) {
+			fprintf(stderr, "error: %s: invalid objid\n",
+				jt_cmdname(argv[0]));
+			return rc;
+		}
 		data.ioc_obdo1.o_mode = S_IFREG | 0644;
 		data.ioc_obdo1.o_valid = OBD_MD_FLID | OBD_MD_FLMODE;
 
@@ -1754,8 +1767,8 @@ int jt_obd_getattr(int argc, char **argv)
 	memset(&data, 0, sizeof(data));
 	data.ioc_dev = cur_device;
 	ostid_set_seq_echo(&data.ioc_obdo1.o_oi);
-	ostid_set_id(&data.ioc_obdo1.o_oi, strtoull(argv[1], &end, 0));
-	if (*end) {
+	rc = ostid_set_id(&data.ioc_obdo1.o_oi, strtoull(argv[1], &end, 0));
+	if (rc != 0) {
 		fprintf(stderr, "error: %s: invalid objid '%s'\n",
 			jt_cmdname(argv[0]), argv[1]);
 		return CMD_HELP;
@@ -1839,7 +1852,11 @@ int jt_obd_test_getattr(int argc, char **argv)
 
 	ostid_set_seq_echo(&data.ioc_obdo1.o_oi);
         for (i = 1, next_count = verbose; i <= count && shmem_running(); i++) {
-		ostid_set_id(&data.ioc_obdo1.o_oi, objid);
+		rc = ostid_set_id(&data.ioc_obdo1.o_oi, objid);
+		if (rc != 0) {
+			fprintf(stderr, "error: %s: invalid objid\n",
+				jt_cmdname(argv[0]));
+		}
 		data.ioc_obdo1.o_mode = S_IFREG;
 		data.ioc_obdo1.o_valid = 0xffffffff;
 		memset(buf, 0, sizeof(rawbuf));
@@ -2046,7 +2063,11 @@ int jt_obd_test_brw(int argc, char **argv)
 #endif
 
 	ostid_set_seq_echo(&data.ioc_obdo1.o_oi);
-	ostid_set_id(&data.ioc_obdo1.o_oi, objid);
+	rc = ostid_set_id(&data.ioc_obdo1.o_oi, objid);
+	if (rc != 0) {
+		fprintf(stderr, "error: %s: invalid objid\n",
+			jt_cmdname(argv[0]));
+	}
 	data.ioc_obdo1.o_mode = S_IFREG;
 	data.ioc_obdo1.o_valid = OBD_MD_FLID | OBD_MD_FLTYPE | OBD_MD_FLMODE |
 				 OBD_MD_FLFLAGS | OBD_MD_FLGROUP;

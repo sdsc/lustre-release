@@ -74,8 +74,14 @@ static inline struct llog_thread_info *llog_info(const struct lu_env *env)
 static inline void
 lustre_build_llog_lvfs_oid(struct llog_logid *logid, __u64 ino, __u32 gen)
 {
+	int rc;
+
 	ostid_set_seq_llog(&logid->lgl_oi);
-	ostid_set_id(&logid->lgl_oi, ino);
+	rc = ostid_set_id(&logid->lgl_oi, ino);
+	if (rc) {
+		CERROR("Bad %llu to set " DOSTID "\n",
+		       (unsigned long long)ino, POSTID(&logid->lgl_oi));
+	}
 	logid->lgl_ogen = gen;
 }
 

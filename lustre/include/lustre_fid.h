@@ -724,8 +724,14 @@ static inline void ost_fid_from_resid(struct lu_fid *fid,
 	if (fid_seq_is_mdt0(name->name[LUSTRE_RES_ID_VER_OID_OFF])) {
 		/* old resid */
 		struct ost_id oi;
+		int rc;
+
 		ostid_set_seq(&oi, name->name[LUSTRE_RES_ID_VER_OID_OFF]);
-		ostid_set_id(&oi, name->name[LUSTRE_RES_ID_SEQ_OFF]);
+		rc = ostid_set_id(&oi, name->name[LUSTRE_RES_ID_SEQ_OFF]);
+		if (rc) {
+			CERROR("Bad %llu to set " DOSTID "\n",
+			       name->name[LUSTRE_RES_ID_SEQ_OFF], POSTID(&oi));
+		}
 		ostid_to_fid(fid, &oi, ost_idx);
 	} else {
 		/* new resid */

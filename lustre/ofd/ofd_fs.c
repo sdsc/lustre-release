@@ -181,8 +181,15 @@ u64 ofd_seq_last_oid(struct ofd_seq *oseq)
 void ofd_seq_last_oid_set(struct ofd_seq *oseq, u64 id)
 {
 	spin_lock(&oseq->os_last_oid_lock);
-	if (likely(ostid_id(&oseq->os_oi) < id))
-		ostid_set_id(&oseq->os_oi, id);
+	if (likely(ostid_id(&oseq->os_oi) < id)) {
+		int rc;
+
+		rc = ostid_set_id(&oseq->os_oi, id);
+		if (rc) {
+			CERROR("Bad %llu to set " DOSTID "\n",
+			       (unsigned long long)id, POSTID(&oseq->os_oi));
+		}
+	}
 	spin_unlock(&oseq->os_last_oid_lock);
 }
 

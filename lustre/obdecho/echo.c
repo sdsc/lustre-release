@@ -137,7 +137,8 @@ static int echo_create(const struct lu_env *env, struct obd_export *exp,
         }
 
 	ostid_set_seq_echo(&oa->o_oi);
-	ostid_set_id(&oa->o_oi, echo_next_id(obd));
+	if (ostid_set_id(&oa->o_oi, echo_next_id(obd)))
+		return -EINVAL;
 	oa->o_valid = OBD_MD_FLID;
 
 	return 0;
@@ -189,7 +190,8 @@ static int echo_getattr(const struct lu_env *env, struct obd_export *exp,
 
 	obdo_cpy_md(oa, &obd->u.echo.eo_oa, oa->o_valid);
 	ostid_set_seq_echo(&oa->o_oi);
-	ostid_set_id(&oa->o_oi, id);
+	if (ostid_set_id(&oa->o_oi, id))
+		RETURN(-EINVAL);
 
 	RETURN(0);
 }
