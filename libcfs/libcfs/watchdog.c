@@ -37,6 +37,7 @@
 #define DEBUG_SUBSYSTEM S_LNET
 
 #include <linux/kthread.h>
+#include <libcfs/libcfs_trace.h>
 #include <libcfs/libcfs.h>
 #include "tracefile.h"
 
@@ -223,9 +224,9 @@ static int lcw_dispatch_main(void *data)
 
 		rc = wait_event_interruptible(lcw_event_waitq,
 					      is_watchdog_fired());
-                CDEBUG(D_INFO, "Watchdog got woken up...\n");
+		trace_info("Watchdog got woken up...\n");
 		if (test_bit(LCW_FLAG_STOP, &lcw_flags)) {
-			CDEBUG(D_INFO, "LCW_FLAG_STOP set, shutting down...\n");
+			trace_info("LCW_FLAG_STOP set, shutting down...\n");
 
 			spin_lock_bh(&lcw_pending_timers_lock);
 			rc = !list_empty(&lcw_pending_timers);
@@ -268,8 +269,7 @@ static int lcw_dispatch_main(void *data)
 			spin_unlock_bh(&lcw_pending_timers_lock);
 			spin_unlock_bh(&lcw->lcw_lock);
 
-			CDEBUG(D_INFO, "found lcw for pid %d\n",
-                               lcw->lcw_pid);
+			trace_info("found lcw for pid %d\n", lcw->lcw_pid);
                         lcw_dump_stack(lcw);
 
                         is_dumplog = lcw->lcw_callback == lc_watchdog_dumplog;
@@ -311,7 +311,7 @@ static void lcw_dispatch_start(void)
 	init_completion(&lcw_start_completion);
 	init_waitqueue_head(&lcw_event_waitq);
 
-	CDEBUG(D_INFO, "starting dispatch thread\n");
+	trace_info("starting dispatch thread\n");
 	task = kthread_run(lcw_dispatch_main, NULL, "lc_watchdogd");
 	if (IS_ERR(task)) {
 		CERROR("error spawning watchdog dispatch thread: %ld\n",
@@ -320,7 +320,7 @@ static void lcw_dispatch_start(void)
 		return;
 	}
 	wait_for_completion(&lcw_start_completion);
-	CDEBUG(D_INFO, "watchdog dispatcher initialization complete.\n");
+	trace_info("watchdog dispatcher initialization complete.\n");
 
 	EXIT;
 }
@@ -330,14 +330,14 @@ static void lcw_dispatch_stop(void)
 	ENTRY;
 	LASSERT(lcw_refcount == 0);
 
-	CDEBUG(D_INFO, "trying to stop watchdog dispatcher.\n");
+	trace_info("trying to stop watchdog dispatcher.\n");
 
 	set_bit(LCW_FLAG_STOP, &lcw_flags);
 	wake_up(&lcw_event_waitq);
 
 	wait_for_completion(&lcw_stop_completion);
 
-	CDEBUG(D_INFO, "watchdog dispatcher has shut down.\n");
+	trace_info("watchdog dispatcher has shut down.\n");
 
 	EXIT;
 }
@@ -351,7 +351,7 @@ struct lc_watchdog *lc_watchdog_add(int timeout,
 
         LIBCFS_ALLOC(lcw, sizeof(*lcw));
         if (lcw == NULL) {
-                CDEBUG(D_INFO, "Could not allocate new lc_watchdog\n");
+		trace_info("Could not allocate new lc_watchdog\n");
                 RETURN(ERR_PTR(-ENOMEM));
         }
 

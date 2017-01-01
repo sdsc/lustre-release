@@ -50,6 +50,7 @@
 
 #define DEBUG_SUBSYSTEM S_LNET
 
+#include <libcfs/libcfs_trace.h>
 #include <libcfs/libcfs.h>
 #include <libcfs/libcfs_crypto.h>
 #include <lnet/lib-lnet.h>
@@ -118,7 +119,7 @@ int libcfs_ioctl(unsigned long cmd, void __user *uparam)
 			GOTO(out, err);
 	}
 
-	CDEBUG(D_IOCTL, "libcfs ioctl cmd %lu\n", cmd);
+	trace_ioctl("libcfs ioctl cmd %lu\n", cmd);
 	switch (cmd) {
 	case IOC_LIBCFS_CLEAR_DEBUG:
 		libcfs_debug_clear_buffer();
@@ -715,7 +716,7 @@ static int __init libcfs_init(void)
 		goto cleanup_crypto;
 	}
 
-	CDEBUG (D_OTHER, "portals setup OK\n");
+	trace_other("libcfs setup OK\n");
 	return 0;
 cleanup_crypto:
 	cfs_crypto_unregister();

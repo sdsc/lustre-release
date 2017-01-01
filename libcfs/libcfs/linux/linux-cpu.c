@@ -36,6 +36,7 @@
 
 #include <linux/cpu.h>
 #include <linux/sched.h>
+#include <libcfs/libcfs_trace.h>
 #include <libcfs/libcfs.h>
 
 #ifdef CONFIG_SMP
@@ -318,13 +319,13 @@ cfs_cpt_set_cpu(struct cfs_cpt_table *cptab, int cpt, int cpu)
 	LASSERT(cpt >= 0 && cpt < cptab->ctb_nparts);
 
 	if (cpu < 0 || cpu >= nr_cpu_ids || !cpu_online(cpu)) {
-		CDEBUG(D_INFO, "CPU %d is invalid or it's offline\n", cpu);
+		trace_info("CPU %d is invalid or it's offline\n", cpu);
 		return 0;
 	}
 
 	if (cptab->ctb_cpu2cpt[cpu] != -1) {
-		CDEBUG(D_INFO, "CPU %d is already in partition %d\n",
-		       cpu, cptab->ctb_cpu2cpt[cpu]);
+		trace_info("CPU %d is already in partition %d\n",
+			   cpu, cptab->ctb_cpu2cpt[cpu]);
 		return 0;
 	}
 
@@ -359,7 +360,7 @@ cfs_cpt_unset_cpu(struct cfs_cpt_table *cptab, int cpt, int cpu)
 	LASSERT(cpt == CFS_CPT_ANY || (cpt >= 0 && cpt < cptab->ctb_nparts));
 
 	if (cpu < 0 || cpu >= nr_cpu_ids) {
-		CDEBUG(D_INFO, "Invalid CPU id %d\n", cpu);
+		trace_info("Invalid CPU id %d\n", cpu);
 		return;
 	}
 
@@ -367,14 +368,13 @@ cfs_cpt_unset_cpu(struct cfs_cpt_table *cptab, int cpt, int cpu)
 		/* caller doesn't know the partition ID */
 		cpt = cptab->ctb_cpu2cpt[cpu];
 		if (cpt < 0) { /* not set in this CPT-table */
-			CDEBUG(D_INFO, "Try to unset cpu %d which is "
-				       "not in CPT-table %p\n", cpt, cptab);
+			trace_info("Try to unset cpu %d which is not in CPT-table %p\n",
+				   cpt, cptab);
 			return;
 		}
 
 	} else if (cpt != cptab->ctb_cpu2cpt[cpu]) {
-		CDEBUG(D_INFO,
-		       "CPU %d is not in cpu-partition %d\n", cpu, cpt);
+		trace_info("CPU %d is not in cpu-partition %d\n", cpu, cpt);
 		return;
 	}
 
@@ -419,8 +419,8 @@ cfs_cpt_set_cpumask(struct cfs_cpt_table *cptab, int cpt, cpumask_t *mask)
 
 	if (cpumask_weight(mask) == 0 ||
 	    cpumask_any_and(mask, cpu_online_mask) >= nr_cpu_ids) {
-		CDEBUG(D_INFO, "No online CPU is found in the CPU mask "
-			       "for CPU partition %d\n", cpt);
+		trace_info("No online CPU is found in the CPU mask for CPU partition %d\n",
+			   cpt);
 		return 0;
 	}
 
@@ -450,8 +450,8 @@ cfs_cpt_set_node(struct cfs_cpt_table *cptab, int cpt, int node)
 	int		rc;
 
 	if (node < 0 || node >= MAX_NUMNODES) {
-		CDEBUG(D_INFO,
-		       "Invalid NUMA id %d for CPU partition %d\n", node, cpt);
+		trace_info("Invalid NUMA id %d for CPU partition %d\n", node,
+			   cpt);
 		return 0;
 	}
 
@@ -474,8 +474,8 @@ cfs_cpt_unset_node(struct cfs_cpt_table *cptab, int cpt, int node)
 	cpumask_t *mask;
 
 	if (node < 0 || node >= MAX_NUMNODES) {
-		CDEBUG(D_INFO,
-		       "Invalid NUMA id %d for CPU partition %d\n", node, cpt);
+		trace_info("Invalid NUMA id %d for CPU partition %d\n", node,
+			   cpt);
 		return;
 	}
 
@@ -1026,8 +1026,8 @@ cfs_cpu_notify(struct notifier_block *self, unsigned long action, void *hcpu)
 		spin_unlock(&cpt_data.cpt_lock);
 	default:
 		if (action != CPU_DEAD && action != CPU_DEAD_FROZEN) {
-			CDEBUG(D_INFO, "CPU changed [cpu %u action %lx]\n",
-			       cpu, action);
+			trace_info("CPU changed [cpu %u action %lx]\n",
+				   cpu, action);
 			break;
 		}
 

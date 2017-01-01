@@ -105,6 +105,7 @@
 #include <linux/seq_file.h>
 
 #include <libcfs/linux/linux-list.h>
+#include <libcfs/libcfs_trace.h>
 #include <libcfs/libcfs.h>
 
 #if CFS_HASH_DEBUG_LEVEL >= CFS_HASH_DEBUG_1
@@ -1708,8 +1709,8 @@ cfs_hash_for_each_empty(struct cfs_hash *hs,
 
 	cfs_hash_for_each_enter(hs);
 	while (cfs_hash_for_each_relax(hs, func, data, 0)) {
-		CDEBUG(D_INFO, "Try to empty hash: %s, loop: %u\n",
-		       hs->hs_name, i++);
+		trace_info("Try to empty hash: %s, loop: %u\n",
+			   hs->hs_name, i++);
 	}
 	cfs_hash_for_each_exit(hs);
 	RETURN(0);
@@ -1983,7 +1984,7 @@ cfs_hash_rehash_worker(struct cfs_workitem *wi)
         if (bkts != NULL)
                 cfs_hash_buckets_free(bkts, bsize, new_size, old_size);
         if (rc != 0)
-		CDEBUG(D_INFO, "early quit of rehashing: %d\n", rc);
+		trace_info("early quit of rehashing: %d\n", rc);
 	/* return 1 only if cfs_wi_exit is called */
 	return rc == -ESRCH;
 }

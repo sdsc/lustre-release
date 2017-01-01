@@ -38,6 +38,7 @@
 #define DEBUG_SUBSYSTEM S_LNET
 
 #include <linux/kthread.h>
+#include <libcfs/libcfs_trace.h>
 #include <libcfs/libcfs.h>
 
 #define CFS_WS_NAME_LEN         16
@@ -295,8 +296,8 @@ cfs_wi_sched_destroy(struct cfs_wi_sched *sched)
 
 	spin_lock(&cfs_wi_data.wi_glock);
 	if (sched->ws_stopping) {
-		CDEBUG(D_INFO, "%s is in progress of stopping\n",
-		       sched->ws_name);
+		trace_info("%s is in progress of stopping\n",
+			   sched->ws_name);
 		spin_unlock(&cfs_wi_data.wi_glock);
 		return;
 	}

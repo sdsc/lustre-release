@@ -18,4 +18,5 @@ EXTRA_DIST = \
 	libcfs_private.h \
 	libcfs_string.h \
 	libcfs_time.h \
+	libcfs_trace.h \
 	libcfs_workitem.h

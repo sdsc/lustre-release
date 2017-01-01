@@ -29,6 +29,7 @@
 
 #include <crypto/hash.h>
 #include <linux/scatterlist.h>
+#include <libcfs/libcfs_trace.h>
 #include <libcfs/libcfs.h>
 #include <libcfs/libcfs_crypto.h>
 #include <libcfs/linux/linux-crypto.h>
@@ -85,15 +86,15 @@ static int cfs_crypto_hash_alloc(enum cfs_crypto_hash_alg hash_alg,
 	}
 	tfm = crypto_alloc_ahash((*type)->cht_name, 0, CRYPTO_ALG_ASYNC);
 	if (IS_ERR(tfm)) {
-		CDEBUG(D_INFO, "Failed to alloc crypto hash %s\n",
-		       (*type)->cht_name);
+		trace_info("Failed to alloc crypto hash %s\n",
+			   (*type)->cht_name);
 		return PTR_ERR(tfm);
 	}
 
 	*req = ahash_request_alloc(tfm, GFP_KERNEL);
 	if (!*req) {
-		CDEBUG(D_INFO, "Failed to alloc ahash_request for %s\n",
-		       (*type)->cht_name);
+		trace_info("Failed to alloc ahash_request for %s\n",
+			   (*type)->cht_name);
 		crypto_free_ahash(tfm);
 		return -ENOMEM;
 	}
@@ -113,9 +114,9 @@ static int cfs_crypto_hash_alloc(enum cfs_crypto_hash_alg hash_alg,
 		return err;
 	}
 
-	CDEBUG(D_INFO, "Using crypto hash: %s (%s) speed %d MB/s\n",
-	       crypto_ahash_alg_name(tfm), crypto_ahash_driver_name(tfm),
-	       cfs_crypto_hash_speeds[hash_alg]);
+	trace_info("Using crypto hash: %s (%s) speed %d MB/s\n",
+		   crypto_ahash_alg_name(tfm), crypto_ahash_driver_name(tfm),
+		   cfs_crypto_hash_speeds[hash_alg]);
 
 	err = crypto_ahash_init(*req);
 	if (err) {
@@ -362,17 +363,18 @@ static void cfs_crypto_performance_test(enum cfs_crypto_hash_alg hash_alg)
 out_err:
 	if (err != 0) {
 		cfs_crypto_hash_speeds[hash_alg] = err;
-		CDEBUG(D_INFO, "Crypto hash algorithm %s test error: rc = %d\n",
-		       cfs_crypto_hash_name(hash_alg), err);
+		trace_info("Crypto hash algorithm %s test error: rc = %d\n",
+			   cfs_crypto_hash_name(hash_alg), err);
 	} else {
 		unsigned long   tmp;
 
 		tmp = ((bcount * buf_len / jiffies_to_msecs(end - start)) *
 		       1000) / (1024 * 1024);
 		cfs_crypto_hash_speeds[hash_alg] = (int)tmp;
-		CDEBUG(D_CONFIG, "Crypto hash algorithm %s speed = %d MB/s\n",
-		       cfs_crypto_hash_name(hash_alg),
-		       cfs_crypto_hash_speeds[hash_alg]);
+
+		trace_config("Crypto hash algorithm %s speed = %d MB/s\n",
+			     cfs_crypto_hash_name(hash_alg),
+			     cfs_crypto_hash_speeds[hash_alg]);
 	}
 }
 
