@@ -129,7 +129,7 @@ lnet_peer_table_deathrow_wait_locked(struct lnet_peer_table *ptable,
 	for (i = 3; ptable->pt_zombies != 0; i++) {
 		lnet_net_unlock(cpt_locked);
 
-		if (IS_PO2(i)) {
+		if (is_power_of_2(i)) {
 			CDEBUG(D_WARNING,
 			       "Waiting for %d zombies on peer table\n",
 			       ptable->pt_zombies);
