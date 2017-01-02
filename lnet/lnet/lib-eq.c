@@ -313,44 +313,42 @@ LNetEQWait (lnet_handle_eq_t eventq, lnet_event_t *event)
 {
 	int which;
 
-	return LNetEQPoll(&eventq, 1, LNET_TIME_FOREVER,
-			 event, &which);
+	return LNetEQPoll(&eventq, 1, MAX_JIFFY_OFFSET,
+			  event, &which);
 }
 EXPORT_SYMBOL(LNetEQWait);
 
 static int
-lnet_eq_wait_locked(int *timeout_ms)
+lnet_eq_wait_locked(unsigned long *jiffies_timeout)
 __must_hold(&the_lnet.ln_eq_wait_lock)
 {
-	int		tms = *timeout_ms;
-	int		wait;
-	wait_queue_t	wl;
-	cfs_time_t	now;
+	unsigned long tms = *jiffies_timeout;
+	wait_queue_t wl;
+	int wait;
 
 	if (tms == 0)
 		return -ENXIO; /* don't want to wait and no new event */
 
 	init_waitqueue_entry(&wl, current);
-	set_current_state(TASK_INTERRUPTIBLE);
 	add_wait_queue(&the_lnet.ln_eq_waitq, &wl);
 
 	lnet_eq_wait_unlock();
 
-	if (tms < 0) {
+	if (tms == MAX_JIFFY_OFFSET) {
 		schedule();
 	} else {
-		struct timeval tv;
+		unsigned long now = jiffies;
 
-		now = cfs_time_current();
-		schedule_timeout(cfs_time_seconds(tms) / 1000);
-		cfs_duration_usec(cfs_time_sub(cfs_time_current(), now), &tv);
-		tms -= (int)(tv.tv_sec * 1000 + tv.tv_usec / 1000);
-		if (tms < 0) /* no more wait but may have new event */
+		schedule_timeout_interruptible(tms);
+
+		if (jiffies - now < tms)
+			tms -= jiffies - now;
+		else /* no more wait but may have new event */
 			tms = 0;
 	}
 
 	wait = tms != 0; /* might need to call here again */
-	*timeout_ms = tms;
+	*jiffies_timeout = tms;
 
 	lnet_eq_wait_lock();
 	remove_wait_queue(&the_lnet.ln_eq_waitq, &wl);
@@ -370,8 +368,8 @@ __must_hold(&the_lnet.ln_eq_wait_lock)
  * fixed period, or block indefinitely.
  *
  * \param eventqs,neq An array of EQ handles, and size of the array.
- * \param timeout_ms Time in milliseconds to wait for an event to occur on
- * one of the EQs. The constant LNET_TIME_FOREVER can be used to indicate an
+ * \param timeout Time in jiffies to wait for an event to occur on
+ * one of the EQs. The constant MAX_JIFFY_OFFSET can be used to indicate an
  * infinite timeout.
  * \param event,which On successful return (1 or -EOVERFLOW), \a event will
  * hold the next event in the EQs, and \a which will contain the index of the
@@ -385,7 +383,7 @@ __must_hold(&the_lnet.ln_eq_wait_lock)
  * \retval -ENOENT    If there's an invalid handle in \a eventqs.
  */
 int
-LNetEQPoll(lnet_handle_eq_t *eventqs, int neq, int timeout_ms,
+LNetEQPoll(lnet_handle_eq_t *eventqs, int neq, unsigned long jiffies_timeout,
 	   lnet_event_t *event, int *which)
 {
 	int	wait = 1;
@@ -427,7 +425,7 @@ LNetEQPoll(lnet_handle_eq_t *eventqs, int neq, int timeout_ms,
 		 *  0 : don't want to wait anymore, but might have new event
 		 *	so need to call dequeue again
 		 */
-		wait = lnet_eq_wait_locked(&timeout_ms);
+		wait = lnet_eq_wait_locked(&jiffies_timeout);
 		if (wait < 0) /* no new event */
 			break;
 	}
