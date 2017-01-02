@@ -55,7 +55,7 @@ static int rnet_htable_size = LNET_REMOTE_NETS_HASH_DEFAULT;
 module_param(rnet_htable_size, int, 0444);
 MODULE_PARM_DESC(rnet_htable_size, "size of remote network hash table");
 
-static int lnet_ping(lnet_process_id_t id, int timeout_ms,
+static int lnet_ping(lnet_process_id_t id, unsigned long jiffies_timeout,
 		     lnet_process_id_t __user *ids, int n_ids);
 
 static char *
@@ -2115,17 +2115,29 @@ LNetCtl(unsigned int cmd, void *arg)
 	case IOC_LIBCFS_LNET_FAULT:
 		return lnet_fault_ctl(data->ioc_flags, data);
 
-	case IOC_LIBCFS_PING:
+	case IOC_LIBCFS_PING: {
+		unsigned long jiffies_timeout;
+
 		id.nid = data->ioc_nid;
 		id.pid = data->ioc_u32[0];
-		rc = lnet_ping(id, data->ioc_u32[1], /* timeout */
-			       data->ioc_pbuf1,
-			       data->ioc_plen1/sizeof(lnet_process_id_t));
+
+		/* Don't block longer than 2 minutes */
+		if (data->ioc_u32[1] > 120 * MSEC_PER_SEC)
+			return -EINVAL;
+
+		/* If timestamp is negative then disable timeout */
+		if ((s32)data->ioc_u32[1] < 0)
+			jiffies_timeout = MAX_JIFFY_OFFSET;
+		else
+			jiffies_timeout = msecs_to_jiffies(data->ioc_u32[1]);
+
+		rc = lnet_ping(id, jiffies_timeout, data->ioc_pbuf1,
+			       data->ioc_plen1 / sizeof(lnet_process_id_t));
 		if (rc < 0)
 			return rc;
 		data->ioc_count = rc;
 		return 0;
-
+	}
 	default:
 		ni = lnet_net2ni(data->ioc_net);
 		if (ni == NULL)
@@ -2200,9 +2212,8 @@ LNetSnprintHandle(char *str, int len, lnet_handle_any_t h)
 }
 EXPORT_SYMBOL(LNetSnprintHandle);
 
-static int
-lnet_ping(lnet_process_id_t id, int timeout_ms, lnet_process_id_t __user *ids,
-	  int n_ids)
+static int lnet_ping(lnet_process_id_t id, unsigned long jiffies_timeout,
+		     lnet_process_id_t __user *ids, int n_ids)
 {
 	lnet_handle_eq_t     eqh;
 	lnet_handle_md_t     mdh;
@@ -2211,7 +2222,7 @@ lnet_ping(lnet_process_id_t id, int timeout_ms, lnet_process_id_t __user *ids,
 	int		     which;
 	int		     unlinked = 0;
 	int		     replied = 0;
-	const int	     a_long_time = 60000; /* mS */
+	const unsigned long a_long_time = jiffies_to_msecs(60 * MSEC_PER_SEC);
 	int		     infosz;
 	lnet_ping_info_t    *info;
 	lnet_process_id_t    tmpid;
@@ -2223,10 +2234,8 @@ lnet_ping(lnet_process_id_t id, int timeout_ms, lnet_process_id_t __user *ids,
 
 	infosz = offsetof(lnet_ping_info_t, pi_ni[n_ids]);
 
-	if (n_ids <= 0 ||
-	    id.nid == LNET_NID_ANY ||
-	    timeout_ms > 500000 ||		/* arbitrary limit! */
-	    n_ids > 20)				/* arbitrary limit! */
+	/* n_ids limit is arbitrary */
+	if (n_ids <= 0 || n_ids > 20 || id.nid == LNET_NID_ANY)
 		return -EINVAL;
 
 	if (id.pid == LNET_PID_ANY)
@@ -2270,7 +2279,7 @@ lnet_ping(lnet_process_id_t id, int timeout_ms, lnet_process_id_t __user *ids,
 
 		/* NB must wait for the UNLINK event below... */
 		unlinked = 1;
-		timeout_ms = a_long_time;
+		jiffies_timeout = a_long_time;
 	}
 
 	do {
@@ -2278,7 +2287,7 @@ lnet_ping(lnet_process_id_t id, int timeout_ms, lnet_process_id_t __user *ids,
 		if (unlinked)
 			blocked = cfs_block_allsigs();
 
-		rc2 = LNetEQPoll(&eqh, 1, timeout_ms, &event, &which);
+		rc2 = LNetEQPoll(&eqh, 1, jiffies_timeout, &event, &which);
 
 		if (unlinked)
 			cfs_restore_sigs(blocked);
@@ -2302,7 +2311,7 @@ lnet_ping(lnet_process_id_t id, int timeout_ms, lnet_process_id_t __user *ids,
 				LNetMDUnlink(mdh);
 				/* No assertion (racing with network) */
 				unlinked = 1;
-				timeout_ms = a_long_time;
+				jiffies_timeout = a_long_time;
 			} else if (rc2 == 0) {
 				/* timed out waiting for unlink */
 				CWARN("ping %s: late network completion\n",
