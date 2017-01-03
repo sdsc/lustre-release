@@ -138,6 +138,14 @@ static inline void *__container_of(const void *ptr, unsigned long shift)
 #define container_of0(ptr, type, member)				\
 	((type *)__container_of((ptr), offsetof(type, member)))
 
+struct lnet_debugfs_symlink_def {
+	char *name;
+	char *target;
+};
+
+void lustre_insert_debugfs(struct ctl_table *table,
+			   const struct lnet_debugfs_symlink_def *symlinks);
+
 #endif /* __KERNEL__ */
 
 #endif /* _LIBCFS_LIBCFS_H_ */
