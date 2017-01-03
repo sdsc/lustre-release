@@ -1139,16 +1139,15 @@ lnet_clear_zombies_nis_locked(void)
 	int		i;
 	int		islo;
 	lnet_ni_t	*ni;
+	lnet_ni_t *temp;
 
 	/* Now wait for the NI's I just nuked to show up on ln_zombie_nis
 	 * and shut them down in guaranteed thread context */
 	i = 2;
-	while (!list_empty(&the_lnet.ln_nis_zombie)) {
+	list_for_each_entry_safe(ni, temp, &the_lnet.ln_nis_zombie, ni_list) {
 		int	*ref;
 		int	j;
 
-		ni = list_entry(the_lnet.ln_nis_zombie.next,
-				lnet_ni_t, ni_list);
 		list_del_init(&ni->ni_list);
 		cfs_percpt_for_each(ref, j, ni->ni_refs) {
 			if (*ref == 0)
@@ -1198,6 +1197,7 @@ lnet_shutdown_lndnis(void)
 {
 	int		i;
 	lnet_ni_t	*ni;
+	lnet_ni_t	*temp;
 
 	/* NB called holding the global mutex */
 
@@ -1210,11 +1210,8 @@ lnet_shutdown_lndnis(void)
 	the_lnet.ln_shutdown = 1;	/* flag shutdown */
 
 	/* Unlink NIs from the global table */
-	while (!list_empty(&the_lnet.ln_nis)) {
-		ni = list_entry(the_lnet.ln_nis.next,
-				lnet_ni_t, ni_list);
+	list_for_each_entry_safe(ni, temp, &the_lnet.ln_nis, ni_list)
 		lnet_ni_unlink_locked(ni);
-	}
 
 	/* Drop the cached loopback NI. */
 	if (the_lnet.ln_loni != NULL) {
