@@ -114,6 +114,8 @@ sec_login() {
 	local user=$1
 	local group=$2
 
+	$GSS_KRB5 || return
+
 	if ! $RUNAS_CMD -u $user krb5_login.sh; then
 		error "$user login kerberos failed."
 		exit 1
@@ -867,7 +869,6 @@ run_test 15 "test id mapping"
 wait_nm_sync() {
 	local nodemap_name=$1
 	local key=$2
-	local value=$3
 	local proc_param="${nodemap_name}.${key}"
 	[ "$nodemap_name" == "active" ] && proc_param="active"
 
@@ -876,17 +877,12 @@ wait_nm_sync() {
 
 	local max_retries=20
 	local is_sync
-	local out1=""
+	local out1=$(do_facet mgs $LCTL get_param nodemap.${proc_param})
 	local out2
 	local mgs_ip=$(host_nids_address $mgs_HOST $NETTYPE | cut -d' ' -f1)
 	local i
 
-	if [ -z "$value" ]; then
-		out1=$(do_facet mgs $LCTL get_param nodemap.${proc_param})
-		echo "On MGS ${mgs_ip}, ${proc_param} = $out1"
-	else
-		out1=$value;
-	fi
+	echo "On MGS ${mgs_ip}, ${proc_param} = $out1"
 
 	# wait up to 10 seconds for other servers to sync with mgs
 	for i in $(seq 1 10); do
@@ -895,9 +891,7 @@ wait_nm_sync() {
 				    cut -d' ' -f1)
 
 		    is_sync=true
-		    if [ -z "$value" ]; then
-			[ $node_ip == $mgs_ip ] && continue
-		    fi
+		    [ $node_ip == $mgs_ip ] && continue
 
 		    out2=$(do_node $node_ip $LCTL get_param \
 				   nodemap.$proc_param 2>/dev/null)
@@ -1371,6 +1365,9 @@ test_16() {
 run_test 16 "test nodemap all_off fileops"
 
 test_17() {
+	if $SHARED_KEY; then
+		skip "not compatible with shared key" && return
+	fi
 	nodemap_version_check || return 0
 	nodemap_test_setup
 
@@ -1382,6 +1379,9 @@ test_17() {
 run_test 17 "test nodemap trusted_noadmin fileops"
 
 test_18() {
+	if $SHARED_KEY; then
+		skip "not compatible with shared key" && return
+	fi
 	nodemap_version_check || return 0
 	nodemap_test_setup
 
@@ -1404,6 +1404,9 @@ test_19() {
 run_test 19 "test nodemap trusted_admin fileops"
 
 test_20() {
+	if $SHARED_KEY; then
+		skip "not compatible with shared key" && return
+	fi
 	nodemap_version_check || return 0
 	nodemap_test_setup
 
@@ -1415,6 +1418,9 @@ test_20() {
 run_test 20 "test nodemap mapped_admin fileops"
 
 test_21() {
+	if $SHARED_KEY; then
+		skip "not compatible with shared key" && return
+	fi
 	nodemap_version_check || return 0
 	nodemap_test_setup
 
@@ -1437,6 +1443,9 @@ test_21() {
 run_test 21 "test nodemap mapped_trusted_noadmin fileops"
 
 test_22() {
+	if $SHARED_KEY; then
+		skip "not compatible with shared key" && return
+	fi
 	nodemap_version_check || return 0
 	nodemap_test_setup
 
@@ -1521,6 +1530,9 @@ nodemap_acl_test() {
 }
 
 test_23() {
+	if $SHARED_KEY; then
+		skip "not compatible with shared key" && return
+	fi
 	nodemap_version_check || return 0
 	nodemap_test_setup
 
@@ -1589,9 +1601,18 @@ test_25() {
 	local tmpfile=$(mktemp)
 	local tmpfile2=$(mktemp)
 	local subdir=c0dir
-	local client
 
 	nodemap_version_check || return 0
+
+	# Because of how the test is stopping, cleaning up, and restarting
+	# nodemap to save configuration, the testing script is not keeping
+	# the needed SK info to restart properly. This should be fixable
+	# by adjusting the test or framework to not completely clean up
+	# in cleanupall() when SK_UNIQUE_NM is set.
+	if $SHARED_KEY; then
+		skip "this test currently not compat with shared_key, see code"
+		return
+	fi
 
 	# stop clients for this test
 	zconf_umount_clients $CLIENTS $MOUNT ||
@@ -1599,18 +1620,12 @@ test_25() {
 
 	nodemap_test_setup
 
-	# enable trusted/admin for setquota call in cleanup_and_setup_lustre()
-	i=0
-	for client in $clients; do
-		do_facet mgs $LCTL nodemap_modify --name c${i} \
-			--property admin --value 1
-		do_facet mgs $LCTL nodemap_modify --name c${i} \
-			--property trusted --value 1
-		((i++))
-	done
-	wait_nm_sync c$((i - 1)) trusted_nodemap
-
 	trap nodemap_test_cleanup EXIT
+
+	# Need to know in advance if SK and nodemap will be used
+	if [ $GSS_SK ]; then
+		export SK_UNIQUE_NM=true
+	fi
 
 	# create a new, empty nodemap, and add fileset info to it
 	do_facet mgs $LCTL nodemap_add test26 ||
@@ -1624,6 +1639,9 @@ test_25() {
 	do_facet mds $LCTL nodemap_info > $tmpfile2
 
 	cleanup_and_setup_lustre
+	if [ $GSS_SK ]; then
+		export SK_UNIQUE_NM=false
+	fi
 	# stop clients for this test
 	zconf_umount_clients $CLIENTS $MOUNT ||
 	    error "unable to umount clients $CLIENTS"
@@ -1662,8 +1680,14 @@ run_test 26 "test transferring very large nodemap"
 test_27() {
 	local subdir=c0dir
 	local subsubdir=c0subdir
-	local fileset_on_mgs=""
-	local loop=0
+
+	# Because of how the test is remounting nodemap, it is not currently
+	# compatible with SK code being enabled.  It will lock during the
+	# client re-mount with zconf_mount_clients().  Skipping for now.
+	if $SHARED_KEY; then
+		skip "this test currently not compat with shared_key, see code"
+		return
+	fi
 
 	nodemap_test_setup
 	trap nodemap_test_cleanup EXIT
@@ -1671,9 +1695,11 @@ test_27() {
 	fileset_test_setup
 
 	# add fileset info to nodemap
+	do_facet mgs $LCTL set_param nodemap.c0.fileset=/$subdir ||
+		error "unable to set fileset info on nodemap c0"
 	do_facet mgs $LCTL set_param -P nodemap.c0.fileset=/$subdir ||
 		error "unable to add fileset info to nodemap c0"
-	wait_nm_sync c0 fileset "nodemap.c0.fileset=/$subdir"
+	wait_nm_sync c0 fileset
 
 	# re-mount client
 	zconf_umount_clients ${clients_arr[0]} $MOUNT ||
@@ -1700,18 +1726,6 @@ test_27() {
 	# remove fileset info from nodemap
 	do_facet mgs $LCTL nodemap_set_fileset --name c0 --fileset \'\' ||
 		error "unable to delete fileset info on nodemap c0"
-	fileset_on_mgs=$(do_facet mgs $LCTL get_param nodemap.c0.fileset)
-	while [ "${fileset_on_mgs}" != "nodemap.c0.fileset=" ]; do
-	    if [ $loop -eq 10 ]; then
-		error "On MGS, fileset cannnot be cleared"
-		break;
-	    else
-		loop=$((loop+1))
-		echo "On MGS, fileset is still ${fileset_on_mgs}, waiting..."
-		sleep 20;
-	    fi
-	    fileset_on_mgs=$(do_facet mgs $LCTL get_param nodemap.c0.fileset)
-	done
 	do_facet mgs $LCTL set_param -P nodemap.c0.fileset=\'\' ||
 		error "unable to reset fileset info on nodemap c0"
 	wait_nm_sync c0 fileset
@@ -1730,6 +1744,99 @@ test_27() {
 	nodemap_test_cleanup
 }
 run_test 27 "test fileset in nodemap"
+
+test_28() {
+	if ! $SHARED_KEY; then
+		skip "need shared key feature for this test" && return
+	fi
+	mkdir -p $DIR/$tdir || error "mkdir failed"
+	touch $DIR/$tdir/$tdir.out || error "touch failed"
+	if [ ! -f $DIR/$tdir/$tdir.out ]; then
+		error "read before rotation failed"
+	fi
+	# store top key identity to ensure rotation has occurred
+	SK_IDENTITY_OLD=$(lctl get_param *.*.*srpc* | grep "expire" |
+		head -1 | awk '{print $15}' | cut -c1-8)
+	do_facet $SINGLEMDS lfs flushctx ||
+		 error "could not run flushctx on $SINGLEMDS"
+	sleep 5
+	lfs flushctx || error "could not run flushctx on client"
+	sleep 5
+	# verify new key is in place
+	SK_IDENTITY_NEW=$(lctl get_param *.*.*srpc* | grep "expire" |
+		head -1 | awk '{print $15}' | cut -c1-8)
+	if [ $SK_IDENTITY_OLD == $SK_IDENTITY_NEW ]; then
+		error "key did not rotate correctly"
+	fi
+	if [ ! -f $DIR/$tdir/$tdir.out ]; then
+		error "read after rotation failed"
+	fi
+}
+run_test 28 "check shared key rotation method"
+
+test_29() {
+	if ! $SHARED_KEY; then
+		skip "need shared key feature for this test" && return
+	fi
+	if [ $SK_FLAVOR != "ski" ] && [ $SK_FLAVOR != "skpi" ]; then
+		skip "test only valid if integrity is active"
+	fi
+	mkdir $DIR/$tdir || error "mkdir"
+	touch $DIR/$tdir/$tfile || error "touch"
+	zconf_umount_clients ${clients_arr[0]} $MOUNT ||
+		error "unable to umount clients"
+	keyctl show | grep lustre | awk '{print $1}' |
+		xargs -IX keyctl unlink X
+	OLD_SK_PATH=$SK_PATH
+	export SK_PATH=/dev/null
+	if zconf_mount_clients ${clients_arr[0]} $MOUNT; then
+		export SK_PATH=$OLD_SK_PATH
+		if [ -e $DIR/$tdir/$tfile ]; then
+			error "able to mount and read without key"
+		else
+			error "able to mount without key"
+		fi
+	else
+		export SK_PATH=$OLD_SK_PATH
+		keyctl show | grep lustre | awk '{print $1}' |
+			xargs -IX keyctl unlink X
+	fi
+}
+run_test 29 "check for missing shared key"
+
+test_30() {
+	if ! $SHARED_KEY; then
+		skip "need shared key feature for this test" && return
+	fi
+	if [ $SK_FLAVOR != "ski" ] && [ $SK_FLAVOR != "skpi" ]; then
+		skip "test only valid if integrity is active"
+	fi
+	mkdir -p $DIR/$tdir || error "mkdir failed"
+	touch $DIR/$tdir/$tdir.out || error "touch failed"
+	zconf_umount_clients ${clients_arr[0]} $MOUNT ||
+		error "unable to umount clients"
+	# unload keys from ring
+	keyctl show | grep lustre | awk '{print $1}' |
+		xargs -IX keyctl unlink X
+	# invalidate the key with bogus filesystem name
+	lgss_sk -w $SK_PATH/$FSNAME-bogus.key -f $FSNAME.bogus \
+		-t client -d /dev/urandom || error "lgss_sk failed (1)"
+	do_facet $SINGLEMDS lfs flushctx || error "could not run flushctx"
+	OLD_SK_PATH=$SK_PATH
+	export SK_PATH=$SK_PATH/$FSNAME-bogus.key
+	if zconf_mount_clients ${clients_arr[0]} $MOUNT; then
+		SK_PATH=$OLD_SK_PATH
+		if [ -a $DIR/$tdir/$tdir.out ]; then
+			error "mount and read file with invalid key"
+		else
+			error "mount with invalid key"
+		fi
+	fi
+	SK_PATH=$OLD_SK_PATH
+	zconf_umount_clients ${clients_arr[0]} $MOUNT ||
+		error "unable to umount clients"
+}
+run_test 30 "check for invalid shared key"
 
 log "cleanup: ======================================================"
 
