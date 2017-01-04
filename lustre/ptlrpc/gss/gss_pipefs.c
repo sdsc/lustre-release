@@ -338,7 +338,7 @@ void gss_ctx_cache_gc_pf(struct gss_sec_pipefs *gsec_pf,
                         ctx_check_death_locked_pf(ctx, freelist);
         }
 
-        sec->ps_gc_next = cfs_time_current_sec() + sec->ps_gc_interval;
+	sec->ps_gc_next = ktime_get_real_seconds() + sec->ps_gc_interval;
         EXIT;
 }
 
@@ -442,7 +442,7 @@ retry:
 
         /* gc_next == 0 means never do gc */
         if (remove_dead && sec->ps_gc_next &&
-            cfs_time_after(cfs_time_current_sec(), sec->ps_gc_next)) {
+	   (ktime_get_real_seconds() > sec->ps_gc_next)) {
                 gss_ctx_cache_gc_pf(gsec_pf, &freelist);
                 gc = 1;
         }
@@ -950,7 +950,7 @@ void gss_pipe_destroy_msg(struct rpc_pipe_msg *msg)
 {
         struct gss_upcall_msg          *gmsg;
         struct gss_upcall_msg_data     *gumd;
-        static cfs_time_t               ratelimit = 0;
+	static time64_t ratelimit = 0;
         ENTRY;
 
 	LASSERT(list_empty(&msg->list));
@@ -973,9 +973,9 @@ void gss_pipe_destroy_msg(struct rpc_pipe_msg *msg)
 	atomic_inc(&gmsg->gum_refcount);
 	gss_unhash_msg(gmsg);
 	if (msg->errno == -ETIMEDOUT || msg->errno == -EPIPE) {
-		cfs_time_t now = cfs_time_current_sec();
+		time64_t now = ktime_get_real_seconds();
 
-		if (cfs_time_after(now, ratelimit)) {
+		if (now > ratelimit) {
 			CWARN("upcall timed out, is lgssd running?\n");
 			ratelimit = now + 15;
 		}
