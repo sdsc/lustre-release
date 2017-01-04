@@ -4291,27 +4291,21 @@ test_225() {
 	# test needs a running copytool
 	copytool_setup
 
-	# test is not usable because remove request is too fast
-	# so it is always finished before cancel can be done ...
-	echo "Test disabled"
-	copytool_cleanup
-	return 0
-
 	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
-	local fid
-	fid=$(make_custom_file_for_progress $f 39 1000000)
-	[ $? != 0 ] && skip "not enough free space" && return
+	touch "$f"
+	fid=$(path2fid "$f")
 
 	changelog_setup
 	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER $f
 	wait_request_state $fid ARCHIVE SUCCEED
 
-	# if cdt is on, it can serve too quickly the request
-	cdt_disable
+	# Block copytool to make sure it does not complete the remove request
+	# before it is canceled
+	copytool_suspend
 	$LFS hsm_remove $f
 	$LFS hsm_cancel $f
-	cdt_enable
+	copytool_continue
 	wait_request_state $fid REMOVE CANCELED
 	wait_request_state $fid CANCEL SUCCEED
 
