@@ -157,7 +157,7 @@ void ldlm_add_ast_work_item(struct ldlm_lock *lock, struct ldlm_lock *new,
 			    struct list_head *work_list);
 #ifdef HAVE_SERVER_SUPPORT
 int ldlm_reprocess_queue(struct ldlm_resource *res, struct list_head *queue,
-			 struct list_head *work_list);
+			 struct list_head *work_list, int first_enq);
 #endif
 int ldlm_run_ast_work(struct ldlm_namespace *ns, struct list_head *rpc_list,
                       ldlm_desc_ast_t ast_type);

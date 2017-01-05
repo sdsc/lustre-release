@@ -2523,6 +2523,13 @@ static int target_recovery_thread(void *arg)
 		obd->obd_replayed_locks++;
 	}
 
+	/*
+	 * lock replay done, time to scan waiting lock list to send blocking
+	 * ASTs, because the blocking ASTs may not being received by client
+	 * before recovery. See LU-8306.
+	 */
+	ldlm_reprocess_all_ns(obd->obd_namespace);
+
         /**
          * The third stage: reply on final pings, at this moment all clients
          * must have request in final queue

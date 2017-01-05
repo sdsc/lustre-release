@@ -1860,7 +1860,7 @@ out:
  * Must be called with resource lock held.
  */
 int ldlm_reprocess_queue(struct ldlm_resource *res, struct list_head *queue,
-			 struct list_head *work_list)
+			 struct list_head *work_list, int first_enq)
 {
 	struct list_head *tmp, *pos;
 	ldlm_processing_policy policy;
@@ -1882,7 +1882,7 @@ int ldlm_reprocess_queue(struct ldlm_resource *res, struct list_head *queue,
                 CDEBUG(D_INFO, "Reprocessing lock %p\n", pending);
 
                 flags = 0;
-                rc = policy(pending, &flags, 0, &err, work_list);
+                rc = policy(pending, &flags, first_enq, &err, work_list);
                 if (rc != LDLM_ITER_CONTINUE)
                         break;
         }
@@ -2145,8 +2145,8 @@ void ldlm_reprocess_all(struct ldlm_resource *res)
 	struct list_head rpc_list;
 #ifdef HAVE_SERVER_SUPPORT
 	struct obd_device *obd;
-        int rc;
-        ENTRY;
+	int rc, first_enq = 0;
+	ENTRY;
 
 	INIT_LIST_HEAD(&rpc_list);
         /* Local lock trees don't get reprocessed. */
@@ -2160,14 +2160,24 @@ void ldlm_reprocess_all(struct ldlm_resource *res)
 	 */
 	obd = ldlm_res_to_ns(res)->ns_obd;
 	if (obd->obd_recovering &&
-	    atomic_read(&obd->obd_req_replay_clients) == 0)
-		RETURN_EXIT;
+	    atomic_read(&obd->obd_req_replay_clients) == 0) {
+		if (atomic_read(&obd->obd_lock_replay_clients) == 0)
+			/* lock replay done, scan waiting list to send
+			 * blocking ast. LU-8306. */
+			first_enq = 2;
+		else
+			/* lock replay, disable reprocess */
+			RETURN_EXIT;
+	}
+
 restart:
-        lock_res(res);
-        rc = ldlm_reprocess_queue(res, &res->lr_converting, &rpc_list);
-        if (rc == LDLM_ITER_CONTINUE)
-                ldlm_reprocess_queue(res, &res->lr_waiting, &rpc_list);
-        unlock_res(res);
+	lock_res(res);
+	rc = ldlm_reprocess_queue(res, &res->lr_converting, &rpc_list,
+				  first_enq);
+	if (rc == LDLM_ITER_CONTINUE)
+		ldlm_reprocess_queue(res, &res->lr_waiting, &rpc_list,
+				     first_enq);
+	unlock_res(res);
 
         rc = ldlm_run_ast_work(ldlm_res_to_ns(res), &rpc_list,
                                LDLM_WORK_CP_AST);

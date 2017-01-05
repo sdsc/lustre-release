@@ -182,6 +182,10 @@ ldlm_inodebits_compat_queue(struct list_head *queue, struct ldlm_lock *req,
  * If \a first_enq is 1 (ie, called from ldlm_lock_enqueue):
  *   - blocking ASTs have not been sent yet, so list of conflicting locks
  *     would be collected and ASTs sent.
+ *
+ * If \a first_enq is 2 (ie, called from ldlm_reprocess_queue):
+ *   - once recovery done, we need to scan the whole waiting lock list to
+ *     send blocking ASTs in case the client didn't receive it.
  */
 int ldlm_process_inodebits_lock(struct ldlm_lock *lock, __u64 *flags,
 				int first_enq, enum ldlm_error *err,
@@ -234,7 +238,7 @@ int ldlm_process_inodebits_lock(struct ldlm_lock *lock, __u64 *flags,
                 rc = ldlm_run_ast_work(ldlm_res_to_ns(res), &rpc_list,
                                        LDLM_WORK_BL_AST);
                 lock_res(res);
-		if (rc == -ERESTART) {
+		if (rc == -ERESTART && first_enq == 1) {
 			/* We were granted while waiting, nothing left to do */
 			if (lock->l_granted_mode == lock->l_req_mode)
 				GOTO(out, rc = 0);
@@ -246,17 +250,17 @@ int ldlm_process_inodebits_lock(struct ldlm_lock *lock, __u64 *flags,
 			GOTO(restart, rc);
 		}
                 *flags |= LDLM_FL_BLOCK_GRANTED;
-        } else {
-                ldlm_resource_unlink_lock(lock);
-                ldlm_grant_lock(lock, NULL);
-        }
+	} else if (first_enq == 1) {
+		ldlm_resource_unlink_lock(lock);
+		ldlm_grant_lock(lock, NULL);
+	}
 
 	rc = 0;
 out:
 	*err = rc;
 	LASSERT(list_empty(&rpc_list));
 
-	RETURN(rc);
+	RETURN(first_enq == 1 ? rc : LDLM_ITER_CONTINUE);
 }
 #endif /* HAVE_SERVER_SUPPORT */
 

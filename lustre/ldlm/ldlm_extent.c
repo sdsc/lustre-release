@@ -773,6 +773,10 @@ static void discard_bl_list(struct list_head *bl_list)
  * If \a first_enq is 1 (ie, called from ldlm_lock_enqueue):
  *   - blocking ASTs have not been sent yet, so list of conflicting locks
  *     would be collected and ASTs sent.
+ *
+ * If \a first_enq is 2 (ie, called from ldlm_reprocess_queue):
+ *   - once recovery done, we need to scan the whole waiting lock list to
+ *     send blocking ASTs in case the client didn't receive it.
  */
 int ldlm_process_extent_lock(struct ldlm_lock *lock, __u64 *flags,
 			     int first_enq, enum ldlm_error *err,
@@ -823,20 +827,17 @@ int ldlm_process_extent_lock(struct ldlm_lock *lock, __u64 *flags,
                                       &rpc_list, &contended_locks);
         if (rc < 0)
                 GOTO(out, rc); /* lock was destroyed */
-        if (rc == 2)
-                goto grant;
 
-        rc2 = ldlm_extent_compat_queue(&res->lr_waiting, lock, flags, err,
-                                       &rpc_list, &contended_locks);
-        if (rc2 < 0)
-                GOTO(out, rc = rc2); /* lock was destroyed */
+	rc2 = 0;
+	if (rc != 2) {
+		rc2 = ldlm_extent_compat_queue(&res->lr_waiting, lock,
+					       flags, err, &rpc_list,
+					       &contended_locks);
+		if (rc2 < 0)
+			GOTO(out, rc = rc2); /* lock was destroyed */
+	}
 
-        if (rc + rc2 == 2) {
-        grant:
-                ldlm_extent_policy(res, lock, flags);
-                ldlm_resource_unlink_lock(lock);
-                ldlm_grant_lock(lock, NULL);
-        } else {
+	if (rc + rc2 != 2) {
                 /* If either of the compat_queue()s returned failure, then we
                  * have ASTs to send and must go onto the waiting list.
                  *
@@ -854,7 +855,7 @@ int ldlm_process_extent_lock(struct ldlm_lock *lock, __u64 *flags,
                         class_fail_export(lock->l_export);
 
 		lock_res(res);
-		if (rc == -ERESTART) {
+		if (rc == -ERESTART && first_enq == 1) {
 			/* 15715: The lock was granted and destroyed after
 			 * resource lock was dropped. Interval node was freed
 			 * in ldlm_lock_destroy. Anyway, this always happens
@@ -884,14 +885,19 @@ int ldlm_process_extent_lock(struct ldlm_lock *lock, __u64 *flags,
 		 * endlessly once the lock is enqueued -bzzz */
 		*flags |= LDLM_FL_BLOCK_GRANTED | LDLM_FL_NO_TIMEOUT;
 
+	} else if (first_enq == 1) {
+		ldlm_extent_policy(res, lock, flags);
+		ldlm_resource_unlink_lock(lock);
+		ldlm_grant_lock(lock, NULL);
 	}
+
 	RETURN(0);
 out:
 	if (!list_empty(&rpc_list)) {
 		LASSERT(!ldlm_is_ast_discard_data(lock));
 		discard_bl_list(&rpc_list);
 	}
-	RETURN(rc);
+	RETURN(first_enq == 1 ? rc : LDLM_ITER_CONTINUE);
 }
 #endif /* HAVE_SERVER_SUPPORT */
 
